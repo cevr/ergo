@@ -123,67 +123,56 @@ func Call(r Request) Outcome needs jobs.Jobs {
 	}
 }
 
-// Client provides jobs.Jobs by invoking inner directly per operation: a direct
-// call returns its exact value or declared failure row with no Outcome boxing.
-type Client { inner jobs.Jobs } implements jobs.Jobs
+// Client provides jobs.Jobs by invoking typed per-operation handlers directly:
+// a direct call returns its exact value or declared failure row with no Outcome boxing.
+type Client { opSubmit func(jobs.Spec) int fails jobs.Rejected, opCancel func(int) fails jobs.NoSuchJob | jobs.AlreadyDone, opStatus func(int) Option[jobs.Job], opList func() []jobs.Job, opWork func(int) } implements jobs.Jobs
 
 // NewClient is the jobs.Jobs that invokes inner directly per operation.
-func NewClient(inner jobs.Jobs) Client { Client{inner: inner} }
+func NewClient(inner jobs.Jobs) Client {
+	Client{
+		opSubmit: func(spec jobs.Spec) int fails jobs.Rejected { try inner.Submit(spec) },
+		opCancel: func(id int) fails jobs.NoSuchJob | jobs.AlreadyDone { try inner.Cancel(id) },
+		opStatus: func(id int) Option[jobs.Job] { inner.Status(id) },
+		opList:   func() []jobs.Job { inner.List() },
+		opWork:   func(ticks int) { inner.Work(ticks) },
+	}
+}
+
+// ClientInForce is the jobs.Jobs that invokes the provider currently in force.
+func ClientInForce() Client needs jobs.Jobs {
+	let held = InForce[jobs.Jobs]()
+	Client{
+		opSubmit: func(spec jobs.Spec) int fails jobs.Rejected { with held { try jobs.Jobs.Submit(spec) } },
+		opCancel: func(id int) fails jobs.NoSuchJob | jobs.AlreadyDone { with held { try jobs.Jobs.Cancel(id) } },
+		opStatus: func(id int) Option[jobs.Job] { with held { jobs.Jobs.Status(id) } },
+		opList:   func() []jobs.Job { with held { jobs.Jobs.List() } },
+		opWork:   func(ticks int) { with held { jobs.Jobs.Work(ticks) } },
+	}
+}
 
 // Submit invokes jobs.Jobs's Submit directly.
 func Submit(client Client, spec jobs.Spec) int fails jobs.Rejected {
-	try client.inner.Submit(spec)
+	try client.opSubmit(spec)
 }
 
 // Cancel invokes jobs.Jobs's Cancel directly.
 func Cancel(client Client, id int) fails jobs.NoSuchJob | jobs.AlreadyDone {
-	try client.inner.Cancel(id)
+	try client.opCancel(id)
 }
 
 // Status invokes jobs.Jobs's Status directly.
 func Status(client Client, id int) Option[jobs.Job] {
-	client.inner.Status(id)
+	client.opStatus(id)
 }
 
 // List invokes jobs.Jobs's List directly.
 func List(client Client) []jobs.Job {
-	client.inner.List()
+	client.opList()
 }
 
 // Work invokes jobs.Jobs's Work directly.
 func Work(client Client, ticks int) {
-	client.inner.Work(ticks)
-}
-
-// BoundClient provides jobs.Jobs over a held Context captured by ClientInForce.
-type BoundClient { held Context[jobs.Jobs] } implements jobs.Jobs
-
-// ClientInForce is the jobs.Jobs that invokes the provider currently in force.
-func ClientInForce() BoundClient needs jobs.Jobs { BoundClient{held: InForce[jobs.Jobs]()} }
-
-// Submit invokes jobs.Jobs's Submit on the held context.
-func Submit(client BoundClient, spec jobs.Spec) int fails jobs.Rejected {
-	with client.held { try jobs.Jobs.Submit(spec) }
-}
-
-// Cancel invokes jobs.Jobs's Cancel on the held context.
-func Cancel(client BoundClient, id int) fails jobs.NoSuchJob | jobs.AlreadyDone {
-	with client.held { try jobs.Jobs.Cancel(id) }
-}
-
-// Status invokes jobs.Jobs's Status on the held context.
-func Status(client BoundClient, id int) Option[jobs.Job] {
-	with client.held { jobs.Jobs.Status(id) }
-}
-
-// List invokes jobs.Jobs's List on the held context.
-func List(client BoundClient) []jobs.Job {
-	with client.held { jobs.Jobs.List() }
-}
-
-// Work invokes jobs.Jobs's Work on the held context.
-func Work(client BoundClient, ticks int) {
-	with client.held { jobs.Jobs.Work(ticks) }
+	client.opWork(ticks)
 }
 
 // CheckedClient carries erased jobs.Jobs requests over send and validates each
@@ -329,45 +318,43 @@ func OutcomeOf(r Request, g Given) Outcome {
 	}
 }
 
-type scripted { g Given, sent sync.Ref[[]Request] } implements jobs.Jobs
-
-func Submit(client scripted, spec jobs.Spec) int fails jobs.Rejected {
-	client.sent.Update(func(rs []Request) []Request { rs.Append(SubmitRequest{Spec: spec}) })
-	if client.g.Failing {
-		match client.g.Failure {
-		case RejectedFailure as err:
-			return err.E
-		case _:
-		}
+func scripted(g Given, sent sync.Ref[[]Request]) Client {
+	Client{
+		opSubmit: func(spec jobs.Spec) int fails jobs.Rejected {
+			sent.Update(func(rs []Request) []Request { rs.Append(SubmitRequest{Spec: spec}) })
+			if g.Failing {
+				match g.Failure {
+				case RejectedFailure as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.Submit
+		},
+		opCancel: func(id int) fails jobs.NoSuchJob | jobs.AlreadyDone {
+			sent.Update(func(rs []Request) []Request { rs.Append(CancelRequest{Id: id}) })
+			if g.Failing {
+				match g.Failure {
+				case NoSuchJob as err:
+					return err.E
+				case AlreadyDone as err:
+					return err.E
+				case _:
+				}
+			}
+		},
+		opStatus: func(id int) Option[jobs.Job] {
+			sent.Update(func(rs []Request) []Request { rs.Append(StatusRequest{Id: id}) })
+			g.Values.Status
+		},
+		opList: func() []jobs.Job {
+			sent.Update(func(rs []Request) []Request { rs.Append(ListRequest) })
+			g.Values.List
+		},
+		opWork: func(ticks int) {
+			sent.Update(func(rs []Request) []Request { rs.Append(WorkRequest{Ticks: ticks}) })
+		},
 	}
-	client.g.Values.Submit
-}
-
-func Cancel(client scripted, id int) fails jobs.NoSuchJob | jobs.AlreadyDone {
-	client.sent.Update(func(rs []Request) []Request { rs.Append(CancelRequest{Id: id}) })
-	if client.g.Failing {
-		match client.g.Failure {
-		case NoSuchJob as err:
-			return err.E
-		case AlreadyDone as err:
-			return err.E
-		case _:
-		}
-	}
-}
-
-func Status(client scripted, id int) Option[jobs.Job] {
-	client.sent.Update(func(rs []Request) []Request { rs.Append(StatusRequest{Id: id}) })
-	client.g.Values.Status
-}
-
-func List(client scripted) []jobs.Job {
-	client.sent.Update(func(rs []Request) []Request { rs.Append(ListRequest) })
-	client.g.Values.List
-}
-
-func Work(client scripted, ticks int) {
-	client.sent.Update(func(rs []Request) []Request { rs.Append(WorkRequest{Ticks: ticks}) })
 }
 
 func callChecked(client CheckedClient, r Request) Outcome fails rpc.Transport {
@@ -416,7 +403,7 @@ func callChecked(client CheckedClient, r Request) Outcome fails rpc.Transport {
 law CallIsTheOperation(r Request, g Given) {
 	let want = OutcomeOf(r, g)
 	let sent = sync.NewRef[[]Request]([]Request{})
-	let got = with context { jobs.Jobs: scripted{g: g, sent: sent} } { Call(r) }
+	let got = with context { jobs.Jobs: scripted(g, sent) } { Call(r) }
 	got == want && sent.Get() == []Request{r}
 }
 
@@ -425,11 +412,11 @@ law CallIsTheOperation(r Request, g Given) {
 law ClientIsCall(r Request, g Given) {
 	let want = OutcomeOf(r, g)
 	let sent = sync.NewRef[[]Request]([]Request{})
-	let inner = scripted{g: g, sent: sent}
+	let inner = scripted(g, sent)
 	let outer = NewClient(inner)
 	let got = with context { jobs.Jobs: outer } { Call(r) }
 	let sentChecked = sync.NewRef[[]Request]([]Request{})
-	let innerChecked = scripted{g: g, sent: sentChecked}
+	let innerChecked = scripted(g, sentChecked)
 	let checked = NewCheckedClient(func(q Request) Outcome fails rpc.Transport {
 		with context { jobs.Jobs: innerChecked } { Call(q) }
 	})

@@ -88,37 +88,35 @@ func Call(r Request) Outcome needs counter.Counter {
 	}
 }
 
-// Client provides counter.Counter by invoking inner directly per operation: a direct
-// call returns its exact value or declared failure row with no Outcome boxing.
-type Client { inner counter.Counter } implements counter.Counter
+// Client provides counter.Counter by invoking typed per-operation handlers directly:
+// a direct call returns its exact value or declared failure row with no Outcome boxing.
+type Client { opAdd func(counter.Entry) int fails counter.Negative, opGet func(string) int fails counter.Unknown } implements counter.Counter
 
 // NewClient is the counter.Counter that invokes inner directly per operation.
-func NewClient(inner counter.Counter) Client { Client{inner: inner} }
+func NewClient(inner counter.Counter) Client {
+	Client{
+		opAdd: func(entry counter.Entry) int fails counter.Negative { try inner.Add(entry) },
+		opGet: func(key string) int fails counter.Unknown { try inner.Get(key) },
+	}
+}
+
+// ClientInForce is the counter.Counter that invokes the provider currently in force.
+func ClientInForce() Client needs counter.Counter {
+	let held = InForce[counter.Counter]()
+	Client{
+		opAdd: func(entry counter.Entry) int fails counter.Negative { with held { try counter.Counter.Add(entry) } },
+		opGet: func(key string) int fails counter.Unknown { with held { try counter.Counter.Get(key) } },
+	}
+}
 
 // Add invokes counter.Counter's Add directly.
 func Add(client Client, entry counter.Entry) int fails counter.Negative {
-	try client.inner.Add(entry)
+	try client.opAdd(entry)
 }
 
 // Get invokes counter.Counter's Get directly.
 func Get(client Client, key string) int fails counter.Unknown {
-	try client.inner.Get(key)
-}
-
-// BoundClient provides counter.Counter over a held Context captured by ClientInForce.
-type BoundClient { held Context[counter.Counter] } implements counter.Counter
-
-// ClientInForce is the counter.Counter that invokes the provider currently in force.
-func ClientInForce() BoundClient needs counter.Counter { BoundClient{held: InForce[counter.Counter]()} }
-
-// Add invokes counter.Counter's Add on the held context.
-func Add(client BoundClient, entry counter.Entry) int fails counter.Negative {
-	with client.held { try counter.Counter.Add(entry) }
-}
-
-// Get invokes counter.Counter's Get on the held context.
-func Get(client BoundClient, key string) int fails counter.Unknown {
-	with client.held { try counter.Counter.Get(key) }
+	try client.opGet(key)
 }
 
 // CheckedClient carries erased counter.Counter requests over send and validates each
@@ -211,30 +209,31 @@ func OutcomeOf(r Request, g Given) Outcome {
 	}
 }
 
-type scripted { g Given, sent sync.Ref[[]Request] } implements counter.Counter
-
-func Add(client scripted, entry counter.Entry) int fails counter.Negative {
-	client.sent.Update(func(rs []Request) []Request { rs.Append(AddRequest{Entry: entry}) })
-	if client.g.Failing {
-		match client.g.Failure {
-		case Negative as err:
-			return err.E
-		case _:
-		}
+func scripted(g Given, sent sync.Ref[[]Request]) Client {
+	Client{
+		opAdd: func(entry counter.Entry) int fails counter.Negative {
+			sent.Update(func(rs []Request) []Request { rs.Append(AddRequest{Entry: entry}) })
+			if g.Failing {
+				match g.Failure {
+				case Negative as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.Add
+		},
+		opGet: func(key string) int fails counter.Unknown {
+			sent.Update(func(rs []Request) []Request { rs.Append(GetRequest{Key: key}) })
+			if g.Failing {
+				match g.Failure {
+				case Unknown as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.Get
+		},
 	}
-	client.g.Values.Add
-}
-
-func Get(client scripted, key string) int fails counter.Unknown {
-	client.sent.Update(func(rs []Request) []Request { rs.Append(GetRequest{Key: key}) })
-	if client.g.Failing {
-		match client.g.Failure {
-		case Unknown as err:
-			return err.E
-		case _:
-		}
-	}
-	client.g.Values.Get
 }
 
 func callChecked(client CheckedClient, r Request) Outcome fails rpc.Transport {
@@ -263,7 +262,7 @@ func callChecked(client CheckedClient, r Request) Outcome fails rpc.Transport {
 law CallIsTheOperation(r Request, g Given) {
 	let want = OutcomeOf(r, g)
 	let sent = sync.NewRef[[]Request]([]Request{})
-	let got = with context { counter.Counter: scripted{g: g, sent: sent} } { Call(r) }
+	let got = with context { counter.Counter: scripted(g, sent) } { Call(r) }
 	got == want && sent.Get() == []Request{r}
 }
 
@@ -272,11 +271,11 @@ law CallIsTheOperation(r Request, g Given) {
 law ClientIsCall(r Request, g Given) {
 	let want = OutcomeOf(r, g)
 	let sent = sync.NewRef[[]Request]([]Request{})
-	let inner = scripted{g: g, sent: sent}
+	let inner = scripted(g, sent)
 	let outer = NewClient(inner)
 	let got = with context { counter.Counter: outer } { Call(r) }
 	let sentChecked = sync.NewRef[[]Request]([]Request{})
-	let innerChecked = scripted{g: g, sent: sentChecked}
+	let innerChecked = scripted(g, sentChecked)
 	let checked = NewCheckedClient(func(q Request) Outcome fails rpc.Transport {
 		with context { counter.Counter: innerChecked } { Call(q) }
 	})

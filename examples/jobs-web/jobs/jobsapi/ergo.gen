@@ -2,4 +2,4 @@ kind api
 generator ergo gen api
 subject jobsweb/jobs.Jobs
 contract sha256:50a9107372d5c3db6ab26e8f8421b182dc9c610f79c6f9bf1e4bf0c4feebd0b7
-digest sha256:6fa8a982776b50cfb8118bf41aec6989e974e1d3570aea5dde8ac9c97b69f4a3
+digest sha256:841ebd6733ed11ef8a30ba49ec0092ab913cec5733c433be573e5eb8bdfb293d

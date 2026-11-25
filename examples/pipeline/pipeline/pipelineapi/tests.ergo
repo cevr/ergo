@@ -6,7 +6,7 @@ import runners pipeline/memory
 import pipeline/pipeline
 import time
 
-func apiOver() BoundClient needs pipeline.Pipeline {
+func apiOver() Client needs pipeline.Pipeline {
 	ClientInForce()
 }
 

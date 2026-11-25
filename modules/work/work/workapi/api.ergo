@@ -755,307 +755,224 @@ func Call(r Request) Outcome needs work.Api {
 	}
 }
 
-// Client provides work.Api by invoking inner directly per operation: a direct
-// call returns its exact value or declared failure row with no Outcome boxing.
-type Client { inner work.Api } implements work.Api
+// Client provides work.Api by invoking typed per-operation handlers directly:
+// a direct call returns its exact value or declared failure row with no Outcome boxing.
+type Client { opVersion func() string, opInit func() string fails work.Unkept | work.BadConfig | fs.Denied | fs.Failed, opNew func(string, work.NewOptions) work.Created fails work.HookFailed | work.Missing | work.CloneFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.BadName | work.NameTaken | work.NoWorkspace | work.NoRevision | work.Diverged | work.CopyRefused | work.NotSameVolume | work.Unsupported | work.Exists | work.NoSpace | work.VcsFailed | work.Busy, opAdopt func(string, work.AdoptOptions) work.Workspace fails work.Missing | work.Unkept | work.Locked | work.NoBase | work.BadName | work.NameTaken | work.VcsFailed, opAdoptRift func(work.RiftOptions) work.RiftAdopted fails work.Unkept | work.Locked | work.NoBase | work.VcsFailed | work.RiftUnread, opList func(work.ListOptions) []work.Listed fails work.Unkept | work.NoBase, opRm func(string, work.RmOptions) []work.Removed fails work.HookFailed | work.Missing | work.CloneFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.Exists | work.VcsFailed | work.Busy | work.NotHeld | work.IdMismatch | work.HasDescendants, opGc func(work.GcOptions) work.Collected fails work.HookFailed | work.Missing | work.CloneFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.Exists | work.VcsFailed | work.BadAge | work.BadRequest | work.GcFailed, opPin func(string) work.Workspace fails work.Unkept | work.Locked | work.NoBase | work.NoWorkspace, opUnpin func(string) work.Workspace fails work.Unkept | work.Locked | work.NoBase | work.NoWorkspace, opDu func() []work.Space fails work.Missing | work.CloneFailed | work.Unkept | work.NoBase | work.Unsupported, opReady func(work.ReadyOptions) work.Handed fails work.Unkept | work.Locked | work.NoBase | work.NoWorkspace | work.VcsFailed | work.Busy | work.BadRequest | work.NotHere | work.Detached | work.NotFastForward | work.Moved, opRecord func(string) work.LaneRecord fails work.Unkept | work.NoBase | work.NoRevision | work.VcsFailed | work.NoRecord | work.BadRecord, opSync func(work.SyncOptions) work.Synced fails work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.VcsFailed | work.Busy | work.NotHere | work.Detached | work.Dirty | work.Conflicted, opEnv func(work.EnvOptions) string fails work.Unkept | work.BadConfig | work.NoBase | work.NoWorkspace | work.NotHere, opMergeFile func(string, string, string, string, work.MergeFileOptions) work.FileMerged fails work.BadConfig | fs.Denied | fs.Failed | work.BadClass | work.MergeConflict | fs.NotFound, opMergeFolders func(string, string, string, string) work.TreeMerged fails work.Untrusted | work.BadConfig | fs.Denied | fs.Failed | fs.NotFound | work.DeriveFailed, opDerive func(work.DeriveOptions) work.Derived fails work.Untrusted | work.Unkept | work.BadConfig | work.NoBase | work.NoWorkspace | work.NotHere | work.DeriveFailed, opDeps func(work.DepsOptions) work.DepsDone fails work.Untrusted | work.DepsFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.NotHere, opTrust func() work.Trusted fails work.Unkept | work.BadConfig | fs.Denied | fs.Failed | work.NoBase | fs.NotFound, opDoctor func(work.DoctorOptions) work.Report fails work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.VcsFailed | work.RiftUnread, opPluginTest func(string, work.PluginTestOptions) work.PluginAdmitted fails work.Untrusted | work.BadConfig | work.NoBase | work.VcsFailed | work.PluginRefused, opRefresh func() int fails work.Unkept | work.NoBase | work.VcsFailed, opClone func(string, string, work.CloneOptions) work.TreeCloned fails work.Missing | work.CloneFailed | work.BadConfig | work.Unsupported | work.Exists | work.NoSpace, opBases func() []string fails work.Unkept, opForgetBase func(string) []string fails work.Unkept | fs.Denied | fs.Failed, opPruneBases func() []string fails work.Unkept | fs.Denied | fs.Failed, opShellInit func() string, opImportRift func(work.ImportRiftOptions) string fails work.BadConfig | fs.Denied | fs.Failed | fs.NotFound } implements work.Api
 
 // NewClient is the work.Api that invokes inner directly per operation.
-func NewClient(inner work.Api) Client { Client{inner: inner} }
+func NewClient(inner work.Api) Client {
+	Client{
+		opVersion:      func() string { inner.Version() },
+		opInit:         func() string fails work.Unkept | work.BadConfig | fs.Denied | fs.Failed { try inner.Init() },
+		opNew:          func(name string, o work.NewOptions) work.Created fails work.HookFailed | work.Missing | work.CloneFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.BadName | work.NameTaken | work.NoWorkspace | work.NoRevision | work.Diverged | work.CopyRefused | work.NotSameVolume | work.Unsupported | work.Exists | work.NoSpace | work.VcsFailed | work.Busy { try inner.New(name, o) },
+		opAdopt:        func(dir string, o work.AdoptOptions) work.Workspace fails work.Missing | work.Unkept | work.Locked | work.NoBase | work.BadName | work.NameTaken | work.VcsFailed { try inner.Adopt(dir, o) },
+		opAdoptRift:    func(o work.RiftOptions) work.RiftAdopted fails work.Unkept | work.Locked | work.NoBase | work.VcsFailed | work.RiftUnread { try inner.AdoptRift(o) },
+		opList:         func(o work.ListOptions) []work.Listed fails work.Unkept | work.NoBase { try inner.List(o) },
+		opRm:           func(name string, o work.RmOptions) []work.Removed fails work.HookFailed | work.Missing | work.CloneFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.Exists | work.VcsFailed | work.Busy | work.NotHeld | work.IdMismatch | work.HasDescendants { try inner.Rm(name, o) },
+		opGc:           func(o work.GcOptions) work.Collected fails work.HookFailed | work.Missing | work.CloneFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.Exists | work.VcsFailed | work.BadAge | work.BadRequest | work.GcFailed { try inner.Gc(o) },
+		opPin:          func(name string) work.Workspace fails work.Unkept | work.Locked | work.NoBase | work.NoWorkspace { try inner.Pin(name) },
+		opUnpin:        func(name string) work.Workspace fails work.Unkept | work.Locked | work.NoBase | work.NoWorkspace { try inner.Unpin(name) },
+		opDu:           func() []work.Space fails work.Missing | work.CloneFailed | work.Unkept | work.NoBase | work.Unsupported { try inner.Du() },
+		opReady:        func(o work.ReadyOptions) work.Handed fails work.Unkept | work.Locked | work.NoBase | work.NoWorkspace | work.VcsFailed | work.Busy | work.BadRequest | work.NotHere | work.Detached | work.NotFastForward | work.Moved { try inner.Ready(o) },
+		opRecord:       func(tip string) work.LaneRecord fails work.Unkept | work.NoBase | work.NoRevision | work.VcsFailed | work.NoRecord | work.BadRecord { try inner.Record(tip) },
+		opSync:         func(o work.SyncOptions) work.Synced fails work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.VcsFailed | work.Busy | work.NotHere | work.Detached | work.Dirty | work.Conflicted { try inner.Sync(o) },
+		opEnv:          func(o work.EnvOptions) string fails work.Unkept | work.BadConfig | work.NoBase | work.NoWorkspace | work.NotHere { try inner.Env(o) },
+		opMergeFile:    func(class string, base string, ours string, theirs string, o work.MergeFileOptions) work.FileMerged fails work.BadConfig | fs.Denied | fs.Failed | work.BadClass | work.MergeConflict | fs.NotFound { try inner.MergeFile(class, base, ours, theirs, o) },
+		opMergeFolders: func(base string, ours string, theirs string, out string) work.TreeMerged fails work.Untrusted | work.BadConfig | fs.Denied | fs.Failed | fs.NotFound | work.DeriveFailed { try inner.MergeFolders(base, ours, theirs, out) },
+		opDerive:       func(o work.DeriveOptions) work.Derived fails work.Untrusted | work.Unkept | work.BadConfig | work.NoBase | work.NoWorkspace | work.NotHere | work.DeriveFailed { try inner.Derive(o) },
+		opDeps:         func(o work.DepsOptions) work.DepsDone fails work.Untrusted | work.DepsFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.NotHere { try inner.Deps(o) },
+		opTrust:        func() work.Trusted fails work.Unkept | work.BadConfig | fs.Denied | fs.Failed | work.NoBase | fs.NotFound { try inner.Trust() },
+		opDoctor:       func(o work.DoctorOptions) work.Report fails work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.VcsFailed | work.RiftUnread { try inner.Doctor(o) },
+		opPluginTest:   func(command string, o work.PluginTestOptions) work.PluginAdmitted fails work.Untrusted | work.BadConfig | work.NoBase | work.VcsFailed | work.PluginRefused { try inner.PluginTest(command, o) },
+		opRefresh:      func() int fails work.Unkept | work.NoBase | work.VcsFailed { try inner.Refresh() },
+		opClone:        func(src string, dst string, o work.CloneOptions) work.TreeCloned fails work.Missing | work.CloneFailed | work.BadConfig | work.Unsupported | work.Exists | work.NoSpace { try inner.Clone(src, dst, o) },
+		opBases:        func() []string fails work.Unkept { try inner.Bases() },
+		opForgetBase:   func(base string) []string fails work.Unkept | fs.Denied | fs.Failed { try inner.ForgetBase(base) },
+		opPruneBases:   func() []string fails work.Unkept | fs.Denied | fs.Failed { try inner.PruneBases() },
+		opShellInit:    func() string { inner.ShellInit() },
+		opImportRift:   func(o work.ImportRiftOptions) string fails work.BadConfig | fs.Denied | fs.Failed | fs.NotFound { try inner.ImportRift(o) },
+	}
+}
+
+// ClientInForce is the work.Api that invokes the provider currently in force.
+func ClientInForce() Client needs work.Api {
+	let held = InForce[work.Api]()
+	Client{
+		opVersion:      func() string { with held { work.Api.Version() } },
+		opInit:         func() string fails work.Unkept | work.BadConfig | fs.Denied | fs.Failed { with held { try work.Api.Init() } },
+		opNew:          func(name string, o work.NewOptions) work.Created fails work.HookFailed | work.Missing | work.CloneFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.BadName | work.NameTaken | work.NoWorkspace | work.NoRevision | work.Diverged | work.CopyRefused | work.NotSameVolume | work.Unsupported | work.Exists | work.NoSpace | work.VcsFailed | work.Busy { with held { try work.Api.New(name, o) } },
+		opAdopt:        func(dir string, o work.AdoptOptions) work.Workspace fails work.Missing | work.Unkept | work.Locked | work.NoBase | work.BadName | work.NameTaken | work.VcsFailed { with held { try work.Api.Adopt(dir, o) } },
+		opAdoptRift:    func(o work.RiftOptions) work.RiftAdopted fails work.Unkept | work.Locked | work.NoBase | work.VcsFailed | work.RiftUnread { with held { try work.Api.AdoptRift(o) } },
+		opList:         func(o work.ListOptions) []work.Listed fails work.Unkept | work.NoBase { with held { try work.Api.List(o) } },
+		opRm:           func(name string, o work.RmOptions) []work.Removed fails work.HookFailed | work.Missing | work.CloneFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.Exists | work.VcsFailed | work.Busy | work.NotHeld | work.IdMismatch | work.HasDescendants { with held { try work.Api.Rm(name, o) } },
+		opGc:           func(o work.GcOptions) work.Collected fails work.HookFailed | work.Missing | work.CloneFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.Exists | work.VcsFailed | work.BadAge | work.BadRequest | work.GcFailed { with held { try work.Api.Gc(o) } },
+		opPin:          func(name string) work.Workspace fails work.Unkept | work.Locked | work.NoBase | work.NoWorkspace { with held { try work.Api.Pin(name) } },
+		opUnpin:        func(name string) work.Workspace fails work.Unkept | work.Locked | work.NoBase | work.NoWorkspace { with held { try work.Api.Unpin(name) } },
+		opDu:           func() []work.Space fails work.Missing | work.CloneFailed | work.Unkept | work.NoBase | work.Unsupported { with held { try work.Api.Du() } },
+		opReady:        func(o work.ReadyOptions) work.Handed fails work.Unkept | work.Locked | work.NoBase | work.NoWorkspace | work.VcsFailed | work.Busy | work.BadRequest | work.NotHere | work.Detached | work.NotFastForward | work.Moved { with held { try work.Api.Ready(o) } },
+		opRecord:       func(tip string) work.LaneRecord fails work.Unkept | work.NoBase | work.NoRevision | work.VcsFailed | work.NoRecord | work.BadRecord { with held { try work.Api.Record(tip) } },
+		opSync:         func(o work.SyncOptions) work.Synced fails work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.VcsFailed | work.Busy | work.NotHere | work.Detached | work.Dirty | work.Conflicted { with held { try work.Api.Sync(o) } },
+		opEnv:          func(o work.EnvOptions) string fails work.Unkept | work.BadConfig | work.NoBase | work.NoWorkspace | work.NotHere { with held { try work.Api.Env(o) } },
+		opMergeFile:    func(class string, base string, ours string, theirs string, o work.MergeFileOptions) work.FileMerged fails work.BadConfig | fs.Denied | fs.Failed | work.BadClass | work.MergeConflict | fs.NotFound { with held { try work.Api.MergeFile(class, base, ours, theirs, o) } },
+		opMergeFolders: func(base string, ours string, theirs string, out string) work.TreeMerged fails work.Untrusted | work.BadConfig | fs.Denied | fs.Failed | fs.NotFound | work.DeriveFailed { with held { try work.Api.MergeFolders(base, ours, theirs, out) } },
+		opDerive:       func(o work.DeriveOptions) work.Derived fails work.Untrusted | work.Unkept | work.BadConfig | work.NoBase | work.NoWorkspace | work.NotHere | work.DeriveFailed { with held { try work.Api.Derive(o) } },
+		opDeps:         func(o work.DepsOptions) work.DepsDone fails work.Untrusted | work.DepsFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.NotHere { with held { try work.Api.Deps(o) } },
+		opTrust:        func() work.Trusted fails work.Unkept | work.BadConfig | fs.Denied | fs.Failed | work.NoBase | fs.NotFound { with held { try work.Api.Trust() } },
+		opDoctor:       func(o work.DoctorOptions) work.Report fails work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.VcsFailed | work.RiftUnread { with held { try work.Api.Doctor(o) } },
+		opPluginTest:   func(command string, o work.PluginTestOptions) work.PluginAdmitted fails work.Untrusted | work.BadConfig | work.NoBase | work.VcsFailed | work.PluginRefused { with held { try work.Api.PluginTest(command, o) } },
+		opRefresh:      func() int fails work.Unkept | work.NoBase | work.VcsFailed { with held { try work.Api.Refresh() } },
+		opClone:        func(src string, dst string, o work.CloneOptions) work.TreeCloned fails work.Missing | work.CloneFailed | work.BadConfig | work.Unsupported | work.Exists | work.NoSpace { with held { try work.Api.Clone(src, dst, o) } },
+		opBases:        func() []string fails work.Unkept { with held { try work.Api.Bases() } },
+		opForgetBase:   func(base string) []string fails work.Unkept | fs.Denied | fs.Failed { with held { try work.Api.ForgetBase(base) } },
+		opPruneBases:   func() []string fails work.Unkept | fs.Denied | fs.Failed { with held { try work.Api.PruneBases() } },
+		opShellInit:    func() string { with held { work.Api.ShellInit() } },
+		opImportRift:   func(o work.ImportRiftOptions) string fails work.BadConfig | fs.Denied | fs.Failed | fs.NotFound { with held { try work.Api.ImportRift(o) } },
+	}
+}
 
 // Version invokes work.Api's Version directly.
 func Version(client Client) string {
-	client.inner.Version()
+	client.opVersion()
 }
 
 // Init invokes work.Api's Init directly.
 func Init(client Client) string fails work.Unkept | work.BadConfig | fs.Denied | fs.Failed {
-	try client.inner.Init()
+	try client.opInit()
 }
 
 // New invokes work.Api's New directly.
 func New(client Client, name string, o work.NewOptions) work.Created fails work.HookFailed | work.Missing | work.CloneFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.BadName | work.NameTaken | work.NoWorkspace | work.NoRevision | work.Diverged | work.CopyRefused | work.NotSameVolume | work.Unsupported | work.Exists | work.NoSpace | work.VcsFailed | work.Busy {
-	try client.inner.New(name, o)
+	try client.opNew(name, o)
 }
 
 // Adopt invokes work.Api's Adopt directly.
 func Adopt(client Client, dir string, o work.AdoptOptions) work.Workspace fails work.Missing | work.Unkept | work.Locked | work.NoBase | work.BadName | work.NameTaken | work.VcsFailed {
-	try client.inner.Adopt(dir, o)
+	try client.opAdopt(dir, o)
 }
 
 // AdoptRift invokes work.Api's AdoptRift directly.
 func AdoptRift(client Client, o work.RiftOptions) work.RiftAdopted fails work.Unkept | work.Locked | work.NoBase | work.VcsFailed | work.RiftUnread {
-	try client.inner.AdoptRift(o)
+	try client.opAdoptRift(o)
 }
 
 // List invokes work.Api's List directly.
 func List(client Client, o work.ListOptions) []work.Listed fails work.Unkept | work.NoBase {
-	try client.inner.List(o)
+	try client.opList(o)
 }
 
 // Rm invokes work.Api's Rm directly.
 func Rm(client Client, name string, o work.RmOptions) []work.Removed fails work.HookFailed | work.Missing | work.CloneFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.Exists | work.VcsFailed | work.Busy | work.NotHeld | work.IdMismatch | work.HasDescendants {
-	try client.inner.Rm(name, o)
+	try client.opRm(name, o)
 }
 
 // Gc invokes work.Api's Gc directly.
 func Gc(client Client, o work.GcOptions) work.Collected fails work.HookFailed | work.Missing | work.CloneFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.Exists | work.VcsFailed | work.BadAge | work.BadRequest | work.GcFailed {
-	try client.inner.Gc(o)
+	try client.opGc(o)
 }
 
 // Pin invokes work.Api's Pin directly.
 func Pin(client Client, name string) work.Workspace fails work.Unkept | work.Locked | work.NoBase | work.NoWorkspace {
-	try client.inner.Pin(name)
+	try client.opPin(name)
 }
 
 // Unpin invokes work.Api's Unpin directly.
 func Unpin(client Client, name string) work.Workspace fails work.Unkept | work.Locked | work.NoBase | work.NoWorkspace {
-	try client.inner.Unpin(name)
+	try client.opUnpin(name)
 }
 
 // Du invokes work.Api's Du directly.
 func Du(client Client) []work.Space fails work.Missing | work.CloneFailed | work.Unkept | work.NoBase | work.Unsupported {
-	try client.inner.Du()
+	try client.opDu()
 }
 
 // Ready invokes work.Api's Ready directly.
 func Ready(client Client, o work.ReadyOptions) work.Handed fails work.Unkept | work.Locked | work.NoBase | work.NoWorkspace | work.VcsFailed | work.Busy | work.BadRequest | work.NotHere | work.Detached | work.NotFastForward | work.Moved {
-	try client.inner.Ready(o)
+	try client.opReady(o)
 }
 
 // Record invokes work.Api's Record directly.
 func Record(client Client, tip string) work.LaneRecord fails work.Unkept | work.NoBase | work.NoRevision | work.VcsFailed | work.NoRecord | work.BadRecord {
-	try client.inner.Record(tip)
+	try client.opRecord(tip)
 }
 
 // Sync invokes work.Api's Sync directly.
 func Sync(client Client, o work.SyncOptions) work.Synced fails work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.VcsFailed | work.Busy | work.NotHere | work.Detached | work.Dirty | work.Conflicted {
-	try client.inner.Sync(o)
+	try client.opSync(o)
 }
 
 // Env invokes work.Api's Env directly.
 func Env(client Client, o work.EnvOptions) string fails work.Unkept | work.BadConfig | work.NoBase | work.NoWorkspace | work.NotHere {
-	try client.inner.Env(o)
+	try client.opEnv(o)
 }
 
 // MergeFile invokes work.Api's MergeFile directly.
 func MergeFile(client Client, class string, base string, ours string, theirs string, o work.MergeFileOptions) work.FileMerged fails work.BadConfig | fs.Denied | fs.Failed | work.BadClass | work.MergeConflict | fs.NotFound {
-	try client.inner.MergeFile(class, base, ours, theirs, o)
+	try client.opMergeFile(class, base, ours, theirs, o)
 }
 
 // MergeFolders invokes work.Api's MergeFolders directly.
 func MergeFolders(client Client, base string, ours string, theirs string, out string) work.TreeMerged fails work.Untrusted | work.BadConfig | fs.Denied | fs.Failed | fs.NotFound | work.DeriveFailed {
-	try client.inner.MergeFolders(base, ours, theirs, out)
+	try client.opMergeFolders(base, ours, theirs, out)
 }
 
 // Derive invokes work.Api's Derive directly.
 func Derive(client Client, o work.DeriveOptions) work.Derived fails work.Untrusted | work.Unkept | work.BadConfig | work.NoBase | work.NoWorkspace | work.NotHere | work.DeriveFailed {
-	try client.inner.Derive(o)
+	try client.opDerive(o)
 }
 
 // Deps invokes work.Api's Deps directly.
 func Deps(client Client, o work.DepsOptions) work.DepsDone fails work.Untrusted | work.DepsFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.NotHere {
-	try client.inner.Deps(o)
+	try client.opDeps(o)
 }
 
 // Trust invokes work.Api's Trust directly.
 func Trust(client Client) work.Trusted fails work.Unkept | work.BadConfig | fs.Denied | fs.Failed | work.NoBase | fs.NotFound {
-	try client.inner.Trust()
+	try client.opTrust()
 }
 
 // Doctor invokes work.Api's Doctor directly.
 func Doctor(client Client, o work.DoctorOptions) work.Report fails work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.VcsFailed | work.RiftUnread {
-	try client.inner.Doctor(o)
+	try client.opDoctor(o)
 }
 
 // PluginTest invokes work.Api's PluginTest directly.
 func PluginTest(client Client, command string, o work.PluginTestOptions) work.PluginAdmitted fails work.Untrusted | work.BadConfig | work.NoBase | work.VcsFailed | work.PluginRefused {
-	try client.inner.PluginTest(command, o)
+	try client.opPluginTest(command, o)
 }
 
 // Refresh invokes work.Api's Refresh directly.
 func Refresh(client Client) int fails work.Unkept | work.NoBase | work.VcsFailed {
-	try client.inner.Refresh()
+	try client.opRefresh()
 }
 
 // Clone invokes work.Api's Clone directly.
 func Clone(client Client, src string, dst string, o work.CloneOptions) work.TreeCloned fails work.Missing | work.CloneFailed | work.BadConfig | work.Unsupported | work.Exists | work.NoSpace {
-	try client.inner.Clone(src, dst, o)
+	try client.opClone(src, dst, o)
 }
 
 // Bases invokes work.Api's Bases directly.
 func Bases(client Client) []string fails work.Unkept {
-	try client.inner.Bases()
+	try client.opBases()
 }
 
 // ForgetBase invokes work.Api's ForgetBase directly.
 func ForgetBase(client Client, base string) []string fails work.Unkept | fs.Denied | fs.Failed {
-	try client.inner.ForgetBase(base)
+	try client.opForgetBase(base)
 }
 
 // PruneBases invokes work.Api's PruneBases directly.
 func PruneBases(client Client) []string fails work.Unkept | fs.Denied | fs.Failed {
-	try client.inner.PruneBases()
+	try client.opPruneBases()
 }
 
 // ShellInit invokes work.Api's ShellInit directly.
 func ShellInit(client Client) string {
-	client.inner.ShellInit()
+	client.opShellInit()
 }
 
 // ImportRift invokes work.Api's ImportRift directly.
 func ImportRift(client Client, o work.ImportRiftOptions) string fails work.BadConfig | fs.Denied | fs.Failed | fs.NotFound {
-	try client.inner.ImportRift(o)
-}
-
-// BoundClient provides work.Api over a held Context captured by ClientInForce.
-type BoundClient { held Context[work.Api] } implements work.Api
-
-// ClientInForce is the work.Api that invokes the provider currently in force.
-func ClientInForce() BoundClient needs work.Api { BoundClient{held: InForce[work.Api]()} }
-
-// Version invokes work.Api's Version on the held context.
-func Version(client BoundClient) string {
-	with client.held { work.Api.Version() }
-}
-
-// Init invokes work.Api's Init on the held context.
-func Init(client BoundClient) string fails work.Unkept | work.BadConfig | fs.Denied | fs.Failed {
-	with client.held { try work.Api.Init() }
-}
-
-// New invokes work.Api's New on the held context.
-func New(client BoundClient, name string, o work.NewOptions) work.Created fails work.HookFailed | work.Missing | work.CloneFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.BadName | work.NameTaken | work.NoWorkspace | work.NoRevision | work.Diverged | work.CopyRefused | work.NotSameVolume | work.Unsupported | work.Exists | work.NoSpace | work.VcsFailed | work.Busy {
-	with client.held { try work.Api.New(name, o) }
-}
-
-// Adopt invokes work.Api's Adopt on the held context.
-func Adopt(client BoundClient, dir string, o work.AdoptOptions) work.Workspace fails work.Missing | work.Unkept | work.Locked | work.NoBase | work.BadName | work.NameTaken | work.VcsFailed {
-	with client.held { try work.Api.Adopt(dir, o) }
-}
-
-// AdoptRift invokes work.Api's AdoptRift on the held context.
-func AdoptRift(client BoundClient, o work.RiftOptions) work.RiftAdopted fails work.Unkept | work.Locked | work.NoBase | work.VcsFailed | work.RiftUnread {
-	with client.held { try work.Api.AdoptRift(o) }
-}
-
-// List invokes work.Api's List on the held context.
-func List(client BoundClient, o work.ListOptions) []work.Listed fails work.Unkept | work.NoBase {
-	with client.held { try work.Api.List(o) }
-}
-
-// Rm invokes work.Api's Rm on the held context.
-func Rm(client BoundClient, name string, o work.RmOptions) []work.Removed fails work.HookFailed | work.Missing | work.CloneFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.Exists | work.VcsFailed | work.Busy | work.NotHeld | work.IdMismatch | work.HasDescendants {
-	with client.held { try work.Api.Rm(name, o) }
-}
-
-// Gc invokes work.Api's Gc on the held context.
-func Gc(client BoundClient, o work.GcOptions) work.Collected fails work.HookFailed | work.Missing | work.CloneFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.Exists | work.VcsFailed | work.BadAge | work.BadRequest | work.GcFailed {
-	with client.held { try work.Api.Gc(o) }
-}
-
-// Pin invokes work.Api's Pin on the held context.
-func Pin(client BoundClient, name string) work.Workspace fails work.Unkept | work.Locked | work.NoBase | work.NoWorkspace {
-	with client.held { try work.Api.Pin(name) }
-}
-
-// Unpin invokes work.Api's Unpin on the held context.
-func Unpin(client BoundClient, name string) work.Workspace fails work.Unkept | work.Locked | work.NoBase | work.NoWorkspace {
-	with client.held { try work.Api.Unpin(name) }
-}
-
-// Du invokes work.Api's Du on the held context.
-func Du(client BoundClient) []work.Space fails work.Missing | work.CloneFailed | work.Unkept | work.NoBase | work.Unsupported {
-	with client.held { try work.Api.Du() }
-}
-
-// Ready invokes work.Api's Ready on the held context.
-func Ready(client BoundClient, o work.ReadyOptions) work.Handed fails work.Unkept | work.Locked | work.NoBase | work.NoWorkspace | work.VcsFailed | work.Busy | work.BadRequest | work.NotHere | work.Detached | work.NotFastForward | work.Moved {
-	with client.held { try work.Api.Ready(o) }
-}
-
-// Record invokes work.Api's Record on the held context.
-func Record(client BoundClient, tip string) work.LaneRecord fails work.Unkept | work.NoBase | work.NoRevision | work.VcsFailed | work.NoRecord | work.BadRecord {
-	with client.held { try work.Api.Record(tip) }
-}
-
-// Sync invokes work.Api's Sync on the held context.
-func Sync(client BoundClient, o work.SyncOptions) work.Synced fails work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.VcsFailed | work.Busy | work.NotHere | work.Detached | work.Dirty | work.Conflicted {
-	with client.held { try work.Api.Sync(o) }
-}
-
-// Env invokes work.Api's Env on the held context.
-func Env(client BoundClient, o work.EnvOptions) string fails work.Unkept | work.BadConfig | work.NoBase | work.NoWorkspace | work.NotHere {
-	with client.held { try work.Api.Env(o) }
-}
-
-// MergeFile invokes work.Api's MergeFile on the held context.
-func MergeFile(client BoundClient, class string, base string, ours string, theirs string, o work.MergeFileOptions) work.FileMerged fails work.BadConfig | fs.Denied | fs.Failed | work.BadClass | work.MergeConflict | fs.NotFound {
-	with client.held { try work.Api.MergeFile(class, base, ours, theirs, o) }
-}
-
-// MergeFolders invokes work.Api's MergeFolders on the held context.
-func MergeFolders(client BoundClient, base string, ours string, theirs string, out string) work.TreeMerged fails work.Untrusted | work.BadConfig | fs.Denied | fs.Failed | fs.NotFound | work.DeriveFailed {
-	with client.held { try work.Api.MergeFolders(base, ours, theirs, out) }
-}
-
-// Derive invokes work.Api's Derive on the held context.
-func Derive(client BoundClient, o work.DeriveOptions) work.Derived fails work.Untrusted | work.Unkept | work.BadConfig | work.NoBase | work.NoWorkspace | work.NotHere | work.DeriveFailed {
-	with client.held { try work.Api.Derive(o) }
-}
-
-// Deps invokes work.Api's Deps on the held context.
-func Deps(client BoundClient, o work.DepsOptions) work.DepsDone fails work.Untrusted | work.DepsFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.NotHere {
-	with client.held { try work.Api.Deps(o) }
-}
-
-// Trust invokes work.Api's Trust on the held context.
-func Trust(client BoundClient) work.Trusted fails work.Unkept | work.BadConfig | fs.Denied | fs.Failed | work.NoBase | fs.NotFound {
-	with client.held { try work.Api.Trust() }
-}
-
-// Doctor invokes work.Api's Doctor on the held context.
-func Doctor(client BoundClient, o work.DoctorOptions) work.Report fails work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.VcsFailed | work.RiftUnread {
-	with client.held { try work.Api.Doctor(o) }
-}
-
-// PluginTest invokes work.Api's PluginTest on the held context.
-func PluginTest(client BoundClient, command string, o work.PluginTestOptions) work.PluginAdmitted fails work.Untrusted | work.BadConfig | work.NoBase | work.VcsFailed | work.PluginRefused {
-	with client.held { try work.Api.PluginTest(command, o) }
-}
-
-// Refresh invokes work.Api's Refresh on the held context.
-func Refresh(client BoundClient) int fails work.Unkept | work.NoBase | work.VcsFailed {
-	with client.held { try work.Api.Refresh() }
-}
-
-// Clone invokes work.Api's Clone on the held context.
-func Clone(client BoundClient, src string, dst string, o work.CloneOptions) work.TreeCloned fails work.Missing | work.CloneFailed | work.BadConfig | work.Unsupported | work.Exists | work.NoSpace {
-	with client.held { try work.Api.Clone(src, dst, o) }
-}
-
-// Bases invokes work.Api's Bases on the held context.
-func Bases(client BoundClient) []string fails work.Unkept {
-	with client.held { try work.Api.Bases() }
-}
-
-// ForgetBase invokes work.Api's ForgetBase on the held context.
-func ForgetBase(client BoundClient, base string) []string fails work.Unkept | fs.Denied | fs.Failed {
-	with client.held { try work.Api.ForgetBase(base) }
-}
-
-// PruneBases invokes work.Api's PruneBases on the held context.
-func PruneBases(client BoundClient) []string fails work.Unkept | fs.Denied | fs.Failed {
-	with client.held { try work.Api.PruneBases() }
-}
-
-// ShellInit invokes work.Api's ShellInit on the held context.
-func ShellInit(client BoundClient) string {
-	with client.held { work.Api.ShellInit() }
-}
-
-// ImportRift invokes work.Api's ImportRift on the held context.
-func ImportRift(client BoundClient, o work.ImportRiftOptions) string fails work.BadConfig | fs.Denied | fs.Failed | fs.NotFound {
-	with client.held { try work.Api.ImportRift(o) }
+	try client.opImportRift(o)
 }
 
 // CheckedClient carries erased work.Api requests over send and validates each
@@ -2203,634 +2120,608 @@ func OutcomeOf(r Request, g Given) Outcome {
 	}
 }
 
-type scripted { g Given, sent sync.Ref[[]Request] } implements work.Api
-
-func Version(client scripted) string {
-	client.sent.Update(func(rs []Request) []Request { rs.Append(VersionRequest) })
-	client.g.Values.Version
-}
-
-func Init(client scripted) string fails work.Unkept | work.BadConfig | fs.Denied | fs.Failed {
-	client.sent.Update(func(rs []Request) []Request { rs.Append(InitRequest) })
-	if client.g.Failing {
-		match client.g.Failure {
-		case Unkept as err:
-			return err.E
-		case BadConfig as err:
-			return err.E
-		case Denied as err:
-			return err.E
-		case Failed as err:
-			return err.E
-		case _:
-		}
+func scripted(g Given, sent sync.Ref[[]Request]) Client {
+	Client{
+		opVersion: func() string {
+			sent.Update(func(rs []Request) []Request { rs.Append(VersionRequest) })
+			g.Values.Version
+		},
+		opInit: func() string fails work.Unkept | work.BadConfig | fs.Denied | fs.Failed {
+			sent.Update(func(rs []Request) []Request { rs.Append(InitRequest) })
+			if g.Failing {
+				match g.Failure {
+				case Unkept as err:
+					return err.E
+				case BadConfig as err:
+					return err.E
+				case Denied as err:
+					return err.E
+				case Failed as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.Init
+		},
+		opNew: func(name string, o work.NewOptions) work.Created fails work.HookFailed | work.Missing | work.CloneFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.BadName | work.NameTaken | work.NoWorkspace | work.NoRevision | work.Diverged | work.CopyRefused | work.NotSameVolume | work.Unsupported | work.Exists | work.NoSpace | work.VcsFailed | work.Busy {
+			sent.Update(func(rs []Request) []Request { rs.Append(NewRequest{Name: name, O: o}) })
+			if g.Failing {
+				match g.Failure {
+				case HookFailed as err:
+					return err.E
+				case Missing as err:
+					return err.E
+				case CloneFailed as err:
+					return err.E
+				case Unkept as err:
+					return err.E
+				case Locked as err:
+					return err.E
+				case BadConfig as err:
+					return err.E
+				case NoBase as err:
+					return err.E
+				case BadName as err:
+					return err.E
+				case NameTaken as err:
+					return err.E
+				case NoWorkspace as err:
+					return err.E
+				case NoRevision as err:
+					return err.E
+				case Diverged as err:
+					return err.E
+				case CopyRefused as err:
+					return err.E
+				case NotSameVolume as err:
+					return err.E
+				case Unsupported as err:
+					return err.E
+				case Exists as err:
+					return err.E
+				case NoSpace as err:
+					return err.E
+				case VcsFailed as err:
+					return err.E
+				case Busy as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.New
+		},
+		opAdopt: func(dir string, o work.AdoptOptions) work.Workspace fails work.Missing | work.Unkept | work.Locked | work.NoBase | work.BadName | work.NameTaken | work.VcsFailed {
+			sent.Update(func(rs []Request) []Request { rs.Append(AdoptRequest{Dir: dir, O: o}) })
+			if g.Failing {
+				match g.Failure {
+				case Missing as err:
+					return err.E
+				case Unkept as err:
+					return err.E
+				case Locked as err:
+					return err.E
+				case NoBase as err:
+					return err.E
+				case BadName as err:
+					return err.E
+				case NameTaken as err:
+					return err.E
+				case VcsFailed as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.Adopt
+		},
+		opAdoptRift: func(o work.RiftOptions) work.RiftAdopted fails work.Unkept | work.Locked | work.NoBase | work.VcsFailed | work.RiftUnread {
+			sent.Update(func(rs []Request) []Request { rs.Append(AdoptRiftRequest{O: o}) })
+			if g.Failing {
+				match g.Failure {
+				case Unkept as err:
+					return err.E
+				case Locked as err:
+					return err.E
+				case NoBase as err:
+					return err.E
+				case VcsFailed as err:
+					return err.E
+				case RiftUnread as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.AdoptRift
+		},
+		opList: func(o work.ListOptions) []work.Listed fails work.Unkept | work.NoBase {
+			sent.Update(func(rs []Request) []Request { rs.Append(ListRequest{O: o}) })
+			if g.Failing {
+				match g.Failure {
+				case Unkept as err:
+					return err.E
+				case NoBase as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.List
+		},
+		opRm: func(name string, o work.RmOptions) []work.Removed fails work.HookFailed | work.Missing | work.CloneFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.Exists | work.VcsFailed | work.Busy | work.NotHeld | work.IdMismatch | work.HasDescendants {
+			sent.Update(func(rs []Request) []Request { rs.Append(RmRequest{Name: name, O: o}) })
+			if g.Failing {
+				match g.Failure {
+				case HookFailed as err:
+					return err.E
+				case Missing as err:
+					return err.E
+				case CloneFailed as err:
+					return err.E
+				case Unkept as err:
+					return err.E
+				case Locked as err:
+					return err.E
+				case BadConfig as err:
+					return err.E
+				case NoBase as err:
+					return err.E
+				case NoWorkspace as err:
+					return err.E
+				case Exists as err:
+					return err.E
+				case VcsFailed as err:
+					return err.E
+				case Busy as err:
+					return err.E
+				case NotHeld as err:
+					return err.E
+				case IdMismatch as err:
+					return err.E
+				case HasDescendants as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.Rm
+		},
+		opGc: func(o work.GcOptions) work.Collected fails work.HookFailed | work.Missing | work.CloneFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.Exists | work.VcsFailed | work.BadAge | work.BadRequest | work.GcFailed {
+			sent.Update(func(rs []Request) []Request { rs.Append(GcRequest{O: o}) })
+			if g.Failing {
+				match g.Failure {
+				case HookFailed as err:
+					return err.E
+				case Missing as err:
+					return err.E
+				case CloneFailed as err:
+					return err.E
+				case Unkept as err:
+					return err.E
+				case Locked as err:
+					return err.E
+				case BadConfig as err:
+					return err.E
+				case NoBase as err:
+					return err.E
+				case NoWorkspace as err:
+					return err.E
+				case Exists as err:
+					return err.E
+				case VcsFailed as err:
+					return err.E
+				case BadAge as err:
+					return err.E
+				case BadRequest as err:
+					return err.E
+				case GcFailed as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.Gc
+		},
+		opPin: func(name string) work.Workspace fails work.Unkept | work.Locked | work.NoBase | work.NoWorkspace {
+			sent.Update(func(rs []Request) []Request { rs.Append(PinRequest{Name: name}) })
+			if g.Failing {
+				match g.Failure {
+				case Unkept as err:
+					return err.E
+				case Locked as err:
+					return err.E
+				case NoBase as err:
+					return err.E
+				case NoWorkspace as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.Pin
+		},
+		opUnpin: func(name string) work.Workspace fails work.Unkept | work.Locked | work.NoBase | work.NoWorkspace {
+			sent.Update(func(rs []Request) []Request { rs.Append(UnpinRequest{Name: name}) })
+			if g.Failing {
+				match g.Failure {
+				case Unkept as err:
+					return err.E
+				case Locked as err:
+					return err.E
+				case NoBase as err:
+					return err.E
+				case NoWorkspace as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.Unpin
+		},
+		opDu: func() []work.Space fails work.Missing | work.CloneFailed | work.Unkept | work.NoBase | work.Unsupported {
+			sent.Update(func(rs []Request) []Request { rs.Append(DuRequest) })
+			if g.Failing {
+				match g.Failure {
+				case Missing as err:
+					return err.E
+				case CloneFailed as err:
+					return err.E
+				case Unkept as err:
+					return err.E
+				case NoBase as err:
+					return err.E
+				case Unsupported as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.Du
+		},
+		opReady: func(o work.ReadyOptions) work.Handed fails work.Unkept | work.Locked | work.NoBase | work.NoWorkspace | work.VcsFailed | work.Busy | work.BadRequest | work.NotHere | work.Detached | work.NotFastForward | work.Moved {
+			sent.Update(func(rs []Request) []Request { rs.Append(ReadyRequest{O: o}) })
+			if g.Failing {
+				match g.Failure {
+				case Unkept as err:
+					return err.E
+				case Locked as err:
+					return err.E
+				case NoBase as err:
+					return err.E
+				case NoWorkspace as err:
+					return err.E
+				case VcsFailed as err:
+					return err.E
+				case Busy as err:
+					return err.E
+				case BadRequest as err:
+					return err.E
+				case NotHere as err:
+					return err.E
+				case Detached as err:
+					return err.E
+				case NotFastForward as err:
+					return err.E
+				case Moved as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.Ready
+		},
+		opRecord: func(tip string) work.LaneRecord fails work.Unkept | work.NoBase | work.NoRevision | work.VcsFailed | work.NoRecord | work.BadRecord {
+			sent.Update(func(rs []Request) []Request { rs.Append(RecordRequest{Tip: tip}) })
+			if g.Failing {
+				match g.Failure {
+				case Unkept as err:
+					return err.E
+				case NoBase as err:
+					return err.E
+				case NoRevision as err:
+					return err.E
+				case VcsFailed as err:
+					return err.E
+				case NoRecord as err:
+					return err.E
+				case BadRecord as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.Record
+		},
+		opSync: func(o work.SyncOptions) work.Synced fails work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.VcsFailed | work.Busy | work.NotHere | work.Detached | work.Dirty | work.Conflicted {
+			sent.Update(func(rs []Request) []Request { rs.Append(SyncRequest{O: o}) })
+			if g.Failing {
+				match g.Failure {
+				case Unkept as err:
+					return err.E
+				case Locked as err:
+					return err.E
+				case BadConfig as err:
+					return err.E
+				case NoBase as err:
+					return err.E
+				case NoWorkspace as err:
+					return err.E
+				case VcsFailed as err:
+					return err.E
+				case Busy as err:
+					return err.E
+				case NotHere as err:
+					return err.E
+				case Detached as err:
+					return err.E
+				case Dirty as err:
+					return err.E
+				case Conflicted as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.Sync
+		},
+		opEnv: func(o work.EnvOptions) string fails work.Unkept | work.BadConfig | work.NoBase | work.NoWorkspace | work.NotHere {
+			sent.Update(func(rs []Request) []Request { rs.Append(EnvRequest{O: o}) })
+			if g.Failing {
+				match g.Failure {
+				case Unkept as err:
+					return err.E
+				case BadConfig as err:
+					return err.E
+				case NoBase as err:
+					return err.E
+				case NoWorkspace as err:
+					return err.E
+				case NotHere as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.Env
+		},
+		opMergeFile: func(class string, base string, ours string, theirs string, o work.MergeFileOptions) work.FileMerged fails work.BadConfig | fs.Denied | fs.Failed | work.BadClass | work.MergeConflict | fs.NotFound {
+			sent.Update(func(rs []Request) []Request { rs.Append(MergeFileRequest{Class: class, Base: base, Ours: ours, Theirs: theirs, O: o}) })
+			if g.Failing {
+				match g.Failure {
+				case BadConfig as err:
+					return err.E
+				case Denied as err:
+					return err.E
+				case Failed as err:
+					return err.E
+				case BadClass as err:
+					return err.E
+				case MergeConflict as err:
+					return err.E
+				case NotFound as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.MergeFile
+		},
+		opMergeFolders: func(base string, ours string, theirs string, out string) work.TreeMerged fails work.Untrusted | work.BadConfig | fs.Denied | fs.Failed | fs.NotFound | work.DeriveFailed {
+			sent.Update(func(rs []Request) []Request { rs.Append(MergeFoldersRequest{Base: base, Ours: ours, Theirs: theirs, Out: out}) })
+			if g.Failing {
+				match g.Failure {
+				case Untrusted as err:
+					return err.E
+				case BadConfig as err:
+					return err.E
+				case Denied as err:
+					return err.E
+				case Failed as err:
+					return err.E
+				case NotFound as err:
+					return err.E
+				case DeriveFailed as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.MergeFolders
+		},
+		opDerive: func(o work.DeriveOptions) work.Derived fails work.Untrusted | work.Unkept | work.BadConfig | work.NoBase | work.NoWorkspace | work.NotHere | work.DeriveFailed {
+			sent.Update(func(rs []Request) []Request { rs.Append(DeriveRequest{O: o}) })
+			if g.Failing {
+				match g.Failure {
+				case Untrusted as err:
+					return err.E
+				case Unkept as err:
+					return err.E
+				case BadConfig as err:
+					return err.E
+				case NoBase as err:
+					return err.E
+				case NoWorkspace as err:
+					return err.E
+				case NotHere as err:
+					return err.E
+				case DeriveFailed as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.Derive
+		},
+		opDeps: func(o work.DepsOptions) work.DepsDone fails work.Untrusted | work.DepsFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.NotHere {
+			sent.Update(func(rs []Request) []Request { rs.Append(DepsRequest{O: o}) })
+			if g.Failing {
+				match g.Failure {
+				case Untrusted as err:
+					return err.E
+				case DepsFailed as err:
+					return err.E
+				case Unkept as err:
+					return err.E
+				case Locked as err:
+					return err.E
+				case BadConfig as err:
+					return err.E
+				case NoBase as err:
+					return err.E
+				case NoWorkspace as err:
+					return err.E
+				case NotHere as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.Deps
+		},
+		opTrust: func() work.Trusted fails work.Unkept | work.BadConfig | fs.Denied | fs.Failed | work.NoBase | fs.NotFound {
+			sent.Update(func(rs []Request) []Request { rs.Append(TrustRequest) })
+			if g.Failing {
+				match g.Failure {
+				case Unkept as err:
+					return err.E
+				case BadConfig as err:
+					return err.E
+				case Denied as err:
+					return err.E
+				case Failed as err:
+					return err.E
+				case NoBase as err:
+					return err.E
+				case NotFound as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.Trust
+		},
+		opDoctor: func(o work.DoctorOptions) work.Report fails work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.VcsFailed | work.RiftUnread {
+			sent.Update(func(rs []Request) []Request { rs.Append(DoctorRequest{O: o}) })
+			if g.Failing {
+				match g.Failure {
+				case Unkept as err:
+					return err.E
+				case Locked as err:
+					return err.E
+				case BadConfig as err:
+					return err.E
+				case NoBase as err:
+					return err.E
+				case VcsFailed as err:
+					return err.E
+				case RiftUnread as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.Doctor
+		},
+		opPluginTest: func(command string, o work.PluginTestOptions) work.PluginAdmitted fails work.Untrusted | work.BadConfig | work.NoBase | work.VcsFailed | work.PluginRefused {
+			sent.Update(func(rs []Request) []Request { rs.Append(PluginTestRequest{Command: command, O: o}) })
+			if g.Failing {
+				match g.Failure {
+				case Untrusted as err:
+					return err.E
+				case BadConfig as err:
+					return err.E
+				case NoBase as err:
+					return err.E
+				case VcsFailed as err:
+					return err.E
+				case PluginRefused as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.PluginTest
+		},
+		opRefresh: func() int fails work.Unkept | work.NoBase | work.VcsFailed {
+			sent.Update(func(rs []Request) []Request { rs.Append(RefreshRequest) })
+			if g.Failing {
+				match g.Failure {
+				case Unkept as err:
+					return err.E
+				case NoBase as err:
+					return err.E
+				case VcsFailed as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.Refresh
+		},
+		opClone: func(src string, dst string, o work.CloneOptions) work.TreeCloned fails work.Missing | work.CloneFailed | work.BadConfig | work.Unsupported | work.Exists | work.NoSpace {
+			sent.Update(func(rs []Request) []Request { rs.Append(CloneRequest{Src: src, Dst: dst, O: o}) })
+			if g.Failing {
+				match g.Failure {
+				case Missing as err:
+					return err.E
+				case CloneFailed as err:
+					return err.E
+				case BadConfig as err:
+					return err.E
+				case Unsupported as err:
+					return err.E
+				case Exists as err:
+					return err.E
+				case NoSpace as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.Clone
+		},
+		opBases: func() []string fails work.Unkept {
+			sent.Update(func(rs []Request) []Request { rs.Append(BasesRequest) })
+			if g.Failing {
+				match g.Failure {
+				case Unkept as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.Bases
+		},
+		opForgetBase: func(base string) []string fails work.Unkept | fs.Denied | fs.Failed {
+			sent.Update(func(rs []Request) []Request { rs.Append(ForgetBaseRequest{Base: base}) })
+			if g.Failing {
+				match g.Failure {
+				case Unkept as err:
+					return err.E
+				case Denied as err:
+					return err.E
+				case Failed as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.ForgetBase
+		},
+		opPruneBases: func() []string fails work.Unkept | fs.Denied | fs.Failed {
+			sent.Update(func(rs []Request) []Request { rs.Append(PruneBasesRequest) })
+			if g.Failing {
+				match g.Failure {
+				case Unkept as err:
+					return err.E
+				case Denied as err:
+					return err.E
+				case Failed as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.PruneBases
+		},
+		opShellInit: func() string {
+			sent.Update(func(rs []Request) []Request { rs.Append(ShellInitRequest) })
+			g.Values.ShellInit
+		},
+		opImportRift: func(o work.ImportRiftOptions) string fails work.BadConfig | fs.Denied | fs.Failed | fs.NotFound {
+			sent.Update(func(rs []Request) []Request { rs.Append(ImportRiftRequest{O: o}) })
+			if g.Failing {
+				match g.Failure {
+				case BadConfig as err:
+					return err.E
+				case Denied as err:
+					return err.E
+				case Failed as err:
+					return err.E
+				case NotFound as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.ImportRift
+		},
 	}
-	client.g.Values.Init
-}
-
-func New(client scripted, name string, o work.NewOptions) work.Created fails work.HookFailed | work.Missing | work.CloneFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.BadName | work.NameTaken | work.NoWorkspace | work.NoRevision | work.Diverged | work.CopyRefused | work.NotSameVolume | work.Unsupported | work.Exists | work.NoSpace | work.VcsFailed | work.Busy {
-	client.sent.Update(func(rs []Request) []Request { rs.Append(NewRequest{Name: name, O: o}) })
-	if client.g.Failing {
-		match client.g.Failure {
-		case HookFailed as err:
-			return err.E
-		case Missing as err:
-			return err.E
-		case CloneFailed as err:
-			return err.E
-		case Unkept as err:
-			return err.E
-		case Locked as err:
-			return err.E
-		case BadConfig as err:
-			return err.E
-		case NoBase as err:
-			return err.E
-		case BadName as err:
-			return err.E
-		case NameTaken as err:
-			return err.E
-		case NoWorkspace as err:
-			return err.E
-		case NoRevision as err:
-			return err.E
-		case Diverged as err:
-			return err.E
-		case CopyRefused as err:
-			return err.E
-		case NotSameVolume as err:
-			return err.E
-		case Unsupported as err:
-			return err.E
-		case Exists as err:
-			return err.E
-		case NoSpace as err:
-			return err.E
-		case VcsFailed as err:
-			return err.E
-		case Busy as err:
-			return err.E
-		case _:
-		}
-	}
-	client.g.Values.New
-}
-
-func Adopt(client scripted, dir string, o work.AdoptOptions) work.Workspace fails work.Missing | work.Unkept | work.Locked | work.NoBase | work.BadName | work.NameTaken | work.VcsFailed {
-	client.sent.Update(func(rs []Request) []Request { rs.Append(AdoptRequest{Dir: dir, O: o}) })
-	if client.g.Failing {
-		match client.g.Failure {
-		case Missing as err:
-			return err.E
-		case Unkept as err:
-			return err.E
-		case Locked as err:
-			return err.E
-		case NoBase as err:
-			return err.E
-		case BadName as err:
-			return err.E
-		case NameTaken as err:
-			return err.E
-		case VcsFailed as err:
-			return err.E
-		case _:
-		}
-	}
-	client.g.Values.Adopt
-}
-
-func AdoptRift(client scripted, o work.RiftOptions) work.RiftAdopted fails work.Unkept | work.Locked | work.NoBase | work.VcsFailed | work.RiftUnread {
-	client.sent.Update(func(rs []Request) []Request { rs.Append(AdoptRiftRequest{O: o}) })
-	if client.g.Failing {
-		match client.g.Failure {
-		case Unkept as err:
-			return err.E
-		case Locked as err:
-			return err.E
-		case NoBase as err:
-			return err.E
-		case VcsFailed as err:
-			return err.E
-		case RiftUnread as err:
-			return err.E
-		case _:
-		}
-	}
-	client.g.Values.AdoptRift
-}
-
-func List(client scripted, o work.ListOptions) []work.Listed fails work.Unkept | work.NoBase {
-	client.sent.Update(func(rs []Request) []Request { rs.Append(ListRequest{O: o}) })
-	if client.g.Failing {
-		match client.g.Failure {
-		case Unkept as err:
-			return err.E
-		case NoBase as err:
-			return err.E
-		case _:
-		}
-	}
-	client.g.Values.List
-}
-
-func Rm(client scripted, name string, o work.RmOptions) []work.Removed fails work.HookFailed | work.Missing | work.CloneFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.Exists | work.VcsFailed | work.Busy | work.NotHeld | work.IdMismatch | work.HasDescendants {
-	client.sent.Update(func(rs []Request) []Request { rs.Append(RmRequest{Name: name, O: o}) })
-	if client.g.Failing {
-		match client.g.Failure {
-		case HookFailed as err:
-			return err.E
-		case Missing as err:
-			return err.E
-		case CloneFailed as err:
-			return err.E
-		case Unkept as err:
-			return err.E
-		case Locked as err:
-			return err.E
-		case BadConfig as err:
-			return err.E
-		case NoBase as err:
-			return err.E
-		case NoWorkspace as err:
-			return err.E
-		case Exists as err:
-			return err.E
-		case VcsFailed as err:
-			return err.E
-		case Busy as err:
-			return err.E
-		case NotHeld as err:
-			return err.E
-		case IdMismatch as err:
-			return err.E
-		case HasDescendants as err:
-			return err.E
-		case _:
-		}
-	}
-	client.g.Values.Rm
-}
-
-func Gc(client scripted, o work.GcOptions) work.Collected fails work.HookFailed | work.Missing | work.CloneFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.Exists | work.VcsFailed | work.BadAge | work.BadRequest | work.GcFailed {
-	client.sent.Update(func(rs []Request) []Request { rs.Append(GcRequest{O: o}) })
-	if client.g.Failing {
-		match client.g.Failure {
-		case HookFailed as err:
-			return err.E
-		case Missing as err:
-			return err.E
-		case CloneFailed as err:
-			return err.E
-		case Unkept as err:
-			return err.E
-		case Locked as err:
-			return err.E
-		case BadConfig as err:
-			return err.E
-		case NoBase as err:
-			return err.E
-		case NoWorkspace as err:
-			return err.E
-		case Exists as err:
-			return err.E
-		case VcsFailed as err:
-			return err.E
-		case BadAge as err:
-			return err.E
-		case BadRequest as err:
-			return err.E
-		case GcFailed as err:
-			return err.E
-		case _:
-		}
-	}
-	client.g.Values.Gc
-}
-
-func Pin(client scripted, name string) work.Workspace fails work.Unkept | work.Locked | work.NoBase | work.NoWorkspace {
-	client.sent.Update(func(rs []Request) []Request { rs.Append(PinRequest{Name: name}) })
-	if client.g.Failing {
-		match client.g.Failure {
-		case Unkept as err:
-			return err.E
-		case Locked as err:
-			return err.E
-		case NoBase as err:
-			return err.E
-		case NoWorkspace as err:
-			return err.E
-		case _:
-		}
-	}
-	client.g.Values.Pin
-}
-
-func Unpin(client scripted, name string) work.Workspace fails work.Unkept | work.Locked | work.NoBase | work.NoWorkspace {
-	client.sent.Update(func(rs []Request) []Request { rs.Append(UnpinRequest{Name: name}) })
-	if client.g.Failing {
-		match client.g.Failure {
-		case Unkept as err:
-			return err.E
-		case Locked as err:
-			return err.E
-		case NoBase as err:
-			return err.E
-		case NoWorkspace as err:
-			return err.E
-		case _:
-		}
-	}
-	client.g.Values.Unpin
-}
-
-func Du(client scripted) []work.Space fails work.Missing | work.CloneFailed | work.Unkept | work.NoBase | work.Unsupported {
-	client.sent.Update(func(rs []Request) []Request { rs.Append(DuRequest) })
-	if client.g.Failing {
-		match client.g.Failure {
-		case Missing as err:
-			return err.E
-		case CloneFailed as err:
-			return err.E
-		case Unkept as err:
-			return err.E
-		case NoBase as err:
-			return err.E
-		case Unsupported as err:
-			return err.E
-		case _:
-		}
-	}
-	client.g.Values.Du
-}
-
-func Ready(client scripted, o work.ReadyOptions) work.Handed fails work.Unkept | work.Locked | work.NoBase | work.NoWorkspace | work.VcsFailed | work.Busy | work.BadRequest | work.NotHere | work.Detached | work.NotFastForward | work.Moved {
-	client.sent.Update(func(rs []Request) []Request { rs.Append(ReadyRequest{O: o}) })
-	if client.g.Failing {
-		match client.g.Failure {
-		case Unkept as err:
-			return err.E
-		case Locked as err:
-			return err.E
-		case NoBase as err:
-			return err.E
-		case NoWorkspace as err:
-			return err.E
-		case VcsFailed as err:
-			return err.E
-		case Busy as err:
-			return err.E
-		case BadRequest as err:
-			return err.E
-		case NotHere as err:
-			return err.E
-		case Detached as err:
-			return err.E
-		case NotFastForward as err:
-			return err.E
-		case Moved as err:
-			return err.E
-		case _:
-		}
-	}
-	client.g.Values.Ready
-}
-
-func Record(client scripted, tip string) work.LaneRecord fails work.Unkept | work.NoBase | work.NoRevision | work.VcsFailed | work.NoRecord | work.BadRecord {
-	client.sent.Update(func(rs []Request) []Request { rs.Append(RecordRequest{Tip: tip}) })
-	if client.g.Failing {
-		match client.g.Failure {
-		case Unkept as err:
-			return err.E
-		case NoBase as err:
-			return err.E
-		case NoRevision as err:
-			return err.E
-		case VcsFailed as err:
-			return err.E
-		case NoRecord as err:
-			return err.E
-		case BadRecord as err:
-			return err.E
-		case _:
-		}
-	}
-	client.g.Values.Record
-}
-
-func Sync(client scripted, o work.SyncOptions) work.Synced fails work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.VcsFailed | work.Busy | work.NotHere | work.Detached | work.Dirty | work.Conflicted {
-	client.sent.Update(func(rs []Request) []Request { rs.Append(SyncRequest{O: o}) })
-	if client.g.Failing {
-		match client.g.Failure {
-		case Unkept as err:
-			return err.E
-		case Locked as err:
-			return err.E
-		case BadConfig as err:
-			return err.E
-		case NoBase as err:
-			return err.E
-		case NoWorkspace as err:
-			return err.E
-		case VcsFailed as err:
-			return err.E
-		case Busy as err:
-			return err.E
-		case NotHere as err:
-			return err.E
-		case Detached as err:
-			return err.E
-		case Dirty as err:
-			return err.E
-		case Conflicted as err:
-			return err.E
-		case _:
-		}
-	}
-	client.g.Values.Sync
-}
-
-func Env(client scripted, o work.EnvOptions) string fails work.Unkept | work.BadConfig | work.NoBase | work.NoWorkspace | work.NotHere {
-	client.sent.Update(func(rs []Request) []Request { rs.Append(EnvRequest{O: o}) })
-	if client.g.Failing {
-		match client.g.Failure {
-		case Unkept as err:
-			return err.E
-		case BadConfig as err:
-			return err.E
-		case NoBase as err:
-			return err.E
-		case NoWorkspace as err:
-			return err.E
-		case NotHere as err:
-			return err.E
-		case _:
-		}
-	}
-	client.g.Values.Env
-}
-
-func MergeFile(client scripted, class string, base string, ours string, theirs string, o work.MergeFileOptions) work.FileMerged fails work.BadConfig | fs.Denied | fs.Failed | work.BadClass | work.MergeConflict | fs.NotFound {
-	client.sent.Update(func(rs []Request) []Request { rs.Append(MergeFileRequest{Class: class, Base: base, Ours: ours, Theirs: theirs, O: o}) })
-	if client.g.Failing {
-		match client.g.Failure {
-		case BadConfig as err:
-			return err.E
-		case Denied as err:
-			return err.E
-		case Failed as err:
-			return err.E
-		case BadClass as err:
-			return err.E
-		case MergeConflict as err:
-			return err.E
-		case NotFound as err:
-			return err.E
-		case _:
-		}
-	}
-	client.g.Values.MergeFile
-}
-
-func MergeFolders(client scripted, base string, ours string, theirs string, out string) work.TreeMerged fails work.Untrusted | work.BadConfig | fs.Denied | fs.Failed | fs.NotFound | work.DeriveFailed {
-	client.sent.Update(func(rs []Request) []Request { rs.Append(MergeFoldersRequest{Base: base, Ours: ours, Theirs: theirs, Out: out}) })
-	if client.g.Failing {
-		match client.g.Failure {
-		case Untrusted as err:
-			return err.E
-		case BadConfig as err:
-			return err.E
-		case Denied as err:
-			return err.E
-		case Failed as err:
-			return err.E
-		case NotFound as err:
-			return err.E
-		case DeriveFailed as err:
-			return err.E
-		case _:
-		}
-	}
-	client.g.Values.MergeFolders
-}
-
-func Derive(client scripted, o work.DeriveOptions) work.Derived fails work.Untrusted | work.Unkept | work.BadConfig | work.NoBase | work.NoWorkspace | work.NotHere | work.DeriveFailed {
-	client.sent.Update(func(rs []Request) []Request { rs.Append(DeriveRequest{O: o}) })
-	if client.g.Failing {
-		match client.g.Failure {
-		case Untrusted as err:
-			return err.E
-		case Unkept as err:
-			return err.E
-		case BadConfig as err:
-			return err.E
-		case NoBase as err:
-			return err.E
-		case NoWorkspace as err:
-			return err.E
-		case NotHere as err:
-			return err.E
-		case DeriveFailed as err:
-			return err.E
-		case _:
-		}
-	}
-	client.g.Values.Derive
-}
-
-func Deps(client scripted, o work.DepsOptions) work.DepsDone fails work.Untrusted | work.DepsFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.NotHere {
-	client.sent.Update(func(rs []Request) []Request { rs.Append(DepsRequest{O: o}) })
-	if client.g.Failing {
-		match client.g.Failure {
-		case Untrusted as err:
-			return err.E
-		case DepsFailed as err:
-			return err.E
-		case Unkept as err:
-			return err.E
-		case Locked as err:
-			return err.E
-		case BadConfig as err:
-			return err.E
-		case NoBase as err:
-			return err.E
-		case NoWorkspace as err:
-			return err.E
-		case NotHere as err:
-			return err.E
-		case _:
-		}
-	}
-	client.g.Values.Deps
-}
-
-func Trust(client scripted) work.Trusted fails work.Unkept | work.BadConfig | fs.Denied | fs.Failed | work.NoBase | fs.NotFound {
-	client.sent.Update(func(rs []Request) []Request { rs.Append(TrustRequest) })
-	if client.g.Failing {
-		match client.g.Failure {
-		case Unkept as err:
-			return err.E
-		case BadConfig as err:
-			return err.E
-		case Denied as err:
-			return err.E
-		case Failed as err:
-			return err.E
-		case NoBase as err:
-			return err.E
-		case NotFound as err:
-			return err.E
-		case _:
-		}
-	}
-	client.g.Values.Trust
-}
-
-func Doctor(client scripted, o work.DoctorOptions) work.Report fails work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.VcsFailed | work.RiftUnread {
-	client.sent.Update(func(rs []Request) []Request { rs.Append(DoctorRequest{O: o}) })
-	if client.g.Failing {
-		match client.g.Failure {
-		case Unkept as err:
-			return err.E
-		case Locked as err:
-			return err.E
-		case BadConfig as err:
-			return err.E
-		case NoBase as err:
-			return err.E
-		case VcsFailed as err:
-			return err.E
-		case RiftUnread as err:
-			return err.E
-		case _:
-		}
-	}
-	client.g.Values.Doctor
-}
-
-func PluginTest(client scripted, command string, o work.PluginTestOptions) work.PluginAdmitted fails work.Untrusted | work.BadConfig | work.NoBase | work.VcsFailed | work.PluginRefused {
-	client.sent.Update(func(rs []Request) []Request { rs.Append(PluginTestRequest{Command: command, O: o}) })
-	if client.g.Failing {
-		match client.g.Failure {
-		case Untrusted as err:
-			return err.E
-		case BadConfig as err:
-			return err.E
-		case NoBase as err:
-			return err.E
-		case VcsFailed as err:
-			return err.E
-		case PluginRefused as err:
-			return err.E
-		case _:
-		}
-	}
-	client.g.Values.PluginTest
-}
-
-func Refresh(client scripted) int fails work.Unkept | work.NoBase | work.VcsFailed {
-	client.sent.Update(func(rs []Request) []Request { rs.Append(RefreshRequest) })
-	if client.g.Failing {
-		match client.g.Failure {
-		case Unkept as err:
-			return err.E
-		case NoBase as err:
-			return err.E
-		case VcsFailed as err:
-			return err.E
-		case _:
-		}
-	}
-	client.g.Values.Refresh
-}
-
-func Clone(client scripted, src string, dst string, o work.CloneOptions) work.TreeCloned fails work.Missing | work.CloneFailed | work.BadConfig | work.Unsupported | work.Exists | work.NoSpace {
-	client.sent.Update(func(rs []Request) []Request { rs.Append(CloneRequest{Src: src, Dst: dst, O: o}) })
-	if client.g.Failing {
-		match client.g.Failure {
-		case Missing as err:
-			return err.E
-		case CloneFailed as err:
-			return err.E
-		case BadConfig as err:
-			return err.E
-		case Unsupported as err:
-			return err.E
-		case Exists as err:
-			return err.E
-		case NoSpace as err:
-			return err.E
-		case _:
-		}
-	}
-	client.g.Values.Clone
-}
-
-func Bases(client scripted) []string fails work.Unkept {
-	client.sent.Update(func(rs []Request) []Request { rs.Append(BasesRequest) })
-	if client.g.Failing {
-		match client.g.Failure {
-		case Unkept as err:
-			return err.E
-		case _:
-		}
-	}
-	client.g.Values.Bases
-}
-
-func ForgetBase(client scripted, base string) []string fails work.Unkept | fs.Denied | fs.Failed {
-	client.sent.Update(func(rs []Request) []Request { rs.Append(ForgetBaseRequest{Base: base}) })
-	if client.g.Failing {
-		match client.g.Failure {
-		case Unkept as err:
-			return err.E
-		case Denied as err:
-			return err.E
-		case Failed as err:
-			return err.E
-		case _:
-		}
-	}
-	client.g.Values.ForgetBase
-}
-
-func PruneBases(client scripted) []string fails work.Unkept | fs.Denied | fs.Failed {
-	client.sent.Update(func(rs []Request) []Request { rs.Append(PruneBasesRequest) })
-	if client.g.Failing {
-		match client.g.Failure {
-		case Unkept as err:
-			return err.E
-		case Denied as err:
-			return err.E
-		case Failed as err:
-			return err.E
-		case _:
-		}
-	}
-	client.g.Values.PruneBases
-}
-
-func ShellInit(client scripted) string {
-	client.sent.Update(func(rs []Request) []Request { rs.Append(ShellInitRequest) })
-	client.g.Values.ShellInit
-}
-
-func ImportRift(client scripted, o work.ImportRiftOptions) string fails work.BadConfig | fs.Denied | fs.Failed | fs.NotFound {
-	client.sent.Update(func(rs []Request) []Request { rs.Append(ImportRiftRequest{O: o}) })
-	if client.g.Failing {
-		match client.g.Failure {
-		case BadConfig as err:
-			return err.E
-		case Denied as err:
-			return err.E
-		case Failed as err:
-			return err.E
-		case NotFound as err:
-			return err.E
-		case _:
-		}
-	}
-	client.g.Values.ImportRift
 }
 
 func callChecked(client CheckedClient, r Request) Outcome fails rpc.Transport {
@@ -3365,7 +3256,7 @@ func callChecked(client CheckedClient, r Request) Outcome fails rpc.Transport {
 law CallIsTheOperation(r Request, g Given) {
 	let want = OutcomeOf(r, g)
 	let sent = sync.NewRef[[]Request]([]Request{})
-	let got = with context { work.Api: scripted{g: g, sent: sent} } { Call(r) }
+	let got = with context { work.Api: scripted(g, sent) } { Call(r) }
 	got == want && sent.Get() == []Request{r}
 }
 
@@ -3374,11 +3265,11 @@ law CallIsTheOperation(r Request, g Given) {
 law ClientIsCall(r Request, g Given) {
 	let want = OutcomeOf(r, g)
 	let sent = sync.NewRef[[]Request]([]Request{})
-	let inner = scripted{g: g, sent: sent}
+	let inner = scripted(g, sent)
 	let outer = NewClient(inner)
 	let got = with context { work.Api: outer } { Call(r) }
 	let sentChecked = sync.NewRef[[]Request]([]Request{})
-	let innerChecked = scripted{g: g, sent: sentChecked}
+	let innerChecked = scripted(g, sentChecked)
 	let checked = NewCheckedClient(func(q Request) Outcome fails rpc.Transport {
 		with context { work.Api: innerChecked } { Call(q) }
 	})

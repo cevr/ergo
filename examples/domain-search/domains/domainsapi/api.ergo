@@ -74,27 +74,28 @@ func Call(r Request) Outcome needs domains.Registry {
 	}
 }
 
-// Client provides domains.Registry by invoking inner directly per operation: a direct
-// call returns its exact value or declared failure row with no Outcome boxing.
-type Client { inner domains.Registry } implements domains.Registry
+// Client provides domains.Registry by invoking typed per-operation handlers directly:
+// a direct call returns its exact value or declared failure row with no Outcome boxing.
+type Client { opSearchDomains func(domains.Label, json.Optional[domains.Offset], json.Optional[domains.Limit]) []domains.Listing fails domains.Down } implements domains.Registry
 
 // NewClient is the domains.Registry that invokes inner directly per operation.
-func NewClient(inner domains.Registry) Client { Client{inner: inner} }
+func NewClient(inner domains.Registry) Client {
+	Client{
+		opSearchDomains: func(label domains.Label, offset json.Optional[domains.Offset], limit json.Optional[domains.Limit]) []domains.Listing fails domains.Down { try inner.SearchDomains(label, offset, limit) },
+	}
+}
+
+// ClientInForce is the domains.Registry that invokes the provider currently in force.
+func ClientInForce() Client needs domains.Registry {
+	let held = InForce[domains.Registry]()
+	Client{
+		opSearchDomains: func(label domains.Label, offset json.Optional[domains.Offset], limit json.Optional[domains.Limit]) []domains.Listing fails domains.Down { with held { try domains.Registry.SearchDomains(label, offset, limit) } },
+	}
+}
 
 // SearchDomains invokes domains.Registry's SearchDomains directly.
 func SearchDomains(client Client, label domains.Label, offset json.Optional[domains.Offset], limit json.Optional[domains.Limit]) []domains.Listing fails domains.Down {
-	try client.inner.SearchDomains(label, offset, limit)
-}
-
-// BoundClient provides domains.Registry over a held Context captured by ClientInForce.
-type BoundClient { held Context[domains.Registry] } implements domains.Registry
-
-// ClientInForce is the domains.Registry that invokes the provider currently in force.
-func ClientInForce() BoundClient needs domains.Registry { BoundClient{held: InForce[domains.Registry]()} }
-
-// SearchDomains invokes domains.Registry's SearchDomains on the held context.
-func SearchDomains(client BoundClient, label domains.Label, offset json.Optional[domains.Offset], limit json.Optional[domains.Limit]) []domains.Listing fails domains.Down {
-	with client.held { try domains.Registry.SearchDomains(label, offset, limit) }
+	try client.opSearchDomains(label, offset, limit)
 }
 
 // CheckedClient carries erased domains.Registry requests over send and validates each
@@ -152,17 +153,19 @@ func OutcomeOf(r Request, g Given) Outcome {
 	}
 }
 
-type scripted { g Given, sent sync.Ref[[]Request] } implements domains.Registry
-
-func SearchDomains(client scripted, label domains.Label, offset json.Optional[domains.Offset], limit json.Optional[domains.Limit]) []domains.Listing fails domains.Down {
-	client.sent.Update(func(rs []Request) []Request { rs.Append(SearchDomainsRequest{Label: label, Offset: offset, Limit: limit}) })
-	if client.g.Failing {
-		match client.g.Failure {
-		case Down as err:
-			return err.E
-		}
+func scripted(g Given, sent sync.Ref[[]Request]) Client {
+	Client{
+		opSearchDomains: func(label domains.Label, offset json.Optional[domains.Offset], limit json.Optional[domains.Limit]) []domains.Listing fails domains.Down {
+			sent.Update(func(rs []Request) []Request { rs.Append(SearchDomainsRequest{Label: label, Offset: offset, Limit: limit}) })
+			if g.Failing {
+				match g.Failure {
+				case Down as err:
+					return err.E
+				}
+			}
+			g.Values.SearchDomains
+		},
 	}
-	client.g.Values.SearchDomains
 }
 
 func callChecked(client CheckedClient, r Request) Outcome fails rpc.Transport {
@@ -183,7 +186,7 @@ func callChecked(client CheckedClient, r Request) Outcome fails rpc.Transport {
 law CallIsTheOperation(r Request, g Given) {
 	let want = OutcomeOf(r, g)
 	let sent = sync.NewRef[[]Request]([]Request{})
-	let got = with context { domains.Registry: scripted{g: g, sent: sent} } { Call(r) }
+	let got = with context { domains.Registry: scripted(g, sent) } { Call(r) }
 	got == want && sent.Get() == []Request{r}
 }
 
@@ -192,11 +195,11 @@ law CallIsTheOperation(r Request, g Given) {
 law ClientIsCall(r Request, g Given) {
 	let want = OutcomeOf(r, g)
 	let sent = sync.NewRef[[]Request]([]Request{})
-	let inner = scripted{g: g, sent: sent}
+	let inner = scripted(g, sent)
 	let outer = NewClient(inner)
 	let got = with context { domains.Registry: outer } { Call(r) }
 	let sentChecked = sync.NewRef[[]Request]([]Request{})
-	let innerChecked = scripted{g: g, sent: sentChecked}
+	let innerChecked = scripted(g, sentChecked)
 	let checked = NewCheckedClient(func(q Request) Outcome fails rpc.Transport {
 		with context { domains.Registry: innerChecked } { Call(q) }
 	})

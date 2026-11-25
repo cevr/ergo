@@ -2,4 +2,4 @@ kind api
 generator ergo gen api
 subject llmtools/tools.Search
 contract sha256:0fd9f7ad3319cb1491ce81948ff74861dbec89c8cfe32f88cecad9eccb9b6546
-digest sha256:c4dbd6946d316b480a4e9f01ae3958d0bf024a3c8fb2a4023eff334f6882fc02
+digest sha256:73f24020724b7eab4c394eb6b5e6aad1f586c88409cb2f2749294f2460043027

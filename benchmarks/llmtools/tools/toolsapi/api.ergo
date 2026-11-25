@@ -82,37 +82,35 @@ func Call(r Request) Outcome needs tools.Search {
 	}
 }
 
-// Client provides tools.Search by invoking inner directly per operation: a direct
-// call returns its exact value or declared failure row with no Outcome boxing.
-type Client { inner tools.Search } implements tools.Search
+// Client provides tools.Search by invoking typed per-operation handlers directly:
+// a direct call returns its exact value or declared failure row with no Outcome boxing.
+type Client { opFind func(tools.Query) []tools.Hit, opCount func(string) int } implements tools.Search
 
 // NewClient is the tools.Search that invokes inner directly per operation.
-func NewClient(inner tools.Search) Client { Client{inner: inner} }
+func NewClient(inner tools.Search) Client {
+	Client{
+		opFind:  func(q tools.Query) []tools.Hit { inner.Find(q) },
+		opCount: func(word string) int { inner.Count(word) },
+	}
+}
+
+// ClientInForce is the tools.Search that invokes the provider currently in force.
+func ClientInForce() Client needs tools.Search {
+	let held = InForce[tools.Search]()
+	Client{
+		opFind:  func(q tools.Query) []tools.Hit { with held { tools.Search.Find(q) } },
+		opCount: func(word string) int { with held { tools.Search.Count(word) } },
+	}
+}
 
 // Find invokes tools.Search's Find directly.
 func Find(client Client, q tools.Query) []tools.Hit {
-	client.inner.Find(q)
+	client.opFind(q)
 }
 
 // Count invokes tools.Search's Count directly.
 func Count(client Client, word string) int {
-	client.inner.Count(word)
-}
-
-// BoundClient provides tools.Search over a held Context captured by ClientInForce.
-type BoundClient { held Context[tools.Search] } implements tools.Search
-
-// ClientInForce is the tools.Search that invokes the provider currently in force.
-func ClientInForce() BoundClient needs tools.Search { BoundClient{held: InForce[tools.Search]()} }
-
-// Find invokes tools.Search's Find on the held context.
-func Find(client BoundClient, q tools.Query) []tools.Hit {
-	with client.held { tools.Search.Find(q) }
-}
-
-// Count invokes tools.Search's Count on the held context.
-func Count(client BoundClient, word string) int {
-	with client.held { tools.Search.Count(word) }
+	client.opCount(word)
 }
 
 // CheckedClient carries erased tools.Search requests over send and validates each
@@ -183,16 +181,17 @@ func OutcomeOf(r Request, g Given) Outcome {
 	}
 }
 
-type scripted { g Given, sent sync.Ref[[]Request] } implements tools.Search
-
-func Find(client scripted, q tools.Query) []tools.Hit {
-	client.sent.Update(func(rs []Request) []Request { rs.Append(FindRequest{Q: q}) })
-	client.g.Values.Find
-}
-
-func Count(client scripted, word string) int {
-	client.sent.Update(func(rs []Request) []Request { rs.Append(CountRequest{Word: word}) })
-	client.g.Values.Count
+func scripted(g Given, sent sync.Ref[[]Request]) Client {
+	Client{
+		opFind: func(q tools.Query) []tools.Hit {
+			sent.Update(func(rs []Request) []Request { rs.Append(FindRequest{Q: q}) })
+			g.Values.Find
+		},
+		opCount: func(word string) int {
+			sent.Update(func(rs []Request) []Request { rs.Append(CountRequest{Word: word}) })
+			g.Values.Count
+		},
+	}
 }
 
 func callChecked(client CheckedClient, r Request) Outcome fails rpc.Transport {
@@ -217,7 +216,7 @@ func callChecked(client CheckedClient, r Request) Outcome fails rpc.Transport {
 law CallIsTheOperation(r Request, g Given) {
 	let want = OutcomeOf(r, g)
 	let sent = sync.NewRef[[]Request]([]Request{})
-	let got = with context { tools.Search: scripted{g: g, sent: sent} } { Call(r) }
+	let got = with context { tools.Search: scripted(g, sent) } { Call(r) }
 	got == want && sent.Get() == []Request{r}
 }
 
@@ -226,11 +225,11 @@ law CallIsTheOperation(r Request, g Given) {
 law ClientIsCall(r Request, g Given) {
 	let want = OutcomeOf(r, g)
 	let sent = sync.NewRef[[]Request]([]Request{})
-	let inner = scripted{g: g, sent: sent}
+	let inner = scripted(g, sent)
 	let outer = NewClient(inner)
 	let got = with context { tools.Search: outer } { Call(r) }
 	let sentChecked = sync.NewRef[[]Request]([]Request{})
-	let innerChecked = scripted{g: g, sent: sentChecked}
+	let innerChecked = scripted(g, sentChecked)
 	let checked = NewCheckedClient(func(q Request) Outcome fails rpc.Transport {
 		with context { tools.Search: innerChecked } { Call(q) }
 	})

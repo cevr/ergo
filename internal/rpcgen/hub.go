@@ -226,7 +226,7 @@ func (g *hubGen) failures(ops []Op) {
 }
 
 // hubFixed are the hub's own declarations.
-var hubFixed = []string{"Request", "Op", "Reply", "Failure", "Outcome", "Done", "Rejected", "Values", "Given", "OutcomeOf", "Client", "NewClient", "BoundClient", "ClientInForce", "CheckedClient", "NewCheckedClient", "OpOf", "Name", "Doc", "Schema", "Call", "CallIsTheOperation", "ClientIsCall", "inRow", "scripted", "callChecked", "valueOf", NoFailure}
+var hubFixed = []string{"Request", "Op", "Reply", "Failure", "Outcome", "Done", "Rejected", "Values", "Given", "OutcomeOf", "Client", "NewClient", "ClientInForce", "CheckedClient", "NewCheckedClient", "OpOf", "Name", "Doc", "Schema", "Call", "CallIsTheOperation", "ClientIsCall", "inRow", "scripted", "callChecked", "valueOf", NoFailure}
 
 // hubLocals are the names a Client function uses beside the operation's
 // parameters (the only place they are in scope): a parameter of one of
@@ -510,14 +510,96 @@ func (g *hubGen) hasTransport(op Op) bool {
 	return false
 }
 
-// client writes Client and BoundClient (zero-overhead typed per-operation invokes
-// implementing the contract) and CheckedClient (erased Request -> Outcome calls
-// returning rpc.Transport on a mismatched reply or an outside-row failure).
+// freshName returns base unless it clashes with a parameter name in ops or an
+// imported package name, in which case it appends a small integer suffix.
+func (g *hubGen) freshName(base string, ops []Op) string {
+	used := map[string]bool{}
+	for _, name := range g.imports {
+		used[name] = true
+	}
+	for _, op := range ops {
+		for _, p := range op.Params {
+			used[p.Name] = true
+		}
+	}
+	if !used[base] {
+		return base
+	}
+	for i := 0; ; i++ {
+		cand := fmt.Sprintf("%s%d", base, i)
+		if !used[cand] {
+			return cand
+		}
+	}
+}
+
+// opFuncSig formats the parameter list, return type, and failure row of op
+// (everything after "func" or "func Name").
+func (g *hubGen) opFuncSig(op Op, named bool) string {
+	var params []string
+	for _, p := range op.Params {
+		if named {
+			params = append(params, p.Name+" "+g.expr(p.Type))
+		} else {
+			params = append(params, g.expr(p.Type))
+		}
+	}
+	sig := "(" + strings.Join(params, ", ") + ")"
+	if op.Result != nil {
+		sig += " " + g.expr(op.Result)
+	}
+	if len(op.Fails) > 0 {
+		var fs []string
+		for _, f := range op.Fails {
+			fs = append(fs, g.expr(f))
+		}
+		sig += " fails " + strings.Join(fs, " | ")
+	}
+	return sig
+}
+
+// client writes Client (zero-overhead typed per-operation invokes implementing
+// the contract, built from a concrete provider or the Context in force) and
+// CheckedClient (erased Request -> Outcome calls returning rpc.Transport on a
+// mismatched reply or an outside-row failure).
 func (g *hubGen) client(b *strings.Builder, capName string, ops []Op) {
 	pkgName := APIDir(lastElem(g.path))
-	fmt.Fprintf(b, "// Client provides %s by invoking inner directly per operation: a direct\n// call returns its exact value or declared failure row with no Outcome boxing.\n", capName)
-	fmt.Fprintf(b, "type Client { inner %s } implements %s\n\n", capName, capName)
-	fmt.Fprintf(b, "// NewClient is the %s that invokes inner directly per operation.\nfunc NewClient(inner %s) Client { Client{inner: inner} }\n", capName, capName)
+	var fields []string
+	for _, op := range ops {
+		fields = append(fields, "op"+op.Name+" func"+g.opFuncSig(op, false))
+	}
+	fmt.Fprintf(b, "// Client provides %s by invoking typed per-operation handlers directly:\n// a direct call returns its exact value or declared failure row with no Outcome boxing.\n", capName)
+	fmt.Fprintf(b, "type Client { %s } implements %s\n\n", strings.Join(fields, ", "), capName)
+
+	innerVar := g.freshName("inner", ops)
+	fmt.Fprintf(b, "// NewClient is the %s that invokes %s directly per operation.\nfunc NewClient(%s %s) Client {\nClient{\n", capName, innerVar, innerVar, capName)
+	for _, op := range ops {
+		var args []string
+		for _, p := range op.Params {
+			args = append(args, p.Name)
+		}
+		prefix := ""
+		if len(op.Fails) > 0 {
+			prefix = "try "
+		}
+		fmt.Fprintf(b, "op%s: func%s { %s%s.%s(%s) },\n", op.Name, g.opFuncSig(op, true), prefix, innerVar, op.Name, strings.Join(args, ", "))
+	}
+	b.WriteString("}\n}\n\n")
+
+	heldVar := g.freshName("held", ops)
+	fmt.Fprintf(b, "// ClientInForce is the %s that invokes the provider currently in force.\nfunc ClientInForce() Client needs %s {\nlet %s = InForce[%s]()\nClient{\n", capName, capName, heldVar, capName)
+	for _, op := range ops {
+		var args []string
+		for _, p := range op.Params {
+			args = append(args, p.Name)
+		}
+		prefix := ""
+		if len(op.Fails) > 0 {
+			prefix = "try "
+		}
+		fmt.Fprintf(b, "op%s: func%s { with %s { %s%s.%s(%s) } },\n", op.Name, g.opFuncSig(op, true), heldVar, prefix, capName, op.Name, strings.Join(args, ", "))
+	}
+	b.WriteString("}\n}\n")
 
 	for _, op := range ops {
 		var params, args []string
@@ -540,34 +622,7 @@ func (g *hubGen) client(b *strings.Builder, capName string, ops []Op) {
 		if len(op.Fails) > 0 {
 			prefix = "try "
 		}
-		fmt.Fprintf(b, "\n// %s invokes %s's %s directly.\n%s {\n%sclient.inner.%s(%s)\n}\n", op.Name, capName, op.Name, sig, prefix, op.Name, strings.Join(args, ", "))
-	}
-
-	fmt.Fprintf(b, "\n// BoundClient provides %s over a held Context captured by ClientInForce.\ntype BoundClient { held Context[%s] } implements %s\n\n", capName, capName, capName)
-	fmt.Fprintf(b, "// ClientInForce is the %s that invokes the provider currently in force.\nfunc ClientInForce() BoundClient needs %s { BoundClient{held: InForce[%s]()} }\n", capName, capName, capName)
-
-	for _, op := range ops {
-		var params, args []string
-		for _, p := range op.Params {
-			params = append(params, p.Name+" "+g.expr(p.Type))
-			args = append(args, p.Name)
-		}
-		sig := fmt.Sprintf("func %s(%s)", op.Name, strings.Join(append([]string{"client BoundClient"}, params...), ", "))
-		if op.Result != nil {
-			sig += " " + g.expr(op.Result)
-		}
-		if len(op.Fails) > 0 {
-			var fs []string
-			for _, f := range op.Fails {
-				fs = append(fs, g.expr(f))
-			}
-			sig += " fails " + strings.Join(fs, " | ")
-		}
-		prefix := ""
-		if len(op.Fails) > 0 {
-			prefix = "try "
-		}
-		fmt.Fprintf(b, "\n// %s invokes %s's %s on the held context.\n%s {\nwith client.held { %s%s.%s(%s) }\n}\n", op.Name, capName, op.Name, sig, prefix, capName, op.Name, strings.Join(args, ", "))
+		fmt.Fprintf(b, "\n// %s invokes %s's %s directly.\n%s {\n%sclient.op%s(%s)\n}\n", op.Name, capName, op.Name, sig, prefix, op.Name, strings.Join(args, ", "))
 	}
 
 	fmt.Fprintf(b, "\n// CheckedClient carries erased %s requests over send and validates each\n// Outcome against the requested operation, failing rpc.Transport on a\n// sibling reply or a failure outside the operation's row.\n", capName)
@@ -673,33 +728,25 @@ func (g *hubGen) laws(b *strings.Builder, capName string, ops []Op) {
 	}
 	b.WriteString("}\n}\n\n")
 
-	fmt.Fprintf(b, "// scripted is a %s that keeps each Request it is sent and answers g.\ntype scripted { g Given, sent sync.Ref[[]Request] } implements %s\n", capName, capName)
+	gVar := g.freshName("g", ops)
+	sentVar := g.freshName("sent", ops)
+	fmt.Fprintf(b, "// scripted is a Client that keeps each Request it is sent and answers %s.\nfunc scripted(%s Given, %s sync.Ref[[]Request]) Client {\nClient{\n", gVar, gVar, sentVar)
 	for _, op := range ops {
-		var params, fields []string
+		var fields []string
 		for _, p := range op.Params {
-			params = append(params, p.Name+" "+g.expr(p.Type))
 			fields = append(fields, FieldName(p.Name)+": "+p.Name)
-		}
-		sig := fmt.Sprintf("func %s(%s)", op.Name, strings.Join(append([]string{"client scripted"}, params...), ", "))
-		if op.Result != nil {
-			sig += " " + g.expr(op.Result)
-		}
-		if len(op.Fails) > 0 {
-			var fs []string
-			for _, f := range op.Fails {
-				fs = append(fs, g.expr(f))
-			}
-			sig += " fails " + strings.Join(fs, " | ")
 		}
 		req := RequestName(op.Name)
 		if len(fields) > 0 {
 			req += "{" + strings.Join(fields, ", ") + "}"
 		}
-		fmt.Fprintf(b, "\n%s {\nclient.sent.Update(func(rs []Request) []Request { rs.Append(%s) })\n", sig, req)
+		rsVar := g.freshName("rs", []Op{op})
+		errVar := g.freshName("err", []Op{op})
+		fmt.Fprintf(b, "op%s: func%s {\n%s.Update(func(%s []Request) []Request { %s.Append(%s) })\n", op.Name, g.opFuncSig(op, true), sentVar, rsVar, rsVar, req)
 		if len(op.Fails) > 0 {
-			b.WriteString("if client.g.Failing {\nmatch client.g.Failure {\n")
+			fmt.Fprintf(b, "if %s.Failing {\nmatch %s.Failure {\n", gVar, gVar)
 			for _, f := range op.Fails {
-				fmt.Fprintf(b, "case %s as err:\nreturn err.E\n", g.variant(f))
+				fmt.Fprintf(b, "case %s as %s:\nreturn %s.E\n", g.variant(f), errVar, errVar)
 			}
 			if !g.covers(op) {
 				b.WriteString("case _:\n")
@@ -707,11 +754,11 @@ func (g *hubGen) laws(b *strings.Builder, capName string, ops []Op) {
 			b.WriteString("}\n}\n")
 		}
 		if op.Result != nil {
-			fmt.Fprintf(b, "client.g.Values.%s\n", op.Name)
+			fmt.Fprintf(b, "%s.Values.%s\n", gVar, op.Name)
 		}
-		b.WriteString("}\n")
+		b.WriteString("},\n")
 	}
-	b.WriteString("\n")
+	b.WriteString("}\n}\n\n")
 
 	b.WriteString("// callChecked dispatches r through client and encodes its typed outcome.\nfunc callChecked(client CheckedClient, r Request) Outcome fails rpc.Transport {\nmatch r {\n")
 	for _, op := range ops {
@@ -744,8 +791,8 @@ func (g *hubGen) laws(b *strings.Builder, capName string, ops []Op) {
 	}
 	b.WriteString("}\n}\n\n")
 
-	fmt.Fprintf(b, "// CallIsTheOperation: Call(r) calls r's operation once, with r's\n// arguments, and answers its value or failure as r's own Outcome.\nlaw CallIsTheOperation(r Request, g Given) {\nlet want = OutcomeOf(r, g)\nlet sent = sync.NewRef[[]Request]([]Request{})\nlet got = with context { %s: scripted{g: g, sent: sent} } { Call(r) }\ngot == want && sent.Get() == []Request{r}\n}\n\n", capName)
-	fmt.Fprintf(b, "// ClientIsCall: a direct Client and a CheckedClient over Call both\n// answer each call as the provider Call is bound to does.\nlaw ClientIsCall(r Request, g Given) {\nlet want = OutcomeOf(r, g)\nlet sent = sync.NewRef[[]Request]([]Request{})\nlet inner = scripted{g: g, sent: sent}\nlet outer = NewClient(inner)\nlet got = with context { %s: outer } { Call(r) }\nlet sentChecked = sync.NewRef[[]Request]([]Request{})\nlet innerChecked = scripted{g: g, sent: sentChecked}\nlet checked = NewCheckedClient(func(q Request) Outcome fails rpc.Transport {\nwith context { %s: innerChecked } { Call(q) }\n})\nlet gotChecked = callChecked(checked, r) catch {\ncase rpc.Transport:\nreturn false\n}\ngot == want && sent.Get() == []Request{r} && gotChecked == want && sentChecked.Get() == []Request{r}\n}\n", capName, capName)
+	fmt.Fprintf(b, "// CallIsTheOperation: Call(r) calls r's operation once, with r's\n// arguments, and answers its value or failure as r's own Outcome.\nlaw CallIsTheOperation(r Request, g Given) {\nlet want = OutcomeOf(r, g)\nlet sent = sync.NewRef[[]Request]([]Request{})\nlet got = with context { %s: scripted(g, sent) } { Call(r) }\ngot == want && sent.Get() == []Request{r}\n}\n\n", capName)
+	fmt.Fprintf(b, "// ClientIsCall: a direct Client and a CheckedClient over Call both\n// answer each call as the provider Call is bound to does.\nlaw ClientIsCall(r Request, g Given) {\nlet want = OutcomeOf(r, g)\nlet sent = sync.NewRef[[]Request]([]Request{})\nlet inner = scripted(g, sent)\nlet outer = NewClient(inner)\nlet got = with context { %s: outer } { Call(r) }\nlet sentChecked = sync.NewRef[[]Request]([]Request{})\nlet innerChecked = scripted(g, sentChecked)\nlet checked = NewCheckedClient(func(q Request) Outcome fails rpc.Transport {\nwith context { %s: innerChecked } { Call(q) }\n})\nlet gotChecked = callChecked(checked, r) catch {\ncase rpc.Transport:\nreturn false\n}\ngot == want && sent.Get() == []Request{r} && gotChecked == want && sentChecked.Get() == []Request{r}\n}\n", capName, capName)
 }
 
 // importBlock imports each package the declarations text names.

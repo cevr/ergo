@@ -2,4 +2,4 @@ kind api
 generator ergo gen api
 subject domain-search/domains.Registry
 contract sha256:1545321e0e5a77479b2f08d1bffff2969d4da47d7663529486cde203c13468cd
-digest sha256:4ea198ce12fe5ca780bdac19042e04aa1756d0fafd337773d6f130616c1aca2e
+digest sha256:aaa035e65a71e04bb189107d83b3c381ba9f8db3ed003a2b90bb6b46f9c43c0b
