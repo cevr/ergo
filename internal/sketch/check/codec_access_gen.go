@@ -2661,16 +2661,18 @@ func CodecFieldsOf_taskNode(v *taskNode) CodecFields_taskNode {
 }
 
 type CodecFields_testState struct {
-	F_stray       *map[*syntax.AssertStmt]bool
-	F_names       *map[string]string
-	F_all         *[]*Test
-	F_ranks       **ValueRanks
-	F_sees        *map[*Package]bool
-	F_testPlanned *bool
+	F_stray          *map[*syntax.AssertStmt]bool
+	F_strayAlways    *map[*syntax.AlwaysStmt]bool
+	F_straySometimes *map[*syntax.SometimesStmt]bool
+	F_names          *map[string]string
+	F_all            *[]*Test
+	F_ranks          **ValueRanks
+	F_sees           *map[*Package]bool
+	F_testPlanned    *bool
 }
 
 func CodecFieldsOf_testState(v *testState) CodecFields_testState {
-	return CodecFields_testState{F_stray: &v.stray, F_names: &v.names, F_all: &v.all, F_ranks: &v.ranks, F_sees: &v.sees, F_testPlanned: &v.testPlanned}
+	return CodecFields_testState{F_stray: &v.stray, F_strayAlways: &v.strayAlways, F_straySometimes: &v.straySometimes, F_names: &v.names, F_all: &v.all, F_ranks: &v.ranks, F_sees: &v.sees, F_testPlanned: &v.testPlanned}
 }
 
 type CodecFields_trimmedNode struct {

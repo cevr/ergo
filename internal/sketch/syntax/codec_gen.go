@@ -3,6 +3,21 @@
 
 package syntax
 
+func (e *encoder) encFieldsAlwaysStmt(v *AlwaysStmt) {
+	e.encPos(v.Always)
+	e.encExpr(v.X)
+}
+
+func (e *encoder) encAlwaysStmt(v AlwaysStmt) { e.encFieldsAlwaysStmt(&v) }
+
+func (e *encoder) encPtrAlwaysStmt(v *AlwaysStmt) {
+	if v == nil {
+		e.uint(0)
+		return
+	}
+	e.uint(e.id(v))
+}
+
 func (e *encoder) encFieldsArrayType(v *ArrayType) {
 	e.encPos(v.Lbrack)
 	e.encT1(v.Len)
@@ -700,6 +715,8 @@ func (e *encoder) encFieldsLawDecl(v *LawDecl) {
 	e.encPtrCommentGroup(v.Doc)
 	e.encPos(v.Law)
 	e.encPtrIdent(v.Name)
+	e.encPos(v.QuantPos)
+	e.encT1(v.Quant)
 	e.encPtrFieldList(v.TypeParams)
 	e.encPtrFieldList(v.Params)
 	e.encPtrBlockStmt(v.Body)
@@ -946,6 +963,21 @@ func (e *encoder) encFieldsSliceExpr(v *SliceExpr) {
 func (e *encoder) encSliceExpr(v SliceExpr) { e.encFieldsSliceExpr(&v) }
 
 func (e *encoder) encPtrSliceExpr(v *SliceExpr) {
+	if v == nil {
+		e.uint(0)
+		return
+	}
+	e.uint(e.id(v))
+}
+
+func (e *encoder) encFieldsSometimesStmt(v *SometimesStmt) {
+	e.encPos(v.Sometimes)
+	e.encExpr(v.X)
+}
+
+func (e *encoder) encSometimesStmt(v SometimesStmt) { e.encFieldsSometimesStmt(&v) }
+
+func (e *encoder) encPtrSometimesStmt(v *SometimesStmt) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1208,8 +1240,6 @@ func (e *encoder) encPtrVariantSpec(v *VariantSpec) {
 
 func (e *encoder) encPos(v Pos) { e.int(int64(v)) }
 
-func (e *encoder) encT1(v string) { e.string(string(v)) }
-
 func (e *encoder) encExpr(v Expr) {
 	if IsNil(v) {
 		e.uint(0)
@@ -1217,6 +1247,8 @@ func (e *encoder) encExpr(v Expr) {
 	}
 	e.uint(e.id(v))
 }
+
+func (e *encoder) encT1(v string) { e.string(string(v)) }
 
 func (e *encoder) encT2(v []Expr) {
 	if v == nil {
@@ -1513,150 +1545,154 @@ func (e *encoder) encT23(v int) { e.int(int64(v)) }
 // objTag is the table tag of x's type, or 0 when x is no table object.
 func objTag(x any) uint64 {
 	switch x.(type) {
-	case *ArrayType:
+	case *AlwaysStmt:
 		return 1
-	case *AsPattern:
+	case *ArrayType:
 		return 2
-	case *AssertStmt:
+	case *AsPattern:
 		return 3
-	case *AssignStmt:
+	case *AssertStmt:
 		return 4
-	case *BasicLit:
+	case *AssignStmt:
 		return 5
-	case *BinaryExpr:
+	case *BasicLit:
 		return 6
-	case *BlockStmt:
+	case *BinaryExpr:
 		return 7
-	case *BranchStmt:
+	case *BlockStmt:
 		return 8
-	case *CallExpr:
+	case *BranchStmt:
 		return 9
-	case *CaseClause:
+	case *CallExpr:
 		return 10
-	case *CatchArm:
+	case *CaseClause:
 		return 11
-	case *CatchExpr:
+	case *CatchArm:
 		return 12
-	case *Comment:
+	case *CatchExpr:
 		return 13
-	case *CommentGroup:
+	case *Comment:
 		return 14
-	case *CompositeLit:
+	case *CommentGroup:
 		return 15
-	case *ContextBody:
+	case *CompositeLit:
 		return 16
-	case *ContextDecl:
+	case *ContextBody:
 		return 17
-	case *ContextEntry:
+	case *ContextDecl:
 		return 18
-	case *ContextLit:
+	case *ContextEntry:
 		return 19
-	case *DeclStmt:
+	case *ContextLit:
 		return 20
-	case *DieStmt:
+	case *DeclStmt:
 		return 21
-	case *ErrorRow:
+	case *DieStmt:
 		return 22
-	case *ExprStmt:
+	case *ErrorRow:
 		return 23
-	case *ExternSpec:
+	case *ExprStmt:
 		return 24
-	case *Field:
+	case *ExternSpec:
 		return 25
-	case *FieldList:
+	case *Field:
 		return 26
-	case *File:
+	case *FieldList:
 		return 27
-	case *ForStmt:
+	case *File:
 		return 28
-	case *FuncDecl:
+	case *ForStmt:
 		return 29
-	case *FuncLit:
+	case *FuncDecl:
 		return 30
-	case *FuncType:
+	case *FuncLit:
 		return 31
-	case *Harness:
+	case *FuncType:
 		return 32
-	case *Ident:
+	case *Harness:
 		return 33
-	case *IfStmt:
+	case *Ident:
 		return 34
-	case *ImportDecl:
+	case *IfStmt:
 		return 35
-	case *ImportSpec:
+	case *ImportDecl:
 		return 36
-	case *IndexExpr:
+	case *ImportSpec:
 		return 37
-	case *InterfaceType:
+	case *IndexExpr:
 		return 38
-	case *InterpolatedString:
+	case *InterfaceType:
 		return 39
-	case *KeyValueExpr:
+	case *InterpolatedString:
 		return 40
-	case *LawDecl:
+	case *KeyValueExpr:
 		return 41
-	case *LawEquation:
+	case *LawDecl:
 		return 42
-	case *LawReach:
+	case *LawEquation:
 		return 43
-	case *LawRewrite:
+	case *LawReach:
 		return 44
-	case *MachineEntry:
+	case *LawRewrite:
 		return 45
-	case *MachineType:
+	case *MachineEntry:
 		return 46
-	case *MapType:
+	case *MachineType:
 		return 47
-	case *NeedsClause:
+	case *MapType:
 		return 48
-	case *OrPattern:
+	case *NeedsClause:
 		return 49
-	case *ParenExpr:
+	case *OrPattern:
 		return 50
-	case *ProvidesClause:
+	case *ParenExpr:
 		return 51
-	case *RangeStmt:
+	case *ProvidesClause:
 		return 52
-	case *ReturnStmt:
+	case *RangeStmt:
 		return 53
-	case *SelectorExpr:
+	case *ReturnStmt:
 		return 54
-	case *SkipStmt:
+	case *SelectorExpr:
 		return 55
-	case *SliceExpr:
+	case *SkipStmt:
 		return 56
-	case *StarExpr:
+	case *SliceExpr:
 		return 57
-	case *StructType:
+	case *SometimesStmt:
 		return 58
-	case *SwitchStmt:
+	case *StarExpr:
 		return 59
-	case *TakesClause:
+	case *StructType:
 		return 60
-	case *TestDecl:
+	case *SwitchStmt:
 		return 61
-	case *TryExpr:
+	case *TakesClause:
 		return 62
-	case *TupleExpr:
+	case *TestDecl:
 		return 63
-	case *TypeDecl:
+	case *TryExpr:
 		return 64
-	case *TypeGuard:
+	case *TupleExpr:
 		return 65
-	case *TypeSwitchStmt:
+	case *TypeDecl:
 		return 66
-	case *TypeTerm:
+	case *TypeGuard:
 		return 67
-	case *UnaryExpr:
+	case *TypeSwitchStmt:
 		return 68
-	case *VarDecl:
+	case *TypeTerm:
 		return 69
-	case *VarSpec:
+	case *UnaryExpr:
 		return 70
-	case *VariantSpec:
+	case *VarDecl:
 		return 71
-	case *Word:
+	case *VarSpec:
 		return 72
+	case *VariantSpec:
+		return 73
+	case *Word:
+		return 74
 	}
 	return 0
 }
@@ -1664,6 +1700,8 @@ func objTag(x any) uint64 {
 // encObj writes the fields of the table object x.
 func (e *encoder) encObj(x any) {
 	switch x := x.(type) {
+	case *AlwaysStmt:
+		e.encFieldsAlwaysStmt(x)
 	case *ArrayType:
 		e.encFieldsArrayType(x)
 	case *AsPattern:
@@ -1776,6 +1814,8 @@ func (e *encoder) encObj(x any) {
 		e.encFieldsSkipStmt(x)
 	case *SliceExpr:
 		e.encFieldsSliceExpr(x)
+	case *SometimesStmt:
+		e.encFieldsSometimesStmt(x)
 	case *StarExpr:
 		e.encFieldsStarExpr(x)
 	case *StructType:
@@ -1809,6 +1849,24 @@ func (e *encoder) encObj(x any) {
 	case *Word:
 		e.encFieldsWord(x)
 	}
+}
+
+func (d *decoder) decFieldsAlwaysStmt(v *AlwaysStmt) {
+	v.Always = d.decPos()
+	v.X = d.decExpr()
+}
+
+func (d *decoder) decAlwaysStmt() (v AlwaysStmt) {
+	d.decFieldsAlwaysStmt(&v)
+	return v
+}
+
+func (d *decoder) decPtrAlwaysStmt() *AlwaysStmt {
+	x := d.obj(d.uint())
+	if x == nil {
+		return nil
+	}
+	return x.(*AlwaysStmt)
 }
 
 func (d *decoder) decFieldsArrayType(v *ArrayType) {
@@ -2628,6 +2686,8 @@ func (d *decoder) decFieldsLawDecl(v *LawDecl) {
 	v.Doc = d.decPtrCommentGroup()
 	v.Law = d.decPos()
 	v.Name = d.decPtrIdent()
+	v.QuantPos = d.decPos()
+	v.Quant = d.decT1()
 	v.TypeParams = d.decPtrFieldList()
 	v.Params = d.decPtrFieldList()
 	v.Body = d.decPtrBlockStmt()
@@ -2921,6 +2981,24 @@ func (d *decoder) decPtrSliceExpr() *SliceExpr {
 		return nil
 	}
 	return x.(*SliceExpr)
+}
+
+func (d *decoder) decFieldsSometimesStmt(v *SometimesStmt) {
+	v.Sometimes = d.decPos()
+	v.X = d.decExpr()
+}
+
+func (d *decoder) decSometimesStmt() (v SometimesStmt) {
+	d.decFieldsSometimesStmt(&v)
+	return v
+}
+
+func (d *decoder) decPtrSometimesStmt() *SometimesStmt {
+	x := d.obj(d.uint())
+	if x == nil {
+		return nil
+	}
+	return x.(*SometimesStmt)
 }
 
 func (d *decoder) decFieldsStarExpr(v *StarExpr) {
@@ -3223,8 +3301,6 @@ func (d *decoder) decPtrVariantSpec() *VariantSpec {
 
 func (d *decoder) decPos() Pos { return Pos(d.int()) }
 
-func (d *decoder) decT1() string { return string(d.string()) }
-
 func (d *decoder) decExpr() Expr {
 	x := d.obj(d.uint())
 	if x == nil {
@@ -3232,6 +3308,8 @@ func (d *decoder) decExpr() Expr {
 	}
 	return x.(Expr)
 }
+
+func (d *decoder) decT1() string { return string(d.string()) }
 
 func (d *decoder) decT2() []Expr {
 	n := d.uint()
@@ -3558,148 +3636,152 @@ func (d *decoder) decT23() int { return int(d.int()) }
 func newObj(tag uint64) any {
 	switch tag {
 	case 1:
-		return new(ArrayType)
+		return new(AlwaysStmt)
 	case 2:
-		return new(AsPattern)
+		return new(ArrayType)
 	case 3:
-		return new(AssertStmt)
+		return new(AsPattern)
 	case 4:
-		return new(AssignStmt)
+		return new(AssertStmt)
 	case 5:
-		return new(BasicLit)
+		return new(AssignStmt)
 	case 6:
-		return new(BinaryExpr)
+		return new(BasicLit)
 	case 7:
-		return new(BlockStmt)
+		return new(BinaryExpr)
 	case 8:
-		return new(BranchStmt)
+		return new(BlockStmt)
 	case 9:
-		return new(CallExpr)
+		return new(BranchStmt)
 	case 10:
-		return new(CaseClause)
+		return new(CallExpr)
 	case 11:
-		return new(CatchArm)
+		return new(CaseClause)
 	case 12:
-		return new(CatchExpr)
+		return new(CatchArm)
 	case 13:
-		return new(Comment)
+		return new(CatchExpr)
 	case 14:
-		return new(CommentGroup)
+		return new(Comment)
 	case 15:
-		return new(CompositeLit)
+		return new(CommentGroup)
 	case 16:
-		return new(ContextBody)
+		return new(CompositeLit)
 	case 17:
-		return new(ContextDecl)
+		return new(ContextBody)
 	case 18:
-		return new(ContextEntry)
+		return new(ContextDecl)
 	case 19:
-		return new(ContextLit)
+		return new(ContextEntry)
 	case 20:
-		return new(DeclStmt)
+		return new(ContextLit)
 	case 21:
-		return new(DieStmt)
+		return new(DeclStmt)
 	case 22:
-		return new(ErrorRow)
+		return new(DieStmt)
 	case 23:
-		return new(ExprStmt)
+		return new(ErrorRow)
 	case 24:
-		return new(ExternSpec)
+		return new(ExprStmt)
 	case 25:
-		return new(Field)
+		return new(ExternSpec)
 	case 26:
-		return new(FieldList)
+		return new(Field)
 	case 27:
-		return new(File)
+		return new(FieldList)
 	case 28:
-		return new(ForStmt)
+		return new(File)
 	case 29:
-		return new(FuncDecl)
+		return new(ForStmt)
 	case 30:
-		return new(FuncLit)
+		return new(FuncDecl)
 	case 31:
-		return new(FuncType)
+		return new(FuncLit)
 	case 32:
-		return new(Harness)
+		return new(FuncType)
 	case 33:
-		return new(Ident)
+		return new(Harness)
 	case 34:
-		return new(IfStmt)
+		return new(Ident)
 	case 35:
-		return new(ImportDecl)
+		return new(IfStmt)
 	case 36:
-		return new(ImportSpec)
+		return new(ImportDecl)
 	case 37:
-		return new(IndexExpr)
+		return new(ImportSpec)
 	case 38:
-		return new(InterfaceType)
+		return new(IndexExpr)
 	case 39:
-		return new(InterpolatedString)
+		return new(InterfaceType)
 	case 40:
-		return new(KeyValueExpr)
+		return new(InterpolatedString)
 	case 41:
-		return new(LawDecl)
+		return new(KeyValueExpr)
 	case 42:
-		return new(LawEquation)
+		return new(LawDecl)
 	case 43:
-		return new(LawReach)
+		return new(LawEquation)
 	case 44:
-		return new(LawRewrite)
+		return new(LawReach)
 	case 45:
-		return new(MachineEntry)
+		return new(LawRewrite)
 	case 46:
-		return new(MachineType)
+		return new(MachineEntry)
 	case 47:
-		return new(MapType)
+		return new(MachineType)
 	case 48:
-		return new(NeedsClause)
+		return new(MapType)
 	case 49:
-		return new(OrPattern)
+		return new(NeedsClause)
 	case 50:
-		return new(ParenExpr)
+		return new(OrPattern)
 	case 51:
-		return new(ProvidesClause)
+		return new(ParenExpr)
 	case 52:
-		return new(RangeStmt)
+		return new(ProvidesClause)
 	case 53:
-		return new(ReturnStmt)
+		return new(RangeStmt)
 	case 54:
-		return new(SelectorExpr)
+		return new(ReturnStmt)
 	case 55:
-		return new(SkipStmt)
+		return new(SelectorExpr)
 	case 56:
-		return new(SliceExpr)
+		return new(SkipStmt)
 	case 57:
-		return new(StarExpr)
+		return new(SliceExpr)
 	case 58:
-		return new(StructType)
+		return new(SometimesStmt)
 	case 59:
-		return new(SwitchStmt)
+		return new(StarExpr)
 	case 60:
-		return new(TakesClause)
+		return new(StructType)
 	case 61:
-		return new(TestDecl)
+		return new(SwitchStmt)
 	case 62:
-		return new(TryExpr)
+		return new(TakesClause)
 	case 63:
-		return new(TupleExpr)
+		return new(TestDecl)
 	case 64:
-		return new(TypeDecl)
+		return new(TryExpr)
 	case 65:
-		return new(TypeGuard)
+		return new(TupleExpr)
 	case 66:
-		return new(TypeSwitchStmt)
+		return new(TypeDecl)
 	case 67:
-		return new(TypeTerm)
+		return new(TypeGuard)
 	case 68:
-		return new(UnaryExpr)
+		return new(TypeSwitchStmt)
 	case 69:
-		return new(VarDecl)
+		return new(TypeTerm)
 	case 70:
-		return new(VarSpec)
+		return new(UnaryExpr)
 	case 71:
-		return new(VariantSpec)
+		return new(VarDecl)
 	case 72:
+		return new(VarSpec)
+	case 73:
+		return new(VariantSpec)
+	case 74:
 		return new(Word)
 	}
 	return nil
@@ -3708,6 +3790,8 @@ func newObj(tag uint64) any {
 // decObj reads the fields of the table object x.
 func (d *decoder) decObj(x any) {
 	switch x := x.(type) {
+	case *AlwaysStmt:
+		d.decFieldsAlwaysStmt(x)
 	case *ArrayType:
 		d.decFieldsArrayType(x)
 	case *AsPattern:
@@ -3820,6 +3904,8 @@ func (d *decoder) decObj(x any) {
 		d.decFieldsSkipStmt(x)
 	case *SliceExpr:
 		d.decFieldsSliceExpr(x)
+	case *SometimesStmt:
+		d.decFieldsSometimesStmt(x)
 	case *StarExpr:
 		d.decFieldsStarExpr(x)
 	case *StructType:
