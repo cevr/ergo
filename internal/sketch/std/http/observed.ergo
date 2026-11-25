@@ -1,5 +1,6 @@
 import option
 import strconv
+import sync
 import time
 import trace
 
@@ -257,21 +258,25 @@ law ObservedHandlerRecordsCanonicalWideEvent(seed uint64, seg string, is5xx bool
 	true
 }
 
-// ObservedClientPropagatesTraceAcrossTwoHops: calling an ObservedHandler
-// service through ObservedClient from inside another ObservedHandler injects
-// W3C traceparent so both canonical wide events share TraceID, Service B's
-// ParentSpanID equals Service A's SpanID, outbound counters and timings
-// accumulate on Service A, and calls outside a span stay transparent no-ops.
+// ObservedClientPropagatesTraceAcrossTwoHops: a request sent through
+// ObservedClient from inside an ObservedHandler carries service A's span on
+// the wire as its W3C traceparent; ObservedHandler at service B, run on that
+// header alone with no state shared with A, continues it, so both canonical
+// wide events share TraceID and B's ParentSpanID is A's SpanID. Outbound
+// counters and timings accumulate on A, and a send outside a span carries no
+// traceparent.
 law ObservedClientPropagatesTraceAcrossTwoHops(pathSeg string, downstream5xx bool) {
 	let path = if pathSeg == "" { "/charge" } else { "/" + pathSeg }
 	let rec = trace.NewRecorder()
 	let clk = time.NewManual(2000)
 	let bStatus = if downstream5xx { 502 } else { 200 }
-	let handlerB = ObservedHandler("service-b", rec, clk, func(r Request) Response needs Streaming {
+	let noHop option.Option[string] = option.None
+	let onWire = sync.NewRef[option.Option[string]](noHop)
+	let clientB = ObservedClient(InMemory(func(r Request) Response needs Streaming {
+		onWire.Set(Header(r.Header, "traceparent"))
 		clk.Advance(7ms)
 		Response{Status: bStatus, Header: []Field{}, Body: "b-reply"}
-	})
-	let clientB = ObservedClient(InMemory(handlerB), clk)
+	}), clk)
 	let handlerA = ObservedHandler("service-a", rec, clk, func(r Request) Response needs Streaming {
 		clk.Advance(2ms)
 		let sub = clientB.Send(Request{Method: "GET", Path: path, RawPath: path, Query: []Field{}, Header: []Field{}, Body: Buffered{Text: ""}}) catch {
@@ -283,15 +288,30 @@ law ObservedClientPropagatesTraceAcrossTwoHops(pathSeg string, downstream5xx boo
 	let res = with context { Streaming: NewRecorder() } {
 		handlerA(Request{Method: "POST", Path: "/checkout", RawPath: "/checkout", Query: []Field{}, Header: []Field{}, Body: Buffered{Text: "{}"}})
 	}
+	let carried = onWire.Get()
+	let hop = match carried {
+	case option.Some[string] as v:
+		v.Value
+	case option.None:
+		return false
+	}
+	let handlerB = ObservedHandler("service-b", rec, clk, func(r Request) Response needs Streaming {
+		clk.Advance(3ms)
+		Response{Status: bStatus, Header: []Field{}, Body: "b-reply"}
+	})
+	let _ = with context { Streaming: NewRecorder() } {
+		handlerB(Request{Method: "GET", Path: path, RawPath: path, Query: []Field{}, Header: []Field{Field{Name: "traceparent", Value: hop}}, Body: Buffered{Text: ""}})
+	}
 	let events = rec.Events()
 	sometimes downstream5xx
 	sometimes !downstream5xx
 	always res.Status == bStatus
 	always events.Len() == 2
-	let evB = events[0]
-	let evA = events[1]
-	always evB.Service.Service == "service-b"
+	let evA = events[0]
+	let evB = events[1]
 	always evA.Service.Service == "service-a"
+	always evB.Service.Service == "service-b"
+	always hop == trace.FormatTraceparent(trace.TraceContext{TraceID: evA.TraceID, SpanID: evA.SpanID, Sampled: true})
 	always evB.TraceID == evA.TraceID
 	always evB.SpanID != evA.SpanID
 	always evB.ParentSpanID == option.Some[string]{Value: evA.SpanID}
