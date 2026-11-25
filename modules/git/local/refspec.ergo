@@ -1,0 +1,269 @@
+import option
+import slices
+import strings
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/refs
+
+func countByte(s string, target byte) int {
+	let mut n = 0
+	for b in s.Bytes() {
+		if b == target {
+			n = n + 1
+		}
+	}
+	n
+}
+
+func hasControlOrSpace(s string) bool {
+	for b in s.Bytes() {
+		if b <= byte(32) || b == byte(127) {
+			return true
+		}
+	}
+	false
+}
+
+func validateRefspecSide(spec string, side string, allowWildcard bool) fails InvalidRefspec {
+	if side == "" {
+		return InvalidRefspec{Spec: spec, Reason: "empty refspec side"}
+	}
+	if hasControlOrSpace(side) || strings.Contains(side, "..") || refs.IsPathEscape(side) {
+		return InvalidRefspec{Spec: spec, Reason: "unsafe refspec pattern: " + side}
+	}
+	let stars = countByte(side, byte('*'))
+	if stars > 1 || (stars == 1 && !allowWildcard) {
+		return InvalidRefspec{Spec: spec, Reason: "invalid wildcard count in refspec: " + side}
+	}
+	if stars == 0 {
+		if side != "HEAD" && !refs.ValidateRefName(side) {
+			return InvalidRefspec{Spec: spec, Reason: "invalid ref name in refspec: " + side}
+		}
+	} else {
+		let sample = strings.ReplaceAll(side, "*", "sample")
+		if !refs.ValidateRefName(sample) {
+			return InvalidRefspec{Spec: spec, Reason: "invalid wildcard ref pattern: " + side}
+		}
+	}
+}
+
+// ParseRefspec parses a Git refspec (`[+]src:dst`, `:dst` delete refspec, or
+// wildcard `+refs/heads/*:refs/remotes/origin/*`) and validates wildcard parity
+// and ref name syntax strictly.
+func ParseRefspec(spec string) Refspec fails InvalidRefspec {
+	if spec == "" {
+		return InvalidRefspec{Spec: spec, Reason: "empty refspec"}
+	}
+	let mut force = false
+	let mut body = spec
+	if strings.HasPrefix(body, "+") {
+		force = true
+		body = body[1:]
+	}
+	if body == "" {
+		return InvalidRefspec{Spec: spec, Reason: "empty refspec after '+'"}
+	}
+	let colonCount = countByte(body, byte(':'))
+	if colonCount > 1 {
+		return InvalidRefspec{Spec: spec, Reason: "multiple ':' separators in refspec"}
+	}
+	if colonCount == 0 {
+		try validateRefspecSide(spec, body, false)
+		return Refspec{
+			Force:    force,
+			Src:      body,
+			Dst:      body,
+			Wildcard: false,
+			IsDelete: false,
+		}
+	}
+	let colon = strings.Index(body, ":")
+	let src = body[:colon]
+	let dst = body[colon+1:]
+	if src == "" {
+		if dst == "" {
+			return InvalidRefspec{Spec: spec, Reason: "empty delete refspec ':'"}
+		}
+		try validateRefspecSide(spec, dst, false)
+		return Refspec{
+			Force:    force,
+			Src:      "",
+			Dst:      dst,
+			Wildcard: false,
+			IsDelete: true,
+		}
+	}
+	if dst == "" {
+		return InvalidRefspec{Spec: spec, Reason: "empty destination in refspec"}
+	}
+	let srcStars = countByte(src, byte('*'))
+	let dstStars = countByte(dst, byte('*'))
+	if srcStars != dstStars || srcStars > 1 {
+		return InvalidRefspec{Spec: spec, Reason: "wildcard '*' must appear once on both sides"}
+	}
+	let wild = srcStars == 1
+	try validateRefspecSide(spec, src, wild)
+	try validateRefspecSide(spec, dst, wild)
+	Refspec{
+		Force:    force,
+		Src:      src,
+		Dst:      dst,
+		Wildcard: wild,
+		IsDelete: false,
+	}
+}
+
+// FormatRefspec formats rs back into its canonical Git refspec string.
+func FormatRefspec(rs Refspec) string {
+	let prefix = if rs.Force { "+" } else { "" }
+	if rs.IsDelete {
+		return prefix + ":" + rs.Dst
+	}
+	prefix + rs.Src + ":" + rs.Dst
+}
+
+// MatchRefspec matches refName against rs.Src, returning the mapped destination
+// ref name when matched or option.None otherwise.
+func MatchRefspec(rs Refspec, refName string) option.Option[string] {
+	if rs.IsDelete {
+		return option.None
+	}
+	if !rs.Wildcard {
+		if refName == rs.Src {
+			return option.Some[string]{Value: rs.Dst}
+		}
+		return option.None
+	}
+	let srcStar = strings.Index(rs.Src, "*")
+	let dstStar = strings.Index(rs.Dst, "*")
+	let srcPre = rs.Src[:srcStar]
+	let srcSuf = rs.Src[srcStar+1:]
+	if !strings.HasPrefix(refName, srcPre) || !strings.HasSuffix(refName, srcSuf) {
+		return option.None
+	}
+	if refName.Len() < srcPre.Len()+srcSuf.Len() {
+		return option.None
+	}
+	let mid = refName[srcPre.Len() : refName.Len()-srcSuf.Len()]
+	if mid == "" {
+		return option.None
+	}
+	let dstPre = rs.Dst[:dstStar]
+	let dstSuf = rs.Dst[dstStar+1:]
+	option.Some[string]{Value: dstPre + mid + dstSuf}
+}
+
+func resolveSourceRefName(src string, srcRefs Map[string, oid.OID]) option.Option[(string, oid.OID)] {
+	match srcRefs.Get(src) {
+	case option.Some[oid.OID] as id:
+		return option.Some[(string, oid.OID)]{Value: (src, id.Value)}
+	case option.None:
+	}
+	if !strings.HasPrefix(src, "refs/") {
+		let headCand = "refs/heads/" + src
+		match srcRefs.Get(headCand) {
+		case option.Some[oid.OID] as id:
+			return option.Some[(string, oid.OID)]{Value: (headCand, id.Value)}
+		case option.None:
+		}
+		let tagCand = "refs/tags/" + src
+		match srcRefs.Get(tagCand) {
+		case option.Some[oid.OID] as id:
+			return option.Some[(string, oid.OID)]{Value: (tagCand, id.Value)}
+		case option.None:
+		}
+	}
+	option.None
+}
+
+func normalizeDstRefName(dst string, srcMatched string) string {
+	if strings.HasPrefix(dst, "refs/") {
+		return dst
+	}
+	if strings.HasPrefix(srcMatched, "refs/tags/") {
+		return "refs/tags/" + dst
+	}
+	"refs/heads/" + dst
+}
+
+// ExpandRefspecs expands ordered parsed Refspecs against source and destination
+// ref maps into deterministic PlannedRefUpdates sorted by destination ref name.
+func ExpandRefspecs(specs []Refspec, srcRefs Map[string, oid.OID], dstRefs Map[string, oid.OID], globalForce bool, allowDelete bool) []PlannedRefUpdate fails InvalidRefspec | MissingRef {
+	if specs.Len() == 0 {
+		return InvalidRefspec{Spec: "", Reason: "at least one refspec is required"}
+	}
+	let mut srcNames = []string{}
+	for name, _ in srcRefs {
+		srcNames = srcNames.Append(name)
+	}
+	let sortedSrc = slices.Sort(srcNames)
+
+	let mut byDst = Map[string, PlannedRefUpdate]{}
+	for rs in specs {
+		let effForce = rs.Force || globalForce
+		if rs.IsDelete {
+			if !allowDelete {
+				return InvalidRefspec{Spec: FormatRefspec(rs), Reason: "delete refspec is only valid for push"}
+			}
+			let dstName = if strings.HasPrefix(rs.Dst, "refs/") { rs.Dst } else { "refs/heads/" + rs.Dst }
+			byDst[dstName] = PlannedRefUpdate{
+				SrcRef: "",
+				DstRef: dstName,
+				OldOID: dstRefs.Get(dstName),
+				NewOID: option.None,
+				Force:  effForce,
+				Delete: true,
+			}
+			continue
+		}
+		if rs.Wildcard {
+			for name in sortedSrc {
+				match MatchRefspec(rs, name) {
+				case option.Some[string] as mapped:
+					match srcRefs.Get(name) {
+					case option.Some[oid.OID] as id:
+						byDst[mapped.Value] = PlannedRefUpdate{
+							SrcRef: name,
+							DstRef: mapped.Value,
+							OldOID: dstRefs.Get(mapped.Value),
+							NewOID: option.Some[oid.OID]{Value: id.Value},
+							Force:  effForce,
+							Delete: false,
+						}
+					case option.None:
+					}
+				case option.None:
+				}
+			}
+		} else {
+			match resolveSourceRefName(rs.Src, srcRefs) {
+			case option.None:
+				return MissingRef{Ref: rs.Src}
+			case option.Some[(string, oid.OID)] as found:
+				let (matchedSrc, id) = found.Value
+				let dstName = normalizeDstRefName(rs.Dst, matchedSrc)
+				byDst[dstName] = PlannedRefUpdate{
+					SrcRef: matchedSrc,
+					DstRef: dstName,
+					OldOID: dstRefs.Get(dstName),
+					NewOID: option.Some[oid.OID]{Value: id},
+					Force:  effForce,
+					Delete: false,
+				}
+			}
+		}
+	}
+
+	let mut dstNames = []string{}
+	for name, _ in byDst {
+		dstNames = dstNames.Append(name)
+	}
+	let mut out = slices.WithCapacity[PlannedRefUpdate](dstNames.Len())
+	for name in slices.Sort(dstNames) {
+		match byDst.Get(name) {
+		case option.Some[PlannedRefUpdate] as u:
+			out = out.Append(u.Value)
+		case option.None:
+		}
+	}
+	out
+}

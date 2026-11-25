@@ -1,0 +1,262 @@
+// Package local implements pure-Ergo local Git Fetch and Push with refspec
+// parsing and wildcard expansion, minimal reachable object-closure calculation,
+// quarantined pack publication, non-fast-forward / force-with-lease /
+// checked-out-branch safety guards, atomic ref batches, and a wire protocol v2
+// fetch bridge against live C `git upload-pack` (STD-GIT: G-LOCAL).
+
+import option
+import strings
+import github.com/cevr/ergo/modules/git/locks
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/wref
+
+// Error is the closed failure union for local Git fetch, push, refspec, and
+// wire-v2 transfer operations.
+type Error =
+	| InvalidRefspec{Spec string, Reason string}
+	| HashFormatMismatch{SrcFormat string, DstFormat string}
+	| NonFastForward{Ref string, OldOID oid.OID, NewOID oid.OID}
+	| LeaseMismatch{Ref string, Expected option.Option[oid.OID], Actual option.Option[oid.OID]}
+	| ReceiveCurrentBranch{Ref string}
+	| MissingRef{Ref string}
+	| MissingObject{OID oid.OID}
+	| DanglingObject{From oid.OID, Missing oid.OID}
+	| TransferFailed{Detail string}
+	| WireFailed{Detail string}
+	| RefUpdateFailed{Detail string}
+	| IOFailed{Op string, Detail string}
+
+// Refspec is a parsed Git fetch or push refspec (`[+]src:dst` or `:dst`).
+type Refspec {
+	Force    bool,
+	Src      string,
+	Dst      string,
+	Wildcard bool,
+	IsDelete bool,
+}
+
+// PlannedRefUpdate describes one concrete ref update or deletion produced by
+// expanding refspecs against source and destination reference snapshots.
+type PlannedRefUpdate {
+	SrcRef string,
+	DstRef string,
+	OldOID option.Option[oid.OID],
+	NewOID option.Option[oid.OID],
+	Force  bool,
+	Delete bool,
+}
+
+// FetchOptions configures local and wire-v2 fetch safety, durability, budgets,
+// and optional reflog recording.
+type FetchOptions {
+	Force      bool,
+	Durability locks.Durability,
+	MaxDepth   int,
+	MaxBytes   int,
+	Reflog     option.Option[wref.ReflogSpec],
+}
+
+// DefaultFetchOptions returns safe non-force fetch defaults.
+func DefaultFetchOptions() FetchOptions {
+	FetchOptions{
+		Force:      false,
+		Durability: locks.Durable,
+		MaxDepth:   64,
+		MaxBytes:   16777216,
+		Reflog:     option.None,
+	}
+}
+
+// PushOptions configures local push safety (non-FF refusal, force-with-lease
+// CAS map, receive.denyCurrentBranch refusal), durability, and reflog recording.
+type PushOptions {
+	Force              bool,
+	AllowUpdateCurrent bool,
+	ExpectedOldOIDs    Map[string, option.Option[oid.OID]],
+	Durability         locks.Durability,
+	MaxDepth           int,
+	MaxBytes           int,
+	Reflog             option.Option[wref.ReflogSpec],
+}
+
+// DefaultPushOptions returns safe non-force push defaults that refuse
+// non-fast-forward updates and pushes to a non-bare repo's checked-out branch.
+func DefaultPushOptions() PushOptions {
+	PushOptions{
+		Force:              false,
+		AllowUpdateCurrent: false,
+		ExpectedOldOIDs:    Map[string, option.Option[oid.OID]]{},
+		Durability:         locks.Durable,
+		MaxDepth:           64,
+		MaxBytes:           16777216,
+		Reflog:             option.None,
+	}
+}
+
+// TransferResult summarizes a completed Fetch, Push, or FetchOverWireV2 call.
+type TransferResult {
+	ObjectsTransferred int,
+	PackChecksum       option.Option[oid.OID],
+	Updates            []PlannedRefUpdate,
+}
+
+func sanitizeLawRefSegment(s string) string {
+	let mut out = []byte{}
+	for b in s.Bytes() {
+		let isLower = b >= byte('a') && b <= byte('z')
+		let isDigit = b >= byte('0') && b <= byte('9')
+		if isLower || isDigit {
+			out = out.Append(b)
+		}
+	}
+	if out.Len() == 0 {
+		return "main"
+	}
+	out.Text()
+}
+
+// LocalTransport is the capability seam for Git refspec codecs and push safety
+// policy checks, carrying laws held by DefaultLocalTransport.
+type LocalTransport {
+	ParseSpec(spec string) Refspec fails InvalidRefspec,
+	FormatSpec(rs Refspec) string,
+	CheckPolicy(dstRef string, oldOID option.Option[oid.OID], newOID option.Option[oid.OID], force bool, isAncestor bool, expectedMap Map[string, option.Option[oid.OID]], checkedOutBranch option.Option[string], allowUpdateCurrent bool) fails NonFastForward | LeaseMismatch | ReceiveCurrentBranch,
+
+	// RefspecRoundTrips: parsing, formatting, and re-parsing exact and wildcard
+	// refspecs preserves Force, Src, Dst, Wildcard, and IsDelete identically.
+	law RefspecRoundTrips(raw string, force bool) {
+		sometimes force
+		sometimes !force
+		let seg = sanitizeLawRefSegment(raw)
+		let prefix = if force { "+" } else { "" }
+		let exactStr = prefix + "refs/heads/" + seg + ":refs/remotes/origin/" + seg
+		let rs1 = ParseSpec(exactStr) catch {
+		case InvalidRefspec:
+			return false
+		}
+		let formatted1 = FormatSpec(rs1)
+		let rs1Again = ParseSpec(formatted1) catch {
+		case InvalidRefspec:
+			return false
+		}
+		always rs1.Force == force && !rs1.Wildcard && !rs1.IsDelete
+		always rs1Again.Force == rs1.Force && rs1Again.Src == rs1.Src && rs1Again.Dst == rs1.Dst
+
+		let globStr = prefix + "refs/heads/*:refs/remotes/origin/*"
+		let rs2 = ParseSpec(globStr) catch {
+		case InvalidRefspec:
+			return false
+		}
+		always rs2.Force == force && rs2.Wildcard && !rs2.IsDelete
+		always FormatSpec(rs2) == globStr
+		true
+	},
+
+	// PushRefusesNonFastForwardWithoutForce: a non-ancestor update is always
+	// refused with NonFastForward unless force is true.
+	law PushRefusesNonFastForwardWithoutForce(tag string) {
+		let oldId = oid.HashObject(oid.Sha1, oid.Blob, ("old-" + tag).Bytes()) catch {
+		case oid.Collision:
+			return true
+		}
+		let newId = oid.HashObject(oid.Sha1, oid.Blob, ("new-" + tag).Bytes()) catch {
+		case oid.Collision:
+			return true
+		}
+		if oid.Equal(oldId, newId) {
+			return true
+		}
+		let mut refused = false
+		CheckPolicy(
+			"refs/heads/main",
+			option.Some[oid.OID]{Value: oldId},
+			option.Some[oid.OID]{Value: newId},
+			false,
+			false,
+			Map[string, option.Option[oid.OID]]{},
+			option.None,
+			false,
+		) catch {
+		case NonFastForward:
+			refused = true
+		case LeaseMismatch, ReceiveCurrentBranch:
+		}
+		always refused
+
+		let mut forceAllowed = true
+		CheckPolicy(
+			"refs/heads/main",
+			option.Some[oid.OID]{Value: oldId},
+			option.Some[oid.OID]{Value: newId},
+			true,
+			false,
+			Map[string, option.Option[oid.OID]]{},
+			option.None,
+			false,
+		) catch {
+		case NonFastForward, LeaseMismatch, ReceiveCurrentBranch:
+			forceAllowed = false
+		}
+		always forceAllowed
+		true
+	},
+
+	// PushRefusesLeaseMismatchAndCheckedOutBranch: stale force-with-lease
+	// expectations fail LeaseMismatch and pushes to a checked-out non-bare
+	// branch fail ReceiveCurrentBranch.
+	law PushRefusesLeaseMismatchAndCheckedOutBranch(tag string) {
+		let curId = oid.HashObject(oid.Sha1, oid.Blob, ("cur-" + tag).Bytes()) catch {
+		case oid.Collision:
+			return true
+		}
+		let staleId = oid.HashObject(oid.Sha1, oid.Blob, ("stale-" + tag).Bytes()) catch {
+		case oid.Collision:
+			return true
+		}
+		let nextId = oid.HashObject(oid.Sha1, oid.Blob, ("next-" + tag).Bytes()) catch {
+		case oid.Collision:
+			return true
+		}
+		if oid.Equal(curId, staleId) {
+			return true
+		}
+		let refName = "refs/heads/" + sanitizeLawRefSegment(tag)
+		let mut leases = Map[string, option.Option[oid.OID]]{}
+		leases[refName] = option.Some[oid.OID]{Value: staleId}
+		let mut sawLease = false
+		CheckPolicy(
+			refName,
+			option.Some[oid.OID]{Value: curId},
+			option.Some[oid.OID]{Value: nextId},
+			true,
+			true,
+			leases,
+			option.None,
+			false,
+		) catch {
+		case LeaseMismatch as e:
+			sawLease = e.Ref == refName
+		case NonFastForward, ReceiveCurrentBranch:
+		}
+		always sawLease
+
+		let mut sawCurBranch = false
+		CheckPolicy(
+			refName,
+			option.Some[oid.OID]{Value: curId},
+			option.Some[oid.OID]{Value: nextId},
+			true,
+			true,
+			Map[string, option.Option[oid.OID]]{},
+			option.Some[string]{Value: refName},
+			false,
+		) catch {
+		case ReceiveCurrentBranch as e:
+			sawCurBranch = e.Ref == refName
+		case NonFastForward, LeaseMismatch:
+		}
+		always sawCurBranch
+		let _ = strings.HasPrefix(refName, "refs/heads/")
+		true
+	},
+}
