@@ -1,0 +1,704 @@
+// SelectedStrategy names a non-exhaustive path selection strategy over a
+// concrete transition graph.
+type SelectedStrategy = SelectedShortest{} | SelectedSimple{} | SelectedEdges{}
+
+// CoveragePromise distinguishes an exhaustive scoped plan from a selected subset.
+type CoveragePromise = ExhaustiveScope{} | SelectedSubset{Strategy SelectedStrategy}
+
+// IsExhaustivePromise reports whether p claims exhaustive coverage of its scope.
+func IsExhaustivePromise(p CoveragePromise) bool {
+	match p {
+	case ExhaustiveScope:
+		true
+	case SelectedSubset:
+		false
+	}
+}
+
+// SelectedPlan holds the checked result of a selected (non-exhaustive) path
+// strategy. Its Promise is always SelectedSubset, never ExhaustiveScope.
+type SelectedPlan[O] {
+	Stop     PathStop,
+	Strategy SelectedStrategy,
+	Promise  CoveragePromise,
+	Stats    PathStats,
+	Graph    PathGraph[O],
+	Cases    []PathCase,
+	admitted bool,
+}
+
+// SelectedCases returns the admitted cases of plan, or None if planning hit a
+// hard cap or validation error.
+func SelectedCases[O](plan SelectedPlan[O]) Option[[]PathCase] {
+	if !plan.admitted {
+		return None
+	}
+	Some[[]PathCase]{Value: plan.Cases}
+}
+
+func stoppedSelected[O](stop PathStop, strategy SelectedStrategy, st PathStats, graph PathGraph[O]) SelectedPlan[O] {
+	SelectedPlan[O]{
+		Stop:     stop,
+		Strategy: strategy,
+		Promise:  SelectedSubset{Strategy: strategy},
+		Stats:    st,
+		Graph:    graph,
+		Cases:    []PathCase{},
+		admitted: false,
+	}
+}
+
+func pushSelectedCase(cases []PathCase, c PathCase, bounds PathBounds, st mut PathStats) ([]PathCase, PathStop) {
+	let nextPaths = satAdd(st.Paths, 1)
+	if nextPaths > bounds.MaxPaths {
+		return (cases, PathOverPaths)
+	}
+	let stepLen = len(c.Edges)
+	let nextSteps = satAdd(st.Steps, stepLen)
+	if nextSteps > bounds.MaxSteps {
+		return (cases, PathOverSteps)
+	}
+	let addBytes = satAdd(24, satMul(stepLen, 16))
+	let nextBytes = satAdd(st.Bytes, addBytes)
+	if nextBytes > bounds.MaxBytes {
+		return (cases, PathOverBytes)
+	}
+	st.Work = satAdd(st.Work, satAdd(1, stepLen))
+	if st.Work > bounds.MaxWork {
+		return (cases, PathOverWork)
+	}
+	st.Paths = nextPaths
+	st.Steps = nextSteps
+	st.Bytes = nextBytes
+	if stepLen > st.MaxDepth {
+		st.MaxDepth = stepLen
+	}
+	(cases.Append(c), PathComplete)
+}
+
+func appendEdgeToCase[O](g PathGraph[O], base PathCase, eIdx int) PathCase {
+	let mut edges = []int{}
+	let mut sigs = []int{}
+	for e in base.Edges {
+		edges = edges.Append(e)
+		sigs = sigs.Append(g.Edges[e].Signal)
+	}
+	edges = edges.Append(eIdx)
+	sigs = sigs.Append(g.Edges[eIdx].Signal)
+	PathCase{Start: base.Start, Edges: edges, Signals: sigs}
+}
+
+func buildCaseFromParents[O](g PathGraph[O], start int, pState []int32, pEdge []int32, stateID int) PathCase {
+	let mut rev = []int{}
+	let mut cur = stateID
+	for pState[cur] >= 0 {
+		rev = rev.Append(int(pEdge[cur]))
+		cur = int(pState[cur])
+	}
+	let mut edges = []int{}
+	let mut sigs = []int{}
+	let mut i = len(rev) - 1
+	for i >= 0 {
+		let eIdx = rev[i]
+		edges = edges.Append(eIdx)
+		sigs = sigs.Append(g.Edges[eIdx].Signal)
+		i = i - 1
+	}
+	PathCase{Start: start, Edges: edges, Signals: sigs}
+}
+
+func selectShortestCases[O](g PathGraph[O], maxDepth int, bounds PathBounds, st mut PathStats) ([]PathCase, PathStop) {
+	let numStates = len(g.OutStart) - 1
+	let mut out = []PathCase{}
+	if len(g.Roots) == 1 {
+		for u in 0..numStates {
+			let c = ShortestPrefix(g, u)
+			if maxDepth >= 0 && len(c.Edges) > maxDepth {
+				continue
+			}
+			let (nextOut, stop) = pushSelectedCase(out, c, bounds, st)
+			match stop {
+			case PathComplete:
+				out = nextOut
+			case _:
+				return ([]PathCase{}, stop)
+			}
+		}
+		return (out, PathComplete)
+	}
+
+	for startIdx in 0..len(g.Roots) {
+		let root = g.Roots[startIdx]
+		let mut seen = []bool{}
+		let mut pState = []int32{}
+		let mut pEdge = []int32{}
+		let mut dist = []int{}
+		for _ in 0..numStates {
+			seen = seen.Append(false)
+			pState = pState.Append(int32(-1))
+			pEdge = pEdge.Append(int32(-1))
+			dist = dist.Append(0)
+		}
+		seen[root] = true
+		let mut queue = []int{root}
+		let mut head = 0
+		for head < len(queue) {
+			let u = queue[head]
+			head = head + 1
+			let c = buildCaseFromParents(g, startIdx, pState, pEdge, u)
+			let (nextOut, stop) = pushSelectedCase(out, c, bounds, st)
+			match stop {
+			case PathComplete:
+				out = nextOut
+			case _:
+				return ([]PathCase{}, stop)
+			}
+			if maxDepth >= 0 && dist[u] >= maxDepth {
+				continue
+			}
+			let lo = g.OutStart[u]
+			let hi = g.OutStart[u+1]
+			for eIdx in lo..hi {
+				st.Work = satAdd(st.Work, 1)
+				if st.Work > bounds.MaxWork {
+					return ([]PathCase{}, PathOverWork)
+				}
+				match g.Edges[eIdx].Target {
+				case Ended:
+				case ToState as ts:
+					if !seen[ts.State] {
+						seen[ts.State] = true
+						pState[ts.State] = int32(u)
+						pEdge[ts.State] = int32(eIdx)
+						dist[ts.State] = dist[u] + 1
+						queue = queue.Append(ts.State)
+					}
+				}
+			}
+		}
+	}
+	(out, PathComplete)
+}
+
+func selectSimpleCases[O](g PathGraph[O], maxDepth int, bounds PathBounds, st mut PathStats) ([]PathCase, PathStop) {
+	let numStates = len(g.OutStart) - 1
+	let mut out = []PathCase{}
+	let mut onPath = []bool{}
+	for _ in 0..numStates {
+		onPath = onPath.Append(false)
+	}
+
+	for startIdx in 0..len(g.Roots) {
+		let root = g.Roots[startIdx]
+		let (nextOut0, stop0) = pushSelectedCase(out, PathCase{Start: startIdx, Edges: []int{}, Signals: []int{}}, bounds, st)
+		match stop0 {
+		case PathComplete:
+			out = nextOut0
+		case _:
+			return ([]PathCase{}, stop0)
+		}
+		if maxDepth == 0 {
+			continue
+		}
+		onPath[root] = true
+		let mut spineStates = []int{root}
+		let mut spineEdges = []int{}
+		let mut spineNext = []int{g.OutStart[root]}
+
+		for len(spineNext) > 0 {
+			let depth = len(spineEdges)
+			let u = spineStates[depth]
+			let endEdge = g.OutStart[u+1]
+			let eIdx = spineNext[depth]
+			if eIdx >= endEdge {
+				onPath[u] = false
+				spineNext = spineNext[0:depth]
+				spineStates = spineStates[0:depth]
+				if depth > 0 {
+					spineEdges = spineEdges[0 : depth-1]
+				}
+				continue
+			}
+			spineNext[depth] = eIdx + 1
+			st.Work = satAdd(st.Work, 1)
+			if st.Work > bounds.MaxWork {
+				return ([]PathCase{}, PathOverWork)
+			}
+			let edge = g.Edges[eIdx]
+			match edge.Target {
+			case Ended:
+				let mut edges = []int{}
+				let mut sigs = []int{}
+				for pe in spineEdges {
+					edges = edges.Append(pe)
+					sigs = sigs.Append(g.Edges[pe].Signal)
+				}
+				edges = edges.Append(eIdx)
+				sigs = sigs.Append(edge.Signal)
+				let (nextOut, stop) = pushSelectedCase(out, PathCase{Start: startIdx, Edges: edges, Signals: sigs}, bounds, st)
+				match stop {
+				case PathComplete:
+					out = nextOut
+				case _:
+					return ([]PathCase{}, stop)
+				}
+			case ToState as ts:
+				if onPath[ts.State] {
+					continue
+				}
+				let mut edges = []int{}
+				let mut sigs = []int{}
+				for pe in spineEdges {
+					edges = edges.Append(pe)
+					sigs = sigs.Append(g.Edges[pe].Signal)
+				}
+				edges = edges.Append(eIdx)
+				sigs = sigs.Append(edge.Signal)
+				let (nextOut, stop) = pushSelectedCase(out, PathCase{Start: startIdx, Edges: edges, Signals: sigs}, bounds, st)
+				match stop {
+				case PathComplete:
+					out = nextOut
+				case _:
+					return ([]PathCase{}, stop)
+				}
+				if maxDepth < 0 || depth+1 < maxDepth {
+					onPath[ts.State] = true
+					spineEdges = spineEdges.Append(eIdx)
+					spineStates = spineStates.Append(ts.State)
+					spineNext = spineNext.Append(g.OutStart[ts.State])
+				}
+			}
+		}
+	}
+	(out, PathComplete)
+}
+
+func selectEdgeCases[O](g PathGraph[O], maxDepth int, bounds PathBounds, st mut PathStats) ([]PathCase, PathStop) {
+	let mut out = []PathCase{}
+	for startIdx in 0..len(g.Roots) {
+		let (nextOut, stop) = pushSelectedCase(out, PathCase{Start: startIdx, Edges: []int{}, Signals: []int{}}, bounds, st)
+		match stop {
+		case PathComplete:
+			out = nextOut
+		case _:
+			return ([]PathCase{}, stop)
+		}
+	}
+	if maxDepth == 0 {
+		return (out, PathComplete)
+	}
+	for eIdx in 0..len(g.Edges) {
+		let e = g.Edges[eIdx]
+		let base = ShortestPrefix(g, e.Source)
+		if maxDepth >= 0 && len(base.Edges)+1 > maxDepth {
+			continue
+		}
+		let c = appendEdgeToCase(g, base, eIdx)
+		let (nextOut, stop) = pushSelectedCase(out, c, bounds, st)
+		match stop {
+		case PathComplete:
+			out = nextOut
+		case _:
+			return ([]PathCase{}, stop)
+		}
+	}
+	(out, PathComplete)
+}
+
+// SelectFromGraph applies a selected (non-exhaustive) strategy to an already
+// built PathGraph under scope and bounds.
+func SelectFromGraph[O](g PathGraph[O], strategy SelectedStrategy, scope PathScope, bounds PathBounds) SelectedPlan[O] {
+	let emptySt = PathStats{States: 0, Edges: 0, Disabled: 0, Frontier: 0, Paths: 0, Steps: 0, MaxDepth: 0, Work: 0, Bytes: 0}
+	match validatePathBounds(scope, bounds) {
+	case Some as err:
+		return stoppedSelected[O](BadBounds{Reason: err.Value}, strategy, emptySt, g)
+	case None:
+	}
+	if len(g.Roots) == 0 {
+		return stoppedSelected[O](EmptyStarts, strategy, emptySt, g)
+	}
+	let numStates = if len(g.OutStart) > 0 { len(g.OutStart) - 1 } else { 0 }
+	let mut st = PathStats{
+		States:   numStates,
+		Edges:    len(g.Edges),
+		Disabled: 0,
+		Frontier: 0,
+		Paths:    0,
+		Steps:    0,
+		MaxDepth: 0,
+		Work:     0,
+		Bytes:    0,
+	}
+	let maxDepth = match scope {
+	case ToDepth as d:
+		d.Depth
+	case All:
+		-1
+	}
+	let (cases, stop) = match strategy {
+	case SelectedShortest:
+		selectShortestCases(g, maxDepth, bounds, &st)
+	case SelectedSimple:
+		selectSimpleCases(g, maxDepth, bounds, &st)
+	case SelectedEdges:
+		selectEdgeCases(g, maxDepth, bounds, &st)
+	}
+	match stop {
+	case PathComplete:
+		SelectedPlan[O]{
+			Stop:     PathComplete,
+			Strategy: strategy,
+			Promise:  SelectedSubset{Strategy: strategy},
+			Stats:    st,
+			Graph:    g,
+			Cases:    cases,
+			admitted: true,
+		}
+	case _:
+		stoppedSelected[O](stop, strategy, st, g)
+	}
+}
+
+// SelectPaths builds a bounded concrete graph for g and applies a selected
+// (non-exhaustive) strategy under scope and bounds.
+func SelectPaths[S wire, E wire, O](g ConcreteGraph[S, E, O], strategy SelectedStrategy, scope PathScope, bounds PathBounds) SelectedPlan[O] needs wired[S] | wired[E] {
+	let emptySt = PathStats{States: 0, Edges: 0, Disabled: 0, Frontier: 0, Paths: 0, Steps: 0, MaxDepth: 0, Work: 0, Bytes: 0}
+	match validatePathBounds(scope, bounds) {
+	case Some as err:
+		return stoppedSelected[O](BadBounds{Reason: err.Value}, strategy, emptySt, emptyPathGraph[O]())
+	case None:
+	}
+	let maxDepth = match scope {
+	case ToDepth as d:
+		d.Depth
+	case All:
+		-1
+	}
+	let (graph, st0, graphStop) = buildPathGraph(g, maxDepth, bounds)
+	let mut st = st0
+	match graphStop {
+	case PathComplete:
+	case _:
+		return stoppedSelected[O](graphStop, strategy, st, graph)
+	}
+	let (cases, stop) = match strategy {
+	case SelectedShortest:
+		selectShortestCases(graph, maxDepth, bounds, &st)
+	case SelectedSimple:
+		selectSimpleCases(graph, maxDepth, bounds, &st)
+	case SelectedEdges:
+		selectEdgeCases(graph, maxDepth, bounds, &st)
+	}
+	match stop {
+	case PathComplete:
+		SelectedPlan[O]{
+			Stop:     PathComplete,
+			Strategy: strategy,
+			Promise:  SelectedSubset{Strategy: strategy},
+			Stats:    st,
+			Graph:    graph,
+			Cases:    cases,
+			admitted: true,
+		}
+	case _:
+		stoppedSelected[O](stop, strategy, st, graph)
+	}
+}
+
+// SelectMachinePaths adapts m and signals to a ConcreteGraph and applies a
+// selected (non-exhaustive) strategy under scope and bounds.
+func SelectMachinePaths[S wire, E wire, O](m Machine[S, E, O], signals []E, strategy SelectedStrategy, scope PathScope, bounds PathBounds) SelectedPlan[MachineObs[O]] needs wired[S] | wired[E] {
+	SelectPaths(ConcreteOfMachine(m, signals), strategy, scope, bounds)
+}
+
+type spState { Tag uint8, Val int }
+
+type spEvent = spAltA{} | spAltB{} | spSelf{} | spFwd{} | spBack{} | spEndA{} | spEndB{}
+
+type spOracleCase { Start int, Signals []int }
+
+func spGraph(seed uint64, multiStart bool) ConcreteGraph[spState, spEvent, int] {
+	let bias = int(seed % uint64(4))
+	let starts = if multiStart {
+		[]spState{spState{Tag: uint8(0), Val: bias}, spState{Tag: uint8(2), Val: bias}}
+	} else {
+		[]spState{spState{Tag: uint8(0), Val: bias}}
+	}
+	ConcreteGraph[spState, spEvent, int]{
+		Starts:  starts,
+		Signals: []spEvent{spAltA, spAltB, spSelf, spFwd, spBack, spEndA, spEndB},
+		Step:    func(s spState, e spEvent) EdgeOutcome[spState, int] {
+			match s.Tag {
+			case 0:
+				match e {
+				case spAltA:
+					Continue[spState, int]{Next: spState{Tag: uint8(1), Val: s.Val}, Obs: 1}
+				case spAltB:
+					Continue[spState, int]{Next: spState{Tag: uint8(1), Val: s.Val}, Obs: 2}
+				case _:
+					Disabled[int]{Obs: 0}
+				}
+			case 1:
+				match e {
+				case spSelf:
+					Continue[spState, int]{Next: s, Obs: 3}
+				case spFwd:
+					Continue[spState, int]{Next: spState{Tag: uint8(2), Val: s.Val}, Obs: 4}
+				case spEndA:
+					Terminal[int]{Obs: 5}
+				case _:
+					Disabled[int]{Obs: 0}
+				}
+			case _:
+				match e {
+				case spBack:
+					Continue[spState, int]{Next: spState{Tag: uint8(0), Val: s.Val}, Obs: 6}
+				case spEndB:
+					Terminal[int]{Obs: 7}
+				case _:
+					Disabled[int]{Obs: 0}
+				}
+			}
+		},
+	}
+}
+
+func spFindState(xs []spState, x spState) int {
+	for i in 0..len(xs) {
+		if xs[i] == x {
+			return i
+		}
+	}
+	-1
+}
+
+func spOracleShortest(g ConcreteGraph[spState, spEvent, int]) []spOracleCase {
+	let mut out = []spOracleCase{}
+	for startIdx in 0..len(g.Starts) {
+		let mut states = []spState{g.Starts[startIdx]}
+		let mut sigLists = [][]int{[]int{}}
+		let mut head = 0
+		for head < len(states) {
+			let cur = states[head]
+			let prefix = sigLists[head]
+			head = head + 1
+			out = out.Append(spOracleCase{Start: startIdx, Signals: prefix})
+			for eIdx in 0..len(g.Signals) {
+				match g.Step(cur, g.Signals[eIdx]) {
+				case Disabled[int]:
+				case Terminal[int]:
+				case Continue[spState, int] as cont:
+					if spFindState(states, cont.Next) < 0 {
+						states = states.Append(cont.Next)
+						sigLists = sigLists.Append(prefix.Append(eIdx))
+					}
+				}
+			}
+		}
+	}
+	out
+}
+
+func spOracleSimpleDFS(g ConcreteGraph[spState, spEvent, int], startIdx int, cur spState, visited []spState, prefix []int, acc []spOracleCase) []spOracleCase {
+	let mut out = acc
+	for eIdx in 0..len(g.Signals) {
+		match g.Step(cur, g.Signals[eIdx]) {
+		case Disabled[int]:
+		case Terminal[int]:
+			out = out.Append(spOracleCase{Start: startIdx, Signals: prefix.Append(eIdx)})
+		case Continue[spState, int] as cont:
+			if spFindState(visited, cont.Next) >= 0 {
+				continue
+			}
+			let nextPrefix = prefix.Append(eIdx)
+			out = out.Append(spOracleCase{Start: startIdx, Signals: nextPrefix})
+			out = spOracleSimpleDFS(g, startIdx, cont.Next, visited.Append(cont.Next), nextPrefix, out)
+		}
+	}
+	out
+}
+
+func spOracleSimple(g ConcreteGraph[spState, spEvent, int]) []spOracleCase {
+	let mut out = []spOracleCase{}
+	for startIdx in 0..len(g.Starts) {
+		let s0 = g.Starts[startIdx]
+		out = out.Append(spOracleCase{Start: startIdx, Signals: []int{}})
+		out = spOracleSimpleDFS(g, startIdx, s0, []spState{s0}, []int{}, out)
+	}
+	out
+}
+
+func spOracleEdges(g ConcreteGraph[spState, spEvent, int]) []spOracleCase {
+	let mut states = []spState{}
+	let mut starts = []int{}
+	let mut prefixes = [][]int{}
+	let mut out = []spOracleCase{}
+	for i in 0..len(g.Starts) {
+		out = out.Append(spOracleCase{Start: i, Signals: []int{}})
+		if spFindState(states, g.Starts[i]) < 0 {
+			states = states.Append(g.Starts[i])
+			starts = starts.Append(i)
+			prefixes = prefixes.Append([]int{})
+		}
+	}
+	let mut head = 0
+	for head < len(states) {
+		let cur = states[head]
+		let stIdx = starts[head]
+		let pref = prefixes[head]
+		head = head + 1
+		for eIdx in 0..len(g.Signals) {
+			match g.Step(cur, g.Signals[eIdx]) {
+			case Disabled[int]:
+			case Terminal[int]:
+				out = out.Append(spOracleCase{Start: stIdx, Signals: pref.Append(eIdx)})
+			case Continue[spState, int] as cont:
+				out = out.Append(spOracleCase{Start: stIdx, Signals: pref.Append(eIdx)})
+				if spFindState(states, cont.Next) < 0 {
+					states = states.Append(cont.Next)
+					starts = starts.Append(stIdx)
+					prefixes = prefixes.Append(pref.Append(eIdx))
+				}
+			}
+		}
+	}
+	out
+}
+
+func spCasesMatch(got []PathCase, want []spOracleCase) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i in 0..len(got) {
+		if got[i].Start != want[i].Start || got[i].Signals != want[i].Signals || len(got[i].Edges) != len(got[i].Signals) {
+			return false
+		}
+	}
+	true
+}
+
+func spSimpleHasNoRepeat(g ConcreteGraph[spState, spEvent, int], cases []PathCase) bool {
+	for c in cases {
+		let mut s = g.Starts[c.Start]
+		let mut seen = []spState{s}
+		for sig in c.Signals {
+			match g.Step(s, g.Signals[sig]) {
+			case Disabled[int]:
+				return false
+			case Terminal[int]:
+			case Continue[spState, int] as cont:
+				if spFindState(seen, cont.Next) >= 0 {
+					return false
+				}
+				seen = seen.Append(cont.Next)
+				s = cont.Next
+			}
+		}
+	}
+	true
+}
+
+func spHasSignalEnding(cases []PathCase, sigIdx int) bool {
+	for c in cases {
+		if len(c.Signals) > 0 && c.Signals[len(c.Signals)-1] == sigIdx {
+			return true
+		}
+	}
+	false
+}
+
+// SelectedPathsKeepTheirPromise checks that SelectedShortest, SelectedSimple,
+// and SelectedEdges match independent oracles in stable order, label their
+// results selected (never exhaustive), keep simple paths cycle-free, and cover
+// closing, parallel, self-loop, and terminal edges in edge selection.
+law SelectedPathsKeepTheirPromise(seed uint64) {
+	let big = PathBounds{MaxStates: 64, MaxEdges: 256, MaxPaths: 2048, MaxSteps: 8192, MaxWork: 200000, MaxBytes: 1048576}
+	let g1 = spGraph(seed, false)
+	let g2 = spGraph(seed, true)
+
+	let pShort1 = SelectPaths(g1, SelectedShortest, All, big)
+	let pShort2 = SelectPaths(g2, SelectedShortest, All, big)
+	let pSimple2 = SelectPaths(g2, SelectedSimple, All, big)
+	let pEdges1 = SelectPaths(g1, SelectedEdges, All, big)
+	let pEdges2 = SelectPaths(g2, SelectedEdges, All, big)
+
+	if IsExhaustivePromise(pShort1.Promise) || IsExhaustivePromise(pShort2.Promise) || IsExhaustivePromise(pSimple2.Promise) || IsExhaustivePromise(pEdges1.Promise) || IsExhaustivePromise(pEdges2.Promise) {
+		return false
+	}
+
+	let cShort1 = match SelectedCases(pShort1) {
+	case Some as x:
+		x.Value
+	case None:
+		return false
+	}
+	let cShort2 = match SelectedCases(pShort2) {
+	case Some as x:
+		x.Value
+	case None:
+		return false
+	}
+	let cSimple2 = match SelectedCases(pSimple2) {
+	case Some as x:
+		x.Value
+	case None:
+		return false
+	}
+	let cEdges1 = match SelectedCases(pEdges1) {
+	case Some as x:
+		x.Value
+	case None:
+		return false
+	}
+	let cEdges2 = match SelectedCases(pEdges2) {
+	case Some as x:
+		x.Value
+	case None:
+		return false
+	}
+
+	if !spCasesMatch(cShort1, spOracleShortest(g1)) {
+		return false
+	}
+	if !spCasesMatch(cShort2, spOracleShortest(g2)) {
+		return false
+	}
+	if !spCasesMatch(cSimple2, spOracleSimple(g2)) || !spSimpleHasNoRepeat(g2, cSimple2) {
+		return false
+	}
+	if !spCasesMatch(cEdges1, spOracleEdges(g1)) || !spCasesMatch(cEdges2, spOracleEdges(g2)) {
+		return false
+	}
+
+	if !spHasSignalEnding(cEdges1, 0) || !spHasSignalEnding(cEdges1, 1) || !spHasSignalEnding(cEdges1, 2) || !spHasSignalEnding(cEdges1, 4) || !spHasSignalEnding(cEdges1, 5) || !spHasSignalEnding(cEdges1, 6) {
+		return false
+	}
+
+	let capEdges = SelectPaths(g1, SelectedEdges, All, PathBounds{
+		MaxStates: 64,
+		MaxEdges:  256,
+		MaxPaths:  len(cEdges1) - 1,
+		MaxSteps:  8192,
+		MaxWork:   200000,
+		MaxBytes:  1048576,
+	})
+	match capEdges.Stop {
+	case PathOverPaths:
+	case _:
+		return false
+	}
+	match SelectedCases(capEdges) {
+	case None:
+	case Some:
+		return false
+	}
+
+	let fromGraph = SelectFromGraph(pEdges1.Graph, SelectedEdges, All, big)
+	let cFromGraph = match SelectedCases(fromGraph) {
+	case Some as x:
+		x.Value
+	case None:
+		return false
+	}
+	spCasesMatch(cFromGraph, spOracleEdges(g1))
+}
