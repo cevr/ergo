@@ -281,6 +281,22 @@
       "to": "\t\tWindow:   window.Spec{..s.Window, ScrollTop: 0},\n\t\tCart:     []domains.Available{},\n\t}\n",
       "rule": "A new query keeps the cart (story: cart additions are unique and removals are idempotent, across queries).",
       "anchor": {"tests": ["examples:domain-search"]}, "killers": ["examples:domain-search"]
+    },
+    {
+      "name": "api-explore-transport-drops-field", "origin": "wf10 PROPERTY-TESTING P7",
+      "file": "examples/domain-search/domains/domainsrpc/client.ergo",
+      "from": "\tlet p = domainsapi.SearchDomainsRequest{Label: label, Offset: offset, Limit: limit}",
+      "to": "\tlet p = domainsapi.SearchDomainsRequest{Label: label, Offset: json.Absent, Limit: limit}",
+      "rule": "The generated RPC transport preserves every request field (Offset included); dropping Offset fails ExploreRegistryTransports.",
+      "anchor": {"tests": ["examples:domain-search"]}, "killers": ["examples:domain-search"]
+    },
+    {
+      "name": "api-explore-handler-commits-before-validate", "origin": "wf10 PROPERTY-TESTING P7",
+      "file": "examples/domain-search/loopback/explore.ergo",
+      "from": "\tif string(label) == r.blocked {\n\t\treturn domains.Down\n\t}\n\tlet out = try sample.Sample.SearchDomains(label, offset, limit)\n\tr.committed.Update(func(n int) int { n + 1 })",
+      "to": "\tr.committed.Update(func(n int) int { n + 1 })\n\tif string(label) == r.blocked {\n\t\treturn domains.Down\n\t}\n\tlet out = try sample.Sample.SearchDomains(label, offset, limit)",
+      "rule": "A handler validates before committing state so a refused call leaves server state unchanged; committing early fails ExploreRegistryTransports.",
+      "anchor": {"tests": ["examples:domain-search"]}, "killers": ["examples:domain-search"]
     }
   ]
 }

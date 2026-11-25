@@ -1,0 +1,318 @@
+import api
+import gen
+import json
+import strings
+import sync
+
+// ApiObs pairs the canonical wire JSON of an Api call's Outcome with the
+// server's projected state after the call.
+type ApiObs[S comparable] {
+	Outcome string,
+	State   S,
+}
+
+// ApiModel describes a pure domain fold for stateful Api exploration: Start is
+// the initial state, Offer draws the next typed call from gen.Draws, and Fold
+// computes the next state and expected Outcome purely.
+type ApiModel[S comparable, C, O] {
+	Start S,
+	Offer func(s S) C needs gen.Draws,
+	Fold  func(s S, c C) (S, O),
+}
+
+// TransportRunner pairs a transport label with one fresh server instance's
+// carry callback and state snapshotter.
+type TransportRunner[C, O any, S comparable] {
+	Name  string,
+	Carry func(c C) O fails Refused,
+	Snap  func() S,
+}
+
+// TransportDiverged reports the first step where a named transport disagreed
+// with the pure fold in either its wire outcome or its server state.
+type TransportDiverged[C any, S comparable] {
+	Transport string,
+	Diverged  Diverged[C, ApiObs[S]],
+}
+
+// CarryTransport adapts an api.Transport[C, O, F] and answer handler into a
+// carry callback failing Refused on any transport delivery failure.
+func CarryTransport[C wire, O wire, F](t api.Transport[C, O, F], c C, answer own func(c C) O) O fails Refused {
+	t.Carry(c, answer) catch {
+	case _:
+		return Refused{Why: "transport delivery failed"}
+	}
+}
+
+// ExploreTransports draws steps calls from m.Offer, steps the pure fold m.Fold
+// before invoking every runner on each step, and checks that every transport
+// returns the fold's exact wire Outcome and leaves the fold's exact State.
+func ExploreTransports[S comparable, C any, O wire](
+	m ApiModel[S, C, O],
+	runners []TransportRunner[C, O, S],
+	steps int,
+) fails TransportDiverged[C, S] | Refused needs gen.Draws | wired[O] {
+	let codec = json.Codec[O]{MaxBytes: 0, MaxDepth: 0}
+	let mut state = m.Start
+	let mut played = []C{}
+	for step in 0..steps {
+		gen.Draws.Begin("step")
+		let c = m.Offer(state)
+		gen.Draws.End()
+		let (nextState, wantOut) = m.Fold(state, c)
+		let want = ApiObs[S]{Outcome: json.Encode(codec, wantOut), State: nextState}
+		played = played.Append(c)
+		for r in runners {
+			let gotOut = try r.Carry(c)
+			let got = ApiObs[S]{Outcome: json.Encode(codec, gotOut), State: r.Snap()}
+			if got != want {
+				return TransportDiverged[C, S]{
+					Transport: r.Name,
+					Diverged:  Diverged[C, ApiObs[S]]{Acts: played, At: step, Want: want, Got: got},
+				}
+			}
+		}
+		state = nextState
+	}
+}
+
+// ExploreApi explores a single transport-backed server against m using
+// ExploreTransports and returns its Diverged failure directly on mismatch.
+func ExploreApi[S comparable, C any, O wire](
+	m ApiModel[S, C, O],
+	carry own func(c C) O fails Refused,
+	snap own func() S,
+	steps int,
+) fails Diverged[C, ApiObs[S]] | Refused needs gen.Draws | wired[O] {
+	let runners = []TransportRunner[C, O, S]{
+		TransportRunner[C, O, S]{Name: "api", Carry: carry, Snap: snap},
+	}
+	ExploreTransports(m, runners, steps) catch {
+	case TransportDiverged[C, S] as td:
+		return td.Diverged
+	case Refused as r:
+		return r
+	}
+}
+
+// WireRoundTrips reports whether encoding v to JSON and decoding it back as T
+// preserves v's canonical wire representation without error.
+func WireRoundTrips[T wire](v T) bool needs wired[T] {
+	let codec = json.Codec[T]{MaxBytes: 0, MaxDepth: 0}
+	let encoded = json.Encode(codec, v)
+	let decoded = json.Decode(codec, encoded) catch {
+	case _:
+		return false
+	}
+	json.Encode(codec, decoded) == encoded
+}
+
+// InjectUnknownField inserts an extra string member into a JSON object text.
+func InjectUnknownField(objJSON string, key string, val string) string {
+	let trimmed = strings.TrimSpace(objJSON)
+	if !strings.HasPrefix(trimmed, "{") || !strings.HasSuffix(trimmed, "}") {
+		return objJSON
+	}
+	let strCodec = json.Codec[string]{MaxBytes: 0, MaxDepth: 0}
+	let field = json.Encode(strCodec, key) + ":" + json.Encode(strCodec, val)
+	let inner = strings.TrimSpace(trimmed[1 : len(trimmed)-1])
+	if inner == "" {
+		return "{" + field + "}"
+	}
+	"{" + inner + "," + field + "}"
+}
+
+// WireIgnoresUnknownField reports whether decoding v's JSON object with an
+// extra unknown member succeeds and preserves all declared fields of v.
+func WireIgnoresUnknownField[T wire](v T, key string, val string) bool needs wired[T] {
+	let codec = json.Codec[T]{MaxBytes: 0, MaxDepth: 0}
+	let encoded = json.Encode(codec, v)
+	let withExtra = InjectUnknownField(encoded, key, val)
+	let decoded = json.Decode(codec, withExtra) catch {
+	case _:
+		return false
+	}
+	json.Encode(codec, decoded) == encoded
+}
+
+// WireRefusesUnknownTag reports whether decoding a JSON object carrying an
+// undeclared union _tag fails cleanly as expected.
+func WireRefusesUnknownTag[T wire](tag string) bool needs wired[T] {
+	let codec = json.Codec[T]{MaxBytes: 0, MaxDepth: 0}
+	let strCodec = json.Codec[string]{MaxBytes: 0, MaxDepth: 0}
+	let bad = "{\"_tag\":" + json.Encode(strCodec, tag) + "}"
+	let _ = json.Decode(codec, bad) catch {
+	case _:
+		return true
+	}
+	false
+}
+
+type apiExploreReq = ApiAddReq{Delta int, Tag string} | ApiReadReq{}
+
+type apiExploreOut = ApiOkOut{Total int, Tag string} | ApiBadOut{Reason string}
+
+type apiCleanTransport {} implements api.Transport[apiExploreReq, apiExploreOut]
+
+func Carry(t apiCleanTransport, c apiExploreReq, answer own func(c apiExploreReq) apiExploreOut) apiExploreOut {
+	let _ = t
+	answer(c)
+}
+
+type apiDropFieldTransport {} implements api.Transport[apiExploreReq, apiExploreOut]
+
+func Carry(t apiDropFieldTransport, c apiExploreReq, answer own func(c apiExploreReq) apiExploreOut) apiExploreOut {
+	let _ = t
+	let carried = match c {
+	case ApiAddReq as a:
+		ApiAddReq{Delta: a.Delta, Tag: ""}
+	case ApiReadReq:
+		ApiReadReq
+	}
+	answer(carried)
+}
+
+func apiExploreFold(s int, c apiExploreReq) (int, apiExploreOut) {
+	match c {
+	case ApiAddReq as a:
+		if a.Delta <= 0 {
+			return (s, ApiBadOut{Reason: "non-positive"})
+		}
+		let next = s + a.Delta
+		(next, ApiOkOut{Total: next, Tag: a.Tag})
+	case ApiReadReq:
+		(s, ApiOkOut{Total: s, Tag: "read"})
+	}
+}
+
+func makeApiExploreHandler(st sync.Ref[int], commitEarly bool) func(c apiExploreReq) apiExploreOut {
+	func(c apiExploreReq) apiExploreOut {
+		match c {
+		case ApiAddReq as a:
+			if commitEarly {
+				st.Update(func(n int) int { n + a.Delta })
+			}
+			if a.Delta <= 0 {
+				return ApiBadOut{Reason: "non-positive"}
+			}
+			if !commitEarly {
+				st.Update(func(n int) int { n + a.Delta })
+			}
+			ApiOkOut{Total: st.Get(), Tag: a.Tag}
+		case ApiReadReq:
+			ApiOkOut{Total: st.Get(), Tag: "read"}
+		}
+	}
+}
+
+func makeApiExploreModel() ApiModel[int, apiExploreReq, apiExploreOut] {
+	ApiModel[int, apiExploreReq, apiExploreOut]{
+		Start: 0,
+		Offer: func(s int) apiExploreReq needs gen.Draws {
+			let _ = s
+			if gen.Bool() {
+				let d = gen.IntIn(-2, 3)
+				let tag = gen.OneOf([]string{"alpha", "beta", "gamma"})
+				ApiAddReq{Delta: d, Tag: tag}
+			} else {
+				ApiReadReq
+			}
+		},
+		Fold: apiExploreFold,
+	}
+}
+
+// ApiExploreCatchesDroppedFieldAndEarlyCommit: ExploreTransports holds when
+// transports and handler match the pure fold, and catches both a transport that
+// drops a request field and a handler that commits state before validation.
+law ApiExploreCatchesDroppedFieldAndEarlyCommit(seed int) {
+	let s0 = uint64(modPos(seed, 50) + 1)
+	let cleanCfg = gen.Config{Seed: s0, Cases: 4, Shrinks: 0, MaxDraws: 256, MaxRejected: 10}
+	let bugCfg = gen.Config{Seed: s0, Cases: 12, Shrinks: 0, MaxDraws: 256, MaxRejected: 10}
+	let m = makeApiExploreModel()
+	let clean = gen.Check(cleanCfg, func() bool fails gen.Rejected needs gen.Draws {
+		let s1 = sync.NewRef[int](0)
+		let s2 = sync.NewRef[int](0)
+		let h1 = makeApiExploreHandler(s1, false)
+		let h2 = makeApiExploreHandler(s2, false)
+		let runners = []TransportRunner[apiExploreReq, apiExploreOut, int]{
+			TransportRunner[apiExploreReq, apiExploreOut, int]{Name: "direct", Carry: func(c apiExploreReq) apiExploreOut fails Refused { h1(c) }, Snap: func() int { s1.Get() }},
+			TransportRunner[apiExploreReq, apiExploreOut, int]{Name: "wire", Carry: func(c apiExploreReq) apiExploreOut fails Refused { try CarryTransport(apiCleanTransport, c, h2) }, Snap: func() int { s2.Get() }},
+		}
+		ExploreTransports(m, runners, 3) catch {
+		case TransportDiverged[apiExploreReq, int], Refused:
+			return false
+		}
+		true
+	})
+	let cleanHeld = match clean {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+	let caughtDrop = sync.NewRef[bool](false)
+	let _ = gen.Check(bugCfg, func() bool fails gen.Rejected needs gen.Draws {
+		let s = sync.NewRef[int](0)
+		let h = makeApiExploreHandler(s, false)
+		let runners = []TransportRunner[apiExploreReq, apiExploreOut, int]{
+			TransportRunner[apiExploreReq, apiExploreOut, int]{Name: "drop", Carry: func(c apiExploreReq) apiExploreOut fails Refused { try CarryTransport(apiDropFieldTransport, c, h) }, Snap: func() int { s.Get() }},
+		}
+		ExploreTransports(m, runners, 4) catch {
+		case TransportDiverged[apiExploreReq, int] as td:
+			if td.Transport == "drop" {
+				caughtDrop.Set(true)
+			}
+			return false
+		case Refused:
+			return false
+		}
+		true
+	})
+	let caughtEarly = sync.NewRef[bool](false)
+	let _ = gen.Check(bugCfg, func() bool fails gen.Rejected needs gen.Draws {
+		let s = sync.NewRef[int](0)
+		let h = makeApiExploreHandler(s, true)
+		ExploreApi(m, func(c apiExploreReq) apiExploreOut fails Refused { h(c) }, func() int { s.Get() }, 4) catch {
+		case Diverged[apiExploreReq, ApiObs[int]] as d:
+			if d.Want.Outcome == d.Got.Outcome && d.Want.State != d.Got.State {
+				caughtEarly.Set(true)
+			}
+			return false
+		case Refused:
+			return false
+		}
+		true
+	})
+	cleanHeld && caughtDrop.Get() && caughtEarly.Get()
+}
+
+// WireRoundTripAndUnknownFieldLaws: WireRoundTrips, WireIgnoresUnknownField,
+// and WireRefusesUnknownTag hold over drawn tagged wire requests and outcomes.
+law WireRoundTripAndUnknownFieldLaws(seed int) {
+	let cfg = gen.Config{Seed: uint64(modPos(seed, 50) + 1), Cases: 6, Shrinks: 0, MaxDraws: 256, MaxRejected: 10}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let req apiExploreReq = if gen.Bool() {
+			ApiAddReq{Delta: gen.IntIn(-5, 5), Tag: gen.OneOf([]string{"", "a", "x\"y"})}
+		} else {
+			ApiReadReq
+		}
+		let out apiExploreOut = if gen.Bool() {
+			ApiOkOut{Total: gen.IntIn(0, 100), Tag: gen.OneOf([]string{"ok", "read"})}
+		} else {
+			ApiBadOut{Reason: "bad"}
+		}
+		let extra = gen.OneOf([]string{"v1", "extra", "ignored"})
+			WireRoundTrips(req) &&
+			WireRoundTrips(out) &&
+			WireIgnoresUnknownField(req, "__unknown_future", extra) &&
+			WireIgnoresUnknownField(out, "__unknown_future", extra) &&
+			WireRefusesUnknownTag[apiExploreReq]("NoSuchVariant")
+	})
+	match outcome {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}

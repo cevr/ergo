@@ -42,6 +42,26 @@
       "killers": ["internal/sketch/std/testing:law:StoryStepsBeforeStage"]
     },
     {
+      "name": "api-explore-ignores-state-mismatch",
+      "origin": "wf10 PROPERTY-TESTING P7",
+      "file": "internal/sketch/std/testing/api_explore.ergo",
+      "decl": "ExploreTransports",
+      "from": "\t\t\tlet got = ApiObs[S]{Outcome: json.Encode(codec, gotOut), State: r.Snap()}",
+      "to": "\t\t\tlet got = ApiObs[S]{Outcome: json.Encode(codec, gotOut), State: nextState}",
+      "rule": "ExploreTransports compares the runner's actual State snapshot against the pure fold's nextState so early commits on refused calls are caught.",
+      "killers": ["internal/sketch/std/testing:law:ApiExploreCatchesDroppedFieldAndEarlyCommit"]
+    },
+    {
+      "name": "api-explore-ignores-outcome-mismatch",
+      "origin": "wf10 PROPERTY-TESTING P7",
+      "file": "internal/sketch/std/testing/api_explore.ergo",
+      "decl": "ExploreTransports",
+      "from": "\t\t\tif got != want {",
+      "to": "\t\t\tif got.State != want.State {",
+      "rule": "ExploreTransports compares both wire Outcome JSON and server State so dropped request/response fields are caught.",
+      "killers": ["internal/sketch/std/testing:law:ApiExploreCatchesDroppedFieldAndEarlyCommit"]
+    },
+    {
       "name": "faulty-skips-last-failure",
       "origin": "wf10 PROPERTY-TESTING P6",
       "file": "internal/sketch/std/testing/faulty.ergo",

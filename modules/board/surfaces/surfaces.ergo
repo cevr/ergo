@@ -1,3 +1,4 @@
+import gen
 import github.com/cevr/ergo/modules/board/board
 import github.com/cevr/ergo/modules/board/board/boardapi
 import github.com/cevr/ergo/modules/board/board/boardcli
@@ -7,6 +8,7 @@ import github.com/cevr/ergo/modules/board/memory
 import json
 import rpc
 import strings
+import testing
 import time
 
 // CliPolicy returns the board CLI exit-code policy: 3 for Unauthenticated,
@@ -221,6 +223,147 @@ law SurfacesAgree(acts []int) {
 		return false
 	}
 	dOut == cOut && dOut == mOut && dOut == rOut && dSnap == cSnap && dSnap == mSnap && dSnap == rSnap
+}
+
+type boardExploreAct {
+	Kind int,
+	Key  string,
+	Body string,
+}
+
+func drawBoardAct() boardExploreAct needs gen.Draws {
+	let kind = gen.IntIn(0, 9)
+	let key = gen.OneOf([]string{"idem-1", "idem-2"})
+	let body = gen.OneOf([]string{"hello @bob", "retry payload"})
+	boardExploreAct{Kind: kind, Key: key, Body: body}
+}
+
+func stepOfBoardAct(a boardExploreAct) surfaceStep {
+	match a.Kind {
+	case 0:
+		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.PostRequest{Input: board.PostInput{Board: None, Channel: "dev", Text: a.Body, Labels: []string{"env=prod"}, NoSync: false, IdempotencyKey: Some[string]{Value: a.Key}}}}
+	case 1:
+		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.PostRequest{Input: board.PostInput{Board: None, Channel: "dev", Text: "plain note", Labels: []string{}, NoSync: false, IdempotencyKey: None}}}
+	case 2:
+		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.ReadRequest{Input: board.ReadInput{Board: None, Channel: Some[string]{Value: "dev"}, ID: None, By: None, Mentions: None, Label: []string{}, Text: None, After: None, Limit: Some[int]{Value: 10}}}}
+	case 3:
+		surfaceStep{caller: surfaceAdminCaller(), req: boardapi.ChannelCreateRequest{Input: board.ChannelCreateInput{Board: None, Path: "priv", Private: true}}}
+	case 4:
+		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.ReadRequest{Input: board.ReadInput{Board: None, Channel: Some[string]{Value: "priv"}, ID: None, By: None, Mentions: None, Label: []string{}, Text: None, After: None, Limit: None}}}
+	case 5:
+		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.TasksCreateRequest{Input: board.TasksCreateInput{Board: None, Channel: Some[string]{Value: "dev"}, ID: None, Text: Some[string]{Value: "work item"}, Labels: []string{}, Needs: []board.MessageID{}, For: None, Claim: false, LeaseMs: None, NoSync: false, IdempotencyKey: None}}}
+	case 6:
+		surfaceStep{caller: surfaceAliceAgentCaller(), req: boardapi.TasksClaimRequest{Input: board.TasksClaimInput{Board: None, ID: None, Ready: Some[string]{Value: "dev"}, Label: []string{}, LeaseMs: Some[int]{Value: 60000}}}}
+	case 7:
+		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.SearchRequest{Input: board.SearchInput{Board: None, Query: "hello", Channel: None, Limit: Some[int]{Value: 10}}}}
+	case 8:
+		surfaceStep{caller: surfaceUnauthCaller(), req: boardapi.WhoamiRequest{Input: board.WhoamiInput{Board: None}}}
+	case _:
+		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.BoardsRequest}
+	}
+}
+
+func snapDigest(store memory.Store) string {
+	let snap = store.Snapshot() catch {
+	case board.StoreFailed:
+		return "store-failed"
+	}
+	"\(snap.NextBoardNum):\(snap.NextMessageNum):\(len(snap.Boards)):\(len(snap.Channels)):\(len(snap.Messages)):\(len(snap.Tasks)):\(len(snap.Idempotency))"
+}
+
+// SurfacesExploreMatchesFold: over drawn stateful sequences of board.Api calls
+// (including idempotency-key retries, private-channel refusals, unauthenticated
+// calls, and task claims), direct, CLI, MCP, and RPC transports agree on every
+// step in both canonical wire Outcome and projected store state.
+law SurfacesExploreMatchesFold(seed int) {
+	let s = (seed%50 + 50) % 50
+	let cfg = gen.Config{Seed: uint64(s + 1), Cases: 2, Shrinks: 0, MaxDraws: 512, MaxRejected: 10}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let refStore = memory.NewWithAdmins(surfaceAdmins(), 100)
+		let refClock = time.NewManual(1000)
+		let cliStore = memory.NewWithAdmins(surfaceAdmins(), 100)
+		let cliClock = time.NewManual(1000)
+		let mcpStore = memory.NewWithAdmins(surfaceAdmins(), 100)
+		let mcpClock = time.NewManual(1000)
+		let rpcStore = memory.NewWithAdmins(surfaceAdmins(), 100)
+		let rpcClock = time.NewManual(1000)
+		let model = testing.ApiModel[string, boardExploreAct, boardapi.Outcome]{
+			Start: snapDigest(refStore),
+			Offer: func(cur string) boardExploreAct needs gen.Draws {
+				let _ = cur
+				drawBoardAct()
+			},
+			Fold: func(cur string, act boardExploreAct) (string, boardapi.Outcome) {
+				let _ = cur
+				let step = stepOfBoardAct(act)
+				let h = board.NewHandler(refStore, step.caller, refClock)
+				let out = with context { board.Api: h } { boardapi.Call(step.req) }
+				(snapDigest(refStore), out)
+			},
+		}
+		let runners = []testing.TransportRunner[boardExploreAct, boardapi.Outcome, string]{
+			testing.TransportRunner[boardExploreAct, boardapi.Outcome, string]{
+				Name:  "cli",
+				Carry: func(act boardExploreAct) boardapi.Outcome fails testing.Refused {
+					let step = stepOfBoardAct(act)
+					let h = board.NewHandler(cliStore, step.caller, cliClock)
+					try testing.CarryTransport(boardcli.Wire, step.req, func(r boardapi.Request) boardapi.Outcome {
+						with context { board.Api: h } { boardapi.Call(r) }
+					})
+				},
+				Snap: func() string { snapDigest(cliStore) },
+			},
+			testing.TransportRunner[boardExploreAct, boardapi.Outcome, string]{
+				Name:  "mcp",
+				Carry: func(act boardExploreAct) boardapi.Outcome fails testing.Refused {
+					let step = stepOfBoardAct(act)
+					let h = board.NewHandler(mcpStore, step.caller, mcpClock)
+					try testing.CarryTransport(boardmcp.Wire, step.req, func(r boardapi.Request) boardapi.Outcome {
+						with context { board.Api: h } { boardapi.Call(r) }
+					})
+				},
+				Snap: func() string { snapDigest(mcpStore) },
+			},
+			testing.TransportRunner[boardExploreAct, boardapi.Outcome, string]{
+				Name:  "rpc",
+				Carry: func(act boardExploreAct) boardapi.Outcome fails testing.Refused {
+					let step = stepOfBoardAct(act)
+					let h = board.NewHandler(rpcStore, step.caller, rpcClock)
+					try testing.CarryTransport(boardrpc.Wire, step.req, func(r boardapi.Request) boardapi.Outcome {
+						with context { board.Api: h } { boardapi.Call(r) }
+					})
+				},
+				Snap: func() string { snapDigest(rpcStore) },
+			},
+		}
+		testing.ExploreTransports(model, runners, 5) catch {
+		case testing.TransportDiverged[boardExploreAct, string], testing.Refused:
+			return false
+		}
+		let refSnap = refStore.Snapshot() catch {
+		case board.StoreFailed:
+			return false
+		}
+		let cliSnap = cliStore.Snapshot() catch {
+		case board.StoreFailed:
+			return false
+		}
+		let mcpSnap = mcpStore.Snapshot() catch {
+		case board.StoreFailed:
+			return false
+		}
+		let rpcSnap = rpcStore.Snapshot() catch {
+		case board.StoreFailed:
+			return false
+		}
+		refSnap == cliSnap && refSnap == mcpSnap && refSnap == rpcSnap
+	})
+	match outcome {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
 }
 
 test TestMcpToolDescriptionsEndWithDataSentence {
