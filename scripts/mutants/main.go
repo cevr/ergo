@@ -72,10 +72,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("mutants", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	cfg := Config{Log: stderr}
-	var selectRE, memory, jsonOut string
-	var write, fresh, measureOnly, compileOnly, resume bool
+	var selectRE, memory, jsonOut, ergoFlag string
+	var write, fresh, measureOnly, compileOnly, resume, noNativeErgo bool
 	flags.BoolVar(&compileOnly, "compiles", false, "apply each selected row and compile it, and run no test: list the rows that do not compile (invalid)")
 	flags.StringVar(&cfg.Root, "root", ".", "the checkout")
+	flags.StringVar(&ergoFlag, "ergo", "", "path to the ergo binary for delegating .ergo rows to ergo test --mutants (default: <root>/bin/ergo or ergo on PATH)")
+	flags.BoolVar(&noNativeErgo, "no-native-ergo", false, "disable delegation of .ergo rows to ergo test --mutants and judge every row on the Go worker path")
 	flags.BoolVar(&fresh, "fresh", false, "judge every selected row, also one whose killed verdict is stored at its unchanged key, and measure every suite's coverage (the reference)")
 	flags.BoolVar(&measureOnly, "measure", false, "measure the coverage of the ledgers' suites into the coverage store and judge nothing (run on main's head after a landing)")
 	flags.StringVar(&cfg.Work, "work", "", "scratch `DIR`: the copies, the binaries and the kept coverage (default: a private directory, removed at the end)")
@@ -266,17 +268,39 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	results, cov, runErr := []Result(nil), &coverage{}, error(nil)
 	if len(judge) > 0 {
-		if cfg.Cover, cfg.Tools, cfg.Suites, err = suitesFor(cfg.Root, judge); err != nil {
-			fmt.Fprintf(stderr, "mutants: %v\n", err)
-			return 2
-		}
 		ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 		defer cancel()
-		results, cov, runErr = Run(ctx, cfg, judge)
-		if results == nil {
-			fmt.Fprintf(stderr, "mutants: %v\n", runErr)
-			return 2
+		ergoBin := resolveErgoBinary(cfg.Root, ergoFlag, noNativeErgo)
+		var delJobs []Job
+		goJudge := judge
+		if ergoBin != "" {
+			delJobs, goJudge = partitionDelegatedJobs(cfg.Root, cfg, judge)
 		}
+		var delResults []Result
+		if len(delJobs) > 0 {
+			var fallback []Job
+			delResults, fallback, runErr = runDelegatedErgoJobs(ctx, ergoBin, cfg.Root, fresh, delJobs, stderr)
+			if runErr != nil {
+				fmt.Fprintf(stderr, "mutants: %v\n", runErr)
+				return 2
+			}
+			if len(fallback) > 0 {
+				goJudge = append(goJudge, fallback...)
+			}
+		}
+		var goResults []Result
+		if len(goJudge) > 0 {
+			if cfg.Cover, cfg.Tools, cfg.Suites, err = suitesFor(cfg.Root, goJudge); err != nil {
+				fmt.Fprintf(stderr, "mutants: %v\n", err)
+				return 2
+			}
+			goResults, cov, runErr = Run(ctx, cfg, goJudge)
+			if goResults == nil {
+				fmt.Fprintf(stderr, "mutants: %v\n", runErr)
+				return 2
+			}
+		}
+		results = append(delResults, goResults...)
 		if runErr == nil {
 			pass.end(judge, results)
 		}
