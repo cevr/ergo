@@ -52,6 +52,9 @@ func (st *irState) codecText(name, reason string) {
 		// function in two targets is one function (IRCensusFunc.Codec).
 		st.census.Funcs = append(st.census.Funcs, IRCensusFunc{Pkg: "codec", Name: name, Codec: true, Reasons: []string{reason}})
 	}
+	if st.noFallback && wireIRLowering != "text" && wireReadLowering != "text" {
+		st.fallbacks = append(st.fallbacks, IRCensusFunc{Pkg: "codec", Name: name, Codec: true, Reasons: []string{reason}})
+	}
 }
 
 // wireIRLowering selects the codec writers' form on the IR path: "" (an

@@ -82,6 +82,19 @@ type treeHead struct {
 // emitter's decision tree.
 func (b *irBuilder) treeMatch(s syntax.Stmt, subjects []syntax.Expr, clauses []*syntax.CaseClause, end syntax.Pos, ret bool, to *yieldTo) []*irStmt {
 	p := b.pos(s, s.Pos())
+	if len(clauses) == 0 {
+		// A match of no arm: the checker took it as total, so a subject
+		// has no value (a Never; types.md, Never) and the match never
+		// runs. It is the Go panic of Unreachable, a terminating
+		// statement, in every lowering; its subjects are not evaluated
+		// (match.go patternMatch).
+		b.keepImport("var _ = " + b.l.rt() + ".UnreachableAt")
+		args := []*irExpr{
+			{K: "const", Pos: p, T: "string", V: "a match on a value of a type with none"},
+			{K: "const", Pos: p, T: "string", V: b.l.siteText(s)},
+		}
+		return []*irStmt{{K: "panic", Pos: p, X: &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "UnreachableAt", Args: args}}}
+	}
 	var pre []*irStmt
 	var cols []treeHead
 	for _, x := range subjects {
