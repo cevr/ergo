@@ -605,6 +605,7 @@ var bodyTable = []bodyRow{
 	{"TaskAlarm.Cancel", bodyFact{body: Body{Results: []string{"bool"}, Wait: "none", Package: Path}}},
 	{"TaskAlarm.Close", bodyFact{body: Body{Hidden: []Hidden{"task"}, Wait: "none", Release: "caller", Package: Path}}},
 	{"TaskExit", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Hidden: []Hidden{"task"}, Params: []Param{{Type: "*Task[T]"}}, Results: []string{"int", "error"}, Wait: "caller", Package: Path}}},
+	{"TaskLimitSteps", bodyFact{body: Body{Hidden: []Hidden{"task"}, Params: []Param{{Type: "int"}}, Wait: "none", Package: Path}}},
 	{"TaskReason", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Params: []Param{{Type: "*Task[T]"}}, Results: []string{"string"}, Wait: "none", Package: Path}}},
 	{"TaskStopAfter", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Hidden: []Hidden{"task", "scheduler"}, Params: []Param{{Type: "*Task[T]"}, {Type: "time.Duration"}}, Results: []string{"*TaskAlarm"}, Wait: "none", Package: Path}}},
 	{"TaskValue", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Params: []Param{{Type: "*Task[T]"}}, Results: []string{"T"}, Wait: "none", Package: Path}}},
