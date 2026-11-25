@@ -603,7 +603,7 @@ func freeTypeParams(t check.Type) []*check.TypeParam {
 // checker's Defs and Types that this build reads (owners.go); each type
 // object is walked once. Reserving a
 // function the lowering does not emit only renames a local.
-func (l *lowerer) reserveDefaults(reserve func(key pkgKey, base string)) {
+func (l *lowerer) reserveDefaults(pkgs []*check.Package, reserve func(key pkgKey, base string)) {
 	walked := map[check.Type]bool{}
 	var walk func(t check.Type)
 	walk = func(t check.Type) {
@@ -639,7 +639,10 @@ func (l *lowerer) reserveDefaults(reserve func(key pkgKey, base string)) {
 			}
 		}
 	}
-	for _, p := range l.sourcedPkgs() {
+	for _, p := range pkgs {
+		if p.Info == nil {
+			continue
+		}
 		for id, o := range p.Info.Defs {
 			if v, ok := o.(*check.Var); ok && l.readsFact(p, id) {
 				walk(v.Type)

@@ -3724,6 +3724,9 @@ func (l *lowerer) needsCloneFunc(t check.Type, deep bool) bool {
 	if !l.holdsValue(t) {
 		return false
 	}
+	if _, named := t.(*check.Named); named {
+		return true
+	}
 	switch u := underEqual(t).(type) {
 	case *check.Map:
 		return (deep || l.entryWritten(t)) && l.holdsValue(u.Elem)
@@ -3857,11 +3860,28 @@ func (l *lowerer) reserveClones(pkgs []*check.Package, reserve func(key pkgKey, 
 			for _, f := range u.Fields {
 				walk(f.Type)
 			}
+		case *check.Union:
+			for _, v := range u.Variants {
+				walk(v)
+			}
 		}
 	}
 	for _, p := range pkgs {
 		if p.Info == nil {
 			continue
+		}
+		for _, tn := range l.canon.types(p) {
+			walk(tn.Type)
+		}
+		for _, f := range l.canon.funcs(p) {
+			if f.Sig != nil {
+				walk(f.Sig)
+			}
+		}
+		for id, o := range p.Info.Defs {
+			if v, ok := o.(*check.Var); ok && l.readsFact(p, id) {
+				walk(v.Type)
+			}
 		}
 		for x, t := range p.Info.Types {
 			if l.readsFact(p, x) {
