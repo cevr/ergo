@@ -49,6 +49,7 @@ var coverage = sync.OnceValue(func() map[string][]string {
 		"time":     {"time"},
 		"url":      {"net/url"},
 		"utf8":     {"unicode/utf8"},
+		"zlib":     {"compress/zlib"},
 	}
 })
 

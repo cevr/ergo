@@ -1,0 +1,99 @@
+import slices
+
+// Adler32Associates: incremental UpdateAdler32 across chunks equals one-shot Adler32.
+law Adler32Associates(a string, b string) {
+	UpdateAdler32(Adler32(a.Bytes()), b.Bytes()) == Adler32((a + b).Bytes())
+}
+
+// RoundTrips: DeflateLevel followed by Inflate returns the original bytes
+// across stored (0), fast (1), and default (6) compression levels, including
+// repeated inputs that exercise overlapping LZ77 back-references.
+law RoundTrips(s string) {
+	let plain = s.Bytes()
+	let rep = (s + s + s + "abcabcabcabc" + "aaaaaaaabbbbbbbb").Bytes()
+	let limit = len(rep) + 64
+	let d0 = try Inflate(DeflateLevel(plain, NoCompression), limit)
+	let d1 = try Inflate(DeflateLevel(plain, BestSpeed), limit)
+	let d6 = try Inflate(Deflate(rep), limit)
+	slices.Equal(d0, plain) && slices.Equal(d1, plain) && slices.Equal(d6, rep)
+}
+
+// InflatePrefixStopsAtBoundary: InflatePrefix decodes two concatenated zlib
+// members followed by arbitrary tail bytes without consuming past either
+// member's exact 4-byte Adler-32 trailer.
+law InflatePrefixStopsAtBoundary(a string, b string, tail string) {
+	let ab = a.Bytes()
+	let bb = b.Bytes()
+	let tb = tail.Bytes()
+	let ca = Deflate(ab)
+	let cb = DeflateLevel(bb, NoCompression)
+	let mut stream = slices.WithCapacity[byte](len(ca) + len(cb) + len(tb))
+	for x in ca {
+		stream = stream.Append(x)
+	}
+	for x in cb {
+		stream = stream.Append(x)
+	}
+	for x in tb {
+		stream = stream.Append(x)
+	}
+	let r1 = try InflatePrefix(stream, len(ab)+16)
+	let r2 = try InflatePrefix(stream[r1.Consumed:], len(bb)+16)
+	slices.Equal(r1.Data, ab) && r1.Consumed == len(ca) && slices.Equal(r2.Data, bb) && r2.Consumed == len(cb)
+}
+
+// RejectsBadTrailer: corrupting a byte of the 4-byte Adler-32 trailer fails
+// with BadChecksum.
+law RejectsBadTrailer(s string) {
+	let mut z = Deflate(s.Bytes())
+	let last = len(z) - 1
+	z[last] = z[last] ^ byte(1)
+	let _ = Inflate(z, len(s)+64) catch {
+	case BadChecksum:
+		return true
+	case BadHeader, UnsupportedDict, BadBlock, BadDistance, BadHuffman, Truncated, TrailingData, LimitExceeded:
+		return false
+	}
+	false
+}
+
+// RejectsTruncated: truncating any valid zlib stream by one byte fails with
+// Truncated.
+law RejectsTruncated(s string) {
+	let z = Deflate(s.Bytes())
+	let cut = z[:len(z)-1]
+	let _ = Inflate(cut, len(s)+64) catch {
+	case Truncated:
+		return true
+	case BadHeader, UnsupportedDict, BadBlock, BadDistance, BadHuffman, BadChecksum, TrailingData, LimitExceeded:
+		return false
+	}
+	false
+}
+
+// RejectsTrailingData: appending extra bytes after a valid zlib member fails
+// Inflate with TrailingData.
+law RejectsTrailingData(s string) {
+	let z = Deflate(s.Bytes()).Append(byte(42))
+	let _ = Inflate(z, len(s)+64) catch {
+	case TrailingData as t:
+		return t.Extra == 1
+	case BadHeader, UnsupportedDict, BadBlock, BadDistance, BadHuffman, BadChecksum, Truncated, LimitExceeded:
+		return false
+	}
+	false
+}
+
+// RejectsLimitExceeded: decoding a payload larger than maxBytes fails with
+// LimitExceeded before exceeding the bound.
+law RejectsLimitExceeded(s string) {
+	let data = (s + "x").Bytes()
+	let z = Deflate(data)
+	let _ = Inflate(z, len(data)-1) catch {
+	case LimitExceeded as l:
+		return l.Limit == len(data)-1
+	case BadHeader, UnsupportedDict, BadBlock, BadDistance, BadHuffman, BadChecksum, Truncated, TrailingData:
+		return false
+	}
+	false
+}
