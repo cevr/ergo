@@ -319,19 +319,12 @@ func exitScalar(st fnb, x dense.ID[syntax.Node]) bool {
 		exitScalar(st, u.X)
 	case syntax.BinaryExpr as b:
 		exitScalar(st, b.X) && exitScalar(st, b.Y)
-	case syntax.SelectorExpr as se:
+	case syntax.SelectorExpr:
 		let ft = typeOf(st, x, "selector") catch {
 		case Unported:
 			return false
 		}
-		if basicGo(st, ft) == "" {
-			return false
-		}
-		readPlace(st, se.X) catch {
-		case Unported:
-			return false
-		}
-		true
+		basicGo(st, ft) != "" && fieldPath(st, x)
 	case syntax.CallExpr as ce:
 		let bi = builtinOf(st, x, ce) catch {
 		case Unported:
@@ -339,18 +332,27 @@ func exitScalar(st fnb, x dense.ID[syntax.Node]) bool {
 		}
 		match bi {
 		case option.Some{Value: b}:
-			if b.conv {
-				exitScalar(st, b.arg)
-			} else {
-				readPlace(st, b.arg) catch {
-				case Unported:
-					return exitScalar(st, b.arg)
-				}
-				true
-			}
+			if b.conv { exitScalar(st, b.arg) } else { exitScalar(st, b.arg) || fieldPath(st, b.arg) }
 		case option.None:
 			false
 		}
+	case _:
+		false
+	}
+}
+
+func fieldPath(st fnb, x dense.ID[syntax.Node]) bool {
+	match syntax.ViewOf(st.p.Tree, x) {
+	case syntax.Name:
+		true
+	case syntax.ParenExpr as pe:
+		fieldPath(st, pe.X)
+	case syntax.SelectorExpr as se:
+		let _ = field(st, x, se) catch {
+		case Unported:
+			return false
+		}
+		fieldPath(st, se.X)
 	case _:
 		false
 	}
