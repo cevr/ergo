@@ -1,0 +1,101 @@
+// Package loose implements Git's loose object store (STD-GIT: G-LOOSE):
+// fanout path resolution across primary ODB and alternates, bounded zlib
+// inflation, canonical header validation, SHA-1DC/SHA-256 rehash verification,
+// atomic temporary-file-and-rename installation, and the Objects capability
+// with shared laws across in-memory and disk providers.
+
+import slices
+import github.com/cevr/ergo/modules/git/oid
+
+// Error is the closed failure union for loose object reads, stats, listings,
+// and atomic installations. Corrupt objects are strictly distinct from Missing.
+type Error =
+	| Missing{OID oid.OID}
+	| Corrupt{OID oid.OID, Why string}
+	| Collision{OID oid.OID, Digest string}
+	| LimitExceeded{MaxBytes int}
+	| IOFailed{Op string, Detail string}
+
+// Object is a verified canonical Git object decoded from a loose store.
+type Object {
+	Kind oid.Kind,
+	OID  oid.OID,
+	Size int,
+	Data []byte,
+}
+
+// Header is the verified kind and byte size of a loose Git object.
+type Header {
+	Kind oid.Kind,
+	Size int,
+}
+
+// Store configures a loose Git object database: its hash format, primary
+// objects directory, and ordered alternate object directories.
+type Store {
+	Format     oid.Format,
+	ObjectsDir string,
+	Alternates []string,
+}
+
+// Objects is the capability seam for Git object storage, carrying the core
+// store laws (ReadAfterInstall, PutTwiceSame, HashBindsBytes) held identically
+// by both MemoryStore and DiskStore.
+type Objects {
+	Read(id oid.OID, maxBytes int) Object fails Missing | Corrupt | Collision | LimitExceeded | IOFailed,
+	Contains(id oid.OID) bool,
+	Install(kind oid.Kind, data []byte) oid.OID fails Collision | IOFailed,
+
+	// ReadAfterInstall: installing an object and reading it back yields the
+	// exact canonical kind, size, OID, and payload bytes, and Contains is true.
+	law ReadAfterInstall(s string) {
+		let payload = s.Bytes()
+		let id = Install(oid.Blob, payload) catch {
+		case Collision, IOFailed:
+			return false
+		}
+		let obj = Read(id, len(payload)+256) catch {
+		case Missing, Corrupt, Collision, LimitExceeded, IOFailed:
+			return false
+		}
+			Contains(id) &&
+			oid.Equal(obj.OID, id) &&
+			oid.KindName(obj.Kind) == "blob" &&
+			obj.Size == len(payload) &&
+			slices.Equal(obj.Data, payload)
+	},
+
+	// PutTwiceSame: installing identical (kind, bytes) twice converges to the
+	// same OID with no duplicate logical object.
+	law PutTwiceSame(s string) {
+		let payload = s.Bytes()
+		let id1 = Install(oid.Blob, payload) catch {
+		case Collision, IOFailed:
+			return false
+		}
+		let id2 = Install(oid.Blob, payload) catch {
+		case Collision, IOFailed:
+			return false
+		}
+		oid.Equal(id1, id2)
+	},
+
+	// HashBindsBytes: every object returned by Read rehashes under its format
+	// to the requested OID.
+	law HashBindsBytes(s string) {
+		let payload = s.Bytes()
+		let id = Install(oid.Blob, payload) catch {
+		case Collision, IOFailed:
+			return false
+		}
+		let obj = Read(id, len(payload)+256) catch {
+		case Missing, Corrupt, Collision, LimitExceeded, IOFailed:
+			return false
+		}
+		let rehashed = oid.HashObject(id.Format, obj.Kind, obj.Data) catch {
+		case oid.Collision:
+			return false
+		}
+		oid.Equal(rehashed, id)
+	},
+}

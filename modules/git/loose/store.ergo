@@ -1,0 +1,288 @@
+import filepath
+import fs
+import slices
+import strings
+import zlib
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/root
+
+// NewStore builds a Store descriptor for format, primary objectsDir, and alternates.
+func NewStore(format oid.Format, objectsDir string, alternates []string) Store {
+	Store{
+		Format:     format,
+		ObjectsDir: filepath.Clean(objectsDir),
+		Alternates: alternates,
+	}
+}
+
+// FromLayout derives a loose Store descriptor from a discovered root.Layout.
+func FromLayout(layout root.Layout) Store {
+	let fmt = if layout.ObjectFormat == "sha256" { oid.Sha256 } else { oid.Sha1 }
+	NewStore(fmt, layout.ObjectsDir, layout.Alternates)
+}
+
+// FanoutPath returns the canonical Git loose object path `<objectsDir>/<hex[0:2]>/<hex[2:]>`.
+func FanoutPath(objectsDir string, id oid.OID) string {
+	let h = oid.Hex(id)
+	filepath.Join([]string{objectsDir, h[:2], h[2:]})
+}
+
+func searchDirs(store Store) []string {
+	let mut dirs = []string{store.ObjectsDir}
+	for alt in store.Alternates {
+		dirs = dirs.Append(alt)
+	}
+	dirs
+}
+
+// DecodeAndVerify inflates raw zlib loose bytes within maxBytes, parses the
+// canonical Git header, verifies declared size equals payload length, and
+// rehashes under id.Format to verify digest equality and SHA-1DC collision freedom.
+func DecodeAndVerify(id oid.OID, raw []byte, maxBytes int) Object fails Corrupt | Collision | LimitExceeded {
+	let inflated = zlib.Inflate(raw, maxBytes) catch {
+	case zlib.LimitExceeded as e:
+		return LimitExceeded{MaxBytes: e.Limit}
+	case zlib.BadHeader, zlib.UnsupportedDict, zlib.BadBlock, zlib.BadDistance, zlib.BadHuffman, zlib.BadChecksum, zlib.Truncated, zlib.TrailingData:
+		return Corrupt{OID: id, Why: "invalid zlib stream"}
+	}
+	let (kind, size, offset) = oid.ParseHeader(inflated) catch {
+	case oid.EmptyKind:
+		return Corrupt{OID: id, Why: "empty object kind"}
+	case oid.BadHeader as e:
+		return Corrupt{OID: id, Why: e.Reason}
+	}
+	let payload = inflated[offset:]
+	if len(payload) != size {
+		return Corrupt{OID: id, Why: "declared object size does not match payload length"}
+	}
+	let rehashed = oid.HashObject(id.Format, kind, payload) catch {
+	case oid.Collision as c:
+		return Collision{OID: id, Digest: c.Digest}
+	}
+	if !oid.Equal(rehashed, id) {
+		return Corrupt{OID: id, Why: "rehashed object digest does not match requested OID"}
+	}
+	Object{
+		Kind: kind,
+		OID:  id,
+		Size: size,
+		Data: payload,
+	}
+}
+
+// EncodeLoose formats and zlib-compresses a canonical Git loose object payload.
+func EncodeLoose(kind oid.Kind, data []byte) []byte {
+	let hdr = oid.Header(kind, len(data))
+	let mut framed = slices.WithCapacity[byte](len(hdr) + len(data))
+	for b in hdr {
+		framed = framed.Append(b)
+	}
+	for b in data {
+		framed = framed.Append(b)
+	}
+	zlib.Deflate(framed)
+}
+
+// ReadObject locates, inflates, and verifies the loose object for id across
+// store.ObjectsDir and store.Alternates in order. Corrupt objects never
+// collapse into Missing.
+func ReadObject(store Store, id oid.OID, maxBytes int) Object fails Missing | Corrupt | Collision | LimitExceeded | IOFailed needs fs.Files {
+	for odb in searchDirs(store) {
+		let p = FanoutPath(odb, id)
+		let rawOpt = fs.Files.ReadFile(p) catch {
+		case fs.NotFound:
+			""
+		case fs.Denied as e:
+			return IOFailed{Op: "read", Detail: e.Path}
+		case fs.Failed as e:
+			return IOFailed{Op: "read", Detail: e.Reason}
+		}
+		if rawOpt == "" {
+			let exists = fs.Files.Stat(p) catch {
+			case fs.NotFound:
+				fs.Info{Name: "", Size: 0, Dir: false, Perm: 0}
+			case fs.Denied as e:
+				return IOFailed{Op: "stat", Detail: e.Path}
+			case fs.Failed as e:
+				return IOFailed{Op: "stat", Detail: e.Reason}
+			}
+			if exists.Name == "" {
+				continue
+			}
+			return Corrupt{OID: id, Why: "empty loose object file"}
+		}
+		return try DecodeAndVerify(id, rawOpt.Bytes(), maxBytes)
+	}
+	return Missing{OID: id}
+}
+
+// StatObject verifies the loose object for id and returns its Header without
+// collapsing corrupt objects into Missing.
+func StatObject(store Store, id oid.OID, maxBytes int) Header fails Missing | Corrupt | Collision | LimitExceeded | IOFailed needs fs.Files {
+	let obj = try ReadObject(store, id, maxBytes)
+	Header{Kind: obj.Kind, Size: obj.Size}
+}
+
+// ContainsObject reports whether a loose object file for id exists in
+// store.ObjectsDir or any alternate ODB.
+func ContainsObject(store Store, id oid.OID) bool needs fs.Files {
+	for odb in searchDirs(store) {
+		let p = FanoutPath(odb, id)
+		let info = fs.Files.Stat(p) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			fs.Info{Name: "", Size: 0, Dir: true, Perm: 0}
+		}
+		if info.Name != "" && !info.Dir {
+			return true
+		}
+	}
+	false
+}
+
+func isLowerHex2(s string) bool {
+	let bs = s.Bytes()
+	if len(bs) != 2 {
+		return false
+	}
+	for b in bs {
+		let ok = (b >= byte('0') && b <= byte('9')) || (b >= byte('a') && b <= byte('f'))
+		if !ok {
+			return false
+		}
+	}
+	true
+}
+
+// ListObjects enumerates every loose object in store.ObjectsDir in canonical
+// sorted OID order, skipping non-hex entries and tmp_obj_* temp files.
+func ListObjects(store Store) []oid.OID fails IOFailed needs fs.Files {
+	let topEntries = fs.Files.ReadDir(store.ObjectsDir) catch {
+	case fs.NotFound:
+		return []oid.OID{}
+	case fs.Denied as e:
+		return IOFailed{Op: "readdir", Detail: e.Path}
+	case fs.Failed as e:
+		return IOFailed{Op: "readdir", Detail: e.Reason}
+	}
+	let mut found = []oid.OID{}
+	for fan in topEntries {
+		if !isLowerHex2(fan) {
+			continue
+		}
+		let fanDir = filepath.Join([]string{store.ObjectsDir, fan})
+		let info = fs.Files.Stat(fanDir) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			fs.Info{Name: "", Size: 0, Dir: false, Perm: 0}
+		}
+		if !info.Dir {
+			continue
+		}
+		let subEntries = fs.Files.ReadDir(fanDir) catch {
+		case fs.NotFound:
+			[]string{}
+		case fs.Denied as e:
+			return IOFailed{Op: "readdir", Detail: e.Path}
+		case fs.Failed as e:
+			return IOFailed{Op: "readdir", Detail: e.Reason}
+		}
+		for name in subEntries {
+			if strings.HasPrefix(name, "tmp_obj_") {
+				continue
+			}
+			let parsed = oid.ParseHex(store.Format, fan+name) catch {
+			case oid.BadHex, oid.WrongLength:
+				continue
+			}
+			found = found.Append(parsed)
+		}
+	}
+	slices.SortFunc(found, oid.Compare)
+}
+
+// InstallObject atomically installs a loose Git object into store.ObjectsDir:
+// computes and collision-checks the canonical OID first, skips writing if the
+// object already exists, otherwise writes to `tmp_obj_<hex>` in the fanout
+// directory and renames it into place (removing the temp file on any error).
+func InstallObject(store Store, kind oid.Kind, data []byte) oid.OID fails Collision | IOFailed needs fs.Files | fs.Writes {
+	let id = oid.HashObject(store.Format, kind, data) catch {
+	case oid.Collision as c:
+		return Collision{OID: oid.Zero(store.Format), Digest: c.Digest}
+	}
+	let primaryOnly = Store{Format: store.Format, ObjectsDir: store.ObjectsDir, Alternates: []string{}}
+	if ContainsObject(primaryOnly, id) {
+		return id
+	}
+	let targetPath = FanoutPath(store.ObjectsDir, id)
+	let fanoutDir = filepath.Dir(targetPath)
+	fs.Writes.MkdirAll(fanoutDir) catch {
+	case fs.Denied as e:
+		return IOFailed{Op: "mkdir", Detail: e.Path}
+	case fs.Failed as e:
+		return IOFailed{Op: "mkdir", Detail: e.Reason}
+	}
+	let compressed = EncodeLoose(kind, data)
+	let tmpPath = filepath.Join([]string{fanoutDir, "tmp_obj_" + oid.Hex(id)})
+	fs.Writes.WriteFile(tmpPath, compressed.Text()) catch {
+	case fs.NotFound as e:
+		return IOFailed{Op: "write-tmp", Detail: e.Path}
+	case fs.Denied as e:
+		return IOFailed{Op: "write-tmp", Detail: e.Path}
+	case fs.Failed as e:
+		return IOFailed{Op: "write-tmp", Detail: e.Reason}
+	}
+	fs.Writes.Rename(tmpPath, targetPath) catch {
+	case fs.NotFound as e:
+		fs.Writes.Remove(tmpPath) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+		}
+		return IOFailed{Op: "rename", Detail: e.Path}
+	case fs.Denied as e:
+		fs.Writes.Remove(tmpPath) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+		}
+		return IOFailed{Op: "rename", Detail: e.Path}
+	case fs.Failed as e:
+		fs.Writes.Remove(tmpPath) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+		}
+		return IOFailed{Op: "rename", Detail: e.Reason}
+	case fs.CrossDevice as e:
+		fs.Writes.Remove(tmpPath) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+		}
+		return IOFailed{Op: "rename", Detail: e.To}
+	}
+	id
+}
+
+// DiskStore implements Objects over real loose object files via fs.Host.
+type DiskStore {
+	store Store,
+	host  fs.Host,
+} implements Objects
+
+// NewDiskStore wraps store and host as an Objects provider.
+func NewDiskStore(store Store, host fs.Host) DiskStore {
+	DiskStore{store: store, host: host}
+}
+
+// Read implements Objects.Read on DiskStore.
+func Read(d DiskStore, id oid.OID, maxBytes int) Object fails Missing | Corrupt | Collision | LimitExceeded | IOFailed {
+	with context { fs.Files: d.host } {
+		try ReadObject(d.store, id, maxBytes)
+	}
+}
+
+// Contains implements Objects.Contains on DiskStore.
+func Contains(d DiskStore, id oid.OID) bool {
+	with context { fs.Files: d.host } {
+		ContainsObject(d.store, id)
+	}
+}
+
+// Install implements Objects.Install on DiskStore.
+func Install(d DiskStore, kind oid.Kind, data []byte) oid.OID fails Collision | IOFailed {
+	with context { fs.Files: d.host, fs.Writes: d.host } {
+		try InstallObject(d.store, kind, data)
+	}
+}

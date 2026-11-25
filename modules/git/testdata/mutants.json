@@ -240,6 +240,70 @@
       "killers": [
         "modules/git/oid:HexRoundTrips"
       ]
+    },
+    {
+      "name": "git-loose-wrong-fanout",
+      "origin": "STD-GIT G-LOOSE",
+      "file": "modules/git/loose/store.ergo",
+      "from": "\tfilepath.Join([]string{objectsDir, h[:2], h[2:]})",
+      "to": "\tfilepath.Join([]string{objectsDir, h[:3], h[3:]})",
+      "rule": "Loose object fanout path splits the hex OID at 2/38 (or 2/62) characters.",
+      "anchor": {
+        "tests": [
+          "modules/git/loose:ReadMatchesGitCatFile"
+        ]
+      },
+      "killers": [
+        "modules/git/loose:ReadMatchesGitCatFile"
+      ]
+    },
+    {
+      "name": "git-loose-collapses-corrupt-to-missing",
+      "origin": "STD-GIT G-LOOSE",
+      "file": "modules/git/loose/store.ergo",
+      "from": "\t\treturn try DecodeAndVerify(id, rawOpt.Bytes(), maxBytes)",
+      "to": "\t\treturn DecodeAndVerify(id, rawOpt.Bytes(), maxBytes) catch {\n\t\tcase Corrupt:\n\t\t\treturn Missing{OID: id}\n\t\tcase Collision as c:\n\t\t\treturn c\n\t\tcase LimitExceeded as l:\n\t\t\treturn l\n\t\t}",
+      "rule": "Corrupt loose objects fail with Corrupt rather than collapsing into Missing.",
+      "anchor": {
+        "tests": [
+          "modules/git/loose:CorruptVsMissingDistinct"
+        ]
+      },
+      "killers": [
+        "modules/git/loose:CorruptVsMissingDistinct"
+      ]
+    },
+    {
+      "name": "git-loose-skips-rehash-verify",
+      "origin": "STD-GIT G-LOOSE",
+      "file": "modules/git/loose/store.ergo",
+      "from": "\tif !oid.Equal(rehashed, id) {\n\t\treturn Corrupt{OID: id, Why: \"rehashed object digest does not match requested OID\"}\n\t}",
+      "to": "\tif false && !oid.Equal(rehashed, id) {\n\t\treturn Corrupt{OID: id, Why: \"rehashed object digest does not match requested OID\"}\n\t}",
+      "rule": "DecodeAndVerify rehashes decoded bytes under id.Format and rejects mismatches as Corrupt.",
+      "anchor": {
+        "tests": [
+          "modules/git/loose:CorruptVsMissingDistinct"
+        ]
+      },
+      "killers": [
+        "modules/git/loose:CorruptVsMissingDistinct"
+      ]
+    },
+    {
+      "name": "git-loose-ignores-alternates",
+      "origin": "STD-GIT G-LOOSE",
+      "file": "modules/git/loose/store.ergo",
+      "from": "\tlet mut dirs = []string{store.ObjectsDir}\n\tfor alt in store.Alternates {\n\t\tdirs = dirs.Append(alt)\n\t}\n\tdirs",
+      "to": "\t[]string{store.ObjectsDir}",
+      "rule": "Loose object reads search both primary ObjectsDir and configured Alternates in order.",
+      "anchor": {
+        "tests": [
+          "modules/git/loose:ReadMatchesGitCatFile"
+        ]
+      },
+      "killers": [
+        "modules/git/loose:ReadMatchesGitCatFile"
+      ]
     }
   ]
 }
