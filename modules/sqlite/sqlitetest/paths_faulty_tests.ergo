@@ -4,6 +4,7 @@ import go os
 import sql
 import sync
 import testing
+import github.com/cevr/ergo/modules/sqlite/sqlite
 
 type sqPathState {
 	A int,
@@ -33,12 +34,12 @@ type sqPathDriveErr { Message string }
 type sqHandle {
 	dir  string,
 	path string,
-	db   DB,
+	db   sqlite.DB,
 }
 
 let sqWalDir = sync.NewRef("")
 let sqCurrent = sync.NewRef[Option[sqHandle]](None)
-let sqMemCurrent = sync.NewRef[Option[DB]](None)
+let sqMemCurrent = sync.NewRef[Option[sqlite.DB]](None)
 
 func sqFreshDir() string fails sqPathOpenErr needs go.Foreign {
 	let existing = sqWalDir.Get()
@@ -66,7 +67,7 @@ func sqRemoveFile(dir string, name string) needs go.Foreign {
 	}
 }
 
-func sqInitSchema(db DB) fails sqPathOpenErr needs go.Foreign {
+func sqInitSchema(db sqlite.DB) fails sqPathOpenErr needs go.Foreign {
 	let _ = db.Exec("CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v INTEGER NOT NULL)", []sql.Value{}) catch {
 	case _:
 		return sqPathOpenErr{Message: "create table failed"}
@@ -87,7 +88,7 @@ func sqCloseAndClean() needs go.Foreign {
 	}
 }
 
-func sqReadKey(db DB, key string) int fails sqPathDriveErr needs go.Foreign {
+func sqReadKey(db sqlite.DB, key string) int fails sqPathDriveErr needs go.Foreign {
 	let rows = db.Query("SELECT v FROM kv WHERE k = ?", []sql.Value{sql.Text{S: key}}) catch {
 	case _:
 		return sqPathDriveErr{Message: "query failed"}
@@ -103,7 +104,7 @@ func sqReadKey(db DB, key string) int fails sqPathDriveErr needs go.Foreign {
 	}
 }
 
-func sqRowCount(db DB) int fails sqPathDriveErr needs go.Foreign {
+func sqRowCount(db sqlite.DB) int fails sqPathDriveErr needs go.Foreign {
 	let rows = db.Query("SELECT COUNT(*) FROM kv", []sql.Value{}) catch {
 	case _:
 		return sqPathDriveErr{Message: "count failed"}
@@ -192,7 +193,7 @@ func Apply(s sqClosureSession, act sqPathAct) explore.Observed[sqPathObs, sqPath
 func Close(s sqClosureSession) { s.close() }
 
 func tryWriteItem() bool needs sql.DB {
-	let _ = WriteTransaction(func() bool fails sqAbort needs sql.Tx | sql.DB {
+	let _ = sqlite.WriteTransaction(func() bool fails sqAbort needs sql.Tx | sql.DB {
 		let _ = sql.Tx.Exec("INSERT INTO items(id, val) VALUES(1, 'ok')", []sql.Value{}) catch {
 		case _:
 			return sqAbort
@@ -332,7 +333,7 @@ func OpenSession(_ SqliteWALPathProvider, start sqPathState) fails sqPathOpenErr
 	sqRemoveFile(dir, "wal.db-wal")
 	sqRemoveFile(dir, "wal.db-shm")
 	let path = dir + "/wal.db"
-	let db = Open(path) catch {
+	let db = sqlite.Open(path) catch {
 	case _:
 		return sqPathOpenErr{Message: "open failed"}
 	}
@@ -353,7 +354,7 @@ func ReadSession(_ SqliteWALPathProvider) sqPathObs fails sqPathDriveErr needs g
 }
 
 func runCommitPair(a int, b int) bool fails sqAbort | sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other needs sql.DB {
-	try WriteTransaction(func() bool fails sqAbort needs sql.Tx | sql.DB {
+	try sqlite.WriteTransaction(func() bool fails sqAbort needs sql.Tx | sql.DB {
 		let _ = sql.Tx.Exec("INSERT INTO kv(k, v) VALUES('a', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v", []sql.Value{sql.Int{N: int64(a)}}) catch {
 		case _:
 			return sqAbort
@@ -367,7 +368,7 @@ func runCommitPair(a int, b int) bool fails sqAbort | sql.Unique | sql.Serializa
 }
 
 func runRollbackPair(a int, b int) bool fails sqAbort | sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other needs sql.DB {
-	try WriteTransaction(func() bool fails sqAbort needs sql.Tx | sql.DB {
+	try sqlite.WriteTransaction(func() bool fails sqAbort needs sql.Tx | sql.DB {
 		let _ = sql.Tx.Exec("INSERT INTO kv(k, v) VALUES('a', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v", []sql.Value{sql.Int{N: int64(a)}}) catch {
 		case _:
 			return sqAbort
@@ -413,7 +414,7 @@ func ApplySession(_ SqliteWALPathProvider, act sqPathAct) sqPathOut fails sqPath
 		case _:
 			return sqPathDriveErr{Message: "close before reopen failed"}
 		}
-		let db2 = Open(h.path) catch {
+		let db2 = sqlite.Open(h.path) catch {
 		case _:
 			return sqPathDriveErr{Message: "reopen failed"}
 		}
@@ -428,14 +429,14 @@ func CloseSession(_ SqliteWALPathProvider) needs go.Foreign {
 
 func OpenFaultyMemDB(_ SqliteWALPathProvider) sql.DB fails sqPathOpenErr needs go.Foreign {
 	match sqMemCurrent.Get() {
-	case Some[DB] as prev:
+	case Some[sqlite.DB] as prev:
 		prev.Value.Close() catch {
 		case _:
 		}
 		sqMemCurrent.Set(None)
 	case None:
 	}
-	let db = OpenMemory() catch {
+	let db = sqlite.OpenMemory() catch {
 	case _:
 		return sqPathOpenErr{Message: "open memory failed"}
 	}
@@ -446,13 +447,13 @@ func OpenFaultyMemDB(_ SqliteWALPathProvider) sql.DB fails sqPathOpenErr needs g
 		}
 		return sqPathOpenErr{Message: "create items failed"}
 	}
-	sqMemCurrent.Set(Some[DB]{Value: db})
+	sqMemCurrent.Set(Some[sqlite.DB]{Value: db})
 	db
 }
 
 func CountFaultyMemItems(_ SqliteWALPathProvider) int fails sqPathDriveErr needs go.Foreign {
 	match sqMemCurrent.Get() {
-	case Some[DB] as db:
+	case Some[sqlite.DB] as db:
 		let rows = db.Value.Query("SELECT COUNT(*) FROM items", []sql.Value{}) catch {
 		case _:
 			return sqPathDriveErr{Message: "count items failed"}
@@ -473,7 +474,7 @@ func CountFaultyMemItems(_ SqliteWALPathProvider) int fails sqPathDriveErr needs
 
 func CloseFaultyMemDB(_ SqliteWALPathProvider) needs go.Foreign {
 	match sqMemCurrent.Get() {
-	case Some[DB] as db:
+	case Some[sqlite.DB] as db:
 		db.Value.Close() catch {
 		case _:
 		}

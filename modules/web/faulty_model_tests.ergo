@@ -10,9 +10,26 @@ type webStoreDown { Reason string }
 type webStore {
 	Get(id int) Option[string] fails webStoreDown,
 	Put(id int, title string) fails webStoreDown,
+
+	// PutThenGet verifies a stored title reads back identically for the same id.
+	law PutThenGet(id int, title string) {
+		Put(id, title) catch {
+		case webStoreDown:
+			return false
+		}
+		let got = Get(id) catch {
+		case webStoreDown:
+			return false
+		}
+		got == Some[string]{Value: title}
+	},
 }
 
 type memWebStore { rows sync.Ref[Map[int, string]] } implements webStore
+
+let onMemWebStore = context {
+	webStore: newMemWebStore(),
+}
 
 func newMemWebStore() memWebStore {
 	memWebStore{rows: sync.NewRef(Map[int, string]{})}
