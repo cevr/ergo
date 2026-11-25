@@ -169,6 +169,10 @@ fact go unicode pure members validated by guard with go1.27.4 h1:xrgHefhY5L5swJn
 fact go unicode/utf16 pure members validated by guard with go1.27.4 h1:K4aT3aUE7yWhZc1b6BS8ydNOtgVDCAJ1L9aTgSqJp8Q=
 fact go unicode/utf8 pure members validated by guard with go1.27.4 h1:5gjyDHvaVojxyercf1zdUm+G09IguET6X0RIacP+gjo=
 law bits.RotateKeepsOnes validated by eval with go1.27.4 h1:jkq3gVnp5Rq0awjyucsBiOSHOpCngoSLaiUJihHHHU0=
+law collections.MapFold.FoldOfMap for option.Option validated by eval h1:pWVDvge3rpPmh2J/exA933/9HIpvYe+KyHbrtv4dMgc=
+law collections.Mappable.MapFuses for option.Option validated by eval h1:h+ckVE7N8w6Tz9Aoa498KdXSHTPhU7k5gkUm9Pe+ehM=
+law collections.SliceFoldOfMap validated by eval with go1.27.4 h1:O+i79wSxxNhN7WQbexPd+POMnC1YX0lwVmD5ItQ7YiM=
+law collections.SliceMapFuses validated by eval with go1.27.4 h1:Yg2oS3QU9cE08C81Wt1sV3eYnSitw7tezGhaH6A9mHU=
 law hex.DecodeInvertsEncode validated by eval with runtime/v1/digest@e958cc1575e5 h1:UJzfQ3vrqrlxZ4R3DGQ6F/kStZDUN6SxjC0+9FLvGHs=
 law hex.EncodeDoublesLength validated by eval with runtime/v1/digest@0f15dcb98673 h1:49MQOBirv5pqUuWxq+KUVTfOzjxVyZYIM3arp7Z+m+s=
 law json.Text.PlainIsRaw for json.text at ("None") proved by native with go1.27.4,runtime/v1@07b3eb2968b9 h1:HhNjzZopx/H2p4cHU1QWFvDUGwrmJHIeJlvSlVTrO7M=
@@ -300,9 +304,9 @@ law json.Text.SetCommaSinksInt for json.text proved by native with go1.27.4,runt
 law json.Text.SetCommaSinksString for json.text proved by native with go1.27.4,runtime/v1@07b3eb2968b9 h1:l5SXHv7YM0Jn6a5rzrIWlnGIW8apfeU/xadlh2GGhUM=
 law json.Text.SetCommaSinksUint for json.text proved by native with go1.27.4,runtime/v1@07b3eb2968b9 h1:l5SXHv7YM0Jn6a5rzrIWlnGIW8apfeU/xadlh2GGhUM=
 law slices.FilterFuses validated by eval with runtime/v1@cacdc6b497f7 h1:ukcyJaG4vte5JpPCLxh4/BFU9geHBjt8dXvuAmSGQkM=
-law slices.FilterThenTransform validated by eval with runtime/v1@c2d5e5419a4c h1:W8/3dThEMNMsc9YJcHG9JD1OxddCwLPnsTNdTTcy95I=
-law slices.TransformFuses validated by eval with runtime/v1@c2d5e5419a4c h1:ZLdMQoUx51zRcTOxpvF2Hi3PDb9dpyHp3w3V5k4CUc0=
-law slices.TransformThenFilter validated by eval with runtime/v1@c2d5e5419a4c h1:f9RhOSjedFeJgPsla0a/c8cajjHSiRrt3PExkCqCcxA=
+law slices.FilterThenTransform validated by eval with go1.27.4,runtime/v1@cacdc6b497f7 h1:p4xUwmWjlnd3/Hz8k/T32wzATzGBwqbHhs1dH3EFlyU=
+law slices.TransformFuses validated by eval with go1.27.4 h1:l1FjfyRsPWdYwmRybkJrAoqY8QSBeugC+Wf/HKAoYis=
+law slices.TransformThenFilter validated by eval with go1.27.4,runtime/v1@cacdc6b497f7 h1:+eITp145Y7MbMe98lQfxTdXdlh3wjMwfAKzGT1Su1tA=
 law strconv.AtoiInvertsItoa validated by eval with go1.27.4,runtime/v1@df87e8b0390a h1:zBFN4ty4IM6Ljgm2i5Su6BH17viTz9ZP2Q2CGvTNaNw=
 law strconv.ParseBoolInvertsFormat validated by eval with go1.27.4 h1:5FbCnfnFfxUw6fSS7LhzL78YS2cxUkHnyY+csbheBS0=
 law strconv.ParseIntInvertsFormat validated by eval with go1.27.4,runtime/v1@ce5b986efc0a h1:XPErKb9X9Ur1QcHL7FLtOBpMgvLZVZG7ZhxxeRvb4IM=

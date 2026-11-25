@@ -8026,7 +8026,7 @@ func (old codegraph__Rows) Changed(new_1 codegraph__Rows) []int {
 		inl_1:
 			_ = 0
 			v_6 := ergo__Get[string, bool](t_1, (v_4 + " " + n_2.Digest))
-			b = (v_6 == (ergo__Option[bool]{}).of1((ergo__None{})))
+			b = (v_6 == (option__Option[bool]{}).of1((option__None{})))
 		}
 		if b {
 			out = ergo__Append[int](out, i_1)
@@ -9266,14 +9266,14 @@ func (r codegraph__Rows) Find(name string) []int {
 	return out
 }
 
-type ergo__Some[T any] struct {
+type option__Some[T any] struct {
 	Value T
 }
 
-type ergo__None struct {
+type option__None struct {
 }
 
-func (r codegraph__Rows) Why(a int, b int) ergo__Option[[]codegraph__Step] {
+func (r codegraph__Rows) Why(a int, b int) option__Option[[]codegraph__Step] {
 	v := (r).dependsOf()
 	v_1 := (v.Graph).Path(a, b)
 	s := v_1
@@ -9290,9 +9290,9 @@ func (r codegraph__Rows) Why(a int, b int) ergo__Option[[]codegraph__Step] {
 			v_4 := ergo__Append[codegraph__Step](t_1, v_3)
 			out = v_4
 		}
-		return (ergo__Option[[]codegraph__Step]{}).of0(ergo__Some[[]codegraph__Step]{Value: out})
+		return (option__Option[[]codegraph__Step]{}).of0(option__Some[[]codegraph__Step]{Value: out})
 	case 1:
-		return (ergo__Option[[]codegraph__Step]{tag: 1})
+		return (option__Option[[]codegraph__Step]{tag: 1})
 	default:
 		panic("ergo: defect: no case of the match at std/codegraph/codegraph.ergo:435:2 matched")
 	}
@@ -9418,19 +9418,19 @@ func (r codegraph__Rows) Hidden() []codegraph__HiddenUse {
 		b := (((v_3 >= int(0)) && (v_4 >= int(0))) && (v_3 != v_4))
 		if b {
 			v_5 := ergo__Get[int, bool](imported, ((v_3 * width) + v_4))
-			b = (v_5 == (ergo__Option[bool]{}).of1((ergo__None{})))
+			b = (v_5 == (option__Option[bool]{}).of1((option__None{})))
 		}
 		if b {
 			out = ergo__Append[codegraph__HiddenUse](out, codegraph__HiddenUse{From: e_1.From, To: e_1.To, Package: v_4, Via: int(-1), How: e_1.How})
 		}
 		v_7, ok := reexport[e_1.To]
 		if ok {
-			t_1 := ergo__Some[int]{Value: v_7}
+			t_1 := option__Some[int]{Value: v_7}
 			v_8 := (r).packageOf(t_1.Value)
 			b_1 := (((v_3 >= int(0)) && (v_8 >= int(0))) && (v_3 != v_8))
 			if b_1 {
 				v_9 := ergo__Get[int, bool](imported, ((v_3 * width) + v_8))
-				b_1 = (v_9 == (ergo__Option[bool]{}).of1((ergo__None{})))
+				b_1 = (v_9 == (option__Option[bool]{}).of1((option__None{})))
 			}
 			if b_1 {
 				out = ergo__Append[codegraph__HiddenUse](out, codegraph__HiddenUse{From: e_1.From, To: t_1.Value, Package: v_8, Via: e_1.To, How: e_1.How})
@@ -9667,11 +9667,11 @@ func ergo__EqualSlice_3(a, b []string) bool {
 	return true
 }
 
-func ergo__EqualSome_2(a, b ergo__Some[[]string]) bool {
+func ergo__EqualSome_2(a, b option__Some[[]string]) bool {
 	return ergo__EqualSlice_3(a.Value, b.Value)
 }
 
-func ergo__EqualOption_2(a, b ergo__Option[[]string]) bool {
+func ergo__EqualOption_2(a, b option__Option[[]string]) bool {
 	return (a.tag == b.tag) && (a.tag != 0 || ergo__EqualSome_2(a.as0(), b.as0()))
 }
 
@@ -9731,10 +9731,10 @@ func (r codegraph__Rows) Directories(modules []int) codegraph__DirectoryList {
 			v_12 := codegraph__childEntry(parts, k_1)
 			var key string = ((dir + "\n") + v_12)
 			v_13 := ergo__Get[string, bool](seen, key)
-			if v_13 == (ergo__Option[bool]{}).of1((ergo__None{})) {
+			if v_13 == (option__Option[bool]{}).of1((option__None{})) {
 				seen[key] = true
 				v_14 := ergo__Get[string, []string](members, dir)
-				if ergo__EqualOption_2(v_14, (ergo__Option[[]string]{}).of1((ergo__None{}))) {
+				if ergo__EqualOption_2(v_14, (option__Option[[]string]{}).of1((option__None{}))) {
 					dirs = ergo__Append[string](dirs, dir)
 				}
 				t_1 := members
@@ -9745,7 +9745,7 @@ func (r codegraph__Rows) Directories(modules []int) codegraph__DirectoryList {
 					var def []string = []string{}
 					v_17, ok := m_1[dir]
 					if ok {
-						v_18 := ergo__Some[[]string]{Value: v_17}
+						v_18 := option__Some[[]string]{Value: v_17}
 						v_16 = v_18.Value
 						goto inl
 					} else {
@@ -9761,7 +9761,7 @@ func (r codegraph__Rows) Directories(modules []int) codegraph__DirectoryList {
 			if k_1 == (len(parts) - int(1)) {
 				v_20, ok_1 := directAnchor[dir]
 				if ok_1 {
-					prev := ergo__Some[int]{Value: v_20}
+					prev := option__Some[int]{Value: v_20}
 					if row.Name < r.Nodes[prev.Value].Name {
 						directAnchor[dir] = i
 					}
@@ -9771,7 +9771,7 @@ func (r codegraph__Rows) Directories(modules []int) codegraph__DirectoryList {
 			}
 			v_21, ok_2 := anyAnchor[dir]
 			if ok_2 {
-				prev_1 := ergo__Some[int]{Value: v_21}
+				prev_1 := option__Some[int]{Value: v_21}
 				if row.Name < r.Nodes[prev_1.Value].Name {
 					anyAnchor[dir] = i
 				}
@@ -9788,7 +9788,7 @@ func (r codegraph__Rows) Directories(modules []int) codegraph__DirectoryList {
 		var v_24 int
 		v_25, ok_3 := directAnchor[d]
 		if ok_3 {
-			a := ergo__Some[int]{Value: v_25}
+			a := option__Some[int]{Value: v_25}
 			v_24 = a.Value
 		} else {
 			var v_26 int
@@ -9797,7 +9797,7 @@ func (r codegraph__Rows) Directories(modules []int) codegraph__DirectoryList {
 				var def_1 int = int(-1)
 				v_27, ok_4 := m_2[d]
 				if ok_4 {
-					v_28 := ergo__Some[int]{Value: v_27}
+					v_28 := option__Some[int]{Value: v_27}
 					v_26 = v_28.Value
 					goto inl_1
 				} else {
@@ -9818,7 +9818,7 @@ func (r codegraph__Rows) Directories(modules []int) codegraph__DirectoryList {
 			var def_2 []string = []string{}
 			v_30, ok_5 := m_3[d]
 			if ok_5 {
-				v_31 := ergo__Some[[]string]{Value: v_30}
+				v_31 := option__Some[[]string]{Value: v_30}
 				v_29 = v_31.Value
 				goto inl_2
 			} else {
@@ -9883,11 +9883,11 @@ func ergo__EqualSlice_2(a, b []int) bool {
 	return true
 }
 
-func ergo__EqualSome_1(a, b ergo__Some[[]int]) bool {
+func ergo__EqualSome_1(a, b option__Some[[]int]) bool {
 	return ergo__EqualSlice_2(a.Value, b.Value)
 }
 
-func ergo__EqualOption_1(a, b ergo__Option[[]int]) bool {
+func ergo__EqualOption_1(a, b option__Option[[]int]) bool {
 	return (a.tag == b.tag) && (a.tag != 0 || ergo__EqualSome_1(a.as0(), b.as0()))
 }
 
@@ -9941,7 +9941,7 @@ func (r codegraph__Rows) ForeignRecordFieldWrites(modules []int) codegraph__Fore
 		b := b_1
 		if b {
 			v_10 := ergo__Get[int, int](privateField, row.Parent)
-			b = (v_10 == (ergo__Option[int]{}).of1((ergo__None{})))
+			b = (v_10 == (option__Option[int]{}).of1((option__None{})))
 		}
 		if b {
 			privateField[row.Parent] = i
@@ -9996,10 +9996,10 @@ func (r codegraph__Rows) ForeignRecordFieldWrites(modules []int) codegraph__Fore
 		}
 		var pair int = ((e.To * width) + e.From)
 		v_18 := ergo__Get[int, int](firstSite, pair)
-		if v_18 == (ergo__Option[int]{}).of1((ergo__None{})) {
+		if v_18 == (option__Option[int]{}).of1((option__None{})) {
 			firstSite[pair] = k_2
 			v_19 := ergo__Get[int, []int](callersOf, e.To)
-			if ergo__EqualOption_1(v_19, (ergo__Option[[]int]{}).of1((ergo__None{}))) {
+			if ergo__EqualOption_1(v_19, (option__Option[[]int]{}).of1((option__None{}))) {
 				fields = ergo__Append[int](fields, e.To)
 			}
 			t_3 := callersOf
@@ -10011,7 +10011,7 @@ func (r codegraph__Rows) ForeignRecordFieldWrites(modules []int) codegraph__Fore
 				var def []int = []int{}
 				v_22, ok := m_1[k_3]
 				if ok {
-					v_23 := ergo__Some[[]int]{Value: v_22}
+					v_23 := option__Some[[]int]{Value: v_22}
 					v_21 = v_23.Value
 					goto inl_2
 				} else {
@@ -10036,7 +10036,7 @@ func (r codegraph__Rows) ForeignRecordFieldWrites(modules []int) codegraph__Fore
 			var def_1 []int = []int{}
 			v_28, ok_1 := m_2[f]
 			if ok_1 {
-				v_29 := ergo__Some[[]int]{Value: v_28}
+				v_29 := option__Some[[]int]{Value: v_28}
 				v_27 = v_29.Value
 				goto inl_3
 			} else {
@@ -10059,7 +10059,7 @@ func (r codegraph__Rows) ForeignRecordFieldWrites(modules []int) codegraph__Fore
 				var def_2 int = int(-1)
 				v_33, ok_2 := m_3[k_4]
 				if ok_2 {
-					v_34 := ergo__Some[int]{Value: v_33}
+					v_34 := option__Some[int]{Value: v_33}
 					v_32 = v_34.Value
 					goto inl_4
 				} else {
@@ -10082,7 +10082,7 @@ func (r codegraph__Rows) ForeignRecordFieldWrites(modules []int) codegraph__Fore
 			var def_3 int = int(-1)
 			v_37, ok_3 := m_4[record]
 			if ok_3 {
-				v_38 := ergo__Some[int]{Value: v_37}
+				v_38 := option__Some[int]{Value: v_37}
 				v_36 = v_38.Value
 				goto inl_5
 			} else {
@@ -10153,7 +10153,7 @@ func (r codegraph__Rows) ProductionUsesTestSupport(modules []int, support []code
 			var def []string = []string{}
 			v_3, ok := m_1[k]
 			if ok {
-				v_4 := ergo__Some[[]string]{Value: v_3}
+				v_4 := option__Some[[]string]{Value: v_3}
 				v_2 = v_4.Value
 				goto inl
 			} else {
@@ -10204,7 +10204,7 @@ func (r codegraph__Rows) ProductionUsesTestSupport(modules []int, support []code
 		if e.Kind == "imports" {
 			var key int = ((e.From * width) + e.To)
 			v_13 := ergo__Get[int, int](importSite, key)
-			if v_13 == (ergo__Option[int]{}).of1((ergo__None{})) {
+			if v_13 == (option__Option[int]{}).of1((option__None{})) {
 				importSite[key] = k_3
 			}
 		}
@@ -10230,7 +10230,7 @@ func (r codegraph__Rows) ProductionUsesTestSupport(modules []int, support []code
 			var def_1 []string = []string{}
 			v_16, ok_1 := m_2[targetPkg]
 			if ok_1 {
-				v_17 := ergo__Some[[]string]{Value: v_16}
+				v_17 := option__Some[[]string]{Value: v_16}
 				v_15 = v_17.Value
 				goto inl_1
 			} else {
@@ -10245,7 +10245,7 @@ func (r codegraph__Rows) ProductionUsesTestSupport(modules []int, support []code
 		}
 		t_2 := a.Ordinary
 		v_18 := ergo__Get[int, bool](fileHasTest, a.File)
-		v_19 := codegraph__callerExempt(t_2, (v_18 != (ergo__Option[bool]{}).of1((ergo__None{}))))
+		v_19 := codegraph__callerExempt(t_2, (v_18 != (option__Option[bool]{}).of1((option__None{}))))
 		if v_19 {
 			continue
 		}
@@ -10256,7 +10256,7 @@ func (r codegraph__Rows) ProductionUsesTestSupport(modules []int, support []code
 			var def_2 []string = []string{}
 			v_21, ok_2 := m_3[callerPkg]
 			if ok_2 {
-				v_22 := ergo__Some[[]string]{Value: v_21}
+				v_22 := option__Some[[]string]{Value: v_21}
 				v_20 = v_22.Value
 				goto inl_2
 			} else {
@@ -10272,7 +10272,7 @@ func (r codegraph__Rows) ProductionUsesTestSupport(modules []int, support []code
 		}
 		var pair int = ((e_1.From * width) + b.Package)
 		v_24 := ergo__Get[int, int](firstSite, pair)
-		if v_24 == (ergo__Option[int]{}).of1((ergo__None{})) {
+		if v_24 == (option__Option[int]{}).of1((option__None{})) {
 			firstSite[pair] = k_5
 			pairs = ergo__Append[int](pairs, pair)
 		}
@@ -10291,7 +10291,7 @@ func (r codegraph__Rows) ProductionUsesTestSupport(modules []int, support []code
 			var def_3 int = int(-1)
 			v_29, ok_3 := m_4[k_6]
 			if ok_3 {
-				v_30 := ergo__Some[int]{Value: v_29}
+				v_30 := option__Some[int]{Value: v_29}
 				v_28 = v_30.Value
 				goto inl_3
 			} else {
@@ -10310,7 +10310,7 @@ func (r codegraph__Rows) ProductionUsesTestSupport(modules []int, support []code
 			var def_4 int = int(-1)
 			v_32, ok_4 := m_5[pair_1]
 			if ok_4 {
-				v_33 := ergo__Some[int]{Value: v_32}
+				v_33 := option__Some[int]{Value: v_32}
 				v_31 = v_33.Value
 				goto inl_4
 			} else {
@@ -10424,7 +10424,7 @@ func (r codegraph__Rows) SeamEntrypoints(modules []int, seams []codegraph__SeamS
 				var def []int = []int{}
 				v_10, ok := m_1[key]
 				if ok {
-					v_11 := ergo__Some[[]int]{Value: v_10}
+					v_11 := option__Some[[]int]{Value: v_10}
 					v_9 = v_11.Value
 					goto inl
 				} else {
@@ -10459,9 +10459,9 @@ func (r codegraph__Rows) SeamEntrypoints(modules []int, seams []codegraph__SeamS
 		var targetName string = r.Nodes[e_1.To].Name
 		var key_1 int = ((e_1.From * width) + e_1.To)
 		v_14 := ergo__Get[int, bool](hasOrdinary, key_1)
-		var ord bool = (v_14 != (ergo__Option[bool]{tag: 1}))
+		var ord bool = (v_14 != (option__Option[bool]{tag: 1}))
 		v_15 := ergo__Get[int, bool](hasTestOrLaw, key_1)
-		var tl bool = (v_15 != (ergo__Option[bool]{tag: 1}))
+		var tl bool = (v_15 != (option__Option[bool]{tag: 1}))
 		var testOnly_1 bool = (tl && (!ord))
 		var v_16 []int
 		{
@@ -10469,7 +10469,7 @@ func (r codegraph__Rows) SeamEntrypoints(modules []int, seams []codegraph__SeamS
 			var def_1 []int = []int{}
 			v_17, ok_1 := m_2[key_1]
 			if ok_1 {
-				v_18 := ergo__Some[[]int]{Value: v_17}
+				v_18 := option__Some[[]int]{Value: v_17}
 				v_16 = v_18.Value
 				goto inl_1
 			} else {
@@ -10655,7 +10655,7 @@ func (r codegraph__Rows) SiblingFolderCycles(modules []int) codegraph__FolderCyc
 			var def []string = []string{}
 			v_9, ok := m_1[k_3]
 			if ok {
-				v_10 := ergo__Some[[]string]{Value: v_9}
+				v_10 := option__Some[[]string]{Value: v_9}
 				v_8 = v_10.Value
 				goto inl
 			} else {
@@ -10672,7 +10672,7 @@ func (r codegraph__Rows) SiblingFolderCycles(modules []int) codegraph__FolderCyc
 			var def_1 []string = []string{}
 			v_12, ok_1 := m_2[k_4]
 			if ok_1 {
-				v_13 := ergo__Some[[]string]{Value: v_12}
+				v_13 := option__Some[[]string]{Value: v_12}
 				v_11 = v_13.Value
 				goto inl_1
 			} else {
@@ -10713,10 +10713,10 @@ func (r codegraph__Rows) SiblingFolderCycles(modules []int) codegraph__FolderCyc
 		var gKey string = (string(strconv.AppendInt(make([]byte, 0, 20), int64(modOf[e.From]), 10)) + "\n" + parent)
 		var eKey string = (gKey + "\n" + v_17 + "\n" + v_18)
 		v_19 := ergo__Get[string, int](edgeSeen, eKey)
-		if v_19 == (ergo__Option[int]{}).of1((ergo__None{})) {
+		if v_19 == (option__Option[int]{}).of1((option__None{})) {
 			edgeSeen[eKey] = k_2
 			v_20 := ergo__Get[string, int](groupMod, gKey)
-			if v_20 == (ergo__Option[int]{}).of1((ergo__None{})) {
+			if v_20 == (option__Option[int]{}).of1((option__None{})) {
 				groupKeys = ergo__Append[string](groupKeys, gKey)
 				groupMod[gKey] = modOf[e.From]
 				groupParent[gKey] = parent
@@ -10729,7 +10729,7 @@ func (r codegraph__Rows) SiblingFolderCycles(modules []int) codegraph__FolderCyc
 				var def_2 []codegraph__folderEdge = []codegraph__folderEdge{}
 				v_23, ok_2 := m_3[gKey]
 				if ok_2 {
-					v_24 := ergo__Some[[]codegraph__folderEdge]{Value: v_23}
+					v_24 := option__Some[[]codegraph__folderEdge]{Value: v_23}
 					v_22 = v_24.Value
 					goto inl_2
 				} else {
@@ -10753,7 +10753,7 @@ func (r codegraph__Rows) SiblingFolderCycles(modules []int) codegraph__FolderCyc
 			var def_3 []codegraph__folderEdge = []codegraph__folderEdge{}
 			v_29, ok_3 := m_4[gKey_1]
 			if ok_3 {
-				v_30 := ergo__Some[[]codegraph__folderEdge]{Value: v_29}
+				v_30 := option__Some[[]codegraph__folderEdge]{Value: v_29}
 				v_28 = v_30.Value
 				goto inl_3
 			} else {
@@ -10768,12 +10768,12 @@ func (r codegraph__Rows) SiblingFolderCycles(modules []int) codegraph__FolderCyc
 		for _, v_31 := range v_28 {
 			var fe codegraph__folderEdge = v_31
 			v_32 := ergo__Get[string, bool](childSet, fe.From)
-			if v_32 == (ergo__Option[bool]{}).of1((ergo__None{})) {
+			if v_32 == (option__Option[bool]{}).of1((option__None{})) {
 				childSet[fe.From] = true
 				children = ergo__Append[string](children, fe.From)
 			}
 			v_34 := ergo__Get[string, bool](childSet, fe.To)
-			if v_34 == (ergo__Option[bool]{}).of1((ergo__None{})) {
+			if v_34 == (option__Option[bool]{}).of1((option__None{})) {
 				childSet[fe.To] = true
 				children = ergo__Append[string](children, fe.To)
 			}
@@ -10798,7 +10798,7 @@ func (r codegraph__Rows) SiblingFolderCycles(modules []int) codegraph__FolderCyc
 				var def_4 int = int(-1)
 				v_40, ok_4 := m_5[k_6]
 				if ok_4 {
-					v_41 := ergo__Some[int]{Value: v_40}
+					v_41 := option__Some[int]{Value: v_40}
 					v_39 = v_41.Value
 					goto inl_4
 				} else {
@@ -10816,7 +10816,7 @@ func (r codegraph__Rows) SiblingFolderCycles(modules []int) codegraph__FolderCyc
 				var def_5 int = int(-1)
 				v_43, ok_5 := m_6[k_7]
 				if ok_5 {
-					v_44 := ergo__Some[int]{Value: v_43}
+					v_44 := option__Some[int]{Value: v_43}
 					v_42 = v_44.Value
 					goto inl_5
 				} else {
@@ -10861,7 +10861,7 @@ func (r codegraph__Rows) SiblingFolderCycles(modules []int) codegraph__FolderCyc
 					var def_6 int = int(-1)
 					v_55, ok_6 := m_7[eKey_1]
 					if ok_6 {
-						v_56 := ergo__Some[int]{Value: v_55}
+						v_56 := option__Some[int]{Value: v_55}
 						v_54 = v_56.Value
 						goto inl_6
 					} else {
@@ -10881,7 +10881,7 @@ func (r codegraph__Rows) SiblingFolderCycles(modules []int) codegraph__FolderCyc
 				var def_7 int = int(-1)
 				v_59, ok_7 := m_8[gKey_1]
 				if ok_7 {
-					v_60 := ergo__Some[int]{Value: v_59}
+					v_60 := option__Some[int]{Value: v_59}
 					v_58 = v_60.Value
 					goto inl_7
 				} else {
@@ -10898,7 +10898,7 @@ func (r codegraph__Rows) SiblingFolderCycles(modules []int) codegraph__FolderCyc
 				var def_8 string = "."
 				v_62, ok_8 := m_9[gKey_1]
 				if ok_8 {
-					v_63 := ergo__Some[string]{Value: v_62}
+					v_63 := option__Some[string]{Value: v_62}
 					v_61 = v_63.Value
 					goto inl_8
 				} else {
@@ -11011,7 +11011,7 @@ func (r codegraph__Rows) DeclarationTanglesOf(modules []int) codegraph__Declarat
 			var def int = int(-1)
 			v_9, ok := m_1[k_3]
 			if ok {
-				v_10 := ergo__Some[int]{Value: v_9}
+				v_10 := option__Some[int]{Value: v_9}
 				v_8 = v_10.Value
 				goto inl
 			} else {
@@ -11024,7 +11024,7 @@ func (r codegraph__Rows) DeclarationTanglesOf(modules []int) codegraph__Declarat
 		if v_8 != e_1.To {
 			v_11, ok_1 := resolvedCache[e_1.To]
 			if ok_1 {
-				cached := ergo__Some[int]{Value: v_11}
+				cached := option__Some[int]{Value: v_11}
 				target = cached.Value
 			} else {
 				var res int
@@ -11050,16 +11050,16 @@ func (r codegraph__Rows) DeclarationTanglesOf(modules []int) codegraph__Declarat
 		}
 		var pair int = ((v_13 * width) + v_14)
 		v_15 := ergo__Get[int, int](firstSite, pair)
-		if v_15 == (ergo__Option[int]{}).of1((ergo__None{})) {
+		if v_15 == (option__Option[int]{}).of1((option__None{})) {
 			firstSite[pair] = k_2
 			rawPairs = ergo__Append[int](rawPairs, pair)
 			v_17 := ergo__Get[int, bool](nodeSet, v_13)
-			if v_17 == (ergo__Option[bool]{}).of1((ergo__None{})) {
+			if v_17 == (option__Option[bool]{}).of1((option__None{})) {
 				nodeSet[v_13] = true
 				nodes = ergo__Append[int](nodes, v_13)
 			}
 			v_19 := ergo__Get[int, bool](nodeSet, v_14)
-			if v_19 == (ergo__Option[bool]{}).of1((ergo__None{})) {
+			if v_19 == (option__Option[bool]{}).of1((option__None{})) {
 				nodeSet[v_14] = true
 				nodes = ergo__Append[int](nodes, v_14)
 			}
@@ -11085,7 +11085,7 @@ func (r codegraph__Rows) DeclarationTanglesOf(modules []int) codegraph__Declarat
 			var def_1 int = int(-1)
 			v_25, ok_2 := m_2[k_5]
 			if ok_2 {
-				v_26 := ergo__Some[int]{Value: v_25}
+				v_26 := option__Some[int]{Value: v_25}
 				v_24 = v_26.Value
 				goto inl_1
 			} else {
@@ -11103,7 +11103,7 @@ func (r codegraph__Rows) DeclarationTanglesOf(modules []int) codegraph__Declarat
 			var def_2 int = int(-1)
 			v_28, ok_3 := m_3[k_6]
 			if ok_3 {
-				v_29 := ergo__Some[int]{Value: v_28}
+				v_29 := option__Some[int]{Value: v_28}
 				v_27 = v_29.Value
 				goto inl_2
 			} else {
@@ -11136,7 +11136,7 @@ func (r codegraph__Rows) DeclarationTanglesOf(modules []int) codegraph__Declarat
 			b_1 := (f >= int(0))
 			if b_1 {
 				v_36 := ergo__Get[int, bool](fileSet, f)
-				b_1 = (v_36 == (ergo__Option[bool]{}).of1((ergo__None{})))
+				b_1 = (v_36 == (option__Option[bool]{}).of1((option__None{})))
 			}
 			if b_1 {
 				fileSet[f] = true
@@ -11162,7 +11162,7 @@ func (r codegraph__Rows) DeclarationTanglesOf(modules []int) codegraph__Declarat
 				var def_3 int = int(-1)
 				v_42, ok_4 := m_4[k_7]
 				if ok_4 {
-					v_43 := ergo__Some[int]{Value: v_42}
+					v_43 := option__Some[int]{Value: v_42}
 					v_41 = v_43.Value
 					goto inl_3
 				} else {
@@ -11253,7 +11253,7 @@ func (base codegraph__Rows) CompareLayout(head codegraph__Rows, baseModules []in
 		var h_1 codegraph__EvidenceItem = v_4
 		v_5, ok := baseByKey[h_1.Key]
 		if ok {
-			b_1 := ergo__Some[codegraph__EvidenceItem]{Value: v_5}
+			b_1 := option__Some[codegraph__EvidenceItem]{Value: v_5}
 			if h_1.Count > b_1.Value.Count {
 				grown_1 = ergo__Append[codegraph__EvidenceDelta](grown_1, codegraph__EvidenceDelta{Rule: h_1.Rule, Subject: h_1.Subject, Key: h_1.Key, BaseCount: b_1.Value.Count, HeadCount: h_1.Count, Detail: h_1.Detail})
 			} else {
@@ -11266,7 +11266,7 @@ func (base codegraph__Rows) CompareLayout(head codegraph__Rows, baseModules []in
 	for _, v_9 := range v {
 		var b_2 codegraph__EvidenceItem = v_9
 		v_10 := ergo__Get[string, codegraph__EvidenceItem](headByKey, b_2.Key)
-		if v_10 == (ergo__Option[codegraph__EvidenceItem]{}).of1((ergo__None{})) {
+		if v_10 == (option__Option[codegraph__EvidenceItem]{}).of1((option__None{})) {
 			removed = ergo__Append[codegraph__EvidenceItem](removed, b_2)
 		}
 	}
@@ -11382,12 +11382,12 @@ func (r codegraph__Rows) ObservedInterfaces(modules []int) codegraph__Interfaces
 		b_1 := ((((b_2 && a.InScope) && b.InScope) && (a.Package != b.Package)) && (b.File >= int(0)))
 		if b_1 {
 			v_10 := ergo__Get[int, int](firstSite, e_1.To)
-			b_1 = (v_10 == (ergo__Option[int]{}).of1((ergo__None{})))
+			b_1 = (v_10 == (option__Option[int]{}).of1((option__None{})))
 		}
 		if b_1 {
 			firstSite[e_1.To] = k_2
 			v_11 := ergo__Get[int, []int](entriesOf, b.Package)
-			if ergo__EqualOption_1(v_11, (ergo__Option[[]int]{}).of1((ergo__None{}))) {
+			if ergo__EqualOption_1(v_11, (option__Option[[]int]{}).of1((option__None{}))) {
 				packages = ergo__Append[int](packages, b.Package)
 			}
 			t_1 := entriesOf
@@ -11399,7 +11399,7 @@ func (r codegraph__Rows) ObservedInterfaces(modules []int) codegraph__Interfaces
 				var def []int = []int{}
 				v_14, ok := m_1[k_3]
 				if ok {
-					v_15 := ergo__Some[[]int]{Value: v_14}
+					v_15 := option__Some[[]int]{Value: v_14}
 					v_13 = v_15.Value
 					goto inl
 				} else {
@@ -11420,7 +11420,7 @@ func (r codegraph__Rows) ObservedInterfaces(modules []int) codegraph__Interfaces
 		b_3 := (((topSub == "type") || (topSub == "machine")) && ((((((e_1.How == "typeuse") || (e_1.How == "construct")) || (e_1.How == "match")) || (sub == "field")) || (sub == "operation")) || (sub == "variant")))
 		if b_3 {
 			v_17 := ergo__Get[int, bool](namedSeen, ((a.Top * width) + b.Top))
-			b_3 = (v_17 == (ergo__Option[bool]{}).of1((ergo__None{})))
+			b_3 = (v_17 == (option__Option[bool]{}).of1((option__None{})))
 		}
 		if b_3 {
 			namedSeen[((a.Top * width) + b.Top)] = true
@@ -11433,7 +11433,7 @@ func (r codegraph__Rows) ObservedInterfaces(modules []int) codegraph__Interfaces
 				var def_1 []int = []int{}
 				v_19, ok_1 := m_2[k_4]
 				if ok_1 {
-					v_20 := ergo__Some[[]int]{Value: v_19}
+					v_20 := option__Some[[]int]{Value: v_19}
 					v_18 = v_20.Value
 					goto inl_1
 				} else {
@@ -11449,7 +11449,7 @@ func (r codegraph__Rows) ObservedInterfaces(modules []int) codegraph__Interfaces
 		b_4 := ((((e_1.How == "call") && (resolved >= int(0))) && (r.Nodes[resolved].Sub == "func")) && (places[resolved].Package == a.Package))
 		if b_4 {
 			v_22 := ergo__Get[int, bool](callSeen, ((a.Top * width) + resolved))
-			b_4 = (v_22 == (ergo__Option[bool]{}).of1((ergo__None{})))
+			b_4 = (v_22 == (option__Option[bool]{}).of1((option__None{})))
 		}
 		if b_4 {
 			callSeen[((a.Top * width) + resolved)] = true
@@ -11462,7 +11462,7 @@ func (r codegraph__Rows) ObservedInterfaces(modules []int) codegraph__Interfaces
 				var def_2 []int = []int{}
 				v_24, ok_2 := m_3[k_5]
 				if ok_2 {
-					v_25 := ergo__Some[[]int]{Value: v_24}
+					v_25 := option__Some[[]int]{Value: v_24}
 					v_23 = v_25.Value
 					goto inl_2
 				} else {
@@ -11486,7 +11486,7 @@ func (r codegraph__Rows) ObservedInterfaces(modules []int) codegraph__Interfaces
 			var def_3 []int = []int{}
 			v_30, ok_3 := m_4[p]
 			if ok_3 {
-				v_31 := ergo__Some[[]int]{Value: v_30}
+				v_31 := option__Some[[]int]{Value: v_30}
 				v_29 = v_31.Value
 				goto inl_3
 			} else {
@@ -11513,7 +11513,7 @@ func (r codegraph__Rows) ObservedInterfaces(modules []int) codegraph__Interfaces
 				var def_4 int = int(-1)
 				v_35, ok_4 := m_5[entry]
 				if ok_4 {
-					v_36 := ergo__Some[int]{Value: v_35}
+					v_36 := option__Some[int]{Value: v_35}
 					v_34 = v_36.Value
 					goto inl_4
 				} else {
@@ -11542,7 +11542,7 @@ func (r codegraph__Rows) ObservedInterfaces(modules []int) codegraph__Interfaces
 						var def_5 []int = []int{}
 						v_40, ok_5 := m_6[real_1]
 						if ok_5 {
-							v_41 := ergo__Some[[]int]{Value: v_40}
+							v_41 := option__Some[[]int]{Value: v_40}
 							v_39 = v_41.Value
 							goto inl_5
 						} else {
@@ -11562,7 +11562,7 @@ func (r codegraph__Rows) ObservedInterfaces(modules []int) codegraph__Interfaces
 				var g int = v_42
 				work = (work + int(1))
 				v_43 := ergo__Get[int, []int](members, g)
-				if ergo__EqualOption_1(v_43, (ergo__Option[[]int]{}).of1((ergo__None{}))) {
+				if ergo__EqualOption_1(v_43, (option__Option[[]int]{}).of1((option__None{}))) {
 					keys = ergo__Append[int](keys, g)
 				}
 				t_8 := members
@@ -11573,7 +11573,7 @@ func (r codegraph__Rows) ObservedInterfaces(modules []int) codegraph__Interfaces
 					var def_6 []int = []int{}
 					v_46, ok_6 := m_7[g]
 					if ok_6 {
-						v_47 := ergo__Some[[]int]{Value: v_46}
+						v_47 := option__Some[[]int]{Value: v_46}
 						v_45 = v_47.Value
 						goto inl_6
 					} else {
@@ -11604,7 +11604,7 @@ func (r codegraph__Rows) ObservedInterfaces(modules []int) codegraph__Interfaces
 				var def_7 []int = []int{}
 				v_53, ok_7 := m_8[g_1]
 				if ok_7 {
-					v_54 := ergo__Some[[]int]{Value: v_53}
+					v_54 := option__Some[[]int]{Value: v_53}
 					v_52 = v_54.Value
 					goto inl_7
 				} else {
@@ -11629,7 +11629,7 @@ func (r codegraph__Rows) ObservedInterfaces(modules []int) codegraph__Interfaces
 			todo = todo[int(0):(len(todo) - int(1))]
 			work = (work + int(1))
 			v_56 := ergo__Get[int, bool](visited, current)
-			if v_56 != (ergo__Option[bool]{}).of1((ergo__None{})) {
+			if v_56 != (option__Option[bool]{}).of1((option__None{})) {
 				continue
 			}
 			visited[current] = true
@@ -11657,7 +11657,7 @@ func (r codegraph__Rows) ObservedInterfaces(modules []int) codegraph__Interfaces
 				var def_8 []int = []int{}
 				v_63, ok_8 := m_9[current]
 				if ok_8 {
-					v_64 := ergo__Some[[]int]{Value: v_63}
+					v_64 := option__Some[[]int]{Value: v_63}
 					v_62 = v_64.Value
 					goto inl_9
 				} else {
@@ -11798,26 +11798,26 @@ func ergo__textcodegraph__BadRows(v codegraph__BadRows) string {
 	return "{" + "Reason:" + v.Reason + "}"
 }
 
-func ergo__Get[K comparable, V any](m map[K]V, k K) ergo__Option[V] {
+func ergo__Get[K comparable, V any](m map[K]V, k K) option__Option[V] {
 	if v, ok_1 := m[k]; ok_1 {
-		return (ergo__Option[V]{}).of0(ergo__Some[V]{Value: v})
+		return (option__Option[V]{}).of0(option__Some[V]{Value: v})
 	}
-	return (ergo__Option[V]{tag: 1})
+	return (option__Option[V]{tag: 1})
 }
 
-type ergo__Option[T any] struct {
+type option__Option[T any] struct {
 	tag uint8
 	p0  T
 }
 
-func (ergo__Option[T]) of0(v ergo__Some[T]) ergo__Option[T] {
-	return ergo__Option[T]{tag: 0, p0: v.Value}
+func (option__Option[T]) of0(v option__Some[T]) option__Option[T] {
+	return option__Option[T]{tag: 0, p0: v.Value}
 }
-func (u ergo__Option[T]) as0() ergo__Some[T]             { return ergo__Some[T]{Value: u.p0} }
-func (ergo__Option[T]) of1(_ ergo__None) ergo__Option[T] { return ergo__Option[T]{tag: 1} }
+func (u option__Option[T]) as0() option__Some[T]               { return option__Some[T]{Value: u.p0} }
+func (option__Option[T]) of1(_ option__None) option__Option[T] { return option__Option[T]{tag: 1} }
 
-func (x ergo__Option[T]) ErgoVariant() string {
-	return [...]func() string{ergo.VariantOf[ergo__Some[T]], ergo.VariantOf[ergo__None]}[x.tag]()
+func (x option__Option[T]) ErgoVariant() string {
+	return [...]func() string{ergo.VariantOf[option__Some[T]], ergo.VariantOf[option__None]}[x.tag]()
 }
 
 type ergo__WireNull struct {
@@ -12218,7 +12218,7 @@ func (r codegraph__Rows) LevelOf(level codegraph__Level, tests bool) codegraph__
 		b_1 := (((a < int(0)) || (b < int(0))) || ((a == b) && (kind != "decl")))
 		if !b_1 {
 			v_7 := ergo__Get[int, bool](seen, ((a * len(r.Nodes)) + b))
-			b_1 = (v_7 != (ergo__Option[bool]{}).of1((ergo__None{})))
+			b_1 = (v_7 != (option__Option[bool]{}).of1((option__None{})))
 		}
 		if b_1 {
 			continue
@@ -12622,12 +12622,12 @@ func (r codegraph__Rows) dependsOf() codegraph__depends {
 	return codegraph__depends{Graph: v_6, Steps: inOrder}
 }
 
-func (g graph__Graph) Path(a int, b int) ergo__Option[[]int] {
+func (g graph__Graph) Path(a int, b int) option__Option[[]int] {
 	if (((a < int(0)) || (a >= g.Size)) || (b < int(0))) || (b >= g.Size) {
-		return (ergo__Option[[]int]{tag: 1})
+		return (option__Option[[]int]{tag: 1})
 	}
 	if a == b {
-		return (ergo__Option[[]int]{}).of0(ergo__Some[[]int]{Value: []int{a}})
+		return (option__Option[[]int]{}).of0(option__Some[[]int]{Value: []int{a}})
 	}
 	v := graph__filled(g.Size, int(-1))
 	v[a] = a
@@ -12643,13 +12643,13 @@ func (g graph__Graph) Path(a int, b int) ergo__Option[[]int] {
 				v[m] = n
 				if m == b {
 					v_3 := graph__walkBack(v, a, b)
-					return (ergo__Option[[]int]{}).of0(ergo__Some[[]int]{Value: v_3})
+					return (option__Option[[]int]{}).of0(option__Some[[]int]{Value: v_3})
 				}
 				queue = ergo__Append[int](queue, m)
 			}
 		}
 	}
-	return (ergo__Option[[]int]{tag: 1})
+	return (option__Option[[]int]{tag: 1})
 }
 
 func (d codegraph__depends) stepOf(a int, b int) codegraph__Step {
@@ -12793,7 +12793,7 @@ func (r codegraph__Rows) placed(i int, parent codegraph__place, chosen map[int]b
 	switch row.Kind {
 	case "module":
 		v := ergo__Get[int, bool](chosen, i)
-		at.InScope = (v != (ergo__Option[bool]{tag: 1}))
+		at.InScope = (v != (option__Option[bool]{tag: 1}))
 	case "package":
 		at.Package = i
 	case "file":
@@ -12824,7 +12824,7 @@ func codegraph__childEntry(parts []string, k int) string {
 func maps__GetOr[K comparable, V any](m map[K]V, k K, def V) V {
 	v, ok := m[k]
 	if ok {
-		v_1 := ergo__Some[V]{Value: v}
+		v_1 := option__Some[V]{Value: v}
 		return v_1.Value
 	} else {
 		return def
@@ -12852,7 +12852,7 @@ func codegraph__isFieldWrite(how string) bool {
 
 func codegraph__hasPrivateField(priv map[int]int, record int) bool {
 	v := ergo__Get[int, int](priv, record)
-	return (v != (ergo__Option[int]{tag: 1}))
+	return (v != (option__Option[int]{tag: 1}))
 }
 
 type codegraph__TestSupportUses struct {
@@ -13010,9 +13010,9 @@ func codegraph__resolve(aliases map[int]int, from int) struct {
 	for {
 		v, ok := aliases[at]
 		if ok {
-			next_1 := ergo__Some[int]{Value: v}
+			next_1 := option__Some[int]{Value: v}
 			v_1 := ergo__Get[int, bool](seen, at)
-			if v_1 != (ergo__Option[bool]{}).of1((ergo__None{})) {
+			if v_1 != (option__Option[bool]{}).of1((option__None{})) {
 				return struct {
 					F0 int
 					F1 int
@@ -13130,7 +13130,7 @@ func (r codegraph__Rows) LayoutEvidence(modules []int, policy codegraph__LayoutP
 				var def []string = []string{}
 				v_14, ok := m_2[k_2]
 				if ok {
-					v_15 := ergo__Some[[]string]{Value: v_14}
+					v_15 := option__Some[[]string]{Value: v_14}
 					v_13 = v_15.Value
 					goto inl
 				} else {
@@ -13147,7 +13147,7 @@ func (r codegraph__Rows) LayoutEvidence(modules []int, policy codegraph__LayoutP
 				var def_1 []string = []string{}
 				v_17, ok_1 := m_3[k_3]
 				if ok_1 {
-					v_18 := ergo__Some[[]string]{Value: v_17}
+					v_18 := option__Some[[]string]{Value: v_17}
 					v_16 = v_18.Value
 					goto inl_1
 				} else {
@@ -13192,7 +13192,7 @@ func (r codegraph__Rows) LayoutEvidence(modules []int, policy codegraph__LayoutP
 				var def_2 int = int(-1)
 				v_25, ok_2 := m_4[ka]
 				if ok_2 {
-					v_26 := ergo__Some[int]{Value: v_25}
+					v_26 := option__Some[int]{Value: v_25}
 					v_24 = v_26.Value
 					goto inl_2
 				} else {
@@ -13208,7 +13208,7 @@ func (r codegraph__Rows) LayoutEvidence(modules []int, policy codegraph__LayoutP
 				var def_3 int = int(-2)
 				v_28, ok_3 := m_5[kb]
 				if ok_3 {
-					v_29 := ergo__Some[int]{Value: v_28}
+					v_29 := option__Some[int]{Value: v_28}
 					v_27 = v_29.Value
 					goto inl_3
 				} else {
@@ -13345,7 +13345,7 @@ func (r codegraph__Rows) LayoutEvidence(modules []int, policy codegraph__LayoutP
 					var def_4 int = int(-1)
 					v_51, ok_4 := m_8[k_5]
 					if ok_4 {
-						v_52 := ergo__Some[int]{Value: v_51}
+						v_52 := option__Some[int]{Value: v_51}
 						v_50 = v_52.Value
 						goto inl_7
 					} else {
@@ -13358,7 +13358,7 @@ func (r codegraph__Rows) LayoutEvidence(modules []int, policy codegraph__LayoutP
 				if v_50 != e_2.To {
 					v_53, ok_5 := resolvedCache[e_2.To]
 					if ok_5 {
-						cached := ergo__Some[int]{Value: v_53}
+						cached := option__Some[int]{Value: v_53}
 						target = cached.Value
 					} else {
 						var res int
@@ -13386,7 +13386,7 @@ func (r codegraph__Rows) LayoutEvidence(modules []int, policy codegraph__LayoutP
 					var def_5 int = int(-1)
 					v_58, ok_6 := m_9[v_55]
 					if ok_6 {
-						v_59 := ergo__Some[int]{Value: v_58}
+						v_59 := option__Some[int]{Value: v_58}
 						v_57 = v_59.Value
 						goto inl_8
 					} else {
@@ -13402,7 +13402,7 @@ func (r codegraph__Rows) LayoutEvidence(modules []int, policy codegraph__LayoutP
 					var def_6 int = int(-2)
 					v_61, ok_7 := m_10[v_56]
 					if ok_7 {
-						v_62 := ergo__Some[int]{Value: v_61}
+						v_62 := option__Some[int]{Value: v_61}
 						v_60 = v_62.Value
 						goto inl_9
 					} else {
@@ -13487,7 +13487,7 @@ func (r codegraph__Rows) LayoutEvidence(modules []int, policy codegraph__LayoutP
 				continue
 			}
 			v_73 := ergo__Get[int, bool](violatingFields, e_3.To)
-			if v_73 == (ergo__Option[bool]{}).of1((ergo__None{})) {
+			if v_73 == (option__Option[bool]{}).of1((option__None{})) {
 				continue
 			}
 			var a_2 codegraph__place = places[e_3.From]
@@ -13535,7 +13535,7 @@ func (r codegraph__Rows) LayoutEvidence(modules []int, policy codegraph__LayoutP
 			_ = 0
 			var key string = ("foreign-record-field-write|" + v_74 + "|" + v_76 + "|" + e_3.How)
 			v_78 := ergo__Get[string, int](writeCounts, key)
-			if v_78 == (ergo__Option[int]{}).of1((ergo__None{})) {
+			if v_78 == (option__Option[int]{}).of1((option__None{})) {
 				writeOrder = ergo__Append[string](writeOrder, key)
 				writeField[key] = v_74
 				writeDetail[key] = (v_76 + " writes " + v_74)
@@ -13548,7 +13548,7 @@ func (r codegraph__Rows) LayoutEvidence(modules []int, policy codegraph__LayoutP
 				var def_7 int = int(0)
 				v_81, ok_8 := m_11[key]
 				if ok_8 {
-					v_82 := ergo__Some[int]{Value: v_81}
+					v_82 := option__Some[int]{Value: v_81}
 					v_80 = v_82.Value
 					goto inl_14
 				} else {
@@ -13573,7 +13573,7 @@ func (r codegraph__Rows) LayoutEvidence(modules []int, policy codegraph__LayoutP
 				var def_8 string = ""
 				v_86, ok_9 := m_12[key_1]
 				if ok_9 {
-					v_87 := ergo__Some[string]{Value: v_86}
+					v_87 := option__Some[string]{Value: v_86}
 					v_85 = v_87.Value
 					goto inl_15
 				} else {
@@ -13591,7 +13591,7 @@ func (r codegraph__Rows) LayoutEvidence(modules []int, policy codegraph__LayoutP
 				var def_9 int = int(1)
 				v_89, ok_10 := m_13[key_1]
 				if ok_10 {
-					v_90 := ergo__Some[int]{Value: v_89}
+					v_90 := option__Some[int]{Value: v_89}
 					v_88 = v_90.Value
 					goto inl_16
 				} else {
@@ -13608,7 +13608,7 @@ func (r codegraph__Rows) LayoutEvidence(modules []int, policy codegraph__LayoutP
 				var def_10 string = ""
 				v_92, ok_11 := m_14[key_1]
 				if ok_11 {
-					v_93 := ergo__Some[string]{Value: v_92}
+					v_93 := option__Some[string]{Value: v_92}
 					v_91 = v_93.Value
 					goto inl_17
 				} else {
@@ -13813,7 +13813,7 @@ func (r codegraph__Rows) LayoutEvidence(modules []int, policy codegraph__LayoutP
 		var k_6 string = v_128
 		v_129, ok_12 := byKey[k_6]
 		if ok_12 {
-			v_130 := ergo__Some[codegraph__EvidenceItem]{Value: v_129}
+			v_130 := option__Some[codegraph__EvidenceItem]{Value: v_129}
 			sorted = ergo__Append[codegraph__EvidenceItem](sorted, v_130.Value)
 		} else {
 		}
@@ -14456,7 +14456,7 @@ func graph__walkBack(parent []int, a int, b int) []int {
 	return v_1
 }
 
-func (g graph__Graph) Order() ergo__Option[[]int] {
+func (g graph__Graph) Order() option__Option[[]int] {
 	v := graph__filled(g.Size, int(0))
 	v_1 := (g).Edges()
 	for _, v_2 := range v_1 {
@@ -14501,9 +14501,9 @@ func (g graph__Graph) Order() ergo__Option[[]int] {
 		}
 	}
 	if len(out) < g.Size {
-		return (ergo__Option[[]int]{tag: 1})
+		return (option__Option[[]int]{tag: 1})
 	} else {
-		return (ergo__Option[[]int]{}).of0(ergo__Some[[]int]{Value: out})
+		return (option__Option[[]int]{}).of0(option__Some[[]int]{Value: out})
 	}
 }
 
@@ -14520,7 +14520,7 @@ func codegraph__addEvidenceOnce(items []codegraph__EvidenceItem, seen map[string
 	F1 map[string]int
 } {
 	v := ergo__Get[string, int](seen, item.Key)
-	if v != (ergo__Option[int]{}).of1((ergo__None{})) {
+	if v != (option__Option[int]{}).of1((option__None{})) {
 		return struct {
 			F0 []codegraph__EvidenceItem
 			F1 map[string]int
@@ -14546,7 +14546,7 @@ func strings__TrimSuffix(s string, suffix string) string {
 }
 
 type io__Source interface {
-	Read(*rt.Task) (ergo__Option[string], error)
+	Read(*rt.Task) (option__Option[string], error)
 }
 
 func json__space(c_1 uint8) bool {
