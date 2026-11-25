@@ -7,7 +7,9 @@ type BuildMode =
 	| Production{}
 	| Test{}
 
-type GeneratedKind = GenTest{}
+type GeneratedKind =
+	| GenTest{}
+	| GenLaw{}
 
 type GeneratedBody {
 	Kind   GeneratedKind,
@@ -19,13 +21,15 @@ type GeneratedBody {
 
 type GeneratedBodyPlan {
 	Mode   BuildMode,
+	Root   bool,
 	Bodies []GeneratedBody,
 }
 
 let reservedTestSymbols = []string{"ergo__Tests", "ergo__TestAmbient", "ergo__TestLoopback"}
+let reservedLawSymbols = []string{"ergo__LawRefuted"}
 
 func ProductionPlan() GeneratedBodyPlan {
-	GeneratedBodyPlan{Mode: Production, Bodies: []GeneratedBody{}}
+	GeneratedBodyPlan{Mode: Production, Root: false, Bodies: []GeneratedBody{}}
 }
 
 func isTestMode(mode BuildMode) bool {
@@ -70,9 +74,31 @@ func testDeclCount(k expr.Pkg, name string) int {
 	count
 }
 
+func lawDeclCount(k expr.Pkg, name string) int {
+	let mut count = 0
+	for p in k.Parsed {
+		let decls = match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
+		case syntax.File as pf:
+			pf.Decls
+		case _:
+			continue
+		}
+		for i in 0..syntax.Len(decls) {
+			match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, decls, i)) {
+			case syntax.LawDecl as ld:
+				if nameText(p, ld.Name) == name {
+					count = count + 1
+				}
+			case _:
+			}
+		}
+	}
+	count
+}
+
 func PlanGeneratedBodies(k expr.Pkg, mode BuildMode, root bool) GeneratedBodyPlan {
 	if !root || !isTestMode(mode) {
-		return GeneratedBodyPlan{Mode: mode, Bodies: []GeneratedBody{}}
+		return GeneratedBodyPlan{Mode: mode, Root: root, Bodies: []GeneratedBody{}}
 	}
 	let mut bodies = []GeneratedBody{}
 	for file, p in k.Parsed {
@@ -101,11 +127,27 @@ func PlanGeneratedBodies(k expr.Pkg, mode BuildMode, root bool) GeneratedBodyPla
 					Decl:   d,
 					Symbol: sym,
 				})
+			case syntax.LawDecl as ld:
+				let name = nameText(p, ld.Name)
+				let mut sym = ""
+				if name != "" && lawDeclCount(k, name) == 1 {
+					let candidate = HelperSpelling("ergoLaw" + name)
+					if !has(reservedLawSymbols, candidate) {
+						sym = candidate
+					}
+				}
+				bodies = bodies.Append(GeneratedBody{
+					Kind:   GenLaw,
+					File:   file,
+					At:     syntax.NodePos(p, d),
+					Decl:   d,
+					Symbol: sym,
+				})
 			case _:
 			}
 		}
 	}
-	GeneratedBodyPlan{Mode: mode, Bodies: bodies}
+	GeneratedBodyPlan{Mode: mode, Root: root, Bodies: bodies}
 }
 
 func plannedGeneratedBody(plan GeneratedBodyPlan, file int, at int, decl dense.ID[syntax.Node]) Option[GeneratedBody] {
@@ -119,6 +161,8 @@ func plannedGeneratedBody(plan GeneratedBodyPlan, file int, at int, decl dense.I
 
 test HelperSpellingMatchesGo {
 	assert HelperSpelling("ergoTestAlpha") == "ergo__TestAlpha"
+	assert HelperSpelling("ergoLawIdentity") == "ergo__LawIdentity"
+	assert HelperSpelling("ergoLawRefuted") == "ergo__LawRefuted"
 	assert HelperSpelling("ergoAssertFail") == "ergo__AssertFail"
 	assert HelperSpelling("ergoSkipNow") == "ergo__SkipNow"
 	assert HelperSpelling("plain") == "ergo__plain"
