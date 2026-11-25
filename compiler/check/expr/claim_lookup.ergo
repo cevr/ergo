@@ -1,0 +1,348 @@
+import compiler/check/store
+import compiler/check/types
+import compiler/syntax
+import dense
+import slices
+import strings
+
+// LookupDiag is a file-local method or claim-lookup diagnostic emitted by the typer.
+type LookupDiag { File int, At dense.ID[syntax.Node], Code string, Message string }
+
+// UsedImport records a file-local import name used by function-form claim lookup.
+type UsedImport { File int, Name string }
+
+type fileImport { name string, path string, isGo bool }
+
+type claimCandidate {
+	fn         Fn,
+	key        string,
+	label      string,
+	pkgPath    string,
+	usedImport string,
+}
+
+type claimResult = ClaimNone{} | ClaimFound{Fn Fn, UsedImport string} | ClaimAmbiguous{Labels []string, UsedImports []string}
+
+func isExportedName(name string) bool {
+	if len(name) == 0 {
+		return false
+	}
+	let c = int(name[0])
+	c >= 65 && c <= 90
+}
+
+func nodeText(p syntax.Parsed, id dense.ID[syntax.Node]) string {
+	let src = syntax.SourceOf(p)
+	src[syntax.NodePos(p, id):syntax.NodeEnd(p, id)]
+}
+
+func fileImports(p syntax.Parsed) []fileImport {
+	let mut out = []fileImport{}
+	if p.Failed {
+		return out
+	}
+	match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
+	case syntax.File as root:
+		for i in 0..syntax.Len(root.Decls) {
+			let d = syntax.Item(p.Tree, root.Decls, i)
+			if syntax.KindOf(p.Tree, d) != syntax.KImportDecl {
+				continue
+			}
+			let spec = syntax.ImportDeclOf(p.Tree, d).Spec
+			if syntax.KindOf(p.Tree, spec) != syntax.KImportSpec {
+				continue
+			}
+			let is = syntax.ImportSpecOf(p.Tree, spec)
+			let path = strings.TrimRight(strings.TrimLeft(nodeText(p, is.Path), "\""), "\"")
+			let last = path[strings.LastIndex(path, "/")+1 : len(path)]
+			match dense.Unpack(is.Name) {
+			case Some[dense.ID[syntax.Node]] as nm:
+				let alias = nodeText(p, nm.Value)
+				let name = if alias == "go" { last } else { alias }
+				out = out.Append(fileImport{name: name, path: path, isGo: alias == "go"})
+			case None:
+				let isGo = is.NamePos >= 0 && syntax.TokKind(p, is.NamePos) == syntax.Go
+				out = out.Append(fileImport{name: last, path: path, isGo: isGo})
+			}
+		}
+	case _:
+	}
+	out
+}
+
+func directImportName(ims []fileImport, path string) string {
+	for im in ims {
+		if !im.isGo && im.name != "_" && im.path == path {
+			return im.name
+		}
+	}
+	""
+}
+
+func claimFnOf(s mut store.Store, k Pkg, mem store.FunctionMember) Option[Fn] {
+	if mem.Path == store.PathOf(*s) {
+		for f in k.Fns {
+			if f.File == int(mem.File) && dense.Index(f.Decl) == int(mem.Decl) {
+				return Some{Value: f}
+			}
+		}
+		return None
+	}
+	let di = depOf(k, mem.Path)
+	if di < 0 {
+		return None
+	}
+	let d = k.Deps[di]
+	for f in d.K.Fns {
+		if f.File == int(mem.File) && dense.Index(f.Decl) == int(mem.Decl) {
+			match port(s, k, d, f.Sig) {
+			case Some{Value: sig}:
+				let mut out = f
+				out.Sig = sig
+				return Some{Value: out}
+			case None:
+				return None
+			}
+		}
+	}
+	None
+}
+
+func claimCandidateLess(a claimCandidate, b claimCandidate) bool {
+	if a.label != b.label {
+		return a.label < b.label
+	}
+	a.pkgPath < b.pkgPath
+}
+
+func sortClaimCandidates(xs []claimCandidate) []claimCandidate {
+	let mut out = slices.Clone(xs)
+	for i in 1..len(out) {
+		let cur = out[i]
+		let mut j = i
+		for j > 0 && claimCandidateLess(cur, out[j-1]) {
+			out[j] = out[j-1]
+			j = j - 1
+		}
+		out[j] = cur
+	}
+	out
+}
+
+func claimLookup(s mut store.Store, k Pkg, t Typer, xt dense.ID[store.TKey], name string) claimResult {
+	let recv = receiverBase(*s, xt)
+	if store.KindOfType(*s, recv) == store.KParam || store.FunctionClaimCount(*s) == 0 {
+		return ClaimNone
+	}
+	let ims = fileImports(k.Parsed[t.file])
+	let mut cands = []claimCandidate{}
+	for j in 0..store.FunctionClaimCount(*s) {
+		let g = store.FunctionClaimAt(*s, j)
+		let o = match types.Nominal(*s, g.Role) {
+		case Some{Value: ref}:
+			ref
+		case None:
+			continue
+		}
+		let mut isLocal = false
+		let mut pkgPath = ""
+		let mut localName = ""
+		if int(o.Import) == 0 {
+			isLocal = true
+			pkgPath = store.PathOf(*s)
+		} else if int(o.Import) > 0 && int(o.Import) <= len(k.Ifaces) {
+			pkgPath = k.Ifaces[int(o.Import)-1].Path
+			localName = directImportName(ims, pkgPath)
+			if localName == "" {
+				continue
+			}
+		} else {
+			continue
+		}
+		let mut memberIdx = -1
+		match types.ReadRole(s, k.Ifaces, k.Foreign, k.Roles, g.Role) {
+		case Some{Value: role}:
+			for idx, rm in role.Members {
+				if rm.Name == name && idx < len(g.Members) {
+					memberIdx = idx
+					break
+				}
+			}
+		case None:
+		}
+		if memberIdx < 0 {
+			continue
+		}
+		let mem = g.Members[memberIdx]
+		if mem.Path != store.PathOf(*s) && !isExportedName(name) {
+			continue
+		}
+		match store.ClaimMatch(s, g, recv) {
+		case None:
+			continue
+		case Some:
+		}
+		let fn = match claimFnOf(s, k, mem) {
+		case Some{Value: f}:
+			f
+		case None:
+			continue
+		}
+		let key = "\(mem.Path)#\(mem.File)#\(mem.Decl)"
+		let label = if isLocal { name } else { "\(localName).\(name)" }
+		let cand = claimCandidate{fn: fn, key: key, label: label, pkgPath: pkgPath, usedImport: localName}
+		let mut found = -1
+		for idx, prev in cands {
+			if prev.key == key {
+				found = idx
+				break
+			}
+		}
+		if found < 0 {
+			cands = cands.Append(cand)
+		} else if claimCandidateLess(cand, cands[found]) {
+			cands[found] = cand
+		}
+	}
+	if len(cands) == 0 {
+		return ClaimNone
+	}
+	let sorted = sortClaimCandidates(cands)
+	if len(sorted) == 1 {
+		return ClaimFound{Fn: sorted[0].fn, UsedImport: sorted[0].usedImport}
+	}
+	let mut labels = []string{}
+	let mut used = []string{}
+	for c in sorted {
+		labels = labels.Append(c.label)
+		if c.usedImport != "" {
+			used = used.Append(c.usedImport)
+		}
+	}
+	ClaimAmbiguous{Labels: labels, UsedImports: used}
+}
+
+func typeText(s store.Store, k Pkg, t Typer, ty dense.ID[store.TKey]) string {
+	types.Text(s, types.Names{Params: ownParams(k, t), Foreign: k.Foreign, Pkg: "", Deps: k.Ifaces}, ty)
+}
+
+func ambiguousMethodMessage(s store.Store, k Pkg, t Typer, xt dense.ID[store.TKey], name string, labels []string) string {
+	let recv = typeText(s, k, t, xt)
+	"ambiguous method \(name) on \(recv): provided by \(strings.Join(labels, ", ")); call \(labels[0])(…) directly"
+}
+
+func isOpType(s store.Store, k Pkg, base dense.ID[store.TKey]) bool {
+	let bk = store.KindOfType(s, base)
+	if bk == store.KNamed {
+		let r = recOf(s, k, store.TypeNameText(s, store.ArgOf(s, base)))
+		return r >= 0 && k.Recs[r].Op
+	}
+	if bk == store.KInstance {
+		let o = store.OriginOfType(s, base)
+		if int(o.Import) == 0 {
+			let r = recOf(s, k, store.DeclText(s, int(o.Decl)))
+			return r >= 0 && k.Recs[r].Op
+		}
+		if int(o.Import) > 0 && int(o.Import) <= len(k.Ifaces) {
+			let di = depOf(k, k.Ifaces[int(o.Import)-1].Path)
+			if di >= 0 {
+				let d = k.Deps[di]
+				let r = recOf(d.S, d.K, k.Ifaces[int(o.Import)-1].Decls[int(o.Decl)].Name)
+				return r >= 0 && d.K.Recs[r].Op
+			}
+		}
+	}
+	false
+}
+
+func isKnownRecord(s store.Store, k Pkg, base dense.ID[store.TKey]) bool {
+	let bk = store.KindOfType(s, base)
+	if bk == store.KNamed {
+		let r = recOf(s, k, store.TypeNameText(s, store.ArgOf(s, base)))
+		return r >= 0 && !k.Recs[r].Op
+	}
+	if bk == store.KInstance {
+		let o = store.OriginOfType(s, base)
+		if int(o.Import) == 0 {
+			let r = recOf(s, k, store.DeclText(s, int(o.Decl)))
+			return r >= 0 && !k.Recs[r].Op
+		}
+		if int(o.Import) > 0 && int(o.Import) <= len(k.Ifaces) {
+			let di = depOf(k, k.Ifaces[int(o.Import)-1].Path)
+			if di >= 0 {
+				let d = k.Deps[di]
+				let r = recOf(d.S, d.K, k.Ifaces[int(o.Import)-1].Decls[int(o.Decl)].Name)
+				return r >= 0 && !d.K.Recs[r].Op
+			}
+		}
+	}
+	false
+}
+
+func ownerHasSameNamed(s store.Store, k Pkg, base dense.ID[store.TKey], name string) bool {
+	let owner = ownerOf(s, k, base)
+	if owner == -1 {
+		let mut i = fnNamed(s, k, name)
+		for i >= 0 {
+			let ops = store.OperandsOf(s, k.Fns[i].Sig)
+			if len(ops) > 3 {
+				let p = receiverBase(s, ops[0])
+				if sameNamedHead(s, p, base) {
+					return true
+				}
+			}
+			i = k.sameName[i]
+		}
+		return false
+	}
+	if owner >= 0 {
+		let d = k.Deps[owner]
+		return fnNamed(d.S, d.K, name) >= 0
+	}
+	false
+}
+
+func sameNamedHead(s store.Store, p dense.ID[store.TKey], base dense.ID[store.TKey]) bool {
+	let pk = store.KindOfType(s, p)
+	let bk = store.KindOfType(s, base)
+	if pk == store.KNamed && bk == store.KNamed {
+		return p == base
+	}
+	if pk == store.KInstance && bk == store.KInstance {
+		return store.OriginOfType(s, p) == store.OriginOfType(s, base)
+	}
+	false
+}
+
+func unknownMethodDiag(s store.Store, k Pkg, t Typer, xt dense.ID[store.TKey], name string) Option[string] {
+	let base = receiverBase(s, xt)
+	let bk = store.KindOfType(s, base)
+	if bk == store.KParam || bk == store.KSelf || bk == store.KReapplied || bk == store.KForeign {
+		return None
+	}
+	if bk == store.KBasic {
+		if store.ArgOf(s, base) == 0 {
+			return None
+		}
+		return Some{Value: "\(typeText(s, k, t, xt)) has no field or method \(name)"}
+	}
+	if bk == store.KSlice || bk == store.KMap || bk == store.KArray || bk == store.KTuple || bk == store.KSig {
+		return Some{Value: "\(typeText(s, k, t, xt)) has no field or method \(name)"}
+	}
+	if bk == store.KNamed || bk == store.KInstance {
+		if bk == store.KInstance {
+			let o = store.OriginOfType(s, base)
+			if int(o.Import) == store.ForeignBit || int(o.Import) > len(k.Ifaces) {
+				return None
+			}
+			if int(o.Import) > 0 && depOf(k, k.Ifaces[int(o.Import)-1].Path) < 0 {
+				return None
+			}
+		}
+		if isOpType(s, k, base) || !isKnownRecord(s, k, base) || ownerHasSameNamed(s, k, base, name) {
+			return None
+		}
+		return Some{Value: "\(typeText(s, k, t, xt)) has no field or method \(name)"}
+	}
+	None
+}

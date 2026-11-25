@@ -104,6 +104,17 @@ func ShapeBindings(s mut Store, g ClaimHead, receiver dense.ID[TKey]) Option[[]d
 	shapeBindings(&s.pool, g, receiver)
 }
 
+// ClaimMatch matches a receiver template against an actual type and checks
+// the receiver-bound type-set bounds.
+func ClaimMatch(s mut Store, g ClaimHead, receiver dense.ID[TKey]) Option[[]dense.ID[TKey]] {
+	match shapeBindings(&s.pool, g, receiver) {
+	case Some{Value: args}:
+		if claimBoundsFit(s.pool, g, args) { Some{Value: args} } else { None }
+	case None:
+		None
+	}
+}
+
 func shapeBindings(p mut Pool, g ClaimHead, receiver dense.ID[TKey]) Option[[]dense.ID[TKey]] {
 	let mut args = []dense.ID[TKey]{}
 	for i in 0..len(g.Binds) { args = args.Append(Param(p, i)) }

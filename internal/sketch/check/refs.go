@@ -673,7 +673,8 @@ func (w *refWalker) selfCallee(fun syntax.Expr) {
 // value uses as a plain function name's are (valueUse).
 func (w *refWalker) selfRef(fun syntax.Expr, sel *syntax.SelectorExpr, called bool) {
 	first, ok := w.c.pkg.Scope.names[sel.Sel.Name].(*Func)
-	if !ok || first.owner == nil {
+	localClaim := w.c.hasLocalFunctionClaimOp(sel.Sel.Name)
+	if (!ok || first.owner == nil) && !localClaim {
 		return
 	}
 	if id, ok := sel.X.(*syntax.Ident); ok && !w.local(id.Name) {
@@ -686,6 +687,14 @@ func (w *refWalker) selfRef(fun syntax.Expr, sel *syntax.SelectorExpr, called bo
 			w.retired = append(w.retired, sel)
 			return
 		}
+	}
+	if !ok || first.owner == nil {
+		site := [2]useSite{{ok: true, at: sel.Sel.Pos()}, {ok: true, at: sel.Sel.Pos()}}
+		if called {
+			site = w.callSite()
+		}
+		w.pending = append(w.pending, pendingSelf{sel: sel, site: site, guard: w.guard})
+		return
 	}
 	t := w.staticType(sel.X)
 	if t == nil {

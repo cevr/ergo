@@ -1,0 +1,21 @@
+import claimlookup/base
+
+type Totalable {
+	Sum() int,
+}
+
+type OtherScore {
+	Score() int,
+}
+
+func Sum(xs []int) int implements Totalable {
+	let mut total = 1000
+	for x in xs {
+		total = total + x
+	}
+	total
+}
+
+func Score(b base.Box) int implements OtherScore {
+	b.Value * 3
+}

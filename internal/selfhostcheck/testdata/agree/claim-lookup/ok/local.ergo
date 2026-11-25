@@ -1,0 +1,15 @@
+type LocalDouble {
+	DoubleSum() int,
+}
+
+func DoubleSum(xs []int) int implements LocalDouble {
+	let mut total = 0
+	for x in xs {
+		total = total + x*2
+	}
+	total
+}
+
+func LocalDotDouble(xs []int) int {
+	xs.DoubleSum()
+}

@@ -1269,6 +1269,12 @@ func (c *checker) selector(x *syntax.SelectorExpr) operand {
 			return c.selfCall(x, base, c.selfSig(t, fn), fn, called, index)
 		}
 	}
+	if fn, cands := c.claimLookup(t, x.Sel.Name); fn != nil {
+		return c.selfCall(x, base, c.selfSig(t, fn), fn, called, index)
+	} else if len(cands) > 1 {
+		c.errorf(x.Sel, CodeType, "%s", ambiguousClaimMessage(base.typ, x.Sel.Name, cands))
+		return bad(x)
+	}
 	if u := under(t); u != t && c.collFunc(u, x.Sel.Name) != nil {
 		// D-D8: the first parameter's type is x's type exactly.
 		// The base is a slice or a Map, unnamed, so the value reaches it by
@@ -1385,11 +1391,11 @@ func (c *checker) selfCall(x *syntax.SelectorExpr, base operand, sig *Signature,
 		c.errorf(x.Sel, CodeUnknown, "%s has no field %s; the function %s on its type is reached only by a call %s.%s(…): write %s.%s()[%s]", base.typ, x.Sel.Name, fn.Name, exprText(x.X), fn.Name, exprText(x.X), fn.Name, idx)
 		return bad(x)
 	}
-	if fn.Ptr && !isPointer(base.typ) && !base.addressable {
-		c.errorf(x.X, CodeType, "%s takes mut %s, and %s is not addressable", fn.Name, fn.owner.Obj.Name, exprText(x.X))
+	if fnBorrowsReceiver(fn) && !isPointer(base.typ) && !base.addressable {
+		c.errorf(x.X, CodeType, "%s takes mut %s, and %s is not addressable", fn.Name, fnRecvName(fn), exprText(x.X))
 		return bad(x)
 	}
-	if fn.Ptr && !isPointer(base.typ) {
+	if fnBorrowsReceiver(fn) && !isPointer(base.typ) {
 		c.borrowRoot(x.X, x.X, fn.Name) // D-D1: the implicit borrow could change x
 	}
 	if c.monoBad(fn.Sig.TParams) {
@@ -1415,8 +1421,7 @@ func (c *checker) selfCall(x *syntax.SelectorExpr, base operand, sig *Signature,
 		t = p.Elem
 	}
 	var self map[*TypeParam]Type
-	if len(fn.selfArgs) > 0 {
-		self = selfBinding(t, fn)
+	if self = c.selfBind(t, fn); len(self) > 0 {
 		var tps []*TypeParam
 		var targs []Type
 		for _, tp := range fn.Sig.TParams {
@@ -1458,8 +1463,8 @@ func (c *checker) selfCall(x *syntax.SelectorExpr, base operand, sig *Signature,
 func (c *checker) methodValueRefused(x *syntax.SelectorExpr, base operand, sig *Signature, fn *Func) string {
 	recv := exprText(x.X)
 	switch {
-	case fn.Ptr:
-		return fmt.Sprintf("borrows %s (mut %s)", recv, fn.owner.Obj.Name)
+	case fnBorrowsReceiver(fn):
+		return fmt.Sprintf("borrows %s (mut %s)", recv, fnRecvName(fn))
 	case c.holdsResource(base.typ):
 		return fmt.Sprintf("would keep %s, a resource, which has one owner", recv)
 	case sig != nil && len(sig.TParams) > 0:

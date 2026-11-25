@@ -1,0 +1,11 @@
+type Box {
+	Value int,
+}
+
+func Tag(b Box) int {
+	b.Value + 10
+}
+
+type Holder {
+	Scale func() int,
+}

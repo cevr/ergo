@@ -1,0 +1,5 @@
+import claimlookup/exta
+
+func FromA(xs []int) int {
+	xs.Sum()
+}

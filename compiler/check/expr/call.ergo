@@ -255,11 +255,10 @@ func valueCall(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c
 		return None
 	}
 	let name = types.NameText(k.Parsed[t.file], se.Sel)
-	// A capability named as the receiver (Console.Println, io.Stdout.Print)
-	// is the operation type's value; anywhere else (a context's key) the
-	// name is no expression.
+	let mut isOpRecv = false
 	let xt = match opReceiver(s, k, t, unparen(tr, se.X)) {
 	case Some[dense.ID[store.TKey]] as o:
+		isOpRecv = true
 		note(k, t, se.X, o.Value)
 		t.Caps = t.Caps.Append(CapCall{Call: pnode(k, t.file, x), T: o.Value})
 		o.Value
@@ -297,22 +296,48 @@ func valueCall(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c
 	}
 	match methodOf(s, k, t, xt, name) {
 	case Some[Fn] as mf:
-		let f = mf.Value
-		t.Calls = t.Calls.Append(CallTo{Call: pnode(k, t.file, x), Callee: f, Recv: true})
-		if len(f.Params) > 0 {
-			return generic(s, k, t, x, c, fun, []dense.ID[syntax.Node]{}, f, some(xt))
-		}
-		if !dropsSite(*s, k, f.Sig, n+1) {
-			note(k, t, fun, withoutFirst(s, f.Sig))
-		}
-		let (params, r) = sigParts(*s, k, f.Sig, n+1)
-		arity(k, t, x, n+1, len(params))
-		args(s, k, t, c, params[1:len(params)])
-		resultOf(*s, r)
+		callMethodFn(s, k, t, x, c, fun, xt, mf.Value)
 	case None:
-		args(s, k, t, c, []dense.ID[store.TKey]{})
-		None
+		match claimLookup(s, k, *t, xt, name) {
+		case ClaimFound as cf:
+			if cf.UsedImport != "" {
+				t.UsedImports = t.UsedImports.Append(UsedImport{File: t.file, Name: cf.UsedImport})
+			}
+			callMethodFn(s, k, t, x, c, fun, xt, cf.Fn)
+		case ClaimAmbiguous as ca:
+			for u in ca.UsedImports {
+				t.UsedImports = t.UsedImports.Append(UsedImport{File: t.file, Name: u})
+			}
+			t.LookupDiags = t.LookupDiags.Append(LookupDiag{File: t.file, At: se.Sel, Code: "S108", Message: ambiguousMethodMessage(*s, k, *t, xt, name, ca.Labels)})
+			args(s, k, t, c, []dense.ID[store.TKey]{})
+			None
+		case ClaimNone:
+			if !isOpRecv {
+				match unknownMethodDiag(*s, k, *t, xt, name) {
+				case Some{Value: msg}:
+					t.LookupDiags = t.LookupDiags.Append(LookupDiag{File: t.file, At: se.Sel, Code: "S104", Message: msg})
+				case None:
+				}
+			}
+			args(s, k, t, c, []dense.ID[store.TKey]{})
+			None
+		}
 	}
+}
+
+func callMethodFn(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c syntax.CallExpr, fun dense.ID[syntax.Node], xt dense.ID[store.TKey], f Fn) Option[dense.ID[store.TKey]] {
+	let n = syntax.Len(c.Args)
+	t.Calls = t.Calls.Append(CallTo{Call: pnode(k, t.file, x), Callee: f, Recv: true})
+	if len(f.Params) > 0 {
+		return generic(s, k, t, x, c, fun, []dense.ID[syntax.Node]{}, f, some(xt))
+	}
+	if !dropsSite(*s, k, f.Sig, n+1) {
+		note(k, t, fun, withoutFirst(s, f.Sig))
+	}
+	let (params, r) = sigParts(*s, k, f.Sig, n+1)
+	arity(k, t, x, n+1, len(params))
+	args(s, k, t, c, params[1:len(params)])
+	resultOf(*s, r)
 }
 
 func roleOf(s mut store.Store, k Pkg, t Typer, recv dense.ID[store.TKey]) Option[dense.ID[store.TKey]] {
@@ -486,7 +511,9 @@ func generic(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c s
 	match recv {
 	case Some[dense.ID[store.TKey]] as rt:
 		if ok {
-			ok = infer.Argument(s, &t.frame, k.Unions, frame, renamed[0], rt.Value, all)
+			let p0 = if store.KindOfType(*s, renamed[0]) == store.KPointer || store.KindOfType(*s, rt.Value) == store.KPointer { receiverBase(*s, renamed[0]) } else { renamed[0] }
+			let a0 = if store.KindOfType(*s, renamed[0]) == store.KPointer || store.KindOfType(*s, rt.Value) == store.KPointer { receiverBase(*s, rt.Value) } else { rt.Value }
+			ok = infer.Argument(s, &t.frame, k.Unions, frame, p0, a0, all)
 		}
 		ins = ins.Append(infer.Unknown)
 	case None:

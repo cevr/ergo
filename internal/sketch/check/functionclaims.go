@@ -1,8 +1,10 @@
 package check
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
+	"strings"
 )
 
 // A functionClaim is a checked group, in the contract's package. recv and
@@ -592,4 +594,145 @@ func (c *checker) functionProvider(recv Type, role *Named, name string, own []Ty
 		}
 	}
 	return f, args
+}
+
+type claimCandidate struct {
+	fn      *Func
+	pn      *PkgName
+	pkgPath string
+	label   string
+}
+
+func (c *checker) hasLocalFunctionClaimOp(name string) bool {
+	for _, groups := range c.pkg.functionClaims {
+		for _, g := range groups {
+			if g.ops[name] != nil {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (c *checker) claimLookup(recv Type, name string) (*Func, []claimCandidate) {
+	if _, isParam := recv.(*TypeParam); isParam {
+		return nil, nil
+	}
+	type source struct {
+		pkg *Package
+		pn  *PkgName
+	}
+	sources := make([]source, 0, 1+len(c.curImports()))
+	sources = append(sources, source{pkg: c.pkg})
+	for _, pn := range c.curImports() {
+		if pn == nil || pn.broken || pn.Pkg == nil || pn.Pkg.Host() || pn.Name == "_" {
+			continue
+		}
+		sources = append(sources, source{pkg: pn.Pkg, pn: pn})
+	}
+	byFn := make(map[*Func]claimCandidate)
+	for _, src := range sources {
+		if src.pkg == nil || len(src.pkg.functionClaims) == 0 {
+			continue
+		}
+		for _, groups := range src.pkg.functionClaims {
+			for _, g := range groups {
+				fn := g.ops[name]
+				if fn == nil || (fn.Pkg != c.pkg && !isExported(fn.Name)) {
+					continue
+				}
+				m, ok := c.claimMatch(g.recv, recv, g.bind)
+				if !ok {
+					continue
+				}
+				for _, p := range g.bind {
+					if p.Kind == KindType && ((!p.Own && c.mayHoldResource(m[p])) ||
+						!c.meetsReapplicationBound(m[p], c.subst(p.Constraint, m))) {
+						ok = false
+						break
+					}
+				}
+				if !ok {
+					continue
+				}
+				label := name
+				if src.pn != nil {
+					label = src.pn.Name + "." + name
+				}
+				cand := claimCandidate{fn: fn, pn: src.pn, pkgPath: src.pkg.Path, label: label}
+				if prev, exists := byFn[fn]; !exists || cmp.Or(cmp.Compare(cand.label, prev.label), cmp.Compare(cand.pkgPath, prev.pkgPath)) < 0 {
+					byFn[fn] = cand
+				}
+			}
+		}
+	}
+	if len(byFn) == 0 {
+		return nil, nil
+	}
+	cands := make([]claimCandidate, 0, len(byFn))
+	for _, cand := range byFn {
+		cands = append(cands, cand)
+	}
+	slices.SortFunc(cands, func(a, b claimCandidate) int {
+		return cmp.Or(cmp.Compare(a.label, b.label), cmp.Compare(a.pkgPath, b.pkgPath))
+	})
+	for _, cand := range cands {
+		if cand.pn != nil {
+			cand.pn.used = true
+		}
+	}
+	if len(cands) == 1 {
+		return cands[0].fn, nil
+	}
+	return nil, cands
+}
+
+func (c *checker) curImports() []*PkgName {
+	if c.cur == nil {
+		return nil
+	}
+	return c.cur.imports
+}
+
+func ambiguousClaimMessage(recv Type, name string, cands []claimCandidate) string {
+	labels := make([]string, len(cands))
+	for i, cand := range cands {
+		labels[i] = cand.label
+	}
+	return fmt.Sprintf("ambiguous method %s on %s: provided by %s; call %s(…) directly", name, recv, strings.Join(labels, ", "), labels[0])
+}
+
+func fnBorrowsReceiver(fn *Func) bool {
+	if fn == nil {
+		return false
+	}
+	if fn.Ptr {
+		return true
+	}
+	return fn.Decl != nil && fn.Decl.Implements != nil && fn.Sig != nil && len(fn.Sig.Params) > 0 && isPointer(fn.Sig.Params[0].Type)
+}
+
+func fnRecvName(fn *Func) string {
+	if fn.owner != nil && fn.owner.Obj != nil {
+		return fn.owner.Obj.Name
+	}
+	if fn.Sig != nil && len(fn.Sig.Params) > 0 {
+		return functionReceiver(fn.Sig.Params[0].Type).String()
+	}
+	return ""
+}
+
+func (c *checker) selfBind(t Type, f *Func) map[*TypeParam]Type {
+	if len(f.selfArgs) > 0 {
+		return selfBinding(t, f)
+	}
+	if f.Decl != nil && f.Decl.Implements != nil && f.Sig != nil && len(f.Sig.Params) > 0 {
+		bind := receiverBinders(f.Sig)
+		if len(bind) == 0 {
+			return nil
+		}
+		m, _ := c.claimMatch(functionReceiver(f.Sig.Params[0].Type), t, bind)
+		return m
+	}
+	return nil
 }

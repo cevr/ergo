@@ -33,6 +33,12 @@ import strings
 // let's name whose type holds a resource (held, from the typer: Held) is
 // not reported: it is held for its release at scope end.
 func Unused(files []bind.File, s store.Store, u bind.Uses, ps bind.Parents, missing []string, held func(dense.ID[store.PNode]) bool) []Diag {
+	UnusedWithImports(files, s, u, ps, missing, held, []expr.UsedImport{})
+}
+
+// UnusedWithImports is Unused with file-local imports used by function-form
+// claim lookup counted as read.
+func UnusedWithImports(files []bind.File, s store.Store, u bind.Uses, ps bind.Parents, missing []string, held func(dense.ID[store.PNode]) bool, usedImports []expr.UsedImport) []Diag {
 	let mut total = 0
 	for file in files {
 		if !file.Parsed.Failed {
@@ -69,6 +75,11 @@ func Unused(files []bind.File, s store.Store, u bind.Uses, ps bind.Parents, miss
 			}
 		}
 		outside = outside.Append(names)
+	}
+	for ui in usedImports {
+		if ui.File >= 0 && ui.File < len(outside) {
+			outside[ui.File][ui.Name] = true
+		}
 	}
 	let mut out = []Diag{}
 	for n in locals {
