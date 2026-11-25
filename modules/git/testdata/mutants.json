@@ -882,6 +882,70 @@
       ]
     },
     {
+      "name": "git-rev-first-common-ancestor-only",
+      "origin": "STD-GIT G-REACH",
+      "file": "modules/git/revisions/dag.ergo",
+      "from": "\t\tif dominated.Get(oid.Hex(c.OID)) == None {\n\t\t\tbest = best.Append(c)\n\t\t}",
+      "to": "\t\tif dominated.Get(oid.Hex(c.OID)) == None && len(best) == 0 {\n\t\t\tbest = best.Append(c)\n\t\t}",
+      "rule": "MergeBases returns all maximal best common ancestors (antichain) rather than stopping at the first common ancestor, matching git merge-base --all on criss-cross DAGs.",
+      "anchor": {
+        "tests": [
+          "modules/git/revisions:CrissCrossOctopusTagsAndGraphParityMatchGit"
+        ]
+      },
+      "killers": [
+        "modules/git/revisions:CrissCrossOctopusTagsAndGraphParityMatchGit"
+      ]
+    },
+    {
+      "name": "git-rev-collapse-ambiguous-id",
+      "origin": "STD-GIT G-REVISIONS",
+      "file": "modules/git/revisions/parse.ergo",
+      "from": "\tif len(matches) > 1 {\n\t\treturn Ambiguous{Spec: spec, Candidates: matches}\n\t}",
+      "to": "\tif len(matches) > 1 {\n\t\treturn matches[0]\n\t}",
+      "rule": "ResolveRev refuses abbreviated hex prefixes matching >=2 objects with Ambiguous instead of silently returning the first match.",
+      "anchor": {
+        "tests": [
+          "modules/git/revisions:AmbiguousShortOIDRefusedAndDAGInvariants"
+        ]
+      },
+      "killers": [
+        "modules/git/revisions:AmbiguousShortOIDRefusedAndDAGInvariants"
+      ]
+    },
+    {
+      "name": "git-rev-is-ancestor-swallows-missing",
+      "origin": "STD-GIT G-REACH",
+      "file": "modules/git/revisions/dag.ergo",
+      "from": "func loadCommitForAncestor(id oid.OID) Option[CommitNode] fails NotFound | NotACommit | StoreError needs CommitDAG {\n\tSome[CommitNode]{Value: try CommitDAG.Commit(id)}\n}",
+      "to": "func loadCommitForAncestor(id oid.OID) Option[CommitNode] fails NotFound | NotACommit | StoreError needs CommitDAG {\n\tlet node = CommitDAG.Commit(id) catch {\n\tcase NotFound, NotACommit:\n\t\treturn None\n\tcase StoreError as e:\n\t\treturn e\n\t}\n\tSome[CommitNode]{Value: node}\n}",
+      "rule": "IsAncestor returns typed NotFound/NotACommit errors for missing or non-commit OIDs instead of silently swallowing them as false.",
+      "anchor": {
+        "tests": [
+          "modules/git/revisions:CrissCrossOctopusTagsAndGraphParityMatchGit"
+        ]
+      },
+      "killers": [
+        "modules/git/revisions:CrissCrossOctopusTagsAndGraphParityMatchGit"
+      ]
+    },
+    {
+      "name": "git-rev-caret-ignores-parent-index",
+      "origin": "STD-GIT G-REVISIONS",
+      "file": "modules/git/revisions/parse.ergo",
+      "from": "\tparents[oneBasedIndex-1]",
+      "to": "\tparents[0]",
+      "rule": "Revision suffix ^n selects the n-th parent of a merge/octopus commit rather than ignoring n and always taking the first parent.",
+      "anchor": {
+        "tests": [
+          "modules/git/revisions:CrissCrossOctopusTagsAndGraphParityMatchGit"
+        ]
+      },
+      "killers": [
+        "modules/git/revisions:CrissCrossOctopusTagsAndGraphParityMatchGit"
+      ]
+    },
+    {
       "name": "git-status-racy-timestamp-trusts-clean",
       "origin": "STD-GIT G-STATUS",
       "file": "modules/git/status/worktree.ergo",

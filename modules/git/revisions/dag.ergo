@@ -1,0 +1,632 @@
+import filepath
+import fs
+import slices
+import github.com/cevr/ergo/modules/git/delta
+import github.com/cevr/ergo/modules/git/graph
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/pack
+import github.com/cevr/ergo/modules/git/root
+import github.com/cevr/ergo/modules/git/tree
+
+// MemoryDAG is a pure in-memory CommitDAG provider for representation-independent
+// testing, criss-cross DAG verification, and capability law execution.
+type MemoryDAG {
+	format     oid.Format,
+	nodes      Map[string, CommitNode],
+	nonCommits Map[string, oid.Kind],
+	order      []oid.OID,
+} implements CommitDAG
+
+// NewMemoryDAG builds a MemoryDAG from nodes in canonical sorted OID order.
+func NewMemoryDAG(format oid.Format, nodes []CommitNode) MemoryDAG {
+	MemoryDAGWithNonCommits(format, nodes, Map[string, oid.Kind]{})
+}
+
+func sameFormat(a oid.Format, b oid.Format) bool {
+	match a {
+	case oid.Sha1:
+		match b {
+		case oid.Sha1:
+			true
+		case oid.Sha256:
+			false
+		}
+	case oid.Sha256:
+		match b {
+		case oid.Sha1:
+			false
+		case oid.Sha256:
+			true
+		}
+	}
+}
+
+func reachesInMap(edges Map[string, []oid.OID], startHex string, targetHex string) bool {
+	if startHex == targetHex {
+		return true
+	}
+	let mut seen = Map[string, bool]{}
+	seen[startHex] = true
+	let mut queue = []string{startHex}
+	let mut head = 0
+	for head < len(queue) {
+		let cur = queue[head]
+		head = head + 1
+		match edges.Get(cur) {
+		case Some[[]oid.OID] as ps:
+			for p in ps.Value {
+				let ph = oid.Hex(p)
+				if ph == targetHex {
+					return true
+				}
+				if seen.Get(ph) == None {
+					seen[ph] = true
+					queue = queue.Append(ph)
+				}
+			}
+		case None:
+		}
+	}
+	false
+}
+
+func computeGen(h string, edges Map[string, []oid.OID], memo Map[string, uint32]) (uint32, Map[string, uint32]) {
+	match memo.Get(h) {
+	case Some[uint32] as g:
+		return (g.Value, memo)
+	case None:
+	}
+	let mut curMemo = memo
+	let mut maxP = uint32(0)
+	match edges.Get(h) {
+	case Some[[]oid.OID] as ps:
+		for p in ps.Value {
+			let (pg, nextMemo) = computeGen(oid.Hex(p), edges, curMemo)
+			curMemo = nextMemo
+			if pg > maxP {
+				maxP = pg
+			}
+		}
+	case None:
+	}
+	let gen = maxP + uint32(1)
+	curMemo = curMemo.Put(h, gen)
+	(gen, curMemo)
+}
+
+// MemoryDAGWithNonCommits builds a MemoryDAG with additional non-commit objects
+// (blobs, trees, tags) so callers can exercise NotACommit distinct from NotFound.
+// Invalid OIDs, dangling parents, and cycle-creating edges are stripped and
+// topological generation numbers are computed consistently.
+func MemoryDAGWithNonCommits(format oid.Format, nodes []CommitNode, nonCommits Map[string, oid.Kind]) MemoryDAG {
+	let wantLen = oid.ByteLen(format)
+	let mut rawByHex = Map[string, CommitNode]{}
+	let mut ids = []oid.OID{}
+	for n in nodes {
+		if !sameFormat(format, n.OID.Format) || len(n.OID.Raw) != wantLen {
+			continue
+		}
+		let h = oid.Hex(n.OID)
+		if rawByHex.Get(h) == None {
+			rawByHex = rawByHex.Put(h, n)
+			ids = ids.Append(n.OID)
+		}
+	}
+
+	let mut acceptedEdges = Map[string, []oid.OID]{}
+	for id in ids {
+		let h = oid.Hex(id)
+		match rawByHex.Get(h) {
+		case Some[CommitNode] as n:
+			let mut cleanParents = []oid.OID{}
+			let mut seenParent = Map[string, bool]{}
+			for p in n.Value.Parents {
+				if !sameFormat(format, p.Format) || len(p.Raw) != wantLen {
+					continue
+				}
+				let ph = oid.Hex(p)
+				if rawByHex.Get(ph) == None || seenParent.Get(ph) != None {
+					continue
+				}
+				if reachesInMap(acceptedEdges, ph, h) {
+					continue
+				}
+				seenParent = seenParent.Put(ph, true)
+				cleanParents = cleanParents.Append(p)
+			}
+			acceptedEdges = acceptedEdges.Put(h, cleanParents)
+		case None:
+		}
+	}
+
+	let mut genMemo = Map[string, uint32]{}
+	let mut byHex = Map[string, CommitNode]{}
+	for id in ids {
+		let h = oid.Hex(id)
+		match rawByHex.Get(h) {
+		case Some[CommitNode] as n:
+			let (gen, nextMemo) = computeGen(h, acceptedEdges, genMemo)
+			genMemo = nextMemo
+			let cleanParents = match acceptedEdges.Get(h) {
+			case Some[[]oid.OID] as ps:
+				ps.Value
+			case None:
+				[]oid.OID{}
+			}
+			byHex = byHex.Put(h, CommitNode{
+				OID:        n.Value.OID,
+				Tree:       n.Value.Tree,
+				Parents:    cleanParents,
+				CommitTime: n.Value.CommitTime,
+				Generation: gen,
+			})
+		case None:
+		}
+	}
+	MemoryDAG{
+		format:     format,
+		nodes:      byHex,
+		nonCommits: nonCommits,
+		order:      slices.SortFunc(ids, oid.Compare),
+	}
+}
+
+// Commit implements CommitDAG.Commit on MemoryDAG.
+func Commit(m MemoryDAG, id oid.OID) CommitNode fails NotFound | NotACommit | StoreError {
+	let h = oid.Hex(id)
+	match m.nodes.Get(h) {
+	case Some[CommitNode] as n:
+		n.Value
+	case None:
+		match m.nonCommits.Get(h) {
+		case Some[oid.Kind] as k:
+			return NotACommit{OID: id, GotKind: oid.KindName(k.Value)}
+		case None:
+			return NotFound{Spec: h}
+		}
+	}
+}
+
+// AllCommits implements CommitDAG.AllCommits on MemoryDAG.
+func AllCommits(m MemoryDAG) []oid.OID {
+	let mut out = slices.WithCapacity[oid.OID](len(m.order))
+	for id in m.order {
+		out = out.Append(id)
+	}
+	out
+}
+
+// StoreDAG implements CommitDAG over an on-disk Git objects directory with
+// optional commit-graph (graph.Chain) acceleration and automatic pack/loose
+// object fallback.
+type StoreDAG {
+	format     oid.Format,
+	objectsDir string,
+	alternates []string,
+	useGraph   bool,
+	host       fs.Host,
+	maxBytes   int,
+} implements CommitDAG
+
+// NewStoreDAG builds a StoreDAG over objectsDir, alternates, and host,
+// consulting objects/info commit-graph files when useGraph is true.
+func NewStoreDAG(format oid.Format, objectsDir string, alternates []string, useGraph bool, host fs.Host) StoreDAG {
+	StoreDAG{
+		format:     format,
+		objectsDir: filepath.Clean(objectsDir),
+		alternates: alternates,
+		useGraph:   useGraph,
+		host:       host,
+		maxBytes:   16777216,
+	}
+}
+
+// OpenStoreDAG builds a StoreDAG from a discovered root.Layout.
+func OpenStoreDAG(layout root.Layout, host fs.Host, useGraph bool) StoreDAG {
+	let fmt = if layout.ObjectFormat == "sha256" { oid.Sha256 } else { oid.Sha1 }
+	NewStoreDAG(fmt, layout.ObjectsDir, layout.Alternates, useGraph, host)
+}
+
+func tryLookupCommitGraph(d StoreDAG, id oid.OID) Option[CommitNode] {
+	if !d.useGraph {
+		return None
+	}
+	let infoDir = filepath.Join([]string{d.objectsDir, "info"})
+	with context { fs.Files: d.host } {
+		let ch = graph.OpenDir(d.format, infoDir) catch {
+		case graph.Truncated, graph.BadMagic, graph.UnsupportedVersion, graph.WrongFormat, graph.CorruptChunk, graph.MissingChunk, graph.ChecksumMismatch, graph.BadBaseChain, graph.IOFailed:
+			return None
+		}
+		match ch.Lookup(id) {
+		case None:
+			return None
+		case Some[graph.CommitInfo] as info:
+			return Some[CommitNode]{Value: CommitNode{
+				OID:        info.Value.OID,
+				Tree:       info.Value.TreeOID,
+				Parents:    info.Value.Parents,
+				CommitTime: int64(info.Value.CommitTime),
+				Generation: info.Value.Generation,
+			}}
+		}
+	}
+	None
+}
+
+// Commit implements CommitDAG.Commit on StoreDAG, consulting commit-graph
+// chains when enabled and falling back to pack.ReadObject + tree.ParseCommit.
+func Commit(d StoreDAG, id oid.OID) CommitNode fails NotFound | NotACommit | StoreError {
+	match tryLookupCommitGraph(d, id) {
+	case Some[CommitNode] as node:
+		return node.Value
+	case None:
+	}
+
+	let obj = with context { fs.Files: d.host } {
+		let odb = pack.Open(d.format, d.objectsDir, d.alternates, delta.DefaultLimits()) catch {
+		case pack.Corrupt as e:
+			return StoreError{Detail: e.Why}
+		case pack.MismatchedPair as e:
+			return StoreError{Detail: "mismatched pack pair: " + e.PackPath}
+		case pack.IOFailed as e:
+			return StoreError{Detail: e.Op + ": " + e.Detail}
+		}
+		pack.ReadObject(odb, id, d.maxBytes) catch {
+		case pack.Missing:
+			return NotFound{Spec: oid.Hex(id)}
+		case pack.Corrupt as e:
+			return StoreError{Detail: e.Why}
+		case pack.MismatchedPair as e:
+			return StoreError{Detail: "mismatched pack pair: " + e.PackPath}
+		case pack.Collision as e:
+			return StoreError{Detail: "sha1 collision: " + e.Digest}
+		case pack.LimitExceeded:
+			return StoreError{Detail: "commit object exceeds byte limit"}
+		case pack.DepthExceeded:
+			return StoreError{Detail: "delta chain depth exceeded"}
+		case pack.IOFailed as e:
+			return StoreError{Detail: e.Op + ": " + e.Detail}
+		}
+	}
+	match obj.Kind {
+	case oid.Commit:
+		let parsed = tree.ParseCommit(d.format, obj.Data) catch {
+		case tree.CorruptCommit as e:
+			return StoreError{Detail: e.Reason}
+		case tree.CorruptSignature as e:
+			return StoreError{Detail: e.Reason}
+		}
+		CommitNode{
+			OID:        id,
+			Tree:       parsed.Tree,
+			Parents:    parsed.Parents,
+			CommitTime: parsed.Committer.Epoch,
+			Generation: uint32(0),
+		}
+	case oid.Blob, oid.Tree, oid.Tag:
+		return NotACommit{OID: id, GotKind: oid.KindName(obj.Kind)}
+	}
+}
+
+// AllCommits implements CommitDAG.AllCommits on StoreDAG.
+func AllCommits(d StoreDAG) []oid.OID {
+	with context { fs.Files: d.host } {
+		let odb = pack.Open(d.format, d.objectsDir, d.alternates, delta.DefaultLimits()) catch {
+		case pack.Corrupt, pack.MismatchedPair, pack.IOFailed:
+			return []oid.OID{}
+		}
+		let all = pack.ListObjects(odb) catch {
+		case pack.Corrupt, pack.MismatchedPair, pack.IOFailed:
+			return []oid.OID{}
+		}
+		let mut commits = []oid.OID{}
+		for id in all {
+			let hdr = pack.StatObject(odb, id, d.maxBytes) catch {
+			case pack.Missing, pack.Corrupt, pack.MismatchedPair, pack.Collision, pack.LimitExceeded, pack.DepthExceeded, pack.IOFailed:
+				pack.Header{Kind: oid.Blob, Size: 0}
+			}
+			match hdr.Kind {
+			case oid.Commit:
+				commits = commits.Append(id)
+			case oid.Blob, oid.Tree, oid.Tag:
+			}
+		}
+		commits
+	}
+}
+
+func loadCommitForAncestor(id oid.OID) Option[CommitNode] fails NotFound | NotACommit | StoreError needs CommitDAG {
+	Some[CommitNode]{Value: try CommitDAG.Commit(id)}
+}
+
+func collectAncestors(start oid.OID, firstParentOnly bool) Map[string, CommitNode] fails NotFound | NotACommit | StoreError needs CommitDAG {
+	let rootNode = try CommitDAG.Commit(start)
+	let mut visited = Map[string, CommitNode]{}
+	visited[oid.Hex(rootNode.OID)] = rootNode
+	let mut queue = []CommitNode{rootNode}
+	let mut head = 0
+	for head < len(queue) {
+		let cur = queue[head]
+		head = head + 1
+		let limit = if firstParentOnly && len(cur.Parents) > 1 { 1 } else { len(cur.Parents) }
+		for i in 0..limit {
+			let p = cur.Parents[i]
+			let ph = oid.Hex(p)
+			if visited.Get(ph) == None {
+				let pNode = try CommitDAG.Commit(p)
+				visited[ph] = pNode
+				queue = queue.Append(pNode)
+			}
+		}
+	}
+	visited
+}
+
+// IsAncestor reports whether ancestor is an ancestor of (or equal to)
+// descendant. Both OIDs must resolve to valid commit objects; missing or
+// non-commit OIDs fail with NotFound or NotACommit rather than returning false.
+func IsAncestor(ancestor oid.OID, descendant oid.OID) bool fails NotFound | NotACommit | StoreError needs CommitDAG {
+	let ancNode = match try loadCommitForAncestor(ancestor) {
+	case None:
+		return false
+	case Some[CommitNode] as n:
+		n.Value
+	}
+	let descNode = match try loadCommitForAncestor(descendant) {
+	case None:
+		return false
+	case Some[CommitNode] as n:
+		n.Value
+	}
+	if oid.Equal(ancNode.OID, descNode.OID) {
+		return true
+	}
+	let ancGen = ancNode.Generation
+	if ancGen > uint32(0) && descNode.Generation > uint32(0) && ancGen > descNode.Generation {
+		return false
+	}
+	let mut seen = Map[string, bool]{}
+	seen[oid.Hex(descNode.OID)] = true
+	let mut queue = []CommitNode{descNode}
+	let mut head = 0
+	for head < len(queue) {
+		let cur = queue[head]
+		head = head + 1
+		for p in cur.Parents {
+			if oid.Equal(p, ancNode.OID) {
+				return true
+			}
+			let ph = oid.Hex(p)
+			if seen.Get(ph) == None {
+				seen[ph] = true
+				let pNode = try CommitDAG.Commit(p)
+				if ancGen > uint32(0) && pNode.Generation > uint32(0) && pNode.Generation < ancGen {
+					continue
+				}
+				queue = queue.Append(pNode)
+			}
+		}
+	}
+	false
+}
+
+func compareCommitTimeDesc(a CommitNode, b CommitNode) int {
+	if a.CommitTime > b.CommitTime {
+		return -1
+	}
+	if a.CommitTime < b.CommitTime {
+		return 1
+	}
+	oid.Compare(a.OID, b.OID)
+}
+
+func markStrictAncestors(common []CommitNode) Map[string, bool] fails NotFound | NotACommit | StoreError needs CommitDAG {
+	let mut dominated = Map[string, bool]{}
+	let mut queue = []CommitNode{}
+	for c in common {
+		for p in c.Parents {
+			let ph = oid.Hex(p)
+			if dominated.Get(ph) == None {
+				dominated[ph] = true
+				let pNode = try CommitDAG.Commit(p)
+				queue = queue.Append(pNode)
+			}
+		}
+	}
+	let mut head = 0
+	for head < len(queue) {
+		let cur = queue[head]
+		head = head + 1
+		for p in cur.Parents {
+			let ph = oid.Hex(p)
+			if dominated.Get(ph) == None {
+				dominated[ph] = true
+				let pNode = try CommitDAG.Commit(p)
+				queue = queue.Append(pNode)
+			}
+		}
+	}
+	dominated
+}
+
+func selectBestBases(common []CommitNode, dominated Map[string, bool]) []oid.OID {
+	let sortedCommon = slices.SortFunc(common, compareCommitTimeDesc)
+	let mut best = []CommitNode{}
+	for c in sortedCommon {
+		if dominated.Get(oid.Hex(c.OID)) == None {
+			best = best.Append(c)
+		}
+	}
+	let mut out = slices.WithCapacity[oid.OID](len(best))
+	for b in best {
+		out = out.Append(b.OID)
+	}
+	out
+}
+
+// MergeBases computes all maximal (best) common ancestors of a and b,
+// matching `git merge-base --all` including criss-cross merge DAGs with
+// multiple incomparable best bases.
+func MergeBases(a oid.OID, b oid.OID) []oid.OID fails NotFound | NotACommit | StoreError needs CommitDAG {
+	let ancA = try collectAncestors(a, false)
+	let ancB = try collectAncestors(b, false)
+	let mut common = []CommitNode{}
+	for k, node in ancA {
+		if ancB.Get(k) != None {
+			common = common.Append(node)
+		}
+	}
+	if len(common) == 0 {
+		return []oid.OID{}
+	}
+	let dominated = try markStrictAncestors(common)
+	selectBestBases(common, dominated)
+}
+
+// MergeBasesMany computes all maximal (best) common ancestors shared by every
+// commit in tips.
+func MergeBasesMany(tips []oid.OID) []oid.OID fails NotFound | NotACommit | StoreError needs CommitDAG {
+	if len(tips) == 0 {
+		return []oid.OID{}
+	}
+	if len(tips) == 1 {
+		let _ = try CommitDAG.Commit(tips[0])
+		return []oid.OID{tips[0]}
+	}
+	let mut acc = try collectAncestors(tips[0], false)
+	for i in 1..len(tips) {
+		let curAnc = try collectAncestors(tips[i], false)
+		let mut next = Map[string, CommitNode]{}
+		for k, node in acc {
+			if curAnc.Get(k) != None {
+				next[k] = node
+			}
+		}
+		acc = next
+	}
+	let mut common = []CommitNode{}
+	for _, node in acc {
+		common = common.Append(node)
+	}
+	if len(common) == 0 {
+		return []oid.OID{}
+	}
+	let dominated = try markStrictAncestors(common)
+	selectBestBases(common, dominated)
+}
+
+// MergeBaseOctopus computes the iterative octopus merge base across tips,
+// matching `git merge-base --octopus`.
+func MergeBaseOctopus(tips []oid.OID) []oid.OID fails NotFound | NotACommit | StoreError needs CommitDAG {
+	if len(tips) == 0 {
+		return []oid.OID{}
+	}
+	let _ = try CommitDAG.Commit(tips[0])
+	let mut current = []oid.OID{tips[0]}
+	for i in 1..len(tips) {
+		let mut candidates = Map[string, CommitNode]{}
+		for b in current {
+			let stepBases = try MergeBases(b, tips[i])
+			for sb in stepBases {
+				let h = oid.Hex(sb)
+				if candidates.Get(h) == None {
+					candidates[h] = try CommitDAG.Commit(sb)
+				}
+			}
+		}
+		let mut common = []CommitNode{}
+		for _, node in candidates {
+			common = common.Append(node)
+		}
+		if len(common) == 0 {
+			return []oid.OID{}
+		}
+		let dominated = try markStrictAncestors(common)
+		current = selectBestBases(common, dominated)
+	}
+	current
+}
+
+func popNewestNode(frontier []CommitNode) (CommitNode, []CommitNode) {
+	let mut best = 0
+	for i in 1..len(frontier) {
+		let cur = frontier[i]
+		let top = frontier[best]
+		if cur.CommitTime > top.CommitTime || (cur.CommitTime == top.CommitTime && oid.Compare(cur.OID, top.OID) < 0) {
+			best = i
+		}
+	}
+	let picked = frontier[best]
+	let mut rest = slices.WithCapacity[CommitNode](len(frontier) - 1)
+	for i in 0..len(frontier) {
+		if i != best {
+			rest = rest.Append(frontier[i])
+		}
+	}
+	(picked, rest)
+}
+
+// RevList enumerates commits reachable from includes and not reachable from
+// excludes, ordered in reverse-chronological commit-time order matching
+// `git rev-list`, honoring opts.FirstParent and opts.MaxCount.
+func RevList(includes []oid.OID, excludes []oid.OID, opts RevListOptions) []oid.OID fails NotFound | NotACommit | StoreError needs CommitDAG {
+	let mut excluded = Map[string, bool]{}
+	for ex in excludes {
+		let exAnc = try collectAncestors(ex, false)
+		for k, _ in exAnc {
+			excluded[k] = true
+		}
+	}
+
+	let mut frontier = []CommitNode{}
+	let mut queued = Map[string, bool]{}
+	for inc in includes {
+		let node = try CommitDAG.Commit(inc)
+		let h = oid.Hex(node.OID)
+		if excluded.Get(h) == None && queued.Get(h) == None {
+			queued[h] = true
+			frontier = frontier.Append(node)
+		}
+	}
+
+	let mut out = []oid.OID{}
+	for len(frontier) > 0 {
+		if opts.MaxCount > 0 && len(out) >= opts.MaxCount {
+			break
+		}
+		let (cur, nextFrontier) = popNewestNode(frontier)
+		frontier = nextFrontier
+		out = out.Append(cur.OID)
+		let limit = if opts.FirstParent && len(cur.Parents) > 1 { 1 } else { len(cur.Parents) }
+		for i in 0..limit {
+			let p = cur.Parents[i]
+			let ph = oid.Hex(p)
+			if excluded.Get(ph) == None && queued.Get(ph) == None {
+				queued[ph] = true
+				let pNode = try CommitDAG.Commit(p)
+				frontier = frontier.Append(pNode)
+			}
+		}
+	}
+	out
+}
+
+// SymmetricDiff enumerates commits reachable from either a or b but not from
+// both (`a...b`), matching `git rev-list a...b`.
+func SymmetricDiff(a oid.OID, b oid.OID, opts RevListOptions) []oid.OID fails NotFound | NotACommit | StoreError needs CommitDAG {
+	let bases = try MergeBases(a, b)
+	try RevList([]oid.OID{a, b}, bases, opts)
+}
+
+// Contains filters tips to those commits of which commit is an ancestor
+// (matching `git branch --contains <commit>`).
+func Contains(commit oid.OID, tips []oid.OID) []oid.OID fails NotFound | NotACommit | StoreError needs CommitDAG {
+	let _ = try CommitDAG.Commit(commit)
+	let mut out = []oid.OID{}
+	for tip in tips {
+		if try IsAncestor(commit, tip) {
+			out = out.Append(tip)
+		}
+	}
+	out
+}
