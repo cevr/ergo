@@ -75,11 +75,8 @@ type Loop machine[St, Sig] {
 	step:    step,
 }
 
-func main() needs Console {
-	let o = machines.Run(Loop{}, []Sig{Tick, Tick}) catch {
-	case machines.Rejected:
-		Unreachable("step never rejects")
-	}
+func main() fails machines.Rejected needs Console {
+	let o = try machines.Run(Loop{}, []Sig{Tick, Tick})
 	match o {
 	case machines.Finished[St, int]:
 		Console.Println("finished")

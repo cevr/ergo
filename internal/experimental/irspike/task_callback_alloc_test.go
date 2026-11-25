@@ -105,9 +105,11 @@ func borrowed(i int) int {
 	t.Wait()
 }
 
-func main() {
+type wrongTaskValue {}
+
+func main() fails wrongTaskValue {
 	if moved(func() int { 3 }) + borrowed(3) != 6 {
-		Unreachable("wrong task value")
+		return wrongTaskValue
 	}
 }
 `

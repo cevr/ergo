@@ -15,7 +15,7 @@ import strings
 import time
 import tz
 
-func drawnExpr() cron.Expr needs gen.Draws {
+func drawnExpr() Option[cron.Expr] needs gen.Draws {
 	let mut fields = []string{}
 	fields = fields.Append(drawField(0, 59, []string{}))
 	fields = fields.Append(drawField(0, 23, []string{}))
@@ -23,9 +23,19 @@ func drawnExpr() cron.Expr needs gen.Draws {
 	fields = fields.Append(drawField(1, 12, []string{"jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"}))
 	fields = fields.Append(drawField(0, 7, []string{"sun", "mon", "tue", "wed", "thu", "fri", "sat"}))
 	let text = strings.Join(fields, " ")
-	cron.Parse(text) catch {
+	let parsed = cron.Parse(text) catch {
 	case cron.FieldCount, cron.BadValue, cron.OutOfRange, cron.BadStep, cron.BadRange:
-		Unreachable("a drawn field is within its bounds")
+		return None
+	}
+	Some[cron.Expr]{Value: parsed}
+}
+
+func formatOptExpr(e Option[cron.Expr]) string {
+	match e {
+	case Some[cron.Expr] as v:
+		cron.Format(v.Value)
+	case None:
+		"<invalid>"
 	}
 }
 
@@ -176,7 +186,12 @@ func firedDays(e cron.Expr, from int64, n int) string {
 
 test CronFormatParseRoundTrips {
 	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
-		let e = gen.Named("expr", cron.Format, drawnExpr)
+		let e = match gen.Named("expr", formatOptExpr, drawnExpr) {
+		case Some[cron.Expr] as v:
+			v.Value
+		case None:
+			return false
+		}
 		let back = cron.Parse(cron.Format(e)) catch {
 		case cron.FieldCount, cron.BadValue, cron.OutOfRange, cron.BadStep, cron.BadRange:
 			return false
@@ -235,7 +250,12 @@ test CronWeekdaySevenIsSunday() {
 
 test CronNextIsFirstFiring {
 	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
-		let e = gen.Named("expr", cron.Format, drawnExpr)
+		let e = match gen.Named("expr", formatOptExpr, drawnExpr) {
+		case Some[cron.Expr] as v:
+			v.Value
+		case None:
+			return false
+		}
 		let z = drawnZone() catch {
 		case hex.Malformed, tz.BadData, tz.BadOffset:
 			return false
@@ -268,7 +288,12 @@ test CronNextIsFirstFiring {
 
 test CronPreviousUndoesNext {
 	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
-		let e = gen.Named("expr", cron.Format, drawnExpr)
+		let e = match gen.Named("expr", formatOptExpr, drawnExpr) {
+		case Some[cron.Expr] as v:
+			v.Value
+		case None:
+			return false
+		}
 		let z = drawnZone() catch {
 		case hex.Malformed, tz.BadData, tz.BadOffset:
 			return false
@@ -364,7 +389,12 @@ test CronWalksKeepTheCalendar {
 
 test CronNextWallIsFirstMatch {
 	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
-		let e = gen.Named("expr", cron.Format, drawnExpr)
+		let e = match gen.Named("expr", formatOptExpr, drawnExpr) {
+		case Some[cron.Expr] as v:
+			v.Value
+		case None:
+			return false
+		}
 		let dt = gen.Named("wall", func(v civil.DateTime) string { "\(civil.UnixDays(v.Date)):\(civil.Hour(v.Time)):\(civil.Minute(v.Time))" }, drawnWall)
 		let walked = walkWall(e, dt, 2880, 1)
 		match cron.NextWall(e, dt) {
@@ -378,7 +408,12 @@ test CronNextWallIsFirstMatch {
 
 test CronPreviousWallIsLastMatch {
 	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
-		let e = gen.Named("expr", cron.Format, drawnExpr)
+		let e = match gen.Named("expr", formatOptExpr, drawnExpr) {
+		case Some[cron.Expr] as v:
+			v.Value
+		case None:
+			return false
+		}
 		let dt = gen.Named("wall", func(v civil.DateTime) string { "\(civil.UnixDays(v.Date)):\(civil.Hour(v.Time)):\(civil.Minute(v.Time))" }, drawnWall)
 		let walked = walkWall(e, dt, 2880, -1)
 		match cron.PreviousWall(e, dt) {

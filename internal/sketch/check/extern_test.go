@@ -1288,7 +1288,7 @@ func main() {
 
 type Mine {}
 
-func open(_ Mine, status int, header []http.Field) http.BodyWriter { Unreachable("mine") }
+func open(_ Mine, status int, header []http.Field) http.BodyWriter defects { die "mine" }
 func close(_ Mine) string { "" }
 
 func use(_ http.Streaming) {}

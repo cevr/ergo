@@ -490,7 +490,8 @@ func crashes(e int) bool { ((e % 5) + 5) % 5 == 4 }
 
 func crashStep(s int, e int) Decision[int, int] {
 	if crashes(e) {
-		Unreachable("an injected defect")
+		let z = 0
+		let _ = 1 / z
 	}
 	tallyStep(s, e)
 }

@@ -21,19 +21,13 @@ import time
 
 // provider is a queue of each kind, by pick: a memory queue, or a file
 // queue over its own fstest.Memory disk; a lease of 10ms, two retries.
-func provider(pick int) jobs.Queue[string] {
+func provider(pick int) jobs.Queue[string] fails jobs.BadPolicy | jobs.Failed {
 	let p = jobs.Policy{Retry: schedule.Recurs(2), Lease: 10ms}
 	if ((pick%2)+2)%2 == 0 {
-		return memory.New[string](p) catch {
-		case jobs.BadPolicy:
-			Unreachable("the lease is above zero")
-		}
+		return try memory.New[string](p)
 	}
 	let disk = fstest.NewMemory()
-	file.Open(disk, disk, "jobs.log", p, file.Text) catch {
-	case jobs.Failed:
-		Unreachable("an empty disk opens")
-	}
+	try file.Open(disk, disk, "jobs.log", p, file.Text)
 }
 
 func enqueueAddsOneWaiting(q jobs.Queue[string], job string, sec int64) bool fails jobs.Failed {
@@ -44,7 +38,7 @@ func enqueueAddsOneWaiting(q jobs.Queue[string], job string, sec int64) bool fai
 }
 
 test JobsQueueEnqueueAddsOneWaiting(pick int, job string, sec int64) {
-	let ok = enqueueAddsOneWaiting(provider(pick), job, sec) catch {
+	let ok = enqueueAddsOneWaiting(try provider(pick), job, sec) catch {
 	case jobs.Failed:
 		false
 	}
@@ -83,7 +77,7 @@ func oneLeasePerJob(q jobs.Queue[string], job string, sec int64) bool fails jobs
 }
 
 test JobsQueueOneLeasePerJob(pick int, job string, sec int64) {
-	let ok = oneLeasePerJob(provider(pick), job, sec) catch {
+	let ok = oneLeasePerJob(try provider(pick), job, sec) catch {
 	case jobs.Failed:
 		false
 	}
@@ -108,7 +102,7 @@ func noTicketIsUnknown(q jobs.Queue[string], sec int64) bool fails jobs.Failed {
 }
 
 test JobsQueueNoTicketIsUnknown(pick int, sec int64) {
-	let ok = noTicketIsUnknown(provider(pick), sec) catch {
+	let ok = noTicketIsUnknown(try provider(pick), sec) catch {
 	case jobs.Failed:
 		false
 	}

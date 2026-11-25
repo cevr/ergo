@@ -20,15 +20,12 @@ import strings
 
 // provider is a store of each kind, by pick: a memory store, or a file
 // store over its own fstest.Memory disk.
-func provider(pick int) kv.Store {
+func provider(pick int) kv.Store fails kv.Failed {
 	if ((pick%2)+2)%2 == 0 {
 		return memory.New()
 	}
 	let disk = fstest.NewMemory()
-	file.Open(disk, disk, "kv.log") catch {
-	case kv.Failed:
-		Unreachable("an empty disk opens")
-	}
+	try file.Open(disk, disk, "kv.log")
 }
 
 func getAfterPut(s kv.Store, key string, first string, second string) bool fails kv.Failed {
@@ -39,7 +36,7 @@ func getAfterPut(s kv.Store, key string, first string, second string) bool fails
 }
 
 test KvStoreGetAfterPut(pick int, key string, first string, second string) {
-	let ok = getAfterPut(provider(pick), key, first, second) catch {
+	let ok = getAfterPut(try provider(pick), key, first, second) catch {
 	case kv.Failed:
 		false
 	}
@@ -58,7 +55,7 @@ func putKeepsOthers(s kv.Store, key string, other string, a string, b string) bo
 }
 
 test KvStorePutKeepsOthers(pick int, key string, other string, a string, b string) {
-	let ok = putKeepsOthers(provider(pick), key, other, a, b) catch {
+	let ok = putKeepsOthers(try provider(pick), key, other, a, b) catch {
 	case kv.Failed:
 		false
 	}
@@ -83,7 +80,7 @@ func deleteIsAbsent(s kv.Store, key string, value string) bool fails kv.Failed {
 }
 
 test KvStoreDeleteIsAbsent(pick int, key string, value string) {
-	let ok = deleteIsAbsent(provider(pick), key, value) catch {
+	let ok = deleteIsAbsent(try provider(pick), key, value) catch {
 	case kv.Failed:
 		false
 	}
@@ -128,7 +125,7 @@ func scanIsSorted(s kv.Store, keys []string, cut int) bool fails kv.Failed {
 }
 
 test KvStoreScanIsSorted(pick int, keys []string, cut int) {
-	let ok = scanIsSorted(provider(pick), keys, cut) catch {
+	let ok = scanIsSorted(try provider(pick), keys, cut) catch {
 	case kv.Failed:
 		false
 	}
@@ -158,7 +155,7 @@ func scanStops(s kv.Store, keys []string, prefix string, k int) bool fails kv.Fa
 }
 
 test KvStoreScanStops(pick int, keys []string, prefix string, k int) {
-	let ok = scanStops(provider(pick), keys, prefix, k) catch {
+	let ok = scanStops(try provider(pick), keys, prefix, k) catch {
 	case kv.Failed:
 		false
 	}

@@ -42,9 +42,9 @@ func body(request http.URLRequest, fixed http.Request, args []string) string fai
 	result.Body
 }
 
-func main() fails http.InvalidClient | http.InvalidLimits needs Ambient | Console {
+func main() fails http.InvalidClient | http.InvalidLimits | strconv.Malformed | strconv.OutOfRange needs Ambient | Console {
 	let args = with context { os.Process: os.NewHost() } { os.Process.Args() }
-	let hops = strconv.Atoi(args[3]) catch { case _: Unreachable("test hop input") }
+	let hops = try strconv.Atoi(args[3])
 	let policy http.OriginPolicy = if args[2] == "any" { http.AnyOrigin } else if args[2] == "both" { http.Origins{Values: []string{args[0], args[1]}} } else if args[2] == "first" { http.Origins{Values: []string{args[0]}} } else { http.Origins{Values: []string{}} }
 	let limits = http.Limits{MaxBodyBytes: 128, MaxHeaderBytes: 8192, IdleTimeout: 5s, ReadHeaderTimeout: 10s, ReadBodyTimeout: 30s}
 	let net = try http.NewNet(policy, limits, http.Follow{MaxHops: hops})

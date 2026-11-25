@@ -412,7 +412,8 @@ func taskCrashed(k int, marks queue.Queue[int]) int {
 			}
 		}
 	}
-	Unreachable("after \(k) actions")
+	let z = 0
+	1 / z
 }
 
 test TaskDefectIsObservedOnce(n int) {
@@ -597,6 +598,7 @@ func taskArmed(t Task[int, queue.Closed], gate queue.Queue[int], m time.Manual, 
 
 test TaskStopOfWaiterStillInterrupts() {
 	let m = time.NewManual(0)
+	let returned = queue.NewOpen[bool](1)
 	with context { Scheduler: m } {
 		let waiter = task.Go() {
 			let sleeper = task.Go() {
@@ -604,12 +606,12 @@ test TaskStopOfWaiterStillInterrupts() {
 				0
 			}
 			let _ = task.ExitOf(sleeper)
-			Unreachable("ExitOf returned to a stopped waiter")
+			returned.Push(true)
 		}
 		for m.Sleepers() == 0 {
 		}
 		waiter.Stop()
-		assert m.Sleepers() == 0
+		assert returned.Poll() == None && m.Sleepers() == 0
 	}
 }
 
@@ -1578,10 +1580,10 @@ var stdLawsStatements = map[string]string{
 	"scope ActionsRunLastFirst":            `ActionsRunLastFirst() { let mut order = "" let f = func() { OnExit() { order = order + "a" } OnExit() { order = order + "b" } } f() order == "ba" }`,
 	"task StopIsIdempotent":                `StopIsIdempotent() { let t = with context { Scheduler: time.NewManual(0) } { Go() { Scheduler.Sleep(1h) 0 } } t.Stop() t.Stop() true }`,
 	"task WaitReturnsTheBlock":             `WaitReturnsTheBlock(n int) { let t = Go() { n } t.Wait() == n }`,
-	"task DefectIsObservedOnce":            `DefectIsObservedOnce(n int) { let k = ((n % 3) + 3) % 3 let t = Go() { try ended(k, n) } match ExitOf(t) { case Defected as d: k == 0 && strings.HasPrefix(d.Reason, "unreachable at ") && strings.HasSuffix(d.Reason, ": crash \(n)") case Failed[odd] as f: k == 1 && f.Error.N == n case Done[int] as v: k == 2 && v.Value == n case Stopped: false } }`,
-	"task ExitOfWaitsForCleanup":           `ExitOfWaitsForCleanup(n int) { let k = ((n % 4) + 4) % 4 let marks = queue.New[int](4) let t = Go() { crashed(k, marks) } match ExitOf(t) { case Defected: marks.Len() == k case _: false } }`,
+	"task DefectIsObservedOnce":            `DefectIsObservedOnce(n int) { let k = ((n % 3) + 3) % 3 let t = Go() { try ended(k, n) } match ExitOf(t) { case Defected as d: k == 0 && ReasonAs[simulatedTaskCrash](d) == Some[simulatedTaskCrash]{Value: simulatedTaskCrash{N: n}} && strings.HasPrefix(d.Reason, "die at ") case Failed[odd] as f: k == 1 && f.Error.N == n case Done[int] as v: k == 2 && v.Value == n case Stopped: false } }`,
+	"task ExitOfWaitsForCleanup":           `ExitOfWaitsForCleanup(n int) { let k = ((n % 4) + 4) % 4 let marks = queue.New[int](4) let t = Go() { crashed(k, marks) } match ExitOf(t) { case Defected as d: marks.Len() == k && ReasonAs[cleanupStimulus](d) == Some[cleanupStimulus]{Value: cleanupStimulus{Actions: k}} case _: false } }`,
 	"task ExitOfAnywhere":                  `ExitOfAnywhere(n int) { let outer = Go() { Go() { n } } let t = outer.Wait() match ExitOf(t) { case Done[int] as d: d.Value == n case _: false } }`,
-	"task StopOfWaiterStillInterrupts":     `StopOfWaiterStillInterrupts() { let m = time.NewManual(0) with context { Scheduler: m } { let waiter = Go() { let sleeper = Go() { Scheduler.Sleep(1h) 0 } let _ = ExitOf(sleeper) Unreachable("ExitOf returned to a stopped waiter") } for m.Sleepers() == 0 { } waiter.Stop() m.Sleepers() == 0 } }`,
+	"task StopOfWaiterStillInterrupts":     `StopOfWaiterStillInterrupts() { let m = time.NewManual(0) let returned = queue.NewOpen[bool](1) with context { Scheduler: m } { let waiter = Go() { let sleeper = Go() { Scheduler.Sleep(1h) 0 } let _ = ExitOf(sleeper) returned.Push(true) } for m.Sleepers() == 0 { } waiter.Stop() returned.Poll() == None && m.Sleepers() == 0 } }`,
 	"testing StopAfterStopsAtD":            `StopAfterStopsAtD(w int, d int, alarmFirst bool, k int, manual bool) { let wait = 1 + ((w % 6) + 6) % 6 let limit = 1 + ((d % 6) + 6) % 6 let n = ((k % 4) + 4) % 4 if manual { let m = time.NewManual(0) with context { Scheduler: m } { stopsAtD(n, wait, limit, alarmFirst, func() int { m.Sleepers() }, func() { for _ in 0..7 { m.Advance(1ms) } }) } } else { let c = NewVirtualClock(0) with context { Scheduler: c } { stopsAtD(n, wait, limit, alarmFirst, func() int { c.Sleepers() }, func() { Scheduler.Sleep(7ms) }) } } }`,
 	"task CancelBeforeFireNeverStops":      `CancelBeforeFireNeverStops(w int, d int, c int) { let wait = 1 + ((w % 6) + 6) % 6 let limit = 1 + ((d % 6) + 6) % 6 let after = ((c % 7) + 7) % 7 let m = time.NewManual(0) let marks = queue.New[int](1) let gate = queue.New[int](1) with context { Scheduler: m } { let t = Go() { try slept(0, marks, gate, time.Times(1ms, wait)) } let a = try armed(t, gate, m, false, time.Times(1ms, limit)) m.Advance(time.Times(1ms, after)) let armedStill = a.Cancel() for _ in 0..7 { m.Advance(1ms) } let stopped = after >= limit && wait > limit let ended = match ExitOf(t) { case Done[int]: !stopped case Stopped: stopped case _: false } ended && armedStill == (after < limit) } }`,
 	"task AlarmOutlivesItsTask":            `AlarmOutlivesItsTask(how int, d int) { let limit = 1 + ((d % 6) + 6) % 6 let m = time.NewManual(0) with context { Scheduler: m } { let other = Go() { Scheduler.Sleep(1h) 0 } let t = Go() { 1 } let a = StopAfter(t, time.Times(1ms, limit)) let h = ((how % 3) + 3) % 3 let gave = if h == 0 { match ExitOf(t) { case Done[int] as v: v.Value == 1 case _: false } } else if h == 1 { t.Wait() == 1 } else { t.Stop() true } for m.Sleepers() < 2 { } m.Advance(time.Times(1ms, limit + 1)) let asleep = m.Sleepers() == 1 other.Stop() gave && asleep && !a.Cancel() } }`,

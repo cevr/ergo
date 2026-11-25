@@ -37,18 +37,18 @@ func TestWireFormShapes(t *testing.T) {
 				valid = a+b == 1
 				if paired {
 					fmt.Fprintln(&src, `func Wire(x A) string { "" }
-func ParseA(s string) A { Unreachable("not run") }`)
+func ParseA(s string) A { A }`)
 					valid = false
 				}
 			case "WireBare":
 				kinds := []string{"bool", "string", "int", "float64", "[]int"}
+				zeros := []string{"false", `""`, "0", "0.0", "[]int{}"}
 				model := []int{0, 1, 2, 2, 3}
 				a, b := r.IntN(len(kinds)), r.IntN(len(kinds))
 				fmt.Fprintf(&src, "type A { V %s }\ntype B { W %s }\ntype X = A | B\n", kinds[a], kinds[b])
 				valid = model[a] != model[b]
 				if valid && r.IntN(3) == 0 {
-					fmt.Fprintln(&src, `func Wire(x A) string { "" }
-func ParseA(s string) A { Unreachable("not run") }`)
+					fmt.Fprintf(&src, "func Wire(x A) string { \"\" }\nfunc ParseA(s string) A { A{V: %s} }\n", zeros[a])
 					valid = false // a pair's kind cannot be inferred from A's field
 				}
 			case "WireNumberText":
@@ -95,10 +95,10 @@ type X { Items Entries }`)
 					switch seed / 8 {
 					case 1:
 						fmt.Fprintln(&src, `func Wire(x Entries) string { "" }
-func ParseEntries(s string) Entries { Unreachable("not run") }`)
+func ParseEntries(s string) Entries { Entries{} }`)
 					case 2:
 						fmt.Fprintln(&src, `func Wire(x Entry) string { "" }
-func ParseEntry(s string) Entry { Unreachable("not run") }`)
+func ParseEntry(s string) Entry { Entry{Key: "", Data: 0} }`)
 					default:
 						src.Reset()
 						fmt.Fprintln(&src, `type Label string
@@ -127,8 +127,9 @@ type X { Items []Entry }`)
 			}
 			valid = valid && !extra && !caps
 			if valid && !isolated && marker != "WireNumberText" && r.IntN(4) == 0 {
-				fmt.Fprintln(&src, `func Wire(x X) string { "" }
-func ParseX(s string) X { Unreachable("not run") }`)
+				fmt.Fprintln(&src, `type ParseXErr {}
+func Wire(x X) string { "" }
+func ParseX(s string) X fails ParseXErr { ParseXErr }`)
 				valid = false // the type must declare one representation
 			}
 			fmt.Fprintf(&src, "func WireForm(%s) %s%s { %s }\nfunc keep[T wire](v T) T { v }\nfunc use(v X) X { keep(v) }\n", params, marker, row, body)

@@ -142,12 +142,12 @@ func outcome(root flag.Root[Parsed, Refused], args []string) string {
 	for x in flag.Rest(v) { out = out + "|r:" + strconv.Quote(x) }
 	out
 }
-func main() needs Ambient {
+func main() fails strconv.Malformed | strconv.OutOfRange needs Ambient {
 	with context { io.Stdout: io.NewHost(), io.Stdin: io.NewStdin() } {
 		let trees = forest()
 		for line in io.Stdin.Lines() {
 			let fields = strings.Split(line, "\x1f")
-			let index = strconv.Atoi(fields[0]) catch { case _: Unreachable("test input index") }
+			let index = try strconv.Atoi(fields[0])
 			let mut args = []string{}
 			for i, field in fields { if i > 0 { args = args.Append(field) } }
 			let root = flag.Root[Parsed, Refused]{Name: "tool", Usage: "", Commands: trees[index], Version: Some[string]{Value: "v1"}}

@@ -13,20 +13,9 @@ const stdJSONSchemaLawsProbe = `import json
 import jsonschema
 import strings
 
-// parsed is the Schema text spells, or the schema no value fits.
-func parsed(text string) jsonschema.Schema {
-	jsonschema.Parse(text) catch {
-	case jsonschema.Invalid:
-		nothing()
-	}
-}
-
-// nothing is the schema no value fits.
-func nothing() jsonschema.Schema {
-	jsonschema.Parse("false") catch {
-	case jsonschema.Invalid:
-		Unreachable("false is a schema")
-	}
+// parsed is the Schema text spells.
+func parsed(text string) jsonschema.Schema fails jsonschema.Invalid {
+	try jsonschema.Parse(text)
 }
 
 // value is the JSON value text spells, or null.
@@ -53,8 +42,8 @@ func quoted(s string) string { json.Encode(json.Codec[string]{MaxBytes: 0, MaxDe
 // pointer is key as a JSON pointer's token.
 func pointer(key string) string { strings.ReplaceAll(strings.ReplaceAll(key, "~", "~0"), "/", "~1") }
 
-func lawEncodedIsTheSchema(key string, n int) bool {
-	let s = parsed("{\"type\":\"object\",\"properties\":{" + quoted(key) + ":{\"type\":\"integer\",\"const\":\(n)}},\"required\":[" + quoted(key) + "]}")
+func lawEncodedIsTheSchema(key string, n int) bool fails jsonschema.Invalid {
+	let s = try parsed("{\"type\":\"object\",\"properties\":{" + quoted(key) + ":{\"type\":\"integer\",\"const\":\(n)}},\"required\":[" + quoted(key) + "]}")
 	let e = jsonschema.Encode(s)
 	let back = jsonschema.Parse(jsonschema.TextOf(e)) catch {
 	case jsonschema.Invalid:
@@ -63,7 +52,7 @@ func lawEncodedIsTheSchema(key string, n int) bool {
 	jsonschema.TextOf(e) == jsonschema.Text(s) && jsonschema.SchemaOf(e) == s && back == s
 }
 
-test JsonschemaEncodedIsTheSchema(key string, n int) { assert lawEncodedIsTheSchema(key, n) }
+test JsonschemaEncodedIsTheSchema(key string, n int) { assert try lawEncodedIsTheSchema(key, n) }
 
 func lawNewEncodedRequiresItsKeys(keys []string, s string) bool {
 	let e = jsonschema.NewEncoded(keys)
@@ -90,8 +79,8 @@ func lawNewEncodedRequiresItsKeys(keys []string, s string) bool {
 
 test JsonschemaNewEncodedRequiresItsKeys(keys []string, s string) { assert lawNewEncodedRequiresItsKeys(keys, s) }
 
-func lawRequiredKeyIsRequired(key string, keys []string) bool {
-	let schema = parsed("{\"type\":\"object\",\"required\":[" + quoted(key) + "]}")
+func lawRequiredKeyIsRequired(key string, keys []string) bool fails jsonschema.Invalid {
+	let schema = try parsed("{\"type\":\"object\",\"required\":[" + quoted(key) + "]}")
 	let mut members = []json.Member{}
 	let mut has = false
 	for k in keys {
@@ -101,21 +90,21 @@ func lawRequiredKeyIsRequired(key string, keys []string) bool {
 	jsonschema.Conforms(schema, json.Object{Members: members}) == has
 }
 
-test JsonschemaRequiredKeyIsRequired(key string, keys []string) { assert lawRequiredKeyIsRequired(key, keys) }
+test JsonschemaRequiredKeyIsRequired(key string, keys []string) { assert try lawRequiredKeyIsRequired(key, keys) }
 
-func lawPropertiesAreChecked(n int, s string) bool {
-	let schema = parsed("{\"type\":\"object\",\"properties\":{\"n\":{\"type\":\"integer\"}},\"additionalProperties\":{\"type\":\"string\"}}")
+func lawPropertiesAreChecked(n int, s string) bool fails jsonschema.Invalid {
+	let schema = try parsed("{\"type\":\"object\",\"properties\":{\"n\":{\"type\":\"integer\"}},\"additionalProperties\":{\"type\":\"string\"}}")
 	let good = json.Object{Members: []json.Member{json.Member{Key: "n", Value: json.IntNumber(int64(n))}, json.Member{Key: "m", Value: json.Str{Value: s}}}}
 	let bad = json.Object{Members: []json.Member{json.Member{Key: "n", Value: json.Str{Value: s}}}}
 	let extra = json.Object{Members: []json.Member{json.Member{Key: "m", Value: json.IntNumber(int64(n))}}}
 	jsonschema.Conforms(schema, good) && !jsonschema.Conforms(schema, bad) && !jsonschema.Conforms(schema, extra)
 }
 
-test JsonschemaPropertiesAreChecked(n int, s string) { assert lawPropertiesAreChecked(n, s) }
+test JsonschemaPropertiesAreChecked(n int, s string) { assert try lawPropertiesAreChecked(n, s) }
 
-func lawIntegerHasNoFraction(n int) bool {
-	let integer = parsed("{\"type\":\"integer\"}")
-	let num = parsed("{\"type\":\"number\"}")
+func lawIntegerHasNoFraction(n int) bool fails jsonschema.Invalid {
+	let integer = try parsed("{\"type\":\"integer\"}")
+	let num = try parsed("{\"type\":\"number\"}")
 	let frac = value("\(n).5")
 	let whole = value("\(n).0")
 	let exp = value("\(n)e1")
@@ -124,25 +113,25 @@ func lawIntegerHasNoFraction(n int) bool {
 	jsonschema.Conforms(integer, json.IntNumber(int64(n))) && !jsonschema.Conforms(integer, frac) && jsonschema.Conforms(integer, whole) && jsonschema.Conforms(integer, exp) && !jsonschema.Conforms(integer, small) && jsonschema.Conforms(integer, moved) && jsonschema.Conforms(num, frac) && jsonschema.Conforms(num, small)
 }
 
-test JsonschemaIntegerHasNoFraction(n int) { assert lawIntegerHasNoFraction(n) }
+test JsonschemaIntegerHasNoFraction(n int) { assert try lawIntegerHasNoFraction(n) }
 
-func lawAnyOfIsOneOfItsSchemas(s string) bool {
-	let schema = parsed("{\"anyOf\":[{\"const\":\"A\"},{\"const\":\"B\"}]}")
+func lawAnyOfIsOneOfItsSchemas(s string) bool fails jsonschema.Invalid {
+	let schema = try parsed("{\"anyOf\":[{\"const\":\"A\"},{\"const\":\"B\"}]}")
 	jsonschema.Conforms(schema, json.Str{Value: s}) == (s == "A" || s == "B")
 }
 
-test JsonschemaAnyOfIsOneOfItsSchemas(s string) { assert lawAnyOfIsOneOfItsSchemas(s) }
+test JsonschemaAnyOfIsOneOfItsSchemas(s string) { assert try lawAnyOfIsOneOfItsSchemas(s) }
 
-func lawConstIsOneValue(s string, t string, n int) bool {
-	let schema = parsed("{\"const\":{\"s\":" + quoted(s) + ",\"n\":\(n)}}")
+func lawConstIsOneValue(s string, t string, n int) bool fails jsonschema.Invalid {
+	let schema = try parsed("{\"const\":{\"s\":" + quoted(s) + ",\"n\":\(n)}}")
 	let other = json.Object{Members: []json.Member{json.Member{Key: "s", Value: json.Str{Value: t}}, json.Member{Key: "n", Value: json.IntNumber(int64(n))}}}
 	jsonschema.Conforms(schema, value("{\"s\":"+quoted(s)+",\"n\":\(n)}")) && jsonschema.Conforms(schema, other) == (s == t) && !jsonschema.Conforms(schema, json.Str{Value: s})
 }
 
-test JsonschemaConstIsOneValue(s string, t string, n int) { assert lawConstIsOneValue(s, t, n) }
+test JsonschemaConstIsOneValue(s string, t string, n int) { assert try lawConstIsOneValue(s, t, n) }
 
-func lawPrefixItemsFixTheLength(xs []string) bool {
-	let schema = parsed("{\"type\":\"array\",\"prefixItems\":[{\"type\":\"string\"},{\"type\":\"integer\"}]}")
+func lawPrefixItemsFixTheLength(xs []string) bool fails jsonschema.Invalid {
+	let schema = try parsed("{\"type\":\"array\",\"prefixItems\":[{\"type\":\"string\"},{\"type\":\"integer\"}]}")
 	let mut items = []json.Value{}
 	for x in xs {
 		items = items.Append(json.Str{Value: x})
@@ -153,10 +142,10 @@ func lawPrefixItemsFixTheLength(xs []string) bool {
 	!jsonschema.Conforms(schema, json.Array{Items: items}) && jsonschema.Conforms(schema, mixed) && !jsonschema.Conforms(schema, swapped) && !jsonschema.Conforms(schema, longer)
 }
 
-test JsonschemaPrefixItemsFixTheLength(xs []string) { assert lawPrefixItemsFixTheLength(xs) }
+test JsonschemaPrefixItemsFixTheLength(xs []string) { assert try lawPrefixItemsFixTheLength(xs) }
 
-func lawItemsAreEachChecked(ns []int) bool {
-	let schema = parsed("{\"type\":\"array\",\"items\":{\"type\":\"integer\"},\"minItems\":1,\"maxItems\":3}")
+func lawItemsAreEachChecked(ns []int) bool fails jsonschema.Invalid {
+	let schema = try parsed("{\"type\":\"array\",\"items\":{\"type\":\"integer\"},\"minItems\":1,\"maxItems\":3}")
 	let mut items = []json.Value{}
 	for n in ns {
 		items = items.Append(json.IntNumber(int64(n)))
@@ -164,7 +153,7 @@ func lawItemsAreEachChecked(ns []int) bool {
 	jsonschema.Conforms(schema, json.Array{Items: items}) == (len(ns) >= 1 && len(ns) <= 3) && !jsonschema.Conforms(schema, json.Array{Items: items.Append(json.Str{Value: "x"})})
 }
 
-test JsonschemaItemsAreEachChecked(ns []int) { assert lawItemsAreEachChecked(ns) }
+test JsonschemaItemsAreEachChecked(ns []int) { assert try lawItemsAreEachChecked(ns) }
 
 func lawRefsAreLocal(name string, host string, s string) bool {
 	let defs = "{\"$defs\":{" + quoted(name) + ":{\"type\":\"string\"}},\"$ref\":" + quoted("#/$defs/"+pointer(name)) + "}"
@@ -178,18 +167,18 @@ func lawRefsAreLocal(name string, host string, s string) bool {
 
 test JsonschemaRefsAreLocal(name string, host string, s string) { assert lawRefsAreLocal(name, host, s) }
 
-func lawRefsRecurse(n int) bool {
-	let schema = parsed("{\"$defs\":{\"list\":{\"anyOf\":[{\"type\":\"null\"},{\"type\":\"object\",\"properties\":{\"next\":{\"$ref\":\"#/$defs/list\"}},\"required\":[\"next\"]}]}},\"$ref\":\"#/$defs/list\"}")
+func lawRefsRecurse(n int) bool fails jsonschema.Invalid {
+	let schema = try parsed("{\"$defs\":{\"list\":{\"anyOf\":[{\"type\":\"null\"},{\"type\":\"object\",\"properties\":{\"next\":{\"$ref\":\"#/$defs/list\"}},\"required\":[\"next\"]}]}},\"$ref\":\"#/$defs/list\"}")
 	let mut good = "null"
 	let mut bad = "1"
 	for _ in 0..(n%3+3)%3 {
 		good = "{\"next\":" + good + "}"
 		bad = "{\"next\":" + bad + "}"
 	}
-	jsonschema.Conforms(schema, value(good)) && !jsonschema.Conforms(schema, value(bad)) && !jsonschema.Conforms(parsed("{\"$defs\":{\"a\":{\"$ref\":\"#\"}},\"$ref\":\"#/$defs/a\"}"), value(good))
+	jsonschema.Conforms(schema, value(good)) && !jsonschema.Conforms(schema, value(bad)) && !jsonschema.Conforms(try parsed("{\"$defs\":{\"a\":{\"$ref\":\"#\"}},\"$ref\":\"#/$defs/a\"}"), value(good))
 }
 
-test JsonschemaRefsRecurse(n int) { assert lawRefsRecurse(n) }
+test JsonschemaRefsRecurse(n int) { assert try lawRefsRecurse(n) }
 
 func lawKeywordsAreChecked(key string) bool {
 	let at = "/properties/" + pointer(key)

@@ -64,7 +64,7 @@ func observed(f own func() int) int {
 	case task.Done[int] as d:
 		d.Value
 	case _:
-		Unreachable("unexpected child exit")
+		-1
 	}
 }
 

@@ -167,7 +167,8 @@ func note(log sync.Ref[string], s string) {
 func Close(r Res) {
 	note(r.log, "close \(r.id)")
 	if r.bad {
-		Unreachable("close \(r.id)")
+		let z = 0
+		let _ = 1 / z
 	}
 }
 
@@ -197,7 +198,8 @@ func openf(id int, bad bool, log sync.Ref[string], n int, c int) Res fails Bad {
 
 func openb(id int, bad bool, log sync.Ref[string], n int, c int) Res {
 	if n > c {
-		Unreachable("boom")
+		let z = 0
+		let _ = 1 / z
 	}
 	open(id, bad, log)
 }
@@ -226,7 +228,8 @@ func fail(n int, c int) fails Bad {
 
 func boom(n int, c int) {
 	if n > c {
-		Unreachable("boom")
+		let z = 0
+		let _ = 1 / z
 	}
 }
 

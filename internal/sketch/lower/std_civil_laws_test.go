@@ -59,12 +59,9 @@ func anyUnit(n int64, first int64) civil.Unit {
 	}
 }
 
-func anySpan(x int64, k int64) civil.Span {
+func anySpan(x int64, k int64) civil.Span fails civil.Reversed {
 	let from = anyDay(x)
-	civil.NewSpan(from, civil.AddDays(from, int(within(k, 0, 400)))) catch {
-	case civil.Reversed:
-		Unreachable("a span of 0 to 400 days is not reversed")
-	}
+	try civil.NewSpan(from, civil.AddDays(from, int(within(k, 0, 400))))
 }
 
 func draw(x int64) int64 { ((x % 2147483646 + 2147483646) % 2147483646 + 1) * 48271 % 2147483647 }
@@ -572,7 +569,7 @@ test CivilSpanDaysCount(x int64, k int64) {
 }
 
 test CivilSpanDatesStops(x int64, k int64, stop int64) {
-	let s = anySpan(x, within(k, 0, 10))
+	let s = try anySpan(x, within(k, 0, 10))
 	let at = int(within(stop, 1, 12))
 	let mut calls = 0
 	civil.Dates(s)(func(d civil.Date) bool {
@@ -583,7 +580,7 @@ test CivilSpanDatesStops(x int64, k int64, stop int64) {
 }
 
 test CivilSplitTiles(x int64, k int64, u int64, w int64) {
-	let s = anySpan(x, k)
+	let s = try anySpan(x, k)
 	let unit = anyUnit(u, w)
 	let parts = slices.Collect(civil.Split(s, unit))
 	let mut ok = len(parts) > 0 && civil.From(parts[0]) == civil.From(s) && civil.To(parts[len(parts)-1]) == civil.To(s)
@@ -600,7 +597,7 @@ test CivilSplitTiles(x int64, k int64, u int64, w int64) {
 }
 
 test CivilSpanSplitStops(x int64, k int64, u int64, w int64, stop int64) {
-	let s = anySpan(x, k)
+	let s = try anySpan(x, k)
 	let unit = anyUnit(u, w)
 	let n = len(slices.Collect(civil.Split(s, unit)))
 	let at = int(within(stop, 1, 30))
@@ -613,8 +610,8 @@ test CivilSpanSplitStops(x int64, k int64, u int64, w int64, stop int64) {
 }
 
 test CivilSpansOverlapIffIntersect(x int64, a int64, y int64, b int64) {
-	let p = anySpan(x, a)
-	let q = anySpan(civil.UnixDays(civil.From(p)) + within(y, -20, 20), b)
+	let p = try anySpan(x, a)
+	let q = try anySpan(civil.UnixDays(civil.From(p)) + within(y, -20, 20), b)
 	let agrees = match civil.Intersect(p, q) {
 	case Some[civil.Span] as r:
 		civil.Overlaps(p, q) && civil.Contains(p, civil.From(r.Value)) && civil.Contains(q, civil.From(r.Value)) && civil.Contains(p, civil.To(r.Value)) && civil.Contains(q, civil.To(r.Value))

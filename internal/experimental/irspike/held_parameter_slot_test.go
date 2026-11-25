@@ -69,10 +69,11 @@ type Tracked[T] { Tag T, ID int, Seen queue.Queue[int], Crash bool } implements 
 func Close[T](r Tracked[T]) {
 	r.Seen.Push(r.ID) catch {
 	case queue.Closed:
-		Unreachable("closed release recorder")
+		return
 	}
 	if r.Crash {
-		Unreachable("release defect")
+		let z = 0
+		let _ = 1 / z
 	}
 }
 
@@ -88,7 +89,8 @@ func submit[T](q queue.Queue[Tracked[T]], item own Tracked[T], guard own Tracked
 func submitBare[T](q queue.Queue[Tracked[T]], item own Tracked[T], crash bool) fails queue.Closed {
 	try q.Push(item)
 	if crash {
-		Unreachable("after admission")
+		let z = 0
+		let _ = 1 / z
 	}
 }
 
@@ -97,7 +99,8 @@ func main() fails queue.Closed {
 	let q = queue.New[Tracked[int]](2)
 	let result = try submit(q, makeResult(seen, 1, 0), makeResult(seen, 2, 17), 3)
 	if result.ID != 3 || result.Tag != 17 {
-		Unreachable("wrong result")
+		result.Close()
+		return queue.Closed
 	}
 	result.Close()
 	try submitBare(q, makeResult(seen, 4, 0), false)

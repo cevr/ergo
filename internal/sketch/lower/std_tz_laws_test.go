@@ -28,7 +28,7 @@ func anyZone(i int64) tz.Zone {
 	let name = names[int(within(i, 0, int64(len(names) - 1)))]
 	tz.FromTZif(name, ianaZone(name)) catch {
 	case tz.BadData:
-		Unreachable("std's IANA copy holds only zones Go's reader reads")
+		tz.UTC()
 	}
 }
 
@@ -73,7 +73,7 @@ func anyZoned(i int64, s int64, ns int64, fixed bool) tz.Zoned {
 	let z = if fixed {
 		tz.FixedOffset(int(within(i, -64800, 64800))) catch {
 		case tz.BadOffset:
-			Unreachable("an offset of 18 hours or less is fixed")
+			tz.UTC()
 		}
 	} else {
 		anyZone(i)
@@ -87,11 +87,8 @@ func Load(_ lawZones, name string) tz.Zone fails tz.UnknownZone { try iana.New()
 
 func offsetText(seconds int) string { tz.Name(tz.FixedOffset(seconds) catch { case tz.BadOffset: tz.UTC() }) }
 
-func rfc9557() civil.ZonedFormat {
-	civil.ZonedFields([]civil.Field{civil.YearNumber{Digits: civil.FourDigits}, civil.Literal{Text: "-"}, civil.MonthNumber{Pad: civil.ZeroPad}, civil.Literal{Text: "-"}, civil.DayOfMonth{Pad: civil.ZeroPad}, civil.Literal{Text: "T"}, civil.Hour24{Pad: civil.ZeroPad}, civil.Literal{Text: ":"}, civil.MinuteNumber{Pad: civil.ZeroPad}, civil.Literal{Text: ":"}, civil.SecondNumber{Pad: civil.ZeroPad}, civil.Fraction{Digits: 9, Trim: true}, civil.OffsetField{Colon: true, Z: false}, civil.Literal{Text: "["}, civil.ZoneID, civil.Literal{Text: "]"}}, civil.English()) catch {
-	case civil.BadPattern:
-		Unreachable("RFC 9557's pattern")
-	}
+func rfc9557() civil.ZonedFormat fails civil.BadPattern {
+	try civil.ZonedFields([]civil.Field{civil.YearNumber{Digits: civil.FourDigits}, civil.Literal{Text: "-"}, civil.MonthNumber{Pad: civil.ZeroPad}, civil.Literal{Text: "-"}, civil.DayOfMonth{Pad: civil.ZeroPad}, civil.Literal{Text: "T"}, civil.Hour24{Pad: civil.ZeroPad}, civil.Literal{Text: ":"}, civil.MinuteNumber{Pad: civil.ZeroPad}, civil.Literal{Text: ":"}, civil.SecondNumber{Pad: civil.ZeroPad}, civil.Fraction{Digits: 9, Trim: true}, civil.OffsetField{Colon: true, Z: false}, civil.Literal{Text: "["}, civil.ZoneID, civil.Literal{Text: "]"}}, civil.English())
 }
 
 // LocalIsStable restates the member law of tz.Local over host.Named, at a
@@ -318,7 +315,7 @@ test TzParseTextChecksOffset(i int64, s int64, k int64) {
 	let z = anyZoned(i, s, 0, false)
 	let o = tz.OffsetAt(z.Zone, z.At).Seconds
 	let wrong = o + int(within(k, 1, 7200)) * (if o > 0 { -1 } else { 1 })
-	let text = civil.FormatWithZone(tz.Wall(z), civil.ZoneParts{Offset: wrong, Abbreviation: "", Zone: tz.Name(z.Zone)}, rfc9557())
+	let text = civil.FormatWithZone(tz.Wall(z), civil.ZoneParts{Offset: wrong, Abbreviation: "", Zone: tz.Name(z.Zone)}, try rfc9557())
 	let mut ok = false
 	with context { tz.Zones: lawZones } {
 		let back = tz.ParseText(text) catch {

@@ -94,7 +94,7 @@ func identRest(src string, i int) int {
 func next(s mut scanner) int {
 	let n = int(s.ids)
 	if n >= int(limit) {
-		Unreachable("a store holds at most 4294967295 rows")
+		return -1
 	}
 	s.ids = s.ids + uint32(1)
 	n

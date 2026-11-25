@@ -17,7 +17,7 @@ import time
 
 // provider is a memory limiter of each algorithm, by pick, over small
 // limits and times, so a law's loop reaches a refusal.
-func provider(pick int, n int, ms int) ratelimit.Limiter {
+func provider(pick int, n int, ms int) ratelimit.Limiter fails ratelimit.BadRule {
 	let limit = 1 + ((n%4)+4)%4
 	let unit = time.Times(1ms, 1+((ms%50)+50)%50)
 	let rule ratelimit.Rule = match ((pick%3)+3)%3 {
@@ -28,14 +28,11 @@ func provider(pick int, n int, ms int) ratelimit.Limiter {
 	case _:
 		ratelimit.SlidingWindow{Limit: limit, Window: unit}
 	}
-	memory.New(rule) catch {
-	case ratelimit.BadRule:
-		Unreachable("every drawn rule has a limit and a time above zero")
-	}
+	try memory.New(rule)
 }
 
 test RatelimitLimiterRefusalChangesNothing(pick int, n int, ms int, key string, cost int, sec int64) {
-	let l = provider(pick, n, ms)
+	let l = try provider(pick, n, ms)
 	let c = 1 + ((cost%3)+3)%3
 	let now = time.NewTime(sec, 0)
 	for _ in 0..10000 {
@@ -58,7 +55,7 @@ test RatelimitLimiterRefusalChangesNothing(pick int, n int, ms int, key string, 
 }
 
 test RatelimitLimiterRetryAfterIsExact(pick int, n int, ms int, key string, cost int, sec int64) {
-	let l = provider(pick, n, ms)
+	let l = try provider(pick, n, ms)
 	let c = 1 + ((cost%3)+3)%3
 	let now = time.NewTime(sec, 0)
 	for _ in 0..10000 {
@@ -87,7 +84,7 @@ test RatelimitLimiterRetryAfterIsExact(pick int, n int, ms int, key string, cost
 }
 
 test RatelimitLimiterCostBelowOneIsBad(pick int, n int, ms int, key string, cost int, sec int64) {
-	let l = provider(pick, n, ms)
+	let l = try provider(pick, n, ms)
 	let c = -(((cost % 1000) + 1000) % 1000)
 	let g = l.TakeAt(key, c, time.NewTime(sec, 0)) catch {
 	case ratelimit.BadCost:
