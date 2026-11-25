@@ -426,6 +426,9 @@ type ActorSession {
 		let (opened, closed) = Counts()
 		assert opened > 0 && opened == closed
 		assert res.Counts.Opened == res.Counts.Planned
+		assert res.Counts.InitialReads == res.Counts.Opened
+		assert res.Counts.CheckedSteps == res.PlanStats.Steps
+		assert res.PlanStats.Expansions == res.PlanStats.States-res.PlanStats.Frontier
 		match res.Verdict {
 		case explore.CampaignPassed:
 			true

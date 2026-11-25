@@ -1,3 +1,4 @@
+import gen
 import json
 import strconv
 import strings
@@ -464,8 +465,7 @@ func Close(s rpSess) {
 	let _ = s.state.Get()
 }
 
-func rpModel(seed uint64) PathModel[rpState, rpEvent, rpState, int, rpErr] {
-	let base = int(seed % uint64(4))
+func rpModel(base int) PathModel[rpState, rpEvent, rpState, int, rpErr] {
 	PathModel[rpState, rpEvent, rpState, int, rpErr]{
 		Graph: ConcreteGraph[rpState, rpEvent, StepObs[rpState, int, rpErr]]{
 			Starts: []rpState{
@@ -518,94 +518,99 @@ func rpOpen(start rpState) PathSession[rpEvent, Observed[rpState, int, rpErr], r
 // starts, distinct payloads of one variant, and stable output order across JSON
 // round-trip and direct ReplayFromFixture execution, validates version/revision/
 // type compatibility, shell-quotes rerun commands, and redacts non-public payloads.
-law ExactReplayKeepsTypedInput(seed uint64) {
-	let model = rpModel(seed)
-	let big = PathBounds{MaxStates: 64, MaxEdges: 256, MaxPaths: 256, MaxSteps: 1024, MaxWork: 200000, MaxBytes: 1048576}
-	let res = CheckPaths(model, ToDepth{Depth: 2}, big, rpOpen)
-	let fail = match res.Verdict {
-	case CampaignRefuted as r:
-		r.Failure
-	case _:
-		return false
-	}
+law ExactReplayKeepsTypedInput() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let base = gen.Named("base", showInt, func() int needs gen.Draws { gen.IntIn(0, 3) })
+		let diagSeed = gen.Named("diagSeed", showUint64, func() uint64 needs gen.Draws { gen.Below(uint64(0)) })
+		let model = rpModel(base)
+		let big = PathBounds{MaxStates: 64, MaxEdges: 256, MaxPaths: 256, MaxSteps: 1024, MaxWork: 200000, MaxBytes: 1048576}
+		let res = CheckPaths(model, ToDepth{Depth: 2}, big, rpOpen)
+		let fail = match res.Verdict {
+		case CampaignRefuted as r:
+			r.Failure
+		case _:
+			return false
+		}
 
-	let fix = BuildReplayFixture(model, "explore/replay", "rev-abc", "rpModel/v1", "inMemory", fail)
-	let encoded = EncodeReplayFixture(fix)
-	let decoded = DecodeReplayFixture[rpState, rpEvent](encoded, "rev-abc", "rpModel/v1") catch {
-	case _:
-		return false
-	}
-	if decoded.StartIdx != 1 || decoded.Start != model.Graph.Starts[1] || decoded.Inputs != []rpEvent{rpPush{Payload: 2}} {
-		return false
-	}
+		let fix = BuildReplayFixture(model, "explore/replay", "rev-abc", "rpModel/v1", "inMemory", fail)
+		let encoded = EncodeReplayFixture(fix)
+		let decoded = DecodeReplayFixture[rpState, rpEvent](encoded, "rev-abc", "rpModel/v1") catch {
+		case _:
+			return false
+		}
+		if decoded.StartIdx != 1 || decoded.Start != model.Graph.Starts[1] || decoded.Inputs != []rpEvent{rpPush{Payload: 2}} {
+			return false
+		}
 
-	let badRev = DecodeReplayFixture[rpState, rpEvent](encoded, "rev-other", "rpModel/v1") catch {
-	case ReplayRevisionMismatch:
-		decoded
-	case _:
-		return false
-	}
-	let _ = badRev
+		let badRev = DecodeReplayFixture[rpState, rpEvent](encoded, "rev-other", "rpModel/v1") catch {
+		case ReplayRevisionMismatch:
+			decoded
+		case _:
+			return false
+		}
+		let _ = badRev
 
-	let badType = DecodeReplayFixture[rpState, rpEvent](encoded, "rev-abc", "other/v1") catch {
-	case ReplayTypeMismatch:
-		decoded
-	case _:
-		return false
-	}
-	let _ = badType
+		let badType = DecodeReplayFixture[rpState, rpEvent](encoded, "rev-abc", "other/v1") catch {
+		case ReplayTypeMismatch:
+			decoded
+		case _:
+			return false
+		}
+		let _ = badType
 
-	let badVer = DecodeReplayFixture[rpState, rpEvent]("{\"version\":99,\"source\":\"x\",\"revision\":\"r\",\"typeKey\":\"t\",\"binding\":\"b\",\"startIdx\":0,\"start\":null,\"inputs\":[]}", "", "") catch {
-	case ReplayUnsupportedVersion:
-		decoded
-	case _:
-		return false
-	}
-	let _ = badVer
+		let badVer = DecodeReplayFixture[rpState, rpEvent]("{\"version\":99,\"source\":\"x\",\"revision\":\"r\",\"typeKey\":\"t\",\"binding\":\"b\",\"startIdx\":0,\"start\":null,\"inputs\":[]}", "", "") catch {
+		case ReplayUnsupportedVersion:
+			decoded
+		case _:
+			return false
+		}
+		let _ = badVer
 
-	let replayed = ReplayFromFixture(model, decoded, rpOpen)
-	let sameFailure = match (fail, replayed) {
-	case (StepMismatch as cf, ReplayFailed as rf):
-		match rf.Failure {
-		case StepMismatch as rsm:
-			rsm.StartIndex == cf.StartIndex && rsm.Step == cf.Step && rsm.Field == cf.Field && rsm.Expected == cf.Expected && rsm.Actual == cf.Actual && rsm.Field == DiffOutputs
+		let replayed = ReplayFromFixture(model, decoded, rpOpen)
+		let sameFailure = match (fail, replayed) {
+		case (StepMismatch as cf, ReplayFailed as rf):
+			match rf.Failure {
+			case StepMismatch as rsm:
+				rsm.StartIndex == cf.StartIndex && rsm.Step == cf.Step && rsm.Field == cf.Field && rsm.Expected == cf.Expected && rsm.Actual == cf.Actual && rsm.Field == DiffOutputs
+			case _:
+				false
+			}
 		case _:
 			false
 		}
-	case _:
-		false
-	}
-	if !sameFailure {
-		return false
-	}
+		if !sameFailure {
+			return false
+		}
 
-	let pubSpec = ReplayDiagnosticSpec{
-		Package:       "./pkg with space",
-		QualifiedLaw:  "Sessions.MatchesMachine",
-		Seed:          seed,
-		ExecutionMode: "native",
-		ScheduleToken: "0*1'2",
-		ScopeSummary:  "depth <= 2",
-		Visibility:    PublicPayload,
-	}
-	let cmd = FormatReplayCommand(pubSpec)
-	if !strings.Contains(cmd, "'./pkg with space'") || !strings.Contains(cmd, "--native") || !strings.Contains(cmd, "'0*1'\\''2'") {
-		return false
-	}
-	let pubDiag = FormatFailureDiagnostic(pubSpec, decoded, fail)
-	if !strings.Contains(pubDiag, "field=outputs") || !strings.Contains(pubDiag, "fixture: {") {
-		return false
-	}
+		let pubSpec = ReplayDiagnosticSpec{
+			Package:       "./pkg with space",
+			QualifiedLaw:  "Sessions.MatchesMachine",
+			Seed:          diagSeed,
+			ExecutionMode: "native",
+			ScheduleToken: "0*1'2",
+			ScopeSummary:  "depth <= 2",
+			Visibility:    PublicPayload,
+		}
+		let cmd = FormatReplayCommand(pubSpec)
+		if !strings.Contains(cmd, "'./pkg with space'") || !strings.Contains(cmd, "--native") || !strings.Contains(cmd, "'0*1'\\''2'") {
+			return false
+		}
+		let pubDiag = FormatFailureDiagnostic(pubSpec, decoded, fail)
+		if !strings.Contains(pubDiag, "field=outputs") || !strings.Contains(pubDiag, "fixture: {") {
+			return false
+		}
 
-	let redSpec = ReplayDiagnosticSpec{
-		Package:       "./pkg",
-		QualifiedLaw:  "Sessions.MatchesMachine",
-		Seed:          seed,
-		ExecutionMode: "native",
-		ScheduleToken: "",
-		ScopeSummary:  "depth <= 2",
-		Visibility:    RedactedPayload,
-	}
-	let redDiag = FormatFailureDiagnostic(redSpec, decoded, fail)
-	strings.Contains(redDiag, "field=outputs") && strings.Contains(redDiag, "withheld") && !strings.Contains(redDiag, "SECRET_TOKEN_99")
+		let redSpec = ReplayDiagnosticSpec{
+			Package:       "./pkg",
+			QualifiedLaw:  "Sessions.MatchesMachine",
+			Seed:          diagSeed,
+			ExecutionMode: "native",
+			ScheduleToken: "",
+			ScopeSummary:  "depth <= 2",
+			Visibility:    RedactedPayload,
+		}
+		let redDiag = FormatFailureDiagnostic(redSpec, decoded, fail)
+		strings.Contains(redDiag, "field=outputs") && strings.Contains(redDiag, "withheld") && !strings.Contains(redDiag, "SECRET_TOKEN_99")
+	})) == ""
+	true
 }

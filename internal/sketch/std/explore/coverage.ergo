@@ -1,3 +1,4 @@
+import gen
 import strconv
 import strings
 import sync
@@ -336,8 +337,7 @@ func Close(s cvSess) {
 	let _ = s.state.Get()
 }
 
-func cvTwoStartModel(seed uint64, cyclic bool) PathModel[cvState, cvEvent, cvState, int, Never] {
-	let v = int(seed % uint64(4))
+func cvTwoStartModel(v int, cyclic bool) PathModel[cvState, cvEvent, cvState, int, Never] {
 	let starts = []cvState{cvState{Tag: uint8(0), Val: v}, cvState{Tag: uint8(2), Val: v}}
 	let sigs = []cvEvent{cvStepA, cvStepB, cvBack, cvEnd}
 	PathModel[cvState, cvEvent, cvState, int, Never]{
@@ -437,142 +437,146 @@ func cvCountEdgeHits[O](plan PathPlan[O]) []int {
 // fully scoped, once failing mid-path, and once hitting a planning cap, and
 // compares planned, checked, matched edge IDs/occurrences, statuses, frontier
 // handling, and per-binding isolation against an independent enumerator.
-law CoverageStatesAgreeWithReference(seed uint64) {
-	let big = PathBounds{MaxStates: 64, MaxEdges: 256, MaxPaths: 512, MaxSteps: 2048, MaxWork: 200000, MaxBytes: 1048576}
-	let cycModel = cvTwoStartModel(seed, true)
-	let absentTarget = DeclaredTarget{Source: 99, Signal: 0, EventID: 0, Target: Ended}
-	let declared = []DeclaredTarget{absentTarget}
+law CoverageStatesAgreeWithReference() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let base = gen.Named("base", showInt, func() int needs gen.Draws { gen.IntIn(0, 3) })
+		let big = PathBounds{MaxStates: 64, MaxEdges: 256, MaxPaths: 512, MaxSteps: 2048, MaxWork: 200000, MaxBytes: 1048576}
+		let cycModel = cvTwoStartModel(base, true)
+		let absentTarget = DeclaredTarget{Source: 99, Signal: 0, EventID: 0, Target: Ended}
+		let declared = []DeclaredTarget{absentTarget}
 
-	let selRes = CheckSelectedPaths(cycModel, SelectedShortest, All, big, cvOpen(false))
-	let selRep = BuildCoverageReport("selected", selRes, declared)
-	let selOK = match selRep.Completeness {
-	case ScopeSelectedOnly:
-		true
-	case _:
-		false
-	}
-	if !selOK || selRep.Opened != selRep.Planned || selRep.DistinctUncovered <= 0 || selRep.MatchedSteps != selRep.CheckedSteps {
-		return false
-	}
-	match selRep.Declared[0].Status {
-	case EdgeUnknown:
-	case _:
-		return false
-	}
-
-	let fullPlan = PlanPaths(cycModel.Graph, ToDepth{Depth: 2}, big)
-	let refHits = cvCountEdgeHits(fullPlan)
-	let fullRes = CheckPaths(cycModel, ToDepth{Depth: 2}, big, cvOpen(false))
-	let fullRep = BuildCoverageReport("full-depth-2", fullRes, declared)
-	let fullRep2 = BuildCoverageReport("full-depth-2", fullRes, declared)
-	if fullRep != fullRep2 || FormatCoverageReport(fullRep) != FormatCoverageReport(fullRep2) {
-		return false
-	}
-	if fullRep.Planned != fullPlan.Stats.Paths || fullRep.Opened != fullPlan.Stats.Paths || fullRep.PathsCompleted != fullPlan.Stats.Paths {
-		return false
-	}
-	if fullRep.CheckedSteps != fullPlan.Stats.Steps || fullRep.MatchedSteps != fullPlan.Stats.Steps {
-		return false
-	}
-	for i in 0..len(fullRep.Edges) {
-		if fullRep.Edges[i].Checked != refHits[i] || fullRep.Edges[i].Matched != refHits[i] {
+		let selRes = CheckSelectedPaths(cycModel, SelectedShortest, All, big, cvOpen(false))
+		let selRep = BuildCoverageReport("selected", selRes, declared)
+		let selOK = match selRep.Completeness {
+		case ScopeSelectedOnly:
+			true
+		case _:
+			false
+		}
+		if !selOK || selRep.Opened != selRep.Planned || selRep.DistinctUncovered <= 0 || selRep.MatchedSteps != selRep.CheckedSteps {
 			return false
 		}
-		if refHits[i] > 0 {
-			match fullRep.Edges[i].Status {
-			case EdgeCovered:
-			case _:
-				return false
-			}
-		}
-	}
-
-	let failRes = CheckPaths(cycModel, ToDepth{Depth: 2}, big, cvOpen(true))
-	let failRep = BuildCoverageReport("broken-back", failRes, declared)
-	let mut sawMismatchEdge = false
-	let failEdgeID = match failRes.Verdict {
-	case CampaignRefuted as ref:
-		match ref.Failure {
-		case StepMismatch as sm:
-			sm.EdgeID
-		case _:
-			-1
-		}
-	case _:
-		-1
-	}
-	if failEdgeID < 0 || failRep.CheckedSteps != failRep.MatchedSteps+1 {
-		return false
-	}
-	for row in failRep.Edges {
-		if row.EdgeID == failEdgeID {
-			let isUncovered = match row.Status {
-			case EdgeUncovered:
-				true
-			case _:
-				false
-			}
-			if row.Checked != 1 || row.Matched != 0 || !isUncovered {
-				return false
-			}
-			sawMismatchEdge = true
-		}
-	}
-	if !sawMismatchEdge {
-		return false
-	}
-
-	let cleanAfterFailRes = CheckPaths(cycModel, ToDepth{Depth: 1}, big, cvOpen(false))
-	let cleanAfterFailRep = BuildCoverageReport("clean-second", cleanAfterFailRes, declared)
-	if cleanAfterFailRep.CheckedSteps != cleanAfterFailRep.MatchedSteps || cleanAfterFailRep.FrontierStates <= 0 {
-		return false
-	}
-	match cleanAfterFailRep.Completeness {
-	case ScopeCompleteDepthBounded:
-	case _:
-		return false
-	}
-	match cleanAfterFailRep.Declared[0].Status {
-	case EdgeUnknown:
-	case _:
-		return false
-	}
-
-	let capRes = CheckPaths(cycModel, ToDepth{Depth: 2}, PathBounds{MaxStates: 64, MaxEdges: 256, MaxPaths: 1, MaxSteps: 2048, MaxWork: 200000, MaxBytes: 1048576}, cvOpen(false))
-	let capRep = BuildCoverageReport("capped", capRes, declared)
-	match capRep.Completeness {
-	case ScopeIncomplete:
-	case _:
-		return false
-	}
-	if capRep.Opened != 0 || capRep.InitialReads != 0 || capRep.CheckedSteps != 0 || capRep.MatchedSteps != 0 {
-		return false
-	}
-	for row in capRep.Edges {
-		match row.Status {
+		match selRep.Declared[0].Status {
 		case EdgeUnknown:
 		case _:
 			return false
 		}
-	}
-	match capRep.Declared[0].Status {
-	case EdgeUnknown:
-	case _:
-		return false
-	}
 
-	let acyclicModel = cvTwoStartModel(seed, false)
-	let closedRes = CheckPaths(acyclicModel, All, big, cvOpen(false))
-	let closedRep = BuildCoverageReport("closed-acyclic", closedRes, declared)
-	match closedRep.Completeness {
-	case ScopeCompleteExhaustive:
-	case _:
-		return false
-	}
-	match closedRep.Declared[0].Status {
-	case EdgeUnreachable:
-		true
-	case _:
-		false
-	}
+		let fullPlan = PlanPaths(cycModel.Graph, ToDepth{Depth: 2}, big)
+		let refHits = cvCountEdgeHits(fullPlan)
+		let fullRes = CheckPaths(cycModel, ToDepth{Depth: 2}, big, cvOpen(false))
+		let fullRep = BuildCoverageReport("full-depth-2", fullRes, declared)
+		let fullRep2 = BuildCoverageReport("full-depth-2", fullRes, declared)
+		if fullRep != fullRep2 || FormatCoverageReport(fullRep) != FormatCoverageReport(fullRep2) {
+			return false
+		}
+		if fullRep.Planned != fullPlan.Stats.Paths || fullRep.Opened != fullPlan.Stats.Paths || fullRep.PathsCompleted != fullPlan.Stats.Paths {
+			return false
+		}
+		if fullRep.CheckedSteps != fullPlan.Stats.Steps || fullRep.MatchedSteps != fullPlan.Stats.Steps {
+			return false
+		}
+		for i in 0..len(fullRep.Edges) {
+			if fullRep.Edges[i].Checked != refHits[i] || fullRep.Edges[i].Matched != refHits[i] {
+				return false
+			}
+			if refHits[i] > 0 {
+				match fullRep.Edges[i].Status {
+				case EdgeCovered:
+				case _:
+					return false
+				}
+			}
+		}
+
+		let failRes = CheckPaths(cycModel, ToDepth{Depth: 2}, big, cvOpen(true))
+		let failRep = BuildCoverageReport("broken-back", failRes, declared)
+		let mut sawMismatchEdge = false
+		let failEdgeID = match failRes.Verdict {
+		case CampaignRefuted as ref:
+			match ref.Failure {
+			case StepMismatch as sm:
+				sm.EdgeID
+			case _:
+				-1
+			}
+		case _:
+			-1
+		}
+		if failEdgeID < 0 || failRep.CheckedSteps != failRep.MatchedSteps+1 {
+			return false
+		}
+		for row in failRep.Edges {
+			if row.EdgeID == failEdgeID {
+				let isUncovered = match row.Status {
+				case EdgeUncovered:
+					true
+				case _:
+					false
+				}
+				if row.Checked != 1 || row.Matched != 0 || !isUncovered {
+					return false
+				}
+				sawMismatchEdge = true
+			}
+		}
+		if !sawMismatchEdge {
+			return false
+		}
+
+		let cleanAfterFailRes = CheckPaths(cycModel, ToDepth{Depth: 1}, big, cvOpen(false))
+		let cleanAfterFailRep = BuildCoverageReport("clean-second", cleanAfterFailRes, declared)
+		if cleanAfterFailRep.CheckedSteps != cleanAfterFailRep.MatchedSteps || cleanAfterFailRep.FrontierStates <= 0 {
+			return false
+		}
+		match cleanAfterFailRep.Completeness {
+		case ScopeCompleteDepthBounded:
+		case _:
+			return false
+		}
+		match cleanAfterFailRep.Declared[0].Status {
+		case EdgeUnknown:
+		case _:
+			return false
+		}
+
+		let capRes = CheckPaths(cycModel, ToDepth{Depth: 2}, PathBounds{MaxStates: 64, MaxEdges: 256, MaxPaths: 1, MaxSteps: 2048, MaxWork: 200000, MaxBytes: 1048576}, cvOpen(false))
+		let capRep = BuildCoverageReport("capped", capRes, declared)
+		match capRep.Completeness {
+		case ScopeIncomplete:
+		case _:
+			return false
+		}
+		if capRep.Opened != 0 || capRep.InitialReads != 0 || capRep.CheckedSteps != 0 || capRep.MatchedSteps != 0 {
+			return false
+		}
+		for row in capRep.Edges {
+			match row.Status {
+			case EdgeUnknown:
+			case _:
+				return false
+			}
+		}
+		match capRep.Declared[0].Status {
+		case EdgeUnknown:
+		case _:
+			return false
+		}
+
+		let acyclicModel = cvTwoStartModel(base, false)
+		let closedRes = CheckPaths(acyclicModel, All, big, cvOpen(false))
+		let closedRep = BuildCoverageReport("closed-acyclic", closedRes, declared)
+		match closedRep.Completeness {
+		case ScopeCompleteExhaustive:
+		case _:
+			return false
+		}
+		match closedRep.Declared[0].Status {
+		case EdgeUnreachable:
+			true
+		case _:
+			false
+		}
+	})) == ""
+	true
 }

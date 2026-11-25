@@ -1,5 +1,7 @@
 // Verdicts (MODELCHECK E1): what a property of a graph came to.
 
+import gen
+
 // Verdict is how a property of a graph came out: Proved, the search saw
 // the whole graph and the property holds on it; NotProved, the budget
 // stopped the search first and no run broke the property in what it saw;
@@ -108,6 +110,37 @@ func Of[S, E, O](starts []S, signals []E, step own func(s S, e E) Decision[S, O]
 	}}
 }
 
+func showInt(v int) string { "\(v)" }
+
+func showUint64(v uint64) string { "\(v)" }
+
+func showBool(v bool) string { "\(v)" }
+
+func showIntSlice(xs []int) string {
+	let mut out = "["
+	for i, x in xs {
+		if i > 0 {
+			out = out + ", "
+		}
+		out = out + "\(x)"
+	}
+	out + "]"
+}
+
+func drawTable(n int, k int) []int needs gen.Draws {
+	let mut out = []int{}
+	let bound = uint64(n * 8)
+	for _ in 0..n*k {
+		let r = gen.Below(bound)
+		if r < uint64(n) {
+			out = out.Append(-1)
+		} else {
+			out = out.Append(int(r % uint64(n)))
+		}
+	}
+	out
+}
+
 // AlwaysAgreesWithReference (MODELCHECK E1's acceptance property): on a
 // generated graph of up to 24 states and 4 signals, with up to two starts,
 // a random set of targets and a budget of 1 to 40 states, Search and
@@ -117,49 +150,53 @@ func Of[S, E, O](starts []S, signals []E, step own func(s S, e E) Decision[S, O]
 // completeness; a found run replays to that target and is as long as its
 // depth; the verdict matches; and the frontier keeps no wide state whole.
 // The states carry a padding list that makes a third of them wide, so the
-// search rebuilds those from their runs. The law's cases are the seeds;
-// a failing case prints its arguments, which rebuild the graph.
-law AlwaysAgreesWithReference(seed uint64, size uint8, signals uint8, budget uint8, mask uint64) {
-	let n = 1 + int(size%uint8(24))
-	let k = 1 + int(signals%uint8(4))
-	let b = 1 + int(budget%uint8(40))
-	let table = refTable(seed, n, k)
-	let starts = if n > 1 && seed%uint64(3) == uint64(0) { []int{0, n - 1} } else { []int{0} }
-	let targets = mask & (mask >> uint64(7))
-	let hit = func(s int) bool { (targets>>uint64(s))&uint64(1) == uint64(1) }
-	let ref = refSearch(table, k, starts, hit, b)
-	let mut ss = []RefState{}
-	for s in starts {
-		ss = ss.Append(refState(s))
-	}
-	let mut sigs = []int{}
-	for e in 0..k {
-		sigs = sigs.Append(e)
-	}
-	let g = Graph[RefState, int]{Starts: ss, Signals: sigs, Step: func(s RefState, e int) Option[RefState] {
-		let t = table[s.N*k+e]
-		if t < 0 { None } else { Some[RefState]{Value: refState(t)} }
-	}}
-	let r = Search(g, func(s RefState) bool { hit(s.N) }, b)
-	let st = r.Stats
-	let mut ok = r.Found == ref.Found && st.States == ref.States && st.Edges == ref.Edges && st.Depth == ref.Depth && st.Checked == ref.Checked && st.Complete == ref.Complete && st.Frontier <= ref.Small
-	if ok && r.Found >= 0 {
-		let run = RunTo(r, r.Found)
-		ok = ReplayRun(g, run).N == ref.State && len(run.Signals) == ref.Run
-	}
-	let v = Always(g, func(s RefState) bool { !hit(s.N) }, b)
-	match v {
-	case Refuted as x:
-		ok && ref.Found >= 0 && len(x.Run.Signals) == ref.Run
-	case Proved:
-		ok && ref.Found < 0 && ref.Complete
-	case NotProved:
-		ok && ref.Found < 0 && !ref.Complete
-	case Witness:
-		false
-	case Absent:
-		false
-	}
+// search rebuilds those from their runs.
+law AlwaysAgreesWithReference() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let n = gen.Named("n", showInt, func() int needs gen.Draws { gen.IntIn(1, 24) })
+		let k = gen.Named("k", showInt, func() int needs gen.Draws { gen.IntIn(1, 4) })
+		let b = gen.Named("budget", showInt, func() int needs gen.Draws { gen.IntIn(1, 40) })
+		let twoStarts = gen.Named("twoStarts", showBool, func() bool needs gen.Draws { gen.IntIn(0, 2) == 0 })
+		let table = gen.Named("table", showIntSlice, func() []int needs gen.Draws { drawTable(n, k) })
+		let mask = gen.Named("mask", showUint64, func() uint64 needs gen.Draws { gen.Below(uint64(0)) })
+		let starts = if n > 1 && twoStarts { []int{0, n - 1} } else { []int{0} }
+		let targets = mask & (mask >> uint64(7))
+		let hit = func(s int) bool { (targets>>uint64(s))&uint64(1) == uint64(1) }
+		let ref = refSearch(table, k, starts, hit, b)
+		let mut ss = []RefState{}
+		for s in starts {
+			ss = ss.Append(refState(s))
+		}
+		let mut sigs = []int{}
+		for e in 0..k {
+			sigs = sigs.Append(e)
+		}
+		let g = Graph[RefState, int]{Starts: ss, Signals: sigs, Step: func(s RefState, e int) Option[RefState] {
+			let t = table[s.N*k+e]
+			if t < 0 { None } else { Some[RefState]{Value: refState(t)} }
+		}}
+		let r = Search(g, func(s RefState) bool { hit(s.N) }, b)
+		let st = r.Stats
+		let mut ok = r.Found == ref.Found && st.States == ref.States && st.Edges == ref.Edges && st.Depth == ref.Depth && st.Checked == ref.Checked && st.Complete == ref.Complete && st.Frontier <= ref.Small
+		if ok && r.Found >= 0 {
+			let run = RunTo(r, r.Found)
+			ok = ReplayRun(g, run).N == ref.State && len(run.Signals) == ref.Run
+		}
+		let v = Always(g, func(s RefState) bool { !hit(s.N) }, b)
+		match v {
+		case Refuted as x:
+			ok && ref.Found >= 0 && len(x.Run.Signals) == ref.Run
+		case Proved:
+			ok && ref.Found < 0 && ref.Complete
+		case NotProved:
+			ok && ref.Found < 0 && !ref.Complete
+		case Witness:
+			false
+		case Absent:
+			false
+		}
+	})) == ""
+	true
 }
 
 // RefState is the reference graph's state: its number, and a padding list
@@ -174,23 +211,6 @@ func refState(n int) RefState {
 		}
 	}
 	RefState{N: n, Pad: pad}
-}
-
-// refTable is the step of a generated graph: entry s*k+e is the state that
-// signal e takes s to, or -1 when it ends the run (about one in eight).
-func refTable(seed uint64, n int, k int) []int {
-	let mut out = []int{}
-	let mut x = seed
-	for _ in 0..n*k {
-		x = x + golden
-		let r = splitmix(x)
-		if r%uint64(8) == uint64(0) {
-			out = out.Append(-1)
-		} else {
-			out = out.Append(int((r >> uint64(8)) % uint64(n)))
-		}
-	}
-	out
 }
 
 // RefOut is what the reference search did: the place of the target found
@@ -310,7 +330,7 @@ func Walk[S wire, E](g Graph[S, E], p func(s S) bool, seed uint64, runs int, dep
 				break
 			}
 			x = x + golden
-			let e = moves[int(splitmix(x) % uint64(len(moves)))]
+			let e = moves[int(splitmix(x)%uint64(len(moves)))]
 			match g.Step(s, g.Signals[e]) {
 			case None:
 				d = depth

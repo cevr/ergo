@@ -1,3 +1,5 @@
+import gen
+
 // SelectedStrategy names a non-exhaustive path selection strategy over a
 // concrete transition graph.
 type SelectedStrategy = SelectedShortest{} | SelectedSimple{} | SelectedEdges{}
@@ -308,7 +310,20 @@ func selectEdgeCases[O](g PathGraph[O], maxDepth int, bounds PathBounds, st mut 
 // SelectFromGraph applies a selected (non-exhaustive) strategy to an already
 // built PathGraph under scope and bounds.
 func SelectFromGraph[O](g PathGraph[O], strategy SelectedStrategy, scope PathScope, bounds PathBounds) SelectedPlan[O] {
-	let emptySt = PathStats{States: 0, Edges: 0, Disabled: 0, Frontier: 0, Paths: 0, Steps: 0, MaxDepth: 0, Work: 0, Bytes: 0}
+	let emptySt = PathStats{
+		States:          0,
+		Edges:           0,
+		Disabled:        0,
+		Frontier:        0,
+		Paths:           0,
+		Steps:           0,
+		MaxDepth:        0,
+		Work:            0,
+		Bytes:           0,
+		Expansions:      0,
+		StepAttempts:    0,
+		Reconstructions: 0,
+	}
 	match validatePathBounds(scope, bounds) {
 	case Some as err:
 		return stoppedSelected[O](BadBounds{Reason: err.Value}, strategy, emptySt, g)
@@ -319,15 +334,18 @@ func SelectFromGraph[O](g PathGraph[O], strategy SelectedStrategy, scope PathSco
 	}
 	let numStates = if len(g.OutStart) > 0 { len(g.OutStart) - 1 } else { 0 }
 	let mut st = PathStats{
-		States:   numStates,
-		Edges:    len(g.Edges),
-		Disabled: 0,
-		Frontier: 0,
-		Paths:    0,
-		Steps:    0,
-		MaxDepth: 0,
-		Work:     0,
-		Bytes:    0,
+		States:          numStates,
+		Edges:           len(g.Edges),
+		Disabled:        0,
+		Frontier:        0,
+		Paths:           0,
+		Steps:           0,
+		MaxDepth:        0,
+		Work:            0,
+		Bytes:           0,
+		Expansions:      0,
+		StepAttempts:    0,
+		Reconstructions: 0,
 	}
 	let maxDepth = match scope {
 	case ToDepth as d:
@@ -362,7 +380,20 @@ func SelectFromGraph[O](g PathGraph[O], strategy SelectedStrategy, scope PathSco
 // SelectPaths builds a bounded concrete graph for g and applies a selected
 // (non-exhaustive) strategy under scope and bounds.
 func SelectPaths[S wire, E wire, O](g ConcreteGraph[S, E, O], strategy SelectedStrategy, scope PathScope, bounds PathBounds) SelectedPlan[O] needs wired[S] | wired[E] {
-	let emptySt = PathStats{States: 0, Edges: 0, Disabled: 0, Frontier: 0, Paths: 0, Steps: 0, MaxDepth: 0, Work: 0, Bytes: 0}
+	let emptySt = PathStats{
+		States:          0,
+		Edges:           0,
+		Disabled:        0,
+		Frontier:        0,
+		Paths:           0,
+		Steps:           0,
+		MaxDepth:        0,
+		Work:            0,
+		Bytes:           0,
+		Expansions:      0,
+		StepAttempts:    0,
+		Reconstructions: 0,
+	}
 	match validatePathBounds(scope, bounds) {
 	case Some as err:
 		return stoppedSelected[O](BadBounds{Reason: err.Value}, strategy, emptySt, emptyPathGraph[O]())
@@ -417,8 +448,7 @@ type spEvent = spAltA{} | spAltB{} | spSelf{} | spFwd{} | spBack{} | spEndA{} | 
 
 type spOracleCase { Start int, Signals []int }
 
-func spGraph(seed uint64, multiStart bool) ConcreteGraph[spState, spEvent, int] {
-	let bias = int(seed % uint64(4))
+func spGraph(bias int, multiStart bool) ConcreteGraph[spState, spEvent, int] {
 	let starts = if multiStart {
 		[]spState{spState{Tag: uint8(0), Val: bias}, spState{Tag: uint8(2), Val: bias}}
 	} else {
@@ -611,94 +641,98 @@ func spHasSignalEnding(cases []PathCase, sigIdx int) bool {
 // and SelectedEdges match independent oracles in stable order, label their
 // results selected (never exhaustive), keep simple paths cycle-free, and cover
 // closing, parallel, self-loop, and terminal edges in edge selection.
-law SelectedPathsKeepTheirPromise(seed uint64) {
-	let big = PathBounds{MaxStates: 64, MaxEdges: 256, MaxPaths: 2048, MaxSteps: 8192, MaxWork: 200000, MaxBytes: 1048576}
-	let g1 = spGraph(seed, false)
-	let g2 = spGraph(seed, true)
+law SelectedPathsKeepTheirPromise() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let bias = gen.Named("bias", showInt, func() int needs gen.Draws { gen.IntIn(0, 3) })
+		let big = PathBounds{MaxStates: 64, MaxEdges: 256, MaxPaths: 2048, MaxSteps: 8192, MaxWork: 200000, MaxBytes: 1048576}
+		let g1 = spGraph(bias, false)
+		let g2 = spGraph(bias, true)
 
-	let pShort1 = SelectPaths(g1, SelectedShortest, All, big)
-	let pShort2 = SelectPaths(g2, SelectedShortest, All, big)
-	let pSimple2 = SelectPaths(g2, SelectedSimple, All, big)
-	let pEdges1 = SelectPaths(g1, SelectedEdges, All, big)
-	let pEdges2 = SelectPaths(g2, SelectedEdges, All, big)
+		let pShort1 = SelectPaths(g1, SelectedShortest, All, big)
+		let pShort2 = SelectPaths(g2, SelectedShortest, All, big)
+		let pSimple2 = SelectPaths(g2, SelectedSimple, All, big)
+		let pEdges1 = SelectPaths(g1, SelectedEdges, All, big)
+		let pEdges2 = SelectPaths(g2, SelectedEdges, All, big)
 
-	if IsExhaustivePromise(pShort1.Promise) || IsExhaustivePromise(pShort2.Promise) || IsExhaustivePromise(pSimple2.Promise) || IsExhaustivePromise(pEdges1.Promise) || IsExhaustivePromise(pEdges2.Promise) {
-		return false
-	}
+		if IsExhaustivePromise(pShort1.Promise) || IsExhaustivePromise(pShort2.Promise) || IsExhaustivePromise(pSimple2.Promise) || IsExhaustivePromise(pEdges1.Promise) || IsExhaustivePromise(pEdges2.Promise) {
+			return false
+		}
 
-	let cShort1 = match SelectedCases(pShort1) {
-	case Some as x:
-		x.Value
-	case None:
-		return false
-	}
-	let cShort2 = match SelectedCases(pShort2) {
-	case Some as x:
-		x.Value
-	case None:
-		return false
-	}
-	let cSimple2 = match SelectedCases(pSimple2) {
-	case Some as x:
-		x.Value
-	case None:
-		return false
-	}
-	let cEdges1 = match SelectedCases(pEdges1) {
-	case Some as x:
-		x.Value
-	case None:
-		return false
-	}
-	let cEdges2 = match SelectedCases(pEdges2) {
-	case Some as x:
-		x.Value
-	case None:
-		return false
-	}
+		let cShort1 = match SelectedCases(pShort1) {
+		case Some as x:
+			x.Value
+		case None:
+			return false
+		}
+		let cShort2 = match SelectedCases(pShort2) {
+		case Some as x:
+			x.Value
+		case None:
+			return false
+		}
+		let cSimple2 = match SelectedCases(pSimple2) {
+		case Some as x:
+			x.Value
+		case None:
+			return false
+		}
+		let cEdges1 = match SelectedCases(pEdges1) {
+		case Some as x:
+			x.Value
+		case None:
+			return false
+		}
+		let cEdges2 = match SelectedCases(pEdges2) {
+		case Some as x:
+			x.Value
+		case None:
+			return false
+		}
 
-	if !spCasesMatch(cShort1, spOracleShortest(g1)) {
-		return false
-	}
-	if !spCasesMatch(cShort2, spOracleShortest(g2)) {
-		return false
-	}
-	if !spCasesMatch(cSimple2, spOracleSimple(g2)) || !spSimpleHasNoRepeat(g2, cSimple2) {
-		return false
-	}
-	if !spCasesMatch(cEdges1, spOracleEdges(g1)) || !spCasesMatch(cEdges2, spOracleEdges(g2)) {
-		return false
-	}
+		if !spCasesMatch(cShort1, spOracleShortest(g1)) {
+			return false
+		}
+		if !spCasesMatch(cShort2, spOracleShortest(g2)) {
+			return false
+		}
+		if !spCasesMatch(cSimple2, spOracleSimple(g2)) || !spSimpleHasNoRepeat(g2, cSimple2) {
+			return false
+		}
+		if !spCasesMatch(cEdges1, spOracleEdges(g1)) || !spCasesMatch(cEdges2, spOracleEdges(g2)) {
+			return false
+		}
 
-	if !spHasSignalEnding(cEdges1, 0) || !spHasSignalEnding(cEdges1, 1) || !spHasSignalEnding(cEdges1, 2) || !spHasSignalEnding(cEdges1, 4) || !spHasSignalEnding(cEdges1, 5) || !spHasSignalEnding(cEdges1, 6) {
-		return false
-	}
+		if !spHasSignalEnding(cEdges1, 0) || !spHasSignalEnding(cEdges1, 1) || !spHasSignalEnding(cEdges1, 2) || !spHasSignalEnding(cEdges1, 4) || !spHasSignalEnding(cEdges1, 5) || !spHasSignalEnding(cEdges1, 6) {
+			return false
+		}
 
-	let capEdges = SelectPaths(g1, SelectedEdges, All, PathBounds{
-		MaxStates: 64,
-		MaxEdges:  256,
-		MaxPaths:  len(cEdges1) - 1,
-		MaxSteps:  8192,
-		MaxWork:   200000,
-		MaxBytes:  1048576,
-	})
-	match capEdges.Stop {
-	case PathOverPaths:
-	case _:
-		return false
-	}
-	match SelectedCases(capEdges) {
-	case None:
-	case Some:
-		return false
-	}
+		let capEdges = SelectPaths(g1, SelectedEdges, All, PathBounds{
+			MaxStates: 64,
+			MaxEdges:  256,
+			MaxPaths:  len(cEdges1) - 1,
+			MaxSteps:  8192,
+			MaxWork:   200000,
+			MaxBytes:  1048576,
+		})
+		match capEdges.Stop {
+		case PathOverPaths:
+		case _:
+			return false
+		}
+		match SelectedCases(capEdges) {
+		case None:
+		case Some:
+			return false
+		}
 
-	let fromGraph = SelectFromGraph(pEdges1.Graph, SelectedEdges, All, big)
-	let cFromGraph = match SelectedCases(fromGraph) {
-	case Some as x:
-		x.Value
-	case None:
-		return false
-	}
-	spCasesMatch(cFromGraph, spOracleEdges(g1))
+		let fromGraph = SelectFromGraph(pEdges1.Graph, SelectedEdges, All, big)
+		let cFromGraph = match SelectedCases(fromGraph) {
+		case Some as x:
+			x.Value
+		case None:
+			return false
+		}
+		spCasesMatch(cFromGraph, spOracleEdges(g1))
+	})) == ""
+	true
 }

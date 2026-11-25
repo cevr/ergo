@@ -16,6 +16,7 @@
 
 import go math
 import dense
+import gen
 
 // Graph is what a search explores: its starts, its signals, and its step
 // as an edge, None when the step ends the run (no edge).
@@ -485,9 +486,7 @@ type ceOut { Code int, At int }
 
 type ceOracleEdge { Source int, Signal int, EventID int, Target EdgeTarget, Obs MachineObs[ceOut] }
 
-func ceMachine(seed uint64) Machine[ceState, ceEvent, ceOut] {
-	let mod = 3 + int(seed%uint64(3))
-	let bonus = int((seed >> uint64(4)) % uint64(5))
+func ceMachine(mod int, bonus int) Machine[ceState, ceEvent, ceOut] {
 	Machine[ceState, ceEvent, ceOut]{
 		Initial: ceState{Tag: uint8(0), Val: 0},
 		Step:    func(s ceState, e ceEvent) Decision[ceState, ceOut] {
@@ -649,17 +648,17 @@ func ceOracleBuild(m Machine[ceState, ceEvent, ceOut], rawSignals []ceEvent) (in
 	(len(states), edges, depth)
 }
 
-func checkForcedCollision(seed uint64) bool {
-	let ka = CanonicalKeyOf(ceState{Tag: uint8(0), Val: int(seed % uint64(97))}) catch {
+func checkForcedCollision(val int, hashHi uint64) bool {
+	let ka = CanonicalKeyOf(ceState{Tag: uint8(0), Val: val}) catch {
 	case Keyless:
 		return false
 	}
-	let kb = CanonicalKeyOf(ceState{Tag: uint8(1), Val: int(seed % uint64(97))}) catch {
+	let kb = CanonicalKeyOf(ceState{Tag: uint8(1), Val: val}) catch {
 	case Keyless:
 		return false
 	}
-	let zero = if seed == uint64(0) { 0.0 } else { 0.0 }
-	let negOne = if seed == uint64(0) { -1.0 } else { -1.0 }
+	let zero = if hashHi == uint64(0) { 0.0 } else { 0.0 }
+	let negOne = if hashHi == uint64(0) { -1.0 } else { -1.0 }
 	let kPosZero = CanonicalKeyOf(zero) catch {
 	case Keyless:
 		return false
@@ -668,7 +667,7 @@ func checkForcedCollision(seed uint64) bool {
 	case Keyless:
 		return false
 	}
-	let forced = Hash{Hi: seed, Lo: seed ^ uint64(0x55aa)}
+	let forced = Hash{Hi: hashHi, Lo: hashHi ^ uint64(0x55aa)}
 	let mut kt = NewKeyTable()
 	let (idA, freshA, _) = InternWithHash(&kt, ka.Bytes, forced)
 	let (idB, freshB, _) = InternWithHash(&kt, kb.Bytes, forced)
@@ -685,91 +684,98 @@ func checkForcedCollision(seed uint64) bool {
 // nodes, distinct Ignore vs Reject self-loops, distinct payload aliases under one
 // tag, Done with output, Disabled work charging, and reachability agreement) and
 // that KeyTable keeps distinct canonical keys separate even under hash collision.
-law EdgesKeepIdentity(seed uint64) {
-	if !checkForcedCollision(seed) {
-		return false
-	}
-	let m = ceMachine(seed)
-	let finishCode = 1 + int(seed%uint64(11))
-	let signals = []ceEvent{
-		ceBump{Delta: 1},
-		ceBump{Delta: 2},
-		ceBump{Delta: 1},
-		ceProbe{Kind: uint8(0)},
-		ceProbe{Kind: uint8(1)},
-		ceFinish{Code: finishCode},
-	}
-	let bounds = ConcreteBounds{MaxStates: 64, MaxEdges: 256, MaxWork: 100000, MaxBytes: 65536}
-	let res = BuildConcrete(ConcreteOfMachine(m, signals), bounds)
-	match res.Stop {
-	case ConcreteComplete:
-	case OverStates, OverEdges, OverWork, OverBytes, InvalidBounds, Unkeyable:
-		return false
-	}
-	let (wantStates, wantEdges, wantDepth) = ceOracleBuild(m, signals)
-	if res.Stats.States != wantStates || res.Stats.Edges != len(wantEdges) || res.Stats.Depth != wantDepth || len(res.Edges) != len(wantEdges) || res.Roots != []int{0} {
-		return false
-	}
-	let mut sawVisited = false
-	let mut sawIgnore = false
-	let mut sawReject = false
-	let mut sawDone = false
-	let mut sawAlias1 = false
-	let mut sawAlias2 = false
-	for i in 0..len(wantEdges) {
-		let got = res.Edges[i]
-		let want = wantEdges[i]
-		if got.Source != want.Source || got.Signal != want.Signal || got.EventID != want.EventID || got.Target != want.Target || got.Obs != want.Obs {
+law EdgesKeepIdentity() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let mod = gen.Named("mod", showInt, func() int needs gen.Draws { gen.IntIn(3, 5) })
+		let bonus = gen.Named("bonus", showInt, func() int needs gen.Draws { gen.IntIn(0, 4) })
+		let finishCode = gen.Named("finishCode", showInt, func() int needs gen.Draws { gen.IntIn(1, 11) })
+		let val = gen.Named("val", showInt, func() int needs gen.Draws { gen.IntIn(0, 96) })
+		let hashHi = gen.Named("hashHi", showUint64, func() uint64 needs gen.Draws { gen.Below(uint64(0)) })
+		if !checkForcedCollision(val, hashHi) {
 			return false
 		}
-		match got.Target {
-		case ToState as ts:
-			if ts.State <= got.Source && got.Obs.Kind != DisIgnore && got.Obs.Kind != DisReject {
-				sawVisited = true
+		let m = ceMachine(mod, bonus)
+		let signals = []ceEvent{
+			ceBump{Delta: 1},
+			ceBump{Delta: 2},
+			ceBump{Delta: 1},
+			ceProbe{Kind: uint8(0)},
+			ceProbe{Kind: uint8(1)},
+			ceFinish{Code: finishCode},
+		}
+		let bounds = ConcreteBounds{MaxStates: 64, MaxEdges: 256, MaxWork: 100000, MaxBytes: 65536}
+		let res = BuildConcrete(ConcreteOfMachine(m, signals), bounds)
+		match res.Stop {
+		case ConcreteComplete:
+		case OverStates, OverEdges, OverWork, OverBytes, InvalidBounds, Unkeyable:
+			return false
+		}
+		let (wantStates, wantEdges, wantDepth) = ceOracleBuild(m, signals)
+		if res.Stats.States != wantStates || res.Stats.Edges != len(wantEdges) || res.Stats.Depth != wantDepth || len(res.Edges) != len(wantEdges) || res.Roots != []int{0} {
+			return false
+		}
+		let mut sawVisited = false
+		let mut sawIgnore = false
+		let mut sawReject = false
+		let mut sawDone = false
+		let mut sawAlias1 = false
+		let mut sawAlias2 = false
+		for i in 0..len(wantEdges) {
+			let got = res.Edges[i]
+			let want = wantEdges[i]
+			if got.Source != want.Source || got.Signal != want.Signal || got.EventID != want.EventID || got.Target != want.Target || got.Obs != want.Obs {
+				return false
 			}
-		case Ended:
-			let wantDone = Some[ceOut]{Value: ceOut{Code: finishCode, At: 0}}
-			if got.Obs.Kind == DisDone && got.Obs.Output == wantDone {
-				sawDone = true
+			match got.Target {
+			case ToState as ts:
+				if ts.State <= got.Source && got.Obs.Kind != DisIgnore && got.Obs.Kind != DisReject {
+					sawVisited = true
+				}
+			case Ended:
+				let wantDone = Some[ceOut]{Value: ceOut{Code: finishCode, At: 0}}
+				if got.Obs.Kind == DisDone && got.Obs.Output == wantDone {
+					sawDone = true
+				}
+			}
+			if got.Source == 0 && got.Obs.Kind == DisIgnore {
+				sawIgnore = true
+			}
+			if got.Source == 0 && got.Obs.Kind == DisReject {
+				sawReject = true
+			}
+			if got.Source == 0 && got.Signal == 0 && got.Obs.Kind == DisEnter {
+				sawAlias1 = true
+			}
+			if got.Source == 0 && got.Signal == 1 && got.Obs.Kind == DisEmit {
+				sawAlias2 = true
 			}
 		}
-		if got.Source == 0 && got.Obs.Kind == DisIgnore {
-			sawIgnore = true
+		if !sawVisited || !sawIgnore || !sawReject || !sawDone || !sawAlias1 || !sawAlias2 {
+			return false
 		}
-		if got.Source == 0 && got.Obs.Kind == DisReject {
-			sawReject = true
+		let disabledGraph = ConcreteGraph[int, int, int]{
+			Starts:  []int{0},
+			Signals: []int{0, 1},
+			Step:    func(s int, e int) EdgeOutcome[int, int] {
+				if e == 0 {
+					Disabled[int]{Obs: -1}
+				} else {
+					Terminal[int]{Obs: s + 1}
+				}
+			},
 		}
-		if got.Source == 0 && got.Signal == 0 && got.Obs.Kind == DisEnter {
-			sawAlias1 = true
+		let disRes = BuildConcrete(disabledGraph, bounds)
+		let disOK = disRes.Stop == ConcreteComplete && disRes.Stats.Disabled == 1 && disRes.Stats.Edges == 1 && disRes.Stats.Work > 2
+		let tightEdges = BuildConcrete(ConcreteOfMachine(m, signals), ConcreteBounds{MaxStates: 64, MaxEdges: 1, MaxWork: 100000, MaxBytes: 65536})
+		let tightOK = tightEdges.Stop == OverEdges && len(tightEdges.Edges) == 1
+		let reach = Always(OfMachine(m, signals), func(s ceState) bool { s.Val >= 0 }, 64)
+		let reachOK = match reach {
+		case Proved as pr:
+			pr.Stats.States == wantStates
+		case NotProved, Refuted, Witness, Absent:
+			false
 		}
-		if got.Source == 0 && got.Signal == 1 && got.Obs.Kind == DisEmit {
-			sawAlias2 = true
-		}
-	}
-	if !sawVisited || !sawIgnore || !sawReject || !sawDone || !sawAlias1 || !sawAlias2 {
-		return false
-	}
-	let disabledGraph = ConcreteGraph[int, int, int]{
-		Starts:  []int{0},
-		Signals: []int{0, 1},
-		Step:    func(s int, e int) EdgeOutcome[int, int] {
-			if e == 0 {
-				Disabled[int]{Obs: -1}
-			} else {
-				Terminal[int]{Obs: s + 1}
-			}
-		},
-	}
-	let disRes = BuildConcrete(disabledGraph, bounds)
-	let disOK = disRes.Stop == ConcreteComplete && disRes.Stats.Disabled == 1 && disRes.Stats.Edges == 1 && disRes.Stats.Work > 2
-	let tightEdges = BuildConcrete(ConcreteOfMachine(m, signals), ConcreteBounds{MaxStates: 64, MaxEdges: 1, MaxWork: 100000, MaxBytes: 65536})
-	let tightOK = tightEdges.Stop == OverEdges && len(tightEdges.Edges) == 1
-	let reach = Always(OfMachine(m, signals), func(s ceState) bool { s.Val >= 0 }, 64)
-	let reachOK = match reach {
-	case Proved as pr:
-		pr.Stats.States == wantStates
-	case NotProved, Refuted, Witness, Absent:
-		false
-	}
-	disOK && tightOK && reachOK
+		disOK && tightOK && reachOK
+	})) == ""
+	true
 }
