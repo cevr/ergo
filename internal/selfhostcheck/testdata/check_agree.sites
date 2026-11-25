@@ -1328,7 +1328,6 @@ case unused internal/sketch/std/crc32/crc32.ergo
 case unused internal/sketch/std/cron/expr.ergo
 case unused internal/sketch/std/decimal/u128.ergo
 case unused internal/sketch/std/dense/keys.ergo
-case unused internal/sketch/std/explore/session.ergo
 case unused internal/sketch/std/fs/mapped/mapped.ergo
 case unused internal/sketch/std/fstest/confined.ergo
 case unused internal/sketch/std/fstest/memory.ergo
