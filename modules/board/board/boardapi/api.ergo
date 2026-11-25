@@ -1,4 +1,5 @@
 import json
+import rpc
 import sync
 import github.com/cevr/ergo/modules/board/board
 
@@ -1165,23 +1166,299 @@ func Call(r Request) Outcome needs board.Api {
 	}
 }
 
-// Client provides board.Api over send, any way to carry a Request to a
-// Call and its Outcome back. An Outcome that is not the operation's (the
-// value of another, a failure outside its row) is a defect.
-type Client { send func(r Request) Outcome } implements board.Api
+// Client provides board.Api by invoking typed per-operation handlers directly:
+// a direct call returns its exact value or declared failure row with no Outcome boxing.
+type Client { opWhoami func(board.WhoamiInput) board.WhoamiReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed, opBoards func() []board.BoardSummary fails board.Unauthenticated | board.Gone | board.StoreFailed, opChannels func(board.ChannelsInput) []board.ChannelSummary fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed, opChannelCreate func(board.ChannelCreateInput) board.ChannelCreatedReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.ChannelExists | board.ChannelGranted | board.BoardArchived, opActors func(board.ActorsInput) []board.ActorSummary fails board.Unauthenticated | board.Gone | board.StoreFailed, opRead func(board.ReadInput) board.ReadReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Invalid | board.NotFound, opSearch func(board.SearchInput) board.SearchReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Invalid, opPost func(board.PostInput) board.PostReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict | board.ReservedLabel, opThreadReply func(board.ReplyInput) board.PostReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict | board.ReservedLabel | board.NewerMessage, opEdit func(board.EditInput) board.RevisionReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.NotAuthor | board.RevisionConflict, opDelete func(board.DeleteInput) board.RevisionReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.NotAuthor | board.RevisionConflict, opReact func(board.ReactInput) board.ReactReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound, opLabel func(board.LabelInput) board.LabelReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.ReservedLabel | board.LabelConflict, opAsk func(board.AskInput) board.AskReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict, opAskWithdraw func(board.AskWithdrawInput) board.AskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.NotAsker | board.AskClosed, opTasksList func(board.TasksListInput) board.TasksListReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Invalid, opTasksCreate func(board.TasksCreateInput) board.TaskCreateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict | board.ReservedLabel | board.AlreadyTask | board.InvalidNeeds | board.TaskOwnerUntrusted, opTasksPlan func(board.TasksPlanInput) board.TasksPlanReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict | board.ReservedLabel | board.InvalidNeeds | board.PlanTooLarge, opTasksClaim func(board.TasksClaimInput) board.TaskClaimReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TaskOwnerUntrusted | board.TaskClaimedRefusal | board.TaskAssignedRefusal | board.TaskWaitingRefusal | board.TaskBlockedRefusal | board.TaskFinished | board.NothingReady, opTasksRenew func(board.TasksRenewInput) board.TaskRenewReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.ClaimLost, opTasksRelease func(board.TasksReleaseInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.ClaimLost, opTasksComplete func(board.TasksCompleteInput) board.TaskCompleteReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.ClaimLost, opTasksFail func(board.TasksFailInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.ClaimLost, opTasksBlock func(board.TasksBlockInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.TaskFinished | board.ClaimLost | board.TaskNotOwned, opTasksUnblock func(board.TasksUnblockInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TaskNotOwned | board.NotBlocked, opTasksReopen func(board.TasksReopenInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TaskNotOwned | board.NotFailed, opTasksAssign func(board.TasksAssignInput) board.TaskAssignReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TaskFinished | board.TaskNotOwned, opTasksNeeds func(board.TasksNeedsInput) board.TaskNeedsReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.InvalidNeeds | board.TaskClaimedRefusal | board.TaskFinished | board.TaskNotOwned, opTasksCancel func(board.TasksCancelInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.TaskFinished | board.TaskNotOwned, opGrants func(board.GrantsInput) []board.Grant fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden, opGrantExplain func(board.GrantExplainInput) board.GrantExplainReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.NotFound, opGrantCreate func(board.GrantCreateInput) board.Grant fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived, opGrantRevoke func(board.GrantRevokeInput) board.GrantRevokedReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound, opBoardCreate func(board.BoardCreateInput) board.BoardSummary fails board.Unauthenticated | board.Gone | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardNameTaken, opBoardRename func(board.BoardRenameInput) board.BoardSummary fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.BoardNameTaken, opBoardArchive func(board.BoardArchiveInput) board.BoardSummary fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived, opTrustUpdate func(board.TrustUpdateInput) board.TrustSet fails board.Unauthenticated | board.Gone | board.StoreFailed | board.Forbidden | board.Invalid } implements board.Api
 
-// NewClient is the board.Api that send answers.
-func NewClient(send own func(r Request) Outcome) Client { Client{send: send} }
+// NewClient is the board.Api that invokes inner directly per operation.
+func NewClient(inner board.Api) Client {
+	Client{
+		opWhoami:        func(input board.WhoamiInput) board.WhoamiReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed { try inner.Whoami(input) },
+		opBoards:        func() []board.BoardSummary fails board.Unauthenticated | board.Gone | board.StoreFailed { try inner.Boards() },
+		opChannels:      func(input board.ChannelsInput) []board.ChannelSummary fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed { try inner.Channels(input) },
+		opChannelCreate: func(input board.ChannelCreateInput) board.ChannelCreatedReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.ChannelExists | board.ChannelGranted | board.BoardArchived { try inner.ChannelCreate(input) },
+		opActors:        func(input board.ActorsInput) []board.ActorSummary fails board.Unauthenticated | board.Gone | board.StoreFailed { try inner.Actors(input) },
+		opRead:          func(input board.ReadInput) board.ReadReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Invalid | board.NotFound { try inner.Read(input) },
+		opSearch:        func(input board.SearchInput) board.SearchReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Invalid { try inner.Search(input) },
+		opPost:          func(input board.PostInput) board.PostReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict | board.ReservedLabel { try inner.Post(input) },
+		opThreadReply:   func(input board.ReplyInput) board.PostReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict | board.ReservedLabel | board.NewerMessage { try inner.ThreadReply(input) },
+		opEdit:          func(input board.EditInput) board.RevisionReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.NotAuthor | board.RevisionConflict { try inner.Edit(input) },
+		opDelete:        func(input board.DeleteInput) board.RevisionReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.NotAuthor | board.RevisionConflict { try inner.Delete(input) },
+		opReact:         func(input board.ReactInput) board.ReactReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound { try inner.React(input) },
+		opLabel:         func(input board.LabelInput) board.LabelReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.ReservedLabel | board.LabelConflict { try inner.Label(input) },
+		opAsk:           func(input board.AskInput) board.AskReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict { try inner.Ask(input) },
+		opAskWithdraw:   func(input board.AskWithdrawInput) board.AskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.NotAsker | board.AskClosed { try inner.AskWithdraw(input) },
+		opTasksList:     func(input board.TasksListInput) board.TasksListReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Invalid { try inner.TasksList(input) },
+		opTasksCreate:   func(input board.TasksCreateInput) board.TaskCreateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict | board.ReservedLabel | board.AlreadyTask | board.InvalidNeeds | board.TaskOwnerUntrusted { try inner.TasksCreate(input) },
+		opTasksPlan:     func(input board.TasksPlanInput) board.TasksPlanReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict | board.ReservedLabel | board.InvalidNeeds | board.PlanTooLarge { try inner.TasksPlan(input) },
+		opTasksClaim:    func(input board.TasksClaimInput) board.TaskClaimReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TaskOwnerUntrusted | board.TaskClaimedRefusal | board.TaskAssignedRefusal | board.TaskWaitingRefusal | board.TaskBlockedRefusal | board.TaskFinished | board.NothingReady { try inner.TasksClaim(input) },
+		opTasksRenew:    func(input board.TasksRenewInput) board.TaskRenewReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.ClaimLost { try inner.TasksRenew(input) },
+		opTasksRelease:  func(input board.TasksReleaseInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.ClaimLost { try inner.TasksRelease(input) },
+		opTasksComplete: func(input board.TasksCompleteInput) board.TaskCompleteReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.ClaimLost { try inner.TasksComplete(input) },
+		opTasksFail:     func(input board.TasksFailInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.ClaimLost { try inner.TasksFail(input) },
+		opTasksBlock:    func(input board.TasksBlockInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.TaskFinished | board.ClaimLost | board.TaskNotOwned { try inner.TasksBlock(input) },
+		opTasksUnblock:  func(input board.TasksUnblockInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TaskNotOwned | board.NotBlocked { try inner.TasksUnblock(input) },
+		opTasksReopen:   func(input board.TasksReopenInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TaskNotOwned | board.NotFailed { try inner.TasksReopen(input) },
+		opTasksAssign:   func(input board.TasksAssignInput) board.TaskAssignReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TaskFinished | board.TaskNotOwned { try inner.TasksAssign(input) },
+		opTasksNeeds:    func(input board.TasksNeedsInput) board.TaskNeedsReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.InvalidNeeds | board.TaskClaimedRefusal | board.TaskFinished | board.TaskNotOwned { try inner.TasksNeeds(input) },
+		opTasksCancel:   func(input board.TasksCancelInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.TaskFinished | board.TaskNotOwned { try inner.TasksCancel(input) },
+		opGrants:        func(input board.GrantsInput) []board.Grant fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden { try inner.Grants(input) },
+		opGrantExplain:  func(input board.GrantExplainInput) board.GrantExplainReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.NotFound { try inner.GrantExplain(input) },
+		opGrantCreate:   func(input board.GrantCreateInput) board.Grant fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived { try inner.GrantCreate(input) },
+		opGrantRevoke:   func(input board.GrantRevokeInput) board.GrantRevokedReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound { try inner.GrantRevoke(input) },
+		opBoardCreate:   func(input board.BoardCreateInput) board.BoardSummary fails board.Unauthenticated | board.Gone | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardNameTaken { try inner.BoardCreate(input) },
+		opBoardRename:   func(input board.BoardRenameInput) board.BoardSummary fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.BoardNameTaken { try inner.BoardRename(input) },
+		opBoardArchive:  func(input board.BoardArchiveInput) board.BoardSummary fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived { try inner.BoardArchive(input) },
+		opTrustUpdate:   func(input board.TrustUpdateInput) board.TrustSet fails board.Unauthenticated | board.Gone | board.StoreFailed | board.Forbidden | board.Invalid { try inner.TrustUpdate(input) },
+	}
+}
 
-// Whoami sends board.Api's Whoami and answers its Outcome.
+// ClientInForce is the board.Api that invokes the provider currently in force.
+func ClientInForce() Client needs board.Api {
+	let held = InForce[board.Api]()
+	Client{
+		opWhoami:        func(input board.WhoamiInput) board.WhoamiReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed { with held { try board.Api.Whoami(input) } },
+		opBoards:        func() []board.BoardSummary fails board.Unauthenticated | board.Gone | board.StoreFailed { with held { try board.Api.Boards() } },
+		opChannels:      func(input board.ChannelsInput) []board.ChannelSummary fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed { with held { try board.Api.Channels(input) } },
+		opChannelCreate: func(input board.ChannelCreateInput) board.ChannelCreatedReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.ChannelExists | board.ChannelGranted | board.BoardArchived { with held { try board.Api.ChannelCreate(input) } },
+		opActors:        func(input board.ActorsInput) []board.ActorSummary fails board.Unauthenticated | board.Gone | board.StoreFailed { with held { try board.Api.Actors(input) } },
+		opRead:          func(input board.ReadInput) board.ReadReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Invalid | board.NotFound { with held { try board.Api.Read(input) } },
+		opSearch:        func(input board.SearchInput) board.SearchReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Invalid { with held { try board.Api.Search(input) } },
+		opPost:          func(input board.PostInput) board.PostReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict | board.ReservedLabel { with held { try board.Api.Post(input) } },
+		opThreadReply:   func(input board.ReplyInput) board.PostReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict | board.ReservedLabel | board.NewerMessage { with held { try board.Api.ThreadReply(input) } },
+		opEdit:          func(input board.EditInput) board.RevisionReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.NotAuthor | board.RevisionConflict { with held { try board.Api.Edit(input) } },
+		opDelete:        func(input board.DeleteInput) board.RevisionReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.NotAuthor | board.RevisionConflict { with held { try board.Api.Delete(input) } },
+		opReact:         func(input board.ReactInput) board.ReactReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound { with held { try board.Api.React(input) } },
+		opLabel:         func(input board.LabelInput) board.LabelReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.ReservedLabel | board.LabelConflict { with held { try board.Api.Label(input) } },
+		opAsk:           func(input board.AskInput) board.AskReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict { with held { try board.Api.Ask(input) } },
+		opAskWithdraw:   func(input board.AskWithdrawInput) board.AskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.NotAsker | board.AskClosed { with held { try board.Api.AskWithdraw(input) } },
+		opTasksList:     func(input board.TasksListInput) board.TasksListReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Invalid { with held { try board.Api.TasksList(input) } },
+		opTasksCreate:   func(input board.TasksCreateInput) board.TaskCreateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict | board.ReservedLabel | board.AlreadyTask | board.InvalidNeeds | board.TaskOwnerUntrusted { with held { try board.Api.TasksCreate(input) } },
+		opTasksPlan:     func(input board.TasksPlanInput) board.TasksPlanReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict | board.ReservedLabel | board.InvalidNeeds | board.PlanTooLarge { with held { try board.Api.TasksPlan(input) } },
+		opTasksClaim:    func(input board.TasksClaimInput) board.TaskClaimReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TaskOwnerUntrusted | board.TaskClaimedRefusal | board.TaskAssignedRefusal | board.TaskWaitingRefusal | board.TaskBlockedRefusal | board.TaskFinished | board.NothingReady { with held { try board.Api.TasksClaim(input) } },
+		opTasksRenew:    func(input board.TasksRenewInput) board.TaskRenewReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.ClaimLost { with held { try board.Api.TasksRenew(input) } },
+		opTasksRelease:  func(input board.TasksReleaseInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.ClaimLost { with held { try board.Api.TasksRelease(input) } },
+		opTasksComplete: func(input board.TasksCompleteInput) board.TaskCompleteReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.ClaimLost { with held { try board.Api.TasksComplete(input) } },
+		opTasksFail:     func(input board.TasksFailInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.ClaimLost { with held { try board.Api.TasksFail(input) } },
+		opTasksBlock:    func(input board.TasksBlockInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.TaskFinished | board.ClaimLost | board.TaskNotOwned { with held { try board.Api.TasksBlock(input) } },
+		opTasksUnblock:  func(input board.TasksUnblockInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TaskNotOwned | board.NotBlocked { with held { try board.Api.TasksUnblock(input) } },
+		opTasksReopen:   func(input board.TasksReopenInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TaskNotOwned | board.NotFailed { with held { try board.Api.TasksReopen(input) } },
+		opTasksAssign:   func(input board.TasksAssignInput) board.TaskAssignReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TaskFinished | board.TaskNotOwned { with held { try board.Api.TasksAssign(input) } },
+		opTasksNeeds:    func(input board.TasksNeedsInput) board.TaskNeedsReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.InvalidNeeds | board.TaskClaimedRefusal | board.TaskFinished | board.TaskNotOwned { with held { try board.Api.TasksNeeds(input) } },
+		opTasksCancel:   func(input board.TasksCancelInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.TaskFinished | board.TaskNotOwned { with held { try board.Api.TasksCancel(input) } },
+		opGrants:        func(input board.GrantsInput) []board.Grant fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden { with held { try board.Api.Grants(input) } },
+		opGrantExplain:  func(input board.GrantExplainInput) board.GrantExplainReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.NotFound { with held { try board.Api.GrantExplain(input) } },
+		opGrantCreate:   func(input board.GrantCreateInput) board.Grant fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived { with held { try board.Api.GrantCreate(input) } },
+		opGrantRevoke:   func(input board.GrantRevokeInput) board.GrantRevokedReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound { with held { try board.Api.GrantRevoke(input) } },
+		opBoardCreate:   func(input board.BoardCreateInput) board.BoardSummary fails board.Unauthenticated | board.Gone | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardNameTaken { with held { try board.Api.BoardCreate(input) } },
+		opBoardRename:   func(input board.BoardRenameInput) board.BoardSummary fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.BoardNameTaken { with held { try board.Api.BoardRename(input) } },
+		opBoardArchive:  func(input board.BoardArchiveInput) board.BoardSummary fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived { with held { try board.Api.BoardArchive(input) } },
+		opTrustUpdate:   func(input board.TrustUpdateInput) board.TrustSet fails board.Unauthenticated | board.Gone | board.StoreFailed | board.Forbidden | board.Invalid { with held { try board.Api.TrustUpdate(input) } },
+	}
+}
+
+// Whoami invokes board.Api's Whoami directly.
 func Whoami(client Client, input board.WhoamiInput) board.WhoamiReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed {
-	match client.send(WhoamiRequest{Input: input}) {
+	try client.opWhoami(input)
+}
+
+// Boards invokes board.Api's Boards directly.
+func Boards(client Client) []board.BoardSummary fails board.Unauthenticated | board.Gone | board.StoreFailed {
+	try client.opBoards()
+}
+
+// Channels invokes board.Api's Channels directly.
+func Channels(client Client, input board.ChannelsInput) []board.ChannelSummary fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed {
+	try client.opChannels(input)
+}
+
+// ChannelCreate invokes board.Api's ChannelCreate directly.
+func ChannelCreate(client Client, input board.ChannelCreateInput) board.ChannelCreatedReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.ChannelExists | board.ChannelGranted | board.BoardArchived {
+	try client.opChannelCreate(input)
+}
+
+// Actors invokes board.Api's Actors directly.
+func Actors(client Client, input board.ActorsInput) []board.ActorSummary fails board.Unauthenticated | board.Gone | board.StoreFailed {
+	try client.opActors(input)
+}
+
+// Read invokes board.Api's Read directly.
+func Read(client Client, input board.ReadInput) board.ReadReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Invalid | board.NotFound {
+	try client.opRead(input)
+}
+
+// Search invokes board.Api's Search directly.
+func Search(client Client, input board.SearchInput) board.SearchReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Invalid {
+	try client.opSearch(input)
+}
+
+// Post invokes board.Api's Post directly.
+func Post(client Client, input board.PostInput) board.PostReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict | board.ReservedLabel {
+	try client.opPost(input)
+}
+
+// ThreadReply invokes board.Api's ThreadReply directly.
+func ThreadReply(client Client, input board.ReplyInput) board.PostReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict | board.ReservedLabel | board.NewerMessage {
+	try client.opThreadReply(input)
+}
+
+// Edit invokes board.Api's Edit directly.
+func Edit(client Client, input board.EditInput) board.RevisionReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.NotAuthor | board.RevisionConflict {
+	try client.opEdit(input)
+}
+
+// Delete invokes board.Api's Delete directly.
+func Delete(client Client, input board.DeleteInput) board.RevisionReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.NotAuthor | board.RevisionConflict {
+	try client.opDelete(input)
+}
+
+// React invokes board.Api's React directly.
+func React(client Client, input board.ReactInput) board.ReactReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound {
+	try client.opReact(input)
+}
+
+// Label invokes board.Api's Label directly.
+func Label(client Client, input board.LabelInput) board.LabelReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.ReservedLabel | board.LabelConflict {
+	try client.opLabel(input)
+}
+
+// Ask invokes board.Api's Ask directly.
+func Ask(client Client, input board.AskInput) board.AskReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict {
+	try client.opAsk(input)
+}
+
+// AskWithdraw invokes board.Api's AskWithdraw directly.
+func AskWithdraw(client Client, input board.AskWithdrawInput) board.AskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.NotAsker | board.AskClosed {
+	try client.opAskWithdraw(input)
+}
+
+// TasksList invokes board.Api's TasksList directly.
+func TasksList(client Client, input board.TasksListInput) board.TasksListReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Invalid {
+	try client.opTasksList(input)
+}
+
+// TasksCreate invokes board.Api's TasksCreate directly.
+func TasksCreate(client Client, input board.TasksCreateInput) board.TaskCreateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict | board.ReservedLabel | board.AlreadyTask | board.InvalidNeeds | board.TaskOwnerUntrusted {
+	try client.opTasksCreate(input)
+}
+
+// TasksPlan invokes board.Api's TasksPlan directly.
+func TasksPlan(client Client, input board.TasksPlanInput) board.TasksPlanReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict | board.ReservedLabel | board.InvalidNeeds | board.PlanTooLarge {
+	try client.opTasksPlan(input)
+}
+
+// TasksClaim invokes board.Api's TasksClaim directly.
+func TasksClaim(client Client, input board.TasksClaimInput) board.TaskClaimReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TaskOwnerUntrusted | board.TaskClaimedRefusal | board.TaskAssignedRefusal | board.TaskWaitingRefusal | board.TaskBlockedRefusal | board.TaskFinished | board.NothingReady {
+	try client.opTasksClaim(input)
+}
+
+// TasksRenew invokes board.Api's TasksRenew directly.
+func TasksRenew(client Client, input board.TasksRenewInput) board.TaskRenewReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.ClaimLost {
+	try client.opTasksRenew(input)
+}
+
+// TasksRelease invokes board.Api's TasksRelease directly.
+func TasksRelease(client Client, input board.TasksReleaseInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.ClaimLost {
+	try client.opTasksRelease(input)
+}
+
+// TasksComplete invokes board.Api's TasksComplete directly.
+func TasksComplete(client Client, input board.TasksCompleteInput) board.TaskCompleteReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.ClaimLost {
+	try client.opTasksComplete(input)
+}
+
+// TasksFail invokes board.Api's TasksFail directly.
+func TasksFail(client Client, input board.TasksFailInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.ClaimLost {
+	try client.opTasksFail(input)
+}
+
+// TasksBlock invokes board.Api's TasksBlock directly.
+func TasksBlock(client Client, input board.TasksBlockInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.TaskFinished | board.ClaimLost | board.TaskNotOwned {
+	try client.opTasksBlock(input)
+}
+
+// TasksUnblock invokes board.Api's TasksUnblock directly.
+func TasksUnblock(client Client, input board.TasksUnblockInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TaskNotOwned | board.NotBlocked {
+	try client.opTasksUnblock(input)
+}
+
+// TasksReopen invokes board.Api's TasksReopen directly.
+func TasksReopen(client Client, input board.TasksReopenInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TaskNotOwned | board.NotFailed {
+	try client.opTasksReopen(input)
+}
+
+// TasksAssign invokes board.Api's TasksAssign directly.
+func TasksAssign(client Client, input board.TasksAssignInput) board.TaskAssignReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TaskFinished | board.TaskNotOwned {
+	try client.opTasksAssign(input)
+}
+
+// TasksNeeds invokes board.Api's TasksNeeds directly.
+func TasksNeeds(client Client, input board.TasksNeedsInput) board.TaskNeedsReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.InvalidNeeds | board.TaskClaimedRefusal | board.TaskFinished | board.TaskNotOwned {
+	try client.opTasksNeeds(input)
+}
+
+// TasksCancel invokes board.Api's TasksCancel directly.
+func TasksCancel(client Client, input board.TasksCancelInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.TaskFinished | board.TaskNotOwned {
+	try client.opTasksCancel(input)
+}
+
+// Grants invokes board.Api's Grants directly.
+func Grants(client Client, input board.GrantsInput) []board.Grant fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden {
+	try client.opGrants(input)
+}
+
+// GrantExplain invokes board.Api's GrantExplain directly.
+func GrantExplain(client Client, input board.GrantExplainInput) board.GrantExplainReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.NotFound {
+	try client.opGrantExplain(input)
+}
+
+// GrantCreate invokes board.Api's GrantCreate directly.
+func GrantCreate(client Client, input board.GrantCreateInput) board.Grant fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived {
+	try client.opGrantCreate(input)
+}
+
+// GrantRevoke invokes board.Api's GrantRevoke directly.
+func GrantRevoke(client Client, input board.GrantRevokeInput) board.GrantRevokedReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound {
+	try client.opGrantRevoke(input)
+}
+
+// BoardCreate invokes board.Api's BoardCreate directly.
+func BoardCreate(client Client, input board.BoardCreateInput) board.BoardSummary fails board.Unauthenticated | board.Gone | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardNameTaken {
+	try client.opBoardCreate(input)
+}
+
+// BoardRename invokes board.Api's BoardRename directly.
+func BoardRename(client Client, input board.BoardRenameInput) board.BoardSummary fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.BoardNameTaken {
+	try client.opBoardRename(input)
+}
+
+// BoardArchive invokes board.Api's BoardArchive directly.
+func BoardArchive(client Client, input board.BoardArchiveInput) board.BoardSummary fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived {
+	try client.opBoardArchive(input)
+}
+
+// TrustUpdate invokes board.Api's TrustUpdate directly.
+func TrustUpdate(client Client, input board.TrustUpdateInput) board.TrustSet fails board.Unauthenticated | board.Gone | board.StoreFailed | board.Forbidden | board.Invalid {
+	try client.opTrustUpdate(input)
+}
+
+// CheckedClient carries erased board.Api requests over send and validates each
+// Outcome against the requested operation, failing rpc.Transport on a
+// sibling reply or a failure outside the operation's row.
+type CheckedClient { send func(r Request) Outcome fails rpc.Transport }
+
+// NewCheckedClient is the CheckedClient that send answers.
+func NewCheckedClient(send own func(r Request) Outcome fails rpc.Transport) CheckedClient { CheckedClient{send: send} }
+
+// WhoamiChecked sends board.Api's Whoami over send and validates its Outcome.
+func WhoamiChecked(client CheckedClient, input board.WhoamiInput) board.WhoamiReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | rpc.Transport {
+	match try client.send(WhoamiRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
 		case WhoamiReply as reply:
 			reply.Value
 		case _:
-			Unreachable("boardapi: Whoami was answered with the value of another operation")
+			return rpc.Transport{Reason: "boardapi: Whoami was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -1194,20 +1471,20 @@ func Whoami(client Client, input board.WhoamiInput) board.WhoamiReply fails boar
 		case StoreFailed as failure:
 			return failure.E
 		case _:
-			Unreachable("boardapi: Whoami was answered with a failure outside its row")
+			return rpc.Transport{Reason: "boardapi: Whoami was answered with a failure outside its row"}
 		}
 	}
 }
 
-// Boards sends board.Api's Boards and answers its Outcome.
-func Boards(client Client) []board.BoardSummary fails board.Unauthenticated | board.Gone | board.StoreFailed {
-	match client.send(BoardsRequest) {
+// BoardsChecked sends board.Api's Boards over send and validates its Outcome.
+func BoardsChecked(client CheckedClient) []board.BoardSummary fails board.Unauthenticated | board.Gone | board.StoreFailed | rpc.Transport {
+	match try client.send(BoardsRequest) {
 	case Done as done:
 		match done.Reply {
 		case BoardsReply as reply:
 			reply.Value
 		case _:
-			Unreachable("boardapi: Boards was answered with the value of another operation")
+			return rpc.Transport{Reason: "boardapi: Boards was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -1218,20 +1495,20 @@ func Boards(client Client) []board.BoardSummary fails board.Unauthenticated | bo
 		case StoreFailed as failure:
 			return failure.E
 		case _:
-			Unreachable("boardapi: Boards was answered with a failure outside its row")
+			return rpc.Transport{Reason: "boardapi: Boards was answered with a failure outside its row"}
 		}
 	}
 }
 
-// Channels sends board.Api's Channels and answers its Outcome.
-func Channels(client Client, input board.ChannelsInput) []board.ChannelSummary fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed {
-	match client.send(ChannelsRequest{Input: input}) {
+// ChannelsChecked sends board.Api's Channels over send and validates its Outcome.
+func ChannelsChecked(client CheckedClient, input board.ChannelsInput) []board.ChannelSummary fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | rpc.Transport {
+	match try client.send(ChannelsRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
 		case ChannelsReply as reply:
 			reply.Value
 		case _:
-			Unreachable("boardapi: Channels was answered with the value of another operation")
+			return rpc.Transport{Reason: "boardapi: Channels was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -1244,20 +1521,20 @@ func Channels(client Client, input board.ChannelsInput) []board.ChannelSummary f
 		case StoreFailed as failure:
 			return failure.E
 		case _:
-			Unreachable("boardapi: Channels was answered with a failure outside its row")
+			return rpc.Transport{Reason: "boardapi: Channels was answered with a failure outside its row"}
 		}
 	}
 }
 
-// ChannelCreate sends board.Api's ChannelCreate and answers its Outcome.
-func ChannelCreate(client Client, input board.ChannelCreateInput) board.ChannelCreatedReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.ChannelExists | board.ChannelGranted | board.BoardArchived {
-	match client.send(ChannelCreateRequest{Input: input}) {
+// ChannelCreateChecked sends board.Api's ChannelCreate over send and validates its Outcome.
+func ChannelCreateChecked(client CheckedClient, input board.ChannelCreateInput) board.ChannelCreatedReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.ChannelExists | board.ChannelGranted | board.BoardArchived | rpc.Transport {
+	match try client.send(ChannelCreateRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
 		case ChannelCreateReply as reply:
 			reply.Value
 		case _:
-			Unreachable("boardapi: ChannelCreate was answered with the value of another operation")
+			return rpc.Transport{Reason: "boardapi: ChannelCreate was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -1280,20 +1557,20 @@ func ChannelCreate(client Client, input board.ChannelCreateInput) board.ChannelC
 		case BoardArchived as failure:
 			return failure.E
 		case _:
-			Unreachable("boardapi: ChannelCreate was answered with a failure outside its row")
+			return rpc.Transport{Reason: "boardapi: ChannelCreate was answered with a failure outside its row"}
 		}
 	}
 }
 
-// Actors sends board.Api's Actors and answers its Outcome.
-func Actors(client Client, input board.ActorsInput) []board.ActorSummary fails board.Unauthenticated | board.Gone | board.StoreFailed {
-	match client.send(ActorsRequest{Input: input}) {
+// ActorsChecked sends board.Api's Actors over send and validates its Outcome.
+func ActorsChecked(client CheckedClient, input board.ActorsInput) []board.ActorSummary fails board.Unauthenticated | board.Gone | board.StoreFailed | rpc.Transport {
+	match try client.send(ActorsRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
 		case ActorsReply as reply:
 			reply.Value
 		case _:
-			Unreachable("boardapi: Actors was answered with the value of another operation")
+			return rpc.Transport{Reason: "boardapi: Actors was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -1304,20 +1581,20 @@ func Actors(client Client, input board.ActorsInput) []board.ActorSummary fails b
 		case StoreFailed as failure:
 			return failure.E
 		case _:
-			Unreachable("boardapi: Actors was answered with a failure outside its row")
+			return rpc.Transport{Reason: "boardapi: Actors was answered with a failure outside its row"}
 		}
 	}
 }
 
-// Read sends board.Api's Read and answers its Outcome.
-func Read(client Client, input board.ReadInput) board.ReadReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Invalid | board.NotFound {
-	match client.send(ReadRequest{Input: input}) {
+// ReadChecked sends board.Api's Read over send and validates its Outcome.
+func ReadChecked(client CheckedClient, input board.ReadInput) board.ReadReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Invalid | board.NotFound | rpc.Transport {
+	match try client.send(ReadRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
 		case ReadReply as reply:
 			reply.Value
 		case _:
-			Unreachable("boardapi: Read was answered with the value of another operation")
+			return rpc.Transport{Reason: "boardapi: Read was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -1334,20 +1611,20 @@ func Read(client Client, input board.ReadInput) board.ReadReply fails board.Unau
 		case NotFound as failure:
 			return failure.E
 		case _:
-			Unreachable("boardapi: Read was answered with a failure outside its row")
+			return rpc.Transport{Reason: "boardapi: Read was answered with a failure outside its row"}
 		}
 	}
 }
 
-// Search sends board.Api's Search and answers its Outcome.
-func Search(client Client, input board.SearchInput) board.SearchReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Invalid {
-	match client.send(SearchRequest{Input: input}) {
+// SearchChecked sends board.Api's Search over send and validates its Outcome.
+func SearchChecked(client CheckedClient, input board.SearchInput) board.SearchReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Invalid | rpc.Transport {
+	match try client.send(SearchRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
 		case SearchReply as reply:
 			reply.Value
 		case _:
-			Unreachable("boardapi: Search was answered with the value of another operation")
+			return rpc.Transport{Reason: "boardapi: Search was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -1362,20 +1639,20 @@ func Search(client Client, input board.SearchInput) board.SearchReply fails boar
 		case Invalid as failure:
 			return failure.E
 		case _:
-			Unreachable("boardapi: Search was answered with a failure outside its row")
+			return rpc.Transport{Reason: "boardapi: Search was answered with a failure outside its row"}
 		}
 	}
 }
 
-// Post sends board.Api's Post and answers its Outcome.
-func Post(client Client, input board.PostInput) board.PostReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict | board.ReservedLabel {
-	match client.send(PostRequest{Input: input}) {
+// PostChecked sends board.Api's Post over send and validates its Outcome.
+func PostChecked(client CheckedClient, input board.PostInput) board.PostReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict | board.ReservedLabel | rpc.Transport {
+	match try client.send(PostRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
 		case PostReply as reply:
 			reply.Value
 		case _:
-			Unreachable("boardapi: Post was answered with the value of another operation")
+			return rpc.Transport{Reason: "boardapi: Post was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -1404,20 +1681,20 @@ func Post(client Client, input board.PostInput) board.PostReply fails board.Unau
 		case ReservedLabel as failure:
 			return failure.E
 		case _:
-			Unreachable("boardapi: Post was answered with a failure outside its row")
+			return rpc.Transport{Reason: "boardapi: Post was answered with a failure outside its row"}
 		}
 	}
 }
 
-// ThreadReply sends board.Api's ThreadReply and answers its Outcome.
-func ThreadReply(client Client, input board.ReplyInput) board.PostReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict | board.ReservedLabel | board.NewerMessage {
-	match client.send(ThreadReplyRequest{Input: input}) {
+// ThreadReplyChecked sends board.Api's ThreadReply over send and validates its Outcome.
+func ThreadReplyChecked(client CheckedClient, input board.ReplyInput) board.PostReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict | board.ReservedLabel | board.NewerMessage | rpc.Transport {
+	match try client.send(ThreadReplyRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
 		case ThreadReplyReply as reply:
 			reply.Value
 		case _:
-			Unreachable("boardapi: ThreadReply was answered with the value of another operation")
+			return rpc.Transport{Reason: "boardapi: ThreadReply was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -1448,20 +1725,20 @@ func ThreadReply(client Client, input board.ReplyInput) board.PostReply fails bo
 		case NewerMessage as failure:
 			return failure.E
 		case _:
-			Unreachable("boardapi: ThreadReply was answered with a failure outside its row")
+			return rpc.Transport{Reason: "boardapi: ThreadReply was answered with a failure outside its row"}
 		}
 	}
 }
 
-// Edit sends board.Api's Edit and answers its Outcome.
-func Edit(client Client, input board.EditInput) board.RevisionReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.NotAuthor | board.RevisionConflict {
-	match client.send(EditRequest{Input: input}) {
+// EditChecked sends board.Api's Edit over send and validates its Outcome.
+func EditChecked(client CheckedClient, input board.EditInput) board.RevisionReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.NotAuthor | board.RevisionConflict | rpc.Transport {
+	match try client.send(EditRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
 		case EditReply as reply:
 			reply.Value
 		case _:
-			Unreachable("boardapi: Edit was answered with the value of another operation")
+			return rpc.Transport{Reason: "boardapi: Edit was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -1490,20 +1767,20 @@ func Edit(client Client, input board.EditInput) board.RevisionReply fails board.
 		case RevisionConflict as failure:
 			return failure.E
 		case _:
-			Unreachable("boardapi: Edit was answered with a failure outside its row")
+			return rpc.Transport{Reason: "boardapi: Edit was answered with a failure outside its row"}
 		}
 	}
 }
 
-// Delete sends board.Api's Delete and answers its Outcome.
-func Delete(client Client, input board.DeleteInput) board.RevisionReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.NotAuthor | board.RevisionConflict {
-	match client.send(DeleteRequest{Input: input}) {
+// DeleteChecked sends board.Api's Delete over send and validates its Outcome.
+func DeleteChecked(client CheckedClient, input board.DeleteInput) board.RevisionReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.NotAuthor | board.RevisionConflict | rpc.Transport {
+	match try client.send(DeleteRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
 		case DeleteReply as reply:
 			reply.Value
 		case _:
-			Unreachable("boardapi: Delete was answered with the value of another operation")
+			return rpc.Transport{Reason: "boardapi: Delete was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -1528,20 +1805,20 @@ func Delete(client Client, input board.DeleteInput) board.RevisionReply fails bo
 		case RevisionConflict as failure:
 			return failure.E
 		case _:
-			Unreachable("boardapi: Delete was answered with a failure outside its row")
+			return rpc.Transport{Reason: "boardapi: Delete was answered with a failure outside its row"}
 		}
 	}
 }
 
-// React sends board.Api's React and answers its Outcome.
-func React(client Client, input board.ReactInput) board.ReactReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound {
-	match client.send(ReactRequest{Input: input}) {
+// ReactChecked sends board.Api's React over send and validates its Outcome.
+func ReactChecked(client CheckedClient, input board.ReactInput) board.ReactReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | rpc.Transport {
+	match try client.send(ReactRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
 		case ReactReply as reply:
 			reply.Value
 		case _:
-			Unreachable("boardapi: React was answered with the value of another operation")
+			return rpc.Transport{Reason: "boardapi: React was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -1562,20 +1839,20 @@ func React(client Client, input board.ReactInput) board.ReactReply fails board.U
 		case NotFound as failure:
 			return failure.E
 		case _:
-			Unreachable("boardapi: React was answered with a failure outside its row")
+			return rpc.Transport{Reason: "boardapi: React was answered with a failure outside its row"}
 		}
 	}
 }
 
-// Label sends board.Api's Label and answers its Outcome.
-func Label(client Client, input board.LabelInput) board.LabelReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.ReservedLabel | board.LabelConflict {
-	match client.send(LabelRequest{Input: input}) {
+// LabelChecked sends board.Api's Label over send and validates its Outcome.
+func LabelChecked(client CheckedClient, input board.LabelInput) board.LabelReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.ReservedLabel | board.LabelConflict | rpc.Transport {
+	match try client.send(LabelRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
 		case LabelReply as reply:
 			reply.Value
 		case _:
-			Unreachable("boardapi: Label was answered with the value of another operation")
+			return rpc.Transport{Reason: "boardapi: Label was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -1604,20 +1881,20 @@ func Label(client Client, input board.LabelInput) board.LabelReply fails board.U
 		case LabelConflict as failure:
 			return failure.E
 		case _:
-			Unreachable("boardapi: Label was answered with a failure outside its row")
+			return rpc.Transport{Reason: "boardapi: Label was answered with a failure outside its row"}
 		}
 	}
 }
 
-// Ask sends board.Api's Ask and answers its Outcome.
-func Ask(client Client, input board.AskInput) board.AskReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict {
-	match client.send(AskRequest{Input: input}) {
+// AskChecked sends board.Api's Ask over send and validates its Outcome.
+func AskChecked(client CheckedClient, input board.AskInput) board.AskReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict | rpc.Transport {
+	match try client.send(AskRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
 		case AskReply as reply:
 			reply.Value
 		case _:
-			Unreachable("boardapi: Ask was answered with the value of another operation")
+			return rpc.Transport{Reason: "boardapi: Ask was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -1644,20 +1921,20 @@ func Ask(client Client, input board.AskInput) board.AskReply fails board.Unauthe
 		case IdempotencyConflict as failure:
 			return failure.E
 		case _:
-			Unreachable("boardapi: Ask was answered with a failure outside its row")
+			return rpc.Transport{Reason: "boardapi: Ask was answered with a failure outside its row"}
 		}
 	}
 }
 
-// AskWithdraw sends board.Api's AskWithdraw and answers its Outcome.
-func AskWithdraw(client Client, input board.AskWithdrawInput) board.AskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.NotAsker | board.AskClosed {
-	match client.send(AskWithdrawRequest{Input: input}) {
+// AskWithdrawChecked sends board.Api's AskWithdraw over send and validates its Outcome.
+func AskWithdrawChecked(client CheckedClient, input board.AskWithdrawInput) board.AskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.NotAsker | board.AskClosed | rpc.Transport {
+	match try client.send(AskWithdrawRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
 		case AskWithdrawReply as reply:
 			reply.Value
 		case _:
-			Unreachable("boardapi: AskWithdraw was answered with the value of another operation")
+			return rpc.Transport{Reason: "boardapi: AskWithdraw was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -1682,20 +1959,20 @@ func AskWithdraw(client Client, input board.AskWithdrawInput) board.AskStateRepl
 		case AskClosed as failure:
 			return failure.E
 		case _:
-			Unreachable("boardapi: AskWithdraw was answered with a failure outside its row")
+			return rpc.Transport{Reason: "boardapi: AskWithdraw was answered with a failure outside its row"}
 		}
 	}
 }
 
-// TasksList sends board.Api's TasksList and answers its Outcome.
-func TasksList(client Client, input board.TasksListInput) board.TasksListReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Invalid {
-	match client.send(TasksListRequest{Input: input}) {
+// TasksListChecked sends board.Api's TasksList over send and validates its Outcome.
+func TasksListChecked(client CheckedClient, input board.TasksListInput) board.TasksListReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Invalid | rpc.Transport {
+	match try client.send(TasksListRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
 		case TasksListReply as reply:
 			reply.Value
 		case _:
-			Unreachable("boardapi: TasksList was answered with the value of another operation")
+			return rpc.Transport{Reason: "boardapi: TasksList was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -1710,20 +1987,20 @@ func TasksList(client Client, input board.TasksListInput) board.TasksListReply f
 		case Invalid as failure:
 			return failure.E
 		case _:
-			Unreachable("boardapi: TasksList was answered with a failure outside its row")
+			return rpc.Transport{Reason: "boardapi: TasksList was answered with a failure outside its row"}
 		}
 	}
 }
 
-// TasksCreate sends board.Api's TasksCreate and answers its Outcome.
-func TasksCreate(client Client, input board.TasksCreateInput) board.TaskCreateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict | board.ReservedLabel | board.AlreadyTask | board.InvalidNeeds | board.TaskOwnerUntrusted {
-	match client.send(TasksCreateRequest{Input: input}) {
+// TasksCreateChecked sends board.Api's TasksCreate over send and validates its Outcome.
+func TasksCreateChecked(client CheckedClient, input board.TasksCreateInput) board.TaskCreateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict | board.ReservedLabel | board.AlreadyTask | board.InvalidNeeds | board.TaskOwnerUntrusted | rpc.Transport {
+	match try client.send(TasksCreateRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
 		case TasksCreateReply as reply:
 			reply.Value
 		case _:
-			Unreachable("boardapi: TasksCreate was answered with the value of another operation")
+			return rpc.Transport{Reason: "boardapi: TasksCreate was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -1758,20 +2035,20 @@ func TasksCreate(client Client, input board.TasksCreateInput) board.TaskCreateRe
 		case TaskOwnerUntrusted as failure:
 			return failure.E
 		case _:
-			Unreachable("boardapi: TasksCreate was answered with a failure outside its row")
+			return rpc.Transport{Reason: "boardapi: TasksCreate was answered with a failure outside its row"}
 		}
 	}
 }
 
-// TasksPlan sends board.Api's TasksPlan and answers its Outcome.
-func TasksPlan(client Client, input board.TasksPlanInput) board.TasksPlanReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict | board.ReservedLabel | board.InvalidNeeds | board.PlanTooLarge {
-	match client.send(TasksPlanRequest{Input: input}) {
+// TasksPlanChecked sends board.Api's TasksPlan over send and validates its Outcome.
+func TasksPlanChecked(client CheckedClient, input board.TasksPlanInput) board.TasksPlanReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict | board.ReservedLabel | board.InvalidNeeds | board.PlanTooLarge | rpc.Transport {
+	match try client.send(TasksPlanRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
 		case TasksPlanReply as reply:
 			reply.Value
 		case _:
-			Unreachable("boardapi: TasksPlan was answered with the value of another operation")
+			return rpc.Transport{Reason: "boardapi: TasksPlan was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -1804,20 +2081,20 @@ func TasksPlan(client Client, input board.TasksPlanInput) board.TasksPlanReply f
 		case PlanTooLarge as failure:
 			return failure.E
 		case _:
-			Unreachable("boardapi: TasksPlan was answered with a failure outside its row")
+			return rpc.Transport{Reason: "boardapi: TasksPlan was answered with a failure outside its row"}
 		}
 	}
 }
 
-// TasksClaim sends board.Api's TasksClaim and answers its Outcome.
-func TasksClaim(client Client, input board.TasksClaimInput) board.TaskClaimReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TaskOwnerUntrusted | board.TaskClaimedRefusal | board.TaskAssignedRefusal | board.TaskWaitingRefusal | board.TaskBlockedRefusal | board.TaskFinished | board.NothingReady {
-	match client.send(TasksClaimRequest{Input: input}) {
+// TasksClaimChecked sends board.Api's TasksClaim over send and validates its Outcome.
+func TasksClaimChecked(client CheckedClient, input board.TasksClaimInput) board.TaskClaimReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TaskOwnerUntrusted | board.TaskClaimedRefusal | board.TaskAssignedRefusal | board.TaskWaitingRefusal | board.TaskBlockedRefusal | board.TaskFinished | board.NothingReady | rpc.Transport {
+	match try client.send(TasksClaimRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
 		case TasksClaimReply as reply:
 			reply.Value
 		case _:
-			Unreachable("boardapi: TasksClaim was answered with the value of another operation")
+			return rpc.Transport{Reason: "boardapi: TasksClaim was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -1852,20 +2129,20 @@ func TasksClaim(client Client, input board.TasksClaimInput) board.TaskClaimReply
 		case NothingReady as failure:
 			return failure.E
 		case _:
-			Unreachable("boardapi: TasksClaim was answered with a failure outside its row")
+			return rpc.Transport{Reason: "boardapi: TasksClaim was answered with a failure outside its row"}
 		}
 	}
 }
 
-// TasksRenew sends board.Api's TasksRenew and answers its Outcome.
-func TasksRenew(client Client, input board.TasksRenewInput) board.TaskRenewReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.ClaimLost {
-	match client.send(TasksRenewRequest{Input: input}) {
+// TasksRenewChecked sends board.Api's TasksRenew over send and validates its Outcome.
+func TasksRenewChecked(client CheckedClient, input board.TasksRenewInput) board.TaskRenewReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.ClaimLost | rpc.Transport {
+	match try client.send(TasksRenewRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
 		case TasksRenewReply as reply:
 			reply.Value
 		case _:
-			Unreachable("boardapi: TasksRenew was answered with the value of another operation")
+			return rpc.Transport{Reason: "boardapi: TasksRenew was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -1888,20 +2165,20 @@ func TasksRenew(client Client, input board.TasksRenewInput) board.TaskRenewReply
 		case ClaimLost as failure:
 			return failure.E
 		case _:
-			Unreachable("boardapi: TasksRenew was answered with a failure outside its row")
+			return rpc.Transport{Reason: "boardapi: TasksRenew was answered with a failure outside its row"}
 		}
 	}
 }
 
-// TasksRelease sends board.Api's TasksRelease and answers its Outcome.
-func TasksRelease(client Client, input board.TasksReleaseInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.ClaimLost {
-	match client.send(TasksReleaseRequest{Input: input}) {
+// TasksReleaseChecked sends board.Api's TasksRelease over send and validates its Outcome.
+func TasksReleaseChecked(client CheckedClient, input board.TasksReleaseInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.ClaimLost | rpc.Transport {
+	match try client.send(TasksReleaseRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
 		case TasksReleaseReply as reply:
 			reply.Value
 		case _:
-			Unreachable("boardapi: TasksRelease was answered with the value of another operation")
+			return rpc.Transport{Reason: "boardapi: TasksRelease was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -1924,20 +2201,20 @@ func TasksRelease(client Client, input board.TasksReleaseInput) board.TaskStateR
 		case ClaimLost as failure:
 			return failure.E
 		case _:
-			Unreachable("boardapi: TasksRelease was answered with a failure outside its row")
+			return rpc.Transport{Reason: "boardapi: TasksRelease was answered with a failure outside its row"}
 		}
 	}
 }
 
-// TasksComplete sends board.Api's TasksComplete and answers its Outcome.
-func TasksComplete(client Client, input board.TasksCompleteInput) board.TaskCompleteReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.ClaimLost {
-	match client.send(TasksCompleteRequest{Input: input}) {
+// TasksCompleteChecked sends board.Api's TasksComplete over send and validates its Outcome.
+func TasksCompleteChecked(client CheckedClient, input board.TasksCompleteInput) board.TaskCompleteReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.ClaimLost | rpc.Transport {
+	match try client.send(TasksCompleteRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
 		case TasksCompleteReply as reply:
 			reply.Value
 		case _:
-			Unreachable("boardapi: TasksComplete was answered with the value of another operation")
+			return rpc.Transport{Reason: "boardapi: TasksComplete was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -1964,20 +2241,20 @@ func TasksComplete(client Client, input board.TasksCompleteInput) board.TaskComp
 		case ClaimLost as failure:
 			return failure.E
 		case _:
-			Unreachable("boardapi: TasksComplete was answered with a failure outside its row")
+			return rpc.Transport{Reason: "boardapi: TasksComplete was answered with a failure outside its row"}
 		}
 	}
 }
 
-// TasksFail sends board.Api's TasksFail and answers its Outcome.
-func TasksFail(client Client, input board.TasksFailInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.ClaimLost {
-	match client.send(TasksFailRequest{Input: input}) {
+// TasksFailChecked sends board.Api's TasksFail over send and validates its Outcome.
+func TasksFailChecked(client CheckedClient, input board.TasksFailInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.ClaimLost | rpc.Transport {
+	match try client.send(TasksFailRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
 		case TasksFailReply as reply:
 			reply.Value
 		case _:
-			Unreachable("boardapi: TasksFail was answered with the value of another operation")
+			return rpc.Transport{Reason: "boardapi: TasksFail was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -2004,20 +2281,20 @@ func TasksFail(client Client, input board.TasksFailInput) board.TaskStateReply f
 		case ClaimLost as failure:
 			return failure.E
 		case _:
-			Unreachable("boardapi: TasksFail was answered with a failure outside its row")
+			return rpc.Transport{Reason: "boardapi: TasksFail was answered with a failure outside its row"}
 		}
 	}
 }
 
-// TasksBlock sends board.Api's TasksBlock and answers its Outcome.
-func TasksBlock(client Client, input board.TasksBlockInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.TaskFinished | board.ClaimLost | board.TaskNotOwned {
-	match client.send(TasksBlockRequest{Input: input}) {
+// TasksBlockChecked sends board.Api's TasksBlock over send and validates its Outcome.
+func TasksBlockChecked(client CheckedClient, input board.TasksBlockInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.TaskFinished | board.ClaimLost | board.TaskNotOwned | rpc.Transport {
+	match try client.send(TasksBlockRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
 		case TasksBlockReply as reply:
 			reply.Value
 		case _:
-			Unreachable("boardapi: TasksBlock was answered with the value of another operation")
+			return rpc.Transport{Reason: "boardapi: TasksBlock was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -2048,20 +2325,20 @@ func TasksBlock(client Client, input board.TasksBlockInput) board.TaskStateReply
 		case TaskNotOwned as failure:
 			return failure.E
 		case _:
-			Unreachable("boardapi: TasksBlock was answered with a failure outside its row")
+			return rpc.Transport{Reason: "boardapi: TasksBlock was answered with a failure outside its row"}
 		}
 	}
 }
 
-// TasksUnblock sends board.Api's TasksUnblock and answers its Outcome.
-func TasksUnblock(client Client, input board.TasksUnblockInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TaskNotOwned | board.NotBlocked {
-	match client.send(TasksUnblockRequest{Input: input}) {
+// TasksUnblockChecked sends board.Api's TasksUnblock over send and validates its Outcome.
+func TasksUnblockChecked(client CheckedClient, input board.TasksUnblockInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TaskNotOwned | board.NotBlocked | rpc.Transport {
+	match try client.send(TasksUnblockRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
 		case TasksUnblockReply as reply:
 			reply.Value
 		case _:
-			Unreachable("boardapi: TasksUnblock was answered with the value of another operation")
+			return rpc.Transport{Reason: "boardapi: TasksUnblock was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -2086,20 +2363,20 @@ func TasksUnblock(client Client, input board.TasksUnblockInput) board.TaskStateR
 		case NotBlocked as failure:
 			return failure.E
 		case _:
-			Unreachable("boardapi: TasksUnblock was answered with a failure outside its row")
+			return rpc.Transport{Reason: "boardapi: TasksUnblock was answered with a failure outside its row"}
 		}
 	}
 }
 
-// TasksReopen sends board.Api's TasksReopen and answers its Outcome.
-func TasksReopen(client Client, input board.TasksReopenInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TaskNotOwned | board.NotFailed {
-	match client.send(TasksReopenRequest{Input: input}) {
+// TasksReopenChecked sends board.Api's TasksReopen over send and validates its Outcome.
+func TasksReopenChecked(client CheckedClient, input board.TasksReopenInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TaskNotOwned | board.NotFailed | rpc.Transport {
+	match try client.send(TasksReopenRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
 		case TasksReopenReply as reply:
 			reply.Value
 		case _:
-			Unreachable("boardapi: TasksReopen was answered with the value of another operation")
+			return rpc.Transport{Reason: "boardapi: TasksReopen was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -2124,20 +2401,20 @@ func TasksReopen(client Client, input board.TasksReopenInput) board.TaskStateRep
 		case NotFailed as failure:
 			return failure.E
 		case _:
-			Unreachable("boardapi: TasksReopen was answered with a failure outside its row")
+			return rpc.Transport{Reason: "boardapi: TasksReopen was answered with a failure outside its row"}
 		}
 	}
 }
 
-// TasksAssign sends board.Api's TasksAssign and answers its Outcome.
-func TasksAssign(client Client, input board.TasksAssignInput) board.TaskAssignReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TaskFinished | board.TaskNotOwned {
-	match client.send(TasksAssignRequest{Input: input}) {
+// TasksAssignChecked sends board.Api's TasksAssign over send and validates its Outcome.
+func TasksAssignChecked(client CheckedClient, input board.TasksAssignInput) board.TaskAssignReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TaskFinished | board.TaskNotOwned | rpc.Transport {
+	match try client.send(TasksAssignRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
 		case TasksAssignReply as reply:
 			reply.Value
 		case _:
-			Unreachable("boardapi: TasksAssign was answered with the value of another operation")
+			return rpc.Transport{Reason: "boardapi: TasksAssign was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -2162,20 +2439,20 @@ func TasksAssign(client Client, input board.TasksAssignInput) board.TaskAssignRe
 		case TaskNotOwned as failure:
 			return failure.E
 		case _:
-			Unreachable("boardapi: TasksAssign was answered with a failure outside its row")
+			return rpc.Transport{Reason: "boardapi: TasksAssign was answered with a failure outside its row"}
 		}
 	}
 }
 
-// TasksNeeds sends board.Api's TasksNeeds and answers its Outcome.
-func TasksNeeds(client Client, input board.TasksNeedsInput) board.TaskNeedsReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.InvalidNeeds | board.TaskClaimedRefusal | board.TaskFinished | board.TaskNotOwned {
-	match client.send(TasksNeedsRequest{Input: input}) {
+// TasksNeedsChecked sends board.Api's TasksNeeds over send and validates its Outcome.
+func TasksNeedsChecked(client CheckedClient, input board.TasksNeedsInput) board.TaskNeedsReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.InvalidNeeds | board.TaskClaimedRefusal | board.TaskFinished | board.TaskNotOwned | rpc.Transport {
+	match try client.send(TasksNeedsRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
 		case TasksNeedsReply as reply:
 			reply.Value
 		case _:
-			Unreachable("boardapi: TasksNeeds was answered with the value of another operation")
+			return rpc.Transport{Reason: "boardapi: TasksNeeds was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -2204,20 +2481,20 @@ func TasksNeeds(client Client, input board.TasksNeedsInput) board.TaskNeedsReply
 		case TaskNotOwned as failure:
 			return failure.E
 		case _:
-			Unreachable("boardapi: TasksNeeds was answered with a failure outside its row")
+			return rpc.Transport{Reason: "boardapi: TasksNeeds was answered with a failure outside its row"}
 		}
 	}
 }
 
-// TasksCancel sends board.Api's TasksCancel and answers its Outcome.
-func TasksCancel(client Client, input board.TasksCancelInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.TaskFinished | board.TaskNotOwned {
-	match client.send(TasksCancelRequest{Input: input}) {
+// TasksCancelChecked sends board.Api's TasksCancel over send and validates its Outcome.
+func TasksCancelChecked(client CheckedClient, input board.TasksCancelInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.TaskFinished | board.TaskNotOwned | rpc.Transport {
+	match try client.send(TasksCancelRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
 		case TasksCancelReply as reply:
 			reply.Value
 		case _:
-			Unreachable("boardapi: TasksCancel was answered with the value of another operation")
+			return rpc.Transport{Reason: "boardapi: TasksCancel was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -2246,20 +2523,20 @@ func TasksCancel(client Client, input board.TasksCancelInput) board.TaskStateRep
 		case TaskNotOwned as failure:
 			return failure.E
 		case _:
-			Unreachable("boardapi: TasksCancel was answered with a failure outside its row")
+			return rpc.Transport{Reason: "boardapi: TasksCancel was answered with a failure outside its row"}
 		}
 	}
 }
 
-// Grants sends board.Api's Grants and answers its Outcome.
-func Grants(client Client, input board.GrantsInput) []board.Grant fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden {
-	match client.send(GrantsRequest{Input: input}) {
+// GrantsChecked sends board.Api's Grants over send and validates its Outcome.
+func GrantsChecked(client CheckedClient, input board.GrantsInput) []board.Grant fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | rpc.Transport {
+	match try client.send(GrantsRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
 		case GrantsReply as reply:
 			reply.Value
 		case _:
-			Unreachable("boardapi: Grants was answered with the value of another operation")
+			return rpc.Transport{Reason: "boardapi: Grants was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -2274,20 +2551,20 @@ func Grants(client Client, input board.GrantsInput) []board.Grant fails board.Un
 		case Forbidden as failure:
 			return failure.E
 		case _:
-			Unreachable("boardapi: Grants was answered with a failure outside its row")
+			return rpc.Transport{Reason: "boardapi: Grants was answered with a failure outside its row"}
 		}
 	}
 }
 
-// GrantExplain sends board.Api's GrantExplain and answers its Outcome.
-func GrantExplain(client Client, input board.GrantExplainInput) board.GrantExplainReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.NotFound {
-	match client.send(GrantExplainRequest{Input: input}) {
+// GrantExplainChecked sends board.Api's GrantExplain over send and validates its Outcome.
+func GrantExplainChecked(client CheckedClient, input board.GrantExplainInput) board.GrantExplainReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.NotFound | rpc.Transport {
+	match try client.send(GrantExplainRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
 		case GrantExplainReply as reply:
 			reply.Value
 		case _:
-			Unreachable("boardapi: GrantExplain was answered with the value of another operation")
+			return rpc.Transport{Reason: "boardapi: GrantExplain was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -2306,20 +2583,20 @@ func GrantExplain(client Client, input board.GrantExplainInput) board.GrantExpla
 		case NotFound as failure:
 			return failure.E
 		case _:
-			Unreachable("boardapi: GrantExplain was answered with a failure outside its row")
+			return rpc.Transport{Reason: "boardapi: GrantExplain was answered with a failure outside its row"}
 		}
 	}
 }
 
-// GrantCreate sends board.Api's GrantCreate and answers its Outcome.
-func GrantCreate(client Client, input board.GrantCreateInput) board.Grant fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived {
-	match client.send(GrantCreateRequest{Input: input}) {
+// GrantCreateChecked sends board.Api's GrantCreate over send and validates its Outcome.
+func GrantCreateChecked(client CheckedClient, input board.GrantCreateInput) board.Grant fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | rpc.Transport {
+	match try client.send(GrantCreateRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
 		case GrantCreateReply as reply:
 			reply.Value
 		case _:
-			Unreachable("boardapi: GrantCreate was answered with the value of another operation")
+			return rpc.Transport{Reason: "boardapi: GrantCreate was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -2338,20 +2615,20 @@ func GrantCreate(client Client, input board.GrantCreateInput) board.Grant fails 
 		case BoardArchived as failure:
 			return failure.E
 		case _:
-			Unreachable("boardapi: GrantCreate was answered with a failure outside its row")
+			return rpc.Transport{Reason: "boardapi: GrantCreate was answered with a failure outside its row"}
 		}
 	}
 }
 
-// GrantRevoke sends board.Api's GrantRevoke and answers its Outcome.
-func GrantRevoke(client Client, input board.GrantRevokeInput) board.GrantRevokedReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound {
-	match client.send(GrantRevokeRequest{Input: input}) {
+// GrantRevokeChecked sends board.Api's GrantRevoke over send and validates its Outcome.
+func GrantRevokeChecked(client CheckedClient, input board.GrantRevokeInput) board.GrantRevokedReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | rpc.Transport {
+	match try client.send(GrantRevokeRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
 		case GrantRevokeReply as reply:
 			reply.Value
 		case _:
-			Unreachable("boardapi: GrantRevoke was answered with the value of another operation")
+			return rpc.Transport{Reason: "boardapi: GrantRevoke was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -2372,20 +2649,20 @@ func GrantRevoke(client Client, input board.GrantRevokeInput) board.GrantRevoked
 		case NotFound as failure:
 			return failure.E
 		case _:
-			Unreachable("boardapi: GrantRevoke was answered with a failure outside its row")
+			return rpc.Transport{Reason: "boardapi: GrantRevoke was answered with a failure outside its row"}
 		}
 	}
 }
 
-// BoardCreate sends board.Api's BoardCreate and answers its Outcome.
-func BoardCreate(client Client, input board.BoardCreateInput) board.BoardSummary fails board.Unauthenticated | board.Gone | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardNameTaken {
-	match client.send(BoardCreateRequest{Input: input}) {
+// BoardCreateChecked sends board.Api's BoardCreate over send and validates its Outcome.
+func BoardCreateChecked(client CheckedClient, input board.BoardCreateInput) board.BoardSummary fails board.Unauthenticated | board.Gone | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardNameTaken | rpc.Transport {
+	match try client.send(BoardCreateRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
 		case BoardCreateReply as reply:
 			reply.Value
 		case _:
-			Unreachable("boardapi: BoardCreate was answered with the value of another operation")
+			return rpc.Transport{Reason: "boardapi: BoardCreate was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -2402,20 +2679,20 @@ func BoardCreate(client Client, input board.BoardCreateInput) board.BoardSummary
 		case BoardNameTaken as failure:
 			return failure.E
 		case _:
-			Unreachable("boardapi: BoardCreate was answered with a failure outside its row")
+			return rpc.Transport{Reason: "boardapi: BoardCreate was answered with a failure outside its row"}
 		}
 	}
 }
 
-// BoardRename sends board.Api's BoardRename and answers its Outcome.
-func BoardRename(client Client, input board.BoardRenameInput) board.BoardSummary fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.BoardNameTaken {
-	match client.send(BoardRenameRequest{Input: input}) {
+// BoardRenameChecked sends board.Api's BoardRename over send and validates its Outcome.
+func BoardRenameChecked(client CheckedClient, input board.BoardRenameInput) board.BoardSummary fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.BoardNameTaken | rpc.Transport {
+	match try client.send(BoardRenameRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
 		case BoardRenameReply as reply:
 			reply.Value
 		case _:
-			Unreachable("boardapi: BoardRename was answered with the value of another operation")
+			return rpc.Transport{Reason: "boardapi: BoardRename was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -2436,20 +2713,20 @@ func BoardRename(client Client, input board.BoardRenameInput) board.BoardSummary
 		case BoardNameTaken as failure:
 			return failure.E
 		case _:
-			Unreachable("boardapi: BoardRename was answered with a failure outside its row")
+			return rpc.Transport{Reason: "boardapi: BoardRename was answered with a failure outside its row"}
 		}
 	}
 }
 
-// BoardArchive sends board.Api's BoardArchive and answers its Outcome.
-func BoardArchive(client Client, input board.BoardArchiveInput) board.BoardSummary fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived {
-	match client.send(BoardArchiveRequest{Input: input}) {
+// BoardArchiveChecked sends board.Api's BoardArchive over send and validates its Outcome.
+func BoardArchiveChecked(client CheckedClient, input board.BoardArchiveInput) board.BoardSummary fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | rpc.Transport {
+	match try client.send(BoardArchiveRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
 		case BoardArchiveReply as reply:
 			reply.Value
 		case _:
-			Unreachable("boardapi: BoardArchive was answered with the value of another operation")
+			return rpc.Transport{Reason: "boardapi: BoardArchive was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -2468,20 +2745,20 @@ func BoardArchive(client Client, input board.BoardArchiveInput) board.BoardSumma
 		case BoardArchived as failure:
 			return failure.E
 		case _:
-			Unreachable("boardapi: BoardArchive was answered with a failure outside its row")
+			return rpc.Transport{Reason: "boardapi: BoardArchive was answered with a failure outside its row"}
 		}
 	}
 }
 
-// TrustUpdate sends board.Api's TrustUpdate and answers its Outcome.
-func TrustUpdate(client Client, input board.TrustUpdateInput) board.TrustSet fails board.Unauthenticated | board.Gone | board.StoreFailed | board.Forbidden | board.Invalid {
-	match client.send(TrustUpdateRequest{Input: input}) {
+// TrustUpdateChecked sends board.Api's TrustUpdate over send and validates its Outcome.
+func TrustUpdateChecked(client CheckedClient, input board.TrustUpdateInput) board.TrustSet fails board.Unauthenticated | board.Gone | board.StoreFailed | board.Forbidden | board.Invalid | rpc.Transport {
+	match try client.send(TrustUpdateRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
 		case TrustUpdateReply as reply:
 			reply.Value
 		case _:
-			Unreachable("boardapi: TrustUpdate was answered with the value of another operation")
+			return rpc.Transport{Reason: "boardapi: TrustUpdate was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -2496,7 +2773,7 @@ func TrustUpdate(client Client, input board.TrustUpdateInput) board.TrustSet fai
 		case Invalid as failure:
 			return failure.E
 		case _:
-			Unreachable("boardapi: TrustUpdate was answered with a failure outside its row")
+			return rpc.Transport{Reason: "boardapi: TrustUpdate was answered with a failure outside its row"}
 		}
 	}
 }
@@ -2858,11 +3135,1893 @@ func OutcomeOf(r Request, g Given) Outcome {
 	}
 }
 
-func scripted(want Outcome, sent sync.Ref[[]Request]) Client {
-	NewClient(func(q Request) Outcome {
-		sent.Update(func(rs []Request) []Request { rs.Append(q) })
-		want
-	})
+func scripted(g Given, sent sync.Ref[[]Request]) Client {
+	Client{
+		opWhoami: func(input board.WhoamiInput) board.WhoamiReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed {
+			sent.Update(func(rs []Request) []Request { rs.Append(WhoamiRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case Unauthenticated as err:
+					return err.E
+				case Gone as err:
+					return err.E
+				case BoardNotFound as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.Whoami
+		},
+		opBoards: func() []board.BoardSummary fails board.Unauthenticated | board.Gone | board.StoreFailed {
+			sent.Update(func(rs []Request) []Request { rs.Append(BoardsRequest) })
+			if g.Failing {
+				match g.Failure {
+				case Unauthenticated as err:
+					return err.E
+				case Gone as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.Boards
+		},
+		opChannels: func(input board.ChannelsInput) []board.ChannelSummary fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed {
+			sent.Update(func(rs []Request) []Request { rs.Append(ChannelsRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case Unauthenticated as err:
+					return err.E
+				case Gone as err:
+					return err.E
+				case BoardNotFound as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.Channels
+		},
+		opChannelCreate: func(input board.ChannelCreateInput) board.ChannelCreatedReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.ChannelExists | board.ChannelGranted | board.BoardArchived {
+			sent.Update(func(rs []Request) []Request { rs.Append(ChannelCreateRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case Unauthenticated as err:
+					return err.E
+				case Gone as err:
+					return err.E
+				case BoardNotFound as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				case Forbidden as err:
+					return err.E
+				case Invalid as err:
+					return err.E
+				case ChannelExists as err:
+					return err.E
+				case ChannelGranted as err:
+					return err.E
+				case BoardArchived as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.ChannelCreate
+		},
+		opActors: func(input board.ActorsInput) []board.ActorSummary fails board.Unauthenticated | board.Gone | board.StoreFailed {
+			sent.Update(func(rs []Request) []Request { rs.Append(ActorsRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case Unauthenticated as err:
+					return err.E
+				case Gone as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.Actors
+		},
+		opRead: func(input board.ReadInput) board.ReadReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Invalid | board.NotFound {
+			sent.Update(func(rs []Request) []Request { rs.Append(ReadRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case Unauthenticated as err:
+					return err.E
+				case Gone as err:
+					return err.E
+				case BoardNotFound as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				case Invalid as err:
+					return err.E
+				case NotFound as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.Read
+		},
+		opSearch: func(input board.SearchInput) board.SearchReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Invalid {
+			sent.Update(func(rs []Request) []Request { rs.Append(SearchRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case Unauthenticated as err:
+					return err.E
+				case Gone as err:
+					return err.E
+				case BoardNotFound as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				case Invalid as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.Search
+		},
+		opPost: func(input board.PostInput) board.PostReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict | board.ReservedLabel {
+			sent.Update(func(rs []Request) []Request { rs.Append(PostRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case Unauthenticated as err:
+					return err.E
+				case Gone as err:
+					return err.E
+				case BoardNotFound as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				case Forbidden as err:
+					return err.E
+				case Invalid as err:
+					return err.E
+				case BoardArchived as err:
+					return err.E
+				case NotFound as err:
+					return err.E
+				case TooLarge as err:
+					return err.E
+				case SecretDetected as err:
+					return err.E
+				case IdempotencyConflict as err:
+					return err.E
+				case ReservedLabel as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.Post
+		},
+		opThreadReply: func(input board.ReplyInput) board.PostReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict | board.ReservedLabel | board.NewerMessage {
+			sent.Update(func(rs []Request) []Request { rs.Append(ThreadReplyRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case Unauthenticated as err:
+					return err.E
+				case Gone as err:
+					return err.E
+				case BoardNotFound as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				case Forbidden as err:
+					return err.E
+				case Invalid as err:
+					return err.E
+				case BoardArchived as err:
+					return err.E
+				case NotFound as err:
+					return err.E
+				case TooLarge as err:
+					return err.E
+				case SecretDetected as err:
+					return err.E
+				case IdempotencyConflict as err:
+					return err.E
+				case ReservedLabel as err:
+					return err.E
+				case NewerMessage as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.ThreadReply
+		},
+		opEdit: func(input board.EditInput) board.RevisionReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.NotAuthor | board.RevisionConflict {
+			sent.Update(func(rs []Request) []Request { rs.Append(EditRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case Unauthenticated as err:
+					return err.E
+				case Gone as err:
+					return err.E
+				case BoardNotFound as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				case Forbidden as err:
+					return err.E
+				case Invalid as err:
+					return err.E
+				case BoardArchived as err:
+					return err.E
+				case NotFound as err:
+					return err.E
+				case TooLarge as err:
+					return err.E
+				case SecretDetected as err:
+					return err.E
+				case NotAuthor as err:
+					return err.E
+				case RevisionConflict as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.Edit
+		},
+		opDelete: func(input board.DeleteInput) board.RevisionReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.NotAuthor | board.RevisionConflict {
+			sent.Update(func(rs []Request) []Request { rs.Append(DeleteRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case Unauthenticated as err:
+					return err.E
+				case Gone as err:
+					return err.E
+				case BoardNotFound as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				case Forbidden as err:
+					return err.E
+				case Invalid as err:
+					return err.E
+				case BoardArchived as err:
+					return err.E
+				case NotFound as err:
+					return err.E
+				case NotAuthor as err:
+					return err.E
+				case RevisionConflict as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.Delete
+		},
+		opReact: func(input board.ReactInput) board.ReactReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound {
+			sent.Update(func(rs []Request) []Request { rs.Append(ReactRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case Unauthenticated as err:
+					return err.E
+				case Gone as err:
+					return err.E
+				case BoardNotFound as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				case Forbidden as err:
+					return err.E
+				case Invalid as err:
+					return err.E
+				case BoardArchived as err:
+					return err.E
+				case NotFound as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.React
+		},
+		opLabel: func(input board.LabelInput) board.LabelReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.ReservedLabel | board.LabelConflict {
+			sent.Update(func(rs []Request) []Request { rs.Append(LabelRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case Unauthenticated as err:
+					return err.E
+				case Gone as err:
+					return err.E
+				case BoardNotFound as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				case Forbidden as err:
+					return err.E
+				case Invalid as err:
+					return err.E
+				case BoardArchived as err:
+					return err.E
+				case NotFound as err:
+					return err.E
+				case TooLarge as err:
+					return err.E
+				case SecretDetected as err:
+					return err.E
+				case ReservedLabel as err:
+					return err.E
+				case LabelConflict as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.Label
+		},
+		opAsk: func(input board.AskInput) board.AskReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict {
+			sent.Update(func(rs []Request) []Request { rs.Append(AskRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case Unauthenticated as err:
+					return err.E
+				case Gone as err:
+					return err.E
+				case BoardNotFound as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				case Forbidden as err:
+					return err.E
+				case Invalid as err:
+					return err.E
+				case BoardArchived as err:
+					return err.E
+				case NotFound as err:
+					return err.E
+				case TooLarge as err:
+					return err.E
+				case SecretDetected as err:
+					return err.E
+				case IdempotencyConflict as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.Ask
+		},
+		opAskWithdraw: func(input board.AskWithdrawInput) board.AskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.NotAsker | board.AskClosed {
+			sent.Update(func(rs []Request) []Request { rs.Append(AskWithdrawRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case Unauthenticated as err:
+					return err.E
+				case Gone as err:
+					return err.E
+				case BoardNotFound as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				case Forbidden as err:
+					return err.E
+				case Invalid as err:
+					return err.E
+				case BoardArchived as err:
+					return err.E
+				case NotFound as err:
+					return err.E
+				case NotAsker as err:
+					return err.E
+				case AskClosed as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.AskWithdraw
+		},
+		opTasksList: func(input board.TasksListInput) board.TasksListReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Invalid {
+			sent.Update(func(rs []Request) []Request { rs.Append(TasksListRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case Unauthenticated as err:
+					return err.E
+				case Gone as err:
+					return err.E
+				case BoardNotFound as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				case Invalid as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.TasksList
+		},
+		opTasksCreate: func(input board.TasksCreateInput) board.TaskCreateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict | board.ReservedLabel | board.AlreadyTask | board.InvalidNeeds | board.TaskOwnerUntrusted {
+			sent.Update(func(rs []Request) []Request { rs.Append(TasksCreateRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case Unauthenticated as err:
+					return err.E
+				case Gone as err:
+					return err.E
+				case BoardNotFound as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				case Forbidden as err:
+					return err.E
+				case Invalid as err:
+					return err.E
+				case BoardArchived as err:
+					return err.E
+				case NotFound as err:
+					return err.E
+				case TooLarge as err:
+					return err.E
+				case SecretDetected as err:
+					return err.E
+				case IdempotencyConflict as err:
+					return err.E
+				case ReservedLabel as err:
+					return err.E
+				case AlreadyTask as err:
+					return err.E
+				case InvalidNeeds as err:
+					return err.E
+				case TaskOwnerUntrusted as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.TasksCreate
+		},
+		opTasksPlan: func(input board.TasksPlanInput) board.TasksPlanReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict | board.ReservedLabel | board.InvalidNeeds | board.PlanTooLarge {
+			sent.Update(func(rs []Request) []Request { rs.Append(TasksPlanRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case Unauthenticated as err:
+					return err.E
+				case Gone as err:
+					return err.E
+				case BoardNotFound as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				case Forbidden as err:
+					return err.E
+				case Invalid as err:
+					return err.E
+				case BoardArchived as err:
+					return err.E
+				case NotFound as err:
+					return err.E
+				case TooLarge as err:
+					return err.E
+				case SecretDetected as err:
+					return err.E
+				case IdempotencyConflict as err:
+					return err.E
+				case ReservedLabel as err:
+					return err.E
+				case InvalidNeeds as err:
+					return err.E
+				case PlanTooLarge as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.TasksPlan
+		},
+		opTasksClaim: func(input board.TasksClaimInput) board.TaskClaimReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TaskOwnerUntrusted | board.TaskClaimedRefusal | board.TaskAssignedRefusal | board.TaskWaitingRefusal | board.TaskBlockedRefusal | board.TaskFinished | board.NothingReady {
+			sent.Update(func(rs []Request) []Request { rs.Append(TasksClaimRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case Unauthenticated as err:
+					return err.E
+				case Gone as err:
+					return err.E
+				case BoardNotFound as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				case Forbidden as err:
+					return err.E
+				case Invalid as err:
+					return err.E
+				case BoardArchived as err:
+					return err.E
+				case NotFound as err:
+					return err.E
+				case TaskOwnerUntrusted as err:
+					return err.E
+				case TaskClaimedRefusal as err:
+					return err.E
+				case TaskAssignedRefusal as err:
+					return err.E
+				case TaskWaitingRefusal as err:
+					return err.E
+				case TaskBlockedRefusal as err:
+					return err.E
+				case TaskFinished as err:
+					return err.E
+				case NothingReady as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.TasksClaim
+		},
+		opTasksRenew: func(input board.TasksRenewInput) board.TaskRenewReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.ClaimLost {
+			sent.Update(func(rs []Request) []Request { rs.Append(TasksRenewRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case Unauthenticated as err:
+					return err.E
+				case Gone as err:
+					return err.E
+				case BoardNotFound as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				case Forbidden as err:
+					return err.E
+				case Invalid as err:
+					return err.E
+				case BoardArchived as err:
+					return err.E
+				case NotFound as err:
+					return err.E
+				case ClaimLost as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.TasksRenew
+		},
+		opTasksRelease: func(input board.TasksReleaseInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.ClaimLost {
+			sent.Update(func(rs []Request) []Request { rs.Append(TasksReleaseRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case Unauthenticated as err:
+					return err.E
+				case Gone as err:
+					return err.E
+				case BoardNotFound as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				case Forbidden as err:
+					return err.E
+				case Invalid as err:
+					return err.E
+				case BoardArchived as err:
+					return err.E
+				case NotFound as err:
+					return err.E
+				case ClaimLost as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.TasksRelease
+		},
+		opTasksComplete: func(input board.TasksCompleteInput) board.TaskCompleteReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.ClaimLost {
+			sent.Update(func(rs []Request) []Request { rs.Append(TasksCompleteRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case Unauthenticated as err:
+					return err.E
+				case Gone as err:
+					return err.E
+				case BoardNotFound as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				case Forbidden as err:
+					return err.E
+				case Invalid as err:
+					return err.E
+				case BoardArchived as err:
+					return err.E
+				case NotFound as err:
+					return err.E
+				case TooLarge as err:
+					return err.E
+				case SecretDetected as err:
+					return err.E
+				case ClaimLost as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.TasksComplete
+		},
+		opTasksFail: func(input board.TasksFailInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.ClaimLost {
+			sent.Update(func(rs []Request) []Request { rs.Append(TasksFailRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case Unauthenticated as err:
+					return err.E
+				case Gone as err:
+					return err.E
+				case BoardNotFound as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				case Forbidden as err:
+					return err.E
+				case Invalid as err:
+					return err.E
+				case BoardArchived as err:
+					return err.E
+				case NotFound as err:
+					return err.E
+				case TooLarge as err:
+					return err.E
+				case SecretDetected as err:
+					return err.E
+				case ClaimLost as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.TasksFail
+		},
+		opTasksBlock: func(input board.TasksBlockInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.TaskFinished | board.ClaimLost | board.TaskNotOwned {
+			sent.Update(func(rs []Request) []Request { rs.Append(TasksBlockRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case Unauthenticated as err:
+					return err.E
+				case Gone as err:
+					return err.E
+				case BoardNotFound as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				case Forbidden as err:
+					return err.E
+				case Invalid as err:
+					return err.E
+				case BoardArchived as err:
+					return err.E
+				case NotFound as err:
+					return err.E
+				case TooLarge as err:
+					return err.E
+				case SecretDetected as err:
+					return err.E
+				case TaskFinished as err:
+					return err.E
+				case ClaimLost as err:
+					return err.E
+				case TaskNotOwned as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.TasksBlock
+		},
+		opTasksUnblock: func(input board.TasksUnblockInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TaskNotOwned | board.NotBlocked {
+			sent.Update(func(rs []Request) []Request { rs.Append(TasksUnblockRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case Unauthenticated as err:
+					return err.E
+				case Gone as err:
+					return err.E
+				case BoardNotFound as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				case Forbidden as err:
+					return err.E
+				case Invalid as err:
+					return err.E
+				case BoardArchived as err:
+					return err.E
+				case NotFound as err:
+					return err.E
+				case TaskNotOwned as err:
+					return err.E
+				case NotBlocked as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.TasksUnblock
+		},
+		opTasksReopen: func(input board.TasksReopenInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TaskNotOwned | board.NotFailed {
+			sent.Update(func(rs []Request) []Request { rs.Append(TasksReopenRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case Unauthenticated as err:
+					return err.E
+				case Gone as err:
+					return err.E
+				case BoardNotFound as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				case Forbidden as err:
+					return err.E
+				case Invalid as err:
+					return err.E
+				case BoardArchived as err:
+					return err.E
+				case NotFound as err:
+					return err.E
+				case TaskNotOwned as err:
+					return err.E
+				case NotFailed as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.TasksReopen
+		},
+		opTasksAssign: func(input board.TasksAssignInput) board.TaskAssignReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TaskFinished | board.TaskNotOwned {
+			sent.Update(func(rs []Request) []Request { rs.Append(TasksAssignRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case Unauthenticated as err:
+					return err.E
+				case Gone as err:
+					return err.E
+				case BoardNotFound as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				case Forbidden as err:
+					return err.E
+				case Invalid as err:
+					return err.E
+				case BoardArchived as err:
+					return err.E
+				case NotFound as err:
+					return err.E
+				case TaskFinished as err:
+					return err.E
+				case TaskNotOwned as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.TasksAssign
+		},
+		opTasksNeeds: func(input board.TasksNeedsInput) board.TaskNeedsReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.InvalidNeeds | board.TaskClaimedRefusal | board.TaskFinished | board.TaskNotOwned {
+			sent.Update(func(rs []Request) []Request { rs.Append(TasksNeedsRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case Unauthenticated as err:
+					return err.E
+				case Gone as err:
+					return err.E
+				case BoardNotFound as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				case Forbidden as err:
+					return err.E
+				case Invalid as err:
+					return err.E
+				case BoardArchived as err:
+					return err.E
+				case NotFound as err:
+					return err.E
+				case InvalidNeeds as err:
+					return err.E
+				case TaskClaimedRefusal as err:
+					return err.E
+				case TaskFinished as err:
+					return err.E
+				case TaskNotOwned as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.TasksNeeds
+		},
+		opTasksCancel: func(input board.TasksCancelInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.TaskFinished | board.TaskNotOwned {
+			sent.Update(func(rs []Request) []Request { rs.Append(TasksCancelRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case Unauthenticated as err:
+					return err.E
+				case Gone as err:
+					return err.E
+				case BoardNotFound as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				case Forbidden as err:
+					return err.E
+				case Invalid as err:
+					return err.E
+				case BoardArchived as err:
+					return err.E
+				case NotFound as err:
+					return err.E
+				case TooLarge as err:
+					return err.E
+				case SecretDetected as err:
+					return err.E
+				case TaskFinished as err:
+					return err.E
+				case TaskNotOwned as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.TasksCancel
+		},
+		opGrants: func(input board.GrantsInput) []board.Grant fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden {
+			sent.Update(func(rs []Request) []Request { rs.Append(GrantsRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case Unauthenticated as err:
+					return err.E
+				case Gone as err:
+					return err.E
+				case BoardNotFound as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				case Forbidden as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.Grants
+		},
+		opGrantExplain: func(input board.GrantExplainInput) board.GrantExplainReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.NotFound {
+			sent.Update(func(rs []Request) []Request { rs.Append(GrantExplainRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case Unauthenticated as err:
+					return err.E
+				case Gone as err:
+					return err.E
+				case BoardNotFound as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				case Forbidden as err:
+					return err.E
+				case Invalid as err:
+					return err.E
+				case NotFound as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.GrantExplain
+		},
+		opGrantCreate: func(input board.GrantCreateInput) board.Grant fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived {
+			sent.Update(func(rs []Request) []Request { rs.Append(GrantCreateRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case Unauthenticated as err:
+					return err.E
+				case Gone as err:
+					return err.E
+				case BoardNotFound as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				case Forbidden as err:
+					return err.E
+				case Invalid as err:
+					return err.E
+				case BoardArchived as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.GrantCreate
+		},
+		opGrantRevoke: func(input board.GrantRevokeInput) board.GrantRevokedReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound {
+			sent.Update(func(rs []Request) []Request { rs.Append(GrantRevokeRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case Unauthenticated as err:
+					return err.E
+				case Gone as err:
+					return err.E
+				case BoardNotFound as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				case Forbidden as err:
+					return err.E
+				case Invalid as err:
+					return err.E
+				case BoardArchived as err:
+					return err.E
+				case NotFound as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.GrantRevoke
+		},
+		opBoardCreate: func(input board.BoardCreateInput) board.BoardSummary fails board.Unauthenticated | board.Gone | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardNameTaken {
+			sent.Update(func(rs []Request) []Request { rs.Append(BoardCreateRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case Unauthenticated as err:
+					return err.E
+				case Gone as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				case Forbidden as err:
+					return err.E
+				case Invalid as err:
+					return err.E
+				case BoardNameTaken as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.BoardCreate
+		},
+		opBoardRename: func(input board.BoardRenameInput) board.BoardSummary fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.BoardNameTaken {
+			sent.Update(func(rs []Request) []Request { rs.Append(BoardRenameRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case Unauthenticated as err:
+					return err.E
+				case Gone as err:
+					return err.E
+				case BoardNotFound as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				case Forbidden as err:
+					return err.E
+				case Invalid as err:
+					return err.E
+				case BoardArchived as err:
+					return err.E
+				case BoardNameTaken as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.BoardRename
+		},
+		opBoardArchive: func(input board.BoardArchiveInput) board.BoardSummary fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived {
+			sent.Update(func(rs []Request) []Request { rs.Append(BoardArchiveRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case Unauthenticated as err:
+					return err.E
+				case Gone as err:
+					return err.E
+				case BoardNotFound as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				case Forbidden as err:
+					return err.E
+				case Invalid as err:
+					return err.E
+				case BoardArchived as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.BoardArchive
+		},
+		opTrustUpdate: func(input board.TrustUpdateInput) board.TrustSet fails board.Unauthenticated | board.Gone | board.StoreFailed | board.Forbidden | board.Invalid {
+			sent.Update(func(rs []Request) []Request { rs.Append(TrustUpdateRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case Unauthenticated as err:
+					return err.E
+				case Gone as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				case Forbidden as err:
+					return err.E
+				case Invalid as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.TrustUpdate
+		},
+	}
+}
+
+func callChecked(client CheckedClient, r Request) Outcome fails rpc.Transport {
+	match r {
+	case WhoamiRequest as x:
+		let v = WhoamiChecked(client, x.Input) catch {
+		case board.Unauthenticated as e:
+			return Rejected{Failure: Unauthenticated{E: e}}
+		case board.Gone as e:
+			return Rejected{Failure: Gone{E: e}}
+		case board.BoardNotFound as e:
+			return Rejected{Failure: BoardNotFound{E: e}}
+		case board.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: WhoamiReply{Value: v}}
+	case BoardsRequest:
+		let v = BoardsChecked(client) catch {
+		case board.Unauthenticated as e:
+			return Rejected{Failure: Unauthenticated{E: e}}
+		case board.Gone as e:
+			return Rejected{Failure: Gone{E: e}}
+		case board.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: BoardsReply{Value: v}}
+	case ChannelsRequest as x:
+		let v = ChannelsChecked(client, x.Input) catch {
+		case board.Unauthenticated as e:
+			return Rejected{Failure: Unauthenticated{E: e}}
+		case board.Gone as e:
+			return Rejected{Failure: Gone{E: e}}
+		case board.BoardNotFound as e:
+			return Rejected{Failure: BoardNotFound{E: e}}
+		case board.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: ChannelsReply{Value: v}}
+	case ChannelCreateRequest as x:
+		let v = ChannelCreateChecked(client, x.Input) catch {
+		case board.Unauthenticated as e:
+			return Rejected{Failure: Unauthenticated{E: e}}
+		case board.Gone as e:
+			return Rejected{Failure: Gone{E: e}}
+		case board.BoardNotFound as e:
+			return Rejected{Failure: BoardNotFound{E: e}}
+		case board.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case board.Forbidden as e:
+			return Rejected{Failure: Forbidden{E: e}}
+		case board.Invalid as e:
+			return Rejected{Failure: Invalid{E: e}}
+		case board.ChannelExists as e:
+			return Rejected{Failure: ChannelExists{E: e}}
+		case board.ChannelGranted as e:
+			return Rejected{Failure: ChannelGranted{E: e}}
+		case board.BoardArchived as e:
+			return Rejected{Failure: BoardArchived{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: ChannelCreateReply{Value: v}}
+	case ActorsRequest as x:
+		let v = ActorsChecked(client, x.Input) catch {
+		case board.Unauthenticated as e:
+			return Rejected{Failure: Unauthenticated{E: e}}
+		case board.Gone as e:
+			return Rejected{Failure: Gone{E: e}}
+		case board.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: ActorsReply{Value: v}}
+	case ReadRequest as x:
+		let v = ReadChecked(client, x.Input) catch {
+		case board.Unauthenticated as e:
+			return Rejected{Failure: Unauthenticated{E: e}}
+		case board.Gone as e:
+			return Rejected{Failure: Gone{E: e}}
+		case board.BoardNotFound as e:
+			return Rejected{Failure: BoardNotFound{E: e}}
+		case board.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case board.Invalid as e:
+			return Rejected{Failure: Invalid{E: e}}
+		case board.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: ReadReply{Value: v}}
+	case SearchRequest as x:
+		let v = SearchChecked(client, x.Input) catch {
+		case board.Unauthenticated as e:
+			return Rejected{Failure: Unauthenticated{E: e}}
+		case board.Gone as e:
+			return Rejected{Failure: Gone{E: e}}
+		case board.BoardNotFound as e:
+			return Rejected{Failure: BoardNotFound{E: e}}
+		case board.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case board.Invalid as e:
+			return Rejected{Failure: Invalid{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: SearchReply{Value: v}}
+	case PostRequest as x:
+		let v = PostChecked(client, x.Input) catch {
+		case board.Unauthenticated as e:
+			return Rejected{Failure: Unauthenticated{E: e}}
+		case board.Gone as e:
+			return Rejected{Failure: Gone{E: e}}
+		case board.BoardNotFound as e:
+			return Rejected{Failure: BoardNotFound{E: e}}
+		case board.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case board.Forbidden as e:
+			return Rejected{Failure: Forbidden{E: e}}
+		case board.Invalid as e:
+			return Rejected{Failure: Invalid{E: e}}
+		case board.BoardArchived as e:
+			return Rejected{Failure: BoardArchived{E: e}}
+		case board.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case board.TooLarge as e:
+			return Rejected{Failure: TooLarge{E: e}}
+		case board.SecretDetected as e:
+			return Rejected{Failure: SecretDetected{E: e}}
+		case board.IdempotencyConflict as e:
+			return Rejected{Failure: IdempotencyConflict{E: e}}
+		case board.ReservedLabel as e:
+			return Rejected{Failure: ReservedLabel{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: PostReply{Value: v}}
+	case ThreadReplyRequest as x:
+		let v = ThreadReplyChecked(client, x.Input) catch {
+		case board.Unauthenticated as e:
+			return Rejected{Failure: Unauthenticated{E: e}}
+		case board.Gone as e:
+			return Rejected{Failure: Gone{E: e}}
+		case board.BoardNotFound as e:
+			return Rejected{Failure: BoardNotFound{E: e}}
+		case board.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case board.Forbidden as e:
+			return Rejected{Failure: Forbidden{E: e}}
+		case board.Invalid as e:
+			return Rejected{Failure: Invalid{E: e}}
+		case board.BoardArchived as e:
+			return Rejected{Failure: BoardArchived{E: e}}
+		case board.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case board.TooLarge as e:
+			return Rejected{Failure: TooLarge{E: e}}
+		case board.SecretDetected as e:
+			return Rejected{Failure: SecretDetected{E: e}}
+		case board.IdempotencyConflict as e:
+			return Rejected{Failure: IdempotencyConflict{E: e}}
+		case board.ReservedLabel as e:
+			return Rejected{Failure: ReservedLabel{E: e}}
+		case board.NewerMessage as e:
+			return Rejected{Failure: NewerMessage{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: ThreadReplyReply{Value: v}}
+	case EditRequest as x:
+		let v = EditChecked(client, x.Input) catch {
+		case board.Unauthenticated as e:
+			return Rejected{Failure: Unauthenticated{E: e}}
+		case board.Gone as e:
+			return Rejected{Failure: Gone{E: e}}
+		case board.BoardNotFound as e:
+			return Rejected{Failure: BoardNotFound{E: e}}
+		case board.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case board.Forbidden as e:
+			return Rejected{Failure: Forbidden{E: e}}
+		case board.Invalid as e:
+			return Rejected{Failure: Invalid{E: e}}
+		case board.BoardArchived as e:
+			return Rejected{Failure: BoardArchived{E: e}}
+		case board.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case board.TooLarge as e:
+			return Rejected{Failure: TooLarge{E: e}}
+		case board.SecretDetected as e:
+			return Rejected{Failure: SecretDetected{E: e}}
+		case board.NotAuthor as e:
+			return Rejected{Failure: NotAuthor{E: e}}
+		case board.RevisionConflict as e:
+			return Rejected{Failure: RevisionConflict{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: EditReply{Value: v}}
+	case DeleteRequest as x:
+		let v = DeleteChecked(client, x.Input) catch {
+		case board.Unauthenticated as e:
+			return Rejected{Failure: Unauthenticated{E: e}}
+		case board.Gone as e:
+			return Rejected{Failure: Gone{E: e}}
+		case board.BoardNotFound as e:
+			return Rejected{Failure: BoardNotFound{E: e}}
+		case board.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case board.Forbidden as e:
+			return Rejected{Failure: Forbidden{E: e}}
+		case board.Invalid as e:
+			return Rejected{Failure: Invalid{E: e}}
+		case board.BoardArchived as e:
+			return Rejected{Failure: BoardArchived{E: e}}
+		case board.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case board.NotAuthor as e:
+			return Rejected{Failure: NotAuthor{E: e}}
+		case board.RevisionConflict as e:
+			return Rejected{Failure: RevisionConflict{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: DeleteReply{Value: v}}
+	case ReactRequest as x:
+		let v = ReactChecked(client, x.Input) catch {
+		case board.Unauthenticated as e:
+			return Rejected{Failure: Unauthenticated{E: e}}
+		case board.Gone as e:
+			return Rejected{Failure: Gone{E: e}}
+		case board.BoardNotFound as e:
+			return Rejected{Failure: BoardNotFound{E: e}}
+		case board.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case board.Forbidden as e:
+			return Rejected{Failure: Forbidden{E: e}}
+		case board.Invalid as e:
+			return Rejected{Failure: Invalid{E: e}}
+		case board.BoardArchived as e:
+			return Rejected{Failure: BoardArchived{E: e}}
+		case board.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: ReactReply{Value: v}}
+	case LabelRequest as x:
+		let v = LabelChecked(client, x.Input) catch {
+		case board.Unauthenticated as e:
+			return Rejected{Failure: Unauthenticated{E: e}}
+		case board.Gone as e:
+			return Rejected{Failure: Gone{E: e}}
+		case board.BoardNotFound as e:
+			return Rejected{Failure: BoardNotFound{E: e}}
+		case board.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case board.Forbidden as e:
+			return Rejected{Failure: Forbidden{E: e}}
+		case board.Invalid as e:
+			return Rejected{Failure: Invalid{E: e}}
+		case board.BoardArchived as e:
+			return Rejected{Failure: BoardArchived{E: e}}
+		case board.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case board.TooLarge as e:
+			return Rejected{Failure: TooLarge{E: e}}
+		case board.SecretDetected as e:
+			return Rejected{Failure: SecretDetected{E: e}}
+		case board.ReservedLabel as e:
+			return Rejected{Failure: ReservedLabel{E: e}}
+		case board.LabelConflict as e:
+			return Rejected{Failure: LabelConflict{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: LabelReply{Value: v}}
+	case AskRequest as x:
+		let v = AskChecked(client, x.Input) catch {
+		case board.Unauthenticated as e:
+			return Rejected{Failure: Unauthenticated{E: e}}
+		case board.Gone as e:
+			return Rejected{Failure: Gone{E: e}}
+		case board.BoardNotFound as e:
+			return Rejected{Failure: BoardNotFound{E: e}}
+		case board.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case board.Forbidden as e:
+			return Rejected{Failure: Forbidden{E: e}}
+		case board.Invalid as e:
+			return Rejected{Failure: Invalid{E: e}}
+		case board.BoardArchived as e:
+			return Rejected{Failure: BoardArchived{E: e}}
+		case board.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case board.TooLarge as e:
+			return Rejected{Failure: TooLarge{E: e}}
+		case board.SecretDetected as e:
+			return Rejected{Failure: SecretDetected{E: e}}
+		case board.IdempotencyConflict as e:
+			return Rejected{Failure: IdempotencyConflict{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: AskReply{Value: v}}
+	case AskWithdrawRequest as x:
+		let v = AskWithdrawChecked(client, x.Input) catch {
+		case board.Unauthenticated as e:
+			return Rejected{Failure: Unauthenticated{E: e}}
+		case board.Gone as e:
+			return Rejected{Failure: Gone{E: e}}
+		case board.BoardNotFound as e:
+			return Rejected{Failure: BoardNotFound{E: e}}
+		case board.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case board.Forbidden as e:
+			return Rejected{Failure: Forbidden{E: e}}
+		case board.Invalid as e:
+			return Rejected{Failure: Invalid{E: e}}
+		case board.BoardArchived as e:
+			return Rejected{Failure: BoardArchived{E: e}}
+		case board.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case board.NotAsker as e:
+			return Rejected{Failure: NotAsker{E: e}}
+		case board.AskClosed as e:
+			return Rejected{Failure: AskClosed{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: AskWithdrawReply{Value: v}}
+	case TasksListRequest as x:
+		let v = TasksListChecked(client, x.Input) catch {
+		case board.Unauthenticated as e:
+			return Rejected{Failure: Unauthenticated{E: e}}
+		case board.Gone as e:
+			return Rejected{Failure: Gone{E: e}}
+		case board.BoardNotFound as e:
+			return Rejected{Failure: BoardNotFound{E: e}}
+		case board.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case board.Invalid as e:
+			return Rejected{Failure: Invalid{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: TasksListReply{Value: v}}
+	case TasksCreateRequest as x:
+		let v = TasksCreateChecked(client, x.Input) catch {
+		case board.Unauthenticated as e:
+			return Rejected{Failure: Unauthenticated{E: e}}
+		case board.Gone as e:
+			return Rejected{Failure: Gone{E: e}}
+		case board.BoardNotFound as e:
+			return Rejected{Failure: BoardNotFound{E: e}}
+		case board.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case board.Forbidden as e:
+			return Rejected{Failure: Forbidden{E: e}}
+		case board.Invalid as e:
+			return Rejected{Failure: Invalid{E: e}}
+		case board.BoardArchived as e:
+			return Rejected{Failure: BoardArchived{E: e}}
+		case board.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case board.TooLarge as e:
+			return Rejected{Failure: TooLarge{E: e}}
+		case board.SecretDetected as e:
+			return Rejected{Failure: SecretDetected{E: e}}
+		case board.IdempotencyConflict as e:
+			return Rejected{Failure: IdempotencyConflict{E: e}}
+		case board.ReservedLabel as e:
+			return Rejected{Failure: ReservedLabel{E: e}}
+		case board.AlreadyTask as e:
+			return Rejected{Failure: AlreadyTask{E: e}}
+		case board.InvalidNeeds as e:
+			return Rejected{Failure: InvalidNeeds{E: e}}
+		case board.TaskOwnerUntrusted as e:
+			return Rejected{Failure: TaskOwnerUntrusted{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: TasksCreateReply{Value: v}}
+	case TasksPlanRequest as x:
+		let v = TasksPlanChecked(client, x.Input) catch {
+		case board.Unauthenticated as e:
+			return Rejected{Failure: Unauthenticated{E: e}}
+		case board.Gone as e:
+			return Rejected{Failure: Gone{E: e}}
+		case board.BoardNotFound as e:
+			return Rejected{Failure: BoardNotFound{E: e}}
+		case board.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case board.Forbidden as e:
+			return Rejected{Failure: Forbidden{E: e}}
+		case board.Invalid as e:
+			return Rejected{Failure: Invalid{E: e}}
+		case board.BoardArchived as e:
+			return Rejected{Failure: BoardArchived{E: e}}
+		case board.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case board.TooLarge as e:
+			return Rejected{Failure: TooLarge{E: e}}
+		case board.SecretDetected as e:
+			return Rejected{Failure: SecretDetected{E: e}}
+		case board.IdempotencyConflict as e:
+			return Rejected{Failure: IdempotencyConflict{E: e}}
+		case board.ReservedLabel as e:
+			return Rejected{Failure: ReservedLabel{E: e}}
+		case board.InvalidNeeds as e:
+			return Rejected{Failure: InvalidNeeds{E: e}}
+		case board.PlanTooLarge as e:
+			return Rejected{Failure: PlanTooLarge{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: TasksPlanReply{Value: v}}
+	case TasksClaimRequest as x:
+		let v = TasksClaimChecked(client, x.Input) catch {
+		case board.Unauthenticated as e:
+			return Rejected{Failure: Unauthenticated{E: e}}
+		case board.Gone as e:
+			return Rejected{Failure: Gone{E: e}}
+		case board.BoardNotFound as e:
+			return Rejected{Failure: BoardNotFound{E: e}}
+		case board.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case board.Forbidden as e:
+			return Rejected{Failure: Forbidden{E: e}}
+		case board.Invalid as e:
+			return Rejected{Failure: Invalid{E: e}}
+		case board.BoardArchived as e:
+			return Rejected{Failure: BoardArchived{E: e}}
+		case board.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case board.TaskOwnerUntrusted as e:
+			return Rejected{Failure: TaskOwnerUntrusted{E: e}}
+		case board.TaskClaimedRefusal as e:
+			return Rejected{Failure: TaskClaimedRefusal{E: e}}
+		case board.TaskAssignedRefusal as e:
+			return Rejected{Failure: TaskAssignedRefusal{E: e}}
+		case board.TaskWaitingRefusal as e:
+			return Rejected{Failure: TaskWaitingRefusal{E: e}}
+		case board.TaskBlockedRefusal as e:
+			return Rejected{Failure: TaskBlockedRefusal{E: e}}
+		case board.TaskFinished as e:
+			return Rejected{Failure: TaskFinished{E: e}}
+		case board.NothingReady as e:
+			return Rejected{Failure: NothingReady{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: TasksClaimReply{Value: v}}
+	case TasksRenewRequest as x:
+		let v = TasksRenewChecked(client, x.Input) catch {
+		case board.Unauthenticated as e:
+			return Rejected{Failure: Unauthenticated{E: e}}
+		case board.Gone as e:
+			return Rejected{Failure: Gone{E: e}}
+		case board.BoardNotFound as e:
+			return Rejected{Failure: BoardNotFound{E: e}}
+		case board.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case board.Forbidden as e:
+			return Rejected{Failure: Forbidden{E: e}}
+		case board.Invalid as e:
+			return Rejected{Failure: Invalid{E: e}}
+		case board.BoardArchived as e:
+			return Rejected{Failure: BoardArchived{E: e}}
+		case board.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case board.ClaimLost as e:
+			return Rejected{Failure: ClaimLost{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: TasksRenewReply{Value: v}}
+	case TasksReleaseRequest as x:
+		let v = TasksReleaseChecked(client, x.Input) catch {
+		case board.Unauthenticated as e:
+			return Rejected{Failure: Unauthenticated{E: e}}
+		case board.Gone as e:
+			return Rejected{Failure: Gone{E: e}}
+		case board.BoardNotFound as e:
+			return Rejected{Failure: BoardNotFound{E: e}}
+		case board.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case board.Forbidden as e:
+			return Rejected{Failure: Forbidden{E: e}}
+		case board.Invalid as e:
+			return Rejected{Failure: Invalid{E: e}}
+		case board.BoardArchived as e:
+			return Rejected{Failure: BoardArchived{E: e}}
+		case board.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case board.ClaimLost as e:
+			return Rejected{Failure: ClaimLost{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: TasksReleaseReply{Value: v}}
+	case TasksCompleteRequest as x:
+		let v = TasksCompleteChecked(client, x.Input) catch {
+		case board.Unauthenticated as e:
+			return Rejected{Failure: Unauthenticated{E: e}}
+		case board.Gone as e:
+			return Rejected{Failure: Gone{E: e}}
+		case board.BoardNotFound as e:
+			return Rejected{Failure: BoardNotFound{E: e}}
+		case board.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case board.Forbidden as e:
+			return Rejected{Failure: Forbidden{E: e}}
+		case board.Invalid as e:
+			return Rejected{Failure: Invalid{E: e}}
+		case board.BoardArchived as e:
+			return Rejected{Failure: BoardArchived{E: e}}
+		case board.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case board.TooLarge as e:
+			return Rejected{Failure: TooLarge{E: e}}
+		case board.SecretDetected as e:
+			return Rejected{Failure: SecretDetected{E: e}}
+		case board.ClaimLost as e:
+			return Rejected{Failure: ClaimLost{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: TasksCompleteReply{Value: v}}
+	case TasksFailRequest as x:
+		let v = TasksFailChecked(client, x.Input) catch {
+		case board.Unauthenticated as e:
+			return Rejected{Failure: Unauthenticated{E: e}}
+		case board.Gone as e:
+			return Rejected{Failure: Gone{E: e}}
+		case board.BoardNotFound as e:
+			return Rejected{Failure: BoardNotFound{E: e}}
+		case board.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case board.Forbidden as e:
+			return Rejected{Failure: Forbidden{E: e}}
+		case board.Invalid as e:
+			return Rejected{Failure: Invalid{E: e}}
+		case board.BoardArchived as e:
+			return Rejected{Failure: BoardArchived{E: e}}
+		case board.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case board.TooLarge as e:
+			return Rejected{Failure: TooLarge{E: e}}
+		case board.SecretDetected as e:
+			return Rejected{Failure: SecretDetected{E: e}}
+		case board.ClaimLost as e:
+			return Rejected{Failure: ClaimLost{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: TasksFailReply{Value: v}}
+	case TasksBlockRequest as x:
+		let v = TasksBlockChecked(client, x.Input) catch {
+		case board.Unauthenticated as e:
+			return Rejected{Failure: Unauthenticated{E: e}}
+		case board.Gone as e:
+			return Rejected{Failure: Gone{E: e}}
+		case board.BoardNotFound as e:
+			return Rejected{Failure: BoardNotFound{E: e}}
+		case board.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case board.Forbidden as e:
+			return Rejected{Failure: Forbidden{E: e}}
+		case board.Invalid as e:
+			return Rejected{Failure: Invalid{E: e}}
+		case board.BoardArchived as e:
+			return Rejected{Failure: BoardArchived{E: e}}
+		case board.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case board.TooLarge as e:
+			return Rejected{Failure: TooLarge{E: e}}
+		case board.SecretDetected as e:
+			return Rejected{Failure: SecretDetected{E: e}}
+		case board.TaskFinished as e:
+			return Rejected{Failure: TaskFinished{E: e}}
+		case board.ClaimLost as e:
+			return Rejected{Failure: ClaimLost{E: e}}
+		case board.TaskNotOwned as e:
+			return Rejected{Failure: TaskNotOwned{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: TasksBlockReply{Value: v}}
+	case TasksUnblockRequest as x:
+		let v = TasksUnblockChecked(client, x.Input) catch {
+		case board.Unauthenticated as e:
+			return Rejected{Failure: Unauthenticated{E: e}}
+		case board.Gone as e:
+			return Rejected{Failure: Gone{E: e}}
+		case board.BoardNotFound as e:
+			return Rejected{Failure: BoardNotFound{E: e}}
+		case board.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case board.Forbidden as e:
+			return Rejected{Failure: Forbidden{E: e}}
+		case board.Invalid as e:
+			return Rejected{Failure: Invalid{E: e}}
+		case board.BoardArchived as e:
+			return Rejected{Failure: BoardArchived{E: e}}
+		case board.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case board.TaskNotOwned as e:
+			return Rejected{Failure: TaskNotOwned{E: e}}
+		case board.NotBlocked as e:
+			return Rejected{Failure: NotBlocked{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: TasksUnblockReply{Value: v}}
+	case TasksReopenRequest as x:
+		let v = TasksReopenChecked(client, x.Input) catch {
+		case board.Unauthenticated as e:
+			return Rejected{Failure: Unauthenticated{E: e}}
+		case board.Gone as e:
+			return Rejected{Failure: Gone{E: e}}
+		case board.BoardNotFound as e:
+			return Rejected{Failure: BoardNotFound{E: e}}
+		case board.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case board.Forbidden as e:
+			return Rejected{Failure: Forbidden{E: e}}
+		case board.Invalid as e:
+			return Rejected{Failure: Invalid{E: e}}
+		case board.BoardArchived as e:
+			return Rejected{Failure: BoardArchived{E: e}}
+		case board.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case board.TaskNotOwned as e:
+			return Rejected{Failure: TaskNotOwned{E: e}}
+		case board.NotFailed as e:
+			return Rejected{Failure: NotFailed{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: TasksReopenReply{Value: v}}
+	case TasksAssignRequest as x:
+		let v = TasksAssignChecked(client, x.Input) catch {
+		case board.Unauthenticated as e:
+			return Rejected{Failure: Unauthenticated{E: e}}
+		case board.Gone as e:
+			return Rejected{Failure: Gone{E: e}}
+		case board.BoardNotFound as e:
+			return Rejected{Failure: BoardNotFound{E: e}}
+		case board.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case board.Forbidden as e:
+			return Rejected{Failure: Forbidden{E: e}}
+		case board.Invalid as e:
+			return Rejected{Failure: Invalid{E: e}}
+		case board.BoardArchived as e:
+			return Rejected{Failure: BoardArchived{E: e}}
+		case board.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case board.TaskFinished as e:
+			return Rejected{Failure: TaskFinished{E: e}}
+		case board.TaskNotOwned as e:
+			return Rejected{Failure: TaskNotOwned{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: TasksAssignReply{Value: v}}
+	case TasksNeedsRequest as x:
+		let v = TasksNeedsChecked(client, x.Input) catch {
+		case board.Unauthenticated as e:
+			return Rejected{Failure: Unauthenticated{E: e}}
+		case board.Gone as e:
+			return Rejected{Failure: Gone{E: e}}
+		case board.BoardNotFound as e:
+			return Rejected{Failure: BoardNotFound{E: e}}
+		case board.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case board.Forbidden as e:
+			return Rejected{Failure: Forbidden{E: e}}
+		case board.Invalid as e:
+			return Rejected{Failure: Invalid{E: e}}
+		case board.BoardArchived as e:
+			return Rejected{Failure: BoardArchived{E: e}}
+		case board.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case board.InvalidNeeds as e:
+			return Rejected{Failure: InvalidNeeds{E: e}}
+		case board.TaskClaimedRefusal as e:
+			return Rejected{Failure: TaskClaimedRefusal{E: e}}
+		case board.TaskFinished as e:
+			return Rejected{Failure: TaskFinished{E: e}}
+		case board.TaskNotOwned as e:
+			return Rejected{Failure: TaskNotOwned{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: TasksNeedsReply{Value: v}}
+	case TasksCancelRequest as x:
+		let v = TasksCancelChecked(client, x.Input) catch {
+		case board.Unauthenticated as e:
+			return Rejected{Failure: Unauthenticated{E: e}}
+		case board.Gone as e:
+			return Rejected{Failure: Gone{E: e}}
+		case board.BoardNotFound as e:
+			return Rejected{Failure: BoardNotFound{E: e}}
+		case board.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case board.Forbidden as e:
+			return Rejected{Failure: Forbidden{E: e}}
+		case board.Invalid as e:
+			return Rejected{Failure: Invalid{E: e}}
+		case board.BoardArchived as e:
+			return Rejected{Failure: BoardArchived{E: e}}
+		case board.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case board.TooLarge as e:
+			return Rejected{Failure: TooLarge{E: e}}
+		case board.SecretDetected as e:
+			return Rejected{Failure: SecretDetected{E: e}}
+		case board.TaskFinished as e:
+			return Rejected{Failure: TaskFinished{E: e}}
+		case board.TaskNotOwned as e:
+			return Rejected{Failure: TaskNotOwned{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: TasksCancelReply{Value: v}}
+	case GrantsRequest as x:
+		let v = GrantsChecked(client, x.Input) catch {
+		case board.Unauthenticated as e:
+			return Rejected{Failure: Unauthenticated{E: e}}
+		case board.Gone as e:
+			return Rejected{Failure: Gone{E: e}}
+		case board.BoardNotFound as e:
+			return Rejected{Failure: BoardNotFound{E: e}}
+		case board.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case board.Forbidden as e:
+			return Rejected{Failure: Forbidden{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: GrantsReply{Value: v}}
+	case GrantExplainRequest as x:
+		let v = GrantExplainChecked(client, x.Input) catch {
+		case board.Unauthenticated as e:
+			return Rejected{Failure: Unauthenticated{E: e}}
+		case board.Gone as e:
+			return Rejected{Failure: Gone{E: e}}
+		case board.BoardNotFound as e:
+			return Rejected{Failure: BoardNotFound{E: e}}
+		case board.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case board.Forbidden as e:
+			return Rejected{Failure: Forbidden{E: e}}
+		case board.Invalid as e:
+			return Rejected{Failure: Invalid{E: e}}
+		case board.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: GrantExplainReply{Value: v}}
+	case GrantCreateRequest as x:
+		let v = GrantCreateChecked(client, x.Input) catch {
+		case board.Unauthenticated as e:
+			return Rejected{Failure: Unauthenticated{E: e}}
+		case board.Gone as e:
+			return Rejected{Failure: Gone{E: e}}
+		case board.BoardNotFound as e:
+			return Rejected{Failure: BoardNotFound{E: e}}
+		case board.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case board.Forbidden as e:
+			return Rejected{Failure: Forbidden{E: e}}
+		case board.Invalid as e:
+			return Rejected{Failure: Invalid{E: e}}
+		case board.BoardArchived as e:
+			return Rejected{Failure: BoardArchived{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: GrantCreateReply{Value: v}}
+	case GrantRevokeRequest as x:
+		let v = GrantRevokeChecked(client, x.Input) catch {
+		case board.Unauthenticated as e:
+			return Rejected{Failure: Unauthenticated{E: e}}
+		case board.Gone as e:
+			return Rejected{Failure: Gone{E: e}}
+		case board.BoardNotFound as e:
+			return Rejected{Failure: BoardNotFound{E: e}}
+		case board.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case board.Forbidden as e:
+			return Rejected{Failure: Forbidden{E: e}}
+		case board.Invalid as e:
+			return Rejected{Failure: Invalid{E: e}}
+		case board.BoardArchived as e:
+			return Rejected{Failure: BoardArchived{E: e}}
+		case board.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: GrantRevokeReply{Value: v}}
+	case BoardCreateRequest as x:
+		let v = BoardCreateChecked(client, x.Input) catch {
+		case board.Unauthenticated as e:
+			return Rejected{Failure: Unauthenticated{E: e}}
+		case board.Gone as e:
+			return Rejected{Failure: Gone{E: e}}
+		case board.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case board.Forbidden as e:
+			return Rejected{Failure: Forbidden{E: e}}
+		case board.Invalid as e:
+			return Rejected{Failure: Invalid{E: e}}
+		case board.BoardNameTaken as e:
+			return Rejected{Failure: BoardNameTaken{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: BoardCreateReply{Value: v}}
+	case BoardRenameRequest as x:
+		let v = BoardRenameChecked(client, x.Input) catch {
+		case board.Unauthenticated as e:
+			return Rejected{Failure: Unauthenticated{E: e}}
+		case board.Gone as e:
+			return Rejected{Failure: Gone{E: e}}
+		case board.BoardNotFound as e:
+			return Rejected{Failure: BoardNotFound{E: e}}
+		case board.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case board.Forbidden as e:
+			return Rejected{Failure: Forbidden{E: e}}
+		case board.Invalid as e:
+			return Rejected{Failure: Invalid{E: e}}
+		case board.BoardArchived as e:
+			return Rejected{Failure: BoardArchived{E: e}}
+		case board.BoardNameTaken as e:
+			return Rejected{Failure: BoardNameTaken{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: BoardRenameReply{Value: v}}
+	case BoardArchiveRequest as x:
+		let v = BoardArchiveChecked(client, x.Input) catch {
+		case board.Unauthenticated as e:
+			return Rejected{Failure: Unauthenticated{E: e}}
+		case board.Gone as e:
+			return Rejected{Failure: Gone{E: e}}
+		case board.BoardNotFound as e:
+			return Rejected{Failure: BoardNotFound{E: e}}
+		case board.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case board.Forbidden as e:
+			return Rejected{Failure: Forbidden{E: e}}
+		case board.Invalid as e:
+			return Rejected{Failure: Invalid{E: e}}
+		case board.BoardArchived as e:
+			return Rejected{Failure: BoardArchived{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: BoardArchiveReply{Value: v}}
+	case TrustUpdateRequest as x:
+		let v = TrustUpdateChecked(client, x.Input) catch {
+		case board.Unauthenticated as e:
+			return Rejected{Failure: Unauthenticated{E: e}}
+		case board.Gone as e:
+			return Rejected{Failure: Gone{E: e}}
+		case board.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case board.Forbidden as e:
+			return Rejected{Failure: Forbidden{E: e}}
+		case board.Invalid as e:
+			return Rejected{Failure: Invalid{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: TrustUpdateReply{Value: v}}
+	}
 }
 
 // CallIsTheOperation: Call(r) calls r's operation once, with r's
@@ -2870,19 +5029,26 @@ func scripted(want Outcome, sent sync.Ref[[]Request]) Client {
 law CallIsTheOperation(r Request, g Given) {
 	let want = OutcomeOf(r, g)
 	let sent = sync.NewRef[[]Request]([]Request{})
-	let got = with context { board.Api: scripted(want, sent) } { Call(r) }
+	let got = with context { board.Api: scripted(g, sent) } { Call(r) }
 	got == want && sent.Get() == []Request{r}
 }
 
-// ClientIsCall: a Client whose send is Call answers each call as the
-// provider Call is bound to does.
+// ClientIsCall: a direct Client and a CheckedClient over Call both
+// answer each call as the provider Call is bound to does.
 law ClientIsCall(r Request, g Given) {
 	let want = OutcomeOf(r, g)
 	let sent = sync.NewRef[[]Request]([]Request{})
-	let inner = scripted(want, sent)
-	let outer = NewClient(func(q Request) Outcome {
-		with context { board.Api: inner } { Call(q) }
-	})
+	let inner = scripted(g, sent)
+	let outer = NewClient(inner)
 	let got = with context { board.Api: outer } { Call(r) }
-	got == want && sent.Get() == []Request{r}
+	let sentChecked = sync.NewRef[[]Request]([]Request{})
+	let innerChecked = scripted(g, sentChecked)
+	let checked = NewCheckedClient(func(q Request) Outcome fails rpc.Transport {
+		with context { board.Api: innerChecked } { Call(q) }
+	})
+	let gotChecked = callChecked(checked, r) catch {
+	case rpc.Transport:
+		return false
+	}
+	got == want && sent.Get() == []Request{r} && gotChecked == want && sentChecked.Get() == []Request{r}
 }

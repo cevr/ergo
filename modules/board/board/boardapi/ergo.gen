@@ -2,4 +2,4 @@ kind api
 generator ergo gen api
 subject github.com/cevr/ergo/modules/board/board.Api
 contract sha256:395ff8899d0b7e5fe5e5e3fe50d2e38f8e891dcbac963dd3aa4595b31171c2de
-digest sha256:2cc728fd117d9590016f57c188787f864cefc9f49fdb0def4c65f6a1fbdbb14d
+digest sha256:44a71d846a935a37c4799dfcb0efbb90924799998cc1fbb8fef36a16e3d31faa

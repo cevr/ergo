@@ -1519,27 +1519,32 @@ func CodecFieldsOf_heldWalk(v *heldWalk) CodecFields_heldWalk {
 }
 
 type CodecFields_hostPkg struct {
-	F_set      **GoBindings
-	F_src      *string
-	F_c        **checker
-	F_fi       **fileInfo
-	F_loaded   *bool
-	F_err      *string
-	F_vars     *map[*Var]*syntax.VarSpec
-	F_refused  *map[string]string
-	F_recvPtr  *map[*Func]bool
-	F_variadic *map[*Func]bool
-	F_context  *map[*Func]bool
-	F_goLines  *map[int]string
-	F_reads    *map[*Func][]string
-	F_vouched  *map[*Func][]vouch
-	F_writes   *map[*Func]int
-	F_effect   *map[*Func]bool
-	F_host     *map[*Func]bool
+	F_set          **GoBindings
+	F_src          *string
+	F_c            **checker
+	F_fi           **fileInfo
+	F_loaded       *bool
+	F_err          *string
+	F_vars         *map[*Var]*syntax.VarSpec
+	F_refused      *map[string]string
+	F_recvPtr      *map[*Func]bool
+	F_variadic     *map[*Func]bool
+	F_context      *map[*Func]bool
+	F_goLines      *map[int]string
+	F_reads        *map[*Func][]string
+	F_vouched      *map[*Func][]vouch
+	F_writes       *map[*Func]int
+	F_effect       *map[*Func]bool
+	F_host         *map[*Func]bool
+	F_cBind        *bool
+	F_cChecked     *bool
+	F_cHeaderSHA   *string
+	F_cContractSHA *string
+	F_cdata        *map[*TypeName]bool
 }
 
 func CodecFieldsOf_hostPkg(v *hostPkg) CodecFields_hostPkg {
-	return CodecFields_hostPkg{F_set: &v.set, F_src: &v.src, F_c: &v.c, F_fi: &v.fi, F_loaded: &v.loaded, F_err: &v.err, F_vars: &v.vars, F_refused: &v.refused, F_recvPtr: &v.recvPtr, F_variadic: &v.variadic, F_context: &v.context, F_goLines: &v.goLines, F_reads: &v.reads, F_vouched: &v.vouched, F_writes: &v.writes, F_effect: &v.effect, F_host: &v.host}
+	return CodecFields_hostPkg{F_set: &v.set, F_src: &v.src, F_c: &v.c, F_fi: &v.fi, F_loaded: &v.loaded, F_err: &v.err, F_vars: &v.vars, F_refused: &v.refused, F_recvPtr: &v.recvPtr, F_variadic: &v.variadic, F_context: &v.context, F_goLines: &v.goLines, F_reads: &v.reads, F_vouched: &v.vouched, F_writes: &v.writes, F_effect: &v.effect, F_host: &v.host, F_cBind: &v.cBind, F_cChecked: &v.cChecked, F_cHeaderSHA: &v.cHeaderSHA, F_cContractSHA: &v.cContractSHA, F_cdata: &v.cdata}
 }
 
 type CodecFields_importAlias struct {
