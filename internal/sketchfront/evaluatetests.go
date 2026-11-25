@@ -20,6 +20,13 @@ const EvaluatedMark = " (evaluated)"
 // TESTSPEED FT2), as the test binary marks a law verdict it did not run.
 const StoredMark = " (cached)"
 
+// RefutedTape is the shrunk draw tape of a refuted property from one test run
+// (PROPERTY-TESTING P8), to persist in ergo.cases.
+type RefutedTape struct {
+	Name string
+	Tape []uint64
+}
+
 // TestAnswer is a package's `ergo test` answered by the check-time
 // evaluator (tier 1, TESTSPEED FT1): what the native test binary would
 // print, line for line, with each verdict marked EvaluatedMark.
@@ -38,29 +45,23 @@ type TestAnswer struct {
 	Steps       int64
 	// Stored is the count of verdicts read from the store, not run.
 	Stored int
+	// RefutedTapes holds the shrunk draw tape of each refuted drawn property.
+	RefutedTapes []RefutedTape
+	// PassedStored records the indices of Budget.StoredCases[name] that passed
+	// during replay, keyed by obligation name.
+	PassedStored map[string][]int
 }
 
 // EvaluateTests answers the root package's full `ergo test` (no --law,
 // --skip-law or --run) from the evaluator, at seed and with a budget of
-// states for a reachability law (0 is the default). admitted is the
-// admitted path of the source (BuildRequest.Source), and source the path
-// ergo test names the program by, for the replay lines.
-//
-// ok is false when the evaluator does not decide the whole package: a
-// line of the native run the evaluator does not write (lower.TestLines
-// not Plain), an obligation it skipped, left incomplete or reported in
-// words the native runner does not use (eval.VerdictLine), a defect (the
-// native runner stops there), or a set of obligations that is not the
-// native runner's. The native binary then answers the package (tier 2).
-//
-// With a store (lawcache), a test or law run whose verdict it holds under
-// an unchanged reach digest is not run and prints StoredMark; a pass is
-// stored. native is EvalVerdicts': the toolchain whose test binary's law
-// verdicts it reads too. An obligation the evaluator leaves incomplete
-// gets a route note under its key, and while any obligation of the
-// package has one the package goes to the test binary with no evaluation
-// (TESTSPEED FT2).
+// states for a reachability law (0 is the default).
 func (a Analysis) EvaluateTests(seed uint64, states int, admitted, source string, store *lawcache.Store, native string) (TestAnswer, bool) {
+	return a.EvaluateTestsWithCases(seed, states, admitted, source, store, native, nil, false)
+}
+
+// EvaluateTestsWithCases is EvaluateTests with optional stored regression
+// tapes from ergo.cases (PROPERTY-TESTING P8) and prune-cases mode.
+func (a Analysis) EvaluateTestsWithCases(seed uint64, states int, admitted, source string, store *lawcache.Store, native string, storedCases map[string][]eval.StoredCase, pruneCases bool) (TestAnswer, bool) {
 	unit, err := analysisUnit(a, admitted)
 	if err != nil {
 		return TestAnswer{}, false
@@ -69,9 +70,6 @@ func (a Analysis) EvaluateTests(seed uint64, states int, admitted, source string
 	if !plan.Plain || len(plan.Names) == 0 {
 		return TestAnswer{}, false
 	}
-	// A source of one file is parsed with no name; the native runner
-	// names its sites by the file's base name, so the evaluator does too
-	// while it runs.
 	if a.program == nil && a.file != nil && a.file.Name == "" {
 		a.file.Name = filepath.Base(admitted)
 		defer func() { a.file.Name = "" }()
@@ -79,12 +77,12 @@ func (a Analysis) EvaluateTests(seed uint64, states int, admitted, source string
 	b := eval.DefaultBudget()
 	b.Seed, b.States = seed, states
 	b.Source = source
+	b.StoredCases = storedCases
+	b.PruneCases = pruneCases
 	pkg := a.rootPackage()
 	foreign := foreignKeys(a, nil)
 	var notes map[string]string
-	if store != nil && pkg != nil {
-		// A route note of an obligation whose inputs did not change
-		// sends the package to the test binary with no evaluation.
+	if store != nil && pkg != nil && !pruneCases {
 		notes = routes(pkg, seed, states, b.Steps, foreign)
 		for _, name := range plan.Names {
 			if text, ok := store.Get(notes[name]); ok && text == routeNote {
@@ -92,23 +90,29 @@ func (a Analysis) EvaluateTests(seed uint64, states int, admitted, source string
 				return TestAnswer{}, false
 			}
 		}
-		b.Verdicts = a.EvalVerdicts(store, seed, states, native)
-		b.Tests = &testVerdicts{store: store, pkg: pkg, seed: seed, keys: map[*check.Test]string{}, foreign: foreign}
+		ev := a.EvalVerdicts(store, seed, states, native)
+		tv := &testVerdicts{store: store, pkg: pkg, seed: seed, keys: map[*check.Test]string{}, foreign: foreign}
+		if len(storedCases) > 0 {
+			b.Verdicts = storedCasesVerdicts{inner: ev, pkg: pkg, stored: storedCases}
+			b.Tests = storedCasesTests{inner: tv, stored: storedCases}
+		} else {
+			b.Verdicts = ev
+			b.Tests = tv
+		}
 	}
 	rep, err := a.Evaluate(b)
 	if err != nil {
 		return TestAnswer{}, false
 	}
-	// The obligations the evaluator gave up on get a route note.
-	for _, r := range rep.Results {
-		if r.Status == eval.Incomplete {
-			if k, ok := notes[r.Name]; ok {
-				store.Put(k, routeNote)
+	if notes != nil {
+		for _, r := range rep.Results {
+			if r.Status == eval.Incomplete {
+				if k, ok := notes[r.Name]; ok {
+					store.Put(k, routeNote)
+				}
 			}
 		}
 	}
-	// The native runner's obligations, in its order: the evaluator's
-	// results must be the same list (eval.Summary relies on its order).
 	if len(rep.Results) != len(plan.Names) {
 		return TestAnswer{}, false
 	}
@@ -123,13 +127,22 @@ func (a Analysis) EvaluateTests(seed uint64, states int, admitted, source string
 	}
 	var out strings.Builder
 	stored := 0
+	var refutedTapes []RefutedTape
+	passedStored := map[string][]int{}
 	for i, line := range lines {
 		if i == len(lines)-1 {
-			out.WriteString(line + "\n") // the summary
+			out.WriteString(line + "\n")
 			break
 		}
+		r := rep.Results[i]
+		if r.Status == eval.Refuted && r.ShrunkTape != nil {
+			refutedTapes = append(refutedTapes, RefutedTape{Name: r.Name, Tape: r.ShrunkTape})
+		}
+		if len(r.PassedStored) > 0 {
+			passedStored[r.Name] = r.PassedStored
+		}
 		mark := EvaluatedMark
-		if rep.Results[i].Cached {
+		if r.Cached {
 			mark, stored = StoredMark, stored+1
 		}
 		first, rest, more := strings.Cut(line, "\n")
@@ -138,10 +151,69 @@ func (a Analysis) EvaluateTests(seed uint64, states int, admitted, source string
 			out.WriteString(rest + "\n")
 		}
 	}
-	answer := TestAnswer{Stdout: out.String(), Exit: exit, Obligations: len(rep.Results) - stored, Stored: stored, Steps: rep.Steps}
+	answer := TestAnswer{
+		Stdout:       out.String(),
+		Exit:         exit,
+		Obligations:  len(rep.Results) - stored,
+		Stored:       stored,
+		Steps:        rep.Steps,
+		RefutedTapes: refutedTapes,
+		PassedStored: passedStored,
+	}
 	if stderr != "" {
 		answer.Stderr = stderr + "\n"
 	}
 	stage.Add(stage.ObligationsStored, int64(stored))
 	return answer, true
+}
+
+type storedCasesVerdicts struct {
+	inner  eval.Verdicts
+	pkg    *check.Package
+	stored map[string][]eval.StoredCase
+}
+
+func (v storedCasesVerdicts) hasStored(law *check.Law, binding []check.LawProvider) bool {
+	if v.pkg == nil || len(v.stored) == 0 {
+		return false
+	}
+	for _, rt := range lower.RunTargets(v.pkg) {
+		if rt.Law == law && len(v.stored[rt.Label]) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func (v storedCasesVerdicts) Cached(law *check.Law, binding []check.LawProvider) (eval.Verdict, bool) {
+	if v.hasStored(law, binding) {
+		return eval.Verdict{}, false
+	}
+	return v.inner.Cached(law, binding)
+}
+
+func (v storedCasesVerdicts) Held(law *check.Law, binding []check.LawProvider, verdict eval.Verdict) {
+	if v.hasStored(law, binding) {
+		return
+	}
+	v.inner.Held(law, binding, verdict)
+}
+
+type storedCasesTests struct {
+	inner  eval.TestVerdicts
+	stored map[string][]eval.StoredCase
+}
+
+func (t storedCasesTests) Cached(test *check.Test) (eval.Verdict, bool) {
+	if len(t.stored[test.Name]) > 0 {
+		return eval.Verdict{}, false
+	}
+	return t.inner.Cached(test)
+}
+
+func (t storedCasesTests) Held(test *check.Test, verdict eval.Verdict) {
+	if len(t.stored[test.Name]) > 0 {
+		return
+	}
+	t.inner.Held(test, verdict)
 }

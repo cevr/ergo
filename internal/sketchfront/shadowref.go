@@ -75,11 +75,11 @@ func RecordRefutations(a Analysis, req BuildRequest, refs []ShadowRefutation) (i
 	if err != nil {
 		return 0, err
 	}
-	cases, err := parseCorpus(ctext)
+	cases, propCases, err := parseCorpus(ctext)
 	if err != nil {
 		return 0, err
 	}
-	before := cases.format()
+	before := cases.formatWith(propCases)
 	changed := 0
 	for _, r := range refs {
 		law, ok := laws[r.Law]
@@ -102,7 +102,7 @@ func RecordRefutations(a Analysis, req BuildRequest, refs []ShadowRefutation) (i
 			cases[e.Key()] = append(cases[e.Key()], r.Case)
 		}
 	}
-	if after := cases.format(); after != before {
+	if after := cases.formatWith(propCases); after != before {
 		changed++
 		if err := writeFileAtomic(corpusPath(req.Ledger), []byte(after)); err != nil {
 			return 0, err

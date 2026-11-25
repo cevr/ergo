@@ -136,11 +136,11 @@ func UpdateLedger(a Analysis, req BuildRequest) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	cases, err := parseCorpus(ctext)
+	cases, propCases, err := parseCorpus(ctext)
 	if err != nil {
 		return 0, err
 	}
-	before := cases.format()
+	before := cases.formatWith(propCases)
 	fresh, skipped, err := licenceEntries(unit.Package, names, old, keys, req.Stderr, cases, req.Toolchain)
 	var refuted *ClaimLicenceRefutedError
 	if err != nil && !errors.As(err, &refuted) {
@@ -191,7 +191,7 @@ func UpdateLedger(a Analysis, req BuildRequest) (int, error) {
 			delete(cases, k)
 		}
 	}
-	if after := cases.format(); after != before {
+	if after := cases.formatWith(propCases); after != before {
 		changed++
 		if err := writeFileAtomic(corpusPath(req.Ledger), []byte(after)); err != nil {
 			return 0, err

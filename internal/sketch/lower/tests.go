@@ -159,6 +159,7 @@ var testHelpers = []struct{ key, base string }{
 	{"Goal", "ergoGoal"}, {"Witness", "ergoWitness"}, {"Broken", "ergoBroken"}, {"testgen", "testgen"},
 	{"Flag", "ergoFlag"}, {"Source", "ergoSource"}, {"Replay", "ergoReplay"},
 	{"Cached", "ergoCached"}, {"CachedRun", "ergoCachedRun"},
+	{"StoredTape", "ergoStoredTape"}, {"StoredTapes", "ergoStoredTapes"}, {"PruneTapes", "ergoPruneTapes"}, {"ReplayStored", "ergoReplayStored"}, {"EncodeTape", "ergoEncodeTape"}, {"ExtraNote", "ergoExtraNote"},
 	{"TestAmbient", "ergoTestAmbient"}, {"TestLoopback", "ergoTestLoopback"},
 	{"SkipOf", "ergoSkipOf"}, {"Skipping", "ergoSkipping"}, {"Skipped", "ergoSkipped"}, {"Skippable", "ergoSkippable"}, {"SkipRun", "ergoSkipRun"}, {"SkipNow", "ergoSkipNow"}, {"SkipNote", "ergoSkipNote"},
 }
@@ -983,16 +984,12 @@ func (l *lowerer) testRun(b *strings.Builder, t *check.Test, scope *namer, env, 
 			return
 		}
 		inner := newNamer(scope)
-		r, ok, i := inner.alloc("r"), inner.alloc("ok"), inner.alloc("i")
+		r, ok, i, drawFn, extra := inner.alloc("r"), inner.alloc("ok"), inner.alloc("i"), inner.alloc("draw"), inner.alloc("extra")
 		b.WriteString("\t{\n")
 		b.WriteString("\t\t" + r + " := " + l.helper("NewRand") + "(" + seed + ", " + strconv.Quote(t.Name) + ")\n")
 		b.WriteString("\t\t" + r + ".env = " + env + "\n")
-		b.WriteString("\t\t" + ok + " := true\n")
-		b.WriteString("\t\tfor " + i + " := 1; " + ok + " && " + i + " <= " + strconv.Itoa(testCases) + "; " + i + "++ {\n")
-		// The case's size grows with its number (QuickCheck's sized):
-		// case i draws collections of up to i/4 elements at the top.
-		b.WriteString("\t\t\t" + r + ".start(" + i + ")\n")
-		b.WriteString("\t\t\t" + ok + " = " + l.helper("Prop") + "(" + taskOf(env) + ", " + name + ", " + r + ", func() (func() string, func() error) {\n")
+		b.WriteString("\t\t" + i + " := 0\n")
+		b.WriteString("\t\t" + drawFn + " := func() (func() string, func() error) {\n")
 		args := []string{env}
 		conv := l.helper("strconv")
 		// The case's report: its number, the seed, the size and each
@@ -1016,9 +1013,16 @@ func (l *lowerer) testRun(b *strings.Builder, t *check.Test, scope *namer, env, 
 			}
 			shown = append(shown, strconv.Quote(sep+v.Name+" = "), l.litExpr(v.Type, a, t.Decl))
 		}
-		b.WriteString("\t\t\treturn func() string { return " + strings.Join(shown, " + ") + " }, func() error { return " + l.testFunc(t) + "(" + strings.Join(args, ", ") + ") }\n\t\t\t})\n")
-		b.WriteString("\t\t}\n")
-		b.WriteString("\t\tif " + ok + " {\n\t\t\t" + fmtPkg + ".Println(" + strconv.Quote(fmt.Sprintf("ok %s (%d cases)", t.Name, testCases)) + ")\n")
+		b.WriteString("\t\t\treturn func() string { return " + strings.Join(shown, " + ") + " }, func() error { return " + l.testFunc(t) + "(" + strings.Join(args, ", ") + ") }\n\t\t}\n")
+		b.WriteString("\t\t" + ok + ", " + extra + " := " + l.helper("ReplayStored") + "(" + taskOf(env) + ", " + name + ", " + r + ", " + drawFn + ")\n")
+		b.WriteString("\t\tif !" + l.helper("PruneTapes") + " {\n")
+		b.WriteString("\t\t\tfor " + i + " = 1; " + ok + " && " + i + " <= " + strconv.Itoa(testCases) + "; " + i + "++ {\n")
+		// The case's size grows with its number (QuickCheck's sized):
+		// case i draws collections of up to i/4 elements at the top.
+		b.WriteString("\t\t\t\t" + r + ".start(" + i + ")\n")
+		b.WriteString("\t\t\t\t" + ok + " = " + l.helper("Prop") + "(" + taskOf(env) + ", " + name + ", " + r + ", " + drawFn + ")\n")
+		b.WriteString("\t\t\t}\n\t\t}\n")
+		b.WriteString("\t\tif " + ok + " {\n\t\t\t" + fmtPkg + ".Println(" + strconv.Quote("ok "+t.Name+" ("+strconv.Itoa(testCases)+" cases") + " + " + l.helper("ExtraNote") + "(" + extra + ") + \")\")\n")
 		b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n\t\t}\n\t}\n")
 	}
 }
@@ -1177,7 +1181,7 @@ func (l *lowerer) lawTarget(b *strings.Builder, law *check.Law, label string, bd
 			return
 		}
 		inner := newNamer(scope)
-		r, ok, i := inner.alloc("r"), inner.alloc("ok"), inner.alloc("i")
+		r, ok, i, drawFn, extra := inner.alloc("r"), inner.alloc("ok"), inner.alloc("i"), inner.alloc("draw"), inner.alloc("extra")
 		name := strconv.Quote(tg.label) + ", " + at
 		cases := testCases
 		if l.postRun(law, tg.b) {
@@ -1186,10 +1190,8 @@ func (l *lowerer) lawTarget(b *strings.Builder, law *check.Law, label string, bd
 		b.WriteString("\t{\n")
 		b.WriteString("\t\t" + r + " := " + l.helper("NewRand") + "(" + seed + ", " + strconv.Quote(tg.label) + ")\n")
 		b.WriteString("\t\t" + r + ".env = " + env + "\n")
-		b.WriteString("\t\t" + ok + " := true\n")
-		b.WriteString("\t\tfor " + i + " := 1; " + ok + " && " + i + " <= " + strconv.Itoa(cases) + "; " + i + "++ {\n")
-		b.WriteString("\t\t\t" + r + ".start(" + i + ")\n")
-		b.WriteString("\t\t\t" + ok + " = " + l.helper("Prop") + "(" + taskOf(env) + ", " + name + ", " + r + ", func() (func() string, func() error) {\n")
+		b.WriteString("\t\t" + i + " := 0\n")
+		b.WriteString("\t\t" + drawFn + " := func() (func() string, func() error) {\n")
 		shown := []string{strconv.Quote("case "), conv + ".Itoa(" + i + ")", strconv.Quote(" of " + strconv.Itoa(cases) + ", seed "), conv + ".FormatUint(" + seed + ", 10)", strconv.Quote(", size "), conv + ".Itoa(" + i + " / 4)"}
 		sep := ": "
 		var bind []string
@@ -1352,15 +1354,20 @@ func (l *lowerer) lawTarget(b *strings.Builder, law *check.Law, label string, bd
 		}
 		body := e + " := *" + env + "; " + strings.Join(append(bind, ""), "; ") + prefix +
 			held + ", " + err + " := " + callee + "(" + strings.Join(args, ", ") + "); if " + err + " != nil { return " + err + " }; if !" + held + " { " + l.helper("Refuted") + "(" + at + ") }; return nil"
-		b.WriteString("\t\t\treturn func() string { return " + strings.Join(shown, " + ") + " }, func() error { " + body + " }\n\t\t\t})\n")
-		b.WriteString("\t\t}\n")
-		okLine := strconv.Quote(fmt.Sprintf("ok %s (%d cases)", tg.label, cases))
+		b.WriteString("\t\t\treturn func() string { return " + strings.Join(shown, " + ") + " }, func() error { " + body + " }\n\t\t}\n")
+		b.WriteString("\t\t" + ok + ", " + extra + " := " + l.helper("ReplayStored") + "(" + taskOf(env) + ", " + name + ", " + r + ", " + drawFn + ")\n")
+		b.WriteString("\t\tif !" + l.helper("PruneTapes") + " {\n")
+		b.WriteString("\t\t\tfor " + i + " = 1; " + ok + " && " + i + " <= " + strconv.Itoa(cases) + "; " + i + "++ {\n")
+		b.WriteString("\t\t\t\t" + r + ".start(" + i + ")\n")
+		b.WriteString("\t\t\t\t" + ok + " = " + l.helper("Prop") + "(" + taskOf(env) + ", " + name + ", " + r + ", " + drawFn + ")\n")
+		b.WriteString("\t\t\t}\n\t\t}\n")
+		okLine := strconv.Quote(fmt.Sprintf("ok %s (%d cases", tg.label, cases)) + " + " + l.helper("ExtraNote") + "(" + extra + ") + \")\""
 		if l.postRun(law, tg.b) {
-			okLine = strconv.Quote(fmt.Sprintf("ok %s (%d cases, prefixes up to ", tg.label, cases)) + " + " + conv + ".Itoa(" + r + ".deepest) + " + strconv.Quote(" operations)")
+			okLine = strconv.Quote(fmt.Sprintf("ok %s (%d cases, prefixes up to ", tg.label, cases)) + " + " + conv + ".Itoa(" + r + ".deepest) + " + strconv.Quote(" operations") + " + " + l.helper("ExtraNote") + "(" + extra + ") + \")\""
 		}
 		if admitted != "" {
 			l.nearReport(b, law, tg.label, cases, r, ok)
-			okLine = strconv.Quote(fmt.Sprintf("ok %s (%d cases, ", tg.label, cases)) + " + " + conv + ".Itoa(" + r + ".distinct) + " + strconv.Quote(" with distinct admitted values)")
+			okLine = strconv.Quote(fmt.Sprintf("ok %s (%d cases, ", tg.label, cases)) + " + " + conv + ".Itoa(" + r + ".distinct) + " + strconv.Quote(" with distinct admitted values") + " + " + l.helper("ExtraNote") + "(" + extra + ") + \")\""
 		}
 		b.WriteString("\t\tif " + ok + " {\n\t\t\t" + fmtPkg + ".Println(" + okLine + ")\n")
 		b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n")
@@ -1684,8 +1691,107 @@ func $Prop(t *$Task.Task, name, at string, r *$Rand, draw func() (func() string,
 	if $Receipt.source != "" && !$strings.HasPrefix(name, "law ") {
 		text += "; replay: ergo test " + $Receipt.source + " --seed " + $strconv.FormatUint(r.seed, 10)
 	}
+	if $os.Getenv("ERGO_RECORD_TAPES") == "1" {
+		$fmt.Fprintln($os.Stderr, "ergo:tape "+name+"\t"+$EncodeTape(best))
+	}
 	$fmt.Println("FAIL " + name + " (" + text + "): " + smsg)
 	return false
+}
+
+type $StoredTape struct {
+	stale  bool
+	digest string
+	tape   []uint64
+}
+
+var $StoredTapes map[string][]$StoredTape
+var $PruneTapes bool
+
+func $EncodeTape(tape []uint64) string {
+	if len(tape) == 0 {
+		return "-"
+	}
+	parts := make([]string, len(tape))
+	for i, v := range tape {
+		parts[i] = $strconv.FormatUint(v, 16)
+	}
+	return $strings.Join(parts, ",")
+}
+
+func $ExtraNote(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	return ", " + $strconv.Itoa(n) + " extra case(s): digest changed"
+}
+
+func $ReplayStored(t *$Task.Task, name, at string, r *$Rand, draw func() (func() string, func() error)) (bool, int) {
+	list := $StoredTapes[name]
+	extra := 0
+	for idx, sc := range list {
+		r.start(0)
+		r.stream.Replay(sc.tape)
+		var args func() string
+		msg, kind, exit := $Try(t, at, func() error {
+			var body func() error
+			args, body = draw()
+			return body()
+		})
+		r.stream.EndReplay()
+		switch kind {
+		case 0:
+			if sc.stale {
+				extra++
+			}
+			if $PruneTapes {
+				$fmt.Fprintln($os.Stderr, "ergo:tape-pass "+name+"\t"+$strconv.Itoa(idx))
+			}
+			continue
+		case 3:
+			$fmt.Println("FAIL " + name + $Where(args) + ": a defect, which stops the run")
+			$Runtime.Raise(exit)
+		case 4:
+			$Skipping(name, msg)
+		}
+		best := append([]uint64(nil), sc.tape...)
+		shown, smsg := args, msg
+		if sc.stale {
+			replay := func(c []uint64) (func() string, string, int) {
+				r.stream.Replay(c)
+				var sh func() string
+				m, k, _ := $Try(t, at, func() error {
+					var body func() error
+					sh, body = draw()
+					return body()
+				})
+				return sh, m, k
+			}
+			b2, _ := $Runtime.ShrinkTape(sc.tape, func(c []uint64) bool {
+				_, _, k := replay(c)
+				return k == kind
+			}, 500)
+			if sh2, m2, k2 := replay(b2); k2 == kind {
+				best, shown, smsg = b2, sh2, m2
+			}
+			r.stream.EndReplay()
+		}
+		if $os.Getenv("ERGO_RECORD_TAPES") == "1" {
+			$fmt.Fprintln($os.Stderr, "ergo:tape "+name+"\t"+$EncodeTape(best))
+		}
+		rawArgs := shown()
+		argTail := ""
+		if ci := $strings.Index(rawArgs, ": "); ci >= 0 {
+			argTail = rawArgs[ci:]
+		}
+		label := "case 0, stored case"
+		if sc.stale {
+			label = "case 0, extra case, digest changed"
+		}
+		r.failure = label + argTail
+		$fmt.Println("FAIL " + name + " (" + r.failure + "): " + smsg)
+		return false, extra
+	}
+	return true, extra
 }
 
 // $Receipt is the run's law receipt (L10): --receipt names its file, and
@@ -2161,9 +2267,14 @@ func $Flag(name string) (string, bool) {
 	for i := 0; i < len(args); i++ {
 		key, v, joined := $strings.Cut(args[i], "=")
 		switch key {
-		case "--seed", "--states", "--law", "--skip-law", "--run", "--source", "--receipt", "--revision", "--cached":
+		case "--seed", "--states", "--law", "--skip-law", "--run", "--source", "--receipt", "--revision", "--cached", "--tapes":
+		case "--prune-tapes":
+			if key == "--"+name {
+				value, given = "1", true
+			}
+			continue
 		default:
-			$fmt.Fprintln($os.Stderr, "usage: [--seed N] [--states N] [--law NAME] [--skip-law NAME] [--run NAME] [--source PATH] [--receipt FILE] [--revision R] [--cached FILE], not "+args[i])
+			$fmt.Fprintln($os.Stderr, "usage: [--seed N] [--states N] [--law NAME] [--skip-law NAME] [--run NAME] [--source PATH] [--receipt FILE] [--revision R] [--cached FILE] [--tapes FILE] [--prune-tapes], not "+args[i])
 			$os.Exit(2)
 		}
 		if !joined {
@@ -2204,6 +2315,40 @@ func $Seed() uint64 {
 				$Cached[label] = text
 			}
 		}
+	}
+	if path, given := $Flag("tapes"); given {
+		data, err := $os.ReadFile(path)
+		if err != nil {
+			$fmt.Fprintln($os.Stderr, "usage: --tapes FILE: "+err.Error())
+			$os.Exit(2)
+		}
+		$StoredTapes = map[string][]$StoredTape{}
+		for _, line := range $strings.Split(string(data), "\n") {
+			if line == "" {
+				continue
+			}
+			parts := $strings.Split(line, "\t")
+			if len(parts) != 4 {
+				continue
+			}
+			var tape []uint64
+			if parts[3] != "-" && parts[3] != "" {
+				for _, tok := range $strings.Split(parts[3], ",") {
+					v, err := $strconv.ParseUint(tok, 16, 64)
+					if err == nil {
+						tape = append(tape, v)
+					}
+				}
+			}
+			$StoredTapes[parts[0]] = append($StoredTapes[parts[0]], $StoredTape{
+				stale:  parts[1] == "1",
+				digest: parts[2],
+				tape:   tape,
+			})
+		}
+	}
+	if _, given := $Flag("prune-tapes"); given {
+		$PruneTapes = true
 	}
 	v, given := $Flag("seed")
 	if !given {

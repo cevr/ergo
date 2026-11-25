@@ -42,7 +42,11 @@ func VerdictLine(r Result, source string) (line string, ok bool) {
 		case "proved":
 			return "ok " + r.Name + " (" + provedText(r.Cases) + ")", true
 		case "tested":
-			return "ok " + r.Name + " (" + strconv.Itoa(r.Cases) + " cases)", true
+			text := strconv.Itoa(r.Cases) + " cases"
+			if r.ExtraStaleCases > 0 {
+				text += ", " + strconv.Itoa(r.ExtraStaleCases) + " extra case(s): digest changed"
+			}
+			return "ok " + r.Name + " (" + text + ")", true
 		}
 		return "", false
 	case Refuted:
@@ -64,6 +68,20 @@ func VerdictLine(r Result, source string) (line string, ok bool) {
 		writeArguments(&b, r.Arguments)
 		b.WriteString(")")
 	case formDrawn:
+		if r.StoredCaseHit {
+			if r.StoredStale {
+				b.WriteString(" (case 0, extra case, digest changed")
+			} else {
+				b.WriteString(" (case 0, stored case")
+			}
+			writeArguments(&b, r.Arguments)
+			if r.Drawn != nil {
+				b.WriteString("; shrunk from")
+				writeArguments(&b, r.Drawn)
+			}
+			b.WriteString(")")
+			break
+		}
 		b.WriteString(" (case " + strconv.Itoa(r.Case) + " of " + strconv.Itoa(r.TotalCases) + ", seed " + strconv.FormatUint(r.Seed, 10) + ", size " + strconv.Itoa(r.Case/4))
 		writeArguments(&b, r.Arguments)
 		if r.Drawn != nil {

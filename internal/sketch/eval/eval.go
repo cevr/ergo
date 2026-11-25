@@ -68,6 +68,23 @@ type Budget struct {
 	// Select, when set, restricts evaluation to obligations whose name
 	// satisfies Select (a test's Name or a law target's name).
 	Select func(name string) bool
+	// StoredCases maps an obligation's name (test Name or law target label)
+	// to stored shrunk draw tapes from ergo.cases to replay before random
+	// draws (PROPERTY-TESTING P8).
+	StoredCases map[string][]StoredCase
+	// PruneCases, when true, replays only StoredCases (no random draws) and
+	// records which stored indices passed on Result.PassedStored.
+	PruneCases bool
+}
+
+// StoredCase is one persisted shrunk draw tape from ergo.cases to replay
+// before random draws. Stale is true when the tape's recorded reach digest
+// differs from the property's current reach digest.
+type StoredCase struct {
+	Key    string
+	Digest string
+	Tape   []uint64
+	Stale  bool
 }
 
 // TestVerdicts is a store of the verdicts of tests that passed, keyed by
@@ -222,6 +239,23 @@ type Result struct {
 	form caseForm
 	// title is a law's name in its replay command (--law), check.Law.Title.
 	title string
+	// ShrunkTape is the shrunk draw tape of a refuted drawn property
+	// (PROPERTY-TESTING P8), to persist in ergo.cases.
+	ShrunkTape []uint64
+	// StoredCaseHit is true when the property was refuted at case 0 by a
+	// stored tape from Budget.StoredCases.
+	StoredCaseHit bool
+	// StoredStale is true when the failing stored tape's reach digest
+	// differed from the property's current reach digest.
+	StoredStale bool
+	// StoredOldDigest is the stored tape's digest when StoredStale is true.
+	StoredOldDigest string
+	// ExtraStaleCases counts stored tapes with a stale digest that were
+	// replayed as extra cases and passed.
+	ExtraStaleCases int
+	// PassedStored records the indices into Budget.StoredCases[Name] that
+	// passed during replay.
+	PassedStored []int
 }
 
 type Argument struct{ Name, Value string }
