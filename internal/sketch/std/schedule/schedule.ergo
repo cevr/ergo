@@ -8,6 +8,7 @@
 // (runtime.md, Machines and actors 9.6).
 
 import cron
+import gen
 import math
 import time
 import tz
@@ -108,44 +109,64 @@ func UpTo(s Schedule, limit duration) Schedule { upTo{inner: s, limit: atLeastZe
 
 // UpToNeverPassesLimit: UpTo(s, limit) never starts a run more than limit
 // after the first began: a Continue's delay ends by limit.
-law UpToNeverPassesLimit(seed uint64, limit int64, runs int64, at int64) {
-	let l = duration(within(limit, 0, 10000000000))
-	let e = duration(within(at, 0, 20000000000))
-	match Decide(UpTo(gen(seed, 3), l), int(within(runs, 1, 20)), e) {
-	case Continue as c:
-		e+c.After <= l
-	case Stop:
-		true
+law UpToNeverPassesLimit() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let s = gen.Named("schedule", showSchedule, func() Schedule needs gen.Draws { drawnSchedule(3) })
+		let l = duration(int64(gen.Named("limitMs", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(0, 10000) })) * 1000000)
+		let e = duration(int64(gen.Named("elapsedMs", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(0, 20000) })) * 1000000)
+		let r = gen.Named("runs", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(1, 20) })
+		match Decide(UpTo(s, l), r, e) {
+		case Continue as c:
+			e+c.After <= l
+		case Stop:
+			true
+		}
+	})) == ""
+	true
+}
+
+func showSchedule(s Schedule) string {
+	match s {
+	case spaced as p:
+		"Spaced(\(int64(p.every) / 1000000)ms)"
+	case exponential as e:
+		"Exponential(\(int64(e.base) / 1000000)ms, \(e.factor), \(int64(e.cap) / 1000000)ms)"
+	case recurs as r:
+		"Recurs(\(r.times))"
+	case upTo as u:
+		"UpTo(\(showSchedule(u.inner)), \(int64(u.limit) / 1000000)ms)"
+	case jitter as j:
+		"Jitter(\(showSchedule(j.inner)), \(j.low), \(j.high), \(j.seed))"
+	case both as b:
+		"And(\(showSchedule(b.first)), \(showSchedule(b.second)))"
+	case either as e:
+		"Or(\(showSchedule(e.first)), \(showSchedule(e.second)))"
+	case cronAt:
+		"Cron(...)"
 	}
 }
 
-// draw is the k-th draw of seed in 0..n-1.
-func draw(seed uint64, k int, n int) int { int(mix(seed+uint64(k)*0x9e3779b97f4a7c15) % uint64(n)) }
-
-// gen is a schedule drawn from seed, depth combinators deep at most, its
-// delays from 0 to 999ms.
-func gen(seed uint64, depth int) Schedule {
+func drawnSchedule(depth int) Schedule needs gen.Draws {
 	let kinds = if depth > 0 { 8 } else { 4 }
-	let d = duration(int64(draw(seed, 1, 1000)) * 1000000)
-	let left = mix(seed + 2)
-	let right = mix(seed + 3)
-	match draw(seed, 0, kinds) {
+	let kind = gen.IntIn(0, kinds-1)
+	let d = duration(int64(gen.IntIn(0, 999)) * 1000000)
+	match kind {
 	case 0:
 		Spaced(d)
 	case 1:
-		Exponential(d, 1.0+float64(draw(seed, 4, 30))/10.0, duration(int64(draw(seed, 5, 10000))*1000000))
+		Exponential(d, 1.0+float64(gen.IntIn(0, 29))/10.0, duration(int64(gen.IntIn(0, 9999))*1000000))
 	case 2:
-		Recurs(draw(seed, 4, 8))
+		Recurs(gen.IntIn(0, 7))
 	case 3:
 		Forever()
 	case 4:
-		UpTo(gen(left, depth-1), duration(int64(d)*10))
+		UpTo(drawnSchedule(depth-1), duration(int64(d)*10))
 	case 5:
-		Jitter(gen(left, depth-1), float64(draw(seed, 4, 20))/10.0, float64(draw(seed, 5, 20))/10.0, right)
+		Jitter(drawnSchedule(depth-1), float64(gen.IntIn(0, 19))/10.0, float64(gen.IntIn(0, 19))/10.0, gen.Below(uint64(0)))
 	case 6:
-		And(gen(left, depth-1), gen(right, depth-1))
+		And(drawnSchedule(depth-1), drawnSchedule(depth-1))
 	case _:
-		Or(gen(left, depth-1), gen(right, depth-1))
+		Or(drawnSchedule(depth-1), drawnSchedule(depth-1))
 	}
 }
 
@@ -162,17 +183,24 @@ func Jitter(s Schedule, low float64, high float64, seed uint64) Schedule {
 
 // JitterInBounds: a jittered delay is the inner delay times a factor in
 // [low, high], to within a nanosecond.
-law JitterInBounds(seed uint64, every int64, runs int64) {
-	let d = duration(within(every, 0, 1099511627776))
-	let low = float64(draw(seed, 0, 30)) / 10.0
-	let high = low + float64(draw(seed, 1, 30))/10.0
-	match Decide(Jitter(Spaced(d), low, high, seed), int(within(runs, 1, 1000)), 0s) {
-	case Continue as c:
-		let got = float64(int64(c.After))
-		got >= float64(int64(d))*low-1.0 && got <= float64(int64(d))*high+1.0
-	case Stop:
-		false
-	}
+law JitterInBounds() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let d = duration(int64(gen.Named("everyMs", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(0, 1099511) })) * 1000000)
+		let loStep = gen.Named("lowTenths", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(0, 29) })
+		let spanStep = gen.Named("spanTenths", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(0, 29) })
+		let low = float64(loStep) / 10.0
+		let high = low + float64(spanStep)/10.0
+		let r = gen.Named("runs", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(1, 1000) })
+		let s0 = gen.Below(uint64(0))
+		match Decide(Jitter(Spaced(d), low, high, s0), r, 0s) {
+		case Continue as c:
+			let got = float64(int64(c.After))
+			got >= float64(int64(d))*low-1.0 && got <= float64(int64(d))*high+1.0
+		case Stop:
+			false
+		}
+	})) == ""
+	true
 }
 
 func factorIn(f float64) float64 {
@@ -212,25 +240,28 @@ func And(a Schedule, b Schedule) Schedule { both{first: a, second: b} }
 
 // AndIsMaxOrIsMin: And continues when both do, after the longer delay;
 // Or continues when either does, after the shorter of those that continue.
-law AndIsMaxOrIsMin(a uint64, b uint64, runs int64, at int64) {
-	let x = gen(a, 2)
-	let y = gen(b, 2)
-	let r = int(within(runs, 1, 20))
-	let e = duration(within(at, 0, 20000000000))
-	let both = Decide(And(x, y), r, e)
-	let either = Decide(Or(x, y), r, e)
-	match (Decide(x, r, e), Decide(y, r, e)) {
-	case (Continue as p, Continue as q):
-		let long = if p.After >= q.After { p.After } else { q.After }
-		let short = if p.After <= q.After { p.After } else { q.After }
-		both == Continue{After: long} && either == Continue{After: short}
-	case (Continue as p, Stop):
-		both == Stop && either == p
-	case (Stop, Continue as q):
-		both == Stop && either == q
-	case (Stop, Stop):
-		both == Stop && either == Stop
-	}
+law AndIsMaxOrIsMin() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let x = gen.Named("first", showSchedule, func() Schedule needs gen.Draws { drawnSchedule(2) })
+		let y = gen.Named("second", showSchedule, func() Schedule needs gen.Draws { drawnSchedule(2) })
+		let r = gen.Named("runs", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(1, 20) })
+		let e = duration(int64(gen.Named("elapsedMs", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(0, 20000) })) * 1000000)
+		let both = Decide(And(x, y), r, e)
+		let either = Decide(Or(x, y), r, e)
+		match (Decide(x, r, e), Decide(y, r, e)) {
+		case (Continue as p, Continue as q):
+			let long = if p.After >= q.After { p.After } else { q.After }
+			let short = if p.After <= q.After { p.After } else { q.After }
+			both == Continue{After: long} && either == Continue{After: short}
+		case (Continue as p, Stop):
+			both == Stop && either == p
+		case (Stop, Continue as q):
+			both == Stop && either == q
+		case (Stop, Stop):
+			both == Stop && either == Stop
+		}
+	})) == ""
+	true
 }
 
 // Or continues while either continues, after the shorter of the delays of
@@ -320,10 +351,15 @@ func Timed(s Schedule) bool {
 
 // UntimedIgnoresElapsed: a schedule that is not Timed decides the same at
 // any elapsed time, so a loop that runs by it may pass any elapsed time.
-law UntimedIgnoresElapsed(seed uint64, runs int64, a int64, b int64) {
-	let s = gen(seed, 3)
-	let r = int(within(runs, 1, 20))
-	Timed(s) || Decide(s, r, duration(within(a, 0, 20000000000))) == Decide(s, r, duration(within(b, 0, 20000000000)))
+law UntimedIgnoresElapsed() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let s = gen.Named("schedule", showSchedule, func() Schedule needs gen.Draws { drawnSchedule(3) })
+		let r = gen.Named("runs", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(1, 20) })
+		let a = duration(int64(gen.Named("aMs", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(0, 20000) })) * 1000000)
+		let b = duration(int64(gen.Named("bMs", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(0, 20000) })) * 1000000)
+		Timed(s) || Decide(s, r, a) == Decide(s, r, b)
+	})) == ""
+	true
 }
 
 // grow is base times factor to the power runs-1, saturated at cap; runs

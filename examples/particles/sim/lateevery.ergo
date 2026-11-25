@@ -1,11 +1,12 @@
 // The rules of the game as laws over its machine and its loop.
 
+import gen
 import particles/record
 import particles/world
 import rand
 import time
 
-// box is a box of 3 to 20 columns from a seed, for the laws.
+// box is a box of 3 to 20 columns from a seed, for tests.
 func box(seed uint64, n int) world.World {
 	let count = if n < 0 { -(n % 9) } else { n % 9 }
 	with context { Random: rand.Seeded(seed) } { world.Spawn(12, 5, count, 0) } catch {
@@ -14,16 +15,29 @@ func box(seed uint64, n int) world.World {
 	}
 }
 
+func drawnBox() world.World needs gen.Draws {
+	let count = gen.Named("particles", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(0, 8) })
+	let s0 = gen.Below(uint64(0))
+	with context { Random: rand.Seeded(s0) } { world.Spawn(12, 5, count, 0) } catch {
+	case world.BadSize, world.BadLoss, world.TooMany:
+		world.Blank()
+	}
+}
+
 // StepsFollowTheClock: with no key, the loop steps the box once per Dt of
 // the time that passed, whatever each frame took: the steps are the
 // elapsed time over Dt, rounded down.
-law StepsFollowTheClock(seed uint64, n int, frames int) {
-	let m = time.NewManual(0)
-	let k = if frames < 0 { -(frames % 20) } else { frames % 20 }
-	let g = with context { Scheduler: lateEvery{m: m, every: 3}, time.Clock: m, Screen: recorded() } {
-		Play(box(seed, n), "", k, Pace{Frame: 50ms, Dt: 20ms})
-	}
-	g.Steps == time.Count(m.Now().Sub(time.Unix(0, 0)), 20ms)
+law StepsFollowTheClock() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let w = drawnBox()
+		let k = gen.Named("frames", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(0, 19) })
+		let m = time.NewManual(0)
+		let g = with context { Scheduler: lateEvery{m: m, every: 3}, time.Clock: m, Screen: recorded() } {
+			Play(w, "", k, Pace{Frame: 50ms, Dt: 20ms})
+		}
+		g.Steps == time.Count(m.Now().Sub(time.Unix(0, 0)), 20ms)
+	})) == ""
+	true
 }
 
 // lateEvery is a Scheduler that sleeps on m with no wait, and a quarter

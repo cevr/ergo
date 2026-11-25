@@ -12,6 +12,7 @@
 // so a test drives it with Scripted and the host meter (BN3) drives it in
 // `ergo bench`.
 
+import gen
 import math
 
 // Series is one counter a run judges: its name, its kind and the claim it
@@ -23,12 +24,18 @@ type Series { Name string, Kind Kind, Claim Claim }
 // more, where Holm demotes them all, costs past check time's budget (a
 // family of two, 11.8k steps a case); the property of a built program
 // holds oneFamily at one to five secondaries (JUDGE-PROP).
-law LoneSecondaryKeepsItsWord(seed uint64) { oneFamily(seed, 1) }
+law LoneSecondaryKeepsItsWord() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		oneFamily(1)
+	})) == ""
+	true
+}
 
 // oneFamily: m secondaries that each say Better from 6 pairs of one sign
 // (p 1/32 each) keep it alone, and in a family of two or more, where Holm
 // asks p <= 5% / m of the smallest, all say Unclear.
-func oneFamily(seed uint64, m int) bool {
+func oneFamily(m int) bool needs gen.Draws {
+	let s0 = gen.Below(uint64(0))
 	let s = Series{Name: "s", Kind: Counted, Claim: Change{Bound: 0.02}}
 	let mut rest = []Series{}
 	let mut effects = []float64{-0.3}
@@ -37,7 +44,7 @@ func oneFamily(seed uint64, m int) bool {
 		effects = effects.Append(-0.3)
 	}
 	let p = Plan{Primary: s, Secondaries: rest, Design: Fixed{Pairs: 6}}
-	let meter = Scripted{Seed: seed, Scale: 1000.0, Effects: effects, Noise: 0.01, Warm: 50.0, Lose: []Planted{}}
+	let meter = Scripted{Seed: s0, Scale: 1000.0, Effects: effects, Noise: 0.01, Warm: 50.0, Lose: []Planted{}}
 	let r = with context { Meter: meter } { Judge(p) }
 	for w in r.Secondaries {
 		let ok = match w {
@@ -115,11 +122,14 @@ type Meter {
 // sample refusing its series from its pair on, a refused primary ending
 // the run, and the run ending at the first look where every series has
 // its word or at the last.
-law MatchesReference(seed uint64, size int, pick int) {
-	let p = lawPlanOf(seed, pick)
-	let m = scriptOf(seed, size, p)
-	let got = with context { Meter: m } { Judge(p) }
-	got == reference(p, m)
+law MatchesReference() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let p = gen.Named("plan", showPlan, lawPlanOf)
+		let m = gen.Named("meter", showScript, func() Scripted needs gen.Draws { scriptOf(p) })
+		let got = with context { Meter: m } { Judge(p) }
+		got == reference(p, m)
+	})) == ""
+	true
 }
 
 // reference is the result of plan p on meter m, computed from the blocks
@@ -290,22 +300,49 @@ func wordUntil(p Plan, m Scripted, all []Series, i int, from int, stop int) Opti
 	None
 }
 
-// planOf is a plan drawn from seed: a primary and up to five
+func showDesign(d Design) string {
+	match d {
+	case Planned:
+		"Planned"
+	case Fixed as f:
+		"Fixed(\(f.Pairs))"
+	}
+}
+
+func showPlan(p Plan) string {
+	"Plan(primary=\(showKind(p.Primary.Kind)), secondaries=\(len(p.Secondaries)), design=\(showDesign(p.Design)))"
+}
+
+func showScript(m Scripted) string {
+	"Scripted(noise=\(m.Noise), lose=\(len(m.Lose)))"
+}
+
+func drawSeries() Series needs gen.Draws {
+	let c = gen.OneOf([]Claim{Change{Bound: 0.02}, Change{Bound: 0.5}, NoWorseThan{Margin: 0.0}, NoWorseThan{Margin: 0.1}})
+	Series{Name: "s", Kind: drawKind(), Claim: c}
+}
+
+// planOf is a plan drawn from gen.Draws: a primary and up to five
 // secondaries (enough that Holm's family demotes some) of any kind and
 // claim, Planned or Fixed with 3 to 30 pairs, with 6 (where one sign
 // throughout has p 1/32, which Holm demotes in a family of two), or with
 // 401.
 // It is the domain of the property of a built program
 // (TestStdBenchJudgeMatchesReference); the laws draw from lawPlanOf.
-func planOf(seed uint64, pick int) Plan {
-	let mut all = []Series{}
-	for i in 0..(1 + draw(seed, 20, 6)) {
-		let claims = []Claim{Change{Bound: 0.02}, Change{Bound: 0.5}, NoWorseThan{Margin: 0.0}, NoWorseThan{Margin: 0.1}}
-		all = all.Append(Series{Name: "s", Kind: kindOf(draw(seed, 21+i, 3)), Claim: claims[draw(seed, 30+i, 4)]})
+func planOf() Plan needs gen.Draws {
+	let primary = drawSeries()
+	let secondaries = gen.ListOf(0, 5, drawSeries)
+	let d = match gen.IntIn(0, 4) {
+	case 0, 1:
+		Planned
+	case 2:
+		Fixed{Pairs: gen.IntIn(3, 30)}
+	case 3:
+		Fixed{Pairs: 6}
+	case _:
+		Fixed{Pairs: 401}
 	}
-	let designs = []Design{Planned, Planned, Fixed{Pairs: 3 + draw(seed, 40, 28)}, Fixed{Pairs: 6}, Fixed{Pairs: 401}}
-	let d = designs[within(pick, 0, 4)]
-	Plan{Primary: all[0], Secondaries: all[1:], Design: d}
+	Plan{Primary: primary, Secondaries: secondaries, Design: d}
 }
 
 // lawPlanOf is planOf's plan with at most one secondary and a Fixed
@@ -313,28 +350,37 @@ func planOf(seed uint64, pick int) Plan {
 // costs at most about 5k steps, so its 100 cases decide inside check
 // time's budget (JUDGE-PROP). Planned, longer Fixed designs and Holm's
 // families are planOf's, which the property draws.
-func lawPlanOf(seed uint64, pick int) Plan {
-	let p = planOf(seed, pick)
-	let designs = []Design{Fixed{Pairs: 3 + draw(seed, 40, 4)}, Fixed{Pairs: 6}, Fixed{Pairs: 401}}
-	Plan{..p, Secondaries: if len(p.Secondaries) > 1 { p.Secondaries[:1] } else { p.Secondaries }, Design: designs[within(pick, 0, 2)]}
+func lawPlanOf() Plan needs gen.Draws {
+	let primary = drawSeries()
+	let secondaries = if gen.Bool() { []Series{drawSeries()} } else { []Series{} }
+	let d = match gen.IntIn(0, 2) {
+	case 0:
+		Fixed{Pairs: gen.IntIn(3, 6)}
+	case 1:
+		Fixed{Pairs: 6}
+	case _:
+		Fixed{Pairs: 401}
+	}
+	Plan{Primary: primary, Secondaries: secondaries, Design: d}
 }
 
-// scriptOf is a Scripted meter drawn from seed: an effect per series of
-// -30% to +30% or none, noise of 0, 1%, 10% or 20%, warm blocks 50 times
-// slower, and up to two refusals planted in blocks of the run.
-func scriptOf(seed uint64, size int, p Plan) Scripted {
-	let effects = []float64{-0.3, -0.1, -0.05, 0.0, 0.0, 0.05, 0.1, 0.3}
+// scriptOf is a Scripted meter drawn from gen.Draws: an effect per series
+// of -30% to +30% or none, noise of 0, 1%, 10% or 20%, warm blocks 50
+// times slower, and up to two refusals planted in blocks of the run.
+func scriptOf(p Plan) Scripted needs gen.Draws {
+	let effects = []float64{0.0, -0.3, -0.1, -0.05, 0.0, 0.05, 0.1, 0.3}
 	let mut e = []float64{}
-	for i in 0..(1 + len(p.Secondaries)) {
-		e = e.Append(effects[draw(seed, 50+i, len(effects))])
+	for _ in 0..(1 + len(p.Secondaries)) {
+		e = e.Append(gen.OneOf(effects))
 	}
-	let noises = []float64{0.0, 0.01, 0.1, 0.2}
+	let noise = gen.OneOf([]float64{0.0, 0.01, 0.1, 0.2})
 	let refusals = []Refusal{RunIncomplete, Multiplexed, NoMetric, NotEquivalent}
-	let mut lose = []Planted{}
-	for j in 0..within(size, 0, 2) {
-		lose = lose.Append(Planted{Series: draw(seed, 60+j, 1+len(p.Secondaries)), Block: draw(seed, 70+j, Bound(p.Design)), Why: refusals[draw(seed, 80+j, 4)]})
-	}
-	Scripted{Seed: seed, Scale: 1000.0, Effects: e, Noise: noises[draw(seed, 90, 4)], Warm: 50.0, Lose: lose}
+	let nSeries = 1 + len(p.Secondaries)
+	let maxBlock = Bound(p.Design) - 1
+	let lose = gen.ListOf(0, 2, func() Planted needs gen.Draws {
+		Planted{Series: gen.IntIn(0, nSeries-1), Block: gen.IntIn(0, maxBlock), Why: gen.OneOf(refusals)}
+	})
+	Scripted{Seed: gen.Below(uint64(0)), Scale: 1000.0, Effects: e, Noise: noise, Warm: 50.0, Lose: lose}
 }
 
 // Result is the end of a run: the primary's verdict, a word for each
@@ -412,33 +458,36 @@ func Judge(p Plan) Result needs Meter {
 
 // MachineIsJudge: the Referee machine, fed the blocks Next asks for, ends
 // with Judge's result, and rejects a signal for any other block.
-law MachineIsJudge(seed uint64, size int, pick int) {
-	let p = lawPlanOf(seed, pick)
-	let m = scriptOf(seed, size, p)
-	let want = with context { Meter: m } { Judge(p) }
-	let mut s = Start(p)
-	for _ in 0..(Bound(p.Design) + 1) {
-		match Next(s) {
-		case Finished as f:
-			return f.Result == want
-		case Run as r:
-			let wrong = Measured{Block: Block{..r.Block, Number: r.Block.Number + 1}, Samples: []Sample{}}
-			match RefereeStep(s, wrong) {
-			case Reject:
-			case _:
-				return false
-			}
-			match RefereeStep(s, Measured{Block: r.Block, Samples: Measure(m, r.Block, seriesOf(p))}) {
-			case Stay[Judging] as st:
-				s = st.Next
-			case Done[Result] as d:
-				return d.Output == want
-			case _:
-				return false
+law MachineIsJudge() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let p = gen.Named("plan", showPlan, lawPlanOf)
+		let m = gen.Named("meter", showScript, func() Scripted needs gen.Draws { scriptOf(p) })
+		let want = with context { Meter: m } { Judge(p) }
+		let mut s = Start(p)
+		for _ in 0..(Bound(p.Design) + 1) {
+			match Next(s) {
+			case Finished as f:
+				return f.Result == want
+			case Run as r:
+				let wrong = Measured{Block: Block{..r.Block, Number: r.Block.Number + 1}, Samples: []Sample{}}
+				match RefereeStep(s, wrong) {
+				case Reject:
+				case _:
+					return false
+				}
+				match RefereeStep(s, Measured{Block: r.Block, Samples: Measure(m, r.Block, seriesOf(p))}) {
+				case Stay[Judging] as st:
+					s = st.Next
+				case Done[Result] as d:
+					return d.Output == want
+				case _:
+					return false
+				}
 			}
 		}
-	}
-	false
+		false
+	})) == ""
+	true
 }
 
 // Bound is the most blocks a run of design d asks for: two warm blocks
@@ -471,29 +520,32 @@ func Start(p Plan) Judging {
 // for each pair base first when its index is even and head first when it
 // is odd; its blocks are numbered in order, and there are at most
 // Bound(design) of them.
-law AlternatesOrder(seed uint64, size int, pick int) {
-	let p = lawPlanOf(seed, pick)
-	let m = scriptOf(seed, size, p)
-	let mut s = Start(p)
-	let mut asked = []Block{}
-	for len(asked) <= Bound(p.Design) {
-		match Next(s) {
-		case Finished:
-			break
-		case Run as r:
-			asked = asked.Append(r.Block)
-			s = Record(s, Measure(m, r.Block, seriesOf(p)))
+law AlternatesOrder() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let p = gen.Named("plan", showPlan, lawPlanOf)
+		let m = gen.Named("meter", showScript, func() Scripted needs gen.Draws { scriptOf(p) })
+		let mut s = Start(p)
+		let mut asked = []Block{}
+		for len(asked) <= Bound(p.Design) {
+			match Next(s) {
+			case Finished:
+				break
+			case Run as r:
+				asked = asked.Append(r.Block)
+				s = Record(s, Measure(m, r.Block, seriesOf(p)))
+			}
 		}
-	}
-	if len(asked) > Bound(p.Design) {
-		return false
-	}
-	for n, b in asked {
-		let base = if n < 2 { n == 0 } else { ((n-2)/2)%2 == (n-2)%2 }
-		if b.Number != n || b.Warm != (n < 2) || isBase(b.Side) != base {
+		if len(asked) > Bound(p.Design) {
 			return false
 		}
-	}
+		for n, b in asked {
+			let base = if n < 2 { n == 0 } else { ((n-2)/2)%2 == (n-2)%2 }
+			if b.Number != n || b.Warm != (n < 2) || isBase(b.Side) != base {
+				return false
+			}
+		}
+		true
+	})) == ""
 	true
 }
 

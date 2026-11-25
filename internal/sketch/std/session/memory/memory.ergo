@@ -7,8 +7,10 @@
 // Effect: yielded/auth's in-memory StatefulSessionPersistence. Go
 // control: a map of token digests under a mutex.
 
+import gen
 import rand
 import session
+import strings
 import sync
 import task
 import time
@@ -110,41 +112,50 @@ law RotateHasOneWinner(key string) {
 	wa != wb && (va != session.Invalid) == wa && (vb != session.Invalid) == wb
 }
 
+func drawSubject() string needs gen.Draws {
+	strings.Join(gen.ListOf(0, 8, func() string needs gen.Draws { gen.OneOf([]string{"a", "b", "0", "-", "_"}) }), "")
+}
+
 // StartChecksValid: a session Start began checks Valid with its token,
 // and Invalid with the token's digest as a token: the store keeps the
 // digest, and finds the session by the digest of the token it is given.
 // After End, the token checks Invalid.
-law StartChecksValid(seed uint64, subject string) {
-	let p = session.NewPolicy(10ms, 30ms, 100ms) catch {
-	case session.BadPolicy:
-		return false
-	}
-	let s = New(p)
-	with context { rand.Secure: rand.NewSeededSecure(seed), time.Clock: time.NewManual(0) } {
-		let t = session.Start(s, subject, 0) catch {
-		case session.Conflict, session.Failed:
+law StartChecksValid() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let subject = gen.Named("subject", func(v string) string { "\"\(v)\"" }, drawSubject)
+		let s0 = gen.Below(uint64(0))
+		let p = session.NewPolicy(10ms, 30ms, 100ms) catch {
+		case session.BadPolicy:
 			return false
 		}
-		let now = time.Clock.Now()
-		let want = session.Valid{Record: session.Record{Subject: subject, Revision: 0, Created: now, Renewed: now}}
-		let checked = session.Check(s, t) catch {
-		case session.Failed:
-			return false
+		let s = New(p)
+		with context { rand.Secure: rand.NewSeededSecure(s0), time.Clock: time.NewManual(0) } {
+			let t = session.Start(s, subject, 0) catch {
+			case session.Conflict, session.Failed:
+				return false
+			}
+			let now = time.Clock.Now()
+			let want = session.Valid{Record: session.Record{Subject: subject, Revision: 0, Created: now, Renewed: now}}
+			let checked = session.Check(s, t) catch {
+			case session.Failed:
+				return false
+			}
+			let byDigest = session.Check(s, session.TokenOf(session.DigestText(session.DigestOf(t)))) catch {
+			case session.Failed:
+				return false
+			}
+			let ended = session.End(s, t) catch {
+			case session.Failed:
+				return false
+			}
+			let after = session.Check(s, t) catch {
+			case session.Failed:
+				return false
+			}
+			checked == want && byDigest == session.Invalid && ended && after == session.Invalid
 		}
-		let byDigest = session.Check(s, session.TokenOf(session.DigestText(session.DigestOf(t)))) catch {
-		case session.Failed:
-			return false
-		}
-		let ended = session.End(s, t) catch {
-		case session.Failed:
-			return false
-		}
-		let after = session.Check(s, t) catch {
-		case session.Failed:
-			return false
-		}
-		checked == want && byDigest == session.Invalid && ended && after == session.Invalid
-	}
+	})) == ""
+	true
 }
 
 // wins is whether a rotation of old to new won.

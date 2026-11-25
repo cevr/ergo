@@ -1,5 +1,6 @@
 // The renderer's tests: a box drawn cell by cell.
 
+import gen
 import particles/sim
 import particles/world
 import rand
@@ -13,9 +14,10 @@ test BlankBox {
 	assert strings.Join(Box(world.Blank()), "\n") == "+---+\n|   |\n|   |\n|   |\n+---+"
 }
 
-test EveryParticleIsDrawn(seed uint64, n int) {
-	let count = if n < 0 { -(n % 30) } else { n % 30 }
-	let w = with context { Random: rand.Seeded(seed) } { world.Spawn(10, 4, count, 0) } catch {
+test EveryParticleIsDrawn {
+	let count = gen.Named("count", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(0, 29) })
+	let s0 = gen.Below(uint64(0))
+	let w = with context { Random: rand.Seeded(s0) } { world.Spawn(10, 4, count, 0) } catch {
 	case world.BadSize, world.BadLoss, world.TooMany:
 		world.Blank()
 	}

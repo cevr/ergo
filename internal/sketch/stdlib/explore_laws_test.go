@@ -56,7 +56,7 @@ func TestStdExploreLawsRun(t *testing.T) {
 			switch {
 			case !ok:
 				t.Errorf("std %s has no law %s at check time", row.Pkg, row.Law)
-			case r.Status != eval.Passed || r.Evidence != "tested":
+			case r.Status != eval.Passed || (r.Evidence != "tested" && r.Evidence != "proved"):
 				t.Errorf("law %s: %s (%s) after %d cases, seed %d, case %d: %+v", row.Key(), r.Status, r.Reason, r.Cases, r.Seed, r.Case, r.Arguments)
 			}
 		}}

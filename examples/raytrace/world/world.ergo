@@ -2,9 +2,10 @@
 // light above, and spheres and triangles of every material scattered on
 // the ground. A seed gives one scene on every host.
 
+import gen
+import math
 import raytrace/geom
 import raytrace/render
-import math
 
 // Generate is the scene of seed with n objects, seen by a camera of the
 // given aspect (width over height).
@@ -47,27 +48,39 @@ func Generate(seed uint64, n int, aspect float64) render.Scene {
 
 // TileSplitDoesNotMatter: the image is the same for every tile size and
 // number of workers: each pixel draws from its own stream.
-law TileSplitDoesNotMatter(seed uint64, size int, workers int) {
-	let sc = Generate(seed, 6, 1.5)
-	let one = render.Render(sc, 9, 6, 2, seed, 1, 9)
-	let split = render.Render(sc, 9, 6, 2, seed, 1+(workers%4+4)%4, 1+(size%5+5)%5)
-	one == split
+law TileSplitDoesNotMatter() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let s0 = gen.Below(uint64(0))
+		let workers = gen.Named("workers", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(1, 4) })
+		let size = gen.Named("tileSize", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(1, 5) })
+		let sc = Generate(s0, 6, 1.5)
+		let one = render.Render(sc, 9, 6, 2, s0, 1, 9)
+		let split = render.Render(sc, 9, 6, 2, s0, workers, size)
+		one == split
+	})) == ""
+	true
 }
 
 // NoNaNPixel: every sample's light is a finite number, at least 0, on
 // every channel: no degenerate normal, refraction or reflection makes a
 // NaN or an infinity, and no material takes light away below zero.
-law NoNaNPixel(seed uint64, x int, y int) {
-	let sc = Generate(seed, 12, 1.0)
-	let mut s = render.PixelStream(seed, 0)
-	let u = float64((x%101+101)%101) / 100.0
-	let v = float64((y%101+101)%101) / 100.0
-	for _ in 0..8 {
-		let c = render.Trace(sc, render.Through(sc.Camera, u, v), &s)
-		if !finite(c.X) || !finite(c.Y) || !finite(c.Z) {
-			return false
+law NoNaNPixel() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let s0 = gen.Below(uint64(0))
+		let x = gen.Named("x", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(0, 100) })
+		let y = gen.Named("y", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(0, 100) })
+		let sc = Generate(s0, 12, 1.0)
+		let mut s = render.PixelStream(s0, 0)
+		let u = float64(x) / 100.0
+		let v = float64(y) / 100.0
+		for _ in 0..8 {
+			let c = render.Trace(sc, render.Through(sc.Camera, u, v), &s)
+			if !finite(c.X) || !finite(c.Y) || !finite(c.Z) {
+				return false
+			}
 		}
-	}
+		true
+	})) == ""
 	true
 }
 

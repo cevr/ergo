@@ -6,7 +6,8 @@ package lower
 
 // stdHmacLawsProbe restates the hmac laws whose runner is
 // TestStdKeyedLawsRun as Ergo tests over std hmac.
-const stdHmacLawsProbe = `import hex
+const stdHmacLawsProbe = `import gen
+import hex
 import hmac
 import rand
 import strings

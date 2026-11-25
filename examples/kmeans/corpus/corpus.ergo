@@ -3,6 +3,7 @@
 // gives one input on every host: the stream is the cluster package's
 // SplitMix64.
 
+import gen
 import kmeans/cluster
 import strings
 
@@ -52,11 +53,15 @@ func clamp(v int) int {
 }
 
 // GenerateParses: every generated text is points, n of them.
-law GenerateParses(n int, seed uint64) {
-	let count = (n%200 + 200) % 200
-	let points = cluster.Parse(Generate(count, seed)) catch {
-	case cluster.Malformed:
-		return false
-	}
-	len(points) == count
+law GenerateParses() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let count = gen.Named("count", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(0, 199) })
+		let s0 = gen.Below(uint64(0))
+		let points = cluster.Parse(Generate(count, s0)) catch {
+		case cluster.Malformed:
+			return false
+		}
+		len(points) == count
+	})) == ""
+	true
 }

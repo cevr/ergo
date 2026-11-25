@@ -14,9 +14,11 @@
 // the exact distribution is cheap there; and an exact counter that moves
 // is refused, not compared like a timed one.
 
+import cmp
+import gen
 import math
 import slices
-import cmp
+import strings
 
 // MaxPairs is the most pairs one series may hold. Decide refuses more
 // (TooManyPairs): up to it the exact null distribution is cheap, so no
@@ -41,24 +43,67 @@ type Kind = Exact | Counted | Timed
 // Exact is the kind of a counter that holds one value per side.
 type Exact {}
 
+func drawUnit() float64 needs gen.Draws {
+	float64(gen.Below(uint64(1)<<uint64(53))) / 9007199254740992.0
+}
+
+func showPairs(xs []Pair) string {
+	let mut parts = []string{}
+	for p in xs {
+		parts = parts.Append("(\(p.Base),\(p.Head))")
+	}
+	"[\(strings.Join(parts, ", "))]"
+}
+
+func showFloats(xs []float64) string {
+	let mut parts = []string{}
+	for x in xs {
+		parts = parts.Append("\(x)")
+	}
+	"[\(strings.Join(parts, ", "))]"
+}
+
+func showKind(k Kind) string {
+	match k {
+	case Exact:
+		"Exact"
+	case Counted:
+		"Counted"
+	case Timed:
+		"Timed"
+	}
+}
+
+func drawKind() Kind needs gen.Draws { kindOf(gen.IntIn(0, 2)) }
+
+func drawLevel() float64 needs gen.Draws {
+	if gen.Bool() { Level(Planned) } else { Level(Fixed{Pairs: 8}) }
+}
+
 // ScaleFree: both sides times one k > 0 keep the verdict, on the log
 // scale and on the difference scale (half the series start with a base of
 // 0 here).
-law ScaleFree(seed uint64, size int, pick int) {
-	let kind = kindOf(pick)
-	let zero = draw(seed, 9, 2) == 0 && kind != Exact
-	let k = float64(1+draw(seed, 8, 1000)) / 37.0 * math.Pow(10.0, float64(draw(seed, 10, 7)-3))
-	let mut pairs = []Pair{}
-	let mut scaled = []Pair{}
-	for i, p in series(seed, within(size, 0, lawPairs()), kind) {
-		let base = if zero && i == 0 { 0.0 } else { p.Base }
-		pairs = pairs.Append(Pair{Base: base, Head: p.Head})
-		scaled = scaled.Append(Pair{Base: k * base, Head: k * p.Head})
-	}
-	let claims = []Claim{Change{Bound: 0.02}, Change{Bound: 0.5}, NoWorseThan{Margin: 0.0}, NoWorseThan{Margin: 0.1}}
-	let c = claims[draw(seed, 6, len(claims))]
-	let level = levelOf(draw(seed, 7, 2))
-	tag(Decide(pairs, kind, c, level)) == tag(Decide(scaled, kind, c, level))
+law ScaleFree() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let kind = gen.Named("kind", showKind, drawKind)
+		let zero = gen.Bool() && kind != Exact
+		let k = gen.Named("scale", func(v float64) string { "\(v)" }, func() float64 needs gen.Draws {
+			float64(gen.IntIn(1, 1000)) / 37.0 * math.Pow(10.0, float64(gen.IntIn(-3, 3)))
+		})
+		let n = gen.IntIn(0, lawPairs())
+		let raw = gen.Named("pairs", showPairs, func() []Pair needs gen.Draws { drawnSeries(n, kind) })
+		let mut pairs = []Pair{}
+		let mut scaled = []Pair{}
+		for i, p in raw {
+			let base = if zero && i == 0 { 0.0 } else { p.Base }
+			pairs = pairs.Append(Pair{Base: base, Head: p.Head})
+			scaled = scaled.Append(Pair{Base: k * base, Head: k * p.Head})
+		}
+		let c = gen.OneOf([]Claim{Change{Bound: 0.02}, Change{Bound: 0.5}, NoWorseThan{Margin: 0.0}, NoWorseThan{Margin: 0.1}})
+		let level = drawLevel()
+		tag(Decide(pairs, kind, c, level)) == tag(Decide(scaled, kind, c, level))
+	})) == ""
+	true
 }
 
 // tag numbers the variants of a verdict, for laws that compare verdicts
@@ -84,25 +129,30 @@ func tag(v Verdict) int {
 
 // ExactIsExact: an exact counter that holds one value per side is decided
 // by its one difference with coverage 1; one that moves once is refused.
-law ExactIsExact(seed uint64, size int, moved bool) {
-	let pairs = series(seed, within(size, MinPairs(), lawPairs()), Exact)
-	let mut seen = []Pair{}
-	for i, p in pairs {
-		seen = seen.Append(if moved && i == len(pairs)-1 { Pair{Base: p.Base, Head: p.Head + 1.0} } else { p })
-	}
-	let e = math.Log(pairs[0].Head) - math.Log(pairs[0].Base)
-	match Decide(seen, Exact, Change{Bound: 0.5}, Level(Planned)) {
-	case Refused as r:
-		moved && r.Why == CounterUnstable
-	case Better as b:
-		!moved && e < 0.0 && b.Of.Exact && b.Of.Estimate == e && b.Of.Coverage == 1.0
-	case Worse as w:
-		!moved && e > 0.0 && w.Of.Exact && w.Of.Estimate == e && w.Of.Coverage == 1.0
-	case Same as s:
-		!moved && e == 0.0 && s.Of.Exact
-	case _:
-		false
-	}
+law ExactIsExact() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let moved = gen.Named("moved", func(v bool) string { if v { "true" } else { "false" } }, gen.Bool)
+		let n = gen.IntIn(MinPairs(), lawPairs())
+		let pairs = gen.Named("pairs", showPairs, func() []Pair needs gen.Draws { drawnSeries(n, Exact) })
+		let mut seen = []Pair{}
+		for i, p in pairs {
+			seen = seen.Append(if moved && i == len(pairs)-1 { Pair{Base: p.Base, Head: p.Head + 1.0} } else { p })
+		}
+		let e = math.Log(pairs[0].Head) - math.Log(pairs[0].Base)
+		match Decide(seen, Exact, Change{Bound: 0.5}, Level(Planned)) {
+		case Refused as r:
+			moved && r.Why == CounterUnstable
+		case Better as b:
+			!moved && e < 0.0 && b.Of.Exact && b.Of.Estimate == e && b.Of.Coverage == 1.0
+		case Worse as w:
+			!moved && e > 0.0 && w.Of.Exact && w.Of.Estimate == e && w.Of.Coverage == 1.0
+		case Same as s:
+			!moved && e == 0.0 && s.Of.Exact
+		case _:
+			false
+		}
+	})) == ""
+	true
 }
 
 // Counted is the kind of a hardware count, tight but not exact.
@@ -112,10 +162,15 @@ type Counted {}
 type Timed {}
 
 // IntervalHoldsEstimate: the interval holds its estimate.
-law IntervalHoldsEstimate(seed uint64, size int, pick int) {
-	let pairs = series(seed, within(size, 1, lawPairs()), Timed)
-	let e = HodgesLehmann(differences(pairs, positive(pairs)), levelOf(pick))
-	e.Low <= e.Center && e.Center <= e.High
+law IntervalHoldsEstimate() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let n = gen.IntIn(1, lawPairs())
+		let pairs = gen.Named("pairs", showPairs, func() []Pair needs gen.Draws { drawnSeries(n, Timed) })
+		let level = gen.Named("level", func(v float64) string { "\(v)" }, drawLevel)
+		let e = HodgesLehmann(differences(pairs, positive(pairs)), level)
+		e.Low <= e.Center && e.Center <= e.High
+	})) == ""
+	true
 }
 
 // lawPairs is the most pairs a law of the statistics draws for one
@@ -127,40 +182,34 @@ law IntervalHoldsEstimate(seed uint64, size int, pick int) {
 // reference (lower TestStdBenchMatchesReference, BENCH-PROP).
 func lawPairs() int { 12 }
 
-// unit is the k-th draw of seed in [0, 1).
-func unit(seed uint64, k int) float64 { float64(mix(seed+uint64(k)*0x9e3779b97f4a7c15)>>11) / 9007199254740992.0 }
-
-// levelOf is a level pick names: a fixed look's or a planned look's.
-func levelOf(pick int) float64 { if within(pick, 0, 1) == 0 { Level(Fixed{Pairs: 8}) } else { Level(Planned) } }
-
-// series is n pairs drawn from seed for a counter of kind k: an effect
-// from -30% to +30% (with 0 and the ±2% edges likely), a noise width from
-// 0.1% to 300%, and in one series of eight a 0 on the base side, which
-// moves it to the difference scale. An Exact series holds one whole value
-// per side, from 1 to 1000.
-func series(seed uint64, n int, k Kind) []Pair {
-	let effects = []float64{-0.3, -0.0202, -0.0198, 0.0, 0.0, 0.0198, 0.0202, 0.3}
-	let widths = []float64{0.001, 0.02, 0.2, 1.0, 3.0}
-	let effect = effects[draw(seed, 1, len(effects))]
-	let width = widths[draw(seed, 2, len(widths))]
-	let zero = draw(seed, 3, 8) == 0 && k != Exact
+// drawnSeries is n pairs drawn from gen.Draws for a counter of kind k: an
+// effect from -30% to +30% (with 0 and the ±2% edges likely), a noise
+// width from 0.1% to 300%, and in one series of eight a 0 on the base
+// side, which moves it to the difference scale. An Exact series holds one
+// whole value per side, from 1 to 1000.
+func drawnSeries(n int, k Kind) []Pair needs gen.Draws {
+	let effect = gen.OneOf([]float64{0.0, -0.3, -0.0202, -0.0198, 0.0, 0.0198, 0.0202, 0.3})
+	let width = gen.OneOf([]float64{0.001, 0.02, 0.2, 1.0, 3.0})
+	let zero = gen.IntIn(0, 7) == 1 && k != Exact
+	let exactBase = float64(gen.IntIn(1, 1000))
+	let exactHead = float64(gen.IntIn(1, 1000))
 	let mut out = []Pair{}
 	for i in 0..n {
 		let base = match k {
 		case Exact:
-			float64(1 + draw(seed, 4, 1000))
+			exactBase
 		case Counted, Timed:
-			100.0 * (1.0 + unit(seed, 10+2*i))
+			100.0 * (1.0 + drawUnit())
 		}
 		let noise = match k {
 		case Exact:
 			0.0
 		case Counted, Timed:
-			width * (unit(seed, 11+2*i) - 0.5)
+			width * (drawUnit() - 0.5)
 		}
 		let head = match k {
 		case Exact:
-			float64(1 + draw(seed, 5, 1000))
+			exactHead
 		case Counted, Timed:
 			base * math.Exp(effect+noise)
 		}
@@ -182,13 +231,16 @@ type Change { Bound float64 }
 // Mirror: swapping the sides negates the estimate, mirrors the interval,
 // swaps Better and Worse and keeps every other verdict, its p-value and
 // its pairs needed, for every kind, scale and bound.
-law Mirror(seed uint64, size int, pick int) {
-	let k = kindOf(pick)
-	let pairs = series(seed, within(size, 0, lawPairs()), k)
-	let bounds = []float64{0.0, 0.02, 0.5, 1.0}
-	let c = Change{Bound: bounds[draw(seed, 6, len(bounds))]}
-	let level = levelOf(draw(seed, 7, 2))
-	mirror(Decide(pairs, k, c, level), Decide(swapped(pairs), k, c, level))
+law Mirror() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let k = gen.Named("kind", showKind, drawKind)
+		let n = gen.IntIn(0, lawPairs())
+		let pairs = gen.Named("pairs", showPairs, func() []Pair needs gen.Draws { drawnSeries(n, k) })
+		let c = Change{Bound: gen.OneOf([]float64{0.0, 0.02, 0.5, 1.0})}
+		let level = drawLevel()
+		mirror(Decide(pairs, k, c, level), Decide(swapped(pairs), k, c, level))
+	})) == ""
+	true
 }
 
 // kindOf is the kind of counter pick names.
@@ -286,29 +338,36 @@ func Level(d Design) float64 {
 // IntervalCoverageIsExact: for n distinct sizes, the share of the 2^n sign
 // patterns whose Hodges-Lehmann interval leaves out 0 is 1 - Coverage
 // exactly, and Coverage reaches the level once n reaches PairsFor(level).
-law IntervalCoverageIsExact(seed uint64, size int, pick int) {
-	let n = within(size, 1, 6)
-	let levels = []float64{0.5, 0.9, Level(Fixed{Pairs: n}), Level(Planned)}
-	let level = levels[within(pick, 0, 3)]
-	let mut sizes = []float64{}
-	for k in 0..n {
-		sizes = sizes.Append(float64(k+1) + float64(draw(seed, k, 1000))/2000.0)
-	}
-	let untied = untiedNull(n)
-	let mut out = 0
-	let mut coverage = 0.0
-	for mask in 0..(1 << n) {
-		let mut d = []float64{}
-		for k, x in sizes {
-			d = d.Append(if (mask>>k)&1 == 1 { x } else { -x })
+law IntervalCoverageIsExact() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let n = gen.Named("n", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(1, 6) })
+		let level = gen.Named("level", func(v float64) string { "\(v)" }, func() float64 needs gen.Draws {
+			gen.OneOf([]float64{0.5, 0.9, Level(Fixed{Pairs: n}), Level(Planned)})
+		})
+		let sizes = gen.Named("sizes", showFloats, func() []float64 needs gen.Draws {
+			let mut out = []float64{}
+			for k in 0..n {
+				out = out.Append(float64(k+1) + float64(gen.IntIn(0, 999))/2000.0)
+			}
+			out
+		})
+		let untied = untiedNull(n)
+		let mut out = 0
+		let mut coverage = 0.0
+		for mask in 0..(1 << n) {
+			let mut d = []float64{}
+			for k, x in sizes {
+				d = d.Append(if (mask>>k)&1 == 1 { x } else { -x })
+			}
+			let e = hodgesLehmann(d, level, untied)
+			coverage = e.Coverage
+			if e.Low > 0.0 || e.High < 0.0 {
+				out = out + 1
+			}
 		}
-		let e = hodgesLehmann(d, level, untied)
-		coverage = e.Coverage
-		if e.Low > 0.0 || e.High < 0.0 {
-			out = out + 1
-		}
-	}
-	math.Abs(float64(out)/float64(1<<n)-(1.0-coverage)) <= 1e-12 && (n < PairsFor(level) || coverage+1e-12 >= level)
+		math.Abs(float64(out)/float64(1<<n)-(1.0-coverage)) <= 1e-12 && (n < PairsFor(level) || coverage+1e-12 >= level)
+	})) == ""
+	true
 }
 
 // Looks are the pairs after which d judges, in order.
@@ -362,21 +421,26 @@ type Same { Of Difference }
 // pairs enough for the level. (With a margin of 0 an interval of [0, 0]
 // lies not below the margin: a judged series says Unclear there, and only
 // an exact counter, which has no interval, says NoWorse.)
-law AllEqualIsSame(seed uint64, size int, pick int) {
-	let k = kindOf(pick)
-	let level = levelOf(draw(seed, 7, 2))
-	let n = within(size, PairsFor(level), lawPairs())
-	let mut pairs = []Pair{}
-	for p in series(seed, n, k) {
-		pairs = pairs.Append(Pair{Base: p.Base, Head: p.Base})
-	}
-	let worse = NoWorseThan{Margin: float64(1+draw(seed, 9, 3)) / 10.0}
-	match (Decide(pairs, k, Change{Bound: float64(draw(seed, 6, 3)) / 50.0}, level), Decide(pairs, k, worse, level)) {
-	case (Same, NoWorse):
-		true
-	case _:
-		false
-	}
+law AllEqualIsSame() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let k = gen.Named("kind", showKind, drawKind)
+		let level = drawLevel()
+		let n = gen.IntIn(PairsFor(level), lawPairs())
+		let raw = gen.Named("pairs", showPairs, func() []Pair needs gen.Draws { drawnSeries(n, k) })
+		let mut pairs = []Pair{}
+		for p in raw {
+			pairs = pairs.Append(Pair{Base: p.Base, Head: p.Base})
+		}
+		let worse = NoWorseThan{Margin: float64(gen.IntIn(1, 3)) / 10.0}
+		let change = Change{Bound: float64(gen.IntIn(0, 2)) / 50.0}
+		match (Decide(pairs, k, change, level), Decide(pairs, k, worse, level)) {
+		case (Same, NoWorse):
+			true
+		case _:
+			false
+		}
+	})) == ""
+	true
 }
 
 // NoWorse: the interval lies below the margin of a NoWorseThan claim.
@@ -386,24 +450,29 @@ type NoWorse { Of Difference }
 // interval reaches the level and lies below the margin in the scale of the
 // differences (ln(1 + Margin) on the log scale), and Worse exactly when it
 // reaches the level and lies above it.
-law NoWorseReadsTheInterval(seed uint64, size int, pick int) {
-	let pairs = series(seed, within(size, MinPairs(), lawPairs()), Counted)
-	let margins = []float64{0.0, 0.02, 0.1}
-	let m = margins[within(pick, 0, 2)]
-	let level = levelOf(draw(seed, 7, 2))
-	let shift = threshold(pairs, positive(pairs), NoWorseThan{Margin: m})
-	let e = HodgesLehmann(differences(pairs, positive(pairs)), level)
-	let covered = e.Coverage+1e-9 >= level
-	match Decide(pairs, Counted, NoWorseThan{Margin: m}, level) {
-	case NoWorse:
-		covered && e.High < shift
-	case Worse:
-		covered && e.Low > shift
-	case Unclear:
-		!(covered && (e.High < shift || e.Low > shift))
-	case _:
-		false
-	}
+law NoWorseReadsTheInterval() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let n = gen.IntIn(MinPairs(), lawPairs())
+		let pairs = gen.Named("pairs", showPairs, func() []Pair needs gen.Draws { drawnSeries(n, Counted) })
+		let m = gen.Named("margin", func(v float64) string { "\(v)" }, func() float64 needs gen.Draws {
+			gen.OneOf([]float64{0.0, 0.02, 0.1})
+		})
+		let level = drawLevel()
+		let shift = threshold(pairs, positive(pairs), NoWorseThan{Margin: m})
+		let e = HodgesLehmann(differences(pairs, positive(pairs)), level)
+		let covered = e.Coverage+1e-9 >= level
+		match Decide(pairs, Counted, NoWorseThan{Margin: m}, level) {
+		case NoWorse:
+			covered && e.High < shift
+		case Worse:
+			covered && e.Low > shift
+		case Unclear:
+			!(covered && (e.High < shift || e.Low > shift))
+		case _:
+			false
+		}
+	})) == ""
+	true
 }
 
 // Unclear: the pairs decide nothing yet. Needed is the pairs projected
@@ -445,16 +514,20 @@ type FewPairs { Pairs int }
 
 // FewPairsNeverDecide: fewer than 6 pairs are refused, whatever their
 // kind and claim.
-law FewPairsNeverDecide(seed uint64, size int, pick int) {
-	let n = within(size, 0, 5)
-	let k = kindOf(pick)
-	let claims = []Claim{Change{Bound: 0.02}, NoWorseThan{Margin: 0.0}}
-	match Decide(series(seed, n, k), k, claims[draw(seed, 6, 2)], levelOf(draw(seed, 7, 2))) {
-	case Refused as r:
-		r.Why == FewPairs{Pairs: n}
-	case _:
-		false
-	}
+law FewPairsNeverDecide() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let n = gen.Named("n", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(0, 5) })
+		let k = gen.Named("kind", showKind, drawKind)
+		let c = gen.OneOf([]Claim{Change{Bound: 0.02}, NoWorseThan{Margin: 0.0}})
+		let pairs = gen.Named("pairs", showPairs, func() []Pair needs gen.Draws { drawnSeries(n, k) })
+		match Decide(pairs, k, c, drawLevel()) {
+		case Refused as r:
+			r.Why == FewPairs{Pairs: n}
+		case _:
+			false
+		}
+	})) == ""
+	true
 }
 
 // TooManyPairs: more than MaxPairs pairs in one series.
@@ -629,47 +702,49 @@ func SignedRankP(d []float64) float64 { signedRankP(d, []float64{}) }
 // ties and zeros), SignedRankP is the count over all 2^m sign patterns of
 // the m nonzero differences, with zeros dropped and ties at their
 // mid-rank: twice the smaller tail at the observed statistic, at most 1.
-law MatchesEnumeration(seed uint64, size int) {
-	let n = within(size, 0, 9)
-	let mut d = []float64{}
-	let mut sizes = []float64{}
-	let mut ups = []bool{}
-	for i in 0..n {
-		let x = float64(draw(seed, i, 7) - 3)
-		d = d.Append(x)
-		if x != 0.0 {
-			sizes = sizes.Append(math.Abs(x))
-			ups = ups.Append(x > 0.0)
-		}
-	}
-	let m = len(sizes)
-	let ranks = doubledRanks(sizes)
-	let mut t = 0
-	for k, r in ranks {
-		if ups[k] {
-			t = t + r
-		}
-	}
-	let mut low = 0
-	let mut high = 0
-	for mask in 0..(1 << m) {
-		let mut s = 0
-		for k, r in ranks {
-			if (mask>>k)&1 == 1 {
-				s = s + r
+law MatchesEnumeration() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let d = gen.Named("d", showFloats, func() []float64 needs gen.Draws {
+			gen.ListOf(0, 9, func() float64 needs gen.Draws { float64(gen.IntIn(-3, 3)) })
+		})
+		let mut sizes = []float64{}
+		let mut ups = []bool{}
+		for x in d {
+			if x != 0.0 {
+				sizes = sizes.Append(math.Abs(x))
+				ups = ups.Append(x > 0.0)
 			}
 		}
-		if s <= t {
-			low = low + 1
+		let m = len(sizes)
+		let ranks = doubledRanks(sizes)
+		let mut t = 0
+		for k, r in ranks {
+			if ups[k] {
+				t = t + r
+			}
 		}
-		if s >= t {
-			high = high + 1
+		let mut low = 0
+		let mut high = 0
+		for mask in 0..(1 << m) {
+			let mut s = 0
+			for k, r in ranks {
+				if (mask>>k)&1 == 1 {
+					s = s + r
+				}
+			}
+			if s <= t {
+				low = low + 1
+			}
+			if s >= t {
+				high = high + 1
+			}
 		}
-	}
-	let tail = if low <= high { low } else { high }
-	let twice = 2.0 * float64(tail) / float64(1<<m)
-	let want = if twice < 1.0 { twice } else { 1.0 }
-	math.Abs(SignedRankP(d)-want) <= 1e-12
+		let tail = if low <= high { low } else { high }
+		let twice = 2.0 * float64(tail) / float64(1<<m)
+		let want = if twice < 1.0 { twice } else { 1.0 }
+		math.Abs(SignedRankP(d)-want) <= 1e-12
+	})) == ""
+	true
 }
 
 // within is n moved into lo..hi, so a law covers every n.
@@ -678,17 +753,6 @@ func within(n int, lo int, hi int) int {
 	let r = n % span
 	if r < 0 { lo + r + span } else { lo + r }
 }
-
-// mix is SplitMix64's output for the state x.
-func mix(x uint64) uint64 {
-	let mut z = x + 0x9e3779b97f4a7c15
-	z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9
-	z = (z ^ (z >> 27)) * 0x94d049bb133111eb
-	z ^ (z >> 31)
-}
-
-// draw is the k-th draw of seed in 0..n-1.
-func draw(seed uint64, k int, n int) int { int(mix(seed+uint64(k)*0x9e3779b97f4a7c15) % uint64(n)) }
 
 // doubledRanks are the doubled mid-ranks of sizes, by brute force: a size
 // with b smaller and e equal sizes (itself included) has mid-rank b +
@@ -713,33 +777,37 @@ func doubledRanks(sizes []float64) []int {
 
 // SignedRankPMatchesReference: SignedRankP, and its form that reads a
 // Decide's untied table, give the p-value of the reference table.
-law SignedRankPMatchesReference(seed uint64, size int, whole bool) {
-	let d = drawnDifferences(seed, within(size, 0, 12), whole)
-	let mut sizes = []float64{}
-	let mut ups = []bool{}
-	for x in d {
-		if x != 0.0 {
-			sizes = sizes.Append(if x < 0.0 { -x } else { x })
-			ups = ups.Append(x > 0.0)
+law SignedRankPMatchesReference() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let whole = gen.Named("whole", func(v bool) string { if v { "true" } else { "false" } }, gen.Bool)
+		let d = gen.Named("d", showFloats, func() []float64 needs gen.Draws { drawnDifferences(12, whole) })
+		let mut sizes = []float64{}
+		let mut ups = []bool{}
+		for x in d {
+			if x != 0.0 {
+				sizes = sizes.Append(if x < 0.0 { -x } else { x })
+				ups = ups.Append(x > 0.0)
+			}
 		}
-	}
-	let ranks = doubledRanks(sizes)
-	let mut t2 = 0
-	for k, r in ranks {
-		if ups[k] {
-			t2 = t2 + r
+		let ranks = doubledRanks(sizes)
+		let mut t2 = 0
+		for k, r in ranks {
+			if ups[k] {
+				t2 = t2 + r
+			}
 		}
-	}
-	let null = refNull(ranks)
-	let top = len(null) - 1
-	let t = if t2 <= top-t2 { t2 } else { top - t2 }
-	let mut tail = 0.0
-	for k in 0..t+1 {
-		tail = tail + null[k]
-	}
-	let twice = 2.0 * tail
-	let p = if len(sizes) == 0 { 1.0 } else { if twice < 1.0 { twice } else { 1.0 } }
-	SignedRankP(d) == p && signedRankP(d, untiedNull(len(d))) == p
+		let null = refNull(ranks)
+		let top = len(null) - 1
+		let t = if t2 <= top-t2 { t2 } else { top - t2 }
+		let mut tail = 0.0
+		for k in 0..t+1 {
+			tail = tail + null[k]
+		}
+		let twice = 2.0 * tail
+		let p = if len(sizes) == 0 { 1.0 } else { if twice < 1.0 { twice } else { 1.0 } }
+		SignedRankP(d) == p && signedRankP(d, untiedNull(len(d))) == p
+	})) == ""
+	true
 }
 
 // signedRankP is SignedRankP, reading the lower half of the untied null
@@ -868,30 +936,36 @@ func gcd(a int, b int) int {
 // NullMatchesReference: the part of the table nullOf builds is the
 // reference table's, for the doubled tied ranks of drawn differences and
 // for the same ranks over their common divisor, up to any cut.
-law NullMatchesReference(seed uint64, size int, whole bool, cut int, divide bool) {
-	let mut sizes = []float64{}
-	for x in drawnDifferences(seed, within(size, 0, 12), whole) {
-		if x != 0.0 {
-			sizes = sizes.Append(if x < 0.0 { -x } else { x })
+law NullMatchesReference() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let whole = gen.Named("whole", func(v bool) string { if v { "true" } else { "false" } }, gen.Bool)
+		let divide = gen.Named("divide", func(v bool) string { if v { "true" } else { "false" } }, gen.Bool)
+		let d = gen.Named("d", showFloats, func() []float64 needs gen.Draws { drawnDifferences(12, whole) })
+		let mut sizes = []float64{}
+		for x in d {
+			if x != 0.0 {
+				sizes = sizes.Append(if x < 0.0 { -x } else { x })
+			}
 		}
-	}
-	let doubled = doubledRanks(sizes)
-	let mut g = 0
-	for r in doubled {
-		g = gcd(g, r)
-	}
-	let mut ranks = []int{}
-	for r in doubled {
-		ranks = ranks.Append(if divide && g > 0 { r / g } else { r })
-	}
-	let want = refNull(ranks)
-	let upto = within(cut, 0, len(want))
-	let got = nullOf(ranks, upto)
-	let mut same = len(got) == (if upto < len(want) { upto + 1 } else { len(want) })
-	for s, x in got {
-		same = same && x == want[s]
-	}
-	same
+		let doubled = doubledRanks(sizes)
+		let mut g = 0
+		for r in doubled {
+			g = gcd(g, r)
+		}
+		let mut ranks = []int{}
+		for r in doubled {
+			ranks = ranks.Append(if divide && g > 0 { r / g } else { r })
+		}
+		let want = refNull(ranks)
+		let upto = gen.Named("upto", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(0, len(want)) })
+		let got = nullOf(ranks, upto)
+		let mut same = len(got) == (if upto < len(want) { upto + 1 } else { len(want) })
+		for s, x in got {
+			same = same && x == want[s]
+		}
+		same
+	})) == ""
+	true
 }
 
 // refNull is the whole null distribution of the signed-rank statistic for
@@ -919,14 +993,13 @@ func refNull(ranks []int) []float64 {
 	c
 }
 
-// drawnDifferences are n differences drawn from seed: small whole sizes
-// from -4 to 4 (ties and zeros) when whole, else reals in [-0.5, 0.5).
-func drawnDifferences(seed uint64, n int, whole bool) []float64 {
-	let mut d = []float64{}
-	for k in 0..n {
-		d = d.Append(if whole { float64(draw(seed, k, 9) - 4) } else { unit(seed, k) - 0.5 })
-	}
-	d
+// drawnDifferences are up to max differences drawn from gen.Draws: small
+// whole sizes from -4 to 4 (ties and zeros) when whole, else reals in
+// [-0.5, 0.5).
+func drawnDifferences(max int, whole bool) []float64 needs gen.Draws {
+	gen.ListOf(0, max, func() float64 needs gen.Draws {
+		if whole { float64(gen.IntIn(-4, 4)) } else { drawUnit() - 0.5 }
+	})
 }
 
 // Estimate is a Hodges-Lehmann estimate: Center, its interval from Low to
@@ -946,12 +1019,16 @@ func HodgesLehmann(d []float64, level float64) Estimate { hodgesLehmann(d, level
 // HodgesLehmannMatchesReference: the interval read from the half table
 // untiedNull is the one read from the reference's whole table, at levels
 // from 0 to 99.9%.
-law HodgesLehmannMatchesReference(seed uint64, size int, pick int) {
-	let d = drawnDifferences(seed, within(size, 0, 12), false)
-	let levels = []float64{0.0, 0.5, 0.9, 0.95, 0.9842, 0.999}
-	let level = levels[within(pick, 0, 5)]
-	let want = hodgesLehmann(d, level, refNull(ranksTo(len(d))))
-	HodgesLehmann(d, level) == want && hodgesLehmann(d, level, untiedNull(len(d))) == want
+law HodgesLehmannMatchesReference() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let d = gen.Named("d", showFloats, func() []float64 needs gen.Draws { drawnDifferences(12, false) })
+		let level = gen.Named("level", func(v float64) string { "\(v)" }, func() float64 needs gen.Draws {
+			gen.OneOf([]float64{0.0, 0.5, 0.9, 0.95, 0.9842, 0.999})
+		})
+		let want = hodgesLehmann(d, level, refNull(ranksTo(len(d))))
+		HodgesLehmann(d, level) == want && hodgesLehmann(d, level, untiedNull(len(d))) == want
+	})) == ""
+	true
 }
 
 // untiedNull is the lower half of the null distribution of n untied ranks
@@ -1129,23 +1206,27 @@ func Holm(ps []float64, alpha float64) []bool {
 // HolmRejectsNoMore: Holm rejects no p-value above alpha, and every one at
 // most alpha over their number (Bonferroni's); n equal p-values are all
 // rejected exactly when they are at most alpha / n.
-law HolmRejectsNoMore(seed uint64, size int) {
-	let n = within(size, 1, 12)
-	let mut ps = []float64{}
-	let mut same = []float64{}
-	for i in 0..n {
-		ps = ps.Append(float64(draw(seed, i, 100)) / 1000.0)
-		same = same.Append(ps[0])
-	}
-	for i, rejected in Holm(ps, 0.05) {
-		if rejected && ps[i] > 0.05 || !rejected && ps[i] <= 0.05/float64(n) {
-			return false
+law HolmRejectsNoMore() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let ps = gen.Named("ps", showFloats, func() []float64 needs gen.Draws {
+			gen.ListOf(1, 12, func() float64 needs gen.Draws { float64(gen.IntIn(0, 99)) / 1000.0 })
+		})
+		let n = len(ps)
+		let mut same = []float64{}
+		for _ in 0..n {
+			same = same.Append(ps[0])
 		}
-	}
-	for rejected in Holm(same, 0.05) {
-		if rejected != (ps[0] <= 0.05/float64(n)) {
-			return false
+		for i, rejected in Holm(ps, 0.05) {
+			if rejected && ps[i] > 0.05 || !rejected && ps[i] <= 0.05/float64(n) {
+				return false
+			}
 		}
-	}
+		for rejected in Holm(same, 0.05) {
+			if rejected != (ps[0] <= 0.05/float64(n)) {
+				return false
+			}
+		}
+		true
+	})) == ""
 	true
 }

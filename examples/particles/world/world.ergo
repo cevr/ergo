@@ -4,7 +4,9 @@
 // first particles from Random. Every number is an int, so a run is exact
 // and a seed replays it on every host.
 
+import gen
 import rand
+import strings
 
 // Particle is one particle: its number, its cell and its velocity in
 // cells per step.
@@ -105,11 +107,44 @@ func Energy(w World) int {
 	e
 }
 
+func showWorld(w World) string {
+	let mut parts = []string{}
+	for p in w.ps {
+		parts = parts.Append("(\(p.X),\(p.Y),\(p.VX),\(p.VY))")
+	}
+	"\(w.width)x\(w.height) loss=\(w.loss) ps=[\(strings.Join(parts, ", "))]"
+}
+
+func drawnWorld(withLoss bool) World needs gen.Draws {
+	let width = gen.IntIn(MinSide, 24)
+	let height = gen.IntIn(MinSide, 12)
+	let loss = if withLoss { gen.IntIn(0, 2) } else { 0 }
+	let cap = width * height
+	let maxN = if cap < 40 { cap } else { 40 }
+	let raw = gen.ListOf(0, maxN, func() Particle needs gen.Draws {
+		Particle{
+			ID: 0,
+			X:  gen.IntIn(0, width-1),
+			Y:  gen.IntIn(0, height-1),
+			VX: gen.IntIn(-MaxSpeed, MaxSpeed),
+			VY: gen.IntIn(-MaxSpeed, MaxSpeed),
+		}
+	})
+	let mut ps = []Particle{}
+	for i, p in raw {
+		ps = ps.Append(Particle{..p, ID: i})
+	}
+	World{width: width, height: height, loss: loss, tick: 0, ps: ps}
+}
+
 // EnergyNeverRises: a step never adds energy. Walls may take some away.
-law EnergyNeverRises(seed uint64, size int, n int, loss int) {
-	let w = newWorld(seed, size, n, loss)
-	let next, _ = Step(w)
-	Energy(next) <= Energy(w)
+law EnergyNeverRises() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let w = gen.Named("world", showWorld, func() World needs gen.Draws { drawnWorld(true) })
+		let next, _ = Step(w)
+		Energy(next) <= Energy(w)
+	})) == ""
+	true
 }
 
 // within maps any n into lo..hi, both included.
@@ -137,10 +172,14 @@ func newWorld(seed uint64, size int, n int, loss int) World {
 
 // ElasticKeepsEnergy: with no loss at the walls, a run of steps keeps the
 // energy exactly: a bounce turns a velocity and a meeting passes it on.
-law ElasticKeepsEnergy(seed uint64, size int, n int, steps int) {
-	let w = newWorld(seed, size, n, 0)
-	let after, _ = Run(w, within(steps, 0, 50))
-	Energy(after) == Energy(w)
+law ElasticKeepsEnergy() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let w = gen.Named("world", showWorld, func() World needs gen.Draws { drawnWorld(false) })
+		let steps = gen.Named("steps", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(0, 50) })
+		let after, _ = Run(w, steps)
+		Energy(after) == Energy(w)
+	})) == ""
+	true
 }
 
 // Inside reports whether every particle of w is in a cell of the box.

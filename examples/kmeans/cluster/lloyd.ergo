@@ -2,7 +2,9 @@
 // update, and the machine says when to stop: when no centroid moved, or
 // after the most rounds asked for.
 
+import gen
 import machines
+import strings
 
 // Lloyd is where a run is: in round Round of at most Max.
 type Lloyd = Iterating{Round int, Max int}
@@ -106,19 +108,39 @@ func Run(points []Point, k int, max int, workers int, seed uint64) Result {
 	}
 }
 
+func showPoints(ps []Point) string {
+	let mut parts = []string{}
+	for p in ps {
+		parts = parts.Append("(\(p[0]),\(p[1]),\(p[2]),\(p[3]))")
+	}
+	"[\(strings.Join(parts, ", "))]"
+}
+
+func drawnPoints() []Point needs gen.Draws {
+	gen.ListOf(1, 16, func() Point needs gen.Draws {
+		let mut p = Point{}
+		for d in 0..Dims {
+			p[d] = int32(gen.IntIn(0, MaxCoord))
+		}
+		p
+	})
+}
+
 // InertiaNeverRises: each round's inertia is at most the one before. It
 // holds exactly because the means round to the nearest integer point and
 // every sum is an integer.
-law InertiaNeverRises(xs []int, k int, seed uint64) {
-	let points = pointsOfWindows(xs)
-	if len(points) == 0 {
-		return true
-	}
-	let r = Run(points, 1+(k%6+6)%6, 8, 2, seed)
-	for i in 1..len(r.Inertias) {
-		if r.Inertias[i] > r.Inertias[i-1] {
-			return false
+law InertiaNeverRises() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let points = gen.Named("points", showPoints, drawnPoints)
+		let k = gen.Named("k", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(1, 6) })
+		let s0 = gen.Below(uint64(0))
+		let r = Run(points, k, 8, 2, s0)
+		for i in 1..len(r.Inertias) {
+			if r.Inertias[i] > r.Inertias[i-1] {
+				return false
+			}
 		}
-	}
+		true
+	})) == ""
 	true
 }

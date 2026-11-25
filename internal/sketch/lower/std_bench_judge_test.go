@@ -16,19 +16,12 @@ import (
 // build followed by the properties, so they reach reference, planOf,
 // scriptOf and oneFamily as the laws do.
 var stdBenchJudgeProgram = stdBenchProgram + `
-// familyPlanOf is planOf's series, three to six of them, on Planned.
-func familyPlanOf(seed uint64) Plan {
-	let mut all = []Series{}
-	for i in 0..(3 + draw(seed, 20, 4)) {
-		let claims = []Claim{Change{Bound: 0.02}, Change{Bound: 0.5}, NoWorseThan{Margin: 0.0}, NoWorseThan{Margin: 0.1}}
-		all = all.Append(Series{Name: "s", Kind: kindOf(draw(seed, 21+i, 3)), Claim: claims[draw(seed, 30+i, 4)]})
-	}
-	Plan{Primary: all[0], Secondaries: all[1:], Design: Planned}
+func familyPlanOf() Plan needs gen.Draws {
+	let primary = drawSeries()
+	let secondaries = gen.ListOf(2, 5, drawSeries)
+	Plan{Primary: primary, Secondaries: secondaries, Design: Planned}
 }
 
-// machineAgrees is law MachineIsJudge's body: the Referee machine, fed
-// the blocks Next asks for, ends with Judge's result and rejects a signal
-// for any other block.
 func machineAgrees(p Plan, m Scripted) bool {
 	let want = with context { Meter: m } { Judge(p) }
 	let mut s = Start(p)
@@ -56,32 +49,35 @@ func machineAgrees(p Plan, m Scripted) bool {
 	false
 }
 
-test BenchJudgeMatchesReference(seed uint64, size int, pick int) {
-	let p = planOf(seed, pick)
-	let m = scriptOf(seed, size, p)
+test BenchJudgeMatchesReference {
+	let p = gen.Named("plan", showPlan, planOf)
+	let m = gen.Named("meter", showScript, func() Scripted needs gen.Draws { scriptOf(p) })
 	let got = with context { Meter: m } { Judge(p) }
 	assert got == reference(p, m)
 }
 
-test BenchPlannedFamilyMatchesReference(seed uint64, size int) {
-	let p = familyPlanOf(seed)
-	let m = scriptOf(seed, size, p)
+test BenchPlannedFamilyMatchesReference {
+	let p = gen.Named("plan", showPlan, familyPlanOf)
+	let m = gen.Named("meter", showScript, func() Scripted needs gen.Draws { scriptOf(p) })
 	let got = with context { Meter: m } { Judge(p) }
 	assert got == reference(p, m)
 }
 
-test BenchMachineIsJudgeOnEveryPlan(seed uint64, size int, pick int) {
-	let p = planOf(seed, pick)
-	assert machineAgrees(p, scriptOf(seed, size, p))
+test BenchMachineIsJudgeOnEveryPlan {
+	let p = gen.Named("plan", showPlan, planOf)
+	let m = gen.Named("meter", showScript, func() Scripted needs gen.Draws { scriptOf(p) })
+	assert machineAgrees(p, m)
 }
 
-test BenchPlannedFamilyMachineIsJudge(seed uint64, size int) {
-	let p = familyPlanOf(seed)
-	assert machineAgrees(p, scriptOf(seed, size, p))
+test BenchPlannedFamilyMachineIsJudge {
+	let p = gen.Named("plan", showPlan, familyPlanOf)
+	let m = gen.Named("meter", showScript, func() Scripted needs gen.Draws { scriptOf(p) })
+	assert machineAgrees(p, m)
 }
 
-test BenchSecondariesAreOneFamily(seed uint64, size int) {
-	assert oneFamily(seed, within(size, 1, 5))
+test BenchSecondariesAreOneFamily {
+	let m = gen.Named("secondaries", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(1, 5) })
+	assert oneFamily(m)
 }
 `
 
@@ -101,7 +97,7 @@ func TestStdBenchJudgeMatchesReference(t *testing.T) {
 	needsBuild(t)
 	stdout, stderr, _ := runExeArgs(t, tableExe(t, "stdbenchjudge"), "--seed", "1")
 	for _, m := range regexp.MustCompile(`(?m)^test (\w+)`).FindAllStringSubmatch(stdBenchJudgeProgram, -1) {
-		if !regexp.MustCompile(`(?m)^ok ` + m[1] + ` \(\d+ cases\)$`).MatchString(stdout) {
+		if !regexp.MustCompile(`(?m)^ok ` + m[1] + `( \(\d+ cases\))?$`).MatchString(stdout) {
 			t.Errorf("std bench's referee differs from its reference: no ok line for %s:\n%s\n%s", m[1], stdout, firstLines(stderr, 20))
 		}
 	}

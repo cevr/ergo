@@ -6,6 +6,7 @@
 // exhaustively, a refusal prints no value, a nonzero number never prints
 // as zero, and nothing published names a home path (Scrubbed).
 
+import gen
 import hex
 import json
 import math
@@ -27,12 +28,15 @@ type Receipt {
 
 // NoHomePath: a receipt whose text names home paths publishes none, and
 // not the user's name: not in its block, not in its card.
-law NoHomePath(seed uint64, size int, pick int, n int) {
-	let r = receiptOf(seed, size, pick)
-	let user = "zqx\(within(n, 0, 9999))"
-	let named = Receipt{..r, Builds: Builds{Base: "/home/" + user + "/src/ergo", Head: "/Users/" + user}, Host: Host{..r.Host, Os: "linux /home/" + user}}
-	let text = Markdown(named) + Card(named, 0)
-	!strings.Contains(text, "/home/") && !strings.Contains(text, "/Users/") && !strings.Contains(text, user)
+law NoHomePath() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let r = gen.Named("receipt", func(v Receipt) string { v.Id }, receiptOf)
+		let user = "zqx\(gen.Named("user", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(0, 9999) }))"
+		let named = Receipt{..r, Builds: Builds{Base: "/home/" + user + "/src/ergo", Head: "/Users/" + user}, Host: Host{..r.Host, Os: "linux /home/" + user}}
+		let text = Markdown(named) + Card(named, 0)
+		!strings.Contains(text, "/home/") && !strings.Contains(text, "/Users/") && !strings.Contains(text, user)
+	})) == ""
+	true
 }
 
 // Host is the host a run ran on: its system, its CPUs, its load average
@@ -136,31 +140,37 @@ func Table(r Receipt) string {
 
 // NumberHasItsProof: every line of the table that gives a value gives its
 // bench unit, its pairs, and its interval with its coverage or exact.
-law NumberHasItsProof(seed uint64, size int, pick int) {
-	let r = receiptOf(seed, size, pick)
-	for line in strings.Split(Table(r), "\n")[1:] {
-		if line == "" || strings.Contains(line, ": refused: ") || strings.Contains(line, ": no word: ") {
-			continue
+law NumberHasItsProof() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let r = gen.Named("receipt", func(v Receipt) string { v.Id }, receiptOf)
+		for line in strings.Split(Table(r), "\n")[1:] {
+			if line == "" || strings.Contains(line, ": refused: ") || strings.Contains(line, ": no word: ") {
+				continue
+			}
+			if !strings.Contains(line, " per op (") || !strings.Contains(line, " pairs)") {
+				return false
+			}
+			if !strings.Contains(line, "(exact, ") && !strings.Contains(line, "] at ") {
+				return false
+			}
 		}
-		if !strings.Contains(line, " per op (") || !strings.Contains(line, " pairs)") {
-			return false
-		}
-		if !strings.Contains(line, "(exact, ") && !strings.Contains(line, "] at ") {
-			return false
-		}
-	}
+		true
+	})) == ""
 	true
 }
 
 // RefusedHasNoValue: a refused series prints its reason and no value: no
 // percent, no amount per bench unit.
-law RefusedHasNoValue(seed uint64, size int, pick int) {
-	let r = receiptOf(seed, size, pick)
-	for line in strings.Split(Table(r), "\n") {
-		if strings.Contains(line, ": refused: ") && (strings.Contains(line, "%") || strings.Contains(line, " per ")) {
-			return false
+law RefusedHasNoValue() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let r = gen.Named("receipt", func(v Receipt) string { v.Id }, receiptOf)
+		for line in strings.Split(Table(r), "\n") {
+			if strings.Contains(line, ": refused: ") && (strings.Contains(line, "%") || strings.Contains(line, " per ")) {
+				return false
+			}
 		}
-	}
+		true
+	})) == ""
 	true
 }
 
@@ -289,32 +299,35 @@ func Markdown(r Receipt) string {
 // EditIsRefused: an edit of any one character of a block's digest or
 // body (k picks among the 64 digits and the body) makes ReadBlock fail
 // Edited, and Update refuse to replace it.
-law EditIsRefused(seed uint64, size int, pick int, at int) {
-	let r = receiptOf(seed, size, pick)
-	let doc = Markdown(r)
-	let sum = strings.Index(doc, "sha256:") + 7
-	let body = strings.Index(doc, " -->\n") + 5
-	let stop = strings.Index(doc, end(r.Id))
-	let k = within(at, 0, 64+(stop-body)-1)
-	let pos = if k < 64 { sum + k } else { body + k - 64 }
-	let was = doc[pos : pos+1]
-	let edited = doc[:pos] + (if was == "x" { "y" } else { "x" }) + doc[pos+1:]
-	let mut refused = 0
-	let _ = ReadBlock(edited, r.Id) catch {
-	case Edited:
-		refused = refused + 1
-		r
-	case NoBlock, Unreadable:
-		r
-	}
-	let _ = Update(edited, r) catch {
-	case Edited:
-		refused = refused + 1
-		""
-	case Unreadable:
-		""
-	}
-	refused == 2
+law EditIsRefused() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let r = gen.Named("receipt", func(v Receipt) string { v.Id }, receiptOf)
+		let doc = Markdown(r)
+		let sum = strings.Index(doc, "sha256:") + 7
+		let body = strings.Index(doc, " -->\n") + 5
+		let stop = strings.Index(doc, end(r.Id))
+		let k = gen.Named("at", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(0, 64+(stop-body)-1) })
+		let pos = if k < 64 { sum + k } else { body + k - 64 }
+		let was = doc[pos : pos+1]
+		let edited = doc[:pos] + (if was == "x" { "y" } else { "x" }) + doc[pos+1:]
+		let mut refused = 0
+		let _ = ReadBlock(edited, r.Id) catch {
+		case Edited:
+			refused = refused + 1
+			r
+		case NoBlock, Unreadable:
+			r
+		}
+		let _ = Update(edited, r) catch {
+		case Edited:
+			refused = refused + 1
+			""
+		case Unreadable:
+			""
+		}
+		refused == 2
+	})) == ""
+	true
 }
 
 func blockBody(r Receipt) string { "```text\n" + Table(r) + "```\n\n```json\n" + Encode(r) + "\n```\n" }
@@ -370,47 +383,46 @@ func ReadBlock(doc string, id string) Receipt fails NoBlock | Edited | Unreadabl
 
 // BlockRoundTrips: the receipt read back from a document that holds its
 // block is the receipt; a block of another schema is Unreadable.
-law BlockRoundTrips(seed uint64, size int, pick int) {
-	let r = receiptOf(seed, size, pick)
-	let back = ReadBlock("# Receipts\n\n"+Markdown(r)+"\nmore text\n", r.Id) catch {
-	case NoBlock, Edited, Unreadable:
-		return false
-	}
-	let mut other = false
-	let _ = ReadBlock(Markdown(Receipt{..r, Schema: "bench.v2"}), r.Id) catch {
-	case Unreadable:
-		other = true
-		r
-	case NoBlock, Edited:
-		r
-	}
-	back == r && other
+law BlockRoundTrips() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let r = gen.Named("receipt", func(v Receipt) string { v.Id }, receiptOf)
+		let back = ReadBlock("# Receipts\n\n"+Markdown(r)+"\nmore text\n", r.Id) catch {
+		case NoBlock, Edited, Unreadable:
+			return false
+		}
+		let mut other = false
+		let _ = ReadBlock(Markdown(Receipt{..r, Schema: "bench.v2"}), r.Id) catch {
+		case Unreadable:
+			other = true
+			r
+		case NoBlock, Edited:
+			r
+		}
+		back == r && other
+	})) == ""
+	true
 }
 
 // receiptOf is a receipt of one or two cases of one referee run of a
 // drawn plan on a drawn Scripted meter: the laws of the report check how
 // a receipt prints and reads back, which a second run of Judge would not
 // change, so a second case shares the first one's run under its own name.
-func receiptOf(seed uint64, size int, pick int) Receipt {
-	let s = mix(seed)
-	// A small receipt: a fixed design of 3 to 8 pairs and at most one
-	// secondary. A report prints a refused, an unclear and a judged
-	// series, and a secondary, the same at any size and count, and its
-	// text, digest and JSON grow with them; small, a law's cases stay
-	// inside check time's budget (BENCH-LAW-COST).
-	let drawn = planOf(s, pick)
-	let p = Plan{..drawn, Secondaries: if len(drawn.Secondaries) > 1 { drawn.Secondaries[:1] } else { drawn.Secondaries }, Design: Fixed{Pairs: 3 + draw(s, 41, 6)}}
-	let m = scriptOf(s, size, p)
+func receiptOf() Receipt needs gen.Draws {
+	let primary = drawSeries()
+	let secondaries = if gen.Bool() { []Series{drawSeries()} } else { []Series{} }
+	let p = Plan{Primary: primary, Secondaries: secondaries, Design: Fixed{Pairs: gen.IntIn(3, 8)}}
+	let m = scriptOf(p)
 	let run = with context { Meter: m } { Judge(p) }
+	let nCases = gen.IntIn(1, 2)
 	let mut cases = []Case{}
-	for c in 0..(1 + draw(seed, 100, 2)) {
+	for c in 0..nCases {
 		cases = cases.Append(Case{Name: "case\(c)", Unit: "op", Plan: p, Result: run})
 	}
 	Receipt{
 		Schema:     "bench.v1",
-		Id:         "run-\(draw(seed, 101, 1000))",
-		Experiment: 1 + draw(seed, 102, 5),
-		Host:       Host{Os: "linux", Cpus: 16, Load: float64(draw(seed, 103, 400)) / 10.0, Priority: 19},
+		Id:         "run-\(gen.IntIn(0, 999))",
+		Experiment: gen.IntIn(1, 5),
+		Host:       Host{Os: "linux", Cpus: 16, Load: float64(gen.IntIn(0, 399)) / 10.0, Priority: 19},
 		Builds:     Builds{Base: "base", Head: "head"},
 		Cases:      cases,
 	}
@@ -435,19 +447,22 @@ func Update(doc string, r Receipt) string fails Edited | Unreadable {
 // The new receipt has the id, another experiment and another host, so its
 // block differs, with the same referee runs (a second run of Judge would
 // check the referee, not Update).
-law UpdateReplacesItsBlock(seed uint64, size int, pick int) {
-	let r = receiptOf(seed, size, pick)
-	let next = Receipt{..r, Experiment: r.Experiment + 1, Host: Host{..r.Host, Load: r.Host.Load + 1.5}}
-	let doc = "before\n" + Markdown(r) + "after\n"
-	let replaced = Update(doc, next) catch {
-	case Edited, Unreadable:
-		return false
-	}
-	let appended = Update("before", next) catch {
-	case Edited, Unreadable:
-		return false
-	}
-	replaced == "before\n"+Markdown(next)+"after\n" && appended == "before\n"+Markdown(next)
+law UpdateReplacesItsBlock() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let r = gen.Named("receipt", func(v Receipt) string { v.Id }, receiptOf)
+		let next = Receipt{..r, Experiment: r.Experiment + 1, Host: Host{..r.Host, Load: r.Host.Load + 1.5}}
+		let doc = "before\n" + Markdown(r) + "after\n"
+		let replaced = Update(doc, next) catch {
+		case Edited, Unreadable:
+			return false
+		}
+		let appended = Update("before", next) catch {
+		case Edited, Unreadable:
+			return false
+		}
+		replaced == "before\n"+Markdown(next)+"after\n" && appended == "before\n"+Markdown(next)
+	})) == ""
+	true
 }
 
 // Card is the SVG card of case c of r: a headline from its primary's
@@ -469,11 +484,14 @@ func Card(r Receipt, c int) string {
 
 // CardNamesItsBlock: a card carries the id and the digest of the block it
 // comes from.
-law CardNamesItsBlock(seed uint64, size int, pick int) {
-	let r = receiptOf(seed, size, pick)
-	let doc = Markdown(r)
-	let sum = doc[strings.Index(doc, "sha256:")+7 : strings.Index(doc, " -->\n")]
-	strings.Contains(Card(r, 0), "ergo:bench "+r.Id+" v1 sha256:"+sum)
+law CardNamesItsBlock() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let r = gen.Named("receipt", func(v Receipt) string { v.Id }, receiptOf)
+		let doc = Markdown(r)
+		let sum = doc[strings.Index(doc, "sha256:")+7 : strings.Index(doc, " -->\n")]
+		strings.Contains(Card(r, 0), "ergo:bench "+r.Id+" v1 sha256:"+sum)
+	})) == ""
+	true
 }
 
 // headline is the card's one line: how much fewer or more of the counter
