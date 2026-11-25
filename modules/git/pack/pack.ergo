@@ -410,6 +410,36 @@ func readFromPack(odb ODB, packs []PackPair, p PackPair, offset uint64, id oid.O
 	}
 }
 
+func findPackByPath(packs []PackPair, cleanPath string) Option[PackPair] {
+	for p in packs {
+		if filepath.Clean(p.PackPath) == cleanPath {
+			return Some[PackPair]{Value: p}
+		}
+	}
+	None
+}
+
+// ReadPackOffset materializes and verifies the object id at the exact byte
+// offset inside packFilePath using odb's validated pack catalog (refreshing
+// once if packFilePath is not yet cached).
+func ReadPackOffset(odb ODB, packFilePath string, offset uint64, id oid.OID, maxBytes int) Object fails Missing | Corrupt | MismatchedPair | Collision | LimitExceeded | DepthExceeded | IOFailed needs fs.Files {
+	let cleanPath = filepath.Clean(packFilePath)
+	let cachedPacks = odb.catalog.Get().packs
+	match findPackByPath(cachedPacks, cleanPath) {
+	case Some[PackPair] as p:
+		return try readFromPack(odb, cachedPacks, p.Value, offset, id, maxBytes)
+	case None:
+	}
+	try refreshOnMiss(odb)
+	let freshPacks = odb.catalog.Get().packs
+	match findPackByPath(freshPacks, cleanPath) {
+	case Some[PackPair] as p:
+		return try readFromPack(odb, freshPacks, p.Value, offset, id, maxBytes)
+	case None:
+		return Missing{OID: id}
+	}
+}
+
 // ReadObject locates, materializes, and verifies the object for id across
 // primary loose objects, cached packs (primary then alternates), and alternate
 // loose objects, automatically refreshing the pack catalog once on miss before

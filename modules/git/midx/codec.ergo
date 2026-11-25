@@ -1,0 +1,442 @@
+import hex
+import sha1dc
+import sha256
+import slices
+import strings
+import github.com/cevr/ergo/modules/git/oid
+
+type chunkSpan {
+	id    string,
+	start int,
+	end   int,
+}
+
+func readU32BE(b []byte, off int) uint32 {
+		(uint32(b[off]) << uint32(24)) |
+		(uint32(b[off+1]) << uint32(16)) |
+		(uint32(b[off+2]) << uint32(8)) |
+		uint32(b[off+3])
+}
+
+func readU64BE(b []byte, off int) uint64 {
+	(uint64(readU32BE(b, off)) << uint64(32)) | uint64(readU32BE(b, off+4))
+}
+
+func sameFormat(a oid.Format, b oid.Format) bool {
+	match a {
+	case oid.Sha1:
+		match b {
+		case oid.Sha1:
+			true
+		case oid.Sha256:
+			false
+		}
+	case oid.Sha256:
+		match b {
+		case oid.Sha1:
+			false
+		case oid.Sha256:
+			true
+		}
+	}
+}
+
+func expectedHashVersion(format oid.Format) int {
+	match format {
+	case oid.Sha1:
+		1
+	case oid.Sha256:
+		2
+	}
+}
+
+func computeDigest(format oid.Format, data []byte) []byte fails ChecksumMismatch {
+	match format {
+	case oid.Sha1:
+		let d = sha1dc.Sum(data) catch {
+		case sha1dc.CollisionDetected as c:
+			return ChecksumMismatch{Expected: "collision-free", Got: hex.Encode(c.Digest)}
+		}
+		let mut out = slices.WithCapacity[byte](20)
+		for i in 0..20 {
+			out = out.Append(d[i])
+		}
+		out
+	case oid.Sha256:
+		let h = sha256.New()
+		h.Write(data.Text())
+		h.Digest().Bytes()
+	}
+}
+
+func verifyChecksum(format oid.Format, raw []byte) oid.OID fails Truncated | ChecksumMismatch {
+	let hashLen = oid.ByteLen(format)
+	if len(raw) < hashLen {
+		return Truncated{Expected: hashLen, Got: len(raw)}
+	}
+	let bodyEnd = len(raw) - hashLen
+	let want = raw[bodyEnd:]
+	let got = try computeDigest(format, raw[:bodyEnd])
+	if !slices.Equal(got, want) {
+		return ChecksumMismatch{
+			Expected: hex.Encode(want.Text()),
+			Got:      hex.Encode(got.Text()),
+		}
+	}
+	oid.FromBytes(format, want) catch {
+	case oid.WrongLength:
+		oid.Zero(format)
+	}
+}
+
+func parseChunkTable(raw []byte, chunkCount int, bodyEnd int) []chunkSpan fails Truncated | BadChunkTable {
+	if chunkCount <= 0 {
+		return BadChunkTable{Reason: "chunk count must be positive"}
+	}
+	let tableEnd = 12 + (chunkCount+1)*12
+	if tableEnd > bodyEnd {
+		return Truncated{Expected: tableEnd, Got: bodyEnd}
+	}
+	let mut ids = slices.WithCapacity[string](chunkCount)
+	let mut offs = slices.WithCapacity[uint64](chunkCount + 1)
+	let mut seen = Map[string, bool]{}
+	for i in 0..chunkCount {
+		let base = 12 + i*12
+		let idBytes = raw[base : base+4]
+		if idBytes[0] == byte(0) && idBytes[1] == byte(0) && idBytes[2] == byte(0) && idBytes[3] == byte(0) {
+			return BadChunkTable{Reason: "unexpected zero chunk ID before terminator"}
+		}
+		let id = idBytes.Text()
+		if seen.Get(id) != None {
+			return BadChunkTable{Reason: "duplicate chunk ID " + id}
+		}
+		seen[id] = true
+		let off = readU64BE(raw, base+4)
+		if off < uint64(tableEnd) || off > uint64(bodyEnd) {
+			return BadChunkTable{Reason: "chunk offset out of bounds for " + id}
+		}
+		if i > 0 && off < offs[i-1] {
+			return BadChunkTable{Reason: "chunk offsets are not ascending"}
+		}
+		ids = ids.Append(id)
+		offs = offs.Append(off)
+	}
+	let termBase = 12 + chunkCount*12
+	if raw[termBase] != byte(0) || raw[termBase+1] != byte(0) || raw[termBase+2] != byte(0) || raw[termBase+3] != byte(0) {
+		return BadChunkTable{Reason: "missing terminating zero chunk entry"}
+	}
+	let endOff = readU64BE(raw, termBase+4)
+	if endOff < offs[chunkCount-1] || endOff > uint64(bodyEnd) {
+		return BadChunkTable{Reason: "terminating chunk offset out of bounds"}
+	}
+	offs = offs.Append(endOff)
+
+	let mut spans = slices.WithCapacity[chunkSpan](chunkCount)
+	for i in 0..chunkCount {
+		spans = spans.Append(chunkSpan{
+			id:    ids[i],
+			start: int(offs[i]),
+			end:   int(offs[i+1]),
+		})
+	}
+	spans
+}
+
+func findChunk(spans []chunkSpan, id string) Option[chunkSpan] {
+	for s in spans {
+		if s.id == id {
+			return Some[chunkSpan]{Value: s}
+		}
+	}
+	None
+}
+
+func parsePNAM(data []byte, expectedCount int) []string fails CorruptPNAM {
+	let mut names = slices.WithCapacity[string](expectedCount)
+	let mut pos = 0
+	for len(names) < expectedCount && pos < len(data) {
+		let mut nul = pos
+		for nul < len(data) && data[nul] != byte(0) {
+			nul = nul + 1
+		}
+		if nul >= len(data) {
+			return CorruptPNAM{Reason: "unterminated pack name in PNAM"}
+		}
+		if nul == pos {
+			return CorruptPNAM{Reason: "empty pack name in PNAM"}
+		}
+		names = names.Append(data[pos:nul].Text())
+		pos = nul + 1
+	}
+	if len(names) != expectedCount {
+		return CorruptPNAM{Reason: "PNAM pack count does not match header"}
+	}
+	let padLen = len(data) - pos
+	if padLen >= 4 {
+		return CorruptPNAM{Reason: "excessive trailing padding in PNAM"}
+	}
+	for i in pos..len(data) {
+		if data[i] != byte(0) {
+			return CorruptPNAM{Reason: "non-NUL trailing padding in PNAM"}
+		}
+	}
+	for i in 1..len(names) {
+		if names[i-1] >= names[i] {
+			return CorruptPNAM{Reason: "PNAM pack names are not strictly sorted"}
+		}
+	}
+	names
+}
+
+func parseOIDF(data []byte) []uint32 fails CorruptFanout {
+	if len(data) != 1024 {
+		return CorruptFanout{Bucket: 0, Prev: uint32(1024), Cur: uint32(len(data))}
+	}
+	let mut fanout = slices.WithCapacity[uint32](256)
+	let mut prev = uint32(0)
+	for i in 0..256 {
+		let cur = readU32BE(data, i*4)
+		if i > 0 && cur < prev {
+			return CorruptFanout{Bucket: i, Prev: prev, Cur: cur}
+		}
+		fanout = fanout.Append(cur)
+		prev = cur
+	}
+	fanout
+}
+
+func parseLOFF(data []byte) []uint64 fails BadChunkTable {
+	if len(data)%8 != 0 {
+		return BadChunkTable{Reason: "LOFF chunk length is not a multiple of 8"}
+	}
+	let count = len(data) / 8
+	let mut out = slices.WithCapacity[uint64](count)
+	for i in 0..count {
+		out = out.Append(readU64BE(data, i*8))
+	}
+	out
+}
+
+func resolveEntryOffset(entryIdx int, rawOff uint32, loff []uint64) uint64 fails BadLargeOffset {
+	if (rawOff & uint32(0x80000000)) != uint32(0) {
+		let loffIdx = rawOff & uint32(0x7fffffff)
+		if int(loffIdx) >= len(loff) {
+			return BadLargeOffset{Entry: entryIdx, TableIndex: loffIdx, TableLen: len(loff)}
+		}
+		return loff[int(loffIdx)]
+	}
+	uint64(rawOff)
+}
+
+// Parse decodes and verifies a binary Git Multi-Pack Index v1 file for the
+// expected oid.Format, checking header magic/version/hash version, trailing
+// digest checksum, chunk table bounds, PNAM/OIDF/OIDL/OOFF/LOFF structure,
+// strict OID ordering, and pack/LOFF bounds.
+func Parse(format oid.Format, raw []byte) MIDX fails Truncated | BadMagic | UnsupportedVersion | WrongFormat | BadChunkTable | MissingChunk | CorruptPNAM | CorruptFanout | UnsortedOIDs | BadPackID | BadLargeOffset | ChecksumMismatch {
+	let hashLen = oid.ByteLen(format)
+	let minLen = 12 + hashLen
+	if len(raw) < minLen {
+		return Truncated{Expected: minLen, Got: len(raw)}
+	}
+	if raw[0] != byte(0x4d) || raw[1] != byte(0x49) || raw[2] != byte(0x44) || raw[3] != byte(0x58) {
+		return BadMagic{Reason: "missing MIDX magic"}
+	}
+	let version = int(raw[4])
+	if version != 1 {
+		return UnsupportedVersion{Version: version}
+	}
+	let hashVer = int(raw[5])
+	if hashVer != expectedHashVersion(format) {
+		return WrongFormat{Expected: format, GotHashVersion: hashVer}
+	}
+	let chunkCount = int(raw[6])
+	let baseCount = int(raw[7])
+	let numPacks = int(readU32BE(raw, 8))
+
+	let checksum = try verifyChecksum(format, raw)
+	let bodyEnd = len(raw) - hashLen
+	let spans = try parseChunkTable(raw, chunkCount, bodyEnd)
+
+	let pnamSpan = match findChunk(spans, "PNAM") {
+	case None:
+		return MissingChunk{ChunkID: "PNAM"}
+	case Some[chunkSpan] as s:
+		s.Value
+	}
+	let oidfSpan = match findChunk(spans, "OIDF") {
+	case None:
+		return MissingChunk{ChunkID: "OIDF"}
+	case Some[chunkSpan] as s:
+		s.Value
+	}
+	let oidlSpan = match findChunk(spans, "OIDL") {
+	case None:
+		return MissingChunk{ChunkID: "OIDL"}
+	case Some[chunkSpan] as s:
+		s.Value
+	}
+	let ooffSpan = match findChunk(spans, "OOFF") {
+	case None:
+		return MissingChunk{ChunkID: "OOFF"}
+	case Some[chunkSpan] as s:
+		s.Value
+	}
+
+	let packNames = try parsePNAM(raw[pnamSpan.start:pnamSpan.end], numPacks)
+	let fanout = try parseOIDF(raw[oidfSpan.start:oidfSpan.end])
+	let n = int(fanout[255])
+
+	let wantOidl = n * hashLen
+	let gotOidl = oidlSpan.end - oidlSpan.start
+	if gotOidl != wantOidl {
+		return BadChunkTable{Reason: "OIDL chunk length does not match OIDF count"}
+	}
+	let wantOoff = n * 8
+	let gotOoff = ooffSpan.end - ooffSpan.start
+	if gotOoff != wantOoff {
+		return BadChunkTable{Reason: "OOFF chunk length does not match OIDF count"}
+	}
+
+	let loff = match findChunk(spans, "LOFF") {
+	case None:
+		[]uint64{}
+	case Some[chunkSpan] as s:
+		try parseLOFF(raw[s.Value.start:s.Value.end])
+	}
+
+	let mut entries = slices.WithCapacity[Location](n)
+	for i in 0..n {
+		let oidStart = oidlSpan.start + i*hashLen
+		let id = oid.FromBytes(format, raw[oidStart:oidStart+hashLen]) catch {
+		case oid.WrongLength:
+			oid.Zero(format)
+		}
+		if i > 0 && oid.Compare(entries[i-1].OID, id) >= 0 {
+			return UnsortedOIDs{Index: i}
+		}
+		let b = int(id.Raw[0])
+		let bucketLo = if b == 0 { 0 } else { int(fanout[b-1]) }
+		let bucketHi = int(fanout[b])
+		if i < bucketLo || i >= bucketHi {
+			return CorruptFanout{Bucket: b, Prev: uint32(bucketLo), Cur: uint32(bucketHi)}
+		}
+		let offPos = ooffSpan.start + i*8
+		let packID = readU32BE(raw, offPos)
+		let rawOff = readU32BE(raw, offPos+4)
+		let mut packName = ""
+		if baseCount == 0 {
+			if int(packID) >= len(packNames) {
+				return BadPackID{Entry: i, PackID: packID, PackCount: len(packNames)}
+			}
+			packName = packNames[int(packID)]
+		}
+		let offset = try resolveEntryOffset(i, rawOff, loff)
+		entries = entries.Append(Location{
+			OID:      id,
+			PackName: packName,
+			PackID:   packID,
+			Offset:   offset,
+		})
+	}
+
+	let mut chunkIDs = slices.WithCapacity[string](len(spans))
+	for s in spans {
+		chunkIDs = chunkIDs.Append(s.id)
+	}
+
+	MIDX{
+		format:    format,
+		version:   version,
+		baseCount: baseCount,
+		packNames: packNames,
+		fanout:    fanout,
+		entries:   entries,
+		checksum:  checksum,
+		chunkIDs:  chunkIDs,
+	}
+}
+
+// PackFileName converts a PNAM pack index filename ("pack-<hex>.idx") into its
+// sibling packfile filename ("pack-<hex>.pack").
+func PackFileName(idxName string) string {
+	strings.TrimSuffix(idxName, ".idx") + ".pack"
+}
+
+// Version returns the decoded MIDX format version (1).
+func Version(m MIDX) int {
+	m.version
+}
+
+// BaseCount returns the base MIDX layer count encoded in m's header.
+func BaseCount(m MIDX) int {
+	m.baseCount
+}
+
+// Checksum returns the verified trailing digest of m.
+func Checksum(m MIDX) oid.OID {
+	m.checksum
+}
+
+// ChunkIDs returns the 4-byte chunk identifiers present in m in table order.
+func ChunkIDs(m MIDX) []string {
+	let mut out = slices.WithCapacity[string](len(m.chunkIDs))
+	for id in m.chunkIDs {
+		out = out.Append(id)
+	}
+	out
+}
+
+// Count implements MIDXReader.Count on MIDX.
+func Count(m MIDX) int {
+	len(m.entries)
+}
+
+// At implements MIDXReader.At on MIDX.
+func At(m MIDX, i int) Option[Location] {
+	if i < 0 || i >= len(m.entries) {
+		return None
+	}
+	Some[Location]{Value: m.entries[i]}
+}
+
+// PackNames implements MIDXReader.PackNames on MIDX.
+func PackNames(m MIDX) []string {
+	let mut out = slices.WithCapacity[string](len(m.packNames))
+	for p in m.packNames {
+		out = out.Append(p)
+	}
+	out
+}
+
+func fanoutBounds(fanout []uint32, firstByte int) (int, int) {
+	let lo = if firstByte == 0 { 0 } else { int(fanout[firstByte-1]) }
+	let hi = int(fanout[firstByte])
+	(lo, hi)
+}
+
+// Lookup implements MIDXReader.Lookup on MIDX using O(log N) fan-out bounded
+// binary search.
+func Lookup(m MIDX, id oid.OID) Option[Location] {
+	if !sameFormat(m.format, id.Format) || len(id.Raw) != oid.ByteLen(m.format) || len(m.fanout) != 256 {
+		return None
+	}
+	let (initLo, initHi) = fanoutBounds(m.fanout, int(id.Raw[0]))
+	let mut lo = initLo
+	let mut hi = initHi
+	for _ in 0..64 {
+		if lo >= hi {
+			break
+		}
+		let mid = lo + (hi-lo)/2
+		let cmp = oid.Compare(m.entries[mid].OID, id)
+		if cmp == 0 {
+			return Some[Location]{Value: m.entries[mid]}
+		}
+		if cmp < 0 {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+	None
+}

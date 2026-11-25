@@ -690,6 +690,70 @@
       ]
     },
     {
+      "name": "git-midx-trust-stale-pack-table",
+      "origin": "STD-GIT G-MIDX",
+      "file": "modules/git/midx/chain.ergo",
+      "from": "func validatePackManifest(format oid.Format, packDir string, packNames []string) fails StaleManifest | MissingPack | IOFailed needs fs.Files {\n\tfor idxName in packNames {",
+      "to": "func validatePackManifest(format oid.Format, packDir string, packNames []string) fails StaleManifest | MissingPack | IOFailed needs fs.Files {\n\tfor idxName in packNames {\n\t\tif len(packDir) >= 0 {\n\t\t\tcontinue\n\t\t}",
+      "rule": "OpenDir validates that every PNAM pack exists on disk with a matching .idx/.pack pair and never trusts a stale pack table.",
+      "anchor": {
+        "tests": [
+          "modules/git/midx:LargeOffsetAndStaleManifestDetection"
+        ]
+      },
+      "killers": [
+        "modules/git/midx:LargeOffsetAndStaleManifestDetection"
+      ]
+    },
+    {
+      "name": "git-midx-ignore-checksum",
+      "origin": "STD-GIT G-MIDX",
+      "file": "modules/git/midx/codec.ergo",
+      "from": "\tif !slices.Equal(got, want) {",
+      "to": "\tif false && !slices.Equal(got, want) {",
+      "rule": "MIDX parsing verifies the trailing digest checksum over all preceding bytes and rejects mismatches with ChecksumMismatch.",
+      "anchor": {
+        "tests": [
+          "modules/git/midx:CorruptionMatrix"
+        ]
+      },
+      "killers": [
+        "modules/git/midx:CorruptionMatrix"
+      ]
+    },
+    {
+      "name": "git-midx-swap-loff-index",
+      "origin": "STD-GIT G-MIDX",
+      "file": "modules/git/midx/codec.ergo",
+      "from": "\t\treturn loff[int(loffIdx)]",
+      "to": "\t\treturn uint64(loffIdx)",
+      "rule": "MIDX 64-bit offsets with MSB set index into the LOFF chunk rather than returning the 31-bit index directly.",
+      "anchor": {
+        "tests": [
+          "modules/git/midx:LargeOffsetAndStaleManifestDetection"
+        ]
+      },
+      "killers": [
+        "modules/git/midx:LargeOffsetAndStaleManifestDetection"
+      ]
+    },
+    {
+      "name": "git-midx-wrong-fanout-bound",
+      "origin": "STD-GIT G-MIDX",
+      "file": "modules/git/midx/codec.ergo",
+      "from": "\tlet lo = if firstByte == 0 { 0 } else { int(fanout[firstByte-1]) }",
+      "to": "\tlet lo = if firstByte == 0 { 0 } else { int(fanout[firstByte]) }",
+      "rule": "MIDX fan-out binary search uses fanout[firstByte-1] as the inclusive lower bound for non-zero first bytes.",
+      "anchor": {
+        "tests": [
+          "modules/git/midx:SingleMIDXMatchesGitAndODB"
+        ]
+      },
+      "killers": [
+        "modules/git/midx:SingleMIDXMatchesGitAndODB"
+      ]
+    },
+    {
       "name": "git-graph-bloom-false-negative",
       "origin": "STD-GIT G-GRAPH",
       "file": "modules/git/graph/bloom.ergo",

@@ -1,0 +1,256 @@
+import filepath
+import fs
+import slices
+import strings
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/pack
+import github.com/cevr/ergo/modules/git/packidx
+
+// BuildChain assembles an ordered base-to-tip sequence of parsed MIDX layers
+// into a Chain, validating base-layer counts, accumulating pack names in exact
+// chain order, and resolving every entry's global PackID and PackName.
+func BuildChain(format oid.Format, packDir string, rawLayers []MIDX) Chain fails BadChain | BadPackID | StaleManifest {
+	if len(rawLayers) == 0 {
+		return BadChain{Reason: "MIDX chain contains no layers"}
+	}
+	let mut allPacks = []string{}
+	let mut seenPacks = Map[string, bool]{}
+	let mut resolvedLayers = slices.WithCapacity[MIDX](len(rawLayers))
+
+	for layerIdx in 0..len(rawLayers) {
+		let layer = rawLayers[layerIdx]
+		if !sameFormat(format, layer.format) {
+			return BadChain{Reason: "MIDX layer format does not match chain format"}
+		}
+		if layer.baseCount != 0 && layer.baseCount != layerIdx {
+			return BadChain{Reason: "MIDX layer base count does not match chain depth"}
+		}
+		let basePackOffset = len(allPacks)
+		for p in layer.packNames {
+			if seenPacks.Get(p) != None {
+				return StaleManifest{PackDir: packDir, Reason: "duplicate pack listed across MIDX chain: " + p}
+			}
+			seenPacks[p] = true
+			allPacks = allPacks.Append(p)
+		}
+		let totalPacks = len(allPacks)
+		let mut resolvedEntries = slices.WithCapacity[Location](len(layer.entries))
+		for entryIdx in 0..len(layer.entries) {
+			let e = layer.entries[entryIdx]
+			if layer.baseCount == 0 {
+				if int(e.PackID) >= len(layer.packNames) {
+					return BadPackID{Entry: entryIdx, PackID: e.PackID, PackCount: len(layer.packNames)}
+				}
+				let globalID = uint32(basePackOffset) + e.PackID
+				resolvedEntries = resolvedEntries.Append(Location{
+					OID:      e.OID,
+					PackName: layer.packNames[int(e.PackID)],
+					PackID:   globalID,
+					Offset:   e.Offset,
+				})
+			} else {
+				if int(e.PackID) >= totalPacks {
+					return BadPackID{Entry: entryIdx, PackID: e.PackID, PackCount: totalPacks}
+				}
+				resolvedEntries = resolvedEntries.Append(Location{
+					OID:      e.OID,
+					PackName: allPacks[int(e.PackID)],
+					PackID:   e.PackID,
+					Offset:   e.Offset,
+				})
+			}
+		}
+		resolvedLayers = resolvedLayers.Append(MIDX{
+			format:    layer.format,
+			version:   layer.version,
+			baseCount: layer.baseCount,
+			packNames: layer.packNames,
+			fanout:    layer.fanout,
+			entries:   resolvedEntries,
+			checksum:  layer.checksum,
+			chunkIDs:  layer.chunkIDs,
+		})
+	}
+
+	Chain{
+		format:    format,
+		packDir:   filepath.Clean(packDir),
+		layers:    resolvedLayers,
+		packNames: allPacks,
+	}
+}
+
+func validatePackManifest(format oid.Format, packDir string, packNames []string) fails StaleManifest | MissingPack | IOFailed needs fs.Files {
+	for idxName in packNames {
+		if idxName == "" || strings.Contains(idxName, "/") || strings.Contains(idxName, "\\") || !strings.HasSuffix(idxName, ".idx") {
+			return StaleManifest{PackDir: packDir, Reason: "invalid PNAM pack index entry: " + idxName}
+		}
+		let idxPath = filepath.Join([]string{packDir, idxName})
+		let idxRaw = fs.Files.ReadFile(idxPath) catch {
+		case fs.NotFound:
+			return MissingPack{PackDir: packDir, PackName: idxName}
+		case fs.Denied as e:
+			return IOFailed{Op: "read-midx-idx", Detail: e.Path}
+		case fs.Failed as e:
+			return IOFailed{Op: "read-midx-idx", Detail: e.Reason}
+		}
+		let idx = packidx.Parse(format, idxRaw.Bytes()) catch {
+		case packidx.Truncated, packidx.BadMagic, packidx.UnsupportedVersion, packidx.CorruptFanout, packidx.UnsortedOIDs, packidx.BadLargeOffset, packidx.ChecksumMismatch, packidx.WrongFormat:
+			return StaleManifest{PackDir: packDir, Reason: "corrupt pack index referenced by MIDX: " + idxName}
+		}
+		let packName = PackFileName(idxName)
+		let packPath = filepath.Join([]string{packDir, packName})
+		let packRaw = fs.Files.ReadFile(packPath) catch {
+		case fs.NotFound:
+			return MissingPack{PackDir: packDir, PackName: packName}
+		case fs.Denied as e:
+			return IOFailed{Op: "read-midx-pack", Detail: e.Path}
+		case fs.Failed as e:
+			return IOFailed{Op: "read-midx-pack", Detail: e.Reason}
+		}
+		let _ = pack.ValidatePackPair(format, idxPath, idx, packPath, packRaw.Bytes()) catch {
+		case pack.Corrupt as e:
+			return StaleManifest{PackDir: packDir, Reason: e.Why}
+		case pack.MismatchedPair:
+			return StaleManifest{PackDir: packDir, Reason: "mismatched pack/idx pair referenced by MIDX: " + idxName}
+		}
+	}
+}
+
+func openChainDir(format oid.Format, packDir string, chainDir string) Option[Chain] fails Truncated | BadMagic | UnsupportedVersion | WrongFormat | BadChunkTable | MissingChunk | CorruptPNAM | CorruptFanout | UnsortedOIDs | BadPackID | BadLargeOffset | ChecksumMismatch | StaleManifest | MissingPack | BadChain | IOFailed needs fs.Files {
+	let chainFile = filepath.Join([]string{chainDir, "multi-pack-index-chain"})
+	let chainText = fs.Files.ReadFile(chainFile) catch {
+	case fs.NotFound:
+		return None
+	case fs.Denied as e:
+		return IOFailed{Op: "read-midx-chain", Detail: e.Path}
+	case fs.Failed as e:
+		return IOFailed{Op: "read-midx-chain", Detail: e.Reason}
+	}
+	let mut hashes = []string{}
+	for rawLine in strings.Split(chainText, "\n") {
+		let trimmed = strings.TrimSpace(rawLine)
+		if trimmed != "" {
+			hashes = hashes.Append(trimmed)
+		}
+	}
+	if len(hashes) == 0 {
+		return BadChain{Reason: "multi-pack-index-chain file is empty"}
+	}
+	let mut layers = slices.WithCapacity[MIDX](len(hashes))
+	for hexHash in hashes {
+		let wantSum = oid.ParseHex(format, hexHash) catch {
+		case oid.BadHex, oid.WrongLength:
+			return BadChain{Reason: "invalid checksum line in multi-pack-index-chain: " + hexHash}
+		}
+		let layerPath = filepath.Join([]string{chainDir, "multi-pack-index-" + hexHash + ".midx"})
+		let layerRaw = fs.Files.ReadFile(layerPath) catch {
+		case fs.NotFound:
+			return BadChain{Reason: "missing chained MIDX layer: " + layerPath}
+		case fs.Denied as e:
+			return IOFailed{Op: "read-midx-layer", Detail: e.Path}
+		case fs.Failed as e:
+			return IOFailed{Op: "read-midx-layer", Detail: e.Reason}
+		}
+		let layer = try Parse(format, layerRaw.Bytes())
+		if !oid.Equal(layer.checksum, wantSum) {
+			return ChecksumMismatch{
+				Expected: oid.Hex(wantSum),
+				Got:      oid.Hex(layer.checksum),
+			}
+		}
+		layers = layers.Append(layer)
+	}
+	let chain = try BuildChain(format, packDir, layers)
+	try validatePackManifest(format, packDir, chain.packNames)
+	Some[Chain]{Value: chain}
+}
+
+// OpenDir opens and validates either a standalone multi-pack-index or a chained
+// incremental multi-pack-index-chain inside packDir (checking multi-pack-index,
+// multi-pack-index.d/multi-pack-index-chain, and multi-pack-indexes/multi-pack-index-chain),
+// verifying that every pack listed in PNAM exists and has a valid matching .idx/.pack pair.
+func OpenDir(format oid.Format, packDir string) Chain fails Truncated | BadMagic | UnsupportedVersion | WrongFormat | BadChunkTable | MissingChunk | CorruptPNAM | CorruptFanout | UnsortedOIDs | BadPackID | BadLargeOffset | ChecksumMismatch | StaleManifest | MissingPack | BadChain | IOFailed needs fs.Files {
+	let cleanDir = filepath.Clean(packDir)
+	let singlePath = filepath.Join([]string{cleanDir, "multi-pack-index"})
+	let singleRaw = fs.Files.ReadFile(singlePath) catch {
+	case fs.NotFound:
+		let dirD = filepath.Join([]string{cleanDir, "multi-pack-index.d"})
+		match try openChainDir(format, cleanDir, dirD) {
+		case Some[Chain] as c:
+			return c.Value
+		case None:
+		}
+		let dirAlt = filepath.Join([]string{cleanDir, "multi-pack-indexes"})
+		match try openChainDir(format, cleanDir, dirAlt) {
+		case Some[Chain] as c:
+			return c.Value
+		case None:
+			return IOFailed{Op: "open-midx", Detail: singlePath}
+		}
+	case fs.Denied as e:
+		return IOFailed{Op: "read-midx", Detail: e.Path}
+	case fs.Failed as e:
+		return IOFailed{Op: "read-midx", Detail: e.Reason}
+	}
+	let layer = try Parse(format, singleRaw.Bytes())
+	let chain = try BuildChain(format, cleanDir, []MIDX{layer})
+	try validatePackManifest(format, cleanDir, chain.packNames)
+	chain
+}
+
+// ChainLayers returns the verified MIDX layers in c ordered from base to tip.
+func ChainLayers(c Chain) []MIDX {
+	let mut out = slices.WithCapacity[MIDX](len(c.layers))
+	for l in c.layers {
+		out = out.Append(l)
+	}
+	out
+}
+
+// ChainPackNames returns the accumulated pack index names across c in exact
+// chain order.
+func ChainPackNames(c Chain) []string {
+	let mut out = slices.WithCapacity[string](len(c.packNames))
+	for p in c.packNames {
+		out = out.Append(p)
+	}
+	out
+}
+
+// ChainCount returns the total number of object entries across all layers in c.
+func ChainCount(c Chain) int {
+	let mut total = 0
+	for l in c.layers {
+		total = total + len(l.entries)
+	}
+	total
+}
+
+// LookupChain searches c from newest layer (tip) to oldest layer (base) so
+// newer incremental layers take precedence on duplicate objects.
+func LookupChain(c Chain, id oid.OID) Option[Location] {
+	let n = len(c.layers)
+	for step in 0..n {
+		let idx = n - 1 - step
+		match c.layers[idx].Lookup(id) {
+		case Some[Location] as loc:
+			return Some[Location]{Value: loc.Value}
+		case None:
+		}
+	}
+	None
+}
+
+// ReadViaMIDX resolves id through c and reads the object directly from the
+// exact (PackName, Offset) pair in odb, agreeing with per-pack pack.ReadObject.
+func ReadViaMIDX(odb pack.ODB, c Chain, id oid.OID, maxBytes int) pack.Object fails pack.Missing | pack.Corrupt | pack.MismatchedPair | pack.Collision | pack.LimitExceeded | pack.DepthExceeded | pack.IOFailed needs fs.Files {
+	let loc = match LookupChain(c, id) {
+	case None:
+		return pack.Missing{OID: id}
+	case Some[Location] as l:
+		l.Value
+	}
+	let packPath = filepath.Join([]string{c.packDir, PackFileName(loc.PackName)})
+	try pack.ReadPackOffset(odb, packPath, loc.Offset, id, maxBytes)
+}

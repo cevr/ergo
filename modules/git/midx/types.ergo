@@ -1,0 +1,150 @@
+// Package midx implements pure-Ergo Git Multi-Pack Index (MIDX v1) decoding,
+// integrity verification, chained incremental MIDX resolution, stale manifest
+// validation, O(log N) fan-out lookup, and unified pack reading (STD-GIT: G-MIDX).
+
+import github.com/cevr/ergo/modules/git/oid
+
+// Error is the closed failure union for MIDX parsing, chain assembly, pack
+// manifest validation, and file I/O.
+type Error =
+	| Truncated{Expected int, Got int}
+	| BadMagic{Reason string}
+	| UnsupportedVersion{Version int}
+	| WrongFormat{Expected oid.Format, GotHashVersion int}
+	| BadChunkTable{Reason string}
+	| MissingChunk{ChunkID string}
+	| CorruptPNAM{Reason string}
+	| CorruptFanout{Bucket int, Prev uint32, Cur uint32}
+	| UnsortedOIDs{Index int}
+	| BadPackID{Entry int, PackID uint32, PackCount int}
+	| BadLargeOffset{Entry int, TableIndex uint32, TableLen int}
+	| ChecksumMismatch{Expected string, Got string}
+	| StaleManifest{PackDir string, Reason string}
+	| MissingPack{PackDir string, PackName string}
+	| BadChain{Reason string}
+	| IOFailed{Op string, Detail string}
+
+// Location is a resolved object entry inside a Git multi-pack index,
+// identifying the owning pack index filename (from PNAM), pack ID, and 64-bit
+// byte offset inside that packfile.
+type Location {
+	OID      oid.OID,
+	PackName string,
+	PackID   uint32,
+	Offset   uint64,
+}
+
+// MIDX is a verified, immutable Git Multi-Pack Index v1 layer supporting
+// O(log N) fan-out binary-search lookup.
+type MIDX {
+	format    oid.Format,
+	version   int,
+	baseCount int,
+	packNames []string,
+	fanout    []uint32,
+	entries   []Location,
+	checksum  oid.OID,
+	chunkIDs  []string,
+} implements MIDXReader
+
+// Chain is a verified stack of one or more MIDX layers (either a single
+// standalone multi-pack-index or an ordered incremental multi-pack-index-chain)
+// whose referenced packs have all been validated on disk.
+type Chain {
+	format    oid.Format,
+	packDir   string,
+	layers    []MIDX,
+	packNames []string,
+}
+
+// MIDXReader is the capability seam for multi-pack index queries, carrying
+// laws held identically by both parsed MIDX and in-memory MemoryMIDX providers.
+type MIDXReader {
+	Count() int,
+	At(i int) Option[Location],
+	PackNames() []string,
+	Lookup(id oid.OID) Option[Location],
+
+	// LookupFindsAllIndexedObjects: every indexed entry at 0..Count() is found
+	// by Lookup with identical OID, PackName, PackID, and Offset.
+	law LookupFindsAllIndexedObjects() {
+		let n = Count()
+		for i in 0..n {
+			match At(i) {
+			case None:
+				return false
+			case Some[Location] as e:
+				match Lookup(e.Value.OID) {
+				case None:
+					return false
+				case Some[Location] as got:
+					if !oid.Equal(got.Value.OID, e.Value.OID) || got.Value.PackName != e.Value.PackName || got.Value.PackID != e.Value.PackID || got.Value.Offset != e.Value.Offset {
+						return false
+					}
+				}
+			}
+		}
+		true
+	},
+
+	// LookupMissingReturnsNone: an absent OID returns None from Lookup.
+	law LookupMissingReturnsNone() {
+		let n = Count()
+		if n == 0 {
+			return Lookup(oid.Zero(oid.Sha1)) == None && Lookup(oid.Zero(oid.Sha256)) == None
+		}
+		match At(0) {
+		case None:
+			false
+		case Some[Location] as first:
+			let probe = oid.Zero(first.Value.OID.Format)
+			let mut exists = false
+			for i in 0..n {
+				match At(i) {
+				case Some[Location] as e:
+					if oid.Equal(e.Value.OID, probe) {
+						exists = true
+					}
+				case None:
+				}
+			}
+			if exists {
+				true
+			} else {
+				Lookup(probe) == None
+			}
+		}
+	},
+
+	// PackNamesBoundPackIDs: every entry has PackID within PackNames(), a
+	// matching PackName, and strict ascending OID order.
+	law PackNamesBoundPackIDs() {
+		let packs = PackNames()
+		let n = Count()
+		for i in 0..n {
+			match At(i) {
+			case None:
+				return false
+			case Some[Location] as e:
+				let pid = int(e.Value.PackID)
+				if pid < 0 || pid >= len(packs) {
+					return false
+				}
+				if packs[pid] != e.Value.PackName {
+					return false
+				}
+				if i > 0 {
+					match At(i - 1) {
+					case None:
+						return false
+					case Some[Location] as prev:
+						if oid.Compare(prev.Value.OID, e.Value.OID) >= 0 {
+							return false
+						}
+					}
+				}
+			}
+		}
+		true
+	},
+}
