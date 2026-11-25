@@ -1,0 +1,113 @@
+import fs
+import github.com/cevr/ergo/modules/git/delta
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/pack
+import github.com/cevr/ergo/modules/git/tree
+
+// MemoryDiffer implements TreeDiffer over an in-memory pack.MemoryODB.
+type MemoryDiffer {
+	format oid.Format,
+	store  pack.MemoryODB,
+} implements TreeDiffer
+
+// NewMemoryDiffer creates a MemoryDiffer backed by a fresh MemoryODB for format.
+func NewMemoryDiffer(format oid.Format) MemoryDiffer {
+	MemoryDiffer{format: format, store: pack.NewMemoryODB(format)}
+}
+
+// StoreBlob implements TreeDiffer.StoreBlob on MemoryDiffer.
+func StoreBlob(d MemoryDiffer, data []byte) oid.OID fails StoreError {
+	d.store.Install(oid.Blob, data) catch {
+	case pack.Collision as e:
+		return StoreError{Detail: e.Digest}
+	case pack.IOFailed as e:
+		return StoreError{Detail: e.Detail}
+	}
+}
+
+// StoreTree implements TreeDiffer.StoreTree on MemoryDiffer.
+func StoreTree(d MemoryDiffer, entries []tree.Entry) oid.OID fails TreeError | StoreError {
+	let raw = tree.EncodeTree(d.format, entries) catch {
+	case tree.InvalidEntryName as e:
+		return TreeError{Detail: e.Reason}
+	case tree.DuplicateEntry as e:
+		return TreeError{Detail: e.Name}
+	}
+	d.store.Install(oid.Tree, raw) catch {
+	case pack.Collision as e:
+		return StoreError{Detail: e.Digest}
+	case pack.IOFailed as e:
+		return StoreError{Detail: e.Detail}
+	}
+}
+
+// Diff implements TreeDiffer.Diff on MemoryDiffer.
+func Diff(d MemoryDiffer, oldTree oid.OID, newTree oid.OID, opts DiffOptions) []Change fails TreeError | MissingObject | StoreError | DepthExceeded {
+	with context { pack.ObjectStore: d.store } {
+		try DiffTrees(d.format, oldTree, newTree, opts)
+	}
+}
+
+// StoreDiffer implements TreeDiffer over an on-disk Git objects directory via
+// pack.DiskODB and fs.Host.
+type StoreDiffer {
+	format     oid.Format,
+	objectsDir string,
+	alternates []string,
+	host       fs.Host,
+} implements TreeDiffer
+
+// NewStoreDiffer creates a StoreDiffer backed by objectsDir, alternates, and host.
+func NewStoreDiffer(format oid.Format, objectsDir string, alternates []string, host fs.Host) StoreDiffer {
+	StoreDiffer{format: format, objectsDir: objectsDir, alternates: alternates, host: host}
+}
+
+func openDifferODB(d StoreDiffer) pack.DiskODB fails StoreError {
+	let odb = with context { fs.Files: d.host } {
+		pack.Open(d.format, d.objectsDir, d.alternates, delta.DefaultLimits()) catch {
+		case pack.Corrupt as e:
+			return StoreError{Detail: e.Why}
+		case pack.MismatchedPair as e:
+			return StoreError{Detail: "mismatched pack pair: " + e.PackPath}
+		case pack.IOFailed as e:
+			return StoreError{Detail: e.Op + ": " + e.Detail}
+		}
+	}
+	pack.NewDiskODB(odb, d.host)
+}
+
+// StoreBlob implements TreeDiffer.StoreBlob on StoreDiffer.
+func StoreBlob(d StoreDiffer, data []byte) oid.OID fails StoreError {
+	let disk = try openDifferODB(d)
+	disk.Install(oid.Blob, data) catch {
+	case pack.Collision as e:
+		return StoreError{Detail: e.Digest}
+	case pack.IOFailed as e:
+		return StoreError{Detail: e.Detail}
+	}
+}
+
+// StoreTree implements TreeDiffer.StoreTree on StoreDiffer.
+func StoreTree(d StoreDiffer, entries []tree.Entry) oid.OID fails TreeError | StoreError {
+	let disk = try openDifferODB(d)
+	let raw = tree.EncodeTree(d.format, entries) catch {
+	case tree.InvalidEntryName as e:
+		return TreeError{Detail: e.Reason}
+	case tree.DuplicateEntry as e:
+		return TreeError{Detail: e.Name}
+	}
+	disk.Install(oid.Tree, raw) catch {
+	case pack.Collision as e:
+		return StoreError{Detail: e.Digest}
+	case pack.IOFailed as e:
+		return StoreError{Detail: e.Detail}
+	}
+}
+
+// Diff implements TreeDiffer.Diff on StoreDiffer.
+func Diff(d StoreDiffer, oldTree oid.OID, newTree oid.OID, opts DiffOptions) []Change fails TreeError | MissingObject | StoreError | DepthExceeded {
+	let disk = try openDifferODB(d)
+	with context { pack.ObjectStore: disk } {
+		try DiffTrees(d.format, oldTree, newTree, opts)
+	}
+}

@@ -1,0 +1,693 @@
+import slices
+import github.com/cevr/ergo/modules/git/index
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/pack
+import github.com/cevr/ergo/modules/git/tree
+
+func readStoreBytes(id oid.OID, maxBytes int) []byte fails MissingObject | StoreError needs pack.ObjectStore {
+	let obj = pack.ObjectStore.Read(id, maxBytes) catch {
+	case pack.Missing as e:
+		return MissingObject{OID: e.OID}
+	case pack.Corrupt as e:
+		return StoreError{Detail: e.Why}
+	case pack.MismatchedPair as e:
+		return StoreError{Detail: "mismatched pack pair: " + e.PackPath}
+	case pack.Collision as e:
+		return StoreError{Detail: "sha1 collision: " + e.Digest}
+	case pack.LimitExceeded:
+		return StoreError{Detail: "object exceeds byte limit"}
+	case pack.DepthExceeded:
+		return StoreError{Detail: "delta chain depth exceeded"}
+	case pack.IOFailed as e:
+		return StoreError{Detail: e.Op + ": " + e.Detail}
+	}
+	obj.Data
+}
+
+func readTreeEntries(format oid.Format, treeOid oid.OID, maxBytes int) []tree.Entry fails TreeError | MissingObject | StoreError needs pack.ObjectStore {
+	let obj = pack.ObjectStore.Read(treeOid, maxBytes) catch {
+	case pack.Missing as e:
+		return MissingObject{OID: e.OID}
+	case pack.Corrupt as e:
+		return StoreError{Detail: e.Why}
+	case pack.MismatchedPair as e:
+		return StoreError{Detail: "mismatched pack pair: " + e.PackPath}
+	case pack.Collision as e:
+		return StoreError{Detail: "sha1 collision: " + e.Digest}
+	case pack.LimitExceeded:
+		return StoreError{Detail: "object exceeds byte limit"}
+	case pack.DepthExceeded:
+		return StoreError{Detail: "delta chain depth exceeded"}
+	case pack.IOFailed as e:
+		return StoreError{Detail: e.Op + ": " + e.Detail}
+	}
+	match obj.Kind {
+	case oid.Tree:
+		tree.ParseTree(format, obj.Data) catch {
+		case tree.CorruptTree as e:
+			return TreeError{Detail: e.Reason}
+		case tree.InvalidEntryName as e:
+			return TreeError{Detail: e.Reason}
+		case tree.UnsortedTree as e:
+			return TreeError{Detail: "unsorted tree: " + e.Prev + " >= " + e.Cur}
+		case tree.DuplicateEntry as e:
+			return TreeError{Detail: "duplicate tree entry: " + e.Name}
+		}
+	case oid.Blob, oid.Commit, oid.Tag:
+		return TreeError{Detail: "expected tree object, got " + oid.KindName(obj.Kind)}
+	}
+}
+
+func emitSubtreeRec(format oid.Format, treeOid oid.OID, prefix string, isAdded bool, depth int, maxDepth int, maxBytes int, acc []Change) []Change fails TreeError | MissingObject | StoreError | DepthExceeded needs pack.ObjectStore {
+	if depth > maxDepth {
+		return DepthExceeded{MaxDepth: maxDepth}
+	}
+	let entries = try readTreeEntries(format, treeOid, maxBytes)
+	let mut out = acc
+	for e in entries {
+		let fullPath = if prefix == "" { e.Name } else { prefix + "/" + e.Name }
+		if tree.IsTree(e.Mode) {
+			out = try emitSubtreeRec(format, e.OID, fullPath, isAdded, depth+1, maxDepth, maxBytes, out)
+		} else if isAdded {
+			out = out.Append(Change{
+				Status:  Added,
+				OldPath: None,
+				NewPath: Some[string]{Value: fullPath},
+				OldMode: None,
+				NewMode: Some[tree.Mode]{Value: e.Mode},
+				OldOID:  None,
+				NewOID:  Some[oid.OID]{Value: e.OID},
+			})
+		} else {
+			out = out.Append(Change{
+				Status:  Deleted,
+				OldPath: Some[string]{Value: fullPath},
+				NewPath: None,
+				OldMode: Some[tree.Mode]{Value: e.Mode},
+				NewMode: None,
+				OldOID:  Some[oid.OID]{Value: e.OID},
+				NewOID:  None,
+			})
+		}
+	}
+	out
+}
+
+func compareLeafPair(path string, oldMode tree.Mode, oldOid oid.OID, newMode tree.Mode, newOid oid.OID) Option[Change] {
+	if !SameSubtype(oldMode, newMode) {
+		return Some[Change]{Value: Change{
+			Status:  TypeChanged,
+			OldPath: Some[string]{Value: path},
+			NewPath: Some[string]{Value: path},
+			OldMode: Some[tree.Mode]{Value: oldMode},
+			NewMode: Some[tree.Mode]{Value: newMode},
+			OldOID:  Some[oid.OID]{Value: oldOid},
+			NewOID:  Some[oid.OID]{Value: newOid},
+		}}
+	}
+	let modeChanged = tree.ModeOctal(oldMode) != tree.ModeOctal(newMode)
+	if !oid.Equal(oldOid, newOid) || modeChanged {
+		return Some[Change]{Value: Change{
+			Status:  Modified,
+			OldPath: Some[string]{Value: path},
+			NewPath: Some[string]{Value: path},
+			OldMode: Some[tree.Mode]{Value: oldMode},
+			NewMode: Some[tree.Mode]{Value: newMode},
+			OldOID:  Some[oid.OID]{Value: oldOid},
+			NewOID:  Some[oid.OID]{Value: newOid},
+		}}
+	}
+	None
+}
+
+func diffTreeRec(format oid.Format, oldTree oid.OID, newTree oid.OID, prefix string, depth int, maxDepth int, maxBytes int, acc []Change) []Change fails TreeError | MissingObject | StoreError | DepthExceeded needs pack.ObjectStore {
+	if oid.Equal(oldTree, newTree) {
+		return acc
+	}
+	if depth > maxDepth {
+		return DepthExceeded{MaxDepth: maxDepth}
+	}
+	let oldEntries = try readTreeEntries(format, oldTree, maxBytes)
+	let newEntries = try readTreeEntries(format, newTree, maxBytes)
+	let mut out = acc
+	let mut i = 0
+	let mut j = 0
+	for i < len(oldEntries) && j < len(newEntries) {
+		let a = oldEntries[i]
+		let b = newEntries[j]
+		let cmp = tree.CompareEntryNames(a.Name, tree.IsTree(a.Mode), b.Name, tree.IsTree(b.Mode))
+		if cmp < 0 {
+			let p = if prefix == "" { a.Name } else { prefix + "/" + a.Name }
+			if tree.IsTree(a.Mode) {
+				out = try emitSubtreeRec(format, a.OID, p, false, depth+1, maxDepth, maxBytes, out)
+			} else {
+				out = out.Append(Change{
+					Status:  Deleted,
+					OldPath: Some[string]{Value: p},
+					NewPath: None,
+					OldMode: Some[tree.Mode]{Value: a.Mode},
+					NewMode: None,
+					OldOID:  Some[oid.OID]{Value: a.OID},
+					NewOID:  None,
+				})
+			}
+			i = i + 1
+		} else if cmp > 0 {
+			let p = if prefix == "" { b.Name } else { prefix + "/" + b.Name }
+			if tree.IsTree(b.Mode) {
+				out = try emitSubtreeRec(format, b.OID, p, true, depth+1, maxDepth, maxBytes, out)
+			} else {
+				out = out.Append(Change{
+					Status:  Added,
+					OldPath: None,
+					NewPath: Some[string]{Value: p},
+					OldMode: None,
+					NewMode: Some[tree.Mode]{Value: b.Mode},
+					OldOID:  None,
+					NewOID:  Some[oid.OID]{Value: b.OID},
+				})
+			}
+			j = j + 1
+		} else {
+			let p = if prefix == "" { a.Name } else { prefix + "/" + a.Name }
+			if tree.IsTree(a.Mode) {
+				if !oid.Equal(a.OID, b.OID) {
+					out = try diffTreeRec(format, a.OID, b.OID, p, depth+1, maxDepth, maxBytes, out)
+				}
+			} else {
+				match compareLeafPair(p, a.Mode, a.OID, b.Mode, b.OID) {
+				case Some[Change] as ch:
+					out = out.Append(ch.Value)
+				case None:
+				}
+			}
+			i = i + 1
+			j = j + 1
+		}
+	}
+	for i < len(oldEntries) {
+		let a = oldEntries[i]
+		let p = if prefix == "" { a.Name } else { prefix + "/" + a.Name }
+		if tree.IsTree(a.Mode) {
+			out = try emitSubtreeRec(format, a.OID, p, false, depth+1, maxDepth, maxBytes, out)
+		} else {
+			out = out.Append(Change{
+				Status:  Deleted,
+				OldPath: Some[string]{Value: p},
+				NewPath: None,
+				OldMode: Some[tree.Mode]{Value: a.Mode},
+				NewMode: None,
+				OldOID:  Some[oid.OID]{Value: a.OID},
+				NewOID:  None,
+			})
+		}
+		i = i + 1
+	}
+	for j < len(newEntries) {
+		let b = newEntries[j]
+		let p = if prefix == "" { b.Name } else { prefix + "/" + b.Name }
+		if tree.IsTree(b.Mode) {
+			out = try emitSubtreeRec(format, b.OID, p, true, depth+1, maxDepth, maxBytes, out)
+		} else {
+			out = out.Append(Change{
+				Status:  Added,
+				OldPath: None,
+				NewPath: Some[string]{Value: p},
+				OldMode: None,
+				NewMode: Some[tree.Mode]{Value: b.Mode},
+				OldOID:  None,
+				NewOID:  Some[oid.OID]{Value: b.OID},
+			})
+		}
+		j = j + 1
+	}
+	out
+}
+
+func sortChanges(changes []Change) []Change {
+	slices.SortFunc(changes, func(a Change, b Change) int {
+		let pa = ChangePath(a)
+		let pb = ChangePath(b)
+		if pa < pb {
+			-1
+		} else if pa > pb {
+			1
+		} else {
+			0
+		}
+	})
+}
+
+func canPairForRename(delMode tree.Mode, addMode tree.Mode) bool {
+	SameSubtype(delMode, addMode)
+}
+
+func buildChunkWeights(data []byte) Map[string, int] {
+	let mut weights = Map[string, int]{}
+	let n = len(data)
+	let mut start = 0
+	for start < n {
+		let mut end = start
+		for end < n && end-start < 64 {
+			let b = data[end]
+			end = end + 1
+			if b == byte('\n') {
+				break
+			}
+		}
+		let chunk = data[start:end].Text()
+		let prev = match weights.Get(chunk) {
+		case Some[int] as v:
+			v.Value
+		case None:
+			0
+		}
+		weights[chunk] = prev + (end - start)
+		start = end
+	}
+	weights
+}
+
+// SimilarityScore computes a Git-style chunk similarity percentage (0..100)
+// between oldData and newData.
+func SimilarityScore(oldData []byte, newData []byte) int {
+	let oldLen = len(oldData)
+	let newLen = len(newData)
+	let maxLen = if oldLen > newLen { oldLen } else { newLen }
+	if maxLen == 0 {
+		return 100
+	}
+	if oldLen == 0 || newLen == 0 {
+		return 0
+	}
+	let oldW = buildChunkWeights(oldData)
+	let newW = buildChunkWeights(newData)
+	let mut matched = 0
+	for k, ov in oldW {
+		match newW.Get(k) {
+		case Some[int] as nv:
+			let take = if ov < nv.Value { ov } else { nv.Value }
+			matched = matched + take
+		case None:
+		}
+	}
+	let score = (matched * 100) / maxLen
+	if score < 0 { 0 } else if score > 100 { 100 } else { score }
+}
+
+type renameCandidate {
+	delIdx int,
+	addIdx int,
+	score  int,
+	oldP   string,
+	newP   string,
+}
+
+// DetectRenames pairs deleted and added entries in changes by exact OID match
+// (100%) and content similarity (>= threshold) strictly within identical Git
+// subtypes, never inferring renames across mismatched subtypes.
+func DetectRenames(changes []Change, threshold int, maxBytes int) []Change fails MissingObject | StoreError needs pack.ObjectStore {
+	let mut deletes = []Change{}
+	let mut adds = []Change{}
+	let mut others = []Change{}
+	for c in changes {
+		match c.Status {
+		case Deleted:
+			deletes = deletes.Append(c)
+		case Added:
+			adds = adds.Append(c)
+		case Modified, TypeChanged, Renamed:
+			others = others.Append(c)
+		}
+	}
+	if len(deletes) == 0 || len(adds) == 0 {
+		return sortChanges(changes)
+	}
+	let mut delUsed = slices.WithCapacity[bool](len(deletes))
+	for _ in 0..len(deletes) {
+		delUsed = delUsed.Append(false)
+	}
+	let mut addUsed = slices.WithCapacity[bool](len(adds))
+	for _ in 0..len(adds) {
+		addUsed = addUsed.Append(false)
+	}
+	let mut out = others
+
+	for di in 0..len(deletes) {
+		let d = deletes[di]
+		let dMode = match d.OldMode {
+		case Some[tree.Mode] as m:
+			m.Value
+		case None:
+			continue
+		}
+		let dOid = match d.OldOID {
+		case Some[oid.OID] as id:
+			id.Value
+		case None:
+			continue
+		}
+		for ai in 0..len(adds) {
+			if addUsed[ai] {
+				continue
+			}
+			let a = adds[ai]
+			let aMode = match a.NewMode {
+			case Some[tree.Mode] as m:
+				m.Value
+			case None:
+				continue
+			}
+			let aOid = match a.NewOID {
+			case Some[oid.OID] as id:
+				id.Value
+			case None:
+				continue
+			}
+			if canPairForRename(dMode, aMode) && oid.Equal(dOid, aOid) {
+				delUsed[di] = true
+				addUsed[ai] = true
+				out = out.Append(Change{
+					Status:  Renamed{Score: 100},
+					OldPath: d.OldPath,
+					NewPath: a.NewPath,
+					OldMode: d.OldMode,
+					NewMode: a.NewMode,
+					OldOID:  d.OldOID,
+					NewOID:  a.NewOID,
+				})
+				break
+			}
+		}
+	}
+
+	let effThreshold = if threshold < 0 { 0 } else if threshold > 100 { 100 } else { threshold }
+	let mut delBlobs = Map[int, []byte]{}
+	let mut addBlobs = Map[int, []byte]{}
+	for di in 0..len(deletes) {
+		if delUsed[di] {
+			continue
+		}
+		match deletes[di].OldMode {
+		case Some[tree.Mode] as m:
+			match ModeSubtype(m.Value) {
+			case Regular:
+				match deletes[di].OldOID {
+				case Some[oid.OID] as id:
+					delBlobs[di] = try readStoreBytes(id.Value, maxBytes)
+				case None:
+				}
+			case Symlink, Gitlink:
+			}
+		case None:
+		}
+	}
+	for ai in 0..len(adds) {
+		if addUsed[ai] {
+			continue
+		}
+		match adds[ai].NewMode {
+		case Some[tree.Mode] as m:
+			match ModeSubtype(m.Value) {
+			case Regular:
+				match adds[ai].NewOID {
+				case Some[oid.OID] as id:
+					addBlobs[ai] = try readStoreBytes(id.Value, maxBytes)
+				case None:
+				}
+			case Symlink, Gitlink:
+			}
+		case None:
+		}
+	}
+
+	let mut cands = []renameCandidate{}
+	for di in 0..len(deletes) {
+		if delUsed[di] {
+			continue
+		}
+		let dData = match delBlobs.Get(di) {
+		case Some[[]byte] as b:
+			b.Value
+		case None:
+			continue
+		}
+		let dMode = match deletes[di].OldMode {
+		case Some[tree.Mode] as m:
+			m.Value
+		case None:
+			continue
+		}
+		for ai in 0..len(adds) {
+			if addUsed[ai] {
+				continue
+			}
+			let aData = match addBlobs.Get(ai) {
+			case Some[[]byte] as b:
+				b.Value
+			case None:
+				continue
+			}
+			let aMode = match adds[ai].NewMode {
+			case Some[tree.Mode] as m:
+				m.Value
+			case None:
+				continue
+			}
+			if !canPairForRename(dMode, aMode) {
+				continue
+			}
+			let score = SimilarityScore(dData, aData)
+			if score >= effThreshold {
+				cands = cands.Append(renameCandidate{
+					delIdx: di,
+					addIdx: ai,
+					score:  score,
+					oldP:   ChangePath(deletes[di]),
+					newP:   ChangePath(adds[ai]),
+				})
+			}
+		}
+	}
+
+	let sortedCands = slices.SortFunc(cands, func(x renameCandidate, y renameCandidate) int {
+		if x.score > y.score {
+			-1
+		} else if x.score < y.score {
+			1
+		} else if x.oldP < y.oldP {
+			-1
+		} else if x.oldP > y.oldP {
+			1
+		} else if x.newP < y.newP {
+			-1
+		} else if x.newP > y.newP {
+			1
+		} else {
+			0
+		}
+	})
+	for cand in sortedCands {
+		if delUsed[cand.delIdx] || addUsed[cand.addIdx] {
+			continue
+		}
+		delUsed[cand.delIdx] = true
+		addUsed[cand.addIdx] = true
+		let d = deletes[cand.delIdx]
+		let a = adds[cand.addIdx]
+		out = out.Append(Change{
+			Status:  Renamed{Score: cand.score},
+			OldPath: d.OldPath,
+			NewPath: a.NewPath,
+			OldMode: d.OldMode,
+			NewMode: a.NewMode,
+			OldOID:  d.OldOID,
+			NewOID:  a.NewOID,
+		})
+	}
+
+	for di in 0..len(deletes) {
+		if !delUsed[di] {
+			out = out.Append(deletes[di])
+		}
+	}
+	for ai in 0..len(adds) {
+		if !addUsed[ai] {
+			out = out.Append(adds[ai])
+		}
+	}
+	sortChanges(out)
+}
+
+// DiffOptionalTrees diffs oldTree against newTree (either side may be None to
+// represent the empty tree), pruning identical subtrees and optionally running
+// rename detection.
+func DiffOptionalTrees(format oid.Format, oldTree Option[oid.OID], newTree Option[oid.OID], opts DiffOptions) []Change fails TreeError | MissingObject | StoreError | DepthExceeded needs pack.ObjectStore {
+	let raw = match oldTree {
+	case None:
+		match newTree {
+		case None:
+			[]Change{}
+		case Some[oid.OID] as nt:
+			try emitSubtreeRec(format, nt.Value, "", true, 0, opts.MaxDepth, opts.MaxBytes, []Change{})
+		}
+	case Some[oid.OID] as ot:
+		match newTree {
+		case None:
+			try emitSubtreeRec(format, ot.Value, "", false, 0, opts.MaxDepth, opts.MaxBytes, []Change{})
+		case Some[oid.OID] as nt:
+			try diffTreeRec(format, ot.Value, nt.Value, "", 0, opts.MaxDepth, opts.MaxBytes, []Change{})
+		}
+	}
+	if opts.DetectRenames {
+		return try DetectRenames(raw, opts.RenameThreshold, opts.MaxBytes)
+	}
+	sortChanges(raw)
+}
+
+// DiffTrees diffs oldTree against newTree with identical-subtree pruning and
+// optional exact and similarity rename detection.
+func DiffTrees(format oid.Format, oldTree oid.OID, newTree oid.OID, opts DiffOptions) []Change fails TreeError | MissingObject | StoreError | DepthExceeded needs pack.ObjectStore {
+	try DiffOptionalTrees(format, Some[oid.OID]{Value: oldTree}, Some[oid.OID]{Value: newTree}, opts)
+}
+
+func indexModeToTreeMode(m uint32) Option[tree.Mode] {
+	if m == index.ModeRegular {
+		return Some[tree.Mode]{Value: tree.ModeRegular}
+	}
+	if m == index.ModeExecutable {
+		return Some[tree.Mode]{Value: tree.ModeExecutable}
+	}
+	if m == index.ModeSymlink {
+		return Some[tree.Mode]{Value: tree.ModeSymlink}
+	}
+	if m == index.ModeGitlink {
+		return Some[tree.Mode]{Value: tree.ModeGitlink}
+	}
+	None
+}
+
+type leafRec {
+	path string,
+	mode tree.Mode,
+	id   oid.OID,
+}
+
+// DiffTreeToIndex compares oldTree (or the empty tree when None) against all
+// stage-0 staged entries in idx, matching `git diff --cached`.
+func DiffTreeToIndex(format oid.Format, oldTree Option[oid.OID], idx index.Index, opts DiffOptions) []Change fails TreeError | MissingObject | StoreError | DepthExceeded needs pack.ObjectStore {
+	let mut oldLeaves = []leafRec{}
+	match oldTree {
+	case Some[oid.OID] as ot:
+		let walked = tree.WalkTree(format, ot.Value, opts.MaxDepth, opts.MaxBytes) catch {
+		case tree.CorruptTree as e:
+			return TreeError{Detail: e.Reason}
+		case tree.InvalidEntryName as e:
+			return TreeError{Detail: e.Reason}
+		case tree.UnsortedTree as e:
+			return TreeError{Detail: e.Prev + " >= " + e.Cur}
+		case tree.DuplicateEntry as e:
+			return TreeError{Detail: e.Name}
+		case tree.WrongKind as e:
+			return TreeError{Detail: "expected " + e.Expected + ", got " + e.Got}
+		case tree.DepthExceeded as e:
+			return DepthExceeded{MaxDepth: e.MaxDepth}
+		case tree.MissingObject as e:
+			return MissingObject{OID: e.OID}
+		case tree.StoreError as e:
+			return StoreError{Detail: e.Detail}
+		}
+		for w in walked {
+			oldLeaves = oldLeaves.Append(leafRec{path: w.Path, mode: w.Mode, id: w.OID})
+		}
+	case None:
+	}
+
+	let mut newLeaves = []leafRec{}
+	for e in idx.Entries() {
+		if e.Stage != 0 || e.IntentToAdd {
+			continue
+		}
+		match indexModeToTreeMode(e.Mode) {
+		case Some[tree.Mode] as m:
+			newLeaves = newLeaves.Append(leafRec{path: e.Path, mode: m.Value, id: e.OID})
+		case None:
+		}
+	}
+
+	let oldSorted = slices.SortFunc(oldLeaves, func(a leafRec, b leafRec) int {
+		if a.path < b.path { -1 } else if a.path > b.path { 1 } else { 0 }
+	})
+	let newSorted = slices.SortFunc(newLeaves, func(a leafRec, b leafRec) int {
+		if a.path < b.path { -1 } else if a.path > b.path { 1 } else { 0 }
+	})
+
+	let mut out = []Change{}
+	let mut i = 0
+	let mut j = 0
+	for i < len(oldSorted) && j < len(newSorted) {
+		let a = oldSorted[i]
+		let b = newSorted[j]
+		if a.path < b.path {
+			out = out.Append(Change{
+				Status:  Deleted,
+				OldPath: Some[string]{Value: a.path},
+				NewPath: None,
+				OldMode: Some[tree.Mode]{Value: a.mode},
+				NewMode: None,
+				OldOID:  Some[oid.OID]{Value: a.id},
+				NewOID:  None,
+			})
+			i = i + 1
+		} else if a.path > b.path {
+			out = out.Append(Change{
+				Status:  Added,
+				OldPath: None,
+				NewPath: Some[string]{Value: b.path},
+				OldMode: None,
+				NewMode: Some[tree.Mode]{Value: b.mode},
+				OldOID:  None,
+				NewOID:  Some[oid.OID]{Value: b.id},
+			})
+			j = j + 1
+		} else {
+			match compareLeafPair(a.path, a.mode, a.id, b.mode, b.id) {
+			case Some[Change] as ch:
+				out = out.Append(ch.Value)
+			case None:
+			}
+			i = i + 1
+			j = j + 1
+		}
+	}
+	for i < len(oldSorted) {
+		let a = oldSorted[i]
+		out = out.Append(Change{
+			Status:  Deleted,
+			OldPath: Some[string]{Value: a.path},
+			NewPath: None,
+			OldMode: Some[tree.Mode]{Value: a.mode},
+			NewMode: None,
+			OldOID:  Some[oid.OID]{Value: a.id},
+			NewOID:  None,
+		})
+		i = i + 1
+	}
+	for j < len(newSorted) {
+		let b = newSorted[j]
+		out = out.Append(Change{
+			Status:  Added,
+			OldPath: None,
+			NewPath: Some[string]{Value: b.path},
+			OldMode: None,
+			NewMode: Some[tree.Mode]{Value: b.mode},
+			OldOID:  None,
+			NewOID:  Some[oid.OID]{Value: b.id},
+		})
+		j = j + 1
+	}
+	if opts.DetectRenames {
+		return try DetectRenames(out, opts.RenameThreshold, opts.MaxBytes)
+	}
+	sortChanges(out)
+}

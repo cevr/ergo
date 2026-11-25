@@ -688,6 +688,70 @@
       "killers": [
         "modules/git/tree:RejectsCorruptTreesCommitsAndTags"
       ]
+    },
+    {
+      "name": "git-diff-ignore-mode-only-change",
+      "origin": "STD-GIT G-DIFF",
+      "file": "modules/git/diff/diff.ergo",
+      "from": "\tlet modeChanged = tree.ModeOctal(oldMode) != tree.ModeOctal(newMode)\n\tif !oid.Equal(oldOid, newOid) || modeChanged {",
+      "to": "\tlet modeChanged = tree.ModeOctal(oldMode) != tree.ModeOctal(newMode)\n\tlet _ = modeChanged\n\tif !oid.Equal(oldOid, newOid) {",
+      "rule": "Diff emits Modified when a file's mode changes (e.g. 100644 <-> 100755) even when OldOID equals NewOID.",
+      "anchor": {
+        "tests": [
+          "modules/git/diff:DiffTreesAndIndexMatchGit"
+        ]
+      },
+      "killers": [
+        "modules/git/diff:DiffTreesAndIndexMatchGit"
+      ]
+    },
+    {
+      "name": "git-diff-rename-across-mismatched-subtype",
+      "origin": "STD-GIT G-DIFF",
+      "file": "modules/git/diff/diff.ergo",
+      "from": "func canPairForRename(delMode tree.Mode, addMode tree.Mode) bool {\n\tSameSubtype(delMode, addMode)\n}",
+      "to": "func canPairForRename(delMode tree.Mode, addMode tree.Mode) bool {\n\tlet _ = (delMode, addMode)\n\ttrue\n}",
+      "rule": "Rename detection requires identical Git leaf subtypes and never infers a rename between a regular file and a symlink.",
+      "anchor": {
+        "tests": [
+          "modules/git/diff:DiffTreesAndIndexMatchGit"
+        ]
+      },
+      "killers": [
+        "modules/git/diff:DiffTreesAndIndexMatchGit"
+      ]
+    },
+    {
+      "name": "git-diff-skip-binary-nul-check",
+      "origin": "STD-GIT G-DIFF",
+      "file": "modules/git/diff/numstat.ergo",
+      "from": "\t\tif data[i] == byte(0) {\n\t\t\treturn true\n\t\t}",
+      "to": "\t\tif false && data[i] == byte(0) {\n\t\t\treturn true\n\t\t}",
+      "rule": "IsBinary detects any NUL byte within the first 8000 bytes per Git's buffer_is_binary rule.",
+      "anchor": {
+        "tests": [
+          "modules/git/diff:DiffTreesAndIndexMatchGit"
+        ]
+      },
+      "killers": [
+        "modules/git/diff:DiffTreesAndIndexMatchGit"
+      ]
+    },
+    {
+      "name": "git-diff-swap-numstat-add-del",
+      "origin": "STD-GIT G-DIFF",
+      "file": "modules/git/diff/numstat.ergo",
+      "from": "\tNumstatResult{Binary: false, AddedLines: added, DeletedLines: deleted}",
+      "to": "\tNumstatResult{Binary: false, AddedLines: deleted, DeletedLines: added}",
+      "rule": "Numstat reports exact added lines in AddedLines and deleted lines in DeletedLines.",
+      "anchor": {
+        "tests": [
+          "modules/git/diff:DiffTreesAndIndexMatchGit"
+        ]
+      },
+      "killers": [
+        "modules/git/diff:DiffTreesAndIndexMatchGit"
+      ]
     }
   ]
 }
