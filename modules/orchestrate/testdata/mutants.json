@@ -1,5 +1,5 @@
 {
-  "about": "module orchestrate's domain and memory store mutants; each is judged by the module's tests and laws (scripts/examples -modules orchestrate).",
+  "about": "module orchestrate's domain, memory store, and transactional SQLite store mutants; each is judged by the module's tests and laws (scripts/examples -modules orchestrate).",
   "mutants": [
     {
       "name": "orch2-skip-command-reused",
@@ -88,6 +88,86 @@
       "from": "\t\tif len(events) == 0 {\n\t\t\treturn (execOK{Result: orchestrate.ExecuteResult{Seq: len(b.log), Events: []orchestrate.Event{}, Duplicate: true}}, b)\n\t\t}\n",
       "to": "\t\tif len(events) == 0 {\n\t\t\treturn (execOK{Result: orchestrate.ExecuteResult{Seq: len(b.log), Events: []orchestrate.Event{}, Duplicate: false}}, b)\n\t\t}\n",
       "rule": "An idempotent resend must report Duplicate: true: Store.StoreIdempotentExecute.",
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      },
+      "killers": [
+        "examples:modules/orchestrate"
+      ]
+    },
+    {
+      "name": "orch3-skip-schema-version-fence",
+      "origin": "wf10/ORCH-3",
+      "file": "modules/orchestrate/sqlite/schema.ergo",
+      "from": "\t\tif uv > CurrentSchemaVersion {\n\t\t\treturn orchestrate.StoreFailed{Reason: \"incompatible sqlite user_version \\(uv) > \\(CurrentSchemaVersion)\"}\n\t\t}\n",
+      "to": "\t\tif false && uv > CurrentSchemaVersion {\n\t\t\treturn orchestrate.StoreFailed{Reason: \"incompatible sqlite user_version \\(uv) > \\(CurrentSchemaVersion)\"}\n\t\t}\n",
+      "rule": "Opening a SQLite DB with user_version > CurrentSchemaVersion must fail before creating or mutating tables: PersistenceChecks.SchemaVersionFenceRefusesFutureVersion.",
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      },
+      "killers": [
+        "examples:modules/orchestrate"
+      ]
+    },
+    {
+      "name": "orch3-skip-meta-version-fence",
+      "origin": "wf10/ORCH-3",
+      "file": "modules/orchestrate/sqlite/schema.ergo",
+      "from": "\t\tif ver != CurrentSchemaVersion {\n\t\t\treturn orchestrate.StoreFailed{Reason: \"incompatible schema_version \\(ver) != \\(CurrentSchemaVersion)\"}\n\t\t}\n",
+      "to": "\t\tif false && ver != CurrentSchemaVersion {\n\t\t\treturn orchestrate.StoreFailed{Reason: \"incompatible schema_version \\(ver) != \\(CurrentSchemaVersion)\"}\n\t\t}\n",
+      "rule": "Opening a SQLite DB whose schema_meta.schema_version != CurrentSchemaVersion must fail StoreFailed: PersistenceChecks.SchemaVersionFenceRefusesFutureVersion.",
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      },
+      "killers": [
+        "examples:modules/orchestrate"
+      ]
+    },
+    {
+      "name": "orch3-drop-unit-claim-projection",
+      "origin": "wf10/ORCH-3",
+      "file": "modules/orchestrate/sqlite/project.ergo",
+      "from": "\tcase orchestrate.UnitWasClaimed as e:\n\t\tlet _ = try execTx(\n\t\t\t\"UPDATE units SET status = 'claimed', owner = ?, lane = ?, harness = ?, round = ?, updated_at = ? WHERE id = ?\",\n\t\t\t[]sql.Value{\n\t\t\t\tsql.Text{S: e.Owner},\n\t\t\t\tsql.Text{S: e.Lane},\n\t\t\t\tsql.Text{S: e.Harness},\n\t\t\t\tsql.Int{N: int64(e.Round)},\n\t\t\t\tsql.Text{S: e.At},\n\t\t\t\tsql.Text{S: e.ID},\n\t\t\t},\n\t\t)\n",
+      "to": "\tcase orchestrate.UnitWasClaimed:\n",
+      "rule": "UnitWasClaimed must update the units projection row in the same SQLite transaction: Store.StoreReplayMatchesSnapshot, Store.StoreQueriesMatchSnapshot, and PersistenceChecks.SqliteAgreesWithMemory.",
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      },
+      "killers": [
+        "examples:modules/orchestrate"
+      ]
+    },
+    {
+      "name": "orch3-drop-receipt-projection",
+      "origin": "wf10/ORCH-3",
+      "file": "modules/orchestrate/sqlite/project.ergo",
+      "from": "\tcase orchestrate.ReceiptRecorded as e:\n\t\tlet r = e.Receipt\n\t\tlet _ = try execTx(\n\t\t\t\"INSERT INTO receipts (id, seq_order, unit_id, round, kind, command, commit_sha, exit_code, summary_metrics, log_path, log_sha256, recorded_at, recorded_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)\",\n\t\t\t[]sql.Value{\n\t\t\t\tsql.Text{S: r.ID},\n\t\t\t\tsql.Int{N: int64(seq)},\n\t\t\t\tsql.Text{S: r.UnitID},\n\t\t\t\tsql.Int{N: int64(r.Round)},\n\t\t\t\tsql.Text{S: r.Kind},\n\t\t\t\tsql.Text{S: r.Command},\n\t\t\t\tsql.Text{S: r.CommitSHA},\n\t\t\t\tsql.Int{N: int64(r.ExitCode)},\n\t\t\t\tsql.Text{S: r.SummaryMetrics},\n\t\t\t\tsql.Text{S: r.LogPath},\n\t\t\t\tsql.Text{S: r.LogSHA256},\n\t\t\t\tsql.Text{S: r.RecordedAt},\n\t\t\t\tsql.Text{S: r.RecordedBy},\n\t\t\t},\n\t\t)\n",
+      "to": "\tcase orchestrate.ReceiptRecorded:\n",
+      "rule": "ReceiptRecorded must insert the receipt row in the same SQLite transaction: Store.StoreQueriesMatchSnapshot, PersistenceChecks.SqliteAgreesWithMemory, and PersistenceChecks.ConcurrentMultiWriterWAL.",
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      },
+      "killers": [
+        "examples:modules/orchestrate"
+      ]
+    },
+    {
+      "name": "orch3-skip-command-digest-check",
+      "origin": "wf10/ORCH-3",
+      "file": "modules/orchestrate/sqlite/store.ergo",
+      "from": "\t\tif storedDigest == digest && storedJSON == payloadJSON {\n\t\t\tlet curSeq = try lastSeqTx()\n\t\t\treturn orchestrate.ExecuteResult{Seq: curSeq, Events: []orchestrate.Event{}, Duplicate: true}\n\t\t}\n\t\treturn orchestrate.CommandReused{ID: env.ID}\n",
+      "to": "\t\tlet _ = storedDigest == digest && storedJSON == payloadJSON\n\t\tlet curSeq = try lastSeqTx()\n\t\treturn orchestrate.ExecuteResult{Seq: curSeq, Events: []orchestrate.Event{}, Duplicate: true}\n",
+      "rule": "SQLite Execute must verify payload digest and JSON on duplicate CommandID and fail CommandReused on mismatch: Store.StoreIdempotentExecute and PersistenceChecks.SqliteAgreesWithMemory.",
       "anchor": {
         "tests": [
           "examples:modules/orchestrate"

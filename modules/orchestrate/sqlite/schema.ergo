@@ -1,0 +1,176 @@
+import github.com/cevr/ergo/modules/orchestrate/orchestrate
+import hex
+import json
+import sha256
+import sql
+import strconv
+
+// CurrentSchemaVersion is the SQLite schema version written and accepted by this package.
+let CurrentSchemaVersion = 1
+
+func initSchema() fails orchestrate.StoreFailed needs sql.Tx {
+	let uvRows = try queryTx("PRAGMA user_version", []sql.Value{})
+	if len(uvRows) > 0 {
+		let uv = try intAt(uvRows[0], 0, "user_version")
+		if uv > CurrentSchemaVersion {
+			return orchestrate.StoreFailed{Reason: "incompatible sqlite user_version \(uv) > \(CurrentSchemaVersion)"}
+		}
+	}
+	let _ = try execTx(
+		"CREATE TABLE IF NOT EXISTS schema_meta (id INTEGER PRIMARY KEY CHECK (id = 1), schema_version INTEGER NOT NULL, next_question_id INTEGER NOT NULL DEFAULT 1)",
+		[]sql.Value{},
+	)
+	let metaRows = try queryTx("SELECT schema_version FROM schema_meta WHERE id = 1", []sql.Value{})
+	if len(metaRows) > 0 {
+		let ver = try intAt(metaRows[0], 0, "schema_version")
+		if ver != CurrentSchemaVersion {
+			return orchestrate.StoreFailed{Reason: "incompatible schema_version \(ver) != \(CurrentSchemaVersion)"}
+		}
+	} else {
+		let _ = try execTx(
+			"INSERT INTO schema_meta (id, schema_version, next_question_id) VALUES (1, ?, 1)",
+			[]sql.Value{sql.Int{N: int64(CurrentSchemaVersion)}},
+		)
+	}
+	try createTablesTx()
+	let _ = try execTx("PRAGMA user_version = "+strconv.Itoa(CurrentSchemaVersion), []sql.Value{})
+}
+
+func createTablesTx() fails orchestrate.StoreFailed needs sql.Tx {
+	let ddl = []string{
+		"CREATE TABLE IF NOT EXISTS commands (command_id TEXT PRIMARY KEY, actor TEXT NOT NULL, at TEXT NOT NULL, payload_json TEXT NOT NULL, payload_digest TEXT NOT NULL)",
+		"CREATE TABLE IF NOT EXISTS events (seq INTEGER PRIMARY KEY, command_id TEXT NOT NULL, payload_digest TEXT NOT NULL, event_json TEXT NOT NULL)",
+		"CREATE INDEX IF NOT EXISTS idx_events_command_id ON events (command_id)",
+		"CREATE TABLE IF NOT EXISTS units (id TEXT PRIMARY KEY, title TEXT NOT NULL, area TEXT NOT NULL, status TEXT NOT NULL, owner TEXT, lane TEXT, harness TEXT, round INTEGER NOT NULL, head_sha TEXT, summary TEXT, request_path TEXT, findings_path TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
+		"CREATE INDEX IF NOT EXISTS idx_units_status ON units (status, id)",
+		"CREATE TABLE IF NOT EXISTS receipts (id TEXT PRIMARY KEY, seq_order INTEGER NOT NULL, unit_id TEXT NOT NULL REFERENCES units(id), round INTEGER NOT NULL, kind TEXT NOT NULL, command TEXT NOT NULL, commit_sha TEXT NOT NULL, exit_code INTEGER NOT NULL, summary_metrics TEXT NOT NULL, log_path TEXT NOT NULL, log_sha256 TEXT NOT NULL, recorded_at TEXT NOT NULL, recorded_by TEXT NOT NULL)",
+		"CREATE INDEX IF NOT EXISTS idx_receipts_unit_round ON receipts (unit_id, round, seq_order)",
+		"CREATE TABLE IF NOT EXISTS commitments (id TEXT PRIMARY KEY, title TEXT NOT NULL, kind TEXT NOT NULL, status TEXT NOT NULL, owner TEXT, lane TEXT, landed_sha TEXT, decision_note TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
+		"CREATE INDEX IF NOT EXISTS idx_commitments_status_owner ON commitments (status, owner, id)",
+		"CREATE TABLE IF NOT EXISTS queue (key TEXT PRIMARY KEY, priority INTEGER NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, status TEXT NOT NULL, tags_json TEXT NOT NULL, updated_at TEXT NOT NULL)",
+		"CREATE INDEX IF NOT EXISTS idx_queue_order ON queue (status, priority, key)",
+		"CREATE TABLE IF NOT EXISTS questions (id INTEGER PRIMARY KEY, command_id TEXT NOT NULL UNIQUE, prompt TEXT NOT NULL, assumption TEXT NOT NULL, concrete_action TEXT NOT NULL, status TEXT NOT NULL, answer TEXT, asked_by TEXT NOT NULL, asked_at TEXT NOT NULL, answered_by TEXT, answered_at TEXT)",
+		"CREATE INDEX IF NOT EXISTS idx_questions_status ON questions (status, id)",
+	}
+	for stmt in ddl {
+		let _ = try execTx(stmt, []sql.Value{})
+	}
+}
+
+func execTx(stmt string, args []sql.Value) sql.Result fails orchestrate.StoreFailed needs sql.Tx {
+	sql.Tx.Exec(stmt, args) catch {
+	case sql.Unique as e:
+		return orchestrate.StoreFailed{Reason: "sql unique: " + e.Constraint}
+	case sql.Serialization as e:
+		return orchestrate.StoreFailed{Reason: "sql serialization: " + e.Message}
+	case sql.Deadlock as e:
+		return orchestrate.StoreFailed{Reason: "sql deadlock: " + e.Message}
+	case sql.Timeout as e:
+		return orchestrate.StoreFailed{Reason: "sql timeout: " + e.Message}
+	case sql.Closed as e:
+		return orchestrate.StoreFailed{Reason: "sql closed: " + e.Message}
+	case sql.Other as e:
+		return orchestrate.StoreFailed{Reason: "sql other (" + e.Code + "): " + e.Message}
+	}
+}
+
+func queryTx(stmt string, args []sql.Value) []sql.Row fails orchestrate.StoreFailed needs sql.Tx {
+	sql.Tx.Query(stmt, args) catch {
+	case sql.Unique as e:
+		return orchestrate.StoreFailed{Reason: "sql unique: " + e.Constraint}
+	case sql.Serialization as e:
+		return orchestrate.StoreFailed{Reason: "sql serialization: " + e.Message}
+	case sql.Deadlock as e:
+		return orchestrate.StoreFailed{Reason: "sql deadlock: " + e.Message}
+	case sql.Timeout as e:
+		return orchestrate.StoreFailed{Reason: "sql timeout: " + e.Message}
+	case sql.Closed as e:
+		return orchestrate.StoreFailed{Reason: "sql closed: " + e.Message}
+	case sql.Other as e:
+		return orchestrate.StoreFailed{Reason: "sql other (" + e.Code + "): " + e.Message}
+	}
+}
+
+func optTextVal(v Option[string]) sql.Value {
+	match v {
+	case Some[string] as s:
+		sql.Text{S: s.Value}
+	case None:
+		sql.Null
+	}
+}
+
+func textAt(row sql.Row, index int, col string) string fails orchestrate.StoreFailed {
+	if index < 0 || index >= len(row.Values) {
+		return orchestrate.StoreFailed{Reason: "missing column " + col}
+	}
+	match row.Values[index] {
+	case sql.Text as t:
+		t.S
+	case _:
+		orchestrate.StoreFailed{Reason: "expected TEXT for " + col}
+	}
+}
+
+func optTextAt(row sql.Row, index int, col string) Option[string] fails orchestrate.StoreFailed {
+	if index < 0 || index >= len(row.Values) {
+		return orchestrate.StoreFailed{Reason: "missing column " + col}
+	}
+	match row.Values[index] {
+	case sql.Null:
+		None
+	case sql.Text as t:
+		Some[string]{Value: t.S}
+	case _:
+		orchestrate.StoreFailed{Reason: "expected nullable TEXT for " + col}
+	}
+}
+
+func intAt(row sql.Row, index int, col string) int fails orchestrate.StoreFailed {
+	if index < 0 || index >= len(row.Values) {
+		return orchestrate.StoreFailed{Reason: "missing column " + col}
+	}
+	match row.Values[index] {
+	case sql.Int as n:
+		int(n.N)
+	case _:
+		orchestrate.StoreFailed{Reason: "expected INTEGER for " + col}
+	}
+}
+
+func encodeCommand(cmd orchestrate.Command) string {
+	json.Encode(json.Codec[orchestrate.Command]{MaxBytes: 0, MaxDepth: 0}, cmd)
+}
+
+func decodeCommand(text string) orchestrate.Command fails orchestrate.StoreFailed {
+	json.Decode(json.Codec[orchestrate.Command]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case _:
+		return orchestrate.StoreFailed{Reason: "corrupt command payload json"}
+	}
+}
+
+func commandDigest(payloadJSON string) string {
+	hex.Encode(sha256.Sum(payloadJSON))
+}
+
+func encodeEvent(ev orchestrate.Event) string {
+	json.Encode(json.Codec[orchestrate.Event]{MaxBytes: 0, MaxDepth: 0}, ev)
+}
+
+func decodeEvent(text string) orchestrate.Event fails orchestrate.StoreFailed {
+	json.Decode(json.Codec[orchestrate.Event]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case _:
+		return orchestrate.StoreFailed{Reason: "corrupt event payload json"}
+	}
+}
+
+func encodeTags(tags []string) string {
+	json.Encode(json.Codec[[]string]{MaxBytes: 0, MaxDepth: 0}, tags)
+}
+
+func decodeTags(text string) []string fails orchestrate.StoreFailed {
+	json.Decode(json.Codec[[]string]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case _:
+		return orchestrate.StoreFailed{Reason: "corrupt queue tags json"}
+	}
+}

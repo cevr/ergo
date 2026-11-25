@@ -1,0 +1,656 @@
+import github.com/cevr/ergo/modules/orchestrate/memory
+import github.com/cevr/ergo/modules/orchestrate/orchestrate
+import github.com/cevr/ergo/modules/sqlite/sqlite
+import sql
+import strconv
+import sync
+import task
+
+type probeFailure {}
+
+// PersistenceChecks defines the SQLite agreement, version-fence, rollback-atomicity,
+// and concurrent multi-writer laws verified natively against live SQLite databases.
+type PersistenceChecks {
+	// CheckAgreesWithMemory runs a generated sequence of valid, invalid, duplicate, and conflicting commands against both memory.Store and a WAL sqlite.Store, checking full agreement at every step and after reopen.
+	CheckAgreesWithMemory(steps []int) bool,
+
+	// CheckVersionFence verifies that opening a database whose schema_version or user_version exceeds CurrentSchemaVersion fails StoreFailed without mutating existing rows.
+	CheckVersionFence(futureBump int) bool,
+
+	// CheckRollbackAtomicity verifies that a mid-transaction failure after inserting into events and projection tables rolls back completely across reopen.
+	CheckRollbackAtomicity(tag int) bool,
+
+	// CheckConcurrentMultiWriter runs two concurrent WAL writer tasks on separate sqlite.Store connections and verifies zero SQLITE_BUSY failures, zero lost writes, and Fold(events) == Snapshot after reopen.
+	CheckConcurrentMultiWriter(tag int) bool,
+
+	// SqliteAgreesWithMemory verifies byte-identical state, events, queries, and refusals between memory.Store and WAL sqlite.Store including across reopen.
+	law SqliteAgreesWithMemory(steps []int) {
+		CheckAgreesWithMemory(steps)
+	},
+
+	// SchemaVersionFenceRefusesFutureVersion verifies that future schema versions are refused cleanly on Open.
+	law SchemaVersionFenceRefusesFutureVersion(futureBump int) {
+		CheckVersionFence(futureBump)
+	},
+
+	// RollbackAtomicityPreservesConsistency verifies that mid-transaction failures leave zero partial events or projection rows after reopen.
+	law RollbackAtomicityPreservesConsistency(tag int) {
+		CheckRollbackAtomicity(tag)
+	},
+
+	// ConcurrentMultiWriterWAL verifies concurrent writers on a shared WAL file lose zero writes and keep Fold(events) == Snapshot.
+	law ConcurrentMultiWriterWAL(tag int) {
+		CheckConcurrentMultiWriter(tag)
+	},
+}
+
+type livePersistence {} implements PersistenceChecks
+
+let verifyCounter = sync.NewRef(0)
+
+func nextVerifyDBPath(prefix string) (string, string) fails orchestrate.StoreFailed needs go.Foreign {
+	let dir = try freshWALDir()
+	let n = sync.Modify(verifyCounter, func(cur int) (int, int) { (cur + 1, cur + 1) })
+	let name = prefix + "-" + strconv.Itoa(n) + ".db"
+	cleanFile(dir, name)
+	cleanFile(dir, name+"-wal")
+	cleanFile(dir, name+"-shm")
+	(dir, name)
+}
+
+func cleanupVerifyDB(dir string, name string) needs go.Foreign {
+	cleanFile(dir, name)
+	cleanFile(dir, name+"-wal")
+	cleanFile(dir, name+"-shm")
+}
+
+func execOutcomeTag(st orchestrate.Store, env orchestrate.Envelope) string {
+	let res = st.Execute(env) catch {
+	case orchestrate.NotFound as e:
+		return "NotFound:" + e.Kind + ":" + e.ID
+	case orchestrate.AlreadyExists as e:
+		return "AlreadyExists:" + e.Kind + ":" + e.ID
+	case orchestrate.InvalidTransition as e:
+		return "InvalidTransition:" + e.Kind + ":" + e.ID + ":" + e.From + ":" + e.Action
+	case orchestrate.StaleClaim as e:
+		return "StaleClaim:" + e.UnitID + ":" + e.ExpectedOwner + ":" + e.ActualOwner
+	case orchestrate.CommandReused as e:
+		return "CommandReused:" + string(e.ID)
+	case orchestrate.InvalidInput as e:
+		return "InvalidInput:" + e.Field
+	case orchestrate.StoreFailed as e:
+		return "StoreFailed:" + e.Reason
+	}
+	let dup = if res.Duplicate { "dup" } else { "new" }
+	"OK:" + dup + ":" + strconv.Itoa(res.Seq) + ":" + strconv.Itoa(len(res.Events))
+}
+
+func storesAgree(mem orchestrate.Store, sq orchestrate.Store) bool {
+	let memSnap = mem.Snapshot() catch {
+	case orchestrate.StoreFailed:
+		return false
+	}
+	let sqSnap = sq.Snapshot() catch {
+	case orchestrate.StoreFailed:
+		return false
+	}
+	let memEvs = mem.Events(0) catch {
+	case orchestrate.StoreFailed:
+		return false
+	}
+	let sqEvs = sq.Events(0) catch {
+	case orchestrate.StoreFailed:
+		return false
+	}
+	if memSnap != sqSnap || memEvs != sqEvs || orchestrate.Fold(orchestrate.EventList(sqEvs)) != sqSnap {
+		return false
+	}
+	let memUnits = mem.ListUnits(None) catch {
+	case orchestrate.StoreFailed:
+		return false
+	}
+	let sqUnits = sq.ListUnits(None) catch {
+	case orchestrate.StoreFailed:
+		return false
+	}
+	let memClaimed = mem.ListUnits(Some[orchestrate.UnitStatus]{Value: orchestrate.UnitClaimed}) catch {
+	case orchestrate.StoreFailed:
+		return false
+	}
+	let sqClaimed = sq.ListUnits(Some[orchestrate.UnitStatus]{Value: orchestrate.UnitClaimed}) catch {
+	case orchestrate.StoreFailed:
+		return false
+	}
+	let memRecs = mem.Receipts("u-0", None) catch {
+	case orchestrate.StoreFailed:
+		return false
+	}
+	let sqRecs = sq.Receipts("u-0", None) catch {
+	case orchestrate.StoreFailed:
+		return false
+	}
+	let memCommits = mem.ListCommitments(None, None) catch {
+	case orchestrate.StoreFailed:
+		return false
+	}
+	let sqCommits = sq.ListCommitments(None, None) catch {
+	case orchestrate.StoreFailed:
+		return false
+	}
+	let memQueue = mem.ListQueue(None) catch {
+	case orchestrate.StoreFailed:
+		return false
+	}
+	let sqQueue = sq.ListQueue(None) catch {
+	case orchestrate.StoreFailed:
+		return false
+	}
+	let memQs = mem.ListQuestions(false) catch {
+	case orchestrate.StoreFailed:
+		return false
+	}
+	let sqQs = sq.ListQuestions(false) catch {
+	case orchestrate.StoreFailed:
+		return false
+	}
+	let memOpenQs = mem.ListQuestions(true) catch {
+	case orchestrate.StoreFailed:
+		return false
+	}
+	let sqOpenQs = sq.ListQuestions(true) catch {
+	case orchestrate.StoreFailed:
+		return false
+	}
+		memUnits == sqUnits &&
+		memClaimed == sqClaimed &&
+		memRecs == sqRecs &&
+		memCommits == sqCommits &&
+		memQueue == sqQueue &&
+		memQs == sqQs &&
+		memOpenQs == sqOpenQs
+}
+
+func makeStepEnvelope(index int, code int, prevAccepted Option[orchestrate.Envelope]) orchestrate.Envelope {
+	let mode = ((code % 20) + 20) % 20
+	match prevAccepted {
+	case Some[orchestrate.Envelope] as prev:
+		if mode == 18 {
+			return prev.Value
+		}
+		if mode == 19 {
+			return orchestrate.Envelope{
+				ID:      prev.Value.ID,
+				Actor:   "conflict-actor",
+				At:      "2026-11-24T23:59:59Z",
+				Command: orchestrate.OpenUnit{ID: "conflict-unit-\(index)", Title: "Conflicting", Area: "bad"},
+			}
+		}
+	case None:
+	}
+	let kind = ((code % 16) + 16) % 16
+	let slot = (((code / 16) % 3) + 3) % 3
+	let id = orchestrate.CommandID("agree-\(index)")
+	let at = "2026-11-24T01:00:\(index)Z"
+	let unitID = "u-\(slot)"
+	let commitID = "c-\(slot)"
+	let queueKey = "q-\(slot)"
+	let cmd orchestrate.Command = match kind {
+	case 0:
+		orchestrate.OpenUnit{ID: unitID, Title: "Unit \(slot)", Area: "core"}
+	case 1:
+		orchestrate.ClaimUnit{ID: unitID, Owner: "owner-\(slot)", Lane: "lane-\(slot)", Harness: "agy"}
+	case 2:
+		orchestrate.AdvanceUnitRound{ID: unitID, Owner: Some[string]{Value: "owner-\(slot)"}, Round: 2, RequestPath: Some[string]{Value: "/tmp/r2.md"}, FindingsPath: None}
+	case 3:
+		orchestrate.HandBackUnit{ID: unitID, Owner: "owner-\(slot)", HeadSHA: "abcdef12", Summary: "done", RequestPath: None, FindingsPath: Some[string]{Value: "/tmp/f1.md"}}
+	case 4:
+		orchestrate.LandUnit{ID: unitID, HeadSHA: "abcdef12"}
+	case 5:
+		orchestrate.CloseUnit{ID: unitID, Summary: Some[string]{Value: "closed"}}
+	case 6:
+		orchestrate.RecordReceipt{
+			ID:             "rec-\(index)",
+			UnitID:         unitID,
+			Round:          1,
+			Kind:           "gate",
+			Command:        "ergo test",
+			CommitSHA:      "abcdef12",
+			ExitCode:       slot,
+			SummaryMetrics: "ok=1",
+			LogPath:        "/tmp/rec-\(index).log",
+			LogSHA256:      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		}
+	case 7:
+		orchestrate.AddCommitment{ID: commitID, Title: "Commit \(slot)", Kind: "plan-part"}
+	case 8:
+		orchestrate.AssignCommitment{ID: commitID, Owner: "owner-\(slot)", Lane: "lane-\(slot)"}
+	case 9:
+		orchestrate.LandCommitment{ID: commitID, LandedSHA: "1234abcd"}
+	case 10:
+		orchestrate.DecideCommitment{ID: commitID, Note: "decided", Withdraw: slot == 2}
+	case 11:
+		orchestrate.UpsertQueueItem{Key: queueKey, Priority: slot, Title: "Queue \(slot)", Body: "body", Status: "open", Tags: []string{"t1", "t2"}}
+	case 12:
+		orchestrate.RemoveQueueItem{Key: queueKey}
+	case 13:
+		orchestrate.AskQuestion{ID: None, Prompt: "Question \(index)?", Assumption: "default", ConcreteAction: "reply yes"}
+	case 14:
+		orchestrate.AnswerQuestion{ID: slot + 1, Answer: "yes", Withdraw: slot == 2}
+	case _:
+		orchestrate.HandBackUnit{ID: unitID, Owner: "wrong-owner", HeadSHA: "bad", Summary: "stale", RequestPath: None, FindingsPath: None}
+	}
+	orchestrate.Envelope{ID: id, Actor: "actor-\(slot)", At: at, Command: cmd}
+}
+
+func CheckAgreesWithMemory(_ livePersistence, steps []int) bool needs go.Foreign {
+	let (dir, name) = nextVerifyDBPath("agree") catch {
+	case orchestrate.StoreFailed:
+		return false
+	}
+	let path = dir + "/" + name
+	let mem = memory.New()
+	let sq = Open(path) catch {
+	case orchestrate.StoreFailed:
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let mut prevAccepted Option[orchestrate.Envelope] = None
+	let mut ok = true
+	let limit = if len(steps) > 16 { 16 } else { len(steps) }
+	for i in 0..limit {
+		let env = makeStepEnvelope(i, steps[i], prevAccepted)
+		let memTag = execOutcomeTag(mem, env)
+		let sqTag = execOutcomeTag(sq, env)
+		if memTag != sqTag || !storesAgree(mem, sq) {
+			ok = false
+			break
+		}
+		if len(memTag) >= 6 && memTag[0:6] == "OK:new" {
+			prevAccepted = Some[orchestrate.Envelope]{Value: env}
+		}
+	}
+	sq.Close() catch {
+	case orchestrate.StoreFailed:
+		ok = false
+	}
+	if ok {
+		let reopened = Open(path) catch {
+		case orchestrate.StoreFailed:
+			cleanupVerifyDB(dir, name)
+			return false
+		}
+		ok = storesAgree(mem, reopened)
+		reopened.Close() catch {
+		case orchestrate.StoreFailed:
+			ok = false
+		}
+	}
+	cleanupVerifyDB(dir, name)
+	ok
+}
+
+func CheckVersionFence(_ livePersistence, futureBump int) bool needs go.Foreign {
+	let bump = 1 + ((futureBump%5)+5)%5
+	let futureVer = CurrentSchemaVersion + bump
+	let (dir, name) = nextVerifyDBPath("fence") catch {
+	case orchestrate.StoreFailed:
+		return false
+	}
+	let path = dir + "/" + name
+	let st = Open(path) catch {
+	case orchestrate.StoreFailed:
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let _ = st.Execute(orchestrate.Envelope{
+		ID:      orchestrate.CommandID("fence-open"),
+		Actor:   "root",
+		At:      "2026-11-24T10:00:00Z",
+		Command: orchestrate.OpenUnit{ID: "u-fence", Title: "Keep", Area: "sqlite"},
+	}) catch {
+	case _:
+		st.Close() catch {
+		case orchestrate.StoreFailed:
+		}
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let bumpUserVersionOnly = futureBump%2 == 0
+	let dbHandle = openDB(st.db, st.err) catch {
+	case orchestrate.StoreFailed:
+		st.Close() catch {
+		case orchestrate.StoreFailed:
+		}
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let _ = with context { sql.DB: dbHandle } {
+		sqlite.WriteTransaction() {
+			if bumpUserVersionOnly {
+				let _ = try execTx("PRAGMA user_version = "+strconv.Itoa(futureVer), []sql.Value{})
+			} else {
+				let _ = try execTx("UPDATE schema_meta SET schema_version = ? WHERE id = 1", []sql.Value{sql.Int{N: int64(futureVer)}})
+			}
+			true
+		}
+	} catch {
+	case _:
+		st.Close() catch {
+		case orchestrate.StoreFailed:
+		}
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	st.Close() catch {
+	case orchestrate.StoreFailed:
+	}
+	let mut refused = false
+	let opened = Open(path) catch {
+	case orchestrate.StoreFailed:
+		refused = true
+		Store{db: None, err: "refused"}
+	}
+	if !refused {
+		opened.Close() catch {
+		case orchestrate.StoreFailed:
+		}
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let raw = sqlite.Open(path) catch {
+	case _:
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let keptVer = with context { sql.DB: raw } {
+		sql.Transaction() {
+			if bumpUserVersionOnly {
+				let rows = try queryTx("PRAGMA user_version", []sql.Value{})
+				if len(rows) == 0 {
+					0
+				} else {
+					try intAt(rows[0], 0, "user_version")
+				}
+			} else {
+				let rows = try queryTx("SELECT schema_version FROM schema_meta WHERE id = 1", []sql.Value{})
+				if len(rows) == 0 {
+					0
+				} else {
+					try intAt(rows[0], 0, "schema_version")
+				}
+			}
+		}
+	} catch {
+	case _:
+		closeIgnoring(raw)
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	closeIgnoring(raw)
+	cleanupVerifyDB(dir, name)
+	refused && keptVer == futureVer
+}
+
+func CheckRollbackAtomicity(_ livePersistence, tag int) bool needs go.Foreign {
+	let (dir, name) = nextVerifyDBPath("rollback") catch {
+	case orchestrate.StoreFailed:
+		return false
+	}
+	let path = dir + "/" + name
+	let st = Open(path) catch {
+	case orchestrate.StoreFailed:
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let baseEnv = orchestrate.Envelope{
+		ID:      orchestrate.CommandID("rb-base-\(tag)"),
+		Actor:   "root",
+		At:      "2026-11-24T11:00:00Z",
+		Command: orchestrate.OpenUnit{ID: "rb-u-1", Title: "Committed", Area: "sqlite"},
+	}
+	let _ = st.Execute(baseEnv) catch {
+	case _:
+		st.Close() catch {
+		case orchestrate.StoreFailed:
+		}
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let beforeSnap = st.Snapshot() catch {
+	case orchestrate.StoreFailed:
+		st.Close() catch {
+		case orchestrate.StoreFailed:
+		}
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let beforeEvs = st.Events(0) catch {
+	case orchestrate.StoreFailed:
+		st.Close() catch {
+		case orchestrate.StoreFailed:
+		}
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let rbDB = openDB(st.db, st.err) catch {
+	case orchestrate.StoreFailed:
+		st.Close() catch {
+		case orchestrate.StoreFailed:
+		}
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let mut aborted = false
+	let _ = with context { sql.DB: rbDB } {
+		sqlite.WriteTransaction() {
+			let _ = try execTx(
+				"INSERT INTO events (seq, command_id, payload_digest, event_json) VALUES (?, ?, ?, ?)",
+				[]sql.Value{sql.Int{N: 99}, sql.Text{S: "aborted-cmd"}, sql.Text{S: "deadbeef"}, sql.Text{S: "{}"}},
+			)
+			let _ = try execTx(
+				"INSERT INTO units (id, title, area, status, owner, lane, harness, round, head_sha, summary, request_path, findings_path, created_at, updated_at) VALUES ('ghost', 'Ghost', 'sqlite', 'open', NULL, NULL, NULL, 0, NULL, NULL, NULL, NULL, '2026-11-24T11:01:00Z', '2026-11-24T11:01:00Z')",
+				[]sql.Value{},
+			)
+			try failMidTx()
+			true
+		}
+	} catch {
+	case probeFailure:
+		aborted = true
+		false
+	case _:
+		false
+	}
+	st.Close() catch {
+	case orchestrate.StoreFailed:
+	}
+	let reopened = Open(path) catch {
+	case orchestrate.StoreFailed:
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let afterSnap = reopened.Snapshot() catch {
+	case orchestrate.StoreFailed:
+		reopened.Close() catch {
+		case orchestrate.StoreFailed:
+		}
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let afterEvs = reopened.Events(0) catch {
+	case orchestrate.StoreFailed:
+		reopened.Close() catch {
+		case orchestrate.StoreFailed:
+		}
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let ghost = reopened.Unit("ghost") catch {
+	case orchestrate.StoreFailed:
+		reopened.Close() catch {
+		case orchestrate.StoreFailed:
+		}
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	reopened.Close() catch {
+	case orchestrate.StoreFailed:
+	}
+	cleanupVerifyDB(dir, name)
+	aborted && afterSnap == beforeSnap && afterEvs == beforeEvs && ghost == None && orchestrate.Fold(orchestrate.EventList(afterEvs)) == afterSnap
+}
+
+func failMidTx() fails probeFailure {
+	probeFailure
+}
+
+func CheckConcurrentMultiWriter(_ livePersistence, tag int) bool needs go.Foreign {
+	let emptyRes = orchestrate.ExecuteResult{Seq: 0, Events: []orchestrate.Event{}, Duplicate: false}
+	let (dir, name) = nextVerifyDBPath("concurrent") catch {
+	case orchestrate.StoreFailed:
+		return false
+	}
+	let path = dir + "/" + name
+	let s1 = Open(path) catch {
+	case orchestrate.StoreFailed:
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let s2 = Open(path) catch {
+	case orchestrate.StoreFailed:
+		s1.Close() catch {
+		case orchestrate.StoreFailed:
+		}
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let digest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	let t1 = task.Go() {
+		let mut ok1 = true
+		for i in 0..4 {
+			let uid = "cw-a-\(tag)-\(i)"
+			let _ = s1.Execute(orchestrate.Envelope{
+				ID:      orchestrate.CommandID("cwa-u-\(tag)-\(i)"),
+				Actor:   "w1",
+				At:      "2026-11-24T12:00:\(i)Z",
+				Command: orchestrate.OpenUnit{ID: uid, Title: "A \(i)", Area: "wal"},
+			}) catch {
+			case _:
+				ok1 = false
+				emptyRes
+			}
+			let _ = s1.Execute(orchestrate.Envelope{
+				ID:      orchestrate.CommandID("cwa-r-\(tag)-\(i)"),
+				Actor:   "w1",
+				At:      "2026-11-24T12:01:\(i)Z",
+				Command: orchestrate.RecordReceipt{
+					ID:             "rec-a-\(tag)-\(i)",
+					UnitID:         uid,
+					Round:          1,
+					Kind:           "gate",
+					Command:        "ergo test",
+					CommitSHA:      "aaaa1111",
+					ExitCode:       0,
+					SummaryMetrics: "ok=1",
+					LogPath:        "/tmp/a-\(i).log",
+					LogSHA256:      digest,
+				},
+			}) catch {
+			case _:
+				ok1 = false
+				emptyRes
+			}
+		}
+		ok1
+	}
+	let t2 = task.Go() {
+		let mut ok2 = true
+		for i in 0..4 {
+			let uid = "cw-b-\(tag)-\(i)"
+			let _ = s2.Execute(orchestrate.Envelope{
+				ID:      orchestrate.CommandID("cwb-u-\(tag)-\(i)"),
+				Actor:   "w2",
+				At:      "2026-11-24T12:02:\(i)Z",
+				Command: orchestrate.OpenUnit{ID: uid, Title: "B \(i)", Area: "wal"},
+			}) catch {
+			case _:
+				ok2 = false
+				emptyRes
+			}
+			let _ = s2.Execute(orchestrate.Envelope{
+				ID:      orchestrate.CommandID("cwb-q-\(tag)-\(i)"),
+				Actor:   "w2",
+				At:      "2026-11-24T12:03:\(i)Z",
+				Command: orchestrate.UpsertQueueItem{
+					Key:      "cw-q-\(tag)-\(i)",
+					Priority: i,
+					Title:    "Q \(i)",
+					Body:     "concurrent",
+					Status:   "open",
+					Tags:     []string{"wal"},
+				},
+			}) catch {
+			case _:
+				ok2 = false
+				emptyRes
+			}
+		}
+		ok2
+	}
+	let r1 = t1.Wait()
+	let r2 = t2.Wait()
+	s1.Close() catch {
+	case orchestrate.StoreFailed:
+	}
+	s2.Close() catch {
+	case orchestrate.StoreFailed:
+	}
+	let reopened = Open(path) catch {
+	case orchestrate.StoreFailed:
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let units = reopened.ListUnits(None) catch {
+	case orchestrate.StoreFailed:
+		reopened.Close() catch {
+		case orchestrate.StoreFailed:
+		}
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let queue = reopened.ListQueue(None) catch {
+	case orchestrate.StoreFailed:
+		reopened.Close() catch {
+		case orchestrate.StoreFailed:
+		}
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let evs = reopened.Events(0) catch {
+	case orchestrate.StoreFailed:
+		reopened.Close() catch {
+		case orchestrate.StoreFailed:
+		}
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let snap = reopened.Snapshot() catch {
+	case orchestrate.StoreFailed:
+		reopened.Close() catch {
+		case orchestrate.StoreFailed:
+		}
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	reopened.Close() catch {
+	case orchestrate.StoreFailed:
+	}
+	cleanupVerifyDB(dir, name)
+	let mut dense = true
+	for i, ev in evs {
+		if ev.Seq != i+1 {
+			dense = false
+		}
+	}
+	r1 && r2 && len(units) == 8 && len(queue) == 4 && len(snap.Receipts) == 4 && len(evs) == 32 && dense && orchestrate.Fold(orchestrate.EventList(evs)) == snap
+}
