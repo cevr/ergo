@@ -40,7 +40,23 @@ func main() {
 		// The checked std snapshot lives beside the emission cache (CHK1b).
 		sketchfront.UseStdCache(root)
 	}
-	err := command(os.Args[1:])
+	args, profCfg, err := extractProfileConfig(os.Args[1:], os.Getenv)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(exitCode(err))
+	}
+	prof, err := startProfileSession(profCfg, os.Stderr)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "ergo: profile:", err)
+		os.Exit(1)
+	}
+	err = command(args)
+	if perr := prof.finish(); perr != nil {
+		fmt.Fprintln(os.Stderr, "ergo: profile:", perr)
+		if err == nil {
+			err = perr
+		}
+	}
 	if werr := sketchfront.WriteStageReport(); werr != nil {
 		fmt.Fprintln(os.Stderr, "ergo: stage report:", werr)
 	}
