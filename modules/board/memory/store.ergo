@@ -1,0 +1,129 @@
+import github.com/cevr/ergo/modules/board/board
+import maps
+import slices
+import strings
+import sync
+
+type memBook {
+	State board.State,
+	Logs  Map[string, []board.Event],
+}
+
+// Store is an in-memory provider of board.Store. Every Commit checks the
+// expected cursor, appends events, and updates the projected State atomically
+// inside one sync.Modify transition.
+type Store {
+	ref sync.Ref[memBook],
+} implements board.Store
+
+// NewStore returns a fresh memory Store initialized with a default workspace admin.
+func NewStore() Store {
+	let admin = board.Principal{
+		ID:     "google:admin",
+		Kind:   board.Person,
+		Handle: "admin",
+		Email:  "admin@example.com",
+		Name:   "Admin",
+		Role:   board.Admin,
+		State:  board.Active,
+	}
+	NewWithAdmins([]board.Principal{admin}, 0)
+}
+
+// NewWithAdmins returns a fresh memory Store seeded with admins at timestamp now.
+func NewWithAdmins(admins []board.Principal, now board.Timestamp) Store {
+	let init = board.InitialState(admins, now)
+	Store{ref: sync.NewRef(memBook{State: init, Logs: Map[string, []board.Event]{}})}
+}
+
+func logOf(b memBook, name string) []board.Event {
+	match b.Logs.Get(name) {
+	case Some[[]board.Event] as evts:
+		evts.Value
+	case None:
+		[]board.Event{}
+	}
+}
+
+type commitResult = commitOK{Head board.Cursor} | commitStale{Actual board.Cursor}
+
+// Commit atomically checks boardName's head against expected, assigns dense
+// sequential cursors to events, appends them to the board log, and folds them
+// into the projected State.
+func Commit(s Store, boardName string, expected board.Cursor, events []board.Event) board.Cursor fails board.StalePosition | board.StoreFailed {
+	let bName = board.ResolveBoard(boardName)
+	let res = sync.Modify(s.ref, func(b memBook) (commitResult, memBook) {
+		let curLog = logOf(b, bName)
+		let actual = len(curLog)
+		if expected != actual {
+			return (commitStale{Actual: actual}, b)
+		}
+		let mut nextLog = curLog
+		let mut nextState = b.State
+		let mut seq = actual
+		for e in events {
+			seq = seq + 1
+			let stamped = board.Event{..e, Seq: seq, Board: bName}
+			nextLog = nextLog.Append(stamped)
+			nextState = board.Apply(nextState, stamped)
+		}
+		(commitOK{Head: seq}, memBook{State: nextState, Logs: b.Logs.Put(bName, nextLog)})
+	})
+	match res {
+	case commitOK as ok:
+		ok.Head
+	case commitStale as st:
+		board.StalePosition{Board: bName, Expected: expected, Actual: st.Actual}
+	}
+}
+
+// ReadEvents returns all committed events for boardName with Seq > after.
+func ReadEvents(s Store, boardName string, after board.Cursor) []board.Event fails board.StoreFailed {
+	let bName = board.ResolveBoard(boardName)
+	let all = logOf(s.ref.Get(), bName)
+	let mut out = []board.Event{}
+	for e in all {
+		if e.Seq > after {
+			out = out.Append(e)
+		}
+	}
+	out
+}
+
+// Snapshot returns the store's current projected domain State.
+func Snapshot(s Store) board.State fails board.StoreFailed { s.ref.Get().State }
+
+func snippetFor(text string) string {
+	let bs = strings.Bytes(text)
+	if len(bs) <= 120 {
+		return text
+	}
+	strings.Slice(text, 0, 120)
+}
+
+// Search returns readable, non-deleted messages matching q up to q.Limit.
+func Search(s Store, q board.SearchQuery) []board.SearchHit fails board.StoreFailed {
+	let st = s.ref.Get().State
+	let bName = board.ResolveBoard(q.Board)
+	let gs = match st.Grants.Get(bName) {
+	case Some[[]board.Grant] as xs:
+		xs.Value
+	case None:
+		[]board.Grant{}
+	}
+	let limit = if q.Limit <= 0 { 50 } else { q.Limit }
+	let mut hits = []board.SearchHit{}
+	for id in slices.Sorted(maps.Keys(st.Messages)) {
+		if len(hits) >= limit {
+			break
+		}
+		match st.Messages.Get(id) {
+		case Some[board.Message] as m:
+			if board.MatchesSearchQuery(gs, m.Value, q) {
+				hits = hits.Append(board.SearchHit{Message: m.Value, Snippet: snippetFor(m.Value.Text)})
+			}
+		case None:
+		}
+	}
+	hits
+}

@@ -1,0 +1,523 @@
+// AskResponder identifies one of two responders racing to answer an ask.
+type AskResponder = RespX{} | RespY{}
+
+// AskAct is an action driving the product Ask state machine (M5).
+type AskAct = AskReplyRead{R AskResponder} | AskReplyWrite{R AskResponder} | AskWithdrawAct{} | AskExpireAct{} | AskEditAct{} | AskWaitTimeout{} | AskAskerRead{}
+
+// AskWorld pairs the real domain State with race/notification tracking for M5.
+type AskWorld {
+	Board        State,
+	AskID        MessageID,
+	Replies      int,
+	Saw          []bool,
+	FirstAnswer  MessageID,
+	Changed      bool,
+	MentionNotes int,
+	AnswerNotes  int,
+	Edits        int,
+	TimedOut     bool,
+	Read         bool,
+	Closed       bool,
+}
+
+func askAdmin() Principal {
+	Principal{ID: "google:asker", Kind: Person, Handle: "asker", Email: "asker@example.com", Name: "Asker", Role: Admin, State: Active}
+}
+
+func askCaller(id PrincipalID, email string) Caller {
+	Caller{Principal: id, Profile: "", Role: Member, Kind: Person, Email: email, Narrowed: false, NarrowedCan: Map[string, []Permission]{}, NarrowedProfile: "", NarrowedBoards: []string{}}
+}
+
+func askResponderIndex(r AskResponder) int {
+	match r {
+	case RespX:
+		0
+	case RespY:
+		1
+	}
+}
+
+func askResponderCaller(r AskResponder) Caller {
+	match r {
+	case RespX:
+		askCaller("google:rx", "rx@example.com")
+	case RespY:
+		askCaller("google:ry", "ry@example.com")
+	}
+}
+
+func askApplyDecide(s State, cmd Command, now Timestamp) (State, []Event, bool) {
+	let evts = Decide(s, cmd, now) catch {
+	case _:
+		return (s, []Event{}, false)
+	}
+	let mut cur = s
+	let b = BoardOfCommand(cmd)
+	let mut seq = boardHead(cur, b)
+	for e in evts {
+		seq = seq + 1
+		cur = Apply(cur, Event{..e, Seq: seq})
+	}
+	(cur, evts, true)
+}
+
+func askInitial() AskWorld {
+	let asker = askAdmin()
+	let s0 = InitialState([]Principal{asker}, 100)
+	let askerCaller = Caller{Principal: asker.ID, Profile: "", Role: Admin, Kind: Person, Email: asker.Email, Narrowed: false, NarrowedCan: Map[string, []Permission]{}, NarrowedProfile: "", NarrowedBoards: []string{}}
+	let (s1, _, _) = askApplyDecide(s0, OpenAsk{
+		Caller:         askerCaller,
+		Board:          DefaultBoard,
+		Channel:        "dev",
+		Thread:         "",
+		Text:           "Ready to ship?",
+		To:             []ActorID{"google:rx", "google:ry"},
+		OnlyFromAsked:  true,
+		ExpiresAt:      0,
+		IdempotencyKey: "",
+	}, 101)
+	AskWorld{
+		Board:        s1,
+		AskID:        "msg_1",
+		Replies:      0,
+		Saw:          []bool{false, false},
+		FirstAnswer:  "",
+		Changed:      false,
+		MentionNotes: 1,
+		AnswerNotes:  0,
+		Edits:        0,
+		TimedOut:     false,
+		Read:         false,
+		Closed:       false,
+	}
+}
+
+func askRecordOf(w AskWorld) AskRecord {
+	match w.Board.Asks.Get(w.AskID) {
+	case Some[AskRecord] as a:
+		a.Value
+	case None:
+		AskRecord{ID: "", Board: "", Channel: "", Root: "", Asker: "", AskerPrincipal: "", To: []ActorID{}, OnlyFromAsked: false, State: AskOpen, Answer: "", ExpiresAt: 0, CreatedAt: 0}
+	}
+}
+
+func askStep(s AskWorld, act AskAct) Decision[AskWorld, string] {
+	let mut w = s
+	let rec = askRecordOf(w)
+	match act {
+	case AskReplyRead as a:
+		let idx = askResponderIndex(a.R)
+		if rec.State != AskOpen || w.Saw[idx] {
+			return Ignore
+		}
+		w.Saw[idx] = true
+		return Enter{w}
+	case AskReplyWrite as a:
+		let idx = askResponderIndex(a.R)
+		if !w.Saw[idx] {
+			return Ignore
+		}
+		w.Saw[idx] = false
+		let (nextBoard, evts, ok) = askApplyDecide(w.Board, ReplyMessage{
+			Caller:         askResponderCaller(a.R),
+			Board:          DefaultBoard,
+			Re:             w.AskID,
+			Text:           "answer-\(idx)",
+			After:          "",
+			Labels:         Map[string, string]{},
+			NoSync:         false,
+			From:           "",
+			IdempotencyKey: "",
+		}, 200)
+		if !ok {
+			return Ignore
+		}
+		w.Board = nextBoard
+		w.Replies = w.Replies + 1
+		for e in evts {
+			match e.Payload {
+			case AskAnsweredEvent as ans:
+				w.AnswerNotes = w.AnswerNotes + 1
+				if w.FirstAnswer == "" {
+					w.FirstAnswer = ans.Answer
+				} else if w.FirstAnswer != ans.Answer {
+					w.Changed = true
+				}
+			case _:
+			}
+		}
+		return Enter{w}
+	case AskWithdrawAct:
+		if rec.State != AskOpen {
+			return Ignore
+		}
+		let asker = askAdmin()
+		let askerCaller = Caller{Principal: asker.ID, Profile: "", Role: Admin, Kind: Person, Email: asker.Email, Narrowed: false, NarrowedCan: Map[string, []Permission]{}, NarrowedProfile: "", NarrowedBoards: []string{}}
+		let (nextBoard, _, ok) = askApplyDecide(w.Board, WithdrawAsk{Caller: askerCaller, Board: DefaultBoard, ID: w.AskID}, 201)
+		if !ok {
+			return Ignore
+		}
+		w.Board = nextBoard
+		w.Closed = true
+		return Enter{w}
+	case AskExpireAct:
+		if rec.State != AskOpen {
+			return Ignore
+		}
+		let (nextBoard, _, ok) = askApplyDecide(w.Board, ExpireAsk{Board: DefaultBoard, ID: w.AskID}, 202)
+		if !ok {
+			return Ignore
+		}
+		w.Board = nextBoard
+		w.Closed = true
+		return Enter{w}
+	case AskEditAct:
+		if w.Edits >= 2 || rec.State != AskOpen {
+			return Ignore
+		}
+		let asker = askAdmin()
+		let askerCaller = Caller{Principal: asker.ID, Profile: "", Role: Admin, Kind: Person, Email: asker.Email, Narrowed: false, NarrowedCan: Map[string, []Permission]{}, NarrowedProfile: "", NarrowedBoards: []string{}}
+		let (nextBoard, _, ok) = askApplyDecide(w.Board, EditMessage{Caller: askerCaller, Board: DefaultBoard, ID: w.AskID, Text: "Ready to ship? edit", IfRevision: 0}, 203)
+		if !ok {
+			return Ignore
+		}
+		w.Board = nextBoard
+		w.Edits = w.Edits + 1
+		return Enter{w}
+	case AskWaitTimeout:
+		if w.TimedOut || rec.State != AskOpen {
+			return Ignore
+		}
+		w.TimedOut = true
+		return Enter{w}
+	case AskAskerRead:
+		if rec.State != AskAnswered || w.Read {
+			return Ignore
+		}
+		w.Read = true
+		return Enter{w}
+	}
+}
+
+func askOneAnswer(w AskWorld) bool {
+	let rec = askRecordOf(w)
+	if (rec.State == AskAnswered) != (rec.Answer != "") {
+		return false
+	}
+	if w.FirstAnswer != "" && rec.Answer != w.FirstAnswer {
+		return false
+	}
+	!w.Changed && w.AnswerNotes <= 1
+}
+
+func askMentionedOnce(w AskWorld) bool { w.MentionNotes == 1 }
+
+func askClosedStaysClosed(w AskWorld) bool {
+	let rec = askRecordOf(w)
+	!(w.Closed && rec.State == AskAnswered)
+}
+
+func askLoserIsAReply(w AskWorld) bool        { askRecordOf(w).State == AskAnswered && w.Replies == 2 }
+func askAnsweredAfterTimeout(w AskWorld) bool { w.TimedOut && askRecordOf(w).State == AskAnswered && w.Read }
+func askClosedUnanswered(w AskWorld) bool     { askRecordOf(w).State == AskWithdrawn && w.Replies == 1 }
+
+// Ask proves M5's invariants directly on board.Decide and board.Apply.
+type Ask machine[AskWorld, AskAct] {
+	initial: askInitial(),
+	step:    askStep,
+
+	law OneAnswer always askOneAnswer,
+	law MentionedOnce always askMentionedOnce,
+	law ClosedStaysClosed always askClosedStaysClosed,
+
+	law LoserIsAReply sometimes askLoserIsAReply,
+	law AnsweredAfterTimeout sometimes askAnsweredAfterTimeout,
+	law ClosedUnanswered sometimes askClosedUnanswered,
+}
+
+// AccessAct is an action driving the product Access state machine (M6).
+type AccessAct = AccessRevoke{} | AccessGive{} | AccessBegin{} | AccessCommit{} | AccessSubscribe{} | AccessAppend{} | AccessDeliver{}
+
+// AccessWorld pairs the real domain State with grant-race tracking for M6.
+type AccessWorld {
+	Board   State,
+	Changes int,
+	Req     int,
+	Wrote   int,
+	Refused bool,
+	Sub     bool,
+	Events  int,
+	Next    int,
+	Got     int,
+	Skipped int,
+	Leak    bool,
+}
+
+func accessAdminPrincipal() Principal {
+	Principal{ID: "google:admin", Kind: Person, Handle: "admin", Email: "admin@example.com", Name: "Admin", Role: Admin, State: Active}
+}
+
+func accessAdminCaller() Caller {
+	Caller{Principal: "google:admin", Profile: "", Role: Admin, Kind: Person, Email: "admin@example.com", Narrowed: false, NarrowedCan: Map[string, []Permission]{}, NarrowedProfile: "", NarrowedBoards: []string{}}
+}
+
+func accessMemberCaller() Caller {
+	Caller{Principal: "google:member", Profile: "", Role: Member, Kind: Person, Email: "member@example.com", Narrowed: false, NarrowedCan: Map[string, []Permission]{}, NarrowedProfile: "", NarrowedBoards: []string{}}
+}
+
+func accessAllowedNow(w AccessWorld) bool {
+	Can(boardGrants(w.Board, DefaultBoard), accessMemberCaller(), "priv", PermRead)
+}
+
+func accessInitial() AccessWorld {
+	let s0 = InitialState([]Principal{accessAdminPrincipal()}, 100)
+	let (s1, _, _) = askApplyDecide(s0, CreateChannel{Caller: accessAdminCaller(), Board: DefaultBoard, Path: "priv", Private: true}, 101)
+	let memberGrant = Grant{
+		ID:         "",
+		Principals: []PrincipalMatch{MatchEmail{Email: "member@example.com"}},
+		Rules:      []GrantRule{GrantRule{Pattern: "priv", Allow: []Permission{PermRead, PermPost}, Deny: false}},
+		CreatedBy:  "",
+		CreatedAt:  0,
+		Revision:   1,
+	}
+	let (s2, _, _) = askApplyDecide(s1, CreateGrant{Caller: accessAdminCaller(), Board: DefaultBoard, Grant: memberGrant}, 102)
+	AccessWorld{
+		Board:   s2,
+		Changes: 0,
+		Req:     0,
+		Wrote:   0,
+		Refused: false,
+		Sub:     false,
+		Events:  0,
+		Next:    0,
+		Got:     0,
+		Skipped: 0,
+		Leak:    false,
+	}
+}
+
+func accessStep(s AccessWorld, act AccessAct) Decision[AccessWorld, string] {
+	let mut w = s
+	let allowed = accessAllowedNow(w)
+	match act {
+	case AccessRevoke:
+		if !allowed || w.Changes >= 3 {
+			return Ignore
+		}
+		let denyGrant = Grant{
+			ID:         "g5",
+			Principals: []PrincipalMatch{MatchEmail{Email: "member@example.com"}},
+			Rules:      []GrantRule{GrantRule{Pattern: "priv", Allow: []Permission{}, Deny: true}},
+			CreatedBy:  "google:admin",
+			CreatedAt:  102,
+			Revision:   1,
+		}
+		let (nb, _, ok) = askApplyDecide(w.Board, UpdateGrant{Caller: accessAdminCaller(), Board: DefaultBoard, Grant: denyGrant}, 103)
+		if !ok {
+			return Ignore
+		}
+		w.Board = nb
+		w.Changes = w.Changes + 1
+		return Enter{w}
+	case AccessGive:
+		if allowed || w.Changes >= 3 {
+			return Ignore
+		}
+		let allowGrant = Grant{
+			ID:         "g5",
+			Principals: []PrincipalMatch{MatchEmail{Email: "member@example.com"}},
+			Rules:      []GrantRule{GrantRule{Pattern: "priv", Allow: []Permission{PermRead, PermPost}, Deny: false}},
+			CreatedBy:  "google:admin",
+			CreatedAt:  102,
+			Revision:   1,
+		}
+		let (nb, _, ok) = askApplyDecide(w.Board, UpdateGrant{Caller: accessAdminCaller(), Board: DefaultBoard, Grant: allowGrant}, 103)
+		if !ok {
+			return Ignore
+		}
+		w.Board = nb
+		w.Changes = w.Changes + 1
+		return Enter{w}
+	case AccessBegin:
+		if w.Req != 0 || !allowed {
+			return Ignore
+		}
+		w.Req = 1
+		return Enter{w}
+	case AccessCommit:
+		if w.Req != 1 {
+			return Ignore
+		}
+		w.Req = 2
+		let (nb, _, ok) = askApplyDecide(w.Board, PostMessage{
+			Caller:         accessMemberCaller(),
+			Board:          DefaultBoard,
+			Channel:        "priv",
+			Text:           "member-post",
+			Labels:         Map[string, string]{},
+			NoSync:         false,
+			From:           "",
+			IdempotencyKey: "",
+		}, 104)
+		if !ok {
+			w.Refused = true
+			return Enter{w}
+		}
+		w.Board = nb
+		w.Wrote = w.Wrote + 1
+		if !allowed {
+			w.Leak = true
+		}
+		return Enter{w}
+	case AccessSubscribe:
+		if w.Sub || !allowed {
+			return Ignore
+		}
+		w.Sub = true
+		w.Next = w.Events
+		return Enter{w}
+	case AccessAppend:
+		if w.Events >= 2 {
+			return Ignore
+		}
+		w.Events = w.Events + 1
+		return Enter{w}
+	case AccessDeliver:
+		if !w.Sub || w.Next >= w.Events {
+			return Ignore
+		}
+		w.Next = w.Next + 1
+		if !allowed {
+			w.Skipped = w.Skipped + 1
+			return Enter{w}
+		}
+		w.Got = w.Got + 1
+		return Enter{w}
+	}
+}
+
+func accessNoLeak(w AccessWorld) bool             { !w.Leak }
+func accessOneOutcome(w AccessWorld) bool         { w.Wrote <= 1 && !(w.Wrote == 1 && w.Refused) }
+func accessRefusedAfterRevoke(w AccessWorld) bool { w.Refused && w.Wrote == 0 }
+func accessLanded(w AccessWorld) bool             { w.Wrote == 1 }
+func accessSkippedThenGot(w AccessWorld) bool     { w.Skipped == 1 && w.Got == 1 }
+
+// Access proves M6's grant-race invariants directly on board.Decide,
+// board.Apply, and board.Can.
+type Access machine[AccessWorld, AccessAct] {
+	initial: accessInitial(),
+	step:    accessStep,
+
+	law NoLeak always accessNoLeak,
+	law OneOutcome always accessOneOutcome,
+
+	law RefusesAfterRevoke sometimes accessRefusedAfterRevoke,
+	law Lands sometimes accessLanded,
+	law SkipsThenGives sometimes accessSkippedThenGot,
+}
+
+// IdempotencyLandsOnce checks M8 on pure Decide: repeating a post with the
+// same actor, key, and payload within 24 hours returns no new events and keeps
+// the exact first result recorded.
+law IdempotencyLandsOnce(tag int) {
+	let admin = accessAdminPrincipal()
+	let caller = accessAdminCaller()
+	let s0 = InitialState([]Principal{admin}, 100)
+	let cmd = PostMessage{
+		Caller:         caller,
+		Board:          DefaultBoard,
+		Channel:        "dev",
+		Text:           "idempotent-\(tag)",
+		Labels:         Map[string, string]{},
+		NoSync:         false,
+		From:           "",
+		IdempotencyKey: "k1",
+	}
+	let (s1, evts1, ok1) = askApplyDecide(s0, cmd, 1000)
+	if !ok1 || len(evts1) == 0 {
+		return false
+	}
+	let evts2 = Decide(s1, cmd, 2000) catch {
+	case _:
+		return false
+	}
+	let first = LookupIdempotency(s1, ActorOf(caller), "k1", 2000)
+	let mut msgCount = 0
+	for _ in s1.Messages {
+		msgCount = msgCount + 1
+	}
+	len(evts2) == 0 && msgCount == 1 && first != None
+}
+
+// IdempotencyConflictOnDifferentPayload checks M8 on pure Decide: reusing a
+// key within 24 hours with a different payload fails IdempotencyConflict.
+law IdempotencyConflictOnDifferentPayload(tag int) {
+	let admin = accessAdminPrincipal()
+	let caller = accessAdminCaller()
+	let s0 = InitialState([]Principal{admin}, 100)
+	let cmd1 = PostMessage{
+		Caller:         caller,
+		Board:          DefaultBoard,
+		Channel:        "dev",
+		Text:           "payload-a-\(tag)",
+		Labels:         Map[string, string]{},
+		NoSync:         false,
+		From:           "",
+		IdempotencyKey: "k1",
+	}
+	let (s1, _, ok1) = askApplyDecide(s0, cmd1, 1000)
+	if !ok1 {
+		return false
+	}
+	let cmd2 = PostMessage{..cmd1, Text: "payload-b-\(tag)"}
+	Decide(s1, cmd2, 2000) catch {
+	case IdempotencyConflict:
+		return true
+	case _:
+		return false
+	}
+	false
+}
+
+// ConditionalLabelOneWinner checks M8 on pure Decide: of two conditional label
+// writes sharing one precondition, the first lands and the second fails
+// LabelConflict.
+law ConditionalLabelOneWinner(tag int) {
+	let admin = accessAdminPrincipal()
+	let caller = accessAdminCaller()
+	let s0 = InitialState([]Principal{admin}, 100)
+	let (s1, _, ok1) = askApplyDecide(s0, PostMessage{
+		Caller:         caller,
+		Board:          DefaultBoard,
+		Channel:        "dev",
+		Text:           "label-target-\(tag)",
+		Labels:         Map[string, string]{},
+		NoSync:         false,
+		From:           "",
+		IdempotencyKey: "",
+	}, 1000)
+	if !ok1 {
+		return false
+	}
+	let w1 = LabelMessage{
+		Caller:  caller,
+		Board:   DefaultBoard,
+		ID:      "msg_1",
+		Set:     Map[string, string]{}.Put("owner", "a"),
+		Unset:   []string{},
+		If:      Map[string, string]{},
+		IfUnset: []string{"owner"},
+	}
+	let w2 = LabelMessage{..w1, Set: Map[string, string]{}.Put("owner", "b")}
+	let (s2, _, ok2) = askApplyDecide(s1, w1, 1001)
+	if !ok2 {
+		return false
+	}
+	Decide(s2, w2, 1002) catch {
+	case LabelConflict:
+		return true
+	case _:
+		return false
+	}
+	false
+}

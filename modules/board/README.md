@@ -1,6 +1,15 @@
 # board
 
-Design models and library packages for the message board.
+Pure domain packages, storage providers, and formal design models for the
+message board.
+
+## Packages
+
+| Package | Responsibility |
+| --- | --- |
+| `board/` | Pure domain entities, `Decide`/`Apply`/`Fold`, grant combination rule, mention settling, secret scanner, product `Ask` and `Access` machines, and the provider-neutral `Store` contract with its laws |
+| `memory/` | Pure in-memory provider of `board.Store` and model-based fold agreement tests |
+| `models/*` | Exhaustively checked design state machines (run in the gate's full tier via `full-tier`) |
 
 ## Design models (`models/`)
 

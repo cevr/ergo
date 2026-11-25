@@ -1,0 +1,117 @@
+{
+  "about": "module board's unit-2 domain and memory-store mutants; each is killed by a canonical law or test of modules/board/board or modules/board/memory.",
+  "mutants": [
+    {
+      "name": "board-grant-allows-denied-channel",
+      "origin": "BOARD-2",
+      "file": "modules/board/board/grants.ergo",
+      "from": "\t\t\t\tout = if r.Deny { []Permission{} } else { r.Allow }\n",
+      "to": "\t\t\t\tout = if r.Deny { AllPermissions() } else { r.Allow }\n",
+      "rule": "An explicit deny grant rule closes access to the matched channel pattern rather than granting permissions.",
+      "anchor": {
+        "tests": [
+          "modules/board/board:law:GrantRuleMatchesReference"
+        ]
+      },
+      "killers": [
+        "modules/board/board:law:GrantRuleMatchesReference"
+      ]
+    },
+    {
+      "name": "board-secret-scanner-skips-aws",
+      "origin": "BOARD-2",
+      "file": "modules/board/board/secrets.ergo",
+      "from": "\t\tmatchAwsKey(bs, pos),\n",
+      "to": "\t\tNone,\n",
+      "rule": "ScanSecret detects every supported credential shape including AWS access keys.",
+      "anchor": {
+        "tests": [
+          "modules/board/board:law:ScannerCatchesEverySeededSecret"
+        ]
+      },
+      "killers": [
+        "modules/board/board:law:ScannerCatchesEverySeededSecret"
+      ]
+    },
+    {
+      "name": "board-mentions-reads-code-span",
+      "origin": "BOARD-2",
+      "file": "modules/board/board/mentions.ergo",
+      "from": "\t\tif !inFence && !inInline && bs[i] == 64 {\n",
+      "to": "\t\tif bs[i] == 64 {\n",
+      "rule": "SettleMentions ignores @handles inside inline and fenced code spans.",
+      "anchor": {
+        "tests": [
+          "modules/board/board:law:MentionsInsideCodeIgnored"
+        ]
+      },
+      "killers": [
+        "modules/board/board:law:MentionsInsideCodeIgnored"
+      ]
+    },
+    {
+      "name": "board-idempotency-ignores-digest",
+      "origin": "BOARD-2",
+      "file": "modules/board/board/decide.ergo",
+      "from": "\t\tif e.Value.Digest != digest {\n\t\t\treturn IdempotencyConflict\n\t\t}\n",
+      "to": "\t\tif false && e.Value.Digest != digest {\n\t\t\treturn IdempotencyConflict\n\t\t}\n",
+      "rule": "Reusing an idempotency key within 24 hours with a different payload fails IdempotencyConflict.",
+      "anchor": {
+        "tests": [
+          "modules/board/board:law:IdempotencyConflictOnDifferentPayload"
+        ]
+      },
+      "killers": [
+        "modules/board/board:law:IdempotencyConflictOnDifferentPayload"
+      ]
+    },
+    {
+      "name": "board-apply-drops-reaction",
+      "origin": "BOARD-2",
+      "file": "modules/board/board/decide.ergo",
+      "from": "\tcase ReactionChanged as p:\n\t\tmatch next.Messages.Get(p.ID) {\n\t\tcase Some[Message] as m:\n\t\t\tlet updated = Message{..m.Value, Reactions: updateReaction(m.Value.Reactions, p.Emoji, p.Actor, p.Added)}\n\t\t\tState{..next, Messages: next.Messages.Put(p.ID, updated)}\n\t\tcase None:\n\t\t\tnext\n\t\t}\n",
+      "to": "\tcase ReactionChanged as p:\n\t\tlet _ = p\n\t\tnext\n",
+      "rule": "Apply folds ReactionChanged events into the message's projected Reactions map.",
+      "anchor": {
+        "tests": [
+          "modules/board/memory:TestBoardAgreesWithFold"
+        ]
+      },
+      "killers": [
+        "modules/board/memory:TestBoardAgreesWithFold"
+      ]
+    },
+    {
+      "name": "board-memory-skips-expected-check",
+      "origin": "BOARD-2",
+      "file": "modules/board/memory/store.ergo",
+      "from": "\t\tif expected != actual {\n",
+      "to": "\t\tif false && expected != actual {\n",
+      "rule": "Store.Commit fails StalePosition and changes nothing when expected does not match the board head.",
+      "anchor": {
+        "tests": [
+          "modules/board/memory:law:board.Store.StalePositionChangesNothing"
+        ]
+      },
+      "killers": [
+        "modules/board/memory:law:board.Store.StalePositionChangesNothing"
+      ]
+    },
+    {
+      "name": "board-search-leaks-private-channel",
+      "origin": "BOARD-2",
+      "file": "modules/board/board/store.ergo",
+      "from": "\tif !Can(grants, q.Caller, m.Channel, PermRead) {\n\t\treturn false\n\t}\n",
+      "to": "\tif false && !Can(grants, q.Caller, m.Channel, PermRead) {\n\t\treturn false\n\t}\n",
+      "rule": "Store.Search never returns messages from a channel the caller cannot read.",
+      "anchor": {
+        "tests": [
+          "modules/board/memory:law:board.Store.SearchRespectsVisibilityAndMatches"
+        ]
+      },
+      "killers": [
+        "modules/board/memory:law:board.Store.SearchRespectsVisibilityAndMatches"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,477 @@
+import slices
+import strings
+
+// ValidBoardName reports whether name is 1 to 32 characters of lowercase
+// ASCII letters, digits, or hyphens.
+func ValidBoardName(name string) bool {
+	let bs = strings.Bytes(name)
+	if len(bs) < 1 || len(bs) > 32 {
+		return false
+	}
+	for b in bs {
+		let ok = (b >= 97 && b <= 122) || (b >= 48 && b <= 57) || b == 45
+		if !ok {
+			return false
+		}
+	}
+	true
+}
+
+// ValidChannelPath reports whether path holds 1 to 8 slash-separated segments
+// of lowercase letters, digits, underscores, or hyphens within 128 bytes.
+func ValidChannelPath(path string) bool {
+	let bs = strings.Bytes(path)
+	if len(bs) < 1 || len(bs) > 128 {
+		return false
+	}
+	let segs = strings.Split(path, "/")
+	if len(segs) < 1 || len(segs) > 8 {
+		return false
+	}
+	for seg in segs {
+		let sbs = strings.Bytes(seg)
+		if len(sbs) == 0 {
+			return false
+		}
+		for b in sbs {
+			let ok = (b >= 97 && b <= 122) || (b >= 48 && b <= 57) || b == 95 || b == 45
+			if !ok {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// ValidPattern reports whether pat is "*", a channel path, or a subtree
+// pattern ending in "/".
+func ValidPattern(pat string) bool {
+	if pat == "*" {
+		return true
+	}
+	if strings.HasSuffix(pat, "/") {
+		return ValidChannelPath(strings.TrimSuffix(pat, "/"))
+	}
+	ValidChannelPath(pat)
+}
+
+// PatternSpecificity returns a non-negative rank when pat matches channel, or
+// -1 when it does not. Exact channel matches outrank subtrees, longer subtrees
+// outrank shorter ones, and subtrees outrank "*".
+func PatternSpecificity(pat string, channel string) int {
+	if pat == "*" {
+		return 0
+	}
+	if pat == channel {
+		return 10000 + len(strings.Bytes(pat))
+	}
+	if strings.HasSuffix(pat, "/") {
+		let prefix = strings.TrimSuffix(pat, "/")
+		if channel == prefix || strings.HasPrefix(channel, pat) {
+			return len(strings.Bytes(pat))
+		}
+	}
+	-1
+}
+
+// PrincipalSpecificity returns how specifically m matches caller c: 3 for a
+// named person or service, 2 for all-people or all-services, 1 for everyone,
+// and 0 for no match.
+func PrincipalSpecificity(m PrincipalMatch, c Caller) int {
+	match m {
+	case MatchEmail as e:
+		if c.Kind == Person && e.Email != "" && strings.EqualFold(e.Email, c.Email) {
+			return 3
+		}
+		0
+	case MatchService as s:
+		if c.Kind == Service && s.ID == c.Principal {
+			return 3
+		}
+		0
+	case MatchAllPeople:
+		if c.Kind == Person {
+			return 2
+		}
+		0
+	case MatchAllServices:
+		if c.Kind == Service {
+			return 2
+		}
+		0
+	case MatchEveryone:
+		1
+	}
+}
+
+func bestPrincipalMatch(ms []PrincipalMatch, c Caller) int {
+	let mut best = 0
+	for m in ms {
+		let s = PrincipalSpecificity(m, c)
+		if s > best {
+			best = s
+		}
+	}
+	best
+}
+
+func admittedByOtherGrant(grants []Grant, c Caller) bool {
+	for g in grants {
+		if bestPrincipalMatch(g.Principals, c) >= 2 {
+			for r in g.Rules {
+				if !r.Deny && len(r.Allow) > 0 {
+					return true
+				}
+			}
+		}
+	}
+	false
+}
+
+func addPerm(xs []Permission, p Permission) []Permission {
+	if slices.Contains(xs, p) {
+		return xs
+	}
+	xs.Append(p)
+}
+
+func unionPerms(a []Permission, b []Permission) []Permission {
+	let mut out = a
+	for p in b {
+		out = addPerm(out, p)
+	}
+	out
+}
+
+func intersectPerms(a []Permission, b []Permission) []Permission {
+	let mut out = []Permission{}
+	for p in a {
+		if slices.Contains(b, p) {
+			out = addPerm(out, p)
+		}
+	}
+	out
+}
+
+func narrowedPermissionsFor(c Caller, channel string) []Permission {
+	let mut bestSpec = -1
+	let mut perms = []Permission{}
+	for pat, allow in c.NarrowedCan {
+		let sp = PatternSpecificity(pat, channel)
+		if sp < 0 {
+			continue
+		}
+		if sp > bestSpec {
+			bestSpec = sp
+			perms = allow
+		} else if sp == bestSpec {
+			perms = unionPerms(perms, allow)
+		}
+	}
+	perms
+}
+
+// EffectivePermissions computes the permissions caller c holds on channel
+// under grants: most specific pattern wins, then closest principal, tied
+// grants add up, everyone admits no one alone, role limits apply, and session
+// narrowing intersects the result.
+func EffectivePermissions(grants []Grant, c Caller, channel string) []Permission {
+	if c.Principal == "" {
+		return []Permission{}
+	}
+	if c.Narrowed && c.NarrowedProfile != "" && c.Profile != c.NarrowedProfile {
+		return []Permission{}
+	}
+	let admitted = admittedByOtherGrant(grants, c)
+	let mut bestPat = -1
+	let mut bestPrin = 0
+	let mut matchedAny = false
+	let mut out = []Permission{}
+	for g in grants {
+		let pSpec = bestPrincipalMatch(g.Principals, c)
+		if pSpec == 0 {
+			continue
+		}
+		if pSpec == 1 && !admitted {
+			continue
+		}
+		for r in g.Rules {
+			let patSpec = PatternSpecificity(r.Pattern, channel)
+			if patSpec < 0 {
+				continue
+			}
+			let better = !matchedAny || patSpec > bestPat || (patSpec == bestPat && pSpec > bestPrin)
+			let tied = matchedAny && patSpec == bestPat && pSpec == bestPrin
+			if better {
+				matchedAny = true
+				bestPat = patSpec
+				bestPrin = pSpec
+				out = if r.Deny { []Permission{} } else { r.Allow }
+			} else if tied {
+				if !r.Deny {
+					out = unionPerms(out, r.Allow)
+				}
+			}
+		}
+	}
+	if c.Role != Admin && bestPat == 0 {
+		let mut filtered = []Permission{}
+		for p in out {
+			if p != PermManage {
+				filtered = filtered.Append(p)
+			}
+		}
+		out = filtered
+	}
+	if c.Narrowed {
+		out = intersectPerms(out, narrowedPermissionsFor(c, channel))
+	}
+	out
+}
+
+// Can reports whether caller c holds permission perm on channel under grants.
+func Can(grants []Grant, c Caller, channel string, perm Permission) bool {
+	slices.Contains(EffectivePermissions(grants, c, channel), perm)
+}
+
+// CanModifyAdminSettings reports whether caller c may change grants, trust
+// sets, boards, or principal roles (refused for profiles and narrowed tokens).
+func CanModifyAdminSettings(c Caller) bool {
+	c.Principal != "" && c.Profile == "" && !c.Narrowed
+}
+
+// PermissionName returns the wire name of a permission.
+func PermissionName(p Permission) string {
+	match p {
+	case PermRead:
+		"read"
+	case PermPost:
+		"post"
+	case PermReact:
+		"react"
+	case PermLabel:
+		"label"
+	case PermSync:
+		"sync"
+	case PermManage:
+		"manage"
+	}
+}
+
+func samePermSet(a []Permission, b []Permission) bool {
+	for p in AllPermissions() {
+		if slices.Contains(a, p) != slices.Contains(b, p) {
+			return false
+		}
+	}
+	true
+}
+
+func refEffective(grants []Grant, c Caller, channel string) []Permission {
+	if c.Principal == "" {
+		return []Permission{}
+	}
+	if c.Narrowed && c.NarrowedProfile != "" && c.Profile != c.NarrowedProfile {
+		return []Permission{}
+	}
+	let mut hasNonEveryone = false
+	for g in grants {
+		for m in g.Principals {
+			if PrincipalSpecificity(m, c) >= 2 {
+				for r in g.Rules {
+					if !r.Deny && len(r.Allow) > 0 {
+						hasNonEveryone = true
+					}
+				}
+			}
+		}
+	}
+	let mut maxPat = -1
+	for g in grants {
+		let ps = bestPrincipalMatch(g.Principals, c)
+		if ps == 0 || (ps == 1 && !hasNonEveryone) {
+			continue
+		}
+		for r in g.Rules {
+			let sp = PatternSpecificity(r.Pattern, channel)
+			if sp > maxPat {
+				maxPat = sp
+			}
+		}
+	}
+	if maxPat < 0 {
+		return []Permission{}
+	}
+	let mut maxPrin = 0
+	for g in grants {
+		let ps = bestPrincipalMatch(g.Principals, c)
+		if ps == 0 || (ps == 1 && !hasNonEveryone) {
+			continue
+		}
+		for r in g.Rules {
+			if PatternSpecificity(r.Pattern, channel) == maxPat && ps > maxPrin {
+				maxPrin = ps
+			}
+		}
+	}
+	let mut perms = []Permission{}
+	for g in grants {
+		let ps = bestPrincipalMatch(g.Principals, c)
+		if ps != maxPrin {
+			continue
+		}
+		for r in g.Rules {
+			if PatternSpecificity(r.Pattern, channel) == maxPat && !r.Deny {
+				perms = unionPerms(perms, r.Allow)
+			}
+		}
+	}
+	if c.Role != Admin && maxPat == 0 {
+		let mut keep = []Permission{}
+		for p in perms {
+			if p != PermManage {
+				keep = keep.Append(p)
+			}
+		}
+		perms = keep
+	}
+	if c.Narrowed {
+		perms = intersectPerms(perms, narrowedPermissionsFor(c, channel))
+	}
+	perms
+}
+
+func sampleCaller(k int) Caller {
+	let idx = ((k % 5) + 5) % 5
+	match idx {
+	case 0:
+		Caller{Principal: "google:alice", Profile: "", Role: Member, Kind: Person, Email: "alice@example.com", Narrowed: false, NarrowedCan: Map[string, []Permission]{}, NarrowedProfile: "", NarrowedBoards: []string{}}
+	case 1:
+		Caller{Principal: "google:bob", Profile: "fx", Role: Admin, Kind: Person, Email: "bob@example.com", Narrowed: false, NarrowedCan: Map[string, []Permission]{}, NarrowedProfile: "", NarrowedBoards: []string{}}
+	case 2:
+		Caller{Principal: "svc:ci", Profile: "", Role: Member, Kind: Service, Email: "", Narrowed: false, NarrowedCan: Map[string, []Permission]{}, NarrowedProfile: "", NarrowedBoards: []string{}}
+	case 3:
+		Caller{Principal: "google:alice", Profile: "bot", Role: Member, Kind: Person, Email: "alice@example.com", Narrowed: true, NarrowedCan: Map[string, []Permission]{}.Put("dev/", []Permission{PermRead, PermPost}), NarrowedProfile: "bot", NarrowedBoards: []string{}}
+	case _:
+		Caller{Principal: "google:carol", Profile: "", Role: Member, Kind: Person, Email: "carol@example.com", Narrowed: false, NarrowedCan: Map[string, []Permission]{}, NarrowedProfile: "", NarrowedBoards: []string{}}
+	}
+}
+
+func samplePattern(k int) string {
+	match ((k % 4) + 4) % 4 {
+	case 0:
+		"*"
+	case 1:
+		"dev/"
+	case 2:
+		"dev/payments/"
+	case _:
+		"dev/payments"
+	}
+}
+
+func sampleChannel(k int) string {
+	match ((k % 4) + 4) % 4 {
+	case 0:
+		"general"
+	case 1:
+		"dev"
+	case 2:
+		"dev/payments"
+	case _:
+		"dev/payments/alerts"
+	}
+}
+
+func sampleMatch(k int) PrincipalMatch {
+	match ((k % 5) + 5) % 5 {
+	case 0:
+		MatchEmail{Email: "alice@example.com"}
+	case 1:
+		MatchService{ID: "svc:ci"}
+	case 2:
+		MatchAllPeople
+	case 3:
+		MatchAllServices
+	case _:
+		MatchEveryone
+	}
+}
+
+func samplePerms(k int) ([]Permission, bool) {
+	match ((k % 4) + 4) % 4 {
+	case 0:
+		([]Permission{}, true)
+	case 1:
+		([]Permission{PermRead}, false)
+	case 2:
+		([]Permission{PermRead, PermPost}, false)
+	case _:
+		(AllPermissions(), false)
+	}
+}
+
+func buildGrants(specs []int) []Grant {
+	let mut out = []Grant{}
+	for i, x in specs {
+		if i >= 6 {
+			break
+		}
+		let m = sampleMatch(x)
+		let pat = samplePattern(x / 5)
+		let (allow, deny) = samplePerms(x / 20)
+		out = out.Append(Grant{
+			ID:         "g\(i + 1)",
+			Principals: []PrincipalMatch{m},
+			Rules:      []GrantRule{GrantRule{Pattern: pat, Allow: allow, Deny: deny}},
+			CreatedBy:  "system",
+			CreatedAt:  0,
+			Revision:   1,
+		})
+	}
+	out
+}
+
+// GrantRuleMatchesReference checks EffectivePermissions against an independent
+// reference oracle over generated callers, grant sets, and channels.
+law GrantRuleMatchesReference(callerIdx int, chanIdx int, specs []int) {
+	let c = sampleCaller(callerIdx)
+	let ch = sampleChannel(chanIdx)
+	let gs = buildGrants(specs)
+	samePermSet(EffectivePermissions(gs, c, ch), refEffective(gs, c, ch))
+}
+
+// NarrowedAccessIsASubset verifies that a narrowed session never receives a
+// permission its unnarrowed principal lacks.
+law NarrowedAccessIsASubset(chanIdx int, specs []int) {
+	let ch = sampleChannel(chanIdx)
+	let gs = buildGrants(specs)
+	let base = Caller{Principal: "google:alice", Profile: "bot", Role: Member, Kind: Person, Email: "alice@example.com", Narrowed: false, NarrowedCan: Map[string, []Permission]{}, NarrowedProfile: "", NarrowedBoards: []string{}}
+	let narrowed = Caller{..base, Narrowed: true, NarrowedCan: Map[string, []Permission]{}.Put("dev/", []Permission{PermRead, PermPost}), NarrowedProfile: "bot"}
+	let basePerms = EffectivePermissions(gs, base, ch)
+	let narPerms = EffectivePermissions(gs, narrowed, ch)
+	for p in narPerms {
+		if !slices.Contains(basePerms, p) {
+			return false
+		}
+	}
+	true
+}
+
+// EveryoneAloneAdmitsNoService verifies that an everyone grant never grants
+// access to a service that no other grant admits.
+law EveryoneAloneAdmitsNoService(chanIdx int) {
+	let ch = sampleChannel(chanIdx)
+	let gs = []Grant{
+		Grant{
+			ID:         "g1",
+			Principals: []PrincipalMatch{MatchEveryone},
+			Rules:      []GrantRule{GrantRule{Pattern: "*", Allow: AllPermissions(), Deny: false}},
+			CreatedBy:  "system",
+			CreatedAt:  0,
+			Revision:   1,
+		},
+	}
+	let svc = Caller{Principal: "svc:ci", Profile: "", Role: Member, Kind: Service, Email: "", Narrowed: false, NarrowedCan: Map[string, []Permission]{}, NarrowedProfile: "", NarrowedBoards: []string{}}
+	len(EffectivePermissions(gs, svc, ch)) == 0
+}
