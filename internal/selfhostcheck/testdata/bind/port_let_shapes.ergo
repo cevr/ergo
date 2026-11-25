@@ -1,0 +1,21 @@
+type PortLetBag { Items []int }
+
+func PortLetSliceLen(xs []int) int {
+	let ys = xs
+	len(ys)
+}
+
+func PortLetSliceLit(a int, b int) []int {
+	let ys = []int{a, b}
+	ys
+}
+
+func PortLetRecordField(b PortLetBag) int {
+	let xs = b.Items
+	len(xs)
+}
+
+func PortLetOptionWrap(o Option[int]) []Option[int] {
+	let p = o
+	[]Option[int]{p}
+}

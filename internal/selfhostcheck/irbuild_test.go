@@ -418,6 +418,35 @@ func irBaseFields(fn *irFunc, originals, typeHeads map[string]string) {
 				walk(v.Index(i))
 			}
 		case reflect.Struct:
+			if loc, ok := v.Addr().Interface().(*irLocal); ok {
+				elem := loc.Type
+				for {
+					if strings.HasPrefix(elem, "[]") {
+						elem = elem[2:]
+					} else if strings.HasPrefix(elem, "[") {
+						if close := strings.IndexByte(elem, ']'); close > 1 {
+							elem = elem[close+1:]
+						} else {
+							break
+						}
+					} else if strings.HasPrefix(elem, "map[") {
+						if close := strings.IndexByte(elem, ']'); close > 4 {
+							elem = elem[close+1:]
+						} else {
+							break
+						}
+					} else {
+						break
+					}
+				}
+				if head, args, generic := strings.Cut(elem, "["); generic {
+					if name, ok := typeHeads[head]; ok {
+						loc.Type = loc.Type[:len(loc.Type)-len(elem)] + name + "[" + args
+					}
+				} else if name, ok := originals[elem]; ok {
+					loc.Type = loc.Type[:len(loc.Type)-len(elem)] + name
+				}
+			}
 			if e, ok := v.Addr().Interface().(*irExpr); ok {
 				switch e.K {
 				case "field":
@@ -1110,6 +1139,170 @@ func ReadOne[T Boxed](x T) int { 1 }
 	}
 	if !foundStop {
 		t.Fatalf("expected honest constrained type parameter stop for ReadOne, got stops: %v", stops)
+	}
+}
+
+func TestIRLetShapes(t *testing.T) {
+	needsBuild(t)
+	ctx, cancel := testwait.Context(t, context.Background())
+	defer cancel()
+	bin := filepath.Join(t.TempDir(), "irdump")
+	if o, err := runCompiler(t, ctx, ergoCLI(t, ctx), "build", "-o", bin, "./cmd/irdump"); err != nil {
+		t.Fatalf("ergo build ./cmd/irdump: %v\n%s", err, o)
+	}
+	const src = `func main() {
+	let _ = SliceLetLen([]int{1, 2})
+	let _ = SliceLitLet(1, 2)
+	let _ = RecordLet(Pair{A: 3, B: 4})
+	let _ = BagLetLen(Bag{Items: []int{5, 6}})
+	let _ = OptionLet(None)
+	let _ = UnionLet(FlagOff)
+	let _ = MutSliceStop([]int{1})
+	let _ = ExplicitSliceStop([]int{1})
+	let _ = TupleStop((1, 2))
+}
+
+type Pair { A int, B int }
+
+type Bag { Items []int }
+
+type Flag = FlagOff{} | FlagOn{}
+
+func SliceLetLen(xs []int) int {
+	let ys = xs
+	len(ys)
+}
+
+func SliceLitLet(a int, b int) []int {
+	let ys = []int{a, b}
+	ys
+}
+
+func RecordLet(p Pair) int {
+	let q = p
+	q.A + q.B
+}
+
+func BagLetLen(b Bag) int {
+	let xs = b.Items
+	len(xs)
+}
+
+func OptionLet(o Option[int]) []Option[int] {
+	let p = o
+	[]Option[int]{p}
+}
+
+func UnionLet(f Flag) Flag {
+	let g = f
+	g
+}
+
+func MutSliceStop(xs []int) int {
+	let mut ys = xs
+	ys = xs
+	len(ys)
+}
+
+func ExplicitSliceStop(xs []int) int {
+	let ys []int = xs
+	len(ys)
+}
+
+func TupleStop(p (int, int)) int {
+	let q = p
+	let _ = q
+	1
+}
+`
+	dir := t.TempDir()
+	file := filepath.Join(dir, "main.ergo")
+	if err := os.WriteFile(file, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	u, err := irspike.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, ext := goKinds(u.Package)
+	_, foreign := goTypes(u.Package)
+	pkgPath := importPath(dir, u.Package)
+	tmp := t.TempDir()
+	ef, ff := filepath.Join(tmp, "ext"), filepath.Join(tmp, "foreign")
+	writeLines(t, ef, ext)
+	writeLines(t, ff, foreign)
+	manifest := filepath.Join(tmp, "manifest")
+	writeLines(t, manifest, []string{strings.Join([]string{pkgPath, ef, ff, file}, " ")})
+	roots := filepath.Join(tmp, "roots")
+	writeLines(t, roots, []string{pkgPath})
+
+	paths := irPathIDs{}
+	goIdx := irGoIndex{}
+	if err := indexGoIR(t, paths, goIdx, irGoProgram{u: u, tests: false, dir: dir, module: dir, reach: ownFuncs(u, map[string]bool{})}); err != nil {
+		t.Fatal(err)
+	}
+
+	emitted := map[string]struct {
+		key  irKey
+		data []byte
+	}{}
+	var files, stops []string
+	for _, l := range runDump(t, ctx, bin, "-std", stdDir(), "-roots", roots, "-corpus", manifest) {
+		kind, rest, _ := strings.Cut(l, " ")
+		switch kind {
+		case "@pkg":
+			files = nil
+		case "P":
+			_, path, _ := strings.Cut(rest, " ")
+			files = append(files, path)
+		case "S":
+			stops = append(stops, l)
+		case "F":
+			f := strings.SplitN(rest, " ", 3)
+			var fn irFunc
+			if err := json.Unmarshal([]byte(f[2]), &fn); err != nil {
+				t.Fatalf("unmarshal IR: %v", err)
+			}
+			if err := irMapFiles(&fn, files, paths); err != nil {
+				t.Fatal(err)
+			}
+			got, err := json.Marshal(&fn)
+			if err != nil {
+				t.Fatal(err)
+			}
+			emitted[fn.Name] = struct {
+				key  irKey
+				data []byte
+			}{irKey{fn.Pos[0], fn.Pos[1], fn.Pos[2]}, got}
+		}
+	}
+
+	for _, want := range []string{"SliceLetLen", "SliceLitLet", "Pair.RecordLet", "Bag.BagLetLen", "OptionLet", "UnionLet"} {
+		got, ok := emitted[want]
+		if !ok {
+			t.Fatalf("let-shapes build did not emit %s (stops: %v)", want, stops)
+		}
+		res := goIdx.compare(got.key, irWitnessSite{file, "0", want}, got.data, false, nil)
+		if res.match < 0 {
+			t.Fatalf("let-shapes %s differed from Go (%s)\nergo: %s\n  go: %v", want, res.cause, got.data, res.wants)
+		}
+	}
+	for _, forbidden := range []string{"MutSliceStop", "ExplicitSliceStop", "TupleStop"} {
+		if _, ok := emitted[forbidden]; ok {
+			t.Fatalf("unadmitted let %s must stop honestly and not emit", forbidden)
+		}
+	}
+	wantStops := []string{" let of slice", " let with explicit type annotation", " let of tuple"}
+	for _, ws := range wantStops {
+		found := false
+		for _, s := range stops {
+			if strings.HasSuffix(s, ws) {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("expected honest stop %q, got stops: %v", ws, stops)
+		}
 	}
 }
 
