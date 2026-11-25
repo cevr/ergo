@@ -1,6 +1,7 @@
 import exec
 import filepath
 import fs
+import fstest
 import os
 import slices
 import strconv
@@ -8,7 +9,7 @@ import strings
 import github.com/cevr/ergo/modules/git/oid
 import github.com/cevr/ergo/modules/git/oracle
 
-let onOracle = context needs TestAmbient {
+let onOracle = context needs fstest.TestAmbient {
 	exec.Runner: exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
 	fs.Files:    fs.NewTestHost(),
 	fs.Writes:   fs.NewTestHost(),
@@ -26,7 +27,7 @@ law SizeVarintRoundTrips(raw int) {
 		case Truncated, CorruptDelta:
 			return false
 		}
-		if got != n || next != len(enc) {
+		if got != n || next != enc.Len() {
 			return false
 		}
 	}
@@ -56,7 +57,7 @@ law OfsDistanceRoundTrips(raw uint64) {
 		case Truncated, BadOfsDistance:
 			return false
 		}
-		if got != d || next != len(enc) {
+		if got != d || next != enc.Len() {
 			return false
 		}
 	}
@@ -66,8 +67,8 @@ law OfsDistanceRoundTrips(raw uint64) {
 // LiteralDeltaRoundTrips: EncodeLiteralDelta followed by Apply reproduces any
 // target byte sequence from any base byte sequence.
 law LiteralDeltaRoundTrips(base []byte, target []byte) {
-	let d = EncodeLiteralDelta(len(base), target)
-	let got = Apply(base, d, len(target)+64) catch {
+	let d = EncodeLiteralDelta(base.Len(), target)
+	let got = Apply(base, d, target.Len()+64) catch {
 	case Truncated, CorruptDelta, BaseSizeMismatch, TargetSizeMismatch, LimitExceeded:
 		return false
 	}
@@ -120,14 +121,14 @@ test CopyZeroSizeMeans64K {
 	delta = delta.Append(byte((tailLen >> 8) & 0xff))
 
 	let got = try Apply(base, delta, total+1024)
-	assert len(got) == total
+	assert got.Len() == total
 	assert slices.Equal(got, base)
 }
 
 test RejectsCorruptAndOversizedDeltas {
 	let base = "abcdef".Bytes()
 
-	let mut zeroOp = EncodeSizeVarint(len(base))
+	let mut zeroOp = EncodeSizeVarint(base.Len())
 	zeroOp = slices.AppendAll(zeroOp, EncodeSizeVarint(3))
 	zeroOp = zeroOp.Append(byte(0x00))
 	let mut gotZeroOp = false
@@ -140,7 +141,7 @@ test RejectsCorruptAndOversizedDeltas {
 	}
 	assert gotZeroOp
 
-	let mut badBase = EncodeSizeVarint(len(base) + 1)
+	let mut badBase = EncodeSizeVarint(base.Len() + 1)
 	badBase = slices.AppendAll(badBase, EncodeSizeVarint(1))
 	badBase = badBase.Append(byte(1))
 	badBase = badBase.Append(byte('x'))
@@ -154,7 +155,7 @@ test RejectsCorruptAndOversizedDeltas {
 	}
 	assert gotBadBase
 
-	let mut badTarget = EncodeSizeVarint(len(base))
+	let mut badTarget = EncodeSizeVarint(base.Len())
 	badTarget = slices.AppendAll(badTarget, EncodeSizeVarint(5))
 	badTarget = badTarget.Append(byte(2))
 	badTarget = badTarget.Append(byte('a'))
@@ -169,7 +170,7 @@ test RejectsCorruptAndOversizedDeltas {
 	}
 	assert gotBadTarget
 
-	let mut oobCopy = EncodeSizeVarint(len(base))
+	let mut oobCopy = EncodeSizeVarint(base.Len())
 	oobCopy = slices.AppendAll(oobCopy, EncodeSizeVarint(4))
 	oobCopy = oobCopy.Append(byte(0x80 | 0x01 | 0x10))
 	oobCopy = oobCopy.Append(byte(4))
@@ -184,7 +185,7 @@ test RejectsCorruptAndOversizedDeltas {
 	}
 	assert gotOob
 
-	let mut truncLit = EncodeSizeVarint(len(base))
+	let mut truncLit = EncodeSizeVarint(base.Len())
 	truncLit = slices.AppendAll(truncLit, EncodeSizeVarint(5))
 	truncLit = truncLit.Append(byte(5))
 	truncLit = truncLit.Append(byte('a'))
@@ -198,7 +199,7 @@ test RejectsCorruptAndOversizedDeltas {
 	}
 	assert gotTrunc
 
-	let bigDelta = EncodeLiteralDelta(len(base), "0123456789".Bytes())
+	let bigDelta = EncodeLiteralDelta(base.Len(), "0123456789".Bytes())
 	let mut gotLimit = false
 	let _ = Apply(base, bigDelta, 5) catch {
 	case LimitExceeded as e:
@@ -219,7 +220,7 @@ test RejectsCorruptAndOversizedDeltas {
 	}
 	assert gotBadOfs
 
-	let dStep = EncodeLiteralDelta(len(base), base)
+	let dStep = EncodeLiteralDelta(base.Len(), base)
 	let mut gotDepth = false
 	let _ = ResolveChain(Materialized{Kind: oid.Blob, Data: base}, [][]byte{dStep, dStep, dStep}, ChainLimits{MaxDepth: 2, MaxBytes: 1024}) catch {
 	case DepthExceeded as e:
@@ -275,7 +276,7 @@ func verifyMaterializedAgainstGit(repoDir string, objs []PackedObject, pathEnv M
 			return testMismatch{reason: "kind mismatch for " + hexId}
 		}
 		let wantSizeStr = strings.TrimSpace(try runGitOk(repoDir, []string{"cat-file", "-s", hexId}, "", pathEnv, 99))
-		if wantSizeStr != strconv.Itoa(len(obj.Data)) {
+		if wantSizeStr != strconv.Itoa(obj.Data.Len()) {
 			return testMismatch{reason: "size mismatch for " + hexId}
 		}
 		let wantBody = try runGitOk(repoDir, []string{"cat-file", wantKind, hexId}, "", pathEnv, 99)
@@ -304,7 +305,7 @@ func verifyFormatPacks(repoName string, oFmt oracle.OidFormat, fmt oid.Format, p
 	let mut oidLines = []string{}
 	for line in strings.Split(strings.TrimSpace(allList), "\n") {
 		let fields = strings.Fields(line)
-		if len(fields) > 0 {
+		if fields.Len() > 0 {
 			oidLines = oidLines.Append(fields[0])
 		}
 	}
@@ -333,7 +334,7 @@ func verifyFormatPacks(repoName string, oFmt oracle.OidFormat, fmt oid.Format, p
 	let ofsObjs = with context { BaseSource: EmptyBases } {
 		try MaterializePack(ofsPack, fmt, DefaultLimits())
 	}
-	if len(ofsObjs) != len(oidLines) {
+	if ofsObjs.Len() != oidLines.Len() {
 		return testMismatch{reason: "ofs object count mismatch"}
 	}
 	try verifyMaterializedAgainstGit(repoDir, ofsObjs, pathEnv)
@@ -361,12 +362,12 @@ func verifyFormatPacks(repoName string, oFmt oracle.OidFormat, fmt oid.Format, p
 	let refObjs = with context { BaseSource: EmptyBases } {
 		try MaterializePack(refPack, fmt, DefaultLimits())
 	}
-	if len(refObjs) != len(oidLines) {
+	if refObjs.Len() != oidLines.Len() {
 		return testMismatch{reason: "ref object count mismatch"}
 	}
 	try verifyMaterializedAgainstGit(repoDir, refObjs, pathEnv)
 
-	let thinInput = revOids[len(revOids)-1] + "\n^" + revOids[len(revOids)-2] + "\n"
+	let thinInput = revOids[revOids.Len()-1] + "\n^" + revOids[revOids.Len()-2] + "\n"
 	let thinPack = (try runGitOk(repoDir, []string{"pack-objects", "-q", "--revs", "--thin", "--stdout"}, thinInput, pathEnv, 33)).Bytes()
 	let thinEntries = try ScanPackEntries(thinPack, fmt, DefaultLimits())
 	let mut sawThinRef = false
@@ -402,7 +403,7 @@ func verifyFormatPacks(repoName string, oFmt oracle.OidFormat, fmt oid.Format, p
 	let thinObjs = with context { BaseSource: bases } {
 		try MaterializePack(thinPack, fmt, DefaultLimits())
 	}
-	if len(thinObjs) == 0 {
+	if thinObjs.Len() == 0 {
 		return testMismatch{reason: "thin pack produced zero objects"}
 	}
 	try verifyMaterializedAgainstGit(repoDir, thinObjs, pathEnv)

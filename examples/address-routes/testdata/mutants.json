@@ -2,221 +2,452 @@
   "about": "address-routes' application mutants; each is judged by the example's laws and cases (scripts/examples), not by a compiler test.",
   "mutants": [
     {
-      "name": "fk8-print-search-unescaped", "origin": "wf10/fk8a",
+      "name": "fk8-print-search-unescaped",
+      "origin": "wf10/fk8a",
       "file": "examples/address-routes/route/route.ergo",
       "from": "\"/people?searchText=\" + Escape(s.Value)",
       "to": "\"/people?searchText=\" + s.Value",
       "rule": "Print escapes the search, so Parse reads it back (case tour: a search with a space; law ParsePrintRoundTrips samples it).",
-      "anchor": {"tests": ["examples:address-routes"]}, "killers": ["examples:address-routes"]
+      "anchor": {
+        "tests": [
+          "examples:address-routes"
+        ]
+      },
+      "killers": [
+        "examples:address-routes"
+      ]
     },
     {
-      "name": "fk8-empty-segments-kept", "origin": "wf10/fk8a",
+      "name": "fk8-empty-segments-kept",
+      "origin": "wf10/fk8a",
       "file": "examples/address-routes/route/route.ergo",
       "from": "\t\tif s != \"\" {\n\t\t\tsegs = segs.Append(Unescape(s))\n",
       "to": "\t\tif true {\n\t\t\tsegs = segs.Append(Unescape(s))\n",
       "rule": "A trailing slash and empty segments are skipped (law SearchGoesToItsAddress, whose /people? address has one; law PrintParseRoundTrips).",
-      "anchor": {"tests": ["examples:address-routes"]}, "killers": ["examples:address-routes"]
+      "anchor": {
+        "tests": [
+          "examples:address-routes"
+        ]
+      },
+      "killers": [
+        "examples:address-routes"
+      ]
     },
     {
-      "name": "fk8-bad-person-id-is-people", "origin": "wf10/fk8a",
+      "name": "fk8-bad-person-id-is-people",
+      "origin": "wf10/fk8a",
       "file": "examples/address-routes/route/route.ergo",
       "from": "\t\t\tcase strconv.Malformed, strconv.OutOfRange:\n\t\t\t\treturn NotFound{Path: path}\n",
       "to": "\t\t\tcase strconv.Malformed, strconv.OutOfRange:\n\t\t\t\treturn People{Search: None}\n",
       "rule": "A person's address whose id is not a number is not found (case tour: /people/x).",
-      "anchor": {"tests": ["examples:address-routes"]}, "killers": ["examples:address-routes"]
+      "anchor": {
+        "tests": [
+          "examples:address-routes"
+        ]
+      },
+      "killers": [
+        "examples:address-routes"
+      ]
     },
     {
-      "name": "fk8-files-rest-drops-tail", "origin": "wf10/fk8a",
+      "name": "fk8-files-rest-drops-tail",
+      "origin": "wf10/fk8a",
       "file": "examples/address-routes/route/route.ergo",
       "from": "Files{Path: segs[1:]}",
       "to": "Files{Path: segs[1:2]}",
       "rule": "A Files route keeps every remaining segment (law ParsePrintRoundTrips).",
-      "anchor": {"tests": ["examples:address-routes"]}, "killers": ["examples:address-routes"]
+      "anchor": {
+        "tests": [
+          "examples:address-routes"
+        ]
+      },
+      "killers": [
+        "examples:address-routes"
+      ]
     },
     {
-      "name": "fk8-unknown-is-home", "origin": "wf10/fk8a",
+      "name": "fk8-unknown-is-home",
+      "origin": "wf10/fk8a",
       "file": "examples/address-routes/route/route.ergo",
       "from": "\tcase _:\n\t\tNotFound{Path: path}\n",
       "to": "\tcase _:\n\t\tHome\n",
       "rule": "An unknown path is NotFound and keeps the path (law UnknownPathIsNotFound).",
-      "anchor": {"tests": ["examples:address-routes"]}, "killers": ["examples:address-routes"]
+      "anchor": {
+        "tests": [
+          "examples:address-routes"
+        ]
+      },
+      "killers": [
+        "examples:address-routes"
+      ]
     },
     {
-      "name": "fk8-plus-not-a-space", "origin": "wf10/fk8a",
+      "name": "fk8-plus-not-a-space",
+      "origin": "wf10/fk8a",
       "file": "examples/address-routes/route/route.ergo",
       "from": "Unescape(strings.ReplaceAll(h.Value.After, \"+\", \" \"))",
       "to": "Unescape(h.Value.After)",
       "rule": "A + in the query is a space (case tour: searchText=bob+smith).",
-      "anchor": {"tests": ["examples:address-routes"]}, "killers": ["examples:address-routes"]
+      "anchor": {
+        "tests": [
+          "examples:address-routes"
+        ]
+      },
+      "killers": [
+        "examples:address-routes"
+      ]
     },
     {
-      "name": "fk8-escape-keeps-slash", "origin": "wf10/fk8a",
+      "name": "fk8-escape-keeps-slash",
+      "origin": "wf10/fk8a",
       "file": "examples/address-routes/route/escape.ergo",
       "from": "|| b == '_' || b == '~' {",
       "to": "|| b == '_' || b == '~' || b == '/' {",
       "rule": "A slash inside a segment is escaped, so the segment stays one (law ParsePrintRoundTrips).",
-      "anchor": {"tests": ["examples:address-routes"]}, "killers": ["examples:address-routes"]
+      "anchor": {
+        "tests": [
+          "examples:address-routes"
+        ]
+      },
+      "killers": [
+        "examples:address-routes"
+      ]
     },
     {
-      "name": "fk8-unescape-drops-byte", "origin": "wf10/fk8a",
+      "name": "fk8-unescape-drops-byte",
+      "origin": "wf10/fk8a",
       "file": "examples/address-routes/route/escape.ergo",
       "from": "\t\t\tout = out + b\n",
       "to": "\t\t\tout = out + b[0:0]\n",
       "rule": "Unescape reads back what Escape writes (laws SearchGoesToItsAddress and EscapeRoundTrips).",
-      "anchor": {"tests": ["examples:address-routes"]}, "killers": ["examples:address-routes"]
+      "anchor": {
+        "tests": [
+          "examples:address-routes"
+        ]
+      },
+      "killers": [
+        "examples:address-routes"
+      ]
     },
     {
-      "name": "fk8-search-names-only", "origin": "wf10/fk8a",
+      "name": "fk8-search-names-only",
+      "origin": "wf10/fk8a",
       "file": "examples/address-routes/people/people.ergo",
       "from": " || strings.Contains(strings.ToLower(p.Role), q) {",
       "to": " {",
       "rule": "A search finds a role too (law SearchMatchesNameOrRole).",
-      "anchor": {"tests": ["examples:address-routes"]}, "killers": ["examples:address-routes"]
+      "anchor": {
+        "tests": [
+          "examples:address-routes"
+        ]
+      },
+      "killers": [
+        "examples:address-routes"
+      ]
     },
     {
-      "name": "fk8-search-case-sensitive", "origin": "wf10/fk8a",
+      "name": "fk8-search-case-sensitive",
+      "origin": "wf10/fk8a",
       "file": "examples/address-routes/people/people.ergo",
       "from": "let q = strings.ToLower(text)",
       "to": "let q = text",
       "rule": "A search ignores case (law SearchMatchesNameOrRole).",
-      "anchor": {"tests": ["examples:address-routes"]}, "killers": ["examples:address-routes"]
+      "anchor": {
+        "tests": [
+          "examples:address-routes"
+        ]
+      },
+      "killers": [
+        "examples:address-routes"
+      ]
     },
     {
-      "name": "fk8-history-keeps-six", "origin": "wf10/fk8a",
+      "name": "fk8-history-keeps-six",
+      "origin": "wf10/fk8a",
       "file": "examples/address-routes/people/people.ergo",
-      "from": "len(out) < HistoryLimit {",
-      "to": "len(out) <= HistoryLimit {",
+      "from": "out.Len() < HistoryLimit {",
+      "to": "out.Len() <= HistoryLimit {",
       "rule": "The history keeps the newest five (law HistoryKeepsTheNewestDistinct; the tour makes four).",
-      "anchor": {"tests": ["examples:address-routes"]}, "killers": ["examples:address-routes"]
+      "anchor": {
+        "tests": [
+          "examples:address-routes"
+        ]
+      },
+      "killers": [
+        "examples:address-routes"
+      ]
     },
     {
-      "name": "fk8-history-keeps-repeats", "origin": "wf10/fk8a",
+      "name": "fk8-history-keeps-repeats",
+      "origin": "wf10/fk8a",
       "file": "examples/address-routes/people/people.ergo",
-      "from": "if h != text && len(out)",
-      "to": "if true && len(out)",
+      "from": "if h != text && out.Len()",
+      "to": "if true && out.Len()",
       "rule": "A search made again moves to the front (law HistoryKeepsTheNewestDistinct).",
-      "anchor": {"tests": ["examples:address-routes"]}, "killers": ["examples:address-routes"]
+      "anchor": {
+        "tests": [
+          "examples:address-routes"
+        ]
+      },
+      "killers": [
+        "examples:address-routes"
+      ]
     },
     {
-      "name": "fk8-empty-search-recorded", "origin": "wf10/fk8a",
+      "name": "fk8-empty-search-recorded",
+      "origin": "wf10/fk8a",
       "file": "examples/address-routes/people/people.ergo",
       "from": "\tif text == \"\" {\n\t\treturn history\n",
       "to": "\tif false {\n\t\treturn history\n",
       "rule": "An empty search is not recorded (law HistoryKeepsTheNewestDistinct).",
-      "anchor": {"tests": ["examples:address-routes"]}, "killers": ["examples:address-routes"]
+      "anchor": {
+        "tests": [
+          "examples:address-routes"
+        ]
+      },
+      "killers": [
+        "examples:address-routes"
+      ]
     },
     {
-      "name": "fk8-find-stops-at-dir", "origin": "wf10/fk8a",
+      "name": "fk8-find-stops-at-dir",
+      "origin": "wf10/fk8a",
       "file": "examples/address-routes/files/tree.ergo",
       "from": "\t\t\treturn Find(d.Entries, path[1:])\n",
       "to": "\t\t\treturn Some[Entry]{Value: d}\n",
       "rule": "A path goes into its directories (case tour: /files/photos/vacation).",
-      "anchor": {"tests": ["examples:address-routes"]}, "killers": ["examples:address-routes"]
+      "anchor": {
+        "tests": [
+          "examples:address-routes"
+        ]
+      },
+      "killers": [
+        "examples:address-routes"
+      ]
     },
     {
-      "name": "fk8-size-in-bytes", "origin": "wf10/fk8a",
+      "name": "fk8-size-in-bytes",
+      "origin": "wf10/fk8a",
       "file": "examples/address-routes/files/tree.ergo",
       "from": "\tif bytes >= kb {\n",
       "to": "\tif bytes >= mb {\n",
       "rule": "A size from a kilobyte up shows in kilobytes (case tour: notes.txt is 1.2 KB).",
-      "anchor": {"tests": ["examples:address-routes"]}, "killers": ["examples:address-routes"]
+      "anchor": {
+        "tests": [
+          "examples:address-routes"
+        ]
+      },
+      "killers": [
+        "examples:address-routes"
+      ]
     },
     {
-      "name": "fk8-other-route-restarts", "origin": "wf10/fk8a",
+      "name": "fk8-other-route-restarts",
+      "origin": "wf10/fk8a",
       "file": "examples/address-routes/app/router.ergo",
-      "from": "\t\t\tStay[App]{Next: App{..a, Route: r}}\n",
-      "to": "\t\t\tEnter[App]{Next: App{..a, Route: r}}\n",
+      "from": "\t\t\tmachines.Stay[App]{Next: App{..a, Route: r}}\n",
+      "to": "\t\t\tmachines.Enter[App]{Next: App{..a, Route: r}}\n",
       "rule": "A route other than People keeps the entry, so a search under way keeps its timer (law NavigationSetsTheRoute).",
-      "anchor": {"tests": ["examples:address-routes"]}, "killers": ["examples:address-routes"]
+      "anchor": {
+        "tests": [
+          "examples:address-routes"
+        ]
+      },
+      "killers": [
+        "examples:address-routes"
+      ]
     },
-    {"name":"fk8-people-keeps-field","origin":"wf10/fk8a","file":"examples/address-routes/app/router.ergo","from":"Enter[App]{Next: App{Route: r, Page: Page{Input: s, History: people.Remember(a.Page.History, s), Results: Loading{Query: s}}}}\n\t\t","to":"Enter[App]{Next: App{Route: r, Page: Page{Input: a.Page.Input, History: people.Remember(a.Page.History, s), Results: Loading{Query: s}}}}\n\t\t","rule":"A People address sets the field to its search (law NavigationSetsTheRoute).","anchor":{"tests":["examples:address-routes"]},"killers":["examples:address-routes"]},
     {
-      "name": "fk8-gn-goes-to-files", "origin": "wf10/fk8a",
+      "name": "fk8-people-keeps-field",
+      "origin": "wf10/fk8a",
+      "file": "examples/address-routes/app/router.ergo",
+      "from": "Enter[App]{Next: App{Route: r, Page: Page{Input: s, History: people.Remember(a.Page.History, s), Results: Loading{Query: s}}}}\n\t\t",
+      "to": "Enter[App]{Next: App{Route: r, Page: Page{Input: a.Page.Input, History: people.Remember(a.Page.History, s), Results: Loading{Query: s}}}}\n\t\t",
+      "rule": "A People address sets the field to its search (law NavigationSetsTheRoute).",
+      "anchor": {
+        "tests": [
+          "examples:address-routes"
+        ]
+      },
+      "killers": [
+        "examples:address-routes"
+      ]
+    },
+    {
+      "name": "fk8-gn-goes-to-files",
+      "origin": "wf10/fk8a",
       "file": "examples/address-routes/app/router.ergo",
       "from": "\tcase GN:\n\t\troute.Nested\n",
       "to": "\tcase GN:\n\t\troute.FilesIndex\n",
       "rule": "Each shortcut goes to its own route (law ShortcutsNavigate).",
-      "anchor": {"tests": ["examples:address-routes"]}, "killers": ["examples:address-routes"]
+      "anchor": {
+        "tests": [
+          "examples:address-routes"
+        ]
+      },
+      "killers": [
+        "examples:address-routes"
+      ]
     },
     {
-      "name": "fk8-typing-records", "origin": "wf10/fk8a",
+      "name": "fk8-typing-records",
+      "origin": "wf10/fk8a",
       "file": "examples/address-routes/app/router.ergo",
       "from": "Stay[App]{Next: App{..a, Page: Page{..a.Page, Input: t.Text}}}",
       "to": "Stay[App]{Next: App{..a, Page: Page{..a.Page, Input: t.Text, History: people.Remember(a.Page.History, t.Text)}}}",
       "rule": "Typing changes only the field: no history (law TypingOnlyEdits).",
-      "anchor": {"tests": ["examples:address-routes"]}, "killers": ["examples:address-routes"]
+      "anchor": {
+        "tests": [
+          "examples:address-routes"
+        ]
+      },
+      "killers": [
+        "examples:address-routes"
+      ]
     },
     {
-      "name": "fk8-empty-search-has-a-query", "origin": "wf10/fk8a",
+      "name": "fk8-empty-search-has-a-query",
+      "origin": "wf10/fk8a",
       "file": "examples/address-routes/app/router.ergo",
-      "from": "if a.Page.Input == \"\" { None }",
-      "to": "if false { None }",
+      "from": "if a.Page.Input == \"\" { option.None }",
+      "to": "if false { option.None }",
       "rule": "Search with an empty field goes to /people, with no query (law SearchGoesToItsAddress; the tour never searches an empty field).",
-      "anchor": {"tests": ["examples:address-routes"]}, "killers": ["examples:address-routes"]
+      "anchor": {
+        "tests": [
+          "examples:address-routes"
+        ]
+      },
+      "killers": [
+        "examples:address-routes"
+      ]
     },
     {
-      "name": "fk8-answer-ignores-query", "origin": "wf10/fk8a",
+      "name": "fk8-answer-ignores-query",
+      "origin": "wf10/fk8a",
       "file": "examples/address-routes/app/router.ergo",
       "from": "Found: people.Search(l.Query)",
       "to": "Found: people.Search(\"\")",
       "rule": "The answer is the search's (case tour).",
-      "anchor": {"tests": ["examples:address-routes"]}, "killers": ["examples:address-routes"]
+      "anchor": {
+        "tests": [
+          "examples:address-routes"
+        ]
+      },
+      "killers": [
+        "examples:address-routes"
+      ]
     },
     {
-      "name": "fk8-search-slower", "origin": "wf10/fk8a",
+      "name": "fk8-search-slower",
+      "origin": "wf10/fk8a",
       "file": "examples/address-routes/app/router.ergo",
       "from": "let SearchTakes = 300ms",
       "to": "let SearchTakes = 301ms",
       "rule": "A search answers after 300 ms (case tour: wait 299, then wait 1).",
-      "anchor": {"tests": ["examples:address-routes"]}, "killers": ["examples:address-routes"]
+      "anchor": {
+        "tests": [
+          "examples:address-routes"
+        ]
+      },
+      "killers": [
+        "examples:address-routes"
+      ]
     },
     {
-      "name": "fk8b-link-goes-home", "origin": "wf10/fk8b",
+      "name": "fk8b-link-goes-home",
+      "origin": "wf10/fk8b",
       "file": "examples/address-routes/screen/screen.ergo",
       "from": "Some[app.Signal]{Value: app.Followed{Path: path}}",
       "to": "Some[app.Signal]{Value: app.Followed{Path: path[0:1]}}",
       "rule": "A link follows its own path (law BackRestoresRoute, case scenes).",
-      "anchor": {"tests": ["examples:address-routes"]}, "killers": ["examples:address-routes"]
+      "anchor": {
+        "tests": [
+          "examples:address-routes"
+        ]
+      },
+      "killers": [
+        "examples:address-routes"
+      ]
     },
     {
-      "name": "fk8b-address-drops-query", "origin": "wf10/fk8b",
+      "name": "fk8b-address-drops-query",
+      "origin": "wf10/fk8b",
       "file": "examples/address-routes/screen/screen.ergo",
       "from": "app.Navigated{Path: ui.Href(u)}",
       "to": "app.Navigated{Path: u.Path}",
       "rule": "The address change gives the program the whole address, its query too (cases: a Back to a search).",
-      "anchor": {"tests": ["examples:address-routes"]}, "killers": ["examples:address-routes"]
+      "anchor": {
+        "tests": [
+          "examples:address-routes"
+        ]
+      },
+      "killers": [
+        "examples:address-routes"
+      ]
     },
     {
-      "name": "fk8b-person-role-is-name", "origin": "wf10/fk8b",
+      "name": "fk8b-person-role-is-name",
+      "origin": "wf10/fk8b",
       "file": "examples/address-routes/screen/screen.ergo",
       "from": "\"Role: \\(q.Value.Role)\"",
       "to": "\"Role: \\(q.Value.Name)\"",
       "rule": "A person's page shows the role, as upstream's scene 5 (case scenes).",
-      "anchor": {"tests": ["examples:address-routes"]}, "killers": ["examples:address-routes"]
+      "anchor": {
+        "tests": [
+          "examples:address-routes"
+        ]
+      },
+      "killers": [
+        "examples:address-routes"
+      ]
     },
     {
-      "name": "fk8b-count-off-by-one", "origin": "wf10/fk8b",
+      "name": "fk8b-count-off-by-one",
+      "origin": "wf10/fk8b",
       "file": "examples/address-routes/screen/screen.ergo",
-      "from": "let n = len(l.Found)",
-      "to": "let n = len(l.Found) + 1",
+      "from": "let n = l.Found.Len()",
+      "to": "let n = l.Found.Len() + 1",
       "rule": "The status counts the results, as upstream's people scene 2 (case scenes).",
-      "anchor": {"tests": ["examples:address-routes"]}, "killers": ["examples:address-routes"]
+      "anchor": {
+        "tests": [
+          "examples:address-routes"
+        ]
+      },
+      "killers": [
+        "examples:address-routes"
+      ]
     },
     {
-      "name": "fk8b-last-crumb-linked", "origin": "wf10/fk8b",
+      "name": "fk8b-last-crumb-linked",
+      "origin": "wf10/fk8b",
       "file": "examples/address-routes/screen/screen.ergo",
-      "from": "if i == len(path)-1 {",
-      "to": "if i == len(path) {",
+      "from": "if i == path.Len()-1 {",
+      "to": "if i == path.Len() {",
       "rule": "The breadcrumb's last segment is the page, not a link (cases).",
-      "anchor": {"tests": ["examples:address-routes"]}, "killers": ["examples:address-routes"]
+      "anchor": {
+        "tests": [
+          "examples:address-routes"
+        ]
+      },
+      "killers": [
+        "examples:address-routes"
+      ]
     },
     {
-      "name": "fk8b-home-link-nested", "origin": "wf10/fk8b",
+      "name": "fk8b-home-link-nested",
+      "origin": "wf10/fk8b",
       "file": "examples/address-routes/screen/screen.ergo",
       "from": "link(f, \"Home\", route.Print(route.Home))",
       "to": "link(f, \"Home\", route.Print(route.Nested))",
       "rule": "The navigation's Home link goes home (law BackRestoresRoute; no case clicks it).",
-      "anchor": {"tests": ["examples:address-routes"]}, "killers": ["examples:address-routes"]
+      "anchor": {
+        "tests": [
+          "examples:address-routes"
+        ]
+      },
+      "killers": [
+        "examples:address-routes"
+      ]
     },
     {
       "name": "ugb22-openat-not-opened",

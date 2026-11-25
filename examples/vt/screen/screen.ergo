@@ -1,4 +1,5 @@
 import dense
+import option
 import vt/vt
 import vt/traffic
 import strings
@@ -35,7 +36,7 @@ type Screen {
 	penID     dense.Opt[vt.Style],
 	top       int,
 	bottom    int,
-	saved     Option[Saved],
+	saved     option.Option[Saved],
 	title     string,
 	styles    dense.Counted[vt.Style],
 	grown     int,
@@ -63,7 +64,7 @@ func New(config vt.Config) Screen {
 		penID:     noStyle,
 		top:       0,
 		bottom:    rows - 1,
-		saved:     None,
+		saved:     option.None,
 		title:     "",
 		styles:    dense.NewCounted[vt.Style](),
 		grown:     0,
@@ -111,7 +112,7 @@ func grow(s mut Screen, n int) {
 }
 
 // Pages is the count of the ring's pages.
-func Pages(s mut Screen) int { (len(s.flags) - s.rows) / vt.PageRows }
+func Pages(s mut Screen) int { (s.flags.Len() - s.rows) / vt.PageRows }
 
 // Grown is the count of cells the screen has made.
 func Grown(s mut Screen) int { s.grown }
@@ -203,7 +204,7 @@ func dropRow(s mut Screen, ri int) {
 // Print writes run, a byte a column, a stretch of a row at a time.
 func Print(s mut Screen, run string) {
 	let mut i = 0
-	let n = len(run)
+	let n = run.Len()
 	for i < n {
 		let wrap = s.cur.Pending && s.cur.Autowrap
 		s.cur.Pending = false
@@ -392,7 +393,7 @@ func scrollUp(s mut Screen, n int) {
 func push(s mut Screen) {
 	s.first += 1
 	let ri = s.slotRow(s.first + s.rows - 1)
-	if ri >= len(s.flags) {
+	if ri >= s.flags.Len() {
 		s.grow(vt.PageRows)
 	}
 	if s.first-s.base > s.limit {
@@ -438,19 +439,19 @@ func shiftDown(s mut Screen, from int, to int, n int) {
 
 // Save keeps the cursor and the pen.
 func Save(s mut Screen) {
-	s.saved = Some{Value: Saved{Row: s.cur.Row, Col: s.cur.Col, Pen: s.pen, Origin: s.cur.Origin, Pending: s.cur.Pending}}
+	s.saved = option.Some{Value: Saved{Row: s.cur.Row, Col: s.cur.Col, Pen: s.pen, Origin: s.cur.Origin, Pending: s.cur.Pending}}
 }
 
 // Restore brings back what Save kept.
 func Restore(s mut Screen) {
 	match s.saved {
-	case Some[Saved] as k:
+	case option.Some[Saved] as k:
 		s.cur.Row = k.Value.Row
 		s.cur.Col = k.Value.Col
 		s.SetPen(k.Value.Pen)
 		s.cur.Origin = k.Value.Origin
 		s.cur.Pending = k.Value.Pending
-	case None:
+	case option.None:
 		s.cur.Row = 0
 		s.cur.Col = 0
 		s.SetPen(vt.Default)
@@ -469,7 +470,7 @@ func Reset(s mut Screen) {
 	s.SetPen(vt.Default)
 	s.top = 0
 	s.bottom = s.rows - 1
-	s.saved = None
+	s.saved = option.None
 	s.title = ""
 }
 

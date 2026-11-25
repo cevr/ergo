@@ -1,7 +1,9 @@
+import codec
 import ergo.dev/tn1
 import fs
 import io
 import json
+import option
 
 type Request { Rule string "rule", Weights string "weights", Path string "path", Text string "text" }
 
@@ -33,10 +35,10 @@ func Answer() needs fs.Files | io.Stdin | io.Stdout {
 		case json.Malformed as m:
 			io.Stdout.Println(json.Encode(replyCodec(), failed("tn1-lint: request at \(m.Offset): \(m.Reason)")))
 			continue
-		case WireWrongKind as w:
+		case codec.WireWrongKind as w:
 			io.Stdout.Println(json.Encode(replyCodec(), failed("tn1-lint: request \(w.Path): want \(w.Want)")))
 			continue
-		case WireMissingField as f:
+		case codec.WireMissingField as f:
 			io.Stdout.Println(json.Encode(replyCodec(), failed("tn1-lint: request has no \(f.Field)")))
 			continue
 		}
@@ -45,9 +47,9 @@ func Answer() needs fs.Files | io.Stdin | io.Stdout {
 			continue
 		}
 		match nets.Get(request.Weights) {
-		case Some[tn1.Net] as n:
+		case option.Some[tn1.Net] as n:
 			io.Stdout.Println(json.Encode(replyCodec(), Reply{Diagnostics: Findings(request.Rule, n.Value, request.Path, request.Text), Error: ""}))
-		case None:
+		case option.None:
 			let net = loadNet(request.Weights) catch {
 			case LoadFailed as l:
 				io.Stdout.Println(json.Encode(replyCodec(), failed(l.Reason)))

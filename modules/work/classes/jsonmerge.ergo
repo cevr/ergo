@@ -1,3 +1,4 @@
+import option
 import slices
 import strconv
 import strings
@@ -34,21 +35,21 @@ func MergeJson(base string, ours string, theirs string, sets []string) Merged fa
 func keyPath(path string, key string) string { if path == "" { key } else { path + "/" + key } }
 
 // isObjectText reports whether a raw JSON value is an object.
-func isObjectText(v Option[string]) bool {
+func isObjectText(v option.Option[string]) bool {
 	match v {
-	case Some[string] as s:
+	case option.Some[string] as s:
 		strings.HasPrefix(s.Value, "{")
-	case None:
+	case option.None:
 		false
 	}
 }
 
 // isListText reports whether a raw JSON value is a list.
-func isListText(v Option[string]) bool {
+func isListText(v option.Option[string]) bool {
 	match v {
-	case Some[string] as s:
+	case option.Some[string] as s:
 		strings.HasPrefix(s.Value, "[")
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -61,27 +62,27 @@ func mergeObject(path string, base string, ours string, theirs string, sets []st
 	let t = try Members(theirs, "theirs")
 	if sameOrder(b, o) && !sameOrder(b, t) {
 		let (text, inner) = try mergeObject(path, base, theirs, ours, sets)
-		if len(inner) == 0 {
+		if inner.Len() == 0 {
 			return (text, inner)
 		}
 	}
 	let mut conflicts = []string{}
 	// What becomes of each member of ours: its value's new text (its own
 	// when unchanged), or gone.
-	let mut values = []Option[string]{}
+	let mut values = []option.Option[string]{}
 	for m in o {
 		let p = keyPath(path, m.Key)
 		let bv = member(b, m.Key)
 		let tv = member(t, m.Key)
-		let ov = Some[string]{Value: m.Raw}
+		let ov = option.Some[string]{Value: m.Raw}
 		if isObjectText(bv) && isObjectText(ov) && isObjectText(tv) {
 			let (raw, inner) = try mergeObject(p, textOf(bv), m.Raw, textOf(tv), sets)
 			conflicts = slices.Concat(conflicts, inner)
-			values = values.Append(Some[string]{Value: raw})
+			values = values.Append(option.Some[string]{Value: raw})
 			continue
 		}
 		if slices.Contains(sets, p) && isListText(bv) && isListText(ov) && isListText(tv) {
-			values = values.Append(Some[string]{Value: try mergeSet(textOf(bv), m.Raw, textOf(tv))})
+			values = values.Append(option.Some[string]{Value: try mergeSet(textOf(bv), m.Raw, textOf(tv))})
 			continue
 		}
 		match Choose(bv, ov, tv, sameBare) {
@@ -90,10 +91,10 @@ func mergeObject(path string, base string, ours string, theirs string, sets []st
 		case Clash:
 			let byLines = MergeText(textOf(bv), m.Raw, textOf(tv))
 			if isListText(bv) && isListText(tv) && byLines.Clashes == 0 {
-				values = values.Append(Some[string]{Value: Text(byLines)})
+				values = values.Append(option.Some[string]{Value: Text(byLines)})
 			} else {
 				conflicts = conflicts.Append(p)
-				values = values.Append(if tv == None { ov } else { Some[string]{Value: Marked(m.Raw, textOf(tv))} })
+				values = values.Append(if tv == option.None { ov } else { option.Some[string]{Value: Marked(m.Raw, textOf(tv))} })
 			}
 		}
 	}
@@ -101,27 +102,27 @@ func mergeObject(path string, base string, ours string, theirs string, sets []st
 	// theirs that the merge keeps (at the start when there is none).
 	let mut added = Map[string, []string]{}
 	let mut first = []string{}
-	let mut after Option[string] = None
+	let mut after option.Option[string] = option.None
 	for m in t {
 		let at = slices.IndexFunc(o, func(x Entry) bool { x.Key == m.Key })
 		if at >= 0 {
-			if values[at] != None {
-				after = Some[string]{Value: m.Key}
+			if values[at] != option.None {
+				after = option.Some[string]{Value: m.Key}
 			}
 			continue
 		}
-		match Choose(member(b, m.Key), None, Some[string]{Value: m.Raw}, sameBare) {
+		match Choose(member(b, m.Key), option.None, option.Some[string]{Value: m.Raw}, sameBare) {
 		case Take as k:
 			match k.Value {
-			case Some[string] as v:
+			case option.Some[string] as v:
 				let text = m.KeyRaw + ": " + v.Value
 				match after {
-				case Some[string] as a:
+				case option.Some[string] as a:
 					added[a.Value] = maps0(added, a.Value).Append(text)
-				case None:
+				case option.None:
 					first = first.Append(text)
 				}
-			case None:
+			case option.None:
 			}
 		case Clash:
 			conflicts = conflicts.Append(keyPath(path, m.Key))
@@ -151,56 +152,56 @@ func sameOrder(x []Entry, y []Entry) bool {
 // maps0 is the list of key in m, empty when absent.
 func maps0(m Map[string, []string], key string) []string {
 	match m.Get(key) {
-	case Some[[]string] as v:
+	case option.Some[[]string] as v:
 		v.Value
-	case None:
+	case option.None:
 		[]string{}
 	}
 }
 
 // objectText is ours with each member's new value, the members gone
 // taken out, and the added members put in, in ours' layout.
-func objectText(ours string, o []Entry, values []Option[string], added Map[string, []string], first []string) string {
+func objectText(ours string, o []Entry, values []option.Option[string], added Map[string, []string], first []string) string {
 	let sep = memberSep(ours, o)
 	let mut spans = []Span{}
 	let mut kept = 0 - 1
 	for i, v in values {
-		if v != None {
+		if v != option.None {
 			kept = i
 		}
 	}
-	if len(o) == 0 {
-		if len(first) == 0 {
+	if o.Len() == 0 {
+		if first.Len() == 0 {
 			return ours
 		}
 		let open = space(ours, 0)
 		let close = strings.LastIndex(ours, "}")
-		return strings.Slice(ours, 0, open+1) + sep + strings.Join(first, ","+sep) + strings.Slice(sep, 0, len(sep)-2) + strings.Slice(ours, close, len(ours))
+		return strings.Slice(ours, 0, open+1) + sep + strings.Join(first, ","+sep) + strings.Slice(sep, 0, sep.Len()-2) + strings.Slice(ours, close, ours.Len())
 	}
-	if len(first) > 0 {
+	if first.Len() > 0 {
 		let at = space(ours, 0) + 1
 		spans = spans.Append(Span{Raw: sep + strings.Join(first, ","+sep) + (if kept >= 0 { "," } else { "" }), Start: at, End: at})
 	}
 	for i, m in o {
 		match values[i] {
-		case Some[string] as v:
+		case option.Some[string] as v:
 			if v.Value != m.Raw {
 				spans = spans.Append(Span{Raw: v.Value, Start: m.Start, End: m.End})
 			}
 			let more = maps0(added, m.Key)
-			if len(more) > 0 {
+			if more.Len() > 0 {
 				spans = spans.Append(Span{Raw: "," + sep + strings.Join(more, ","+sep), Start: m.End, End: m.End})
 			}
-		case None:
+		case option.None:
 			if i < kept {
 				spans = spans.Append(Span{Raw: "", Start: lineStart(ours, m.KeyStart), End: afterComma(ours, m.End)})
 			}
 		}
 	}
-	if kept < len(o)-1 {
+	if kept < o.Len()-1 {
 		// The members after the last one kept go with the comma before them.
 		let start = if kept >= 0 { o[kept].End } else { o[kept+1].KeyStart }
-		spans = spans.Append(Span{Raw: "", Start: start, End: o[len(o)-1].End})
+		spans = spans.Append(Span{Raw: "", Start: start, End: o[o.Len()-1].End})
 	}
 	replaced(ours, spans)
 }
@@ -208,7 +209,7 @@ func objectText(ours string, o []Entry, values []Option[string], added Map[strin
 // memberSep is what goes between two members of the object ours: a line
 // break and the first member's indent (", " on one line).
 func memberSep(ours string, o []Entry) string {
-	if len(o) == 0 {
+	if o.Len() == 0 {
 		return "\n  "
 	}
 	let start = lineStart(ours, o[0].KeyStart)
@@ -233,14 +234,14 @@ func lineStart(s string, i int) int {
 // on it.
 func afterComma(s string, end int) int {
 	let mut at = space(s, end)
-	if at < len(s) && s[at] == ',' {
+	if at < s.Len() && s[at] == ',' {
 		at = at + 1
 	}
 	let mut rest = at
-	for rest < len(s) && (s[rest] == ' ' || s[rest] == '\t') {
+	for rest < s.Len() && (s[rest] == ' ' || s[rest] == '\t') {
 		rest = rest + 1
 	}
-	if rest < len(s) && s[rest] == '\n' { rest + 1 } else { at }
+	if rest < s.Len() && s[rest] == '\n' { rest + 1 } else { at }
 }
 
 // mergeSet merges three lists as sets of elements (equal when equal
@@ -259,17 +260,17 @@ func mergeSet(base string, ours string, theirs string) string fails Unreadable {
 		}
 		out = out.Append(Row{Key: key, Raw: e.Raw})
 	}
-	let mut after Option[string] = None
+	let mut after option.Option[string] = option.None
 	for e in t {
 		let key = Bare(e.Raw)
-		if !bare(b, key) && rowNamed(out, key) == None {
+		if !bare(b, key) && rowNamed(out, key) == option.None {
 			out = rowInserted(out, after, Row{Key: key, Raw: e.Raw})
 		}
-		if rowNamed(out, key) != None {
-			after = Some[string]{Value: key}
+		if rowNamed(out, key) != option.None {
+			after = option.Some[string]{Value: key}
 		}
 	}
-	if len(o) == 0 && len(out) > 0 {
+	if o.Len() == 0 && out.Len() > 0 {
 		let mut parts = []string{}
 		for r in out {
 			parts = parts.Append(r.Raw)
@@ -292,7 +293,7 @@ func manifestIn(units Map[int, int], reversed bool) string {
 	let mut files = []string{}
 	for key in 0..6 {
 		match units.Get(key) {
-		case Some[int] as v:
+		case option.Some[int] as v:
 			let line = "\"k\(key)\": \(v.Value)"
 			if key < 3 {
 				top = top.Append(line)
@@ -300,11 +301,11 @@ func manifestIn(units Map[int, int], reversed bool) string {
 				deps = deps.Append("  " + line)
 			}
 			files = files.Append("\"f\(key)\"")
-		case None:
+		case option.None:
 		}
 	}
 	let order = if reversed { slices.Reverse(deps) } else { deps }
-	let inner = if len(order) == 0 { "{}" } else { "{\n  " + strings.Join(order, ",\n  ") + "\n  }" }
+	let inner = if order.Len() == 0 { "{}" } else { "{\n  " + strings.Join(order, ",\n  ") + "\n  }" }
 	top = top.Append("\"deps\": " + inner)
 	top = top.Append("\"files\": [" + strings.Join(files, ", ") + "]")
 	"{\n  // a comment no merge touches\n  " + strings.Join(top, ",\n  ") + "\n}\n"
@@ -313,14 +314,14 @@ func manifestIn(units Map[int, int], reversed bool) string {
 // Read is a manifest's units and files, or None when it does not read.
 type Read { Units Map[int, int], Files []string }
 
-func manifestRead(text string) Option[Read] {
+func manifestRead(text string) option.Option[Read] {
 	let top = Members(text, "merged") catch {
 	case Unreadable:
-		return None
+		return option.None
 	}
 	let deps = Members(textOf(member(top, "deps")), "merged") catch {
 	case Unreadable:
-		return None
+		return option.None
 	}
 	let mut units = Map[int, int]{}
 	for m in slices.Concat(top, deps) {
@@ -329,23 +330,23 @@ func manifestRead(text string) Option[Read] {
 		}
 		let key = strconv.Atoi(strings.TrimPrefix(m.Key, "k")) catch {
 		case strconv.Malformed, strconv.OutOfRange:
-			return None
+			return option.None
 		}
 		let value = strconv.Atoi(m.Raw) catch {
 		case strconv.Malformed, strconv.OutOfRange:
-			return None
+			return option.None
 		}
 		units[key] = value
 	}
 	let els = Elements(textOf(member(top, "files")), "merged") catch {
 	case Unreadable:
-		return None
+		return option.None
 	}
 	let mut files = []string{}
 	for e in els {
 		files = files.Append(e.Raw)
 	}
-	Some[Read]{Value: Read{Units: units, Files: files}}
+	option.Some[Read]{Value: Read{Units: units, Files: files}}
 }
 
 // JsonIsTheReference: two edit scripts on a JSONC manifest (each a key
@@ -371,22 +372,22 @@ law JsonIsTheReference(units Map[int, int], ourEdits []Edit, theirEdits []Edit) 
 	if !sameStrings(got.Conflicts, clashes) {
 		return false
 	}
-	if len(clashes) > 0 {
+	if clashes.Len() > 0 {
 		return true
 	}
 	let mut files = []string{}
 	for key in 0..6 {
-		let inB = base.Get(key) != None
-		let inO = ours.Get(key) != None
-		let inT = theirs.Get(key) != None
+		let inB = base.Get(key) != option.None
+		let inO = ours.Get(key) != option.None
+		let inT = theirs.Get(key) != option.None
 		if (inO && !(inB && !inT)) || (inT && !inB) {
 			files = files.Append("\"f\(key)\"")
 		}
 	}
 	match manifestRead(got.Text) {
-	case Some[Read] as r:
+	case option.Some[Read] as r:
 		r.Value.Units == want.Units && sameStrings(r.Value.Files, files) && strings.Contains(got.Text, "// a comment no merge touches") && strings.Contains(got.Text, "\"name\":   \"app\"") && strings.Contains(got.Text, "\"meta\": { \"x\":  [1,  2] }")
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -415,7 +416,7 @@ law JsonCarriesAReorder(units Map[int, int], ourEdits []Edit) {
 		case strconv.Malformed, strconv.OutOfRange:
 			return false
 		}
-		if base.Get(key) != None {
+		if base.Get(key) != option.None {
 			if key > last {
 				return false
 			}
@@ -423,9 +424,9 @@ law JsonCarriesAReorder(units Map[int, int], ourEdits []Edit) {
 		}
 	}
 	match manifestRead(got.Text) {
-	case Some[Read] as r:
-		len(got.Conflicts) == 0 && r.Value.Units == reference(base, ours, base).Units
-	case None:
+	case option.Some[Read] as r:
+		got.Conflicts.Len() == 0 && r.Value.Units == reference(base, ours, base).Units
+	case option.None:
 		false
 	}
 }

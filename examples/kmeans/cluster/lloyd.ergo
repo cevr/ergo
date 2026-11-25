@@ -19,15 +19,15 @@ type Ending = Converged{Rounds int} | Stopped{Rounds int}
 
 // LloydStep is the transition: a round that moved nothing ends the run,
 // and so does the last round.
-func LloydStep(l Lloyd, r Round) Decision[Lloyd, Ending] {
+func LloydStep(l Lloyd, r Round) machines.Decision[Lloyd, Ending] {
 	match (l, r) {
 	case (Iterating as it, Stepped as s):
 		if !s.Moved {
-			Done[Ending]{Output: Converged{Rounds: it.Round}}
+			machines.Done[Ending]{Output: Converged{Rounds: it.Round}}
 		} else if it.Round >= it.Max {
-			Done[Ending]{Output: Stopped{Rounds: it.Round}}
+			machines.Done[Ending]{Output: Stopped{Rounds: it.Round}}
 		} else {
-			Stay[Lloyd]{Next: Iterating{Round: it.Round + 1, Max: it.Max}}
+			machines.Stay[Lloyd]{Next: Iterating{Round: it.Round + 1, Max: it.Max}}
 		}
 	}
 }
@@ -100,9 +100,9 @@ func Run(points []Point, k int, max int, workers int, seed uint64) Result {
 		let d = LloydStep(l, Stepped{Inertia: s.Inertia, Moved: next != cents})
 		cents = next
 		match d {
-		case Done[Ending] as e:
+		case machines.Done[Ending] as e:
 			return Result{Inertias: inertias, End: e.Output, Centroids: cents}
-		case Enter[Lloyd], Stay[Lloyd], Emit[Lloyd, Ending], Tell[Lloyd, Ending], Ignore, Reject:
+		case machines.Enter[Lloyd], machines.Stay[Lloyd], machines.Emit[Lloyd, Ending], machines.Tell[Lloyd, Ending], machines.Ignore, machines.Reject:
 		}
 		l = machines.Next(l, d)
 	}
@@ -135,7 +135,7 @@ law InertiaNeverRises() {
 		let k = gen.Named("k", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(1, 6) })
 		let s0 = gen.Below(uint64(0))
 		let r = Run(points, k, 8, 2, s0)
-		for i in 1..len(r.Inertias) {
+		for i in 1..r.Inertias.Len() {
 			if r.Inertias[i] > r.Inertias[i-1] {
 				return false
 			}

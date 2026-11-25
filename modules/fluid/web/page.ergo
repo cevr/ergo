@@ -1,5 +1,6 @@
 import ergo.dev/fluid/part
 import html
+import option
 import strings
 import ui
 
@@ -59,7 +60,7 @@ func tabsPage() Page[tabsState, int] {
 			let mut tabs = []part.Node[int]{}
 			for i in 0..s.Count {
 				let off = s.Count > 2 && i == s.Count-1
-				tabs = tabs.Append(part.Press{Sem: part.Sem{..part.Of(part.Tab), Key: part.Join(part.Root("tab"), "\(i)"), States: if off { []part.State{part.Selected{Yes: i == s.Selected}, part.Disabled} } else { []part.State{part.Selected{Yes: i == s.Selected}} }, Reach: part.Roving{Here: i == s.Selected}}, Skin: part.Control{Root: part.Bare(), Plate: part.Bare(), Content: part.Bare()}, On: Some[int]{Value: i}, Kids: []part.Node[int]{part.Text{Value: "Tab \(i)", Skin: part.Bare()}}})
+				tabs = tabs.Append(part.Press{Sem: part.Sem{..part.Of(part.Tab), Key: part.Join(part.Root("tab"), "\(i)"), States: if off { []part.State{part.Selected{Yes: i == s.Selected}, part.Disabled} } else { []part.State{part.Selected{Yes: i == s.Selected}} }, Reach: part.Roving{Here: i == s.Selected}}, Skin: part.Control{Root: part.Bare(), Plate: part.Bare(), Content: part.Bare()}, On: option.Some[int]{Value: i}, Kids: []part.Node[int]{part.Text{Value: "Tab \(i)", Skin: part.Bare()}}})
 			}
 			let next = (s.Selected + 1) % s.Count
 			let prev = (s.Selected + s.Count - 1) % s.Count
@@ -77,10 +78,10 @@ func hrefs(markup string) []string {
 		if at < 0 {
 			return out
 		}
-		let from = strings.Slice(rest, at+7, len(rest))
+		let from = strings.Slice(rest, at+7, rest.Len())
 		let end = strings.Index(from, "\"")
 		out = out.Append(strings.ReplaceAll(strings.Slice(from, 0, end), "&amp;", "&"))
-		rest = strings.Slice(from, end, len(from))
+		rest = strings.Slice(from, end, from.Len())
 	}
 }
 
@@ -105,9 +106,9 @@ law LinkIsStep(selected int, count int, note string) {
 		}
 	}
 	let got = hrefs(markup)
-	let mut ok = len(got) == len(want)
-	for i in 0..len(got) {
-		ok = ok && i < len(want) && StateOf(p, ui.ParseURL(got[i])) == want[i]
+	let mut ok = got.Len() == want.Len()
+	for i in 0..got.Len() {
+		ok = ok && i < want.Len() && StateOf(p, ui.ParseURL(got[i])) == want[i]
 	}
 	ok
 }

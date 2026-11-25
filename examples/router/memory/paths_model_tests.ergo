@@ -1,5 +1,8 @@
+import core
 import explore
 import gen
+import machines
+import option
 import router/route
 import sync
 import temporal
@@ -41,13 +44,13 @@ type rtPathDriveErr { Message string }
 
 type rtSession {
 	cur sync.Ref[route.Router],
-} implements explore.PathSession[rtPathAct, explore.Observed[rtPathObs, rtPathOut, Never], rtPathDriveErr]
+} implements explore.PathSession[rtPathAct, explore.Observed[rtPathObs, rtPathOut, core.Never], rtPathDriveErr]
 
 func rtAnsCode(r route.Router, id int) int {
 	match route.AnswerOf(r, id) {
-	case None:
+	case option.None:
 		0
-	case Some[route.Answer] as a:
+	case option.Some[route.Answer] as a:
 		match a.Value {
 		case route.Applied:
 			1
@@ -73,15 +76,15 @@ func rtPhaseCode(r route.Router) int {
 func observeRouter(r route.Router) rtPathObs {
 	let b = route.BoardOf(r)
 	let dest = match route.DestOf(b.Table, "logs") {
-	case Some[string] as d:
+	case option.Some[string] as d:
 		d.Value
-	case None:
+	case option.None:
 		""
 	}
 	rtPathObs{
 		Phase:  rtPhaseCode(r),
 		Logs:   dest,
-		QueueN: len(b.Queue),
+		QueueN: b.Queue.Len(),
 		Ans1:   rtAnsCode(r, 1),
 		Ans2:   rtAnsCode(r, 2),
 	}
@@ -123,13 +126,13 @@ func applyRouterRef(ref sync.Ref[route.Router], act rtPathAct) rtPathOut {
 	let sig = rtSignalFor(r, act)
 	let d = route.Step(r, sig)
 	match d {
-	case Enter[route.Router] as e:
+	case machines.Enter[route.Router] as e:
 		ref.Set(e.Next)
 		RtOutTook{Asked: false}
-	case Stay[route.Router] as s:
+	case machines.Stay[route.Router] as s:
 		ref.Set(s.Next)
 		RtOutTook{Asked: false}
-	case Emit[route.Router, route.Output] as e:
+	case machines.Emit[route.Router, route.Output] as e:
 		ref.Set(e.Next)
 		let asked = match e.Output {
 		case route.Question:
@@ -138,29 +141,29 @@ func applyRouterRef(ref sync.Ref[route.Router], act rtPathAct) rtPathOut {
 			false
 		}
 		RtOutTook{Asked: asked}
-	case Tell[route.Router, route.Output] as t:
+	case machines.Tell[route.Router, route.Output] as t:
 		ref.Set(t.Next)
 		RtOutTook{Asked: false}
-	case Reject:
+	case machines.Reject:
 		RtOutRejected
-	case Ignore, Done[route.Output]:
+	case machines.Ignore, machines.Done[route.Output]:
 		RtOutIgnored
 	}
 }
 
-func Read(s rtSession) explore.Observed[rtPathObs, rtPathOut, Never] fails rtPathDriveErr {
+func Read(s rtSession) explore.Observed[rtPathObs, rtPathOut, core.Never] fails rtPathDriveErr {
 	explore.InitialRead[rtPathObs]{State: observeRouter(s.cur.Get())}
 }
 
-func Apply(s rtSession, act rtPathAct) explore.Observed[rtPathObs, rtPathOut, Never] fails rtPathDriveErr {
+func Apply(s rtSession, act rtPathAct) explore.Observed[rtPathObs, rtPathOut, core.Never] fails rtPathDriveErr {
 	let out = applyRouterRef(s.cur, act)
 	let obs = observeRouter(s.cur.Get())
-	explore.StepResult[rtPathObs, rtPathOut, Never]{
-		Step: explore.StepObs[rtPathObs, rtPathOut, Never]{
+	explore.StepResult[rtPathObs, rtPathOut, core.Never]{
+		Step: explore.StepObs[rtPathObs, rtPathOut, core.Never]{
 			Kind:     explore.DisEmit,
-			State:    Some[rtPathObs]{Value: obs},
+			State:    option.Some[rtPathObs]{Value: obs},
 			Outputs:  []rtPathOut{out},
-			Error:    None,
+			Error:    option.None,
 			Terminal: false,
 		},
 	}
@@ -255,21 +258,21 @@ func rtStep(st rtPathState, act rtPathAct) (rtPathState, rtPathOut) {
 	}
 }
 
-func rtModel() explore.PathModel[rtPathState, rtPathAct, rtPathObs, rtPathOut, Never] {
-	explore.PathModelProjected[rtPathState, rtPathAct, rtPathObs, rtPathOut, Never](
+func rtModel() explore.PathModel[rtPathState, rtPathAct, rtPathObs, rtPathOut, core.Never] {
+	explore.PathModelProjected[rtPathState, rtPathAct, rtPathObs, rtPathOut, core.Never](
 		[]rtPathState{rtPathState{Phase: 0, CurID: 0, Logs: "", QueueN: 0, Ans1: 0, Ans2: 0}},
 		rtSignals,
 		"router.machine",
 		rtProject,
-		func(st rtPathState, act rtPathAct) explore.EdgeOutcome[rtPathState, explore.StepObs[rtPathObs, rtPathOut, Never]] {
+		func(st rtPathState, act rtPathAct) explore.EdgeOutcome[rtPathState, explore.StepObs[rtPathObs, rtPathOut, core.Never]] {
 			let (next, out) = rtStep(st, act)
-			explore.Continue[rtPathState, explore.StepObs[rtPathObs, rtPathOut, Never]]{
+			explore.Continue[rtPathState, explore.StepObs[rtPathObs, rtPathOut, core.Never]]{
 				Next: next,
-				Obs:  explore.StepObs[rtPathObs, rtPathOut, Never]{
+				Obs:  explore.StepObs[rtPathObs, rtPathOut, core.Never]{
 					Kind:     explore.DisEmit,
-					State:    Some[rtPathObs]{Value: rtProject(next)},
+					State:    option.Some[rtPathObs]{Value: rtProject(next)},
 					Outputs:  []rtPathOut{out},
-					Error:    None,
+					Error:    option.None,
 					Terminal: false,
 				},
 			}
@@ -288,7 +291,7 @@ type RouterMachinePaths {
 			rtModel(),
 			explore.ToDepth{Depth: 3},
 			bounds,
-			func(start rtPathState) explore.PathSession[rtPathAct, explore.Observed[rtPathObs, rtPathOut, Never], rtPathDriveErr] fails rtPathOpenErr {
+			func(start rtPathState) explore.PathSession[rtPathAct, explore.Observed[rtPathObs, rtPathOut, core.Never], rtPathDriveErr] fails rtPathOpenErr {
 				try OpenSession(start)
 			},
 			testing.ActiveEvidenceSink(),
@@ -378,12 +381,12 @@ law RouterMachineModelTemporal() {
 	}
 }
 
-func tryCheckRoute(t route.Table, ch route.Change) Option[route.Table] needs route.Registry {
+func tryCheckRoute(t route.Table, ch route.Change) option.Option[route.Table] needs route.Registry {
 	let next = route.Registry.Check(t, ch) catch {
 	case route.Unknown:
-		return None
+		return option.None
 	}
-	Some[route.Table]{Value: next}
+	option.Some[route.Table]{Value: next}
 }
 
 // RouterDirectoryFaultsFailClosed wraps route.Registry in testing.Faulty and
@@ -393,20 +396,20 @@ law RouterDirectoryFaultsFailClosed() {
 	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
 		let dir = NewDirectory()
 		let faulty = testing.Faulty[route.Registry](dir)
-		let f0 = len(faulty.Check.Faults())
+		let f0 = faulty.Check.Faults().Len()
 		let res = with context { route.Registry: faulty } {
 			tryCheckRoute(route.Sample, route.Add{Topic: "logs", Dest: "disk"})
 		}
-		let faulted = len(faulty.Check.Faults()) > f0
+		let faulted = faulty.Check.Faults().Len() > f0
 		if faulted {
-			sometimes res == None
-			return res == None
+			sometimes res == option.None
+			return res == option.None
 		}
 		match res {
-		case Some[route.Table] as next:
-			sometimes route.DestOf(next.Value, "logs") == Some[string]{Value: "disk"}
-			route.DestOf(next.Value, "logs") == Some[string]{Value: "disk"}
-		case None:
+		case option.Some[route.Table] as next:
+			sometimes route.DestOf(next.Value, "logs") == option.Some[string]{Value: "disk"}
+			route.DestOf(next.Value, "logs") == option.Some[string]{Value: "disk"}
+		case option.None:
 			false
 		}
 	})

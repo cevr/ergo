@@ -1,4 +1,6 @@
+import core
 import machines
+import option
 
 // Form is the state: the three fields and the stage of the submit.
 type Form {
@@ -45,7 +47,7 @@ func edit(k int, text string) Signal {
 // address, and a malformed one; and the generated text.
 func textOf(n int, generated string) string {
 	let texts = []string{"", "A", "Alice", "alice@example.com", "alice@example", generated}
-	texts[((n%len(texts))+len(texts))%len(texts)]
+	texts[((n%texts.Len())+texts.Len())%texts.Len()]
 }
 
 // StaleCheckIsDropped: an edit of the email opens a new entry, so the
@@ -58,20 +60,20 @@ law StaleCheckIsDropped(f Form, k int, text string, taken bool) {
 	let d = Step(f, edit(k, text))
 	let entry = match f.Stage {
 	case Sending:
-		d == Ignore
+		d == machines.Ignore
 	case Editing, Sent, Refused:
 		match edit(k, text) {
 		case EmailEdited:
-			d == Enter[Form]{Next: machines.Next(f, d)}
+			d == machines.Enter[Form]{Next: machines.Next(f, d)}
 		case _:
-			d == Stay[Form]{Next: machines.Next(f, d)}
+			d == machines.Stay[Form]{Next: machines.Next(f, d)}
 		}
 	}
 	let stray = match f.Email.Verdict {
 	case Checking[Email]:
 		true
 	case Unchecked, Valid[Email], Invalid[EmailWhy]:
-		Step(f, Checked{Taken: taken}) == Ignore
+		Step(f, Checked{Taken: taken}) == machines.Ignore
 	}
 	entry && stray
 }
@@ -98,36 +100,36 @@ func Initial() Form {
 // check's answer settles a Checking email. A submit of a ready form starts
 // the submit; of any other form it is ignored. The submit's answer
 // settles the stage. An answer that no state waits for is ignored.
-func Step(f Form, s Signal) Decision[Form, Never] {
+func Step(f Form, s Signal) machines.Decision[Form, core.Never] {
 	match (f.Stage, s) {
 	case (Sending, NameEdited), (Sending, EmailEdited), (Sending, NoteEdited), (Sending, Submitted):
-		Ignore
+		machines.Ignore
 	case (_, NameEdited as e):
-		Stay[Form]{Next: Form{..f, Name: NameField(e.Text)}}
+		machines.Stay[Form]{Next: Form{..f, Name: NameField(e.Text)}}
 	case (_, NoteEdited as e):
-		Stay[Form]{Next: Form{..f, Note: e.Text}}
+		machines.Stay[Form]{Next: Form{..f, Note: e.Text}}
 	case (_, EmailEdited as e):
-		Enter[Form]{Next: Form{..f, Email: EmailField(e.Text)}}
+		machines.Enter[Form]{Next: Form{..f, Email: EmailField(e.Text)}}
 	case (_, Checked as c):
 		match f.Email.Verdict {
 		case Checking[Email] as k:
 			let v Verdict[Email, EmailWhy] = if c.Taken { Invalid[EmailWhy]{Why: Taken} } else { Valid[Email]{Value: k.Value} }
-			Enter[Form]{Next: Form{..f, Email: Field[Email, EmailWhy]{Text: f.Email.Text, Verdict: v}}}
+			machines.Enter[Form]{Next: Form{..f, Email: Field[Email, EmailWhy]{Text: f.Email.Text, Verdict: v}}}
 		case _:
-			Ignore
+			machines.Ignore
 		}
 	case (_, Submitted):
 		if Ready(f) {
-			Enter[Form]{Next: Form{..f, Stage: Sending}}
+			machines.Enter[Form]{Next: Form{..f, Stage: Sending}}
 		} else {
-			Ignore
+			machines.Ignore
 		}
 	case (Sending, Joined):
-		Enter[Form]{Next: Form{..f, Stage: Sent{Text: Welcome(f.Name.Text)}}}
+		machines.Enter[Form]{Next: Form{..f, Stage: Sent{Text: Welcome(f.Name.Text)}}}
 	case (Sending, JoinFailed):
-		Enter[Form]{Next: Form{..f, Stage: Refused}}
+		machines.Enter[Form]{Next: Form{..f, Stage: Refused}}
 	case (_, Joined), (_, JoinFailed):
-		Ignore
+		machines.Ignore
 	}
 }
 
@@ -136,14 +138,14 @@ func Step(f Form, s Signal) Decision[Form, Never] {
 // check; any other submit is ignored.
 law SubmitOnlyWhenAllValid(n int, name string, e int, email string, settled bool, taken bool, stage int) {
 	let f = formOf(textOf(n, name), textOf(e, email), settled, taken, stage)
-	let nameOK = f.Name.Text == "" || len(f.Name.Text) >= 2
+	let nameOK = f.Name.Text == "" || f.Name.Text.Len() >= 2
 	let emailOK = settled && !taken && !malformed(f.Email.Text) && f.Email.Text != ""
 	let sending = ((stage%4)+4)%4 == 1
 	let d = Step(f, Submitted)
 	if !sending && nameOK && emailOK {
-		d == Enter[Form]{Next: Form{..f, Stage: Sending}}
+		d == machines.Enter[Form]{Next: Form{..f, Stage: Sending}}
 	} else {
-		d == Ignore
+		d == machines.Ignore
 	}
 }
 
@@ -160,7 +162,7 @@ func formOf(name string, email string, settled bool, taken bool, stage int) Form
 
 func malformed(text string) bool {
 	let _ = ParseEmail(text) catch {
-	case Unsatisfied:
+	case core.Unsatisfied:
 		return true
 	}
 	false
@@ -193,11 +195,11 @@ func Welcome(name string) string {
 // work is the work of each state: a submit under way sends the subscription;
 // else a Checking email asks the subscribers. The runner starts it when
 // the entry opens and interrupts it when the entry ends.
-func work(f Form) Option[machines.Work[Signal, Subscribers]] {
+func work(f Form) option.Option[machines.Work[Signal, Subscribers]] {
 	match (f.Stage, f.Email.Verdict) {
 	case (Sending, Valid[Email] as v):
 		let s = Subscription{Name: f.Name.Text, Email: v.Value, Note: f.Note}
-		Some{machines.Attempt(func() Signal fails JoinFailed needs Subscribers {
+		option.Some{machines.Attempt(func() Signal fails JoinFailed needs Subscribers {
 			try Subscribers.Join(s)
 			Joined
 		}, func(joined Signal) Signal { joined }, func(failure) {
@@ -205,11 +207,11 @@ func work(f Form) Option[machines.Work[Signal, Subscribers]] {
 			failed
 		})}
 	case (Sending, _):
-		None
+		option.None
 	case (_, Checking[Email] as k):
-		Some{machines.Do(func() Signal needs Subscribers { Checked{Taken: Subscribers.Taken(k.Value)} })}
+		option.Some{machines.Do(func() Signal needs Subscribers { Checked{Taken: Subscribers.Taken(k.Value)} })}
 	case (_, _):
-		None
+		option.None
 	}
 }
 

@@ -1,5 +1,6 @@
 import github.com/cevr/ergo/modules/board/board
 import maps
+import option
 import slices
 import strings
 import sync
@@ -38,9 +39,9 @@ func NewWithAdmins(admins []board.Principal, now board.Timestamp) Store {
 
 func logOf(b memBook, name string) []board.Event {
 	match b.Logs.Get(name) {
-	case Some[[]board.Event] as evts:
+	case option.Some[[]board.Event] as evts:
 		evts.Value
-	case None:
+	case option.None:
 		[]board.Event{}
 	}
 }
@@ -54,7 +55,7 @@ func Commit(s Store, boardName string, expected board.Cursor, events []board.Eve
 	let bName = board.ResolveBoard(boardName)
 	let res = sync.Modify(s.ref, func(b memBook) (commitResult, memBook) {
 		let curLog = logOf(b, bName)
-		let actual = len(curLog)
+		let actual = curLog.Len()
 		if expected != actual {
 			return (commitStale{Actual: actual}, b)
 		}
@@ -95,7 +96,7 @@ func Snapshot(s Store) board.State fails board.StoreFailed { s.ref.Get().State }
 
 func snippetFor(text string) string {
 	let bs = strings.Bytes(text)
-	if len(bs) <= 120 {
+	if bs.Len() <= 120 {
 		return text
 	}
 	strings.Slice(text, 0, 120)
@@ -106,23 +107,23 @@ func Search(s Store, q board.SearchQuery) []board.SearchHit fails board.StoreFai
 	let st = s.ref.Get().State
 	let bName = board.ResolveBoard(q.Board)
 	let gs = match st.Grants.Get(bName) {
-	case Some[[]board.Grant] as xs:
+	case option.Some[[]board.Grant] as xs:
 		xs.Value
-	case None:
+	case option.None:
 		[]board.Grant{}
 	}
 	let limit = if q.Limit <= 0 { 50 } else { q.Limit }
 	let mut hits = []board.SearchHit{}
 	for id in slices.Sorted(maps.Keys(st.Messages)) {
-		if len(hits) >= limit {
+		if hits.Len() >= limit {
 			break
 		}
 		match st.Messages.Get(id) {
-		case Some[board.Message] as m:
+		case option.Some[board.Message] as m:
 			if board.MatchesSearchQuery(gs, m.Value, q) {
 				hits = hits.Append(board.SearchHit{Message: m.Value, Snippet: snippetFor(m.Value.Text)})
 			}
-		case None:
+		case option.None:
 		}
 	}
 	hits

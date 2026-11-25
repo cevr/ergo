@@ -114,7 +114,7 @@ func Scramble(text string) string {
 	let from = "abz AZ09_"
 	let to = "()*|[]\\.^"
 	let mut out = ""
-	for i in 0..len(text) {
+	for i in 0..text.Len() {
 		let k = strings.Index(from, text[i:i+1])
 		out = out + if k < 0 { text[i : i+1] } else { to[k : k+1] }
 	}
@@ -131,9 +131,9 @@ law ParsedIsCanonical(text string, seed int) {
 	}
 	for k in 0..20 {
 		let src = Print(Sample(seed*20 + k))
-		if len(src) > 0 {
-			let cut = (seed + k) % len(src)
-			let at = if cut < 0 { cut + len(src) } else { cut }
+		if src.Len() > 0 {
+			let cut = (seed + k) % src.Len()
+			let at = if cut < 0 { cut + src.Len() } else { cut }
 			if !canonical(src[:at] + src[at+1:]) {
 				return false
 			}
@@ -164,7 +164,7 @@ func inside(text string) bool {
 	let _ = Parse(text) catch {
 	case err:
 		let at = Offset(err)
-		return 0 <= at && at < len(text)
+		return 0 <= at && at < text.Len()
 	}
 	true
 }
@@ -175,7 +175,7 @@ func SampleText(seed int) string {
 	let n = g.next(8)
 	let mut out = ""
 	for _ in 0..n {
-		let i = g.next(len(alphabet))
+		let i = g.next(alphabet.Len())
 		out = out + alphabet[i:i+1]
 	}
 	out

@@ -721,6 +721,8 @@ var bodyTable = []bodyRow{
 	{"VariantOf", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Results: []string{"string"}, Package: Path}}},
 	{"ViewDefect.Error", bodyFact{body: Body{Results: []string{"string"}, Package: Path}}},
 	{"ViewDefect.String", bodyFact{body: Body{Results: []string{"string"}, Package: Path}}},
+	{"WideGet", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Hidden: []Hidden{"task"}, Params: []Param{{Type: "string"}}, Results: []string{"T", "bool"}, Wait: "none", Package: Path}}},
+	{"WidePush", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Hidden: []Hidden{"frame", "task"}, Params: []Param{{Type: "string"}, {Type: "T"}}, Wait: "none", Package: Path}}},
 	{"WireKeyKept", bodyFact{body: Body{Params: []Param{{Type: "string"}}, Results: []string{"string"}, Package: Path}}},
 	{"WireKeys", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "K", Constraint: "~string"}, {Name: "V", Constraint: "any"}}, Params: []Param{{Type: "map[K]V"}}, Results: []string{"[]K"}, Package: Path}}},
 	{"WireKeysIn", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "K", Constraint: "~string"}, {Name: "V", Constraint: "any"}}, Params: []Param{{Type: "*[WireKeyRoom]K"}, {Type: "map[K]V"}}, Results: []string{"[]K"}, Package: Path}}},

@@ -12,6 +12,7 @@
 
 import github.com/cevr/ergo/modules/clientgen/smithy
 import json
+import option
 import strconv
 import strings
 
@@ -69,7 +70,7 @@ type Enum { Name string, Doc string, Values []Value }
 
 // Failure is a model error: its name, its HTTP status if the model gives
 // one, and its members (read from the error body).
-type Failure { Name string, Doc string, Status Option[int], Fields []Field }
+type Failure { Name string, Doc string, Status option.Option[int], Fields []Field }
 
 // Plan is the whole package's plan.
 type Plan { Service string, Doc string, Ops []Op, Enums []Enum, Failures []Failure }
@@ -141,48 +142,48 @@ func once(xs []string, x string) []string {
 // local is a shape id's name (`ns#Name` -> `Name`).
 func local(id string) string {
 	let at = strings.Index(id, "#")
-	if at < 0 { id } else { strings.Slice(id, at+1, len(id)) }
+	if at < 0 { id } else { strings.Slice(id, at+1, id.Len()) }
 }
 
 func shapeAt(index Map[string, smithy.Shape], id string, op string) smithy.Shape fails Refused {
 	match index.Get(id) {
-	case Some as s:
+	case option.Some as s:
 		s.Value
-	case None:
+	case option.None:
 		Refused{Operation: op, Reason: "\(id) is not in the slice"}
 	}
 }
 
-func traitOf(ts []smithy.Trait, id string) Option[json.Value] {
+func traitOf(ts []smithy.Trait, id string) option.Option[json.Value] {
 	for t in ts {
 		match t {
 		case smithy.Known as k:
 			if k.Id == id {
-				return Some[json.Value]{k.Value}
+				return option.Some[json.Value]{k.Value}
 			}
 		case smithy.Refused as r:
 			if r.Id == id {
-				return Some[json.Value]{r.Value}
+				return option.Some[json.Value]{r.Value}
 			}
 		}
 	}
-	None
+	option.None
 }
 
 func traitText(ts []smithy.Trait, id string) string {
 	match traitOf(ts, id) {
-	case Some as v:
+	case option.Some as v:
 		textOf(v.Value)
-	case None:
+	case option.None:
 		""
 	}
 }
 
 func has(ts []smithy.Trait, id string) bool {
 	match traitOf(ts, id) {
-	case Some:
+	case option.Some:
 		true
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -215,9 +216,9 @@ func member(o json.Value, key string) json.Value {
 // and entities removed, at most 200 bytes.
 func docOf(ts []smithy.Trait) string {
 	match traitOf(ts, "smithy.api#documentation") {
-	case Some as d:
+	case option.Some as d:
 		sentence(plain(textOf(d.Value)))
-	case None:
+	case option.None:
 		""
 	}
 }
@@ -225,7 +226,7 @@ func docOf(ts []smithy.Trait) string {
 func plain(html string) string {
 	let mut out = []byte{}
 	let mut inTag = false
-	for i in 0..len(html) {
+	for i in 0..html.Len() {
 		let c = html[i]
 		if c == '<' {
 			inTag = true
@@ -243,7 +244,7 @@ func plain(html string) string {
 func sentence(s string) string {
 	let at = strings.Index(s, ". ")
 	let first = if at < 0 { s } else { strings.Slice(s, 0, at+1) }
-	if len(first) <= 200 { first } else { strings.Slice(first, 0, 197) + "..." }
+	if first.Len() <= 200 { first } else { strings.Slice(first, 0, 197) + "..." }
 }
 
 func opOf(index Map[string, smithy.Shape], id string) Op fails Refused {
@@ -255,23 +256,23 @@ func opOf(index Map[string, smithy.Shape], id string) Op fails Refused {
 		return Refused{Operation: id, Reason: "not an operation"}
 	}
 	let http = match traitOf(s.Traits, "smithy.api#http") {
-	case Some as h:
+	case option.Some as h:
 		h.Value
-	case None:
+	case option.None:
 		return Refused{Operation: id, Reason: "no smithy.api#http trait"}
 	}
 	let uri = textOf(member(http, "uri"))
 	let (path, query) = try templateOf(uri, id)
 	let input = match o.Input {
-	case Some as t:
+	case option.Some as t:
 		t.Value
-	case None:
+	case option.None:
 		return Refused{Operation: id, Reason: "no input shape"}
 	}
 	let output = match o.Output {
-	case Some as t:
+	case option.Some as t:
 		t.Value
-	case None:
+	case option.None:
 		return Refused{Operation: id, Reason: "no output shape"}
 	}
 	let ins = greedyOf(try fieldsOf(index, input, id, true), path)
@@ -284,7 +285,7 @@ func templateOf(uri string, op string) ([]Seg, []Lit) fails Refused {
 	let parts = strings.SplitN(uri, "?", 2)
 	let mut segs = []Seg{}
 	let mut rest = parts[0]
-	for len(rest) > 0 {
+	for rest.Len() > 0 {
 		let open = strings.Index(rest, "{")
 		if open < 0 {
 			segs = segs.Append(SegText{Text: rest})
@@ -300,14 +301,14 @@ func templateOf(uri string, op string) ([]Seg, []Lit) fails Refused {
 			let name = strings.Slice(rest, open+1, close)
 			let greedy = strings.HasSuffix(name, "+")
 			segs = segs.Append(SegLabel{Member: strings.TrimSuffix(name, "+"), Greedy: greedy})
-			rest = strings.Slice(rest, close+1, len(rest))
+			rest = strings.Slice(rest, close+1, rest.Len())
 		}
 	}
 	let mut lits = []Lit{}
-	if len(parts) == 2 {
+	if parts.Len() == 2 {
 		for pair in strings.Split(parts[1], "&") {
 			let kv = strings.SplitN(pair, "=", 2)
-			lits = lits.Append(Lit{Name: kv[0], Value: if len(kv) == 2 { kv[1] } else { "" }})
+			lits = lits.Append(Lit{Name: kv[0], Value: if kv.Len() == 2 { kv[1] } else { "" }})
 		}
 	}
 	(segs, lits)
@@ -354,13 +355,13 @@ func fieldOf(index Map[string, smithy.Shape], m smithy.Member, op string, input 
 func tyOf(index Map[string, smithy.Shape], m smithy.Member, op string) Ty fails Refused {
 	let target = try shapeAt(index, m.Target, op)
 	let format = match traitOf(m.Traits, "smithy.api#timestampFormat") {
-	case Some as f:
+	case option.Some as f:
 		textOf(f.Value)
-	case None:
+	case option.None:
 		match traitOf(target.Traits, "smithy.api#timestampFormat") {
-		case Some as f:
+		case option.Some as f:
 			textOf(f.Value)
-		case None:
+		case option.None:
 			""
 		}
 	}
@@ -395,7 +396,7 @@ func tyOf(index Map[string, smithy.Shape], m smithy.Member, op string) Ty fails 
 
 func isString(index Map[string, smithy.Shape], id string) bool {
 	match index.Get(id) {
-	case Some as s:
+	case option.Some as s:
 		match s.Value.Kind {
 		case smithy.Simple as sc:
 			match sc.Of {
@@ -407,7 +408,7 @@ func isString(index Map[string, smithy.Shape], id string) bool {
 		case smithy.Enum, smithy.IntEnum, smithy.List, smithy.Mapping, smithy.Structure, smithy.Union, smithy.Operation, smithy.Service, smithy.Resource, smithy.Unsupported:
 			false
 		}
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -420,9 +421,9 @@ func enumOf(index Map[string, smithy.Shape], name string) Enum fails Refused {
 				let mut vs = []Value{}
 				for m in e.Members {
 					let wireText = match traitOf(m.Traits, "smithy.api#enumValue") {
-					case Some as v:
+					case option.Some as v:
 						textOf(v.Value)
-					case None:
+					case option.None:
 						m.Name
 					}
 					vs = vs.Append(Value{Variant: name + pascal(m.Name), Wire: wireText})
@@ -440,8 +441,8 @@ func enumOf(index Map[string, smithy.Shape], name string) Enum fails Refused {
 func pascal(name string) string {
 	let mut out = ""
 	for part in strings.Split(name, "_") {
-		if len(part) > 0 {
-			out = out + strings.ToUpper(strings.Slice(part, 0, 1)) + strings.ToLower(strings.Slice(part, 1, len(part)))
+		if part.Len() > 0 {
+			out = out + strings.ToUpper(strings.Slice(part, 0, 1)) + strings.ToLower(strings.Slice(part, 1, part.Len()))
 		}
 	}
 	out
@@ -450,14 +451,14 @@ func pascal(name string) string {
 func failureOf(index Map[string, smithy.Shape], id string) Failure fails Refused {
 	let s = try shapeAt(index, id, id)
 	let status = match traitOf(s.Traits, "smithy.api#httpError") {
-	case Some as v:
+	case option.Some as v:
 		let n = strconv.Atoi(textOf(v.Value)) catch {
 		case _:
 			return Refused{Operation: id, Reason: "an httpError that is not a number"}
 		}
-		Some[int]{n}
-	case None:
-		None
+		option.Some[int]{n}
+	case option.None:
+		option.None
 	}
 	let fields = try fieldsOf(index, id, id, false)
 	for f in fields {
@@ -508,7 +509,7 @@ law EveryMemberIsBound(ins []int, outs []int) {
 
 // bound is whether fs holds each of want's (name, place) once and nothing else.
 func bound(fs []Field, want [](string, int)) bool {
-	if len(fs) != len(want) {
+	if fs.Len() != want.Len() {
 		return false
 	}
 	for w in want {
@@ -605,7 +606,7 @@ func drawnModel(ins []int, outs []int) smithy.Model {
 	}
 	uri = (if uri == "" { "/" } else { strings.TrimSuffix(uri, "}") + "+}" }) + "?x-id=Op"
 	let http = json.Object{Members: []json.Member{json.Member{Key: "method", Value: json.Str{Value: "GET"}}, json.Member{Key: "uri", Value: json.Str{Value: uri}}}}
-	let op = smithy.Shape{Id: "t#Op", Kind: smithy.Operation{Input: Some[string]{"t#In"}, Output: Some[string]{"t#Out"}, Errors: []string{}}, Traits: []smithy.Trait{trait("smithy.api#http", http)}, Keys: []smithy.Unread{}}
+	let op = smithy.Shape{Id: "t#Op", Kind: smithy.Operation{Input: option.Some[string]{"t#In"}, Output: option.Some[string]{"t#Out"}, Errors: []string{}}, Traits: []smithy.Trait{trait("smithy.api#http", http)}, Keys: []smithy.Unread{}}
 	let str = smithy.Shape{Id: "smithy.api#String", Kind: smithy.Simple{Of: smithy.StringType}, Traits: []smithy.Trait{}, Keys: []smithy.Unread{}}
 	let blob = smithy.Shape{Id: "t#Blob", Kind: smithy.Simple{Of: smithy.BlobType}, Traits: []smithy.Trait{trait("smithy.api#streaming", json.Object{Members: []json.Member{}})}, Keys: []smithy.Unread{}}
 	let meta = smithy.Shape{Id: "t#Meta", Kind: smithy.Mapping{Key: smithy.Member{Name: "key", Target: "smithy.api#String", Traits: []smithy.Trait{}}, Value: smithy.Member{Name: "value", Target: "smithy.api#String", Traits: []smithy.Trait{}}}, Traits: []smithy.Trait{}, Keys: []smithy.Unread{}}

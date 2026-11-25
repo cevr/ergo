@@ -1,8 +1,10 @@
+import core
 import explore
 import fs
 import fstest
 import gen
 import github.com/cevr/ergo/modules/infra
+import option
 import sync
 import testing
 
@@ -39,7 +41,7 @@ type localWorld {
 
 type localPathSession {
 	world sync.Ref[localWorld],
-} implements explore.PathSession[localPathAct, explore.Observed[localPathObs, localPathOut, Never], localPathDriveErr]
+} implements explore.PathSession[localPathAct, explore.Observed[localPathObs, localPathOut, core.Never], localPathDriveErr]
 
 func ensureLocalStack(hasDir bool, text string) fails infra.Failed needs infra.Kind[DirProps, Dir] | infra.Kind[FileProps, File] {
 	if hasDir {
@@ -55,9 +57,9 @@ func readLocalObs(w localWorld) localPathObs fails localPathDriveErr {
 	case infra.Failed:
 		return localPathDriveErr{Message: "read dir failed"}
 	} {
-	case Some[Dir]:
+	case option.Some[Dir]:
 		true
-	case None:
+	case option.None:
 		false
 	}
 	let fileText = w.disk.ReadFile("/work/etc/app.conf") catch {
@@ -69,8 +71,8 @@ func readLocalObs(w localWorld) localPathObs fails localPathDriveErr {
 	localPathObs{
 		DirOnDisk:  dirThere,
 		FileOnDisk: fileText,
-		RowsCount:  len(w.dirState.List()) + len(w.fileState.List()),
-		LockFree:   w.lock.Holder() == None,
+		RowsCount:  w.dirState.List().Len() + w.fileState.List().Len(),
+		LockFree:   w.lock.Holder() == option.None,
 	}
 }
 
@@ -95,7 +97,7 @@ func applyLocalAct(w localWorld, act localPathAct) localPathOut fails localPathD
 		case infra.Failed as e:
 			return localPathDriveErr{Message: e.Reason}
 		}
-		LocalOutOk{Steps: len(infra.Steps(pass))}
+		LocalOutOk{Steps: infra.Steps(pass).Len()}
 	case LocalActDestroy:
 		infra.Destroy(pass, w.lock, "r1", sweepers) catch {
 		case infra.Held:
@@ -103,24 +105,24 @@ func applyLocalAct(w localWorld, act localPathAct) localPathOut fails localPathD
 		case infra.Failed as e:
 			return localPathDriveErr{Message: e.Reason}
 		}
-		LocalOutOk{Steps: len(infra.Steps(pass))}
+		LocalOutOk{Steps: infra.Steps(pass).Len()}
 	}
 }
 
-func Read(s localPathSession) explore.Observed[localPathObs, localPathOut, Never] fails localPathDriveErr {
+func Read(s localPathSession) explore.Observed[localPathObs, localPathOut, core.Never] fails localPathDriveErr {
 	explore.InitialRead[localPathObs]{State: try readLocalObs(s.world.Get())}
 }
 
-func Apply(s localPathSession, act localPathAct) explore.Observed[localPathObs, localPathOut, Never] fails localPathDriveErr {
+func Apply(s localPathSession, act localPathAct) explore.Observed[localPathObs, localPathOut, core.Never] fails localPathDriveErr {
 	let w = s.world.Get()
 	let out = try applyLocalAct(w, act)
 	let obs = try readLocalObs(w)
-	explore.StepResult[localPathObs, localPathOut, Never]{
-		Step: explore.StepObs[localPathObs, localPathOut, Never]{
+	explore.StepResult[localPathObs, localPathOut, core.Never]{
+		Step: explore.StepObs[localPathObs, localPathOut, core.Never]{
 			Kind:     explore.DisEmit,
-			State:    Some[localPathObs]{Value: obs},
+			State:    option.Some[localPathObs]{Value: obs},
 			Outputs:  []localPathOut{out},
-			Error:    None,
+			Error:    option.None,
 			Terminal: false,
 		},
 	}
@@ -171,21 +173,21 @@ func localPathStep(st localPathState, act localPathAct) (localPathState, localPa
 	}
 }
 
-func localPathModel() explore.PathModel[localPathState, localPathAct, localPathObs, localPathOut, Never] {
-	explore.PathModelProjected[localPathState, localPathAct, localPathObs, localPathOut, Never](
+func localPathModel() explore.PathModel[localPathState, localPathAct, localPathObs, localPathOut, core.Never] {
+	explore.PathModelProjected[localPathState, localPathAct, localPathObs, localPathOut, core.Never](
 		[]localPathState{localPathState{HasDir: false, FileText: ""}},
 		localPathSignals,
 		"local.infra",
 		localPathProject,
-		func(st localPathState, act localPathAct) explore.EdgeOutcome[localPathState, explore.StepObs[localPathObs, localPathOut, Never]] {
+		func(st localPathState, act localPathAct) explore.EdgeOutcome[localPathState, explore.StepObs[localPathObs, localPathOut, core.Never]] {
 			let (next, out) = localPathStep(st, act)
-			explore.Continue[localPathState, explore.StepObs[localPathObs, localPathOut, Never]]{
+			explore.Continue[localPathState, explore.StepObs[localPathObs, localPathOut, core.Never]]{
 				Next: next,
-				Obs:  explore.StepObs[localPathObs, localPathOut, Never]{
+				Obs:  explore.StepObs[localPathObs, localPathOut, core.Never]{
 					Kind:     explore.DisEmit,
-					State:    Some[localPathObs]{Value: localPathProject(next)},
+					State:    option.Some[localPathObs]{Value: localPathProject(next)},
 					Outputs:  []localPathOut{out},
-					Error:    None,
+					Error:    option.None,
 					Terminal: false,
 				},
 			}
@@ -205,7 +207,7 @@ type LocalInfraPaths {
 			localPathModel(),
 			explore.ToDepth{Depth: 3},
 			bounds,
-			func(start localPathState) explore.PathSession[localPathAct, explore.Observed[localPathObs, localPathOut, Never], localPathDriveErr] fails localPathOpenErr {
+			func(start localPathState) explore.PathSession[localPathAct, explore.Observed[localPathObs, localPathOut, core.Never], localPathDriveErr] fails localPathOpenErr {
 				try OpenSession(start)
 			},
 			testing.ActiveEvidenceSink(),
@@ -260,16 +262,16 @@ law LocalFilesWriteFaultsFailClosed() {
 		let disk = fstest.NewMemory()
 		let faultyWrites = testing.Faulty[fs.Writes](disk)
 		let drv = FilesOn(disk, faultyWrites, "/work", "/ledger")
-		let mkdirBefore = len(faultyWrites.MkdirAll.Faults())
-		let writeBefore = len(faultyWrites.WriteFileMode.Faults())
-		let wfBefore = len(faultyWrites.WriteFile.Faults())
+		let mkdirBefore = faultyWrites.MkdirAll.Faults().Len()
+		let writeBefore = faultyWrites.WriteFileMode.Faults().Len()
+		let wfBefore = faultyWrites.WriteFile.Faults().Len()
 		let applied = drv.Apply("fresh", FileProps{Dir: "etc", Name: "b.conf", Text: "hi", Mode: fs.Shared()}) catch {
 		case infra.Failed:
 			File{Path: "", Size: -1}
 		}
-		let applyFaulted = len(faultyWrites.MkdirAll.Faults()) > mkdirBefore ||
-			len(faultyWrites.WriteFileMode.Faults()) > writeBefore ||
-			len(faultyWrites.WriteFile.Faults()) > wfBefore
+		let applyFaulted = faultyWrites.MkdirAll.Faults().Len() > mkdirBefore ||
+			faultyWrites.WriteFileMode.Faults().Len() > writeBefore ||
+			faultyWrites.WriteFile.Faults().Len() > wfBefore
 		if applyFaulted {
 			sometimes applied.Size < 0
 			if applied.Size >= 0 {
@@ -279,28 +281,28 @@ law LocalFilesWriteFaultsFailClosed() {
 			case infra.Failed:
 				return false
 			}
-			if read != None {
+			if read != option.None {
 				return false
 			}
 		} else if applied.Size < 0 {
 			return false
 		}
-		let rows = RowsOn[int](disk, faultyWrites, "/state/rows", func(p int) string { "v" }, func(text string) Option[int] {
-			if text == "v" { Some[int]{Value: 1} } else { None }
+		let rows = RowsOn[int](disk, faultyWrites, "/state/rows", func(p int) string { "v" }, func(text string) option.Option[int] {
+			if text == "v" { option.Some[int]{Value: 1} } else { option.None }
 		})
-		let mBefore = len(faultyWrites.MkdirAll.Faults())
-		let wBefore = len(faultyWrites.WriteFile.Faults())
+		let mBefore = faultyWrites.MkdirAll.Faults().Len()
+		let wBefore = faultyWrites.WriteFile.Faults().Len()
 		let rowOk = tryRowPut(rows, "r0", 1)
-		let rowFaulted = len(faultyWrites.MkdirAll.Faults()) > mBefore || len(faultyWrites.WriteFile.Faults()) > wBefore
+		let rowFaulted = faultyWrites.MkdirAll.Faults().Len() > mBefore || faultyWrites.WriteFile.Faults().Len() > wBefore
 		if rowFaulted {
 			sometimes !rowOk
-			return !rowOk && rows.Get("r0") == None
+			return !rowOk && rows.Get("r0") == option.None
 		}
 		if !rowOk {
 			return false
 		}
 		sometimes rowOk
-		rows.Get("r0") == (Some[infra.Row[int]]{Value: infra.Row[int]{ID: "r0", Status: infra.Live, Props: 1, Seq: 1}})
+		rows.Get("r0") == (option.Some[infra.Row[int]]{Value: infra.Row[int]{ID: "r0", Status: infra.Live, Props: 1, Seq: 1}})
 	})
 	match outcome {
 	case gen.Held:

@@ -6,6 +6,7 @@
 // Enter in the form submits it whatever the button shows, as a form's
 // implicit submission does, and the step refuses a form that is not ready.
 
+import option
 import signupform/subscribe
 import ui
 
@@ -35,11 +36,11 @@ let RefusedText = "Sorry, the list could not take the subscription. Please try a
 // Screen is the form.
 func Screen(f mut ui.Frame[subscribe.Signal], s subscribe.Form) {
 	let sending = s.Stage == subscribe.Sending
-	ui.OnKey(f, func(k ui.KeyPress) Option[subscribe.Signal] {
-		if k.Name == "Enter" { Some{Value: subscribe.Submitted} } else { None }
+	ui.OnKey(f, func(k ui.KeyPress) option.Option[subscribe.Signal] {
+		if k.Name == "Enter" { option.Some{Value: subscribe.Submitted} } else { option.None }
 	})
 	ui.Column(f, ui.Plain()) {
-		ui.Semantic(f, named(ui.Heading, Title, Some{Value: 1}), None, ui.Plain()) {
+		ui.Semantic(f, named(ui.Heading, Title, option.Some{Value: 1}), option.None, ui.Plain()) {
 			ui.Text(f, Title)
 		}
 		field(f, NameLabel, s.Name.Text, NameSaid(s.Name.Verdict), func(t string) subscribe.Signal { subscribe.NameEdited{Text: t} })
@@ -53,11 +54,11 @@ func Screen(f mut ui.Frame[subscribe.Signal], s subscribe.Form) {
 		}
 		match s.Stage {
 		case subscribe.Sent as t:
-			ui.Semantic(f, named(ui.Status, "", None), None, ui.Plain()) {
+			ui.Semantic(f, named(ui.Status, "", option.None), option.None, ui.Plain()) {
 				ui.Text(f, t.Text)
 			}
 		case subscribe.Refused:
-			ui.Semantic(f, named(ui.Alert, "", None), None, ui.Plain()) {
+			ui.Semantic(f, named(ui.Alert, "", option.None), option.None, ui.Plain()) {
 				ui.Text(f, RefusedText)
 			}
 		case subscribe.Editing, subscribe.Sending:
@@ -98,6 +99,6 @@ func EmailSaid(v subscribe.Verdict[subscribe.Email, subscribe.EmailWhy]) string 
 }
 
 // named is the access of a container with a role and a name.
-func named(role ui.Role, name string, level Option[int]) ui.Access {
-	ui.Access{Role: role, Name: name, Disabled: false, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: level, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: ui.NoKey, Rels: []ui.Rel{}}
+func named(role ui.Role, name string, level option.Option[int]) ui.Access {
+	ui.Access{Role: role, Name: name, Disabled: false, Description: "", Checked: option.None, Value: option.None, Selected: option.None, Expanded: option.None, Pressed: option.None, Invalid: false, Busy: false, HasPopup: false, Level: level, Mixed: false, Current: option.None, Modal: false, MultiSelectable: false, Range: option.None, Key: ui.NoKey, Rels: []ui.Rel{}}
 }

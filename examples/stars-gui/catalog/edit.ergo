@@ -3,6 +3,7 @@
 // reader uses the same function, so a file and an edit accept the same
 // texts.
 
+import option
 import strings
 
 // Refused is a text that a column does not take, with the reason.
@@ -46,19 +47,19 @@ func ParseCell(c Column, text string) Cell fails Refused {
 	case Declination:
 		Fixed{Value: try fixedIn(c, text, 1, -900, 900), Places: 1}
 	case Ascension:
-		if len(text) != 6 || strings.Slice(text, 2, 3) != "h" || strings.Slice(text, 5, 6) != "m" {
+		if text.Len() != 6 || strings.Slice(text, 2, 3) != "h" || strings.Slice(text, 5, 6) != "m" {
 			return Refused{Column: c, Text: text, Reason: NotANumber}
 		}
 		let h = match parseDigits(strings.Slice(text, 0, 2), 2) {
-		case Some[int] as v:
+		case option.Some[int] as v:
 			v.Value
-		case None:
+		case option.None:
 			return Refused{Column: c, Text: text, Reason: NotANumber}
 		}
 		let m = match parseDigits(strings.Slice(text, 3, 5), 2) {
-		case Some[int] as v:
+		case option.Some[int] as v:
 			v.Value
-		case None:
+		case option.None:
 			return Refused{Column: c, Text: text, Reason: NotANumber}
 		}
 		if h > 23 || m > 59 {
@@ -67,9 +68,9 @@ func ParseCell(c Column, text string) Cell fails Refused {
 		Hours{Minutes: h*60 + m}
 	case Planets:
 		let n = match parseDigits(text, 4) {
-		case Some[int] as v:
+		case option.Some[int] as v:
 			v.Value
-		case None:
+		case option.None:
 			return Refused{Column: c, Text: text, Reason: NotANumber}
 		}
 		if n > 999 {
@@ -100,50 +101,50 @@ type NotFixed {}
 // nine digits.
 func ParseFixed(text string, places int) int fails NotFixed {
 	let neg = strings.HasPrefix(text, "-")
-	let body = if neg { strings.Slice(text, 1, len(text)) } else { text }
+	let body = if neg { strings.Slice(text, 1, text.Len()) } else { text }
 	let mut whole = body
 	let mut frac = ""
 	match strings.Cut(body, ".") {
-	case Some[strings.Halves] as h:
+	case option.Some[strings.Halves] as h:
 		whole = h.Value.Before
 		frac = h.Value.After
-		if len(frac) == 0 || len(frac) > places {
+		if frac.Len() == 0 || frac.Len() > places {
 			return NotFixed
 		}
-	case None:
+	case option.None:
 	}
 	let wholeVal = match parseDigits(whole, 9) {
-	case Some[int] as w:
+	case option.Some[int] as w:
 		w.Value
-	case None:
+	case option.None:
 		return NotFixed
 	}
 	let mut v = wholeVal * tens(places)
 	if frac != "" {
 		let fracVal = match parseDigits(frac, places) {
-		case Some[int] as fr:
+		case option.Some[int] as fr:
 			fr.Value
-		case None:
+		case option.None:
 			return NotFixed
 		}
-		v = v + fracVal*tens(places-len(frac))
+		v = v + fracVal*tens(places-frac.Len())
 	}
 	if neg { -v } else { v }
 }
 
-func parseDigits(text string, maxLen int) Option[int] {
-	if len(text) == 0 || len(text) > maxLen {
-		return None
+func parseDigits(text string, maxLen int) option.Option[int] {
+	if text.Len() == 0 || text.Len() > maxLen {
+		return option.None
 	}
 	let mut n = 0
-	for i in 0..len(text) {
+	for i in 0..text.Len() {
 		let c = text[i]
 		if c < '0' || c > '9' {
-			return None
+			return option.None
 		}
 		n = n*10 + int(c-'0')
 	}
-	Some[int]{Value: n}
+	option.Some[int]{Value: n}
 }
 
 // Set is s with column c holding cell. A cell of another column's variant

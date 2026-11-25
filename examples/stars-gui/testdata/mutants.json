@@ -2,236 +2,328 @@
   "about": "stars-gui's application mutants (wf10 corpus wave GP1a, GP1b, GP1x): edits of the example, each with the law or the test that kills it. A killer examples/stars-gui/PKG:law L is `ergo test examples/stars-gui/PKG --law L`; scripts/examples:stars-gui is the program's cases (`go run ./scripts/examples stars-gui`), killed when a case's output differs; cmd/ergo:TestStarsGuiAgreesWithControl is the seeded agreement property against the reference model and the hand Go control, which kills the mutants no law sees.",
   "mutants": [
     {
-      "name": "stars-fold-not-refreshed", "origin": "wf10 GP stars gap 11",
+      "name": "stars-fold-not-refreshed",
+      "origin": "wf10 GP stars gap 11",
       "file": "examples/stars-gui/catalog/table.ergo",
       "from": "\t\tfolds[e.Row] = FoldOf(rows[e.Row])\n",
       "to": "\t\tfolds[e.Row] = folds[e.Row]\n",
       "rule": "An edit refreshes its row's fold, so a filter matches the edited name.",
-      "killers": ["examples:stars-gui law catalog.Table.WholeIsOrder"]
+      "killers": [
+        "examples:stars-gui law catalog.Table.WholeIsOrder"
+      ]
     },
     {
-      "name": "stars-fold-skips-constellation", "origin": "wf10 GP stars gap 11",
+      "name": "stars-fold-skips-constellation",
+      "origin": "wf10 GP stars gap 11",
       "file": "examples/stars-gui/catalog/view.ergo",
       "from": "if strings.Contains(k.Name, f) || strings.Contains(k.Constellation, f) {",
       "to": "if strings.Contains(k.Name, f) || strings.Contains(k.Name, f+f) {",
       "rule": "A filter matches the constellation too, as Matches does.",
-      "killers": ["examples:stars-gui law catalog.Table.ViewIsOrder"]
+      "killers": [
+        "examples:stars-gui law catalog.Table.ViewIsOrder"
+      ]
     },
     {
-      "name": "stars-fold-not-lowered", "origin": "wf10 GP stars gap 11",
+      "name": "stars-fold-not-lowered",
+      "origin": "wf10 GP stars gap 11",
       "file": "examples/stars-gui/catalog/view.ergo",
       "from": "Fold{Name: strings.ToLower(s.Name),",
       "to": "Fold{Name: s.Name,",
       "rule": "A row's kept fold is its name case folded, as the filter is.",
-      "killers": ["examples:stars-gui", "cmd/ergo:TestStarsGuiAgreesWithControl"]
+      "killers": [
+        "examples:stars-gui",
+        "cmd/ergo:TestStarsGuiAgreesWithControl"
+      ]
     },
     {
-      "name": "stars-sort-keeps-the-whole", "origin": "wf10 GP1x",
+      "name": "stars-sort-keeps-the-whole",
+      "origin": "wf10 GP1x",
       "file": "examples/stars-gui/catalog/table.ergo",
       "from": "Whole: kept(g.Filter, view), Key: key",
       "to": "Whole: g.Whole, Key: key",
       "rule": "A sort changes the key, so the kept order of the whole catalogue goes.",
-      "killers": ["examples:stars-gui"]
+      "killers": [
+        "examples:stars-gui"
+      ]
     },
     {
-      "name": "stars-edit-keeps-the-whole", "origin": "wf10 GP1x",
+      "name": "stars-edit-keeps-the-whole",
+      "origin": "wf10 GP1x",
       "file": "examples/stars-gui/catalog/table.ergo",
       "from": "Rows: rows, Folds: folds, View: view, Whole: kept(g.Filter, view)",
       "to": "Rows: rows, Folds: folds, View: view, Whole: g.Whole",
       "rule": "An edit may move its star, so the kept order of the whole catalogue goes.",
-      "killers": ["examples:stars-gui"]
+      "killers": [
+        "examples:stars-gui"
+      ]
     },
     {
-      "name": "stars-widen-narrows-the-view", "origin": "wf10 GP1x",
+      "name": "stars-widen-narrows-the-view",
+      "origin": "wf10 GP1x",
       "file": "examples/stars-gui/catalog/table.ergo",
       "from": "View: NarrowFolded(g.Folds, all, filter)",
       "to": "View: NarrowFolded(g.Folds, g.View, filter)",
       "rule": "A widening filter filters the whole catalogue, not the narrower view.",
-      "killers": ["examples:stars-gui"]
+      "killers": [
+        "examples:stars-gui"
+      ]
     },
     {
-      "name": "stars-whole-kept-under-a-filter", "origin": "wf10 GP1x",
+      "name": "stars-whole-kept-under-a-filter",
+      "origin": "wf10 GP1x",
       "file": "examples/stars-gui/catalog/table.ergo",
-      "from": "if filter == \"\" { Some{Value: view} } else { None }",
-      "to": "Some{Value: view}",
+      "from": "if filter == \"\" { option.Some{Value: view} } else { option.None }",
+      "to": "option.Some{Value: view}",
       "rule": "A filtered view is not the whole catalogue.",
-      "killers": ["examples:stars-gui"]
+      "killers": [
+        "examples:stars-gui"
+      ]
     },
     {
-      "name": "stars-retext-types-the-whole-field", "origin": "wf10 GP1b",
+      "name": "stars-retext-types-the-whole-field",
+      "origin": "wf10 GP1b",
       "file": "examples/stars-gui/screen/app.ergo",
-      "from": "catalog.After(at, catalog.Type{Text: strings.Slice(text, len(Typed(at)), len(text))})",
+      "from": "catalog.After(at, catalog.Type{Text: strings.Slice(text, Typed(at).Len(), text.Len())})",
       "to": "catalog.After(at, catalog.Type{Text: text})",
       "rule": "A field that grew by text is the table typing that text, not the whole field again.",
-      "killers": ["examples:stars-gui"]
+      "killers": [
+        "examples:stars-gui"
+      ]
     },
     {
-      "name": "stars-app-swallows-the-refusal", "origin": "wf10 GP1b",
+      "name": "stars-app-swallows-the-refusal",
+      "origin": "wf10 GP1b",
       "file": "examples/stars-gui/screen/app.ergo",
-      "from": "case catalog.Refused as r:\n\t\t\treturn Emit[catalog.State, catalog.Refused]{Next: s, Output: r}",
-      "to": "case catalog.Refused:\n\t\t\treturn Stay[catalog.State]{Next: s}",
+      "from": "case catalog.Refused as r:\n\t\t\treturn machines.Emit[catalog.State, catalog.Refused]{Next: s, Output: r}",
+      "to": "case catalog.Refused:\n\t\t\treturn machines.Stay[catalog.State]{Next: s}",
       "rule": "A refused edit is the app's output, which the window shows.",
-      "killers": ["examples:stars-gui", "cmd/ergo:TestStarsGuiAgreesWithControl"]
+      "killers": [
+        "examples:stars-gui",
+        "cmd/ergo:TestStarsGuiAgreesWithControl"
+      ]
     },
     {
-      "name": "stars-page-up-pages-down", "origin": "wf10 GP1b",
+      "name": "stars-page-up-pages-down",
+      "origin": "wf10 GP1b",
       "file": "examples/stars-gui/screen/view.ergo",
       "from": "Some{Value: Do{Signal: catalog.Page{Down: false}}}",
       "to": "Some{Value: Do{Signal: catalog.Page{Down: true}}}",
       "rule": "The page-up key pages up.",
-      "killers": ["cmd/ergo:TestStarsGuiAgreesWithControl"]
+      "killers": [
+        "cmd/ergo:TestStarsGuiAgreesWithControl"
+      ]
     },
     {
-      "name": "stars-scene-shows-the-overscan", "origin": "wf10 GP1b",
+      "name": "stars-scene-shows-the-overscan",
+      "origin": "wf10 GP1b",
       "file": "examples/stars-gui/script/scene.ergo",
       "from": "for i in w.Top-x.First..w.Top-x.First+w.Height {",
       "to": "for i in w.Top-x.First..w.Top-x.First+w.Height+1 {",
       "rule": "A window shows the rows of its viewport, not the rows a list writes past its edges.",
-      "killers": ["examples:stars-gui", "cmd/ergo:TestStarsGuiAgreesWithControl"]
+      "killers": [
+        "examples:stars-gui",
+        "cmd/ergo:TestStarsGuiAgreesWithControl"
+      ]
     },
     {
-      "name": "stars-host-never-scrolls", "origin": "wf10 GP1b",
+      "name": "stars-host-never-scrolls",
+      "origin": "wf10 GP1b",
       "file": "examples/stars-gui/script/scene.ergo",
       "from": "\tif now == was {\n\t\treturn was\n\t}",
       "to": "\tif now != was {\n\t\treturn was\n\t}",
       "rule": "The host scrolls the list to the table's window when it moves.",
-      "killers": ["examples:stars-gui", "cmd/ergo:TestStarsGuiAgreesWithControl"]
+      "killers": [
+        "examples:stars-gui",
+        "cmd/ergo:TestStarsGuiAgreesWithControl"
+      ]
     },
     {
-      "name": "stars-scene-presses-one-key-short", "origin": "wf10 GP1b",
+      "name": "stars-scene-presses-one-key-short",
+      "origin": "wf10 GP1b",
       "file": "examples/stars-gui/script/scene.ergo",
       "from": "for _ in 0..n {",
       "to": "for _ in 1..n {",
       "rule": "down N is N presses of the down arrow.",
-      "killers": ["examples:stars-gui", "cmd/ergo:TestStarsGuiAgreesWithControl"]
+      "killers": [
+        "examples:stars-gui",
+        "cmd/ergo:TestStarsGuiAgreesWithControl"
+      ]
     },
     {
-      "name": "stars-window-lets-cursor-fall-below", "origin": "wf10 GP1a",
+      "name": "stars-window-lets-cursor-fall-below",
+      "origin": "wf10 GP1a",
       "file": "examples/stars-gui/catalog/table.ergo",
       "from": "if cursor >= top+g.Height {",
       "to": "if cursor > top+g.Height {",
       "rule": "The window always holds the cursor's row.",
-      "killers": ["examples:stars-gui"]
+      "killers": [
+        "examples:stars-gui"
+      ]
     },
     {
-      "name": "stars-sort-clears-selection", "origin": "wf10 GP1a",
+      "name": "stars-sort-clears-selection",
+      "origin": "wf10 GP1a",
       "file": "examples/stars-gui/catalog/table.ergo",
       "from": "Key: key, Cursor: follow(view, at, g.Cursor)})}}",
       "to": "Key: key, Cursor: follow(view, at, g.Cursor), Selected: []int{}})}}",
       "rule": "A sort keeps the selected stars.",
-      "killers": ["examples:stars-gui"]
+      "killers": [
+        "examples:stars-gui"
+      ]
     },
     {
-      "name": "stars-narrow-keeps-every-row", "origin": "wf10 GP1a",
+      "name": "stars-narrow-keeps-every-row",
+      "origin": "wf10 GP1a",
       "file": "examples/stars-gui/catalog/view.ergo",
       "from": "\t\tif Matches(rows[id], filter) {",
       "to": "\t\tif true {",
       "rule": "A typed letter keeps only the shown stars that the longer filter keeps.",
-      "killers": ["examples:stars-gui"]
+      "killers": [
+        "examples:stars-gui"
+      ]
     },
     {
-      "name": "stars-order-always-keeps-the-first", "origin": "wf10 GP1a",
+      "name": "stars-order-always-keeps-the-first",
+      "origin": "wf10 GP1a",
       "file": "examples/stars-gui/catalog/view.ergo",
       "from": "\t\tif Matches(s, filter) {",
       "to": "\t\tif Matches(s, filter) || id == 0 {",
       "rule": "A filter keeps a star only when the filter is in its name or constellation.",
-      "killers": ["examples:stars-gui"]
+      "killers": [
+        "examples:stars-gui"
+      ]
     },
     {
-      "name": "stars-sort-adds-a-row", "origin": "wf10 GP1a",
+      "name": "stars-sort-adds-a-row",
+      "origin": "wf10 GP1a",
       "file": "examples/stars-gui/catalog/view.ergo",
       "from": "slices.SortFunc(ids, func",
       "to": "slices.SortFunc(ids.Append(0), func",
       "rule": "A sort shows exactly the ids it is given.",
-      "killers": ["examples:stars-gui"]
+      "killers": [
+        "examples:stars-gui"
+      ]
     },
     {
-      "name": "stars-fixed-drops-leading-zeros", "origin": "wf10 GP1a",
+      "name": "stars-fixed-drops-leading-zeros",
+      "origin": "wf10 GP1a",
       "file": "examples/stars-gui/catalog/star.ergo",
       "from": "strings.PadLeft(strconv.Itoa(a%scale), places, '0')",
       "to": "strconv.Itoa(a%scale)",
       "rule": "A fixed-point number prints every decimal place: 1.05, not 1.5.",
-      "killers": ["examples:stars-gui"]
+      "killers": [
+        "examples:stars-gui"
+      ]
     },
     {
-      "name": "stars-distance-sets-declination", "origin": "wf10 GP1a",
+      "name": "stars-distance-sets-declination",
+      "origin": "wf10 GP1a",
       "file": "examples/stars-gui/catalog/edit.ergo",
       "from": "Star{..s, Distance: f.Value}",
       "to": "Star{..s, Declination: f.Value}",
       "rule": "An edit of a column changes that column.",
-      "killers": ["examples:stars-gui"]
+      "killers": [
+        "examples:stars-gui"
+      ]
     },
     {
-      "name": "stars-catalogue-joins-with-spaces", "origin": "wf10 GP1a",
+      "name": "stars-catalogue-joins-with-spaces",
+      "origin": "wf10 GP1a",
       "file": "examples/stars-gui/catalog/shelf.ergo",
       "from": "strings.Join(cells, \"\\t\")",
       "to": "strings.Join(cells, \" \")",
       "rule": "A catalogue line separates its cells with tabs, so it reads back.",
-      "killers": ["examples:stars-gui"]
+      "killers": [
+        "examples:stars-gui"
+      ]
     },
     {
-      "name": "stars-edit-is-never-opened", "origin": "wf10 GP1a",
+      "name": "stars-edit-is-never-opened",
+      "origin": "wf10 GP1a",
       "file": "examples/stars-gui/catalog/table.ergo",
       "from": "Enter[State]{Next: Editing{G: g, Row: id.Value, Column: e.Column, Draft: CellText(CellOf(g.Rows[id.Value], e.Column))}}",
       "to": "Enter[State]{Next: Filtering{G: g, Before: CellText(CellOf(g.Rows[id.Value], e.Column))}}",
       "rule": "Edit opens the draft of the cell under the cursor.",
-      "killers": ["examples:stars-gui"]
+      "killers": [
+        "examples:stars-gui"
+      ]
     },
     {
-      "name": "stars-filter-is-never-started", "origin": "wf10 GP1a",
+      "name": "stars-filter-is-never-started",
+      "origin": "wf10 GP1a",
       "file": "examples/stars-gui/catalog/table.ergo",
       "from": "Enter[State]{Next: Filtering{G: g, Before: g.Filter}}",
       "to": "Reject",
       "rule": "Filter starts a filter from browsing.",
-      "killers": ["examples:stars-gui"]
+      "killers": [
+        "examples:stars-gui"
+      ]
     },
     {
-      "name": "stars-up-writes-down", "origin": "wf10 GP1a",
+      "name": "stars-up-writes-down",
+      "origin": "wf10 GP1a",
       "file": "examples/stars-gui/script/script.ergo",
       "from": "\"up \\(-m.By)\"",
       "to": "\"up \\(m.By)\"",
       "rule": "A command's line reads back as the command.",
-      "killers": ["examples:stars-gui"]
+      "killers": [
+        "examples:stars-gui"
+      ]
     },
     {
-      "name": "stars-cursor-mark-on-top-row", "origin": "wf10 GP1a",
+      "name": "stars-cursor-mark-on-top-row",
+      "origin": "wf10 GP1a",
       "file": "examples/stars-gui/catalog/frame.ergo",
       "from": "if at == g.Cursor { \">\" }",
       "to": "if at == g.Top { \">\" }",
       "rule": "A frame marks the row under the cursor.",
-      "killers": ["cmd/ergo:TestStarsGuiAgreesWithControl"]
+      "killers": [
+        "cmd/ergo:TestStarsGuiAgreesWithControl"
+      ]
     },
     {
-      "name": "stars-edit-leaves-the-cursor", "origin": "wf10 GP1a",
+      "name": "stars-edit-leaves-the-cursor",
+      "origin": "wf10 GP1a",
       "file": "examples/stars-gui/catalog/table.ergo",
-      "from": "Cursor: follow(view, Some[int]{Value: e.Row}, g.Cursor)",
+      "from": "Cursor: follow(view, option.Some[int]{Value: e.Row}, g.Cursor)",
       "to": "Cursor: g.Cursor",
       "rule": "After an edit moves a row, the cursor stays on that row.",
-      "killers": ["cmd/ergo:TestStarsGuiAgreesWithControl"]
+      "killers": [
+        "cmd/ergo:TestStarsGuiAgreesWithControl"
+      ]
     },
     {
-      "name": "stars-cancel-clears-the-filter", "origin": "wf10 GP1a; GP1x moved Cancel to refilter",
+      "name": "stars-cancel-clears-the-filter",
+      "origin": "wf10 GP1a; GP1x moved Cancel to refilter",
       "file": "examples/stars-gui/catalog/table.ergo",
       "from": "Enter[State]{Next: Browsing{G: refilter(g, f.Before)}}",
       "to": "Enter[State]{Next: Browsing{G: refilter(g, \"\")}}",
       "rule": "Cancel of a filter restores the filter it started from.",
-      "killers": ["cmd/ergo:TestStarsGuiAgreesWithControl"]
+      "killers": [
+        "cmd/ergo:TestStarsGuiAgreesWithControl"
+      ]
     },
     {
-      "name": "stars-selection-stops-short", "origin": "wf10 GP1a",
+      "name": "stars-selection-stops-short",
+      "origin": "wf10 GP1a",
       "file": "examples/stars-gui/catalog/table.ergo",
       "from": "for i in lo..hi+1 {",
       "to": "for i in lo..hi {",
       "rule": "A selection runs from the anchor to the cursor, both included.",
-      "killers": ["cmd/ergo:TestStarsGuiAgreesWithControl"]
+      "killers": [
+        "cmd/ergo:TestStarsGuiAgreesWithControl"
+      ]
     },
     {
-      "name": "stars-planets-take-four-digits", "origin": "wf10 GP1a",
+      "name": "stars-planets-take-four-digits",
+      "origin": "wf10 GP1a",
       "file": "examples/stars-gui/catalog/edit.ergo",
       "from": "if n > 999 {",
       "to": "if n > 9999 {",
       "rule": "The planets column takes 0 to 999.",
-      "killers": ["cmd/ergo:TestStarsGuiAgreesWithControl"]
+      "killers": [
+        "cmd/ergo:TestStarsGuiAgreesWithControl"
+      ]
     }
   ]
 }

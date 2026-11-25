@@ -11,6 +11,7 @@ import fs
 import fstest
 import github.com/cevr/ergo/modules/work/work
 import json
+import option
 import slices
 import sync
 import strings
@@ -23,9 +24,9 @@ func toolOf(w World, lock Lock, cloners []work.Cloner) work.Tool {
 	work.NewTool(theBase, work.Home(theBase, ""), "/data", p, "/")
 }
 
-func on(name string) work.NewOptions { work.NewOptions{Copy: false, From: None, Branch: None, On: Some[string]{Value: name}, Token: None} }
+func on(name string) work.NewOptions { work.NewOptions{Copy: false, From: option.None, Branch: option.None, On: option.Some[string]{Value: name}, Token: option.None} }
 
-func some(text string) Option[string] { Some[string]{Value: text} }
+func some(text string) option.Option[string] { option.Some[string]{Value: text} }
 
 // Watching is a Cloner that records whether the registry's lock was held
 // at any clone (the copy runs with no lock but its reservation's), and
@@ -46,7 +47,7 @@ func Shares(w Watching) bool { w.c.Shares() }
 func KeepsInodes(w Watching) bool { w.c.KeepsInodes() }
 
 func Clone(w Watching, from string, to string) fails work.NotSameVolume | work.Unsupported | work.Exists | work.Missing | work.NoSpace | work.CloneFailed {
-	if w.lock.table.Get().Get("") != None {
+	if w.lock.table.Get().Get("") != option.None {
 		w.locked.Set(true)
 	}
 	try w.c.Clone(from, to)
@@ -61,7 +62,7 @@ func Move(w Watching, from string, to string) fails work.Exists | work.Missing |
 
 func Discard(w Watching, root string) fails work.Missing | work.CloneFailed {
 	w.calls.Set(w.calls.Get() + 1)
-	if w.lock.table.Get().Get("") != None {
+	if w.lock.table.Get().Get("") != option.None {
 		w.locked.Set(true)
 	}
 	if w.refuse.Get() > 0 {
@@ -93,7 +94,7 @@ law GcKeepsGoingAfterFailures() {
 		case _:
 			return false
 		}
-		let removed = t.Rm(name, expecting(None)) catch {
+		let removed = t.Rm(name, expecting(option.None)) catch {
 		case _:
 			return false
 		}
@@ -101,9 +102,9 @@ law GcKeepsGoingAfterFailures() {
 	}
 	watch.refuse.Set(2)
 	let mut failed = false
-	let _ = t.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false, Dry: false}) catch {
+	let _ = t.Gc(work.GcOptions{Older: option.None, Idle: option.None, Id: option.None, Archive: false, Dry: false}) catch {
 	case work.GcFailed as f:
-		failed = f.Result.Purged == []string{"c"} && len(f.Failures) == 2 && f.Failures[0].Path == paths[0] && f.Failures[1].Path == paths[1]
+		failed = f.Result.Purged == []string{"c"} && f.Failures.Len() == 2 && f.Failures[0].Path == paths[0] && f.Failures[1].Path == paths[1]
 		f.Result
 	case _:
 		return false
@@ -112,7 +113,7 @@ law GcKeepsGoingAfterFailures() {
 	case _:
 		return false
 	}
-	failed && len(remaining) == 2 && w.trees.Has(paths[0]) && w.trees.Has(paths[1]) && !w.trees.Has(paths[2]) && w.lock.Holds() == 0
+	failed && remaining.Len() == 2 && w.trees.Has(paths[0]) && w.trees.Has(paths[1]) && !w.trees.Has(paths[2]) && w.lock.Holds() == 0
 }
 
 law GcPreviewDoesNotDiscard() {
@@ -123,7 +124,7 @@ law GcPreviewDoesNotDiscard() {
 	case _:
 		return false
 	}
-	let removed = t.Rm("a", expecting(None)) catch {
+	let removed = t.Rm("a", expecting(option.None)) catch {
 	case _:
 		return false
 	}
@@ -132,7 +133,7 @@ law GcPreviewDoesNotDiscard() {
 	case _:
 		return false
 	}
-	let o = work.GcOptions{Older: None, Idle: None, Id: some(removed[0].Id), Archive: false, Dry: true}
+	let o = work.GcOptions{Older: option.None, Idle: option.None, Id: some(removed[0].Id), Archive: false, Dry: true}
 	let calls = watch.calls.Get()
 	let out = t.Gc(o) catch {
 	case _:
@@ -146,7 +147,7 @@ law GcPreviewDoesNotDiscard() {
 	case _:
 		return false
 	}
-	out.Preview == json.Present[[]work.PurgeCandidate]{Value: []work.PurgeCandidate{work.PurgeCandidate{Name: "a", Path: path}}} && len(out.Purged) == 0 && before == after && watch.calls.Get() == calls+1 && !w.trees.Has(path) && real.Purged == []string{"a"} && w.lock.Holds() == 0
+	out.Preview == json.Present[[]work.PurgeCandidate]{Value: []work.PurgeCandidate{work.PurgeCandidate{Name: "a", Path: path}}} && out.Purged.Len() == 0 && before == after && watch.calls.Get() == calls+1 && !w.trees.Has(path) && real.Purged == []string{"a"} && w.lock.Holds() == 0
 }
 
 // NoCopyUnderTheLock: new clones with the registry's lock free, for a
@@ -197,12 +198,12 @@ type Call =
 // is refused at its claim, where run one by one each acts on the second
 // x, so the order of decisions alone does not fix the records then.
 law SchedulesKeepTheInvariants(calls []Call, seed int, dies bool) {
-	if len(calls) < 2 {
+	if calls.Len() < 2 {
 		return true
 	}
 	let mut mine = []Call{}
 	for c in calls {
-		if len(mine) < 3 {
+		if mine.Len() < 3 {
 			mine = mine.Append(c)
 		}
 	}
@@ -231,11 +232,11 @@ func callerOf(w World, c Call, owner int, first string) Caller {
 		(newSteps(t, w.trees, name, o, wrong), []int{0}, []int{2})
 	case RmCall as r:
 		expects = r.Expect
-		(rmSteps(t, "x", if r.Expect { some(first) } else { None }, answers), []int{0}, []int{1})
+		(rmSteps(t, "x", if r.Expect { some(first) } else { option.None }, answers), []int{0}, []int{1})
 	case GcCall:
 		(gcSteps(t, w.trees), []int{0}, []int{0})
 	case ReplaceCall:
-		(joined(rmSteps(t, "x", None, answers), newSteps(t, w.trees, "x", fresh(false), wrong)), []int{0, 4}, []int{1, 6})
+		(joined(rmSteps(t, "x", option.None, answers), newSteps(t, w.trees, "x", fresh(false), wrong)), []int{0, 4}, []int{1, 6})
 	}
 	Caller{steps: steps.run, cuts: steps.cut, parts: parts, decides: decides, lock: lock, pc: sync.NewRef(0), dead: sync.NewRef(false), stamps: sync.NewRef([]int{}), answers: answers, wrong: wrong, expects: expects}
 }
@@ -263,13 +264,13 @@ func scheduleHolds(mine []Call, seed int, dies bool) bool {
 	let mut s = small(seed, 2147483647)
 	for {
 		let live = slices.Filter(callers, func(c Caller) bool { running(c) })
-		if len(live) == 0 {
+		if live.Len() == 0 {
 			break
 		}
 		s = (s*1103515245 + 12345) % 2147483648
 		let ch = s / 65536
 		let holding = slices.Filter(live, func(c Caller) bool { c.lock.Held("") })
-		let c = if len(holding) > 0 { holding[0] } else { live[small(ch, len(live))] }
+		let c = if holding.Len() > 0 { holding[0] } else { live[small(ch, live.Len())] }
 		if dies && small(ch/3, 8) == 0 {
 			// A process stopped inside its next step: the part of it a
 			// cut leaves (a clone or a delete cut short).
@@ -306,7 +307,7 @@ func scheduleHolds(mine []Call, seed int, dies bool) bool {
 		}
 	}
 	for c in callers {
-		if len(c.wrong.Get()) > 0 {
+		if c.wrong.Get().Len() > 0 {
 			expected = false
 		}
 	}
@@ -327,7 +328,7 @@ func scheduleHolds(mine []Call, seed int, dies bool) bool {
 func nextSettles(w World, k int) bool {
 	let t = toolOf(w, Sharing(w.lock, 98), []work.Cloner{w.trees})
 	if k == 0 {
-		let _ = t.Gc(work.GcOptions{Older: Some[string]{Value: "1h"}, Idle: None, Id: None, Archive: false, Dry: false}) catch {
+		let _ = t.Gc(work.GcOptions{Older: option.Some[string]{Value: "1h"}, Idle: option.None, Id: option.None, Archive: false, Dry: false}) catch {
 		case _:
 			return false
 		}
@@ -337,7 +338,7 @@ func nextSettles(w World, k int) bool {
 			work.Created{Name: "", Id: "", Path: "", Branch: "", Deps: work.NoDeps, Hooks: work.HooksRan{Count: 0}}
 		}
 	} else if k == 2 {
-		let _ = t.Rm("x", work.RmOptions{Abandon: true, Expect: None, Tree: false}) catch {
+		let _ = t.Rm("x", work.RmOptions{Abandon: true, Expect: option.None, Tree: false}) catch {
 		case _:
 			[]work.Removed{}
 		}
@@ -357,7 +358,7 @@ func nextSettles(w World, k int) bool {
 // recovered is the records after a gc of another process.
 func recovered(w World) []work.Workspace fails work.NoBase | work.BadConfig | work.BadAge | work.BadRequest | work.NoWorkspace | work.Exists | work.Missing | work.CloneFailed | work.GcFailed | work.Unkept | work.VcsFailed | work.HookFailed | work.Locked {
 	let t = toolOf(w, Sharing(w.lock, 99), []work.Cloner{w.trees})
-	let _ = try t.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false, Dry: false})
+	let _ = try t.Gc(work.GcOptions{Older: option.None, Idle: option.None, Id: option.None, Archive: false, Dry: false})
 	try records(t)
 }
 
@@ -386,7 +387,7 @@ func invariants(w World, all []work.Workspace) bool {
 // order, with the same states, folders and parents (ids are made from the
 // time, so they differ).
 func sameRecords(a []work.Workspace, b []work.Workspace) bool {
-	if len(a) != len(b) {
+	if a.Len() != b.Len() {
 		return false
 	}
 	for i, x in a {
@@ -412,7 +413,7 @@ func serially(calls []Call, ran []Caller) []work.Workspace fails fstest.BadFixtu
 	}
 	for o in slices.SortFunc(order, func(a Stamp, b Stamp) int { a.At - b.At }) {
 		let c = callers[o.Caller]
-		let end = if o.Part+1 < len(c.parts) { c.parts[o.Part+1] } else { len(c.steps) }
+		let end = if o.Part+1 < c.parts.Len() { c.parts[o.Part+1] } else { c.steps.Len() }
 		for running(c) && c.pc.Get() < end {
 			step(c, 0)
 			w.clock.Advance(1s)
@@ -428,15 +429,15 @@ func serially(calls []Call, ran []Caller) []work.Workspace fails fstest.BadFixtu
 // x runs: an rm, a second replace, or a new on x (whose Look may find the
 // first x and its claim the second, and refuse: NoWorkspace).
 func reuses(calls []Call) bool {
-	let replaces = len(slices.Filter(calls, func(c Call) bool {
+	let replaces = slices.Filter(calls, func(c Call) bool {
 		match c {
 		case ReplaceCall:
 			true
 		case NewCall, RmCall, GcCall:
 			false
 		}
-	}))
-	let rms = len(slices.Filter(calls, func(c Call) bool {
+	}).Len()
+	let rms = slices.Filter(calls, func(c Call) bool {
 		match c {
 		case RmCall:
 			true
@@ -445,7 +446,7 @@ func reuses(calls []Call) bool {
 		case ReplaceCall, GcCall:
 			false
 		}
-	}))
+	}).Len()
 	replaces > 0 && replaces+rms >= 2
 }
 
@@ -484,7 +485,7 @@ func uncut() {}
 type Stamp { At int, Caller int, Part int }
 
 // running is whether c has steps left and is not stopped.
-func running(c Caller) bool { !c.dead.Get() && c.pc.Get() < len(c.steps) }
+func running(c Caller) bool { !c.dead.Get() && c.pc.Get() < c.steps.Len() }
 
 // step runs c's next step at the time stamp.
 func step(c Caller, stamp int) {
@@ -493,7 +494,7 @@ func step(c Caller, stamp int) {
 		c.stamps.Set(c.stamps.Get().Append(stamp))
 	}
 	let goes = c.steps[i]()
-	c.pc.Set(if goes { i + 1 } else { len(c.steps) })
+	c.pc.Set(if goes { i + 1 } else { c.steps.Len() })
 	if !goes {
 		// A call that ended early decides nothing later.
 		let mut left = []int{}
@@ -593,7 +594,7 @@ func newSteps(t work.Tool, trees Cloner, name string, o work.NewOptions, wrong s
 // rmSteps are the steps of an rm by t: the check, then, under one hold of
 // the lock, the intent, the move and the settle. answers keeps each
 // Removed it answered.
-func rmSteps(t work.Tool, name string, expect Option[string], answers sync.Ref[[]work.Removed]) Steps {
+func rmSteps(t work.Tool, name string, expect option.Option[string], answers sync.Ref[[]work.Removed]) Steps {
 	let intent = sync.NewRef(work.Workspace{Name: "", Id: "", Path: "", Parent: "", Branch: "", Cloner: "", State: work.Trashed, Since: 0, Base: "", Latest: "", Deps: "", Token: "", Moving: "", Pinned: false, Until: 0})
 	let run = []func() bool{
 		func() bool {
@@ -651,7 +652,7 @@ func gcSteps(t work.Tool, trees Cloner) Steps {
 	}
 	let run = []func() bool{
 		func() bool {
-			due.Set(t.Collect(None, 0s) catch {
+			due.Set(t.Collect(option.None, 0s) catch {
 			case _:
 				return false
 			})
@@ -720,7 +721,7 @@ law ListShowsAStrandedReservation(at int) {
 	case _:
 		return false
 	}
-	let shown = len(before) == 1 && work.StateName(before[0].State) == "creating"
+	let shown = before.Len() == 1 && work.StateName(before[0].State) == "creating"
 	let pinned = w.tool.Pin("none") catch {
 	case work.NoWorkspace:
 		work.Workspace{Name: "", Id: "", Path: "", Parent: "", Branch: "", Cloner: "", State: work.Trashed, Since: 0, Base: "", Latest: "", Deps: "", Token: "", Moving: "", Pinned: false, Until: 0}
@@ -732,7 +733,7 @@ law ListShowsAStrandedReservation(at int) {
 		return false
 	}
 	let staging = work.StagingOf(work.Home(theBase, ""), m.Id)
-	let settledRight = if cut == 3 { len(after) == 1 && work.StateName(after[0].State) == "active" && w.trees.Has(m.Path) } else { len(after) == 0 && !w.trees.Has(m.Path) }
+	let settledRight = if cut == 3 { after.Len() == 1 && work.StateName(after[0].State) == "active" && w.trees.Has(m.Path) } else { after.Len() == 0 && !w.trees.Has(m.Path) }
 	pinned.Name == "" && shown && settledRight && !w.trees.Has(staging) && !w.trees.Has(work.TombOf(work.Home(theBase, ""), m.Id)) && w.lock.Holds() == 0
 }
 
@@ -764,7 +765,7 @@ law SettleNeverTakesALiveMaker(next int) {
 	let other = toolOf(w, Sharing(w.lock, 3), []work.Cloner{w.trees})
 	let k = small(next, 4)
 	if k == 0 {
-		let _ = other.Gc(work.GcOptions{Older: Some[string]{Value: "0s"}, Idle: None, Id: None, Archive: false, Dry: false}) catch {
+		let _ = other.Gc(work.GcOptions{Older: option.Some[string]{Value: "0s"}, Idle: option.None, Id: option.None, Archive: false, Dry: false}) catch {
 		case _:
 			return false
 		}
@@ -774,14 +775,14 @@ law SettleNeverTakesALiveMaker(next int) {
 			return false
 		}
 	} else if k == 2 {
-		let _ = other.Rm("a", work.RmOptions{Abandon: true, Expect: None, Tree: false}) catch {
+		let _ = other.Rm("a", work.RmOptions{Abandon: true, Expect: option.None, Tree: false}) catch {
 		case work.Busy:
 			[]work.Removed{}
 		case _:
 			return false
 		}
 	} else {
-		let _ = other.Gc(work.GcOptions{Older: None, Idle: None, Id: some(m.Id), Archive: false, Dry: false}) catch {
+		let _ = other.Gc(work.GcOptions{Older: option.None, Idle: option.None, Id: some(m.Id), Archive: false, Dry: false}) catch {
 		case _:
 			return false
 		}
@@ -822,7 +823,7 @@ law PlaceNeverCopies(copy bool) {
 	case _:
 		return false
 	}
-	refused && len(all) == 0 && slices.Filter(Roots(w.trees), func(r string) bool { strings.HasPrefix(r, home+"/") }) == []string{} && w.lock.Holds() == 0
+	refused && all.Len() == 0 && slices.Filter(Roots(w.trees), func(r string) bool { strings.HasPrefix(r, home+"/") }) == []string{} && w.lock.Holds() == 0
 }
 
 // NoDeleteUnderTheLock: a reservation whose maker died with its staging
@@ -862,7 +863,7 @@ law NoDeleteUnderTheLock(at int, renamed bool, refused bool, by int) {
 		case _:
 			return false
 		}
-		kept = len(mid) == 1 && work.StateName(mid[0].State) == "creating" && w.trees.Has(tomb)
+		kept = mid.Len() == 1 && work.StateName(mid[0].State) == "creating" && w.trees.Has(tomb)
 	}
 	if !poked(t, small(by, 3)) {
 		return false
@@ -871,7 +872,7 @@ law NoDeleteUnderTheLock(at int, renamed bool, refused bool, by int) {
 	case _:
 		return false
 	}
-	kept && len(after) == 0 && !w.trees.Has(staging) && !w.trees.Has(tomb) && !copier.locked.Get() && !cloner.locked.Get() && w.lock.Holds() == 0
+	kept && after.Len() == 0 && !w.trees.Has(staging) && !w.trees.Has(tomb) && !copier.locked.Get() && !cloner.locked.Get() && w.lock.Holds() == 0
 }
 
 // poked runs the command k of NoDeleteUnderTheLock on the name a: a pin
@@ -887,12 +888,12 @@ func poked(t work.Tool, k int) bool {
 			return false
 		}
 	} else if k == 1 {
-		let _ = t.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false, Dry: false}) catch {
+		let _ = t.Gc(work.GcOptions{Older: option.None, Idle: option.None, Id: option.None, Archive: false, Dry: false}) catch {
 		case _:
 			return false
 		}
 	} else {
-		let _ = t.Rm("a", work.RmOptions{Abandon: true, Expect: None, Tree: false}) catch {
+		let _ = t.Rm("a", work.RmOptions{Abandon: true, Expect: option.None, Tree: false}) catch {
 		case work.Busy, work.NoWorkspace:
 			return true
 		case _:

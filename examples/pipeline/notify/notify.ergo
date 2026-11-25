@@ -34,7 +34,7 @@ law OneNoticePerEnd(stages int, oks []bool, cancelAt int) {
 			[]run.Event{}
 		}
 		for e in es {
-			let told = len(React("r", e))
+			let told = React("r", e).Len()
 			s = run.Evolve(s, e)
 			notices = notices + told
 			if told > 0 && !run.IsDone(s) {

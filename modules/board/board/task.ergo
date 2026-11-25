@@ -1,4 +1,5 @@
 import maps
+import option
 import slices
 import strings
 
@@ -88,14 +89,14 @@ func TrustedOwner(s State, claimer Caller, owner ActorID) bool {
 	let actor = ActorOf(claimer)
 	let ownerPrin = actorPrincipal(owner)
 	match s.Trusts.Get(actor) {
-	case Some[TrustSet] as ts:
+	case option.Some[TrustSet] as ts:
 		return slices.Contains(ts.Value.TakesFrom, owner) || slices.Contains(ts.Value.TakesFrom, ownerPrin)
-	case None:
+	case option.None:
 	}
 	match s.Trusts.Get(claimer.Principal) {
-	case Some[TrustSet] as ts:
+	case option.Some[TrustSet] as ts:
 		return slices.Contains(ts.Value.TakesFrom, owner) || slices.Contains(ts.Value.TakesFrom, ownerPrin)
-	case None:
+	case option.None:
 	}
 	ownerPrin == claimer.Principal
 }
@@ -105,11 +106,11 @@ func TrustedOwner(s State, claimer Caller, owner ActorID) bool {
 func AllPrereqsCompleted(tasks Map[MessageID, TaskRecord], prereqs []MessageID) bool {
 	for dep in prereqs {
 		match tasks.Get(dep) {
-		case Some[TaskRecord] as tr:
+		case option.Some[TaskRecord] as tr:
 			if tr.Value.State != TaskCompleted {
 				return false
 			}
-		case None:
+		case option.None:
 			return false
 		}
 	}
@@ -123,9 +124,9 @@ func HasCycle(edges Map[MessageID, []MessageID]) bool {
 	let mut color = Map[MessageID, int]{}
 	for start in nodes {
 		let curColor = match color.Get(start) {
-		case Some[int] as c:
+		case option.Some[int] as c:
 			c.Value
-		case None:
+		case option.None:
 			0
 		}
 		if curColor != 0 {
@@ -134,17 +135,17 @@ func HasCycle(edges Map[MessageID, []MessageID]) bool {
 		let mut stackNode = []MessageID{start}
 		let mut stackIdx = []int{0}
 		color = color.Put(start, 1)
-		for len(stackNode) > 0 {
-			let top = len(stackNode) - 1
+		for stackNode.Len() > 0 {
+			let top = stackNode.Len() - 1
 			let u = stackNode[top]
 			let idx = stackIdx[top]
 			let deps = match edges.Get(u) {
-			case Some[[]MessageID] as ds:
+			case option.Some[[]MessageID] as ds:
 				ds.Value
-			case None:
+			case option.None:
 				[]MessageID{}
 			}
-			if idx >= len(deps) {
+			if idx >= deps.Len() {
 				color = color.Put(u, 2)
 				stackNode = slices.Slice(stackNode, 0, top)
 				stackIdx = slices.Slice(stackIdx, 0, top)
@@ -153,9 +154,9 @@ func HasCycle(edges Map[MessageID, []MessageID]) bool {
 			stackIdx[top] = idx + 1
 			let v = deps[idx]
 			let vColor = match color.Get(v) {
-			case Some[int] as c:
+			case option.Some[int] as c:
 				c.Value
-			case None:
+			case option.None:
 				0
 			}
 			if vColor == 1 {
@@ -185,7 +186,7 @@ func readyDependentsAfterComplete(s State, board string, completedID MessageID) 
 	let mut out = []MessageID{}
 	for id in slices.Sorted(maps.Keys(s.Tasks)) {
 		match s.Tasks.Get(id) {
-		case Some[TaskRecord] as tr:
+		case option.Some[TaskRecord] as tr:
 			let t = tr.Value
 			if t.Board != board || t.State != TaskWaiting || !slices.Contains(t.Needs, completedID) {
 				continue
@@ -196,18 +197,18 @@ func readyDependentsAfterComplete(s State, board string, completedID MessageID) 
 					continue
 				}
 				match s.Tasks.Get(dep) {
-				case Some[TaskRecord] as d:
+				case option.Some[TaskRecord] as d:
 					if d.Value.State != TaskCompleted {
 						allDone = false
 					}
-				case None:
+				case option.None:
 					allDone = false
 				}
 			}
 			if allDone {
 				out = out.Append(id)
 			}
-		case None:
+		case option.None:
 		}
 	}
 	out
@@ -239,12 +240,12 @@ func validHolderFence(t TaskRecord, token int, now Timestamp) bool {
 
 func requireTaskOnBoard(s State, board string, id MessageID) TaskRecord fails Refusal {
 	match s.Tasks.Get(id) {
-	case Some[TaskRecord] as tr:
+	case option.Some[TaskRecord] as tr:
 		if tr.Value.Board != board {
 			return NotFound{What: id}
 		}
 		tr.Value
-	case None:
+	case option.None:
 		NotFound{What: id}
 	}
 }
@@ -266,11 +267,11 @@ func validateExistingNeeds(s State, board string, selfID MessageID, prereqs []Me
 			return InvalidNeeds{Why: "task cannot depend on itself"}
 		}
 		match s.Tasks.Get(dep) {
-		case Some[TaskRecord] as tr:
+		case option.Some[TaskRecord] as tr:
 			if tr.Value.Board != board {
 				return InvalidNeeds{Why: "prerequisite is on another board"}
 			}
-		case None:
+		case option.None:
 			return InvalidNeeds{Why: "prerequisite task not found"}
 		}
 	}
@@ -299,21 +300,21 @@ func decideTask(s State, cmd Command, now Timestamp) []Event fails Refusal {
 		let mut channel = c.Channel
 		if c.Thread != "" {
 			let existing = match s.Messages.Get(c.Thread) {
-			case Some[Message] as m:
+			case option.Some[Message] as m:
 				if m.Value.Board != b.Name || m.Value.Deleted {
 					return NotFound{What: c.Thread}
 				}
 				m.Value
-			case None:
+			case option.None:
 				return NotFound{What: c.Thread}
 			}
 			if existing.Re != "" {
 				return Invalid{Field: "thread", Why: "task must attach to a thread root"}
 			}
 			match s.Tasks.Get(existing.ID) {
-			case Some[TaskRecord]:
+			case option.Some[TaskRecord]:
 				return AlreadyTask
-			case None:
+			case option.None:
 			}
 			channel = existing.Channel
 			try requirePerm(s, b.Name, c.Caller, channel, PermRead)
@@ -331,14 +332,14 @@ func decideTask(s State, cmd Command, now Timestamp) []Event fails Refusal {
 			let (cleanText, _) = try scanOrRedact(c.Text, "")
 			msgID = "msg_\(s.NextMessageNum)"
 			match maybeProfileEvent(s, c.Caller, b.Name, now) {
-			case Some[Event] as pe:
+			case option.Some[Event] as pe:
 				events = events.Append(pe.Value)
-			case None:
+			case option.None:
 			}
 			let chKey = ChannelKey(b.Name, channel)
 			match s.Channels.Get(chKey) {
-			case Some[Channel]:
-			case None:
+			case option.Some[Channel]:
+			case option.None:
 				let ch = Channel{Board: b.Name, Path: channel, CreatedAt: now, CreatedBy: actor, Private: false}
 				events = events.Append(Event{Seq: 0, Board: b.Name, At: now, Actor: actor, Payload: ChannelCreated{Channel: ch}})
 			}
@@ -419,10 +420,10 @@ func decideTask(s State, cmd Command, now Timestamp) []Event fails Refusal {
 		if try checkIdempotency(s, actor, c.IdempotencyKey, digest, now) {
 			return []Event{}
 		}
-		if len(c.Tasks) == 0 {
+		if c.Tasks.Len() == 0 {
 			return Invalid{Field: "tasks", Why: "plan must contain at least one task"}
 		}
-		if len(c.Tasks) > MaxPlanTasks {
+		if c.Tasks.Len() > MaxPlanTasks {
 			return PlanTooLarge{Limit: MaxPlanTasks}
 		}
 		let mut keyToID = Map[string, MessageID]{}
@@ -440,9 +441,9 @@ func decideTask(s State, cmd Command, now Timestamp) []Event fails Refusal {
 			ids = ids.Append(mid)
 			if spec.Key != "" {
 				match keyToID.Get(spec.Key) {
-				case Some[MessageID]:
+				case option.Some[MessageID]:
 					return InvalidNeeds{Why: "duplicate plan task key"}
-				case None:
+				case option.None:
 					keyToID = keyToID.Put(spec.Key, mid)
 				}
 			}
@@ -454,16 +455,16 @@ func decideTask(s State, cmd Command, now Timestamp) []Event fails Refusal {
 			let mut deps = []MessageID{}
 			for raw in spec.Needs {
 				let depID = match keyToID.Get(raw) {
-				case Some[MessageID] as mid:
+				case option.Some[MessageID] as mid:
 					mid.Value
-				case None:
+				case option.None:
 					match s.Tasks.Get(raw) {
-					case Some[TaskRecord] as tr:
+					case option.Some[TaskRecord] as tr:
 						if tr.Value.Board != b.Name {
 							return InvalidNeeds{Why: "prerequisite is on another board"}
 						}
 						raw
-					case None:
+					case option.None:
 						return InvalidNeeds{Why: "unknown prerequisite"}
 					}
 				}
@@ -482,14 +483,14 @@ func decideTask(s State, cmd Command, now Timestamp) []Event fails Refusal {
 		}
 		let mut events = []Event{}
 		match maybeProfileEvent(s, c.Caller, b.Name, now) {
-		case Some[Event] as pe:
+		case option.Some[Event] as pe:
 			events = events.Append(pe.Value)
-		case None:
+		case option.None:
 		}
 		let chKey = ChannelKey(b.Name, c.Channel)
 		match s.Channels.Get(chKey) {
-		case Some[Channel]:
-		case None:
+		case option.Some[Channel]:
+		case option.None:
 			let ch = Channel{Board: b.Name, Path: c.Channel, CreatedAt: now, CreatedBy: actor, Private: false}
 			events = events.Append(Event{Seq: 0, Board: b.Name, At: now, Actor: actor, Payload: ChannelCreated{Channel: ch}})
 		}
@@ -579,9 +580,9 @@ func decideTask(s State, cmd Command, now Timestamp) []Event fails Refusal {
 			return TaskOwnerUntrusted{Owner: task.Owner}
 		}
 		match maybeProfileEvent(s, c.Caller, b.Name, now) {
-		case Some[Event] as pe:
+		case option.Some[Event] as pe:
 			events = events.Append(pe.Value)
-		case None:
+		case option.None:
 		}
 		let nextEpoch = task.Epoch + 1
 		let cl = TaskClaim{Holder: actor, Epoch: nextEpoch, LeaseUntil: now + clampLeaseMs(c.LeaseMs)}
@@ -751,7 +752,7 @@ func decideTask(s State, cmd Command, now Timestamp) []Event fails Refusal {
 
 func setTaskStateLabel(s State, id MessageID, st TaskState, holdKind string) State {
 	match s.Messages.Get(id) {
-	case Some[Message] as m:
+	case option.Some[Message] as m:
 		let mut ls = m.Value.Labels.Put("board.task", taskStateLabel(st))
 		if holdKind != "" {
 			ls = ls.Put("board.held", holdKind)
@@ -759,7 +760,7 @@ func setTaskStateLabel(s State, id MessageID, st TaskState, holdKind string) Sta
 			ls = ls.Delete("board.held")
 		}
 		State{..s, Messages: s.Messages.Put(id, Message{..m.Value, Labels: ls})}
-	case None:
+	case option.None:
 		s
 	}
 }
@@ -771,16 +772,16 @@ func applyTask(next State, e Event) State {
 		setTaskStateLabel(st, p.Task.ID, p.Task.State, "")
 	case TaskReadied as p:
 		match next.Tasks.Get(p.ID) {
-		case Some[TaskRecord] as tr:
+		case option.Some[TaskRecord] as tr:
 			let updated = TaskRecord{..tr.Value, State: TaskReady, ReadyAt: p.ReadyAt}
 			let st = State{..next, Tasks: next.Tasks.Put(p.ID, updated)}
 			setTaskStateLabel(st, p.ID, TaskReady, "")
-		case None:
+		case option.None:
 			next
 		}
 	case TaskClaimedEvent as p:
 		match next.Tasks.Get(p.ID) {
-		case Some[TaskRecord] as tr:
+		case option.Some[TaskRecord] as tr:
 			let updated = TaskRecord{
 				..tr.Value,
 				State:    TaskClaimed,
@@ -790,95 +791,95 @@ func applyTask(next State, e Event) State {
 			}
 			let st = State{..next, Tasks: next.Tasks.Put(p.ID, updated)}
 			setTaskStateLabel(st, p.ID, TaskClaimed, "")
-		case None:
+		case option.None:
 			next
 		}
 	case TaskRenewed as p:
 		match next.Tasks.Get(p.ID) {
-		case Some[TaskRecord] as tr:
+		case option.Some[TaskRecord] as tr:
 			let cl = TaskClaim{..tr.Value.Claim, LeaseUntil: p.LeaseUntil}
 			let updated = TaskRecord{..tr.Value, Claim: cl}
 			State{..next, Tasks: next.Tasks.Put(p.ID, updated)}
-		case None:
+		case option.None:
 			next
 		}
 	case TaskReleased as p:
 		match next.Tasks.Get(p.ID) {
-		case Some[TaskRecord] as tr:
+		case option.Some[TaskRecord] as tr:
 			let ns = if p.Ready { TaskReady } else { TaskWaiting }
 			let updated = TaskRecord{..tr.Value, State: ns, HasClaim: false, Claim: emptyClaim(), ReadyAt: p.ReadyAt}
 			let st = State{..next, Tasks: next.Tasks.Put(p.ID, updated)}
 			setTaskStateLabel(st, p.ID, ns, "")
-		case None:
+		case option.None:
 			next
 		}
 	case TaskExpired as p:
 		match next.Tasks.Get(p.ID) {
-		case Some[TaskRecord] as tr:
+		case option.Some[TaskRecord] as tr:
 			let ns = if p.Ready { TaskReady } else { TaskWaiting }
 			let updated = TaskRecord{..tr.Value, State: ns, HasClaim: false, Claim: emptyClaim(), ReadyAt: p.ReadyAt}
 			let st = State{..next, Tasks: next.Tasks.Put(p.ID, updated)}
 			setTaskStateLabel(st, p.ID, ns, "")
-		case None:
+		case option.None:
 			next
 		}
 	case TaskCompletedEvent as p:
 		match next.Tasks.Get(p.ID) {
-		case Some[TaskRecord] as tr:
+		case option.Some[TaskRecord] as tr:
 			let updated = TaskRecord{..tr.Value, State: TaskCompleted, HasClaim: false, Claim: emptyClaim(), Result: p.Result}
 			let st = State{..next, Tasks: next.Tasks.Put(p.ID, updated)}
 			setTaskStateLabel(st, p.ID, TaskCompleted, "")
-		case None:
+		case option.None:
 			next
 		}
 	case TaskFailedEvent as p:
 		match next.Tasks.Get(p.ID) {
-		case Some[TaskRecord] as tr:
+		case option.Some[TaskRecord] as tr:
 			let updated = TaskRecord{..tr.Value, State: TaskFailed, HasClaim: false, Claim: emptyClaim(), Reason: p.Reason}
 			let st = State{..next, Tasks: next.Tasks.Put(p.ID, updated)}
 			setTaskStateLabel(st, p.ID, TaskFailed, "")
-		case None:
+		case option.None:
 			next
 		}
 	case TaskBlockedEvent as p:
 		match next.Tasks.Get(p.ID) {
-		case Some[TaskRecord] as tr:
+		case option.Some[TaskRecord] as tr:
 			let updated = TaskRecord{..tr.Value, State: TaskBlocked, HasClaim: false, Claim: emptyClaim(), HoldKind: p.Kind, HoldReason: p.Reason}
 			let st = State{..next, Tasks: next.Tasks.Put(p.ID, updated)}
 			setTaskStateLabel(st, p.ID, TaskBlocked, p.Kind)
-		case None:
+		case option.None:
 			next
 		}
 	case TaskUnblocked as p:
 		match next.Tasks.Get(p.ID) {
-		case Some[TaskRecord] as tr:
+		case option.Some[TaskRecord] as tr:
 			let ns = if p.Ready { TaskReady } else { TaskWaiting }
 			let updated = TaskRecord{..tr.Value, State: ns, HoldKind: "", HoldReason: "", ReadyAt: p.ReadyAt}
 			let st = State{..next, Tasks: next.Tasks.Put(p.ID, updated)}
 			setTaskStateLabel(st, p.ID, ns, "")
-		case None:
+		case option.None:
 			next
 		}
 	case TaskReopened as p:
 		match next.Tasks.Get(p.ID) {
-		case Some[TaskRecord] as tr:
+		case option.Some[TaskRecord] as tr:
 			let ns = if p.Ready { TaskReady } else { TaskWaiting }
 			let updated = TaskRecord{..tr.Value, State: ns, Reason: "", ReadyAt: p.ReadyAt}
 			let st = State{..next, Tasks: next.Tasks.Put(p.ID, updated)}
 			setTaskStateLabel(st, p.ID, ns, "")
-		case None:
+		case option.None:
 			next
 		}
 	case TaskAssignedEvent as p:
 		match next.Tasks.Get(p.ID) {
-		case Some[TaskRecord] as tr:
+		case option.Some[TaskRecord] as tr:
 			State{..next, Tasks: next.Tasks.Put(p.ID, TaskRecord{..tr.Value, For: p.For})}
-		case None:
+		case option.None:
 			next
 		}
 	case TaskNeedsChanged as p:
 		match next.Tasks.Get(p.ID) {
-		case Some[TaskRecord] as tr:
+		case option.Some[TaskRecord] as tr:
 			let ns = if tr.Value.State == TaskBlocked {
 				TaskBlocked
 			} else if p.Ready {
@@ -889,16 +890,16 @@ func applyTask(next State, e Event) State {
 			let updated = TaskRecord{..tr.Value, Needs: p.Needs, State: ns, ReadyAt: if ns == TaskReady { p.ReadyAt } else { tr.Value.ReadyAt }}
 			let st = State{..next, Tasks: next.Tasks.Put(p.ID, updated)}
 			setTaskStateLabel(st, p.ID, ns, tr.Value.HoldKind)
-		case None:
+		case option.None:
 			next
 		}
 	case TaskCanceledEvent as p:
 		match next.Tasks.Get(p.ID) {
-		case Some[TaskRecord] as tr:
+		case option.Some[TaskRecord] as tr:
 			let updated = TaskRecord{..tr.Value, State: TaskCanceled, HasClaim: false, Claim: emptyClaim(), Reason: p.Reason}
 			let st = State{..next, Tasks: next.Tasks.Put(p.ID, updated)}
 			setTaskStateLabel(st, p.ID, TaskCanceled, "")
-		case None:
+		case option.None:
 			next
 		}
 	case _:

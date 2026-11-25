@@ -24,7 +24,7 @@ func put(out []byte, v Value, resp2 bool) []byte {
 	case Integer as i:
 		appendString(strconv.AppendInt(appendString(out, ":"), i.N, 10), "\r\n")
 	case Bulk as b:
-		let head = header(out, "$", len(b.Data))
+		let head = header(out, "$", b.Data.Len())
 		appendString(appendString(head, b.Data), "\r\n")
 	case Null:
 		if resp2 {
@@ -32,21 +32,21 @@ func put(out []byte, v Value, resp2 bool) []byte {
 		}
 		appendString(out, "_\r\n")
 	case Array as a:
-		putAll(header(out, "*", len(a.Items)), a.Items, resp2)
+		putAll(header(out, "*", a.Items.Len()), a.Items, resp2)
 	case Boolean as b:
 		if b.Truth {
 			return appendString(out, "#t\r\n")
 		}
 		appendString(out, "#f\r\n")
 	case Dict as d:
-		let mut o = header(out, "%", len(d.Pairs))
+		let mut o = header(out, "%", d.Pairs.Len())
 		for p in d.Pairs {
 			o = put(o, p.Key, resp2)
 			o = put(o, p.Value, resp2)
 		}
 		o
 	case Set as s:
-		putAll(header(out, "~", len(s.Items)), s.Items, resp2)
+		putAll(header(out, "~", s.Items.Len()), s.Items, resp2)
 	}
 }
 

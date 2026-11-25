@@ -1,7 +1,9 @@
+import core
 import explore
 import github.com/cevr/ergo/modules/aws/aws
 import github.com/cevr/ergo/modules/aws/s3
 import http
+import option
 import sync
 import testing
 
@@ -45,16 +47,16 @@ type awsPathSession {
 	get  func(r s3.GetObjectRequest, put func(part string) fails http.SinkFailed) s3.GetObjectOutput fails s3.InvalidObjectState | s3.NoSuchKey | aws.Failed | aws.Malformed | http.RequestFailed | http.SinkFailed,
 	put  func(r s3.PutObjectRequest) s3.PutObjectOutput fails s3.EncryptionTypeMismatch | s3.InvalidRequest | s3.InvalidWriteOffset | s3.TooManyParts | aws.Failed | aws.Malformed | http.RequestFailed,
 	del  func(r s3.DeleteObjectRequest) s3.DeleteObjectOutput fails aws.Failed | aws.Malformed | http.RequestFailed,
-} implements explore.PathSession[awsPathAct, explore.Observed[awsPathObs, awsPathOut, Never], awsPathDriveErr]
+} implements explore.PathSession[awsPathAct, explore.Observed[awsPathObs, awsPathOut, core.Never], awsPathDriveErr]
 
 func awsSlotText(slot awsSlot) string {
 	match slot {
 	case AwsAbsent:
 		"none"
 	case AwsStd as s:
-		"std:\(len(s.Body))"
+		"std:\(s.Body.Len())"
 	case AwsGlacier as g:
-		"glacier:\(len(g.Body))"
+		"glacier:\(g.Body.Len())"
 	}
 }
 
@@ -66,15 +68,15 @@ func awsObserveKey(s awsPathSession, key string) string fails awsPathDriveErr {
 		return awsPathDriveErr{Message: "head failed"}
 	}
 	let n = match head.ContentLength {
-	case Some[int] as v:
+	case option.Some[int] as v:
 		v.Value
-	case None:
+	case option.None:
 		-1
 	}
 	let isGlacier = match head.StorageClass {
-	case Some[s3.StorageClass] as c:
+	case option.Some[s3.StorageClass] as c:
 		c.Value == s3.StorageClassGlacier
-	case None:
+	case option.None:
 		false
 	}
 	if isGlacier {
@@ -97,7 +99,7 @@ func applyAwsAct(s awsPathSession, act awsPathAct) awsPathOut fails awsPathDrive
 		}
 		AwsOutPutOk
 	case AwsActPutGlacier as a:
-		let _ = s.put(s3.PutObjectRequest{..s3.NewPutObjectRequest("bk", a.Key), Body: a.Body, StorageClass: Some[s3.StorageClass]{s3.StorageClassGlacier}}) catch {
+		let _ = s.put(s3.PutObjectRequest{..s3.NewPutObjectRequest("bk", a.Key), Body: a.Body, StorageClass: option.Some[s3.StorageClass]{s3.StorageClassGlacier}}) catch {
 		case _:
 			return awsPathDriveErr{Message: "put glacier failed"}
 		}
@@ -110,15 +112,15 @@ func applyAwsAct(s awsPathSession, act awsPathAct) awsPathOut fails awsPathDrive
 			return awsPathDriveErr{Message: "head failed"}
 		}
 		let n = match out.ContentLength {
-		case Some[int] as v:
+		case option.Some[int] as v:
 			v.Value
-		case None:
+		case option.None:
 			-1
 		}
 		let archived = match out.StorageClass {
-		case Some[s3.StorageClass] as c:
+		case option.Some[s3.StorageClass] as c:
 			c.Value == s3.StorageClassGlacier
-		case None:
+		case option.None:
 			false
 		}
 		AwsOutHead{Length: n, Archived: archived}
@@ -144,19 +146,19 @@ func applyAwsAct(s awsPathSession, act awsPathAct) awsPathOut fails awsPathDrive
 	}
 }
 
-func Read(s awsPathSession) explore.Observed[awsPathObs, awsPathOut, Never] fails awsPathDriveErr {
+func Read(s awsPathSession) explore.Observed[awsPathObs, awsPathOut, core.Never] fails awsPathDriveErr {
 	explore.InitialRead[awsPathObs]{State: try readAwsObs(s)}
 }
 
-func Apply(s awsPathSession, act awsPathAct) explore.Observed[awsPathObs, awsPathOut, Never] fails awsPathDriveErr {
+func Apply(s awsPathSession, act awsPathAct) explore.Observed[awsPathObs, awsPathOut, core.Never] fails awsPathDriveErr {
 	let out = try applyAwsAct(s, act)
 	let obs = try readAwsObs(s)
-	explore.StepResult[awsPathObs, awsPathOut, Never]{
-		Step: explore.StepObs[awsPathObs, awsPathOut, Never]{
+	explore.StepResult[awsPathObs, awsPathOut, core.Never]{
+		Step: explore.StepObs[awsPathObs, awsPathOut, core.Never]{
 			Kind:     explore.DisEmit,
-			State:    Some[awsPathObs]{Value: obs},
+			State:    option.Some[awsPathObs]{Value: obs},
 			Outputs:  []awsPathOut{out},
-			Error:    None,
+			Error:    option.None,
 			Terminal: false,
 		},
 	}
@@ -200,9 +202,9 @@ func awsPathStep(st awsPathState, act awsPathAct) (awsPathState, awsPathOut) {
 		case AwsAbsent:
 			(st, AwsOutNotFound)
 		case AwsStd as s:
-			(st, AwsOutHead{Length: len(s.Body), Archived: false})
+			(st, AwsOutHead{Length: s.Body.Len(), Archived: false})
 		case AwsGlacier as g:
-			(st, AwsOutHead{Length: len(g.Body), Archived: true})
+			(st, AwsOutHead{Length: g.Body.Len(), Archived: true})
 		}
 	case AwsActGet as a:
 		let slot = if a.Key == "k1" { st.K1 } else { st.K2 }
@@ -223,21 +225,21 @@ func awsPathStep(st awsPathState, act awsPathAct) (awsPathState, awsPathOut) {
 	}
 }
 
-func awsPathModel() explore.PathModel[awsPathState, awsPathAct, awsPathObs, awsPathOut, Never] {
-	explore.PathModelProjected[awsPathState, awsPathAct, awsPathObs, awsPathOut, Never](
+func awsPathModel() explore.PathModel[awsPathState, awsPathAct, awsPathObs, awsPathOut, core.Never] {
+	explore.PathModelProjected[awsPathState, awsPathAct, awsPathObs, awsPathOut, core.Never](
 		[]awsPathState{awsPathState{K1: AwsAbsent, K2: AwsAbsent}},
 		awsPathSignals,
 		"aws.s3",
 		awsPathProject,
-		func(st awsPathState, act awsPathAct) explore.EdgeOutcome[awsPathState, explore.StepObs[awsPathObs, awsPathOut, Never]] {
+		func(st awsPathState, act awsPathAct) explore.EdgeOutcome[awsPathState, explore.StepObs[awsPathObs, awsPathOut, core.Never]] {
 			let (next, out) = awsPathStep(st, act)
-			explore.Continue[awsPathState, explore.StepObs[awsPathObs, awsPathOut, Never]]{
+			explore.Continue[awsPathState, explore.StepObs[awsPathObs, awsPathOut, core.Never]]{
 				Next: next,
-				Obs:  explore.StepObs[awsPathObs, awsPathOut, Never]{
+				Obs:  explore.StepObs[awsPathObs, awsPathOut, core.Never]{
 					Kind:     explore.DisEmit,
-					State:    Some[awsPathObs]{Value: awsPathProject(next)},
+					State:    option.Some[awsPathObs]{Value: awsPathProject(next)},
 					Outputs:  []awsPathOut{out},
-					Error:    None,
+					Error:    option.None,
 					Terminal: false,
 				},
 			}
@@ -273,7 +275,7 @@ type AwsPaths {
 			awsPathModel(),
 			explore.ToDepth{Depth: 3},
 			bounds,
-			func(start awsPathState) explore.PathSession[awsPathAct, explore.Observed[awsPathObs, awsPathOut, Never], awsPathDriveErr] fails awsPathOpenErr {
+			func(start awsPathState) explore.PathSession[awsPathAct, explore.Observed[awsPathObs, awsPathOut, core.Never], awsPathDriveErr] fails awsPathOpenErr {
 				try OpenSession(start)
 			},
 			testing.ActiveEvidenceSink(),

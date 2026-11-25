@@ -60,7 +60,7 @@ type Store {
 			ids = ids.Append(id)
 		}
 		let all = All()
-		if len(all) != len(ids) || Count() != len(ids) {
+		if all.Len() != ids.Len() || Count() != ids.Len() {
 			return false
 		}
 		for i, o in all {
@@ -75,7 +75,7 @@ type Store {
 // Same reports whether a and b are the same deploy: a Deploy holds a
 // slice, so == does not compare it.
 func Same(a Deploy, b Deploy) bool {
-	if a.ID != b.ID || a.Service != b.Service || a.Total != b.Total || Name(a.Status) != Name(b.Status) || len(a.Units) != len(b.Units) {
+	if a.ID != b.ID || a.Service != b.Service || a.Total != b.Total || Name(a.Status) != Name(b.Status) || a.Units.Len() != b.Units.Len() {
 		return false
 	}
 	for i, l in a.Units {

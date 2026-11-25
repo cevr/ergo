@@ -6,6 +6,7 @@
 // filing costs the same however long the thread is.
 
 import maps
+import option
 
 // Msg is one message.
 type Msg { Thread string, From string, Body string }
@@ -38,8 +39,8 @@ law InOrder(n int) {
 		}
 	}
 	let t = Thread(b, "t")
-	let mut ok = len(t) == k && Unread(b, "t") == k
-	for i in 0..len(t) {
+	let mut ok = t.Len() == k && Unread(b, "t") == k
+	for i in 0..t.Len() {
 		ok = ok && t[i].Body == "m\(i)"
 	}
 	ok
@@ -56,7 +57,7 @@ law ThreadsApart(n int) {
 	for i in 0..k {
 		let _ = File(&b, Msg{Thread: "x", From: "b", Body: "more \(i)"})
 	}
-	len(Thread(b, "x")) == k+1 && len(Thread(b, "y")) == 1 && len(Thread(before, "x")) == 1 && Unread(before, "x") == 1
+	Thread(b, "x").Len() == k+1 && Thread(b, "y").Len() == 1 && Thread(before, "x").Len() == 1 && Unread(before, "x") == 1
 }
 
 // EmptyRefused: a message with no body is refused and changes nothing.
@@ -79,7 +80,7 @@ law ReadClears(n int) {
 	for i in 0..k {
 		let _ = File(&b, Msg{Thread: "t", From: "a", Body: "m\(i)"})
 	}
-	MarkRead(&b, "t") == k && Unread(b, "t") == 0 && len(Thread(b, "t")) == k
+	MarkRead(&b, "t") == k && Unread(b, "t") == 0 && Thread(b, "t").Len() == k
 }
 
 // Filed is the outcome of filing a message: it opened a thread, joined
@@ -88,18 +89,18 @@ type Filed = Opened{Thread string} | Joined{Thread string, Count int} | EmptyBod
 
 // File puts m at the end of its thread.
 func File(b mut Inbox, m Msg) Filed {
-	if len(m.Body) == 0 {
+	if m.Body.Len() == 0 {
 		return EmptyBody
 	}
 	let mut msgs = []Msg{}
 	match b.threads.Get(m.Thread) {
-	case Some[[]Msg] as t:
+	case option.Some[[]Msg] as t:
 		msgs = t.Value
-	case None:
+	case option.None:
 	}
-	let opened = len(msgs) == 0
+	let opened = msgs.Len() == 0
 	msgs = msgs.Append(m)
-	let count = len(msgs)
+	let count = msgs.Len()
 	b.threads[m.Thread] = msgs
 	b.unread[m.Thread] = Unread(*b, m.Thread) + 1
 	if opened {
@@ -113,15 +114,15 @@ func File(b mut Inbox, m Msg) Filed {
 // hands the Map over and gets it back (b.threads = maps.Update(b.threads,
 // …)), and the callback's thread is fresh, so the Map is written in place.
 func Forward(b mut Inbox, to string, m Msg) int {
-	b.threads = maps.Update(b.threads, to, func(old Option[[]Msg]) []Msg {
+	b.threads = maps.Update(b.threads, to, func(old option.Option[[]Msg]) []Msg {
 		match old {
-		case Some[[]Msg] as t:
+		case option.Some[[]Msg] as t:
 			t.Value.Append(m)
-		case None:
+		case option.None:
 			[]Msg{m}
 		}
 	})
-	len(Thread(*b, to))
+	Thread(*b, to).Len()
 }
 
 // ForwardIsFile: forwarding k messages builds the thread filing them
@@ -141,8 +142,8 @@ law ForwardIsFile(n int) {
 	}
 	let ta = Thread(a, "x")
 	let tb = Thread(b, "x")
-	ok = ok && len(ta) == len(tb) && len(Thread(before, "x")) == 1
-	for i in 0..len(ta) {
+	ok = ok && ta.Len() == tb.Len() && Thread(before, "x").Len() == 1
+	for i in 0..ta.Len() {
 		ok = ok && ta[i].Body == tb[i].Body
 	}
 	ok
@@ -152,9 +153,9 @@ law ForwardIsFile(n int) {
 // none.
 func Thread(b Inbox, name string) []Msg {
 	match b.threads.Get(name) {
-	case Some[[]Msg] as t:
+	case option.Some[[]Msg] as t:
 		t.Value
-	case None:
+	case option.None:
 		[]Msg{}
 	}
 }
@@ -162,9 +163,9 @@ func Thread(b Inbox, name string) []Msg {
 // Unread is the number of messages of a thread not yet read.
 func Unread(b Inbox, name string) int {
 	match b.unread.Get(name) {
-	case Some[int] as n:
+	case option.Some[int] as n:
 		n.Value
-	case None:
+	case option.None:
 		0
 	}
 }
@@ -178,4 +179,4 @@ func MarkRead(b mut Inbox, name string) int {
 }
 
 // Threads is the number of threads.
-func Threads(b Inbox) int { len(b.threads) }
+func Threads(b Inbox) int { b.threads.Len() }

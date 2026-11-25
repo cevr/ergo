@@ -13,6 +13,7 @@
 // imports of one module merge as a set of specifiers.
 
 import github.com/cevr/ergo/modules/work/classes
+import option
 import slices
 import strings
 
@@ -52,7 +53,7 @@ func drafted(s Splitter, file string, base string, ours string, theirs string) d
 	let o = try s.Units(file, ours)
 	let t = try s.Units(file, theirs)
 	let m = mergedSeq(b, o, t, "")
-	draft{Merged: classes.Merged{Text: m.Text, Conflicts: m.Conflicts, Regenerate: false}, Check: len(m.Conflicts) == 0}
+	draft{Merged: classes.Merged{Text: m.Text, Conflicts: m.Conflicts, Regenerate: false}, Check: m.Conflicts.Len() == 0}
 }
 
 // checked is the draft d once its text reads as the language again: two
@@ -87,7 +88,7 @@ func mergedSeq(base []Unit, oursAsIs []Unit, theirsAsIs []Unit, parent string) s
 	let theirs = renamed(base, theirsAsIs, oursAsIs)
 	if keptOrder(base, ours) && !keptOrder(base, theirs) {
 		let moved = inOrder(base, theirs, ours, parent)
-		if len(moved.Conflicts) == 0 {
+		if moved.Conflicts.Len() == 0 {
 			return moved
 		}
 	}
@@ -101,13 +102,13 @@ func keptOrder(base []Unit, side []Unit) bool {
 	let s = byKey(side)
 	let mut x = []string{}
 	for u in base {
-		if s.Get(u.Key) != None {
+		if s.Get(u.Key) != option.None {
 			x = x.Append(u.Key)
 		}
 	}
 	let mut y = []string{}
 	for u in side {
-		if b.Get(u.Key) != None {
+		if b.Get(u.Key) != option.None {
 			y = y.Append(u.Key)
 		}
 	}
@@ -123,12 +124,12 @@ func inOrder(base []Unit, ours []Unit, theirs []Unit, parent string) seq {
 	for u in ours {
 		order = order.Append(u.Key)
 	}
-	let mut after Option[string] = None
+	let mut after option.Option[string] = option.None
 	for u in theirs {
-		if o.Get(u.Key) == None {
-			order = placed(order, after, u.Key, func(k string) bool { b.Get(k) == None && t.Get(k) == None })
+		if o.Get(u.Key) == option.None {
+			order = placed(order, after, u.Key, func(k string) bool { b.Get(k) == option.None && t.Get(k) == option.None })
 		}
-		after = Some[string]{Value: u.Key}
+		after = option.Some[string]{Value: u.Key}
 	}
 	let mut texts = []string{}
 	let mut conflicts = []string{}
@@ -153,21 +154,21 @@ func renamed(base []Unit, side []Unit, other []Unit) []Unit {
 	let o = byKey(other)
 	let mut out = []Unit{}
 	for i, u in side {
-		if b.Get(u.Key) != None || o.Get(u.Key) != None {
+		if b.Get(u.Key) != option.None || o.Get(u.Key) != option.None {
 			out = out.Append(u)
 			continue
 		}
 		let mut j = 0
 		if i > 0 {
-			j = len(base) + 1
+			j = base.Len() + 1
 			for k, x in base {
 				if x.Key == side[i-1].Key {
 					j = k + 1
 				}
 			}
 		}
-		let nextSame = if i+1 < len(side) { j+1 < len(base) && base[j+1].Key == side[i+1].Key } else { j+1 == len(base) }
-		if j < len(base) && s.Get(base[j].Key) == None && nextSame && mostKept(base[j].Text, u.Text) {
+		let nextSame = if i+1 < side.Len() { j+1 < base.Len() && base[j+1].Key == side[i+1].Key } else { j+1 == base.Len() }
+		if j < base.Len() && s.Get(base[j].Key) == option.None && nextSame && mostKept(base[j].Text, u.Text) {
 			out = out.Append(Unit{..u, Key: base[j].Key})
 		} else {
 			out = out.Append(u)
@@ -198,72 +199,72 @@ func mostKept(before string, after string) bool {
 // None) and after the keys ours alone added there (oursOnly), as Git
 // writes ours' lines before theirs' where both added: a theirs' unit
 // never splits a run ours added.
-func placed(order []string, after Option[string], key string, oursOnly func(k string) bool) []string {
+func placed(order []string, after option.Option[string], key string, oursOnly func(k string) bool) []string {
 	let mut at = 0
 	match after {
-	case Some[string] as a:
-		at = len(order)
+	case option.Some[string] as a:
+		at = order.Len()
 		for i, k in order {
 			if k == a.Value {
 				at = i + 1
 				break
 			}
 		}
-	case None:
+	case option.None:
 	}
-	for at < len(order) && oursOnly(order[at]) {
+	for at < order.Len() && oursOnly(order[at]) {
 		at = at + 1
 	}
 	slices.Concat(slices.Concat(order[0:at], []string{key}), order[at:])
 }
 
-func textOfUnit(u Option[Unit]) Option[string] {
+func textOfUnit(u option.Option[Unit]) option.Option[string] {
 	match u {
-	case Some[Unit] as x:
-		Some[string]{Value: x.Value.Text}
-	case None:
-		None
+	case option.Some[Unit] as x:
+		option.Some[string]{Value: x.Value.Text}
+	case option.None:
+		option.None
 	}
 }
 
 // mergedUnit is one key's merge: the side that changed it, else the
 // lines within it merged, else its members merged, else a conflict.
-func mergedUnit(base Option[Unit], ours Option[Unit], theirs Option[Unit], parent string) seq {
+func mergedUnit(base option.Option[Unit], ours option.Option[Unit], theirs option.Option[Unit], parent string) seq {
 	match classes.Choose(textOfUnit(base), textOfUnit(ours), textOfUnit(theirs), func(a string, b string) bool { a == b }) {
 	case classes.Take as k:
 		return seq{Text: textOf(k.Value), Conflicts: []string{}}
 	case classes.Clash:
 	}
 	let key = match (ours, theirs) {
-	case (Some[Unit] as x, _):
+	case (option.Some[Unit] as x, _):
 		x.Value.Key
-	case (_, Some[Unit] as y):
+	case (_, option.Some[Unit] as y):
 		y.Value.Key
-	case (None, None):
+	case (option.None, option.None):
 		""
 	}
 	let name = if parent == "" { key } else { parent + "." + key }
 	match (ours, theirs) {
-	case (Some[Unit] as x, Some[Unit] as y):
+	case (option.Some[Unit] as x, option.Some[Unit] as y):
 		let b = textOf(textOfUnit(base))
 		let lines = classes.MergeText(b, x.Value.Text, y.Value.Text)
-		if lines.Clashes == 0 && base != None {
+		if lines.Clashes == 0 && base != option.None {
 			return seq{Text: classes.Text(lines), Conflicts: []string{}}
 		}
 		let members = match base {
-		case Some[Unit] as z:
+		case option.Some[Unit] as z:
 			mergedMembers(z.Value, x.Value, y.Value, name)
-		case None:
+		case option.None:
 			mergedMembers(Unit{Key: key, Kind: x.Value.Kind, Text: "", Exported: false, Members: []Unit{}}, x.Value, y.Value, name)
 		}
 		match members {
-		case Some[seq] as m:
+		case option.Some[seq] as m:
 			return m.Value
-		case None:
+		case option.None:
 		}
 	case _:
 	}
-	let overlap = if parent != "" { "SameMember" } else if base == None { "SameNewHandle" } else { "SameDeclaration" }
+	let overlap = if parent != "" { "SameMember" } else if base == option.None { "SameNewHandle" } else { "SameDeclaration" }
 	seq{Text: classes.Marked(textOf(textOfUnit(ours)), textOf(textOfUnit(theirs))) + "\n", Conflicts: []string{"\(overlap) \(name)"}}
 }
 
@@ -272,9 +273,9 @@ func mergedUnit(base Option[Unit], ours Option[Unit], theirs Option[Unit], paren
 // run of its text.
 type shell { Before string, After string }
 
-func shellOf(u Unit) Option[shell] {
-	if len(u.Members) == 0 {
-		return None
+func shellOf(u Unit) option.Option[shell] {
+	if u.Members.Len() == 0 {
+		return option.None
 	}
 	let mut parts = []string{}
 	for m in u.Members {
@@ -283,55 +284,55 @@ func shellOf(u Unit) Option[shell] {
 	let run = strings.Join(parts, "")
 	let at = strings.Index(u.Text, run)
 	if at < 0 {
-		return None
+		return option.None
 	}
-	Some[shell]{Value: shell{Before: u.Text[0:at], After: u.Text[at+len(run):]}}
+	option.Some[shell]{Value: shell{Before: u.Text[0:at], After: u.Text[at+run.Len():]}}
 }
 
 // mergedMembers merges a unit both sides changed by its members, when
 // its text around them merges (one side changed it, or neither): None
 // when it cannot. A base with no text is a unit both sides added: its
 // shells must be equal. Members that clash are conflicts SameMember.
-func mergedMembers(base Unit, ours Unit, theirs Unit, name string) Option[seq] {
+func mergedMembers(base Unit, ours Unit, theirs Unit, name string) option.Option[seq] {
 	let o = match shellOf(ours) {
-	case Some[shell] as s:
+	case option.Some[shell] as s:
 		s.Value
-	case None:
-		return None
+	case option.None:
+		return option.None
 	}
 	let t = match shellOf(theirs) {
-	case Some[shell] as s:
+	case option.Some[shell] as s:
 		s.Value
-	case None:
-		return None
+	case option.None:
+		return option.None
 	}
 	let b = match shellOf(base) {
-	case Some[shell] as s:
+	case option.Some[shell] as s:
 		s.Value
-	case None:
+	case option.None:
 		if base.Text != "" {
-			return None
+			return option.None
 		}
 		if o != t {
-			return None
+			return option.None
 		}
 		o
 	}
-	let before = match classes.Choose(Some[string]{Value: b.Before}, Some[string]{Value: o.Before}, Some[string]{Value: t.Before}, func(x string, y string) bool { x == y }) {
+	let before = match classes.Choose(option.Some[string]{Value: b.Before}, option.Some[string]{Value: o.Before}, option.Some[string]{Value: t.Before}, func(x string, y string) bool { x == y }) {
 	case classes.Take as k:
 		textOf(k.Value)
 	case classes.Clash:
-		return None
+		return option.None
 	}
-	let after = match classes.Choose(Some[string]{Value: b.After}, Some[string]{Value: o.After}, Some[string]{Value: t.After}, func(x string, y string) bool { x == y }) {
+	let after = match classes.Choose(option.Some[string]{Value: b.After}, option.Some[string]{Value: o.After}, option.Some[string]{Value: t.After}, func(x string, y string) bool { x == y }) {
 	case classes.Take as k:
 		textOf(k.Value)
 	case classes.Clash:
-		return None
+		return option.None
 	}
 	let m = mergedSeq(base.Members, ours.Members, theirs.Members, name)
-	if len(m.Conflicts) > 0 {
-		return Some[seq]{Value: seq{Text: classes.Marked(ours.Text, theirs.Text) + "\n", Conflicts: m.Conflicts}}
+	if m.Conflicts.Len() > 0 {
+		return option.Some[seq]{Value: seq{Text: classes.Marked(ours.Text, theirs.Text) + "\n", Conflicts: m.Conflicts}}
 	}
-	Some[seq]{Value: seq{Text: before + m.Text + after, Conflicts: []string{}}}
+	option.Some[seq]{Value: seq{Text: before + m.Text + after, Conflicts: []string{}}}
 }

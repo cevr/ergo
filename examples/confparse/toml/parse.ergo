@@ -1,3 +1,4 @@
+import option
 import strconv
 import strings
 
@@ -26,7 +27,7 @@ type cursor { text string, line int, pos int }
 
 func at(c mut cursor) Pos { Pos{Line: c.line, Column: c.pos + 1} }
 
-func done(c mut cursor) bool { c.pos >= len(c.text) }
+func done(c mut cursor) bool { c.pos >= c.text.Len() }
 
 func blanks(c mut cursor) {
 	for !done(c) && (c.text[c.pos] == ' ' || c.text[c.pos] == '\t') {
@@ -60,9 +61,9 @@ func Parse(text string) Doc fails Problem {
 		let e = try entry(&c)
 		try lineEnd(&c)
 		match Lookup(cur, e.Key) {
-		case Some as first:
+		case option.Some as first:
 			return Duplicate{At: e.KeyAt, Key: e.Key, First: first.Value.KeyAt}
-		case None:
+		case option.None:
 		}
 		cur = Table{..cur, Entries: cur.Entries.Append(e)}
 	}
@@ -106,13 +107,13 @@ func header(c mut cursor) Table fails Unexpected | Unterminated {
 	let name = try key(c, true)
 	blanks(c)
 	let close = if many { "]]" } else { "]" }
-	if !strings.HasPrefix(strings.Slice(c.text, c.pos, len(c.text)), close) {
+	if !strings.HasPrefix(strings.Slice(c.text, c.pos, c.text.Len()), close) {
 		if done(c) {
 			return Unterminated{At: start, What: "the header"}
 		}
 		return Unexpected{At: at(c), Want: close, Got: got(c)}
 	}
-	c.pos += len(close)
+	c.pos += close.Len()
 	Table{Name: name, Many: many, At: start, Entries: []Entry{}}
 }
 
@@ -165,10 +166,10 @@ func value(c mut cursor) Value fails Unexpected | Unterminated | BadEscape | Too
 	if b == '+' || b == '-' || (b >= '0' && b <= '9') {
 		return Int{N: try integer(c)}
 	}
-	let rest = strings.Slice(c.text, c.pos, len(c.text))
+	let rest = strings.Slice(c.text, c.pos, c.text.Len())
 	for word in []string{"true", "false"} {
-		if strings.HasPrefix(rest, word) && (len(rest) == len(word) || !isKeyByte(rest[len(word)])) {
-			c.pos += len(word)
+		if strings.HasPrefix(rest, word) && (rest.Len() == word.Len() || !isKeyByte(rest[word.Len()])) {
+			c.pos += word.Len()
 			return Bool{B: word == "true"}
 		}
 	}
@@ -184,7 +185,7 @@ func basic(c mut cursor) string fails Unterminated | BadEscape {
 	for !done(c) && c.text[c.pos] != '"' {
 		if c.text[c.pos] == '\\' {
 			parts = parts.Append(strings.Slice(c.text, from, c.pos))
-			if c.pos+1 >= len(c.text) {
+			if c.pos+1 >= c.text.Len() {
 				return Unterminated{At: start, What: "the string"}
 			}
 			let esc = strings.Slice(c.text, c.pos, c.pos+2)
@@ -252,7 +253,7 @@ func integer(c mut cursor) int fails Unexpected | TooBig {
 		last = b
 		c.pos += 1
 	}
-	if len(digits) == 0 || last == '_' {
+	if digits.Len() == 0 || last == '_' {
 		return Unexpected{At: at(c), Want: "a digit", Got: got(c)}
 	}
 	let sign = if c.text[from] == '-' { "-" } else { "" }

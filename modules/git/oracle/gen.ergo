@@ -128,15 +128,15 @@ func CompareTranscripts(left Transcript, right Transcript) CompareResult {
 			Actual:    FormatName(right.Spec.Format) + "/" + LayoutName(right.Spec.Layout),
 		})
 	}
-	if len(left.Steps) != len(right.Steps) {
+	if left.Steps.Len() != right.Steps.Len() {
 		diffs = diffs.Append(DiffEntry{
 			StepIndex: -1,
 			Field:     "Steps.Len",
-			Expected:  strconv.Itoa(len(left.Steps)),
-			Actual:    strconv.Itoa(len(right.Steps)),
+			Expected:  strconv.Itoa(left.Steps.Len()),
+			Actual:    strconv.Itoa(right.Steps.Len()),
 		})
 	} else {
-		for i in 0..len(left.Steps) {
+		for i in 0..left.Steps.Len() {
 			let ls = left.Steps[i]
 			let rs = right.Steps[i]
 			if ls.Op != rs.Op {
@@ -201,36 +201,36 @@ func CompareTranscripts(left Transcript, right Transcript) CompareResult {
 		diffs = diffs.Append(DiffEntry{
 			StepIndex: -1,
 			Field:     "Final.Tree",
-			Expected:  strconv.Itoa(len(left.Final.Tree)) + " entries",
-			Actual:    strconv.Itoa(len(right.Final.Tree)) + " entries",
+			Expected:  strconv.Itoa(left.Final.Tree.Len()) + " entries",
+			Actual:    strconv.Itoa(right.Final.Tree.Len()) + " entries",
 		})
 	}
 	if left.Final.Refs != right.Final.Refs {
 		diffs = diffs.Append(DiffEntry{
 			StepIndex: -1,
 			Field:     "Final.Refs",
-			Expected:  strconv.Itoa(len(left.Final.Refs)) + " refs",
-			Actual:    strconv.Itoa(len(right.Final.Refs)) + " refs",
+			Expected:  strconv.Itoa(left.Final.Refs.Len()) + " refs",
+			Actual:    strconv.Itoa(right.Final.Refs.Len()) + " refs",
 		})
 	}
 	if left.Final.Status != right.Final.Status {
 		diffs = diffs.Append(DiffEntry{
 			StepIndex: -1,
 			Field:     "Final.Status",
-			Expected:  strconv.Itoa(len(left.Final.Status)) + " entries",
-			Actual:    strconv.Itoa(len(right.Final.Status)) + " entries",
+			Expected:  strconv.Itoa(left.Final.Status.Len()) + " entries",
+			Actual:    strconv.Itoa(right.Final.Status.Len()) + " entries",
 		})
 	}
 	if left.Final.Reflog != right.Final.Reflog {
 		diffs = diffs.Append(DiffEntry{
 			StepIndex: -1,
 			Field:     "Final.Reflog",
-			Expected:  strconv.Itoa(len(left.Final.Reflog)) + " entries",
-			Actual:    strconv.Itoa(len(right.Final.Reflog)) + " entries",
+			Expected:  strconv.Itoa(left.Final.Reflog.Len()) + " entries",
+			Actual:    strconv.Itoa(right.Final.Reflog.Len()) + " entries",
 		})
 	}
 	CompareResult{
-		Equal:       len(diffs) == 0,
+		Equal:       diffs.Len() == 0,
 		Diffs:       diffs,
 		LeftReplay:  left.Replay,
 		RightReplay: right.Replay,
@@ -273,12 +273,12 @@ func describeError(e OracleError) string {
 // bisection followed by delta-debugging chunk removal, returning a minimal
 // subsequence that still satisfies predicate pred.
 func ShrinkHistory[E, R](ops []Op, pred func(candidate []Op) bool fails E needs R) []Op fails E needs R {
-	if len(ops) <= 1 {
+	if ops.Len() <= 1 {
 		return ops
 	}
 	let mut best = ops
 	let mut lo = 1
-	let mut hi = len(best)
+	let mut hi = best.Len()
 	for lo < hi {
 		let mid = lo + (hi-lo)/2
 		let cand = best[:mid]
@@ -289,20 +289,20 @@ func ShrinkHistory[E, R](ops []Op, pred func(candidate []Op) bool fails E needs 
 			lo = mid + 1
 		}
 	}
-	let mut chunk = len(best) / 2
+	let mut chunk = best.Len() / 2
 	for chunk >= 1 {
 		let mut reduced = false
 		let mut start = 0
-		for start < len(best) {
-			let end = if start+chunk > len(best) { len(best) } else { start + chunk }
+		for start < best.Len() {
+			let end = if start+chunk > best.Len() { best.Len() } else { start + chunk }
 			let mut cand = []Op{}
 			for i in 0..start {
 				cand = cand.Append(best[i])
 			}
-			for i in end..len(best) {
+			for i in end..best.Len() {
 				cand = cand.Append(best[i])
 			}
-			if len(cand) > 0 && try pred(cand) {
+			if cand.Len() > 0 && try pred(cand) {
 				best = cand
 				reduced = true
 				break

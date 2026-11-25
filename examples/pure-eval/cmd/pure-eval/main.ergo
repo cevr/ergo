@@ -37,18 +37,18 @@ func play(lines []string) []string fails BadLine {
 		let n = i + 1
 		let text = strings.TrimSpace(line)
 		let words = strings.Fields(text)
-		if len(words) == 0 || strings.HasPrefix(text, "#") {
+		if words.Len() == 0 || strings.HasPrefix(text, "#") {
 			continue
 		}
 		match words[0] {
 		case "bucket":
-			if len(words) != 3 {
+			if words.Len() != 3 {
 				return BadLine{Line: n, Why: "bucket takes a capacity and a rate"}
 			}
 			b = limit.New(try count(n, words[1]), try count(n, words[2]))
 			out = out.Append("bucket of \(b.Capacity), \(b.Rate) a tick")
 		case "wait":
-			if len(words) != 2 {
+			if words.Len() != 2 {
 				return BadLine{Line: n, Why: "wait takes ticks"}
 			}
 			b = limit.Refill(b, try count(n, words[1]))
@@ -72,7 +72,7 @@ func play(lines []string) []string fails BadLine {
 	out
 }
 
-func main() fails os.Exit needs Console | Ambient {
+func main() fails os.Exit needs io.Console | os.Ambient {
 	let mut lines = []string{}
 	with context { io.Stdin: io.NewStdin() } {
 		for line in io.Stdin.Lines() {
@@ -84,6 +84,6 @@ func main() fails os.Exit needs Console | Ambient {
 		return os.Exit{Code: 1, Message: "pure-eval: line \(b.Line): \(b.Why)"}
 	}
 	for l in out {
-		Console.Println(l)
+		io.Console.Println(l)
 	}
 }

@@ -93,7 +93,7 @@ func radiusName(r token.Radius) string {
 // tone, density, radius and slot of a control and per hue, fill and density of a chip.
 law TableNamesOnlySheetClasses() {
 	let t = TableOf(token.Default, Looks())
-	let mut ok = len(t.Controls) == len(look.Tones())*len(look.Densities())*len(look.Radii())*4 && len(t.Chips) == len(token.Hues())*2*len(look.Densities())
+	let mut ok = t.Controls.Len() == look.Tones().Len()*look.Densities().Len()*look.Radii().Len()*4 && t.Chips.Len() == token.Hues().Len()*2*look.Densities().Len()
 	for r in t.Controls {
 		ok = ok && styled(t.Sheet, r.Root) && styled(t.Sheet, r.Plate) && styled(t.Sheet, r.Content) && styled(t.Sheet, r.Label)
 	}
@@ -174,7 +174,7 @@ func adding(xs []string, x string) []string {
 // union is a TypeScript union of string literals.
 func union(xs []string) string {
 	let mut b = strings.NewBuilder()
-	for i in 0..len(xs) {
+	for i in 0..xs.Len() {
 		if i > 0 {
 			b.WriteString(" | ")
 		}

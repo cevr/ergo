@@ -1,4 +1,5 @@
 import calc/ast
+import option
 import strconv
 
 // Failure is a text that is not an expression: the row of Parse.
@@ -94,33 +95,33 @@ func expect(p mut parser, want string) fails Unexpected {
 func parseExpr(p mut parser) ast.Expr fails Unexpected | TooBig { try parseBinary(p, 1) }
 
 // opOf is the binary operator that t spells.
-func opOf(t Token) Option[ast.Op] {
+func opOf(t Token) option.Option[ast.Op] {
 	match t {
 	case SymTok as s:
 		match s.Sym {
 		case "+":
-			Some{Value: ast.Add}
+			option.Some{Value: ast.Add}
 		case "-":
-			Some{Value: ast.Sub}
+			option.Some{Value: ast.Sub}
 		case "*":
-			Some{Value: ast.Mul}
+			option.Some{Value: ast.Mul}
 		case "/":
-			Some{Value: ast.Div}
+			option.Some{Value: ast.Div}
 		case "%":
-			Some{Value: ast.Mod}
+			option.Some{Value: ast.Mod}
 		case "<":
-			Some{Value: ast.Lt}
+			option.Some{Value: ast.Lt}
 		case "==":
-			Some{Value: ast.Eq}
+			option.Some{Value: ast.Eq}
 		case "&&":
-			Some{Value: ast.And}
+			option.Some{Value: ast.And}
 		case "||":
-			Some{Value: ast.Or}
+			option.Some{Value: ast.Or}
 		case _:
-			None
+			option.None
 		}
 	case IntTok, NameTok, EndTok:
-		None
+		option.None
 	}
 }
 
@@ -130,9 +131,9 @@ func parseBinary(p mut parser, min int) ast.Expr fails Unexpected | TooBig {
 	let mut left = try parseUnary(p)
 	for {
 		match opOf(peek(p)) {
-		case None:
+		case option.None:
 			return left
-		case Some as o:
+		case option.Some as o:
 			let prec = ast.Prec(o.Value)
 			if prec < min {
 				return left

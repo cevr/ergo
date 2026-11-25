@@ -3,13 +3,14 @@
 // the threads, the longest thread, what is left unread and thread1's
 // length.
 
+import io
 import os
 import strconv
 import inbox/threads
 
-func main() fails os.Exit needs Console | Ambient {
+func main() fails os.Exit needs io.Console | os.Ambient {
 	let args = os.NewHost().Args()
-	if len(args) != 1 {
+	if args.Len() != 1 {
 		return os.Exit{Code: 2, Message: "usage: inbox N"}
 	}
 	let n = strconv.Atoi(args[0]) catch {
@@ -38,10 +39,10 @@ func main() fails os.Exit needs Console | Ambient {
 	for t in 0..7 {
 		unread = unread + threads.Unread(b, "thread\(t)")
 	}
-	Console.Println("threads \(threads.Threads(b)) opened \(opened) longest \(longest)")
-	Console.Println("read \(read) unread \(unread) thread1 \(forwarded)")
+	io.Console.Println("threads \(threads.Threads(b)) opened \(opened) longest \(longest)")
+	io.Console.Println("read \(read) unread \(unread) thread1 \(forwarded)")
 	let last = threads.Thread(b, "thread\((n - 1) % 7)")
-	if len(last) > 0 {
-		Console.Println("last: \(last[len(last)-1].Body)")
+	if last.Len() > 0 {
+		io.Console.Println("last: \(last[last.Len()-1].Body)")
 	}
 }

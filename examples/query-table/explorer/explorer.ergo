@@ -4,6 +4,8 @@
 // page: a Selected becomes the table's choice of that filter, so the
 // table asks for the address; a Focus becomes the host's.
 
+import machines
+import option
 import querytable/dino
 import querytable/listbox
 import querytable/query
@@ -27,52 +29,52 @@ type Command = Replace{Path string} | Push{Path string} | Focus{Filter Filter}
 
 // Open is the program at the address path, both list boxes shut.
 func Open(path string) Page {
-	Page{Route: table.Open(path), Diet: listbox.New(len(dino.Diets) + 1), Period: listbox.New(len(dino.Periods) + 1)}
+	Page{Route: table.Open(path), Diet: listbox.New(dino.Diets.Len() + 1), Period: listbox.New(dino.Periods.Len() + 1)}
 }
 
 // DietAt is the diet of the diet list's item i: item 0 is all diets,
 // then the diets in their order.
-func DietAt(i int) Option[dino.Diet] {
-	if i <= 0 || i > len(dino.Diets) {
-		return None
+func DietAt(i int) option.Option[dino.Diet] {
+	if i <= 0 || i > dino.Diets.Len() {
+		return option.None
 	}
-	Some[dino.Diet]{Value: dino.Diets[i-1]}
+	option.Some[dino.Diet]{Value: dino.Diets[i-1]}
 }
 
 // PeriodAt is the period of the period list's item i, as DietAt.
-func PeriodAt(i int) Option[dino.Period] {
-	if i <= 0 || i > len(dino.Periods) {
-		return None
+func PeriodAt(i int) option.Option[dino.Period] {
+	if i <= 0 || i > dino.Periods.Len() {
+		return option.None
 	}
-	Some[dino.Period]{Value: dino.Periods[i-1]}
+	option.Some[dino.Period]{Value: dino.Periods[i-1]}
 }
 
 // DietIndex is the item of the diet list that d is.
-func DietIndex(d Option[dino.Diet]) int {
+func DietIndex(d option.Option[dino.Diet]) int {
 	match d {
-	case Some[dino.Diet] as v:
+	case option.Some[dino.Diet] as v:
 		for i, x in dino.Diets {
 			if x == v.Value {
 				return i + 1
 			}
 		}
 		0
-	case None:
+	case option.None:
 		0
 	}
 }
 
 // PeriodIndex is the item of the period list that p is.
-func PeriodIndex(p Option[dino.Period]) int {
+func PeriodIndex(p option.Option[dino.Period]) int {
 	match p {
-	case Some[dino.Period] as v:
+	case option.Some[dino.Period] as v:
 		for i, x in dino.Periods {
 			if x == v.Value {
 				return i + 1
 			}
 		}
 		0
-	case None:
+	case option.None:
 		0
 	}
 }
@@ -88,23 +90,23 @@ func Box(p Page, f Filter) listbox.Box {
 }
 
 // Step is the program's transition.
-func Step(p Page, sig Signal) Decision[Page, []Command] {
+func Step(p Page, sig Signal) machines.Decision[Page, []Command] {
 	match sig {
 	case OnTable as t:
 		fromTable(p, table.Step(p.Route, t.Signal))
 	case OnList as l:
 		let d = listbox.Step(Box(p, l.Filter), l.Signal)
 		let (b, effects) = match d {
-		case Emit[listbox.Box, []listbox.Effect] as e:
+		case machines.Emit[listbox.Box, []listbox.Effect] as e:
 			(e.Next, e.Output)
-		case Stay[listbox.Box] as s:
+		case machines.Stay[listbox.Box] as s:
 			(s.Next, []listbox.Effect{})
-		case Enter[listbox.Box] as e:
+		case machines.Enter[listbox.Box] as e:
 			(e.Next, []listbox.Effect{})
-		case Tell[listbox.Box, []listbox.Effect] as t:
+		case machines.Tell[listbox.Box, []listbox.Effect] as t:
 			(t.Next, t.Output)
-		case Ignore, Reject, Done[[]listbox.Effect]:
-			return Ignore
+		case machines.Ignore, machines.Reject, machines.Done[[]listbox.Effect]:
+			return machines.Ignore
 		}
 		let at = match l.Filter {
 		case DietFilter:
@@ -129,22 +131,22 @@ func Step(p Page, sig Signal) Decision[Page, []Command] {
 				out = out.Append(Focus{Filter: l.Filter})
 			}
 		}
-		if len(out) == 0 {
-			return Stay[Page]{Next: at}
+		if out.Len() == 0 {
+			return machines.Stay[Page]{Next: at}
 		}
-		Emit[Page, []Command]{Next: at, Output: out}
+		machines.Emit[Page, []Command]{Next: at, Output: out}
 	case Followed as f:
-		Emit[Page, []Command]{Next: p, Output: []Command{Push{Path: f.Path}}}
+		machines.Emit[Page, []Command]{Next: p, Output: []Command{Push{Path: f.Path}}}
 	}
 }
 
 // fromTable applies a host navigation or forwards a replacement request.
-func fromTable(p Page, a table.Action) Decision[Page, []Command] {
+func fromTable(p Page, a table.Action) machines.Decision[Page, []Command] {
 	match a {
 	case table.AddressChanged as e:
-		Enter[Page]{Next: Page{..p, Route: e.Next}}
+		machines.Enter[Page]{Next: Page{..p, Route: e.Next}}
 	case table.Replace as e:
-		Emit[Page, []Command]{Next: p, Output: []Command{Replace{Path: e.Path}}}
+		machines.Emit[Page, []Command]{Next: p, Output: []Command{Replace{Path: e.Path}}}
 	}
 }
 
@@ -164,13 +166,13 @@ type Explorer machine[Page, Signal] {
 }
 
 // Commands is what the decision d asks the host.
-func Commands(d Decision[Page, []Command]) []Command {
+func Commands(d machines.Decision[Page, []Command]) []Command {
 	match d {
-	case Emit[Page, []Command] as e:
+	case machines.Emit[Page, []Command] as e:
 		e.Output
-	case Tell[Page, []Command] as t:
+	case machines.Tell[Page, []Command] as t:
 		t.Output
-	case Enter[Page], Stay[Page], Ignore, Reject, Done[[]Command]:
+	case machines.Enter[Page], machines.Stay[Page], machines.Ignore, machines.Reject, machines.Done[[]Command]:
 		[]Command{}
 	}
 }
@@ -185,18 +187,18 @@ law AListChoiceIsTheTableChoice(q query.Query, diet bool, i int where 0 <= i && 
 	let f Filter = if diet { DietFilter } else { PeriodFilter }
 	let p = Page{..Open("/"), Route: query.Browse{Query: q}}
 	let opened = match Step(p, OnList{Filter: f, Signal: listbox.Pressed{Selected: 0}}) {
-	case Stay[Page] as s:
+	case machines.Stay[Page] as s:
 		s.Next
-	case Emit[Page, []Command], Enter[Page], Tell[Page, []Command], Ignore, Reject, Done[[]Command]:
+	case machines.Emit[Page, []Command], machines.Enter[Page], machines.Tell[Page, []Command], machines.Ignore, machines.Reject, machines.Done[[]Command]:
 		return false
 	}
 	let d = Step(opened, OnList{Filter: f, Signal: listbox.Picked{Index: i}})
 	let direct = if diet { table.Step(p.Route, table.ChoseDiet{Diet: DietAt(i)}) } else { table.Step(p.Route, table.ChosePeriod{Period: PeriodAt(i)}) }
 	let want = commandsOf(direct).Append(Focus{Filter: f})
 	let after = match d {
-	case Emit[Page, []Command] as e:
+	case machines.Emit[Page, []Command] as e:
 		e.Next
-	case Enter[Page], Stay[Page], Tell[Page, []Command], Ignore, Reject, Done[[]Command]:
+	case machines.Enter[Page], machines.Stay[Page], machines.Tell[Page, []Command], machines.Ignore, machines.Reject, machines.Done[[]Command]:
 		return false
 	}
 	Commands(d) == want && !Box(after, f).Open && after.Route == p.Route

@@ -1,6 +1,7 @@
 // Package memory holds Lines, a settings.Backing whose lines live in a
 // map, and counts the lines written, so a run shows what went through.
 
+import option
 import sync
 import wtcache/settings
 
@@ -20,7 +21,7 @@ func Write(l Lines, key string, line string) {
 }
 
 // Read is the line key holds.
-func Read(l Lines, key string) Option[string] { l.lines.Get().Get(key) }
+func Read(l Lines, key string) option.Option[string] { l.lines.Get().Get(key) }
 
 // Writes counts the lines written.
 func Writes(l Lines) int { l.writes.Get() }

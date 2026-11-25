@@ -40,21 +40,21 @@ type Event = Alerted{At int64, Value float64} | Resolved{At int64, Since int64} 
 // breach while firing is the same incident and is ignored. A calm check
 // while firing resolves the incident; while quiet it is ignored. Each
 // alert, mute and resolution is emitted.
-func Step(s State, sig Signal) Decision[State, Event] {
+func Step(s State, sig Signal) machines.Decision[State, Event] {
 	match (s, sig) {
 	case (Quiet as q, Breach as b):
 		let sent = recent(q.Sent, b.At, q.Policy.Window)
-		if len(sent) >= q.Policy.Limit {
-			Emit[State, Event]{Next: Quiet{..q, Sent: sent, Muted: q.Muted + 1}, Output: Muted{At: b.At}}
+		if sent.Len() >= q.Policy.Limit {
+			machines.Emit[State, Event]{Next: Quiet{..q, Sent: sent, Muted: q.Muted + 1}, Output: Muted{At: b.At}}
 		} else {
-			Emit[State, Event]{Next: Firing{Policy: q.Policy, Since: b.At, Sent: sent.Append(b.At), Muted: q.Muted}, Output: Alerted{At: b.At, Value: b.Value}}
+			machines.Emit[State, Event]{Next: Firing{Policy: q.Policy, Since: b.At, Sent: sent.Append(b.At), Muted: q.Muted}, Output: Alerted{At: b.At, Value: b.Value}}
 		}
 	case (Firing, Breach):
-		Ignore
+		machines.Ignore
 	case (Firing as f, Calm as c):
-		Emit[State, Event]{Next: Quiet{Policy: f.Policy, Sent: f.Sent, Muted: f.Muted}, Output: Resolved{At: c.At, Since: f.Since}}
+		machines.Emit[State, Event]{Next: Quiet{Policy: f.Policy, Sent: f.Sent, Muted: f.Muted}, Output: Resolved{At: c.At, Since: f.Since}}
 	case (Quiet, Calm):
-		Ignore
+		machines.Ignore
 	}
 }
 
@@ -73,9 +73,9 @@ func Drive(p Policy, signals []Signal) []Event {
 	for sig in signals {
 		let d = m.Step(s, sig)
 		match d {
-		case Emit[State, Event] as e:
+		case machines.Emit[State, Event] as e:
 			out = out.Append(e.Output)
-		case Enter[State], Stay[State], Tell[State, Event], Ignore, Reject, Done[Event]:
+		case machines.Enter[State], machines.Stay[State], machines.Tell[State, Event], machines.Ignore, machines.Reject, machines.Done[Event]:
 			out = out.Append(Nothing)
 		}
 		s = machines.Next(s, d)

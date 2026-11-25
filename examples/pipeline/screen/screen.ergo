@@ -9,6 +9,8 @@
 // rejection is state that the view shows. The step is pure: the screen
 // does not know which provider of pipeline.Pipeline answers it.
 
+import machines
+import option
 import pipeline/board
 import pipeline/pipeline
 import pipeline/pipeline/pipelineapi
@@ -57,7 +59,7 @@ type Shown {
 	Board   ui.Async[Lines, pipeline.Unavailable],
 	Version int,
 	Form    Form,
-	Picked  Option[string],
+	Picked  option.Option[string],
 	Run     ui.Async[run.Run, pipeline.NoSuchRun],
 	Notice  Notice,
 }
@@ -75,7 +77,7 @@ type Signal = Typed{Field Field, Text string} | Ask{Req Request} | Replied{Reply
 
 // Fresh is the screen before anything came: the board loading, the form
 // empty, no run picked.
-let Fresh = Showing{Shown: Shown{Board: ui.Loading, Version: 0, Form: Form{ID: "", Run: "", N: "", Why: ""}, Picked: None, Run: ui.Loading, Notice: Quiet}}
+let Fresh = Showing{Shown: Shown{Board: ui.Loading, Version: 0, Form: Form{ID: "", Run: "", N: "", Why: ""}, Picked: option.None, Run: ui.Loading, Notice: Quiet}}
 
 // ShownOf is what s holds.
 func ShownOf(s Screen) Shown {
@@ -129,31 +131,31 @@ func ask(sh Shown, r Request) Screen {
 	case pipelineapi.BoardRequest:
 		Showing{Shown: Shown{..sh, Board: ui.Loading, Version: sh.Version + 1}}
 	case pipelineapi.RunOfRequest as x:
-		Showing{Shown: Shown{..sh, Picked: Some[string]{Value: x.Id}, Run: ui.Loading, Version: sh.Version + 1}}
+		Showing{Shown: Shown{..sh, Picked: option.Some[string]{Value: x.Id}, Run: ui.Loading, Version: sh.Version + 1}}
 	}
 }
 
 // Step is the screen's transition. One command is in flight at a time:
 // an Ask while Asking is ignored.
-func Step(s Screen, e Signal) Decision[Screen, Reply] {
+func Step(s Screen, e Signal) machines.Decision[Screen, Reply] {
 	let sh = ShownOf(s)
 	match (s, e) {
 	case (_, Typed as t):
-		Stay[Screen]{Next: holding(s, Shown{..sh, Form: typed(sh.Form, t.Field, t.Text)})}
+		machines.Stay[Screen]{Next: holding(s, Shown{..sh, Form: typed(sh.Form, t.Field, t.Text)})}
 	case (Showing, Ask as a):
-		Enter[Screen]{Next: ask(sh, a.Req)}
+		machines.Enter[Screen]{Next: ask(sh, a.Req)}
 	case (Asking, Ask):
-		Ignore
+		machines.Ignore
 	case (Asking, Replied as r):
-		Enter[Screen]{Next: Showing{Shown: Shown{..sh, Notice: Said{Reply: r.Reply}, Version: sh.Version + 1}}}
+		machines.Enter[Screen]{Next: Showing{Shown: Shown{..sh, Notice: Said{Reply: r.Reply}, Version: sh.Version + 1}}}
 	case (Showing, Replied):
-		Ignore
+		machines.Ignore
 	case (_, Loaded as l):
-		Stay[Screen]{Next: holding(s, Shown{..sh, Board: ui.Ready[Lines]{Value: l.Board}})}
+		machines.Stay[Screen]{Next: holding(s, Shown{..sh, Board: ui.Ready[Lines]{Value: l.Board}})}
 	case (_, RunLoaded as l):
-		Stay[Screen]{Next: holding(s, Shown{..sh, Run: ui.Ready[run.Run]{Value: l.Run}})}
+		machines.Stay[Screen]{Next: holding(s, Shown{..sh, Run: ui.Ready[run.Run]{Value: l.Run}})}
 	case (_, RunMissing as m):
-		Stay[Screen]{Next: holding(s, Shown{..sh, Run: ui.Failed[pipeline.NoSuchRun]{Error: m.Err}})}
+		machines.Stay[Screen]{Next: holding(s, Shown{..sh, Run: ui.Failed[pipeline.NoSuchRun]{Error: m.Err}})}
 	}
 }
 

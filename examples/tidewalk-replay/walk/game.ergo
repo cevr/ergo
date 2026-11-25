@@ -1,3 +1,4 @@
+import core
 import machines
 
 // Walk is the walker's progress. Left holds one byte per cell of the level,
@@ -7,7 +8,7 @@ type Walk { At Pos, Tide int, Turn int, Shells int, Left string }
 
 law FinishedIsFinal(w Walk, m Move) { ignored(Step(Won{W: w}, m)) && ignored(Step(Drowned{W: w}, m)) }
 
-func ignored(d Decision[Game, Never]) bool {
+func ignored(d machines.Decision[Game, core.Never]) bool {
 	return Word(d) == "ignore"
 }
 
@@ -25,8 +26,8 @@ law ShellsNeverFall(g Game, m Move) { WalkOf(machines.Next(g, Step(g, m))).Shell
 func Start() Game {
 	let mut at = Pos{X: 0, Y: 0}
 	let mut left = ""
-	for y in 0..len(items) {
-		for x in 0..len(items[y]) {
+	for y in 0..items.Len() {
+		for x in 0..items[y].Len() {
 			if items[y][x] == '@' {
 				at = Pos{X: x, Y: y}
 			}
@@ -68,6 +69,6 @@ func Status(g Game) string {
 // does not hold has none: the laws run over every Walk, not only the walks
 // Start reaches (law-run-1).
 func ShellLeft(w Walk, p Pos) bool {
-	let k = p.Y*len(ground[0]) + p.X
-	return k >= 0 && k < len(w.Left) && w.Left[k] == 's'
+	let k = p.Y*ground[0].Len() + p.X
+	return k >= 0 && k < w.Left.Len() && w.Left[k] == 's'
 }

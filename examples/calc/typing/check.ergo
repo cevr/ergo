@@ -4,6 +4,7 @@
 
 import calc/ast
 import calc/eval
+import option
 
 // Mismatch is an operand In whose type is Got where Want is needed.
 type Mismatch { In string, Want ast.Type, Got ast.Type }
@@ -48,9 +49,9 @@ func In(e ast.Expr, s ast.Scope) ast.Type fails Failure {
 		ast.BoolT
 	case ast.Var as v:
 		match ast.Lookup(s, v.Name) {
-		case Some as t:
+		case option.Some as t:
 			t.Value
-		case None:
+		case option.None:
 			Unbound{Name: v.Name}
 		}
 	case ast.Neg as n:

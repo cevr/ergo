@@ -1,5 +1,7 @@
 // Package memory holds the in-memory registry of destinations.
 
+import machines
+import option
 import router/route
 import sync
 import router/script
@@ -52,10 +54,10 @@ func commands(moves []int) []script.Command {
 	let mut out = []script.Command{}
 	for m in moves {
 		let id = pick(m/5, 4) + 1
-		let topic = topics[pick(m/20, len(topics))]
+		let topic = topics[pick(m/20, topics.Len())]
 		let c = match pick(m, 5) {
 		case 0:
-			script.Send{Signal: route.Submit{Request: route.Request{ID: id, Change: route.Add{Topic: topic, Dest: dests[pick(m/60, len(dests))]}}}}
+			script.Send{Signal: route.Submit{Request: route.Request{ID: id, Change: route.Add{Topic: topic, Dest: dests[pick(m/60, dests.Len())]}}}}
 		case 1:
 			script.Send{Signal: route.Submit{Request: route.Request{ID: id, Change: route.Remove{Topic: topic}}}}
 		case 2:
@@ -71,7 +73,7 @@ func commands(moves []int) []script.Command {
 }
 
 func play(cmds []script.Command, dir Directory) []string {
-	with context { route.Registry: dir, Scheduler: time.NewManual(0) } {
+	with context { route.Registry: dir, time.Scheduler: time.NewManual(0) } {
 		script.PlayWith(cmds, memory.New[route.Router, route.Signal](), func() { Arm(dir) }, func() defects { InjectIfArmed(dir) }) catch {
 		case journal.Failed as f:
 			[]string{"? \(f.Reason)"}
@@ -84,7 +86,7 @@ func play(cmds []script.Command, dir Directory) []string {
 // the table it gives with no drop.
 law RestartRecovers(moves []int, at int) {
 	let cmds = commands(moves)
-	let k = pick(at, len(cmds)+1)
+	let k = pick(at, cmds.Len()+1)
 	let mut dropped = []script.Command{}
 	for i, c in cmds {
 		if i == k {
@@ -92,12 +94,12 @@ law RestartRecovers(moves []int, at int) {
 		}
 		dropped = dropped.Append(c)
 	}
-	if k == len(cmds) {
+	if k == cmds.Len() {
 		dropped = dropped.Append(script.Drop)
 	}
 	let want = answers(play(cmds, NewDirectory()))
 	let got = answers(play(dropped, NewDirectory()))
-	if len(want) != len(got) {
+	if want.Len() != got.Len() {
 		return false
 	}
 	for i, l in want {
@@ -135,7 +137,7 @@ func answers(lines []string) []string {
 // of that idle entry only: after the next request, the old host fails
 // Stopped, and the new lane's host gives a running courier.
 law HostSeesItsEntry(n int) {
-	with context { route.Registry: NewDirectory(), Scheduler: time.NewManual(0) } {
+	with context { route.Registry: NewDirectory(), time.Scheduler: time.NewManual(0) } {
 		let told = queue.New[route.Output](4)
 		let d = actor.StartMachine(route.Routing{}, 4, func(o route.Output) {
 			told.Push(o) catch {
@@ -146,9 +148,9 @@ law HostSeesItsEntry(n int) {
 			return false
 		}
 		let old = match route.LaneOf(d.State(), "logs") {
-		case Some[route.Lane] as l:
+		case option.Some[route.Lane] as l:
 			l.Value
-		case None:
+		case option.None:
 			return false
 		}
 		let _ = old.Courier.Get() catch {
@@ -166,9 +168,9 @@ law HostSeesItsEntry(n int) {
 			return false
 		}
 		let fresh = match route.LaneOf(d.State(), "logs") {
-		case Some[route.Lane] as l:
+		case option.Some[route.Lane] as l:
 			l.Value
-		case None:
+		case option.None:
 			return false
 		}
 		let c = fresh.Courier.Get() catch {
@@ -180,20 +182,20 @@ law HostSeesItsEntry(n int) {
 			return false
 		}
 		// The courier's message is told; a question would come first.
-		let mut carried Option[route.Delivered] = None
-		for carried == None {
+		let mut carried option.Option[route.Delivered] = option.None
+		for carried == option.None {
 			let o = told.Pop() catch {
 			case queue.Closed:
 				return false
 			}
 			match o {
 			case route.Delivered as m:
-				carried = Some[route.Delivered]{Value: m}
+				carried = option.Some[route.Delivered]{Value: m}
 			case route.Question:
 			}
 		}
 		d.Stop()
-		carried == Some[route.Delivered]{Value: route.Delivered{Topic: "logs", Dest: "disk", Body: "x"}}
+		carried == option.Some[route.Delivered]{Value: route.Delivered{Topic: "logs", Dest: "disk", Body: "x"}}
 	}
 }
 
@@ -207,7 +209,7 @@ func ended(l route.Lane) bool {
 }
 
 // Router is the router as an actor.
-type Router = actor.Actor[route.Router, route.Signal, Decision[route.Router, route.Output]]
+type Router = actor.Actor[route.Router, route.Signal, machines.Decision[route.Router, route.Output]]
 
 // applied is whether the router r applied the request id, a route of
 // logs to disk, and is idle again: a new idle entry, with new couriers.
@@ -216,14 +218,14 @@ func applied(r Router, id int) bool {
 	case actor.Stopped:
 		return false
 	}
-	let s = actor.WaitFor(r, func(s route.Router) bool { route.AnswerOf(s, id) != None && !route.Busy(s) }) catch {
+	let s = actor.WaitFor(r, func(s route.Router) bool { route.AnswerOf(s, id) != option.None && !route.Busy(s) }) catch {
 	case actor.Stopped:
 		return false
 	}
 	match route.LaneOf(s, "logs") {
-	case Some[route.Lane]:
+	case option.Some[route.Lane]:
 		true
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -268,7 +270,7 @@ test InjectIfArmedRaisesNominalFault {
 	}
 	let ok = match task.ExitOf(t) {
 	case task.Defected as x:
-		task.ReasonAs[RegistryCrashInjected](x) == Some[RegistryCrashInjected]{Value: RegistryCrashInjected{Attempt: 1}}
+		task.ReasonAs[RegistryCrashInjected](x) == option.Some[RegistryCrashInjected]{Value: RegistryCrashInjected{Attempt: 1}}
 	case _:
 		false
 	}
@@ -286,12 +288,12 @@ func Check(d Directory, t route.Table, change route.Change) route.Table fails ro
 			return route.Unknown{Why: "no destination \(a.Dest)"}
 		}
 		let after = route.Routed(t, a.Topic, a.Dest)
-		if len(after.Routes) > Room {
+		if after.Routes.Len() > Room {
 			return route.Unknown{Why: "the table holds \(Room) routes"}
 		}
 		after
 	case route.Remove as r:
-		if route.DestOf(t, r.Topic) == None {
+		if route.DestOf(t, r.Topic) == option.None {
 			return route.Unknown{Why: "no route for \(r.Topic)"}
 		}
 		route.Unrouted(t, r.Topic)

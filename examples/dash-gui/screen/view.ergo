@@ -17,7 +17,7 @@ func View(f mut ui.Frame[Signal], d Dash) {
 	ui.Animate(f, func(at duration) Signal { Next })
 	let b = d.Board
 	let mut ids = []int{}
-	for i in 0..len(b.Panels) {
+	for i in 0..b.Panels.Len() {
 		ids = ids.Append(i)
 	}
 	ui.Column(f, ui.Plain()) {
@@ -77,20 +77,20 @@ func Draw(p mut ui.Paint, s panel.State, f int) {
 	match panel.PanelOf(s).View {
 	case panel.ChartView as c:
 		let cols = panel.RingColumns(c.Samples, Width/4)
-		let mut segs = slices.WithCapacity[ui.Seg](2 * len(cols))
-		for i in 0..len(cols) {
+		let mut segs = slices.WithCapacity[ui.Seg](2 * cols.Len())
+		for i in 0..cols.Len() {
 			let x = px(i*4 + 2)
 			segs = segs.Append(ui.MoveTo{X: x, Y: y(cols[i].Lo)})
 			segs = segs.Append(ui.LineTo{X: x, Y: y(cols[i].Hi)})
 		}
-		if len(segs) > 0 {
+		if segs.Len() > 0 {
 			ui.Stroke(p, ui.Path{Segs: segs}, ink, 1.0)
 		}
 	case panel.SparkView as k:
 		let xs = panel.Items(k.Samples)
-		if len(xs) > 0 {
+		if xs.Len() > 0 {
 			let mut segs = []ui.Seg{ui.MoveTo{X: px(0), Y: y(xs[0])}}
-			for i in 1..len(xs) {
+			for i in 1..xs.Len() {
 				segs = segs.Append(ui.LineTo{X: px(i * Width / panel.SparkLen), Y: y(xs[i])})
 			}
 			ui.Stroke(p, ui.Path{Segs: segs}, ink, 1.0)
@@ -107,7 +107,7 @@ func Draw(p mut ui.Paint, s panel.State, f int) {
 			}
 		}
 		let w = Width / panel.Bins
-		for i in 0..len(bins) {
+		for i in 0..bins.Len() {
 			ui.Fill(p, ui.RectPath(px(i*w), 0.0, px(w), px(Height)), ui.Color{..ink, A: uint8(bins[i] * 255 / most)})
 		}
 	case panel.LogView as l:
@@ -117,7 +117,7 @@ func Draw(p mut ui.Paint, s panel.State, f int) {
 			ticks = ticks.Append(ui.MoveTo{X: x, Y: 0.0})
 			ticks = ticks.Append(ui.LineTo{X: x, Y: px(Height)})
 		}
-		if len(ticks) > 0 {
+		if ticks.Len() > 0 {
 			ui.Stroke(p, ui.Path{Segs: ticks}, alarm, 1.0)
 		}
 	}

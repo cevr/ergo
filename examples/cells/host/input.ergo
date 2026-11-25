@@ -6,6 +6,7 @@
 
 import actor
 import ergo.local/prototype/examples/cells/grid
+import option
 import queue
 import term
 import ui
@@ -23,12 +24,12 @@ func Feed[E comparable, S, D, F](h mut Host[S, E, D, F], k term.Key) fails ui.Cl
 		try press(h, "Enter")
 	case term.Backspace:
 		match focusedInput(h) {
-		case Some[ui.Id[E]] as id:
+		case option.Some[ui.Id[E]] as id:
 			let v = valueOf(h, id.Value)
 			if v != "" {
 				try step(h, ui.Type[E]{Id: id.Value, Text: withoutLast(v)})
 			}
-		case None:
+		case option.None:
 			try key(h, "Backspace")
 		}
 	case term.Escape:
@@ -67,16 +68,16 @@ func key[E comparable, S, D, F](h mut Host[S, E, D, F], name string) fails actor
 // press presses the focused control, or sends name to OnKey.
 func press[E comparable, S, D, F](h mut Host[S, E, D, F], name string) fails actor.Stopped | ui.BadPatch {
 	match h.focus {
-	case Some[ui.Id[E]] as f:
+	case option.Some[ui.Id[E]] as f:
 		match spotOf(h, f.Value) {
-		case Some[spot[E]] as s:
+		case option.Some[spot[E]] as s:
 			if pressable(s.Value.node) {
 				try step(h, ui.Press[E]{Id: f.Value})
 				return
 			}
-		case None:
+		case option.None:
 		}
-	case None:
+	case option.None:
 	}
 	try key(h, name)
 }
@@ -85,10 +86,10 @@ func press[E comparable, S, D, F](h mut Host[S, E, D, F], name string) fails act
 // presses the focused control and other text goes to OnKey rune by rune.
 func typed[E comparable, S, D, F](h mut Host[S, E, D, F], text string) fails actor.Stopped | ui.BadPatch {
 	match focusedInput(h) {
-	case Some[ui.Id[E]] as id:
+	case option.Some[ui.Id[E]] as id:
 		try step(h, ui.Type[E]{Id: id.Value, Text: valueOf(h, id.Value) + text})
 		return
-	case None:
+	case option.None:
 	}
 	for r in runesOf(text) {
 		if r == " " {
@@ -100,36 +101,36 @@ func typed[E comparable, S, D, F](h mut Host[S, E, D, F], text string) fails act
 }
 
 // focusedInput is the focused node when it is an Input.
-func focusedInput[S, E, D, F](h mut Host[S, E, D, F]) Option[ui.Id[E]] {
+func focusedInput[S, E, D, F](h mut Host[S, E, D, F]) option.Option[ui.Id[E]] {
 	match h.focus {
-	case Some[ui.Id[E]] as f:
+	case option.Some[ui.Id[E]] as f:
 		match h.nodes.Get(f.Value) {
-		case Some[held[E]] as n:
+		case option.Some[held[E]] as n:
 			match n.Value.node {
 			case ui.InputNode:
-				Some{Value: f.Value}
+				option.Some{Value: f.Value}
 			case _:
-				None
+				option.None
 			}
-		case None:
-			None
+		case option.None:
+			option.None
 		}
-	case None:
-		None
+	case option.None:
+		option.None
 	}
 }
 
 // valueOf is the text of the Input id.
 func valueOf[S, E, D, F](h mut Host[S, E, D, F], id ui.Id[E]) string {
 	match h.nodes.Get(id) {
-	case Some[held[E]] as n:
+	case option.Some[held[E]] as n:
 		match n.Value.node {
 		case ui.InputNode as x:
 			x.Value
 		case _:
 			""
 		}
-	case None:
+	case option.None:
 		""
 	}
 }
@@ -144,18 +145,18 @@ func moveFocus[S, E, D, F](h mut Host[S, E, D, F], back bool) {
 			order = order.Append(s.id)
 		}
 	}
-	let n = len(order)
+	let n = order.Len()
 	if n == 0 {
 		return
 	}
 	let mut at = -1
 	for i, id in order {
-		if h.focus == (Some{Value: id}) {
+		if h.focus == (option.Some{Value: id}) {
 			at = i
 		}
 	}
 	let next = if at < 0 { if back { n - 1 } else { 0 } } else if back { (at + n - 1) % n } else { (at + 1) % n }
-	h.focus = Some{Value: order[next]}
+	h.focus = option.Some{Value: order[next]}
 	reveal(h, order[next])
 	redraw(h)
 }
@@ -165,11 +166,11 @@ func moveFocus[S, E, D, F](h mut Host[S, E, D, F], back bool) {
 // a control; an Area gets the pointer's Down and Up at the cell's centre.
 func Tap[E comparable, S, D, F](h mut Host[S, E, D, F], c int, r int) fails actor.Stopped | ui.BadPatch {
 	match HitAt(h, c, r) {
-	case Some[ui.Id[E]] as id:
+	case option.Some[ui.Id[E]] as id:
 		match spotOf(h, id.Value) {
-		case Some[spot[E]] as s:
-			if focusable(s.Value.node) && h.focus != (Some{Value: id.Value}) {
-				h.focus = Some{Value: id.Value}
+		case option.Some[spot[E]] as s:
+			if focusable(s.Value.node) && h.focus != (option.Some{Value: id.Value}) {
+				h.focus = option.Some{Value: id.Value}
 				redraw(h)
 			}
 			match s.Value.node {
@@ -177,18 +178,18 @@ func Tap[E comparable, S, D, F](h mut Host[S, E, D, F], c int, r int) fails acto
 				let x = float64((float32(c)+0.5)*CellW - s.Value.box.X)
 				let y = float64((float32(r)+0.5)*CellH - s.Value.box.Y)
 				let over = zoneAt(h, s.Value, c, r)
-				try step(h, ui.Point[E]{Id: id.Value, Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: ui.Down, X: x, Y: y, Zone: None}, Over: over})
-				try step(h, ui.Point[E]{Id: id.Value, Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: ui.Up, X: x, Y: y, Zone: None}, Over: over})
+				try step(h, ui.Point[E]{Id: id.Value, Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: ui.Down, X: x, Y: y, Zone: option.None}, Over: over})
+				try step(h, ui.Point[E]{Id: id.Value, Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: ui.Up, X: x, Y: y, Zone: option.None}, Over: over})
 			case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.PressableNode[E], ui.CheckNode[E], ui.InputNode, ui.ToggleNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.SemanticNode[E], ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
 				if pressable(s.Value.node) {
 					try step(h, ui.Press[E]{Id: id.Value})
 				}
 			}
-		case None:
+		case option.None:
 		}
-	case None:
-		if h.focus != None {
-			h.focus = None
+	case option.None:
+		if h.focus != option.None {
+			h.focus = option.None
 			redraw(h)
 		}
 	}
@@ -198,7 +199,7 @@ func Tap[E comparable, S, D, F](h mut Host[S, E, D, F], c int, r int) fails acto
 // box (H5g): the topmost zone below the Area whose box holds the point,
 // and that box in the Area's box; None when no zone does. The composer
 // turns it into the event's ZoneHit.
-func zoneOver[S, E, D, F](h mut Host[S, E, D, F], area spot[E], x float64, y float64) Option[ui.ZoneBox[E]] {
+func zoneOver[S, E, D, F](h mut Host[S, E, D, F], area spot[E], x float64, y float64) option.Option[ui.ZoneBox[E]] {
 	let px = area.box.X + float32(x)
 	let py = area.box.Y + float32(y)
 	topZone(h, area, func(b layout.Box) bool { px >= b.X && px < b.X+b.W && py >= b.Y && py < b.Y+b.H })
@@ -206,20 +207,20 @@ func zoneOver[S, E, D, F](h mut Host[S, E, D, F], area spot[E], x float64, y flo
 
 // zoneAt is zoneOver for a tap at column c, row r: a zone holds the cell
 // when it is drawn there, by the rounding rule (Span), as HitAt is.
-func zoneAt[S, E, D, F](h mut Host[S, E, D, F], area spot[E], c int, r int) Option[ui.ZoneBox[E]] {
+func zoneAt[S, E, D, F](h mut Host[S, E, D, F], area spot[E], c int, r int) option.Option[ui.ZoneBox[E]] {
 	topZone(h, area, func(b layout.Box) bool { holds(Span(b), c, r) })
 }
 
 // topZone is the last zone below area, in paint order, whose box hit
 // holds, with that box in the Area's box.
-func topZone[S, E, D, F](h mut Host[S, E, D, F], area spot[E], hit func(b layout.Box) bool) Option[ui.ZoneBox[E]] {
-	let mut over Option[ui.ZoneBox[E]] = None
+func topZone[S, E, D, F](h mut Host[S, E, D, F], area spot[E], hit func(b layout.Box) bool) option.Option[ui.ZoneBox[E]] {
+	let mut over option.Option[ui.ZoneBox[E]] = option.None
 	for z in h.spots {
 		match z.node {
 		case ui.ZoneNode:
 			let b = z.box
 			if under(h, area.id, z.id) && hit(b) {
-				over = Some{Value: ui.ZoneBox[E]{Id: z.id, Box: ui.Rect{X: points(b.X - area.box.X), Y: points(b.Y - area.box.Y), W: points(b.W), H: points(b.H)}}}
+				over = option.Some{Value: ui.ZoneBox[E]{Id: z.id, Box: ui.Rect{X: points(b.X - area.box.X), Y: points(b.Y - area.box.Y), W: points(b.W), H: points(b.H)}}}
 			}
 		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.PressableNode[E], ui.CheckNode[E], ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.LiveNode, ui.TransitionNode, ui.SemanticNode[E], ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
 		}
@@ -237,7 +238,7 @@ func reveal[S, E, D, F](h mut Host[S, E, D, F], id ui.Id[E]) {
 		case ui.ScrollNode, ui.RowsNode:
 			if sc.id != id && under(h, sc.id, id) {
 				match h.drawn.Get(id) {
-				case Some[drawnAt] as d:
+				case option.Some[drawnAt] as d:
 					let box = Span(sc.box)
 					let top = d.Value.at.R
 					let mut by = 0
@@ -248,9 +249,9 @@ func reveal[S, E, D, F](h mut Host[S, E, D, F], id ui.Id[E]) {
 					}
 					if by != 0 {
 						let most = match h.extents.Get(sc.id) {
-						case Some[int] as e:
+						case option.Some[int] as e:
 							if e.Value > box.H { e.Value - box.H } else { 0 }
-						case None:
+						case option.None:
 							0
 						}
 						let mut next = scrolledBy(h, sc.id) + by
@@ -263,7 +264,7 @@ func reveal[S, E, D, F](h mut Host[S, E, D, F], id ui.Id[E]) {
 						h.scrolled[sc.id] = next
 						redraw(h)
 					}
-				case None:
+				case option.None:
 				}
 			}
 		case _:
@@ -285,9 +286,9 @@ func under[S, E, D, F](h mut Host[S, E, D, F], top ui.Id[E], id ui.Id[E]) bool {
 func Pump[E comparable, S, D, F](h mut Host[S, E, D, F]) fails actor.Stopped | ui.BadPatch {
 	for {
 		match h.posted.Poll() {
-		case Some[ui.Event[E]] as ev:
+		case option.Some[ui.Event[E]] as ev:
 			try step(h, ev.Value)
-		case None:
+		case option.None:
 			return
 		}
 	}
@@ -313,7 +314,7 @@ func withoutLast(s string) string {
 	let rs = runesOf(s)
 	let mut out = ""
 	for i, r in rs {
-		if i < len(rs)-1 {
+		if i < rs.Len()-1 {
 			out = out + r
 		}
 	}

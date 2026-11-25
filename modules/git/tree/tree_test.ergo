@@ -2,6 +2,7 @@ import exec
 import filepath
 import fs
 import fstest
+import option
 import os
 import slices
 import strconv
@@ -18,7 +19,7 @@ func openRepoDiskODB(fmt oid.Format, objectsDir string, host fs.Host) pack.DiskO
 	pack.NewDiskODB(odb, host)
 }
 
-let onOracleSha1 = context fails pack.Corrupt | pack.MismatchedPair | pack.IOFailed needs TestAmbient {
+let onOracleSha1 = context fails pack.Corrupt | pack.MismatchedPair | pack.IOFailed needs fstest.TestAmbient {
 	exec.Runner:      exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
 	fs.Files:         fs.NewTestHost(),
 	fs.Writes:        fs.NewTestHost(),
@@ -27,7 +28,7 @@ let onOracleSha1 = context fails pack.Corrupt | pack.MismatchedPair | pack.IOFai
 	pack.ObjectStore: try openRepoDiskODB(oid.Sha1, filepath.Join([]string{fstest.TestFolder(), "repo", ".git", "objects"}), fs.NewTestHost()),
 }
 
-let onOracleSha256 = context fails pack.Corrupt | pack.MismatchedPair | pack.IOFailed needs TestAmbient {
+let onOracleSha256 = context fails pack.Corrupt | pack.MismatchedPair | pack.IOFailed needs fstest.TestAmbient {
 	exec.Runner:      exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
 	fs.Files:         fs.NewTestHost(),
 	fs.Writes:        fs.NewTestHost(),
@@ -44,7 +45,7 @@ let onMemoryWalkerSha256 = context {
 	TreeWalker: NewMemoryWalker(oid.Sha256),
 }
 
-let onDiskWalkerSha1 = context needs TestAmbient {
+let onDiskWalkerSha1 = context needs fstest.TestAmbient {
 	TreeWalker: NewStoreWalker(oid.Sha1, filepath.Join([]string{fstest.TestFolder(), "law-disk-tree-odb"}), []string{}, fs.NewTestHost()),
 }
 
@@ -79,10 +80,10 @@ law EncodeParseTreeRoundTrips(seed string) {
 	case CorruptTree, InvalidEntryName, UnsortedTree, DuplicateEntry:
 		return false
 	}
-	if len(parsed) != len(input) {
+	if parsed.Len() != input.Len() {
 		return false
 	}
-	for i in 1..len(parsed) {
+	for i in 1..parsed.Len() {
 		if CompareEntryNames(parsed[i-1].Name, IsTree(parsed[i-1].Mode), parsed[i].Name, IsTree(parsed[i].Mode)) >= 0 {
 			return false
 		}
@@ -123,7 +124,7 @@ func parseLsTreeLongZ(raw string) []lsTreeRow fails testFail {
 			return testFail{reason: "missing tab in ls-tree -l -z record: " + rec}
 		}
 		let meta = strings.Fields(rec[:tabIdx])
-		if len(meta) != 4 {
+		if meta.Len() != 4 {
 			return testFail{reason: "expected 4 metadata fields in ls-tree -l -z: " + rec[:tabIdx]}
 		}
 		rows = rows.Append(lsTreeRow{
@@ -141,10 +142,10 @@ func verifyWalkMatchesLsTree(repoDir string, fmt oid.Format, treeOid oid.OID, pa
 	let lsOut = try runGitOk(repoDir, []string{"ls-tree", "-r", "-l", "-z", "--full-tree", oid.Hex(treeOid)}, "", pathEnv, step)
 	let wantRows = try parseLsTreeLongZ(lsOut)
 	let got = try WalkTreeWithSizes(fmt, treeOid, 64, 16777216)
-	if len(got) != len(wantRows) {
-		return testFail{reason: "walk entry count mismatch: got \(len(got)), want \(len(wantRows))"}
+	if got.Len() != wantRows.Len() {
+		return testFail{reason: "walk entry count mismatch: got \(got.Len()), want \(wantRows.Len())"}
 	}
-	for i in 0..len(got) {
+	for i in 0..got.Len() {
 		let g = got[i]
 		let w = wantRows[i]
 		if g.Path != w.path {
@@ -160,9 +161,9 @@ func verifyWalkMatchesLsTree(repoDir string, fmt oid.Format, treeOid oid.OID, pa
 			return testFail{reason: "OID mismatch at \(g.Path)"}
 		}
 		let gotSizeStr = match g.Size {
-		case None:
+		case option.None:
 			"-"
-		case Some[int] as sz:
+		case option.Some[int] as sz:
 			strconv.Itoa(sz.Value)
 		}
 		if gotSizeStr != w.size {
@@ -170,9 +171,9 @@ func verifyWalkMatchesLsTree(repoDir string, fmt oid.Format, treeOid oid.OID, pa
 		}
 		let looked = try LookupPath(fmt, treeOid, g.Path, 16777216)
 		match looked {
-		case None:
+		case option.None:
 			return testFail{reason: "LookupPath missed \(g.Path)"}
-		case Some[Entry] as e:
+		case option.Some[Entry] as e:
 			if !oid.Equal(e.Value.OID, g.OID) || ModeOctal(e.Value.Mode) != ModeOctal(g.Mode) {
 				return testFail{reason: "LookupPath entry mismatch for \(g.Path)"}
 			}
@@ -236,7 +237,7 @@ func verifyFormatRepo(cwd string, oFmt oracle.OidFormat, fmt oid.Format, pathEnv
 	try verifyWalkMatchesLsTree(repoDir, fmt, mergeTreeOid, pathEnv, 27)
 
 	let (_, rootC) = try PeelToCommit(fmt, rootCommitOid, 8, 1048576)
-	if len(rootC.Parents) != 0 {
+	if rootC.Parents.Len() != 0 {
 		return testFail{reason: "root commit should have 0 parents"}
 	}
 	if !strings.Contains(rootC.Message, "with body paragraph") {
@@ -247,8 +248,8 @@ func verifyFormatRepo(cwd string, oFmt oracle.OidFormat, fmt oid.Format, pathEnv
 	if !oid.Equal(peeledCommitOid, mergeOid) {
 		return testFail{reason: "PeelToCommit from nested tag2 did not reach merge commit"}
 	}
-	if len(mergeC.Parents) != 3 {
-		return testFail{reason: "octopus merge expected 3 parents, got \(len(mergeC.Parents))"}
+	if mergeC.Parents.Len() != 3 {
+		return testFail{reason: "octopus merge expected 3 parents, got \(mergeC.Parents.Len())"}
 	}
 	if oid.Hex(mergeC.Parents[0]) != mainHex || oid.Hex(mergeC.Parents[1]) != b1Hex || oid.Hex(mergeC.Parents[2]) != b2Hex {
 		return testFail{reason: "octopus merge parent OIDs mismatch"}
@@ -272,7 +273,7 @@ func verifyFormatRepo(cwd string, oFmt oracle.OidFormat, fmt oid.Format, pathEnv
 	if parsedTag2.Name != "v2" || oid.KindName(parsedTag2.TargetKind) != "tag" || oid.Hex(parsedTag2.Target) != tag1Hex {
 		return testFail{reason: "parsed nested tag2 mismatch"}
 	}
-	if parsedTag2.Tagger == None {
+	if parsedTag2.Tagger == option.None {
 		return testFail{reason: "expected tagger on annotated tag2"}
 	}
 
@@ -394,7 +395,7 @@ test RejectsCorruptTreesCommitsAndTags {
 
 	let tagWithoutTagger = "object " + oid.Hex(sampleId) + "\ntype commit\ntag v0\n\nminimal tag\n"
 	let parsedMinimalTag = try ParseTag(oid.Sha1, tagWithoutTagger.Bytes())
-	assert parsedMinimalTag.Name == "v0" && parsedMinimalTag.Tagger == None
+	assert parsedMinimalTag.Name == "v0" && parsedMinimalTag.Tagger == option.None
 
 	let mut sawBadCommit = false
 	let _ = ParseCommit(oid.Sha1, "author Alice <a@b> 1 +0000\n\nno tree".Bytes()) catch {

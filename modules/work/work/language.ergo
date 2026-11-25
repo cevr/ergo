@@ -9,6 +9,7 @@
 // them against a plugin on the repository's own files.
 
 import maps
+import option
 import slices
 import strings
 
@@ -23,7 +24,7 @@ type Edit { At int, Cut int, Insert string }
 
 // FileEdit is one file of a layer: its text, or None when the layer
 // removes it.
-type FileEdit { Path string, Text Option[string] }
+type FileEdit { Path string, Text option.Option[string] }
 
 // Snapshot is a tree a level-2 provider reads: the files under Root, with
 // Layer over them (a file of the layer wins, a None removes it). Root ""
@@ -119,7 +120,7 @@ type Indexer {
 		case NotProvided, Unanswered:
 			return true
 		}
-		len(changes) == 0
+		changes.Len() == 0
 	},
 
 	// CommentEditIsNoChange: a comment added at the end of a file changes
@@ -135,7 +136,7 @@ type Indexer {
 		case NotProvided, Unanswered:
 			return true
 		}
-		len(changes) == 0 && KindsKnown(try Changes(Snapshot{Root: "", Layer: []FileEdit{}}, s))
+		changes.Len() == 0 && KindsKnown(try Changes(Snapshot{Root: "", Layer: []FileEdit{}}, s))
 	},
 
 	// SitesAreInTheSnapshot: every use is in a file of the snapshot, at a
@@ -176,7 +177,7 @@ type Checker {
 		}
 		let mut same = []FileEdit{}
 		for path, text in LayerFiles(files) {
-			same = same.Append(FileEdit{Path: path, Text: Some[string]{Value: text}})
+			same = same.Append(FileEdit{Path: path, Text: option.Some[string]{Value: text}})
 		}
 		alone == try Check(base, same)
 	},
@@ -196,7 +197,7 @@ func JoinsToTheFile(text string, units []Unit) bool {
 func KeysUnique(units []Unit) bool {
 	let mut seen = Map[string, bool]{}
 	for u in units {
-		if seen.Get(u.Key) != None {
+		if seen.Get(u.Key) != option.None {
 			return false
 		}
 		seen[u.Key] = true
@@ -206,8 +207,8 @@ func KeysUnique(units []Unit) bool {
 
 // Apply is text with e made (At and Cut brought inside the text).
 func Apply(text string, e Edit) string {
-	let at = clampTo(e.At, len(text))
-	let cut = clampTo(e.Cut, len(text)-at)
+	let at = clampTo(e.At, text.Len())
+	let cut = clampTo(e.Cut, text.Len()-at)
 	text[0:at] + e.Insert + text[at+cut:]
 }
 
@@ -218,12 +219,12 @@ func Inside(units []Unit, e Edit) int {
 	let mut start = 0
 	let mut total = 0
 	for u in units {
-		total = total + len(u.Text)
+		total = total + u.Text.Len()
 	}
 	let at = clampTo(e.At, total)
 	let cut = clampTo(e.Cut, total-at)
 	for i, u in units {
-		let end = start + len(u.Text)
+		let end = start + u.Text.Len()
 		if at > start && at+cut < end {
 			return i
 		}
@@ -236,7 +237,7 @@ func Inside(units []Unit, e Edit) int {
 // differs from it only at index i, or has another count (the edit made or
 // joined units, which the law does not judge).
 func StaysInItsUnit(before []Unit, after []Unit, i int) bool {
-	if len(before) != len(after) {
+	if before.Len() != after.Len() {
 		return true
 	}
 	for k, u in before {
@@ -253,9 +254,9 @@ func LayerFiles(layer []FileEdit) Map[string, string] {
 	let mut out = Map[string, string]{}
 	for f in layer {
 		match f.Text {
-		case Some[string] as t:
+		case option.Some[string] as t:
 			out[f.Path] = t.Value
-		case None:
+		case option.None:
 			out = out.Delete(f.Path)
 		}
 	}
@@ -268,13 +269,13 @@ func LayerFiles(layer []FileEdit) Map[string, string] {
 func Commented(s Snapshot, at int, line string) Snapshot {
 	let files = LayerFiles(s.Layer)
 	let paths = slices.Sorted(maps.Keys(files))
-	if len(paths) == 0 {
+	if paths.Len() == 0 {
 		return s
 	}
-	let path = paths[clampTo(((at%len(paths))+len(paths))%len(paths), len(paths)-1)]
+	let path = paths[clampTo(((at%paths.Len())+paths.Len())%paths.Len(), paths.Len()-1)]
 	let text = maps.GetOr(files, path, "")
 	let joined = if text == "" || strings.HasSuffix(text, "\n") { text + line } else { text + "\n" + line }
-	Snapshot{Root: s.Root, Layer: s.Layer.Append(FileEdit{Path: path, Text: Some[string]{Value: joined}})}
+	Snapshot{Root: s.Root, Layer: s.Layer.Append(FileEdit{Path: path, Text: option.Some[string]{Value: joined}})}
 }
 
 // KindsKnown reports whether every change has a kind of ChangeKinds.
@@ -292,13 +293,13 @@ func KindsKnown(changes []Change) bool {
 func SitesIn(files Map[string, string], sites []Site) bool {
 	for s in sites {
 		let text = match files.Get(s.File) {
-		case Some[string] as t:
+		case option.Some[string] as t:
 			t.Value
-		case None:
+		case option.None:
 			return false
 		}
 		let lines = strings.Split(text, "\n")
-		if s.Line < 1 || s.Line > len(lines) || s.Column < 1 || s.Column > len(lines[s.Line-1])+1 {
+		if s.Line < 1 || s.Line > lines.Len() || s.Column < 1 || s.Column > lines[s.Line-1].Len()+1 {
 			return false
 		}
 	}

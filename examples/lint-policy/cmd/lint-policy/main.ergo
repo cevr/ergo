@@ -15,7 +15,7 @@ import os
 
 let usage = "usage: lint-policy [manifest]"
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stdin: io.NewStdin() } {
 		try run(os.Process.Args())
 	}
@@ -23,11 +23,11 @@ func main() fails os.Exit needs Ambient {
 
 // run serves the pack, or prints its manifest when args ask for it.
 func run(args []string) fails os.Exit needs io.Stdin | io.Stdout {
-	if len(args) == 1 && args[0] == "manifest" {
+	if args.Len() == 1 && args[0] == "manifest" {
 		io.Stdout.Println(lint.Manifest(policy.Pack, "bin/lint-policy"))
 		return
 	}
-	if len(args) != 0 {
+	if args.Len() != 0 {
 		return os.Exit{Code: 2, Message: usage}
 	}
 	lint.Serve(policy.Pack) catch {

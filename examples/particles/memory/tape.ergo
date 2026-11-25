@@ -14,7 +14,7 @@ func Show(t Tape, f sim.Frame) {
 }
 
 // Shown is the number of frames t has shown.
-func Shown(t Tape) int { len(t.frames.Get()) }
+func Shown(t Tape) int { t.frames.Get().Len() }
 
 // Frames is the frames of t, in the order they were shown.
 func Frames(t Tape) []sim.Frame { t.frames.Get() }

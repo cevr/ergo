@@ -61,7 +61,7 @@ func newline(b mut strings.Builder, depth int) {
 func indent(b mut strings.Builder, t Tree, id dense.ID[Node], depth int) {
 	match ViewOf(t, id) {
 	case Array as a:
-		if len(a.Items) == 0 {
+		if a.Items.Len() == 0 {
 			b.WriteString("[]")
 			return
 		}
@@ -76,7 +76,7 @@ func indent(b mut strings.Builder, t Tree, id dense.ID[Node], depth int) {
 		newline(b, depth)
 		b.WriteByte(']')
 	case Object as o:
-		if len(o.Members) == 0 {
+		if o.Members.Len() == 0 {
 			b.WriteString("{}")
 			return
 		}

@@ -1,5 +1,7 @@
+import core
 import explore
 import github.com/cevr/ergo/modules/orchestrate/orchestrate
+import option
 import sync
 import testing
 
@@ -53,7 +55,7 @@ func omEnvelope(cmd omCmd, step int) orchestrate.Envelope {
 			ID:      orchestrate.CommandID("paths-ask-\(step)"),
 			Actor:   "coord",
 			At:      ts,
-			Command: orchestrate.AskQuestion{ID: None, Prompt: "ship \(step)?", Assumption: "yes", ConcreteAction: "reply yes"},
+			Command: orchestrate.AskQuestion{ID: option.None, Prompt: "ship \(step)?", Assumption: "yes", ConcreteAction: "reply yes"},
 		}
 	}
 }
@@ -74,12 +76,12 @@ func omApplyModel(st orchestrate.State, seq int, cmd omCmd, step int) (orchestra
 	case orchestrate.InvalidInput:
 		return (st, seq, omRefused{Kind: "invalid_input"})
 	}
-	if len(evts) == 0 {
+	if evts.Len() == 0 {
 		return (st, seq, omExecuted{Seq: seq, Duplicate: true, EvCount: 0})
 	}
 	let nextSt = orchestrate.ApplyAll(st, evts)
-	let nextSeq = seq + len(evts)
-	(nextSt, nextSeq, omExecuted{Seq: nextSeq, Duplicate: false, EvCount: len(evts)})
+	let nextSeq = seq + evts.Len()
+	(nextSt, nextSeq, omExecuted{Seq: nextSeq, Duplicate: false, EvCount: evts.Len()})
 }
 
 func omFold(ops []omCmd) (orchestrate.State, int) {
@@ -96,20 +98,20 @@ func omFold(ops []omCmd) (orchestrate.State, int) {
 func omObsOf(st orchestrate.State, seq int) omObs {
 	omObs{
 		Seq:           seq,
-		UnitCount:     len(orchestrate.ListUnits(st, None)),
-		ClaimedCount:  len(orchestrate.ListUnits(st, Some[orchestrate.UnitStatus]{Value: orchestrate.UnitClaimed})),
-		OpenQuestions: len(orchestrate.ListQuestions(st, true)),
+		UnitCount:     orchestrate.ListUnits(st, option.None).Len(),
+		ClaimedCount:  orchestrate.ListUnits(st, option.Some[orchestrate.UnitStatus]{Value: orchestrate.UnitClaimed}).Len(),
+		OpenQuestions: orchestrate.ListQuestions(st, true).Len(),
 	}
 }
 
-func omModel() explore.PathModel[omState, omCmd, omObs, omReply, Never] {
-	explore.PathModel[omState, omCmd, omObs, omReply, Never]{
-		Graph: explore.ConcreteGraph[omState, omCmd, explore.StepObs[omObs, omReply, Never]]{
+func omModel() explore.PathModel[omState, omCmd, omObs, omReply, core.Never] {
+	explore.PathModel[omState, omCmd, omObs, omReply, core.Never]{
+		Graph: explore.ConcreteGraph[omState, omCmd, explore.StepObs[omObs, omReply, core.Never]]{
 			Starts:  []omState{omState{Ops: []omCmd{}}},
 			Signals: []omCmd{omOpenUnit, omReuseConflict, omClaimUnit, omAskQuestion},
-			Step:    func(s omState, cmd omCmd) explore.EdgeOutcome[omState, explore.StepObs[omObs, omReply, Never]] {
+			Step:    func(s omState, cmd omCmd) explore.EdgeOutcome[omState, explore.StepObs[omObs, omReply, core.Never]] {
 				let (curSt, curSeq) = omFold(s.Ops)
-				let step = len(s.Ops) + 1
+				let step = s.Ops.Len() + 1
 				let (nextSt, nextSeq, reply) = omApplyModel(curSt, curSeq, cmd, step)
 				let nextOps = match reply {
 				case omExecuted as ex:
@@ -123,13 +125,13 @@ func omModel() explore.PathModel[omState, omCmd, omObs, omReply, Never] {
 				case omRefused:
 					explore.DisReject
 				}
-				explore.Continue[omState, explore.StepObs[omObs, omReply, Never]]{
+				explore.Continue[omState, explore.StepObs[omObs, omReply, core.Never]]{
 					Next: omState{Ops: nextOps},
-					Obs:  explore.StepObs[omObs, omReply, Never]{
+					Obs:  explore.StepObs[omObs, omReply, core.Never]{
 						Kind:     kind,
-						State:    Some[omObs]{Value: omObsOf(nextSt, nextSeq)},
+						State:    option.Some[omObs]{Value: omObsOf(nextSt, nextSeq)},
 						Outputs:  []omReply{reply},
-						Error:    None,
+						Error:    option.None,
 						Terminal: false,
 					},
 				}
@@ -139,7 +141,7 @@ func omModel() explore.PathModel[omState, omCmd, omObs, omReply, Never] {
 			let (st, seq) = omFold(s.Ops)
 			omObsOf(st, seq)
 		},
-		ProjectionName: Some[string]{Value: "orchestrate-memory-store"},
+		ProjectionName: option.Some[string]{Value: "orchestrate-memory-store"},
 	}
 }
 
@@ -148,7 +150,7 @@ type omSess {
 	step   sync.Ref[int],
 	closes sync.Ref[int],
 	closed sync.Ref[bool],
-} implements explore.PathSession[omCmd, explore.Observed[omObs, omReply, Never], OrchMemDriveErr]
+} implements explore.PathSession[omCmd, explore.Observed[omObs, omReply, core.Never], OrchMemDriveErr]
 
 func omObserveLive(st Store) omObs fails OrchMemDriveErr {
 	let evts = Events(st, 0) catch {
@@ -160,13 +162,13 @@ func omObserveLive(st Store) omObs fails OrchMemDriveErr {
 			return OrchMemDriveErr{Why: "non-dense event sequence"}
 		}
 	}
-	if len(evts) > 0 {
+	if evts.Len() > 0 {
 		let tail = Events(st, 1) catch {
 		case orchestrate.StoreFailed as e:
 			return OrchMemDriveErr{Why: e.Reason}
 		}
-		if len(tail) != len(evts)-1 {
-			return OrchMemDriveErr{Why: "Events(1) returned \(len(tail)) items for \(len(evts)) total"}
+		if tail.Len() != evts.Len()-1 {
+			return OrchMemDriveErr{Why: "Events(1) returned \(tail.Len()) items for \(evts.Len()) total"}
 		}
 		for item in tail {
 			if item.Seq <= 1 {
@@ -181,11 +183,11 @@ func omObserveLive(st Store) omObs fails OrchMemDriveErr {
 	if orchestrate.Fold(orchestrate.EventList(evts)) != snap {
 		return OrchMemDriveErr{Why: "fold mismatch with snapshot"}
 	}
-	let units = ListUnits(st, None) catch {
+	let units = ListUnits(st, option.None) catch {
 	case orchestrate.StoreFailed as e:
 		return OrchMemDriveErr{Why: e.Reason}
 	}
-	let claimed = ListUnits(st, Some[orchestrate.UnitStatus]{Value: orchestrate.UnitClaimed}) catch {
+	let claimed = ListUnits(st, option.Some[orchestrate.UnitStatus]{Value: orchestrate.UnitClaimed}) catch {
 	case orchestrate.StoreFailed as e:
 		return OrchMemDriveErr{Why: e.Reason}
 	}
@@ -194,74 +196,74 @@ func omObserveLive(st Store) omObs fails OrchMemDriveErr {
 		return OrchMemDriveErr{Why: e.Reason}
 	}
 	omObs{
-		Seq:           len(evts),
-		UnitCount:     len(units),
-		ClaimedCount:  len(claimed),
-		OpenQuestions: len(openQs),
+		Seq:           evts.Len(),
+		UnitCount:     units.Len(),
+		ClaimedCount:  claimed.Len(),
+		OpenQuestions: openQs.Len(),
 	}
 }
 
-func Read(s omSess) explore.Observed[omObs, omReply, Never] fails OrchMemDriveErr {
+func Read(s omSess) explore.Observed[omObs, omReply, core.Never] fails OrchMemDriveErr {
 	explore.InitialRead[omObs]{State: try omObserveLive(s.store)}
 }
 
-func Apply(s omSess, cmd omCmd) explore.Observed[omObs, omReply, Never] fails OrchMemDriveErr {
+func Apply(s omSess, cmd omCmd) explore.Observed[omObs, omReply, core.Never] fails OrchMemDriveErr {
 	let n = s.step.Get() + 1
 	s.step.Set(n)
 	let env = omEnvelope(cmd, n)
 	let res = Execute(s.store, env) catch {
 	case orchestrate.NotFound:
 		let obs = try omObserveLive(s.store)
-		return explore.StepResult[omObs, omReply, Never]{Step: explore.StepObs[omObs, omReply, Never]{
+		return explore.StepResult[omObs, omReply, core.Never]{Step: explore.StepObs[omObs, omReply, core.Never]{
 			Kind:     explore.DisReject,
-			State:    Some[omObs]{Value: obs},
+			State:    option.Some[omObs]{Value: obs},
 			Outputs:  []omReply{omRefused{Kind: "not_found"}},
-			Error:    None,
+			Error:    option.None,
 			Terminal: false,
 		}}
 	case orchestrate.AlreadyExists:
 		let obs = try omObserveLive(s.store)
-		return explore.StepResult[omObs, omReply, Never]{Step: explore.StepObs[omObs, omReply, Never]{
+		return explore.StepResult[omObs, omReply, core.Never]{Step: explore.StepObs[omObs, omReply, core.Never]{
 			Kind:     explore.DisReject,
-			State:    Some[omObs]{Value: obs},
+			State:    option.Some[omObs]{Value: obs},
 			Outputs:  []omReply{omRefused{Kind: "already_exists"}},
-			Error:    None,
+			Error:    option.None,
 			Terminal: false,
 		}}
 	case orchestrate.InvalidTransition:
 		let obs = try omObserveLive(s.store)
-		return explore.StepResult[omObs, omReply, Never]{Step: explore.StepObs[omObs, omReply, Never]{
+		return explore.StepResult[omObs, omReply, core.Never]{Step: explore.StepObs[omObs, omReply, core.Never]{
 			Kind:     explore.DisReject,
-			State:    Some[omObs]{Value: obs},
+			State:    option.Some[omObs]{Value: obs},
 			Outputs:  []omReply{omRefused{Kind: "invalid_transition"}},
-			Error:    None,
+			Error:    option.None,
 			Terminal: false,
 		}}
 	case orchestrate.StaleClaim:
 		let obs = try omObserveLive(s.store)
-		return explore.StepResult[omObs, omReply, Never]{Step: explore.StepObs[omObs, omReply, Never]{
+		return explore.StepResult[omObs, omReply, core.Never]{Step: explore.StepObs[omObs, omReply, core.Never]{
 			Kind:     explore.DisReject,
-			State:    Some[omObs]{Value: obs},
+			State:    option.Some[omObs]{Value: obs},
 			Outputs:  []omReply{omRefused{Kind: "stale_claim"}},
-			Error:    None,
+			Error:    option.None,
 			Terminal: false,
 		}}
 	case orchestrate.CommandReused:
 		let obs = try omObserveLive(s.store)
-		return explore.StepResult[omObs, omReply, Never]{Step: explore.StepObs[omObs, omReply, Never]{
+		return explore.StepResult[omObs, omReply, core.Never]{Step: explore.StepObs[omObs, omReply, core.Never]{
 			Kind:     explore.DisReject,
-			State:    Some[omObs]{Value: obs},
+			State:    option.Some[omObs]{Value: obs},
 			Outputs:  []omReply{omRefused{Kind: "command_reused"}},
-			Error:    None,
+			Error:    option.None,
 			Terminal: false,
 		}}
 	case orchestrate.InvalidInput:
 		let obs = try omObserveLive(s.store)
-		return explore.StepResult[omObs, omReply, Never]{Step: explore.StepObs[omObs, omReply, Never]{
+		return explore.StepResult[omObs, omReply, core.Never]{Step: explore.StepObs[omObs, omReply, core.Never]{
 			Kind:     explore.DisReject,
-			State:    Some[omObs]{Value: obs},
+			State:    option.Some[omObs]{Value: obs},
 			Outputs:  []omReply{omRefused{Kind: "invalid_input"}},
-			Error:    None,
+			Error:    option.None,
 			Terminal: false,
 		}}
 	case orchestrate.StoreFailed as e:
@@ -269,11 +271,11 @@ func Apply(s omSess, cmd omCmd) explore.Observed[omObs, omReply, Never] fails Or
 	}
 	let obs = try omObserveLive(s.store)
 	let kind = if res.Duplicate { explore.DisIgnore } else { explore.DisEmit }
-	explore.StepResult[omObs, omReply, Never]{Step: explore.StepObs[omObs, omReply, Never]{
+	explore.StepResult[omObs, omReply, core.Never]{Step: explore.StepObs[omObs, omReply, core.Never]{
 		Kind:     kind,
-		State:    Some[omObs]{Value: obs},
-		Outputs:  []omReply{omExecuted{Seq: res.Seq, Duplicate: res.Duplicate, EvCount: len(res.Events)}},
-		Error:    None,
+		State:    option.Some[omObs]{Value: obs},
+		Outputs:  []omReply{omExecuted{Seq: res.Seq, Duplicate: res.Duplicate, EvCount: res.Events.Len()}},
+		Error:    option.None,
 		Terminal: false,
 	}}
 }
@@ -288,7 +290,7 @@ func Close(s omSess) {
 
 // OrchMemoryPaths is the model-based path-testing contract for memory.Store.
 type OrchMemoryPaths {
-	Open(start omState) explore.PathSession[omCmd, explore.Observed[omObs, omReply, Never], OrchMemDriveErr] fails OrchMemOpenErr,
+	Open(start omState) explore.PathSession[omCmd, explore.Observed[omObs, omReply, core.Never], OrchMemDriveErr] fails OrchMemOpenErr,
 	Counts() (int, int),
 
 	// PathsAgree checks every bounded orchestrate memory store path up to depth 3
@@ -306,7 +308,7 @@ type OrchMemoryPaths {
 				MaxWork:   65536,
 				MaxBytes:  262144,
 			},
-			func(start omState) explore.PathSession[omCmd, explore.Observed[omObs, omReply, Never], OrchMemDriveErr] fails OrchMemOpenErr {
+			func(start omState) explore.PathSession[omCmd, explore.Observed[omObs, omReply, core.Never], OrchMemDriveErr] fails OrchMemOpenErr {
 				try Open(start)
 			},
 			testing.ActiveEvidenceSink(),
@@ -334,7 +336,7 @@ func makeOrchMemPathProvider() omPathProvider {
 	omPathProvider{opens: sync.NewRef(0), closes: sync.NewRef(0)}
 }
 
-func Open(p omPathProvider, _ omState) explore.PathSession[omCmd, explore.Observed[omObs, omReply, Never], OrchMemDriveErr] fails OrchMemOpenErr {
+func Open(p omPathProvider, _ omState) explore.PathSession[omCmd, explore.Observed[omObs, omReply, core.Never], OrchMemDriveErr] fails OrchMemOpenErr {
 	p.opens.Set(p.opens.Get() + 1)
 	omSess{
 		store:  New(),

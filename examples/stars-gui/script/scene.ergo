@@ -13,17 +13,19 @@
 // (stars-gui-gaps.md), so the scene, standing in for the host, does it.
 
 import actor
+import core
 import io
 import machines
 import ergo.local/prototype/examples/starsgui/catalog
 import ergo.local/prototype/examples/starsgui/screen
+import option
 import strings
 import sync
 import time
 import ui
 
 // Scene opens the window on rows, height rows high, and plays lines.
-func Scene(rows []catalog.Star, height int, lines Seq[string], clock time.Manual) fails ui.BadPatch | actor.Stopped needs Scheduler | io.Stdout {
+func Scene(rows []catalog.Star, height int, lines core.Seq[string], clock time.Manual) fails ui.BadPatch | actor.Stopped needs time.Scheduler | io.Stdout {
 	let refused = sync.NewRef[[]catalog.Refused]([]catalog.Refused{})
 	let a = actor.StartMachine(machines.Start(screen.App{}, screen.Opening{Rows: rows, Height: height}), 8, func(r catalog.Refused) {
 		refused.Update(func(old []catalog.Refused) []catalog.Refused { old.Append(r) })
@@ -98,9 +100,9 @@ func follow[D, F](h mut ui.TestHost[catalog.State, screen.Signal, D, F], was Win
 
 func found[D, F](h mut ui.TestHost[catalog.State, screen.Signal, D, F], label string) ui.Id[screen.Signal] fails ui.BadPatch {
 	match ui.Find(h, label) {
-	case Some[ui.Id[screen.Signal]] as id:
+	case option.Some[ui.Id[screen.Signal]] as id:
 		id.Value
-	case None:
+	case option.None:
 		ui.BadPatch{Why: "stars-gui: the window has no " + label}
 	}
 }
@@ -177,7 +179,7 @@ func Shown(shapes []ui.Shape[screen.Signal], w Window) []string {
 			continue
 		case ui.RowsNode as x:
 			for i in w.Top-x.First..w.Top-x.First+w.Height {
-				if 0 <= i && i < len(s.Kids) {
+				if 0 <= i && i < s.Kids.Len() {
 					for t in Shown([]ui.Shape[screen.Signal]{s.Kids[i]}, w) {
 						out = out.Append(t)
 					}

@@ -11,6 +11,7 @@
 // does: the rows say what was in flight, and the next run, once an
 // operator broke the lock, takes them up (models/infra, CrashThenResume).
 
+import option
 import sync
 
 // Mode is what a run does: Planning records the steps and calls no host
@@ -66,19 +67,19 @@ func note(r Pass, s Step) { r.steps.Update(func(steps []Step) []Step { steps.App
 
 // ChangeOf is the change an Ensure of p makes to the object whose row is
 // prior: none (None) when the row is live with p.
-func ChangeOf[P comparable](prior Option[Row[P]], p P) Option[Change] {
+func ChangeOf[P comparable](prior option.Option[Row[P]], p P) option.Option[Change] {
 	match prior {
-	case None:
-		Some[Change]{Value: Create}
-	case Some[Row[P]] as r:
+	case option.None:
+		option.Some[Change]{Value: Create}
+	case option.Some[Row[P]] as r:
 		if r.Value.Props != p {
-			return Some[Change]{Value: Update}
+			return option.Some[Change]{Value: Update}
 		}
 		match r.Value.Status {
 		case Live:
-			None
+			option.None
 		case Creating, Deleting:
-			Some[Change]{Value: Resume}
+			option.Some[Change]{Value: Resume}
 		}
 	}
 }
@@ -91,7 +92,7 @@ func ChangeOf[P comparable](prior Option[Row[P]], p P) Option[Change] {
 // recorded is the object's (an apply sees the row the first Ensure wrote).
 func Ensure[P comparable, A comparable](e Engine[P, A], id string, p P) A fails Failed {
 	let key = keyOf(e.Kind, id)
-	let again = e.Pass.seen.Get().Get(key) != None
+	let again = e.Pass.seen.Get().Get(key) != option.None
 	e.Pass.seen.Update(func(m Map[string, bool]) Map[string, bool] { m.Put(key, true) })
 	match e.Pass.mode {
 	case Planning, Refreshing:
@@ -102,14 +103,14 @@ func Ensure[P comparable, A comparable](e Engine[P, A], id string, p P) A fails 
 	}
 	let prior = e.State.Get(id)
 	let change = match ChangeOf(prior, p) {
-	case None:
+	case option.None:
 		match e.Pass.mode {
 		case Refreshing:
 			try refresh(e, id, p)
 		case Planning, Applying:
 		}
 		return e.Driver.Attrs(id, p)
-	case Some[Change] as c:
+	case option.Some[Change] as c:
 		c.Value
 	}
 	note(e.Pass, Step{Kind: e.Kind, ID: id, Change: change})
@@ -121,9 +122,9 @@ func Ensure[P comparable, A comparable](e Engine[P, A], id string, p P) A fails 
 	case Applying:
 	}
 	let seq = match prior {
-	case Some[Row[P]] as r:
+	case option.Some[Row[P]] as r:
 		r.Value.Seq
-	case None:
+	case option.None:
 		sync.Modify(e.Pass.seq, func(n int) (int, int) { (n, n + 1) })
 	}
 	try e.State.Put(Row[P]{ID: id, Status: Creating, Props: p, Seq: seq})
@@ -137,9 +138,9 @@ func Ensure[P comparable, A comparable](e Engine[P, A], id string, p P) A fails 
 // what Apply gave. It writes nothing.
 func refresh[P comparable, A comparable](e Engine[P, A], id string, p P) fails Failed {
 	match try e.Driver.Read(id) {
-	case None:
+	case option.None:
 		note(e.Pass, Step{Kind: e.Kind, ID: id, Change: Gone})
-	case Some[A] as a:
+	case option.Some[A] as a:
 		if a.Value != e.Driver.Attrs(id, p) {
 			note(e.Pass, Step{Kind: e.Kind, ID: id, Change: Drifted})
 		}
@@ -181,7 +182,7 @@ func Leftovers[P comparable, A comparable](e Engine[P, A]) []Leftover {
 	let seen = e.Pass.seen.Get()
 	let mut out = []Leftover{}
 	for r in e.State.List() {
-		if seen.Get(keyOf(e.Kind, r.ID)) == None {
+		if seen.Get(keyOf(e.Kind, r.ID)) == option.None {
 			out = out.Append(Leftover{Kind: e.Kind, ID: r.ID, Seq: r.Seq})
 		}
 	}
@@ -192,9 +193,9 @@ func Leftovers[P comparable, A comparable](e Engine[P, A]) []Leftover {
 // deleting, call the driver's Delete, remove the row.
 func Sweep[P comparable, A comparable](e Engine[P, A], id string) fails Failed {
 	let row = match e.State.Get(id) {
-	case None:
+	case option.None:
 		return
-	case Some[Row[P]] as r:
+	case option.Some[Row[P]] as r:
 		r.Value
 	}
 	note(e.Pass, Step{Kind: e.Kind, ID: id, Change: Delete})

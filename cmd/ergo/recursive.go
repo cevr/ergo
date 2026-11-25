@@ -510,6 +510,10 @@ func recursiveCommand(opts fileOptions, fsys sketchfront.FS, run func(fileOption
 // ends the whole run (a defect, a signal, a usage error), and failed a
 // failure that the run reports at its end, printed here.
 func packageOutcome(path string, err error) (stop error, failed bool) {
+	return packageOutcomeIO(path, err, os.Stderr)
+}
+
+func packageOutcomeIO(path string, err error, stderr io.Writer) (stop error, failed bool) {
 	if err == nil {
 		return nil, false
 	}
@@ -519,12 +523,12 @@ func packageOutcome(path string, err error) (stop error, failed bool) {
 			return err, false
 		}
 		if !e.handled && e.message != "" {
-			fmt.Fprintln(os.Stderr, e.message)
+			fmt.Fprintln(stderr, e.message)
 		}
 	case usageError:
 		return err, false
 	default:
-		fmt.Fprintf(os.Stderr, "%s: %v\n", path, err)
+		fmt.Fprintf(stderr, "%s: %v\n", path, err)
 	}
 	return nil, true
 }

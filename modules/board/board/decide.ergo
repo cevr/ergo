@@ -1,4 +1,5 @@
 import maps
+import option
 import sha256
 import slices
 import strings
@@ -18,7 +19,7 @@ func ResolveBoard(board string) string {
 // digits, underscores, dots, or hyphens starting with a letter or digit.
 func ValidLabelKey(k string) bool {
 	let bs = strings.Bytes(k)
-	if len(bs) < 1 || len(bs) > 64 {
+	if bs.Len() < 1 || bs.Len() > 64 {
 		return false
 	}
 	let first = bs[0]
@@ -38,7 +39,7 @@ func ValidLabelKey(k string) bool {
 // control characters.
 func ValidLabelValue(v string) bool {
 	let bs = strings.Bytes(v)
-	if len(bs) > 256 {
+	if bs.Len() > 256 {
 		return false
 	}
 	for b in bs {
@@ -51,42 +52,42 @@ func ValidLabelValue(v string) bool {
 
 // ReservedLabelUse returns the owning operation name when k is a board.*
 // reserved label key, or None otherwise.
-func ReservedLabelUse(k string) Option[string] {
+func ReservedLabelUse(k string) option.Option[string] {
 	if !strings.HasPrefix(k, "board.") {
-		return None
+		return option.None
 	}
 	if strings.HasPrefix(k, "board.task") || k == "board.held" {
-		return Some[string]{Value: "tasks"}
+		return option.Some[string]{Value: "tasks"}
 	}
 	if strings.HasPrefix(k, "board.ask") {
-		return Some[string]{Value: "ask"}
+		return option.Some[string]{Value: "ask"}
 	}
-	Some[string]{Value: "board"}
+	option.Some[string]{Value: "board"}
 }
 
 func boardGrants(s State, board string) []Grant {
 	match s.Grants.Get(board) {
-	case Some[[]Grant] as gs:
+	case option.Some[[]Grant] as gs:
 		gs.Value
-	case None:
+	case option.None:
 		[]Grant{}
 	}
 }
 
 func boardHead(s State, board string) Cursor {
 	match s.Head.Get(board) {
-	case Some[Cursor] as c:
+	case option.Some[Cursor] as c:
 		c.Value
-	case None:
+	case option.None:
 		0
 	}
 }
 
 func isGone(s State, id PrincipalID) bool {
 	match s.Principals.Get(id) {
-	case Some[Principal] as p:
+	case option.Some[Principal] as p:
 		p.Value.State == Offboarded
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -102,16 +103,16 @@ func requireActiveCaller(s State, c Caller) fails Refusal {
 
 func requireBoard(s State, c Caller, board string) BoardRecord fails Refusal {
 	let name = ResolveBoard(board)
-	if c.Narrowed && len(c.NarrowedBoards) > 0 && !slices.Contains(c.NarrowedBoards, name) {
+	if c.Narrowed && c.NarrowedBoards.Len() > 0 && !slices.Contains(c.NarrowedBoards, name) {
 		return BoardNotFound
 	}
 	match s.Boards.Get(name) {
-	case Some[BoardRecord] as b:
+	case option.Some[BoardRecord] as b:
 		if b.Value.Archived {
 			return BoardArchived
 		}
 		b.Value
-	case None:
+	case option.None:
 		BoardNotFound
 	}
 }
@@ -132,23 +133,23 @@ func checkLabelsWritable(labels Map[string, string]) fails Refusal {
 			return Invalid{Field: "labels", Why: "invalid label key"}
 		}
 		match ReservedLabelUse(k) {
-		case Some[string] as use:
+		case option.Some[string] as use:
 			return ReservedLabel{Use: use.Value}
-		case None:
+		case option.None:
 		}
 		let v = match labels.Get(k) {
-		case Some[string] as val:
+		case option.Some[string] as val:
 			val.Value
-		case None:
+		case option.None:
 			""
 		}
 		if !ValidLabelValue(v) {
 			return Invalid{Field: "labels", Why: "invalid label value"}
 		}
 		match ScanSecret(v) {
-		case Some[SecretHit] as h:
+		case option.Some[SecretHit] as h:
 			return SecretDetected{Kind: h.Value.Kind, At: h.Value.At}
-		case None:
+		case option.None:
 		}
 	}
 }
@@ -157,9 +158,9 @@ func encodeLabelsCanonical(labels Map[string, string]) string {
 	let mut out = ""
 	for k in slices.Sorted(maps.Keys(labels)) {
 		let v = match labels.Get(k) {
-		case Some[string] as val:
+		case option.Some[string] as val:
 			val.Value
-		case None:
+		case option.None:
 			""
 		}
 		out = "\(out)\(k)=\(v);"
@@ -203,29 +204,29 @@ func CommandDigest(cmd Command) string {
 
 // LookupIdempotency returns a still-valid idempotency record for (actor, key)
 // at now, if one exists within the 24-hour window.
-func LookupIdempotency(s State, actor ActorID, key string, now Timestamp) Option[IdempotencyEntry] {
+func LookupIdempotency(s State, actor ActorID, key string, now Timestamp) option.Option[IdempotencyEntry] {
 	if key == "" {
-		return None
+		return option.None
 	}
 	match s.Idempotency.Get(IdempotencyKey{Actor: actor, Key: key}) {
-	case Some[IdempotencyEntry] as e:
+	case option.Some[IdempotencyEntry] as e:
 		if now-e.Value.RecordedAt < IdempotencyWindowMs {
-			return Some[IdempotencyEntry]{Value: e.Value}
+			return option.Some[IdempotencyEntry]{Value: e.Value}
 		}
-		None
-	case None:
-		None
+		option.None
+	case option.None:
+		option.None
 	}
 }
 
 func checkIdempotency(s State, actor ActorID, key string, digest string, now Timestamp) bool fails Refusal {
 	match LookupIdempotency(s, actor, key, now) {
-	case Some[IdempotencyEntry] as e:
+	case option.Some[IdempotencyEntry] as e:
 		if e.Value.Digest != digest {
 			return IdempotencyConflict
 		}
 		true
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -248,44 +249,44 @@ func VisibleActorHandles(s State, board string, c Caller) Map[string, ActorID] {
 			continue
 		}
 		match s.Principals.Get(m.Principal) {
-		case Some[Principal] as p:
+		case option.Some[Principal] as p:
 			if p.Value.Handle != "" {
 				out = out.Put(p.Value.Handle, p.Value.ID)
 				if m.Profile != "" {
 					out = out.Put("\(p.Value.Handle)/\(m.Profile)", m.By)
 				}
 			}
-		case None:
+		case option.None:
 		}
 	}
 	out
 }
 
 func scanOrRedact(text string, from string) (string, []string) fails Refusal {
-	if len(strings.Bytes(text)) > MaxMessageLen {
+	if strings.Bytes(text).Len() > MaxMessageLen {
 		return TooLarge{Limit: MaxMessageLen}
 	}
 	if from == "" {
 		match ScanSecret(text) {
-		case Some[SecretHit] as h:
+		case option.Some[SecretHit] as h:
 			return SecretDetected{Kind: h.Value.Kind, At: h.Value.At}
-		case None:
+		case option.None:
 		}
 		return (text, []string{})
 	}
 	RedactSecrets(text)
 }
 
-func maybeProfileEvent(s State, c Caller, board string, now Timestamp) Option[Event] {
+func maybeProfileEvent(s State, c Caller, board string, now Timestamp) option.Option[Event] {
 	if c.Profile == "" {
-		return None
+		return option.None
 	}
 	let actor = ActorOf(c)
 	match s.Profiles.Get(actor) {
-	case Some[Profile]:
-		None
-	case None:
-		Some[Event]{Value: Event{
+	case option.Some[Profile]:
+		option.None
+	case option.None:
+		option.Some[Event]{Value: Event{
 			Seq:     0,
 			Board:   board,
 			At:      now,
@@ -315,7 +316,7 @@ func qualifiesToAnswer(ask AskRecord, c Caller) bool {
 	if actor == ask.Asker {
 		return false
 	}
-	if !ask.OnlyFromAsked || len(ask.To) == 0 {
+	if !ask.OnlyFromAsked || ask.To.Len() == 0 {
 		return true
 	}
 	for target in ask.To {
@@ -329,22 +330,22 @@ func qualifiesToAnswer(ask AskRecord, c Caller) bool {
 	false
 }
 
-func findOpenAskForReply(s State, board string, root MessageID, replyTo MessageID) Option[AskRecord] {
+func findOpenAskForReply(s State, board string, root MessageID, replyTo MessageID) option.Option[AskRecord] {
 	match s.Asks.Get(replyTo) {
-	case Some[AskRecord] as a:
+	case option.Some[AskRecord] as a:
 		if a.Value.Board == board && a.Value.State == AskOpen {
-			return Some[AskRecord]{Value: a.Value}
+			return option.Some[AskRecord]{Value: a.Value}
 		}
-	case None:
+	case option.None:
 	}
 	match s.Asks.Get(root) {
-	case Some[AskRecord] as a:
+	case option.Some[AskRecord] as a:
 		if a.Value.Board == board && a.Value.State == AskOpen {
-			return Some[AskRecord]{Value: a.Value}
+			return option.Some[AskRecord]{Value: a.Value}
 		}
-	case None:
+	case option.None:
 	}
-	None
+	option.None
 }
 
 func grantCoversChannel(gs []Grant, path string) bool {
@@ -486,9 +487,9 @@ func Decide(s State, cmd Command, now Timestamp) []Event fails Refusal {
 			return Invalid{Field: "name", Why: "invalid board name"}
 		}
 		match s.Boards.Get(c.Name) {
-		case Some[BoardRecord]:
+		case option.Some[BoardRecord]:
 			return BoardNameTaken
-		case None:
+		case option.None:
 		}
 		let rec = BoardRecord{
 			ID:        "brd_\(s.NextBoardNum)",
@@ -513,9 +514,9 @@ func Decide(s State, cmd Command, now Timestamp) []Event fails Refusal {
 			return Invalid{Field: "newName", Why: "invalid board name"}
 		}
 		match s.Boards.Get(c.NewName) {
-		case Some[BoardRecord]:
+		case option.Some[BoardRecord]:
 			return BoardNameTaken
-		case None:
+		case option.None:
 		}
 		[]Event{Event{Seq: 0, Board: b.Name, At: now, Actor: ActorOf(c.Caller), Payload: BoardRenamed{Board: b.Name, NewName: c.NewName}}}
 
@@ -598,21 +599,21 @@ func Decide(s State, cmd Command, now Timestamp) []Event fails Refusal {
 		try checkLabelsWritable(c.Labels)
 		let (cleanText, redactedKinds) = try scanOrRedact(c.Text, c.From)
 		let mut labels = c.Labels
-		if len(redactedKinds) > 0 {
+		if redactedKinds.Len() > 0 {
 			labels = labels.Put("board.redacted", redactedKinds[0])
 		}
 		let vis = VisibleActorHandles(s, b.Name, c.Caller)
 		let (mentioned, unresolved) = SettleMentions(cleanText, vis)
 		let mut events = []Event{}
 		match maybeProfileEvent(s, c.Caller, b.Name, now) {
-		case Some[Event] as pe:
+		case option.Some[Event] as pe:
 			events = events.Append(pe.Value)
-		case None:
+		case option.None:
 		}
 		let chKey = ChannelKey(b.Name, c.Channel)
 		match s.Channels.Get(chKey) {
-		case Some[Channel]:
-		case None:
+		case option.Some[Channel]:
+		case option.None:
 			let ch = Channel{Board: b.Name, Path: c.Channel, CreatedAt: now, CreatedBy: actor, Private: false}
 			events = events.Append(Event{Seq: 0, Board: b.Name, At: now, Actor: actor, Payload: ChannelCreated{Channel: ch}})
 		}
@@ -644,12 +645,12 @@ func Decide(s State, cmd Command, now Timestamp) []Event fails Refusal {
 		try requireActiveCaller(s, c.Caller)
 		let b = try requireBoard(s, c.Caller, c.Board)
 		let target = match s.Messages.Get(c.Re) {
-		case Some[Message] as m:
+		case option.Some[Message] as m:
 			if m.Value.Board != b.Name {
 				return NotFound{What: c.Re}
 			}
 			m.Value
-		case None:
+		case option.None:
 			return NotFound{What: c.Re}
 		}
 		try requirePerm(s, b.Name, c.Caller, target.Channel, PermRead)
@@ -665,9 +666,9 @@ func Decide(s State, cmd Command, now Timestamp) []Event fails Refusal {
 		let rootID = if target.Re != "" { target.Re } else { target.ID }
 		if c.After != "" {
 			let lastID = match s.ThreadLast.Get(rootID) {
-			case Some[MessageID] as last:
+			case option.Some[MessageID] as last:
 				last.Value
-			case None:
+			case option.None:
 				rootID
 			}
 			if lastID != c.After {
@@ -677,22 +678,22 @@ func Decide(s State, cmd Command, now Timestamp) []Event fails Refusal {
 		try checkLabelsWritable(c.Labels)
 		let (cleanText, redactedKinds) = try scanOrRedact(c.Text, c.From)
 		let mut labels = c.Labels
-		if len(redactedKinds) > 0 {
+		if redactedKinds.Len() > 0 {
 			labels = labels.Put("board.redacted", redactedKinds[0])
 		}
 		let vis = VisibleActorHandles(s, b.Name, c.Caller)
 		let (mentioned, unresolved) = SettleMentions(cleanText, vis)
 		let rootNoSync = match s.Messages.Get(rootID) {
-		case Some[Message] as rm:
+		case option.Some[Message] as rm:
 			rm.Value.NoSync
-		case None:
+		case option.None:
 			false
 		}
 		let mut events = []Event{}
 		match maybeProfileEvent(s, c.Caller, b.Name, now) {
-		case Some[Event] as pe:
+		case option.Some[Event] as pe:
 			events = events.Append(pe.Value)
-		case None:
+		case option.None:
 		}
 		let msgID = "msg_\(s.NextMessageNum)"
 		let msg = Message{
@@ -718,11 +719,11 @@ func Decide(s State, cmd Command, now Timestamp) []Event fails Refusal {
 		}
 		events = events.Append(Event{Seq: 0, Board: b.Name, At: now, Actor: actor, Payload: MessagePosted{Message: msg, IdemKey: c.IdempotencyKey, IdemDigest: digest}})
 		match findOpenAskForReply(s, b.Name, rootID, target.ID) {
-		case Some[AskRecord] as a:
+		case option.Some[AskRecord] as a:
 			if qualifiesToAnswer(a.Value, c.Caller) {
 				events = events.Append(Event{Seq: 0, Board: b.Name, At: now, Actor: actor, Payload: AskAnsweredEvent{Board: b.Name, ID: a.Value.ID, Answer: msgID}})
 			}
-		case None:
+		case option.None:
 		}
 		events
 
@@ -730,12 +731,12 @@ func Decide(s State, cmd Command, now Timestamp) []Event fails Refusal {
 		try requireActiveCaller(s, c.Caller)
 		let b = try requireBoard(s, c.Caller, c.Board)
 		let target = match s.Messages.Get(c.ID) {
-		case Some[Message] as m:
+		case option.Some[Message] as m:
 			if m.Value.Board != b.Name {
 				return NotFound{What: c.ID}
 			}
 			m.Value
-		case None:
+		case option.None:
 			return NotFound{What: c.ID}
 		}
 		try requirePerm(s, b.Name, c.Caller, target.Channel, PermRead)
@@ -766,12 +767,12 @@ func Decide(s State, cmd Command, now Timestamp) []Event fails Refusal {
 		try requireActiveCaller(s, c.Caller)
 		let b = try requireBoard(s, c.Caller, c.Board)
 		let target = match s.Messages.Get(c.ID) {
-		case Some[Message] as m:
+		case option.Some[Message] as m:
 			if m.Value.Board != b.Name {
 				return NotFound{What: c.ID}
 			}
 			m.Value
-		case None:
+		case option.None:
 			return NotFound{What: c.ID}
 		}
 		try requirePerm(s, b.Name, c.Caller, target.Channel, PermRead)
@@ -793,7 +794,7 @@ func Decide(s State, cmd Command, now Timestamp) []Event fails Refusal {
 			Payload: MessageDeleted{Board: b.Name, ID: target.ID, Revision: target.Revision + 1},
 		}}
 		match s.Tasks.Get(target.ID) {
-		case Some[TaskRecord] as tr:
+		case option.Some[TaskRecord] as tr:
 			if tr.Value.State != TaskCompleted && tr.Value.State != TaskCanceled {
 				events = events.Append(Event{
 					Seq:     0,
@@ -803,7 +804,7 @@ func Decide(s State, cmd Command, now Timestamp) []Event fails Refusal {
 					Payload: TaskCanceledEvent{Board: b.Name, ID: target.ID, Reason: "root_deleted"},
 				})
 			}
-		case None:
+		case option.None:
 		}
 		events
 
@@ -811,12 +812,12 @@ func Decide(s State, cmd Command, now Timestamp) []Event fails Refusal {
 		try requireActiveCaller(s, c.Caller)
 		let b = try requireBoard(s, c.Caller, c.Board)
 		let target = match s.Messages.Get(c.ID) {
-		case Some[Message] as m:
+		case option.Some[Message] as m:
 			if m.Value.Board != b.Name {
 				return NotFound{What: c.ID}
 			}
 			m.Value
-		case None:
+		case option.None:
 			return NotFound{What: c.ID}
 		}
 		try requirePerm(s, b.Name, c.Caller, target.Channel, PermRead)
@@ -839,12 +840,12 @@ func Decide(s State, cmd Command, now Timestamp) []Event fails Refusal {
 		try requireActiveCaller(s, c.Caller)
 		let b = try requireBoard(s, c.Caller, c.Board)
 		let target = match s.Messages.Get(c.ID) {
-		case Some[Message] as m:
+		case option.Some[Message] as m:
 			if m.Value.Board != b.Name {
 				return NotFound{What: c.ID}
 			}
 			m.Value
-		case None:
+		case option.None:
 			return NotFound{What: c.ID}
 		}
 		try requirePerm(s, b.Name, c.Caller, target.Channel, PermRead)
@@ -855,32 +856,32 @@ func Decide(s State, cmd Command, now Timestamp) []Event fails Refusal {
 		try checkLabelsWritable(c.Set)
 		for k in c.Unset {
 			match ReservedLabelUse(k) {
-			case Some[string] as use:
+			case option.Some[string] as use:
 				return ReservedLabel{Use: use.Value}
-			case None:
+			case option.None:
 			}
 		}
 		for k in slices.Sorted(maps.Keys(c.If)) {
 			let want = match c.If.Get(k) {
-			case Some[string] as v:
+			case option.Some[string] as v:
 				v.Value
-			case None:
+			case option.None:
 				""
 			}
 			match target.Labels.Get(k) {
-			case Some[string] as got:
+			case option.Some[string] as got:
 				if got.Value != want {
 					return LabelConflict
 				}
-			case None:
+			case option.None:
 				return LabelConflict
 			}
 		}
 		for k in c.IfUnset {
 			match target.Labels.Get(k) {
-			case Some[string]:
+			case option.Some[string]:
 				return LabelConflict
-			case None:
+			case option.None:
 			}
 		}
 		[]Event{Event{
@@ -907,8 +908,8 @@ func Decide(s State, cmd Command, now Timestamp) []Event fails Refusal {
 			return Forbidden{Permission: "manage", Channel: "*"}
 		}
 		match s.Principals.Get(c.Principal) {
-		case Some[Principal]:
-		case None:
+		case option.Some[Principal]:
+		case option.None:
 			return NotFound{What: c.Principal}
 		}
 		[]Event{Event{Seq: 0, Board: DefaultBoard, At: now, Actor: ActorOf(c.Caller), Payload: PrincipalGone{ID: c.Principal}}}
@@ -981,12 +982,12 @@ func Decide(s State, cmd Command, now Timestamp) []Event fails Refusal {
 		let mut replyTo = ""
 		if c.Thread != "" {
 			let tmsg = match s.Messages.Get(c.Thread) {
-			case Some[Message] as m:
+			case option.Some[Message] as m:
 				if m.Value.Board != b.Name {
 					return NotFound{What: c.Thread}
 				}
 				m.Value
-			case None:
+			case option.None:
 				return NotFound{What: c.Thread}
 			}
 			channel = tmsg.Channel
@@ -1010,15 +1011,15 @@ func Decide(s State, cmd Command, now Timestamp) []Event fails Refusal {
 		}
 		let mut events = []Event{}
 		match maybeProfileEvent(s, c.Caller, b.Name, now) {
-		case Some[Event] as pe:
+		case option.Some[Event] as pe:
 			events = events.Append(pe.Value)
-		case None:
+		case option.None:
 		}
 		if c.Thread == "" {
 			let chKey = ChannelKey(b.Name, channel)
 			match s.Channels.Get(chKey) {
-			case Some[Channel]:
-			case None:
+			case option.Some[Channel]:
+			case option.None:
 				let ch = Channel{Board: b.Name, Path: channel, CreatedAt: now, CreatedBy: actor, Private: false}
 				events = events.Append(Event{Seq: 0, Board: b.Name, At: now, Actor: actor, Payload: ChannelCreated{Channel: ch}})
 			}
@@ -1068,12 +1069,12 @@ func Decide(s State, cmd Command, now Timestamp) []Event fails Refusal {
 		try requireActiveCaller(s, c.Caller)
 		let b = try requireBoard(s, c.Caller, c.Board)
 		let ask = match s.Asks.Get(c.ID) {
-		case Some[AskRecord] as a:
+		case option.Some[AskRecord] as a:
 			if a.Value.Board != b.Name {
 				return NotFound{What: c.ID}
 			}
 			a.Value
-		case None:
+		case option.None:
 			return NotFound{What: c.ID}
 		}
 		try requirePerm(s, b.Name, c.Caller, ask.Channel, PermRead)
@@ -1089,12 +1090,12 @@ func Decide(s State, cmd Command, now Timestamp) []Event fails Refusal {
 	case ExpireAsk as c:
 		let bName = ResolveBoard(c.Board)
 		let ask = match s.Asks.Get(c.ID) {
-		case Some[AskRecord] as a:
+		case option.Some[AskRecord] as a:
 			if a.Value.Board != bName {
 				return NotFound{What: c.ID}
 			}
 			a.Value
-		case None:
+		case option.None:
 			return NotFound{What: c.ID}
 		}
 		if ask.State != AskOpen {
@@ -1119,9 +1120,9 @@ func Decide(s State, cmd Command, now Timestamp) []Event fails Refusal {
 
 func updateReaction(cur Map[string, []ActorID], emoji string, actor ActorID, added bool) Map[string, []ActorID] {
 	let existing = match cur.Get(emoji) {
-	case Some[[]ActorID] as xs:
+	case option.Some[[]ActorID] as xs:
 		xs.Value
-	case None:
+	case option.None:
 		[]ActorID{}
 	}
 	if added {
@@ -1136,7 +1137,7 @@ func updateReaction(cur Map[string, []ActorID], emoji string, actor ActorID, add
 			kept = kept.Append(a)
 		}
 	}
-	if len(kept) == 0 {
+	if kept.Len() == 0 {
 		return cur.Delete(emoji)
 	}
 	cur.Put(emoji, kept)
@@ -1149,9 +1150,9 @@ func applyLabels(cur Map[string, string], set Map[string, string], unset []strin
 	}
 	for k in slices.Sorted(maps.Keys(set)) {
 		match set.Get(k) {
-		case Some[string] as v:
+		case option.Some[string] as v:
 			out = out.Put(k, v.Value)
-		case None:
+		case option.None:
 		}
 	}
 	out
@@ -1163,9 +1164,9 @@ func Apply(s State, e Event) State {
 	if e.Board != "" && e.Seq > boardHead(next, e.Board) {
 		next = State{..next, Head: next.Head.Put(e.Board, e.Seq)}
 		match next.Boards.Get(e.Board) {
-		case Some[BoardRecord] as b:
+		case option.Some[BoardRecord] as b:
 			next = State{..next, Boards: next.Boards.Put(e.Board, BoardRecord{..b.Value, Head: e.Seq})}
-		case None:
+		case option.None:
 		}
 	}
 	match e.Payload {
@@ -1187,20 +1188,20 @@ func Apply(s State, e Event) State {
 		}
 	case BoardRenamed as p:
 		match next.Boards.Get(p.Board) {
-		case Some[BoardRecord] as b:
+		case option.Some[BoardRecord] as b:
 			let renamed = BoardRecord{..b.Value, Name: p.NewName}
 			let boards = next.Boards.Delete(p.Board).Put(p.NewName, renamed)
 			let gs = boardGrants(next, p.Board)
 			let grants = next.Grants.Delete(p.Board).Put(p.NewName, gs)
 			State{..next, Boards: boards, Grants: grants}
-		case None:
+		case option.None:
 			next
 		}
 	case BoardArchivedEvent as p:
 		match next.Boards.Get(p.Board) {
-		case Some[BoardRecord] as b:
+		case option.Some[BoardRecord] as b:
 			State{..next, Boards: next.Boards.Put(p.Board, BoardRecord{..b.Value, Archived: true})}
-		case None:
+		case option.None:
 			next
 		}
 	case ChannelCreated as p:
@@ -1227,7 +1228,7 @@ func Apply(s State, e Event) State {
 		}
 	case MessageEdited as p:
 		match next.Messages.Get(p.ID) {
-		case Some[Message] as m:
+		case option.Some[Message] as m:
 			let updated = Message{
 				..m.Value,
 				Text:       p.Text,
@@ -1237,12 +1238,12 @@ func Apply(s State, e Event) State {
 				EditedAt:   e.At,
 			}
 			State{..next, Messages: next.Messages.Put(p.ID, updated)}
-		case None:
+		case option.None:
 			next
 		}
 	case MessageDeleted as p:
 		match next.Messages.Get(p.ID) {
-		case Some[Message] as m:
+		case option.Some[Message] as m:
 			let tomb = Message{
 				..m.Value,
 				Text:       "",
@@ -1254,32 +1255,32 @@ func Apply(s State, e Event) State {
 				Deleted:    true,
 			}
 			State{..next, Messages: next.Messages.Put(p.ID, tomb)}
-		case None:
+		case option.None:
 			next
 		}
 	case ReactionChanged as p:
 		match next.Messages.Get(p.ID) {
-		case Some[Message] as m:
+		case option.Some[Message] as m:
 			let updated = Message{..m.Value, Reactions: updateReaction(m.Value.Reactions, p.Emoji, p.Actor, p.Added)}
 			State{..next, Messages: next.Messages.Put(p.ID, updated)}
-		case None:
+		case option.None:
 			next
 		}
 	case LabelsChanged as p:
 		match next.Messages.Get(p.ID) {
-		case Some[Message] as m:
+		case option.Some[Message] as m:
 			let updated = Message{..m.Value, Labels: applyLabels(m.Value.Labels, p.Set, p.Unset)}
 			State{..next, Messages: next.Messages.Put(p.ID, updated)}
-		case None:
+		case option.None:
 			next
 		}
 	case PrincipalRegistered as p:
 		State{..next, Principals: next.Principals.Put(p.Principal.ID, p.Principal)}
 	case PrincipalGone as p:
 		match next.Principals.Get(p.ID) {
-		case Some[Principal] as pr:
+		case option.Some[Principal] as pr:
 			State{..next, Principals: next.Principals.Put(p.ID, Principal{..pr.Value, State: Offboarded})}
-		case None:
+		case option.None:
 			next
 		}
 	case ProfileSeen as p:
@@ -1307,43 +1308,43 @@ func Apply(s State, e Event) State {
 	case AskAnsweredEvent as p:
 		let mut st = next
 		match st.Asks.Get(p.ID) {
-		case Some[AskRecord] as a:
+		case option.Some[AskRecord] as a:
 			st = State{..st, Asks: st.Asks.Put(p.ID, AskRecord{..a.Value, State: AskAnswered, Answer: p.Answer})}
-		case None:
+		case option.None:
 		}
 		match st.Messages.Get(p.ID) {
-		case Some[Message] as m:
+		case option.Some[Message] as m:
 			let ls = m.Value.Labels.Put("board.ask", "answered").Put("board.ask.answer", p.Answer)
 			st = State{..st, Messages: st.Messages.Put(p.ID, Message{..m.Value, Labels: ls})}
-		case None:
+		case option.None:
 		}
 		st
 	case AskWithdrawnEvent as p:
 		let mut st = next
 		match st.Asks.Get(p.ID) {
-		case Some[AskRecord] as a:
+		case option.Some[AskRecord] as a:
 			st = State{..st, Asks: st.Asks.Put(p.ID, AskRecord{..a.Value, State: AskWithdrawn})}
-		case None:
+		case option.None:
 		}
 		match st.Messages.Get(p.ID) {
-		case Some[Message] as m:
+		case option.Some[Message] as m:
 			let ls = m.Value.Labels.Put("board.ask", "withdrawn")
 			st = State{..st, Messages: st.Messages.Put(p.ID, Message{..m.Value, Labels: ls})}
-		case None:
+		case option.None:
 		}
 		st
 	case AskExpiredEvent as p:
 		let mut st = next
 		match st.Asks.Get(p.ID) {
-		case Some[AskRecord] as a:
+		case option.Some[AskRecord] as a:
 			st = State{..st, Asks: st.Asks.Put(p.ID, AskRecord{..a.Value, State: AskExpired})}
-		case None:
+		case option.None:
 		}
 		match st.Messages.Get(p.ID) {
-		case Some[Message] as m:
+		case option.Some[Message] as m:
 			let ls = m.Value.Labels.Put("board.ask", "expired")
 			st = State{..st, Messages: st.Messages.Put(p.ID, Message{..m.Value, Labels: ls})}
-		case None:
+		case option.None:
 		}
 		st
 	case TrustUpdated as p:

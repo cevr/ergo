@@ -4,6 +4,8 @@
 // (ui.OnSlow). No phase is timed: every phase's work is counted (ui.Stats), so a
 // warning is the same on every run and every host.
 
+import core
+import option
 import slices
 import ui
 import machines
@@ -48,27 +50,27 @@ func Initial() Lab { Lab{Active: Idle, NextID: 1, Warnings: []Warning{}, PatchRo
 // log, and keeps the patch surface; a warning of a phase's counter is
 // logged first, with the next id, and stops the workload. The work's own
 // signals change nothing: they are the work.
-func Step(s Lab, e Signal) Decision[Lab, Never] {
+func Step(s Lab, e Signal) machines.Decision[Lab, core.Never] {
 	match e {
 	case Run as r:
 		match r.Phase {
 		case PatchPhase:
-			Enter[Lab]{Next: Lab{..s, Active: Busy{Phase: r.Phase}, PatchRows: PatchRowCount, PatchRun: s.PatchRun + 1}}
+			machines.Enter[Lab]{Next: Lab{..s, Active: Busy{Phase: r.Phase}, PatchRows: PatchRowCount, PatchRun: s.PatchRun + 1}}
 		case UpdatePhase, ViewPhase, DependencyPhase:
-			Enter[Lab]{Next: Lab{..s, Active: Busy{Phase: r.Phase}}}
+			machines.Enter[Lab]{Next: Lab{..s, Active: Busy{Phase: r.Phase}}}
 		}
 	case Clear:
-		Enter[Lab]{Next: Lab{..s, Active: Idle, Warnings: []Warning{}}}
+		machines.Enter[Lab]{Next: Lab{..s, Active: Idle, Warnings: []Warning{}}}
 	case Recorded as x:
 		match PhaseOf(x.Slow.Counter) {
-		case Some[Phase] as p:
+		case option.Some[Phase] as p:
 			let w = Warning{ID: s.NextID, Phase: p.Value, Count: x.Slow.Count, Bound: x.Slow.Bound, Trigger: Trigger(s.Active), Details: Details(p.Value)}
-			Enter[Lab]{Next: Lab{..s, Active: Idle, NextID: s.NextID + 1, Warnings: Newest(w, s.Warnings)}}
-		case None:
-			Ignore
+			machines.Enter[Lab]{Next: Lab{..s, Active: Idle, NextID: s.NextID + 1, Warnings: Newest(w, s.Warnings)}}
+		case option.None:
+			machines.Ignore
 		}
 	case Burn, Derived:
-		Ignore
+		machines.Ignore
 	}
 }
 
@@ -91,7 +93,7 @@ law StepFollowsTheModel(seed int, steps int) {
 	for _ in 0..(steps%40+40)%40+1 {
 		let k = draw(&r, 6)
 		let mut e Signal = Burn
-		let mut fresh Option[Warning] = None
+		let mut fresh option.Option[Warning] = option.None
 		if k == 0 {
 			let p = phaseOf(draw(&r, 4))
 			e = Run{Phase: p}
@@ -105,11 +107,11 @@ law StepFollowsTheModel(seed int, steps int) {
 			active = Idle
 			log = []noted{}
 		} else if k == 2 || k == 3 {
-			let c = draw(&r, len(counters))
+			let c = draw(&r, counters.Len())
 			e = Recorded{Slow: ui.Slow{Counter: counters[c], Count: 10 + c, Bound: c}}
 			if c < 4 {
 				let p = phaseOf(c)
-				fresh = Some{Warning{ID: next, Phase: p, Count: 10 + c, Bound: c, Trigger: Trigger(active), Details: Details(p)}}
+				fresh = option.Some{Warning{ID: next, Phase: p, Count: 10 + c, Bound: c, Trigger: Trigger(active), Details: Details(p)}}
 				log = newest(noted{id: next, phase: p}, log)
 				next = next + 1
 				active = Idle
@@ -118,7 +120,7 @@ law StepFollowsTheModel(seed int, steps int) {
 			e = Derived
 		}
 		s = machines.Next(s, Step(s, e))
-		if s.Active != active || s.NextID != next || s.PatchRows != rows || s.PatchRun != run || len(s.Warnings) != len(log) {
+		if s.Active != active || s.NextID != next || s.PatchRows != rows || s.PatchRun != run || s.Warnings.Len() != log.Len() {
 			return false
 		}
 		for i, w in s.Warnings {
@@ -127,11 +129,11 @@ law StepFollowsTheModel(seed int, steps int) {
 			}
 		}
 		match fresh {
-		case Some[Warning] as w:
+		case option.Some[Warning] as w:
 			if s.Warnings[0] != w.Value {
 				return false
 			}
-		case None:
+		case option.None:
 		}
 	}
 	true
@@ -171,7 +173,7 @@ type noted { id int, phase Phase }
 func newest(n noted, log []noted) []noted {
 	let mut out = []noted{n}
 	for x in log {
-		if len(out) < MaxWarnings {
+		if out.Len() < MaxWarnings {
 			out = out.Append(x)
 		}
 	}
@@ -181,7 +183,7 @@ func newest(n noted, log []noted) []noted {
 // Newest is the log with w first, cut to MaxWarnings.
 func Newest(w Warning, log []Warning) []Warning {
 	let out = slices.Concat([]Warning{w}, log)
-	if len(out) > MaxWarnings {
+	if out.Len() > MaxWarnings {
 		return out[0:MaxWarnings]
 	}
 	out
@@ -190,18 +192,18 @@ func Newest(w Warning, log []Warning) []Warning {
 // PhaseOf is the phase of a Slow pass's counter (ui.Slow.Counter). The
 // match names every counter, so a counter ui adds is a case to place here
 // (FK13-g4).
-func PhaseOf(counter ui.Counter) Option[Phase] {
+func PhaseOf(counter ui.Counter) option.Option[Phase] {
 	match counter {
 	case ui.SignalsCounter:
-		Some{UpdatePhase}
+		option.Some{UpdatePhase}
 	case ui.WrittenCounter:
-		Some{ViewPhase}
+		option.Some{ViewPhase}
 	case ui.OpsCounter:
-		Some{PatchPhase}
+		option.Some{PatchPhase}
 	case ui.FetchesCounter:
-		Some{DependencyPhase}
+		option.Some{DependencyPhase}
 	case ui.CommittedCounter, ui.PaintedCounter:
-		None
+		option.None
 	}
 }
 
@@ -287,19 +289,19 @@ type Bench machine[Lab, Signal] {
 // rows show from the first patch run on.
 law EachWorkloadWarnsItsPhase(seed int, steps int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		warnsItsPhase(seed, steps, m)
 	}
 }
 
-func warnsItsPhase(seed int, steps int, m time.Manual) bool needs Scheduler {
-	let a = actor.StartMachine(Bench{}, 16, func(o Never) {})
+func warnsItsPhase(seed int, steps int, m time.Manual) bool needs time.Scheduler {
+	let a = actor.StartMachine(Bench{}, 16, func(o core.Never) {})
 	let ok = hostFollows(a, seed, steps, m)
 	a.Stop()
 	ok
 }
 
-func hostFollows(a actor.Actor[Lab, Signal, Decision[Lab, Never]], seed int, steps int, m time.Manual) bool needs Scheduler {
+func hostFollows(a actor.Actor[Lab, Signal, machines.Decision[Lab, core.Never]], seed int, steps int, m time.Manual) bool needs time.Scheduler {
 	let mut r = seeded(seed)
 	let mut h = ui.NewTestHost(a, Screen, m, 64) catch {
 	case ui.BadPatch:
@@ -330,20 +332,20 @@ func hostFollows(a actor.Actor[Lab, Signal, Decision[Lab, Never]], seed int, ste
 			return false
 		}
 		let shown = ui.StateOf(&h).Warnings
-		if len(shown) != len(log) {
+		if shown.Len() != log.Len() {
 			return false
 		}
 		for i, w in shown {
 			if w.ID != log[i].id || w.Phase != log[i].phase || w.Bound != Bound(w.Phase) || w.Count <= w.Bound || w.Trigger != Button(w.Phase) {
 				return false
 			}
-			if len(ui.Locate(&h, ui.WithText{Text: Title(w)})) == 0 {
+			if ui.Locate(&h, ui.WithText{Text: Title(w)}).Len() == 0 {
 				return false
 			}
 		}
-		let empty = len(ui.Locate(&h, ui.WithText{Text: "Run a workload to record a warning."})) == 1
-		let rows = len(ui.Locate(&h, ui.WithText{Text: "Patch row 1"})) == 1
-		if empty != (len(log) == 0) || rows != mounted {
+		let empty = ui.Locate(&h, ui.WithText{Text: "Run a workload to record a warning."}).Len() == 1
+		let rows = ui.Locate(&h, ui.WithText{Text: "Patch row 1"}).Len() == 1
+		if empty != (log.Len() == 0) || rows != mounted {
 			return false
 		}
 	}

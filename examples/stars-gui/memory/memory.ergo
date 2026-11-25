@@ -2,6 +2,7 @@
 // for tests: a catalogue is named by a key.
 
 import ergo.local/prototype/examples/starsgui/catalog
+import option
 
 // Texts holds the catalogues by name.
 type Texts { Catalogues Map[string, string] } implements catalog.Shelf
@@ -9,9 +10,9 @@ type Texts { Catalogues Map[string, string] } implements catalog.Shelf
 // Text is the catalogue named name.
 func Text(t Texts, name string) string fails catalog.Unreadable {
 	match t.Catalogues.Get(name) {
-	case Some[string] as s:
+	case option.Some[string] as s:
 		s.Value
-	case None:
+	case option.None:
 		return catalog.Unreadable{Name: name, Reason: "no such catalogue"}
 	}
 }

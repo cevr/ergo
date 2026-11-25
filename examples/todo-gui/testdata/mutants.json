@@ -8,8 +8,14 @@
       "from": "left = if it.Done { left + 1 } else { left - 1 }",
       "to": "left = left",
       "rule": "LeftCountsOpenItems: marking an item changes the open count kept with the list.",
-      "anchor": {"tests": ["examples:todo-gui"]},
-      "killers": ["examples:todo-gui"]
+      "anchor": {
+        "tests": [
+          "examples:todo-gui"
+        ]
+      },
+      "killers": [
+        "examples:todo-gui"
+      ]
     },
     {
       "name": "x-gui-remove-keeps-the-count",
@@ -18,8 +24,14 @@
       "from": "\t\t\t\tif !it.Done {\n\t\t\t\t\tleft = left - 1\n\t\t\t\t}",
       "to": "\t\t\t\tif !it.Done {\n\t\t\t\t\tleft = left\n\t\t\t\t}",
       "rule": "AddThenRemoveRestores: removing the open item just added takes it off the open count.",
-      "anchor": {"tests": ["examples:todo-gui"]},
-      "killers": ["examples:todo-gui"]
+      "anchor": {
+        "tests": [
+          "examples:todo-gui"
+        ]
+      },
+      "killers": [
+        "examples:todo-gui"
+      ]
     },
     {
       "name": "x-gui-clear-keeps-done",
@@ -28,18 +40,30 @@
       "from": "\t\t\tif !it.Done {\n\t\t\t\titems = items.Append(it)",
       "to": "\t\t\tif true {\n\t\t\t\titems = items.Append(it)",
       "rule": "ClearDoneKeepsOpen: ClearDone keeps exactly the open items.",
-      "anchor": {"tests": ["examples:todo-gui"]},
-      "killers": ["examples:todo-gui"]
+      "anchor": {
+        "tests": [
+          "examples:todo-gui"
+        ]
+      },
+      "killers": [
+        "examples:todo-gui"
+      ]
     },
     {
       "name": "x-gui-blank-added",
       "origin": "X-gui",
       "file": "examples/todo-gui/todo/todo.ergo",
-      "from": "\t\tif text == \"\" {\n\t\t\treturn Ignore",
-      "to": "\t\tif false {\n\t\t\treturn Ignore",
+      "from": "\t\tif text == \"\" {\n\t\t\treturn machines.Ignore",
+      "to": "\t\tif false {\n\t\t\treturn machines.Ignore",
       "rule": "BlankAddsNothing: an Add of spaces adds no item.",
-      "anchor": {"tests": ["examples:todo-gui"]},
-      "killers": ["examples:todo-gui"]
+      "anchor": {
+        "tests": [
+          "examples:todo-gui"
+        ]
+      },
+      "killers": [
+        "examples:todo-gui"
+      ]
     },
     {
       "name": "x-gui-typed-text-trimmed",
@@ -48,8 +72,14 @@
       "from": "let line = strings.TrimSuffix(strings.TrimLeft(raw, \" \\t\"), \"\\r\")",
       "to": "let line = strings.TrimSpace(raw)",
       "rule": "cases/play: a typed text of spaces stays a step (type LABEL<TAB>   ), which a trimmed line refuses as no step.",
-      "anchor": {"tests": ["examples:todo-gui"]},
-      "killers": ["examples:todo-gui"]
+      "anchor": {
+        "tests": [
+          "examples:todo-gui"
+        ]
+      },
+      "killers": [
+        "examples:todo-gui"
+      ]
     }
   ]
 }

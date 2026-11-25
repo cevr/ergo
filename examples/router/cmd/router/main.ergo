@@ -22,9 +22,9 @@ import router/memory
 import router/route
 import router/script
 
-let Assets = embedded[embed.FS]("help")
-let HelpText = embedded[string]("help/usage.txt")
-let HelpBytes = embedded[[]byte]("help/usage.txt")
+let Assets = embed.File[embed.FS]("help")
+let HelpText = embed.File[string]("help/usage.txt")
+let HelpBytes = embed.File[[]byte]("help/usage.txt")
 
 func readHelp() string fails fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
 	fs.Files.ReadFile("help/usage.txt")
@@ -35,7 +35,7 @@ func readHelp() string fails fs.NotFound | fs.Denied | fs.Failed needs fs.Files 
 test HelpUsesTheChosenFiles {
 	assert try with context { fs.Files: Assets } { readHelp() } == HelpText
 	assert try Assets.ReadFile("help/usage.txt") == HelpText
-	assert len(HelpBytes) == len(HelpText)
+	assert HelpBytes.Len() == HelpText.Len()
 	for i, b in HelpBytes {
 		assert b == HelpText[i]
 	}
@@ -47,23 +47,23 @@ test HelpUsesTheChosenFiles {
 	try memory.WriteFile("help/usage.txt", "test help")
 	assert try with context { fs.Files: memory } { readHelp() } == "test help"
 	let info = try Assets.Stat("help/usage.txt")
-	assert info.Size == len(HelpBytes) && !info.Dir
+	assert info.Size == HelpBytes.Len() && !info.Dir
 	assert try Assets.ReadDir("help") == []string{"usage.txt"}
 }
 
-func main() fails os.Exit needs Console | Ambient {
+func main() fails os.Exit needs io.Console | os.Ambient {
 	let mut lines = []string{}
 	with context { io.Stdin: io.NewStdin() } {
 		for line in io.Stdin.Lines() {
 			lines = lines.Append(line)
 		}
 	}
-	if len(lines) == 1 && lines[0] == "help" {
+	if lines.Len() == 1 && lines[0] == "help" {
 		let text = with context { fs.Files: Assets } { readHelp() } catch {
 		case fs.NotFound, fs.Denied, fs.Failed:
 			return os.Exit{Code: 1, Message: "router: embedded help is unavailable"}
 		}
-		Console.Println(strings.TrimSuffix(text, "\n"))
+		io.Console.Println(strings.TrimSuffix(text, "\n"))
 		return
 	}
 	let cmds = script.Read(lines) catch {
@@ -71,13 +71,13 @@ func main() fails os.Exit needs Console | Ambient {
 		return os.Exit{Code: 1, Message: "router: line \(b.Line): \(b.Why)"}
 	}
 	let directory = memory.NewDirectory()
-	let shown = with context { route.Registry: directory, Scheduler: time.NewManual(0) } {
+	let shown = with context { route.Registry: directory, time.Scheduler: time.NewManual(0) } {
 		script.PlayWith(cmds, jmemory.New[route.Router, route.Signal](), func() { memory.Arm(directory) }, func() defects { memory.InjectIfArmed(directory) })
 	} catch {
 	case journal.Failed as f:
 		return os.Exit{Code: 1, Message: "router: the journal failed: \(f.Reason)"}
 	}
 	for l in shown {
-		Console.Println(l)
+		io.Console.Println(l)
 	}
 }

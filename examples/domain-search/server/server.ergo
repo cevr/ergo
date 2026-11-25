@@ -2,6 +2,7 @@
 // with its refusals. No page is served yet, so every other request is 404.
 
 import http
+import option
 import rpc
 import strings
 import domain-search/domains
@@ -41,9 +42,9 @@ func Answer(r http.Request) http.Response needs domains.Registry | http.Streamin
 		return rpc.Answer(r, Mount(), handle)
 	}
 	let json = match http.Header(r.Header, "Content-Type") {
-	case Some as c:
+	case option.Some as c:
 		strings.HasPrefix(c.Value, "application/json")
-	case None:
+	case option.None:
 		false
 	}
 	if !json {

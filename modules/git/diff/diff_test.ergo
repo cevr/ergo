@@ -2,6 +2,7 @@ import exec
 import filepath
 import fs
 import fstest
+import option
 import os
 import slices
 import strconv
@@ -20,7 +21,7 @@ func openRepoDiskODB(fmt oid.Format, objectsDir string, host fs.Host) pack.DiskO
 	pack.NewDiskODB(odb, host)
 }
 
-let onOracleSha1 = context fails pack.Corrupt | pack.MismatchedPair | pack.IOFailed needs TestAmbient {
+let onOracleSha1 = context fails pack.Corrupt | pack.MismatchedPair | pack.IOFailed needs fstest.TestAmbient {
 	exec.Runner:      exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
 	fs.Files:         fs.NewTestHost(),
 	fs.Writes:        fs.NewTestHost(),
@@ -29,7 +30,7 @@ let onOracleSha1 = context fails pack.Corrupt | pack.MismatchedPair | pack.IOFai
 	pack.ObjectStore: try openRepoDiskODB(oid.Sha1, filepath.Join([]string{fstest.TestFolder(), "repo", ".git", "objects"}), fs.NewTestHost()),
 }
 
-let onOracleSha256 = context fails pack.Corrupt | pack.MismatchedPair | pack.IOFailed needs TestAmbient {
+let onOracleSha256 = context fails pack.Corrupt | pack.MismatchedPair | pack.IOFailed needs fstest.TestAmbient {
 	exec.Runner:      exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
 	fs.Files:         fs.NewTestHost(),
 	fs.Writes:        fs.NewTestHost(),
@@ -46,7 +47,7 @@ let onMemoryDifferSha256 = context {
 	TreeDiffer: NewMemoryDiffer(oid.Sha256),
 }
 
-let onDiskDifferSha1 = context needs TestAmbient {
+let onDiskDifferSha1 = context needs fstest.TestAmbient {
 	TreeDiffer: NewStoreDiffer(oid.Sha1, filepath.Join([]string{fstest.TestFolder(), "law-disk-diff-odb"}), []string{}, fs.NewTestHost()),
 }
 
@@ -61,7 +62,7 @@ law NumstatMatchesLineCounts(seed string) {
 	}
 	let added = Numstat([]byte{}, text.Bytes())
 	let deleted = Numstat(text.Bytes(), []byte{})
-	let wantLines = len(SplitLines(text.Bytes()))
+	let wantLines = SplitLines(text.Bytes()).Len()
 	if added.Binary || added.AddedLines != wantLines || added.DeletedLines != 0 {
 		return false
 	}
@@ -101,7 +102,7 @@ func parseRawDiffZ(raw string) []rawDiffRow fails testFail {
 	let parts = strings.Split(raw, "\x00")
 	let mut rows = []rawDiffRow{}
 	let mut i = 0
-	for i < len(parts) {
+	for i < parts.Len() {
 		let tok = parts[i]
 		if tok == "" {
 			i = i + 1
@@ -111,12 +112,12 @@ func parseRawDiffZ(raw string) []rawDiffRow fails testFail {
 			return testFail{reason: "unexpected raw diff token: " + tok}
 		}
 		let fields = strings.Fields(tok[1:])
-		if len(fields) != 5 {
+		if fields.Len() != 5 {
 			return testFail{reason: "expected 5 fields in raw diff header: " + tok}
 		}
 		let st = fields[4]
 		if strings.HasPrefix(st, "R") || strings.HasPrefix(st, "C") {
-			if i+2 >= len(parts) {
+			if i+2 >= parts.Len() {
 				return testFail{reason: "truncated rename paths in raw diff"}
 			}
 			rows = rows.Append(rawDiffRow{
@@ -130,7 +131,7 @@ func parseRawDiffZ(raw string) []rawDiffRow fails testFail {
 			})
 			i = i + 3
 		} else {
-			if i+1 >= len(parts) {
+			if i+1 >= parts.Len() {
 				return testFail{reason: "truncated path in raw diff"}
 			}
 			rows = rows.Append(rawDiffRow{
@@ -158,18 +159,18 @@ func parseNumstatZ(raw string) []numstatRow fails testFail {
 	let parts = strings.Split(raw, "\x00")
 	let mut rows = []numstatRow{}
 	let mut i = 0
-	for i < len(parts) {
+	for i < parts.Len() {
 		let tok = parts[i]
 		if tok == "" {
 			i = i + 1
 			continue
 		}
 		let fields = strings.Split(tok, "\t")
-		if len(fields) != 3 {
+		if fields.Len() != 3 {
 			return testFail{reason: "unexpected numstat token: " + tok}
 		}
 		if fields[2] == "" {
-			if i+2 >= len(parts) {
+			if i+2 >= parts.Len() {
 				return testFail{reason: "truncated rename numstat paths"}
 			}
 			rows = rows.Append(numstatRow{
@@ -190,20 +191,20 @@ func parseNumstatZ(raw string) []numstatRow fails testFail {
 	rows
 }
 
-func optModeStr(m Option[tree.Mode]) string {
+func optModeStr(m option.Option[tree.Mode]) string {
 	match m {
-	case None:
+	case option.None:
 		"000000"
-	case Some[tree.Mode] as v:
+	case option.Some[tree.Mode] as v:
 		tree.ModeOctal(v.Value)
 	}
 }
 
-func optOidStr(id Option[oid.OID], fmt oid.Format) string {
+func optOidStr(id option.Option[oid.OID], fmt oid.Format) string {
 	match id {
-	case None:
+	case option.None:
 		oid.Hex(oid.Zero(fmt))
-	case Some[oid.OID] as v:
+	case option.Some[oid.OID] as v:
 		oid.Hex(v.Value)
 	}
 }
@@ -214,10 +215,10 @@ func compareChangesToRaw(fmt oid.Format, got []Change, want []rawDiffRow) fails 
 		let pb = if b.path2 != "" { b.path2 } else { b.path1 }
 		if pa < pb { -1 } else if pa > pb { 1 } else { 0 }
 	})
-	if len(got) != len(wantSorted) {
-		return testFail{reason: "diff count mismatch: got \(len(got)), want \(len(wantSorted))"}
+	if got.Len() != wantSorted.Len() {
+		return testFail{reason: "diff count mismatch: got \(got.Len()), want \(wantSorted.Len())"}
 	}
-	for i in 0..len(got) {
+	for i in 0..got.Len() {
 		let g = got[i]
 		let w = wantSorted[i]
 		let gLetter = StatusLetter(g.Status)
@@ -233,15 +234,15 @@ func compareChangesToRaw(fmt oid.Format, got []Change, want []rawDiffRow) fails 
 		}
 		if gLetter == "R" {
 			let gOld = match g.OldPath {
-			case Some[string] as p:
+			case option.Some[string] as p:
 				p.Value
-			case None:
+			case option.None:
 				""
 			}
 			let gNew = match g.NewPath {
-			case Some[string] as p:
+			case option.Some[string] as p:
 				p.Value
-			case None:
+			case option.None:
 				""
 			}
 			if gOld != w.path1 || gNew != w.path2 {
@@ -354,10 +355,10 @@ func verifyFormatDiffs(cwd string, oFmt oracle.OidFormat, fmt oid.Format, pathEn
 		if a.path < b.path { -1 } else if a.path > b.path { 1 } else { 0 }
 	})
 	let gotStats = try DiffNumstat(gotRen, 16777216)
-	if len(gotStats) != len(wantStatsSorted) {
+	if gotStats.Len() != wantStatsSorted.Len() {
 		return testFail{reason: "numstat count mismatch"}
 	}
-	for i in 0..len(gotStats) {
+	for i in 0..gotStats.Len() {
 		let gs = gotStats[i]
 		let ws = wantStatsSorted[i]
 		if ChangePath(gs.Change) != ws.path {
@@ -389,7 +390,7 @@ func verifyFormatDiffs(cwd string, oFmt oracle.OidFormat, fmt oid.Format, pathEn
 
 	let idx = try index.Open(fmt, filepath.Join([]string{repoDir, ".git", "index"}))
 	let wantCached = try parseRawDiffZ(try runGitOk(repoDir, []string{"diff", "--cached", "--raw", "--no-abbrev", "-z", "--no-renames"}, "", pathEnv, 15))
-	let gotCached = try DiffTreeToIndex(fmt, Some[oid.OID]{Value: t2}, idx, NoRenameOptions())
+	let gotCached = try DiffTreeToIndex(fmt, option.Some[oid.OID]{Value: t2}, idx, NoRenameOptions())
 	try compareChangesToRaw(fmt, gotCached, wantCached)
 }
 

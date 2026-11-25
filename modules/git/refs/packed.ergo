@@ -1,3 +1,4 @@
+import option
 import strings
 import github.com/cevr/ergo/modules/git/oid
 
@@ -12,24 +13,24 @@ func ParsePackedRefs(format oid.Format, content string) []Ref fails CorruptRef {
 			continue
 		}
 		if strings.HasPrefix(line, "^") {
-			if len(out) == 0 {
+			if out.Len() == 0 {
 				return CorruptRef{Name: "packed-refs", Why: "peeled line without preceding ref"}
 			}
 			let peeledHex = strings.TrimPrefix(line, "^")
 			let peeledOID = oid.ParseHex(format, peeledHex) catch {
 			case oid.BadHex, oid.WrongLength:
-				return CorruptRef{Name: out[len(out)-1].Name, Why: "invalid peeled OID in packed-refs"}
+				return CorruptRef{Name: out[out.Len()-1].Name, Why: "invalid peeled OID in packed-refs"}
 			}
-			let last = out[len(out)-1]
-			out[len(out)-1] = Ref{
+			let last = out[out.Len()-1]
+			out[out.Len()-1] = Ref{
 				Name:   last.Name,
 				Target: last.Target,
-				Peeled: Some[oid.OID]{Value: peeledOID},
+				Peeled: option.Some[oid.OID]{Value: peeledOID},
 			}
 			continue
 		}
 		let sp = strings.Index(line, " ")
-		if sp <= 0 || sp+1 >= len(line) {
+		if sp <= 0 || sp+1 >= line.Len() {
 			return CorruptRef{Name: "packed-refs", Why: "malformed packed-refs line"}
 		}
 		let hexPart = line[:sp]
@@ -44,7 +45,7 @@ func ParsePackedRefs(format oid.Format, content string) []Ref fails CorruptRef {
 		out = out.Append(Ref{
 			Name:   namePart,
 			Target: Direct{OID: id},
-			Peeled: None,
+			Peeled: option.None,
 		})
 	}
 	out

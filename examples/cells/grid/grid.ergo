@@ -54,8 +54,8 @@ func Put(g mut Grid, c int, r int, cell Cell) {
 func Runes(s string) []string {
 	let mut out = []string{}
 	let mut at = 0
-	for at < len(s) {
-		let d = utf8.DecodeRuneInString(strings.Slice(s, at, len(s)))
+	for at < s.Len() {
+		let d = utf8.DecodeRuneInString(strings.Slice(s, at, s.Len()))
 		out = out.Append(strings.Slice(s, at, at+d.Size))
 		at = at + d.Size
 	}

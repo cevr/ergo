@@ -1,3 +1,4 @@
+import option
 import strconv
 import strings
 
@@ -27,7 +28,7 @@ func MergeRows(base string, ours string, theirs string) Merged fails Unreadable 
 		let bv = member(b, m.Key)
 		let tv = member(t, m.Key)
 		let keyed = match (bv, tv) {
-		case (Some[string] as x, Some[string] as y):
+		case (option.Some[string] as x, option.Some[string] as y):
 			isKeyed(x.Value) && isKeyed(m.Raw) && isKeyed(y.Value)
 		case _:
 			false
@@ -42,14 +43,14 @@ func MergeRows(base string, ours string, theirs string) Merged fails Unreadable 
 			}
 			continue
 		}
-		match Choose(bv, Some[string]{Value: m.Raw}, tv, sameBare) {
+		match Choose(bv, option.Some[string]{Value: m.Raw}, tv, sameBare) {
 		case Take as k:
 			match k.Value {
-			case Some[string] as v:
+			case option.Some[string] as v:
 				if v.Value != m.Raw {
 					edits = edits.Append(Span{Raw: v.Value, Start: m.Start, End: m.End})
 				}
-			case None:
+			case option.None:
 				conflicts = conflicts.Append(m.Key)
 			}
 		case Clash:
@@ -58,7 +59,7 @@ func MergeRows(base string, ours string, theirs string) Merged fails Unreadable 
 		}
 	}
 	for m in t {
-		if member(o, m.Key) == None && Choose(member(b, m.Key), None, Some[string]{Value: m.Raw}, sameBare) != (Take{Value: None}) {
+		if member(o, m.Key) == option.None && Choose(member(b, m.Key), option.None, option.Some[string]{Value: m.Raw}, sameBare) != (Take{Value: option.None}) {
 			conflicts = conflicts.Append(m.Key)
 		}
 	}
@@ -82,22 +83,22 @@ func KeyedRows(text string) Map[string, string] fails Unreadable {
 }
 
 // textOf is an optional raw text as text ("" when absent).
-func textOf(v Option[string]) string {
+func textOf(v option.Option[string]) string {
 	match v {
-	case Some[string] as s:
+	case option.Some[string] as s:
 		s.Value
-	case None:
+	case option.None:
 		""
 	}
 }
 
-func member(ms []Entry, key string) Option[string] {
+func member(ms []Entry, key string) option.Option[string] {
 	for m in ms {
 		if m.Key == key {
-			return Some[string]{Value: m.Raw}
+			return option.Some[string]{Value: m.Raw}
 		}
 	}
-	None
+	option.None
 }
 
 // replaced is text with each span's place holding the span's raw text
@@ -110,7 +111,7 @@ func replaced(text string, spans []Span) string {
 		out.WriteString(s.Raw)
 		at = s.End
 	}
-	out.WriteString(strings.Slice(text, at, len(text)))
+	out.WriteString(strings.Slice(text, at, text.Len()))
 	out.String()
 }
 
@@ -136,9 +137,9 @@ func rowsOf(raw string, side string) []Row fails Unreadable {
 	let mut out = []Row{}
 	for e in try Elements(raw, side) {
 		let name = match member(try Members(e.Raw, side), RowKey) {
-		case Some[string] as n:
+		case option.Some[string] as n:
 			n.Value
-		case None:
+		case option.None:
 			return Unreadable{Side: side, At: e.Start, Why: "a row has no \(RowKey)"}
 		}
 		if !strings.HasPrefix(name, "\"") {
@@ -149,13 +150,13 @@ func rowsOf(raw string, side string) []Row fails Unreadable {
 	out
 }
 
-func rowNamed(rows []Row, key string) Option[string] {
+func rowNamed(rows []Row, key string) option.Option[string] {
 	for r in rows {
 		if r.Key == key {
-			return Some[string]{Value: r.Raw}
+			return option.Some[string]{Value: r.Raw}
 		}
 	}
-	None
+	option.None
 }
 
 // mergeList merges three keyed lists row by row, in ours' layout; it is
@@ -167,17 +168,17 @@ func mergeList(base string, ours string, theirs string) (string, []string) fails
 	let mut out = []Row{}
 	let mut clashes = []string{}
 	for r in o {
-		match Choose(rowNamed(b, r.Key), Some[string]{Value: r.Raw}, rowNamed(t, r.Key), sameBare) {
+		match Choose(rowNamed(b, r.Key), option.Some[string]{Value: r.Raw}, rowNamed(t, r.Key), sameBare) {
 		case Take as k:
 			match k.Value {
-			case Some[string] as v:
+			case option.Some[string] as v:
 				out = out.Append(Row{Key: r.Key, Raw: v.Value})
-			case None:
+			case option.None:
 			}
 		case Clash:
 			let other = textOf(rowNamed(t, r.Key))
 			let byLines = MergeText(textOf(rowNamed(b, r.Key)), r.Raw, other)
-			if byLines.Clashes == 0 && rowNamed(b, r.Key) != None && other != "" {
+			if byLines.Clashes == 0 && rowNamed(b, r.Key) != option.None && other != "" {
 				out = out.Append(Row{Key: r.Key, Raw: Text(byLines)})
 			} else {
 				clashes = clashes.Append(r.Key)
@@ -185,23 +186,23 @@ func mergeList(base string, ours string, theirs string) (string, []string) fails
 			}
 		}
 	}
-	let mut after Option[string] = None
+	let mut after option.Option[string] = option.None
 	for r in t {
-		if rowNamed(o, r.Key) == None {
-			match Choose(rowNamed(b, r.Key), None, Some[string]{Value: r.Raw}, sameBare) {
+		if rowNamed(o, r.Key) == option.None {
+			match Choose(rowNamed(b, r.Key), option.None, option.Some[string]{Value: r.Raw}, sameBare) {
 			case Take as k:
 				match k.Value {
-				case Some[string] as v:
+				case option.Some[string] as v:
 					out = rowInserted(out, after, Row{Key: r.Key, Raw: v.Value})
-				case None:
+				case option.None:
 				}
 			case Clash:
 				clashes = clashes.Append(r.Key)
 				out = rowInserted(out, after, Row{Key: r.Key, Raw: Marked("", r.Raw)})
 			}
 		}
-		if rowNamed(out, r.Key) != None {
-			after = Some[string]{Value: r.Key}
+		if rowNamed(out, r.Key) != option.None {
+			after = option.Some[string]{Value: r.Key}
 		}
 	}
 	(listText(ours, try Elements(ours, "ours"), out), clashes)
@@ -209,16 +210,16 @@ func mergeList(base string, ours string, theirs string) (string, []string) fails
 
 // rowInserted is rows with row after the row keyed after (first when
 // there is none).
-func rowInserted(rows []Row, after Option[string], row Row) []Row {
+func rowInserted(rows []Row, after option.Option[string], row Row) []Row {
 	let mut out = []Row{}
 	let mut done = false
-	if after == None {
+	if after == option.None {
 		out = out.Append(row)
 		done = true
 	}
 	for r in rows {
 		out = out.Append(r)
-		if !done && after == (Some[string]{Value: r.Key}) {
+		if !done && after == (option.Some[string]{Value: r.Key}) {
 			out = out.Append(row)
 			done = true
 		}
@@ -235,21 +236,21 @@ func rowInserted(rows []Row, after Option[string], row Row) []Row {
 func listText(ours string, els []Span, rows []Row) string {
 	let open = strings.Index(ours, "[")
 	let close = strings.LastIndex(ours, "]")
-	let (head, sep, tail) = if len(els) >= 2 {
-		(strings.Slice(ours, open+1, els[0].Start), strings.Slice(ours, els[0].End, els[1].Start), strings.Slice(ours, els[len(els)-1].End, close))
-	} else if len(els) == 1 {
+	let (head, sep, tail) = if els.Len() >= 2 {
+		(strings.Slice(ours, open+1, els[0].Start), strings.Slice(ours, els[0].End, els[1].Start), strings.Slice(ours, els[els.Len()-1].End, close))
+	} else if els.Len() == 1 {
 		(strings.Slice(ours, open+1, els[0].Start), ",\n    ", strings.Slice(ours, els[0].End, close))
 	} else {
 		("\n    ", ",\n    ", "\n  ")
 	}
-	if len(rows) == 0 {
+	if rows.Len() == 0 {
 		return "[]"
 	}
 	let mut parts = []string{}
 	for r in rows {
 		parts = parts.Append(r.Raw)
 	}
-	strings.Slice(ours, 0, open+1) + head + strings.Join(parts, sep) + tail + strings.Slice(ours, close, len(ours))
+	strings.Slice(ours, 0, open+1) + head + strings.Join(parts, sep) + tail + strings.Slice(ours, close, ours.Len())
 }
 
 // ledger is units as a mutant ledger: an about line and one row a line,
@@ -258,51 +259,51 @@ func ledger(units Map[int, int]) string {
 	let mut rows = []string{}
 	for key in 0..6 {
 		match units.Get(key) {
-		case Some[int] as v:
+		case option.Some[int] as v:
 			rows = rows.Append("    {\"name\":\"k\(key)\",\"file\":\"f.go\",\"value\":\(v.Value)}")
-		case None:
+		case option.None:
 		}
 	}
-	let list = if len(rows) == 0 { "[]" } else { "[\n" + strings.Join(rows, ",\n") + "\n  ]" }
+	let list = if rows.Len() == 0 { "[]" } else { "[\n" + strings.Join(rows, ",\n") + "\n  ]" }
 	"{\n  \"about\": \"a ledger\",\n  \"mutants\": " + list + "\n}\n"
 }
 
 // rowsRead is the units of a ledger's text, or None when it does not read.
-func rowsRead(text string) Option[Map[int, int]] {
+func rowsRead(text string) option.Option[Map[int, int]] {
 	let members = Members(text, "merged") catch {
 	case Unreadable:
-		return None
+		return option.None
 	}
 	let list = match member(members, "mutants") {
-	case Some[string] as l:
+	case option.Some[string] as l:
 		l.Value
-	case None:
-		return None
+	case option.None:
+		return option.None
 	}
 	let rows = rowsOf(list, "merged") catch {
 	case Unreadable:
-		return None
+		return option.None
 	}
 	let mut out = Map[int, int]{}
 	for r in rows {
 		let key = strconv.Atoi(strings.TrimPrefix(r.Key, "k")) catch {
 		case strconv.Malformed, strconv.OutOfRange:
-			return None
+			return option.None
 		}
 		let fields = Members(r.Raw, "merged") catch {
 		case Unreadable:
-			return None
+			return option.None
 		}
 		let value = strconv.Atoi(textOf(member(fields, "value"))) catch {
 		case strconv.Malformed, strconv.OutOfRange:
-			return None
+			return option.None
 		}
-		if out.Get(key) != None {
-			return None
+		if out.Get(key) != option.None {
+			return option.None
 		}
 		out[key] = value
 	}
-	Some[Map[int, int]]{Value: out}
+	option.Some[Map[int, int]]{Value: out}
 }
 
 func clashKeys(m Merged, prefix string) []int {
@@ -318,7 +319,7 @@ func clashKeys(m Merged, prefix string) []int {
 }
 
 func sameInts(a []int, b []int) bool {
-	if len(a) != len(b) {
+	if a.Len() != b.Len() {
 		return false
 	}
 	for x in a {
@@ -346,7 +347,7 @@ law RowsAreTheReference(units Map[int, int], ourEdits []Edit, theirEdits []Edit)
 	case Unreadable:
 		return false
 	}
-	sameInts(clashKeys(got, "mutants/"), want.Clashes) && (len(want.Clashes) > 0 || rowsRead(got.Text) == Some[Map[int, int]]{Value: want.Units})
+	sameInts(clashKeys(got, "mutants/"), want.Clashes) && (want.Clashes.Len() > 0 || rowsRead(got.Text) == option.Some[Map[int, int]]{Value: want.Units})
 }
 
 // RowsByUnitsAreTheReference: the same by units alone, where the line
@@ -363,7 +364,7 @@ law RowsByUnitsAreTheReference(units Map[int, int], ourEdits []Edit, theirEdits 
 	if !sameInts(clashKeys(got, "mutants/"), want.Clashes) {
 		return false
 	}
-	len(want.Clashes) > 0 || rowsRead(got.Text) == Some[Map[int, int]]{Value: want.Units}
+	want.Clashes.Len() > 0 || rowsRead(got.Text) == option.Some[Map[int, int]]{Value: want.Units}
 }
 
 // RowsCommute: the merge in the other order clashes on the same rows,
@@ -380,5 +381,5 @@ law RowsCommute(units Map[int, int], ourEdits []Edit, theirEdits []Edit) {
 	case Unreadable:
 		return false
 	}
-	sameInts(clashKeys(one, "mutants/"), clashKeys(two, "mutants/")) && (len(one.Conflicts) > 0 || rowsRead(one.Text) == rowsRead(two.Text))
+	sameInts(clashKeys(one, "mutants/"), clashKeys(two, "mutants/")) && (one.Conflicts.Len() > 0 || rowsRead(one.Text) == rowsRead(two.Text))
 }

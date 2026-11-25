@@ -7,6 +7,7 @@
 // server, so a test calls Fetch as a host does (Remix 3's router.fetch).
 
 import html
+import option
 import ui
 
 // Routes is a site's route map: Href is the place of a route, and Parse
@@ -14,11 +15,11 @@ import ui
 // that is no route of the site.
 type Routes[R comparable] {
 	Href(r R) ui.URL,
-	Parse(u ui.URL) Option[R],
+	Parse(u ui.URL) option.Option[R],
 
 	// HrefParses: every route parses back from its own place, so no link
 	// the site makes leads to its 404 page or to another route.
-	law HrefParses(r R) { Parse(Href(r)) == Some{r} },
+	law HrefParses(r R) { Parse(Href(r)) == option.Some{r} },
 }
 
 // To is the link to route r of the route map m, for html.Href: a place on

@@ -1,6 +1,8 @@
 // The tests of retry: backoff worked by hand and a job's life. The laws
 // run under ergo test.
 
+import machines
+
 let Default = Policy{Attempts: 4, Base: 100ms, Max: 300ms}
 
 test BackoffDoublesToItsCap {
@@ -19,10 +21,10 @@ test AFlakyJobSucceeds {
 }
 
 test StepRefusesAWrongQueue {
-	assert Step(Queued{N: 1, Ready: 5s}, Start{At: 4s, Takes: 1s}) == Reject
-	assert Step(Running{N: 1, Ends: 5s}, Start{At: 6s, Takes: 1s}) == Reject
-	assert Step(Queued{N: 1, Ready: 5s}, Finish{At: 6s, R: Ok, P: Default}) == Reject
-	assert Step(Running{N: 1, Ends: 5s}, Finish{At: 4s, R: Ok, P: Default}) == Reject
+	assert Step(Queued{N: 1, Ready: 5s}, Start{At: 4s, Takes: 1s}) == machines.Reject
+	assert Step(Running{N: 1, Ends: 5s}, Start{At: 6s, Takes: 1s}) == machines.Reject
+	assert Step(Queued{N: 1, Ready: 5s}, Finish{At: 6s, R: Ok, P: Default}) == machines.Reject
+	assert Step(Running{N: 1, Ends: 5s}, Finish{At: 4s, R: Ok, P: Default}) == machines.Reject
 }
 
 test ScriptsAJob {

@@ -11,7 +11,7 @@ type Pad { Text string, Max int }
 // never more than it takes.
 law DigitsRegionTotal(max int, presses []int) {
 	let p = fill(max, presses)
-	len(p.Text) <= p.Max && digitsOnly(p.Text)
+	p.Text.Len() <= p.Max && digitsOnly(p.Text)
 }
 
 // keyOf reads a generated number as a key: a negative number is Erase, any
@@ -61,19 +61,19 @@ func Empty(max int) Pad { Pad{Text: "", Max: max} }
 func Press(p Pad, k Key) Pad {
 	match k {
 	case Digit as d:
-		if d.D < 0 || d.D > 9 || len(p.Text) >= p.Max {
+		if d.D < 0 || d.D > 9 || p.Text.Len() >= p.Max {
 			p
 		} else {
 			Pad{..p, Text: p.Text + "\(d.D)"}
 		}
 	case Erase:
-		if len(p.Text) == 0 {
+		if p.Text.Len() == 0 {
 			p
 		} else {
-			Pad{..p, Text: p.Text[0 : len(p.Text)-1]}
+			Pad{..p, Text: p.Text[0 : p.Text.Len()-1]}
 		}
 	}
 }
 
 // Full reports whether the pad holds all its digits.
-func Full(p Pad) bool { len(p.Text) == p.Max }
+func Full(p Pad) bool { p.Text.Len() == p.Max }

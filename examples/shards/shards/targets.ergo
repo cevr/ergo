@@ -1,3 +1,6 @@
+import machines
+import option
+
 // Share is one share of a write: a disk or a tape, for a size in
 // hundredths.
 type Share = Disk{Device string, Size int} | Tape{Label string, Size int}
@@ -17,13 +20,13 @@ law WriteAlwaysAnswers(i int, disk string, size int, m int) {
 		NoAnswer
 	}
 	let timed = match writeTimer(s) {
-	case Some[Timeout[WriteSignal]] as t:
+	case option.Some[machines.Timeout[WriteSignal]] as t:
 		t.Value.In == WriteWait()
-	case None:
+	case option.None:
 		false
 	}
 	match writeStep(s, e) {
-	case Done[Answer] as d:
+	case machines.Done[Answer] as d:
 		timed && match d.Output {
 		case Taken as t:
 			t.Index == i && k%3 == 0
@@ -41,21 +44,21 @@ func sending(at (int, Share)) Storing {
 	Sending{Index: i, Share: t}
 }
 
-func writeStep(s Storing, e WriteSignal) Decision[Storing, Answer] {
+func writeStep(s Storing, e WriteSignal) machines.Decision[Storing, Answer] {
 	match (s, e) {
 	case (Sending as a, Acked as ok):
-		Done[Answer]{Output: Taken{Index: a.Index, Share: a.Share, R: ok.R}}
+		machines.Done[Answer]{Output: Taken{Index: a.Index, Share: a.Share, R: ok.R}}
 	case (Sending as a, Refused as r):
-		Done[Answer]{Output: Lost{Index: a.Index, Share: a.Share, Why: r.Why}}
+		machines.Done[Answer]{Output: Lost{Index: a.Index, Share: a.Share, Why: r.Why}}
 	case (Sending as a, NoAnswer):
-		Done[Answer]{Output: Lost{Index: a.Index, Share: a.Share, Why: "no answer"}}
+		machines.Done[Answer]{Output: Lost{Index: a.Index, Share: a.Share, Why: "no answer"}}
 	}
 }
 
-func writeTimer(s Storing) Option[Timeout[WriteSignal]] {
+func writeTimer(s Storing) option.Option[machines.Timeout[WriteSignal]] {
 	match s {
 	case Sending:
-		Some{Timeout[WriteSignal]{In: WriteWait(), Signal: NoAnswer}}
+		option.Some{machines.Timeout[WriteSignal]{In: WriteWait(), Signal: NoAnswer}}
 	}
 }
 
@@ -71,16 +74,16 @@ law TakenWritesAreErased(partSizes []int, ids []string, why string) {
 	}
 	let reason = "lost: \(why)"
 	match moved(Step(Writing{Parts: partsOf(partSizes), Shares: []Share{}}, SharesLost{Refs: refs, Why: reason})) {
-	case Some[Job] as s:
+	case option.Some[Job] as s:
 		match s.Value {
 		case RollingBack as v:
-			len(refs) > 0 && len(v.Refs) == len(refs)
+			refs.Len() > 0 && v.Refs.Len() == refs.Len()
 		case Staging as b:
-			len(refs) == 0 && b.Note == reason
+			refs.Len() == 0 && b.Note == reason
 		case _:
 			false
 		}
-	case None:
+	case option.None:
 		false
 	}
 }

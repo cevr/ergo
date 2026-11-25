@@ -1,3 +1,5 @@
+import machines
+
 // Period identifies one of the two digest periods in scope.
 type Period = P0{} | P1{}
 
@@ -127,18 +129,18 @@ func hasHidden(log []bool, from int, to int) bool {
 	false
 }
 
-func step(s World, act Act, mutant int) Decision[World, string] {
+func step(s World, act Act, mutant int) machines.Decision[World, string] {
 	let mut w = s
 	match act {
 	case Append as a:
 		if head(w.Log) >= MaxEvents {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Log = w.Log.Append(a.Visible)
-		return Enter{w}
+		return machines.Enter{w}
 	case EndPeriod:
 		if w.CurPeriod >= MaxPeriods {
-			return Ignore
+			return machines.Ignore
 		}
 		let h = head(w.Log)
 		let p = w.CurPeriod
@@ -147,14 +149,14 @@ func step(s World, act Act, mutant int) Decision[World, string] {
 			w.Start[p+1] = h
 		}
 		w.CurPeriod = p + 1
-		return Enter{w}
+		return machines.Enter{w}
 	case BeginRun as a:
 		let p = pi(a.P)
 		if w.InFlight >= 0 || p >= w.CurPeriod || w.Runs[p] >= MaxRunsPerPeriod {
-			return Ignore
+			return machines.Ignore
 		}
 		if !w.Posted[p] && w.LastTo > w.Cut[p] {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Runs[p] = w.Runs[p] + 1
 		let mut from = w.LastTo
@@ -179,23 +181,23 @@ func step(s World, act Act, mutant int) Decision[World, string] {
 		if mutant == advanceBeforeWriteMutant && !w.Posted[p] {
 			w.LastTo = to
 		}
-		return Enter{w}
+		return machines.Enter{w}
 	case Crash:
 		if w.InFlight < 0 || w.Crashes >= MaxCrashes {
-			return Ignore
+			return machines.Ignore
 		}
 		w.InFlight = -1
 		w.Crashes = w.Crashes + 1
-		return Enter{w}
+		return machines.Enter{w}
 	case CommitRun:
 		if w.InFlight < 0 {
-			return Ignore
+			return machines.Ignore
 		}
 		let p = w.InFlight
 		w.InFlight = -1
 		if w.Posted[p] && mutant != noIdempotencyMutant {
 			w.RerunIgnored = true
-			return Enter{w}
+			return machines.Enter{w}
 		}
 		w.Digests = w.Digests.Append(Digest{
 			Period: p,
@@ -212,7 +214,7 @@ func step(s World, act Act, mutant int) Decision[World, string] {
 		if hasHidden(w.Log, w.PendingFrom, w.PendingTo) {
 			w.HiddenSeen = true
 		}
-		return Enter{w}
+		return machines.Enter{w}
 	}
 }
 
@@ -283,12 +285,12 @@ func skipsHiddenEvents(w World) bool {
 
 func rerunIsIdempotent(w World) bool { w.RerunIgnored }
 
-func design(s World, a Act) Decision[World, string]              { return step(s, a, noMutant) }
-func readFromPeriodStart(s World, a Act) Decision[World, string] { return step(s, a, readFromPeriodStartMutant) }
-func readHead(s World, a Act) Decision[World, string]            { return step(s, a, readHeadMutant) }
-func noIdempotency(s World, a Act) Decision[World, string]       { return step(s, a, noIdempotencyMutant) }
-func countHidden(s World, a Act) Decision[World, string]         { return step(s, a, countHiddenMutant) }
-func advanceBeforeWrite(s World, a Act) Decision[World, string]  { return step(s, a, advanceBeforeWriteMutant) }
+func design(s World, a Act) machines.Decision[World, string]              { return step(s, a, noMutant) }
+func readFromPeriodStart(s World, a Act) machines.Decision[World, string] { return step(s, a, readFromPeriodStartMutant) }
+func readHead(s World, a Act) machines.Decision[World, string]            { return step(s, a, readHeadMutant) }
+func noIdempotency(s World, a Act) machines.Decision[World, string]       { return step(s, a, noIdempotencyMutant) }
+func countHidden(s World, a Act) machines.Decision[World, string]         { return step(s, a, countHiddenMutant) }
+func advanceBeforeWrite(s World, a Act) machines.Decision[World, string]  { return step(s, a, advanceBeforeWriteMutant) }
 
 // Design is the digest coverage model: digests for a scope partition the log
 // prefix up to LastTo without gap or overlap, each period posts at most once,

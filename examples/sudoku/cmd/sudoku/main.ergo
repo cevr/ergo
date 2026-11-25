@@ -88,7 +88,7 @@ func run(args []string) fails os.Exit needs io.Stdin | io.Stdout {
 	}
 }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	with context { os.Process: os.NewHost(), io.Stdin: io.NewStdin(), io.Stdout: io.NewHost() } {
 		try run(os.Process.Args())
 	}
@@ -133,5 +133,5 @@ test SolversAgree(seed int, n int) {
 	let p = board.Line(board.Puzzle(seed, if n < 0 { -(n + 1) % 50 } else { n % 50 }))
 	let fast = ran([]string{}, p+"\n")
 	let slow = ran([]string{"-r"}, p+"\n")
-	assert (fast == "unsolvable") == (slow == "unsolvable") && len(fast) == 82 && len(slow) == 82
+	assert (fast == "unsolvable") == (slow == "unsolvable") && fast.Len() == 82 && slow.Len() == 82
 }

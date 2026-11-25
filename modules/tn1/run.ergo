@@ -47,7 +47,7 @@ law PermilleRises(a int, b int) { a > b || Permille(a) <= Permille(b) }
 
 // lowered is byte c of text with A to Z lowered, or 0 past its end.
 func lowered(text string, c int) int {
-	if c >= len(text) || c >= MaxColumns {
+	if c >= text.Len() || c >= MaxColumns {
 		return 0
 	}
 	let b = int(text[c])
@@ -59,7 +59,7 @@ func lowered(text string, c int) int {
 
 // fires reports whether some window of text fires filter f.
 func fires(n Net, f int, text string) bool {
-	let width = lo(len(text), MaxColumns)
+	let width = lo(text.Len(), MaxColumns)
 	for c in 0..width {
 		let mut sum = 0
 		for k in 0..n.K {
@@ -136,9 +136,9 @@ func Run(n Net, r Features) []Finding {
 	let mut starts = []int{0}
 	for l in r.Lines {
 		xs = active(n, l, xs)
-		starts = starts.Append(len(xs))
+		starts = starts.Append(xs.Len())
 	}
-	let lines = len(r.Lines)
+	let lines = r.Lines.Len()
 	let mut found = []Finding{}
 	for i in 0..lines {
 		let mut score = n.outBias

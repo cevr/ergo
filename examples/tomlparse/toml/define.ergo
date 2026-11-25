@@ -4,6 +4,8 @@
 // Array of Tables, Keys) are its transitions; a use the rules forbid ends
 // the machine with the failure it is.
 
+import machines
+
 // Shape is how a key is defined so far.
 type Shape = Absent | Implicit | Header | Dotted | Tables | Closed
 
@@ -88,15 +90,15 @@ func Define(s Shape, u Use) Shape fails Refusal {
 	}
 }
 
-func DefineStep(s Shape, u Use) Decision[Shape, Refusal] {
+func DefineStep(s Shape, u Use) machines.Decision[Shape, Refusal] {
 	let next = Define(s, u) catch {
 	case Refusal as r:
-		return Done[Refusal]{Output: r}
+		return machines.Done[Refusal]{Output: r}
 	}
 	if next == s {
-		return Stay[Shape]{Next: next}
+		return machines.Stay[Shape]{Next: next}
 	}
-	Enter[Shape]{Next: next}
+	machines.Enter[Shape]{Next: next}
 }
 
 // Definition is a key's definition as a machine.
@@ -115,9 +117,9 @@ type Definition machine[Shape, Use] {
 		let uses = []Use{Pass, Open, Append, Dot, Set}
 		let u = uses[if pick < 0 { -(pick % 5) } else { pick % 5 }]
 		match DefineStep(Closed, u) {
-		case Done[Refusal]:
+		case machines.Done[Refusal]:
 			true
-		case Enter[Shape], Stay[Shape], Emit[Shape, Refusal], Tell[Shape, Refusal], Ignore, Reject:
+		case machines.Enter[Shape], machines.Stay[Shape], machines.Emit[Shape, Refusal], machines.Tell[Shape, Refusal], machines.Ignore, machines.Reject:
 			false
 		}
 	},
@@ -127,9 +129,9 @@ type Definition machine[Shape, Use] {
 		let shapes = []Shape{Implicit, Header, Dotted, Tables, Closed}
 		let s = shapes[if pick < 0 { -(pick % 5) } else { pick % 5 }]
 		match DefineStep(s, Set) {
-		case Done[Refusal] as d:
+		case machines.Done[Refusal] as d:
 			d.Output == Twice
-		case Enter[Shape], Stay[Shape], Emit[Shape, Refusal], Tell[Shape, Refusal], Ignore, Reject:
+		case machines.Enter[Shape], machines.Stay[Shape], machines.Emit[Shape, Refusal], machines.Tell[Shape, Refusal], machines.Ignore, machines.Reject:
 			false
 		}
 	},
@@ -142,8 +144,8 @@ test DefineSeparatesTransitionAndRefusal {
 	assert b == Header
 	let c Shape = try Define(b, Pass)
 	assert c == Header
-	assert DefineStep(b, Pass) == Stay[Shape]{Next: Header}
-	assert DefineStep(Absent, Open) == Enter[Shape]{Next: Header}
+	assert DefineStep(b, Pass) == machines.Stay[Shape]{Next: Header}
+	assert DefineStep(Absent, Open) == machines.Enter[Shape]{Next: Header}
 	let dup = Define(b, Open) catch {
 	case Twice:
 		Absent

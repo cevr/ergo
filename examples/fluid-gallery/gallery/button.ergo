@@ -3,6 +3,7 @@ import ergo.dev/fluid/part
 import ergo.dev/fluid/token
 import ergo.dev/fluid/web
 import html
+import option
 
 // Parts is a control's classes: its box, plate, content row, label and glyph.
 type Parts { Root string, Plate string, Content string, Label string, Glyph string, Quiet string, Busy string, BusyGlyph string }
@@ -103,28 +104,28 @@ func buttonLooks() []look.Look {
 }
 
 // Press is a button specimen: its tone, label, glyphs, and whether it is disabled or busy.
-type Press { Tone look.Tone, Label string, Lead Option[Glyph], Trail Option[Glyph], Disabled bool, Busy bool }
+type Press { Tone look.Tone, Label string, Lead option.Option[Glyph], Trail option.Option[Glyph], Disabled bool, Busy bool }
 
 // pressOf is a plain button.
 func pressOf(t look.Tone, label string) Press {
-	Press{Tone: t, Label: label, Lead: None, Trail: None, Disabled: false, Busy: false}
+	Press{Tone: t, Label: label, Lead: option.None, Trail: option.None, Disabled: false, Busy: false}
 }
 
 // pressNode is a button as a part: the control, its content row (glyphs and label), or while
 // busy the row hidden under the busy glyph. A disabled or busy button sends nothing.
 func pressNode(p Press) part.Node[int] {
-	let s = skins[toneIndex(p.Tone)*4+(if p.Lead != None { 2 } else { 0 })+(if p.Trail != None { 1 } else { 0 })]
+	let s = skins[toneIndex(p.Tone)*4+(if p.Lead != option.None { 2 } else { 0 })+(if p.Trail != option.None { 1 } else { 0 })]
 	let mut row = []part.Node[int]{}
 	match p.Lead {
-	case Some as g:
+	case option.Some as g:
 		row = row.Append(glyphOf(g.Value, s.Glyph))
-	case None:
+	case option.None:
 	}
 	row = row.Append(part.Text{Value: p.Label, Skin: s.Label})
 	match p.Trail {
-	case Some as g:
+	case option.Some as g:
 		row = row.Append(glyphOf(g.Value, s.Glyph))
-	case None:
+	case option.None:
 	}
 	let content = if p.Busy {
 		[]part.Node[int]{
@@ -134,7 +135,7 @@ func pressNode(p Press) part.Node[int] {
 	} else {
 		[]part.Node[int]{part.Box{Sem: part.Plain(), Skin: s.Control.Content, Inline: true, Keys: []part.Binding[int]{}, Kids: row}}
 	}
-	part.Press{Sem: part.Sem{..part.Of(part.Button), States: if p.Busy { []part.State{part.Busy} } else { []part.State{} }}, Skin: s.Control, On: if p.Disabled || p.Busy { None } else { Some[int]{Value: 0} }, Kids: content}
+	part.Press{Sem: part.Sem{..part.Of(part.Button), States: if p.Busy { []part.State{part.Busy} } else { []part.State{} }}, Skin: s.Control, On: if p.Disabled || p.Busy { option.None } else { option.Some[int]{Value: 0} }, Kids: content}
 }
 
 // buttonOf is a button's HTML: its part tree, projected (the specimens send nothing the page acts
@@ -144,20 +145,20 @@ func buttonOf(p Press) html.Node { web.Node(pressNode(p), func(_ int) web.Act { 
 // buttonWriter is a button written straight to HTML, as FL1 drew it: the receipt's writer form,
 // against the part tree's.
 func buttonWriter(p Press) html.Node {
-	let lead = p.Lead != None
-	let trail = p.Trail != None
+	let lead = p.Lead != option.None
+	let trail = p.Trail != option.None
 	let c = parts[toneIndex(p.Tone)*4+(if lead { 2 } else { 0 })+(if trail { 1 } else { 0 })]
 	let mut row = []html.Child{}
 	match p.Lead {
-	case Some as g:
+	case option.Some as g:
 		row = row.Append(html.Raw(html.Trust(markup(g.Value, c.Glyph))))
-	case None:
+	case option.None:
 	}
 	row = row.Append(html.Span([]html.Child{html.Class(c.Label), html.Text(p.Label)}))
 	match p.Trail {
-	case Some as g:
+	case option.Some as g:
 		row = row.Append(html.Raw(html.Trust(markup(g.Value, c.Glyph))))
-	case None:
+	case option.None:
 	}
 	let mut content = []html.Child{html.Class(c.Content)}
 	if p.Busy {
@@ -211,9 +212,9 @@ func buttonPage(buttonOf func(p Press) html.Node) Doc {
 		Stage("s1", false, html.Div([]html.Child{html.Class(rows.Column), html.Div(row), html.Div(stack)})),
 		Stage("s2", false, html.Div([]html.Child{
 			html.Class(rows.Wrap),
-			buttonOf(Press{..pressOf(look.Solid, "Create"), Lead: Some[Glyph]{Value: Plus}}),
-			buttonOf(Press{..pressOf(look.Soft, "Next"), Trail: Some[Glyph]{Value: ArrowRight}}),
-			buttonOf(Press{..pressOf(look.Outline, "Search"), Lead: Some[Glyph]{Value: Search}, Trail: Some[Glyph]{Value: ArrowRight}}),
+			buttonOf(Press{..pressOf(look.Solid, "Create"), Lead: option.Some[Glyph]{Value: Plus}}),
+			buttonOf(Press{..pressOf(look.Soft, "Next"), Trail: option.Some[Glyph]{Value: ArrowRight}}),
+			buttonOf(Press{..pressOf(look.Outline, "Search"), Lead: option.Some[Glyph]{Value: Search}, Trail: option.Some[Glyph]{Value: ArrowRight}}),
 		})),
 		Stage("s3", false, html.Div([]html.Child{
 			html.Class(rows.Wrap),

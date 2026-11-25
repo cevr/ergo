@@ -2,6 +2,7 @@
 // tests: an input is named by a key.
 
 import kmeans/cluster
+import option
 
 // Texts holds the inputs by name.
 type Texts { Inputs Map[string, string] } implements cluster.Source
@@ -9,9 +10,9 @@ type Texts { Inputs Map[string, string] } implements cluster.Source
 // Text is the input named path.
 func Text(t Texts, path string) string fails cluster.Unreadable {
 	match t.Inputs.Get(path) {
-	case Some[string] as s:
+	case option.Some[string] as s:
 		s.Value
-	case None:
+	case option.None:
 		return cluster.Unreadable{Path: path, Reason: "no such input"}
 	}
 }

@@ -1,3 +1,6 @@
+import machines
+import option
+
 // AskResponder identifies one of two responders racing to answer an ask.
 type AskResponder = RespX{} | RespY{}
 
@@ -94,28 +97,28 @@ func askInitial() AskWorld {
 
 func askRecordOf(w AskWorld) AskRecord {
 	match w.Board.Asks.Get(w.AskID) {
-	case Some[AskRecord] as a:
+	case option.Some[AskRecord] as a:
 		a.Value
-	case None:
+	case option.None:
 		AskRecord{ID: "", Board: "", Channel: "", Root: "", Asker: "", AskerPrincipal: "", To: []ActorID{}, OnlyFromAsked: false, State: AskOpen, Answer: "", ExpiresAt: 0, CreatedAt: 0}
 	}
 }
 
-func askStep(s AskWorld, act AskAct) Decision[AskWorld, string] {
+func askStep(s AskWorld, act AskAct) machines.Decision[AskWorld, string] {
 	let mut w = s
 	let rec = askRecordOf(w)
 	match act {
 	case AskReplyRead as a:
 		let idx = askResponderIndex(a.R)
 		if rec.State != AskOpen || w.Saw[idx] {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Saw[idx] = true
-		return Enter{w}
+		return machines.Enter{w}
 	case AskReplyWrite as a:
 		let idx = askResponderIndex(a.R)
 		if !w.Saw[idx] {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Saw[idx] = false
 		let (nextBoard, evts, ok) = askApplyDecide(w.Board, ReplyMessage{
@@ -130,7 +133,7 @@ func askStep(s AskWorld, act AskAct) Decision[AskWorld, string] {
 			IdempotencyKey: "",
 		}, 200)
 		if !ok {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Board = nextBoard
 		w.Replies = w.Replies + 1
@@ -146,56 +149,56 @@ func askStep(s AskWorld, act AskAct) Decision[AskWorld, string] {
 			case _:
 			}
 		}
-		return Enter{w}
+		return machines.Enter{w}
 	case AskWithdrawAct:
 		if rec.State != AskOpen {
-			return Ignore
+			return machines.Ignore
 		}
 		let asker = askAdmin()
 		let askerCaller = Caller{Principal: asker.ID, Profile: "", Role: Admin, Kind: Person, Email: asker.Email, Narrowed: false, NarrowedCan: Map[string, []Permission]{}, NarrowedProfile: "", NarrowedBoards: []string{}}
 		let (nextBoard, _, ok) = askApplyDecide(w.Board, WithdrawAsk{Caller: askerCaller, Board: DefaultBoard, ID: w.AskID}, 201)
 		if !ok {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Board = nextBoard
 		w.Closed = true
-		return Enter{w}
+		return machines.Enter{w}
 	case AskExpireAct:
 		if rec.State != AskOpen {
-			return Ignore
+			return machines.Ignore
 		}
 		let (nextBoard, _, ok) = askApplyDecide(w.Board, ExpireAsk{Board: DefaultBoard, ID: w.AskID}, 202)
 		if !ok {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Board = nextBoard
 		w.Closed = true
-		return Enter{w}
+		return machines.Enter{w}
 	case AskEditAct:
 		if w.Edits >= 2 || rec.State != AskOpen {
-			return Ignore
+			return machines.Ignore
 		}
 		let asker = askAdmin()
 		let askerCaller = Caller{Principal: asker.ID, Profile: "", Role: Admin, Kind: Person, Email: asker.Email, Narrowed: false, NarrowedCan: Map[string, []Permission]{}, NarrowedProfile: "", NarrowedBoards: []string{}}
 		let (nextBoard, _, ok) = askApplyDecide(w.Board, EditMessage{Caller: askerCaller, Board: DefaultBoard, ID: w.AskID, Text: "Ready to ship? edit", IfRevision: 0}, 203)
 		if !ok {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Board = nextBoard
 		w.Edits = w.Edits + 1
-		return Enter{w}
+		return machines.Enter{w}
 	case AskWaitTimeout:
 		if w.TimedOut || rec.State != AskOpen {
-			return Ignore
+			return machines.Ignore
 		}
 		w.TimedOut = true
-		return Enter{w}
+		return machines.Enter{w}
 	case AskAskerRead:
 		if rec.State != AskAnswered || w.Read {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Read = true
-		return Enter{w}
+		return machines.Enter{w}
 	}
 }
 
@@ -296,13 +299,13 @@ func accessInitial() AccessWorld {
 	}
 }
 
-func accessStep(s AccessWorld, act AccessAct) Decision[AccessWorld, string] {
+func accessStep(s AccessWorld, act AccessAct) machines.Decision[AccessWorld, string] {
 	let mut w = s
 	let allowed = accessAllowedNow(w)
 	match act {
 	case AccessRevoke:
 		if !allowed || w.Changes >= 3 {
-			return Ignore
+			return machines.Ignore
 		}
 		let denyGrant = Grant{
 			ID:         "g5",
@@ -314,14 +317,14 @@ func accessStep(s AccessWorld, act AccessAct) Decision[AccessWorld, string] {
 		}
 		let (nb, _, ok) = askApplyDecide(w.Board, UpdateGrant{Caller: accessAdminCaller(), Board: DefaultBoard, Grant: denyGrant}, 103)
 		if !ok {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Board = nb
 		w.Changes = w.Changes + 1
-		return Enter{w}
+		return machines.Enter{w}
 	case AccessGive:
 		if allowed || w.Changes >= 3 {
-			return Ignore
+			return machines.Ignore
 		}
 		let allowGrant = Grant{
 			ID:         "g5",
@@ -333,20 +336,20 @@ func accessStep(s AccessWorld, act AccessAct) Decision[AccessWorld, string] {
 		}
 		let (nb, _, ok) = askApplyDecide(w.Board, UpdateGrant{Caller: accessAdminCaller(), Board: DefaultBoard, Grant: allowGrant}, 103)
 		if !ok {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Board = nb
 		w.Changes = w.Changes + 1
-		return Enter{w}
+		return machines.Enter{w}
 	case AccessBegin:
 		if w.Req != 0 || !allowed {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Req = 1
-		return Enter{w}
+		return machines.Enter{w}
 	case AccessCommit:
 		if w.Req != 1 {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Req = 2
 		let (nb, _, ok) = askApplyDecide(w.Board, PostMessage{
@@ -361,38 +364,38 @@ func accessStep(s AccessWorld, act AccessAct) Decision[AccessWorld, string] {
 		}, 104)
 		if !ok {
 			w.Refused = true
-			return Enter{w}
+			return machines.Enter{w}
 		}
 		w.Board = nb
 		w.Wrote = w.Wrote + 1
 		if !allowed {
 			w.Leak = true
 		}
-		return Enter{w}
+		return machines.Enter{w}
 	case AccessSubscribe:
 		if w.Sub || !allowed {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Sub = true
 		w.Next = w.Events
-		return Enter{w}
+		return machines.Enter{w}
 	case AccessAppend:
 		if w.Events >= 2 {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Events = w.Events + 1
-		return Enter{w}
+		return machines.Enter{w}
 	case AccessDeliver:
 		if !w.Sub || w.Next >= w.Events {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Next = w.Next + 1
 		if !allowed {
 			w.Skipped = w.Skipped + 1
-			return Enter{w}
+			return machines.Enter{w}
 		}
 		w.Got = w.Got + 1
-		return Enter{w}
+		return machines.Enter{w}
 	}
 }
 
@@ -434,7 +437,7 @@ law IdempotencyLandsOnce(tag int) {
 		IdempotencyKey: "k1",
 	}
 	let (s1, evts1, ok1) = askApplyDecide(s0, cmd, 1000)
-	if !ok1 || len(evts1) == 0 {
+	if !ok1 || evts1.Len() == 0 {
 		return false
 	}
 	let evts2 = Decide(s1, cmd, 2000) catch {
@@ -446,7 +449,7 @@ law IdempotencyLandsOnce(tag int) {
 	for _ in s1.Messages {
 		msgCount = msgCount + 1
 	}
-	len(evts2) == 0 && msgCount == 1 && first != None
+	evts2.Len() == 0 && msgCount == 1 && first != option.None
 }
 
 // IdempotencyConflictOnDifferentPayload checks M8 on pure Decide: reusing a

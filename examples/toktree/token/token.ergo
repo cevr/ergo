@@ -48,7 +48,7 @@ func isDigit(c byte) bool { c >= 48 && c <= 57 }
 
 // Scan is the tokens of src.
 func Scan(src string) Toks {
-	let n = len(src)
+	let n = src.Len()
 	// Room for a token per four bytes, the control's guess for source text.
 	let room = n / 4
 	let mut t = Toks{ids: dense.NewCount[Tok](), kind: dense.ColWithCap[Tok, uint8](room), start: dense.ColWithCap[Tok, uint32](room)}
@@ -133,7 +133,7 @@ law StartsAdvance(picks []int) {
 	let mut last = -1
 	for i in 0..Len(t) {
 		let s = Start(t, At(t, i))
-		if s <= last || s >= len(src) {
+		if s <= last || s >= src.Len() {
 			return false
 		}
 		let c = src[s]
@@ -155,7 +155,7 @@ let pieces = []string{" ", "\n", "\t", "ab_1", "Z", "42", "3.5e", "// c\n", "/* 
 func Sample(picks []int) string {
 	let mut s = ""
 	for p in picks {
-		let k = if p < 0 { -(p % len(pieces)) } else { p % len(pieces) }
+		let k = if p < 0 { -(p % pieces.Len()) } else { p % pieces.Len() }
 		s = s + pieces[k]
 	}
 	s
@@ -176,7 +176,7 @@ law BracketsAreTheirOwnTokens(picks []int) {
 			if (k == Open && !open) || (k == Close && !close) {
 				return false
 			}
-			let end = if i+1 < Len(t) { Start(t, At(t, i+1)) } else { len(src) }
+			let end = if i+1 < Len(t) { Start(t, At(t, i+1)) } else { src.Len() }
 			for j in Start(t, id)+1..end {
 				let d = src[j]
 				if d != 32 && d != 9 && d != 10 && d != 13 {

@@ -2,6 +2,7 @@
 // The two frontier spans share one allocation; switching spans changes an
 // index, never assigns a slice (which would copy an Ergo value).
 
+import core
 import slices
 import strings
 
@@ -107,7 +108,7 @@ func RunWhole(w mut Workspace, p Program, text string) Work {
 	w.reset()
 	w.includeWorkspace(p, p.start)
 	let mut work = Work{Matched: false, Starts: 1, Transitions: 0}
-	for i in 0..len(text) {
+	for i in 0..text.Len() {
 		if w.count == 0 {
 			return work
 		}
@@ -120,8 +121,8 @@ func RunWhole(w mut Workspace, p Program, text string) Work {
 
 // Lines owns scratch inside the iterator invocation, so nested or repeated
 // iterations over the same recipe cannot share mutable frontier storage.
-func Lines(c Compiled, lines Seq[string]) Seq[string] {
-	Seq[string](func(yield func(v string) bool) {
+func Lines(c Compiled, lines core.Seq[string]) core.Seq[string] {
+	core.Seq[string](func(yield func(v string) bool) {
 		let mut w = NewWorkspace(c.program.Len())
 		for line in lines {
 			if w.RunWhole(c.program, line).Matched && !yield(line) {
@@ -131,8 +132,8 @@ func Lines(c Compiled, lines Seq[string]) Seq[string] {
 	})
 }
 
-func Lines(c SearchCompiled, lines Seq[string]) Seq[string] {
-	Seq[string](func(yield func(v string) bool) {
+func Lines(c SearchCompiled, lines core.Seq[string]) core.Seq[string] {
+	core.Seq[string](func(yield func(v string) bool) {
 		let mut w = NewWorkspace(c.program.Len())
 		for line in lines {
 			if c.RunSearch(&w, line).Matched && !yield(line) {
@@ -162,7 +163,7 @@ func RunSearch(c SearchCompiled, w mut Workspace, text string) Work {
 		}
 	}
 	let mut i = if next < 0 { 0 } else { next }
-	for i <= len(text) {
+	for i <= text.Len() {
 		if i == next {
 			w.includeWorkspace(c.program, c.program.start)
 			work.Starts += 1
@@ -174,7 +175,7 @@ func RunSearch(c SearchCompiled, w mut Workspace, text string) Work {
 			work.Matched = true
 			return work
 		}
-		if i == len(text) {
+		if i == text.Len() {
 			return work
 		}
 		if w.count == 0 {

@@ -1,3 +1,4 @@
+import option
 import strings
 
 // Read is the event of one frame, "<kind> <payload>": the kind chooses
@@ -6,7 +7,7 @@ import strings
 // Capabilities 7).
 func Read(frame string) Event fails Malformed needs Codec[Note] | Codec[Join] {
 	match strings.Cut(frame, " ") {
-	case Some[strings.Halves] as h:
+	case option.Some[strings.Halves] as h:
 		match h.Value.Before {
 		case "note":
 			try Codec[Note].Decode(h.Value.After)
@@ -15,7 +16,7 @@ func Read(frame string) Event fails Malformed needs Codec[Note] | Codec[Join] {
 		case _:
 			Malformed{Frame: frame, Why: "unknown kind " + h.Value.Before}
 		}
-	case None:
+	case option.None:
 		Malformed{Frame: frame, Why: "no kind"}
 	}
 }

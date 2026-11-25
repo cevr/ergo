@@ -29,10 +29,10 @@ func Read(lines []string) Script fails BadLine {
 		let n = i + 2
 		let text = strings.TrimSpace(line)
 		let words = strings.Fields(text)
-		if len(words) == 0 || strings.HasPrefix(text, "#") {
+		if words.Len() == 0 || strings.HasPrefix(text, "#") {
 			continue
 		}
-		if len(words) < 2 || !strings.HasPrefix(words[0], "@") {
+		if words.Len() < 2 || !strings.HasPrefix(words[0], "@") {
 			return BadLine{Line: n, Why: "a line is @MS WORD"}
 		}
 		let t = try millis(n, strings.TrimPrefix(words[0], "@"))
@@ -46,7 +46,7 @@ func Read(lines []string) Script fails BadLine {
 		let s = try signalOf(n, words)
 		trace = trace.Append(machines.Timed[display.Signal]{At: t, Signal: s})
 	}
-	BadLine{Line: len(lines) + 1, Why: "the script has no @MS end line"}
+	BadLine{Line: lines.Len() + 1, Why: "the script has no @MS end line"}
 }
 
 func millis(n int, word string) duration fails BadLine {
@@ -63,7 +63,7 @@ func millis(n int, word string) duration fails BadLine {
 }
 
 func signalOf(n int, words []string) display.Signal fails BadLine {
-	let arg = if len(words) > 2 { words[2] } else { "" }
+	let arg = if words.Len() > 2 { words[2] } else { "" }
 	match words[1] {
 	case "touch":
 		display.Touch
@@ -107,14 +107,14 @@ func WithTicks(s Script) []machines.Timed[display.Signal] {
 	let mut i = 0
 	let mut t = 1s
 	for t <= s.End {
-		for i < len(s.Trace) && s.Trace[i].At <= t {
+		for i < s.Trace.Len() && s.Trace[i].At <= t {
 			out = out.Append(s.Trace[i])
 			i = i + 1
 		}
 		out = out.Append(machines.Timed[display.Signal]{At: t, Signal: display.Tick})
 		t = t + 1s
 	}
-	for i < len(s.Trace) {
+	for i < s.Trace.Len() {
 		out = out.Append(s.Trace[i])
 		i = i + 1
 	}
@@ -125,7 +125,7 @@ func WithTicks(s Script) []machines.Timed[display.Signal] {
 type View { State display.Display, Told []display.Event }
 
 // Upto is the run of m over the first n signals of trace, until end.
-func Upto(m Machine[display.Display, display.Signal, display.Event], trace []machines.Timed[display.Signal], n int, end duration) View needs time.Clock | Scheduler {
+func Upto(m machines.Machine[display.Display, display.Signal, display.Event], trace []machines.Timed[display.Signal], n int, end duration) View needs time.Clock | time.Scheduler {
 	let mut part = []machines.Timed[display.Signal]{}
 	for i, x in trace {
 		if i < n {
@@ -149,28 +149,28 @@ func Upto(m Machine[display.Display, display.Signal, display.Event], trace []mac
 // change of state and each event, at the time of the signal it follows,
 // and returns the exit status: 0, or 1 when the script or the policy is
 // refused.
-func Run() Status needs Console | io.Stdin | display.Policies | time.Clock | Scheduler {
+func Run() Status needs io.Console | io.Stdin | display.Policies | time.Clock | time.Scheduler {
 	let mut lines = []string{}
 	for line in io.Stdin.Lines() {
 		lines = lines.Append(line)
 	}
-	if len(lines) == 0 {
-		Console.Println("? the script names no display")
+	if lines.Len() == 0 {
+		io.Console.Println("? the script names no display")
 		return 1
 	}
 	let first = strings.Fields(lines[0])
-	if len(first) != 2 || first[0] != "display" {
-		Console.Println("? line 1: the first line is display NAME")
+	if first.Len() != 2 || first[0] != "display" {
+		io.Console.Println("? line 1: the first line is display NAME")
 		return 1
 	}
 	let p = display.Policies.Policy(first[1]) catch {
 	case display.NoSuchDisplay as n:
-		Console.Println("? no display \(n.Name)")
+		io.Console.Println("? no display \(n.Name)")
 		return 1
 	}
 	let policy = display.Check(p) catch {
 	case display.BadPolicy as b:
-		Console.Println("? display \(first[1]): \(b.Why)")
+		io.Console.Println("? display \(first[1]): \(b.Why)")
 		return 1
 	}
 	let mut rest = []string{}
@@ -181,20 +181,20 @@ func Run() Status needs Console | io.Stdin | display.Policies | time.Clock | Sch
 	}
 	let s = Read(rest) catch {
 	case BadLine as b:
-		Console.Println("? line \(b.Line): \(b.Why)")
+		io.Console.Println("? line \(b.Line): \(b.Why)")
 		return 1
 	}
 	let m = machines.Start(display.Idler{}, policy)
 	let trace = WithTicks(s)
-	Console.Println("@0 \(display.Name(m.Initial))")
+	io.Console.Println("@0 \(display.Name(m.Initial))")
 	let mut shown = View{State: m.Initial, Told: []display.Event{}}
-	for n in 1..len(trace)+1 {
+	for n in 1..trace.Len()+1 {
 		let t = trace[n-1].At
 		let v = Upto(m, trace, n, t)
 		show(t, shown, v)
 		shown = v
 	}
-	show(s.End, shown, Upto(m, trace, len(trace), s.End))
+	show(s.End, shown, Upto(m, trace, trace.Len(), s.End))
 	0
 }
 
@@ -202,15 +202,15 @@ func Run() Status needs Console | io.Stdin | display.Policies | time.Clock | Sch
 type Status int where 0 <= it && it <= 1
 
 // show prints what changed from was to now, at the time t.
-func show(t duration, was View, now View) needs Console {
+func show(t duration, was View, now View) needs io.Console {
 	let stamp = "@\(int64(t) / 1000000)"
 	for i, e in now.Told {
-		if i >= len(was.Told) {
-			Console.Println("\(stamp) ! \(Word(e))")
+		if i >= was.Told.Len() {
+			io.Console.Println("\(stamp) ! \(Word(e))")
 		}
 	}
 	if display.Name(now.State) != display.Name(was.State) {
-		Console.Println("\(stamp) \(display.Name(now.State))")
+		io.Console.Println("\(stamp) \(display.Name(now.State))")
 	}
 }
 

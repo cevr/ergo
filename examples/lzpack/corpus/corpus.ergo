@@ -2,6 +2,7 @@
 // text, binary records, zeros and random bytes. A seed gives one input on
 // every host: the stream is SplitMix64, written here.
 
+import option
 import strings
 
 // Kind is what an input holds.
@@ -9,18 +10,18 @@ type Kind = Prose{} | Records{} | Zeros{} | Noise{}
 
 // KindOf is the kind a name selects: "text", "binary", "zeros" or
 // "random".
-func KindOf(name string) Option[Kind] {
+func KindOf(name string) option.Option[Kind] {
 	match name {
 	case "text":
-		Some[Kind]{Value: Prose}
+		option.Some[Kind]{Value: Prose}
 	case "binary":
-		Some[Kind]{Value: Records}
+		option.Some[Kind]{Value: Records}
 	case "zeros":
-		Some[Kind]{Value: Zeros}
+		option.Some[Kind]{Value: Zeros}
 	case "random":
-		Some[Kind]{Value: Noise}
+		option.Some[Kind]{Value: Noise}
 	case _:
-		None
+		option.None
 	}
 }
 
@@ -78,7 +79,7 @@ func prose(b mut strings.Builder, m mut Mix, n int) {
 	for b.Len() < n {
 		let words = 4 + m.Below(12)
 		for w in 0..words {
-			let r = m.Below(len(Words))
+			let r = m.Below(Words.Len())
 			let word = Words[m.Below(r+1)]
 			if w > 0 {
 				b.WriteByte(' ')

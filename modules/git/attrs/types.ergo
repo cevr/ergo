@@ -4,6 +4,8 @@
 // strict merge-driver trust policy that never authorizes untrusted repository
 // external drivers implicitly (STD-GIT: G-ATTRS).
 
+import option
+
 // Error is the closed failure union for attribute loading and merge driver
 // trust-policy resolution.
 type Error =
@@ -103,15 +105,15 @@ type AttrReader {
 		let path = if stem == "" { "a.txt" } else { stem + ".txt" }
 		let res = Eval(rules, path)
 		let textOk = match res.Get("text") {
-		case Some[AttrState] as st:
+		case option.Some[AttrState] as st:
 			StateEqual(st.Value, AttrUnset)
-		case None:
+		case option.None:
 			false
 		}
 		let mergeOk = match res.Get("merge") {
-		case Some[AttrState] as st:
+		case option.Some[AttrState] as st:
 			StateEqual(st.Value, AttrUnset)
-		case None:
+		case option.None:
 			false
 		}
 		textOk && mergeOk

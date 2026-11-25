@@ -4,14 +4,14 @@ import machines
 // Run plays the castle: it reads lines from io.Stdin and answers each on
 // Console, until the goal, a quit or the end of the input, and returns
 // how the game ended. A line that fails is told and changes nothing.
-func Run() Ending needs Console | io.Stdin {
+func Run() Ending needs io.Console | io.Stdin {
 	let mut s = machines.Initial(Play{})
-	Console.Println(Intro)
+	io.Console.Println(Intro)
 	tell(Describe(GameOf(s)))
 	for line in io.Stdin.Lines() {
 		let d = Advance(s, Said{Line: line}) catch {
 		case Refusal as r:
-			Console.Println(Failure(r))
+			io.Console.Println(Failure(r))
 			continue
 		}
 		tell(Say(s, line, d))
@@ -30,12 +30,12 @@ func Run() Ending needs Console | io.Stdin {
 	// the law EndIsStopped holds the two together.
 	let g = GameOf(s)
 	let end = Stopped{Moves: g.Moves, At: g.At}
-	Console.Println(EndText(end))
+	io.Console.Println(EndText(end))
 	end
 }
 
-func tell(lines []string) needs Console {
+func tell(lines []string) needs io.Console {
 	for l in lines {
-		Console.Println(l)
+		io.Console.Println(l)
 	}
 }

@@ -21,12 +21,12 @@ law MalformedNeverPanics(seed int) {
 		case Incomplete:
 			continue
 		case Malformed as m:
-			if m.At < 0 || m.At >= len(buf) {
+			if m.At < 0 || m.At >= buf.Len() {
 				return false
 			}
 			continue
 		}
-		if f.Used < 1 || f.Used > len(buf) {
+		if f.Used < 1 || f.Used > buf.Len() {
 			return false
 		}
 		let again = Parse(buf[:f.Used]) catch {
@@ -83,7 +83,7 @@ law ParseInvertsAppend(seed int) {
 			case Incomplete, Malformed:
 				return false
 			}
-			if f.Used != len(enc) || !Equal(f.Value, want) {
+			if f.Used != enc.Len() || !Equal(f.Value, want) {
 				return false
 			}
 		}
@@ -101,7 +101,7 @@ func ParseAt(buf []byte, at int) Frame fails Incomplete | Malformed {
 // value reads the value at offset at, depth levels inside arrays, maps
 // and sets. Its Frame's Used is the offset after it, not a count.
 func value(buf []byte, at int, depth int) Frame fails Incomplete | Malformed {
-	if at >= len(buf) {
+	if at >= buf.Len() {
 		return Incomplete
 	}
 	let kind = buf[at]
@@ -126,7 +126,7 @@ func value(buf []byte, at int, depth int) Frame fails Incomplete | Malformed {
 		}
 		let start = e + 2
 		let stop = start + int(n)
-		if stop+2 > len(buf) {
+		if stop+2 > buf.Len() {
 			return Incomplete
 		}
 		if buf[stop] != '\r' || buf[stop+1] != '\n' {
@@ -179,7 +179,7 @@ func aggregate(kind byte, items []Value) Value {
 	}
 	let mut pairs = []Pair{}
 	let mut i = 0
-	for i+1 < len(items) {
+	for i+1 < items.Len() {
 		pairs = pairs.Append(Pair{Key: items[i], Value: items[i+1]})
 		i += 2
 	}
@@ -191,9 +191,9 @@ func aggregate(kind byte, items []Value) Value {
 // Malformed; one whose end is not in buf yet is Incomplete.
 func lineEnd(buf []byte, from int, limit int) int fails Incomplete | Malformed {
 	let mut i = from
-	for i < len(buf) {
+	for i < buf.Len() {
 		if buf[i] == '\r' {
-			if i+1 == len(buf) {
+			if i+1 == buf.Len() {
 				return Incomplete
 			}
 			if buf[i+1] != '\n' {
@@ -271,4 +271,4 @@ func Next(r mut Reader) Value fails Incomplete | Malformed {
 }
 
 // Buffered is the count of bytes r holds that no value has used yet.
-func Buffered(r Reader) int { len(r.buf) - r.next }
+func Buffered(r Reader) int { r.buf.Len() - r.next }

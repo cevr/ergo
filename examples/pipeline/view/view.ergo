@@ -3,6 +3,7 @@
 // serves every host: the test host here, and the terminal, the desktop
 // and the page hosts later (PX3b, PX4).
 
+import option
 import pipeline/pipeline
 import pipeline/pipeline/pipelineapi
 import pipeline/run
@@ -164,7 +165,7 @@ law ReplyIsShown(reply screen.Reply) {
 				return true
 			}
 		case screen.Refused:
-			if strings.HasPrefix(line, "refused: ") && len(line) > len("refused: ") {
+			if strings.HasPrefix(line, "refused: ") && line.Len() > "refused: ".Len() {
 				return true
 			}
 		}
@@ -197,7 +198,7 @@ law HeldTryShowsRunningThenPassed(pick int) {
 	let runner = testing.Script[pipeline.Runner]{}
 	runner.Run.Hold()
 	let clock = time.NewManual(0)
-	with context { Scheduler: clock, pipeline.Runner: runner } {
+	with context { time.Scheduler: clock, pipeline.Runner: runner } {
 		let m = pipeline.Open(memory.New[pipeline.Entry]()) catch {
 		case domain.Conflict, domain.Reused, domain.Unkept:
 			return false
@@ -230,7 +231,7 @@ law HeldTryShowsRunningThenPassed(pick int) {
 }
 
 // shows is whether the screen of h shows the line.
-func shows[D, F](h mut ui.TestHost[screen.Screen, screen.Signal, D, F], line string) bool { ui.Find(h, line) != None }
+func shows[D, F](h mut ui.TestHost[screen.Screen, screen.Signal, D, F], line string) bool { ui.Find(h, line) != option.None }
 
 // stop stops the screen's actor.
 func stop[S, E, D, F](a actor.Actor[S, E, D, F]) {
@@ -245,12 +246,12 @@ func stop[S, E, D, F](a actor.Actor[S, E, D, F]) {
 // field is one line: it keeps id with its newlines dropped (ui.OneLine),
 // and that is the id the screen sends and shows.
 law HeldAskShowsSendingThenReceipt(id string, at int) {
-	let kept = ui.OneLine(ui.Editing{Text: id, Caret: len(id), Anchor: len(id)}, 1).Text
+	let kept = ui.OneLine(ui.Editing{Text: id, Caret: id.Len(), Anchor: id.Len()}, 1).Text
 	let api = testing.Script[pipeline.Pipeline]{}
 	api.Board.Answer(func() board.View { board.Empty })
 	api.Submit.Hold()
 	let clock = time.NewManual(0)
-	with context { Scheduler: clock } {
+	with context { time.Scheduler: clock } {
 		let a = actor.StartMachine(screen.Life{}, 8, func(r screen.Reply) {})
 		let mut h = with context { pipeline.Pipeline: api } { ui.NewTestHost(a, View, clock, 8) } catch {
 		case ui.BadPatch:
@@ -285,7 +286,7 @@ func Board(f mut ui.Frame[screen.Signal], s screen.Screen) needs pipeline.Pipeli
 	let sh = screen.ShownOf(s)
 	ui.Load(f, ui.ByInt(sh.Version), func() screen.Signal { screen.Loaded{Board: screen.LinesOf(pipeline.Pipeline.Board())} })
 	match sh.Picked {
-	case Some[string] as p:
+	case option.Some[string] as p:
 		let id = p.Value
 		ui.Load(f, ui.ByText("\(id)@\(sh.Version)"), func() screen.Signal {
 			let r = pipeline.Pipeline.RunOf(id) catch {
@@ -294,7 +295,7 @@ func Board(f mut ui.Frame[screen.Signal], s screen.Screen) needs pipeline.Pipeli
 			}
 			screen.RunLoaded{Run: r}
 		})
-	case None:
+	case option.None:
 	}
 	let status = match s {
 	case screen.Asking as a:
@@ -331,9 +332,9 @@ func Board(f mut ui.Frame[screen.Signal], s screen.Screen) needs pipeline.Pipeli
 			ui.Text(f, "the pipeline does not run")
 		}
 		match sh.Picked {
-		case Some[string] as p:
+		case option.Some[string] as p:
 			ui.Text(f, RunLine(p.Value, sh.Run))
-		case None:
+		case option.None:
 		}
 	}
 }

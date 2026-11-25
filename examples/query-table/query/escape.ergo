@@ -6,7 +6,7 @@ import strings
 // hex digits upper-case.
 func Escape(s string) string {
 	let mut out = ""
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		let b = s[i]
 		if (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '-' || b == '.' || b == '_' || b == '~' {
 			out = out + s[i:i+1]
@@ -22,8 +22,8 @@ func Escape(s string) string {
 func Unescape(s string) string {
 	let mut out = ""
 	let mut i = 0
-	for i < len(s) {
-		if s[i] == '%' && i+3 <= len(s) {
+	for i < s.Len() {
+		if s[i] == '%' && i+3 <= s.Len() {
 			let b = hex.Decode(s[i+1 : i+3]) catch {
 			case hex.Malformed:
 				out = out + "%"

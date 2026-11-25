@@ -6,7 +6,7 @@ import strings
 // no newline) is not a record, and the records before it stay.
 law TornWriteIsDropped(kept work.Workspace, torn work.Workspace, cut int) {
 	let line = PutLine(torn)
-	let n = ((cut % len(line)) + len(line)) % len(line)
+	let n = ((cut % line.Len()) + line.Len()) % line.Len()
 	let text = PutLine(kept) + strings.Slice(line, 0, n)
 	let records = Replay(text) catch {
 	case work.Unkept:
@@ -26,8 +26,8 @@ law ReplayIsTheMemoryRegistry(puts []work.Workspace, drops []int) {
 			return false
 		}
 		want = memory.Kept(want, w)
-		if i < len(drops) && drops[i]%2 == 0 && len(want) > 0 {
-			let name = want[((drops[i]%len(want))+len(want))%len(want)].Name
+		if i < drops.Len() && drops[i]%2 == 0 && want.Len() > 0 {
+			let name = want[((drops[i]%want.Len())+want.Len())%want.Len()].Name
 			r.Drop(name) catch {
 			case work.Unkept:
 				return false

@@ -389,7 +389,7 @@
       "name": "fl1-sheet-repeats-atoms",
       "origin": "wf10/fl1 FL1",
       "file": "modules/fluid/web/atom.ergo",
-      "from": "\t\tif len(out) == 0 || key(out[len(out)-1]) != key(a) {",
+      "from": "\t\tif out.Len() == 0 || key(out[out.Len()-1]) != key(a) {",
       "to": "\t\tif true {",
       "rule": "An atom two looks share is printed twice: SheetIsOneRulePerDistinctDecl.",
       "anchor": {
@@ -602,7 +602,7 @@
       "name": "fl2-relation-dangles",
       "origin": "wf10/fl2 FL2",
       "file": "modules/fluid/a11y/rules.ergo",
-      "from": "\t\t\tif to != \"\" && keys.Get(to) == None {",
+      "from": "\t\t\tif to != \"\" && keys.Get(to) == option.None {",
       "to": "\t\t\tif false {",
       "rule": "A relation to a dropped key is not flagged: RelationsResolve.",
       "anchor": {
@@ -666,8 +666,8 @@
       "name": "fl2-disabled-press-links",
       "origin": "wf10/fl2 FL2",
       "file": "modules/fluid/web/node.ergo",
-      "from": "\t\tlet dest = if a11yHas(p.Sem.States, part.Disabled) {\n\t\t\tNone\n",
-      "to": "\t\tlet dest = if false {\n\t\t\tNone\n",
+      "from": "\t\tlet dest = if a11yHas(p.Sem.States, part.Disabled) {\n\t\t\toption.None\n",
+      "to": "\t\tlet dest = if false {\n\t\t\toption.None\n",
       "rule": "A press stated disabled that still sends is printed as a link: LinkIsStep (the laws' page's disabled tab), and AccessOfWebIsAccessOfPart when a seed draws one.",
       "anchor": {
         "tests": [
@@ -748,8 +748,8 @@
       "name": "fl4-key-binding-dropped",
       "origin": "wf10/fl4 FL4",
       "file": "modules/fluid/gui/draw.ergo",
-      "from": "ui.OnKey(f, func(k ui.KeyPress) Option[E] { Bound[E](keys, k) })",
-      "to": "ui.OnKey(f, func(k ui.KeyPress) Option[E] { Bound[E](keys, ui.KeyPress{..k, Name: \"\"}) })",
+      "from": "ui.OnKey(f, func(k ui.KeyPress) option.Option[E] { Bound[E](keys, k) })",
+      "to": "ui.OnKey(f, func(k ui.KeyPress) option.Option[E] { Bound[E](keys, ui.KeyPress{..k, Name: \"\"}) })",
       "rule": "A keyed box's keyboard map sends nothing for a key it binds: PressSendsItsSignal.",
       "anchor": {
         "tests": [
@@ -764,8 +764,8 @@
       "name": "fl4-expanded-always-open",
       "origin": "wf10/fl4 FL4",
       "file": "modules/fluid/gui/draw.ergo",
-      "from": "\t\t\ta.Expanded = Some[bool]{Value: x.Yes}",
-      "to": "\t\t\ta.Expanded = Some[bool]{Value: x.Yes || true}",
+      "from": "\t\t\ta.Expanded = option.Some[bool]{Value: x.Yes}",
+      "to": "\t\t\ta.Expanded = option.Some[bool]{Value: x.Yes || true}",
       "rule": "A collapsed box is told to a reader as expanded in the window: AccessOfGuiIsAccessOfPart.",
       "anchor": {
         "tests": [

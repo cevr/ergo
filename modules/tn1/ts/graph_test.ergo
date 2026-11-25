@@ -40,26 +40,26 @@ func relative(from string, path string, ext string) string {
 // from files before it (an earlier package, or earlier in its own), so
 // the graph has no cycle and its depths have one answer.
 func genProject(seed int) []genFile {
-	with context { Random: rand.Seeded(uint64(seed)) } {
-		let pkgs = 1 + Random.IntN(len(dirs))
+	with context { rand.Random: rand.Seeded(uint64(seed)) } {
+		let pkgs = 1 + rand.Random.IntN(dirs.Len())
 		let mut files = []genFile{}
 		let mut name = 0
 		for p in 0..pkgs {
-			for j in 0..1+Random.IntN(3) {
+			for j in 0..1+rand.Random.IntN(3) {
 				let mut f = genFile{Pkg: p, Path: dirs[p] + "/f\(j).ts", Decls: []genDecl{}, Imports: []int{}, UsesOf: []int{}, Lines: []string{}, Users: 0}
 				for _ in 0..pkgs {
 					f.UsesOf = f.UsesOf.Append(0)
 				}
 				let mut body = []string{}
-				for t in 0..len(files) {
-					if Random.IntN(3) != 0 {
+				for t in 0..files.Len() {
+					if rand.Random.IntN(3) != 0 {
 						continue
 					}
 					let target = files[t]
-					let ext = if Random.IntN(2) == 0 { "" } else { ".js" }
+					let ext = if rand.Random.IntN(2) == 0 { "" } else { ".js" }
 					let spec = relative(dirs[p], strings.TrimSuffix(target.Path, ".ts"), ext)
-					let picked = 1 + Random.IntN(len(target.Decls))
-					match Random.IntN(3) {
+					let picked = 1 + rand.Random.IntN(target.Decls.Len())
+					match rand.Random.IntN(3) {
 					case 0:
 						let mut names = []string{}
 						for m in 0..picked {
@@ -67,7 +67,7 @@ func genProject(seed int) []genFile {
 						}
 						f.Lines = f.Lines.Append("import { \(strings.Join(names, ", ")) } from \"\(spec)\";")
 						for m in 0..picked {
-							let uses = 1 + Random.IntN(3)
+							let uses = 1 + rand.Random.IntN(3)
 							for _ in 0..uses {
 								body = body.Append("  \(names[m])(1);")
 								files[t].Decls[m].From[p] += 1
@@ -95,17 +95,17 @@ func genProject(seed int) []genFile {
 					}
 					f.Imports = f.Imports.Append(t)
 				}
-				for _ in 0..1+Random.IntN(3) {
-					let n = "\(verbs[name%len(verbs)])\(nouns[(name/len(verbs))%len(nouns)])\(name)"
+				for _ in 0..1+rand.Random.IntN(3) {
+					let n = "\(verbs[name%verbs.Len()])\(nouns[(name/verbs.Len())%nouns.Len()])\(name)"
 					name += 1
 					f.Lines = f.Lines.Append("export function \(n)(n: number): number { return n + 1; }")
 					let mut from = []int{}
-					for _ in 0..len(dirs) {
+					for _ in 0..dirs.Len() {
 						from = from.Append(0)
 					}
-					f.Decls = f.Decls.Append(genDecl{Name: n, Line: len(f.Lines), From: from})
+					f.Decls = f.Decls.Append(genDecl{Name: n, Line: f.Lines.Len(), From: from})
 				}
-				if len(body) > 0 {
+				if body.Len() > 0 {
 					f.Lines = f.Lines.Append("function useAll() {")
 					for b in body {
 						f.Lines = f.Lines.Append(b)
@@ -156,13 +156,13 @@ law ProjectIsTheModel(seed int) {
 		named = named.Append(tn1.Named{Name: f.Path, Text: strings.Join(f.Lines, "\n") + "\n"})
 	}
 	let records = Project(named)
-	if len(records) != len(files) {
+	if records.Len() != files.Len() {
 		return false
 	}
-	for i in 0..len(files) {
+	for i in 0..files.Len() {
 		let f = files[i]
 		let r = records[i]
-		if r.Version != 3 || len(r.Files) != 1 || len(r.Packages) != 1 {
+		if r.Version != 3 || r.Files.Len() != 1 || r.Packages.Len() != 1 {
 			return false
 		}
 		let fi = r.Files[0]
@@ -176,12 +176,12 @@ law ProjectIsTheModel(seed int) {
 		}
 		let total = slicesSum(f.UsesOf)
 		let mut best = 0
-		for q in 0..len(f.UsesOf) {
+		for q in 0..f.UsesOf.Len() {
 			if q != f.Pkg && f.UsesOf[q] > best {
 				best = f.UsesOf[q]
 			}
 		}
-		if fi.FanIn != fanIn || fi.FanOut != len(f.Imports) || fi.UsesInPackage != f.UsesOf[f.Pkg] || fi.UsesOut != total-f.UsesOf[f.Pkg] || fi.BestOtherPackageShare != share(best, total) || fi.Decls != len(f.Decls)+f.Users || fi.NameWords != tn1.SketchOf(baseName(f.Path)) {
+		if fi.FanIn != fanIn || fi.FanOut != f.Imports.Len() || fi.UsesInPackage != f.UsesOf[f.Pkg] || fi.UsesOut != total-f.UsesOf[f.Pkg] || fi.BestOtherPackageShare != share(best, total) || fi.Decls != f.Decls.Len()+f.Users || fi.NameWords != tn1.SketchOf(baseName(f.Path)) {
 			return false
 		}
 		// The package.
@@ -200,8 +200,8 @@ law ProjectIsTheModel(seed int) {
 		for g in files {
 			if g.Pkg == f.Pkg {
 				pFiles += 1
-				decls += len(g.Decls) + g.Users
-				exported += len(g.Decls)
+				decls += g.Decls.Len() + g.Users
+				exported += g.Decls.Len()
 				internal += g.UsesOf[f.Pkg]
 				external += slicesSum(g.UsesOf) - g.UsesOf[f.Pkg]
 			}
@@ -226,7 +226,7 @@ law ProjectIsTheModel(seed int) {
 					found = true
 					let outside = slicesSum(d.From) - d.From[f.Pkg]
 					let mut top = 0
-					for q in 0..len(d.From) {
+					for q in 0..d.From.Len() {
 						if q != f.Pkg && d.From[q] > top {
 							top = d.From[q]
 						}

@@ -7,6 +7,7 @@ import domain-search/domains
 import domain-search/search/plan
 import domain-search/search/route
 import domain-search/search/window
+import option
 
 // rebuild is s with its index built again from the route and the loaded
 // listings. With no filter and the relevance order the index is the
@@ -17,7 +18,7 @@ import domain-search/search/window
 // is not loaded it lists the catalog's order and sorts nothing, so
 // choosing a price order makes one sort, after its one load (P8).
 func rebuild(s Search) Search {
-	let n = len(s.Catalog)
+	let n = s.Catalog.Len()
 	let tld = tldOf(s.Route)
 	let available = availableOf(s.Route)
 	let order = orderOf(s.Route)
@@ -54,7 +55,7 @@ func rebuild(s Search) Search {
 		Sort(rows, func(a int, b int) bool {
 			let x = s.Catalog[a]
 			let y = s.Catalog[b]
-			len(x) < len(y) || len(x) == len(y) && x < y
+			x.Len() < y.Len() || x.Len() == y.Len() && x < y
 		})
 	case route.Alphabetical:
 		Sort(rows, func(a int, b int) bool { s.Catalog[a] < s.Catalog[b] })
@@ -81,21 +82,21 @@ func rebuild(s Search) Search {
 			Sorted{Rows: out, Comparisons: byRank.Comparisons}
 		}
 	}
-	Search{..s, Index: Listed{Rows: sorted.Rows}, IndexBuilds: built, Comparisons: s.Comparisons + sorted.Comparisons, Window: window.Spec{..s.Window, Count: len(sorted.Rows)}}
+	Search{..s, Index: Listed{Rows: sorted.Rows}, IndexBuilds: built, Comparisons: s.Comparisons + sorted.Comparisons, Window: window.Spec{..s.Window, Count: sorted.Rows.Len()}}
 }
 
 // taken is whether position p is loaded and taken (the available filter
 // keeps the positions not loaded yet: a name not checked is not taken).
 func taken(s Search, p int) bool {
 	match ListingAt(s, p) {
-	case Some[domains.Listing] as l:
+	case option.Some[domains.Listing] as l:
 		match l.Value {
 		case domains.Unavailable:
 			true
 		case domains.Available:
 			false
 		}
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -106,14 +107,14 @@ type rank { Group int, Price float64 }
 
 func rankOf(s Search, p int) rank {
 	match ListingAt(s, p) {
-	case Some[domains.Listing] as l:
+	case option.Some[domains.Listing] as l:
 		match l.Value {
 		case domains.Available as a:
 			rank{Group: 0, Price: a.Price}
 		case domains.Unavailable:
 			rank{Group: 1, Price: 0.0}
 		}
-	case None:
+	case option.None:
 		rank{Group: 2, Price: 0.0}
 	}
 }
@@ -136,7 +137,7 @@ type Sorted { Rows []int, Comparisons int }
 // Sort is rows sorted by less, stably, by a bottom-up merge sort: at most
 // n * ceil(log2 n) comparisons, counted.
 func Sort(rows []int, less func(a int, b int) bool) Sorted {
-	let n = len(rows)
+	let n = rows.Len()
 	let mut src = rows
 	let mut count = 0
 	let mut width = 1

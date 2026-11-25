@@ -33,10 +33,10 @@ func Do(st trackStage, act trackModelAct) fails testing.Refused {
 	})
 	let at = duration(int64(nextMs) * int64(1000000))
 	st.trace.Update(func(tr []Track) []Track {
-		if len(tr) == 0 {
+		if tr.Len() == 0 {
 			return []Track{Retarget(Still(st.spring, 0.0), at, float64(act.Target))}
 		}
-		let cur = tr[len(tr)-1]
+		let cur = tr[tr.Len()-1]
 		tr.Append(Retarget(cur, at, float64(act.Target)))
 	})
 }
@@ -51,14 +51,14 @@ func Settle(st trackStage) {
 
 func Show(st trackStage) trackModelObs {
 	let tr = st.trace.Get()
-	if len(tr) == 0 {
+	if tr.Len() == 0 {
 		return trackModelObs{cues: 0, target: 0, glitchFree: true}
 	}
-	let last = tr[len(tr)-1]
+	let last = tr[tr.Len()-1]
 	trackModelObs{
-		cues:       len(tr) - 1,
+		cues:       tr.Len() - 1,
 		target:     int(last.Target),
-		glitchFree: len(Glitches(tr)) == 0,
+		glitchFree: Glitches(tr).Len() == 0,
 	}
 }
 

@@ -1,5 +1,7 @@
 import actor
 import machines
+import option
+import time
 
 // The write runner is the Writing phase's child. Its work starts one
 // Write child per share, so the writes run at once; each answer comes
@@ -17,15 +19,15 @@ law RunnerWaitsForAll(shareSizes []int, order int) {
 	let mut s = running(sharesOf(shareSizes))
 	for i, a in answers {
 		match runStep(s, Answered{A: a}) {
-		case Stay[Run] as x:
+		case machines.Stay[Run] as x:
 			s = x.Next
-		case Done[Outcome]:
-			return i == len(answers)-1
+		case machines.Done[Outcome]:
+			return i == answers.Len()-1
 		case _:
 			return false
 		}
 	}
-	len(answers) == 0
+	answers.Len() == 0
 }
 
 // Outcome is the runner's end: every share taken, or some lost, with
@@ -42,7 +44,7 @@ law OutcomeIgnoresArrival(shareSizes []int, order int) {
 // share whose size is odd is lost.
 func answersOf(shareSizes []int, order int) []Answer {
 	let shares = sharesOf(shareSizes)
-	let n = len(shares)
+	let n = shares.Len()
 	let mut out = []Answer{}
 	for j in 0..n {
 		let i = if n == 0 { 0 } else { (j + hundredths(order)) % n }
@@ -78,25 +80,25 @@ type Runner machine[Run, RunSignal] { initial: running, step: runStep, work: run
 // running is the runner's start: the shares to write, none answered.
 func running(shares []Share) Run { Running{Shares: shares, Answers: []Answer{}} }
 
-func runStep(s Run, e RunSignal) Decision[Run, Outcome] {
+func runStep(s Run, e RunSignal) machines.Decision[Run, Outcome] {
 	match (s, e) {
 	case (Running as r, Answered as a):
 		let answers = r.Answers.Append(a.A)
-		if len(answers) < len(r.Shares) {
-			Stay[Run]{Next: Running{..r, Answers: answers}}
+		if answers.Len() < r.Shares.Len() {
+			machines.Stay[Run]{Next: Running{..r, Answers: answers}}
 		} else {
-			Done[Outcome]{Output: OutcomeOf(answers)}
+			machines.Done[Outcome]{Output: OutcomeOf(answers)}
 		}
 	}
 }
 
 // runWork starts a write per share. The children belong to the entry:
 // when the runner ends, or the write leaves Writing, they stop first.
-func runWork(s Run) Option[machines.Work[RunSignal, Targets | Scheduler]] {
+func runWork(s Run) option.Option[machines.Work[RunSignal, Targets | time.Scheduler]] {
 	match s {
 	case Running as r:
-		Some{machines.Work{Start: func(send entry func(e RunSignal)) needs Targets | Scheduler {
-			for i in 0..len(r.Shares) {
+		option.Some{machines.Work{Start: func(send entry func(e RunSignal)) needs Targets | time.Scheduler {
+			for i in 0..r.Shares.Len() {
 				actor.Child(send, machines.Start(Writer{}, (i, r.Shares[i])), 1, func(a Answer) RunSignal { Answered{A: a} })
 			}
 		}}}
@@ -108,7 +110,7 @@ func runWork(s Run) Option[machines.Work[RunSignal, Targets | Scheduler]] {
 func OutcomeOf(answers []Answer) Outcome {
 	let mut refs = []Ref{}
 	let mut why = ""
-	for i in 0..len(answers) {
+	for i in 0..answers.Len() {
 		for a in answers {
 			match a {
 			case Taken as t:

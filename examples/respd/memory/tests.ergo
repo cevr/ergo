@@ -1,6 +1,7 @@
 // The store laws run here against Engine (NewEngine), by ergo test. This
 // file holds what a law cannot say: two tasks at once.
 
+import option
 import respd/store
 import task
 
@@ -22,6 +23,6 @@ test IncrIsAtomic {
 		let b = task.Go() { try bump("n", 2) }
 		try a.Wait()
 		try b.Wait()
-		assert store.Lookup("n", store.At(0)) == Some[string]{Value: "4"}
+		assert store.Lookup("n", store.At(0)) == option.Some[string]{Value: "4"}
 	}
 }

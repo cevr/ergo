@@ -1,4 +1,5 @@
 import deploys/deploys
+import option
 import strings
 import testing
 
@@ -30,14 +31,14 @@ func sampleDeploy(id string, service string) deploys.Deploy {
 func deployStoryStep(e entries, a deployAct) (entries, deployRes) {
 	match a {
 	case DepAdd as x:
-		if e.byID.Get(x.ID) != None {
+		if e.byID.Get(x.ID) != option.None {
 			return (e, DepTaken{ID: x.ID})
 		}
 		let mut next = e.byID
 		next[x.ID] = sampleDeploy(x.ID, x.Service)
 		(entries{byID: next, order: e.order.Append(x.ID)}, DepOK)
 	case DepReplace as x:
-		if e.byID.Get(x.ID) == None {
+		if e.byID.Get(x.ID) == option.None {
 			return (e, DepNotFound{ID: x.ID})
 		}
 		let mut next = e.byID
@@ -45,13 +46,13 @@ func deployStoryStep(e entries, a deployAct) (entries, deployRes) {
 		(entries{byID: next, order: e.order}, DepOK)
 	case DepFind as x:
 		match e.byID.Get(x.ID) {
-		case Some[deploys.Deploy] as d:
+		case option.Some[deploys.Deploy] as d:
 			(e, DepFound{Service: d.Value.Service})
-		case None:
+		case option.None:
 			(e, DepNotFound{ID: x.ID})
 		}
 	case DepCount:
-		(e, DepNum{N: len(e.byID)})
+		(e, DepNum{N: e.byID.Len()})
 	case DepAllIDs:
 		(e, DepList{IDs: strings.Join(e.order, ",")})
 	}

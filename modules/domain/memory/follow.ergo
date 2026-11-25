@@ -4,6 +4,7 @@
 // saves, before or after the write.
 
 import github.com/cevr/ergo/modules/domain
+import option
 import sync
 
 // Place is a follower's place: the follower and the stream.
@@ -20,9 +21,9 @@ func NewCursor() Cursor { Cursor{at: sync.NewRef(Map[Place, int]{})} }
 
 func At(c Cursor, follower string, stream string) int {
 	match c.at.Get().Get(placeOf(follower, stream)) {
-	case Some[int] as n:
+	case option.Some[int] as n:
 		n.Value
-	case None:
+	case option.None:
 		0
 	}
 }
@@ -76,10 +77,10 @@ func Save(s Saves, follower string, stream string, at int) fails domain.Unkept {
 
 // lastOf is the last position of records, 0 for none.
 func lastOf[E](records []domain.Recorded[E]) int {
-	if len(records) == 0 {
+	if records.Len() == 0 {
 		return 0
 	}
-	records[len(records)-1].Position
+	records[records.Len()-1].Position
 }
 
 // relay is the policy: each event e of a delivery is a command that the
@@ -153,5 +154,5 @@ law RedeliveryAddsNothing(batches [][]int, crashes []int) {
 	case domain.Unkept:
 		return false
 	}
-	got == want && cursor.At("policy", "in") == len(batches) && again == 0
+	got == want && cursor.At("policy", "in") == batches.Len() && again == 0
 }

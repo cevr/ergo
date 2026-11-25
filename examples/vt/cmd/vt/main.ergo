@@ -36,7 +36,7 @@ type Command = Replay{Plain bool} | Events{Each bool} | Gen{Seed int, Size int}
 
 // Parse is the command of args.
 func Parse(args []string) Command fails os.Exit {
-	match (if len(args) == 0 { "" } else { args[0] }, len(args)) {
+	match (if args.Len() == 0 { "" } else { args[0] }, args.Len()) {
 	case ("replay", 1):
 		Replay{Plain: false}
 	case ("replay", 2):
@@ -71,28 +71,28 @@ func count(text string) int fails os.Exit {
 }
 
 // PlayOn plays input on the screen s and prints it.
-func PlayOn[S vt.Screen](s mut S, input string) needs Console {
+func PlayOn[S vt.Screen](s mut S, input string) needs io.Console {
 	let played = vt.Play(s, input, Chunk)
 	for line in vt.Screenshot(s) {
-		Console.Println(line)
+		io.Console.Println(line)
 	}
 	for line in vt.Status(s) {
-		Console.Println(line)
+		io.Console.Println(line)
 	}
-	Console.Println(vt.TallyText(played.Tally))
+	io.Console.Println(vt.TallyText(played.Tally))
 	for line in played.Unhandled.Lines() {
-		Console.Println(line)
+		io.Console.Println(line)
 	}
 }
 
 // PrintEvents parses input in pieces of Chunk bytes, and prints each event's
 // line when each is set, then the tally. The events of every piece are
 // rendered together, so a run of text cut by a piece is one line.
-func PrintEvents(input string, each bool) needs Console {
+func PrintEvents(input string, each bool) needs io.Console {
 	let mut p = vt.NewStream(true)
 	let mut at = 0
-	for at < len(input) {
-		let end = if at+Chunk < len(input) { at + Chunk } else { len(input) }
+	for at < input.Len() {
+		let end = if at+Chunk < input.Len() { at + Chunk } else { input.Len() }
 		p.Feed(input[at:end])
 		if !each {
 			p.Clear()
@@ -102,14 +102,14 @@ func PrintEvents(input string, each bool) needs Console {
 	p.Finish()
 	if each {
 		for line in vt.Render(p.Take()) {
-			Console.Println(line)
+			io.Console.Println(line)
 		}
 	}
-	Console.Println(vt.TallyText(p.Tally))
+	io.Console.Println(vt.TallyText(p.Tally))
 }
 
 // main does what the arguments ask, on the host's arguments and input.
-func main() fails os.Exit needs Console | Ambient {
+func main() fails os.Exit needs io.Console | os.Ambient {
 	with context { os.Process: os.NewHost(), io.Stdin: io.NewStdin(), io.Stdout: io.NewHost() } {
 		let command = try Parse(os.Process.Args())
 		match command {

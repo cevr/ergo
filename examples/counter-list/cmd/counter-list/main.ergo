@@ -13,9 +13,9 @@ import io
 import os
 import time
 
-func main() fails os.Exit needs Console | Ambient {
+func main() fails os.Exit needs io.Console | os.Ambient {
 	let c = time.NewManual(0)
-	let status = with context { io.Stdin: io.NewStdin(), Scheduler: c } { script.Run(c) }
+	let status = with context { io.Stdin: io.NewStdin(), time.Scheduler: c } { script.Run(c) }
 	if status != 0 {
 		return os.Exit{Code: 1, Message: "counter-list: the script did not run"}
 	}

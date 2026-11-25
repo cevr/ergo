@@ -1,6 +1,7 @@
 import github.com/cevr/ergo/modules/orchestrate/memory
 import github.com/cevr/ergo/modules/orchestrate/orchestrate
 import github.com/cevr/ergo/modules/sqlite/sqlite
+import option
 import sql
 import strconv
 import sync
@@ -82,7 +83,7 @@ func execOutcomeTag(st orchestrate.Store, env orchestrate.Envelope) string {
 		return "StoreFailed:" + e.Reason
 	}
 	let dup = if res.Duplicate { "dup" } else { "new" }
-	"OK:" + dup + ":" + strconv.Itoa(res.Seq) + ":" + strconv.Itoa(len(res.Events))
+	"OK:" + dup + ":" + strconv.Itoa(res.Seq) + ":" + strconv.Itoa(res.Events.Len())
 }
 
 func storesAgree(mem orchestrate.Store, sq orchestrate.Store) bool {
@@ -105,43 +106,43 @@ func storesAgree(mem orchestrate.Store, sq orchestrate.Store) bool {
 	if memSnap != sqSnap || memEvs != sqEvs || orchestrate.Fold(orchestrate.EventList(sqEvs)) != sqSnap {
 		return false
 	}
-	let memUnits = mem.ListUnits(None) catch {
+	let memUnits = mem.ListUnits(option.None) catch {
 	case orchestrate.StoreFailed:
 		return false
 	}
-	let sqUnits = sq.ListUnits(None) catch {
+	let sqUnits = sq.ListUnits(option.None) catch {
 	case orchestrate.StoreFailed:
 		return false
 	}
-	let memClaimed = mem.ListUnits(Some[orchestrate.UnitStatus]{Value: orchestrate.UnitClaimed}) catch {
+	let memClaimed = mem.ListUnits(option.Some[orchestrate.UnitStatus]{Value: orchestrate.UnitClaimed}) catch {
 	case orchestrate.StoreFailed:
 		return false
 	}
-	let sqClaimed = sq.ListUnits(Some[orchestrate.UnitStatus]{Value: orchestrate.UnitClaimed}) catch {
+	let sqClaimed = sq.ListUnits(option.Some[orchestrate.UnitStatus]{Value: orchestrate.UnitClaimed}) catch {
 	case orchestrate.StoreFailed:
 		return false
 	}
-	let memRecs = mem.Receipts("u-0", None) catch {
+	let memRecs = mem.Receipts("u-0", option.None) catch {
 	case orchestrate.StoreFailed:
 		return false
 	}
-	let sqRecs = sq.Receipts("u-0", None) catch {
+	let sqRecs = sq.Receipts("u-0", option.None) catch {
 	case orchestrate.StoreFailed:
 		return false
 	}
-	let memCommits = mem.ListCommitments(None, None) catch {
+	let memCommits = mem.ListCommitments(option.None, option.None) catch {
 	case orchestrate.StoreFailed:
 		return false
 	}
-	let sqCommits = sq.ListCommitments(None, None) catch {
+	let sqCommits = sq.ListCommitments(option.None, option.None) catch {
 	case orchestrate.StoreFailed:
 		return false
 	}
-	let memQueue = mem.ListQueue(None) catch {
+	let memQueue = mem.ListQueue(option.None) catch {
 	case orchestrate.StoreFailed:
 		return false
 	}
-	let sqQueue = sq.ListQueue(None) catch {
+	let sqQueue = sq.ListQueue(option.None) catch {
 	case orchestrate.StoreFailed:
 		return false
 	}
@@ -170,10 +171,10 @@ func storesAgree(mem orchestrate.Store, sq orchestrate.Store) bool {
 		memOpenQs == sqOpenQs
 }
 
-func makeStepEnvelope(index int, code int, prevAccepted Option[orchestrate.Envelope]) orchestrate.Envelope {
+func makeStepEnvelope(index int, code int, prevAccepted option.Option[orchestrate.Envelope]) orchestrate.Envelope {
 	let mode = ((code % 20) + 20) % 20
 	match prevAccepted {
-	case Some[orchestrate.Envelope] as prev:
+	case option.Some[orchestrate.Envelope] as prev:
 		if mode == 18 {
 			return prev.Value
 		}
@@ -185,7 +186,7 @@ func makeStepEnvelope(index int, code int, prevAccepted Option[orchestrate.Envel
 				Command: orchestrate.OpenUnit{ID: "conflict-unit-\(index)", Title: "Conflicting", Area: "bad"},
 			}
 		}
-	case None:
+	case option.None:
 	}
 	let kind = ((code % 16) + 16) % 16
 	let slot = (((code / 16) % 3) + 3) % 3
@@ -200,13 +201,13 @@ func makeStepEnvelope(index int, code int, prevAccepted Option[orchestrate.Envel
 	case 1:
 		orchestrate.ClaimUnit{ID: unitID, Owner: "owner-\(slot)", Lane: "lane-\(slot)", Harness: "agy"}
 	case 2:
-		orchestrate.AdvanceUnitRound{ID: unitID, Owner: Some[string]{Value: "owner-\(slot)"}, Round: 2, RequestPath: Some[string]{Value: "/tmp/r2.md"}, FindingsPath: None}
+		orchestrate.AdvanceUnitRound{ID: unitID, Owner: option.Some[string]{Value: "owner-\(slot)"}, Round: 2, RequestPath: option.Some[string]{Value: "/tmp/r2.md"}, FindingsPath: option.None}
 	case 3:
-		orchestrate.HandBackUnit{ID: unitID, Owner: "owner-\(slot)", HeadSHA: "abcdef12", Summary: "done", RequestPath: None, FindingsPath: Some[string]{Value: "/tmp/f1.md"}}
+		orchestrate.HandBackUnit{ID: unitID, Owner: "owner-\(slot)", HeadSHA: "abcdef12", Summary: "done", RequestPath: option.None, FindingsPath: option.Some[string]{Value: "/tmp/f1.md"}}
 	case 4:
 		orchestrate.LandUnit{ID: unitID, HeadSHA: "abcdef12"}
 	case 5:
-		orchestrate.CloseUnit{ID: unitID, Summary: Some[string]{Value: "closed"}}
+		orchestrate.CloseUnit{ID: unitID, Summary: option.Some[string]{Value: "closed"}}
 	case 6:
 		orchestrate.RecordReceipt{
 			ID:             "rec-\(index)",
@@ -233,11 +234,11 @@ func makeStepEnvelope(index int, code int, prevAccepted Option[orchestrate.Envel
 	case 12:
 		orchestrate.RemoveQueueItem{Key: queueKey}
 	case 13:
-		orchestrate.AskQuestion{ID: None, Prompt: "Question \(index)?", Assumption: "default", ConcreteAction: "reply yes"}
+		orchestrate.AskQuestion{ID: option.None, Prompt: "Question \(index)?", Assumption: "default", ConcreteAction: "reply yes"}
 	case 14:
 		orchestrate.AnswerQuestion{ID: slot + 1, Answer: "yes", Withdraw: slot == 2}
 	case _:
-		orchestrate.HandBackUnit{ID: unitID, Owner: "wrong-owner", HeadSHA: "bad", Summary: "stale", RequestPath: None, FindingsPath: None}
+		orchestrate.HandBackUnit{ID: unitID, Owner: "wrong-owner", HeadSHA: "bad", Summary: "stale", RequestPath: option.None, FindingsPath: option.None}
 	}
 	orchestrate.Envelope{ID: id, Actor: "actor-\(slot)", At: at, Command: cmd}
 }
@@ -254,9 +255,9 @@ func CheckAgreesWithMemory(_ livePersistence, steps []int) bool needs go.Foreign
 		cleanupVerifyDB(dir, name)
 		return false
 	}
-	let mut prevAccepted Option[orchestrate.Envelope] = None
+	let mut prevAccepted option.Option[orchestrate.Envelope] = option.None
 	let mut ok = true
-	let limit = if len(steps) > 16 { 16 } else { len(steps) }
+	let limit = if steps.Len() > 16 { 16 } else { steps.Len() }
 	for i in 0..limit {
 		let env = makeStepEnvelope(i, steps[i], prevAccepted)
 		let memTag = execOutcomeTag(mem, env)
@@ -265,8 +266,8 @@ func CheckAgreesWithMemory(_ livePersistence, steps []int) bool needs go.Foreign
 			ok = false
 			break
 		}
-		if len(memTag) >= 6 && memTag[0:6] == "OK:new" {
-			prevAccepted = Some[orchestrate.Envelope]{Value: env}
+		if memTag.Len() >= 6 && memTag[0:6] == "OK:new" {
+			prevAccepted = option.Some[orchestrate.Envelope]{Value: env}
 		}
 	}
 	sq.Close() catch {
@@ -348,7 +349,7 @@ func CheckVersionFence(_ livePersistence, futureBump int) bool needs go.Foreign 
 	let opened = Open(path) catch {
 	case orchestrate.StoreFailed:
 		refused = true
-		Store{db: None, err: "refused"}
+		Store{db: option.None, err: "refused"}
 	}
 	if !refused {
 		opened.Close() catch {
@@ -366,14 +367,14 @@ func CheckVersionFence(_ livePersistence, futureBump int) bool needs go.Foreign 
 		sql.Transaction() {
 			if bumpUserVersionOnly {
 				let rows = try queryTx("PRAGMA user_version", []sql.Value{})
-				if len(rows) == 0 {
+				if rows.Len() == 0 {
 					0
 				} else {
 					try intAt(rows[0], 0, "user_version")
 				}
 			} else {
 				let rows = try queryTx("SELECT schema_version FROM schema_meta WHERE id = 1", []sql.Value{})
-				if len(rows) == 0 {
+				if rows.Len() == 0 {
 					0
 				} else {
 					try intAt(rows[0], 0, "schema_version")
@@ -497,7 +498,7 @@ func CheckRollbackAtomicity(_ livePersistence, tag int) bool needs go.Foreign {
 	case orchestrate.StoreFailed:
 	}
 	cleanupVerifyDB(dir, name)
-	aborted && afterSnap == beforeSnap && afterEvs == beforeEvs && ghost == None && orchestrate.Fold(orchestrate.EventList(afterEvs)) == afterSnap
+	aborted && afterSnap == beforeSnap && afterEvs == beforeEvs && ghost == option.None && orchestrate.Fold(orchestrate.EventList(afterEvs)) == afterSnap
 }
 
 func failMidTx() fails probeFailure {
@@ -610,7 +611,7 @@ func CheckConcurrentMultiWriter(_ livePersistence, tag int) bool needs go.Foreig
 		cleanupVerifyDB(dir, name)
 		return false
 	}
-	let units = reopened.ListUnits(None) catch {
+	let units = reopened.ListUnits(option.None) catch {
 	case orchestrate.StoreFailed:
 		reopened.Close() catch {
 		case orchestrate.StoreFailed:
@@ -618,7 +619,7 @@ func CheckConcurrentMultiWriter(_ livePersistence, tag int) bool needs go.Foreig
 		cleanupVerifyDB(dir, name)
 		return false
 	}
-	let queue = reopened.ListQueue(None) catch {
+	let queue = reopened.ListQueue(option.None) catch {
 	case orchestrate.StoreFailed:
 		reopened.Close() catch {
 		case orchestrate.StoreFailed:
@@ -652,5 +653,5 @@ func CheckConcurrentMultiWriter(_ livePersistence, tag int) bool needs go.Foreig
 			dense = false
 		}
 	}
-	r1 && r2 && len(units) == 8 && len(queue) == 4 && len(snap.Receipts) == 4 && len(evs) == 32 && dense && orchestrate.Fold(orchestrate.EventList(evs)) == snap
+	r1 && r2 && units.Len() == 8 && queue.Len() == 4 && snap.Receipts.Len() == 4 && evs.Len() == 32 && dense && orchestrate.Fold(orchestrate.EventList(evs)) == snap
 }

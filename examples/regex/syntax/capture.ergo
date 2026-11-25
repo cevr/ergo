@@ -5,6 +5,7 @@
 // (Last). A group that took no part in the match has no events; a group
 // that matched the empty text has an Open and a Close at one offset.
 
+import option
 import strings
 
 // Event is a group opening or closing at a byte offset of the text.
@@ -29,8 +30,8 @@ func Events(h History) []Event {
 		}
 	}
 	let mut out = []Event{}
-	for i in 0..len(back) {
-		out = out.Append(back[len(back)-1-i])
+	for i in 0..back.Len() {
+		out = out.Append(back[back.Len()-1-i])
 	}
 	out
 }
@@ -56,22 +57,22 @@ func ShowEvents(events []Event) string {
 
 // ShowParse is the result of a parse with captures as text: "none", or
 // "match" and its events.
-func ShowParse(r Option[[]Event]) string {
+func ShowParse(r option.Option[[]Event]) string {
 	match r {
-	case Some[[]Event] as s:
+	case option.Some[[]Event] as s:
 		"match" + ShowEvents(s.Value)
-	case None:
+	case option.None:
 		"none"
 	}
 }
 
 // ShowFound is the result of a find as text: "none", or the span and its
 // events.
-func ShowFound(r Option[Found]) string {
+func ShowFound(r option.Option[Found]) string {
 	match r {
-	case Some[Found] as s:
+	case option.Some[Found] as s:
 		"found \(s.Value.Start)-\(s.Value.End)" + ShowEvents(s.Value.Events)
-	case None:
+	case option.None:
 		"none"
 	}
 }
@@ -92,8 +93,8 @@ func Occurrences(events []Event, name string) []Occurrence {
 			}
 		case Close as c:
 			if c.Name == name {
-				out = out.Append(Occurrence{Start: opened[len(opened)-1], End: c.At})
-				opened = opened[:len(opened)-1]
+				out = out.Append(Occurrence{Start: opened[opened.Len()-1], End: c.At})
+				opened = opened[:opened.Len()-1]
 			}
 		}
 	}
@@ -103,12 +104,12 @@ func Occurrences(events []Event, name string) []Occurrence {
 // Last is the last occurrence of the group name in events, what Go's
 // regexp reports for a repeated group, or None when the group took no
 // part.
-func Last(events []Event, name string) Option[Occurrence] {
+func Last(events []Event, name string) option.Option[Occurrence] {
 	let all = Occurrences(events, name)
-	if len(all) == 0 {
-		return None
+	if all.Len() == 0 {
+		return option.None
 	}
-	Some{Value: all[len(all)-1]}
+	option.Some{Value: all[all.Len()-1]}
 }
 
 // The failures of Check: a tree whose captures are not defined. Each
@@ -157,7 +158,7 @@ func Tree(p Pattern) Node { p.tree }
 func Check(n Node) Pattern fails CaptureError {
 	try checkNode(n)
 	let groups = Groups(n)
-	for i in 0..len(groups) {
+	for i in 0..groups.Len() {
 		for j in 0..i {
 			if groups[j].Name == groups[i].Name {
 				return DuplicateName{Name: groups[i].Name, Second: i + 1, Text: Print(groups[i])}
@@ -252,7 +253,7 @@ func repeated(n Node, of Node, many bool) fails CaptureError {
 		return NullableRepeat{Text: Print(n)}
 	}
 	let top = Outer(of)
-	if many && len(top) >= 2 {
+	if many && top.Len() >= 2 {
 		let mut names = []string{}
 		for g in top {
 			names = names.Append(g.Name)

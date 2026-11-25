@@ -2,6 +2,7 @@
 // Sunday, and sees each day's trains.
 
 import civil
+import core
 import time
 
 // Monday is the day an ISO week starts on.
@@ -9,15 +10,15 @@ let Monday = civil.Weeks{First: time.Monday}
 
 func WeekOf(d civil.Date) civil.Span { civil.UnitSpan(d, Monday) }
 
-func Weeks(from civil.Date, n int) Seq[civil.Span] {
+func Weeks(from civil.Date, n int) core.Seq[civil.Span] {
 	if n <= 0 {
-		return Seq[civil.Span](func(_ func(w civil.Span) bool) {})
+		return core.Seq[civil.Span](func(_ func(w civil.Span) bool) {})
 	}
 	let first = civil.StartOf(from, Monday)
 	let last = civil.EndOf(civil.AddWeeks(from, n-1), Monday)
 	let all = civil.NewSpan(first, last) catch {
 	case civil.Reversed:
-		return Seq[civil.Span](func(_ func(w civil.Span) bool) {})
+		return core.Seq[civil.Span](func(_ func(w civil.Span) bool) {})
 	}
 	civil.Split(all, Monday)
 }

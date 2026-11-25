@@ -1,8 +1,10 @@
 // The keys: the composer as a machine, what each key means in each
 // phase, and the status line that names the way out.
 
+import core
 import gent/agent
 import machines
+import option
 import strings
 import term
 import utf8
@@ -17,7 +19,7 @@ type Line { Text string, At int }
 // it; Left and Right move the cursor one rune, Home to the start and End
 // to the end. A key that would change nothing, and any other key, is
 // ignored. An At outside the text counts as the nearest end.
-func Edit(l Line, k term.Key) Decision[Line, Never] {
+func Edit(l Line, k term.Key) machines.Decision[Line, core.Never] {
 	let n = utf8.RuneCount(l.Text)
 	let at = if l.At < 0 { 0 } else if l.At > n { n } else { l.At }
 	match k {
@@ -27,14 +29,14 @@ func Edit(l Line, k term.Key) Decision[Line, Never] {
 		typed(l.Text, at, strings.ReplaceAll(strings.ReplaceAll(p.Text, "\r\n", " "), "\n", " "))
 	case term.Backspace:
 		if at == 0 {
-			return Ignore
+			return machines.Ignore
 		}
-		Stay[Line]{Next: Line{Text: runes(l.Text, 0, at-1) + runes(l.Text, at, n), At: at - 1}}
+		machines.Stay[Line]{Next: Line{Text: runes(l.Text, 0, at-1) + runes(l.Text, at, n), At: at - 1}}
 	case term.Delete:
 		if at == n {
-			return Ignore
+			return machines.Ignore
 		}
-		Stay[Line]{Next: Line{Text: runes(l.Text, 0, at) + runes(l.Text, at+1, n), At: at}}
+		machines.Stay[Line]{Next: Line{Text: runes(l.Text, 0, at) + runes(l.Text, at+1, n), At: at}}
 	case term.Left:
 		moved(l, at, at-1, n)
 	case term.Right:
@@ -44,33 +46,33 @@ func Edit(l Line, k term.Key) Decision[Line, Never] {
 	case term.End:
 		moved(l, at, n, n)
 	case term.Return, term.Tab, term.Escape, term.Up, term.Down, term.Insert, term.PageUp, term.PageDown, term.F, term.Chord, term.Wheel, term.Resized, term.Interrupt, term.EndOfInput, term.Other:
-		Ignore
+		machines.Ignore
 	}
 }
 
 // typed is text with more typed at the cursor at, the cursor after it.
-func typed(text string, at int, more string) Decision[Line, Never] {
+func typed(text string, at int, more string) machines.Decision[Line, core.Never] {
 	if more == "" {
-		return Ignore
+		return machines.Ignore
 	}
 	let n = utf8.RuneCount(text)
-	Stay[Line]{Next: Line{Text: runes(text, 0, at) + more + runes(text, at, n), At: at + utf8.RuneCount(more)}}
+	machines.Stay[Line]{Next: Line{Text: runes(text, 0, at) + more + runes(text, at, n), At: at + utf8.RuneCount(more)}}
 }
 
 // moved is l with its cursor, now at, moved to to, kept on the text of n
 // runes; a move that stays put is ignored.
-func moved(l Line, at int, to int, n int) Decision[Line, Never] {
+func moved(l Line, at int, to int, n int) machines.Decision[Line, core.Never] {
 	let next = if to < 0 { 0 } else if to > n { n } else { to }
 	if next == at && l.At == at {
-		return Ignore
+		return machines.Ignore
 	}
-	Stay[Line]{Next: Line{Text: l.Text, At: next}}
+	machines.Stay[Line]{Next: Line{Text: l.Text, At: next}}
 }
 
 // runes is the runes of text from i to j.
 func runes(text string, i int, j int) string {
-	let mut from = len(text)
-	let mut to = len(text)
+	let mut from = text.Len()
+	let mut to = text.Len()
 	let mut k = 0
 	for b, _ in text {
 		if k == i {
@@ -200,16 +202,16 @@ func Intent(k term.Key, p agent.Phase) Action {
 
 // Exit is the key that leaves phase p: Ctrl-C quits when idle, Esc stops
 // a turn, and n refuses an ask. Ended has none: the program has left.
-func Exit(p agent.Phase) Option[term.Key] {
+func Exit(p agent.Phase) option.Option[term.Key] {
 	match p {
 	case agent.Idle:
-		Some[term.Key]{Value: term.Interrupt}
+		option.Some[term.Key]{Value: term.Interrupt}
 	case agent.Asking, agent.Waiting, agent.Running:
-		Some[term.Key]{Value: term.Escape}
+		option.Some[term.Key]{Value: term.Escape}
 	case agent.Approving:
-		Some[term.Key]{Value: term.Char{Text: "n"}}
+		option.Some[term.Key]{Value: term.Char{Text: "n"}}
 	case agent.Ended:
-		None
+		option.None
 	}
 }
 
@@ -257,14 +259,14 @@ func Status(s agent.State) string {
 // a key whose intent is a signal the agent takes there.
 law EveryStateShowsItsExit(s agent.State) {
 	match Exit(s.Phase) {
-	case None:
+	case option.None:
 		match s.Phase {
 		case agent.Ended:
 			true
 		case agent.Idle, agent.Asking, agent.Waiting, agent.Approving, agent.Running:
 			false
 		}
-	case Some[term.Key] as k:
+	case option.Some[term.Key] as k:
 		if !strings.Contains(Status(s), Name(k.Value)) {
 			return false
 		}

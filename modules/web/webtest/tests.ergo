@@ -8,6 +8,7 @@ import fstest
 import github.com/cevr/ergo/modules/web
 import html
 import http
+import option
 import strings
 import ui
 
@@ -34,21 +35,21 @@ func Href(_ routes, r route) ui.URL {
 
 // Parse reads "/notes" as the note of the empty slug, which is where
 // Href puts it: Segments skips the empty segment.
-func Parse(_ routes, u ui.URL) Option[route] {
+func Parse(_ routes, u ui.URL) option.Option[route] {
 	let s = ui.Segments(u)
-	if len(s) == 0 {
-		return Some[route]{Value: home}
+	if s.Len() == 0 {
+		return option.Some[route]{Value: home}
 	}
-	if len(s) == 1 && s[0] == "about" {
-		return Some[route]{Value: about}
+	if s.Len() == 1 && s[0] == "about" {
+		return option.Some[route]{Value: about}
 	}
-	if len(s) == 1 && s[0] == "notes" {
-		return Some[route]{Value: note{Slug: ""}}
+	if s.Len() == 1 && s[0] == "notes" {
+		return option.Some[route]{Value: note{Slug: ""}}
 	}
-	if len(s) == 2 && s[0] == "notes" {
-		return Some[route]{Value: note{Slug: s[1]}}
+	if s.Len() == 2 && s[0] == "notes" {
+		return option.Some[route]{Value: note{Slug: s[1]}}
 	}
-	None
+	option.None
 }
 
 func load(r route) string fails missing needs fs.Files {
@@ -101,7 +102,7 @@ test FixtureSiteAnswers {
 		let lost = Get(site(), "/notes/a/extra")
 		assert lost.Status == 404 && lost.Body == "<p>nothing at /notes/a/extra</p>"
 		let post = Post(site(), "/")
-		assert post.Status == 405 && http.Header(post.Header, "Allow") == Some{"GET, HEAD"}
+		assert post.Status == 405 && http.Header(post.Header, "Allow") == option.Some{"GET, HEAD"}
 	}
 }
 
@@ -114,7 +115,7 @@ test UnresolvedIsEachLocalLinkThatIsNotAPage {
 	let disk = fstest.NewMemory()
 	try disk.WriteFile("note-a b:c", "first")
 	with context { fs.Files: disk } {
-		assert len(Unresolved(site(), Get(site(), "/about").Body)) == 0
+		assert Unresolved(site(), Get(site(), "/about").Body).Len() == 0
 		let body = "<a href=\"/notes/zz\">a</a><a href=\"//elsewhere/x\">b</a><a href=\"https://elsewhere/\">c</a><a href=\"/about?x=1#top\">d</a><a href=\"/nowhere\">e</a>"
 		assert Unresolved(site(), body) == []string{"/notes/zz", "/nowhere"}
 	}

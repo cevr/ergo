@@ -49,7 +49,7 @@ func IsName(s string) bool {
 	if s == "" || IsKeyword(s) {
 		return false
 	}
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		if !(IsLetter(s[i]) || (i > 0 && IsDigit(s[i]))) {
 			return false
 		}

@@ -1,5 +1,6 @@
 import counter
 import counter/wheel
+import io
 
 // The binary selects the implementation. This record is also the provider
 // whose complete state the law runner explores; there is no parallel model.
@@ -12,10 +13,10 @@ func NewWheel() Wheel                  { Wheel{inner: wheel.NewWheel()} }
 func Add(w mut Wheel, n counter.Digit) { w.inner.Add(n) }
 func Total(w Wheel) counter.Digit      { w.inner.Total() }
 
-func main() needs Console {
+func main() needs io.Console {
 	let mut w = NewWheel()
 	w.Add(1)
 	w.Add(2)
 	w.Add(4)
-	Console.Println("\(w.Total())")
+	io.Console.Println("\(w.Total())")
 }

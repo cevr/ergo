@@ -6,6 +6,7 @@
 
 import ergo.local/prototype/examples/drawgui/canvas
 import fs
+import fstest
 
 // onTestHost binds the store to a Disk over the test's folder.
-let onTestHost = context needs TestAmbient { canvas.Store: New(fs.NewTestHost()) }
+let onTestHost = context needs fstest.TestAmbient { canvas.Store: New(fs.NewTestHost()) }

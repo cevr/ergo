@@ -5,6 +5,7 @@
 // and not the 100,000 rows of the catalogue.
 
 import ergo.local/prototype/examples/starsgui/catalog
+import machines
 import strings
 
 // Signal is what the view sends the app: a signal of the table (a key, a
@@ -22,20 +23,20 @@ func Begin(o Opening) catalog.State { catalog.Open(o.Rows, o.Height) }
 
 // Step is the app's transition. A refused edit is not a failure of the
 // app: it is its output, and the table stays as it was, draft and all.
-func Step(s catalog.State, e Signal) Decision[catalog.State, catalog.Refused] {
+func Step(s catalog.State, e Signal) machines.Decision[catalog.State, catalog.Refused] {
 	match e {
 	case Do as d:
 		let next = catalog.Step(s, d.Signal) catch {
 		case catalog.Refused as r:
-			return Emit[catalog.State, catalog.Refused]{Next: s, Output: r}
+			return machines.Emit[catalog.State, catalog.Refused]{Next: s, Output: r}
 		}
 		next
 	case Retext as r:
 		match s {
 		case catalog.Browsing:
-			Reject
+			machines.Reject
 		case catalog.Filtering, catalog.Editing:
-			Stay[catalog.State]{Next: Retyped(s, r.Text)}
+			machines.Stay[catalog.State]{Next: Retyped(s, r.Text)}
 		}
 	}
 }
@@ -61,7 +62,7 @@ func Retyped(s catalog.State, text string) catalog.State {
 	for !strings.HasPrefix(text, Typed(at)) {
 		at = catalog.After(at, catalog.Backspace)
 	}
-	catalog.After(at, catalog.Type{Text: strings.Slice(text, len(Typed(at)), len(text))})
+	catalog.After(at, catalog.Type{Text: strings.Slice(text, Typed(at).Len(), text.Len())})
 }
 
 // App is the table as a machine: an actor runs it under the view.

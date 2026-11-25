@@ -1,6 +1,7 @@
 import github.com/cevr/ergo/modules/board/board
 import github.com/cevr/ergo/modules/sqlite/sqlite
 import json
+import option
 import sql
 import strings
 
@@ -174,7 +175,7 @@ func Commit(s Store, boardName string, expected board.Cursor, events []board.Eve
 	with context { sql.DB: s.db } {
 		sql.Transaction(func() board.Cursor fails board.StalePosition | board.StoreFailed needs sql.Tx | sql.DB {
 			let rows = try queryTx("SELECT COALESCE(MAX(seq), 0) FROM events WHERE board = ?", []sql.Value{sql.Text{S: bName}})
-			let actual = if len(rows) > 0 { try rowInt(rows[0], 0) } else { 0 }
+			let actual = if rows.Len() > 0 { try rowInt(rows[0], 0) } else { 0 }
 			if expected != actual {
 				return board.StalePosition{Board: bName, Expected: expected, Actual: actual}
 			}
@@ -279,27 +280,27 @@ func escapeFtsTerm(term string) string {
 	"\"\(cleaned)\""
 }
 
-func buildFtsQuery(words []string) Option[string] {
+func buildFtsQuery(words []string) option.Option[string] {
 	let mut parts = []string{}
 	for w in words {
-		if len(strings.Bytes(w)) < 3 {
-			return None
+		if strings.Bytes(w).Len() < 3 {
+			return option.None
 		}
 		parts = parts.Append(escapeFtsTerm(w))
 	}
-	if len(parts) == 0 {
-		return None
+	if parts.Len() == 0 {
+		return option.None
 	}
 	let mut out = parts[0]
-	for i in 1..len(parts) {
+	for i in 1..parts.Len() {
 		out = "\(out) AND \(parts[i])"
 	}
-	Some[string]{Value: out}
+	option.Some[string]{Value: out}
 }
 
 func snippetFor(text string) string {
 	let bs = strings.Bytes(text)
-	if len(bs) <= 120 {
+	if bs.Len() <= 120 {
 		return text
 	}
 	strings.Slice(text, 0, 120)
@@ -310,20 +311,20 @@ func snippetFor(text string) string {
 // so callers never see deleted or unreadable messages.
 func Search(s Store, q board.SearchQuery) []board.SearchHit fails board.StoreFailed {
 	let words = strings.Fields(strings.ToLower(q.Query))
-	if len(words) == 0 {
+	if words.Len() == 0 {
 		return []board.SearchHit{}
 	}
 	let snap = try Snapshot(s)
 	let bName = board.ResolveBoard(q.Board)
 	let gs = match snap.Grants.Get(bName) {
-	case Some[[]board.Grant] as xs:
+	case option.Some[[]board.Grant] as xs:
 		xs.Value
-	case None:
+	case option.None:
 		[]board.Grant{}
 	}
 	let limit = if q.Limit <= 0 { 50 } else { q.Limit }
 	let candidateIDs = match buildFtsQuery(words) {
-	case Some[string] as ftsQ:
+	case option.Some[string] as ftsQ:
 		let rows = s.db.Query(
 			"SELECT message_id FROM messages_fts WHERE board = ? AND text MATCH ? ORDER BY message_id ASC",
 			[]sql.Value{sql.Text{S: bName}, sql.Text{S: ftsQ.Value}},
@@ -346,7 +347,7 @@ func Search(s Store, q board.SearchQuery) []board.SearchHit fails board.StoreFai
 			ids = ids.Append(try rowText(r, 0))
 		}
 		ids
-	case None:
+	case option.None:
 		let rows = s.db.Query(
 			"SELECT id FROM messages WHERE board = ? AND deleted = 0 ORDER BY id ASC",
 			[]sql.Value{sql.Text{S: bName}},
@@ -372,15 +373,15 @@ func Search(s Store, q board.SearchQuery) []board.SearchHit fails board.StoreFai
 	}
 	let mut hits = []board.SearchHit{}
 	for id in candidateIDs {
-		if len(hits) >= limit {
+		if hits.Len() >= limit {
 			break
 		}
 		match snap.Messages.Get(id) {
-		case Some[board.Message] as m:
+		case option.Some[board.Message] as m:
 			if board.MatchesSearchQuery(gs, m.Value, q) {
 				hits = hits.Append(board.SearchHit{Message: m.Value, Snippet: snippetFor(m.Value.Text)})
 			}
-		case None:
+		case option.None:
 		}
 	}
 	hits

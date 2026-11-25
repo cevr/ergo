@@ -3,6 +3,8 @@
 // start takes one. It is pure: the time is an argument, so a virtual
 // clock tests it exactly.
 
+import option
+
 // Bucket is a limiter's state: its shape, the tokens it holds, and the
 // time it last gained one.
 type Bucket { Burst int, Every duration, tokens int, since duration }
@@ -22,7 +24,7 @@ law RateHolds(b int, e int, ns []int) {
 	let burst, every = shape(b, e)
 	let got = taken(burst, every, Times(ns))
 	for i, a in got {
-		for j in i..len(got) {
+		for j in i..got.Len() {
 			let window = int64(got[j]-a) / int64(every)
 			if int64(j-i+1) > int64(burst)+window+1 {
 				return false
@@ -51,10 +53,10 @@ func taken(burst int, every duration, ts []duration) []duration {
 	let mut out = []duration{}
 	for t in ts {
 		match Take(b, t) {
-		case Some[Bucket] as next:
+		case option.Some[Bucket] as next:
 			b = next.Value
 			out = out.Append(t)
-		case None:
+		case option.None:
 		}
 	}
 	out
@@ -76,9 +78,9 @@ law NeverOverBurst(b int, e int, ns []int) {
 			return false
 		}
 		match Take(k, t) {
-		case Some[Bucket] as next:
+		case option.Some[Bucket] as next:
 			k = next.Value
-		case None:
+		case option.None:
 		}
 	}
 	true
@@ -102,15 +104,15 @@ func Refill(b Bucket, now duration) Bucket {
 }
 
 // Take is b after one token is taken at now, or None when it has none.
-func Take(b Bucket, now duration) Option[Bucket] {
+func Take(b Bucket, now duration) option.Option[Bucket] {
 	if b.Every <= 0s {
-		return Some[Bucket]{Value: b}
+		return option.Some[Bucket]{Value: b}
 	}
 	let r = Refill(b, now)
 	if r.tokens == 0 {
-		return None
+		return option.None
 	}
-	Some[Bucket]{Value: Bucket{..r, tokens: r.tokens - 1}}
+	option.Some[Bucket]{Value: Bucket{..r, tokens: r.tokens - 1}}
 }
 
 // NextAt is the first time at or after now when b has a token.
@@ -128,9 +130,9 @@ law NextAtHasAToken(b int, e int, ns []int) {
 	let mut k = Full(burst, every, 0s)
 	for t in Times(ns) {
 		match Take(k, NextAt(k, t)) {
-		case Some[Bucket] as next:
+		case option.Some[Bucket] as next:
 			k = next.Value
-		case None:
+		case option.None:
 			return false
 		}
 	}

@@ -4,6 +4,7 @@
 // text of a catalogue comes from the Shelf contract (shelf.ergo), whose
 // providers live in packages named after their dependency.
 
+import option
 import strconv
 import strings
 
@@ -53,13 +54,13 @@ func ColumnName(c Column) string {
 }
 
 // ColumnOf is the column a name names, or None.
-func ColumnOf(name string) Option[Column] {
+func ColumnOf(name string) option.Option[Column] {
 	for c in Columns() {
 		if ColumnName(c) == name {
-			return Some[Column]{Value: c}
+			return option.Some[Column]{Value: c}
 		}
 	}
-	None
+	option.None
 }
 
 // Cell is the value of one column of one star, as the table shows and

@@ -69,8 +69,8 @@
       "name": "gent-e1-retry-with-draft",
       "origin": "wf10/gent-e1",
       "file": "examples/gent/agent/loop.ergo",
-      "from": "\tif a.Draft != \"\" {\n\t\treturn Enter[State]",
-      "to": "\tif false {\n\t\treturn Enter[State]",
+      "from": "\tif a.Draft != \"\" {\n\t\treturn machines.Enter[State]",
+      "to": "\tif false {\n\t\treturn machines.Enter[State]",
       "rule": "A failure after the first delta never waits to ask again (law Agent.NoRetryAfterFirstDelta).",
       "anchor": {
         "tests": [
@@ -133,8 +133,8 @@
       "name": "gent-e1-tree-lets-dotdot-out",
       "origin": "wf10/gent-e1",
       "file": "examples/gent/memory/tree.ergo",
-      "from": "\t\t\tif len(names) == 0 {\n\t\t\t\treturn agent.Escapes{Path: path}\n\t\t\t}\n\t\t\tnames = names[0 : len(names)-1]\n",
-      "to": "\t\t\tif len(names) == 0 {\n\t\t\t\tcontinue\n\t\t\t}\n\t\t\tnames = names[0 : len(names)-1]\n",
+      "from": "\t\t\tif names.Len() == 0 {\n\t\t\t\treturn agent.Escapes{Path: path}\n\t\t\t}\n\t\t\tnames = names[0 : names.Len()-1]\n",
+      "to": "\t\t\tif names.Len() == 0 {\n\t\t\t\tcontinue\n\t\t\t}\n\t\t\tnames = names[0 : names.Len()-1]\n",
       "rule": "A path that goes up out of the tree fails Escapes (law Tools.LeavingEscapes for Tree).",
       "anchor": {
         "tests": [
@@ -229,8 +229,8 @@
       "name": "gent-e1-tree-dir-without-slash",
       "origin": "wf10/gent-e1",
       "file": "examples/gent/memory/tree.ergo",
-      "from": "\t\t\tseen[at[len(names)]+\"/\"] = true\n",
-      "to": "\t\t\tseen[at[len(names)]] = true\n",
+      "from": "\t\t\tseen[at[names.Len()]+\"/\"] = true\n",
+      "to": "\t\t\tseen[at[names.Len()]] = true\n",
       "rule": "A directory's name ends in /, so a name List gives can be read or listed (law Tools.ListedIsThere for Tree).",
       "anchor": {
         "tests": [
@@ -357,7 +357,7 @@
       "name": "gent-e2-bound-cuts-a-rune",
       "origin": "wf10/gent-e2",
       "file": "examples/gent/agent/shell.ergo",
-      "from": "\t\tat = at + utf8.DecodeRuneInString(text.Slice(at, len(text))).Size\n",
+      "from": "\t\tat = at + utf8.DecodeRuneInString(text.Slice(at, text.Len())).Size\n",
       "to": "\t\tat = at + 1\n",
       "rule": "A bounded result is cut between characters, never inside one (law ResultsAreBounded).",
       "anchor": {
@@ -533,8 +533,8 @@
       "name": "harness-e4-backspace-at-the-start-deletes",
       "origin": "wf10/gent-e4",
       "file": "examples/gent/screen/keys.ergo",
-      "from": "\tcase term.Backspace:\n\t\tif at == 0 {\n\t\t\treturn Ignore\n\t\t}\n",
-      "to": "\tcase term.Backspace:\n\t\tif at == 0 && n == 0 {\n\t\t\treturn Ignore\n\t\t} else if at == 0 {\n\t\t\treturn Stay[Line]{Next: Line{Text: runes(l.Text, 1, n), At: 0}}\n\t\t}\n",
+      "from": "\tcase term.Backspace:\n\t\tif at == 0 {\n\t\t\treturn machines.Ignore\n\t\t}\n",
+      "to": "\tcase term.Backspace:\n\t\tif at == 0 && n == 0 {\n\t\t\treturn machines.Ignore\n\t\t} else if at == 0 {\n\t\t\treturn machines.Stay[Line]{Next: Line{Text: runes(l.Text, 1, n), At: 0}}\n\t\t}\n",
       "rule": "Backspace at the start of the composer changes nothing (law Composer.TypeThenBackspaceIsNoChange).",
       "anchor": {
         "tests": [
@@ -549,8 +549,8 @@
       "name": "harness-e4-changes-skip-a-shrunk-line",
       "origin": "wf10/gent-e4",
       "file": "examples/gent/screen/frame.ergo",
-      "from": "\t\tif len(a) != len(b) || a[i] != line {\n",
-      "to": "\t\tif len(a) != len(b) || (a[i] != line && len(line) >= len(a[i])) {\n",
+      "from": "\t\tif a.Len() != b.Len() || a[i] != line {\n",
+      "to": "\t\tif a.Len() != b.Len() || (a[i] != line && line.Len() >= a[i].Len()) {\n",
       "rule": "The lines written to go from one frame to the next redraw it (law ChangedLinesRedrawTheFrame).",
       "anchor": {
         "tests": [

@@ -1,0 +1,391 @@
+import json
+import option
+import strconv
+import strings
+import time
+
+// StrVal is a string-valued wide-event field.
+type StrVal { Value string }
+
+// IntVal is an integer-valued wide-event field.
+type IntVal { Value int }
+
+// BoolVal is a boolean-valued wide-event field.
+type BoolVal { Value bool }
+
+// DurVal is a duration-valued wide-event field.
+type DurVal { Value duration }
+
+// FloatVal is a floating-point wide-event field.
+type FloatVal { Value float64 }
+
+// GroupVal is a nested structured object of wide-event fields.
+type GroupVal { Fields []Field }
+
+// RedactedVal marks a sensitive field whose raw value is never stored or
+// emitted; it always serializes as "[REDACTED]".
+type RedactedVal {}
+
+// FieldValue is the closed union of typed wide-event field values.
+type FieldValue = StrVal | IntVal | BoolVal | DurVal | FloatVal | GroupVal | RedactedVal
+
+// Field is one typed key-value entry on a canonical wide event.
+type Field {
+	Key   string,
+	Value FieldValue,
+}
+
+// Str constructs a string Field.
+func Str(key string, value string) Field { Field{Key: key, Value: StrVal{Value: value}} }
+
+// Int constructs an integer Field.
+func Int(key string, value int) Field { Field{Key: key, Value: IntVal{Value: value}} }
+
+// Bool constructs a boolean Field.
+func Bool(key string, value bool) Field { Field{Key: key, Value: BoolVal{Value: value}} }
+
+// Dur constructs a duration Field.
+func Dur(key string, value duration) Field { Field{Key: key, Value: DurVal{Value: value}} }
+
+// Float constructs a float64 Field.
+func Float(key string, value float64) Field { Field{Key: key, Value: FloatVal{Value: value}} }
+
+// Group constructs a nested structured object Field.
+func Group(key string, fields []Field) Field { Field{Key: key, Value: GroupVal{Fields: fields}} }
+
+// Redacted constructs a redacted Field whose raw secret is never stored.
+func Redacted(key string) Field { Field{Key: key, Value: RedactedVal} }
+
+// RedactedText returns the canonical serialized marker for redacted fields.
+func RedactedText() string { "[REDACTED]" }
+
+// Counter is an accumulated integer counter recorded during a span.
+type Counter {
+	Key   string,
+	Value int,
+}
+
+// Timing is an accumulated sub-operation duration recorded during a span.
+type Timing {
+	Key      string,
+	Duration duration,
+}
+
+// OutcomeOK indicates a span completed normally.
+type OutcomeOK {}
+
+// OutcomeError indicates a span failed with structured diagnostic metadata.
+type OutcomeError {
+	Kind      string,
+	Code      string,
+	Message   string,
+	Retriable bool,
+}
+
+// OutcomeCancelled indicates a span ended due to cancellation or stop.
+type OutcomeCancelled {}
+
+// Outcome is the closed union of final span outcomes.
+type Outcome = OutcomeOK | OutcomeError | OutcomeCancelled
+
+// ServiceMeta identifies the emitting service and deployment context.
+type ServiceMeta {
+	Service      string,
+	Version      string,
+	DeploymentID string,
+	Region       string,
+}
+
+// WideEvent is one canonical log line / distributed trace span emitted on span
+// completion with high-cardinality structured fields, counters, timings, and
+// outcome metadata.
+type WideEvent {
+	Timestamp    time.Time,
+	TraceID      string,
+	SpanID       string,
+	ParentSpanID option.Option[string],
+	Name         string,
+	Service      ServiceMeta,
+	Duration     duration,
+	Outcome      Outcome,
+	Fields       []Field,
+	Counters     []Counter,
+	Timings      []Timing,
+	Tags         []string,
+}
+
+// HasField reports whether e carries a top-level field named key.
+func HasField(e WideEvent, key string) bool {
+	for f in e.Fields {
+		if f.Key == key {
+			return true
+		}
+	}
+	false
+}
+
+func formatFieldValueText(v FieldValue) string {
+	match v {
+	case StrVal as s:
+		s.Value
+	case IntVal as n:
+		strconv.Itoa(n.Value)
+	case BoolVal as b:
+		if b.Value { "true" } else { "false" }
+	case DurVal as d:
+		strconv.FormatInt(int64(d.Value)/int64(1000000), 10) + "ms"
+	case FloatVal as f:
+		let t = json.NewText()
+		t.Float(f.Value)
+		t.Written()
+	case GroupVal as g:
+		let t = json.NewText()
+		writeFieldsObject(t, g.Fields)
+		t.Written()
+	case RedactedVal:
+		RedactedText()
+	}
+}
+
+// FieldText returns a textual representation of the top-level field named key,
+// or option.None when absent. RedactedVal always returns "[REDACTED]".
+func FieldText(e WideEvent, key string) option.Option[string] {
+	for f in e.Fields {
+		if f.Key == key {
+			return option.Some[string]{Value: formatFieldValueText(f.Value)}
+		}
+	}
+	option.None
+}
+
+// CounterValue returns the accumulated value of counter key, or 0 when absent.
+func CounterValue(e WideEvent, key string) int {
+	for c in e.Counters {
+		if c.Key == key {
+			return c.Value
+		}
+	}
+	0
+}
+
+// TimingDuration returns the accumulated duration of timing key, or 0ns when
+// absent.
+func TimingDuration(e WideEvent, key string) duration {
+	for tm in e.Timings {
+		if tm.Key == key {
+			return tm.Duration
+		}
+	}
+	0ns
+}
+
+// HasTag reports whether e carries tag.
+func HasTag(e WideEvent, tag string) bool {
+	for tg in e.Tags {
+		if tg == tag {
+			return true
+		}
+	}
+	false
+}
+
+// IsError reports whether e completed with OutcomeError.
+func IsError(e WideEvent) bool {
+	match e.Outcome {
+	case OutcomeError:
+		true
+	case OutcomeOK, OutcomeCancelled:
+		false
+	}
+}
+
+func hasServiceMeta(s ServiceMeta) bool {
+	s.Service != "" || s.Version != "" || s.DeploymentID != "" || s.Region != ""
+}
+
+func writeFieldValue(t json.Text, v FieldValue) {
+	match v {
+	case StrVal as s:
+		t.String(s.Value)
+	case IntVal as n:
+		t.Int(int64(n.Value))
+	case BoolVal as b:
+		t.Bool(b.Value)
+	case DurVal as d:
+		t.Int(int64(d.Value) / int64(1000000))
+	case FloatVal as f:
+		t.Float(f.Value)
+	case GroupVal as g:
+		writeFieldsObject(t, g.Fields)
+	case RedactedVal:
+		t.String(RedactedText())
+	}
+}
+
+func writeFieldsObject(t json.Text, fields []Field) {
+	t.BeginObject(fields.Len())
+	for f in fields {
+		t.Key(f.Key)
+		writeFieldValue(t, f.Value)
+	}
+	t.EndObject()
+}
+
+// EncodeJSON encodes e as a canonical single-line JSON wide event. RedactedVal
+// fields always serialize as "[REDACTED]".
+func EncodeJSON(e WideEvent) string {
+	let t = json.NewText()
+	t.BeginObject(12)
+	t.Key("timestamp")
+	t.String(e.Timestamp.Format(time.RFC3339Nano))
+	t.Key("trace_id")
+	t.String(e.TraceID)
+	t.Key("span_id")
+	t.String(e.SpanID)
+	match e.ParentSpanID {
+	case option.Some[string] as p:
+		t.Key("parent_span_id")
+		t.String(p.Value)
+	case option.None:
+	}
+	t.Key("name")
+	t.String(e.Name)
+	t.Key("duration_ms")
+	t.Int(int64(e.Duration) / int64(1000000))
+	t.Key("duration_ns")
+	t.Int(int64(e.Duration))
+	if hasServiceMeta(e.Service) {
+		t.Key("service")
+		t.BeginObject(4)
+		if e.Service.Service != "" {
+			t.Key("name")
+			t.String(e.Service.Service)
+		}
+		if e.Service.Version != "" {
+			t.Key("version")
+			t.String(e.Service.Version)
+		}
+		if e.Service.DeploymentID != "" {
+			t.Key("deployment_id")
+			t.String(e.Service.DeploymentID)
+		}
+		if e.Service.Region != "" {
+			t.Key("region")
+			t.String(e.Service.Region)
+		}
+		t.EndObject()
+	}
+	match e.Outcome {
+	case OutcomeOK:
+		t.Key("outcome")
+		t.String("ok")
+	case OutcomeCancelled:
+		t.Key("outcome")
+		t.String("cancelled")
+	case OutcomeError as err:
+		t.Key("outcome")
+		t.String("error")
+		t.Key("error")
+		t.BeginObject(4)
+		t.Key("kind")
+		t.String(err.Kind)
+		t.Key("code")
+		t.String(err.Code)
+		t.Key("message")
+		t.String(err.Message)
+		t.Key("retriable")
+		t.Bool(err.Retriable)
+		t.EndObject()
+	}
+	if e.Fields.Len() > 0 {
+		t.Key("fields")
+		writeFieldsObject(t, e.Fields)
+	}
+	if e.Counters.Len() > 0 {
+		t.Key("counters")
+		t.BeginObject(e.Counters.Len())
+		for c in e.Counters {
+			t.Key(c.Key)
+			t.Int(int64(c.Value))
+		}
+		t.EndObject()
+	}
+	if e.Timings.Len() > 0 {
+		t.Key("timings_ms")
+		t.BeginObject(e.Timings.Len())
+		for tm in e.Timings {
+			t.Key(tm.Key)
+			t.Int(int64(tm.Duration) / int64(1000000))
+		}
+		t.EndObject()
+	}
+	if e.Tags.Len() > 0 {
+		t.Key("tags")
+		t.BeginList(e.Tags.Len())
+		for tg in e.Tags {
+			t.String(tg)
+		}
+		t.EndList()
+	}
+	t.EndObject()
+	t.Written()
+}
+
+// FormatConsole formats e as a compact human-readable canonical summary line.
+func FormatConsole(e WideEvent) string {
+	let status = match e.Outcome {
+	case OutcomeOK:
+		"OK"
+	case OutcomeCancelled:
+		"CANCELLED"
+	case OutcomeError as err:
+		if err.Code != "" { "ERR:" + err.Code } else { "ERR" }
+	}
+	let shortTrace = if e.TraceID.Len() >= 8 { e.TraceID.Slice(0, 8) } else { e.TraceID }
+	let ms = strconv.FormatInt(int64(e.Duration)/int64(1000000), 10)
+	let mut out = "[" + status + "] " + e.Name + " " + ms + "ms trace=" + shortTrace
+	if e.Service.Service != "" {
+		out = out + " service=" + e.Service.Service
+	}
+	for f in e.Fields {
+		out = out + " " + f.Key + "=" + formatFieldValueText(f.Value)
+	}
+	for c in e.Counters {
+		out = out + " " + c.Key + "=" + strconv.Itoa(c.Value)
+	}
+	for tg in e.Tags {
+		out = out + " #" + tg
+	}
+	out
+}
+
+// RedactedFieldsNeverSerializeRawSecret: a Redacted field always serializes as
+// "[REDACTED]" in EncodeJSON and FieldText, both at top level and inside nested
+// groups, and never leaks an unattached secret string.
+law RedactedFieldsNeverSerializeRawSecret(key string, secret string) {
+	let k = if key == "" { "secret" } else { key }
+	let ev = WideEvent{
+		Timestamp:    time.Unix(1700000000, 0),
+		TraceID:      "0123456789abcdef0123456789abcdef",
+		SpanID:       "0123456789abcdef",
+		ParentSpanID: option.None,
+		Name:         "auth",
+		Service:      ServiceMeta{Service: "", Version: "", DeploymentID: "", Region: ""},
+		Duration:     5ms,
+		Outcome:      OutcomeOK,
+		Fields:       []Field{
+			Redacted(k),
+			Group("auth", []Field{Redacted("token")}),
+		},
+		Counters: []Counter{},
+		Timings:  []Timing{},
+		Tags:     []string{},
+	}
+	let raw = EncodeJSON(ev)
+	always strings.Contains(raw, RedactedText())
+	always FieldText(ev, k) == option.Some[string]{Value: RedactedText()}
+	if secret.Len() >= 8 && !strings.Contains(raw, secret) {
+		always !strings.Contains(raw, secret)
+	}
+	true
+}

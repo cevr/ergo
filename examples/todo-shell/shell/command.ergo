@@ -1,3 +1,4 @@
+import option
 import strconv
 import strings
 
@@ -30,10 +31,10 @@ func ParseCommand(line string) Command fails Unknown | BadNumber | MissingText {
 	let mut word = text
 	let mut rest = ""
 	match strings.Cut(text, " ") {
-	case Some[strings.Halves] as h:
+	case option.Some[strings.Halves] as h:
 		word = h.Value.Before
 		rest = strings.TrimSpace(h.Value.After)
-	case None:
+	case option.None:
 	}
 	match word {
 	case "":

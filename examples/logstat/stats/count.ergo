@@ -22,7 +22,7 @@ func Rank(m Map[string, int], top int) []Count {
 		all = all.Append(Count{Key: k, N: n})
 	}
 	let sorted = slices.SortFunc(all, ByCountThenKey)
-	if top < 0 || top >= len(sorted) {
+	if top < 0 || top >= sorted.Len() {
 		return sorted
 	}
 	let mut out = []Count{}
@@ -37,7 +37,7 @@ func Rank(m Map[string, int], top int) []Count {
 law RankKeepsEveryKey(keys []string, ns []int) {
 	for ks in [][]string{keys, Keys(ns)} {
 		let ranked = Rank(Tally(ks), -1)
-		if Total(ranked) != len(ks) || len(ranked) != len(seen(ks)) {
+		if Total(ranked) != ks.Len() || ranked.Len() != seen(ks).Len() {
 			return false
 		}
 	}
@@ -58,7 +58,7 @@ func seen(keys []string) []string {
 // Keys is a key from a to f for each of ns, so that keys repeat.
 func Keys(ns []int) []string {
 	let names = []string{"a", "b", "c", "d", "e", "f"}
-	slices.Transform(ns, func(n int) string { names[natural(n)%len(names)] })
+	slices.Transform(ns, func(n int) string { names[natural(n)%names.Len()] })
 }
 
 // RankIsOrdered: ranked counts are most first, ties by key, and are the
@@ -68,10 +68,10 @@ law RankIsOrdered(keys []string, ns []int, top int) {
 		for t in []int{top, natural(top)%8 - 1} {
 			let all = Rank(Tally(ks), -1)
 			let ranked = Rank(Tally(ks), t)
-			if t >= 0 && len(ranked) > t {
+			if t >= 0 && ranked.Len() > t {
 				return false
 			}
-			for i in 0..len(ranked) {
+			for i in 0..ranked.Len() {
 				if ranked[i] != all[i] || (i > 0 && ByCountThenKey(ranked[i-1], ranked[i]) >= 0) {
 					return false
 				}

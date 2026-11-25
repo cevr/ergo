@@ -2,6 +2,7 @@
 // dates, in UTC, through std civil.
 
 import civil
+import option
 import time
 
 // Period is the samples whose UTC day is in Span.
@@ -18,15 +19,15 @@ func DayOf(at int64) civil.Date {
 
 // Days is the span from the day of the first sample to the day of the
 // last, or None when samples is empty. samples are in time order.
-func Days(samples []Sample) Option[civil.Span] {
-	if len(samples) == 0 {
-		return None
+func Days(samples []Sample) option.Option[civil.Span] {
+	if samples.Len() == 0 {
+		return option.None
 	}
-	let s = civil.NewSpan(DayOf(samples[0].At), DayOf(samples[len(samples)-1].At)) catch {
+	let s = civil.NewSpan(DayOf(samples[0].At), DayOf(samples[samples.Len()-1].At)) catch {
 	case civil.Reversed:
-		return None
+		return option.None
 	}
-	Some{s}
+	option.Some{s}
 }
 
 // Calendar is a period per part of s in the unit u (a day, a week or a
@@ -35,12 +36,12 @@ func Days(samples []Sample) Option[civil.Span] {
 func Calendar(samples []Sample, s civil.Span, u civil.Unit) []Period {
 	let mut out = []Period{}
 	let mut i = 0
-	for i < len(samples) && civil.Before(DayOf(samples[i].At), civil.From(s)) {
+	for i < samples.Len() && civil.Before(DayOf(samples[i].At), civil.From(s)) {
 		i += 1
 	}
 	for part in civil.Split(s, u) {
 		let mut p = Period{Span: part, Count: 0, Sum: 0}
-		for i < len(samples) && civil.Contains(part, DayOf(samples[i].At)) {
+		for i < samples.Len() && civil.Contains(part, DayOf(samples[i].At)) {
 			p.Count += 1
 			p.Sum += samples[i].Value
 			i += 1

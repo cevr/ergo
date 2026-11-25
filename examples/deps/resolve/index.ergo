@@ -16,7 +16,7 @@ type Constraint { Range semver.Range, Text string }
 // ParseConstraint reads text as an npm range; an empty text is *.
 func ParseConstraint(text string) Constraint fails semver.Malformed {
 	let words = strings.Fields(text)
-	if len(words) == 0 {
+	if words.Len() == 0 {
 		return Any()
 	}
 	Constraint{Range: try semver.ParseRange(text), Text: strings.Join(words, " ")}
@@ -52,7 +52,7 @@ type Index {
 		case UnknownPackage:
 			return true
 		}
-		for i in 1..len(vs) {
+		for i in 1..vs.Len() {
 			if semver.Compare(vs[i-1], vs[i]) <= 0 {
 				return false
 			}

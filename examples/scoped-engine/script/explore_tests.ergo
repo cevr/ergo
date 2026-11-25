@@ -1,4 +1,5 @@
 import actor
+import core
 import gen
 import scopedengine/engine
 import scopedengine/memory
@@ -18,7 +19,7 @@ func exploreProperties(pool memory.Pool) []temporal.Formula[ui.ExploreSnapshot[e
 			case engine.Booting, engine.Ready:
 				held >= 0 && held <= 1
 			}
-			okMode && len(s.Offers) > 0
+			okMode && s.Offers.Len() > 0
 		}),
 	))
 	props
@@ -27,8 +28,8 @@ func exploreProperties(pool memory.Pool) []temporal.Formula[ui.ExploreSnapshot[e
 func exploreOnce(steps int) ui.Finding needs gen.Draws {
 	let clock = time.NewManual(0)
 	let pool = memory.OnClock(clock, BootTakes())
-	with context { Scheduler: clock, engine.Engines: pool } {
-		let app = actor.StartMachine(engine.Panel{}, 4, func(_ Never) {})
+	with context { time.Scheduler: clock, engine.Engines: pool } {
+		let app = actor.StartMachine(engine.Panel{}, 4, func(_ core.Never) {})
 		let mut h = ui.NewTestHost(app, screen.Screen, clock, 4) catch {
 		case ui.BadPatch as bp:
 			app.Stop()

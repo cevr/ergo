@@ -1,8 +1,11 @@
 // Package durable is the P9 durable workflow store path-testing pilot binding
 // shared store paths to both workflow/memory and workflow/file on fresh
 // confined directories and durability-only reopen paths to workflow/file.
+import core
 import explore
 import fs
+import fstest
+import option
 import sync
 import testing
 import time
@@ -35,7 +38,7 @@ type LoadView {
 	Events string,
 	Count  int,
 	Next   int,
-	Wake   Option[WakeView],
+	Wake   option.Option[WakeView],
 }
 
 // ReplyView is the typed reply observed from a public workflow.Store operation.
@@ -112,13 +115,13 @@ func loadViewOf(l workflow.Loaded) LoadView {
 		}
 		encoded = encoded + eventTagOf(e)
 	}
-	let wake Option[WakeView] = match l.Wake {
-	case Some{Value: w}:
-		Some[WakeView]{Value: WakeView{DueSec: time.UnixSeconds(w.Due), Rev: w.Rev}}
-	case None:
-		None
+	let wake option.Option[WakeView] = match l.Wake {
+	case option.Some{Value: w}:
+		option.Some[WakeView]{Value: WakeView{DueSec: time.UnixSeconds(w.Due), Rev: w.Rev}}
+	case option.None:
+		option.None
 	}
-	LoadView{Events: encoded, Count: len(l.Events), Next: int(l.Next), Wake: wake}
+	LoadView{Events: encoded, Count: l.Events.Len(), Next: int(l.Next), Wake: wake}
 }
 
 func admissionReply(a workflow.Admission) ReplyView {
@@ -139,14 +142,14 @@ func applyWorkSettleModel(ws workflow.State, now time.Time) (workflow.State, Rep
 	match grantOut {
 	case workflow.Granted as gr:
 		match gr.Grant {
-		case Some{Value: g}:
+		case option.Some{Value: g}:
 			let loaded = workflow.LoadOf(ws1, g.Run, workflow.Cursor(0))
 			let ev = workflow.StepDone{Op: "step", N: int(loaded.Next), Result: "ok-\(g.Epoch)"}
 			let (comOut, ws2, ch2) = workflow.Apply(ws1, workflow.Committing{
 				Grant:    g,
 				Expected: loaded.Next,
 				Events:   []workflow.Event{ev},
-				Next:     Some[time.Time]{Value: now.Add(5s)},
+				Next:     option.Some[time.Time]{Value: now.Add(5s)},
 			})
 			let nextCur = match comOut {
 			case workflow.Committed as k:
@@ -168,7 +171,7 @@ func applyWorkSettleModel(ws workflow.State, now time.Time) (workflow.State, Rep
 				},
 				ch1 || ch2 || ch3 || ch4,
 			)
-		case None:
+		case option.None:
 			(
 				ws1,
 				ReplyWorked{
@@ -203,13 +206,13 @@ func applyWorkConflictModel(ws workflow.State, now time.Time) (workflow.State, R
 	match grantOut {
 	case workflow.Granted as gr:
 		match gr.Grant {
-		case Some{Value: g}:
+		case option.Some{Value: g}:
 			let ev = workflow.StepDone{Op: "stale", N: 0, Result: "stale"}
 			let (comOut, ws2, ch2) = workflow.Apply(ws1, workflow.Committing{
 				Grant:    g,
 				Expected: workflow.Cursor(0),
 				Events:   []workflow.Event{ev},
-				Next:     None,
+				Next:     option.None,
 			})
 			let (comNext, expC, actC) = match comOut {
 			case workflow.Committed as k:
@@ -232,7 +235,7 @@ func applyWorkConflictModel(ws workflow.State, now time.Time) (workflow.State, R
 				},
 				ch1 || ch2 || ch3,
 			)
-		case None:
+		case option.None:
 			(
 				ws1,
 				ReplyWorked{
@@ -305,7 +308,7 @@ func obsOfWorkflowState(ws workflow.State, nowSec int64) StoreObs {
 	}
 }
 
-func stepSharedModel(st StoreModelState, cmd SharedCmd) explore.EdgeOutcome[StoreModelState, explore.StepObs[StoreObs, ReplyView, Never]] {
+func stepSharedModel(st StoreModelState, cmd SharedCmd) explore.EdgeOutcome[StoreModelState, explore.StepObs[StoreObs, ReplyView, core.Never]] {
 	let ws = rebuildWorkflowState(st.Ops)
 	let run = pilotRun()
 	let now = timeOf(st.NowSec)
@@ -324,13 +327,13 @@ func stepSharedModel(st StoreModelState, cmd SharedCmd) explore.EdgeOutcome[Stor
 		}
 		let nextOps = if changed { st.Ops.Append(HistCreate{AtSec: st.NowSec}) } else { st.Ops }
 		let nextSt = StoreModelState{NowSec: st.NowSec, Ops: nextOps}
-		explore.Continue[StoreModelState, explore.StepObs[StoreObs, ReplyView, Never]]{
+		explore.Continue[StoreModelState, explore.StepObs[StoreObs, ReplyView, core.Never]]{
 			Next: nextSt,
-			Obs:  explore.StepObs[StoreObs, ReplyView, Never]{
+			Obs:  explore.StepObs[StoreObs, ReplyView, core.Never]{
 				Kind:     explore.DisEmit,
-				State:    Some[StoreObs]{Value: obsOfWorkflowState(nextWs, st.NowSec)},
+				State:    option.Some[StoreObs]{Value: obsOfWorkflowState(nextWs, st.NowSec)},
 				Outputs:  []ReplyView{reply},
-				Error:    None,
+				Error:    option.None,
 				Terminal: false,
 			},
 		}
@@ -350,38 +353,38 @@ func stepSharedModel(st StoreModelState, cmd SharedCmd) explore.EdgeOutcome[Stor
 		}
 		let nextOps = if changed { st.Ops.Append(HistAdmit{AtSec: st.NowSec}) } else { st.Ops }
 		let nextSt = StoreModelState{NowSec: st.NowSec, Ops: nextOps}
-		explore.Continue[StoreModelState, explore.StepObs[StoreObs, ReplyView, Never]]{
+		explore.Continue[StoreModelState, explore.StepObs[StoreObs, ReplyView, core.Never]]{
 			Next: nextSt,
-			Obs:  explore.StepObs[StoreObs, ReplyView, Never]{
+			Obs:  explore.StepObs[StoreObs, ReplyView, core.Never]{
 				Kind:     explore.DisEmit,
-				State:    Some[StoreObs]{Value: obsOfWorkflowState(nextWs, st.NowSec)},
+				State:    option.Some[StoreObs]{Value: obsOfWorkflowState(nextWs, st.NowSec)},
 				Outputs:  []ReplyView{reply},
-				Error:    None,
+				Error:    option.None,
 				Terminal: false,
 			},
 		}
 	case CmdLoadTail:
 		let tail = loadViewOf(workflow.LoadOf(ws, run, workflow.Cursor(1)))
-		explore.Continue[StoreModelState, explore.StepObs[StoreObs, ReplyView, Never]]{
+		explore.Continue[StoreModelState, explore.StepObs[StoreObs, ReplyView, core.Never]]{
 			Next: st,
-			Obs:  explore.StepObs[StoreObs, ReplyView, Never]{
+			Obs:  explore.StepObs[StoreObs, ReplyView, core.Never]{
 				Kind:     explore.DisEmit,
-				State:    Some[StoreObs]{Value: obsOfWorkflowState(ws, st.NowSec)},
+				State:    option.Some[StoreObs]{Value: obsOfWorkflowState(ws, st.NowSec)},
 				Outputs:  []ReplyView{ReplyLoaded{Loaded: tail}},
-				Error:    None,
+				Error:    option.None,
 				Terminal: false,
 			},
 		}
 	case CmdAdvance:
 		let nextSec = st.NowSec + 10
 		let nextSt = StoreModelState{NowSec: nextSec, Ops: st.Ops}
-		explore.Continue[StoreModelState, explore.StepObs[StoreObs, ReplyView, Never]]{
+		explore.Continue[StoreModelState, explore.StepObs[StoreObs, ReplyView, core.Never]]{
 			Next: nextSt,
-			Obs:  explore.StepObs[StoreObs, ReplyView, Never]{
+			Obs:  explore.StepObs[StoreObs, ReplyView, core.Never]{
 				Kind:     explore.DisEmit,
-				State:    Some[StoreObs]{Value: obsOfWorkflowState(ws, nextSec)},
+				State:    option.Some[StoreObs]{Value: obsOfWorkflowState(ws, nextSec)},
 				Outputs:  []ReplyView{ReplyAdvanced{NowSec: nextSec}},
-				Error:    None,
+				Error:    option.None,
 				Terminal: false,
 			},
 		}
@@ -389,13 +392,13 @@ func stepSharedModel(st StoreModelState, cmd SharedCmd) explore.EdgeOutcome[Stor
 		let (nextWs, reply, changed) = applyWorkSettleModel(ws, now)
 		let nextOps = if changed { st.Ops.Append(HistWorkSettle{AtSec: st.NowSec}) } else { st.Ops }
 		let nextSt = StoreModelState{NowSec: st.NowSec, Ops: nextOps}
-		explore.Continue[StoreModelState, explore.StepObs[StoreObs, ReplyView, Never]]{
+		explore.Continue[StoreModelState, explore.StepObs[StoreObs, ReplyView, core.Never]]{
 			Next: nextSt,
-			Obs:  explore.StepObs[StoreObs, ReplyView, Never]{
+			Obs:  explore.StepObs[StoreObs, ReplyView, core.Never]{
 				Kind:     explore.DisEmit,
-				State:    Some[StoreObs]{Value: obsOfWorkflowState(nextWs, st.NowSec)},
+				State:    option.Some[StoreObs]{Value: obsOfWorkflowState(nextWs, st.NowSec)},
 				Outputs:  []ReplyView{reply},
-				Error:    None,
+				Error:    option.None,
 				Terminal: false,
 			},
 		}
@@ -403,20 +406,20 @@ func stepSharedModel(st StoreModelState, cmd SharedCmd) explore.EdgeOutcome[Stor
 		let (nextWs, reply, changed) = applyWorkConflictModel(ws, now)
 		let nextOps = if changed { st.Ops.Append(HistWorkConflict{AtSec: st.NowSec}) } else { st.Ops }
 		let nextSt = StoreModelState{NowSec: st.NowSec, Ops: nextOps}
-		explore.Continue[StoreModelState, explore.StepObs[StoreObs, ReplyView, Never]]{
+		explore.Continue[StoreModelState, explore.StepObs[StoreObs, ReplyView, core.Never]]{
 			Next: nextSt,
-			Obs:  explore.StepObs[StoreObs, ReplyView, Never]{
+			Obs:  explore.StepObs[StoreObs, ReplyView, core.Never]{
 				Kind:     explore.DisEmit,
-				State:    Some[StoreObs]{Value: obsOfWorkflowState(nextWs, st.NowSec)},
+				State:    option.Some[StoreObs]{Value: obsOfWorkflowState(nextWs, st.NowSec)},
 				Outputs:  []ReplyView{reply},
-				Error:    None,
+				Error:    option.None,
 				Terminal: false,
 			},
 		}
 	}
 }
 
-func stepDurableModel(st StoreModelState, cmd DurableCmd) explore.EdgeOutcome[StoreModelState, explore.StepObs[StoreObs, ReplyView, Never]] {
+func stepDurableModel(st StoreModelState, cmd DurableCmd) explore.EdgeOutcome[StoreModelState, explore.StepObs[StoreObs, ReplyView, core.Never]] {
 	let ws = rebuildWorkflowState(st.Ops)
 	let run = pilotRun()
 	match cmd {
@@ -428,13 +431,13 @@ func stepDurableModel(st StoreModelState, cmd DurableCmd) explore.EdgeOutcome[St
 		stepSharedModel(st, CmdLoadTail)
 	case DurReopen:
 		let full = loadViewOf(workflow.LoadOf(ws, run, workflow.Cursor(0)))
-		explore.Continue[StoreModelState, explore.StepObs[StoreObs, ReplyView, Never]]{
+		explore.Continue[StoreModelState, explore.StepObs[StoreObs, ReplyView, core.Never]]{
 			Next: st,
-			Obs:  explore.StepObs[StoreObs, ReplyView, Never]{
+			Obs:  explore.StepObs[StoreObs, ReplyView, core.Never]{
 				Kind:     explore.DisEmit,
-				State:    Some[StoreObs]{Value: obsOfWorkflowState(ws, st.NowSec)},
+				State:    option.Some[StoreObs]{Value: obsOfWorkflowState(ws, st.NowSec)},
 				Outputs:  []ReplyView{ReplyReopened{Loaded: full}},
-				Error:    None,
+				Error:    option.None,
 				Terminal: false,
 			},
 		}
@@ -442,9 +445,9 @@ func stepDurableModel(st StoreModelState, cmd DurableCmd) explore.EdgeOutcome[St
 }
 
 // SharedStoreModel returns the pure protocol PathModel shared by memory and file stores.
-func SharedStoreModel() explore.PathModel[StoreModelState, SharedCmd, StoreObs, ReplyView, Never] {
-	explore.PathModel[StoreModelState, SharedCmd, StoreObs, ReplyView, Never]{
-		Graph: explore.ConcreteGraph[StoreModelState, SharedCmd, explore.StepObs[StoreObs, ReplyView, Never]]{
+func SharedStoreModel() explore.PathModel[StoreModelState, SharedCmd, StoreObs, ReplyView, core.Never] {
+	explore.PathModel[StoreModelState, SharedCmd, StoreObs, ReplyView, core.Never]{
+		Graph: explore.ConcreteGraph[StoreModelState, SharedCmd, explore.StepObs[StoreObs, ReplyView, core.Never]]{
 			Starts:  []StoreModelState{StoreModelState{NowSec: 100, Ops: []HistOp{}}},
 			Signals: []SharedCmd{CmdCreate, CmdAdmit, CmdLoadTail, CmdAdvance, CmdWorkSettle, CmdWorkConflict},
 			Step:    stepSharedModel,
@@ -452,14 +455,14 @@ func SharedStoreModel() explore.PathModel[StoreModelState, SharedCmd, StoreObs, 
 		InitialObs: func(st StoreModelState) StoreObs {
 			obsOfWorkflowState(rebuildWorkflowState(st.Ops), st.NowSec)
 		},
-		ProjectionName: Some[string]{Value: "workflow-store-obs"},
+		ProjectionName: option.Some[string]{Value: "workflow-store-obs"},
 	}
 }
 
 // DurableStoreModel returns the durability-only PathModel with explicit Reopen.
-func DurableStoreModel() explore.PathModel[StoreModelState, DurableCmd, StoreObs, ReplyView, Never] {
-	explore.PathModel[StoreModelState, DurableCmd, StoreObs, ReplyView, Never]{
-		Graph: explore.ConcreteGraph[StoreModelState, DurableCmd, explore.StepObs[StoreObs, ReplyView, Never]]{
+func DurableStoreModel() explore.PathModel[StoreModelState, DurableCmd, StoreObs, ReplyView, core.Never] {
+	explore.PathModel[StoreModelState, DurableCmd, StoreObs, ReplyView, core.Never]{
+		Graph: explore.ConcreteGraph[StoreModelState, DurableCmd, explore.StepObs[StoreObs, ReplyView, core.Never]]{
 			Starts:  []StoreModelState{StoreModelState{NowSec: 100, Ops: []HistOp{}}},
 			Signals: []DurableCmd{DurCreate, DurAdmit, DurReopen, DurLoadTail},
 			Step:    stepDurableModel,
@@ -467,7 +470,7 @@ func DurableStoreModel() explore.PathModel[StoreModelState, DurableCmd, StoreObs
 		InitialObs: func(st StoreModelState) StoreObs {
 			obsOfWorkflowState(rebuildWorkflowState(st.Ops), st.NowSec)
 		},
-		ProjectionName: Some[string]{Value: "workflow-durable-obs"},
+		ProjectionName: option.Some[string]{Value: "workflow-durable-obs"},
 	}
 }
 
@@ -488,7 +491,7 @@ func observeLiveStore(s workflow.Store, nowSec int64) StoreObs fails StoreDriveE
 	}
 }
 
-func runLiveSharedCmd(s workflow.Store, nowRef sync.Ref[int64], cmd SharedCmd) explore.Observed[StoreObs, ReplyView, Never] fails StoreDriveErr {
+func runLiveSharedCmd(s workflow.Store, nowRef sync.Ref[int64], cmd SharedCmd) explore.Observed[StoreObs, ReplyView, core.Never] fails StoreDriveErr {
 	let run = pilotRun()
 	let nowSec = nowRef.Get()
 	let now = timeOf(nowSec)
@@ -528,7 +531,7 @@ func runLiveSharedCmd(s workflow.Store, nowRef sync.Ref[int64], cmd SharedCmd) e
 			let g = workflow.GrantOf(c)
 			let loaded = try s.Load(g.Run, workflow.Cursor(0))
 			let ev = workflow.StepDone{Op: "step", N: int(loaded.Next), Result: "ok-\(g.Epoch)"}
-			let nextCur = s.Commit(c, loaded.Next, []workflow.Event{ev}, Some[time.Time]{Value: now.Add(5s)}) catch {
+			let nextCur = s.Commit(c, loaded.Next, []workflow.Event{ev}, option.Some[time.Time]{Value: now.Add(5s)}) catch {
 			case workflow.Conflict:
 				return
 			case workflow.Fenced:
@@ -566,7 +569,7 @@ func runLiveSharedCmd(s workflow.Store, nowRef sync.Ref[int64], cmd SharedCmd) e
 		let _ = workflow.Work(s, now, 5s, func(c own workflow.Claimed) fails workflow.Failed {
 			let g = workflow.GrantOf(c)
 			let ev = workflow.StepDone{Op: "stale", N: 0, Result: "stale"}
-			let nextCur = s.Commit(c, workflow.Cursor(0), []workflow.Event{ev}, None) catch {
+			let nextCur = s.Commit(c, workflow.Cursor(0), []workflow.Event{ev}, option.None) catch {
 			case workflow.Conflict as cf:
 				resRef.Set(ReplyWorked{
 					Claimed:          true,
@@ -605,11 +608,11 @@ func runLiveSharedCmd(s workflow.Store, nowRef sync.Ref[int64], cmd SharedCmd) e
 		resRef.Get()
 	}
 	let obs = try observeLiveStore(s, nowRef.Get())
-	explore.StepResult[StoreObs, ReplyView, Never]{Step: explore.StepObs[StoreObs, ReplyView, Never]{
+	explore.StepResult[StoreObs, ReplyView, core.Never]{Step: explore.StepObs[StoreObs, ReplyView, core.Never]{
 		Kind:     explore.DisEmit,
-		State:    Some[StoreObs]{Value: obs},
+		State:    option.Some[StoreObs]{Value: obs},
 		Outputs:  []ReplyView{reply},
-		Error:    None,
+		Error:    option.None,
 		Terminal: false,
 	}}
 }
@@ -628,13 +631,13 @@ type memStoreSess {
 	nowSec sync.Ref[int64],
 	closes sync.Ref[int],
 	closed sync.Ref[bool],
-} implements explore.PathSession[SharedCmd, explore.Observed[StoreObs, ReplyView, Never], StoreDriveErr]
+} implements explore.PathSession[SharedCmd, explore.Observed[StoreObs, ReplyView, core.Never], StoreDriveErr]
 
-func Read(s memStoreSess) explore.Observed[StoreObs, ReplyView, Never] fails StoreDriveErr {
+func Read(s memStoreSess) explore.Observed[StoreObs, ReplyView, core.Never] fails StoreDriveErr {
 	explore.InitialRead[StoreObs]{State: try observeLiveStore(s.store, s.nowSec.Get())}
 }
 
-func Apply(s memStoreSess, cmd SharedCmd) explore.Observed[StoreObs, ReplyView, Never] fails StoreDriveErr {
+func Apply(s memStoreSess, cmd SharedCmd) explore.Observed[StoreObs, ReplyView, core.Never] fails StoreDriveErr {
 	try runLiveSharedCmd(s.store, s.nowSec, cmd)
 }
 
@@ -653,13 +656,13 @@ type fileStoreSess {
 	nowSec sync.Ref[int64],
 	closes sync.Ref[int],
 	closed sync.Ref[bool],
-} implements explore.PathSession[SharedCmd, explore.Observed[StoreObs, ReplyView, Never], StoreDriveErr]
+} implements explore.PathSession[SharedCmd, explore.Observed[StoreObs, ReplyView, core.Never], StoreDriveErr]
 
-func Read(s fileStoreSess) explore.Observed[StoreObs, ReplyView, Never] fails StoreDriveErr {
+func Read(s fileStoreSess) explore.Observed[StoreObs, ReplyView, core.Never] fails StoreDriveErr {
 	explore.InitialRead[StoreObs]{State: try observeLiveStore(s.store, s.nowSec.Get())}
 }
 
-func Apply(s fileStoreSess, cmd SharedCmd) explore.Observed[StoreObs, ReplyView, Never] fails StoreDriveErr {
+func Apply(s fileStoreSess, cmd SharedCmd) explore.Observed[StoreObs, ReplyView, core.Never] fails StoreDriveErr {
 	try runLiveSharedCmd(s.store, s.nowSec, cmd)
 }
 
@@ -675,7 +678,7 @@ func Close(s fileStoreSess) {
 // StoreSession is the shared workflow store path-testing contract bound to both
 // workflow/memory and workflow/file.
 type StoreSession {
-	Open(start StoreModelState) explore.PathSession[SharedCmd, explore.Observed[StoreObs, ReplyView, Never], StoreDriveErr] fails StoreOpenErr,
+	Open(start StoreModelState) explore.PathSession[SharedCmd, explore.Observed[StoreObs, ReplyView, core.Never], StoreDriveErr] fails StoreOpenErr,
 	Counts() (int, int),
 
 	// PathsAgree checks every shared workflow store path up to depth 3 against
@@ -692,7 +695,7 @@ type StoreSession {
 				MaxWork:   65536,
 				MaxBytes:  262144,
 			},
-			func(start StoreModelState) explore.PathSession[SharedCmd, explore.Observed[StoreObs, ReplyView, Never], StoreDriveErr] fails StoreOpenErr {
+			func(start StoreModelState) explore.PathSession[SharedCmd, explore.Observed[StoreObs, ReplyView, core.Never], StoreDriveErr] fails StoreOpenErr {
 				try Open(start)
 			},
 			testing.ActiveEvidenceSink(),
@@ -722,7 +725,7 @@ func makeMemoryStoreProvider() MemoryStoreProvider {
 	MemoryStoreProvider{opens: sync.NewRef(0), closes: sync.NewRef(0)}
 }
 
-func Open(p MemoryStoreProvider, start StoreModelState) explore.PathSession[SharedCmd, explore.Observed[StoreObs, ReplyView, Never], StoreDriveErr] fails StoreOpenErr {
+func Open(p MemoryStoreProvider, start StoreModelState) explore.PathSession[SharedCmd, explore.Observed[StoreObs, ReplyView, core.Never], StoreDriveErr] fails StoreOpenErr {
 	p.opens.Set(p.opens.Get() + 1)
 	let raw = memory.NewStore()
 	let wf workflow.Store = raw
@@ -749,7 +752,7 @@ func makeFileStoreProvider(host fs.Host) FileStoreProvider {
 	FileStoreProvider{host: host, nextID: sync.NewRef(0), opens: sync.NewRef(0), closes: sync.NewRef(0)}
 }
 
-func Open(p FileStoreProvider, start StoreModelState) explore.PathSession[SharedCmd, explore.Observed[StoreObs, ReplyView, Never], StoreDriveErr] fails StoreOpenErr {
+func Open(p FileStoreProvider, start StoreModelState) explore.PathSession[SharedCmd, explore.Observed[StoreObs, ReplyView, core.Never], StoreDriveErr] fails StoreOpenErr {
 	let id = p.nextID.Get() + 1
 	p.nextID.Set(id)
 	let dir = "shared-\(id)"
@@ -785,9 +788,9 @@ type durableFileSess {
 	nowSec   sync.Ref[int64],
 	closes   sync.Ref[int],
 	closed   sync.Ref[bool],
-} implements explore.PathSession[DurableCmd, explore.Observed[StoreObs, ReplyView, Never], StoreDriveErr]
+} implements explore.PathSession[DurableCmd, explore.Observed[StoreObs, ReplyView, core.Never], StoreDriveErr]
 
-func Read(s durableFileSess) explore.Observed[StoreObs, ReplyView, Never] fails StoreDriveErr {
+func Read(s durableFileSess) explore.Observed[StoreObs, ReplyView, core.Never] fails StoreDriveErr {
 	if !s.reopened.Get() {
 		return explore.InitialRead[StoreObs]{State: try observeLiveStore(s.initial, s.nowSec.Get())}
 	}
@@ -798,7 +801,7 @@ func Read(s durableFileSess) explore.Observed[StoreObs, ReplyView, Never] fails 
 	explore.InitialRead[StoreObs]{State: try observeLiveStore(reopened, s.nowSec.Get())}
 }
 
-func runDurableShared(s durableFileSess, cmd SharedCmd) explore.Observed[StoreObs, ReplyView, Never] fails StoreDriveErr {
+func runDurableShared(s durableFileSess, cmd SharedCmd) explore.Observed[StoreObs, ReplyView, core.Never] fails StoreDriveErr {
 	if !s.reopened.Get() {
 		return try runLiveSharedCmd(s.initial, s.nowSec, cmd)
 	}
@@ -809,7 +812,7 @@ func runDurableShared(s durableFileSess, cmd SharedCmd) explore.Observed[StoreOb
 	try runLiveSharedCmd(reopened, s.nowSec, cmd)
 }
 
-func Apply(s durableFileSess, cmd DurableCmd) explore.Observed[StoreObs, ReplyView, Never] fails StoreDriveErr {
+func Apply(s durableFileSess, cmd DurableCmd) explore.Observed[StoreObs, ReplyView, core.Never] fails StoreDriveErr {
 	match cmd {
 	case DurCreate:
 		try runDurableShared(s, CmdCreate)
@@ -828,11 +831,11 @@ func Apply(s durableFileSess, cmd DurableCmd) explore.Observed[StoreObs, ReplyVi
 			return StoreDriveErr{Why: "load after reopen failed: \(f.Reason)"}
 		}
 		let obs = try observeLiveStore(reopened, s.nowSec.Get())
-		explore.StepResult[StoreObs, ReplyView, Never]{Step: explore.StepObs[StoreObs, ReplyView, Never]{
+		explore.StepResult[StoreObs, ReplyView, core.Never]{Step: explore.StepObs[StoreObs, ReplyView, core.Never]{
 			Kind:     explore.DisEmit,
-			State:    Some[StoreObs]{Value: obs},
+			State:    option.Some[StoreObs]{Value: obs},
 			Outputs:  []ReplyView{ReplyReopened{Loaded: loadViewOf(full)}},
-			Error:    None,
+			Error:    option.None,
 			Terminal: false,
 		}}
 	}
@@ -850,7 +853,7 @@ func Close(s durableFileSess) {
 // DurableSession is the durability-only path-testing contract where Reopen is a
 // declared operation, bound exclusively to workflow/file.
 type DurableSession {
-	Open(start StoreModelState) explore.PathSession[DurableCmd, explore.Observed[StoreObs, ReplyView, Never], StoreDriveErr] fails StoreOpenErr,
+	Open(start StoreModelState) explore.PathSession[DurableCmd, explore.Observed[StoreObs, ReplyView, core.Never], StoreDriveErr] fails StoreOpenErr,
 	Counts() (int, int),
 
 	// PathsAgree checks every durability path up to depth 4 including
@@ -867,7 +870,7 @@ type DurableSession {
 				MaxWork:   65536,
 				MaxBytes:  262144,
 			},
-			func(start StoreModelState) explore.PathSession[DurableCmd, explore.Observed[StoreObs, ReplyView, Never], StoreDriveErr] fails StoreOpenErr {
+			func(start StoreModelState) explore.PathSession[DurableCmd, explore.Observed[StoreObs, ReplyView, core.Never], StoreDriveErr] fails StoreOpenErr {
 				try Open(start)
 			},
 			testing.ActiveEvidenceSink(),
@@ -899,7 +902,7 @@ func makeFileDurableProvider(host fs.Host) FileDurableProvider {
 	FileDurableProvider{host: host, nextID: sync.NewRef(0), opens: sync.NewRef(0), closes: sync.NewRef(0)}
 }
 
-func Open(p FileDurableProvider, start StoreModelState) explore.PathSession[DurableCmd, explore.Observed[StoreObs, ReplyView, Never], StoreDriveErr] fails StoreOpenErr {
+func Open(p FileDurableProvider, start StoreModelState) explore.PathSession[DurableCmd, explore.Observed[StoreObs, ReplyView, core.Never], StoreDriveErr] fails StoreOpenErr {
 	let id = p.nextID.Get() + 1
 	p.nextID.Set(id)
 	let dir = "durable-\(id)"
@@ -930,6 +933,6 @@ func Counts(p FileDurableProvider) (int, int) {
 
 let onMemory = context { StoreSession: makeMemoryStoreProvider() }
 
-let onFile = context needs TestAmbient { StoreSession: makeFileStoreProvider(fs.NewTestHost()) }
+let onFile = context needs fstest.TestAmbient { StoreSession: makeFileStoreProvider(fs.NewTestHost()) }
 
-let onFileDurable = context needs TestAmbient { DurableSession: makeFileDurableProvider(fs.NewTestHost()) }
+let onFileDurable = context needs fstest.TestAmbient { DurableSession: makeFileDurableProvider(fs.NewTestHost()) }

@@ -2,6 +2,7 @@
 // one, the query that lists them, and the text the store keeps. It knows
 // nothing of files, flags or configuration.
 
+import option
 import strings
 import slices
 
@@ -54,7 +55,7 @@ type BadTag { Tag string }
 // lower case.
 func Add(marks []Bookmark, b Bookmark) []Bookmark fails Duplicate | NotAWebAddress | BadTag {
 	let words = strings.Fields(b.URL)
-	if len(words) != 1 || words[0] != b.URL || !(strings.HasPrefix(b.URL, "https://") || strings.HasPrefix(b.URL, "http://")) {
+	if words.Len() != 1 || words[0] != b.URL || !(strings.HasPrefix(b.URL, "https://") || strings.HasPrefix(b.URL, "http://")) {
 		return NotAWebAddress{URL: b.URL}
 	}
 	for m in marks {
@@ -65,7 +66,7 @@ func Add(marks []Bookmark, b Bookmark) []Bookmark fails Duplicate | NotAWebAddre
 	let mut tags = []string{}
 	for t in b.Tags {
 		let fields = strings.Fields(t)
-		if len(fields) != 1 || strings.Contains(t, ",") {
+		if fields.Len() != 1 || strings.Contains(t, ",") {
 			return BadTag{Tag: t}
 		}
 		tags = tags.Append(strings.ToLower(fields[0]))
@@ -76,23 +77,23 @@ func Add(marks []Bookmark, b Bookmark) []Bookmark fails Duplicate | NotAWebAddre
 
 // Query is what List shows: the bookmarks with Tag (any when None), at
 // most Limit of them.
-type Query { Tag Option[string], Limit int }
+type Query { Tag option.Option[string], Limit int }
 
 // List is the bookmarks q selects, newest first.
 func List(marks []Bookmark, q Query) []Bookmark {
 	let mut out = []Bookmark{}
-	let mut i = len(marks) - 1
-	for i >= 0 && len(out) < q.Limit {
+	let mut i = marks.Len() - 1
+	for i >= 0 && out.Len() < q.Limit {
 		let m = marks[i]
 		match q.Tag {
-		case Some as t:
+		case option.Some as t:
 			for each in m.Tags {
 				if each == t.Value {
 					out = out.Append(m)
 					break
 				}
 			}
-		case None:
+		case option.None:
 			out = out.Append(m)
 		}
 		i = i - 1
@@ -104,9 +105,9 @@ func List(marks []Bookmark, q Query) []Bookmark {
 // tag asked for, newest first.
 law ListKeepsTheQuery(paths []string, tagged bool, limit int) {
 	let marks = shelfOf(paths, []string{}, []string{"a", "b"})
-	let q = Query{Tag: if tagged { Some{Value: "a"} } else { None }, Limit: limit}
+	let q = Query{Tag: if tagged { option.Some{Value: "a"} } else { option.None }, Limit: limit}
 	let got = List(marks, q)
-	let mut ok = len(got) <= (if limit < 0 { 0 } else { limit })
+	let mut ok = got.Len() <= (if limit < 0 { 0 } else { limit })
 	for i, m in got {
 		ok = ok && (!tagged || slices.Contains(m.Tags, "a"))
 		if i > 0 {
@@ -118,7 +119,7 @@ law ListKeepsTheQuery(paths []string, tagged bool, limit int) {
 
 // Line is how List's caller shows one bookmark.
 func Line(m Bookmark) string {
-	let tags = if len(m.Tags) == 0 { "" } else { " [" + strings.Join(m.Tags, ", ") + "]" }
+	let tags = if m.Tags.Len() == 0 { "" } else { " [" + strings.Join(m.Tags, ", ") + "]" }
 	let title = if m.Title == "" { m.URL } else { m.Title + " <" + m.URL + ">" }
 	title + tags
 }
@@ -133,7 +134,7 @@ func Format(marks []Bookmark) string {
 	for m in marks {
 		lines = lines.Append(m.URL + "\t" + m.Title + "\t" + strings.Join(m.Tags, ","))
 	}
-	if len(lines) == 0 { "" } else { strings.Join(lines, "\n") + "\n" }
+	if lines.Len() == 0 { "" } else { strings.Join(lines, "\n") + "\n" }
 }
 
 // Parse reads what Format writes.
@@ -144,7 +145,7 @@ func Parse(text string) []Bookmark fails BadLine {
 			continue
 		}
 		let parts = strings.Split(line, "\t")
-		if len(parts) != 3 {
+		if parts.Len() != 3 {
 			return BadLine{No: i + 1, Reason: "want address, title and tags split by tabs"}
 		}
 		let mut tags = []string{}
@@ -172,7 +173,7 @@ law StoredReadsBack(paths []string, titles []string, tags []string) {
 func shelfOf(paths []string, titles []string, tags []string) []Bookmark {
 	let mut marks = []Bookmark{}
 	for i, p in paths {
-		let title = if i < len(titles) { titles[i] } else { "" }
+		let title = if i < titles.Len() { titles[i] } else { "" }
 		let b = Bookmark{URL: "https://example.org/" + p, Title: title, Tags: tags}
 		marks = Add(marks, b) catch {
 		case Duplicate, NotAWebAddress, BadTag:
@@ -184,7 +185,7 @@ func shelfOf(paths []string, titles []string, tags []string) []Bookmark {
 
 // same is whether a and b hold equal bookmarks in order.
 func same(a []Bookmark, b []Bookmark) bool {
-	if len(a) != len(b) {
+	if a.Len() != b.Len() {
 		return false
 	}
 	for i, m in a {

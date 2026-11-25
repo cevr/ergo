@@ -1,3 +1,4 @@
+import core
 import gen
 import github.com/cevr/ergo/modules/domain
 import github.com/cevr/ergo/modules/domain/memory
@@ -8,6 +9,7 @@ import pipeline/pipeline/pipelinemcp
 import pipeline/pipeline/pipelinerpc
 import rpc
 import runners pipeline/memory
+import scope
 import testing
 import time
 
@@ -27,18 +29,18 @@ func drawPipelineRequest(step int) pipelineapi.Request needs gen.Draws {
 	}
 }
 
-func pipeSnapCtx(ctx Context[pipeline.Pipeline], clock time.Manual) string {
+func pipeSnapCtx(ctx core.Context[pipeline.Pipeline], clock time.Manual) string {
 	clock.Advance(0s)
 	with ctx { rpc.Encode(pipeline.Pipeline.Board()) }
 }
 
 func runPipelineExploreWithCtx(
 	clock time.Manual,
-	refCtx Context[pipeline.Pipeline],
-	hubCtx Context[pipeline.Pipeline],
-	cliCtx Context[pipeline.Pipeline],
-	mcpCtx Context[pipeline.Pipeline],
-	rpcCtx Context[pipeline.Pipeline],
+	refCtx core.Context[pipeline.Pipeline],
+	hubCtx core.Context[pipeline.Pipeline],
+	cliCtx core.Context[pipeline.Pipeline],
+	mcpCtx core.Context[pipeline.Pipeline],
+	rpcCtx core.Context[pipeline.Pipeline],
 ) bool needs gen.Draws {
 	let model = testing.ApiModel[string, pipelineapi.Request, pipelineapi.Outcome]{
 		Start: pipeSnapCtx(refCtx, clock),
@@ -110,7 +112,7 @@ law ExplorePipelineTransports(seed int) {
 		let mut table = Map[int, int]{}
 		table[0] = 1
 		let clock = time.NewManual(0)
-		with context { Scheduler: clock, pipeline.Runner: runners.New(table) } {
+		with context { time.Scheduler: clock, pipeline.Runner: runners.New(table) } {
 			let refM = pipeline.Open(memory.New[pipeline.Entry]()) catch {
 			case domain.Conflict, domain.Reused, domain.Unkept:
 				return false
@@ -132,15 +134,15 @@ law ExplorePipelineTransports(seed int) {
 				return false
 			}
 			with context { pipeline.Pipeline: refM } {
-				let refCtx = InForce[pipeline.Pipeline]()
+				let refCtx = scope.InForce[pipeline.Pipeline]()
 				with context { pipeline.Pipeline: hubM } {
-					let hubCtx = InForce[pipeline.Pipeline]()
+					let hubCtx = scope.InForce[pipeline.Pipeline]()
 					with context { pipeline.Pipeline: cliM } {
-						let cliCtx = InForce[pipeline.Pipeline]()
+						let cliCtx = scope.InForce[pipeline.Pipeline]()
 						with context { pipeline.Pipeline: mcpM } {
-							let mcpCtx = InForce[pipeline.Pipeline]()
+							let mcpCtx = scope.InForce[pipeline.Pipeline]()
 							with context { pipeline.Pipeline: rpcM } {
-								let rpcCtx = InForce[pipeline.Pipeline]()
+								let rpcCtx = scope.InForce[pipeline.Pipeline]()
 								runPipelineExploreWithCtx(clock, refCtx, hubCtx, cliCtx, mcpCtx, rpcCtx)
 							}
 						}
@@ -164,7 +166,7 @@ law PipelineWireLaws(seed int) {
 		let mut table = Map[int, int]{}
 		table[0] = 1
 		let clock = time.NewManual(0)
-		with context { Scheduler: clock, pipeline.Runner: runners.New(table) } {
+		with context { time.Scheduler: clock, pipeline.Runner: runners.New(table) } {
 			let m = pipeline.Open(memory.New[pipeline.Entry]()) catch {
 			case domain.Conflict, domain.Reused, domain.Unkept:
 				return false

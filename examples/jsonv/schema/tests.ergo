@@ -2,6 +2,7 @@
 
 import jsonv/json
 import stdjson json
+import option
 import strings
 
 func parsed(text string) stdjson.Value {
@@ -51,8 +52,8 @@ test MissingAndBounds {
 
 test IntegersAsJSONSchemaCountsThem {
 	let s = try schemaOf("{\"type\": \"integer\"}")
-	assert len(Validate(s, parsed("3.0"))) == 0 && len(Validate(s, parsed("3e2"))) == 0
-	assert len(Validate(s, parsed("1e400"))) == 0 && len(Validate(s, parsed("0.5"))) == 1
+	assert Validate(s, parsed("3.0")).Len() == 0 && Validate(s, parsed("3e2")).Len() == 0
+	assert Validate(s, parsed("1e400")).Len() == 0 && Validate(s, parsed("0.5")).Len() == 1
 }
 
 test BadSchemasNameTheirPath {
@@ -81,6 +82,6 @@ test JoinOfObjectsKeepsCommonRequired {
 
 test BoundsRoundTrip(min float64, n int) {
 	let count = if n < 0 { -(n + 1) } else { n }
-	let s = IsArray{Items: IsNumber{Integer: false, Min: Some[float64]{Value: min}, Max: None}, MinItems: count}
+	let s = IsArray{Items: IsNumber{Integer: false, Min: option.Some[float64]{Value: min}, Max: option.None}, MinItems: count}
 	assert try FromJSON(ToJSON(s)) == s
 }

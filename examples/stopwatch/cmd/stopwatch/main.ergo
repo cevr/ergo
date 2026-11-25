@@ -10,9 +10,9 @@ import io
 import os
 import time
 
-func main() fails os.Exit needs Console | Ambient {
+func main() fails os.Exit needs io.Console | os.Ambient {
 	let c = time.NewManual(0)
-	let status = with context { io.Stdin: io.NewStdin(), time.Clock: c, Scheduler: c } {
+	let status = with context { io.Stdin: io.NewStdin(), time.Clock: c, time.Scheduler: c } {
 		script.Run(c)
 	}
 	if status != 0 {

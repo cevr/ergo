@@ -62,7 +62,7 @@ func PosIn(o Origin, text string) bool {
 	match o {
 	case InFile as f:
 		let lines = strings.Split(text, "\n")
-		f.At.Line >= 1 && f.At.Line <= len(lines) && f.At.Column >= 1 && f.At.Column <= len(lines[f.At.Line-1])+1
+		f.At.Line >= 1 && f.At.Line <= lines.Len() && f.At.Column >= 1 && f.At.Column <= lines[f.At.Line-1].Len()+1
 	case InEnv:
 		true
 	}

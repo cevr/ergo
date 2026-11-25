@@ -41,11 +41,11 @@ func Plays(set Set) bool {
 		}
 	}
 	for q in set.Questions {
-		if len(q.Choices) == 0 {
+		if q.Choices.Len() == 0 {
 			return false
 		}
 	}
-	len(LeftOf(Begin(set))) > 0
+	LeftOf(Begin(set)).Len() > 0
 }
 
 // UnlistedIsNoSuchSet is the law UnlistedIsNoSuchSet as a function.

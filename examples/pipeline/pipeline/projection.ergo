@@ -4,6 +4,7 @@
 // that outlived it.
 
 import github.com/cevr/ergo/modules/domain
+import option
 import pipeline/board
 import sync
 
@@ -24,9 +25,9 @@ func NewProjection() Projection {
 
 func At(p Projection, follower string, stream string) int {
 	match p.at.Get().Get(Spot{Follower: follower, Stream: stream}) {
-	case Some[int] as n:
+	case option.Some[int] as n:
 		n.Value
-	case None:
+	case option.None:
 		0
 	}
 }

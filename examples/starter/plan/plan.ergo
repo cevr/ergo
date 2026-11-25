@@ -31,7 +31,7 @@ law EveryFeatureHasAFile(name string, picks []int, git bool) {
 	}
 	let p = Plan{Name: "p" + name, License: MIT, Features: features, Git: git}
 	let files = Files(p)
-	let mut ok = len(files) == 2+len(features)+(if git { 1 } else { 0 })
+	let mut ok = files.Len() == 2+features.Len()+(if git { 1 } else { 0 })
 	for i, f in features {
 		ok = ok && strings.HasSuffix(files[2+i], featureFile(f))
 	}

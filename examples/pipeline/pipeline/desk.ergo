@@ -13,6 +13,7 @@
 
 import github.com/cevr/ergo/modules/domain
 import machines
+import option
 import pipeline/retry
 import pipeline/run
 import slices
@@ -78,9 +79,9 @@ func IsBusy(d Desk) bool {
 // RunIn is the state of the run id in b.
 func RunIn(b Book, id string) run.Run {
 	match b.Runs.Get(id) {
-	case Some[run.Run] as r:
+	case option.Some[run.Run] as r:
 		r.Value
-	case None:
+	case option.None:
 		run.Unsubmitted
 	}
 }
@@ -93,13 +94,13 @@ func RunIn(b Book, id string) run.Run {
 func apply(d Desk, id string, c run.Command) Desk fails run.WrongState | run.WrongStage | run.Closed | run.BadLength {
 	let x = try run.Handle(RunIn(BookOf(d), id), c)
 	match x {
-	case Emit[run.Run, []run.Event] as e:
+	case machines.Emit[run.Run, []run.Event] as e:
 		let mut next = d
 		for ev in e.Output {
 			next = Evolve(next, Entry{Run: id, Event: ev})
 		}
 		next
-	case Enter[run.Run], Stay[run.Run], Tell[run.Run, []run.Event], Ignore, Reject, Done[[]run.Event]:
+	case machines.Enter[run.Run], machines.Stay[run.Run], machines.Tell[run.Run, []run.Event], machines.Ignore, machines.Reject, machines.Done[[]run.Event]:
 		d
 	}
 }
@@ -108,7 +109,7 @@ type Move = Entered{Next Desk} | Stayed{Next Desk} | Ignored{}
 
 func settle(d Desk) Move fails run.WrongState | run.WrongStage | run.Closed | run.BadLength {
 	let b = BookOf(d)
-	if len(b.Queue) > 0 {
+	if b.Queue.Len() > 0 {
 		return Entered{Next: try apply(d, b.Queue[0], run.Start)}
 	}
 	Entered{Next: Idle{Book: b}}
@@ -167,9 +168,9 @@ func ran(d Desk, j Job, ok bool) Move fails run.WrongState | run.WrongStage | ru
 
 func due(d Desk, j Job) Move fails run.WrongState | run.WrongStage | run.Closed | run.BadLength {
 	match retry.OnDue(j.Attempt) {
-	case Some[retry.Trying]:
+	case option.Some[retry.Trying]:
 		Entered{Next: try apply(d, j.Run, run.Retry{Stage: j.Stage})}
-	case None:
+	case option.None:
 		Ignored
 	}
 }
@@ -187,41 +188,41 @@ func Decide(d Desk, s Signal) Move fails run.WrongState | run.WrongStage | run.C
 	}
 }
 
-func Step(d Desk, s Signal) Decision[Desk, []Entry] fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun {
+func Step(d Desk, s Signal) machines.Decision[Desk, []Entry] fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun {
 	match try Decide(d, s) {
 	case Entered as e:
-		Enter[Desk]{Next: e.Next}
+		machines.Enter[Desk]{Next: e.Next}
 	case Stayed as st:
-		Stay[Desk]{Next: st.Next}
+		machines.Stay[Desk]{Next: st.Next}
 	case Ignored:
-		Ignore
+		machines.Ignore
 	}
 }
 
 // Work is the work of a state: Busy asks the runner for its try. An
 // Offline runner is a failed try.
-func Work(l Ledger) Option[machines.Work[Signal, Runner]] {
+func Work(l Ledger) option.Option[machines.Work[Signal, Runner]] {
 	match l.State {
 	case Busy as b:
 		let j = b.Job
-		Some{machines.Attempt[bool, Signal, Offline, Runner](func() bool fails Offline needs Runner { try Runner.Run(j.Run, j.Stage, retry.TryOf(j.Attempt)) }, func(ok bool) Signal needs Runner { Ran{OK: ok} }, func(_) { Ran{OK: false} })}
+		option.Some{machines.Attempt[bool, Signal, Offline, Runner](func() bool fails Offline needs Runner { try Runner.Run(j.Run, j.Stage, retry.TryOf(j.Attempt)) }, func(ok bool) Signal needs Runner { Ran{OK: ok} }, func(_) { Ran{OK: false} })}
 	case Idle, Waiting:
-		None
+		option.None
 	}
 }
 
 // Timer is the timer of a state: Waiting's is the saga's.
-func Timer(l Ledger) Option[Timeout[Signal]] {
+func Timer(l Ledger) option.Option[machines.Timeout[Signal]] {
 	match l.State {
 	case Waiting as w:
 		match retry.Timer(w.Job.Attempt) {
-		case Some[Timeout[retry.Signal]] as t:
-			Some[Timeout[Signal]]{Value: Timeout[Signal]{In: t.Value.In, Signal: Due}}
-		case None:
-			None
+		case option.Some[machines.Timeout[retry.Signal]] as t:
+			option.Some[machines.Timeout[Signal]]{Value: machines.Timeout[Signal]{In: t.Value.In, Signal: Due}}
+		case option.None:
+			option.None
 		}
 	case Idle, Busy:
-		None
+		option.None
 	}
 }
 
@@ -236,7 +237,7 @@ type Ledger = domain.Ledger[Desk, Entry]
 // domain.StepID. A step that enters commits with domain.Commit (a new
 // entry: a new try, a new wait); a step that stays commits with
 // domain.Keep, so the try or the wait goes on.
-func Hosted(l Ledger, s Signal) Decision[Ledger, domain.Receipt] fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun {
+func Hosted(l Ledger, s Signal) machines.Decision[Ledger, domain.Receipt] fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun {
 	let id = match s {
 	case Ask as a:
 		domain.CommandID(a.Env.ID)
@@ -244,17 +245,17 @@ func Hosted(l Ledger, s Signal) Decision[Ledger, domain.Receipt] fails run.Wrong
 		domain.StepID(l, "desk")
 	}
 	if domain.Taken(l, id) {
-		return Ignore
+		return machines.Ignore
 	}
-	let before = len(BookOf(l.State).Log)
+	let before = BookOf(l.State).Log.Len()
 	let d = try Decide(l.State, s)
 	match d {
 	case Entered as e:
-		domain.Commit(l, id, e.Next, slices.Slice(BookOf(e.Next).Log, before, len(BookOf(e.Next).Log)))
+		domain.Commit(l, id, e.Next, slices.Slice(BookOf(e.Next).Log, before, BookOf(e.Next).Log.Len()))
 	case Stayed as k:
-		domain.Keep(l, id, k.Next, slices.Slice(BookOf(k.Next).Log, before, len(BookOf(k.Next).Log)))
+		domain.Keep(l, id, k.Next, slices.Slice(BookOf(k.Next).Log, before, BookOf(k.Next).Log.Len()))
 	case Ignored:
-		Ignore
+		machines.Ignore
 	}
 }
 

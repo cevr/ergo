@@ -5,6 +5,7 @@
 // renewed and released only with its token: a holder whose lease expired
 // and passed to another cannot extend or free the other's.
 
+import machines
 import time
 
 // Lease is a grant: Owner holds Name until Until, under Token.
@@ -220,36 +221,36 @@ func Live(s Slot, now time.Time) Slot {
 // Step is the decision of slot s on the ask a. A Take of a free slot grants the next token; a Take of a taken one is
 // refused. An Extend or a Give whose lease is the slot's grant (the same
 // token, still live) extends or frees it; any other is Gone.
-func Step(s Slot, a Ask) Decision[Slot, Answer] {
+func Step(s Slot, a Ask) machines.Decision[Slot, Answer] {
 	match a {
 	case Take as k:
 		match Live(s, k.Now) {
 		case Free as f:
 			let next = f.Last + 1
-			Emit[Slot, Answer]{Next: Taken{Owner: k.Owner, Token: next, Until: k.Until}, Output: Granted{Lease: Lease{Name: k.Name, Owner: k.Owner, Token: next, Until: k.Until}}}
+			machines.Emit[Slot, Answer]{Next: Taken{Owner: k.Owner, Token: next, Until: k.Until}, Output: Granted{Lease: Lease{Name: k.Name, Owner: k.Owner, Token: next, Until: k.Until}}}
 		case Taken as t:
-			Tell[Slot, Answer]{Next: t, Output: Refused{Owner: t.Owner, Until: t.Until}}
+			machines.Tell[Slot, Answer]{Next: t, Output: Refused{Owner: t.Owner, Until: t.Until}}
 		}
 	case Extend as e:
 		match Live(s, e.Now) {
 		case Taken as t:
 			if t.Token != e.Lease.Token {
-				return Tell[Slot, Answer]{Next: t, Output: Gone}
+				return machines.Tell[Slot, Answer]{Next: t, Output: Gone}
 			}
 			let l = Lease{Name: e.Lease.Name, Owner: t.Owner, Token: t.Token, Until: e.Until}
-			Tell[Slot, Answer]{Next: Taken{Owner: t.Owner, Token: t.Token, Until: e.Until}, Output: Granted{Lease: l}}
+			machines.Tell[Slot, Answer]{Next: Taken{Owner: t.Owner, Token: t.Token, Until: e.Until}, Output: Granted{Lease: l}}
 		case Free as f:
-			Tell[Slot, Answer]{Next: f, Output: Gone}
+			machines.Tell[Slot, Answer]{Next: f, Output: Gone}
 		}
 	case Give as g:
 		match Live(s, g.Now) {
 		case Taken as t:
 			if t.Token != g.Lease.Token {
-				return Tell[Slot, Answer]{Next: t, Output: Gone}
+				return machines.Tell[Slot, Answer]{Next: t, Output: Gone}
 			}
-			Emit[Slot, Answer]{Next: Free{Last: t.Token}, Output: Freed}
+			machines.Emit[Slot, Answer]{Next: Free{Last: t.Token}, Output: Freed}
 		case Free as f:
-			Tell[Slot, Answer]{Next: f, Output: Gone}
+			machines.Tell[Slot, Answer]{Next: f, Output: Gone}
 		}
 	}
 }

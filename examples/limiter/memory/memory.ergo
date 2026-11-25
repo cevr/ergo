@@ -7,6 +7,7 @@ import limiter/bucket
 import limiter/limits
 import machines
 import maps
+import option
 import queue
 import scope
 import slices
@@ -107,18 +108,18 @@ type taken = Told{T bucket.Told} | Unknown{} | Bad{Capacity int}
 func Take(m Memory, key string, cost int) limits.Grant fails limits.Limited | limits.UnknownBucket | limits.BadCost {
 	let t = sync.Modify(m.buckets, func(bs Map[string, bucket.Bucket]) (taken, Map[string, bucket.Bucket]) {
 		let b = match bs.Get(key) {
-		case Some[bucket.Bucket] as s:
+		case option.Some[bucket.Bucket] as s:
 			s.Value
-		case None:
+		case option.None:
 			return (Unknown, bs)
 		}
 		let d = bucket.Step(b, bucket.Spend{Cost: cost})
 		let mut next = bs
 		next[key] = machines.Next(b, d)
 		match d {
-		case Emit[bucket.Bucket, bucket.Told] as e:
+		case machines.Emit[bucket.Bucket, bucket.Told] as e:
 			(Told{T: e.Output}, next)
-		case Enter[bucket.Bucket], Stay[bucket.Bucket], Tell[bucket.Bucket, bucket.Told], Ignore, Reject, Done[bucket.Told]:
+		case machines.Enter[bucket.Bucket], machines.Stay[bucket.Bucket], machines.Tell[bucket.Bucket, bucket.Told], machines.Ignore, machines.Reject, machines.Done[bucket.Told]:
 			(Bad{Capacity: b.Capacity}, bs)
 		}
 	})
@@ -138,12 +139,12 @@ func Take(m Memory, key string, cost int) limits.Grant fails limits.Limited | li
 }
 
 // Peek is key's level, or None for an unknown key.
-func Peek(m Memory, key string) Option[limits.Level] {
+func Peek(m Memory, key string) option.Option[limits.Level] {
 	match m.buckets.Get().Get(key) {
-	case Some[bucket.Bucket] as s:
-		Some[limits.Level]{Value: bucket.LevelOf(s.Value)}
-	case None:
-		None
+	case option.Some[bucket.Bucket] as s:
+		option.Some[limits.Level]{Value: bucket.LevelOf(s.Value)}
+	case option.None:
+		option.None
 	}
 }
 

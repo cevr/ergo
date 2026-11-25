@@ -100,7 +100,7 @@ func warnings(f mut ui.Frame[Signal], log []Warning) {
 	ui.Pressable(f, "Clear", Clear) {
 		ui.Text(f, "Clear")
 	}
-	if len(log) == 0 {
+	if log.Len() == 0 {
 		ui.Text(f, "Run a workload to record a warning.")
 		return
 	}

@@ -14,6 +14,9 @@
 // says which.
 
 import actor
+import core
+import machines
+import option
 import permitwizard/desk
 import permitwizard/permit
 import permitwizard/screen
@@ -24,10 +27,10 @@ import time
 import ui
 
 // Clerk is the running desk.
-type Clerk = actor.Actor[desk.Desk, desk.Signal, Decision[desk.Desk, Never]]
+type Clerk = actor.Actor[desk.Desk, desk.Signal, machines.Decision[desk.Desk, core.Never]]
 
 // Host is the desk on the test host.
-type Host = ui.TestHost[desk.Desk, desk.Signal, Decision[desk.Desk, Never]]
+type Host = ui.TestHost[desk.Desk, desk.Signal, machines.Decision[desk.Desk, core.Never]]
 
 // Bad is a script line the host cannot read.
 type Bad { Line int, Why string }
@@ -83,38 +86,38 @@ func Read(lines []string) []Line fails Bad {
 // clock, which only a wait moves, and prints the screen first and after
 // each act. It returns the exit status: 0, or 1 for a line it cannot read
 // or a screen that fails.
-func Run(clock time.Manual) int needs Console | io.Stdin | Scheduler {
+func Run(clock time.Manual) int needs io.Console | io.Stdin | time.Scheduler {
 	let mut text = []string{}
 	for raw in io.Stdin.Lines() {
 		text = text.Append(raw)
 	}
 	let script = Read(text) catch {
 	case Bad as b:
-		Console.Println("? line \(b.Line): \(b.Why)")
+		io.Console.Println("? line \(b.Line): \(b.Why)")
 		return 1
 	}
-	let clerk = actor.StartMachine(desk.Inspector{}, 16, func(n Never) {})
+	let clerk = actor.StartMachine(desk.Inspector{}, 16, func(n core.Never) {})
 	let status = play(clerk, clock, script) catch {
 	case actor.Stopped:
-		Console.Println("? the desk stopped")
+		io.Console.Println("? the desk stopped")
 		1
 	case ui.BadPatch as p:
-		Console.Println("? a patch is refused: \(p.Why)")
+		io.Console.Println("? a patch is refused: \(p.Why)")
 		1
 	}
 	clerk.Stop()
 	status
 }
 
-func play(clerk Clerk, clock time.Manual, script []Line) int fails actor.Stopped | ui.BadPatch needs Console {
+func play(clerk Clerk, clock time.Manual, script []Line) int fails actor.Stopped | ui.BadPatch needs io.Console {
 	let mut h = try ui.NewTestHost(clerk, screen.Screen, clock, 16)
-	Console.Println(Shown(&h))
+	io.Console.Println(Shown(&h))
 	for x in script {
-		Console.Println("> \(x.Text)")
+		io.Console.Println("> \(x.Text)")
 		match try step(&h, x) {
-		case Some[string] as line:
-			Console.Println(line.Value)
-		case None:
+		case option.Some[string] as line:
+			io.Console.Println(line.Value)
+		case option.None:
 		}
 	}
 	0
@@ -123,24 +126,24 @@ func play(clerk Clerk, clock time.Manual, script []Line) int fails actor.Stopped
 // step does the line x on h and is what the host prints after it: the
 // screen after an act, why an act did nothing, or the ops of the act
 // before a `stats` line (its work counters are TourWorkIsBounded's).
-func step(h mut Host, x Line) Option[string] fails actor.Stopped | ui.BadPatch {
+func step(h mut Host, x Line) option.Option[string] fails actor.Stopped | ui.BadPatch {
 	match x.Do {
 	case Act as a:
 		ui.Play(h, []ui.Act{a.Act, ui.SettleAll}) catch {
 		case ui.NoNode as no:
-			return Some{Value: "? no node: \(no.Label)"}
+			return option.Some{Value: "? no node: \(no.Label)"}
 		case ui.Ambiguous as m:
-			return Some{Value: "? \(m.Count) nodes: \(m.At)"}
+			return option.Some{Value: "? \(m.Count) nodes: \(m.At)"}
 		case ui.Mismatch:
-			return None
+			return option.None
 		case actor.Stopped as s:
 			return s
 		case ui.BadPatch as p:
 			return p
 		}
-		Some{Value: Shown(h)}
+		option.Some{Value: Shown(h)}
 	case Stats:
-		Some{Value: "stats: \(opsLine(ui.Counts(h)))"}
+		option.Some{Value: "stats: \(opsLine(ui.Counts(h)))"}
 	}
 }
 
@@ -164,8 +167,8 @@ func opsLine(c ui.StepCounts) string {
 // logs a transition for each pick, never "ignored".
 law ScreenOffersOnlyTransitions(picks []int) {
 	let clock = time.NewManual(0)
-	with context { Scheduler: clock } {
-		let clerk = actor.StartMachine(desk.Inspector{}, 16, func(n Never) {})
+	with context { time.Scheduler: clock } {
+		let clerk = actor.StartMachine(desk.Inspector{}, 16, func(n core.Never) {})
 		let ok = walk(clerk, clock, picks) catch {
 		case _:
 			false
@@ -175,17 +178,17 @@ law ScreenOffersOnlyTransitions(picks []int) {
 	}
 }
 
-func walk(clerk Clerk, clock time.Manual, picks []int) bool fails actor.Stopped | ui.BadPatch needs Scheduler {
+func walk(clerk Clerk, clock time.Manual, picks []int) bool fails actor.Stopped | ui.BadPatch needs time.Scheduler {
 	let mut h = try ui.NewTestHost(clerk, screen.Screen, clock, 16)
 	for p in picks {
 		let acts = enabled(ui.Screen(&h), false, p)
-		if len(acts) == 0 {
+		if acts.Len() == 0 {
 			try ui.Advance(&h, permit.FilingTakes)
 			try ui.Settle(&h)
 			continue
 		}
 		let before = clerk.State().Next
-		ui.Play(&h, []ui.Act{acts[((p%len(acts))+len(acts))%len(acts)], ui.SettleAll}) catch {
+		ui.Play(&h, []ui.Act{acts[((p%acts.Len())+acts.Len())%acts.Len()], ui.SettleAll}) catch {
 		case ui.NoNode, ui.Ambiguous, ui.Mismatch:
 			return false
 		case actor.Stopped as s:
@@ -274,7 +277,7 @@ func tokens(shapes []ui.Shape[desk.Signal], off bool) []string {
 				out = out.Append("# \(g.Access.Name)")
 			} else if g.Access.Name == screen.LogName {
 				let log = tokens(s.Kids, off)
-				out = out.Append(if len(log) == 0 { "log{}" } else { "log{\(log[0]) …\(len(log))}" })
+				out = out.Append(if log.Len() == 0 { "log{}" } else { "log{\(log[0]) …\(log.Len())}" })
 			} else {
 				for t in tokens(s.Kids, off) {
 					out = out.Append(t)

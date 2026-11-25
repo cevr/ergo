@@ -1,5 +1,7 @@
 // The Tool as a machine, and the laws of the picture under it.
 
+import machines
+
 // Tool is the drawing tool as a machine, started on an empty picture.
 type Tool machine[State, Signal] {
 	initial: begin,
@@ -54,10 +56,10 @@ type Tool machine[State, Signal] {
 // the origin.
 func onShape(s State, k int) Point {
 	let shapes = Order(CanvasOf(s).Pic)
-	if len(shapes) == 0 {
+	if shapes.Len() == 0 {
 		return Point{X: 0, Y: 0}
 	}
-	match shapes[((k%len(shapes))+len(shapes))%len(shapes)].Shape {
+	match shapes[((k%shapes.Len())+shapes.Len())%shapes.Len()].Shape {
 	case Stroke as t:
 		t.Points[0]
 	case Rect as r:
@@ -86,13 +88,13 @@ func Run(s State, signals []Signal) State {
 // it was.
 func After(s State, sig Signal) State {
 	match Step(s, sig) {
-	case Enter[State] as e:
+	case machines.Enter[State] as e:
 		e.Next
-	case Stay[State] as t:
+	case machines.Stay[State] as t:
 		t.Next
-	case Emit[State, Output] as m:
+	case machines.Emit[State, Output] as m:
 		m.Next
-	case Ignore, Tell[State, Output], Reject, Done[Output]:
+	case machines.Ignore, machines.Tell[State, Output], machines.Reject, machines.Done[Output]:
 		s
 	}
 }
@@ -100,8 +102,8 @@ func After(s State, sig Signal) State {
 // picture is the drawn shapes made valid, each on the layer drawn for it.
 func picture(shapes []Shape, layers []int) Picture {
 	let mut pic = Empty()
-	for i in 0..len(shapes) {
-		let l = if i < len(layers) { ((layers[i] % Layers) + Layers) % Layers } else { 0 }
+	for i in 0..shapes.Len() {
+		let l = if i < layers.Len() { ((layers[i] % Layers) + Layers) % Layers } else { 0 }
 		let (next, _) = Add(pic, l, normal(shapes[i]))
 		pic = next
 	}
@@ -113,7 +115,7 @@ func picture(shapes []Shape, layers []int) Picture {
 func normal(s Shape) Shape {
 	match s {
 	case Stroke as k:
-		if len(k.Points) == 0 {
+		if k.Points.Len() == 0 {
 			return Stroke{Points: []Point{Point{X: 0, Y: 0}}}
 		}
 		Stroke{Points: bounded(k.Points)}

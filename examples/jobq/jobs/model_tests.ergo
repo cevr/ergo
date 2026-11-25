@@ -1,5 +1,7 @@
 import actor
 import gen
+import machines
+import option
 import strings
 import sync
 import temporal
@@ -110,10 +112,10 @@ func stepJobModel(s jobModelState, a jobAct) (jobModelState, jobObs) {
 	}
 }
 
-func jobActorStage(p Policy) (testing.Stage[jobAct, jobObs], actor.Actor[Phase, Signal, Decision[Phase, Outcome]]) needs Scheduler {
-	let doneRef = sync.NewRef[Option[Outcome]](None)
+func jobActorStage(p Policy) (testing.Stage[jobAct, jobObs], actor.Actor[Phase, Signal, machines.Decision[Phase, Outcome]]) needs time.Scheduler {
+	let doneRef = sync.NewRef[option.Option[Outcome]](option.None)
 	let app = actor.StartMachine(Life{}, 16, func(o Outcome) {
-		doneRef.Set(Some[Outcome]{Value: o})
+		doneRef.Set(option.Some[Outcome]{Value: o})
 	})
 	let attemptOf = func(ph Phase) int {
 		match ph {
@@ -125,7 +127,7 @@ func jobActorStage(p Policy) (testing.Stage[jobAct, jobObs], actor.Actor[Phase, 
 	}
 	let readObs = func() jobObs {
 		match doneRef.Get() {
-		case Some[Outcome] as o:
+		case option.Some[Outcome] as o:
 			let att = match o.Value {
 			case Succeeded as s:
 				s.N
@@ -133,7 +135,7 @@ func jobActorStage(p Policy) (testing.Stage[jobAct, jobObs], actor.Actor[Phase, 
 				g.N
 			}
 			jobObs{PhaseTag: "done", Done: true, Outcome: outcomeTag(o.Value), Attempt: att}
-		case None:
+		case option.None:
 			let ph = app.State()
 			jobObs{PhaseTag: phaseTag(ph), Done: false, Outcome: "", Attempt: attemptOf(ph)}
 		}
@@ -145,12 +147,12 @@ func jobActorStage(p Policy) (testing.Stage[jobAct, jobObs], actor.Actor[Phase, 
 		case actStart as s:
 			let _ = app.Ask(Start{At: s.At, Takes: s.Takes}) catch {
 			case actor.Stopped:
-				Reject
+				machines.Reject
 			}
 		case actFinish as f:
 			let _ = app.Ask(Finish{At: f.At, R: f.Res, P: p}) catch {
 			case actor.Stopped:
-				Reject
+				machines.Reject
 			}
 		}
 	})
@@ -194,7 +196,7 @@ law LifeActorMatchesModel() {
 	let cfg = gen.Config{Seed: uint64(1), Cases: 30, Shrinks: 120, MaxDraws: 2048, MaxRejected: 50}
 	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
 		let clock = time.NewManual(0)
-		with context { Scheduler: clock } {
+		with context { time.Scheduler: clock } {
 			let (st, app) = jobActorStage(policy)
 			testing.AgreesAnd(model, st, 14, formulas) catch {
 			case testing.Diverged[jobAct, jobObs] as d:

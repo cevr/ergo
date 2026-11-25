@@ -1,5 +1,6 @@
 import exec
 import fs
+import fstest
 import hex
 import os
 import sha1dc
@@ -7,7 +8,7 @@ import slices
 import strings
 import github.com/cevr/ergo/modules/git/oracle
 
-let onOracle = context needs TestAmbient {
+let onOracle = context needs fstest.TestAmbient {
 	exec.Runner: exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
 	fs.Files:    fs.NewTestHost(),
 	fs.Writes:   fs.NewTestHost(),
@@ -59,13 +60,13 @@ test HashObjectMatchesGitHashObject {
 				assert st1 == 0
 				let gotSha1 = try HashObject(Sha1, kind, payload)
 				assert Hex(gotSha1) == wantSha1
-				assert len(gotSha1.Raw) == 20
+				assert gotSha1.Raw.Len() == 20
 
 				let (st2, wantSha256) = try gitHashObject(sha256Repo, kind, payload, pathEnv)
 				assert st2 == 0
 				let gotSha256 = try HashObject(Sha256, kind, payload)
 				assert Hex(gotSha256) == wantSha256
-				assert len(gotSha256.Raw) == 32
+				assert gotSha256.Raw.Len() == 32
 			}
 		}
 	}
@@ -76,11 +77,11 @@ test HashObjectMatchesGitHashObject {
 // HashObject for both Sha1 and Sha256, and rejects mismatched total lengths.
 test StreamingMatchesRaw {
 	let payload = makeMultiKBPayload()
-	let cuts = []int{0, 1, 2, 63, 64, 65, 128, 191, 500, 1024, 3199, len(payload)}
+	let cuts = []int{0, 1, 2, 63, 64, 65, 128, 191, 500, 1024, 3199, payload.Len()}
 	for format in []Format{Sha1, Sha256} {
 		for kind in []Kind{Blob, Tree, Commit, Tag} {
 			let direct = try HashObject(format, kind, payload)
-			let mut h = try NewObjectHasher(format, kind, len(payload))
+			let mut h = try NewObjectHasher(format, kind, payload.Len())
 			let mut prev = 0
 			for cut in cuts {
 				h.Write(payload[prev:cut])
@@ -121,7 +122,7 @@ test StreamingMatchesRaw {
 test HexRoundTrips {
 	let o1 = try HashObject(Sha1, Blob, "round-trip-1".Bytes())
 	let h1 = Hex(o1)
-	assert len(h1) == 40
+	assert h1.Len() == 40
 	let p1 = try ParseHex(Sha1, h1)
 	assert Equal(o1, p1)
 	assert ShortHex(o1, 7) == h1[:7]
@@ -130,7 +131,7 @@ test HexRoundTrips {
 
 	let o2 = try HashObject(Sha256, Blob, "round-trip-2".Bytes())
 	let h2 = Hex(o2)
-	assert len(h2) == 64
+	assert h2.Len() == 64
 	let p2 = try ParseHex(Sha256, h2)
 	assert Equal(o2, p2)
 	assert Compare(o1, o2) < 0
@@ -193,7 +194,7 @@ test HeaderRoundTrips {
 			let (k, sz, off) = try ParseHeader(hdr)
 			assert KindName(k) == KindName(kind)
 			assert sz == size
-			assert off == len(hdr)
+			assert off == hdr.Len()
 		}
 	}
 
@@ -274,5 +275,5 @@ law HeaderRoundTripsLaw(n int) {
 	case EmptyKind, BadHeader:
 		return false
 	}
-	KindName(k) == "blob" && gotSz == sz && off == len(hdr)
+	KindName(k) == "blob" && gotSz == sz && off == hdr.Len()
 }

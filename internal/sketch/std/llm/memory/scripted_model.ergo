@@ -1,0 +1,317 @@
+import llm
+import option
+import sync
+
+// ScriptStep is one deterministic step played by ScriptedModel: a structured
+// reply (text, reasoning, tool calls, stop reason, usage), a raw Reply value
+// (for exact chunked/truncated/broken streams), or an injected llm.Failure.
+type ScriptStep =
+	| ScriptReply{Text string, Reasoning string, ToolCalls []llm.Call, Stop llm.Stop, Usage llm.Usage}
+	| ScriptRaw{Reply Reply}
+	| ScriptFault{Error llm.Failure}
+
+type scriptCursorState {
+	genCursor    int,
+	streamCursor int,
+	recorded     []llm.Request,
+}
+
+// ScriptedModel is a deterministic, stateful llm.Model that replays an ordered
+// script of ScriptSteps while recording every incoming llm.Request. Generate
+// and Stream maintain independent cursors so llm.Model's StreamFoldsToGenerate
+// contract holds for every script, and calls past the script end fail closed
+// with llm.InvalidResponse.
+type ScriptedModel {
+	Steps []ScriptStep,
+	state sync.Ref[scriptCursorState],
+} implements llm.Model
+
+// NewScriptedModel creates a fresh ScriptedModel over steps with zeroed cursors
+// and an empty recorded request transcript.
+func NewScriptedModel(steps []ScriptStep) ScriptedModel {
+	ScriptedModel{
+		Steps: steps,
+		state: sync.NewRef(scriptCursorState{genCursor: 0, streamCursor: 0, recorded: []llm.Request{}}),
+	}
+}
+
+// ScriptFromReplies wraps a slice of raw Reply entries into a deterministic
+// ScriptedModel.
+func ScriptFromReplies(replies []Reply) ScriptedModel {
+	let mut steps = []ScriptStep{}
+	for r in replies {
+		steps = steps.Append(ScriptRaw{Reply: r})
+	}
+	NewScriptedModel(steps)
+}
+
+// ForkScript returns an independent fresh ScriptedModel over the same Steps as
+// m, allowing baseline and candidate implementations to replay the exact same
+// deterministic sequence side-by-side without sharing cursors or transcripts.
+func ForkScript(m ScriptedModel) ScriptedModel {
+	NewScriptedModel(m.Steps)
+}
+
+// RecordedRequests returns a snapshot of every llm.Request received by m in
+// chronological order.
+func RecordedRequests(m ScriptedModel) []llm.Request {
+	m.state.Get().recorded
+}
+
+// CallCount returns the total number of Generate, Stream, and StreamEach calls
+// received by m.
+func CallCount(m ScriptedModel) int {
+	m.state.Get().recorded.Len()
+}
+
+// Remaining returns how many unconsumed script steps remain in m.
+func Remaining(m ScriptedModel) int {
+	let st = m.state.Get()
+	let used = if st.genCursor > st.streamCursor { st.genCursor } else { st.streamCursor }
+	let left = m.Steps.Len() - used
+	if left < 0 { 0 } else { left }
+}
+
+func stepToReply(step ScriptStep) Reply {
+	match step {
+	case ScriptReply as sr:
+		let mut ds = []llm.Delta{}
+		if sr.Reasoning != "" {
+			ds = ds.Append(llm.Reasoning{Text: sr.Reasoning})
+		}
+		if sr.Text != "" {
+			ds = ds.Append(llm.Text{Text: sr.Text})
+		}
+		for i, c in sr.ToolCalls {
+			ds = ds.Append(llm.CallStart{Index: i, Id: c.Id, Name: c.Name})
+			if c.Arguments != "" {
+				ds = ds.Append(llm.CallArgs{Index: i, Text: c.Arguments})
+			}
+			ds = ds.Append(llm.CallEnd{Index: i})
+		}
+		Says{Deltas: ds, Stop: sr.Stop, Usage: sr.Usage}
+	case ScriptRaw as raw:
+		raw.Reply
+	case ScriptFault as f:
+		Fails{Failure: f.Error}
+	}
+}
+
+func nextScriptStep(m ScriptedModel, r llm.Request, isStream bool) Reply {
+	let mut idx = 0
+	m.state.Update(func(cur scriptCursorState) scriptCursorState {
+		let nextRecorded = cur.recorded.Append(r)
+		if isStream {
+			idx = cur.streamCursor
+			scriptCursorState{
+				genCursor:    cur.genCursor,
+				streamCursor: cur.streamCursor + 1,
+				recorded:     nextRecorded,
+			}
+		} else {
+			idx = cur.genCursor
+			scriptCursorState{
+				genCursor:    cur.genCursor + 1,
+				streamCursor: cur.streamCursor,
+				recorded:     nextRecorded,
+			}
+		}
+	})
+	if idx >= m.Steps.Len() {
+		let out llm.Failure = llm.InvalidResponse{Reason: "scripted model exhausted at step \(idx + 1)"}
+		return Fails{Failure: out}
+	}
+	stepToReply(m.Steps[idx])
+}
+
+// Generate implements llm.Model.Generate on ScriptedModel.
+func Generate(m ScriptedModel, r llm.Request) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema {
+	try generated(nextScriptStep(m, r, false))
+}
+
+// Stream implements llm.Model.Stream on ScriptedModel.
+func Stream(m ScriptedModel, r llm.Request, put func(d llm.Delta) fails llm.SinkFailed) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema | llm.SinkFailed {
+	try streamed(nextScriptStep(m, r, true), put)
+}
+
+// StreamEach implements llm.Model.StreamEach on ScriptedModel.
+func StreamEach(m ScriptedModel, r llm.Request, put func(d llm.Delta)) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema {
+	try streamed(nextScriptStep(m, r, true), put)
+}
+
+func scriptedReq(sys string, msg string) llm.Request {
+	llm.Request{
+		System:    sys,
+		Messages:  []llm.Message{llm.User{Text: msg}},
+		Tools:     []llm.ToolSpec{},
+		Choice:    llm.Auto,
+		Format:    llm.Prose,
+		MaxTokens: 0,
+	}
+}
+
+// ScriptedModelReplaysInExactOrder: ScriptedModel and ForkScript replay both
+// ScriptReply (text + tool calls) and ScriptFault steps in exact deterministic
+// order across Generate and StreamEach.
+law ScriptedModelReplaysInExactOrder(first string, second string, injectFault bool) {
+	let u = llm.Usage{Input: 10, Output: 5, CacheRead: 0, CacheWrite: 0}
+	let step0 ScriptStep = ScriptReply{
+		Text:      first,
+		Reasoning: "",
+		ToolCalls: []llm.Call{},
+		Stop:      llm.Ended,
+		Usage:     u,
+	}
+	let step1 ScriptStep = if injectFault {
+		let f llm.Failure = llm.RateLimited{After: option.Some[int]{Value: 250}}
+		ScriptFault{Error: f}
+	} else {
+		ScriptReply{
+			Text:      second,
+			Reasoning: "think",
+			ToolCalls: []llm.Call{llm.Call{Id: "c1", Name: "lookup", Arguments: "{\"k\":1}"}},
+			Stop:      llm.ToolUse,
+			Usage:     u,
+		}
+	}
+	let step2 ScriptStep = ScriptReply{
+		Text:      "final",
+		Reasoning: "",
+		ToolCalls: []llm.Call{},
+		Stop:      llm.Ended,
+		Usage:     u,
+	}
+	let m1 = NewScriptedModel([]ScriptStep{step0, step1, step2})
+	let m2 = ForkScript(m1)
+	let req = scriptedReq("sys", "hello")
+
+	let g0 = m1.Generate(req) catch {
+	case _:
+		return false
+	}
+	let s0 = m2.StreamEach(req, func(d llm.Delta) {}) catch {
+	case _:
+		return false
+	}
+	let ok0 = g0.Text == first && g0 == s0
+
+	let mut ok1 = false
+	if injectFault {
+		let mut gFault = false
+		let _ = m1.Generate(req) catch {
+		case llm.RateLimited as rl:
+			gFault = rl.After == option.Some[int]{Value: 250}
+			llm.Turn{Text: "", Calls: []llm.Call{}, Stop: llm.Ended, Usage: u}
+		case _:
+			return false
+		}
+		let mut sFault = false
+		let _ = m2.StreamEach(req, func(d llm.Delta) {}) catch {
+		case llm.RateLimited as rl:
+			sFault = rl.After == option.Some[int]{Value: 250}
+			llm.Turn{Text: "", Calls: []llm.Call{}, Stop: llm.Ended, Usage: u}
+		case _:
+			return false
+		}
+		ok1 = gFault && sFault
+	} else {
+		let g1 = m1.Generate(req) catch {
+		case _:
+			return false
+		}
+		let s1 = m2.StreamEach(req, func(d llm.Delta) {}) catch {
+		case _:
+			return false
+		}
+		ok1 = g1.Text == second && g1.Calls.Len() == 1 && g1.Calls[0].Name == "lookup" && g1 == s1
+	}
+
+	let g2 = m1.Generate(req) catch {
+	case _:
+		return false
+	}
+	let s2 = m2.StreamEach(req, func(d llm.Delta) {}) catch {
+	case _:
+		return false
+	}
+	let ok2 = g2.Text == "final" && g2 == s2 && CallCount(m1) == 3 && Remaining(m1) == 0 && CallCount(m2) == 3 && Remaining(m2) == 0
+	let ok = ok0 && ok1 && ok2
+	always ok
+	sometimes injectFault && ok
+	sometimes !injectFault && ok
+	ok
+}
+
+// ScriptedModelRecordsEveryRequest: every incoming llm.Request is recorded in
+// exact call order and ForkScript begins with an independent empty transcript.
+law ScriptedModelRecordsEveryRequest(sysA string, msgA string, msgB string) {
+	let u = llm.Usage{Input: 1, Output: 1, CacheRead: 0, CacheWrite: 0}
+	let r0 ScriptStep = ScriptReply{Text: "a", Reasoning: "", ToolCalls: []llm.Call{}, Stop: llm.Ended, Usage: u}
+	let r1 ScriptStep = ScriptReply{Text: "b", Reasoning: "", ToolCalls: []llm.Call{}, Stop: llm.Ended, Usage: u}
+	let m = NewScriptedModel([]ScriptStep{r0, r1})
+	let fork = ForkScript(m)
+	let reqA = scriptedReq(sysA, msgA)
+	let reqB = scriptedReq(sysA, msgB)
+	let _ = m.Generate(reqA) catch {
+	case _:
+		return false
+	}
+	let _ = m.Generate(reqB) catch {
+	case _:
+		return false
+	}
+	let rec = RecordedRequests(m)
+	let ok = CallCount(m) == 2 && rec.Len() == 2 && rec[0] == reqA && rec[1] == reqB && CallCount(fork) == 0 && Remaining(fork) == 2
+	always ok
+	sometimes msgA == msgB
+	sometimes msgA != msgB
+	ok
+}
+
+// ScriptedModelExhaustedFailsClosed: once all scripted steps have been
+// consumed, any further Generate or Stream call fails closed with
+// llm.InvalidResponse and Remaining stays 0.
+law ScriptedModelExhaustedFailsClosed(countRaw int) {
+	let n = (if countRaw < 0 { -countRaw } else { countRaw }) % 4
+	let u = llm.Usage{Input: 1, Output: 1, CacheRead: 0, CacheWrite: 0}
+	let mut steps = []ScriptStep{}
+	for i in 0..n {
+		steps = steps.Append(ScriptReply{Text: "step-\(i)", Reasoning: "", ToolCalls: []llm.Call{}, Stop: llm.Ended, Usage: u})
+	}
+	let m = NewScriptedModel(steps)
+	let req = scriptedReq("sys", "ping")
+	for i in 0..n {
+		let _ = m.Generate(req) catch {
+		case _:
+			return false
+		}
+		let _ = m.StreamEach(req, func(d llm.Delta) {}) catch {
+		case _:
+			return false
+		}
+		if Remaining(m) != n-1-i {
+			return false
+		}
+	}
+	let mut genFailed = false
+	let _ = m.Generate(req) catch {
+	case llm.InvalidResponse:
+		genFailed = true
+		llm.Turn{Text: "", Calls: []llm.Call{}, Stop: llm.Ended, Usage: u}
+	case _:
+		return false
+	}
+	let mut streamFailed = false
+	let _ = m.StreamEach(req, func(d llm.Delta) {}) catch {
+	case llm.InvalidResponse:
+		streamFailed = true
+		llm.Turn{Text: "", Calls: []llm.Call{}, Stop: llm.Ended, Usage: u}
+	case _:
+		return false
+	}
+	let ok = genFailed && streamFailed && Remaining(m) == 0
+	always ok
+	sometimes n == 0 && ok
+	sometimes n > 0 && ok
+	ok
+}

@@ -5,6 +5,7 @@
 // program under inetd or `socat TCP-LISTEN:8080,fork EXEC:deploys` is.
 
 import deploys/api
+import option
 import strconv
 import strings
 import deploys/deploys
@@ -21,7 +22,7 @@ type Garbled { At int, Reason string }
 func ReadRequest(text string, at int) (api.Request, int) fails Garbled {
 	let first, afterFirst = try line(text, at)
 	let words = strings.Split(first, " ")
-	if len(words) != 3 || words[0] == "" || !strings.HasPrefix(words[1], "/") {
+	if words.Len() != 3 || words[0] == "" || !strings.HasPrefix(words[1], "/") {
 		return Garbled{At: at, Reason: "not a request line"}
 	}
 	if words[2] != "HTTP/1.1" && words[2] != "HTTP/1.0" {
@@ -29,35 +30,35 @@ func ReadRequest(text string, at int) (api.Request, int) fails Garbled {
 	}
 	let mut headers = []api.Header{}
 	let mut i = afterFirst
-	for _ in i..len(text)+1 {
+	for _ in i..text.Len()+1 {
 		let h, next = try line(text, i)
 		i = next
 		if h == "" {
 			break
 		}
 		match strings.Cut(h, ":") {
-		case Some[strings.Halves] as kv:
+		case option.Some[strings.Halves] as kv:
 			headers = headers.Append(api.Header{Name: kv.Value.Before, Value: strings.TrimSpace(kv.Value.After)})
-		case None:
+		case option.None:
 			return Garbled{At: i, Reason: "a header with no ':'"}
 		}
 	}
 	let length = match api.HeaderOf(headers, "Content-Length") {
-	case Some[string] as n:
+	case option.Some[string] as n:
 		strconv.Atoi(n.Value) catch {
 		case strconv.Malformed, strconv.OutOfRange:
 			return Garbled{At: i, Reason: "Content-Length is not a number"}
 		}
-	case None:
+	case option.None:
 		0
 	}
-	if length < 0 || i+length > len(text) {
+	if length < 0 || i+length > text.Len() {
 		return Garbled{At: i, Reason: "the body is shorter than its Content-Length"}
 	}
 	let path = match strings.Cut(words[1], "?") {
-	case Some[strings.Halves] as q:
+	case option.Some[strings.Halves] as q:
 		q.Value.Before
-	case None:
+	case option.None:
 		words[1]
 	}
 	(api.Request{Method: words[0], Path: path, Headers: headers, Body: strings.Slice(text, i, i+length)}, i + length)
@@ -69,7 +70,7 @@ func ReadRequest(text string, at int) (api.Request, int) fails Garbled {
 law RequestRoundTrip(r api.Request) {
 	let s = sane(r)
 	let back, end = try ReadRequest(WriteRequest(s), 0)
-	sameRequest(back, s) && end == len(WriteRequest(s))
+	sameRequest(back, s) && end == WriteRequest(s).Len()
 }
 
 // sane is r made carriable: a method and a path of one token, and
@@ -89,7 +90,7 @@ func sane(r api.Request) api.Request {
 // removed, and "x" before it.
 func token(text string) string {
 	let mut out = "x"
-	for i in 0..len(text) {
+	for i in 0..text.Len() {
 		let c = text[i]
 		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' {
 			out = out + strings.Slice(text, i, i+1)
@@ -108,9 +109,9 @@ func sameRequest(a api.Request, b api.Request) bool {
 	}
 	let mut want = b.Headers
 	if b.Body != "" {
-		want = want.Append(api.Header{Name: "Content-Length", Value: "\(len(b.Body))"})
+		want = want.Append(api.Header{Name: "Content-Length", Value: "\(b.Body.Len())"})
 	}
-	if len(a.Headers) != len(want) {
+	if a.Headers.Len() != want.Len() {
 		return false
 	}
 	for i, h in a.Headers {
@@ -124,7 +125,7 @@ func sameRequest(a api.Request, b api.Request) bool {
 // line is the line at at without its CRLF or LF, and the offset after
 // it. A line with no end fails Garbled: the text stopped inside a head.
 func line(text string, at int) (string, int) fails Garbled {
-	let rest = strings.Slice(text, at, len(text))
+	let rest = strings.Slice(text, at, text.Len())
 	let end = strings.Index(rest, "\n")
 	if end < 0 {
 		return Garbled{At: at, Reason: "the head does not end"}
@@ -140,12 +141,12 @@ func WriteResponse(r api.Response) string {
 	for h in r.Headers {
 		out = out + h.Name + ": " + h.Value + "\r\n"
 	}
-	out + "Content-Length: \(len(r.Body))\r\n\r\n" + r.Body
+	out + "Content-Length: \(r.Body.Len())\r\n\r\n" + r.Body
 }
 
 // ContentLengthIsTheBody: a written response says the length of its body.
 law ContentLengthIsTheBody(status int, body string) {
-	strings.HasSuffix(WriteResponse(api.Response{Status: status, Headers: []api.Header{}, Body: body}), "Content-Length: \(len(body))\r\n\r\n"+body)
+	strings.HasSuffix(WriteResponse(api.Response{Status: status, Headers: []api.Header{}, Body: body}), "Content-Length: \(body.Len())\r\n\r\n"+body)
 }
 
 // WriteRequest is r as HTTP/1.1 text, as a client sends it, with a
@@ -156,7 +157,7 @@ func WriteRequest(r api.Request) string {
 		out = out + h.Name + ": " + h.Value + "\r\n"
 	}
 	if r.Body != "" {
-		out = out + "Content-Length: \(len(r.Body))\r\n"
+		out = out + "Content-Length: \(r.Body.Len())\r\n"
 	}
 	out + "\r\n" + r.Body
 }
@@ -177,5 +178,5 @@ func pipelinedHolds(store deploys.Store, paths []string) bool {
 	}
 	let out = io.NewRecorder()
 	let served = with context { deploys.Store: store, io.Stdout: out } { Serve(text) }
-	served == len(paths) && strings.Count(out.Text(), "HTTP/1.1 ") == len(paths)
+	served == paths.Len() && strings.Count(out.Text(), "HTTP/1.1 ") == paths.Len()
 }

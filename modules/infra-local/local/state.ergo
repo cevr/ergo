@@ -10,6 +10,7 @@ import filepath
 import fs
 import fstest
 import hex
+import option
 import strconv
 import strings
 
@@ -18,11 +19,11 @@ import strings
 // props, the props as the text the store's show gives and its read takes
 // back. A row that cannot be read reads as no row (infra.State's reads do
 // not fail): the next apply ensures that object again.
-type Rows[P comparable] { ledger Ledger, show func(p P) string, read func(text string) Option[P] } implements infra.State[P]
+type Rows[P comparable] { ledger Ledger, show func(p P) string, read func(text string) option.Option[P] } implements infra.State[P]
 
 // RowsOn is the store in the folder root over files and writes, whose
 // props are written by show and read back by read. A Put makes the folder.
-func RowsOn[P comparable](files fs.Files, writes fs.Writes, root string, show own func(p P) string, read own func(text string) Option[P]) Rows[P] {
+func RowsOn[P comparable](files fs.Files, writes fs.Writes, root string, show own func(p P) string, read own func(text string) option.Option[P]) Rows[P] {
 	Rows[P]{ledger: NewLedger(root, files, writes), show: show, read: read}
 }
 
@@ -39,46 +40,46 @@ func statusWord(s infra.Status) string {
 }
 
 // statusOf is the status a word names.
-func statusOf(word string) Option[infra.Status] {
+func statusOf(word string) option.Option[infra.Status] {
 	match word {
 	case "creating":
-		Some[infra.Status]{Value: infra.Creating}
+		option.Some[infra.Status]{Value: infra.Creating}
 	case "live":
-		Some[infra.Status]{Value: infra.Live}
+		option.Some[infra.Status]{Value: infra.Live}
 	case "deleting":
-		Some[infra.Status]{Value: infra.Deleting}
+		option.Some[infra.Status]{Value: infra.Deleting}
 	case _:
-		None
+		option.None
 	}
 }
 
 // rowOf is the row an entry's fields hold, None when they hold none.
-func rowOf[P comparable](s Rows[P], fields []string) Option[infra.Row[P]] {
-	if len(fields) != 4 {
-		return None
+func rowOf[P comparable](s Rows[P], fields []string) option.Option[infra.Row[P]] {
+	if fields.Len() != 4 {
+		return option.None
 	}
 	let seq = strconv.Atoi(fields[2]) catch {
 	case strconv.Malformed, strconv.OutOfRange:
-		return None
+		return option.None
 	}
 	match (statusOf(fields[1]), s.read(fields[3])) {
-	case (Some[infra.Status] as status, Some[P] as p):
-		Some[infra.Row[P]]{Value: infra.Row[P]{ID: fields[0], Status: status.Value, Props: p.Value, Seq: seq}}
+	case (option.Some[infra.Status] as status, option.Some[P] as p):
+		option.Some[infra.Row[P]]{Value: infra.Row[P]{ID: fields[0], Status: status.Value, Props: p.Value, Seq: seq}}
 	case _:
-		None
+		option.None
 	}
 }
 
-func Get[P comparable](s Rows[P], id string) Option[infra.Row[P]] {
+func Get[P comparable](s Rows[P], id string) option.Option[infra.Row[P]] {
 	let fields = get(s.ledger, "row", id) catch {
 	case infra.Failed:
-		return None
+		return option.None
 	}
 	match fields {
-	case Some[[]string] as f:
+	case option.Some[[]string] as f:
 		rowOf(s, f.Value)
-	case None:
-		None
+	case option.None:
+		option.None
 	}
 }
 
@@ -106,9 +107,9 @@ func List[P comparable](s Rows[P]) []infra.Row[P] {
 			continue
 		}
 		match s.Get(id) {
-		case Some[infra.Row[P]] as r:
+		case option.Some[infra.Row[P]] as r:
 			out = out.Append(r.Value)
-		case None:
+		case option.None:
 		}
 	}
 	out
@@ -122,16 +123,16 @@ type IntRows { s Rows[int] } implements infra.State[int]
 // NewIntRows is an empty store of int props in a new fstest.Memory.
 func NewIntRows() IntRows {
 	let m = fstest.NewMemory()
-	IntRows{s: RowsOn[int](m, m, "/state/rows", func(p int) string { strconv.Itoa(p) }, func(text string) Option[int] {
+	IntRows{s: RowsOn[int](m, m, "/state/rows", func(p int) string { strconv.Itoa(p) }, func(text string) option.Option[int] {
 		let n = strconv.Atoi(text) catch {
 		case strconv.Malformed, strconv.OutOfRange:
-			return None
+			return option.None
 		}
-		Some[int]{Value: n}
+		option.Some[int]{Value: n}
 	})}
 }
 
-func Get(r IntRows, id string) Option[infra.Row[int]] { r.s.Get(id) }
+func Get(r IntRows, id string) option.Option[infra.Row[int]] { r.s.Get(id) }
 
 func Put(r IntRows, row infra.Row[int]) fails infra.Failed { try r.s.Put(row) }
 
@@ -159,12 +160,12 @@ func NewFileLock() FileLock {
 	LockOn(m, m, "/lock")
 }
 
-func Holder(l FileLock) Option[string] {
+func Holder(l FileLock) option.Option[string] {
 	let text = l.files.ReadFile(l.path) catch {
 	case fs.NotFound, fs.Denied, fs.Failed:
-		return None
+		return option.None
 	}
-	Some[string]{Value: text}
+	option.Some[string]{Value: text}
 }
 
 // Acquire writes holder into the lock's file when the lock is free or
@@ -172,11 +173,11 @@ func Holder(l FileLock) Option[string] {
 // failure says so in Holder.
 func Acquire(l FileLock, holder string) fails infra.Held {
 	match l.Holder() {
-	case Some[string] as other:
+	case option.Some[string] as other:
 		if other.Value != holder {
 			return infra.Held{Holder: other.Value}
 		}
-	case None:
+	case option.None:
 	}
 	l.writes.MkdirAll(filepath.Dir(l.path)) catch {
 	case fs.Denied, fs.Failed:
@@ -191,7 +192,7 @@ func Acquire(l FileLock, holder string) fails infra.Held {
 }
 
 func Release(l FileLock, holder string) {
-	if l.Holder() == (Some[string]{Value: holder}) {
+	if l.Holder() == (option.Some[string]{Value: holder}) {
 		l.writes.Remove(l.path) catch {
 		case fs.NotFound, fs.Denied, fs.Failed:
 		}
@@ -200,11 +201,11 @@ func Release(l FileLock, holder string) {
 
 func Break(l FileLock, holder string) fails infra.Held {
 	match l.Holder() {
-	case Some[string] as other:
+	case option.Some[string] as other:
 		if other.Value != holder {
 			return infra.Held{Holder: other.Value}
 		}
 		l.Release(holder)
-	case None:
+	case option.None:
 	}
 }

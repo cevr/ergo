@@ -1,5 +1,6 @@
 import fs
 import gen
+import option
 import strings
 import testing
 
@@ -14,18 +15,18 @@ func Open(r stubWeatherReadings, path string) fs.Mapped fails Unreadable {
 	Unreadable{Path: path, Reason: "missing"}
 }
 
-func summarizeFromReadings(path string, workers int) Option[[]Station] needs Readings {
+func summarizeFromReadings(path string, workers int) option.Option[[]Station] needs Readings {
 	let m = Readings.Open(path) catch {
 	case Unreadable:
-		return None
+		return option.None
 	}
 	let got = Summarize(m.Text(), workers) catch {
 	case Malformed, TooManyStations:
 		m.Close()
-		return None
+		return option.None
 	}
 	m.Close()
-	Some[[]Station]{Value: got}
+	option.Some[[]Station]{Value: got}
 }
 
 // OpenReadingsFaultsPropagate wraps weather.Readings in testing.Faulty and proves
@@ -35,18 +36,18 @@ law OpenReadingsFaultsPropagate() {
 	let base = stubWeatherReadings{Text: "Hamburg;12.0\nBulawayo;8.9\nHamburg;14.0\n"}
 	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
 		let faulty = testing.Faulty[Readings](base)
-		let f0 = len(faulty.Open.Faults())
+		let f0 = faulty.Open.Faults().Len()
 		let res = with context { Readings: faulty } { summarizeFromReadings("sample.txt", 2) }
-		let faulted = len(faulty.Open.Faults()) > f0
+		let faulted = faulty.Open.Faults().Len() > f0
 		if faulted {
-			sometimes res == None
-			return res == None
+			sometimes res == option.None
+			return res == option.None
 		}
 		match res {
-		case Some[[]Station] as st:
-			sometimes len(st.Value) == 2
-			len(st.Value) == 2 && st.Value[0].Name == "Bulawayo" && st.Value[1].Name == "Hamburg" && st.Value[1].Stats.Count == 2
-		case None:
+		case option.Some[[]Station] as st:
+			sometimes st.Value.Len() == 2
+			st.Value.Len() == 2 && st.Value[0].Name == "Bulawayo" && st.Value[1].Name == "Hamburg" && st.Value[1].Stats.Count == 2
+		case option.None:
 			false
 		}
 	})
@@ -62,7 +63,7 @@ law OpenReadingsFaultsPropagate() {
 // temperatures while preserving non-empty output for every input.
 law TenthsSometimesFormatsNegative sometimes(tenths int) {
 	let text = Tenths(tenths)
-	always len(text) > 0
+	always text.Len() > 0
 	strings.HasPrefix(text, "-")
 }
 
@@ -80,9 +81,9 @@ law ParallelSummarizeMatchesSequentialWorkers() {
 			let tenths = gen.IntIn(-400, 450)
 			b.WriteString(name + ";" + Tenths(tenths) + "\n")
 			let prev = match seq.Get(name) {
-			case Some[Stats] as s:
+			case option.Some[Stats] as s:
 				s.Value
-			case None:
+			case option.None:
 				Empty()
 			}
 			seq[name] = Add(prev, tenths)
@@ -104,16 +105,16 @@ law ParallelSummarizeMatchesSequentialWorkers() {
 			return false
 		}
 		mapped.Close()
-		if w1 != w2 || w1 != w4 || len(w1) != len(seq) {
+		if w1 != w2 || w1 != w4 || w1.Len() != seq.Len() {
 			return false
 		}
 		for st in w1 {
 			match seq.Get(st.Name) {
-			case Some[Stats] as want:
+			case option.Some[Stats] as want:
 				if want.Value != st.Stats {
 					return false
 				}
-			case None:
+			case option.None:
 				return false
 			}
 		}

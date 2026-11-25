@@ -23,7 +23,7 @@ func Encode(c Config) toml.Doc {
 law FailuresPointIntoTheText(text string, seed int, picks []int) {
 	let mut edited = toml.Print(Encode(Sample(seed)))
 	for n in picks {
-		edited = edited + edits[natural(n)%len(edits)] + "\n"
+		edited = edited + edits[natural(n)%edits.Len()] + "\n"
 	}
 	for t in []string{text, edited} {
 		let d = toml.Parse(t) catch {

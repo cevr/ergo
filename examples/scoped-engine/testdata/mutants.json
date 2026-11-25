@@ -2,108 +2,212 @@
   "about": "scoped-engine's application mutants; each is judged by the example's tests, laws and cases (scripts/examples), not by a compiler test.",
   "mutants": [
     {
-      "name": "fk6-stop-stays", "origin": "wf10/fk6a",
+      "name": "fk6-stop-stays",
+      "origin": "wf10/fk6a",
       "file": "examples/scoped-engine/engine/panel.ergo",
-      "from": "\tcase (Booting, Stop), (Ready, Stop):\n\t\tEnter[Mode]{Next: Off}\n",
-      "to": "\tcase (Booting, Stop), (Ready, Stop):\n\t\tStay[Mode]{Next: Off}\n",
+      "from": "\tcase (Booting, Stop), (Ready, Stop):\n\t\tmachines.Enter[Mode]{Next: Off}\n",
+      "to": "\tcase (Booting, Stop), (Ready, Stop):\n\t\tmachines.Stay[Mode]{Next: Off}\n",
       "rule": "A stop ends the entry that holds the lease, so the engine is released (law ReleasesEqualAcquires).",
-      "anchor": {"tests": ["examples:scoped-engine"]}, "killers": ["examples:scoped-engine"]
+      "anchor": {
+        "tests": [
+          "examples:scoped-engine"
+        ]
+      },
+      "killers": [
+        "examples:scoped-engine"
+      ]
     },
     {
-      "name": "fk6-started-enters", "origin": "wf10/fk6a",
+      "name": "fk6-started-enters",
+      "origin": "wf10/fk6a",
       "file": "examples/scoped-engine/engine/panel.ergo",
-      "from": "\t\tStay[Mode]{Next: Ready{Engine: st.Engine, Computed: 0, Last: None}}\n",
-      "to": "\t\tEnter[Mode]{Next: Ready{Engine: st.Engine, Computed: 0, Last: None}}\n",
+      "from": "\t\tmachines.Stay[Mode]{Next: Ready{Engine: st.Engine, Computed: 0, Last: option.None}}\n",
+      "to": "\t\tmachines.Enter[Mode]{Next: Ready{Engine: st.Engine, Computed: 0, Last: option.None}}\n",
       "rule": "Ready keeps the boot's entry, and with it the lease (law ReleasesEqualAcquires).",
-      "anchor": {"tests": ["examples:scoped-engine"]}, "killers": ["examples:scoped-engine"]
+      "anchor": {
+        "tests": [
+          "examples:scoped-engine"
+        ]
+      },
+      "killers": [
+        "examples:scoped-engine"
+      ]
     },
     {
-      "name": "fk6-ready-reboots", "origin": "wf10/fk6a",
+      "name": "fk6-ready-reboots",
+      "origin": "wf10/fk6a",
       "file": "examples/scoped-engine/engine/panel.ergo",
-      "from": "(Booting, Compute), (Ready, Start), (Ready, Started), (Ready, Refused):\n\t\tIgnore\n",
-      "to": "(Booting, Compute), (Ready, Started), (Ready, Refused):\n\t\tIgnore\n\tcase (Ready, Start):\n\t\tEnter[Mode]{Next: Booting}\n",
+      "from": "(Booting, Compute), (Ready, Start), (Ready, Started), (Ready, Refused):\n\t\tmachines.Ignore\n",
+      "to": "(Booting, Compute), (Ready, Started), (Ready, Refused):\n\t\tmachines.Ignore\n\tcase (Ready, Start):\n\t\tmachines.Enter[Mode]{Next: Booting}\n",
       "rule": "A start while ready boots nothing (law OneBootPerStart).",
-      "anchor": {"tests": ["examples:scoped-engine"]}, "killers": ["examples:scoped-engine"]
+      "anchor": {
+        "tests": [
+          "examples:scoped-engine"
+        ]
+      },
+      "killers": [
+        "examples:scoped-engine"
+      ]
     },
     {
-      "name": "fk6-square-of-the-old-count", "origin": "wf10/fk6a",
+      "name": "fk6-square-of-the-old-count",
+      "origin": "wf10/fk6a",
       "file": "examples/scoped-engine/engine/panel.ergo",
-      "from": "Last: Some{Square(r.Engine, n)}",
-      "to": "Last: Some{Square(r.Engine, r.Computed)}",
+      "from": "Last: option.Some{Square(r.Engine, n)}",
+      "to": "Last: option.Some{Square(r.Engine, r.Computed)}",
       "rule": "A compute squares the next count (law ComputeNeedsAnEngine).",
-      "anchor": {"tests": ["examples:scoped-engine"]}, "killers": ["examples:scoped-engine"]
+      "anchor": {
+        "tests": [
+          "examples:scoped-engine"
+        ]
+      },
+      "killers": [
+        "examples:scoped-engine"
+      ]
     },
     {
-      "name": "fk6-lease-not-held", "origin": "wf10/fk6a",
+      "name": "fk6-lease-not-held",
+      "origin": "wf10/fk6a",
       "file": "examples/scoped-engine/engine/panel.ergo",
       "from": "\t\t\tlet _ = until.Pop() catch {\n",
       "to": "\t\t\tuntil.End()\n\t\t\tlet _ = until.Pop() catch {\n",
       "rule": "The boot's work holds the lease until its entry ends (law ReleasesEqualAcquires).",
-      "anchor": {"tests": ["examples:scoped-engine"]}, "killers": ["examples:scoped-engine"]
+      "anchor": {
+        "tests": [
+          "examples:scoped-engine"
+        ]
+      },
+      "killers": [
+        "examples:scoped-engine"
+      ]
     },
     {
-      "name": "fk6-failed-stays-failed", "origin": "wf10/fk6a",
+      "name": "fk6-failed-stays-failed",
+      "origin": "wf10/fk6a",
       "file": "examples/scoped-engine/engine/panel.ergo",
       "from": "\tcase (Off, Start), (Failed, Start):\n",
       "to": "\tcase (Off, Start):\n",
       "rule": "A start after a failed boot boots again (case engine).",
-      "anchor": {"tests": ["examples:scoped-engine"]}, "killers": ["examples:scoped-engine"]
+      "anchor": {
+        "tests": [
+          "examples:scoped-engine"
+        ]
+      },
+      "killers": [
+        "examples:scoped-engine"
+      ]
     },
     {
-      "name": "fk6-pool-one-id", "origin": "wf10/fk6a",
+      "name": "fk6-pool-one-id",
+      "origin": "wf10/fk6a",
       "file": "examples/scoped-engine/memory/pool.ergo",
       "from": "engine.Engine{ID: \"engine-\\(n)\"}",
       "to": "engine.Engine{ID: \"engine-\\(n - n + 1)\"}",
       "rule": "Engines held at once are distinct engines (law Engines.HeldEnginesAreDistinct).",
-      "anchor": {"tests": ["examples:scoped-engine"]}, "killers": ["examples:scoped-engine"]
+      "anchor": {
+        "tests": [
+          "examples:scoped-engine"
+        ]
+      },
+      "killers": [
+        "examples:scoped-engine"
+      ]
     },
     {
-      "name": "fk6-release-uncounted", "origin": "wf10/fk6a",
+      "name": "fk6-release-uncounted",
+      "origin": "wf10/fk6a",
       "file": "examples/scoped-engine/memory/pool.ergo",
       "from": "let _ = p.released.Add(1)",
       "to": "let _ = p.released.Add(0)",
       "rule": "Every lease's end gives its engine back (law ReleasesEqualAcquires).",
-      "anchor": {"tests": ["examples:scoped-engine"]}, "killers": ["examples:scoped-engine"]
+      "anchor": {
+        "tests": [
+          "examples:scoped-engine"
+        ]
+      },
+      "killers": [
+        "examples:scoped-engine"
+      ]
     },
     {
-      "name": "fk6-fault-ignored", "origin": "wf10/fk6a",
+      "name": "fk6-fault-ignored",
+      "origin": "wf10/fk6a",
       "file": "examples/scoped-engine/memory/pool.ergo",
       "from": "if p.faults.Load() > 0 {",
       "to": "if p.faults.Load() > 1 {",
       "rule": "A fault fails the next boot (case engine).",
-      "anchor": {"tests": ["examples:scoped-engine"]}, "killers": ["examples:scoped-engine"]
+      "anchor": {
+        "tests": [
+          "examples:scoped-engine"
+        ]
+      },
+      "killers": [
+        "examples:scoped-engine"
+      ]
     },
     {
-      "name": "fk6b-compute-enabled-off", "origin": "wf10/fk6b",
+      "name": "fk6b-compute-enabled-off",
+      "origin": "wf10/fk6b",
       "file": "examples/scoped-engine/screen/screen.ergo",
       "from": "ui.Fieldset(f, !ready, \"\")",
       "to": "ui.Fieldset(f, !ready && false, \"\")",
       "rule": "Compute next square is disabled unless the engine is ready, as upstream's isComputeDisabled (cases).",
-      "anchor": {"tests": ["examples:scoped-engine"]}, "killers": ["examples:scoped-engine"]
+      "anchor": {
+        "tests": [
+          "examples:scoped-engine"
+        ]
+      },
+      "killers": [
+        "examples:scoped-engine"
+      ]
     },
     {
-      "name": "fk6b-booting-text", "origin": "wf10/fk6b",
+      "name": "fk6b-booting-text",
+      "origin": "wf10/fk6b",
       "file": "examples/scoped-engine/screen/screen.ergo",
       "from": "\"Booting engine...\"",
       "to": "\"Booting...\"",
       "rule": "A booting engine reads Booting engine..., upstream's text (case scenes).",
-      "anchor": {"tests": ["examples:scoped-engine"]}, "killers": ["examples:scoped-engine"]
+      "anchor": {
+        "tests": [
+          "examples:scoped-engine"
+        ]
+      },
+      "killers": [
+        "examples:scoped-engine"
+      ]
     },
     {
-      "name": "fk6b-result-off-by-one", "origin": "wf10/fk6b",
+      "name": "fk6b-result-off-by-one",
+      "origin": "wf10/fk6b",
       "file": "examples/scoped-engine/screen/screen.ergo",
       "from": "\"Square result: \\(v.Value)\"",
       "to": "\"Square result: \\(v.Value + 1)\"",
       "rule": "The screen shows the last result (cases).",
-      "anchor": {"tests": ["examples:scoped-engine"]}, "killers": ["examples:scoped-engine"]
+      "anchor": {
+        "tests": [
+          "examples:scoped-engine"
+        ]
+      },
+      "killers": [
+        "examples:scoped-engine"
+      ]
     },
     {
-      "name": "fk6b-start-labelled-stop", "origin": "wf10/fk6b",
+      "name": "fk6b-start-labelled-stop",
+      "origin": "wf10/fk6b",
       "file": "examples/scoped-engine/screen/screen.ergo",
       "from": "button(f, StartLabel, engine.Start)",
       "to": "button(f, StopLabel, engine.Start)",
       "rule": "The button of an engine that is off starts it and is named Start engine (law ScreenIsTheLivePanel, cases).",
-      "anchor": {"tests": ["examples:scoped-engine"]}, "killers": ["examples:scoped-engine"]
+      "anchor": {
+        "tests": [
+          "examples:scoped-engine"
+        ]
+      },
+      "killers": [
+        "examples:scoped-engine"
+      ]
     }
   ]
 }

@@ -1,3 +1,4 @@
+import core
 import domain-search/domains
 import domain-search/domains/domainsapi
 import domain-search/domains/domainsrpc
@@ -45,7 +46,7 @@ func drawRegistryRequest() domainsapi.Request needs gen.Draws {
 	let label = gen.OneOf(exploreLabels)
 	let offset json.Optional[domains.Offset] = if gen.Bool() {
 		let o = domains.ParseOffset(gen.IntIn(0, 80)) catch {
-		case Unsatisfied:
+		case core.Unsatisfied:
 			0
 		}
 		json.Present[domains.Offset]{Value: o}
@@ -54,7 +55,7 @@ func drawRegistryRequest() domainsapi.Request needs gen.Draws {
 	}
 	let limit json.Optional[domains.Limit] = if gen.Bool() {
 		let n = domains.ParseLimit(gen.IntIn(1, 20)) catch {
-		case Unsatisfied:
+		case core.Unsatisfied:
 			1
 		}
 		json.Present[domains.Limit]{Value: n}
@@ -106,8 +107,8 @@ func carryOverHttpServer(reg domains.Registry, req domainsapi.Request) domainsap
 	case rpc.Transport as t:
 		return testing.Refused{Why: t.Reason}
 	}
-	if len(frames) != 1 {
-		return testing.Refused{Why: "unexpected frame count \(len(frames))"}
+	if frames.Len() != 1 {
+		return testing.Refused{Why: "unexpected frame count \(frames.Len())"}
 	}
 	match frames[0] {
 	case Exit as ex:
@@ -186,7 +187,7 @@ func drawWireRegistryRequest() domainsapi.Request needs gen.Draws {
 	let label = gen.OneOf(exploreLabels)
 	let offset json.Optional[domains.Offset] = if gen.Bool() {
 		let o = domains.ParseOffset(gen.IntIn(0, 80)) catch {
-		case Unsatisfied:
+		case core.Unsatisfied:
 			0
 		}
 		json.Present[domains.Offset]{Value: o}
@@ -194,7 +195,7 @@ func drawWireRegistryRequest() domainsapi.Request needs gen.Draws {
 		json.Absent
 	}
 	let n = domains.ParseLimit(gen.IntIn(1, 6)) catch {
-	case Unsatisfied:
+	case core.Unsatisfied:
 		1
 	}
 	domainsapi.SearchDomainsRequest{Label: label, Offset: offset, Limit: json.Present[domains.Limit]{Value: n}}

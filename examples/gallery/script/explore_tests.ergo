@@ -3,6 +3,7 @@ import gallery/gallery
 import gallery/memory
 import gallery/screen
 import gen
+import option
 import sync
 import temporal
 import time
@@ -12,15 +13,15 @@ func exploreProperties() []temporal.Formula[ui.ExploreSnapshot[gallery.Site, gal
 	let mut props = ui.DefaultsWith[gallery.Site, gallery.Signal](2s)
 	props = props.Append(temporal.Always[ui.ExploreSnapshot[gallery.Site, gallery.Signal]](
 		temporal.Named[ui.ExploreSnapshot[gallery.Site, gallery.Signal]]("log-within-limit", func(s ui.ExploreSnapshot[gallery.Site, gallery.Signal]) bool {
-			len(s.State.Log) <= gallery.LogSize && s.State.Asked >= len(s.State.Jobs)
+			s.State.Log.Len() <= gallery.LogSize && s.State.Asked >= s.State.Jobs.Len()
 		}),
 	))
 	props = props.Append(temporal.Always[ui.ExploreSnapshot[gallery.Site, gallery.Signal]](
 		temporal.Named[ui.ExploreSnapshot[gallery.Site, gallery.Signal]]("route-initialized", func(s ui.ExploreSnapshot[gallery.Site, gallery.Signal]) bool {
 			match s.State.Route {
-			case Some[gallery.Route]:
+			case option.Some[gallery.Route]:
 				true
-			case None:
+			case option.None:
 				false
 			}
 		}),
@@ -31,11 +32,11 @@ func exploreProperties() []temporal.Formula[ui.ExploreSnapshot[gallery.Site, gal
 func exploreOnce(steps int) ui.Finding needs gen.Draws {
 	let clock = time.NewManual(0)
 	let drafts = memory.NewDrafts()
-	let histRef = sync.NewRef[Option[ui.MemoryHistory]](None)
-	with context { Scheduler: clock, time.Clock: clock, gallery.Drafts: drafts } {
+	let histRef = sync.NewRef[option.Option[ui.MemoryHistory]](option.None)
+	with context { time.Scheduler: clock, time.Clock: clock, gallery.Drafts: drafts } {
 		let site = actor.StartMachine(gallery.Gallerist{}, 16, func(actions []gallery.Action) {
 			match histRef.Get() {
-			case Some[ui.MemoryHistory] as loc:
+			case option.Some[ui.MemoryHistory] as loc:
 				for a in actions {
 					match a {
 					case gallery.Push as p:
@@ -43,7 +44,7 @@ func exploreOnce(steps int) ui.Finding needs gen.Draws {
 					case gallery.Leave:
 					}
 				}
-			case None:
+			case option.None:
 			}
 		})
 		let mut h = ui.NewTestHost(site, screen.Screen, clock, 16) catch {
@@ -67,7 +68,7 @@ func exploreOnce(steps int) ui.Finding needs gen.Draws {
 			site.Stop()
 			return ui.Found{Script: []ui.Act{}, Step: 0, Violation: "actor stopped during settle"}
 		}
-		histRef.Set(Some[ui.MemoryHistory]{Value: ui.History(&h)})
+		histRef.Set(option.Some[ui.MemoryHistory]{Value: ui.History(&h)})
 		let res = ui.Explore(&h, exploreProperties(), ui.ExploreConfig{Steps: steps, Swarm: false, AdvanceStep: 500ms, Weights: Map[string, int]{}})
 		site.Stop()
 		res

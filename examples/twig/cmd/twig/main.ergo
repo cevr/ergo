@@ -47,12 +47,12 @@ func finish(o script.Outcome) fails os.Exit needs io.Stdout | io.Stderr {
 
 // run is twig on args.
 func run(args []string) fails os.Exit needs io.Stdout | io.Stderr | script.Sources {
-	if len(args) == 0 {
+	if args.Len() == 0 {
 		return usage()
 	}
 	match args[0] {
 	case "run":
-		match len(args) {
+		match args.Len() {
 		case 2:
 			try finish(script.Load(args[1], false))
 		case 3:
@@ -64,7 +64,7 @@ func run(args []string) fails os.Exit needs io.Stdout | io.Stderr | script.Sourc
 			return usage()
 		}
 	case "check":
-		if len(args) != 2 {
+		if args.Len() != 2 {
 			return usage()
 		}
 		let src = script.Sources.Read(args[1]) catch {
@@ -76,7 +76,7 @@ func run(args []string) fails os.Exit needs io.Stdout | io.Stderr | script.Sourc
 			return os.Exit{Code: 1, Message: "twig: " + r.Line}
 		}
 	case "gen":
-		if len(args) != 5 || args[1] != "-seed" || args[3] != "-n" {
+		if args.Len() != 5 || args[1] != "-seed" || args[3] != "-n" {
 			return usage()
 		}
 		let seed = try amount(args[2])
@@ -86,7 +86,7 @@ func run(args []string) fails os.Exit needs io.Stdout | io.Stderr | script.Sourc
 	}
 }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	let host = os.NewHost()
 	with context { io.Stdout: io.NewHost(), io.Stderr: io.NewErrors(), script.Sources: files.New(fs.NewHost()) } {
 		try run(host.Args())

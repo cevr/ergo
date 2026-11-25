@@ -1,6 +1,8 @@
 // Package replay pins a versioned exact ReplayFixture and replays it directly
 // through explore.ReplayFromFixture without path generation.
+import core
 import explore
+import option
 import sync
 
 type probeState { Slot int, Val int }
@@ -13,13 +15,13 @@ type probeDriveErr { Why string }
 
 type probeSess {
 	state sync.Ref[probeState],
-} implements explore.PathSession[probeInput, explore.Observed[probeState, int, Never], probeDriveErr]
+} implements explore.PathSession[probeInput, explore.Observed[probeState, int, core.Never], probeDriveErr]
 
-func Read(s probeSess) explore.Observed[probeState, int, Never] fails probeDriveErr {
+func Read(s probeSess) explore.Observed[probeState, int, core.Never] fails probeDriveErr {
 	explore.InitialRead[probeState]{State: s.state.Get()}
 }
 
-func Apply(s probeSess, inp probeInput) explore.Observed[probeState, int, Never] fails probeDriveErr {
+func Apply(s probeSess, inp probeInput) explore.Observed[probeState, int, core.Never] fails probeDriveErr {
 	let cur = s.state.Get()
 	match inp {
 	case probeBump as b:
@@ -30,19 +32,19 @@ func Apply(s probeSess, inp probeInput) explore.Observed[probeState, int, Never]
 		} else {
 			[]int{b.Delta, next.Val}
 		}
-		explore.StepResult[probeState, int, Never]{Step: explore.StepObs[probeState, int, Never]{
+		explore.StepResult[probeState, int, core.Never]{Step: explore.StepObs[probeState, int, core.Never]{
 			Kind:     explore.DisEmit,
-			State:    Some[probeState]{Value: next},
+			State:    option.Some[probeState]{Value: next},
 			Outputs:  outs,
-			Error:    None,
+			Error:    option.None,
 			Terminal: false,
 		}}
 	case probeStop:
-		explore.StepResult[probeState, int, Never]{Step: explore.StepObs[probeState, int, Never]{
+		explore.StepResult[probeState, int, core.Never]{Step: explore.StepObs[probeState, int, core.Never]{
 			Kind:     explore.DisDone,
-			State:    None,
+			State:    option.None,
 			Outputs:  []int{cur.Val},
-			Error:    None,
+			Error:    option.None,
 			Terminal: true,
 		}}
 	}
@@ -52,9 +54,9 @@ func Close(s probeSess) {
 	let _ = s.state.Get()
 }
 
-func probeModel() explore.PathModel[probeState, probeInput, probeState, int, Never] {
-	explore.PathModel[probeState, probeInput, probeState, int, Never]{
-		Graph: explore.ConcreteGraph[probeState, probeInput, explore.StepObs[probeState, int, Never]]{
+func probeModel() explore.PathModel[probeState, probeInput, probeState, int, core.Never] {
+	explore.PathModel[probeState, probeInput, probeState, int, core.Never]{
+		Graph: explore.ConcreteGraph[probeState, probeInput, explore.StepObs[probeState, int, core.Never]]{
 			Starts: []probeState{
 				probeState{Slot: 0, Val: 0},
 				probeState{Slot: 1, Val: 10},
@@ -64,27 +66,27 @@ func probeModel() explore.PathModel[probeState, probeInput, probeState, int, Nev
 				probeBump{Delta: 2},
 				probeStop,
 			},
-			Step: func(s probeState, inp probeInput) explore.EdgeOutcome[probeState, explore.StepObs[probeState, int, Never]] {
+			Step: func(s probeState, inp probeInput) explore.EdgeOutcome[probeState, explore.StepObs[probeState, int, core.Never]] {
 				match inp {
 				case probeBump as b:
 					let next = probeState{Slot: s.Slot, Val: s.Val + b.Delta}
-					explore.Continue[probeState, explore.StepObs[probeState, int, Never]]{
+					explore.Continue[probeState, explore.StepObs[probeState, int, core.Never]]{
 						Next: next,
-						Obs:  explore.StepObs[probeState, int, Never]{
+						Obs:  explore.StepObs[probeState, int, core.Never]{
 							Kind:     explore.DisEmit,
-							State:    Some[probeState]{Value: next},
+							State:    option.Some[probeState]{Value: next},
 							Outputs:  []int{b.Delta, next.Val},
-							Error:    None,
+							Error:    option.None,
 							Terminal: false,
 						},
 					}
 				case probeStop:
-					explore.Terminal[explore.StepObs[probeState, int, Never]]{
-						Obs: explore.StepObs[probeState, int, Never]{
+					explore.Terminal[explore.StepObs[probeState, int, core.Never]]{
+						Obs: explore.StepObs[probeState, int, core.Never]{
 							Kind:     explore.DisDone,
-							State:    None,
+							State:    option.None,
 							Outputs:  []int{s.Val},
-							Error:    None,
+							Error:    option.None,
 							Terminal: true,
 						},
 					}
@@ -92,11 +94,11 @@ func probeModel() explore.PathModel[probeState, probeInput, probeState, int, Nev
 			},
 		},
 		InitialObs:     func(s probeState) probeState { s },
-		ProjectionName: None,
+		ProjectionName: option.None,
 	}
 }
 
-func openProbe(start probeState) explore.PathSession[probeInput, explore.Observed[probeState, int, Never], probeDriveErr] fails probeOpenErr {
+func openProbe(start probeState) explore.PathSession[probeInput, explore.Observed[probeState, int, core.Never], probeDriveErr] fails probeOpenErr {
 	let st = sync.NewRef(start)
 	probeSess{state: st}
 }

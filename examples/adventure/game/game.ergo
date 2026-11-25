@@ -3,6 +3,7 @@
 // told. It is pure but for Run, which reads and writes the console.
 
 import adventure/world
+import option
 import strings
 import machines
 
@@ -31,11 +32,11 @@ law BarredIsTheKey(codes []int, way int) {
 	let g = GameOf(played(scriptOf(codes)))
 	let d = world.DirOf(way)
 	match world.ExitOf(g.World, g.At, d) {
-	case Some[world.Exit] as e:
+	case option.Some[world.Exit] as e:
 		let locked = e.Value.Key != "" && Where(g, e.Value.Key) != world.Carried
 		let barred = IsBarred(g, d)
 		locked == barred
-	case None:
+	case option.None:
 		true
 	}
 }
@@ -100,12 +101,12 @@ func played(script []Command) State {
 	for c in script {
 		let d = Step(s, Said{Line: Text(c)}) catch {
 		case Refusal:
-			Reject
+			machines.Reject
 		}
 		match d {
-		case Done[Ending]:
+		case machines.Done[Ending]:
 			return s
-		case Enter[State], Stay[State], Emit[State, Ending], Tell[State, Ending], Ignore, Reject:
+		case machines.Enter[State], machines.Stay[State], machines.Emit[State, Ending], machines.Tell[State, Ending], machines.Ignore, machines.Reject:
 		}
 		s = machines.Next(s, d)
 	}
@@ -115,11 +116,11 @@ func played(script []Command) State {
 // Kept reports whether g has each of its world's items once, in the
 // world's order, each in a room or carried.
 func Kept(g Game) bool {
-	if len(g.Items) != len(g.World.Items) {
+	if g.Items.Len() != g.World.Items.Len() {
 		return false
 	}
 	for i, p in g.Items {
-		let inRoom = world.RoomOf(g.World, p.At) != None
+		let inRoom = world.RoomOf(g.World, p.At) != option.None
 		if p.Item != g.World.Items[i].Item || !(inRoom || p.At == world.Carried) {
 			return false
 		}
@@ -153,9 +154,9 @@ law EndIsStopped(codes []int, asking bool) {
 		return false
 	}
 	match d {
-	case Done[Ending] as done:
+	case machines.Done[Ending] as done:
 		done.Output == Stopped{Moves: g.Moves, At: g.At}
-	case Enter[State], Stay[State], Emit[State, Ending], Tell[State, Ending], Ignore, Reject:
+	case machines.Enter[State], machines.Stay[State], machines.Emit[State, Ending], machines.Tell[State, Ending], machines.Ignore, machines.Reject:
 		false
 	}
 }
@@ -184,14 +185,14 @@ func Advance(s State, sig Signal) Transition fails Refusal {
 	}
 }
 
-func Step(s State, sig Signal) Decision[State, Ending] fails Refusal {
+func Step(s State, sig Signal) machines.Decision[State, Ending] fails Refusal {
 	match try Advance(s, sig) {
 	case Entered as e:
-		Enter[State]{Next: e.Next}
+		machines.Enter[State]{Next: e.Next}
 	case Stayed as st:
-		Stay[State]{Next: st.Next}
+		machines.Stay[State]{Next: st.Next}
 	case Finished as f:
-		Done[Ending]{Output: f.Output}
+		machines.Done[Ending]{Output: f.Output}
 	}
 }
 
@@ -228,13 +229,13 @@ func explore(g Game, c Command) Transition fails NoExit | Barred | NotHere | Not
 // Moved is g after a move way: in the next room, one move on.
 func Moved(g Game, way world.Dir) Game fails NoExit | Barred {
 	match world.ExitOf(g.World, g.At, way) {
-	case Some[world.Exit] as e:
+	case option.Some[world.Exit] as e:
 		let exit = e.Value
 		if exit.Key != "" && Where(g, exit.Key) != world.Carried {
 			return Barred{Way: way, Key: exit.Key, Text: exit.Barred}
 		}
 		Game{..g, At: exit.To, Moves: g.Moves + 1}
-	case None:
+	case option.None:
 		NoExit{Way: way}
 	}
 }

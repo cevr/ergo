@@ -1,5 +1,6 @@
 // Package people is the people the People routes list and search.
 
+import option
 import strings
 import slices
 
@@ -35,10 +36,10 @@ func Search(text string) []Person {
 // name or role, in any case, and finds no one whose name and role both
 // lack the text.
 law SearchMatchesNameOrRole(who int, from int, to int, upper bool) {
-	let p = All[((who%len(All))+len(All))%len(All)]
+	let p = All[((who%All.Len())+All.Len())%All.Len()]
 	let source = if from%2 == 0 { p.Name } else { p.Role }
-	let a = ((from % len(source)) + len(source)) % len(source)
-	let b = a + ((to%(len(source)-a+1))+(len(source)-a+1))%(len(source)-a+1)
+	let a = ((from % source.Len()) + source.Len()) % source.Len()
+	let b = a + ((to%(source.Len()-a+1))+(source.Len()-a+1))%(source.Len()-a+1)
 	let text = if upper { strings.ToUpper(source[a:b]) } else { source[a:b] }
 	let t = strings.ToLower(text)
 	let mut found = false
@@ -52,13 +53,13 @@ law SearchMatchesNameOrRole(who int, from int, to int, upper bool) {
 }
 
 // Find is the person numbered id.
-func Find(id int) Option[Person] {
+func Find(id int) option.Option[Person] {
 	for p in All {
 		if p.ID == id {
-			return Some[Person]{Value: p}
+			return option.Some[Person]{Value: p}
 		}
 	}
-	None
+	option.None
 }
 
 // Remember is history with text first: an empty text changes nothing,
@@ -70,7 +71,7 @@ func Remember(history []string, text string) []string {
 	}
 	let mut out = []string{text}
 	for h in history {
-		if h != text && len(out) < HistoryLimit {
+		if h != text && out.Len() < HistoryLimit {
 			out = out.Append(h)
 		}
 	}
@@ -84,13 +85,13 @@ law HistoryKeepsTheNewestDistinct(picks []int) {
 	let mut h = []string{}
 	let mut seen = []string{}
 	for k in picks {
-		let t = texts[((k%len(texts))+len(texts))%len(texts)]
+		let t = texts[((k%texts.Len())+texts.Len())%texts.Len()]
 		h = Remember(h, t)
 		if t != "" {
 			seen = front(t, slices.Filter(seen, func(x string) bool { x != t }))
 		}
 	}
-	let want = if len(seen) > HistoryLimit { seen[0:HistoryLimit] } else { seen }
+	let want = if seen.Len() > HistoryLimit { seen[0:HistoryLimit] } else { seen }
 	h == want
 }
 

@@ -26,7 +26,7 @@ type BadCell { At int, Text string }
 func Parse(text string) Grid fails BadLength | BadCell {
 	let mut cells [81]int
 	let mut n = 0
-	for i in 0..len(text) {
+	for i in 0..text.Len() {
 		let c = text[i]
 		let cell = c == '.' || c >= '0' && c <= '9'
 		if !cell && !strings.ContainsRune(" \t\r\n|-+", rune(c)) {
@@ -60,8 +60,8 @@ func With(g Grid, i int, v int) Grid {
 // package builds its answer so; it fails with BadLength or BadCell as
 // Parse does when cells are not 81 values from 0 to 9.
 func OfCells(cells []int) Grid fails BadLength | BadCell {
-	if len(cells) != 81 {
-		return BadLength{Cells: len(cells)}
+	if cells.Len() != 81 {
+		return BadLength{Cells: cells.Len()}
 	}
 	let mut out [81]int
 	for i, c in cells {

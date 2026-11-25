@@ -1,3 +1,4 @@
+import option
 import slices
 import github.com/cevr/ergo/modules/git/index
 import github.com/cevr/ergo/modules/git/oid
@@ -71,53 +72,53 @@ func emitSubtreeRec(format oid.Format, treeOid oid.OID, prefix string, isAdded b
 		} else if isAdded {
 			out = out.Append(Change{
 				Status:  Added,
-				OldPath: None,
-				NewPath: Some[string]{Value: fullPath},
-				OldMode: None,
-				NewMode: Some[tree.Mode]{Value: e.Mode},
-				OldOID:  None,
-				NewOID:  Some[oid.OID]{Value: e.OID},
+				OldPath: option.None,
+				NewPath: option.Some[string]{Value: fullPath},
+				OldMode: option.None,
+				NewMode: option.Some[tree.Mode]{Value: e.Mode},
+				OldOID:  option.None,
+				NewOID:  option.Some[oid.OID]{Value: e.OID},
 			})
 		} else {
 			out = out.Append(Change{
 				Status:  Deleted,
-				OldPath: Some[string]{Value: fullPath},
-				NewPath: None,
-				OldMode: Some[tree.Mode]{Value: e.Mode},
-				NewMode: None,
-				OldOID:  Some[oid.OID]{Value: e.OID},
-				NewOID:  None,
+				OldPath: option.Some[string]{Value: fullPath},
+				NewPath: option.None,
+				OldMode: option.Some[tree.Mode]{Value: e.Mode},
+				NewMode: option.None,
+				OldOID:  option.Some[oid.OID]{Value: e.OID},
+				NewOID:  option.None,
 			})
 		}
 	}
 	out
 }
 
-func compareLeafPair(path string, oldMode tree.Mode, oldOid oid.OID, newMode tree.Mode, newOid oid.OID) Option[Change] {
+func compareLeafPair(path string, oldMode tree.Mode, oldOid oid.OID, newMode tree.Mode, newOid oid.OID) option.Option[Change] {
 	if !SameSubtype(oldMode, newMode) {
-		return Some[Change]{Value: Change{
+		return option.Some[Change]{Value: Change{
 			Status:  TypeChanged,
-			OldPath: Some[string]{Value: path},
-			NewPath: Some[string]{Value: path},
-			OldMode: Some[tree.Mode]{Value: oldMode},
-			NewMode: Some[tree.Mode]{Value: newMode},
-			OldOID:  Some[oid.OID]{Value: oldOid},
-			NewOID:  Some[oid.OID]{Value: newOid},
+			OldPath: option.Some[string]{Value: path},
+			NewPath: option.Some[string]{Value: path},
+			OldMode: option.Some[tree.Mode]{Value: oldMode},
+			NewMode: option.Some[tree.Mode]{Value: newMode},
+			OldOID:  option.Some[oid.OID]{Value: oldOid},
+			NewOID:  option.Some[oid.OID]{Value: newOid},
 		}}
 	}
 	let modeChanged = tree.ModeOctal(oldMode) != tree.ModeOctal(newMode)
 	if !oid.Equal(oldOid, newOid) || modeChanged {
-		return Some[Change]{Value: Change{
+		return option.Some[Change]{Value: Change{
 			Status:  Modified,
-			OldPath: Some[string]{Value: path},
-			NewPath: Some[string]{Value: path},
-			OldMode: Some[tree.Mode]{Value: oldMode},
-			NewMode: Some[tree.Mode]{Value: newMode},
-			OldOID:  Some[oid.OID]{Value: oldOid},
-			NewOID:  Some[oid.OID]{Value: newOid},
+			OldPath: option.Some[string]{Value: path},
+			NewPath: option.Some[string]{Value: path},
+			OldMode: option.Some[tree.Mode]{Value: oldMode},
+			NewMode: option.Some[tree.Mode]{Value: newMode},
+			OldOID:  option.Some[oid.OID]{Value: oldOid},
+			NewOID:  option.Some[oid.OID]{Value: newOid},
 		}}
 	}
-	None
+	option.None
 }
 
 func diffTreeRec(format oid.Format, oldTree oid.OID, newTree oid.OID, prefix string, depth int, maxDepth int, maxBytes int, acc []Change) []Change fails TreeError | MissingObject | StoreError | DepthExceeded needs pack.ObjectStore {
@@ -132,7 +133,7 @@ func diffTreeRec(format oid.Format, oldTree oid.OID, newTree oid.OID, prefix str
 	let mut out = acc
 	let mut i = 0
 	let mut j = 0
-	for i < len(oldEntries) && j < len(newEntries) {
+	for i < oldEntries.Len() && j < newEntries.Len() {
 		let a = oldEntries[i]
 		let b = newEntries[j]
 		let cmp = tree.CompareEntryNames(a.Name, tree.IsTree(a.Mode), b.Name, tree.IsTree(b.Mode))
@@ -143,12 +144,12 @@ func diffTreeRec(format oid.Format, oldTree oid.OID, newTree oid.OID, prefix str
 			} else {
 				out = out.Append(Change{
 					Status:  Deleted,
-					OldPath: Some[string]{Value: p},
-					NewPath: None,
-					OldMode: Some[tree.Mode]{Value: a.Mode},
-					NewMode: None,
-					OldOID:  Some[oid.OID]{Value: a.OID},
-					NewOID:  None,
+					OldPath: option.Some[string]{Value: p},
+					NewPath: option.None,
+					OldMode: option.Some[tree.Mode]{Value: a.Mode},
+					NewMode: option.None,
+					OldOID:  option.Some[oid.OID]{Value: a.OID},
+					NewOID:  option.None,
 				})
 			}
 			i = i + 1
@@ -159,12 +160,12 @@ func diffTreeRec(format oid.Format, oldTree oid.OID, newTree oid.OID, prefix str
 			} else {
 				out = out.Append(Change{
 					Status:  Added,
-					OldPath: None,
-					NewPath: Some[string]{Value: p},
-					OldMode: None,
-					NewMode: Some[tree.Mode]{Value: b.Mode},
-					OldOID:  None,
-					NewOID:  Some[oid.OID]{Value: b.OID},
+					OldPath: option.None,
+					NewPath: option.Some[string]{Value: p},
+					OldMode: option.None,
+					NewMode: option.Some[tree.Mode]{Value: b.Mode},
+					OldOID:  option.None,
+					NewOID:  option.Some[oid.OID]{Value: b.OID},
 				})
 			}
 			j = j + 1
@@ -176,16 +177,16 @@ func diffTreeRec(format oid.Format, oldTree oid.OID, newTree oid.OID, prefix str
 				}
 			} else {
 				match compareLeafPair(p, a.Mode, a.OID, b.Mode, b.OID) {
-				case Some[Change] as ch:
+				case option.Some[Change] as ch:
 					out = out.Append(ch.Value)
-				case None:
+				case option.None:
 				}
 			}
 			i = i + 1
 			j = j + 1
 		}
 	}
-	for i < len(oldEntries) {
+	for i < oldEntries.Len() {
 		let a = oldEntries[i]
 		let p = if prefix == "" { a.Name } else { prefix + "/" + a.Name }
 		if tree.IsTree(a.Mode) {
@@ -193,17 +194,17 @@ func diffTreeRec(format oid.Format, oldTree oid.OID, newTree oid.OID, prefix str
 		} else {
 			out = out.Append(Change{
 				Status:  Deleted,
-				OldPath: Some[string]{Value: p},
-				NewPath: None,
-				OldMode: Some[tree.Mode]{Value: a.Mode},
-				NewMode: None,
-				OldOID:  Some[oid.OID]{Value: a.OID},
-				NewOID:  None,
+				OldPath: option.Some[string]{Value: p},
+				NewPath: option.None,
+				OldMode: option.Some[tree.Mode]{Value: a.Mode},
+				NewMode: option.None,
+				OldOID:  option.Some[oid.OID]{Value: a.OID},
+				NewOID:  option.None,
 			})
 		}
 		i = i + 1
 	}
-	for j < len(newEntries) {
+	for j < newEntries.Len() {
 		let b = newEntries[j]
 		let p = if prefix == "" { b.Name } else { prefix + "/" + b.Name }
 		if tree.IsTree(b.Mode) {
@@ -211,12 +212,12 @@ func diffTreeRec(format oid.Format, oldTree oid.OID, newTree oid.OID, prefix str
 		} else {
 			out = out.Append(Change{
 				Status:  Added,
-				OldPath: None,
-				NewPath: Some[string]{Value: p},
-				OldMode: None,
-				NewMode: Some[tree.Mode]{Value: b.Mode},
-				OldOID:  None,
-				NewOID:  Some[oid.OID]{Value: b.OID},
+				OldPath: option.None,
+				NewPath: option.Some[string]{Value: p},
+				OldMode: option.None,
+				NewMode: option.Some[tree.Mode]{Value: b.Mode},
+				OldOID:  option.None,
+				NewOID:  option.Some[oid.OID]{Value: b.OID},
 			})
 		}
 		j = j + 1
@@ -244,7 +245,7 @@ func canPairForRename(delMode tree.Mode, addMode tree.Mode) bool {
 
 func buildChunkWeights(data []byte) Map[string, int] {
 	let mut weights = Map[string, int]{}
-	let n = len(data)
+	let n = data.Len()
 	let mut start = 0
 	for start < n {
 		let mut end = start
@@ -257,9 +258,9 @@ func buildChunkWeights(data []byte) Map[string, int] {
 		}
 		let chunk = data[start:end].Text()
 		let prev = match weights.Get(chunk) {
-		case Some[int] as v:
+		case option.Some[int] as v:
 			v.Value
-		case None:
+		case option.None:
 			0
 		}
 		weights[chunk] = prev + (end - start)
@@ -271,8 +272,8 @@ func buildChunkWeights(data []byte) Map[string, int] {
 // SimilarityScore computes a Git-style chunk similarity percentage (0..100)
 // between oldData and newData.
 func SimilarityScore(oldData []byte, newData []byte) int {
-	let oldLen = len(oldData)
-	let newLen = len(newData)
+	let oldLen = oldData.Len()
+	let newLen = newData.Len()
 	let maxLen = if oldLen > newLen { oldLen } else { newLen }
 	if maxLen == 0 {
 		return 100
@@ -285,10 +286,10 @@ func SimilarityScore(oldData []byte, newData []byte) int {
 	let mut matched = 0
 	for k, ov in oldW {
 		match newW.Get(k) {
-		case Some[int] as nv:
+		case option.Some[int] as nv:
 			let take = if ov < nv.Value { ov } else { nv.Value }
 			matched = matched + take
-		case None:
+		case option.None:
 		}
 	}
 	let score = (matched * 100) / maxLen
@@ -320,48 +321,48 @@ func DetectRenames(changes []Change, threshold int, maxBytes int) []Change fails
 			others = others.Append(c)
 		}
 	}
-	if len(deletes) == 0 || len(adds) == 0 {
+	if deletes.Len() == 0 || adds.Len() == 0 {
 		return sortChanges(changes)
 	}
-	let mut delUsed = slices.WithCapacity[bool](len(deletes))
-	for _ in 0..len(deletes) {
+	let mut delUsed = slices.WithCapacity[bool](deletes.Len())
+	for _ in 0..deletes.Len() {
 		delUsed = delUsed.Append(false)
 	}
-	let mut addUsed = slices.WithCapacity[bool](len(adds))
-	for _ in 0..len(adds) {
+	let mut addUsed = slices.WithCapacity[bool](adds.Len())
+	for _ in 0..adds.Len() {
 		addUsed = addUsed.Append(false)
 	}
 	let mut out = others
 
-	for di in 0..len(deletes) {
+	for di in 0..deletes.Len() {
 		let d = deletes[di]
 		let dMode = match d.OldMode {
-		case Some[tree.Mode] as m:
+		case option.Some[tree.Mode] as m:
 			m.Value
-		case None:
+		case option.None:
 			continue
 		}
 		let dOid = match d.OldOID {
-		case Some[oid.OID] as id:
+		case option.Some[oid.OID] as id:
 			id.Value
-		case None:
+		case option.None:
 			continue
 		}
-		for ai in 0..len(adds) {
+		for ai in 0..adds.Len() {
 			if addUsed[ai] {
 				continue
 			}
 			let a = adds[ai]
 			let aMode = match a.NewMode {
-			case Some[tree.Mode] as m:
+			case option.Some[tree.Mode] as m:
 				m.Value
-			case None:
+			case option.None:
 				continue
 			}
 			let aOid = match a.NewOID {
-			case Some[oid.OID] as id:
+			case option.Some[oid.OID] as id:
 				id.Value
-			case None:
+			case option.None:
 				continue
 			}
 			if canPairForRename(dMode, aMode) && oid.Equal(dOid, aOid) {
@@ -384,74 +385,74 @@ func DetectRenames(changes []Change, threshold int, maxBytes int) []Change fails
 	let effThreshold = if threshold < 0 { 0 } else if threshold > 100 { 100 } else { threshold }
 	let mut delBlobs = Map[int, []byte]{}
 	let mut addBlobs = Map[int, []byte]{}
-	for di in 0..len(deletes) {
+	for di in 0..deletes.Len() {
 		if delUsed[di] {
 			continue
 		}
 		match deletes[di].OldMode {
-		case Some[tree.Mode] as m:
+		case option.Some[tree.Mode] as m:
 			match ModeSubtype(m.Value) {
 			case Regular:
 				match deletes[di].OldOID {
-				case Some[oid.OID] as id:
+				case option.Some[oid.OID] as id:
 					delBlobs[di] = try readStoreBytes(id.Value, maxBytes)
-				case None:
+				case option.None:
 				}
 			case Symlink, Gitlink:
 			}
-		case None:
+		case option.None:
 		}
 	}
-	for ai in 0..len(adds) {
+	for ai in 0..adds.Len() {
 		if addUsed[ai] {
 			continue
 		}
 		match adds[ai].NewMode {
-		case Some[tree.Mode] as m:
+		case option.Some[tree.Mode] as m:
 			match ModeSubtype(m.Value) {
 			case Regular:
 				match adds[ai].NewOID {
-				case Some[oid.OID] as id:
+				case option.Some[oid.OID] as id:
 					addBlobs[ai] = try readStoreBytes(id.Value, maxBytes)
-				case None:
+				case option.None:
 				}
 			case Symlink, Gitlink:
 			}
-		case None:
+		case option.None:
 		}
 	}
 
 	let mut cands = []renameCandidate{}
-	for di in 0..len(deletes) {
+	for di in 0..deletes.Len() {
 		if delUsed[di] {
 			continue
 		}
 		let dData = match delBlobs.Get(di) {
-		case Some[[]byte] as b:
+		case option.Some[[]byte] as b:
 			b.Value
-		case None:
+		case option.None:
 			continue
 		}
 		let dMode = match deletes[di].OldMode {
-		case Some[tree.Mode] as m:
+		case option.Some[tree.Mode] as m:
 			m.Value
-		case None:
+		case option.None:
 			continue
 		}
-		for ai in 0..len(adds) {
+		for ai in 0..adds.Len() {
 			if addUsed[ai] {
 				continue
 			}
 			let aData = match addBlobs.Get(ai) {
-			case Some[[]byte] as b:
+			case option.Some[[]byte] as b:
 				b.Value
-			case None:
+			case option.None:
 				continue
 			}
 			let aMode = match adds[ai].NewMode {
-			case Some[tree.Mode] as m:
+			case option.Some[tree.Mode] as m:
 				m.Value
-			case None:
+			case option.None:
 				continue
 			}
 			if !canPairForRename(dMode, aMode) {
@@ -506,12 +507,12 @@ func DetectRenames(changes []Change, threshold int, maxBytes int) []Change fails
 		})
 	}
 
-	for di in 0..len(deletes) {
+	for di in 0..deletes.Len() {
 		if !delUsed[di] {
 			out = out.Append(deletes[di])
 		}
 	}
-	for ai in 0..len(adds) {
+	for ai in 0..adds.Len() {
 		if !addUsed[ai] {
 			out = out.Append(adds[ai])
 		}
@@ -522,20 +523,20 @@ func DetectRenames(changes []Change, threshold int, maxBytes int) []Change fails
 // DiffOptionalTrees diffs oldTree against newTree (either side may be None to
 // represent the empty tree), pruning identical subtrees and optionally running
 // rename detection.
-func DiffOptionalTrees(format oid.Format, oldTree Option[oid.OID], newTree Option[oid.OID], opts DiffOptions) []Change fails TreeError | MissingObject | StoreError | DepthExceeded needs pack.ObjectStore {
+func DiffOptionalTrees(format oid.Format, oldTree option.Option[oid.OID], newTree option.Option[oid.OID], opts DiffOptions) []Change fails TreeError | MissingObject | StoreError | DepthExceeded needs pack.ObjectStore {
 	let raw = match oldTree {
-	case None:
+	case option.None:
 		match newTree {
-		case None:
+		case option.None:
 			[]Change{}
-		case Some[oid.OID] as nt:
+		case option.Some[oid.OID] as nt:
 			try emitSubtreeRec(format, nt.Value, "", true, 0, opts.MaxDepth, opts.MaxBytes, []Change{})
 		}
-	case Some[oid.OID] as ot:
+	case option.Some[oid.OID] as ot:
 		match newTree {
-		case None:
+		case option.None:
 			try emitSubtreeRec(format, ot.Value, "", false, 0, opts.MaxDepth, opts.MaxBytes, []Change{})
-		case Some[oid.OID] as nt:
+		case option.Some[oid.OID] as nt:
 			try diffTreeRec(format, ot.Value, nt.Value, "", 0, opts.MaxDepth, opts.MaxBytes, []Change{})
 		}
 	}
@@ -548,23 +549,23 @@ func DiffOptionalTrees(format oid.Format, oldTree Option[oid.OID], newTree Optio
 // DiffTrees diffs oldTree against newTree with identical-subtree pruning and
 // optional exact and similarity rename detection.
 func DiffTrees(format oid.Format, oldTree oid.OID, newTree oid.OID, opts DiffOptions) []Change fails TreeError | MissingObject | StoreError | DepthExceeded needs pack.ObjectStore {
-	try DiffOptionalTrees(format, Some[oid.OID]{Value: oldTree}, Some[oid.OID]{Value: newTree}, opts)
+	try DiffOptionalTrees(format, option.Some[oid.OID]{Value: oldTree}, option.Some[oid.OID]{Value: newTree}, opts)
 }
 
-func indexModeToTreeMode(m uint32) Option[tree.Mode] {
+func indexModeToTreeMode(m uint32) option.Option[tree.Mode] {
 	if m == index.ModeRegular {
-		return Some[tree.Mode]{Value: tree.ModeRegular}
+		return option.Some[tree.Mode]{Value: tree.ModeRegular}
 	}
 	if m == index.ModeExecutable {
-		return Some[tree.Mode]{Value: tree.ModeExecutable}
+		return option.Some[tree.Mode]{Value: tree.ModeExecutable}
 	}
 	if m == index.ModeSymlink {
-		return Some[tree.Mode]{Value: tree.ModeSymlink}
+		return option.Some[tree.Mode]{Value: tree.ModeSymlink}
 	}
 	if m == index.ModeGitlink {
-		return Some[tree.Mode]{Value: tree.ModeGitlink}
+		return option.Some[tree.Mode]{Value: tree.ModeGitlink}
 	}
-	None
+	option.None
 }
 
 type leafRec {
@@ -575,10 +576,10 @@ type leafRec {
 
 // DiffTreeToIndex compares oldTree (or the empty tree when None) against all
 // stage-0 staged entries in idx, matching `git diff --cached`.
-func DiffTreeToIndex(format oid.Format, oldTree Option[oid.OID], idx index.Index, opts DiffOptions) []Change fails TreeError | MissingObject | StoreError | DepthExceeded needs pack.ObjectStore {
+func DiffTreeToIndex(format oid.Format, oldTree option.Option[oid.OID], idx index.Index, opts DiffOptions) []Change fails TreeError | MissingObject | StoreError | DepthExceeded needs pack.ObjectStore {
 	let mut oldLeaves = []leafRec{}
 	match oldTree {
-	case Some[oid.OID] as ot:
+	case option.Some[oid.OID] as ot:
 		let walked = tree.WalkTree(format, ot.Value, opts.MaxDepth, opts.MaxBytes) catch {
 		case tree.CorruptTree as e:
 			return TreeError{Detail: e.Reason}
@@ -600,7 +601,7 @@ func DiffTreeToIndex(format oid.Format, oldTree Option[oid.OID], idx index.Index
 		for w in walked {
 			oldLeaves = oldLeaves.Append(leafRec{path: w.Path, mode: w.Mode, id: w.OID})
 		}
-	case None:
+	case option.None:
 	}
 
 	let mut newLeaves = []leafRec{}
@@ -609,9 +610,9 @@ func DiffTreeToIndex(format oid.Format, oldTree Option[oid.OID], idx index.Index
 			continue
 		}
 		match indexModeToTreeMode(e.Mode) {
-		case Some[tree.Mode] as m:
+		case option.Some[tree.Mode] as m:
 			newLeaves = newLeaves.Append(leafRec{path: e.Path, mode: m.Value, id: e.OID})
-		case None:
+		case option.None:
 		}
 	}
 
@@ -625,64 +626,64 @@ func DiffTreeToIndex(format oid.Format, oldTree Option[oid.OID], idx index.Index
 	let mut out = []Change{}
 	let mut i = 0
 	let mut j = 0
-	for i < len(oldSorted) && j < len(newSorted) {
+	for i < oldSorted.Len() && j < newSorted.Len() {
 		let a = oldSorted[i]
 		let b = newSorted[j]
 		if a.path < b.path {
 			out = out.Append(Change{
 				Status:  Deleted,
-				OldPath: Some[string]{Value: a.path},
-				NewPath: None,
-				OldMode: Some[tree.Mode]{Value: a.mode},
-				NewMode: None,
-				OldOID:  Some[oid.OID]{Value: a.id},
-				NewOID:  None,
+				OldPath: option.Some[string]{Value: a.path},
+				NewPath: option.None,
+				OldMode: option.Some[tree.Mode]{Value: a.mode},
+				NewMode: option.None,
+				OldOID:  option.Some[oid.OID]{Value: a.id},
+				NewOID:  option.None,
 			})
 			i = i + 1
 		} else if a.path > b.path {
 			out = out.Append(Change{
 				Status:  Added,
-				OldPath: None,
-				NewPath: Some[string]{Value: b.path},
-				OldMode: None,
-				NewMode: Some[tree.Mode]{Value: b.mode},
-				OldOID:  None,
-				NewOID:  Some[oid.OID]{Value: b.id},
+				OldPath: option.None,
+				NewPath: option.Some[string]{Value: b.path},
+				OldMode: option.None,
+				NewMode: option.Some[tree.Mode]{Value: b.mode},
+				OldOID:  option.None,
+				NewOID:  option.Some[oid.OID]{Value: b.id},
 			})
 			j = j + 1
 		} else {
 			match compareLeafPair(a.path, a.mode, a.id, b.mode, b.id) {
-			case Some[Change] as ch:
+			case option.Some[Change] as ch:
 				out = out.Append(ch.Value)
-			case None:
+			case option.None:
 			}
 			i = i + 1
 			j = j + 1
 		}
 	}
-	for i < len(oldSorted) {
+	for i < oldSorted.Len() {
 		let a = oldSorted[i]
 		out = out.Append(Change{
 			Status:  Deleted,
-			OldPath: Some[string]{Value: a.path},
-			NewPath: None,
-			OldMode: Some[tree.Mode]{Value: a.mode},
-			NewMode: None,
-			OldOID:  Some[oid.OID]{Value: a.id},
-			NewOID:  None,
+			OldPath: option.Some[string]{Value: a.path},
+			NewPath: option.None,
+			OldMode: option.Some[tree.Mode]{Value: a.mode},
+			NewMode: option.None,
+			OldOID:  option.Some[oid.OID]{Value: a.id},
+			NewOID:  option.None,
 		})
 		i = i + 1
 	}
-	for j < len(newSorted) {
+	for j < newSorted.Len() {
 		let b = newSorted[j]
 		out = out.Append(Change{
 			Status:  Added,
-			OldPath: None,
-			NewPath: Some[string]{Value: b.path},
-			OldMode: None,
-			NewMode: Some[tree.Mode]{Value: b.mode},
-			OldOID:  None,
-			NewOID:  Some[oid.OID]{Value: b.id},
+			OldPath: option.None,
+			NewPath: option.Some[string]{Value: b.path},
+			OldMode: option.None,
+			NewMode: option.Some[tree.Mode]{Value: b.mode},
+			OldOID:  option.None,
+			NewOID:  option.Some[oid.OID]{Value: b.id},
 		})
 		j = j + 1
 	}

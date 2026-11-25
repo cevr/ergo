@@ -6,20 +6,20 @@ import todoshell/todo
 // Console, until quit or the end of the input, and returns the list. On a
 // terminal it shows the mode's prompt before each line. A line the mode
 // cannot read is told and changes nothing.
-func Run() todo.List needs Console | io.Stdin | io.Stdout {
+func Run() todo.List needs io.Console | io.Stdin | io.Stdout {
 	let mut m = Start()
-	Console.Println("todo shell: type help for the commands")
+	io.Console.Println("todo shell: type help for the commands")
 	prompt(m)
 	for line in io.Stdin.Lines() {
 		let d = turn(m, line)
 		match d {
-		case Done[todo.List] as done:
+		case machines.Done[todo.List] as done:
 			return done.Output
-		case Enter[Mode]:
-		case Stay[Mode]:
-		case Emit[Mode, todo.List], Tell[Mode, todo.List]:
-		case Ignore:
-		case Reject:
+		case machines.Enter[Mode]:
+		case machines.Stay[Mode]:
+		case machines.Emit[Mode, todo.List], machines.Tell[Mode, todo.List]:
+		case machines.Ignore:
+		case machines.Reject:
 		}
 		m = machines.Next(m, d)
 		prompt(m)
@@ -38,26 +38,26 @@ func prompt(m Mode) needs io.Stdout {
 // turn is the decision of line in m, after it tells the line's events on
 // Console. Each failure of Decide is told by name, with no case _, and is
 // Reject: the mode stays as it is.
-func turn(m Mode, line string) Decision[Mode, todo.List] needs Console {
+func turn(m Mode, line string) machines.Decision[Mode, todo.List] needs io.Console {
 	let es = Decide(m, line) catch {
 	case Unknown as u:
-		Console.Println("? unknown command \(u.Word); type help")
-		return Reject
+		io.Console.Println("? unknown command \(u.Word); type help")
+		return machines.Reject
 	case BadNumber as b:
-		Console.Println("? \(b.Command) needs an item number, not \"\(b.Text)\"")
-		return Reject
+		io.Console.Println("? \(b.Command) needs an item number, not \"\(b.Text)\"")
+		return machines.Reject
 	case MissingText as t:
-		Console.Println("? \(t.Command) needs a text")
-		return Reject
+		io.Console.Println("? \(t.Command) needs a text")
+		return machines.Reject
 	case todo.NoSuchItem as n:
-		Console.Println("? no item \(n.At): the list has \(n.Count)")
-		return Reject
+		io.Console.Println("? no item \(n.At): the list has \(n.Count)")
+		return machines.Reject
 	}
 	let d = Apply(m, es)
 	let next = machines.Next(m, d)
 	for e in es {
 		for said in Say(next, e) {
-			Console.Println(said)
+			io.Console.Println(said)
 		}
 	}
 	d

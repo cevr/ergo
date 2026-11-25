@@ -70,7 +70,7 @@ type Cue { At duration, To float64 }
 func Played(s Spring, from float64, script []Cue) []Track {
 	let mut out = []Track{Still(s, from)}
 	for c in script {
-		out = out.Append(Retarget(out[len(out)-1], c.At, c.To))
+		out = out.Append(Retarget(out[out.Len()-1], c.At, c.To))
 	}
 	out
 }
@@ -85,7 +85,7 @@ func Glitches(trace []Track) []Glitch {
 	let h = 1000ns
 	let hs = seconds(h)
 	let mut out = []Glitch{}
-	for i in 1..len(trace) {
+	for i in 1..trace.Len() {
 		let a = trace[i-1]
 		let b = trace[i]
 		let t = b.Start
@@ -102,8 +102,8 @@ func Glitches(trace []Track) []Glitch {
 			out = out.Append(Break{At: t, From: before, To: after})
 		}
 	}
-	if len(trace) > 0 {
-		let last = trace[len(trace)-1]
+	if trace.Len() > 0 {
+		let last = trace[trace.Len()-1]
 		let end = last.Start + duration(int64(last.Spring.Duration)*3)
 		let off = Pos(last, end) - last.Target
 		let bound = 0.001*(math.Abs(last.X0-last.Target)+math.Abs(last.V0)*spanOf(last)) + 0.000000001
@@ -122,11 +122,11 @@ law TracesAreSmooth(tier Tier, b int, from int, steps []int) {
 	let s = Spring{Duration: Entrance(tier).Duration, Bounce: bounceOf(b)}
 	let mut script = []Cue{}
 	let mut t = 0ns
-	for i in 0..len(steps) {
+	for i in 0..steps.Len() {
 		t = t + duration(int64(1+pick(steps[i], 400))*1000000)
 		script = script.Append(Cue{At: t, To: float64(pick(steps[i]*7919+i, 1001) - 500)})
 	}
-	len(Glitches(Played(s, float64(pick(from, 1001)-500), script))) == 0
+	Glitches(Played(s, float64(pick(from, 1001)-500), script)).Len() == 0
 }
 
 // TrackIsTheClipSpring: a track released from rest toward a target follows the clip's spring,

@@ -47,7 +47,7 @@ type Unreadable { Path string, Reason string }
 // Sorted reports whether names are in ascending order with no two equal:
 // the PagesAreSorted law, as a function a provider's test calls.
 func Sorted(names []string) bool {
-	for i in 1..len(names) {
+	for i in 1..names.Len() {
 		if names[i-1] >= names[i] {
 			return false
 		}

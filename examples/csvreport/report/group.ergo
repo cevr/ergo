@@ -1,5 +1,6 @@
 // Filtering, grouping and the report's text.
 
+import option
 import utf8
 import slices
 import strings
@@ -59,7 +60,7 @@ law TotalIsFold(readings []Reading) {
 		hours += s.Hours
 		energy += int64(s.Hours) * s.Kw
 	}
-	t.Readings == len(readings) && t.Hours == hours && t.Energy == energy
+	t.Readings == readings.Len() && t.Hours == hours && t.Energy == energy
 }
 
 // GroupsSumToTotal: the groups, under either key, add up to the total,
@@ -87,9 +88,9 @@ func Group(readings []Reading, k Key) []Summary {
 	for s in readings {
 		let key = KeyOf(k, s)
 		let t = match by.Get(key) {
-		case Some[Summary] as found:
+		case option.Some[Summary] as found:
 			found.Value
-		case None:
+		case option.None:
 			Summary{Key: key, Readings: 0, Hours: 0, Energy: 0}
 		}
 		by[key] = add(t, s)
@@ -112,13 +113,13 @@ law FilterKeepsOnly(readings []Reading, hours int) {
 	let mut j = 0
 	for s in readings {
 		if Kept(k, s) {
-			if j >= len(kept) || kept[j] != s {
+			if j >= kept.Len() || kept[j] != s {
 				return false
 			}
 			j += 1
 		}
 	}
-	j == len(kept)
+	j == kept.Len()
 }
 
 // Table is the report of readings under k: a line per group, then the

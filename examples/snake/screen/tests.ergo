@@ -6,5 +6,5 @@ test AFrameShowsTheBoard {
 	assert strings.Join(Frame(game.Playing{W: w}), "\n") == "+----+\n|o@  |\n|   *|\n+----+\nscore 2"
 	assert Frame(game.Paused{W: w})[4] == "score 2, paused"
 	assert Frame(game.Over{W: w, Why: game.Bitten})[4] == "game over: bit itself, score 2"
-	assert len(Frame(game.Title{Width: 4, Height: 2})) == 1
+	assert Frame(game.Title{Width: 4, Height: 2}).Len() == 1
 }

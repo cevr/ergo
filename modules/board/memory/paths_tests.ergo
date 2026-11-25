@@ -1,5 +1,7 @@
+import core
 import explore
 import github.com/cevr/ergo/modules/board/board
+import option
 import strings
 import sync
 import testing
@@ -107,9 +109,9 @@ func bmCmdToBoard(cmd bmCmd, step int) board.Command {
 
 func bmCountSearch(st board.State, q board.SearchQuery) int {
 	let gs = match st.Grants.Get(board.DefaultBoard) {
-	case Some[[]board.Grant] as xs:
+	case option.Some[[]board.Grant] as xs:
 		xs.Value
-	case None:
+	case option.None:
 		[]board.Grant{}
 	}
 	let mut n = 0
@@ -123,9 +125,9 @@ func bmCountSearch(st board.State, q board.SearchQuery) int {
 
 func bmMsg1Active(st board.State) bool {
 	match st.Messages.Get("msg_1") {
-	case Some[board.Message] as m:
+	case option.Some[board.Message] as m:
 		!m.Value.Deleted
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -173,14 +175,14 @@ func bmObsOf(st board.State, head int) bmObs {
 	}
 }
 
-func bmModel() explore.PathModel[bmState, bmCmd, bmObs, bmReply, Never] {
-	explore.PathModel[bmState, bmCmd, bmObs, bmReply, Never]{
-		Graph: explore.ConcreteGraph[bmState, bmCmd, explore.StepObs[bmObs, bmReply, Never]]{
+func bmModel() explore.PathModel[bmState, bmCmd, bmObs, bmReply, core.Never] {
+	explore.PathModel[bmState, bmCmd, bmObs, bmReply, core.Never]{
+		Graph: explore.ConcreteGraph[bmState, bmCmd, explore.StepObs[bmObs, bmReply, core.Never]]{
 			Starts:  []bmState{bmState{Ops: []bmCmd{}}},
 			Signals: []bmCmd{bmPostAlpha, bmPostBeta, bmStaleCommit, bmDeleteFirst},
-			Step:    func(s bmState, cmd bmCmd) explore.EdgeOutcome[bmState, explore.StepObs[bmObs, bmReply, Never]] {
+			Step:    func(s bmState, cmd bmCmd) explore.EdgeOutcome[bmState, explore.StepObs[bmObs, bmReply, core.Never]] {
 				let (curSt, curHead) = bmFold(s.Ops)
-				let step = len(s.Ops) + 1
+				let step = s.Ops.Len() + 1
 				let (nextSt, nextHead, reply) = bmApplyModel(curSt, curHead, cmd, step)
 				let nextOps = match reply {
 				case bmCommitted:
@@ -194,13 +196,13 @@ func bmModel() explore.PathModel[bmState, bmCmd, bmObs, bmReply, Never] {
 				case bmStale, bmRefused:
 					explore.DisReject
 				}
-				explore.Continue[bmState, explore.StepObs[bmObs, bmReply, Never]]{
+				explore.Continue[bmState, explore.StepObs[bmObs, bmReply, core.Never]]{
 					Next: bmState{Ops: nextOps},
-					Obs:  explore.StepObs[bmObs, bmReply, Never]{
+					Obs:  explore.StepObs[bmObs, bmReply, core.Never]{
 						Kind:     kind,
-						State:    Some[bmObs]{Value: bmObsOf(nextSt, nextHead)},
+						State:    option.Some[bmObs]{Value: bmObsOf(nextSt, nextHead)},
 						Outputs:  []bmReply{reply},
-						Error:    None,
+						Error:    option.None,
 						Terminal: false,
 					},
 				}
@@ -210,7 +212,7 @@ func bmModel() explore.PathModel[bmState, bmCmd, bmObs, bmReply, Never] {
 			let (st, head) = bmFold(s.Ops)
 			bmObsOf(st, head)
 		},
-		ProjectionName: Some[string]{Value: "board-memory-store"},
+		ProjectionName: option.Some[string]{Value: "board-memory-store"},
 	}
 }
 
@@ -219,7 +221,7 @@ type bmSess {
 	step   sync.Ref[int],
 	closes sync.Ref[int],
 	closed sync.Ref[bool],
-} implements explore.PathSession[bmCmd, explore.Observed[bmObs, bmReply, Never], BoardMemDriveErr]
+} implements explore.PathSession[bmCmd, explore.Observed[bmObs, bmReply, core.Never], BoardMemDriveErr]
 
 func bmObserveLive(st Store) bmObs fails BoardMemDriveErr {
 	let evts = ReadEvents(st, board.DefaultBoard, 0) catch {
@@ -240,17 +242,17 @@ func bmObserveLive(st Store) bmObs fails BoardMemDriveErr {
 		return BoardMemDriveErr{Why: e.Reason}
 	}
 	for hit in alpha {
-		if len(strings.Bytes(hit.Snippet)) != 120 {
+		if strings.Bytes(hit.Snippet).Len() != 120 {
 			return BoardMemDriveErr{Why: "expected 120-byte truncated snippet"}
 		}
 	}
-	if len(alpha) > 1 {
+	if alpha.Len() > 1 {
 		let one = Search(st, board.SearchQuery{..bmAlphaQuery(), Limit: 1}) catch {
 		case board.StoreFailed as e:
 			return BoardMemDriveErr{Why: e.Reason}
 		}
-		if len(one) != 1 {
-			return BoardMemDriveErr{Why: "search Limit=1 returned \(len(one)) hits"}
+		if one.Len() != 1 {
+			return BoardMemDriveErr{Why: "search Limit=1 returned \(one.Len()) hits"}
 		}
 	}
 	let beta = Search(st, bmBetaQuery()) catch {
@@ -258,24 +260,24 @@ func bmObserveLive(st Store) bmObs fails BoardMemDriveErr {
 		return BoardMemDriveErr{Why: e.Reason}
 	}
 	let liveMsg1 = match snap.Messages.Get("msg_1") {
-	case Some[board.Message] as m:
+	case option.Some[board.Message] as m:
 		!m.Value.Deleted
-	case None:
+	case option.None:
 		false
 	}
 	bmObs{
-		Head:       len(evts),
-		AlphaHits:  len(alpha),
-		BetaHits:   len(beta),
+		Head:       evts.Len(),
+		AlphaHits:  alpha.Len(),
+		BetaHits:   beta.Len(),
 		ActiveMsg1: liveMsg1,
 	}
 }
 
-func Read(s bmSess) explore.Observed[bmObs, bmReply, Never] fails BoardMemDriveErr {
+func Read(s bmSess) explore.Observed[bmObs, bmReply, core.Never] fails BoardMemDriveErr {
 	explore.InitialRead[bmObs]{State: try bmObserveLive(s.store)}
 }
 
-func Apply(s bmSess, cmd bmCmd) explore.Observed[bmObs, bmReply, Never] fails BoardMemDriveErr {
+func Apply(s bmSess, cmd bmCmd) explore.Observed[bmObs, bmReply, core.Never] fails BoardMemDriveErr {
 	let n = s.step.Get() + 1
 	s.step.Set(n)
 	let now = board.Timestamp(1000 + n*10)
@@ -285,7 +287,7 @@ func Apply(s bmSess, cmd bmCmd) explore.Observed[bmObs, bmReply, Never] fails Bo
 		case board.StoreFailed as e:
 			return BoardMemDriveErr{Why: e.Reason}
 		}
-		let head = len(evts)
+		let head = evts.Len()
 		let snap = Snapshot(s.store) catch {
 		case board.StoreFailed as e:
 			return BoardMemDriveErr{Why: e.Reason}
@@ -308,11 +310,11 @@ func Apply(s bmSess, cmd bmCmd) explore.Observed[bmObs, bmReply, Never] fails Bo
 			return BoardMemDriveErr{Why: "stale commit unexpectedly succeeded"}
 		}
 		let obs = try bmObserveLive(s.store)
-		explore.StepResult[bmObs, bmReply, Never]{Step: explore.StepObs[bmObs, bmReply, Never]{
+		explore.StepResult[bmObs, bmReply, core.Never]{Step: explore.StepObs[bmObs, bmReply, core.Never]{
 			Kind:     explore.DisReject,
-			State:    Some[bmObs]{Value: obs},
+			State:    option.Some[bmObs]{Value: obs},
 			Outputs:  []bmReply{reply},
-			Error:    None,
+			Error:    option.None,
 			Terminal: false,
 		}}
 	case bmPostAlpha, bmPostBeta, bmDeleteFirst:
@@ -327,35 +329,35 @@ func Apply(s bmSess, cmd bmCmd) explore.Observed[bmObs, bmReply, Never] fails Bo
 		let decided = board.Decide(snap, bmCmdToBoard(cmd, n), now) catch {
 		case board.NotFound:
 			let obs = try bmObserveLive(s.store)
-			return explore.StepResult[bmObs, bmReply, Never]{Step: explore.StepObs[bmObs, bmReply, Never]{
+			return explore.StepResult[bmObs, bmReply, core.Never]{Step: explore.StepObs[bmObs, bmReply, core.Never]{
 				Kind:     explore.DisReject,
-				State:    Some[bmObs]{Value: obs},
+				State:    option.Some[bmObs]{Value: obs},
 				Outputs:  []bmReply{bmRefused{Kind: "not_found"}},
-				Error:    None,
+				Error:    option.None,
 				Terminal: false,
 			}}
 		case _:
 			let obs = try bmObserveLive(s.store)
-			return explore.StepResult[bmObs, bmReply, Never]{Step: explore.StepObs[bmObs, bmReply, Never]{
+			return explore.StepResult[bmObs, bmReply, core.Never]{Step: explore.StepObs[bmObs, bmReply, core.Never]{
 				Kind:     explore.DisReject,
-				State:    Some[bmObs]{Value: obs},
+				State:    option.Some[bmObs]{Value: obs},
 				Outputs:  []bmReply{bmRefused{Kind: "refused"}},
-				Error:    None,
+				Error:    option.None,
 				Terminal: false,
 			}}
 		}
-		let newHead = Commit(s.store, board.DefaultBoard, len(curEvts), decided) catch {
+		let newHead = Commit(s.store, board.DefaultBoard, curEvts.Len(), decided) catch {
 		case board.StalePosition as sp:
 			return BoardMemDriveErr{Why: "unexpected stale: \(sp.Expected) vs \(sp.Actual)"}
 		case board.StoreFailed as e:
 			return BoardMemDriveErr{Why: e.Reason}
 		}
 		let obs = try bmObserveLive(s.store)
-		explore.StepResult[bmObs, bmReply, Never]{Step: explore.StepObs[bmObs, bmReply, Never]{
+		explore.StepResult[bmObs, bmReply, core.Never]{Step: explore.StepObs[bmObs, bmReply, core.Never]{
 			Kind:     explore.DisEmit,
-			State:    Some[bmObs]{Value: obs},
+			State:    option.Some[bmObs]{Value: obs},
 			Outputs:  []bmReply{bmCommitted{Head: newHead}},
-			Error:    None,
+			Error:    option.None,
 			Terminal: false,
 		}}
 	}
@@ -371,7 +373,7 @@ func Close(s bmSess) {
 
 // BoardMemoryPaths is the model-based path-testing contract for memory.Store.
 type BoardMemoryPaths {
-	Open(start bmState) explore.PathSession[bmCmd, explore.Observed[bmObs, bmReply, Never], BoardMemDriveErr] fails BoardMemOpenErr,
+	Open(start bmState) explore.PathSession[bmCmd, explore.Observed[bmObs, bmReply, core.Never], BoardMemDriveErr] fails BoardMemOpenErr,
 	Counts() (int, int),
 
 	// PathsAgree checks every bounded board memory store path up to depth 3
@@ -389,7 +391,7 @@ type BoardMemoryPaths {
 				MaxWork:   65536,
 				MaxBytes:  262144,
 			},
-			func(start bmState) explore.PathSession[bmCmd, explore.Observed[bmObs, bmReply, Never], BoardMemDriveErr] fails BoardMemOpenErr {
+			func(start bmState) explore.PathSession[bmCmd, explore.Observed[bmObs, bmReply, core.Never], BoardMemDriveErr] fails BoardMemOpenErr {
 				try Open(start)
 			},
 			testing.ActiveEvidenceSink(),
@@ -417,7 +419,7 @@ func makeBoardMemPathProvider() bmPathProvider {
 	bmPathProvider{opens: sync.NewRef(0), closes: sync.NewRef(0)}
 }
 
-func Open(p bmPathProvider, _ bmState) explore.PathSession[bmCmd, explore.Observed[bmObs, bmReply, Never], BoardMemDriveErr] fails BoardMemOpenErr {
+func Open(p bmPathProvider, _ bmState) explore.PathSession[bmCmd, explore.Observed[bmObs, bmReply, core.Never], BoardMemDriveErr] fails BoardMemOpenErr {
 	p.opens.Set(p.opens.Get() + 1)
 	bmSess{
 		store:  NewStore(),

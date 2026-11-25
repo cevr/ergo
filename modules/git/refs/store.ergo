@@ -1,5 +1,6 @@
 import filepath
 import fs
+import option
 import slices
 import strings
 import github.com/cevr/ergo/modules/git/oid
@@ -44,7 +45,7 @@ func ParseLooseRef(format oid.Format, name string, raw string) Ref fails Corrupt
 		return Ref{
 			Name:   name,
 			Target: Symbolic{Target: target},
-			Peeled: None,
+			Peeled: option.None,
 		}
 	}
 	let id = oid.ParseHex(format, trimmed) catch {
@@ -54,32 +55,32 @@ func ParseLooseRef(format oid.Format, name string, raw string) Ref fails Corrupt
 	Ref{
 		Name:   name,
 		Target: Direct{OID: id},
-		Peeled: None,
+		Peeled: option.None,
 	}
 }
 
-func readLooseRef(store Store, name string) Option[Ref] fails CorruptRef | PathEscape | IOFailed needs fs.Files {
+func readLooseRef(store Store, name string) option.Option[Ref] fails CorruptRef | PathEscape | IOFailed needs fs.Files {
 	let p = filepath.Join([]string{refBaseDir(store, name), name})
 	let info = fs.Files.Stat(p) catch {
 	case fs.NotFound:
-		return None
+		return option.None
 	case fs.Denied as e:
 		return IOFailed{Op: "stat-ref", Detail: e.Path}
 	case fs.Failed as e:
 		return IOFailed{Op: "stat-ref", Detail: e.Reason}
 	}
 	if info.Dir {
-		return None
+		return option.None
 	}
 	let raw = fs.Files.ReadFile(p) catch {
 	case fs.NotFound:
-		return None
+		return option.None
 	case fs.Denied as e:
 		return IOFailed{Op: "read-ref", Detail: e.Path}
 	case fs.Failed as e:
 		return IOFailed{Op: "read-ref", Detail: e.Reason}
 	}
-	Some[Ref]{Value: try ParseLooseRef(store.Format, name, raw)}
+	option.Some[Ref]{Value: try ParseLooseRef(store.Format, name, raw)}
 }
 
 func loadAllPackedRefs(store Store) []Ref fails CorruptRef | IOFailed needs fs.Files {
@@ -95,17 +96,17 @@ func loadAllPackedRefs(store Store) []Ref fails CorruptRef | IOFailed needs fs.F
 	try ParsePackedRefs(store.Format, raw)
 }
 
-func readPackedRef(store Store, name string) Option[Ref] fails CorruptRef | IOFailed needs fs.Files {
+func readPackedRef(store Store, name string) option.Option[Ref] fails CorruptRef | IOFailed needs fs.Files {
 	if !strings.HasPrefix(name, "refs/") {
-		return None
+		return option.None
 	}
 	let all = try loadAllPackedRefs(store)
 	for r in all {
 		if r.Name == name {
-			return Some[Ref]{Value: r}
+			return option.Some[Ref]{Value: r}
 		}
 	}
-	None
+	option.None
 }
 
 // ReadRef reads the named reference from store without following symrefs.
@@ -113,14 +114,14 @@ func readPackedRef(store Store, name string) Option[Ref] fails CorruptRef | IOFa
 func ReadRef(store Store, name string) Ref fails NotFound | InvalidRefName | CorruptRef | PathEscape | IOFailed needs fs.Files {
 	try ValidateReadName(name)
 	match try readLooseRef(store, name) {
-	case Some[Ref] as r:
+	case option.Some[Ref] as r:
 		return r.Value
-	case None:
+	case option.None:
 	}
 	match try readPackedRef(store, name) {
-	case Some[Ref] as r:
+	case option.Some[Ref] as r:
 		return r.Value
-	case None:
+	case option.None:
 		return NotFound{Name: name}
 	}
 }

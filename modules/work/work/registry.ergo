@@ -1,3 +1,4 @@
+import option
 import slices
 
 // Unkept is a registry that could not read or keep a record.
@@ -47,7 +48,7 @@ type Registry {
 		case Unkept:
 			return false
 		}
-		len(named(all, w.Name)) == 0 && named(all, other.Name) == []Workspace{other} && slices.Contains(tombs, Tomb{Id: w.Id, Since: at})
+		named(all, w.Name).Len() == 0 && named(all, other.Name) == []Workspace{other} && slices.Contains(tombs, Tomb{Id: w.Id, Since: at})
 	},
 
 	// CompactKeepsTheRecords: compaction keeps every record in its order
@@ -58,7 +59,7 @@ type Registry {
 			case Unkept:
 				return true
 			}
-			if i < len(ats) {
+			if i < ats.Len() {
 				Bury(w.Name, ats[i]) catch {
 				case Unkept:
 					return true
@@ -121,7 +122,7 @@ type Registry {
 		case Unkept:
 			return false
 		}
-		len(after) == len(before) && named(after, a.Name) == []Workspace{second} && slices.Index(names(after), a.Name) == slices.Index(names(before), a.Name)
+		after.Len() == before.Len() && named(after, a.Name) == []Workspace{second} && slices.Index(names(after), a.Name) == slices.Index(names(before), a.Name)
 	},
 
 	// DropForgets: a dropped name has no record, and every other record
@@ -146,19 +147,19 @@ type Registry {
 		case Unkept:
 			return false
 		}
-		len(named(all, w.Name)) == 0 && named(all, other.Name) == []Workspace{other}
+		named(all, w.Name).Len() == 0 && named(all, other.Name) == []Workspace{other}
 	},
 }
 
 // Find is the record of name in the registry, or None.
-func Find(name string) Option[Workspace] fails Unkept needs Registry {
+func Find(name string) option.Option[Workspace] fails Unkept needs Registry {
 	let all = try Registry.All()
 	for w in all {
 		if w.Name == name {
-			return Some[Workspace]{Value: w}
+			return option.Some[Workspace]{Value: w}
 		}
 	}
-	None
+	option.None
 }
 
 // named is the records of ws with the name.

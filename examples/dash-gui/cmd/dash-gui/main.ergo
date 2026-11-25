@@ -70,10 +70,10 @@ let sceneSet = flag.Set{Name: "dash-gui scene", Usage: "", Flags: []flag.Flag{se
 
 // run is dash-gui on args.
 func run(args []string) fails os.Exit | queue.Closed | tasks.Closed needs io.Stdout | io.Stdin | go.Foreign {
-	if len(args) == 0 {
+	if args.Len() == 0 {
 		return os.Exit{Code: 2, Message: Usage}
 	}
-	let rest = slices.Slice(args, 1, len(args))
+	let rest = slices.Slice(args, 1, args.Len())
 	match args[0] {
 	case "gen":
 		let v = flag.Parse(genSet, rest) catch {
@@ -85,7 +85,7 @@ func run(args []string) fails os.Exit | queue.Closed | tasks.Closed needs io.Std
 		if n < 0 {
 			return os.Exit{Code: 2, Message: "dash-gui: -n must not be negative\n" + Usage}
 		}
-		with context { Random: rand.Seeded(uint64(seedFlag.Get(v))) } {
+		with context { rand.Random: rand.Seeded(uint64(seedFlag.Get(v))) } {
 			io.Stdout.Print(script.Generate(n))
 		}
 	case "play":
@@ -108,7 +108,7 @@ func run(args []string) fails os.Exit | queue.Closed | tasks.Closed needs io.Std
 			return os.Exit{Code: 2, Message: "dash-gui: -frames must not be negative\n" + Usage}
 		}
 		let clock = time.NewManual(0)
-		with context { feed.Sensors: synth.Bank{Seed: seedFlag.Get(v)}, Scheduler: clock } {
+		with context { feed.Sensors: synth.Bank{Seed: seedFlag.Get(v)}, time.Scheduler: clock } {
 			script.Scene(io.Stdin.Lines(), frames, clock) catch {
 			case ui.BadPatch as b:
 				return os.Exit{Code: 1, Message: "dash-gui: the view's patch did not apply: " + b.Why}
@@ -121,7 +121,7 @@ func run(args []string) fails os.Exit | queue.Closed | tasks.Closed needs io.Std
 	}
 }
 
-func main() fails os.Exit | queue.Closed | tasks.Closed needs Ambient | go.Foreign {
+func main() fails os.Exit | queue.Closed | tasks.Closed needs os.Ambient | go.Foreign {
 	with context { io.Stdout: io.NewHost(), io.Stdin: io.NewStdin() } {
 		try run(os.NewHost().Args())
 	}

@@ -1,5 +1,6 @@
 import json
 import lint
+import option
 
 // providerOptions are provider-boundary's options: the provider type and
 // the functions that may bind it, each as PKG.Name.
@@ -17,8 +18,8 @@ let ProviderBoundary = lint.Rule{
 	DefaultSeverity: lint.Error,
 	Requires:        []lint.Family{lint.DeclarationsFamily, lint.CallablesFamily, lint.WithsFamily},
 	Options:         []lint.OptionSpec{
-		lint.OptionSpec{Name: "provider", Type: lint.StringOption, Description: "The provider type, as PKG.Name.", Required: true, Enum: []string{}, Default: None},
-		lint.OptionSpec{Name: "allow", Type: lint.StringListOption, Description: "The functions, as PKG.Name, that may bind it.", Required: true, Enum: []string{}, Default: None},
+		lint.OptionSpec{Name: "provider", Type: lint.StringOption, Description: "The provider type, as PKG.Name.", Required: true, Enum: []string{}, Default: option.None},
+		lint.OptionSpec{Name: "allow", Type: lint.StringListOption, Description: "The functions, as PKG.Name, that may bind it.", Required: true, Enum: []string{}, Default: option.None},
 	},
 	Check: providerBoundary,
 }
@@ -26,9 +27,9 @@ let ProviderBoundary = lint.Rule{
 func providerBoundary(s lint.Snapshot, options json.Value) []lint.Finding fails lint.RuleFailed {
 	let o = try lint.OptionsOf[providerOptions](options)
 	let provider = match lint.TypeNamed(s, o.Provider) {
-	case None:
+	case option.None:
 		return configured("provider", o.Provider)
-	case Some[lint.TypeDecl] as t:
+	case option.Some[lint.TypeDecl] as t:
 		t.Value.Identity
 	}
 	let allowed = functions(s, o.Allow) catch {
@@ -60,9 +61,9 @@ func providerBoundary(s lint.Snapshot, options json.Value) []lint.Finding fails 
 // place, when it stands outside the with: in a named context.
 func entryPlace(entry lint.ContextEntry, outer lint.Span) []lint.Related {
 	match entry.Span {
-	case None:
+	case option.None:
 		[]lint.Related{}
-	case Some[lint.Span] as s:
+	case option.Some[lint.Span] as s:
 		if within(s.Value, outer) {
 			[]lint.Related{}
 		} else {

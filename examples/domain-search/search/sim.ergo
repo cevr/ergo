@@ -19,6 +19,8 @@
 //
 // and UrlFollowsState: the address bar parses to the state's route.
 
+import machines
+import option
 import strings
 import time
 import domain-search/domains
@@ -34,7 +36,7 @@ import domain-search/search/route
 type Sim {
 	S       Search,
 	Clock   time.Manual,
-	Due     Option[int],
+	Due     option.Option[int],
 	Flying  []Key,
 	Orphans []Key,
 	Fetches []Key,
@@ -58,12 +60,12 @@ func open(url string, catalog []string, rows int) Sim {
 	Sim{S: s, Clock: c, Due: arm(s, 0), Flying: []Key{}, Orphans: []Key{}, Fetches: []Key{}, URL: url, Tops: 0, Version: 0, TypedAt: -1000000, Best: Map[string, int]{}, Broken: []string{}}
 }
 
-func arm(s Search, now int) Option[int] {
+func arm(s Search, now int) option.Option[int] {
 	match Timer(s) {
-	case Some[Timeout[Signal]] as t:
-		Some[int]{Value: now + time.Count(t.Value.In, 1ms)}
-	case None:
-		None
+	case option.Some[machines.Timeout[Signal]] as t:
+		option.Some[int]{Value: now + time.Count(t.Value.In, 1ms)}
+	case option.None:
+		option.None
 	}
 }
 
@@ -77,9 +79,9 @@ func Feed(m Sim, sig Signal) Sim {
 	let d = with context { time.Clock: m.Clock } { Step(m.S, sig) }
 	// A key that the machine takes (it changes the query) starts a debounce.
 	let took = match d {
-	case Ignore, Reject:
+	case machines.Ignore, machines.Reject:
 		false
-	case Enter[Search], Emit[Search, []Effect], Tell[Search, []Effect], Stay[Search], Done[[]Effect]:
+	case machines.Enter[Search], machines.Emit[Search, []Effect], machines.Tell[Search, []Effect], machines.Stay[Search], machines.Done[[]Effect]:
 		true
 	}
 	match sig {
@@ -93,13 +95,13 @@ func Feed(m Sim, sig Signal) Sim {
 	case Quiet, Loaded, Failed, Scrolled, Resized, Ordered, FilteredTLD, FilteredAvailable, Retry, Added, Removed:
 	}
 	match d {
-	case Enter[Search] as e:
+	case machines.Enter[Search] as e:
 		check(Sim{..at, S: e.Next, Due: arm(e.Next, now)}, m.S, now)
-	case Emit[Search, []Effect] as em:
+	case machines.Emit[Search, []Effect] as em:
 		check(tell(Sim{..at, S: em.Next, Due: arm(em.Next, now)}, em.Output, now), m.S, now)
-	case Stay[Search] as st:
+	case machines.Stay[Search] as st:
 		check(Sim{..at, S: st.Next}, m.S, now)
-	case Ignore, Tell[Search, []Effect], Reject, Done[[]Effect]:
+	case machines.Ignore, machines.Tell[Search, []Effect], machines.Reject, machines.Done[[]Effect]:
 		check(at, m.S, now)
 	}
 }
@@ -162,10 +164,10 @@ func check(m Sim, before Search, now int) Sim {
 	let label = LabelOf(s.Phase)
 	let mut at = m
 	let mut best = m.Best
-	for k in 0..plan.Count(len(s.Catalog)) {
+	for k in 0..plan.Count(s.Catalog.Len()) {
 		match s.Pages.Get(k) {
-		case None:
-		case Some[[]domains.Listing] as page:
+		case option.None:
+		case option.Some[[]domains.Listing] as page:
 			if label == "" {
 				at = broke(at, "ShownBelongs")
 			}
@@ -177,26 +179,26 @@ func check(m Sim, before Search, now int) Sim {
 			let v = versionOf(page.Value)
 			let key = "\(label)/\(k)"
 			match best.Get(key) {
-			case Some[int] as b:
+			case option.Some[int] as b:
 				if v >= 0 && v < b.Value {
 					at = broke(at, "ShownMonotone")
 				}
-			case None:
+			case option.None:
 			}
 			if v >= 0 {
 				match best.Get(key) {
-				case Some[int] as b:
+				case option.Some[int] as b:
 					if v > b.Value {
 						best[key] = v
 					}
-				case None:
+				case option.None:
 					best[key] = v
 				}
 			}
 			let changed = match before.Pages.Get(k) {
-			case None:
+			case option.None:
 				true
-			case Some[[]domains.Listing] as was:
+			case option.Some[[]domains.Listing] as was:
 				sign(was.Value) != sign(page.Value)
 			}
 			if changed && now-servedOf(page.Value) >= Freshness() {
@@ -205,12 +207,12 @@ func check(m Sim, before Search, now int) Sim {
 		}
 	}
 	at = Sim{..at, Best: best}
-	if len(at.Flying) > 1 {
+	if at.Flying.Len() > 1 {
 		at = broke(at, "OnePending")
 	}
 	match s.Phase {
 	case Showing:
-		if len(at.Flying) == 0 && !settled(s) {
+		if at.Flying.Len() == 0 && !settled(s) {
 			at = broke(at, "SettledShows")
 		}
 	case Landing, Invalid, Debouncing:
@@ -225,21 +227,21 @@ func check(m Sim, before Search, now int) Sim {
 // shows every range its window shows, or shows a failure to retry.
 func settled(s Search) bool {
 	match s.InFlight {
-	case Some:
+	case option.Some:
 		return false
-	case None:
+	case option.None:
 	}
 	match s.Failed {
-	case Some:
+	case option.Some:
 		// A failure waits for the user's retry, which its row offers.
 		return true
-	case None:
+	case option.None:
 	}
 	let st = Input(s)
 	match plan.Next(st).Next {
-	case Some:
+	case option.Some:
 		return false
-	case None:
+	case option.None:
 	}
 	match s.Whole {
 	case plan.Loaded, plan.Failed:
@@ -290,7 +292,7 @@ func servedOf(ls []domains.Listing) int {
 }
 
 func sign(ls []domains.Listing) string {
-	"\(len(ls)) \(versionOf(ls)) \(servedOf(ls)) \(if len(ls) > 0 { nameOf(ls[0]) } else { "" })"
+	"\(ls.Len()) \(versionOf(ls)) \(servedOf(ls)) \(if ls.Len() > 0 { nameOf(ls[0]) } else { "" })"
 }
 
 // Serve is the test server's answer to k at version v and time now: a
@@ -299,12 +301,12 @@ func sign(ls []domains.Listing) string {
 func Serve(catalog []string, k Key, v int, now int) []domains.Listing {
 	let mut out = []domains.Listing{}
 	for p in k.Offset..k.Offset+k.Limit {
-		if p >= len(catalog) {
+		if p >= catalog.Len() {
 			continue
 		}
 		let tld = catalog[p]
 		let name = "\(k.Label).\(tld)"
-		if (p*7+len(k.Label))%5 == 0 {
+		if (p*7+k.Label.Len())%5 == 0 {
 			out = out.Append(domains.Unavailable{Name: name, TLD: tld})
 		} else {
 			out = out.Append(domains.Available{Name: name, TLD: tld, Price: float64((p*37+v*11)%89 + 1), RenewalPrice: float64(now), Years: v + 1, IsPremium: false})
@@ -319,12 +321,12 @@ func Wait(m Sim, d int) Sim {
 	let mut at = m
 	for _ in 0..4 {
 		match at.Due {
-		case Some[int] as due:
+		case option.Some[int] as due:
 			if due.Value <= end {
 				at.Clock.Advance(time.Times(1ms, due.Value-Ms(at)))
-				at = Feed(Sim{..at, Due: None}, Quiet)
+				at = Feed(Sim{..at, Due: option.None}, Quiet)
 			}
-		case None:
+		case option.None:
 		}
 	}
 	if end > Ms(at) {
@@ -340,10 +342,10 @@ func Answer(m Sim, i int, ok bool) Sim {
 	for k in m.Orphans {
 		pool = pool.Append(k)
 	}
-	if len(pool) == 0 {
+	if pool.Len() == 0 {
 		return m
 	}
-	let k = pool[((i%len(pool))+len(pool))%len(pool)]
+	let k = pool[((i%pool.Len())+pool.Len())%pool.Len()]
 	let at = Sim{..m, Flying: drop(m.Flying, k), Orphans: drop(m.Orphans, k)}
 	if ok {
 		return Feed(at, Loaded{Key: k, Listings: Serve(m.S.Catalog, k, m.Version, Ms(m))})
@@ -356,7 +358,7 @@ func Answer(m Sim, i int, ok bool) Sim {
 func Settle(m Sim) Sim {
 	let mut at = Wait(m, DebounceMs)
 	for _ in 0..40 {
-		if len(at.Flying) > 0 {
+		if at.Flying.Len() > 0 {
 			at = Answer(at, 0, true)
 		}
 	}
@@ -366,7 +368,7 @@ func Settle(m Sim) Sim {
 // Type types text one key after another, gap milliseconds apart.
 func Type(m Sim, text string, gap int) Sim {
 	let mut at = m
-	for i in 1..len(text)+1 {
+	for i in 1..text.Len()+1 {
 		at = Wait(Feed(at, Typed{Text: text[0:i]}), gap)
 	}
 	at
@@ -390,15 +392,15 @@ func Show(m Sim) string {
 		ranges = ranges + loadText(l)
 	}
 	let inFlight = match m.S.InFlight {
-	case Some[Key] as k:
+	case option.Some[Key] as k:
 		keyText(k.Value)
-	case None:
+	case option.None:
 		"-"
 	}
 	let failedKey = match m.S.Failed {
-	case Some[Key] as k:
+	case option.Some[Key] as k:
 		keyText(k.Value)
-	case None:
+	case option.None:
 		"-"
 	}
 	"at \(Ms(m)) ms: \(phase), url \(m.URL), ranges \(ranges) whole \(loadText(m.S.Whole)), checked \(m.S.Checked), in flight \(inFlight), failed \(failedKey); fetched \(keysText(m.Fetches)); flying \(keysText(m.Flying)); cut \(keysText(m.Orphans)); broken \(strings.Join(m.Broken, ","))"
@@ -438,7 +440,7 @@ test BurstMakesOneSearch {
 		for gap in []int{0, 1, 149} {
 			let text = "foldkitfoldk"[0:keys]
 			let m = Settle(Type(open("/", domains.Catalog, 15), text, gap))
-			assert len(m.Fetches) == 2 && m.Fetches[0].Label == text && m.Fetches[1].Label == text && Holds(m, []string{"NoWastedRequest"})
+			assert m.Fetches.Len() == 2 && m.Fetches[0].Label == text && m.Fetches[1].Label == text && Holds(m, []string{"NoWastedRequest"})
 		}
 	}
 }
@@ -449,7 +451,7 @@ test BurstMakesOneSearch {
 test SettledQueryMakesTwoRequests {
 	for gap in []int{150, 151, 60000} {
 		let m = Settle(Wait(Feed(open("/", domains.Catalog, 15), Typed{Text: "acme"}), gap))
-		assert len(m.Fetches) == 2 && m.Fetches[0].Offset == 0 && m.Fetches[0].Limit == 4 && m.Fetches[1].Offset == 4 && m.Fetches[1].Limit == 56 && m.S.Checked == 60
+		assert m.Fetches.Len() == 2 && m.Fetches[0].Offset == 0 && m.Fetches[0].Limit == 4 && m.Fetches[1].Offset == 4 && m.Fetches[1].Limit == 56 && m.S.Checked == 60
 	}
 }
 
@@ -462,6 +464,6 @@ test WarmQueryMakesNone {
 		let first = Settle(Type(open("/", domains.Catalog, 15), "acme", 200))
 		let other = Settle(Wait(Feed(first, Typed{Text: "beta"}), away))
 		let back = Settle(Feed(other, Typed{Text: "acme"}))
-		assert len(back.Fetches) == len(other.Fetches) && back.S.Checked == 60 && len(back.Broken) == 0
+		assert back.Fetches.Len() == other.Fetches.Len() && back.S.Checked == 60 && back.Broken.Len() == 0
 	}
 }

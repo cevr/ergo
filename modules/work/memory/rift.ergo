@@ -3,6 +3,7 @@
 // the rows a law draws.
 
 import fstest
+import option
 import time
 import github.com/cevr/ergo/modules/work/work
 
@@ -15,7 +16,7 @@ test RiftRegistryOnAMac {
 	let lock = NewLock()
 	let p = work.Providers{Cloners: []work.Cloner{trees}, Copier: Beside(trees, false), Registry: NewRegistry(), Lock: lock, Hooks: Recording(lock, ""), Vcs: VcsOver(trees), Files: MarkedOver(disk, trees), Writes: MarkedOver(disk, trees), Runner: NewRunner(), Clock: time.NewManual(1000)}
 	let tool = work.NewTool(theBase, work.Home(theBase, ""), "/u/.local/share/work", p, "/")
-	let none = work.RiftOptions{Registry: None}
+	let none = work.RiftOptions{Registry: option.None}
 	let mac = "/u/Library/Application Support/rift/rift.sqlite"
 	let linux = "/u/.local/share/rift/rift.sqlite"
 	assert work.RiftRegistry(tool, none) == linux

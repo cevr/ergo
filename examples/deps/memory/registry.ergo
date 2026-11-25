@@ -2,6 +2,7 @@
 // releases of a manifest, indexed by name once.
 
 import deps/resolve
+import option
 import semver
 import slices
 
@@ -17,9 +18,9 @@ func NewRegistry(releases []resolve.Release) Registry {
 	let mut byName = Map[string, []resolve.Release]{}
 	for r in releases {
 		let have = match byName.Get(r.Name) {
-		case Some[[]resolve.Release] as rs:
+		case option.Some[[]resolve.Release] as rs:
 			rs.Value
-		case None:
+		case option.None:
 			[]resolve.Release{}
 		}
 		if slices.IndexFunc(have, func(x resolve.Release) bool { x.V == r.V }) < 0 {
@@ -39,9 +40,9 @@ func NewRegistry(releases []resolve.Release) Registry {
 
 func releases(r Registry, name string) []resolve.Release fails resolve.UnknownPackage {
 	match r.byName.Get(name) {
-	case Some[[]resolve.Release] as rs:
+	case option.Some[[]resolve.Release] as rs:
 		rs.Value
-	case None:
+	case option.None:
 		resolve.UnknownPackage{Name: name}
 	}
 }

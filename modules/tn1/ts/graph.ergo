@@ -42,7 +42,7 @@ func PackageOf(path string) string {
 
 // baseName is a path's last element without its extension.
 func baseName(path string) string {
-	let name = strings.Slice(path, strings.LastIndex(path, "/")+1, len(path))
+	let name = strings.Slice(path, strings.LastIndex(path, "/")+1, path.Len())
 	let dot = strings.Index(name, ".")
 	if dot <= 0 {
 		return name
@@ -57,8 +57,8 @@ func clean(path string) string {
 		if e == "" || e == "." {
 			continue
 		}
-		if e == ".." && len(out) > 0 && out[len(out)-1] != ".." {
-			out = out[0 : len(out)-1]
+		if e == ".." && out.Len() > 0 && out[out.Len()-1] != ".." {
+			out = out[0 : out.Len()-1]
 			continue
 		}
 		out = out.Append(e)
@@ -119,7 +119,7 @@ type clause { From int, Spec int }
 func clauses(code []Token) []clause {
 	let mut out = []clause{}
 	let mut i = 0
-	for i < len(code) {
+	for i < code.Len() {
 		let t = code[i]
 		let opens = (t.Text == "import" || t.Text == "export") && t.Depth == 0 && isIdent(t) && (i == 0 || code[i-1].Text != ".")
 		if !opens {
@@ -131,8 +131,8 @@ func clauses(code []Token) []clause {
 		// An export that declares (`export const`, `export function`) has
 		// no specifier: only `export {`, `export *` and `export type {`
 		// re-export.
-		let next = if i+1 < len(code) { code[i+1].Text } else { "" }
-		let after = if i+2 < len(code) { code[i+2].Text } else { "" }
+		let next = if i+1 < code.Len() { code[i+1].Text } else { "" }
+		let after = if i+2 < code.Len() { code[i+2].Text } else { "" }
 		let reexports = next == "{" || next == "*" || next == "type" && after == "{"
 		if t.Text == "export" && !reexports {
 			i += 1
@@ -140,11 +140,11 @@ func clauses(code []Token) []clause {
 		}
 		let mut j = i + 1
 		let mut spec = -1
-		if t.Text == "import" && j < len(code) && isLiteral(code[j]) {
+		if t.Text == "import" && j < code.Len() && isLiteral(code[j]) {
 			spec = j
 		}
-		for spec < 0 && j < len(code) && code[j].Text != ";" && !(j > i+1 && code[j].NewLine && !isPunctOrWord(code[j-1])) {
-			if code[j].Text == "from" && j+1 < len(code) && isLiteral(code[j+1]) {
+		for spec < 0 && j < code.Len() && code[j].Text != ";" && !(j > i+1 && code[j].NewLine && !isPunctOrWord(code[j-1])) {
+			if code[j].Text == "from" && j+1 < code.Len() && isLiteral(code[j+1]) {
 				spec = j + 1
 			}
 			j += 1
@@ -224,10 +224,10 @@ func graphOf(paths Map[string, int], path string, src string) fileGraph {
 	}
 	g.Imports = slices.Dedupe(slices.Sort(g.Imports))
 	let mut local = Map[string, int]{}
-	for b in 0..len(g.Bindings) {
+	for b in 0..g.Bindings.Len() {
 		local[g.Bindings[b].Local] = b
 	}
-	for k in 0..len(code) {
+	for k in 0..code.Len() {
 		let t = code[k]
 		if inClause[k] || !isIdent(t) || k > 0 && code[k-1].Text == "." {
 			continue
@@ -239,7 +239,7 @@ func graphOf(paths Map[string, int], path string, src string) fileGraph {
 		let bound = g.Bindings[b]
 		if bound.Name != "*" {
 			g.Uses = g.Uses.Append(use{File: bound.From, Name: bound.Name})
-		} else if k+2 < len(code) && code[k+1].Text == "." && isIdent(code[k+2]) {
+		} else if k+2 < code.Len() && code[k+1].Text == "." && isIdent(code[k+2]) {
 			g.Uses = g.Uses.Append(use{File: bound.From, Name: code[k+2].Text})
 		}
 	}
@@ -309,14 +309,14 @@ func depthOf(p int, edges [][]int, memo mut []int, state mut []int) int {
 // and no history has them.
 func Project(files []tn1.Named) []tn1.Features {
 	let mut index = Map[string, int]{}
-	for i in 0..len(files) {
+	for i in 0..files.Len() {
 		index[clean(files[i].Name)] = i
 	}
 	let mut graphs = []fileGraph{}
 	for f in files {
 		graphs = graphs.Append(graphOf(index, clean(f.Name), f.Text))
 	}
-	let n = len(files)
+	let n = files.Len()
 	// Packages, in name order.
 	let mut names = []string{}
 	for g in graphs {
@@ -324,7 +324,7 @@ func Project(files []tn1.Named) []tn1.Features {
 	}
 	let pkgs = slices.Dedupe(slices.Sort(names))
 	let mut pkgIndex = Map[string, int]{}
-	for p in 0..len(pkgs) {
+	for p in 0..pkgs.Len() {
 		pkgIndex[pkgs[p]] = p
 	}
 	let mut pkgOf = []int{}
@@ -359,7 +359,7 @@ func Project(files []tn1.Named) []tn1.Features {
 			into[u.File] = into[u.File].Append(use{File: pkgOf[i], Name: u.Name})
 		}
 	}
-	for p in 0..len(pkgs) {
+	for p in 0..pkgs.Len() {
 		pkgOut[p] = slices.Dedupe(slices.Sort(pkgOut[p]))
 		pkgIn[p] = slices.Dedupe(slices.Sort(pkgIn[p]))
 	}
@@ -385,7 +385,7 @@ func Project(files []tn1.Named) []tn1.Features {
 				perPkg[pkgOf[u.File]] += 1
 			}
 		}
-		let out = len(g.Uses) - inPkg
+		let out = g.Uses.Len() - inPkg
 		let mut best = 0
 		for c in perPkg {
 			if c > best {
@@ -403,15 +403,15 @@ func Project(files []tn1.Named) []tn1.Features {
 			Decls:                 g.DeclCount,
 			UsesInPackage:         inPkg,
 			UsesOut:               out,
-			BestOtherPackageShare: thousandths(best, len(g.Uses)),
+			BestOtherPackageShare: thousandths(best, g.Uses.Len()),
 			FanIn:                 fileFanIn[i],
-			FanOut:                len(g.Imports) - selfImport,
+			FanOut:                g.Imports.Len() - selfImport,
 			ChurnTogether:         0,
 		})
 	}
 	// Each package's P item.
 	let mut pkgWords = []uint64{}
-	for p in 0..len(pkgs) {
+	for p in 0..pkgs.Len() {
 		let mut ws = tn1.Words([]string{}, pkgs[p])
 		for i in 0..n {
 			if pkgOf[i] == p {
@@ -421,8 +421,8 @@ func Project(files []tn1.Named) []tn1.Features {
 		pkgWords = pkgWords.Append(tn1.Sketch(ws))
 	}
 	let mut pkgItems = []tn1.PackageItem{}
-	for p in 0..len(pkgs) {
-		let mut item = tn1.PackageItem{NameWords: pkgWords[p], Files: 0, Decls: 0, Exported: 0, FanIn: len(pkgIn[p]), FanOut: len(pkgOut[p]), InternalUses: 0, ExternalUses: 0, UpEdges: 0, Depth: depthOf(p, pkgOut, &memo, &state), NeighbourWords: 0, ChurnTogether: 0}
+	for p in 0..pkgs.Len() {
+		let mut item = tn1.PackageItem{NameWords: pkgWords[p], Files: 0, Decls: 0, Exported: 0, FanIn: pkgIn[p].Len(), FanOut: pkgOut[p].Len(), InternalUses: 0, ExternalUses: 0, UpEdges: 0, Depth: depthOf(p, pkgOut, &memo, &state), NeighbourWords: 0, ChurnTogether: 0}
 		for q in pkgOut[p] {
 			item.NeighbourWords = item.NeighbourWords | pkgWords[q]
 		}
@@ -448,8 +448,8 @@ func Project(files []tn1.Named) []tn1.Features {
 		f.Packages = []tn1.PackageItem{pkgItems[pkgOf[i]]}
 		f.Files = []tn1.FileItem{fileItems[i]}
 		let decls = graphs[i].Decls
-		for k in 0..len(decls) {
-			if decls[k] == "" || k+1 >= len(f.Nodes) {
+		for k in 0..decls.Len() {
+			if decls[k] == "" || k+1 >= f.Nodes.Len() {
 				continue
 			}
 			let mut perPkg = []int{}

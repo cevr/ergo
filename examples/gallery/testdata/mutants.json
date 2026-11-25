@@ -85,8 +85,8 @@
       "name": "fk9-stale-answer-stays",
       "origin": "wf10/fk9a",
       "file": "examples/gallery/gallery/site.ergo",
-      "from": "\t\t\tif l.ID != p.ID {\n\t\t\t\treturn Ignore\n",
-      "to": "\t\t\tif l.ID != p.ID {\n\t\t\t\treturn Stay[Site]{Next: s}\n",
+      "from": "\t\t\tif l.ID != p.ID {\n\t\t\t\treturn machines.Ignore\n",
+      "to": "\t\t\tif l.ID != p.ID {\n\t\t\t\treturn machines.Stay[Site]{Next: s}\n",
       "rule": "A stale answer is ignored, not taken as a stay on the same site; only test AStaleAnswerForAnotherIdIsIgnored tells them apart.",
       "anchor": {
         "tests": [
@@ -101,7 +101,7 @@
       "name": "fk9-log-unbounded",
       "origin": "wf10/fk9a",
       "file": "examples/gallery/gallery/site.ergo",
-      "from": "\t\tif len(log) < LogSize {\n",
+      "from": "\t\tif log.Len() < LogSize {\n",
       "to": "\t\tif true {\n",
       "rule": "The log keeps the last 20 navigations (law LogKeepsTheLastTwenty).",
       "anchor": {
@@ -117,8 +117,8 @@
       "name": "fk9-studio-parses-home",
       "origin": "wf10/fk9a",
       "file": "examples/gallery/gallery/route.ergo",
-      "from": "\tif len(parts) == 1 && parts[0] == \"studio\" {\n\t\treturn Studio\n",
-      "to": "\tif len(parts) == 1 && parts[0] == \"studio\" {\n\t\treturn Home\n",
+      "from": "\tif parts.Len() == 1 && parts[0] == \"studio\" {\n\t\treturn Studio\n",
+      "to": "\tif parts.Len() == 1 && parts[0] == \"studio\" {\n\t\treturn Home\n",
       "rule": "Every route of the site prints to a path that parses back to it (law RoutesRoundTrip).",
       "anchor": {
         "tests": [
@@ -213,8 +213,8 @@
       "name": "fk9c-saved-not-kept",
       "origin": "wf10/fk9c",
       "file": "examples/gallery/gallery/site.ergo",
-      "from": "\tcase Recalled as r:\n\t\tStay[Site]{Next: Site{..s, Saved: r.Draft}}\n",
-      "to": "\tcase Recalled:\n\t\tStay[Site]{Next: s}\n",
+      "from": "\tcase Recalled as r:\n\t\tmachines.Stay[Site]{Next: Site{..s, Saved: r.Draft}}\n",
+      "to": "\tcase Recalled:\n\t\tmachines.Stay[Site]{Next: s}\n",
       "rule": "The studio's work reads the draft last saved back, and the page shows it (case tour: Back to the studio shows the saved draft).",
       "anchor": {
         "tests": [
@@ -229,8 +229,8 @@
       "name": "fk9c-due-forgotten",
       "origin": "wf10/fk9c",
       "file": "examples/gallery/gallery/site.ergo",
-      "from": "js = js.Append(if j.Seq == d.Seq { Job{..j, Due: Some[time.Time]{Value: d.At}} } else { j })",
-      "to": "js = js.Append(if j.Seq == -d.Seq { Job{..j, Due: Some[time.Time]{Value: d.At}} } else { j })",
+      "from": "js = js.Append(if j.Seq == d.Seq { Job{..j, Due: option.Some[time.Time]{Value: d.At}} } else { j })",
+      "to": "js = js.Append(if j.Seq == -d.Seq { Job{..j, Due: option.Some[time.Time]{Value: d.At}} } else { j })",
       "rule": "A job keeps its due time across navigations: a navigation during a load does not start it again (cases).",
       "anchor": {
         "tests": [
@@ -293,8 +293,8 @@
       "name": "fk9g1-key-is-enter",
       "origin": "wf10/fk9g1d",
       "file": "examples/gallery/gallery/site.ergo",
-      "from": "\tcase Drafted as d:\n\t\tStay[Site]{Next: Site{..s, Draft: d.Text}}\n",
-      "to": "\tcase Drafted as d:\n\t\tEnter[Site]{Next: Site{..s, Draft: d.Text}}\n",
+      "from": "\tcase Drafted as d:\n\t\tmachines.Stay[Site]{Next: Site{..s, Draft: d.Text}}\n",
+      "to": "\tcase Drafted as d:\n\t\tmachines.Enter[Site]{Next: Site{..s, Draft: d.Text}}\n",
       "rule": "A key typed keeps the studio's entry: as an Enter it would end the entry and save at every key (law LeavingStudioAlwaysSaves).",
       "anchor": {
         "tests": [
@@ -309,8 +309,8 @@
       "name": "fk9g1-studio-restay-enters",
       "origin": "wf10/fk9g1d",
       "file": "examples/gallery/gallery/site.ergo",
-      "from": "\t\treturn Stay[Site]{Next: at}\n\tcase (Gallery, Gallery):\n",
-      "to": "\t\treturn Enter[Site]{Next: at}\n\tcase (Gallery, Gallery):\n",
+      "from": "\t\treturn machines.Stay[Site]{Next: at}\n\tcase (Gallery, Gallery):\n",
+      "to": "\t\treturn machines.Enter[Site]{Next: at}\n\tcase (Gallery, Gallery):\n",
       "rule": "An arrival at the studio from the studio is a stay: as an Enter it would save with no leave (law LeavingStudioAlwaysSaves).",
       "anchor": {
         "tests": [

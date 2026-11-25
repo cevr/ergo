@@ -35,7 +35,7 @@ func IndexByte(s []byte, c byte) int { indexByte(s, c) }
 // indexByte is IndexByte's reference.
 func indexByte(s []byte, c byte) int {
 	let mut i = 0
-	for i < len(s) {
+	for i < s.Len() {
 		if s[i] == c {
 			return i
 		}
@@ -60,7 +60,7 @@ func IndexAny2(s []byte, a byte, b byte) int { indexAny2(s, a, b) }
 // indexAny2 is IndexAny2's reference.
 func indexAny2(s []byte, a byte, b byte) int {
 	let mut i = 0
-	for i < len(s) {
+	for i < s.Len() {
 		if s[i] == a || s[i] == b {
 			return i
 		}
@@ -86,7 +86,7 @@ func IndexOutside(s []byte, lo byte, hi byte) int { indexOutside(s, lo, hi) }
 // indexOutside is IndexOutside's reference.
 func indexOutside(s []byte, lo byte, hi byte) int {
 	let mut i = 0
-	for i < len(s) {
+	for i < s.Len() {
 		if s[i] < lo || s[i] > hi {
 			return i
 		}
@@ -112,7 +112,7 @@ func CountByte(s []byte, c byte) int { countByte(s, c) }
 func countByte(s []byte, c byte) int {
 	let mut n = 0
 	let mut i = 0
-	for i < len(s) {
+	for i < s.Len() {
 		if s[i] == c {
 			n = n + 1
 		}
@@ -141,7 +141,7 @@ func IndexNeedsEscape(s []byte, html bool) int { indexNeedsEscape(s, html) }
 // indexNeedsEscape is IndexNeedsEscape's reference.
 func indexNeedsEscape(s []byte, html bool) int {
 	let mut i = 0
-	for i < len(s) {
+	for i < s.Len() {
 		if needsEscape(s[i], html) {
 			return i
 		}
@@ -173,7 +173,7 @@ law QuoteScanKernelIsTheReference(pad int, k int, b string, html bool) {
 // ';', '<', '=', '>', '?', '[', '\\', ']', 0x7f, 0x80, 0xff.
 func edge(k int) byte {
 	let edges = []byte{0x00, 0x1f, 0x20, 0x21, 0x22, 0x23, 0x25, 0x26, 0x27, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f, 0x5b, 0x5c, 0x5d, 0x7f, 0x80, 0xff}
-	edges[((k%len(edges))+len(edges))%len(edges)]
+	edges[((k%edges.Len())+edges.Len())%edges.Len()]
 }
 
 // padded is a run of fill, 0 to 127 bytes long by pad, then a, the

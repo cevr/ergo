@@ -6,6 +6,7 @@
 
 import exec
 import strings
+import time
 import timeout
 import utf8
 
@@ -19,7 +20,7 @@ func ShellDeadline() duration { 60s }
 // Shell is the outcome of command: its standard output and standard
 // error as they came, bounded, and its exit status when it is not 0. A
 // command that cannot start is Unreadable, which the model is told.
-func Shell(command string) Outcome needs exec.Runner | Scheduler {
+func Shell(command string) Outcome needs exec.Runner | time.Scheduler {
 	let c = exec.New("sh", []string{"-c", command}).WithStdin("").WithGrace(2s)
 	let p = exec.Runner.Start(c, exec.Streams{Stdout: exec.ToCaller, Stderr: exec.ToCaller}) catch {
 	case exec.NotFound as n:
@@ -59,18 +60,18 @@ func Bounded(text string) string { Bound(text, ResultLimit()) }
 // characters, never inside one.
 func Bound(text string, max int) string {
 	let head = Head(text, max)
-	if len(head) == len(text) {
+	if head.Len() == text.Len() {
 		return text
 	}
-	head + "\n[cut: \(utf8.RuneCount(text.Slice(len(head), len(text)))) more characters]"
+	head + "\n[cut: \(utf8.RuneCount(text.Slice(head.Len(), text.Len()))) more characters]"
 }
 
 // Head is the first max characters of text, or all of it.
 func Head(text string, max int) string {
 	let mut at = 0
 	let mut kept = 0
-	for kept < max && at < len(text) {
-		at = at + utf8.DecodeRuneInString(text.Slice(at, len(text))).Size
+	for kept < max && at < text.Len() {
+		at = at + utf8.DecodeRuneInString(text.Slice(at, text.Len())).Size
 		kept = kept + 1
 	}
 	text.Slice(0, at)
@@ -93,6 +94,6 @@ law ResultsAreBounded(text string, n int) {
 	if !strings.HasSuffix(got, line) {
 		return false
 	}
-	let head = got.Slice(0, len(got)-len(line))
+	let head = got.Slice(0, got.Len()-line.Len())
 	strings.HasPrefix(text, head) && utf8.ValidString(head) && utf8.RuneCount(head) == max
 }

@@ -6,20 +6,20 @@ import machines
 import strings
 
 // Tried is Step(q, s), or Reject when the signal is refused.
-func Tried(q Quiz, s Signal) Decision[Quiz, Picked] {
+func Tried(q Quiz, s Signal) machines.Decision[Quiz, Picked] {
 	Step(q, s) catch {
 	case NoSuchChoice:
-		Reject
+		machines.Reject
 	case NoMatch:
-		Reject
+		machines.Reject
 	case NothingToUndo:
-		Reject
+		machines.Reject
 	case NoQuestion:
-		Reject
+		machines.Reject
 	case NotShowing:
-		Reject
+		machines.Reject
 	case NoSuchItem:
-		Reject
+		machines.Reject
 	}
 }
 
@@ -113,12 +113,12 @@ type Picker machine[Quiz, Signal] {
 	// state that a signal sees is never one to skip.
 	law SettleIsStable(items []int, questions []int, next int, steps []int) {
 		let set = setOf(items, questions)
-		let from = pick(next, len(questions)+1)
+		let from = pick(next, questions.Len()+1)
 		let answers = AnswersOf(walk(set, steps))
 		let left = Left(set, answers)
 		match Settle(Calculating{Set: set, Next: from, Answers: answers}) {
 		case Asking as a:
-			if a.Question < from || !Narrows(set.Questions[a.Question], left) || len(left) < 2 {
+			if a.Question < from || !Narrows(set.Questions[a.Question], left) || left.Len() < 2 {
 				return false
 			}
 			for k in from..a.Question {
@@ -128,10 +128,10 @@ type Picker machine[Quiz, Signal] {
 			}
 			true
 		case Showing:
-			if len(left) < 2 {
+			if left.Len() < 2 {
 				return true
 			}
-			for k in from..len(questions) {
+			for k in from..questions.Len() {
 				if Narrows(set.Questions[k], left) {
 					return false
 				}
@@ -146,17 +146,17 @@ type Picker machine[Quiz, Signal] {
 		let q = walk(set, steps)
 		let d = Tried(q, Choose{Choice: pick(c, 4) + 1})
 		match d {
-		case Enter[Quiz] as e:
+		case machines.Enter[Quiz] as e:
 			Key(machines.Next(e.Next, Tried(e.Next, Back))) == Key(q)
-		case Stay[Quiz]:
+		case machines.Stay[Quiz]:
 			false
-		case Emit[Quiz, Picked], Tell[Quiz, Picked]:
+		case machines.Emit[Quiz, Picked], machines.Tell[Quiz, Picked]:
 			false
-		case Ignore:
+		case machines.Ignore:
 			false
-		case Reject:
+		case machines.Reject:
 			true
-		case Done[Picked]:
+		case machines.Done[Picked]:
 			false
 		}
 	},
@@ -189,34 +189,34 @@ type Picker machine[Quiz, Signal] {
 				}
 			}
 		}
-		fit == len(left)
+		fit == left.Len()
 	},
 
 	// NoDeadEnd: a quiz over a catalogue with items always has an item left,
 	// and every choice that Choose takes leaves at least one.
 	law NoDeadEnd(items []int, questions []int, steps []int) {
-		if len(items) == 0 {
+		if items.Len() == 0 {
 			return true
 		}
 		let set = setOf(items, questions)
 		let q = walk(set, steps)
-		if len(LeftOf(q)) == 0 {
+		if LeftOf(q).Len() == 0 {
 			return false
 		}
 		for c in 1..5 {
 			match Tried(q, Choose{Choice: c}) {
-			case Enter[Quiz] as e:
-				if len(LeftOf(e.Next)) == 0 {
+			case machines.Enter[Quiz] as e:
+				if LeftOf(e.Next).Len() == 0 {
 					return false
 				}
-			case Stay[Quiz]:
+			case machines.Stay[Quiz]:
 				return false
-			case Emit[Quiz, Picked], Tell[Quiz, Picked]:
+			case machines.Emit[Quiz, Picked], machines.Tell[Quiz, Picked]:
 				return false
-			case Ignore:
+			case machines.Ignore:
 				return false
-			case Reject:
-			case Done[Picked]:
+			case machines.Reject:
+			case machines.Done[Picked]:
 				return false
 			}
 		}
@@ -230,17 +230,17 @@ type Picker machine[Quiz, Signal] {
 		let q = walk(set, steps)
 		let n = pick(i, 3) + 1
 		match Tried(q, Pick{Item: n}) {
-		case Done[Picked] as d:
-			d.Output.Name == LeftOf(q)[n-1].Name && strings.Join(d.Output.Answers, ",") == strings.Join(Labels(set, AnswersOf(q)), ",") && len(d.Output.Answers) == len(AnswersOf(q))
-		case Enter[Quiz]:
+		case machines.Done[Picked] as d:
+			d.Output.Name == LeftOf(q)[n-1].Name && strings.Join(d.Output.Answers, ",") == strings.Join(Labels(set, AnswersOf(q)), ",") && d.Output.Answers.Len() == AnswersOf(q).Len()
+		case machines.Enter[Quiz]:
 			false
-		case Stay[Quiz]:
+		case machines.Stay[Quiz]:
 			false
-		case Emit[Quiz, Picked], Tell[Quiz, Picked]:
+		case machines.Emit[Quiz, Picked], machines.Tell[Quiz, Picked]:
 			false
-		case Ignore:
+		case machines.Ignore:
 			false
-		case Reject:
+		case machines.Reject:
 			true
 		}
 	},

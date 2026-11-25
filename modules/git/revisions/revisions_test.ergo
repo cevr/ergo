@@ -2,6 +2,7 @@ import exec
 import filepath
 import fs
 import fstest
+import option
 import os
 import strconv
 import strings
@@ -13,14 +14,14 @@ import github.com/cevr/ergo/modules/git/pack
 import github.com/cevr/ergo/modules/git/refs
 import github.com/cevr/ergo/modules/git/root
 
-let onOracle = context needs TestAmbient {
+let onOracle = context needs fstest.TestAmbient {
 	exec.Runner: exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
 	fs.Files:    fs.NewTestHost(),
 	fs.Writes:   fs.NewTestHost(),
 	os.Process:  os.NewTestHost(),
 }
 
-let onOracleSha1 = context needs TestAmbient {
+let onOracleSha1 = context needs fstest.TestAmbient {
 	exec.Runner: exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
 	fs.Files:    fs.NewTestHost(),
 	fs.Writes:   fs.NewTestHost(),
@@ -28,7 +29,7 @@ let onOracleSha1 = context needs TestAmbient {
 	CommitDAG:   NewStoreDAG(oid.Sha1, filepath.Join([]string{fstest.TestFolder(), "repo-sha1", ".git", "objects"}), []string{}, true, fs.NewTestHost()),
 }
 
-let onOracleSha256 = context needs TestAmbient {
+let onOracleSha256 = context needs fstest.TestAmbient {
 	exec.Runner: exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
 	fs.Files:    fs.NewTestHost(),
 	fs.Writes:   fs.NewTestHost(),
@@ -101,7 +102,7 @@ func makeLawStoreDAG(objectsDir string, host fs.Host) StoreDAG fails pack.Corrup
 	NewStoreDAG(oid.Sha1, objectsDir, []string{}, false, host)
 }
 
-let onStoreSha1 = context fails pack.Corrupt | pack.MismatchedPair | pack.Collision | pack.IOFailed needs TestAmbient {
+let onStoreSha1 = context fails pack.Corrupt | pack.MismatchedPair | pack.Collision | pack.IOFailed needs fstest.TestAmbient {
 	CommitDAG: try makeLawStoreDAG(filepath.Join([]string{fstest.TestFolder(), "law-store-dag-objects"}), fs.NewTestHost()),
 }
 
@@ -132,12 +133,12 @@ func check(cond bool, msg string) fails testFail {
 
 func verifyDagAgainstGit(repoDir string, format oid.Format, resolver Resolver, pathEnv Map[string, string], step int, blobId oid.OID) fails testFail | NotFound | Ambiguous | InvalidRev | NotACommit | WrongKind | MissingParent | DepthExceeded | StoreError | oid.BadHex | oid.WrongLength | exec.NotFound | exec.Denied | exec.Failed needs CommitDAG | exec.Runner | fs.Files {
 	let gitMergeBases = try parseGitOIDLines(format, try runGitOk(repoDir, []string{"merge-base", "--all", "branchA", "branchB"}, pathEnv, step))
-	try check(len(gitMergeBases) == 2, "expected 2 criss-cross git merge bases")
+	try check(gitMergeBases.Len() == 2, "expected 2 criss-cross git merge bases")
 
 	let aId = try ResolveRev(resolver, "branchA")
 	let bId = try ResolveRev(resolver, "branchB")
 	let gotBases = try MergeBases(aId, bId)
-	try check(len(gotBases) == 2, "MergeBases did not return 2 criss-cross bases")
+	try check(gotBases.Len() == 2, "MergeBases did not return 2 criss-cross bases")
 	try check(sameOIDSet(gotBases, gitMergeBases), "MergeBases disagreed with git merge-base --all")
 
 	let a1Id = try ResolveRev(resolver, "a1")
@@ -194,7 +195,7 @@ func verifyDagAgainstGit(repoDir string, format oid.Format, resolver Resolver, p
 
 	let gitFirstParent = try parseGitOIDLines(format, try runGitOk(repoDir, []string{"rev-list", "--first-parent", "octopus"}, pathEnv, step+4))
 	let gotFirstParent = try ResolveRevList(resolver, "octopus", RevListOptions{FirstParent: true, MaxCount: 0})
-	try check(sameOIDSet(gotFirstParent, gitFirstParent) && len(gotFirstParent) == len(gitFirstParent), "--first-parent mismatch")
+	try check(sameOIDSet(gotFirstParent, gitFirstParent) && gotFirstParent.Len() == gitFirstParent.Len(), "--first-parent mismatch")
 
 	let octoId = try ResolveRev(resolver, "octopus")
 	let linearId = try ResolveRev(resolver, "linear")
@@ -359,12 +360,12 @@ func findTwoCollidingPrefixBlobs(format oid.Format) (oid.OID, []byte, oid.OID, [
 		}
 		let pref = oid.ShortHex(id, 4)
 		match byPrefix.Get(pref) {
-		case Some[(oid.OID, []byte)] as prev:
+		case option.Some[(oid.OID, []byte)] as prev:
 			let (prevId, prevData) = prev.Value
 			if !oid.Equal(prevId, id) {
 				return (prevId, prevData, id, payload, pref)
 			}
-		case None:
+		case option.None:
 			byPrefix[pref] = (id, payload)
 		}
 	}
@@ -394,7 +395,7 @@ test AmbiguousShortOIDRefusedAndDAGInvariants {
 			let _ = ResolveRev(resolver, pref) catch {
 			case Ambiguous as a:
 				sawAmbig = true
-				candCount = len(a.Candidates)
+				candCount = a.Candidates.Len()
 				oid.Zero(fmt)
 			case NotFound, InvalidRev, NotACommit, WrongKind, MissingParent, DepthExceeded, StoreError:
 				oid.Zero(fmt)
@@ -410,7 +411,7 @@ test AmbiguousShortOIDRefusedAndDAGInvariants {
 			let (dag, rootId, a1, b1, a2, b2) = makeCrissCrossMemoryDAG(fmt)
 			with context { CommitDAG: dag } {
 				let bases = try MergeBases(a2, b2)
-				assert len(bases) == 2
+				assert bases.Len() == 2
 				assert sameOIDSet(bases, []oid.OID{a1, b1})
 				assert try IsAncestor(rootId, a2)
 				assert !(try IsAncestor(a2, b2))
@@ -430,7 +431,7 @@ test AmbiguousShortOIDRefusedAndDAGInvariants {
 		let mut sawDiskAmbig = false
 		let _ = ResolveRev(resolver, pref) catch {
 		case Ambiguous as a:
-			sawDiskAmbig = len(a.Candidates) >= 2 && sameOIDSet(a.Candidates, []oid.OID{id1, id2})
+			sawDiskAmbig = a.Candidates.Len() >= 2 && sameOIDSet(a.Candidates, []oid.OID{id1, id2})
 			oid.Zero(oid.Sha1)
 		case NotFound, InvalidRev, NotACommit, WrongKind, MissingParent, DepthExceeded, StoreError:
 			oid.Zero(oid.Sha1)

@@ -4,6 +4,8 @@
 // Every key and value keeps the position it was read at, so a reader of
 // the document can say where a wrong value is.
 
+import option
+
 // Pos is a position in the text: a line and a byte column, both from 1.
 type Pos { Line int, Column int }
 
@@ -25,13 +27,13 @@ type Table { Name string, Many bool, At Pos, Entries []Entry }
 type Doc { Root Table, Tables []Table }
 
 // Lookup is the entry key of t, if t has one.
-func Lookup(t Table, key string) Option[Entry] {
+func Lookup(t Table, key string) option.Option[Entry] {
 	for e in t.Entries {
 		if e.Key == key {
-			return Some{Value: e}
+			return option.Some{Value: e}
 		}
 	}
-	None
+	option.None
 }
 
 // Named is the tables of d named name, in order.

@@ -10,10 +10,10 @@ type Step = Literals{At int, Len int} | Copy{At int, Offset int, Len int}
 // Walk is the steps of packed, in order, or the Corrupt Unpack gives.
 func Walk(packed string) []Step fails Corrupt {
 	let mut steps = []Step{}
-	if len(packed) < len(Magic) || strings.Slice(packed, 0, len(Magic)) != Magic {
+	if packed.Len() < Magic.Len() || strings.Slice(packed, 0, Magic.Len()) != Magic {
 		return Corrupt{Offset: 0, Reason: BadMagic}
 	}
-	let mut d = Decoder{win: [65536]byte{}, out: strings.NewBuilder(), total: 0, at: len(Magic)}
+	let mut d = Decoder{win: [65536]byte{}, out: strings.NewBuilder(), total: 0, at: Magic.Len()}
 	for {
 		let h = d.at
 		let n = try d.uvarint(packed)
@@ -26,7 +26,7 @@ func Walk(packed string) []Step fails Corrupt {
 		let mut pos = 0
 		for pos < n {
 			let t = d.at
-			if t >= len(packed) {
+			if t >= packed.Len() {
 				return truncated(packed)
 			}
 			let tok = int(packed[t])
@@ -38,7 +38,7 @@ func Walk(packed string) []Step fails Corrupt {
 			if l > n-pos {
 				return Corrupt{Offset: t, Reason: Overrun}
 			}
-			if l > len(packed)-d.at {
+			if l > packed.Len()-d.at {
 				return truncated(packed)
 			}
 			steps = steps.Append(Literals{At: d.total, Len: l})
@@ -51,7 +51,7 @@ func Walk(packed string) []Step fails Corrupt {
 				}
 				break
 			}
-			if 2 > len(packed)-d.at {
+			if 2 > packed.Len()-d.at {
 				return truncated(packed)
 			}
 			let off = int(packed[d.at]) | int(packed[d.at+1])<<8
@@ -72,7 +72,7 @@ func Walk(packed string) []Step fails Corrupt {
 			pos += m
 		}
 	}
-	if d.at < len(packed) {
+	if d.at < packed.Len() {
 		return Corrupt{Offset: d.at, Reason: Trailing}
 	}
 	steps

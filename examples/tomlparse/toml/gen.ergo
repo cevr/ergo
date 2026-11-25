@@ -31,11 +31,11 @@ let Moments = []Moment{
 	Moment{Kind: LocalTime, Text: "00:00:00.5"},
 }
 
-func pick[T](xs []T) T needs Random { xs[Random.IntN(len(xs))] }
+func pick[T](xs []T) T needs rand.Random { xs[rand.Random.IntN(xs.Len())] }
 
 // GenValue is a value of depth at most depth.
-func GenValue(depth int) Value needs Random {
-	let n = if depth <= 0 { Random.IntN(5) } else { Random.IntN(9) }
+func GenValue(depth int) Value needs rand.Random {
+	let n = if depth <= 0 { rand.Random.IntN(5) } else { rand.Random.IntN(9) }
 	match n {
 	case 0:
 		Str{S: pick(Texts)}
@@ -44,18 +44,18 @@ func GenValue(depth int) Value needs Random {
 	case 2:
 		Float{F: pick(Floats())}
 	case 3:
-		if Random.IntN(2) == 0 { Bool{B: true} } else { pick(Moments) }
+		if rand.Random.IntN(2) == 0 { Bool{B: true} } else { pick(Moments) }
 	case 4:
 		Str{S: pick(Texts) + pick(Texts)}
 	case 5, 6:
 		let mut items = []Value{}
-		for _ in 0..Random.IntN(4) {
+		for _ in 0..rand.Random.IntN(4) {
 			items = items.Append(GenValue(depth - 1))
 		}
 		Array{Items: items}
 	case 7:
 		let mut items = []Value{}
-		for _ in 0..1+Random.IntN(3) {
+		for _ in 0..1+rand.Random.IntN(3) {
 			items = items.Append(GenTable(depth - 1))
 		}
 		Array{Items: items}
@@ -65,9 +65,9 @@ func GenValue(depth int) Value needs Random {
 }
 
 // GenTable is a table of depth at most depth + 1, with distinct keys.
-func GenTable(depth int) Value needs Random {
+func GenTable(depth int) Value needs rand.Random {
 	let mut members = []Member{}
-	for _ in 0..Random.IntN(5) {
+	for _ in 0..rand.Random.IntN(5) {
 		let k = pick(KeyNames)
 		let mut taken = false
 		for m in members {
@@ -84,7 +84,7 @@ func GenTable(depth int) Value needs Random {
 
 // Samples is ten tables of depth at most 4 from seed.
 func Samples(seed int) []Value {
-	with context { Random: rand.Seeded(uint64(seed)) } {
+	with context { rand.Random: rand.Seeded(uint64(seed)) } {
 		let mut out = []Value{}
 		for _ in 0..10 {
 			out = out.Append(GenTable(3))

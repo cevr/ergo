@@ -3,6 +3,7 @@
 // Decode reads it, and a parameter it cannot read becomes that control's
 // default, so a hand-edited address never fails.
 
+import option
 import querytable/dino
 import strings
 
@@ -24,7 +25,7 @@ type Sorting = Unsorted{} | Ascending{Column Column} | Descending{Column Column}
 
 // Query is the controls: the search text ("" for none), the sorting, and
 // the diet and period filters (None for all).
-type Query { Search string, Sorting Sorting, Diet Option[dino.Diet], Period Option[dino.Period] }
+type Query { Search string, Sorting Sorting, Diet option.Option[dino.Diet], Period option.Option[dino.Period] }
 
 // InvalidParamBecomesDefault: a parameter Decode cannot read, generated
 // junk or a near miss, becomes that control's default, and the other
@@ -33,7 +34,7 @@ law InvalidParamBecomesDefault(q Query, junk string, which int, near int) {
 	// Near misses: a wrong case, a known column with a bad direction, one
 	// part too many, a column alone; or junk no control has.
 	let misses = []string{"carnivore", "Length:Upward", "Name:Ascending:x", "Weight", "~" + junk}
-	let bad = misses[((near%len(misses))+len(misses))%len(misses)]
+	let bad = misses[((near%misses.Len())+misses.Len())%misses.Len()]
 	let k = ((which % 3) + 3) % 3
 	let name = match k {
 	case 0:
@@ -47,9 +48,9 @@ law InvalidParamBecomesDefault(q Query, junk string, which int, near int) {
 	case 0:
 		Query{..q, Sorting: Unsorted}
 	case 1:
-		Query{..q, Diet: None}
+		Query{..q, Diet: option.None}
 	case _:
-		Query{..q, Period: None}
+		Query{..q, Period: option.None}
 	})
 	let sep = if strings.Contains(others, "?") { "&" } else { "?" }
 	let path = others + sep + name + "=" + Escape(bad)
@@ -57,9 +58,9 @@ law InvalidParamBecomesDefault(q Query, junk string, which int, near int) {
 	case 0:
 		Query{..q, Sorting: Unsorted}
 	case 1:
-		Query{..q, Diet: None}
+		Query{..q, Diet: option.None}
 	case _:
-		Query{..q, Period: None}
+		Query{..q, Period: option.None}
 	}
 	Decode(path) == Browse{Query: want}
 }
@@ -78,7 +79,7 @@ type Route = Browse{Query Query} | NotFound{Path string}
 
 // Default is every control at its default: no search, unsorted, no
 // filter.
-let Default = Query{Search: "", Sorting: Unsorted, Diet: None, Period: None}
+let Default = Query{Search: "", Sorting: Unsorted, Diet: option.None, Period: option.None}
 
 // Columns is every column, in the table's order.
 let Columns = []Column{Name, Era, Eats, Length, Weight}
@@ -114,16 +115,16 @@ func Encode(q Query) string {
 	case Unsorted:
 	}
 	match q.Diet {
-	case Some[dino.Diet] as d:
+	case option.Some[dino.Diet] as d:
 		params = params.Append("diet=" + dino.DietName(d.Value))
-	case None:
+	case option.None:
 	}
 	match q.Period {
-	case Some[dino.Period] as p:
+	case option.Some[dino.Period] as p:
 		params = params.Append("period=" + dino.PeriodName(p.Value))
-	case None:
+	case option.None:
 	}
-	if len(params) == 0 {
+	if params.Len() == 0 {
 		return "/"
 	}
 	"/?" + strings.Join(params, "&")
@@ -141,18 +142,18 @@ func Decode(path string) Route {
 	let mut at = path
 	let mut query = ""
 	match strings.Cut(path, "?") {
-	case Some[strings.Halves] as h:
+	case option.Some[strings.Halves] as h:
 		at = h.Value.Before
 		query = h.Value.After
-	case None:
+	case option.None:
 	}
 	if at != "/" && at != "" {
 		return NotFound{Path: path}
 	}
 	let search = match param(query, "search") {
-	case Some[string] as s:
+	case option.Some[string] as s:
 		s.Value
-	case None:
+	case option.None:
 		""
 	}
 	Browse{Query: Query{Search: search, Sorting: sortingOf(param(query, "sorting")), Diet: dietOf(param(query, "diet")), Period: periodOf(param(query, "period"))}}
@@ -160,28 +161,28 @@ func Decode(path string) Route {
 
 // param is the first value of name in query, unescaped, + read as a
 // space.
-func param(query string, name string) Option[string] {
+func param(query string, name string) option.Option[string] {
 	for pair in strings.Split(query, "&") {
 		match strings.Cut(pair, "=") {
-		case Some[strings.Halves] as h:
+		case option.Some[strings.Halves] as h:
 			if h.Value.Before == name {
-				return Some[string]{Value: Unescape(strings.ReplaceAll(h.Value.After, "+", " "))}
+				return option.Some[string]{Value: Unescape(strings.ReplaceAll(h.Value.After, "+", " "))}
 			}
-		case None:
+		case option.None:
 		}
 	}
-	None
+	option.None
 }
 
-func sortingOf(v Option[string]) Sorting {
+func sortingOf(v option.Option[string]) Sorting {
 	let text = match v {
-	case Some[string] as s:
+	case option.Some[string] as s:
 		s.Value
-	case None:
+	case option.None:
 		return Unsorted
 	}
 	let parts = strings.Split(text, ":")
-	if len(parts) != 2 {
+	if parts.Len() != 2 {
 		return Unsorted
 	}
 	for c in Columns {
@@ -199,31 +200,31 @@ func sortingOf(v Option[string]) Sorting {
 	Unsorted
 }
 
-func dietOf(v Option[string]) Option[dino.Diet] {
+func dietOf(v option.Option[string]) option.Option[dino.Diet] {
 	match v {
-	case Some[string] as s:
+	case option.Some[string] as s:
 		for d in dino.Diets {
 			if dino.DietName(d) == s.Value {
-				return Some[dino.Diet]{Value: d}
+				return option.Some[dino.Diet]{Value: d}
 			}
 		}
-		None
-	case None:
-		None
+		option.None
+	case option.None:
+		option.None
 	}
 }
 
-func periodOf(v Option[string]) Option[dino.Period] {
+func periodOf(v option.Option[string]) option.Option[dino.Period] {
 	match v {
-	case Some[string] as s:
+	case option.Some[string] as s:
 		for p in dino.Periods {
 			if dino.PeriodName(p) == s.Value {
-				return Some[dino.Period]{Value: p}
+				return option.Some[dino.Period]{Value: p}
 			}
 		}
-		None
-	case None:
-		None
+		option.None
+	case option.None:
+		option.None
 	}
 }
 

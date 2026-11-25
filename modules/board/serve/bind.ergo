@@ -1,4 +1,5 @@
 import net
+import option
 import strconv
 import strings
 
@@ -16,7 +17,7 @@ func splitHostPort(addr string) (string, string) fails BindRefused {
 	}
 	if strings.HasPrefix(trimmed, "[") {
 		let close = strings.Index(trimmed, "]")
-		if close <= 1 || close+1 >= len(trimmed) || trimmed[close+1] != byte(':') {
+		if close <= 1 || close+1 >= trimmed.Len() || trimmed[close+1] != byte(':') {
 			return BindRefused{Addr: addr, Reason: "bracketed IPv6 address must have form [host]:port"}
 		}
 		return (trimmed[1:close], trimmed[close+2:])
@@ -46,38 +47,38 @@ func validatePort(addr string, port string) fails BindRefused {
 	}
 }
 
-func parseIPv4(host string) Option[[]int] {
+func parseIPv4(host string) option.Option[[]int] {
 	let parts = strings.Split(host, ".")
-	if len(parts) != 4 {
-		return None
+	if parts.Len() != 4 {
+		return option.None
 	}
 	let mut out = []int{}
 	for p in parts {
-		if len(p) == 0 || len(p) > 3 {
-			return None
+		if p.Len() == 0 || p.Len() > 3 {
+			return option.None
 		}
-		for i in 0..len(p) {
+		for i in 0..p.Len() {
 			if p[i] < byte('0') || p[i] > byte('9') {
-				return None
+				return option.None
 			}
 		}
 		let v = strconv.ParseInt(p, 10, 64) catch {
 		case strconv.Malformed, strconv.OutOfRange:
-			return None
+			return option.None
 		}
 		if v < int64(0) || v > int64(255) {
-			return None
+			return option.None
 		}
 		out = out.Append(int(v))
 	}
-	Some[[]int]{Value: out}
+	option.Some[[]int]{Value: out}
 }
 
 func isHexGroup(g string) bool {
-	if len(g) == 0 || len(g) > 4 {
+	if g.Len() == 0 || g.Len() > 4 {
 		return false
 	}
-	for i in 0..len(g) {
+	for i in 0..g.Len() {
 		let c = g[i]
 		let ok = (c >= byte('0') && c <= byte('9')) || (c >= byte('a') && c <= byte('f')) || (c >= byte('A') && c <= byte('F'))
 		if !ok {
@@ -93,7 +94,7 @@ func isValidIPv6(host string) bool {
 		return false
 	}
 	let pieces = strings.Split(lower, "::")
-	if len(pieces) > 2 {
+	if pieces.Len() > 2 {
 		return false
 	}
 	let mut groups = 0
@@ -108,7 +109,7 @@ func isValidIPv6(host string) bool {
 			groups = groups + 1
 		}
 	}
-	if len(pieces) == 1 {
+	if pieces.Len() == 1 {
 		return groups == 8
 	}
 	groups <= 7
@@ -123,7 +124,7 @@ func isAllowedHost(host string) bool {
 		return true
 	}
 	match parseIPv4(lower) {
-	case Some[[]int] as octets:
+	case option.Some[[]int] as octets:
 		let a = octets.Value[0]
 		let b = octets.Value[1]
 		if a == 127 {
@@ -133,7 +134,7 @@ func isAllowedHost(host string) bool {
 			return true
 		}
 		return false
-	case None:
+	case option.None:
 	}
 	if strings.HasPrefix(lower, "fd7a:115c:a1e0:") && isValidIPv6(lower) {
 		return true

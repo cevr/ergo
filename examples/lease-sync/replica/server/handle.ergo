@@ -28,7 +28,7 @@ type Codec[S, C, E, F] {
 // snapshot is never sent to it. A Pull with Wait waits up to wait. A
 // payload that is not the operation's is the defect RpcError, as a
 // generated Handle answers it.
-func Handle[S wire, C comparable, E comparable, F comparable, R](s Server[S, C, E, F, R], w Codec[S, C, E, F], allow func(by replica.ClientID) bool, wait duration, tag string, payload string) string fails rpc.Failed needs Scheduler | time.Clock {
+func Handle[S wire, C comparable, E comparable, F comparable, R](s Server[S, C, E, F, R], w Codec[S, C, E, F], allow func(by replica.ClientID) bool, wait duration, tag string, payload string) string fails rpc.Failed needs time.Scheduler | time.Clock {
 	if tag == "Push" {
 		let p = w.ReadPush(payload) catch {
 		case rpc.Transport as t:

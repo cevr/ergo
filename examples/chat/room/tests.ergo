@@ -1,12 +1,13 @@
 // The room's tests: examples (the laws run in laws.ergo).
 
+import machines
 import time
 
 test JoinSayLeave {
 	let s = try Apply(try Apply(Start(), Join{Name: "ada"}), Join{Name: "bob"})
 	assert Members(s) == []string{"ada", "bob"}
 	let es = try Decide(s, Say{From: "bob", Text: "hi"}, time.Unix(3723, 0))
-	assert len(es) == 1 && Render(es[0]) == "[01:02:03] bob: hi"
+	assert es.Len() == 1 && Render(es[0]) == "[01:02:03] bob: hi"
 	assert Members(try Apply(s, Leave{Name: "ada"})) == []string{"bob"}
 }
 
@@ -39,7 +40,7 @@ test RendersEveryEvent {
 
 test StepEmitsItsEvents {
 	match try Step(Start(), Join{Name: "ada"}) {
-	case Emit[State, []Event] as e:
+	case machines.Emit[State, []Event] as e:
 		assert Members(e.Next) == []string{"ada"}
 		assert e.Output == []Event{Joined{Name: "ada"}}
 	case _:

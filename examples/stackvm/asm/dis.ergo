@@ -1,6 +1,7 @@
 // The disassembler.
 
 import maps
+import option
 import strings
 import stackvm/vm
 
@@ -13,11 +14,11 @@ func Disassemble(program []vm.Instr) string {
 	let mut targets = Map[int, bool]{}
 	for i in program {
 		match vm.Target(i) {
-		case Some[int] as t:
-			if t.Value >= 0 && t.Value <= len(program) {
+		case option.Some[int] as t:
+			if t.Value >= 0 && t.Value <= program.Len() {
 				targets[t.Value] = true
 			}
-		case None:
+		case option.None:
 		}
 	}
 	let mut out = ""
@@ -25,8 +26,8 @@ func Disassemble(program []vm.Instr) string {
 		let label = if maps.GetOr(targets, n, false) { "L\(n):" } else { "" }
 		out = out + strings.PadRight(label, 7, ' ') + text(i, targets) + "\n"
 	}
-	if maps.GetOr(targets, len(program), false) {
-		out = out + "L\(len(program)):\n"
+	if maps.GetOr(targets, program.Len(), false) {
+		out = out + "L\(program.Len()):\n"
 	}
 	out
 }
@@ -38,9 +39,9 @@ func text(i vm.Instr, targets Map[int, bool]) string {
 		"push \(p.N)"
 	case vm.Jump, vm.JumpIf, vm.JumpIfNot, vm.Call:
 		let to = match vm.Target(i) {
-		case Some[int] as t:
+		case option.Some[int] as t:
 			t.Value
-		case None:
+		case option.None:
 			0
 		}
 		let name = if maps.GetOr(targets, to, false) { "L\(to)" } else { "\(to)" }

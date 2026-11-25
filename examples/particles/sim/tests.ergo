@@ -1,5 +1,6 @@
 // The game's tests: scripted games. `ergo test` runs the laws.
 
+import option
 import particles/world
 import time
 
@@ -10,7 +11,7 @@ import time
 func played(seed uint64, keys string, frames int) (Game, []Frame) {
 	let m = time.NewManual(0)
 	let screen = recorded()
-	let g = with context { Scheduler: lateEvery{m: m, every: 3}, time.Clock: m, Screen: screen } {
+	let g = with context { time.Scheduler: lateEvery{m: m, every: 3}, time.Clock: m, Screen: screen } {
 		Play(box(seed, 8), keys, frames, Pace{Frame: 50ms, Dt: 20ms})
 	}
 	(g, screen.Show.Calls())
@@ -45,19 +46,19 @@ test ScriptedGame {
 
 test FramesRunOut {
 	let g, fs = played(5, "", 4)
-	assert len(fs) == 4 && phases(fs) == "rrrr"
+	assert fs.Len() == 4 && phases(fs) == "rrrr"
 	assert g.Steps == 10
 }
 
 test QuitFirst {
 	let g, fs = played(5, "q", 4)
-	assert len(fs) == 1 && fs[0].Phase == "quit" && g.Steps == 0
+	assert fs.Len() == 1 && fs[0].Phase == "quit" && g.Steps == 0
 }
 
 test KeysAreRead {
 	match Key("x") {
-	case Some[Input]:
+	case option.Some[Input]:
 		assert false
-	case None:
+	case option.None:
 	}
 }

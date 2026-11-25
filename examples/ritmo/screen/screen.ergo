@@ -2,6 +2,7 @@
 // adapters (ritmo-render, ritmo-pixi). A window would draw it through
 // std ui once the desktop host lands (survey gap G6).
 
+import option
 import ritmo/ecs
 import ritmo/topdown
 import strings
@@ -29,11 +30,11 @@ func Room(w topdown.World) string {
 // glyph is the character of the cell around centre.
 func glyph(w topdown.World, walls []topdown.Block, centre topdown.Vec) string {
 	match topdown.PlayerOf(w) {
-	case Some[ecs.Entity] as p:
+	case option.Some[ecs.Entity] as p:
 		if inCell(topdown.PositionOf(w, p.Value), centre) {
 			return "@"
 		}
-	case None:
+	case option.None:
 	}
 	for e in w.Pickups.Ents {
 		if inCell(topdown.PositionOf(w, e), centre) {
@@ -59,10 +60,10 @@ func inCell(p topdown.Vec, centre topdown.Vec) bool {
 // pickups, and the focus.
 func Status(w topdown.World) string {
 	let place = match topdown.PlayerOf(w) {
-	case Some[ecs.Entity] as p:
+	case option.Some[ecs.Entity] as p:
 		let at = topdown.PositionOf(w, p.Value)
 		"at \(units(at.X)),\(units(at.Y))"
-	case None:
+	case option.None:
 		"no player"
 	}
 	let focus = match w.Focus {

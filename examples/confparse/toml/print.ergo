@@ -9,7 +9,7 @@ func Print(d Doc) string {
 		out = out.Append(PrintEntry(e))
 	}
 	for t in d.Tables {
-		if len(out) > 0 {
+		if out.Len() > 0 {
 			out = out.Append("")
 		}
 		out = out.Append(if t.Many { "[[" + t.Name + "]]" } else { "[" + t.Name + "]" })
@@ -17,7 +17,7 @@ func Print(d Doc) string {
 			out = out.Append(PrintEntry(e))
 		}
 	}
-	if len(out) == 0 {
+	if out.Len() == 0 {
 		return ""
 	}
 	strings.Join(out, "\n") + "\n"
@@ -81,7 +81,7 @@ func isName(s string, dots bool) bool {
 	if s == "" {
 		return false
 	}
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		if !isKeyByte(s[i]) && !(dots && s[i] == '.') {
 			return false
 		}
@@ -150,7 +150,7 @@ func Same(a Value, b Value) bool {
 	case (Bool as x, Bool as y):
 		x.B == y.B
 	case (Arr as x, Arr as y):
-		if len(x.Items) != len(y.Items) {
+		if x.Items.Len() != y.Items.Len() {
 			return false
 		}
 		for i, it in x.Items {
@@ -167,7 +167,7 @@ func Same(a Value, b Value) bool {
 // SameTable reports whether a and b have the same name, form and
 // entries in order, wherever they were read.
 func SameTable(a Table, b Table) bool {
-	if a.Name != b.Name || a.Many != b.Many || len(a.Entries) != len(b.Entries) {
+	if a.Name != b.Name || a.Many != b.Many || a.Entries.Len() != b.Entries.Len() {
 		return false
 	}
 	for i, e in a.Entries {
@@ -181,7 +181,7 @@ func SameTable(a Table, b Table) bool {
 // SameDoc reports whether a and b are the same document, wherever their
 // parts were read.
 func SameDoc(a Doc, b Doc) bool {
-	if !SameTable(a.Root, b.Root) || len(a.Tables) != len(b.Tables) {
+	if !SameTable(a.Root, b.Root) || a.Tables.Len() != b.Tables.Len() {
 		return false
 	}
 	for i, t in a.Tables {

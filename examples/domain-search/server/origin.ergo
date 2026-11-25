@@ -2,6 +2,7 @@ import embed
 import fs
 import http
 import json
+import option
 import rpc
 import strings
 import domain-search/domains
@@ -10,7 +11,7 @@ import domain-search/sample
 // Recorded is a recorded server wire (MIT): 20 requests
 // that recorded/wire.mjs sent to its worker, each response, and
 // recorded/index.json with each case's status and headers.
-let Recorded = embedded[embed.FS]("recorded")
+let Recorded = embed.File[embed.FS]("recorded")
 
 // index is recorded/index.json.
 type index { Cases []recordedCase }
@@ -46,15 +47,15 @@ func contentType(c recordedCase) string {
 // Limits: a body over MaxBodyBytes is http.BodyTooLarge.
 func requestOf(c recordedCase) http.Request {
 	let text = read("recorded/" + c.Case + ".request.json")
-	let body http.Body = if len(text) > Limits().MaxBodyBytes { http.BodyTooLarge{Limit: Limits().MaxBodyBytes} } else { http.Buffered{Text: text} }
+	let body http.Body = if text.Len() > Limits().MaxBodyBytes { http.BodyTooLarge{Limit: Limits().MaxBodyBytes} } else { http.Buffered{Text: text} }
 	http.Request{Method: c.Method, Path: c.Path, RawPath: c.Path, Query: []http.Field{}, Header: []http.Field{http.Field{Name: "Content-Type", Value: contentType(c)}}, Body: body}
 }
 
 func headerText(h []http.Field, name string) string {
 	match http.Header(h, name) {
-	case Some as v:
+	case option.Some as v:
 		v.Value
-	case None:
+	case option.None:
 		""
 	}
 }
@@ -78,8 +79,8 @@ func sameFrames(want string, got string) string {
 	case rpc.Transport as t:
 		return "the port's answer does not read: \(t.Reason): \(got)"
 	}
-	if len(w) != len(g) {
-		return "\(len(g)) frames, want \(len(w))"
+	if w.Len() != g.Len() {
+		return "\(g.Len()) frames, want \(w.Len())"
 	}
 	for i, x in w {
 		let d = sameFrame(x, g[i])
@@ -126,8 +127,8 @@ func sameOutcome(want outcome, got outcome) string {
 		case Failure:
 			"a Failure, want a Success"
 		case Success as g:
-			if len(w.Value) != len(g.Value) {
-				return "\(len(g.Value)) listings, want \(len(w.Value))"
+			if w.Value.Len() != g.Value.Len() {
+				return "\(g.Value.Len()) listings, want \(w.Value.Len())"
 			}
 			for i, x in w.Value {
 				if x != g.Value[i] {
@@ -170,7 +171,7 @@ func agrees(c recordedCase) string {
 // frames.
 test WireAgreesWithOrigin {
 	let ix = try rpc.Decode[index]("index", read("recorded/index.json"))
-	assert len(ix.Cases) > 0
+	assert ix.Cases.Len() > 0
 	let mut wrong = []string{}
 	for c in ix.Cases {
 		let d = agrees(c)

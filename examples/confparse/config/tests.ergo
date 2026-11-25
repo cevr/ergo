@@ -13,7 +13,7 @@ test DecodesAWholeFile {
 	let c = try decoded(sample, Map[string, string]{})
 	assert c.Name == "edge" && c.Listen == Listen{Host: "0.0.0.0", Port: 8080}
 	assert Wire(c.Log) == "warn"
-	assert len(c.Upstreams) == 2
+	assert c.Upstreams.Len() == 2
 	assert c.Upstreams[0] == Upstream{Name: "a", Addr: "10.0.0.1:9000", Weight: 5, Backup: false}
 	assert c.Upstreams[1] == Upstream{Name: "b", Addr: "10.0.0.2:9000", Weight: 1, Backup: true}
 }
@@ -22,7 +22,7 @@ test FillsTheDefaults {
 	let c = try decoded("name = 'x'\n[listen]\nport = 1\n", Map[string, string]{})
 	assert c.Listen.Host == "127.0.0.1"
 	assert Wire(c.Log) == "info"
-	assert len(c.Upstreams) == 0
+	assert c.Upstreams.Len() == 0
 }
 
 test VariablesWin {

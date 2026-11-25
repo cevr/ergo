@@ -1,6 +1,7 @@
 // Scripted sessions: each script is the keys a person types. `ergo test`
 // runs the laws.
 
+import option
 import slices
 import strings
 import tui/keys
@@ -8,14 +9,14 @@ import tui/keys
 // picked is the choice of a run of the script over langs, as text.
 func picked(script []keys.Key) string {
 	match Run(Start(langs), script).Choice {
-	case Some[Choice] as c:
+	case option.Some[Choice] as c:
 		match c.Value {
 		case Picked as p:
 			"picked " + p.Item
 		case Cancelled:
 			"cancelled"
 		}
-	case None:
+	case option.None:
 		"no choice"
 	}
 }
@@ -42,6 +43,6 @@ test EndingsAndRejects {
 	assert picked([]keys.Key{keys.Down}) == "no choice"
 	let none = []keys.Key{keys.Char{Text: "/"}, keys.Char{Text: "z"}, keys.Return, keys.Return}
 	let o = Run(Start(langs), none)
-	assert o.Rejected == 1 && o.Choice == None
-	assert len(o.Frames) == 4
+	assert o.Rejected == 1 && o.Choice == option.None
+	assert o.Frames.Len() == 4
 }

@@ -20,11 +20,11 @@ type Call { Id string, Name string, Arguments string }
 func NewCall(n int, k int, text string) Call {
 	let tools = Schemas()
 	let id = "call-\(n)"
-	let m = ((k % (len(tools) + 2)) + len(tools) + 2) % (len(tools) + 2)
-	if m == len(tools) {
+	let m = ((k % (tools.Len() + 2)) + tools.Len() + 2) % (tools.Len() + 2)
+	if m == tools.Len() {
 		return Call{Id: id, Name: "write", Arguments: "{}"}
 	}
-	if m > len(tools) {
+	if m > tools.Len() {
 		return Call{Id: id, Name: "read", Arguments: "{" + text}
 	}
 	let s = tools[m]
@@ -76,23 +76,23 @@ func WellFormed(log []Row, open int) bool {
 	for r in log {
 		match r {
 		case Result as res:
-			if len(want) == 0 || want[0] != res.Id {
+			if want.Len() == 0 || want[0] != res.Id {
 				return false
 			}
 			want = want[1:]
 		case Reply as rep:
-			if len(want) != 0 {
+			if want.Len() != 0 {
 				return false
 			}
 			for c in rep.Calls {
 				want = want.Append(c.Id)
 			}
 		case User, Cut, Failed:
-			if len(want) != 0 {
+			if want.Len() != 0 {
 				return false
 			}
 		case Note:
 		}
 	}
-	len(want) == open
+	want.Len() == open
 }

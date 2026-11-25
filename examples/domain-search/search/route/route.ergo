@@ -7,6 +7,7 @@
 
 import hex
 import http
+import option
 import strings
 import domain-search/domains
 
@@ -81,9 +82,9 @@ func catalogMap() Map[string, bool] {
 
 func inCatalog(tld string) bool {
 	match catalogSet.Get(tld) {
-	case Some:
+	case option.Some:
 		true
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -91,9 +92,9 @@ func inCatalog(tld string) bool {
 // first is the first value of the query parameter name, "" when absent.
 func first(fields []http.Field, name string) string {
 	match http.Query(fields, name) {
-	case Some as v:
+	case option.Some as v:
 		v.Value
-	case None:
+	case option.None:
 		""
 	}
 }
@@ -105,15 +106,15 @@ func first(fields []http.Field, name string) string {
 // and an unknown parameter is ignored.
 func Parse(url string) Route {
 	let noFragment = match strings.Cut(url, "#") {
-	case Some as h:
+	case option.Some as h:
 		h.Value.Before
-	case None:
+	case option.None:
 		url
 	}
 	let (path, query) = match strings.Cut(noFragment, "?") {
-	case Some as h:
+	case option.Some as h:
 		(h.Value.Before, h.Value.After)
-	case None:
+	case option.None:
 		(noFragment, "")
 	}
 	if path != "/" && path != "" {
@@ -140,7 +141,7 @@ law ParsePrintRoundTrips(q string, tld int, available bool, order int) {
 	Parse(Print(r)) == r
 }
 
-func pick[T](xs []T, n int) T { xs[((n%len(xs))+len(xs))%len(xs)] }
+func pick[T](xs []T, n int) T { xs[((n%xs.Len())+xs.Len())%xs.Len()] }
 
 // routeOf is a route drawn from a query, a TLD pick (0 is every TLD), an
 // availability and an order pick.
@@ -148,7 +149,7 @@ func routeOf(q string, tld int, available bool, order int) Route {
 	if q == "" {
 		return Landing
 	}
-	let n = len(domains.Catalog) + 1
+	let n = domains.Catalog.Len() + 1
 	let t = ((tld % n) + n) % n
 	Search{Query: q, TLD: if t == 0 { "" } else { domains.Catalog[t-1] }, AvailableOnly: available, Order: pick(Orders, order)}
 }
@@ -203,7 +204,7 @@ let values = []string{"acme", "Foo%20bar", "a+b", "com", "zz", "1", "0", "price-
 // digits, -, ., _ and ~) as they are, every other byte as %XX.
 func Escape(s string) string {
 	let mut out = ""
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		let c = s[i]
 		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '.' || c == '_' || c == '~' {
 			out = out + s[i:i+1]

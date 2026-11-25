@@ -6,6 +6,7 @@ import jobsweb/jobs/jobsrpc
 import jobsweb/memory
 import machines
 import maps
+import option
 import slices
 import strings
 import testing
@@ -27,9 +28,9 @@ func jwStateSnap(st jwApiState) string {
 	let mut out = []jobs.Job{}
 	for id in slices.Sorted(maps.Keys(st.runs)) {
 		match st.runs.Get(id) {
-		case Some[job.Run] as s:
+		case option.Some[job.Run] as s:
 			out = out.Append(job.View(id, s.Value))
-		case None:
+		case option.None:
 		}
 	}
 	jwSnapList(out)
@@ -54,34 +55,34 @@ func jwFoldStep(st jwApiState, req jobsapi.Request) (jwApiState, jobsapi.Outcome
 		(jwApiState{runs: next, last: id}, jobsapi.Done{Reply: jobsapi.SubmitReply{Value: id}})
 	case jobsapi.CancelRequest as x:
 		let r = match st.runs.Get(x.Id) {
-		case Some[job.Run] as s:
+		case option.Some[job.Run] as s:
 			s.Value
-		case None:
+		case option.None:
 			return (st, jobsapi.Rejected{Failure: jobsapi.NoSuchJob{E: jobs.NoSuchJob{ID: x.Id}}})
 		}
 		let d = job.Step(r, job.Cancel)
 		match d {
-		case Reject:
+		case machines.Reject:
 			(st, jobsapi.Rejected{Failure: jobsapi.AlreadyDone{E: jobs.AlreadyDone{ID: x.Id, State: r.State}}})
-		case Emit[job.Run, jobs.State], Tell[job.Run, jobs.State], Enter[job.Run], Stay[job.Run], Ignore, Done[jobs.State]:
+		case machines.Emit[job.Run, jobs.State], machines.Tell[job.Run, jobs.State], machines.Enter[job.Run], machines.Stay[job.Run], machines.Ignore, machines.Done[jobs.State]:
 			let mut next = st.runs
 			next[x.Id] = machines.Next(r, d)
 			(jwApiState{runs: next, last: st.last}, jobsapi.Done{Reply: jobsapi.CancelReply})
 		}
 	case jobsapi.StatusRequest as x:
 		match st.runs.Get(x.Id) {
-		case Some[job.Run] as s:
-			(st, jobsapi.Done{Reply: jobsapi.StatusReply{Value: Some[jobs.Job]{Value: job.View(x.Id, s.Value)}}})
-		case None:
-			(st, jobsapi.Done{Reply: jobsapi.StatusReply{Value: None}})
+		case option.Some[job.Run] as s:
+			(st, jobsapi.Done{Reply: jobsapi.StatusReply{Value: option.Some[jobs.Job]{Value: job.View(x.Id, s.Value)}}})
+		case option.None:
+			(st, jobsapi.Done{Reply: jobsapi.StatusReply{Value: option.None}})
 		}
 	case jobsapi.ListRequest:
 		let mut out = []jobs.Job{}
 		for id in slices.Sorted(maps.Keys(st.runs)) {
 			match st.runs.Get(id) {
-			case Some[job.Run] as s:
+			case option.Some[job.Run] as s:
 				out = out.Append(job.View(id, s.Value))
-			case None:
+			case option.None:
 			}
 		}
 		(st, jobsapi.Done{Reply: jobsapi.ListReply{Value: out}})
@@ -91,9 +92,9 @@ func jwFoldStep(st jwApiState, req jobsapi.Request) (jwApiState, jobsapi.Outcome
 			let mut next = rs
 			for id in maps.Keys(rs) {
 				match rs.Get(id) {
-				case Some[job.Run] as s:
+				case option.Some[job.Run] as s:
 					next[id] = machines.Next(s.Value, job.Step(s.Value, job.Tick))
-				case None:
+				case option.None:
 				}
 			}
 			rs = next

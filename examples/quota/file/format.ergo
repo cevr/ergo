@@ -57,7 +57,7 @@ func Replay(text string) quota.Table fails Corrupt {
 		}
 		let n = i + 1
 		let w = strings.Split(line, "\t")
-		match (w[0], len(w)) {
+		match (w[0], w.Len()) {
 		case ("open", 3):
 			let id = try word(n, w[1])
 			let floor = try size(n, w[2])

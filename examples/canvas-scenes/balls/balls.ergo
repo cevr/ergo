@@ -66,7 +66,7 @@ func Drop(f Field, x float64, y float64) Field {
 	let angle, s1 = seed.Between(f.Seed, 0.0, fullTurn)
 	let speed, s2 = seed.Between(s1, speedMin, speedMax)
 	let radius, s3 = seed.Between(s2, radiusMin, radiusMax)
-	let color, s4 = seed.Below(s3, len(Palette))
+	let color, s4 = seed.Below(s3, Palette.Len())
 	let b = Ball{ID: f.NextID, X: x, Y: y, VX: math.Cos(angle) * speed, VY: math.Sin(angle) * speed, Radius: radius, Color: Palette[color]}
 	Field{Balls: f.Balls.Append(b), NextID: f.NextID + 1, Seed: s4}
 }

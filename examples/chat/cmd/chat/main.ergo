@@ -8,7 +8,9 @@
 // connections and the clock.
 
 import chat/memory
+import core
 import io
+import option
 import os
 import queue
 import strconv
@@ -19,7 +21,7 @@ import time
 type BadLine { Number int, Text string }
 
 // parseScript reads the script's lines into steps.
-func parseScript(lines Seq[string]) []memory.Step fails BadLine {
+func parseScript(lines core.Seq[string]) []memory.Step fails BadLine {
 	let mut steps = []memory.Step{}
 	let mut at = 0
 	for line in lines {
@@ -47,12 +49,12 @@ func parseLine(at int, line string) memory.Step fails BadLine {
 		return memory.HangUp{Client: strings.TrimSuffix(line, "!")}
 	}
 	match strings.Cut(line, "> ") {
-	case Some[strings.Halves] as h:
+	case option.Some[strings.Halves] as h:
 		if h.Value.Before == "" {
 			return BadLine{Number: at, Text: line}
 		}
 		memory.Speak{Client: h.Value.Before, Line: h.Value.After}
-	case None:
+	case option.None:
 		BadLine{Number: at, Text: line}
 	}
 }
@@ -72,11 +74,11 @@ func run() fails os.Exit needs io.Stdin | io.Stdout {
 	}
 	io.Stdout.Println("--")
 	for i, name in s.Clients {
-		io.Stdout.Println("\(name) was sent \(len(s.Received[i])) lines")
+		io.Stdout.Println("\(name) was sent \(s.Received[i].Len()) lines")
 	}
 }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	with context { io.Stdin: io.NewStdin(), io.Stdout: io.NewHost() } {
 		try run()
 	}

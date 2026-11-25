@@ -2,6 +2,7 @@ import gen
 import limiter/bucket
 import limiter/limits
 import machines
+import option
 import queue
 import strings
 import sync
@@ -58,7 +59,7 @@ func stepLimModel(b bucket.Bucket, a limAct) (bucket.Bucket, limObs) {
 		let d = bucket.Step(b, bucket.Spend{Cost: tk.Cost})
 		let next = machines.Next(b, d)
 		match d {
-		case Emit[bucket.Bucket, bucket.Told] as e:
+		case machines.Emit[bucket.Bucket, bucket.Told] as e:
 			match e.Output {
 			case bucket.Granted as g:
 				(next, limObs{
@@ -81,7 +82,7 @@ func stepLimModel(b bucket.Bucket, a limAct) (bucket.Bucket, limObs) {
 					FullWindow:   false,
 				})
 			}
-		case Reject, Enter[bucket.Bucket], Stay[bucket.Bucket], Tell[bucket.Bucket, bucket.Told], Ignore, Done[bucket.Told]:
+		case machines.Reject, machines.Enter[bucket.Bucket], machines.Stay[bucket.Bucket], machines.Tell[bucket.Bucket, bucket.Told], machines.Ignore, machines.Done[bucket.Told]:
 			(next, limObs{
 				Kind:         "take",
 				Granted:      false,
@@ -103,9 +104,9 @@ func limStage(m Memory, spec bucket.Spec) testing.Stage[limAct, limObs] {
 		case limAdvance as adv:
 			Advance(m, adv.Ms)
 			let lvl = match Peek(m, "api") {
-			case Some[limits.Level] as l:
+			case option.Some[limits.Level] as l:
 				levelTag(l.Value)
-			case None:
+			case option.None:
 				return testing.Refused{Why: "missing bucket"}
 			}
 			limObs{
@@ -138,9 +139,9 @@ func limStage(m Memory, spec bucket.Spec) testing.Stage[limAct, limObs] {
 				rem = g.Remaining
 			}
 			let lvl = match Peek(m, "api") {
-			case Some[limits.Level] as l:
+			case option.Some[limits.Level] as l:
 				levelTag(l.Value)
-			case None:
+			case option.None:
 				return testing.Refused{Why: "missing bucket"}
 			}
 			limObs{

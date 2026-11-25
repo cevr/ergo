@@ -20,12 +20,12 @@ func Open(s jobs.Spec) Run { Run{Spec: s, State: jobs.Queued} }
 // (Failed); the end is emitted. An ended job ignores a tick. A cancel
 // ends a job that has not ended (Cancelled, emitted) and is rejected
 // once it has: there is nothing left to stop.
-func Step(r Run, s Signal) Decision[Run, jobs.State] {
+func Step(r Run, s Signal) machines.Decision[Run, jobs.State] {
 	match s {
 	case Tick:
 		match r.State {
 		case jobs.Queued:
-			Stay[Run]{Next: at(r, jobs.Running{Step: 0, Of: r.Spec.Steps})}
+			machines.Stay[Run]{Next: at(r, jobs.Running{Step: 0, Of: r.Spec.Steps})}
 		case jobs.Running as g:
 			let next = g.Step + 1
 			if next == r.Spec.FailAt {
@@ -34,13 +34,13 @@ func Step(r Run, s Signal) Decision[Run, jobs.State] {
 			if next >= g.Of {
 				return end(r, jobs.Finished)
 			}
-			Stay[Run]{Next: at(r, jobs.Running{Step: next, Of: g.Of})}
+			machines.Stay[Run]{Next: at(r, jobs.Running{Step: next, Of: g.Of})}
 		case jobs.Finished, jobs.Failed, jobs.Cancelled:
-			Ignore
+			machines.Ignore
 		}
 	case Cancel:
 		if jobs.Terminal(r.State) {
-			return Reject
+			return machines.Reject
 		}
 		end(r, jobs.Cancelled)
 	}
@@ -48,8 +48,8 @@ func Step(r Run, s Signal) Decision[Run, jobs.State] {
 
 func at(r Run, s jobs.State) Run { Run{Spec: r.Spec, State: s} }
 
-func end(r Run, s jobs.State) Decision[Run, jobs.State] {
-	Emit[Run, jobs.State]{Next: at(r, s), Output: s}
+func end(r Run, s jobs.State) machines.Decision[Run, jobs.State] {
+	machines.Emit[Run, jobs.State]{Next: at(r, s), Output: s}
 }
 
 // View is the job id as a client sees it.
@@ -97,12 +97,12 @@ type Lifecycle machine[Run, Signal] {
 			let d = Step(r, signal(n))
 			r = machines.Next(r, d)
 			match d {
-			case Emit[Run, jobs.State] as e:
+			case machines.Emit[Run, jobs.State] as e:
 				ends = ends + 1
 				if e.Output != r.State || !jobs.Terminal(e.Output) {
 					return false
 				}
-			case Enter[Run], Stay[Run], Tell[Run, jobs.State], Ignore, Reject, Done[jobs.State]:
+			case machines.Enter[Run], machines.Stay[Run], machines.Tell[Run, jobs.State], machines.Ignore, machines.Reject, machines.Done[jobs.State]:
 			}
 		}
 		ends <= 1

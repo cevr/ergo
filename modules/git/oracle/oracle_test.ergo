@@ -1,6 +1,7 @@
 import exec
 import filepath
 import fs
+import fstest
 import os
 import strconv
 
@@ -16,7 +17,7 @@ func makePoisonedEnv(base Map[string, string], cfgPath string) Map[string, strin
 	env
 }
 
-let onOracle = context needs TestAmbient {
+let onOracle = context needs fstest.TestAmbient {
 	exec.Runner: exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
 	fs.Files:    fs.NewTestHost(),
 	fs.Writes:   fs.NewTestHost(),
@@ -24,7 +25,7 @@ let onOracle = context needs TestAmbient {
 	Symlinks:    NewHostSymlinks(fs.NewTestHost()),
 }
 
-let onPoisonedOracle = context fails os.NoWorkdir needs TestAmbient {
+let onPoisonedOracle = context fails os.NoWorkdir needs fstest.TestAmbient {
 	exec.Runner: exec.NewTestHost().InheritEnv(makePoisonedEnv(os.NewTestHost().Environ(), filepath.Join([]string{try os.NewTestHost().Getwd(), ".gitconfig"}))),
 	fs.Files:    fs.NewTestHost(),
 	fs.Writes:   fs.NewTestHost(),
@@ -54,7 +55,7 @@ test RootIndependence {
 			assert cmp.Equal
 			assert t1.Final.HeadOid != ""
 			assert t1.Final.AuthorEpoch >= BaseEpoch
-			assert t1.Final.AuthorEpoch <= StepEpoch(len(ops))
+			assert t1.Final.AuthorEpoch <= StepEpoch(ops.Len())
 			assert t1.Final.CommitterEpoch == t1.Final.AuthorEpoch
 		}
 	}
@@ -111,21 +112,21 @@ test IsolationIgnoresAmbientConfig {
 test PlumbingParsersHandleNulDelimitedRecords {
 	let treeRaw = "100644 blob 1111111111111111111111111111111111111111\tdir/hello world.txt\x00100755 blob 2222222222222222222222222222222222222222\tbin/run.sh\x00120000 blob 3333333333333333333333333333333333333333\tlink\x00"
 	let tree = ParseLsTreeZ(treeRaw)
-	assert len(tree) == 3
+	assert tree.Len() == 3
 	assert tree[0] == TreeEntry{Mode: "100644", Kind: "blob", Oid: "1111111111111111111111111111111111111111", Path: "dir/hello world.txt"}
 	assert tree[1].Mode == "100755" && tree[1].Path == "bin/run.sh"
 	assert tree[2].Mode == "120000" && tree[2].Path == "link"
 
 	let statusRaw = "R  new name.txt\x00old name.txt\x00 M dirty.txt\x00?? untracked.txt\x00"
 	let st = ParseStatusZ(statusRaw)
-	assert len(st) == 3
+	assert st.Len() == 3
 	assert st[0] == StatusEntry{IndexCode: "R", WorkCode: " ", Path: "new name.txt", OrigPath: "old name.txt"}
 	assert st[1] == StatusEntry{IndexCode: " ", WorkCode: "M", Path: "dirty.txt", OrigPath: ""}
 	assert st[2] == StatusEntry{IndexCode: "?", WorkCode: "?", Path: "untracked.txt", OrigPath: ""}
 
 	let refRaw = "refs/heads/main\x00aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\x00\x00refs/remotes/origin/HEAD\x00bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\x00refs/remotes/origin/main\x00"
 	let refs = ParseForEachRefZ(refRaw)
-	assert len(refs) == 2
+	assert refs.Len() == 2
 	assert refs[0].Name == "refs/heads/main" && refs[0].Target == ""
 	assert refs[1].Target == "refs/remotes/origin/main"
 }
@@ -163,10 +164,10 @@ test LayoutsAndFormatsWork {
 			QueryRevParse{Spec: "refs/heads/does-not-exist"},
 		}
 		let sha1T = try RunHistory("rich-sha1", uint64(1), RepoSpec{Format: Sha1, Layout: Normal, DefaultBranch: "main"}, richOps, pathEnv)
-		assert len(sha1T.Final.HeadOid) == 40
-		assert len(sha1T.Final.Tree) == 6
-		assert len(sha1T.Final.Reflog) > 0
-		match sha1T.Steps[len(sha1T.Steps)-1].Result {
+		assert sha1T.Final.HeadOid.Len() == 40
+		assert sha1T.Final.Tree.Len() == 6
+		assert sha1T.Final.Reflog.Len() > 0
+		match sha1T.Steps[sha1T.Steps.Len()-1].Result {
 		case Failed as f:
 			match f.Err {
 			case Missing:
@@ -183,16 +184,16 @@ test LayoutsAndFormatsWork {
 			Commit{Message: "s256"},
 		}
 		let sha256T = try RunHistory("rich-sha256", uint64(2), RepoSpec{Format: Sha256, Layout: Normal, DefaultBranch: "main"}, sha256Ops, pathEnv)
-		assert len(sha256T.Final.HeadOid) == 64
+		assert sha256T.Final.HeadOid.Len() == 64
 
 		let ptrT = try RunHistory("layout-ptr", uint64(3), RepoSpec{Format: Sha1, Layout: DotGitPointer, DefaultBranch: "main"}, sha256Ops, pathEnv)
-		assert len(ptrT.Final.HeadOid) == 40
+		assert ptrT.Final.HeadOid.Len() == 40
 
 		let wtT = try RunHistory("layout-wt", uint64(4), RepoSpec{Format: Sha1, Layout: LinkedWorktree, DefaultBranch: "main"}, sha256Ops, pathEnv)
-		assert len(wtT.Final.HeadOid) == 40
+		assert wtT.Final.HeadOid.Len() == 40
 
 		let altT = try RunHistory("layout-alt", uint64(5), RepoSpec{Format: Sha1, Layout: Alternates, DefaultBranch: "main"}, sha256Ops, pathEnv)
-		assert len(altT.Final.HeadOid) == 40
+		assert altT.Final.HeadOid.Len() == 40
 
 		let bareT = try RunHistory("layout-bare", uint64(6), RepoSpec{Format: Sha1, Layout: Bare, DefaultBranch: "main"}, []Op{QuerySnapshot}, pathEnv)
 		assert bareT.Final.HeadRef == "refs/heads/main"
@@ -221,7 +222,7 @@ test OppositeResultsDetectedAndReplayed {
 		let tB = try RunHistory("opp-b", uint64(11), spec, opsB, pathEnv)
 		let cmp = CompareTranscripts(tA, tB)
 		assert !cmp.Equal
-		assert len(cmp.Diffs) > 0
+		assert cmp.Diffs.Len() > 0
 		assert cmp.LeftReplay != "" && cmp.RightReplay != ""
 		let mut sawHeadDiff = false
 		for d in cmp.Diffs {
@@ -273,8 +274,8 @@ test ShrinkMinimizesFailingHistory {
 	}
 	assert pred(orig)
 	let shrunk = ShrinkHistory(orig, pred)
-	assert len(shrunk) == 2
-	assert len(shrunk) < len(orig)
+	assert shrunk.Len() == 2
+	assert shrunk.Len() < orig.Len()
 	assert pred(shrunk)
 }
 
@@ -305,5 +306,5 @@ law CompareTranscriptsIsReflexive(seed uint64) {
 		Replay:       "replay",
 	}
 	let cmp = CompareTranscripts(tr, tr)
-	cmp.Equal && len(cmp.Diffs) == 0
+	cmp.Equal && cmp.Diffs.Len() == 0
 }

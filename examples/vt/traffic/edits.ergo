@@ -19,7 +19,7 @@ func Edits(seed int, n int) string {
 	for size < n {
 		let part = r.edit()
 		parts = parts.Append(part)
-		size += len(part)
+		size += part.Len()
 	}
 	let all = strings.Join(parts, "")
 	all[0:n]

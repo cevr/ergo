@@ -1,5 +1,7 @@
+import core
 import explore
 import github.com/cevr/ergo/modules/work/work
+import option
 import strings
 import testing
 
@@ -30,7 +32,7 @@ type workPathOpenErr { Message string }
 
 type workPathDriveErr { Message string }
 
-type workPathSession { tool work.Tool } implements explore.PathSession[workPathAct, explore.Observed[workPathObs, workPathOut, Never], workPathDriveErr]
+type workPathSession { tool work.Tool } implements explore.PathSession[workPathAct, explore.Observed[workPathObs, workPathOut, core.Never], workPathDriveErr]
 
 func readWorkObs(tool work.Tool) workPathObs fails workPathDriveErr {
 	let listed = tool.List(work.ListOptions{Status: false}) catch {
@@ -56,7 +58,7 @@ func readWorkObs(tool work.Tool) workPathObs fails workPathDriveErr {
 func applyWorkAct(tool work.Tool, act workPathAct) workPathOut fails workPathDriveErr {
 	match act {
 	case WorkActNew as a:
-		let _ = tool.New(a.Name, work.NewOptions{Copy: false, From: None, Branch: None, On: None, Token: None}) catch {
+		let _ = tool.New(a.Name, work.NewOptions{Copy: false, From: option.None, Branch: option.None, On: option.None, Token: option.None}) catch {
 		case work.NameTaken:
 			return WorkOutTaken
 		case _:
@@ -80,7 +82,7 @@ func applyWorkAct(tool work.Tool, act workPathAct) workPathOut fails workPathDri
 		}
 		WorkOutOk
 	case WorkActRm as a:
-		let _ = tool.Rm(a.Name, work.RmOptions{Abandon: true, Expect: None, Tree: false}) catch {
+		let _ = tool.Rm(a.Name, work.RmOptions{Abandon: true, Expect: option.None, Tree: false}) catch {
 		case work.NoWorkspace:
 			return WorkOutMissing
 		case _:
@@ -90,19 +92,19 @@ func applyWorkAct(tool work.Tool, act workPathAct) workPathOut fails workPathDri
 	}
 }
 
-func Read(s workPathSession) explore.Observed[workPathObs, workPathOut, Never] fails workPathDriveErr {
+func Read(s workPathSession) explore.Observed[workPathObs, workPathOut, core.Never] fails workPathDriveErr {
 	explore.InitialRead[workPathObs]{State: try readWorkObs(s.tool)}
 }
 
-func Apply(s workPathSession, act workPathAct) explore.Observed[workPathObs, workPathOut, Never] fails workPathDriveErr {
+func Apply(s workPathSession, act workPathAct) explore.Observed[workPathObs, workPathOut, core.Never] fails workPathDriveErr {
 	let out = try applyWorkAct(s.tool, act)
 	let obs = try readWorkObs(s.tool)
-	explore.StepResult[workPathObs, workPathOut, Never]{
-		Step: explore.StepObs[workPathObs, workPathOut, Never]{
+	explore.StepResult[workPathObs, workPathOut, core.Never]{
+		Step: explore.StepObs[workPathObs, workPathOut, core.Never]{
 			Kind:     explore.DisEmit,
-			State:    Some[workPathObs]{Value: obs},
+			State:    option.Some[workPathObs]{Value: obs},
 			Outputs:  []workPathOut{out},
-			Error:    None,
+			Error:    option.None,
 			Terminal: false,
 		},
 	}
@@ -192,21 +194,21 @@ func workPathStep(st workPathState, act workPathAct) (workPathState, workPathOut
 	}
 }
 
-func workPathModel() explore.PathModel[workPathState, workPathAct, workPathObs, workPathOut, Never] {
-	explore.PathModelProjected[workPathState, workPathAct, workPathObs, workPathOut, Never](
+func workPathModel() explore.PathModel[workPathState, workPathAct, workPathObs, workPathOut, core.Never] {
+	explore.PathModelProjected[workPathState, workPathAct, workPathObs, workPathOut, core.Never](
 		[]workPathState{workPathState{AlphaActive: false, AlphaPinned: false, BetaActive: false, BetaPinned: false}},
 		workPathSignals,
 		"work.lifecycle",
 		workPathProject,
-		func(st workPathState, act workPathAct) explore.EdgeOutcome[workPathState, explore.StepObs[workPathObs, workPathOut, Never]] {
+		func(st workPathState, act workPathAct) explore.EdgeOutcome[workPathState, explore.StepObs[workPathObs, workPathOut, core.Never]] {
 			let (next, out) = workPathStep(st, act)
-			explore.Continue[workPathState, explore.StepObs[workPathObs, workPathOut, Never]]{
+			explore.Continue[workPathState, explore.StepObs[workPathObs, workPathOut, core.Never]]{
 				Next: next,
-				Obs:  explore.StepObs[workPathObs, workPathOut, Never]{
+				Obs:  explore.StepObs[workPathObs, workPathOut, core.Never]{
 					Kind:     explore.DisEmit,
-					State:    Some[workPathObs]{Value: workPathProject(next)},
+					State:    option.Some[workPathObs]{Value: workPathProject(next)},
 					Outputs:  []workPathOut{out},
-					Error:    None,
+					Error:    option.None,
 					Terminal: false,
 				},
 			}
@@ -225,7 +227,7 @@ type WorkPaths {
 			workPathModel(),
 			explore.ToDepth{Depth: 3},
 			bounds,
-			func(start workPathState) explore.PathSession[workPathAct, explore.Observed[workPathObs, workPathOut, Never], workPathDriveErr] fails workPathOpenErr {
+			func(start workPathState) explore.PathSession[workPathAct, explore.Observed[workPathObs, workPathOut, core.Never], workPathDriveErr] fails workPathOpenErr {
 				try OpenSession(start)
 			},
 			testing.ActiveEvidenceSink(),

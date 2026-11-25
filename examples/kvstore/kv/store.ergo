@@ -115,7 +115,7 @@ type Store {
 // Sorted reports whether keys is in strictly ascending order: sorted, and
 // no key twice.
 func Sorted(keys []string) bool {
-	for i in 1..len(keys) {
+	for i in 1..keys.Len() {
 		if keys[i-1] >= keys[i] {
 			return false
 		}

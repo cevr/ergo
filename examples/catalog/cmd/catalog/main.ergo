@@ -28,10 +28,10 @@ type Command = Feed{N int} | Check{} | Receipt{N int}
 
 // Parse is the command of args.
 func Parse(args []string) Command fails os.Exit {
-	if len(args) == 1 && args[0] == "check" {
+	if args.Len() == 1 && args[0] == "check" {
 		return Check
 	}
-	if len(args) != 2 {
+	if args.Len() != 2 {
 		return os.Exit{Code: 2, Message: Usage}
 	}
 	let n = strconv.Atoi(args[1]) catch {
@@ -62,7 +62,7 @@ func check() fails os.Exit needs catalog.Feed | io.Stdin | io.Stdout {
 		return os.Exit{Code: 1, Message: "catalog: at \(u.Path): \(u.Reason)"}
 	}
 	let n = catalog.Count(c)
-	io.Stdout.Println("\(c.Shop): \(len(c.Products)) products")
+	io.Stdout.Println("\(c.Shop): \(c.Products.Len()) products")
 	io.Stdout.Println("  \(n.Listed) listed (\(n.Units) units), \(n.SoldOut) sold out, \(n.Draft) draft, \(n.Retired) retired")
 }
 
@@ -79,7 +79,7 @@ func xmlRead(text string) int {
 	case _:
 		return -1
 	}
-	len(c.Products)
+	c.Products.Len()
 }
 
 func jsonRead(text string) int {
@@ -87,7 +87,7 @@ func jsonRead(text string) int {
 	case _:
 		return -1
 	}
-	len(c.Products)
+	c.Products.Len()
 }
 
 // allocs is the heap allocations of one call of f, after a first call.
@@ -106,11 +106,11 @@ func receipt(n int) needs io.Stdout | go.Foreign {
 	let je = allocs(func() { let _ = jsonText(c) })
 	let xd = allocs(func() { let _ = xmlRead(x) })
 	let jd = allocs(func() { let _ = jsonRead(j) })
-	io.Stdout.Println("xml  \(len(x)) bytes, \(xe) allocations per encode, \(xd) per decode (\(xmlRead(x)) products)")
-	io.Stdout.Println("json \(len(j)) bytes, \(je) allocations per encode, \(jd) per decode (\(jsonRead(j)) products)")
+	io.Stdout.Println("xml  \(x.Len()) bytes, \(xe) allocations per encode, \(xd) per decode (\(xmlRead(x)) products)")
+	io.Stdout.Println("json \(j.Len()) bytes, \(je) allocations per encode, \(jd) per decode (\(jsonRead(j)) products)")
 }
 
-func main() fails os.Exit needs Ambient | go.Foreign {
+func main() fails os.Exit needs os.Ambient | go.Foreign {
 	let command = try Parse(os.NewHost().Args())
 	with context { catalog.Feed: xmlfeed.NewFeed(), io.Stdin: io.NewStdin(), io.Stdout: io.NewHost() } {
 		match command {

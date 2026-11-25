@@ -133,8 +133,8 @@
       "name": "rp1-accept-gap",
       "origin": "wf10/sync RP1 (model m5)",
       "file": "examples/lease-sync/replica/client.ergo",
-      "from": "\t\t\tif d.From > st.cursor || st.cursor >= d.From+len(d.Records) {\n",
-      "to": "\t\t\tif st.cursor >= d.From+len(d.Records) {\n",
+      "from": "\t\t\tif d.From > st.cursor || st.cursor >= d.From+d.Records.Len() {\n",
+      "to": "\t\t\tif st.cursor >= d.From+d.Records.Len() {\n",
       "rule": "A delta that starts past the cursor is ignored: the base stays the replay of a log prefix (ViewIsCommittedPlusPending, ProtocolHolds).",
       "anchor": {
         "tests": [
@@ -277,7 +277,7 @@
       "name": "rp3-long-poll-spins",
       "origin": "wf10/sync RP3 (plan §6 RP3 mutant 3)",
       "file": "examples/lease-sync/replica/server/server.ergo",
-      "from": "\tif len(Records(s)) == from {\n",
+      "from": "\tif Records(s).Len() == from {\n",
       "to": "\tif false {\n",
       "rule": "A pull with nothing new is held, so an idle log costs one call per wait: replica/rpc LongPollHolds and IdleCostsOneCallPerWait.",
       "anchor": {
@@ -405,8 +405,8 @@
       "name": "rpg1-page-leaves-gap",
       "origin": "wf10/sync RPG1",
       "file": "examples/lease-sync/replica/page/window.ergo",
-      "from": "\tif len(w.rows) > 0 && !(atMost",
-      "to": "\tif false && len(w.rows) > 0 && !(atMost",
+      "from": "\tif w.rows.Len() > 0 && !(atMost",
+      "to": "\tif false && w.rows.Len() > 0 && !(atMost",
       "rule": "A page that does not touch the window changes nothing, so the rows have no gap: replica/page WindowIsTheListsWindow.",
       "anchor": {
         "tests": [

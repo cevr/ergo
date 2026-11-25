@@ -1,3 +1,4 @@
+import option
 import strings
 
 // Command is one line of a session: a word, then its arguments.
@@ -16,7 +17,7 @@ law PutReadsTheRest(key string, value string) {
 // isWord reports whether text is one word: not empty, and no white space.
 func isWord(text string) bool {
 	let words = strings.Fields(text)
-	len(words) == 1 && words[0] == text
+	words.Len() == 1 && words[0] == text
 }
 
 // Unknown is a first word that names no command.
@@ -71,9 +72,9 @@ law KeyCommandsTakeOneWord(key string) {
 // text and "" when it has no space.
 func split(text string) (string, string) {
 	match strings.Cut(text, " ") {
-	case Some[strings.Halves] as h:
+	case option.Some[strings.Halves] as h:
 		(h.Value.Before, strings.TrimSpace(h.Value.After))
-	case None:
+	case option.None:
 		(text, "")
 	}
 }

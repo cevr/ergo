@@ -11,7 +11,7 @@ import strings
 func Frame(s State) []string {
 	let g = GridOf(s)
 	let mut lines = []string{Status(s)}
-	let end = if g.Top+g.Height < len(g.View) { g.Top + g.Height } else { len(g.View) }
+	let end = if g.Top+g.Height < g.View.Len() { g.Top + g.Height } else { g.View.Len() }
 	for at in g.Top..end {
 		lines = lines.Append(RowLine(g, at))
 	}
@@ -23,7 +23,7 @@ func Frame(s State) []string {
 func Status(s State) string {
 	let g = GridOf(s)
 	let dir = if g.Key.Descending { "desc" } else { "asc" }
-	let base = "sort=" + ColumnName(g.Key.Column) + " " + dir + " filter=" + Quote(g.Filter) + " shown=\(len(g.View))/\(len(g.Rows)) top=\(g.Top) cursor=\(g.Cursor) selected=\(len(g.Selected))"
+	let base = "sort=" + ColumnName(g.Key.Column) + " " + dir + " filter=" + Quote(g.Filter) + " shown=\(g.View.Len())/\(g.Rows.Len()) top=\(g.Top) cursor=\(g.Cursor) selected=\(g.Selected.Len())"
 	match s {
 	case Browsing:
 		"browsing " + base

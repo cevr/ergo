@@ -1,3 +1,4 @@
+import option
 import strings
 
 // Output is one file the build writes: its path under the output folder
@@ -15,7 +16,7 @@ func Build() []Output fails Unreadable | BadFrontMatter | Unclosed | Stray | Bad
 	let mut pages = []Page{}
 	for path in Source.Pages() {
 		let p = try ParsePage(path, try Source.ReadPage(path))
-		if p.Meta.Get("draft") != (Some[string]{Value: "true"}) {
+		if p.Meta.Get("draft") != (option.Some[string]{Value: "true"}) {
 			pages = pages.Append(p)
 		}
 	}
@@ -26,15 +27,15 @@ func Build() []Output fails Unreadable | BadFrontMatter | Unclosed | Stray | Bad
 	let mut out = []Output{}
 	for p in pages {
 		let layout = match p.Meta.Get("layout") {
-		case Some[string] as l:
+		case option.Some[string] as l:
 			l.Value
-		case None:
+		case option.None:
 			"page"
 		}
 		let t = match lib.Templates.Get(layout) {
-		case Some[Template] as found:
+		case option.Some[Template] as found:
 			found.Value
-		case None:
+		case option.None:
 			return MissingTemplate{Template: p.Path, Line: 0, Name: layout}
 		}
 		let text = try Render(lib, t, Top{Vars: varsOf(p, index)})
@@ -70,9 +71,9 @@ func varsOf(p Page, index []Value) Map[string, Value] {
 // TitleOf is the title in p's front matter, or its path.
 func TitleOf(p Page) string {
 	match p.Meta.Get("title") {
-	case Some[string] as t:
+	case option.Some[string] as t:
 		t.Value
-	case None:
+	case option.None:
 		p.Path
 	}
 }

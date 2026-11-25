@@ -5,6 +5,8 @@
 // are shown after each press.
 
 import actor
+import core
+import machines
 import scopedengine/engine
 import scopedengine/memory
 import io
@@ -24,14 +26,14 @@ type Press = Start{} | Stop{} | Compute{} | Fault{}
 // and a stop while booting ends the boot before it gives an engine.
 law OneBootPerStart(gaps []int, kinds []int) {
 	let ls = lines(gaps, kinds)
-	let seen = live(ls, if len(ls) > 0 { ls[len(ls)-1].At } else { 0s })
+	let seen = live(ls, if ls.Len() > 0 { ls[ls.Len()-1].At } else { 0s })
 	let mut starts = 0
 	for i, l in ls {
 		if l.Press == Start && canStart(seen[i].Before) {
 			starts = starts + 1
 		}
 	}
-	seen[len(seen)-1].Booted <= starts
+	seen[seen.Len()-1].Booted <= starts
 }
 
 func canStart(m engine.Mode) bool {
@@ -51,14 +53,14 @@ type Line { At duration, Press Press }
 // booted is back.
 law ReleasesEqualAcquires(gaps []int, kinds []int, tail int) {
 	let ls = lines(gaps, kinds)
-	let end = (if len(ls) > 0 { ls[len(ls)-1].At } else { 0s }) + time.Times(1ms, pick(tail, 2000))
+	let end = (if ls.Len() > 0 { ls[ls.Len()-1].At } else { 0s }) + time.Times(1ms, pick(tail, 2000))
 	let seen = live(ls, end)
 	for i, s in seen {
-		if i < len(ls) && s.Held != (if isReady(s.Mode) { 1 } else { 0 }) {
+		if i < ls.Len() && s.Held != (if isReady(s.Mode) { 1 } else { 0 }) {
 			return false
 		}
 	}
-	seen[len(seen)-1].Held == 0
+	seen[seen.Len()-1].Held == 0
 }
 
 func isReady(m engine.Mode) bool {
@@ -87,10 +89,10 @@ func Read(text []string) Script fails BadLine {
 		let n = i + 1
 		let t = strings.TrimSpace(raw)
 		let words = strings.Fields(t)
-		if len(words) == 0 || strings.HasPrefix(t, "#") {
+		if words.Len() == 0 || strings.HasPrefix(t, "#") {
 			continue
 		}
-		if len(words) != 2 || !strings.HasPrefix(words[0], "@") {
+		if words.Len() != 2 || !strings.HasPrefix(words[0], "@") {
 			return BadLine{Line: n, Why: "a line is @MS WORD"}
 		}
 		let at = time.Times(1ms, try count(n, strings.TrimPrefix(words[0], "@")))
@@ -114,7 +116,7 @@ func Read(text []string) Script fails BadLine {
 		}
 		lines = lines.Append(Line{At: at, Press: press})
 	}
-	BadLine{Line: len(text) + 1, Why: "the script has no @MS end line"}
+	BadLine{Line: text.Len() + 1, Why: "the script has no @MS end line"}
 }
 
 func count(n int, word string) int fails BadLine {
@@ -139,8 +141,8 @@ type Seen { Before engine.Mode, Mode engine.Mode, Held int, Booted int }
 // (so a boot due by then has ended), and gives what is seen after each
 // press, then after end once the screen has stopped: every engine is back
 // by then.
-func Play(lines []Line, end duration, clock time.Manual, pool memory.Pool) []Seen needs Scheduler | engine.Engines {
-	let screen = actor.StartMachine(engine.Panel{}, 4, func(n Never) {})
+func Play(lines []Line, end duration, clock time.Manual, pool memory.Pool) []Seen needs time.Scheduler | engine.Engines {
+	let screen = actor.StartMachine(engine.Panel{}, 4, func(n core.Never) {})
 	let mut out = []Seen{}
 	let mut now = 0s
 	for l in lines {
@@ -168,7 +170,7 @@ func Play(lines []Line, end duration, clock time.Manual, pool memory.Pool) []See
 
 // ask steps s on the screen and waits for it: the screen never ends
 // before Play stops it, so Stopped cannot come.
-func ask(screen actor.Actor[engine.Mode, engine.Signal, Decision[engine.Mode, Never]], s engine.Signal) {
+func ask(screen actor.Actor[engine.Mode, engine.Signal, machines.Decision[engine.Mode, core.Never]], s engine.Signal) {
 	let _ = screen.Ask(s) catch {
 	case actor.Stopped:
 		return
@@ -180,32 +182,32 @@ func ask(screen actor.Actor[engine.Mode, engine.Signal, Decision[engine.Mode, Ne
 // `@MS WORD`, then `  SCREEN; N out`; with stats, also the work of the
 // press. It returns the exit status: 0, or 1 when the script is refused
 // or the screen fails.
-func Run(clock time.Manual, pool memory.Pool, stats bool) int needs Console | io.Stdin | Scheduler | engine.Engines {
+func Run(clock time.Manual, pool memory.Pool, stats bool) int needs io.Console | io.Stdin | time.Scheduler | engine.Engines {
 	let mut text = []string{}
 	for line in io.Stdin.Lines() {
 		text = text.Append(line)
 	}
 	let s = Read(text) catch {
 	case BadLine as b:
-		Console.Println("? line \(b.Line): \(b.Why)")
+		io.Console.Println("? line \(b.Line): \(b.Why)")
 		return 1
 	}
 	let mut i = 0
-	PlayScreen(s.Lines, s.End, clock, pool, func(f Frame) needs Console {
-		let at = if i < len(s.Lines) { s.Lines[i].At } else { s.End }
-		let what = if i < len(s.Lines) { Name(s.Lines[i].Press) } else { "end" }
+	PlayScreen(s.Lines, s.End, clock, pool, func(f Frame) needs io.Console {
+		let at = if i < s.Lines.Len() { s.Lines[i].At } else { s.End }
+		let what = if i < s.Lines.Len() { Name(s.Lines[i].Press) } else { "end" }
 		i = i + 1
-		Console.Println("@\(time.Count(at, 1ms)) \(what)")
-		Console.Println("  \(ShownLine(f)); \(f.Held) out")
+		io.Console.Println("@\(time.Count(at, 1ms)) \(what)")
+		io.Console.Println("  \(ShownLine(f)); \(f.Held) out")
 		if stats {
-			Console.Println("  stats: \(ui.CountsLine(f.Counts))")
+			io.Console.Println("  stats: \(ui.CountsLine(f.Counts))")
 		}
 	}) catch {
 	case actor.Stopped:
-		Console.Println("? the panel stopped")
+		io.Console.Println("? the panel stopped")
 		return 1
 	case ui.BadPatch as p:
-		Console.Println("? the screen: \(p.Why)")
+		io.Console.Println("? the screen: \(p.Why)")
 		return 1
 	}
 	0

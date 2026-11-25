@@ -17,6 +17,8 @@
 
 import fieldnotes/journal
 import fs
+import machines
+import option
 import strconv
 import strings
 
@@ -72,17 +74,17 @@ func Finish(p Part) journal.Entry fails BadLine {
 	}
 }
 
-func decide(p Part, s Signal) Decision[Part, journal.Entry] fails BadLine {
+func decide(p Part, s Signal) machines.Decision[Part, journal.Entry] fails BadLine {
 	match s {
 	case End:
-		Done[journal.Entry]{Output: try Finish(p)}
+		machines.Done[journal.Entry]{Output: try Finish(p)}
 	case Line as l:
 		let next = try Step(p, l)
 		match (p, next) {
 		case (Head, Head), (Body, Body):
-			Stay[Part]{Next: next}
+			machines.Stay[Part]{Next: next}
 		case (Head, Body), (Body, Head):
-			Enter[Part]{Next: next}
+			machines.Enter[Part]{Next: next}
 		}
 	}
 }
@@ -100,9 +102,9 @@ func headDone(e journal.Entry, no int) fails BadLine {
 // field is e with the head line l read into it.
 func field(e journal.Entry, l Line) journal.Entry fails BadLine {
 	let h = match strings.Cut(l.Text, ":") {
-	case Some[strings.Halves] as h:
+	case option.Some[strings.Halves] as h:
 		h.Value
-	case None:
+	case option.None:
 		return BadLine{No: l.No, Reason: "a head line is key: value"}
 	}
 	let value = strings.TrimSpace(h.After)
@@ -137,7 +139,7 @@ func field(e journal.Entry, l Line) journal.Entry fails BadLine {
 // paragraph is e with lines, joined by a space, as its next paragraph;
 // no lines add none.
 func paragraph(e journal.Entry, lines []string) journal.Entry {
-	if len(lines) == 0 {
+	if lines.Len() == 0 {
 		return e
 	}
 	journal.Entry{..e, Body: e.Body.Append(strings.Join(lines, " "))}
@@ -146,7 +148,7 @@ func paragraph(e journal.Entry, lines []string) journal.Entry {
 // IsDay is whether s is a day as YYYY-MM-DD writes it: four digits, a
 // dash, two digits, a dash, two digits.
 func IsDay(s string) bool {
-	if len(s) != 10 || s[4] != '-' || s[7] != '-' {
+	if s.Len() != 10 || s[4] != '-' || s[7] != '-' {
 		return false
 	}
 	for i in 0..10 {
@@ -172,7 +174,7 @@ func Read(slug string, text string) journal.Entry fails BadLine {
 // day and paragraphs are each one line of text (law FormatThenRead).
 func Format(e journal.Entry) string {
 	let mut lines = []string{"title: " + e.Title, "day: " + e.Day}
-	if len(e.Related) > 0 {
+	if e.Related.Len() > 0 {
 		lines = lines.Append("related: " + strings.Join(e.Related, ", "))
 	}
 	for p in e.Body {

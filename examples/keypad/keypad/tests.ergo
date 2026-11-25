@@ -14,16 +14,16 @@ func told(p Pad, signals []Signal) []string {
 		let d = Tried(at, s)
 		at = machines.Next(at, d)
 		match d {
-		case Done[Output] as done:
+		case machines.Done[Output] as done:
 			out = out.Append(said(done.Output))
 			return out
-		case Emit[Pad, Output] as e:
+		case machines.Emit[Pad, Output] as e:
 			out = out.Append(said(e.Output))
-		case Enter[Pad]:
-		case Stay[Pad], Tell[Pad, Output]:
-		case Ignore:
+		case machines.Enter[Pad]:
+		case machines.Stay[Pad], machines.Tell[Pad, Output]:
+		case machines.Ignore:
 			out = out.Append("ignore")
-		case Reject:
+		case machines.Reject:
 			out = out.Append("reject")
 		}
 	}
