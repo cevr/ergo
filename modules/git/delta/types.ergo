@@ -1,0 +1,171 @@
+// Package delta implements pure-Ergo Git delta decoding and materialization
+// (G-DELTAS), including delta header varints, copy/insert instruction streams
+// with the 64 KiB zero-size copy rule, packfile entry headers, OFS_DELTA
+// biased negative-distance varints, REF_DELTA base OID framing, and bounded
+// delta chain resolution for both SHA-1 and SHA-256 repositories.
+
+import slices
+import github.com/cevr/ergo/modules/git/oid
+
+// Truncated reports an unexpected end of input while decoding a varint, header,
+// or delta instruction stream.
+type Truncated { Offset int }
+
+// CorruptDelta reports a structurally invalid delta stream, such as reserved
+// opcode 0x00, varint overflow, or a copy instruction reading past the base.
+type CorruptDelta { Offset int, Reason string }
+
+// BaseSizeMismatch reports that the delta header's declared base length does
+// not match the supplied base buffer length.
+type BaseSizeMismatch { Expected int, Got int }
+
+// TargetSizeMismatch reports that materialized delta output does not match the
+// delta header's declared target length.
+type TargetSizeMismatch { Expected int, Got int }
+
+// LimitExceeded reports that a declared target or inflated object exceeds the
+// configured byte budget.
+type LimitExceeded { Limit int, Needed int }
+
+// BadOfsDistance reports a malformed, zero, overflowing, or out-of-range
+// OFS_DELTA negative offset distance.
+type BadOfsDistance { EntryOffset int, Distance uint64 }
+
+// BadPackHeader reports a malformed PACK header, entry type, or size mismatch.
+type BadPackHeader { Reason string }
+
+// DepthExceeded reports a delta chain exceeding the configured maximum depth.
+type DepthExceeded { MaxDepth int }
+
+// MissingBase reports a REF_DELTA base OID not found in the pack or BaseSource.
+type MissingBase { BaseHex string }
+
+// ZlibFailed reports a zlib decompression failure on a packed entry stream.
+type ZlibFailed { Reason string }
+
+// Error is the closed failure union for delta decoding, pack entry scanning,
+// and delta chain resolution.
+type Error =
+	| Truncated
+	| CorruptDelta
+	| BaseSizeMismatch
+	| TargetSizeMismatch
+	| LimitExceeded
+	| BadOfsDistance
+	| BadPackHeader
+	| DepthExceeded
+	| MissingBase
+	| ZlibFailed
+
+// PackEntryKind classifies a Git packfile entry header type (1..4, 6, 7).
+type PackEntryKind = BaseObject{Kind oid.Kind} | OfsDelta{} | RefDelta{}
+
+// PackEntryHeader is the decoded packfile entry header: entry kind, declared
+// uncompressed byte size, and header bytes consumed.
+type PackEntryHeader {
+	Kind     PackEntryKind,
+	Size     int,
+	Consumed int,
+}
+
+// ChainLimits bounds delta chain depth and per-object materialized byte size.
+type ChainLimits {
+	MaxDepth int,
+	MaxBytes int,
+}
+
+// DefaultLimits returns conservative default delta resolution limits (max
+// chain depth 64, max object size 64 MiB).
+func DefaultLimits() ChainLimits {
+	ChainLimits{MaxDepth: 64, MaxBytes: 64 * 1024 * 1024}
+}
+
+// Materialized is a resolved Git object with its canonical kind and raw bytes.
+type Materialized {
+	Kind oid.Kind,
+	Data []byte,
+}
+
+// RawEntry is one scanned packfile entry after zlib decompression, before
+// delta chain materialization.
+type RawEntry =
+	| RawBase{Kind oid.Kind, Data []byte}
+	| RawOfsDelta{BaseOffset int, Delta []byte}
+	| RawRefDelta{BaseOid oid.OID, Delta []byte}
+
+// PackEntry pairs a packfile byte offset with its scanned RawEntry.
+type PackEntry {
+	Offset int,
+	Entry  RawEntry,
+}
+
+// PackedObject is a fully materialized object from a packfile together with
+// its byte offset and verified canonical OID.
+type PackedObject {
+	Offset int,
+	Kind   oid.Kind,
+	Data   []byte,
+	Oid    oid.OID,
+}
+
+// BaseSource provides external base object lookup by canonical OID for thin
+// pack REF_DELTA resolution.
+type BaseSource {
+	Lookup(id oid.OID) Materialized fails MissingBase,
+
+	// LookupIsRepeatable: looking up the same OID twice yields the same object
+	// or fails MissingBase consistently.
+	law LookupIsRepeatable(k int) {
+		let id = oid.Zero(if k%2 == 0 { oid.Sha1 } else { oid.Sha256 })
+		let mut ok1 = true
+		let m1 = Lookup(id) catch {
+		case MissingBase:
+			ok1 = false
+			Materialized{Kind: oid.Blob, Data: []byte{}}
+		}
+		let mut ok2 = true
+		let m2 = Lookup(id) catch {
+		case MissingBase:
+			ok2 = false
+			Materialized{Kind: oid.Blob, Data: []byte{}}
+		}
+		if ok1 != ok2 {
+			return false
+		}
+		!ok1 || (m1.Kind == m2.Kind && slices.Equal(m1.Data, m2.Data))
+	},
+}
+
+// EmptyBases is a BaseSource containing no external base objects.
+type EmptyBases {} implements BaseSource
+
+// Lookup always fails MissingBase for EmptyBases.
+func Lookup(_ EmptyBases, id oid.OID) Materialized fails MissingBase {
+	MissingBase{BaseHex: oid.Hex(id)}
+}
+
+// MapBases is an in-memory BaseSource keyed by canonical lowercase OID hex.
+type MapBases {
+	entries Map[string, Materialized],
+} implements BaseSource
+
+// NewMapBases returns an empty MapBases provider.
+func NewMapBases() MapBases {
+	MapBases{entries: Map[string, Materialized]{}}
+}
+
+// WithBase returns a MapBases containing id mapped to obj.
+func WithBase(m MapBases, id oid.OID, obj Materialized) MapBases {
+	MapBases{entries: m.entries.Put(oid.Hex(id), obj)}
+}
+
+// Lookup returns the stored base for id or fails MissingBase.
+func Lookup(m MapBases, id oid.OID) Materialized fails MissingBase {
+	let key = oid.Hex(id)
+	match m.entries.Get(key) {
+	case Some[Materialized] as found:
+		found.Value
+	case None:
+		MissingBase{BaseHex: key}
+	}
+}

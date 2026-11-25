@@ -242,6 +242,70 @@
       ]
     },
     {
+      "name": "git-deltas-ofs-bias-off-by-one",
+      "origin": "STD-GIT G-DELTAS",
+      "file": "modules/git/delta/delta.ergo",
+      "from": "\t\tdist = ((dist + uint64(1)) << uint64(7)) | uint64(b&byte(0x7f))",
+      "to": "\t\tdist = (dist << uint64(7)) | uint64(b&byte(0x7f))",
+      "rule": "ParseOfsDistance applies Git's +1 bias on each OFS_DELTA continuation byte before shifting left by 7.",
+      "anchor": {
+        "tests": [
+          "modules/git/delta:OfsDistanceExactWireBytes"
+        ]
+      },
+      "killers": [
+        "modules/git/delta:OfsDistanceExactWireBytes"
+      ]
+    },
+    {
+      "name": "git-deltas-zero-copy-size-not-64k",
+      "origin": "STD-GIT G-DELTAS",
+      "file": "modules/git/delta/delta.ergo",
+      "from": "\t\t\tif copySize == 0 {\n\t\t\t\tcopySize = 65536\n\t\t\t}",
+      "to": "\t\t\tif copySize == 0 {\n\t\t\t\tcopySize = 0\n\t\t\t}",
+      "rule": "Apply treats a zero-encoded copy instruction size as 0x10000 (65,536) bytes per Git delta format.",
+      "anchor": {
+        "tests": [
+          "modules/git/delta:CopyZeroSizeMeans64K"
+        ]
+      },
+      "killers": [
+        "modules/git/delta:CopyZeroSizeMeans64K"
+      ]
+    },
+    {
+      "name": "git-deltas-ignore-base-size-mismatch",
+      "origin": "STD-GIT G-DELTAS",
+      "file": "modules/git/delta/delta.ergo",
+      "from": "\tif baseSize != len(base) {\n\t\treturn BaseSizeMismatch{Expected: baseSize, Got: len(base)}\n\t}",
+      "to": "\tif false && baseSize != len(base) {\n\t\treturn BaseSizeMismatch{Expected: baseSize, Got: len(base)}\n\t}",
+      "rule": "Apply rejects deltas whose decoded base size does not match len(base) with BaseSizeMismatch.",
+      "anchor": {
+        "tests": [
+          "modules/git/delta:RejectsCorruptAndOversizedDeltas"
+        ]
+      },
+      "killers": [
+        "modules/git/delta:RejectsCorruptAndOversizedDeltas"
+      ]
+    },
+    {
+      "name": "git-deltas-allow-opcode-zero",
+      "origin": "STD-GIT G-DELTAS",
+      "file": "modules/git/delta/delta.ergo",
+      "from": "\t\t\treturn CorruptDelta{Offset: cmdPos, Reason: \"reserved delta opcode 0x00\"}",
+      "to": "\t\t\tcontinue",
+      "rule": "Apply strictly rejects reserved delta opcode 0x00 with CorruptDelta rather than ignoring it.",
+      "anchor": {
+        "tests": [
+          "modules/git/delta:RejectsCorruptAndOversizedDeltas"
+        ]
+      },
+      "killers": [
+        "modules/git/delta:RejectsCorruptAndOversizedDeltas"
+      ]
+    },
+    {
       "name": "git-packidx-swap-large-offset-index",
       "origin": "STD-GIT G-PACKIDX",
       "file": "modules/git/packidx/codec.ergo",
