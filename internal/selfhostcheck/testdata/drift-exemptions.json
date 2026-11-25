@@ -1,0 +1,4 @@
+{
+  "about": "Documented Go-only compiler files exempt from the Go<->Ergo dual-compiler drift gate (scripts/compiler-drift). Every entry requires an existing checkout-relative file, a non-empty reason, and an owner.",
+  "exemptions": []
+}
