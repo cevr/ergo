@@ -3491,6 +3491,1527 @@ index 0000000..c486108
 +	}
 +	return nil, nil, false
 +}
+diff --git a/src/cmd/compile/internal/ergoir/ergopkg_decode.go b/src/cmd/compile/internal/ergoir/ergopkg_decode.go
+new file mode 100644
+index 0000000..a2cf572
+--- /dev/null
++++ b/src/cmd/compile/internal/ergoir/ergopkg_decode.go
+@@ -0,0 +1,1075 @@
++package ergoir
++
++import (
++	"encoding/binary"
++	"fmt"
++	"strings"
++)
++
++const (
++	EIRMagic    = "ERGOEIR\n"
++	EIRVersion  = uint32(1)
++	EIRMaxBytes = 256 * 1024 * 1024
++	EIRSections = 16
++)
++
++const (
++	HPackage   = 0
++	HNames     = 1
++	HImports   = 2
++	HFiles     = 3
++	HLines     = 4
++	HSpans     = 5
++	HTypes     = 6
++	HSymbols   = 7
++	HBodies    = 8
++	HSlots     = 9
++	HOps       = 10
++	HInstances = 11
++	HFacts     = 12
++	HInit      = 13
++	HOperands  = 14
++	HText      = 15
++)
++
++const (
++	HTBasic     = uint32(1)
++	HTPointer   = uint32(2)
++	HTSignature = uint32(3)
++	HTRecord    = uint32(4)
++	HTNamed     = uint32(5)
++	HTParameter = uint32(6)
++	HTGeneric   = uint32(7)
++	HTApplied   = uint32(8)
++	HTSlice     = uint32(9)
++	HTArray     = uint32(10)
++	HTMap       = uint32(11)
++	HTInterface = uint32(12)
++
++	HBasicBool       = uint32(1)
++	HBasicInt        = uint32(2)
++	HBasicInt8       = uint32(3)
++	HBasicInt16      = uint32(4)
++	HBasicInt32      = uint32(5)
++	HBasicInt64      = uint32(6)
++	HBasicUint       = uint32(7)
++	HBasicUint8      = uint32(8)
++	HBasicUint16     = uint32(9)
++	HBasicUint32     = uint32(10)
++	HBasicUint64     = uint32(11)
++	HBasicUintptr    = uint32(12)
++	HBasicFloat32    = uint32(13)
++	HBasicFloat64    = uint32(14)
++	HBasicComplex64  = uint32(15)
++	HBasicComplex128 = uint32(16)
++	HBasicString     = uint32(17)
++	HBasicAny        = uint32(18)
++
++	HSFunc       = uint32(1)
++	HSVar        = uint32(2)
++	HSType       = uint32(3)
++	HSField      = uint32(4)
++	HSDictionary = uint32(5)
++	HSMethod     = uint32(6)
++
++	HOConst        = uint32(1)
++	HOAdd          = uint32(2)
++	HOSub          = uint32(3)
++	HOMul          = uint32(4)
++	HOXor          = uint32(5)
++	HOLoad         = uint32(6)
++	HOStore        = uint32(7)
++	HOAddrOf       = uint32(8)
++	HOGetGlobal    = uint32(9)
++	HOSetGlobal    = uint32(10)
++	HOCall         = uint32(11)
++	HOCallClosure  = uint32(12)
++	HOJump         = uint32(13)
++	HOBranch       = uint32(14)
++	HOReturn       = uint32(15)
++	HOCallInstance = uint32(16)
++	HOConvert      = uint32(17)
++
++	HCLess     = uint32(1)
++	HCNotEqual = uint32(2)
++	HCEqual    = uint32(3)
++	HCAtLeast  = uint32(4)
++
++	HFBounds = uint32(1)
++)
++
++var eirWidths = [EIRSections]int{
++	HPackage:   6,
++	HNames:     1,
++	HImports:   5,
++	HFiles:     12,
++	HLines:     1,
++	HSpans:     3,
++	HTypes:     4,
++	HSymbols:   5,
++	HBodies:    5,
++	HSlots:     1,
++	HOps:       4,
++	HInstances: 5,
++	HFacts:     5,
++	HInit:      1,
++	HOperands:  1,
++	HText:      1,
++}
++
++type EIRTarget struct {
++	Path    string
++	GOOS    string
++	GOARCH  string
++	Pin     string
++	Profile string
++}
++
++type EIRImport struct {
++	Path        string
++	Name        string
++	HasInit     bool
++	Fingerprint [8]byte
++}
++
++type EIRFile struct {
++	Path      string
++	ByteSize  uint32
++	FirstLine uint32
++	LineCount uint32
++	Rev       [8]uint32
++}
++
++type EIRSpan struct {
++	File  uint32 // 1-based file index
++	Start uint32
++	End   uint32
++}
++
++type EIRType struct {
++	Kind    uint32
++	Aux     uint32
++	FirstOp uint32
++	OpCount uint32
++}
++
++type EIRSymbol struct {
++	Import uint32 // 0 = local, 1.. = HImports index
++	Name   string
++	Kind   uint32
++	Type   uint32 // 1-based HTypes index
++	Span   uint32 // 1-based HSpans index (0 for foreign)
++}
++
++type EIRBody struct {
++	FuncSym   uint32 // 1-based HSymbols index
++	FirstSlot uint32
++	SlotCount uint32
++	FirstOp   uint32
++	OpCount   uint32
++}
++
++type EIROp struct {
++	Opcode  uint32
++	Span    uint32
++	FirstOp uint32
++	OpCount uint32
++}
++
++type EIRInstance struct {
++	GenericSym     uint32
++	SpecializedSig uint32
++	DictSym        uint32
++	FirstOp        uint32
++	OpCount        uint32
++}
++
++type EIRFact struct {
++	Op          uint32
++	Kind        uint32
++	SubjectSlot uint32
++	LimitSlot   uint32
++	ProofOp     uint32
++}
++
++type EIRPackage struct {
++	Target    EIRTarget
++	PkgName   string
++	Names     []string
++	Imports   []EIRImport
++	Files     []EIRFile
++	Lines     []uint32
++	Spans     []EIRSpan
++	Types     []EIRType
++	Symbols   []EIRSymbol
++	Bodies    []EIRBody
++	Slots     []uint32
++	Ops       []EIROp
++	Instances []EIRInstance
++	Facts     []EIRFact
++	Inits     []uint32 // 1-based HSymbols indices in semantic order
++	Operands  []uint32
++
++	raw   []byte
++	dir   [EIRSections]eirSection
++	names []uint32
++}
++
++type eirSection struct {
++	start int
++	count uint32
++}
++
++func (p *EIRPackage) rows(s int) int { return int(p.dir[s].count) }
++
++func (p *EIRPackage) word(s, row, col int) uint32 {
++	at := p.dir[s].start + (p.rows(s)*col+row)*4
++	return binary.LittleEndian.Uint32(p.raw[at : at+4])
++}
++
++func (p *EIRPackage) ref(s int, id uint32) bool {
++	return id > 0 && id <= p.dir[s].count
++}
++
++func (p *EIRPackage) run(s int, at, first, n uint32) bool {
++	return first == at && n <= p.dir[s].count-at
++}
++
++func (p *EIRPackage) operand(lo, off uint32) uint32 {
++	return p.word(HOperands, int(lo+off), 0)
++}
++
++func (p *EIRPackage) nameOf(id uint32) string {
++	return p.Names[id-1]
++}
++
++// SpanPos resolves a 1-based span ID to a 0-based file index and 1-based (line, col).
++func (p *EIRPackage) SpanPos(spanID uint32) (fileIdx int, line, col uint) {
++	sp := p.Spans[spanID-1]
++	fileIdx = int(sp.File) - 1
++	f := p.Files[fileIdx]
++	base := int(f.FirstLine)
++	lo, hi := base, base+int(f.LineCount)
++	for lo+1 < hi {
++		mid := lo + (hi-lo)/2
++		if p.Lines[mid] <= sp.Start {
++			lo = mid
++		} else {
++			hi = mid
++		}
++	}
++	line = uint(lo-base) + 1
++	col = uint(sp.Start-p.Lines[lo]) + 1
++	return fileIdx, line, col
++}
++
++// DecodeEIR decodes and structurally validates a frozen EIR v1 image fail-closed.
++func DecodeEIR(wire []byte) (*EIRPackage, error) {
++	const headerBytes = 8 + 4 + EIRSections*4
++	if len(wire) > EIRMaxBytes {
++		return nil, fmt.Errorf("ergopkg: image size %d exceeds limit %d", len(wire), EIRMaxBytes)
++	}
++	if len(wire) < headerBytes || string(wire[:8]) != EIRMagic {
++		return nil, fmt.Errorf("ergopkg: missing or invalid EIR magic")
++	}
++	ver := binary.LittleEndian.Uint32(wire[8:12])
++	if ver != EIRVersion {
++		return nil, fmt.Errorf("ergopkg: unsupported EIR schema version %d (want %d)", ver, EIRVersion)
++	}
++
++	p := &EIRPackage{raw: wire}
++	at := headerBytes
++	for i := 0; i < EIRSections; i++ {
++		n := binary.LittleEndian.Uint32(wire[12+i*4 : 16+i*4])
++		width := eirWidths[i]
++		if i != HText {
++			width *= 4
++		}
++		if n > uint32((len(wire)-at)/width) {
++			return nil, fmt.Errorf("ergopkg: section %d count %d exceeds image bounds", i, n)
++		}
++		p.dir[i] = eirSection{start: at, count: n}
++		at += int(n) * width
++	}
++	if at != len(wire) {
++		return nil, fmt.Errorf("ergopkg: trailing bytes after HText (%d != %d)", at, len(wire))
++	}
++	if p.dir[HPackage].count != 1 {
++		return nil, fmt.Errorf("ergopkg: HPackage must have exactly 1 row (got %d)", p.dir[HPackage].count)
++	}
++
++	if err := p.validateNamesAndImports(); err != nil {
++		return nil, err
++	}
++	if err := p.validateSources(); err != nil {
++		return nil, err
++	}
++	if err := p.validateSymbols(); err != nil {
++		return nil, err
++	}
++	opStart, err := p.validateTypes()
++	if err != nil {
++		return nil, err
++	}
++	if err := p.validateDeclarations(); err != nil {
++		return nil, err
++	}
++	if err := p.validateStorageGraph(); err != nil {
++		return nil, err
++	}
++	instStart, err := p.validateBodies(opStart)
++	if err != nil {
++		return nil, err
++	}
++	if err := p.validateInstances(instStart); err != nil {
++		return nil, err
++	}
++	if err := p.validateInitOrder(); err != nil {
++		return nil, err
++	}
++
++	p.materialize()
++	return p, nil
++}
++
++func (p *EIRPackage) validateNamesAndImports() error {
++	textStart := p.dir[HText].start
++	textLen := p.dir[HText].count
++	nNames := p.rows(HNames)
++	p.Names = make([]string, nNames)
++	p.names = make([]uint32, nNames)
++	var end uint32
++	prev := ""
++	for i := 0; i < nNames; i++ {
++		next := p.word(HNames, i, 0)
++		if next <= end || next > textLen {
++			return fmt.Errorf("ergopkg: HNames[%d] bounds invalid (%d..%d, text=%d)", i, end, next, textLen)
++		}
++		s := string(p.raw[textStart+int(end) : textStart+int(next)])
++		if s <= prev || strings.ContainsRune(s, 0) {
++			return fmt.Errorf("ergopkg: HNames[%d] not strictly sorted non-NUL string", i)
++		}
++		p.Names[i] = s
++		p.names[i] = next
++		prev = s
++		end = next
++	}
++	if end != textLen {
++		return fmt.Errorf("ergopkg: HText has unowned trailing bytes (%d != %d)", end, textLen)
++	}
++	for c := 0; c < eirWidths[HPackage]; c++ {
++		if !p.ref(HNames, p.word(HPackage, 0, c)) {
++			return fmt.Errorf("ergopkg: HPackage column %d invalid name ref", c)
++		}
++	}
++	pkgPathID := p.word(HPackage, 0, 0)
++	var lastPath uint32
++	for i := 0; i < p.rows(HImports); i++ {
++		next := p.word(HImports, i, 0)
++		pkgName := p.word(HImports, i, 1)
++		hasInit := p.word(HImports, i, 2)
++		if next <= lastPath || !p.ref(HNames, next) || next == pkgPathID || !p.ref(HNames, pkgName) || hasInit > 1 {
++			return fmt.Errorf("ergopkg: HImports[%d] invalid identity or order", i)
++		}
++		lastPath = next
++	}
++	return nil
++}
++
++func (p *EIRPackage) validateSources() error {
++	var lastPath, at uint32
++	for i := 0; i < p.rows(HFiles); i++ {
++		next := p.word(HFiles, i, 0)
++		size := p.word(HFiles, i, 1)
++		lo := p.word(HFiles, i, 2)
++		n := p.word(HFiles, i, 3)
++		if next <= lastPath || !p.ref(HNames, next) || !strings.HasSuffix(p.nameOf(next), ".ergo") {
++			return fmt.Errorf("ergopkg: HFiles[%d] invalid .ergo path or order", i)
++		}
++		if size == 0xffffffff || n == 0 || !p.run(HLines, at, lo, n) || p.word(HLines, int(lo), 0) != 0 {
++			return fmt.Errorf("ergopkg: HFiles[%d] invalid line run", i)
++		}
++		var last uint32
++		for j := int(lo) + 1; j < int(lo+n); j++ {
++			x := p.word(HLines, j, 0)
++			if x <= last || x > size {
++				return fmt.Errorf("ergopkg: HLines[%d] outside file or out of order", j)
++			}
++			last = x
++		}
++		lastPath = next
++		at = lo + n
++	}
++	if at != p.dir[HLines].count {
++		return fmt.Errorf("ergopkg: HLines has unowned rows")
++	}
++	for i := 0; i < p.rows(HSpans); i++ {
++		f := p.word(HSpans, i, 0)
++		start := p.word(HSpans, i, 1)
++		end := p.word(HSpans, i, 2)
++		if !p.ref(HFiles, f) || start > end || end > p.word(HFiles, int(f)-1, 1) {
++			return fmt.Errorf("ergopkg: HSpans[%d] outside source file", i)
++		}
++	}
++	return nil
++}
++
++func (p *EIRPackage) symKind(id, k uint32) bool {
++	return p.ref(HSymbols, id) && p.word(HSymbols, int(id)-1, 2) == k
++}
++
++func (p *EIRPackage) typeKind(t uint32) uint32 {
++	return p.word(HTypes, int(t)-1, 0)
++}
++
++func (p *EIRPackage) validateSymbols() error {
++	var imp, name uint32
++	for i := 0; i < p.rows(HSymbols); i++ {
++		x := p.word(HSymbols, i, 0)
++		n := p.word(HSymbols, i, 1)
++		k := p.word(HSymbols, i, 2)
++		t := p.word(HSymbols, i, 3)
++		span := p.word(HSymbols, i, 4)
++		if x < imp || (x == imp && n <= name) || (x != 0 && !p.ref(HImports, x)) || !p.ref(HNames, n) ||
++			k < HSFunc || k > HSMethod || !p.ref(HTypes, t) {
++			return fmt.Errorf("ergopkg: HSymbols[%d] invalid identity, kind, type, or order", i)
++		}
++		if (x == 0 && !p.ref(HSpans, span)) || (x != 0 && span != 0) {
++			return fmt.Errorf("ergopkg: HSymbols[%d] invalid local/foreign span", i)
++		}
++		imp = x
++		name = n
++	}
++	return nil
++}
++
++func (p *EIRPackage) typeShape(k, x, n, t uint32) bool {
++	switch k {
++	case HTBasic:
++		return n == 0 && x > 0 && x <= HBasicAny
++	case HTPointer, HTSlice:
++		return x == 0 && n == 1
++	case HTArray:
++		return n == 1
++	case HTMap:
++		return x == 0 && n == 2
++	case HTSignature:
++		return x <= n
++	case HTRecord, HTInterface:
++		return x == 0
++	case HTNamed:
++		return n == 1 && p.symKind(x, HSType) && p.word(HSymbols, int(x)-1, 3) == t
++	case HTParameter:
++		return n == 1 && (p.symKind(x, HSFunc) || p.symKind(x, HSType))
++	case HTGeneric:
++		return n > 0 && p.ref(HTypes, x) && x != t
++	case HTApplied:
++		return n > 0 && p.symKind(x, HSType)
++	default:
++		return false
++	}
++}
++
++func (p *EIRPackage) typeOperand(k, t, x uint32) bool {
++	switch k {
++	case HTRecord:
++		return p.symKind(x, HSField)
++	case HTInterface:
++		return p.symKind(x, HSMethod)
++	case HTGeneric:
++		return p.ref(HTypes, x) && p.typeKind(x) == HTParameter
++	default:
++		return p.ref(HTypes, x) && x != t
++	}
++}
++
++func (p *EIRPackage) validateTypes() (uint32, error) {
++	var at uint32
++	for i := 0; i < p.rows(HTypes); i++ {
++		k := p.word(HTypes, i, 0)
++		x := p.word(HTypes, i, 1)
++		lo := p.word(HTypes, i, 2)
++		n := p.word(HTypes, i, 3)
++		t := uint32(i + 1)
++		if !p.typeShape(k, x, n, t) || !p.run(HOperands, at, lo, n) {
++			return 0, fmt.Errorf("ergopkg: HTypes[%d] invalid kind, arity, or operand run", i)
++		}
++		for j := uint32(0); j < n; j++ {
++			if !p.typeOperand(k, t, p.operand(lo, j)) {
++				return 0, fmt.Errorf("ergopkg: HTypes[%d] invalid operand %d", i, j)
++			}
++		}
++		at = lo + n
++	}
++	return at, nil
++}
++
++func (p *EIRPackage) genericType(sym uint32) uint32 {
++	t := p.word(HSymbols, int(sym)-1, 3)
++	if p.typeKind(t) == HTNamed {
++		return p.operand(p.word(HTypes, int(t)-1, 2), 0)
++	}
++	return t
++}
++
++func (p *EIRPackage) signature(t uint32) uint32 {
++	k := p.typeKind(t)
++	sig := t
++	if k == HTGeneric {
++		sig = p.word(HTypes, int(t)-1, 1)
++	} else if k == HTNamed {
++		sig = p.operand(p.word(HTypes, int(t)-1, 2), 0)
++	}
++	if p.typeKind(sig) == HTSignature {
++		return sig
++	}
++	return 0
++}
++
++func (p *EIRPackage) signatureSize(sig uint32) (uint32, uint32) {
++	i := int(sig) - 1
++	n := p.word(HTypes, i, 1)
++	return n, p.word(HTypes, i, 3) - n
++}
++
++func (p *EIRPackage) signatureType(sig, j uint32) uint32 {
++	return p.operand(p.word(HTypes, int(sig)-1, 2), j)
++}
++
++func (p *EIRPackage) validateDeclarations() error {
++	n := p.rows(HTypes)
++	owned := make([]bool, n)
++	for i := 0; i < p.rows(HSymbols); i++ {
++		k := p.word(HSymbols, i, 2)
++		s := uint32(i + 1)
++		base := p.word(HSymbols, i, 3)
++		if k == HSType && (p.typeKind(base) != HTNamed || p.word(HTypes, int(base)-1, 1) != s) {
++			return fmt.Errorf("ergopkg: HSymbols[%d] invalid named type identity", i)
++		}
++		if k != HSType && k != HSFunc && k != HSMethod {
++			continue
++		}
++		t := p.genericType(s)
++		if (k == HSFunc || k == HSMethod) && p.signature(t) == 0 {
++			return fmt.Errorf("ergopkg: HSymbols[%d] callable declaration missing signature", i)
++		}
++		if p.typeKind(t) != HTGeneric {
++			continue
++		}
++		row := int(t) - 1
++		lo := p.word(HTypes, row, 2)
++		cnt := p.word(HTypes, row, 3)
++		for j := uint32(0); j < cnt; j++ {
++			pidx := int(p.operand(lo, j)) - 1
++			if owned[pidx] || p.word(HTypes, pidx, 1) != s {
++				return fmt.Errorf("ergopkg: HTypes[%d] duplicate or foreign type parameter", pidx)
++			}
++			owned[pidx] = true
++		}
++	}
++	for i := 0; i < n; i++ {
++		k := p.word(HTypes, i, 0)
++		if k == HTParameter && !owned[i] {
++			return fmt.Errorf("ergopkg: HTypes[%d] unowned type parameter", i)
++		}
++		if k == HTApplied {
++			g := p.genericType(p.word(HTypes, i, 1))
++			if p.typeKind(g) != HTGeneric || p.word(HTypes, i, 3) != p.word(HTypes, int(g)-1, 3) {
++				return fmt.Errorf("ergopkg: HTypes[%d] type application arity mismatch", i)
++			}
++		}
++	}
++	return nil
++}
++
++func (p *EIRPackage) embeds(i int) uint32 {
++	k := p.word(HTypes, i, 0)
++	if k == HTRecord {
++		return p.word(HTypes, i, 3)
++	}
++	if k == HTNamed || k == HTArray || k == HTGeneric || k == HTApplied {
++		return 1
++	}
++	return 0
++}
++
++func (p *EIRPackage) embeddedType(i int, j uint32) int {
++	k := p.word(HTypes, i, 0)
++	if k == HTGeneric {
++		return int(p.word(HTypes, i, 1)) - 1
++	}
++	if k == HTApplied {
++		return int(p.genericType(p.word(HTypes, i, 1))) - 1
++	}
++	x := p.operand(p.word(HTypes, i, 2), j)
++	if k == HTRecord {
++		return int(p.word(HSymbols, int(x)-1, 3)) - 1
++	}
++	return int(x) - 1
++}
++
++func (p *EIRPackage) validateStorageGraph() error {
++	type frame struct {
++		row  int
++		next uint32
++		n    uint32
++	}
++	n := p.rows(HTypes)
++	state := make([]uint8, n)
++	var todo []frame
++	for i := 0; i < n; i++ {
++		if state[i] != 0 {
++			continue
++		}
++		state[i] = 1
++		todo = append(todo, frame{row: i, next: 0, n: p.embeds(i)})
++		for len(todo) > 0 {
++			top := len(todo) - 1
++			f := todo[top]
++			if f.next == f.n {
++				state[f.row] = 2
++				todo = todo[:top]
++				continue
++			}
++			x := p.embeddedType(f.row, f.next)
++			todo[top].next++
++			if state[x] == 1 {
++				return fmt.Errorf("ergopkg: HTypes[%d] embeds itself by value", x)
++			}
++			if state[x] == 0 {
++				state[x] = 1
++				todo = append(todo, frame{row: x, next: 0, n: p.embeds(x)})
++			}
++		}
++	}
++	return nil
++}
++
++type bodyCtx struct {
++	slots  uint32
++	nslots uint32
++	ops    uint32
++	nops   uint32
++	sig    uint32
++}
++
++func (p *EIRPackage) slotValid(b bodyCtx, s uint32) bool {
++	return s > 0 && s <= b.nslots
++}
++
++func (p *EIRPackage) slotType(b bodyCtx, s uint32) uint32 {
++	return p.word(HSlots, int(b.slots+s)-1, 0)
++}
++
++func (p *EIRPackage) matchesSlot(b bodyCtx, s, t uint32) bool {
++	return p.slotValid(b, s) && p.slotType(b, s) == t
++}
++
++func (p *EIRPackage) callValid(b bodyCtx, k, lo, n uint32) bool {
++	if n < 2 {
++		return false
++	}
++	target := p.operand(lo, 0)
++	var t uint32
++	switch k {
++	case HOCall:
++		if !p.symKind(target, HSFunc) {
++			return false
++		}
++		t = p.word(HSymbols, int(target)-1, 3)
++		if p.typeKind(t) == HTGeneric {
++			return false
++		}
++	case HOCallClosure:
++		if !p.slotValid(b, target) {
++			return false
++		}
++		t = p.slotType(b, target)
++	default:
++		if !p.ref(HInstances, target) {
++			return false
++		}
++		t = p.word(HInstances, int(target)-1, 1)
++		if !p.ref(HTypes, t) {
++			return false
++		}
++	}
++	sig := p.signature(t)
++	if sig == 0 {
++		return false
++	}
++	nparam, nresult := p.signatureSize(sig)
++	if p.operand(lo, 1) != nresult || n-2 != nparam+nresult {
++		return false
++	}
++	for j := uint32(0); j < nparam; j++ {
++		if !p.matchesSlot(b, p.operand(lo, 2+nresult+j), p.signatureType(sig, j)) {
++			return false
++		}
++	}
++	for j := uint32(0); j < nresult; j++ {
++		if !p.matchesSlot(b, p.operand(lo, 2+j), p.signatureType(sig, nparam+j)) {
++			return false
++		}
++	}
++	return true
++}
++
++func (p *EIRPackage) opValid(b bodyCtx, k, lo, n uint32) bool {
++	switch k {
++	case HOConst:
++		return n == 3 && p.slotValid(b, p.operand(lo, 0))
++	case HOAdd, HOSub, HOMul, HOXor:
++		if n != 3 || !p.slotValid(b, p.operand(lo, 0)) {
++			return false
++		}
++		t := p.slotType(b, p.operand(lo, 0))
++		return p.matchesSlot(b, p.operand(lo, 1), t) && p.matchesSlot(b, p.operand(lo, 2), t)
++	case HOLoad, HOStore, HOAddrOf, HOConvert:
++		return n == 2 && p.slotValid(b, p.operand(lo, 0)) && p.slotValid(b, p.operand(lo, 1))
++	case HOGetGlobal, HOSetGlobal:
++		if n != 2 {
++			return false
++		}
++		var sym, s uint32
++		if k == HOGetGlobal {
++			s, sym = p.operand(lo, 0), p.operand(lo, 1)
++		} else {
++			sym, s = p.operand(lo, 0), p.operand(lo, 1)
++		}
++		return p.symKind(sym, HSVar) && p.matchesSlot(b, s, p.word(HSymbols, int(sym)-1, 3))
++	case HOCall, HOCallClosure, HOCallInstance:
++		return p.callValid(b, k, lo, n)
++	case HOJump:
++		return n == 1 && p.operand(lo, 0) > 0 && p.operand(lo, 0) <= b.nops
++	case HOBranch:
++		return n == 5 &&
++			p.operand(lo, 0) >= HCLess && p.operand(lo, 0) <= HCAtLeast &&
++			p.slotValid(b, p.operand(lo, 1)) &&
++			p.matchesSlot(b, p.operand(lo, 2), p.slotType(b, p.operand(lo, 1))) &&
++			p.operand(lo, 3) > 0 && p.operand(lo, 3) <= b.nops &&
++			p.operand(lo, 4) > 0 && p.operand(lo, 4) <= b.nops
++	case HOReturn:
++		nparam, nresult := p.signatureSize(b.sig)
++		if n != nresult {
++			return false
++		}
++		for j := uint32(0); j < nresult; j++ {
++			if !p.matchesSlot(b, p.operand(lo, j), p.signatureType(b.sig, nparam+j)) {
++				return false
++			}
++		}
++		return true
++	default:
++		return false
++	}
++}
++
++func (p *EIRPackage) validateFacts(b bodyCtx, first int) (int, error) {
++	i := first
++	var last, kind uint32
++	for i < p.rows(HFacts) {
++		x := p.word(HFacts, i, 0)
++		k := p.word(HFacts, i, 1)
++		if x > b.ops+b.nops {
++			return i, nil
++		}
++		proof := p.word(HFacts, i, 4)
++		if x <= b.ops || x < last || (x == last && k <= kind) || k != HFBounds ||
++			!p.slotValid(b, p.word(HFacts, i, 2)) || !p.slotValid(b, p.word(HFacts, i, 3)) ||
++			proof <= b.ops || proof >= x {
++			return 0, fmt.Errorf("ergopkg: HFacts[%d] invalid identity, scope, or proof reference", i)
++		}
++		last = x
++		kind = k
++		i++
++	}
++	return i, nil
++}
++
++func (p *EIRPackage) validateBodies(start uint32) (uint32, error) {
++	var sl, row uint32
++	w := start
++	bi := 0
++	f := 0
++	for si := 0; si < p.rows(HSymbols); si++ {
++		if p.word(HSymbols, si, 0) != 0 || p.word(HSymbols, si, 2) != HSFunc {
++			continue
++		}
++		if bi >= p.rows(HBodies) || p.word(HBodies, bi, 0) != uint32(si+1) {
++			return 0, fmt.Errorf("ergopkg: HBodies[%d] missing or mismatched body for local func %d", bi, si+1)
++		}
++		sig := p.signature(p.word(HSymbols, si, 3))
++		b := bodyCtx{
++			sig:    sig,
++			slots:  p.word(HBodies, bi, 1),
++			nslots: p.word(HBodies, bi, 2),
++			ops:    p.word(HBodies, bi, 3),
++			nops:   p.word(HBodies, bi, 4),
++		}
++		if b.sig == 0 || b.nops == 0 || !p.run(HSlots, sl, b.slots, b.nslots) || !p.run(HOps, row, b.ops, b.nops) {
++			return 0, fmt.Errorf("ergopkg: HBodies[%d] invalid signature or slot/op run", bi)
++		}
++		nparam, _ := p.signatureSize(sig)
++		if nparam > b.nslots {
++			return 0, fmt.Errorf("ergopkg: HBodies[%d] missing parameter slots", bi)
++		}
++		for j := uint32(0); j < b.nslots; j++ {
++			t := p.slotType(b, j+1)
++			if !p.ref(HTypes, t) || (j < nparam && t != p.signatureType(sig, j)) {
++				return 0, fmt.Errorf("ergopkg: HSlots[%d] invalid slot type", sl+j)
++			}
++		}
++		for j := int(row); j < int(row+b.nops); j++ {
++			k := p.word(HOps, j, 0)
++			sp := p.word(HOps, j, 1)
++			lo := p.word(HOps, j, 2)
++			n := p.word(HOps, j, 3)
++			if !p.ref(HSpans, sp) || !p.run(HOperands, w, lo, n) || !p.opValid(b, k, lo, n) {
++				return 0, fmt.Errorf("ergopkg: HOps[%d] invalid opcode, span, or operands", j)
++			}
++			w = lo + n
++		}
++		var err error
++		f, err = p.validateFacts(b, f)
++		if err != nil {
++			return 0, err
++		}
++		sl += b.nslots
++		row += b.nops
++		bi++
++	}
++	if bi != p.rows(HBodies) || f != p.rows(HFacts) || sl != p.dir[HSlots].count || row != p.dir[HOps].count {
++		return 0, fmt.Errorf("ergopkg: unowned body, slot, op, or fact")
++	}
++	return w, nil
++}
++
++func (p *EIRPackage) orderedArgs(a, an, b, bn uint32) bool {
++	for j := uint32(0); j < an; j++ {
++		if j >= bn {
++			return false
++		}
++		left := p.operand(a, j)
++		right := p.operand(b, j)
++		if left != right {
++			return left < right
++		}
++	}
++	return an < bn
++}
++
++func (p *EIRPackage) dictionaryValid(d, s uint32) bool {
++	return p.symKind(d, HSDictionary) && p.word(HSymbols, int(d)-1, 0) == 0 && p.word(HSymbols, int(d)-1, 3) == s
++}
++
++func (p *EIRPackage) validateInstances(start uint32) error {
++	at := start
++	var last, lastLo, lastN uint32
++	for i := 0; i < p.rows(HInstances); i++ {
++		g := p.word(HInstances, i, 0)
++		s := p.word(HInstances, i, 1)
++		d := p.word(HInstances, i, 2)
++		lo := p.word(HInstances, i, 3)
++		n := p.word(HInstances, i, 4)
++		if !p.symKind(g, HSFunc) || !p.ref(HTypes, s) || p.typeKind(s) != HTSignature {
++			return fmt.Errorf("ergopkg: HInstances[%d] invalid generic or specialization signature", i)
++		}
++		if !p.dictionaryValid(d, s) {
++			return fmt.Errorf("ergopkg: HInstances[%d] missing or inconsistent dictionary", i)
++		}
++		t := p.genericType(g)
++		if p.typeKind(t) != HTGeneric || n != p.word(HTypes, int(t)-1, 3) || !p.run(HOperands, at, lo, n) {
++			return fmt.Errorf("ergopkg: HInstances[%d] invalid argument arity or operand run", i)
++		}
++		if g < last || (g == last && !p.orderedArgs(lastLo, lastN, lo, n)) {
++			return fmt.Errorf("ergopkg: HInstances[%d] out of order", i)
++		}
++		for j := uint32(0); j < n; j++ {
++			if !p.ref(HTypes, p.operand(lo, j)) {
++				return fmt.Errorf("ergopkg: HInstances[%d] invalid argument type", i)
++			}
++		}
++		at = lo + n
++		last, lastLo, lastN = g, lo, n
++	}
++	if at != p.dir[HOperands].count {
++		return fmt.Errorf("ergopkg: HOperands has unowned trailing words")
++	}
++	return nil
++}
++
++func (p *EIRPackage) validateInitOrder() error {
++	seen := make([]bool, p.rows(HSymbols))
++	for i := 0; i < p.rows(HInit); i++ {
++		s := p.word(HInit, i, 0)
++		j := int(s) - 1
++		if !p.symKind(s, HSFunc) || seen[j] || p.word(HSymbols, j, 0) != 0 ||
++			!strings.HasPrefix(p.nameOf(p.word(HSymbols, j, 1)), "init.") {
++			return fmt.Errorf("ergopkg: HInit[%d] incomplete, duplicate, or foreign initializer", i)
++		}
++		sig := p.signature(p.word(HSymbols, j, 3))
++		if sig == 0 || p.word(HTypes, int(sig)-1, 3) != 0 {
++			return fmt.Errorf("ergopkg: HInit[%d] invalid initializer signature", i)
++		}
++		seen[j] = true
++	}
++	for i := 0; i < p.rows(HSymbols); i++ {
++		if p.word(HSymbols, i, 0) == 0 && p.word(HSymbols, i, 2) == HSFunc &&
++			strings.HasPrefix(p.nameOf(p.word(HSymbols, i, 1)), "init.") && !seen[i] {
++			return fmt.Errorf("ergopkg: HSymbols[%d] initializer missing from HInit", i)
++		}
++	}
++	return nil
++}
++
++func (p *EIRPackage) materialize() {
++	p.Target = EIRTarget{
++		Path:    p.nameOf(p.word(HPackage, 0, 0)),
++		GOOS:    p.nameOf(p.word(HPackage, 0, 2)),
++		GOARCH:  p.nameOf(p.word(HPackage, 0, 3)),
++		Pin:     p.nameOf(p.word(HPackage, 0, 4)),
++		Profile: p.nameOf(p.word(HPackage, 0, 5)),
++	}
++	p.PkgName = p.nameOf(p.word(HPackage, 0, 1))
++
++	p.Imports = make([]EIRImport, p.rows(HImports))
++	for i := range p.Imports {
++		var fp [8]byte
++		binary.LittleEndian.PutUint32(fp[0:4], p.word(HImports, i, 3))
++		binary.LittleEndian.PutUint32(fp[4:8], p.word(HImports, i, 4))
++		p.Imports[i] = EIRImport{
++			Path:        p.nameOf(p.word(HImports, i, 0)),
++			Name:        p.nameOf(p.word(HImports, i, 1)),
++			HasInit:     p.word(HImports, i, 2) == 1,
++			Fingerprint: fp,
++		}
++	}
++
++	p.Files = make([]EIRFile, p.rows(HFiles))
++	for i := range p.Files {
++		f := EIRFile{
++			Path:      p.nameOf(p.word(HFiles, i, 0)),
++			ByteSize:  p.word(HFiles, i, 1),
++			FirstLine: p.word(HFiles, i, 2),
++			LineCount: p.word(HFiles, i, 3),
++		}
++		for r := 0; r < 8; r++ {
++			f.Rev[r] = p.word(HFiles, i, 4+r)
++		}
++		p.Files[i] = f
++	}
++
++	p.Lines = make([]uint32, p.rows(HLines))
++	for i := range p.Lines {
++		p.Lines[i] = p.word(HLines, i, 0)
++	}
++
++	p.Spans = make([]EIRSpan, p.rows(HSpans))
++	for i := range p.Spans {
++		p.Spans[i] = EIRSpan{
++			File:  p.word(HSpans, i, 0),
++			Start: p.word(HSpans, i, 1),
++			End:   p.word(HSpans, i, 2),
++		}
++	}
++
++	p.Types = make([]EIRType, p.rows(HTypes))
++	for i := range p.Types {
++		p.Types[i] = EIRType{
++			Kind:    p.word(HTypes, i, 0),
++			Aux:     p.word(HTypes, i, 1),
++			FirstOp: p.word(HTypes, i, 2),
++			OpCount: p.word(HTypes, i, 3),
++		}
++	}
++
++	p.Symbols = make([]EIRSymbol, p.rows(HSymbols))
++	for i := range p.Symbols {
++		p.Symbols[i] = EIRSymbol{
++			Import: p.word(HSymbols, i, 0),
++			Name:   p.nameOf(p.word(HSymbols, i, 1)),
++			Kind:   p.word(HSymbols, i, 2),
++			Type:   p.word(HSymbols, i, 3),
++			Span:   p.word(HSymbols, i, 4),
++		}
++	}
++
++	p.Bodies = make([]EIRBody, p.rows(HBodies))
++	for i := range p.Bodies {
++		p.Bodies[i] = EIRBody{
++			FuncSym:   p.word(HBodies, i, 0),
++			FirstSlot: p.word(HBodies, i, 1),
++			SlotCount: p.word(HBodies, i, 2),
++			FirstOp:   p.word(HBodies, i, 3),
++			OpCount:   p.word(HBodies, i, 4),
++		}
++	}
++
++	p.Slots = make([]uint32, p.rows(HSlots))
++	for i := range p.Slots {
++		p.Slots[i] = p.word(HSlots, i, 0)
++	}
++
++	p.Ops = make([]EIROp, p.rows(HOps))
++	for i := range p.Ops {
++		p.Ops[i] = EIROp{
++			Opcode:  p.word(HOps, i, 0),
++			Span:    p.word(HOps, i, 1),
++			FirstOp: p.word(HOps, i, 2),
++			OpCount: p.word(HOps, i, 3),
++		}
++	}
++
++	p.Instances = make([]EIRInstance, p.rows(HInstances))
++	for i := range p.Instances {
++		p.Instances[i] = EIRInstance{
++			GenericSym:     p.word(HInstances, i, 0),
++			SpecializedSig: p.word(HInstances, i, 1),
++			DictSym:        p.word(HInstances, i, 2),
++			FirstOp:        p.word(HInstances, i, 3),
++			OpCount:        p.word(HInstances, i, 4),
++		}
++	}
++
++	p.Facts = make([]EIRFact, p.rows(HFacts))
++	for i := range p.Facts {
++		p.Facts[i] = EIRFact{
++			Op:          p.word(HFacts, i, 0),
++			Kind:        p.word(HFacts, i, 1),
++			SubjectSlot: p.word(HFacts, i, 2),
++			LimitSlot:   p.word(HFacts, i, 3),
++			ProofOp:     p.word(HFacts, i, 4),
++		}
++	}
++
++	p.Inits = make([]uint32, p.rows(HInit))
++	for i := range p.Inits {
++		p.Inits[i] = p.word(HInit, i, 0)
++	}
++
++	p.Operands = make([]uint32, p.rows(HOperands))
++	for i := range p.Operands {
++		p.Operands[i] = p.word(HOperands, i, 0)
++	}
++}
++
++// AdmitEIR checks the target tuple and every peer import against observed Go archives.
++func AdmitEIR(p *EIRPackage, wantTarget EIRTarget, observed []EIRImport) error {
++	if p.Target != wantTarget {
++		return fmt.Errorf("ergopkg: target mismatch: image has (%s %s/%s %s %s), compiler has (%s %s/%s %s %s)",
++			p.Target.Path, p.Target.GOOS, p.Target.GOARCH, p.Target.Pin, p.Target.Profile,
++			wantTarget.Path, wantTarget.GOOS, wantTarget.GOARCH, wantTarget.Pin, wantTarget.Profile)
++	}
++	if len(observed) != len(p.Imports) {
++		return fmt.Errorf("ergopkg: import count mismatch: image has %d, observed %d", len(p.Imports), len(observed))
++	}
++	for i, want := range p.Imports {
++		got := observed[i]
++		if got.Path != want.Path || got.Name != want.Name || got.HasInit != want.HasInit || got.Fingerprint != want.Fingerprint {
++			return fmt.Errorf("ergopkg: import %q mismatch (want name=%q hasInit=%v fp=%x; got name=%q hasInit=%v fp=%x)",
++				want.Path, want.Name, want.HasInit, want.Fingerprint, got.Name, got.HasInit, got.Fingerprint)
++		}
++	}
++	return nil
++}
+diff --git a/src/cmd/compile/internal/ergoir/ergopkg_flags.go b/src/cmd/compile/internal/ergoir/ergopkg_flags.go
+new file mode 100644
+index 0000000..8bc828e
+--- /dev/null
++++ b/src/cmd/compile/internal/ergoir/ergopkg_flags.go
+@@ -0,0 +1,11 @@
++package ergoir
++
++import "flag"
++
++// PkgFlag enables the checked-package EIR v1 ingress (-ergopkg).
++// Registered on flag.CommandLine here so base/flag.go needs no hook hunk.
++var PkgFlag bool
++
++func init() {
++	flag.CommandLine.BoolVar(&PkgFlag, "ergopkg", false, "compile a checked EIR v1 package without Go parsing or types2")
++}
+diff --git a/src/cmd/compile/internal/ergoir/ergopkg_test.go b/src/cmd/compile/internal/ergoir/ergopkg_test.go
+new file mode 100644
+index 0000000..56267a7
+--- /dev/null
++++ b/src/cmd/compile/internal/ergoir/ergopkg_test.go
+@@ -0,0 +1,191 @@
++package ergoir
++
++import (
++	"encoding/binary"
++	"strings"
++	"testing"
++)
++
++func buildTestSpecimen(seed uint32) []byte {
++	names := []string{
++		"Apply", "Generic", "a/dep", "amd64", "d.Gen", "dep", "go1.27.4",
++		"init.0", "init.1", "linux", "main.ergo", "plain", "tiny", "z/tiny",
++	}
++	ends := make([]uint32, len(names))
++	var off uint32
++	for i, n := range names {
++		off += uint32(len(n))
++		ends[i] = off
++	}
++	colPack := func(width int, rows [][]uint32) []uint32 {
++		out := make([]uint32, 0, width*len(rows))
++		for c := 0; c < width; c++ {
++			for _, row := range rows {
++				out = append(out, row[c])
++			}
++		}
++		return out
++	}
++	ty := colPack(4, [][]uint32{
++		{HTBasic, HBasicInt, 0, 0},
++		{HTBasic, HBasicAny, 0, 0},
++		{HTSignature, 0, 0, 0},
++		{HTSignature, 0, 0, 1},
++		{HTParameter, 5, 1, 1},
++		{HTSignature, 1, 2, 2},
++		{HTGeneric, 6, 4, 1},
++		{HTSignature, 1, 5, 2},
++	})
++	sy := colPack(5, [][]uint32{
++		{0, 1, HSFunc, 4, 1},
++		{0, 5, HSDictionary, 8, 1},
++		{0, 8, HSFunc, 3, 2},
++		{0, 9, HSFunc, 3, 2},
++		{1, 2, HSFunc, 7, 0},
++	})
++	bs := colPack(5, [][]uint32{
++		{1, 0, 2, 0, 3},
++		{3, 2, 0, 3, 1},
++		{4, 2, 0, 4, 1},
++	})
++	os := colPack(4, [][]uint32{
++		{HOConst, 1, 7, 3},
++		{HOCallInstance, 1, 10, 4},
++		{HOReturn, 1, 14, 1},
++		{HOReturn, 2, 15, 0},
++		{HOReturn, 2, 15, 0},
++	})
++	cols := [][]uint32{
++		{14, 13, 10, 4, 7, 12},
++		ends,
++		{3, 6, 1, 0x04030201, 0x08070605},
++		{11, 100, 0, 2, 0x12345678, 0, 0, 0, 0, 0, 0, 0},
++		{0, 30},
++		colPack(3, [][]uint32{{1, 2, 4}, {1, 40, 43}}),
++		ty,
++		sy,
++		bs,
++		{1, 1},
++		os,
++		{5, 8, 2, 15, 1},
++		{},
++		{4, 3},
++		{1, 2, 5, 5, 5, 1, 1, 1, seed, 0, 1, 1, 2, 1, 2, 1},
++	}
++	text := strings.Join(names, "")
++	var out []byte
++	out = append(out, EIRMagic...)
++	out = binary.LittleEndian.AppendUint32(out, EIRVersion)
++	for i := 0; i < EIRSections-1; i++ {
++		out = binary.LittleEndian.AppendUint32(out, uint32(len(cols[i])/eirWidths[i]))
++	}
++	out = binary.LittleEndian.AppendUint32(out, uint32(len(text)))
++	for _, col := range cols {
++		for _, v := range col {
++			out = binary.LittleEndian.AppendUint32(out, v)
++		}
++	}
++	out = append(out, text...)
++	return out
++}
++
++func editSpecimenWord(wire []byte, section, row, col int, val uint32) []byte {
++	p, err := DecodeEIR(wire)
++	if err != nil {
++		panic(err)
++	}
++	cp := append([]byte(nil), wire...)
++	at := p.dir[section].start + (p.rows(section)*col+row)*4
++	binary.LittleEndian.PutUint32(cp[at:at+4], val)
++	return cp
++}
++
++func TestDecodeEIRSpecimenAndPositions(t *testing.T) {
++	wire := buildTestSpecimen(17)
++	p, err := DecodeEIR(wire)
++	if err != nil {
++		t.Fatalf("DecodeEIR failed: %v", err)
++	}
++	if p.Target.Path != "z/tiny" || p.PkgName != "tiny" || p.Target.Profile != "plain" {
++		t.Fatalf("unexpected target/pkg: %+v %q", p.Target, p.PkgName)
++	}
++	if len(p.Inits) != 2 || p.Inits[0] != 4 || p.Inits[1] != 3 {
++		t.Fatalf("expected non-symbol init order [4, 3], got %v", p.Inits)
++	}
++	f0, l0, c0 := p.SpanPos(1)
++	if f0 != 0 || l0 != 1 || c0 != 3 {
++		t.Fatalf("span 1 pos = (%d,%d,%d), want (0,1,3)", f0, l0, c0)
++	}
++	f1, l1, c1 := p.SpanPos(2)
++	if f1 != 0 || l1 != 2 || c1 != 11 {
++		t.Fatalf("span 2 pos = (%d,%d,%d), want (0,2,11)", f1, l1, c1)
++	}
++}
++
++func TestDecodeEIRFailClosed(t *testing.T) {
++	wire := buildTestSpecimen(17)
++
++	// Unknown version
++	badVer := append([]byte(nil), wire...)
++	binary.LittleEndian.PutUint32(badVer[8:12], 99)
++	if _, err := DecodeEIR(badVer); err == nil {
++		t.Fatal("accepted unknown schema version 99")
++	}
++
++	// Bad span end > file size
++	badSpan := editSpecimenWord(wire, HSpans, 0, 2, 101)
++	if _, err := DecodeEIR(badSpan); err == nil {
++		t.Fatal("accepted span past file size")
++	}
++
++	// Missing dictionary on instance
++	badDict := editSpecimenWord(wire, HInstances, 0, 2, 0)
++	if _, err := DecodeEIR(badDict); err == nil {
++		t.Fatal("accepted instance without dictionary")
++	}
++
++	// Bad slot type in call
++	badSlot := editSpecimenWord(wire, HSlots, 0, 0, 2)
++	if _, err := DecodeEIR(badSlot); err == nil {
++		t.Fatal("accepted mismatched slot type")
++	}
++
++	// Duplicate/incomplete init order
++	badInit := editSpecimenWord(wire, HInit, 0, 0, 3)
++	if _, err := DecodeEIR(badInit); err == nil {
++		t.Fatal("accepted duplicate init entry")
++	}
++
++	// Truncated file
++	if _, err := DecodeEIR(wire[:len(wire)-1]); err == nil {
++		t.Fatal("accepted truncated image")
++	}
++}
++
++func TestAdmitEIRChecksFingerprintAndProfile(t *testing.T) {
++	p, err := DecodeEIR(buildTestSpecimen(17))
++	if err != nil {
++		t.Fatal(err)
++	}
++	obs := []EIRImport{{
++		Path:        "a/dep",
++		Name:        "dep",
++		HasInit:     true,
++		Fingerprint: [8]byte{1, 2, 3, 4, 5, 6, 7, 8},
++	}}
++	if err := AdmitEIR(p, p.Target, obs); err != nil {
++		t.Fatalf("valid admission rejected: %v", err)
++	}
++
++	stale := obs
++	stale[0].Fingerprint[7] ^= 1
++	if err := AdmitEIR(p, p.Target, stale); err == nil {
++		t.Fatal("accepted stale import fingerprint")
++	}
++
++	wrongProfile := p.Target
++	wrongProfile.Profile = "race"
++	if err := AdmitEIR(p, wrongProfile, obs); err == nil {
++		t.Fatal("accepted mismatched flag profile")
++	}
++}
+diff --git a/src/cmd/compile/internal/noder/ergo_package.go b/src/cmd/compile/internal/noder/ergo_package.go
+new file mode 100644
+index 0000000..21f987c
+--- /dev/null
++++ b/src/cmd/compile/internal/noder/ergo_package.go
+@@ -0,0 +1,220 @@
++package noder
++
++import (
++	"flag"
++	"fmt"
++	"internal/buildcfg"
++	"internal/pkgbits"
++	"os"
++	"strings"
++
++	"cmd/compile/internal/base"
++	"cmd/compile/internal/ergoir"
++	"cmd/compile/internal/inline"
++	"cmd/compile/internal/ir"
++	"cmd/compile/internal/pgoir"
++	"cmd/compile/internal/typecheck"
++	"cmd/compile/internal/types"
++	"cmd/internal/obj"
++)
++
++// ergoLoadPackage is the single guarded ingress for -ergopkg.
++// When -ergopkg is off, it returns false immediately so stock Go compilation
++// runs without any behavioral or output difference.
++func ergoLoadPackage(filenames []string) bool {
++	if !ergoir.PkgFlag {
++		return false
++	}
++
++	if err := loadErgoPackage(filenames); err != nil {
++		base.Errorf("%v", err)
++		base.ErrorExit()
++	}
++	return true
++}
++
++func loadErgoPackage(filenames []string) error {
++	if ergoir.Flag.IR != "" {
++		return fmt.Errorf("ergopkg: -ergopkg cannot be combined with -ergoir")
++	}
++	if len(filenames) != 1 {
++		return fmt.Errorf("ergopkg: expected exactly one checked EIR package file, got %d", len(filenames))
++	}
++	if strings.HasSuffix(filenames[0], ".go") {
++		return fmt.Errorf("ergopkg: -ergopkg cannot be combined with .go source file %q", filenames[0])
++	}
++
++	var sawP, sawO, sawCov bool
++	flag.CommandLine.Visit(func(f *flag.Flag) {
++		switch f.Name {
++		case "p":
++			sawP = true
++		case "o":
++			sawO = true
++		case "coveragecfg":
++			sawCov = true
++		}
++	})
++	if !sawP || base.Ctxt.Pkgpath == "" || base.Ctxt.Pkgpath == obj.UnlinkablePkg {
++		return fmt.Errorf("ergopkg: explicit -p package path is required")
++	}
++	if !sawO || base.Flag.LowerO == "" {
++		return fmt.Errorf("ergopkg: explicit -o output path is required")
++	}
++
++	wire, err := os.ReadFile(filenames[0])
++	if err != nil {
++		return fmt.Errorf("ergopkg: reading %q: %w", filenames[0], err)
++	}
++	eir, err := ergoir.DecodeEIR(wire)
++	if err != nil {
++		return err
++	}
++
++	profile := ergoActiveProfile(sawCov)
++	pin := buildcfg.Version
++	if fields := strings.Fields(pin); len(fields) > 0 {
++		pin = fields[0]
++	}
++	wantTarget := ergoir.EIRTarget{
++		Path:    base.Ctxt.Pkgpath,
++		GOOS:    buildcfg.GOOS,
++		GOARCH:  buildcfg.GOARCH,
++		Pin:     pin,
++		Profile: profile,
++	}
++
++	type openedImport struct {
++		resolved string
++		data     string
++		pr       pkgbits.PkgDecoder
++	}
++	opened := make([]openedImport, len(eir.Imports))
++	observed := make([]ergoir.EIRImport, len(eir.Imports))
++
++	for i, imp := range eir.Imports {
++		resolved, err := resolveImportPath(imp.Path)
++		if err != nil {
++			return fmt.Errorf("ergopkg: import %q: %w", imp.Path, err)
++		}
++		if resolved == "unsafe" {
++			return fmt.Errorf("ergopkg: import %q is not a Go archive import", imp.Path)
++		}
++		f, err := openPackage(resolved)
++		if err != nil {
++			return fmt.Errorf("ergopkg: opening import %q: %w", imp.Path, err)
++		}
++		data, err := readExportData(f)
++		f.Close()
++		if err != nil {
++			return fmt.Errorf("ergopkg: reading export data of %q: %w", imp.Path, err)
++		}
++		pr := pkgbits.NewPkgDecoder(resolved, data)
++		obsName, obsHasInit := inspectImportedArchive(&pr)
++		opened[i] = openedImport{resolved: resolved, data: data, pr: pr}
++		observed[i] = ergoir.EIRImport{
++			Path:        imp.Path,
++			Name:        obsName,
++			HasInit:     obsHasInit,
++			Fingerprint: pr.Fingerprint(),
++		}
++	}
++
++	if err := ergoir.AdmitEIR(eir, wantTarget, observed); err != nil {
++		return err
++	}
++
++	// Build unified stub before mutating compiler state so unsupported EIR
++	// constructs fail closed before producing any output.
++	stubData, err := writeErgoPkgStub(eir)
++	if err != nil {
++		return err
++	}
++
++	target := typecheck.Target
++	types.LocalPkg.Name = eir.PkgName
++
++	for _, imp := range opened {
++		pkg1 := types.NewPkg(imp.resolved, "")
++		if !pkg1.Direct {
++			pkg1.Direct = true
++			target.Imports = append(target.Imports, pkg1)
++			readPackage(newPkgReader(imp.pr), pkg1, false)
++			if err := addFingerprint(imp.resolved, imp.data); err != nil {
++				return fmt.Errorf("ergopkg: fingerprint for %q: %w", imp.resolved, err)
++			}
++		}
++	}
++
++	inline.InlineCall = unifiedInlineCall
++	typecheck.HaveInlineBody = unifiedHaveInlineBody
++	pgoir.LookupFunc = LookupFunc
++	pgoir.PostLookupCleanup = PostLookupCleanup
++
++	localPkgReader = newPkgReader(pkgbits.NewPkgDecoder(types.LocalPkg.Path, stubData))
++	readPackage(localPkgReader, types.LocalPkg, true)
++
++	r := localPkgReader.newReader(pkgbits.SectionMeta, pkgbits.PrivateRootIdx, pkgbits.SyncPrivate)
++	r.pkgInit(types.LocalPkg, target)
++
++	readBodies(target, false, nil)
++
++	for _, fn := range target.Funcs {
++		if fn.Typecheck() == 0 {
++			base.FatalfAt(fn.Pos(), "missed typecheck: %v", fn)
++		}
++		if len(fn.Body) != 0 {
++			if stmt := fn.Body[0]; stmt.Typecheck() == 0 {
++				base.FatalfAt(stmt.Pos(), "missed typecheck: %v", stmt)
++			}
++		}
++	}
++	for _, fn := range target.Funcs {
++		if !base.Flag.CompilingRuntime && types.RuntimeSymName(fn.Sym()) != "" {
++			fn.Pragma |= ir.Norace
++		}
++	}
++
++	base.ExitIfErrors()
++	return nil
++}
++
++func ergoActiveProfile(sawCov bool) string {
++	var flags []string
++	if base.Flag.Race {
++		flags = append(flags, "race")
++	}
++	if base.Flag.MSan {
++		flags = append(flags, "msan")
++	}
++	if base.Flag.ASan {
++		flags = append(flags, "asan")
++	}
++	if base.Flag.Dynlink != nil && *base.Flag.Dynlink {
++		flags = append(flags, "dynlink")
++	}
++	if base.Flag.Shared != nil && *base.Flag.Shared {
++		flags = append(flags, "shared")
++	}
++	if sawCov {
++		flags = append(flags, "cover")
++	}
++	if len(flags) == 0 {
++		return "plain"
++	}
++	return strings.Join(flags, "+")
++}
++
++func inspectImportedArchive(pr *pkgbits.PkgDecoder) (pkgName string, hasInit bool) {
++	pub := pr.NewDecoder(pkgbits.SectionMeta, pkgbits.PublicRootIdx, pkgbits.SyncPublic)
++	pub.Sync(pkgbits.SyncPkg)
++	pkgIdx := pub.Reloc(pkgbits.SectionPkg)
++
++	pdec := pr.NewDecoder(pkgbits.SectionPkg, pkgIdx, pkgbits.SyncPkgDef)
++	_ = pdec.String() // path
++	pkgName = pdec.String()
++
++	priv := pr.NewDecoder(pkgbits.SectionMeta, pkgbits.PrivateRootIdx, pkgbits.SyncPrivate)
++	hasInit = priv.Bool()
++	return pkgName, hasInit
++}
 diff --git a/src/cmd/compile/internal/noder/ergoir_hook.go b/src/cmd/compile/internal/noder/ergoir_hook.go
 new file mode 100644
 index 0000000..4953d06
@@ -3536,6 +5057,946 @@ index 0000000..4953d06
 +	}
 +	return other
 +}
+diff --git a/src/cmd/compile/internal/noder/ergopkg_writer.go b/src/cmd/compile/internal/noder/ergopkg_writer.go
+new file mode 100644
+index 0000000..58818eb
+--- /dev/null
++++ b/src/cmd/compile/internal/noder/ergopkg_writer.go
+@@ -0,0 +1,920 @@
++package noder
++
++import (
++	"fmt"
++	"go/constant"
++	"internal/buildcfg"
++	"internal/pkgbits"
++	"math"
++	"strings"
++
++	"cmd/compile/internal/base"
++	"cmd/compile/internal/ergoir"
++	"cmd/compile/internal/ir"
++)
++
++type ergoStubEncoder struct {
++	pkgbits.PkgEncoder
++	eir *ergoir.EIRPackage
++
++	posBaseIdx []index // per HFiles index
++	pkgIdxs    []index // 0 = local, 1.. = HImports index
++	typIdxs    []index // per HTypes 0-based index (idx+1 stored so 0 means unset)
++	objIdxs    []index // per HSymbols 0-based index (idx+1 stored so 0 means unset)
++	bodyOfSym  map[uint32]int
++
++	err error
++}
++
++func writeErgoPkgStub(eir *ergoir.EIRPackage) (string, error) {
++	enc := &ergoStubEncoder{
++		PkgEncoder: pkgbits.NewPkgEncoder(uirVersion, base.Debug.SyncFrames),
++		eir:        eir,
++		posBaseIdx: make([]index, len(eir.Files)),
++		pkgIdxs:    make([]index, len(eir.Imports)+1),
++		typIdxs:    make([]index, len(eir.Types)),
++		objIdxs:    make([]index, len(eir.Symbols)),
++		bodyOfSym:  make(map[uint32]int, len(eir.Bodies)),
++	}
++	for i, b := range eir.Bodies {
++		enc.bodyOfSym[b.FuncSym] = i
++	}
++	for i := range enc.posBaseIdx {
++		enc.posBaseIdx[i] = enc.encodePosBase(eir.Files[i].Path)
++	}
++	for i := 0; i < len(eir.Imports); i++ {
++		enc.pkgIdxs[i+1] = enc.encodePkg(eir.Imports[i].Path, eir.Imports[i].Name, nil)
++	}
++	impRefs := make([]index, len(eir.Imports))
++	for i := range eir.Imports {
++		impRefs[i] = enc.pkgIdxs[i+1]
++	}
++	enc.pkgIdxs[0] = enc.encodePkg("", eir.PkgName, impRefs)
++
++	// PublicRootIdx (0) and PrivateRootIdx (1) must be allocated first in SectionMeta.
++	pub := enc.NewEncoder(pkgbits.SectionMeta, pkgbits.SyncPublic)
++	priv := enc.NewEncoder(pkgbits.SectionMeta, pkgbits.SyncPrivate)
++	assert(pub.Idx == pkgbits.PublicRootIdx)
++	assert(priv.Idx == pkgbits.PrivateRootIdx)
++
++	// Collect package-scope local declarations.
++	var pubSyms []uint32
++	var typeSyms, varSyms, funcSyms []uint32
++	for i, sym := range eir.Symbols {
++		if sym.Import != 0 {
++			continue
++		}
++		id := uint32(i + 1)
++		switch sym.Kind {
++		case ergoir.HSType:
++			pubSyms = append(pubSyms, id)
++			typeSyms = append(typeSyms, id)
++		case ergoir.HSVar:
++			pubSyms = append(pubSyms, id)
++			varSyms = append(varSyms, id)
++		case ergoir.HSFunc:
++			if strings.HasPrefix(sym.Name, "init.") {
++				continue
++			}
++			pubSyms = append(pubSyms, id)
++			funcSyms = append(funcSyms, id)
++		}
++	}
++
++	// Write PublicRoot.
++	{
++		enc.writePkgRef(pub, enc.pkgIdxs[0])
++		if pub.Version().Has(pkgbits.HasInit) {
++			pub.Bool(false)
++		}
++		pub.Len(len(pubSyms))
++		for _, sid := range pubSyms {
++			enc.writeObjRef(pub, enc.encodeObj(sid), nil)
++		}
++		pub.Sync(pkgbits.SyncEOF)
++		pub.Flush()
++	}
++
++	// Write PrivateRoot (pkgInit).
++	{
++		priv.Len(0) // cgoPragmas
++		priv.Len(0) // pkgInitOrder
++		priv.Sync(pkgbits.SyncDecls)
++
++		for _, sid := range typeSyms {
++			priv.Code(declOther)
++			enc.writePkgObjs(priv, sid)
++		}
++		for _, sid := range varSyms {
++			priv.Code(declVar)
++			enc.writePkgObjs(priv, sid)
++			priv.Len(0) // embeds
++		}
++		for _, sid := range funcSyms {
++			priv.Code(declFunc)
++			enc.writePkgObjs(priv, sid)
++		}
++		// Emit package initializers in EXACT HInit semantic order.
++		for _, sid := range eir.Inits {
++			priv.Code(declFunc)
++			enc.writePkgObjs(priv, sid)
++		}
++
++		priv.Code(declEnd)
++		priv.Sync(pkgbits.SyncEOF)
++		priv.Flush()
++	}
++
++	if enc.err != nil {
++		return "", enc.err
++	}
++
++	var sb strings.Builder
++	enc.DumpTo(&sb)
++	return sb.String(), nil
++}
++
++func (e *ergoStubEncoder) failf(format string, args ...any) {
++	if e.err == nil {
++		e.err = fmt.Errorf("ergopkg: "+format, args...)
++	}
++}
++
++func (e *ergoStubEncoder) encodePosBase(filename string) index {
++	w := e.NewEncoder(pkgbits.SectionPosBase, pkgbits.SyncPosBase)
++	w.String(filename)
++	w.Bool(true) // file base
++	return w.Flush()
++}
++
++func (e *ergoStubEncoder) writePos(w *pkgbits.Encoder, spanID uint32) {
++	w.Sync(pkgbits.SyncPos)
++	if spanID == 0 {
++		w.Bool(false)
++		return
++	}
++	w.Bool(true)
++	fileIdx, line, col := e.eir.SpanPos(spanID)
++	w.Reloc(pkgbits.SectionPosBase, e.posBaseIdx[fileIdx])
++	w.Uint(line)
++	w.Uint(col)
++}
++
++func (e *ergoStubEncoder) encodePkg(path, name string, imports []index) index {
++	w := e.NewEncoder(pkgbits.SectionPkg, pkgbits.SyncPkgDef)
++	w.String(path)
++	w.String(name)
++	w.Len(len(imports))
++	for _, imp := range imports {
++		e.writePkgRef(w, imp)
++	}
++	return w.Flush()
++}
++
++func (e *ergoStubEncoder) writePkgRef(w *pkgbits.Encoder, idx index) {
++	w.Sync(pkgbits.SyncPkg)
++	w.Reloc(pkgbits.SectionPkg, idx)
++}
++
++func (e *ergoStubEncoder) writeQualifiedIdent(w *pkgbits.Encoder, pkgIdx index, name string) {
++	w.Sync(pkgbits.SyncSym)
++	e.writePkgRef(w, pkgIdx)
++	w.String(name)
++}
++
++func (e *ergoStubEncoder) writeLocalIdent(w *pkgbits.Encoder, pkgIdx index, name string) {
++	w.Sync(pkgbits.SyncLocalIdent)
++	e.writePkgRef(w, pkgIdx)
++	w.String(name)
++}
++
++func (e *ergoStubEncoder) writeSelector(w *pkgbits.Encoder, pkgIdx index, name string) {
++	w.Sync(pkgbits.SyncSelector)
++	e.writePkgRef(w, pkgIdx)
++	w.String(name)
++}
++
++func memberShortName(name string) string {
++	if i := strings.LastIndexByte(name, '.'); i >= 0 && i+1 < len(name) {
++		return name[i+1:]
++	}
++	return name
++}
++
++func (e *ergoStubEncoder) writeTypRef(w *pkgbits.Encoder, typeID uint32) {
++	w.Sync(pkgbits.SyncType)
++	w.Bool(false) // not derived
++	w.Reloc(pkgbits.SectionType, e.encodeType(typeID))
++}
++
++func (e *ergoStubEncoder) encodeType(typeID uint32) index {
++	if existing := e.typIdxs[typeID-1]; existing != 0 {
++		return existing - 1
++	}
++
++	t := e.eir.Types[typeID-1]
++	w := e.NewEncoder(pkgbits.SectionType, pkgbits.SyncTypeIdx)
++	e.typIdxs[typeID-1] = w.Idx + 1
++
++	switch t.Kind {
++	case ergoir.HTBasic:
++		if t.Aux == ergoir.HBasicAny {
++			w.Code(pkgbits.TypeInterface)
++			w.Len(0) // methods
++			w.Len(0) // embeddeds
++		} else {
++			w.Code(pkgbits.TypeBasic)
++			w.Len(int(t.Aux)) // 1..17 match types2.Bool..types2.String 1:1
++		}
++	case ergoir.HTPointer:
++		w.Code(pkgbits.TypePointer)
++		e.writeTypRef(w, e.eir.Operands[t.FirstOp])
++	case ergoir.HTSlice:
++		w.Code(pkgbits.TypeSlice)
++		e.writeTypRef(w, e.eir.Operands[t.FirstOp])
++	case ergoir.HTArray:
++		w.Code(pkgbits.TypeArray)
++		w.Uint64(uint64(t.Aux))
++		e.writeTypRef(w, e.eir.Operands[t.FirstOp])
++	case ergoir.HTMap:
++		w.Code(pkgbits.TypeMap)
++		e.writeTypRef(w, e.eir.Operands[t.FirstOp])
++		e.writeTypRef(w, e.eir.Operands[t.FirstOp+1])
++	case ergoir.HTSignature:
++		w.Code(pkgbits.TypeSignature)
++		e.writeSignature(w, typeID, 0)
++	case ergoir.HTRecord:
++		w.Code(pkgbits.TypeStruct)
++		w.Len(int(t.OpCount))
++		for j := uint32(0); j < t.OpCount; j++ {
++			fsymID := e.eir.Operands[t.FirstOp+j]
++			fsym := e.eir.Symbols[fsymID-1]
++			e.writePos(w, fsym.Span)
++			e.writeSelector(w, e.pkgIdxs[fsym.Import], memberShortName(fsym.Name))
++			e.writeTypRef(w, fsym.Type)
++			w.String("")  // tag
++			w.Bool(false) // embedded
++		}
++	case ergoir.HTInterface:
++		w.Code(pkgbits.TypeInterface)
++		w.Len(int(t.OpCount))
++		w.Len(0) // embeddeds
++		for j := uint32(0); j < t.OpCount; j++ {
++			msymID := e.eir.Operands[t.FirstOp+j]
++			msym := e.eir.Symbols[msymID-1]
++			e.writePos(w, msym.Span)
++			e.writeSelector(w, e.pkgIdxs[msym.Import], memberShortName(msym.Name))
++			e.writeSignature(w, msym.Type, msym.Span)
++		}
++	case ergoir.HTNamed:
++		w.Code(pkgbits.TypeNamed)
++		e.writeObjRef(w, e.encodeObj(t.Aux), nil)
++	case ergoir.HTApplied:
++		w.Code(pkgbits.TypeNamed)
++		targs := make([]uint32, t.OpCount)
++		for j := uint32(0); j < t.OpCount; j++ {
++			targs[j] = e.eir.Operands[t.FirstOp+j]
++		}
++		e.writeObjRef(w, e.encodeObj(t.Aux), targs)
++	default:
++		e.failf("unsupported type kind %d in type %d", t.Kind, typeID)
++	}
++
++	return w.Flush()
++}
++
++func (e *ergoStubEncoder) writeSignature(w *pkgbits.Encoder, sigID uint32, spanID uint32) {
++	sig := e.eir.Types[sigID-1]
++	nparam := sig.Aux
++	nresult := sig.OpCount - nparam
++
++	w.Sync(pkgbits.SyncSignature)
++
++	w.Sync(pkgbits.SyncParams)
++	w.Len(int(nparam))
++	for j := uint32(0); j < nparam; j++ {
++		w.Sync(pkgbits.SyncParam)
++		e.writePos(w, spanID)
++		e.writeLocalIdent(w, e.pkgIdxs[0], fmt.Sprintf("p%d", j))
++		e.writeTypRef(w, e.eir.Operands[sig.FirstOp+j])
++	}
++
++	w.Sync(pkgbits.SyncParams)
++	w.Len(int(nresult))
++	for j := uint32(0); j < nresult; j++ {
++		w.Sync(pkgbits.SyncParam)
++		e.writePos(w, spanID)
++		e.writeLocalIdent(w, e.pkgIdxs[0], "")
++		e.writeTypRef(w, e.eir.Operands[sig.FirstOp+nparam+j])
++	}
++
++	w.Bool(false) // variadic
++}
++
++func (e *ergoStubEncoder) writeObjRef(w *pkgbits.Encoder, objIdx index, explicitTypes []uint32) {
++	w.Sync(pkgbits.SyncObject)
++	if w.Version().Has(pkgbits.DerivedFuncInstance) {
++		w.Bool(false)
++	}
++	w.Reloc(pkgbits.SectionObj, objIdx)
++	w.Len(len(explicitTypes))
++	for _, tid := range explicitTypes {
++		e.writeTypRef(w, tid)
++	}
++}
++
++func (e *ergoStubEncoder) writePkgObjs(w *pkgbits.Encoder, symID uint32) {
++	w.Sync(pkgbits.SyncDeclNames)
++	w.Len(1)
++	w.Sync(pkgbits.SyncDeclName)
++	e.writeObjRef(w, e.encodeObj(symID), nil)
++}
++
++func (e *ergoStubEncoder) writeEmptyObjDict(w *pkgbits.Encoder) {
++	w.Len(0) // implicits
++	if w.Version().Has(pkgbits.GenericMethods) {
++		w.Len(0) // receivers
++	}
++	w.Len(0) // explicits
++	w.Len(0) // derived
++	w.Len(0) // typeParamMethodExprs
++	w.Len(0) // subdicts
++	w.Len(0) // rtypes
++	w.Len(0) // itabs
++}
++
++func (e *ergoStubEncoder) writeLinkname(w *pkgbits.Encoder) {
++	w.Sync(pkgbits.SyncLinkname)
++	w.Int64(-1)
++	w.String("")
++	w.Bool(false)
++}
++
++func (e *ergoStubEncoder) writePragma(w *pkgbits.Encoder, p ir.PragmaFlag) {
++	w.Sync(pkgbits.SyncPragma)
++	w.Int(int(p))
++}
++
++func (e *ergoStubEncoder) encodeObj(symID uint32) index {
++	if existing := e.objIdxs[symID-1]; existing != 0 {
++		return existing - 1
++	}
++
++	sym := e.eir.Symbols[symID-1]
++
++	w := e.NewEncoder(pkgbits.SectionObj, pkgbits.SyncObject1)
++	wext := e.NewEncoder(pkgbits.SectionObjExt, pkgbits.SyncObject1)
++	wname := e.NewEncoder(pkgbits.SectionName, pkgbits.SyncObject1)
++	wdict := e.NewEncoder(pkgbits.SectionObjDict, pkgbits.SyncObject1)
++
++	assert(wext.Idx == w.Idx)
++	assert(wname.Idx == w.Idx)
++	assert(wdict.Idx == w.Idx)
++	e.objIdxs[symID-1] = w.Idx + 1
++
++	var code pkgbits.CodeObj
++	if sym.Import != 0 {
++		code = pkgbits.ObjStub
++	} else {
++		switch sym.Kind {
++		case ergoir.HSType:
++			code = pkgbits.ObjType
++			named := e.eir.Types[sym.Type-1]
++			underlyingID := e.eir.Operands[named.FirstOp]
++			if e.eir.Types[underlyingID-1].Kind == ergoir.HTGeneric {
++				e.failf("local generic type %q not supported in v1 ingress", sym.Name)
++			}
++			e.writePos(w, sym.Span)
++			w.Sync(pkgbits.SyncTypeParamNames)
++			e.writeTypRef(w, underlyingID)
++			w.Len(0) // methods
++			if w.Version().Has(pkgbits.GenericMethods) {
++				w.Len(0) // gmethods
++			}
++
++			wext.Sync(pkgbits.SyncTypeExt)
++			e.writePragma(wext, 0)
++			wext.Int64(-1)
++			wext.Int64(-1)
++
++		case ergoir.HSVar:
++			code = pkgbits.ObjVar
++			e.writePos(w, sym.Span)
++			e.writeTypRef(w, sym.Type)
++
++			wext.Sync(pkgbits.SyncVarExt)
++			e.writeLinkname(wext)
++
++		case ergoir.HSFunc:
++			code = pkgbits.ObjFunc
++			if e.eir.Types[sym.Type-1].Kind == ergoir.HTGeneric {
++				e.failf("local generic function %q not supported in v1 ingress", sym.Name)
++			}
++			bodyIdx, ok := e.bodyOfSym[symID]
++			if !ok {
++				e.failf("missing body for local function %q", sym.Name)
++			}
++			e.writePos(w, sym.Span)
++			if w.Version().Has(pkgbits.GenericMethods) {
++				w.Bool(false) // not generic method
++			}
++			w.Sync(pkgbits.SyncTypeParamNames)
++			e.writeSignature(w, sym.Type, sym.Span)
++			e.writePos(w, sym.Span)
++
++			bReloc := e.encodeBody(symID, bodyIdx)
++
++			wext.Sync(pkgbits.SyncFuncExt)
++			e.writePragma(wext, 0)
++			e.writeLinkname(wext)
++			if buildcfg.GOARCH == "wasm" {
++				wext.String("")
++				wext.String("")
++				wext.String("")
++			}
++			wext.Bool(false) // local body
++			wext.Reloc(pkgbits.SectionBody, bReloc)
++			wext.Sync(pkgbits.SyncEOF)
++
++		default:
++			e.failf("unsupported local symbol kind %d for %q", sym.Kind, sym.Name)
++		}
++	}
++
++	w.Flush()
++	wext.Flush()
++
++	e.writeQualifiedIdent(wname, e.pkgIdxs[sym.Import], sym.Name)
++	wname.Code(code)
++	wname.Flush()
++
++	e.writeEmptyObjDict(wdict)
++	wdict.Flush()
++
++	return w.Idx
++}
++
++func (e *ergoStubEncoder) addLocal(w *pkgbits.Encoder, idx int) {
++	w.Sync(pkgbits.SyncAddLocal)
++	if e.SyncMarkers() {
++		w.Int(idx)
++	}
++	w.Bool(false) // not derived dictIndex
++}
++
++func (e *ergoStubEncoder) useLocal(w *pkgbits.Encoder, localIdx int) {
++	w.Sync(pkgbits.SyncUseObjLocal)
++	w.Bool(true) // local (not closure var)
++	w.Len(localIdx)
++}
++
++func (e *ergoStubEncoder) writeLocalExpr(w *pkgbits.Encoder, localIdx int) {
++	w.Code(exprLocal)
++	e.useLocal(w, localIdx)
++}
++
++func (e *ergoStubEncoder) writeOp(w *pkgbits.Encoder, op ir.Op) {
++	w.Sync(pkgbits.SyncOp)
++	w.Len(int(op))
++}
++
++func (e *ergoStubEncoder) writeLabel(w *pkgbits.Encoder, name string) {
++	w.Sync(pkgbits.SyncLabel)
++	w.String(name)
++}
++
++func (e *ergoStubEncoder) writeOptLabel(w *pkgbits.Encoder, name string) {
++	w.Sync(pkgbits.SyncOptLabel)
++	w.Bool(true)
++	e.writeLabel(w, name)
++}
++
++func (e *ergoStubEncoder) writeRType(w *pkgbits.Encoder, typeID uint32) {
++	w.Sync(pkgbits.SyncRType)
++	w.Bool(false) // not derived
++	e.writeTypRef(w, typeID)
++}
++
++func (e *ergoStubEncoder) writeConvRTTI(w *pkgbits.Encoder, srcTypeID, dstTypeID uint32) {
++	w.Sync(pkgbits.SyncConvRTTI)
++	e.writeRType(w, srcTypeID)
++	e.writeRType(w, dstTypeID)
++	w.Bool(false) // not derived itab
++}
++
++func (e *ergoStubEncoder) encodeBody(symID uint32, bodyIdx int) index {
++	sym := e.eir.Symbols[symID-1]
++	sig := e.eir.Types[sym.Type-1]
++	nparam := sig.Aux
++	nresult := sig.OpCount - nparam
++	b := e.eir.Bodies[bodyIdx]
++
++	w := e.NewEncoder(pkgbits.SectionBody, pkgbits.SyncFuncBody)
++
++	// Match reader.declareParams(): params then unnamed results.
++	nextLocal := 0
++	for j := uint32(0); j < nparam; j++ {
++		e.addLocal(w, nextLocal)
++		nextLocal++
++	}
++	for j := uint32(0); j < nresult; j++ {
++		e.addLocal(w, nextLocal)
++		nextLocal++
++	}
++
++	slotLocal := func(slot uint32) int {
++		if slot <= nparam {
++			return int(slot - 1)
++		}
++		return int(nresult) + int(slot-1)
++	}
++	slotTypeID := func(slot uint32) uint32 {
++		return e.eir.Slots[b.FirstSlot+slot-1]
++	}
++
++	w.Bool(true) // has body
++	w.Sync(pkgbits.SyncStmts)
++
++	// Declare every non-parameter local slot up front so goto never jumps over declarations.
++	for s := nparam + 1; s <= b.SlotCount; s++ {
++		w.Code(stmtAssign)
++		e.writePos(w, sym.Span)
++		w.Len(1)
++		w.Code(assignDef)
++		e.writePos(w, sym.Span)
++		e.writeLocalIdent(w, e.pkgIdxs[0], fmt.Sprintf("s%d", s))
++		e.writeTypRef(w, slotTypeID(s))
++		e.addLocal(w, nextLocal)
++		nextLocal++
++		// Empty rhs -> zero-initialized declaration.
++		w.Sync(pkgbits.SyncMultiExpr)
++		w.Bool(false)
++		w.Len(0)
++	}
++
++	// Mark jump targets within this body (1-based op index -> 0-based).
++	isTarget := make([]bool, b.OpCount)
++	for i := uint32(0); i < b.OpCount; i++ {
++		op := e.eir.Ops[b.FirstOp+i]
++		switch op.Opcode {
++		case ergoir.HOJump:
++			t := e.eir.Operands[op.FirstOp]
++			isTarget[t-1] = true
++		case ergoir.HOBranch:
++			yesT := e.eir.Operands[op.FirstOp+3]
++			noT := e.eir.Operands[op.FirstOp+4]
++			isTarget[yesT-1] = true
++			isTarget[noT-1] = true
++		}
++	}
++
++	var lastSpan uint32 = sym.Span
++	for i := uint32(0); i < b.OpCount; i++ {
++		op := e.eir.Ops[b.FirstOp+i]
++		lastSpan = op.Span
++		if isTarget[i] {
++			w.Code(stmtLabel)
++			e.writePos(w, op.Span)
++			e.writeLabel(w, fmt.Sprintf("L%d", i+1))
++		}
++		e.encodeOp(w, op, slotLocal, slotTypeID)
++	}
++
++	w.Code(stmtEnd)
++	w.Sync(pkgbits.SyncStmtsEnd)
++	e.writePos(w, lastSpan)
++
++	return w.Flush()
++}
++
++func (e *ergoStubEncoder) encodeOp(
++	w *pkgbits.Encoder,
++	op ergoir.EIROp,
++	slotLocal func(uint32) int,
++	slotTypeID func(uint32) uint32,
++) {
++	arg := func(j uint32) uint32 { return e.eir.Operands[op.FirstOp+j] }
++
++	writeAssign1 := func(lhs func(), rhs func()) {
++		w.Code(stmtAssign)
++		e.writePos(w, op.Span)
++		w.Len(1)
++		w.Code(assignExpr)
++		lhs()
++		w.Sync(pkgbits.SyncMultiExpr)
++		w.Bool(false)
++		w.Len(1)
++		rhs()
++	}
++
++	switch op.Opcode {
++	case ergoir.HOConst:
++		dst := arg(0)
++		lo := arg(1)
++		hi := arg(2)
++		tid := slotTypeID(dst)
++		writeAssign1(
++			func() { e.writeLocalExpr(w, slotLocal(dst)) },
++			func() { e.writeConstExpr(w, op.Span, tid, lo, hi) },
++		)
++
++	case ergoir.HOAdd, ergoir.HOSub, ergoir.HOMul, ergoir.HOXor:
++		dst, lhs, rhs := arg(0), arg(1), arg(2)
++		var binOp ir.Op
++		switch op.Opcode {
++		case ergoir.HOAdd:
++			binOp = ir.OADD
++		case ergoir.HOSub:
++			binOp = ir.OSUB
++		case ergoir.HOMul:
++			binOp = ir.OMUL
++		case ergoir.HOXor:
++			binOp = ir.OXOR
++		}
++		writeAssign1(
++			func() { e.writeLocalExpr(w, slotLocal(dst)) },
++			func() {
++				w.Code(exprBinaryOp)
++				e.writeOp(w, binOp)
++				e.writeLocalExpr(w, slotLocal(lhs))
++				e.writePos(w, op.Span)
++				e.writeLocalExpr(w, slotLocal(rhs))
++			},
++		)
++
++	case ergoir.HOLoad:
++		dst, ptr := arg(0), arg(1)
++		writeAssign1(
++			func() { e.writeLocalExpr(w, slotLocal(dst)) },
++			func() {
++				w.Code(exprUnaryOp)
++				e.writeOp(w, ir.ODEREF)
++				e.writePos(w, op.Span)
++				e.writeLocalExpr(w, slotLocal(ptr))
++			},
++		)
++
++	case ergoir.HOStore:
++		ptr, val := arg(0), arg(1)
++		writeAssign1(
++			func() {
++				w.Code(exprUnaryOp)
++				e.writeOp(w, ir.ODEREF)
++				e.writePos(w, op.Span)
++				e.writeLocalExpr(w, slotLocal(ptr))
++			},
++			func() { e.writeLocalExpr(w, slotLocal(val)) },
++		)
++
++	case ergoir.HOAddrOf:
++		dst, src := arg(0), arg(1)
++		writeAssign1(
++			func() { e.writeLocalExpr(w, slotLocal(dst)) },
++			func() {
++				w.Code(exprUnaryOp)
++				e.writeOp(w, ir.OADDR)
++				e.writePos(w, op.Span)
++				e.writeLocalExpr(w, slotLocal(src))
++			},
++		)
++
++	case ergoir.HOGetGlobal:
++		dst, symID := arg(0), arg(1)
++		writeAssign1(
++			func() { e.writeLocalExpr(w, slotLocal(dst)) },
++			func() {
++				w.Code(exprGlobal)
++				e.writeObjRef(w, e.encodeObj(symID), nil)
++			},
++		)
++
++	case ergoir.HOSetGlobal:
++		symID, src := arg(0), arg(1)
++		writeAssign1(
++			func() {
++				w.Code(exprGlobal)
++				e.writeObjRef(w, e.encodeObj(symID), nil)
++			},
++			func() { e.writeLocalExpr(w, slotLocal(src)) },
++		)
++
++	case ergoir.HOCall, ergoir.HOCallClosure, ergoir.HOCallInstance:
++		target := arg(0)
++		nresult := arg(1)
++		narg := op.OpCount - 2 - nresult
++
++		writeCallExpr := func() {
++			w.Code(exprCall)
++			w.Bool(false) // not method call
++			switch op.Opcode {
++			case ergoir.HOCallInstance:
++				inst := e.eir.Instances[target-1]
++				targs := make([]uint32, inst.OpCount)
++				for j := uint32(0); j < inst.OpCount; j++ {
++					targs[j] = e.eir.Operands[inst.FirstOp+j]
++				}
++				w.Bool(true) // call to instanced function
++				e.writePos(w, op.Span)
++				w.Bool(false) // static dictionary
++				e.writeObjRef(w, e.encodeObj(inst.GenericSym), targs)
++			case ergoir.HOCall:
++				w.Bool(false)
++				w.Code(exprGlobal)
++				e.writeObjRef(w, e.encodeObj(target), nil)
++			case ergoir.HOCallClosure:
++				w.Bool(false)
++				e.writeLocalExpr(w, slotLocal(target))
++			}
++			e.writePos(w, op.Span)
++			w.Sync(pkgbits.SyncMultiExpr)
++			w.Bool(false) // N:N args
++			w.Len(int(narg))
++			for j := uint32(0); j < narg; j++ {
++				e.writeLocalExpr(w, slotLocal(arg(2+nresult+j)))
++			}
++			w.Bool(false) // dots
++		}
++
++		if nresult == 0 {
++			w.Code(stmtExpr)
++			writeCallExpr()
++		} else if nresult == 1 {
++			writeAssign1(
++				func() { e.writeLocalExpr(w, slotLocal(arg(2))) },
++				writeCallExpr,
++			)
++		} else {
++			w.Code(stmtAssign)
++			e.writePos(w, op.Span)
++			w.Len(int(nresult))
++			for j := uint32(0); j < nresult; j++ {
++				w.Code(assignExpr)
++				e.writeLocalExpr(w, slotLocal(arg(2+j)))
++			}
++			w.Sync(pkgbits.SyncMultiExpr)
++			w.Bool(true) // N:1
++			e.writePos(w, op.Span)
++			writeCallExpr()
++			w.Len(int(nresult))
++			for j := uint32(0); j < nresult; j++ {
++				e.writeTypRef(w, slotTypeID(arg(2+j)))
++				w.Bool(false) // no implicit conversion
++			}
++		}
++
++	case ergoir.HOJump:
++		target := arg(0)
++		w.Code(stmtBranch)
++		e.writePos(w, op.Span)
++		e.writeOp(w, ir.OGOTO)
++		e.writeOptLabel(w, fmt.Sprintf("L%d", target))
++
++	case ergoir.HOBranch:
++		cond, lhs, rhs, yesT, noT := arg(0), arg(1), arg(2), arg(3), arg(4)
++		var cmpOp ir.Op
++		switch cond {
++		case ergoir.HCLess:
++			cmpOp = ir.OLT
++		case ergoir.HCNotEqual:
++			cmpOp = ir.ONE
++		case ergoir.HCEqual:
++			cmpOp = ir.OEQ
++		case ergoir.HCAtLeast:
++			cmpOp = ir.OGE
++		}
++		w.Code(stmtIf)
++		w.Sync(pkgbits.SyncIfStmt)
++		w.Sync(pkgbits.SyncOpenScope)
++		e.writePos(w, op.Span)
++		e.writePos(w, op.Span)
++		// Empty init stmts.
++		w.Sync(pkgbits.SyncStmts)
++		w.Code(stmtEnd)
++		w.Sync(pkgbits.SyncStmtsEnd)
++		// Cond expr.
++		w.Code(exprBinaryOp)
++		e.writeOp(w, cmpOp)
++		e.writeLocalExpr(w, slotLocal(lhs))
++		e.writePos(w, op.Span)
++		e.writeLocalExpr(w, slotLocal(rhs))
++		// Dynamic branch.
++		w.Int(0)
++		// Then block: goto L<yesT>.
++		w.Sync(pkgbits.SyncBlockStmt)
++		w.Sync(pkgbits.SyncOpenScope)
++		e.writePos(w, op.Span)
++		w.Sync(pkgbits.SyncStmts)
++		w.Code(stmtBranch)
++		e.writePos(w, op.Span)
++		e.writeOp(w, ir.OGOTO)
++		e.writeOptLabel(w, fmt.Sprintf("L%d", yesT))
++		w.Code(stmtEnd)
++		w.Sync(pkgbits.SyncStmtsEnd)
++		w.Sync(pkgbits.SyncCloseScope)
++		e.writePos(w, op.Span)
++		w.Sync(pkgbits.SyncCloseAnotherScope)
++		// Else stmts: goto L<noT>.
++		w.Sync(pkgbits.SyncStmts)
++		w.Code(stmtBranch)
++		e.writePos(w, op.Span)
++		e.writeOp(w, ir.OGOTO)
++		e.writeOptLabel(w, fmt.Sprintf("L%d", noT))
++		w.Code(stmtEnd)
++		w.Sync(pkgbits.SyncStmtsEnd)
++		// Close if scope.
++		w.Sync(pkgbits.SyncCloseAnotherScope)
++
++	case ergoir.HOReturn:
++		w.Code(stmtReturn)
++		e.writePos(w, op.Span)
++		w.Sync(pkgbits.SyncMultiExpr)
++		w.Bool(false) // N:N
++		w.Len(int(op.OpCount))
++		for j := uint32(0); j < op.OpCount; j++ {
++			e.writeLocalExpr(w, slotLocal(arg(j)))
++		}
++
++	case ergoir.HOConvert:
++		dst, src := arg(0), arg(1)
++		dstTID := slotTypeID(dst)
++		srcTID := slotTypeID(src)
++		writeAssign1(
++			func() { e.writeLocalExpr(w, slotLocal(dst)) },
++			func() {
++				w.Code(exprConvert)
++				w.Bool(false) // explicit
++				e.writeTypRef(w, dstTID)
++				e.writePos(w, op.Span)
++				e.writeConvRTTI(w, srcTID, dstTID)
++				w.Bool(false) // dstTypeParam
++				w.Bool(dstTID == srcTID)
++				e.writeLocalExpr(w, slotLocal(src))
++			},
++		)
++
++	default:
++		e.failf("unsupported opcode %d", op.Opcode)
++	}
++}
++
++func (e *ergoStubEncoder) writeConstExpr(w *pkgbits.Encoder, spanID, typeID, lo, hi uint32) {
++	t := e.eir.Types[typeID-1]
++	raw := uint64(lo) | uint64(hi)<<32
++	if t.Kind != ergoir.HTBasic {
++		if raw == 0 {
++			w.Code(exprZero)
++			e.writePos(w, spanID)
++			e.writeTypRef(w, typeID)
++			return
++		}
++		e.failf("non-zero HOConst on non-basic type %d", typeID)
++		return
++	}
++	if t.Aux == ergoir.HBasicAny {
++		if raw == 0 {
++			w.Code(exprZero)
++			e.writePos(w, spanID)
++			e.writeTypRef(w, typeID)
++			return
++		}
++		e.failf("non-zero HOConst on any type %d", typeID)
++		return
++	}
++
++	var val constant.Value
++	switch t.Aux {
++	case ergoir.HBasicBool:
++		val = constant.MakeBool(raw != 0)
++	case ergoir.HBasicInt, ergoir.HBasicInt8, ergoir.HBasicInt16, ergoir.HBasicInt32, ergoir.HBasicInt64:
++		val = constant.MakeInt64(int64(raw))
++	case ergoir.HBasicUint, ergoir.HBasicUint8, ergoir.HBasicUint16, ergoir.HBasicUint32, ergoir.HBasicUint64, ergoir.HBasicUintptr:
++		val = constant.MakeUint64(raw)
++	case ergoir.HBasicFloat32:
++		val = constant.MakeFloat64(float64(math.Float32frombits(lo)))
++	case ergoir.HBasicFloat64:
++		val = constant.MakeFloat64(math.Float64frombits(raw))
++	case ergoir.HBasicString:
++		if lo == 0 && hi == 0 {
++			val = constant.MakeString("")
++		} else if hi == 0 && lo <= uint32(len(e.eir.Names)) {
++			val = constant.MakeString(e.eir.Names[lo-1])
++		} else {
++			e.failf("invalid string HOConst (%d, %d)", lo, hi)
++			return
++		}
++	default:
++		if raw == 0 {
++			w.Code(exprZero)
++			e.writePos(w, spanID)
++			e.writeTypRef(w, typeID)
++			return
++		}
++		e.failf("unsupported scalar HOConst %d", t.Aux)
++		return
++	}
++
++	w.Code(exprConst)
++	e.writePos(w, spanID)
++	e.writeTypRef(w, typeID)
++	w.Value(val)
++}
+diff --git a/src/cmd/compile/internal/noder/noder.go b/src/cmd/compile/internal/noder/noder.go
+index 0000000..1111111
+--- a/src/cmd/compile/internal/noder/noder.go
++++ b/src/cmd/compile/internal/noder/noder.go
+@@ -25,6 +25,9 @@ import (
+ )
+ 
+ func LoadPackage(filenames []string) {
++	if ergoLoadPackage(filenames) {
++		return
++	}
+ 	base.Timer.Start("fe", "parse")
+ 
+ 	// Limit the number of simultaneously open files.
 diff --git a/src/cmd/compile/internal/noder/unified.go b/src/cmd/compile/internal/noder/unified.go
 index 9ec2e40..f02b73d 100644
 --- a/src/cmd/compile/internal/noder/unified.go
@@ -3548,3 +6009,4 @@ index 9ec2e40..f02b73d 100644
  
  	pw := newPkgWriter(m, pkg, info, otherInfo)
  
+

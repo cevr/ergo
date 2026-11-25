@@ -1,3 +1,17 @@
+diff --git a/src/cmd/compile/internal/noder/noder.go b/src/cmd/compile/internal/noder/noder.go
+index 0000000..1111111
+--- a/src/cmd/compile/internal/noder/noder.go
++++ b/src/cmd/compile/internal/noder/noder.go
+@@ -25,6 +25,9 @@ import (
+ )
+ 
+ func LoadPackage(filenames []string) {
++	if ergoLoadPackage(filenames) {
++		return
++	}
+ 	base.Timer.Start("fe", "parse")
+ 
+ 	// Limit the number of simultaneously open files.
 diff --git a/src/cmd/compile/internal/noder/unified.go b/src/cmd/compile/internal/noder/unified.go
 index 9ec2e40..f02b73d 100644
 --- a/src/cmd/compile/internal/noder/unified.go
@@ -10,3 +24,4 @@ index 9ec2e40..f02b73d 100644
  
  	pw := newPkgWriter(m, pkg, info, otherInfo)
  
+

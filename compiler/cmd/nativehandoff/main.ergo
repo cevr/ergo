@@ -1,42 +1,348 @@
-// nativehandoff verifies and identifies the canonical handoff specimen.
-// From compiler/: ergo run ./cmd/nativehandoff -- verify --seed 17.
-// Add --emit to write raw EIR bytes instead of the textual receipt.
 import compiler/ir
 import compiler/ir/handoff
+import exec
+import fs
 import hex
 import io
 import os
 import strconv
+import strings
+
+func fail(msg string) os.Exit { os.Exit{Code: 1, Message: "nativehandoff: " + msg} }
 
 func usage() os.Exit {
-	os.Exit{Code: 2, Message: "usage: nativehandoff verify --seed N [--emit]"}
+	os.Exit{Code: 2, Message: "usage: nativehandoff verify --seed N [--emit] [--keep]"}
+}
+
+func runCmd(cmd exec.Command, what string) string fails os.Exit needs exec.Runner | os.Process {
+	let r = exec.Runner.Run(cmd.WithEnvFrom(os.Process.Environ())) catch {
+	case exec.NotFound as e:
+		return fail("cannot run \(what): not found \(e.Name)")
+	case exec.Denied as e:
+		return fail("cannot run \(what): denied \(e.Name)")
+	case exec.Failed as e:
+		return fail("cannot run \(what): \(e.Reason)")
+	}
+	if r.Status != 0 {
+		return fail("\(what) exited \(r.Status):\n\(r.Stdout)\(r.Stderr)")
+	}
+	r.Stdout
+}
+
+func runMustFail(cmd exec.Command, what string, outPath string) fails os.Exit needs exec.Runner | fs.Files | os.Process {
+	let r = exec.Runner.Run(cmd.WithEnvFrom(os.Process.Environ())) catch {
+	case exec.NotFound as e:
+		return fail("cannot run negative check \(what): not found \(e.Name)")
+	case exec.Denied as e:
+		return fail("cannot run negative check \(what): denied \(e.Name)")
+	case exec.Failed as e:
+		return fail("cannot run negative check \(what): \(e.Reason)")
+	}
+	if r.Status == 0 {
+		return fail("negative check \(what) unexpectedly succeeded")
+	}
+	if !strings.Contains(r.Stdout+r.Stderr, "ergopkg:") {
+		return fail("negative check \(what) failed outside ergopkg validator:\n\(r.Stdout)\(r.Stderr)")
+	}
+	let _ = fs.Files.ReadFile(outPath) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return
+	}
+	return fail("negative check \(what) created output file \(outPath)")
+}
+
+func writeFile(path string, body string) fails os.Exit needs fs.Writes {
+	fs.Writes.WriteFile(path, body) catch {
+	case fs.NotFound, fs.Denied:
+		return fail("cannot write " + path)
+	case fs.Failed as e:
+		return fail("cannot write " + path + ": " + e.Reason)
+	}
+}
+
+func readFile(path string) string fails os.Exit needs fs.Files {
+	fs.Files.ReadFile(path) catch {
+	case fs.NotFound, fs.Denied:
+		return fail("cannot read " + path)
+	case fs.Failed as e:
+		return fail("cannot read " + path + ": " + e.Reason)
+	}
+}
+
+func goCmd(goroot string, args []string) exec.Command {
+	exec.New(goroot+"/bin/go", args).WithEnv("GOROOT", goroot).WithEnv("GOTOOLCHAIN", "local").WithEnv("CGO_ENABLED", "0").WithEnv("GOWORK", "off")
+}
+
+func toolCmd(goroot string, goos string, goarch string, tool string, args []string) exec.Command {
+	exec.New(goroot+"/pkg/tool/"+goos+"_"+goarch+"/"+tool, args).WithEnv("GOROOT", goroot)
+}
+
+func findStockRoot() string fails os.Exit needs os.Process | exec.Runner {
+	match os.Process.Getenv("GOROOT_STOCK") {
+	case Some as p:
+		if p.Value != "" {
+			return p.Value
+		}
+	case None:
+	}
+	let out = strings.TrimSpace(try runCmd(exec.New("go", []string{"env", "GOROOT"}).WithEnv("GOTOOLCHAIN", "local"), "go env GOROOT"))
+	if out == "" {
+		return fail("could not determine GOROOT_STOCK")
+	}
+	out
+}
+
+func ensurePatchedRoot(stock string, goos string, goarch string, dir string) string fails os.Exit needs os.Process | exec.Runner {
+	match os.Process.Getenv("GOROOT_PATCHED") {
+	case Some as p:
+		if p.Value != "" {
+			return p.Value
+		}
+	case None:
+	}
+	let patched = dir + "/patched-goroot"
+	let script = "set -euo pipefail; STOCK=\"$1\"; PATCHED=\"$2\"; TOOL=\"$3\"; PATCH=\"$4\"; " +
+		"mkdir -p \"$PATCHED/src/cmd\" \"$PATCHED/pkg/tool/$TOOL\"; " +
+		"for e in \"$STOCK\"/*; do b=$(basename \"$e\"); [ \"$b\" = src ] || [ \"$b\" = pkg ] || ln -s \"$e\" \"$PATCHED/$b\"; done; " +
+		"for e in \"$STOCK/src\"/*; do b=$(basename \"$e\"); [ \"$b\" = cmd ] || ln -s \"$e\" \"$PATCHED/src/$b\"; done; " +
+		"for e in \"$STOCK/src/cmd\"/*; do b=$(basename \"$e\"); [ \"$b\" = compile ] || ln -s \"$e\" \"$PATCHED/src/cmd/$b\"; done; " +
+		"cp -r \"$STOCK/src/cmd/compile\" \"$PATCHED/src/cmd/compile\"; chmod -R u+w \"$PATCHED/src/cmd/compile\"; " +
+		"for e in \"$STOCK/pkg\"/*; do b=$(basename \"$e\"); [ \"$b\" = tool ] || ln -s \"$e\" \"$PATCHED/pkg/$b\"; done; " +
+		"for e in \"$STOCK/pkg/tool/$TOOL\"/*; do b=$(basename \"$e\"); [ \"$b\" = compile ] || ln -s \"$e\" \"$PATCHED/pkg/tool/$TOOL/$b\"; done; " +
+		"cp \"$STOCK/pkg/tool/$TOOL/compile\" \"$PATCHED/pkg/tool/$TOOL/compile\"; " +
+		"git -C \"$PATCHED\" apply \"$PATCH\"; " +
+		"(cd \"$PATCHED/src\" && GOROOT=\"$PATCHED\" GOTOOLCHAIN=local \"$STOCK/bin/go\" build -p 4 -o \"$PATCHED/pkg/tool/$TOOL/compile.new\" cmd/compile); " +
+		"mv -f \"$PATCHED/pkg/tool/$TOOL/compile.new\" \"$PATCHED/pkg/tool/$TOOL/compile\""
+	let patchPath = try findPatchFile()
+	try runCmd(exec.New("bash", []string{"-c", script, "_", stock, patched, goos + "_" + goarch, patchPath}), "building patched compile")
+	patched
+}
+
+func findPatchFile() string fails os.Exit needs exec.Runner | os.Process {
+	let top = strings.TrimSpace(try runCmd(exec.New("git", []string{"rev-parse", "--show-toplevel"}), "git rev-parse"))
+	top + "/toolchain/ir/go1.27.0.patch"
+}
+
+func linkAndRun(stock string, goos string, goarch string, dir string, stdCfg string, depA string, tinyA string, tag string, mode string) string fails os.Exit needs exec.Runner | fs.Writes | os.Process {
+	let cfg = dir + "/" + tag + ".importcfg"
+	try writeFile(cfg, stdCfg+"packagefile a/dep="+depA+"\npackagefile z/tiny="+tinyA+"\n")
+	let mainO = dir + "/main_" + tag + ".o"
+	try runCmd(toolCmd(stock, goos, goarch, "compile", []string{"-p", "main", "-importcfg", cfg, "-o", mainO, dir + "/main.go"}), "stock compile main ("+tag+")")
+	let bin = dir + "/prog_" + tag
+	try runCmd(toolCmd(stock, goos, goarch, "link", []string{"-importcfg", cfg, "-o", bin, mainO}), "stock link ("+tag+")")
+	try runCmd(exec.New(bin, []string{mode}), "running "+tag)
+}
+
+func patchWord(wire string, off int, val uint32) string {
+	let mut b = strings.NewBuilder()
+	b.WriteByte(byte(val & 255))
+	b.WriteByte(byte((val >> 8) & 255))
+	b.WriteByte(byte((val >> 16) & 255))
+	b.WriteByte(byte(val >> 24))
+	wire[0:off] + b.String() + wire[off+4:len(wire)]
+}
+
+func flipFirstByte(s string) string {
+	let mut b = strings.NewBuilder()
+	b.WriteByte(byte(s[0] ^ byte(1)))
+	b.String() + s[1:len(s)]
+}
+
+func verifyRouteB(seed int, keep bool) fails os.Exit needs os.Process | exec.Runner | fs.Files | fs.Writes | io.Stdout {
+	let specImg = handoff.VerifyFixture(uint32(seed)) catch {
+	case handoff.Malformed as m:
+		return fail("specimen seed \(seed), section \(m.Section), row \(m.Row): \(m.Why)")
+	}
+	let specBytes = handoff.Encode(specImg)
+	io.Stdout.Println("EIR v\(ir.HandoffVersion) seed \(seed): \(len(specBytes)) bytes, \(handoff.Rows(specImg, ir.HOps)) op rows, \(handoff.Rows(specImg, ir.HTypes)) type rows")
+	io.Stdout.Println("specimen sha256 \(hex.Encode(handoff.Digest(specImg)))")
+
+	let stock = try findStockRoot()
+	let envFields = strings.Fields(try runCmd(goCmd(stock, []string{"env", "GOVERSION", "GOOS", "GOARCH"}), "stock go env"))
+	if len(envFields) != 3 {
+		return fail("unexpected go env output")
+	}
+	let pin = envFields[0]
+	let goos = envFields[1]
+	let goarch = envFields[2]
+
+	let dir = strings.TrimSpace(try runCmd(exec.New("mktemp", []string{"-d"}), "mktemp"))
+	let patched = try ensurePatchedRoot(stock, goos, goarch, dir)
+
+	let stdCfg = try runCmd(goCmd(stock, []string{"list", "-export", "-deps", "-f", "{{if .Export}}packagefile {{.ImportPath}}={{.Export}}{{end}}", "fmt", "os", "path/filepath", "runtime"}), "stock go list -export")
+	try writeFile(dir+"/std.importcfg", stdCfg)
+	try writeFile(dir+"/dep.go", depGoSource())
+	try writeFile(dir+"/tinyref.go", refTinyGoSource(seed))
+	try writeFile(dir+"/main.go", mainGoSource(seed))
+
+	let depStockA = dir + "/dep_stock.a"
+	let depPatchedA = dir + "/dep_patched.a"
+	try runCmd(toolCmd(stock, goos, goarch, "compile", []string{"-p", "a/dep", "-importcfg", dir + "/std.importcfg", "-pack", "-c=1", "-o", depStockA, dir + "/dep.go"}), "stock compile dep")
+	try runCmd(toolCmd(patched, goos, goarch, "compile", []string{"-p", "a/dep", "-importcfg", dir + "/std.importcfg", "-pack", "-c=1", "-o", depPatchedA, dir + "/dep.go"}), "patched inert compile dep")
+
+	let stockV = try runCmd(toolCmd(stock, goos, goarch, "compile", []string{"-V=full"}), "stock -V=full")
+	let patchedV = try runCmd(toolCmd(patched, goos, goarch, "compile", []string{"-V=full"}), "patched -V=full")
+	if stockV != patchedV {
+		return fail("-V=full mismatch: stock=\(stockV) patched=\(patchedV)")
+	}
+	let depStockBytes = try readFile(depStockA)
+	let depPatchedBytes = try readFile(depPatchedA)
+	if depStockBytes != depPatchedBytes {
+		return fail("stock inertness violated on dep.go (\(len(depStockBytes)) vs \(len(depPatchedBytes)) bytes)")
+	}
+	io.Stdout.Println("stock inertness: dep.a byte-identical (\(len(depStockBytes)) bytes) and -V=full matches")
+
+	let depExp = readArchiveExport(depStockBytes) catch {
+	case ArchiveBad as b:
+		return fail("dep_stock.a: " + b.Why)
+	}
+
+	let tinyImg = buildTinyEIR(seed, goos, goarch, pin, depExp.Fingerprint) catch {
+	case handoff.Malformed as m:
+		return fail("buildTinyEIR: section \(m.Section) row \(m.Row): \(m.Why)")
+	}
+	let tinyEIRPath = dir + "/tiny.eir"
+	let tinyWire = handoff.Encode(tinyImg)
+	try writeFile(tinyEIRPath, tinyWire)
+
+	let tinyCfg = dir + "/tiny.importcfg"
+	try writeFile(tinyCfg, stdCfg+"packagefile a/dep="+depStockA+"\n")
+
+	let tinyErgoA = dir + "/tiny_ergo.a"
+	try runCmd(toolCmd(patched, goos, goarch, "compile", []string{"-ergopkg", "-p", "z/tiny", "-importcfg", tinyCfg, "-pack", "-o", tinyErgoA, tinyEIRPath}), "patched -ergopkg compile z/tiny")
+
+	let tinyRefA = dir + "/tiny_ref.a"
+	try runCmd(toolCmd(stock, goos, goarch, "compile", []string{"-p", "z/tiny", "-importcfg", tinyCfg, "-pack", "-o", tinyRefA, dir + "/tinyref.go"}), "stock compile tinyref.go")
+
+	let gotOut = try linkAndRun(stock, goos, goarch, dir, stdCfg, depStockA, tinyErgoA, "ergo", "ergo")
+	let wantOut = try linkAndRun(stock, goos, goarch, dir, stdCfg, depStockA, tinyRefA, "stock", "stock")
+	if gotOut != wantOut {
+		return fail("output mismatch (work kept in \(dir)):\nroute B:\n\(gotOut)stock control:\n\(wantOut)")
+	}
+	if !strings.Contains(gotOut, "callerOK=true") {
+		return fail("expected runtime.Caller to resolve main.ergo:2, got:\n" + gotOut)
+	}
+	io.Stdout.Print("route B output:\n" + gotOut)
+	io.Stdout.Println("round trip: route B (-ergopkg) matches stock Go control byte-for-byte")
+
+	let editedImg = buildTinyEIR(seed+1, goos, goarch, pin, depExp.Fingerprint) catch {
+	case handoff.Malformed as m:
+		return fail("edited buildTinyEIR: \(m.Why)")
+	}
+	let editedEIRPath = dir + "/tiny_edited.eir"
+	try writeFile(editedEIRPath, handoff.Encode(editedImg))
+	let editedA = dir + "/tiny_edited.a"
+	try runCmd(toolCmd(patched, goos, goarch, "compile", []string{"-ergopkg", "-p", "z/tiny", "-importcfg", tinyCfg, "-pack", "-o", editedA, editedEIRPath}), "patched -ergopkg compile edited body")
+	let editedOut = try linkAndRun(stock, goos, goarch, dir, stdCfg, depStockA, editedA, "edited", "ergo")
+	if editedOut == gotOut {
+		return fail("private body edit produced identical output")
+	}
+	io.Stdout.Println("private body edit: distinct digest and distinct runtime output confirmed")
+
+	let negDir = dir + "/neg"
+	try runCmd(exec.New("mkdir", []string{"-p", negDir}), "mkdir neg")
+
+	let badVerPath = negDir + "/bad_ver.eir"
+	try writeFile(badVerPath, patchWord(tinyWire, 8, uint32(99)))
+	try runMustFail(toolCmd(patched, goos, goarch, "compile", []string{"-ergopkg", "-p", "z/tiny", "-importcfg", tinyCfg, "-pack", "-o", negDir + "/bad_ver.a", badVerPath}), "unknown schema version", negDir+"/bad_ver.a")
+
+	let badSpanWire = handoff.Encode(tinyImg)
+	let mut spanOff = 8 + 4 + 16*4
+	for s in 0..ir.HSpans {
+		let w = ir.HandoffWidth(s) * 4
+		spanOff = spanOff + handoff.Rows(tinyImg, s)*w
+	}
+	let spanEndOff = spanOff + handoff.Rows(tinyImg, ir.HSpans)*2*4
+	let badSpanPath = negDir + "/bad_span.eir"
+	try writeFile(badSpanPath, patchWord(badSpanWire, spanEndOff, uint32(999)))
+	try runMustFail(toolCmd(patched, goos, goarch, "compile", []string{"-ergopkg", "-p", "z/tiny", "-importcfg", tinyCfg, "-pack", "-o", negDir + "/bad_span.a", badSpanPath}), "bad span past EOF", negDir+"/bad_span.a")
+
+	let mut slotOff = 8 + 4 + 16*4
+	for s in 0..ir.HSlots {
+		let w = ir.HandoffWidth(s) * 4
+		slotOff = slotOff + handoff.Rows(tinyImg, s)*w
+	}
+	let badSlotPath = negDir + "/bad_slot.eir"
+	try writeFile(badSlotPath, patchWord(tinyWire, slotOff+8, uint32(2)))
+	try runMustFail(toolCmd(patched, goos, goarch, "compile", []string{"-ergopkg", "-p", "z/tiny", "-importcfg", tinyCfg, "-pack", "-o", negDir + "/bad_slot.a", badSlotPath}), "bad slot type ID", negDir+"/bad_slot.a")
+
+	let mut instOff = 8 + 4 + 16*4
+	for s in 0..ir.HInstances {
+		let w = ir.HandoffWidth(s) * 4
+		instOff = instOff + handoff.Rows(tinyImg, s)*w
+	}
+	let instDictOff = instOff + handoff.Rows(tinyImg, ir.HInstances)*2*4
+	let badDictPath = negDir + "/bad_dict.eir"
+	try writeFile(badDictPath, patchWord(tinyWire, instDictOff, uint32(0)))
+	try runMustFail(toolCmd(patched, goos, goarch, "compile", []string{"-ergopkg", "-p", "z/tiny", "-importcfg", tinyCfg, "-pack", "-o", negDir + "/bad_dict.a", badDictPath}), "missing generic dict", negDir+"/bad_dict.a")
+
+	let staleFP = flipFirstByte(depExp.Fingerprint)
+	let staleImg = buildTinyEIR(seed, goos, goarch, pin, staleFP) catch {
+	case handoff.Malformed as m:
+		return fail("stale buildTinyEIR: \(m.Why)")
+	}
+	let stalePath = negDir + "/stale_fp.eir"
+	try writeFile(stalePath, handoff.Encode(staleImg))
+	try runMustFail(toolCmd(patched, goos, goarch, "compile", []string{"-ergopkg", "-p", "z/tiny", "-importcfg", tinyCfg, "-pack", "-o", negDir + "/stale_fp.a", stalePath}), "stale peer import fingerprint", negDir+"/stale_fp.a")
+
+	try runMustFail(toolCmd(patched, goos, goarch, "compile", []string{"-ergopkg", "-race", "-p", "z/tiny", "-importcfg", tinyCfg, "-pack", "-o", negDir + "/race.a", tinyEIRPath}), "mismatched flag profile (-race)", negDir+"/race.a")
+
+	try runMustFail(toolCmd(patched, goos, goarch, "compile", []string{"-ergopkg", "-p", "z/tiny", "-importcfg", tinyCfg, "-pack", "-o", negDir + "/mix_go.a", dir + "/tinyref.go"}), "mutually exclusive -ergopkg + .go", negDir+"/mix_go.a")
+
+	try runMustFail(toolCmd(patched, goos, goarch, "compile", []string{"-ergopkg", "-ergoir=" + tinyEIRPath, "-p", "z/tiny", "-importcfg", tinyCfg, "-pack", "-o", negDir + "/mix_ir.a", tinyEIRPath}), "mutually exclusive -ergopkg + -ergoir", negDir+"/mix_ir.a")
+
+	io.Stdout.Println("negative admission: 8/8 fail-closed checks rejected before emitting output")
+
+	if keep {
+		io.Stdout.Println("kept \(dir)")
+	} else {
+		try runCmd(exec.New("rm", []string{"-rf", dir}), "cleaning temp dir")
+	}
 }
 
 func main() fails os.Exit needs Ambient {
-	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost() } {
+	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), fs.Writes: fs.NewHost(), io.Stdout: io.NewHost(), exec.Runner: exec.NewHost() } {
 		let mut args = os.Process.Args()
 		if len(args) > 0 && args[0] == "--" {
 			args = args[1:len(args)]
 		}
-		if len(args) < 3 || len(args) > 4 || args[0] != "verify" || args[1] != "--seed" {
+		if len(args) < 1 || args[0] != "verify" {
 			return usage()
 		}
-		if len(args) == 4 && args[3] != "--emit" { return usage() }
-		let seed = strconv.Atoi(args[2]) catch {
-		case strconv.Malformed, strconv.OutOfRange:
+		let mut seed = 17
+		let mut emit = false
+		let mut keep = false
+		let mut sawSeed = false
+		let mut i = 1
+		for i < len(args) {
+			if args[i] == "--seed" && i+1 < len(args) {
+				seed = strconv.Atoi(args[i+1]) catch {
+				case strconv.Malformed, strconv.OutOfRange:
+					return usage()
+				}
+				sawSeed = true
+				i = i + 2
+			} else if args[i] == "--emit" {
+				emit = true
+				i = i + 1
+			} else if args[i] == "--keep" {
+				keep = true
+				i = i + 1
+			} else {
+				return usage()
+			}
+		}
+		if !sawSeed {
 			return usage()
 		}
-		let p = handoff.VerifyFixture(uint32(seed)) catch {
-		case handoff.Malformed as m:
-			return os.Exit{Code: 1, Message: "nativehandoff seed \(seed), section \(m.Section), row \(m.Row): \(m.Why)\nreplay: ergo run ./cmd/nativehandoff -- verify --seed \(seed)"}
+		if emit {
+			let p = handoff.VerifyFixture(uint32(seed)) catch {
+			case handoff.Malformed as m:
+				return fail("seed \(seed), section \(m.Section), row \(m.Row): \(m.Why)")
+			}
+			io.Stdout.Print(handoff.Encode(p))
+			return
 		}
-		let bytes = handoff.Encode(p)
-		if len(args) == 4 {
-			io.Stdout.Print(bytes)
-		} else {
-			io.Stdout.Println("EIR v\(ir.HandoffVersion) seed \(seed): \(len(bytes)) bytes, \(handoff.Rows(p, ir.HOps)) op rows, \(handoff.Rows(p, ir.HTypes)) type rows")
-			io.Stdout.Println("round trip: logical columns and init order agree")
-			io.Stdout.Println("sha256 \(hex.Encode(handoff.Digest(p)))")
-		}
+		try verifyRouteB(seed, keep)
 	}
 }
