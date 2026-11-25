@@ -11,6 +11,7 @@ import (
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/check/snapshot"
+	"ergo.local/prototype/internal/sketch/lower"
 )
 
 // The checked std cache (CHK1b): a process installs the snapshot of the
@@ -68,6 +69,7 @@ func UseStdCache(root string) {
 	stdCache.mu.Lock()
 	stdCache.root = root
 	stdCache.mu.Unlock()
+	lower.UseForeignKeyCache(root)
 }
 
 // prepareStd installs the snapshot once per process, before the first
