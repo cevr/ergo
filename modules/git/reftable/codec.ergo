@@ -1,0 +1,286 @@
+import crc32
+import slices
+import github.com/cevr/ergo/modules/git/oid
+
+// HeaderSize returns the byte length of a reftable header (24 for v1, 28 for v2).
+func HeaderSize(version int) int fails UnsupportedVersion {
+	if version == 1 {
+		24
+	} else if version == 2 {
+		28
+	} else {
+		return UnsupportedVersion{Version: version}
+	}
+}
+
+// FooterSize returns the byte length of a reftable footer (68 for v1, 72 for v2).
+func FooterSize(version int) int fails UnsupportedVersion {
+	try HeaderSize(version) + 44
+}
+
+func formatName(f oid.Format) string {
+	match f {
+	case oid.Sha1:
+		"sha1"
+	case oid.Sha256:
+		"s256"
+	}
+}
+
+func formatEqual(a oid.Format, b oid.Format) bool {
+	formatName(a) == formatName(b)
+}
+
+func readU16BE(data []byte, pos int) uint16 fails TruncatedTable {
+	if pos < 0 || pos+2 > data.Len() {
+		return TruncatedTable{Detail: "truncated uint16"}
+	}
+	(uint16(data[pos]) << uint16(8)) | uint16(data[pos+1])
+}
+
+func readI16BE(data []byte, pos int) int fails TruncatedTable {
+	let u = int(try readU16BE(data, pos))
+	if u >= 32768 { u - 65536 } else { u }
+}
+
+func readU24BE(data []byte, pos int) int fails TruncatedTable {
+	if pos < 0 || pos+3 > data.Len() {
+		return TruncatedTable{Detail: "truncated uint24"}
+	}
+	(int(data[pos]) << 16) | (int(data[pos+1]) << 8) | int(data[pos+2])
+}
+
+func readU32BE(data []byte, pos int) uint32 fails TruncatedTable {
+	if pos < 0 || pos+4 > data.Len() {
+		return TruncatedTable{Detail: "truncated uint32"}
+	}
+	(uint32(data[pos]) << uint32(24)) | (uint32(data[pos+1]) << uint32(16)) | (uint32(data[pos+2]) << uint32(8)) | uint32(data[pos+3])
+}
+
+func readU64BE(data []byte, pos int) uint64 fails TruncatedTable {
+	if pos < 0 || pos+8 > data.Len() {
+		return TruncatedTable{Detail: "truncated uint64"}
+	}
+	(uint64(data[pos]) << uint64(56)) | (uint64(data[pos+1]) << uint64(48)) | (uint64(data[pos+2]) << uint64(40)) | (uint64(data[pos+3]) << uint64(32)) | (uint64(data[pos+4]) << uint64(24)) | (uint64(data[pos+5]) << uint64(16)) | (uint64(data[pos+6]) << uint64(8)) | uint64(data[pos+7])
+}
+
+func appendU16BE(dst []byte, v uint16) []byte {
+	let mut out = dst
+	out = out.Append(byte((v >> uint16(8)) & uint16(255)))
+	out = out.Append(byte(v & uint16(255)))
+	out
+}
+
+func appendI16BE(dst []byte, v int) []byte {
+	let u = if v < 0 { uint16(65536 + v) } else { uint16(v) }
+	appendU16BE(dst, u)
+}
+
+func appendU24BE(dst []byte, v int) []byte {
+	let mut out = dst
+	out = out.Append(byte((v >> 16) & 255))
+	out = out.Append(byte((v >> 8) & 255))
+	out = out.Append(byte(v & 255))
+	out
+}
+
+func appendU32BE(dst []byte, v uint32) []byte {
+	let mut out = dst
+	out = out.Append(byte((v >> uint32(24)) & uint32(255)))
+	out = out.Append(byte((v >> uint32(16)) & uint32(255)))
+	out = out.Append(byte((v >> uint32(8)) & uint32(255)))
+	out = out.Append(byte(v & uint32(255)))
+	out
+}
+
+func appendU64BE(dst []byte, v uint64) []byte {
+	let mut out = dst
+	out = out.Append(byte((v >> uint64(56)) & uint64(255)))
+	out = out.Append(byte((v >> uint64(48)) & uint64(255)))
+	out = out.Append(byte((v >> uint64(40)) & uint64(255)))
+	out = out.Append(byte((v >> uint64(32)) & uint64(255)))
+	out = out.Append(byte((v >> uint64(24)) & uint64(255)))
+	out = out.Append(byte((v >> uint64(16)) & uint64(255)))
+	out = out.Append(byte((v >> uint64(8)) & uint64(255)))
+	out = out.Append(byte(v & uint64(255)))
+	out
+}
+
+func appendBytes(dst []byte, src []byte) []byte {
+	let mut out = dst
+	for b in src {
+		out = out.Append(b)
+	}
+	out
+}
+
+// PutVarInt encodes val using Git's bijective MSB varint encoding where each
+// continuation byte subtracts 1 before encoding the next 7-bit group.
+func PutVarInt(val uint64) []byte {
+	let mut rev = []byte{byte(val & uint64(127))}
+	let mut v = val >> uint64(7)
+	for v > uint64(0) {
+		v = v - uint64(1)
+		rev = rev.Append(byte(uint64(128) | (v & uint64(127))))
+		v = v >> uint64(7)
+	}
+	let n = rev.Len()
+	let mut out = slices.WithCapacity[byte](n)
+	for i in 0..n {
+		out = out.Append(rev[n-1-i])
+	}
+	out
+}
+
+// GetVarInt decodes one Git bijective MSB varint starting at data[pos],
+// returning the decoded uint64 value and the next byte offset.
+func GetVarInt(data []byte, pos int) (uint64, int) fails TruncatedTable | CorruptRecord {
+	if pos < 0 || pos >= data.Len() {
+		return TruncatedTable{Detail: "truncated varint"}
+	}
+	let mut p = pos
+	let mut b = data[p]
+	p = p + 1
+	let mut val = uint64(b & byte(127))
+	let mut steps = 0
+	for (b & byte(128)) != byte(0) {
+		steps = steps + 1
+		if steps > 10 {
+			return CorruptRecord{Detail: "varint overflow"}
+		}
+		if p >= data.Len() {
+			return TruncatedTable{Detail: "truncated varint continuation"}
+		}
+		val = val + uint64(1)
+		b = data[p]
+		p = p + 1
+		val = (val << uint64(7)) | uint64(b&byte(127))
+	}
+	(val, p)
+}
+
+// EncodeHeader serializes h into its canonical 24-byte (v1) or 28-byte (v2)
+// binary Git reftable header.
+func EncodeHeader(h Header) []byte fails UnsupportedVersion | HashFormatMismatch | InvalidUpdateIndex {
+	if h.Version != 1 && h.Version != 2 {
+		return UnsupportedVersion{Version: h.Version}
+	}
+	if h.Version == 1 && !formatEqual(h.Format, oid.Sha1) {
+		return HashFormatMismatch{Expected: "sha1", Got: formatName(h.Format)}
+	}
+	if h.MinUpdateIndex > h.MaxUpdateIndex {
+		return InvalidUpdateIndex{Detail: "min_update_index exceeds max_update_index"}
+	}
+	if h.BlockSize < 0 || h.BlockSize > 16777215 {
+		return InvalidUpdateIndex{Detail: "block_size out of uint24 range"}
+	}
+	let hlen = try HeaderSize(h.Version)
+	let mut out = slices.WithCapacity[byte](hlen)
+	out = appendBytes(out, "REFT".Bytes())
+	out = out.Append(byte(h.Version))
+	out = appendU24BE(out, h.BlockSize)
+	out = appendU64BE(out, h.MinUpdateIndex)
+	out = appendU64BE(out, h.MaxUpdateIndex)
+	if h.Version == 2 {
+		out = appendBytes(out, formatName(h.Format).Bytes())
+	}
+	out
+}
+
+// ParseHeader decodes and validates a Git reftable v1/v2 header from the start
+// of data.
+func ParseHeader(data []byte) Header fails BadMagic | UnsupportedVersion | HashFormatMismatch | TruncatedTable | InvalidUpdateIndex {
+	if data.Len() < 24 {
+		return TruncatedTable{Detail: "reftable header shorter than 24 bytes"}
+	}
+	let magic = data[:4].Text()
+	if magic != "REFT" {
+		return BadMagic{Got: magic}
+	}
+	let ver = int(data[4])
+	if ver != 1 && ver != 2 {
+		return UnsupportedVersion{Version: ver}
+	}
+	let hlen = try HeaderSize(ver)
+	if data.Len() < hlen {
+		return TruncatedTable{Detail: "reftable v2 header shorter than 28 bytes"}
+	}
+	let bsize = try readU24BE(data, 5)
+	let minU = try readU64BE(data, 8)
+	let maxU = try readU64BE(data, 16)
+	if minU > maxU {
+		return InvalidUpdateIndex{Detail: "header min_update_index exceeds max_update_index"}
+	}
+	let fmt = if ver == 1 {
+		oid.Sha1
+	} else {
+		let hid = data[24:28].Text()
+		if hid == "sha1" {
+			oid.Sha1
+		} else if hid == "s256" {
+			oid.Sha256
+		} else {
+			return HashFormatMismatch{Expected: "sha1 or s256", Got: hid}
+		}
+	}
+	Header{
+		Version:        ver,
+		BlockSize:      bsize,
+		MinUpdateIndex: minU,
+		MaxUpdateIndex: maxU,
+		Format:         fmt,
+	}
+}
+
+// EncodeFooter serializes the Git reftable v1/v2 footer with its header copy,
+// section offsets, and trailing IEEE CRC32 checksum.
+func EncodeFooter(header Header, refIndexPos uint64, objPos uint64, objIDLen int, objIndexPos uint64, logPos uint64, logIndexPos uint64) []byte fails UnsupportedVersion | HashFormatMismatch | InvalidUpdateIndex {
+	let hdrBytes = try EncodeHeader(header)
+	let mut body = slices.WithCapacity[byte](hdrBytes.Len() + 44)
+	body = appendBytes(body, hdrBytes)
+	body = appendU64BE(body, refIndexPos)
+	let objCombined = (objPos << uint64(5)) | (uint64(objIDLen) & uint64(31))
+	body = appendU64BE(body, objCombined)
+	body = appendU64BE(body, objIndexPos)
+	body = appendU64BE(body, logPos)
+	body = appendU64BE(body, logIndexPos)
+	let sum = crc32.Checksum(body.Text())
+	appendU32BE(body, sum)
+}
+
+// ParseFooter decodes and validates the trailing Git reftable footer from raw,
+// verifying header/footer equality and the IEEE CRC32 checksum.
+func ParseFooter(raw []byte, header Header) Footer fails BadMagic | UnsupportedVersion | HashFormatMismatch | TruncatedTable | HeaderFooterMismatch | CorruptChecksum | InvalidUpdateIndex {
+	let hlen = try HeaderSize(header.Version)
+	let flen = try FooterSize(header.Version)
+	if raw.Len() < hlen+flen {
+		return TruncatedTable{Detail: "reftable shorter than header plus footer"}
+	}
+	let footerStart = raw.Len() - flen
+	let footerSlice = raw[footerStart:]
+	let bodySlice = footerSlice[:flen-4]
+	let expectedCRC = try readU32BE(footerSlice, flen-4)
+	let actualCRC = crc32.Checksum(bodySlice.Text())
+	if actualCRC != expectedCRC {
+		return CorruptChecksum{Expected: expectedCRC, Actual: actualCRC}
+	}
+	let footerHdr = try ParseHeader(footerSlice[:hlen])
+	if !slices.Equal(raw[:hlen], footerSlice[:hlen]) {
+		return HeaderFooterMismatch{Detail: "footer header copy differs from file header"}
+	}
+	let refIndexPos = try readU64BE(footerSlice, hlen)
+	let objCombined = try readU64BE(footerSlice, hlen+8)
+	let objIndexPos = try readU64BE(footerSlice, hlen+16)
+	let logPos = try readU64BE(footerSlice, hlen+24)
+	let logIndexPos = try readU64BE(footerSlice, hlen+32)
+	Footer{
+		Header:      footerHdr,
+		RefIndexPos: refIndexPos,
+		ObjPos:      objCombined >> uint64(5),
+		ObjIDLen:    int(objCombined & uint64(31)),
+		ObjIndexPos: objIndexPos,
+		LogPos:      logPos,
+		LogIndexPos: logIndexPos,
+		CRC32:       expectedCRC,
+	}
+}

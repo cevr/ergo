@@ -1,0 +1,274 @@
+import slices
+import zlib
+import github.com/cevr/ergo/modules/git/oid
+
+func commonPrefixLen(a []byte, b []byte) int {
+	let m = if a.Len() < b.Len() { a.Len() } else { b.Len() }
+	let mut i = 0
+	for i < m && a[i] == b[i] {
+		i = i + 1
+	}
+	i
+}
+
+func sortRefsByName(refs []RefRecord) []RefRecord {
+	let mut out = slices.WithCapacity[RefRecord](refs.Len())
+	for r in refs {
+		out = out.Append(r)
+	}
+	let n = out.Len()
+	for i in 1..n {
+		let key = out[i]
+		let mut j = i - 1
+		for j >= 0 && out[j].Name > key.Name {
+			out[j+1] = out[j]
+			j = j - 1
+		}
+		out[j+1] = key
+	}
+	out
+}
+
+func logSortLess(a LogRecord, b LogRecord) bool {
+	if a.RefName != b.RefName {
+		return a.RefName < b.RefName
+	}
+	a.UpdateIndex > b.UpdateIndex
+}
+
+func sortLogsCanonical(logs []LogRecord) []LogRecord {
+	let mut out = slices.WithCapacity[LogRecord](logs.Len())
+	for l in logs {
+		out = out.Append(l)
+	}
+	let n = out.Len()
+	for i in 1..n {
+		let key = out[i]
+		let mut j = i - 1
+		for j >= 0 && logSortLess(key, out[j]) {
+			out[j+1] = out[j]
+			j = j - 1
+		}
+		out[j+1] = key
+	}
+	out
+}
+
+func encodeRefValuePayload(val RefValue, fmt oid.Format) (int, []byte) fails HashFormatMismatch {
+	match val {
+	case RefDelete:
+		(0, []byte{})
+	case RefDirect as d:
+		if !formatEqual(d.OID.Format, fmt) {
+			return HashFormatMismatch{Expected: formatName(fmt), Got: formatName(d.OID.Format)}
+		}
+		(1, d.OID.Raw)
+	case RefPeeled as p:
+		if !formatEqual(p.OID.Format, fmt) {
+			return HashFormatMismatch{Expected: formatName(fmt), Got: formatName(p.OID.Format)}
+		}
+		if !formatEqual(p.Peeled.Format, fmt) {
+			return HashFormatMismatch{Expected: formatName(fmt), Got: formatName(p.Peeled.Format)}
+		}
+		let mut buf = slices.WithCapacity[byte](p.OID.Raw.Len() + p.Peeled.Raw.Len())
+		buf = appendBytes(buf, p.OID.Raw)
+		buf = appendBytes(buf, p.Peeled.Raw)
+		(2, buf)
+	case RefSymref as s:
+		let targetBytes = s.Target.Bytes()
+		let mut buf = PutVarInt(uint64(targetBytes.Len()))
+		buf = appendBytes(buf, targetBytes)
+		(3, buf)
+	}
+}
+
+func encodeRefRecordEntry(rec RefRecord, prevKey []byte, forceRestart bool, header Header) ([]byte, []byte) fails HashFormatMismatch | InvalidUpdateIndex | CorruptRecord {
+	if rec.Name == "" {
+		return CorruptRecord{Detail: "empty ref name"}
+	}
+	if rec.UpdateIndex < header.MinUpdateIndex || rec.UpdateIndex > header.MaxUpdateIndex {
+		return InvalidUpdateIndex{Detail: "ref update_index outside table header bounds"}
+	}
+	let key = rec.Name.Bytes()
+	let plen = if forceRestart { 0 } else { commonPrefixLen(prevKey, key) }
+	let suf = key[plen:]
+	let (vtype, payload) = try encodeRefValuePayload(rec.Value, header.Format)
+	let mut entry = PutVarInt(uint64(plen))
+	entry = appendBytes(entry, PutVarInt((uint64(suf.Len())<<uint64(3))|uint64(vtype)))
+	entry = appendBytes(entry, suf)
+	entry = appendBytes(entry, PutVarInt(rec.UpdateIndex-header.MinUpdateIndex))
+	entry = appendBytes(entry, payload)
+	(entry, key)
+}
+
+func finalizeRefBlock(body []byte, restarts []int, isFirstBlock bool, hlen int) []byte {
+	let mut b = body
+	for r in restarts {
+		b = appendU24BE(b, r)
+	}
+	b = appendU16BE(b, uint16(restarts.Len()))
+	let blen = if isFirstBlock { hlen + 4 + b.Len() } else { 4 + b.Len() }
+	let mut out = slices.WithCapacity[byte](4 + b.Len())
+	out = out.Append(byte('r'))
+	out = appendU24BE(out, blen)
+	appendBytes(out, b)
+}
+
+func encodeRefBlocks(sortedRefs []RefRecord, header Header, hlen int) []byte fails HashFormatMismatch | InvalidUpdateIndex | CorruptRecord {
+	if sortedRefs.Len() == 0 {
+		return []byte{}
+	}
+	let mut out = []byte{}
+	let mut body = []byte{}
+	let mut restarts = []int{}
+	let mut prevKey = []byte{}
+	let mut countInBlock = 0
+	let mut isFirst = true
+	let maxBlock = if header.BlockSize > 0 { header.BlockSize } else { 16777215 }
+
+	for r in sortedRefs {
+		let baseOff = if isFirst { hlen + 4 } else { 4 }
+		let mut forceRestart = countInBlock == 0 || (countInBlock%16 == 0)
+		let (candEntry, candKey) = try encodeRefRecordEntry(r, prevKey, forceRestart, header)
+		let nextRestarts = if forceRestart { restarts.Len() + 1 } else { restarts.Len() }
+		let projected = baseOff + body.Len() + candEntry.Len() + nextRestarts*3 + 2
+		if countInBlock > 0 && header.BlockSize > 0 && projected > maxBlock {
+			let blk = finalizeRefBlock(body, restarts, isFirst, hlen)
+			out = appendBytes(out, blk)
+			let totalSoFar = hlen + out.Len()
+			let rem = totalSoFar % header.BlockSize
+			if rem != 0 {
+				let pad = header.BlockSize - rem
+				for _ in 0..pad {
+					out = out.Append(byte(0))
+				}
+			}
+			isFirst = false
+			body = []byte{}
+			restarts = []int{}
+			prevKey = []byte{}
+			countInBlock = 0
+			forceRestart = true
+			let (freshEntry, freshKey) = try encodeRefRecordEntry(r, prevKey, true, header)
+			restarts = restarts.Append(4)
+			body = appendBytes(body, freshEntry)
+			prevKey = freshKey
+			countInBlock = 1
+		} else {
+			if forceRestart {
+				restarts = restarts.Append(baseOff + body.Len())
+			}
+			body = appendBytes(body, candEntry)
+			prevKey = candKey
+			countInBlock = countInBlock + 1
+		}
+	}
+
+	if countInBlock > 0 {
+		let blk = finalizeRefBlock(body, restarts, isFirst, hlen)
+		out = appendBytes(out, blk)
+	}
+	out
+}
+
+func encodeLogKey(refName string, updateIndex uint64) []byte {
+	let nameBytes = refName.Bytes()
+	let mut key = slices.WithCapacity[byte](nameBytes.Len() + 9)
+	key = appendBytes(key, nameBytes)
+	key = key.Append(byte(0))
+	let maxU64 uint64 = 18446744073709551615
+	let comp = maxU64 - updateIndex
+	appendU64BE(key, comp)
+}
+
+func encodeLogValuePayload(val LogValue, fmt oid.Format) (int, []byte) fails HashFormatMismatch {
+	match val {
+	case LogDelete:
+		(0, []byte{})
+	case LogUpdate as u:
+		if !formatEqual(u.OldOID.Format, fmt) {
+			return HashFormatMismatch{Expected: formatName(fmt), Got: formatName(u.OldOID.Format)}
+		}
+		if !formatEqual(u.NewOID.Format, fmt) {
+			return HashFormatMismatch{Expected: formatName(fmt), Got: formatName(u.NewOID.Format)}
+		}
+		let nameB = u.Name.Bytes()
+		let emailB = u.Email.Bytes()
+		let msgB = u.Message.Bytes()
+		let mut buf = []byte{}
+		buf = appendBytes(buf, u.OldOID.Raw)
+		buf = appendBytes(buf, u.NewOID.Raw)
+		buf = appendBytes(buf, PutVarInt(uint64(nameB.Len())))
+		buf = appendBytes(buf, nameB)
+		buf = appendBytes(buf, PutVarInt(uint64(emailB.Len())))
+		buf = appendBytes(buf, emailB)
+		buf = appendBytes(buf, PutVarInt(u.Time))
+		buf = appendI16BE(buf, u.TzOffset)
+		buf = appendBytes(buf, PutVarInt(uint64(msgB.Len())))
+		buf = appendBytes(buf, msgB)
+		(1, buf)
+	}
+}
+
+func encodeLogBlock(sortedLogs []LogRecord, header Header, isFirstBlock bool, hlen int) []byte fails HashFormatMismatch | CorruptRecord {
+	if sortedLogs.Len() == 0 {
+		return []byte{}
+	}
+	let baseOff = if isFirstBlock { hlen + 4 } else { 4 }
+	let mut body = []byte{}
+	let mut restarts = []int{}
+	let mut prevKey = []byte{}
+	for i, l in sortedLogs {
+		if l.RefName == "" {
+			return CorruptRecord{Detail: "empty log ref name"}
+		}
+		let key = encodeLogKey(l.RefName, l.UpdateIndex)
+		let forceRestart = i%16 == 0
+		if forceRestart {
+			restarts = restarts.Append(baseOff + body.Len())
+		}
+		let plen = if forceRestart { 0 } else { commonPrefixLen(prevKey, key) }
+		let suf = key[plen:]
+		let (vtype, payload) = try encodeLogValuePayload(l.Value, header.Format)
+		body = appendBytes(body, PutVarInt(uint64(plen)))
+		body = appendBytes(body, PutVarInt((uint64(suf.Len())<<uint64(3))|uint64(vtype)))
+		body = appendBytes(body, suf)
+		body = appendBytes(body, payload)
+		prevKey = key
+	}
+	for r in restarts {
+		body = appendU24BE(body, r)
+	}
+	body = appendU16BE(body, uint16(restarts.Len()))
+	let uncompLen = baseOff + body.Len()
+	let compressed = zlib.Deflate(body)
+	let mut out = slices.WithCapacity[byte](4 + compressed.Len())
+	out = out.Append(byte('g'))
+	out = appendU24BE(out, uncompLen)
+	appendBytes(out, compressed)
+}
+
+// WriteTable encodes header, refs, and optional logs into a canonical Git
+// reftable v1 (SHA-1) or v2 (SHA-256) binary file complete with verified
+// header copy and trailing IEEE CRC32 footer.
+func WriteTable(header Header, refs []RefRecord, logs []LogRecord) []byte fails UnsupportedVersion | HashFormatMismatch | InvalidUpdateIndex | CorruptRecord {
+	let hdrBytes = try EncodeHeader(header)
+	let hlen = hdrBytes.Len()
+	let sortedRefs = sortRefsByName(refs)
+	let sortedLogs = sortLogsCanonical(logs)
+
+	let refBytes = try encodeRefBlocks(sortedRefs, header, hlen)
+	let mut out = slices.WithCapacity[byte](hlen + refBytes.Len() + 128)
+	out = appendBytes(out, hdrBytes)
+	out = appendBytes(out, refBytes)
+
+	let mut logPos = uint64(0)
+	if sortedLogs.Len() > 0 {
+		logPos = uint64(out.Len())
+		let logBlk = try encodeLogBlock(sortedLogs, header, refBytes.Len() == 0, hlen)
+		out = appendBytes(out, logBlk)
+	}
+
+	let footerBytes = try EncodeFooter(header, uint64(0), uint64(0), 0, uint64(0), logPos, uint64(0))
+	appendBytes(out, footerBytes)
+}

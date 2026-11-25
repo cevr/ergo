@@ -1,0 +1,268 @@
+// Package reftable implements the pure-Ergo Git reftable v1 (SHA-1) and v2
+// (SHA-256) binary reader, writer, multi-table stack, and compaction engine
+// compatible with C Git `--ref-format=reftable` (STD-GIT: G-REFTABLE).
+
+import option
+import github.com/cevr/ergo/modules/git/oid
+
+// Error is the closed failure union for Git reftable binary parsing, writing,
+// stack traversal, symref resolution, and compaction.
+type Error =
+	| BadMagic{Got string}
+	| UnsupportedVersion{Version int}
+	| HashFormatMismatch{Expected string, Got string}
+	| TruncatedTable{Detail string}
+	| HeaderFooterMismatch{Detail string}
+	| CorruptChecksum{Expected uint32, Actual uint32}
+	| CorruptBlock{Detail string}
+	| CorruptRecord{Detail string}
+	| ZlibFailed{Detail string}
+	| CyclicSymref{Ref string}
+	| RefNotFound{Ref string}
+	| InvalidUpdateIndex{Detail string}
+	| LockFailed{Detail string}
+	| IOFailed{Op string, Detail string}
+
+// Header is the decoded 24-byte (v1) or 28-byte (v2) Git reftable header.
+type Header {
+	Version        int,
+	BlockSize      int,
+	MinUpdateIndex uint64,
+	MaxUpdateIndex uint64,
+	Format         oid.Format,
+}
+
+// Footer is the decoded 68-byte (v1) or 72-byte (v2) Git reftable footer with
+// section offsets and verified IEEE CRC32 checksum.
+type Footer {
+	Header      Header,
+	RefIndexPos uint64,
+	ObjPos      uint64,
+	ObjIDLen    int,
+	ObjIndexPos uint64,
+	LogPos      uint64,
+	LogIndexPos uint64,
+	CRC32       uint32,
+}
+
+// RefValue is the typed payload of a ref record inside an `'r'` block.
+type RefValue =
+	| RefDelete{}
+	| RefDirect{OID oid.OID}
+	| RefPeeled{OID oid.OID, Peeled oid.OID}
+	| RefSymref{Target string}
+
+// RefRecord is one reference entry decoded from or encoded into a reftable.
+type RefRecord {
+	Name        string,
+	UpdateIndex uint64,
+	Value       RefValue,
+}
+
+// LogValue is the typed payload of a reflog record inside a `'g'` block.
+type LogValue =
+	| LogDelete{}
+	| LogUpdate{
+		OldOID   oid.OID,
+		NewOID   oid.OID,
+		Name     string,
+		Email    string,
+		Time     uint64,
+		TzOffset int,
+		Message  string,
+	}
+
+// LogRecord is one reflog entry decoded from or encoded into a reftable.
+type LogRecord {
+	RefName     string,
+	UpdateIndex uint64,
+	Value       LogValue,
+}
+
+// Table is a decoded Git reftable binary file containing its header, verified
+// footer, ref records, and log records.
+type Table {
+	Header Header,
+	Footer Footer,
+	Refs   []RefRecord,
+	Logs   []LogRecord,
+}
+
+// ResolvedRef is the final OID reached after resolving any symbolic ref chain.
+type ResolvedRef {
+	Name   string,
+	Chain  []string,
+	OID    oid.OID,
+	Peeled option.Option[oid.OID],
+}
+
+// ReftableStore is the capability seam for pure-Ergo reftable encoding,
+// decoding, stack lookup, symref resolution, and compaction.
+type ReftableStore {
+	Encode(header Header, refs []RefRecord, logs []LogRecord) []byte fails UnsupportedVersion | HashFormatMismatch | InvalidUpdateIndex | CorruptRecord,
+	Decode(raw []byte) Table fails BadMagic | UnsupportedVersion | HashFormatMismatch | TruncatedTable | HeaderFooterMismatch | CorruptChecksum | CorruptBlock | CorruptRecord | ZlibFailed | InvalidUpdateIndex,
+	Lookup(tables []Table, name string) option.Option[RefRecord],
+	Resolve(tables []Table, name string) ResolvedRef fails RefNotFound | CyclicSymref,
+	Compact(tables []Table, dropDeletions bool) Table fails UnsupportedVersion | HashFormatMismatch | InvalidUpdateIndex | CorruptRecord,
+
+	// EncodeDecodeRoundTrips: encoding and decoding v1 (SHA-1) and v2 (SHA-256)
+	// tables preserves header, direct refs, peeled tags, symrefs, deletions,
+	// and log records identically.
+	law EncodeDecodeRoundTrips(useSha256 bool, minIdx int, delta int) {
+		let fmt = if useSha256 { oid.Sha256 } else { oid.Sha1 }
+		let ver = if useSha256 { 2 } else { 1 }
+		let minU = uint64(1 + (if minIdx < 0 { -minIdx } else { minIdx })%1000)
+		let dU = uint64((if delta < 0 { -delta } else { delta }) % 16)
+		let maxU = minU + dU
+		let idA = oid.HashObject(fmt, oid.Blob, "alpha".Bytes()) catch {
+		case oid.Collision:
+			return false
+		}
+		let idB = oid.HashObject(fmt, oid.Blob, "beta".Bytes()) catch {
+		case oid.Collision:
+			return false
+		}
+		let hdr = Header{
+			Version:        ver,
+			BlockSize:      4096,
+			MinUpdateIndex: minU,
+			MaxUpdateIndex: maxU,
+			Format:         fmt,
+		}
+		let refs = []RefRecord{
+			RefRecord{Name: "HEAD", UpdateIndex: minU, Value: RefSymref{Target: "refs/heads/main"}},
+			RefRecord{Name: "refs/heads/deleted", UpdateIndex: maxU, Value: RefDelete},
+			RefRecord{Name: "refs/heads/main", UpdateIndex: maxU, Value: RefDirect{OID: idA}},
+			RefRecord{Name: "refs/tags/v1", UpdateIndex: minU, Value: RefPeeled{OID: idB, Peeled: idA}},
+		}
+		let logs = []LogRecord{
+			LogRecord{
+				RefName:     "refs/heads/main",
+				UpdateIndex: maxU,
+				Value:       LogUpdate{
+					OldOID:   oid.Zero(fmt),
+					NewOID:   idA,
+					Name:     "Alice",
+					Email:    "alice@example.com",
+					Time:     uint64(1700000000),
+					TzOffset: -500,
+					Message:  "commit (initial): init\n",
+				},
+			},
+		}
+		let raw = Encode(hdr, refs, logs) catch {
+		case UnsupportedVersion, HashFormatMismatch, InvalidUpdateIndex, CorruptRecord:
+			return false
+		}
+		let tbl = Decode(raw) catch {
+		case BadMagic, UnsupportedVersion, HashFormatMismatch, TruncatedTable, HeaderFooterMismatch, CorruptChecksum, CorruptBlock, CorruptRecord, ZlibFailed, InvalidUpdateIndex:
+			return false
+		}
+		let okHdr = tbl.Header.Version == ver && tbl.Header.MinUpdateIndex == minU && tbl.Header.MaxUpdateIndex == maxU
+		let okCounts = tbl.Refs.Len() == 4 && tbl.Logs.Len() == 1
+		let resolved = Resolve([]Table{tbl}, "HEAD") catch {
+		case RefNotFound, CyclicSymref:
+			return false
+		}
+		let okRes = oid.Equal(resolved.OID, idA) && resolved.Chain.Len() == 2
+		always okHdr && okCounts && okRes
+		sometimes useSha256 && okRes
+		sometimes !useSha256 && okRes
+		okHdr && okCounts && okRes
+	},
+
+	// NewerTableTombstoneHidesOlderRef: a newer table containing RefDelete
+	// hides an older table's live ref, and a newer live ref overrides an older
+	// ref's OID.
+	law NewerTableTombstoneHidesOlderRef(deleteInNewer bool) {
+		let idOld = oid.HashObject(oid.Sha1, oid.Blob, "old".Bytes()) catch {
+		case oid.Collision:
+			return false
+		}
+		let idNew = oid.HashObject(oid.Sha1, oid.Blob, "new".Bytes()) catch {
+		case oid.Collision:
+			return false
+		}
+		let h1 = Header{Version: 1, BlockSize: 4096, MinUpdateIndex: uint64(1), MaxUpdateIndex: uint64(1), Format: oid.Sha1}
+		let h2 = Header{Version: 1, BlockSize: 4096, MinUpdateIndex: uint64(2), MaxUpdateIndex: uint64(2), Format: oid.Sha1}
+		let raw1 = Encode(h1, []RefRecord{
+			RefRecord{Name: "refs/heads/main", UpdateIndex: uint64(1), Value: RefDirect{OID: idOld}},
+		}, []LogRecord{}) catch {
+		case UnsupportedVersion, HashFormatMismatch, InvalidUpdateIndex, CorruptRecord:
+			return false
+		}
+		let val2 = if deleteInNewer { RefDelete } else { RefDirect{OID: idNew} }
+		let raw2 = Encode(h2, []RefRecord{
+			RefRecord{Name: "refs/heads/main", UpdateIndex: uint64(2), Value: val2},
+		}, []LogRecord{}) catch {
+		case UnsupportedVersion, HashFormatMismatch, InvalidUpdateIndex, CorruptRecord:
+			return false
+		}
+		let t1 = Decode(raw1) catch {
+		case BadMagic, UnsupportedVersion, HashFormatMismatch, TruncatedTable, HeaderFooterMismatch, CorruptChecksum, CorruptBlock, CorruptRecord, ZlibFailed, InvalidUpdateIndex:
+			return false
+		}
+		let t2 = Decode(raw2) catch {
+		case BadMagic, UnsupportedVersion, HashFormatMismatch, TruncatedTable, HeaderFooterMismatch, CorruptChecksum, CorruptBlock, CorruptRecord, ZlibFailed, InvalidUpdateIndex:
+			return false
+		}
+		let found = Lookup([]Table{t1, t2}, "refs/heads/main")
+		let ok = if deleteInNewer {
+			match found {
+			case option.None:
+				true
+			case option.Some[RefRecord]:
+				false
+			}
+		} else {
+			match found {
+			case option.None:
+				false
+			case option.Some[RefRecord] as r:
+				match r.Value.Value {
+				case RefDirect as d:
+					oid.Equal(d.OID, idNew)
+				case RefDelete, RefPeeled, RefSymref:
+					false
+				}
+			}
+		}
+		always ok
+		sometimes deleteInNewer && ok
+		sometimes !deleteInNewer && ok
+		ok
+	},
+
+	// CorruptFooterChecksumRefused: flipping a bit in the trailing footer CRC32
+	// always fails Decode with CorruptChecksum.
+	law CorruptFooterChecksumRefused(useSha256 bool) {
+		let fmt = if useSha256 { oid.Sha256 } else { oid.Sha1 }
+		let ver = if useSha256 { 2 } else { 1 }
+		let id = oid.HashObject(fmt, oid.Blob, "crc-check".Bytes()) catch {
+		case oid.Collision:
+			return false
+		}
+		let hdr = Header{Version: ver, BlockSize: 4096, MinUpdateIndex: uint64(1), MaxUpdateIndex: uint64(1), Format: fmt}
+		let mut raw = Encode(hdr, []RefRecord{
+			RefRecord{Name: "refs/heads/main", UpdateIndex: uint64(1), Value: RefDirect{OID: id}},
+		}, []LogRecord{}) catch {
+		case UnsupportedVersion, HashFormatMismatch, InvalidUpdateIndex, CorruptRecord:
+			return false
+		}
+		let last = raw.Len() - 1
+		raw[last] = raw[last] ^ byte(1)
+		let mut rejected = false
+		let _ = Decode(raw) catch {
+		case CorruptChecksum:
+			rejected = true
+			Table{Header: hdr, Footer: Footer{Header: hdr, RefIndexPos: uint64(0), ObjPos: uint64(0), ObjIDLen: 0, ObjIndexPos: uint64(0), LogPos: uint64(0), LogIndexPos: uint64(0), CRC32: uint32(0)}, Refs: []RefRecord{}, Logs: []LogRecord{}}
+		case BadMagic, UnsupportedVersion, HashFormatMismatch, TruncatedTable, HeaderFooterMismatch, CorruptBlock, CorruptRecord, ZlibFailed, InvalidUpdateIndex:
+			rejected = false
+			Table{Header: hdr, Footer: Footer{Header: hdr, RefIndexPos: uint64(0), ObjPos: uint64(0), ObjIDLen: 0, ObjIndexPos: uint64(0), LogPos: uint64(0), LogIndexPos: uint64(0), CRC32: uint32(0)}, Refs: []RefRecord{}, Logs: []LogRecord{}}
+		}
+		always rejected
+		sometimes useSha256 && rejected
+		sometimes !useSha256 && rejected
+		rejected
+	},
+}

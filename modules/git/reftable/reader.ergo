@@ -1,0 +1,291 @@
+import slices
+import zlib
+import github.com/cevr/ergo/modules/git/oid
+
+func commonPrefixBytes(prev []byte, plen int) []byte fails CorruptRecord {
+	if plen < 0 || plen > prev.Len() {
+		return CorruptRecord{Detail: "prefix length exceeds previous key"}
+	}
+	let mut out = slices.WithCapacity[byte](plen)
+	for i in 0..plen {
+		out = out.Append(prev[i])
+	}
+	out
+}
+
+func readFixedOID(data []byte, pos int, fmt oid.Format) (oid.OID, int) fails TruncatedTable | CorruptRecord {
+	let hlen = oid.ByteLen(fmt)
+	if pos < 0 || pos+hlen > data.Len() {
+		return TruncatedTable{Detail: "truncated OID payload"}
+	}
+	let id = oid.FromBytes(fmt, data[pos:pos+hlen]) catch {
+	case oid.WrongLength:
+		return CorruptRecord{Detail: "unexpected OID width"}
+	}
+	(id, pos + hlen)
+}
+
+func decodeRefBlockPayload(blockData []byte, dataStart int, dataEnd int, header Header) []RefRecord fails TruncatedTable | CorruptRecord {
+	let mut out = []RefRecord{}
+	let mut pos = dataStart
+	let mut prev = []byte{}
+	for pos < dataEnd {
+		let (plenU, p1) = try GetVarInt(blockData, pos)
+		let (sval, p2) = try GetVarInt(blockData, p1)
+		let plen = int(plenU)
+		let slen = int(sval >> uint64(3))
+		let vtype = int(sval & uint64(7))
+		if p2+slen > dataEnd {
+			return TruncatedTable{Detail: "truncated ref suffix"}
+		}
+		let mut key = try commonPrefixBytes(prev, plen)
+		key = appendBytes(key, blockData[p2:p2+slen])
+		prev = key
+		let (udelta, p3) = try GetVarInt(blockData, p2+slen)
+		let updateIdx = header.MinUpdateIndex + udelta
+		let mut nextPos = p3
+		let val = if vtype == 0 {
+			RefDelete
+		} else if vtype == 1 {
+			let (id, p4) = try readFixedOID(blockData, p3, header.Format)
+			nextPos = p4
+			RefDirect{OID: id}
+		} else if vtype == 2 {
+			let (id1, p4) = try readFixedOID(blockData, p3, header.Format)
+			let (id2, p5) = try readFixedOID(blockData, p4, header.Format)
+			nextPos = p5
+			RefPeeled{OID: id1, Peeled: id2}
+		} else if vtype == 3 {
+			let (tlenU, p4) = try GetVarInt(blockData, p3)
+			let tlen = int(tlenU)
+			if p4+tlen > dataEnd {
+				return TruncatedTable{Detail: "truncated symref target"}
+			}
+			let target = blockData[p4 : p4+tlen].Text()
+			nextPos = p4 + tlen
+			RefSymref{Target: target}
+		} else {
+			return CorruptRecord{Detail: "unknown ref value type"}
+		}
+		if nextPos > dataEnd {
+			return TruncatedTable{Detail: "ref record overruns block payload"}
+		}
+		pos = nextPos
+		out = out.Append(RefRecord{
+			Name:        key.Text(),
+			UpdateIndex: updateIdx,
+			Value:       val,
+		})
+	}
+	out
+}
+
+func decodeLogBlockPayload(decomp []byte, header Header) []LogRecord fails TruncatedTable | CorruptBlock | CorruptRecord {
+	if decomp.Len() < 2 {
+		return CorruptBlock{Detail: "log block shorter than restart count"}
+	}
+	let rc = int(try readU16BE(decomp, decomp.Len()-2))
+	let restartBytes = rc * 3
+	if rc < 1 || 2+restartBytes > decomp.Len() {
+		return CorruptBlock{Detail: "invalid log block restart table"}
+	}
+	let dataEnd = decomp.Len() - 2 - restartBytes
+	let mut out = []LogRecord{}
+	let mut pos = 0
+	let mut prev = []byte{}
+	for pos < dataEnd {
+		let (plenU, p1) = try GetVarInt(decomp, pos)
+		let (sval, p2) = try GetVarInt(decomp, p1)
+		let plen = int(plenU)
+		let slen = int(sval >> uint64(3))
+		let vtype = int(sval & uint64(7))
+		if p2+slen > dataEnd {
+			return TruncatedTable{Detail: "truncated log suffix"}
+		}
+		let mut key = try commonPrefixBytes(prev, plen)
+		key = appendBytes(key, decomp[p2:p2+slen])
+		prev = key
+		if key.Len() < 9 || key[key.Len()-9] != byte(0) {
+			return CorruptRecord{Detail: "malformed log key separator"}
+		}
+		let refName = key[:key.Len()-9].Text()
+		let compIdx = try readU64BE(key, key.Len()-8)
+		let maxU64 uint64 = 18446744073709551615
+		let updateIdx = maxU64 - compIdx
+		let mut nextPos = p2 + slen
+		let val = if vtype == 0 {
+			LogDelete
+		} else if vtype == 1 {
+			let (oldID, p3) = try readFixedOID(decomp, nextPos, header.Format)
+			let (newID, p4) = try readFixedOID(decomp, p3, header.Format)
+			let (nameLenU, p5) = try GetVarInt(decomp, p4)
+			let nameLen = int(nameLenU)
+			if p5+nameLen > dataEnd {
+				return TruncatedTable{Detail: "truncated log name"}
+			}
+			let name = decomp[p5 : p5+nameLen].Text()
+			let (emailLenU, p6) = try GetVarInt(decomp, p5+nameLen)
+			let emailLen = int(emailLenU)
+			if p6+emailLen > dataEnd {
+				return TruncatedTable{Detail: "truncated log email"}
+			}
+			let email = decomp[p6 : p6+emailLen].Text()
+			let (ts, p7) = try GetVarInt(decomp, p6+emailLen)
+			if p7+2 > dataEnd {
+				return TruncatedTable{Detail: "truncated log timezone"}
+			}
+			let tz = try readI16BE(decomp, p7)
+			let (msgLenU, p8) = try GetVarInt(decomp, p7+2)
+			let msgLen = int(msgLenU)
+			if p8+msgLen > dataEnd {
+				return TruncatedTable{Detail: "truncated log message"}
+			}
+			let msg = decomp[p8 : p8+msgLen].Text()
+			nextPos = p8 + msgLen
+			LogUpdate{
+				OldOID:   oldID,
+				NewOID:   newID,
+				Name:     name,
+				Email:    email,
+				Time:     ts,
+				TzOffset: tz,
+				Message:  msg,
+			}
+		} else {
+			return CorruptRecord{Detail: "unknown log value type"}
+		}
+		pos = nextPos
+		out = out.Append(LogRecord{
+			RefName:     refName,
+			UpdateIndex: updateIdx,
+			Value:       val,
+		})
+	}
+	out
+}
+
+func skipZeroPadding(raw []byte, pos int, limit int, blockSize int) int {
+	if blockSize <= 0 || pos >= limit {
+		return pos
+	}
+	let rem = pos % blockSize
+	if rem == 0 {
+		return pos
+	}
+	let aligned = pos + (blockSize - rem)
+	if aligned > limit {
+		return pos
+	}
+	let mut allZero = true
+	for i in pos..aligned {
+		if raw[i] != byte(0) {
+			allZero = false
+			break
+		}
+	}
+	if allZero { aligned } else { pos }
+}
+
+func minPositiveOffset(a int, b uint64) int {
+	if b > uint64(0) && int(b) < a { int(b) } else { a }
+}
+
+// ReadTable decodes a complete Git reftable v1/v2 binary file, verifying header
+// and footer integrity (including IEEE CRC32), reading all `'r'` ref blocks and
+// zlib-compressed `'g'` log blocks, and cleanly skipping `'i'`/`'o'` index
+// sections.
+func ReadTable(raw []byte) Table fails BadMagic | UnsupportedVersion | HashFormatMismatch | TruncatedTable | HeaderFooterMismatch | CorruptChecksum | CorruptBlock | CorruptRecord | ZlibFailed | InvalidUpdateIndex {
+	let header = try ParseHeader(raw)
+	let footer = try ParseFooter(raw, header)
+	let hlen = try HeaderSize(header.Version)
+	let flen = try FooterSize(header.Version)
+	let bodyEnd = raw.Len() - flen
+
+	let mut refSectionEnd = bodyEnd
+	refSectionEnd = minPositiveOffset(refSectionEnd, footer.RefIndexPos)
+	refSectionEnd = minPositiveOffset(refSectionEnd, footer.ObjPos)
+	refSectionEnd = minPositiveOffset(refSectionEnd, footer.ObjIndexPos)
+	refSectionEnd = minPositiveOffset(refSectionEnd, footer.LogPos)
+	refSectionEnd = minPositiveOffset(refSectionEnd, footer.LogIndexPos)
+	if refSectionEnd < hlen || refSectionEnd > bodyEnd {
+		return CorruptBlock{Detail: "invalid ref section bounds"}
+	}
+
+	let mut allRefs = []RefRecord{}
+	let mut pos = hlen
+	for pos < refSectionEnd {
+		if pos+4 > refSectionEnd {
+			return TruncatedTable{Detail: "truncated ref block header"}
+		}
+		let btype = raw[pos]
+		let blen = try readU24BE(raw, pos+1)
+		let blockEnd = if pos == hlen { blen } else { pos + blen }
+		if blockEnd <= pos+4 || blockEnd > refSectionEnd {
+			return CorruptBlock{Detail: "invalid block length in ref section"}
+		}
+		if btype == byte('r') {
+			if blockEnd < pos+6 {
+				return CorruptBlock{Detail: "ref block shorter than restart count"}
+			}
+			let rc = int(try readU16BE(raw, blockEnd-2))
+			let restartBytes = rc * 3
+			let dataEnd = blockEnd - 2 - restartBytes
+			if rc < 1 || dataEnd < pos+4 {
+				return CorruptBlock{Detail: "invalid ref block restart table"}
+			}
+			let blockRefs = try decodeRefBlockPayload(raw, pos+4, dataEnd, header)
+			for r in blockRefs {
+				allRefs = allRefs.Append(r)
+			}
+		} else if btype == byte('i') || btype == byte('o') {
+		} else {
+			return CorruptBlock{Detail: "unexpected block type in ref section"}
+		}
+		pos = skipZeroPadding(raw, blockEnd, refSectionEnd, header.BlockSize)
+	}
+
+	let mut allLogs = []LogRecord{}
+	if footer.LogPos > uint64(0) {
+		let logStart = int(footer.LogPos)
+		let logEnd = if footer.LogIndexPos > uint64(0) { int(footer.LogIndexPos) } else { bodyEnd }
+		if logStart < hlen || logStart > bodyEnd || logEnd < logStart || logEnd > bodyEnd {
+			return CorruptBlock{Detail: "invalid log section bounds"}
+		}
+		let mut lpos = logStart
+		for lpos < logEnd {
+			if lpos+4 > logEnd {
+				return TruncatedTable{Detail: "truncated log block header"}
+			}
+			let btype = raw[lpos]
+			let uncompLen = try readU24BE(raw, lpos+1)
+			if btype != byte('g') {
+				return CorruptBlock{Detail: "expected 'g' block type in log section"}
+			}
+			let minHeader = if lpos == hlen { hlen + 4 } else { 4 }
+			if uncompLen < minHeader {
+				return CorruptBlock{Detail: "invalid uncompressed log block length"}
+			}
+			let wantDecomp = uncompLen - minHeader
+			let inflated = zlib.InflatePrefix(raw[lpos+4:logEnd], wantDecomp+1024) catch {
+			case zlib.BadHeader, zlib.UnsupportedDict, zlib.BadBlock, zlib.BadDistance, zlib.BadHuffman, zlib.BadChecksum, zlib.Truncated, zlib.LimitExceeded:
+				return ZlibFailed{Detail: "failed to inflate log block"}
+			}
+			if inflated.Data.Len() != wantDecomp {
+				return CorruptBlock{Detail: "decompressed log block size mismatch"}
+			}
+			let blockLogs = try decodeLogBlockPayload(inflated.Data, header)
+			for l in blockLogs {
+				allLogs = allLogs.Append(l)
+			}
+			lpos = lpos + 4 + inflated.Consumed
+			lpos = skipZeroPadding(raw, lpos, logEnd, header.BlockSize)
+		}
+	}
+
+	Table{
+		Header: header,
+		Footer: footer,
+		Refs:   allRefs,
+		Logs:   allLogs,
+	}
+}
