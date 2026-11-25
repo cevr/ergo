@@ -1,0 +1,127 @@
+// Package replay pins a versioned exact ReplayFixture and replays it directly
+// through explore.ReplayFromFixture without path generation.
+import explore
+import sync
+
+type probeState { Slot int, Val int }
+
+type probeInput = probeBump{Delta int} | probeStop{}
+
+type probeOpenErr { Why string }
+
+type probeDriveErr { Why string }
+
+type probeSess {
+	state sync.Ref[probeState],
+} implements explore.PathSession[probeInput, explore.Observed[probeState, int, Never], probeDriveErr]
+
+func Read(s probeSess) explore.Observed[probeState, int, Never] fails probeDriveErr {
+	explore.InitialRead[probeState]{State: s.state.Get()}
+}
+
+func Apply(s probeSess, inp probeInput) explore.Observed[probeState, int, Never] fails probeDriveErr {
+	let cur = s.state.Get()
+	match inp {
+	case probeBump as b:
+		let next = probeState{Slot: cur.Slot, Val: cur.Val + b.Delta}
+		s.state.Set(next)
+		let outs = if cur.Slot == 1 && b.Delta == 2 {
+			[]int{next.Val, b.Delta}
+		} else {
+			[]int{b.Delta, next.Val}
+		}
+		explore.StepResult[probeState, int, Never]{Step: explore.StepObs[probeState, int, Never]{
+			Kind:     explore.DisEmit,
+			State:    Some[probeState]{Value: next},
+			Outputs:  outs,
+			Error:    None,
+			Terminal: false,
+		}}
+	case probeStop:
+		explore.StepResult[probeState, int, Never]{Step: explore.StepObs[probeState, int, Never]{
+			Kind:     explore.DisDone,
+			State:    None,
+			Outputs:  []int{cur.Val},
+			Error:    None,
+			Terminal: true,
+		}}
+	}
+}
+
+func Close(s probeSess) {
+	let _ = s.state.Get()
+}
+
+func probeModel() explore.PathModel[probeState, probeInput, probeState, int, Never] {
+	explore.PathModel[probeState, probeInput, probeState, int, Never]{
+		Graph: explore.ConcreteGraph[probeState, probeInput, explore.StepObs[probeState, int, Never]]{
+			Starts: []probeState{
+				probeState{Slot: 0, Val: 0},
+				probeState{Slot: 1, Val: 10},
+			},
+			Signals: []probeInput{
+				probeBump{Delta: 1},
+				probeBump{Delta: 2},
+				probeStop,
+			},
+			Step: func(s probeState, inp probeInput) explore.EdgeOutcome[probeState, explore.StepObs[probeState, int, Never]] {
+				match inp {
+				case probeBump as b:
+					let next = probeState{Slot: s.Slot, Val: s.Val + b.Delta}
+					explore.Continue[probeState, explore.StepObs[probeState, int, Never]]{
+						Next: next,
+						Obs:  explore.StepObs[probeState, int, Never]{
+							Kind:     explore.DisEmit,
+							State:    Some[probeState]{Value: next},
+							Outputs:  []int{b.Delta, next.Val},
+							Error:    None,
+							Terminal: false,
+						},
+					}
+				case probeStop:
+					explore.Terminal[explore.StepObs[probeState, int, Never]]{
+						Obs: explore.StepObs[probeState, int, Never]{
+							Kind:     explore.DisDone,
+							State:    None,
+							Outputs:  []int{s.Val},
+							Error:    None,
+							Terminal: true,
+						},
+					}
+				}
+			},
+		},
+		InitialObs:     func(s probeState) probeState { s },
+		ProjectionName: None,
+	}
+}
+
+func openProbe(start probeState) explore.PathSession[probeInput, explore.Observed[probeState, int, Never], probeDriveErr] fails probeOpenErr {
+	let st = sync.NewRef(start)
+	probeSess{state: st}
+}
+
+// PinnedFixtureJSON is a checked-in version-1 ReplayFixture selecting start 1
+// and the second payload of probeBump.
+let PinnedFixtureJSON = "{\"version\":1,\"source\":\"examples/model-paths/probe/replay\",\"revision\":\"probe-rev-1\",\"typeKey\":\"probeModel/v1\",\"binding\":\"inMemory\",\"startIdx\":1,\"start\":{\"slot\":1,\"val\":10},\"inputs\":[{\"_tag\":\"probeBump\",\"delta\":2}]}"
+
+test PinnedReplayFixtureMatches {
+	let model = probeModel()
+	let decoded = try explore.DecodeReplayFixture[probeState, probeInput](PinnedFixtureJSON, "probe-rev-1", "probeModel/v1")
+	assert decoded.StartIdx == 1
+	assert decoded.Start == probeState{Slot: 1, Val: 10}
+	assert decoded.Inputs == []probeInput{probeBump{Delta: 2}}
+	let out = explore.ReplayFromFixture(model, decoded, openProbe)
+	let ok = match out {
+	case explore.ReplayFailed as rf:
+		match rf.Failure {
+		case explore.StepMismatch as sm:
+			sm.StartIndex == 1 && sm.Step == 1 && sm.Field == explore.DiffOutputs
+		case _:
+			false
+		}
+	case _:
+		false
+	}
+	assert ok
+}

@@ -80,6 +80,16 @@
       "to": "\tif matched || !matched {\n\t\tcounts.MatchedSteps = counts.MatchedSteps + 1",
       "rule": "An observed mismatch increments checked counts only and never credits matched step or edge counts.",
       "killers": ["internal/sketch/std/explore:law:CoverageStatesAgreeWithReference"]
+    },
+    {
+      "name": "paths-replay-variant-only",
+      "origin": "wf10 MODEL-BASED-PATH-TESTS P6",
+      "file": "internal/sketch/std/explore/replay.ergo",
+      "decl": "BuildReplayFixture",
+      "from": "\tfor inp in rawInputs {\n\t\texact = exact.Append(inp)\n\t}",
+      "to": "\tfor inp in rawInputs {\n\t\tlet inpTag = match valueOf(inp) {\n\t\tcase json.Object as o:\n\t\t\tlet mut t = \"\"\n\t\t\tfor m in o.Members {\n\t\t\t\tif m.Key == \"_tag\" {\n\t\t\t\t\tmatch m.Value {\n\t\t\t\t\tcase json.Str as s:\n\t\t\t\t\t\tt = s.Value\n\t\t\t\t\tcase _:\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t\tt\n\t\tcase _:\n\t\t\t\"\"\n\t\t}\n\t\tlet mut picked = inp\n\t\tif inpTag != \"\" {\n\t\t\tfor sig in model.Graph.Signals {\n\t\t\t\tlet sigTag = match valueOf(sig) {\n\t\t\t\tcase json.Object as o:\n\t\t\t\t\tlet mut t = \"\"\n\t\t\t\t\tfor m in o.Members {\n\t\t\t\t\t\tif m.Key == \"_tag\" {\n\t\t\t\t\t\t\tmatch m.Value {\n\t\t\t\t\t\t\tcase json.Str as s:\n\t\t\t\t\t\t\t\tt = s.Value\n\t\t\t\t\t\t\tcase _:\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t\tt\n\t\t\t\tcase _:\n\t\t\t\t\t\"\"\n\t\t\t\t}\n\t\t\t\tif sigTag == inpTag {\n\t\t\t\t\tpicked = sig\n\t\t\t\t\tbreak\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t\texact = exact.Append(picked)\n\t}",
+      "rule": "BuildReplayFixture preserves the exact typed input payloads rather than substituting the first alphabet event of the same variant tag.",
+      "killers": ["internal/sketch/std/explore:law:ExactReplayKeepsTypedInput"]
     }
   ]
 }
