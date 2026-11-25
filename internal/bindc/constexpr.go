@@ -3,6 +3,7 @@ package bindc
 import (
 	"math/big"
 	"strings"
+	"sync"
 )
 
 // A constant expression of the subset: decimal or hex literals without a
@@ -207,19 +208,24 @@ func (p *exprParser) unary() expr {
 // INT8_C, INT16_C and INT32_C expand to the literal itself, which has type
 // int in range; UINT32_C appends U, UINT64_C appends UL or ULL, INT64_C
 // appends L or LL).
-var intCMacros = map[string]struct {
+var intCMacros = sync.OnceValue(func() map[string]struct {
 	max *big.Int
 	typ Scalar
-}{
-	"INT8_C":   {big.NewInt(1<<7 - 1), Int32},
-	"INT16_C":  {big.NewInt(1<<15 - 1), Int32},
-	"INT32_C":  {big.NewInt(1<<31 - 1), Int32},
-	"INT64_C":  {big.NewInt(1<<63 - 1), Int64},
-	"UINT8_C":  {big.NewInt(1<<8 - 1), Int32},
-	"UINT16_C": {big.NewInt(1<<16 - 1), Int32},
-	"UINT32_C": {big.NewInt(1<<32 - 1), Uint32},
-	"UINT64_C": {new(big.Int).SetUint64(1<<64 - 1), Uint64},
-}
+} {
+	return map[string]struct {
+		max *big.Int
+		typ Scalar
+	}{
+		"INT8_C":   {big.NewInt(1<<7 - 1), Int32},
+		"INT16_C":  {big.NewInt(1<<15 - 1), Int32},
+		"INT32_C":  {big.NewInt(1<<31 - 1), Int32},
+		"INT64_C":  {big.NewInt(1<<63 - 1), Int64},
+		"UINT8_C":  {big.NewInt(1<<8 - 1), Int32},
+		"UINT16_C": {big.NewInt(1<<16 - 1), Int32},
+		"UINT32_C": {big.NewInt(1<<32 - 1), Uint32},
+		"UINT64_C": {new(big.Int).SetUint64(1<<64 - 1), Uint64},
+	}
+})
 
 func (p *exprParser) primary() expr {
 	t := p.next()
@@ -241,7 +247,7 @@ func (p *exprParser) primary() expr {
 		}
 		return eParen{x}
 	case t.kind == tIdent:
-		if m, ok := intCMacros[t.text]; ok {
+		if m, ok := intCMacros()[t.text]; ok {
 			if !p.stdint(t.pos) {
 				fail(t, CodeMissingInclude, t.text+" needs #include <stdint.h> before it")
 			}
@@ -305,7 +311,7 @@ func evalExpr(e expr) cval {
 		if e.neg {
 			v.Neg(v)
 		}
-		return cval{intCMacros[e.fn.text].typ, v}
+		return cval{intCMacros()[e.fn.text].typ, v}
 	case eParen:
 		return evalExpr(e.x)
 	case eNeg:

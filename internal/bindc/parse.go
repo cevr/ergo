@@ -3,6 +3,7 @@ package bindc
 import (
 	"math/big"
 	"path/filepath"
+	"sync"
 )
 
 // Parse reads a C header of the subset (see the package doc) and returns its
@@ -43,51 +44,57 @@ func Parse(file string, src []byte) (*Model, error) {
 // keywords are the C11 keywords and the common compiler extensions. None
 // of them can name a declaration; the type parser refuses each with the
 // code of its construct.
-var keywords = map[string]bool{}
-
-var keywordCode = map[string]Code{
-	"int": CodeImplicitWidth, "char": CodeImplicitWidth, "short": CodeImplicitWidth,
-	"long": CodeImplicitWidth, "signed": CodeImplicitWidth, "unsigned": CodeImplicitWidth,
-	"__int128": CodeImplicitWidth,
-	"enum":     CodeEnum,
-	"union":    CodeUnion,
-	"static":   CodeStorageClass, "inline": CodeStorageClass, "extern": CodeStorageClass,
-	"register": CodeStorageClass, "auto": CodeStorageClass, "_Thread_local": CodeStorageClass,
-	"_Noreturn": CodeStorageClass, "__inline": CodeStorageClass, "__inline__": CodeStorageClass,
-	"thread_local":  CodeStorageClass,
-	"__attribute__": CodeAttribute, "__attribute": CodeAttribute, "__declspec": CodeAttribute,
-	"_Alignas": CodeAttribute, "alignas": CodeAttribute, "__asm__": CodeAttribute, "__asm": CodeAttribute,
-	"asm": CodeAttribute, "__extension__": CodeAttribute, "_Pragma": CodeAttribute,
-	"volatile": CodeQualifier, "restrict": CodeQualifier, "__restrict": CodeQualifier,
-	"__restrict__": CodeQualifier, "_Atomic": CodeQualifier, "__volatile__": CodeQualifier,
-	"__const": CodeQualifier, "_Nonnull": CodeQualifier, "_Nullable": CodeQualifier,
-	"_Bool": CodeDeclarator, "_Complex": CodeDeclarator, "_Imaginary": CodeDeclarator,
-	"sizeof": CodeDeclarator, "_Alignof": CodeDeclarator, "alignof": CodeDeclarator,
-	"_Generic": CodeDeclarator, "_Static_assert": CodeDeclarator, "static_assert": CodeDeclarator,
-	"typeof": CodeDeclarator, "__typeof__": CodeDeclarator, "_BitInt": CodeDeclarator,
-	"_Float16": CodeDeclarator, "__fp16": CodeDeclarator, "_Decimal32": CodeDeclarator,
-	"break": CodeSyntax, "case": CodeSyntax, "continue": CodeSyntax, "default": CodeSyntax,
-	"do": CodeSyntax, "else": CodeSyntax, "for": CodeSyntax, "goto": CodeSyntax, "if": CodeSyntax,
-	"return": CodeSyntax, "switch": CodeSyntax, "while": CodeSyntax,
-	"nullptr": CodeSyntax, "constexpr": CodeSyntax, "true": CodeSyntax, "false": CodeSyntax,
-}
+var keywordCode = sync.OnceValue(func() map[string]Code {
+	return map[string]Code{
+		"int": CodeImplicitWidth, "char": CodeImplicitWidth, "short": CodeImplicitWidth,
+		"long": CodeImplicitWidth, "signed": CodeImplicitWidth, "unsigned": CodeImplicitWidth,
+		"__int128": CodeImplicitWidth,
+		"enum":     CodeEnum,
+		"union":    CodeUnion,
+		"static":   CodeStorageClass, "inline": CodeStorageClass, "extern": CodeStorageClass,
+		"register": CodeStorageClass, "auto": CodeStorageClass, "_Thread_local": CodeStorageClass,
+		"_Noreturn": CodeStorageClass, "__inline": CodeStorageClass, "__inline__": CodeStorageClass,
+		"thread_local":  CodeStorageClass,
+		"__attribute__": CodeAttribute, "__attribute": CodeAttribute, "__declspec": CodeAttribute,
+		"_Alignas": CodeAttribute, "alignas": CodeAttribute, "__asm__": CodeAttribute, "__asm": CodeAttribute,
+		"asm": CodeAttribute, "__extension__": CodeAttribute, "_Pragma": CodeAttribute,
+		"volatile": CodeQualifier, "restrict": CodeQualifier, "__restrict": CodeQualifier,
+		"__restrict__": CodeQualifier, "_Atomic": CodeQualifier, "__volatile__": CodeQualifier,
+		"__const": CodeQualifier, "_Nonnull": CodeQualifier, "_Nullable": CodeQualifier,
+		"_Bool": CodeDeclarator, "_Complex": CodeDeclarator, "_Imaginary": CodeDeclarator,
+		"sizeof": CodeDeclarator, "_Alignof": CodeDeclarator, "alignof": CodeDeclarator,
+		"_Generic": CodeDeclarator, "_Static_assert": CodeDeclarator, "static_assert": CodeDeclarator,
+		"typeof": CodeDeclarator, "__typeof__": CodeDeclarator, "_BitInt": CodeDeclarator,
+		"_Float16": CodeDeclarator, "__fp16": CodeDeclarator, "_Decimal32": CodeDeclarator,
+		"break": CodeSyntax, "case": CodeSyntax, "continue": CodeSyntax, "default": CodeSyntax,
+		"do": CodeSyntax, "else": CodeSyntax, "for": CodeSyntax, "goto": CodeSyntax, "if": CodeSyntax,
+		"return": CodeSyntax, "switch": CodeSyntax, "while": CodeSyntax,
+		"nullptr": CodeSyntax, "constexpr": CodeSyntax, "true": CodeSyntax, "false": CodeSyntax,
+	}
+})
 
 // structural keywords the parser reads itself.
 var parsedKeywords = []string{"const", "void", "float", "double", "struct", "typedef", "bool"}
 
-var scalarNames = map[string]bool{}
-
-func init() {
-	for k := range keywordCode {
-		keywords[k] = true
+var keywords = sync.OnceValue(func() map[string]bool {
+	kc := keywordCode()
+	m := make(map[string]bool, len(kc)+len(parsedKeywords))
+	for k := range kc {
+		m[k] = true
 	}
 	for _, k := range parsedKeywords {
-		keywords[k] = true
+		m[k] = true
 	}
+	return m
+})
+
+var scalarNames = sync.OnceValue(func() map[string]bool {
+	m := make(map[string]bool, len(scalarSize))
 	for s := range scalarSize {
-		scalarNames[string(s)] = true
+		m[string(s)] = true
 	}
-}
+	return m
+})
 
 type parser struct {
 	d      *diags
@@ -138,7 +145,7 @@ func (p *parser) fail(t token, c Code, format string, args ...any) {
 
 func (p *parser) unexpected(t token, want string) {
 	if t.kind == tIdent {
-		if c, ok := keywordCode[t.text]; ok && c != CodeSyntax {
+		if c, ok := keywordCode()[t.text]; ok && c != CodeSyntax {
 			p.fail(t, c, "%s: %s", quote(t.text), Codes[c])
 		}
 	}
@@ -434,7 +441,7 @@ func (p *parser) topDecl() {
 
 // declare records a typedef or function name.
 func (p *parser) declare(t token) {
-	if keywords[t.text] || scalarNames[t.text] {
+	if keywords()[t.text] || scalarNames()[t.text] {
 		p.fail(t, CodeDuplicate, "%s names a keyword or a standard type", t.text)
 	}
 	if prev, ok := p.names[t.text]; ok {
@@ -445,7 +452,7 @@ func (p *parser) declare(t token) {
 
 func (p *parser) ident(want string) token {
 	t := p.peek()
-	if t.kind != tIdent || keywords[t.text] {
+	if t.kind != tIdent || keywords()[t.text] {
 		p.unexpected(t, want)
 	}
 	p.checkName(t)
@@ -455,7 +462,7 @@ func (p *parser) ident(want string) token {
 // checkName refuses a declared name that a C compiler would expand as a
 // macro of the standard headers or of the compiler.
 func (p *parser) checkName(t token) {
-	if reservedMacro.MatchString(t.text) {
+	if reservedMacro().MatchString(t.text) {
 		p.fail(t, CodeMacroIdentifier, "%s is a reserved name or a standard macro", t.text)
 	}
 }
@@ -466,7 +473,7 @@ func (p *parser) typedefDecl() {
 	case t.is("struct"):
 		p.next()
 		tag := token{}
-		if p.peek().kind == tIdent && !keywords[p.peek().text] {
+		if p.peek().kind == tIdent && !keywords()[p.peek().text] {
 			p.checkName(p.peek())
 			tag = p.next()
 		}
@@ -695,13 +702,13 @@ func (p *parser) typeSpec() (Type, token) {
 		typ = Type{Kind: TypeScalar, Scalar: Float32}
 	case t.is("double"):
 		typ = Type{Kind: TypeScalar, Scalar: Float64}
-	case scalarNames[t.text]:
+	case scalarNames()[t.text]:
 		s := Scalar(t.text)
 		if h := scalarHeader[s]; !p.pre.included(h, t.pos) {
 			p.fail(t, CodeMissingInclude, "%s needs #include <%s> before it", t.text, h)
 		}
 		typ = Type{Kind: TypeScalar, Scalar: s}
-	case keywordCode[t.text] != "":
+	case keywordCode()[t.text] != "":
 		p.i--
 		p.unexpected(t, "a type")
 	default:
@@ -710,7 +717,7 @@ func (p *parser) typeSpec() (Type, token) {
 		}
 		typ = Type{Kind: TypeNamed, Name: t.text}
 	}
-	if q := p.peek(); q.is("const") || keywordCode[q.text] == CodeQualifier {
+	if q := p.peek(); q.is("const") || keywordCode()[q.text] == CodeQualifier {
 		p.fail(q, CodeQualifier, "qualifier %s after the type; only `const T *`", q.text)
 	}
 	if constTok.text != "" {
@@ -724,7 +731,7 @@ func (p *parser) pointers(base Type) (Type, int) {
 	t, n := base, 0
 	for p.peek().is("*") {
 		p.next()
-		if q := p.peek(); q.is("const") || keywordCode[q.text] == CodeQualifier {
+		if q := p.peek(); q.is("const") || keywordCode()[q.text] == CodeQualifier {
 			p.fail(q, CodeQualifier, "qualifier %s on a pointer; only `const T *`", q.text)
 		}
 		e := t
@@ -765,7 +772,7 @@ func (p *parser) resultType(t Type, at token) {
 
 func (p *parser) prototype() {
 	t := p.peek()
-	if c, ok := keywordCode[t.text]; ok && t.kind == tIdent && (c == CodeStorageClass || c == CodeAttribute) {
+	if c, ok := keywordCode()[t.text]; ok && t.kind == tIdent && (c == CodeStorageClass || c == CodeAttribute) {
 		p.fail(t, c, "%s: %s", quote(t.text), Codes[c])
 	}
 	base, constTok := p.typeSpec()
@@ -789,9 +796,9 @@ func (p *parser) prototype() {
 	switch q := p.peek(); {
 	case q.is("{"):
 		p.fail(q, CodeStorageClass, "function definition %s", name.text)
-	case q.kind == tIdent && keywordCode[q.text] == CodeAttribute:
+	case q.kind == tIdent && keywordCode()[q.text] == CodeAttribute:
 		p.fail(q, CodeAttribute, "%s: %s", quote(q.text), Codes[CodeAttribute])
-	case q.kind == tIdent && !keywords[q.text]:
+	case q.kind == tIdent && !keywords()[q.text]:
 		p.failKAndR(open, nil, name, "K&R definition %s", name.text)
 	}
 	p.endDecl(name)
@@ -811,7 +818,7 @@ func (p *parser) params(owner token) []Param {
 		return nil
 	}
 	// An identifier list `(a, b)`: a name that is no type, then `,` or `)`.
-	if t := p.peek(); t.kind == tIdent && !keywords[t.text] && !scalarNames[t.text] && (p.peekN(1).is(",") || p.peekN(1).is(")")) {
+	if t := p.peek(); t.kind == tIdent && !keywords()[t.text] && !scalarNames()[t.text] && (p.peekN(1).is(",") || p.peekN(1).is(")")) {
 		if _, isType := p.types[t.text]; !isType {
 			names := map[string]bool{}
 			for k := p.i; p.toks[k].kind == tIdent; k += 2 {
@@ -837,7 +844,7 @@ func (p *parser) params(owner token) []Param {
 			}
 			name := token{}
 			if t := p.peek(); t.kind == tIdent {
-				if keywordCode[t.text] == CodeAttribute {
+				if keywordCode()[t.text] == CodeAttribute {
 					p.fail(t, CodeAttribute, "%s: %s", quote(t.text), Codes[CodeAttribute])
 				}
 				name = p.ident("a parameter name")
@@ -849,7 +856,7 @@ func (p *parser) params(owner token) []Param {
 			if t := p.peek(); t.is("[") {
 				// An array parameter `T name[N]` is a pointer to T (C11
 				// 6.7.6.3p7); the model keeps its declared length.
-				if n := p.peekN(1); n.is("]") || n.is("static") || n.is("*") || keywordCode[n.text] == CodeQualifier || n.is("const") {
+				if n := p.peekN(1); n.is("]") || n.is("static") || n.is("*") || keywordCode()[n.text] == CodeQualifier || n.is("const") {
 					p.fail(t, CodeDeclarator, "array parameter without a constant length")
 				}
 				arr := p.array(typ)

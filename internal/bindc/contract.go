@@ -8,6 +8,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // Contract is the binding contract of one header: every fact the C types
@@ -232,25 +233,27 @@ type Skip struct {
 // contractKeys is the schema of the contract: every key of every object,
 // and whether it is required. A path names an object; "[]" is an element
 // of an array.
-var contractKeys = map[string]map[string]bool{
-	"": {"header": true, "header_sha256": true, "go": true, "prefixes": true, "status": true,
-		"abi": true, "handles": true, "autofill": true, "buffers": true, "callbacks": true, "exceptions": true, "skips": true},
-	"callbacks": {"typedef": true, "scope": true, "key": true, "default": false, "owner": false,
-		"ends": false, "why": true},
-	"callbacks.key":  {"params": true, "source": true},
-	"go":             {"package": true, "import_path": true},
-	"prefixes":       {"function": true, "macro": true, "type": true},
-	"status":         {"type": true, "macro_prefix": true, "success": true, "exclude": true},
-	"status.exclude": {"name": true, "why": true},
-	"abi":            {"function": true, "macro": true},
-	"handles":        {"type": true, "create": true, "out": true, "destroy": true, "thread": true},
-	"autofill":       {"field": true, "value": true},
-	"buffers": {"length_names": true, "byte_length_names": true, "capacity_names": true,
-		"count_names": true, "out_prefix": true},
-	"exceptions": {"function": false, "callback": false, "position": true, "class": true, "length": false,
-		"unit": false, "count": false, "array_length": false, "why": true},
-	"skips": {"name": true, "why": true},
-}
+var contractKeys = sync.OnceValue(func() map[string]map[string]bool {
+	return map[string]map[string]bool{
+		"": {"header": true, "header_sha256": true, "go": true, "prefixes": true, "status": true,
+			"abi": true, "handles": true, "autofill": true, "buffers": true, "callbacks": true, "exceptions": true, "skips": true},
+		"callbacks": {"typedef": true, "scope": true, "key": true, "default": false, "owner": false,
+			"ends": false, "why": true},
+		"callbacks.key":  {"params": true, "source": true},
+		"go":             {"package": true, "import_path": true},
+		"prefixes":       {"function": true, "macro": true, "type": true},
+		"status":         {"type": true, "macro_prefix": true, "success": true, "exclude": true},
+		"status.exclude": {"name": true, "why": true},
+		"abi":            {"function": true, "macro": true},
+		"handles":        {"type": true, "create": true, "out": true, "destroy": true, "thread": true},
+		"autofill":       {"field": true, "value": true},
+		"buffers": {"length_names": true, "byte_length_names": true, "capacity_names": true,
+			"count_names": true, "out_prefix": true},
+		"exceptions": {"function": false, "callback": false, "position": true, "class": true, "length": false,
+			"unit": false, "count": false, "array_length": false, "why": true},
+		"skips": {"name": true, "why": true},
+	}
+})
 
 // DecodeContract reads a binding contract strictly (see Contract). It
 // checks the form only; Bind checks the facts against the header.
@@ -282,7 +285,7 @@ func DecodeContract(data []byte) (*Contract, error) {
 	if len(c.HeaderSHA256) != 64 || strings.Trim(c.HeaderSHA256, "0123456789abcdef") != "" {
 		bad("header_sha256 %q is not 64 lower-case hex digits", c.HeaderSHA256)
 	}
-	if !isGoIdent(c.Go.Package) || goKeywords[c.Go.Package] || c.Go.Package == "_" {
+	if !isGoIdent(c.Go.Package) || goKeywords()[c.Go.Package] || c.Go.Package == "_" {
 		bad("go.package %q is not a Go package name", c.Go.Package)
 	}
 	for i, h := range c.Handles {
@@ -445,7 +448,7 @@ func checkContractShape(data []byte) error {
 				_, err := dec.Token()
 				return err
 			case '{':
-				keys, known := contractKeys[path]
+				keys, known := contractKeys()[path]
 				seen := map[string]bool{}
 				for dec.More() {
 					kt, err := dec.Token()

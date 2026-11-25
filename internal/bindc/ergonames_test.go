@@ -84,7 +84,7 @@ func checkerDomain(t *testing.T) []string {
 			set[w] = true
 		}
 	}
-	for _, m := range []map[string]bool{goKeywords, goPredeclared} {
+	for _, m := range []map[string]bool{goKeywords(), goPredeclared()} {
 		for n := range m {
 			set[n] = true
 		}
@@ -204,7 +204,7 @@ func bindErgoImport(t *testing.T, extra, base string) (*Binding, string, error) 
 	}
 	g := c["go"].(map[string]any)
 	g["import_path"] = "ergo.local/bind/" + base
-	if isGoIdent(base) && !goKeywords[base] && base != "_" {
+	if isGoIdent(base) && !goKeywords()[base] && base != "_" {
 		g["package"] = base
 	}
 	ct, err := json.Marshal(c)
