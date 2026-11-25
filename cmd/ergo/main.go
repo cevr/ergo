@@ -230,10 +230,10 @@ type fileOptions struct {
 	// noViews is build's -views=off: no Go call takes a view of a
 	// string's bytes (LAWFFI LF2b; lower.Unit.NoViews).
 	noViews bool
-	// noFallback is build's -fallback=off, or ERGO_FALLBACK=off: a body
-	// the IR builder cannot lower is an error naming it and its reason,
-	// not a text body (FALLBACK-OFF; lower.Unit.NoFallback).
-	noFallback bool
+	// fallback is -fallback=off|on (default off, or ERGO_FALLBACK=on):
+	// when off, a body the IR builder cannot lower is an error naming it
+	// and its reason, not a text body (FALLBACK-OFF; lower.Unit.NoFallback).
+	fallback string
 	// rewrites is build's -rewrites=on|proved|off|canary[=N] (lower.Unit.Rewrites):
 	// which rewrites over functions the run build applies; empty is on.
 	rewrites string
@@ -311,6 +311,13 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		}
 		if value, ok := strings.CutPrefix(args[i], "--eval-bytes="); ok {
 			opts.evalBytes, bytesGiven = value, true
+			continue
+		}
+		if value, ok := strings.CutPrefix(args[i], "-fallback="); ok {
+			if value != "on" && value != "off" {
+				return opts, fmt.Errorf("-fallback takes on or off, not %q", value)
+			}
+			opts.fallback = value
 			continue
 		}
 		if value, ok := strings.CutPrefix(args[i], "-rewrites="); ok {
@@ -395,8 +402,6 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 			opts.locked = true
 		case "-views=off":
 			opts.noViews = true
-		case "-fallback=off":
-			opts.noFallback = true
 		case "--emitted":
 			opts.emitted = true
 		case "--debug":
@@ -438,8 +443,8 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("-go-text is only supported by build")
 	case opts.noViews && command != "build":
 		return opts, fmt.Errorf("-views=off is only supported by build")
-	case opts.noFallback && command != "build":
-		return opts, fmt.Errorf("-fallback=off is only supported by build")
+	case opts.fallback != "" && command != "build" && command != "run" && command != "test":
+		return opts, fmt.Errorf("-fallback is only supported by build, run and test")
 	case opts.report != "" && command != "build":
 		return opts, fmt.Errorf("-report is only supported by build")
 	case opts.rewrites != "" && command != "build":

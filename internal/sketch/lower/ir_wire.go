@@ -32,6 +32,7 @@ package lower
 import (
 	"go/constant"
 	"strconv"
+	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -50,6 +51,9 @@ func (st *irState) codecText(name, reason string) {
 		// (PORT-WIRE-READERS step 0), keyed by its Go name: the same
 		// function in two targets is one function (IRCensusFunc.Codec).
 		st.census.Funcs = append(st.census.Funcs, IRCensusFunc{Pkg: "codec", Name: name, Codec: true, Reasons: []string{reason}})
+	}
+	if st.noFallback && wireIRLowering != "text" && wireReadLowering != "text" {
+		st.fallbacks = append(st.fallbacks, IRCensusFunc{Pkg: "codec", Name: name, Codec: true, Reasons: []string{reason}})
 	}
 }
 
@@ -93,6 +97,10 @@ type wireGen struct {
 	// call, the task first, and the plan's steps are its statements as
 	// they stand (plain); cw is unset.
 	writer bool
+	// free are the type parameters of a generic encoder's type, in
+	// parameter order; their codec witnesses live at locals 1..len(free).
+	free []*check.TypeParam
+	tc   *typeCtx
 	// decls declare the function's key arrays (WireKeysIn), at its entry.
 	decls []*irStmt
 }
@@ -172,12 +180,9 @@ func (st *irState) wireCell(l *lowerer, name string, t check.Type, em wireEvents
 // reference) or on a direct writer that is no cell as an IR body (W1),
 // and reports whether it did: the text emitter's wireEncodeBody, step for
 // step, each event the writer's method on the task, each nested value its
-// codec function's call. params named the Go parameters (env, w, v:
-// locals 0, 1, 2). Not taken (the text stays, counted by its reason): a
-// type that holds type parameters, a type whose own write may take the
-// Writer (wireOwnWrite asks the adapter first), and the forms wirePlan
-// refuses.
-func (st *irState) wireWrite(l *lowerer, name string, t check.Type, em wireEvents, params *namer, site syntax.Node) (ok bool) {
+// codec function's call. params named the Go parameters (env, witnesses,
+// w, v: locals 0, 1..len(free), 1+len(free), 2+len(free)).
+func (st *irState) wireWrite(l *lowerer, name string, t check.Type, em wireEvents, tc *typeCtx, params *namer, site syntax.Node) (ok bool) {
 	// A refusal's reason names the path first (units.go keys on it), then
 	// the form: "codec writer on the reference Writer: <why>".
 	path := "codec writer on the reference Writer"
@@ -188,21 +193,16 @@ func (st *irState) wireWrite(l *lowerer, name string, t check.Type, em wireEvent
 		st.codecText(name, path)
 		return false
 	}
-	if len(freeTypeParams(t)) > 0 {
-		st.codecText(name, path+": a type that holds type parameters")
-		return false
-	}
-	if hook, own := check.WireWriteOf(t); own && em.via < 0 {
-		if _, _, _, adapter := l.ownWriteAdapter(hook); adapter {
-			st.codecText(name, path+": an own write")
-			return false
-		}
-	}
+	free := freeTypeParams(t)
 	scope := newNamer(params)
 	fc := newFuncCtx(l, scope, false)
 	fc.site = site
+	fc.params = tc.params
+	fc.wires = tc.wires
 	b := st.newBuilder(fc, nil) // a codec encoder: no source statements
-	b.env, b.next, b.fn, b.names = 0, 3, &irFunc{Name: name}, scope
+	wv := 1 + len(free)
+	val := 2 + len(free)
+	b.env, b.next, b.fn, b.names = 0, len(free)+3, &irFunc{Name: name}, scope
 	files := len(st.out.Files)
 	defer func() {
 		if r := recover(); r != nil {
@@ -221,9 +221,9 @@ func (st *irState) wireWrite(l *lowerer, name string, t check.Type, em wireEvent
 			ok = false
 		}
 	}()
-	g := &wireGen{b: b, em: em, site: site, env: 0, wv: 1, writer: true}
+	g := &wireGen{b: b, em: em, site: site, env: 0, wv: wv, writer: true, free: free, tc: tc}
 	g.p = b.pos(site, site.Pos())
-	steps := g.plan(t, g.local(2))
+	steps := append(g.ownWrite(t, g.local(val)), g.plan(t, g.local(val))...)
 	body := append(g.decls, g.plain(steps)...)
 	b.fn.Pos, b.fn.End = g.p, g.p
 	b.fn.Body = irScopesIncrease(irUseLocals(body), b.fn.Pos) // ir_end.go
@@ -273,6 +273,63 @@ func (g *wireGen) writerEvent(op string, args ...*irExpr) wireStep {
 }
 
 func (g *wireGen) local(i int) *irExpr { return &irExpr{K: "local", Pos: g.p, I: i} }
+
+func (g *wireGen) witness(tp *check.TypeParam) *irExpr {
+	for i, p := range g.free {
+		if p == tp {
+			return g.local(i + 1)
+		}
+	}
+	ice(g.site, "the wire type parameter %s has no codec witness here", tp.Name)
+	return nil
+}
+
+// writeWitness calls the encoder field of witness (either the parameter's
+// codec witness or its Field pointer for an omittable record field) on v.
+func (g *wireGen) writeWitness(witness, v *irExpr) *irStmt {
+	if g.em.via >= 0 {
+		enc := &irExpr{K: "field", Pos: g.p, Name: directField(g.em.via), X: witness}
+		vcall := &irExpr{K: "vcall", Pos: g.p, X: enc, Args: []*irExpr{g.local(g.env), g.local(g.wv), v}}
+		return &irStmt{K: "expr", Pos: g.p, X: vcall}
+	}
+	enc := &irExpr{K: "field", Pos: g.p, Name: "Enc", X: witness}
+	vcall := &irExpr{K: "vcall", Pos: g.p, X: enc, Args: []*irExpr{g.local(g.env), g.local(g.wv), v}}
+	r := g.b.temp("v", "struct{}", g.p)
+	err := g.b.temp("err", "error", g.p)
+	return &irStmt{K: "def2", Pos: g.p, Local: r, Val: &err, X: vcall}
+}
+
+// ownWrite prepends the operations-adapter type switch of wireOwnWrite
+// (wirewrite.go) when t declares a WireWrite hook whose provider adapter
+// exists in this program, so a Writer that wraps that provider's cell
+// calls hook.Func and returns before t's ordinary form runs.
+func (g *wireGen) ownWrite(t check.Type, v *irExpr) []wireStep {
+	hook, ok := check.WireWriteOf(t)
+	if !ok || !g.writer || g.em.via >= 0 {
+		return nil
+	}
+	b, l := g.b, g.b.l
+	conv, key, name, ok := l.ownWriteAdapter(hook)
+	if !ok {
+		return nil
+	}
+	if _, emitted := l.adapters[key]; !emitted {
+		newFuncCtx(l, newNamer(l.names), false).operations(conv, "nil", g.site)
+	}
+	typ := "*" + name
+	a := b.temp("own", typ, g.p)
+	head := []*irStmt{{K: "def", Pos: g.p, Local: a, X: &irExpr{K: "assert", Pos: g.p, T: typ, X: g.local(g.wv)}}}
+	cell := &irExpr{K: "field", Pos: g.p, Name: "v", X: g.local(a)}
+	if _, ptr := conv.From.(*check.Pointer); !ptr {
+		cell = &irExpr{K: "addr", Pos: g.p, X: cell}
+	}
+	arm := []wireStep{
+		{own: &irStmt{K: "expr", Pos: g.p, X: g.funcCall(hook.Func, []*irExpr{v, cell})}},
+		{own: &irStmt{K: "ret", Pos: g.p}},
+	}
+	sw := &irStmt{K: "tswitch", Pos: g.p, End: g.p, ElsePos: g.p, X: g.local(g.wv), Cases: []*irCase{{Pos: g.p, Types: []string{typ}}}}
+	return []wireStep{{sw: sw, arms: [][]wireStep{arm}, heads: [][]*irStmt{head}}}
+}
 
 // plan is the steps that write v, of type t (wireEncodeBody's forms).
 func (g *wireGen) plan(t check.Type, v *irExpr) []wireStep {
@@ -339,6 +396,12 @@ func (g *wireGen) plan(t check.Type, v *irExpr) []wireStep {
 		body = append(body, g.value(u.Elem, &irExpr{K: "index", Pos: g.p, X: v, Y: g.local(k)})...)
 		out = append(out, wireStep{loop: &irStmt{K: "range", Pos: g.p, End: g.p, X: keys, Val: &k}, body: body})
 		return append(out, g.event("EndObject"))
+	case *check.Tuple:
+		out := []wireStep{g.constEvent("BeginList", constant.MakeInt64(int64(len(u.Types))))}
+		for i, et := range u.Types {
+			out = append(out, g.value(et, &irExpr{K: "field", Pos: g.p, Name: tupleField(i), X: v})...)
+		}
+		return append(out, g.event("EndList"))
 	case *check.Struct:
 		n, ok := t.(*check.Named)
 		if !ok {
@@ -362,10 +425,29 @@ func (g *wireGen) record(n *check.Named, s *check.Struct, v *irExpr, tag string)
 	// wireFields): each such field is read into a local once, before.
 	var out []wireStep
 	held := map[string]int{}
+	paramHeld := map[string]*check.TypeParam{}
 	count := -1
 	for _, f := range s.Fields {
-		if _, _, param := b.fc.paramField(f.Type); param {
-			irNo("codec writer of a field typed by a type parameter")
+		if tp, isParam := f.Type.(*check.TypeParam); isParam {
+			if !g.writer {
+				irNo("codec writer of a field typed by a type parameter")
+			}
+			if count < 0 {
+				count = b.temp("fields", "int", g.p)
+				out = append(out, wireStep{pre: &irStmt{K: "def", Pos: g.p, Local: count, X: &irExpr{K: "const", Pos: g.p, T: "int", V: strconv.Itoa(len(s.Fields))}}})
+			}
+			fl := b.temp("field", b.goType(f.Type, g.site), g.p)
+			held[f.Name] = fl
+			paramHeld[f.Name] = tp
+			out = append(out, wireStep{pre: &irStmt{K: "def", Pos: g.p, Local: fl, X: b.recordField(n, v, f.Name, g.site)}})
+			fieldWit := &irExpr{K: "field", Pos: g.p, Name: "Field", X: g.witness(tp)}
+			zero := &irExpr{K: "zero", Pos: g.p, T: "*" + b.spelling(g.tc.wireFieldType(tp))}
+			withField := &irExpr{K: "bin", Pos: g.p, Op: "!=", X: fieldWit, Y: zero}
+			absent := &irExpr{K: "vcall", Pos: g.p, X: &irExpr{K: "field", Pos: g.p, Name: "Absent", X: fieldWit}, Args: []*irExpr{g.local(fl)}}
+			less := &irStmt{K: "set", Pos: g.p, Local: count, X: &irExpr{K: "bin", Pos: g.p, Op: "-", X: g.local(count), Y: &irExpr{K: "const", Pos: g.p, T: "int", V: "1"}}}
+			checkAbsent := &irStmt{K: "if", Pos: g.p, End: g.p, X: absent, Then: []*irStmt{less}}
+			out = append(out, wireStep{pre: &irStmt{K: "if", Pos: g.p, End: g.p, X: withField, Then: []*irStmt{checkAbsent}}})
+			continue
 		}
 		if check.WireFormOf(f.Type) != check.WireOmittable {
 			continue
@@ -395,6 +477,18 @@ func (g *wireGen) record(n *check.Named, s *check.Struct, v *irExpr, tag string)
 	}
 	for _, f := range s.Fields {
 		key := g.constEvent("Key", constant.MakeString(check.WireFieldName(f)))
+		if tp, isParam := paramHeld[f.Name]; isParam {
+			fl := held[f.Name]
+			wit := g.witness(tp)
+			fieldWit := &irExpr{K: "field", Pos: g.p, Name: "Field", X: wit}
+			zero := &irExpr{K: "zero", Pos: g.p, T: "*" + b.spelling(g.tc.wireFieldType(tp))}
+			withField := &irExpr{K: "bin", Pos: g.p, Op: "!=", X: fieldWit, Y: zero}
+			notAbsent := &irExpr{K: "un", Pos: g.p, Op: "!", X: &irExpr{K: "vcall", Pos: g.p, X: &irExpr{K: "field", Pos: g.p, Name: "Absent", X: fieldWit}, Args: []*irExpr{g.local(fl)}}}
+			thenBody := []*irStmt{{K: "if", Pos: g.p, End: g.p, X: notAbsent, Then: []*irStmt{key.own, g.writeWitness(fieldWit, g.local(fl))}}}
+			elseBody := []*irStmt{key.own, g.writeWitness(wit, g.local(fl))}
+			out = append(out, wireStep{own: &irStmt{K: "if", Pos: g.p, End: g.p, ElsePos: g.p, ElseEnd: g.p, X: withField, Then: thenBody, Else: elseBody}})
+			continue
+		}
 		fl, omittable := held[f.Name]
 		if !omittable {
 			out = append(out, key)
@@ -573,11 +667,26 @@ func (g *wireGen) value(t check.Type, v *irExpr) []wireStep {
 		}
 		return []wireStep{g.event(op, &irExpr{K: "conv", Pos: g.p, T: conv, X: v})}
 	}
-	if _, ok := t.(*check.TypeParam); ok {
-		irNo("codec writer of a type parameter")
+	if tp, ok := t.(*check.TypeParam); ok {
+		if !g.writer {
+			irNo("codec writer of a type parameter")
+		}
+		return []wireStep{{own: g.writeWitness(g.witness(tp), v)}}
 	}
-	if len(freeTypeParams(t)) > 0 {
-		irNo("codec call that passes witnesses")
+	if free := freeTypeParams(t); len(free) > 0 {
+		if !g.writer {
+			irNo("codec call that passes witnesses")
+		}
+		name := l.wireFunc(g.em.dir(), t, g.site)
+		args := []*irExpr{g.local(g.env)}
+		var types []string
+		for _, tp := range free {
+			args = append(args, g.witness(tp))
+			types = append(types, g.b.goType(tp, g.site))
+		}
+		args = append(args, g.local(g.wv), v)
+		call := &irExpr{K: "call", Pos: g.p, Name: name, T: strings.Join(types, ", "), Args: args}
+		return []wireStep{{call: &irStmt{K: "expr", Pos: g.p, X: call}, callee: name}}
 	}
 	name := l.wireFunc(g.em.dir(), t, g.site)
 	call := &irExpr{K: "call", Pos: g.p, Name: name, Args: []*irExpr{g.local(g.env), g.local(g.wv), v}}

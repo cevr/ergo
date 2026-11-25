@@ -25,6 +25,7 @@ import (
 	"errors"
 	"fmt"
 	"go/format"
+	"os"
 	"path"
 	"path/filepath"
 	"slices"
@@ -166,6 +167,7 @@ func irText(a sketchfront.Analysis, p Package) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("linked %s: %w", p.Name, err)
 	}
+	unit.NoFallback = os.Getenv("ERGO_FALLBACK") != "on"
 	files, _, err := lower.LowerIRLibrary(unit, p.Name)
 	if err != nil {
 		return nil, fmt.Errorf("linked %s: %w", p.Name, err)

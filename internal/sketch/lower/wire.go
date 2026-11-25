@@ -628,11 +628,10 @@ func (l *lowerer) wireFunc(dir string, t check.Type, site syntax.Node) string {
 				l.gen.WriteString(head(n) + w + " := &" + param + "\n" + l.cellEventsFrom(cw, env, w, raw, &start, site) + "\nreturn " + param + "\n}\n\n")
 			}
 		}
-		if !cell && l.ir != nil && l.ir.wireWrite(l, name, t, em, scope, site) {
+		if !cell && l.ir != nil && l.ir.wireWrite(l, name, t, em, tc, scope, site) {
 			// The IR builds the body (ir_wire.go, W1): the Go
-			// declaration has none. A form the IR refuses keeps its
-			// text, counted by its reason.
-			l.gen.WriteString(strings.TrimSuffix(head(name), " {\n") + "\n\n")
+			// declaration has none (generic functions take irHeadEnd).
+			l.gen.WriteString(strings.TrimSuffix(head(name), " {\n") + irHeadEnd(tlist != "") + "\n\n")
 			return name
 		}
 		l.gen.WriteString(head(name) + text + "}\n\n")

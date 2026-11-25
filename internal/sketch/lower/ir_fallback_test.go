@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"ergo.local/prototype/internal/sketch/syntax"
 )
 
 // TestFallbackOffRefuses checks the switch F8's precondition reads
@@ -93,5 +95,92 @@ func main() {
 	}
 	if !slices.EqualFunc(files, want, func(a, b File) bool { return a.Path == b.Path && string(a.Data) == string(b.Data) }) {
 		t.Error("the switch changes the lowered files of a program without stops")
+	}
+}
+
+// TestFallbackOffRefusesCodecFallback verifies that codec functions falling
+// back via irState.codecText are refused under Unit.NoFallback, not silently
+// left on the text path.
+//
+// Mutant (testdata/mutants.json): ir-codec-text-bypasses-nofallback.
+func TestFallbackOffRefusesCodecFallback(t *testing.T) {
+	st := &irState{noFallback: true}
+	st.codecText("wireEncode_Test", "codec writer on the reference Writer: synthetic stop")
+	err := st.refuseFallbacks()
+	var refused *FallbackRefused
+	if !errors.As(err, &refused) {
+		t.Fatalf("with NoFallback a codecText fallback was not refused: %v", err)
+	}
+	if !slices.ContainsFunc(refused.Funcs, func(f IRCensusFunc) bool {
+		return f.Codec && f.Name == "wireEncode_Test" && slices.Contains(f.Reasons, "codec writer on the reference Writer: synthetic stop")
+	}) {
+		t.Fatalf("refused funcs %+v missing expected Codec entry", refused.Funcs)
+	}
+	saved := wireIRLowering
+	wireIRLowering = "text"
+	defer func() { wireIRLowering = saved }()
+	oracle := &irState{noFallback: true}
+	oracle.codecText("wireEncode_Test", "codec writer on the reference Writer")
+	if err := oracle.refuseFallbacks(); err != nil {
+		t.Fatalf("oracle mode wireIRLowering=text was refused: %v", err)
+	}
+}
+
+// TestFallbackOffAcceptsIntrinsicAndCorpusForms verifies that Unit.NoFallback
+// accepts the Go intrinsic (prelude.Sleep) and lowers formerly falling-back
+// corpus forms (empty Never match / Absurd, multi-subject match on Map.Get)
+// cleanly via IR with zero fallbacks and zero CodecText.
+//
+// Mutants (testdata/mutants.json): ir-empty-never-match-refused,
+// ir-multi-get-match-refused.
+func TestFallbackOffAcceptsIntrinsicAndCorpusForms(t *testing.T) {
+	const src = `func emptyMatch[T](n Never) T {
+	match n {
+	}
+}
+
+func bothGet(a Map[string, int], b Map[string, int], k string) int {
+	match (a.Get(k), b.Get(k)) {
+	case (Some[int] as x, Some[int] as y):
+		x.Value + y.Value
+	case (Some[int] as x, None):
+		x.Value
+	case (None, Some[int] as y):
+		y.Value
+	case (None, None):
+		0
+	}
+}
+
+func main() needs Ambient {
+	let a = Map[string, int]{"k": 2}
+	let b = Map[string, int]{"k": 3}
+	let _ = bothGet(a, b, "k")
+	if false {
+		let f func(Never) int = emptyMatch[int]
+		let _ = f
+	}
+	NewLiveScheduler().Sleep(0s)
+}
+`
+	o := mustLower(t, "nofallback_forms", src)
+	u := Unit{
+		Package:    o.pkg,
+		Files:      []*syntax.File{o.file},
+		Sources:    []Source{{Path: testSourcePath, Text: src}},
+		NoFallback: true,
+	}
+	_, rep, err := LowerIR(u)
+	if err != nil {
+		t.Fatalf("LowerIR(NoFallback=true) refused valid IR+intrinsic program: %v", err)
+	}
+	if len(rep.Fallback) != 0 || len(rep.CodecText) != 0 {
+		t.Fatalf("expected 0 fallbacks and 0 CodecText, got Fallback=%v CodecText=%v", rep.Fallback, rep.CodecText)
+	}
+	if !slices.ContainsFunc(rep.IR, func(name string) bool { return strings.Contains(name, "bothGet") }) {
+		t.Fatalf("bothGet did not lower on IR: %v", rep.IR)
+	}
+	if !slices.ContainsFunc(rep.IR, func(name string) bool { return strings.Contains(name, "emptyMatch") }) {
+		t.Fatalf("emptyMatch did not lower on IR: %v", rep.IR)
 	}
 }

@@ -20,7 +20,7 @@ type FallbackRefused struct {
 
 func (e *FallbackRefused) Error() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%d function bodies fall back to the text path (-fallback=off refuses them):", len(e.Funcs))
+	fmt.Fprintf(&b, "%d function bodies fall back to the text path (-fallback=off refuses them; pass -fallback=on or ERGO_FALLBACK=on to allow text fallback):", len(e.Funcs))
 	for _, f := range e.Funcs {
 		at := f.Pkg
 		if f.File != "" {

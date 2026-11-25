@@ -76,14 +76,14 @@ func libCommand(args []string) error {
 // patched compile builds the library's IR bodies (-ergoir), and name.go
 // holds them printed as Go text (irspike LibraryText), which a Go program
 // builds with a stock go. A body the IR cannot express keeps its emitted
-// Go, as in ergo build; ERGO_FALLBACK=off refuses it. Runtime's files go
-// beside the module, as before.
+// Go, as in ergo build; text fallback is refused by default unless
+// ERGO_FALLBACK=on allows it. Runtime's files go beside the module, as before.
 func irLibrary(l loaded) ([]lower.File, error) {
 	unit, err := sketchfront.LibraryUnit(l.analysis, l.source.Admitted())
 	if err != nil {
 		return nil, err
 	}
-	unit.NoFallback = os.Getenv("ERGO_FALLBACK") == "off"
+	unit.NoFallback = os.Getenv("ERGO_FALLBACK") != "on"
 	files, _, err := lower.LowerIRLibrary(unit, l.name)
 	if err != nil {
 		return nil, err

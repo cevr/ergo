@@ -1,0 +1,55 @@
+import sync
+
+type Trace { log sync.Ref[string] } implements Writer
+
+func add(t Trace, s string) { sync.Modify(t.log, func(cur string) (string, string) { (cur, cur + s + ";") }) }
+
+func Null(t Trace)                  { add(t, "null") }
+func Bool(t Trace, b bool)          { add(t, "bool:\(b)") }
+func Int(t Trace, n int64)          { add(t, "int:\(n)") }
+func Uint(t Trace, n uint64)        { add(t, "uint:\(n)") }
+func Float(t Trace, f float64)      { add(t, "float:\(f)") }
+func String(t Trace, s string)      { add(t, "str:"+s) }
+func StringBytes(t Trace, b []byte) { add(t, "bytes:\(len(b))") }
+func Number(t Trace, s string)      { add(t, "num:"+s) }
+func BeginList(t Trace, n int)      { add(t, "[\(n)") }
+func EndList(t Trace)               { add(t, "]") }
+func BeginObject(t Trace, n int)    { add(t, "{\(n)") }
+func EndObject(t Trace)             { add(t, "}") }
+func Tag(t Trace, name string)      { add(t, "tag:"+name) }
+func Key(t Trace, k string)         { add(t, "key:"+k) }
+
+func writeSlice[T wire](xs []T, w Writer) needs wired[T] { encode(xs, w) }
+
+func writeOption[T wire](x Option[T], w Writer) needs wired[T] { encode(x, w) }
+
+func writeMap[T wire](m Map[string, T], w Writer) needs wired[T] { encode(m, w) }
+
+func writePair[T wire](p (string, T), w Writer) needs wired[T] { encode(p, w) }
+
+func writeNested[T wire](xs []Option[T], w Writer) needs wired[T] { encode(xs, w) }
+
+func main() needs Console {
+	let t1 = Trace{log: sync.NewRef[string]("")}
+	writeSlice([]int{3, 4, 5}, t1)
+	Console.Println(t1.log.Get())
+
+	let t2 = Trace{log: sync.NewRef[string]("")}
+	let some Option[string] = Some[string]{Value: "ok"}
+	let none Option[string] = None
+	writeOption(some, t2)
+	writeOption(none, t2)
+	Console.Println(t2.log.Get())
+
+	let t3 = Trace{log: sync.NewRef[string]("")}
+	writeMap(Map[string, int]{"a": 1, "b": 2}, t3)
+	Console.Println(t3.log.Get())
+
+	let t4 = Trace{log: sync.NewRef[string]("")}
+	writePair[int](("k", 9), t4)
+	Console.Println(t4.log.Get())
+
+	let t5 = Trace{log: sync.NewRef[string]("")}
+	writeNested([]Option[int]{Some[int]{Value: 7}, None}, t5)
+	Console.Println(t5.log.Get())
+}

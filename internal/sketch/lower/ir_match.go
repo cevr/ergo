@@ -66,9 +66,11 @@ func (b *irBuilder) typeMatch(s *syntax.TypeSwitchStmt, ret bool, to *yieldTo) [
 		}
 	}
 	x := s.Subjects[0].X
-	if call, ok := unparen(x).(*syntax.CallExpr); ok {
-		if c := b.l.info.Calls[call]; c != nil && c.Kind == check.CallFunc && preludeGet(c.Func) {
-			irNo("match on Get")
+	if len(s.Subjects) == 1 {
+		if call, ok := unparen(x).(*syntax.CallExpr); ok {
+			if c := b.l.info.Calls[call]; c != nil && c.Kind == check.CallFunc && preludeGet(c.Func) {
+				irNo("match on Get")
+			}
 		}
 	}
 	if !b.fc.simpleTypeMatch(s) {

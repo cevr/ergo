@@ -1,0 +1,39 @@
+import json
+import sync
+
+type Trace { log sync.Ref[string] } implements Writer
+
+func add(t Trace, s string) { sync.Modify(t.log, func(cur string) (string, string) { (cur, cur + s + ";") }) }
+
+func Null(t Trace)                  { add(t, "null") }
+func Bool(t Trace, b bool)          { add(t, "bool:\(b)") }
+func Int(t Trace, n int64)          { add(t, "int:\(n)") }
+func Uint(t Trace, n uint64)        { add(t, "uint:\(n)") }
+func Float(t Trace, f float64)      { add(t, "float:\(f)") }
+func String(t Trace, s string)      { add(t, "str:"+s) }
+func StringBytes(t Trace, b []byte) { add(t, "bytes:\(len(b))") }
+func Number(t Trace, s string)      { add(t, "num:"+s) }
+func BeginList(t Trace, n int)      { add(t, "[\(n)") }
+func EndList(t Trace)               { add(t, "]") }
+func BeginObject(t Trace, n int)    { add(t, "{\(n)") }
+func EndObject(t Trace)             { add(t, "}") }
+func Tag(t Trace, name string)      { add(t, "tag:"+name) }
+func Key(t Trace, k string)         { add(t, "key:"+k) }
+
+func writePair(p (string, int64), w Writer) { encode(p, w) }
+
+func writeNested(p (string, (int, bool)), w Writer) { encode(p, w) }
+
+func main() needs Console {
+	let t1 = Trace{log: sync.NewRef[string]("")}
+	writePair(("alpha", int64(42)), t1)
+	Console.Println(t1.log.Get())
+
+	let t2 = Trace{log: sync.NewRef[string]("")}
+	writeNested(("beta", (7, true)), t2)
+	Console.Println(t2.log.Get())
+
+	let j = json.NewText()
+	encode(("gamma", int64(-9)), j)
+	Console.Println(j.Written())
+}
