@@ -1,0 +1,83 @@
+import embed
+import maps
+import slices
+import strings
+
+let embeddedBoard = embedded[embed.FS]("board")
+let embeddedMemory = embedded[embed.FS]("memory")
+let embeddedModels = embedded[embed.FS]("models")
+
+func isAllowedStoragePath(relPath string) bool {
+	strings.HasPrefix(relPath, "sqlite/") || strings.HasPrefix(relPath, "cmd/board/")
+}
+
+func isForbiddenStorageImportLine(line string) bool {
+	let trimmed = strings.TrimSpace(line)
+	if !strings.HasPrefix(trimmed, "import ") {
+		return false
+	}
+	let rest = strings.TrimSpace(strings.TrimPrefix(trimmed, "import "))
+	if rest == "sql" || strings.HasPrefix(rest, "sql ") || strings.HasPrefix(rest, "sql\t") {
+		return true
+	}
+	strings.Contains(rest, "modules/sqlite") || rest == "sqlite"
+}
+
+// CheckStorageImportBoundary inspects a map of module-relative .ergo paths to
+// source text and returns a violation for every file outside sqlite/ and
+// cmd/board/ that imports sql or modules/sqlite.
+func CheckStorageImportBoundary(sources Map[string, string]) []string {
+	let mut violations = []string{}
+	for path in slices.Sorted(maps.Keys(sources)) {
+		if isAllowedStoragePath(path) {
+			continue
+		}
+		match sources.Get(path) {
+		case Some[string] as src:
+			for line in strings.Split(src.Value, "\n") {
+				if isForbiddenStorageImportLine(line) {
+					violations = violations.Append("\(path): forbidden storage import: \(strings.TrimSpace(line))")
+				}
+			}
+		case None:
+		}
+	}
+	violations
+}
+
+func collectEmbeddedDir(tree embed.FS, dir string, out Map[string, string]) Map[string, string] {
+	let entries = tree.ReadDir(dir) catch {
+	case _:
+		return out
+	}
+	let mut cur = out
+	for name in entries {
+		let full = "\(dir)/\(name)"
+		if strings.HasSuffix(name, ".ergo") {
+			let text = tree.ReadFile(full) catch {
+			case _:
+				""
+			}
+			cur = cur.Put(full, text)
+		} else {
+			cur = collectEmbeddedDir(tree, full, cur)
+		}
+	}
+	cur
+}
+
+test TestStorageImportBoundary {
+	let mut realSources = Map[string, string]{}
+	realSources = collectEmbeddedDir(embeddedBoard, "board", realSources)
+	realSources = collectEmbeddedDir(embeddedMemory, "memory", realSources)
+	realSources = collectEmbeddedDir(embeddedModels, "models", realSources)
+	assert len(slices.Sorted(maps.Keys(realSources))) >= 18
+	assert len(CheckStorageImportBoundary(realSources)) == 0
+	let mut illegal = Map[string, string]{}
+	illegal = illegal.Put("board/illegal.ergo", "import github.com/cevr/ergo/modules/sqlite/sqlite\n")
+	illegal = illegal.Put("memory/illegal.ergo", "import sql\n")
+	illegal = illegal.Put("sqlite/ok.ergo", "import github.com/cevr/ergo/modules/sqlite/sqlite\nimport sql\n")
+	illegal = illegal.Put("cmd/board/main.ergo", "import github.com/cevr/ergo/modules/sqlite/sqlite\n")
+	let bad = CheckStorageImportBoundary(illegal)
+	assert len(bad) == 2
+}

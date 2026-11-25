@@ -1,0 +1,632 @@
+import github.com/cevr/ergo/modules/board/board
+import json
+import maps
+import slices
+import sql
+
+func decodePayload(raw string) board.EventPayload fails board.StoreFailed {
+	json.Decode(json.Codec[board.EventPayload]{MaxBytes: 0, MaxDepth: 0}, raw) catch {
+	case _:
+		return board.StoreFailed{Reason: "malformed event payload"}
+	}
+}
+
+func decodeStrings(raw string) []string fails board.StoreFailed {
+	json.Decode(json.Codec[[]string]{MaxBytes: 0, MaxDepth: 0}, raw) catch {
+	case _:
+		return board.StoreFailed{Reason: "malformed string list"}
+	}
+}
+
+func decodePrincipal(raw string) board.Principal fails board.StoreFailed {
+	json.Decode(json.Codec[board.Principal]{MaxBytes: 0, MaxDepth: 0}, raw) catch {
+	case _:
+		return board.StoreFailed{Reason: "malformed principal"}
+	}
+}
+
+func decodeProfile(raw string) board.Profile fails board.StoreFailed {
+	json.Decode(json.Codec[board.Profile]{MaxBytes: 0, MaxDepth: 0}, raw) catch {
+	case _:
+		return board.StoreFailed{Reason: "malformed profile"}
+	}
+}
+
+func decodeGrant(raw string) board.Grant fails board.StoreFailed {
+	json.Decode(json.Codec[board.Grant]{MaxBytes: 0, MaxDepth: 0}, raw) catch {
+	case _:
+		return board.StoreFailed{Reason: "malformed grant"}
+	}
+}
+
+func decodeAsk(raw string) board.AskRecord fails board.StoreFailed {
+	json.Decode(json.Codec[board.AskRecord]{MaxBytes: 0, MaxDepth: 0}, raw) catch {
+	case _:
+		return board.StoreFailed{Reason: "malformed ask"}
+	}
+}
+
+func decodeTask(raw string) board.TaskRecord fails board.StoreFailed {
+	json.Decode(json.Codec[board.TaskRecord]{MaxBytes: 0, MaxDepth: 0}, raw) catch {
+	case _:
+		return board.StoreFailed{Reason: "malformed task"}
+	}
+}
+
+func decodeTrust(raw string) board.TrustSet fails board.StoreFailed {
+	json.Decode(json.Codec[board.TrustSet]{MaxBytes: 0, MaxDepth: 0}, raw) catch {
+	case _:
+		return board.StoreFailed{Reason: "malformed trust"}
+	}
+}
+
+func upsertMessageLabelTx(msgID board.MessageID, k string, v string) fails board.StoreFailed needs sql.Tx {
+	try execTx(
+		"INSERT INTO message_labels(message_id, k, v) VALUES (?, ?, ?) ON CONFLICT(message_id, k) DO UPDATE SET v = excluded.v",
+		[]sql.Value{sql.Text{S: msgID}, sql.Text{S: k}, sql.Text{S: v}},
+	)
+}
+
+func deleteMessageLabelTx(msgID board.MessageID, k string) fails board.StoreFailed needs sql.Tx {
+	try execTx("DELETE FROM message_labels WHERE message_id = ? AND k = ?", []sql.Value{sql.Text{S: msgID}, sql.Text{S: k}})
+}
+
+func setTaskLabelsTx(msgID board.MessageID, stateLabel string, holdKind string) fails board.StoreFailed needs sql.Tx {
+	let rows = try queryTx("SELECT 1 FROM messages WHERE id = ?", []sql.Value{sql.Text{S: msgID}})
+	if len(rows) == 0 {
+		return
+	}
+	try upsertMessageLabelTx(msgID, "board.task", stateLabel)
+	if holdKind != "" {
+		try upsertMessageLabelTx(msgID, "board.held", holdKind)
+	} else {
+		try deleteMessageLabelTx(msgID, "board.held")
+	}
+}
+
+func updateTaskProjectionTx(id board.MessageID, update func(t board.TaskRecord) (board.TaskRecord, string, string)) fails board.StoreFailed needs sql.Tx {
+	let rows = try queryTx("SELECT data_json FROM tasks WHERE id = ?", []sql.Value{sql.Text{S: id}})
+	if len(rows) == 0 {
+		return
+	}
+	let raw = try rowText(rows[0], 0)
+	let cur = try decodeTask(raw)
+	let (next, stateLabel, holdKind) = update(cur)
+	let encoded = json.Encode(json.Codec[board.TaskRecord]{MaxBytes: 0, MaxDepth: 0}, next)
+	try execTx("UPDATE tasks SET data_json = ? WHERE id = ?", []sql.Value{sql.Text{S: encoded}, sql.Text{S: id}})
+	if stateLabel != "" {
+		try setTaskLabelsTx(id, stateLabel, holdKind)
+	}
+}
+
+func taskStateName(st board.TaskState) string {
+	match st {
+	case board.TaskWaiting:
+		"waiting"
+	case board.TaskReady:
+		"ready"
+	case board.TaskClaimed:
+		"claimed"
+	case board.TaskBlocked:
+		"blocked"
+	case board.TaskCompleted:
+		"completed"
+	case board.TaskFailed:
+		"failed"
+	case board.TaskCanceled:
+		"canceled"
+	}
+}
+
+func applyProjectionTx(e board.Event) fails board.StoreFailed needs sql.Tx {
+	if e.Board != "" {
+		try execTx(
+			"UPDATE boards SET head = CASE WHEN ? > head THEN ? ELSE head END WHERE name = ?",
+			[]sql.Value{sql.Int{N: int64(e.Seq)}, sql.Int{N: int64(e.Seq)}, sql.Text{S: e.Board}},
+		)
+	}
+	let strCodec = json.Codec[[]string]{MaxBytes: 0, MaxDepth: 0}
+	let grantCodec = json.Codec[board.Grant]{MaxBytes: 0, MaxDepth: 0}
+	match e.Payload {
+	case board.BoardCreated as p:
+		let b = p.Board
+		try execTx(
+			"INSERT INTO boards(name, id, created_at, created_by, archived, head) VALUES (?, ?, ?, ?, ?, ?)",
+			[]sql.Value{
+				sql.Text{S: b.Name},
+				sql.Text{S: b.ID},
+				sql.Int{N: int64(b.CreatedAt)},
+				sql.Text{S: b.CreatedBy},
+				sql.Int{N: if b.Archived { 1 } else { 0 }},
+				sql.Int{N: int64(e.Seq)},
+			},
+		)
+		let g1 = board.Grant{
+			ID:         "g1",
+			Principals: []board.PrincipalMatch{board.MatchAllPeople},
+			Rules:      []board.GrantRule{board.GrantRule{Pattern: "*", Allow: board.DefaultPeoplePermissions(), Deny: false}},
+			CreatedBy:  e.Actor,
+			CreatedAt:  e.At,
+			Revision:   1,
+		}
+		try execTx(
+			"INSERT INTO grants(board, id, ord, data_json) VALUES (?, ?, 1, ?)",
+			[]sql.Value{sql.Text{S: b.Name}, sql.Text{S: "g1"}, sql.Text{S: json.Encode(grantCodec, g1)}},
+		)
+		try execTx("UPDATE counters SET next_board_num = next_board_num + 1 WHERE id = 1", []sql.Value{})
+
+	case board.BoardRenamed as p:
+		try execTx("UPDATE boards SET name = ? WHERE name = ?", []sql.Value{sql.Text{S: p.NewName}, sql.Text{S: p.Board}})
+		try execTx("UPDATE grants SET board = ? WHERE board = ?", []sql.Value{sql.Text{S: p.NewName}, sql.Text{S: p.Board}})
+
+	case board.BoardArchivedEvent as p:
+		try execTx("UPDATE boards SET archived = 1 WHERE name = ?", []sql.Value{sql.Text{S: p.Board}})
+
+	case board.ChannelCreated as p:
+		let ch = p.Channel
+		try execTx(
+			"INSERT INTO channels(board, path, created_at, created_by, private) VALUES (?, ?, ?, ?, ?) ON CONFLICT(board, path) DO UPDATE SET created_at = excluded.created_at, created_by = excluded.created_by, private = excluded.private",
+			[]sql.Value{
+				sql.Text{S: ch.Board},
+				sql.Text{S: ch.Path},
+				sql.Int{N: int64(ch.CreatedAt)},
+				sql.Text{S: ch.CreatedBy},
+				sql.Int{N: if ch.Private { 1 } else { 0 }},
+			},
+		)
+
+	case board.MessagePosted as p:
+		let m = p.Message
+		try execTx(
+			"INSERT INTO messages(id, board, channel, text, re, reply_to, by_actor, principal, profile, from_source, no_sync, revision, created_at, edited_at, deleted, mentions_json, unresolved_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			[]sql.Value{
+				sql.Text{S: m.ID},
+				sql.Text{S: m.Board},
+				sql.Text{S: m.Channel},
+				sql.Text{S: m.Text},
+				sql.Text{S: m.Re},
+				sql.Text{S: m.ReplyTo},
+				sql.Text{S: m.By},
+				sql.Text{S: m.Principal},
+				sql.Text{S: m.Profile},
+				sql.Text{S: m.From},
+				sql.Int{N: if m.NoSync { 1 } else { 0 }},
+				sql.Int{N: int64(m.Revision)},
+				sql.Int{N: int64(m.CreatedAt)},
+				sql.Int{N: int64(m.EditedAt)},
+				sql.Int{N: if m.Deleted { 1 } else { 0 }},
+				sql.Text{S: json.Encode(strCodec, m.Mentions)},
+				sql.Text{S: json.Encode(strCodec, m.Unresolved)},
+			},
+		)
+		for k in slices.Sorted(maps.Keys(m.Labels)) {
+			match m.Labels.Get(k) {
+			case Some[string] as v:
+				try upsertMessageLabelTx(m.ID, k, v.Value)
+			case None:
+			}
+		}
+		if !m.Deleted {
+			try execTx(
+				"INSERT INTO messages_fts(message_id, board, channel, text) VALUES (?, ?, ?, ?)",
+				[]sql.Value{sql.Text{S: m.ID}, sql.Text{S: m.Board}, sql.Text{S: m.Channel}, sql.Text{S: m.Text}},
+			)
+		}
+		let root = if m.Re != "" { m.Re } else { m.ID }
+		try execTx(
+			"INSERT INTO thread_last(root_id, last_id) VALUES (?, ?) ON CONFLICT(root_id) DO UPDATE SET last_id = excluded.last_id",
+			[]sql.Value{sql.Text{S: root}, sql.Text{S: m.ID}},
+		)
+		if p.IdemKey != "" {
+			try execTx(
+				"INSERT INTO idempotency(actor, key, digest, result_msg_id, result_cursor, recorded_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(actor, key) DO UPDATE SET digest = excluded.digest, result_msg_id = excluded.result_msg_id, result_cursor = excluded.result_cursor, recorded_at = excluded.recorded_at",
+				[]sql.Value{
+					sql.Text{S: m.By},
+					sql.Text{S: p.IdemKey},
+					sql.Text{S: p.IdemDigest},
+					sql.Text{S: m.ID},
+					sql.Int{N: int64(e.Seq)},
+					sql.Int{N: int64(e.At)},
+				},
+			)
+		}
+		try execTx("UPDATE counters SET next_message_num = next_message_num + 1 WHERE id = 1", []sql.Value{})
+
+	case board.MessageEdited as p:
+		try execTx(
+			"UPDATE messages SET text = ?, mentions_json = ?, unresolved_json = ?, revision = ?, edited_at = ? WHERE id = ?",
+			[]sql.Value{
+				sql.Text{S: p.Text},
+				sql.Text{S: json.Encode(strCodec, p.Mentions)},
+				sql.Text{S: json.Encode(strCodec, p.Unresolved)},
+				sql.Int{N: int64(p.Revision)},
+				sql.Int{N: int64(e.At)},
+				sql.Text{S: p.ID},
+			},
+		)
+		let rows = try queryTx("SELECT board, channel, deleted FROM messages WHERE id = ?", []sql.Value{sql.Text{S: p.ID}})
+		if len(rows) > 0 {
+			let bName = try rowText(rows[0], 0)
+			let ch = try rowText(rows[0], 1)
+			let del = try rowInt(rows[0], 2)
+			try execTx("DELETE FROM messages_fts WHERE message_id = ?", []sql.Value{sql.Text{S: p.ID}})
+			if del == 0 {
+				try execTx(
+					"INSERT INTO messages_fts(message_id, board, channel, text) VALUES (?, ?, ?, ?)",
+					[]sql.Value{sql.Text{S: p.ID}, sql.Text{S: bName}, sql.Text{S: ch}, sql.Text{S: p.Text}},
+				)
+			}
+		}
+
+	case board.MessageDeleted as p:
+		try execTx(
+			"UPDATE messages SET text = '', mentions_json = '[]', unresolved_json = '[]', revision = ?, deleted = 1 WHERE id = ?",
+			[]sql.Value{sql.Int{N: int64(p.Revision)}, sql.Text{S: p.ID}},
+		)
+		try execTx("DELETE FROM message_labels WHERE message_id = ?", []sql.Value{sql.Text{S: p.ID}})
+		try execTx("DELETE FROM message_reactions WHERE message_id = ?", []sql.Value{sql.Text{S: p.ID}})
+		try execTx("DELETE FROM messages_fts WHERE message_id = ?", []sql.Value{sql.Text{S: p.ID}})
+
+	case board.ReactionChanged as p:
+		if p.Added {
+			let rows = try queryTx("SELECT COALESCE(MAX(ord), 0) FROM message_reactions WHERE message_id = ? AND emoji = ?", []sql.Value{sql.Text{S: p.ID}, sql.Text{S: p.Emoji}})
+			let ord = if len(rows) > 0 { try rowInt(rows[0], 0) + 1 } else { 1 }
+			try execTx(
+				"INSERT OR IGNORE INTO message_reactions(message_id, emoji, actor, ord) VALUES (?, ?, ?, ?)",
+				[]sql.Value{sql.Text{S: p.ID}, sql.Text{S: p.Emoji}, sql.Text{S: p.Actor}, sql.Int{N: int64(ord)}},
+			)
+		} else {
+			try execTx(
+				"DELETE FROM message_reactions WHERE message_id = ? AND emoji = ? AND actor = ?",
+				[]sql.Value{sql.Text{S: p.ID}, sql.Text{S: p.Emoji}, sql.Text{S: p.Actor}},
+			)
+		}
+
+	case board.LabelsChanged as p:
+		for k in p.Unset {
+			try deleteMessageLabelTx(p.ID, k)
+		}
+		for k in slices.Sorted(maps.Keys(p.Set)) {
+			match p.Set.Get(k) {
+			case Some[string] as v:
+				try upsertMessageLabelTx(p.ID, k, v.Value)
+			case None:
+			}
+		}
+
+	case board.PrincipalRegistered as p:
+		let enc = json.Encode(json.Codec[board.Principal]{MaxBytes: 0, MaxDepth: 0}, p.Principal)
+		try execTx(
+			"INSERT INTO principals(id, data_json) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET data_json = excluded.data_json",
+			[]sql.Value{sql.Text{S: p.Principal.ID}, sql.Text{S: enc}},
+		)
+
+	case board.PrincipalGone as p:
+		let rows = try queryTx("SELECT data_json FROM principals WHERE id = ?", []sql.Value{sql.Text{S: p.ID}})
+		if len(rows) > 0 {
+			let pr = try decodePrincipal(try rowText(rows[0], 0))
+			let enc = json.Encode(json.Codec[board.Principal]{MaxBytes: 0, MaxDepth: 0}, board.Principal{..pr, State: board.Offboarded})
+			try execTx("UPDATE principals SET data_json = ? WHERE id = ?", []sql.Value{sql.Text{S: enc}, sql.Text{S: p.ID}})
+		}
+
+	case board.ProfileSeen as p:
+		let actor = "\(p.Profile.Principal)+\(p.Profile.Name)"
+		let enc = json.Encode(json.Codec[board.Profile]{MaxBytes: 0, MaxDepth: 0}, p.Profile)
+		try execTx(
+			"INSERT INTO profiles(actor, data_json) VALUES (?, ?) ON CONFLICT(actor) DO UPDATE SET data_json = excluded.data_json",
+			[]sql.Value{sql.Text{S: actor}, sql.Text{S: enc}},
+		)
+
+	case board.GrantCreated as p:
+		let rows = try queryTx("SELECT COALESCE(MAX(ord), 0) FROM grants WHERE board = ?", []sql.Value{sql.Text{S: p.Board}})
+		let ord = if len(rows) > 0 { try rowInt(rows[0], 0) + 1 } else { 1 }
+		try execTx(
+			"INSERT INTO grants(board, id, ord, data_json) VALUES (?, ?, ?, ?)",
+			[]sql.Value{sql.Text{S: p.Board}, sql.Text{S: p.Grant.ID}, sql.Int{N: int64(ord)}, sql.Text{S: json.Encode(grantCodec, p.Grant)}},
+		)
+		try execTx("UPDATE counters SET next_grant_num = next_grant_num + 1 WHERE id = 1", []sql.Value{})
+
+	case board.GrantUpdated as p:
+		try execTx(
+			"UPDATE grants SET data_json = ? WHERE board = ? AND id = ?",
+			[]sql.Value{sql.Text{S: json.Encode(grantCodec, p.Grant)}, sql.Text{S: p.Board}, sql.Text{S: p.Grant.ID}},
+		)
+
+	case board.GrantRevoked as p:
+		try execTx("DELETE FROM grants WHERE board = ? AND id = ?", []sql.Value{sql.Text{S: p.Board}, sql.Text{S: p.ID}})
+
+	case board.AskOpened as p:
+		let enc = json.Encode(json.Codec[board.AskRecord]{MaxBytes: 0, MaxDepth: 0}, p.Ask)
+		try execTx(
+			"INSERT INTO asks(id, data_json) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET data_json = excluded.data_json",
+			[]sql.Value{sql.Text{S: p.Ask.ID}, sql.Text{S: enc}},
+		)
+
+	case board.AskAnsweredEvent as p:
+		let rows = try queryTx("SELECT data_json FROM asks WHERE id = ?", []sql.Value{sql.Text{S: p.ID}})
+		if len(rows) > 0 {
+			let cur = try decodeAsk(try rowText(rows[0], 0))
+			let enc = json.Encode(json.Codec[board.AskRecord]{MaxBytes: 0, MaxDepth: 0}, board.AskRecord{..cur, State: board.AskAnswered, Answer: p.Answer})
+			try execTx("UPDATE asks SET data_json = ? WHERE id = ?", []sql.Value{sql.Text{S: enc}, sql.Text{S: p.ID}})
+		}
+		try upsertMessageLabelTx(p.ID, "board.ask", "answered")
+		try upsertMessageLabelTx(p.ID, "board.ask.answer", p.Answer)
+
+	case board.AskWithdrawnEvent as p:
+		let rows = try queryTx("SELECT data_json FROM asks WHERE id = ?", []sql.Value{sql.Text{S: p.ID}})
+		if len(rows) > 0 {
+			let cur = try decodeAsk(try rowText(rows[0], 0))
+			let enc = json.Encode(json.Codec[board.AskRecord]{MaxBytes: 0, MaxDepth: 0}, board.AskRecord{..cur, State: board.AskWithdrawn})
+			try execTx("UPDATE asks SET data_json = ? WHERE id = ?", []sql.Value{sql.Text{S: enc}, sql.Text{S: p.ID}})
+		}
+		try upsertMessageLabelTx(p.ID, "board.ask", "withdrawn")
+
+	case board.AskExpiredEvent as p:
+		let rows = try queryTx("SELECT data_json FROM asks WHERE id = ?", []sql.Value{sql.Text{S: p.ID}})
+		if len(rows) > 0 {
+			let cur = try decodeAsk(try rowText(rows[0], 0))
+			let enc = json.Encode(json.Codec[board.AskRecord]{MaxBytes: 0, MaxDepth: 0}, board.AskRecord{..cur, State: board.AskExpired})
+			try execTx("UPDATE asks SET data_json = ? WHERE id = ?", []sql.Value{sql.Text{S: enc}, sql.Text{S: p.ID}})
+		}
+		try upsertMessageLabelTx(p.ID, "board.ask", "expired")
+
+	case board.TrustUpdated as p:
+		let enc = json.Encode(json.Codec[board.TrustSet]{MaxBytes: 0, MaxDepth: 0}, p.Trust)
+		try execTx(
+			"INSERT INTO trusts(subject, data_json) VALUES (?, ?) ON CONFLICT(subject) DO UPDATE SET data_json = excluded.data_json",
+			[]sql.Value{sql.Text{S: p.Trust.Subject}, sql.Text{S: enc}},
+		)
+
+	case board.TaskCreated as p:
+		let enc = json.Encode(json.Codec[board.TaskRecord]{MaxBytes: 0, MaxDepth: 0}, p.Task)
+		try execTx(
+			"INSERT INTO tasks(id, data_json) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET data_json = excluded.data_json",
+			[]sql.Value{sql.Text{S: p.Task.ID}, sql.Text{S: enc}},
+		)
+		try setTaskLabelsTx(p.Task.ID, taskStateName(p.Task.State), "")
+
+	case board.TaskReadied as p:
+		try updateTaskProjectionTx(p.ID, func(t board.TaskRecord) (board.TaskRecord, string, string) {
+			(board.TaskRecord{..t, State: board.TaskReady, ReadyAt: p.ReadyAt}, "ready", "")
+		})
+
+	case board.TaskClaimedEvent as p:
+		try updateTaskProjectionTx(p.ID, func(t board.TaskRecord) (board.TaskRecord, string, string) {
+			(board.TaskRecord{..t, State: board.TaskClaimed, HasClaim: true, Claim: p.Claim, Epoch: p.Claim.Epoch}, "claimed", "")
+		})
+
+	case board.TaskRenewed as p:
+		try updateTaskProjectionTx(p.ID, func(t board.TaskRecord) (board.TaskRecord, string, string) {
+			(board.TaskRecord{..t, Claim: board.TaskClaim{..t.Claim, LeaseUntil: p.LeaseUntil}}, "", "")
+		})
+
+	case board.TaskReleased as p:
+		try updateTaskProjectionTx(p.ID, func(t board.TaskRecord) (board.TaskRecord, string, string) {
+			let ns = if p.Ready { board.TaskReady } else { board.TaskWaiting }
+			(board.TaskRecord{..t, State: ns, HasClaim: false, Claim: board.TaskClaim{Holder: "", Epoch: 0, LeaseUntil: 0}, ReadyAt: p.ReadyAt}, taskStateName(ns), "")
+		})
+
+	case board.TaskExpired as p:
+		try updateTaskProjectionTx(p.ID, func(t board.TaskRecord) (board.TaskRecord, string, string) {
+			let ns = if p.Ready { board.TaskReady } else { board.TaskWaiting }
+			(board.TaskRecord{..t, State: ns, HasClaim: false, Claim: board.TaskClaim{Holder: "", Epoch: 0, LeaseUntil: 0}, ReadyAt: p.ReadyAt}, taskStateName(ns), "")
+		})
+
+	case board.TaskCompletedEvent as p:
+		try updateTaskProjectionTx(p.ID, func(t board.TaskRecord) (board.TaskRecord, string, string) {
+			(board.TaskRecord{..t, State: board.TaskCompleted, HasClaim: false, Claim: board.TaskClaim{Holder: "", Epoch: 0, LeaseUntil: 0}, Result: p.Result}, "completed", "")
+		})
+
+	case board.TaskFailedEvent as p:
+		try updateTaskProjectionTx(p.ID, func(t board.TaskRecord) (board.TaskRecord, string, string) {
+			(board.TaskRecord{..t, State: board.TaskFailed, HasClaim: false, Claim: board.TaskClaim{Holder: "", Epoch: 0, LeaseUntil: 0}, Reason: p.Reason}, "failed", "")
+		})
+
+	case board.TaskBlockedEvent as p:
+		try updateTaskProjectionTx(p.ID, func(t board.TaskRecord) (board.TaskRecord, string, string) {
+			(board.TaskRecord{..t, State: board.TaskBlocked, HasClaim: false, Claim: board.TaskClaim{Holder: "", Epoch: 0, LeaseUntil: 0}, HoldKind: p.Kind, HoldReason: p.Reason}, "blocked", p.Kind)
+		})
+
+	case board.TaskUnblocked as p:
+		try updateTaskProjectionTx(p.ID, func(t board.TaskRecord) (board.TaskRecord, string, string) {
+			let ns = if p.Ready { board.TaskReady } else { board.TaskWaiting }
+			(board.TaskRecord{..t, State: ns, HoldKind: "", HoldReason: "", ReadyAt: p.ReadyAt}, taskStateName(ns), "")
+		})
+
+	case board.TaskReopened as p:
+		try updateTaskProjectionTx(p.ID, func(t board.TaskRecord) (board.TaskRecord, string, string) {
+			let ns = if p.Ready { board.TaskReady } else { board.TaskWaiting }
+			(board.TaskRecord{..t, State: ns, Reason: "", ReadyAt: p.ReadyAt}, taskStateName(ns), "")
+		})
+
+	case board.TaskAssignedEvent as p:
+		try updateTaskProjectionTx(p.ID, func(t board.TaskRecord) (board.TaskRecord, string, string) {
+			(board.TaskRecord{..t, For: p.For}, "", "")
+		})
+
+	case board.TaskNeedsChanged as p:
+		try updateTaskProjectionTx(p.ID, func(t board.TaskRecord) (board.TaskRecord, string, string) {
+			let ns = if t.State == board.TaskBlocked {
+				board.TaskBlocked
+			} else if p.Ready {
+				board.TaskReady
+			} else {
+				board.TaskWaiting
+			}
+			(board.TaskRecord{..t, Needs: p.Needs, State: ns, ReadyAt: if ns == board.TaskReady { p.ReadyAt } else { t.ReadyAt }}, taskStateName(ns), t.HoldKind)
+		})
+
+	case board.TaskCanceledEvent as p:
+		try updateTaskProjectionTx(p.ID, func(t board.TaskRecord) (board.TaskRecord, string, string) {
+			(board.TaskRecord{..t, State: board.TaskCanceled, HasClaim: false, Claim: board.TaskClaim{Holder: "", Epoch: 0, LeaseUntil: 0}, Reason: p.Reason}, "canceled", "")
+		})
+	}
+}
+
+func loadSnapshotTx() board.State fails board.StoreFailed needs sql.Tx {
+	let mut boards = Map[string, board.BoardRecord]{}
+	let mut heads = Map[string, board.Cursor]{}
+	for r in try queryTx("SELECT name, id, created_at, created_by, archived, head FROM boards ORDER BY name", []sql.Value{}) {
+		let name = try rowText(r, 0)
+		let head = try rowInt(r, 5)
+		boards = boards.Put(name, board.BoardRecord{
+			ID:        try rowText(r, 1),
+			Name:      name,
+			CreatedAt: try rowInt(r, 2),
+			CreatedBy: try rowText(r, 3),
+			Archived:  try rowInt(r, 4) != 0,
+			Head:      head,
+		})
+		heads = heads.Put(name, head)
+	}
+	let mut channels = Map[string, board.Channel]{}
+	for r in try queryTx("SELECT board, path, created_at, created_by, private FROM channels", []sql.Value{}) {
+		let bName = try rowText(r, 0)
+		let path = try rowText(r, 1)
+		channels = channels.Put(board.ChannelKey(bName, path), board.Channel{
+			Board:     bName,
+			Path:      path,
+			CreatedAt: try rowInt(r, 2),
+			CreatedBy: try rowText(r, 3),
+			Private:   try rowInt(r, 4) != 0,
+		})
+	}
+	let mut labelsByMsg = Map[board.MessageID, Map[string, string]]{}
+	for r in try queryTx("SELECT message_id, k, v FROM message_labels", []sql.Value{}) {
+		let mid = try rowText(r, 0)
+		let k = try rowText(r, 1)
+		let v = try rowText(r, 2)
+		let cur = match labelsByMsg.Get(mid) {
+		case Some[Map[string, string]] as lm:
+			lm.Value
+		case None:
+			Map[string, string]{}
+		}
+		labelsByMsg = labelsByMsg.Put(mid, cur.Put(k, v))
+	}
+	let mut reactsByMsg = Map[board.MessageID, Map[string, []board.ActorID]]{}
+	for r in try queryTx("SELECT message_id, emoji, actor FROM message_reactions ORDER BY message_id, emoji, ord", []sql.Value{}) {
+		let mid = try rowText(r, 0)
+		let emoji = try rowText(r, 1)
+		let actor = try rowText(r, 2)
+		let curMap = match reactsByMsg.Get(mid) {
+		case Some[Map[string, []board.ActorID]] as rm:
+			rm.Value
+		case None:
+			Map[string, []board.ActorID]{}
+		}
+		let curList = match curMap.Get(emoji) {
+		case Some[[]board.ActorID] as xs:
+			xs.Value
+		case None:
+			[]board.ActorID{}
+		}
+		reactsByMsg = reactsByMsg.Put(mid, curMap.Put(emoji, curList.Append(actor)))
+	}
+	let mut messages = Map[board.MessageID, board.Message]{}
+	for r in try queryTx("SELECT id, board, channel, text, re, reply_to, by_actor, principal, profile, from_source, no_sync, revision, created_at, edited_at, deleted, mentions_json, unresolved_json FROM messages", []sql.Value{}) {
+		let id = try rowText(r, 0)
+		let ls = match labelsByMsg.Get(id) {
+		case Some[Map[string, string]] as lm:
+			lm.Value
+		case None:
+			Map[string, string]{}
+		}
+		let rs = match reactsByMsg.Get(id) {
+		case Some[Map[string, []board.ActorID]] as rm:
+			rm.Value
+		case None:
+			Map[string, []board.ActorID]{}
+		}
+		messages = messages.Put(id, board.Message{
+			ID:         id,
+			Board:      try rowText(r, 1),
+			Channel:    try rowText(r, 2),
+			Text:       try rowText(r, 3),
+			Re:         try rowText(r, 4),
+			ReplyTo:    try rowText(r, 5),
+			By:         try rowText(r, 6),
+			Principal:  try rowText(r, 7),
+			Profile:    try rowText(r, 8),
+			Labels:     ls,
+			Reactions:  rs,
+			Mentions:   try decodeStrings(try rowText(r, 15)),
+			Unresolved: try decodeStrings(try rowText(r, 16)),
+			From:       try rowText(r, 9),
+			NoSync:     try rowInt(r, 10) != 0,
+			Revision:   try rowInt(r, 11),
+			CreatedAt:  try rowInt(r, 12),
+			EditedAt:   try rowInt(r, 13),
+			Deleted:    try rowInt(r, 14) != 0,
+		})
+	}
+	let mut threadLast = Map[board.MessageID, board.MessageID]{}
+	for r in try queryTx("SELECT root_id, last_id FROM thread_last", []sql.Value{}) {
+		threadLast = threadLast.Put(try rowText(r, 0), try rowText(r, 1))
+	}
+	let mut principals = Map[board.PrincipalID, board.Principal]{}
+	for r in try queryTx("SELECT id, data_json FROM principals", []sql.Value{}) {
+		principals = principals.Put(try rowText(r, 0), try decodePrincipal(try rowText(r, 1)))
+	}
+	let mut profiles = Map[board.ActorID, board.Profile]{}
+	for r in try queryTx("SELECT actor, data_json FROM profiles", []sql.Value{}) {
+		profiles = profiles.Put(try rowText(r, 0), try decodeProfile(try rowText(r, 1)))
+	}
+	let mut grants = Map[string, []board.Grant]{}
+	for r in try queryTx("SELECT board, data_json FROM grants ORDER BY board, ord", []sql.Value{}) {
+		let bName = try rowText(r, 0)
+		let g = try decodeGrant(try rowText(r, 1))
+		let cur = match grants.Get(bName) {
+		case Some[[]board.Grant] as gs:
+			gs.Value
+		case None:
+			[]board.Grant{}
+		}
+		grants = grants.Put(bName, cur.Append(g))
+	}
+	let mut asks = Map[board.MessageID, board.AskRecord]{}
+	for r in try queryTx("SELECT id, data_json FROM asks", []sql.Value{}) {
+		asks = asks.Put(try rowText(r, 0), try decodeAsk(try rowText(r, 1)))
+	}
+	let mut tasks = Map[board.MessageID, board.TaskRecord]{}
+	for r in try queryTx("SELECT id, data_json FROM tasks", []sql.Value{}) {
+		tasks = tasks.Put(try rowText(r, 0), try decodeTask(try rowText(r, 1)))
+	}
+	let mut trusts = Map[board.ActorID, board.TrustSet]{}
+	for r in try queryTx("SELECT subject, data_json FROM trusts", []sql.Value{}) {
+		trusts = trusts.Put(try rowText(r, 0), try decodeTrust(try rowText(r, 1)))
+	}
+	let mut idem = Map[board.IdempotencyKey, board.IdempotencyEntry]{}
+	for r in try queryTx("SELECT actor, key, digest, result_msg_id, result_cursor, recorded_at FROM idempotency", []sql.Value{}) {
+		let k = board.IdempotencyKey{Actor: try rowText(r, 0), Key: try rowText(r, 1)}
+		idem = idem.Put(k, board.IdempotencyEntry{
+			Digest:          try rowText(r, 2),
+			ResultMessageID: try rowText(r, 3),
+			ResultCursor:    try rowInt(r, 4),
+			RecordedAt:      try rowInt(r, 5),
+		})
+	}
+	let cRows = try queryTx("SELECT next_board_num, next_message_num, next_grant_num FROM counters WHERE id = 1", []sql.Value{})
+	let (nextBoard, nextMsg, nextGrant) = if len(cRows) > 0 {
+		(try rowInt(cRows[0], 0), try rowInt(cRows[0], 1), try rowInt(cRows[0], 2))
+	} else {
+		(2, 1, 2)
+	}
+	board.State{
+		Boards:         boards,
+		Channels:       channels,
+		Messages:       messages,
+		ThreadLast:     threadLast,
+		Principals:     principals,
+		Profiles:       profiles,
+		Grants:         grants,
+		Asks:           asks,
+		Tasks:          tasks,
+		Trusts:         trusts,
+		Idempotency:    idem,
+		NextBoardNum:   nextBoard,
+		NextMessageNum: nextMsg,
+		NextGrantNum:   nextGrant,
+		Head:           heads,
+	}
+}

@@ -1,14 +1,16 @@
 # board
 
-Pure domain packages, storage providers, and formal design models for the
-message board.
+Pure domain packages, storage providers, import-boundary guard, and formal
+design models for the message board.
 
 ## Packages
 
 | Package | Responsibility |
 | --- | --- |
+| `.` (`boundary.ergo`) | Storage-is-a-provider import-boundary guard verifying no file outside `sqlite/` and `cmd/board/` imports `sql` or `modules/sqlite` |
 | `board/` | Pure domain entities, `Decide`/`Apply`/`Fold`, grant combination rule, mention settling, secret scanner, task lifecycle/plans/prerequisites/trust enforcement, product `Ask`, `Access`, and `Task` machines, and the provider-neutral `Store` contract with its laws |
 | `memory/` | Pure in-memory provider of `board.Store` and model-based fold agreement tests |
+| `sqlite/` | Transactional SQLite provider of `board.Store` (`BEGIN IMMEDIATE`, `schema_version` fence, FTS5 full-text search, online `VACUUM INTO` backup, crash-atomicity, concurrent-writer, and memory-agreement verification) |
 | `models/*` | Exhaustively checked design state machines (run in the gate's full tier via `full-tier`) |
 
 ## Design models (`models/`)

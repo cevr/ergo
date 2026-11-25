@@ -1,0 +1,156 @@
+import github.com/cevr/ergo/modules/board/board
+import json
+import maps
+import slices
+import sql
+import strconv
+
+// SchemaVersion is the single SQLite schema revision supported by this provider.
+let SchemaVersion = 1
+
+func execTx(stmt string, args []sql.Value) fails board.StoreFailed needs sql.Tx {
+	let _ = sql.Tx.Exec(stmt, args) catch {
+	case sql.Unique as e:
+		return board.StoreFailed{Reason: "unique constraint: \(e.Constraint)"}
+	case sql.Serialization as e:
+		return board.StoreFailed{Reason: "serialization: \(e.Message)"}
+	case sql.Deadlock as e:
+		return board.StoreFailed{Reason: "deadlock: \(e.Message)"}
+	case sql.Timeout as e:
+		return board.StoreFailed{Reason: "timeout: \(e.Message)"}
+	case sql.Closed as e:
+		return board.StoreFailed{Reason: "closed: \(e.Message)"}
+	case sql.Other as e:
+		return board.StoreFailed{Reason: "sql error (\(e.Code)): \(e.Message)"}
+	}
+}
+
+func queryTx(stmt string, args []sql.Value) []sql.Row fails board.StoreFailed needs sql.Tx {
+	sql.Tx.Query(stmt, args) catch {
+	case sql.Unique as e:
+		return board.StoreFailed{Reason: "unique constraint: \(e.Constraint)"}
+	case sql.Serialization as e:
+		return board.StoreFailed{Reason: "serialization: \(e.Message)"}
+	case sql.Deadlock as e:
+		return board.StoreFailed{Reason: "deadlock: \(e.Message)"}
+	case sql.Timeout as e:
+		return board.StoreFailed{Reason: "timeout: \(e.Message)"}
+	case sql.Closed as e:
+		return board.StoreFailed{Reason: "closed: \(e.Message)"}
+	case sql.Other as e:
+		return board.StoreFailed{Reason: "sql error (\(e.Code)): \(e.Message)"}
+	}
+}
+
+func rowText(r sql.Row, i int) string fails board.StoreFailed {
+	sql.TextAt(r, i) catch {
+	case sql.Mismatch as m:
+		return board.StoreFailed{Reason: "column \(m.Column): want \(m.Want)"}
+	}
+}
+
+func rowInt(r sql.Row, i int) int fails board.StoreFailed {
+	let v = sql.IntAt(r, i) catch {
+	case sql.Mismatch as m:
+		return board.StoreFailed{Reason: "column \(m.Column): want \(m.Want)"}
+	}
+	int(v)
+}
+
+func createTablesTx() fails board.StoreFailed needs sql.Tx {
+	let ddls = []string{
+		"CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+		"CREATE TABLE IF NOT EXISTS events (board TEXT NOT NULL, seq INTEGER NOT NULL, at INTEGER NOT NULL, actor TEXT NOT NULL, payload_json TEXT NOT NULL, PRIMARY KEY (board, seq))",
+		"CREATE TABLE IF NOT EXISTS boards (name TEXT PRIMARY KEY, id TEXT NOT NULL, created_at INTEGER NOT NULL, created_by TEXT NOT NULL, archived INTEGER NOT NULL, head INTEGER NOT NULL)",
+		"CREATE TABLE IF NOT EXISTS channels (board TEXT NOT NULL, path TEXT NOT NULL, created_at INTEGER NOT NULL, created_by TEXT NOT NULL, private INTEGER NOT NULL, PRIMARY KEY (board, path))",
+		"CREATE TABLE IF NOT EXISTS messages (id TEXT PRIMARY KEY, board TEXT NOT NULL, channel TEXT NOT NULL, text TEXT NOT NULL, re TEXT NOT NULL, reply_to TEXT NOT NULL, by_actor TEXT NOT NULL, principal TEXT NOT NULL, profile TEXT NOT NULL, from_source TEXT NOT NULL, no_sync INTEGER NOT NULL, revision INTEGER NOT NULL, created_at INTEGER NOT NULL, edited_at INTEGER NOT NULL, deleted INTEGER NOT NULL, mentions_json TEXT NOT NULL, unresolved_json TEXT NOT NULL)",
+		"CREATE TABLE IF NOT EXISTS thread_last (root_id TEXT PRIMARY KEY, last_id TEXT NOT NULL)",
+		"CREATE TABLE IF NOT EXISTS message_labels (message_id TEXT NOT NULL, k TEXT NOT NULL, v TEXT NOT NULL, PRIMARY KEY (message_id, k))",
+		"CREATE TABLE IF NOT EXISTS message_reactions (message_id TEXT NOT NULL, emoji TEXT NOT NULL, actor TEXT NOT NULL, ord INTEGER NOT NULL, PRIMARY KEY (message_id, emoji, actor))",
+		"CREATE TABLE IF NOT EXISTS principals (id TEXT PRIMARY KEY, data_json TEXT NOT NULL)",
+		"CREATE TABLE IF NOT EXISTS profiles (actor TEXT PRIMARY KEY, data_json TEXT NOT NULL)",
+		"CREATE TABLE IF NOT EXISTS grants (board TEXT NOT NULL, id TEXT NOT NULL, ord INTEGER NOT NULL, data_json TEXT NOT NULL, PRIMARY KEY (board, id))",
+		"CREATE TABLE IF NOT EXISTS asks (id TEXT PRIMARY KEY, data_json TEXT NOT NULL)",
+		"CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, data_json TEXT NOT NULL)",
+		"CREATE TABLE IF NOT EXISTS trusts (subject TEXT PRIMARY KEY, data_json TEXT NOT NULL)",
+		"CREATE TABLE IF NOT EXISTS idempotency (actor TEXT NOT NULL, key TEXT NOT NULL, digest TEXT NOT NULL, result_msg_id TEXT NOT NULL, result_cursor INTEGER NOT NULL, recorded_at INTEGER NOT NULL, PRIMARY KEY (actor, key))",
+		"CREATE TABLE IF NOT EXISTS counters (id INTEGER PRIMARY KEY CHECK (id = 1), next_board_num INTEGER NOT NULL, next_message_num INTEGER NOT NULL, next_grant_num INTEGER NOT NULL)",
+		"CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(message_id UNINDEXED, board UNINDEXED, channel UNINDEXED, text, tokenize='trigram')",
+	}
+	for ddl in ddls {
+		try execTx(ddl, []sql.Value{})
+	}
+}
+
+func seedInitialStateTx(init board.State) fails board.StoreFailed needs sql.Tx {
+	try execTx(
+		"INSERT INTO counters(id, next_board_num, next_message_num, next_grant_num) VALUES (1, ?, ?, ?)",
+		[]sql.Value{sql.Int{N: int64(init.NextBoardNum)}, sql.Int{N: int64(init.NextMessageNum)}, sql.Int{N: int64(init.NextGrantNum)}},
+	)
+	for name in slices.Sorted(maps.Keys(init.Boards)) {
+		match init.Boards.Get(name) {
+		case Some[board.BoardRecord] as br:
+			let b = br.Value
+			try execTx(
+				"INSERT INTO boards(name, id, created_at, created_by, archived, head) VALUES (?, ?, ?, ?, ?, ?)",
+				[]sql.Value{
+					sql.Text{S: b.Name},
+					sql.Text{S: b.ID},
+					sql.Int{N: int64(b.CreatedAt)},
+					sql.Text{S: b.CreatedBy},
+					sql.Int{N: if b.Archived { 1 } else { 0 }},
+					sql.Int{N: int64(b.Head)},
+				},
+			)
+		case None:
+		}
+	}
+	let prinCodec = json.Codec[board.Principal]{MaxBytes: 0, MaxDepth: 0}
+	for id in slices.Sorted(maps.Keys(init.Principals)) {
+		match init.Principals.Get(id) {
+		case Some[board.Principal] as pr:
+			try execTx(
+				"INSERT INTO principals(id, data_json) VALUES (?, ?)",
+				[]sql.Value{sql.Text{S: id}, sql.Text{S: json.Encode(prinCodec, pr.Value)}},
+			)
+		case None:
+		}
+	}
+	let grantCodec = json.Codec[board.Grant]{MaxBytes: 0, MaxDepth: 0}
+	for bName in slices.Sorted(maps.Keys(init.Grants)) {
+		match init.Grants.Get(bName) {
+		case Some[[]board.Grant] as gs:
+			for i, g in gs.Value {
+				try execTx(
+					"INSERT INTO grants(board, id, ord, data_json) VALUES (?, ?, ?, ?)",
+					[]sql.Value{sql.Text{S: bName}, sql.Text{S: g.ID}, sql.Int{N: int64(i + 1)}, sql.Text{S: json.Encode(grantCodec, g)}},
+				)
+			}
+		case None:
+		}
+	}
+}
+
+func checkSchemaVersion(raw string) fails board.StoreFailed {
+	let v = strconv.Atoi(raw) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return board.StoreFailed{Reason: "malformed schema_version: \(raw)"}
+	}
+	if v != SchemaVersion {
+		return board.StoreFailed{Reason: "unsupported schema_version: \(v), want \(SchemaVersion)"}
+	}
+}
+
+func ensureSchemaTx(admins []board.Principal, now board.Timestamp) fails board.StoreFailed needs sql.Tx {
+	try execTx("CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)", []sql.Value{})
+	let rows = try queryTx("SELECT value FROM schema_meta WHERE key = 'schema_version'", []sql.Value{})
+	if len(rows) > 0 {
+		let raw = try rowText(rows[0], 0)
+		try checkSchemaVersion(raw)
+		return
+	}
+	try createTablesTx()
+	try execTx("INSERT INTO schema_meta(key, value) VALUES ('schema_version', ?)", []sql.Value{sql.Text{S: strconv.Itoa(SchemaVersion)}})
+	let init = board.InitialState(admins, now)
+	try seedInitialStateTx(init)
+}

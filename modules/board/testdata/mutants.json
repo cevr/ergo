@@ -1,5 +1,5 @@
 {
-  "about": "module board's unit-2 domain and memory-store mutants; each is killed by a canonical law or test of modules/board/board or modules/board/memory.",
+  "about": "module board's domain, memory-store, sqlite-store, and import-boundary mutants; each is killed by a canonical law or test of modules/board.",
   "mutants": [
     {
       "name": "board-grant-allows-denied-channel",
@@ -223,6 +223,86 @@
       },
       "killers": [
         "modules/board/board:law:PrerequisiteGraphMatchesReference"
+      ]
+    },
+    {
+      "name": "board-sqlite-skips-expected-check",
+      "origin": "BOARD-4",
+      "file": "modules/board/sqlite/store.ergo",
+      "from": "\t\t\tif expected != actual {\n",
+      "to": "\t\t\tif false && expected != actual {\n",
+      "rule": "sqlite.Store.Commit checks the board head against expected inside BEGIN IMMEDIATE and fails StalePosition without mutating state.",
+      "anchor": {
+        "tests": [
+          "modules/board/sqlite:law:board.Store.StalePositionChangesNothing"
+        ]
+      },
+      "killers": [
+        "modules/board/sqlite:law:board.Store.StalePositionChangesNothing"
+      ]
+    },
+    {
+      "name": "board-sqlite-drops-projection-update",
+      "origin": "BOARD-4",
+      "file": "modules/board/sqlite/store.ergo",
+      "from": "\t\t\t\ttry applyProjectionTx(stamped)\n",
+      "to": "\t\t\t\tlet _ = stamped\n",
+      "rule": "sqlite.Store.Commit updates projection tables inside the same transaction as event append so Snapshot agrees with Fold.",
+      "anchor": {
+        "tests": [
+          "modules/board/sqlite:law:board.Store.SnapshotAgreesWithFold"
+        ]
+      },
+      "killers": [
+        "modules/board/sqlite:law:board.Store.SnapshotAgreesWithFold"
+      ]
+    },
+    {
+      "name": "board-sqlite-bypasses-schema-fence",
+      "origin": "BOARD-4",
+      "file": "modules/board/sqlite/schema.ergo",
+      "from": "\tif v != SchemaVersion {\n",
+      "to": "\tif false && v != SchemaVersion {\n",
+      "rule": "sqlite.Open refuses databases carrying an unknown or newer schema_version cleanly with StoreFailed.",
+      "anchor": {
+        "tests": [
+          "modules/board/sqlite:law:SqliteSuite.TestSqliteSchemaVersionFence"
+        ]
+      },
+      "killers": [
+        "modules/board/sqlite:law:SqliteSuite.TestSqliteSchemaVersionFence"
+      ]
+    },
+    {
+      "name": "board-sqlite-fts-skips-index",
+      "origin": "BOARD-4",
+      "file": "modules/board/sqlite/projection.ergo",
+      "from": "\t\tif !m.Deleted {\n",
+      "to": "\t\tif false && !m.Deleted {\n",
+      "rule": "Posting a non-deleted message populates messages_fts inside the same transaction so FTS5 Search returns matching hits.",
+      "anchor": {
+        "tests": [
+          "modules/board/sqlite:law:SqliteSuite.TestSqliteAgreesWithMemory"
+        ]
+      },
+      "killers": [
+        "modules/board/sqlite:law:SqliteSuite.TestSqliteAgreesWithMemory"
+      ]
+    },
+    {
+      "name": "board-sqlite-disables-import-guard",
+      "origin": "BOARD-4",
+      "file": "modules/board/boundary.ergo",
+      "from": "\t\t\t\tif isForbiddenStorageImportLine(line) {\n",
+      "to": "\t\t\t\tif false && isForbiddenStorageImportLine(line) {\n",
+      "rule": "CheckStorageImportBoundary catches forbidden sql or modules/sqlite imports outside sqlite/ and cmd/board/.",
+      "anchor": {
+        "tests": [
+          "modules/board:TestStorageImportBoundary"
+        ]
+      },
+      "killers": [
+        "modules/board:TestStorageImportBoundary"
       ]
     }
   ]

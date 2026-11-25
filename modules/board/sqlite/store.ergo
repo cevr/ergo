@@ -1,0 +1,387 @@
+import github.com/cevr/ergo/modules/board/board
+import github.com/cevr/ergo/modules/sqlite/sqlite
+import json
+import sql
+import strings
+
+// Store is the SQLite provider of board.Store backed by modules/sqlite.
+// Every Commit runs in one BEGIN IMMEDIATE transaction updating the event log,
+// projection tables, and full-text index atomically.
+type Store {
+	db sql.DB,
+} implements board.Store
+
+func defaultAdmin() board.Principal {
+	board.Principal{
+		ID:     "google:admin",
+		Kind:   board.Person,
+		Handle: "admin",
+		Email:  "admin@example.com",
+		Name:   "Admin",
+		Role:   board.Admin,
+		State:  board.Active,
+	}
+}
+
+func sqlFailureToStore(msg string) board.StoreFailed {
+	board.StoreFailed{Reason: msg}
+}
+
+// OpenDB initializes or validates the schema on db and returns a Store over it.
+func OpenDB(db sql.DB, admins []board.Principal, now board.Timestamp) Store fails board.StoreFailed {
+	with context { sql.DB: db } {
+		sql.Transaction(func() bool fails board.StoreFailed needs sql.Tx | sql.DB {
+			try ensureSchemaTx(admins, now)
+			true
+		}) catch {
+		case board.StoreFailed as e:
+			return e
+		case sql.Unique as e:
+			return sqlFailureToStore("unique: \(e.Constraint)")
+		case sql.Serialization as e:
+			return sqlFailureToStore("serialization: \(e.Message)")
+		case sql.Deadlock as e:
+			return sqlFailureToStore("deadlock: \(e.Message)")
+		case sql.Timeout as e:
+			return sqlFailureToStore("timeout: \(e.Message)")
+		case sql.Closed as e:
+			return sqlFailureToStore("closed: \(e.Message)")
+		case sql.Other as e:
+			return sqlFailureToStore("sql error (\(e.Code)): \(e.Message)")
+		}
+	}
+	Store{db: db}
+}
+
+// Open opens or creates a file-backed WAL SQLite board store at path with the
+// default admin principal.
+func Open(path string) (Store, sqlite.DB) fails board.StoreFailed needs go.Foreign {
+	try OpenWithAdmins(path, []board.Principal{defaultAdmin()}, 0)
+}
+
+// OpenWithAdmins opens or creates a file-backed WAL SQLite board store at path
+// seeded with admins at timestamp now when fresh.
+func OpenWithAdmins(path string, admins []board.Principal, now board.Timestamp) (Store, sqlite.DB) fails board.StoreFailed needs go.Foreign {
+	let raw = sqlite.Open(path) catch {
+	case sql.Unique as e:
+		return sqlFailureToStore("open unique: \(e.Constraint)")
+	case sql.Serialization as e:
+		return sqlFailureToStore("open serialization: \(e.Message)")
+	case sql.Deadlock as e:
+		return sqlFailureToStore("open deadlock: \(e.Message)")
+	case sql.Timeout as e:
+		return sqlFailureToStore("open timeout: \(e.Message)")
+	case sql.Closed as e:
+		return sqlFailureToStore("open closed: \(e.Message)")
+	case sql.Other as e:
+		return sqlFailureToStore("open error (\(e.Code)): \(e.Message)")
+	}
+	let st = OpenDB(raw, admins, now) catch {
+	case board.StoreFailed as e:
+		sqlite.Close(raw) catch {
+		case _:
+		}
+		return e
+	}
+	(st, raw)
+}
+
+// OpenMemory opens an isolated in-memory SQLite board store.
+func OpenMemory() (Store, sqlite.DB) fails board.StoreFailed needs go.Foreign {
+	try Open(":memory:")
+}
+
+type emptyDB {} implements sql.DB
+
+type emptyConn {} implements sql.Conn
+
+func Exec(_ emptyDB, _ string, _ []sql.Value) sql.Result fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other {
+	return sql.Closed{Message: "empty"}
+}
+
+func Query(_ emptyDB, _ string, _ []sql.Value) []sql.Row fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other {
+	return sql.Closed{Message: "empty"}
+}
+
+func Begin(_ emptyDB) sql.Conn fails sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other {
+	return sql.Closed{Message: "empty"}
+}
+
+func Exec(_ emptyConn, _ string, _ []sql.Value) sql.Result fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other {
+	return sql.Closed{Message: "empty"}
+}
+
+func Query(_ emptyConn, _ string, _ []sql.Value) []sql.Row fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other {
+	return sql.Closed{Message: "empty"}
+}
+
+func Commit(_ emptyConn) fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other {
+	return sql.Closed{Message: "empty"}
+}
+
+func Rollback(_ emptyConn) {}
+
+func Savepoint(_ emptyConn, _ string) fails sql.Timeout | sql.Closed | sql.Other { return sql.Closed{Message: "empty"} }
+
+func Release(_ emptyConn, _ string) fails sql.Timeout | sql.Closed | sql.Other { return sql.Closed{Message: "empty"} }
+
+func RollbackTo(_ emptyConn, _ string) fails sql.Timeout | sql.Closed | sql.Other { return sql.Closed{Message: "empty"} }
+
+// NewStore opens a fresh in-memory SQLite board store for contract-law runs.
+func NewStore() Store needs go.Foreign {
+	let (st, _) = OpenMemory() catch {
+	case _:
+		return Store{db: emptyDB}
+	}
+	st
+}
+
+// Close closes the underlying SQLite database pool.
+func Close(db sqlite.DB) fails board.StoreFailed needs go.Foreign {
+	sqlite.Close(db) catch {
+	case sql.Closed as e:
+		return sqlFailureToStore("close closed: \(e.Message)")
+	case sql.Other as e:
+		return sqlFailureToStore("close error (\(e.Code)): \(e.Message)")
+	}
+}
+
+// BackupTo writes a consistent online SQLite backup of s to destPath via
+// VACUUM INTO without blocking concurrent readers.
+func BackupTo(s Store, destPath string) fails board.StoreFailed {
+	let _ = s.db.Exec("VACUUM INTO ?", []sql.Value{sql.Text{S: destPath}}) catch {
+	case sql.Unique as e:
+		return sqlFailureToStore("backup unique: \(e.Constraint)")
+	case sql.Serialization as e:
+		return sqlFailureToStore("backup serialization: \(e.Message)")
+	case sql.Deadlock as e:
+		return sqlFailureToStore("backup deadlock: \(e.Message)")
+	case sql.Timeout as e:
+		return sqlFailureToStore("backup timeout: \(e.Message)")
+	case sql.Closed as e:
+		return sqlFailureToStore("backup closed: \(e.Message)")
+	case sql.Other as e:
+		return sqlFailureToStore("backup error (\(e.Code)): \(e.Message)")
+	}
+}
+
+// Commit atomically checks boardName's head cursor against expected inside one
+// BEGIN IMMEDIATE transaction, appends dense events to the log, and updates
+// all projection tables and full-text index rows together.
+func Commit(s Store, boardName string, expected board.Cursor, events []board.Event) board.Cursor fails board.StalePosition | board.StoreFailed {
+	let bName = board.ResolveBoard(boardName)
+	let payloadCodec = json.Codec[board.EventPayload]{MaxBytes: 0, MaxDepth: 0}
+	with context { sql.DB: s.db } {
+		sql.Transaction(func() board.Cursor fails board.StalePosition | board.StoreFailed needs sql.Tx | sql.DB {
+			let rows = try queryTx("SELECT COALESCE(MAX(seq), 0) FROM events WHERE board = ?", []sql.Value{sql.Text{S: bName}})
+			let actual = if len(rows) > 0 { try rowInt(rows[0], 0) } else { 0 }
+			if expected != actual {
+				return board.StalePosition{Board: bName, Expected: expected, Actual: actual}
+			}
+			let mut seq = actual
+			for e in events {
+				seq = seq + 1
+				let stamped = board.Event{..e, Seq: seq, Board: bName}
+				let enc = json.Encode(payloadCodec, stamped.Payload)
+				try execTx(
+					"INSERT INTO events(board, seq, at, actor, payload_json) VALUES (?, ?, ?, ?, ?)",
+					[]sql.Value{
+						sql.Text{S: bName},
+						sql.Int{N: int64(seq)},
+						sql.Int{N: int64(stamped.At)},
+						sql.Text{S: stamped.Actor},
+						sql.Text{S: enc},
+					},
+				)
+				try applyProjectionTx(stamped)
+			}
+			seq
+		}) catch {
+		case board.StalePosition as sp:
+			return sp
+		case board.StoreFailed as sf:
+			return sf
+		case sql.Unique as e:
+			return sqlFailureToStore("commit unique: \(e.Constraint)")
+		case sql.Serialization as e:
+			return sqlFailureToStore("commit serialization: \(e.Message)")
+		case sql.Deadlock as e:
+			return sqlFailureToStore("commit deadlock: \(e.Message)")
+		case sql.Timeout as e:
+			return sqlFailureToStore("commit timeout: \(e.Message)")
+		case sql.Closed as e:
+			return sqlFailureToStore("commit closed: \(e.Message)")
+		case sql.Other as e:
+			return sqlFailureToStore("commit error (\(e.Code)): \(e.Message)")
+		}
+	}
+}
+
+// ReadEvents returns all committed events for boardName with Seq > after in
+// ascending cursor order.
+func ReadEvents(s Store, boardName string, after board.Cursor) []board.Event fails board.StoreFailed {
+	let bName = board.ResolveBoard(boardName)
+	let rows = s.db.Query(
+		"SELECT seq, at, actor, payload_json FROM events WHERE board = ? AND seq > ? ORDER BY seq ASC",
+		[]sql.Value{sql.Text{S: bName}, sql.Int{N: int64(after)}},
+	) catch {
+	case sql.Unique as e:
+		return sqlFailureToStore("read unique: \(e.Constraint)")
+	case sql.Serialization as e:
+		return sqlFailureToStore("read serialization: \(e.Message)")
+	case sql.Deadlock as e:
+		return sqlFailureToStore("read deadlock: \(e.Message)")
+	case sql.Timeout as e:
+		return sqlFailureToStore("read timeout: \(e.Message)")
+	case sql.Closed as e:
+		return sqlFailureToStore("read closed: \(e.Message)")
+	case sql.Other as e:
+		return sqlFailureToStore("read error (\(e.Code)): \(e.Message)")
+	}
+	let mut out = []board.Event{}
+	for r in rows {
+		let seq = try rowInt(r, 0)
+		let at = try rowInt(r, 1)
+		let actor = try rowText(r, 2)
+		let payload = try decodePayload(try rowText(r, 3))
+		out = out.Append(board.Event{Seq: seq, Board: bName, At: at, Actor: actor, Payload: payload})
+	}
+	out
+}
+
+// Snapshot reads the current projected domain State directly from the SQLite
+// projection tables inside one transaction.
+func Snapshot(s Store) board.State fails board.StoreFailed {
+	with context { sql.DB: s.db } {
+		sql.Transaction(func() board.State fails board.StoreFailed needs sql.Tx | sql.DB {
+			try loadSnapshotTx()
+		}) catch {
+		case board.StoreFailed as sf:
+			return sf
+		case sql.Unique as e:
+			return sqlFailureToStore("snapshot unique: \(e.Constraint)")
+		case sql.Serialization as e:
+			return sqlFailureToStore("snapshot serialization: \(e.Message)")
+		case sql.Deadlock as e:
+			return sqlFailureToStore("snapshot deadlock: \(e.Message)")
+		case sql.Timeout as e:
+			return sqlFailureToStore("snapshot timeout: \(e.Message)")
+		case sql.Closed as e:
+			return sqlFailureToStore("snapshot closed: \(e.Message)")
+		case sql.Other as e:
+			return sqlFailureToStore("snapshot error (\(e.Code)): \(e.Message)")
+		}
+	}
+}
+
+func escapeFtsTerm(term string) string {
+	let cleaned = strings.ReplaceAll(term, "\"", "\"\"")
+	"\"\(cleaned)\""
+}
+
+func buildFtsQuery(words []string) Option[string] {
+	let mut parts = []string{}
+	for w in words {
+		if len(strings.Bytes(w)) < 3 {
+			return None
+		}
+		parts = parts.Append(escapeFtsTerm(w))
+	}
+	if len(parts) == 0 {
+		return None
+	}
+	let mut out = parts[0]
+	for i in 1..len(parts) {
+		out = "\(out) AND \(parts[i])"
+	}
+	Some[string]{Value: out}
+}
+
+func snippetFor(text string) string {
+	let bs = strings.Bytes(text)
+	if len(bs) <= 120 {
+		return text
+	}
+	strings.Slice(text, 0, 120)
+}
+
+// Search queries the SQLite FTS5 index (falling back to table scan for
+// sub-trigram queries) and filters candidates through board.MatchesSearchQuery
+// so callers never see deleted or unreadable messages.
+func Search(s Store, q board.SearchQuery) []board.SearchHit fails board.StoreFailed {
+	let words = strings.Fields(strings.ToLower(q.Query))
+	if len(words) == 0 {
+		return []board.SearchHit{}
+	}
+	let snap = try Snapshot(s)
+	let bName = board.ResolveBoard(q.Board)
+	let gs = match snap.Grants.Get(bName) {
+	case Some[[]board.Grant] as xs:
+		xs.Value
+	case None:
+		[]board.Grant{}
+	}
+	let limit = if q.Limit <= 0 { 50 } else { q.Limit }
+	let candidateIDs = match buildFtsQuery(words) {
+	case Some[string] as ftsQ:
+		let rows = s.db.Query(
+			"SELECT message_id FROM messages_fts WHERE board = ? AND text MATCH ? ORDER BY message_id ASC",
+			[]sql.Value{sql.Text{S: bName}, sql.Text{S: ftsQ.Value}},
+		) catch {
+		case sql.Unique as e:
+			return sqlFailureToStore("search unique: \(e.Constraint)")
+		case sql.Serialization as e:
+			return sqlFailureToStore("search serialization: \(e.Message)")
+		case sql.Deadlock as e:
+			return sqlFailureToStore("search deadlock: \(e.Message)")
+		case sql.Timeout as e:
+			return sqlFailureToStore("search timeout: \(e.Message)")
+		case sql.Closed as e:
+			return sqlFailureToStore("search closed: \(e.Message)")
+		case sql.Other as e:
+			return sqlFailureToStore("search error (\(e.Code)): \(e.Message)")
+		}
+		let mut ids = []board.MessageID{}
+		for r in rows {
+			ids = ids.Append(try rowText(r, 0))
+		}
+		ids
+	case None:
+		let rows = s.db.Query(
+			"SELECT id FROM messages WHERE board = ? AND deleted = 0 ORDER BY id ASC",
+			[]sql.Value{sql.Text{S: bName}},
+		) catch {
+		case sql.Unique as e:
+			return sqlFailureToStore("search unique: \(e.Constraint)")
+		case sql.Serialization as e:
+			return sqlFailureToStore("search serialization: \(e.Message)")
+		case sql.Deadlock as e:
+			return sqlFailureToStore("search deadlock: \(e.Message)")
+		case sql.Timeout as e:
+			return sqlFailureToStore("search timeout: \(e.Message)")
+		case sql.Closed as e:
+			return sqlFailureToStore("search closed: \(e.Message)")
+		case sql.Other as e:
+			return sqlFailureToStore("search error (\(e.Code)): \(e.Message)")
+		}
+		let mut ids = []board.MessageID{}
+		for r in rows {
+			ids = ids.Append(try rowText(r, 0))
+		}
+		ids
+	}
+	let mut hits = []board.SearchHit{}
+	for id in candidateIDs {
+		if len(hits) >= limit {
+			break
+		}
+		match snap.Messages.Get(id) {
+		case Some[board.Message] as m:
+			if board.MatchesSearchQuery(gs, m.Value, q) {
+				hits = hits.Append(board.SearchHit{Message: m.Value, Snippet: snippetFor(m.Value.Text)})
+			}
+		case None:
+		}
+	}
+	hits
+}

@@ -1,0 +1,682 @@
+import github.com/cevr/ergo/modules/board/board
+import github.com/cevr/ergo/modules/board/memory
+import github.com/cevr/ergo/modules/sqlite/sqlite
+import go os
+import sql
+import strconv
+import sync
+import tasks
+
+func agreementAdmins() []board.Principal {
+	[]board.Principal{
+		board.Principal{ID: "google:admin", Kind: board.Person, Handle: "admin", Email: "admin@example.com", Name: "Admin", Role: board.Admin, State: board.Active},
+		board.Principal{ID: "google:alice", Kind: board.Person, Handle: "alice", Email: "alice@example.com", Name: "Alice", Role: board.Member, State: board.Active},
+		board.Principal{ID: "google:bob", Kind: board.Person, Handle: "bob", Email: "bob@example.com", Name: "Bob", Role: board.Member, State: board.Active},
+	}
+}
+
+func testAdminCaller() board.Caller {
+	board.Caller{Principal: "google:admin", Profile: "", Role: board.Admin, Kind: board.Person, Email: "admin@example.com", Narrowed: false, NarrowedCan: Map[string, []board.Permission]{}, NarrowedProfile: "", NarrowedBoards: []string{}}
+}
+
+func testAliceCaller() board.Caller {
+	board.Caller{Principal: "google:alice", Profile: "", Role: board.Member, Kind: board.Person, Email: "alice@example.com", Narrowed: false, NarrowedCan: Map[string, []board.Permission]{}, NarrowedProfile: "", NarrowedBoards: []string{}}
+}
+
+func testAliceAgentCaller() board.Caller {
+	board.Caller{Principal: "google:alice", Profile: "fx", Role: board.Member, Kind: board.Person, Email: "alice@example.com", Narrowed: false, NarrowedCan: Map[string, []board.Permission]{}, NarrowedProfile: "", NarrowedBoards: []string{}}
+}
+
+func testBobCaller() board.Caller {
+	board.Caller{Principal: "google:bob", Profile: "", Role: board.Member, Kind: board.Person, Email: "bob@example.com", Narrowed: false, NarrowedCan: Map[string, []board.Permission]{}, NarrowedProfile: "", NarrowedBoards: []string{}}
+}
+
+func agreementCommands() []board.Command {
+	[]board.Command{
+		board.CreateChannel{Caller: testAdminCaller(), Board: board.DefaultBoard, Path: "priv", Private: true},
+		board.PostMessage{Caller: testAdminCaller(), Board: board.DefaultBoard, Channel: "priv", Text: "classified roadmap alpha", Labels: Map[string, string]{}, NoSync: false, From: "", IdempotencyKey: "k-priv"},
+		board.PostMessage{Caller: testAliceCaller(), Board: board.DefaultBoard, Channel: "dev", Text: "ship release beta @bob", Labels: Map[string, string]{}.Put("env", "prod"), NoSync: false, From: "", IdempotencyKey: "k-1"},
+		board.PostMessage{Caller: testAliceCaller(), Board: board.DefaultBoard, Channel: "dev", Text: "ship release beta @bob", Labels: Map[string, string]{}.Put("env", "prod"), NoSync: false, From: "", IdempotencyKey: "k-1"},
+		board.PostMessage{Caller: testAliceCaller(), Board: board.DefaultBoard, Channel: "dev", Text: "conflicting payload", Labels: Map[string, string]{}, NoSync: false, From: "", IdempotencyKey: "k-1"},
+		board.ReplyMessage{Caller: testBobCaller(), Board: board.DefaultBoard, Re: "msg_2", Text: "looks good beta", After: "msg_2", Labels: Map[string, string]{}, NoSync: false, From: "", IdempotencyKey: ""},
+		board.EditMessage{Caller: testAliceCaller(), Board: board.DefaultBoard, ID: "msg_2", Text: "ship release gamma @bob", IfRevision: 1},
+		board.ReactMessage{Caller: testBobCaller(), Board: board.DefaultBoard, ID: "msg_2", Emoji: "rocket", Remove: false},
+		board.LabelMessage{Caller: testAliceCaller(), Board: board.DefaultBoard, ID: "msg_2", Set: Map[string, string]{}.Put("stage", "ready"), Unset: []string{}, If: Map[string, string]{}.Put("env", "prod"), IfUnset: []string{}},
+		board.OpenAsk{Caller: testAliceCaller(), Board: board.DefaultBoard, Channel: "dev", Thread: "", Text: "approve gamma?", To: []board.ActorID{"google:bob"}, OnlyFromAsked: true, ExpiresAt: 0, IdempotencyKey: ""},
+		board.ReplyMessage{Caller: testBobCaller(), Board: board.DefaultBoard, Re: "msg_4", Text: "approved gamma", After: "", Labels: Map[string, string]{}, NoSync: false, From: "", IdempotencyKey: ""},
+		board.CreatePlan{
+			Caller:  testAliceCaller(),
+			Board:   board.DefaultBoard,
+			Channel: "dev",
+			Tasks:   []board.PlanTaskSpec{
+				board.PlanTaskSpec{Key: "a", Text: "build artifact", Labels: Map[string, string]{}, Needs: []string{}, For: "", NoSync: false},
+				board.PlanTaskSpec{Key: "b", Text: "deploy artifact", Labels: Map[string, string]{}, Needs: []string{"a"}, For: "", NoSync: false},
+			},
+			IdempotencyKey: "plan-1",
+		},
+		board.ClaimTask{Caller: testAliceAgentCaller(), Board: board.DefaultBoard, ID: "msg_6", LeaseMs: 60000},
+		board.RenewTask{Caller: testAliceAgentCaller(), Board: board.DefaultBoard, ID: "msg_6", Token: 1, LeaseMs: 60000},
+		board.CompleteTask{Caller: testAliceAgentCaller(), Board: board.DefaultBoard, ID: "msg_6", Token: 1, Result: "built"},
+		board.UpdateTrust{Caller: testAliceCaller(), Subject: "google:alice+fx", TakesFrom: []board.ActorID{"google:alice", "google:bob"}},
+		board.DeleteMessage{Caller: testAdminCaller(), Board: board.DefaultBoard, ID: "msg_3", IfRevision: 0},
+	}
+}
+
+func generatedCommand(step int, idx int) board.Command {
+	let raw = if step < 0 { -step } else { step }
+	match raw % 9 {
+	case 0:
+		board.PostMessage{Caller: testAliceCaller(), Board: board.DefaultBoard, Channel: "dev", Text: "gen post \(idx) gamma", Labels: Map[string, string]{}, NoSync: false, From: "", IdempotencyKey: ""}
+	case 1:
+		board.PostMessage{Caller: testBobCaller(), Board: board.DefaultBoard, Channel: "priv", Text: "unauthorized \(idx)", Labels: Map[string, string]{}, NoSync: false, From: "", IdempotencyKey: ""}
+	case 2:
+		board.ReactMessage{Caller: testAliceCaller(), Board: board.DefaultBoard, ID: "msg_2", Emoji: "plus1", Remove: idx%2 == 1}
+	case 3:
+		board.LabelMessage{Caller: testAliceCaller(), Board: board.DefaultBoard, ID: "msg_2", Set: Map[string, string]{}.Put("gen", strconv.Itoa(idx)), Unset: []string{}, If: Map[string, string]{}, IfUnset: []string{}}
+	case 4:
+		board.CreateTask{Caller: testAliceCaller(), Board: board.DefaultBoard, Channel: "dev", Thread: "", Text: "gen task \(idx)", Labels: Map[string, string]{}, Needs: []string{}, For: "", Claim: false, LeaseMs: 0, NoSync: false, IdempotencyKey: ""}
+	case 5:
+		board.ClaimTask{Caller: testAliceAgentCaller(), Board: board.DefaultBoard, ID: "msg_7", LeaseMs: 60000}
+	case 6:
+		board.FailTask{Caller: testAliceAgentCaller(), Board: board.DefaultBoard, ID: "msg_7", Token: 1, Reason: "flaky \(idx)"}
+	case 7:
+		board.ReopenTask{Caller: testAliceCaller(), Board: board.DefaultBoard, ID: "msg_7"}
+	case _:
+		board.CancelTask{Caller: testAliceCaller(), Board: board.DefaultBoard, ID: "msg_7", Reason: "done \(idx)"}
+	}
+}
+
+func runExecSummary(store board.Store, cmd board.Command, now board.Timestamp) (int, board.Cursor, string) {
+	let (evts, head) = board.Execute(store, cmd, now) catch {
+	case board.IdempotencyConflict:
+		return (0, 0, "idempotency_conflict")
+	case board.StalePosition:
+		return (0, 0, "stale")
+	case board.StoreFailed as e:
+		return (0, 0, "store_failed:\(e.Reason)")
+	case _:
+		return (0, 0, "refused")
+	}
+	(len(evts), head, "ok")
+}
+
+type faultingDB {
+	inner      sql.DB,
+	failExecAt sync.Ref[int],
+	failCommit sync.Ref[bool],
+	execCount  sync.Ref[int],
+} implements sql.DB
+
+type faultingTx {
+	inner      sql.Conn,
+	failExecAt sync.Ref[int],
+	failCommit sync.Ref[bool],
+	execCount  sync.Ref[int],
+} implements sql.Conn
+
+func Exec(f faultingDB, stmt string, args []sql.Value) sql.Result fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other {
+	try f.inner.Exec(stmt, args)
+}
+
+func Query(f faultingDB, stmt string, args []sql.Value) []sql.Row fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other {
+	try f.inner.Query(stmt, args)
+}
+
+func Begin(f faultingDB) sql.Conn fails sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other {
+	let c = try f.inner.Begin()
+	faultingTx{inner: c, failExecAt: f.failExecAt, failCommit: f.failCommit, execCount: f.execCount}
+}
+
+func Exec(t faultingTx, stmt string, args []sql.Value) sql.Result fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other {
+	let n = t.execCount.Get() + 1
+	t.execCount.Set(n)
+	let cut = t.failExecAt.Get()
+	if cut > 0 && n == cut {
+		return sql.Other{Code: "CRASH", Message: "injected crash at statement \(n)"}
+	}
+	try t.inner.Exec(stmt, args)
+}
+
+func Query(t faultingTx, stmt string, args []sql.Value) []sql.Row fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other {
+	try t.inner.Query(stmt, args)
+}
+
+func Commit(t faultingTx) fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other {
+	if t.failCommit.Get() {
+		t.inner.Rollback()
+		return sql.Other{Code: "CRASH", Message: "injected crash at commit"}
+	}
+	try t.inner.Commit()
+}
+
+func Rollback(t faultingTx) { t.inner.Rollback() }
+
+func Savepoint(t faultingTx, name string) fails sql.Timeout | sql.Closed | sql.Other { try t.inner.Savepoint(name) }
+
+func Release(t faultingTx, name string) fails sql.Timeout | sql.Closed | sql.Other { try t.inner.Release(name) }
+
+func RollbackTo(t faultingTx, name string) fails sql.Timeout | sql.Closed | sql.Other { try t.inner.RollbackTo(name) }
+
+func writeWithRetry(st Store, caller board.Caller, text string, now board.Timestamp) bool {
+	for _ in 0..64 {
+		let (evts, _) = board.Execute(st, board.PostMessage{
+			Caller:         caller,
+			Board:          board.DefaultBoard,
+			Channel:        "dev",
+			Text:           text,
+			Labels:         Map[string, string]{},
+			NoSync:         false,
+			From:           "",
+			IdempotencyKey: "",
+		}, now) catch {
+		case board.StalePosition:
+			continue
+		case _:
+			return false
+		}
+		if len(evts) > 0 {
+			return true
+		}
+		return false
+	}
+	false
+}
+
+let crashSlotCounter = sync.NewRef(0)
+let suiteRunCounter = sync.NewRef(0)
+
+// SqliteSuite defines the file-backed SQLite provider verification harness:
+// memory agreement, statement-level crash atomicity, concurrent WAL writers,
+// online VACUUM INTO backup, and schema_version fence enforcement.
+type SqliteSuite {
+	// OpenAt opens or reopens a named file-backed WAL SQLite store.
+	OpenAt(name string, admins []board.Principal, now board.Timestamp) Store fails board.StoreFailed,
+	// OpenFaultingAt opens a named SQLite database wrapped in a statement/commit
+	// fault injector for crash-atomicity verification.
+	OpenFaultingAt(name string, failExecAt int, failCommit bool) Store fails board.StoreFailed,
+	// SetSchemaVersion rewrites schema_version directly to test the open fence.
+	SetSchemaVersion(name string, ver string) fails board.StoreFailed,
+	// PathOf returns the on-disk path for a named database (for BackupTo).
+	PathOf(name string) string,
+	// CloseHandles closes open SQLite handles without deleting database files.
+	CloseHandles(),
+	// CleanUp closes all open SQLite handles and removes every database file created in this run.
+	CleanUp(),
+
+	// TestSqliteAgreesWithMemory drives the full domain showcase plus generated
+	// commands against both memory.Store and sqlite.Store (including reopen from
+	// disk) and verifies identical results, snapshots, logs, folds, and searches.
+	law TestSqliteAgreesWithMemory(steps []int) {
+		let admins = agreementAdmins()
+		let initial = board.InitialState(admins, 100)
+		let mem = memory.NewWithAdmins(admins, 100)
+		let sq = OpenAt("agree", admins, 100) catch {
+		case _:
+			CleanUp()
+			return false
+		}
+		let mut cmds = agreementCommands()
+		let limit = if len(steps) < 8 { len(steps) } else { 8 }
+		for i in 0..limit {
+			cmds = cmds.Append(generatedCommand(steps[i], i))
+		}
+		for i, cmd in cmds {
+			let now = 1000 + i
+			let (mn, mh, ms) = runExecSummary(mem, cmd, now)
+			let (sn, sh, ss) = runExecSummary(sq, cmd, now)
+			if mn != sn || mh != sh || ms != ss {
+				CleanUp()
+				return false
+			}
+			let memSnap = mem.Snapshot() catch {
+			case _:
+				CleanUp()
+				return false
+			}
+			let sqSnap = sq.Snapshot() catch {
+			case _:
+				CleanUp()
+				return false
+			}
+			let sqEvts = sq.ReadEvents(board.DefaultBoard, 0) catch {
+			case _:
+				CleanUp()
+				return false
+			}
+			let memEvts = mem.ReadEvents(board.DefaultBoard, 0) catch {
+			case _:
+				CleanUp()
+				return false
+			}
+			if sqSnap != memSnap || sqEvts != memEvts || sqSnap != board.Fold(initial, sqEvts) {
+				CleanUp()
+				return false
+			}
+		}
+		let qPub = board.SearchQuery{Board: board.DefaultBoard, Channel: "", Query: "gamma", Caller: testBobCaller(), Limit: 20}
+		let qPrivMember = board.SearchQuery{Board: board.DefaultBoard, Channel: "", Query: "classified", Caller: testBobCaller(), Limit: 20}
+		let qPrivAdmin = board.SearchQuery{Board: board.DefaultBoard, Channel: "", Query: "classified", Caller: testAdminCaller(), Limit: 20}
+		let qDeleted = board.SearchQuery{Board: board.DefaultBoard, Channel: "", Query: "looks good beta", Caller: testAdminCaller(), Limit: 20}
+		let sqPub = sq.Search(qPub) catch {
+		case _:
+			CleanUp()
+			return false
+		}
+		let memPub = mem.Search(qPub) catch {
+		case _:
+			CleanUp()
+			return false
+		}
+		let sqPrivM = sq.Search(qPrivMember) catch {
+		case _:
+			CleanUp()
+			return false
+		}
+		let sqPrivA = sq.Search(qPrivAdmin) catch {
+		case _:
+			CleanUp()
+			return false
+		}
+		let memPrivA = mem.Search(qPrivAdmin) catch {
+		case _:
+			CleanUp()
+			return false
+		}
+		let sqDel = sq.Search(qDeleted) catch {
+		case _:
+			CleanUp()
+			return false
+		}
+		if sqPub != memPub || len(sqPrivM) != 0 || sqPrivA != memPrivA || len(sqDel) != 0 {
+			CleanUp()
+			return false
+		}
+		CloseHandles()
+		let reopened = OpenAt("agree", admins, 100) catch {
+		case _:
+			CleanUp()
+			return false
+		}
+		let reSnap = reopened.Snapshot() catch {
+		case _:
+			CleanUp()
+			return false
+		}
+		let reEvts = reopened.ReadEvents(board.DefaultBoard, 0) catch {
+		case _:
+			CleanUp()
+			return false
+		}
+		let memFinal = mem.Snapshot() catch {
+		case _:
+			CleanUp()
+			return false
+		}
+		let memFinalEvts = mem.ReadEvents(board.DefaultBoard, 0) catch {
+		case _:
+			CleanUp()
+			return false
+		}
+		CleanUp()
+		reSnap == memFinal && reEvts == memFinalEvts
+	},
+
+	// TestSqliteCrashAtomicity interrupts a multi-statement CreatePlan commit
+	// across every statement index (1..15) and at Commit (0), reopens from disk,
+	// and proves zero partial writes and full log/projection agreement.
+	law TestSqliteCrashAtomicity(seed int) {
+		let _ = seed
+		let slot = sync.Modify(crashSlotCounter, func(cur int) (int, int) { (cur + 1, cur % 16) })
+		let admins = agreementAdmins()
+		let initial = board.InitialState(admins, 100)
+		let st0 = OpenAt("crash", admins, 100) catch {
+		case _:
+			CleanUp()
+			return false
+		}
+		let _ = board.Execute(st0, board.PostMessage{
+			Caller:         testAliceCaller(),
+			Board:          board.DefaultBoard,
+			Channel:        "dev",
+			Text:           "before crash",
+			Labels:         Map[string, string]{},
+			NoSync:         false,
+			From:           "",
+			IdempotencyKey: "",
+		}, 1000) catch {
+		case _:
+			CleanUp()
+			return false
+		}
+		let baselineSnap = st0.Snapshot() catch {
+		case _:
+			CleanUp()
+			return false
+		}
+		let baselineEvts = st0.ReadEvents(board.DefaultBoard, 0) catch {
+		case _:
+			CleanUp()
+			return false
+		}
+		CloseHandles()
+		if baselineSnap != board.Fold(initial, baselineEvts) {
+			CleanUp()
+			return false
+		}
+		let planCmd = board.CreatePlan{
+			Caller:  testAliceCaller(),
+			Board:   board.DefaultBoard,
+			Channel: "dev",
+			Tasks:   []board.PlanTaskSpec{
+				board.PlanTaskSpec{Key: "p1", Text: "step one", Labels: Map[string, string]{}, Needs: []string{}, For: "", NoSync: false},
+				board.PlanTaskSpec{Key: "p2", Text: "step two", Labels: Map[string, string]{}, Needs: []string{"p1"}, For: "", NoSync: false},
+			},
+			IdempotencyKey: "crash-plan",
+		}
+		let failExecAt = if slot == 0 { 0 } else { slot }
+		let failCommit = slot == 0
+		let fst = OpenFaultingAt("crash", failExecAt, failCommit) catch {
+		case _:
+			CleanUp()
+			return false
+		}
+		let mut failed = false
+		let _ = board.Execute(fst, planCmd, 2000+slot) catch {
+		case board.StoreFailed:
+			failed = true
+			([]board.Event{}, 0)
+		case _:
+			([]board.Event{}, 0)
+		}
+		CloseHandles()
+		if !failed {
+			CleanUp()
+			return false
+		}
+		let reopened = OpenAt("crash", admins, 100) catch {
+		case _:
+			CleanUp()
+			return false
+		}
+		let afterSnap = reopened.Snapshot() catch {
+		case _:
+			CleanUp()
+			return false
+		}
+		let afterEvts = reopened.ReadEvents(board.DefaultBoard, 0) catch {
+		case _:
+			CleanUp()
+			return false
+		}
+		CleanUp()
+		afterEvts == baselineEvts && afterSnap == baselineSnap && afterSnap == board.Fold(initial, afterEvts)
+	},
+
+	// TestSqliteConcurrentWriters runs two independent WAL store handles on
+	// the same SQLite file concurrently and proves every write lands via
+	// expected-position serialization with zero lost writes.
+	law TestSqliteConcurrentWriters(round int) {
+		let _ = round
+		let admins = agreementAdmins()
+		let initial = board.InitialState(admins, 100)
+		let stA = OpenAt("concurrent", admins, 100) catch {
+		case _:
+			CleanUp()
+			return false
+		}
+		let stB = OpenAt("concurrent", admins, 100) catch {
+		case _:
+			CleanUp()
+			return false
+		}
+		let results = tasks.Transform([]int{0, 1}, 2, func(worker int) int {
+			let st = if worker == 0 { stA } else { stB }
+			let caller = if worker == 0 { testAliceCaller() } else { testBobCaller() }
+			let mut landed = 0
+			for i in 0..4 {
+				if writeWithRetry(st, caller, "w\(worker)-msg-\(i)", 5000+worker*100+i) {
+					landed = landed + 1
+				}
+			}
+			landed
+		})
+		if results[0] != 4 || results[1] != 4 {
+			CleanUp()
+			return false
+		}
+		let snapA = stA.Snapshot() catch {
+		case _:
+			CleanUp()
+			return false
+		}
+		let snapB = stB.Snapshot() catch {
+		case _:
+			CleanUp()
+			return false
+		}
+		let evtsA = stA.ReadEvents(board.DefaultBoard, 0) catch {
+		case _:
+			CleanUp()
+			return false
+		}
+		CloseHandles()
+		let reopened = OpenAt("concurrent", admins, 100) catch {
+		case _:
+			CleanUp()
+			return false
+		}
+		let snapRe = reopened.Snapshot() catch {
+		case _:
+			CleanUp()
+			return false
+		}
+		CleanUp()
+		let mut msgCount = 0
+		for _ in snapA.Messages {
+			msgCount = msgCount + 1
+		}
+		snapA == snapB && snapA == snapRe && snapA == board.Fold(initial, evtsA) && msgCount == 8
+	},
+
+	// TestSqliteOnlineBackup backs up a populated store via VACUUM INTO,
+	// reopens the backup, and verifies full state, log, and FTS search parity.
+	law TestSqliteOnlineBackup() {
+		let admins = agreementAdmins()
+		let st = OpenAt("live", admins, 100) catch {
+		case _:
+			CleanUp()
+			return false
+		}
+		let _ = board.Execute(st, board.PostMessage{
+			Caller:         testAliceCaller(),
+			Board:          board.DefaultBoard,
+			Channel:        "dev",
+			Text:           "backup needle message",
+			Labels:         Map[string, string]{}.Put("tag", "v1"),
+			NoSync:         false,
+			From:           "",
+			IdempotencyKey: "bk-1",
+		}, 6000) catch {
+		case _:
+			CleanUp()
+			return false
+		}
+		BackupTo(st, PathOf("backup")) catch {
+		case _:
+			CleanUp()
+			return false
+		}
+		let origSnap = st.Snapshot() catch {
+		case _:
+			CleanUp()
+			return false
+		}
+		let origEvts = st.ReadEvents(board.DefaultBoard, 0) catch {
+		case _:
+			CleanUp()
+			return false
+		}
+		CloseHandles()
+		let bk = OpenAt("backup", admins, 100) catch {
+		case _:
+			CleanUp()
+			return false
+		}
+		let bkSnap = bk.Snapshot() catch {
+		case _:
+			CleanUp()
+			return false
+		}
+		let bkEvts = bk.ReadEvents(board.DefaultBoard, 0) catch {
+		case _:
+			CleanUp()
+			return false
+		}
+		let hits = bk.Search(board.SearchQuery{Board: board.DefaultBoard, Channel: "", Query: "needle", Caller: testBobCaller(), Limit: 10}) catch {
+		case _:
+			CleanUp()
+			return false
+		}
+		CleanUp()
+		bkSnap == origSnap && bkEvts == origEvts && len(hits) == 1 && hits[0].Message.Text == "backup needle message"
+	},
+
+	// TestSqliteSchemaVersionFence verifies that reopening a database carrying
+	// an unknown or newer schema_version fails cleanly with StoreFailed.
+	law TestSqliteSchemaVersionFence() {
+		let admins = agreementAdmins()
+		let _ = OpenAt("fence", admins, 100) catch {
+		case _:
+			CleanUp()
+			return false
+		}
+		CloseHandles()
+		SetSchemaVersion("fence", "99") catch {
+		case _:
+			CleanUp()
+			return false
+		}
+		CloseHandles()
+		let mut fenced = false
+		let _ = OpenAt("fence", admins, 100) catch {
+		case board.StoreFailed:
+			fenced = true
+			Store{db: emptyDB}
+		}
+		CleanUp()
+		fenced
+	},
+}
+
+// FileSuite implements SqliteSuite over per-run SQLite WAL files cleaned up on CleanUp.
+type FileSuite {
+	dir     string,
+	runTag  string,
+	handles sync.Ref[[]sqlite.DB],
+	files   sync.Ref[[]string],
+} implements SqliteSuite
+
+func removeFileIn(dir string, name string) needs go.Foreign {
+	let root = os.OpenRoot(dir) catch {
+	case go.Error:
+		return
+	}
+	root.Remove(name) catch {
+	case go.Error:
+	}
+	root.Close() catch {
+	case go.Error:
+	}
+}
+
+// NewFileSuite builds a fresh FileSuite with a unique run tag inside TMPDIR.
+func NewFileSuite() FileSuite needs go.Foreign {
+	let n = sync.Modify(suiteRunCounter, func(cur int) (int, int) { (cur + 1, cur + 1) })
+	FileSuite{
+		dir:     os.TempDir(),
+		runTag:  "ergo-board-r\(n)",
+		handles: sync.NewRef([]sqlite.DB{}),
+		files:   sync.NewRef([]string{}),
+	}
+}
+
+func fileNameOf(s FileSuite, name string) string { "\(s.runTag)-\(name).db" }
+
+func trackFile(s FileSuite, fname string) {
+	let cur = s.files.Get()
+	for existing in cur {
+		if existing == fname {
+			return
+		}
+	}
+	s.files.Set(cur.Append(fname))
+}
+
+// PathOf returns the full file path for the named database in s.
+func PathOf(s FileSuite, name string) string {
+	let fname = fileNameOf(s, name)
+	trackFile(s, fname)
+	"\(s.dir)/\(fname)"
+}
+
+// OpenAt opens or reopens a file-backed WAL SQLite store for name.
+func OpenAt(s FileSuite, name string, admins []board.Principal, now board.Timestamp) Store fails board.StoreFailed needs go.Foreign {
+	let path = PathOf(s, name)
+	let (st, raw) = try OpenWithAdmins(path, admins, now)
+	s.handles.Set(s.handles.Get().Append(raw))
+	st
+}
+
+// OpenFaultingAt opens name's SQLite file wrapped in a fault-injecting sql.DB.
+func OpenFaultingAt(s FileSuite, name string, failExecAt int, failCommit bool) Store fails board.StoreFailed needs go.Foreign {
+	let raw = sqlite.Open(PathOf(s, name)) catch {
+	case _:
+		return board.StoreFailed{Reason: "faulting open failed"}
+	}
+	s.handles.Set(s.handles.Get().Append(raw))
+	let fdb = faultingDB{
+		inner:      raw,
+		failExecAt: sync.NewRef(failExecAt),
+		failCommit: sync.NewRef(failCommit),
+		execCount:  sync.NewRef(0),
+	}
+	Store{db: fdb}
+}
+
+// SetSchemaVersion updates schema_meta.schema_version directly on name's DB.
+func SetSchemaVersion(s FileSuite, name string, ver string) fails board.StoreFailed needs go.Foreign {
+	let raw = sqlite.Open(PathOf(s, name)) catch {
+	case _:
+		return board.StoreFailed{Reason: "open for schema version update failed"}
+	}
+	s.handles.Set(s.handles.Get().Append(raw))
+	let _ = raw.Exec("UPDATE schema_meta SET value = ? WHERE key = 'schema_version'", []sql.Value{sql.Text{S: ver}}) catch {
+	case _:
+		return board.StoreFailed{Reason: "update schema_version failed"}
+	}
+}
+
+// CloseHandles closes every SQLite pool opened by s without removing files.
+func CloseHandles(s FileSuite) needs go.Foreign {
+	let hs = s.handles.Get()
+	s.handles.Set([]sqlite.DB{})
+	for db in hs {
+		sqlite.Close(db) catch {
+		case _:
+		}
+	}
+}
+
+// CleanUp closes every SQLite pool opened by s and removes all database, WAL,
+// and SHM files created during this run.
+func CleanUp(s FileSuite) needs go.Foreign {
+	CloseHandles(s)
+	let fs = s.files.Get()
+	s.files.Set([]string{})
+	for fname in fs {
+		removeFileIn(s.dir, fname)
+		removeFileIn(s.dir, "\(fname)-wal")
+		removeFileIn(s.dir, "\(fname)-shm")
+		removeFileIn(s.dir, "\(fname)-journal")
+	}
+}
