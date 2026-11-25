@@ -34,9 +34,12 @@ type OverTime { Limit duration }
 type OverSteps { Limit int }
 
 // Crashed is the failure of a process that a defect ended: Reason is the
-// defect's text, as the runtime's report writes it after "panic: " (an
-// Unreachable's "unreachable at a.ergo:9:3: no route").
+// defect's text, as the runtime's report writes it after "panic: ".
 type Crashed { Reason string }
+
+// ScriptedFault is the deliberate defect payload raised by a Runner script's
+// Panics case.
+type ScriptedFault { Text string }
 
 // Exit is how a process ended other than by its block's value or typed
 // failure: a limit or a crash.
@@ -51,7 +54,7 @@ type Exit = OverTime | OverSteps | Crashed
 // is no defect, and ends the program. A is not own: a generic body cannot
 // yet release a resource value it drops (GEN9-GAP42), so a block gives
 // plain data.
-func Run[A, E, R](l Limits, f own func() A fails E needs R) A fails E | OverTime | OverSteps | Crashed needs R | Scheduler {
+func Run[A, E, R](l Limits, f own func() A fails E needs R defects) A fails E | OverTime | OverSteps | Crashed needs R | Scheduler {
 	let t = if l.Steps > 0 {
 		task.Go() {
 			task.LimitSteps(l.Steps)
@@ -115,7 +118,18 @@ type Runner {
 	law DefectIsCrashed(text string, k int) {
 		let n = small(k)
 		let r = Play(Unlimited, Script{Cleanups: n, Waits: 0ns, Steps: 0, End: Panics{Text: text}}, time.NewManual(0))
-		agrees(r, Report{Ended: Crashed{Reason: text}, Cleaned: n})
+		let nominal = with context { Scheduler: time.NewManual(0) } {
+			let t = task.Go() {
+				played(Script{Cleanups: 0, Waits: 0ns, Steps: 0, End: Panics{Text: text}}, queue.New[int](1))
+			}
+			match task.ExitOf(t) {
+			case task.Defected as d:
+				task.ReasonAs[ScriptedFault](d) == Some[ScriptedFault]{Value: ScriptedFault{Text: text}}
+			case _:
+				false
+			}
+		}
+		nominal && agrees(r, Report{Ended: Crashed{Reason: text}, Cleaned: n})
 	},
 
 	// TimeIsExpired: on a manual clock, a block that waits w ms under a
@@ -243,7 +257,7 @@ func burn(n int, q queue.Queue[int]) {
 	burn(n-1, q)
 }
 
-func played(s Script, marks queue.Queue[int]) int fails Fails needs Scheduler {
+func played(s Script, marks queue.Queue[int]) int fails Fails needs Scheduler defects {
 	for i in 0..s.Cleanups {
 		scope.OnExit() {
 			marks.Push(i) catch {
@@ -263,7 +277,7 @@ func played(s Script, marks queue.Queue[int]) int fails Fails needs Scheduler {
 	case Fails as f:
 		return f
 	case Panics as p:
-		Unreachable(p.Text)
+		die ScriptedFault{Text: p.Text}
 	}
 }
 
@@ -331,9 +345,21 @@ func expected(l Limits, s Script) Report {
 	}
 }
 
-// agrees is whether r is the fold's report m: the same end and cleanup
-// count, where m's Crashed reason is the text the defect's report ends
-// with (after the Unreachable's position).
+func isHexDigits(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+	for i in 0..len(s) {
+		let b = s[i]
+		let digit = b >= '0' && b <= '9'
+		let lower = b >= 'a' && b <= 'f'
+		if !digit && !lower {
+			return false
+		}
+	}
+	true
+}
+
 func agrees(r Report, m Report) bool {
 	if r.Cleaned != m.Cleaned {
 		return false
@@ -342,7 +368,18 @@ func agrees(r Report, m Report) bool {
 	case Crashed as want:
 		match r.Ended {
 		case Crashed as c:
-			strings.HasPrefix(c.Reason, "unreachable at ") && strings.HasSuffix(c.Reason, ": "+want.Reason)
+			if !strings.HasPrefix(c.Reason, "die at ") {
+				return false
+			}
+			if strings.HasSuffix(c.Reason, ": {"+want.Reason+"}") || strings.HasSuffix(c.Reason, "["+want.Reason+"]}") {
+				return true
+			}
+			let tag = "ScriptedFault) 0x"
+			let idx = strings.Index(c.Reason, tag)
+			if idx < 0 {
+				return false
+			}
+			isHexDigits(c.Reason[idx+len(tag) : len(c.Reason)])
 		case _:
 			false
 		}

@@ -516,6 +516,34 @@ type Routing machine[Router, Signal] {
 	work:    work,
 }
 
+// LiveWork is the router's work entry with a live hook before Registry.Check
+// so fault-injection scripts can raise a deliberate defect without marking
+// route.Registry.Check.
+func LiveWork(beforeCheck own func() defects) func(s Router) Option[func(send entry func(e Signal)) needs Registry | Scheduler defects] {
+	func(s Router) Option[func(send entry func(e Signal)) needs Registry | Scheduler defects] {
+		match s {
+		case Applying as c:
+			Some{Value: func(send entry func(e Signal)) needs Registry | Scheduler defects {
+				beforeCheck()
+				let table = Registry.Check(c.Board.Table, c.Current.Change) catch {
+				case Unknown as u:
+					send(u)
+					return
+				}
+				send(Checked{Table: table})
+			}}
+		case Idle as i:
+			Some{Value: func(send entry func(e Signal)) needs Registry | Scheduler defects {
+				for l in i.Lanes {
+					let _ = actor.ChildIn(send, l.Courier, machines.Start(Couriers{}, l.Route), 4, told)
+				}
+			}}
+		case Confirming:
+			None
+		}
+	}
+}
+
 // Name is the line of a state.
 func Name(s Router) string {
 	let b = BoardOf(s)

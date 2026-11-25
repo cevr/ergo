@@ -128,10 +128,16 @@ func Recover(j journal.Journal[route.Router, route.Signal]) route.Router fails j
 // recovers then, never in the crashed one's memory. sink gets the
 // questions.
 func Open(j journal.Journal[route.Router, route.Signal], sink own func(o route.Output)) actor.Actor[route.Router, route.Signal, Decision[route.Router, route.Output]] fails journal.Failed needs route.Registry | Scheduler {
-	// kept is how many signals j holds: the recover sets it, each save
-	// appends under it (a Ref: the hooks outlive Open).
+	try OpenLive(j, sink, func() defects {})
+}
+
+// OpenLive is Open with a live work hook run before each Registry.Check so a
+// fault-injection script can trigger a deliberate defect independently of
+// route.Unknown.
+func OpenLive(j journal.Journal[route.Router, route.Signal], sink own func(o route.Output), beforeCheck own func() defects) actor.Actor[route.Router, route.Signal, Decision[route.Router, route.Output]] fails journal.Failed needs route.Registry | Scheduler {
 	let kept = sync.NewRef(0)
-	try actor.SuperviseDurable(route.Routing{}, 8, sink, tasks.Restart{Limit: Budget}, func() Option[route.Router] fails journal.Failed {
+	let live = actor.LiveWithWork(route.Routing{}, route.LiveWork(beforeCheck))
+	try actor.SuperviseDurableLive(live, 8, sink, tasks.Restart{Limit: Budget}, func() Option[route.Router] fails journal.Failed {
 		kept.Set(len((try j.Load()).Signals))
 		Some[route.Router]{Value: try Recover(j)}
 	}, func(prev route.Router, next route.Router, sig route.Signal) fails journal.Failed {
@@ -152,13 +158,19 @@ func Open(j journal.Journal[route.Router, route.Signal], sink own func(o route.O
 // couriers run, and each message a courier carries (->). drop runs the
 // registry's arm.
 func Play(cmds []Command, j journal.Journal[route.Router, route.Signal], drop func()) []string fails journal.Failed needs route.Registry | Scheduler {
+	try PlayWith(cmds, j, drop, func() defects {})
+}
+
+// PlayWith is Play with a live fault-injection hook run before each
+// Registry.Check.
+func PlayWith(cmds []Command, j journal.Journal[route.Router, route.Signal], drop func(), beforeCheck own func() defects) []string fails journal.Failed needs route.Registry | Scheduler {
 	let said = queue.New[route.Output](8)
 	let sink = func(o route.Output) {
 		said.Push(o) catch {
 		case queue.Closed:
 		}
 	}
-	let mut a = try Open(j, sink)
+	let mut a = try OpenLive(j, sink, beforeCheck)
 	let mut lines = []string{"  \(route.Name(a.State()))"}
 	let mut told = 0
 	let mut restarts = 0
@@ -317,7 +329,7 @@ func Play(cmds []Command, j journal.Journal[route.Router, route.Signal], drop fu
 			let before = route.Name(a.State())
 			a.Stop()
 			let log = try j.Load()
-			a = try Open(j, sink)
+			a = try OpenLive(j, sink, beforeCheck)
 			restarts = 0
 			let after = route.Name(a.State())
 			lines = lines.Append("  replayed \(len(log.Signals)) signals: \(after)")

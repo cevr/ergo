@@ -2,6 +2,7 @@
 // step defects, the app's crash view with a Reload button, and its crash
 // report.
 
+import actor
 import sync
 import ui
 import time
@@ -13,17 +14,37 @@ type Calm {}
 // Signal is a press of the app's button, or of the crash view's Reload.
 type Signal = ClickedCrash{} | ClickedReload{}
 
-// Step defects on every signal: handling any signal is the simulated
-// crash. A Reload never reaches it: while the crash view shows, the
-// session takes the crash view's signal as the reload (ui.StartApp).
+// SimulatedCrash is the deliberate defect payload raised by the crash app's
+// live step when handling a signal.
+type SimulatedCrash { Message string }
+
+// Step is the pure preview/replay transition for App.
 func Step(s Calm, e Signal) Decision[Calm, Never] {
-	Unreachable("This is a simulated crash!")
+	Enter[Calm]{Next: s}
 }
 
-// App is the crash app as a machine. It starts Calm.
+// LiveStep defects on every signal: handling any signal is the simulated
+// crash. A Reload never reaches it: while the crash view shows, the
+// session takes the crash view's signal as the reload (ui.StartLiveApp).
+func LiveStep(s Calm, e Signal) Decision[Calm, Never] defects {
+	die SimulatedCrash{Message: "This is a simulated crash!"}
+}
+
+// App is the crash app as a pure machine. It starts Calm.
 type App machine[Calm, Signal] {
 	initial: Calm,
 	step:    Step,
+}
+
+func noTimer(s Calm) Option[Timeout[Signal]] { None }
+
+func noWork(s Calm) Option[func(send entry func(e Signal)) defects] { None }
+
+func noExit(s Calm) Option[func()] { None }
+
+// LiveApp is the crash app as a live machine whose step raises SimulatedCrash.
+func LiveApp() actor.LiveMachine[Calm, Signal, Never] {
+	actor.LiveMachine[Calm, Signal, Never]{Initial: Calm, Step: LiveStep, After: noTimer, Work: noWork, Exit: noExit}
 }
 
 // View is the app's one screen: the Crash button.
@@ -49,7 +70,7 @@ law CrashShowsTheCrashView(cycles int) {
 
 func crashCycles(n int, m time.Manual) bool needs Scheduler {
 	let reports = NewReports()
-	let mut h = ui.NewAppTestHost(App{}, 4, View, Crashes(reports), m, 16) catch {
+	let mut h = ui.NewLiveAppTestHost(LiveApp(), 4, View, Crashes(reports), m, 16) catch {
 	case ui.BadPatch:
 		return false
 	}
@@ -62,7 +83,7 @@ func crashCycles(n int, m time.Manual) bool needs Scheduler {
 		let shot = ui.Screenshot(&h)
 		let log = Logged(reports)
 		let reason = defectReason(ui.CrashOf(&h))
-		if !strings.HasSuffix(reason, ": This is a simulated crash!") || State(ui.CrashOf(&h)) != "crashed: a defect" || shot != "text \"Something went wrong\"\ntext \"\(reason)\"\nbutton \"Reload\"\n  text \"Reload\"\n" || len(log) != i+1 || log[i] != "crash report: a defect on ClickedCrash in Calm: \(reason)" {
+		if !strings.HasPrefix(reason, "die at ") || !strings.Contains(reason, "This is a simulated crash!") || State(ui.CrashOf(&h)) != "crashed: a defect" || shot != "text \"Something went wrong\"\ntext \"\(reason)\"\nbutton \"Reload\"\n  text \"Reload\"\n" || len(log) != i+1 || log[i] != "crash report: a defect on ClickedCrash in Calm: \(reason)" {
 			return false
 		}
 		ui.Play(&h, []ui.Act{ui.TapOn{Label: "Reload"}}) catch {

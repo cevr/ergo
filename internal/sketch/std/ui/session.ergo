@@ -55,11 +55,13 @@ law SessionCrashFollowsTheEnd(n int) {
 	}
 }
 
-// workCrashStep: 1 is a defect of the step; 5 enters the state -1, whose
-// work defects once the law releases it.
-func workCrashStep(s int, e int) Decision[int, int] fails Boom {
+type simulatedStepDefect { Message string, State int, Signal int }
+
+type simulatedWorkDefect { Message string, State int }
+
+func workCrashStep(s int, e int) Decision[int, int] fails Boom defects {
 	if e == 1 {
-		Unreachable("crash app: a defect, on purpose")
+		die simulatedStepDefect{Message: "crash app: a defect, on purpose", State: s, Signal: e}
 	}
 	if e == 5 {
 		return Enter[int]{Next: -1}
@@ -67,17 +69,17 @@ func workCrashStep(s int, e int) Decision[int, int] fails Boom {
 	Enter[int]{Next: s}
 }
 
-func workCrashWork(gate queue.Queue[int]) func(s int) Option[func(send func(e int))] {
-	func(s int) Option[func(send func(e int))] {
+func workCrashWork(gate queue.Queue[int]) func(s int) Option[func(send entry func(e int)) defects] {
+	func(s int) Option[func(send entry func(e int)) defects] {
 		if s != -1 {
 			return None
 		}
-		Some{Value: func(send func(e int)) {
+		Some{Value: func(send entry func(e int)) defects {
 			let _ = gate.Pop() catch {
 			case queue.Closed:
 				return
 			}
-			Unreachable("crash app: a defect of the work, on purpose")
+			die simulatedWorkDefect{Message: "crash app: a defect of the work, on purpose", State: s}
 		}}
 	}
 }
@@ -133,13 +135,13 @@ func crashFollows() bool needs Scheduler {
 	let gate = queue.New[int](1)
 	let posted = queue.New[Event[int]](64)
 	let reports = sync.NewRef(0)
-	let mach = Machine[int, int, int, Boom]{Initial: 0, Step: workCrashStep, After: replyTimer, Work: workCrashWork(gate), Exit: replyExit}
+	let mach = actor.LiveMachine[int, int, int, Boom]{Initial: 0, Step: workCrashStep, After: replyTimer, Work: workCrashWork(gate), Exit: replyExit}
 	let reported = sync.NewRef([]Crash[int, int, Boom]{})
 	let crashes = Crashes[int, int, Boom]{View: keyCrashView, Report: func(c Crash[int, int, Boom]) {
 		reports.Update(func(k int) int { k + 1 })
 		reported.Update(func(cs []Crash[int, int, Boom]) []Crash[int, int, Boom] { cs.Append(c) })
 	}}
-	let (s, first) = StartApp(mach, 1, keyView, crashes, func(ev Event[int]) {
+	let (s, first) = StartLiveApp(mach, 1, keyView, crashes, func(ev Event[int]) {
 		posted.Push(ev) catch {
 		case queue.Closed:
 		}

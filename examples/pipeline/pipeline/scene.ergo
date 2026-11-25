@@ -89,7 +89,11 @@ func restarted(acts []Act, flaky []int, cut int) bool {
 	}
 	match played(acts[at:len(acts)], at, flaky, log) {
 	case Some[Played] as p:
-		Normal(p.Value.Desk) == Normal(Story(acts, flaky))
+		let want = Story(acts, flaky) catch {
+		case StoryRejected:
+			return false
+		}
+		Normal(p.Value.Desk) == Normal(want)
 	case None:
 		false
 	}
@@ -158,20 +162,20 @@ func record(b Book, id string, c run.Command) Option[Book] {
 	Some[Book]{Value: Book{..b, Runs: b.Runs.Put(id, run.Fold(s, es)), Log: log}}
 }
 
-// must is the book that record gives for a command the story knows the
-// run takes.
-func must(o Option[Book]) Book {
-	match o {
-	case Some[Book] as b:
-		b.Value
+// StoryRejected is returned by the reference story if an internal command is
+// refused by run.Decide.
+type StoryRejected {}
+
+func recordExact(b Book, id string, c run.Command) Book fails StoryRejected {
+	match record(b, id, c) {
+	case Some[Book] as nb:
+		nb.Value
 	case None:
-		Unreachable("the story sent a command its run refuses")
+		return StoryRejected
 	}
 }
 
-// next is the story's desk with the book b and no job: the first run of
-// the queue that still waits starts, else the desk is idle.
-func next(b Book) Desk {
+func next(b Book) Desk fails StoryRejected {
 	let mut left = []string{}
 	let mut found = ""
 	for id in b.Queue {
@@ -188,13 +192,11 @@ func next(b Book) Desk {
 	if found == "" {
 		return Idle{Book: Book{..b, Queue: []string{}}}
 	}
-	let started = must(record(Book{..b, Queue: left}, found, run.Start))
+	let started = try recordExact(Book{..b, Queue: left}, found, run.Start)
 	Busy{Book: started, Job: Job{Run: found, Stage: 0, Attempt: retry.First(retry.Standard)}}
 }
 
-// told is the story's desk after the command env. (A scene names each
-// command by its place, so the story sees no resend.)
-func told(d Desk, env Envelope) Desk {
+func told(d Desk, env Envelope) Desk fails StoryRejected {
 	let b = BookOf(d)
 	let known = match RunIn(b, env.Run) {
 	case run.Unsubmitted:
@@ -224,9 +226,9 @@ func told(d Desk, env Envelope) Desk {
 	let now = RunIn(nb, env.Run)
 	match d {
 	case Idle:
-		next(nb)
+		try next(nb)
 	case Busy as w:
-		if w.Job.Run == env.Run && run.IsDone(now) { next(nb) } else { Busy{Book: nb, Job: w.Job} }
+		if w.Job.Run == env.Run && run.IsDone(now) { try next(nb) } else { Busy{Book: nb, Job: w.Job} }
 	case Waiting as w:
 		if w.Job.Run != env.Run {
 			return Waiting{Book: nb, Job: w.Job}
@@ -235,16 +237,14 @@ func told(d Desk, env Envelope) Desk {
 		case run.Running:
 			Busy{Book: nb, Job: Job{..w.Job, Attempt: retry.Trying{P: retry.Standard, Try: retry.TryOf(w.Job.Attempt) + 1}}}
 		case run.Done:
-			next(nb)
+			try next(nb)
 		case run.Unsubmitted, run.Queued, run.Failing:
 			Waiting{Book: nb, Job: w.Job}
 		}
 	}
 }
 
-// drive is the story's desk once the runner ran every try it could: each
-// try's answer comes from flaky, until the desk is idle or waits.
-func drive(d Desk, flaky []int) Desk {
+func drive(d Desk, flaky []int) Desk fails StoryRejected {
 	let mut at = d
 	for {
 		let (b, j) = match at {
@@ -259,49 +259,46 @@ func drive(d Desk, flaky []int) Desk {
 		case None:
 			false
 		}
-		let nb = must(record(b, j.Run, run.Finish{Stage: j.Stage, OK: ok}))
+		let nb = try recordExact(b, j.Run, run.Finish{Stage: j.Stage, OK: ok})
 		at = match RunIn(nb, j.Run) {
 		case run.Running as r:
 			Busy{Book: nb, Job: Job{Run: j.Run, Stage: r.Next, Attempt: retry.First(retry.Standard)}}
 		case run.Failing:
 			let tries = retry.TryOf(j.Attempt)
 			if tries >= retry.Standard.Attempts {
-				next(must(record(nb, j.Run, run.GiveUp{Stage: j.Stage})))
+				try next(try recordExact(nb, j.Run, run.GiveUp{Stage: j.Stage}))
 			} else {
 				Waiting{Book: nb, Job: Job{..j, Attempt: retry.Backoff{P: retry.Standard, Try: tries}}}
 			}
 		case run.Unsubmitted, run.Queued, run.Done:
-			next(nb)
+			try next(nb)
 		}
 	}
 }
 
 // Story is the desk after the acts, by the reference: each act, then the
 // runner's tries until the desk is idle or waits; a Waits lets an hour pass.
-func Story(acts []Act, flaky []int) Desk {
+func Story(acts []Act, flaky []int) Desk fails StoryRejected {
 	let mut d Desk = Fresh
 	for i, a in acts {
 		match envelopeOf(i, a) {
 		case Some[Envelope] as e:
-			d = told(d, e.Value)
+			d = try told(d, e.Value)
 		case None:
-			d = waited(d, flaky)
+			d = try waited(d, flaky)
 		}
-		d = drive(d, flaky)
+		d = try drive(d, flaky)
 	}
 	d
 }
 
-// waited is the story's desk after an hour: each backoff ends (they are
-// seconds long), and the runner runs the tries that follow, until the
-// desk is idle.
-func waited(d Desk, flaky []int) Desk {
+func waited(d Desk, flaky []int) Desk fails StoryRejected {
 	let mut at = d
 	for {
 		match at {
 		case Waiting as w:
 			let n = retry.TryOf(w.Job.Attempt) + 1
-			at = drive(Busy{Book: must(record(w.Book, w.Job.Run, run.Retry{Stage: w.Job.Stage})), Job: Job{..w.Job, Attempt: retry.Trying{P: retry.Standard, Try: n}}}, flaky)
+			at = try drive(Busy{Book: try recordExact(w.Book, w.Job.Run, run.Retry{Stage: w.Job.Stage}), Job: Job{..w.Job, Attempt: retry.Trying{P: retry.Standard, Try: n}}}, flaky)
 		case Idle, Busy:
 			return at
 		}
@@ -497,11 +494,20 @@ func sceneModel(flaky []int) testing.Model[sceneState, Act, string] {
 		Step:  func(st sceneState, a Act) (sceneState, string) {
 			let after = match envelopeOf(st.step, a) {
 			case Some[Envelope] as e:
-				told(st.desk, e.Value)
+				told(st.desk, e.Value) catch {
+				case StoryRejected:
+					return (st, "story-rejected")
+				}
 			case None:
-				waited(st.desk, flaky)
+				waited(st.desk, flaky) catch {
+				case StoryRejected:
+					return (st, "story-rejected")
+				}
 			}
-			let next = drive(after, flaky)
+			let next = drive(after, flaky) catch {
+			case StoryRejected:
+				return (st, "story-rejected")
+			}
 			(sceneState{desk: next, step: st.step + 1}, deskText(next))
 		},
 	}

@@ -210,7 +210,70 @@ func tallyStepForLaw(s int, e int) Decision[int, int] fails actorLawFailed {
 // (Enter 0, Stay 1, Emit 2, Ignore 3, Reject 4, Done 5, Tell 6), the
 // state after
 // a decision, the output of a decision, and the inbox's capacity.
-extern go ergo.local/prototype/runtime/v1.MachineSupervise func start[S, E, D, W, F, R, G, C](initial S, fresh own func() S fails G needs R, limit int, decide own func() duration needs C, step own func(s S, e E) D fails F needs R, fire own func(at S, s S) D fails F needs R, delay own func(s S) duration, workOf own func(s S) W, hasWork own func(w W) bool, work own func(w W, send func(e E)) needs R, hasExit own func(s S) bool, leave own func(s S) needs R, kind own func(d D) int, next own func(s S, d D) S, out own func(d D) needs R, capacity int) Actor[S, E, D, F] needs R | C | Scheduler
+extern go ergo.local/prototype/runtime/v1.MachineSupervise func start[S, E, D, W, F, R, G, C](initial S, fresh own func() S fails G needs R, limit int, decide own func() duration needs C, step own func(s S, e E) D fails F needs R defects, fire own func(at S, s S) D fails F needs R defects, delay own func(s S) duration, workOf own func(s S) W, hasWork own func(w W) bool, work own func(w W, send entry func(e E)) needs R defects, hasExit own func(s S) bool, leave own func(s S) needs R, kind own func(d D) int, next own func(s S, d D) S, out own func(d D) needs R, capacity int) Actor[S, E, D, F] needs R | C | Scheduler
+
+// LiveMachine is a runner-only Machine whose Step and Work may raise
+// deliberate defects (`die`). Pure replay and fold functions take Machine,
+// never LiveMachine.
+type LiveMachine[S, E, O, F, R, W] {
+	Initial S,
+	Step    func(s S, e E) Decision[S, O] fails F needs R defects,
+	After   func(s S) Option[Timeout[E]],
+	Work    func(s S) Option[func(send entry func(e E)) needs W defects],
+	Exit    func(s S) Option[func() needs W],
+}
+
+// LiveWithWork converts a pure Machine into a LiveMachine with a live work
+// entry that may raise deliberate defects (`die`).
+func LiveWithWork[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], work own func(s S) Option[func(send entry func(e E)) needs W defects]) LiveMachine[S, E, O, F, R, W] {
+	LiveMachine[S, E, O, F, R, W]{Initial: m.Initial, Step: m.Step, After: m.After, Work: work, Exit: m.Exit}
+}
+
+func liveOf[S, E, O, F, R, W](m Machine[S, E, O, F, R, W]) LiveMachine[S, E, O, F, R, W] {
+	let work = m.Work
+	LiveMachine[S, E, O, F, R, W]{
+		Initial: m.Initial,
+		Step:    m.Step,
+		After:   m.After,
+		Work:    func(s S) Option[func(send entry func(e E)) needs W defects] {
+			match work(s) {
+			case Some[func(send func(e E)) needs W] as wk:
+				Some[func(send entry func(e E)) needs W defects]{Value: func(send entry func(e E)) needs W defects { wk.Value(send) }}
+			case None:
+				None
+			}
+		},
+		Exit: m.Exit,
+	}
+}
+
+func firedLive[S, E, O, F, R, W](m LiveMachine[S, E, O, F, R, W], at S) Option[Timeout[E]] {
+	let probe = Machine[S, E, O]{
+		Initial: m.Initial,
+		Step:    func(s S, e E) Decision[S, O] { Ignore },
+		After:   m.After,
+		Work:    func(s S) Option[func(send func(e E))] { None },
+		Exit:    func(s S) Option[func()] { None },
+	}
+	fired(probe, at)
+}
+
+func exitsLive[S, E, O, F, R, W](m LiveMachine[S, E, O, F, R, W], s S) bool {
+	match m.Exit(s) {
+	case Some[func() needs W]:
+		true
+	case None:
+		false
+	}
+}
+
+func exitOfLive[S, E, O, F, R, W](m LiveMachine[S, E, O, F, R, W], s S) needs W {
+	match m.Exit(s) {
+	case Some[func() needs W] as x:
+		x.Value()
+	case None:
+	}
+}
 
 // fired is the timer of the entry that opened in at, as it fires: m's
 // After under the firing mark, so a machines.Every timer's signal carries
@@ -265,8 +328,14 @@ extern go ergo.local/prototype/runtime/v1.ActorNoTimer func noTimer() duration
 // literal sink writes no let mut of its caller (types.md, Function values
 // 2 and 3).
 func StartMachine[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
+	StartLive(liveOf(m), capacity, sink)
+}
+
+// StartLive is StartMachine for a LiveMachine whose step or work may raise
+// deliberate defects (`die`).
+func StartLive[S, E, O, F, R, W](m LiveMachine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
 	let first = m.Initial
-	launch(m, capacity, sink, func() S { first }, 0, func() duration { -1ns })
+	launchLive(m, capacity, sink, func() S { first }, 0, func() duration { -1ns })
 }
 
 // SendsStepInOrder: the actor steps a sender's signals in the order it
@@ -542,10 +611,16 @@ func waitFromVerdict(v tasks.Verdict) duration {
 // follows them. The defect that finds the budget spent ends the actor, and
 // Stop raises it. Restarts counts the restarts. A negative Limit is a defect.
 func Supervise[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, policy tasks.Restart) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
+	SuperviseLive(liveOf(m), capacity, sink, policy)
+}
+
+// SuperviseLive is Supervise for a LiveMachine whose step or work may raise
+// deliberate defects (`die`).
+func SuperviseLive[S, E, O, F, R, W](m LiveMachine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, policy tasks.Restart) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
 	let first = m.Initial
 	let sup = tasks.LimitPolicy(policy.Limit)
 	let past = sync.NewRef[[]duration]([]duration{})
-	launch(m, capacity, sink, func() S { first }, policy.Limit, func() duration {
+	launchLive(m, capacity, sink, func() S { first }, policy.Limit, func() duration {
 		waitFromVerdict(tasks.NextRestart(sup, past, 0s))
 	})
 }
@@ -554,11 +629,17 @@ func Supervise[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], capacity int, sink
 // (Intensity sliding window and Backoff schedule evaluated through
 // tasks.Decide on time.Clock and slept on Scheduler).
 func SuperviseWith[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, policy tasks.Supervision) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler | time.Clock {
+	SuperviseLiveWith(liveOf(m), capacity, sink, policy)
+}
+
+// SuperviseLiveWith is SuperviseWith for a LiveMachine whose step or work may
+// raise deliberate defects (`die`).
+func SuperviseLiveWith[S, E, O, F, R, W](m LiveMachine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, policy tasks.Supervision) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler | time.Clock {
 	let first = m.Initial
 	let origin = time.Clock.Now()
 	let past = sync.NewRef[[]duration]([]duration{})
 	let active = if policy.Intensity.Max > 0 { 1 } else { 0 }
-	launch(m, capacity, sink, func() S { first }, active, func() duration needs time.Clock {
+	launchLive(m, capacity, sink, func() S { first }, active, func() duration needs time.Clock {
 		let now = time.Clock.Now().Sub(origin)
 		waitFromVerdict(tasks.NextRestart(policy, past, now))
 	})
@@ -574,31 +655,27 @@ law RestartIsFresh(signals []int, n int) {
 	}
 }
 
-// crashes reports whether the step of e is an injected defect: a signal
-// whose value mod 5 is 4.
+type injectedStepFault { Signal int }
+
 func crashes(e int) bool { ((e%5)+5)%5 == 4 }
 
-// crashStep is tallyStep, with a defect for each signal crashes names.
-func crashStep(s int, e int) Decision[int, int] {
+func crashStep(s int, e int) Decision[int, int] defects {
 	if crashes(e) {
-		Unreachable("an injected defect")
+		die injectedStepFault{Signal: e}
 	}
 	tallyStep(s, e)
 }
 
-func crashy() Machine[int, int, int] { Machine[int, int, int]{Initial: 0, Step: crashStep, After: untimed, Work: unworked, Exit: unexited} }
+func unworkedLive(s int) Option[func(send entry func(e int)) defects] { None }
 
-// supervised asks a supervised crashy actor each signal, with a restart
-// budget of n mod 3, and compares it with the pure fold: a defect restarts
-// the actor in the state fresh gives (0, or the last saved one when kept)
-// while the budget lasts and ends it after, and Done ends it for good.
-// a.State() and Restarts(a) are the fold's, and an actor that the defect
-// ended exits Defected.
+func crashy() LiveMachine[int, int, int] { LiveMachine[int, int, int]{Initial: 0, Step: crashStep, After: untimed, Work: unworkedLive, Exit: unexited} }
+
 func supervised(a Actor[int, int, Decision[int, int]], signals []int, limit int, kept bool) bool needs Scheduler {
 	let mut s = 0
 	let mut restarts = 0
 	let mut ended = false
 	let mut defected = false
+	let mut lastCrash = 0
 	for e in signals {
 		let _ = a.Ask(e) catch {
 		case Stopped:
@@ -606,6 +683,7 @@ func supervised(a Actor[int, int, Decision[int, int]], signals []int, limit int,
 		}
 		if !ended {
 			if crashes(e) {
+				lastCrash = e
 				if restarts < limit {
 					restarts = restarts + 1
 					if !kept {
@@ -629,8 +707,8 @@ func supervised(a Actor[int, int, Decision[int, int]], signals []int, limit int,
 	let same = a.State() == s && Restarts(a) == restarts
 	if defected {
 		match ExitOf(a) {
-		case Defected:
-			return same
+		case Defected as d:
+			return same && ReasonAs[injectedStepFault](d) == Some[injectedStepFault]{Value: injectedStepFault{Signal: lastCrash}}
 		case _:
 			return false
 		}
@@ -639,20 +717,18 @@ func supervised(a Actor[int, int, Decision[int, int]], signals []int, limit int,
 	same
 }
 
-// restarted is supervised over Supervise: each restart starts in the
-// initial state.
 func restarted(signals []int, n int) bool needs Scheduler {
 	let limit = ((n % 3) + 3) % 3
-	supervised(Supervise(crashy(), 1, func(o int) {}, tasks.Restart{Limit: limit}), signals, limit, false)
+	supervised(SuperviseLive(crashy(), 1, func(o int) {}, tasks.Restart{Limit: limit}), signals, limit, false)
 }
 
 // Restarts is how many times a restarted after a defect (Supervise,
 // SuperviseDurable); 0 for an actor that never did.
 extern go ergo.local/prototype/runtime/v1.ActorRestarts func Restarts[S, E, D, F](a Actor[S, E, D, F]) int
 
-func launch[S, E, O, F, R, W, G, C](m Machine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, fresh own func() S fails G needs R, limit int, decide own func() duration needs C) Actor[S, E, Decision[S, O], F] needs R | W | C | Scheduler {
-	start(m.Initial, fresh, limit, decide, m.Step, func(at S, s S) Decision[S, O] fails F needs R {
-		match fired(m, at) {
+func launchLive[S, E, O, F, R, W, G, C](m LiveMachine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, fresh own func() S fails G needs R, limit int, decide own func() duration needs C) Actor[S, E, Decision[S, O], F] needs R | W | C | Scheduler {
+	start(m.Initial, fresh, limit, decide, m.Step, func(at S, s S) Decision[S, O] fails F needs R defects {
+		match firedLive(m, at) {
 		case Some[Timeout[E]] as t:
 			try m.Step(s, t.Value.Signal)
 		case None:
@@ -665,20 +741,20 @@ func launch[S, E, O, F, R, W, G, C](m Machine[S, E, O, F, R, W], capacity int, s
 		case None:
 			noTimer()
 		}
-	}, m.Work, func(w Option[func(send func(e E)) needs W]) bool {
+	}, m.Work, func(w Option[func(send entry func(e E)) needs W defects]) bool {
 		match w {
-		case Some[func(send func(e E)) needs W]:
+		case Some[func(send entry func(e E)) needs W defects]:
 			true
 		case None:
 			false
 		}
-	}, func(w Option[func(send func(e E)) needs W], send func(e E)) needs W {
+	}, func(w Option[func(send entry func(e E)) needs W defects], send entry func(e E)) needs W defects {
 		match w {
-		case Some[func(send func(e E)) needs W] as wk:
+		case Some[func(send entry func(e E)) needs W defects] as wk:
 			wk.Value(send)
 		case None:
 		}
-	}, func(s S) bool { exits(m, s) }, func(s S) needs W { exitOf(m, s) }, func(d Decision[S, O]) int {
+	}, func(s S) bool { exitsLive(m, s) }, func(s S) needs W { exitOfLive(m, s) }, func(d Decision[S, O]) int {
 		match d {
 		case Enter[S]:
 			0
@@ -758,11 +834,17 @@ extern go ergo.local/prototype/runtime/v1.ActorRecovering func recovering[S, A, 
 // it is a defect of the new incarnation (ActorFreshDefect), which the
 // budget counts like any other.
 func SuperviseDurable[S, E, O, F, R, W, G](m pure Machine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, policy tasks.Restart, recover own func() Option[S] fails G needs R, save own func(prev S, next S, sig E) fails G needs R) Actor[S, E, Decision[S, O], F] fails G needs R | W | Scheduler {
+	SuperviseDurableLive(liveOf(m), capacity, sink, policy, recover, save)
+}
+
+// SuperviseDurableLive is SuperviseDurable for a LiveMachine whose step or work
+// may raise deliberate defects (`die`).
+func SuperviseDurableLive[S, E, O, F, R, W, G](m LiveMachine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, policy tasks.Restart, recover own func() Option[S] fails G needs R, save own func(prev S, next S, sig E) fails G needs R) Actor[S, E, Decision[S, O], F] fails G needs R | W | Scheduler {
 	let first = m.Initial
 	let sup = tasks.LimitPolicy(policy.Limit)
 	let past = sync.NewRef[[]duration]([]duration{})
 	try recovering(func() S fails G needs R { try recovered(recover, first) }, func(initial S) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
-		launch(durable(m, initial, save), capacity, sink, func() S fails G needs R { try recovered(recover, first) }, policy.Limit, func() duration {
+		launchLive(durableLive(m, initial, save), capacity, sink, func() S fails G needs R { try recovered(recover, first) }, policy.Limit, func() duration {
 			waitFromVerdict(tasks.NextRestart(sup, past, 0s))
 		})
 	})
@@ -772,12 +854,18 @@ func SuperviseDurable[S, E, O, F, R, W, G](m pure Machine[S, E, O, F, R, W], cap
 // policy (Intensity sliding window and Backoff schedule evaluated through
 // tasks.Decide on time.Clock and slept on Scheduler).
 func SuperviseDurableWith[S, E, O, F, R, W, G](m pure Machine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, policy tasks.Supervision, recover own func() Option[S] fails G needs R, save own func(prev S, next S, sig E) fails G needs R) Actor[S, E, Decision[S, O], F] fails G needs R | W | Scheduler | time.Clock {
+	SuperviseDurableLiveWith(liveOf(m), capacity, sink, policy, recover, save)
+}
+
+// SuperviseDurableLiveWith is SuperviseDurableWith for a LiveMachine whose step
+// or work may raise deliberate defects (`die`).
+func SuperviseDurableLiveWith[S, E, O, F, R, W, G](m LiveMachine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, policy tasks.Supervision, recover own func() Option[S] fails G needs R, save own func(prev S, next S, sig E) fails G needs R) Actor[S, E, Decision[S, O], F] fails G needs R | W | Scheduler | time.Clock {
 	let first = m.Initial
 	let active = if policy.Intensity.Max > 0 { 1 } else { 0 }
 	try recovering(func() S fails G needs R { try recovered(recover, first) }, func(initial S) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler | time.Clock {
 		let origin = time.Clock.Now()
 		let past = sync.NewRef[[]duration]([]duration{})
-		launch(durable(m, initial, save), capacity, sink, func() S fails G needs R { try recovered(recover, first) }, active, func() duration needs time.Clock {
+		launchLive(durableLive(m, initial, save), capacity, sink, func() S fails G needs R { try recovered(recover, first) }, active, func() duration needs time.Clock {
 			let now = time.Clock.Now().Sub(origin)
 			waitFromVerdict(tasks.NextRestart(policy, past, now))
 		})
@@ -790,7 +878,7 @@ law SuperviseWithWindowAndBackoff(k int) {
 	let c1 = testing.NewVirtualClock(0)
 	let slid = with context { Scheduler: c1, time.Clock: c1 } {
 		let start = time.Clock.Now()
-		let a = SuperviseWith(crashy(), 1, func(o int) {}, policy)
+		let a = SuperviseLiveWith(crashy(), 1, func(o int) {}, policy)
 		let _ = a.Ask(6) catch {
 		case Stopped:
 			Ignore
@@ -831,7 +919,7 @@ law SuperviseWithWindowAndBackoff(k int) {
 	let c2 = testing.NewVirtualClock(0)
 	let gaveUp = with context { Scheduler: c2, time.Clock: c2 } {
 		let start = time.Clock.Now()
-		let a = SuperviseWith(crashy(), 1, func(o int) {}, policy)
+		let a = SuperviseLiveWith(crashy(), 1, func(o int) {}, policy)
 		let _ = a.Ask(4) catch {
 		case Stopped:
 			Ignore
@@ -853,8 +941,8 @@ law SuperviseWithWindowAndBackoff(k int) {
 			Ignore
 		}
 		match ExitOf(a) {
-		case Defected:
-			Restarts(a) == 2 && time.Clock.Now().Sub(start) == 3s
+		case Defected as d:
+			Restarts(a) == 2 && time.Clock.Now().Sub(start) == 3s && ReasonAs[injectedStepFault](d) == Some[injectedStepFault]{Value: injectedStepFault{Signal: 4}}
 		case _:
 			false
 		}
@@ -869,7 +957,7 @@ law SuperviseDurableWithRecoversAndBacksOff(k int) {
 	let cell = sync.NewRef[Option[int]](None)
 	with context { Scheduler: c, time.Clock: c } {
 		let start = time.Clock.Now()
-		let a = SuperviseDurableWith(Machine[int, int, int]{Initial: 0, Step: crashStep, After: untimed, Work: unworked, Exit: unexited}, 1, func(o int) {}, policy, func() Option[int] { cell.Get() }, func(prev int, next int, sig int) {
+		let a = SuperviseDurableLiveWith(crashy(), 1, func(o int) {}, policy, func() Option[int] { cell.Get() }, func(prev int, next int, sig int) {
 			cell.Set(Some[int]{Value: next})
 		})
 		let _ = a.Ask(6) catch {
@@ -901,8 +989,8 @@ law SuperviseDurableWithRecoversAndBacksOff(k int) {
 			Ignore
 		}
 		match ExitOf(a) {
-		case Defected:
-			s1 == 7 && t1 == 1s && s2 == 8 && t2 == 3s && a.State() == 8 && Restarts(a) == 2 && time.Clock.Now().Sub(start) == 3s
+		case Defected as d:
+			s1 == 7 && t1 == 1s && s2 == 8 && t2 == 3s && a.State() == 8 && Restarts(a) == 2 && time.Clock.Now().Sub(start) == 3s && ReasonAs[injectedStepFault](d) == Some[injectedStepFault]{Value: injectedStepFault{Signal: 4}}
 		case _:
 			false
 		}
@@ -917,19 +1005,15 @@ law RestartRecovers(signals []int, n int) {
 	}
 }
 
-// recoveredRun is supervised over SuperviseDurable with a journal of one
-// cell: save keeps the committed state, recover gives it, so each restart
-// starts in the state the crash found.
 func recoveredRun(signals []int, n int) bool needs Scheduler {
 	let limit = ((n % 3) + 3) % 3
 	let cell = sync.NewRef[Option[int]](None)
-	let a = SuperviseDurable(Machine[int, int, int]{Initial: 0, Step: crashStep, After: untimed, Work: unworked, Exit: unexited}, 1, func(o int) {}, tasks.Restart{Limit: limit}, func() Option[int] { cell.Get() }, func(prev int, next int, sig int) {
+	let a = SuperviseDurableLive(crashy(), 1, func(o int) {}, tasks.Restart{Limit: limit}, func() Option[int] { cell.Get() }, func(prev int, next int, sig int) {
 		cell.Set(Some[int]{Value: next})
 	})
 	supervised(a, signals, limit, true)
 }
 
-// recovered is recover's state, or initial on None.
 func recovered[S, G, R](recover func() Option[S] fails G needs R, initial own S) S fails G needs R {
 	match try recover() {
 	case Some[S] as s:
@@ -939,8 +1023,6 @@ func recovered[S, G, R](recover func() Option[S] fails G needs R, initial own S)
 	}
 }
 
-// durable is m starting in initial, with save run on each committed
-// transition (keep) before the actor commits it.
 func durable[S, E, O, F, R, W, G](m Machine[S, E, O, F, R, W], initial own S, save own func(prev S, next S, sig E) fails G needs R) Machine[S, E, O, F, R, W] {
 	let step = m.Step
 	Machine[S, E, O, F, R, W]{Initial: initial, Step: func(s S, e E) Decision[S, O] fails F needs R {
@@ -960,6 +1042,33 @@ func durable[S, E, O, F, R, W, G](m Machine[S, E, O, F, R, W], initial own S, sa
 		}
 		d
 	}, After: m.After, Work: m.Work, Exit: m.Exit}
+}
+
+func durableLive[S, E, O, F, R, W, G](m LiveMachine[S, E, O, F, R, W], initial own S, save own func(prev S, next S, sig E) fails G needs R) LiveMachine[S, E, O, F, R, W] {
+	let step = m.Step
+	LiveMachine[S, E, O, F, R, W]{
+		Initial: initial,
+		Step:    func(s S, e E) Decision[S, O] fails F needs R defects {
+			let d = try step(s, e)
+			match d {
+			case Enter[S] as en:
+				keep(save, s, en.Next, e)
+			case Stay[S] as st:
+				keep(save, s, st.Next, e)
+			case Emit[S, O] as em:
+				keep(save, s, em.Next, e)
+			case Tell[S, O] as tl:
+				keep(save, s, tl.Next, e)
+			case Ignore:
+			case Reject:
+			case Done[O]:
+			}
+			d
+		},
+		After: m.After,
+		Work:  m.Work,
+		Exit:  m.Exit,
+	}
 }
 
 // keep is save(prev, next, sig), with its failure a defect

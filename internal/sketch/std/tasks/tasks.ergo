@@ -8,6 +8,7 @@
 import schedule
 import scope
 import sync
+import task
 import testing
 import time
 
@@ -527,7 +528,7 @@ extern go ergo.local/prototype/runtime/v1.TasksNewSupervisedSet func newSupervis
 // caller's, and returns at once. The body keeps running after Go returns,
 // so it is escaping. It fails with Closed, and starts nothing, when set
 // admits no more tasks.
-extern go ergo.local/prototype/runtime/v1.TasksGo func Go[E, R](set Set[E], body own func() fails E needs R) fails Closed needs R
+extern go ergo.local/prototype/runtime/v1.TasksGo func Go[E, R](set Set[E], body own func() fails E needs R defects) fails Closed needs R
 
 // setFailed is the failure of a member in the Set laws.
 type setFailed {}
@@ -644,22 +645,42 @@ func closedNow(set Set[setFailed]) bool {
 	false
 }
 
+type boundedRestartFault { Run int }
+
 // RestartRunsAgain: under Restart, a member whose body has a defect runs
 // again, Limit times, and the run after them ends it.
 law RestartRunsAgain(n int) {
 	let limit = limitOf(n) - 1
 	let runs = sync.NewRef[int](0)
 	let set = NewSet(Restart{Limit: limit})
-	Go(set, func() {
+	Go(set, func() defects {
 		let r = sync.Modify(runs, func(v int) (int, int) { (v + 1, v + 1) })
 		if r <= limit {
-			Unreachable("a defect the Set restarts")
+			die boundedRestartFault{Run: r}
 		}
 	}) catch {
 	case Closed:
 	}
 	set.Wait()
-	runs.Get() == limit+1
+	let exhausted = task.Go() {
+		let s = NewSet(Restart{Limit: limit})
+		let attempts = sync.NewRef[int](0)
+		Go(s, func() defects {
+			let r = sync.Modify(attempts, func(v int) (int, int) { (v + 1, v + 1) })
+			die boundedRestartFault{Run: r}
+		}) catch {
+		case Closed:
+		}
+		s.Wait()
+		true
+	}
+	let kept = match task.ExitOf(exhausted) {
+	case task.Defected as d:
+		task.ReasonAs[boundedRestartFault](d) == Some[boundedRestartFault]{Value: boundedRestartFault{Run: limit + 1}}
+	case _:
+		false
+	}
+	runs.Get() == limit+1 && kept
 }
 
 // limitOf is a limit from 1 to 4, drawn from k.

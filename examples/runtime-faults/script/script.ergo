@@ -140,7 +140,7 @@ func play(text []string, clock time.Manual) []string fails BadLine needs Schedul
 // playCrash plays lines on the crash app, with its crash view and report.
 func playCrash(lines []Line, clock time.Manual) []string fails BadLine needs Scheduler {
 	let reports = crash.NewReports()
-	let mut h = ui.NewAppTestHost(crash.App{}, 4, crash.View, crash.Crashes(reports), clock, 16) catch {
+	let mut h = ui.NewLiveAppTestHost(crash.LiveApp(), 4, crash.View, crash.Crashes(reports), clock, 16) catch {
 	case ui.BadPatch:
 		return BadLine{Line: 1, Why: "the first screen's patch is refused"}
 	}
