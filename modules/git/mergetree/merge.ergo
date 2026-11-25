@@ -1,0 +1,826 @@
+import fs
+import slices
+import strings
+import github.com/cevr/ergo/modules/git/attrs
+import github.com/cevr/ergo/modules/git/delta
+import github.com/cevr/ergo/modules/git/diff
+import github.com/cevr/ergo/modules/git/filemerge
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/pack
+import github.com/cevr/ergo/modules/git/revisions
+import github.com/cevr/ergo/modules/git/tree
+
+func sameMode(a tree.Mode, b tree.Mode) bool {
+	tree.ModeOctal(a) == tree.ModeOctal(b)
+}
+
+func sameStage(a StageEntry, b StageEntry) bool {
+	sameMode(a.Mode, b.Mode) && oid.Equal(a.OID, b.OID)
+}
+
+func sameOptStage(a Option[StageEntry], b Option[StageEntry]) bool {
+	match a {
+	case None:
+		match b {
+		case None:
+			true
+		case Some[StageEntry]:
+			false
+		}
+	case Some[StageEntry] as av:
+		match b {
+		case None:
+			false
+		case Some[StageEntry] as bv:
+			sameStage(av.Value, bv.Value)
+		}
+	}
+}
+
+func isRegularOrExec(m tree.Mode) bool {
+	match m {
+	case tree.ModeRegular, tree.ModeExecutable:
+		true
+	case tree.ModeTree, tree.ModeSymlink, tree.ModeGitlink:
+		false
+	}
+}
+
+func walkToLeafMap(format oid.Format, rootOpt Option[oid.OID], opts MergeTreeOptions) Map[string, StageEntry] fails TreeError | MissingObject | StoreError | DepthExceeded needs pack.ObjectStore {
+	let mut out = Map[string, StageEntry]{}
+	match rootOpt {
+	case None:
+		out
+	case Some[oid.OID] as rt:
+		let entries = tree.WalkTree(format, rt.Value, opts.MaxDepth, opts.MaxBytes) catch {
+		case tree.CorruptTree as e:
+			return TreeError{Detail: e.Reason}
+		case tree.InvalidEntryName as e:
+			return TreeError{Detail: e.Reason}
+		case tree.UnsortedTree:
+			return TreeError{Detail: "unsorted tree"}
+		case tree.DuplicateEntry as e:
+			return TreeError{Detail: "duplicate tree entry: " + e.Name}
+		case tree.WrongKind as e:
+			return TreeError{Detail: "expected " + e.Expected + ", got " + e.Got}
+		case tree.DepthExceeded as e:
+			return DepthExceeded{MaxDepth: e.MaxDepth}
+		case tree.MissingObject as e:
+			return MissingObject{OID: e.OID}
+		case tree.StoreError as e:
+			return StoreError{Detail: e.Detail}
+		}
+		for e in entries {
+			out = out.Put(e.Path, StageEntry{Mode: e.Mode, OID: e.OID})
+		}
+		out
+	}
+}
+
+func readBlobBytes(id oid.OID, maxBytes int) []byte fails MissingObject | StoreError needs pack.ObjectStore {
+	let obj = pack.ObjectStore.Read(id, maxBytes) catch {
+	case pack.Missing as e:
+		return MissingObject{OID: e.OID}
+	case pack.Corrupt as e:
+		return StoreError{Detail: e.Why}
+	case pack.MismatchedPair as e:
+		return StoreError{Detail: "mismatched pack pair: " + e.PackPath}
+	case pack.Collision as e:
+		return StoreError{Detail: "sha1 collision: " + e.Digest}
+	case pack.LimitExceeded:
+		return StoreError{Detail: "blob exceeds byte limit"}
+	case pack.DepthExceeded:
+		return StoreError{Detail: "delta chain depth exceeded"}
+	case pack.IOFailed as e:
+		return StoreError{Detail: e.Op + ": " + e.Detail}
+	}
+	obj.Data
+}
+
+func installObject(kind oid.Kind, data []byte) oid.OID fails StoreError needs pack.ObjectStore {
+	pack.ObjectStore.Install(kind, data) catch {
+	case pack.Collision as e:
+		return StoreError{Detail: "sha1 collision: " + e.Digest}
+	case pack.IOFailed as e:
+		return StoreError{Detail: e.Op + ": " + e.Detail}
+	}
+}
+
+func resolveDriverForPath(format oid.Format, oursTree oid.OID, opts MergeTreeOptions, relPath string) attrs.MergeDriver fails UntrustedDriver needs pack.ObjectStore {
+	let resolved = attrs.LoadTreeAttrs(format, Some[oid.OID]{Value: oursTree}, opts.InfoAttributes, relPath, opts.MaxBytes)
+	attrs.ResolveMergeDriver(resolved, opts.DriverPolicy) catch {
+	case attrs.UntrustedDriver as u:
+		return UntrustedDriver{Path: relPath, Driver: u.Name}
+	}
+}
+
+func mergeBlobWithDriver(driver attrs.MergeDriver, baseBytes []byte, oursBytes []byte, theirsBytes []byte, opts MergeTreeOptions) filemerge.MergeResult {
+	let baseOpts = filemerge.MergeOptions{
+		BaseLabel:   opts.BaseLabel,
+		OursLabel:   opts.OursLabel,
+		TheirsLabel: opts.TheirsLabel,
+		MarkerSize:  7,
+		Style:       opts.Style,
+		Favor:       filemerge.FavorNone,
+	}
+	let useDriver = true
+	if useDriver {
+		match driver {
+		case attrs.DriverBinary:
+			return filemerge.MergeResult{
+				Content:       oursBytes,
+				Status:        filemerge.BinaryConflict,
+				ConflictCount: 1,
+				Hunks:         []filemerge.Hunk{},
+			}
+		case attrs.DriverUnion:
+			let unionOpts = filemerge.MergeOptions{
+				BaseLabel:   opts.BaseLabel,
+				OursLabel:   opts.OursLabel,
+				TheirsLabel: opts.TheirsLabel,
+				MarkerSize:  7,
+				Style:       opts.Style,
+				Favor:       filemerge.FavorUnion,
+			}
+			return filemerge.MergeFiles(baseBytes, oursBytes, theirsBytes, unionOpts)
+		case attrs.DriverText, attrs.DriverExternal:
+			return filemerge.MergeFiles(baseBytes, oursBytes, theirsBytes, baseOpts)
+		}
+	}
+	filemerge.MergeFiles(baseBytes, oursBytes, theirsBytes, baseOpts)
+}
+
+func resolveThreeWayFile(format oid.Format, oursTree oid.OID, path string, bOpt Option[StageEntry], o StageEntry, t StageEntry, isAddAdd bool, opts MergeTreeOptions) (StageEntry, Option[Conflict]) fails UntrustedDriver | MissingObject | StoreError needs pack.ObjectStore {
+	let mut resolvedMode = o.Mode
+	let mut modeConflicted = false
+	if !sameMode(o.Mode, t.Mode) {
+		if isRegularOrExec(o.Mode) && isRegularOrExec(t.Mode) {
+			match bOpt {
+			case Some[StageEntry] as b:
+				if sameMode(o.Mode, b.Value.Mode) {
+					resolvedMode = t.Mode
+				} else if sameMode(t.Mode, b.Value.Mode) {
+					resolvedMode = o.Mode
+				} else {
+					modeConflicted = true
+				}
+			case None:
+				modeConflicted = true
+			}
+		} else {
+			modeConflicted = true
+		}
+	}
+
+	if modeConflicted {
+		let conf = Conflict{
+			Path:   path,
+			Kind:   ModeConflict,
+			Stage1: bOpt,
+			Stage2: Some[StageEntry]{Value: o},
+			Stage3: Some[StageEntry]{Value: t},
+			Detail: "incompatible file modes: " + tree.ModeOctal(o.Mode) + " vs " + tree.ModeOctal(t.Mode),
+		}
+		return (o, Some[Conflict]{Value: conf})
+	}
+
+	match resolvedMode {
+	case tree.ModeSymlink:
+		let conf = Conflict{
+			Path:   path,
+			Kind:   SymlinkConflict,
+			Stage1: bOpt,
+			Stage2: Some[StageEntry]{Value: o},
+			Stage3: Some[StageEntry]{Value: t},
+			Detail: "conflicting symlink targets",
+		}
+		return (StageEntry{Mode: resolvedMode, OID: o.OID}, Some[Conflict]{Value: conf})
+	case tree.ModeGitlink:
+		let conf = Conflict{
+			Path:   path,
+			Kind:   GitlinkConflict,
+			Stage1: bOpt,
+			Stage2: Some[StageEntry]{Value: o},
+			Stage3: Some[StageEntry]{Value: t},
+			Detail: "conflicting submodule gitlink commits",
+		}
+		return (StageEntry{Mode: resolvedMode, OID: o.OID}, Some[Conflict]{Value: conf})
+	case tree.ModeTree, tree.ModeRegular, tree.ModeExecutable:
+	}
+
+	let driver = try resolveDriverForPath(format, oursTree, opts, path)
+
+	if oid.Equal(o.OID, t.OID) {
+		return (StageEntry{Mode: resolvedMode, OID: o.OID}, None)
+	}
+
+	let baseBytes = match bOpt {
+	case None:
+		[]byte{}
+	case Some[StageEntry] as b:
+		try readBlobBytes(b.Value.OID, opts.MaxBytes)
+	}
+	let oursBytes = try readBlobBytes(o.OID, opts.MaxBytes)
+	let theirsBytes = try readBlobBytes(t.OID, opts.MaxBytes)
+
+	let merged = mergeBlobWithDriver(driver, baseBytes, oursBytes, theirsBytes, opts)
+	let mergedId = try installObject(oid.Blob, merged.Content)
+	let outEntry = StageEntry{Mode: resolvedMode, OID: mergedId}
+
+	if isAddAdd {
+		let kind = match merged.Status {
+		case filemerge.BinaryConflict:
+			BinaryConflict
+		case filemerge.Clean, filemerge.Conflicted:
+			AddAdd
+		}
+		return (outEntry, Some[Conflict]{Value: Conflict{
+			Path:   path,
+			Kind:   kind,
+			Stage1: None,
+			Stage2: Some[StageEntry]{Value: o},
+			Stage3: Some[StageEntry]{Value: t},
+			Detail: "add/add conflict",
+		}})
+	}
+
+	match merged.Status {
+	case filemerge.Clean:
+		(outEntry, None)
+	case filemerge.BinaryConflict:
+		(StageEntry{Mode: resolvedMode, OID: o.OID}, Some[Conflict]{Value: Conflict{
+			Path:   path,
+			Kind:   BinaryConflict,
+			Stage1: bOpt,
+			Stage2: Some[StageEntry]{Value: o},
+			Stage3: Some[StageEntry]{Value: t},
+			Detail: "binary file merge conflict",
+		}})
+	case filemerge.Conflicted:
+		(outEntry, Some[Conflict]{Value: Conflict{
+			Path:   path,
+			Kind:   ContentConflict,
+			Stage1: bOpt,
+			Stage2: Some[StageEntry]{Value: o},
+			Stage3: Some[StageEntry]{Value: t},
+			Detail: "content merge conflict",
+		}})
+	}
+}
+
+type renameInfo {
+	oldPath  string,
+	newPath  string,
+	newEntry StageEntry,
+}
+
+func collectRenames(format oid.Format, baseTree oid.OID, sideTree oid.OID, opts MergeTreeOptions) Map[string, renameInfo] fails DiffError | MissingObject | StoreError | DepthExceeded needs pack.ObjectStore {
+	let diffOpts = diff.DiffOptions{
+		DetectRenames:   true,
+		RenameThreshold: opts.RenameThreshold,
+		MaxDepth:        opts.MaxDepth,
+		MaxBytes:        opts.MaxBytes,
+	}
+	let changes = diff.DiffTrees(format, baseTree, sideTree, diffOpts) catch {
+	case diff.TreeError as e:
+		return DiffError{Detail: e.Detail}
+	case diff.MissingObject as e:
+		return MissingObject{OID: e.OID}
+	case diff.StoreError as e:
+		return StoreError{Detail: e.Detail}
+	case diff.DepthExceeded as e:
+		return DepthExceeded{MaxDepth: e.MaxDepth}
+	}
+	let mut out = Map[string, renameInfo]{}
+	for ch in changes {
+		match ch.Status {
+		case diff.Renamed:
+			match ch.OldPath {
+			case Some[string] as op:
+				match ch.NewPath {
+				case Some[string] as np:
+					match ch.NewMode {
+					case Some[tree.Mode] as nm:
+						match ch.NewOID {
+						case Some[oid.OID] as nid:
+							out = out.Put(op.Value, renameInfo{
+								oldPath:  op.Value,
+								newPath:  np.Value,
+								newEntry: StageEntry{Mode: nm.Value, OID: nid.Value},
+							})
+						case None:
+						}
+					case None:
+					}
+				case None:
+				}
+			case None:
+			}
+		case diff.Added, diff.Deleted, diff.Modified, diff.TypeChanged:
+		}
+	}
+	out
+}
+
+func resolveFileDirConflicts(leaves Map[string, StageEntry], baseMap Map[string, StageEntry], oursMap Map[string, StageEntry], theirsMap Map[string, StageEntry], conflicts []Conflict) (Map[string, StageEntry], []Conflict) {
+	let detectFileDir = true
+	if !detectFileDir {
+		return (leaves, conflicts)
+	}
+	let mut allPaths = []string{}
+	for p, _ in leaves {
+		allPaths = allPaths.Append(p)
+	}
+	let sortedPaths = slices.Sort(allPaths)
+	let mut dirPrefixes = Map[string, bool]{}
+	for p in sortedPaths {
+		let parts = strings.Split(p, "/")
+		let mut acc = ""
+		for i in 0..(len(parts) - 1) {
+			acc = if acc == "" { parts[i] } else { acc + "/" + parts[i] }
+			dirPrefixes = dirPrefixes.Put(acc, true)
+		}
+	}
+
+	let mut outLeaves = leaves
+	let mut outConflicts = conflicts
+	for p in sortedPaths {
+		if dirPrefixes.Get(p) != None {
+			match outLeaves.Get(p) {
+			case Some[StageEntry] as fe:
+				outConflicts = outConflicts.Append(Conflict{
+					Path:   p,
+					Kind:   FileDirConflict,
+					Stage1: baseMap.Get(p),
+					Stage2: oursMap.Get(p),
+					Stage3: theirsMap.Get(p),
+					Detail: "file/directory conflict at " + p,
+				})
+				let mut filtered = Map[string, StageEntry]{}
+				for k, v in outLeaves {
+					if k != p {
+						filtered = filtered.Put(k, v)
+					}
+				}
+				let relocated = p + "~file-dir-conflict"
+				filtered = filtered.Put(relocated, fe.Value)
+				outLeaves = filtered
+			case None:
+			}
+		}
+	}
+	(outLeaves, outConflicts)
+}
+
+func writeTreeRec(format oid.Format, leaves Map[string, StageEntry], prefix string) oid.OID fails TreeError | StoreError needs pack.ObjectStore {
+	let mut direct = []tree.Entry{}
+	let mut subDirs = Map[string, bool]{}
+	let wantPrefix = if prefix == "" { "" } else { prefix + "/" }
+
+	for fullPath, st in leaves {
+		if wantPrefix != "" && !strings.HasPrefix(fullPath, wantPrefix) {
+			continue
+		}
+		let rel = if wantPrefix == "" { fullPath } else { strings.TrimPrefix(fullPath, wantPrefix) }
+		let slash = strings.Index(rel, "/")
+		if slash < 0 {
+			direct = direct.Append(tree.Entry{
+				Mode: st.Mode,
+				Name: rel,
+				OID:  st.OID,
+			})
+		} else {
+			let dirName = rel[:slash]
+			subDirs = subDirs.Put(dirName, true)
+		}
+	}
+
+	let mut sortedDirNames = []string{}
+	for dn, _ in subDirs {
+		sortedDirNames = sortedDirNames.Append(dn)
+	}
+	for dn in slices.Sort(sortedDirNames) {
+		let subPrefix = if prefix == "" { dn } else { prefix + "/" + dn }
+		let subOid = try writeTreeRec(format, leaves, subPrefix)
+		direct = direct.Append(tree.Entry{
+			Mode: tree.ModeTree,
+			Name: dn,
+			OID:  subOid,
+		})
+	}
+
+	let encoded = tree.EncodeTree(format, direct) catch {
+	case tree.InvalidEntryName as e:
+		return TreeError{Detail: e.Reason}
+	case tree.DuplicateEntry as e:
+		return TreeError{Detail: "duplicate tree entry: " + e.Name}
+	}
+	try installObject(oid.Tree, encoded)
+}
+
+func compareConflicts(a Conflict, b Conflict) int {
+	if a.Path < b.Path {
+		-1
+	} else if a.Path > b.Path {
+		1
+	} else {
+		0
+	}
+}
+
+// MergeTrees performs a pure-Ergo 3-way tree merge of (baseTree, oursTree,
+// theirsTree), applying `.gitattributes` merge drivers under opts.DriverPolicy,
+// detecting renames and file/directory/mode/symlink/gitlink conflicts, and
+// writing the resulting canonical root tree into pack.ObjectStore.
+func MergeTrees(format oid.Format, baseTree Option[oid.OID], oursTree oid.OID, theirsTree oid.OID, opts MergeTreeOptions) MergeTreeResult fails TreeError | DiffError | UntrustedDriver | MissingObject | StoreError | DepthExceeded needs pack.ObjectStore {
+	if oid.Equal(oursTree, theirsTree) {
+		return MergeTreeResult{TreeOID: oursTree, Clean: true, Conflicts: []Conflict{}}
+	}
+
+	let baseMap = try walkToLeafMap(format, baseTree, opts)
+	let oursMap = try walkToLeafMap(format, Some[oid.OID]{Value: oursTree}, opts)
+	let theirsMap = try walkToLeafMap(format, Some[oid.OID]{Value: theirsTree}, opts)
+
+	let mut oursRenames = Map[string, renameInfo]{}
+	let mut theirsRenames = Map[string, renameInfo]{}
+	if opts.DetectRenames {
+		match baseTree {
+		case Some[oid.OID] as bt:
+			oursRenames = try collectRenames(format, bt.Value, oursTree, opts)
+			theirsRenames = try collectRenames(format, bt.Value, theirsTree, opts)
+		case None:
+		}
+	}
+
+	let mut resultLeaves = Map[string, StageEntry]{}
+	let mut conflicts = []Conflict{}
+	let mut handled = Map[string, bool]{}
+
+	let mut renameOldPaths = []string{}
+	for op, _ in oursRenames {
+		renameOldPaths = renameOldPaths.Append(op)
+	}
+	for op, _ in theirsRenames {
+		if oursRenames.Get(op) == None {
+			renameOldPaths = renameOldPaths.Append(op)
+		}
+	}
+	for oldP in slices.Sort(renameOldPaths) {
+		let bOpt = baseMap.Get(oldP)
+		match oursRenames.Get(oldP) {
+		case Some[renameInfo] as oRen:
+			match theirsRenames.Get(oldP) {
+			case Some[renameInfo] as tRen:
+				handled = handled.Put(oldP, true)
+				handled = handled.Put(oRen.Value.newPath, true)
+				handled = handled.Put(tRen.Value.newPath, true)
+				if oRen.Value.newPath == tRen.Value.newPath {
+					let (mergedEntry, confOpt) = try resolveThreeWayFile(format, oursTree, oRen.Value.newPath, bOpt, oRen.Value.newEntry, tRen.Value.newEntry, false, opts)
+					resultLeaves = resultLeaves.Put(oRen.Value.newPath, mergedEntry)
+					match confOpt {
+					case Some[Conflict] as c:
+						conflicts = conflicts.Append(c.Value)
+					case None:
+					}
+				} else {
+					resultLeaves = resultLeaves.Put(oRen.Value.newPath, oRen.Value.newEntry)
+					resultLeaves = resultLeaves.Put(tRen.Value.newPath, tRen.Value.newEntry)
+					conflicts = conflicts.Append(Conflict{
+						Path:   oldP,
+						Kind:   RenameRename,
+						Stage1: bOpt,
+						Stage2: Some[StageEntry]{Value: oRen.Value.newEntry},
+						Stage3: Some[StageEntry]{Value: tRen.Value.newEntry},
+						Detail: "rename/rename: " + oldP + " -> " + oRen.Value.newPath + " / " + tRen.Value.newPath,
+					})
+				}
+			case None:
+				handled = handled.Put(oldP, true)
+				handled = handled.Put(oRen.Value.newPath, true)
+				match theirsMap.Get(oldP) {
+				case None:
+					resultLeaves = resultLeaves.Put(oRen.Value.newPath, oRen.Value.newEntry)
+					conflicts = conflicts.Append(Conflict{
+						Path:   oRen.Value.newPath,
+						Kind:   RenameDelete,
+						Stage1: bOpt,
+						Stage2: Some[StageEntry]{Value: oRen.Value.newEntry},
+						Stage3: None,
+						Detail: "rename/delete: renamed to " + oRen.Value.newPath + " in ours, deleted in theirs",
+					})
+				case Some[StageEntry] as tOld:
+					let (mergedEntry, confOpt) = try resolveThreeWayFile(format, oursTree, oRen.Value.newPath, bOpt, oRen.Value.newEntry, tOld.Value, false, opts)
+					resultLeaves = resultLeaves.Put(oRen.Value.newPath, mergedEntry)
+					match confOpt {
+					case Some[Conflict] as c:
+						conflicts = conflicts.Append(c.Value)
+					case None:
+					}
+				}
+			}
+		case None:
+			match theirsRenames.Get(oldP) {
+			case Some[renameInfo] as tRen:
+				handled = handled.Put(oldP, true)
+				handled = handled.Put(tRen.Value.newPath, true)
+				match oursMap.Get(oldP) {
+				case None:
+					resultLeaves = resultLeaves.Put(tRen.Value.newPath, tRen.Value.newEntry)
+					conflicts = conflicts.Append(Conflict{
+						Path:   tRen.Value.newPath,
+						Kind:   RenameDelete,
+						Stage1: bOpt,
+						Stage2: None,
+						Stage3: Some[StageEntry]{Value: tRen.Value.newEntry},
+						Detail: "rename/delete: deleted in ours, renamed to " + tRen.Value.newPath + " in theirs",
+					})
+				case Some[StageEntry] as oOld:
+					let (mergedEntry, confOpt) = try resolveThreeWayFile(format, oursTree, tRen.Value.newPath, bOpt, oOld.Value, tRen.Value.newEntry, false, opts)
+					resultLeaves = resultLeaves.Put(tRen.Value.newPath, mergedEntry)
+					match confOpt {
+					case Some[Conflict] as c:
+						conflicts = conflicts.Append(c.Value)
+					case None:
+					}
+				}
+			case None:
+			}
+		}
+	}
+
+	let mut allPathSet = Map[string, bool]{}
+	for p, _ in baseMap {
+		allPathSet = allPathSet.Put(p, true)
+	}
+	for p, _ in oursMap {
+		allPathSet = allPathSet.Put(p, true)
+	}
+	for p, _ in theirsMap {
+		allPathSet = allPathSet.Put(p, true)
+	}
+	let mut allPaths = []string{}
+	for p, _ in allPathSet {
+		allPaths = allPaths.Append(p)
+	}
+
+	for p in slices.Sort(allPaths) {
+		if handled.Get(p) != None {
+			continue
+		}
+		let bOpt = baseMap.Get(p)
+		let oOpt = oursMap.Get(p)
+		let tOpt = theirsMap.Get(p)
+
+		if sameOptStage(oOpt, tOpt) {
+			match oOpt {
+			case Some[StageEntry] as e:
+				resultLeaves = resultLeaves.Put(p, e.Value)
+			case None:
+			}
+			continue
+		}
+		if sameOptStage(bOpt, oOpt) {
+			match tOpt {
+			case Some[StageEntry] as e:
+				resultLeaves = resultLeaves.Put(p, e.Value)
+			case None:
+			}
+			continue
+		}
+		if sameOptStage(bOpt, tOpt) {
+			match oOpt {
+			case Some[StageEntry] as e:
+				resultLeaves = resultLeaves.Put(p, e.Value)
+			case None:
+			}
+			continue
+		}
+
+		match oOpt {
+		case None:
+			match tOpt {
+			case None:
+			case Some[StageEntry] as tv:
+				resultLeaves = resultLeaves.Put(p, tv.Value)
+				conflicts = conflicts.Append(Conflict{
+					Path:   p,
+					Kind:   ModifyDelete,
+					Stage1: bOpt,
+					Stage2: None,
+					Stage3: Some[StageEntry]{Value: tv.Value},
+					Detail: "deleted in ours, modified in theirs",
+				})
+			}
+		case Some[StageEntry] as ov:
+			match tOpt {
+			case None:
+				resultLeaves = resultLeaves.Put(p, ov.Value)
+				conflicts = conflicts.Append(Conflict{
+					Path:   p,
+					Kind:   ModifyDelete,
+					Stage1: bOpt,
+					Stage2: Some[StageEntry]{Value: ov.Value},
+					Stage3: None,
+					Detail: "modified in ours, deleted in theirs",
+				})
+			case Some[StageEntry] as tv:
+				let isAddAdd = bOpt == None
+				let (mergedEntry, confOpt) = try resolveThreeWayFile(format, oursTree, p, bOpt, ov.Value, tv.Value, isAddAdd, opts)
+				resultLeaves = resultLeaves.Put(p, mergedEntry)
+				match confOpt {
+				case Some[Conflict] as c:
+					conflicts = conflicts.Append(c.Value)
+				case None:
+				}
+			}
+		}
+	}
+
+	let (finalLeaves, finalConflicts) = resolveFileDirConflicts(resultLeaves, baseMap, oursMap, theirsMap, conflicts)
+	let rootTreeOid = try writeTreeRec(format, finalLeaves, "")
+	let sortedConflicts = slices.SortFunc(finalConflicts, compareConflicts)
+	MergeTreeResult{
+		TreeOID:   rootTreeOid,
+		Clean:     len(sortedConflicts) == 0,
+		Conflicts: sortedConflicts,
+	}
+}
+
+func loadCommitNode(id oid.OID) revisions.CommitNode fails RevError needs revisions.CommitDAG {
+	revisions.CommitDAG.Commit(id) catch {
+	case revisions.NotFound as e:
+		return RevError{Detail: "missing commit: " + e.Spec}
+	case revisions.NotACommit as e:
+		return RevError{Detail: "not a commit: " + e.GotKind}
+	case revisions.StoreError as e:
+		return RevError{Detail: e.Detail}
+	}
+}
+
+func mergeCommitsRec(format oid.Format, oursCommit oid.OID, theirsCommit oid.OID, opts MergeTreeOptions, depth int) MergeTreeResult fails TreeError | DiffError | RevError | UntrustedDriver | MissingObject | StoreError | DepthExceeded needs pack.ObjectStore | revisions.CommitDAG {
+	if depth > opts.MaxDepth {
+		return DepthExceeded{MaxDepth: opts.MaxDepth}
+	}
+	let oursNode = try loadCommitNode(oursCommit)
+	let theirsNode = try loadCommitNode(theirsCommit)
+	if oid.Equal(oursCommit, theirsCommit) {
+		return MergeTreeResult{TreeOID: oursNode.Tree, Clean: true, Conflicts: []Conflict{}}
+	}
+	let bases = revisions.MergeBases(oursCommit, theirsCommit) catch {
+	case revisions.NotFound as e:
+		return RevError{Detail: "missing commit: " + e.Spec}
+	case revisions.NotACommit as e:
+		return RevError{Detail: "not a commit: " + e.GotKind}
+	case revisions.StoreError as e:
+		return RevError{Detail: e.Detail}
+	}
+	if len(bases) == 0 {
+		return try MergeTrees(format, None, oursNode.Tree, theirsNode.Tree, opts)
+	}
+	if len(bases) == 1 {
+		if oid.Equal(bases[0], oursCommit) {
+			return MergeTreeResult{TreeOID: theirsNode.Tree, Clean: true, Conflicts: []Conflict{}}
+		}
+		if oid.Equal(bases[0], theirsCommit) {
+			return MergeTreeResult{TreeOID: oursNode.Tree, Clean: true, Conflicts: []Conflict{}}
+		}
+		let baseNode = try loadCommitNode(bases[0])
+		return try MergeTrees(format, Some[oid.OID]{Value: baseNode.Tree}, oursNode.Tree, theirsNode.Tree, opts)
+	}
+	let mut virtualRes = try mergeCommitsRec(format, bases[0], bases[1], opts, depth+1)
+	for i in 2..len(bases) {
+		let nextBase = try loadCommitNode(bases[i])
+		virtualRes = try MergeTrees(format, None, virtualRes.TreeOID, nextBase.Tree, opts)
+	}
+	try MergeTrees(format, Some[oid.OID]{Value: virtualRes.TreeOID}, oursNode.Tree, theirsNode.Tree, opts)
+}
+
+// MergeCommits performs a recursive 3-way commit merge matching
+// `git merge-tree --write-tree`, computing all best merge bases via
+// revisions.MergeBases and constructing a virtual merge base tree when
+// criss-cross histories yield 2 or more best bases.
+func MergeCommits(format oid.Format, oursCommit oid.OID, theirsCommit oid.OID, opts MergeTreeOptions) MergeTreeResult fails TreeError | DiffError | RevError | UntrustedDriver | MissingObject | StoreError | DepthExceeded needs pack.ObjectStore | revisions.CommitDAG {
+	try mergeCommitsRec(format, oursCommit, theirsCommit, opts, 0)
+}
+
+// MemoryMerger implements TreeMerger over an in-memory pack.MemoryODB.
+type MemoryMerger {
+	format oid.Format,
+	store  pack.MemoryODB,
+} implements TreeMerger
+
+// NewMemoryMerger creates a MemoryMerger backed by a fresh pack.MemoryODB.
+func NewMemoryMerger(format oid.Format) MemoryMerger {
+	MemoryMerger{format: format, store: pack.NewMemoryODB(format)}
+}
+
+// Format implements TreeMerger.Format on MemoryMerger.
+func Format(m MemoryMerger) oid.Format {
+	m.format
+}
+
+// InstallBlob implements TreeMerger.InstallBlob on MemoryMerger.
+func InstallBlob(m MemoryMerger, data []byte) oid.OID fails StoreError {
+	m.store.Install(oid.Blob, data) catch {
+	case pack.Collision as e:
+		return StoreError{Detail: e.Digest}
+	case pack.IOFailed as e:
+		return StoreError{Detail: e.Detail}
+	}
+}
+
+// InstallTree implements TreeMerger.InstallTree on MemoryMerger.
+func InstallTree(m MemoryMerger, entries []tree.Entry) oid.OID fails TreeError | StoreError {
+	let raw = tree.EncodeTree(m.format, entries) catch {
+	case tree.InvalidEntryName as e:
+		return TreeError{Detail: e.Reason}
+	case tree.DuplicateEntry as e:
+		return TreeError{Detail: "duplicate tree entry: " + e.Name}
+	}
+	m.store.Install(oid.Tree, raw) catch {
+	case pack.Collision as e:
+		return StoreError{Detail: e.Digest}
+	case pack.IOFailed as e:
+		return StoreError{Detail: e.Detail}
+	}
+}
+
+// Merge implements TreeMerger.Merge on MemoryMerger.
+func Merge(m MemoryMerger, baseTree Option[oid.OID], oursTree oid.OID, theirsTree oid.OID) MergeTreeResult fails TreeError | DiffError | UntrustedDriver | MissingObject | StoreError | DepthExceeded {
+	with context { pack.ObjectStore: m.store } {
+		try MergeTrees(m.format, baseTree, oursTree, theirsTree, DefaultOptions())
+	}
+}
+
+// DiskMerger implements TreeMerger over an on-disk Git objects directory via fs.Host.
+type DiskMerger {
+	format     oid.Format,
+	objectsDir string,
+	alternates []string,
+	host       fs.Host,
+} implements TreeMerger
+
+// NewDiskMerger builds a DiskMerger backed by objectsDir, alternates, and host.
+func NewDiskMerger(format oid.Format, objectsDir string, alternates []string, host fs.Host) DiskMerger {
+	DiskMerger{
+		format:     format,
+		objectsDir: objectsDir,
+		alternates: alternates,
+		host:       host,
+	}
+}
+
+func openDiskMergerODB(d DiskMerger) pack.DiskODB fails StoreError {
+	let odb = with context { fs.Files: d.host } {
+		pack.Open(d.format, d.objectsDir, d.alternates, delta.DefaultLimits()) catch {
+		case pack.Corrupt as e:
+			return StoreError{Detail: e.Why}
+		case pack.MismatchedPair as e:
+			return StoreError{Detail: "mismatched pack pair: " + e.PackPath}
+		case pack.IOFailed as e:
+			return StoreError{Detail: e.Op + ": " + e.Detail}
+		}
+	}
+	pack.NewDiskODB(odb, d.host)
+}
+
+// Format implements TreeMerger.Format on DiskMerger.
+func Format(d DiskMerger) oid.Format {
+	d.format
+}
+
+// InstallBlob implements TreeMerger.InstallBlob on DiskMerger.
+func InstallBlob(d DiskMerger, data []byte) oid.OID fails StoreError {
+	let store = try openDiskMergerODB(d)
+	store.Install(oid.Blob, data) catch {
+	case pack.Collision as e:
+		return StoreError{Detail: e.Digest}
+	case pack.IOFailed as e:
+		return StoreError{Detail: e.Detail}
+	}
+}
+
+// InstallTree implements TreeMerger.InstallTree on DiskMerger.
+func InstallTree(d DiskMerger, entries []tree.Entry) oid.OID fails TreeError | StoreError {
+	let raw = tree.EncodeTree(d.format, entries) catch {
+	case tree.InvalidEntryName as e:
+		return TreeError{Detail: e.Reason}
+	case tree.DuplicateEntry as e:
+		return TreeError{Detail: "duplicate tree entry: " + e.Name}
+	}
+	let store = try openDiskMergerODB(d)
+	store.Install(oid.Tree, raw) catch {
+	case pack.Collision as e:
+		return StoreError{Detail: e.Digest}
+	case pack.IOFailed as e:
+		return StoreError{Detail: e.Detail}
+	}
+}
+
+// Merge implements TreeMerger.Merge on DiskMerger.
+func Merge(d DiskMerger, baseTree Option[oid.OID], oursTree oid.OID, theirsTree oid.OID) MergeTreeResult fails TreeError | DiffError | UntrustedDriver | MissingObject | StoreError | DepthExceeded {
+	let store = try openDiskMergerODB(d)
+	with context { pack.ObjectStore: store } {
+		try MergeTrees(d.format, baseTree, oursTree, theirsTree, DefaultOptions())
+	}
+}

@@ -1074,6 +1074,70 @@
       ]
     },
     {
+      "name": "git-attrs-trust-untrusted-driver",
+      "origin": "STD-GIT G-ATTRS",
+      "file": "modules/git/attrs/attrs.ergo",
+      "from": "\t\t\t\tif !isExternalDriverAuthorized(v.Val, policy) {",
+      "to": "\t\t\t\tif false && !isExternalDriverAuthorized(v.Val, policy) {",
+      "rule": "ResolveMergeDriver refuses external merge.<name>.driver names with UntrustedDriver unless explicitly authorized by DriverPolicy.",
+      "anchor": {
+        "tests": [
+          "modules/git/attrs:AttributesAndDriverTrustMatchGitCheckAttr"
+        ]
+      },
+      "killers": [
+        "modules/git/attrs:AttributesAndDriverTrustMatchGitCheckAttr"
+      ]
+    },
+    {
+      "name": "git-attrs-earlier-rule-wins",
+      "origin": "STD-GIT G-ATTRS",
+      "file": "modules/git/attrs/attrs.ergo",
+      "from": "\tlet overwrite = true",
+      "to": "\tlet overwrite = false",
+      "rule": "ResolveAttrs gives higher precedence to later lines in .gitattributes, deeper directories, and .git/info/attributes over earlier rules.",
+      "anchor": {
+        "tests": [
+          "modules/git/attrs:AttributesAndDriverTrustMatchGitCheckAttr"
+        ]
+      },
+      "killers": [
+        "modules/git/attrs:AttributesAndDriverTrustMatchGitCheckAttr"
+      ]
+    },
+    {
+      "name": "git-mergetree-bypass-driver-on-seen-blob",
+      "origin": "STD-GIT G-MERGETREE",
+      "file": "modules/git/mergetree/merge.ergo",
+      "from": "\tlet useDriver = true",
+      "to": "\tlet useDriver = false",
+      "rule": "MergeTrees honors resolved .gitattributes merge drivers (merge=union, -merge/binary) when merging modified blobs.",
+      "anchor": {
+        "tests": [
+          "modules/git/mergetree:MergeTreeMatchesGitMergeTreeAndFsck"
+        ]
+      },
+      "killers": [
+        "modules/git/mergetree:MergeTreeMatchesGitMergeTreeAndFsck"
+      ]
+    },
+    {
+      "name": "git-mergetree-ignore-file-dir-conflict",
+      "origin": "STD-GIT G-MERGETREE",
+      "file": "modules/git/mergetree/merge.ergo",
+      "from": "\tlet detectFileDir = true",
+      "to": "\tlet detectFileDir = false",
+      "rule": "MergeTrees detects file/directory path collisions (file a vs file a/b) and emits FileDirConflict cleanly.",
+      "anchor": {
+        "tests": [
+          "modules/git/mergetree:MergeTreeConflictsAndCrissCrossMatchGit"
+        ]
+      },
+      "killers": [
+        "modules/git/mergetree:MergeTreeConflictsAndCrissCrossMatchGit"
+      ]
+    },
+    {
       "name": "git-windex-allow-unmerged-write-tree",
       "origin": "STD-GIT G-WINDEX",
       "file": "modules/git/windex/windex.ergo",

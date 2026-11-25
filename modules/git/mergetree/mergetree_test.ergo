@@ -1,0 +1,309 @@
+import exec
+import filepath
+import fs
+import fstest
+import os
+import strings
+import github.com/cevr/ergo/modules/git/delta
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/oracle
+import github.com/cevr/ergo/modules/git/pack
+import github.com/cevr/ergo/modules/git/revisions
+import github.com/cevr/ergo/modules/git/tree
+
+func openRepoDiskODB(fmt oid.Format, objectsDir string, host fs.Host) pack.DiskODB fails pack.Corrupt | pack.MismatchedPair | pack.IOFailed {
+	let odb = with context { fs.Files: host } {
+		try pack.Open(fmt, objectsDir, []string{}, delta.DefaultLimits())
+	}
+	pack.NewDiskODB(odb, host)
+}
+
+let onOracleSha1 = context fails pack.Corrupt | pack.MismatchedPair | pack.IOFailed needs TestAmbient {
+	exec.Runner:         exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
+	fs.Files:            fs.NewTestHost(),
+	fs.Writes:           fs.NewTestHost(),
+	os.Process:          os.NewTestHost(),
+	oracle.Symlinks:     oracle.NewHostSymlinks(fs.NewTestHost()),
+	pack.ObjectStore:    try openRepoDiskODB(oid.Sha1, filepath.Join([]string{fstest.TestFolder(), "repo-sha1", ".git", "objects"}), fs.NewTestHost()),
+	revisions.CommitDAG: revisions.NewStoreDAG(oid.Sha1, filepath.Join([]string{fstest.TestFolder(), "repo-sha1", ".git", "objects"}), []string{}, false, fs.NewTestHost()),
+}
+
+let onOracleSha256 = context fails pack.Corrupt | pack.MismatchedPair | pack.IOFailed needs TestAmbient {
+	exec.Runner:         exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
+	fs.Files:            fs.NewTestHost(),
+	fs.Writes:           fs.NewTestHost(),
+	os.Process:          os.NewTestHost(),
+	oracle.Symlinks:     oracle.NewHostSymlinks(fs.NewTestHost()),
+	pack.ObjectStore:    try openRepoDiskODB(oid.Sha256, filepath.Join([]string{fstest.TestFolder(), "repo-sha256", ".git", "objects"}), fs.NewTestHost()),
+	revisions.CommitDAG: revisions.NewStoreDAG(oid.Sha256, filepath.Join([]string{fstest.TestFolder(), "repo-sha256", ".git", "objects"}), []string{}, false, fs.NewTestHost()),
+}
+
+let onMemoryMergerSha1 = context {
+	TreeMerger: NewMemoryMerger(oid.Sha1),
+}
+
+let onMemoryMergerSha256 = context {
+	TreeMerger: NewMemoryMerger(oid.Sha256),
+}
+
+let onDiskMergerSha1 = context needs TestAmbient {
+	TreeMerger: NewDiskMerger(oid.Sha1, filepath.Join([]string{fstest.TestFolder(), "law-disk-mergetree-objects"}), []string{}, fs.NewTestHost()),
+}
+
+type testFail {
+	reason string,
+}
+
+func runGit(dir string, args []string, pathEnv Map[string, string], step int) (int, string, string) fails exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	let res = try exec.Runner.Run(oracle.GitCommand(dir, args, pathEnv, oracle.StepEpoch(step)))
+	(res.Status, res.Stdout, res.Stderr)
+}
+
+func runGitOk(dir string, args []string, pathEnv Map[string, string], step int) string fails testFail | exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	let (st, out, err) = try runGit(dir, args, pathEnv, step)
+	if st != 0 {
+		return testFail{reason: "git failed: " + err}
+	}
+	out
+}
+
+func check(cond bool, msg string) fails testFail {
+	if !cond {
+		return testFail{reason: msg}
+	}
+}
+
+func revParseOID(repoDir string, fmt oid.Format, spec string, pathEnv Map[string, string], step int) oid.OID fails testFail | oid.BadHex | oid.WrongLength | exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	let hexStr = strings.TrimSpace(try runGitOk(repoDir, []string{"rev-parse", spec}, pathEnv, step))
+	try oid.ParseHex(fmt, hexStr)
+}
+
+func gitMergeTreeOID(repoDir string, fmt oid.Format, ours string, theirs string, pathEnv Map[string, string], step int) (bool, oid.OID) fails testFail | oid.BadHex | oid.WrongLength | exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	let (st, out, err) = try runGit(repoDir, []string{"merge-tree", "--write-tree", "-z", ours, theirs}, pathEnv, step)
+	if st != 0 && st != 1 {
+		return testFail{reason: "git merge-tree unexpected exit: " + err}
+	}
+	let parts = strings.Split(out, "\x00")
+	if len(parts) == 0 || parts[0] == "" {
+		return testFail{reason: "git merge-tree empty output"}
+	}
+	let treeId = try oid.ParseHex(fmt, strings.TrimSpace(parts[0]))
+	(st == 0, treeId)
+}
+
+func hasConflictKind(conflicts []Conflict, path string, want ConflictKind) bool {
+	for c in conflicts {
+		if c.Path == path && conflictKindName(c.Kind) == conflictKindName(want) {
+			return true
+		}
+	}
+	false
+}
+
+func conflictKindName(k ConflictKind) string {
+	match k {
+	case ContentConflict:
+		"content"
+	case BinaryConflict:
+		"binary"
+	case ModeConflict:
+		"mode"
+	case FileDirConflict:
+		"filedir"
+	case ModifyDelete:
+		"moddel"
+	case RenameDelete:
+		"rendel"
+	case RenameRename:
+		"renren"
+	case AddAdd:
+		"addadd"
+	case SymlinkConflict:
+		"symlink"
+	case GitlinkConflict:
+		"gitlink"
+	}
+}
+
+func runCleanAndDriverSuite(cwd string, oFmt oracle.OidFormat, fmt oid.Format, pathEnv Map[string, string]) fails testFail | TreeError | DiffError | RevError | UntrustedDriver | MissingObject | StoreError | DepthExceeded | oid.BadHex | oid.WrongLength | oracle.Missing | oracle.Corrupt | oracle.Ambiguous | oracle.InvalidRef | oracle.Conflict | oracle.CommandFailed | exec.NotFound | exec.Denied | exec.Failed | fs.NotFound | fs.Denied | fs.Failed needs pack.ObjectStore | revisions.CommitDAG | exec.Runner | fs.Files | fs.Writes {
+	let label = oracle.FormatName(oFmt)
+	let repoDir = try oracle.InitRepo(filepath.Join([]string{cwd, "repo-" + label}), oracle.RepoSpec{Format: oFmt, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, oracle.BaseEpoch)
+
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, ".gitattributes"}), "*.log merge=union\n*.bin -merge\n")
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "shared.txt"}), "line1\nline2\nline3\nline4\nline5\n")
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "rename-me.txt"}), "alpha\nbeta\ngamma\ndelta\nepsilon\nzeta\n")
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "events.log"}), "start\n")
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "blob.bin"}), "v0\n")
+	let _ = try runGitOk(repoDir, []string{"add", "."}, pathEnv, 1)
+	let _ = try runGitOk(repoDir, []string{"commit", "-q", "-m", "base"}, pathEnv, 2)
+	let _ = try runGitOk(repoDir, []string{"branch", "base"}, pathEnv, 2)
+
+	let _ = try runGitOk(repoDir, []string{"checkout", "-q", "-b", "clean-ours", "base"}, pathEnv, 3)
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "shared.txt"}), "line1-ours\nline2\nline3\nline4\nline5\n")
+	let _ = try runGitOk(repoDir, []string{"mv", "rename-me.txt", "renamed.txt"}, pathEnv, 4)
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "events.log"}), "start\nours-event\n")
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "ours-only.txt"}), "from ours\n")
+	let _ = try runGitOk(repoDir, []string{"add", "."}, pathEnv, 5)
+	let _ = try runGitOk(repoDir, []string{"commit", "-q", "-m", "clean ours"}, pathEnv, 6)
+
+	let _ = try runGitOk(repoDir, []string{"checkout", "-q", "-b", "clean-theirs", "base"}, pathEnv, 7)
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "shared.txt"}), "line1\nline2\nline3\nline4\nline5-theirs\n")
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "rename-me.txt"}), "alpha\nbeta\ngamma\ndelta\nepsilon\nzeta-edited\n")
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "events.log"}), "start\ntheirs-event\n")
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "theirs-only.txt"}), "from theirs\n")
+	let _ = try runGitOk(repoDir, []string{"add", "."}, pathEnv, 8)
+	let _ = try runGitOk(repoDir, []string{"commit", "-q", "-m", "clean theirs"}, pathEnv, 9)
+
+	let oursC = try revParseOID(repoDir, fmt, "clean-ours", pathEnv, 10)
+	let theirsC = try revParseOID(repoDir, fmt, "clean-theirs", pathEnv, 10)
+	let (gitClean, gitTreeId) = try gitMergeTreeOID(repoDir, fmt, "clean-ours", "clean-theirs", pathEnv, 11)
+	try check(gitClean, "git merge-tree should succeed cleanly on disjoint+rename+union")
+
+	let gotClean = try MergeCommits(fmt, oursC, theirsC, DefaultOptions())
+	try check(gotClean.Clean, "MergeCommits must be clean on disjoint+rename+union")
+	try check(len(gotClean.Conflicts) == 0, "expected 0 conflicts on clean merge")
+	try check(oid.Equal(gotClean.TreeOID, gitTreeId), "clean merge TreeOID disagreed with git merge-tree --write-tree")
+
+	let _ = try runGitOk(repoDir, []string{"checkout", "-q", "-b", "bin-ours", "base"}, pathEnv, 12)
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "blob.bin"}), "v1-ours\n")
+	let _ = try runGitOk(repoDir, []string{"add", "."}, pathEnv, 13)
+	let _ = try runGitOk(repoDir, []string{"commit", "-q", "-m", "bin ours"}, pathEnv, 14)
+
+	let _ = try runGitOk(repoDir, []string{"checkout", "-q", "-b", "bin-theirs", "base"}, pathEnv, 15)
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "blob.bin"}), "v2-theirs\n")
+	let _ = try runGitOk(repoDir, []string{"add", "."}, pathEnv, 16)
+	let _ = try runGitOk(repoDir, []string{"commit", "-q", "-m", "bin theirs"}, pathEnv, 17)
+
+	let binOursC = try revParseOID(repoDir, fmt, "bin-ours", pathEnv, 18)
+	let binTheirsC = try revParseOID(repoDir, fmt, "bin-theirs", pathEnv, 18)
+	let (gitBinClean, _) = try gitMergeTreeOID(repoDir, fmt, "bin-ours", "bin-theirs", pathEnv, 19)
+	try check(!gitBinClean, "git merge-tree must conflict on -merge file")
+
+	let gotBin = try MergeCommits(fmt, binOursC, binTheirsC, DefaultOptions())
+	try check(!gotBin.Clean, "MergeCommits must report conflict on -merge file")
+	try check(hasConflictKind(gotBin.Conflicts, "blob.bin", BinaryConflict), "expected BinaryConflict on blob.bin")
+
+	let _ = try runGitOk(repoDir, []string{"fsck", "--strict", "--full"}, pathEnv, 20)
+}
+
+// MergeTreeMatchesGitMergeTreeAndFsck: verifies clean disjoint edits, rename +
+// edit, `merge=union`, and `-merge` binary conflicts match C
+// `git merge-tree --write-tree -z` on exact root TreeOID and conflict status
+// across both SHA-1 and SHA-256 repositories with `git fsck --strict --full`.
+test MergeTreeMatchesGitMergeTreeAndFsck {
+	with try onOracleSha1 {
+		let pathEnv = exec.PathOf(os.Process.Environ())
+		let cwd = try os.Process.Getwd()
+		try runCleanAndDriverSuite(cwd, oracle.Sha1, oid.Sha1, pathEnv)
+	}
+	with try onOracleSha256 {
+		let pathEnv = exec.PathOf(os.Process.Environ())
+		let cwd = try os.Process.Getwd()
+		try runCleanAndDriverSuite(cwd, oracle.Sha256, oid.Sha256, pathEnv)
+	}
+}
+
+// MergeTreeConflictsAndCrissCrossMatchGit: exercises content, add/add,
+// modify/delete, rename/delete, file/directory, symlink, gitlink, and
+// criss-cross (2 merge bases -> recursive virtual merge base) merges against
+// real C `git merge-tree --write-tree -z` and `git fsck --strict --full`.
+test MergeTreeConflictsAndCrissCrossMatchGit {
+	with try onOracleSha1 {
+		let pathEnv = exec.PathOf(os.Process.Environ())
+		let cwd = try os.Process.Getwd()
+		let repoDir = try oracle.InitRepo(filepath.Join([]string{cwd, "repo-sha1"}), oracle.RepoSpec{Format: oracle.Sha1, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, oracle.BaseEpoch)
+
+		try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "conflict.txt"}), "base-line\n")
+		try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "moddel.txt"}), "moddel-base\n")
+		try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "rendel.txt"}), "rendel-line-1\nrendel-line-2\nrendel-line-3\n")
+		try oracle.Symlinks.CreateSymlink("target-base", filepath.Join([]string{repoDir, "link"}))
+		let _ = try runGitOk(repoDir, []string{"add", "."}, pathEnv, 1)
+		let _ = try runGitOk(repoDir, []string{"commit", "-q", "-m", "root"}, pathEnv, 2)
+		let _ = try runGitOk(repoDir, []string{"branch", "root"}, pathEnv, 2)
+
+		let _ = try runGitOk(repoDir, []string{"checkout", "-q", "-b", "conf-ours", "root"}, pathEnv, 3)
+		try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "conflict.txt"}), "ours-line\n")
+		try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "addadd.txt"}), "ours-added\n")
+		try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "moddel.txt"}), "ours-modified\n")
+		let _ = try runGitOk(repoDir, []string{"mv", "rendel.txt", "rendel-moved.txt"}, pathEnv, 4)
+		try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "fd"}), "i am a file\n")
+		try fs.Writes.Remove(filepath.Join([]string{repoDir, "link"}))
+		try oracle.Symlinks.CreateSymlink("target-ours", filepath.Join([]string{repoDir, "link"}))
+		let _ = try runGitOk(repoDir, []string{"add", "-A"}, pathEnv, 5)
+		let _ = try runGitOk(repoDir, []string{"commit", "-q", "-m", "conf ours"}, pathEnv, 6)
+
+		let _ = try runGitOk(repoDir, []string{"checkout", "-q", "-b", "conf-theirs", "root"}, pathEnv, 7)
+		try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "conflict.txt"}), "theirs-line\n")
+		try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "addadd.txt"}), "theirs-added\n")
+		let _ = try runGitOk(repoDir, []string{"rm", "-q", "moddel.txt"}, pathEnv, 8)
+		let _ = try runGitOk(repoDir, []string{"rm", "-q", "rendel.txt"}, pathEnv, 9)
+		try fs.Writes.MkdirAll(filepath.Join([]string{repoDir, "fd"}))
+		try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "fd", "child.txt"}), "i am inside a dir\n")
+		try fs.Writes.Remove(filepath.Join([]string{repoDir, "link"}))
+		try oracle.Symlinks.CreateSymlink("target-theirs", filepath.Join([]string{repoDir, "link"}))
+		let _ = try runGitOk(repoDir, []string{"add", "-A"}, pathEnv, 10)
+		let _ = try runGitOk(repoDir, []string{"commit", "-q", "-m", "conf theirs"}, pathEnv, 11)
+
+		let coId = try revParseOID(repoDir, oid.Sha1, "conf-ours", pathEnv, 12)
+		let ctId = try revParseOID(repoDir, oid.Sha1, "conf-theirs", pathEnv, 12)
+		let (gitConfClean, _) = try gitMergeTreeOID(repoDir, oid.Sha1, "conf-ours", "conf-theirs", pathEnv, 13)
+		assert !gitConfClean
+
+		let confRes = try MergeCommits(oid.Sha1, coId, ctId, DefaultOptions())
+		assert !confRes.Clean
+		assert hasConflictKind(confRes.Conflicts, "conflict.txt", ContentConflict)
+		assert hasConflictKind(confRes.Conflicts, "addadd.txt", AddAdd)
+		assert hasConflictKind(confRes.Conflicts, "moddel.txt", ModifyDelete)
+		assert hasConflictKind(confRes.Conflicts, "rendel-moved.txt", RenameDelete)
+		assert hasConflictKind(confRes.Conflicts, "fd", FileDirConflict)
+		assert hasConflictKind(confRes.Conflicts, "link", SymlinkConflict)
+
+		let _ = try runGitOk(repoDir, []string{"checkout", "-q", "-b", "cc-a", "root"}, pathEnv, 20)
+		try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "cc-a.txt"}), "a1\n")
+		let _ = try runGitOk(repoDir, []string{"add", "."}, pathEnv, 21)
+		let _ = try runGitOk(repoDir, []string{"commit", "-q", "-m", "cc a1"}, pathEnv, 22)
+		let _ = try runGitOk(repoDir, []string{"branch", "cc-a1"}, pathEnv, 22)
+
+		let _ = try runGitOk(repoDir, []string{"checkout", "-q", "-b", "cc-b", "root"}, pathEnv, 23)
+		try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "cc-b.txt"}), "b1\n")
+		let _ = try runGitOk(repoDir, []string{"add", "."}, pathEnv, 24)
+		let _ = try runGitOk(repoDir, []string{"commit", "-q", "-m", "cc b1"}, pathEnv, 25)
+		let _ = try runGitOk(repoDir, []string{"branch", "cc-b1"}, pathEnv, 25)
+
+		let _ = try runGitOk(repoDir, []string{"checkout", "-q", "cc-a"}, pathEnv, 26)
+		let _ = try runGitOk(repoDir, []string{"merge", "-q", "--no-ff", "-m", "cc a2", "cc-b1"}, pathEnv, 27)
+		try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "cc-a-extra.txt"}), "a-extra\n")
+		let _ = try runGitOk(repoDir, []string{"add", "."}, pathEnv, 28)
+		let _ = try runGitOk(repoDir, []string{"commit", "-q", "-m", "cc a3"}, pathEnv, 29)
+
+		let _ = try runGitOk(repoDir, []string{"checkout", "-q", "cc-b"}, pathEnv, 30)
+		let _ = try runGitOk(repoDir, []string{"merge", "-q", "--no-ff", "-m", "cc b2", "cc-a1"}, pathEnv, 31)
+		try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "cc-b-extra.txt"}), "b-extra\n")
+		let _ = try runGitOk(repoDir, []string{"add", "."}, pathEnv, 32)
+		let _ = try runGitOk(repoDir, []string{"commit", "-q", "-m", "cc b3"}, pathEnv, 33)
+
+		let ccA = try revParseOID(repoDir, oid.Sha1, "cc-a", pathEnv, 34)
+		let ccB = try revParseOID(repoDir, oid.Sha1, "cc-b", pathEnv, 34)
+		let bases = try revisions.MergeBases(ccA, ccB)
+		assert len(bases) == 2
+
+		let (gitCcClean, gitCcTree) = try gitMergeTreeOID(repoDir, oid.Sha1, "cc-a", "cc-b", pathEnv, 35)
+		assert gitCcClean
+		let ccRes = try MergeCommits(oid.Sha1, ccA, ccB, DefaultOptions())
+		assert ccRes.Clean
+		assert oid.Equal(ccRes.TreeOID, gitCcTree)
+
+		let _ = try runGitOk(repoDir, []string{"fsck", "--strict", "--full"}, pathEnv, 36)
+	}
+
+	let mem = NewMemoryMerger(oid.Sha1)
+	let gBase = try oid.ParseHex(oid.Sha1, "1111111111111111111111111111111111111111")
+	let gOurs = try oid.ParseHex(oid.Sha1, "2222222222222222222222222222222222222222")
+	let gTheirs = try oid.ParseHex(oid.Sha1, "3333333333333333333333333333333333333333")
+	let tBase = try mem.InstallTree([]tree.Entry{tree.Entry{Mode: tree.ModeGitlink, Name: "submod", OID: gBase}})
+	let tOurs = try mem.InstallTree([]tree.Entry{tree.Entry{Mode: tree.ModeGitlink, Name: "submod", OID: gOurs}})
+	let tTheirs = try mem.InstallTree([]tree.Entry{tree.Entry{Mode: tree.ModeGitlink, Name: "submod", OID: gTheirs}})
+	let gRes = try mem.Merge(Some[oid.OID]{Value: tBase}, tOurs, tTheirs)
+	assert !gRes.Clean
+	assert hasConflictKind(gRes.Conflicts, "submod", GitlinkConflict)
+}

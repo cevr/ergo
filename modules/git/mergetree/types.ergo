@@ -1,0 +1,160 @@
+// Package mergetree implements pure-Ergo 3-way recursive tree and commit
+// merging matching C Git's `git merge-tree --write-tree` (STD-GIT: G-MERGETREE),
+// including `.gitattributes` driver dispatch, rename detection, file/directory
+// and mode/symlink/gitlink conflicts, and recursive virtual merge bases for
+// criss-cross merge DAGs.
+
+import github.com/cevr/ergo/modules/git/attrs
+import github.com/cevr/ergo/modules/git/filemerge
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/tree
+
+// Error is the closed failure union for 3-way tree and commit merging.
+type Error =
+	| TreeError{Detail string}
+	| DiffError{Detail string}
+	| RevError{Detail string}
+	| UntrustedDriver{Path string, Driver string}
+	| MissingObject{OID oid.OID}
+	| StoreError{Detail string}
+	| DepthExceeded{MaxDepth int}
+
+// ConflictKind classifies a structured 3-way merge conflict.
+type ConflictKind =
+	| ContentConflict{}
+	| BinaryConflict{}
+	| ModeConflict{}
+	| FileDirConflict{}
+	| ModifyDelete{}
+	| RenameDelete{}
+	| RenameRename{}
+	| AddAdd{}
+	| SymlinkConflict{}
+	| GitlinkConflict{}
+
+// StageEntry records the mode and OID of one merge stage (1=base, 2=ours, 3=theirs).
+type StageEntry {
+	Mode tree.Mode,
+	OID  oid.OID,
+}
+
+// Conflict describes one unresolved path conflict produced by MergeTrees or
+// MergeCommits, preserving stages 1, 2, and 3.
+type Conflict {
+	Path   string,
+	Kind   ConflictKind,
+	Stage1 Option[StageEntry],
+	Stage2 Option[StageEntry],
+	Stage3 Option[StageEntry],
+	Detail string,
+}
+
+// MergeTreeOptions configures conflict formatting, `.gitattributes` driver
+// policy, rename detection, and recursion bounds.
+type MergeTreeOptions {
+	BaseLabel       string,
+	OursLabel       string,
+	TheirsLabel     string,
+	Style           filemerge.ConflictStyle,
+	InfoAttributes  string,
+	DriverPolicy    attrs.DriverPolicy,
+	DetectRenames   bool,
+	RenameThreshold int,
+	MaxDepth        int,
+	MaxBytes        int,
+}
+
+// DefaultOptions returns Git-compatible default MergeTreeOptions with rename
+// detection enabled at 50% similarity and strict external driver refusal.
+func DefaultOptions() MergeTreeOptions {
+	MergeTreeOptions{
+		BaseLabel:       "base",
+		OursLabel:       "HEAD",
+		TheirsLabel:     "MERGE_HEAD",
+		Style:           filemerge.StyleMerge,
+		InfoAttributes:  "",
+		DriverPolicy:    attrs.StrictPolicy(),
+		DetectRenames:   true,
+		RenameThreshold: 50,
+		MaxDepth:        32,
+		MaxBytes:        16777216,
+	}
+}
+
+// MergeTreeResult holds the written canonical root TreeOID, Clean status, and
+// any structured Conflicts encountered during the merge.
+type MergeTreeResult {
+	TreeOID   oid.OID,
+	Clean     bool,
+	Conflicts []Conflict,
+}
+
+// TreeMerger is the capability seam for 3-way tree merging, carrying algebraic
+// merge laws held identically by MemoryMerger and DiskMerger.
+type TreeMerger {
+	Format() oid.Format,
+	InstallBlob(data []byte) oid.OID fails StoreError,
+	InstallTree(entries []tree.Entry) oid.OID fails TreeError | StoreError,
+	Merge(baseTree Option[oid.OID], oursTree oid.OID, theirsTree oid.OID) MergeTreeResult fails TreeError | DiffError | UntrustedDriver | MissingObject | StoreError | DepthExceeded,
+
+	// MergeSameCommitIsClean: merging any tree with itself always produces a
+	// Clean result with the exact same root TreeOID and zero conflicts.
+	law MergeSameCommitIsClean(payload string) {
+		let b = InstallBlob(("same-tree-" + payload).Bytes()) catch {
+		case StoreError:
+			return false
+		}
+		let t = InstallTree([]tree.Entry{
+			tree.Entry{Mode: tree.ModeRegular, Name: "file.txt", OID: b},
+		}) catch {
+		case TreeError, StoreError:
+			return false
+		}
+		let res = Merge(Some[oid.OID]{Value: t}, t, t) catch {
+		case TreeError, DiffError, UntrustedDriver, MissingObject, StoreError, DepthExceeded:
+			return false
+		}
+		res.Clean && len(res.Conflicts) == 0 && oid.Equal(res.TreeOID, t)
+	},
+
+	// MergeFastForwardTakesDescendant: merging a base tree with a modified
+	// descendant tree (in either ours/theirs order) is Clean and yields the
+	// descendant's exact root TreeOID.
+	law MergeFastForwardTakesDescendant(payload string) {
+		let b1 = InstallBlob(("ff-base-" + payload).Bytes()) catch {
+		case StoreError:
+			return false
+		}
+		let b2 = InstallBlob(("ff-next-" + payload).Bytes()) catch {
+		case StoreError:
+			return false
+		}
+		let baseT = InstallTree([]tree.Entry{
+			tree.Entry{Mode: tree.ModeRegular, Name: "a.txt", OID: b1},
+		}) catch {
+		case TreeError, StoreError:
+			return false
+		}
+		let descT = InstallTree([]tree.Entry{
+			tree.Entry{Mode: tree.ModeRegular, Name: "a.txt", OID: b2},
+			tree.Entry{Mode: tree.ModeExecutable, Name: "run.sh", OID: b1},
+		}) catch {
+		case TreeError, StoreError:
+			return false
+		}
+		let r1 = Merge(Some[oid.OID]{Value: baseT}, baseT, descT) catch {
+		case TreeError, DiffError, UntrustedDriver, MissingObject, StoreError, DepthExceeded:
+			return false
+		}
+		let r2 = Merge(Some[oid.OID]{Value: baseT}, descT, baseT) catch {
+		case TreeError, DiffError, UntrustedDriver, MissingObject, StoreError, DepthExceeded:
+			return false
+		}
+			r1.Clean &&
+			len(r1.Conflicts) == 0 &&
+			oid.Equal(r1.TreeOID, descT) &&
+			r2.Clean &&
+			len(r2.Conflicts) == 0 &&
+			oid.Equal(r2.TreeOID, descT)
+	},
+}
