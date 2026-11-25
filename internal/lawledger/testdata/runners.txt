@@ -576,6 +576,10 @@ mcp ArgumentsOutsideTheSchemaAreRefused	TestStdMCPLawsRun
 mcp ListNamesEveryTool	TestStdMCPLawsRun
 mcp Transport.StopsWhenAsked	TestStdMCPLawsRun
 mcp UnknownToolIsATypedError	TestStdMCPLawsRun
+mcp/httpmcp BatchMatchesMemory	TestStdMCPLawsRun
+mcp/httpmcp HttpMatchesMemory	TestStdMCPLawsRun
+mcp/httpmcp ProtocolHeadersAndSecurity	TestStdMCPLawsRun
+mcp/httpmcp SessionLifecycleAndIsolation	TestStdMCPLawsRun
 mcp/memory CallAnswersOnce	TestStdMCPLawsRun
 net Network.AcceptsInDialOrder	TestNetLaws
 net Network.CloseEndsReads	TestNetLaws
