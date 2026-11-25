@@ -1,0 +1,119 @@
+// Package glob implements a pure-Ergo, linear-time, ReDoS-free glob pattern
+// compiler, path matcher, and filesystem directory scanner over fs.Files
+// (STD-GLOB).
+
+import option
+
+// InvalidPattern reports a malformed glob pattern (unclosed character class,
+// reversed range such as `[z-a]`, unclosed brace alternation, trailing escape,
+// or exceeded brace expansion bounds).
+type InvalidPattern {
+	Pattern string,
+	Offset  int,
+	Reason  string,
+}
+
+// CharRange is an inclusive byte range `[Lo, Hi]` inside a character class.
+type CharRange {
+	Lo byte,
+	Hi byte,
+}
+
+// SegToken is one compiled flat token within a single path segment.
+type SegToken =
+	| TokLit{Ch byte}
+	| TokAny{}
+	| TokStar{}
+	| TokClass{Negated bool, Ranges []CharRange}
+
+// SegPattern is one compiled segment in a glob branch: either a recursive `**`
+// wildcard matching zero or more path segments, or a flat slice of intra-segment
+// tokens.
+type SegPattern =
+	| SegDoubleStar{}
+	| SegTokens{Tokens []SegToken, ExplicitDot bool, StaticLiteral option.Option[string]}
+
+// CompiledBranch is one brace-expanded branch of a compiled glob Pattern.
+type CompiledBranch {
+	Segments []SegPattern,
+}
+
+// Pattern is a compiled, flat, data-oriented glob pattern supporting `*`, `**`,
+// `?`, character classes (`[abc]`, `[a-z]`, `[!a-z]`, `[^a-z]`), brace
+// alternations (`{a,b,c}`), and backslash escapes without exponential
+// backtracking.
+type Pattern {
+	Raw          string,
+	Branches     []CompiledBranch,
+	StaticPrefix []string,
+	ExplicitDot  bool,
+}
+
+// ScanOptions configures filesystem traversal in Scan.
+type ScanOptions {
+	IncludeDirs     bool,
+	IncludeDotfiles bool,
+	MaxDepth        int,
+}
+
+// DefaultScanOptions returns default Scan options: files only, dotfiles skipped
+// unless matched explicitly by the pattern, and unlimited traversal depth.
+func DefaultScanOptions() ScanOptions {
+	ScanOptions{
+		IncludeDirs:     false,
+		IncludeDotfiles: false,
+		MaxDepth:        0,
+	}
+}
+
+// Matcher is the capability seam for glob compilation and matching, carrying
+// laws verified on DefaultMatcher.
+type Matcher {
+	CompilePattern(pattern string) Pattern fails InvalidPattern,
+	MatchPath(p Pattern, path string) bool,
+	MatchText(pattern string, path string) bool fails InvalidPattern,
+
+	// CompileThenMatchAgreesWithMatchText: compiling pattern once and matching
+	// agrees identically with one-shot MatchText.
+	law CompileThenMatchAgreesWithMatchText(seg string, star bool) {
+		let pat = if star { "**/*" } else { "dir/*" }
+		let p = CompilePattern(pat) catch {
+		case InvalidPattern:
+			return false
+		}
+		let path = "dir/" + seg
+		let a = MatchPath(p, path)
+		let b = MatchText(pat, path) catch {
+		case InvalidPattern:
+			return false
+		}
+		let ok = a == b
+		always ok
+		sometimes star && ok
+		sometimes !star && ok
+		ok
+	},
+}
+
+// DefaultMatcher is the standard pure-Ergo provider of Matcher.
+type DefaultMatcher {} implements Matcher
+
+// NewDefaultMatcher returns a DefaultMatcher provider.
+func NewDefaultMatcher() DefaultMatcher {
+	DefaultMatcher
+}
+
+// CompilePattern implements Matcher.CompilePattern on DefaultMatcher.
+func CompilePattern(_ DefaultMatcher, pattern string) Pattern fails InvalidPattern {
+	try Compile(pattern)
+}
+
+// MatchPath implements Matcher.MatchPath on DefaultMatcher.
+func MatchPath(_ DefaultMatcher, p Pattern, path string) bool {
+	Match(p, path)
+}
+
+// MatchText implements Matcher.MatchText on DefaultMatcher.
+func MatchText(_ DefaultMatcher, pattern string, path string) bool fails InvalidPattern {
+	try MatchString(pattern, path)
+}

@@ -188,10 +188,10 @@ func NewSinkFromConfig(cfg ObserveConfig, out io.Stderr) Sink {
 	}
 }
 
-// SinkFromEnv reads ERGO_OBSERVE from os.Process and returns the configured
-// Sink bound to out.
+// SinkFromEnv reads ERGO_OBSERVE and optional tail-sampling env variables from
+// os.Process and returns the configured Sink bound to out.
 func SinkFromEnv(out io.Stderr) Sink needs os.Process {
-	NewSinkFromConfig(ConfigFromEnv(), out)
+	FromEnv(out)
 }
 
 type spanAcc {
@@ -503,6 +503,8 @@ func runSpan[T, E, R](name string, service ServiceMeta, incoming option.Option[T
 	let start = time.Clock.Now()
 	let h = makeSpanHandle(name, service, incoming, gen, sampled, start)
 	widePush[activeHandle]("wide_span", h)
+	widePush[string]("wide_trace_id", h.ctx.TraceID)
+	widePush[string]("wide_span_id", h.ctx.SpanID)
 	let mut completed = false
 	scope.OnExit() {
 		finalizeAndEmit(h, start, completed)
