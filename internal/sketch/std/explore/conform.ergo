@@ -38,6 +38,7 @@
 // behaviour of the spec; Quint's `run` replays a trace step by step.
 
 import dense
+import gen
 import json
 import strconv
 import strings
@@ -932,10 +933,9 @@ func cExplains(table []int, k int, obs []CObs, i int, s int, left int, hidden in
 // states and signals it took.
 type cRun { States []int, Signals []int }
 
-func cWalk(table []int, k int, seed uint64, n int) cRun {
+func cDrawWalk(table []int, k int, n int) cRun needs gen.Draws {
 	let mut r = cRun{States: []int{0}, Signals: []int{}}
 	let mut s = 0
-	let mut x = seed
 	for _ in 0..n {
 		let mut moves = []int{}
 		for e in 0..k {
@@ -946,13 +946,16 @@ func cWalk(table []int, k int, seed uint64, n int) cRun {
 		if len(moves) == 0 {
 			return r
 		}
-		x = x + golden
-		let e = moves[int(splitmix(x)%uint64(len(moves)))]
+		let e = gen.OneOf(moves)
 		s = table[s*k+e]
 		r.Signals = r.Signals.Append(e)
 		r.States = r.States.Append(s)
 	}
 	r
+}
+
+func showCRun(r cRun) string {
+	showIntSlice(r.Signals)
 }
 
 // cProject is the run's trace with parts left out by the bits of mask:
@@ -989,20 +992,28 @@ func cVerdict(table []int, k int, obs []CObs, hidden int, stutter bool, limit in
 // any of its signals' names, fields and state fields left out and up to h
 // whole steps dropped, conforms with Hidden >= h; its matching behaviour
 // replays from the start through the graph.
-law ProjectionsConform(seed uint64, size uint8, signals uint8, length uint8, mask uint64, gone uint64, h uint8, extra uint8) {
-	let n = 1 + int(size%uint8(12))
-	let k = 1 + int(signals%uint8(4))
-	let table = refTable(seed, n, k)
-	let run = cWalk(table, k, seed^mask, int(length%uint8(7)))
-	let drop = int(h % uint8(3))
-	let obs = cProject(run, k, mask, gone, drop)
-	match cVerdict(table, k, obs, drop+int(extra%uint8(2)), extra%uint8(4) >= uint8(2), 0) {
-	case Conforms as c:
-		let g = cGraph(table, k)
-		cIndex(ReplayRun(g, c.Run)) < n && c.Report.Lines == len(obs)
-	case _:
-		false
-	}
+law ProjectionsConform() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let n = gen.Named("n", showInt, func() int needs gen.Draws { gen.IntIn(1, 12) })
+		let k = gen.Named("k", showInt, func() int needs gen.Draws { gen.IntIn(1, 4) })
+		let length = gen.Named("length", showInt, func() int needs gen.Draws { gen.IntIn(0, 6) })
+		let table = gen.Named("table", showIntSlice, func() []int needs gen.Draws { drawTable(n, k) })
+		let run = gen.Named("run", showCRun, func() cRun needs gen.Draws { cDrawWalk(table, k, length) })
+		let mask = gen.Named("mask", showUint64, func() uint64 needs gen.Draws { gen.Below(uint64(0)) })
+		let gone = gen.Named("gone", showUint64, func() uint64 needs gen.Draws { gen.Below(uint64(0)) })
+		let drop = gen.Named("drop", showInt, func() int needs gen.Draws { gen.IntIn(0, 2) })
+		let extra = gen.Named("extra", showInt, func() int needs gen.Draws { gen.IntIn(0, 1) })
+		let stutter = gen.Named("stutter", showBool, func() bool needs gen.Draws { gen.Bool() })
+		let obs = cProject(run, k, mask, gone, drop)
+		match cVerdict(table, k, obs, drop+extra, stutter, 0) {
+		case Conforms as c:
+			let g = cGraph(table, k)
+			cIndex(ReplayRun(g, c.Run)) < n && c.Report.Lines == len(obs)
+		case _:
+			false
+		}
+	})) == ""
+	true
 }
 
 // ConformAgreesWithReference (T2 law 2): a projected run with one part
@@ -1010,39 +1021,46 @@ law ProjectionsConform(seed uint64, size uint8, signals uint8, length uint8, mas
 // exactly when the naive reference (cExplains) finds a run that explains
 // it, under the same Hidden and Stutter; a trace that does not conform is
 // a Mismatch, never a TraceError.
-law ConformAgreesWithReference(seed uint64, size uint8, signals uint8, length uint8, mask uint64, which uint8, h uint8, stutter bool) {
-	let n = 1 + int(size%uint8(12))
-	let k = 1 + int(signals%uint8(4))
-	let table = refTable(seed, n, k)
-	let run = cWalk(table, k, seed^mask, 1+int(length%uint8(5)))
-	let mut obs = cProject(run, k, mask, uint64(0), 0)
-	let hidden = int(h % uint8(3))
-	if len(obs) > 0 {
-		let i = int(which) % len(obs)
-		let w = (int(which) / 7) % 5
-		if w == 0 {
-			obs[i].A = (obs[i].A + 1) % 4
-			obs[i].Mask = obs[i].Mask | 1
-		} else if w == 1 {
-			obs[i].C = !obs[i].C
-			obs[i].Mask = obs[i].Mask | 4
-		} else if w == 2 && k > 1 {
-			obs[i].Variant = if obs[i].Variant == 1 { 0 } else { 1 }
-			obs[i].Arg = -1
-		} else if w == 3 && k > 2 {
-			obs[i].Variant = 0
-			obs[i].Arg = (obs[i].Arg + 1 + int(which)%(k-2)) % (k - 1)
+law ConformAgreesWithReference() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let n = gen.Named("n", showInt, func() int needs gen.Draws { gen.IntIn(1, 12) })
+		let k = gen.Named("k", showInt, func() int needs gen.Draws { gen.IntIn(1, 4) })
+		let length = gen.Named("length", showInt, func() int needs gen.Draws { gen.IntIn(1, 5) })
+		let table = gen.Named("table", showIntSlice, func() []int needs gen.Draws { drawTable(n, k) })
+		let run = gen.Named("run", showCRun, func() cRun needs gen.Draws { cDrawWalk(table, k, length) })
+		let mask = gen.Named("mask", showUint64, func() uint64 needs gen.Draws { gen.Below(uint64(0)) })
+		let which = gen.Named("which", showInt, func() int needs gen.Draws { gen.IntIn(0, 255) })
+		let hidden = gen.Named("hidden", showInt, func() int needs gen.Draws { gen.IntIn(0, 2) })
+		let stutter = gen.Named("stutter", showBool, func() bool needs gen.Draws { gen.Bool() })
+		let mut obs = cProject(run, k, mask, uint64(0), 0)
+		if len(obs) > 0 {
+			let i = which % len(obs)
+			let w = (which / 7) % 5
+			if w == 0 {
+				obs[i].A = (obs[i].A + 1) % 4
+				obs[i].Mask = obs[i].Mask | 1
+			} else if w == 1 {
+				obs[i].C = !obs[i].C
+				obs[i].Mask = obs[i].Mask | 4
+			} else if w == 2 && k > 1 {
+				obs[i].Variant = if obs[i].Variant == 1 { 0 } else { 1 }
+				obs[i].Arg = -1
+			} else if w == 3 && k > 2 {
+				obs[i].Variant = 0
+				obs[i].Arg = (obs[i].Arg + 1 + which%(k-2)) % (k - 1)
+			}
 		}
-	}
-	let want = cExplains(table, k, obs, 0, 0, hidden, hidden, stutter)
-	match cVerdict(table, k, obs, hidden, stutter, 0) {
-	case Conforms:
-		want
-	case Mismatch:
-		!want
-	case _:
-		false
-	}
+		let want = cExplains(table, k, obs, 0, 0, hidden, hidden, stutter)
+		match cVerdict(table, k, obs, hidden, stutter, 0) {
+		case Conforms:
+			want
+		case Mismatch:
+			!want
+		case _:
+			false
+		}
+	})) == ""
+	true
 }
 
 // cExplainsClean is cExplains over the runs that never visit a state of
@@ -1101,48 +1119,53 @@ func cleanRunKept() bool {
 // Conforms. A broken run stays broken when it leaves the bad states, and
 // a run that broke the law is never kept in place of one that did not
 // (cleanRunKept, which generated tables seldom reach).
-law ConformBreaksWithReference(seed uint64, size uint8, signals uint8, length uint8, mask uint64, gone uint64, h uint8, stutter bool, bad uint16) {
-	if !cleanRunKept() {
-		return false
-	}
-	let n = 1 + int(size%uint8(12))
-	let k = 1 + int(signals%uint8(4))
-	let table = refTable(seed, n, k)
-	let run = cWalk(table, k, seed^mask, 1+int(length%uint8(6)))
-	let hidden = int(h % uint8(3))
-	let obs = cProject(run, k, mask, gone, hidden)
-	let b = uint64(bad)
-	let inv = Invariant[CState]{Name: "Good", Holds: func(s CState) bool { (b>>uint64(cIndex(s)))&uint64(1) == uint64(0) }}
-	let tr = ReadTrace(cText(obs)) catch {
-	case TraceError:
-		return false
-	}
-	let got = Conform(cGraph(table, k), tr, Options{Hidden: hidden, Stutter: stutter, Limit: 0}, []Invariant[CState]{inv})
-	for i in 1..len(obs)+1 {
-		let prefix = obs[0:i]
-		if !cExplains(table, k, prefix, 0, 0, hidden, hidden, stutter) {
-			match got {
-			case Mismatch as m:
-				return m.Line == i
-			case _:
-				return false
+law ConformBreaksWithReference() {
+	assert cleanRunKept()
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let n = gen.Named("n", showInt, func() int needs gen.Draws { gen.IntIn(1, 12) })
+		let k = gen.Named("k", showInt, func() int needs gen.Draws { gen.IntIn(1, 4) })
+		let length = gen.Named("length", showInt, func() int needs gen.Draws { gen.IntIn(1, 6) })
+		let table = gen.Named("table", showIntSlice, func() []int needs gen.Draws { drawTable(n, k) })
+		let run = gen.Named("run", showCRun, func() cRun needs gen.Draws { cDrawWalk(table, k, length) })
+		let mask = gen.Named("mask", showUint64, func() uint64 needs gen.Draws { gen.Below(uint64(0)) })
+		let gone = gen.Named("gone", showUint64, func() uint64 needs gen.Draws { gen.Below(uint64(0)) })
+		let hidden = gen.Named("hidden", showInt, func() int needs gen.Draws { gen.IntIn(0, 2) })
+		let stutter = gen.Named("stutter", showBool, func() bool needs gen.Draws { gen.Bool() })
+		let b = gen.Named("bad", showUint64, func() uint64 needs gen.Draws { gen.Below(uint64(65536)) })
+		let obs = cProject(run, k, mask, gone, hidden)
+		let inv = Invariant[CState]{Name: "Good", Holds: func(s CState) bool { (b>>uint64(cIndex(s)))&uint64(1) == uint64(0) }}
+		let tr = ReadTrace(cText(obs)) catch {
+		case TraceError:
+			return false
+		}
+		let got = Conform(cGraph(table, k), tr, Options{Hidden: hidden, Stutter: stutter, Limit: 0}, []Invariant[CState]{inv})
+		for i in 1..len(obs)+1 {
+			let prefix = obs[0:i]
+			if !cExplains(table, k, prefix, 0, 0, hidden, hidden, stutter) {
+				match got {
+				case Mismatch as m:
+					return m.Line == i
+				case _:
+					return false
+				}
+			}
+			if !cExplainsClean(table, k, prefix, 0, 0, hidden, hidden, stutter, b) {
+				match got {
+				case Broken as x:
+					return x.Line <= i && x.Invariant == "Good"
+				case _:
+					return false
+				}
 			}
 		}
-		if !cExplainsClean(table, k, prefix, 0, 0, hidden, hidden, stutter, b) {
-			match got {
-			case Broken as x:
-				return x.Line <= i && x.Invariant == "Good"
-			case _:
-				return false
-			}
+		match got {
+		case Conforms:
+			true
+		case _:
+			false
 		}
-	}
-	match got {
-	case Conforms:
-		true
-	case _:
-		false
-	}
+	})) == ""
+	true
 }
 
 // TraceErrorsNameTheLine: after `at` lines a run of Ticks explains, a
@@ -1181,23 +1204,29 @@ law TraceErrorsNameTheLine(at uint8, kind uint8) {
 // LimitNeverConforms (T2 law 3): with a limit of candidates, a verdict is
 // OverLimit exactly when the candidates outgrew it, so Conforms never
 // stands on more candidates than the limit.
-law LimitNeverConforms(seed uint64, size uint8, signals uint8, length uint8, mask uint64, h uint8, limit uint8) {
-	let n = 1 + int(size%uint8(12))
-	let k = 1 + int(signals%uint8(4))
-	let table = refTable(seed, n, k)
-	let run = cWalk(table, k, seed^mask, int(length%uint8(5)))
-	let obs = cProject(run, k, mask, uint64(0), 0)
-	let l = 1 + int(limit%uint8(3))
-	match cVerdict(table, k, obs, int(h%uint8(3)), false, l) {
-	case Conforms as c:
-		c.Report.Peak <= l
-	case OverLimit as o:
-		o.Candidates > l
-	case Mismatch:
-		false
-	case _:
-		false
-	}
+law LimitNeverConforms() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let n = gen.Named("n", showInt, func() int needs gen.Draws { gen.IntIn(1, 12) })
+		let k = gen.Named("k", showInt, func() int needs gen.Draws { gen.IntIn(1, 4) })
+		let length = gen.Named("length", showInt, func() int needs gen.Draws { gen.IntIn(0, 4) })
+		let table = gen.Named("table", showIntSlice, func() []int needs gen.Draws { drawTable(n, k) })
+		let run = gen.Named("run", showCRun, func() cRun needs gen.Draws { cDrawWalk(table, k, length) })
+		let mask = gen.Named("mask", showUint64, func() uint64 needs gen.Draws { gen.Below(uint64(0)) })
+		let hidden = gen.Named("hidden", showInt, func() int needs gen.Draws { gen.IntIn(0, 2) })
+		let l = gen.Named("limit", showInt, func() int needs gen.Draws { gen.IntIn(1, 3) })
+		let obs = cProject(run, k, mask, uint64(0), 0)
+		match cVerdict(table, k, obs, hidden, false, l) {
+		case Conforms as c:
+			c.Report.Peak <= l
+		case OverLimit as o:
+			o.Candidates > l
+		case Mismatch:
+			false
+		case _:
+			false
+		}
+	})) == ""
+	true
 }
 
 // FMode and FRec are FitFastAgreesWithDecode's values: a record with a

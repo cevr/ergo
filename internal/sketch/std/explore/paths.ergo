@@ -1,3 +1,4 @@
+import gen
 import sync
 
 // PathScope selects whether path planning runs to a finite command depth or
@@ -805,8 +806,7 @@ func pwCasesEqual(got []PathCase, want []pwRefCase) bool {
 	true
 }
 
-func pwJoinGraph(seed uint64) ConcreteGraph[pwState, pwEvent, int] {
-	let bias = int(seed % uint64(3))
+func pwJoinGraph(bias int) ConcreteGraph[pwState, pwEvent, int] {
 	let starts = []pwState{
 		pwState{Tag: uint8(0), Val: bias},
 		pwState{Tag: uint8(1), Val: bias},
@@ -866,8 +866,7 @@ func pwJoinGraph(seed uint64) ConcreteGraph[pwState, pwEvent, int] {
 	}
 }
 
-func pwGrowingGraph(seed uint64) ConcreteGraph[pwState, pwEvent, int] {
-	let base = int(seed % uint64(5))
+func pwGrowingGraph(base int) ConcreteGraph[pwState, pwEvent, int] {
 	ConcreteGraph[pwState, pwEvent, int]{
 		Starts:  []pwState{pwState{Tag: uint8(0), Val: base}},
 		Signals: []pwEvent{pwLeft, pwDone{Code: base}},
@@ -884,8 +883,7 @@ func pwGrowingGraph(seed uint64) ConcreteGraph[pwState, pwEvent, int] {
 	}
 }
 
-func pwAcyclicGraph(seed uint64) ConcreteGraph[pwState, pwEvent, int] {
-	let base = int(seed % uint64(4))
+func pwAcyclicGraph(base int) ConcreteGraph[pwState, pwEvent, int] {
 	ConcreteGraph[pwState, pwEvent, int]{
 		Starts: []pwState{
 			pwState{Tag: uint8(0), Val: base},
@@ -920,185 +918,191 @@ func pwAcyclicGraph(seed uint64) ConcreteGraph[pwState, pwEvent, int] {
 // with an independent recursive walk enumerator across a two-root join, a
 // repeated self-loop, a terminal Done edge, a growing context, an acyclic All
 // scope, zero depth, empty alphabet/starts, and inclusive cap boundaries.
-law WalksAgreeWithReference(seed uint64) {
-	let big = PathBounds{MaxStates: 64, MaxEdges: 256, MaxPaths: 2048, MaxSteps: 8192, MaxWork: 200000, MaxBytes: 1048576}
-	let jg = pwJoinGraph(seed)
+law WalksAgreeWithReference() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let bias = gen.Named("bias", showInt, func() int needs gen.Draws { gen.IntIn(0, 2) })
+		let growBase = gen.Named("growBase", showInt, func() int needs gen.Draws { gen.IntIn(0, 4) })
+		let gDepth = gen.Named("gDepth", showInt, func() int needs gen.Draws { gen.IntIn(1, 3) })
+		let acycBase = gen.Named("acycBase", showInt, func() int needs gen.Draws { gen.IntIn(0, 3) })
+		let big = PathBounds{MaxStates: 64, MaxEdges: 256, MaxPaths: 2048, MaxSteps: 8192, MaxWork: 200000, MaxBytes: 1048576}
+		let jg = pwJoinGraph(bias)
 
-	for d in 0..4 {
-		let plan = PlanPaths(jg, ToDepth{Depth: d}, big)
-		let okComplete = match plan.Stop {
-		case PathComplete:
-			true
-		case _:
-			false
-		}
-		if !okComplete {
-			return false
-		}
-		let (got, opened) = pwCollectCases(plan)
-		if !opened {
-			return false
-		}
-		let want = pwRefEnumAll(jg, d)
-		if !pwCasesEqual(got, want) {
-			return false
-		}
-		let mut wantSteps = 0
-		for w in want {
-			wantSteps = wantSteps + len(w.Signals)
-		}
-		if plan.Stats.Paths != len(want) || plan.Stats.Steps != wantSteps || plan.Stats.Work <= 0 {
-			return false
-		}
-		if d == 3 {
-			let exact = PathBounds{
-				MaxStates: plan.Stats.States,
-				MaxEdges:  plan.Stats.Edges,
-				MaxPaths:  plan.Stats.Paths,
-				MaxSteps:  plan.Stats.Steps,
-				MaxWork:   plan.Stats.Work,
-				MaxBytes:  plan.Stats.Bytes,
-			}
-			let atCap = PlanPaths(jg, ToDepth{Depth: d}, exact)
-			match atCap.Stop {
+		for d in 0..4 {
+			let plan = PlanPaths(jg, ToDepth{Depth: d}, big)
+			let okComplete = match plan.Stop {
 			case PathComplete:
+				true
 			case _:
+				false
+			}
+			if !okComplete {
 				return false
 			}
-			let overPaths = PlanPaths(jg, ToDepth{Depth: d}, PathBounds{
-				MaxStates: exact.MaxStates,
-				MaxEdges:  exact.MaxEdges,
-				MaxPaths:  exact.MaxPaths - 1,
-				MaxSteps:  exact.MaxSteps,
-				MaxWork:   exact.MaxWork,
-				MaxBytes:  exact.MaxBytes,
-			})
-			match overPaths.Stop {
-			case PathOverPaths:
-			case _:
+			let (got, opened) = pwCollectCases(plan)
+			if !opened {
 				return false
 			}
-			match OpenPaths(overPaths) {
-			case None:
-			case Some:
+			let want = pwRefEnumAll(jg, d)
+			if !pwCasesEqual(got, want) {
 				return false
 			}
-			let overSteps = PlanPaths(jg, ToDepth{Depth: d}, PathBounds{
-				MaxStates: exact.MaxStates,
-				MaxEdges:  exact.MaxEdges,
-				MaxPaths:  exact.MaxPaths,
-				MaxSteps:  exact.MaxSteps - 1,
-				MaxWork:   exact.MaxWork,
-				MaxBytes:  exact.MaxBytes,
-			})
-			match overSteps.Stop {
-			case PathOverSteps:
-			case _:
+			let mut wantSteps = 0
+			for w in want {
+				wantSteps = wantSteps + len(w.Signals)
+			}
+			if plan.Stats.Paths != len(want) || plan.Stats.Steps != wantSteps || plan.Stats.Work <= 0 {
 				return false
 			}
-			match OpenPaths(overSteps) {
-			case None:
-			case Some:
-				return false
+			if d == 3 {
+				let exact = PathBounds{
+					MaxStates: plan.Stats.States,
+					MaxEdges:  plan.Stats.Edges,
+					MaxPaths:  plan.Stats.Paths,
+					MaxSteps:  plan.Stats.Steps,
+					MaxWork:   plan.Stats.Work,
+					MaxBytes:  plan.Stats.Bytes,
+				}
+				let atCap = PlanPaths(jg, ToDepth{Depth: d}, exact)
+				match atCap.Stop {
+				case PathComplete:
+				case _:
+					return false
+				}
+				let overPaths = PlanPaths(jg, ToDepth{Depth: d}, PathBounds{
+					MaxStates: exact.MaxStates,
+					MaxEdges:  exact.MaxEdges,
+					MaxPaths:  exact.MaxPaths - 1,
+					MaxSteps:  exact.MaxSteps,
+					MaxWork:   exact.MaxWork,
+					MaxBytes:  exact.MaxBytes,
+				})
+				match overPaths.Stop {
+				case PathOverPaths:
+				case _:
+					return false
+				}
+				match OpenPaths(overPaths) {
+				case None:
+				case Some:
+					return false
+				}
+				let overSteps = PlanPaths(jg, ToDepth{Depth: d}, PathBounds{
+					MaxStates: exact.MaxStates,
+					MaxEdges:  exact.MaxEdges,
+					MaxPaths:  exact.MaxPaths,
+					MaxSteps:  exact.MaxSteps - 1,
+					MaxWork:   exact.MaxWork,
+					MaxBytes:  exact.MaxBytes,
+				})
+				match overSteps.Stop {
+				case PathOverSteps:
+				case _:
+					return false
+				}
+				match OpenPaths(overSteps) {
+				case None:
+				case Some:
+					return false
+				}
 			}
 		}
-	}
 
-	let cycAll = PlanPaths(jg, All, big)
-	match cycAll.Stop {
-	case CycleRequiresDepth:
-	case _:
-		return false
-	}
-	match OpenPaths(cycAll) {
-	case None:
-	case Some:
-		return false
-	}
+		let cycAll = PlanPaths(jg, All, big)
+		match cycAll.Stop {
+		case CycleRequiresDepth:
+		case _:
+			return false
+		}
+		match OpenPaths(cycAll) {
+		case None:
+		case Some:
+			return false
+		}
 
-	let gg = pwGrowingGraph(seed)
-	let gDepth = int(seed%uint64(3)) + 1
-	let growPlan = PlanPaths(gg, ToDepth{Depth: gDepth}, big)
-	match growPlan.Stop {
-	case PathComplete:
-	case _:
-		return false
-	}
-	let (growGot, growOpened) = pwCollectCases(growPlan)
-	let growWant = pwRefEnumAll(gg, gDepth)
-	if !growOpened || !pwCasesEqual(growGot, growWant) || growPlan.Stats.Frontier <= 0 {
-		return false
-	}
-	let growAll = PlanPaths(gg, All, PathBounds{MaxStates: 6, MaxEdges: 64, MaxPaths: 256, MaxSteps: 1024, MaxWork: 200000, MaxBytes: 1048576})
-	match growAll.Stop {
-	case PathOverStates:
-	case _:
-		return false
-	}
-	match OpenPaths(growAll) {
-	case None:
-	case Some:
-		return false
-	}
+		let gg = pwGrowingGraph(growBase)
+		let growPlan = PlanPaths(gg, ToDepth{Depth: gDepth}, big)
+		match growPlan.Stop {
+		case PathComplete:
+		case _:
+			return false
+		}
+		let (growGot, growOpened) = pwCollectCases(growPlan)
+		let growWant = pwRefEnumAll(gg, gDepth)
+		if !growOpened || !pwCasesEqual(growGot, growWant) || growPlan.Stats.Frontier <= 0 {
+			return false
+		}
+		let growAll = PlanPaths(gg, All, PathBounds{MaxStates: 6, MaxEdges: 64, MaxPaths: 256, MaxSteps: 1024, MaxWork: 200000, MaxBytes: 1048576})
+		match growAll.Stop {
+		case PathOverStates:
+		case _:
+			return false
+		}
+		match OpenPaths(growAll) {
+		case None:
+		case Some:
+			return false
+		}
 
-	let ag = pwAcyclicGraph(seed)
-	let allPlan = PlanPaths(ag, All, big)
-	match allPlan.Stop {
-	case PathComplete:
-	case _:
-		return false
-	}
-	let (allGot, allOpened) = pwCollectCases(allPlan)
-	let allWant = pwRefEnumAll(ag, 4)
-	if !allOpened || !pwCasesEqual(allGot, allWant) || allPlan.Stats.Frontier != 0 {
-		return false
-	}
+		let ag = pwAcyclicGraph(acycBase)
+		let allPlan = PlanPaths(ag, All, big)
+		match allPlan.Stop {
+		case PathComplete:
+		case _:
+			return false
+		}
+		let (allGot, allOpened) = pwCollectCases(allPlan)
+		let allWant = pwRefEnumAll(ag, 4)
+		if !allOpened || !pwCasesEqual(allGot, allWant) || allPlan.Stats.Frontier != 0 {
+			return false
+		}
 
-	let emptyAlpha = ConcreteGraph[pwState, pwEvent, int]{
-		Starts:  ag.Starts,
-		Signals: []pwEvent{},
-		Step:    ag.Step,
-	}
-	let eaPlan = PlanPaths(emptyAlpha, All, big)
-	match eaPlan.Stop {
-	case PathComplete:
-	case _:
-		return false
-	}
-	let (eaGot, eaOpened) = pwCollectCases(eaPlan)
-	if !eaOpened || len(eaGot) != 2 || eaPlan.Stats.Steps != 0 || eaGot[0].Start != 0 || eaGot[1].Start != 1 || len(eaGot[0].Edges) != 0 || len(eaGot[1].Edges) != 0 {
-		return false
-	}
+		let emptyAlpha = ConcreteGraph[pwState, pwEvent, int]{
+			Starts:  ag.Starts,
+			Signals: []pwEvent{},
+			Step:    ag.Step,
+		}
+		let eaPlan = PlanPaths(emptyAlpha, All, big)
+		match eaPlan.Stop {
+		case PathComplete:
+		case _:
+			return false
+		}
+		let (eaGot, eaOpened) = pwCollectCases(eaPlan)
+		if !eaOpened || len(eaGot) != 2 || eaPlan.Stats.Steps != 0 || eaGot[0].Start != 0 || eaGot[1].Start != 1 || len(eaGot[0].Edges) != 0 || len(eaGot[1].Edges) != 0 {
+			return false
+		}
 
-	let noStarts = ConcreteGraph[pwState, pwEvent, int]{
-		Starts:  []pwState{},
-		Signals: ag.Signals,
-		Step:    ag.Step,
-	}
-	let nsPlan = PlanPaths(noStarts, ToDepth{Depth: 1}, big)
-	match nsPlan.Stop {
-	case EmptyStarts:
-	case _:
-		return false
-	}
-	match OpenPaths(nsPlan) {
-	case None:
-	case Some:
-		return false
-	}
+		let noStarts = ConcreteGraph[pwState, pwEvent, int]{
+			Starts:  []pwState{},
+			Signals: ag.Signals,
+			Step:    ag.Step,
+		}
+		let nsPlan = PlanPaths(noStarts, ToDepth{Depth: 1}, big)
+		match nsPlan.Stop {
+		case EmptyStarts:
+		case _:
+			return false
+		}
+		match OpenPaths(nsPlan) {
+		case None:
+		case Some:
+			return false
+		}
 
-	let negDepth = PlanPaths(ag, ToDepth{Depth: -1}, big)
-	match negDepth.Stop {
-	case BadBounds:
-	case _:
-		return false
-	}
-	match OpenPaths(negDepth) {
-	case None:
-	case Some:
-		return false
-	}
+		let negDepth = PlanPaths(ag, ToDepth{Depth: -1}, big)
+		match negDepth.Stop {
+		case BadBounds:
+		case _:
+			return false
+		}
+		match OpenPaths(negDepth) {
+		case None:
+		case Some:
+			return false
+		}
 
+		true
+	})) == ""
 	true
 }
 

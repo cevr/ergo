@@ -1,3 +1,4 @@
+import gen
 import sync
 
 // StepObs is the full typed observation of one acknowledged step: the machine
@@ -655,8 +656,7 @@ func Close(s cpSess) {
 	s.released.Update(func(k int) int { k + 1 })
 }
 
-func cpModel(seed uint64, signals []cpEvent) PathModel[cpState, cpEvent, int, int, cpErr] {
-	let initVal = int(seed % uint64(4))
+func cpModel(initVal int, signals []cpEvent) PathModel[cpState, cpEvent, int, int, cpErr] {
 	PathModelProjected[cpState, cpEvent, int, int, cpErr](
 		[]cpState{cpState{Val: initVal, Closed: false}},
 		signals,
@@ -727,114 +727,119 @@ func cpOpenWith(bug cpBug, opened sync.Ref[int], released sync.Ref[int]) func(st
 // rejections, refuse to let a later equal state mask an earlier mismatch, stop
 // early with complete session release, open zero sessions on preflight cap, and
 // catch a bad initial read under an empty alphabet.
-law CheckPathsObservesPrefixes(seed uint64) {
-	let sigs = []cpEvent{cpAdd{N: 1}, cpBad{Code: int(seed%uint64(5)) + 1}, cpNoop, cpFinish}
-	let model = cpModel(seed, sigs)
-	let big = PathBounds{MaxStates: 64, MaxEdges: 256, MaxPaths: 256, MaxSteps: 1024, MaxWork: 200000, MaxBytes: 1048576}
+law CheckPathsObservesPrefixes() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let initVal = gen.Named("initVal", showInt, func() int needs gen.Draws { gen.IntIn(0, 3) })
+		let badCode = gen.Named("badCode", showInt, func() int needs gen.Draws { gen.IntIn(1, 5) })
+		let sigs = []cpEvent{cpAdd{N: 1}, cpBad{Code: badCode}, cpNoop, cpFinish}
+		let model = cpModel(initVal, sigs)
+		let big = PathBounds{MaxStates: 64, MaxEdges: 256, MaxPaths: 256, MaxSteps: 1024, MaxWork: 200000, MaxBytes: 1048576}
 
-	let okOpen = sync.NewRef(0)
-	let okRel = sync.NewRef(0)
-	let passRes = CheckPaths(model, ToDepth{Depth: 2}, big, cpOpenWith(cpNoBug, okOpen, okRel))
-	match passRes.Verdict {
-	case CampaignPassed:
-	case _:
-		return false
-	}
-	if okOpen.Get() != passRes.Counts.Planned || okRel.Get() != okOpen.Get() || passRes.Counts.PathsCompleted != passRes.Counts.Planned {
-		return false
-	}
+		let okOpen = sync.NewRef(0)
+		let okRel = sync.NewRef(0)
+		let passRes = CheckPaths(model, ToDepth{Depth: 2}, big, cpOpenWith(cpNoBug, okOpen, okRel))
+		match passRes.Verdict {
+		case CampaignPassed:
+		case _:
+			return false
+		}
+		if okOpen.Get() != passRes.Counts.Planned || okRel.Get() != okOpen.Get() || passRes.Counts.PathsCompleted != passRes.Counts.Planned {
+			return false
+		}
 
-	let capOpen = sync.NewRef(0)
-	let capRel = sync.NewRef(0)
-	let capRes = CheckPaths(model, ToDepth{Depth: 2}, PathBounds{MaxStates: 64, MaxEdges: 256, MaxPaths: 2, MaxSteps: 1024, MaxWork: 200000, MaxBytes: 1048576}, cpOpenWith(cpNoBug, capOpen, capRel))
-	match capRes.Verdict {
-	case CampaignIncomplete:
-	case _:
-		return false
-	}
-	if capOpen.Get() != 0 || capRel.Get() != 0 || capRes.Counts.Opened != 0 {
-		return false
-	}
+		let capOpen = sync.NewRef(0)
+		let capRel = sync.NewRef(0)
+		let capRes = CheckPaths(model, ToDepth{Depth: 2}, PathBounds{MaxStates: 64, MaxEdges: 256, MaxPaths: 2, MaxSteps: 1024, MaxWork: 200000, MaxBytes: 1048576}, cpOpenWith(cpNoBug, capOpen, capRel))
+		match capRes.Verdict {
+		case CampaignIncomplete:
+		case _:
+			return false
+		}
+		if capOpen.Get() != 0 || capRel.Get() != 0 || capRes.Counts.Opened != 0 {
+			return false
+		}
 
-	let payOpen = sync.NewRef(0)
-	let payRel = sync.NewRef(0)
-	let payRes = CheckPaths(model, ToDepth{Depth: 2}, big, cpOpenWith(cpWrongErrPayload, payOpen, payRel))
-	let payFailOK = match payRes.Verdict {
-	case CampaignRefuted as ref:
-		match ref.Failure {
-		case StepMismatch as sm:
-			let repOpen = sync.NewRef(0)
-			let repRel = sync.NewRef(0)
-			let rep = ReplayPath(model, sm.StartIndex, sm.Start, sm.Inputs, cpOpenWith(cpWrongErrPayload, repOpen, repRel))
-			let repSame = match rep {
-			case ReplayFailed as rf:
-				match rf.Failure {
-				case StepMismatch as rsm:
-					rsm.Step == sm.Step && rsm.Field == sm.Field && rsm.Expected == sm.Expected && rsm.Actual == sm.Actual
+		let payOpen = sync.NewRef(0)
+		let payRel = sync.NewRef(0)
+		let payRes = CheckPaths(model, ToDepth{Depth: 2}, big, cpOpenWith(cpWrongErrPayload, payOpen, payRel))
+		let payFailOK = match payRes.Verdict {
+		case CampaignRefuted as ref:
+			match ref.Failure {
+			case StepMismatch as sm:
+				let repOpen = sync.NewRef(0)
+				let repRel = sync.NewRef(0)
+				let rep = ReplayPath(model, sm.StartIndex, sm.Start, sm.Inputs, cpOpenWith(cpWrongErrPayload, repOpen, repRel))
+				let repSame = match rep {
+				case ReplayFailed as rf:
+					match rf.Failure {
+					case StepMismatch as rsm:
+						rsm.Step == sm.Step && rsm.Field == sm.Field && rsm.Expected == sm.Expected && rsm.Actual == sm.Actual
+					case _:
+						false
+					}
 				case _:
+					false
+				}
+				sm.Field == DiffErrorPayload && sm.Step == 1 && repSame && repOpen.Get() == 1 && repRel.Get() == 1
+			case _:
+				false
+			}
+		case _:
+			false
+		}
+		if !payFailOK || payRel.Get() != payOpen.Get() || payOpen.Get() >= passRes.Counts.Planned {
+			return false
+		}
+
+		let maskOpen = sync.NewRef(0)
+		let maskRel = sync.NewRef(0)
+		let maskRes = ReplayPath(model, 0, model.Graph.Starts[0], []cpEvent{cpAdd{N: 1}, cpAdd{N: 1}}, cpOpenWith(cpMaskedStep1, maskOpen, maskRel))
+		let maskOK = match maskRes {
+		case ReplayFailed as rf:
+			match rf.Failure {
+			case StepMismatch as sm:
+				sm.Step == 1 && sm.Field == DiffOutputs && len(sm.Inputs) == 1
+			case _:
+				false
+			}
+		case _:
+			false
+		}
+		if !maskOK || maskOpen.Get() != 1 || maskRel.Get() != 1 {
+			return false
+		}
+
+		let emptyModel = cpModel(initVal, []cpEvent{})
+		let eaOpen = sync.NewRef(0)
+		let eaRel = sync.NewRef(0)
+		let eaRes = CheckPaths(emptyModel, All, big, cpOpenWith(cpBadInitial, eaOpen, eaRel))
+		let eaOK = match eaRes.Verdict {
+		case CampaignRefuted as ref:
+			match ref.Failure {
+			case InitialMismatch as im:
+				match im.Actual {
+				case Some as a:
+					im.Field == DiffInitial && im.Expected != a.Value
+				case None:
 					false
 				}
 			case _:
 				false
 			}
-			sm.Field == DiffErrorPayload && sm.Step == 1 && repSame && repOpen.Get() == 1 && repRel.Get() == 1
 		case _:
 			false
 		}
-	case _:
-		false
-	}
-	if !payFailOK || payRel.Get() != payOpen.Get() || payOpen.Get() >= passRes.Counts.Planned {
-		return false
-	}
+		if !eaOK || eaOpen.Get() != 1 || eaRel.Get() != 1 {
+			return false
+		}
 
-	let maskOpen = sync.NewRef(0)
-	let maskRel = sync.NewRef(0)
-	let maskRes = ReplayPath(model, 0, model.Graph.Starts[0], []cpEvent{cpAdd{N: 1}, cpAdd{N: 1}}, cpOpenWith(cpMaskedStep1, maskOpen, maskRel))
-	let maskOK = match maskRes {
-	case ReplayFailed as rf:
-		match rf.Failure {
-		case StepMismatch as sm:
-			sm.Step == 1 && sm.Field == DiffOutputs && len(sm.Inputs) == 1
+		let afterTerm = ReplayPath(model, 0, model.Graph.Starts[0], []cpEvent{cpFinish, cpNoop}, cpOpenWith(cpNoBug, sync.NewRef(0), sync.NewRef(0)))
+		match afterTerm {
+		case ReplayAfterTerminal as rt:
+			rt.Step == 2
 		case _:
 			false
 		}
-	case _:
-		false
-	}
-	if !maskOK || maskOpen.Get() != 1 || maskRel.Get() != 1 {
-		return false
-	}
-
-	let emptyModel = cpModel(seed, []cpEvent{})
-	let eaOpen = sync.NewRef(0)
-	let eaRel = sync.NewRef(0)
-	let eaRes = CheckPaths(emptyModel, All, big, cpOpenWith(cpBadInitial, eaOpen, eaRel))
-	let eaOK = match eaRes.Verdict {
-	case CampaignRefuted as ref:
-		match ref.Failure {
-		case InitialMismatch as im:
-			match im.Actual {
-			case Some as a:
-				im.Field == DiffInitial && im.Expected != a.Value
-			case None:
-				false
-			}
-		case _:
-			false
-		}
-	case _:
-		false
-	}
-	if !eaOK || eaOpen.Get() != 1 || eaRel.Get() != 1 {
-		return false
-	}
-
-	let afterTerm = ReplayPath(model, 0, model.Graph.Starts[0], []cpEvent{cpFinish, cpNoop}, cpOpenWith(cpNoBug, sync.NewRef(0), sync.NewRef(0)))
-	match afterTerm {
-	case ReplayAfterTerminal as rt:
-		rt.Step == 2
-	case _:
-		false
-	}
+	})) == ""
+	true
 }
