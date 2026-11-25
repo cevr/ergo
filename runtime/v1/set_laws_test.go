@@ -107,7 +107,8 @@ func setLaws() map[string]lawledger.Law {
 				}
 			}
 		}},
-		"tasks RestartRunsAgain": {Statement: `RestartRunsAgain(n int) { let limit = limitOf(n) - 1 let runs = sync.NewRef[int](0) let set = NewSet(Restart{Limit: limit}) Go(set, func() { let r = sync.Modify(runs, func(v int) (int, int) { (v + 1, v + 1) }) if r <= limit { Unreachable("a defect the Set restarts") } }) catch { case Closed: } set.Wait() runs.Get() == limit+1 }`, Check: func(t *testing.T) {
+		"tasks RestartRunsAgain": {Statement: `RestartRunsAgain(n int) { let limit = limitOf(n) - 1 let runs = sync.NewRef[int](0) let set = NewSet(Restart{Limit: limit}) Go(set, func() defects { let r = sync.Modify(runs, func(v int) (int, int) { (v + 1, v + 1) }) if r <= limit { die boundedRestartFault{Run: r} } }) catch { case Closed: } set.Wait() let exhausted = task.Go() { let s = NewSet(Restart{Limit: limit}) let attempts = sync.NewRef[int](0) Go(s, func() defects { let r = sync.Modify(attempts, func(v int) (int, int) { (v + 1, v + 1) }) die boundedRestartFault{Run: r} }) catch { case Closed: } s.Wait() true } let kept = match task.ExitOf(exhausted) { case task.Defected as d: task.ReasonAs[boundedRestartFault](d) == Some[boundedRestartFault]{Value: boundedRestartFault{Run: limit + 1}} case _: false } runs.Get() == limit+1 && kept }`, Check: func(t *testing.T) {
+			type boundedRestartFault struct{ Run int }
 			r := rand.New(rand.NewPCG(1, 44))
 			for range 200 {
 				limit := setLawsLimit(r.Int()) - 1
@@ -115,8 +116,9 @@ func setLaws() map[string]lawledger.Law {
 				var runs atomic.Int64
 				err := inSetFrame(root, setRestart, limit, func(set *Set) {
 					_ = TasksGo(Site("law"), root, set, func(ct *rt.Task) error {
-						if runs.Add(1) <= int64(limit) {
-							panic("a defect the Set restarts")
+						n := int(runs.Add(1))
+						if n <= limit {
+							panic(DieAt(boundedRestartFault{Run: n}, "tasks.ergo:636:4"))
 						}
 						return nil
 					})
@@ -126,6 +128,30 @@ func setLaws() map[string]lawledger.Law {
 				})
 				if err != nil || runs.Load() != int64(limit+1) {
 					t.Fatalf("limit %d: %d runs, %v", limit, runs.Load(), err)
+				}
+				var attempts atomic.Int64
+				fs := NewScope(root)
+				exhausted := Go[bool](&fs, Site("law"), func(ct *rt.Task) (bool, error) {
+					s := NewScope(ct)
+					defer s.End(nil)
+					set := ownedSet(&s, setRestart, limit)
+					_ = TasksGo(Site("law"), ct, set, func(gt *rt.Task) error {
+						n := int(attempts.Add(1))
+						panic(DieAt(boundedRestartFault{Run: n}, "tasks.ergo:636:4"))
+					})
+					_ = set.Wait(ct)
+					return true, nil
+				})
+				kind, exitErr := TaskExit(root, exhausted)
+				fs.End(nil)
+				if exitErr != nil || kind != taskDefected {
+					t.Fatalf("limit %d: exhausted exit (%d, %v), want taskDefected", limit, kind, exitErr)
+				}
+				if !DefectHas[boundedRestartFault](exhausted.defect) {
+					t.Fatalf("limit %d: exhausted defect missing boundedRestartFault (text=%q)", limit, exhausted.defect.Text())
+				}
+				if got := DefectAs[boundedRestartFault](exhausted.defect); got.Run != limit+1 {
+					t.Fatalf("limit %d: exhausted reason %+v, want Run=%d", limit, got, limit+1)
 				}
 			}
 		}},
