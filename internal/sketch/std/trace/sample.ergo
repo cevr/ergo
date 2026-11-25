@@ -1,0 +1,403 @@
+import io
+import option
+import os
+import strings
+import sync
+import time
+
+// SampleRule is a composable, pure tail-sampling predicate evaluated on each
+// completed WideEvent at emission time.
+type SampleRule =
+	| RuleKeepAll{}
+	| RuleKeepNone{}
+	| RuleKeepErrors{}
+	| RuleKeepNonOK{}
+	| RuleKeepSlow{Threshold duration}
+	| RuleKeepFieldEquals{Key string, Value string}
+	| RuleKeepTag{Tag string}
+	| RuleSampleTraceID{BasisPoints int}
+	| RuleAnyOf{Rules []SampleRule}
+	| RuleAllOf{Rules []SampleRule}
+	| RuleNot{Inner []SampleRule}
+
+// KeepAll returns a SampleRule that keeps every completed WideEvent.
+func KeepAll() SampleRule { RuleKeepAll }
+
+// KeepNone returns a SampleRule that drops every completed WideEvent.
+func KeepNone() SampleRule { RuleKeepNone }
+
+// KeepErrors returns a SampleRule that keeps every event with OutcomeError.
+func KeepErrors() SampleRule { RuleKeepErrors }
+
+// KeepNonOK returns a SampleRule that keeps every event whose Outcome is not
+// OutcomeOK (both OutcomeError and OutcomeCancelled).
+func KeepNonOK() SampleRule { RuleKeepNonOK }
+
+// KeepSlow returns a SampleRule that keeps every event with Duration >=
+// threshold.
+func KeepSlow(threshold duration) SampleRule { RuleKeepSlow{Threshold: threshold} }
+
+// KeepFieldEquals returns a SampleRule that keeps every event carrying a
+// top-level field key whose textual value equals val.
+func KeepFieldEquals(key string, val string) SampleRule {
+	RuleKeepFieldEquals{Key: key, Value: val}
+}
+
+// KeepTag returns a SampleRule that keeps every event carrying tag.
+func KeepTag(tag string) SampleRule { RuleKeepTag{Tag: tag} }
+
+// SampleTraceID returns a deterministic trace-coherent sampling rule parameterized
+// in basis points (0..10000, where 100 = 1% and 10000 = 100%). Every span sharing
+// the same TraceID yields the exact same keep/drop decision.
+func SampleTraceID(basisPoints int) SampleRule {
+	RuleSampleTraceID{BasisPoints: basisPoints}
+}
+
+// AnyOf returns a SampleRule that keeps an event if any rule in rules keeps it
+// (empty rules evaluates to false).
+func AnyOf(rules []SampleRule) SampleRule { RuleAnyOf{Rules: rules} }
+
+// AllOf returns a SampleRule that keeps an event only if every rule in rules
+// keeps it (empty rules evaluates to true).
+func AllOf(rules []SampleRule) SampleRule { RuleAllOf{Rules: rules} }
+
+// Not returns a SampleRule that inverts the decision of rule.
+func Not(rule SampleRule) SampleRule { RuleNot{Inner: []SampleRule{rule}} }
+
+func hashTraceID(traceID string) uint64 {
+	let mut h uint64 = 14695981039346656037
+	let prime uint64 = 1099511628211
+	for b in traceID.Bytes() {
+		h = (h ^ uint64(b)) * prime
+	}
+	h
+}
+
+// Evaluate decides whether rule keeps wide event e.
+func Evaluate(rule SampleRule, e WideEvent) bool {
+	match rule {
+	case RuleKeepAll:
+		true
+	case RuleKeepNone:
+		false
+	case RuleKeepErrors:
+		IsError(e)
+	case RuleKeepNonOK:
+		match e.Outcome {
+		case OutcomeOK:
+			false
+		case OutcomeError, OutcomeCancelled:
+			true
+		}
+	case RuleKeepSlow as r:
+		e.Duration >= r.Threshold
+	case RuleKeepFieldEquals as r:
+		FieldText(e, r.Key) == option.Some[string]{Value: r.Value}
+	case RuleKeepTag as r:
+		HasTag(e, r.Tag)
+	case RuleSampleTraceID as r:
+		if r.BasisPoints <= 0 {
+			return false
+		}
+		if r.BasisPoints >= 10000 {
+			return true
+		}
+		let bucket = int(hashTraceID(e.TraceID) % uint64(10000))
+		bucket < r.BasisPoints
+	case RuleAnyOf as r:
+		for sub in r.Rules {
+			if Evaluate(sub, e) {
+				return true
+			}
+		}
+		false
+	case RuleAllOf as r:
+		for sub in r.Rules {
+			if !Evaluate(sub, e) {
+				return false
+			}
+		}
+		true
+	case RuleNot as r:
+		if r.Inner.Len() == 0 {
+			return true
+		}
+		!Evaluate(r.Inner[0], e)
+	}
+}
+
+// SampleStats records cumulative tail-sampling counts for a SampledSink.
+type SampleStats {
+	Seen    int,
+	Kept    int,
+	Dropped int,
+}
+
+// SampledSink wraps an inner Sink and forwards only completed WideEvents that
+// satisfy Rule at emission time.
+type SampledSink {
+	Inner Sink,
+	Rule  SampleRule,
+	stats sync.Ref[SampleStats],
+} implements Sink
+
+// TailSampledSink wraps inner with tail-sampling predicate rule.
+func TailSampledSink(inner Sink, rule SampleRule) SampledSink {
+	SampledSink{
+		Inner: inner,
+		Rule:  rule,
+		stats: sync.NewRef(SampleStats{Seen: 0, Kept: 0, Dropped: 0}),
+	}
+}
+
+// Enabled delegates to s.Inner.Enabled so spans accumulate full context and
+// evaluate s.Rule at tail emission time.
+func Enabled(s SampledSink) bool { s.Inner.Enabled() }
+
+// Emit evaluates s.Rule on e, updates cumulative stats, and forwards e to
+// s.Inner iff kept.
+func Emit(s SampledSink, e WideEvent) {
+	let keep = Evaluate(s.Rule, e)
+	s.stats.Update(func(cur SampleStats) SampleStats {
+		if keep {
+			SampleStats{Seen: cur.Seen + 1, Kept: cur.Kept + 1, Dropped: cur.Dropped}
+		} else {
+			SampleStats{Seen: cur.Seen + 1, Kept: cur.Kept, Dropped: cur.Dropped + 1}
+		}
+	})
+	if keep {
+		s.Inner.Emit(e)
+	}
+}
+
+// Stats returns a snapshot of cumulative seen, kept, and dropped counts for s.
+func Stats(s SampledSink) SampleStats {
+	s.stats.Get()
+}
+
+func parseSampleRateBP(raw string) option.Option[int] {
+	let s = strings.TrimSpace(raw)
+	if s == "" {
+		return option.None
+	}
+	let bs = s.Bytes()
+	let n = bs.Len()
+	let mut i = 0
+	if bs[0] == byte('-') {
+		return option.Some[int]{Value: 0}
+	}
+	if bs[0] == byte('+') {
+		i = 1
+	}
+	let mut intPart = 0
+	let mut fracPart = 0
+	let mut fracDigits = 0
+	let mut seenDot = false
+	let mut seenDigit = false
+	for i < n {
+		let b = bs[i]
+		if b == byte('.') {
+			if seenDot {
+				return option.None
+			}
+			seenDot = true
+			i = i + 1
+			continue
+		}
+		if b < byte('0') || b > byte('9') {
+			return option.None
+		}
+		seenDigit = true
+		let d = int(b - byte('0'))
+		if !seenDot {
+			if intPart < 100 {
+				intPart = intPart*10 + d
+			}
+		} else if fracDigits < 4 {
+			fracPart = fracPart*10 + d
+			fracDigits = fracDigits + 1
+		}
+		i = i + 1
+	}
+	if !seenDigit {
+		return option.None
+	}
+	for fracDigits < 4 {
+		fracPart = fracPart * 10
+		fracDigits = fracDigits + 1
+	}
+	let bp = intPart*10000 + fracPart
+	if bp < 0 {
+		option.Some[int]{Value: 0}
+	} else if bp > 10000 {
+		option.Some[int]{Value: 10000}
+	} else {
+		option.Some[int]{Value: bp}
+	}
+}
+
+func parseSampleBool(raw string) bool {
+	let lower = strings.ToLower(strings.TrimSpace(raw))
+	lower != "0" && lower != "false" && lower != "no" && lower != "off"
+}
+
+// SamplingRuleFromEnv reads optional ERGO_SAMPLE_RATE, ERGO_SAMPLE_SLOW, and
+// ERGO_SAMPLE_ERRORS from os.Process, returning option.None when none are set
+// or a composed AnyOf SampleRule when tail sampling is configured.
+func SamplingRuleFromEnv() option.Option[SampleRule] needs os.Process {
+	let rawRate = strings.TrimSpace(envOrEmpty("ERGO_SAMPLE_RATE"))
+	let rawSlow = strings.TrimSpace(envOrEmpty("ERGO_SAMPLE_SLOW"))
+	let rawErrors = strings.TrimSpace(envOrEmpty("ERGO_SAMPLE_ERRORS"))
+	if rawRate == "" && rawSlow == "" && rawErrors == "" {
+		return option.None
+	}
+	let mut rules = []SampleRule{}
+	let keepErrs = if rawErrors == "" { true } else { parseSampleBool(rawErrors) }
+	if keepErrs {
+		rules = rules.Append(KeepErrors())
+	}
+	if rawSlow != "" {
+		let durOpt = time.ParseDuration(rawSlow) catch {
+		case time.ParseError:
+			0ns
+		}
+		if durOpt > 0ns {
+			rules = rules.Append(KeepSlow(durOpt))
+		}
+	}
+	match parseSampleRateBP(rawRate) {
+	case option.Some[int] as bp:
+		if bp.Value > 0 {
+			rules = rules.Append(SampleTraceID(bp.Value))
+		}
+	case option.None:
+	}
+	option.Some[SampleRule]{Value: AnyOf(rules)}
+}
+
+// FromEnv reads ERGO_OBSERVE and optional tail-sampling variables
+// (ERGO_SAMPLE_RATE, ERGO_SAMPLE_SLOW, ERGO_SAMPLE_ERRORS) explicitly from
+// os.Process and returns the configured Sink bound to out.
+func FromEnv(out io.Stderr) Sink needs os.Process {
+	let base = NewSinkFromConfig(ConfigFromEnv(), out)
+	if !base.Enabled() {
+		return base
+	}
+	match SamplingRuleFromEnv() {
+	case option.Some[SampleRule] as rule:
+		TailSampledSink(base, rule.Value)
+	case option.None:
+		base
+	}
+}
+
+let onSampled = context { Sink: TailSampledSink(NewRecorder(), KeepAll()) }
+
+func makeSampleEvent(traceID string, spanID string, parent option.Option[string], dur duration, outcome Outcome) WideEvent {
+	WideEvent{
+		Timestamp:    time.Unix(1700000000, 0),
+		TraceID:      traceID,
+		SpanID:       spanID,
+		ParentSpanID: parent,
+		Name:         "op",
+		Service:      ServiceMeta{Service: "api", Version: "1.0.0", DeploymentID: "", Region: ""},
+		Duration:     dur,
+		Outcome:      outcome,
+		Fields:       []Field{},
+		Counters:     []Counter{},
+		Timings:      []Timing{},
+		Tags:         []string{},
+	}
+}
+
+// ErrorsNeverDroppedUnderKeepErrors: TailSampledSink with KeepErrors always
+// keeps OutcomeError events and drops OutcomeOK events.
+law ErrorsNeverDroppedUnderKeepErrors(seed uint64, isErr bool, name string) {
+	let g = NewIDGenerator(seed)
+	let rec = NewRecorder()
+	let sink = TailSampledSink(rec, KeepErrors())
+	let outcome Outcome = if isErr {
+		OutcomeError{Kind: "err", Code: "boom", Message: name, Retriable: false}
+	} else {
+		OutcomeOK
+	}
+	let ev = makeSampleEvent(g.NextTraceID(), g.NextSpanID(), option.None, 5ms, outcome)
+	sink.Emit(ev)
+	let kept = rec.Events().Len() == 1
+	let st = Stats(sink)
+	let ok = kept == isErr && st.Seen == 1 && st.Kept == (if isErr { 1 } else { 0 }) && st.Dropped == (if isErr { 0 } else { 1 })
+	always ok
+	sometimes isErr && ok
+	sometimes !isErr && ok
+	ok
+}
+
+// SlowRequestsNeverDroppedUnderKeepSlow: TailSampledSink with KeepSlow keeps
+// every event whose Duration >= threshold and drops faster events.
+law SlowRequestsNeverDroppedUnderKeepSlow(durMsRaw int, threshMsRaw int) {
+	let durMs = ((durMsRaw % 200) + 200) % 200
+	let threshMs = ((threshMsRaw % 200) + 200) % 200
+	let dur = duration(int64(durMs) * int64(1000000))
+	let thresh = duration(int64(threshMs) * int64(1000000))
+	let rec = NewRecorder()
+	let sink = TailSampledSink(rec, KeepSlow(thresh))
+	let ev = makeSampleEvent("0123456789abcdef0123456789abcdef", "0123456789abcdef", option.None, dur, OutcomeOK)
+	sink.Emit(ev)
+	let wantKeep = dur >= thresh
+	let gotKeep = rec.Events().Len() == 1
+	let ok = gotKeep == wantKeep
+	always ok
+	sometimes dur >= thresh && ok
+	sometimes dur < thresh && ok
+	ok
+}
+
+// TraceIDSamplingIsCoherentAcrossSpans: parent and child spans sharing a
+// TraceID always receive the exact same keep/drop decision under SampleTraceID
+// so half-traces are never emitted.
+law TraceIDSamplingIsCoherentAcrossSpans(seed uint64, bpRaw int) {
+	let bp = 1000 + (((bpRaw % 8000) + 8000) % 8000)
+	let g = NewIDGenerator(seed)
+	let tid = g.NextTraceID()
+	let rootSpan = g.NextSpanID()
+	let childSpan = g.NextSpanID()
+	let rec = NewRecorder()
+	let sink = TailSampledSink(rec, SampleTraceID(bp))
+	let parentEv = makeSampleEvent(tid, rootSpan, option.None, 10ms, OutcomeOK)
+	let childEv = makeSampleEvent(tid, childSpan, option.Some[string]{Value: rootSpan}, 3ms, OutcomeOK)
+	sink.Emit(childEv)
+	sink.Emit(parentEv)
+	let count = rec.Events().Len()
+	let ok = count == 0 || count == 2
+	always ok
+	sometimes count == 2
+	sometimes count == 0
+	ok
+}
+
+// AnyOfAndAllOfCombinatorsRespectIdentity: empty AnyOf returns false, empty
+// AllOf returns true, AnyOf/AllOf match boolean OR/AND over sub-rules, and Not
+// inverts the inner rule.
+law AnyOfAndAllOfCombinatorsRespectIdentity(isErr bool, isSlow bool) {
+	let outcome Outcome = if isErr {
+		OutcomeError{Kind: "err", Code: "e", Message: "m", Retriable: false}
+	} else {
+		OutcomeOK
+	}
+	let dur = if isSlow { 200ms } else { 10ms }
+	let ev = makeSampleEvent("0123456789abcdef0123456789abcdef", "0123456789abcdef", option.None, dur, outcome)
+	let emptyAny = !Evaluate(AnyOf([]SampleRule{}), ev)
+	let emptyAll = Evaluate(AllOf([]SampleRule{}), ev)
+	let orRule = AnyOf([]SampleRule{KeepErrors(), KeepSlow(100ms)})
+	let andRule = AllOf([]SampleRule{KeepErrors(), KeepSlow(100ms)})
+	let orOK = Evaluate(orRule, ev) == (isErr || isSlow)
+	let andOK = Evaluate(andRule, ev) == (isErr && isSlow)
+	let notOK = Evaluate(Not(orRule), ev) == !(isErr || isSlow)
+	let ok = emptyAny && emptyAll && orOK && andOK && notOK
+	always ok
+	sometimes isErr && !isSlow && ok
+	sometimes !isErr && isSlow && ok
+	sometimes isErr && isSlow && ok
+	sometimes !isErr && !isSlow && ok
+	ok
+}
