@@ -1,0 +1,80 @@
+import cron
+import gen
+import temporal
+import testing
+import time
+import tz
+
+let sampleCronExprs = []string{
+	"*/15 * * * *",
+	"*/20 * * * *",
+	"0,30 * * * *",
+	"5-45/20 * * * *",
+	"@hourly",
+}
+
+type firingStep {
+	Due     time.Time,
+	Woke    time.Time,
+	PrevDue Option[time.Time],
+}
+
+// UpcomingStrictlyIncreasingAndMatchesRun proves schedule.Run on a virtual clock
+// fires strictly in chronological order, wakes at the exact due minute (via
+// std/temporal Always), and matches schedule.Upcoming for every generated schedule.
+law UpcomingStrictlyIncreasingAndMatchesRun() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 20, Shrinks: 0, MaxDraws: 1024, MaxRejected: 10}
+	let utc = tz.UTC()
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let exprText = gen.OneOf(sampleCronExprs)
+		let expr = cron.Parse(exprText) catch {
+		case cron.FieldCount, cron.BadValue, cron.OutOfRange, cron.BadStep, cron.BadRange:
+			return false
+		}
+		let offsetMins = gen.IntIn(0, 120)
+		let start = time.Add(time.Unix(1794139200, 0), time.Times(1m, offsetMins))
+		let horizon = time.Add(start, 2h)
+		let clock = testing.NewVirtualClock(time.UnixSeconds(start))
+		let mut firings = []Firing{}
+		with context { time.Clock: clock, Scheduler: clock } {
+			Run([]Job{Job{Name: "j", When: expr}}, utc, horizon, func(f Firing) {
+				firings = firings.Append(f)
+			})
+		}
+		let upcoming = Upcoming(expr, utc, start, len(firings)+1)
+		let mut trace = []temporal.Seen[firingStep]{}
+		let mut prev Option[time.Time] = None
+		for i, f in firings {
+			if i >= len(upcoming) || !time.Equal(f.Due, upcoming[i]) {
+				return false
+			}
+			trace = trace.Append(temporal.Seen[firingStep]{State: firingStep{Due: f.Due, Woke: f.Woke, PrevDue: prev}, At: f.Woke})
+			prev = Some[time.Time]{Value: f.Due}
+		}
+		if len(upcoming) > len(firings) && !time.After(upcoming[len(firings)], horizon) {
+			return false
+		}
+		let onTime = temporal.Named("woke-equals-due", func(s firingStep) bool { time.Equal(s.Woke, s.Due) })
+		let strictIncrease = temporal.Named("strictly-increasing", func(s firingStep) bool {
+			match s.PrevDue {
+			case Some[time.Time] as p:
+				time.After(s.Due, p.Value)
+			case None:
+				true
+			}
+		})
+		let both = temporal.Always(temporal.And(onTime, strictIncrease))
+		match temporal.Check(both, trace, temporal.Idle) {
+		case temporal.Holds:
+			true
+		case temporal.Violated, temporal.Open:
+			false
+		}
+	})
+	match outcome {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}
