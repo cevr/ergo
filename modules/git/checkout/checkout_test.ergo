@@ -1,0 +1,362 @@
+import exec
+import filepath
+import fs
+import fstest
+import option
+import os
+import slices
+import strings
+import github.com/cevr/ergo/modules/git/index
+import github.com/cevr/ergo/modules/git/locks
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/oracle
+import github.com/cevr/ergo/modules/git/pack
+import github.com/cevr/ergo/modules/git/root
+import github.com/cevr/ergo/modules/git/tree
+import github.com/cevr/ergo/modules/git/wref
+
+let onMemorySha1 = context {
+	Checkouter: NewMemoryCheckouter(oid.Sha1),
+}
+
+let onMemorySha256 = context {
+	Checkouter: NewMemoryCheckouter(oid.Sha256),
+}
+
+func makeLawDiskCheckouter(repoDir string, host fs.Host) DiskCheckouter {
+	let gitDir = filepath.Join([]string{repoDir, ".git"})
+	let objDir = filepath.Join([]string{gitDir, "objects"})
+	fs.MkdirAll(host, objDir) catch {
+	case fs.Denied, fs.Failed:
+	}
+	fs.MkdirAll(host, filepath.Join([]string{gitDir, "refs", "heads"})) catch {
+	case fs.Denied, fs.Failed:
+	}
+	let layout = root.Layout{
+		GitDir:                gitDir,
+		CommonDir:             gitDir,
+		WorkTree:              option.Some[string]{Value: repoDir},
+		ObjectsDir:            objDir,
+		Alternates:            []string{},
+		ConfigPath:            filepath.Join([]string{gitDir, "config"}),
+		WorktreeConfigPath:    option.None,
+		IsBare:                false,
+		RepoFormatVersion:     0,
+		ObjectFormat:          "sha1",
+		RefStorage:            "files",
+		WorktreeConfigEnabled: false,
+	}
+	NewDiskCheckouter(layout, host)
+}
+
+let onDiskSha1 = context needs fstest.TestAmbient {
+	Checkouter: makeLawDiskCheckouter(filepath.Join([]string{fstest.TestFolder(), "law-disk-checkout"}), fs.NewTestHost()),
+}
+
+type testFail {
+	reason string,
+}
+
+func runGitOk(dir string, args []string, stdin string, pathEnv Map[string, string], step int) string fails testFail | exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	let base = oracle.GitCommand(dir, args, pathEnv, oracle.StepEpoch(step))
+	let cmd = if stdin == "" { base } else { exec.WithStdin(base, stdin) }
+	let res = try exec.Runner.Run(cmd)
+	if res.Status != 0 {
+		return testFail{reason: "git failed: " + res.Stderr}
+	}
+	res.Stdout
+}
+
+func runGitRaw(dir string, args []string, pathEnv Map[string, string], step int) (int, string, string) fails exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	let cmd = oracle.GitCommand(dir, args, pathEnv, oracle.StepEpoch(step))
+	let res = try exec.Runner.Run(cmd)
+	(res.Status, res.Stdout, res.Stderr)
+}
+
+type hostBox {
+	Get() fs.Host,
+
+	// HostReadable: test host can list its root directory.
+	law HostReadable() {
+		let h = Get()
+		let _ = fs.ReadDir(h, ".") catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return false
+		}
+		true
+	},
+}
+
+type hostWrap { host fs.Host } implements hostBox
+
+func Get(w hostWrap) fs.Host { w.host }
+
+let onOracleWithHost = context needs fstest.TestAmbient {
+	exec.Runner:   exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
+	fs.Files:      fs.NewTestHost(),
+	fs.Writes:     fs.NewTestHost(),
+	os.Process:    os.NewTestHost(),
+	locks.LockOps: wref.NewFSLockOps(fs.NewTestHost()),
+	hostBox:       hostWrap{host: fs.NewTestHost()},
+}
+
+func verifyFormatCheckout(cwd string, oFmt oracle.OidFormat, fmt oid.Format, pathEnv Map[string, string], host fs.Host) fails testFail | BareRepository | UnsafePath | SymlinkTraversal | DirtyOverwrite | UntrackedOverwrite | UnmergedIndex | InvalidTarget | MissingObject | TreeError | IndexError | RefError | IOFailed | oid.BadHex | oid.WrongLength | root.NotARepository | root.BadGitDirFile | root.BadCommonDir | root.UnsupportedVersion | root.UnsupportedExtension | root.UntrustedPath | root.PathEscape | root.AlternateCycle | root.AlternateDepthExceeded | root.ConfigSyntax | root.ConfigBadValue | root.IncludeCycle | root.IncludeDepthExceeded | root.IncludeRefused | oracle.Missing | oracle.Corrupt | oracle.Ambiguous | oracle.InvalidRef | oracle.Conflict | oracle.CommandFailed | exec.NotFound | exec.Denied | exec.Failed | fs.NotFound | fs.Denied | fs.Failed needs exec.Runner | fs.Files | fs.Writes | locks.LockOps {
+	let label = oracle.FormatName(oFmt)
+	let repoDir = try oracle.InitRepo(filepath.Join([]string{cwd, "co-" + label}), oracle.RepoSpec{Format: oFmt, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, oracle.BaseEpoch)
+
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "keep.txt"}), "shared\n")
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "mod.txt"}), "main-v1\n")
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "only-main.txt"}), "remove-me\n")
+	try fs.Writes.MkdirAll(filepath.Join([]string{repoDir, "olddir", "sub"}))
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "olddir", "sub", "gone.txt"}), "prune-dir\n")
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "swap"}), "i-am-a-file-on-main\n")
+	try fs.Writes.MkdirAll(filepath.Join([]string{repoDir, "dirswap"}))
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "dirswap", "inner.txt"}), "i-am-in-dir-on-main\n")
+	let _ = try runGitOk(repoDir, []string{"add", "-A"}, "", pathEnv, 1)
+	let _ = try runGitOk(repoDir, []string{"commit", "-q", "-m", "main commit"}, "", pathEnv, 2)
+	let mainHex = strings.TrimSpace(try runGitOk(repoDir, []string{"rev-parse", "HEAD"}, "", pathEnv, 3))
+
+	let _ = try runGitOk(repoDir, []string{"checkout", "-q", "-b", "feature"}, "", pathEnv, 4)
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "mod.txt"}), "feature-v2\n")
+	try fs.Writes.Remove(filepath.Join([]string{repoDir, "only-main.txt"}))
+	try fs.Writes.Remove(filepath.Join([]string{repoDir, "olddir", "sub", "gone.txt"}))
+	try fs.Writes.Remove(filepath.Join([]string{repoDir, "olddir", "sub"}))
+	try fs.Writes.Remove(filepath.Join([]string{repoDir, "olddir"}))
+	try fs.Writes.Remove(filepath.Join([]string{repoDir, "swap"}))
+	try fs.Writes.MkdirAll(filepath.Join([]string{repoDir, "swap"}))
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "swap", "nested.txt"}), "now-nested\n")
+	try fs.Writes.Remove(filepath.Join([]string{repoDir, "dirswap", "inner.txt"}))
+	try fs.Writes.Remove(filepath.Join([]string{repoDir, "dirswap"}))
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "dirswap"}), "now-a-file\n")
+	try fs.Writes.MkdirAll(filepath.Join([]string{repoDir, "bin"}))
+	try fs.Writes.WriteFileMode(filepath.Join([]string{repoDir, "bin", "run.sh"}), "#!/bin/sh\necho ok\n", fs.SharedDir())
+	try fs.Symlink(host, "keep.txt", filepath.Join([]string{repoDir, "link-to-keep"}))
+	let _ = try runGitOk(repoDir, []string{"add", "-A"}, "", pathEnv, 5)
+	let _ = try runGitOk(repoDir, []string{"commit", "-q", "-m", "feature commit"}, "", pathEnv, 6)
+	let featHex = strings.TrimSpace(try runGitOk(repoDir, []string{"rev-parse", "HEAD"}, "", pathEnv, 7))
+
+	let _ = try runGitOk(repoDir, []string{"checkout", "-q", "main"}, "", pathEnv, 8)
+	let layout = try root.Discover(repoDir, root.DiscoverOptions{CeilingDirs: []string{cwd}, Trust: root.ConfinedTrust(cwd)})
+
+	let resFeat = try CheckoutBranch(layout, "feature", DefaultOptions(), host)
+	if resFeat.Branch != (option.Some[string]{Value: "refs/heads/feature"}) {
+		return testFail{reason: "unexpected branch result"}
+	}
+
+	let statusFeat = try runGitOk(repoDir, []string{"status", "--porcelain=v1", "-z"}, "", pathEnv, 9)
+	if statusFeat != "" {
+		return testFail{reason: "git status not clean after CheckoutBranch feature: " + statusFeat}
+	}
+	let diffIdxFeat = try runGitOk(repoDir, []string{"diff-index", "--cached", "HEAD"}, "", pathEnv, 10)
+	if diffIdxFeat != "" {
+		return testFail{reason: "git diff-index --cached HEAD not empty: " + diffIdxFeat}
+	}
+	let headFeat = strings.TrimSpace(try runGitOk(repoDir, []string{"rev-parse", "HEAD"}, "", pathEnv, 11))
+	let symFeat = strings.TrimSpace(try runGitOk(repoDir, []string{"symbolic-ref", "HEAD"}, "", pathEnv, 12))
+	if headFeat != featHex || symFeat != "refs/heads/feature" {
+		return testFail{reason: "HEAD mismatch after feature checkout: " + headFeat + " / " + symFeat}
+	}
+	let _ = try runGitOk(repoDir, []string{"fsck", "--strict", "--full"}, "", pathEnv, 13)
+
+	let runInfo = try fs.Lstat(host, filepath.Join([]string{repoDir, "bin", "run.sh"}))
+	if (runInfo.Perm & 64) == 0 {
+		return testFail{reason: "executable mode bit not preserved on bin/run.sh"}
+	}
+	let modInfo = try fs.Lstat(host, filepath.Join([]string{repoDir, "mod.txt"}))
+	if (modInfo.Perm & 64) != 0 {
+		return testFail{reason: "unexpected executable mode bit on mod.txt"}
+	}
+	let linkIsSym = try fs.IsLink(host, filepath.Join([]string{repoDir, "link-to-keep"}))
+	let linkTarget = try fs.Readlink(host, filepath.Join([]string{repoDir, "link-to-keep"}))
+	if !linkIsSym || linkTarget != "keep.txt" {
+		return testFail{reason: "symlink not materialized properly"}
+	}
+	let oldDirGone = fs.Lstat(host, filepath.Join([]string{repoDir, "olddir"})) catch {
+	case fs.NotFound:
+		fs.Info{Name: "", Size: 0, Dir: false, Perm: 0}
+	case fs.Denied, fs.Failed:
+		fs.Info{Name: "err", Size: 0, Dir: false, Perm: 0}
+	}
+	if oldDirGone.Name != "" {
+		return testFail{reason: "empty parent directory olddir was not pruned"}
+	}
+
+	let mainOID = try oid.ParseHex(fmt, mainHex)
+	let _ = try CheckoutDetached(layout, mainOID, DefaultOptions(), host)
+	let statusDet = try runGitOk(repoDir, []string{"status", "--porcelain=v1", "-z"}, "", pathEnv, 14)
+	if statusDet != "" {
+		return testFail{reason: "git status not clean after CheckoutDetached: " + statusDet}
+	}
+	let headDet = strings.TrimSpace(try runGitOk(repoDir, []string{"rev-parse", "HEAD"}, "", pathEnv, 15))
+	if headDet != mainHex {
+		return testFail{reason: "HEAD OID mismatch after detached checkout"}
+	}
+	let (symCode, _, _) = try runGitRaw(repoDir, []string{"symbolic-ref", "-q", "HEAD"}, pathEnv, 16)
+	if symCode == 0 {
+		return testFail{reason: "HEAD should be detached after CheckoutDetached"}
+	}
+
+	let _ = try CheckoutBranch(layout, "main", DefaultOptions(), host)
+	let idxBeforeDirty = try fs.ReadFile(host, filepath.Join([]string{layout.GitDir, "index"}))
+	let headBeforeDirty = try fs.ReadFile(host, filepath.Join([]string{layout.GitDir, "HEAD"}))
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "mod.txt"}), "local-dirty-edit\n")
+	let mut sawDirty = false
+	let _ = CheckoutBranch(layout, "feature", DefaultOptions(), host) catch {
+	case DirtyOverwrite as e:
+		sawDirty = e.Path == "mod.txt"
+		Result{TreeOID: mainOID, HeadOID: option.None, Branch: option.None, Created: 0, Updated: 0, Deleted: 0, Unchanged: 0}
+	case BareRepository, UnsafePath, SymlinkTraversal, UntrackedOverwrite, UnmergedIndex, InvalidTarget, MissingObject, TreeError, IndexError, RefError, IOFailed:
+		return testFail{reason: "expected DirtyOverwrite on modified tracked file"}
+	}
+	if !sawDirty {
+		return testFail{reason: "CheckoutBranch did not refuse dirty mod.txt without force"}
+	}
+	let modAfterRefusal = try fs.ReadFile(host, filepath.Join([]string{repoDir, "mod.txt"}))
+	let idxAfterDirty = try fs.ReadFile(host, filepath.Join([]string{layout.GitDir, "index"}))
+	let headAfterDirty = try fs.ReadFile(host, filepath.Join([]string{layout.GitDir, "HEAD"}))
+	if modAfterRefusal != "local-dirty-edit\n" || idxAfterDirty != idxBeforeDirty || headAfterDirty != headBeforeDirty {
+		return testFail{reason: "failed dirty checkout mutated worktree, index, or HEAD"}
+	}
+
+	let _ = try CheckoutBranch(layout, "feature", Options{..DefaultOptions(), Force: true}, host)
+	let statusForce = try runGitOk(repoDir, []string{"status", "--porcelain=v1", "-z"}, "", pathEnv, 17)
+	if statusForce != "" {
+		return testFail{reason: "git status not clean after Force dirty checkout: " + statusForce}
+	}
+
+	let _ = try CheckoutBranch(layout, "main", DefaultOptions(), host)
+	let idxBeforeUntracked = try fs.ReadFile(host, filepath.Join([]string{layout.GitDir, "index"}))
+	let headBeforeUntracked = try fs.ReadFile(host, filepath.Join([]string{layout.GitDir, "HEAD"}))
+	try fs.Writes.MkdirAll(filepath.Join([]string{repoDir, "bin"}))
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "bin", "run.sh"}), "my-untracked-script\n")
+	let mut sawUntracked = false
+	let _ = CheckoutBranch(layout, "feature", DefaultOptions(), host) catch {
+	case UntrackedOverwrite as e:
+		sawUntracked = e.Path == "bin/run.sh"
+		Result{TreeOID: mainOID, HeadOID: option.None, Branch: option.None, Created: 0, Updated: 0, Deleted: 0, Unchanged: 0}
+	case BareRepository, UnsafePath, SymlinkTraversal, DirtyOverwrite, UnmergedIndex, InvalidTarget, MissingObject, TreeError, IndexError, RefError, IOFailed:
+		return testFail{reason: "expected UntrackedOverwrite on untracked bin/run.sh"}
+	}
+	if !sawUntracked {
+		return testFail{reason: "CheckoutBranch did not refuse untracked overwrite without force"}
+	}
+	let untrackedAfter = try fs.ReadFile(host, filepath.Join([]string{repoDir, "bin", "run.sh"}))
+	let idxAfterUntracked = try fs.ReadFile(host, filepath.Join([]string{layout.GitDir, "index"}))
+	let headAfterUntracked = try fs.ReadFile(host, filepath.Join([]string{layout.GitDir, "HEAD"}))
+	if untrackedAfter != "my-untracked-script\n" || idxAfterUntracked != idxBeforeUntracked || headAfterUntracked != headBeforeUntracked {
+		return testFail{reason: "failed untracked checkout mutated worktree, index, or HEAD"}
+	}
+	let _ = try CheckoutBranch(layout, "feature", Options{..DefaultOptions(), Force: true}, host)
+	let statusAfterForceUntracked = try runGitOk(repoDir, []string{"status", "--porcelain=v1", "-z"}, "", pathEnv, 18)
+	if statusAfterForceUntracked != "" {
+		return testFail{reason: "git status not clean after Force untracked checkout: " + statusAfterForceUntracked}
+	}
+}
+
+// CheckoutMatchesGitOnSha1AndSha256: exercises branch switch, detached HEAD,
+// executable mode preservation, symlinks, file/dir swaps, empty-dir pruning,
+// and non-force vs Force dirty/untracked overwrite protection across SHA-1 and
+// SHA-256 repos against C Git (`status`, `diff-index`, `rev-parse`, `fsck`).
+test CheckoutMatchesGitOnSha1AndSha256 {
+	with onOracleWithHost {
+		let pathEnv = exec.PathOf(os.Process.Environ())
+		let cwd = try os.Process.Getwd()
+		let host = hostBox.Get()
+		try verifyFormatCheckout(cwd, oracle.Sha1, oid.Sha1, pathEnv, host)
+		try verifyFormatCheckout(cwd, oracle.Sha256, oid.Sha256, pathEnv, host)
+	}
+}
+
+// CheckoutRefusesSymlinkParentEscapeAndDotGit: verifies symlink-parent escapes
+// and case-folded `.GIT`/`.git` paths are refused with zero external writes
+// even under Force mode.
+test CheckoutRefusesSymlinkParentEscapeAndDotGit {
+	with onOracleWithHost {
+		let pathEnv = exec.PathOf(os.Process.Environ())
+		let cwd = try os.Process.Getwd()
+		let host = hostBox.Get()
+
+		let outsideDir = filepath.Join([]string{cwd, "outside-escape-target"})
+		try fs.Writes.MkdirAll(outsideDir)
+		let repoDir = try oracle.InitRepo(filepath.Join([]string{cwd, "co-symlink-escape"}), oracle.RepoSpec{Format: oracle.Sha1, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, oracle.BaseEpoch)
+		let layout = try root.Discover(repoDir, root.DiscoverOptions{CeilingDirs: []string{cwd}, Trust: root.ConfinedTrust(cwd)})
+
+		let odb = try pack.FromLayout(layout)
+		let disk = pack.NewDiskODB(odb, host)
+		let payload = "pwned-outside\n".Bytes()
+		let blobOID = try disk.Install(oid.Blob, payload)
+		let subRaw = try tree.EncodeTree(oid.Sha1, []tree.Entry{
+			tree.Entry{Mode: tree.ModeRegular, Name: "evil.txt", OID: blobOID},
+		})
+		let subTreeOID = try disk.Install(oid.Tree, subRaw)
+		let rootRaw = try tree.EncodeTree(oid.Sha1, []tree.Entry{
+			tree.Entry{Mode: tree.ModeTree, Name: "escape-dir", OID: subTreeOID},
+		})
+		let rootTreeOID = try disk.Install(oid.Tree, rootRaw)
+
+		try fs.Symlink(host, outsideDir, filepath.Join([]string{repoDir, "escape-dir"}))
+
+		let mut sawDirectSym = false
+		CheckDiskSymlinkParents(host, repoDir, "escape-dir/evil.txt") catch {
+		case SymlinkTraversal as e:
+			sawDirectSym = e.Path == "escape-dir/evil.txt" && e.LinkParent == "escape-dir"
+		case IOFailed:
+		}
+		assert sawDirectSym
+
+		let mut sawSymEscape = false
+		let _ = CheckoutTree(layout, rootTreeOID, Options{..DefaultOptions(), Force: true}, host) catch {
+		case SymlinkTraversal as e:
+			sawSymEscape = e.Path == "escape-dir/evil.txt" && e.LinkParent == "escape-dir"
+			Result{TreeOID: rootTreeOID, HeadOID: option.None, Branch: option.None, Created: 0, Updated: 0, Deleted: 0, Unchanged: 0}
+		case BareRepository, UnsafePath, DirtyOverwrite, UntrackedOverwrite, UnmergedIndex, MissingObject, TreeError, IndexError, RefError, IOFailed:
+			Result{TreeOID: rootTreeOID, HeadOID: option.None, Branch: option.None, Created: 0, Updated: 0, Deleted: 0, Unchanged: 0}
+		}
+		assert sawSymEscape
+
+		let outsideFiles = try fs.ReadDir(host, outsideDir)
+		assert outsideFiles.Len() == 0
+
+		let mut sawDotGitPath = false
+		let _ = PlanCheckout(
+			false,
+			Map[string, TreeEntry]{},
+			[]index.Entry{},
+			[]TreeEntry{TreeEntry{Path: ".GIT/hooks/pwn", Mode: tree.ModeRegular, OID: blobOID}},
+			Map[string, bool]{},
+			Map[string, bool]{},
+			Map[string, string]{},
+			Options{..DefaultOptions(), Force: true},
+		) catch {
+		case UnsafePath:
+			sawDotGitPath = true
+			Plan{Actions: []PlanAction{}, TargetEntries: []TreeEntry{}, Unchanged: 0}
+		case SymlinkTraversal, DirtyOverwrite, UntrackedOverwrite, UnmergedIndex:
+			Plan{Actions: []PlanAction{}, TargetEntries: []TreeEntry{}, Unchanged: 0}
+		}
+		assert sawDotGitPath
+
+		let mut sawTraversalPath = false
+		ValidatePath("../escape") catch {
+		case UnsafePath:
+			sawTraversalPath = true
+		}
+		assert sawTraversalPath
+
+		let dotGitSubRaw = try tree.EncodeTree(oid.Sha1, []tree.Entry{
+			tree.Entry{Mode: tree.ModeRegular, Name: "pwn", OID: blobOID},
+		})
+		let dotGitSubOID = try disk.Install(oid.Tree, dotGitSubRaw)
+		let dotGitRootRaw = slices.AppendAll("40000 .GIT\x00".Bytes(), dotGitSubOID.Raw)
+		let dotGitRootOID = try disk.Install(oid.Tree, dotGitRootRaw)
+		let mut sawDotGitTree = false
+		let _ = CheckoutTree(layout, dotGitRootOID, Options{..DefaultOptions(), Force: true}, host) catch {
+		case UnsafePath, TreeError:
+			sawDotGitTree = true
+			Result{TreeOID: dotGitRootOID, HeadOID: option.None, Branch: option.None, Created: 0, Updated: 0, Deleted: 0, Unchanged: 0}
+		case BareRepository, SymlinkTraversal, DirtyOverwrite, UntrackedOverwrite, UnmergedIndex, MissingObject, IndexError, RefError, IOFailed:
+			Result{TreeOID: dotGitRootOID, HeadOID: option.None, Branch: option.None, Created: 0, Updated: 0, Deleted: 0, Unchanged: 0}
+		}
+		assert sawDotGitTree
+	}
+}

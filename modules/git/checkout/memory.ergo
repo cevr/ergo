@@ -1,0 +1,231 @@
+import option
+import slices
+import strings
+import sync
+import github.com/cevr/ergo/modules/git/index
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/pack
+import github.com/cevr/ergo/modules/git/tree
+
+type memFile {
+	mode uint32,
+	data []byte,
+}
+
+type memState {
+	files   Map[string, memFile],
+	entries []index.Entry,
+}
+
+// MemoryCheckouter implements Checkouter purely in memory over pack.MemoryODB,
+// enforcing the exact same safety validation and checkout planning rules.
+type MemoryCheckouter {
+	format oid.Format,
+	odb    pack.MemoryODB,
+	state  sync.Ref[memState],
+} implements Checkouter
+
+// NewMemoryCheckouter creates an empty MemoryCheckouter for format.
+func NewMemoryCheckouter(format oid.Format) MemoryCheckouter {
+	MemoryCheckouter{
+		format: format,
+		odb:    pack.NewMemoryODB(format),
+		state:  sync.NewRef(memState{files: Map[string, memFile]{}, entries: []index.Entry{}}),
+	}
+}
+
+// Format implements Checkouter.Format on MemoryCheckouter.
+func Format(m MemoryCheckouter) oid.Format { m.format }
+
+// SeedBlob implements Checkouter.SeedBlob on MemoryCheckouter.
+func SeedBlob(m MemoryCheckouter, data []byte) oid.OID fails IOFailed {
+	m.odb.Install(oid.Blob, data) catch {
+	case pack.Collision as e:
+		return IOFailed{Op: "seed-blob", Detail: e.Digest}
+	case pack.IOFailed as e:
+		return IOFailed{Op: "seed-blob", Detail: e.Detail}
+	}
+}
+
+// SeedTree implements Checkouter.SeedTree on MemoryCheckouter.
+func SeedTree(m MemoryCheckouter, entries []tree.Entry) oid.OID fails TreeError | IOFailed {
+	let raw = tree.EncodeTree(m.format, entries) catch {
+	case tree.InvalidEntryName as e:
+		return TreeError{Detail: e.Name + ": " + e.Reason}
+	case tree.DuplicateEntry as e:
+		return TreeError{Detail: "duplicate entry: " + e.Name}
+	}
+	m.odb.Install(oid.Tree, raw) catch {
+	case pack.Collision as e:
+		return IOFailed{Op: "seed-tree", Detail: e.Digest}
+	case pack.IOFailed as e:
+		return IOFailed{Op: "seed-tree", Detail: e.Detail}
+	}
+}
+
+// WriteWorktreeFile implements Checkouter.WriteWorktreeFile on MemoryCheckouter.
+func WriteWorktreeFile(m MemoryCheckouter, relPath string, data []byte) fails IOFailed {
+	m.state.Update(func(st memState) memState {
+		let mut next = st.files
+		next[relPath] = memFile{mode: index.ModeRegular, data: data}
+		memState{files: next, entries: st.entries}
+	})
+}
+
+// ReadWorktreeFile implements Checkouter.ReadWorktreeFile on MemoryCheckouter.
+func ReadWorktreeFile(m MemoryCheckouter, relPath string) option.Option[[]byte] fails IOFailed {
+	let st = m.state.Get()
+	match st.files.Get(relPath) {
+	case option.Some[memFile] as f:
+		option.Some[[]byte]{Value: f.Value.data}
+	case option.None:
+		option.None
+	}
+}
+
+// ApplyTree implements Checkouter.ApplyTree on MemoryCheckouter.
+func ApplyTree(m MemoryCheckouter, targetTree oid.OID, opts Options) Result fails UnsafePath | SymlinkTraversal | DirtyOverwrite | UntrackedOverwrite | UnmergedIndex | MissingObject | TreeError | IndexError | IOFailed {
+	let targetEntries = with context { pack.ObjectStore: m.odb } {
+		try walkTreeEntries(m.format, targetTree, opts)
+	}
+	let st = m.state.Get()
+
+	let mut symlinks = Map[string, bool]{}
+	for p, f in st.files {
+		if f.mode == index.ModeSymlink {
+			symlinks[p] = true
+		}
+	}
+	for t in targetEntries {
+		let parts = strings.Split(t.Path, "/")
+		let mut prefix = ""
+		for i in 0..parts.Len()-1 {
+			prefix = if i == 0 { parts[i] } else { prefix + "/" + parts[i] }
+			if symlinks.Get(prefix) != option.None {
+				return SymlinkTraversal{Path: t.Path, LinkParent: prefix}
+			}
+		}
+	}
+
+	let mut worktreeDirty = Map[string, bool]{}
+	for e in st.entries {
+		if e.Stage != 0 {
+			continue
+		}
+		match st.files.Get(e.Path) {
+		case option.None:
+			worktreeDirty[e.Path] = true
+		case option.Some[memFile] as f:
+			let h = oid.HashObject(m.format, oid.Blob, f.Value.data) catch {
+			case oid.Collision as c:
+				return IOFailed{Op: "hash-mem", Detail: c.Digest}
+			}
+			if !oid.Equal(h, e.OID) || f.Value.mode != e.Mode {
+				worktreeDirty[e.Path] = true
+			}
+		}
+	}
+
+	let mut worktreeExists = Map[string, bool]{}
+	let mut blockingUntracked = Map[string, string]{}
+	let mut trackedSet = Map[string, bool]{}
+	for e in st.entries {
+		trackedSet[e.Path] = true
+	}
+	for t in targetEntries {
+		if st.files.Get(t.Path) != option.None {
+			worktreeExists[t.Path] = true
+		}
+		let parts = strings.Split(t.Path, "/")
+		let mut prefix = ""
+		for i in 0..parts.Len()-1 {
+			prefix = if i == 0 { parts[i] } else { prefix + "/" + parts[i] }
+			if trackedSet.Get(prefix) == option.None && st.files.Get(prefix) != option.None {
+				blockingUntracked[t.Path] = prefix
+			}
+		}
+		let dirPrefix = t.Path + "/"
+		for p, _ in st.files {
+			if strings.HasPrefix(p, dirPrefix) && trackedSet.Get(p) == option.None {
+				blockingUntracked[t.Path] = p
+			}
+		}
+	}
+
+	let plan = try PlanCheckout(false, Map[string, TreeEntry]{}, st.entries, targetEntries, worktreeDirty, worktreeExists, blockingUntracked, opts)
+
+	let mut nextFiles = st.files
+	let mut created = 0
+	let mut updated = 0
+	let mut deleted = 0
+
+	for act in plan.Actions {
+		match act.Kind {
+		case Delete:
+			nextFiles = nextFiles.Delete(act.Path)
+			deleted = deleted + 1
+		case Create, Update:
+		}
+	}
+
+	let mut nextIndex = slices.WithCapacity[index.Entry](plan.TargetEntries.Len())
+	with context { pack.ObjectStore: m.odb } {
+		for act in plan.Actions {
+			match act.Kind {
+			case Create:
+				let mode = match act.Mode {
+				case option.Some[tree.Mode] as v:
+					v.Value
+				case option.None:
+					tree.ModeRegular
+				}
+				let id = match act.OID {
+				case option.Some[oid.OID] as v:
+					v.Value
+				case option.None:
+					oid.Zero(m.format)
+				}
+				let data = try readBlobBytes(id, opts.MaxBytes)
+				nextFiles[act.Path] = memFile{mode: TreeModeToIndexMode(mode), data: data}
+				created = created + 1
+			case Update:
+				let mode = match act.Mode {
+				case option.Some[tree.Mode] as v:
+					v.Value
+				case option.None:
+					tree.ModeRegular
+				}
+				let id = match act.OID {
+				case option.Some[oid.OID] as v:
+					v.Value
+				case option.None:
+					oid.Zero(m.format)
+				}
+				let data = try readBlobBytes(id, opts.MaxBytes)
+				nextFiles[act.Path] = memFile{mode: TreeModeToIndexMode(mode), data: data}
+				updated = updated + 1
+			case Delete:
+			}
+		}
+		for t in plan.TargetEntries {
+			let sz = match t.Mode {
+			case tree.ModeGitlink, tree.ModeTree:
+				0
+			case tree.ModeRegular, tree.ModeExecutable, tree.ModeSymlink:
+				try statBlobSize(t.OID, opts.MaxBytes)
+			}
+			nextIndex = nextIndex.Append(makeIndexEntry(t.Path, TreeModeToIndexMode(t.Mode), t.OID, sz))
+		}
+	}
+
+	m.state.Set(memState{files: nextFiles, entries: nextIndex})
+	Result{
+		TreeOID:   targetTree,
+		HeadOID:   option.None,
+		Branch:    option.None,
+		Created:   created,
+		Updated:   updated,
+		Deleted:   deleted,
+		Unchanged: plan.Unchanged,
+	}
+}

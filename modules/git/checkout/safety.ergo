@@ -1,0 +1,318 @@
+import filepath
+import fs
+import option
+import slices
+import strings
+import github.com/cevr/ergo/modules/git/index
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/tree
+
+// TreeModeToIndexMode converts a canonical Git tree leaf mode into its
+// corresponding 32-bit Git index entry mode.
+func TreeModeToIndexMode(m tree.Mode) uint32 {
+	match m {
+	case tree.ModeRegular:
+		index.ModeRegular
+	case tree.ModeExecutable:
+		index.ModeExecutable
+	case tree.ModeSymlink:
+		index.ModeSymlink
+	case tree.ModeGitlink:
+		index.ModeGitlink
+	case tree.ModeTree:
+		index.ModeSparseDir
+	}
+}
+
+// ValidatePath validates a single checkout relative path, rejecting empty
+// strings, leading or trailing slashes, NUL bytes, `.`, `..`, empty segments,
+// and case-insensitive `.git` segments.
+func ValidatePath(path string) fails UnsafePath {
+	if path == "" || strings.HasPrefix(path, "/") || strings.HasSuffix(path, "/") {
+		return UnsafePath{Path: path, Reason: "empty or slash-bounded path"}
+	}
+	for b in path.Bytes() {
+		if b == byte(0) {
+			return UnsafePath{Path: path, Reason: "NUL byte in path"}
+		}
+	}
+	for seg in strings.Split(path, "/") {
+		if seg == "" || seg == "." || seg == ".." {
+			return UnsafePath{Path: path, Reason: "unsafe path segment: " + seg}
+		}
+		if strings.ToLower(seg) == ".git" {
+			return UnsafePath{Path: path, Reason: "refusing .git path segment: " + seg}
+		}
+	}
+}
+
+// CheckTargetSymlinkCollisions rejects any target tree that declares a symlink
+// at an ancestor path of another target entry.
+func CheckTargetSymlinkCollisions(entries []TreeEntry) fails SymlinkTraversal {
+	let mut symlinks = Map[string, bool]{}
+	for e in entries {
+		match e.Mode {
+		case tree.ModeSymlink:
+			symlinks[e.Path] = true
+		case tree.ModeRegular, tree.ModeExecutable, tree.ModeGitlink, tree.ModeTree:
+		}
+	}
+	if symlinks.Len() == 0 {
+		return
+	}
+	for e in entries {
+		let parts = strings.Split(e.Path, "/")
+		let mut prefix = ""
+		for i in 0..parts.Len()-1 {
+			prefix = if i == 0 { parts[i] } else { prefix + "/" + parts[i] }
+			if symlinks.Get(prefix) != option.None {
+				return SymlinkTraversal{Path: e.Path, LinkParent: prefix}
+			}
+		}
+	}
+}
+
+// ValidateTreePaths validates every path in entries for traversal, `.git`
+// segments, duplicates, file/directory collisions, and optional case-fold collisions.
+func ValidateTreePaths(entries []TreeEntry, caseFoldCheck bool) fails UnsafePath {
+	let mut seen = Map[string, bool]{}
+	let mut folded = Map[string, string]{}
+	let mut leafPaths = Map[string, bool]{}
+	let mut foldedLeaves = Map[string, string]{}
+
+	for e in entries {
+		try ValidatePath(e.Path)
+		if seen.Get(e.Path) != option.None {
+			return UnsafePath{Path: e.Path, Reason: "duplicate path in target tree"}
+		}
+		seen[e.Path] = true
+		leafPaths[e.Path] = true
+		if caseFoldCheck {
+			let low = strings.ToLower(e.Path)
+			match folded.Get(low) {
+			case option.Some[string] as prev:
+				return UnsafePath{Path: e.Path, Reason: "case-folding collision with " + prev.Value}
+			case option.None:
+				folded[low] = e.Path
+				foldedLeaves[low] = e.Path
+			}
+		}
+	}
+
+	for e in entries {
+		let parts = strings.Split(e.Path, "/")
+		let mut prefix = ""
+		for i in 0..parts.Len()-1 {
+			prefix = if i == 0 { parts[i] } else { prefix + "/" + parts[i] }
+			if leafPaths.Get(prefix) != option.None {
+				return UnsafePath{Path: e.Path, Reason: "file/directory collision with " + prefix}
+			}
+			if caseFoldCheck {
+				let lowPrefix = strings.ToLower(prefix)
+				match foldedLeaves.Get(lowPrefix) {
+				case option.Some[string] as prev:
+					return UnsafePath{Path: e.Path, Reason: "case-folding file/directory collision with " + prev.Value}
+				case option.None:
+				}
+			}
+		}
+	}
+}
+
+// CheckDiskSymlinkParents verifies that no existing ancestor directory of
+// relPath inside workTree is a symbolic link, preventing symlink traversal escapes.
+func CheckDiskSymlinkParents(host fs.Host, workTree string, relPath string) fails SymlinkTraversal | IOFailed {
+	let parts = strings.Split(relPath, "/")
+	let mut prefix = ""
+	for i in 0..parts.Len()-1 {
+		prefix = if i == 0 { parts[i] } else { prefix + "/" + parts[i] }
+		let absPrefix = filepath.Join([]string{workTree, prefix})
+		let isLink = fs.IsLink(host, absPrefix) catch {
+		case fs.NotFound:
+			return
+		case fs.Denied as e:
+			return IOFailed{Op: "islink-parent", Detail: e.Path}
+		case fs.Failed as e:
+			if strings.Contains(strings.ToLower(e.Reason), "not a directory") {
+				return
+			}
+			return IOFailed{Op: "islink-parent", Detail: e.Reason}
+		}
+		if isLink {
+			return SymlinkTraversal{Path: relPath, LinkParent: prefix}
+		}
+	}
+}
+
+func sortTreeEntries(entries []TreeEntry) []TreeEntry {
+	let mut copy = slices.WithCapacity[TreeEntry](entries.Len())
+	for e in entries {
+		copy = copy.Append(e)
+	}
+	slices.SortFunc(copy, func(a TreeEntry, b TreeEntry) int {
+		if a.Path < b.Path {
+			-1
+		} else if a.Path > b.Path {
+			1
+		} else {
+			0
+		}
+	})
+}
+
+func entryMatchesIndex(t TreeEntry, idx index.Entry) bool {
+	oid.Equal(t.OID, idx.OID) && TreeModeToIndexMode(t.Mode) == idx.Mode
+}
+
+func headMatchesIndex(h TreeEntry, idx index.Entry) bool {
+	oid.Equal(h.OID, idx.OID) && TreeModeToIndexMode(h.Mode) == idx.Mode
+}
+
+func computeStagedDirty(hasHead bool, headMap Map[string, TreeEntry], indexMap Map[string, index.Entry]) Map[string, bool] {
+	let mut dirty = Map[string, bool]{}
+	if !hasHead {
+		return dirty
+	}
+	for path, idxEntry in indexMap {
+		match headMap.Get(path) {
+		case option.None:
+			dirty[path] = true
+		case option.Some[TreeEntry] as h:
+			if !headMatchesIndex(h.Value, idxEntry) {
+				dirty[path] = true
+			}
+		}
+	}
+	for path, _ in headMap {
+		if indexMap.Get(path) == option.None {
+			dirty[path] = true
+		}
+	}
+	dirty
+}
+
+// PlanCheckout runs complete fail-closed preflight validation (path safety,
+// target symlink collisions, unmerged stages, dirty worktree/staged overwrite
+// protection, and untracked overwrite protection) and returns the ordered
+// mutation plan without touching disk.
+func PlanCheckout(hasHead bool, headMap Map[string, TreeEntry], indexEntries []index.Entry, targetEntries []TreeEntry, worktreeDirty Map[string, bool], worktreeExists Map[string, bool], blockingUntracked Map[string, string], opts Options) Plan fails UnsafePath | SymlinkTraversal | DirtyOverwrite | UntrackedOverwrite | UnmergedIndex {
+	try CheckTargetSymlinkCollisions(targetEntries)
+	try ValidateTreePaths(targetEntries, opts.CaseFoldCheck)
+
+	let sortedTargets = sortTreeEntries(targetEntries)
+	let mut indexMap = Map[string, index.Entry]{}
+	for e in indexEntries {
+		if e.Stage != 0 {
+			if !opts.Force {
+				return UnmergedIndex{Path: e.Path}
+			}
+			continue
+		}
+		indexMap[e.Path] = e
+	}
+
+	let stagedDirty = computeStagedDirty(hasHead, headMap, indexMap)
+
+	let mut targetMap = Map[string, TreeEntry]{}
+	for t in sortedTargets {
+		targetMap[t.Path] = t
+	}
+
+	let mut deletes = []PlanAction{}
+	let mut indexPaths = []string{}
+	for path, _ in indexMap {
+		indexPaths = indexPaths.Append(path)
+	}
+	let sortedIndexPaths = slices.SortFunc(indexPaths, func(a string, b string) int {
+		if a < b {
+			-1
+		} else if a > b {
+			1
+		} else {
+			0
+		}
+	})
+
+	for path in sortedIndexPaths {
+		if targetMap.Get(path) != option.None {
+			continue
+		}
+		let isWtDirty = worktreeDirty.Get(path) != option.None
+		let isStagedDirty = stagedDirty.Get(path) != option.None
+		if !opts.Force && (isWtDirty || isStagedDirty) {
+			return DirtyOverwrite{Path: path}
+		}
+		deletes = deletes.Append(PlanAction{
+			Path: path,
+			Kind: Delete,
+			Mode: option.None,
+			OID:  option.None,
+		})
+	}
+
+	let mut writes = []PlanAction{}
+	let mut unchanged = 0
+	for t in sortedTargets {
+		let isWtDirty = worktreeDirty.Get(t.Path) != option.None
+		let isStagedDirty = stagedDirty.Get(t.Path) != option.None
+		match indexMap.Get(t.Path) {
+		case option.Some[index.Entry] as curWrap:
+			let cur = curWrap.Value
+			if !entryMatchesIndex(t, cur) {
+				if !opts.Force && (isWtDirty || isStagedDirty) {
+					return DirtyOverwrite{Path: t.Path}
+				}
+				writes = writes.Append(PlanAction{
+					Path: t.Path,
+					Kind: Update,
+					Mode: option.Some[tree.Mode]{Value: t.Mode},
+					OID:  option.Some[oid.OID]{Value: t.OID},
+				})
+			} else if isStagedDirty && !opts.Force {
+				return DirtyOverwrite{Path: t.Path}
+			} else if opts.Force && (isWtDirty || worktreeExists.Get(t.Path) == option.None) {
+				writes = writes.Append(PlanAction{
+					Path: t.Path,
+					Kind: Update,
+					Mode: option.Some[tree.Mode]{Value: t.Mode},
+					OID:  option.Some[oid.OID]{Value: t.OID},
+				})
+			} else {
+				unchanged = unchanged + 1
+			}
+		case option.None:
+			if !opts.Force && isStagedDirty {
+				return DirtyOverwrite{Path: t.Path}
+			}
+			if !opts.Force {
+				match blockingUntracked.Get(t.Path) {
+				case option.Some[string] as blocker:
+					return UntrackedOverwrite{Path: blocker.Value}
+				case option.None:
+				}
+				if worktreeExists.Get(t.Path) != option.None {
+					return UntrackedOverwrite{Path: t.Path}
+				}
+			}
+			writes = writes.Append(PlanAction{
+				Path: t.Path,
+				Kind: Create,
+				Mode: option.Some[tree.Mode]{Value: t.Mode},
+				OID:  option.Some[oid.OID]{Value: t.OID},
+			})
+		}
+	}
+
+	let mut actions = slices.WithCapacity[PlanAction](deletes.Len() + writes.Len())
+	for d in deletes {
+		actions = actions.Append(d)
+	}
+	for w in writes {
+		actions = actions.Append(w)
+	}
+	Plan{
+		Actions:       actions,
+		TargetEntries: sortedTargets,
+		Unchanged:     unchanged,
+	}
+}

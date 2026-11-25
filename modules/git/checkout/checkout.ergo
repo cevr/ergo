@@ -1,0 +1,922 @@
+import filepath
+import fs
+import option
+import slices
+import strings
+import github.com/cevr/ergo/modules/git/index
+import github.com/cevr/ergo/modules/git/locks
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/pack
+import github.com/cevr/ergo/modules/git/refs
+import github.com/cevr/ergo/modules/git/root
+import github.com/cevr/ergo/modules/git/status
+import github.com/cevr/ergo/modules/git/tree
+import github.com/cevr/ergo/modules/git/windex
+import github.com/cevr/ergo/modules/git/wref
+
+func formatOfLayout(layout root.Layout) oid.Format {
+	if layout.ObjectFormat == "sha256" { oid.Sha256 } else { oid.Sha1 }
+}
+
+func openDiskODB(layout root.Layout, host fs.Host) pack.DiskODB fails IOFailed {
+	let odb = with context { fs.Files: host } {
+		pack.FromLayout(layout) catch {
+		case pack.Corrupt as e:
+			return IOFailed{Op: "open-odb", Detail: e.Why}
+		case pack.MismatchedPair as e:
+			return IOFailed{Op: "open-odb", Detail: "mismatched pack pair: " + e.PackPath}
+		case pack.IOFailed as e:
+			return IOFailed{Op: "open-odb", Detail: e.Detail}
+		}
+	}
+	pack.NewDiskODB(odb, host)
+}
+
+func walkTreeEntries(format oid.Format, treeOID oid.OID, opts Options) []TreeEntry fails MissingObject | TreeError needs pack.ObjectStore {
+	let walked = tree.WalkTree(format, treeOID, opts.MaxDepth, opts.MaxBytes) catch {
+	case tree.MissingObject as e:
+		return MissingObject{OID: e.OID}
+	case tree.CorruptTree as e:
+		return TreeError{Detail: e.Reason}
+	case tree.InvalidEntryName as e:
+		return TreeError{Detail: e.Name + ": " + e.Reason}
+	case tree.UnsortedTree as e:
+		return TreeError{Detail: e.Prev + " >= " + e.Cur}
+	case tree.DuplicateEntry as e:
+		return TreeError{Detail: "duplicate entry: " + e.Name}
+	case tree.WrongKind as e:
+		return TreeError{Detail: "expected " + e.Expected + ", got " + e.Got}
+	case tree.DepthExceeded:
+		return TreeError{Detail: "tree depth exceeded"}
+	case tree.StoreError as e:
+		return TreeError{Detail: e.Detail}
+	}
+	let mut out = slices.WithCapacity[TreeEntry](walked.Len())
+	for w in walked {
+		out = out.Append(TreeEntry{Path: w.Path, Mode: w.Mode, OID: w.OID})
+	}
+	out
+}
+
+func resolveOptionalHeadTree(format oid.Format, layout root.Layout, disk pack.DiskODB, host fs.Host, opts Options) option.Option[oid.OID] fails TreeError | RefError {
+	let refStore = refs.FromLayout(layout)
+	let resolved = with context { fs.Files: host } {
+		refStore.Resolve("HEAD") catch {
+		case refs.NotFound:
+			return option.None
+		case refs.InvalidRefName as e:
+			return RefError{Detail: "invalid ref: " + e.Name}
+		case refs.CyclicSymref:
+			return RefError{Detail: "cyclic HEAD symref"}
+		case refs.CorruptRef as e:
+			return RefError{Detail: e.Why}
+		case refs.PathEscape as e:
+			return RefError{Detail: e.Name}
+		case refs.IOFailed as e:
+			return RefError{Detail: e.Detail}
+		}
+	}
+	let (headTree, _) = with context { pack.ObjectStore: disk } {
+		tree.PeelToTree(format, resolved.OID, opts.MaxDepth, opts.MaxBytes) catch {
+		case tree.MissingObject as e:
+			return TreeError{Detail: "missing HEAD object: " + oid.Hex(e.OID)}
+		case tree.CorruptTree as e:
+			return TreeError{Detail: e.Reason}
+		case tree.InvalidEntryName as e:
+			return TreeError{Detail: e.Reason}
+		case tree.UnsortedTree as e:
+			return TreeError{Detail: e.Prev + " >= " + e.Cur}
+		case tree.DuplicateEntry as e:
+			return TreeError{Detail: e.Name}
+		case tree.CorruptCommit as e:
+			return TreeError{Detail: e.Reason}
+		case tree.CorruptTag as e:
+			return TreeError{Detail: e.Reason}
+		case tree.CorruptSignature as e:
+			return TreeError{Detail: e.Reason}
+		case tree.WrongKind as e:
+			return TreeError{Detail: e.Got}
+		case tree.DepthExceeded:
+			return TreeError{Detail: "HEAD tag depth exceeded"}
+		case tree.StoreError as e:
+			return TreeError{Detail: e.Detail}
+		}
+	}
+	option.Some[oid.OID]{Value: headTree}
+}
+
+func openOptionalIndex(format oid.Format, gitDir string, host fs.Host) option.Option[index.Index] fails IndexError {
+	let idxPath = filepath.Join([]string{gitDir, "index"})
+	let info = fs.Lstat(host, idxPath) catch {
+	case fs.NotFound:
+		return option.None
+	case fs.Denied as e:
+		return IndexError{Detail: e.Path}
+	case fs.Failed as e:
+		return IndexError{Detail: e.Reason}
+	}
+	if info.Dir {
+		return option.None
+	}
+	let idx = with context { fs.Files: host } {
+		index.Open(format, idxPath) catch {
+		case index.BadMagic as e:
+			return IndexError{Detail: e.Reason}
+		case index.UnsupportedVersion:
+			return IndexError{Detail: "unsupported index version"}
+		case index.Truncated:
+			return IndexError{Detail: "truncated index"}
+		case index.ChecksumMismatch:
+			return IndexError{Detail: "index checksum mismatch"}
+		case index.CorruptEntry as e:
+			return IndexError{Detail: e.Why}
+		case index.BadPathCompression as e:
+			return IndexError{Detail: e.Reason}
+		case index.UnsupportedMandatoryExtension as e:
+			return IndexError{Detail: e.Signature}
+		case index.DuplicateStage as e:
+			return IndexError{Detail: e.Path}
+		case index.UnsortedEntries as e:
+			return IndexError{Detail: e.Path}
+		case index.IOFailed as e:
+			return IndexError{Detail: e.Detail}
+		}
+	}
+	option.Some[index.Index]{Value: idx}
+}
+
+func isNotDirError(reason string) bool {
+	strings.Contains(strings.ToLower(reason), "not a directory")
+}
+
+func pathExistsOnDisk(host fs.Host, absPath string) (bool, bool, bool) fails IOFailed {
+	let isLink = fs.IsLink(host, absPath) catch {
+	case fs.NotFound:
+		return (false, false, false)
+	case fs.Denied as e:
+		return IOFailed{Op: "islink", Detail: e.Path}
+	case fs.Failed as e:
+		if isNotDirError(e.Reason) {
+			return (false, false, false)
+		}
+		return IOFailed{Op: "islink", Detail: e.Reason}
+	}
+	if isLink {
+		return (true, false, true)
+	}
+	let info = fs.Lstat(host, absPath) catch {
+	case fs.NotFound:
+		return (false, false, false)
+	case fs.Denied as e:
+		return IOFailed{Op: "lstat", Detail: e.Path}
+	case fs.Failed as e:
+		if isNotDirError(e.Reason) {
+			return (false, false, false)
+		}
+		return IOFailed{Op: "lstat", Detail: e.Reason}
+	}
+	(true, info.Dir, false)
+}
+
+func findUntrackedUnderDir(host fs.Host, workTree string, relDir string, tracked Map[string, bool]) option.Option[string] fails IOFailed {
+	let absDir = filepath.Join([]string{workTree, relDir})
+	let names = fs.ReadDir(host, absDir) catch {
+	case fs.NotFound:
+		return option.None
+	case fs.Denied as e:
+		return IOFailed{Op: "readdir", Detail: e.Path}
+	case fs.Failed as e:
+		return IOFailed{Op: "readdir", Detail: e.Reason}
+	}
+	for name in names {
+		if name == ".git" {
+			continue
+		}
+		let childRel = relDir + "/" + name
+		let childAbs = filepath.Join([]string{absDir, name})
+		let (exists, isDir, _) = try pathExistsOnDisk(host, childAbs)
+		if !exists {
+			continue
+		}
+		if isDir {
+			match try findUntrackedUnderDir(host, workTree, childRel, tracked) {
+			case option.Some[string] as found:
+				return option.Some[string]{Value: found.Value}
+			case option.None:
+			}
+		} else if tracked.Get(childRel) == option.None {
+			return option.Some[string]{Value: childRel}
+		}
+	}
+	option.None
+}
+
+func removeEmptyParentDirs(host fs.Host, workTree string, relPath string) {
+	let parts = strings.Split(relPath, "/")
+	if parts.Len() <= 1 {
+		return
+	}
+	let mut depth = parts.Len() - 1
+	for depth > 0 {
+		let mut segs = []string{workTree}
+		for i in 0..depth {
+			segs = segs.Append(parts[i])
+		}
+		let dirPath = filepath.Join(segs)
+		let names = fs.ReadDir(host, dirPath) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return
+		}
+		if names.Len() > 0 {
+			return
+		}
+		fs.Remove(host, dirPath) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return
+		}
+		depth = depth - 1
+	}
+}
+
+func removeBlockingPath(host fs.Host, absPath string) fails IOFailed {
+	let (exists, isDir, isLink) = try pathExistsOnDisk(host, absPath)
+	if !exists {
+		return
+	}
+	if isLink || !isDir {
+		fs.Remove(host, absPath) catch {
+		case fs.NotFound:
+		case fs.Denied as e:
+			return IOFailed{Op: "remove-blocking", Detail: e.Path}
+		case fs.Failed as e:
+			return IOFailed{Op: "remove-blocking", Detail: e.Reason}
+		}
+		return
+	}
+	with context { fs.Files: host, fs.Writes: host } {
+		fs.RemoveAll(absPath) catch {
+		case fs.Denied as e:
+			return IOFailed{Op: "remove-blocking-dir", Detail: e.Path}
+		case fs.Failed as e:
+			return IOFailed{Op: "remove-blocking-dir", Detail: e.Reason}
+		}
+	}
+}
+
+func ensureSafeParentDirs(host fs.Host, workTree string, relPath string, force bool) fails SymlinkTraversal | IOFailed {
+	let parts = strings.Split(relPath, "/")
+	if parts.Len() <= 1 {
+		return
+	}
+	let mut prefix = ""
+	for i in 0..parts.Len()-1 {
+		prefix = if i == 0 { parts[i] } else { prefix + "/" + parts[i] }
+		let absPrefix = filepath.Join([]string{workTree, prefix})
+		let (exists, isDir, isLink) = try pathExistsOnDisk(host, absPrefix)
+		if isLink {
+			return SymlinkTraversal{Path: relPath, LinkParent: prefix}
+		}
+		if exists && !isDir {
+			if force {
+				try removeBlockingPath(host, absPrefix)
+			} else {
+				return IOFailed{Op: "mkdir-parent", Detail: "file blocks directory: " + prefix}
+			}
+		}
+		if !exists || !isDir {
+			fs.MkdirAll(host, absPrefix) catch {
+			case fs.Denied as e:
+				return IOFailed{Op: "mkdir-parent", Detail: e.Path}
+			case fs.Failed as e:
+				return IOFailed{Op: "mkdir-parent", Detail: e.Reason}
+			}
+		}
+	}
+}
+
+func readBlobBytes(id oid.OID, maxBytes int) []byte fails MissingObject | IOFailed needs pack.ObjectStore {
+	let obj = pack.ObjectStore.Read(id, maxBytes) catch {
+	case pack.Missing as e:
+		return MissingObject{OID: e.OID}
+	case pack.Corrupt as e:
+		return IOFailed{Op: "read-blob", Detail: e.Why}
+	case pack.MismatchedPair as e:
+		return IOFailed{Op: "read-blob", Detail: e.PackPath}
+	case pack.Collision as e:
+		return IOFailed{Op: "read-blob", Detail: e.Digest}
+	case pack.LimitExceeded:
+		return IOFailed{Op: "read-blob", Detail: "blob exceeds MaxBytes"}
+	case pack.DepthExceeded:
+		return IOFailed{Op: "read-blob", Detail: "delta depth exceeded"}
+	case pack.IOFailed as e:
+		return IOFailed{Op: "read-blob", Detail: e.Op + ": " + e.Detail}
+	}
+	obj.Data
+}
+
+func statBlobSize(id oid.OID, maxBytes int) int fails MissingObject | IOFailed needs pack.ObjectStore {
+	let hdr = pack.ObjectStore.Stat(id, maxBytes) catch {
+	case pack.Missing as e:
+		return MissingObject{OID: e.OID}
+	case pack.Corrupt as e:
+		return IOFailed{Op: "stat-blob", Detail: e.Why}
+	case pack.MismatchedPair as e:
+		return IOFailed{Op: "stat-blob", Detail: e.PackPath}
+	case pack.Collision as e:
+		return IOFailed{Op: "stat-blob", Detail: e.Digest}
+	case pack.LimitExceeded:
+		return IOFailed{Op: "stat-blob", Detail: "blob exceeds MaxBytes"}
+	case pack.DepthExceeded:
+		return IOFailed{Op: "stat-blob", Detail: "delta depth exceeded"}
+	case pack.IOFailed as e:
+		return IOFailed{Op: "stat-blob", Detail: e.Op + ": " + e.Detail}
+	}
+	hdr.Size
+}
+
+func materializeEntry(host fs.Host, workTree string, relPath string, mode tree.Mode, id oid.OID, opts Options) int fails SymlinkTraversal | MissingObject | IOFailed needs pack.ObjectStore {
+	try ensureSafeParentDirs(host, workTree, relPath, opts.Force)
+	let absPath = filepath.Join([]string{workTree, relPath})
+	match mode {
+	case tree.ModeRegular:
+		let data = try readBlobBytes(id, opts.MaxBytes)
+		let (exists, isDir, isLink) = try pathExistsOnDisk(host, absPath)
+		if exists && (isDir || isLink) {
+			try removeBlockingPath(host, absPath)
+		}
+		fs.WriteFileMode(host, absPath, data.Text(), fs.Shared()) catch {
+		case fs.NotFound as e:
+			return IOFailed{Op: "write-file", Detail: e.Path}
+		case fs.Denied as e:
+			return IOFailed{Op: "write-file", Detail: e.Path}
+		case fs.Failed as e:
+			return IOFailed{Op: "write-file", Detail: e.Reason}
+		}
+		data.Len()
+	case tree.ModeExecutable:
+		let data = try readBlobBytes(id, opts.MaxBytes)
+		let (exists, isDir, isLink) = try pathExistsOnDisk(host, absPath)
+		if exists && (isDir || isLink) {
+			try removeBlockingPath(host, absPath)
+		}
+		fs.WriteFileMode(host, absPath, data.Text(), fs.SharedDir()) catch {
+		case fs.NotFound as e:
+			return IOFailed{Op: "write-exec", Detail: e.Path}
+		case fs.Denied as e:
+			return IOFailed{Op: "write-exec", Detail: e.Path}
+		case fs.Failed as e:
+			return IOFailed{Op: "write-exec", Detail: e.Reason}
+		}
+		data.Len()
+	case tree.ModeSymlink:
+		let data = try readBlobBytes(id, opts.MaxBytes)
+		let (exists, _, _) = try pathExistsOnDisk(host, absPath)
+		if exists {
+			try removeBlockingPath(host, absPath)
+		}
+		fs.Symlink(host, data.Text(), absPath) catch {
+		case fs.NotFound as e:
+			return IOFailed{Op: "symlink", Detail: e.Path}
+		case fs.Denied as e:
+			return IOFailed{Op: "symlink", Detail: e.Path}
+		case fs.Failed as e:
+			return IOFailed{Op: "symlink", Detail: e.Reason}
+		}
+		data.Len()
+	case tree.ModeGitlink:
+		let (exists, isDir, isLink) = try pathExistsOnDisk(host, absPath)
+		if exists && (!isDir || isLink) {
+			try removeBlockingPath(host, absPath)
+		}
+		fs.MkdirAll(host, absPath) catch {
+		case fs.Denied as e:
+			return IOFailed{Op: "mkdir-gitlink", Detail: e.Path}
+		case fs.Failed as e:
+			return IOFailed{Op: "mkdir-gitlink", Detail: e.Reason}
+		}
+		0
+	case tree.ModeTree:
+		0
+	}
+}
+
+func makeIndexEntry(path string, mode uint32, id oid.OID, size int) index.Entry {
+	index.Entry{
+		CTimeSec:     uint32(0),
+		CTimeNsec:    uint32(0),
+		MTimeSec:     uint32(0),
+		MTimeNsec:    uint32(0),
+		Dev:          uint32(0),
+		Ino:          uint32(0),
+		Mode:         mode,
+		UID:          uint32(0),
+		GID:          uint32(0),
+		FileSize:     uint32(size),
+		OID:          id,
+		Stage:        0,
+		AssumeValid:  false,
+		Extended:     false,
+		SkipWorktree: false,
+		IntentToAdd:  false,
+		Path:         path,
+	}
+}
+
+func checkoutTreeWithDisk(layout root.Layout, targetTreeOID oid.OID, opts Options, host fs.Host, disk pack.DiskODB) Result fails BareRepository | UnsafePath | SymlinkTraversal | DirtyOverwrite | UntrackedOverwrite | UnmergedIndex | MissingObject | TreeError | IndexError | RefError | IOFailed needs locks.LockOps {
+	let workTree = match layout.WorkTree {
+	case option.None:
+		return BareRepository{GitDir: layout.GitDir}
+	case option.Some[string] as wt:
+		wt.Value
+	}
+	let format = formatOfLayout(layout)
+
+	let targetEntries = with context { pack.ObjectStore: disk } {
+		try walkTreeEntries(format, targetTreeOID, opts)
+	}
+
+	try CheckTargetSymlinkCollisions(targetEntries)
+	try ValidateTreePaths(targetEntries, opts.CaseFoldCheck)
+
+	for t in targetEntries {
+		try CheckDiskSymlinkParents(host, workTree, t.Path)
+	}
+
+	let headTreeOpt = try resolveOptionalHeadTree(format, layout, disk, host, opts)
+	let mut hasHead = false
+	let mut headMap = Map[string, TreeEntry]{}
+	match headTreeOpt {
+	case option.Some[oid.OID] as ht:
+		hasHead = true
+		let headEntries = with context { pack.ObjectStore: disk } {
+			try walkTreeEntries(format, ht.Value, opts)
+		}
+		for h in headEntries {
+			headMap[h.Path] = h
+		}
+	case option.None:
+	}
+
+	let idxOpt = try openOptionalIndex(format, layout.GitDir, host)
+	let mut indexEntries = []index.Entry{}
+	let mut trackedSet = Map[string, bool]{}
+	let mut worktreeDirty = Map[string, bool]{}
+	match idxOpt {
+	case option.Some[index.Index] as idxWrap:
+		let idx = idxWrap.Value
+		indexEntries = idx.Entries()
+		for e in indexEntries {
+			trackedSet[e.Path] = true
+		}
+		let diffs = status.DiffIndexToWorktree(format, workTree, idx, status.IgnoreSubmodulesNone, host) catch {
+		case status.StatusError as e:
+			return IOFailed{Op: e.Op, Detail: e.Detail}
+		}
+		for p, _ in diffs {
+			worktreeDirty[p] = true
+		}
+	case option.None:
+	}
+
+	let mut worktreeExists = Map[string, bool]{}
+	let mut blockingUntracked = Map[string, string]{}
+	for t in targetEntries {
+		let absPath = filepath.Join([]string{workTree, t.Path})
+		let (exists, isDir, isLink) = try pathExistsOnDisk(host, absPath)
+		if exists {
+			if isDir && !isLink {
+				match try findUntrackedUnderDir(host, workTree, t.Path, trackedSet) {
+				case option.Some[string] as blocker:
+					blockingUntracked[t.Path] = blocker.Value
+				case option.None:
+				}
+			} else {
+				worktreeExists[t.Path] = true
+			}
+		}
+		let parts = strings.Split(t.Path, "/")
+		let mut prefix = ""
+		for i in 0..parts.Len()-1 {
+			prefix = if i == 0 { parts[i] } else { prefix + "/" + parts[i] }
+			if trackedSet.Get(prefix) == option.None {
+				let absPrefix = filepath.Join([]string{workTree, prefix})
+				let (pExists, pIsDir, _) = try pathExistsOnDisk(host, absPrefix)
+				if pExists && !pIsDir {
+					blockingUntracked[t.Path] = prefix
+				}
+			}
+		}
+	}
+
+	let plan = try PlanCheckout(hasHead, headMap, indexEntries, targetEntries, worktreeDirty, worktreeExists, blockingUntracked, opts)
+
+	for act in plan.Actions {
+		match act.Kind {
+		case Delete:
+			try CheckDiskSymlinkParents(host, workTree, act.Path)
+		case Create, Update:
+		}
+	}
+
+	with context { pack.ObjectStore: disk } {
+		for t in plan.TargetEntries {
+			match t.Mode {
+			case tree.ModeRegular, tree.ModeExecutable, tree.ModeSymlink:
+				let _ = try statBlobSize(t.OID, opts.MaxBytes)
+			case tree.ModeGitlink, tree.ModeTree:
+			}
+		}
+	}
+
+	let mut created = 0
+	let mut updated = 0
+	let mut deleted = 0
+	let mut writtenSizes = Map[string, int]{}
+
+	for act in plan.Actions {
+		match act.Kind {
+		case Delete:
+			let absPath = filepath.Join([]string{workTree, act.Path})
+			let (exists, _, _) = try pathExistsOnDisk(host, absPath)
+			if exists {
+				fs.Remove(host, absPath) catch {
+				case fs.NotFound:
+				case fs.Denied as e:
+					return IOFailed{Op: "delete-file", Detail: e.Path}
+				case fs.Failed as e:
+					return IOFailed{Op: "delete-file", Detail: e.Reason}
+				}
+			}
+			removeEmptyParentDirs(host, workTree, act.Path)
+			deleted = deleted + 1
+		case Create, Update:
+		}
+	}
+
+	with context { pack.ObjectStore: disk } {
+		for act in plan.Actions {
+			match act.Kind {
+			case Create:
+				let m = match act.Mode {
+				case option.Some[tree.Mode] as v:
+					v.Value
+				case option.None:
+					tree.ModeRegular
+				}
+				let id = match act.OID {
+				case option.Some[oid.OID] as v:
+					v.Value
+				case option.None:
+					oid.Zero(format)
+				}
+				let sz = try materializeEntry(host, workTree, act.Path, m, id, opts)
+				writtenSizes[act.Path] = sz
+				created = created + 1
+			case Update:
+				let m = match act.Mode {
+				case option.Some[tree.Mode] as v:
+					v.Value
+				case option.None:
+					tree.ModeRegular
+				}
+				let id = match act.OID {
+				case option.Some[oid.OID] as v:
+					v.Value
+				case option.None:
+					oid.Zero(format)
+				}
+				let sz = try materializeEntry(host, workTree, act.Path, m, id, opts)
+				writtenSizes[act.Path] = sz
+				updated = updated + 1
+			case Delete:
+			}
+		}
+	}
+
+	let mut nextIndex = slices.WithCapacity[index.Entry](plan.TargetEntries.Len())
+	with context { pack.ObjectStore: disk } {
+		for t in plan.TargetEntries {
+			let sz = match writtenSizes.Get(t.Path) {
+			case option.Some[int] as s:
+				s.Value
+			case option.None:
+				match t.Mode {
+				case tree.ModeGitlink, tree.ModeTree:
+					0
+				case tree.ModeRegular, tree.ModeExecutable, tree.ModeSymlink:
+					try statBlobSize(t.OID, opts.MaxBytes)
+				}
+			}
+			nextIndex = nextIndex.Append(makeIndexEntry(t.Path, TreeModeToIndexMode(t.Mode), t.OID, sz))
+		}
+	}
+
+	let indexPath = filepath.Join([]string{layout.GitDir, "index"})
+	windex.WriteIndex(format, indexPath, nextIndex, opts.Durability) catch {
+	case windex.InvalidPath as e:
+		return UnsafePath{Path: e.Path, Reason: e.Reason}
+	case windex.DuplicateEntry as e:
+		return IndexError{Detail: "duplicate index entry: " + e.Path}
+	case windex.InvalidStage as e:
+		return IndexError{Detail: "invalid stage for " + e.Path}
+	case windex.InvalidMode as e:
+		return IndexError{Detail: "invalid mode for " + e.Path}
+	case windex.Collision as e:
+		return IndexError{Detail: "checksum collision: " + e.Digest}
+	case windex.LockFailed as e:
+		return IndexError{Detail: "index lock failed: " + e.Detail}
+	}
+
+	Result{
+		TreeOID:   targetTreeOID,
+		HeadOID:   option.None,
+		Branch:    option.None,
+		Created:   created,
+		Updated:   updated,
+		Deleted:   deleted,
+		Unchanged: plan.Unchanged,
+	}
+}
+
+// CheckoutTree safely checks out targetTreeOID into layout's working tree and
+// atomically writes `.git/index` via windex.WriteIndex. If any path fails
+// preflight validation, zero working-tree or index mutations occur.
+func CheckoutTree(layout root.Layout, targetTreeOID oid.OID, opts Options, host fs.Host) Result fails BareRepository | UnsafePath | SymlinkTraversal | DirtyOverwrite | UntrackedOverwrite | UnmergedIndex | MissingObject | TreeError | IndexError | RefError | IOFailed needs locks.LockOps {
+	let disk = try openDiskODB(layout, host)
+	try checkoutTreeWithDisk(layout, targetTreeOID, opts, host, disk)
+}
+
+func normalizeBranchRef(branch string) string fails InvalidTarget {
+	let full = if strings.HasPrefix(branch, "refs/") { branch } else { "refs/heads/" + branch }
+	if refs.IsPathEscape(full) || !refs.ValidateRefName(full) {
+		return InvalidTarget{Target: branch, Reason: "invalid branch reference name"}
+	}
+	full
+}
+
+// CheckoutBranch resolves branch (short name or full `refs/heads/...`), checks
+// out its commit's tree safely into the working tree and `.git/index`, and
+// atomically updates `HEAD` to a symbolic reference via wref.UpdateSymbolicRef.
+func CheckoutBranch(layout root.Layout, branch string, opts Options, host fs.Host) Result fails BareRepository | UnsafePath | SymlinkTraversal | DirtyOverwrite | UntrackedOverwrite | UnmergedIndex | InvalidTarget | MissingObject | TreeError | IndexError | RefError | IOFailed needs locks.LockOps {
+	let branchRef = try normalizeBranchRef(branch)
+	let format = formatOfLayout(layout)
+	let refStore = refs.FromLayout(layout)
+	let resolved = with context { fs.Files: host } {
+		refStore.Resolve(branchRef) catch {
+		case refs.NotFound:
+			return InvalidTarget{Target: branchRef, Reason: "branch ref not found"}
+		case refs.InvalidRefName as e:
+			return InvalidTarget{Target: e.Name, Reason: "invalid ref name"}
+		case refs.PathEscape as e:
+			return InvalidTarget{Target: e.Name, Reason: "ref path escape"}
+		case refs.CyclicSymref:
+			return RefError{Detail: "cyclic symref at " + branchRef}
+		case refs.CorruptRef as e:
+			return RefError{Detail: e.Why}
+		case refs.IOFailed as e:
+			return RefError{Detail: e.Detail}
+		}
+	}
+	let disk = try openDiskODB(layout, host)
+	let (commitOID, commit) = with context { pack.ObjectStore: disk } {
+		tree.PeelToCommit(format, resolved.OID, opts.MaxDepth, opts.MaxBytes) catch {
+		case tree.MissingObject as e:
+			return MissingObject{OID: e.OID}
+		case tree.WrongKind as e:
+			return InvalidTarget{Target: branchRef, Reason: "expected commit, got " + e.Got}
+		case tree.CorruptCommit as e:
+			return TreeError{Detail: e.Reason}
+		case tree.CorruptTag as e:
+			return TreeError{Detail: e.Reason}
+		case tree.CorruptSignature as e:
+			return TreeError{Detail: e.Reason}
+		case tree.DepthExceeded:
+			return TreeError{Detail: "tag peel depth exceeded"}
+		case tree.StoreError as e:
+			return TreeError{Detail: e.Detail}
+		}
+	}
+	let res = try checkoutTreeWithDisk(layout, commit.Tree, opts, host, disk)
+	with context { pack.ObjectStore: disk, fs.Files: host, fs.Writes: host } {
+		wref.UpdateSymbolicRef(refStore, "HEAD", branchRef, opts.Reflog, opts.Durability) catch {
+		case wref.InvalidRefName as e:
+			return RefError{Detail: "invalid ref: " + e.Name}
+		case wref.PathEscape as e:
+			return RefError{Detail: "ref path escape: " + e.Name}
+		case wref.StaleExpected as e:
+			return RefError{Detail: "stale expected for " + e.Ref}
+		case wref.ObjectMissing as e:
+			return MissingObject{OID: e.OID}
+		case wref.DirectoryFileConflict as e:
+			return RefError{Detail: "D/F conflict: " + e.Conflicting}
+		case wref.LockHeld as e:
+			return RefError{Detail: "lock held: " + e.Path}
+		case wref.LockFailed as e:
+			return RefError{Detail: e.Detail}
+		case wref.IOFailed as e:
+			return RefError{Detail: e.Op + ": " + e.Detail}
+		}
+	}
+	Result{
+		..res,
+		HeadOID: option.Some[oid.OID]{Value: commitOID},
+		Branch:  option.Some[string]{Value: branchRef},
+	}
+}
+
+// CheckoutDetached peels targetOID to a commit, safely checks out its tree into
+// the working tree and `.git/index`, and atomically updates `HEAD` to the
+// detached commit OID via wref.UpdateRef.
+func CheckoutDetached(layout root.Layout, targetOID oid.OID, opts Options, host fs.Host) Result fails BareRepository | UnsafePath | SymlinkTraversal | DirtyOverwrite | UntrackedOverwrite | UnmergedIndex | InvalidTarget | MissingObject | TreeError | IndexError | RefError | IOFailed needs locks.LockOps {
+	let format = formatOfLayout(layout)
+	let refStore = refs.FromLayout(layout)
+	let disk = try openDiskODB(layout, host)
+	let (commitOID, commit) = with context { pack.ObjectStore: disk } {
+		tree.PeelToCommit(format, targetOID, opts.MaxDepth, opts.MaxBytes) catch {
+		case tree.MissingObject as e:
+			return MissingObject{OID: e.OID}
+		case tree.WrongKind as e:
+			return InvalidTarget{Target: oid.Hex(targetOID), Reason: "expected commit, got " + e.Got}
+		case tree.CorruptCommit as e:
+			return TreeError{Detail: e.Reason}
+		case tree.CorruptTag as e:
+			return TreeError{Detail: e.Reason}
+		case tree.CorruptSignature as e:
+			return TreeError{Detail: e.Reason}
+		case tree.DepthExceeded:
+			return TreeError{Detail: "tag peel depth exceeded"}
+		case tree.StoreError as e:
+			return TreeError{Detail: e.Detail}
+		}
+	}
+	let currentHead = with context { fs.Files: host } {
+		refStore.Resolve("HEAD") catch {
+		case refs.NotFound:
+			refs.Resolved{Name: "HEAD", OID: oid.Zero(format), Chain: []string{}, Peeled: option.None}
+		case refs.InvalidRefName as e:
+			return RefError{Detail: e.Name}
+		case refs.PathEscape as e:
+			return RefError{Detail: e.Name}
+		case refs.CyclicSymref:
+			return RefError{Detail: "cyclic HEAD symref"}
+		case refs.CorruptRef as e:
+			return RefError{Detail: e.Why}
+		case refs.IOFailed as e:
+			return RefError{Detail: e.Detail}
+		}
+	}
+	let expectedHead option.Option[oid.OID] = if oid.IsZero(currentHead.OID) {
+		option.None
+	} else {
+		option.Some[oid.OID]{Value: currentHead.OID}
+	}
+	let res = try checkoutTreeWithDisk(layout, commit.Tree, opts, host, disk)
+	with context { pack.ObjectStore: disk, fs.Files: host, fs.Writes: host } {
+		wref.UpdateRef(refStore, "HEAD", commitOID, expectedHead, opts.Reflog, opts.Durability) catch {
+		case wref.InvalidRefName as e:
+			return RefError{Detail: "invalid ref: " + e.Name}
+		case wref.PathEscape as e:
+			return RefError{Detail: "ref path escape: " + e.Name}
+		case wref.StaleExpected as e:
+			return RefError{Detail: "stale expected for " + e.Ref}
+		case wref.ObjectMissing as e:
+			return MissingObject{OID: e.OID}
+		case wref.DirectoryFileConflict as e:
+			return RefError{Detail: "D/F conflict: " + e.Conflicting}
+		case wref.LockHeld as e:
+			return RefError{Detail: "lock held: " + e.Path}
+		case wref.LockFailed as e:
+			return RefError{Detail: e.Detail}
+		case wref.IOFailed as e:
+			return RefError{Detail: e.Op + ": " + e.Detail}
+		}
+	}
+	Result{
+		..res,
+		HeadOID: option.Some[oid.OID]{Value: commitOID},
+		Branch:  option.None,
+	}
+}
+
+// DiskCheckouter implements Checkouter over a real on-disk Git repository
+// layout using fs.Host and wref.FSLockOps.
+type DiskCheckouter {
+	layout  root.Layout,
+	host    fs.Host,
+	lockOps wref.FSLockOps,
+} implements Checkouter
+
+// NewDiskCheckouter creates a DiskCheckouter for layout and host.
+func NewDiskCheckouter(layout root.Layout, host fs.Host) DiskCheckouter {
+	DiskCheckouter{
+		layout:  layout,
+		host:    host,
+		lockOps: wref.NewFSLockOps(host),
+	}
+}
+
+// Format implements Checkouter.Format on DiskCheckouter.
+func Format(d DiskCheckouter) oid.Format { formatOfLayout(d.layout) }
+
+// SeedBlob implements Checkouter.SeedBlob on DiskCheckouter.
+func SeedBlob(d DiskCheckouter, data []byte) oid.OID fails IOFailed {
+	let disk = try openDiskODB(d.layout, d.host)
+	disk.Install(oid.Blob, data) catch {
+	case pack.Collision as e:
+		return IOFailed{Op: "seed-blob", Detail: e.Digest}
+	case pack.IOFailed as e:
+		return IOFailed{Op: "seed-blob", Detail: e.Detail}
+	}
+}
+
+// SeedTree implements Checkouter.SeedTree on DiskCheckouter.
+func SeedTree(d DiskCheckouter, entries []tree.Entry) oid.OID fails TreeError | IOFailed {
+	let raw = tree.EncodeTree(formatOfLayout(d.layout), entries) catch {
+	case tree.InvalidEntryName as e:
+		return TreeError{Detail: e.Name + ": " + e.Reason}
+	case tree.DuplicateEntry as e:
+		return TreeError{Detail: "duplicate entry: " + e.Name}
+	}
+	let disk = try openDiskODB(d.layout, d.host)
+	disk.Install(oid.Tree, raw) catch {
+	case pack.Collision as e:
+		return IOFailed{Op: "seed-tree", Detail: e.Digest}
+	case pack.IOFailed as e:
+		return IOFailed{Op: "seed-tree", Detail: e.Detail}
+	}
+}
+
+// WriteWorktreeFile implements Checkouter.WriteWorktreeFile on DiskCheckouter.
+func WriteWorktreeFile(d DiskCheckouter, relPath string, data []byte) fails IOFailed {
+	let workTree = match d.layout.WorkTree {
+	case option.Some[string] as wt:
+		wt.Value
+	case option.None:
+		return IOFailed{Op: "write-worktree", Detail: "bare repository"}
+	}
+	let absPath = filepath.Join([]string{workTree, relPath})
+	fs.MkdirAll(d.host, filepath.Dir(absPath)) catch {
+	case fs.Denied as e:
+		return IOFailed{Op: "mkdir-worktree", Detail: e.Path}
+	case fs.Failed as e:
+		return IOFailed{Op: "mkdir-worktree", Detail: e.Reason}
+	}
+	fs.WriteFile(d.host, absPath, data.Text()) catch {
+	case fs.NotFound as e:
+		return IOFailed{Op: "write-worktree", Detail: e.Path}
+	case fs.Denied as e:
+		return IOFailed{Op: "write-worktree", Detail: e.Path}
+	case fs.Failed as e:
+		return IOFailed{Op: "write-worktree", Detail: e.Reason}
+	}
+}
+
+// ReadWorktreeFile implements Checkouter.ReadWorktreeFile on DiskCheckouter.
+func ReadWorktreeFile(d DiskCheckouter, relPath string) option.Option[[]byte] fails IOFailed {
+	let workTree = match d.layout.WorkTree {
+	case option.Some[string] as wt:
+		wt.Value
+	case option.None:
+		return IOFailed{Op: "read-worktree", Detail: "bare repository"}
+	}
+	let absPath = filepath.Join([]string{workTree, relPath})
+	let text = fs.ReadFile(d.host, absPath) catch {
+	case fs.NotFound:
+		return option.None
+	case fs.Denied as e:
+		return IOFailed{Op: "read-worktree", Detail: e.Path}
+	case fs.Failed as e:
+		return IOFailed{Op: "read-worktree", Detail: e.Reason}
+	}
+	option.Some[[]byte]{Value: text.Bytes()}
+}
+
+// ApplyTree implements Checkouter.ApplyTree on DiskCheckouter.
+func ApplyTree(d DiskCheckouter, targetTree oid.OID, opts Options) Result fails UnsafePath | SymlinkTraversal | DirtyOverwrite | UntrackedOverwrite | UnmergedIndex | MissingObject | TreeError | IndexError | IOFailed {
+	with context { locks.LockOps: d.lockOps } {
+		CheckoutTree(d.layout, targetTree, opts, d.host) catch {
+		case BareRepository as e:
+			return IOFailed{Op: "apply-tree", Detail: "bare repository: " + e.GitDir}
+		case RefError as e:
+			return IOFailed{Op: "apply-tree", Detail: e.Detail}
+		case UnsafePath as e:
+			return e
+		case SymlinkTraversal as e:
+			return e
+		case DirtyOverwrite as e:
+			return e
+		case UntrackedOverwrite as e:
+			return e
+		case UnmergedIndex as e:
+			return e
+		case MissingObject as e:
+			return e
+		case TreeError as e:
+			return e
+		case IndexError as e:
+			return e
+		case IOFailed as e:
+			return e
+		}
+	}
+}

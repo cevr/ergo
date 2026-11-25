@@ -1266,6 +1266,86 @@
       ]
     },
     {
+      "name": "git-checkout-allow-dirty-overwrite",
+      "origin": "STD-GIT G-CO",
+      "file": "modules/git/checkout/safety.ergo",
+      "from": "\t\t\tif !entryMatchesIndex(t, cur) {\n\t\t\t\tif !opts.Force && (isWtDirty || isStagedDirty) {\n\t\t\t\t\treturn DirtyOverwrite{Path: t.Path}\n\t\t\t\t}",
+      "to": "\t\t\tif !entryMatchesIndex(t, cur) {\n\t\t\t\tif false && !opts.Force && (isWtDirty || isStagedDirty) {\n\t\t\t\t\treturn DirtyOverwrite{Path: t.Path}\n\t\t\t\t}",
+      "rule": "Non-force checkout refuses to overwrite a dirty tracked working-tree or staged file with DirtyOverwrite.",
+      "anchor": {
+        "tests": [
+          "modules/git/checkout:CheckoutMatchesGitOnSha1AndSha256"
+        ]
+      },
+      "killers": [
+        "modules/git/checkout:CheckoutMatchesGitOnSha1AndSha256"
+      ]
+    },
+    {
+      "name": "git-checkout-allow-untracked-overwrite",
+      "origin": "STD-GIT G-CO",
+      "file": "modules/git/checkout/safety.ergo",
+      "from": "\t\t\t\tif worktreeExists.Get(t.Path) != option.None {\n\t\t\t\t\treturn UntrackedOverwrite{Path: t.Path}\n\t\t\t\t}",
+      "to": "\t\t\t\tif false && worktreeExists.Get(t.Path) != option.None {\n\t\t\t\t\treturn UntrackedOverwrite{Path: t.Path}\n\t\t\t\t}",
+      "rule": "Non-force checkout refuses to clobber an untracked file colliding with a target path with UntrackedOverwrite.",
+      "anchor": {
+        "tests": [
+          "modules/git/checkout:CheckoutMatchesGitOnSha1AndSha256"
+        ]
+      },
+      "killers": [
+        "modules/git/checkout:CheckoutMatchesGitOnSha1AndSha256"
+      ]
+    },
+    {
+      "name": "git-checkout-allow-dotgit-path",
+      "origin": "STD-GIT G-CO",
+      "file": "modules/git/checkout/safety.ergo",
+      "from": "\t\tif strings.ToLower(seg) == \".git\" {\n\t\t\treturn UnsafePath{Path: path, Reason: \"refusing .git path segment: \" + seg}\n\t\t}",
+      "to": "\t\tif false && strings.ToLower(seg) == \".git\" {\n\t\t\treturn UnsafePath{Path: path, Reason: \"refusing .git path segment: \" + seg}\n\t\t}",
+      "rule": "ValidatePath rejects case-insensitive .git path segments before any working-tree write.",
+      "anchor": {
+        "tests": [
+          "modules/git/checkout:CheckoutRefusesSymlinkParentEscapeAndDotGit"
+        ]
+      },
+      "killers": [
+        "modules/git/checkout:CheckoutRefusesSymlinkParentEscapeAndDotGit"
+      ]
+    },
+    {
+      "name": "git-checkout-drop-exec-mode",
+      "origin": "STD-GIT G-CO",
+      "file": "modules/git/checkout/checkout.ergo",
+      "from": "\t\tfs.WriteFileMode(host, absPath, data.Text(), fs.SharedDir()) catch {",
+      "to": "\t\tfs.WriteFileMode(host, absPath, data.Text(), fs.Shared()) catch {",
+      "rule": "Checkout preserves executable permission bits when materializing 100755 tree entries.",
+      "anchor": {
+        "tests": [
+          "modules/git/checkout:CheckoutMatchesGitOnSha1AndSha256"
+        ]
+      },
+      "killers": [
+        "modules/git/checkout:CheckoutMatchesGitOnSha1AndSha256"
+      ]
+    },
+    {
+      "name": "git-checkout-skip-symlink-parent-check",
+      "origin": "STD-GIT G-CO",
+      "file": "modules/git/checkout/safety.ergo",
+      "from": "\t\tif isLink {\n\t\t\treturn SymlinkTraversal{Path: relPath, LinkParent: prefix}\n\t\t}",
+      "to": "\t\tif false && isLink {\n\t\t\treturn SymlinkTraversal{Path: relPath, LinkParent: prefix}\n\t\t}",
+      "rule": "CheckDiskSymlinkParents refuses writing through any symlink parent directory with SymlinkTraversal.",
+      "anchor": {
+        "tests": [
+          "modules/git/checkout:CheckoutRefusesSymlinkParentEscapeAndDotGit"
+        ]
+      },
+      "killers": [
+        "modules/git/checkout:CheckoutRefusesSymlinkParentEscapeAndDotGit"
+      ]
+    },
+    {
       "name": "git-wire-accept-0003",
       "origin": "STD-GIT G-WIRE",
       "file": "modules/git/wire/pktline.ergo",
