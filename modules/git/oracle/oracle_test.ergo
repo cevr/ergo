@@ -1,0 +1,309 @@
+import exec
+import filepath
+import fs
+import os
+import strconv
+
+func makePoisonedEnv(base Map[string, string], cfgPath string) Map[string, string] {
+	let mut env = exec.PathOf(base)
+	env["GIT_CONFIG_GLOBAL"] = cfgPath
+	env["GIT_AUTHOR_NAME"] = "Ambient Evil"
+	env["GIT_AUTHOR_EMAIL"] = "evil@ambient.test"
+	env["GIT_COMMITTER_NAME"] = "Ambient Committer"
+	env["GIT_COMMITTER_EMAIL"] = "evil@ambient.test"
+	env["TZ"] = "America/New_York"
+	env["LC_ALL"] = "en_US.UTF-8"
+	env
+}
+
+let onOracle = context needs TestAmbient {
+	exec.Runner: exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
+	fs.Files:    fs.NewTestHost(),
+	fs.Writes:   fs.NewTestHost(),
+	os.Process:  os.NewTestHost(),
+	Symlinks:    NewHostSymlinks(fs.NewTestHost()),
+}
+
+let onPoisonedOracle = context fails os.NoWorkdir needs TestAmbient {
+	exec.Runner: exec.NewTestHost().InheritEnv(makePoisonedEnv(os.NewTestHost().Environ(), filepath.Join([]string{try os.NewTestHost().Getwd(), ".gitconfig"}))),
+	fs.Files:    fs.NewTestHost(),
+	fs.Writes:   fs.NewTestHost(),
+	os.Process:  os.NewTestHost(),
+	Symlinks:    NewHostSymlinks(fs.NewTestHost()),
+}
+
+func testPathEnv() Map[string, string] needs os.Process {
+	exec.PathOf(os.Process.Environ())
+}
+
+// RootIndependence: running the same seeded history at two different confined
+// root paths yields identical typed transcripts and exact deterministic commit
+// timestamps (never wall-clock time).
+test RootIndependence {
+	with onOracle {
+		let pathEnv = testPathEnv()
+		let spec = DefaultSpec()
+		for s in 1..5 {
+			let seed = uint64(s * 17)
+			let ops = GenerateHistory(seed, s, 6)
+			let r1 = "alpha-" + strconv.Itoa(s) + "/repo"
+			let r2 = "beta-" + strconv.Itoa(s) + "/nested/deep/repo"
+			let t1 = try RunHistory(r1, seed, spec, ops, pathEnv)
+			let t2 = try RunHistory(r2, seed, spec, ops, pathEnv)
+			let cmp = CompareTranscripts(t1, t2)
+			assert cmp.Equal
+			assert t1.Final.HeadOid != ""
+			assert t1.Final.AuthorEpoch >= BaseEpoch
+			assert t1.Final.AuthorEpoch <= StepEpoch(len(ops))
+			assert t1.Final.CommitterEpoch == t1.Final.AuthorEpoch
+		}
+	}
+}
+
+// IsolationIgnoresAmbientConfig: planting poisoned HOME/.gitconfig, external
+// attributes (autocrlf/text normalization), a failing pre-commit hook via
+// core.hooksPath, and poisoned ambient runner variables (GIT_AUTHOR_NAME,
+// GIT_CONFIG_GLOBAL, TZ, LC_ALL) never changes the oracle transcript, commit
+// OIDs, default branch, or raw CRLF blob bytes.
+test IsolationIgnoresAmbientConfig {
+	let ops = []Op{
+		WriteFile{Path: "hello.txt", Content: "line1\r\nline2\r\n", Mode: Regular},
+		StageAll,
+		Commit{Message: "first"},
+		QueryCatFile{Spec: "HEAD:hello.txt"},
+	}
+	let clean = with onOracle {
+		let cleanEnv = testPathEnv()
+		try RunHistory("clean/repo", uint64(99), DefaultSpec(), ops, cleanEnv)
+	}
+	let poisoned = with try onPoisonedOracle {
+		let folder = try os.Process.Getwd()
+		let poisonAttrs = filepath.Join([]string{folder, "poison.attrs"})
+		try fs.Writes.WriteFile(poisonAttrs, "* text\n")
+		let badHooks = filepath.Join([]string{folder, "bad-hooks"})
+		try fs.Writes.MkdirAll(badHooks)
+		try fs.Writes.WriteFileMode(filepath.Join([]string{badHooks, "pre-commit"}), "#!/bin/sh\nexit 1\n", fs.SharedDir())
+		let poisonCfg = filepath.Join([]string{folder, ".gitconfig"})
+		try fs.Writes.WriteFile(poisonCfg, "[user]\n\tname = Poison User\n\temail = poison@evil.test\n[init]\n\tdefaultBranch = poisoned\n[core]\n\tautocrlf = true\n\tattributesFile = "+poisonAttrs+"\n\thooksPath = "+badHooks+"\n")
+		let poisonEnv = makePoisonedEnv(testPathEnv(), poisonCfg)
+		try RunHistory("poisoned/repo", uint64(99), DefaultSpec(), ops, poisonEnv)
+	}
+
+	let cmp = CompareTranscripts(clean, poisoned)
+	assert cmp.Equal
+	assert poisoned.Final.HeadRef == "refs/heads/main"
+	assert poisoned.Final.AuthorName == OracleAuthorName
+	assert poisoned.Final.AuthorEmail == OracleAuthorEmail
+	assert poisoned.Final.CommitterName == OracleCommitterName
+	assert poisoned.Final.AuthorEpoch == StepEpoch(2)
+	match poisoned.Steps[3].Result {
+	case OkObject as obj:
+		assert obj.Kind == "blob"
+		assert obj.Data.Text() == "line1\r\nline2\r\n"
+	case OkVoid, OkOid, OkSnapshot, Failed:
+		assert false
+	}
+}
+
+// PlumbingParsersHandleNulDelimitedRecords: NUL-delimited (-z) plumbing
+// parsers handle paths with spaces, executable/symlink modes, renames, and
+// ref/reflog records without splitting on newlines.
+test PlumbingParsersHandleNulDelimitedRecords {
+	let treeRaw = "100644 blob 1111111111111111111111111111111111111111\tdir/hello world.txt\x00100755 blob 2222222222222222222222222222222222222222\tbin/run.sh\x00120000 blob 3333333333333333333333333333333333333333\tlink\x00"
+	let tree = ParseLsTreeZ(treeRaw)
+	assert len(tree) == 3
+	assert tree[0] == TreeEntry{Mode: "100644", Kind: "blob", Oid: "1111111111111111111111111111111111111111", Path: "dir/hello world.txt"}
+	assert tree[1].Mode == "100755" && tree[1].Path == "bin/run.sh"
+	assert tree[2].Mode == "120000" && tree[2].Path == "link"
+
+	let statusRaw = "R  new name.txt\x00old name.txt\x00 M dirty.txt\x00?? untracked.txt\x00"
+	let st = ParseStatusZ(statusRaw)
+	assert len(st) == 3
+	assert st[0] == StatusEntry{IndexCode: "R", WorkCode: " ", Path: "new name.txt", OrigPath: "old name.txt"}
+	assert st[1] == StatusEntry{IndexCode: " ", WorkCode: "M", Path: "dirty.txt", OrigPath: ""}
+	assert st[2] == StatusEntry{IndexCode: "?", WorkCode: "?", Path: "untracked.txt", OrigPath: ""}
+
+	let refRaw = "refs/heads/main\x00aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\x00\x00refs/remotes/origin/HEAD\x00bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\x00refs/remotes/origin/main\x00"
+	let refs = ParseForEachRefZ(refRaw)
+	assert len(refs) == 2
+	assert refs[0].Name == "refs/heads/main" && refs[0].Target == ""
+	assert refs[1].Target == "refs/remotes/origin/main"
+}
+
+// LayoutsAndFormatsWork: the oracle supports SHA-1 and SHA-256, Normal, Bare,
+// DotGitPointer, LinkedWorktree, and Alternates layouts, executable/binary/symlink
+// entries, lightweight and annotated tags, 2-way and octopus merges, repacks,
+// reflogs, and classified Missing failures.
+test LayoutsAndFormatsWork {
+	with onOracle {
+		let pathEnv = testPathEnv()
+
+		let richOps = []Op{
+			WriteFile{Path: "README.txt", Content: "hello\n", Mode: Regular},
+			WriteFile{Path: "tool.sh", Content: "#!/bin/sh\necho hi\n", Mode: Executable},
+			WriteBinary{Path: "blob.bin", Bytes: []byte{byte(0), byte(255), byte(1), byte(42)}},
+			WriteSymlink{Path: "sym.txt", Target: "README.txt"},
+			StageAll,
+			Commit{Message: "base"},
+			CreateBranch{Name: "b1"},
+			CreateBranch{Name: "b2"},
+			SwitchBranch{Name: "b1"},
+			WriteFile{Path: "b1.txt", Content: "branch-1\n", Mode: Regular},
+			StageAll,
+			Commit{Message: "b1-commit"},
+			SwitchBranch{Name: "b2"},
+			WriteFile{Path: "b2.txt", Content: "branch-2\n", Mode: Regular},
+			StageAll,
+			Commit{Message: "b2-commit"},
+			SwitchBranch{Name: "main"},
+			OctopusMerge{Branches: []string{"b1", "b2"}, Message: "octopus"},
+			CreateTag{Name: "v1-light", Annotated: false, Message: ""},
+			CreateTag{Name: "v1-ann", Annotated: true, Message: "release 1"},
+			Repack{Aggressive: false},
+			QueryRevParse{Spec: "refs/heads/does-not-exist"},
+		}
+		let sha1T = try RunHistory("rich-sha1", uint64(1), RepoSpec{Format: Sha1, Layout: Normal, DefaultBranch: "main"}, richOps, pathEnv)
+		assert len(sha1T.Final.HeadOid) == 40
+		assert len(sha1T.Final.Tree) == 6
+		assert len(sha1T.Final.Reflog) > 0
+		match sha1T.Steps[len(sha1T.Steps)-1].Result {
+		case Failed as f:
+			match f.Err {
+			case Missing:
+			case Corrupt, Ambiguous, InvalidRef, Conflict, CommandFailed:
+				assert false
+			}
+		case OkVoid, OkOid, OkObject, OkSnapshot:
+			assert false
+		}
+
+		let sha256Ops = []Op{
+			WriteFile{Path: "x.txt", Content: "sha256\n", Mode: Regular},
+			StageAll,
+			Commit{Message: "s256"},
+		}
+		let sha256T = try RunHistory("rich-sha256", uint64(2), RepoSpec{Format: Sha256, Layout: Normal, DefaultBranch: "main"}, sha256Ops, pathEnv)
+		assert len(sha256T.Final.HeadOid) == 64
+
+		let ptrT = try RunHistory("layout-ptr", uint64(3), RepoSpec{Format: Sha1, Layout: DotGitPointer, DefaultBranch: "main"}, sha256Ops, pathEnv)
+		assert len(ptrT.Final.HeadOid) == 40
+
+		let wtT = try RunHistory("layout-wt", uint64(4), RepoSpec{Format: Sha1, Layout: LinkedWorktree, DefaultBranch: "main"}, sha256Ops, pathEnv)
+		assert len(wtT.Final.HeadOid) == 40
+
+		let altT = try RunHistory("layout-alt", uint64(5), RepoSpec{Format: Sha1, Layout: Alternates, DefaultBranch: "main"}, sha256Ops, pathEnv)
+		assert len(altT.Final.HeadOid) == 40
+
+		let bareT = try RunHistory("layout-bare", uint64(6), RepoSpec{Format: Sha1, Layout: Bare, DefaultBranch: "main"}, []Op{QuerySnapshot}, pathEnv)
+		assert bareT.Final.HeadRef == "refs/heads/main"
+	}
+}
+
+// OppositeResultsDetectedAndReplayed: comparing two histories with differing
+// outcomes reports exact typed DiffEntry mismatches and replays both
+// transcripts deterministically.
+test OppositeResultsDetectedAndReplayed {
+	with onOracle {
+		let pathEnv = testPathEnv()
+		let spec = DefaultSpec()
+
+		let opsA = []Op{
+			WriteFile{Path: "f.txt", Content: "left\n", Mode: Regular},
+			StageAll,
+			Commit{Message: "same-msg"},
+		}
+		let opsB = []Op{
+			WriteFile{Path: "f.txt", Content: "right\n", Mode: Regular},
+			StageAll,
+			Commit{Message: "same-msg"},
+		}
+		let tA = try RunHistory("opp-a", uint64(10), spec, opsA, pathEnv)
+		let tB = try RunHistory("opp-b", uint64(11), spec, opsB, pathEnv)
+		let cmp = CompareTranscripts(tA, tB)
+		assert !cmp.Equal
+		assert len(cmp.Diffs) > 0
+		assert cmp.LeftReplay != "" && cmp.RightReplay != ""
+		let mut sawHeadDiff = false
+		for d in cmp.Diffs {
+			if d.Field == "Final.HeadOid" && d.Expected == tA.Final.HeadOid && d.Actual == tB.Final.HeadOid {
+				sawHeadDiff = true
+			}
+		}
+		assert sawHeadDiff
+
+		let tAReplay = try RunHistory("opp-a-replay", uint64(10), spec, opsA, pathEnv)
+		let tBReplay = try RunHistory("opp-b-replay", uint64(11), spec, opsB, pathEnv)
+		assert CompareTranscripts(tA, tAReplay).Equal
+		assert CompareTranscripts(tB, tBReplay).Equal
+	}
+}
+
+// ShrinkMinimizesFailingHistory: shrinking a history against a planted
+// failing predicate produces a strictly smaller event-order subsequence that
+// still reproduces the failure.
+test ShrinkMinimizesFailingHistory {
+	let orig = []Op{
+		WriteFile{Path: "noise1.txt", Content: "a\n", Mode: Regular},
+		WriteFile{Path: "trigger.txt", Content: "boom\n", Mode: Regular},
+		WriteFile{Path: "noise2.txt", Content: "b\n", Mode: Regular},
+		StageAll,
+		Commit{Message: "c1"},
+		CreateBranch{Name: "extra"},
+		CreateTag{Name: "t1", Annotated: false, Message: ""},
+		Repack{Aggressive: false},
+		QuerySnapshot,
+	}
+	let pred = func(cand []Op) bool {
+		let mut sawWrite = false
+		let mut sawCommit = false
+		for op in cand {
+			match op {
+			case WriteFile as w:
+				if w.Path == "trigger.txt" {
+					sawWrite = true
+				}
+			case Commit:
+				if sawWrite {
+					sawCommit = true
+				}
+			case WriteBinary, WriteSymlink, DeleteFile, RenameFile, StageAll, CreateBranch, SwitchBranch, CreateTag, MergeBranch, OctopusMerge, Repack, QueryRevParse, QueryCatFile, QuerySnapshot:
+			}
+		}
+		sawWrite && sawCommit
+	}
+	assert pred(orig)
+	let shrunk = ShrinkHistory(orig, pred)
+	assert len(shrunk) == 2
+	assert len(shrunk) < len(orig)
+	assert pred(shrunk)
+}
+
+// CompareTranscriptsIsReflexive: comparing any transcript with itself always
+// reports Equal with zero diffs.
+law CompareTranscriptsIsReflexive(seed uint64) {
+	let emptySnap = Snapshot{
+		HeadOid:        "",
+		HeadRef:        "refs/heads/main",
+		TreeOid:        "",
+		AuthorName:     OracleAuthorName,
+		AuthorEmail:    OracleAuthorEmail,
+		AuthorEpoch:    BaseEpoch,
+		CommitterName:  OracleCommitterName,
+		CommitterEmail: OracleCommitterEmail,
+		CommitterEpoch: BaseEpoch,
+		Tree:           []TreeEntry{},
+		Refs:           []RefEntry{},
+		Status:         []StatusEntry{},
+		Reflog:         []ReflogEntry{},
+	}
+	let tr = Transcript{
+		Seed:         seed,
+		GeneratorRev: GeneratorRevision,
+		Spec:         DefaultSpec(),
+		Steps:        []StepRecord{},
+		Final:        emptySnap,
+		Replay:       "replay",
+	}
+	let cmp = CompareTranscripts(tr, tr)
+	cmp.Equal && len(cmp.Diffs) == 0
+}

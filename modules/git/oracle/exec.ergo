@@ -1,0 +1,357 @@
+import exec
+import filepath
+import fs
+import strconv
+import strings
+
+func runGit(dir string, args []string, pathEnv Map[string, string], epoch int64) exec.Result fails exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	try exec.Runner.Run(GitCommand(dir, args, pathEnv, epoch))
+}
+
+func runGitChecked(op string, target string, dir string, args []string, pathEnv Map[string, string], epoch int64) exec.Result fails Missing | Corrupt | Ambiguous | InvalidRef | Conflict | CommandFailed | exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	let r = try runGit(dir, args, pathEnv, epoch)
+	if r.Status != 0 {
+		match ClassifyGitFailure(op, target, r.Status, r.Stderr) {
+		case Missing as e:
+			return e
+		case Corrupt as e:
+			return e
+		case Ambiguous as e:
+			return e
+		case InvalidRef as e:
+			return e
+		case Conflict as e:
+			return e
+		case CommandFailed as e:
+			return e
+		}
+	}
+	r
+}
+
+// InitRepo creates a fresh C Git repository at root according to spec and
+// returns the working directory (or bare git directory) for subsequent ops.
+func InitRepo(root string, spec RepoSpec, pathEnv Map[string, string], epoch int64) string fails Missing | Corrupt | Ambiguous | InvalidRef | Conflict | CommandFailed | exec.NotFound | exec.Denied | exec.Failed | fs.NotFound | fs.Denied | fs.Failed needs exec.Runner | fs.Files | fs.Writes {
+	let branch = if spec.DefaultBranch == "" { "main" } else { spec.DefaultBranch }
+	let fmtArg = "--object-format=" + FormatName(spec.Format)
+	try fs.Writes.MkdirAll(root)
+	match spec.Layout {
+	case Normal:
+		let _ = try runGitChecked("init", root, root, []string{"init", "-q", "--template=", fmtArg, "-b", branch, "."}, pathEnv, epoch)
+		root
+	case Bare:
+		let _ = try runGitChecked("init", root, root, []string{"init", "-q", "--bare", "--template=", fmtArg, "-b", branch, "."}, pathEnv, epoch)
+		root
+	case DotGitPointer:
+		let wt = filepath.Join([]string{root, "wt"})
+		try fs.Writes.MkdirAll(wt)
+		let _ = try runGitChecked("init", wt, root, []string{"init", "-q", "--template=", fmtArg, "-b", branch, "--separate-git-dir=real.git", "wt"}, pathEnv, epoch)
+		wt
+	case LinkedWorktree:
+		let mainDir = filepath.Join([]string{root, "main"})
+		try fs.Writes.MkdirAll(mainDir)
+		let _ = try runGitChecked("init", mainDir, mainDir, []string{"init", "-q", "--template=", fmtArg, "-b", branch, "."}, pathEnv, epoch)
+		let _ = try runGitChecked("commit", mainDir, mainDir, []string{"commit", "-q", "--allow-empty", "-m", "worktree-base"}, pathEnv, epoch)
+		let linkedDir = filepath.Join([]string{root, "linked"})
+		let _ = try runGitChecked("worktree-add", linkedDir, mainDir, []string{"worktree", "add", "-q", "-b", "wt", "../linked"}, pathEnv, epoch)
+		linkedDir
+	case Alternates:
+		let up = filepath.Join([]string{root, "upstream"})
+		let child = filepath.Join([]string{root, "child"})
+		try fs.Writes.MkdirAll(up)
+		try fs.Writes.MkdirAll(child)
+		let _ = try runGitChecked("init", up, up, []string{"init", "-q", "--template=", fmtArg, "-b", branch, "."}, pathEnv, epoch)
+		try fs.Writes.WriteFile(filepath.Join([]string{up, "base.txt"}), "upstream-base\n")
+		let _ = try runGitChecked("add", up, up, []string{"add", "base.txt"}, pathEnv, epoch)
+		let _ = try runGitChecked("commit", up, up, []string{"commit", "-q", "-m", "upstream-base"}, pathEnv, epoch)
+		let _ = try runGitChecked("repack", up, up, []string{"repack", "-a", "-d", "-q"}, pathEnv, epoch)
+		let _ = try runGitChecked("init", child, child, []string{"init", "-q", "--template=", fmtArg, "-b", branch, "."}, pathEnv, epoch)
+		let altInfo = filepath.Join([]string{child, ".git", "objects", "info"})
+		try fs.Writes.MkdirAll(altInfo)
+		try fs.Writes.WriteFile(filepath.Join([]string{altInfo, "alternates"}), "../../../upstream/.git/objects\n")
+		child
+	}
+}
+
+// SnapshotRepo captures the typed repository snapshot at repoDir via NUL-delimited
+// C Git plumbing commands.
+func SnapshotRepo(repoDir string, bare bool, pathEnv Map[string, string], epoch int64) Snapshot fails exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	let mut headOid = ""
+	let mut headRef = ""
+	let mut treeOid = ""
+	let mut authorName = ""
+	let mut authorEmail = ""
+	let mut authorEpoch = int64(0)
+	let mut committerName = ""
+	let mut committerEmail = ""
+	let mut committerEpoch = int64(0)
+	let mut tree = []TreeEntry{}
+	let mut status = []StatusEntry{}
+	let mut reflog = []ReflogEntry{}
+
+	let headRes = try runGit(repoDir, []string{"rev-parse", "--verify", "HEAD"}, pathEnv, epoch)
+	if headRes.Status == 0 {
+		headOid = strings.TrimSpace(headRes.Stdout)
+		let treeRes = try runGit(repoDir, []string{"rev-parse", "--verify", "HEAD^{tree}"}, pathEnv, epoch)
+		if treeRes.Status == 0 {
+			treeOid = strings.TrimSpace(treeRes.Stdout)
+			let lsRes = try runGit(repoDir, []string{"ls-tree", "-r", "-z", "--full-tree", treeOid}, pathEnv, epoch)
+			if lsRes.Status == 0 {
+				tree = ParseLsTreeZ(lsRes.Stdout)
+			}
+		}
+		let metaRes = try runGit(repoDir, []string{"show", "-s", "--format=%an%x00%ae%x00%at%x00%cn%x00%ce%x00%ct%x00", "HEAD"}, pathEnv, epoch)
+		if metaRes.Status == 0 {
+			let (an, ae, at, cn, ce, ct) = ParseCommitMetaZ(metaRes.Stdout)
+			authorName = an
+			authorEmail = ae
+			authorEpoch = at
+			committerName = cn
+			committerEmail = ce
+			committerEpoch = ct
+		}
+		let logRes = try runGit(repoDir, []string{"reflog", "show", "--format=%H%x00%gd%x00%gs%x00", "HEAD"}, pathEnv, epoch)
+		if logRes.Status == 0 {
+			reflog = ParseReflogZ(logRes.Stdout)
+		}
+	}
+
+	let symRes = try runGit(repoDir, []string{"symbolic-ref", "-q", "HEAD"}, pathEnv, epoch)
+	if symRes.Status == 0 {
+		headRef = strings.TrimSpace(symRes.Stdout)
+	}
+
+	let mut refs = []RefEntry{}
+	let refRes = try runGit(repoDir, []string{"for-each-ref", "--format=%(refname)%00%(objectname)%00%(symref)%00"}, pathEnv, epoch)
+	if refRes.Status == 0 {
+		refs = ParseForEachRefZ(refRes.Stdout)
+	}
+
+	if !bare {
+		let stRes = try runGit(repoDir, []string{"status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules=none"}, pathEnv, epoch)
+		if stRes.Status == 0 {
+			status = ParseStatusZ(stRes.Stdout)
+		}
+	}
+
+	Snapshot{
+		HeadOid:        headOid,
+		HeadRef:        headRef,
+		TreeOid:        treeOid,
+		AuthorName:     authorName,
+		AuthorEmail:    authorEmail,
+		AuthorEpoch:    authorEpoch,
+		CommitterName:  committerName,
+		CommitterEmail: committerEmail,
+		CommitterEpoch: committerEpoch,
+		Tree:           tree,
+		Refs:           refs,
+		Status:         status,
+		Reflog:         reflog,
+	}
+}
+
+func isBare(l Layout) bool {
+	match l {
+	case Bare:
+		true
+	case Normal, DotGitPointer, LinkedWorktree, Alternates:
+		false
+	}
+}
+
+func fileModeOf(m FileMode) fs.Mode {
+	match m {
+	case Executable:
+		fs.SharedDir()
+	case Regular, Symlink:
+		fs.Shared()
+	}
+}
+
+func ensureParent(path string) fails fs.Denied | fs.Failed needs fs.Writes {
+	let dir = filepath.Dir(path)
+	if dir != "" && dir != "." {
+		try fs.Writes.MkdirAll(dir)
+	}
+}
+
+func execOp(repoDir string, bare bool, op Op, pathEnv Map[string, string], epoch int64) OpResult fails exec.NotFound | exec.Denied | exec.Failed | fs.NotFound | fs.Denied | fs.Failed needs exec.Runner | fs.Files | fs.Writes | Symlinks {
+	match op {
+	case WriteFile as w:
+		let full = filepath.Join([]string{repoDir, w.Path})
+		try ensureParent(full)
+		fs.Writes.Remove(full) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+		}
+		try fs.Writes.WriteFileMode(full, w.Content, fileModeOf(w.Mode))
+		OkVoid
+	case WriteBinary as b:
+		let full = filepath.Join([]string{repoDir, b.Path})
+		try ensureParent(full)
+		fs.Writes.Remove(full) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+		}
+		try fs.Writes.WriteFileMode(full, b.Bytes.Text(), fs.Shared())
+		OkVoid
+	case WriteSymlink as s:
+		let full = filepath.Join([]string{repoDir, s.Path})
+		try ensureParent(full)
+		fs.Writes.Remove(full) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+		}
+		try Symlinks.CreateSymlink(s.Target, full)
+		OkVoid
+	case DeleteFile as d:
+		let full = filepath.Join([]string{repoDir, d.Path})
+		fs.Writes.Remove(full) catch {
+		case fs.NotFound:
+			return Failed{Err: Missing{Target: d.Path}}
+		case fs.Denied, fs.Failed:
+			return Failed{Err: CommandFailed{Op: "delete", Status: 1}}
+		}
+		OkVoid
+	case RenameFile as rn:
+		let src = filepath.Join([]string{repoDir, rn.From})
+		let dst = filepath.Join([]string{repoDir, rn.To})
+		try ensureParent(dst)
+		fs.Writes.Rename(src, dst) catch {
+		case fs.NotFound:
+			return Failed{Err: Missing{Target: rn.From}}
+		case fs.Denied, fs.Failed, fs.CrossDevice:
+			return Failed{Err: CommandFailed{Op: "rename", Status: 1}}
+		}
+		OkVoid
+	case StageAll:
+		let r = try runGit(repoDir, []string{"add", "-A"}, pathEnv, epoch)
+		if r.Status != 0 {
+			return Failed{Err: ClassifyGitFailure("add", ".", r.Status, r.Stderr)}
+		}
+		OkVoid
+	case Commit as cm:
+		let r = try runGit(repoDir, []string{"commit", "-q", "--allow-empty", "-m", cm.Message}, pathEnv, epoch)
+		if r.Status != 0 {
+			return Failed{Err: ClassifyGitFailure("commit", cm.Message, r.Status, r.Stderr)}
+		}
+		let hr = try runGit(repoDir, []string{"rev-parse", "--verify", "HEAD"}, pathEnv, epoch)
+		if hr.Status != 0 {
+			return Failed{Err: ClassifyGitFailure("rev-parse", "HEAD", hr.Status, hr.Stderr)}
+		}
+		OkOid{Oid: strings.TrimSpace(hr.Stdout)}
+	case CreateBranch as cb:
+		let r = try runGit(repoDir, []string{"branch", cb.Name}, pathEnv, epoch)
+		if r.Status != 0 {
+			return Failed{Err: ClassifyGitFailure("branch", cb.Name, r.Status, r.Stderr)}
+		}
+		OkVoid
+	case SwitchBranch as sb:
+		let r = try runGit(repoDir, []string{"switch", "-q", sb.Name}, pathEnv, epoch)
+		if r.Status != 0 {
+			return Failed{Err: ClassifyGitFailure("switch", sb.Name, r.Status, r.Stderr)}
+		}
+		OkVoid
+	case CreateTag as tg:
+		let args = if tg.Annotated {
+			[]string{"tag", "-a", "-m", tg.Message, tg.Name}
+		} else {
+			[]string{"tag", tg.Name}
+		}
+		let r = try runGit(repoDir, args, pathEnv, epoch)
+		if r.Status != 0 {
+			return Failed{Err: ClassifyGitFailure("tag", tg.Name, r.Status, r.Stderr)}
+		}
+		let tr = try runGit(repoDir, []string{"rev-parse", "--verify", "refs/tags/" + tg.Name}, pathEnv, epoch)
+		if tr.Status != 0 {
+			return Failed{Err: ClassifyGitFailure("rev-parse", tg.Name, tr.Status, tr.Stderr)}
+		}
+		OkOid{Oid: strings.TrimSpace(tr.Stdout)}
+	case MergeBranch as mb:
+		let r = try runGit(repoDir, []string{"merge", "-q", "--no-ff", "-m", mb.Message, mb.Branch}, pathEnv, epoch)
+		if r.Status != 0 {
+			let _ = try runGit(repoDir, []string{"merge", "--abort"}, pathEnv, epoch)
+			return Failed{Err: ClassifyGitFailure("merge", mb.Branch, r.Status, r.Stderr+"\n"+r.Stdout)}
+		}
+		let hr = try runGit(repoDir, []string{"rev-parse", "--verify", "HEAD"}, pathEnv, epoch)
+		if hr.Status != 0 {
+			return Failed{Err: ClassifyGitFailure("rev-parse", "HEAD", hr.Status, hr.Stderr)}
+		}
+		OkOid{Oid: strings.TrimSpace(hr.Stdout)}
+	case OctopusMerge as om:
+		let mut args = []string{"merge", "-q", "-m", om.Message}
+		for br in om.Branches {
+			args = args.Append(br)
+		}
+		let r = try runGit(repoDir, args, pathEnv, epoch)
+		if r.Status != 0 {
+			let _ = try runGit(repoDir, []string{"merge", "--abort"}, pathEnv, epoch)
+			return Failed{Err: ClassifyGitFailure("octopus-merge", strings.Join(om.Branches, ","), r.Status, r.Stderr+"\n"+r.Stdout)}
+		}
+		let hr = try runGit(repoDir, []string{"rev-parse", "--verify", "HEAD"}, pathEnv, epoch)
+		if hr.Status != 0 {
+			return Failed{Err: ClassifyGitFailure("rev-parse", "HEAD", hr.Status, hr.Stderr)}
+		}
+		OkOid{Oid: strings.TrimSpace(hr.Stdout)}
+	case Repack as rp:
+		let args = if rp.Aggressive {
+			[]string{"gc", "--aggressive", "--quiet"}
+		} else {
+			[]string{"repack", "-a", "-d", "-q"}
+		}
+		let r = try runGit(repoDir, args, pathEnv, epoch)
+		if r.Status != 0 {
+			return Failed{Err: ClassifyGitFailure("repack", ".", r.Status, r.Stderr)}
+		}
+		OkVoid
+	case QueryRevParse as qr:
+		let r = try runGit(repoDir, []string{"rev-parse", "--verify", qr.Spec}, pathEnv, epoch)
+		if r.Status != 0 {
+			return Failed{Err: ClassifyGitFailure("rev-parse", qr.Spec, r.Status, r.Stderr)}
+		}
+		OkOid{Oid: strings.TrimSpace(r.Stdout)}
+	case QueryCatFile as qc:
+		let tr = try runGit(repoDir, []string{"cat-file", "-t", qc.Spec}, pathEnv, epoch)
+		if tr.Status != 0 {
+			return Failed{Err: ClassifyGitFailure("cat-file", qc.Spec, tr.Status, tr.Stderr)}
+		}
+		let kind = strings.TrimSpace(tr.Stdout)
+		let dr = try runGit(repoDir, []string{"cat-file", kind, qc.Spec}, pathEnv, epoch)
+		if dr.Status != 0 {
+			return Failed{Err: ClassifyGitFailure("cat-file", qc.Spec, dr.Status, dr.Stderr)}
+		}
+		let data = dr.Stdout.Bytes()
+		OkObject{Kind: kind, Size: len(data), Data: data}
+	case QuerySnapshot:
+		let snap = try SnapshotRepo(repoDir, bare, pathEnv, epoch)
+		OkSnapshot{Snap: snap}
+	}
+}
+
+// RunHistory initializes a fresh confined repository at root, executes ops
+// sequentially with deterministic timestamps, and returns the canonical
+// root-independent Transcript.
+func RunHistory(root string, seed uint64, spec RepoSpec, ops []Op, pathEnv Map[string, string]) Transcript fails Missing | Corrupt | Ambiguous | InvalidRef | Conflict | CommandFailed | exec.NotFound | exec.Denied | exec.Failed | fs.NotFound | fs.Denied | fs.Failed needs exec.Runner | fs.Files | fs.Writes | Symlinks {
+	let repoDir = try InitRepo(root, spec, pathEnv, BaseEpoch)
+	let bare = isBare(spec.Layout)
+	let mut steps = []StepRecord{}
+	for i, op in ops {
+		let epoch = StepEpoch(i)
+		let res = try execOp(repoDir, bare, op, pathEnv, epoch)
+		steps = steps.Append(StepRecord{
+			Index:     i,
+			Timestamp: epoch,
+			Op:        op,
+			Result:    res,
+		})
+	}
+	let finalEpoch = StepEpoch(len(ops))
+	let finalSnap = try SnapshotRepo(repoDir, bare, pathEnv, finalEpoch)
+	let replay = "ergo test --native ./modules/git/oracle --seed " + strconv.FormatInt(int64(seed), 10) + " # rev=" + GeneratorRevision + " fmt=" + FormatName(spec.Format) + " layout=" + LayoutName(spec.Layout) + " steps=" + strconv.Itoa(len(ops))
+	Transcript{
+		Seed:         seed,
+		GeneratorRev: GeneratorRevision,
+		Spec:         spec,
+		Steps:        steps,
+		Final:        finalSnap,
+		Replay:       replay,
+	}
+}

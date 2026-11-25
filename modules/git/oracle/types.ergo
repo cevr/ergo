@@ -1,0 +1,196 @@
+// Package oracle provides a hermetic C Git reference harness (G-ORACLE) for
+// differential testing of native Ergo Git implementations. It runs real C Git
+// strictly inside confined test folders with an exact minimal environment,
+// parses only NUL-delimited (-z) plumbing output into typed values, generates
+// deterministic semantic histories via std/gen, compares transcripts by typed
+// fields and OIDs, and shrinks failing histories in event order.
+
+import fs
+
+// Symlinks provides symbolic-link creation for repository fixture setup without
+// coupling callers to fs.Host directly.
+type Symlinks {
+	CreateSymlink(target string, path string) fails fs.NotFound | fs.Denied | fs.Failed,
+}
+
+// HostSymlinks implements Symlinks over an fs.Host.
+type HostSymlinks { host fs.Host } implements Symlinks
+
+// NewHostSymlinks wraps h as a Symlinks provider.
+func NewHostSymlinks(h fs.Host) HostSymlinks { HostSymlinks{host: h} }
+
+// CreateSymlink creates a symbolic link at path pointing to target.
+func CreateSymlink(s HostSymlinks, target string, path string) fails fs.NotFound | fs.Denied | fs.Failed {
+	try fs.Symlink(s.host, target, path)
+}
+
+// GeneratorRevision identifies the semantic history generator schema carried
+// in every Transcript for reproducible replay.
+let GeneratorRevision = "g-oracle-v1"
+
+// OidFormat selects the repository object-format hash algorithm.
+type OidFormat = Sha1{} | Sha256{}
+
+// Layout selects the on-disk repository placement created by InitRepo.
+type Layout = Normal{} | Bare{} | DotGitPointer{} | LinkedWorktree{} | Alternates{}
+
+// FileMode selects the POSIX/Git mode written for a tracked file.
+type FileMode = Regular{} | Executable{} | Symlink{}
+
+// RepoSpec parameterizes repository initialization for a transcript run.
+type RepoSpec {
+	Format        OidFormat,
+	Layout        Layout,
+	DefaultBranch string,
+}
+
+// DefaultSpec is a standard SHA-1 normal repository on branch main.
+func DefaultSpec() RepoSpec {
+	RepoSpec{Format: Sha1, Layout: Normal, DefaultBranch: "main"}
+}
+
+// OracleError is the closed failure classification for C Git oracle commands.
+// Callers compare classified variants and targets rather than human stderr text.
+type OracleError =
+	| Missing{Target string}
+	| Corrupt{Target string}
+	| Ambiguous{Target string}
+	| InvalidRef{Ref string}
+	| Conflict{Path string}
+	| CommandFailed{Op string, Status int}
+
+// TreeEntry is one entry parsed from `git ls-tree -r -z --full-tree`.
+type TreeEntry {
+	Mode string,
+	Kind string,
+	Oid  string,
+	Path string,
+}
+
+// RefEntry is one ref record parsed from NUL-delimited `git for-each-ref`.
+type RefEntry {
+	Name   string,
+	Oid    string,
+	Target string,
+}
+
+// StatusEntry is one record parsed from `git status --porcelain=v1 -z`.
+type StatusEntry {
+	IndexCode string,
+	WorkCode  string,
+	Path      string,
+	OrigPath  string,
+}
+
+// ReflogEntry is one record parsed from NUL-delimited `git reflog show`.
+type ReflogEntry {
+	Oid      string,
+	Selector string,
+	Subject  string,
+}
+
+// Snapshot is the canonical typed repository state read via C Git plumbing.
+type Snapshot {
+	HeadOid        string,
+	HeadRef        string,
+	TreeOid        string,
+	AuthorName     string,
+	AuthorEmail    string,
+	AuthorEpoch    int64,
+	CommitterName  string,
+	CommitterEmail string,
+	CommitterEpoch int64,
+	Tree           []TreeEntry,
+	Refs           []RefEntry,
+	Status         []StatusEntry,
+	Reflog         []ReflogEntry,
+}
+
+// Op is one semantic repository operation executed by RunHistory.
+type Op =
+	| WriteFile{Path string, Content string, Mode FileMode}
+	| WriteBinary{Path string, Bytes []byte}
+	| WriteSymlink{Path string, Target string}
+	| DeleteFile{Path string}
+	| RenameFile{From string, To string}
+	| StageAll{}
+	| Commit{Message string}
+	| CreateBranch{Name string}
+	| SwitchBranch{Name string}
+	| CreateTag{Name string, Annotated bool, Message string}
+	| MergeBranch{Branch string, Message string}
+	| OctopusMerge{Branches []string, Message string}
+	| Repack{Aggressive bool}
+	| QueryRevParse{Spec string}
+	| QueryCatFile{Spec string}
+	| QuerySnapshot{}
+
+// OpResult is the typed outcome recorded for one Op in a Transcript.
+type OpResult =
+	| OkVoid{}
+	| OkOid{Oid string}
+	| OkObject{Kind string, Size int, Data []byte}
+	| OkSnapshot{Snap Snapshot}
+	| Failed{Err OracleError}
+
+// StepRecord records one executed operation, its deterministic timestamp,
+// and its typed result.
+type StepRecord {
+	Index     int,
+	Timestamp int64,
+	Op        Op,
+	Result    OpResult,
+}
+
+// Transcript is the canonical root-independent record of running a semantic
+// operation history against C Git.
+type Transcript {
+	Seed         uint64,
+	GeneratorRev string,
+	Spec         RepoSpec,
+	Steps        []StepRecord,
+	Final        Snapshot,
+	Replay       string,
+}
+
+// DiffEntry names one typed mismatch between two Transcripts.
+type DiffEntry {
+	StepIndex int,
+	Field     string,
+	Expected  string,
+	Actual    string,
+}
+
+// CompareResult is the structured verdict of CompareTranscripts.
+type CompareResult {
+	Equal       bool,
+	Diffs       []DiffEntry,
+	LeftReplay  string,
+	RightReplay string,
+}
+
+// FormatName returns the C Git `--object-format` flag value for f.
+func FormatName(f OidFormat) string {
+	match f {
+	case Sha1:
+		"sha1"
+	case Sha256:
+		"sha256"
+	}
+}
+
+// LayoutName returns a stable identifier for l.
+func LayoutName(l Layout) string {
+	match l {
+	case Normal:
+		"normal"
+	case Bare:
+		"bare"
+	case DotGitPointer:
+		"dotgit-pointer"
+	case LinkedWorktree:
+		"linked-worktree"
+	case Alternates:
+		"alternates"
+	}
+}

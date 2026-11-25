@@ -1,0 +1,317 @@
+import gen
+import strconv
+
+// DrawHistory draws a deterministic semantic repository operation history from
+// std/gen's Draws capability. It always begins with an initial tracked file
+// commit and then draws edits, executable scripts, binary blobs, symlinks,
+// renames, deletions, branches, tags, repacks, and plumbing queries.
+func DrawHistory(maxSteps int) []Op needs gen.Draws {
+	let mut ops = []Op{}
+	let paths = []string{"a.txt", "sub/b.txt", "bin/run.sh", "data/raw.bin", "link.txt", "notes with spaces.txt"}
+	let branches = []string{"feat", "side"}
+	let mut createdBranches = []string{"main"}
+	let mut currentBranch = "main"
+	let mut tagCount = 0
+
+	ops = ops.Append(WriteFile{Path: "a.txt", Content: "seed-init\n", Mode: Regular})
+	ops = ops.Append(StageAll)
+	ops = ops.Append(Commit{Message: "init"})
+
+	let steps = if maxSteps <= 0 { 1 } else { gen.IntIn(2, maxSteps) }
+	for i in 0..steps {
+		let choice = gen.IntIn(0, 10)
+		if choice == 0 {
+			let p = gen.OneOf(paths)
+			let body = "line-" + strconv.Itoa(i) + "-" + strconv.Itoa(gen.IntIn(0, 99)) + "\n"
+			let mode FileMode = if gen.Bool() { Executable } else { Regular }
+			ops = ops.Append(WriteFile{Path: p, Content: body, Mode: mode})
+			ops = ops.Append(StageAll)
+			ops = ops.Append(Commit{Message: "write-" + strconv.Itoa(i)})
+		} else if choice == 1 {
+			let b0 = byte(gen.IntIn(0, 255))
+			let b1 = byte(0)
+			let b2 = byte(gen.IntIn(128, 255))
+			ops = ops.Append(WriteBinary{Path: "data/raw.bin", Bytes: []byte{b0, b1, b2, byte(i)}})
+			ops = ops.Append(StageAll)
+			ops = ops.Append(Commit{Message: "bin-" + strconv.Itoa(i)})
+		} else if choice == 2 {
+			ops = ops.Append(WriteSymlink{Path: "link.txt", Target: "a.txt"})
+			ops = ops.Append(StageAll)
+			ops = ops.Append(Commit{Message: "sym-" + strconv.Itoa(i)})
+		} else if choice == 3 {
+			let candidate = gen.OneOf(branches)
+			let mut exists = false
+			for br in createdBranches {
+				if br == candidate {
+					exists = true
+				}
+			}
+			if !exists {
+				ops = ops.Append(CreateBranch{Name: candidate})
+				createdBranches = createdBranches.Append(candidate)
+			}
+			if currentBranch != candidate {
+				ops = ops.Append(SwitchBranch{Name: candidate})
+				currentBranch = candidate
+			}
+		} else if choice == 4 {
+			let target = gen.OneOf(createdBranches)
+			if target != currentBranch {
+				ops = ops.Append(SwitchBranch{Name: target})
+				currentBranch = target
+			}
+		} else if choice == 5 {
+			tagCount = tagCount + 1
+			let ann = gen.Bool()
+			ops = ops.Append(CreateTag{
+				Name:      "v" + strconv.Itoa(tagCount),
+				Annotated: ann,
+				Message:   "tag-" + strconv.Itoa(tagCount),
+			})
+		} else if choice == 6 {
+			ops = ops.Append(WriteFile{Path: "temp.txt", Content: "ephemeral-" + strconv.Itoa(i) + "\n", Mode: Regular})
+			ops = ops.Append(StageAll)
+			ops = ops.Append(Commit{Message: "add-temp-" + strconv.Itoa(i)})
+			ops = ops.Append(RenameFile{From: "temp.txt", To: "moved.txt"})
+			ops = ops.Append(StageAll)
+			ops = ops.Append(Commit{Message: "rename-temp-" + strconv.Itoa(i)})
+			ops = ops.Append(DeleteFile{Path: "moved.txt"})
+			ops = ops.Append(StageAll)
+			ops = ops.Append(Commit{Message: "delete-moved-" + strconv.Itoa(i)})
+		} else if choice == 7 {
+			ops = ops.Append(Repack{Aggressive: false})
+		} else if choice == 8 {
+			ops = ops.Append(QueryRevParse{Spec: "HEAD"})
+			ops = ops.Append(QueryRevParse{Spec: "refs/heads/no-such-branch"})
+		} else if choice == 9 {
+			ops = ops.Append(QueryCatFile{Spec: "HEAD:a.txt"})
+		} else {
+			ops = ops.Append(QuerySnapshot)
+		}
+	}
+	ops
+}
+
+// GenerateHistory draws one deterministic semantic history from std/gen using
+// seed and caseIndex.
+func GenerateHistory(seed uint64, caseIndex int, maxSteps int) []Op {
+	let target = if caseIndex < 0 { 0 } else { caseIndex }
+	let mut drawn = []Op{}
+	let mut seen = 0
+	let cfg = gen.Config{
+		Seed:        seed,
+		Cases:       target + 1,
+		Shrinks:     0,
+		MaxDraws:    4096,
+		MaxRejected: 10,
+	}
+	let _ = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let h = DrawHistory(maxSteps)
+		if seen == target {
+			drawn = h
+		}
+		seen = seen + 1
+		true
+	})
+	drawn
+}
+
+// CompareTranscripts compares two Transcripts strictly by typed fields, OIDs,
+// tree entries, refs, status records, reflogs, and classified errors.
+func CompareTranscripts(left Transcript, right Transcript) CompareResult {
+	let mut diffs = []DiffEntry{}
+	if left.Spec != right.Spec {
+		diffs = diffs.Append(DiffEntry{
+			StepIndex: -1,
+			Field:     "Spec",
+			Expected:  FormatName(left.Spec.Format) + "/" + LayoutName(left.Spec.Layout),
+			Actual:    FormatName(right.Spec.Format) + "/" + LayoutName(right.Spec.Layout),
+		})
+	}
+	if len(left.Steps) != len(right.Steps) {
+		diffs = diffs.Append(DiffEntry{
+			StepIndex: -1,
+			Field:     "Steps.Len",
+			Expected:  strconv.Itoa(len(left.Steps)),
+			Actual:    strconv.Itoa(len(right.Steps)),
+		})
+	} else {
+		for i in 0..len(left.Steps) {
+			let ls = left.Steps[i]
+			let rs = right.Steps[i]
+			if ls.Op != rs.Op {
+				diffs = diffs.Append(DiffEntry{
+					StepIndex: i,
+					Field:     "Step.Op",
+					Expected:  "op-mismatch",
+					Actual:    "op-mismatch",
+				})
+			}
+			if ls.Result != rs.Result {
+				diffs = diffs.Append(DiffEntry{
+					StepIndex: i,
+					Field:     "Step.Result",
+					Expected:  describeResult(ls.Result),
+					Actual:    describeResult(rs.Result),
+				})
+			}
+		}
+	}
+	if left.Final.HeadOid != right.Final.HeadOid {
+		diffs = diffs.Append(DiffEntry{
+			StepIndex: -1,
+			Field:     "Final.HeadOid",
+			Expected:  left.Final.HeadOid,
+			Actual:    right.Final.HeadOid,
+		})
+	}
+	if left.Final.HeadRef != right.Final.HeadRef {
+		diffs = diffs.Append(DiffEntry{
+			StepIndex: -1,
+			Field:     "Final.HeadRef",
+			Expected:  left.Final.HeadRef,
+			Actual:    right.Final.HeadRef,
+		})
+	}
+	if left.Final.TreeOid != right.Final.TreeOid {
+		diffs = diffs.Append(DiffEntry{
+			StepIndex: -1,
+			Field:     "Final.TreeOid",
+			Expected:  left.Final.TreeOid,
+			Actual:    right.Final.TreeOid,
+		})
+	}
+	if left.Final.AuthorName != right.Final.AuthorName || left.Final.AuthorEmail != right.Final.AuthorEmail || left.Final.AuthorEpoch != right.Final.AuthorEpoch {
+		diffs = diffs.Append(DiffEntry{
+			StepIndex: -1,
+			Field:     "Final.Author",
+			Expected:  left.Final.AuthorName + "<" + left.Final.AuthorEmail + ">@" + strconv.FormatInt(left.Final.AuthorEpoch, 10),
+			Actual:    right.Final.AuthorName + "<" + right.Final.AuthorEmail + ">@" + strconv.FormatInt(right.Final.AuthorEpoch, 10),
+		})
+	}
+	if left.Final.CommitterName != right.Final.CommitterName || left.Final.CommitterEmail != right.Final.CommitterEmail || left.Final.CommitterEpoch != right.Final.CommitterEpoch {
+		diffs = diffs.Append(DiffEntry{
+			StepIndex: -1,
+			Field:     "Final.Committer",
+			Expected:  left.Final.CommitterName + "<" + left.Final.CommitterEmail + ">@" + strconv.FormatInt(left.Final.CommitterEpoch, 10),
+			Actual:    right.Final.CommitterName + "<" + right.Final.CommitterEmail + ">@" + strconv.FormatInt(right.Final.CommitterEpoch, 10),
+		})
+	}
+	if left.Final.Tree != right.Final.Tree {
+		diffs = diffs.Append(DiffEntry{
+			StepIndex: -1,
+			Field:     "Final.Tree",
+			Expected:  strconv.Itoa(len(left.Final.Tree)) + " entries",
+			Actual:    strconv.Itoa(len(right.Final.Tree)) + " entries",
+		})
+	}
+	if left.Final.Refs != right.Final.Refs {
+		diffs = diffs.Append(DiffEntry{
+			StepIndex: -1,
+			Field:     "Final.Refs",
+			Expected:  strconv.Itoa(len(left.Final.Refs)) + " refs",
+			Actual:    strconv.Itoa(len(right.Final.Refs)) + " refs",
+		})
+	}
+	if left.Final.Status != right.Final.Status {
+		diffs = diffs.Append(DiffEntry{
+			StepIndex: -1,
+			Field:     "Final.Status",
+			Expected:  strconv.Itoa(len(left.Final.Status)) + " entries",
+			Actual:    strconv.Itoa(len(right.Final.Status)) + " entries",
+		})
+	}
+	if left.Final.Reflog != right.Final.Reflog {
+		diffs = diffs.Append(DiffEntry{
+			StepIndex: -1,
+			Field:     "Final.Reflog",
+			Expected:  strconv.Itoa(len(left.Final.Reflog)) + " entries",
+			Actual:    strconv.Itoa(len(right.Final.Reflog)) + " entries",
+		})
+	}
+	CompareResult{
+		Equal:       len(diffs) == 0,
+		Diffs:       diffs,
+		LeftReplay:  left.Replay,
+		RightReplay: right.Replay,
+	}
+}
+
+func describeResult(r OpResult) string {
+	match r {
+	case OkVoid:
+		"OkVoid"
+	case OkOid as o:
+		"OkOid(" + o.Oid + ")"
+	case OkObject as obj:
+		"OkObject(" + obj.Kind + "," + strconv.Itoa(obj.Size) + ")"
+	case OkSnapshot as s:
+		"OkSnapshot(" + s.Snap.HeadOid + ")"
+	case Failed as f:
+		describeError(f.Err)
+	}
+}
+
+func describeError(e OracleError) string {
+	match e {
+	case Missing as m:
+		"Missing(" + m.Target + ")"
+	case Corrupt as c:
+		"Corrupt(" + c.Target + ")"
+	case Ambiguous as a:
+		"Ambiguous(" + a.Target + ")"
+	case InvalidRef as ir:
+		"InvalidRef(" + ir.Ref + ")"
+	case Conflict as cf:
+		"Conflict(" + cf.Path + ")"
+	case CommandFailed as f:
+		"CommandFailed(" + f.Op + "," + strconv.Itoa(f.Status) + ")"
+	}
+}
+
+// ShrinkHistory shrinks a failing history ops in event order using prefix
+// bisection followed by delta-debugging chunk removal, returning a minimal
+// subsequence that still satisfies predicate pred.
+func ShrinkHistory[E, R](ops []Op, pred func(candidate []Op) bool fails E needs R) []Op fails E needs R {
+	if len(ops) <= 1 {
+		return ops
+	}
+	let mut best = ops
+	let mut lo = 1
+	let mut hi = len(best)
+	for lo < hi {
+		let mid = lo + (hi-lo)/2
+		let cand = best[:mid]
+		if try pred(cand) {
+			best = cand
+			hi = mid
+		} else {
+			lo = mid + 1
+		}
+	}
+	let mut chunk = len(best) / 2
+	for chunk >= 1 {
+		let mut reduced = false
+		let mut start = 0
+		for start < len(best) {
+			let end = if start+chunk > len(best) { len(best) } else { start + chunk }
+			let mut cand = []Op{}
+			for i in 0..start {
+				cand = cand.Append(best[i])
+			}
+			for i in end..len(best) {
+				cand = cand.Append(best[i])
+			}
+			if len(cand) > 0 && try pred(cand) {
+				best = cand
+				reduced = true
+				break
+			}
+			start = end
+		}
+		if !reduced {
+			chunk = chunk / 2
+		}
+	}
+	best
+}
