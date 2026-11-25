@@ -284,6 +284,12 @@ case examples/mdhtml/workload
 case examples/metrics/alert
 case examples/metrics/cmd/metrics
 case examples/metrics/series
+case examples/model-paths/probe
+case examples/model-paths/probe/disk
+case examples/model-paths/probe/ownedreturn
+case examples/model-paths/probe/relay
+case examples/model-paths/probe/replay
+case examples/model-paths/probe/session
 case examples/pager/cmd/pager
 case examples/pager/screen
 case examples/pairing/cmd/pairing
@@ -439,6 +445,8 @@ case examples/sudoku/board
 case examples/sudoku/cmd/sudoku
 case examples/sudoku/naive
 case examples/sudoku/propagate
+case examples/tally-board/board
+case examples/tally-board/cmd/tally-board
 case examples/task-board/board
 case examples/task-board/cmd/task-board
 case examples/task-board/drag
@@ -1206,6 +1214,9 @@ case unused examples/markup/render/render.ergo
 case unused examples/mdhtml/html/node.ergo
 case unused examples/metrics/alert/limiter.ergo
 case unused examples/metrics/series/sample.ergo
+case unused examples/model-paths/probe/ownedreturn/return.ergo
+case unused examples/model-paths/probe/replay/replay.ergo
+case unused examples/model-paths/probe/session/session.ergo
 case unused examples/pager/screen/screen.ergo
 case unused examples/pairing/pad/pad.ergo
 case unused examples/pairing/pair/devices.ergo
@@ -1247,6 +1258,7 @@ case unused examples/starter/plan/plan.ergo
 case unused examples/station-stats/weather/line.ergo
 case unused examples/station-stats/weather/stats.ergo
 case unused examples/stopwatch/watch/format.ergo
+case unused examples/tally-board/board/board.ergo
 case unused examples/task-board/drag/drag.ergo
 case unused examples/task-board/sortkey/sortkey.ergo
 case unused examples/tasks-cli/cli/confirm.ergo
@@ -1287,6 +1299,7 @@ case unused internal/selfhostcheck/testdata/bind/port_control.ergo
 case unused internal/selfhostcheck/testdata/bind/port_frame.ergo
 case unused internal/selfhostcheck/testdata/bind/port_frame_fails.ergo
 case unused internal/selfhostcheck/testdata/bind/port_frame_results.ergo
+case unused internal/selfhostcheck/testdata/bind/port_generic.ergo
 case unused internal/selfhostcheck/testdata/bind/port_laws.ergo
 case unused internal/selfhostcheck/testdata/bind/port_shapes.ergo
 case unused internal/selfhostcheck/testdata/bind/port_union.ergo
@@ -1302,7 +1315,7 @@ case unused internal/sketch/std/crc32/crc32.ergo
 case unused internal/sketch/std/cron/expr.ergo
 case unused internal/sketch/std/decimal/u128.ergo
 case unused internal/sketch/std/dense/keys.ergo
-case unused internal/sketch/std/explore/search.ergo
+case unused internal/sketch/std/explore/session.ergo
 case unused internal/sketch/std/fs/mapped/mapped.ergo
 case unused internal/sketch/std/fstest/confined.ergo
 case unused internal/sketch/std/fstest/memory.ergo

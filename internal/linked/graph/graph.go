@@ -13034,7 +13034,7 @@ func (p codegraph__place) tangleNode() int {
 	return p.Top
 }
 
-func ergo__CloneTuple_3(v struct {
+func ergo__CloneTuple_4(v struct {
 	F0 []codegraph__EvidenceItem
 	F1 map[string]int
 }) struct {
@@ -13262,7 +13262,7 @@ func (r codegraph__Rows) LayoutEvidence(modules []int, policy codegraph__LayoutP
 				var ni []codegraph__EvidenceItem
 				var ns map[string]int
 				v_35 := codegraph__addEvidenceOnce(items, seen, codegraph__EvidenceItem{Rule: "sibling-folder-cycle", Subject: parent, Key: v_34, Count: int(1), Detail: (v_22 + " -> " + v_23 + ": " + v_30 + " -> " + v_32 + " (" + e.How + ")")})
-				p_1 := ergo__CloneTuple_3(v_35)
+				p_1 := ergo__CloneTuple_4(v_35)
 				ni, ns = p_1.F0, p_1.F1
 				items = ni
 				seen = ns
@@ -13456,7 +13456,7 @@ func (r codegraph__Rows) LayoutEvidence(modules []int, policy codegraph__LayoutP
 					var ni_1 []codegraph__EvidenceItem
 					var ns_1 map[string]int
 					v_68 := codegraph__addEvidenceOnce(items, seen, codegraph__EvidenceItem{Rule: "declaration-tangle", Subject: tPkg[v_57], Key: v_67, Count: int(1), Detail: (uf + ":" + v_63 + " -> " + vf + ":" + v_65 + " (" + e_2.How + ")")})
-					p_2 := ergo__CloneTuple_3(v_68)
+					p_2 := ergo__CloneTuple_4(v_68)
 					ni_1, ns_1 = p_2.F0, p_2.F1
 					items = ni_1
 					seen = ns_1
@@ -13619,7 +13619,7 @@ func (r codegraph__Rows) LayoutEvidence(modules []int, policy codegraph__LayoutP
 		inl_17:
 			_ = 0
 			v_94 := codegraph__addEvidenceOnce(t_8, t_9, codegraph__EvidenceItem{Rule: "foreign-record-field-write", Subject: t_10, Key: t_11, Count: t_12, Detail: v_91})
-			p_3 := ergo__CloneTuple_3(v_94)
+			p_3 := ergo__CloneTuple_4(v_94)
 			ni_2, ns_2 = p_3.F0, p_3.F1
 			items = ni_2
 			seen = ns_2
@@ -13638,7 +13638,7 @@ func (r codegraph__Rows) LayoutEvidence(modules []int, policy codegraph__LayoutP
 			var ni_3 []codegraph__EvidenceItem
 			var ns_3 map[string]int
 			v_98 := codegraph__addEvidenceOnce(items, seen, codegraph__EvidenceItem{Rule: "wide-observed-interface", Subject: pkg, Key: ("wide-observed-interface|widest|" + pkg), Count: p_4.Widest, Detail: (pkg + ": widest list " + string(strconv.AppendInt(make([]byte, 0, 20), int64(p_4.Widest), 10)) + " (max " + string(strconv.AppendInt(make([]byte, 0, 20), int64(policy.MaxSurfaceList), 10)) + ")")})
-			p_5 := ergo__CloneTuple_3(v_98)
+			p_5 := ergo__CloneTuple_4(v_98)
 			ni_3, ns_3 = p_5.F0, p_5.F1
 			items = ni_3
 			seen = ns_3
@@ -13689,7 +13689,7 @@ func (r codegraph__Rows) LayoutEvidence(modules []int, policy codegraph__LayoutP
 					var ni2 []codegraph__EvidenceItem
 					var ns2 map[string]int
 					v_105 := codegraph__addEvidenceOnce(items, seen, codegraph__EvidenceItem{Rule: "wide-observed-interface", Subject: pkg, Key: ("wide-observed-interface|entry|" + pkg + "|" + v_100 + "|" + v_103), Count: int(1), Detail: (pkg + " group " + v_100 + " entry " + v_103)})
-					p_6 := ergo__CloneTuple_3(v_105)
+					p_6 := ergo__CloneTuple_4(v_105)
 					ni2, ns2 = p_6.F0, p_6.F1
 					items = ni2
 					seen = ns2
@@ -13709,7 +13709,7 @@ func (r codegraph__Rows) LayoutEvidence(modules []int, policy codegraph__LayoutP
 			var ni_4 []codegraph__EvidenceItem
 			var ns_4 map[string]int
 			v_109 := codegraph__addEvidenceOnce(items, seen, codegraph__EvidenceItem{Rule: "long-file", Subject: name, Key: ("long-file|" + name), Count: (f.Lines - policy.MaxFileLines), Detail: (name + ": " + string(strconv.AppendInt(make([]byte, 0, 20), int64(f.Lines), 10)) + " lines (max " + string(strconv.AppendInt(make([]byte, 0, 20), int64(policy.MaxFileLines), 10)) + ")")})
-			p_7 := ergo__CloneTuple_3(v_109)
+			p_7 := ergo__CloneTuple_4(v_109)
 			ni_4, ns_4 = p_7.F0, p_7.F1
 			items = ni_4
 			seen = ns_4
@@ -13726,7 +13726,7 @@ func (r codegraph__Rows) LayoutEvidence(modules []int, policy codegraph__LayoutP
 			var ni_5 []codegraph__EvidenceItem
 			var ns_5 map[string]int
 			v_113 := codegraph__addEvidenceOnce(items, seen, codegraph__EvidenceItem{Rule: "wide-directory", Subject: d.Path, Key: ("wide-directory|" + d.Path), Count: (len(d.Members) - policy.MaxDirectoryMembers), Detail: (d.Path + "/: " + string(strconv.AppendInt(make([]byte, 0, 20), int64(len(d.Members)), 10)) + " entries (max " + string(strconv.AppendInt(make([]byte, 0, 20), int64(policy.MaxDirectoryMembers), 10)) + ")")})
-			p_8 := ergo__CloneTuple_3(v_113)
+			p_8 := ergo__CloneTuple_4(v_113)
 			ni_5, ns_5 = p_8.F0, p_8.F1
 			items = ni_5
 			seen = ns_5
@@ -13759,7 +13759,7 @@ func (r codegraph__Rows) LayoutEvidence(modules []int, policy codegraph__LayoutP
 			var ni_6 []codegraph__EvidenceItem
 			var ns_6 map[string]int
 			v_118 := codegraph__addEvidenceOnce(items, seen, codegraph__EvidenceItem{Rule: "production-uses-test-support", Subject: v_116, Key: ("production-uses-test-support|" + v_116 + "|" + target_1 + "|ordinary"), Count: int(1), Detail: (v_116 + " uses test support " + target_1)})
-			p_9 := ergo__CloneTuple_3(v_118)
+			p_9 := ergo__CloneTuple_4(v_118)
 			ni_6, ns_6 = p_9.F0, p_9.F1
 			items = ni_6
 			seen = ns_6
@@ -13793,7 +13793,7 @@ func (r codegraph__Rows) LayoutEvidence(modules []int, policy codegraph__LayoutP
 			var ni_7 []codegraph__EvidenceItem
 			var ns_7 map[string]int
 			v_124 := codegraph__addEvidenceOnce(items, seen, codegraph__EvidenceItem{Rule: "seam-entrypoints", Subject: caller, Key: ("seam-entrypoints|" + scope + "|" + caller + "|" + target_2 + "|" + role), Count: int(1), Detail: (caller + " -> " + target_2 + " (" + role + " in " + scope + ")")})
-			p_10 := ergo__CloneTuple_3(v_124)
+			p_10 := ergo__CloneTuple_4(v_124)
 			ni_7, ns_7 = p_10.F0, p_10.F1
 			items = ni_7
 			seen = ns_7
