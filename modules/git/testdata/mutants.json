@@ -1536,6 +1536,70 @@
       "killers": [
         "modules/git/local:LocalFetchPushAndWireV2MatchGit"
       ]
+    },
+    {
+      "name": "git-repo-allow-empty-commit-default",
+      "origin": "STD-GIT G-REPO",
+      "file": "modules/git/repo/ops.ergo",
+      "from": "\t\tif !opts.AllowEmpty && oid.Equal(parentTree, treeOID) {\n\t\t\treturn EmptyCommit{Detail: \"nothing to commit: staged tree matches HEAD\"}\n\t\t}",
+      "to": "\t\tif false && !opts.AllowEmpty && oid.Equal(parentTree, treeOID) {\n\t\t\treturn EmptyCommit{Detail: \"nothing to commit: staged tree matches HEAD\"}\n\t\t}",
+      "rule": "Commit refuses unchanged trees with EmptyCommit unless AllowEmpty is explicitly true.",
+      "anchor": {
+        "tests": [
+          "modules/git/repo:FullPureErgoWorkflowMatchesCGitSha1AndSha256"
+        ]
+      },
+      "killers": [
+        "modules/git/repo:FullPureErgoWorkflowMatchesCGitSha1AndSha256"
+      ]
+    },
+    {
+      "name": "git-repo-drop-second-merge-parent",
+      "origin": "STD-GIT G-REPO",
+      "file": "modules/git/repo/ops.ergo",
+      "from": "\tlet mergeParents = []oid.OID{oursOID, theirsOID}",
+      "to": "\tlet mergeParents = []oid.OID{oursOID}",
+      "rule": "Merge records both oursOID and theirsOID as commit parents when creating a 2-parent merge commit.",
+      "anchor": {
+        "tests": [
+          "modules/git/repo:FullPureErgoWorkflowMatchesCGitSha1AndSha256"
+        ]
+      },
+      "killers": [
+        "modules/git/repo:FullPureErgoWorkflowMatchesCGitSha1AndSha256"
+      ]
+    },
+    {
+      "name": "git-repo-skip-head-update-on-commit",
+      "origin": "STD-GIT G-REPO",
+      "file": "modules/git/repo/ops.ergo",
+      "from": "\ttry updateRefDirect(r, updateTarget, commitOID, headOIDOpt, committer, \"commit: \"+opts.Message, opts.Durability)",
+      "to": "\tlet _ = (updateTarget, headOIDOpt, committer)",
+      "rule": "Commit atomically advances the current branch (or detached HEAD) to the newly installed commit OID.",
+      "anchor": {
+        "tests": [
+          "modules/git/repo:FullPureErgoWorkflowMatchesCGitSha1AndSha256"
+        ]
+      },
+      "killers": [
+        "modules/git/repo:FullPureErgoWorkflowMatchesCGitSha1AndSha256"
+      ]
+    },
+    {
+      "name": "git-repo-wrong-clone-default-branch",
+      "origin": "STD-GIT G-REPO",
+      "file": "modules/git/repo/repo.ergo",
+      "from": "\t\tif strings.HasPrefix(target.Value, \"refs/heads/\") {\n\t\t\treturn strings.TrimPrefix(target.Value, \"refs/heads/\")\n\t\t}",
+      "to": "\t\tif strings.HasPrefix(target.Value, \"refs/heads/\") {\n\t\t\treturn \"wrong-default-branch\"\n\t\t}",
+      "rule": "CloneLocal detects and checks out the source repository's actual default branch from HEAD.",
+      "anchor": {
+        "tests": [
+          "modules/git/repo:FullPureErgoWorkflowMatchesCGitSha1AndSha256"
+        ]
+      },
+      "killers": [
+        "modules/git/repo:FullPureErgoWorkflowMatchesCGitSha1AndSha256"
+      ]
     }
   ]
 }

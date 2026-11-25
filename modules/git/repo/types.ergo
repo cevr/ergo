@@ -1,0 +1,228 @@
+// Package repo provides a high-level pure-Ergo Git Repository facade unifying
+// root discovery, loose/pack ODB, files & reftable refs, index, status, diff,
+// revisions, 3-way merge-tree, checkout, and local fetch/push (STD-GIT: G-REPO).
+
+import fs
+import github.com/cevr/ergo/modules/git/locks
+import github.com/cevr/ergo/modules/git/mergetree
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/root
+import github.com/cevr/ergo/modules/git/status
+
+// Error is the closed failure union for high-level Git repository operations.
+type Error =
+	| NotARepository{Path string, Detail string}
+	| BareRepository{Op string}
+	| InvalidPath{Path string, Reason string}
+	| MissingPath{Path string}
+	| EmptyCommit{Detail string}
+	| UnmergedIndex{Path string}
+	| InvalidRevision{Expr string, Detail string}
+	| BranchExists{Name string}
+	| BranchNotFound{Name string}
+	| BranchCheckedOut{Name string}
+	| MergeConflict{Conflicts []mergetree.Conflict}
+	| CheckoutFailed{Detail string}
+	| TransferFailed{Detail string}
+	| RefError{Detail string}
+	| ObjectError{Detail string}
+	| IndexError{Detail string}
+	| IOFailed{Op string, Detail string}
+
+// RefFormat selects the Git reference storage backend used by Init and Open.
+type RefFormat = RefFiles{} | RefReftable{}
+
+// InitOptions configures Repository initialization.
+type InitOptions {
+	HashAlg       oid.Format,
+	Bare          bool,
+	DefaultBranch string,
+	RefFormat     RefFormat,
+}
+
+// DefaultInitOptions returns standard non-bare SHA-1 files-backend InitOptions
+// with default branch `main`.
+func DefaultInitOptions() InitOptions {
+	InitOptions{
+		HashAlg:       oid.Sha1,
+		Bare:          false,
+		DefaultBranch: "main",
+		RefFormat:     RefFiles,
+	}
+}
+
+// CloneOptions configures CloneLocal behavior.
+type CloneOptions {
+	Bare       bool,
+	RemoteName string,
+	Durability locks.Durability,
+}
+
+// DefaultCloneOptions returns non-bare clone defaults with remote name `origin`
+// and durable lock publication.
+func DefaultCloneOptions() CloneOptions {
+	CloneOptions{
+		Bare:       false,
+		RemoteName: "origin",
+		Durability: locks.Durable,
+	}
+}
+
+// Identity describes a Git commit author or committer signature.
+type Identity {
+	Name      string,
+	Email     string,
+	Timestamp int64,
+	TzOffset  string,
+}
+
+// CommitOptions configures Commit author/committer metadata, message, empty
+// commit policy, and lock durability.
+type CommitOptions {
+	Author     Identity,
+	Committer  Identity,
+	Message    string,
+	AllowEmpty bool,
+	Durability locks.Durability,
+}
+
+// MergeOptions configures Merge commit metadata and lock durability.
+type MergeOptions {
+	Author     Identity,
+	Committer  Identity,
+	Message    string,
+	Durability locks.Durability,
+}
+
+// MergeKind classifies how Merge resolved the two histories.
+type MergeKind =
+	| MergeAlreadyUpToDate{}
+	| MergeFastForward{}
+	| MergeCommitted{}
+
+// MergeResult summarizes a completed Merge operation.
+type MergeResult {
+	Kind    MergeKind,
+	HeadOID oid.OID,
+	TreeOID oid.OID,
+}
+
+// Repository is an opened pure-Ergo Git repository handle combining resolved
+// layout, hash format, reference backend, and filesystem host.
+type Repository {
+	Layout    root.Layout,
+	Format    oid.Format,
+	RefFormat RefFormat,
+	Host      fs.Host,
+}
+
+// GitRepo is the capability seam for high-level repository lifecycle, commit,
+// status, and log operations, carrying laws verified on HostGitRepo.
+type GitRepo {
+	InitRepo(dir string, opts InitOptions) Repository fails NotARepository | RefError | ObjectError | IOFailed,
+	StageAndCommit(r Repository, relPath string, content string, opts CommitOptions) oid.OID fails BareRepository | InvalidPath | MissingPath | EmptyCommit | UnmergedIndex | RefError | ObjectError | IndexError | IOFailed,
+	CommitStaged(r Repository, opts CommitOptions) oid.OID fails BareRepository | EmptyCommit | UnmergedIndex | RefError | ObjectError | IndexError | IOFailed,
+	QueryStatus(r Repository) []status.Entry fails BareRepository | IndexError | ObjectError | IOFailed,
+	QueryLog(r Repository, revExpr string, limit int) []oid.OID fails InvalidRevision | RefError | ObjectError | IOFailed,
+
+	// InitCommitStatusCleanAndLogMatches: initializing a SHA-1 or SHA-256 repo
+	// and staging/committing a file leaves status clean and makes HEAD log
+	// contain that exact commit OID.
+	law InitCommitStatusCleanAndLogMatches(useSha256 bool) {
+		let fmt = if useSha256 { oid.Sha256 } else { oid.Sha1 }
+		let sub = if useSha256 { "law-repo-sha256" } else { "law-repo-sha1" }
+		let r = InitRepo(sub, InitOptions{
+			HashAlg:       fmt,
+			Bare:          false,
+			DefaultBranch: "main",
+			RefFormat:     RefFiles,
+		}) catch {
+		case NotARepository, RefError, ObjectError, IOFailed:
+			return false
+		}
+		let ident = Identity{
+			Name:      "Ergo Law",
+			Email:     "law@example.com",
+			Timestamp: int64(1700000000),
+			TzOffset:  "+0000",
+		}
+		let c1 = StageAndCommit(r, "hello.txt", "hello world\n", CommitOptions{
+			Author:     ident,
+			Committer:  ident,
+			Message:    "initial commit\n",
+			AllowEmpty: false,
+			Durability: locks.Atomic,
+		}) catch {
+		case BareRepository, InvalidPath, MissingPath, EmptyCommit, UnmergedIndex, RefError, ObjectError, IndexError, IOFailed:
+			return false
+		}
+		let st = QueryStatus(r) catch {
+		case BareRepository, IndexError, ObjectError, IOFailed:
+			return false
+		}
+		let hist = QueryLog(r, "HEAD", 10) catch {
+		case InvalidRevision, RefError, ObjectError, IOFailed:
+			return false
+		}
+		let ok = st.Len() == 0 && hist.Len() == 1 && oid.Equal(hist[0], c1)
+		always ok
+		sometimes useSha256 && ok
+		sometimes !useSha256 && ok
+		ok
+	},
+
+	// EmptyCommitRefusedByDefault: committing when the staged tree matches HEAD
+	// fails EmptyCommit unless AllowEmpty is true.
+	law EmptyCommitRefusedByDefault(allowEmpty bool) {
+		let sub = if allowEmpty { "law-empty-allow" } else { "law-empty-deny" }
+		let r = InitRepo(sub, DefaultInitOptions()) catch {
+		case NotARepository, RefError, ObjectError, IOFailed:
+			return false
+		}
+		let ident = Identity{
+			Name:      "Ergo Law",
+			Email:     "law@example.com",
+			Timestamp: int64(1700000100),
+			TzOffset:  "+0000",
+		}
+		let c1 = StageAndCommit(r, "note.txt", "same\n", CommitOptions{
+			Author:     ident,
+			Committer:  ident,
+			Message:    "first\n",
+			AllowEmpty: false,
+			Durability: locks.Atomic,
+		}) catch {
+		case BareRepository, InvalidPath, MissingPath, EmptyCommit, UnmergedIndex, RefError, ObjectError, IndexError, IOFailed:
+			return false
+		}
+		let mut refusedEmpty = false
+		let mut secondOK = false
+		let mut secondOID = c1
+		let c2 = CommitStaged(r, CommitOptions{
+			Author:     ident,
+			Committer:  ident,
+			Message:    "second\n",
+			AllowEmpty: allowEmpty,
+			Durability: locks.Atomic,
+		}) catch {
+		case EmptyCommit:
+			refusedEmpty = true
+			c1
+		case BareRepository, UnmergedIndex, RefError, ObjectError, IndexError, IOFailed:
+			return false
+		}
+		if !refusedEmpty {
+			secondOK = true
+			secondOID = c2
+		}
+		let ok = if allowEmpty {
+			secondOK && !oid.Equal(secondOID, c1)
+		} else {
+			refusedEmpty
+		}
+		always ok
+		sometimes allowEmpty && ok
+		sometimes !allowEmpty && ok
+		ok
+	},
+}

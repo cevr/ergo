@@ -1,0 +1,976 @@
+import filepath
+import fs
+import option
+import strconv
+import strings
+import github.com/cevr/ergo/modules/git/checkout
+import github.com/cevr/ergo/modules/git/diff
+import github.com/cevr/ergo/modules/git/index
+import github.com/cevr/ergo/modules/git/local
+import github.com/cevr/ergo/modules/git/locks
+import github.com/cevr/ergo/modules/git/loose
+import github.com/cevr/ergo/modules/git/mergetree
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/pack
+import github.com/cevr/ergo/modules/git/refs
+import github.com/cevr/ergo/modules/git/reftable
+import github.com/cevr/ergo/modules/git/revisions
+import github.com/cevr/ergo/modules/git/status
+import github.com/cevr/ergo/modules/git/windex
+import github.com/cevr/ergo/modules/git/wref
+
+func requireWorkTree(r Repository, op string) string fails BareRepository {
+	if r.Layout.IsBare {
+		return BareRepository{Op: op}
+	}
+	match r.Layout.WorkTree {
+	case option.Some[string] as wt:
+		wt.Value
+	case option.None:
+		return BareRepository{Op: op}
+	}
+}
+
+func openDiskODB(r Repository) pack.DiskODB fails ObjectError | IOFailed {
+	let odb = with context { fs.Files: r.Host } {
+		pack.FromLayout(r.Layout) catch {
+		case pack.Corrupt as e:
+			return ObjectError{Detail: e.Why}
+		case pack.MismatchedPair as e:
+			return ObjectError{Detail: "mismatched pack pair: " + e.PackPath}
+		case pack.IOFailed as e:
+			return IOFailed{Op: e.Op, Detail: e.Detail}
+		}
+	}
+	pack.NewDiskODB(odb, r.Host)
+}
+
+func readHeadState(r Repository) (option.Option[string], option.Option[oid.OID]) {
+	match r.RefFormat {
+	case RefFiles:
+		let st = refs.FromLayout(r.Layout)
+		let mut symTarget option.Option[string] = option.None
+		let headRefOpt = with context { fs.Files: r.Host } {
+			let hr = st.ReadRef("HEAD") catch {
+			case refs.NotFound, refs.InvalidRefName, refs.CorruptRef, refs.PathEscape, refs.IOFailed:
+				return (option.None, option.None)
+			}
+			hr
+		}
+		match headRefOpt.Target {
+		case refs.Symbolic as s:
+			symTarget = option.Some[string]{Value: s.Target}
+		case refs.Direct:
+		}
+		let resolvedOpt = with context { fs.Files: r.Host } {
+			let res = st.Resolve("HEAD") catch {
+			case refs.NotFound, refs.InvalidRefName, refs.CyclicSymref, refs.CorruptRef, refs.PathEscape, refs.IOFailed:
+				return (symTarget, option.None)
+			}
+			option.Some[oid.OID]{Value: res.OID}
+		}
+		(symTarget, resolvedOpt)
+	case RefReftable:
+		let tables = reftable.ReadStack(r.Layout.GitDir, r.Host) catch {
+		case reftable.BadMagic, reftable.UnsupportedVersion, reftable.HashFormatMismatch, reftable.TruncatedTable, reftable.HeaderFooterMismatch, reftable.CorruptChecksum, reftable.CorruptBlock, reftable.CorruptRecord, reftable.ZlibFailed, reftable.InvalidUpdateIndex, reftable.IOFailed:
+			return (option.None, option.None)
+		}
+		let mut symTarget option.Option[string] = option.None
+		match reftable.LookupRef(tables, "HEAD") {
+		case option.Some[reftable.RefRecord] as rec:
+			match rec.Value.Value {
+			case reftable.RefSymref as s:
+				symTarget = option.Some[string]{Value: s.Target}
+			case reftable.RefDelete, reftable.RefDirect, reftable.RefPeeled:
+			}
+		case option.None:
+		}
+		let res = reftable.ResolveRef(tables, "HEAD") catch {
+		case reftable.RefNotFound, reftable.CyclicSymref:
+			return (symTarget, option.None)
+		}
+		(symTarget, option.Some[oid.OID]{Value: res.OID})
+	}
+}
+
+func loadIndexEntries(r Repository) []index.Entry fails IndexError {
+	let idxPath = filepath.Join([]string{r.Layout.GitDir, "index"})
+	let exists = with context { fs.Files: r.Host } {
+		let _ = fs.Files.Lstat(idxPath) catch {
+		case fs.NotFound:
+			return []index.Entry{}
+		case fs.Denied, fs.Failed:
+			return IndexError{Detail: "failed to stat index"}
+		}
+		true
+	}
+	if !exists {
+		return []index.Entry{}
+	}
+	let idx = with context { fs.Files: r.Host } {
+		index.Open(r.Format, idxPath) catch {
+		case index.BadMagic, index.UnsupportedVersion, index.Truncated, index.ChecksumMismatch, index.CorruptEntry, index.BadPathCompression, index.UnsupportedMandatoryExtension, index.DuplicateStage, index.UnsortedEntries, index.IOFailed:
+			return IndexError{Detail: "failed to read git index"}
+		}
+	}
+	idx.Entries()
+}
+
+func commitTreeOf(r Repository, commitOID oid.OID) oid.OID fails ObjectError | InvalidRevision {
+	let dag = revisions.OpenStoreDAG(r.Layout, r.Host, false)
+	let node = dag.Commit(commitOID) catch {
+	case revisions.NotFound as e:
+		return InvalidRevision{Expr: e.Spec, Detail: "commit not found"}
+	case revisions.NotACommit as e:
+		return InvalidRevision{Expr: oid.Hex(commitOID), Detail: "not a commit: " + e.GotKind}
+	case revisions.StoreError as e:
+		return ObjectError{Detail: e.Detail}
+	}
+	node.Tree
+}
+
+func formatIdentityLine(prefix string, ident Identity) string {
+	let name = if ident.Name == "" { "Unknown" } else { ident.Name }
+	let email = if ident.Email == "" { "unknown@example.com" } else { ident.Email }
+	let tz = if ident.TzOffset == "" { "+0000" } else { ident.TzOffset }
+	prefix + " " + name + " <" + email + "> " + strconv.FormatInt(ident.Timestamp, 10) + " " + tz + "\n"
+}
+
+func formatCommitPayload(treeOID oid.OID, parents []oid.OID, author Identity, committer Identity, message string) []byte {
+	let mut text = "tree " + oid.Hex(treeOID) + "\n"
+	for p in parents {
+		text = text + "parent " + oid.Hex(p) + "\n"
+	}
+	text = text + formatIdentityLine("author", author)
+	text = text + formatIdentityLine("committer", committer)
+	text = text + "\n" + message
+	text.Bytes()
+}
+
+func updateRefDirect(r Repository, refName string, newOID oid.OID, expected option.Option[oid.OID], author Identity, message string, mode locks.Durability) fails RefError | ObjectError | IOFailed needs locks.LockOps {
+	match r.RefFormat {
+	case RefFiles:
+		let st = refs.FromLayout(r.Layout)
+		let disk = try openDiskODB(r)
+		let logSpec = option.Some[wref.ReflogSpec]{
+			Value: wref.ReflogSpec{
+				Ident: wref.ReflogIdentity{
+					Name:   if author.Name == "" { "Unknown" } else { author.Name },
+					Email:  if author.Email == "" { "unknown@example.com" } else { author.Email },
+					Epoch:  author.Timestamp,
+					Offset: if author.TzOffset == "" { "+0000" } else { author.TzOffset },
+				},
+				Message: strings.TrimRight(message, "\r\n"),
+			},
+		}
+		with context { pack.ObjectStore: disk, fs.Files: r.Host, fs.Writes: r.Host } {
+			wref.UpdateRef(st, refName, newOID, expected, logSpec, mode) catch {
+			case wref.InvalidRefName as e:
+				return RefError{Detail: "invalid ref name: " + e.Name}
+			case wref.PathEscape as e:
+				return RefError{Detail: "ref path escape: " + e.Name}
+			case wref.StaleExpected as e:
+				return RefError{Detail: "stale expected OID for " + e.Ref}
+			case wref.ObjectMissing:
+				return ObjectError{Detail: "missing target object for " + refName}
+			case wref.DirectoryFileConflict as e:
+				return RefError{Detail: "D/F conflict: " + e.Conflicting}
+			case wref.LockHeld as e:
+				return RefError{Detail: "lock held: " + e.Path}
+			case wref.LockFailed as e:
+				return RefError{Detail: e.Detail}
+			case wref.IOFailed as e:
+				return IOFailed{Op: e.Op, Detail: e.Detail}
+			}
+		}
+	case RefReftable:
+		let oldID = match expected {
+		case option.Some[oid.OID] as ov:
+			ov.Value
+		case option.None:
+			oid.Zero(r.Format)
+		}
+		let cleanMsg = strings.TrimRight(message, "\r\n") + "\n"
+		let _ = reftable.AppendTable(r.Layout.GitDir, r.Format, []reftable.RefRecord{
+			reftable.RefRecord{Name: refName, UpdateIndex: uint64(0), Value: reftable.RefDirect{OID: newOID}},
+		}, []reftable.LogRecord{
+			reftable.LogRecord{
+				RefName:     refName,
+				UpdateIndex: uint64(0),
+				Value:       reftable.LogUpdate{
+					OldOID:   oldID,
+					NewOID:   newOID,
+					Name:     if author.Name == "" { "Unknown" } else { author.Name },
+					Email:    if author.Email == "" { "unknown@example.com" } else { author.Email },
+					Time:     uint64(if author.Timestamp < int64(0) { int64(0) } else { author.Timestamp }),
+					TzOffset: 0,
+					Message:  cleanMsg,
+				},
+			},
+		}, mode, r.Host) catch {
+		case reftable.BadMagic, reftable.UnsupportedVersion, reftable.HashFormatMismatch, reftable.TruncatedTable, reftable.HeaderFooterMismatch, reftable.CorruptChecksum, reftable.CorruptBlock, reftable.CorruptRecord, reftable.ZlibFailed, reftable.InvalidUpdateIndex, reftable.LockFailed:
+			return RefError{Detail: "failed to append reftable update for " + refName}
+		case reftable.IOFailed as e:
+			return IOFailed{Op: e.Op, Detail: e.Detail}
+		}
+	}
+}
+
+// ResolveRev resolves a Git revision expression (HEAD, branch, tag, hex OID,
+// parent/ancestor suffix) across both files and reftable reference backends.
+func ResolveRev(r Repository, expr string) oid.OID fails InvalidRevision | RefError | ObjectError | IOFailed {
+	if expr == "" {
+		return InvalidRevision{Expr: expr, Detail: "empty revision expression"}
+	}
+	match r.RefFormat {
+	case RefFiles:
+		let odb = with context { fs.Files: r.Host } {
+			pack.FromLayout(r.Layout) catch {
+			case pack.Corrupt as e:
+				return ObjectError{Detail: e.Why}
+			case pack.MismatchedPair as e:
+				return ObjectError{Detail: "mismatched pack pair: " + e.PackPath}
+			case pack.IOFailed as e:
+				return IOFailed{Op: e.Op, Detail: e.Detail}
+			}
+		}
+		let resolver = revisions.NewDiskResolver(odb, refs.FromLayout(r.Layout))
+		with context { fs.Files: r.Host } {
+			revisions.ResolveRev(resolver, expr) catch {
+			case revisions.NotFound as e:
+				return InvalidRevision{Expr: e.Spec, Detail: "revision not found"}
+			case revisions.Ambiguous as e:
+				return InvalidRevision{Expr: e.Spec, Detail: "ambiguous revision"}
+			case revisions.InvalidRev as e:
+				return InvalidRevision{Expr: e.Spec, Detail: e.Reason}
+			case revisions.NotACommit as e:
+				return InvalidRevision{Expr: expr, Detail: "not a commit: " + e.GotKind}
+			case revisions.WrongKind as e:
+				return InvalidRevision{Expr: expr, Detail: "wrong object kind: " + e.Got}
+			case revisions.MissingParent:
+				return InvalidRevision{Expr: expr, Detail: "missing parent"}
+			case revisions.DepthExceeded:
+				return InvalidRevision{Expr: expr, Detail: "revision depth exceeded"}
+			case revisions.StoreError as e:
+				return ObjectError{Detail: e.Detail}
+			}
+		}
+	case RefReftable:
+		let tables = reftable.ReadStack(r.Layout.GitDir, r.Host) catch {
+		case reftable.BadMagic, reftable.UnsupportedVersion, reftable.HashFormatMismatch, reftable.TruncatedTable, reftable.HeaderFooterMismatch, reftable.CorruptChecksum, reftable.CorruptBlock, reftable.CorruptRecord, reftable.ZlibFailed, reftable.InvalidUpdateIndex:
+			return RefError{Detail: "corrupt reftable stack"}
+		case reftable.IOFailed as e:
+			return IOFailed{Op: e.Op, Detail: e.Detail}
+		}
+		let candidates = []string{
+			expr,
+			"refs/" + expr,
+			"refs/heads/" + expr,
+			"refs/tags/" + expr,
+			"refs/remotes/" + expr,
+		}
+		for cand in candidates {
+			let resOpt = reftable.ResolveRef(tables, cand) catch {
+			case reftable.RefNotFound:
+				reftable.ResolvedRef{Name: "", Chain: []string{}, OID: oid.Zero(r.Format), Peeled: option.None}
+			case reftable.CyclicSymref as e:
+				return RefError{Detail: "cyclic symref: " + e.Ref}
+			}
+			if resOpt.Name != "" {
+				return resOpt.OID
+			}
+		}
+		let parsed = oid.ParseHex(r.Format, expr) catch {
+		case oid.BadHex, oid.WrongLength:
+			return InvalidRevision{Expr: expr, Detail: "revision not found in reftable"}
+		}
+		let disk = try openDiskODB(r)
+		if !disk.Contains(parsed) {
+			return InvalidRevision{Expr: expr, Detail: "object not found"}
+		}
+		parsed
+	}
+}
+
+// Status returns working-tree and staged status entries via modules/git/status.
+func Status(r Repository, opts status.StatusOptions) []status.Entry fails BareRepository | IndexError | ObjectError | IOFailed {
+	let _ = try requireWorkTree(r, "status")
+	status.Status(r.Layout, opts, r.Host) catch {
+	case status.BareRepository:
+		return BareRepository{Op: "status"}
+	case status.StatusError as e:
+		return IndexError{Detail: e.Detail}
+	}
+}
+
+// Add hashes each working-tree file in paths into the loose object database
+// and atomically updates `.git/index` via modules/git/windex.
+func Add(r Repository, paths []string, mode locks.Durability) []index.Entry fails BareRepository | InvalidPath | MissingPath | ObjectError | IndexError | IOFailed needs locks.LockOps {
+	let wt = try requireWorkTree(r, "add")
+	let existing = try loadIndexEntries(r)
+	let looseStore = loose.FromLayout(r.Layout)
+
+	let mut replaceMap = Map[string, index.Entry]{}
+	for rel in paths {
+		windex.ValidatePath(rel) catch {
+		case windex.InvalidPath as e:
+			return InvalidPath{Path: e.Path, Reason: e.Reason}
+		}
+		let full = filepath.Join([]string{wt, rel})
+		let info = with context { fs.Files: r.Host } {
+			fs.Files.Lstat(full) catch {
+			case fs.NotFound:
+				return MissingPath{Path: rel}
+			case fs.Denied as e:
+				return IOFailed{Op: "lstat", Detail: e.Path}
+			case fs.Failed as e:
+				return IOFailed{Op: "lstat", Detail: e.Reason}
+			}
+		}
+		if info.Dir {
+			return InvalidPath{Path: rel, Reason: "cannot stage directory directly"}
+		}
+		let rawText = with context { fs.Files: r.Host } {
+			fs.Files.ReadFile(full) catch {
+			case fs.NotFound:
+				return MissingPath{Path: rel}
+			case fs.Denied as e:
+				return IOFailed{Op: "read-file", Detail: e.Path}
+			case fs.Failed as e:
+				return IOFailed{Op: "read-file", Detail: e.Reason}
+			}
+		}
+		let rawBytes = rawText.Bytes()
+		let blobOID = with context { fs.Files: r.Host, fs.Writes: r.Host } {
+			loose.InstallObject(looseStore, oid.Blob, rawBytes) catch {
+			case loose.Collision as e:
+				return ObjectError{Detail: "sha1 collision: " + e.Digest}
+			case loose.IOFailed as e:
+				return IOFailed{Op: e.Op, Detail: e.Detail}
+			}
+		}
+		let fileMode = if (info.Perm & 73) != 0 { index.ModeExecutable } else { index.ModeRegular }
+		replaceMap[rel] = index.Entry{
+			CTimeSec:     uint32(0),
+			CTimeNsec:    uint32(0),
+			MTimeSec:     uint32(0),
+			MTimeNsec:    uint32(0),
+			Dev:          uint32(0),
+			Ino:          uint32(0),
+			Mode:         fileMode,
+			UID:          uint32(0),
+			GID:          uint32(0),
+			FileSize:     uint32(rawBytes.Len()),
+			OID:          blobOID,
+			Stage:        0,
+			AssumeValid:  false,
+			Extended:     false,
+			SkipWorktree: false,
+			IntentToAdd:  false,
+			Path:         rel,
+		}
+	}
+
+	let mut nextEntries = []index.Entry{}
+	for e in existing {
+		match replaceMap.Get(e.Path) {
+		case option.Some[index.Entry]:
+		case option.None:
+			nextEntries = nextEntries.Append(e)
+		}
+	}
+	for _, entry in replaceMap {
+		nextEntries = nextEntries.Append(entry)
+	}
+	let idxPath = filepath.Join([]string{r.Layout.GitDir, "index"})
+	windex.WriteIndex(r.Format, idxPath, nextEntries, mode) catch {
+	case windex.InvalidPath as e:
+		return InvalidPath{Path: e.Path, Reason: e.Reason}
+	case windex.DuplicateEntry as e:
+		return IndexError{Detail: "duplicate index entry: " + e.Path}
+	case windex.InvalidStage as e:
+		return IndexError{Detail: "invalid stage: " + e.Path}
+	case windex.InvalidMode as e:
+		return IndexError{Detail: "invalid mode: " + e.Path}
+	case windex.Collision as e:
+		return ObjectError{Detail: "index checksum collision: " + e.Digest}
+	case windex.LockFailed as e:
+		return IndexError{Detail: e.Detail}
+	}
+	try loadIndexEntries(r)
+}
+
+// Remove removes paths from `.git/index` and writes the updated index
+// atomically via modules/git/windex.
+func Remove(r Repository, paths []string, mode locks.Durability) []index.Entry fails BareRepository | InvalidPath | MissingPath | IndexError | ObjectError | IOFailed needs locks.LockOps {
+	let _ = try requireWorkTree(r, "remove")
+	let existing = try loadIndexEntries(r)
+	let mut dropSet = Map[string, bool]{}
+	for rel in paths {
+		windex.ValidatePath(rel) catch {
+		case windex.InvalidPath as e:
+			return InvalidPath{Path: e.Path, Reason: e.Reason}
+		}
+		dropSet[rel] = true
+	}
+	let mut removedAny = Map[string, bool]{}
+	let mut nextEntries = []index.Entry{}
+	for e in existing {
+		match dropSet.Get(e.Path) {
+		case option.Some[bool]:
+			removedAny[e.Path] = true
+		case option.None:
+			nextEntries = nextEntries.Append(e)
+		}
+	}
+	for rel in paths {
+		match removedAny.Get(rel) {
+		case option.Some[bool]:
+		case option.None:
+			return MissingPath{Path: rel}
+		}
+	}
+	let idxPath = filepath.Join([]string{r.Layout.GitDir, "index"})
+	windex.WriteIndex(r.Format, idxPath, nextEntries, mode) catch {
+	case windex.InvalidPath as e:
+		return InvalidPath{Path: e.Path, Reason: e.Reason}
+	case windex.DuplicateEntry as e:
+		return IndexError{Detail: "duplicate index entry: " + e.Path}
+	case windex.InvalidStage as e:
+		return IndexError{Detail: "invalid stage: " + e.Path}
+	case windex.InvalidMode as e:
+		return IndexError{Detail: "invalid mode: " + e.Path}
+	case windex.Collision as e:
+		return ObjectError{Detail: "index checksum collision: " + e.Digest}
+	case windex.LockFailed as e:
+		return IndexError{Detail: e.Detail}
+	}
+	try loadIndexEntries(r)
+}
+
+// Commit writes the staged index tree, installs a canonical Git commit object,
+// and atomically advances the current branch (or detached HEAD), refusing
+// unmerged indexes and unchanged trees unless opts.AllowEmpty is true.
+func Commit(r Repository, opts CommitOptions) oid.OID fails BareRepository | EmptyCommit | UnmergedIndex | RefError | ObjectError | IndexError | IOFailed needs locks.LockOps {
+	let _ = try requireWorkTree(r, "commit")
+	let entries = try loadIndexEntries(r)
+	for e in entries {
+		if e.Stage != 0 {
+			return UnmergedIndex{Path: e.Path}
+		}
+	}
+
+	let looseStore = loose.FromLayout(r.Layout)
+	let diskLoose = loose.NewDiskStore(looseStore, r.Host)
+	let treeOID = with context { loose.Objects: diskLoose } {
+		windex.WriteTree(r.Format, entries) catch {
+		case windex.InvalidPath as e:
+			return IndexError{Detail: "invalid path: " + e.Path}
+		case windex.DuplicateEntry as e:
+			return IndexError{Detail: "duplicate entry: " + e.Path}
+		case windex.InvalidStage as e:
+			return IndexError{Detail: "invalid stage: " + e.Path}
+		case windex.InvalidMode as e:
+			return IndexError{Detail: "invalid mode: " + e.Path}
+		case windex.UnmergedIndex as e:
+			return UnmergedIndex{Path: e.Path}
+		case windex.Collision as e:
+			return ObjectError{Detail: "sha1 collision: " + e.Digest}
+		case windex.ObjectFailed as e:
+			return ObjectError{Detail: e.Detail}
+		}
+	}
+
+	let (symTarget, headOIDOpt) = readHeadState(r)
+	let mut parents = []oid.OID{}
+	match headOIDOpt {
+	case option.Some[oid.OID] as parentID:
+		parents = parents.Append(parentID.Value)
+		let parentTree = commitTreeOf(r, parentID.Value) catch {
+		case InvalidRevision as e:
+			return ObjectError{Detail: e.Detail}
+		case ObjectError as e:
+			return e
+		}
+		if !opts.AllowEmpty && oid.Equal(parentTree, treeOID) {
+			return EmptyCommit{Detail: "nothing to commit: staged tree matches HEAD"}
+		}
+	case option.None:
+		if !opts.AllowEmpty && entries.Len() == 0 {
+			return EmptyCommit{Detail: "nothing to commit: empty index on unborn branch"}
+		}
+	}
+
+	let committer = if opts.Committer.Name == "" && opts.Committer.Email == "" { opts.Author } else { opts.Committer }
+	let payload = formatCommitPayload(treeOID, parents, opts.Author, committer, opts.Message)
+	let commitOID = with context { fs.Files: r.Host, fs.Writes: r.Host } {
+		loose.InstallObject(looseStore, oid.Commit, payload) catch {
+		case loose.Collision as e:
+			return ObjectError{Detail: "sha1 collision: " + e.Digest}
+		case loose.IOFailed as e:
+			return IOFailed{Op: e.Op, Detail: e.Detail}
+		}
+	}
+
+	let updateTarget = match symTarget {
+	case option.Some[string] as target:
+		target.Value
+	case option.None:
+		"HEAD"
+	}
+	try updateRefDirect(r, updateTarget, commitOID, headOIDOpt, committer, "commit: "+opts.Message, opts.Durability)
+	commitOID
+}
+
+// Log walks commit ancestry from revExpr (defaulting to `HEAD`) returning up to
+// limit commit OIDs (0 means unlimited) via modules/git/revisions.
+func Log(r Repository, revExpr string, limit int) []oid.OID fails InvalidRevision | RefError | ObjectError | IOFailed {
+	let target = if revExpr == "" { "HEAD" } else { revExpr }
+	let tip = try ResolveRev(r, target)
+	let dag = revisions.OpenStoreDAG(r.Layout, r.Host, false)
+	with context { revisions.CommitDAG: dag } {
+		revisions.RevList([]oid.OID{tip}, []oid.OID{}, revisions.RevListOptions{
+			FirstParent: false,
+			MaxCount:    limit,
+		}) catch {
+		case revisions.NotFound as e:
+			return InvalidRevision{Expr: e.Spec, Detail: "commit not found"}
+		case revisions.NotACommit as e:
+			return InvalidRevision{Expr: target, Detail: "not a commit: " + e.GotKind}
+		case revisions.StoreError as e:
+			return ObjectError{Detail: e.Detail}
+		}
+	}
+}
+
+// DiffTrees computes tree differences between oldRev and newRev commits via
+// modules/git/diff.
+func DiffTrees(r Repository, oldRev string, newRev string, opts diff.DiffOptions) []diff.Change fails InvalidRevision | RefError | ObjectError | IOFailed {
+	let oldCommit = try ResolveRev(r, oldRev)
+	let newCommit = try ResolveRev(r, newRev)
+	let oldTree = try commitTreeOf(r, oldCommit)
+	let newTree = try commitTreeOf(r, newCommit)
+	let disk = try openDiskODB(r)
+	with context { pack.ObjectStore: disk } {
+		diff.DiffTrees(r.Format, oldTree, newTree, opts) catch {
+		case diff.TreeError as e:
+			return ObjectError{Detail: e.Detail}
+		case diff.MissingObject:
+			return ObjectError{Detail: "missing object during diff"}
+		case diff.StoreError as e:
+			return ObjectError{Detail: e.Detail}
+		case diff.DepthExceeded:
+			return ObjectError{Detail: "tree depth exceeded during diff"}
+		}
+	}
+}
+
+// CreateBranch creates a new branch `refs/heads/<name>` pointing at startRev
+// (defaulting to `HEAD`), refusing with BranchExists if it already exists.
+func CreateBranch(r Repository, name string, startRev string, mode locks.Durability) oid.OID fails InvalidRevision | BranchExists | RefError | ObjectError | IOFailed needs locks.LockOps {
+	let full = "refs/heads/" + name
+	let srcExpr = if startRev == "" { "HEAD" } else { startRev }
+	let targetOID = try ResolveRev(r, srcExpr)
+	if sourceHasBranch(r, name) {
+		return BranchExists{Name: name}
+	}
+	try updateRefDirect(r, full, targetOID, option.None, Identity{Name: "ergo", Email: "ergo@local", Timestamp: int64(0), TzOffset: "+0000"}, "branch: Created from "+srcExpr, mode)
+	targetOID
+}
+
+// DeleteBranch deletes `refs/heads/<name>`, refusing with BranchCheckedOut if
+// HEAD is currently on that branch or BranchNotFound if it does not exist.
+func DeleteBranch(r Repository, name string, mode locks.Durability) fails BranchNotFound | BranchCheckedOut | RefError | ObjectError | IOFailed needs locks.LockOps {
+	let full = "refs/heads/" + name
+	let (symTarget, _) = readHeadState(r)
+	match symTarget {
+	case option.Some[string] as cur:
+		if cur.Value == full {
+			return BranchCheckedOut{Name: name}
+		}
+	case option.None:
+	}
+	let currentOID = ResolveRev(r, full) catch {
+	case InvalidRevision:
+		return BranchNotFound{Name: name}
+	case RefError as e:
+		return e
+	case ObjectError as e:
+		return e
+	case IOFailed as e:
+		return e
+	}
+	match r.RefFormat {
+	case RefFiles:
+		let st = refs.FromLayout(r.Layout)
+		let disk = try openDiskODB(r)
+		with context { pack.ObjectStore: disk, fs.Files: r.Host, fs.Writes: r.Host } {
+			wref.DeleteRef(st, full, currentOID, mode) catch {
+			case wref.InvalidRefName as e:
+				return RefError{Detail: "invalid ref: " + e.Name}
+			case wref.PathEscape as e:
+				return RefError{Detail: "ref path escape: " + e.Name}
+			case wref.StaleExpected as e:
+				return RefError{Detail: "stale expected for " + e.Ref}
+			case wref.ObjectMissing:
+				return ObjectError{Detail: "missing object"}
+			case wref.DirectoryFileConflict as e:
+				return RefError{Detail: "D/F conflict: " + e.Conflicting}
+			case wref.LockHeld as e:
+				return RefError{Detail: "lock held: " + e.Path}
+			case wref.LockFailed as e:
+				return RefError{Detail: e.Detail}
+			case wref.IOFailed as e:
+				return IOFailed{Op: e.Op, Detail: e.Detail}
+			}
+		}
+	case RefReftable:
+		let _ = reftable.AppendTable(r.Layout.GitDir, r.Format, []reftable.RefRecord{
+			reftable.RefRecord{Name: full, UpdateIndex: uint64(0), Value: reftable.RefDelete},
+		}, []reftable.LogRecord{}, mode, r.Host) catch {
+		case reftable.BadMagic, reftable.UnsupportedVersion, reftable.HashFormatMismatch, reftable.TruncatedTable, reftable.HeaderFooterMismatch, reftable.CorruptChecksum, reftable.CorruptBlock, reftable.CorruptRecord, reftable.ZlibFailed, reftable.InvalidUpdateIndex, reftable.LockFailed:
+			return RefError{Detail: "failed to delete branch in reftable"}
+		case reftable.IOFailed as e:
+			return IOFailed{Op: e.Op, Detail: e.Detail}
+		}
+	}
+}
+
+// CheckoutBranch switches the working tree, index, and HEAD to branch via
+// modules/git/checkout.
+func CheckoutBranch(r Repository, branch string, opts checkout.Options) checkout.Result fails BareRepository | BranchNotFound | CheckoutFailed | RefError | ObjectError | IndexError | IOFailed needs locks.LockOps {
+	let _ = try requireWorkTree(r, "checkout")
+	if !sourceHasBranch(r, branch) {
+		return BranchNotFound{Name: branch}
+	}
+	checkout.CheckoutBranch(r.Layout, branch, opts, r.Host) catch {
+	case checkout.BareRepository:
+		return BareRepository{Op: "checkout"}
+	case checkout.UnsafePath as e:
+		return CheckoutFailed{Detail: e.Reason}
+	case checkout.SymlinkTraversal as e:
+		return CheckoutFailed{Detail: "symlink traversal: " + e.Path}
+	case checkout.DirtyOverwrite as e:
+		return CheckoutFailed{Detail: "dirty overwrite: " + e.Path}
+	case checkout.UntrackedOverwrite as e:
+		return CheckoutFailed{Detail: "untracked overwrite: " + e.Path}
+	case checkout.UnmergedIndex as e:
+		return CheckoutFailed{Detail: "unmerged index: " + e.Path}
+	case checkout.InvalidTarget as e:
+		return CheckoutFailed{Detail: e.Reason}
+	case checkout.MissingObject:
+		return ObjectError{Detail: "missing object during checkout"}
+	case checkout.TreeError as e:
+		return ObjectError{Detail: e.Detail}
+	case checkout.IndexError as e:
+		return IndexError{Detail: e.Detail}
+	case checkout.RefError as e:
+		return RefError{Detail: e.Detail}
+	case checkout.IOFailed as e:
+		return IOFailed{Op: e.Op, Detail: e.Detail}
+	}
+}
+
+// CheckoutDetached detaches HEAD to revExpr and updates the working tree and
+// index via modules/git/checkout.
+func CheckoutDetached(r Repository, revExpr string, opts checkout.Options) checkout.Result fails BareRepository | InvalidRevision | CheckoutFailed | RefError | ObjectError | IndexError | IOFailed needs locks.LockOps {
+	let _ = try requireWorkTree(r, "checkout-detached")
+	let targetOID = try ResolveRev(r, revExpr)
+	checkout.CheckoutDetached(r.Layout, targetOID, opts, r.Host) catch {
+	case checkout.BareRepository:
+		return BareRepository{Op: "checkout-detached"}
+	case checkout.UnsafePath as e:
+		return CheckoutFailed{Detail: e.Reason}
+	case checkout.SymlinkTraversal as e:
+		return CheckoutFailed{Detail: "symlink traversal: " + e.Path}
+	case checkout.DirtyOverwrite as e:
+		return CheckoutFailed{Detail: "dirty overwrite: " + e.Path}
+	case checkout.UntrackedOverwrite as e:
+		return CheckoutFailed{Detail: "untracked overwrite: " + e.Path}
+	case checkout.UnmergedIndex as e:
+		return CheckoutFailed{Detail: "unmerged index: " + e.Path}
+	case checkout.InvalidTarget as e:
+		return CheckoutFailed{Detail: e.Reason}
+	case checkout.MissingObject:
+		return ObjectError{Detail: "missing object during detached checkout"}
+	case checkout.TreeError as e:
+		return ObjectError{Detail: e.Detail}
+	case checkout.IndexError as e:
+		return IndexError{Detail: e.Detail}
+	case checkout.RefError as e:
+		return RefError{Detail: e.Detail}
+	case checkout.IOFailed as e:
+		return IOFailed{Op: e.Op, Detail: e.Detail}
+	}
+}
+
+// Merge merges otherRev into current HEAD: returning MergeAlreadyUpToDate when
+// already merged, fast-forwarding when HEAD is an ancestor of otherRev, or
+// running 3-way recursive mergetree.MergeCommits and committing a 2-parent
+// merge commit when clean (or returning MergeConflict without mutating HEAD or
+// index on conflict).
+func Merge(r Repository, otherRev string, opts MergeOptions) MergeResult fails BareRepository | InvalidRevision | MergeConflict | CheckoutFailed | RefError | ObjectError | IndexError | IOFailed needs locks.LockOps {
+	let _ = try requireWorkTree(r, "merge")
+	let (symTarget, headOpt) = readHeadState(r)
+	let oursOID = match headOpt {
+	case option.Some[oid.OID] as h:
+		h.Value
+	case option.None:
+		return InvalidRevision{Expr: "HEAD", Detail: "cannot merge on unborn HEAD"}
+	}
+	let theirsOID = try ResolveRev(r, otherRev)
+	let oursTree = try commitTreeOf(r, oursOID)
+	let theirsTree = try commitTreeOf(r, theirsOID)
+
+	let updateTarget = match symTarget {
+	case option.Some[string] as target:
+		target.Value
+	case option.None:
+		"HEAD"
+	}
+	let committer = if opts.Committer.Name == "" && opts.Committer.Email == "" { opts.Author } else { opts.Committer }
+
+	let dag = revisions.OpenStoreDAG(r.Layout, r.Host, false)
+	let theirsIsAnc = with context { revisions.CommitDAG: dag } {
+		revisions.IsAncestor(theirsOID, oursOID) catch {
+		case revisions.NotFound as e:
+			return InvalidRevision{Expr: e.Spec, Detail: "missing commit"}
+		case revisions.NotACommit as e:
+			return InvalidRevision{Expr: otherRev, Detail: "not a commit: " + e.GotKind}
+		case revisions.StoreError as e:
+			return ObjectError{Detail: e.Detail}
+		}
+	}
+	if theirsIsAnc {
+		return MergeResult{Kind: MergeAlreadyUpToDate, HeadOID: oursOID, TreeOID: oursTree}
+	}
+
+	let oursIsAnc = with context { revisions.CommitDAG: dag } {
+		revisions.IsAncestor(oursOID, theirsOID) catch {
+		case revisions.NotFound as e:
+			return InvalidRevision{Expr: e.Spec, Detail: "missing commit"}
+		case revisions.NotACommit as e:
+			return InvalidRevision{Expr: otherRev, Detail: "not a commit: " + e.GotKind}
+		case revisions.StoreError as e:
+			return ObjectError{Detail: e.Detail}
+		}
+	}
+	if oursIsAnc {
+		let mut coOpts = checkout.DefaultOptions()
+		coOpts.Durability = opts.Durability
+		let _ = checkout.CheckoutTree(r.Layout, theirsTree, coOpts, r.Host) catch {
+		case checkout.BareRepository:
+			return BareRepository{Op: "merge-ff"}
+		case checkout.UnsafePath as e:
+			return CheckoutFailed{Detail: e.Reason}
+		case checkout.SymlinkTraversal as e:
+			return CheckoutFailed{Detail: "symlink traversal: " + e.Path}
+		case checkout.DirtyOverwrite as e:
+			return CheckoutFailed{Detail: "dirty overwrite: " + e.Path}
+		case checkout.UntrackedOverwrite as e:
+			return CheckoutFailed{Detail: "untracked overwrite: " + e.Path}
+		case checkout.UnmergedIndex as e:
+			return CheckoutFailed{Detail: "unmerged index: " + e.Path}
+		case checkout.MissingObject:
+			return ObjectError{Detail: "missing object during fast-forward merge"}
+		case checkout.TreeError as e:
+			return ObjectError{Detail: e.Detail}
+		case checkout.IndexError as e:
+			return IndexError{Detail: e.Detail}
+		case checkout.RefError as e:
+			return RefError{Detail: e.Detail}
+		case checkout.IOFailed as e:
+			return IOFailed{Op: e.Op, Detail: e.Detail}
+		}
+		try updateRefDirect(r, updateTarget, theirsOID, option.Some[oid.OID]{Value: oursOID}, committer, "merge "+otherRev+": Fast-forward", opts.Durability)
+		return MergeResult{Kind: MergeFastForward, HeadOID: theirsOID, TreeOID: theirsTree}
+	}
+
+	let disk = try openDiskODB(r)
+	let mtRes = with context { pack.ObjectStore: disk, revisions.CommitDAG: dag } {
+		mergetree.MergeCommits(r.Format, oursOID, theirsOID, mergetree.DefaultOptions()) catch {
+		case mergetree.TreeError as e:
+			return ObjectError{Detail: e.Detail}
+		case mergetree.DiffError as e:
+			return ObjectError{Detail: e.Detail}
+		case mergetree.RevError as e:
+			return InvalidRevision{Expr: otherRev, Detail: e.Detail}
+		case mergetree.UntrustedDriver as e:
+			return ObjectError{Detail: "untrusted merge driver: " + e.Driver}
+		case mergetree.MissingObject:
+			return ObjectError{Detail: "missing object during merge-tree"}
+		case mergetree.StoreError as e:
+			return ObjectError{Detail: e.Detail}
+		case mergetree.DepthExceeded:
+			return ObjectError{Detail: "merge recursion depth exceeded"}
+		}
+	}
+	if !mtRes.Clean {
+		return MergeConflict{Conflicts: mtRes.Conflicts}
+	}
+
+	let mut coOpts = checkout.DefaultOptions()
+	coOpts.Durability = opts.Durability
+	let _ = checkout.CheckoutTree(r.Layout, mtRes.TreeOID, coOpts, r.Host) catch {
+	case checkout.BareRepository:
+		return BareRepository{Op: "merge-checkout"}
+	case checkout.UnsafePath as e:
+		return CheckoutFailed{Detail: e.Reason}
+	case checkout.SymlinkTraversal as e:
+		return CheckoutFailed{Detail: "symlink traversal: " + e.Path}
+	case checkout.DirtyOverwrite as e:
+		return CheckoutFailed{Detail: "dirty overwrite: " + e.Path}
+	case checkout.UntrackedOverwrite as e:
+		return CheckoutFailed{Detail: "untracked overwrite: " + e.Path}
+	case checkout.UnmergedIndex as e:
+		return CheckoutFailed{Detail: "unmerged index: " + e.Path}
+	case checkout.MissingObject:
+		return ObjectError{Detail: "missing object during merge checkout"}
+	case checkout.TreeError as e:
+		return ObjectError{Detail: e.Detail}
+	case checkout.IndexError as e:
+		return IndexError{Detail: e.Detail}
+	case checkout.RefError as e:
+		return RefError{Detail: e.Detail}
+	case checkout.IOFailed as e:
+		return IOFailed{Op: e.Op, Detail: e.Detail}
+	}
+
+	let mergeParents = []oid.OID{oursOID, theirsOID}
+	let msg = if opts.Message == "" { "Merge " + otherRev + "\n" } else { opts.Message }
+	let payload = formatCommitPayload(mtRes.TreeOID, mergeParents, opts.Author, committer, msg)
+	let looseStore = loose.FromLayout(r.Layout)
+	let mergeOID = with context { fs.Files: r.Host, fs.Writes: r.Host } {
+		loose.InstallObject(looseStore, oid.Commit, payload) catch {
+		case loose.Collision as e:
+			return ObjectError{Detail: "sha1 collision: " + e.Digest}
+		case loose.IOFailed as e:
+			return IOFailed{Op: e.Op, Detail: e.Detail}
+		}
+	}
+	try updateRefDirect(r, updateTarget, mergeOID, option.Some[oid.OID]{Value: oursOID}, committer, "merge "+otherRev+": Merge made", opts.Durability)
+	MergeResult{Kind: MergeCommitted, HeadOID: mergeOID, TreeOID: mtRes.TreeOID}
+}
+
+// FetchLocal fetches refspecs from srcRepoDir into r via modules/git/local.
+func FetchLocal(r Repository, srcRepoDir string, refspecs []string, opts local.FetchOptions) local.TransferResult fails NotARepository | TransferFailed | RefError | IOFailed needs locks.LockOps {
+	let src = try Open(srcRepoDir, r.Host)
+	local.Fetch(src.Layout, r.Layout, refspecs, opts, r.Host) catch {
+	case local.InvalidRefspec as e:
+		return TransferFailed{Detail: "invalid refspec: " + e.Spec}
+	case local.HashFormatMismatch as e:
+		return TransferFailed{Detail: "hash format mismatch: " + e.SrcFormat + " vs " + e.DstFormat}
+	case local.NonFastForward as e:
+		return TransferFailed{Detail: "non-fast-forward: " + e.Ref}
+	case local.LeaseMismatch as e:
+		return TransferFailed{Detail: "lease mismatch: " + e.Ref}
+	case local.ReceiveCurrentBranch as e:
+		return TransferFailed{Detail: "receive current branch: " + e.Ref}
+	case local.MissingRef as e:
+		return TransferFailed{Detail: "missing ref: " + e.Ref}
+	case local.MissingObject:
+		return TransferFailed{Detail: "missing object during fetch"}
+	case local.DanglingObject:
+		return TransferFailed{Detail: "dangling object during fetch"}
+	case local.TransferFailed as e:
+		return TransferFailed{Detail: e.Detail}
+	case local.RefUpdateFailed as e:
+		return RefError{Detail: e.Detail}
+	case local.IOFailed as e:
+		return IOFailed{Op: e.Op, Detail: e.Detail}
+	}
+}
+
+// PushLocal pushes refspecs from r into dstRepoDir via modules/git/local.
+func PushLocal(r Repository, dstRepoDir string, refspecs []string, opts local.PushOptions) local.TransferResult fails NotARepository | TransferFailed | RefError | IOFailed needs locks.LockOps {
+	let dst = try Open(dstRepoDir, r.Host)
+	local.Push(r.Layout, dst.Layout, refspecs, opts, r.Host) catch {
+	case local.InvalidRefspec as e:
+		return TransferFailed{Detail: "invalid refspec: " + e.Spec}
+	case local.HashFormatMismatch as e:
+		return TransferFailed{Detail: "hash format mismatch: " + e.SrcFormat + " vs " + e.DstFormat}
+	case local.NonFastForward as e:
+		return TransferFailed{Detail: "non-fast-forward: " + e.Ref}
+	case local.LeaseMismatch as e:
+		return TransferFailed{Detail: "lease mismatch: " + e.Ref}
+	case local.ReceiveCurrentBranch as e:
+		return TransferFailed{Detail: "receive current branch: " + e.Ref}
+	case local.MissingRef as e:
+		return TransferFailed{Detail: "missing ref: " + e.Ref}
+	case local.MissingObject:
+		return TransferFailed{Detail: "missing object during push"}
+	case local.DanglingObject:
+		return TransferFailed{Detail: "dangling object during push"}
+	case local.TransferFailed as e:
+		return TransferFailed{Detail: e.Detail}
+	case local.RefUpdateFailed as e:
+		return RefError{Detail: e.Detail}
+	case local.IOFailed as e:
+		return IOFailed{Op: e.Op, Detail: e.Detail}
+	}
+}
+
+// HostGitRepo is the filesystem-backed provider of GitRepo rooted at baseDir.
+type HostGitRepo {
+	baseDir string,
+	host    fs.Host,
+} implements GitRepo
+
+// NewHostGitRepo returns a HostGitRepo rooted at baseDir using host.
+func NewHostGitRepo(baseDir string, host fs.Host) HostGitRepo {
+	HostGitRepo{baseDir: filepath.Clean(baseDir), host: host}
+}
+
+// InitRepo implements GitRepo.InitRepo on HostGitRepo.
+func InitRepo(h HostGitRepo, dir string, opts InitOptions) Repository fails NotARepository | RefError | ObjectError | IOFailed {
+	let target = filepath.Join([]string{h.baseDir, dir})
+	let lockOps = wref.NewFSLockOps(h.host)
+	with context { locks.LockOps: lockOps } {
+		try Init(target, opts, h.host)
+	}
+}
+
+// StageAndCommit implements GitRepo.StageAndCommit on HostGitRepo.
+func StageAndCommit(h HostGitRepo, r Repository, relPath string, content string, opts CommitOptions) oid.OID fails BareRepository | InvalidPath | MissingPath | EmptyCommit | UnmergedIndex | RefError | ObjectError | IndexError | IOFailed {
+	let wt = try requireWorkTree(r, "stage-and-commit")
+	let full = filepath.Join([]string{wt, relPath})
+	with context { fs.Writes: h.host } {
+		fs.Writes.MkdirAll(filepath.Dir(full)) catch {
+		case fs.Denied as e:
+			return IOFailed{Op: "mkdir-parent", Detail: e.Path}
+		case fs.Failed as e:
+			return IOFailed{Op: "mkdir-parent", Detail: e.Reason}
+		}
+		fs.Writes.WriteFile(full, content) catch {
+		case fs.NotFound as e:
+			return IOFailed{Op: "write-file", Detail: e.Path}
+		case fs.Denied as e:
+			return IOFailed{Op: "write-file", Detail: e.Path}
+		case fs.Failed as e:
+			return IOFailed{Op: "write-file", Detail: e.Reason}
+		}
+	}
+	let lockOps = wref.NewFSLockOps(h.host)
+	with context { locks.LockOps: lockOps } {
+		let _ = try Add(r, []string{relPath}, opts.Durability)
+		try Commit(r, opts)
+	}
+}
+
+// CommitStaged implements GitRepo.CommitStaged on HostGitRepo.
+func CommitStaged(h HostGitRepo, r Repository, opts CommitOptions) oid.OID fails BareRepository | EmptyCommit | UnmergedIndex | RefError | ObjectError | IndexError | IOFailed {
+	let lockOps = wref.NewFSLockOps(h.host)
+	with context { locks.LockOps: lockOps } {
+		try Commit(r, opts)
+	}
+}
+
+// QueryStatus implements GitRepo.QueryStatus on HostGitRepo.
+func QueryStatus(_ HostGitRepo, r Repository) []status.Entry fails BareRepository | IndexError | ObjectError | IOFailed {
+	try Status(r, status.DefaultOptions())
+}
+
+// QueryLog implements GitRepo.QueryLog on HostGitRepo.
+func QueryLog(_ HostGitRepo, r Repository, revExpr string, limit int) []oid.OID fails InvalidRevision | RefError | ObjectError | IOFailed {
+	try Log(r, revExpr, limit)
+}
