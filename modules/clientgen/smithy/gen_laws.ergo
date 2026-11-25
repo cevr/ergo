@@ -1,0 +1,53 @@
+import gen
+
+// PruneIdempotentAndProvenanceRoundTrip verifies over gen.Check that Prune is
+// idempotent and WithProvenance survives Write/Read round-trips intact.
+law PruneIdempotentAndProvenanceRoundTrip() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 40, Shrinks: 0, MaxDraws: 512, MaxRejected: 10}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let n = gen.IntIn(2, 8)
+		let mut kinds = []int{}
+		let mut refs = []int{}
+		for _ in 0..n {
+			kinds = kinds.Append(gen.IntIn(0, 5))
+			refs = refs.Append(gen.IntIn(0, n-1))
+			refs = refs.Append(gen.IntIn(0, n-1))
+			refs = refs.Append(gen.IntIn(0, n-1))
+		}
+		let m = drawnModel(kinds, refs, gen.Bool())
+		let mut keep = []string{}
+		for sh in m.Shapes {
+			match sh.Kind {
+			case Operation:
+				if gen.Bool() {
+					keep = keep.Append(sh.Id)
+				}
+			case Simple, Enum, IntEnum, List, Mapping, Structure, Union, Service, Resource, Unsupported:
+			}
+		}
+		let drop = if gen.Bool() { []string{"smithy.api#documentation"} } else { []string{} }
+		let once = Prune(m, keep, drop) catch {
+		case Unknown:
+			return false
+		}
+		let twice = Prune(once, keep, drop) catch {
+		case Unknown:
+			return false
+		}
+		if twice != once {
+			return false
+		}
+		let stamped = WithProvenance(once, Provenance{Source: "test@v1", Sha256: "abc", Kept: keep, Dropped: drop, Note: "ok"})
+		let back = Read(Write(stamped)) catch {
+		case _:
+			return false
+		}
+		back == stamped
+	})
+	match outcome {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}
