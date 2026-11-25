@@ -1,0 +1,642 @@
+import option
+import slices
+import strconv
+import strings
+import sync
+
+// DiffFingerprint is a privacy-preserving structural summary of a divergence
+// between baseline and candidate payloads. It records which step and piece
+// differed, the exact byte offset of the first mismatch (or -1 when step/piece
+// structure or presence differed), both payload lengths, and normalized cohort
+// tags, without storing or formatting any payload bytes.
+type DiffFingerprint {
+	Step            string,
+	Piece           int,
+	FirstDiffOffset int,
+	BaselineLen     int,
+	CandidateLen    int,
+	Tags            []string,
+}
+
+// DiffRecord pairs a redacted DiffFingerprint with the build identifier that
+// produced it.
+type DiffRecord {
+	Fingerprint DiffFingerprint,
+	Build       string,
+}
+
+// FingerprintBucket groups matching redacted DiffFingerprints by their
+// canonical FingerprintKey, recording total occurrences, a representative
+// sample, and the sorted union of cohort tags observed across the bucket.
+type FingerprintBucket {
+	Key     string,
+	Sample  DiffFingerprint,
+	Count   int,
+	Cohorts []string,
+}
+
+// CohortDelta compares occurrence counts for one canonical FingerprintKey
+// between before and after snapshots filtered to a shared required tag cohort.
+type CohortDelta {
+	FingerprintKey string,
+	BeforeCount    int,
+	AfterCount     int,
+	Eliminated     bool,
+}
+
+// Checkpoint captures one named intermediate stage payload recorded during
+// baseline or candidate execution.
+type Checkpoint {
+	Step    string,
+	Piece   int,
+	Payload []byte,
+}
+
+// CheckpointLog is a concurrency-safe log of Checkpoints collected during a
+// single differential execution run.
+type CheckpointLog {
+	entries sync.Ref[[]Checkpoint],
+}
+
+// ShadowResult is the outcome of running baseline and candidate implementations
+// under Differential or RunShadow, preserving both outputs alongside whether
+// every checkpoint and final output matched byte-for-byte.
+type ShadowResult[Out own] {
+	Matched      bool,
+	FirstDiff    option.Option[DiffFingerprint],
+	BaselineOut  Out,
+	CandidateOut Out,
+}
+
+// NormalizeTags trims whitespace, drops empty strings, deduplicates, and sorts
+// cohort feature tags lexicographically.
+func NormalizeTags(tags []string) []string {
+	let mut seen = Map[string, bool]{}
+	let mut out = []string{}
+	for raw in tags {
+		let t = strings.TrimSpace(raw)
+		if t == "" {
+			continue
+		}
+		match seen.Get(t) {
+		case option.Some[bool]:
+		case option.None:
+			seen[t] = true
+			out = out.Append(t)
+		}
+	}
+	slices.SortFunc(out, func(a string, b string) int {
+		if a < b { -1 } else if a > b { 1 } else { 0 }
+	})
+}
+
+// CompareRedacted compares baseline and candidate byte payloads for (step,
+// piece), returning option.None when byte-identical or a redacted
+// DiffFingerprint locating the first byte offset of divergence without copying
+// or formatting any payload bytes.
+func CompareRedacted(step string, piece int, baseline []byte, candidate []byte, tags []string) option.Option[DiffFingerprint] {
+	let bLen = baseline.Len()
+	let cLen = candidate.Len()
+	let minLen = if bLen < cLen { bLen } else { cLen }
+	for i in 0..minLen {
+		if baseline[i] != candidate[i] {
+			return option.Some[DiffFingerprint]{
+				Value: DiffFingerprint{
+					Step:            step,
+					Piece:           piece,
+					FirstDiffOffset: i,
+					BaselineLen:     bLen,
+					CandidateLen:    cLen,
+					Tags:            NormalizeTags(tags),
+				},
+			}
+		}
+	}
+	if bLen != cLen {
+		return option.Some[DiffFingerprint]{
+			Value: DiffFingerprint{
+				Step:            step,
+				Piece:           piece,
+				FirstDiffOffset: minLen,
+				BaselineLen:     bLen,
+				CandidateLen:    cLen,
+				Tags:            NormalizeTags(tags),
+			},
+		}
+	}
+	option.None
+}
+
+// CompareRedactedText compares baseline and candidate text payloads for (step,
+// piece) using CompareRedacted without retaining any payload characters.
+func CompareRedactedText(step string, piece int, baseline string, candidate string, tags []string) option.Option[DiffFingerprint] {
+	CompareRedacted(step, piece, baseline.Bytes(), candidate.Bytes(), tags)
+}
+
+// FingerprintKey returns the canonical deterministic grouping key for fp,
+// derived solely from structural metadata (step, piece, first diff offset, and
+// baseline/candidate lengths) and independent of payload contents.
+func FingerprintKey(fp DiffFingerprint) string {
+	fp.Step + "#" + strconv.Itoa(fp.Piece) + "@" + strconv.Itoa(fp.FirstDiffOffset) + ":" + strconv.Itoa(fp.BaselineLen) + "->" + strconv.Itoa(fp.CandidateLen)
+}
+
+// GroupByFingerprint deduplicates redacted DiffFingerprints by FingerprintKey,
+// counting occurrences, merging cohort tags, and sorting deterministically by
+// Count descending and Key ascending.
+func GroupByFingerprint(records []DiffFingerprint) []FingerprintBucket {
+	let mut counts = Map[string, int]{}
+	let mut samples = Map[string, DiffFingerprint]{}
+	let mut tagLists = Map[string, []string]{}
+	let mut keys = []string{}
+
+	for fp in records {
+		let k = FingerprintKey(fp)
+		match counts.Get(k) {
+		case option.Some[int] as prev:
+			counts[k] = prev.Value + 1
+			let existingTags = match tagLists.Get(k) {
+			case option.Some[[]string] as ts:
+				ts.Value
+			case option.None:
+				[]string{}
+			}
+			let mut merged = existingTags
+			for t in fp.Tags {
+				merged = merged.Append(t)
+			}
+			tagLists[k] = merged
+		case option.None:
+			counts[k] = 1
+			samples[k] = fp
+			tagLists[k] = fp.Tags
+			keys = keys.Append(k)
+		}
+	}
+
+	let mut buckets = slices.WithCapacity[FingerprintBucket](keys.Len())
+	for k in keys {
+		let cnt = match counts.Get(k) {
+		case option.Some[int] as c:
+			c.Value
+		case option.None:
+			0
+		}
+		let sample = match samples.Get(k) {
+		case option.Some[DiffFingerprint] as s:
+			s.Value
+		case option.None:
+			DiffFingerprint{Step: "", Piece: 0, FirstDiffOffset: -1, BaselineLen: 0, CandidateLen: 0, Tags: []string{}}
+		}
+		let rawTags = match tagLists.Get(k) {
+		case option.Some[[]string] as ts:
+			ts.Value
+		case option.None:
+			[]string{}
+		}
+		buckets = buckets.Append(FingerprintBucket{
+			Key:     k,
+			Sample:  sample,
+			Count:   cnt,
+			Cohorts: NormalizeTags(rawTags),
+		})
+	}
+
+	slices.SortFunc(buckets, func(a FingerprintBucket, b FingerprintBucket) int {
+		if a.Count > b.Count {
+			-1
+		} else if a.Count < b.Count {
+			1
+		} else if a.Key < b.Key {
+			-1
+		} else if a.Key > b.Key {
+			1
+		} else {
+			0
+		}
+	})
+}
+
+// MatchesCohort reports whether fp carries every normalized tag listed in
+// requiredTags.
+func MatchesCohort(fp DiffFingerprint, requiredTags []string) bool {
+	let need = NormalizeTags(requiredTags)
+	let have = NormalizeTags(fp.Tags)
+	for req in need {
+		let mut found = false
+		for h in have {
+			if h == req {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	true
+}
+
+// CohortCompare filters both before and after fingerprint slices to records
+// carrying all requiredTags, then computes per-FingerprintKey count deltas
+// sorted by FingerprintKey ascending.
+func CohortCompare(before []DiffFingerprint, after []DiffFingerprint, requiredTags []string) []CohortDelta {
+	let mut beforeCounts = Map[string, int]{}
+	let mut afterCounts = Map[string, int]{}
+	let mut allKeys = Map[string, bool]{}
+
+	for fp in before {
+		if !MatchesCohort(fp, requiredTags) {
+			continue
+		}
+		let k = FingerprintKey(fp)
+		allKeys[k] = true
+		let prev = match beforeCounts.Get(k) {
+		case option.Some[int] as v:
+			v.Value
+		case option.None:
+			0
+		}
+		beforeCounts[k] = prev + 1
+	}
+
+	for fp in after {
+		if !MatchesCohort(fp, requiredTags) {
+			continue
+		}
+		let k = FingerprintKey(fp)
+		allKeys[k] = true
+		let prev = match afterCounts.Get(k) {
+		case option.Some[int] as v:
+			v.Value
+		case option.None:
+			0
+		}
+		afterCounts[k] = prev + 1
+	}
+
+	let mut sortedKeys = []string{}
+	for k, _ in allKeys {
+		sortedKeys = sortedKeys.Append(k)
+	}
+	sortedKeys = slices.SortFunc(sortedKeys, func(a string, b string) int {
+		if a < b { -1 } else if a > b { 1 } else { 0 }
+	})
+
+	let mut out = slices.WithCapacity[CohortDelta](sortedKeys.Len())
+	for k in sortedKeys {
+		let bc = match beforeCounts.Get(k) {
+		case option.Some[int] as v:
+			v.Value
+		case option.None:
+			0
+		}
+		let ac = match afterCounts.Get(k) {
+		case option.Some[int] as v:
+			v.Value
+		case option.None:
+			0
+		}
+		out = out.Append(CohortDelta{
+			FingerprintKey: k,
+			BeforeCount:    bc,
+			AfterCount:     ac,
+			Eliminated:     bc > 0 && ac == 0,
+		})
+	}
+	out
+}
+
+// NewCheckpointLog creates an empty CheckpointLog.
+func NewCheckpointLog() CheckpointLog {
+	CheckpointLog{entries: sync.NewRef([]Checkpoint{})}
+}
+
+func cloneBytes(src []byte) []byte {
+	let mut copy = slices.WithCapacity[byte](src.Len())
+	for b in src {
+		copy = copy.Append(b)
+	}
+	copy
+}
+
+// Record appends a byte payload checkpoint for (step, piece) to log.
+func Record(log CheckpointLog, step string, piece int, payload []byte) {
+	let cp = Checkpoint{Step: step, Piece: piece, Payload: cloneBytes(payload)}
+	log.entries.Set(log.entries.Get().Append(cp))
+}
+
+// RecordText appends a UTF-8 text checkpoint for (step, piece) to log.
+func RecordText(log CheckpointLog, step string, piece int, text string) {
+	Record(log, step, piece, text.Bytes())
+}
+
+// Entries returns a snapshot of all checkpoints recorded into log in order.
+func Entries(log CheckpointLog) []Checkpoint {
+	log.entries.Get()
+}
+
+// CompareCheckpoints compares baseline and candidate checkpoint sequences in
+// order, stopping at the first diverging step/piece and returning its redacted
+// DiffFingerprint. Structural mismatches (reordered, missing, or extra steps)
+// are reported with FirstDiffOffset == -1.
+func CompareCheckpoints(baseline []Checkpoint, candidate []Checkpoint, tags []string) option.Option[DiffFingerprint] {
+	let bLen = baseline.Len()
+	let cLen = candidate.Len()
+	let minLen = if bLen < cLen { bLen } else { cLen }
+	for i in 0..minLen {
+		let bc = baseline[i]
+		let cc = candidate[i]
+		if bc.Step != cc.Step || bc.Piece != cc.Piece {
+			return option.Some[DiffFingerprint]{
+				Value: DiffFingerprint{
+					Step:            bc.Step,
+					Piece:           bc.Piece,
+					FirstDiffOffset: -1,
+					BaselineLen:     bc.Payload.Len(),
+					CandidateLen:    cc.Payload.Len(),
+					Tags:            NormalizeTags(tags),
+				},
+			}
+		}
+		let diffOpt = CompareRedacted(bc.Step, bc.Piece, bc.Payload, cc.Payload, tags)
+		match diffOpt {
+		case option.Some[DiffFingerprint] as fp:
+			return option.Some[DiffFingerprint]{Value: fp.Value}
+		case option.None:
+		}
+	}
+	if bLen > cLen {
+		let extra = baseline[minLen]
+		return option.Some[DiffFingerprint]{
+			Value: DiffFingerprint{
+				Step:            extra.Step,
+				Piece:           extra.Piece,
+				FirstDiffOffset: -1,
+				BaselineLen:     extra.Payload.Len(),
+				CandidateLen:    0,
+				Tags:            NormalizeTags(tags),
+			},
+		}
+	}
+	if cLen > bLen {
+		let extra = candidate[minLen]
+		return option.Some[DiffFingerprint]{
+			Value: DiffFingerprint{
+				Step:            extra.Step,
+				Piece:           extra.Piece,
+				FirstDiffOffset: -1,
+				BaselineLen:     0,
+				CandidateLen:    extra.Payload.Len(),
+				Tags:            NormalizeTags(tags),
+			},
+		}
+	}
+	option.None
+}
+
+// Differential executes baseline and candidate against input with isolated
+// CheckpointLogs, appends a final `"output"` checkpoint encoded via encodeOut,
+// and compares both sequences via CompareCheckpoints.
+func Differential[In own, Out own](input In, tags []string, baseline func(In, CheckpointLog) Out, candidate func(In, CheckpointLog) Out, encodeOut func(Out) []byte) ShadowResult[Out] {
+	let baseLog = NewCheckpointLog()
+	let candLog = NewCheckpointLog()
+	let baseOut = baseline(input, baseLog)
+	let candOut = candidate(input, candLog)
+	let baseEntries = Entries(baseLog).Append(Checkpoint{Step: "output", Piece: 0, Payload: cloneBytes(encodeOut(baseOut))})
+	let candEntries = Entries(candLog).Append(Checkpoint{Step: "output", Piece: 0, Payload: cloneBytes(encodeOut(candOut))})
+	let firstDiff = CompareCheckpoints(baseEntries, candEntries, tags)
+	let matched = match firstDiff {
+	case option.None:
+		true
+	case option.Some[DiffFingerprint]:
+		false
+	}
+	ShadowResult[Out]{
+		Matched:      matched,
+		FirstDiff:    firstDiff,
+		BaselineOut:  baseOut,
+		CandidateOut: candOut,
+	}
+}
+
+// RunShadow executes a checkpointed dual-execution shadow comparison via
+// Differential.
+func RunShadow[In own, Out own](input In, tags []string, baseline func(In, CheckpointLog) Out, candidate func(In, CheckpointLog) Out, encodeOut func(Out) []byte) ShadowResult[Out] {
+	Differential(input, tags, baseline, candidate, encodeOut)
+}
+
+// EqualInputsYieldNoFingerprint: identical baseline and candidate payloads
+// always yield option.None from CompareRedacted and CompareRedactedText.
+law EqualInputsYieldNoFingerprint(step string, piece int, payload string, tag string) {
+	let raw = payload.Bytes()
+	let r1 = CompareRedacted(step, piece, raw, raw, []string{tag})
+	let r2 = CompareRedactedText(step, piece, payload, payload, []string{tag})
+	let ok = match r1 {
+	case option.None:
+		match r2 {
+		case option.None:
+			true
+		case option.Some[DiffFingerprint]:
+			false
+		}
+	case option.Some[DiffFingerprint]:
+		false
+	}
+	always ok
+	sometimes payload.Len() == 0
+	sometimes payload.Len() > 0
+	ok
+}
+
+// FirstDiffOffsetIsExact: CompareRedacted reports the exact byte index of the
+// first difference for middle-byte mismatches, reports min(len) for prefix
+// mismatches, and returns option.None for equal inputs.
+law FirstDiffOffsetIsExact(prefix string, midA string, midB string, suffix string) {
+	let a = (prefix + midA + suffix).Bytes()
+	let b = (prefix + midB + suffix).Bytes()
+	let eq = slices.Equal(a, b)
+	let res = CompareRedacted("stage", 0, a, b, []string{"tools"})
+	let mut ok = false
+	if eq {
+		ok = match res {
+		case option.None:
+			true
+		case option.Some[DiffFingerprint]:
+			false
+		}
+	} else {
+		ok = match res {
+		case option.None:
+			false
+		case option.Some[DiffFingerprint] as fp:
+			let off = fp.Value.FirstDiffOffset
+			let bLen = a.Len()
+			let cLen = b.Len()
+			let minLen = if bLen < cLen { bLen } else { cLen }
+			let mut prefixSame = off >= 0 && off <= minLen && fp.Value.BaselineLen == bLen && fp.Value.CandidateLen == cLen
+			if prefixSame {
+				for i in 0..off {
+					if a[i] != b[i] {
+						prefixSame = false
+						break
+					}
+				}
+			}
+			let diffAtOff = if off < minLen { a[off] != b[off] } else { bLen != cLen }
+			prefixSame && diffAtOff
+		}
+	}
+	let prefixMismatch = !eq && a.Len() != b.Len() && (if a.Len() < b.Len() { slices.Equal(a, b[:a.Len()]) } else { slices.Equal(b, a[:b.Len()]) })
+	let midMismatch = !eq && !prefixMismatch
+	always ok
+	sometimes eq
+	sometimes prefixMismatch
+	sometimes midMismatch
+	ok
+}
+
+// CompareRedactedNeverLeaksPayloadBytes: neither DiffFingerprint fields nor
+// FingerprintKey ever contain a canary secret token embedded in baseline or
+// candidate payloads.
+law CompareRedactedNeverLeaksPayloadBytes(step string, secret string, other string) {
+	let canary = "CANARY_SECRET_" + secret + "_END"
+	let baseText = "prefix:" + canary + ":tail"
+	let candText = "prefix:" + other + ":different"
+	let cleanStep = if strings.Contains(step, "CANARY_SECRET_") { "redacted-step" } else { step }
+	let res = CompareRedactedText(cleanStep, 1, baseText, candText, []string{"prompt_caching"})
+	let ok = match res {
+	case option.None:
+		true
+	case option.Some[DiffFingerprint] as fp:
+		let key = FingerprintKey(fp.Value)
+		let mut leaked = strings.Contains(key, canary) || strings.Contains(fp.Value.Step, canary)
+		for t in fp.Value.Tags {
+			if strings.Contains(t, canary) {
+				leaked = true
+			}
+		}
+		!leaked
+	}
+	always ok
+	ok
+}
+
+// GroupByFingerprintPreservesTotalCount: the sum of Counts across all buckets
+// returned by GroupByFingerprint equals the input count, and buckets are sorted
+// by Count descending then Key ascending.
+law GroupByFingerprintPreservesTotalCount(aRaw int, bRaw int, cRaw int) {
+	let na = (if aRaw < 0 { -aRaw } else { aRaw }) % 5
+	let nb = (if bRaw < 0 { -bRaw } else { bRaw }) % 5
+	let nc = (if cRaw < 0 { -cRaw } else { cRaw }) % 5
+	let fpA = DiffFingerprint{Step: "input", Piece: 0, FirstDiffOffset: 4, BaselineLen: 10, CandidateLen: 12, Tags: []string{"tools"}}
+	let fpB = DiffFingerprint{Step: "output", Piece: 1, FirstDiffOffset: 8, BaselineLen: 20, CandidateLen: 20, Tags: []string{"streaming"}}
+	let fpC = DiffFingerprint{Step: "input", Piece: 2, FirstDiffOffset: 0, BaselineLen: 5, CandidateLen: 7, Tags: []string{"prompt_caching"}}
+	let mut all = []DiffFingerprint{}
+	for _ in 0..na {
+		all = all.Append(fpA)
+	}
+	for _ in 0..nb {
+		all = all.Append(fpB)
+	}
+	for _ in 0..nc {
+		all = all.Append(fpC)
+	}
+	let buckets = GroupByFingerprint(all)
+	let mut total = 0
+	for b in buckets {
+		total = total + b.Count
+	}
+	let mut sorted = true
+	for i in 1..buckets.Len() {
+		let prev = buckets[i-1]
+		let cur = buckets[i]
+		if prev.Count < cur.Count || (prev.Count == cur.Count && prev.Key > cur.Key) {
+			sorted = false
+		}
+	}
+	let ok = total == all.Len() && sorted
+	always ok
+	sometimes na > nb && nb > 0
+	sometimes na == nb && na > 0
+	ok
+}
+
+// CohortCompareFiltersStrictlyByRequiredTags: CohortCompare counts only records
+// matching every required tag and ignores unrelated records in both before and
+// after snapshots.
+law CohortCompareFiltersStrictlyByRequiredTags(mbRaw int, obRaw int, maRaw int, oaRaw int) {
+	let mb = (if mbRaw < 0 { -mbRaw } else { mbRaw }) % 4
+	let ob = (if obRaw < 0 { -obRaw } else { obRaw }) % 4
+	let ma = (if maRaw < 0 { -maRaw } else { maRaw }) % 4
+	let oa = (if oaRaw < 0 { -oaRaw } else { oaRaw }) % 4
+	let matching = DiffFingerprint{Step: "input", Piece: 0, FirstDiffOffset: 3, BaselineLen: 10, CandidateLen: 11, Tags: []string{"prompt_caching", "tools"}}
+	let nonMatching = DiffFingerprint{Step: "input", Piece: 0, FirstDiffOffset: 3, BaselineLen: 10, CandidateLen: 11, Tags: []string{"tools"}}
+	let mut before = []DiffFingerprint{}
+	for _ in 0..mb {
+		before = before.Append(matching)
+	}
+	for _ in 0..ob {
+		before = before.Append(nonMatching)
+	}
+	let mut after = []DiffFingerprint{}
+	for _ in 0..ma {
+		after = after.Append(matching)
+	}
+	for _ in 0..oa {
+		after = after.Append(nonMatching)
+	}
+	let deltas = CohortCompare(before, after, []string{"prompt_caching", "tools"})
+	let ok = if mb == 0 && ma == 0 {
+		deltas.Len() == 0
+	} else {
+		deltas.Len() == 1 && deltas[0].BeforeCount == mb && deltas[0].AfterCount == ma && deltas[0].Eliminated == (mb > 0 && ma == 0)
+	}
+	always ok
+	sometimes mb > 0 && ma == 0 && oa > 0
+	sometimes mb > 0 && ma > 0
+	ok
+}
+
+// CheckpointsStopAtFirstDivergingStep: CompareCheckpoints reports the earliest
+// diverging checkpoint when multiple steps differ, reports a later step only
+// when earlier steps match, and returns option.None when all steps match.
+law CheckpointsStopAtFirstDivergingStep(firstDiffers bool, secondDiffers bool) {
+	let base = []Checkpoint{
+		Checkpoint{Step: "input", Piece: 0, Payload: "req-base".Bytes()},
+		Checkpoint{Step: "output", Piece: 0, Payload: "resp-base".Bytes()},
+	}
+	let candInput = if firstDiffers { "req-cand" } else { "req-base" }
+	let candOutput = if secondDiffers { "resp-cand" } else { "resp-base" }
+	let cand = []Checkpoint{
+		Checkpoint{Step: "input", Piece: 0, Payload: candInput.Bytes()},
+		Checkpoint{Step: "output", Piece: 0, Payload: candOutput.Bytes()},
+	}
+	let res = CompareCheckpoints(base, cand, []string{"messages"})
+	let ok = if firstDiffers {
+		match res {
+		case option.Some[DiffFingerprint] as fp:
+			fp.Value.Step == "input" && fp.Value.FirstDiffOffset == 4
+		case option.None:
+			false
+		}
+	} else if secondDiffers {
+		match res {
+		case option.Some[DiffFingerprint] as fp:
+			fp.Value.Step == "output" && fp.Value.FirstDiffOffset == 5
+		case option.None:
+			false
+		}
+	} else {
+		match res {
+		case option.None:
+			true
+		case option.Some[DiffFingerprint]:
+			false
+		}
+	}
+	always ok
+	sometimes firstDiffers && secondDiffers
+	sometimes !firstDiffers && secondDiffers
+	sometimes !firstDiffers && !secondDiffers
+	ok
+}
