@@ -880,6 +880,70 @@
       "killers": [
         "modules/git/diff:DiffTreesAndIndexMatchGit"
       ]
+    },
+    {
+      "name": "git-filemerge-adjacent-edits-marked-clean",
+      "origin": "STD-GIT G-FILEMERGE",
+      "file": "modules/git/filemerge/merge.ergo",
+      "from": "func editsTouch(nextStart int, curEnd int) bool {\n\tnextStart <= curEnd\n}",
+      "to": "func editsTouch(nextStart int, curEnd int) bool {\n\tnextStart < curEnd\n}",
+      "rule": "Adjacent edits with zero unchanged base context lines between them conflict under FavorNone rather than merging cleanly.",
+      "anchor": {
+        "tests": [
+          "modules/git/filemerge:MergeFilesMatchesGitMergeFile"
+        ]
+      },
+      "killers": [
+        "modules/git/filemerge:MergeFilesMatchesGitMergeFile"
+      ]
+    },
+    {
+      "name": "git-filemerge-drop-diff3-base",
+      "origin": "STD-GIT G-FILEMERGE",
+      "file": "modules/git/filemerge/merge.ergo",
+      "from": "\tcase StyleDiff3, StyleZDiff3:\n\t\tout = out.Append(formatMarker(\"|\", mSize, opts.BaseLabel))\n\t\tout = appendLinesEnsuringNewline(out, baseSec)",
+      "to": "\tcase StyleDiff3, StyleZDiff3:\n\t\tlet _ = baseSec",
+      "rule": "StyleDiff3 and StyleZDiff3 emit the ||||||| base section inside conflict hunks.",
+      "anchor": {
+        "tests": [
+          "modules/git/filemerge:MergeFilesMatchesGitMergeFile"
+        ]
+      },
+      "killers": [
+        "modules/git/filemerge:MergeFilesMatchesGitMergeFile"
+      ]
+    },
+    {
+      "name": "git-filemerge-binary-treated-as-text",
+      "origin": "STD-GIT G-FILEMERGE",
+      "file": "modules/git/filemerge/merge.ergo",
+      "from": "func isAnyBinary(base []byte, ours []byte, theirs []byte) bool {\n\tdiff.IsBinary(base) || diff.IsBinary(ours) || diff.IsBinary(theirs)\n}",
+      "to": "func isAnyBinary(base []byte, ours []byte, theirs []byte) bool {\n\tlet _ = (base, ours, theirs)\n\tfalse\n}",
+      "rule": "Conflicting binary inputs (NUL byte within first 8000 bytes) produce BinaryConflict rather than text line-merge markers.",
+      "anchor": {
+        "tests": [
+          "modules/git/filemerge:MergeFilesMatchesGitMergeFile"
+        ]
+      },
+      "killers": [
+        "modules/git/filemerge:MergeFilesMatchesGitMergeFile"
+      ]
+    },
+    {
+      "name": "git-filemerge-union-emits-conflict",
+      "origin": "STD-GIT G-FILEMERGE",
+      "file": "modules/git/filemerge/merge.ergo",
+      "from": "\t\t\t\tcase FavorUnion:\n\t\t\t\t\tlet mut combined = slices.WithCapacity[string](len(midO) + len(midT))\n\t\t\t\t\tfor l in midO {\n\t\t\t\t\t\tcombined = combined.Append(l)\n\t\t\t\t\t\trendered = rendered.Append(l)\n\t\t\t\t\t}\n\t\t\t\t\tfor l in midT {\n\t\t\t\t\t\tcombined = combined.Append(l)\n\t\t\t\t\t\trendered = rendered.Append(l)\n\t\t\t\t\t}\n\t\t\t\t\thunks = hunks.Append(CleanHunk{Lines: combined})",
+      "to": "\t\t\t\tcase FavorUnion:\n\t\t\t\t\thunks = hunks.Append(ConflictHunk{Base: midB, Ours: midO, Theirs: midT})\n\t\t\t\t\trendered = renderConflictHunk(rendered, midB, midO, midT, opts)\n\t\t\t\t\tconflicts = conflicts + 1",
+      "rule": "FavorUnion resolves overlapping edits cleanly by emitting ours followed by theirs without conflict markers.",
+      "anchor": {
+        "tests": [
+          "modules/git/filemerge:MergeFilesMatchesGitMergeFile"
+        ]
+      },
+      "killers": [
+        "modules/git/filemerge:MergeFilesMatchesGitMergeFile"
+      ]
     }
   ]
 }
