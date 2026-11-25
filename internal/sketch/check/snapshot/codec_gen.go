@@ -150,6 +150,7 @@ func (e *encoder) encFieldspreludeResult(v *check.Codec_preludeResult) {
 	f := check.CodecFieldsOf_preludeResult(v)
 	e.encPtrScope(*f.F_scope)
 	e.encPtrPackage(*f.F_pkg)
+	e.encPtrPackage(*f.F_core)
 	e.encT25(*f.F_ops)
 	e.encT28(*f.F_diags)
 }
@@ -501,6 +502,7 @@ func (e *encoder) encFieldschecker(v *check.Codec_checker) {
 	e.encPtrcaughtCall(*f.F_caught)
 	e.enctryCover(*f.F_cover)
 	e.encPtrPackage(*f.F_pkg)
+	e.encPtrPackage(*f.F_core)
 	e.encImporter(*f.F_imp)
 	e.encPtrGoBindings(*f.F_ownGo)
 	e.encPtrScope(*f.F_universe)
@@ -11813,6 +11815,7 @@ func (d *decoder) decFieldspreludeResult(v *check.Codec_preludeResult) {
 	f := check.CodecFieldsOf_preludeResult(v)
 	*f.F_scope = d.decPtrScope()
 	*f.F_pkg = d.decPtrPackage()
+	*f.F_core = d.decPtrPackage()
 	*f.F_ops = d.decT25()
 	*f.F_diags = d.decT28()
 }
@@ -12154,6 +12157,7 @@ func (d *decoder) decFieldschecker(v *check.Codec_checker) {
 	*f.F_caught = d.decPtrcaughtCall()
 	*f.F_cover = d.dectryCover()
 	*f.F_pkg = d.decPtrPackage()
+	*f.F_core = d.decPtrPackage()
 	*f.F_imp = d.decImporter()
 	*f.F_ownGo = d.decPtrGoBindings()
 	*f.F_universe = d.decPtrScope()

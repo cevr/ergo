@@ -1194,6 +1194,9 @@ func (c *checker) selector(x *syntax.SelectorExpr) operand {
 	if fn := c.collFunc(base.typ, x.Sel.Name); fn != nil {
 		return c.selfCall(x, base, c.selfSig(base.typ, fn), fn, called, index)
 	}
+	if fn := c.coreClaimFunc(base.typ, x.Sel.Name); fn != nil {
+		return c.selfCall(x, base, c.selfSig(base.typ, fn), fn, called, index)
+	}
 	if s := asStruct(t); s != nil {
 		if f, _ := s.field(x.Sel.Name); f != nil {
 			if c.hiddenField(s, x.Sel.Name) {
@@ -1275,7 +1278,7 @@ func (c *checker) selector(x *syntax.SelectorExpr) operand {
 		c.errorf(x.Sel, CodeType, "%s", ambiguousClaimMessage(base.typ, x.Sel.Name, cands))
 		return bad(x)
 	}
-	if u := under(t); u != t && c.collFunc(u, x.Sel.Name) != nil {
+	if u := under(t); u != t && (c.collFunc(u, x.Sel.Name) != nil || c.coreClaimFunc(u, x.Sel.Name) != nil) {
 		// D-D8: the first parameter's type is x's type exactly.
 		// The base is a slice or a Map, unnamed, so the value reaches it by
 		// assignment (clause 2), under a name not bound here.
@@ -1446,10 +1449,20 @@ func (c *checker) selfCall(x *syntax.SelectorExpr, base operand, sig *Signature,
 		}
 		return operand{mode: modeValue, typ: sig}
 	}
-	if len(sig.TParams) > 0 {
-		return operand{mode: modeGeneric, typ: sig, fn: fn, self: self}
+	var constVal constant.Value
+	if GoBuiltin(fn) == "len" {
+		var bv constant.Value
+		if base.mode == modeConst {
+			bv = base.val
+		}
+		if v, ok := lenConstValue(x.X, base.typ, bv); ok {
+			constVal = v
+		}
 	}
-	return operand{mode: modeValue, typ: sig, fn: fn, self: self}
+	if len(sig.TParams) > 0 {
+		return operand{mode: modeGeneric, typ: sig, fn: fn, self: self, val: constVal}
+	}
+	return operand{mode: modeValue, typ: sig, fn: fn, self: self, val: constVal}
 }
 
 // methodValueRefused says why x.f, the function f on x's type with x of

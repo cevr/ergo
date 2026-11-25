@@ -296,7 +296,18 @@ func (c *checker) callSig(x *syntax.CallExpr, sig *Signature, fun operand) opera
 			}
 		}
 	}
-	return c.result(x, sig)
+	res := c.result(x, sig)
+	if fn != nil && GoBuiltin(fn) == "len" && res.mode == modeValue {
+		if fun.val != nil {
+			res.mode, res.val = modeConst, fun.val
+		} else if len(args.exprs) == 1 {
+			a := args.exprs[0]
+			if v, ok := lenConstValue(a, c.pkg.Info.Types[a], c.pkg.Info.Values[a]); ok {
+				res.mode, res.val = modeConst, v
+			}
+		}
+	}
+	return res
 }
 
 // argument checks one argument against its parameter type. It reports false
@@ -1482,18 +1493,67 @@ func (c *checker) builtin(x *syntax.CallExpr, b *Builtin, targ Type) operand {
 	switch u := under(op.typ).(type) {
 	case *Basic:
 		if isString(u) {
+			var av constant.Value
 			if op.mode == modeConst {
-				return operand{mode: modeConst, typ: Typ[Int], val: constant.MakeInt64(int64(len(constant.StringVal(op.val))))}
+				av = op.val
+			}
+			if v, ok := lenConstValue(x.Args[0], op.typ, av); ok {
+				return operand{mode: modeConst, typ: Typ[Int], val: v}
 			}
 			return operand{mode: modeValue, typ: Typ[Int]}
 		}
 	case *Slice, *Map:
 		return operand{mode: modeValue, typ: Typ[Int]}
 	case *Array:
+		if v, ok := lenConstValue(x.Args[0], op.typ, nil); ok {
+			return operand{mode: modeConst, typ: Typ[Int], val: v}
+		}
 		return operand{mode: modeValue, typ: Typ[Int]}
 	}
 	c.errorf(x.Args[0], CodeType, "len takes a slice, an array, a Map or a string, not %s", op.typ)
 	return bad(x)
+}
+
+// lenConstValue returns the compile-time constant length of a constant string
+// or a pure fixed-length array expression, matching Go's constant len rules
+// for both len(x) and x.Len().
+func lenConstValue(x syntax.Expr, t Type, val constant.Value) (constant.Value, bool) {
+	if t == nil {
+		return nil, false
+	}
+	switch u := under(t).(type) {
+	case *Basic:
+		if isString(u) && val != nil && val.Kind() == constant.String {
+			return constant.MakeInt64(int64(len(constant.StringVal(val)))), true
+		}
+	case *Array:
+		if pureArrayLenArg(x) {
+			return constant.MakeInt64(u.Len), true
+		}
+	}
+	return nil, false
+}
+
+// pureArrayLenArg reports whether evaluating x cannot call a function or
+// trigger a runtime effect/defect, matching Go's rule for constant len(a) on
+// an array.
+func pureArrayLenArg(x syntax.Expr) bool {
+	if x == nil {
+		return false
+	}
+	pure := true
+	syntax.Inspect(x, func(n syntax.Node) bool {
+		if !pure || n == nil {
+			return false
+		}
+		switch n.(type) {
+		case *syntax.CallExpr, *syntax.TryExpr, *syntax.CatchExpr, *syntax.IndexExpr, *syntax.SliceExpr, *syntax.StarExpr, *syntax.IfStmt, *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
+			pure = false
+			return false
+		}
+		return true
+	})
+	return pure
 }
 
 // removedBuiltins are Go's built-in functions that Ergo does not

@@ -93,6 +93,34 @@ func claimsMember(role Role, name string) Option[RoleMember] {
 	None
 }
 
+func isGoLenDecl(p syntax.Parsed, node dense.ID[syntax.Node]) bool {
+	let fd = syntax.FuncDeclOf(p.Tree, node)
+	match dense.Unpack(fd.Extern) {
+	case Some{Value: ex}:
+		let spec = syntax.ExternSpecOf(p.Tree, ex)
+		let src = syntax.SourceOf(p)
+		src[syntax.NodePos(p, spec.Target):syntax.NodeEnd(p, spec.Target)] == "len"
+	case None:
+		false
+	}
+}
+
+func membersAllGoLen(e Env, members []store.FunctionMember, pkgPath string) bool {
+	if len(members) == 0 {
+		return false
+	}
+	for m in members {
+		if m.Path != pkgPath || int(m.File) >= len(e.files) {
+			return false
+		}
+		let p = e.files[int(m.File)]
+		if !isGoLenDecl(p, syntax.NodeAt(p.Tree, int(m.Decl))) {
+			return false
+		}
+	}
+	true
+}
+
 func claimantType(s store.Store, receiver dense.ID[store.TKey]) dense.ID[store.TKey] {
 	let k = store.KindOfType(s, receiver)
 	if k == store.KOwn || k == store.KPointer { return claimantType(s, store.OperandsOf(s, receiver)[0]) }
@@ -201,7 +229,7 @@ func FunctionClaimFacts(s mut store.Store, e Env, roles []Role, fns []FuncKinds)
 		let sig = Resolve(s, env, fd.Type)
 		let op = Resolve(s, env, at)
 		let parts = store.OperandsOf(*s, sig)
-		let head = store.ClaimHead{Role: op, Receiver: if len(parts) > 3 { parts[0] } else { store.TBasic(s, 0) }, Binds: []bool{}, Positions: []int{}, Bounds: [][]store.ClaimTerm{}, Members: []store.FunctionMember{}}
+		let head = store.ClaimHead{Role: op, Receiver: if len(parts) > 3 { parts[0] } else { store.TBasic(s, 0) }, Binds: []bool{}, Positions: []int{}, Bounds: [][]store.ClaimTerm{}, Members: []store.FunctionMember{}, ArrayLen: false}
 		let mut h = functionHead{file: f.File, node: f.Decl, at: at, name: f.Name, params: Brackets(p, fd.TypeParams), sig: sig, fallible: WrittenFails(p, fd.Type), claim: head}
 		if len(parts) <= 3 {
 			out = out.Append(localClaimIssue(h, "S108", "a function claim needs its receiver as the first parameter"))
@@ -530,9 +558,11 @@ func publishFunctionGroup(s mut store.Store, e Env, roles []Role, g functionGrou
 		}
 	}
 	if len(out) > 0 { return out }
+	let sliceRecv = store.KindOfType(*s, h.claim.Receiver) == store.KSlice
+	let mainArrayLen = sliceRecv && membersAllGoLen(e, members, store.PathOf(*s))
 	match Nominal(*s, op) {
 	case Some{Value: ref}:
-		store.AddFunctionClaim(s, ref, store.ClaimHead{..h.claim, Members: members})
+		store.AddFunctionClaim(s, ref, store.ClaimHead{..h.claim, Members: members, ArrayLen: mainArrayLen})
 	case None:
 	}
 	for at in includes {
@@ -556,7 +586,8 @@ func publishFunctionGroup(s mut store.Store, e Env, roles []Role, g functionGrou
 				case None:
 					[]int{}
 				}
-				store.AddFunctionClaim(s, ref, store.ClaimHead{..h.claim, Role: at, Positions: positions, Members: selected})
+				let incArrayLen = sliceRecv && membersAllGoLen(e, selected, store.PathOf(*s))
+				store.AddFunctionClaim(s, ref, store.ClaimHead{..h.claim, Role: at, Positions: positions, Members: selected, ArrayLen: incArrayLen})
 			case None:
 			}
 		case None:

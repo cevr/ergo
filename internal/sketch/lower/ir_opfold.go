@@ -74,22 +74,35 @@ func (b *irBuilder) constValue(e *irExpr, v constant.Value) *irExpr {
 // foldConst is e, the IR of x, folded into one constant when x is an
 // operation or a conversion of constants that Go folds (above); else e.
 func (b *irBuilder) foldConst(x syntax.Expr, e *irExpr) *irExpr {
-	if opFoldLowering == "off" || e == nil || b.consts == nil {
+	if opFoldLowering == "off" || e == nil {
 		return e
 	}
 	var v constant.Value
 	switch e.K {
 	case "bin":
-		v = foldBin(e.Op, b.consts[e.X], b.consts[e.Y], b.scalarBasic(b.l.info.Types[x]))
+		if b.consts != nil {
+			v = foldBin(e.Op, b.consts[e.X], b.consts[e.Y], b.scalarBasic(b.l.info.Types[x]))
+		}
 	case "un":
-		v = foldUn(e.Op, b.consts[e.X], b.scalarBasic(b.l.info.Types[x]))
+		if b.consts != nil {
+			v = foldUn(e.Op, b.consts[e.X], b.scalarBasic(b.l.info.Types[x]))
+		}
 	case "conv":
-		v = foldConv(b.consts[e.X], b.scalarBasic(b.l.info.Types[x]))
+		if b.consts != nil {
+			v = foldConv(b.consts[e.X], b.scalarBasic(b.l.info.Types[x]))
+		}
 	case "len":
-		// Go's len of a constant string is a constant (the spec's Length
-		// and capacity), so the text's len(K) is gc's constant.
-		if s := b.consts[e.X]; s != nil && s.Kind() == constant.String {
-			v = constant.MakeInt64(int64(len(constant.StringVal(s))))
+		// Go's len of a constant string or pure fixed array is a constant
+		// (the spec's Length and capacity), so len(K) and K.Len() fold identically.
+		if b.consts != nil {
+			if s := b.consts[e.X]; s != nil && s.Kind() == constant.String {
+				v = constant.MakeInt64(int64(len(constant.StringVal(s))))
+			}
+		}
+		if v == nil {
+			if val, ok := b.l.info.Values[x]; ok && val != nil && val.Kind() == constant.Int {
+				v = val
+			}
 		}
 	}
 	if v == nil {

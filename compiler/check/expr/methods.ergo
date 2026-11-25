@@ -106,6 +106,65 @@ func sameHead(s store.Store, p dense.ID[store.TKey], base dense.ID[store.TKey]) 
 	pk == store.KSlice || pk == store.KMap
 }
 
+func isClaimFn(k Pkg, f Fn) bool {
+	if f.File >= len(k.Parsed) {
+		return false
+	}
+	syntax.FuncDeclOf(k.Parsed[f.File].Tree, f.Decl).ImplementsPos >= 0
+}
+
+func isGoLenFn(k Pkg, f Fn) bool {
+	if f.File >= len(k.Parsed) {
+		return false
+	}
+	let p = k.Parsed[f.File]
+	let fd = syntax.FuncDeclOf(p.Tree, f.Decl)
+	match dense.Unpack(fd.Extern) {
+	case Some{Value: ex}:
+		let spec = syntax.ExternSpecOf(p.Tree, ex)
+		let src = syntax.SourceOf(p)
+		src[syntax.NodePos(p, spec.Target):syntax.NodeEnd(p, spec.Target)] == "len"
+	case None:
+		false
+	}
+}
+
+func coreClaimMethod(s mut store.Store, k Pkg, t mut Typer, base dense.ID[store.TKey], name string) Option[Fn] {
+	let bk = store.KindOfType(*s, base)
+	if bk != store.KSlice && bk != store.KMap && bk != store.KArray && bk != store.KBasic {
+		return None
+	}
+	if !isExportedName(name) {
+		return None
+	}
+	let ci = depOf(k, "core")
+	if ci < 0 {
+		return None
+	}
+	let d = k.Deps[ci]
+	let mut i = fnNamed(d.S, d.K, name)
+	for i >= 0 {
+		t.steps = t.steps + 1
+		let f = d.K.Fns[i]
+		let ops = store.OperandsOf(d.S, f.Sig)
+		if len(ops) > 3 && isClaimFn(d.K, f) {
+			match port(s, k, d, f.Sig) {
+			case Some{Value: sig}:
+				let pBase = receiverBase(*s, store.OperandsOf(*s, sig)[0])
+				let arrayLen = bk == store.KArray && store.KindOfType(*s, pBase) == store.KSlice && isGoLenFn(d.K, f)
+				if sameHead(*s, pBase, base) || arrayLen {
+					let mut out = f
+					out.Sig = sig
+					return Some{Value: out}
+				}
+			case None:
+			}
+		}
+		i = d.K.sameName[i]
+	}
+	None
+}
+
 // methodOf is the function name on the type of the receiver xt, with its
 // signature in s's pool; none when the package that declares the type
 // declares no such function, or its signature does not port.
@@ -113,7 +172,7 @@ func methodOf(s mut store.Store, k Pkg, t mut Typer, xt dense.ID[store.TKey], na
 	let base = receiverBase(*s, xt)
 	let owner = ownerOf(*s, k, base)
 	if owner == -2 {
-		return None
+		return coreClaimMethod(s, k, t, base, name)
 	}
 	// A slice, Map, string or rune receiver reaches only the language's
 	// operations: the prelude's, or the package's own when it is the
@@ -151,6 +210,9 @@ func methodOf(s mut store.Store, k Pkg, t mut Typer, xt dense.ID[store.TKey], na
 			}
 		}
 		i = d.K.sameName[i]
+	}
+	if unnamed {
+		return coreClaimMethod(s, k, t, base, name)
 	}
 	None
 }

@@ -330,6 +330,18 @@ func (l *lowerer) unstableVars() map[*check.Var]bool {
 			u[v] = true
 		}
 	}
+	lenSels := map[*syntax.SelectorExpr]bool{}
+	for call, c := range info.Calls {
+		if check.IsLenCall(c) {
+			if sel, ok := unparen(call.Fun).(*syntax.SelectorExpr); ok {
+				lenSels[sel] = true
+			}
+			continue
+		}
+		if sel, ok := unparen(call.Fun).(*syntax.SelectorExpr); ok {
+			root(sel.X)
+		}
+	}
 	for x := range info.Types {
 		switch e := x.(type) {
 		case *syntax.UnaryExpr:
@@ -337,12 +349,9 @@ func (l *lowerer) unstableVars() map[*check.Var]bool {
 				root(e.X)
 			}
 		case *syntax.SelectorExpr:
-			root(e.X)
-		}
-	}
-	for call := range info.Calls {
-		if sel, ok := unparen(call.Fun).(*syntax.SelectorExpr); ok {
-			root(sel.X)
+			if !lenSels[e] {
+				root(e.X)
+			}
 		}
 	}
 	if l.unstable == nil {
@@ -453,16 +462,23 @@ func (fc *funcCtx) subject(x syntax.Expr) (*check.Var, bool) {
 	return nil, false
 }
 
-// lenOf is S when x is len(S).
+// lenOf is S when x is len(S) or S.Len().
 func (fc *funcCtx) lenOf(x syntax.Expr) (*check.Var, bool) {
 	call, ok := unparen(x).(*syntax.CallExpr)
-	if !ok || len(call.Args) != 1 {
+	if !ok {
 		return nil, false
 	}
-	if c := fc.l.info.Calls[call]; c == nil || c.Kind != check.CallLen {
+	c := fc.l.info.Calls[call]
+	if !check.IsLenCall(c) {
 		return nil, false
 	}
-	return fc.subject(call.Args[0])
+	if c.Recv != nil && len(call.Args) == 0 {
+		return fc.subject(c.Recv)
+	}
+	if len(call.Args) == 1 {
+		return fc.subject(call.Args[0])
+	}
+	return nil, false
 }
 
 // uintOf is e when x is uint(e) of an int e.

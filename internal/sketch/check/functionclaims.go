@@ -257,6 +257,83 @@ func claimParam(t Type) *TypeParam {
 	return p
 }
 
+func isArrayLenClaim(g *functionClaim) bool {
+	if g == nil || len(g.ops) == 0 {
+		return false
+	}
+	if _, ok := g.recv.(*Slice); !ok {
+		return false
+	}
+	for _, fn := range g.ops {
+		if GoBuiltin(fn) != "len" {
+			return false
+		}
+	}
+	return true
+}
+
+func claimRecvFor(g *functionClaim, recv Type) Type {
+	if arr, ok := recv.(*Array); ok && isArrayLenClaim(g) {
+		return &Slice{Elem: arr.Elem}
+	}
+	return recv
+}
+
+func isUnnamedBuiltType(t Type) bool {
+	switch t.(type) {
+	case *Slice, *Map, *Basic, *Array, *Tuple:
+		return true
+	}
+	return false
+}
+
+func (c *checker) corePkg() *Package {
+	if c.core != nil {
+		return c.core
+	}
+	if isBootstrapStd(c.pkg.Path) {
+		return nil
+	}
+	return prelude().core
+}
+
+func (c *checker) coreClaimFunc(t Type, name string) *Func {
+	if !isUnnamedBuiltType(t) {
+		return nil
+	}
+	core := c.corePkg()
+	if core == nil || len(core.functionClaims) == 0 {
+		return nil
+	}
+	for _, tn := range core.Types {
+		role, ok := tn.Type.(*Named)
+		if !ok {
+			continue
+		}
+		for _, g := range core.functionClaims[role] {
+			fn := g.ops[name]
+			if fn == nil || !isExported(fn.Name) {
+				continue
+			}
+			m, ok := c.claimMatch(g.recv, claimRecvFor(g, t), g.bind)
+			if !ok {
+				continue
+			}
+			for _, p := range g.bind {
+				if p.Kind == KindType && ((!p.Own && c.mayHoldResource(m[p])) ||
+					!c.meetsReapplicationBound(m[p], c.subst(p.Constraint, m))) {
+					ok = false
+					break
+				}
+			}
+			if ok {
+				return fn
+			}
+		}
+	}
+	return nil
+}
+
 func (c *checker) functionClaim(recv Type, op *Named) (*functionClaim, map[*TypeParam]Type) {
 	if op == nil || op.Obj == nil || op.Obj.Pkg == nil {
 		return nil, nil
@@ -264,7 +341,7 @@ func (c *checker) functionClaim(recv Type, op *Named) (*functionClaim, map[*Type
 	var found *functionClaim
 	var args map[*TypeParam]Type
 	for _, g := range op.Obj.Pkg.functionClaims[op.origin()] {
-		m, ok := c.claimMatch(g.recv, recv, g.bind)
+		m, ok := c.claimMatch(g.recv, claimRecvFor(g, recv), g.bind)
 		if !ok || op.Orig != nil && !c.identical(c.subst(g.role, m), op) {
 			continue
 		}
@@ -582,7 +659,7 @@ func (c *checker) functionProvider(recv Type, role *Named, name string, own []Ty
 		return nil, nil
 	}
 	f := g.ops[name]
-	m, ok := c.claimMatch(functionReceiver(f.Sig.Params[0].Type), recv, receiverBinders(f.Sig))
+	m, ok := c.claimMatch(functionReceiver(f.Sig.Params[0].Type), claimRecvFor(g, recv), receiverBinders(f.Sig))
 	if !ok {
 		return nil, nil
 	}
@@ -645,7 +722,7 @@ func (c *checker) claimLookup(recv Type, name string) (*Func, []claimCandidate) 
 				if fn == nil || (fn.Pkg != c.pkg && !isExported(fn.Name)) {
 					continue
 				}
-				m, ok := c.claimMatch(g.recv, recv, g.bind)
+				m, ok := c.claimMatch(g.recv, claimRecvFor(g, recv), g.bind)
 				if !ok {
 					continue
 				}
@@ -735,7 +812,13 @@ func (c *checker) selfBind(t Type, f *Func) map[*TypeParam]Type {
 		if len(bind) == 0 {
 			return nil
 		}
-		m, _ := c.claimMatch(functionReceiver(f.Sig.Params[0].Type), t, bind)
+		actual := t
+		if arr, ok := actual.(*Array); ok && GoBuiltin(f) == "len" {
+			if _, isSlice := functionReceiver(f.Sig.Params[0].Type).(*Slice); isSlice {
+				actual = &Slice{Elem: arr.Elem}
+			}
+		}
+		m, _ := c.claimMatch(functionReceiver(f.Sig.Params[0].Type), actual, bind)
 		return m
 	}
 	return nil

@@ -307,7 +307,7 @@ func (b *irBuilder) discard(x syntax.Expr) []*irStmt {
 		return b.unreachableStmt(call) // ir_defect.go (FLIP OPC-unreach)
 	}
 	if call, ok := x.(*syntax.CallExpr); ok {
-		if c := b.l.info.Calls[call]; c != nil && c.Kind != check.CallConversion && c.Kind != check.CallLen {
+		if c := b.l.info.Calls[call]; c != nil && c.Kind != check.CallConversion && !check.IsLenCall(c) {
 			b.dropping = call // its value is dropped (ir_forms_drop.go)
 			pre, e := b.call(call, true)
 			b.dropping = nil

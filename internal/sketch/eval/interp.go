@@ -447,6 +447,20 @@ func (in *interp) callPlanned(fr *frame, at *syntax.CallExpr, p *funcPlan, targs
 		return v, nil
 	}
 	if !p.ergo {
+		if check.GoBuiltin(fn) == "len" && len(args) == 1 {
+			v := args[0]
+			if pv, ok := v.(*ptrV); ok {
+				var ab *abrupt
+				v, ab = in.read(fr, pv.root.v, pv.path)
+				if ab != nil {
+					return nil, ab
+				}
+			}
+			if isTerm(v) && in.sym != nil {
+				return nil, in.symStop(fr, at, v)
+			}
+			return evalLenValue(v), nil
+		}
 		if spreads := check.AppendSpreads(fn); check.GoBuiltin(fn) == "append" && (in.sym == nil || in.sym.tmpl && isSliceV(args[0]) && (!spreads || isSliceV(args[1]))) {
 			// An extern of Go's append (check/builtin.go) at its first
 			// shape, [T](xs []T, x T) []T: the prelude's xs.Append(x),

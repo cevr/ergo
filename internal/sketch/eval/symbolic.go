@@ -312,7 +312,7 @@ func (s *symRun) mark(info *check.Info, body syntax.Node) {
 		switch n := n.(type) {
 		case *syntax.CallExpr:
 			c := info.Calls[n]
-			if c == nil || c.Kind == check.CallConversion || c.Kind == check.CallLen && !s.tmpl {
+			if c == nil || c.Kind == check.CallConversion || check.IsLenCall(c) && !s.tmpl {
 				break
 			}
 			ok(n.Args...)

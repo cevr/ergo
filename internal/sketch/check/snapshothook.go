@@ -117,6 +117,10 @@ func BasePackages(base *stdBase) []*Package {
 			}
 		}
 	}
+	if base.prelude.core != nil && !seen[base.prelude.core] {
+		seen[base.prelude.core] = true
+		out = append(out, base.prelude.core)
+	}
 	if base.prelude.pkg != nil {
 		out = append(out, base.prelude.pkg)
 	}

@@ -218,7 +218,7 @@ func TypeAt(p Program, i int) Typed {
 		}
 	}
 	if !isBootstrapStd(d.Path) {
-		for base in []string{"option", "collections"} {
+		for base in []string{"option", "collections", "core"} {
 			if base == d.Path {
 				continue
 			}

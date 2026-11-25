@@ -1087,6 +1087,15 @@ func unreadIn(info *check.Info, n syntax.Node, unread map[*syntax.Ident]bool) {
 					unread[id] = true
 				}
 			}
+		case *syntax.CallExpr:
+			if check.IsLenCall(info.Calls[n]) && info.Values[n] != nil {
+				syntax.Inspect(n, func(m syntax.Node) bool {
+					if id, ok := m.(*syntax.Ident); ok {
+						unread[id] = true
+					}
+					return true
+				})
+			}
 		case *syntax.VarSpec:
 			if len(n.Names) == 1 && len(n.Values) == 1 {
 				if w, ok := info.Defs[n.Names[0]].(*check.Context); ok && w.Local {

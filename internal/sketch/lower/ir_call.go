@@ -3,6 +3,8 @@ package lower
 // IR builder: calls, operation calls and polls. See ir.go.
 
 import (
+	"go/constant"
+
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -257,6 +259,13 @@ func (b *irBuilder) lenCall(x *syntax.CallExpr, _ *check.Call, p irPos) ([]*irSt
 	if _, ok := b.intMapOf(b.l.info.Types[x.Args[0]]); ok { // ir_intmap.go
 		pre, m := b.value(x.Args[0])
 		return pre, tableCall(p, "Len", m), false
+	}
+	if arr, ok := underEqual(b.l.info.Types[x.Args[0]]).(*check.Array); ok {
+		pre, arg := b.value(x.Args[0])
+		if arg.K != "local" && arg.K != "const" && arg.K != "zero" {
+			pre = append(pre, &irStmt{K: "discard", Pos: p, X: arg})
+		}
+		return pre, b.constant(b.l.info.Types[x], constant.MakeInt64(arr.Len), x, p), false
 	}
 	// A named type over a slice or Map (a Go package's url.Values)
 	// is Go's len of it too (IR-GOCALLS-3).

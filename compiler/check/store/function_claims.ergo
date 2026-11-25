@@ -13,6 +13,7 @@ type ClaimHead {
 	Positions []int,
 	Bounds    [][]ClaimTerm,
 	Members   []FunctionMember,
+	ArrayLen  bool,
 }
 
 type FunctionClaims {
@@ -23,6 +24,7 @@ type FunctionClaims {
 	positions dense.Col[FunctionClaim, []int],
 	bounds    dense.Col[FunctionClaim, [][]ClaimTerm],
 	members   dense.Col[FunctionClaim, []FunctionMember],
+	arrayLen  dense.Col[FunctionClaim, bool],
 	byRole    dense.Side[TKey, []dense.ID[FunctionClaim]],
 }
 
@@ -35,6 +37,7 @@ func newFunctionClaims() FunctionClaims {
 		positions: dense.NewCol[FunctionClaim, []int](),
 		bounds:    dense.NewCol[FunctionClaim, [][]ClaimTerm](),
 		members:   dense.NewCol[FunctionClaim, []FunctionMember](),
+		arrayLen:  dense.NewCol[FunctionClaim, bool](),
 		byRole:    dense.NewSide[TKey, []dense.ID[FunctionClaim]]([]dense.ID[FunctionClaim]{}),
 	}
 }
@@ -52,10 +55,11 @@ func HasFunctionClaimRole(s mut Store, ref XRef) bool {
 
 func functionClaimOf(cs FunctionClaims, id dense.ID[FunctionClaim]) ClaimHead {
 	ClaimHead{
-		Role:    dense.Of(cs.roles, id), Receiver: dense.Of(cs.receivers, id),
-		Binds:   dense.Of(cs.binds, id), Positions: dense.Of(cs.positions, id),
-		Bounds:  dense.Of(cs.bounds, id),
-		Members: dense.Of(cs.members, id),
+		Role:     dense.Of(cs.roles, id), Receiver: dense.Of(cs.receivers, id),
+		Binds:    dense.Of(cs.binds, id), Positions: dense.Of(cs.positions, id),
+		Bounds:   dense.Of(cs.bounds, id),
+		Members:  dense.Of(cs.members, id),
+		ArrayLen: dense.Of(cs.arrayLen, id),
 	}
 }
 
@@ -65,7 +69,7 @@ func AddFunctionClaim(s mut Store, role XRef, g ClaimHead) {
 	for row in old {
 		let prior = functionClaimOf(s.pool.functionClaims, row)
 		if prior.Role == g.Role && prior.Receiver == g.Receiver && slices.Equal(prior.Binds, g.Binds) &&
-			slices.Equal(prior.Members, g.Members) {
+			slices.Equal(prior.Members, g.Members) && prior.ArrayLen == g.ArrayLen {
 			return
 		}
 	}
@@ -76,6 +80,7 @@ func AddFunctionClaim(s mut Store, role XRef, g ClaimHead) {
 	dense.Push(&s.pool.functionClaims.positions, g.Positions)
 	dense.Push(&s.pool.functionClaims.bounds, g.Bounds)
 	dense.Push(&s.pool.functionClaims.members, g.Members)
+	dense.Push(&s.pool.functionClaims.arrayLen, g.ArrayLen)
 	dense.SideSet(&s.pool.functionClaims.byRole, key, old.Append(id))
 }
 
@@ -116,11 +121,16 @@ func ClaimMatch(s mut Store, g ClaimHead, receiver dense.ID[TKey]) Option[[]dens
 }
 
 func shapeBindings(p mut Pool, g ClaimHead, receiver dense.ID[TKey]) Option[[]dense.ID[TKey]] {
+	let actual = if g.ArrayLen && int(Key(*p, receiver).k) == tArray {
+		Slice(p, operandAt(*p, receiver, 0))
+	} else {
+		receiver
+	}
 	let mut args = []dense.ID[TKey]{}
 	for i in 0..len(g.Binds) { args = args.Append(Param(p, i)) }
 	let mut seen = []bool{}
 	for _ in g.Binds { seen = seen.Append(false) }
-	if shapeBind(*p, g.Receiver, receiver, g.Binds, &args, &seen) {
+	if shapeBind(*p, g.Receiver, actual, g.Binds, &args, &seen) {
 		Some{Value: args}
 	} else {
 		None

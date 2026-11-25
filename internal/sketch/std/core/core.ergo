@@ -4,10 +4,19 @@
 import option
 
 // Lengthed is a container with a known element count.
-// law-exempt: STD-ROLES adds the signature only; LEN-METHOD and CORE-LAWS add built-type providers and LenIsNotNegative next.
+// law-exempt: CORE-LAWS adds LenIsNotNegative next.
 type Lengthed {
 	Len() int,
 }
+
+// Len returns the number of elements in xs.
+extern go len func Len[T own](xs []T) int implements Lengthed
+
+// Len returns the number of entries in m.
+extern go len func Len[K comparable, V own](m Map[K, V]) int implements Lengthed
+
+// Len returns the number of bytes in s.
+extern go len func Len(s string) int implements Lengthed
 
 // Appender is a Lengthed container that appends elements and reserves capacity.
 // law-exempt: STD-ROLES adds the signature only; CORE-LAWS adds built-type providers and Append/Reserve laws next.
