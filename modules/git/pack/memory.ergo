@@ -1,0 +1,52 @@
+import github.com/cevr/ergo/modules/git/loose
+import github.com/cevr/ergo/modules/git/oid
+
+// MemoryODB implements ObjectStore in memory using loose.MemoryStore so all
+// installed objects exercise the identical zlib and OID verification pipeline
+// as DiskODB.
+type MemoryODB {
+	store loose.MemoryStore,
+} implements ObjectStore
+
+// NewMemoryODB creates an empty MemoryODB for format.
+func NewMemoryODB(format oid.Format) MemoryODB {
+	MemoryODB{store: loose.NewMemoryStore(format)}
+}
+
+// Read implements ObjectStore.Read on MemoryODB.
+func Read(m MemoryODB, id oid.OID, maxBytes int) Object fails Missing | Corrupt | MismatchedPair | Collision | LimitExceeded | DepthExceeded | IOFailed {
+	let obj = m.store.Read(id, maxBytes) catch {
+	case loose.Missing as e:
+		return Missing{OID: e.OID}
+	case loose.Corrupt as e:
+		return Corrupt{OID: e.OID, Why: e.Why}
+	case loose.Collision as e:
+		return Collision{OID: e.OID, Digest: e.Digest}
+	case loose.LimitExceeded as e:
+		return LimitExceeded{MaxBytes: e.MaxBytes}
+	case loose.IOFailed as e:
+		return IOFailed{Op: e.Op, Detail: e.Detail}
+	}
+	Object{Kind: obj.Kind, OID: obj.OID, Size: obj.Size, Data: obj.Data}
+}
+
+// Stat implements ObjectStore.Stat on MemoryODB.
+func Stat(m MemoryODB, id oid.OID, maxBytes int) Header fails Missing | Corrupt | MismatchedPair | Collision | LimitExceeded | DepthExceeded | IOFailed {
+	let obj = try m.Read(id, maxBytes)
+	Header{Kind: obj.Kind, Size: obj.Size}
+}
+
+// Contains implements ObjectStore.Contains on MemoryODB.
+func Contains(m MemoryODB, id oid.OID) bool {
+	m.store.Contains(id)
+}
+
+// Install implements ObjectStore.Install on MemoryODB.
+func Install(m MemoryODB, kind oid.Kind, data []byte) oid.OID fails Collision | IOFailed {
+	m.store.Install(kind, data) catch {
+	case loose.Collision as e:
+		return Collision{OID: e.OID, Digest: e.Digest}
+	case loose.IOFailed as e:
+		return IOFailed{Op: e.Op, Detail: e.Detail}
+	}
+}

@@ -496,6 +496,70 @@
       "killers": [
         "modules/git/loose:ReadMatchesGitCatFile"
       ]
+    },
+    {
+      "name": "git-pack-stale-miss-no-refresh",
+      "origin": "STD-GIT G-PACK",
+      "file": "modules/git/pack/pack.ergo",
+      "from": "func refreshOnMiss(odb ODB) fails Corrupt | MismatchedPair | IOFailed needs fs.Files {\n\ttry Refresh(odb)\n}",
+      "to": "func refreshOnMiss(odb ODB) fails Corrupt | MismatchedPair | IOFailed needs fs.Files {\n\tlet _ = odb\n}",
+      "rule": "ODB refreshes its pack catalog on lookup miss so a handle opened before git repack -ad never returns stale Missing results.",
+      "anchor": {
+        "tests": [
+          "modules/git/pack:UnifiedODBMatchesGitCatFileBatch"
+        ]
+      },
+      "killers": [
+        "modules/git/pack:UnifiedODBMatchesGitCatFileBatch"
+      ]
+    },
+    {
+      "name": "git-pack-accept-mismatched-pair",
+      "origin": "STD-GIT G-PACK",
+      "file": "modules/git/pack/pack.ergo",
+      "from": "\tif !oid.Equal(packSum, wantSum) {\n\t\treturn MismatchedPair{",
+      "to": "\tif false && !oid.Equal(packSum, wantSum) {\n\t\treturn MismatchedPair{",
+      "rule": "ValidatePackPair verifies the packfile trailing checksum equals packidx.PackChecksum(idx) and rejects mismatches with MismatchedPair.",
+      "anchor": {
+        "tests": [
+          "modules/git/pack:RejectsMismatchedPairAndCorruptPack"
+        ]
+      },
+      "killers": [
+        "modules/git/pack:RejectsMismatchedPairAndCorruptPack"
+      ]
+    },
+    {
+      "name": "git-pack-skip-alternates",
+      "origin": "STD-GIT G-PACK",
+      "file": "modules/git/pack/pack.ergo",
+      "from": "func allObjectDirs(odb ODB) []string {\n\tlet mut dirs = []string{odb.ObjectsDir}\n\tfor alt in odb.Alternates {\n\t\tdirs = dirs.Append(alt)\n\t}\n\tdirs\n}",
+      "to": "func allObjectDirs(odb ODB) []string {\n\t[]string{odb.ObjectsDir}\n}",
+      "rule": "ODB searches primary and alternate object directories for both packs and loose objects.",
+      "anchor": {
+        "tests": [
+          "modules/git/pack:UnifiedODBMatchesGitCatFileBatch"
+        ]
+      },
+      "killers": [
+        "modules/git/pack:UnifiedODBMatchesGitCatFileBatch"
+      ]
+    },
+    {
+      "name": "git-pack-skip-oid-rehash",
+      "origin": "STD-GIT G-PACK",
+      "file": "modules/git/pack/pack.ergo",
+      "from": "\tif !oid.Equal(rehashed, reqOid) {\n\t\treturn Corrupt{OID: reqOid, Why: \"rehashed packed object digest does not match requested OID\"}\n\t}",
+      "to": "\tif false && !oid.Equal(rehashed, reqOid) {\n\t\treturn Corrupt{OID: reqOid, Why: \"rehashed packed object digest does not match requested OID\"}\n\t}",
+      "rule": "verifyPackedOID rehashes materialized packed object bytes under reqOid.Format and rejects digest mismatches as Corrupt.",
+      "anchor": {
+        "tests": [
+          "modules/git/pack:RejectsMismatchedPairAndCorruptPack"
+        ]
+      },
+      "killers": [
+        "modules/git/pack:RejectsMismatchedPairAndCorruptPack"
+      ]
     }
   ]
 }
