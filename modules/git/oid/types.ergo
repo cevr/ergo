@@ -1,0 +1,42 @@
+// Package oid implements canonical Git Object IDs (G-OID) for both SHA-1
+// (20 bytes, collision-checked via std/sha1dc) and SHA-256 (32 bytes, via
+// std/sha256), including canonical Git object framing ("<kind> <size>\x00"),
+// strict lowercase hex parsing, and streaming object hashing.
+
+import sha1dc
+import sha256
+
+// Format selects the Git repository hash algorithm and OID byte width.
+type Format = Sha1{} | Sha256{}
+
+// Kind selects the canonical Git object type name in object headers.
+type Kind = Blob{} | Tree{} | Commit{} | Tag{}
+
+// Error is the closed failure union for OID parsing, header validation, and
+// collision-checked hashing.
+type Error =
+	| BadHex{Input string, Offset int}
+	| WrongLength{Expected int, Got int}
+	| Collision{Digest string}
+	| EmptyKind{}
+	| BadHeader{Reason string}
+	| LengthMismatch{Expected int, Written int}
+
+// OID is a validated canonical Git object identifier (exact 20 bytes for Sha1,
+// exact 32 bytes for Sha256). Construct with ParseHex, FromBytes, Zero,
+// HashObject, or Finish.
+type OID {
+	Format Format,
+	Raw    []byte,
+}
+
+// ObjectHasher streams raw Git object payload bytes into SHA-1DC (for Sha1)
+// or incremental SHA-256 (for Sha256) without concatenating large buffers.
+type ObjectHasher {
+	format      Format,
+	kind        Kind,
+	expectedLen int,
+	written     int,
+	sha1State   sha1dc.Hasher,
+	sha256State Option[sha256.Hasher],
+}

@@ -758,6 +758,9 @@ set AddHasRemoveHasNot	TestStdSetLawsRun
 set SetAlgebra	TestStdSetLawsRun
 set SetValuesStops	TestStdSetLawsRun
 sha1 SumIs20Bytes	none
+sha1dc DetectsBlessedCollision	TestStdSha1dcLawsRun
+sha1dc MatchesStdSha1	TestStdSha1dcLawsRun
+sha1dc StreamingMatchesOneShot	TestStdSha1dcLawsRun
 sha256 CloneForks	TestStdDigestLaws
 sha256 DigestKeepsTheHasher	TestStdDigestLaws
 sha256 NothingIsSumOfEmpty	TestStdDigestLaws

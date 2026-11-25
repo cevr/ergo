@@ -1,0 +1,356 @@
+import hex
+import sha1dc
+import sha256
+import slices
+import strconv
+
+// ByteLen returns the canonical raw byte length for format (20 for Sha1, 32 for Sha256).
+func ByteLen(format Format) int {
+	match format {
+	case Sha1:
+		20
+	case Sha256:
+		32
+	}
+}
+
+// HexLen returns the canonical lowercase hex string length for format (40 or 64).
+func HexLen(format Format) int {
+	ByteLen(format) * 2
+}
+
+// KindName returns the canonical lowercase Git header name for kind.
+func KindName(kind Kind) string {
+	match kind {
+	case Blob:
+		"blob"
+	case Tree:
+		"tree"
+	case Commit:
+		"commit"
+	case Tag:
+		"tag"
+	}
+}
+
+// ParseKind parses a canonical Git object type name ("blob", "tree", "commit", "tag").
+func ParseKind(name string) Kind fails EmptyKind | BadHeader {
+	if name == "" {
+		return EmptyKind
+	}
+	if name == "blob" {
+		return Blob
+	}
+	if name == "tree" {
+		return Tree
+	}
+	if name == "commit" {
+		return Commit
+	}
+	if name == "tag" {
+		return Tag
+	}
+	return BadHeader{Reason: "unknown object kind"}
+}
+
+// FromBytes wraps raw digest bytes into a validated OID of the given format.
+func FromBytes(format Format, raw []byte) OID fails WrongLength {
+	let want = ByteLen(format)
+	if len(raw) != want {
+		return WrongLength{Expected: want, Got: len(raw)}
+	}
+	let mut copy = slices.WithCapacity[byte](want)
+	for b in raw {
+		copy = copy.Append(b)
+	}
+	OID{Format: format, Raw: copy}
+}
+
+func hexNibble(b byte) int {
+	if b >= byte('0') && b <= byte('9') {
+		return int(b - byte('0'))
+	}
+	if b >= byte('a') && b <= byte('f') {
+		return 10 + int(b-byte('a'))
+	}
+	-1
+}
+
+// ParseHex parses a strict lowercase canonical hex OID string of exact width
+// for format (40 chars for Sha1, 64 chars for Sha256). Uppercase hex and
+// wrong lengths are rejected.
+func ParseHex(format Format, s string) OID fails BadHex | WrongLength {
+	let wantHex = HexLen(format)
+	let bs = s.Bytes()
+	if len(bs) != wantHex {
+		return WrongLength{Expected: wantHex, Got: len(bs)}
+	}
+	let wantBytes = ByteLen(format)
+	let mut raw = slices.WithCapacity[byte](wantBytes)
+	for i in 0..wantBytes {
+		let hiPos = i * 2
+		let loPos = hiPos + 1
+		let hi = hexNibble(bs[hiPos])
+		if hi < 0 {
+			return BadHex{Input: s, Offset: hiPos}
+		}
+		let lo = hexNibble(bs[loPos])
+		if lo < 0 {
+			return BadHex{Input: s, Offset: loPos}
+		}
+		raw = raw.Append(byte((hi << 4) | lo))
+	}
+	OID{Format: format, Raw: raw}
+}
+
+// Hex formats o as a canonical lowercase hexadecimal string.
+func Hex(o OID) string {
+	hex.Encode(o.Raw.Text())
+}
+
+// ShortHex returns the first n lowercase hex characters of o, clamped to [0, len(Hex(o))].
+func ShortHex(o OID, n int) string {
+	let full = Hex(o)
+	if n <= 0 {
+		return ""
+	}
+	if n >= len(full) {
+		return full
+	}
+	full[:n]
+}
+
+// Equal reports whether a and b have the same Format and identical raw bytes.
+func Equal(a OID, b OID) bool {
+	let sameFmt = match a.Format {
+	case Sha1:
+		match b.Format {
+		case Sha1:
+			true
+		case Sha256:
+			false
+		}
+	case Sha256:
+		match b.Format {
+		case Sha1:
+			false
+		case Sha256:
+			true
+		}
+	}
+	sameFmt && slices.Equal(a.Raw, b.Raw)
+}
+
+func formatRank(f Format) int {
+	match f {
+	case Sha1:
+		0
+	case Sha256:
+		1
+	}
+}
+
+// Compare orders two OIDs by Format (Sha1 before Sha256) and then unsigned byte order.
+func Compare(a OID, b OID) int {
+	let ra = formatRank(a.Format)
+	let rb = formatRank(b.Format)
+	if ra < rb {
+		return -1
+	}
+	if ra > rb {
+		return 1
+	}
+	let n = if len(a.Raw) < len(b.Raw) { len(a.Raw) } else { len(b.Raw) }
+	for i in 0..n {
+		if a.Raw[i] < b.Raw[i] {
+			return -1
+		}
+		if a.Raw[i] > b.Raw[i] {
+			return 1
+		}
+	}
+	if len(a.Raw) < len(b.Raw) {
+		return -1
+	}
+	if len(a.Raw) > len(b.Raw) {
+		return 1
+	}
+	0
+}
+
+// Zero returns the all-zero OID of the given format.
+func Zero(format Format) OID {
+	let n = ByteLen(format)
+	let mut raw = slices.WithCapacity[byte](n)
+	for _ in 0..n {
+		raw = raw.Append(byte(0))
+	}
+	OID{Format: format, Raw: raw}
+}
+
+// IsZero reports whether every byte of o is zero and matches its format width.
+func IsZero(o OID) bool {
+	if len(o.Raw) != ByteLen(o.Format) {
+		return false
+	}
+	for b in o.Raw {
+		if b != byte(0) {
+			return false
+		}
+	}
+	true
+}
+
+// Header encodes the canonical Git object header "<kind> <size>\x00".
+func Header(kind Kind, size int) []byte {
+	let prefix = (KindName(kind) + " " + strconv.Itoa(size)).Bytes()
+	let mut out = slices.WithCapacity[byte](len(prefix) + 1)
+	for b in prefix {
+		out = out.Append(b)
+	}
+	out = out.Append(byte(0))
+	out
+}
+
+// ParseHeader parses a canonical Git object header "<kind> <size>\x00" at the
+// start of raw, returning (kind, size, payloadOffset). Rejects empty/unknown
+// kind, missing space or NUL, negative sizes, and leading zeros except "0".
+func ParseHeader(raw []byte) (Kind, int, int) fails EmptyKind | BadHeader {
+	let n = len(raw)
+	let mut spacePos = -1
+	let mut nulPos = -1
+	for i in 0..n {
+		let b = raw[i]
+		if spacePos < 0 && b == byte(' ') {
+			spacePos = i
+		}
+		if b == byte(0) {
+			nulPos = i
+			break
+		}
+	}
+	if nulPos < 0 {
+		return BadHeader{Reason: "missing NUL terminator"}
+	}
+	if spacePos < 0 || spacePos > nulPos {
+		return BadHeader{Reason: "missing kind/size separator"}
+	}
+	let kindStr = raw[:spacePos].Text()
+	let kind = try ParseKind(kindStr)
+	let sizeBytes = raw[spacePos+1 : nulPos]
+	if len(sizeBytes) == 0 {
+		return BadHeader{Reason: "empty object size"}
+	}
+	if len(sizeBytes) > 1 && sizeBytes[0] == byte('0') {
+		return BadHeader{Reason: "leading zero in object size"}
+	}
+	let mut size = 0
+	for b in sizeBytes {
+		if b < byte('0') || b > byte('9') {
+			return BadHeader{Reason: "non-digit in object size"}
+		}
+		let digit = int(b - byte('0'))
+		if size > (9223372036854775807-digit)/10 {
+			return BadHeader{Reason: "object size overflow"}
+		}
+		size = size*10 + digit
+	}
+	(kind, size, nulPos + 1)
+}
+
+func rawSha1OID(d [20]byte) OID {
+	let mut out = slices.WithCapacity[byte](20)
+	for i in 0..20 {
+		out = out.Append(d[i])
+	}
+	OID{Format: Sha1, Raw: out}
+}
+
+func rawSha256OID(s string) OID {
+	OID{Format: Sha256, Raw: s.Bytes()}
+}
+
+// HashObject computes the canonical Git OID for an object of kind and raw
+// content bytes (without any line-ending normalization), using collision-checked
+// SHA-1DC for Sha1 or SHA-256 for Sha256.
+func HashObject(format Format, kind Kind, content []byte) OID fails Collision {
+	let payload = content
+	let hdr = Header(kind, len(payload))
+	match format {
+	case Sha1:
+		let h = sha1dc.Write(sha1dc.Write(sha1dc.New(), hdr), payload)
+		let digest = sha1dc.Digest(h) catch {
+		case sha1dc.CollisionDetected as c:
+			return Collision{Digest: hex.Encode(c.Digest)}
+		}
+		rawSha1OID(digest)
+	case Sha256:
+		let h = sha256.New()
+		h.Write(hdr.Text())
+		h.Write(payload.Text())
+		rawSha256OID(h.Digest())
+	}
+}
+
+// NewObjectHasher starts a streaming Git object hash for an object of kind and
+// exact declared totalLen payload bytes.
+func NewObjectHasher(format Format, kind Kind, totalLen int) ObjectHasher fails BadHeader {
+	if totalLen < 0 {
+		return BadHeader{Reason: "negative object length"}
+	}
+	let hdr = Header(kind, totalLen)
+	match format {
+	case Sha1:
+		ObjectHasher{
+			format:      Sha1,
+			kind:        kind,
+			expectedLen: totalLen,
+			written:     0,
+			sha1State:   sha1dc.Write(sha1dc.New(), hdr),
+			sha256State: None,
+		}
+	case Sha256:
+		let h = sha256.New()
+		h.Write(hdr.Text())
+		ObjectHasher{
+			format:      Sha256,
+			kind:        kind,
+			expectedLen: totalLen,
+			written:     0,
+			sha1State:   sha1dc.New(),
+			sha256State: Some[sha256.Hasher]{Value: h},
+		}
+	}
+}
+
+// Write absorbs a chunk of raw payload bytes into h.
+func Write(h mut ObjectHasher, data []byte) {
+	let n = len(data)
+	h.written = h.written + n
+	match h.sha256State {
+	case Some[sha256.Hasher] as s:
+		if n > 0 {
+			s.Value.Write(data.Text())
+		}
+	case None:
+		h.sha1State = sha1dc.Write(h.sha1State, data)
+	}
+}
+
+// Finish verifies that total written payload bytes equal the declared length
+// and returns the final canonical Git OID.
+func Finish(h ObjectHasher) OID fails Collision | LengthMismatch {
+	if h.written != h.expectedLen {
+		return LengthMismatch{Expected: h.expectedLen, Written: h.written}
+	}
+	match h.sha256State {
+	case Some[sha256.Hasher]{Value: h256}:
+		rawSha256OID(h256.Digest())
+	case None:
+		let digest = sha1dc.Digest(h.sha1State) catch {
+		case sha1dc.CollisionDetected as c:
+			return Collision{Digest: hex.Encode(c.Digest)}
+		}
+		rawSha1OID(digest)
+	}
+}
