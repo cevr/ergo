@@ -7,6 +7,7 @@ import task
 // and returns after acknowledgment with the protocol observation (including
 // expected rejections or terminal outcomes). DriveErr carries typed
 // infrastructure failures separate from expected protocol outcomes.
+// law-exempt: provider-specific session protocol whose reads and step outcomes depend on the implementation under test; SessionReleasesOnEveryExit and CheckPathsObservesPrefixes hold the session lifecycle.
 type PathSession[E, Obs, DriveErr] {
 	..Closer,
 	Read() Obs fails DriveErr,

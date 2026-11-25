@@ -51,9 +51,10 @@ func registerNativeshttp(t nativeTables) {
 	fetch := func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		origins := textsOf(args[0])
 		anyOrigin := args[1].(bool)
-		hops := args[3].(int64)
-		method, raw := args[4].(string), args[5].(string)
-		header, owners, credentials := args[6].(sliceV).elems(), textsOf(args[7]), args[8].(sliceV).elems()
+		loopback := args[2].(bool)
+		hops := args[4].(int64)
+		method, raw := args[5].(string), args[6].(string)
+		header, owners, credentials := args[7].(sliceV).elems(), textsOf(args[8]), args[9].(sliceV).elems()
 		malformed := func(reason string) *abrupt {
 			return httpFail(fn, fr, at, "SendFailed", map[string]Value{"Kind": int64(sendMalformed), "Reason": reason, "Limit": int64(0)})
 		}
@@ -90,11 +91,14 @@ func registerNativeshttp(t nativeTables) {
 		if !allowed {
 			return nil, httpFail(fn, fr, at, "OriginRefused", map[string]Value{"Origin": origin})
 		}
+		if loopback && !evalLiteralLoopback(u.Hostname()) {
+			return nil, httpFail(fn, fr, at, "Denied", map[string]Value{"Origin": (&url.URL{Scheme: u.Scheme, Host: u.Host}).String()})
+		}
 		return nil, fr.unsupported(at, "an http exchange: the simulated process has no network")
 	}
-	t.reads["http.fetch"] = "sliceV bool *record int64 string string sliceV sliceV sliceV string"
+	t.reads["http.fetch"] = "sliceV bool bool *record int64 string string sliceV sliceV sliceV string"
 	hostNative(t, "http.fetch", fetch)
-	t.reads["http.fetchInto"] = "sliceV bool *record int64 string string sliceV sliceV sliceV string func/1 func/1"
+	t.reads["http.fetchInto"] = "sliceV bool bool *record int64 string string sliceV sliceV sliceV string func/1 func/1"
 	hostNative(t, "http.fetchInto", fetch)
 	// IntoFile runs the fetch with a file it fills; a fetch that fails
 	// before its first part leaves no file. A filled file is not run yet.

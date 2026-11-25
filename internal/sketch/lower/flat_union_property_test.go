@@ -894,7 +894,7 @@ func TestFlatUnionsAgree(t *testing.T) {
 				// OPTION-SHAPE: Option is the general rule's shared form, and
 				// its own form of a slot per variant under the reference.
 				if want := map[string]string{"": "shared 1", "register": "shared 1", "own": "slots"}[mode]; want != "" {
-					if got := genericForm(prog.mainGo(), "type Option[T any] "); got != want {
+					if got := genericForm(prog.mainGo(), "type "+goOf("option", "Option")+"[T any] "); got != want {
 						t.Errorf("%s: Option is %s, want %s\n%s", name, got, want, replay)
 					}
 				}

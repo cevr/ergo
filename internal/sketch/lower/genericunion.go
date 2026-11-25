@@ -175,7 +175,7 @@ func (l *lowerer) genericCycle(g *check.TypeName) bool {
 			if _, ok := n.Underlying().(*check.Struct); !ok && n.Defined() == nil {
 				continue
 			}
-			if l.genericLoop(n, g, map[*check.TypeName]int{}, 0, 0) {
+			if l.genericLoop(n, g, map[*check.TypeName]int{}, map[string]int{}, 0, 0) {
 				return true
 			}
 		}
@@ -185,11 +185,13 @@ func (l *lowerer) genericCycle(g *check.TypeName) bool {
 
 // genericLoop reports whether, with the generic union g flat, t's Go
 // value holds itself: a record or defined type on the path met again inside a g
-// entered since. A variant of a generic flat union is no loop's record
-// (Some[T] in Option[Option[T]]).
-func (l *lowerer) genericLoop(t check.Type, g *check.TypeName, path map[*check.TypeName]int, opts, depth int) bool {
+// entered since. A variant of a generic flat union is tracked by its full
+// instantiated type key (so Option[Option[int]] is finite while a self-recursive
+// generic union like Formula[S] -> NotFormula[S] -> Formula[S] terminates cleanly
+// without blaming unrelated generic unions).
+func (l *lowerer) genericLoop(t check.Type, g *check.TypeName, path map[*check.TypeName]int, seen map[string]int, opts, depth int) bool {
 	if depth > 64 {
-		return true // too deep to tell: keep g an interface
+		return opts > 0 // too deep to tell: only blame g if g was actually entered
 	}
 	switch u := t.(type) {
 	case *check.Named:
@@ -201,8 +203,20 @@ func (l *lowerer) genericLoop(t check.Type, g *check.TypeName, path map[*check.T
 		gen := fu != nil && fu.generic
 		switch {
 		case obj == g:
+			key := l.typeKey(u)
+			if at, ok := seen[key]; ok {
+				return opts > at
+			}
+			seen[key] = opts
+			defer delete(seen, key)
 			opts++
 		case gen || l.genericVariant(obj):
+			key := l.typeKey(u)
+			if at, ok := seen[key]; ok {
+				return opts > at
+			}
+			seen[key] = opts
+			defer delete(seen, key)
 		default:
 			at, ok := path[obj]
 			switch {
@@ -214,12 +228,12 @@ func (l *lowerer) genericLoop(t check.Type, g *check.TypeName, path map[*check.T
 			}
 		}
 		if d := u.Defined(); d != nil {
-			return l.genericLoop(d, g, path, opts, depth+1)
+			return l.genericLoop(d, g, path, seen, opts, depth+1)
 		}
 		switch under := u.Underlying().(type) {
 		case *check.Struct:
 			for _, f := range under.Fields {
-				if l.genericLoop(f.Type, g, path, opts, depth+1) {
+				if l.genericLoop(f.Type, g, path, seen, opts, depth+1) {
 					return true
 				}
 			}
@@ -228,19 +242,19 @@ func (l *lowerer) genericLoop(t check.Type, g *check.TypeName, path map[*check.T
 				return false
 			}
 			for _, v := range under.Variants {
-				if l.genericLoop(v, g, path, opts, depth+1) {
+				if l.genericLoop(v, g, path, seen, opts, depth+1) {
 					return true
 				}
 			}
 		}
 	case *check.Tuple:
 		for _, e := range u.Types {
-			if l.genericLoop(e, g, path, opts, depth+1) {
+			if l.genericLoop(e, g, path, seen, opts, depth+1) {
 				return true
 			}
 		}
 	case *check.Array:
-		return l.genericLoop(u.Elem, g, path, opts, depth+1)
+		return l.genericLoop(u.Elem, g, path, seen, opts, depth+1)
 	}
 	return false
 }

@@ -39,6 +39,7 @@ func goNatives() map[string]native {
 		"unicode.IsLetter":  goRune(unicode.IsLetter),
 		"unicode.IsDigit":   goRune(unicode.IsDigit),
 		"unicode.IsSpace":   goRune(unicode.IsSpace),
+		"unicode.IsUpper":   goRune(unicode.IsUpper),
 		"strconv.QuoteRune": goText(func(a []Value) string { return strconv.QuoteRune(rune(a[0].(int32))) }),
 	}
 }
@@ -49,7 +50,7 @@ func goNativeReads() map[string]string {
 		"math.Log": "float64", "math.Exp": "float64",
 		"strings.TrimLeft": "string string", "strings.TrimRight": "string string",
 		"math.Float64frombits": "uint64", "math.Float32bits": "float32", "math.Float32frombits": "uint32",
-		"unicode.IsLetter": "int32", "unicode.IsDigit": "int32", "unicode.IsSpace": "int32",
+		"unicode.IsLetter": "int32", "unicode.IsDigit": "int32", "unicode.IsSpace": "int32", "unicode.IsUpper": "int32",
 		"strconv.QuoteRune": "int32",
 	}
 }

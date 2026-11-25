@@ -7,6 +7,7 @@ type Keyless { Reason string }
 // paired with its 128-bit fingerprint and wire word count.
 type CanonicalKey { Bytes string, Hash Hash, Words int }
 
+// law-exempt: internal canonical-wire sink used only by Key and CanonKey; KeyIsEquality and EdgesKeepIdentity hold its encoding.
 type canonSink {
 	..Writer,
 	sealCanon() (CanonicalKey, bool),

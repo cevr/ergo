@@ -102,7 +102,7 @@ func run(t *rt.Task) (err error) {
 	for v := range q.Values(t) {
 		sum += v
 	}
-	n, err := producer.Wait()
+	n, err := producer.Wait(t)
 	if err != nil {
 		return err
 	}

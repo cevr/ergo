@@ -209,7 +209,7 @@ func maybeOf(src string) string {
 
 // asOption is the IR of the Choice form spelled as the Option form's.
 func asOption(ir string) string {
-	return nothingWord.ReplaceAllString(justWord.ReplaceAllString(maybeWord.ReplaceAllString(ir, "Option"), "Some"), "None")
+	return nothingWord.ReplaceAllString(justWord.ReplaceAllString(maybeWord.ReplaceAllString(ir, goOf("option", "Option")), goOf("option", "Some")), goOf("option", "None"))
 }
 
 // optionShapeIR lowers src on the IR and gives each IR function's JSON by
@@ -298,7 +298,7 @@ func main() needs Console | go.Foreign {
 // to flat, its red-first check. Mutant option-extern-boxed.
 func TestExternUnionsKeepTheirForm(t *testing.T) {
 	for _, c := range []struct{ name, src, head, want string }{
-		{"optionextern", optionAtExtern, "type Option[T any] ", "flat"},
+		{"optionextern", optionAtExtern, "type " + goOf("option", "Option") + "[T any] ", "flat"},
 		{"maybeextern", maybeAtExtern, "type Maybe[T any] ", "interface"}, // flat after SHAPE-BOUNDARY
 	} {
 		main := mustLower(t, c.name, c.src).mainGo()
@@ -516,15 +516,16 @@ func TestOptionIsOneUnion(t *testing.T) {
 		}
 		// One form: Option's is the general rule's, the shared slot, as
 		// Choice's is, with the same Go size and alignment per instance.
+		optHead := goOf("option", "Option")
 		for _, h := range []struct {
 			prog *lowered
 			head string
-		}{{optProg, "Option"}, {mayProg, "Choice"}} {
+		}{{optProg, optHead}, {mayProg, "Choice"}} {
 			if got, want := genericForm(h.prog.mainGo(), "type "+h.head+"[T any] "), "shared 1"; got != want {
 				t.Errorf("seed %d: %s is %s, want %s (the general rule's form)\n%s", seed, h.head, got, want, replay)
 			}
 		}
-		rule, maybe := optionSizes(t, optProg, "Option"), optionSizes(t, mayProg, "Choice")
+		rule, maybe := optionSizes(t, optProg, optHead), optionSizes(t, mayProg, "Choice")
 		if len(rule) == 0 || !maps.Equal(rule, maybe) {
 			t.Errorf("seed %d: the Go sizes of Option's instances are %v and of Choice's %v, want one, not empty\n%s", seed, rule, maybe, replay)
 		}

@@ -88,12 +88,18 @@ func TestTiersAgree(t *testing.T) {
 				t.Fatal(err)
 			}
 			native, nativeErr, nativeExit := runNativeTests(t, ergo, file, seed)
+			// Refuted drawn laws persist shrunk tapes into ergo.cases beside
+			// main.ergo; remove it between runs in dir so the default tier and
+			// the FT2 --native rerun compare against the same clean corpus
+			// while keeping the lawcache verdict store populated.
+			_ = os.Remove(filepath.Join(dir, "ergo.cases"))
 			if runDefaultTests(t, ergo, file, seed, prog.src, native, nativeErr, nativeExit) {
 				reached["evaluated"] = true
 				if strings.Contains(native, "\nok law ") || strings.HasPrefix(native, "ok law ") {
 					// Both tiers have now stored this package's law
 					// verdicts; --native (the gate) must still run every
 					// law, never print one from the store (FT2).
+					_ = os.Remove(filepath.Join(dir, "ergo.cases"))
 					again, _, _ := runErgoTest(t, ergo, file, seed, "--native", "--count", "1")
 					if again != native {
 						t.Fatalf("seed %d %s: a second ergo test --native read the verdict store\nfirst:\n%s\nsecond:\n%s\nreplay: ERGO_TIERS_SEED=%d go test -run '^TestTiersAgree$' ./internal/sketch/eval", seed, prog.name, native, again, seed)
