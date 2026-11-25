@@ -1,0 +1,6 @@
+import claimlookup/exta
+import claimlookup/extb
+
+func AmbiguousSum(xs []int) int {
+	xs.Sum()
+}

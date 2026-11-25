@@ -1,0 +1,46 @@
+import claimlookup/base
+import claimlookup/exta
+import claimlookup/extb
+
+func QualifiedDisambig(xs []int, b base.Box) (int, int, int, int) {
+	(exta.Sum(xs), extb.Sum(xs), exta.Score(b), extb.Score(b))
+}
+
+func QualifiedHead(xs []int) int {
+	exta.CheckedHead(xs) catch {
+	case exta.Empty:
+		-1
+	}
+}
+
+func QualifiedBump(start int, delta int) int {
+	let mut xs = []int{start}
+	exta.Bump(&xs, delta)
+	xs[0]
+}
+
+test ClaimLookupParity {
+	let xs = []int{2, 3, 4}
+	let b = base.Box{Value: 7}
+	let h = base.Holder{Scale: func() int { 42 }}
+	assert DotSum(xs) == 9
+	assert DotSum(xs) == exta.Sum(xs)
+	assert DotFirst([]string{"hi"}) == "hi"
+	assert DotFirst([]string{}) == "none"
+	assert DotForeignScore(b) == 14
+	assert DotForeignScore(b) == exta.Score(b)
+	assert InherentMethodWins(b) == 17
+	assert InherentFieldWins(h) == 42
+	assert DotHead(xs) == 2
+	assert DotHead(xs) == QualifiedHead(xs)
+	assert DotHead([]int{}) == -1
+	assert DotHead([]int{}) == QualifiedHead([]int{})
+	assert DotBump(5, 6) == 11
+	assert DotBump(5, 6) == QualifiedBump(5, 6)
+	assert LocalDotDouble(xs) == 18
+	let (sa, sb, xa, xb) = QualifiedDisambig(xs, b)
+	assert sa == 9
+	assert sb == 1009
+	assert xa == 14
+	assert xb == 21
+}

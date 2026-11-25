@@ -1,0 +1,6 @@
+import claimlookup/exta
+
+func PlainNotMethod(xs []int) int {
+	let _ = xs.Sum()
+	xs.PlainOnly()
+}

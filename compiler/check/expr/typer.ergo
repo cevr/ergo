@@ -74,6 +74,8 @@ type Typer {
 	Diags         []Diag,
 	SelfInference []SelfInference,
 	BareSelfCalls []BareSelfCall,
+	LookupDiags   []LookupDiag,
+	UsedImports   []UsedImport,
 	Insts         []Inst,
 	Calls         []CallTo,
 	// Caps is each call of an operation on a capability named as its
@@ -218,7 +220,7 @@ func checkAll(s mut store.Store, k Pkg, record bool) Typer {
 	for _ in lets {
 		states = states.Append(0)
 	}
-	let mut t = Typer{Entries: slices.WithCapacity[Entry](entries), Diags: []Diag{}, SelfInference: []SelfInference{}, BareSelfCalls: []BareSelfCall{}, Insts: slices.WithCapacity[Inst](calls), Calls: []CallTo{}, Caps: []CapCall{}, Lits: []LitRows{}, Decodes: []DecodeRow{}, Outside: []dense.ID[store.PNode]{}, defs: defs, lets: lets, letState: states, letAt: letAt, frame: infer.NewFrame(), boolT: store.TBasic(s, bBool), file: 0, fn: 0, res: None, steps: 0, typed: 0, record: record, reserved: entries + rows + calls}
+	let mut t = Typer{Entries: slices.WithCapacity[Entry](entries), Diags: []Diag{}, SelfInference: []SelfInference{}, BareSelfCalls: []BareSelfCall{}, LookupDiags: []LookupDiag{}, UsedImports: []UsedImport{}, Insts: slices.WithCapacity[Inst](calls), Calls: []CallTo{}, Caps: []CapCall{}, Lits: []LitRows{}, Decodes: []DecodeRow{}, Outside: []dense.ID[store.PNode]{}, defs: defs, lets: lets, letState: states, letAt: letAt, frame: infer.NewFrame(), boolT: store.TBasic(s, bBool), file: 0, fn: 0, res: None, steps: 0, typed: 0, record: record, reserved: entries + rows + calls}
 	// The package's lets first, each when its value's names are typed
 	// (a let a function or an earlier let uses is typed at that use).
 	for i in 0..len(t.lets) {

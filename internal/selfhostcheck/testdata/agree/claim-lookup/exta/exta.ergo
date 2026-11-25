@@ -1,0 +1,76 @@
+import claimlookup/base
+
+type Summable {
+	Sum() int,
+}
+
+type Firstable[T] {
+	FirstOr(fallback T) T,
+}
+
+type Taggable {
+	Tag() int,
+}
+
+type Scalable {
+	Scale() int,
+}
+
+type Scoreable {
+	Score() int,
+}
+
+type Empty {}
+
+type Headable {
+	CheckedHead() int fails Empty,
+}
+
+type Bumpable {
+	mut Bump(delta int),
+}
+
+func Sum(xs []int) int implements Summable {
+	let mut total = 0
+	for x in xs {
+		total = total + x
+	}
+	total
+}
+
+func FirstOr[T](xs []T, fallback T) T implements Firstable[T] {
+	if len(xs) == 0 {
+		return fallback
+	}
+	xs[0]
+}
+
+func Tag(b base.Box) int implements Taggable {
+	b.Value + 100
+}
+
+func Scale(h base.Holder) int implements Scalable {
+	let _ = h
+	999
+}
+
+func Score(b base.Box) int implements Scoreable {
+	b.Value * 2
+}
+
+func CheckedHead(xs []int) int fails Empty implements Headable {
+	if len(xs) == 0 {
+		return Empty
+	}
+	xs[0]
+}
+
+func Bump(xs mut []int, delta int) implements Bumpable {
+	if len(*xs) > 0 {
+		(*xs)[0] = (*xs)[0] + delta
+	}
+}
+
+func PlainOnly(xs []int) int {
+	len(xs)
+}

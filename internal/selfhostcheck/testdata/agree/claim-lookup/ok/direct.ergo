@@ -1,0 +1,35 @@
+import claimlookup/base
+import claimlookup/exta
+
+func DotSum(xs []int) int {
+	xs.Sum()
+}
+
+func DotFirst(xs []string) string {
+	xs.FirstOr("none")
+}
+
+func DotForeignScore(b base.Box) int {
+	b.Score()
+}
+
+func InherentMethodWins(b base.Box) int {
+	b.Tag()
+}
+
+func InherentFieldWins(h base.Holder) int {
+	h.Scale()
+}
+
+func DotHead(xs []int) int {
+	xs.CheckedHead() catch {
+	case exta.Empty:
+		-1
+	}
+}
+
+func DotBump(start int, delta int) int {
+	let mut xs = []int{start}
+	xs.Bump(delta)
+	xs[0]
+}

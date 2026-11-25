@@ -1,0 +1,7 @@
+import ea claimlookup/exta
+
+type exta {}
+
+func AliasDotSum(xs []int) int {
+	xs.Sum()
+}

@@ -795,7 +795,7 @@ func (c *checker) selfSig(t Type, f *Func) *Signature {
 	if len(sig.Params) == 0 {
 		return sig
 	}
-	m := selfBinding(t, f)
+	m := c.selfBind(t, f)
 	out := dropSelf(sig)
 	if len(m) == 0 {
 		return out

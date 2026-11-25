@@ -1,0 +1,3 @@
+func MissingImport(xs []int) int {
+	xs.Sum()
+}
