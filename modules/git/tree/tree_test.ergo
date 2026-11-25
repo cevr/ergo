@@ -1,0 +1,426 @@
+import exec
+import filepath
+import fs
+import fstest
+import os
+import slices
+import strconv
+import strings
+import github.com/cevr/ergo/modules/git/delta
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/oracle
+import github.com/cevr/ergo/modules/git/pack
+
+func openRepoDiskODB(fmt oid.Format, objectsDir string, host fs.Host) pack.DiskODB fails pack.Corrupt | pack.MismatchedPair | pack.IOFailed {
+	let odb = with context { fs.Files: host } {
+		try pack.Open(fmt, objectsDir, []string{}, delta.DefaultLimits())
+	}
+	pack.NewDiskODB(odb, host)
+}
+
+let onOracleSha1 = context fails pack.Corrupt | pack.MismatchedPair | pack.IOFailed needs TestAmbient {
+	exec.Runner:      exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
+	fs.Files:         fs.NewTestHost(),
+	fs.Writes:        fs.NewTestHost(),
+	os.Process:       os.NewTestHost(),
+	oracle.Symlinks:  oracle.NewHostSymlinks(fs.NewTestHost()),
+	pack.ObjectStore: try openRepoDiskODB(oid.Sha1, filepath.Join([]string{fstest.TestFolder(), "repo", ".git", "objects"}), fs.NewTestHost()),
+}
+
+let onOracleSha256 = context fails pack.Corrupt | pack.MismatchedPair | pack.IOFailed needs TestAmbient {
+	exec.Runner:      exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
+	fs.Files:         fs.NewTestHost(),
+	fs.Writes:        fs.NewTestHost(),
+	os.Process:       os.NewTestHost(),
+	oracle.Symlinks:  oracle.NewHostSymlinks(fs.NewTestHost()),
+	pack.ObjectStore: try openRepoDiskODB(oid.Sha256, filepath.Join([]string{fstest.TestFolder(), "repo", ".git", "objects"}), fs.NewTestHost()),
+}
+
+let onMemoryWalkerSha1 = context {
+	TreeWalker: NewMemoryWalker(oid.Sha1),
+}
+
+let onMemoryWalkerSha256 = context {
+	TreeWalker: NewMemoryWalker(oid.Sha256),
+}
+
+let onDiskWalkerSha1 = context needs TestAmbient {
+	TreeWalker: NewStoreWalker(oid.Sha1, filepath.Join([]string{fstest.TestFolder(), "law-disk-tree-odb"}), []string{}, fs.NewTestHost()),
+}
+
+// EncodeParseTreeRoundTrips: EncodeTree followed by ParseTree round-trips and
+// emits entries in strict canonical Git tree order.
+law EncodeParseTreeRoundTrips(seed string) {
+	let id1 = oid.HashObject(oid.Sha1, oid.Blob, ("one-" + seed).Bytes()) catch {
+	case oid.Collision:
+		return true
+	}
+	let id2 = oid.HashObject(oid.Sha1, oid.Tree, ("two-" + seed).Bytes()) catch {
+	case oid.Collision:
+		return true
+	}
+	let id3 = oid.HashObject(oid.Sha1, oid.Commit, ("three-" + seed).Bytes()) catch {
+	case oid.Collision:
+		return true
+	}
+	let input = []Entry{
+		Entry{Mode: ModeRegular, Name: "a0", OID: id1},
+		Entry{Mode: ModeTree, Name: "a", OID: id2},
+		Entry{Mode: ModeRegular, Name: "a-file", OID: id1},
+		Entry{Mode: ModeGitlink, Name: "sub", OID: id3},
+		Entry{Mode: ModeSymlink, Name: "link", OID: id1},
+		Entry{Mode: ModeExecutable, Name: "a_b", OID: id1},
+	}
+	let raw = EncodeTree(oid.Sha1, input) catch {
+	case InvalidEntryName, DuplicateEntry:
+		return false
+	}
+	let parsed = ParseTree(oid.Sha1, raw) catch {
+	case CorruptTree, InvalidEntryName, UnsortedTree, DuplicateEntry:
+		return false
+	}
+	if len(parsed) != len(input) {
+		return false
+	}
+	for i in 1..len(parsed) {
+		if CompareEntryNames(parsed[i-1].Name, IsTree(parsed[i-1].Mode), parsed[i].Name, IsTree(parsed[i].Mode)) >= 0 {
+			return false
+		}
+	}
+	parsed[0].Name == "a-file" && parsed[1].Name == "a" && parsed[2].Name == "a0" && parsed[3].Name == "a_b"
+}
+
+type testFail {
+	reason string,
+}
+
+func runGitOk(dir string, args []string, stdin string, pathEnv Map[string, string], step int) string fails testFail | exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	let base = oracle.GitCommand(dir, args, pathEnv, oracle.StepEpoch(step))
+	let cmd = if stdin == "" { base } else { exec.WithStdin(base, stdin) }
+	let res = try exec.Runner.Run(cmd)
+	if res.Status != 0 {
+		return testFail{reason: "git failed: " + res.Stderr}
+	}
+	res.Stdout
+}
+
+type lsTreeRow {
+	mode string,
+	kind string,
+	hex  string,
+	size string,
+	path string,
+}
+
+func parseLsTreeLongZ(raw string) []lsTreeRow fails testFail {
+	let mut rows = []lsTreeRow{}
+	for rec in strings.Split(raw, "\x00") {
+		if rec == "" {
+			continue
+		}
+		let tabIdx = strings.Index(rec, "\t")
+		if tabIdx < 0 {
+			return testFail{reason: "missing tab in ls-tree -l -z record: " + rec}
+		}
+		let meta = strings.Fields(rec[:tabIdx])
+		if len(meta) != 4 {
+			return testFail{reason: "expected 4 metadata fields in ls-tree -l -z: " + rec[:tabIdx]}
+		}
+		rows = rows.Append(lsTreeRow{
+			mode: meta[0],
+			kind: meta[1],
+			hex:  meta[2],
+			size: meta[3],
+			path: rec[tabIdx+1:],
+		})
+	}
+	rows
+}
+
+func verifyWalkMatchesLsTree(repoDir string, fmt oid.Format, treeOid oid.OID, pathEnv Map[string, string], step int) fails testFail | CorruptTree | InvalidEntryName | UnsortedTree | DuplicateEntry | WrongKind | DepthExceeded | MissingObject | StoreError | exec.NotFound | exec.Denied | exec.Failed needs exec.Runner | pack.ObjectStore {
+	let lsOut = try runGitOk(repoDir, []string{"ls-tree", "-r", "-l", "-z", "--full-tree", oid.Hex(treeOid)}, "", pathEnv, step)
+	let wantRows = try parseLsTreeLongZ(lsOut)
+	let got = try WalkTreeWithSizes(fmt, treeOid, 64, 16777216)
+	if len(got) != len(wantRows) {
+		return testFail{reason: "walk entry count mismatch: got \(len(got)), want \(len(wantRows))"}
+	}
+	for i in 0..len(got) {
+		let g = got[i]
+		let w = wantRows[i]
+		if g.Path != w.path {
+			return testFail{reason: "order/path mismatch at \(i): got \(g.Path), want \(w.path)"}
+		}
+		if ModeOctal(g.Mode) != w.mode {
+			return testFail{reason: "mode mismatch at \(g.Path): got \(ModeOctal(g.Mode)), want \(w.mode)"}
+		}
+		if oid.KindName(g.Kind) != w.kind {
+			return testFail{reason: "kind mismatch at \(g.Path): got \(oid.KindName(g.Kind)), want \(w.kind)"}
+		}
+		if oid.Hex(g.OID) != w.hex {
+			return testFail{reason: "OID mismatch at \(g.Path)"}
+		}
+		let gotSizeStr = match g.Size {
+		case None:
+			"-"
+		case Some[int] as sz:
+			strconv.Itoa(sz.Value)
+		}
+		if gotSizeStr != w.size {
+			return testFail{reason: "size mismatch at \(g.Path): got \(gotSizeStr), want \(w.size)"}
+		}
+		let looked = try LookupPath(fmt, treeOid, g.Path, 16777216)
+		match looked {
+		case None:
+			return testFail{reason: "LookupPath missed \(g.Path)"}
+		case Some[Entry] as e:
+			if !oid.Equal(e.Value.OID, g.OID) || ModeOctal(e.Value.Mode) != ModeOctal(g.Mode) {
+				return testFail{reason: "LookupPath entry mismatch for \(g.Path)"}
+			}
+		}
+	}
+}
+
+func verifyFormatRepo(cwd string, oFmt oracle.OidFormat, fmt oid.Format, pathEnv Map[string, string]) fails testFail | CorruptTree | InvalidEntryName | UnsortedTree | DuplicateEntry | CorruptCommit | CorruptTag | CorruptSignature | WrongKind | DepthExceeded | MissingObject | StoreError | oid.BadHex | oid.WrongLength | oid.Collision | oracle.Missing | oracle.Corrupt | oracle.Ambiguous | oracle.InvalidRef | oracle.Conflict | oracle.CommandFailed | exec.NotFound | exec.Denied | exec.Failed | fs.NotFound | fs.Denied | fs.Failed needs exec.Runner | fs.Files | fs.Writes | oracle.Symlinks | pack.ObjectStore {
+	let repoDir = try oracle.InitRepo(filepath.Join([]string{cwd, "repo"}), oracle.RepoSpec{Format: oFmt, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, oracle.BaseEpoch)
+
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "a-file"}), "dash comes before slash\n")
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "a.txt"}), "dot comes before slash\n")
+	try fs.Writes.MkdirAll(filepath.Join([]string{repoDir, "a", "nested"}))
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "a", "x.txt"}), "inside dir a\n")
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "a", "nested", "deep.txt"}), "deep inside a/nested\n")
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "a0"}), "zero comes after slash\n")
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "a_b"}), "underscore comes after zero\n")
+	try oracle.Symlinks.CreateSymlink("a-file", filepath.Join([]string{repoDir, "sym"}))
+
+	let _ = try runGitOk(repoDir, []string{"add", "."}, "", pathEnv, 1)
+	let _ = try runGitOk(repoDir, []string{"update-index", "--chmod=+x", "a_b"}, "", pathEnv, 2)
+	let _ = try runGitOk(repoDir, []string{"commit", "-q", "-m", "root commit\n\nwith body paragraph"}, "", pathEnv, 3)
+	let rootCommitHex = strings.TrimSpace(try runGitOk(repoDir, []string{"rev-parse", "HEAD"}, "", pathEnv, 4))
+
+	let _ = try runGitOk(repoDir, []string{"update-index", "--add", "--cacheinfo", "160000," + rootCommitHex + ",sub"}, "", pathEnv, 5)
+	let _ = try runGitOk(repoDir, []string{"commit", "-q", "-m", "add gitlink sub"}, "", pathEnv, 6)
+	let baseHex = strings.TrimSpace(try runGitOk(repoDir, []string{"rev-parse", "HEAD"}, "", pathEnv, 7))
+
+	let _ = try runGitOk(repoDir, []string{"checkout", "-q", "-b", "b1"}, "", pathEnv, 8)
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "b1.txt"}), "branch 1\n")
+	let _ = try runGitOk(repoDir, []string{"add", "b1.txt"}, "", pathEnv, 9)
+	let _ = try runGitOk(repoDir, []string{"commit", "-q", "-m", "commit b1"}, "", pathEnv, 10)
+	let b1Hex = strings.TrimSpace(try runGitOk(repoDir, []string{"rev-parse", "HEAD"}, "", pathEnv, 11))
+
+	let _ = try runGitOk(repoDir, []string{"checkout", "-q", "-b", "b2", baseHex}, "", pathEnv, 12)
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "b2.txt"}), "branch 2\n")
+	let _ = try runGitOk(repoDir, []string{"add", "b2.txt"}, "", pathEnv, 13)
+	let _ = try runGitOk(repoDir, []string{"commit", "-q", "-m", "commit b2"}, "", pathEnv, 14)
+	let b2Hex = strings.TrimSpace(try runGitOk(repoDir, []string{"rev-parse", "HEAD"}, "", pathEnv, 15))
+
+	let _ = try runGitOk(repoDir, []string{"checkout", "-q", "main"}, "", pathEnv, 16)
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "m.txt"}), "main branch\n")
+	let _ = try runGitOk(repoDir, []string{"add", "m.txt"}, "", pathEnv, 17)
+	let _ = try runGitOk(repoDir, []string{"commit", "-q", "-m", "commit main"}, "", pathEnv, 18)
+	let mainHex = strings.TrimSpace(try runGitOk(repoDir, []string{"rev-parse", "HEAD"}, "", pathEnv, 19))
+
+	let _ = try runGitOk(repoDir, []string{"merge", "-q", "--no-ff", "-m", "octopus merge commit", "b1", "b2"}, "", pathEnv, 20)
+	let mergeHex = strings.TrimSpace(try runGitOk(repoDir, []string{"rev-parse", "HEAD"}, "", pathEnv, 21))
+	let mergeTreeHex = strings.TrimSpace(try runGitOk(repoDir, []string{"rev-parse", "HEAD^{tree}"}, "", pathEnv, 22))
+
+	let _ = try runGitOk(repoDir, []string{"tag", "-a", "v1", "-m", "first annotated tag", mergeHex}, "", pathEnv, 23)
+	let tag1Hex = strings.TrimSpace(try runGitOk(repoDir, []string{"rev-parse", "refs/tags/v1"}, "", pathEnv, 24))
+	let _ = try runGitOk(repoDir, []string{"tag", "-a", "v2", "-m", "nested annotated tag", tag1Hex}, "", pathEnv, 25)
+	let tag2Hex = strings.TrimSpace(try runGitOk(repoDir, []string{"rev-parse", "refs/tags/v2"}, "", pathEnv, 26))
+
+	let rootCommitOid = try oid.ParseHex(fmt, rootCommitHex)
+	let mergeOid = try oid.ParseHex(fmt, mergeHex)
+	let mergeTreeOid = try oid.ParseHex(fmt, mergeTreeHex)
+	let tag2Oid = try oid.ParseHex(fmt, tag2Hex)
+
+	try verifyWalkMatchesLsTree(repoDir, fmt, mergeTreeOid, pathEnv, 27)
+
+	let (_, rootC) = try PeelToCommit(fmt, rootCommitOid, 8, 1048576)
+	if len(rootC.Parents) != 0 {
+		return testFail{reason: "root commit should have 0 parents"}
+	}
+	if !strings.Contains(rootC.Message, "with body paragraph") {
+		return testFail{reason: "root commit multiline message mismatch"}
+	}
+
+	let (peeledCommitOid, mergeC) = try PeelToCommit(fmt, tag2Oid, 8, 1048576)
+	if !oid.Equal(peeledCommitOid, mergeOid) {
+		return testFail{reason: "PeelToCommit from nested tag2 did not reach merge commit"}
+	}
+	if len(mergeC.Parents) != 3 {
+		return testFail{reason: "octopus merge expected 3 parents, got \(len(mergeC.Parents))"}
+	}
+	if oid.Hex(mergeC.Parents[0]) != mainHex || oid.Hex(mergeC.Parents[1]) != b1Hex || oid.Hex(mergeC.Parents[2]) != b2Hex {
+		return testFail{reason: "octopus merge parent OIDs mismatch"}
+	}
+	if mergeC.Author.Name == "" || mergeC.Author.Email == "" || mergeC.Author.Offset != "+0000" {
+		return testFail{reason: "commit author signature parse mismatch"}
+	}
+
+	let (peeledTreeOid, topEntries) = try PeelToTree(fmt, tag2Oid, 8, 1048576)
+	if !oid.Equal(peeledTreeOid, mergeTreeOid) {
+		return testFail{reason: "PeelToTree from nested tag2 did not reach merge tree"}
+	}
+	let reEncoded = try EncodeTree(fmt, topEntries)
+	let reHashed = try oid.HashObject(fmt, oid.Tree, reEncoded)
+	if !oid.Equal(reHashed, mergeTreeOid) {
+		return testFail{reason: "EncodeTree hash did not match C Git tree OID"}
+	}
+
+	let tag2Obj = try readStoreObject(tag2Oid, 1048576)
+	let parsedTag2 = try ParseTag(fmt, tag2Obj.Data)
+	if parsedTag2.Name != "v2" || oid.KindName(parsedTag2.TargetKind) != "tag" || oid.Hex(parsedTag2.Target) != tag1Hex {
+		return testFail{reason: "parsed nested tag2 mismatch"}
+	}
+	if parsedTag2.Tagger == None {
+		return testFail{reason: "expected tagger on annotated tag2"}
+	}
+
+	let _ = try runGitOk(repoDir, []string{"repack", "-ad", "-q"}, "", pathEnv, 28)
+	try verifyWalkMatchesLsTree(repoDir, fmt, mergeTreeOid, pathEnv, 29)
+	let (peeledAfterRepack, _) = try PeelToTree(fmt, tag2Oid, 8, 1048576)
+	if !oid.Equal(peeledAfterRepack, mergeTreeOid) {
+		return testFail{reason: "PeelToTree mismatch after repack -ad"}
+	}
+}
+
+test TreeCommitTagAndWalkMatchGit {
+	with try onOracleSha1 {
+		let pathEnv = exec.PathOf(os.Process.Environ())
+		let cwd = try os.Process.Getwd()
+		try verifyFormatRepo(cwd, oracle.Sha1, oid.Sha1, pathEnv)
+	}
+	with try onOracleSha256 {
+		let pathEnv = exec.PathOf(os.Process.Environ())
+		let cwd = try os.Process.Getwd()
+		try verifyFormatRepo(cwd, oracle.Sha256, oid.Sha256, pathEnv)
+	}
+}
+
+test RejectsCorruptTreesCommitsAndTags {
+	let sampleId = try oid.HashObject(oid.Sha1, oid.Blob, "sample".Bytes())
+
+	let mut leadingZero = "040000 dir".Bytes()
+	leadingZero = leadingZero.Append(byte(0))
+	leadingZero = slices.AppendAll(leadingZero, sampleId.Raw)
+	let mut sawLeadingZero = false
+	let _ = ParseTree(oid.Sha1, leadingZero) catch {
+	case CorruptTree:
+		sawLeadingZero = true
+		[]Entry{}
+	case InvalidEntryName, UnsortedTree, DuplicateEntry:
+		[]Entry{}
+	}
+	assert sawLeadingZero
+
+	let mut unsorted = "100644 z.txt".Bytes()
+	unsorted = unsorted.Append(byte(0))
+	unsorted = slices.AppendAll(unsorted, sampleId.Raw)
+	unsorted = slices.AppendAll(unsorted, "100644 a.txt".Bytes())
+	unsorted = unsorted.Append(byte(0))
+	unsorted = slices.AppendAll(unsorted, sampleId.Raw)
+	let mut sawUnsorted = false
+	let _ = ParseTree(oid.Sha1, unsorted) catch {
+	case UnsortedTree:
+		sawUnsorted = true
+		[]Entry{}
+	case CorruptTree, InvalidEntryName, DuplicateEntry:
+		[]Entry{}
+	}
+	assert sawUnsorted
+
+	let mut dup = "100644 same.txt".Bytes()
+	dup = dup.Append(byte(0))
+	dup = slices.AppendAll(dup, sampleId.Raw)
+	dup = slices.AppendAll(dup, "100644 same.txt".Bytes())
+	dup = dup.Append(byte(0))
+	dup = slices.AppendAll(dup, sampleId.Raw)
+	let mut sawDup = false
+	let _ = ParseTree(oid.Sha1, dup) catch {
+	case DuplicateEntry:
+		sawDup = true
+		[]Entry{}
+	case CorruptTree, InvalidEntryName, UnsortedTree:
+		[]Entry{}
+	}
+	assert sawDup
+
+	for badName in []string{".git", ".GIT", "..", ".", "a/b"} {
+		let mut rawBad = ("100644 " + badName).Bytes()
+		rawBad = rawBad.Append(byte(0))
+		rawBad = slices.AppendAll(rawBad, sampleId.Raw)
+		let mut sawBad = false
+		let _ = ParseTree(oid.Sha1, rawBad) catch {
+		case InvalidEntryName:
+			sawBad = true
+			[]Entry{}
+		case CorruptTree, UnsortedTree, DuplicateEntry:
+			[]Entry{}
+		}
+		assert sawBad
+	}
+
+	let mut truncTree = "100644 ok.txt".Bytes()
+	truncTree = truncTree.Append(byte(0))
+	truncTree = slices.AppendAll(truncTree, sampleId.Raw[:10])
+	let mut sawTrunc = false
+	let _ = ParseTree(oid.Sha1, truncTree) catch {
+	case CorruptTree:
+		sawTrunc = true
+		[]Entry{}
+	case InvalidEntryName, UnsortedTree, DuplicateEntry:
+		[]Entry{}
+	}
+	assert sawTrunc
+
+	let commitWithGpg = "tree " + oid.Hex(sampleId) + "\n" +
+		"author Alice Example <alice@example.com> 1700000000 -0700\n" +
+		"committer Bob Example <bob@example.com> 1700000001 +0000\n" +
+		"encoding ISO-8859-1\n" +
+		"gpgsig -----BEGIN PGP SIGNATURE-----\n" +
+		" line2sig\n" +
+		" -----END PGP SIGNATURE-----\n\n" +
+		"signed commit message\n"
+	let parsedC = try ParseCommit(oid.Sha1, commitWithGpg.Bytes())
+	assert parsedC.Encoding == "ISO-8859-1"
+	assert parsedC.Author.Name == "Alice Example" && parsedC.Author.Offset == "-0700"
+	let mut sawGpgMulti = false
+	for h in parsedC.Headers {
+		if h.Key == "gpgsig" && strings.Contains(h.Value, "\nline2sig\n") {
+			sawGpgMulti = true
+		}
+	}
+	assert sawGpgMulti
+
+	let tagWithoutTagger = "object " + oid.Hex(sampleId) + "\ntype commit\ntag v0\n\nminimal tag\n"
+	let parsedMinimalTag = try ParseTag(oid.Sha1, tagWithoutTagger.Bytes())
+	assert parsedMinimalTag.Name == "v0" && parsedMinimalTag.Tagger == None
+
+	let mut sawBadCommit = false
+	let _ = ParseCommit(oid.Sha1, "author Alice <a@b> 1 +0000\n\nno tree".Bytes()) catch {
+	case CorruptCommit:
+		sawBadCommit = true
+		Commit{Tree: sampleId, Parents: []oid.OID{}, Author: Signature{Name: "", Email: "", Epoch: int64(0), Offset: "+0000"}, Committer: Signature{Name: "", Email: "", Epoch: int64(0), Offset: "+0000"}, Encoding: "", Headers: []Header{}, Message: ""}
+	case CorruptSignature:
+		Commit{Tree: sampleId, Parents: []oid.OID{}, Author: Signature{Name: "", Email: "", Epoch: int64(0), Offset: "+0000"}, Committer: Signature{Name: "", Email: "", Epoch: int64(0), Offset: "+0000"}, Encoding: "", Headers: []Header{}, Message: ""}
+	}
+	assert sawBadCommit
+
+	let memStore = pack.NewMemoryODB(oid.Sha1)
+	let commitRaw = ("tree " + oid.Hex(sampleId) + "\nauthor A <a@b> 1 +0000\ncommitter A <a@b> 1 +0000\n\nc\n").Bytes()
+	let cid = try memStore.Install(oid.Commit, commitRaw)
+	let t1 = try memStore.Install(oid.Tag, ("object " + oid.Hex(cid) + "\ntype commit\ntag t1\n\nm1\n").Bytes())
+	let t2 = try memStore.Install(oid.Tag, ("object " + oid.Hex(t1) + "\ntype tag\ntag t2\n\nm2\n").Bytes())
+	let t3 = try memStore.Install(oid.Tag, ("object " + oid.Hex(t2) + "\ntype tag\ntag t3\n\nm3\n").Bytes())
+	let mut sawDepth = false
+	with context { pack.ObjectStore: memStore } {
+		let _ = PeelToCommit(oid.Sha1, t3, 2, 4096) catch {
+		case DepthExceeded as e:
+			sawDepth = e.MaxDepth == 2
+			(cid, parsedC)
+		case CorruptCommit, CorruptTag, CorruptSignature, WrongKind, MissingObject, StoreError:
+			(cid, parsedC)
+		}
+	}
+	assert sawDepth
+}

@@ -1,0 +1,148 @@
+import slices
+import strings
+import github.com/cevr/ergo/modules/git/oid
+
+// CompareEntryNames compares two Git tree entry names using Git's canonical
+// tree ordering, where tree entries sort as if followed by '/'.
+func CompareEntryNames(aName string, aIsTree bool, bName string, bIsTree bool) int {
+	let ab = aName.Bytes()
+	let bb = bName.Bytes()
+	let n = if len(ab) < len(bb) { len(ab) } else { len(bb) }
+	for i in 0..n {
+		if ab[i] < bb[i] {
+			return -1
+		}
+		if ab[i] > bb[i] {
+			return 1
+		}
+	}
+	let ca = if n < len(ab) { int(ab[n]) } else if aIsTree { 47 } else { 0 }
+	let cb = if n < len(bb) { int(bb[n]) } else if bIsTree { 47 } else { 0 }
+	if ca < cb {
+		return -1
+	}
+	if ca > cb {
+		return 1
+	}
+	0
+}
+
+// ValidateEntryName enforces Git tree entry name rules: non-empty, no '/' or
+// NUL bytes, not '.' or '..', and not '.git' (case-insensitive).
+func ValidateEntryName(name string) fails InvalidEntryName {
+	if name == "" {
+		return InvalidEntryName{Name: name, Reason: "empty tree entry name"}
+	}
+	if name == "." || name == ".." {
+		return InvalidEntryName{Name: name, Reason: "dot path segment not allowed in tree"}
+	}
+	if strings.ToLower(name) == ".git" {
+		return InvalidEntryName{Name: name, Reason: ".git entry name not allowed in tree"}
+	}
+	for b in name.Bytes() {
+		if b == byte('/') || b == byte(0) {
+			return InvalidEntryName{Name: name, Reason: "slash or NUL not allowed in tree entry name"}
+		}
+	}
+}
+
+func parseRawMode(s string) Mode fails CorruptTree {
+	if s == "40000" {
+		return ModeTree
+	}
+	if s == "100644" {
+		return ModeRegular
+	}
+	if s == "100755" {
+		return ModeExecutable
+	}
+	if s == "120000" {
+		return ModeSymlink
+	}
+	if s == "160000" {
+		return ModeGitlink
+	}
+	return CorruptTree{Reason: "invalid raw tree mode: " + s}
+}
+
+// ParseTree decodes a canonical Git binary tree object of the given OID format,
+// rejecting invalid modes (including leading-zero "040000"), unsafe names,
+// truncated OIDs, duplicates, and out-of-order entries.
+func ParseTree(format oid.Format, raw []byte) []Entry fails CorruptTree | InvalidEntryName | UnsortedTree | DuplicateEntry {
+	let hashLen = oid.ByteLen(format)
+	let total = len(raw)
+	let mut pos = 0
+	let mut entries = []Entry{}
+	for pos < total {
+		let mut sp = pos
+		for sp < total && raw[sp] != byte(' ') {
+			sp = sp + 1
+		}
+		if sp == pos || sp >= total {
+			return CorruptTree{Reason: "missing space after tree entry mode"}
+		}
+		let modeStr = raw[pos:sp].Text()
+		let mode = try parseRawMode(modeStr)
+		let nameStart = sp + 1
+		let mut nul = nameStart
+		for nul < total && raw[nul] != byte(0) {
+			nul = nul + 1
+		}
+		if nul >= total {
+			return CorruptTree{Reason: "missing NUL after tree entry name"}
+		}
+		let name = raw[nameStart:nul].Text()
+		try ValidateEntryName(name)
+		let oidStart = nul + 1
+		if oidStart+hashLen > total {
+			return CorruptTree{Reason: "truncated tree entry OID"}
+		}
+		let id = oid.FromBytes(format, raw[oidStart:oidStart+hashLen]) catch {
+		case oid.WrongLength:
+			return CorruptTree{Reason: "wrong OID length in tree entry"}
+		}
+		if len(entries) > 0 {
+			let prev = entries[len(entries)-1]
+			if prev.Name == name {
+				return DuplicateEntry{Name: name}
+			}
+			if CompareEntryNames(prev.Name, IsTree(prev.Mode), name, IsTree(mode)) >= 0 {
+				return UnsortedTree{Prev: prev.Name, Cur: name}
+			}
+		}
+		entries = entries.Append(Entry{Mode: mode, Name: name, OID: id})
+		pos = oidStart + hashLen
+	}
+	entries
+}
+
+// EncodeTree validates, canonically sorts, and encodes entries into raw Git
+// binary tree object bytes (emitting "40000" without leading zero for trees).
+func EncodeTree(format oid.Format, entries []Entry) []byte fails InvalidEntryName | DuplicateEntry {
+	let hashLen = oid.ByteLen(format)
+	let mut copy = slices.WithCapacity[Entry](len(entries))
+	for e in entries {
+		try ValidateEntryName(e.Name)
+		copy = copy.Append(e)
+	}
+	let sorted = slices.SortFunc(copy, func(a Entry, b Entry) int {
+		CompareEntryNames(a.Name, IsTree(a.Mode), b.Name, IsTree(b.Mode))
+	})
+	for i in 1..len(sorted) {
+		if sorted[i-1].Name == sorted[i].Name {
+			return DuplicateEntry{Name: sorted[i].Name}
+		}
+	}
+	let mut out = []byte{}
+	for e in sorted {
+		let prefix = (ModeWire(e.Mode) + " " + e.Name).Bytes()
+		out = slices.AppendAll(out, prefix)
+		out = out.Append(byte(0))
+		if len(e.OID.Raw) == hashLen {
+			out = slices.AppendAll(out, e.OID.Raw)
+		} else {
+			out = slices.AppendAll(out, oid.Zero(format).Raw)
+		}
+	}
+	out
+}

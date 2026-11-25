@@ -1,0 +1,304 @@
+import strings
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/pack
+
+func parseInt64Decimal(s string) int64 fails CorruptSignature {
+	let bs = s.Bytes()
+	if len(bs) == 0 {
+		return CorruptSignature{Reason: "empty epoch timestamp"}
+	}
+	let mut start = 0
+	let mut neg = false
+	if bs[0] == byte('-') {
+		neg = true
+		start = 1
+	}
+	if start >= len(bs) {
+		return CorruptSignature{Reason: "missing digits in epoch timestamp"}
+	}
+	let mut acc = int64(0)
+	for i in start..len(bs) {
+		let b = bs[i]
+		if b < byte('0') || b > byte('9') {
+			return CorruptSignature{Reason: "non-digit in epoch timestamp"}
+		}
+		acc = acc*int64(10) + int64(b-byte('0'))
+	}
+	if neg { -acc } else { acc }
+}
+
+func isValidTimezone(tz string) bool {
+	let bs = tz.Bytes()
+	if len(bs) != 5 {
+		return false
+	}
+	if bs[0] != byte('+') && bs[0] != byte('-') {
+		return false
+	}
+	for i in 1..5 {
+		if bs[i] < byte('0') || bs[i] > byte('9') {
+			return false
+		}
+	}
+	true
+}
+
+// ParseSignature parses a Git identity and timestamp string of the form
+// `Name <email> <epoch> <+/-HHMM>`.
+func ParseSignature(raw string) Signature fails CorruptSignature {
+	let bs = raw.Bytes()
+	let mut lt = -1
+	let mut gt = -1
+	for i in 0..len(bs) {
+		if bs[i] == byte('\n') || bs[i] == byte(0) {
+			return CorruptSignature{Reason: "invalid control byte in signature"}
+		}
+		if bs[i] == byte('<') {
+			lt = i
+		} else if bs[i] == byte('>') {
+			gt = i
+		}
+	}
+	if lt <= 0 || gt <= lt || bs[lt-1] != byte(' ') {
+		return CorruptSignature{Reason: "malformed name/email in signature"}
+	}
+	let name = raw[:lt-1]
+	let email = raw[lt+1 : gt]
+	let tail = strings.TrimSpace(raw[gt+1:])
+	let parts = strings.Fields(tail)
+	if len(parts) != 2 {
+		return CorruptSignature{Reason: "expected epoch and timezone after email"}
+	}
+	let epoch = try parseInt64Decimal(parts[0])
+	let tz = parts[1]
+	if !isValidTimezone(tz) {
+		return CorruptSignature{Reason: "invalid timezone offset: " + tz}
+	}
+	Signature{
+		Name:   name,
+		Email:  email,
+		Epoch:  epoch,
+		Offset: tz,
+	}
+}
+
+func splitHeadersAndMessage(raw string) ([]Header, string) {
+	let mut hdrPart = raw
+	let mut msg = ""
+	let sep = strings.Index(raw, "\n\n")
+	if sep >= 0 {
+		hdrPart = raw[:sep]
+		msg = raw[sep+2:]
+	} else if strings.HasSuffix(raw, "\n") {
+		hdrPart = raw[:len(raw)-1]
+	}
+	let lines = strings.Split(hdrPart, "\n")
+	let mut headers = []Header{}
+	for line in lines {
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, " ") && len(headers) > 0 {
+			let prev = headers[len(headers)-1]
+			headers[len(headers)-1] = Header{Key: prev.Key, Value: prev.Value + "\n" + line[1:]}
+			continue
+		}
+		let sp = strings.Index(line, " ")
+		if sp >= 0 {
+			headers = headers.Append(Header{Key: line[:sp], Value: line[sp+1:]})
+		} else {
+			headers = headers.Append(Header{Key: line, Value: ""})
+		}
+	}
+	(headers, msg)
+}
+
+// ParseCommit parses a raw Git commit object payload of the given OID format,
+// supporting root, normal, and octopus-merge parents, multi-line continuation
+// headers, encoding, and message body.
+func ParseCommit(format oid.Format, raw []byte) Commit fails CorruptCommit | CorruptSignature {
+	if len(raw) == 0 {
+		return CorruptCommit{Reason: "empty commit object"}
+	}
+	let (headers, msg) = splitHeadersAndMessage(raw.Text())
+	let mut hasTree = false
+	let mut treeOid = oid.Zero(format)
+	let mut parents = []oid.OID{}
+	let mut hasAuthor = false
+	let mut author = Signature{Name: "", Email: "", Epoch: int64(0), Offset: "+0000"}
+	let mut hasCommitter = false
+	let mut committer = Signature{Name: "", Email: "", Epoch: int64(0), Offset: "+0000"}
+	let mut encoding = ""
+
+	for h in headers {
+		if h.Key == "tree" {
+			if hasTree {
+				return CorruptCommit{Reason: "duplicate tree header"}
+			}
+			treeOid = oid.ParseHex(format, h.Value) catch {
+			case oid.BadHex, oid.WrongLength:
+				return CorruptCommit{Reason: "invalid tree OID in commit"}
+			}
+			hasTree = true
+		} else if h.Key == "parent" {
+			let p = oid.ParseHex(format, h.Value) catch {
+			case oid.BadHex, oid.WrongLength:
+				return CorruptCommit{Reason: "invalid parent OID in commit"}
+			}
+			parents = parents.Append(p)
+		} else if h.Key == "author" {
+			author = try ParseSignature(h.Value)
+			hasAuthor = true
+		} else if h.Key == "committer" {
+			committer = try ParseSignature(h.Value)
+			hasCommitter = true
+		} else if h.Key == "encoding" {
+			encoding = h.Value
+		}
+	}
+	if !hasTree {
+		return CorruptCommit{Reason: "missing tree header in commit"}
+	}
+	if !hasAuthor {
+		return CorruptCommit{Reason: "missing author header in commit"}
+	}
+	if !hasCommitter {
+		return CorruptCommit{Reason: "missing committer header in commit"}
+	}
+	Commit{
+		Tree:      treeOid,
+		Parents:   parents,
+		Author:    author,
+		Committer: committer,
+		Encoding:  encoding,
+		Headers:   headers,
+		Message:   msg,
+	}
+}
+
+// ParseTag parses a raw Git annotated tag object payload of the given OID format.
+func ParseTag(format oid.Format, raw []byte) Tag fails CorruptTag | CorruptSignature {
+	if len(raw) == 0 {
+		return CorruptTag{Reason: "empty tag object"}
+	}
+	let (headers, msg) = splitHeadersAndMessage(raw.Text())
+	let mut hasObj = false
+	let mut target = oid.Zero(format)
+	let mut hasType = false
+	let mut targetKind oid.Kind = oid.Blob
+	let mut hasName = false
+	let mut tagName = ""
+	let mut tagger Option[Signature] = None
+
+	for h in headers {
+		if h.Key == "object" {
+			target = oid.ParseHex(format, h.Value) catch {
+			case oid.BadHex, oid.WrongLength:
+				return CorruptTag{Reason: "invalid object OID in tag"}
+			}
+			hasObj = true
+		} else if h.Key == "type" {
+			targetKind = oid.ParseKind(h.Value) catch {
+			case oid.EmptyKind, oid.BadHeader:
+				return CorruptTag{Reason: "invalid target type in tag"}
+			}
+			hasType = true
+		} else if h.Key == "tag" {
+			if h.Value == "" {
+				return CorruptTag{Reason: "empty tag name"}
+			}
+			tagName = h.Value
+			hasName = true
+		} else if h.Key == "tagger" {
+			let sig = try ParseSignature(h.Value)
+			tagger = Some[Signature]{Value: sig}
+		}
+	}
+	if !hasObj {
+		return CorruptTag{Reason: "missing object header in tag"}
+	}
+	if !hasType {
+		return CorruptTag{Reason: "missing type header in tag"}
+	}
+	if !hasName {
+		return CorruptTag{Reason: "missing tag name header in tag"}
+	}
+	Tag{
+		Target:     target,
+		TargetKind: targetKind,
+		Name:       tagName,
+		Tagger:     tagger,
+		Message:    msg,
+	}
+}
+
+func readStoreObject(id oid.OID, maxBytes int) pack.Object fails MissingObject | StoreError needs pack.ObjectStore {
+	pack.ObjectStore.Read(id, maxBytes) catch {
+	case pack.Missing as e:
+		return MissingObject{OID: e.OID}
+	case pack.Corrupt as e:
+		return StoreError{Detail: e.Why}
+	case pack.MismatchedPair as e:
+		return StoreError{Detail: "mismatched pack pair: " + e.PackPath}
+	case pack.Collision as e:
+		return StoreError{Detail: "sha1 collision: " + e.Digest}
+	case pack.LimitExceeded:
+		return StoreError{Detail: "object exceeds byte limit"}
+	case pack.DepthExceeded:
+		return StoreError{Detail: "delta chain depth exceeded"}
+	case pack.IOFailed as e:
+		return StoreError{Detail: e.Op + ": " + e.Detail}
+	}
+}
+
+// PeelToCommit peels zero or more chained annotated tags starting at start
+// until reaching a Commit object, bounded by maxDepth.
+func PeelToCommit(format oid.Format, start oid.OID, maxDepth int, maxBytes int) (oid.OID, Commit) fails CorruptCommit | CorruptTag | CorruptSignature | WrongKind | DepthExceeded | MissingObject | StoreError needs pack.ObjectStore {
+	let mut cur = start
+	for step in 0..maxDepth+1 {
+		let obj = try readStoreObject(cur, maxBytes)
+		match obj.Kind {
+		case oid.Commit:
+			let c = try ParseCommit(format, obj.Data)
+			return (cur, c)
+		case oid.Tag:
+			if step >= maxDepth {
+				return DepthExceeded{MaxDepth: maxDepth}
+			}
+			let t = try ParseTag(format, obj.Data)
+			cur = t.Target
+		case oid.Tree, oid.Blob:
+			return WrongKind{Expected: "commit", Got: oid.KindName(obj.Kind)}
+		}
+	}
+	return DepthExceeded{MaxDepth: maxDepth}
+}
+
+// PeelToTree peels annotated tags and/or a commit starting at start until
+// reaching a Tree object, returning the tree OID and its parsed entries.
+func PeelToTree(format oid.Format, start oid.OID, maxDepth int, maxBytes int) (oid.OID, []Entry) fails CorruptTree | InvalidEntryName | UnsortedTree | DuplicateEntry | CorruptCommit | CorruptTag | CorruptSignature | WrongKind | DepthExceeded | MissingObject | StoreError needs pack.ObjectStore {
+	let mut cur = start
+	for step in 0..maxDepth+1 {
+		let obj = try readStoreObject(cur, maxBytes)
+		match obj.Kind {
+		case oid.Tree:
+			let entries = try ParseTree(format, obj.Data)
+			return (cur, entries)
+		case oid.Commit:
+			if step >= maxDepth {
+				return DepthExceeded{MaxDepth: maxDepth}
+			}
+			let c = try ParseCommit(format, obj.Data)
+			cur = c.Tree
+		case oid.Tag:
+			if step >= maxDepth {
+				return DepthExceeded{MaxDepth: maxDepth}
+			}
+			let t = try ParseTag(format, obj.Data)
+			cur = t.Target
+		case oid.Blob:
+			return WrongKind{Expected: "tree", Got: "blob"}
+		}
+	}
+	return DepthExceeded{MaxDepth: maxDepth}
+}
