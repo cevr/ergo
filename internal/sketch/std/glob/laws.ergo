@@ -1,0 +1,184 @@
+import fs
+import fstest
+import strings
+
+func sanitizeLiteralSeg(raw string) string {
+	let bs = raw.Bytes()
+	let mut out = []byte{}
+	for b in bs {
+		if (b >= byte('a') && b <= byte('z')) || (b >= byte('0') && b <= byte('9')) {
+			out = out.Append(b)
+		}
+	}
+	if out.Len() == 0 { "file" } else { out.Text() }
+}
+
+// LiteralMatchesOnlyItself: a literal glob pattern matches its exact path and
+// rejects any distinct path, and negated character classes `[!0-9]` invert
+// membership cleanly.
+law LiteralMatchesOnlyItself(segA string, segB string) {
+	let a = sanitizeLiteralSeg(segA)
+	let b = sanitizeLiteralSeg(segB)
+	let p = Compile("dir/" + a) catch {
+	case InvalidPattern:
+		return false
+	}
+	let matchesSelf = Match(p, "dir/"+a)
+	let matchesOther = Match(p, "dir/"+b)
+	let negP = Compile("[!0-9]") catch {
+	case InvalidPattern:
+		return false
+	}
+	let negOK = Match(negP, "a") && !Match(negP, "5")
+	let ok = matchesSelf && (matchesOther == (a == b)) && negOK
+	always ok
+	sometimes a == b
+	sometimes a != b
+	ok
+}
+
+// DoubleStarMatchesZeroOrMoreSegments: `a/**/b` matches zero, one, and multiple
+// intermediate segments, while single `*` in `a/*/b` matches exactly one
+// segment and never crosses `/`.
+law DoubleStarMatchesZeroOrMoreSegments(midCountRaw int) {
+	let count = (if midCountRaw < 0 { -midCountRaw } else { midCountRaw }) % 5
+	let dd = Compile("a/**/b") catch {
+	case InvalidPattern:
+		return false
+	}
+	let single = Compile("a/*/b") catch {
+	case InvalidPattern:
+		return false
+	}
+	let mut segs = []string{"a"}
+	for _ in 0..count {
+		segs = segs.Append("mid")
+	}
+	segs = segs.Append("b")
+	let path = strings.Join(segs, "/")
+	let ddMatches = Match(dd, path)
+	let singleMatches = Match(single, path)
+	let ok = ddMatches && (singleMatches == (count == 1))
+	always ok
+	sometimes count == 0 && ddMatches
+	sometimes count == 1 && singleMatches
+	sometimes count >= 2 && ddMatches && !singleMatches
+	ok
+}
+
+// BraceExpansionMatchesUnionOfAlternatives: `src/{a,b}.ergo` matches a path iff
+// either `src/a.ergo` or `src/b.ergo` matches it.
+law BraceExpansionMatchesUnionOfAlternatives(aRaw string, bRaw string, probeRaw string) {
+	let a = sanitizeLiteralSeg(aRaw)
+	let b = sanitizeLiteralSeg(bRaw)
+	let probe = sanitizeLiteralSeg(probeRaw)
+	let unionPat = Compile("src/{" + a + "," + b + "}.ergo") catch {
+	case InvalidPattern:
+		return false
+	}
+	let patA = Compile("src/" + a + ".ergo") catch {
+	case InvalidPattern:
+		return false
+	}
+	let patB = Compile("src/" + b + ".ergo") catch {
+	case InvalidPattern:
+		return false
+	}
+	let target = "src/" + probe + ".ergo"
+	let got = Match(unionPat, target)
+	let want = Match(patA, target) || Match(patB, target)
+	let ok = got == want
+	always ok
+	sometimes got
+	sometimes !got
+	ok
+}
+
+// InvalidPatternsRejected: malformed character classes, reversed ranges,
+// unclosed braces, and trailing escapes are always rejected with
+// InvalidPattern.
+law InvalidPatternsRejected(kindRaw int) {
+	let kind = (if kindRaw < 0 { -kindRaw } else { kindRaw }) % 5
+	let bad = if kind == 0 {
+		"[abc"
+	} else if kind == 1 {
+		"[z-a]"
+	} else if kind == 2 {
+		"{a,b"
+	} else if kind == 3 {
+		"foo\\"
+	} else {
+		"a}b"
+	}
+	let mut rejected = false
+	let _ = Compile(bad) catch {
+	case InvalidPattern:
+		rejected = true
+		Pattern{Raw: "", Branches: []CompiledBranch{}, StaticPrefix: []string{}, ExplicitDot: false}
+	}
+	always rejected
+	sometimes kind == 0 && rejected
+	sometimes kind == 1 && rejected
+	sometimes kind == 2 && rejected
+	rejected
+}
+
+// ScanResultsAlwaysMatchPatternAndAreSorted: every path returned by Scan over
+// fstest.Memory matches the compiled pattern and the result slice is strictly
+// sorted lexicographically.
+law ScanResultsAlwaysMatchPatternAndAreSorted(includeDirs bool, includeDotfiles bool) {
+	let mem = fstest.NewMemory()
+	with context { fs.Files: mem, fs.Writes: mem } {
+		fs.Writes.MkdirAll("/repo/src/api") catch {
+		case fs.Denied, fs.Failed:
+			return false
+		}
+		fs.Writes.MkdirAll("/repo/vendor") catch {
+		case fs.Denied, fs.Failed:
+			return false
+		}
+		fs.Writes.WriteFile("/repo/src/api/z.ergo", "z") catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return false
+		}
+		fs.Writes.WriteFile("/repo/src/api/a.ergo", "a") catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return false
+		}
+		fs.Writes.WriteFile("/repo/src/api/.hidden.ergo", "h") catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return false
+		}
+		fs.Writes.WriteFile("/repo/vendor/skip.ergo", "v") catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return false
+		}
+		let pat = Compile("src/**/*.ergo") catch {
+		case InvalidPattern:
+			return false
+		}
+		let opts = ScanOptions{IncludeDirs: includeDirs, IncludeDotfiles: includeDotfiles, MaxDepth: 0}
+		let found = Scan(pat, "/repo", opts) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return false
+		}
+		let mut allMatch = true
+		for path in found {
+			if !Match(pat, path) {
+				allMatch = false
+			}
+		}
+		let mut sorted = true
+		for i in 1..found.Len() {
+			if found[i-1] >= found[i] {
+				sorted = false
+			}
+		}
+		let wantCount = if includeDotfiles { 3 } else { 2 }
+		let ok = allMatch && sorted && found.Len() == wantCount
+		always ok
+		sometimes includeDotfiles && ok
+		sometimes !includeDotfiles && ok
+		ok
+	}
+}

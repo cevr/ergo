@@ -402,6 +402,12 @@ gen ShrunkStillFails	none
 gen SpanDeletesARow	none
 gen SpanDeletesAnElement	none
 gen ZeroIsSimplest	none
+glob BraceExpansionMatchesUnionOfAlternatives	TestStdGlobLawsRun
+glob DoubleStarMatchesZeroOrMoreSegments	TestStdGlobLawsRun
+glob InvalidPatternsRejected	TestStdGlobLawsRun
+glob LiteralMatchesOnlyItself	TestStdGlobLawsRun
+glob Matcher.CompileThenMatchAgreesWithMatchText	TestStdGlobLawsRun
+glob ScanResultsAlwaysMatchPatternAndAreSorted	TestStdGlobLawsRun
 graph ChainIsAPath	TestStdGraphLawsRun
 graph EveryCycleIsAClosedPath	TestStdGraphLawsRun
 graph FanSumsToEdges	TestStdGraphLawsRun

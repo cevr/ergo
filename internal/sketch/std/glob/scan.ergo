@@ -1,0 +1,110 @@
+import filepath
+import fs
+import slices
+import strings
+
+type scanFrame {
+	absDir string,
+	relDir string,
+	depth  int,
+}
+
+func joinRel(base string, name string) string {
+	if base == "" { name } else { base + "/" + name }
+}
+
+func shouldSkipDotEntry(p Pattern, name string, opts ScanOptions) bool {
+	if !strings.HasPrefix(name, ".") {
+		return false
+	}
+	if opts.IncludeDotfiles {
+		return false
+	}
+	!p.ExplicitDot
+}
+
+// Scan walks root through fs.Files and returns every matching relative POSIX
+// path sorted lexicographically, using StaticPrefix and CanDescend to prune
+// unrelated subtrees early without descending into them.
+func Scan(p Pattern, root string, opts ScanOptions) []string fails fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	let cleanRoot = filepath.Clean(root)
+	let rootInfo = try fs.Files.Lstat(cleanRoot)
+	if !rootInfo.Dir {
+		return []string{}
+	}
+
+	let mut startAbs = cleanRoot
+	let mut startRel = ""
+	let mut startDepth = 0
+	if p.StaticPrefix.Len() > 0 {
+		let mut segs = []string{cleanRoot}
+		for s in p.StaticPrefix {
+			segs = segs.Append(s)
+		}
+		let prefAbs = filepath.Join(segs)
+		let prefInfo = fs.Files.Lstat(prefAbs) catch {
+		case fs.NotFound:
+			return []string{}
+		case fs.Denied as e:
+			return e
+		case fs.Failed as e:
+			return e
+		}
+		if !prefInfo.Dir {
+			return []string{}
+		}
+		startAbs = prefAbs
+		startRel = strings.Join(p.StaticPrefix, "/")
+		startDepth = p.StaticPrefix.Len()
+	}
+
+	let mut results = []string{}
+	if opts.IncludeDirs && startRel != "" && Match(p, startRel) {
+		results = results.Append(startRel)
+	}
+
+	let mut stack = []scanFrame{scanFrame{absDir: startAbs, relDir: startRel, depth: startDepth}}
+	for stack.Len() > 0 {
+		let top = stack[stack.Len()-1]
+		stack = stack[:stack.Len()-1]
+		if opts.MaxDepth > 0 && top.depth >= opts.MaxDepth {
+			continue
+		}
+		let names = try fs.Files.ReadDir(top.absDir)
+		for name in names {
+			if shouldSkipDotEntry(p, name, opts) {
+				continue
+			}
+			let childAbs = filepath.Join([]string{top.absDir, name})
+			let childRel = joinRel(top.relDir, name)
+			let info = fs.Files.Lstat(childAbs) catch {
+			case fs.NotFound:
+				continue
+			case fs.Denied as e:
+				return e
+			case fs.Failed as e:
+				return e
+			}
+			if info.Dir {
+				if opts.IncludeDirs && Match(p, childRel) {
+					results = results.Append(childRel)
+				}
+				if CanDescend(p, childRel) {
+					stack = stack.Append(scanFrame{
+						absDir: childAbs,
+						relDir: childRel,
+						depth:  top.depth + 1,
+					})
+				}
+			} else {
+				if Match(p, childRel) {
+					results = results.Append(childRel)
+				}
+			}
+		}
+	}
+
+	slices.SortFunc(results, func(a string, b string) int {
+		if a < b { -1 } else if a > b { 1 } else { 0 }
+	})
+}
