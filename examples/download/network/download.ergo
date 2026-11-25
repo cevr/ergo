@@ -1,5 +1,6 @@
 import download/domain
 import fs
+import fstest
 import http
 import strconv
 
@@ -47,7 +48,7 @@ func Save(d Remote, url string, path string) fails domain.Denied | domain.Failed
 	}
 }
 
-let onTestRemote = context fails fs.NotFound | fs.Denied | fs.Failed | http.InvalidClient | http.InvalidLimits needs TestAmbient | TestLoopback {
+let onTestRemote = context fails fs.NotFound | fs.Denied | fs.Failed | http.InvalidClient | http.InvalidLimits needs fstest.TestAmbient | fstest.TestLoopback {
 	domain.Downloader: New(
 		try http.NewTestNet(http.Limits{MaxBodyBytes: 32768, MaxHeaderBytes: 8192, IdleTimeout: 5s, ReadHeaderTimeout: 10s, ReadBodyTimeout: 30s}, http.NoRedirects),
 		try fs.OpenTestRoot(fs.TestRootFolder(), "."),

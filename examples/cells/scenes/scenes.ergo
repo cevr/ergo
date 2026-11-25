@@ -83,12 +83,12 @@ func Agree[E comparable, S, D, F, D2, F2](t mut ui.TestHost[S, E, D, F], c mut h
 // host as on the test host, with the same count.
 law CounterAgrees(seed int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		counterAgrees(uint64(seed), m)
 	}
 }
 
-func counterAgrees(seed uint64, m time.Manual) bool needs Scheduler {
+func counterAgrees(seed uint64, m time.Manual) bool needs time.Scheduler {
 	let acts = script.Parse(script.Gen(seed, 16)) catch {
 	case script.BadLine:
 		return false
@@ -110,12 +110,12 @@ func counterAgrees(seed uint64, m time.Manual) bool needs Scheduler {
 // removals, filters) shows the same on the cell host as on the test host.
 law TodoAgrees(seed int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		todoAgrees(uint64(seed), m)
 	}
 }
 
-func todoAgrees(seed uint64, m time.Manual) bool needs Scheduler {
+func todoAgrees(seed uint64, m time.Manual) bool needs time.Scheduler {
 	let acts = todoscript.Parse(todoscript.Gen(seed, 16)) catch {
 	case todoscript.BadLine:
 		return false

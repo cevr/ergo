@@ -18,6 +18,7 @@
 // string of its bytes.
 
 import go math
+import codec
 import strings
 import utf8
 
@@ -28,7 +29,7 @@ import utf8
 // argument, so at constant arguments the build unfolds them to raw calls
 // of constant bytes, and RawJoins joins them.
 type Item {
-	..Writer,
+	..codec.Writer,
 
 	// raw appends bytes as they are.
 	mut raw(bytes string),
@@ -87,7 +88,7 @@ func bigEndian(t mut item, n uint64, size int) {
 }
 
 func text(t mut item, s string) {
-	t.head(3, uint64(len(s)))
+	t.head(3, uint64(s.Len()))
 	t.raw(s)
 }
 
@@ -158,6 +159,6 @@ func finish(t mut item, hint int) string {
 func Encode[T wire](v T) string needs wired[T] {
 	let hint = strings.Hint[item, T]()
 	let t Item = item{out: strings.Borrow(hint)}
-	encode(v, t)
+	codec.Encode(v, t)
 	t.finish(hint)
 }

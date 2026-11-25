@@ -29,7 +29,7 @@ let set = flag.Set{Name: "canvas-scenes", Usage: "", Flags: []flag.Flag{statsFla
 
 let usage = "usage: canvas-scenes [-stats] [-last] < script, or canvas-scenes -gen N"
 
-func main() fails os.Exit needs Console | Ambient {
+func main() fails os.Exit needs io.Console | os.Ambient {
 	let v = with context { os.Process: os.NewHost() } {
 		flag.Parse(set, os.Process.Args()) catch {
 		case err:
@@ -41,12 +41,12 @@ func main() fails os.Exit needs Console | Ambient {
 	}
 	if genFlag.Get(v) >= 0 {
 		for l in script.Receipt(genFlag.Get(v)) {
-			Console.Println(l)
+			io.Console.Println(l)
 		}
 		return
 	}
 	let clock = time.NewManual(0)
-	let status = with context { io.Stdin: io.NewStdin(), Scheduler: clock } { script.Run(clock, statsFlag.Get(v), lastFlag.Get(v)) }
+	let status = with context { io.Stdin: io.NewStdin(), time.Scheduler: clock } { script.Run(clock, statsFlag.Get(v), lastFlag.Get(v)) }
 	if status != 0 {
 		return os.Exit{Code: 1, Message: "canvas-scenes: the script did not run"}
 	}

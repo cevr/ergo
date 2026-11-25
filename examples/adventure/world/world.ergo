@@ -2,6 +2,7 @@
 // them, where each item starts, and the item an exit asks you to carry.
 // It is pure.
 
+import option
 import strings
 
 // Dir is a way out of a room.
@@ -57,21 +58,21 @@ law OppositeIsAnInvolution(n int) {
 func DirOf(n int) Dir { Dirs[((n%6)+6)%6] }
 
 // ParseDir reads a direction, by its word or its first letter.
-func ParseDir(word string) Option[Dir] {
+func ParseDir(word string) option.Option[Dir] {
 	for d in Dirs {
 		let name = DirName(d)
 		if word == name || word == strings.Slice(name, 0, 1) {
-			return Some[Dir]{Value: d}
+			return option.Some[Dir]{Value: d}
 		}
 	}
-	None
+	option.None
 }
 
 // ParseDirReadsDirName: a direction's word and its first letter read back
 // to it.
 law ParseDirReadsDirName(n int) {
 	let d = DirOf(n)
-	let back = Some[Dir]{Value: d}
+	let back = option.Some[Dir]{Value: d}
 	ParseDir(DirName(d)) == back && ParseDir(strings.Slice(DirName(d), 0, 1)) == back
 }
 
@@ -86,11 +87,11 @@ type Exit { From string, Way Dir, To string, Key string, Barred string }
 // opposite way, with the same key.
 law EveryExitHasAWayBack(n int) {
 	let w = Castle()
-	let e = w.Exits[((n%len(w.Exits))+len(w.Exits))%len(w.Exits)]
+	let e = w.Exits[((n%w.Exits.Len())+w.Exits.Len())%w.Exits.Len()]
 	match ExitOf(w, e.To, Opposite(e.Way)) {
-	case Some[Exit] as back:
+	case option.Some[Exit] as back:
 		back.Value.To == e.From && back.Value.Key == e.Key
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -106,23 +107,23 @@ let Carried = "you"
 type World { Rooms []Room, Exits []Exit, Items []Place, Start string, Goal string }
 
 // RoomOf is the room named name.
-func RoomOf(w World, name string) Option[Room] {
+func RoomOf(w World, name string) option.Option[Room] {
 	for r in w.Rooms {
 		if r.Name == name {
-			return Some[Room]{Value: r}
+			return option.Some[Room]{Value: r}
 		}
 	}
-	None
+	option.None
 }
 
 // ExitOf is the exit from room that goes way.
-func ExitOf(w World, room string, way Dir) Option[Exit] {
+func ExitOf(w World, room string, way Dir) option.Option[Exit] {
 	for e in w.Exits {
 		if e.From == room && e.Way == way {
-			return Some[Exit]{Value: e}
+			return option.Some[Exit]{Value: e}
 		}
 	}
-	None
+	option.None
 }
 
 // Both is the exit from a to b going way and its way back, with one key.

@@ -18,7 +18,7 @@ func Decide(m Mode, line string) []Event fails Unknown | BadNumber | MissingText
 		case Line as t:
 			[]Event{NoteLineKept{Text: t.Text}}
 		case End:
-			[]Event{NoteSaved{At: c.L.Count() + 1, Title: c.Title, Lines: len(c.Lines)}}
+			[]Event{NoteSaved{At: c.L.Count() + 1, Title: c.Title, Lines: c.Lines.Len()}}
 		}
 	case Confirming as c:
 		match ParseAnswer(line) {

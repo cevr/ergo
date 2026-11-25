@@ -12,7 +12,7 @@ test FastPathsTakeNoSteps {
 	fast.Feed(sequences)
 	let mut slow = NewStream(false)
 	slow.Feed(sequences)
-	assert Steps(slow) == len(sequences)
+	assert Steps(slow) == sequences.Len()
 	assert Steps(fast) == 0
 	assert Render(fast.Take()) == Render(slow.Take())
 }

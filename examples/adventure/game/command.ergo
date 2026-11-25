@@ -1,4 +1,5 @@
 import adventure/world
+import option
 import strings
 
 // Command is a line the player types.
@@ -18,15 +19,15 @@ type NoWay { Word string }
 // direction (north, n) meaning go there. A blank line is Blank.
 func Parse(line string) Command fails Unknown | Missing | NoWay {
 	let words = strings.Fields(strings.ToLower(line))
-	if len(words) == 0 {
+	if words.Len() == 0 {
 		return Blank
 	}
 	let verb = words[0]
 	let object = strings.Join(rest(words), " ")
 	match world.ParseDir(verb) {
-	case Some[world.Dir] as d:
+	case option.Some[world.Dir] as d:
 		return Go{Way: d.Value}
-	case None:
+	case option.None:
 	}
 	match verb {
 	case "go", "walk":
@@ -34,9 +35,9 @@ func Parse(line string) Command fails Unknown | Missing | NoWay {
 			return Missing{Verb: verb}
 		}
 		match world.ParseDir(object) {
-		case Some[world.Dir] as d:
+		case option.Some[world.Dir] as d:
 			Go{Way: d.Value}
-		case None:
+		case option.None:
 			NoWay{Word: object}
 		}
 	case "take", "get":

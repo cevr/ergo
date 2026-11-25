@@ -1,6 +1,8 @@
 import exec
 import filepath
 import fs
+import fstest
+import option
 import os
 import slices
 import strings
@@ -82,11 +84,11 @@ func verifyFormatWriteIndex(cwd string, oFmt oracle.OidFormat, fmt oid.Format, p
 	let idSym = try loose.InstallObject(looseStore, oid.Blob, symTarget.Bytes())
 
 	let entries = []index.Entry{
-		makeIndexEntry("a0", index.ModeRegular, id4, len(f4), 0, false, false),
-		makeIndexEntry("a/inner.txt", index.ModeRegular, id2, len(f2), 0, false, false),
-		makeIndexEntry("a-file", index.ModeRegular, id1, len(f1), 0, false, false),
-		makeIndexEntry("run.sh", index.ModeExecutable, id3, len(f3), 0, false, false),
-		makeIndexEntry("link", index.ModeSymlink, idSym, len(symTarget), 0, false, false),
+		makeIndexEntry("a0", index.ModeRegular, id4, f4.Len(), 0, false, false),
+		makeIndexEntry("a/inner.txt", index.ModeRegular, id2, f2.Len(), 0, false, false),
+		makeIndexEntry("a-file", index.ModeRegular, id1, f1.Len(), 0, false, false),
+		makeIndexEntry("run.sh", index.ModeExecutable, id3, f3.Len(), 0, false, false),
+		makeIndexEntry("link", index.ModeSymlink, idSym, symTarget.Len(), 0, false, false),
 	}
 
 	let indexPath = filepath.Join([]string{layout.GitDir, "index"})
@@ -94,8 +96,8 @@ func verifyFormatWriteIndex(cwd string, oFmt oracle.OidFormat, fmt oid.Format, p
 
 	let lsFiles = try runGitOk(repoDir, []string{"ls-files", "-s", "-z"}, "", pathEnv, 1)
 	let recs = strings.Split(strings.TrimSuffix(lsFiles, "\x00"), "\x00")
-	if len(recs) != 5 {
-		return testFail{reason: "git ls-files -s expected 5 entries, got \(len(recs))"}
+	if recs.Len() != 5 {
+		return testFail{reason: "git ls-files -s expected 5 entries, got \(recs.Len())"}
 	}
 	if !strings.Contains(lsFiles, "100644 "+oid.Hex(id1)+" 0\ta-file\x00") ||
 		!strings.Contains(lsFiles, "100755 "+oid.Hex(id3)+" 0\trun.sh\x00") ||
@@ -131,7 +133,7 @@ func verifyFormatWriteIndex(cwd string, oFmt oracle.OidFormat, fmt oid.Format, p
 		return testFail{reason: "BuildSnapshotTree mutated on-disk .git/index"}
 	}
 
-	let unmerged = []index.Entry{makeIndexEntry("bad.txt", index.ModeRegular, id1, len(f1), 2, false, false)}
+	let unmerged = []index.Entry{makeIndexEntry("bad.txt", index.ModeRegular, id1, f1.Len(), 2, false, false)}
 	let mut sawUnmerged = false
 	let _ = with context { loose.Objects: diskLoose } {
 		WriteTree(fmt, unmerged) catch {
@@ -147,8 +149,8 @@ func verifyFormatWriteIndex(cwd string, oFmt oracle.OidFormat, fmt oid.Format, p
 	}
 
 	let v3Entries = []index.Entry{
-		makeIndexEntry("a-file", index.ModeRegular, id1, len(f1), 0, true, false),
-		makeIndexEntry("a0", index.ModeRegular, id4, len(f4), 0, false, true),
+		makeIndexEntry("a-file", index.ModeRegular, id1, f1.Len(), 0, true, false),
+		makeIndexEntry("a0", index.ModeRegular, id4, f4.Len(), 0, false, true),
 	}
 	try WriteIndex(fmt, indexPath, v3Entries, locks.Durable)
 	let v3Ls = try runGitOk(repoDir, []string{"ls-files", "-v", "-z"}, "", pathEnv, 5)
@@ -165,7 +167,7 @@ func verifyFormatWriteIndex(cwd string, oFmt oracle.OidFormat, fmt oid.Format, p
 		case InvalidPath, DuplicateEntry, InvalidStage, InvalidMode, Collision:
 		}
 	}
-	let wantOrig = Some[string]{Value: "original-bytes"}
+	let wantOrig = option.Some[string]{Value: "original-bytes"}
 	if !sawLockFail || memLocks.ReadTarget("idx") != wantOrig || memLocks.LockExists("idx.lock") {
 		return testFail{reason: "failed WriteIndex mutated target or leaked lock"}
 	}
@@ -260,12 +262,12 @@ func RemoveLock(l hostFSLockOps, lockPath string) fails locks.NotHeld {
 func SyncDir(_ hostFSLockOps, _ string) fails locks.DirSyncUncertain {
 }
 
-func ReadTarget(l hostFSLockOps, targetPath string) Option[string] {
+func ReadTarget(l hostFSLockOps, targetPath string) option.Option[string] {
 	let data = fs.ReadFile(l.host, targetPath) catch {
 	case fs.NotFound, fs.Denied, fs.Failed:
-		return None
+		return option.None
 	}
-	Some[string]{Value: data}
+	option.Some[string]{Value: data}
 }
 
 func LockExists(l hostFSLockOps, lockPath string) bool {
@@ -276,7 +278,7 @@ func LockExists(l hostFSLockOps, lockPath string) bool {
 	true
 }
 
-let onOracleWithHost = context needs TestAmbient {
+let onOracleWithHost = context needs fstest.TestAmbient {
 	exec.Runner:     exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
 	fs.Files:        fs.NewTestHost(),
 	fs.Writes:       fs.NewTestHost(),

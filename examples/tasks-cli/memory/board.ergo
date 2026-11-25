@@ -1,5 +1,6 @@
 // Package memory holds Board, the in-memory tasks.Board.
 
+import option
 import sync
 import taskscli/tasks
 
@@ -14,7 +15,7 @@ func NewBoard() Board { Board{items: sync.NewRef[Map[int, tasks.Task]](Map[int, 
 // Create adds an open item of title and p, with the next ID.
 func Create(b Board, title string, p tasks.Priority) tasks.Task fails tasks.Broken {
 	sync.Modify(b.items, func(items Map[int, tasks.Task]) (tasks.Task, Map[int, tasks.Task]) {
-		let t = tasks.Task{ID: len(items) + 1, Title: title, Priority: p, State: tasks.Open}
+		let t = tasks.Task{ID: items.Len() + 1, Title: title, Priority: p, State: tasks.Open}
 		let mut next = items
 		next[t.ID] = t
 		(t, next)
@@ -23,23 +24,23 @@ func Create(b Board, title string, p tasks.Priority) tasks.Task fails tasks.Brok
 
 // Close closes the open item id.
 func Close(b Board, id int) tasks.Task fails tasks.NotFound | tasks.AlreadyClosed | tasks.Broken {
-	let found = sync.Modify(b.items, func(items Map[int, tasks.Task]) (Option[tasks.Task], Map[int, tasks.Task]) {
+	let found = sync.Modify(b.items, func(items Map[int, tasks.Task]) (option.Option[tasks.Task], Map[int, tasks.Task]) {
 		match items.Get(id) {
-		case Some[tasks.Task] as t:
+		case option.Some[tasks.Task] as t:
 			let mut next = items
 			next[id] = tasks.Task{..t.Value, State: tasks.Closed}
 			(t, next)
-		case None:
-			(None, items)
+		case option.None:
+			(option.None, items)
 		}
 	})
 	match found {
-	case Some[tasks.Task] as t:
+	case option.Some[tasks.Task] as t:
 		if !tasks.IsOpen(t.Value) {
 			return tasks.AlreadyClosed{ID: id}
 		}
 		tasks.Task{..t.Value, State: tasks.Closed}
-	case None:
+	case option.None:
 		tasks.NotFound{ID: id}
 	}
 }
@@ -48,11 +49,11 @@ func Close(b Board, id int) tasks.Task fails tasks.NotFound | tasks.AlreadyClose
 func All(b Board) []tasks.Task fails tasks.Broken {
 	let items = b.items.Get()
 	let mut out = []tasks.Task{}
-	for id in 1..len(items)+1 {
+	for id in 1..items.Len()+1 {
 		match items.Get(id) {
-		case Some[tasks.Task] as t:
+		case option.Some[tasks.Task] as t:
 			out = out.Append(t.Value)
-		case None:
+		case option.None:
 		}
 	}
 	out

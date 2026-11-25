@@ -1,3 +1,5 @@
+import machines
+
 // MaxParams is the most parameters a sequence keeps; a CSI with more is
 // dropped whole.
 let MaxParams = 24
@@ -67,9 +69,9 @@ func completed(k Counts) Counts {
 
 // Step is the machine's step: every byte moves the parse and emits the
 // transition's action.
-func Step(p Parse, c Class) Decision[Parse, Act] {
+func Step(p Parse, c Class) machines.Decision[Parse, Act] {
 	let t, k = Advance(p, c)
-	Emit[Parse, Act]{Next: Parse{At: t.To, Counts: k}, Output: t.Do}
+	machines.Emit[Parse, Act]{Next: Parse{At: t.To, Counts: k}, Output: t.Do}
 }
 
 // Parser is the VT parser as a machine. Its states and its byte classes

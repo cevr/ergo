@@ -11,13 +11,13 @@ type Unknown { Line string }
 // `halt`.
 func Parse(line string) []Signal fails Unknown {
 	let words = strings.Fields(line)
-	if len(words) == 1 && words[0] == "tick" {
+	if words.Len() == 1 && words[0] == "tick" {
 		return []Signal{Tick}
 	}
-	if len(words) == 1 && words[0] == "halt" {
+	if words.Len() == 1 && words[0] == "halt" {
 		return []Signal{Halt}
 	}
-	if len(words) != 2 {
+	if words.Len() != 2 {
 		return Unknown{Line: line}
 	}
 	let n = strconv.Atoi(words[1]) catch {
@@ -37,38 +37,38 @@ func Parse(line string) []Signal fails Unknown {
 // state it reaches on Console, until halt or the end of the input. A line
 // or a signal that fails is told and changes nothing; a signal the car
 // ignores prints nothing.
-func Drive() Stopped needs Console | io.Stdin {
+func Drive() Stopped needs io.Console | io.Stdin {
 	let mut s = machines.Initial(Car{})
-	Console.Println(Describe(s))
+	io.Console.Println(Describe(s))
 	for line in io.Stdin.Lines() {
 		let sigs = Parse(line) catch {
 		case Unknown as u:
-			Console.Println("unknown command: " + u.Line)
+			io.Console.Println("unknown command: " + u.Line)
 			continue
 		}
 		for sig in sigs {
 			let d = Step(s, sig) catch {
 			case floors.Full as f:
-				Console.Println("full: the car keeps at most \(f.Cap) calls")
-				Reject
+				io.Console.Println("full: the car keeps at most \(f.Cap) calls")
+				machines.Reject
 			case NoFloor as n:
-				Console.Println("no floor \(n.Floor): the floors are 0 to \(Top)")
-				Reject
+				io.Console.Println("no floor \(n.Floor): the floors are 0 to \(Top)")
+				machines.Reject
 			}
 			match d {
-			case Done[Stopped] as done:
-				Console.Println(StopText(done.Output))
+			case machines.Done[Stopped] as done:
+				io.Console.Println(StopText(done.Output))
 				return done.Output
-			case Ignore, Reject:
+			case machines.Ignore, machines.Reject:
 				continue
-			case Enter[State], Stay[State], Emit[State, Stopped], Tell[State, Stopped]:
+			case machines.Enter[State], machines.Stay[State], machines.Emit[State, Stopped], machines.Tell[State, Stopped]:
 			}
 			s = machines.Next(s, d)
-			Console.Println(Describe(s))
+			io.Console.Println(Describe(s))
 		}
 	}
 	let end = Stopped{At: AtOf(s), Served: ServedOf(s)}
-	Console.Println(StopText(end))
+	io.Console.Println(StopText(end))
 	end
 }
 

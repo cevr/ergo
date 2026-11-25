@@ -3,6 +3,7 @@
 
 import logstat/access
 import logstat/stats
+import option
 import slices
 import time
 
@@ -25,18 +26,18 @@ type ByMethod {}
 let Keys = []string{"path", "addr", "status", "method"}
 
 // KeyNamed is the Key of the name, if it is one of Keys.
-func KeyNamed(name string) Option[Key] {
+func KeyNamed(name string) option.Option[Key] {
 	match name {
 	case "path":
-		Some[Key]{Value: ByPath}
+		option.Some[Key]{Value: ByPath}
 	case "addr":
-		Some[Key]{Value: ByAddr}
+		option.Some[Key]{Value: ByAddr}
 	case "status":
-		Some[Key]{Value: ByStatus}
+		option.Some[Key]{Value: ByStatus}
 	case "method":
-		Some[Key]{Value: ByMethod}
+		option.Some[Key]{Value: ByMethod}
 	case _:
-		None
+		option.None
 	}
 }
 
@@ -57,9 +58,9 @@ func KeyName(k Key) string {
 // KeyNameReadsBack: the name of a key reads back as the key.
 law KeyNameReadsBack(k Key) {
 	match KeyNamed(KeyName(k)) {
-	case Some as back:
+	case option.Some as back:
 		KeyName(back.Value) == KeyName(k)
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -86,11 +87,11 @@ type Summary {
 	Requests int,
 	Bad      int,
 	Bytes    int,
-	Span     Option[Span],
+	Span     option.Option[Span],
 	Classes  []stats.Count,
 	By       string,
 	Top      []stats.Count,
-	Mean     Option[int],
+	Mean     option.Option[int],
 	Latency  []stats.Quantile,
 }
 
@@ -111,7 +112,7 @@ func Summarize(reqs []access.Request, bad int, by Key, top int) Summary {
 		bytes += r.Bytes
 	}
 	Summary{
-		Requests: len(reqs),
+		Requests: reqs.Len(),
 		Bad:      bad,
 		Bytes:    bytes,
 		Span:     span(reqs),
@@ -124,9 +125,9 @@ func Summarize(reqs []access.Request, bad int, by Key, top int) Summary {
 }
 
 // span is the first and last time of reqs, if there are any.
-func span(reqs []access.Request) Option[Span] {
-	if len(reqs) == 0 {
-		return None
+func span(reqs []access.Request) option.Option[Span] {
+	if reqs.Len() == 0 {
+		return option.None
 	}
 	let mut first = reqs[0].At
 	let mut last = reqs[0].At
@@ -138,7 +139,7 @@ func span(reqs []access.Request) Option[Span] {
 			last = r.At
 		}
 	}
-	Some{Value: Span{First: first, Last: last}}
+	option.Some{Value: Span{First: first, Last: last}}
 }
 
 // inClassOrder is the counts of each class in m, in the order of
@@ -148,9 +149,9 @@ func inClassOrder(m Map[string, int]) []stats.Count {
 	for c in access.Classes {
 		let name = access.ClassName(c)
 		match m.Get(name) {
-		case Some as n:
+		case option.Some as n:
 			out = out.Append(stats.Count{Key: name, N: n.Value})
-		case None:
+		case option.None:
 		}
 	}
 	out

@@ -1,3 +1,4 @@
+import option
 import sync
 import github.com/cevr/ergo/modules/git/oid
 
@@ -28,16 +29,16 @@ func PutRaw(m MemoryStore, id oid.OID, raw []byte) {
 func Read(m MemoryStore, id oid.OID, maxBytes int) Object fails Missing | Corrupt | Collision | LimitExceeded | IOFailed {
 	let key = oid.Hex(id)
 	match m.blobs.Get().Get(key) {
-	case None:
+	case option.None:
 		return Missing{OID: id}
-	case Some[[]byte] as raw:
+	case option.Some[[]byte] as raw:
 		try DecodeAndVerify(id, raw.Value, maxBytes)
 	}
 }
 
 // Contains implements Objects.Contains on MemoryStore.
 func Contains(m MemoryStore, id oid.OID) bool {
-	m.blobs.Get().Get(oid.Hex(id)) != None
+	m.blobs.Get().Get(oid.Hex(id)) != option.None
 }
 
 // Install implements Objects.Install on MemoryStore.
@@ -48,7 +49,7 @@ func Install(m MemoryStore, kind oid.Kind, data []byte) oid.OID fails Collision 
 	}
 	let key = oid.Hex(id)
 	let cur = m.blobs.Get()
-	if cur.Get(key) == None {
+	if cur.Get(key) == option.None {
 		m.blobs.Set(cur.Put(key, EncodeLoose(kind, data)))
 	}
 	id

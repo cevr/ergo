@@ -1,13 +1,14 @@
 import exec
 import filepath
 import fs
+import fstest
 import os
 import slices
 import strconv
 import strings
 import github.com/cevr/ergo/modules/git/oracle
 
-let onOracle = context needs TestAmbient {
+let onOracle = context needs fstest.TestAmbient {
 	exec.Runner: exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
 	fs.Files:    fs.NewTestHost(),
 	fs.Writes:   fs.NewTestHost(),

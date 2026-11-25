@@ -183,28 +183,44 @@ func (s *ForeignKeySource) key(target string) ForeignKey {
 		for _, v := range s.Variants {
 			memo += "|" + v.Tag + "=" + v.Target.ID()
 		}
-		memo += "|" + target
+		memo += "|always=" + strings.Join(s.Always, ",") + "|" + target
 		if k, ok := runtimeKeys.Load(memo); ok {
 			return k.(ForeignKey)
+		}
+		ns := runtimeCacheNamespace()
+		if k, ok := fkDiskCache.getRuntime(ns, memo); ok {
+			runtimeKeys.Store(memo, k)
+			return k
 		}
 		c := runtimeWorldFor(*s.Target).closure(p, name)
 		k := ForeignKey{Key: "closure " + c.Hash, Group: rel}
 		var tags []string
 		for _, v := range s.Variants {
+			if slices.Contains(tags, v.Tag) {
+				continue
+			}
 			if vc := runtimeWorldFor(v.Target).closure(p, name); vc.Hash != c.Hash && !slices.Contains(tags, v.Tag) {
 				tags = append(tags, v.Tag)
 			}
 		}
 		k.Build = s.buildOf(tags)
 		runtimeKeys.Store(memo, k)
+		fkDiskCache.putRuntime(ns, memo, k)
 		return k
 	}
 	if rel, ok := strings.CutPrefix(p, runtimefiles.Module+"/"); ok && strings.HasPrefix(rel, "runtime/") {
 		if k, ok := runtimeKeys.Load(target); ok {
 			return k.(ForeignKey)
 		}
+		ns := runtimeCacheNamespace()
+		diskKey := "all|" + target
+		if k, ok := fkDiskCache.getRuntime(ns, diskKey); ok {
+			runtimeKeys.Store(target, k)
+			return k
+		}
 		k := ForeignKey{Key: "closure " + runtimeWorld().closure(p, name).Hash, Group: rel}
 		runtimeKeys.Store(target, k)
+		fkDiskCache.putRuntime(ns, diskKey, k)
 		return k
 	}
 	mod, version, dir, repl := s.module(p)
@@ -221,18 +237,40 @@ func (s *ForeignKeySource) key(target string) ForeignKey {
 		return ForeignKey{Key: "unknown " + p, Shown: p + "@unknown", Build: s.everyTag()}
 	}
 	if dir != "" {
+		ns := localCacheNamespace()
+		localKey := s.localCacheKey(mod, target)
+		if cached, ok := fkDiskCache.getLocal(ns, localKey); ok && s.localDepsValid(mod, cached.Deps) {
+			return cached.Key
+		}
 		c := s.world(mod, s.ReadDir, "", s.Target).closure(p, name)
 		if c.Unloaded {
 			return ForeignKey{Key: "unread " + p, Shown: p + "@unread", Build: s.everyTag()}
 		}
 		k := ForeignKey{Key: "closure " + c.Hash, Group: p}
+		deps := make(map[string]string, len(c.deps))
+		for depPkg, fh := range c.deps {
+			deps["\x00"+depPkg] = fh
+		}
 		var tags []string
 		for i, v := range s.Variants {
-			if vc := s.world(mod, v.Read, strconv.Itoa(i)+" ", &v.Target).closure(p, name); (vc.Unloaded || vc.Hash != c.Hash) && !slices.Contains(tags, v.Tag) {
+			if slices.Contains(tags, v.Tag) {
+				continue
+			}
+			vc := s.world(mod, v.Read, strconv.Itoa(i)+" ", &v.Target).closure(p, name)
+			vPrefix := strconv.Itoa(i) + "\x00"
+			if vc.Unloaded {
+				deps[vPrefix+p] = "<unloaded>"
+			} else {
+				for depPkg, fh := range vc.deps {
+					deps[vPrefix+depPkg] = fh
+				}
+			}
+			if (vc.Unloaded || vc.Hash != c.Hash) && !slices.Contains(tags, v.Tag) {
 				tags = append(tags, v.Tag)
 			}
 		}
 		k.Build = s.buildOf(tags)
+		fkDiskCache.putLocal(ns, localKey, fkLocalCached{Key: k, Deps: deps})
 		return k
 	}
 	if repl != nil {

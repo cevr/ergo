@@ -11,6 +11,7 @@
 import flag
 import io
 import machines
+import option
 import os
 import tui/keys
 import tui/picker
@@ -29,7 +30,7 @@ func run(args []string) fails os.Exit needs io.Stdout | io.Stdin {
 		try flag.Exit(err, "usage: tui [-frames] [ITEM...] < keys")
 		return
 	}
-	let items = if len(flag.Rest(v)) == 0 { picker.Languages } else { flag.Rest(v) }
+	let items = if flag.Rest(v).Len() == 0 { picker.Languages } else { flag.Rest(v) }
 	let text = io.Stdin.ReadAll() catch {
 	case io.ReadFailed as f:
 		return os.Exit{Code: 1, Message: "tui: cannot read the keys: " + f.Reason}
@@ -41,19 +42,19 @@ func run(args []string) fails os.Exit needs io.Stdout | io.Stdin {
 		}
 	}
 	match o.Choice {
-	case Some[picker.Choice] as c:
+	case option.Some[picker.Choice] as c:
 		match c.Value {
 		case picker.Picked as p:
 			io.Stdout.Println(p.Item)
 		case picker.Cancelled:
 			return os.Exit{Code: 1, Message: "tui: cancelled"}
 		}
-	case None:
+	case option.None:
 		return os.Exit{Code: 2, Message: "tui: the keys ended before a pick"}
 	}
 }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stdin: io.NewStdin() } {
 		try run(os.Process.Args())
 	}

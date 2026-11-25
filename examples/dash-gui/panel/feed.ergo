@@ -3,6 +3,8 @@
 // none; Stale comes back Live with the next sample; Paused keeps the view
 // as it was until Resume.
 
+import machines
+
 // StaleAfter is how many frames with no sample a live panel waits before
 // it shows its source as stale: half a second at 120 frames a second.
 let StaleAfter = 60
@@ -76,54 +78,54 @@ func PanelOf(s State) Panel {
 // Step is a panel's transition. A paused panel ignores samples and the
 // clock; a pause of a paused panel and a resume of a running one are
 // rejected.
-func Step(s State, e Event) Decision[State, Note] {
+func Step(s State, e Event) machines.Decision[State, Note] {
 	match s {
 	case Live as l:
 		match e {
 		case Samples as m:
-			if len(m.Values) == 0 {
-				return Ignore
+			if m.Values.Len() == 0 {
+				return machines.Ignore
 			}
-			Stay[State]{Next: Live{P: take(l.P, m)}}
+			machines.Stay[State]{Next: Live{P: take(l.P, m)}}
 		case Tick as t:
 			if t.Frame-l.P.Seen > StaleAfter {
-				return Emit[State, Note]{Next: Stale{P: l.P}, Output: WentStale{Frame: t.Frame}}
+				return machines.Emit[State, Note]{Next: Stale{P: l.P}, Output: WentStale{Frame: t.Frame}}
 			}
-			Ignore
+			machines.Ignore
 		case Pause:
-			Enter[State]{Next: Paused{P: l.P}}
+			machines.Enter[State]{Next: Paused{P: l.P}}
 		case Resume:
-			Reject
+			machines.Reject
 		}
 	case Stale as t:
 		match e {
 		case Samples as m:
-			if len(m.Values) == 0 {
-				return Ignore
+			if m.Values.Len() == 0 {
+				return machines.Ignore
 			}
-			Emit[State, Note]{Next: Live{P: take(t.P, m)}, Output: CameBack{Frame: m.Frame}}
+			machines.Emit[State, Note]{Next: Live{P: take(t.P, m)}, Output: CameBack{Frame: m.Frame}}
 		case Tick:
-			Ignore
+			machines.Ignore
 		case Pause:
-			Enter[State]{Next: Paused{P: t.P}}
+			machines.Enter[State]{Next: Paused{P: t.P}}
 		case Resume:
-			Reject
+			machines.Reject
 		}
 	case Paused as p:
 		match e {
 		case Samples, Tick:
-			Ignore
+			machines.Ignore
 		case Resume:
-			Enter[State]{Next: Live{P: p.P}}
+			machines.Enter[State]{Next: Live{P: p.P}}
 		case Pause:
-			Reject
+			machines.Reject
 		}
 	}
 }
 
 // take is p with the samples of a frame drawn into its view.
 func take(p Panel, m Samples) Panel {
-	if len(m.Values) == 0 {
+	if m.Values.Len() == 0 {
 		return p
 	}
 	let v = match p.View {
@@ -132,7 +134,7 @@ func take(p Panel, m Samples) Panel {
 	case SparkView as s:
 		SparkView{Samples: pushAll(s.Samples, m.Values)}
 	case GaugeView as g:
-		GaugeView{From: Shown(g, m.Frame), To: m.Values[len(m.Values)-1], Start: m.Frame}
+		GaugeView{From: Shown(g, m.Frame), To: m.Values[m.Values.Len()-1], Start: m.Frame}
 	case StripView as h:
 		StripView{Samples: pushAll(h.Samples, m.Values)}
 	case LogView as l:
@@ -144,7 +146,7 @@ func take(p Panel, m Samples) Panel {
 		}
 		LogView{Entries: r}
 	}
-	Panel{..p, View: v, Seen: m.Frame, Got: p.Got + len(m.Values)}
+	Panel{..p, View: v, Seen: m.Frame, Got: p.Got + m.Values.Len()}
 }
 
 func pushAll(r Ring[int], xs []int) Ring[int] {
@@ -200,13 +202,13 @@ type Feed machine[State, Event] {
 // After is the state after e: an ignored or rejected event leaves it.
 func After(s State, e Event) State {
 	match Step(s, e) {
-	case Enter[State] as n:
+	case machines.Enter[State] as n:
 		n.Next
-	case Stay[State] as t:
+	case machines.Stay[State] as t:
 		t.Next
-	case Emit[State, Note] as m:
+	case machines.Emit[State, Note] as m:
 		m.Next
-	case Ignore, Tell[State, Note], Reject, Done[Note]:
+	case machines.Ignore, machines.Tell[State, Note], machines.Reject, machines.Done[Note]:
 		s
 	}
 }

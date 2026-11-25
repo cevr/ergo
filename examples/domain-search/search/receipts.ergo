@@ -10,6 +10,7 @@
 import domain-search/domains
 import domain-search/search/cache
 import domain-search/search/route
+import option
 
 // Held is how many values the state holds per candidate: the rows of a
 // listed index and the listings shown.
@@ -18,10 +19,10 @@ func Held(s Search) int {
 	case Identity:
 		0
 	case Listed as l:
-		len(l.Rows)
+		l.Rows.Len()
 	}
 	for _, p in s.Pages {
-		n = n + len(p)
+		n = n + p.Len()
 	}
 	n
 }
@@ -43,11 +44,11 @@ func prefixes(m Sim, texts []string, gap int) Sim {
 // depend on the host.
 test TypingScriptsMakeFewRequests {
 	let cold = Settle(Feed(page(), Typed{Text: "foldkit"}))
-	assert len(cold.Fetches) == 2
+	assert cold.Fetches.Len() == 2
 	let settled = prefixes(page(), []string{"f", "fo", "fol", "fold", "foldk", "foldki", "foldkit"}, 250)
-	assert len(settled.Fetches) == 14
+	assert settled.Fetches.Len() == 14
 	let retyped = prefixes(settled, []string{"foldki", "foldk", "fold", "foldk", "foldki", "foldkit"}, 250)
-	assert len(retyped.Fetches) == 14 && retyped.S.Checked == 60
+	assert retyped.Fetches.Len() == 14 && retyped.S.Checked == 60
 }
 
 // P6 and P7: a session of one more distinct settled query than the cache
@@ -73,7 +74,7 @@ test ASessionIsBounded {
 	}
 	assert cache.SettledCount(full.S.Cache) == capacity && cache.SettledCount(m.S.Cache) == capacity
 	assert Held(full.S) == Held(m.S) && Held(m.S) == 60
-	assert len(m.Fetches) == 2*n
+	assert m.Fetches.Len() == 2*n
 }
 
 // P8: choosing a price order makes one request, the whole catalog, and
@@ -82,16 +83,16 @@ test ChoosingAnOrderMakesOneRequestAndOneSort {
 	let acme = Settle(Feed(page(), Typed{Text: "acme"}))
 	assert acme.S.Comparisons == 0
 	let chosen = Feed(acme, Ordered{Order: route.PriceAscending})
-	assert len(chosen.Fetches) == 3 && fetched(chosen, 2, "acme", 0, 556) && chosen.S.Comparisons == 0
+	assert chosen.Fetches.Len() == 3 && fetched(chosen, 2, "acme", 0, 556) && chosen.S.Comparisons == 0
 	let done = Settle(chosen)
-	let n = len(domains.Catalog)
-	assert len(done.Fetches) == 3 && done.S.Comparisons > 0 && done.S.Comparisons <= n*10
+	let n = domains.Catalog.Len()
+	assert done.Fetches.Len() == 3 && done.S.Comparisons > 0 && done.S.Comparisons <= n*10
 	// The index lists the available listings by price, then the taken.
 	let mut last = 0.0
 	let mut takenSeen = false
 	for i in 0..Rows(done.S.Index) {
 		match ListingAt(done.S, At(done.S.Index, i)) {
-		case Some[domains.Listing] as l:
+		case option.Some[domains.Listing] as l:
 			match l.Value {
 			case domains.Available as a:
 				assert !takenSeen && a.Price >= last
@@ -99,7 +100,7 @@ test ChoosingAnOrderMakesOneRequestAndOneSort {
 			case domains.Unavailable:
 				takenSeen = true
 			}
-		case None:
+		case option.None:
 			assert false
 		}
 	}

@@ -10,7 +10,7 @@ test TapeKeepsFramesInOrder {
 	t.Show(sim.Frame{N: 1, Phase: "running", G: sim.Fresh(world.Blank())})
 	copy.Show(sim.Frame{N: 2, Phase: "paused", G: sim.Fresh(world.Blank())})
 	let fs = t.Frames()
-	assert len(fs) == 2 && fs[0].N == 1 && fs[1].Phase == "paused"
+	assert fs.Len() == 2 && fs[0].N == 1 && fs[1].Phase == "paused"
 }
 
 // The law holds for a Tape in any state: k frames shown first. ergo test

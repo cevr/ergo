@@ -1,4 +1,5 @@
 import ergo.local/prototype/examples/starsgui/catalog
+import option
 import ui
 
 // RowHeight is the height of a row of the list.
@@ -9,7 +10,7 @@ let RowHeight = ui.Length(20.0)
 // buttons, the status line, the text field, and the view's rows as a
 // virtual list keyed by star id, one text a row (catalog.RowLine).
 func View(f mut ui.Frame[Signal], s catalog.State) {
-	ui.OnKey(f, func(k ui.KeyPress) Option[Signal] { Keyed(k) })
+	ui.OnKey(f, func(k ui.KeyPress) option.Option[Signal] { Keyed(k) })
 	let g = catalog.GridOf(s)
 	ui.Column(f, ui.Plain()) {
 		ui.Row(f, ui.Plain()) {
@@ -37,7 +38,7 @@ func View(f mut ui.Frame[Signal], s catalog.State) {
 		}
 		ui.Text(f, catalog.Status(s))
 		ui.Input(f, Typed(s), "text", func(t string) Signal { Retext{Text: t} })
-		ui.Rows(f, "stars", len(g.View), RowHeight, func(i int) ui.Key { ui.IntKey{Value: g.View[i]} }, func(i int) {
+		ui.Rows(f, "stars", g.View.Len(), RowHeight, func(i int) ui.Key { ui.IntKey{Value: g.View[i]} }, func(i int) {
 			ui.Text(f, catalog.RowLine(g, i))
 		})
 	}
@@ -46,27 +47,27 @@ func View(f mut ui.Frame[Signal], s catalog.State) {
 // Keyed is the table's signal of a key: the arrows move a row, the page
 // keys a window, Home and End to the ends; Enter commits, Escape cancels
 // and Backspace drops a letter of the field.
-func Keyed(k ui.KeyPress) Option[Signal] {
+func Keyed(k ui.KeyPress) option.Option[Signal] {
 	match k.Name {
 	case "ArrowDown":
-		Some{Value: Do{Signal: catalog.Move{By: 1}}}
+		option.Some{Value: Do{Signal: catalog.Move{By: 1}}}
 	case "ArrowUp":
-		Some{Value: Do{Signal: catalog.Move{By: -1}}}
+		option.Some{Value: Do{Signal: catalog.Move{By: -1}}}
 	case "PageDown":
-		Some{Value: Do{Signal: catalog.Page{Down: true}}}
+		option.Some{Value: Do{Signal: catalog.Page{Down: true}}}
 	case "PageUp":
-		Some{Value: Do{Signal: catalog.Page{Down: false}}}
+		option.Some{Value: Do{Signal: catalog.Page{Down: false}}}
 	case "Home":
-		Some{Value: Do{Signal: catalog.Home}}
+		option.Some{Value: Do{Signal: catalog.Home}}
 	case "End":
-		Some{Value: Do{Signal: catalog.End}}
+		option.Some{Value: Do{Signal: catalog.End}}
 	case "Enter":
-		Some{Value: Do{Signal: catalog.Commit}}
+		option.Some{Value: Do{Signal: catalog.Commit}}
 	case "Escape":
-		Some{Value: Do{Signal: catalog.Cancel}}
+		option.Some{Value: Do{Signal: catalog.Cancel}}
 	case "Backspace":
-		Some{Value: Do{Signal: catalog.Backspace}}
+		option.Some{Value: Do{Signal: catalog.Backspace}}
 	case _:
-		None
+		option.None
 	}
 }

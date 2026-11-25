@@ -1,15 +1,17 @@
 // The map's tests: examples. Its laws run under ergo test.
 
+import option
+
 test CastleRoomsAreReachable {
 	let w = Castle()
 	for e in w.Exits {
 		let from = RoomOf(w, e.From)
 		let to = RoomOf(w, e.To)
-		assert from != None && to != None
+		assert from != option.None && to != option.None
 	}
-	assert RoomOf(w, w.Start) != None && RoomOf(w, w.Goal) != None
+	assert RoomOf(w, w.Start) != option.None && RoomOf(w, w.Goal) != option.None
 }
 
 test ParseDirRefusesOtherWords {
-	assert ParseDir("nw") == None && ParseDir("") == None && ParseDir("norths") == None
+	assert ParseDir("nw") == option.None && ParseDir("") == option.None && ParseDir("norths") == option.None
 }

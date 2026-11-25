@@ -7,7 +7,7 @@ import ui
 
 func exploreCounter(steps int) ui.Finding needs gen.Draws {
 	let clock = time.NewManual(0)
-	with context { Scheduler: clock } {
+	with context { time.Scheduler: clock } {
 		let app = actor.StartMachine(counter.Counter{}, 16, func(c counter.Count) { let _ = c })
 		let mut h = ui.NewTestHost(app, View, clock, 64) catch {
 		case ui.BadPatch as bp:

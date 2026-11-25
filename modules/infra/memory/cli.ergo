@@ -3,6 +3,7 @@
 
 import github.com/cevr/ergo/modules/infra
 import fstest
+import option
 import strings
 
 // deployment is the stack of want on w as infra's command line runs it,
@@ -41,7 +42,7 @@ test CommandLineSession {
 	assert infra.Exec(d, []string{"plan", "-json"}) == said("{\"stage\":\"dev\",\"steps\":[{\"kind\":\"dir\",\"id\":\"d0\",\"change\":\"create\"},{\"kind\":\"file\",\"id\":\"f0\",\"change\":\"create\"}]}\n")
 	assert infra.Exec(d, []string{"apply"}).Code == 2 && Objects(w.cloud) == 0
 	assert infra.Exec(d, []string{"apply", "-yes"}) == said("create dir/d0\ncreate file/f0\napplied: 2 changes; outputs at state/outputs.json\n")
-	assert Objects(w.cloud) == 2 && readBack(disk) != None
+	assert Objects(w.cloud) == 2 && readBack(disk) != option.None
 	assert infra.Exec(d, []string{"plan"}) == said("plan: no changes\n")
 	assert infra.Exec(d, []string{"state"}) == said("dir/d0 live\nfile/f0 live\nlock: free\n")
 	w.lock.Acquire("ci") catch {
@@ -50,12 +51,12 @@ test CommandLineSession {
 	}
 	let blocked = infra.Exec(d, []string{"apply", "-yes"})
 	assert blocked.Code == 3 && strings.Contains(blocked.Err, "held by ci")
-	assert infra.Exec(d, []string{"unlock", "nobody"}).Code == 1 && w.lock.Holder() == Some[string]{Value: "ci"}
-	assert infra.Exec(d, []string{"unlock", "ci"}) == said("unlocked stage dev, which ci held\n") && w.lock.Holder() == None
+	assert infra.Exec(d, []string{"unlock", "nobody"}).Code == 1 && w.lock.Holder() == option.Some[string]{Value: "ci"}
+	assert infra.Exec(d, []string{"unlock", "ci"}) == said("unlocked stage dev, which ci held\n") && w.lock.Holder() == option.None
 	assert infra.Exec(d, []string{"unlock", "ci"}).Code == 1
 	assert infra.Exec(d, []string{"destroy"}).Code == 2 && Objects(w.cloud) == 2
 	assert infra.Exec(d, []string{"destroy", "-yes"}) == said("delete file/f0\ndelete dir/d0\ndestroyed: 2 changes\n")
-	assert Objects(w.cloud) == 0 && readBack(disk) == None
+	assert Objects(w.cloud) == 0 && readBack(disk) == option.None
 	assert infra.Exec(d, []string{"state"}) == said("no objects\nlock: free\n")
 	assert infra.Exec(d, []string{"deploy"}).Code == 2
 }
@@ -106,11 +107,11 @@ law RefreshFindsDrift(n int, gone int, drift int) {
 		return false
 	}
 	let ids = idsOf(want)
-	if len(ids) == 0 {
+	if ids.Len() == 0 {
 		return true
 	}
-	let g = ids[((gone%len(ids))+len(ids))%len(ids)]
-	let dr = ids[((drift%len(ids))+len(ids))%len(ids)]
+	let g = ids[((gone%ids.Len())+ids.Len())%ids.Len()]
+	let dr = ids[((drift%ids.Len())+ids.Len())%ids.Len()]
 	spoil(w, dr, false)
 	spoil(w, g, true)
 	let mut want_steps = []infra.Step{}
@@ -124,7 +125,7 @@ law RefreshFindsDrift(n int, gone int, drift int) {
 	}
 	match run(w, infra.Planning, "r1", want) {
 	case Finished as f:
-		if len(f.Steps) != 0 {
+		if f.Steps.Len() != 0 {
 			return false
 		}
 	case Crashed, Locked:

@@ -33,7 +33,7 @@ func Leading(n Node) Prefix {
 		let left = Leading(a.Left)
 		let right = Leading(a.Right)
 		let mut end = 0
-		for end < len(left.Text) && end < len(right.Text) && left.Text[end] == right.Text[end] {
+		for end < left.Text.Len() && end < right.Text.Len() && left.Text[end] == right.Text[end] {
 			end += 1
 		}
 		Prefix{Text: left.Text[:end], Complete: left.Complete && right.Complete && left.Text == right.Text}

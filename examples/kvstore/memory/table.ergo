@@ -5,6 +5,7 @@
 
 import kvstore/kv
 import maps
+import option
 import slices
 import sync
 
@@ -20,9 +21,9 @@ func NewTable() Table { Table{entries: sync.NewRef[Map[string, string]](Map[stri
 // Get is the value of key.
 func Get(t Table, key string) string fails kv.Missing | kv.Broken {
 	match t.entries.Get().Get(key) {
-	case Some[string] as v:
+	case option.Some[string] as v:
 		v.Value
-	case None:
+	case option.None:
 		kv.Missing{Key: key}
 	}
 }
@@ -35,7 +36,7 @@ func Put(t Table, key string, value string) fails kv.Broken {
 // Delete removes key.
 func Delete(t Table, key string) fails kv.Missing | kv.Broken {
 	let found = sync.Modify(t.entries) func(entries Map[string, string]) (bool, Map[string, string]) {
-		if entries.Get(key) == None {
+		if entries.Get(key) == option.None {
 			return (false, entries)
 		}
 		(true, entries.Delete(key))

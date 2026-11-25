@@ -7,6 +7,7 @@
 
 import github.com/cevr/ergo/modules/aws/aws
 import http
+import option
 import time
 
 // S3 is the service's operations. Api sends them over an http.Net; a memory
@@ -95,99 +96,99 @@ func HeadObject(a Api, r HeadObjectRequest) HeadObjectOutput fails NotFound | aw
 	let mut q = []http.Field{}
 	let mut h = []http.Field{}
 	match r.IfMatch {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "If-Match", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.IfModifiedSince {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "If-Modified-Since", Value: aws.TimeText(v.Value, aws.HTTPDate)})
-	case None:
+	case option.None:
 	}
 	match r.IfNoneMatch {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "If-None-Match", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.IfUnmodifiedSince {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "If-Unmodified-Since", Value: aws.TimeText(v.Value, aws.HTTPDate)})
-	case None:
+	case option.None:
 	}
 	match r.Range {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "Range", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.ResponseCacheControl {
-	case Some as v:
+	case option.Some as v:
 		q = q.Append(http.Field{Name: "response-cache-control", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.ResponseContentDisposition {
-	case Some as v:
+	case option.Some as v:
 		q = q.Append(http.Field{Name: "response-content-disposition", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.ResponseContentEncoding {
-	case Some as v:
+	case option.Some as v:
 		q = q.Append(http.Field{Name: "response-content-encoding", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.ResponseContentLanguage {
-	case Some as v:
+	case option.Some as v:
 		q = q.Append(http.Field{Name: "response-content-language", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.ResponseContentType {
-	case Some as v:
+	case option.Some as v:
 		q = q.Append(http.Field{Name: "response-content-type", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.ResponseExpires {
-	case Some as v:
+	case option.Some as v:
 		q = q.Append(http.Field{Name: "response-expires", Value: aws.TimeText(v.Value, aws.HTTPDate)})
-	case None:
+	case option.None:
 	}
 	match r.VersionId {
-	case Some as v:
+	case option.Some as v:
 		q = q.Append(http.Field{Name: "versionId", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.SSECustomerAlgorithm {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-server-side-encryption-customer-algorithm", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.SSECustomerKey {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-server-side-encryption-customer-key", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.SSECustomerKeyMD5 {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-server-side-encryption-customer-key-MD5", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.RequestPayer {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-request-payer", Value: requestPayerWire(v.Value)})
-	case None:
+	case option.None:
 	}
 	match r.PartNumber {
-	case Some as v:
+	case option.Some as v:
 		q = q.Append(http.Field{Name: "partNumber", Value: aws.IntText(v.Value)})
-	case None:
+	case option.None:
 	}
 	match r.ExpectedBucketOwner {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-expected-bucket-owner", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.ChecksumMode {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-checksum-mode", Value: checksumModeWire(v.Value)})
-	case None:
+	case option.None:
 	}
 	let req = http.Request{Method: "HEAD", Path: "/" + r.Bucket + "/" + r.Key, RawPath: "/" + aws.Label(r.Bucket, false) + "/" + aws.Label(r.Key, true), Query: q, Header: h, Body: http.Buffered{Text: ""}}
 	let resp = try a.net.Send(a.signer.Sign(req))
@@ -262,99 +263,99 @@ func GetObject(a Api, r GetObjectRequest, put func(part string) fails http.SinkF
 	q = q.Append(http.Field{Name: "x-id", Value: "GetObject"})
 	let mut h = []http.Field{}
 	match r.IfMatch {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "If-Match", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.IfModifiedSince {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "If-Modified-Since", Value: aws.TimeText(v.Value, aws.HTTPDate)})
-	case None:
+	case option.None:
 	}
 	match r.IfNoneMatch {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "If-None-Match", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.IfUnmodifiedSince {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "If-Unmodified-Since", Value: aws.TimeText(v.Value, aws.HTTPDate)})
-	case None:
+	case option.None:
 	}
 	match r.Range {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "Range", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.ResponseCacheControl {
-	case Some as v:
+	case option.Some as v:
 		q = q.Append(http.Field{Name: "response-cache-control", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.ResponseContentDisposition {
-	case Some as v:
+	case option.Some as v:
 		q = q.Append(http.Field{Name: "response-content-disposition", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.ResponseContentEncoding {
-	case Some as v:
+	case option.Some as v:
 		q = q.Append(http.Field{Name: "response-content-encoding", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.ResponseContentLanguage {
-	case Some as v:
+	case option.Some as v:
 		q = q.Append(http.Field{Name: "response-content-language", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.ResponseContentType {
-	case Some as v:
+	case option.Some as v:
 		q = q.Append(http.Field{Name: "response-content-type", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.ResponseExpires {
-	case Some as v:
+	case option.Some as v:
 		q = q.Append(http.Field{Name: "response-expires", Value: aws.TimeText(v.Value, aws.HTTPDate)})
-	case None:
+	case option.None:
 	}
 	match r.VersionId {
-	case Some as v:
+	case option.Some as v:
 		q = q.Append(http.Field{Name: "versionId", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.SSECustomerAlgorithm {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-server-side-encryption-customer-algorithm", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.SSECustomerKey {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-server-side-encryption-customer-key", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.SSECustomerKeyMD5 {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-server-side-encryption-customer-key-MD5", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.RequestPayer {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-request-payer", Value: requestPayerWire(v.Value)})
-	case None:
+	case option.None:
 	}
 	match r.PartNumber {
-	case Some as v:
+	case option.Some as v:
 		q = q.Append(http.Field{Name: "partNumber", Value: aws.IntText(v.Value)})
-	case None:
+	case option.None:
 	}
 	match r.ExpectedBucketOwner {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-expected-bucket-owner", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.ChecksumMode {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-checksum-mode", Value: checksumModeWire(v.Value)})
-	case None:
+	case option.None:
 	}
 	let req = http.Request{Method: "GET", Path: "/" + r.Bucket + "/" + r.Key, RawPath: "/" + aws.Label(r.Bucket, false) + "/" + aws.Label(r.Key, true), Query: q, Header: h, Body: http.Buffered{Text: ""}}
 	let resp = a.net.SendInto(a.signer.Sign(req), http.AnySuccess, put) catch {
@@ -435,230 +436,230 @@ func PutObject(a Api, r PutObjectRequest) PutObjectOutput fails EncryptionTypeMi
 	q = q.Append(http.Field{Name: "x-id", Value: "PutObject"})
 	let mut h = []http.Field{}
 	match r.ACL {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-acl", Value: objectCannedACLWire(v.Value)})
-	case None:
+	case option.None:
 	}
 	match r.CacheControl {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "Cache-Control", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.ContentDisposition {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "Content-Disposition", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.ContentEncoding {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "Content-Encoding", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.ContentLanguage {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "Content-Language", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.ContentLength {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "Content-Length", Value: aws.IntText(v.Value)})
-	case None:
+	case option.None:
 	}
 	match r.ContentMD5 {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "Content-MD5", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.ContentType {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "Content-Type", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.ChecksumAlgorithm {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-sdk-checksum-algorithm", Value: checksumAlgorithmWire(v.Value)})
-	case None:
+	case option.None:
 	}
 	match r.ChecksumCRC32 {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-checksum-crc32", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.ChecksumCRC32C {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-checksum-crc32c", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.ChecksumCRC64NVME {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-checksum-crc64nvme", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.ChecksumSHA1 {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-checksum-sha1", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.ChecksumSHA256 {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-checksum-sha256", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.ChecksumSHA512 {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-checksum-sha512", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.ChecksumMD5 {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-checksum-md5", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.ChecksumXXHASH64 {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-checksum-xxhash64", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.ChecksumXXHASH3 {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-checksum-xxhash3", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.ChecksumXXHASH128 {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-checksum-xxhash128", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.Expires {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "Expires", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.IfMatch {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "If-Match", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.IfNoneMatch {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "If-None-Match", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.GrantFullControl {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-grant-full-control", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.GrantRead {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-grant-read", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.GrantReadACP {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-grant-read-acp", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.GrantWriteACP {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-grant-write-acp", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.WriteOffsetBytes {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-write-offset-bytes", Value: aws.IntText(v.Value)})
-	case None:
+	case option.None:
 	}
 	h = aws.PutPrefixed(h, "x-amz-meta-", r.Metadata)
 	match r.ServerSideEncryption {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-server-side-encryption", Value: serverSideEncryptionWire(v.Value)})
-	case None:
+	case option.None:
 	}
 	match r.StorageClass {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-storage-class", Value: storageClassWire(v.Value)})
-	case None:
+	case option.None:
 	}
 	match r.WebsiteRedirectLocation {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-website-redirect-location", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.SSECustomerAlgorithm {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-server-side-encryption-customer-algorithm", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.SSECustomerKey {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-server-side-encryption-customer-key", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.SSECustomerKeyMD5 {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-server-side-encryption-customer-key-MD5", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.SSEKMSKeyId {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-server-side-encryption-aws-kms-key-id", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.SSEKMSEncryptionContext {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-server-side-encryption-context", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.BucketKeyEnabled {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-server-side-encryption-bucket-key-enabled", Value: aws.BoolText(v.Value)})
-	case None:
+	case option.None:
 	}
 	match r.RequestPayer {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-request-payer", Value: requestPayerWire(v.Value)})
-	case None:
+	case option.None:
 	}
 	match r.Tagging {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-tagging", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.ObjectLockMode {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-object-lock-mode", Value: objectLockModeWire(v.Value)})
-	case None:
+	case option.None:
 	}
 	match r.ObjectLockRetainUntilDate {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-object-lock-retain-until-date", Value: aws.TimeText(v.Value, aws.DateTime)})
-	case None:
+	case option.None:
 	}
 	match r.ObjectLockLegalHoldStatus {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-object-lock-legal-hold", Value: objectLockLegalHoldStatusWire(v.Value)})
-	case None:
+	case option.None:
 	}
 	match r.ObjectLockEventHold {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-object-lock-event-hold", Value: objectLockEventHoldWire(v.Value)})
-	case None:
+	case option.None:
 	}
 	match r.ObjectLockEventHoldDurationDays {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-object-lock-event-hold-duration-days", Value: aws.IntText(v.Value)})
-	case None:
+	case option.None:
 	}
 	match r.ObjectLockEventHoldDurationYears {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-object-lock-event-hold-duration-years", Value: aws.IntText(v.Value)})
-	case None:
+	case option.None:
 	}
 	match r.ExpectedBucketOwner {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-expected-bucket-owner", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	let req = http.Request{Method: "PUT", Path: "/" + r.Bucket + "/" + r.Key, RawPath: "/" + aws.Label(r.Bucket, false) + "/" + aws.Label(r.Key, true), Query: q, Header: h, Body: http.Buffered{Text: r.Body}}
 	let resp = try a.net.Send(a.signer.Sign(req))
@@ -718,44 +719,44 @@ func DeleteObject(a Api, r DeleteObjectRequest) DeleteObjectOutput fails aws.Fai
 	q = q.Append(http.Field{Name: "x-id", Value: "DeleteObject"})
 	let mut h = []http.Field{}
 	match r.MFA {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-mfa", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.VersionId {
-	case Some as v:
+	case option.Some as v:
 		q = q.Append(http.Field{Name: "versionId", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.RequestPayer {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-request-payer", Value: requestPayerWire(v.Value)})
-	case None:
+	case option.None:
 	}
 	match r.BypassGovernanceRetention {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-bypass-governance-retention", Value: aws.BoolText(v.Value)})
-	case None:
+	case option.None:
 	}
 	match r.ExpectedBucketOwner {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-expected-bucket-owner", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.IfMatch {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "If-Match", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match r.IfMatchLastModifiedTime {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-if-match-last-modified-time", Value: aws.TimeText(v.Value, aws.HTTPDate)})
-	case None:
+	case option.None:
 	}
 	match r.IfMatchSize {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "x-amz-if-match-size", Value: aws.IntText(v.Value)})
-	case None:
+	case option.None:
 	}
 	let req = http.Request{Method: "DELETE", Path: "/" + r.Bucket + "/" + r.Key, RawPath: "/" + aws.Label(r.Bucket, false) + "/" + aws.Label(r.Key, true), Query: q, Header: h, Body: http.Buffered{Text: ""}}
 	let resp = try a.net.Send(a.signer.Sign(req))
@@ -782,51 +783,51 @@ func deleteObjectFailed(status int, body string) DeleteObjectOutput fails aws.Fa
 // with every optional member None.
 type HeadObjectRequest {
 	Bucket                     string,
-	IfMatch                    Option[string],
-	IfModifiedSince            Option[time.Time],
-	IfNoneMatch                Option[string],
-	IfUnmodifiedSince          Option[time.Time],
+	IfMatch                    option.Option[string],
+	IfModifiedSince            option.Option[time.Time],
+	IfNoneMatch                option.Option[string],
+	IfUnmodifiedSince          option.Option[time.Time],
 	Key                        string,
-	Range                      Option[string],
-	ResponseCacheControl       Option[string],
-	ResponseContentDisposition Option[string],
-	ResponseContentEncoding    Option[string],
-	ResponseContentLanguage    Option[string],
-	ResponseContentType        Option[string],
-	ResponseExpires            Option[time.Time],
-	VersionId                  Option[string],
-	SSECustomerAlgorithm       Option[string],
-	SSECustomerKey             Option[string],
-	SSECustomerKeyMD5          Option[string],
-	RequestPayer               Option[RequestPayer],
-	PartNumber                 Option[int],
-	ExpectedBucketOwner        Option[string],
-	ChecksumMode               Option[ChecksumMode],
+	Range                      option.Option[string],
+	ResponseCacheControl       option.Option[string],
+	ResponseContentDisposition option.Option[string],
+	ResponseContentEncoding    option.Option[string],
+	ResponseContentLanguage    option.Option[string],
+	ResponseContentType        option.Option[string],
+	ResponseExpires            option.Option[time.Time],
+	VersionId                  option.Option[string],
+	SSECustomerAlgorithm       option.Option[string],
+	SSECustomerKey             option.Option[string],
+	SSECustomerKeyMD5          option.Option[string],
+	RequestPayer               option.Option[RequestPayer],
+	PartNumber                 option.Option[int],
+	ExpectedBucketOwner        option.Option[string],
+	ChecksumMode               option.Option[ChecksumMode],
 }
 
 func NewHeadObjectRequest(bucket string, key string) HeadObjectRequest {
 	HeadObjectRequest{
 		Bucket:                     bucket,
-		IfMatch:                    None,
-		IfModifiedSince:            None,
-		IfNoneMatch:                None,
-		IfUnmodifiedSince:          None,
+		IfMatch:                    option.None,
+		IfModifiedSince:            option.None,
+		IfNoneMatch:                option.None,
+		IfUnmodifiedSince:          option.None,
 		Key:                        key,
-		Range:                      None,
-		ResponseCacheControl:       None,
-		ResponseContentDisposition: None,
-		ResponseContentEncoding:    None,
-		ResponseContentLanguage:    None,
-		ResponseContentType:        None,
-		ResponseExpires:            None,
-		VersionId:                  None,
-		SSECustomerAlgorithm:       None,
-		SSECustomerKey:             None,
-		SSECustomerKeyMD5:          None,
-		RequestPayer:               None,
-		PartNumber:                 None,
-		ExpectedBucketOwner:        None,
-		ChecksumMode:               None,
+		Range:                      option.None,
+		ResponseCacheControl:       option.None,
+		ResponseContentDisposition: option.None,
+		ResponseContentEncoding:    option.None,
+		ResponseContentLanguage:    option.None,
+		ResponseContentType:        option.None,
+		ResponseExpires:            option.None,
+		VersionId:                  option.None,
+		SSECustomerAlgorithm:       option.None,
+		SSECustomerKey:             option.None,
+		SSECustomerKeyMD5:          option.None,
+		RequestPayer:               option.None,
+		PartNumber:                 option.None,
+		ExpectedBucketOwner:        option.None,
+		ChecksumMode:               option.None,
 	}
 }
 
@@ -834,102 +835,102 @@ func NewHeadObjectRequest(bucket string, key string) HeadObjectRequest {
 // NewHeadObjectOutput makes one with every member None, for a provider of
 // S3.
 type HeadObjectOutput {
-	DeleteMarker                     Option[bool],
-	AcceptRanges                     Option[string],
-	Expiration                       Option[string],
-	Restore                          Option[string],
-	ArchiveStatus                    Option[ArchiveStatus],
-	LastModified                     Option[time.Time],
-	ContentLength                    Option[int],
-	ChecksumCRC32                    Option[string],
-	ChecksumCRC32C                   Option[string],
-	ChecksumCRC64NVME                Option[string],
-	ChecksumSHA1                     Option[string],
-	ChecksumSHA256                   Option[string],
-	ChecksumSHA512                   Option[string],
-	ChecksumMD5                      Option[string],
-	ChecksumXXHASH64                 Option[string],
-	ChecksumXXHASH3                  Option[string],
-	ChecksumXXHASH128                Option[string],
-	ChecksumType                     Option[ChecksumType],
-	ETag                             Option[string],
-	MissingMeta                      Option[int],
-	VersionId                        Option[string],
-	CacheControl                     Option[string],
-	ContentDisposition               Option[string],
-	ContentEncoding                  Option[string],
-	ContentLanguage                  Option[string],
-	ContentType                      Option[string],
-	ContentRange                     Option[string],
-	Expires                          Option[string],
-	WebsiteRedirectLocation          Option[string],
-	ServerSideEncryption             Option[ServerSideEncryption],
+	DeleteMarker                     option.Option[bool],
+	AcceptRanges                     option.Option[string],
+	Expiration                       option.Option[string],
+	Restore                          option.Option[string],
+	ArchiveStatus                    option.Option[ArchiveStatus],
+	LastModified                     option.Option[time.Time],
+	ContentLength                    option.Option[int],
+	ChecksumCRC32                    option.Option[string],
+	ChecksumCRC32C                   option.Option[string],
+	ChecksumCRC64NVME                option.Option[string],
+	ChecksumSHA1                     option.Option[string],
+	ChecksumSHA256                   option.Option[string],
+	ChecksumSHA512                   option.Option[string],
+	ChecksumMD5                      option.Option[string],
+	ChecksumXXHASH64                 option.Option[string],
+	ChecksumXXHASH3                  option.Option[string],
+	ChecksumXXHASH128                option.Option[string],
+	ChecksumType                     option.Option[ChecksumType],
+	ETag                             option.Option[string],
+	MissingMeta                      option.Option[int],
+	VersionId                        option.Option[string],
+	CacheControl                     option.Option[string],
+	ContentDisposition               option.Option[string],
+	ContentEncoding                  option.Option[string],
+	ContentLanguage                  option.Option[string],
+	ContentType                      option.Option[string],
+	ContentRange                     option.Option[string],
+	Expires                          option.Option[string],
+	WebsiteRedirectLocation          option.Option[string],
+	ServerSideEncryption             option.Option[ServerSideEncryption],
 	Metadata                         Map[string, string],
-	SSECustomerAlgorithm             Option[string],
-	SSECustomerKeyMD5                Option[string],
-	SSEKMSKeyId                      Option[string],
-	BucketKeyEnabled                 Option[bool],
-	StorageClass                     Option[StorageClass],
-	RequestCharged                   Option[RequestCharged],
-	ReplicationStatus                Option[ReplicationStatus],
-	PartsCount                       Option[int],
-	TagCount                         Option[int],
-	ObjectLockMode                   Option[ObjectLockMode],
-	ObjectLockRetainUntilDate        Option[time.Time],
-	ObjectLockLegalHoldStatus        Option[ObjectLockLegalHoldStatus],
-	ObjectLockEventHold              Option[ObjectLockEventHold],
-	ObjectLockEventHoldDurationDays  Option[int],
-	ObjectLockEventHoldDurationYears Option[int],
+	SSECustomerAlgorithm             option.Option[string],
+	SSECustomerKeyMD5                option.Option[string],
+	SSEKMSKeyId                      option.Option[string],
+	BucketKeyEnabled                 option.Option[bool],
+	StorageClass                     option.Option[StorageClass],
+	RequestCharged                   option.Option[RequestCharged],
+	ReplicationStatus                option.Option[ReplicationStatus],
+	PartsCount                       option.Option[int],
+	TagCount                         option.Option[int],
+	ObjectLockMode                   option.Option[ObjectLockMode],
+	ObjectLockRetainUntilDate        option.Option[time.Time],
+	ObjectLockLegalHoldStatus        option.Option[ObjectLockLegalHoldStatus],
+	ObjectLockEventHold              option.Option[ObjectLockEventHold],
+	ObjectLockEventHoldDurationDays  option.Option[int],
+	ObjectLockEventHoldDurationYears option.Option[int],
 }
 
 func NewHeadObjectOutput() HeadObjectOutput {
 	HeadObjectOutput{
-		DeleteMarker:                     None,
-		AcceptRanges:                     None,
-		Expiration:                       None,
-		Restore:                          None,
-		ArchiveStatus:                    None,
-		LastModified:                     None,
-		ContentLength:                    None,
-		ChecksumCRC32:                    None,
-		ChecksumCRC32C:                   None,
-		ChecksumCRC64NVME:                None,
-		ChecksumSHA1:                     None,
-		ChecksumSHA256:                   None,
-		ChecksumSHA512:                   None,
-		ChecksumMD5:                      None,
-		ChecksumXXHASH64:                 None,
-		ChecksumXXHASH3:                  None,
-		ChecksumXXHASH128:                None,
-		ChecksumType:                     None,
-		ETag:                             None,
-		MissingMeta:                      None,
-		VersionId:                        None,
-		CacheControl:                     None,
-		ContentDisposition:               None,
-		ContentEncoding:                  None,
-		ContentLanguage:                  None,
-		ContentType:                      None,
-		ContentRange:                     None,
-		Expires:                          None,
-		WebsiteRedirectLocation:          None,
-		ServerSideEncryption:             None,
+		DeleteMarker:                     option.None,
+		AcceptRanges:                     option.None,
+		Expiration:                       option.None,
+		Restore:                          option.None,
+		ArchiveStatus:                    option.None,
+		LastModified:                     option.None,
+		ContentLength:                    option.None,
+		ChecksumCRC32:                    option.None,
+		ChecksumCRC32C:                   option.None,
+		ChecksumCRC64NVME:                option.None,
+		ChecksumSHA1:                     option.None,
+		ChecksumSHA256:                   option.None,
+		ChecksumSHA512:                   option.None,
+		ChecksumMD5:                      option.None,
+		ChecksumXXHASH64:                 option.None,
+		ChecksumXXHASH3:                  option.None,
+		ChecksumXXHASH128:                option.None,
+		ChecksumType:                     option.None,
+		ETag:                             option.None,
+		MissingMeta:                      option.None,
+		VersionId:                        option.None,
+		CacheControl:                     option.None,
+		ContentDisposition:               option.None,
+		ContentEncoding:                  option.None,
+		ContentLanguage:                  option.None,
+		ContentType:                      option.None,
+		ContentRange:                     option.None,
+		Expires:                          option.None,
+		WebsiteRedirectLocation:          option.None,
+		ServerSideEncryption:             option.None,
 		Metadata:                         Map[string, string]{},
-		SSECustomerAlgorithm:             None,
-		SSECustomerKeyMD5:                None,
-		SSEKMSKeyId:                      None,
-		BucketKeyEnabled:                 None,
-		StorageClass:                     None,
-		RequestCharged:                   None,
-		ReplicationStatus:                None,
-		PartsCount:                       None,
-		TagCount:                         None,
-		ObjectLockMode:                   None,
-		ObjectLockRetainUntilDate:        None,
-		ObjectLockLegalHoldStatus:        None,
-		ObjectLockEventHold:              None,
-		ObjectLockEventHoldDurationDays:  None,
-		ObjectLockEventHoldDurationYears: None,
+		SSECustomerAlgorithm:             option.None,
+		SSECustomerKeyMD5:                option.None,
+		SSEKMSKeyId:                      option.None,
+		BucketKeyEnabled:                 option.None,
+		StorageClass:                     option.None,
+		RequestCharged:                   option.None,
+		ReplicationStatus:                option.None,
+		PartsCount:                       option.None,
+		TagCount:                         option.None,
+		ObjectLockMode:                   option.None,
+		ObjectLockRetainUntilDate:        option.None,
+		ObjectLockLegalHoldStatus:        option.None,
+		ObjectLockEventHold:              option.None,
+		ObjectLockEventHoldDurationDays:  option.None,
+		ObjectLockEventHoldDurationYears: option.None,
 	}
 }
 
@@ -937,51 +938,51 @@ func NewHeadObjectOutput() HeadObjectOutput {
 // with every optional member None.
 type GetObjectRequest {
 	Bucket                     string,
-	IfMatch                    Option[string],
-	IfModifiedSince            Option[time.Time],
-	IfNoneMatch                Option[string],
-	IfUnmodifiedSince          Option[time.Time],
+	IfMatch                    option.Option[string],
+	IfModifiedSince            option.Option[time.Time],
+	IfNoneMatch                option.Option[string],
+	IfUnmodifiedSince          option.Option[time.Time],
 	Key                        string,
-	Range                      Option[string],
-	ResponseCacheControl       Option[string],
-	ResponseContentDisposition Option[string],
-	ResponseContentEncoding    Option[string],
-	ResponseContentLanguage    Option[string],
-	ResponseContentType        Option[string],
-	ResponseExpires            Option[time.Time],
-	VersionId                  Option[string],
-	SSECustomerAlgorithm       Option[string],
-	SSECustomerKey             Option[string],
-	SSECustomerKeyMD5          Option[string],
-	RequestPayer               Option[RequestPayer],
-	PartNumber                 Option[int],
-	ExpectedBucketOwner        Option[string],
-	ChecksumMode               Option[ChecksumMode],
+	Range                      option.Option[string],
+	ResponseCacheControl       option.Option[string],
+	ResponseContentDisposition option.Option[string],
+	ResponseContentEncoding    option.Option[string],
+	ResponseContentLanguage    option.Option[string],
+	ResponseContentType        option.Option[string],
+	ResponseExpires            option.Option[time.Time],
+	VersionId                  option.Option[string],
+	SSECustomerAlgorithm       option.Option[string],
+	SSECustomerKey             option.Option[string],
+	SSECustomerKeyMD5          option.Option[string],
+	RequestPayer               option.Option[RequestPayer],
+	PartNumber                 option.Option[int],
+	ExpectedBucketOwner        option.Option[string],
+	ChecksumMode               option.Option[ChecksumMode],
 }
 
 func NewGetObjectRequest(bucket string, key string) GetObjectRequest {
 	GetObjectRequest{
 		Bucket:                     bucket,
-		IfMatch:                    None,
-		IfModifiedSince:            None,
-		IfNoneMatch:                None,
-		IfUnmodifiedSince:          None,
+		IfMatch:                    option.None,
+		IfModifiedSince:            option.None,
+		IfNoneMatch:                option.None,
+		IfUnmodifiedSince:          option.None,
 		Key:                        key,
-		Range:                      None,
-		ResponseCacheControl:       None,
-		ResponseContentDisposition: None,
-		ResponseContentEncoding:    None,
-		ResponseContentLanguage:    None,
-		ResponseContentType:        None,
-		ResponseExpires:            None,
-		VersionId:                  None,
-		SSECustomerAlgorithm:       None,
-		SSECustomerKey:             None,
-		SSECustomerKeyMD5:          None,
-		RequestPayer:               None,
-		PartNumber:                 None,
-		ExpectedBucketOwner:        None,
-		ChecksumMode:               None,
+		Range:                      option.None,
+		ResponseCacheControl:       option.None,
+		ResponseContentDisposition: option.None,
+		ResponseContentEncoding:    option.None,
+		ResponseContentLanguage:    option.None,
+		ResponseContentType:        option.None,
+		ResponseExpires:            option.None,
+		VersionId:                  option.None,
+		SSECustomerAlgorithm:       option.None,
+		SSECustomerKey:             option.None,
+		SSECustomerKeyMD5:          option.None,
+		RequestPayer:               option.None,
+		PartNumber:                 option.None,
+		ExpectedBucketOwner:        option.None,
+		ChecksumMode:               option.None,
 	}
 }
 
@@ -989,262 +990,262 @@ func NewGetObjectRequest(bucket string, key string) GetObjectRequest {
 // body goes to the call's sink. NewGetObjectOutput makes one with every
 // member None, for a provider of S3.
 type GetObjectOutput {
-	DeleteMarker                     Option[bool],
-	AcceptRanges                     Option[string],
-	Expiration                       Option[string],
-	Restore                          Option[string],
-	LastModified                     Option[time.Time],
-	ContentLength                    Option[int],
-	ETag                             Option[string],
-	ChecksumCRC32                    Option[string],
-	ChecksumCRC32C                   Option[string],
-	ChecksumCRC64NVME                Option[string],
-	ChecksumSHA1                     Option[string],
-	ChecksumSHA256                   Option[string],
-	ChecksumSHA512                   Option[string],
-	ChecksumMD5                      Option[string],
-	ChecksumXXHASH64                 Option[string],
-	ChecksumXXHASH3                  Option[string],
-	ChecksumXXHASH128                Option[string],
-	ChecksumType                     Option[ChecksumType],
-	MissingMeta                      Option[int],
-	VersionId                        Option[string],
-	CacheControl                     Option[string],
-	ContentDisposition               Option[string],
-	ContentEncoding                  Option[string],
-	ContentLanguage                  Option[string],
-	ContentRange                     Option[string],
-	ContentType                      Option[string],
-	Expires                          Option[string],
-	WebsiteRedirectLocation          Option[string],
-	ServerSideEncryption             Option[ServerSideEncryption],
+	DeleteMarker                     option.Option[bool],
+	AcceptRanges                     option.Option[string],
+	Expiration                       option.Option[string],
+	Restore                          option.Option[string],
+	LastModified                     option.Option[time.Time],
+	ContentLength                    option.Option[int],
+	ETag                             option.Option[string],
+	ChecksumCRC32                    option.Option[string],
+	ChecksumCRC32C                   option.Option[string],
+	ChecksumCRC64NVME                option.Option[string],
+	ChecksumSHA1                     option.Option[string],
+	ChecksumSHA256                   option.Option[string],
+	ChecksumSHA512                   option.Option[string],
+	ChecksumMD5                      option.Option[string],
+	ChecksumXXHASH64                 option.Option[string],
+	ChecksumXXHASH3                  option.Option[string],
+	ChecksumXXHASH128                option.Option[string],
+	ChecksumType                     option.Option[ChecksumType],
+	MissingMeta                      option.Option[int],
+	VersionId                        option.Option[string],
+	CacheControl                     option.Option[string],
+	ContentDisposition               option.Option[string],
+	ContentEncoding                  option.Option[string],
+	ContentLanguage                  option.Option[string],
+	ContentRange                     option.Option[string],
+	ContentType                      option.Option[string],
+	Expires                          option.Option[string],
+	WebsiteRedirectLocation          option.Option[string],
+	ServerSideEncryption             option.Option[ServerSideEncryption],
 	Metadata                         Map[string, string],
-	SSECustomerAlgorithm             Option[string],
-	SSECustomerKeyMD5                Option[string],
-	SSEKMSKeyId                      Option[string],
-	BucketKeyEnabled                 Option[bool],
-	StorageClass                     Option[StorageClass],
-	RequestCharged                   Option[RequestCharged],
-	ReplicationStatus                Option[ReplicationStatus],
-	PartsCount                       Option[int],
-	TagCount                         Option[int],
-	ObjectLockMode                   Option[ObjectLockMode],
-	ObjectLockRetainUntilDate        Option[time.Time],
-	ObjectLockLegalHoldStatus        Option[ObjectLockLegalHoldStatus],
-	ObjectLockEventHold              Option[ObjectLockEventHold],
-	ObjectLockEventHoldDurationDays  Option[int],
-	ObjectLockEventHoldDurationYears Option[int],
+	SSECustomerAlgorithm             option.Option[string],
+	SSECustomerKeyMD5                option.Option[string],
+	SSEKMSKeyId                      option.Option[string],
+	BucketKeyEnabled                 option.Option[bool],
+	StorageClass                     option.Option[StorageClass],
+	RequestCharged                   option.Option[RequestCharged],
+	ReplicationStatus                option.Option[ReplicationStatus],
+	PartsCount                       option.Option[int],
+	TagCount                         option.Option[int],
+	ObjectLockMode                   option.Option[ObjectLockMode],
+	ObjectLockRetainUntilDate        option.Option[time.Time],
+	ObjectLockLegalHoldStatus        option.Option[ObjectLockLegalHoldStatus],
+	ObjectLockEventHold              option.Option[ObjectLockEventHold],
+	ObjectLockEventHoldDurationDays  option.Option[int],
+	ObjectLockEventHoldDurationYears option.Option[int],
 }
 
 func NewGetObjectOutput() GetObjectOutput {
 	GetObjectOutput{
-		DeleteMarker:                     None,
-		AcceptRanges:                     None,
-		Expiration:                       None,
-		Restore:                          None,
-		LastModified:                     None,
-		ContentLength:                    None,
-		ETag:                             None,
-		ChecksumCRC32:                    None,
-		ChecksumCRC32C:                   None,
-		ChecksumCRC64NVME:                None,
-		ChecksumSHA1:                     None,
-		ChecksumSHA256:                   None,
-		ChecksumSHA512:                   None,
-		ChecksumMD5:                      None,
-		ChecksumXXHASH64:                 None,
-		ChecksumXXHASH3:                  None,
-		ChecksumXXHASH128:                None,
-		ChecksumType:                     None,
-		MissingMeta:                      None,
-		VersionId:                        None,
-		CacheControl:                     None,
-		ContentDisposition:               None,
-		ContentEncoding:                  None,
-		ContentLanguage:                  None,
-		ContentRange:                     None,
-		ContentType:                      None,
-		Expires:                          None,
-		WebsiteRedirectLocation:          None,
-		ServerSideEncryption:             None,
+		DeleteMarker:                     option.None,
+		AcceptRanges:                     option.None,
+		Expiration:                       option.None,
+		Restore:                          option.None,
+		LastModified:                     option.None,
+		ContentLength:                    option.None,
+		ETag:                             option.None,
+		ChecksumCRC32:                    option.None,
+		ChecksumCRC32C:                   option.None,
+		ChecksumCRC64NVME:                option.None,
+		ChecksumSHA1:                     option.None,
+		ChecksumSHA256:                   option.None,
+		ChecksumSHA512:                   option.None,
+		ChecksumMD5:                      option.None,
+		ChecksumXXHASH64:                 option.None,
+		ChecksumXXHASH3:                  option.None,
+		ChecksumXXHASH128:                option.None,
+		ChecksumType:                     option.None,
+		MissingMeta:                      option.None,
+		VersionId:                        option.None,
+		CacheControl:                     option.None,
+		ContentDisposition:               option.None,
+		ContentEncoding:                  option.None,
+		ContentLanguage:                  option.None,
+		ContentRange:                     option.None,
+		ContentType:                      option.None,
+		Expires:                          option.None,
+		WebsiteRedirectLocation:          option.None,
+		ServerSideEncryption:             option.None,
 		Metadata:                         Map[string, string]{},
-		SSECustomerAlgorithm:             None,
-		SSECustomerKeyMD5:                None,
-		SSEKMSKeyId:                      None,
-		BucketKeyEnabled:                 None,
-		StorageClass:                     None,
-		RequestCharged:                   None,
-		ReplicationStatus:                None,
-		PartsCount:                       None,
-		TagCount:                         None,
-		ObjectLockMode:                   None,
-		ObjectLockRetainUntilDate:        None,
-		ObjectLockLegalHoldStatus:        None,
-		ObjectLockEventHold:              None,
-		ObjectLockEventHoldDurationDays:  None,
-		ObjectLockEventHoldDurationYears: None,
+		SSECustomerAlgorithm:             option.None,
+		SSECustomerKeyMD5:                option.None,
+		SSEKMSKeyId:                      option.None,
+		BucketKeyEnabled:                 option.None,
+		StorageClass:                     option.None,
+		RequestCharged:                   option.None,
+		ReplicationStatus:                option.None,
+		PartsCount:                       option.None,
+		TagCount:                         option.None,
+		ObjectLockMode:                   option.None,
+		ObjectLockRetainUntilDate:        option.None,
+		ObjectLockLegalHoldStatus:        option.None,
+		ObjectLockEventHold:              option.None,
+		ObjectLockEventHoldDurationDays:  option.None,
+		ObjectLockEventHoldDurationYears: option.None,
 	}
 }
 
 // PutObjectRequest is what PutObject sends. NewPutObjectRequest makes one
 // with every optional member None.
 type PutObjectRequest {
-	ACL                              Option[ObjectCannedACL],
+	ACL                              option.Option[ObjectCannedACL],
 	Body                             string,
 	Bucket                           string,
-	CacheControl                     Option[string],
-	ContentDisposition               Option[string],
-	ContentEncoding                  Option[string],
-	ContentLanguage                  Option[string],
-	ContentLength                    Option[int],
-	ContentMD5                       Option[string],
-	ContentType                      Option[string],
-	ChecksumAlgorithm                Option[ChecksumAlgorithm],
-	ChecksumCRC32                    Option[string],
-	ChecksumCRC32C                   Option[string],
-	ChecksumCRC64NVME                Option[string],
-	ChecksumSHA1                     Option[string],
-	ChecksumSHA256                   Option[string],
-	ChecksumSHA512                   Option[string],
-	ChecksumMD5                      Option[string],
-	ChecksumXXHASH64                 Option[string],
-	ChecksumXXHASH3                  Option[string],
-	ChecksumXXHASH128                Option[string],
-	Expires                          Option[string],
-	IfMatch                          Option[string],
-	IfNoneMatch                      Option[string],
-	GrantFullControl                 Option[string],
-	GrantRead                        Option[string],
-	GrantReadACP                     Option[string],
-	GrantWriteACP                    Option[string],
+	CacheControl                     option.Option[string],
+	ContentDisposition               option.Option[string],
+	ContentEncoding                  option.Option[string],
+	ContentLanguage                  option.Option[string],
+	ContentLength                    option.Option[int],
+	ContentMD5                       option.Option[string],
+	ContentType                      option.Option[string],
+	ChecksumAlgorithm                option.Option[ChecksumAlgorithm],
+	ChecksumCRC32                    option.Option[string],
+	ChecksumCRC32C                   option.Option[string],
+	ChecksumCRC64NVME                option.Option[string],
+	ChecksumSHA1                     option.Option[string],
+	ChecksumSHA256                   option.Option[string],
+	ChecksumSHA512                   option.Option[string],
+	ChecksumMD5                      option.Option[string],
+	ChecksumXXHASH64                 option.Option[string],
+	ChecksumXXHASH3                  option.Option[string],
+	ChecksumXXHASH128                option.Option[string],
+	Expires                          option.Option[string],
+	IfMatch                          option.Option[string],
+	IfNoneMatch                      option.Option[string],
+	GrantFullControl                 option.Option[string],
+	GrantRead                        option.Option[string],
+	GrantReadACP                     option.Option[string],
+	GrantWriteACP                    option.Option[string],
 	Key                              string,
-	WriteOffsetBytes                 Option[int],
+	WriteOffsetBytes                 option.Option[int],
 	Metadata                         Map[string, string],
-	ServerSideEncryption             Option[ServerSideEncryption],
-	StorageClass                     Option[StorageClass],
-	WebsiteRedirectLocation          Option[string],
-	SSECustomerAlgorithm             Option[string],
-	SSECustomerKey                   Option[string],
-	SSECustomerKeyMD5                Option[string],
-	SSEKMSKeyId                      Option[string],
-	SSEKMSEncryptionContext          Option[string],
-	BucketKeyEnabled                 Option[bool],
-	RequestPayer                     Option[RequestPayer],
-	Tagging                          Option[string],
-	ObjectLockMode                   Option[ObjectLockMode],
-	ObjectLockRetainUntilDate        Option[time.Time],
-	ObjectLockLegalHoldStatus        Option[ObjectLockLegalHoldStatus],
-	ObjectLockEventHold              Option[ObjectLockEventHold],
-	ObjectLockEventHoldDurationDays  Option[int],
-	ObjectLockEventHoldDurationYears Option[int],
-	ExpectedBucketOwner              Option[string],
+	ServerSideEncryption             option.Option[ServerSideEncryption],
+	StorageClass                     option.Option[StorageClass],
+	WebsiteRedirectLocation          option.Option[string],
+	SSECustomerAlgorithm             option.Option[string],
+	SSECustomerKey                   option.Option[string],
+	SSECustomerKeyMD5                option.Option[string],
+	SSEKMSKeyId                      option.Option[string],
+	SSEKMSEncryptionContext          option.Option[string],
+	BucketKeyEnabled                 option.Option[bool],
+	RequestPayer                     option.Option[RequestPayer],
+	Tagging                          option.Option[string],
+	ObjectLockMode                   option.Option[ObjectLockMode],
+	ObjectLockRetainUntilDate        option.Option[time.Time],
+	ObjectLockLegalHoldStatus        option.Option[ObjectLockLegalHoldStatus],
+	ObjectLockEventHold              option.Option[ObjectLockEventHold],
+	ObjectLockEventHoldDurationDays  option.Option[int],
+	ObjectLockEventHoldDurationYears option.Option[int],
+	ExpectedBucketOwner              option.Option[string],
 }
 
 func NewPutObjectRequest(bucket string, key string) PutObjectRequest {
 	PutObjectRequest{
-		ACL:                              None,
+		ACL:                              option.None,
 		Body:                             "",
 		Bucket:                           bucket,
-		CacheControl:                     None,
-		ContentDisposition:               None,
-		ContentEncoding:                  None,
-		ContentLanguage:                  None,
-		ContentLength:                    None,
-		ContentMD5:                       None,
-		ContentType:                      None,
-		ChecksumAlgorithm:                None,
-		ChecksumCRC32:                    None,
-		ChecksumCRC32C:                   None,
-		ChecksumCRC64NVME:                None,
-		ChecksumSHA1:                     None,
-		ChecksumSHA256:                   None,
-		ChecksumSHA512:                   None,
-		ChecksumMD5:                      None,
-		ChecksumXXHASH64:                 None,
-		ChecksumXXHASH3:                  None,
-		ChecksumXXHASH128:                None,
-		Expires:                          None,
-		IfMatch:                          None,
-		IfNoneMatch:                      None,
-		GrantFullControl:                 None,
-		GrantRead:                        None,
-		GrantReadACP:                     None,
-		GrantWriteACP:                    None,
+		CacheControl:                     option.None,
+		ContentDisposition:               option.None,
+		ContentEncoding:                  option.None,
+		ContentLanguage:                  option.None,
+		ContentLength:                    option.None,
+		ContentMD5:                       option.None,
+		ContentType:                      option.None,
+		ChecksumAlgorithm:                option.None,
+		ChecksumCRC32:                    option.None,
+		ChecksumCRC32C:                   option.None,
+		ChecksumCRC64NVME:                option.None,
+		ChecksumSHA1:                     option.None,
+		ChecksumSHA256:                   option.None,
+		ChecksumSHA512:                   option.None,
+		ChecksumMD5:                      option.None,
+		ChecksumXXHASH64:                 option.None,
+		ChecksumXXHASH3:                  option.None,
+		ChecksumXXHASH128:                option.None,
+		Expires:                          option.None,
+		IfMatch:                          option.None,
+		IfNoneMatch:                      option.None,
+		GrantFullControl:                 option.None,
+		GrantRead:                        option.None,
+		GrantReadACP:                     option.None,
+		GrantWriteACP:                    option.None,
 		Key:                              key,
-		WriteOffsetBytes:                 None,
+		WriteOffsetBytes:                 option.None,
 		Metadata:                         Map[string, string]{},
-		ServerSideEncryption:             None,
-		StorageClass:                     None,
-		WebsiteRedirectLocation:          None,
-		SSECustomerAlgorithm:             None,
-		SSECustomerKey:                   None,
-		SSECustomerKeyMD5:                None,
-		SSEKMSKeyId:                      None,
-		SSEKMSEncryptionContext:          None,
-		BucketKeyEnabled:                 None,
-		RequestPayer:                     None,
-		Tagging:                          None,
-		ObjectLockMode:                   None,
-		ObjectLockRetainUntilDate:        None,
-		ObjectLockLegalHoldStatus:        None,
-		ObjectLockEventHold:              None,
-		ObjectLockEventHoldDurationDays:  None,
-		ObjectLockEventHoldDurationYears: None,
-		ExpectedBucketOwner:              None,
+		ServerSideEncryption:             option.None,
+		StorageClass:                     option.None,
+		WebsiteRedirectLocation:          option.None,
+		SSECustomerAlgorithm:             option.None,
+		SSECustomerKey:                   option.None,
+		SSECustomerKeyMD5:                option.None,
+		SSEKMSKeyId:                      option.None,
+		SSEKMSEncryptionContext:          option.None,
+		BucketKeyEnabled:                 option.None,
+		RequestPayer:                     option.None,
+		Tagging:                          option.None,
+		ObjectLockMode:                   option.None,
+		ObjectLockRetainUntilDate:        option.None,
+		ObjectLockLegalHoldStatus:        option.None,
+		ObjectLockEventHold:              option.None,
+		ObjectLockEventHoldDurationDays:  option.None,
+		ObjectLockEventHoldDurationYears: option.None,
+		ExpectedBucketOwner:              option.None,
 	}
 }
 
 // PutObjectOutput is what PutObject reads from the answer's headers.
 // NewPutObjectOutput makes one with every member None, for a provider of S3.
 type PutObjectOutput {
-	Expiration              Option[string],
-	ETag                    Option[string],
-	ChecksumCRC32           Option[string],
-	ChecksumCRC32C          Option[string],
-	ChecksumCRC64NVME       Option[string],
-	ChecksumSHA1            Option[string],
-	ChecksumSHA256          Option[string],
-	ChecksumSHA512          Option[string],
-	ChecksumMD5             Option[string],
-	ChecksumXXHASH64        Option[string],
-	ChecksumXXHASH3         Option[string],
-	ChecksumXXHASH128       Option[string],
-	ChecksumType            Option[ChecksumType],
-	ServerSideEncryption    Option[ServerSideEncryption],
-	VersionId               Option[string],
-	SSECustomerAlgorithm    Option[string],
-	SSECustomerKeyMD5       Option[string],
-	SSEKMSKeyId             Option[string],
-	SSEKMSEncryptionContext Option[string],
-	BucketKeyEnabled        Option[bool],
-	Size                    Option[int],
-	RequestCharged          Option[RequestCharged],
+	Expiration              option.Option[string],
+	ETag                    option.Option[string],
+	ChecksumCRC32           option.Option[string],
+	ChecksumCRC32C          option.Option[string],
+	ChecksumCRC64NVME       option.Option[string],
+	ChecksumSHA1            option.Option[string],
+	ChecksumSHA256          option.Option[string],
+	ChecksumSHA512          option.Option[string],
+	ChecksumMD5             option.Option[string],
+	ChecksumXXHASH64        option.Option[string],
+	ChecksumXXHASH3         option.Option[string],
+	ChecksumXXHASH128       option.Option[string],
+	ChecksumType            option.Option[ChecksumType],
+	ServerSideEncryption    option.Option[ServerSideEncryption],
+	VersionId               option.Option[string],
+	SSECustomerAlgorithm    option.Option[string],
+	SSECustomerKeyMD5       option.Option[string],
+	SSEKMSKeyId             option.Option[string],
+	SSEKMSEncryptionContext option.Option[string],
+	BucketKeyEnabled        option.Option[bool],
+	Size                    option.Option[int],
+	RequestCharged          option.Option[RequestCharged],
 }
 
 func NewPutObjectOutput() PutObjectOutput {
 	PutObjectOutput{
-		Expiration:              None,
-		ETag:                    None,
-		ChecksumCRC32:           None,
-		ChecksumCRC32C:          None,
-		ChecksumCRC64NVME:       None,
-		ChecksumSHA1:            None,
-		ChecksumSHA256:          None,
-		ChecksumSHA512:          None,
-		ChecksumMD5:             None,
-		ChecksumXXHASH64:        None,
-		ChecksumXXHASH3:         None,
-		ChecksumXXHASH128:       None,
-		ChecksumType:            None,
-		ServerSideEncryption:    None,
-		VersionId:               None,
-		SSECustomerAlgorithm:    None,
-		SSECustomerKeyMD5:       None,
-		SSEKMSKeyId:             None,
-		SSEKMSEncryptionContext: None,
-		BucketKeyEnabled:        None,
-		Size:                    None,
-		RequestCharged:          None,
+		Expiration:              option.None,
+		ETag:                    option.None,
+		ChecksumCRC32:           option.None,
+		ChecksumCRC32C:          option.None,
+		ChecksumCRC64NVME:       option.None,
+		ChecksumSHA1:            option.None,
+		ChecksumSHA256:          option.None,
+		ChecksumSHA512:          option.None,
+		ChecksumMD5:             option.None,
+		ChecksumXXHASH64:        option.None,
+		ChecksumXXHASH3:         option.None,
+		ChecksumXXHASH128:       option.None,
+		ChecksumType:            option.None,
+		ServerSideEncryption:    option.None,
+		VersionId:               option.None,
+		SSECustomerAlgorithm:    option.None,
+		SSECustomerKeyMD5:       option.None,
+		SSEKMSKeyId:             option.None,
+		SSEKMSEncryptionContext: option.None,
+		BucketKeyEnabled:        option.None,
+		Size:                    option.None,
+		RequestCharged:          option.None,
 	}
 }
 
@@ -1253,28 +1254,28 @@ func NewPutObjectOutput() PutObjectOutput {
 type DeleteObjectRequest {
 	Bucket                    string,
 	Key                       string,
-	MFA                       Option[string],
-	VersionId                 Option[string],
-	RequestPayer              Option[RequestPayer],
-	BypassGovernanceRetention Option[bool],
-	ExpectedBucketOwner       Option[string],
-	IfMatch                   Option[string],
-	IfMatchLastModifiedTime   Option[time.Time],
-	IfMatchSize               Option[int],
+	MFA                       option.Option[string],
+	VersionId                 option.Option[string],
+	RequestPayer              option.Option[RequestPayer],
+	BypassGovernanceRetention option.Option[bool],
+	ExpectedBucketOwner       option.Option[string],
+	IfMatch                   option.Option[string],
+	IfMatchLastModifiedTime   option.Option[time.Time],
+	IfMatchSize               option.Option[int],
 }
 
 func NewDeleteObjectRequest(bucket string, key string) DeleteObjectRequest {
 	DeleteObjectRequest{
 		Bucket:                    bucket,
 		Key:                       key,
-		MFA:                       None,
-		VersionId:                 None,
-		RequestPayer:              None,
-		BypassGovernanceRetention: None,
-		ExpectedBucketOwner:       None,
-		IfMatch:                   None,
-		IfMatchLastModifiedTime:   None,
-		IfMatchSize:               None,
+		MFA:                       option.None,
+		VersionId:                 option.None,
+		RequestPayer:              option.None,
+		BypassGovernanceRetention: option.None,
+		ExpectedBucketOwner:       option.None,
+		IfMatch:                   option.None,
+		IfMatchLastModifiedTime:   option.None,
+		IfMatchSize:               option.None,
 	}
 }
 
@@ -1282,16 +1283,16 @@ func NewDeleteObjectRequest(bucket string, key string) DeleteObjectRequest {
 // NewDeleteObjectOutput makes one with every member None, for a provider of
 // S3.
 type DeleteObjectOutput {
-	DeleteMarker   Option[bool],
-	VersionId      Option[string],
-	RequestCharged Option[RequestCharged],
+	DeleteMarker   option.Option[bool],
+	VersionId      option.Option[string],
+	RequestCharged option.Option[RequestCharged],
 }
 
 func NewDeleteObjectOutput() DeleteObjectOutput {
 	DeleteObjectOutput{
-		DeleteMarker:   None,
-		VersionId:      None,
-		RequestCharged: None,
+		DeleteMarker:   option.None,
+		VersionId:      option.None,
+		RequestCharged: option.None,
 	}
 }
 
@@ -1314,8 +1315,8 @@ func notFound(e aws.ErrorBody) NotFound {
 type InvalidObjectState {
 	Status       int,
 	Message      string,
-	StorageClass Option[StorageClass],
-	AccessTier   Option[IntelligentTieringAccessTier],
+	StorageClass option.Option[StorageClass],
+	AccessTier   option.Option[IntelligentTieringAccessTier],
 }
 
 func invalidObjectState(e aws.ErrorBody) InvalidObjectState {
@@ -1419,12 +1420,12 @@ func requestPayerOf(s string) RequestPayer {
 	RequestPayerOther{Value: s}
 }
 
-func requestPayerIn(s Option[string]) Option[RequestPayer] {
+func requestPayerIn(s option.Option[string]) option.Option[RequestPayer] {
 	match s {
-	case Some as v:
-		Some[RequestPayer]{requestPayerOf(v.Value)}
-	case None:
-		None
+	case option.Some as v:
+		option.Some[RequestPayer]{requestPayerOf(v.Value)}
+	case option.None:
+		option.None
 	}
 }
 
@@ -1450,12 +1451,12 @@ func checksumModeOf(s string) ChecksumMode {
 	ChecksumModeOther{Value: s}
 }
 
-func checksumModeIn(s Option[string]) Option[ChecksumMode] {
+func checksumModeIn(s option.Option[string]) option.Option[ChecksumMode] {
 	match s {
-	case Some as v:
-		Some[ChecksumMode]{checksumModeOf(v.Value)}
-	case None:
-		None
+	case option.Some as v:
+		option.Some[ChecksumMode]{checksumModeOf(v.Value)}
+	case option.None:
+		option.None
 	}
 }
 
@@ -1487,12 +1488,12 @@ func archiveStatusOf(s string) ArchiveStatus {
 	ArchiveStatusOther{Value: s}
 }
 
-func archiveStatusIn(s Option[string]) Option[ArchiveStatus] {
+func archiveStatusIn(s option.Option[string]) option.Option[ArchiveStatus] {
 	match s {
-	case Some as v:
-		Some[ArchiveStatus]{archiveStatusOf(v.Value)}
-	case None:
-		None
+	case option.Some as v:
+		option.Some[ArchiveStatus]{archiveStatusOf(v.Value)}
+	case option.None:
+		option.None
 	}
 }
 
@@ -1524,12 +1525,12 @@ func checksumTypeOf(s string) ChecksumType {
 	ChecksumTypeOther{Value: s}
 }
 
-func checksumTypeIn(s Option[string]) Option[ChecksumType] {
+func checksumTypeIn(s option.Option[string]) option.Option[ChecksumType] {
 	match s {
-	case Some as v:
-		Some[ChecksumType]{checksumTypeOf(v.Value)}
-	case None:
-		None
+	case option.Some as v:
+		option.Some[ChecksumType]{checksumTypeOf(v.Value)}
+	case option.None:
+		option.None
 	}
 }
 
@@ -1579,12 +1580,12 @@ func serverSideEncryptionOf(s string) ServerSideEncryption {
 	ServerSideEncryptionOther{Value: s}
 }
 
-func serverSideEncryptionIn(s Option[string]) Option[ServerSideEncryption] {
+func serverSideEncryptionIn(s option.Option[string]) option.Option[ServerSideEncryption] {
 	match s {
-	case Some as v:
-		Some[ServerSideEncryption]{serverSideEncryptionOf(v.Value)}
-	case None:
-		None
+	case option.Some as v:
+		option.Some[ServerSideEncryption]{serverSideEncryptionOf(v.Value)}
+	case option.None:
+		option.None
 	}
 }
 
@@ -1694,12 +1695,12 @@ func storageClassOf(s string) StorageClass {
 	StorageClassOther{Value: s}
 }
 
-func storageClassIn(s Option[string]) Option[StorageClass] {
+func storageClassIn(s option.Option[string]) option.Option[StorageClass] {
 	match s {
-	case Some as v:
-		Some[StorageClass]{storageClassOf(v.Value)}
-	case None:
-		None
+	case option.Some as v:
+		option.Some[StorageClass]{storageClassOf(v.Value)}
+	case option.None:
+		option.None
 	}
 }
 
@@ -1726,12 +1727,12 @@ func requestChargedOf(s string) RequestCharged {
 	RequestChargedOther{Value: s}
 }
 
-func requestChargedIn(s Option[string]) Option[RequestCharged] {
+func requestChargedIn(s option.Option[string]) option.Option[RequestCharged] {
 	match s {
-	case Some as v:
-		Some[RequestCharged]{requestChargedOf(v.Value)}
-	case None:
-		None
+	case option.Some as v:
+		option.Some[RequestCharged]{requestChargedOf(v.Value)}
+	case option.None:
+		option.None
 	}
 }
 
@@ -1781,12 +1782,12 @@ func replicationStatusOf(s string) ReplicationStatus {
 	ReplicationStatusOther{Value: s}
 }
 
-func replicationStatusIn(s Option[string]) Option[ReplicationStatus] {
+func replicationStatusIn(s option.Option[string]) option.Option[ReplicationStatus] {
 	match s {
-	case Some as v:
-		Some[ReplicationStatus]{replicationStatusOf(v.Value)}
-	case None:
-		None
+	case option.Some as v:
+		option.Some[ReplicationStatus]{replicationStatusOf(v.Value)}
+	case option.None:
+		option.None
 	}
 }
 
@@ -1818,12 +1819,12 @@ func objectLockModeOf(s string) ObjectLockMode {
 	ObjectLockModeOther{Value: s}
 }
 
-func objectLockModeIn(s Option[string]) Option[ObjectLockMode] {
+func objectLockModeIn(s option.Option[string]) option.Option[ObjectLockMode] {
 	match s {
-	case Some as v:
-		Some[ObjectLockMode]{objectLockModeOf(v.Value)}
-	case None:
-		None
+	case option.Some as v:
+		option.Some[ObjectLockMode]{objectLockModeOf(v.Value)}
+	case option.None:
+		option.None
 	}
 }
 
@@ -1855,12 +1856,12 @@ func objectLockLegalHoldStatusOf(s string) ObjectLockLegalHoldStatus {
 	ObjectLockLegalHoldStatusOther{Value: s}
 }
 
-func objectLockLegalHoldStatusIn(s Option[string]) Option[ObjectLockLegalHoldStatus] {
+func objectLockLegalHoldStatusIn(s option.Option[string]) option.Option[ObjectLockLegalHoldStatus] {
 	match s {
-	case Some as v:
-		Some[ObjectLockLegalHoldStatus]{objectLockLegalHoldStatusOf(v.Value)}
-	case None:
-		None
+	case option.Some as v:
+		option.Some[ObjectLockLegalHoldStatus]{objectLockLegalHoldStatusOf(v.Value)}
+	case option.None:
+		option.None
 	}
 }
 
@@ -1892,12 +1893,12 @@ func objectLockEventHoldOf(s string) ObjectLockEventHold {
 	ObjectLockEventHoldOther{Value: s}
 }
 
-func objectLockEventHoldIn(s Option[string]) Option[ObjectLockEventHold] {
+func objectLockEventHoldIn(s option.Option[string]) option.Option[ObjectLockEventHold] {
 	match s {
-	case Some as v:
-		Some[ObjectLockEventHold]{objectLockEventHoldOf(v.Value)}
-	case None:
-		None
+	case option.Some as v:
+		option.Some[ObjectLockEventHold]{objectLockEventHoldOf(v.Value)}
+	case option.None:
+		option.None
 	}
 }
 
@@ -1959,12 +1960,12 @@ func objectCannedACLOf(s string) ObjectCannedACL {
 	ObjectCannedACLOther{Value: s}
 }
 
-func objectCannedACLIn(s Option[string]) Option[ObjectCannedACL] {
+func objectCannedACLIn(s option.Option[string]) option.Option[ObjectCannedACL] {
 	match s {
-	case Some as v:
-		Some[ObjectCannedACL]{objectCannedACLOf(v.Value)}
-	case None:
-		None
+	case option.Some as v:
+		option.Some[ObjectCannedACL]{objectCannedACLOf(v.Value)}
+	case option.None:
+		option.None
 	}
 }
 
@@ -2044,12 +2045,12 @@ func checksumAlgorithmOf(s string) ChecksumAlgorithm {
 	ChecksumAlgorithmOther{Value: s}
 }
 
-func checksumAlgorithmIn(s Option[string]) Option[ChecksumAlgorithm] {
+func checksumAlgorithmIn(s option.Option[string]) option.Option[ChecksumAlgorithm] {
 	match s {
-	case Some as v:
-		Some[ChecksumAlgorithm]{checksumAlgorithmOf(v.Value)}
-	case None:
-		None
+	case option.Some as v:
+		option.Some[ChecksumAlgorithm]{checksumAlgorithmOf(v.Value)}
+	case option.None:
+		option.None
 	}
 }
 
@@ -2081,11 +2082,11 @@ func intelligentTieringAccessTierOf(s string) IntelligentTieringAccessTier {
 	IntelligentTieringAccessTierOther{Value: s}
 }
 
-func intelligentTieringAccessTierIn(s Option[string]) Option[IntelligentTieringAccessTier] {
+func intelligentTieringAccessTierIn(s option.Option[string]) option.Option[IntelligentTieringAccessTier] {
 	match s {
-	case Some as v:
-		Some[IntelligentTieringAccessTier]{intelligentTieringAccessTierOf(v.Value)}
-	case None:
-		None
+	case option.Some as v:
+		option.Some[IntelligentTieringAccessTier]{intelligentTieringAccessTierOf(v.Value)}
+	case option.None:
+		option.None
 	}
 }

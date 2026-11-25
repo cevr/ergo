@@ -1,6 +1,7 @@
 import actor
 import gen
 import machines
+import option
 import querytable/dino
 import querytable/explorer
 import querytable/query
@@ -21,11 +22,11 @@ func exploreProperties() []temporal.Formula[ui.ExploreSnapshot[explorer.Page, ex
 			let pOK = p.Count > 0 && p.Active >= 0 && p.Active < p.Count
 			let rowsOK = match s.State.Route {
 			case query.Browse as b:
-				len(table.Rows(b.Query)) <= len(dino.All)
+				table.Rows(b.Query).Len() <= dino.All.Len()
 			case query.NotFound:
 				true
 			}
-			dOK && pOK && rowsOK && len(s.Offers) > 0
+			dOK && pOK && rowsOK && s.Offers.Len() > 0
 		}),
 	))
 	props
@@ -33,11 +34,11 @@ func exploreProperties() []temporal.Formula[ui.ExploreSnapshot[explorer.Page, ex
 
 func exploreOnce(steps int) ui.Finding needs gen.Draws {
 	let clock = time.NewManual(0)
-	let histRef = sync.NewRef[Option[ui.MemoryHistory]](None)
-	with context { Scheduler: clock } {
+	let histRef = sync.NewRef[option.Option[ui.MemoryHistory]](option.None)
+	with context { time.Scheduler: clock } {
 		let site = actor.StartMachine(machines.Start(explorer.Explorer{}, "/"), 16, func(cmds []explorer.Command) {
 			match histRef.Get() {
-			case Some[ui.MemoryHistory] as loc:
+			case option.Some[ui.MemoryHistory] as loc:
 				for c in cmds {
 					match c {
 					case explorer.Replace as r:
@@ -47,7 +48,7 @@ func exploreOnce(steps int) ui.Finding needs gen.Draws {
 					case explorer.Focus:
 					}
 				}
-			case None:
+			case option.None:
 			}
 		})
 		let mut h = ui.NewTestHost(site, screen.Screen, clock, 16) catch {
@@ -64,7 +65,7 @@ func exploreOnce(steps int) ui.Finding needs gen.Draws {
 			site.Stop()
 			return ui.Found{Script: []ui.Act{}, Step: 0, Violation: "actor stopped during settle"}
 		}
-		histRef.Set(Some[ui.MemoryHistory]{Value: ui.History(&h)})
+		histRef.Set(option.Some[ui.MemoryHistory]{Value: ui.History(&h)})
 		let res = ui.Explore(&h, exploreProperties(), ui.ExploreConfig{Steps: steps, Swarm: false, AdvanceStep: 500ms, Weights: Map[string, int]{}})
 		site.Stop()
 		res

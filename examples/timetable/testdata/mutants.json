@@ -2,54 +2,116 @@
   "about": "timetable's domain mutants; each is judged by the domain package's laws (ergo test examples/timetable/timetable), run by the examples suite, not by a compiler test.",
   "mutants": [
     {
-      "name": "T6 a skipped wall time leaves before the gap", "origin": "wf10/t6 examples/timetable",
+      "name": "T6 a skipped wall time leaves before the gap",
+      "origin": "wf10/t6 examples/timetable",
       "file": "examples/timetable/timetable/departure.ergo",
-      "from": "(g.Start, Skipped{Wall: s.Leaves})", "to": "(time.Add(g.Start, -1s), Skipped{Wall: s.Leaves})",
+      "from": "(g.Start, Skipped{Wall: s.Leaves})",
+      "to": "(time.Add(g.Start, -1s), Skipped{Wall: s.Leaves})",
       "rule": "LeavesOnItsDay: a wall time the clock skips leaves at the first instant after the gap.",
-      "anchor": {"tests": ["examples:timetable"]}, "killers": ["examples:timetable"]
+      "anchor": {
+        "tests": [
+          "examples:timetable"
+        ]
+      },
+      "killers": [
+        "examples:timetable"
+      ]
     },
     {
-      "name": "T6 a wall time shown twice leaves the second time", "origin": "wf10/t6 examples/timetable",
+      "name": "T6 a wall time shown twice leaves the second time",
+      "origin": "wf10/t6 examples/timetable",
       "file": "examples/timetable/timetable/departure.ergo",
-      "from": "(o.Earlier, Twice)", "to": "(o.Later, Twice)",
+      "from": "(o.Earlier, Twice)",
+      "to": "(o.Later, Twice)",
       "rule": "LeavesOnItsDay: a wall time shown twice leaves the first time.",
-      "anchor": {"tests": ["examples:timetable"]}, "killers": ["examples:timetable"]
+      "anchor": {
+        "tests": [
+          "examples:timetable"
+        ]
+      },
+      "killers": [
+        "examples:timetable"
+      ]
     },
     {
-      "name": "T6 departures miss the trains of two days before", "origin": "wf10/t6 examples/timetable",
+      "name": "T6 departures miss the trains of two days before",
+      "origin": "wf10/t6 examples/timetable",
       "file": "examples/timetable/timetable/departure.ergo",
       "from": "for back in 0..3 {\n\t\tlet d = civil.AddDays(day, back-2)\n\t\tfor s in services {\n\t\t\tif !RunsOn(s, d) {",
       "to": "for back in 1..3 {\n\t\tlet d = civil.AddDays(day, back-2)\n\t\tfor s in services {\n\t\t\tif !RunsOn(s, d) {",
       "rule": "EveryCallIsListed: a stop's departures hold each call the stop's clock shows that day, of a train that left up to two days before.",
-      "anchor": {"tests": ["examples:timetable"]}, "killers": ["examples:timetable"]
+      "anchor": {
+        "tests": [
+          "examples:timetable"
+        ]
+      },
+      "killers": [
+        "examples:timetable"
+      ]
     },
     {
-      "name": "T6 departures out of time order", "origin": "wf10/t6 examples/timetable",
+      "name": "T6 departures out of time order",
+      "origin": "wf10/t6 examples/timetable",
       "file": "examples/timetable/timetable/departure.ergo",
-      "from": "time.Before(d.At.At, xs[i-1].At.At)", "to": "time.Before(xs[i-1].At.At, d.At.At)",
+      "from": "time.Before(d.At.At, xs[i-1].At.At)",
+      "to": "time.Before(xs[i-1].At.At, d.At.At)",
       "rule": "DeparturesAreOnTheDay: a stop's departures are in time order.",
-      "anchor": {"tests": ["examples:timetable"]}, "killers": ["examples:timetable"]
+      "anchor": {
+        "tests": [
+          "examples:timetable"
+        ]
+      },
+      "killers": [
+        "examples:timetable"
+      ]
     },
     {
-      "name": "T6 a delay on the way moves nothing", "origin": "wf10/t6 examples/timetable",
+      "name": "T6 a delay on the way moves nothing",
+      "origin": "wf10/t6 examples/timetable",
       "file": "examples/timetable/timetable/trip.ergo",
-      "from": "Next: Running{Next: r.Next, Due: later(r.Due, d.By)}", "to": "Next: Running{Next: r.Next, Due: r.Due}",
+      "from": "Next: Running{Next: r.Next, Due: later(r.Due, d.By)}",
+      "to": "Next: Running{Next: r.Next, Due: r.Due}",
       "rule": "DelayMovesTheRest: a delay moves every instant still to come.",
-      "anchor": {"tests": ["examples:timetable"]}, "killers": ["examples:timetable"]
+      "anchor": {
+        "tests": [
+          "examples:timetable"
+        ]
+      },
+      "killers": [
+        "examples:timetable"
+      ]
     },
     {
-      "name": "T6 a running train is cancelled", "origin": "wf10/t6 examples/timetable",
+      "name": "T6 a running train is cancelled",
+      "origin": "wf10/t6 examples/timetable",
       "file": "examples/timetable/timetable/trip.ergo",
-      "from": "\tcase (Running, Cancel):\n\t\tReject", "to": "\tcase (Running, Cancel as x):\n\t\tEmit[Leg, Notice]{Next: Cancelled{Reason: x.Reason}, Output: Withdrawn{Reason: x.Reason}}",
+      "from": "\tcase (Running, Cancel):\n\t\tmachines.Reject",
+      "to": "\tcase (Running, Cancel as x):\n\t\tmachines.Emit[Leg, Notice]{Next: Cancelled{Reason: x.Reason}, Output: Withdrawn{Reason: x.Reason}}",
       "rule": "CancelOnlyBeforeLeaving and NeverGoesBack: a train is cancelled only before it leaves.",
-      "anchor": {"tests": ["examples:timetable"]}, "killers": ["examples:timetable"]
+      "anchor": {
+        "tests": [
+          "examples:timetable"
+        ]
+      },
+      "killers": [
+        "examples:timetable"
+      ]
     },
     {
-      "name": "T6 the picker shows a week too many", "origin": "wf10/t6 examples/timetable",
+      "name": "T6 the picker shows a week too many",
+      "origin": "wf10/t6 examples/timetable",
       "file": "examples/timetable/timetable/week.ergo",
-      "from": "civil.AddWeeks(from, n-1)", "to": "civil.AddWeeks(from, n)",
+      "from": "civil.AddWeeks(from, n-1)",
+      "to": "civil.AddWeeks(from, n)",
       "rule": "WeeksFollowOneAnother: the picker shows the weeks asked for.",
-      "anchor": {"tests": ["examples:timetable"]}, "killers": ["examples:timetable"]
+      "anchor": {
+        "tests": [
+          "examples:timetable"
+        ]
+      },
+      "killers": [
+        "examples:timetable"
+      ]
     }
   ]
 }

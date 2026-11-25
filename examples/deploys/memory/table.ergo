@@ -3,6 +3,7 @@
 // standard streams, so a run is one connection (cmd/deploys).
 
 import deploys/deploys
+import option
 import sync
 
 // entries is what a Table holds: the deploys by ID, and the IDs in the
@@ -22,7 +23,7 @@ func NewTable() Table {
 // Add keeps o under its ID.
 func Add(l Table, o deploys.Deploy) fails deploys.Taken {
 	let added = sync.Modify(l.cell, func(e entries) (bool, entries) {
-		if e.byID.Get(o.ID) != None {
+		if e.byID.Get(o.ID) != option.None {
 			return (false, e)
 		}
 		let mut byID = e.byID
@@ -37,7 +38,7 @@ func Add(l Table, o deploys.Deploy) fails deploys.Taken {
 // Replace keeps o in place of the deploy of its ID.
 func Replace(l Table, o deploys.Deploy) fails deploys.NotFound {
 	let found = sync.Modify(l.cell, func(e entries) (bool, entries) {
-		if e.byID.Get(o.ID) == None {
+		if e.byID.Get(o.ID) == option.None {
 			return (false, e)
 		}
 		let mut byID = e.byID
@@ -52,9 +53,9 @@ func Replace(l Table, o deploys.Deploy) fails deploys.NotFound {
 // Find is the deploy of id.
 func Find(l Table, id string) deploys.Deploy fails deploys.NotFound {
 	match l.cell.Get().byID.Get(id) {
-	case Some[deploys.Deploy] as o:
+	case option.Some[deploys.Deploy] as o:
 		o.Value
-	case None:
+	case option.None:
 		deploys.NotFound{ID: id}
 	}
 }
@@ -65,13 +66,13 @@ func All(l Table) []deploys.Deploy {
 	let mut out = []deploys.Deploy{}
 	for id in e.order {
 		match e.byID.Get(id) {
-		case Some[deploys.Deploy] as o:
+		case option.Some[deploys.Deploy] as o:
 			out = out.Append(o.Value)
-		case None:
+		case option.None:
 		}
 	}
 	out
 }
 
 // Count is how many deploys the Table holds.
-func Count(l Table) int { len(l.cell.Get().byID) }
+func Count(l Table) int { l.cell.Get().byID.Len() }

@@ -7,7 +7,7 @@
 import embed
 import strings
 
-let Vectors = embedded[embed.FS]("testdata/vectors")
+let Vectors = embed.File[embed.FS]("testdata/vectors")
 
 // texts is the files of the vectors' folder dir ending in suffix.
 func texts(dir string, suffix string) []Named {
@@ -31,7 +31,7 @@ func texts(dir string, suffix string) []Named {
 test VectorsAreReproduced {
 	let records = texts("records", ".record")
 	let nets = texts("nets", ".tn1")
-	assert len(records) > 0 && len(nets) > 0
+	assert records.Len() > 0 && nets.Len() > 0
 	let want = Vectors.ReadFile("testdata/vectors/expected.tsv") catch {
 	case _:
 		""

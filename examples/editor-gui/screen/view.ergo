@@ -1,5 +1,6 @@
 import ergo.local/prototype/examples/editorgui/edit
 import ergo.local/prototype/examples/editorgui/piece
+import option
 import ui
 
 // Mono is the page's measure: a cell grid of 8 by 16 (the test host's;
@@ -22,19 +23,19 @@ func Viewer(store edit.Store, clip ui.Clipboard) func(f mut ui.Frame[Signal], w 
 }
 
 func view(f mut ui.Frame[Signal], w Window, store edit.Store, clip ui.Clipboard) {
-	ui.OnKey(f, func(k ui.KeyPress) Option[Signal] { Keyed(k) })
+	ui.OnKey(f, func(k ui.KeyPress) option.Option[Signal] { Keyed(k) })
 	match w.Writing {
-	case Some[string] as t:
+	case option.Some[string] as t:
 		let name = w.Name
 		let text = t.Value
 		ui.Load(f, ui.IntKey{Value: w.Saves}, func() Signal { written(store, name, text) })
-	case None:
+	case option.None:
 	}
 	match w.Clipping {
-	case Some[Clip] as c:
+	case option.Some[Clip] as c:
 		let job = c.Value
 		ui.Load(f, ui.IntKey{Value: w.Clips}, func() Signal { clipped(clip, job) })
-	case None:
+	case option.None:
 	}
 	let replacement = ui.NewDraft(f, "")
 	ui.Column(f, ui.Plain()) {
@@ -56,8 +57,8 @@ func view(f mut ui.Frame[Signal], w Window, store edit.Store, clip ui.Clipboard)
 		let d = edit.DocOf(w.Ed)
 		let (from, to) = Shown(d)
 		let l = ui.LayoutText(Mono, piece.Slice(d.Buf, from, to), Font, PageWidth)
-		ui.Area(f, "page", ui.Plain(), func(p ui.PointerEvent) Option[Signal] { Pressed(p, l, from) }) {
-			ui.Canvas(f, "paint", PageWidth, ui.Length(float64(len(l.Lines)))*l.LineHeight) func(p mut ui.Paint) {
+		ui.Area(f, "page", ui.Plain(), func(p ui.PointerEvent) option.Option[Signal] { Pressed(p, l, from) }) {
+			ui.Canvas(f, "paint", PageWidth, ui.Length(float64(l.Lines.Len()))*l.LineHeight) func(p mut ui.Paint) {
 				Page(p, l, w.Ed, from, to)
 			}
 		}
@@ -67,12 +68,12 @@ func view(f mut ui.Frame[Signal], w Window, store edit.Store, clip ui.Clipboard)
 // Pressed is the signal of a pointer on the page, which lays out the
 // bytes from from in l: a press puts the caret at the rune boundary
 // nearest it (ui.OffsetAt); a move or a release does nothing.
-func Pressed(p ui.PointerEvent, l ui.TextLayout, from int) Option[Signal] {
+func Pressed(p ui.PointerEvent, l ui.TextLayout, from int) option.Option[Signal] {
 	match p.Phase {
 	case ui.Down:
-		Some{Value: Do{Signal: edit.Goto{At: from + ui.OffsetAt(Mono, l, ui.Length(p.X), ui.Length(p.Y))}}}
+		option.Some{Value: Do{Signal: edit.Goto{At: from + ui.OffsetAt(Mono, l, ui.Length(p.X), ui.Length(p.Y))}}}
 	case ui.Moved, ui.Drag, ui.Up, ui.Wheel, ui.PointerEnter, ui.PointerLeave:
-		None
+		option.None
 	}
 }
 
@@ -113,7 +114,7 @@ func written(store edit.Store, name string, text string) Signal {
 	case edit.Unwritable as u:
 		return WriteFailed{Reason: u.Reason}
 	}
-	Wrote{Bytes: len(text)}
+	Wrote{Bytes: text.Len()}
 }
 
 // Shown is the bytes [from, to) of the lines a window shows: the caret's
@@ -166,52 +167,52 @@ func clamp(v int, lo int, hi int) int {
 // Ctrl+F finds, F3 finds the next match, and Ctrl+C, Ctrl+X and Ctrl+V
 // copy, cut and paste. Typed text is not a key: the host commits it to
 // the text input.
-func Keyed(k ui.KeyPress) Option[Signal] {
+func Keyed(k ui.KeyPress) option.Option[Signal] {
 	let ctrl = k.Mods.Ctrl
 	match k.Name {
 	case "ArrowLeft":
-		Some{Value: Do{Signal: edit.Left{N: 1}}}
+		option.Some{Value: Do{Signal: edit.Left{N: 1}}}
 	case "ArrowRight":
-		Some{Value: Do{Signal: edit.Right{N: 1}}}
+		option.Some{Value: Do{Signal: edit.Right{N: 1}}}
 	case "ArrowUp":
-		Some{Value: Do{Signal: edit.Up{N: 1}}}
+		option.Some{Value: Do{Signal: edit.Up{N: 1}}}
 	case "ArrowDown":
-		Some{Value: Do{Signal: edit.Down{N: 1}}}
+		option.Some{Value: Do{Signal: edit.Down{N: 1}}}
 	case "Home":
-		Some{Value: Do{Signal: if ctrl { edit.Top } else { edit.Home }}}
+		option.Some{Value: Do{Signal: if ctrl { edit.Top } else { edit.Home }}}
 	case "End":
-		Some{Value: Do{Signal: if ctrl { edit.Bottom } else { edit.End }}}
+		option.Some{Value: Do{Signal: if ctrl { edit.Bottom } else { edit.End }}}
 	case "Backspace":
-		Some{Value: Do{Signal: edit.Back}}
+		option.Some{Value: Do{Signal: edit.Back}}
 	case "Delete":
-		Some{Value: Do{Signal: edit.Del}}
+		option.Some{Value: Do{Signal: edit.Del}}
 	case "Enter":
-		Some{Value: Do{Signal: edit.Type{Text: "\n"}}}
+		option.Some{Value: Do{Signal: edit.Type{Text: "\n"}}}
 	case "Escape":
-		Some{Value: Do{Signal: edit.Escape}}
+		option.Some{Value: Do{Signal: edit.Escape}}
 	case "F3":
-		Some{Value: Do{Signal: edit.Next}}
+		option.Some{Value: Do{Signal: edit.Next}}
 	case _:
 		if !ctrl {
-			return None
+			return option.None
 		}
 		match k.Name {
 		case "z":
-			Some{Value: Do{Signal: edit.UndoIt}}
+			option.Some{Value: Do{Signal: edit.UndoIt}}
 		case "y":
-			Some{Value: Do{Signal: edit.RedoIt}}
+			option.Some{Value: Do{Signal: edit.RedoIt}}
 		case "s":
-			Some{Value: Do{Signal: edit.Save}}
+			option.Some{Value: Do{Signal: edit.Save}}
 		case "f":
-			Some{Value: Do{Signal: edit.Find}}
+			option.Some{Value: Do{Signal: edit.Find}}
 		case "c":
-			Some{Value: Do{Signal: edit.Copy}}
+			option.Some{Value: Do{Signal: edit.Copy}}
 		case "x":
-			Some{Value: Do{Signal: edit.Cut}}
+			option.Some{Value: Do{Signal: edit.Cut}}
 		case "v":
-			Some{Value: AskPaste}
+			option.Some{Value: AskPaste}
 		case _:
-			None
+			option.None
 		}
 	}
 }

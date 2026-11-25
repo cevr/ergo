@@ -7,6 +7,7 @@ import addressroutes/app
 import addressroutes/files
 import addressroutes/people
 import addressroutes/route
+import option
 import strings
 import ui
 
@@ -15,11 +16,11 @@ let SearchPlaceholder = "Search by name or role..."
 
 // Screen is the program: the navigation and the route's page.
 func Screen(f mut ui.Frame[app.Signal], a app.App) {
-	ui.OnURL(f, func(u ui.URL) Option[app.Signal] { Some[app.Signal]{Value: app.Navigated{Path: ui.Href(u)}} })
+	ui.OnURL(f, func(u ui.URL) option.Option[app.Signal] { option.Some[app.Signal]{Value: app.Navigated{Path: ui.Href(u)}} })
 	ui.Column(f, ui.Plain()) {
-		ui.Semantic(f, named(ui.List, "Navigation", None), None, ui.Plain()) {
+		ui.Semantic(f, named(ui.List, "Navigation", option.None), option.None, ui.Plain()) {
 			link(f, "Home", route.Print(route.Home))
-			link(f, "People", route.Print(route.People{Search: None}))
+			link(f, "People", route.Print(route.People{Search: option.None}))
 			link(f, "Files", route.Print(route.FilesIndex))
 			link(f, "Nested", route.Print(route.Nested))
 		}
@@ -60,13 +61,13 @@ func peoplePage(f mut ui.Frame[app.Signal], p app.Page) {
 	ui.Pressable(f, "Search", app.Submit) {
 		ui.Text(f, "Search")
 	}
-	if len(p.History) > 0 {
+	if p.History.Len() > 0 {
 		ui.Text(f, "Recent searches: \(strings.Join(p.History, ", "))")
 	}
 	ui.Text(f, Status(p.Results))
 	match p.Results {
 	case app.Loaded as l:
-		ui.Semantic(f, named(ui.List, "People", None), None, ui.Plain()) {
+		ui.Semantic(f, named(ui.List, "People", option.None), option.None, ui.Plain()) {
 			ui.Each(f, l.Found, func(q people.Person) ui.Key { ui.ByInt(q.ID) }) func(q people.Person) {
 				link(f, q.Name, route.Print(route.Person{ID: q.ID}))
 				ui.Text(f, q.Role)
@@ -85,21 +86,21 @@ func Status(r app.Results) string {
 		if l.Query == "" {
 			return "Click on any person to view their details:"
 		}
-		let n = len(l.Found)
+		let n = l.Found.Len()
 		"\(n) \(if n == 1 { "result" } else { "results" }) for “\(l.Query)”"
 	}
 }
 
 // person is a person's page, or the not-found panel.
 func person(f mut ui.Frame[app.Signal], id int) {
-	let back = route.Print(route.People{Search: None})
+	let back = route.Print(route.People{Search: option.None})
 	match people.Find(id) {
-	case Some[people.Person] as q:
+	case option.Some[people.Person] as q:
 		link(f, "← Back to People", back)
 		heading(f, q.Value.Name, 2)
 		ui.Text(f, "ID: \(q.Value.ID)")
 		ui.Text(f, "Role: \(q.Value.Role)")
-	case None:
+	case option.None:
 		heading(f, "Person Not Found", 2)
 		ui.Text(f, "No person found with ID: \(id)")
 		link(f, "← Back to People", back)
@@ -109,10 +110,10 @@ func person(f mut ui.Frame[app.Signal], id int) {
 // filesPage is the breadcrumb, then the directory's entries, the file's
 // details, or the missing panel.
 func filesPage(f mut ui.Frame[app.Signal], path []string) {
-	ui.Semantic(f, named(ui.List, "Breadcrumb", None), None, ui.Plain()) {
+	ui.Semantic(f, named(ui.List, "Breadcrumb", option.None), option.None, ui.Plain()) {
 		link(f, "Files", route.Print(route.FilesIndex))
 		for i, segment in path {
-			if i == len(path)-1 {
+			if i == path.Len()-1 {
 				ui.Text(f, segment)
 			} else {
 				link(f, segment, route.Print(route.Files{Path: path[0 : i+1]}))
@@ -120,7 +121,7 @@ func filesPage(f mut ui.Frame[app.Signal], path []string) {
 		}
 	}
 	match files.Find(files.Tree, path) {
-	case Some[files.Entry] as e:
+	case option.Some[files.Entry] as e:
 		match e.Value {
 		case files.Dir as d:
 			entries(f, path, d.Entries)
@@ -128,7 +129,7 @@ func filesPage(f mut ui.Frame[app.Signal], path []string) {
 			heading(f, x.Name, 2)
 			ui.Text(f, files.Size(x.Size))
 		}
-	case None:
+	case option.None:
 		heading(f, "Nothing Here", 2)
 		ui.Text(f, "No file or directory at \"\(strings.Join(path, "/"))\".")
 		link(f, "← Back to Files", route.Print(route.FilesIndex))
@@ -138,7 +139,7 @@ func filesPage(f mut ui.Frame[app.Signal], path []string) {
 // entries is a directory's entries under parent: each a link and its size
 // or its count of items.
 func entries(f mut ui.Frame[app.Signal], parent []string, es []files.Entry) {
-	ui.Semantic(f, named(ui.List, "Entries", None), None, ui.Plain()) {
+	ui.Semantic(f, named(ui.List, "Entries", option.None), option.None, ui.Plain()) {
 		for e in es {
 			let name = files.Name(e)
 			link(f, name, route.Print(route.Files{Path: parent.Append(name)}))
@@ -146,25 +147,25 @@ func entries(f mut ui.Frame[app.Signal], parent []string, es []files.Entry) {
 			case files.File as x:
 				ui.Text(f, files.Size(x.Size))
 			case files.Dir as d:
-				ui.Text(f, if len(d.Entries) == 1 { "1 item" } else { "\(len(d.Entries)) items" })
+				ui.Text(f, if d.Entries.Len() == 1 { "1 item" } else { "\(d.Entries.Len()) items" })
 			}
 		}
 	}
 }
 
 func link(f mut ui.Frame[app.Signal], label string, path string) {
-	ui.Semantic(f, named(ui.Link, label, None), Some[app.Signal]{Value: app.Followed{Path: path}}, ui.Plain()) {
+	ui.Semantic(f, named(ui.Link, label, option.None), option.Some[app.Signal]{Value: app.Followed{Path: path}}, ui.Plain()) {
 		ui.Text(f, label)
 	}
 }
 
 func heading(f mut ui.Frame[app.Signal], text string, level int) {
-	ui.Semantic(f, named(ui.Heading, text, Some{Value: level}), None, ui.Plain()) {
+	ui.Semantic(f, named(ui.Heading, text, option.Some{Value: level}), option.None, ui.Plain()) {
 		ui.Text(f, text)
 	}
 }
 
 // named is the access of a container with a role and a name.
-func named(role ui.Role, name string, level Option[int]) ui.Access {
-	ui.Access{Role: role, Name: name, Disabled: false, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: level, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: ui.NoKey, Rels: []ui.Rel{}}
+func named(role ui.Role, name string, level option.Option[int]) ui.Access {
+	ui.Access{Role: role, Name: name, Disabled: false, Description: "", Checked: option.None, Value: option.None, Selected: option.None, Expanded: option.None, Pressed: option.None, Invalid: false, Busy: false, HasPopup: false, Level: level, Mixed: false, Current: option.None, Modal: false, MultiSelectable: false, Range: option.None, Key: ui.NoKey, Rels: []ui.Rel{}}
 }

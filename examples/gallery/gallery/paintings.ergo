@@ -1,5 +1,7 @@
 // The paintings, without their gradients, which are the view's.
 
+import option
+
 // Work is a painting of the gallery.
 type Work { ID int, Title string, Artist string }
 
@@ -13,11 +15,11 @@ let Paintings = []Work{
 }
 
 // Find is the painting with id, if the gallery has it.
-func Find(id int) Option[Work] {
+func Find(id int) option.Option[Work] {
 	for w in Paintings {
 		if w.ID == id {
-			return Some[Work]{Value: w}
+			return option.Some[Work]{Value: w}
 		}
 	}
-	None
+	option.None
 }

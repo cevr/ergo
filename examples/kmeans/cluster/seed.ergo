@@ -29,19 +29,19 @@ func Below(m mut Mix, n int) int { int(m.Next() % uint64(n)) }
 // uniformly.
 func SeedCentroids(points []Point, k int, seed uint64) []Point {
 	let mut m = Seeded(seed)
-	let mut cents = []Point{points[m.Below(len(points))]}
-	let mut near = slices.WithCapacity[int](len(points))
+	let mut cents = []Point{points[m.Below(points.Len())]}
+	let mut near = slices.WithCapacity[int](points.Len())
 	for p in points {
 		near = near.Append(Dist(p, cents[0]))
 	}
-	for len(cents) < k {
+	for cents.Len() < k {
 		let mut total = 0
 		for d in near {
 			total += d
 		}
 		let mut pick = 0
 		if total == 0 {
-			pick = m.Below(len(points))
+			pick = m.Below(points.Len())
 		} else {
 			let u = int(m.Next() % uint64(total))
 			let mut acc = 0
@@ -55,7 +55,7 @@ func SeedCentroids(points []Point, k int, seed uint64) []Point {
 		}
 		let c = points[pick]
 		cents = cents.Append(c)
-		for i in 0..len(points) {
+		for i in 0..points.Len() {
 			let d = Dist(points[i], c)
 			if d < near[i] {
 				near[i] = d

@@ -1,4 +1,6 @@
 import confparse/toml
+import core
+import option
 import strconv
 import strings
 
@@ -59,7 +61,7 @@ type Absent {}
 
 // Source is one table to decode: its name, the table if the file has
 // it, and the variables, empty when its keys cannot be overridden.
-type Source { name string, table Option[toml.Table], env Map[string, string] }
+type Source { name string, table option.Option[toml.Table], env Map[string, string] }
 
 func start() toml.Pos { toml.Pos{Line: 1, Column: 1} }
 
@@ -67,19 +69,19 @@ func start() toml.Pos { toml.Pos{Line: 1, Column: 1} }
 func find(src Source, key string) Found {
 	let name = EnvName(src.name, key)
 	match src.env.Get(name) {
-	case Some as v:
+	case option.Some as v:
 		return FromEnv{Name: name, Text: v.Value}
-	case None:
+	case option.None:
 	}
 	match src.table {
-	case Some as t:
+	case option.Some as t:
 		match toml.Lookup(t.Value, key) {
-		case Some as e:
+		case option.Some as e:
 			FromFile{Value: e.Value.Value, At: e.Value.At}
-		case None:
+		case option.None:
 			Absent
 		}
-	case None:
+	case option.None:
 		Absent
 	}
 }
@@ -88,9 +90,9 @@ func find(src Source, key string) Found {
 // header, or at the start of the file.
 func missing(src Source, key string) MissingKey {
 	let at = match src.table {
-	case Some as t:
+	case option.Some as t:
 		t.Value.At
-	case None:
+	case option.None:
 		start()
 	}
 	MissingKey{At: at, Table: src.name, Key: key}
@@ -98,7 +100,7 @@ func missing(src Source, key string) MissingKey {
 
 // text is the string of key in src, or def when it is not there and def
 // is a value.
-func text(src Source, key string, def Option[string]) string fails MissingKey | WrongType {
+func text(src Source, key string, def option.Option[string]) string fails MissingKey | WrongType {
 	match find(src, key) {
 	case FromEnv as e:
 		e.Text
@@ -111,9 +113,9 @@ func text(src Source, key string, def Option[string]) string fails MissingKey | 
 		}
 	case Absent:
 		match def {
-		case Some as d:
+		case option.Some as d:
 			d.Value
-		case None:
+		case option.None:
 			missing(src, key)
 		}
 	}
@@ -121,23 +123,23 @@ func text(src Source, key string, def Option[string]) string fails MissingKey | 
 
 // whole is the integer of key in src and where it came from, if src has
 // the key.
-func whole(src Source, key string) Option[(int, Origin)] fails WrongType {
+func whole(src Source, key string) option.Option[(int, Origin)] fails WrongType {
 	match find(src, key) {
 	case FromEnv as e:
 		let n = strconv.Atoi(e.Text) catch {
 		case strconv.Malformed, strconv.OutOfRange:
 			return WrongType{From: InEnv{Name: e.Name}, Key: key, Want: "an integer", Got: strconv.Quote(e.Text)}
 		}
-		Some{Value: (n, InEnv{Name: e.Name})}
+		option.Some{Value: (n, InEnv{Name: e.Name})}
 	case FromFile as f:
 		match f.Value {
 		case toml.Int as i:
-			Some{Value: (i.N, InFile{At: f.At})}
+			option.Some{Value: (i.N, InFile{At: f.At})}
 		case toml.Str, toml.Bool, toml.Arr:
 			WrongType{From: InFile{At: f.At}, Key: key, Want: "an integer", Got: toml.Kind(f.Value)}
 		}
 	case Absent:
-		None
+		option.None
 	}
 }
 
@@ -145,13 +147,13 @@ func whole(src Source, key string) Option[(int, Origin)] fails WrongType {
 // Port's where derives, is the only range check.
 func port(src Source, key string) Port fails MissingKey | WrongType | OutOfRange {
 	match try whole(src, key) {
-	case Some as w:
+	case option.Some as w:
 		let (n, from) = w.Value
 		ParsePort(n) catch {
-		case Unsatisfied as u:
+		case core.Unsatisfied as u:
 			return OutOfRange{From: from, Key: key, N: n, Type: u.Type, Where: u.Where}
 		}
-	case None:
+	case option.None:
 		missing(src, key)
 	}
 }
@@ -159,13 +161,13 @@ func port(src Source, key string) Port fails MissingKey | WrongType | OutOfRange
 // weight is the Weight of key in src, 1 when src does not have it.
 func weight(src Source, key string) Weight fails WrongType | OutOfRange {
 	match try whole(src, key) {
-	case Some as w:
+	case option.Some as w:
 		let (n, from) = w.Value
 		ParseWeight(n) catch {
-		case Unsatisfied as u:
+		case core.Unsatisfied as u:
 			return OutOfRange{From: from, Key: key, N: n, Type: u.Type, Where: u.Where}
 		}
-	case None:
+	case option.None:
 		1
 	}
 }
@@ -192,7 +194,7 @@ func truth(src Source, key string, def bool) bool fails WrongType {
 
 // level is the Level of key in src, Info when it is not there.
 func level(src Source, key string) Level fails WrongType | BadChoice {
-	let name = text(src, key, Some{Value: "info"}) catch {
+	let name = text(src, key, option.Some{Value: "info"}) catch {
 	case WrongType as w:
 		return w
 	case MissingKey:
@@ -231,12 +233,12 @@ func has(xs []string, x string) bool {
 }
 
 // single is the table [name] of d, if d has it.
-func single(d toml.Doc, name string) Option[toml.Table] {
+func single(d toml.Doc, name string) option.Option[toml.Table] {
 	let ts = toml.Named(d, name)
-	if len(ts) == 0 {
-		return None
+	if ts.Len() == 0 {
+		return option.None
 	}
-	Some{Value: ts[0]}
+	option.Some{Value: ts[0]}
 }
 
 // Decode is the configuration of d, with the variables of env, which
@@ -257,29 +259,29 @@ func Decode(d toml.Doc, env Map[string, string]) Config fails Problem {
 			return UnknownTable{At: t.At, Header: header}
 		}
 	}
-	let root = Source{name: "", table: Some{Value: d.Root}, env: env}
-	let name = try text(root, "name", None)
+	let root = Source{name: "", table: option.Some{Value: d.Root}, env: env}
+	let name = try text(root, "name", option.None)
 	let listenT = single(d, "listen")
 	let logT = single(d, "log")
-	for t in []Option[toml.Table]{listenT, logT} {
+	for t in []option.Option[toml.Table]{listenT, logT} {
 		match t {
-		case Some as table:
+		case option.Some as table:
 			try known(table.Value, if table.Value.Name == "listen" { []string{"host", "port"} } else { []string{"level"} })
-		case None:
+		case option.None:
 		}
 	}
 	let listen = Source{name: "listen", table: listenT, env: env}
-	let host = try text(listen, "host", Some{Value: "127.0.0.1"})
+	let host = try text(listen, "host", option.Some{Value: "127.0.0.1"})
 	let p = try port(listen, "port")
 	let log = try level(Source{name: "log", table: logT, env: env}, "level")
 	let mut ups = []Upstream{}
 	let mut seen = []toml.Table{}
 	for t in toml.Named(d, "upstream") {
 		try known(t, []string{"name", "addr", "weight", "backup"})
-		let src = Source{name: "upstream", table: Some{Value: t}, env: Map[string, string]{}}
+		let src = Source{name: "upstream", table: option.Some{Value: t}, env: Map[string, string]{}}
 		let u = Upstream{
-			Name:   try text(src, "name", None),
-			Addr:   try text(src, "addr", None),
+			Name:   try text(src, "name", option.None),
+			Addr:   try text(src, "addr", option.None),
 			Weight: try weight(src, "weight"),
 			Backup: try truth(src, "backup", false),
 		}

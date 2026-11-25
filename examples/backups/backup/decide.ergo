@@ -36,7 +36,7 @@ func Decide(s State, c Command) []Event fails Rejection {
 // A backup needs a file; a file needs a path, a count of 1 to 99
 // and a positive size.
 func planned(p Plan) []Event fails InvalidFile {
-	if len(p.Files) == 0 {
+	if p.Files.Len() == 0 {
 		return InvalidFile{Backup: p.Backup, Path: "", Reason: "a backup needs a file"}
 	}
 	let mut events = []Event{Planned{Backup: p.Backup, Host: p.Host}}

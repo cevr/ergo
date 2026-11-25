@@ -115,11 +115,11 @@ func putIf(b mut strings.Builder, i If, depth int) {
 	putExpr(b, i.Cond, 0, depth)
 	b.WriteByte(' ')
 	body(b, i.Then, depth)
-	if len(i.Else) == 0 {
+	if i.Else.Len() == 0 {
 		return
 	}
 	b.WriteString(" else ")
-	if len(i.Else) == 1 {
+	if i.Else.Len() == 1 {
 		match i.Else[0] {
 		case If as inner:
 			putIf(b, inner, depth)
@@ -275,7 +275,7 @@ func target(b mut strings.Builder, e Expr, depth int) {
 // a tab escaped, every other byte as it is.
 func quote(b mut strings.Builder, s string) {
 	b.WriteByte('"')
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		let c = s[i]
 		match c {
 		case '"':

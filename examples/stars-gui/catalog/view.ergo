@@ -31,7 +31,7 @@ func FoldOf(s Star) Fold { Fold{Name: strings.ToLower(s.Name), Constellation: st
 
 // FoldAll is each row's Fold, by id.
 func FoldAll(rows []Star) []Fold {
-	let mut folds = slices.WithCapacity[Fold](len(rows))
+	let mut folds = slices.WithCapacity[Fold](rows.Len())
 	for s in rows {
 		folds = folds.Append(FoldOf(s))
 	}
@@ -47,7 +47,7 @@ func NarrowFolded(folds []Fold, view []int, filter string) []int {
 		return view
 	}
 	let f = strings.ToLower(filter)
-	let mut ids = slices.WithCapacity[int](len(view))
+	let mut ids = slices.WithCapacity[int](view.Len())
 	for id in view {
 		let k = folds[id]
 		if strings.Contains(k.Name, f) || strings.Contains(k.Constellation, f) {
@@ -74,7 +74,7 @@ func Sorted(rows []Star, ids []int, key SortKey) []int {
 
 // Order is the ids of the stars that filter keeps, sorted by key.
 func Order(rows []Star, filter string, key SortKey) []int {
-	let mut ids = slices.WithCapacity[int](len(rows))
+	let mut ids = slices.WithCapacity[int](rows.Len())
 	for id, s in rows {
 		if Matches(s, filter) {
 			ids = ids.Append(id)
@@ -88,7 +88,7 @@ func Order(rows []Star, filter string, key SortKey) []int {
 // it is Order(rows, filter, key) (law NarrowIsOrder): typing a letter
 // filters the shown list, it does not sort again.
 func Narrow(rows []Star, view []int, filter string) []int {
-	let mut ids = slices.WithCapacity[int](len(view))
+	let mut ids = slices.WithCapacity[int](view.Len())
 	for id in view {
 		if Matches(rows[id], filter) {
 			ids = ids.Append(id)
@@ -131,11 +131,11 @@ law NarrowIsOrder(rows []Star, old string, more string, n int) {
 // idsOf is distinct ids of rows that picks names, in picks' order.
 func idsOf(rows []Star, picks []int) []int {
 	let mut ids = []int{}
-	if len(rows) == 0 {
+	if rows.Len() == 0 {
 		return ids
 	}
 	for p in picks {
-		let id = ((p % len(rows)) + len(rows)) % len(rows)
+		let id = ((p % rows.Len()) + rows.Len()) % rows.Len()
 		if !slices.Contains(ids, id) {
 			ids = ids.Append(id)
 		}
@@ -146,5 +146,5 @@ func idsOf(rows []Star, picks []int) []int {
 // columnOf is the column n names, for any n.
 func columnOf(n int) Column {
 	let all = Columns()
-	all[((n%len(all))+len(all))%len(all)]
+	all[((n%all.Len())+all.Len())%all.Len()]
 }

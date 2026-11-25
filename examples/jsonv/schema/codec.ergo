@@ -3,6 +3,7 @@
 
 import jsonv/json
 import stdjson json
+import option
 import slices
 import strconv
 
@@ -23,18 +24,18 @@ func read(v stdjson.Value, path string) Schema fails BadSchema {
 		}
 		BadSchema{Path: path, Reason: "false accepts no value; this language has no such schema"}
 	case stdjson.Object as o:
-		if len(o.Members) == 0 {
+		if o.Members.Len() == 0 {
 			return Anything
 		}
 		let kind = match json.Get(o, "type") {
-		case Some[stdjson.Value] as t:
+		case option.Some[stdjson.Value] as t:
 			match t.Value {
 			case stdjson.Str as name:
 				name.Value
 			case _:
 				return BadSchema{Path: Member(path, "type"), Reason: "want a string"}
 			}
-		case None:
+		case option.None:
 			return BadSchema{Path: path, Reason: "want a member \"type\""}
 		}
 		try typed(o, kind, path)
@@ -64,23 +65,23 @@ func typed(o stdjson.Object, kind string, path string) Schema fails BadSchema {
 	case "array":
 		try only(o, path, []string{"type", "items", "minItems"})
 		let items = match json.Get(o, "items") {
-		case Some[stdjson.Value] as i:
+		case option.Some[stdjson.Value] as i:
 			try read(i.Value, Member(path, "items"))
-		case None:
+		case option.None:
 			Anything
 		}
 		IsArray{Items: items, MinItems: try count(o, "minItems", path)}
 	case "object":
 		try only(o, path, []string{"type", "properties", "required", "additionalProperties"})
 		let closed = match json.Get(o, "additionalProperties") {
-		case Some[stdjson.Value] as a:
+		case option.Some[stdjson.Value] as a:
 			match a.Value {
 			case stdjson.Boolean as b:
 				!b.Value
 			case _:
 				return BadSchema{Path: Member(path, "additionalProperties"), Reason: "want true or false"}
 			}
-		case None:
+		case option.None:
 			false
 		}
 		IsObject{Props: try props(o, path), Required: try names(o, "required", path), Closed: closed}
@@ -101,7 +102,7 @@ func only(o stdjson.Object, path string, allowed []string) fails BadSchema {
 func props(o stdjson.Object, path string) []Prop fails BadSchema {
 	let at = Member(path, "properties")
 	match json.Get(o, "properties") {
-	case Some[stdjson.Value] as p:
+	case option.Some[stdjson.Value] as p:
 		match p.Value {
 		case stdjson.Object as members:
 			let mut out = []Prop{}
@@ -115,7 +116,7 @@ func props(o stdjson.Object, path string) []Prop fails BadSchema {
 		case _:
 			BadSchema{Path: at, Reason: "want an object"}
 		}
-	case None:
+	case option.None:
 		[]Prop{}
 	}
 }
@@ -124,7 +125,7 @@ func props(o stdjson.Object, path string) []Prop fails BadSchema {
 func names(o stdjson.Object, key string, path string) []string fails BadSchema {
 	let at = Member(path, key)
 	match json.Get(o, key) {
-	case Some[stdjson.Value] as v:
+	case option.Some[stdjson.Value] as v:
 		match v.Value {
 		case stdjson.Array as a:
 			let mut out = []string{}
@@ -140,7 +141,7 @@ func names(o stdjson.Object, key string, path string) []string fails BadSchema {
 		case _:
 			BadSchema{Path: at, Reason: "want an array of strings"}
 		}
-	case None:
+	case option.None:
 		[]string{}
 	}
 }
@@ -148,7 +149,7 @@ func names(o stdjson.Object, key string, path string) []string fails BadSchema {
 // count is the integer member key of o, at least 0, or 0.
 func count(o stdjson.Object, key string, path string) int fails BadSchema {
 	match json.Get(o, key) {
-	case Some[stdjson.Value] as v:
+	case option.Some[stdjson.Value] as v:
 		match v.Value {
 		case stdjson.Num as n:
 			let c = strconv.Atoi(json.Spelling(n)) catch {
@@ -162,23 +163,23 @@ func count(o stdjson.Object, key string, path string) int fails BadSchema {
 		case _:
 			BadSchema{Path: Member(path, key), Reason: "want a whole number"}
 		}
-	case None:
+	case option.None:
 		0
 	}
 }
 
 // bound is the number member key of o.
-func bound(o stdjson.Object, key string, path string) Option[float64] fails BadSchema {
+func bound(o stdjson.Object, key string, path string) option.Option[float64] fails BadSchema {
 	match json.Get(o, key) {
-	case Some[stdjson.Value] as v:
+	case option.Some[stdjson.Value] as v:
 		match v.Value {
 		case stdjson.Num as n:
-			Some[float64]{Value: valueOf(json.Spelling(n))}
+			option.Some[float64]{Value: valueOf(json.Spelling(n))}
 		case _:
 			BadSchema{Path: Member(path, key), Reason: "want a number"}
 		}
-	case None:
-		None
+	case option.None:
+		option.None
 	}
 }
 
@@ -194,7 +195,7 @@ func ToJSON(s Schema) stdjson.Value {
 		typeOnly("boolean")
 	case IsString as str:
 		let mut ms = []stdjson.Member{kindMember("string")}
-		if len(str.Enum) > 0 {
+		if str.Enum.Len() > 0 {
 			ms = ms.Append(stdjson.Member{Key: "enum", Value: textArray(str.Enum)})
 		}
 		if str.MinLength > 0 {
@@ -204,14 +205,14 @@ func ToJSON(s Schema) stdjson.Value {
 	case IsNumber as n:
 		let mut ms = []stdjson.Member{kindMember(if n.Integer { "integer" } else { "number" })}
 		match n.Min {
-		case Some[float64] as min:
+		case option.Some[float64] as min:
 			ms = ms.Append(stdjson.Member{Key: "minimum", Value: numberOf(min.Value)})
-		case None:
+		case option.None:
 		}
 		match n.Max {
-		case Some[float64] as max:
+		case option.Some[float64] as max:
 			ms = ms.Append(stdjson.Member{Key: "maximum", Value: numberOf(max.Value)})
-		case None:
+		case option.None:
 		}
 		stdjson.Object{Members: ms}
 	case IsArray as a:
@@ -227,14 +228,14 @@ func ToJSON(s Schema) stdjson.Value {
 		stdjson.Object{Members: ms}
 	case IsObject as o:
 		let mut ms = []stdjson.Member{kindMember("object")}
-		if len(o.Props) > 0 {
+		if o.Props.Len() > 0 {
 			let mut ps = []stdjson.Member{}
 			for p in o.Props {
 				ps = ps.Append(stdjson.Member{Key: p.Name, Value: ToJSON(p.S)})
 			}
 			ms = ms.Append(stdjson.Member{Key: "properties", Value: stdjson.Object{Members: ps}})
 		}
-		if len(o.Required) > 0 {
+		if o.Required.Len() > 0 {
 			ms = ms.Append(stdjson.Member{Key: "required", Value: textArray(o.Required)})
 		}
 		if o.Closed {

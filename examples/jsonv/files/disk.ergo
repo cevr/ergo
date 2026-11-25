@@ -5,6 +5,7 @@
 import fs
 import io
 import jsonv/app
+import option
 import sync
 
 // Disk reads documents from a file system and standard input. It keeps
@@ -12,11 +13,11 @@ import sync
 // Disk shares, so a second read of "-" gives the same text (the law
 // app.Documents.ReadIsRepeatable). Its fields are unexported, so only New
 // builds one.
-type Disk { files fs.Files, stdin io.Stdin, kept sync.Ref[Option[string]] } implements app.Documents
+type Disk { files fs.Files, stdin io.Stdin, kept sync.Ref[option.Option[string]] } implements app.Documents
 
 // New is a Disk over files and stdin.
 func New(files fs.Files, stdin io.Stdin) Disk {
-	Disk{files: files, stdin: stdin, kept: sync.NewRef[Option[string]](None)}
+	Disk{files: files, stdin: stdin, kept: sync.NewRef[option.Option[string]](option.None)}
 }
 
 // Read is the document name: the file at that path, or standard input
@@ -24,15 +25,15 @@ func New(files fs.Files, stdin io.Stdin) Disk {
 func Read(d Disk, name string) string fails app.NoDocument | app.Unreadable {
 	if name == "-" {
 		match d.kept.Get() {
-		case Some[string] as t:
+		case option.Some[string] as t:
 			return t.Value
-		case None:
+		case option.None:
 		}
 		let text = d.stdin.ReadAll() catch {
 		case io.ReadFailed as r:
 			return app.Unreadable{Name: name, Reason: r.Reason}
 		}
-		d.kept.Set(Some{text})
+		d.kept.Set(option.Some{text})
 		return text
 	}
 	d.files.ReadFile(name) catch {

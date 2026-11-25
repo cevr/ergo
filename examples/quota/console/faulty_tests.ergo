@@ -40,7 +40,7 @@ law ConsoleHandlesFaultyStore() {
 			if !ok0 {
 				return false
 			}
-			let openFaults0 = len(faulty.Open.Faults())
+			let openFaults0 = faulty.Open.Faults().Len()
 			let mut openUnavail = false
 			let openAns = Do(OpenCmd{ID: "app", Floor: 0}) catch {
 			case quota.Unavailable:
@@ -48,12 +48,12 @@ law ConsoleHandlesFaultyStore() {
 				""
 			}
 			let openFaults1 = faulty.Open.Faults()
-			if len(openFaults1) > openFaults0 {
+			if openFaults1.Len() > openFaults0 {
 				if !sameSnapshot(inner, vols0, sizes0) {
 					gen.Draws.Show("open-fault", "Open fault mutated inner store")
 					return false
 				}
-				let injected = openFaults1[len(openFaults1)-1].Failure
+				let injected = openFaults1[openFaults1.Len()-1].Failure
 				if injected == "Unavailable" {
 					unavailable = true
 					if !openUnavail {
@@ -76,7 +76,7 @@ law ConsoleHandlesFaultyStore() {
 			if !ok1 {
 				return false
 			}
-			let postFaults0 = len(faulty.Post.Faults())
+			let postFaults0 = faulty.Post.Faults().Len()
 			let mut postUnavail = false
 			let postAns = Do(Grant{Key: "g1", ID: "app", Size: 10}) catch {
 			case quota.Unavailable:
@@ -84,12 +84,12 @@ law ConsoleHandlesFaultyStore() {
 				""
 			}
 			let postFaults1 = faulty.Post.Faults()
-			if len(postFaults1) > postFaults0 {
+			if postFaults1.Len() > postFaults0 {
 				if !sameSnapshot(inner, vols1, sizes1) {
 					gen.Draws.Show("post-fault", "Post fault mutated inner store")
 					return false
 				}
-				let injected = postFaults1[len(postFaults1)-1].Failure
+				let injected = postFaults1[postFaults1.Len()-1].Failure
 				if injected == "Unavailable" {
 					unavailable = true
 					if !postUnavail {
@@ -105,14 +105,14 @@ law ConsoleHandlesFaultyStore() {
 				return false
 			}
 
-			let listFaults0 = len(faulty.Volumes.Faults())
+			let listFaults0 = faulty.Volumes.Faults().Len()
 			let mut listUnavail = false
 			let _ = Do(List) catch {
 			case quota.Unavailable:
 				listUnavail = true
 				""
 			}
-			if len(faulty.Volumes.Faults()) > listFaults0 {
+			if faulty.Volumes.Faults().Len() > listFaults0 {
 				unavailable = true
 				if !listUnavail {
 					return false

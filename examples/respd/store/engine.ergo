@@ -5,6 +5,7 @@
 // its own to disagree with its caller's. Package memory keeps both in
 // memory.
 
+import option
 import time
 
 // Missing is a key that holds no value at the time asked: never set,
@@ -39,12 +40,12 @@ type Engine {
 	// Set makes key hold value, under the condition when, until the time
 	// in until, or for ever when until is None. It replaces the key's
 	// expiry, as Redis's SET does without KEEPTTL.
-	Set(key string, value string, when When, until Option[time.Time], now time.Time) fails Kept,
+	Set(key string, value string, when When, until option.Option[time.Time], now time.Time) fails Kept,
 	// Del removes key.
 	Del(key string, now time.Time) fails Missing,
 	// Expire gives key a new expiry: the time in until, or none. A time
 	// now or past removes the key.
-	Expire(key string, until Option[time.Time], now time.Time) fails Missing,
+	Expire(key string, until option.Option[time.Time], now time.Time) fails Missing,
 	// TTL is the expiry of key.
 	TTL(key string, now time.Time) Expiry fails Missing,
 	// Incr adds by to the decimal integer key holds, a missing key holding
@@ -56,7 +57,7 @@ type Engine {
 	// and it holds it for ever.
 	law GetAfterSet(key string, value string, t int) {
 		let now = At(t)
-		Put(key, value, Always, None, now) && Lookup(key, now) == Some[string]{Value: value} && Left(key, now) == Some[Expiry]{Value: Forever}
+		Put(key, value, Always, option.None, now) && Lookup(key, now) == option.Some[string]{Value: value} && Left(key, now) == option.Some[Expiry]{Value: Forever}
 	},
 
 	// SetNXKeepsTheFirst: IfPresent on a key that holds nothing is Kept
@@ -64,7 +65,7 @@ type Engine {
 	// and changes nothing.
 	law SetNXKeepsTheFirst(key string, first string, second string, t int) {
 		let now = At(t)
-		!Put(key, first, IfPresent, None, now) && Lookup(key, now) == None && Put(key, first, IfAbsent, None, now) && !Put(key, second, IfAbsent, None, now) && Lookup(key, now) == Some[string]{Value: first}
+		!Put(key, first, IfPresent, option.None, now) && Lookup(key, now) == option.None && Put(key, first, IfAbsent, option.None, now) && !Put(key, second, IfAbsent, option.None, now) && Lookup(key, now) == option.Some[string]{Value: first}
 	},
 
 	// ExpiredIsMissing: a key set until a time holds its value before it,
@@ -75,7 +76,7 @@ type Engine {
 		let until = now.Add(Span(ttl))
 		let before = until.Add(-1ms)
 		let after = until.Add(Gap(later))
-		Put(key, value, Always, Some[time.Time]{Value: until}, now) && Lookup(key, before) == Some[string]{Value: value} && Left(key, before) == Some[Expiry]{Value: Until{At: until}} && Lookup(key, until) == None && Lookup(key, after) == None && Left(key, after) == None && !Remove(key, after) && Put(key, value, IfAbsent, None, after)
+		Put(key, value, Always, option.Some[time.Time]{Value: until}, now) && Lookup(key, before) == option.Some[string]{Value: value} && Left(key, before) == option.Some[Expiry]{Value: Until{At: until}} && Lookup(key, until) == option.None && Lookup(key, after) == option.None && Left(key, after) == option.None && !Remove(key, after) && Put(key, value, IfAbsent, option.None, after)
 	},
 
 	// SetClearsTheExpiry: a Set without a time keeps the value for ever,
@@ -83,41 +84,41 @@ type Engine {
 	// the value.
 	law SetClearsTheExpiry(key string, a string, b string, t int, ttl int) {
 		let now = At(t)
-		let until = Some[time.Time]{Value: now.Add(Span(ttl))}
-		if !Put(key, a, Always, until, now) || !Put(key, b, Always, None, now) || Left(key, now) != (Some[Expiry]{Value: Forever}) {
+		let until = option.Some[time.Time]{Value: now.Add(Span(ttl))}
+		if !Put(key, a, Always, until, now) || !Put(key, b, Always, option.None, now) || Left(key, now) != (option.Some[Expiry]{Value: Forever}) {
 			return false
 		}
 		Engine.Expire(key, until, now) catch {
 		case Missing:
 			return false
 		}
-		if Left(key, now) != (Some[Expiry]{Value: Until{At: until.Value}}) {
+		if Left(key, now) != (option.Some[Expiry]{Value: Until{At: until.Value}}) {
 			return false
 		}
-		Engine.Expire(key, None, now) catch {
+		Engine.Expire(key, option.None, now) catch {
 		case Missing:
 			return false
 		}
-		Left(key, now) == Some[Expiry]{Value: Forever} && Lookup(key, now) == Some[string]{Value: b}
+		Left(key, now) == option.Some[Expiry]{Value: Forever} && Lookup(key, now) == option.Some[string]{Value: b}
 	},
 
 	// ExpireInThePastDeletes: Expire to now or before removes the key.
 	law ExpireInThePastDeletes(key string, value string, t int, back int) {
 		let now = At(t)
-		if !Put(key, value, Always, None, now) {
+		if !Put(key, value, Always, option.None, now) {
 			return false
 		}
-		Engine.Expire(key, Some[time.Time]{Value: now.Add(-Gap(back))}, now) catch {
+		Engine.Expire(key, option.Some[time.Time]{Value: now.Add(-Gap(back))}, now) catch {
 		case Missing:
 			return false
 		}
-		Lookup(key, now) == None
+		Lookup(key, now) == option.None
 	},
 
 	// DelRemoves: a deleted key is Missing, and a second Del is Missing.
 	law DelRemoves(key string, value string, t int) {
 		let now = At(t)
-		Put(key, value, Always, None, now) && Remove(key, now) && Lookup(key, now) == None && !Remove(key, now)
+		Put(key, value, Always, option.None, now) && Remove(key, now) && Lookup(key, now) == option.None && !Remove(key, now)
 	},
 
 	// SetKeepsOthers: a set or a delete of one key changes no other key.
@@ -126,7 +127,7 @@ type Engine {
 			return true
 		}
 		let now = At(t)
-		Put(other, a, Always, None, now) && Put(key, b, Always, None, now) && Remove(key, now) && Lookup(other, now) == Some[string]{Value: a}
+		Put(other, a, Always, option.None, now) && Put(key, b, Always, option.None, now) && Remove(key, now) && Lookup(other, now) == option.Some[string]{Value: a}
 	},
 
 	// IncrAdds: Incr of a missing key starts from 0, a second Incr adds
@@ -136,7 +137,7 @@ type Engine {
 		let now = At(t)
 		let x = int64(a % 1000000)
 		let y = int64(b % 1000000)
-		let until = Some[time.Time]{Value: now.Add(Span(ttl))}
+		let until = option.Some[time.Time]{Value: now.Add(Span(ttl))}
 		let first = Engine.Incr(key, x, now) catch {
 		case NotInteger, Overflow:
 			return false
@@ -149,7 +150,7 @@ type Engine {
 		case NotInteger, Overflow:
 			return false
 		}
-		first == x && second == x+y && Lookup(key, now) == Some[string]{Value: "\(x + y)"} && Left(key, now) == Some[Expiry]{Value: Until{At: until.Value}}
+		first == x && second == x+y && Lookup(key, now) == option.Some[string]{Value: "\(x + y)"} && Left(key, now) == option.Some[Expiry]{Value: Until{At: until.Value}}
 	},
 
 	// IncrRefusesText: Incr of a value that is not a decimal int64 is
@@ -159,30 +160,30 @@ type Engine {
 		let now = At(t)
 		let text = "v" + word
 		let top = "9223372036854775807"
-		Put(key, text, Always, None, now) && Bump(key, now) == "not an integer" && Lookup(key, now) == Some[string]{Value: text} && Put(key, top, Always, None, now) && Bump(key, now) == "overflow" && Lookup(key, now) == Some[string]{Value: top}
+		Put(key, text, Always, option.None, now) && Bump(key, now) == "not an integer" && Lookup(key, now) == option.Some[string]{Value: text} && Put(key, top, Always, option.None, now) && Bump(key, now) == "overflow" && Lookup(key, now) == option.Some[string]{Value: top}
 	},
 }
 
 // Lookup is the value key holds at now, or None.
-func Lookup(key string, now time.Time) Option[string] needs Engine {
+func Lookup(key string, now time.Time) option.Option[string] needs Engine {
 	let v = Engine.Get(key, now) catch {
 	case Missing:
-		return None
+		return option.None
 	}
-	Some[string]{Value: v}
+	option.Some[string]{Value: v}
 }
 
 // Left is the expiry of key at now, or None when it holds no value.
-func Left(key string, now time.Time) Option[Expiry] needs Engine {
+func Left(key string, now time.Time) option.Option[Expiry] needs Engine {
 	let e = Engine.TTL(key, now) catch {
 	case Missing:
-		return None
+		return option.None
 	}
-	Some[Expiry]{Value: e}
+	option.Some[Expiry]{Value: e}
 }
 
 // Put is whether a Set changed key: false when it was Kept.
-func Put(key string, value string, when When, until Option[time.Time], now time.Time) bool needs Engine {
+func Put(key string, value string, when When, until option.Option[time.Time], now time.Time) bool needs Engine {
 	Engine.Set(key, value, when, until, now) catch {
 	case Kept:
 		return false

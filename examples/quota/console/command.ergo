@@ -2,6 +2,7 @@
 // one per line, and carries each out on a quota.Store, saying what
 // became of it. It knows no store; the program binds one.
 
+import option
 import strconv
 import strings
 
@@ -25,17 +26,17 @@ func Gigabytes(hundredths int64) string {
 // type, so the program reads its own.
 func Size(text string) int64 fails strconv.Malformed | strconv.OutOfRange {
 	let whole, part = match strings.Cut(text, ".") {
-	case Some[strings.Halves] as h:
+	case option.Some[strings.Halves] as h:
 		(h.Value.Before, h.Value.After)
-	case None:
+	case option.None:
 		(text, "")
 	}
-	if whole == "" || len(part) > 2 || strings.HasPrefix(whole, "-") || strings.HasPrefix(whole, "+") || strings.HasPrefix(part, "-") || strings.HasPrefix(part, "+") {
+	if whole == "" || part.Len() > 2 || strings.HasPrefix(whole, "-") || strings.HasPrefix(whole, "+") || strings.HasPrefix(part, "-") || strings.HasPrefix(part, "+") {
 		return strconv.Malformed{Text: text}
 	}
 	let w = try strconv.ParseInt(whole, 10, 64)
 	let p = if part == "" { int64(0) } else { try strconv.ParseInt(part, 10, 64) }
-	let hundredths = if len(part) == 1 { p * 10 } else { p }
+	let hundredths = if part.Len() == 1 { p * 10 } else { p }
 	if w > 90000000000000000 {
 		return strconv.OutOfRange{Text: text}
 	}
@@ -58,8 +59,8 @@ law SizeReadsGigabytes(hundredths int64) {
 // Parse is the command of a line, numbered n for its failure.
 func Parse(n int, line string) Command fails BadCommand {
 	let w = strings.Fields(line)
-	let verb = if len(w) > 0 { w[0] } else { "" }
-	match (verb, len(w)) {
+	let verb = if w.Len() > 0 { w[0] } else { "" }
+	match (verb, w.Len()) {
 	case ("open", 2):
 		OpenCmd{ID: w[1], Floor: 0}
 	case ("open", 3):
@@ -93,9 +94,9 @@ func ParseAll(text string) []Command fails BadCommand {
 	let mut out = []Command{}
 	for i, raw in strings.Split(text, "\n") {
 		let line = match strings.Cut(raw, "#") {
-		case Some[strings.Halves] as h:
+		case option.Some[strings.Halves] as h:
 			h.Value.Before
-		case None:
+		case option.None:
 			raw
 		}
 		if strings.TrimSpace(line) == "" {

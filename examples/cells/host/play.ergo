@@ -4,46 +4,47 @@
 // focus, unchanged.
 
 import actor
+import option
 import term
 import ui
 import utf8
 
 // Find is the first node of the host's tree, in tree order, whose label is
 // label (labelOf).
-func Find[S, E, D, F](h mut Host[S, E, D, F], label string) Option[ui.Id[E]] { findIn(h, h.root, label) }
+func Find[S, E, D, F](h mut Host[S, E, D, F], label string) option.Option[ui.Id[E]] { findIn(h, h.root, label) }
 
-func findIn[S, E, D, F](h mut Host[S, E, D, F], id ui.Id[E], label string) Option[ui.Id[E]] {
+func findIn[S, E, D, F](h mut Host[S, E, D, F], id ui.Id[E], label string) option.Option[ui.Id[E]] {
 	for k in kidsOf(h, id) {
 		match h.nodes.Get(k) {
-		case Some[held[E]] as n:
-			if labelOf(n.Value.node) == (Some{Value: label}) {
-				return Some{Value: k}
+		case option.Some[held[E]] as n:
+			if labelOf(n.Value.node) == (option.Some{Value: label}) {
+				return option.Some{Value: k}
 			}
-		case None:
+		case option.None:
 		}
 		match findIn[S, E, D, F](h, k, label) {
-		case Some[ui.Id[E]] as found:
+		case option.Some[ui.Id[E]] as found:
 			return found
-		case None:
+		case option.None:
 		}
 	}
-	None
+	option.None
 }
 
 // CellOf is where a tap on id lands: the cell its name begins in, or else
 // the first visible cell of its box; None when no cell of it shows.
-func CellOf[S, E, D, F](h mut Host[S, E, D, F], id ui.Id[E]) Option[(int, int)] {
+func CellOf[S, E, D, F](h mut Host[S, E, D, F], id ui.Id[E]) option.Option[(int, int)] {
 	match h.drawn.Get(id) {
-	case Some[drawnAt] as d:
+	case option.Some[drawnAt] as d:
 		if d.Value.nameC >= 0 {
-			return Some{Value: (d.Value.nameC, d.Value.nameR)}
+			return option.Some{Value: (d.Value.nameC, d.Value.nameR)}
 		}
 		if d.Value.vis.W > 0 && d.Value.vis.H > 0 {
-			return Some{Value: (d.Value.vis.C, d.Value.vis.R)}
+			return option.Some{Value: (d.Value.vis.C, d.Value.vis.R)}
 		}
-		None
-	case None:
-		None
+		option.None
+	case option.None:
+		option.None
 	}
 }
 
@@ -51,10 +52,10 @@ func CellOf[S, E, D, F](h mut Host[S, E, D, F], id ui.Id[E]) Option[(int, int)] 
 func tapOn[E comparable, S, D, F](h mut Host[S, E, D, F], id ui.Id[E], label string) fails ui.NoNode | actor.Stopped | ui.BadPatch {
 	reveal(h, id)
 	match CellOf(h, id) {
-	case Some[(int, int)] as at:
+	case option.Some[(int, int)] as at:
 		let (c, r) = at.Value
 		try Tap(h, c, r)
-	case None:
+	case option.None:
 		return ui.NoNode{Label: label}
 	}
 }
@@ -102,10 +103,10 @@ func Play[E comparable, S, D, F](h mut Host[S, E, D, F], script []ui.Act) fails 
 			let id = try found(h, x.Label)
 			reveal(h, id)
 			let over = match spotOf(h, id) {
-			case Some[spot[E]] as s:
+			case option.Some[spot[E]] as s:
 				zoneOver(h, s.Value, x.Pointer.X, x.Pointer.Y)
-			case None:
-				None
+			case option.None:
+				option.None
 			}
 			try step(h, ui.Point[E]{Id: id, Pointer: x.Pointer, Over: over})
 		case ui.ScrollOn as x:
@@ -138,11 +139,11 @@ func Play[E comparable, S, D, F](h mut Host[S, E, D, F], script []ui.Act) fails 
 // the same target, as ui.TestHost counts them.
 func found[S, E, D, F](h mut Host[S, E, D, F], label string) ui.Id[E] fails ui.NoNode | ui.Ambiguous {
 	let ids = labelledIn(h, h.root, label, []ui.Id[E]{})
-	if len(ids) == 0 {
+	if ids.Len() == 0 {
 		return ui.NoNode{Label: label}
 	}
-	if len(ids) > 1 {
-		return ui.Ambiguous{At: "label \"\(label)\"", Count: len(ids)}
+	if ids.Len() > 1 {
+		return ui.Ambiguous{At: "label \"\(label)\"", Count: ids.Len()}
 	}
 	ids[0]
 }
@@ -153,12 +154,12 @@ func labelledIn[S, E, D, F](h mut Host[S, E, D, F], id ui.Id[E], label string, a
 	let mut out = acc
 	for k in kidsOf(h, id) {
 		match h.nodes.Get(k) {
-		case Some[held[E]] as n:
-			if labelOf(n.Value.node) == (Some{Value: label}) {
+		case option.Some[held[E]] as n:
+			if labelOf(n.Value.node) == (option.Some{Value: label}) {
 				out = out.Append(k)
 				continue
 			}
-		case None:
+		case option.None:
 		}
 		out = labelledIn[S, E, D, F](h, k, label, out)
 	}
@@ -168,11 +169,11 @@ func labelledIn[S, E, D, F](h mut Host[S, E, D, F], id ui.Id[E], label string, a
 // located is the one node of the host's tree loc finds.
 func located[E comparable, S, D, F](h mut Host[S, E, D, F], loc ui.Locator) ui.Id[E] fails ui.NoNode | ui.Ambiguous {
 	let ids = ui.LocateIn(&h.mirror, loc)
-	if len(ids) == 0 {
+	if ids.Len() == 0 {
 		return ui.NoNode{Label: "a locator"}
 	}
-	if len(ids) > 1 {
-		return ui.Ambiguous{At: "a locator", Count: len(ids)}
+	if ids.Len() > 1 {
+		return ui.Ambiguous{At: "a locator", Count: ids.Len()}
 	}
 	ids[0]
 }

@@ -17,6 +17,7 @@ import fstest
 import github.com/cevr/ergo/modules/web
 import github.com/cevr/ergo/modules/web/static
 import io
+import option
 import os
 import strings
 
@@ -50,9 +51,9 @@ let commands = []flag.Command[Cmd]{
 
 func buildCmd(v flag.Values) Cmd {
 	let out = match outArg.Get(v) {
-	case Some[string] as o:
+	case option.Some[string] as o:
 		o.Value
-	case None:
+	case option.None:
 		""
 	}
 	Build{Src: srcFlag.Get(v), Origin: originFlag.Get(v), Out: out}
@@ -130,7 +131,7 @@ func run(args []string) fails os.Exit needs io.Stdout | fs.Files | fs.Writes {
 	}
 }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), fs.Writes: fs.NewHost(), io.Stdout: io.NewHost() } {
 		try run(os.Process.Args())
 	}

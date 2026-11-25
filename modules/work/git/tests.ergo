@@ -7,12 +7,14 @@
 // module's full-tier file): every case starts git to make its checkout.
 
 import exec
+import fstest
 import maps
+import option
 import os
 import slices
 import github.com/cevr/ergo/modules/work/work
 
-let onShell = context needs TestAmbient {
+let onShell = context needs fstest.TestAmbient {
 	work.Vcs:    New(exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ()))),
 	exec.Runner: exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
 	os.Process:  os.NewTestHost(),
@@ -31,7 +33,7 @@ test CommandsRunInTheFolder {
 		let folder = try os.Process.Getwd()
 		let r = try exec.Runner.Run(exec.New("sh", []string{"-c", "printf '%s|%s|%s' \"$PWD\" \"$HOME\" \"$TMPDIR\""}))
 		assert r.Stdout == "\(folder)|\(folder)|\(folder)"
-		assert os.Process.Getenv("HOME") == Some[string]{Value: folder}
+		assert os.Process.Getenv("HOME") == option.Some[string]{Value: folder}
 	}
 }
 
@@ -184,7 +186,7 @@ test LocalsRemotesAndGuards {
 		let side = try work.Vcs.Ref(".", "refs/heads/side")
 		let newest = try exec.Runner.Run(exec.New("git", []string{"rev-parse", "refs/stash@{0}"})).Stdout
 		let locals = try work.Vcs.Locals(".")
-		assert len(locals) == 4
+		assert locals.Len() == 4
 		assert locals[0] == work.Local{Ref: "refs/heads/main", Commit: main} && locals[1] == work.Local{Ref: "refs/heads/side", Commit: side}
 		assert locals[2].Ref == "refs/stash/0" && locals[2].Commit+"\n" == newest && locals[3].Ref == "refs/stash/1"
 		assert try work.Vcs.Remote(".", main, false)

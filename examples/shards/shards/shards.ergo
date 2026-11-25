@@ -6,6 +6,8 @@
 
 import actor
 import machines
+import option
+import time
 
 // Part is a part of the staging and its size in hundredths of a MB.
 type Part { Name string, Size int }
@@ -22,15 +24,15 @@ type Job =
 law SummaryTouchRestarts(partSizes []int, id string) {
 	let r = Summary{Parts: partsOf(partSizes), Refs: []Ref{Ref{ID: id, Size: 1}}}
 	let reentered = match Step(r, Touch) {
-	case Enter[Job]:
+	case machines.Enter[Job]:
 		true
 	case _:
 		false
 	}
 	let closes = match timer(r) {
-	case Some[Timeout[Signal]] as t:
+	case option.Some[machines.Timeout[Signal]] as t:
 		match Step(r, t.Value.Signal) {
-		case Done[Result] as d:
+		case machines.Done[Result] as d:
 			match d.Output {
 			case Stored as s:
 				s.Total == Total(r.Parts) && t.Value.In == SummaryWait()
@@ -40,7 +42,7 @@ law SummaryTouchRestarts(partSizes []int, id string) {
 		case _:
 			false
 		}
-	case None:
+	case option.None:
 		false
 	}
 	reentered && closes
@@ -91,17 +93,17 @@ func Total(parts []Part) int {
 // the staging's total, each positive; otherwise it is refused.
 law SharesCoverExactly(partSizes []int, shareSizes []int, exact bool) {
 	let parts = partsOf(partSizes)
-	let shares = if exact && len(parts) > 0 { split(Total(parts), shareSizes) } else { sharesOf(shareSizes) }
+	let shares = if exact && parts.Len() > 0 { split(Total(parts), shareSizes) } else { sharesOf(shareSizes) }
 	let d = Step(Staging{Parts: parts, Note: ""}, Place{Shares: shares})
 	match moved(d) {
-	case Some[Job] as s:
+	case option.Some[Job] as s:
 		match s.Value {
 		case Writing as p:
-			Sum(p.Shares) == Total(parts) && len(parts) > 0
+			Sum(p.Shares) == Total(parts) && parts.Len() > 0
 		case _:
 			false
 		}
-	case None:
+	case option.None:
 		refused(d) && !placeable(parts, shares)
 	}
 }
@@ -150,26 +152,26 @@ func split(total int, shareSizes []int) []Share {
 }
 
 // moved is the state a decision enters or stays in, if any.
-func moved(d Decision[Job, Result]) Option[Job] {
+func moved(d machines.Decision[Job, Result]) option.Option[Job] {
 	match d {
-	case Enter[Job] as x:
-		Some{x.Next}
-	case Stay[Job] as x:
-		Some{x.Next}
-	case Emit[Job, Result] as x:
-		Some{x.Next}
-	case Ignore, Tell[Job, Result]:
-		None
-	case Reject:
-		None
-	case Done[Result]:
-		None
+	case machines.Enter[Job] as x:
+		option.Some{x.Next}
+	case machines.Stay[Job] as x:
+		option.Some{x.Next}
+	case machines.Emit[Job, Result] as x:
+		option.Some{x.Next}
+	case machines.Ignore, machines.Tell[Job, Result]:
+		option.None
+	case machines.Reject:
+		option.None
+	case machines.Done[Result]:
+		option.None
 	}
 }
 
-func refused(d Decision[Job, Result]) bool {
+func refused(d machines.Decision[Job, Result]) bool {
 	match d {
-	case Reject:
+	case machines.Reject:
 		true
 	case _:
 		false
@@ -179,7 +181,7 @@ func refused(d Decision[Job, Result]) bool {
 // placeable reports whether the shares cover the staging exactly, each with
 // a positive size.
 func placeable(parts []Part, shares []Share) bool {
-	let mut ok = len(parts) > 0 && len(shares) > 0 && Sum(shares) == Total(parts)
+	let mut ok = parts.Len() > 0 && shares.Len() > 0 && Sum(shares) == Total(parts)
 	for t in shares {
 		ok = ok && SizeOf(t) > 0
 	}
@@ -187,48 +189,48 @@ func placeable(parts []Part, shares []Share) bool {
 }
 
 // Step is the write's step.
-func Step(s Job, e Signal) Decision[Job, Result] {
+func Step(s Job, e Signal) machines.Decision[Job, Result] {
 	match (s, e) {
 	case (Staging as b, Add as a):
 		if a.Size > 0 {
-			Stay[Job]{Next: Staging{..b, Parts: b.Parts.Append(Part{Name: a.Name, Size: a.Size}), Note: ""}}
+			machines.Stay[Job]{Next: Staging{..b, Parts: b.Parts.Append(Part{Name: a.Name, Size: a.Size}), Note: ""}}
 		} else {
-			Reject
+			machines.Reject
 		}
 	case (Staging as b, Place as p):
 		if placeable(b.Parts, p.Shares) {
-			Enter[Job]{Next: Writing{Parts: b.Parts, Shares: p.Shares}}
+			machines.Enter[Job]{Next: Writing{Parts: b.Parts, Shares: p.Shares}}
 		} else {
-			Reject
+			machines.Reject
 		}
 	case (Staging, Cancel):
-		Done[Result]{Output: Cancelled}
+		machines.Done[Result]{Output: Cancelled}
 	case (Staging, _):
-		Ignore
+		machines.Ignore
 	case (Writing as p, SharesWritten as t):
-		Enter[Job]{Next: Summary{Parts: p.Parts, Refs: t.Refs}}
+		machines.Enter[Job]{Next: Summary{Parts: p.Parts, Refs: t.Refs}}
 	case (Writing as p, SharesLost as d):
-		if len(d.Refs) == 0 {
-			Enter[Job]{Next: Staging{Parts: p.Parts, Note: d.Why}}
+		if d.Refs.Len() == 0 {
+			machines.Enter[Job]{Next: Staging{Parts: p.Parts, Note: d.Why}}
 		} else {
-			Enter[Job]{Next: RollingBack{Parts: p.Parts, Refs: d.Refs, Why: d.Why}}
+			machines.Enter[Job]{Next: RollingBack{Parts: p.Parts, Refs: d.Refs, Why: d.Why}}
 		}
 	case (Writing, Cancel):
 		// A write in flight is never abandoned: a write may be taken.
-		Reject
+		machines.Reject
 	case (Writing, _):
-		Ignore
+		machines.Ignore
 	case (RollingBack as v, Erased):
-		Enter[Job]{Next: Staging{Parts: v.Parts, Note: "\(v.Why); \(len(v.Refs)) erased"}}
+		machines.Enter[Job]{Next: Staging{Parts: v.Parts, Note: "\(v.Why); \(v.Refs.Len()) erased"}}
 	case (RollingBack, _):
-		Ignore
+		machines.Ignore
 	case (Summary as r, Touch):
 		// A touch re-enters the summary, so its timer starts again.
-		Enter[Job]{Next: r}
+		machines.Enter[Job]{Next: r}
 	case (Summary as r, Idle):
-		Done[Result]{Output: Stored{Total: Total(r.Parts), Refs: r.Refs}}
+		machines.Done[Result]{Output: Stored{Total: Total(r.Parts), Refs: r.Refs}}
 	case (Summary, _):
-		Ignore
+		machines.Ignore
 	}
 }
 
@@ -238,7 +240,7 @@ law SummaryOnlyAfterWritten(n int, m int, partSizes []int, shareSizes []int, tex
 	let s = sample(n, partSizes, shareSizes, text)
 	let e = signalOf(m, shareSizes, text)
 	match moved(Step(s, e)) {
-	case Some[Job] as next:
+	case option.Some[Job] as next:
 		match next.Value {
 		case Summary:
 			match (s, e) {
@@ -252,7 +254,7 @@ law SummaryOnlyAfterWritten(n int, m int, partSizes []int, shareSizes []int, tex
 		case _:
 			true
 		}
-	case None:
+	case option.None:
 		true
 	}
 }
@@ -298,16 +300,16 @@ func signalOf(n int, shareSizes []int, text string) Signal {
 	}
 }
 
-func timer(s Job) Option[Timeout[Signal]] {
+func timer(s Job) option.Option[machines.Timeout[Signal]] {
 	match s {
 	case Summary:
-		Some{Timeout[Signal]{In: SummaryWait(), Signal: Idle}}
+		option.Some{machines.Timeout[Signal]{In: SummaryWait(), Signal: Idle}}
 	case Staging:
-		None
+		option.None
 	case Writing:
-		None
+		option.None
 	case RollingBack:
-		None
+		option.None
 	}
 }
 
@@ -323,22 +325,22 @@ func outcome(o Outcome) Signal {
 
 // work: Writing hosts the write runner as a child; RollingBack erases the
 // writes that were taken.
-func work(s Job) Option[machines.Work[Signal, Targets | Scheduler]] {
+func work(s Job) option.Option[machines.Work[Signal, Targets | time.Scheduler]] {
 	match s {
 	case Writing as p:
-		Some{machines.Work{Start: func(send entry func(e Signal)) needs Targets | Scheduler {
+		option.Some{machines.Work{Start: func(send entry func(e Signal)) needs Targets | time.Scheduler {
 			actor.Child(send, machines.Start(Runner{}, p.Shares), 1, outcome)
 		}}}
 	case RollingBack as v:
-		Some{machines.Do(func() Signal needs Targets | Scheduler {
+		option.Some{machines.Do(func() Signal needs Targets | time.Scheduler {
 			for r in v.Refs {
 				Targets.Erase(r)
 			}
 			Erased
 		})}
 	case Staging:
-		None
+		option.None
 	case Summary:
-		None
+		option.None
 	}
 }

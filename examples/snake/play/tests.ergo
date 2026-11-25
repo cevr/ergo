@@ -6,20 +6,21 @@ import rand
 import snake/game
 import strings
 import testing
+import time
 
 test KeysAreSignals {
 	let ks = Keys("bwxq")
-	let word = with context { Random: rand.Seeded(1) } {
+	let word = with context { rand.Random: rand.Seeded(1) } {
 		game.Word(game.Step(game.Title{Width: 6, Height: 4}, ks[2]))
 	}
-	assert len(ks) == 3 && word == "done"
+	assert ks.Len() == 3 && word == "done"
 }
 
 // scripted is the transcript of Script over the input on a board of 6 by
 // 4 with the seed, and its last mode.
 func scripted(input string, seed int) (string, game.Mode) {
 	let out = io.NewRecorder()
-	with context { io.Stdin: io.Input{Text: input}, io.Stdout: out, Random: rand.Seeded(uint64(seed)) } {
+	with context { io.Stdin: io.Input{Text: input}, io.Stdout: out, rand.Random: rand.Seeded(uint64(seed)) } {
 		let last = Script(game.Title{Width: 6, Height: 4})
 		(out.Text(), last)
 	}
@@ -53,7 +54,7 @@ test EndOfInputLeavesTheGame {
 // waits.
 test LiveRunsIntoTheWallWithNoKeys {
 	let out = io.NewRecorder()
-	let last = with context { io.Stdin: io.Input{Text: ""}, io.Stdout: out, Random: rand.Seeded(2), Scheduler: testing.NewVirtualClock(0) } {
+	let last = with context { io.Stdin: io.Input{Text: ""}, io.Stdout: out, rand.Random: rand.Seeded(2), time.Scheduler: testing.NewVirtualClock(0) } {
 		Live(6, 4, 1ms)
 	}
 	assert game.Key(last) == "over wall 0 food 2,3 body 5,2 4,2 3,2 RR"

@@ -3,6 +3,8 @@
 // through the content mapper, so the operation type below is the one
 // contract both sides read.
 
+import option
+
 // Grant is a take the limiter allowed: Remaining tokens are left.
 type Grant { Remaining int }
 
@@ -28,7 +30,7 @@ type Level = Full{} | Partial{Tokens int} | Empty{RetryAfterMs int}
 type Limiter {
 	Take(key string, cost int) Grant fails Limited | UnknownBucket | BadCost,
 	Hold(key string, cost int) Grant fails UnknownBucket | BadCost,
-	Peek(key string) Option[Level],
+	Peek(key string) option.Option[Level],
 	Advance(ms int),
 	Buckets() []string,
 
@@ -45,20 +47,20 @@ type Limiter {
 }
 
 // key is one of the limiter's buckets, chosen by pick, or None.
-func key(pick int) Option[string] needs Limiter {
+func key(pick int) option.Option[string] needs Limiter {
 	let keys = Limiter.Buckets()
-	if len(keys) == 0 {
-		return None
+	if keys.Len() == 0 {
+		return option.None
 	}
-	Some[string]{Value: keys[((pick%len(keys))+len(keys))%len(keys)]}
+	option.Some[string]{Value: keys[((pick%keys.Len())+keys.Len())%keys.Len()]}
 }
 
 // NeverOverdraws takes each cost from one bucket and checks every grant.
 func NeverOverdraws(pick int, costs []int) bool needs Limiter {
 	let k = match key(pick) {
-	case Some[string] as s:
+	case option.Some[string] as s:
 		s.Value
-	case None:
+	case option.None:
 		return true
 	}
 	for c in costs {
@@ -77,9 +79,9 @@ func NeverOverdraws(pick int, costs []int) bool needs Limiter {
 // waits one millisecond less than it was told, and then the last one.
 func RetryAfterIsExact(pick int, cost int) bool needs Limiter {
 	let k = match key(pick) {
-	case Some[string] as s:
+	case option.Some[string] as s:
 		s.Value
-	case None:
+	case option.None:
 		return true
 	}
 	let c = 1 + ((cost%2)+2)%2
@@ -112,9 +114,9 @@ func RetryAfterIsExact(pick int, cost int) bool needs Limiter {
 // LimitedTakesNothing compares the level before and after a refused take.
 func LimitedTakesNothing(pick int, cost int) bool needs Limiter {
 	let k = match key(pick) {
-	case Some[string] as s:
+	case option.Some[string] as s:
 		s.Value
-	case None:
+	case option.None:
 		return true
 	}
 	let c = 1 + ((cost%3)+3)%3

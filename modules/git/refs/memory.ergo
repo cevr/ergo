@@ -1,3 +1,4 @@
+import option
 import slices
 import strings
 import sync
@@ -43,14 +44,14 @@ func PutReflog(m MemoryRefs, name string, entries []ReflogEntry) {
 func ReadRef(m MemoryRefs, name string) Ref fails NotFound | InvalidRefName | CorruptRef | PathEscape | IOFailed {
 	try ValidateReadName(name)
 	match m.loose.Get().Get(name) {
-	case Some[Ref] as r:
+	case option.Some[Ref] as r:
 		return r.Value
-	case None:
+	case option.None:
 	}
 	match m.packed.Get().Get(name) {
-	case Some[Ref] as r:
+	case option.Some[Ref] as r:
 		return r.Value
-	case None:
+	case option.None:
 		return NotFound{Name: name}
 	}
 }
@@ -116,9 +117,9 @@ func ListRefs(m MemoryRefs, prefix string) []Ref fails InvalidRefName | CorruptR
 func ReadReflog(m MemoryRefs, name string) []ReflogEntry fails NotFound | InvalidRefName | CorruptRef | PathEscape | IOFailed {
 	try ValidateReadName(name)
 	match m.reflogs.Get().Get(name) {
-	case Some[[]ReflogEntry] as e:
+	case option.Some[[]ReflogEntry] as e:
 		e.Value
-	case None:
+	case option.None:
 		return NotFound{Name: name}
 	}
 }

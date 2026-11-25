@@ -1,5 +1,6 @@
 import gen
 import github.com/cevr/ergo/modules/orchestrate/orchestrate
+import option
 import testing
 
 func innerUnchanged(inner Store, wantSnap orchestrate.State, wantEvents []orchestrate.StoredEvent) bool {
@@ -35,8 +36,8 @@ law ServiceHandlesFaultyStoreCleanly() {
 		case orchestrate.StoreFailed:
 			return false
 		}
-		let execFaults0 = len(faulty.Execute.Faults())
-		let unitFaults0 = len(faulty.Unit.Faults())
+		let execFaults0 = faulty.Execute.Faults().Len()
+		let unitFaults0 = faulty.Unit.Faults().Len()
 		let mut openFailed = false
 		let opened = svc.UnitOpen(orchestrate.UnitOpenInput{
 			CommandID: orchestrate.CommandID("f-open-1"),
@@ -48,15 +49,15 @@ law ServiceHandlesFaultyStoreCleanly() {
 		}) catch {
 		case orchestrate.NotFound, orchestrate.AlreadyExists, orchestrate.InvalidTransition, orchestrate.StaleClaim, orchestrate.CommandReused, orchestrate.InvalidInput, orchestrate.StoreFailed:
 			openFailed = true
-			orchestrate.Unit{ID: "", Title: "", Area: "", Status: orchestrate.UnitOpen, Owner: None, Lane: None, Harness: None, Round: 0, HeadSHA: None, Summary: None, RequestPath: None, FindingsPath: None, CreatedAt: "", UpdatedAt: ""}
+			orchestrate.Unit{ID: "", Title: "", Area: "", Status: orchestrate.UnitOpen, Owner: option.None, Lane: option.None, Harness: option.None, Round: 0, HeadSHA: option.None, Summary: option.None, RequestPath: option.None, FindingsPath: option.None, CreatedAt: "", UpdatedAt: ""}
 		}
-		if len(faulty.Execute.Faults()) > execFaults0 {
+		if faulty.Execute.Faults().Len() > execFaults0 {
 			writeFault = true
 			if !openFailed || !innerUnchanged(inner, snap0, evs0) {
 				gen.Draws.Show("write-fault", "UnitOpen Execute fault mutated inner store")
 				return false
 			}
-		} else if len(faulty.Unit.Faults()) > unitFaults0 {
+		} else if faulty.Unit.Faults().Len() > unitFaults0 {
 			readFault = true
 			if !openFailed {
 				gen.Draws.Show("read-fault", "UnitOpen follow-up Unit fault did not fail")
@@ -75,7 +76,7 @@ law ServiceHandlesFaultyStoreCleanly() {
 			case orchestrate.StoreFailed:
 				return false
 			}
-			if len(after1) != 1 || after1[0].Seq != 2 || len(after2) != 0 {
+			if after1.Len() != 1 || after1[0].Seq != 2 || after2.Len() != 0 {
 				gen.Draws.Show("events-cursor", "Events(fromSeq) was not strictly exclusive")
 				return false
 			}
@@ -90,7 +91,7 @@ law ServiceHandlesFaultyStoreCleanly() {
 		case orchestrate.StoreFailed:
 			return false
 		}
-		let execFaults1 = len(faulty.Execute.Faults())
+		let execFaults1 = faulty.Execute.Faults().Len()
 		let mut commitFailed = false
 		let _ = svc.CommitmentAdd(orchestrate.CommitmentAddInput{
 			CommandID: orchestrate.CommandID("f-commit-1"),
@@ -102,9 +103,9 @@ law ServiceHandlesFaultyStoreCleanly() {
 		}) catch {
 		case orchestrate.NotFound, orchestrate.AlreadyExists, orchestrate.InvalidTransition, orchestrate.StaleClaim, orchestrate.CommandReused, orchestrate.InvalidInput, orchestrate.StoreFailed:
 			commitFailed = true
-			orchestrate.Commitment{ID: "", Title: "", Kind: "", Status: orchestrate.CommitOpen, Owner: None, Lane: None, LandedSHA: None, DecisionNote: None, CreatedAt: "", UpdatedAt: ""}
+			orchestrate.Commitment{ID: "", Title: "", Kind: "", Status: orchestrate.CommitOpen, Owner: option.None, Lane: option.None, LandedSHA: option.None, DecisionNote: option.None, CreatedAt: "", UpdatedAt: ""}
 		}
-		if len(faulty.Execute.Faults()) > execFaults1 {
+		if faulty.Execute.Faults().Len() > execFaults1 {
 			writeFault = true
 			if !commitFailed || !innerUnchanged(inner, snap1, evs1) {
 				gen.Draws.Show("commit-fault", "CommitmentAdd Execute fault mutated inner store")
@@ -112,16 +113,16 @@ law ServiceHandlesFaultyStoreCleanly() {
 			}
 		}
 
-		let listFaults0 = len(faulty.ListUnits.Faults())
+		let listFaults0 = faulty.ListUnits.Faults().Len()
 		let mut listStoreFailed = false
-		let _ = svc.UnitList(orchestrate.UnitListInput{Status: None}) catch {
+		let _ = svc.UnitList(orchestrate.UnitListInput{Status: option.None}) catch {
 		case orchestrate.StoreFailed:
 			listStoreFailed = true
 			[]orchestrate.Unit{}
 		case orchestrate.InvalidInput:
 			return false
 		}
-		if len(faulty.ListUnits.Faults()) > listFaults0 {
+		if faulty.ListUnits.Faults().Len() > listFaults0 {
 			readFault = true
 			if !listStoreFailed {
 				gen.Draws.Show("list-fault", "ListUnits StoreFailed did not propagate")
@@ -131,14 +132,14 @@ law ServiceHandlesFaultyStoreCleanly() {
 			return false
 		}
 
-		let qFaults0 = len(faulty.ListQuestions.Faults())
+		let qFaults0 = faulty.ListQuestions.Faults().Len()
 		let mut qStoreFailed = false
 		let _ = svc.QuestionList(orchestrate.QuestionListInput{OpenOnly: false}) catch {
 		case orchestrate.StoreFailed:
 			qStoreFailed = true
 			[]orchestrate.Question{}
 		}
-		if len(faulty.ListQuestions.Faults()) > qFaults0 {
+		if faulty.ListQuestions.Faults().Len() > qFaults0 {
 			readFault = true
 			if !qStoreFailed {
 				gen.Draws.Show("qlist-fault", "ListQuestions StoreFailed did not propagate")

@@ -78,7 +78,7 @@ func ID(n Net) string { hex.Encode(sha256.Sum(n.packed)) }
 type cursor { rows []string, lines []int, at int }
 
 func next(c mut cursor) string fails Malformed {
-	if c.at >= len(c.rows) {
+	if c.at >= c.rows.Len() {
 		return Malformed{Line: 0, Reason: "the weights file ends early"}
 	}
 	c.at += 1
@@ -96,11 +96,11 @@ func here(c cursor) int {
 func head(c mut cursor, word string, ints int) []int fails Malformed {
 	let row = try next(c)
 	let fs = strings.Fields(row)
-	if len(fs) != ints+1 || fs[0] != word {
+	if fs.Len() != ints+1 || fs[0] != word {
 		return Malformed{Line: here(*c), Reason: "want \(strconv.Quote(word)) and \(ints) integers"}
 	}
 	let mut out = []int{}
-	for i in 1..len(fs) {
+	for i in 1..fs.Len() {
 		let v = strconv.Atoi(fs[i]) catch {
 		case strconv.Malformed, strconv.OutOfRange:
 			return Malformed{Line: here(*c), Reason: "\(strconv.Quote(fs[i])) is not an integer"}
@@ -116,11 +116,11 @@ func head(c mut cursor, word string, ints int) []int fails Malformed {
 // row appends a row of want trits to into.
 func row(c mut cursor, want int, into []int) []int fails Malformed {
 	let text = try next(c)
-	if len(text) != want {
-		return Malformed{Line: here(*c), Reason: "a row of \(len(text)) trits, want \(want)"}
+	if text.Len() != want {
+		return Malformed{Line: here(*c), Reason: "a row of \(text.Len()) trits, want \(want)"}
 	}
 	let mut out = into
-	for i in 0..len(text) {
+	for i in 0..text.Len() {
 		match text[i] {
 		case '-':
 			out = out.Append(-1)
@@ -139,7 +139,7 @@ func row(c mut cursor, want int, into []int) []int fails Malformed {
 func ParseNet(text string) Net fails Malformed {
 	let mut c = cursor{rows: []string{}, lines: []int{}, at: 0}
 	let all = strings.Split(text, "\n")
-	for i in 0..len(all) {
+	for i in 0..all.Len() {
 		let t = strings.TrimSpace(all[i])
 		if t != "" && !strings.HasPrefix(t, "#") {
 			c.rows = c.rows.Append(t)
@@ -159,7 +159,7 @@ func ParseNet(text string) Net fails Malformed {
 	}
 	let n = f + Planes
 	let mut ints = []int{Version, d, f, k, h}
-	let stop = c.at < len(c.rows) && c.rows[c.at] == "words stop"
+	let stop = c.at < c.rows.Len() && c.rows[c.at] == "words stop"
 	if stop {
 		let _ = try next(&c)
 	}
@@ -186,8 +186,8 @@ func ParseNet(text string) Net fails Malformed {
 	trits = try row(&c, h, trits)
 	let s = try head(&c, "skip", 1)
 	trits = try row(&c, n, trits)
-	if c.at != len(c.rows) {
-		return Malformed{Line: c.lines[c.at], Reason: "\(len(c.rows) - c.at) lines after the last row"}
+	if c.at != c.rows.Len() {
+		return Malformed{Line: c.lines[c.at], Reason: "\(c.rows.Len() - c.at) lines after the last row"}
 	}
 	for b in convBias {
 		ints = ints.Append(b)
@@ -202,8 +202,8 @@ func ParseNet(text string) Net fails Malformed {
 		ints = ints.Append(1)
 	}
 	let packed = pack(trits, ints)
-	if len(packed) > Budget {
-		return Malformed{Line: 0, Reason: "\(len(packed)) packed bytes, over the budget of \(Budget)"}
+	if packed.Len() > Budget {
+		return Malformed{Line: 0, Reason: "\(packed.Len()) packed bytes, over the budget of \(Budget)"}
 	}
 	let convAt = 256 * d
 	let hiddenAt = convAt + f*k*d
@@ -244,11 +244,11 @@ func ParseNet(text string) Net fails Malformed {
 func pack(trits []int, ints []int) string {
 	let mut b = strings.NewBuilder()
 	let mut i = 0
-	for i < len(trits) {
+	for i < trits.Len() {
 		let mut v = 0
 		let mut m = 1
 		let mut j = i
-		for j < i+5 && j < len(trits) {
+		for j < i+5 && j < trits.Len() {
 			let mut t = trits[j]
 			if t < 0 {
 				t = 2

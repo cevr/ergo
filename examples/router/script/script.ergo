@@ -7,12 +7,14 @@
 import actor
 import journal
 import machines
+import option
 import queue
 import router/route
 import strconv
 import strings
 import sync
 import tasks
+import time
 
 // BadLine is a line the script cannot read.
 type BadLine { Line int, Why string }
@@ -45,7 +47,7 @@ func Read(lines []string) []Command fails BadLine {
 		let n = i + 1
 		let text = strings.TrimSpace(line)
 		let w = strings.Fields(text)
-		if len(w) == 0 || strings.HasPrefix(text, "#") {
+		if w.Len() == 0 || strings.HasPrefix(text, "#") {
 			continue
 		}
 		out = out.Append(try commandOf(n, w))
@@ -56,17 +58,17 @@ func Read(lines []string) []Command fails BadLine {
 func commandOf(n int, w []string) Command fails BadLine {
 	match w[0] {
 	case "route":
-		if len(w) != 4 {
+		if w.Len() != 4 {
 			return BadLine{Line: n, Why: "route is route ID TOPIC DEST"}
 		}
 		Send{Signal: route.Submit{Request: route.Request{ID: try count(n, w[1]), Change: route.Add{Topic: w[2], Dest: w[3]}}}}
 	case "remove":
-		if len(w) != 3 {
+		if w.Len() != 3 {
 			return BadLine{Line: n, Why: "remove is remove ID TOPIC"}
 		}
 		Send{Signal: route.Submit{Request: route.Request{ID: try count(n, w[1]), Change: route.Remove{Topic: w[2]}}}}
 	case "abort":
-		if len(w) != 2 {
+		if w.Len() != 2 {
 			return BadLine{Line: n, Why: "abort takes the ID"}
 		}
 		Send{Signal: route.Abort{ID: try count(n, w[1])}}
@@ -75,7 +77,7 @@ func commandOf(n int, w []string) Command fails BadLine {
 	case "no":
 		Send{Signal: route.Reply{Yes: false}}
 	case "send":
-		if len(w) != 3 {
+		if w.Len() != 3 {
 			return BadLine{Line: n, Why: "send is send TOPIC BODY"}
 		}
 		Post{Topic: w[1], Body: w[2]}
@@ -105,9 +107,9 @@ func count(n int, word string) int fails BadLine {
 func Recover(j journal.Journal[route.Router, route.Signal]) route.Router fails journal.Failed {
 	let log = try j.Load()
 	let from = match log.Snapshot {
-	case Some[route.Router] as s:
+	case option.Some[route.Router] as s:
 		s.Value
-	case None:
+	case option.None:
 		route.Initial
 	}
 	let o = machines.From(route.Routing{}, from, log.Signals) catch {
@@ -127,19 +129,19 @@ func Recover(j journal.Journal[route.Router, route.Signal]) route.Router fails j
 // sees it, and after a defect restarts (Budget times) in the state j
 // recovers then, never in the crashed one's memory. sink gets the
 // questions.
-func Open(j journal.Journal[route.Router, route.Signal], sink own func(o route.Output)) actor.Actor[route.Router, route.Signal, Decision[route.Router, route.Output]] fails journal.Failed needs route.Registry | Scheduler {
+func Open(j journal.Journal[route.Router, route.Signal], sink own func(o route.Output)) actor.Actor[route.Router, route.Signal, machines.Decision[route.Router, route.Output]] fails journal.Failed needs route.Registry | time.Scheduler {
 	try OpenLive(j, sink, func() defects {})
 }
 
 // OpenLive is Open with a live work hook run before each Registry.Check so a
 // fault-injection script can trigger a deliberate defect independently of
 // route.Unknown.
-func OpenLive(j journal.Journal[route.Router, route.Signal], sink own func(o route.Output), beforeCheck own func() defects) actor.Actor[route.Router, route.Signal, Decision[route.Router, route.Output]] fails journal.Failed needs route.Registry | Scheduler {
+func OpenLive(j journal.Journal[route.Router, route.Signal], sink own func(o route.Output), beforeCheck own func() defects) actor.Actor[route.Router, route.Signal, machines.Decision[route.Router, route.Output]] fails journal.Failed needs route.Registry | time.Scheduler {
 	let kept = sync.NewRef(0)
 	let live = actor.LiveWithWork(route.Routing{}, route.LiveWork(beforeCheck))
-	try actor.SuperviseDurableLive(live, 8, sink, tasks.Restart{Limit: Budget}, func() Option[route.Router] fails journal.Failed {
-		kept.Set(len((try j.Load()).Signals))
-		Some[route.Router]{Value: try Recover(j)}
+	try actor.SuperviseDurableLive(live, 8, sink, tasks.Restart{Limit: Budget}, func() option.Option[route.Router] fails journal.Failed {
+		kept.Set((try j.Load()).Signals.Len())
+		option.Some[route.Router]{Value: try Recover(j)}
 	}, func(prev route.Router, next route.Router, sig route.Signal) fails journal.Failed {
 		j.Append(sig, kept.Get()) catch {
 		case journal.Stale as s:
@@ -157,13 +159,13 @@ func OpenLive(j journal.Journal[route.Router, route.Signal], sink own func(o rou
 // and what it refuses (?); the table of each idle entry once its
 // couriers run, and each message a courier carries (->). drop runs the
 // registry's arm.
-func Play(cmds []Command, j journal.Journal[route.Router, route.Signal], drop func()) []string fails journal.Failed needs route.Registry | Scheduler {
+func Play(cmds []Command, j journal.Journal[route.Router, route.Signal], drop func()) []string fails journal.Failed needs route.Registry | time.Scheduler {
 	try PlayWith(cmds, j, drop, func() defects {})
 }
 
 // PlayWith is Play with a live fault-injection hook run before each
 // Registry.Check.
-func PlayWith(cmds []Command, j journal.Journal[route.Router, route.Signal], drop func(), beforeCheck own func() defects) []string fails journal.Failed needs route.Registry | Scheduler {
+func PlayWith(cmds []Command, j journal.Journal[route.Router, route.Signal], drop func(), beforeCheck own func() defects) []string fails journal.Failed needs route.Registry | time.Scheduler {
 	let said = queue.New[route.Output](8)
 	let sink = func(o route.Output) {
 		said.Push(o) catch {
@@ -238,17 +240,17 @@ func PlayWith(cmds []Command, j journal.Journal[route.Router, route.Signal], dro
 		let mut more = true
 		for more {
 			match said.Poll() {
-			case Some[route.Output] as o:
+			case option.Some[route.Output] as o:
 				lines = lines.Append(OutputText(o.Value))
-			case None:
+			case option.None:
 				more = false
 			}
 		}
 		let all = route.BoardOf(s).Answers
-		for i in told..len(all) {
+		for i in told..all.Len() {
 			lines = lines.Append("  = #\(all[i].ID) \(route.AnswerText(all[i].Answer))")
 		}
-		told = len(all)
+		told = all.Len()
 		use()
 	}
 	// post carries body on the courier of topic, which the client names
@@ -258,9 +260,9 @@ func PlayWith(cmds []Command, j journal.Journal[route.Router, route.Signal], dro
 	// new couriers in the hosts the replay made.
 	let post = func(topic string, body string) {
 		let lane = match route.LaneOf(a.State(), topic) {
-		case Some[route.Lane] as l:
+		case option.Some[route.Lane] as l:
 			l.Value
-		case None:
+		case option.None:
 			lines = lines.Append("  ? no route for \(topic)")
 			return
 		}
@@ -309,10 +311,10 @@ func PlayWith(cmds []Command, j journal.Journal[route.Router, route.Signal], dro
 					return false
 				}
 				match r {
-				case Reject:
+				case machines.Reject:
 					lines = lines.Append("  ? \(Refusal(e.Signal))")
 					false
-				case Ignore:
+				case machines.Ignore:
 					false
 				case _:
 					true
@@ -332,7 +334,7 @@ func PlayWith(cmds []Command, j journal.Journal[route.Router, route.Signal], dro
 			a = try OpenLive(j, sink, beforeCheck)
 			restarts = 0
 			let after = route.Name(a.State())
-			lines = lines.Append("  replayed \(len(log.Signals)) signals: \(after)")
+			lines = lines.Append("  replayed \(log.Signals.Len()) signals: \(after)")
 			if after != before {
 				lines = lines.Append("  ?? the replay is not the router that stopped: \(before)")
 			}

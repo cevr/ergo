@@ -13,51 +13,51 @@ let Texts = []string{"", "OK", "a", "ERR bad", "a b", "line\nnext", "cr\rhere", 
 // Integers are the integers the generator draws.
 let Integers = []int64{0, 1, -1, 42, -1000, 9223372036854775807, -9223372036854775807 - 1}
 
-func draw(xs []string) string needs Random { xs[Random.IntN(len(xs))] }
+func draw(xs []string) string needs rand.Random { xs[rand.Random.IntN(xs.Len())] }
 
 // GenBytes is n random bytes, as a string of bytes.
-func GenBytes(n int) string needs Random {
+func GenBytes(n int) string needs rand.Random {
 	let mut bs = []byte{}
 	for _ in 0..n {
-		bs = bs.Append(byte(Random.IntN(256)))
+		bs = bs.Append(byte(rand.Random.IntN(256)))
 	}
 	strings.FromBytes(bs)
 }
 
 // GenValue is a value of depth at most depth.
-func GenValue(depth int) Value needs Random {
-	let n = if depth <= 0 { Random.IntN(7) } else { Random.IntN(10) }
+func GenValue(depth int) Value needs rand.Random {
+	let n = if depth <= 0 { rand.Random.IntN(7) } else { rand.Random.IntN(10) }
 	match n {
 	case 0:
 		Simple{Text: draw(Texts)}
 	case 1:
 		Fault{Text: draw(Texts)}
 	case 2:
-		Integer{N: Integers[Random.IntN(len(Integers))]}
+		Integer{N: Integers[rand.Random.IntN(Integers.Len())]}
 	case 3:
 		Bulk{Data: draw(Texts)}
 	case 4:
-		Bulk{Data: GenBytes(Random.IntN(12))}
+		Bulk{Data: GenBytes(rand.Random.IntN(12))}
 	case 5:
 		Null
 	case 6:
-		Boolean{Truth: Random.IntN(2) == 0}
+		Boolean{Truth: rand.Random.IntN(2) == 0}
 	case 7:
 		Array{Items: genItems(depth)}
 	case 8:
 		Set{Items: genItems(depth)}
 	case _:
 		let mut pairs = []Pair{}
-		for _ in 0..Random.IntN(4) {
+		for _ in 0..rand.Random.IntN(4) {
 			pairs = pairs.Append(Pair{Key: GenValue(depth - 1), Value: GenValue(depth - 1)})
 		}
 		Dict{Pairs: pairs}
 	}
 }
 
-func genItems(depth int) []Value needs Random {
+func genItems(depth int) []Value needs rand.Random {
 	let mut items = []Value{}
-	for _ in 0..Random.IntN(4) {
+	for _ in 0..rand.Random.IntN(4) {
 		items = items.Append(GenValue(depth - 1))
 	}
 	items
@@ -65,7 +65,7 @@ func genItems(depth int) []Value needs Random {
 
 // Samples is ten values of depth at most 3 from seed.
 func Samples(seed int) []Value {
-	with context { Random: rand.Seeded(uint64(seed)) } {
+	with context { rand.Random: rand.Seeded(uint64(seed)) } {
 		let mut out = []Value{}
 		for _ in 0..10 {
 			out = out.Append(GenValue(3))
@@ -85,7 +85,7 @@ law SplitAnywhereParsesTheSame(seed int) {
 	for v in vs {
 		stream = Append(stream, v, Resp3)
 	}
-	for k in 0..len(stream)+1 {
+	for k in 0..stream.Len()+1 {
 		let mut r = NewReader()
 		let mut got = []Value{}
 		Feed(&r, stream[:k])
@@ -98,7 +98,7 @@ law SplitAnywhereParsesTheSame(seed int) {
 		case Malformed:
 			return false
 		}
-		if len(got) != len(vs) || Buffered(r) != 0 {
+		if got.Len() != vs.Len() || Buffered(r) != 0 {
 			return false
 		}
 		for i, v in vs {
@@ -130,21 +130,21 @@ let Alphabet = "+-:$*_#%~0123456789\r\n-tfa!"
 // drawn from Alphabet, and encodings of samples with a byte changed, a byte
 // dropped or the end cut.
 func Noise(seed int) []string {
-	with context { Random: rand.Seeded(uint64(seed)) } {
+	with context { rand.Random: rand.Seeded(uint64(seed)) } {
 		let mut out = []string{}
 		for _ in 0..10 {
 			let mut bs = []byte{}
-			for _ in 0..Random.IntN(24) {
-				bs = bs.Append(Alphabet[Random.IntN(len(Alphabet))])
+			for _ in 0..rand.Random.IntN(24) {
+				bs = bs.Append(Alphabet[rand.Random.IntN(Alphabet.Len())])
 			}
 			out = out.Append(strings.FromBytes(bs))
 		}
 		for _ in 0..10 {
 			let enc = strings.FromBytes(Encode(GenValue(3), Resp3))
-			let i = Random.IntN(len(enc))
-			let cut = match Random.IntN(3) {
+			let i = rand.Random.IntN(enc.Len())
+			let cut = match rand.Random.IntN(3) {
 			case 0:
-				enc[:i] + strings.FromBytes([]byte{Alphabet[Random.IntN(len(Alphabet))]}) + enc[i+1:]
+				enc[:i] + strings.FromBytes([]byte{Alphabet[rand.Random.IntN(Alphabet.Len())]}) + enc[i+1:]
 			case 1:
 				enc[:i] + enc[i+1:]
 			case _:

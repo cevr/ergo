@@ -2,68 +2,132 @@
   "about": "module infra-local's mutants (IA2): each is judged by the module's tests and laws (scripts/examples -modules infra-local). The law that kills each is named in its rule.",
   "mutants": [
     {
-      "name": "ia2-file-kept-on-change", "origin": "wf10/domain IA2 (plan §7.5: Apply of a changed file keeps the old text)",
+      "name": "ia2-file-kept-on-change",
+      "origin": "wf10/domain IA2 (plan §7.5: Apply of a changed file keeps the old text)",
       "file": "modules/infra-local/local/file.ergo",
       "from": "\tlet dir = try under(id, f.base, p.Dir)\n\tif strings.Contains(p.Name, \"/\") {\n",
       "to": "\tlet seen = try f.Read(id)\n\tif seen != None {\n\t\treturn f.Attrs(id, p)\n\t}\n\tlet dir = try under(id, f.base, p.Dir)\n\tif strings.Contains(p.Name, \"/\") {\n",
       "rule": "An Apply of a file writes it whole every time, so a changed text replaces the old: ChangedFileHoldsTheNewText.",
-      "anchor": {"tests": ["examples:modules/infra-local"]}, "killers": ["examples:modules/infra-local"]
+      "anchor": {
+        "tests": [
+          "examples:modules/infra-local"
+        ]
+      },
+      "killers": [
+        "examples:modules/infra-local"
+      ]
     },
     {
-      "name": "ia2-delete-leaves-running", "origin": "wf10/domain IA2 (plan §7.5: Delete of a process leaves it running)",
+      "name": "ia2-delete-leaves-running",
+      "origin": "wf10/domain IA2 (plan §7.5: Delete of a process leaves it running)",
       "file": "modules/infra-local/local/process.ergo",
       "from": "\t\tpr.spawner.Kill(r.Value.Detached, pr.grace)\n\t\ttry drop(pr.ledger, \"process\", id)\n",
       "to": "\t\tpr.spawner.Kill(exec.Detached{Pid: 0, Start: 0, Name: r.Value.Detached.Name}, pr.grace)\n\t\ttry drop(pr.ledger, \"process\", id)\n",
       "rule": "Delete ends the program's process group before it forgets the program: DeleteEndsTheProgram (Driver.DeleteIsIdempotent reads only the ledger, so it does not see this).",
-      "anchor": {"tests": ["examples:modules/infra-local"]}, "killers": ["examples:modules/infra-local"]
+      "anchor": {
+        "tests": [
+          "examples:modules/infra-local"
+        ]
+      },
+      "killers": [
+        "examples:modules/infra-local"
+      ]
     },
     {
-      "name": "ia2-apply-respawns", "origin": "wf10/domain IA2",
+      "name": "ia2-apply-respawns",
+      "origin": "wf10/domain IA2",
       "file": "modules/infra-local/local/process.ergo",
       "from": "\t\tif old.Value.Key == key && pr.spawner.Alive(old.Value.Detached) {\n",
       "to": "\t\tif false && old.Value.Key == key && pr.spawner.Alive(old.Value.Detached) {\n",
       "rule": "An Apply of the props a program runs with keeps it, so a resumed run starts nothing twice: SecondApplyKeepsTheProgram (Driver.RetrySafe compares only the attributes, which a new start gives too).",
-      "anchor": {"tests": ["examples:modules/infra-local"]}, "killers": ["examples:modules/infra-local"]
+      "anchor": {
+        "tests": [
+          "examples:modules/infra-local"
+        ]
+      },
+      "killers": [
+        "examples:modules/infra-local"
+      ]
     },
     {
-      "name": "ia2-changed-program-kept", "origin": "wf10/domain IA2",
+      "name": "ia2-changed-program-kept",
+      "origin": "wf10/domain IA2",
       "file": "modules/infra-local/local/process.ergo",
       "from": "\t\tif old.Value.Key == key && pr.spawner.Alive(old.Value.Detached) {\n",
       "to": "\t\tif pr.spawner.Alive(old.Value.Detached) {\n",
       "rule": "An Apply of changed props ends the old program and starts the new one: ChangedProgramRestarts.",
-      "anchor": {"tests": ["examples:modules/infra-local"]}, "killers": ["examples:modules/infra-local"]
+      "anchor": {
+        "tests": [
+          "examples:modules/infra-local"
+        ]
+      },
+      "killers": [
+        "examples:modules/infra-local"
+      ]
     },
     {
-      "name": "ia2-unanswered-kept", "origin": "wf10/domain IA2",
+      "name": "ia2-unanswered-kept",
+      "origin": "wf10/domain IA2",
       "file": "modules/infra-local/local/process.ergo",
       "from": "\t\tpr.spawner.Kill(d, pr.grace)\n\t\ttry drop(pr.ledger, \"process\", id)\n\t\treturn infra.Failed{",
       "to": "\t\treturn infra.Failed{",
       "rule": "A program that does not answer its health check is ended and forgotten when its Apply fails: UnansweredLeavesNothing.",
-      "anchor": {"tests": ["examples:modules/infra-local"]}, "killers": ["examples:modules/infra-local"]
+      "anchor": {
+        "tests": [
+          "examples:modules/infra-local"
+        ]
+      },
+      "killers": [
+        "examples:modules/infra-local"
+      ]
     },
     {
-      "name": "ia2-dir-unrecorded", "origin": "wf10/domain IA2",
+      "name": "ia2-dir-unrecorded",
+      "origin": "wf10/domain IA2",
       "file": "modules/infra-local/local/dir.ergo",
       "from": "\ttry put(d.ledger, \"dir\", id, []string{path})\n",
       "to": "",
       "rule": "An Apply records the directory in the ledger, so Read finds it by its id: Driver.ReadAfterApply for Dirs.",
-      "anchor": {"tests": ["examples:modules/infra-local"]}, "killers": ["examples:modules/infra-local"]
+      "anchor": {
+        "tests": [
+          "examples:modules/infra-local"
+        ]
+      },
+      "killers": [
+        "examples:modules/infra-local"
+      ]
     },
     {
-      "name": "px6-rows-status-lost", "origin": "wf10/domain PX6",
+      "name": "px6-rows-status-lost",
+      "origin": "wf10/domain PX6",
       "file": "modules/infra-local/local/state.ergo",
       "from": "[]string{row.ID, statusWord(row.Status), strconv.Itoa(row.Seq)",
       "to": "[]string{row.ID, \"live\", strconv.Itoa(row.Seq)",
       "rule": "A row keeps its status, so a run finds the work a crash left: State.PutThenGet for IntRows.",
-      "anchor": {"tests": ["examples:modules/infra-local"]}, "killers": ["examples:modules/infra-local"]
+      "anchor": {
+        "tests": [
+          "examples:modules/infra-local"
+        ]
+      },
+      "killers": [
+        "examples:modules/infra-local"
+      ]
     },
     {
-      "name": "px6-lock-shared", "origin": "wf10/domain PX6",
+      "name": "px6-lock-shared",
+      "origin": "wf10/domain PX6",
       "file": "modules/infra-local/local/state.ergo",
-      "from": "\t\tif other.Value != holder {\n\t\t\treturn infra.Held{Holder: other.Value}\n\t\t}\n\tcase None:\n\t}\n\tl.writes.MkdirAll",
-      "to": "\t\tif false {\n\t\t\treturn infra.Held{Holder: other.Value}\n\t\t}\n\tcase None:\n\t}\n\tl.writes.MkdirAll",
+      "from": "\t\tif other.Value != holder {\n\t\t\treturn infra.Held{Holder: other.Value}\n\t\t}\n\tcase option.None:\n\t}\n\tl.writes.MkdirAll",
+      "to": "\t\tif false {\n\t\t\treturn infra.Held{Holder: other.Value}\n\t\t}\n\tcase option.None:\n\t}\n\tl.writes.MkdirAll",
       "rule": "One run at a time holds the file lock: Lock.LockExcludes for FileLock.",
-      "anchor": {"tests": ["examples:modules/infra-local"]}, "killers": ["examples:modules/infra-local"]
+      "anchor": {
+        "tests": [
+          "examples:modules/infra-local"
+        ]
+      },
+      "killers": [
+        "examples:modules/infra-local"
+      ]
     }
   ]
 }

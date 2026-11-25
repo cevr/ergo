@@ -26,7 +26,7 @@ func Press(w World, s Signal) World {
 	let mut u = machines.Next(w.Uploads, d)
 	let mut r = w.Registry
 	match d {
-	case Emit[Uploads, []Command] as em:
+	case machines.Emit[Uploads, []Command] as em:
 		for c in em.Output {
 			match c {
 			case StartUpload as st:

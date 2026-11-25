@@ -1,3 +1,5 @@
+import option
+
 // Log keeps the records of commands in streams, one stream per aggregate
 // (or per context that one actor holds). Each stream's records have the
 // positions 1, 2, 3, … with no gap; an id names one command in every
@@ -18,7 +20,7 @@ type Log[E comparable] {
 	// Read is the records of stream after the position from, in order.
 	Read(stream string, from int) []Recorded[E],
 	// Seen is the receipt of the command id, if the log kept it.
-	Seen(id CommandID) Option[Receipt],
+	Seen(id CommandID) option.Option[Receipt],
 
 	// A law proves nothing in a case whose Append fails Unkept: the
 	// provider said it could not keep the record (a crash).
@@ -39,13 +41,13 @@ type Log[E comparable] {
 			return true
 		}
 		let after = Read(stream, at)
-		r == Receipt{ID: id, Stream: stream, Position: at + 1} && after == []Recorded[E]{Recorded[E]{Position: at + 1, ID: id, Events: events}} && Seen(id) == Some[Receipt]{Value: r}
+		r == Receipt{ID: id, Stream: stream, Position: at + 1} && after == []Recorded[E]{Recorded[E]{Position: at + 1, ID: id, Events: events}} && Seen(id) == option.Some[Receipt]{Value: r}
 	},
 	// PositionsAreDense: after any appends, the positions of a stream are
 	// 1, 2, …, its number of records, in order.
 	law PositionsAreDense(stream string, batches [][]E) {
 		for i, events in batches {
-			let id = CommandID("dense-\(len(Read(stream, 0)))-\(i)")
+			let id = CommandID("dense-\(Read(stream, 0).Len())-\(i)")
 			Append(stream, lastOf(Read(stream, 0)), id, events) catch {
 			case Reused:
 			case Conflict:
@@ -72,7 +74,7 @@ type Log[E comparable] {
 		let stale = staleOf(at, off)
 		Append(stream, stale, id, events) catch {
 		case Conflict as c:
-			return c == Conflict{Stream: stream, Expected: stale, Actual: at} && Read(stream, 0) == before && Seen(id) == None
+			return c == Conflict{Stream: stream, Expected: stale, Actual: at} && Read(stream, 0) == before && Seen(id) == option.None
 		case Reused:
 			return true
 		case Unkept:
@@ -132,7 +134,7 @@ type Log[E comparable] {
 		case Unkept:
 			return true
 		}
-		if moved != refused || len(Read(elsewhere, 0)) != 0 {
+		if moved != refused || Read(elsewhere, 0).Len() != 0 {
 			return false
 		}
 		if other == events {
@@ -156,10 +158,10 @@ let refused = Receipt{ID: CommandID(""), Stream: "", Position: 0}
 
 // lastOf is the position of the last of records, 0 when there is none.
 func lastOf[E](records []Recorded[E]) int {
-	if len(records) == 0 {
+	if records.Len() == 0 {
 		return 0
 	}
-	records[len(records)-1].Position
+	records[records.Len()-1].Position
 }
 
 // dense is whether records have the positions 1, 2, … in order.

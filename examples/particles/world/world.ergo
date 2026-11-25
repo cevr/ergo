@@ -51,7 +51,7 @@ func Tick(w World) int { w.tick }
 func Loss(w World) int { w.loss }
 
 // Count is the number of particles of w.
-func Count(w World) int { len(w.ps) }
+func Count(w World) int { w.ps.Len() }
 
 // Particles is the particles of w by ID, in a new slice.
 func Particles(w World) []Particle {
@@ -81,17 +81,17 @@ func Blank() World {
 
 // Spawn is a box of n particles, each in a cell and with a velocity that
 // Random draws, in ID order: x, y, vx, vy. Two particles may share a cell.
-func Spawn(width int, height int, n int, loss int) World fails BadSize | BadLoss | TooMany needs Random {
+func Spawn(width int, height int, n int, loss int) World fails BadSize | BadLoss | TooMany needs rand.Random {
 	let empty = try Empty(width, height, loss)
 	if n < 0 || n > width*height {
 		return TooMany{Count: n, Cells: width * height}
 	}
 	let mut ps = []Particle{}
 	for id in 0..n {
-		let x = Random.IntN(width)
-		let y = Random.IntN(height)
-		let vx = Random.IntN(2*MaxSpeed+1) - MaxSpeed
-		let vy = Random.IntN(2*MaxSpeed+1) - MaxSpeed
+		let x = rand.Random.IntN(width)
+		let y = rand.Random.IntN(height)
+		let vx = rand.Random.IntN(2*MaxSpeed+1) - MaxSpeed
+		let vy = rand.Random.IntN(2*MaxSpeed+1) - MaxSpeed
 		ps = ps.Append(Particle{ID: id, X: x, Y: y, VX: vx, VY: vy})
 	}
 	World{..empty, ps: ps}
@@ -162,7 +162,7 @@ func newWorld(seed uint64, size int, n int, loss int) World {
 	let width = within(size, MinSide, 24)
 	let height = within(size/7, MinSide, 12)
 	let count = within(n, 0, 40)
-	with context { Random: rand.Seeded(seed) } {
+	with context { rand.Random: rand.Seeded(seed) } {
 		Spawn(width, height, if count > width*height { width * height } else { count }, within(loss, 0, 2)) catch {
 		case BadSize, BadLoss, TooMany:
 			Blank()

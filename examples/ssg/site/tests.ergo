@@ -2,6 +2,7 @@
 // build over a fixed Source (the laws run in laws.ergo).
 
 import maps
+import option
 import slices
 import strings
 
@@ -87,7 +88,7 @@ test IncludeCycleNamesTheChain {
 
 test FrontMatterIsRead {
 	let p = try ParsePage("a.md", "---\ntitle: Hello: world\nlayout: post\n---\n# Hi\n")
-	assert TitleOf(p) == "Hello: world" && p.Meta.Get("layout") == (Some[string]{Value: "post"}) && p.Body == "# Hi\n"
+	assert TitleOf(p) == "Hello: world" && p.Meta.Get("layout") == (option.Some[string]{Value: "post"}) && p.Body == "# Hi\n"
 	let plain = try ParsePage("b.md", "no front matter")
 	assert TitleOf(plain) == "b.md" && plain.Body == "no front matter"
 }
@@ -124,9 +125,9 @@ func ReadTemplate(f files, name string) string fails Unreadable { try read(f.tem
 
 func read(m Map[string, string], key string) string fails Unreadable {
 	match m.Get(key) {
-	case Some[string] as t:
+	case option.Some[string] as t:
 		t.Value
-	case None:
+	case option.None:
 		Unreadable{Path: key, Reason: "no such file"}
 	}
 }
@@ -148,7 +149,7 @@ test BuildRendersEveryPageThroughItsLayout {
 	let out = with context { Source: blog } {
 		try Build()
 	}
-	assert len(out) == 2
+	assert out.Len() == 2
 	assert out[0].Path == "index.html" && out[0].Text == "<title>Home</title>\n<a href=\"index.html\">Home</a><a href=\"posts/first.html\">First &lt;post&gt;</a>"
 	assert out[1].Path == "posts/first.html" && out[1].Text == "<title>First &lt;post&gt;</title>\n<h1>First</h1>\n<p>Hello.</p>"
 }

@@ -6,6 +6,8 @@
 
 import actor
 import machines
+import option
+import time
 
 // Part is a library part. A composite has slots, each a choice among parts.
 type Part { Name string, Size int, Slots []Slot }
@@ -24,9 +26,9 @@ law NestedPartsInsideParent(picks []int, count int) {
 	let mut s = editing(composite)
 	let mut subs = []Unit{}
 	for k, slot in composite.Slots {
-		let c = if k < len(picks) { small(picks[k]) % len(slot.Choices) } else { 0 }
+		let c = if k < picks.Len() { small(picks[k]) % slot.Choices.Len() } else { 0 }
 		match editStep(s, Choose{Index: c}) {
-		case Enter[Edit] as x:
+		case machines.Enter[Edit] as x:
 			s = x.Next
 		case _:
 			return false
@@ -34,7 +36,7 @@ law NestedPartsInsideParent(picks []int, count int) {
 		let sub = UnitOf(slot.Choices[c], 1+small(k+count), []Unit{})
 		subs = subs.Append(sub)
 		match editStep(s, SubAdded{L: sub}) {
-		case Enter[Edit] as x:
+		case machines.Enter[Edit] as x:
 			s = x.Next
 		case _:
 			return false
@@ -42,17 +44,17 @@ law NestedPartsInsideParent(picks []int, count int) {
 	}
 	for _ in 0..small(count) {
 		match editStep(s, More) {
-		case Stay[Edit] as x:
+		case machines.Stay[Edit] as x:
 			s = x.Next
 		case _:
 			return false
 		}
 	}
 	match editStep(s, Add) {
-	case Done[EditOut] as d:
+	case machines.Done[EditOut] as d:
 		match d.Output {
 		case Added as a:
-			len(a.L.Subs) == len(composite.Slots) && a.L.Size == composite.Size+Total(subs) && a.L.Count == small(count)+1
+			a.L.Subs.Len() == composite.Slots.Len() && a.L.Size == composite.Size+Total(subs) && a.L.Count == small(count)+1
 		case WentBack:
 			false
 		}
@@ -73,7 +75,7 @@ type Edit =
 law CountStaysPositive(n int) {
 	let s = Choosing{Part: fixture().Pages[0][0], Count: 1, Subs: []Unit{}}
 	match editStep(s, Less) {
-	case Reject:
+	case machines.Reject:
 		true
 	case _:
 		false
@@ -95,7 +97,7 @@ type EditOut = Added{L Unit} | WentBack{}
 // EditActor is an editor's address. A union whose only variant is an
 // existing type is that type, an alias: the address is actor.Child's result
 // itself, with no wrapper to build or unwrap.
-type EditActor = actor.Actor[Edit, EditSignal, Decision[Edit, EditOut]]
+type EditActor = actor.Actor[Edit, EditSignal, machines.Decision[Edit, EditOut]]
 
 type Editor machine[Edit, EditSignal] { initial: editing, step: editStep, work: editWork }
 
@@ -105,7 +107,7 @@ func editing(it Part) Edit { settle(Choosing{Part: it, Count: 1, Subs: []Unit{}}
 func settle(e Edit) Edit {
 	match e {
 	case Choosing as c:
-		if len(c.Subs) < len(c.Part.Slots) {
+		if c.Subs.Len() < c.Part.Slots.Len() {
 			Picking{Part: c.Part, Count: c.Count, Subs: c.Subs}
 		} else {
 			e
@@ -127,39 +129,39 @@ func UnitOf(it Part, count int, subs []Unit) Unit {
 	Unit{Part: it.Name, Size: size, Count: count, Subs: subs}
 }
 
-func editStep(s Edit, e EditSignal) Decision[Edit, EditOut] {
+func editStep(s Edit, e EditSignal) machines.Decision[Edit, EditOut] {
 	match (s, e) {
 	case (Choosing as c, More):
-		Stay[Edit]{Next: Choosing{..c, Count: c.Count + 1}}
+		machines.Stay[Edit]{Next: Choosing{..c, Count: c.Count + 1}}
 	case (Choosing as c, Less):
 		if c.Count > 1 {
-			Stay[Edit]{Next: Choosing{..c, Count: c.Count - 1}}
+			machines.Stay[Edit]{Next: Choosing{..c, Count: c.Count - 1}}
 		} else {
-			Reject
+			machines.Reject
 		}
 	case (Choosing as c, Add):
-		Done[EditOut]{Output: Added{L: UnitOf(c.Part, c.Count, c.Subs)}}
+		machines.Done[EditOut]{Output: Added{L: UnitOf(c.Part, c.Count, c.Subs)}}
 	case (Choosing, Back):
-		Done[EditOut]{Output: WentBack}
+		machines.Done[EditOut]{Output: WentBack}
 	case (Choosing, _):
-		Ignore
+		machines.Ignore
 	case (Picking as p, Choose as ch):
-		let choices = p.Part.Slots[len(p.Subs)].Choices
-		if ch.Index >= 0 && ch.Index < len(choices) {
-			Enter[Edit]{Next: Nested{Part: p.Part, Count: p.Count, Subs: p.Subs, Choice: choices[ch.Index], Sub: actor.NewHost[EditActor]()}}
+		let choices = p.Part.Slots[p.Subs.Len()].Choices
+		if ch.Index >= 0 && ch.Index < choices.Len() {
+			machines.Enter[Edit]{Next: Nested{Part: p.Part, Count: p.Count, Subs: p.Subs, Choice: choices[ch.Index], Sub: actor.NewHost[EditActor]()}}
 		} else {
-			Reject
+			machines.Reject
 		}
 	case (Picking, Back):
-		Done[EditOut]{Output: WentBack}
+		machines.Done[EditOut]{Output: WentBack}
 	case (Picking, _):
-		Ignore
+		machines.Ignore
 	case (Nested as n, SubAdded as a):
-		Enter[Edit]{Next: settle(Choosing{Part: n.Part, Count: n.Count, Subs: n.Subs.Append(a.L)})}
+		machines.Enter[Edit]{Next: settle(Choosing{Part: n.Part, Count: n.Count, Subs: n.Subs.Append(a.L)})}
 	case (Nested as n, SubBack):
-		Enter[Edit]{Next: Picking{Part: n.Part, Count: n.Count, Subs: n.Subs}}
+		machines.Enter[Edit]{Next: Picking{Part: n.Part, Count: n.Count, Subs: n.Subs}}
 	case (Nested, _):
-		Ignore
+		machines.Ignore
 	}
 }
 
@@ -175,15 +177,15 @@ func toSub(o EditOut) EditSignal {
 
 // editWork: Nested hosts the editor of its choice, a child of the entry,
 // in the state's host.
-func editWork(s Edit) Option[machines.Work[EditSignal, Scheduler]] {
+func editWork(s Edit) option.Option[machines.Work[EditSignal, time.Scheduler]] {
 	match s {
 	case Nested as n:
-		Some{machines.Work{Start: func(send entry func(e EditSignal)) needs Scheduler {
+		option.Some{machines.Work{Start: func(send entry func(e EditSignal)) needs time.Scheduler {
 			let _ = actor.ChildIn(send, n.Sub, machines.Start(Editor{}, n.Choice), 4, toSub)
 		}}}
 	case Choosing:
-		None
+		option.None
 	case Picking:
-		None
+		option.None
 	}
 }

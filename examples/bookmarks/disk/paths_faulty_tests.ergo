@@ -1,8 +1,10 @@
 import bookmarks/shelf
+import core
 import explore
 import fs
 import fstest
 import gen
+import option
 import testing
 
 type bmState {
@@ -32,7 +34,7 @@ type bmDriveErr { Message string }
 
 type bmSession {
 	disk fstest.Memory,
-} implements explore.PathSession[bmAct, explore.Observed[bmObs, bmOut, Never], bmDriveErr]
+} implements explore.PathSession[bmAct, explore.Observed[bmObs, bmOut, core.Never], bmDriveErr]
 
 let bmDir = "/data"
 let bmPath = "/data/bookmarks.tsv"
@@ -62,7 +64,7 @@ func observeBm(m fstest.Memory) bmObs fails bmDriveErr {
 			hasB = true
 		}
 	}
-	bmObs{HasA: hasA, HasB: hasB, Count: len(marks)}
+	bmObs{HasA: hasA, HasB: hasB, Count: marks.Len()}
 }
 
 func applyBmAct(m fstest.Memory, act bmAct) bmOut fails bmDriveErr {
@@ -76,7 +78,7 @@ func applyBmAct(m fstest.Memory, act bmAct) bmOut fails bmDriveErr {
 			return bmDriveErr{Message: "unexpected add error"}
 		}
 		try writeBmShelf(m, next)
-		BmOutOk{Count: len(next)}
+		BmOutOk{Count: next.Len()}
 	case BmActAddB:
 		let next = shelf.Add(cur, shelf.Bookmark{URL: "https://b.example", Title: "Beta", Tags: []string{"web"}}) catch {
 		case shelf.Duplicate:
@@ -85,29 +87,29 @@ func applyBmAct(m fstest.Memory, act bmAct) bmOut fails bmDriveErr {
 			return bmDriveErr{Message: "unexpected add error"}
 		}
 		try writeBmShelf(m, next)
-		BmOutOk{Count: len(next)}
+		BmOutOk{Count: next.Len()}
 	case BmActListTagA:
-		let got = shelf.List(cur, shelf.Query{Tag: Some[string]{Value: "go"}, Limit: 10})
-		BmOutOk{Count: len(got)}
+		let got = shelf.List(cur, shelf.Query{Tag: option.Some[string]{Value: "go"}, Limit: 10})
+		BmOutOk{Count: got.Len()}
 	case BmActReopen:
 		let again = try readBmShelf(m)
-		BmOutOk{Count: len(again)}
+		BmOutOk{Count: again.Len()}
 	}
 }
 
-func Read(s bmSession) explore.Observed[bmObs, bmOut, Never] fails bmDriveErr {
+func Read(s bmSession) explore.Observed[bmObs, bmOut, core.Never] fails bmDriveErr {
 	explore.InitialRead[bmObs]{State: try observeBm(s.disk)}
 }
 
-func Apply(s bmSession, act bmAct) explore.Observed[bmObs, bmOut, Never] fails bmDriveErr {
+func Apply(s bmSession, act bmAct) explore.Observed[bmObs, bmOut, core.Never] fails bmDriveErr {
 	let out = try applyBmAct(s.disk, act)
 	let obs = try observeBm(s.disk)
-	explore.StepResult[bmObs, bmOut, Never]{
-		Step: explore.StepObs[bmObs, bmOut, Never]{
+	explore.StepResult[bmObs, bmOut, core.Never]{
+		Step: explore.StepObs[bmObs, bmOut, core.Never]{
 			Kind:     explore.DisEmit,
-			State:    Some[bmObs]{Value: obs},
+			State:    option.Some[bmObs]{Value: obs},
 			Outputs:  []bmOut{out},
-			Error:    None,
+			Error:    option.None,
 			Terminal: false,
 		},
 	}
@@ -157,21 +159,21 @@ func bmStep(st bmState, act bmAct) (bmState, bmOut) {
 	}
 }
 
-func bmModel() explore.PathModel[bmState, bmAct, bmObs, bmOut, Never] {
-	explore.PathModelProjected[bmState, bmAct, bmObs, bmOut, Never](
+func bmModel() explore.PathModel[bmState, bmAct, bmObs, bmOut, core.Never] {
+	explore.PathModelProjected[bmState, bmAct, bmObs, bmOut, core.Never](
 		[]bmState{bmState{HasA: false, HasB: false}},
 		bmSignals,
 		"bookmarks.disk",
 		bmProject,
-		func(st bmState, act bmAct) explore.EdgeOutcome[bmState, explore.StepObs[bmObs, bmOut, Never]] {
+		func(st bmState, act bmAct) explore.EdgeOutcome[bmState, explore.StepObs[bmObs, bmOut, core.Never]] {
 			let (next, out) = bmStep(st, act)
-			explore.Continue[bmState, explore.StepObs[bmObs, bmOut, Never]]{
+			explore.Continue[bmState, explore.StepObs[bmObs, bmOut, core.Never]]{
 				Next: next,
-				Obs:  explore.StepObs[bmObs, bmOut, Never]{
+				Obs:  explore.StepObs[bmObs, bmOut, core.Never]{
 					Kind:     explore.DisEmit,
-					State:    Some[bmObs]{Value: bmProject(next)},
+					State:    option.Some[bmObs]{Value: bmProject(next)},
 					Outputs:  []bmOut{out},
-					Error:    None,
+					Error:    option.None,
 					Terminal: false,
 				},
 			}
@@ -190,7 +192,7 @@ type BookmarksDiskPaths {
 			bmModel(),
 			explore.ToDepth{Depth: 3},
 			bounds,
-			func(start bmState) explore.PathSession[bmAct, explore.Observed[bmObs, bmOut, Never], bmDriveErr] fails bmOpenErr {
+			func(start bmState) explore.PathSession[bmAct, explore.Observed[bmObs, bmOut, core.Never], bmDriveErr] fails bmOpenErr {
 				try OpenSession(start)
 			},
 			testing.ActiveEvidenceSink(),
@@ -232,24 +234,24 @@ law BookmarksDiskWriteFaultsFailClosed() {
 			return false
 		}
 		let faulty = testing.Faulty[fs.Writes](disk)
-		let m0 = len(faulty.MkdirAll.Faults())
-		let w0 = len(faulty.WriteFile.Faults())
+		let m0 = faulty.MkdirAll.Faults().Len()
+		let w0 = faulty.WriteFile.Faults().Len()
 		let updated = initial.Append(shelf.Bookmark{URL: "https://next.example", Title: "Next", Tags: []string{"new"}})
 		let wrote = with context { fs.Writes: faulty } { tryDiskWrite(updated) }
-		let faulted = len(faulty.MkdirAll.Faults()) > m0 || len(faulty.WriteFile.Faults()) > w0
+		let faulted = faulty.MkdirAll.Faults().Len() > m0 || faulty.WriteFile.Faults().Len() > w0
 		let onDisk = with context { fs.Files: disk } { Read(bmPath) } catch {
 		case Broken:
 			return false
 		}
 		if faulted {
 			sometimes !wrote
-			return !wrote && len(onDisk) == 1 && onDisk[0].URL == "https://seed.example"
+			return !wrote && onDisk.Len() == 1 && onDisk[0].URL == "https://seed.example"
 		}
 		if !wrote {
 			return false
 		}
 		sometimes wrote
-		len(onDisk) == 2 && onDisk[1].URL == "https://next.example"
+		onDisk.Len() == 2 && onDisk[1].URL == "https://next.example"
 	})
 	match outcome {
 	case gen.Held:

@@ -5,6 +5,7 @@
 
 import machines
 import backups/backup
+import option
 
 // Stage is where a backup's keeping is: waiting for its data until the
 // minute Due, or stored and waiting for the verify it asked for.
@@ -35,31 +36,31 @@ let StoreWithin = 30
 // Step is the saga's transition. A store sends Verify and waits for the
 // verify, which ends it; an abort ends it with nothing; a tick at or past
 // the store's deadline ends it with an abort.
-func Step(s Stage, sig Signal) Decision[Stage, Reaction] {
+func Step(s Stage, sig Signal) machines.Decision[Stage, Reaction] {
 	match (s, sig) {
 	case (AwaitingStore as w, Saw as seen):
 		match seen.E {
 		case backup.Stored:
-			Emit[Stage, Reaction]{Next: AwaitingVerify{Backup: w.Backup}, Output: Send{C: backup.Verify{Backup: w.Backup}}}
+			machines.Emit[Stage, Reaction]{Next: AwaitingVerify{Backup: w.Backup}, Output: Send{C: backup.Verify{Backup: w.Backup}}}
 		case backup.Aborted:
-			Done[Reaction]{Output: Nothing}
+			machines.Done[Reaction]{Output: Nothing}
 		case backup.Planned, backup.FileAdded, backup.Verified:
-			Ignore
+			machines.Ignore
 		}
 	case (AwaitingStore as w, Tick as t):
 		if t.Now < w.Due {
-			return Ignore
+			return machines.Ignore
 		}
-		Done[Reaction]{Output: Send{C: backup.Abort{Backup: w.Backup, Reason: "not stored after \(StoreWithin) minutes"}}}
+		machines.Done[Reaction]{Output: Send{C: backup.Abort{Backup: w.Backup, Reason: "not stored after \(StoreWithin) minutes"}}}
 	case (AwaitingVerify, Saw as seen):
 		match seen.E {
 		case backup.Verified, backup.Aborted:
-			Done[Reaction]{Output: Nothing}
+			machines.Done[Reaction]{Output: Nothing}
 		case backup.Planned, backup.FileAdded, backup.Stored:
-			Ignore
+			machines.Ignore
 		}
 	case (AwaitingVerify, Tick):
-		Ignore
+		machines.Ignore
 	}
 }
 
@@ -67,12 +68,12 @@ func Step(s Stage, sig Signal) Decision[Stage, Reaction] {
 type Running { Backup string, At Stage }
 
 // Starts is the policy that starts a saga: a Planned event at minute now.
-func Starts(e backup.Event, now int) Option[Running] {
+func Starts(e backup.Event, now int) option.Option[Running] {
 	match e {
 	case backup.Planned as p:
-		Some[Running]{Value: Running{Backup: p.Backup, At: machines.Initial(machines.Start(Keeper{}, Planning{Backup: p.Backup, At: now}))}}
+		option.Some[Running]{Value: Running{Backup: p.Backup, At: machines.Initial(machines.Start(Keeper{}, Planning{Backup: p.Backup, At: now}))}}
 	case backup.FileAdded, backup.Stored, backup.Verified, backup.Aborted:
-		None
+		option.None
 	}
 }
 
@@ -89,12 +90,12 @@ func Feed(running []Running, sig Signal) ([]Running, []backup.Command) {
 		}
 		let d = Step(r.At, sig)
 		match d {
-		case Emit[Stage, Reaction] as e:
+		case machines.Emit[Stage, Reaction] as e:
 			sends = sent(sends, e.Output)
-		case Done[Reaction] as e:
+		case machines.Done[Reaction] as e:
 			sends = sent(sends, e.Output)
 			continue
-		case Enter[Stage], Stay[Stage], Tell[Stage, Reaction], Ignore, Reject:
+		case machines.Enter[Stage], machines.Stay[Stage], machines.Tell[Stage, Reaction], machines.Ignore, machines.Reject:
 		}
 		still = still.Append(Running{Backup: r.Backup, At: machines.Next(r.At, d)})
 	}

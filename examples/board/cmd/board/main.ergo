@@ -5,7 +5,9 @@ import github.com/cevr/ergo/modules/board/board/boardcli
 import github.com/cevr/ergo/modules/board/serve
 import github.com/cevr/ergo/modules/board/sqlite
 import github.com/cevr/ergo/modules/board/surfaces
+import io
 import net
+import option
 import os
 import slices
 import strconv
@@ -40,7 +42,7 @@ func extractSessionProfile(args []string, envProfile string) (string, []string) 
 	let mut rest = []string{}
 	let mut i = 0
 	let mut stop = false
-	for i < len(args) {
+	for i < args.Len() {
 		let a = args[i]
 		if !stop && a == "--" {
 			stop = true
@@ -49,7 +51,7 @@ func extractSessionProfile(args []string, envProfile string) (string, []string) 
 			continue
 		}
 		if !stop && (a == "--as" || a == "-as") {
-			if i+1 >= len(args) {
+			if i+1 >= args.Len() {
 				return os.Exit{Code: 2, Message: "board: --as requires a profile name"}
 			}
 			profile = args[i+1]
@@ -84,24 +86,24 @@ func jsonFirst(args []string) []string {
 	args
 }
 
-func clockOf(now Option[string]) time.Clock fails os.Exit needs Ambient {
+func clockOf(now option.Option[string]) time.Clock fails os.Exit needs os.Ambient {
 	match now {
-	case Some[string] as text:
+	case option.Some[string] as text:
 		let sec = strconv.ParseInt(text.Value, 10, 64) catch {
 		case strconv.Malformed, strconv.OutOfRange:
 			return os.Exit{Code: 2, Message: "board: BOARD_NOW must be a Unix second, not \(text.Value)"}
 		}
 		time.NewManual(sec)
-	case None:
+	case option.None:
 		time.NewHost()
 	}
 }
 
 func envOr(process os.Process, key string, def string) string {
 	match process.Getenv(key) {
-	case Some[string] as v:
+	case option.Some[string] as v:
 		v.Value
-	case None:
+	case option.None:
 		def
 	}
 }
@@ -110,10 +112,10 @@ func parseServeFlags(args []string, defaultAddr string, defaultSteps int) (strin
 	let mut addr = defaultAddr
 	let mut steps = defaultSteps
 	let mut i = 0
-	for i < len(args) {
+	for i < args.Len() {
 		let a = args[i]
 		if a == "--listen" || a == "-listen" {
-			if i+1 >= len(args) {
+			if i+1 >= args.Len() {
 				return os.Exit{Code: 2, Message: "board serve: --listen requires an address"}
 			}
 			addr = args[i+1]
@@ -126,7 +128,7 @@ func parseServeFlags(args []string, defaultAddr string, defaultSteps int) (strin
 			continue
 		}
 		if a == "--steps" || a == "-steps" {
-			if i+1 >= len(args) {
+			if i+1 >= args.Len() {
 				return os.Exit{Code: 2, Message: "board serve: --steps requires an integer"}
 			}
 			let n = strconv.ParseInt(args[i+1], 10, 64) catch {
@@ -151,7 +153,7 @@ func parseServeFlags(args []string, defaultAddr string, defaultSteps int) (strin
 	(addr, steps)
 }
 
-func runServe(store board.Store, clock time.Clock, user string, addr string, steps int) fails os.Exit needs Ambient {
+func runServe(store board.Store, clock time.Clock, user string, addr string, steps int) fails os.Exit needs os.Ambient {
 	let checkedAddr = serve.ValidateBindAddr(addr) catch {
 	case serve.BindRefused as e:
 		return os.Exit{Code: 2, Message: "board serve: refused bind \(e.Addr): \(e.Reason)"}
@@ -162,11 +164,11 @@ func runServe(store board.Store, clock time.Clock, user string, addr string, ste
 		RequestStepLimit: if steps > 0 { steps } else { base.RequestStepLimit },
 		DefaultUser:      user,
 	}
-	let srv = serve.NewServer(cfg, store, clock, None)
+	let srv = serve.NewServer(cfg, store, clock, option.None)
 	let ready = sync.NewLatch()
 	let netw = net.NewHost()
-	with context { time.Clock: clock, Scheduler: NewLiveScheduler() } {
-		serve.Serve(srv, netw, ready, []func() needs Scheduler{}) catch {
+	with context { time.Clock: clock, time.Scheduler: time.NewLiveScheduler() } {
+		serve.Serve(srv, netw, ready, []func() needs time.Scheduler{}) catch {
 		case serve.ServeBindRefused as e:
 			return os.Exit{Code: 2, Message: "board serve: refused bind \(e.Err.Addr): \(e.Err.Reason)"}
 		case serve.ServeListenFailed as e:
@@ -179,7 +181,7 @@ func runServe(store board.Store, clock time.Clock, user string, addr string, ste
 	}
 }
 
-func main() fails os.Exit needs Ambient | Console | go.Foreign {
+func main() fails os.Exit needs os.Ambient | io.Console | go.Foreign {
 	let process = os.NewHost()
 	let clock = try clockOf(process.Getenv("BOARD_NOW"))
 	let envProfile = envOr(process, "BOARD_PROFILE", "")
@@ -194,7 +196,7 @@ func main() fails os.Exit needs Ambient | Console | go.Foreign {
 	case board.StoreFailed as e:
 		return os.Exit{Code: 1, Message: "board: open store failed: \(e.Reason)"}
 	}
-	if len(cliArgs) > 0 && cliArgs[0] == "serve" {
+	if cliArgs.Len() > 0 && cliArgs[0] == "serve" {
 		let defaultAddr = envOr(process, "BOARD_LISTEN", "127.0.0.1:8080")
 		let defaultSteps = strconv.ParseInt(envOr(process, "BOARD_STEPS", "50000"), 10, 64) catch {
 		case strconv.Malformed, strconv.OutOfRange:

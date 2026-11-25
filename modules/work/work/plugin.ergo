@@ -8,6 +8,7 @@
 
 import exec
 import json
+import option
 import strings
 
 // Request is one call to a plugin.
@@ -52,14 +53,14 @@ func Knowing(p Plugin, requests []Request) Plugin {
 	let mut asked = Map[string, bool]{}
 	for r in requests {
 		let k = json.Encode(wireCodec, r)
-		if p.known.Get(k) != None || asked.Get(k) != None {
+		if p.known.Get(k) != option.None || asked.Get(k) != option.None {
 			continue
 		}
 		asked[k] = true
 		ask = ask.Append(r)
 		keys = keys.Append(k)
 	}
-	if len(ask) == 0 {
+	if ask.Len() == 0 {
 		return p
 	}
 	let answers = Ask(p, ask) catch {
@@ -85,7 +86,7 @@ let answerCodec = json.Codec[Answer]{MaxBytes: 1 << 28, MaxDepth: 64}
 // Answer is Unanswered: never an empty answer.
 func Ask(p Plugin, requests []Request) []Answer fails Unanswered {
 	let words = strings.Fields(p.command)
-	if len(words) == 0 {
+	if words.Len() == 0 {
 		return Unanswered{Command: p.command, Why: "the command is empty"}
 	}
 	let mut lines = []string{}
@@ -112,28 +113,28 @@ func Ask(p Plugin, requests []Request) []Answer fails Unanswered {
 		}
 		let a = json.Decode(answerCodec, line) catch {
 		case _:
-			return Unanswered{Command: p.command, Why: "answer \(len(answers) + 1) is not an Answer: \(firstLine(line))"}
+			return Unanswered{Command: p.command, Why: "answer \(answers.Len() + 1) is not an Answer: \(firstLine(line))"}
 		}
 		answers = answers.Append(a)
 	}
-	if len(answers) != len(requests) {
-		return Unanswered{Command: p.command, Why: "it answered \(len(answers)) of \(len(requests)) requests"}
+	if answers.Len() != requests.Len() {
+		return Unanswered{Command: p.command, Why: "it answered \(answers.Len()) of \(requests.Len()) requests"}
 	}
 	answers
 }
 
 func firstLine(text string) string {
 	let line = strings.TrimSpace(strings.Split(strings.TrimSpace(text), "\n")[0])
-	if len(line) > 200 { line[0:200] } else { line }
+	if line.Len() > 200 { line[0:200] } else { line }
 }
 
 // one is the plugin's answer to r: the one it gave ahead, or else from a
 // run for r alone.
 func one(p Plugin, r Request) Answer fails Unanswered {
 	match p.known.Get(json.Encode(wireCodec, r)) {
-	case Some[Answer] as a:
+	case option.Some[Answer] as a:
 		a.Value
-	case None:
+	case option.None:
 		(try Ask(p, []Request{r}))[0]
 	}
 }
@@ -272,7 +273,7 @@ func Serve(stdin string, s Splitter, i Indexer, c Checker) string {
 		}
 		out = out.Append(json.Encode(answerCodec, AnswerOf(a, s, i, c)))
 	}
-	if len(out) == 0 { "" } else { strings.Join(out, "\n") + "\n" }
+	if out.Len() == 0 { "" } else { strings.Join(out, "\n") + "\n" }
 }
 
 // AnswerOf is the Answer of the providers to r: what Serve writes, and

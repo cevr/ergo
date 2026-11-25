@@ -1,0 +1,212 @@
+import strings
+import sync
+
+// InvalidTraceparent reports a malformed W3C traceparent header.
+type InvalidTraceparent {
+	Header string,
+	Reason string,
+}
+
+// TraceContext carries the distributed trace identity propagated across
+// service boundaries in a W3C traceparent header.
+type TraceContext {
+	TraceID string,
+	SpanID  string,
+	Sampled bool,
+}
+
+func isLowerHexByte(b byte) bool {
+	(b >= byte('0') && b <= byte('9')) || (b >= byte('a') && b <= byte('f'))
+}
+
+func hexNibble(b byte) int {
+	if b >= byte('0') && b <= byte('9') {
+		int(b - byte('0'))
+	} else {
+		10 + int(b-byte('a'))
+	}
+}
+
+func isNonZeroLowerHex(s string, wantLen int) bool {
+	if s.Len() != wantLen {
+		return false
+	}
+	let bs = s.Bytes()
+	let mut anyNonZero = false
+	for i in 0..bs.Len() {
+		let c = bs[i]
+		if !isLowerHexByte(c) {
+			return false
+		}
+		if c != byte('0') {
+			anyNonZero = true
+		}
+	}
+	anyNonZero
+}
+
+// IsValidTraceID reports whether id is a valid 32-character lowercase hex
+// W3C trace-id that is not all zeroes.
+func IsValidTraceID(id string) bool {
+	isNonZeroLowerHex(id, 32)
+}
+
+// IsValidSpanID reports whether id is a valid 16-character lowercase hex
+// W3C span-id that is not all zeroes.
+func IsValidSpanID(id string) bool {
+	isNonZeroLowerHex(id, 16)
+}
+
+// ParseTraceparent parses a W3C Trace Context traceparent header
+// (`00-<32-hex-trace-id>-<16-hex-span-id>-<2-hex-flags>`), rejecting version
+// `ff`, unsupported versions, uppercase or non-hex digits, wrong lengths,
+// missing segments, and all-zero trace-id or span-id values.
+func ParseTraceparent(header string) TraceContext fails InvalidTraceparent {
+	let parts = strings.Split(header, "-")
+	if parts.Len() != 4 {
+		return InvalidTraceparent{Header: header, Reason: "expected 4 dash-separated fields"}
+	}
+	let ver = parts[0]
+	if ver.Len() != 2 {
+		return InvalidTraceparent{Header: header, Reason: "version must be 2 hex characters"}
+	}
+	let vb = ver.Bytes()
+	if !isLowerHexByte(vb[0]) || !isLowerHexByte(vb[1]) {
+		return InvalidTraceparent{Header: header, Reason: "version must be lowercase hex"}
+	}
+	if ver == "ff" {
+		return InvalidTraceparent{Header: header, Reason: "version ff is invalid"}
+	}
+	if ver != "00" {
+		return InvalidTraceparent{Header: header, Reason: "unsupported traceparent version"}
+	}
+	let traceID = parts[1]
+	if !IsValidTraceID(traceID) {
+		return InvalidTraceparent{Header: header, Reason: "invalid trace-id"}
+	}
+	let spanID = parts[2]
+	if !IsValidSpanID(spanID) {
+		return InvalidTraceparent{Header: header, Reason: "invalid span-id"}
+	}
+	let flags = parts[3]
+	if flags.Len() != 2 {
+		return InvalidTraceparent{Header: header, Reason: "flags must be 2 hex characters"}
+	}
+	let fb = flags.Bytes()
+	if !isLowerHexByte(fb[0]) || !isLowerHexByte(fb[1]) {
+		return InvalidTraceparent{Header: header, Reason: "flags must be lowercase hex"}
+	}
+	let flagByte = hexNibble(fb[0])*16 + hexNibble(fb[1])
+	TraceContext{
+		TraceID: traceID,
+		SpanID:  spanID,
+		Sampled: (flagByte & 1) != 0,
+	}
+}
+
+// FormatTraceparent formats tc as a canonical W3C traceparent header
+// (`00-<trace-id>-<span-id>-<flags>`).
+func FormatTraceparent(tc TraceContext) string {
+	let flags = if tc.Sampled { "01" } else { "00" }
+	"00-" + tc.TraceID + "-" + tc.SpanID + "-" + flags
+}
+
+// IDGenerator produces deterministic, non-zero W3C trace IDs and span IDs
+// safely across concurrent tasks via a sync.Ref counter.
+type IDGenerator {
+	state sync.Ref[uint64],
+}
+
+// NewIDGenerator returns a deterministic IDGenerator seeded with seed.
+func NewIDGenerator(seed uint64) IDGenerator {
+	IDGenerator{state: sync.NewRef[uint64](seed)}
+}
+
+func splitmix64(x uint64) uint64 {
+	let c1 uint64 = 0x9e3779b97f4a7c15
+	let c2 uint64 = 0xbf58476d1ce4e5b9
+	let c3 uint64 = 0x94d049bb133111eb
+	let mut z = x + c1
+	z = (z ^ (z >> uint64(30))) * c2
+	z = (z ^ (z >> uint64(27))) * c3
+	z ^ (z >> uint64(31))
+}
+
+func nextWord(g IDGenerator) uint64 {
+	sync.Modify(g.state, func(s uint64) (uint64, uint64) {
+		let next = s + uint64(1)
+		let w = splitmix64(next)
+		let out = if w == uint64(0) { uint64(1) } else { w }
+		(out, next)
+	})
+}
+
+func formatHex64(v uint64) string {
+	let digits = "0123456789abcdef".Bytes()
+	let mut out = []byte{}
+	for i in 0..16 {
+		let shift = uint64((15 - i) * 4)
+		let nib = int((v >> shift) & uint64(0xf))
+		out = out.Append(digits[nib])
+	}
+	out.Text()
+}
+
+// NextTraceID generates the next non-zero 32-character lowercase hex trace ID.
+func NextTraceID(g IDGenerator) string {
+	let hi = nextWord(g)
+	let lo = nextWord(g)
+	formatHex64(hi) + formatHex64(lo)
+}
+
+// NextSpanID generates the next non-zero 16-character lowercase hex span ID.
+func NextSpanID(g IDGenerator) string {
+	formatHex64(nextWord(g))
+}
+
+// TraceparentRoundTrips: every generated TraceContext formats to a canonical
+// W3C traceparent header that parses back to the exact same TraceContext,
+// covering both sampled and unsampled flags.
+law TraceparentRoundTrips(seed uint64, sampled bool) {
+	let g = NewIDGenerator(seed)
+	let tc = TraceContext{TraceID: g.NextTraceID(), SpanID: g.NextSpanID(), Sampled: sampled}
+	sometimes tc.Sampled
+	sometimes !tc.Sampled
+	always IsValidTraceID(tc.TraceID)
+	always IsValidSpanID(tc.SpanID)
+	let header = FormatTraceparent(tc)
+	let parsed = ParseTraceparent(header) catch {
+	case InvalidTraceparent:
+		return false
+	}
+	always parsed == tc
+	true
+}
+
+// InvalidTraceparentRejected: malformed traceparent headers including version
+// ff, all-zero trace-id, all-zero span-id, uppercase hex, and missing segments
+// fail strictly with InvalidTraceparent.
+law InvalidTraceparentRejected(seed uint64) {
+	let g = NewIDGenerator(seed)
+	let tid = g.NextTraceID()
+	let sid = g.NextSpanID()
+	let bad = []string{
+		"00-00000000000000000000000000000000-" + sid + "-01",
+		"00-" + tid + "-0000000000000000-01",
+		"ff-" + tid + "-" + sid + "-01",
+		"01-" + tid + "-" + sid + "-01",
+		"00-" + strings.ToUpper(tid) + "-" + sid + "-01",
+		"00-" + tid + "-" + sid,
+		"00-" + tid + "-" + sid + "-01-extra",
+	}
+	for h in bad {
+		let mut rejected = false
+		let _ = ParseTraceparent(h) catch {
+		case InvalidTraceparent:
+			rejected = true
+			TraceContext{TraceID: "", SpanID: "", Sampled: false}
+		}
+		always rejected
+	}
+	true
+}

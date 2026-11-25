@@ -47,7 +47,7 @@ func Reach(s Shape) []int {
 	case Stroke as k:
 		let mut out = []int{}
 		let mut seen = Map[int, bool]{}
-		for i in 0..len(k.Points) {
+		for i in 0..k.Points.Len() {
 			let a = if i == 0 { k.Points[0] } else { k.Points[i-1] }
 			let (o, s2) = segmentKeys(a, k.Points[i], out, seen)
 			out = o
@@ -110,7 +110,7 @@ func Unindex(g Grid, id int, s Shape) Grid {
 				kept = kept.Append(i)
 			}
 		}
-		cells = if len(kept) == 0 { cells.Delete(k) } else { cells.Put(k, kept) }
+		cells = if kept.Len() == 0 { cells.Delete(k) } else { cells.Put(k, kept) }
 	}
 	Grid{Cells: cells}
 }

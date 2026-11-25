@@ -4,6 +4,7 @@
 // biased negative-distance varints, REF_DELTA base OID framing, and bounded
 // delta chain resolution for both SHA-1 and SHA-256 repositories.
 
+import option
 import slices
 import github.com/cevr/ergo/modules/git/oid
 
@@ -163,9 +164,9 @@ func WithBase(m MapBases, id oid.OID, obj Materialized) MapBases {
 func Lookup(m MapBases, id oid.OID) Materialized fails MissingBase {
 	let key = oid.Hex(id)
 	match m.entries.Get(key) {
-	case Some[Materialized] as found:
+	case option.Some[Materialized] as found:
 		found.Value
-	case None:
+	case option.None:
 		MissingBase{BaseHex: key}
 	}
 }

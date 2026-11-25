@@ -63,10 +63,10 @@ func formOf(src string, t Token) int {
 	case LineComment, Ident, Punct, Literal:
 		false
 	}
-	let end = if isBlock && len(text) >= 4 && strings.HasSuffix(text, "*/") { len(text) - 2 } else { len(text) }
+	let end = if isBlock && text.Len() >= 4 && strings.HasSuffix(text, "*/") { text.Len() - 2 } else { text.Len() }
 	let raw = strings.Slice(text, lo(2, end), end)
 	let body = if isBlock { strings.TrimLeft(raw, "*\n\r\t ") } else { strings.TrimLeft(raw, "\t ") }
-	for i in 1..len(DirectiveForms) {
+	for i in 1..DirectiveForms.Len() {
 		if isBlock && DirectiveForms[i].Name == "triple-slash" {
 			continue
 		}
@@ -83,12 +83,12 @@ func isJsxTagNameByte(c byte) bool { identByte(c) || c == '-' || c == ':' }
 
 func readJsxTagName(src string, i int) tagHead {
 	let mut j = i
-	for j < len(src) && isJsxTagNameByte(src[j]) {
+	for j < src.Len() && isJsxTagNameByte(src[j]) {
 		j += 1
 	}
-	for j < len(src) && src[j] == '.' && j+1 < len(src) && identStart(src[j+1]) {
+	for j < src.Len() && src[j] == '.' && j+1 < src.Len() && identStart(src[j+1]) {
 		j += 1
-		for j < len(src) && isJsxTagNameByte(src[j]) {
+		for j < src.Len() && isJsxTagNameByte(src[j]) {
 			j += 1
 		}
 	}
@@ -98,16 +98,16 @@ func readJsxTagName(src string, i int) tagHead {
 func hasClosingTag(src string, from int, tag string) bool {
 	let needle = "</" + tag
 	let mut p = from
-	for p < len(src) {
-		let idx = strings.Index(strings.Slice(src, p, len(src)), needle)
+	for p < src.Len() {
+		let idx = strings.Index(strings.Slice(src, p, src.Len()), needle)
 		if idx < 0 {
 			return false
 		}
-		let mut k = p + idx + len(needle)
-		for k < len(src) && (space(src[k]) || src[k] == '\n') {
+		let mut k = p + idx + needle.Len()
+		for k < src.Len() && (space(src[k]) || src[k] == '\n') {
 			k += 1
 		}
-		if k < len(src) && src[k] == '>' {
+		if k < src.Len() && src[k] == '>' {
 			return true
 		}
 		p = p + idx + 2
@@ -118,36 +118,36 @@ func hasClosingTag(src string, from int, tag string) bool {
 func jsxAttrString(src string, i int) int {
 	let q = src[i]
 	let mut j = i + 1
-	for j < len(src) && src[j] != q {
+	for j < src.Len() && src[j] != q {
 		j += 1
 	}
-	if j < len(src) {
+	if j < src.Len() {
 		return j + 1
 	}
-	len(src)
+	src.Len()
 }
 
 func skipTemplate(src string, i int) int {
 	let mut j = i + 1
-	for j < len(src) {
+	for j < src.Len() {
 		let p = templateEnd(src, j)
 		j = p.End
 		if !p.Opens {
 			return j
 		}
 		let mut braces = 1
-		for j < len(src) && braces > 0 {
+		for j < src.Len() && braces > 0 {
 			let c = src[j]
 			if c == '\'' || c == '"' {
 				j = quoted(src, j)
 			} else if c == '`' {
 				j = skipTemplate(src, j)
-			} else if c == '/' && j+1 < len(src) && src[j+1] == '/' {
-				let nl = strings.IndexByte(strings.Slice(src, j, len(src)), '\n')
-				j = if nl < 0 { len(src) } else { j + nl + 1 }
-			} else if c == '/' && j+1 < len(src) && src[j+1] == '*' {
-				let cl = strings.Index(strings.Slice(src, j+2, len(src)), "*/")
-				j = if cl < 0 { len(src) } else { j + 2 + cl + 2 }
+			} else if c == '/' && j+1 < src.Len() && src[j+1] == '/' {
+				let nl = strings.IndexByte(strings.Slice(src, j, src.Len()), '\n')
+				j = if nl < 0 { src.Len() } else { j + nl + 1 }
+			} else if c == '/' && j+1 < src.Len() && src[j+1] == '*' {
+				let cl = strings.Index(strings.Slice(src, j+2, src.Len()), "*/")
+				j = if cl < 0 { src.Len() } else { j + 2 + cl + 2 }
 			} else if c == '{' {
 				braces += 1
 				j += 1
@@ -164,25 +164,25 @@ func skipTemplate(src string, i int) int {
 
 func skipWs(src string, i int) int {
 	let mut j = i
-	for j < len(src) && (space(src[j]) || src[j] == '\n') {
+	for j < src.Len() && (space(src[j]) || src[j] == '\n') {
 		j += 1
 	}
 	j
 }
 
 func isExtendsTypeParam(src string, k int) bool {
-	if !strings.HasPrefix(strings.Slice(src, k, len(src)), "extends") {
+	if !strings.HasPrefix(strings.Slice(src, k, src.Len()), "extends") {
 		return false
 	}
-	if k+7 < len(src) && identByte(src[k+7]) {
+	if k+7 < src.Len() && identByte(src[k+7]) {
 		return false
 	}
 	let after = skipWs(src, k+7)
-	after < len(src) && src[after] != '=' && src[after] != '>' && src[after] != '/'
+	after < src.Len() && src[after] != '=' && src[after] != '>' && src[after] != '/'
 }
 
 func looksLikeJsxOpen(src string, i int) bool {
-	if i+1 >= len(src) {
+	if i+1 >= src.Len() {
 		return false
 	}
 	if src[i+1] == '>' {
@@ -193,7 +193,7 @@ func looksLikeJsxOpen(src string, i int) bool {
 	}
 	let h = readJsxTagName(src, i+1)
 	let k = skipWs(src, h.End)
-	if k >= len(src) {
+	if k >= src.Len() {
 		return false
 	}
 	if src[k] == ',' || src[k] == '=' || isExtendsTypeParam(src, k) {
@@ -202,7 +202,7 @@ func looksLikeJsxOpen(src string, i int) bool {
 	if h.Name == "const" && identStart(src[k]) {
 		let h2 = readJsxTagName(src, k)
 		let k2 = skipWs(src, h2.End)
-		if k2 < len(src) && (src[k2] == ',' || src[k2] == '=' || isExtendsTypeParam(src, k2)) {
+		if k2 < src.Len() && (src[k2] == ',' || src[k2] == '=' || isExtendsTypeParam(src, k2)) {
 			return false
 		}
 	}
@@ -213,15 +213,15 @@ func looksLikeJsxOpen(src string, i int) bool {
 		angles = 1
 		j += 1
 	}
-	for j < len(src) {
+	for j < src.Len() {
 		let c = src[j]
 		let next = at(src, j+1)
 		if c == '/' && next == '/' {
-			let nl = strings.IndexByte(strings.Slice(src, j, len(src)), '\n')
-			j = if nl < 0 { len(src) } else { j + nl + 1 }
+			let nl = strings.IndexByte(strings.Slice(src, j, src.Len()), '\n')
+			j = if nl < 0 { src.Len() } else { j + nl + 1 }
 		} else if c == '/' && next == '*' {
-			let cl = strings.Index(strings.Slice(src, j+2, len(src)), "*/")
-			j = if cl < 0 { len(src) } else { j + 2 + cl + 2 }
+			let cl = strings.Index(strings.Slice(src, j+2, src.Len()), "*/")
+			j = if cl < 0 { src.Len() } else { j + 2 + cl + 2 }
 		} else if c == '"' || c == '\'' {
 			j = if braces > 0 { quoted(src, j) } else { jsxAttrString(src, j) }
 		} else if c == '`' {
@@ -288,7 +288,7 @@ func jsxAllowedCode(hasLast bool, last Token) bool {
 }
 
 func scanNoComments(src string) scannedSource {
-	let n = len(src)
+	let n = src.Len()
 	let mut toks = slices.WithCapacity[Token](n / 4)
 	let mut comments = []Comment{}
 	let mut containers = []jsxContainer{}
@@ -313,14 +313,14 @@ func scanNoComments(src string) scannedSource {
 	}
 
 	for i < n {
-		let topIdx = len(stack) - 1
+		let topIdx = stack.Len() - 1
 		let topKind = if topIdx < 0 { frameCode } else { stack[topIdx].Kind }
 		let c = src[i]
 		let next = at(src, i+1)
 
 		if topKind == frameJsxChildren {
 			if c == '{' {
-				let tok = Token{Kind: Punct, From: i, To: i + 1, Text: "{", NewLine: newLine, Depth: len(stack)}
+				let tok = Token{Kind: Punct, From: i, To: i + 1, Text: "{", NewLine: newLine, Depth: stack.Len()}
 				toks = toks.Append(tok)
 				stack = stack.Append(scanFrame{Kind: frameJsxExpr, OpenPos: i, AngleDepth: 0, HasCode: false, HasDirective: false, HasProse: false})
 				hasLast = false
@@ -334,28 +334,28 @@ func scanNoComments(src string) scannedSource {
 				if j < n {
 					j += 1
 				}
-				let tok = Token{Kind: Punct, From: i, To: j, Text: strings.Slice(src, i, j), NewLine: newLine, Depth: len(stack)}
+				let tok = Token{Kind: Punct, From: i, To: j, Text: strings.Slice(src, i, j), NewLine: newLine, Depth: stack.Len()}
 				toks = toks.Append(tok)
 				stack = stack[:topIdx]
-				last = Token{Kind: Literal, From: i, To: j, Text: "", NewLine: newLine, Depth: len(stack)}
+				last = Token{Kind: Literal, From: i, To: j, Text: "", NewLine: newLine, Depth: stack.Len()}
 				hasLast = true
 				newLine = false
 				i = j
 			} else if c == '<' && next == '>' {
-				let tok = Token{Kind: Punct, From: i, To: i + 2, Text: "<>", NewLine: newLine, Depth: len(stack)}
+				let tok = Token{Kind: Punct, From: i, To: i + 2, Text: "<>", NewLine: newLine, Depth: stack.Len()}
 				toks = toks.Append(tok)
 				stack = stack.Append(scanFrame{Kind: frameJsxChildren, OpenPos: i, AngleDepth: 0, HasCode: false, HasDirective: false, HasProse: false})
 				newLine = false
 				i += 2
 			} else if c == '<' && identStart(next) {
-				let tok = Token{Kind: Punct, From: i, To: i + 1, Text: "<", NewLine: newLine, Depth: len(stack)}
+				let tok = Token{Kind: Punct, From: i, To: i + 1, Text: "<", NewLine: newLine, Depth: stack.Len()}
 				toks = toks.Append(tok)
 				stack = stack.Append(scanFrame{Kind: frameJsxTag, OpenPos: i, AngleDepth: 0, HasCode: false, HasDirective: false, HasProse: false})
 				hasLast = false
 				newLine = false
 				i += 1
 			} else if c == '<' {
-				let tok = Token{Kind: Literal, From: i, To: i + 1, Text: "", NewLine: newLine, Depth: len(stack)}
+				let tok = Token{Kind: Literal, From: i, To: i + 1, Text: "", NewLine: newLine, Depth: stack.Len()}
 				toks = toks.Append(tok)
 				newLine = false
 				i += 1
@@ -364,7 +364,7 @@ func scanNoComments(src string) scannedSource {
 				for j < n && src[j] != '<' && src[j] != '{' {
 					j += 1
 				}
-				let tok = Token{Kind: Literal, From: i, To: j, Text: "", NewLine: newLine, Depth: len(stack)}
+				let tok = Token{Kind: Literal, From: i, To: j, Text: "", NewLine: newLine, Depth: stack.Len()}
 				toks = toks.Append(tok)
 				newLine = false
 				i = j
@@ -390,7 +390,7 @@ func scanNoComments(src string) scannedSource {
 				if end > i && src[end-1] == '\r' {
 					end -= 1
 				}
-				let tok = Token{Kind: LineComment, From: i, To: end, Text: "", NewLine: newLine, Depth: len(stack)}
+				let tok = Token{Kind: LineComment, From: i, To: end, Text: "", NewLine: newLine, Depth: stack.Len()}
 				toks = toks.Append(tok)
 				line += strings.Count(strings.Slice(src, lineAt, i), "\n")
 				lineAt = i
@@ -400,7 +400,7 @@ func scanNoComments(src string) scannedSource {
 			} else if cl == cSlash && next == '*' {
 				let close = strings.Index(strings.Slice(src, i+2, n), "*/")
 				let end = if close < 0 { n } else { i + 2 + close + 2 }
-				let tok = Token{Kind: BlockComment, From: i, To: end, Text: "", NewLine: newLine, Depth: len(stack)}
+				let tok = Token{Kind: BlockComment, From: i, To: end, Text: "", NewLine: newLine, Depth: stack.Len()}
 				toks = toks.Append(tok)
 				line += strings.Count(strings.Slice(src, lineAt, i), "\n")
 				lineAt = i
@@ -409,11 +409,11 @@ func scanNoComments(src string) scannedSource {
 				i = end
 			} else if cl == cQuote {
 				let end = jsxAttrString(src, i)
-				toks = toks.Append(Token{Kind: Literal, From: i, To: end, Text: "", NewLine: newLine, Depth: len(stack)})
+				toks = toks.Append(Token{Kind: Literal, From: i, To: end, Text: "", NewLine: newLine, Depth: stack.Len()})
 				newLine = false
 				i = end
 			} else if c == '{' {
-				let tok = Token{Kind: Punct, From: i, To: i + 1, Text: "{", NewLine: newLine, Depth: len(stack)}
+				let tok = Token{Kind: Punct, From: i, To: i + 1, Text: "{", NewLine: newLine, Depth: stack.Len()}
 				toks = toks.Append(tok)
 				stack = stack.Append(scanFrame{Kind: frameCode, OpenPos: i, AngleDepth: 0, HasCode: false, HasDirective: false, HasProse: false})
 				hasLast = false
@@ -421,11 +421,11 @@ func scanNoComments(src string) scannedSource {
 				i += 1
 			} else if c == '<' {
 				stack[topIdx].AngleDepth += 1
-				toks = toks.Append(Token{Kind: Punct, From: i, To: i + 1, Text: "<", NewLine: newLine, Depth: len(stack)})
+				toks = toks.Append(Token{Kind: Punct, From: i, To: i + 1, Text: "<", NewLine: newLine, Depth: stack.Len()})
 				newLine = false
 				i += 1
 			} else if c == '>' {
-				toks = toks.Append(Token{Kind: Punct, From: i, To: i + 1, Text: ">", NewLine: newLine, Depth: len(stack)})
+				toks = toks.Append(Token{Kind: Punct, From: i, To: i + 1, Text: ">", NewLine: newLine, Depth: stack.Len()})
 				if stack[topIdx].AngleDepth > 0 {
 					stack[topIdx].AngleDepth -= 1
 				} else {
@@ -434,9 +434,9 @@ func scanNoComments(src string) scannedSource {
 				newLine = false
 				i += 1
 			} else if c == '/' && next == '>' && stack[topIdx].AngleDepth == 0 {
-				toks = toks.Append(Token{Kind: Punct, From: i, To: i + 2, Text: "/>", NewLine: newLine, Depth: len(stack)})
+				toks = toks.Append(Token{Kind: Punct, From: i, To: i + 2, Text: "/>", NewLine: newLine, Depth: stack.Len()})
 				stack = stack[:topIdx]
-				last = Token{Kind: Literal, From: i, To: i + 2, Text: "", NewLine: newLine, Depth: len(stack)}
+				last = Token{Kind: Literal, From: i, To: i + 2, Text: "", NewLine: newLine, Depth: stack.Len()}
 				hasLast = true
 				newLine = false
 				i += 2
@@ -445,19 +445,19 @@ func scanNoComments(src string) scannedSource {
 				for j < n && isJsxTagNameByte(src[j]) {
 					j += 1
 				}
-				toks = toks.Append(Token{Kind: Ident, From: i, To: j, Text: strings.Slice(src, i, j), NewLine: newLine, Depth: len(stack)})
+				toks = toks.Append(Token{Kind: Ident, From: i, To: j, Text: strings.Slice(src, i, j), NewLine: newLine, Depth: stack.Len()})
 				newLine = false
 				i = j
 			} else {
 				let end = i + punctLen(src, i)
-				toks = toks.Append(Token{Kind: Punct, From: i, To: end, Text: strings.Slice(src, i, end), NewLine: newLine, Depth: len(stack)})
+				toks = toks.Append(Token{Kind: Punct, From: i, To: end, Text: strings.Slice(src, i, end), NewLine: newLine, Depth: stack.Len()})
 				newLine = false
 				i = end
 			}
 			continue
 		}
 
-		let depth = len(stack)
+		let depth = stack.Len()
 		let mut kind Kind = Punct
 		let mut end = i + 1
 		let mut text = ""
@@ -570,7 +570,7 @@ func scanNoComments(src string) scannedSource {
 				}
 			}
 		} else {
-			if topKind == frameJsxExpr && topIdx < len(stack) && stack[topIdx].Kind == frameJsxExpr {
+			if topKind == frameJsxExpr && topIdx < stack.Len() && stack[topIdx].Kind == frameJsxExpr {
 				stack[topIdx].HasCode = true
 			}
 			last = tok
@@ -646,7 +646,7 @@ func hasRealSpace(src string, gone []bool, a int, b int) bool {
 }
 
 func Edits(src string) []Edit {
-	let n = len(src)
+	let n = src.Len()
 	let scanned = scanNoComments(src)
 	let mut gone = []bool{}
 	for _ in 0..n {
@@ -744,6 +744,6 @@ func Fix(src string) string {
 		b.WriteString(e.With)
 		at = e.To
 	}
-	b.WriteString(strings.Slice(src, at, len(src)))
+	b.WriteString(strings.Slice(src, at, src.Len()))
 	b.String()
 }

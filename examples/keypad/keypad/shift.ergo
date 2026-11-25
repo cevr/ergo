@@ -2,6 +2,7 @@
 // and stepped by the board's step: the region pattern (M56), until Ergo
 // has regions.
 
+import core
 import machines
 import time
 
@@ -20,29 +21,29 @@ let CapsWindow = 1s
 // next letter; a second Shift within CapsWindow locks Caps, a later one
 // goes back to Lower; a Shift in Caps ends it. A typed key ends ShiftOnce
 // and leaves Lower and Caps as they are.
-func ShiftStep(m Mode, t Tap) Decision[Mode, Never] {
+func ShiftStep(m Mode, t Tap) machines.Decision[Mode, core.Never] {
 	match t {
 	case ShiftTap as s:
 		match m {
 		case Lower:
-			Enter[Mode]{Next: ShiftOnce{At: s.At}}
+			machines.Enter[Mode]{Next: ShiftOnce{At: s.At}}
 		case ShiftOnce as o:
 			if s.At >= o.At && s.At-o.At <= CapsWindow {
-				Enter[Mode]{Next: Caps}
+				machines.Enter[Mode]{Next: Caps}
 			} else {
-				Enter[Mode]{Next: Lower}
+				machines.Enter[Mode]{Next: Lower}
 			}
 		case Caps:
-			Enter[Mode]{Next: Lower}
+			machines.Enter[Mode]{Next: Lower}
 		}
 	case Typed:
 		match m {
 		case Lower:
-			Ignore
+			machines.Ignore
 		case ShiftOnce:
-			Enter[Mode]{Next: Lower}
+			machines.Enter[Mode]{Next: Lower}
 		case Caps:
-			Ignore
+			machines.Ignore
 		}
 	}
 }

@@ -39,79 +39,79 @@ func other(g Gen) Gen {
 // in Serving and in Reloading alike, and is rejected when there is none or
 // when the server drains; a loaded table swaps the generation; a drained
 // server with no open request halts.
-func Step(s Server, sig Signal) Decision[Server, Event] {
+func Step(s Server, sig Signal) machines.Decision[Server, Event] {
 	match s {
 	case Serving as v:
 		match sig {
 		case Begin:
 			if v.InFlight < MaxInFlight {
-				Enter[Server]{Next: Serving{Gen: v.Gen, InFlight: v.InFlight + 1}}
+				machines.Enter[Server]{Next: Serving{Gen: v.Gen, InFlight: v.InFlight + 1}}
 			} else {
-				Reject
+				machines.Reject
 			}
 		case End:
 			if v.InFlight > 0 {
-				Enter[Server]{Next: Serving{Gen: v.Gen, InFlight: v.InFlight - 1}}
+				machines.Enter[Server]{Next: Serving{Gen: v.Gen, InFlight: v.InFlight - 1}}
 			} else {
-				Ignore
+				machines.Ignore
 			}
 		case Reload:
-			Enter[Server]{Next: Reloading{Gen: v.Gen, InFlight: v.InFlight}}
+			machines.Enter[Server]{Next: Reloading{Gen: v.Gen, InFlight: v.InFlight}}
 		case Loaded:
-			Ignore
+			machines.Ignore
 		case Drain:
-			Enter[Server]{Next: Draining{InFlight: v.InFlight}}
+			machines.Enter[Server]{Next: Draining{InFlight: v.InFlight}}
 		case Halt:
-			Reject
+			machines.Reject
 		}
 	case Reloading as r:
 		match sig {
 		case Begin:
 			if r.InFlight < MaxInFlight {
-				Enter[Server]{Next: Reloading{Gen: r.Gen, InFlight: r.InFlight + 1}}
+				machines.Enter[Server]{Next: Reloading{Gen: r.Gen, InFlight: r.InFlight + 1}}
 			} else {
-				Reject
+				machines.Reject
 			}
 		case End:
 			if r.InFlight > 0 {
-				Enter[Server]{Next: Reloading{Gen: r.Gen, InFlight: r.InFlight - 1}}
+				machines.Enter[Server]{Next: Reloading{Gen: r.Gen, InFlight: r.InFlight - 1}}
 			} else {
-				Ignore
+				machines.Ignore
 			}
 		case Reload:
-			Ignore
+			machines.Ignore
 		case Loaded:
-			Emit[Server, Event]{Next: Serving{Gen: other(r.Gen), InFlight: r.InFlight}, Output: Swapped{Gen: other(r.Gen)}}
+			machines.Emit[Server, Event]{Next: Serving{Gen: other(r.Gen), InFlight: r.InFlight}, Output: Swapped{Gen: other(r.Gen)}}
 		case Drain:
-			Enter[Server]{Next: Draining{InFlight: r.InFlight}}
+			machines.Enter[Server]{Next: Draining{InFlight: r.InFlight}}
 		case Halt:
-			Reject
+			machines.Reject
 		}
 	case Draining as d:
 		match sig {
 		case Begin:
-			Reject
+			machines.Reject
 		case End:
 			if d.InFlight > 0 {
-				Enter[Server]{Next: Draining{InFlight: d.InFlight - 1}}
+				machines.Enter[Server]{Next: Draining{InFlight: d.InFlight - 1}}
 			} else {
-				Ignore
+				machines.Ignore
 			}
 		case Reload:
-			Ignore
+			machines.Ignore
 		case Loaded:
-			Ignore
+			machines.Ignore
 		case Drain:
-			Ignore
+			machines.Ignore
 		case Halt:
 			if d.InFlight == 0 {
-				Emit[Server, Event]{Next: Stopped, Output: Closed}
+				machines.Emit[Server, Event]{Next: Stopped, Output: Closed}
 			} else {
-				Reject
+				machines.Reject
 			}
 		}
 	case Stopped:
-		Ignore
+		machines.Ignore
 	}
 }
 

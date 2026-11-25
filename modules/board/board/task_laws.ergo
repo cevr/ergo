@@ -1,3 +1,4 @@
+import option
 import slices
 
 func dagEdgesFromBits(n int, bits int) [][]int {
@@ -22,20 +23,20 @@ func refWaitingMatches(s State, n int, adj [][]int) bool {
 	for i in 0..n {
 		let id = "msg_\(i + 1)"
 		let tr = match s.Tasks.Get(id) {
-		case Some[TaskRecord] as t:
+		case option.Some[TaskRecord] as t:
 			t.Value
-		case None:
+		case option.None:
 			return false
 		}
 		let mut allDepsDone = true
 		for depIdx in adj[i] {
 			let depID = "msg_\(depIdx + 1)"
 			match s.Tasks.Get(depID) {
-			case Some[TaskRecord] as d:
+			case option.Some[TaskRecord] as d:
 				if d.Value.State != TaskCompleted {
 					allDepsDone = false
 				}
-			case None:
+			case option.None:
 				allDepsDone = false
 			}
 		}
@@ -92,36 +93,36 @@ func runPlanAndOrder(edgeBits int, orderSeed int) bool {
 		for i in 0..n {
 			let id = "msg_\(i + 1)"
 			match cur.Tasks.Get(id) {
-			case Some[TaskRecord] as tr:
+			case option.Some[TaskRecord] as tr:
 				if tr.Value.State == TaskReady {
 					readyIDs = readyIDs.Append(id)
 				} else if tr.Value.State == TaskFailed {
 					failedIDs = failedIDs.Append(id)
 				}
-			case None:
+			case option.None:
 			}
 		}
-		if len(readyIDs) == 0 && len(failedIDs) == 0 {
+		if readyIDs.Len() == 0 && failedIDs.Len() == 0 {
 			break
 		}
 		rng = (rng*1103515245 + 12345) & 2147483647
-		if len(failedIDs) > 0 && rng%3 == 0 {
-			let pick = failedIDs[rng%len(failedIDs)]
+		if failedIDs.Len() > 0 && rng%3 == 0 {
+			let pick = failedIDs[rng%failedIDs.Len()]
 			let (ns, _, ok) = askApplyDecide(cur, ReopenTask{Caller: caller, Board: DefaultBoard, ID: pick}, stepNow)
 			if !ok {
 				return false
 			}
 			cur = ns
-		} else if len(readyIDs) > 0 {
-			let pick = readyIDs[rng%len(readyIDs)]
+		} else if readyIDs.Len() > 0 {
+			let pick = readyIDs[rng%readyIDs.Len()]
 			let (sClaimed, _, okC) = askApplyDecide(cur, ClaimTask{Caller: caller, Board: DefaultBoard, ID: pick, LeaseMs: MaxLeaseMs}, stepNow)
 			if !okC {
 				return false
 			}
 			let tok = match sClaimed.Tasks.Get(pick) {
-			case Some[TaskRecord] as tr:
+			case option.Some[TaskRecord] as tr:
 				tr.Value.Epoch
-			case None:
+			case option.None:
 				0
 			}
 			let mode = (rng / 7) % 4
@@ -293,7 +294,7 @@ law TrustSetEnforcedAtClaim(ownerIdx int, trustedBits int) {
 	case _:
 		[]Event{}
 	}
-	if len(evts) > 0 {
+	if evts.Len() > 0 {
 		gotOK = true
 	}
 	let mut profileTrustRefused = false

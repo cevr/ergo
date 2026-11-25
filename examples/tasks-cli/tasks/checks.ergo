@@ -6,7 +6,7 @@
 
 // CreateNumbersInOrderHolds checks the law CreateNumbersInOrder.
 func CreateNumbersInOrderHolds(titles []string, p Priority) bool fails Broken needs Board {
-	let before = len(try Board.All())
+	let before = (try Board.All()).Len()
 	for i, title in titles {
 		let t = try Board.Create(title, p)
 		if t != (Task{ID: before + i + 1, Title: title, Priority: p, State: Open}) {
@@ -14,7 +14,7 @@ func CreateNumbersInOrderHolds(titles []string, p Priority) bool fails Broken ne
 		}
 	}
 	let all = try Board.All()
-	len(all) == before+len(titles) && (len(titles) == 0 || all[len(all)-1].Title == titles[len(titles)-1])
+	all.Len() == before+titles.Len() && (titles.Len() == 0 || all[all.Len()-1].Title == titles[titles.Len()-1])
 }
 
 // CloseClosesOnlyItHolds checks the law CloseClosesOnlyIt.
@@ -26,7 +26,7 @@ func CloseClosesOnlyItHolds(title string, others []string) bool fails NotFound |
 	let before = try Board.All()
 	let closed = try Board.Close(t.ID)
 	let after = try Board.All()
-	if closed != (Task{..t, State: Closed}) || len(after) != len(before) {
+	if closed != (Task{..t, State: Closed}) || after.Len() != before.Len() {
 		return false
 	}
 	for i, a in after {
@@ -55,7 +55,7 @@ func CloseIsOnceHolds(title string) bool fails NotFound | AlreadyClosed | Broken
 
 // CloseOfNoTaskIsNotFoundHolds checks the law CloseOfNoTaskIsNotFound.
 func CloseOfNoTaskIsNotFoundHolds(n int) bool fails NotFound | AlreadyClosed | Broken needs Board {
-	let id = len(try Board.All()) + 1 + (if n < 0 { -(n + 1) } else { n })%100
+	let id = (try Board.All()).Len() + 1 + (if n < 0 { -(n + 1) } else { n })%100
 	Board.Close(id) catch {
 	case NotFound as f:
 		return f.ID == id

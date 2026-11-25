@@ -12,6 +12,7 @@ import flag
 import fs
 import hex
 import io
+import option
 import os
 import prompt
 import sha256
@@ -62,9 +63,9 @@ let commands = []flag.Command[Cmd]{
 
 func buildAdd(v flag.Values) Cmd {
 	let url = match urlArg.Get(v) {
-	case Some[string] as u:
+	case option.Some[string] as u:
 		u.Value
-	case None:
+	case option.None:
 		""
 	}
 	AddCmd{Mark: shelf.Bookmark{URL: url, Title: titleFlag.Get(v), Tags: tagFlag.Get(v)}}
@@ -109,9 +110,9 @@ func token() config.Redacted[settings.Credentials] fails os.Exit needs config.Co
 		return exit(1, p.Text)
 	}
 	match configured {
-	case Some as c:
+	case option.Some as c:
 		c.Value
-	case None:
+	case option.None:
 		let typed = prompt.Secret("Token") catch {
 		case prompt.NotInteractive:
 			return exit(2, "no token: set "+config.EnvName(settings.Prefix, "token")+" or token in config.toml")
@@ -152,10 +153,10 @@ func run(args []string) fails os.Exit needs io.Stdout | io.Stderr | config.Confi
 		case disk.Broken as b:
 			return exit(1, b.Path+": "+b.Reason)
 		}
-		io.Stdout.Println("kept " + shelf.Line(marks[len(marks)-1]))
+		io.Stdout.Println("kept " + shelf.Line(marks[marks.Len()-1]))
 	case ListCmd as l:
 		let s = try load(l.Flags)
-		let tag = if s.Tag == "" { None } else { Some{Value: s.Tag} }
+		let tag = if s.Tag == "" { option.None } else { option.Some{Value: s.Tag} }
 		for m in shelf.List(try read(path), shelf.Query{Tag: tag, Limit: s.Limit}) {
 			io.Stdout.Println(shelf.Line(m))
 		}
@@ -163,7 +164,7 @@ func run(args []string) fails os.Exit needs io.Stdout | io.Stderr | config.Confi
 		let s = try load(y.Flags)
 		let marks = try read(path)
 		let secret = try token()
-		io.Stdout.Println("sync: \(len(marks)) bookmarks for " + s.Remote + ", signed " + signature(secret, shelf.Format(marks)))
+		io.Stdout.Println("sync: \(marks.Len()) bookmarks for " + s.Remote + ", signed " + signature(secret, shelf.Format(marks)))
 	case ShowCmd as w:
 		let s = try load(w.Flags)
 		let given = settings.Token() catch {
@@ -171,9 +172,9 @@ func run(args []string) fails os.Exit needs io.Stdout | io.Stderr | config.Confi
 			return exit(1, p.Text)
 		}
 		let has = match given {
-		case Some:
+		case option.Some:
 			"set"
-		case None:
+		case option.None:
 			"not set"
 		}
 		let tag = if s.Tag == "" { "tag:" } else { "tag: " + s.Tag }
@@ -181,7 +182,7 @@ func run(args []string) fails os.Exit needs io.Stdout | io.Stderr | config.Confi
 	}
 }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	with context { os.Process: os.NewHost(), config.Config: config.NewHost(), fs.Files: fs.NewHost(), fs.Writes: fs.NewHost(), io.Stdout: io.NewHost(), io.Stderr: io.NewErrors(), term.Terminal: term.NewHost() } {
 		try run(os.Process.Args())
 	}

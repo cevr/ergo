@@ -1,5 +1,6 @@
 import dense
 import flattree/tree
+import option
 
 // Get is the id of the value at ptr (RFC 6901) in t, with tree.Get's
 // failures and its choice of the last member of a repeated key. A token
@@ -20,12 +21,12 @@ func step(t Tree, id dense.ID[Node], tok string, prefix string) dense.ID[Node] f
 	match ViewOf(t, id) {
 	case Object as o:
 		let k = match Lookup(t, tok) {
-		case Some[dense.ID[Key]] as k:
+		case option.Some[dense.ID[Key]] as k:
 			k.Value
-		case None:
+		case option.None:
 			return tree.NoValue{At: prefix}
 		}
-		let mut i = len(o.Members) - 1
+		let mut i = o.Members.Len() - 1
 		for i >= 0 {
 			if o.Members[i].Key == k {
 				return o.Members[i].Value
@@ -35,7 +36,7 @@ func step(t Tree, id dense.ID[Node], tok string, prefix string) dense.ID[Node] f
 		tree.NoValue{At: prefix}
 	case Array as a:
 		let i = tree.Index(tok)
-		if i < 0 || i >= len(a.Items) {
+		if i < 0 || i >= a.Items.Len() {
 			return tree.NoValue{At: prefix}
 		}
 		a.Items[i]

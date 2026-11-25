@@ -13,6 +13,7 @@ import lease-sync/domain
 import lease-sync/domain/memory
 import lease-sync/lease
 import lease-sync/replica
+import option
 import queue
 import sync
 import time
@@ -95,17 +96,17 @@ func LastSeq[E](records []domain.Recorded[E], origin replica.ClientID) int {
 // appended as the fact Refused and changes no state.
 func Decide[S wire, C comparable, E comparable, F comparable, R](src replica.Source[S, C, E, R], decide func(s S, c domain.Envelope[C]) []replica.Fact[E, F], b Book[S, C, E, F], m domain.Envelope[C]) (Answer, Book[S, C, E, F]) {
 	match b.Commands.Get(m.ID) {
-	case Some[C] as c:
+	case option.Some[C] as c:
 		if c.Value != m.Command {
 			return (Clash, b)
 		}
 		match b.Log.Receipts.Get(m.ID) {
-		case Some[domain.Receipt] as r:
+		case option.Some[domain.Receipt] as r:
 			return (Again{Receipt: r.Value}, b)
-		case None:
+		case option.None:
 			return (Clash, b)
 		}
-	case None:
+	case option.None:
 	}
 	let origin = Origin(m.ID)
 	let records = memory.RecordsOf(b.Log, stream)
@@ -122,7 +123,7 @@ func Decide[S wire, C comparable, E comparable, F comparable, R](src replica.Sou
 		case replica.Refused[F]:
 		}
 	}
-	let (o, log) = memory.Admit(b.Log, stream, len(records), m.ID, facts)
+	let (o, log) = memory.Admit(b.Log, stream, records.Len(), m.ID, facts)
 	match o {
 	case memory.Kept as k:
 		(Kept{Receipt: k.Receipt}, Book[S, C, E, F]{Log: log, State: state, Commands: b.Commands.Put(m.ID, m.Command)})
@@ -164,10 +165,10 @@ func Pull[S wire, C comparable, E comparable, F comparable, R](s Server[S, C, E,
 // It registers its bell before it reads the log, and a push rings after
 // it keeps its record, so a record kept while Await starts is never
 // missed. A pull from anywhere else is answered at once.
-func Await[S wire, C comparable, E comparable, F comparable, R](s Server[S, C, E, F, R], by replica.ClientID, from int, limit duration) replica.Frame[S, E, F] needs Scheduler {
+func Await[S wire, C comparable, E comparable, F comparable, R](s Server[S, C, E, F, R], by replica.ClientID, from int, limit duration) replica.Frame[S, E, F] needs time.Scheduler {
 	let bell = queue.New[int](1)
 	let id = sync.Modify(s.bells, func(b Bells) (int, Bells) { (b.Next, Bells{Next: b.Next + 1, Waiting: b.Waiting.Put(b.Next, bell)}) })
-	if len(Records(s)) == from {
+	if Records(s).Len() == from {
 		let _ = timeout.After(limit, func() int fails queue.Closed { bell.Pop() }) catch {
 		case timeout.Expired, queue.Closed:
 			0
@@ -192,7 +193,7 @@ func ring(bells sync.Ref[Bells]) {
 // Frame is the pull of by from from on b, with a delta tail of tail.
 func Frame[S, C, E, F](b Book[S, C, E, F], by replica.ClientID, from int, tail int) replica.Frame[S, E, F] {
 	let records = memory.RecordsOf(b.Log, stream)
-	if from >= 0 && from <= len(records) && len(records)-from <= tail {
+	if from >= 0 && from <= records.Len() && records.Len()-from <= tail {
 		return replica.Delta[E, F]{From: from, Records: memory.After(b.Log, stream, from)}
 	}
 	let mut told = []replica.Told[F]{}
@@ -208,7 +209,7 @@ func Frame[S, C, E, F](b Book[S, C, E, F], by replica.ClientID, from int, tail i
 			}
 		}
 	}
-	replica.Snapshot[S, F]{At: len(records), State: b.State, LastSeq: LastSeq(records, by), Refused: told}
+	replica.Snapshot[S, F]{At: records.Len(), State: b.State, LastSeq: LastSeq(records, by), Refused: told}
 }
 
 // Records is the source's log.
@@ -276,9 +277,9 @@ law StateIsLogReplay(ops []int) {
 		}
 		let o = Origin(r.ID)
 		let n = match want.Get(o) {
-		case Some[int] as w:
+		case option.Some[int] as w:
 			w.Value
-		case None:
+		case option.None:
 			0
 		}
 		if replica.SeqOf(r.ID, o) != n+1 {
@@ -296,7 +297,7 @@ law SnapshotIsReplay(ops []int, from int, who bool) {
 	let s = pushAll(ops, 0)
 	let records = Records(s)
 	let by = if who { replica.ClientID("a") } else { replica.ClientID("b") }
-	let f = (from%(len(records)+1) + len(records) + 1) % (len(records) + 1)
+	let f = (from%(records.Len()+1) + records.Len() + 1) % (records.Len() + 1)
 	let mut want = []replica.Told[lease.Refusal]{}
 	for r in records {
 		if r.Position > f && Origin(r.ID) == by {
@@ -311,9 +312,9 @@ law SnapshotIsReplay(ops []int, from int, who bool) {
 	}
 	match Pull(s, by, f) {
 	case replica.Snapshot[lease.Pool, lease.Refusal] as n:
-		n.At == len(records) && n.State == Replay(leases, records) && n.LastSeq == LastSeq(records, by) && n.Refused == want
+		n.At == records.Len() && n.State == Replay(leases, records) && n.LastSeq == LastSeq(records, by) && n.Refused == want
 	case replica.Delta[lease.Event, lease.Refusal]:
-		len(records) == f
+		records.Len() == f
 	}
 }
 
@@ -322,13 +323,13 @@ law SnapshotIsReplay(ops []int, from int, who bool) {
 law DeltaIsTheTail(ops []int, from int) {
 	let s = pushAll(ops, 4)
 	let records = Records(s)
-	let f = len(records) - (from%5+5)%5
+	let f = records.Len() - (from%5+5)%5
 	if f < 0 {
 		return true
 	}
 	match Pull(s, replica.ClientID("a"), f) {
 	case replica.Delta[lease.Event, lease.Refusal] as d:
-		d.From == f && len(d.Records) == len(records)-f && (len(d.Records) == 0 || d.Records[0].Position == f+1)
+		d.From == f && d.Records.Len() == records.Len()-f && (d.Records.Len() == 0 || d.Records[0].Position == f+1)
 	case replica.Snapshot[lease.Pool, lease.Refusal]:
 		false
 	}

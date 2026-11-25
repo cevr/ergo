@@ -21,6 +21,7 @@ import fs
 import github.com/cevr/ergo/modules/domain
 import github.com/cevr/ergo/modules/domain/memory
 import journal
+import option
 import strconv
 import strings
 import sync
@@ -49,7 +50,7 @@ func Open[E comparable](files fs.Files, writes fs.Writes, path string, events jo
 		return domain.Unkept{Reason: "\(path): \(f.Reason)"}
 	}
 	let (book, whole) = try parse(text, events)
-	if whole != len(text) {
+	if whole != text.Len() {
 		try write(writes, path, strings.Slice(text, 0, whole))
 	}
 	Log[E]{writes: writes, path: path, events: events, book: sync.NewRef(book)}
@@ -78,7 +79,7 @@ func Append[E comparable](l Log[E], stream string, expected int, id domain.Comma
 func Read[E comparable](l Log[E], stream string, from int) []domain.Recorded[E] { memory.After(l.book.Get(), stream, from) }
 
 // Seen is the receipt of id, if the file holds its record.
-func Seen[E comparable](l Log[E], id domain.CommandID) Option[domain.Receipt] { l.book.Get().Receipts.Get(id) }
+func Seen[E comparable](l Log[E], id domain.CommandID) option.Option[domain.Receipt] { l.book.Get().Receipts.Get(id) }
 
 // recordText is the text of one record.
 func recordText[E](stream string, position int, id domain.CommandID, events []E, codec journal.Codec[E]) string {
@@ -97,25 +98,25 @@ type pending[E] { Stream string, Position int, ID domain.CommandID, Events []E }
 // in either).
 func parse[E comparable](text string, codec journal.Codec[E]) (memory.Book[E], int) fails domain.Unkept {
 	let mut book = memory.Book[E]{Streams: Map[string, []domain.Recorded[E]]{}, Receipts: Map[domain.CommandID, domain.Receipt]{}}
-	let mut open Option[pending[E]] = None
+	let mut open option.Option[pending[E]] = option.None
 	let mut whole = 0
 	let mut at = 0
 	let mut n = 0
 	for raw in strings.Lines(text) {
 		n = n + 1
-		at = at + len(raw)
+		at = at + raw.Len()
 		if !strings.HasSuffix(raw, "\n") {
 			// The last line was torn in its write.
 			break
 		}
 		let line = strings.TrimSuffix(raw, "\n")
 		match open {
-		case None:
+		case option.None:
 			if !strings.HasPrefix(line, "r ") {
 				return domain.Unkept{Reason: "line \(n) does not begin a record"}
 			}
-			open = Some[pending[E]]{Value: pending[E]{Stream: try unquote(line, n), Position: 0, ID: domain.CommandID(""), Events: []E{}}}
-		case Some[pending[E]] as p:
+			open = option.Some[pending[E]]{Value: pending[E]{Stream: try unquote(line, n), Position: 0, ID: domain.CommandID(""), Events: []E{}}}
+		case option.Some[pending[E]] as p:
 			let r = p.Value
 			if line == "." {
 				let (o, next) = memory.Admit(book, r.Stream, r.Position-1, r.ID, r.Events)
@@ -125,22 +126,22 @@ func parse[E comparable](text string, codec journal.Codec[E]) (memory.Book[E], i
 					return domain.Unkept{Reason: "line \(n) closes a record the log cannot keep at \(r.Position)"}
 				}
 				book = next
-				open = None
+				open = option.None
 				whole = at
 			} else if strings.HasPrefix(line, "p ") {
-				let position = strconv.Atoi(strings.Slice(line, 2, len(line))) catch {
+				let position = strconv.Atoi(strings.Slice(line, 2, line.Len())) catch {
 				case strconv.Malformed, strconv.OutOfRange:
 					return domain.Unkept{Reason: "line \(n) is not a position"}
 				}
-				open = Some[pending[E]]{Value: pending[E]{..r, Position: position}}
+				open = option.Some[pending[E]]{Value: pending[E]{..r, Position: position}}
 			} else if strings.HasPrefix(line, "i ") {
-				open = Some[pending[E]]{Value: pending[E]{..r, ID: domain.CommandID(try unquote(line, n))}}
+				open = option.Some[pending[E]]{Value: pending[E]{..r, ID: domain.CommandID(try unquote(line, n))}}
 			} else if strings.HasPrefix(line, "e ") {
 				let e = codec.Decode(try unquote(line, n)) catch {
 				case journal.Failed as f:
 					return domain.Unkept{Reason: "line \(n): \(f.Reason)"}
 				}
-				open = Some[pending[E]]{Value: pending[E]{..r, Events: r.Events.Append(e)}}
+				open = option.Some[pending[E]]{Value: pending[E]{..r, Events: r.Events.Append(e)}}
 			} else {
 				return domain.Unkept{Reason: "line \(n) is not part of a record"}
 			}
@@ -151,7 +152,7 @@ func parse[E comparable](text string, codec journal.Codec[E]) (memory.Book[E], i
 
 // unquote is the Go-quoted value after a line's two-byte tag.
 func unquote(line string, n int) string fails domain.Unkept {
-	strconv.Unquote(strings.Slice(line, 2, len(line))) catch {
+	strconv.Unquote(strings.Slice(line, 2, line.Len())) catch {
 	case strconv.Malformed:
 		return domain.Unkept{Reason: "line \(n) is not a quoted value"}
 	}

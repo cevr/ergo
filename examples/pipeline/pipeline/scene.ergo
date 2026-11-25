@@ -10,6 +10,8 @@ import actor
 import gen
 import github.com/cevr/ergo/modules/domain
 import github.com/cevr/ergo/modules/domain/memory
+import machines
+import option
 import pipeline/board
 import pipeline/retry
 import pipeline/run
@@ -30,18 +32,18 @@ type Act = Submits{Pick int, Stages int} | Cancels{Pick int} | Retries{Pick int,
 law RecoverAgrees(acts []Act, flaky []int) {
 	let log = memory.New[Entry]()
 	match played(acts, 0, flaky, log) {
-	case Some[Played] as p:
+	case option.Some[Played] as p:
 		let l = Recovered(log).Recover() catch {
 		case domain.Conflict, domain.Reused, domain.Unkept:
 			return false
 		}
 		match l {
-		case Some[Ledger] as r:
+		case option.Some[Ledger] as r:
 			r.Value.State == p.Value.Desk
-		case None:
+		case option.None:
 			false
 		}
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -52,22 +54,22 @@ type Played { Desk Desk, Board board.View }
 // played plays acts on log with the runner that flaky scripts (as
 // SceneAgreesWithStory's), naming the commands from the place from on,
 // or None when the context failed.
-func played(acts []Act, from int, flaky []int, log domain.Log[Entry]) Option[Played] {
+func played(acts []Act, from int, flaky []int, log domain.Log[Entry]) option.Option[Played] {
 	let s = testing.Script[Runner]{}
 	s.Run.Answer(func(id string, stage int, attempt int) bool fails Offline {
 		match answerOf(flaky, stage, attempt) {
-		case Some[bool] as a:
+		case option.Some[bool] as a:
 			a.Value
-		case None:
+		case option.None:
 			Offline{Why: "down"}
 		}
 	})
 	let clock = time.NewManual(0)
-	let d, v = with context { Scheduler: clock, Runner: s } { sceneOn(acts, from, clock, log) } catch {
+	let d, v = with context { time.Scheduler: clock, Runner: s } { sceneOn(acts, from, clock, log) } catch {
 	case domain.Conflict, domain.Reused, domain.Unkept, Unavailable:
-		return None
+		return option.None
 	}
-	Some[Played]{Value: Played{Desk: d, Board: v}}
+	option.Some[Played]{Value: Played{Desk: d, Board: v}}
 }
 
 // RestartGoesOn: a context stopped after the acts before cut and opened
@@ -79,22 +81,22 @@ law RestartGoesOn(acts []Act, flaky []int, cut int) { restarted(acts, flaky, cut
 // restarted is whether the acts, played on a log, stopped after the acts
 // before cut and played on again, end in the story's desk.
 func restarted(acts []Act, flaky []int, cut int) bool {
-	let k = len(acts) + 1
+	let k = acts.Len() + 1
 	let at = ((cut % k) + k) % k
 	let log = memory.New[Entry]()
 	match played(acts[0:at], 0, flaky, log) {
-	case Some[Played]:
-	case None:
+	case option.Some[Played]:
+	case option.None:
 		return false
 	}
-	match played(acts[at:len(acts)], at, flaky, log) {
-	case Some[Played] as p:
+	match played(acts[at:acts.Len()], at, flaky, log) {
+	case option.Some[Played] as p:
 		let want = Story(acts, flaky) catch {
 		case StoryRejected:
 			return false
 		}
 		Normal(p.Value.Desk) == Normal(want)
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -121,45 +123,45 @@ func small(n int) int { ((n % 3) + 3) % 3 }
 // answerOf is the runner's answer to try attempt of stage, by the table
 // flaky: stage s fails its first flaky[s] % 4 tries, and when flaky[s]
 // is a multiple of 5 the runner is offline (None) for the first one.
-func answerOf(flaky []int, stage int, attempt int) Option[bool] {
-	if len(flaky) == 0 {
-		return Some[bool]{Value: true}
+func answerOf(flaky []int, stage int, attempt int) option.Option[bool] {
+	if flaky.Len() == 0 {
+		return option.Some[bool]{Value: true}
 	}
-	let f = flaky[stage%len(flaky)]
+	let f = flaky[stage%flaky.Len()]
 	if f%5 == 0 && attempt == 1 {
-		return None
+		return option.None
 	}
-	Some[bool]{Value: attempt > ((f%4)+4)%4}
+	option.Some[bool]{Value: attempt > ((f%4)+4)%4}
 }
 
 // envelopeOf is the command of the act a, named by its place i.
-func envelopeOf(i int, a Act) Option[Envelope] {
+func envelopeOf(i int, a Act) option.Option[Envelope] {
 	let id = "c\(i)"
 	match a {
 	case Submits as p:
-		Some[Envelope]{Value: Envelope{ID: id, Run: nameOf(p.Pick), Command: run.Submit{Stages: 1 + small(p.Stages)}}}
+		option.Some[Envelope]{Value: Envelope{ID: id, Run: nameOf(p.Pick), Command: run.Submit{Stages: 1 + small(p.Stages)}}}
 	case Cancels as s:
-		Some[Envelope]{Value: Envelope{ID: id, Run: nameOf(s.Pick), Command: run.Cancel{Why: "stop"}}}
+		option.Some[Envelope]{Value: Envelope{ID: id, Run: nameOf(s.Pick), Command: run.Cancel{Why: "stop"}}}
 	case Retries as g:
-		Some[Envelope]{Value: Envelope{ID: id, Run: nameOf(g.Pick), Command: run.Retry{Stage: small(g.Stage)}}}
+		option.Some[Envelope]{Value: Envelope{ID: id, Run: nameOf(g.Pick), Command: run.Retry{Stage: small(g.Stage)}}}
 	case Waits:
-		None
+		option.None
 	}
 }
 
 // record is b after the command c of the run id, by Decide and Fold, or
 // None when the run refuses it.
-func record(b Book, id string, c run.Command) Option[Book] {
+func record(b Book, id string, c run.Command) option.Option[Book] {
 	let s = RunIn(b, id)
 	let es = run.Decide(s, c) catch {
 	case run.WrongState, run.WrongStage, run.Closed, run.BadLength:
-		return None
+		return option.None
 	}
 	let mut log = b.Log
 	for e in es {
 		log = log.Append(Entry{Run: id, Event: e})
 	}
-	Some[Book]{Value: Book{..b, Runs: b.Runs.Put(id, run.Fold(s, es)), Log: log}}
+	option.Some[Book]{Value: Book{..b, Runs: b.Runs.Put(id, run.Fold(s, es)), Log: log}}
 }
 
 // StoryRejected is returned by the reference story if an internal command is
@@ -168,9 +170,9 @@ type StoryRejected {}
 
 func recordExact(b Book, id string, c run.Command) Book fails StoryRejected {
 	match record(b, id, c) {
-	case Some[Book] as nb:
+	case option.Some[Book] as nb:
 		nb.Value
-	case None:
+	case option.None:
 		return StoryRejected
 	}
 }
@@ -214,9 +216,9 @@ func told(d Desk, env Envelope) Desk fails StoryRejected {
 		return d
 	}
 	let taken = match record(b, env.Run, env.Command) {
-	case Some[Book] as t:
+	case option.Some[Book] as t:
 		t.Value
-	case None:
+	case option.None:
 		return d
 	}
 	let mut nb = taken
@@ -254,9 +256,9 @@ func drive(d Desk, flaky []int) Desk fails StoryRejected {
 			return at
 		}
 		let ok = match answerOf(flaky, j.Stage, retry.TryOf(j.Attempt)) {
-		case Some[bool] as a:
+		case option.Some[bool] as a:
 			a.Value
-		case None:
+		case option.None:
 			false
 		}
 		let nb = try recordExact(b, j.Run, run.Finish{Stage: j.Stage, OK: ok})
@@ -282,9 +284,9 @@ func Story(acts []Act, flaky []int) Desk fails StoryRejected {
 	let mut d Desk = Fresh
 	for i, a in acts {
 		match envelopeOf(i, a) {
-		case Some[Envelope] as e:
+		case option.Some[Envelope] as e:
 			d = try told(d, e.Value)
-		case None:
+		case option.None:
 			d = try waited(d, flaky)
 		}
 		d = try drive(d, flaky)
@@ -308,7 +310,7 @@ func waited(d Desk, flaky []int) Desk fails StoryRejected {
 // scene plays the acts on a context opened over a fresh memory log, with
 // the runner and the clock of the caller's context, and is the desk at
 // the end.
-func scene(acts []Act, clock time.Manual) Desk fails domain.Conflict | domain.Reused | domain.Unkept | Unavailable needs Runner | Scheduler {
+func scene(acts []Act, clock time.Manual) Desk fails domain.Conflict | domain.Reused | domain.Unkept | Unavailable needs Runner | time.Scheduler {
 	let d, _ = try sceneOn(acts, 0, clock, memory.New[Entry]())
 	d
 }
@@ -317,18 +319,18 @@ func scene(acts []Act, clock time.Manual) Desk fails domain.Conflict | domain.Re
 // commands from the place from on, and is the desk and the board at the
 // end. After each act it waits until the runner
 // runs no try; a Waits moves the clock an hour.
-func sceneOn(acts []Act, from int, clock time.Manual, log domain.Log[Entry]) (Desk, board.View) fails domain.Conflict | domain.Reused | domain.Unkept | Unavailable needs Runner | Scheduler {
+func sceneOn(acts []Act, from int, clock time.Manual, log domain.Log[Entry]) (Desk, board.View) fails domain.Conflict | domain.Reused | domain.Unkept | Unavailable needs Runner | time.Scheduler {
 	let m = try Open(log)
 	for i, a in acts {
 		match envelopeOf(from+i, a) {
-		case Some[Envelope] as e:
+		case option.Some[Envelope] as e:
 			let _ = send(m, e.Value) catch {
 			case run.WrongState, run.WrongStage, run.Closed, run.BadLength, NoSuchRun:
 				Receipt{Command: "", Position: 0}
 			case Unavailable:
 				return Unavailable
 			}
-		case None:
+		case option.None:
 			clock.Advance(1h)
 		}
 		let _ = try m.Settle()
@@ -423,14 +425,14 @@ func stageOf(desk DeskActor, clock time.Manual) testing.Stage[Act, string] {
 		let idx = step.Get()
 		step.Set(idx + 1)
 		match envelopeOf(idx, a) {
-		case Some[Envelope] as e:
+		case option.Some[Envelope] as e:
 			let _ = desk.Ask(Ask{Env: e.Value}) catch {
 			case actor.Stopped:
 				return testing.Refused{Why: "unavailable"}
 			case run.WrongState, run.WrongStage, run.Closed, run.BadLength, NoSuchRun:
-				Ignore
+				machines.Ignore
 			}
-		case None:
+		case option.None:
 			clock.Advance(1h)
 		}
 		try settleDesk(desk, clock)
@@ -481,7 +483,7 @@ func offerSceneAct(st sceneState) Act needs gen.Draws {
 	case Idle, Busy:
 		choices = choices.Append(Waits)
 	}
-	if len(choices) == 0 {
+	if choices.Len() == 0 {
 		return Waits
 	}
 	gen.OneOf(choices)
@@ -493,12 +495,12 @@ func sceneModel(flaky []int) testing.Model[sceneState, Act, string] {
 		Offer: offerSceneAct,
 		Step:  func(st sceneState, a Act) (sceneState, string) {
 			let after = match envelopeOf(st.step, a) {
-			case Some[Envelope] as e:
+			case option.Some[Envelope] as e:
 				told(st.desk, e.Value) catch {
 				case StoryRejected:
 					return (st, "story-rejected")
 				}
-			case None:
+			case option.None:
 				waited(st.desk, flaky) catch {
 				case StoryRejected:
 					return (st, "story-rejected")
@@ -520,9 +522,9 @@ law SceneAgreesWithStory(flaky []int, seed int) {
 	let s = testing.Script[Runner]{}
 	s.Run.Answer(func(id string, stage int, attempt int) bool fails Offline {
 		match answerOf(flaky, stage, attempt) {
-		case Some[bool] as a:
+		case option.Some[bool] as a:
 			a.Value
-		case None:
+		case option.None:
 			Offline{Why: "down"}
 		}
 	})
@@ -531,7 +533,7 @@ law SceneAgreesWithStory(flaky []int, seed int) {
 	let rawSeed = if seed < 0 { -seed } else { seed }
 	let cfg = gen.Config{Seed: uint64(rawSeed) + uint64(1), Cases: 1, Shrinks: 0, MaxDraws: 4096, MaxRejected: 10}
 	let o = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
-		with context { Scheduler: clock, Runner: s } {
+		with context { time.Scheduler: clock, Runner: s } {
 			let (model, desk) = opened(memory.New[Entry]()) catch {
 			case domain.Conflict, domain.Reused, domain.Unkept:
 				return false

@@ -3,6 +3,7 @@
 // ReadIsRepeatableHolds also exercises copies of one Disk and drains
 // its input, as the host does.
 
+import core
 import fs
 import fstest
 import io
@@ -18,7 +19,7 @@ func ReadAll(d drained) string fails io.ReadFailed {
 	if n == 0 { d.text } else { "" }
 }
 
-func Lines(d drained) Seq[string] { (io.Input{Text: d.text}).Lines() }
+func Lines(d drained) core.Seq[string] { (io.Input{Text: d.text}).Lines() }
 
 func IsTerminal(_ drained) bool { false }
 

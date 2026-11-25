@@ -104,7 +104,7 @@ func Handle(s mut Session, r Request) Reply fails TooFar | Missing | Broken need
 func Advance(s mut Session, c Controls) {
 	let next = Update(s.worlds[s.last], c)
 	let at = (s.last + 1) % (s.keep + 1)
-	if at == len(s.worlds) {
+	if at == s.worlds.Len() {
 		s.worlds = s.worlds.Append(next)
 	} else {
 		s.worlds[at] = next
@@ -165,7 +165,7 @@ law RewindReplays(seed int, k int, keep int) {
 	case TooFar:
 		return false
 	}
-	for c in inputs[len(inputs)-back : len(inputs)] {
+	for c in inputs[inputs.Len()-back : inputs.Len()] {
 		Advance(&s, c)
 	}
 	s.Now() == end
@@ -173,7 +173,7 @@ law RewindReplays(seed int, k int, keep int) {
 
 // inputsOf is n ticks of fuzzed input from seed.
 func inputsOf(seed int, n int) []Controls {
-	with context { Random: rand.Seeded(uint64(seed)) } {
+	with context { rand.Random: rand.Seeded(uint64(seed)) } {
 		Fuzz(n)
 	}
 }
@@ -204,11 +204,11 @@ law RewindKeepsNoMore(seed int, keep int, extra int) {
 	case TooFar:
 		return false
 	}
-	let then = len(worlds) - 1 - size
+	let then = worlds.Len() - 1 - size
 	if s.Now() != worlds[then] || s.Kept() != 0 {
 		return false
 	}
-	if then == len(inputs) {
+	if then == inputs.Len() {
 		return true
 	}
 	Advance(&s, inputs[then])

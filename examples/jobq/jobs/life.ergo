@@ -1,3 +1,5 @@
+import machines
+
 // Phase is where one job is in its life: waiting in the queue until
 // Ready for its try N, or running try N until Ends.
 type Phase = Queued{N int, Ready duration} | Running{N int, Ends duration}
@@ -42,28 +44,28 @@ func FinishJob(r Running, at duration, res Result, p Policy) FinishOutcome fails
 	}
 }
 
-func Step(p Phase, s Signal) Decision[Phase, Outcome] {
+func Step(p Phase, s Signal) machines.Decision[Phase, Outcome] {
 	match (p, s) {
 	case (Queued as q, Start as st):
 		let next = StartJob(q, st.At, st.Takes) catch {
 		case TooEarly:
-			return Reject
+			return machines.Reject
 		}
-		Enter[Phase]{Next: next}
+		machines.Enter[Phase]{Next: next}
 	case (Running, Start):
-		Reject
+		machines.Reject
 	case (Queued, Finish):
-		Reject
+		machines.Reject
 	case (Running as r, Finish as f):
 		let res = FinishJob(r, f.At, f.R, f.P) catch {
 		case TooEarly:
-			return Reject
+			return machines.Reject
 		}
 		match res {
 		case Finished as d:
-			Done[Outcome]{Output: d.Output}
+			machines.Done[Outcome]{Output: d.Output}
 		case Retry as rt:
-			Enter[Phase]{Next: rt.Next}
+			machines.Enter[Phase]{Next: rt.Next}
 		}
 	}
 }

@@ -2,6 +2,7 @@
 // each) against an http.InMemoryNetwork that answers with the fixtures.
 // It routes by the URL: the origin and the path.
 
+import option
 import weather/weather
 import http
 
@@ -24,7 +25,7 @@ func over(handle own func(origin string, r http.Request) http.Response needs htt
 func fixture() OpenMeteo fails http.InvalidClient | http.InvalidLimits {
 	try over(func(origin string, r http.Request) http.Response {
 		if origin == GeocodingOrigin && r.Path == "/v1/search" {
-			if http.Query(r.Query, "name") == (Some{"90210"}) { answer(200, geocoded) } else { answer(200, `{"results":[]}`) }
+			if http.Query(r.Query, "name") == (option.Some{"90210"}) { answer(200, geocoded) } else { answer(200, `{"results":[]}`) }
 		} else if origin == ForecastOrigin && r.Path == "/v1/forecast" {
 			answer(200, current)
 		} else {
@@ -45,28 +46,28 @@ test FetchGivesTheReport {
 
 // failure is the reason Fetch(o, zip) gives no report, or None when it
 // gives one.
-func failure(o OpenMeteo, zip string) Option[weather.Why] {
+func failure(o OpenMeteo, zip string) option.Option[weather.Why] {
 	let _ = Fetch(o, zip) catch {
 	case weather.NotFound as m:
 		let why weather.Why = m
-		return Some{why}
+		return option.Some{why}
 	case weather.Unavailable as u:
 		let why weather.Why = u
-		return Some{why}
+		return option.Some{why}
 	}
-	None
+	option.None
 }
 
 test HTTPFailureFails {
 	let why weather.Why = weather.NotFound{Zip: "invalid"}
-	assert failure(try down(404), "invalid") == Some{why}
+	assert failure(try down(404), "invalid") == option.Some{why}
 }
 
 test NoPlaceIsNotFound {
 	match failure(try fixture(), "00000") {
-	case Some[weather.Why] as w:
+	case option.Some[weather.Why] as w:
 		assert weather.Said(w.Value) == "Location not found"
-	case None:
+	case option.None:
 		assert false
 	}
 }

@@ -19,8 +19,8 @@ type Value = Simple{Text string} | Fault{Text string} | Integer{N int64} | Bulk{
 law BulkTakesItsLength(seed int) {
 	for v in Samples(seed) {
 		let data = strings.FromBytes(Encode(v, Resp3))
-		for n in []int{0, len(data) / 2, len(data) + 1, len(data) + 5} {
-			if n == len(data) {
+		for n in []int{0, data.Len() / 2, data.Len() + 1, data.Len() + 5} {
+			if n == data.Len() {
 				continue
 			}
 			let enc = strings.Bytes("$\(n)\r\n" + data + "\r\n")
@@ -30,7 +30,7 @@ law BulkTakesItsLength(seed int) {
 			}
 			match f.Value {
 			case Bulk as b:
-				if b.Data == data || len(b.Data) != n {
+				if b.Data == data || b.Data.Len() != n {
 					return false
 				}
 			case _:
@@ -105,7 +105,7 @@ func Equal(a Value, b Value) bool {
 	case (Set as x, Set as y):
 		allEqual(x.Items, y.Items)
 	case (Dict as x, Dict as y):
-		if len(x.Pairs) != len(y.Pairs) {
+		if x.Pairs.Len() != y.Pairs.Len() {
 			return false
 		}
 		for i, p in x.Pairs {
@@ -121,7 +121,7 @@ func Equal(a Value, b Value) bool {
 
 // allEqual is whether xs and ys are equal item by item.
 func allEqual(xs []Value, ys []Value) bool {
-	if len(xs) != len(ys) {
+	if xs.Len() != ys.Len() {
 		return false
 	}
 	for i, x in xs {

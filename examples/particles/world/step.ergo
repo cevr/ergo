@@ -1,4 +1,5 @@
 import gen
+import option
 
 // Wall is a side of the box.
 type Wall = West{} | East{} | North{} | South{}
@@ -84,18 +85,18 @@ func Step(w World) (World, []Event) {
 	for i, p in moved {
 		let cell = p.Y*w.width + p.X
 		match groupOf.Get(cell) {
-		case Some[int] as g:
+		case option.Some[int] as g:
 			groups[g.Value] = groups[g.Value].Append(i)
-		case None:
-			groupOf[cell] = len(groups)
+		case option.None:
+			groupOf[cell] = groups.Len()
 			groups = groups.Append([]int{i})
 		}
 	}
 	for g in groups {
-		if len(g) < 2 {
+		if g.Len() < 2 {
 			continue
 		}
-		let last = moved[g[len(g)-1]]
+		let last = moved[g[g.Len()-1]]
 		let mut vx = last.VX
 		let mut vy = last.VY
 		let mut ids = []int{}

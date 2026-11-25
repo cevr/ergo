@@ -6,6 +6,7 @@
 
 import ergo.local/prototype/examples/starsgui/catalog
 import fs
+import fstest
 
 // onTestHost binds the shelf to a Disk over the test's folder.
-let onTestHost = context needs TestAmbient { catalog.Shelf: New(fs.NewTestHost()) }
+let onTestHost = context needs fstest.TestAmbient { catalog.Shelf: New(fs.NewTestHost()) }

@@ -11,7 +11,7 @@ law ProjectGraphInvariants() {
 		let n = gen.IntIn(2, 5)
 		let mut paths = []string{}
 		for i in 0..n {
-			let d = dirs[i%len(dirs)]
+			let d = dirs[i%dirs.Len()]
 			paths = paths.Append("\(d)/m\(i).ts")
 		}
 		let mut files = []tn1.Named{}
@@ -19,8 +19,8 @@ law ProjectGraphInvariants() {
 			let mut src = ""
 			if gen.Bool() {
 				let target = gen.IntIn(0, n-1)
-				let td = dirs[target%len(dirs)]
-				let rel = if td == dirs[i%len(dirs)] { "./m\(target)" } else { "../\(td)/m\(target)" }
+				let td = dirs[target%dirs.Len()]
+				let rel = if td == dirs[i%dirs.Len()] { "./m\(target)" } else { "../\(td)/m\(target)" }
 				src = src + "import { fn\(target) } from \"\(rel)\";\n"
 				src = src + "export function fn\(i)() { return fn\(target)(); }\n"
 			} else {
@@ -29,11 +29,11 @@ law ProjectGraphInvariants() {
 			files = files.Append(tn1.Named{Name: paths[i], Text: src})
 		}
 		let out = Project(files)
-		if len(out) != n {
+		if out.Len() != n {
 			return false
 		}
 		for f in out {
-			if f.Version != 3 || len(f.Packages) != 1 || len(f.Files) != 1 {
+			if f.Version != 3 || f.Packages.Len() != 1 || f.Files.Len() != 1 {
 				return false
 			}
 			let p = f.Packages[0]

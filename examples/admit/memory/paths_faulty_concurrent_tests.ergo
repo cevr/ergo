@@ -84,7 +84,7 @@ law AdmitGateWaitFaultsReturnCapacity() {
 	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
 		let inner = New(4)
 		let faulty = testing.Faulty[jobs.Gate](inner)
-		let waitBefore = len(faulty.Wait.Faults())
+		let waitBefore = faulty.Wait.Faults().Len()
 		let js = []jobs.Job{
 			jobs.Job{Name: "a", Weight: 3, Payload: "1"},
 			jobs.Job{Name: "b", Weight: 2, Payload: "2"},
@@ -95,7 +95,7 @@ law AdmitGateWaitFaultsReturnCapacity() {
 			inner.Give(4)
 		}
 		always allFree
-		if len(faulty.Wait.Faults()) > waitBefore {
+		if faulty.Wait.Faults().Len() > waitBefore {
 			sometimes !ok
 			return !ok
 		}

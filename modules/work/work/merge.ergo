@@ -7,6 +7,7 @@ import github.com/cevr/ergo/modules/work/classes
 import filepath
 import fs
 import hex
+import option
 import sha256
 import slices
 import strings
@@ -53,11 +54,11 @@ func PresetLines(lines []ClassLine, present []string) []ClassLine {
 			continue
 		}
 		any = true
-		if ClassOf(out, p.Lock) == None {
+		if ClassOf(out, p.Lock) == option.None {
 			out = out.Append(ClassLine{Match: p.Lock, Kind: "derived", Sets: []string{}, By: p.By, Driver: "", Candidate: false, Check: "", Version: ""})
 		}
 	}
-	if any && ClassOf(out, "package.json") == None {
+	if any && ClassOf(out, "package.json") == option.None {
 		out = out.Append(ClassLine{Match: "package.json", Kind: "json", Sets: []string{}, By: "", Driver: "", Candidate: false, Check: "", Version: ""})
 	}
 	out
@@ -67,30 +68,30 @@ func PresetLines(lines []ClassLine, present []string) []ClassLine {
 // file, that lock is derived by its package manager's command, and
 // package.json merges as json.
 law PresetPicksTheLockThatExists(which int) {
-	let p = Presets[((which%len(Presets))+len(Presets))%len(Presets)]
+	let p = Presets[((which%Presets.Len())+Presets.Len())%Presets.Len()]
 	let lines = PresetLines([]ClassLine{}, []string{p.Lock, "README.md"})
 	let lock = ClassOf(lines, p.Lock)
 	let manifest = ClassOf(lines, "packages/app/package.json")
-	lock == Some[ClassLine]{Value: ClassLine{Match: p.Lock, Kind: "derived", Sets: []string{}, By: p.By, Driver: "", Candidate: false, Check: "", Version: ""}} && manifest != None && kindOf(manifest) == "json" && ClassOf(lines, "README.md") == None
+	lock == option.Some[ClassLine]{Value: ClassLine{Match: p.Lock, Kind: "derived", Sets: []string{}, By: p.By, Driver: "", Candidate: false, Check: "", Version: ""}} && manifest != option.None && kindOf(manifest) == "json" && ClassOf(lines, "README.md") == option.None
 }
 
-func kindOf(line Option[ClassLine]) string {
+func kindOf(line option.Option[ClassLine]) string {
 	match line {
-	case Some[ClassLine] as l:
+	case option.Some[ClassLine] as l:
 		l.Value.Kind
-	case None:
+	case option.None:
 		""
 	}
 }
 
 // ClassOf is the first line that takes path (relative to the base).
-func ClassOf(lines []ClassLine, path string) Option[ClassLine] {
+func ClassOf(lines []ClassLine, path string) option.Option[ClassLine] {
 	for l in lines {
 		if Matches(l.Match, path) {
-			return Some[ClassLine]{Value: l}
+			return option.Some[ClassLine]{Value: l}
 		}
 	}
-	None
+	option.None
 }
 
 // Matches reports whether the glob pattern takes path.
@@ -100,18 +101,18 @@ func Matches(pattern string, path string) bool {
 }
 
 func matchParts(pat []string, parts []string) bool {
-	if len(pat) == 0 {
-		return len(parts) == 0
+	if pat.Len() == 0 {
+		return parts.Len() == 0
 	}
 	if pat[0] == "**" {
-		for i in 0..len(parts)+1 {
+		for i in 0..parts.Len()+1 {
 			if matchParts(slices.Clone(pat[1:]), slices.Clone(parts[i:])) {
 				return true
 			}
 		}
 		return false
 	}
-	len(parts) > 0 && matchName(pat[0], parts[0]) && matchParts(slices.Clone(pat[1:]), slices.Clone(parts[1:]))
+	parts.Len() > 0 && matchName(pat[0], parts[0]) && matchParts(slices.Clone(pat[1:]), slices.Clone(parts[1:]))
 }
 
 // matchName matches one name against a pattern with `*` (any run of
@@ -121,14 +122,14 @@ func matchName(pat string, name string) bool {
 		return name == ""
 	}
 	if pat[0] == '*' {
-		for i in 0..len(name)+1 {
-			if matchName(strings.Slice(pat, 1, len(pat)), strings.Slice(name, i, len(name))) {
+		for i in 0..name.Len()+1 {
+			if matchName(strings.Slice(pat, 1, pat.Len()), strings.Slice(name, i, name.Len())) {
 				return true
 			}
 		}
 		return false
 	}
-	len(name) > 0 && (pat[0] == '?' || pat[0] == name[0]) && matchName(strings.Slice(pat, 1, len(pat)), strings.Slice(name, 1, len(name)))
+	name.Len() > 0 && (pat[0] == '?' || pat[0] == name[0]) && matchName(strings.Slice(pat, 1, pat.Len()), strings.Slice(name, 1, name.Len()))
 }
 
 // GlobTakesAnyDepth: a pattern with no slash, or one that starts with
@@ -145,10 +146,10 @@ law GlobTakesAnyDepth(depth int) {
 }
 
 // lineClass is the merge class of a line that is not a driver.
-func lineClass(line ClassLine) Option[classes.Class] {
+func lineClass(line ClassLine) option.Option[classes.Class] {
 	match line.Kind {
 	case "json":
-		Some[classes.Class]{Value: classes.Json{Sets: line.Sets}}
+		option.Some[classes.Class]{Value: classes.Json{Sets: line.Sets}}
 	case _:
 		classes.ClassNamed(line.Kind)
 	}
@@ -177,7 +178,7 @@ func quoted(s string) string { "'" + strings.ReplaceAll(s, "'", "'\\''") + "'" }
 // NAME); any other path merges by lines, as Git's own driver does.
 func MergeByPath(t Tool, c Config, path string, base string, ours string, theirs string) FileMerged fails MergeConflict | fs.NotFound | fs.Denied | fs.Failed {
 	match ClassOf(c.Classes, path) {
-	case Some[ClassLine] as l:
+	case option.Some[ClassLine] as l:
 		let line = l.Value
 		if line.Kind == "driver" && line.Candidate {
 			return try MergeCandidate(t, c, line, path, base, ours, theirs)
@@ -198,16 +199,16 @@ func MergeByPath(t Tool, c Config, path string, base string, ours string, theirs
 			return FileMerged{Path: path, Class: "driver", Regenerate: false}
 		}
 		match lineClass(line) {
-		case Some[classes.Class] as k:
+		case option.Some[classes.Class] as k:
 			try mergeWith(t, k.Value, line.Kind, line.By, path, base, ours, theirs)
-		case None:
+		case option.None:
 			try mergeLines(t, path, base, ours, theirs)
 		}
-	case None:
+	case option.None:
 		match LanguageOf(c, path) {
-		case Some[LanguageLine] as l:
+		case option.Some[LanguageLine] as l:
 			try mergeByUnits(t, c, l.Value, path, base, ours, theirs)
-		case None:
+		case option.None:
 			try mergeLines(t, path, base, ours, theirs)
 		}
 	}
@@ -264,7 +265,7 @@ func candidate(t Tool, c Config, line ClassLine, path string, base string, ours 
 		return CandidateWithdrawn{Why: "the driver of \(line.Match) runs only after work trust"}
 	}
 	let words = strings.Fields(line.Driver)
-	let tool = if len(words) > 0 { words[0] } else { "" }
+	let tool = if words.Len() > 0 { words[0] } else { "" }
 	if line.Version != "" {
 		let v = t.runner.Run(exec.New("sh", []string{"-c", tool + " --version"}).WithDir(t.here)) catch {
 		case exec.NotFound, exec.Denied, exec.Failed:
@@ -301,13 +302,13 @@ func candidate(t Tool, c Config, line ClassLine, path string, base string, ours 
 }
 
 // LanguageOf is the first [language.NAME] whose files take path.
-func LanguageOf(c Config, path string) Option[LanguageLine] {
+func LanguageOf(c Config, path string) option.Option[LanguageLine] {
 	for l in c.Languages {
 		if slices.IndexFunc(l.Files, func(p string) bool { Matches(p, path) }) >= 0 {
-			return Some[LanguageLine]{Value: l}
+			return option.Some[LanguageLine]{Value: l}
 		}
 	}
-	None
+	option.None
 }
 
 // mergeByUnits merges the three files by the units of the language l's
@@ -328,7 +329,7 @@ func mergeByUnits(t Tool, c Config, l LanguageLine, path string, base string, ou
 		return try mergeLines(t, path, base, ours, theirs)
 	}
 	try t.writes.WriteFile(ours, merged.Text)
-	if len(merged.Conflicts) > 0 {
+	if merged.Conflicts.Len() > 0 {
 		return MergeConflict{Path: path, Class: l.Name, Units: merged.Conflicts, Why: "both sides changed these units apart"}
 	}
 	FileMerged{Path: path, Class: l.Name, Regenerate: false}
@@ -352,7 +353,7 @@ func mergeWith(t Tool, c classes.Class, name string, by string, path string, bas
 		return MergeConflict{Path: path, Class: name, Units: []string{}, Why: "the \(u.Side) side does not read as \(name) at byte \(u.At): \(u.Why)"}
 	}
 	try t.writes.WriteFile(ours, merged.Text)
-	if len(merged.Conflicts) > 0 {
+	if merged.Conflicts.Len() > 0 {
 		return MergeConflict{Path: path, Class: name, Units: merged.Conflicts, Why: "both sides changed these units apart"}
 	}
 	if merged.Regenerate {
@@ -377,7 +378,7 @@ func mergeLines(t Tool, path string, base string, ours string, theirs string) Fi
 
 // DeriveOptions name the workspace (-name); when absent it is the one the
 // working folder is in, or the base when the folder is the base's.
-type DeriveOptions { Name Option[string] }
+type DeriveOptions { Name option.Option[string] }
 
 // Derived is what derive ran: each derived line's command, once, in the
 // order of the lines.
@@ -399,10 +400,10 @@ func Derive(t Tool, o DeriveOptions) Derived fails NoBase | NotHere | NoWorkspac
 
 // deriveFolder is the workspace named, or the one the working folder is
 // in, or the base when the working folder is the base's.
-func deriveFolder(t Tool, name Option[string]) string fails NotHere | NoWorkspace | Unkept {
+func deriveFolder(t Tool, name option.Option[string]) string fails NotHere | NoWorkspace | Unkept {
 	let w = chosen(t, name) catch {
 	case NotHere as n:
-		if name == None && (t.here == t.base || strings.HasPrefix(t.here, t.base+"/")) {
+		if name == option.None && (t.here == t.base || strings.HasPrefix(t.here, t.base+"/")) {
 			return t.base
 		}
 		return n
@@ -459,67 +460,67 @@ func MergeTree(t Tool, c Config, folder string, base Map[string, string], ours M
 	for p in slices.Sort(paths) {
 		let (b, o, th) = (base.Get(p), ours.Get(p), theirs.Get(p))
 		let text = match (o, th) {
-		case (Some[string] as x, Some[string] as y):
+		case (option.Some[string] as x, option.Some[string] as y):
 			let line = ClassOf(c.Classes, p)
 			let k = match line {
-			case Some[ClassLine] as l:
+			case option.Some[ClassLine] as l:
 				lineClass(l.Value)
-			case None:
-				None
+			case option.None:
+				option.None
 			}
 			let units = match (k, LanguageOf(c, p)) {
-			case (None, Some[LanguageLine] as l):
-				Some[LanguageLine]{Value: l.Value}
+			case (option.None, option.Some[LanguageLine] as l):
+				option.Some[LanguageLine]{Value: l.Value}
 			case _:
-				None
+				option.None
 			}
 			match (k, units) {
-			case (Some[classes.Class] as cls, _):
+			case (option.Some[classes.Class] as cls, _):
 				let m = classes.Merge(cls.Value, textOf(b), x.Value, y.Value) catch {
 				case classes.Unreadable:
 					conflicts = conflicts.Append(p)
 					classes.Merged{Text: classes.Text(classes.MergeText(textOf(b), x.Value, y.Value)), Conflicts: []string{}, Regenerate: false}
 				}
-				if len(m.Conflicts) > 0 && !slices.Contains(conflicts, p) {
+				if m.Conflicts.Len() > 0 && !slices.Contains(conflicts, p) {
 					conflicts = conflicts.Append(p)
 				}
 				m.Text
-			case (None, Some[LanguageLine]):
+			case (option.None, option.Some[LanguageLine]):
 				let m = match byUnits.Get(p) {
-				case Some[classes.Merged] as u:
+				case option.Some[classes.Merged] as u:
 					u.Value
-				case None:
+				case option.None:
 					let h = classes.MergeText(textOf(b), x.Value, y.Value)
 					classes.Merged{Text: classes.Text(h), Conflicts: if h.Clashes > 0 { []string{"lines"} } else { []string{} }, Regenerate: false}
 				}
-				if len(m.Conflicts) > 0 {
+				if m.Conflicts.Len() > 0 {
 					conflicts = conflicts.Append(p)
 				}
 				m.Text
-			case (None, None):
+			case (option.None, option.None):
 				let h = classes.MergeText(textOf(b), x.Value, y.Value)
 				if h.Clashes > 0 {
 					conflicts = conflicts.Append(p)
 				}
 				classes.Text(h)
 			}
-		case (Some[string] as x, None):
+		case (option.Some[string] as x, option.None):
 			if b == o {
 				continue
 			}
-			if b != None {
+			if b != option.None {
 				conflicts = conflicts.Append(p)
 			}
 			x.Value
-		case (None, Some[string] as y):
+		case (option.None, option.Some[string] as y):
 			if b == th {
 				continue
 			}
-			if b != None {
+			if b != option.None {
 				conflicts = conflicts.Append(p)
 			}
 			y.Value
-		case (None, None):
+		case (option.None, option.None):
 			continue
 		}
 		let file = filepath.Join([]string{folder, p})
@@ -538,7 +539,7 @@ func MergeTree(t Tool, c Config, folder string, base Map[string, string], ours M
 			return f
 		}
 	}
-	if len(conflicts) > 0 {
+	if conflicts.Len() > 0 {
 		return TreeMerged{Conflicts: conflicts, Ran: []string{}}
 	}
 	TreeMerged{Conflicts: []string{}, Ran: (try deriveIn(t, c, folder)).Ran}
@@ -560,13 +561,13 @@ func unitMerges(t Tool, c Config, paths []string, base Map[string, string], ours
 		let mut sides = []Request{}
 		for p in paths {
 			let k = match ClassOf(c.Classes, p) {
-			case Some[ClassLine] as line:
+			case option.Some[ClassLine] as line:
 				lineClass(line.Value)
-			case None:
-				None
+			case option.None:
+				option.None
 			}
 			match (k, LanguageOf(c, p), ours.Get(p), theirs.Get(p)) {
-			case (None, Some[LanguageLine] as of, Some[string] as x, Some[string] as y):
+			case (option.None, option.Some[LanguageLine] as of, option.Some[string] as x, option.Some[string] as y):
 				if of.Value.Name != l.Name {
 					continue
 				}
@@ -577,7 +578,7 @@ func unitMerges(t Tool, c Config, paths []string, base Map[string, string], ours
 			case _:
 			}
 		}
-		if len(mine) == 0 {
+		if mine.Len() == 0 {
 			continue
 		}
 		let plugin = Knowing(PluginOf(t.runner, l.Command, t.base), sides)
@@ -615,9 +616,9 @@ func MergeFolders(t Tool, base string, ours string, theirs string, out string) T
 func folderTree(t Tool, root string) Map[string, string] fails fs.NotFound | fs.Denied | fs.Failed {
 	let mut out = Map[string, string]{}
 	let mut todo = []string{""}
-	for len(todo) > 0 {
-		let rel = todo[len(todo)-1]
-		todo = todo[0 : len(todo)-1]
+	for todo.Len() > 0 {
+		let rel = todo[todo.Len()-1]
+		todo = todo[0 : todo.Len()-1]
 		for name in try t.files.ReadDir(if rel == "" { root } else { root + "/" + rel }) {
 			let path = if rel == "" { name } else { rel + "/" + name }
 			if (try t.files.Stat(root + "/" + path)).Dir {
@@ -638,11 +639,11 @@ func keysOf(m Map[string, string]) []string {
 	out
 }
 
-func textOf(v Option[string]) string {
+func textOf(v option.Option[string]) string {
 	match v {
-	case Some[string] as s:
+	case option.Some[string] as s:
 		s.Value
-	case None:
+	case option.None:
 		""
 	}
 }
@@ -677,14 +678,14 @@ func Attributes(old string, lines []ClassLine) string {
 			kept = kept.Append(l)
 		}
 	}
-	if len(lines) > 0 {
+	if lines.Len() > 0 {
 		kept = kept.Append(attributesBegin)
 		for c in lines {
 			kept = kept.Append(c.Match + " merge=work")
 		}
 		kept = kept.Append(attributesEnd)
 	}
-	if len(kept) == 0 { "" } else { strings.Join(kept, "\n") + "\n" }
+	if kept.Len() == 0 { "" } else { strings.Join(kept, "\n") + "\n" }
 }
 
 // AttributesKeepOtherLines: init's lines replace those an earlier init
@@ -767,7 +768,7 @@ func MergeLines(text string) []MergeLine {
 	let mut out = []MergeLine{}
 	for raw in strings.Split(text, "\n") {
 		let f = strings.Fields(raw)
-		if len(f) < 2 || strings.HasPrefix(f[0], "#") || strings.HasPrefix(f[0], "[attr]") {
+		if f.Len() < 2 || strings.HasPrefix(f[0], "#") || strings.HasPrefix(f[0], "[attr]") {
 			continue
 		}
 		for a in f[1:] {
@@ -829,7 +830,7 @@ func Unregistered(t Tool, root string) []string fails VcsFailed | fs.Denied | fs
 // which merges nothing.
 func Unmatched(t Tool, root string) []string fails VcsFailed | fs.Denied | fs.Failed {
 	let lines = MergeLines(try attributesOf(t, root))
-	if len(lines) == 0 {
+	if lines.Len() == 0 {
 		return []string{}
 	}
 	let files = try t.vcs.Listed(root)
@@ -849,11 +850,11 @@ func registerDriver(t Tool, c Config) fails fs.Denied | fs.Failed {
 	// its refresh does; doctor names a driver it lacks later.
 	RegisterDrivers(t, t.base) catch {
 	case VcsFailed as e:
-		if len(c.Classes) > 0 {
+		if c.Classes.Len() > 0 {
 			return fs.Failed{Path: t.base, Reason: e.Reason}
 		}
 	}
-	if len(c.Classes) == 0 {
+	if c.Classes.Len() == 0 {
 		return
 	}
 	let file = AttributesFile(t.base)

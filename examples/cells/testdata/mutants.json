@@ -8,8 +8,14 @@
       "from": "\t\tfor c in 0..next.Cols {\n",
       "to": "\t\tfor c in 0..next.Cols-1 {\n",
       "rule": "DiffReplaysToGrid: a frame writes a changed cell at a row's end too (T1's mutant: a cell skipped at a line end).",
-      "anchor": {"tests": ["examples:cells"]},
-      "killers": ["examples:cells"]
+      "anchor": {
+        "tests": [
+          "examples:cells"
+        ]
+      },
+      "killers": [
+        "examples:cells"
+      ]
     },
     {
       "name": "t1-frame-writes-through",
@@ -18,8 +24,14 @@
       "from": "\t\t\tif cell == At(was, c, r) {\n",
       "to": "\t\t\tif cell == At(was, c, r) && at != c {\n",
       "rule": "FrameWritesTheChanges and PatchWritesItsChange (the counted guard): a frame writes only the cells that changed, not the unchanged cells after a run.",
-      "anchor": {"tests": ["examples:cells"]},
-      "killers": ["examples:cells"]
+      "anchor": {
+        "tests": [
+          "examples:cells"
+        ]
+      },
+      "killers": [
+        "examples:cells"
+      ]
     },
     {
       "name": "t1-frame-marks-per-run",
@@ -28,8 +40,14 @@
       "from": "\t\t\t\tstrings.WriteString(&out, moveTo(c, r))\n",
       "to": "\t\t\t\tstrings.WriteString(&out, End+Begin+moveTo(c, r))\n",
       "rule": "FrameIsOneUpdate: a frame is one synchronized update, not one per run of cells.",
-      "anchor": {"tests": ["examples:cells"]},
-      "killers": ["examples:cells"]
+      "anchor": {
+        "tests": [
+          "examples:cells"
+        ]
+      },
+      "killers": [
+        "examples:cells"
+      ]
     },
     {
       "name": "ns6-draw-rounds-down",
@@ -38,8 +56,14 @@
       "from": "\tlet at = Span(b)\n",
       "to": "\tlet at = Rect{C: floor(b.X / CellW), R: floor(b.Y / CellH), W: cellOf(b.X+b.W, CellW) - floor(b.X/CellW), H: cellOf(b.Y+b.H, CellH) - floor(b.Y/CellH)}\n",
       "rule": "HitMatchesDraw (NS6 item 2's mutant): drawing rounds a box down while hit testing rounds to the nearest grid line; the cell a control is drawn in no longer hits it.",
-      "anchor": {"tests": ["examples:cells"]},
-      "killers": ["examples:cells"]
+      "anchor": {
+        "tests": [
+          "examples:cells"
+        ]
+      },
+      "killers": [
+        "examples:cells"
+      ]
     },
     {
       "name": "ns6-pressable-name-blank",
@@ -48,8 +72,14 @@
       "from": "\t\t\td = named(g, x.Label, at.C+1, mid, d, pen)\n",
       "to": "\t\t\td = named(g, strings.Slice(x.Label, 0, 0), at.C+1, mid, d, pen)\n",
       "rule": "CellsShowEveryName (NS6 item 1's mutant): a Pressable with only a Canvas (or nothing) inside is drawn as empty cells instead of its name.",
-      "anchor": {"tests": ["examples:cells"]},
-      "killers": ["examples:cells"]
+      "anchor": {
+        "tests": [
+          "examples:cells"
+        ]
+      },
+      "killers": [
+        "examples:cells"
+      ]
     },
     {
       "name": "ns6-flush-per-op",
@@ -58,8 +88,14 @@
       "from": "\tfor op in ops {\n\t\tapply(h, op)\n\t}\n",
       "to": "\tfor op in ops {\n\t\tapply(h, op)\n\t\tdraw(h)\n\t}\n",
       "rule": "PatchIsOneFrame (NS6 item 3's mutant): a frame after each op of a patch; the fake terminal's log holds more frames than patches.",
-      "anchor": {"tests": ["examples:cells"]},
-      "killers": ["examples:cells"]
+      "anchor": {
+        "tests": [
+          "examples:cells"
+        ]
+      },
+      "killers": [
+        "examples:cells"
+      ]
     },
     {
       "name": "ns6-check-mark-lost",
@@ -68,18 +104,30 @@
       "from": "Checked: \"[x] \"",
       "to": "Checked: \"[ ] \"",
       "rule": "The marks table: a checked Check shows [x] (case counter-play).",
-      "anchor": {"tests": ["examples:cells"]},
-      "killers": ["examples:cells"]
+      "anchor": {
+        "tests": [
+          "examples:cells"
+        ]
+      },
+      "killers": [
+        "examples:cells"
+      ]
     },
     {
       "name": "ns6-tap-only-focuses",
       "origin": "wf10/dod/NS6",
       "file": "examples/cells/host/input.ergo",
-      "from": "\t\t\t\th.focus = Some{Value: id.Value}\n\t\t\t\tredraw(h)\n",
-      "to": "\t\t\t\th.focus = Some{Value: id.Value}\n\t\t\t\tredraw(h)\n\t\t\t\treturn\n",
+      "from": "\t\t\t\th.focus = option.Some{Value: id.Value}\n\t\t\t\tredraw(h)\n",
+      "to": "\t\t\t\th.focus = option.Some{Value: id.Value}\n\t\t\t\tredraw(h)\n\t\t\t\treturn\n",
       "rule": "CounterAgrees and TodoAgrees: a tap on a control that takes the focus also presses it, as on the test host.",
-      "anchor": {"tests": ["examples:cells"]},
-      "killers": ["examples:cells"]
+      "anchor": {
+        "tests": [
+          "examples:cells"
+        ]
+      },
+      "killers": [
+        "examples:cells"
+      ]
     },
     {
       "name": "ns4-expanded-mark-lost",

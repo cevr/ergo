@@ -2,6 +2,7 @@
 // tests. Every copy of a Shelf is the same store.
 
 import ergo.local/prototype/examples/editorgui/edit
+import option
 import sync
 
 // Shelf holds documents by name.
@@ -13,9 +14,9 @@ func NewShelf() Shelf { Shelf{docs: sync.NewRef[Map[string, string]](Map[string,
 // Load is the document named name.
 func Load(s Shelf, name string) string fails edit.Missing | edit.Unreadable {
 	match s.docs.Get().Get(name) {
-	case Some[string] as t:
+	case option.Some[string] as t:
 		t.Value
-	case None:
+	case option.None:
 		return edit.Missing{Name: name}
 	}
 }

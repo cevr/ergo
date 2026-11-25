@@ -12,6 +12,7 @@ import jobq/sched
 import queue
 import slices
 import task
+import time
 
 // Report is how one job ended, and on which worker.
 type Report { ID int, Worker int, Out jobs.Outcome }
@@ -21,10 +22,10 @@ type token {}
 
 // pace puts a token in tokens each every, until it is stopped or the
 // queue closes. Its first burst is already in the queue.
-func pace(tokens queue.Queue[token], every duration) needs Scheduler {
+func pace(tokens queue.Queue[token], every duration) needs time.Scheduler {
 	for {
 		if every > 0s {
-			Scheduler.Sleep(every)
+			time.Scheduler.Sleep(every)
 		}
 		tokens.Push(token) catch {
 		case queue.Closed:
@@ -33,7 +34,7 @@ func pace(tokens queue.Queue[token], every duration) needs Scheduler {
 	}
 }
 
-func work(w int, js queue.Queue[jobs.Job], tokens queue.Queue[token], out queue.Queue[Report], p jobs.Policy) fails queue.Closed needs jobs.Worker | Scheduler {
+func work(w int, js queue.Queue[jobs.Job], tokens queue.Queue[token], out queue.Queue[Report], p jobs.Policy) fails queue.Closed needs jobs.Worker | time.Scheduler {
 	for j in js.Values() {
 		let mut queued = jobs.Queued{N: 1, Ready: 0s}
 		let mut now = 0s
@@ -44,7 +45,7 @@ func work(w int, js queue.Queue[jobs.Job], tokens queue.Queue[token], out queue.
 				try out.Push(Report{ID: j.ID, Worker: w, Out: jobs.GaveUp{N: queued.N, At: now, Why: "the queue sent a wrong signal"}})
 				break
 			}
-			Scheduler.Sleep(j.Takes)
+			time.Scheduler.Sleep(j.Takes)
 			now = now + j.Takes
 			let res = jobs.FinishJob(running, now, jobs.Worker.Do(j, running.N), p) catch {
 			case jobs.TooEarly:
@@ -58,7 +59,7 @@ func work(w int, js queue.Queue[jobs.Job], tokens queue.Queue[token], out queue.
 			case jobs.Retry as rt:
 				queued = rt.Next
 				let wait = jobs.Backoff(p, running.N)
-				Scheduler.Sleep(wait)
+				time.Scheduler.Sleep(wait)
 				now = now + wait
 			}
 		}
@@ -68,8 +69,8 @@ func work(w int, js queue.Queue[jobs.Job], tokens queue.Queue[token], out queue.
 // crew starts workers from w to n in one owned slice and waits in reverse
 // start order. Take moves each task out before Wait consumes it; an early
 // failure releases the slice and drains the workers still in it.
-func crew(w int, n int, js queue.Queue[jobs.Job], tokens queue.Queue[token], out queue.Queue[Report], p jobs.Policy) fails queue.Closed needs jobs.Worker | Scheduler {
-	let mut running = []Task[bool, queue.Closed]{}
+func crew(w int, n int, js queue.Queue[jobs.Job], tokens queue.Queue[token], out queue.Queue[Report], p jobs.Policy) fails queue.Closed needs jobs.Worker | time.Scheduler {
+	let mut running = []task.Task[bool, queue.Closed]{}
 	for worker in w..n+1 {
 		let t = task.Go() {
 			try work(worker, js, tokens, out, p)
@@ -77,8 +78,8 @@ func crew(w int, n int, js queue.Queue[jobs.Job], tokens queue.Queue[token], out
 		}
 		running = running.Append(t)
 	}
-	for len(running) > 0 {
-		let last = len(running) - 1
+	for running.Len() > 0 {
+		let last = running.Len() - 1
 		let t, rest = slices.Take(running, last)
 		running = rest
 		let _ = try t.Wait()
@@ -86,12 +87,12 @@ func crew(w int, n int, js queue.Queue[jobs.Job], tokens queue.Queue[token], out
 }
 
 // Run runs js under c and is the report of each job, by ID.
-func Run(c sched.Config, js []jobs.Job) []Report fails queue.Closed needs jobs.Worker | Scheduler {
+func Run(c sched.Config, js []jobs.Job) []Report fails queue.Closed needs jobs.Worker | time.Scheduler {
 	let workers = if c.Workers < 1 { 1 } else { c.Workers }
 	let burst = if c.Burst < 1 { 1 } else { c.Burst }
-	let q = queue.New[jobs.Job](len(js))
+	let q = queue.New[jobs.Job](js.Len())
 	let tokens = queue.New[token](burst)
-	let out = queue.New[Report](len(js))
+	let out = queue.New[Report](js.Len())
 	for _ in 0..burst {
 		try tokens.Push(token)
 	}

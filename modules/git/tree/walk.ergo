@@ -1,4 +1,5 @@
 import fs
+import option
 import strings
 import github.com/cevr/ergo/modules/git/delta
 import github.com/cevr/ergo/modules/git/oid
@@ -51,14 +52,14 @@ func walkTreeRec(format oid.Format, treeOid oid.OID, prefix string, depth int, m
 				Mode: ModeGitlink,
 				Kind: oid.Commit,
 				OID:  e.OID,
-				Size: None,
+				Size: option.None,
 			})
 		case ModeRegular, ModeExecutable, ModeSymlink:
-			let sizeOpt Option[int] = if withSizes {
+			let sizeOpt option.Option[int] = if withSizes {
 				let sz = try statStoreSize(e.OID, maxBytes)
-				Some[int]{Value: sz}
+				option.Some[int]{Value: sz}
 			} else {
-				None
+				option.None
 			}
 			out = out.Append(WalkEntry{
 				Path: fullPath,
@@ -88,38 +89,38 @@ func WalkTreeWithSizes(format oid.Format, rootTree oid.OID, maxDepth int, maxByt
 
 // LookupPath resolves a slash-separated relative path inside rootTree,
 // returning Some(entry) when found or None if any segment is missing.
-func LookupPath(format oid.Format, rootTree oid.OID, relPath string, maxBytes int) Option[Entry] fails CorruptTree | InvalidEntryName | UnsortedTree | DuplicateEntry | WrongKind | DepthExceeded | MissingObject | StoreError needs pack.ObjectStore {
+func LookupPath(format oid.Format, rootTree oid.OID, relPath string, maxBytes int) option.Option[Entry] fails CorruptTree | InvalidEntryName | UnsortedTree | DuplicateEntry | WrongKind | DepthExceeded | MissingObject | StoreError needs pack.ObjectStore {
 	if relPath == "" || strings.HasPrefix(relPath, "/") || strings.HasSuffix(relPath, "/") {
-		return None
+		return option.None
 	}
 	let parts = strings.Split(relPath, "/")
 	let mut curTree = rootTree
 	for i, seg in parts {
 		if seg == "" || seg == "." || seg == ".." {
-			return None
+			return option.None
 		}
 		let entries = try readTreeEntries(format, curTree, maxBytes)
-		let mut matched Option[Entry] = None
+		let mut matched option.Option[Entry] = option.None
 		for e in entries {
 			if e.Name == seg {
-				matched = Some[Entry]{Value: e}
+				matched = option.Some[Entry]{Value: e}
 				break
 			}
 		}
 		match matched {
-		case None:
-			return None
-		case Some[Entry] as found:
-			if i == len(parts)-1 {
-				return Some[Entry]{Value: found.Value}
+		case option.None:
+			return option.None
+		case option.Some[Entry] as found:
+			if i == parts.Len()-1 {
+				return option.Some[Entry]{Value: found.Value}
 			}
 			if !IsTree(found.Value.Mode) {
-				return None
+				return option.None
 			}
 			curTree = found.Value.OID
 		}
 	}
-	None
+	option.None
 }
 
 // MemoryWalker implements TreeWalker over an in-memory pack.MemoryODB.
@@ -162,7 +163,7 @@ func Walk(w MemoryWalker, rootTree oid.OID, maxDepth int, maxBytes int) []WalkEn
 }
 
 // Lookup implements TreeWalker.Lookup on MemoryWalker.
-func Lookup(w MemoryWalker, rootTree oid.OID, relPath string, maxBytes int) Option[Entry] fails CorruptTree | InvalidEntryName | UnsortedTree | DuplicateEntry | WrongKind | DepthExceeded | MissingObject | StoreError {
+func Lookup(w MemoryWalker, rootTree oid.OID, relPath string, maxBytes int) option.Option[Entry] fails CorruptTree | InvalidEntryName | UnsortedTree | DuplicateEntry | WrongKind | DepthExceeded | MissingObject | StoreError {
 	with context { pack.ObjectStore: w.store } {
 		try LookupPath(w.format, rootTree, relPath, maxBytes)
 	}
@@ -228,7 +229,7 @@ func Walk(w StoreWalker, rootTree oid.OID, maxDepth int, maxBytes int) []WalkEnt
 }
 
 // Lookup implements TreeWalker.Lookup on StoreWalker.
-func Lookup(w StoreWalker, rootTree oid.OID, relPath string, maxBytes int) Option[Entry] fails CorruptTree | InvalidEntryName | UnsortedTree | DuplicateEntry | WrongKind | DepthExceeded | MissingObject | StoreError {
+func Lookup(w StoreWalker, rootTree oid.OID, relPath string, maxBytes int) option.Option[Entry] fails CorruptTree | InvalidEntryName | UnsortedTree | DuplicateEntry | WrongKind | DepthExceeded | MissingObject | StoreError {
 	let disk = try openStoreWalkerODB(w)
 	with context { pack.ObjectStore: disk } {
 		try LookupPath(w.format, rootTree, relPath, maxBytes)

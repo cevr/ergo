@@ -1,5 +1,6 @@
 import dense
 import flattree/tree
+import option
 import slices
 import strconv
 import strings
@@ -20,7 +21,7 @@ func Parse(src string) Tree fails tree.Malformed {
 	skip(&r)
 	let root = try value(&r)
 	skip(&r)
-	if r.pos < len(src) {
+	if r.pos < src.Len() {
 		return tree.Locate(src, r.pos, "expected the end, found "+found(r))
 	}
 	Tree{data: r.t, root: root}
@@ -53,11 +54,11 @@ law FlatEqualsTree(seed int) {
 law FailsWhereTheTreeFails(seed int, at int, c byte) {
 	for v in tree.Samples(seed) {
 		let text = tree.Compact(v)
-		let k = if at < 0 { -at % (len(text) + 1) } else { at % (len(text) + 1) }
+		let k = if at < 0 { -at % (text.Len() + 1) } else { at % (text.Len() + 1) }
 		let mut b = strings.NewBuilder()
 		b.WriteString(strings.Slice(text, 0, k))
 		b.WriteByte(c)
-		b.WriteString(strings.Slice(text, if k < len(text) { k + 1 } else { k }, len(text)))
+		b.WriteString(strings.Slice(text, if k < text.Len() { k + 1 } else { k }, text.Len()))
 		let broken = b.String()
 		let want = tree.Parse(broken) catch {
 		case tree.Malformed as m:
@@ -139,14 +140,14 @@ law ChildrenStayInside(seed int) {
 			let id = dense.IDAt(t.data.ids, i)
 			match ViewOf(t, id) {
 			case Array as a:
-				items += len(a.Items)
+				items += a.Items.Len()
 				for x in a.Items {
 					if dense.Index(x) >= i {
 						return false
 					}
 				}
 			case Object as o:
-				members += len(o.Members)
+				members += o.Members.Len()
 				for m in o.Members {
 					if dense.Index(m.Value) >= i {
 						return false
@@ -192,7 +193,7 @@ law KeysAreInterned(seed int) {
 }
 
 func found(r reader) string {
-	if r.pos >= len(r.t.src) {
+	if r.pos >= r.t.src.Len() {
 		return "the end"
 	}
 	strconv.Quote(strings.Slice(r.t.src, r.pos, r.pos+1))
@@ -200,7 +201,7 @@ func found(r reader) string {
 
 func skip(r mut reader) {
 	let src = r.t.src
-	for r.pos < len(src) {
+	for r.pos < src.Len() {
 		let c = src[r.pos]
 		if c != ' ' && c != '\n' && c != '\t' && c != '\r' {
 			return
@@ -211,7 +212,7 @@ func skip(r mut reader) {
 
 func value(r mut reader) dense.ID[Node] fails tree.Malformed {
 	let src = r.t.src
-	if r.pos >= len(src) {
+	if r.pos >= src.Len() {
 		return tree.Locate(src, r.pos, "expected a value, found the end")
 	}
 	let c = src[r.pos]
@@ -236,8 +237,8 @@ func value(r mut reader) dense.ID[Node] fails tree.Malformed {
 
 func word(r mut reader, w string, kind uint8) dense.ID[Node] fails tree.Malformed {
 	let src = r.t.src
-	for k in 0..len(w) {
-		if r.pos >= len(src) || src[r.pos] != w[k] {
+	for k in 0..w.Len() {
+		if r.pos >= src.Len() || src[r.pos] != w[k] {
 			return tree.Locate(src, r.pos, "expected \(w), found "+found(*r))
 		}
 		r.pos += 1
@@ -248,11 +249,11 @@ func word(r mut reader, w string, kind uint8) dense.ID[Node] fails tree.Malforme
 // numeral reads a number with tree's machine and keeps its span.
 func numeral(r mut reader) dense.ID[Node] fails tree.Malformed {
 	let start = r.pos
-	let (n, broken) = tree.Scan(strings.Slice(r.t.src, start, len(r.t.src)))
+	let (n, broken) = tree.Scan(strings.Slice(r.t.src, start, r.t.src.Len()))
 	match broken {
-	case Some[string] as why:
+	case option.Some[string] as why:
 		return tree.Locate(r.t.src, start+n, why.Value)
-	case None:
+	case option.None:
 		r.pos = start + n
 		put(&r.t, cell{kind: kNumber, a: uint32(start), b: uint32(n)})
 	}
@@ -265,7 +266,7 @@ func text(r mut reader) cell fails tree.Malformed {
 	let src = r.t.src
 	let start = r.pos + 1
 	let mut i = start
-	for i < len(src) {
+	for i < src.Len() {
 		let c = src[i]
 		if c == '"' {
 			r.pos = i + 1
@@ -314,7 +315,7 @@ func array(r mut reader) dense.ID[Node] fails tree.Malformed {
 	// slice. (dense.Stack with marks, a scratch stack shared by every
 	// container as the control has, comes with std dense.)
 	let mut items = slices.WithCapacity[dense.ID[Node]](8)
-	if r.pos < len(src) && src[r.pos] == ']' {
+	if r.pos < src.Len() && src[r.pos] == ']' {
 		r.pos += 1
 		r.depth -= 1
 		return putArray(&r.t, []dense.ID[Node]{})
@@ -323,7 +324,7 @@ func array(r mut reader) dense.ID[Node] fails tree.Malformed {
 		let id = try value(r)
 		items = items.Append(id)
 		skip(r)
-		if r.pos < len(src) {
+		if r.pos < src.Len() {
 			let c = src[r.pos]
 			if c == ',' {
 				r.pos += 1
@@ -345,18 +346,18 @@ func object(r mut reader) dense.ID[Node] fails tree.Malformed {
 	let src = r.t.src
 	// Room for a typical object's members, as array's items.
 	let mut members = slices.WithCapacity[Member](8)
-	if r.pos < len(src) && src[r.pos] == '}' {
+	if r.pos < src.Len() && src[r.pos] == '}' {
 		r.pos += 1
 		r.depth -= 1
 		return putObject(&r.t, []Member{})
 	}
 	for {
-		if r.pos >= len(src) || src[r.pos] != '"' {
+		if r.pos >= src.Len() || src[r.pos] != '"' {
 			return tree.Locate(src, r.pos, "expected a string key, found "+found(*r))
 		}
 		let k = try key(r)
 		skip(r)
-		if r.pos >= len(src) || src[r.pos] != ':' {
+		if r.pos >= src.Len() || src[r.pos] != ':' {
 			return tree.Locate(src, r.pos, "expected ':', found "+found(*r))
 		}
 		r.pos += 1
@@ -364,7 +365,7 @@ func object(r mut reader) dense.ID[Node] fails tree.Malformed {
 		let id = try value(r)
 		members = members.Append(Member{Key: k, Value: id})
 		skip(r)
-		if r.pos < len(src) {
+		if r.pos < src.Len() {
 			let c = src[r.pos]
 			if c == ',' {
 				r.pos += 1

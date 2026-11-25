@@ -20,6 +20,7 @@
 // A blank line or one that starts with # is skipped.
 
 import actor
+import option
 import querytable/explorer
 import querytable/query
 import querytable/screen
@@ -35,15 +36,15 @@ import ui
 type Bad { Why string }
 
 // Site is the running program.
-type Site = actor.Actor[explorer.Page, explorer.Signal, Decision[explorer.Page, []explorer.Command]]
+type Site = actor.Actor[explorer.Page, explorer.Signal, machines.Decision[explorer.Page, []explorer.Command]]
 
 // Host is the program on the test host.
-type Host = ui.TestHost[explorer.Page, explorer.Signal, Decision[explorer.Page, []explorer.Command]]
+type Host = ui.TestHost[explorer.Page, explorer.Signal, machines.Decision[explorer.Page, []explorer.Command]]
 
 // Run plays the script on standard input over clock and prints what the
 // screen shows; with stats, the work of each act too. It returns the exit
 // status: 0, or 1 for a line it cannot read or a screen that fails.
-func Run(clock time.Manual, stats bool) int needs Console | io.Stdin | Scheduler {
+func Run(clock time.Manual, stats bool) int needs io.Console | io.Stdin | time.Scheduler {
 	let mut lines = []string{}
 	for raw in io.Stdin.Lines() {
 		lines = lines.Append(raw)
@@ -69,33 +70,33 @@ func Run(clock time.Manual, stats bool) int needs Console | io.Stdin | Scheduler
 	})
 	let status = played(site, gone, lines, first, address, clock, stats) catch {
 	case actor.Stopped:
-		Console.Println("? the program stopped")
+		io.Console.Println("? the program stopped")
 		1
 	case ui.BadPatch as p:
-		Console.Println("? a patch is refused: \(p.Why)")
+		io.Console.Println("? a patch is refused: \(p.Why)")
 		1
 	}
 	site.Stop()
 	status
 }
 
-func played(site Site, gone queue.Queue[[]explorer.Command], lines []string, first int, address string, clock time.Manual, stats bool) int fails actor.Stopped | ui.BadPatch needs Console | Scheduler {
+func played(site Site, gone queue.Queue[[]explorer.Command], lines []string, first int, address string, clock time.Manual, stats bool) int fails actor.Stopped | ui.BadPatch needs io.Console | time.Scheduler {
 	let mut h = try ui.NewTestHost(site, screen.Screen, clock, 16)
 	// The browser opens at the start address: the history's first entry.
 	ui.OpenAt(&h, address)
 	try ui.Settle(&h)
 	let mut shown = []string{}
-	Console.Println("> start \(address)")
+	io.Console.Println("> start \(address)")
 	shown = show(shown, View(&h))
-	for i in first..len(lines) {
+	for i in first..lines.Len() {
 		let line = strings.TrimSpace(lines[i])
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		Console.Println("> " + line)
+		io.Console.Println("> " + line)
 		let acts = actsOf(line) catch {
 		case Bad as b:
-			Console.Println("? line \(i + 1): \(b.Why)")
+			io.Console.Println("? line \(i + 1): \(b.Why)")
 			return 1
 		}
 		let mut missing = ""
@@ -120,18 +121,18 @@ func played(site Site, gone queue.Queue[[]explorer.Command], lines []string, fir
 		// The act's work and that of the address it asked for: a replacement
 		// is no input of the test host, so its passes join the act's step.
 		let counts = ui.Counts(&h)
-		if len(asks) > 0 {
-			Console.Println("  asks: " + strings.Join(asks, ", "))
+		if asks.Len() > 0 {
+			io.Console.Println("  asks: " + strings.Join(asks, ", "))
 		}
 		if missing != "" {
-			Console.Println("  ? " + missing)
+			io.Console.Println("  ? " + missing)
 		}
 		shown = show(shown, View(&h))
 		if stats {
-			Console.Println("  stats: \(ui.CountsLine(counts))")
+			io.Console.Println("  stats: \(ui.CountsLine(counts))")
 		}
 	}
-	Console.Println("> stop")
+	io.Console.Println("> stop")
 	0
 }
 
@@ -144,9 +145,9 @@ func run(h mut Host, site Site, gone queue.Queue[[]explorer.Command]) []string f
 	let mut asks = []string{}
 	for {
 		let cs = match gone.Poll() {
-		case Some[[]explorer.Command] as x:
+		case option.Some[[]explorer.Command] as x:
 			x.Value
-		case None:
+		case option.None:
 			return asks
 		}
 		for c in cs {
@@ -218,7 +219,7 @@ func press(name string) ui.Act {
 
 // show prints the lines of now whose part (the words before the first
 // ": ") was absent from shown or read otherwise, and is now.
-func show(shown []string, now []string) []string needs Console {
+func show(shown []string, now []string) []string needs io.Console {
 	for l in now {
 		let mut same = false
 		for s in shown {
@@ -227,7 +228,7 @@ func show(shown []string, now []string) []string needs Console {
 			}
 		}
 		if !same {
-			Console.Println("  " + l)
+			io.Console.Println("  " + l)
 		}
 	}
 	for s in shown {
@@ -239,7 +240,7 @@ func show(shown []string, now []string) []string needs Console {
 			}
 		}
 		if !kept {
-			Console.Println("  \(part): gone")
+			io.Console.Println("  \(part): gone")
 		}
 	}
 	now
@@ -251,7 +252,7 @@ func partOf(l string) string {
 }
 
 // seen is what the screen shows, read part by part.
-type seen { Search Option[string], Lists []string, List string, Header bool, Sorts []string, Showing string, Rows []string, Empty bool, Page []string }
+type seen { Search option.Option[string], Lists []string, List string, Header bool, Sorts []string, Showing string, Rows []string, Empty bool, Page []string }
 
 // View is the screen as lines, one per part: the address and its depth,
 // the page's headings, links and the not-found text, the controls (the
@@ -259,22 +260,22 @@ type seen { Search Option[string], Lists []string, List string, Header bool, Sor
 // selected one with *, the active one with >), the sorting, the count,
 // and the rows.
 func View(h mut Host) []string {
-	let mut s = seen{Search: None, Lists: []string{}, List: "", Header: false, Sorts: []string{}, Showing: "", Rows: []string{}, Empty: false, Page: []string{}}
+	let mut s = seen{Search: option.None, Lists: []string{}, List: "", Header: false, Sorts: []string{}, Showing: "", Rows: []string{}, Empty: false, Page: []string{}}
 	for x in ui.Screen(h) {
 		s = walk(x, s, "")
 	}
 	let at = ui.History(h)
 	let mut out = []string{"address: \(ui.Href(ui.Current(at))) (\(ui.Depth(at)) behind)", "page: " + strings.Join(s.Page, " | ")}
 	match s.Search {
-	case Some[string] as q:
+	case option.Some[string] as q:
 		out = out.Append("controls: search \"\(q.Value)\", " + strings.Join(s.Lists, ", "))
-	case None:
+	case option.None:
 	}
 	if s.List != "" {
 		out = out.Append("list: " + s.List)
 	}
 	if s.Header {
-		let sorts = if len(s.Sorts) == 0 { "unsorted" } else { strings.Join(s.Sorts, ", ") }
+		let sorts = if s.Sorts.Len() == 0 { "unsorted" } else { strings.Join(s.Sorts, ", ") }
 		out = out.Append("sorting: " + sorts)
 	}
 	if s.Showing != "" {
@@ -282,7 +283,7 @@ func View(h mut Host) []string {
 	}
 	if s.Empty {
 		out = out.Append("rows: " + screen.Empty)
-	} else if len(s.Rows) > 0 {
+	} else if s.Rows.Len() > 0 {
 		out = out.Append("rows: " + strings.Join(s.Rows, "; "))
 	}
 	out
@@ -302,7 +303,7 @@ func walk(x ui.Shape[explorer.Signal], s seen, within string) seen {
 		}
 		s
 	case ui.InputNode as i:
-		seen{..s, Search: Some[string]{Value: i.Value}}
+		seen{..s, Search: option.Some[string]{Value: i.Value}}
 	case ui.SemanticNode as g:
 		let a = g.Access
 		if a.Role == ui.Heading {
@@ -319,22 +320,22 @@ func walk(x ui.Shape[explorer.Signal], s seen, within string) seen {
 			if i < 0 {
 				return s
 			}
-			return seen{..s, Sorts: s.Sorts.Append(strings.TrimPrefix(a.Name[0:i], "Sort by ") + " " + a.Name[i+len(", currently "):len(a.Name)])}
+			return seen{..s, Sorts: s.Sorts.Append(strings.TrimPrefix(a.Name[0:i], "Sort by ") + " " + a.Name[i+", currently ".Len():a.Name.Len()])}
 		}
 		if a.Role == ui.Button && within != "" {
 			let open = match a.Expanded {
-			case Some[bool] as e:
+			case option.Some[bool] as e:
 				if e.Value { " (open)" } else { "" }
-			case None:
+			case option.None:
 				""
 			}
 			return seen{..s, Lists: s.Lists.Append("\(strings.ToLower(within)) \(a.Name)\(open)")}
 		}
 		if a.Role == ui.Menu {
 			let active = match a.Value {
-			case Some[string] as v:
+			case option.Some[string] as v:
 				v.Value
-			case None:
+			case option.None:
 				""
 			}
 			let mut items = []string{}
@@ -343,9 +344,9 @@ func walk(x ui.Shape[explorer.Signal], s seen, within string) seen {
 				case ui.SemanticNode as m:
 					let mark = if m.Access.Name == active { ">" } else { "" }
 					let sel = match m.Access.Selected {
-					case Some[bool] as b:
+					case option.Some[bool] as b:
 						if b.Value { "*" } else { "" }
-					case None:
+					case option.None:
 						""
 					}
 					items = items.Append(mark + m.Access.Name + sel)
@@ -366,7 +367,7 @@ func walk(x ui.Shape[explorer.Signal], s seen, within string) seen {
 				case _:
 				}
 			}
-			if len(cells) == 5 {
+			if cells.Len() == 5 {
 				return seen{..s, Rows: s.Rows.Append("\(cells[0]) (\(cells[1]), \(cells[2]), \(cells[3]) m, \(cells[4]) kg)")}
 			}
 			return s

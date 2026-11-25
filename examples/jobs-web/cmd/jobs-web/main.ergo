@@ -8,12 +8,14 @@
 
 import fs
 import http
+import io
 import jobsweb/jobs
 import jobsweb/jobs/jobsrpc
 import jobsweb/memory
 import os
 import rpc
 import strings
+import time
 
 // Usage: the page's folder is missing.
 type Usage { Text string }
@@ -30,15 +32,15 @@ func site(root fs.Root, r http.Request) http.Response needs jobs.Jobs | http.Str
 	http.Files(root, "/", r)
 }
 
-func main() fails Usage | fs.NotFound | fs.Denied | fs.Failed | http.ListenFailed | http.InvalidLimits needs Console | Ambient {
+func main() fails Usage | fs.NotFound | fs.Denied | fs.Failed | http.ListenFailed | http.InvalidLimits needs io.Console | os.Ambient {
 	let args = with context { os.Process: os.NewHost() } { os.Process.Args() }
-	if len(args) != 1 {
+	if args.Len() != 1 {
 		return Usage{Text: "usage: jobs-web PAGE-FOLDER"}
 	}
 	let root = try fs.OpenRoot(args[0])
 	let l = try http.Listen("127.0.0.1:0")
-	Console.Println("listening \(l.Addr())")
-	with context { jobs.Jobs: memory.New(), Scheduler: NewLiveScheduler() } {
+	io.Console.Println("listening \(l.Addr())")
+	with context { jobs.Jobs: memory.New(), time.Scheduler: time.NewLiveScheduler() } {
 		try http.Serve(l, http.Limits{MaxBodyBytes: 65536, MaxHeaderBytes: 16384, IdleTimeout: 5s, ReadHeaderTimeout: 10s, ReadBodyTimeout: 30s}, func(r http.Request) http.Response needs jobs.Jobs | http.Streaming {
 			site(root, r)
 		})

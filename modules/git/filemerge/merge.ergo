@@ -15,7 +15,7 @@ type matchPair {
 }
 
 func cloneIntSlice(src []int) []int {
-	let mut out = slices.WithCapacity[int](len(src))
+	let mut out = slices.WithCapacity[int](src.Len())
 	for v in src {
 		out = out.Append(v)
 	}
@@ -24,20 +24,20 @@ func cloneIntSlice(src []int) []int {
 
 func diffLines(baseLines []string, sideLines []string) []editSpan {
 	let mut pref = 0
-	let minLen = if len(baseLines) < len(sideLines) { len(baseLines) } else { len(sideLines) }
+	let minLen = if baseLines.Len() < sideLines.Len() { baseLines.Len() } else { sideLines.Len() }
 	for pref < minLen && baseLines[pref] == sideLines[pref] {
 		pref = pref + 1
 	}
-	let mut baseEnd = len(baseLines)
-	let mut sideEnd = len(sideLines)
+	let mut baseEnd = baseLines.Len()
+	let mut sideEnd = sideLines.Len()
 	for baseEnd > pref && sideEnd > pref && baseLines[baseEnd-1] == sideLines[sideEnd-1] {
 		baseEnd = baseEnd - 1
 		sideEnd = sideEnd - 1
 	}
 	let a = baseLines[pref:baseEnd]
 	let b = sideLines[pref:sideEnd]
-	let n = len(a)
-	let m = len(b)
+	let n = a.Len()
+	let m = b.Len()
 	if n == 0 && m == 0 {
 		return []editSpan{}
 	}
@@ -120,7 +120,7 @@ func diffLines(baseLines []string, sideLines []string) []editSpan {
 	let mut spans = []editSpan{}
 	let mut curA = 0
 	let mut curB = 0
-	let mut ri = len(revMatches) - 1
+	let mut ri = revMatches.Len() - 1
 	for ri >= 0 {
 		let mp = revMatches[ri]
 		if curA < mp.ai || curB < mp.bi {
@@ -191,7 +191,7 @@ func appendLinesEnsuringNewline(parts []string, lines []string) []string {
 	for l in lines {
 		out = out.Append(l)
 	}
-	if len(lines) > 0 && !strings.HasSuffix(lines[len(lines)-1], "\n") {
+	if lines.Len() > 0 && !strings.HasSuffix(lines[lines.Len()-1], "\n") {
 		out = out.Append("\n")
 	}
 	out
@@ -228,7 +228,7 @@ func shouldRefineConflict(style ConflictStyle) bool {
 }
 
 func copyBytes(src []byte) []byte {
-	let mut out = slices.WithCapacity[byte](len(src))
+	let mut out = slices.WithCapacity[byte](src.Len())
 	for b in src {
 		out = out.Append(b)
 	}
@@ -279,13 +279,13 @@ func MergeFiles(base []byte, ours []byte, theirs []byte, opts MergeOptions) Merg
 	let mut i = 0
 	let mut j = 0
 
-	for i < len(oursEdits) || j < len(theirsEdits) {
+	for i < oursEdits.Len() || j < theirsEdits.Len() {
 		let mut winStart = 0
 		let mut winEnd = 0
 		let mut iEnd = i
 		let mut jEnd = j
 
-		if i < len(oursEdits) && (j >= len(theirsEdits) || oursEdits[i].baseStart <= theirsEdits[j].baseStart) {
+		if i < oursEdits.Len() && (j >= theirsEdits.Len() || oursEdits[i].baseStart <= theirsEdits[j].baseStart) {
 			winStart = oursEdits[i].baseStart
 			winEnd = oursEdits[i].baseEnd
 			iEnd = i + 1
@@ -298,14 +298,14 @@ func MergeFiles(base []byte, ours []byte, theirs []byte, opts MergeOptions) Merg
 		let mut grew = true
 		for grew {
 			grew = false
-			for iEnd < len(oursEdits) && editsTouch(oursEdits[iEnd].baseStart, winEnd) {
+			for iEnd < oursEdits.Len() && editsTouch(oursEdits[iEnd].baseStart, winEnd) {
 				if oursEdits[iEnd].baseEnd > winEnd {
 					winEnd = oursEdits[iEnd].baseEnd
 				}
 				iEnd = iEnd + 1
 				grew = true
 			}
-			for jEnd < len(theirsEdits) && editsTouch(theirsEdits[jEnd].baseStart, winEnd) {
+			for jEnd < theirsEdits.Len() && editsTouch(theirsEdits[jEnd].baseStart, winEnd) {
 				if theirsEdits[jEnd].baseEnd > winEnd {
 					winEnd = theirsEdits[jEnd].baseEnd
 				}
@@ -347,14 +347,14 @@ func MergeFiles(base []byte, ours []byte, theirs []byte, opts MergeOptions) Merg
 				let mut trimPref = 0
 				let mut trimSuff = 0
 				if shouldRefineConflict(opts.Style) {
-					let minSide = if len(oursSec) < len(theirsSec) { len(oursSec) } else { len(theirsSec) }
+					let minSide = if oursSec.Len() < theirsSec.Len() { oursSec.Len() } else { theirsSec.Len() }
 					for trimPref < minSide && oursSec[trimPref] == theirsSec[trimPref] {
 						trimPref = trimPref + 1
 					}
-					let remO = len(oursSec) - trimPref
-					let remT = len(theirsSec) - trimPref
+					let remO = oursSec.Len() - trimPref
+					let remT = theirsSec.Len() - trimPref
 					let minRem = if remO < remT { remO } else { remT }
-					for trimSuff < minRem && oursSec[len(oursSec)-1-trimSuff] == theirsSec[len(theirsSec)-1-trimSuff] {
+					for trimSuff < minRem && oursSec[oursSec.Len()-1-trimSuff] == theirsSec[theirsSec.Len()-1-trimSuff] {
 						trimSuff = trimSuff + 1
 					}
 				}
@@ -365,17 +365,17 @@ func MergeFiles(base []byte, ours []byte, theirs []byte, opts MergeOptions) Merg
 						rendered = rendered.Append(l)
 					}
 				}
-				let midO = oursSec[trimPref : len(oursSec)-trimSuff]
-				let midT = theirsSec[trimPref : len(theirsSec)-trimSuff]
+				let midO = oursSec[trimPref : oursSec.Len()-trimSuff]
+				let midT = theirsSec[trimPref : theirsSec.Len()-trimSuff]
 				let mut bPre = 0
 				let mut bSuff = 0
-				for bPre < trimPref && bPre < len(baseSec) && baseSec[bPre] == oursSec[bPre] {
+				for bPre < trimPref && bPre < baseSec.Len() && baseSec[bPre] == oursSec[bPre] {
 					bPre = bPre + 1
 				}
-				for bSuff < trimSuff && bPre+bSuff < len(baseSec) && baseSec[len(baseSec)-1-bSuff] == oursSec[len(oursSec)-1-bSuff] {
+				for bSuff < trimSuff && bPre+bSuff < baseSec.Len() && baseSec[baseSec.Len()-1-bSuff] == oursSec[oursSec.Len()-1-bSuff] {
 					bSuff = bSuff + 1
 				}
-				let midB = baseSec[bPre : len(baseSec)-bSuff]
+				let midB = baseSec[bPre : baseSec.Len()-bSuff]
 				match opts.Favor {
 				case FavorOurs:
 					hunks = hunks.Append(CleanHunk{Lines: midO})
@@ -388,7 +388,7 @@ func MergeFiles(base []byte, ours []byte, theirs []byte, opts MergeOptions) Merg
 						rendered = rendered.Append(l)
 					}
 				case FavorUnion:
-					let mut combined = slices.WithCapacity[string](len(midO) + len(midT))
+					let mut combined = slices.WithCapacity[string](midO.Len() + midT.Len())
 					for l in midO {
 						combined = combined.Append(l)
 						rendered = rendered.Append(l)
@@ -404,7 +404,7 @@ func MergeFiles(base []byte, ours []byte, theirs []byte, opts MergeOptions) Merg
 					conflicts = conflicts + 1
 				}
 				if trimSuff > 0 {
-					let suf = oursSec[len(oursSec)-trimSuff:]
+					let suf = oursSec[oursSec.Len()-trimSuff:]
 					hunks = hunks.Append(CleanHunk{Lines: suf})
 					for l in suf {
 						rendered = rendered.Append(l)
@@ -418,7 +418,7 @@ func MergeFiles(base []byte, ours []byte, theirs []byte, opts MergeOptions) Merg
 		j = jEnd
 	}
 
-	if basePos < len(baseLines) {
+	if basePos < baseLines.Len() {
 		let tail = baseLines[basePos:]
 		hunks = hunks.Append(CleanHunk{Lines: tail})
 		for l in tail {

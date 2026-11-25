@@ -4,6 +4,7 @@
 // conflict stage classification, porcelain v1/v2 -z formatting, and the
 // StatusReader capability.
 
+import option
 import strings
 import github.com/cevr/ergo/modules/git/oid
 import github.com/cevr/ergo/modules/git/tree
@@ -62,15 +63,15 @@ type IgnoreRule {
 // Entry is one typed status item matching Git's porcelain v1 and v2 schemas.
 type Entry {
 	Path        string,
-	OrigPath    Option[string],
+	OrigPath    option.Option[string],
 	IndexCode   string,
 	WorkCode    string,
 	RenameScore int,
-	ModeHead    Option[tree.Mode],
-	ModeIndex   Option[tree.Mode],
-	ModeWork    Option[tree.Mode],
-	OIDHead     Option[oid.OID],
-	OIDIndex    Option[oid.OID],
+	ModeHead    option.Option[tree.Mode],
+	ModeIndex   option.Option[tree.Mode],
+	ModeWork    option.Option[tree.Mode],
+	OIDHead     option.Option[oid.OID],
+	OIDIndex    option.Option[oid.OID],
 }
 
 // StatusReader is the capability seam for querying Git repository status,
@@ -91,7 +92,7 @@ type StatusReader {
 		case StatusError:
 			return false
 		}
-		clean == (len(entries) == 0)
+		clean == (entries.Len() == 0)
 	},
 
 	// UntrackedIgnoredExcludedByDefault: default status queries never emit

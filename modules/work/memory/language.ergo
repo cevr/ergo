@@ -15,6 +15,7 @@ import fs
 import fstest
 import github.com/cevr/ergo/modules/work/classes
 import maps
+import option
 import slices
 import strconv
 import strings
@@ -39,7 +40,7 @@ func linesOf(text string) []string {
 	let mut out = []string{}
 	let parts = strings.Split(text, "\n")
 	for i, part in parts {
-		if i < len(parts)-1 {
+		if i < parts.Len()-1 {
 			out = out.Append(part + "\n")
 		} else if part != "" {
 			out = out.Append(part)
@@ -51,8 +52,8 @@ func linesOf(text string) []string {
 // unitName is the name a header line declares.
 func unitName(line string) string {
 	let rest = strings.TrimPrefix(line, "unit ")
-	let mut end = len(rest)
-	for i in 0..len(rest) {
+	let mut end = rest.Len()
+	for i in 0..rest.Len() {
 		if rest[i] == ' ' || rest[i] == '(' || rest[i] == '\n' || rest[i] == '\r' || rest[i] == '\t' {
 			end = i
 			break
@@ -70,7 +71,7 @@ func Units(l Lines, file string, text string) []work.Unit fails work.Unreadable 
 	let mut at = 0
 	let mut start = 0
 	for i, line in linesOf(text) {
-		at = at + len(line)
+		at = at + line.Len()
 		if !strings.HasPrefix(line, "unit ") {
 			cur = cur + line
 			continue
@@ -78,12 +79,12 @@ func Units(l Lines, file string, text string) []work.Unit fails work.Unreadable 
 		if cur != "" {
 			units = units.Append(work.Unit{Key: l.keyed(key, start), Kind: kind, Text: cur, Exported: exported(key), Members: membersOf(kind, cur)})
 		}
-		start = at - len(line)
+		start = at - line.Len()
 		key = unitName(line)
 		if key == "" {
 			return work.Unreadable{File: file, Why: "a unit with no name at line \(i + 1)"}
 		}
-		if seen.Get(key) != None && l.fault != "dupes" {
+		if seen.Get(key) != option.None && l.fault != "dupes" {
 			return work.Unreadable{File: file, Why: "two units named \(key)"}
 		}
 		seen[key] = true
@@ -93,9 +94,9 @@ func Units(l Lines, file string, text string) []work.Unit fails work.Unreadable 
 	if cur != "" {
 		units = units.Append(work.Unit{Key: l.keyed(key, start), Kind: kind, Text: cur, Exported: exported(key), Members: membersOf(kind, cur)})
 	}
-	if l.fault == "drops" && len(units) > 0 {
-		let last = units[len(units)-1]
-		units[len(units)-1] = work.Unit{..last, Text: last.Text[0 : len(last.Text)-1]}
+	if l.fault == "drops" && units.Len() > 0 {
+		let last = units[units.Len()-1]
+		units[units.Len()-1] = work.Unit{..last, Text: last.Text[0 : last.Text.Len()-1]}
 	}
 	units
 }
@@ -112,12 +113,12 @@ func membersOf(kind string, text string) []work.Unit {
 	let mut ended = false
 	for line in linesOf(text) {
 		let words = strings.Fields(line)
-		if !strings.HasPrefix(line, "  m ") || len(words) < 2 {
-			ended = len(out) > 0
+		if !strings.HasPrefix(line, "  m ") || words.Len() < 2 {
+			ended = out.Len() > 0
 			continue
 		}
 		let name = words[1]
-		if ended || seen.Get(name) != None {
+		if ended || seen.Get(name) != option.None {
 			return []work.Unit{}
 		}
 		seen[name] = true
@@ -160,7 +161,7 @@ func declared(l Lines, s work.Snapshot) Map[string, Map[string, work.Unit]] {
 		}
 		for u in units {
 			let (_, body) = shape(l, u)
-			if u.Kind == "unit" || len(body) > 0 {
+			if u.Kind == "unit" || body.Len() > 0 {
 				keyed[u.Key] = u
 			}
 		}
@@ -190,11 +191,11 @@ func Changes(l Lines, base work.Snapshot, head work.Snapshot) []work.Change fail
 		}
 		for k in slices.Sort(keys) {
 			match (b.Get(k), a.Get(k)) {
-			case (None, Some[work.Unit]):
+			case (option.None, option.Some[work.Unit]):
 				out = out.Append(work.Change{Key: k, File: path, Kind: "added"})
-			case (Some[work.Unit], None):
+			case (option.Some[work.Unit], option.None):
 				out = out.Append(work.Change{Key: k, File: path, Kind: "removed"})
-			case (Some[work.Unit] as was, Some[work.Unit] as now):
+			case (option.Some[work.Unit] as was, option.Some[work.Unit] as now):
 				let (h1, b1) = shape(l, was.Value)
 				let (h2, b2) = shape(l, now.Value)
 				if h1 != h2 {
@@ -202,7 +203,7 @@ func Changes(l Lines, base work.Snapshot, head work.Snapshot) []work.Change fail
 				} else if b1 != b2 {
 					out = out.Append(work.Change{Key: k, File: path, Kind: "body"})
 				}
-			case (None, None):
+			case (option.None, option.None):
 			}
 		}
 	}
@@ -222,14 +223,14 @@ func Sites(l Lines, snap work.Snapshot, of string) []work.Site fails work.NotPro
 				continue
 			}
 			let mut from = 0
-			for from+len(of) <= len(line) {
+			for from+of.Len() <= line.Len() {
 				let at = strings.Index(line[from:], of)
 				if at < 0 {
 					break
 				}
 				let start = from + at
-				let end = start + len(of)
-				if (start == 0 || !word(line[start-1])) && (end == len(line) || !word(line[end])) {
+				let end = start + of.Len()
+				if (start == 0 || !word(line[start-1])) && (end == line.Len() || !word(line[end])) {
 					out = out.Append(work.Site{File: path, Line: i + 1, Column: start + 1})
 				}
 				from = start + 1
@@ -288,7 +289,7 @@ func Started(sv Serving) int { sv.runs.Get() }
 func Env(_ Serving) Map[string, string] { Map[string, string]{} }
 
 func Run(sv Serving, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {
-	if c.Name != "lines" || len(c.Args) != 0 {
+	if c.Name != "lines" || c.Args.Len() != 0 {
 		return exec.NotFound{Name: c.Name}
 	}
 	sv.runs.Set(sv.runs.Get() + 1)
@@ -323,7 +324,7 @@ func linesText(names []string, bodies []string) string {
 			name = strings.ReplaceAll(name, bad, "x")
 		}
 		out = out + "unit \(name)(a)\n"
-		if i < len(bodies) {
+		if i < bodies.Len() {
 			out = out + strings.ReplaceAll(bodies[i], "unit ", "u ") + "\n"
 		}
 		if i%3 == 1 {
@@ -345,9 +346,9 @@ law PluginIsTransparent(names []string, bodies []string, extra []work.FileEdit, 
 	let mut valid = utf8.ValidString(text) && utf8.ValidString(of) && utf8.ValidString(note)
 	for f in extra {
 		valid = valid && utf8.ValidString(f.Path) && utf8.ValidString(match f.Text {
-		case Some[string] as t:
+		case option.Some[string] as t:
 			t.Value
-		case None:
+		case option.None:
 			""
 		})
 	}
@@ -364,8 +365,8 @@ law PluginIsTransparent(names []string, bodies []string, extra []work.FileEdit, 
 		c = work.Absent
 	}
 	let p = work.PluginOf(runner, "lines", "/")
-	let s = work.Snapshot{Root: "", Layer: extra.Append(work.FileEdit{Path: "a.lines", Text: Some[string]{Value: text}})}
-	let head = work.Snapshot{Root: "", Layer: s.Layer.Append(work.FileEdit{Path: "a.lines", Text: Some[string]{Value: text + "unit zz\n\(of)\n"}})}
+	let s = work.Snapshot{Root: "", Layer: extra.Append(work.FileEdit{Path: "a.lines", Text: option.Some[string]{Value: text}})}
+	let head = work.Snapshot{Root: "", Layer: s.Layer.Append(work.FileEdit{Path: "a.lines", Text: option.Some[string]{Value: text + "unit zz\n\(of)\n"}})}
 	let requests = []work.Request{work.UnitsOf{File: "a.lines", Text: text}, work.UnitsOf{File: "b.lines", Text: "unit \nunit a\n"}, work.ChangesOf{Base: s, Head: s}, work.ChangesOf{Base: s, Head: head}, work.SitesOf{Snap: head, Of: of}, work.CommentOf{Text: note}, work.CheckOf{Base: s, Layer: head.Layer}}
 	for r in requests {
 		if work.AnswerOf(r, l, i, c) != work.AnswerOf(r, p, p, p) {
@@ -384,7 +385,7 @@ law PluginFailuresAreUnanswered(names []string, bodies []string) {
 	if !utf8.ValidString(text) {
 		return true
 	}
-	let s = work.Snapshot{Root: "", Layer: []work.FileEdit{work.FileEdit{Path: "a.lines", Text: Some[string]{Value: text}}}}
+	let s = work.Snapshot{Root: "", Layer: []work.FileEdit{work.FileEdit{Path: "a.lines", Text: option.Some[string]{Value: text}}}}
 	for broken in []Serving{Serving{..NewServing(), status: 1}, Serving{..NewServing(), silent: true}} {
 		let died = work.PluginOf(broken, "lines", "/")
 		for r in []work.Request{work.UnitsOf{File: "a.lines", Text: text}, work.ChangesOf{Base: s, Head: s}, work.SitesOf{Snap: s, Of: "a"}, work.CommentOf{Text: "n"}, work.CheckOf{Base: s, Layer: []work.FileEdit{}}} {
@@ -466,7 +467,7 @@ func refusal(t work.Tool) work.PluginRefused {
 	none
 }
 
-let linesOnly = work.PluginTestOptions{Files: Some[string]{Value: "*.lines"}, Max: None, Seed: None}
+let linesOnly = work.PluginTestOptions{Files: option.Some[string]{Value: "*.lines"}, Max: option.None, Seed: option.None}
 
 // plugin-test admits the reference language at level 2 with every law
 // it ran named, and refuses a plugin that drops a byte, or that reads a
@@ -482,7 +483,7 @@ test PluginTestNamesTheLaw {
 
 test LanguageRunsOnlyTrusted {
 	let config = "[language.lines]\ncommand = \"lines\"\nfiles = [\"*.lines\"]\n"
-	let none = work.PluginTestOptions{Files: None, Max: None, Seed: None}
+	let none = work.PluginTestOptions{Files: option.None, Max: option.None, Seed: option.None}
 	let asked = (try configuredWorld(NewLines(), pluginFiles, config, false)).PluginTest("lines", none) catch {
 	case work.Untrusted as u:
 		assert u.Commands == []string{"language.lines.command: lines"}
@@ -553,12 +554,12 @@ func picked(base Map[int, int], ours Map[int, int], theirs Map[int, int]) (Map[i
 			o
 		} else {
 			clashes = clashes.Append(key)
-			None
+			option.None
 		}
 		match v {
-		case Some[int] as x:
+		case option.Some[int] as x:
 			out[key] = x.Value
-		case None:
+		case option.None:
 		}
 	}
 	(out, clashes)
@@ -569,9 +570,9 @@ func unitFile(units Map[int, int]) string {
 	let mut out = ""
 	for key in 0..6 {
 		match units.Get(key) {
-		case Some[int] as v:
+		case option.Some[int] as v:
 			out = out + "unit k\(key)\n  v\(v.Value)\n"
-		case None:
+		case option.None:
 		}
 	}
 	out
@@ -584,9 +585,9 @@ func memberFile(units Map[int, int]) string {
 	let mut out = "# a file\nunit c\n  m a v0\n"
 	for key in 0..6 {
 		match units.Get(key) {
-		case Some[int] as v:
+		case option.Some[int] as v:
 			out = out + "  m k\(key) v\(v.Value)\n"
-		case None:
+		case option.None:
 		}
 	}
 	out + "  end\n"
@@ -594,10 +595,10 @@ func memberFile(units Map[int, int]) string {
 
 // valuesOf is the values a merged text holds: of its units, or of the
 // members of its unit c. None when it does not parse.
-func valuesOf(text string, members bool) Option[Map[int, int]] {
+func valuesOf(text string, members bool) option.Option[Map[int, int]] {
 	let units = NewLines().Units("f.lines", text) catch {
 	case work.Unreadable, work.Unanswered:
-		return None
+		return option.None
 	}
 	let mut out = Map[int, int]{}
 	for u in units {
@@ -609,16 +610,16 @@ func valuesOf(text string, members bool) Option[Map[int, int]] {
 			let words = strings.Fields(p.Text)
 			let key = strconv.Atoi(p.Key[1:]) catch {
 			case _:
-				return None
+				return option.None
 			}
-			let value = strconv.Atoi(strings.TrimPrefix(words[len(words)-1], "v")) catch {
+			let value = strconv.Atoi(strings.TrimPrefix(words[words.Len()-1], "v")) catch {
 			case _:
-				return None
+				return option.None
 			}
 			out[key] = value
 		}
 	}
-	Some[Map[int, int]]{Value: out}
+	option.Some[Map[int, int]]{Value: out}
 }
 
 // UnitsMergeIsTheReference: two scripts on a file of units merge unit by
@@ -636,12 +637,12 @@ law UnitsMergeIsTheReference(units Map[int, int], ourEdits []classes.Edit, their
 	let (want, clashes) = picked(base, ours, theirs)
 	let mut names = []string{}
 	for k in clashes {
-		names = names.Append(if base.Get(k) == None { "SameNewHandle k\(k)" } else { "SameDeclaration k\(k)" })
+		names = names.Append(if base.Get(k) == option.None { "SameNewHandle k\(k)" } else { "SameDeclaration k\(k)" })
 	}
-	if len(names) > 0 {
+	if names.Len() > 0 {
 		return slices.Sort(got.Conflicts) == slices.Sort(names)
 	}
-	len(got.Conflicts) == 0 && valuesOf(got.Text, false) == Some[Map[int, int]]{Value: want} && keeps(got.Text, ours) && keeps(got.Text, theirs)
+	got.Conflicts.Len() == 0 && valuesOf(got.Text, false) == option.Some[Map[int, int]]{Value: want} && keeps(got.Text, ours) && keeps(got.Text, theirs)
 }
 
 // keeps reports whether the units of text that side holds are in side's
@@ -657,7 +658,7 @@ func keeps(text string, side Map[int, int]) bool {
 		case _:
 			return false
 		}
-		if side.Get(key) != None {
+		if side.Get(key) != option.None {
 			if key < last {
 				return false
 			}
@@ -686,7 +687,7 @@ law MembersMergeIsTheReference(units Map[int, int], ourEdits []classes.Edit, the
 	if fresh && tail {
 		return got.Conflicts == []string{"SameNewHandle c"}
 	}
-	if tail && !strings.HasSuffix(got.Text, "  done\n") && len(got.Conflicts) == 0 {
+	if tail && !strings.HasSuffix(got.Text, "  done\n") && got.Conflicts.Len() == 0 {
 		return false
 	}
 	let (want, clashes) = picked(base, ours, theirs)
@@ -694,10 +695,10 @@ law MembersMergeIsTheReference(units Map[int, int], ourEdits []classes.Edit, the
 	for k in clashes {
 		names = names.Append("SameMember c.k\(k)")
 	}
-	if len(names) > 0 {
+	if names.Len() > 0 {
 		return slices.Sort(got.Conflicts) == slices.Sort(names)
 	}
-	len(got.Conflicts) == 0 && valuesOf(got.Text, true) == Some[Map[int, int]]{Value: want}
+	got.Conflicts.Len() == 0 && valuesOf(got.Text, true) == option.Some[Map[int, int]]{Value: want}
 }
 
 // bodyFile is one unit c with no members: a line "  kK vV" for each of
@@ -715,7 +716,7 @@ func bodyValues(text string) Map[int, int] {
 	let mut out = Map[int, int]{}
 	for line in strings.Split(text, "\n") {
 		let words = strings.Fields(line)
-		if len(words) == 2 && strings.HasPrefix(words[0], "k") {
+		if words.Len() == 2 && strings.HasPrefix(words[0], "k") {
 			let key = strconv.Atoi(words[0][1:]) catch {
 			case _:
 				continue
@@ -750,10 +751,10 @@ law BodyLinesMergeWithinTheUnit(values Map[int, int], ourEdits []classes.Edit, t
 		return false
 	}
 	let (want, clashes) = picked(base, ours, theirs)
-	if len(clashes) > 0 {
+	if clashes.Len() > 0 {
 		return got.Conflicts == []string{"SameDeclaration c"}
 	}
-	len(got.Conflicts) == 0 && bodyValues(got.Text) == want
+	got.Conflicts.Len() == 0 && bodyValues(got.Text) == want
 }
 
 func without0(m Map[int, int]) Map[int, int] {
@@ -821,7 +822,7 @@ law MergeByLanguageIsMergeUnits(units Map[int, int], ourEdits []classes.Edit, th
 	let (tool, disk) = try configuredDisk(NewLines(), Map[string, string]{"m/b.lines": b, "m/o.lines": o, "m/t.lines": th}, languageConfig, trusted)
 	let mut conflicts = []string{}
 	let mut refused = false
-	tool.MergeFile("auto", theBase+"/m/b.lines", theBase+"/m/o.lines", theBase+"/m/t.lines", work.MergeFileOptions{Path: Some[string]{Value: "f.lines"}}) catch {
+	tool.MergeFile("auto", theBase+"/m/b.lines", theBase+"/m/o.lines", theBase+"/m/t.lines", work.MergeFileOptions{Path: option.Some[string]{Value: "f.lines"}}) catch {
 	case work.MergeConflict as m:
 		conflicts = m.Units
 		refused = m.Why == "the language lines runs only after work trust"
@@ -846,9 +847,9 @@ law MergeByLanguageIsMergeUnits(units Map[int, int], ourEdits []classes.Edit, th
 	}
 	if !trusted {
 		let lines = classes.MergeText(b, o, th)
-		return refused && got == o && written == classes.Text(lines) && (len(tree.Conflicts) > 0) == (lines.Clashes > 0)
+		return refused && got == o && written == classes.Text(lines) && (tree.Conflicts.Len() > 0) == (lines.Clashes > 0)
 	}
-	got == want.Text && conflicts == want.Conflicts && written == want.Text && (len(tree.Conflicts) > 0) == (len(want.Conflicts) > 0)
+	got == want.Text && conflicts == want.Conflicts && written == want.Text && (tree.Conflicts.Len() > 0) == (want.Conflicts.Len() > 0)
 }
 
 // RenamedUnitTakesTheOtherSidesChange: ours renames a unit in place (its
@@ -859,17 +860,17 @@ law MergeByLanguageIsMergeUnits(units Map[int, int], ourEdits []classes.Edit, th
 law RenamedUnitTakesTheOtherSidesChange(units Map[int, int], which int, value int, taken bool) {
 	let base = scripted(units, []classes.Edit{})
 	let keys = slices.Sorted(maps.Keys(base))
-	if len(keys) == 0 {
+	if keys.Len() == 0 {
 		return true
 	}
-	let r = keys[fold(which)%len(keys)]
+	let r = keys[fold(which)%keys.Len()]
 	let file = func(m Map[int, int], name int) string {
 		let mut out = ""
 		for key in 0..6 {
 			match m.Get(key) {
-			case Some[int] as v:
+			case option.Some[int] as v:
 				out = out + (if key == name { "unit r\(key)" } else { "unit k\(key)" }) + "\n  -\n  v\(v.Value)\n"
-			case None:
+			case option.None:
 			}
 		}
 		out
@@ -886,7 +887,7 @@ law RenamedUnitTakesTheOtherSidesChange(units Map[int, int], which int, value in
 	if taken {
 		return got.Conflicts == []string{"SameNewHandle r\(r)"}
 	}
-	len(got.Conflicts) == 0 && got.Text == file(changed, r)
+	got.Conflicts.Len() == 0 && got.Text == file(changed, r)
 }
 
 // UnitsCarryAMove: theirs only moves the units (reversed), ours edits
@@ -898,9 +899,9 @@ law UnitsCarryAMove(units Map[int, int], ourEdits []classes.Edit) {
 	let mut reversed = ""
 	for key in 0..6 {
 		match base.Get(5 - key) {
-		case Some[int] as v:
+		case option.Some[int] as v:
 			reversed = reversed + "unit k\(5 - key)\n  v\(v.Value)\n"
-		case None:
+		case option.None:
 		}
 	}
 	let got = work.MergeUnits(NewLines(), "f.lines", unitFile(base), unitFile(ours), reversed) catch {
@@ -917,7 +918,7 @@ law UnitsCarryAMove(units Map[int, int], ourEdits []classes.Edit) {
 		case _:
 			return false
 		}
-		if base.Get(key) != None {
+		if base.Get(key) != option.None {
 			if key > last {
 				return false
 			}
@@ -925,7 +926,7 @@ law UnitsCarryAMove(units Map[int, int], ourEdits []classes.Edit) {
 		}
 	}
 	let (want, _) = picked(base, ours, base)
-	len(got.Conflicts) == 0 && valuesOf(got.Text, false) == Some[Map[int, int]]{Value: want}
+	got.Conflicts.Len() == 0 && valuesOf(got.Text, false) == option.Some[Map[int, int]]{Value: want}
 }
 
 // TreeMergeStartsThePluginTwice: the merge of three trees with n files of
@@ -981,7 +982,7 @@ law TreeMergeStartsThePluginTwice(units Map[int, int], ourEdits []classes.Edit, 
 			return false
 		}
 	}
-	tool.MergeFile("auto", theBase+"/m/b.lines", theBase+"/m/o.lines", theBase+"/m/t.lines", work.MergeFileOptions{Path: Some[string]{Value: "f.lines"}}) catch {
+	tool.MergeFile("auto", theBase+"/m/b.lines", theBase+"/m/o.lines", theBase+"/m/t.lines", work.MergeFileOptions{Path: option.Some[string]{Value: "f.lines"}}) catch {
 	case _:
 	}
 	tree <= 2 && sv.Started()-tree <= 2
@@ -1048,6 +1049,6 @@ test DoctorNamesTheMountOfMount {
 	let runner = exec.Script{Results: Map[string, exec.Result]{exec.Key(exec.New("mount", []string{})): exec.Result{Status: 0, Stdout: list, Stderr: ""}}}
 	let (tool, _) = try configuredWith(runner, Map[string, string]{}, "", false)
 	let _ = try tool.Init()
-	let report = try tool.Doctor(work.DoctorOptions{Rift: false, Registry: None, Unguard: false, Fix: false, Here: false, Repair: false})
+	let report = try tool.Doctor(work.DoctorOptions{Rift: false, Registry: option.None, Unguard: false, Fix: false, Here: false, Repair: false})
 	assert report.FileSystem == "apfs"
 }

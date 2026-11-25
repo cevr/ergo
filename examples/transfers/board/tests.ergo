@@ -24,7 +24,7 @@ func second() duration { transfer.Took(transfer.Files[1].MB) }
 test StartAppendsASendingTransfer {
 	// starting an upload appends an Uploading entry and fires UploadFile.
 	let c = time.NewManual(0)
-	with context { Scheduler: c } {
+	with context { time.Scheduler: c } {
 		let mut b = New()
 		b.Start()
 		let shown = Lines(b) == []string{"0 trail-map.png sending"} && b.Next == 1
@@ -37,7 +37,7 @@ test StartAppendsASendingTransfer {
 test CancelEndsTheTransfer {
 	// cancelling an upload interrupts it and marks it Cancelled.
 	let c = time.NewManual(0)
-	with context { Scheduler: c } {
+	with context { time.Scheduler: c } {
 		let mut b = New()
 		b.Start()
 		Cancel(b, 0)
@@ -52,7 +52,7 @@ test CancelAfterArrivalChangesNothing {
 	// a cancel that lands after completion resolves NotFound and changes
 	// nothing.
 	let c = time.NewManual(0)
-	with context { Scheduler: c } {
+	with context { time.Scheduler: c } {
 		let mut b = New()
 		b.Start()
 		time.Advance(c, first())
@@ -65,7 +65,7 @@ test CancelAfterArrivalChangesNothing {
 test CancelOneLeavesTheOther {
 	// cancelling one upload leaves the other running.
 	let c = time.NewManual(0)
-	with context { Scheduler: c } {
+	with context { time.Scheduler: c } {
 		let mut b = New()
 		b.Start()
 		b.Start()
@@ -79,7 +79,7 @@ test CancelOneLeavesTheOther {
 test StartWhileACancelIsPending {
 	// a new upload can start while a cancellation is still pending.
 	let c = time.NewManual(0)
-	with context { Scheduler: c } {
+	with context { time.Scheduler: c } {
 		let mut b = New()
 		b.Start()
 		Cancel(b, 0)
@@ -93,7 +93,7 @@ test StartWhileACancelIsPending {
 test RestartKeepsItsIdAndFile {
 	// restarting a cancelled upload reuses its id and file.
 	let c = time.NewManual(0)
-	with context { Scheduler: c } {
+	with context { time.Scheduler: c } {
 		let mut b = New()
 		b.Start()
 		Cancel(b, 0)
@@ -109,7 +109,7 @@ test CancelAllStopsOnlyTheSending {
 	// cancel all interrupts every running upload and only those: the
 	// third file here is the shortest.
 	let c = time.NewManual(0)
-	with context { Scheduler: c } {
+	with context { time.Scheduler: c } {
 		let mut b = New()
 		b.Start()
 		b.Start()

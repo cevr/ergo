@@ -43,30 +43,30 @@ func MarkOf(c byte) Mark {
 // any other byte is itself. After a backslash, n, t, a quote and a
 // backslash stand for a newline, a tab, a quote and a backslash; anything
 // else breaks the literal.
-func QuoteStep(q Quote, m Mark) Decision[Quote, Piece] {
+func QuoteStep(q Quote, m Mark) machines.Decision[Quote, Piece] {
 	match (q, m) {
 	case (Body, Close):
-		Done[Piece]{Output: Closed}
+		machines.Done[Piece]{Output: Closed}
 	case (Body, Backslash):
-		Enter[Quote]{Next: Escape}
+		machines.Enter[Quote]{Next: Escape}
 	case (Body, Newline):
-		Done[Piece]{Output: Broken{Why: "a string ends on the line where it starts"}}
+		machines.Done[Piece]{Output: Broken{Why: "a string ends on the line where it starts"}}
 	case (Body, Plain as p):
-		Emit[Quote, Piece]{Next: Body, Output: Char{C: p.C}}
+		machines.Emit[Quote, Piece]{Next: Body, Output: Char{C: p.C}}
 	case (Escape, Close):
-		Emit[Quote, Piece]{Next: Body, Output: Char{C: '"'}}
+		machines.Emit[Quote, Piece]{Next: Body, Output: Char{C: '"'}}
 	case (Escape, Backslash):
-		Emit[Quote, Piece]{Next: Body, Output: Char{C: '\\'}}
+		machines.Emit[Quote, Piece]{Next: Body, Output: Char{C: '\\'}}
 	case (Escape, Newline):
-		Done[Piece]{Output: Broken{Why: "a string ends on the line where it starts"}}
+		machines.Done[Piece]{Output: Broken{Why: "a string ends on the line where it starts"}}
 	case (Escape, Plain as p):
 		match p.C {
 		case 'n':
-			Emit[Quote, Piece]{Next: Body, Output: Char{C: '\n'}}
+			machines.Emit[Quote, Piece]{Next: Body, Output: Char{C: '\n'}}
 		case 't':
-			Emit[Quote, Piece]{Next: Body, Output: Char{C: '\t'}}
+			machines.Emit[Quote, Piece]{Next: Body, Output: Char{C: '\t'}}
 		case _:
-			Done[Piece]{Output: Broken{Why: "unknown escape \\" + escaped(p.C)}}
+			machines.Done[Piece]{Output: Broken{Why: "unknown escape \\" + escaped(p.C)}}
 		}
 	}
 }
@@ -100,9 +100,9 @@ type Quoting machine[Quote, Mark] {
 		match MarkOf(c) {
 		case Plain:
 			match QuoteStep(Body, MarkOf(c)) {
-			case Emit[Quote, Piece] as e:
+			case machines.Emit[Quote, Piece] as e:
 				e.Output == Char{C: c} && e.Next == Body
-			case Enter[Quote], Stay[Quote], Tell[Quote, Piece], Ignore, Reject, Done[Piece]:
+			case machines.Enter[Quote], machines.Stay[Quote], machines.Tell[Quote, Piece], machines.Ignore, machines.Reject, machines.Done[Piece]:
 				false
 			}
 		case Close, Backslash, Newline:

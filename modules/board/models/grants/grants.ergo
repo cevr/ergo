@@ -1,3 +1,5 @@
+import machines
+
 // The package grants is the design model of grants that change while
 // requests run (spec.md, Grant; machines.md, M6): a write lands and an
 // event is given only under the grants as they are at that moment in the
@@ -59,32 +61,32 @@ func count(w World) int {
 	n
 }
 
-func step(s World, act Act, mutant int) Decision[World, string] {
+func step(s World, act Act, mutant int) machines.Decision[World, string] {
 	let mut w = s
 	match act {
 	case Revoke:
 		if !w.Allowed || w.Changes >= MaxChanges {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Allowed = false
 		w.Changes = w.Changes + 1
-		return Enter{w}
+		return machines.Enter{w}
 	case Give:
 		if w.Allowed || w.Changes >= MaxChanges {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Allowed = true
 		w.Changes = w.Changes + 1
-		return Enter{w}
+		return machines.Enter{w}
 	case Begin:
 		if w.Req != 0 || !w.Allowed {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Req = 1
-		return Enter{w}
+		return machines.Enter{w}
 	case Commit:
 		if w.Req != 1 {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Req = 2
 		let mut ok = w.Allowed
@@ -93,29 +95,29 @@ func step(s World, act Act, mutant int) Decision[World, string] {
 		}
 		if !ok {
 			w.Refused = true
-			return Enter{w}
+			return machines.Enter{w}
 		}
 		w.Wrote = w.Wrote + 1
 		if !w.Allowed {
 			w.Leak = true
 		}
-		return Enter{w}
+		return machines.Enter{w}
 	case Subscribe:
 		if w.Sub || !w.Allowed {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Sub = true
 		w.Next = count(w)
-		return Enter{w}
+		return machines.Enter{w}
 	case Append:
 		if count(w) >= MaxEvents {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Events = w.Events.Append(w.Allowed)
-		return Enter{w}
+		return machines.Enter{w}
 	case Deliver:
 		if !w.Sub || w.Next >= count(w) {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Next = w.Next + 1
 		let mut ok = w.Allowed
@@ -124,13 +126,13 @@ func step(s World, act Act, mutant int) Decision[World, string] {
 		}
 		if !ok {
 			w.Skipped = w.Skipped + 1
-			return Enter{w}
+			return machines.Enter{w}
 		}
 		w.Got = w.Got + 1
 		if !w.Allowed {
 			w.Leak = true
 		}
-		return Enter{w}
+		return machines.Enter{w}
 	}
 }
 
@@ -149,9 +151,9 @@ func refusedAfterRevoke(w World) bool { w.Refused && w.Wrote == 0 }
 func landed(w World) bool             { w.Wrote == 1 }
 func skippedThenGot(w World) bool     { w.Skipped == 1 && w.Got == 1 }
 
-func design(s World, a Act) Decision[World, string]        { return step(s, a, NoMutant) }
-func snapshotWrite(s World, a Act) Decision[World, string] { return step(s, a, SnapshotWriteMutant) }
-func snapshotWait(s World, a Act) Decision[World, string]  { return step(s, a, SnapshotWaitMutant) }
+func design(s World, a Act) machines.Decision[World, string]        { return step(s, a, NoMutant) }
+func snapshotWrite(s World, a Act) machines.Decision[World, string] { return step(s, a, SnapshotWriteMutant) }
+func snapshotWait(s World, a Act) machines.Decision[World, string]  { return step(s, a, SnapshotWaitMutant) }
 
 type Design machine[World, Act] {
 	initial: first(),

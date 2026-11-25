@@ -1,3 +1,5 @@
+import machines
+
 // Payload identifies one of two distinct post payloads sent under one key.
 type Payload = P0{} | P1{}
 
@@ -88,19 +90,19 @@ func first() World {
 	}
 }
 
-func step(s World, act Act, mutant int) Decision[World, string] {
+func step(s World, act Act, mutant int) machines.Decision[World, string] {
 	let mut w = s
 	match act {
 	case OtherPost:
 		if w.OtherPosts >= MaxOtherPosts {
-			return Ignore
+			return machines.Ignore
 		}
 		w.OtherPosts = w.OtherPosts + 1
 		w.NextMsgId = w.NextMsgId + 1
-		return Enter{w}
+		return machines.Enter{w}
 	case SendPost as a:
 		if w.Attempts >= MaxAttempts {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Attempts = w.Attempts + 1
 		let p = pi(a.P)
@@ -116,7 +118,7 @@ func step(s World, act Act, mutant int) Decision[World, string] {
 			} else {
 				w.FirstAnswer = id
 			}
-			return Enter{w}
+			return machines.Enter{w}
 		}
 		if mutant == noIdempotencyMutant {
 			let id = w.NextMsgId
@@ -125,15 +127,15 @@ func step(s World, act Act, mutant int) Decision[World, string] {
 			if !a.Lost && id != w.KeyResult {
 				w.WrongAnswer = true
 			}
-			return Enter{w}
+			return machines.Enter{w}
 		}
 		if p != w.KeyPayload {
 			if mutant == ignoreDigestMutant {
 				w.ConflictMissed = true
-				return Enter{w}
+				return machines.Enter{w}
 			}
 			w.SawConflict = true
-			return Enter{w}
+			return machines.Enter{w}
 		}
 		let mut answer = w.KeyResult
 		if mutant == freshIdOnReplayMutant {
@@ -153,18 +155,18 @@ func step(s World, act Act, mutant int) Decision[World, string] {
 				w.FirstAnswer = answer
 			}
 		}
-		return Enter{w}
+		return machines.Enter{w}
 	case LabelRead as a:
 		let i = wi(a.W)
 		if w.Label != 0 || w.Saw[i] || w.LabelTries[i] > 0 {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Saw[i] = true
-		return Enter{w}
+		return machines.Enter{w}
 	case LabelWrite as a:
 		let i = wi(a.W)
 		if !w.Saw[i] || w.LabelTries[i] >= MaxLabelTries {
-			return Ignore
+			return machines.Ignore
 		}
 		w.LabelTries[i] = w.LabelTries[i] + 1
 		let mut ok = w.Label == 0
@@ -177,13 +179,13 @@ func step(s World, act Act, mutant int) Decision[World, string] {
 			if !a.Lost {
 				w.Saw[i] = false
 			}
-			return Enter{w}
+			return machines.Enter{w}
 		}
 		w.SawLabelConflict = true
 		if !a.Lost {
 			w.Saw[i] = false
 		}
-		return Enter{w}
+		return machines.Enter{w}
 	}
 }
 
@@ -205,11 +207,11 @@ func sameAnswerAfterOtherPost(w World) bool { w.ReplayAfterOther && !w.WrongAnsw
 func conflictRefused(w World) bool          { w.SawConflict && w.MsgCount == 1 }
 func racingConditionalLabels(w World) bool  { w.LabelTries[0] >= 1 && w.LabelTries[1] >= 1 && w.LabelWins == 1 && w.SawLabelConflict }
 
-func design(s World, a Act) Decision[World, string]          { return step(s, a, noMutant) }
-func noIdempotency(s World, a Act) Decision[World, string]   { return step(s, a, noIdempotencyMutant) }
-func ignoreDigest(s World, a Act) Decision[World, string]    { return step(s, a, ignoreDigestMutant) }
-func nonAtomicLabel(s World, a Act) Decision[World, string]  { return step(s, a, nonAtomicLabelMutant) }
-func freshIdOnReplay(s World, a Act) Decision[World, string] { return step(s, a, freshIdOnReplayMutant) }
+func design(s World, a Act) machines.Decision[World, string]          { return step(s, a, noMutant) }
+func noIdempotency(s World, a Act) machines.Decision[World, string]   { return step(s, a, noIdempotencyMutant) }
+func ignoreDigest(s World, a Act) machines.Decision[World, string]    { return step(s, a, ignoreDigestMutant) }
+func nonAtomicLabel(s World, a Act) machines.Decision[World, string]  { return step(s, a, nonAtomicLabelMutant) }
+func freshIdOnReplay(s World, a Act) machines.Decision[World, string] { return step(s, a, freshIdOnReplayMutant) }
 
 // Design is the retry model for idempotent posts and conditional label writes:
 // a key lands at most one message across lost answers and retries, matching

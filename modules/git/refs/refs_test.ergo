@@ -2,13 +2,14 @@ import exec
 import filepath
 import fs
 import fstest
+import option
 import os
 import strings
 import github.com/cevr/ergo/modules/git/oid
 import github.com/cevr/ergo/modules/git/oracle
 import github.com/cevr/ergo/modules/git/root
 
-let onOracle = context needs TestAmbient {
+let onOracle = context needs fstest.TestAmbient {
 	exec.Runner: exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
 	fs.Files:    fs.NewTestHost(),
 	fs.Writes:   fs.NewTestHost(),
@@ -29,10 +30,10 @@ func makeSeededMemoryRefs(format oid.Format) MemoryRefs {
 	case oid.Collision:
 		oid.Zero(format)
 	}
-	PutPacked(m, Ref{Name: "refs/heads/main", Target: Direct{OID: id1}, Peeled: None})
-	PutLoose(m, Ref{Name: "refs/heads/main", Target: Direct{OID: id2}, Peeled: None})
-	PutPacked(m, Ref{Name: "refs/tags/v1", Target: Direct{OID: tagID}, Peeled: Some[oid.OID]{Value: id1}})
-	PutLoose(m, Ref{Name: "HEAD", Target: Symbolic{Target: "refs/heads/main"}, Peeled: None})
+	PutPacked(m, Ref{Name: "refs/heads/main", Target: Direct{OID: id1}, Peeled: option.None})
+	PutLoose(m, Ref{Name: "refs/heads/main", Target: Direct{OID: id2}, Peeled: option.None})
+	PutPacked(m, Ref{Name: "refs/tags/v1", Target: Direct{OID: tagID}, Peeled: option.Some[oid.OID]{Value: id1}})
+	PutLoose(m, Ref{Name: "HEAD", Target: Symbolic{Target: "refs/heads/main"}, Peeled: option.None})
 	m
 }
 
@@ -78,7 +79,7 @@ func makeSeededFilesStore(baseDir string, host fs.Host) FilesStore {
 	NewFilesStore(NewStore(oid.Sha1, gitDir, gitDir), host)
 }
 
-let onFilesSha1 = context needs TestAmbient {
+let onFilesSha1 = context needs fstest.TestAmbient {
 	RefReader: makeSeededFilesStore(filepath.Join([]string{fstest.TestFolder(), "law-files-sha1"}), fs.NewTestHost()),
 }
 
@@ -121,12 +122,12 @@ func verifyForEachRef(repoDir string, store Store, prefix string, pathEnv Map[st
 			wantLines = wantLines.Append(line)
 		}
 	}
-	if len(got) != len(wantLines) {
+	if got.Len() != wantLines.Len() {
 		return false
 	}
-	for i in 0..len(wantLines) {
+	for i in 0..wantLines.Len() {
 		let parts = strings.Split(wantLines[i], "\x00")
-		if len(parts) != 4 {
+		if parts.Len() != 4 {
 			return false
 		}
 		let wantName = parts[0]
@@ -164,11 +165,11 @@ func verifyForEachRef(repoDir string, store Store, prefix string, pathEnv Map[st
 		}
 		if wantPeeledHex != "" {
 			match g.Peeled {
-			case Some[oid.OID] as p:
+			case option.Some[oid.OID] as p:
 				if oid.Hex(p.Value) != wantPeeledHex {
 					return false
 				}
-			case None:
+			case option.None:
 				return false
 			}
 		}
@@ -228,22 +229,22 @@ test RefsMatchGitPlumbing {
 
 			let headRes = try store.Resolve("HEAD")
 			assert oid.Hex(headRes.OID) == c3
-			assert len(headRes.Chain) == 2 && headRes.Chain[0] == "HEAD" && headRes.Chain[1] == "refs/heads/main"
+			assert headRes.Chain.Len() == 2 && headRes.Chain[0] == "HEAD" && headRes.Chain[1] == "refs/heads/main"
 
 			let aliasRes = try store.Resolve("refs/heads/alias-main")
 			assert oid.Hex(aliasRes.OID) == c3
-			assert len(aliasRes.Chain) == 2 && aliasRes.Chain[0] == "refs/heads/alias-main" && aliasRes.Chain[1] == "refs/heads/main"
+			assert aliasRes.Chain.Len() == 2 && aliasRes.Chain[0] == "refs/heads/alias-main" && aliasRes.Chain[1] == "refs/heads/main"
 
 			let annV2 = try store.ReadRef("refs/tags/ann-v2")
 			match annV2.Peeled {
-			case Some[oid.OID] as p:
+			case option.Some[oid.OID] as p:
 				assert oid.Hex(p.Value) == c2
-			case None:
+			case option.None:
 				assert false
 			}
 
 			let annV1 = try store.ReadRef("refs/tags/ann-v1")
-			assert annV1.Peeled == None
+			assert annV1.Peeled == option.None
 
 			assert try verifyForEachRef(repoDir, store, "", pathEnv)
 			assert try verifyForEachRef(repoDir, store, "refs/heads/", pathEnv)
@@ -306,7 +307,7 @@ test ReflogMatchesGitReflog {
 			let store = FromLayout(layout)
 
 			let entries = try store.ReadReflog("HEAD")
-			assert len(entries) == 4
+			assert entries.Len() == 4
 			assert oid.IsZero(entries[0].OldOID) && oid.Hex(entries[0].NewOID) == c1
 			assert oid.Hex(entries[1].OldOID) == c1 && oid.Hex(entries[1].NewOID) == c2
 			assert oid.Hex(entries[2].OldOID) == c2 && oid.Hex(entries[2].NewOID) == c3
@@ -320,11 +321,11 @@ test ReflogMatchesGitReflog {
 					gitLines = gitLines.Append(line)
 				}
 			}
-			assert len(gitLines) == len(entries)
-			for i in 0..len(gitLines) {
+			assert gitLines.Len() == entries.Len()
+			for i in 0..gitLines.Len() {
 				let parts = strings.Split(gitLines[i], "\x00")
-				assert len(parts) == 3
-				let entry = entries[len(entries)-1-i]
+				assert parts.Len() == 3
+				let entry = entries[entries.Len()-1-i]
 				assert oid.Hex(entry.NewOID) == parts[0]
 				assert strings.HasPrefix(entry.Ident, parts[1]+" ")
 				assert entry.Message == parts[2]
@@ -351,25 +352,25 @@ test CyclicSymrefAndInvalidNamesRefused {
 		let mut sawTwoNode = false
 		let _ = store.Resolve("refs/heads/a") catch {
 		case CyclicSymref as c:
-			sawTwoNode = len(c.Chain) == 3 &&
+			sawTwoNode = c.Chain.Len() == 3 &&
 				c.Chain[0] == "refs/heads/a" &&
 				c.Chain[1] == "refs/heads/b" &&
 				c.Chain[2] == "refs/heads/a"
-			Resolved{Name: "", Chain: []string{}, OID: oid.Zero(oid.Sha1), Peeled: None}
+			Resolved{Name: "", Chain: []string{}, OID: oid.Zero(oid.Sha1), Peeled: option.None}
 		case NotFound, InvalidRefName, CorruptRef, PathEscape, IOFailed:
 			assert false
-			Resolved{Name: "", Chain: []string{}, OID: oid.Zero(oid.Sha1), Peeled: None}
+			Resolved{Name: "", Chain: []string{}, OID: oid.Zero(oid.Sha1), Peeled: option.None}
 		}
 		assert sawTwoNode
 
 		let mut sawSelf = false
 		let _ = store.Resolve("refs/heads/self") catch {
 		case CyclicSymref as c:
-			sawSelf = len(c.Chain) == 2 && c.Chain[0] == "refs/heads/self" && c.Chain[1] == "refs/heads/self"
-			Resolved{Name: "", Chain: []string{}, OID: oid.Zero(oid.Sha1), Peeled: None}
+			sawSelf = c.Chain.Len() == 2 && c.Chain[0] == "refs/heads/self" && c.Chain[1] == "refs/heads/self"
+			Resolved{Name: "", Chain: []string{}, OID: oid.Zero(oid.Sha1), Peeled: option.None}
 		case NotFound, InvalidRefName, CorruptRef, PathEscape, IOFailed:
 			assert false
-			Resolved{Name: "", Chain: []string{}, OID: oid.Zero(oid.Sha1), Peeled: None}
+			Resolved{Name: "", Chain: []string{}, OID: oid.Zero(oid.Sha1), Peeled: option.None}
 		}
 		assert sawSelf
 
@@ -377,10 +378,10 @@ test CyclicSymrefAndInvalidNamesRefused {
 		let _ = store.ReadRef("refs/heads/broken") catch {
 		case CorruptRef:
 			sawCorrupt = true
-			Ref{Name: "", Target: Symbolic{Target: ""}, Peeled: None}
+			Ref{Name: "", Target: Symbolic{Target: ""}, Peeled: option.None}
 		case NotFound, InvalidRefName, PathEscape, IOFailed:
 			assert false
-			Ref{Name: "", Target: Symbolic{Target: ""}, Peeled: None}
+			Ref{Name: "", Target: Symbolic{Target: ""}, Peeled: option.None}
 		}
 		assert sawCorrupt
 
@@ -388,10 +389,10 @@ test CyclicSymrefAndInvalidNamesRefused {
 		let _ = store.ReadRef("../escape") catch {
 		case PathEscape:
 			sawEscape = true
-			Ref{Name: "", Target: Symbolic{Target: ""}, Peeled: None}
+			Ref{Name: "", Target: Symbolic{Target: ""}, Peeled: option.None}
 		case NotFound, InvalidRefName, CorruptRef, IOFailed:
 			assert false
-			Ref{Name: "", Target: Symbolic{Target: ""}, Peeled: None}
+			Ref{Name: "", Target: Symbolic{Target: ""}, Peeled: option.None}
 		}
 		assert sawEscape
 
@@ -401,10 +402,10 @@ test CyclicSymrefAndInvalidNamesRefused {
 			let _ = store.ReadRef(bad) catch {
 			case InvalidRefName:
 				sawInvalid = true
-				Ref{Name: "", Target: Symbolic{Target: ""}, Peeled: None}
+				Ref{Name: "", Target: Symbolic{Target: ""}, Peeled: option.None}
 			case NotFound, CorruptRef, PathEscape, IOFailed:
 				assert false
-				Ref{Name: "", Target: Symbolic{Target: ""}, Peeled: None}
+				Ref{Name: "", Target: Symbolic{Target: ""}, Peeled: option.None}
 			}
 			assert sawInvalid
 		}
@@ -419,21 +420,21 @@ test MemoryAndFilesParity {
 	let id2 = try oid.HashObject(oid.Sha1, oid.Commit, "disk-commit-two".Bytes())
 	let tagID = try oid.HashObject(oid.Sha1, oid.Tag, "disk-tag-one".Bytes())
 	let mem = NewMemoryRefs(oid.Sha1)
-	PutPacked(mem, Ref{Name: "refs/heads/main", Target: Direct{OID: id1}, Peeled: None})
-	PutLoose(mem, Ref{Name: "refs/heads/main", Target: Direct{OID: id2}, Peeled: None})
-	PutPacked(mem, Ref{Name: "refs/tags/v1", Target: Direct{OID: tagID}, Peeled: Some[oid.OID]{Value: id1}})
-	PutLoose(mem, Ref{Name: "HEAD", Target: Symbolic{Target: "refs/heads/main"}, Peeled: None})
-	PutLoose(mem, Ref{Name: "refs/heads/cyc-a", Target: Symbolic{Target: "refs/heads/cyc-b"}, Peeled: None})
-	PutLoose(mem, Ref{Name: "refs/heads/cyc-b", Target: Symbolic{Target: "refs/heads/cyc-a"}, Peeled: None})
+	PutPacked(mem, Ref{Name: "refs/heads/main", Target: Direct{OID: id1}, Peeled: option.None})
+	PutLoose(mem, Ref{Name: "refs/heads/main", Target: Direct{OID: id2}, Peeled: option.None})
+	PutPacked(mem, Ref{Name: "refs/tags/v1", Target: Direct{OID: tagID}, Peeled: option.Some[oid.OID]{Value: id1}})
+	PutLoose(mem, Ref{Name: "HEAD", Target: Symbolic{Target: "refs/heads/main"}, Peeled: option.None})
+	PutLoose(mem, Ref{Name: "refs/heads/cyc-a", Target: Symbolic{Target: "refs/heads/cyc-b"}, Peeled: option.None})
+	PutLoose(mem, Ref{Name: "refs/heads/cyc-b", Target: Symbolic{Target: "refs/heads/cyc-a"}, Peeled: option.None})
 
 	let mut memSawCycle = false
 	let _ = mem.Resolve("refs/heads/cyc-a") catch {
 	case CyclicSymref as c:
-		memSawCycle = len(c.Chain) == 3
-		Resolved{Name: "", Chain: []string{}, OID: oid.Zero(oid.Sha1), Peeled: None}
+		memSawCycle = c.Chain.Len() == 3
+		Resolved{Name: "", Chain: []string{}, OID: oid.Zero(oid.Sha1), Peeled: option.None}
 	case NotFound, InvalidRefName, CorruptRef, PathEscape, IOFailed:
 		assert false
-		Resolved{Name: "", Chain: []string{}, OID: oid.Zero(oid.Sha1), Peeled: None}
+		Resolved{Name: "", Chain: []string{}, OID: oid.Zero(oid.Sha1), Peeled: option.None}
 	}
 	assert memSawCycle
 
@@ -441,10 +442,10 @@ test MemoryAndFilesParity {
 		let fHead = try RefReader.Resolve("HEAD")
 		let mHead = try mem.Resolve("HEAD")
 		assert oid.Equal(fHead.OID, mHead.OID) && oid.Equal(fHead.OID, id2)
-		assert len(fHead.Chain) == len(mHead.Chain)
+		assert fHead.Chain.Len() == mHead.Chain.Len()
 
 		let fAll = try RefReader.ListRefs("")
-		assert len(fAll) == 2
+		assert fAll.Len() == 2
 		for r in fAll {
 			let mr = try mem.ReadRef(r.Name)
 			assert mr.Name == r.Name

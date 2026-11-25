@@ -4,6 +4,8 @@
 // back after each line that asks.
 
 import actor
+import core
+import option
 import runtimefaults/crash
 import runtimefaults/lab
 import io
@@ -38,7 +40,7 @@ type BadLine { Line int, Why string }
 // Read reads a script: its first line is `app crash` or `app lab`, each
 // other line a Cmd. A blank line or a line that starts with # is skipped.
 func Read(text []string) Script fails BadLine {
-	let mut app Option[App] = None
+	let mut app option.Option[App] = option.None
 	let mut lines = []Line{}
 	for i, raw in text {
 		let n = i + 1
@@ -48,17 +50,17 @@ func Read(text []string) Script fails BadLine {
 		}
 		let words = strings.Fields(t)
 		match app {
-		case None:
+		case option.None:
 			app = match t {
 			case "app crash":
-				Some{CrashApp}
+				option.Some{CrashApp}
 			case "app lab":
-				Some{LabApp}
+				option.Some{LabApp}
 			case _:
 				return BadLine{Line: n, Why: "the first line is app crash or app lab"}
 			}
 			continue
-		case Some[App]:
+		case option.Some[App]:
 		}
 		let rest = strings.TrimSpace(strings.TrimPrefix(t, words[0]))
 		let cmd = match words[0] {
@@ -86,10 +88,10 @@ func Read(text []string) Script fails BadLine {
 		lines = lines.Append(Line{N: n, Text: t, Cmd: cmd})
 	}
 	match app {
-	case Some[App] as a:
+	case option.Some[App] as a:
 		Script{App: a.Value, Lines: lines}
-	case None:
-		BadLine{Line: len(text) + 1, Why: "the script names no app"}
+	case option.None:
+		BadLine{Line: text.Len() + 1, Why: "the script names no app"}
 	}
 }
 
@@ -101,7 +103,7 @@ func argument(n int, rest string) string fails BadLine {
 }
 
 func bare(n int, words []string, c Cmd) Cmd fails BadLine {
-	if len(words) != 1 {
+	if words.Len() != 1 {
 		return BadLine{Line: n, Why: "\(words[0]) takes nothing after it"}
 	}
 	c
@@ -110,24 +112,24 @@ func bare(n int, words []string, c Cmd) Cmd fails BadLine {
 // Run reads the script from io.Stdin and plays it: each line as `> LINE`,
 // then what it prints, indented. It returns the exit status: 0, or 1 when
 // the script is refused or a line cannot be played.
-func Run(clock time.Manual) int needs Console | io.Stdin | Scheduler {
+func Run(clock time.Manual) int needs io.Console | io.Stdin | time.Scheduler {
 	let mut text = []string{}
 	for line in io.Stdin.Lines() {
 		text = text.Append(line)
 	}
 	let out = play(text, clock) catch {
 	case BadLine as b:
-		Console.Println("? line \(b.Line): \(b.Why)")
+		io.Console.Println("? line \(b.Line): \(b.Why)")
 		return 1
 	}
 	for l in out {
-		Console.Println(l)
+		io.Console.Println(l)
 	}
 	0
 }
 
 // play reads text and plays it on its app, and is what it prints.
-func play(text []string, clock time.Manual) []string fails BadLine needs Scheduler {
+func play(text []string, clock time.Manual) []string fails BadLine needs time.Scheduler {
 	let s = try Read(text)
 	match s.App {
 	case CrashApp:
@@ -138,7 +140,7 @@ func play(text []string, clock time.Manual) []string fails BadLine needs Schedul
 }
 
 // playCrash plays lines on the crash app, with its crash view and report.
-func playCrash(lines []Line, clock time.Manual) []string fails BadLine needs Scheduler {
+func playCrash(lines []Line, clock time.Manual) []string fails BadLine needs time.Scheduler {
 	let reports = crash.NewReports()
 	let mut h = ui.NewLiveAppTestHost(crash.LiveApp(), 4, crash.View, crash.Crashes(reports), clock, 16) catch {
 	case ui.BadPatch:
@@ -164,8 +166,8 @@ func playCrash(lines []Line, clock time.Manual) []string fails BadLine needs Sch
 }
 
 // playLab plays lines on the lab.
-func playLab(lines []Line, clock time.Manual) []string fails BadLine needs Scheduler {
-	let a = actor.StartMachine(lab.Bench{}, 16, func(o Never) {})
+func playLab(lines []Line, clock time.Manual) []string fails BadLine needs time.Scheduler {
+	let a = actor.StartMachine(lab.Bench{}, 16, func(o core.Never) {})
 	let mut h = ui.NewTestHost(a, lab.Screen, clock, 64) catch {
 	case ui.BadPatch:
 		return BadLine{Line: 1, Why: "the first screen's patch is refused"}
@@ -176,7 +178,7 @@ func playLab(lines []Line, clock time.Manual) []string fails BadLine needs Sched
 		match l.Cmd {
 		case Warnings:
 			let log = ui.StateOf(&h).Warnings
-			if len(log) == 0 {
+			if log.Len() == 0 {
 				out = out.Append("  none")
 			}
 			for w in log {
@@ -209,9 +211,9 @@ func run[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], c Cmd) []string f
 	match c {
 	case Tap as t:
 		match ui.Find(h, t.Label) {
-		case Some[ui.Id[E]] as id:
+		case option.Some[ui.Id[E]] as id:
 			try ui.Tap(h, id.Value)
-		case None:
+		case option.None:
 			return ui.NoNode{Label: t.Label}
 		}
 		[]string{}
@@ -228,7 +230,7 @@ func run[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], c Cmd) []string f
 		}
 		out
 	case Find as x:
-		let n = len(ui.Locate(h, ui.WithText{Text: x.Text}))
+		let n = ui.Locate(h, ui.WithText{Text: x.Text}).Len()
 		[]string{if n > 0 { "  found" } else { "  absent" }}
 	case Stats:
 		let s = ui.StatsOf(h)

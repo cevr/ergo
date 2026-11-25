@@ -15,6 +15,7 @@ import flag
 import io
 import github.com/cevr/ergo/modules/domain
 import github.com/cevr/ergo/modules/domain/memory
+import option
 import os
 import runners pipeline/memory
 import pipeline/notify
@@ -45,7 +46,7 @@ func failing(values []string) Map[int, int] fails os.Exit {
 	for v in values {
 		let parts = strings.Split(v, ":")
 		let bad = os.Exit{Code: 2, Message: "pipeline: -fail takes STAGE:TRIES, not \(v)"}
-		if len(parts) != 2 {
+		if parts.Len() != 2 {
 			return bad
 		}
 		let stage = strconv.Atoi(parts[0]) catch {
@@ -83,7 +84,7 @@ func eventText(e run.Event) string {
 }
 
 func column(name string, ids []string) string {
-	if len(ids) == 0 {
+	if ids.Len() == 0 {
 		return "\(name): -"
 	}
 	"\(name): \(strings.Join(ids, " "))"
@@ -103,7 +104,7 @@ func code(f pipelineapi.Failure) int {
 
 // text is a value as the script shows it: a receipt as the command it
 // took, the board by column, a run by its status.
-func text(r pipelineapi.Reply) Option[string] {
+func text(r pipelineapi.Reply) option.Option[string] {
 	let shown = match r {
 	case pipelineapi.SubmitReply as s:
 		receipt(s.Value)
@@ -117,7 +118,7 @@ func text(r pipelineapi.Reply) Option[string] {
 	case pipelineapi.RunOfReply as x:
 		run.StatusOf(x.Value)
 	}
-	Some[string]{Value: shown}
+	option.Some[string]{Value: shown}
 }
 
 func receipt(r pipeline.Receipt) string { "taken as \(r.Command) at log position \(r.Position)" }
@@ -153,26 +154,26 @@ type Remote { URL string, Command []string }
 
 // remoteOf is the remote command line of args, or None for a script.
 // The URL comes first, as --server URL or --server=URL (one dash too).
-func remoteOf(args []string) Option[Remote] {
-	if len(args) == 0 {
-		return None
+func remoteOf(args []string) option.Option[Remote] {
+	if args.Len() == 0 {
+		return option.None
 	}
 	for prefix in []string{"--server=", "-server="} {
 		if strings.HasPrefix(args[0], prefix) {
-			return Some[Remote]{Value: Remote{URL: strings.TrimPrefix(args[0], prefix), Command: args[1:]}}
+			return option.Some[Remote]{Value: Remote{URL: strings.TrimPrefix(args[0], prefix), Command: args[1:]}}
 		}
 	}
-	if len(args) >= 2 && (args[0] == "--server" || args[0] == "-server") {
-		return Some[Remote]{Value: Remote{URL: args[1], Command: args[2:]}}
+	if args.Len() >= 2 && (args[0] == "--server" || args[0] == "-server") {
+		return option.Some[Remote]{Value: Remote{URL: args[1], Command: args[2:]}}
 	}
-	None
+	option.None
 }
 
 // call sends the command of r to the server through the generated
 // client and prints what the generated CLI's Run gives. A server that
 // does not answer is a line and status 1, not a defect: the board is
 // asked first through the checked call.
-func call(r Remote) fails os.Exit needs Ambient | Console {
+func call(r Remote) fails os.Exit needs os.Ambient | io.Console {
 	let client = pipelinerpc.NewClient(rpc.Dial(r.URL))
 	let _ = pipelinerpc.BoardChecked(client) catch {
 	case rpc.Transport as t:
@@ -181,13 +182,13 @@ func call(r Remote) fails os.Exit needs Ambient | Console {
 	try api.Exit(with context { pipeline.Pipeline: client } { pipelinecli.Run(r.Command, pipelinecli.Defaults()) })
 }
 
-func main() fails os.Exit needs Ambient | Console {
+func main() fails os.Exit needs os.Ambient | io.Console {
 	let args = with context { os.Process: os.NewHost() } { os.Process.Args() }
 	match remoteOf(args) {
-	case Some[Remote] as r:
+	case option.Some[Remote] as r:
 		try call(r.Value)
 		return
-	case None:
+	case option.None:
 	}
 	let v = with context { io.Stdout: io.NewHost(), io.Stderr: io.NewErrors() } {
 		flag.Parse(set, args) catch {
@@ -212,19 +213,19 @@ func main() fails os.Exit needs Ambient | Console {
 	let mut last = api.Output{Out: "", Err: "", Code: 0}
 	let mut at = 0
 	for s in steps {
-		Console.Println("> " + s.Text)
+		io.Console.Println("> " + s.Text)
 		for l in shown(s.Output.Out) {
-			Console.Println("  " + l)
+			io.Console.Println("  " + l)
 		}
 		if s.Output.Code == 0 {
 			for l in shown(s.Output.Err) {
-				Console.Println("  refused: " + l)
+				io.Console.Println("  refused: " + l)
 			}
 		}
 		last = s.Output
 		at = s.Line
 	}
-	Console.Println("the runner ran \(tries) tries")
+	io.Console.Println("the runner ran \(tries) tries")
 	if last.Code != 0 {
 		try api.ExitOf(api.Output{..last, Err: "pipeline: line \(at): " + strings.TrimSuffix(last.Err, "\n")})
 	}
@@ -249,14 +250,14 @@ func shown(text string) []string {
 func session(lines []string, table Map[int, int]) ([]api.Step, int) fails domain.Conflict | domain.Reused | domain.Unkept {
 	let runner = runners.New(table)
 	let clock = time.NewManual(0)
-	with context { Scheduler: clock, pipeline.Runner: runner } {
+	with context { time.Scheduler: clock, pipeline.Runner: runner } {
 		let log = memory.New[pipeline.Entry]()
 		let m = try pipeline.Open(log)
 		let cursor = memory.NewCursor()
 		let p = script()
 		let steps = with context { pipeline.Pipeline: m } {
-			api.Session(lines, func(args []string) api.Output needs pipeline.Pipeline | Scheduler {
-				let o = if len(args) == 1 && args[0] == "wait" {
+			api.Session(lines, func(args []string) api.Output needs pipeline.Pipeline | time.Scheduler {
+				let o = if args.Len() == 1 && args[0] == "wait" {
 					clock.Advance(1h)
 					api.Output{Out: "", Err: "", Code: 0}
 				} else {

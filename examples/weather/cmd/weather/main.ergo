@@ -28,7 +28,7 @@ let usage = "usage: weather [-live] < script"
 // clock: a script shows the lookup loading until it waits this long.
 let Delay = 500ms
 
-func main() fails os.Exit needs Console | Ambient {
+func main() fails os.Exit needs io.Console | os.Ambient {
 	let v = with context { os.Process: os.NewHost() } {
 		flag.Parse(set, os.Process.Args()) catch {
 		case err:
@@ -39,7 +39,7 @@ func main() fails os.Exit needs Console | Ambient {
 		}
 	}
 	let c = time.NewManual(0)
-	let status = with context { io.Stdin: io.NewStdin(), Scheduler: c } {
+	let status = with context { io.Stdin: io.NewStdin(), time.Scheduler: c } {
 		if liveFlag.Get(v) {
 			let live = web.Live() catch {
 			case http.InvalidClient, http.InvalidLimits:

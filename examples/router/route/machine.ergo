@@ -1,7 +1,9 @@
 import actor
 import machines
+import option
 import slices
 import strings
+import time
 
 // Board is what every state of the router holds: the table, the requests
 // that wait, in the order they came, and the answers given so far.
@@ -59,7 +61,7 @@ law AbortNeverCommits(moves []int) {
 	let run = fold(moves)
 	for id in run.Aborted {
 		match AnswerOf(run.Final, id) {
-		case Some[Answer] as a:
+		case option.Some[Answer] as a:
 			match a.Value {
 			case Cancelled:
 			case Applied:
@@ -67,7 +69,7 @@ law AbortNeverCommits(moves []int) {
 			case Refused:
 				return false
 			}
-		case None:
+		case option.None:
 			return false
 		}
 	}
@@ -99,21 +101,21 @@ func idle(b Board) Router { Idle{Board: b, Lanes: lanes(b.Table)} }
 // courier of each lane in the lane's host, a child of the entry: they
 // stop when the entry ends, and a courier's crash (a defect) ends the
 // router's incarnation.
-func work(s Router) Option[machines.Work[Signal, Registry | Scheduler]] {
+func work(s Router) option.Option[machines.Work[Signal, Registry | time.Scheduler]] {
 	match s {
 	case Applying as c:
-		Some{machines.Attempt(func() Table fails Unknown needs Registry | Scheduler { try Registry.Check(c.Board.Table, c.Current.Change) }, func(o Table) Signal { Checked{Table: o} }, func(failure) {
+		option.Some{machines.Attempt(func() Table fails Unknown needs Registry | time.Scheduler { try Registry.Check(c.Board.Table, c.Current.Change) }, func(o Table) Signal { Checked{Table: o} }, func(failure) {
 			let unknown Signal = failure
 			unknown
 		})}
 	case Idle as i:
-		Some{machines.Work{Start: func(send entry func(e Signal)) needs Scheduler {
+		option.Some{machines.Work{Start: func(send entry func(e Signal)) needs time.Scheduler {
 			for l in i.Lanes {
 				let _ = actor.ChildIn(send, l.Courier, machines.Start(Couriers{}, l.Route), 4, told)
 			}
 		}}}
 	case Confirming:
-		None
+		option.None
 	}
 }
 
@@ -144,9 +146,9 @@ law AnsweredOnce(moves []int) {
 			}
 		}
 		let served = match current(run.Final) {
-		case Some[Request] as r:
+		case option.Some[Request] as r:
 			if r.Value.ID == id { 1 } else { 0 }
-		case None:
+		case option.None:
 			0
 		}
 		let mut waits = 0
@@ -159,7 +161,7 @@ law AnsweredOnce(moves []int) {
 			return false
 		}
 	}
-	len(b.Answers) <= len(run.Taken)
+	b.Answers.Len() <= run.Taken.Len()
 }
 
 // Run is what a fold saw: the last state; the ids of the Submits the router
@@ -182,9 +184,9 @@ func move(s Router, m int) Signal {
 	let id = pick(m/6, 4) + 1
 	match pick(m, 6) {
 	case 0:
-		Submit{Request: Request{ID: id, Change: Add{Topic: Topics[pick(m/24, len(Topics))], Dest: Dests[pick(m/96, len(Dests))]}}}
+		Submit{Request: Request{ID: id, Change: Add{Topic: Topics[pick(m/24, Topics.Len())], Dest: Dests[pick(m/96, Dests.Len())]}}}
 	case 1:
-		Submit{Request: Request{ID: id, Change: Remove{Topic: Topics[pick(m/24, len(Topics))]}}}
+		Submit{Request: Request{ID: id, Change: Remove{Topic: Topics[pick(m/24, Topics.Len())]}}}
 	case 2:
 		Abort{ID: id}
 	case 3:
@@ -214,14 +216,14 @@ func applied(t Table, change Change) Table {
 }
 
 // current is the request s serves, if any.
-func current(s Router) Option[Request] {
+func current(s Router) option.Option[Request] {
 	match s {
 	case Confirming as a:
-		Some[Request]{Value: a.Current}
+		option.Some[Request]{Value: a.Current}
 	case Applying as c:
-		Some[Request]{Value: c.Current}
+		option.Some[Request]{Value: c.Current}
 	case Idle:
-		None
+		option.None
 	}
 }
 
@@ -233,28 +235,28 @@ func fold(moves []int) Run {
 		let sig = move(s, m)
 		let d = Step(s, sig)
 		let next = match d {
-		case Enter[Router] as e:
+		case machines.Enter[Router] as e:
 			e.Next
-		case Stay[Router] as st:
+		case machines.Stay[Router] as st:
 			st.Next
-		case Emit[Router, Output] as em:
+		case machines.Emit[Router, Output] as em:
 			em.Next
-		case Tell[Router, Output] as tl:
+		case machines.Tell[Router, Output] as tl:
 			tl.Next
 		case _:
 			s
 		}
 		let took = match d {
-		case Reject:
+		case machines.Reject:
 			false
-		case Ignore:
+		case machines.Ignore:
 			false
 		case _:
 			true
 		}
 		match sig {
 		case Abort as a:
-			if !took && Known(s, a.ID) && AnswerOf(s, a.ID) == None {
+			if !took && Known(s, a.ID) && AnswerOf(s, a.ID) == option.None {
 				run = Run{..run, Missed: true}
 			}
 		case _:
@@ -269,11 +271,11 @@ func fold(moves []int) Run {
 			}
 		}
 		match (current(s), current(next)) {
-		case (Some[Request] as was, Some[Request] as now):
+		case (option.Some[Request] as was, option.Some[Request] as now):
 			if was.Value.ID != now.Value.ID {
 				run = Run{..run, Served: run.Served.Append(now.Value.ID)}
 			}
-		case (None, Some[Request] as now):
+		case (option.None, option.Some[Request] as now):
 			run = Run{..run, Served: run.Served.Append(now.Value.ID)}
 		case (_, _):
 		}
@@ -311,18 +313,18 @@ func Busy(s Router) bool {
 }
 
 // AnswerOf is the answer of the request id in s, if it has one.
-func AnswerOf(s Router, id int) Option[Answer] {
+func AnswerOf(s Router, id int) option.Option[Answer] {
 	for a in BoardOf(s).Answers {
 		if a.ID == id {
-			return Some[Answer]{Value: a.Answer}
+			return option.Some[Answer]{Value: a.Answer}
 		}
 	}
-	None
+	option.None
 }
 
 // Known is whether id names a request of s: answered, served or waiting.
 func Known(s Router, id int) bool {
-	if AnswerOf(s, id) != None || waiting(BoardOf(s), id) {
+	if AnswerOf(s, id) != option.None || waiting(BoardOf(s), id) {
 		return true
 	}
 	match s {
@@ -349,9 +351,9 @@ func Replaces(t Table, r Request) bool {
 	match r.Change {
 	case Add as a:
 		match DestOf(t, a.Topic) {
-		case Some[string] as d:
+		case option.Some[string] as d:
 			d.Value != a.Dest
-		case None:
+		case option.None:
 			false
 		}
 	case Remove:
@@ -362,21 +364,21 @@ func Replaces(t Table, r Request) bool {
 // question is the question the router asks the operator about r first,
 // in the table t: one for a change that replaces a route, none for the
 // rest.
-func question(t Table, r Request) Option[Output] {
+func question(t Table, r Request) option.Option[Output] {
 	match r.Change {
 	case Add as a:
 		match DestOf(t, a.Topic) {
-		case Some[string] as d:
+		case option.Some[string] as d:
 			if d.Value != a.Dest {
-				Some[Output]{Value: Question{ID: r.ID, Text: "\(a.Topic) goes to \(d.Value): send it to \(a.Dest)?"}}
+				option.Some[Output]{Value: Question{ID: r.ID, Text: "\(a.Topic) goes to \(d.Value): send it to \(a.Dest)?"}}
 			} else {
-				None
+				option.None
 			}
-		case None:
-			None
+		case option.None:
+			option.None
 		}
 	case Remove:
-		None
+		option.None
 	}
 }
 
@@ -389,38 +391,38 @@ func answered(b Board, id int, a Answer) Board {
 // current request is served. It takes the first waiting request, asks
 // about it or checks it; with none it is Idle. No signal is needed for
 // it, so every arm that ends a request ends in Settle.
-func Settle(b Board) Decision[Router, Output] {
-	if len(b.Queue) == 0 {
-		return Enter[Router]{Next: idle(b)}
+func Settle(b Board) machines.Decision[Router, Output] {
+	if b.Queue.Len() == 0 {
+		return machines.Enter[Router]{Next: idle(b)}
 	}
 	let next = b.Queue[0]
 	let rest = Board{..b, Queue: b.Queue[1:]}
 	match question(b.Table, next) {
-	case Some[Output] as q:
-		Emit[Router, Output]{Next: Confirming{Board: rest, Current: next}, Output: q.Value}
-	case None:
-		Enter[Router]{Next: Applying{Board: rest, Current: next}}
+	case option.Some[Output] as q:
+		machines.Emit[Router, Output]{Next: Confirming{Board: rest, Current: next}, Output: q.Value}
+	case option.None:
+		machines.Enter[Router]{Next: Applying{Board: rest, Current: next}}
 	}
 }
 
 // kept is s holding the book b, in the same entry: a Stay.
-func kept(s Router, b Board) Decision[Router, Output] {
+func kept(s Router, b Board) machines.Decision[Router, Output] {
 	match s {
 	case Idle as i:
-		Stay[Router]{Next: Idle{..i, Board: b}}
+		machines.Stay[Router]{Next: Idle{..i, Board: b}}
 	case Confirming as a:
-		Stay[Router]{Next: Confirming{Board: b, Current: a.Current}}
+		machines.Stay[Router]{Next: Confirming{Board: b, Current: a.Current}}
 	case Applying as c:
-		Stay[Router]{Next: Applying{Board: b, Current: c.Current}}
+		machines.Stay[Router]{Next: Applying{Board: b, Current: c.Current}}
 	}
 }
 
 // submitted is the decision of a new request r in s: it joins the queue,
 // and an Idle router serves it at once. An id the router knows is Reject:
 // each request is answered once.
-func submitted(s Router, r Request) Decision[Router, Output] {
+func submitted(s Router, r Request) machines.Decision[Router, Output] {
 	if Known(s, r.ID) {
-		return Reject
+		return machines.Reject
 	}
 	let b = BoardOf(s)
 	let more = Board{..b, Queue: b.Queue.Append(r)}
@@ -437,25 +439,25 @@ func submitted(s Router, r Request) Decision[Router, Output] {
 // aborted is the decision of Abort a in s: a waiting request leaves the
 // queue, the current one ends (its check is interrupted); each is
 // answered Cancelled. An id that is answered or unknown is Reject.
-func aborted(s Router, a Abort) Decision[Router, Output] {
+func aborted(s Router, a Abort) machines.Decision[Router, Output] {
 	let b = BoardOf(s)
 	if waiting(b, a.ID) {
 		return kept(s, answered(Board{..b, Queue: slices.Filter(b.Queue, func(r Request) bool { r.ID != a.ID })}, a.ID, Cancelled))
 	}
 	match s {
 	case Confirming as k:
-		if k.Current.ID == a.ID { Settle(answered(b, a.ID, Cancelled)) } else { Reject }
+		if k.Current.ID == a.ID { Settle(answered(b, a.ID, Cancelled)) } else { machines.Reject }
 	case Applying as c:
-		if c.Current.ID == a.ID { Settle(answered(b, a.ID, Cancelled)) } else { Reject }
+		if c.Current.ID == a.ID { Settle(answered(b, a.ID, Cancelled)) } else { machines.Reject }
 	case Idle:
-		Reject
+		machines.Reject
 	}
 }
 
 // Step is the router's transition. It is pure but for its hosts
 // (actor.NewHost, which acts on nothing outside), so the journal replays
 // it: a replay makes the hosts again, empty, for the recovered entry.
-func Step(s Router, sig Signal) Decision[Router, Output] {
+func Step(s Router, sig Signal) machines.Decision[Router, Output] {
 	match sig {
 	case Submit as r:
 		submitted(s, r.Request)
@@ -465,32 +467,32 @@ func Step(s Router, sig Signal) Decision[Router, Output] {
 		match s {
 		case Confirming as k:
 			if y.Yes {
-				Enter[Router]{Next: Applying{Board: k.Board, Current: k.Current}}
+				machines.Enter[Router]{Next: Applying{Board: k.Board, Current: k.Current}}
 			} else {
 				Settle(answered(k.Board, k.Current.ID, Cancelled))
 			}
 		case Idle:
-			Reject
+			machines.Reject
 		case Applying:
-			Reject
+			machines.Reject
 		}
 	case Checked as ok:
 		match s {
 		case Applying as c:
 			Settle(answered(Board{..c.Board, Table: ok.Table}, c.Current.ID, Applied{Table: ok.Table}))
 		case Idle:
-			Ignore
+			machines.Ignore
 		case Confirming:
-			Ignore
+			machines.Ignore
 		}
 	case Unknown as u:
 		match s {
 		case Applying as c:
 			Settle(answered(c.Board, c.Current.ID, Refused{Why: u.Why}))
 		case Idle:
-			Ignore
+			machines.Ignore
 		case Confirming:
-			Ignore
+			machines.Ignore
 		}
 	case Told as t:
 		// A message a courier of this Idle entry carried: told, in the
@@ -499,11 +501,11 @@ func Step(s Router, sig Signal) Decision[Router, Output] {
 		// entry never gets here (the runner drops it).
 		match s {
 		case Idle:
-			Tell[Router, Output]{Next: s, Output: t.Delivered}
+			machines.Tell[Router, Output]{Next: s, Output: t.Delivered}
 		case Confirming:
-			Ignore
+			machines.Ignore
 		case Applying:
-			Ignore
+			machines.Ignore
 		}
 	}
 }
@@ -519,11 +521,11 @@ type Routing machine[Router, Signal] {
 // LiveWork is the router's work entry with a live hook before Registry.Check
 // so fault-injection scripts can raise a deliberate defect without marking
 // route.Registry.Check.
-func LiveWork(beforeCheck own func() defects) func(s Router) Option[func(send entry func(e Signal)) needs Registry | Scheduler defects] {
-	func(s Router) Option[func(send entry func(e Signal)) needs Registry | Scheduler defects] {
+func LiveWork(beforeCheck own func() defects) func(s Router) option.Option[func(send entry func(e Signal)) needs Registry | time.Scheduler defects] {
+	func(s Router) option.Option[func(send entry func(e Signal)) needs Registry | time.Scheduler defects] {
 		match s {
 		case Applying as c:
-			Some{Value: func(send entry func(e Signal)) needs Registry | Scheduler defects {
+			option.Some{Value: func(send entry func(e Signal)) needs Registry | time.Scheduler defects {
 				beforeCheck()
 				let table = Registry.Check(c.Board.Table, c.Current.Change) catch {
 				case Unknown as u:
@@ -533,13 +535,13 @@ func LiveWork(beforeCheck own func() defects) func(s Router) Option[func(send en
 				send(Checked{Table: table})
 			}}
 		case Idle as i:
-			Some{Value: func(send entry func(e Signal)) needs Registry | Scheduler defects {
+			option.Some{Value: func(send entry func(e Signal)) needs Registry | time.Scheduler defects {
 				for l in i.Lanes {
 					let _ = actor.ChildIn(send, l.Courier, machines.Start(Couriers{}, l.Route), 4, told)
 				}
 			}}
 		case Confirming:
-			None
+			option.None
 		}
 	}
 }
@@ -547,7 +549,7 @@ func LiveWork(beforeCheck own func() defects) func(s Router) Option[func(send en
 // Name is the line of a state.
 func Name(s Router) string {
 	let b = BoardOf(s)
-	let wait = if len(b.Queue) == 0 { "" } else { " (waiting: \(ids(b.Queue)))" }
+	let wait = if b.Queue.Len() == 0 { "" } else { " (waiting: \(ids(b.Queue)))" }
 	match s {
 	case Idle:
 		"idle: \(TableText(b.Table))"
@@ -568,7 +570,7 @@ func ids(q []Request) string {
 
 // TableText is the words of a table: its routes, in order.
 func TableText(t Table) string {
-	if len(t.Routes) == 0 {
+	if t.Routes.Len() == 0 {
 		return "no routes"
 	}
 	let mut words = []string{}

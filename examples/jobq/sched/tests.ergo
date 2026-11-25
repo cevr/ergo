@@ -25,7 +25,7 @@ test ARunWorkedByHand {
 	let c = Config{Workers: 2, Policy: jobs.Policy{Attempts: 3, Base: 100ms, Max: 1s}, Burst: 2, Every: 100ms}
 	let js = []jobs.Job{jobs.Job{ID: 1, Name: "a", Takes: 300ms, Flaky: 0, Fatal: false}, jobs.Job{ID: 2, Name: "b", Takes: 50ms, Flaky: 1, Fatal: false}, jobs.Job{ID: 3, Name: "c", Takes: 50ms, Flaky: 0, Fatal: true}}
 	let got = lines(with context { jobs.Worker: jobs.Script } { Run(c, js) })
-	assert len(got) == 8
+	assert got.Len() == 8
 	assert got[0] == "0s start 1 try 1 on 1"
 	assert got[1] == "0s start 2 try 1 on 2"
 	assert got[2] == "50ms retry 2 at 150ms"

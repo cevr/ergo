@@ -1,5 +1,6 @@
 import actor
 import gen
+import option
 import taskboard/board
 import taskboard/kanban
 import taskboard/screen
@@ -10,17 +11,17 @@ import ui
 func boardInvariant(b kanban.Board, minCards int) bool {
 	let mut seen = Map[string, bool]{}
 	let mut total = 0
-	let mut colValid = b.Adding == None
+	let mut colValid = b.Adding == option.None
 	for c in b.Columns {
 		match b.Adding {
-		case Some[string] as a:
+		case option.Some[string] as a:
 			if a.Value == c.ID {
 				colValid = true
 			}
-		case None:
+		case option.None:
 		}
 		for card in c.Cards {
-			if seen.Get(card.ID) != None {
+			if seen.Get(card.ID) != option.None {
 				return false
 			}
 			seen[card.ID] = true
@@ -33,7 +34,7 @@ func boardInvariant(b kanban.Board, minCards int) bool {
 func defaultCardCount() int {
 	let mut n = 0
 	for c in board.Defaults {
-		n = n + len(c.Cards)
+		n = n + c.Cards.Len()
 	}
 	n
 }
@@ -41,7 +42,7 @@ func defaultCardCount() int {
 func exploreBoard(steps int) ui.Finding needs gen.Draws {
 	let clock = time.NewManual(0)
 	let minCards = defaultCardCount()
-	with context { Scheduler: clock } {
+	with context { time.Scheduler: clock } {
 		let app = actor.StartMachine(kanban.Kanban{}, 16, func(cmds []kanban.Command) { let _ = cmds })
 		let mut h = ui.NewTestHost(app, screen.Screen, clock, 64) catch {
 		case ui.BadPatch as bp:

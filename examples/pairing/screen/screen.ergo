@@ -8,8 +8,10 @@
 // it.
 
 import actor
+import core
 import io
 import machines
+import option
 import queue
 import strconv
 import strings
@@ -30,8 +32,8 @@ type Reader {
 // Taps is the reader as a source of the flow: each tag a Tapped
 // signal, a beep after each one is queued. It ends when Tags closes or
 // the flow ends.
-func Taps(r Reader) Seq[pair.Signal] {
-	Seq[pair.Signal](func(yield func(e pair.Signal) bool) {
+func Taps(r Reader) core.Seq[pair.Signal] {
+	core.Seq[pair.Signal](func(yield func(e pair.Signal) bool) {
 		for tag in r.Tags.Values() {
 			if !yield(pair.Tapped{Tag: tag}) {
 				return
@@ -47,16 +49,16 @@ func Taps(r Reader) Seq[pair.Signal] {
 // Parse reads a line.
 func Parse(line string) Command {
 	let words = strings.Fields(line)
-	if len(words) == 0 {
+	if words.Len() == 0 {
 		return Unknown{Line: line}
 	}
-	let arg = if len(words) > 1 { words[1] } else { "" }
+	let arg = if words.Len() > 1 { words[1] } else { "" }
 	match words[0] {
 	case "serial":
 		Send{Signals: []pair.Signal{pair.UseSerial}}
 	case "type":
 		let mut keys = []pair.Signal{}
-		for i in 0..len(arg) {
+		for i in 0..arg.Len() {
 			let d = strconv.Atoi(strings.Slice(arg, i, i+1)) catch {
 			case strconv.Malformed:
 				return Unknown{Line: line}
@@ -133,7 +135,7 @@ func choices(on pair.Methods) string {
 	}
 }
 
-func shown(p pad.Pad) string { p.Text + strings.Repeat("_", p.Max-len(p.Text)) }
+func shown(p pad.Pad) string { p.Text + strings.Repeat("_", p.Max-p.Text.Len()) }
 
 // Told is the line for a result.
 func Told(r pair.Result) string {
@@ -148,32 +150,32 @@ func Told(r pair.Result) string {
 }
 
 // answer is the word for the step's decision of a signal.
-func answer(d Decision[pair.Flow, pair.Result]) string {
+func answer(d machines.Decision[pair.Flow, pair.Result]) string {
 	match d {
-	case Enter[pair.Flow]:
+	case machines.Enter[pair.Flow]:
 		""
-	case Stay[pair.Flow]:
+	case machines.Stay[pair.Flow]:
 		""
-	case Emit[pair.Flow, pair.Result], Tell[pair.Flow, pair.Result]:
+	case machines.Emit[pair.Flow, pair.Result], machines.Tell[pair.Flow, pair.Result]:
 		""
-	case Ignore:
+	case machines.Ignore:
 		"(ignored)"
-	case Reject:
+	case machines.Reject:
 		"(refused)"
-	case Done[pair.Result] as r:
+	case machines.Done[pair.Result] as r:
 		Told(r.Output)
 	}
 }
 
 // Run plays the script on standard input against the flow, on clock.
-func Run(clock time.Manual) needs Console | io.Stdin | Scheduler | pair.Devices {
+func Run(clock time.Manual) needs io.Console | io.Stdin | time.Scheduler | pair.Devices {
 	let mut lines = []string{}
 	for line in io.Stdin.Lines() {
 		lines = lines.Append(line)
 	}
 	let mut on = pair.Methods{Serial: true, Tag: true}
 	let mut from = 0
-	if len(lines) > 0 && strings.HasPrefix(lines[0], "methods") {
+	if lines.Len() > 0 && strings.HasPrefix(lines[0], "methods") {
 		on = methods(lines[0])
 		from = 1
 	}
@@ -182,17 +184,17 @@ func Run(clock time.Manual) needs Console | io.Stdin | Scheduler | pair.Devices 
 	actor.Feed(a, Taps(reader)) catch {
 	case actor.Stopped:
 	}
-	Console.Println("screen: \(Show(a.State()))")
+	io.Console.Println("screen: \(Show(a.State()))")
 	let mut ended = false
-	for i in from..len(lines) {
-		Console.Println("> \(lines[i])")
+	for i in from..lines.Len() {
+		io.Console.Println("> \(lines[i])")
 		if ended {
-			Console.Println("(the pairing has ended)")
+			io.Console.Println("(the pairing has ended)")
 			continue
 		}
 		match Parse(lines[i]) {
 		case Unknown as u:
-			Console.Println("? unknown command: \(u.Line)")
+			io.Console.Println("? unknown command: \(u.Line)")
 			continue
 		case Wait:
 			// The error screen's timer sleeps from its commit on, so the
@@ -214,13 +216,13 @@ func Run(clock time.Manual) needs Console | io.Stdin | Scheduler | pair.Devices 
 			}
 			a.State()
 			match actor.Latest(a) {
-			case Some[Decision[pair.Flow, pair.Result]] as d:
+			case option.Some[machines.Decision[pair.Flow, pair.Result]] as d:
 				match d.Value {
-				case Reject:
-					Console.Println("(refused)")
+				case machines.Reject:
+					io.Console.Println("(refused)")
 				case _:
 				}
-			case None:
+			case option.None:
 			}
 		case Send as cmd:
 			for e in cmd.Signals {
@@ -230,13 +232,13 @@ func Run(clock time.Manual) needs Console | io.Stdin | Scheduler | pair.Devices 
 					break
 				}
 				match d {
-				case Done[pair.Result]:
+				case machines.Done[pair.Result]:
 					ended = true
 				case _:
 				}
 				let told = answer(d)
-				if told != "" && (told != "(ignored)" || len(cmd.Signals) == 1) {
-					Console.Println(told)
+				if told != "" && (told != "(ignored)" || cmd.Signals.Len() == 1) {
+					io.Console.Println(told)
 				}
 				if ended {
 					break
@@ -258,16 +260,16 @@ func Run(clock time.Manual) needs Console | io.Stdin | Scheduler | pair.Devices 
 		}) catch {
 		case actor.Stopped:
 			// The work's answer ended the flow (a verify that paired).
-			Console.Println(Ending(actor.ExitOf(a)))
+			io.Console.Println(Ending(actor.ExitOf(a)))
 			ended = true
 			continue
 		}
-		Console.Println("screen: \(Show(s))")
+		io.Console.Println("screen: \(Show(s))")
 	}
 	reader.Tags.End()
 	a.Stop()
 	if !ended {
-		Console.Println(Ending(actor.ExitOf(a)))
+		io.Console.Println(Ending(actor.ExitOf(a)))
 	}
 }
 

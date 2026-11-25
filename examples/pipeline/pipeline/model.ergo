@@ -7,7 +7,10 @@
 // the block (resources.md, with lends).
 
 import actor
+import core
 import github.com/cevr/ergo/modules/domain
+import machines
+import option
 import pipeline/board
 import pipeline/run
 import github.com/cevr/ergo/modules/domain/memory
@@ -15,20 +18,20 @@ import testing
 import time
 
 // DeskActor is the running context.
-type DeskActor = actor.Actor[Ledger, Signal, Decision[Ledger, domain.Receipt], run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun]
+type DeskActor = actor.Actor[Ledger, Signal, machines.Decision[Ledger, domain.Receipt], run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun]
 
 // Model is the context as a Pipeline. Open makes one. It is a resource
 // (resources.md R1): its actor runs until Close stops it, so one owner
 // holds it, a with that builds it or a frame, and releases it on every
 // path (q266). A with that names it lends it: the block uses it, and a
 // view or a tool made in the block holds it no longer than the block.
-type Model { desk DeskActor, log domain.Log[Entry], board Projection } implements Pipeline, Closer
+type Model { desk DeskActor, log domain.Log[Entry], board Projection } implements Pipeline, core.Closer
 
 // Open runs the context over log: it starts in the desk that the stream
 // Stream folds to, and appends the entries of each step to the stream
 // before anyone sees the state. The runner and the clock are the
 // caller's.
-func Open(log domain.Log[Entry]) Model fails domain.Conflict | domain.Reused | domain.Unkept needs Runner | Scheduler {
+func Open(log domain.Log[Entry]) Model fails domain.Conflict | domain.Reused | domain.Unkept needs Runner | time.Scheduler {
 	let (m, _) = try opened(log)
 	m
 }
@@ -36,7 +39,7 @@ func Open(log domain.Log[Entry]) Model fails domain.Conflict | domain.Reused | d
 // opened is Open, and the Model's actor beside it, a copy made while the
 // actor is still a local (resources.md R17), so CloseStopsTheActor can ask
 // it after the Model closed.
-func opened(log domain.Log[Entry]) (Model, DeskActor) fails domain.Conflict | domain.Reused | domain.Unkept needs Runner | Scheduler {
+func opened(log domain.Log[Entry]) (Model, DeskActor) fails domain.Conflict | domain.Reused | domain.Unkept needs Runner | time.Scheduler {
 	let s = Recovered(log)
 	let desk = try actor.StartDurable(Dispatch{}, 8, func(r domain.Receipt) {}, s.Recover, s.Save)
 	(Model{desk: desk, log: log, board: NewProjection()}, desk)
@@ -47,7 +50,7 @@ func opened(log domain.Log[Entry]) (Model, DeskActor) fails domain.Conflict | do
 law CloseStopsTheActor(c SubmitRun) {
 	let s = testing.Script[Runner]{}
 	s.Run.Answer(func(id string, stage int, attempt int) bool fails Offline { true })
-	with context { Scheduler: time.NewManual(0), Runner: s } {
+	with context { time.Scheduler: time.NewManual(0), Runner: s } {
 		let (m, desk) = opened(memory.New[Entry]()) catch {
 		case domain.Conflict, domain.Reused, domain.Unkept:
 			return false
@@ -80,9 +83,9 @@ func send(m Model, env Envelope) Receipt fails run.WrongState | run.WrongStage |
 		return e
 	}
 	match domain.ReceiptOf(m.desk.State(), domain.CommandID(env.ID)) {
-	case Some[domain.Receipt] as r:
+	case option.Some[domain.Receipt] as r:
 		Receipt{Command: env.ID, Position: r.Value.Position}
-	case None:
+	case option.None:
 		Unavailable
 	}
 }
@@ -105,9 +108,9 @@ func Board(m Model) board.View { m.board.Follow(m.log) }
 
 func RunOf(m Model, id string) run.Run fails NoSuchRun {
 	match BookOf(m.desk.State().State).Runs.Get(id) {
-	case Some[run.Run] as r:
+	case option.Some[run.Run] as r:
 		r.Value
-	case None:
+	case option.None:
 		NoSuchRun{Run: id}
 	}
 }
@@ -127,13 +130,13 @@ func Settle(m Model) Desk fails Unavailable {
 // the desk's entries.
 law BoardFollowsTheLog(acts []Act, flaky []int) {
 	match played(acts, 0, flaky, memory.New[Entry]()) {
-	case Some[Played] as p:
+	case option.Some[Played] as p:
 		let mut v = board.Empty
 		for e in BookOf(p.Value.Desk).Log {
 			v = board.Apply(v, e.Run, e.Event)
 		}
 		p.Value.Board == v
-	case None:
+	case option.None:
 		false
 	}
 }

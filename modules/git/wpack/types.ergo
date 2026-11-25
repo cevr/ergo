@@ -134,15 +134,15 @@ type PackPublisher {
 		if built.Count != 3 {
 			return false
 		}
-		let gotBlob = ReadObject(blobId, len(blobData)+256) catch {
+		let gotBlob = ReadObject(blobId, blobData.Len()+256) catch {
 		case pack.Missing, pack.Corrupt, pack.MismatchedPair, pack.Collision, pack.LimitExceeded, pack.DepthExceeded, pack.IOFailed:
 			return false
 		}
-		let gotTree = ReadObject(treeId, len(treeBytes)+256) catch {
+		let gotTree = ReadObject(treeId, treeBytes.Len()+256) catch {
 		case pack.Missing, pack.Corrupt, pack.MismatchedPair, pack.Collision, pack.LimitExceeded, pack.DepthExceeded, pack.IOFailed:
 			return false
 		}
-		let gotCommit = ReadObject(commitId, len(commitBytes)+256) catch {
+		let gotCommit = ReadObject(commitId, commitBytes.Len()+256) catch {
 		case pack.Missing, pack.Corrupt, pack.MismatchedPair, pack.Collision, pack.LimitExceeded, pack.DepthExceeded, pack.IOFailed:
 			return false
 		}

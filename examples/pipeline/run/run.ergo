@@ -6,6 +6,7 @@
 // machine Life is the aggregate as a machine: its step is Decide, then
 // the fold of Evolve over the events, which it gives as its output.
 
+import machines
 import slices
 
 // Run is where one run is:
@@ -233,9 +234,9 @@ func Fold(s Run, es []Event) Run {
 
 // Handle is the aggregate's step: Decide, then the fold of its events,
 // which it gives as the output.
-func Handle(s Run, c Command) Decision[Run, []Event] fails WrongState | WrongStage | Closed | BadLength {
+func Handle(s Run, c Command) machines.Decision[Run, []Event] fails WrongState | WrongStage | Closed | BadLength {
 	let es = try Decide(s, c)
-	Emit{Next: Fold(s, es), Output: es}
+	machines.Emit{Next: Fold(s, es), Output: es}
 }
 
 // HandleFoldsItsEvents: the state Handle moves a run to is the fold of
@@ -251,7 +252,7 @@ law HandleFoldsItsEvents(stages int, oks []bool) {
 			return s == Fold(Unsubmitted, log)
 		}
 		match d {
-		case Emit[Run, []Event] as e:
+		case machines.Emit[Run, []Event] as e:
 			s = e.Next
 			log = slices.Concat(log, e.Output)
 		case _:

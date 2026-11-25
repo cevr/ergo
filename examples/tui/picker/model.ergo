@@ -2,6 +2,8 @@
 // that moves it by keys, and the laws of each move. It knows nothing of
 // ANSI or the terminal.
 
+import machines
+import option
 import strings
 import tui/keys
 
@@ -13,11 +15,11 @@ type View { Items []string, Filter string, Cursor int }
 law InterruptCancels(v View) {
 	for m in []Mode{Browsing{View: v}, Filtering{View: v}} {
 		match Step(m, keys.Interrupt) {
-		case Done[Choice] as d:
+		case machines.Done[Choice] as d:
 			if d.Output != Cancelled {
 				return false
 			}
-		case Enter[Mode], Stay[Mode], Emit[Mode, Choice], Tell[Mode, Choice], Ignore, Reject:
+		case machines.Enter[Mode], machines.Stay[Mode], machines.Emit[Mode, Choice], machines.Tell[Mode, Choice], machines.Ignore, machines.Reject:
 			return false
 		}
 	}
@@ -33,7 +35,7 @@ type Mode = Browsing{View View} | Filtering{View View}
 // TypeThenDeleteIsNoChange: in Filtering, a typed character and then a
 // Backspace leave the filter as it was.
 law TypeThenDeleteIsNoChange(items []string, filter string, c string) {
-	let letter = if len(c) == 0 || c[0] < 32 || c[0] >= 127 { "a" } else { strings.Slice(c, 0, 1) }
+	let letter = if c.Len() == 0 || c[0] < 32 || c[0] >= 127 { "a" } else { strings.Slice(c, 0, 1) }
 	let start = Filtering{View: View{Items: items, Filter: filter, Cursor: 0}}
 	let o = Run(start, []keys.Key{keys.Char{Text: letter}, keys.Backspace})
 	ViewOf(Last(o)).Filter == filter
@@ -78,11 +80,11 @@ law VisibleIsTheMatches(items []string, filter string, n int) {
 	if !matches(items, filter) {
 		return false
 	}
-	if len(items) == 0 {
+	if items.Len() == 0 {
 		return true
 	}
-	let item = items[(if n < 0 { -(n + 1) } else { n })%len(items)]
-	matches(items, strings.ToUpper(strings.Slice(item, 0, len(item)/2)))
+	let item = items[(if n < 0 { -(n + 1) } else { n })%items.Len()]
+	matches(items, strings.ToUpper(strings.Slice(item, 0, item.Len()/2)))
 }
 
 // matches checks VisibleIsTheMatches for one filter, apart from Visible:
@@ -92,13 +94,13 @@ func matches(items []string, filter string) bool {
 	let mut at = 0
 	for item in items {
 		if strings.Contains(strings.ToLower(item), strings.ToLower(filter)) {
-			if at >= len(shown) || shown[at] != item {
+			if at >= shown.Len() || shown[at] != item {
 				return false
 			}
 			at = at + 1
 		}
 	}
-	at == len(shown)
+	at == shown.Len()
 }
 
 // APickIsVisible: what a run picks is an item visible in its last mode.
@@ -108,16 +110,16 @@ law APickIsVisible(items []string, ks []keys.Key) { pickIsVisible(items, ks) && 
 func pickIsVisible(items []string, ks []keys.Key) bool {
 	let o = Run(Start(items), ks)
 	match o.Choice {
-	case Some[Choice] as c:
+	case option.Some[Choice] as c:
 		match c.Value {
 		case Picked as p:
 			let v = ViewOf(Last(o))
 			let shown = Visible(v)
-			v.Cursor < len(shown) && shown[v.Cursor] == p.Item
+			v.Cursor < shown.Len() && shown[v.Cursor] == p.Item
 		case Cancelled:
 			true
 		}
-	case None:
+	case option.None:
 		true
 	}
 }
@@ -126,7 +128,7 @@ func pickIsVisible(items []string, ks []keys.Key) bool {
 // changes, Enter when the mode changes, Ignore when nothing changes,
 // Reject for a key that cannot act (Return on an empty list), and Done
 // when the picker ends. The match names every key in every mode.
-func Step(m Mode, k keys.Key) Decision[Mode, Choice] {
+func Step(m Mode, k keys.Key) machines.Decision[Mode, Choice] {
 	match (m, k) {
 	case (Browsing as b, keys.Up):
 		browse(b.View, -1)
@@ -138,38 +140,38 @@ func Step(m Mode, k keys.Key) Decision[Mode, Choice] {
 		filter(f.View, 1)
 	case (Browsing as b, keys.Return):
 		let shown = Visible(b.View)
-		if len(shown) == 0 {
-			return Reject
+		if shown.Len() == 0 {
+			return machines.Reject
 		}
-		Done[Choice]{Output: Picked{Item: shown[b.View.Cursor]}}
+		machines.Done[Choice]{Output: Picked{Item: shown[b.View.Cursor]}}
 	case (Filtering as f, keys.Return):
-		Enter[Mode]{Next: Browsing{View: f.View}}
+		machines.Enter[Mode]{Next: Browsing{View: f.View}}
 	case (Browsing, keys.Escape), (Browsing, keys.Interrupt), (Filtering, keys.Interrupt):
-		Done[Choice]{Output: Cancelled}
+		machines.Done[Choice]{Output: Cancelled}
 	case (Filtering as f, keys.Escape):
-		Enter[Mode]{Next: Browsing{View: View{..f.View, Filter: "", Cursor: 0}}}
+		machines.Enter[Mode]{Next: Browsing{View: View{..f.View, Filter: "", Cursor: 0}}}
 	case (Browsing as b, keys.Char as c):
 		match c.Text {
 		case "/":
-			Enter[Mode]{Next: Filtering{View: b.View}}
+			machines.Enter[Mode]{Next: Filtering{View: b.View}}
 		case "q":
-			Done[Choice]{Output: Cancelled}
+			machines.Done[Choice]{Output: Cancelled}
 		case "k":
 			browse(b.View, -1)
 		case "j":
 			browse(b.View, 1)
 		case _:
-			Ignore
+			machines.Ignore
 		}
 	case (Filtering as f, keys.Char as c):
-		Stay[Mode]{Next: Filtering{View: View{..f.View, Filter: f.View.Filter + c.Text, Cursor: 0}}}
+		machines.Stay[Mode]{Next: Filtering{View: View{..f.View, Filter: f.View.Filter + c.Text, Cursor: 0}}}
 	case (Browsing, keys.Backspace):
-		Ignore
+		machines.Ignore
 	case (Filtering as f, keys.Backspace):
 		if f.View.Filter == "" {
-			return Ignore
+			return machines.Ignore
 		}
-		Stay[Mode]{Next: Filtering{View: View{..f.View, Filter: dropLast(f.View.Filter), Cursor: 0}}}
+		machines.Stay[Mode]{Next: Filtering{View: View{..f.View, Filter: dropLast(f.View.Filter), Cursor: 0}}}
 	}
 }
 
@@ -182,33 +184,33 @@ type Picker machine[Mode, keys.Key] {
 }
 
 // browse is Browsing with the cursor moved by, or Ignore.
-func browse(v View, by int) Decision[Mode, Choice] {
+func browse(v View, by int) machines.Decision[Mode, Choice] {
 	match moved(v, by) {
-	case Some[View] as to:
-		Stay[Mode]{Next: Browsing{View: to.Value}}
-	case None:
-		Ignore
+	case option.Some[View] as to:
+		machines.Stay[Mode]{Next: Browsing{View: to.Value}}
+	case option.None:
+		machines.Ignore
 	}
 }
 
 // filter is Filtering with the cursor moved by, or Ignore.
-func filter(v View, by int) Decision[Mode, Choice] {
+func filter(v View, by int) machines.Decision[Mode, Choice] {
 	match moved(v, by) {
-	case Some[View] as to:
-		Stay[Mode]{Next: Filtering{View: to.Value}}
-	case None:
-		Ignore
+	case option.Some[View] as to:
+		machines.Stay[Mode]{Next: Filtering{View: to.Value}}
+	case option.None:
+		machines.Ignore
 	}
 }
 
 // moved is v with the cursor by from where it is, when the visible items
 // reach there.
-func moved(v View, by int) Option[View] {
+func moved(v View, by int) option.Option[View] {
 	let to = v.Cursor + by
-	if to < 0 || to >= len(Visible(v)) {
-		return None
+	if to < 0 || to >= Visible(v).Len() {
+		return option.None
 	}
-	Some[View]{Value: View{..v, Cursor: to}}
+	option.Some[View]{Value: View{..v, Cursor: to}}
 }
 
 // dropLast is text without its last character.

@@ -1,4 +1,5 @@
 import hex
+import option
 import sha1dc
 import sha256
 import slices
@@ -56,8 +57,8 @@ func ParseKind(name string) Kind fails EmptyKind | BadHeader {
 // FromBytes wraps raw digest bytes into a validated OID of the given format.
 func FromBytes(format Format, raw []byte) OID fails WrongLength {
 	let want = ByteLen(format)
-	if len(raw) != want {
-		return WrongLength{Expected: want, Got: len(raw)}
+	if raw.Len() != want {
+		return WrongLength{Expected: want, Got: raw.Len()}
 	}
 	let mut copy = slices.WithCapacity[byte](want)
 	for b in raw {
@@ -82,8 +83,8 @@ func hexNibble(b byte) int {
 func ParseHex(format Format, s string) OID fails BadHex | WrongLength {
 	let wantHex = HexLen(format)
 	let bs = s.Bytes()
-	if len(bs) != wantHex {
-		return WrongLength{Expected: wantHex, Got: len(bs)}
+	if bs.Len() != wantHex {
+		return WrongLength{Expected: wantHex, Got: bs.Len()}
 	}
 	let wantBytes = ByteLen(format)
 	let mut raw = slices.WithCapacity[byte](wantBytes)
@@ -114,7 +115,7 @@ func ShortHex(o OID, n int) string {
 	if n <= 0 {
 		return ""
 	}
-	if n >= len(full) {
+	if n >= full.Len() {
 		return full
 	}
 	full[:n]
@@ -160,7 +161,7 @@ func Compare(a OID, b OID) int {
 	if ra > rb {
 		return 1
 	}
-	let n = if len(a.Raw) < len(b.Raw) { len(a.Raw) } else { len(b.Raw) }
+	let n = if a.Raw.Len() < b.Raw.Len() { a.Raw.Len() } else { b.Raw.Len() }
 	for i in 0..n {
 		if a.Raw[i] < b.Raw[i] {
 			return -1
@@ -169,10 +170,10 @@ func Compare(a OID, b OID) int {
 			return 1
 		}
 	}
-	if len(a.Raw) < len(b.Raw) {
+	if a.Raw.Len() < b.Raw.Len() {
 		return -1
 	}
-	if len(a.Raw) > len(b.Raw) {
+	if a.Raw.Len() > b.Raw.Len() {
 		return 1
 	}
 	0
@@ -190,7 +191,7 @@ func Zero(format Format) OID {
 
 // IsZero reports whether every byte of o is zero and matches its format width.
 func IsZero(o OID) bool {
-	if len(o.Raw) != ByteLen(o.Format) {
+	if o.Raw.Len() != ByteLen(o.Format) {
 		return false
 	}
 	for b in o.Raw {
@@ -204,7 +205,7 @@ func IsZero(o OID) bool {
 // Header encodes the canonical Git object header "<kind> <size>\x00".
 func Header(kind Kind, size int) []byte {
 	let prefix = (KindName(kind) + " " + strconv.Itoa(size)).Bytes()
-	let mut out = slices.WithCapacity[byte](len(prefix) + 1)
+	let mut out = slices.WithCapacity[byte](prefix.Len() + 1)
 	for b in prefix {
 		out = out.Append(b)
 	}
@@ -216,7 +217,7 @@ func Header(kind Kind, size int) []byte {
 // start of raw, returning (kind, size, payloadOffset). Rejects empty/unknown
 // kind, missing space or NUL, negative sizes, and leading zeros except "0".
 func ParseHeader(raw []byte) (Kind, int, int) fails EmptyKind | BadHeader {
-	let n = len(raw)
+	let n = raw.Len()
 	let mut spacePos = -1
 	let mut nulPos = -1
 	for i in 0..n {
@@ -238,10 +239,10 @@ func ParseHeader(raw []byte) (Kind, int, int) fails EmptyKind | BadHeader {
 	let kindStr = raw[:spacePos].Text()
 	let kind = try ParseKind(kindStr)
 	let sizeBytes = raw[spacePos+1 : nulPos]
-	if len(sizeBytes) == 0 {
+	if sizeBytes.Len() == 0 {
 		return BadHeader{Reason: "empty object size"}
 	}
-	if len(sizeBytes) > 1 && sizeBytes[0] == byte('0') {
+	if sizeBytes.Len() > 1 && sizeBytes[0] == byte('0') {
 		return BadHeader{Reason: "leading zero in object size"}
 	}
 	let mut size = 0
@@ -275,7 +276,7 @@ func rawSha256OID(s string) OID {
 // SHA-1DC for Sha1 or SHA-256 for Sha256.
 func HashObject(format Format, kind Kind, content []byte) OID fails Collision {
 	let payload = content
-	let hdr = Header(kind, len(payload))
+	let hdr = Header(kind, payload.Len())
 	match format {
 	case Sha1:
 		let h = sha1dc.Write(sha1dc.Write(sha1dc.New(), hdr), payload)
@@ -307,7 +308,7 @@ func NewObjectHasher(format Format, kind Kind, totalLen int) ObjectHasher fails 
 			expectedLen: totalLen,
 			written:     0,
 			sha1State:   sha1dc.Write(sha1dc.New(), hdr),
-			sha256State: None,
+			sha256State: option.None,
 		}
 	case Sha256:
 		let h = sha256.New()
@@ -318,21 +319,21 @@ func NewObjectHasher(format Format, kind Kind, totalLen int) ObjectHasher fails 
 			expectedLen: totalLen,
 			written:     0,
 			sha1State:   sha1dc.New(),
-			sha256State: Some[sha256.Hasher]{Value: h},
+			sha256State: option.Some[sha256.Hasher]{Value: h},
 		}
 	}
 }
 
 // Write absorbs a chunk of raw payload bytes into h.
 func Write(h mut ObjectHasher, data []byte) {
-	let n = len(data)
+	let n = data.Len()
 	h.written = h.written + n
 	match h.sha256State {
-	case Some[sha256.Hasher] as s:
+	case option.Some[sha256.Hasher] as s:
 		if n > 0 {
 			s.Value.Write(data.Text())
 		}
-	case None:
+	case option.None:
 		h.sha1State = sha1dc.Write(h.sha1State, data)
 	}
 }
@@ -344,9 +345,9 @@ func Finish(h ObjectHasher) OID fails Collision | LengthMismatch {
 		return LengthMismatch{Expected: h.expectedLen, Written: h.written}
 	}
 	match h.sha256State {
-	case Some[sha256.Hasher]{Value: h256}:
+	case option.Some[sha256.Hasher]{Value: h256}:
 		rawSha256OID(h256.Digest())
-	case None:
+	case option.None:
 		let digest = sha1dc.Digest(h.sha1State) catch {
 		case sha1dc.CollisionDetected as c:
 			return Collision{Digest: hex.Encode(c.Digest)}

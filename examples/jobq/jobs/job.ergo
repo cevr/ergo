@@ -42,16 +42,16 @@ func Lived(p Policy, results []Result, cost duration) (Outcome, int) {
 			phase = machines.Next(phase, Step(phase, Start{At: q.Ready, Takes: cost}))
 			tries = tries + 1
 		case Running as r:
-			let res = if len(results) == 0 { Ok } else if r.N <= len(results) { results[r.N-1] } else { results[len(results)-1] }
+			let res = if results.Len() == 0 { Ok } else if r.N <= results.Len() { results[r.N-1] } else { results[results.Len()-1] }
 			let d = Step(phase, Finish{At: r.Ends, R: res, P: p})
 			match d {
-			case Done[Outcome] as done:
+			case machines.Done[Outcome] as done:
 				return (done.Output, tries)
-			case Enter[Phase], Stay[Phase], Emit[Phase, Outcome], Tell[Phase, Outcome]:
+			case machines.Enter[Phase], machines.Stay[Phase], machines.Emit[Phase, Outcome], machines.Tell[Phase, Outcome]:
 				phase = machines.Next(phase, d)
-			case Ignore:
+			case machines.Ignore:
 				return (GaveUp{N: r.N, At: r.Ends, Why: "ignored"}, tries)
-			case Reject:
+			case machines.Reject:
 				return (GaveUp{N: r.N, At: r.Ends, Why: "rejected"}, tries)
 			}
 		}
@@ -121,11 +121,11 @@ law RetryWaitsItsBackoff(p Policy, at int) {
 	let end = duration(int64(ms) * int64(1ms))
 	let r = Running{N: 1, Ends: end}
 	match Step(r, Finish{At: end, R: Transient{Reason: "busy"}, P: q}) {
-	case Enter[Phase] as e:
-		Step(e.Next, Start{At: end + Backoff(q, 1) - 1ns, Takes: 1s}) == Reject || Backoff(q, 1) == 0s
-	case Done[Outcome]:
+	case machines.Enter[Phase] as e:
+		Step(e.Next, Start{At: end + Backoff(q, 1) - 1ns, Takes: 1s}) == machines.Reject || Backoff(q, 1) == 0s
+	case machines.Done[Outcome]:
 		q.Attempts == 1
-	case Stay[Phase], Emit[Phase, Outcome], Tell[Phase, Outcome], Ignore, Reject:
+	case machines.Stay[Phase], machines.Emit[Phase, Outcome], machines.Tell[Phase, Outcome], machines.Ignore, machines.Reject:
 		false
 	}
 }

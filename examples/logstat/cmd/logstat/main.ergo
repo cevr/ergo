@@ -13,6 +13,7 @@ import fstest
 import io
 import logstat/access
 import logstat/report
+import option
 import os
 
 let jsonFlag = flag.Bool("json", false, "write the summary as one line of JSON")
@@ -77,7 +78,7 @@ func run(args []string) fails os.Exit needs io.Stdout | io.Stderr | io.Stdin | f
 	let files = flag.Rest(v)
 	let mut reqs = []access.Request{}
 	let mut bad = 0
-	let batches = if len(files) == 0 { []Batch{read("stdin")} } else { try readAll(files) }
+	let batches = if files.Len() == 0 { []Batch{read("stdin")} } else { try readAll(files) }
 	for b in batches {
 		for r in b.Requests {
 			reqs = reqs.Append(r)
@@ -86,9 +87,9 @@ func run(args []string) fails os.Exit needs io.Stdout | io.Stderr | io.Stdin | f
 	}
 	let style = if jsonFlag.Get(v) { report.JSON } else { report.Plain }
 	let by = match report.KeyNamed(byFlag.Get(v)) {
-	case Some as k:
+	case option.Some as k:
 		k.Value
-	case None:
+	case option.None:
 		return os.Exit{Code: 2, Message: "logstat: unknown key " + byFlag.Get(v)}
 	}
 	io.Stdout.Print(report.Write(style, report.Summarize(reqs, bad, by, topFlag.Get(v))))
@@ -105,7 +106,7 @@ func readAll(files []string) []Batch fails os.Exit needs fs.Files | io.Stderr {
 	out
 }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stderr: io.NewErrors(), io.Stdin: io.NewStdin(), fs.Files: fs.NewHost() } {
 		try run(os.Process.Args())
 	}

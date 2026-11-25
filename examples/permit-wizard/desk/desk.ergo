@@ -1,6 +1,8 @@
 // Package desk is the permit desk: the permit machine and the log of its
 // transitions that the inspector shows, newest first.
 
+import core
+import option
 import permitwizard/permit
 import machines
 
@@ -31,7 +33,7 @@ law LogKeepsTheNewest(n int where 0 <= n && n <= 60) {
 		d = machines.Next(d, Track(d, Do{Signal: permit.Chose{Overnight: i%2 == 0}}))
 	}
 	let kept = if n < LogLimit { n } else { LogLimit }
-	if len(d.Log) != kept || d.Next != n {
+	if d.Log.Len() != kept || d.Next != n {
 		return false
 	}
 	for k, e in d.Log {
@@ -97,7 +99,7 @@ func SignalName(sig permit.Signal) string {
 func Logged(d Desk, summary string) Desk {
 	let mut log = []Entry{Entry{ID: d.Next, Summary: summary}}
 	for e in d.Log {
-		if len(log) == LogLimit {
+		if log.Len() == LogLimit {
 			break
 		}
 		log = log.Append(e)
@@ -110,7 +112,7 @@ func Logged(d Desk, summary string) Desk {
 // ignored signal is a Stay of the desk, so a stage's timer runs on; a
 // transition of the permit is one of the desk. A Typed first keeps its
 // text as the desk's Code.
-func Track(d0 Desk, s Signal) Decision[Desk, Never] {
+func Track(d0 Desk, s Signal) machines.Decision[Desk, core.Never] {
 	let (d, sig) = match s {
 	case Do as x:
 		(d0, x.Signal)
@@ -121,12 +123,12 @@ func Track(d0 Desk, s Signal) Decision[Desk, Never] {
 	let next = machines.Next(d.Stage, dec)
 	let moved = Logged(Desk{..d, Stage: next}, "\(StageName(d.Stage)) -> \(StageName(next)) on \(SignalName(sig))")
 	match dec {
-	case Enter[permit.Stage]:
-		Enter[Desk]{Next: moved}
-	case Stay[permit.Stage]:
-		Stay[Desk]{Next: moved}
-	case Ignore, Reject:
-		Stay[Desk]{Next: Logged(d, "\(SignalName(sig)) ignored in \(StageName(d.Stage))")}
+	case machines.Enter[permit.Stage]:
+		machines.Enter[Desk]{Next: moved}
+	case machines.Stay[permit.Stage]:
+		machines.Stay[Desk]{Next: moved}
+	case machines.Ignore, machines.Reject:
+		machines.Stay[Desk]{Next: Logged(d, "\(SignalName(sig)) ignored in \(StageName(d.Stage))")}
 	}
 }
 
@@ -136,25 +138,25 @@ func Track(d0 Desk, s Signal) Decision[Desk, Never] {
 // desk may.
 law IgnoredIsAStay(s permit.Stage, sig permit.Signal) {
 	match permit.Step(s, sig) {
-	case Ignore, Reject:
+	case machines.Ignore, machines.Reject:
 		match Track(Desk{..Blank, Stage: s}, Do{Signal: sig}) {
-		case Stay[Desk]:
+		case machines.Stay[Desk]:
 			true
-		case Enter[Desk], Ignore, Reject:
+		case machines.Enter[Desk], machines.Ignore, machines.Reject:
 			false
 		}
-	case Enter[permit.Stage], Stay[permit.Stage]:
+	case machines.Enter[permit.Stage], machines.Stay[permit.Stage]:
 		true
 	}
 }
 
 // Timer is the desk's timer: its permit's.
-func Timer(d Desk) Option[Timeout[Signal]] {
+func Timer(d Desk) option.Option[machines.Timeout[Signal]] {
 	match permit.Timer(d.Stage) {
-	case Some[Timeout[permit.Signal]] as t:
-		Some[Timeout[Signal]]{Value: Timeout[Signal]{In: t.Value.In, Signal: Do{Signal: t.Value.Signal}}}
-	case None:
-		None
+	case option.Some[machines.Timeout[permit.Signal]] as t:
+		option.Some[machines.Timeout[Signal]]{Value: machines.Timeout[Signal]{In: t.Value.In, Signal: Do{Signal: t.Value.Signal}}}
+	case option.None:
+		option.None
 	}
 }
 

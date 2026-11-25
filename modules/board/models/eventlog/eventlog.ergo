@@ -1,3 +1,5 @@
+import machines
+
 // The package eventlog is the design model of the board's event log, its
 // cursors and wait (spec.md, Event log and cursor; machines.md, M3): a
 // client that loops "wait after my cursor, keep the cursor it returns"
@@ -72,18 +74,18 @@ func moveCursor(s World, to int) World {
 	w
 }
 
-func step(s World, act Act, mutant int) Decision[World, string] {
+func step(s World, act Act, mutant int) machines.Decision[World, string] {
 	let mut w = s
 	match act {
 	case Append as a:
 		if head(w) >= MaxN {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Log = w.Log.Append(a.M)
-		return Enter{w}
+		return machines.Enter{w}
 	case Scan:
 		if w.Phase != 0 {
-			return Ignore
+			return machines.Ignore
 		}
 		let h = head(w)
 		let mut from = w.Cursor
@@ -93,43 +95,43 @@ func step(s World, act Act, mutant int) Decision[World, string] {
 		let hit = firstMatch(w, from, h)
 		if hit > 0 {
 			w.Delivered = w.Delivered.Append(hit)
-			return Enter{moveCursor(w, hit)}
+			return machines.Enter{moveCursor(w, hit)}
 		}
 		w.Phase = 1
 		w.ScanHead = h
-		return Enter{w}
+		return machines.Enter{w}
 	case Register:
 		if w.Phase != 1 {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Phase = 2
 		w.From = w.ScanHead
 		if mutant == SubscribeAtNewestMutant {
 			w.From = head(w)
 		}
-		return Enter{w}
+		return machines.Enter{w}
 	case Notify:
 		if w.Phase != 2 || w.From >= head(w) {
-			return Ignore
+			return machines.Ignore
 		}
 		let seq = w.From + 1
 		if w.Log[seq-1] {
 			w.Delivered = w.Delivered.Append(seq)
 			w.Phase = 0
-			return Enter{moveCursor(w, seq)}
+			return machines.Enter{moveCursor(w, seq)}
 		}
 		w.From = seq
-		return Enter{w}
+		return machines.Enter{w}
 	case Timeout:
 		if w.Phase != 2 {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Phase = 0
 		w.TimedOut = true
 		if mutant == TimeoutAtHeadMutant {
-			return Enter{moveCursor(w, head(w))}
+			return machines.Enter{moveCursor(w, head(w))}
 		}
-		return Enter{moveCursor(w, w.From)}
+		return machines.Enter{moveCursor(w, w.From)}
 	}
 }
 
@@ -176,10 +178,10 @@ func answeredBeforeWait(w World) bool {
 	n == 1 && !w.TimedOut && w.From == 0
 }
 
-func design(s World, a Act) Decision[World, string]            { return step(s, a, NoMutant) }
-func subscribeAtNewest(s World, a Act) Decision[World, string] { return step(s, a, SubscribeAtNewestMutant) }
-func timeoutAtHead(s World, a Act) Decision[World, string]     { return step(s, a, TimeoutAtHeadMutant) }
-func deliverAgain(s World, a Act) Decision[World, string]      { return step(s, a, DeliverAgainMutant) }
+func design(s World, a Act) machines.Decision[World, string]            { return step(s, a, NoMutant) }
+func subscribeAtNewest(s World, a Act) machines.Decision[World, string] { return step(s, a, SubscribeAtNewestMutant) }
+func timeoutAtHead(s World, a Act) machines.Decision[World, string]     { return step(s, a, TimeoutAtHeadMutant) }
+func deliverAgain(s World, a Act) machines.Decision[World, string]      { return step(s, a, DeliverAgainMutant) }
 
 type Design machine[World, Act] {
 	initial: first(),

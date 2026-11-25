@@ -1,4 +1,5 @@
 import hex
+import option
 import sha1dc
 import sha256
 import slices
@@ -71,10 +72,10 @@ func computeDigest(format oid.Format, data []byte) []byte fails ChecksumMismatch
 
 func verifyChecksum(format oid.Format, raw []byte) oid.OID fails Truncated | ChecksumMismatch {
 	let hashLen = oid.ByteLen(format)
-	if len(raw) < hashLen {
-		return Truncated{Expected: hashLen, Got: len(raw)}
+	if raw.Len() < hashLen {
+		return Truncated{Expected: hashLen, Got: raw.Len()}
 	}
-	let bodyEnd = len(raw) - hashLen
+	let bodyEnd = raw.Len() - hashLen
 	let want = raw[bodyEnd:]
 	let got = try computeDigest(format, raw[:bodyEnd])
 	if !slices.Equal(got, want) {
@@ -107,7 +108,7 @@ func parseChunkTable(raw []byte, chunkCount int, bodyEnd int) []chunkSpan fails 
 			return BadChunkTable{Reason: "unexpected zero chunk ID before terminator"}
 		}
 		let id = idBytes.Text()
-		if seen.Get(id) != None {
+		if seen.Get(id) != option.None {
 			return BadChunkTable{Reason: "duplicate chunk ID " + id}
 		}
 		seen[id] = true
@@ -142,24 +143,24 @@ func parseChunkTable(raw []byte, chunkCount int, bodyEnd int) []chunkSpan fails 
 	spans
 }
 
-func findChunk(spans []chunkSpan, id string) Option[chunkSpan] {
+func findChunk(spans []chunkSpan, id string) option.Option[chunkSpan] {
 	for s in spans {
 		if s.id == id {
-			return Some[chunkSpan]{Value: s}
+			return option.Some[chunkSpan]{Value: s}
 		}
 	}
-	None
+	option.None
 }
 
 func parsePNAM(data []byte, expectedCount int) []string fails CorruptPNAM {
 	let mut names = slices.WithCapacity[string](expectedCount)
 	let mut pos = 0
-	for len(names) < expectedCount && pos < len(data) {
+	for names.Len() < expectedCount && pos < data.Len() {
 		let mut nul = pos
-		for nul < len(data) && data[nul] != byte(0) {
+		for nul < data.Len() && data[nul] != byte(0) {
 			nul = nul + 1
 		}
-		if nul >= len(data) {
+		if nul >= data.Len() {
 			return CorruptPNAM{Reason: "unterminated pack name in PNAM"}
 		}
 		if nul == pos {
@@ -168,19 +169,19 @@ func parsePNAM(data []byte, expectedCount int) []string fails CorruptPNAM {
 		names = names.Append(data[pos:nul].Text())
 		pos = nul + 1
 	}
-	if len(names) != expectedCount {
+	if names.Len() != expectedCount {
 		return CorruptPNAM{Reason: "PNAM pack count does not match header"}
 	}
-	let padLen = len(data) - pos
+	let padLen = data.Len() - pos
 	if padLen >= 4 {
 		return CorruptPNAM{Reason: "excessive trailing padding in PNAM"}
 	}
-	for i in pos..len(data) {
+	for i in pos..data.Len() {
 		if data[i] != byte(0) {
 			return CorruptPNAM{Reason: "non-NUL trailing padding in PNAM"}
 		}
 	}
-	for i in 1..len(names) {
+	for i in 1..names.Len() {
 		if names[i-1] >= names[i] {
 			return CorruptPNAM{Reason: "PNAM pack names are not strictly sorted"}
 		}
@@ -189,8 +190,8 @@ func parsePNAM(data []byte, expectedCount int) []string fails CorruptPNAM {
 }
 
 func parseOIDF(data []byte) []uint32 fails CorruptFanout {
-	if len(data) != 1024 {
-		return CorruptFanout{Bucket: 0, Prev: uint32(1024), Cur: uint32(len(data))}
+	if data.Len() != 1024 {
+		return CorruptFanout{Bucket: 0, Prev: uint32(1024), Cur: uint32(data.Len())}
 	}
 	let mut fanout = slices.WithCapacity[uint32](256)
 	let mut prev = uint32(0)
@@ -206,10 +207,10 @@ func parseOIDF(data []byte) []uint32 fails CorruptFanout {
 }
 
 func parseLOFF(data []byte) []uint64 fails BadChunkTable {
-	if len(data)%8 != 0 {
+	if data.Len()%8 != 0 {
 		return BadChunkTable{Reason: "LOFF chunk length is not a multiple of 8"}
 	}
-	let count = len(data) / 8
+	let count = data.Len() / 8
 	let mut out = slices.WithCapacity[uint64](count)
 	for i in 0..count {
 		out = out.Append(readU64BE(data, i*8))
@@ -220,8 +221,8 @@ func parseLOFF(data []byte) []uint64 fails BadChunkTable {
 func resolveEntryOffset(entryIdx int, rawOff uint32, loff []uint64) uint64 fails BadLargeOffset {
 	if (rawOff & uint32(0x80000000)) != uint32(0) {
 		let loffIdx = rawOff & uint32(0x7fffffff)
-		if int(loffIdx) >= len(loff) {
-			return BadLargeOffset{Entry: entryIdx, TableIndex: loffIdx, TableLen: len(loff)}
+		if int(loffIdx) >= loff.Len() {
+			return BadLargeOffset{Entry: entryIdx, TableIndex: loffIdx, TableLen: loff.Len()}
 		}
 		return loff[int(loffIdx)]
 	}
@@ -235,8 +236,8 @@ func resolveEntryOffset(entryIdx int, rawOff uint32, loff []uint64) uint64 fails
 func Parse(format oid.Format, raw []byte) MIDX fails Truncated | BadMagic | UnsupportedVersion | WrongFormat | BadChunkTable | MissingChunk | CorruptPNAM | CorruptFanout | UnsortedOIDs | BadPackID | BadLargeOffset | ChecksumMismatch {
 	let hashLen = oid.ByteLen(format)
 	let minLen = 12 + hashLen
-	if len(raw) < minLen {
-		return Truncated{Expected: minLen, Got: len(raw)}
+	if raw.Len() < minLen {
+		return Truncated{Expected: minLen, Got: raw.Len()}
 	}
 	if raw[0] != byte(0x4d) || raw[1] != byte(0x49) || raw[2] != byte(0x44) || raw[3] != byte(0x58) {
 		return BadMagic{Reason: "missing MIDX magic"}
@@ -254,31 +255,31 @@ func Parse(format oid.Format, raw []byte) MIDX fails Truncated | BadMagic | Unsu
 	let numPacks = int(readU32BE(raw, 8))
 
 	let checksum = try verifyChecksum(format, raw)
-	let bodyEnd = len(raw) - hashLen
+	let bodyEnd = raw.Len() - hashLen
 	let spans = try parseChunkTable(raw, chunkCount, bodyEnd)
 
 	let pnamSpan = match findChunk(spans, "PNAM") {
-	case None:
+	case option.None:
 		return MissingChunk{ChunkID: "PNAM"}
-	case Some[chunkSpan] as s:
+	case option.Some[chunkSpan] as s:
 		s.Value
 	}
 	let oidfSpan = match findChunk(spans, "OIDF") {
-	case None:
+	case option.None:
 		return MissingChunk{ChunkID: "OIDF"}
-	case Some[chunkSpan] as s:
+	case option.Some[chunkSpan] as s:
 		s.Value
 	}
 	let oidlSpan = match findChunk(spans, "OIDL") {
-	case None:
+	case option.None:
 		return MissingChunk{ChunkID: "OIDL"}
-	case Some[chunkSpan] as s:
+	case option.Some[chunkSpan] as s:
 		s.Value
 	}
 	let ooffSpan = match findChunk(spans, "OOFF") {
-	case None:
+	case option.None:
 		return MissingChunk{ChunkID: "OOFF"}
-	case Some[chunkSpan] as s:
+	case option.Some[chunkSpan] as s:
 		s.Value
 	}
 
@@ -298,9 +299,9 @@ func Parse(format oid.Format, raw []byte) MIDX fails Truncated | BadMagic | Unsu
 	}
 
 	let loff = match findChunk(spans, "LOFF") {
-	case None:
+	case option.None:
 		[]uint64{}
-	case Some[chunkSpan] as s:
+	case option.Some[chunkSpan] as s:
 		try parseLOFF(raw[s.Value.start:s.Value.end])
 	}
 
@@ -325,8 +326,8 @@ func Parse(format oid.Format, raw []byte) MIDX fails Truncated | BadMagic | Unsu
 		let rawOff = readU32BE(raw, offPos+4)
 		let mut packName = ""
 		if baseCount == 0 {
-			if int(packID) >= len(packNames) {
-				return BadPackID{Entry: i, PackID: packID, PackCount: len(packNames)}
+			if int(packID) >= packNames.Len() {
+				return BadPackID{Entry: i, PackID: packID, PackCount: packNames.Len()}
 			}
 			packName = packNames[int(packID)]
 		}
@@ -339,7 +340,7 @@ func Parse(format oid.Format, raw []byte) MIDX fails Truncated | BadMagic | Unsu
 		})
 	}
 
-	let mut chunkIDs = slices.WithCapacity[string](len(spans))
+	let mut chunkIDs = slices.WithCapacity[string](spans.Len())
 	for s in spans {
 		chunkIDs = chunkIDs.Append(s.id)
 	}
@@ -379,7 +380,7 @@ func Checksum(m MIDX) oid.OID {
 
 // ChunkIDs returns the 4-byte chunk identifiers present in m in table order.
 func ChunkIDs(m MIDX) []string {
-	let mut out = slices.WithCapacity[string](len(m.chunkIDs))
+	let mut out = slices.WithCapacity[string](m.chunkIDs.Len())
 	for id in m.chunkIDs {
 		out = out.Append(id)
 	}
@@ -388,20 +389,20 @@ func ChunkIDs(m MIDX) []string {
 
 // Count implements MIDXReader.Count on MIDX.
 func Count(m MIDX) int {
-	len(m.entries)
+	m.entries.Len()
 }
 
 // At implements MIDXReader.At on MIDX.
-func At(m MIDX, i int) Option[Location] {
-	if i < 0 || i >= len(m.entries) {
-		return None
+func At(m MIDX, i int) option.Option[Location] {
+	if i < 0 || i >= m.entries.Len() {
+		return option.None
 	}
-	Some[Location]{Value: m.entries[i]}
+	option.Some[Location]{Value: m.entries[i]}
 }
 
 // PackNames implements MIDXReader.PackNames on MIDX.
 func PackNames(m MIDX) []string {
-	let mut out = slices.WithCapacity[string](len(m.packNames))
+	let mut out = slices.WithCapacity[string](m.packNames.Len())
 	for p in m.packNames {
 		out = out.Append(p)
 	}
@@ -416,9 +417,9 @@ func fanoutBounds(fanout []uint32, firstByte int) (int, int) {
 
 // Lookup implements MIDXReader.Lookup on MIDX using O(log N) fan-out bounded
 // binary search.
-func Lookup(m MIDX, id oid.OID) Option[Location] {
-	if !sameFormat(m.format, id.Format) || len(id.Raw) != oid.ByteLen(m.format) || len(m.fanout) != 256 {
-		return None
+func Lookup(m MIDX, id oid.OID) option.Option[Location] {
+	if !sameFormat(m.format, id.Format) || id.Raw.Len() != oid.ByteLen(m.format) || m.fanout.Len() != 256 {
+		return option.None
 	}
 	let (initLo, initHi) = fanoutBounds(m.fanout, int(id.Raw[0]))
 	let mut lo = initLo
@@ -430,7 +431,7 @@ func Lookup(m MIDX, id oid.OID) Option[Location] {
 		let mid = lo + (hi-lo)/2
 		let cmp = oid.Compare(m.entries[mid].OID, id)
 		if cmp == 0 {
-			return Some[Location]{Value: m.entries[mid]}
+			return option.Some[Location]{Value: m.entries[mid]}
 		}
 		if cmp < 0 {
 			lo = mid + 1
@@ -438,5 +439,5 @@ func Lookup(m MIDX, id oid.OID) Option[Location] {
 			hi = mid
 		}
 	}
-	None
+	option.None
 }

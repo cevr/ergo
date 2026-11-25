@@ -1,3 +1,4 @@
+import option
 import slices
 import zlib
 import github.com/cevr/ergo/modules/git/oid
@@ -30,11 +31,11 @@ func readU32BE(src []byte, at int) uint64 {
 // ResolveChain applies a sequence of deltas in order onto base, enforcing
 // limits.MaxDepth and limits.MaxBytes at every step.
 func ResolveChain(base Materialized, deltas [][]byte, limits ChainLimits) Materialized fails Truncated | CorruptDelta | BaseSizeMismatch | TargetSizeMismatch | LimitExceeded | DepthExceeded {
-	if limits.MaxDepth < 0 || len(deltas) > limits.MaxDepth {
+	if limits.MaxDepth < 0 || deltas.Len() > limits.MaxDepth {
 		return DepthExceeded{MaxDepth: limits.MaxDepth}
 	}
-	if len(base.Data) > limits.MaxBytes {
-		return LimitExceeded{Limit: limits.MaxBytes, Needed: len(base.Data)}
+	if base.Data.Len() > limits.MaxBytes {
+		return LimitExceeded{Limit: limits.MaxBytes, Needed: base.Data.Len()}
 	}
 	let mut cur = base.Data
 	for d in deltas {
@@ -48,8 +49,8 @@ func ResolveChain(base Materialized, deltas [][]byte, limits ChainLimits) Materi
 // offset and decoded delta/base payload.
 func ScanPackEntries(pack []byte, format oid.Format, limits ChainLimits) []PackEntry fails Truncated | BadPackHeader | BadOfsDistance | ZlibFailed | LimitExceeded {
 	let trailerLen = oid.ByteLen(format)
-	if len(pack) < 12+trailerLen {
-		return Truncated{Offset: len(pack)}
+	if pack.Len() < 12+trailerLen {
+		return Truncated{Offset: pack.Len()}
 	}
 	if pack[0] != byte('P') || pack[1] != byte('A') || pack[2] != byte('C') || pack[3] != byte('K') {
 		return BadPackHeader{Reason: "missing PACK magic"}
@@ -59,7 +60,7 @@ func ScanPackEntries(pack []byte, format oid.Format, limits ChainLimits) []PackE
 		return BadPackHeader{Reason: "unsupported pack version"}
 	}
 	let count = int(readU32BE(pack, 8))
-	let dataEnd = len(pack) - trailerLen
+	let dataEnd = pack.Len() - trailerLen
 	let mut pos = 12
 	let mut entries = slices.WithCapacity[PackEntry](if count > 1024 { 1024 } else { count })
 	for _ in 0..count {
@@ -72,7 +73,7 @@ func ScanPackEntries(pack []byte, format oid.Format, limits ChainLimits) []PackE
 		match hdr.Kind {
 		case BaseObject as b:
 			let inf = try inflatePackStream(pack[pos:dataEnd], limits.MaxBytes)
-			if len(inf.Data) != hdr.Size {
+			if inf.Data.Len() != hdr.Size {
 				return BadPackHeader{Reason: "inflated base size mismatch"}
 			}
 			pos = pos + inf.Consumed
@@ -81,7 +82,7 @@ func ScanPackEntries(pack []byte, format oid.Format, limits ChainLimits) []PackE
 			let (dist, nextPos) = try ParseOfsDistance(pack, pos, entryOff)
 			pos = nextPos
 			let inf = try inflatePackStream(pack[pos:dataEnd], limits.MaxBytes)
-			if len(inf.Data) != hdr.Size {
+			if inf.Data.Len() != hdr.Size {
 				return BadPackHeader{Reason: "inflated ofs delta size mismatch"}
 			}
 			pos = pos + inf.Consumed
@@ -97,7 +98,7 @@ func ScanPackEntries(pack []byte, format oid.Format, limits ChainLimits) []PackE
 			}
 			pos = pos + oidLen
 			let inf = try inflatePackStream(pack[pos:dataEnd], limits.MaxBytes)
-			if len(inf.Data) != hdr.Size {
+			if inf.Data.Len() != hdr.Size {
 				return BadPackHeader{Reason: "inflated ref delta size mismatch"}
 			}
 			pos = pos + inf.Consumed
@@ -129,7 +130,7 @@ func MaterializeEntries(entries []PackEntry, format oid.Format, limits ChainLimi
 	if limits.MaxDepth < 0 {
 		return DepthExceeded{MaxDepth: limits.MaxDepth}
 	}
-	let n = len(entries)
+	let n = entries.Len()
 	let mut byOffset = Map[int, int]{}
 	for i, e in entries {
 		byOffset[e.Offset] = i
@@ -140,8 +141,8 @@ func MaterializeEntries(entries []PackEntry, format oid.Format, limits ChainLimi
 	for i, e in entries {
 		match e.Entry {
 		case RawBase as b:
-			if len(b.Data) > limits.MaxBytes {
-				return LimitExceeded{Limit: limits.MaxBytes, Needed: len(b.Data)}
+			if b.Data.Len() > limits.MaxBytes {
+				return LimitExceeded{Limit: limits.MaxBytes, Needed: b.Data.Len()}
 			}
 			let mat = Materialized{Kind: b.Kind, Data: b.Data}
 			let id = try hashMaterialized(format, mat)
@@ -153,20 +154,20 @@ func MaterializeEntries(entries []PackEntry, format oid.Format, limits ChainLimi
 		}
 	}
 
-	let mut remaining = n - len(done)
+	let mut remaining = n - done.Len()
 	for remaining > 0 {
 		let mut progressed = false
 		for i, e in entries {
-			if done.Get(i) != None {
+			if done.Get(i) != option.None {
 				continue
 			}
 			match e.Entry {
 			case RawBase:
 			case RawOfsDelta as od:
 				match byOffset.Get(od.BaseOffset) {
-				case Some[int] as baseIdx:
+				case option.Some[int] as baseIdx:
 					match done.Get(baseIdx.Value) {
-					case Some[resolvedEntry] as baseRe:
+					case option.Some[resolvedEntry] as baseRe:
 						let nextDepth = baseRe.Value.depth + 1
 						if nextDepth > limits.MaxDepth {
 							return DepthExceeded{MaxDepth: limits.MaxDepth}
@@ -179,15 +180,15 @@ func MaterializeEntries(entries []PackEntry, format oid.Format, limits ChainLimi
 						done[i] = re
 						byOid[oid.Hex(id)] = re
 						progressed = true
-					case None:
+					case option.None:
 					}
-				case None:
+				case option.None:
 					return BadOfsDistance{EntryOffset: e.Offset, Distance: uint64(e.Offset - od.BaseOffset)}
 				}
 			case RawRefDelta as rd:
 				let key = oid.Hex(rd.BaseOid)
 				match byOid.Get(key) {
-				case Some[resolvedEntry] as baseRe:
+				case option.Some[resolvedEntry] as baseRe:
 					let nextDepth = baseRe.Value.depth + 1
 					if nextDepth > limits.MaxDepth {
 						return DepthExceeded{MaxDepth: limits.MaxDepth}
@@ -200,13 +201,13 @@ func MaterializeEntries(entries []PackEntry, format oid.Format, limits ChainLimi
 					done[i] = re
 					byOid[oid.Hex(id)] = re
 					progressed = true
-				case None:
+				case option.None:
 				}
 			}
 		}
 		if !progressed {
 			for i, e in entries {
-				if done.Get(i) != None {
+				if done.Get(i) != option.None {
 					continue
 				}
 				match e.Entry {
@@ -236,7 +237,7 @@ func MaterializeEntries(entries []PackEntry, format oid.Format, limits ChainLimi
 		}
 		if !progressed {
 			for i, e in entries {
-				if done.Get(i) != None {
+				if done.Get(i) != option.None {
 					continue
 				}
 				match e.Entry {
@@ -248,15 +249,15 @@ func MaterializeEntries(entries []PackEntry, format oid.Format, limits ChainLimi
 				}
 			}
 		}
-		remaining = n - len(done)
+		remaining = n - done.Len()
 	}
 
 	let mut out = slices.WithCapacity[PackedObject](n)
 	for i in 0..n {
 		match done.Get(i) {
-		case Some[resolvedEntry] as re:
+		case option.Some[resolvedEntry] as re:
 			out = out.Append(re.Value.obj)
-		case None:
+		case option.None:
 			return CorruptDelta{Offset: entries[i].Offset, Reason: "unresolved pack entry"}
 		}
 	}

@@ -8,7 +8,7 @@ import pairing/pair
 test DevicesCheckIsStable(serial string, code string) {
 	with context { pair.Devices: Devices } {
 		assert pair.CheckText(serial, code) == pair.CheckText(serial, code)
-		assert pair.CheckText(serial, CodeFor(serial)) != "wrong" || len(serial) < 4
+		assert pair.CheckText(serial, CodeFor(serial)) != "wrong" || serial.Len() < 4
 	}
 }
 

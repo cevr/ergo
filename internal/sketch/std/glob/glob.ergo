@@ -1,0 +1,624 @@
+import option
+import slices
+import strings
+
+let maxBraceDepth = 8
+let maxBraceBranches = 256
+
+func normalizePathString(raw string) string {
+	let mut s = raw
+	for strings.HasPrefix(s, "./") {
+		s = strings.TrimPrefix(s, "./")
+	}
+	if s == "." {
+		return ""
+	}
+	for strings.HasSuffix(s, "/") && s.Len() > 1 {
+		s = strings.TrimSuffix(s, "/")
+	}
+	s
+}
+
+func splitPathSegments(raw string) []string {
+	let norm = normalizePathString(raw)
+	if norm == "" {
+		return []string{}
+	}
+	let parts = strings.Split(norm, "/")
+	let mut out = slices.WithCapacity[string](parts.Len())
+	for p in parts {
+		if p != "" && p != "." {
+			out = out.Append(p)
+		}
+	}
+	out
+}
+
+func splitTopLevelBraceItems(body string, baseOffset int, fullPattern string) []string fails InvalidPattern {
+	let bs = body.Bytes()
+	let n = bs.Len()
+	let mut items = []string{}
+	let mut start = 0
+	let mut depth = 0
+	let mut inClass = false
+	let mut i = 0
+	for i < n {
+		let b = bs[i]
+		if b == byte('\\') {
+			i = i + 2
+			continue
+		}
+		if inClass {
+			if b == byte(']') {
+				inClass = false
+			}
+			i = i + 1
+			continue
+		}
+		if b == byte('[') {
+			inClass = true
+			i = i + 1
+			continue
+		}
+		if b == byte('{') {
+			depth = depth + 1
+			if depth > maxBraceDepth {
+				return InvalidPattern{Pattern: fullPattern, Offset: baseOffset + i, Reason: "brace nesting depth exceeded"}
+			}
+			i = i + 1
+			continue
+		}
+		if b == byte('}') {
+			if depth == 0 {
+				return InvalidPattern{Pattern: fullPattern, Offset: baseOffset + i, Reason: "unexpected closing brace"}
+			}
+			depth = depth - 1
+			i = i + 1
+			continue
+		}
+		if b == byte(',') && depth == 0 {
+			items = items.Append(bs[start:i].Text())
+			start = i + 1
+		}
+		i = i + 1
+	}
+	items = items.Append(bs[start:].Text())
+	items
+}
+
+func expandBracesRec(pat string, depth int, fullPattern string) []string fails InvalidPattern {
+	if depth > maxBraceDepth {
+		return InvalidPattern{Pattern: fullPattern, Offset: 0, Reason: "brace nesting depth exceeded"}
+	}
+	let bs = pat.Bytes()
+	let n = bs.Len()
+	let mut openPos = -1
+	let mut closePos = -1
+	let mut braceDepth = 0
+	let mut inClass = false
+	let mut i = 0
+	for i < n {
+		let b = bs[i]
+		if b == byte('\\') {
+			if i+1 >= n {
+				return InvalidPattern{Pattern: fullPattern, Offset: i, Reason: "trailing backslash escape"}
+			}
+			i = i + 2
+			continue
+		}
+		if inClass {
+			if b == byte(']') {
+				inClass = false
+			}
+			i = i + 1
+			continue
+		}
+		if b == byte('[') {
+			inClass = true
+			i = i + 1
+			continue
+		}
+		if b == byte('{') {
+			if openPos < 0 {
+				openPos = i
+			}
+			braceDepth = braceDepth + 1
+			if braceDepth > maxBraceDepth {
+				return InvalidPattern{Pattern: fullPattern, Offset: i, Reason: "brace nesting depth exceeded"}
+			}
+		} else if b == byte('}') {
+			if braceDepth == 0 {
+				return InvalidPattern{Pattern: fullPattern, Offset: i, Reason: "unmatched closing brace"}
+			}
+			braceDepth = braceDepth - 1
+			if braceDepth == 0 && openPos >= 0 {
+				closePos = i
+				break
+			}
+		}
+		i = i + 1
+	}
+	if openPos >= 0 && closePos < 0 {
+		return InvalidPattern{Pattern: fullPattern, Offset: openPos, Reason: "unclosed brace alternation"}
+	}
+	if openPos < 0 {
+		return []string{pat}
+	}
+	let prefix = bs[:openPos].Text()
+	let inside = bs[openPos+1 : closePos].Text()
+	let suffix = bs[closePos+1:].Text()
+	let items = try splitTopLevelBraceItems(inside, openPos+1, fullPattern)
+	let expandedSuffixes = try expandBracesRec(suffix, depth, fullPattern)
+	let mut out = []string{}
+	for item in items {
+		let subExpanded = try expandBracesRec(item, depth+1, fullPattern)
+		for sub in subExpanded {
+			for suf in expandedSuffixes {
+				out = out.Append(prefix + sub + suf)
+				if out.Len() > maxBraceBranches {
+					return InvalidPattern{Pattern: fullPattern, Offset: openPos, Reason: "brace expansion branch limit exceeded"}
+				}
+			}
+		}
+	}
+	out
+}
+
+func parseCharClass(bs []byte, start int, fullPattern string) (SegToken, int) fails InvalidPattern {
+	let n = bs.Len()
+	let mut i = start + 1
+	if i >= n {
+		return InvalidPattern{Pattern: fullPattern, Offset: start, Reason: "unclosed character class"}
+	}
+	let mut negated = false
+	if bs[i] == byte('!') || bs[i] == byte('^') {
+		negated = true
+		i = i + 1
+	}
+	if i >= n {
+		return InvalidPattern{Pattern: fullPattern, Offset: start, Reason: "unclosed character class"}
+	}
+	let mut ranges = []CharRange{}
+	let mut first = true
+	let mut closed = false
+	for i < n {
+		let mut ch = bs[i]
+		if ch == byte(']') && !first {
+			closed = true
+			i = i + 1
+			break
+		}
+		if ch == byte('\\') {
+			if i+1 >= n {
+				return InvalidPattern{Pattern: fullPattern, Offset: i, Reason: "trailing backslash inside character class"}
+			}
+			ch = bs[i+1]
+			i = i + 2
+		} else {
+			i = i + 1
+		}
+		first = false
+		if i+1 < n && bs[i] == byte('-') && bs[i+1] != byte(']') {
+			i = i + 1
+			let mut hi = bs[i]
+			if hi == byte('\\') {
+				if i+1 >= n {
+					return InvalidPattern{Pattern: fullPattern, Offset: i, Reason: "trailing backslash in range end"}
+				}
+				hi = bs[i+1]
+				i = i + 2
+			} else {
+				i = i + 1
+			}
+			if ch > hi {
+				return InvalidPattern{Pattern: fullPattern, Offset: start, Reason: "reversed character class range"}
+			}
+			ranges = ranges.Append(CharRange{Lo: ch, Hi: hi})
+		} else {
+			ranges = ranges.Append(CharRange{Lo: ch, Hi: ch})
+		}
+	}
+	if !closed {
+		return InvalidPattern{Pattern: fullPattern, Offset: start, Reason: "unclosed character class"}
+	}
+	if ranges.Len() == 0 {
+		return InvalidPattern{Pattern: fullPattern, Offset: start, Reason: "empty character class"}
+	}
+	(TokClass{Negated: negated, Ranges: ranges}, i)
+}
+
+func compileSegment(seg string, fullPattern string) SegPattern fails InvalidPattern {
+	if seg == "**" {
+		return SegDoubleStar
+	}
+	let bs = seg.Bytes()
+	let n = bs.Len()
+	let mut tokens = slices.WithCapacity[SegToken](n)
+	let mut allLit = true
+	let mut litBytes = slices.WithCapacity[byte](n)
+	let mut i = 0
+	for i < n {
+		let b = bs[i]
+		if b == byte('\\') {
+			if i+1 >= n {
+				return InvalidPattern{Pattern: fullPattern, Offset: i, Reason: "trailing backslash escape"}
+			}
+			let esc = bs[i+1]
+			tokens = tokens.Append(TokLit{Ch: esc})
+			litBytes = litBytes.Append(esc)
+			i = i + 2
+		} else if b == byte('*') {
+			allLit = false
+			let prevStar = if tokens.Len() > 0 {
+				match tokens[tokens.Len()-1] {
+				case TokStar:
+					true
+				case TokLit, TokAny, TokClass:
+					false
+				}
+			} else {
+				false
+			}
+			if !prevStar {
+				tokens = tokens.Append(TokStar)
+			}
+			i = i + 1
+		} else if b == byte('?') {
+			allLit = false
+			tokens = tokens.Append(TokAny)
+			i = i + 1
+		} else if b == byte('[') {
+			allLit = false
+			let (tok, nextI) = try parseCharClass(bs, i, fullPattern)
+			tokens = tokens.Append(tok)
+			i = nextI
+		} else {
+			tokens = tokens.Append(TokLit{Ch: b})
+			litBytes = litBytes.Append(b)
+			i = i + 1
+		}
+	}
+	let explicitDot = if tokens.Len() > 0 {
+		match tokens[0] {
+		case TokLit as l:
+			l.Ch == byte('.')
+		case TokAny, TokStar, TokClass:
+			false
+		}
+	} else {
+		false
+	}
+	let staticLit = if allLit {
+		option.Some[string]{Value: litBytes.Text()}
+	} else {
+		option.None
+	}
+	SegTokens{
+		Tokens:        tokens,
+		ExplicitDot:   explicitDot,
+		StaticLiteral: staticLit,
+	}
+}
+
+func compileBranch(branchStr string, fullPattern string) (CompiledBranch, bool) fails InvalidPattern {
+	let rawSegs = splitPathSegments(branchStr)
+	let mut segs = slices.WithCapacity[SegPattern](rawSegs.Len())
+	let mut hasExplicitDot = false
+	for rs in rawSegs {
+		let sp = try compileSegment(rs, fullPattern)
+		match sp {
+		case SegDoubleStar:
+			let prevDD = if segs.Len() > 0 {
+				match segs[segs.Len()-1] {
+				case SegDoubleStar:
+					true
+				case SegTokens:
+					false
+				}
+			} else {
+				false
+			}
+			if !prevDD {
+				segs = segs.Append(SegDoubleStar)
+			}
+		case SegTokens as st:
+			if st.ExplicitDot {
+				hasExplicitDot = true
+			}
+			segs = segs.Append(sp)
+		}
+	}
+	(CompiledBranch{Segments: segs}, hasExplicitDot)
+}
+
+func branchStaticPrefix(b CompiledBranch) []string {
+	let mut out = []string{}
+	for s in b.Segments {
+		match s {
+		case SegDoubleStar:
+			return out
+		case SegTokens as st:
+			match st.StaticLiteral {
+			case option.Some[string] as lit:
+				out = out.Append(lit.Value)
+			case option.None:
+				return out
+			}
+		}
+	}
+	out
+}
+
+func commonStaticPrefix(branches []CompiledBranch) []string {
+	if branches.Len() == 0 {
+		return []string{}
+	}
+	let mut prefix = branchStaticPrefix(branches[0])
+	for i in 1..branches.Len() {
+		let cur = branchStaticPrefix(branches[i])
+		let limit = if prefix.Len() < cur.Len() { prefix.Len() } else { cur.Len() }
+		let mut k = 0
+		for k < limit && prefix[k] == cur[k] {
+			k = k + 1
+		}
+		prefix = prefix[:k]
+		if prefix.Len() == 0 {
+			return prefix
+		}
+	}
+	if prefix.Len() > 0 {
+		let lastIdx = prefix.Len() - 1
+		let mut allLonger = true
+		for b in branches {
+			if b.Segments.Len() <= prefix.Len() {
+				allLonger = false
+				break
+			}
+		}
+		if !allLonger {
+			prefix = prefix[:lastIdx]
+		}
+	}
+	prefix
+}
+
+// Compile parses and compiles pattern into a flat, ReDoS-free Pattern ready
+// for repeated Match and Scan calls.
+func Compile(pattern string) Pattern fails InvalidPattern {
+	let expanded = try expandBracesRec(pattern, 0, pattern)
+	let mut branches = slices.WithCapacity[CompiledBranch](expanded.Len())
+	let mut explicitDot = false
+	for br in expanded {
+		let (compiled, brDot) = try compileBranch(br, pattern)
+		if brDot {
+			explicitDot = true
+		}
+		branches = branches.Append(compiled)
+	}
+	let prefix = commonStaticPrefix(branches)
+	Pattern{
+		Raw:          pattern,
+		Branches:     branches,
+		StaticPrefix: prefix,
+		ExplicitDot:  explicitDot,
+	}
+}
+
+func matchCharClass(negated bool, ranges []CharRange, ch byte) bool {
+	let mut matched = false
+	for r in ranges {
+		if ch >= r.Lo && ch <= r.Hi {
+			matched = true
+			break
+		}
+	}
+	if negated { !matched } else { matched }
+}
+
+func matchSegmentTokens(tokens []SegToken, seg string) bool {
+	let bs = seg.Bytes()
+	let sLen = bs.Len()
+	let tLen = tokens.Len()
+	let mut ti = 0
+	let mut si = 0
+	let mut starTi = -1
+	let mut starSi = 0
+
+	for si < sLen {
+		if ti < tLen {
+			match tokens[ti] {
+			case TokStar:
+				starTi = ti
+				starSi = si
+				ti = ti + 1
+				continue
+			case TokAny:
+				ti = ti + 1
+				si = si + 1
+				continue
+			case TokLit as l:
+				if bs[si] == l.Ch {
+					ti = ti + 1
+					si = si + 1
+					continue
+				}
+			case TokClass as cl:
+				if matchCharClass(cl.Negated, cl.Ranges, bs[si]) {
+					ti = ti + 1
+					si = si + 1
+					continue
+				}
+			}
+		}
+		if starTi >= 0 {
+			starSi = starSi + 1
+			si = starSi
+			ti = starTi + 1
+		} else {
+			return false
+		}
+	}
+
+	for ti < tLen {
+		match tokens[ti] {
+		case TokStar:
+			ti = ti + 1
+		case TokLit, TokAny, TokClass:
+			return false
+		}
+	}
+	true
+}
+
+func matchSegPattern(sp SegPattern, seg string) bool {
+	match sp {
+	case SegDoubleStar:
+		true
+	case SegTokens as st:
+		match st.StaticLiteral {
+		case option.Some[string] as lit:
+			lit.Value == seg
+		case option.None:
+			matchSegmentTokens(st.Tokens, seg)
+		}
+	}
+}
+
+func matchBranchSegments(pats []SegPattern, pathSegs []string) bool {
+	let pLen = pats.Len()
+	let sLen = pathSegs.Len()
+	let mut pi = 0
+	let mut si = 0
+	let mut ddPi = -1
+	let mut ddSi = 0
+
+	for si < sLen {
+		if pi < pLen {
+			match pats[pi] {
+			case SegDoubleStar:
+				ddPi = pi
+				ddSi = si
+				pi = pi + 1
+				continue
+			case SegTokens:
+				if matchSegPattern(pats[pi], pathSegs[si]) {
+					pi = pi + 1
+					si = si + 1
+					continue
+				}
+			}
+		}
+		if ddPi >= 0 {
+			ddSi = ddSi + 1
+			si = ddSi
+			pi = ddPi + 1
+		} else {
+			return false
+		}
+	}
+
+	for pi < pLen {
+		match pats[pi] {
+		case SegDoubleStar:
+			pi = pi + 1
+		case SegTokens:
+			return false
+		}
+	}
+	true
+}
+
+// Match reports whether path matches compiled pattern p in guaranteed
+// linear/polynomial time without exponential backtracking.
+func Match(p Pattern, path string) bool {
+	let pathSegs = splitPathSegments(path)
+	for br in p.Branches {
+		if matchBranchSegments(br.Segments, pathSegs) {
+			return true
+		}
+	}
+	false
+}
+
+// MatchString compiles pattern and matches path against it in one call.
+func MatchString(pattern string, path string) bool fails InvalidPattern {
+	let p = try Compile(pattern)
+	Match(p, path)
+}
+
+// StaticPrefix returns the longest common leading literal directory prefix
+// shared across all branches of p, used by Scan to skip unrelated subtrees.
+func StaticPrefix(p Pattern) []string {
+	p.StaticPrefix
+}
+
+func branchCanDescend(pats []SegPattern, dirSegs []string) bool {
+	let m = pats.Len()
+	if m == 0 {
+		return false
+	}
+	let mut reach = slices.WithCapacity[bool](m + 1)
+	for _ in 0..(m + 1) {
+		reach = reach.Append(false)
+	}
+	reach[0] = true
+	for i in 0..m {
+		if reach[i] {
+			match pats[i] {
+			case SegDoubleStar:
+				reach[i+1] = true
+			case SegTokens:
+			}
+		}
+	}
+
+	for seg in dirSegs {
+		let mut next = slices.WithCapacity[bool](m + 1)
+		for _ in 0..(m + 1) {
+			next = next.Append(false)
+		}
+		for i in 0..m {
+			if !reach[i] {
+				continue
+			}
+			match pats[i] {
+			case SegDoubleStar:
+				next[i] = true
+				next[i+1] = true
+			case SegTokens:
+				if matchSegPattern(pats[i], seg) {
+					next[i+1] = true
+				}
+			}
+		}
+		for i in 0..m {
+			if next[i] {
+				match pats[i] {
+				case SegDoubleStar:
+					next[i+1] = true
+				case SegTokens:
+				}
+			}
+		}
+		reach = next
+	}
+
+	for i in 0..m {
+		if reach[i] {
+			return true
+		}
+	}
+	false
+}
+
+// CanDescend reports whether any file or directory strictly underneath relDir
+// could possibly match p, enabling early subtree pruning during Scan.
+func CanDescend(p Pattern, relDir string) bool {
+	let dirSegs = splitPathSegments(relDir)
+	for br in p.Branches {
+		if branchCanDescend(br.Segments, dirSegs) {
+			return true
+		}
+	}
+	false
+}

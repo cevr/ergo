@@ -5,6 +5,7 @@
 // holder (types.md, Bindings 2): `ergo inspect copies` shows, for each
 // call, whether it hands its Set over or copies it, and why.
 
+import option
 import slices
 
 // Set is a sorted set of floors, each once.
@@ -17,7 +18,7 @@ type Full { Cap int }
 func New() Set { Set{xs: []int{}} }
 
 // Len is the number of floors in s.
-func Len(s Set) int { len(s.xs) }
+func Len(s Set) int { s.xs.Len() }
 
 // Floors is the floors of s, in ascending order.
 func Floors(s Set) []int { s.xs }
@@ -29,25 +30,25 @@ func at(s Set, f int) int {
 			return i
 		}
 	}
-	len(s.xs)
+	s.xs.Len()
 }
 
 // Has reports whether f is in s.
 func Has(s Set, f int) bool {
 	let i = at(s, f)
-	i < len(s.xs) && s.xs[i] == f
+	i < s.xs.Len() && s.xs[i] == f
 }
 
 // Insert is s with f.
 func Insert(s Set, f int) Set {
 	let i = at(s, f)
-	if i < len(s.xs) && s.xs[i] == f {
+	if i < s.xs.Len() && s.xs[i] == f {
 		return s
 	}
 	let mut t = s
 	t.xs = t.xs.Append(f)
-	for k in 0..(len(t.xs) - 1 - i) {
-		let j = len(t.xs) - 1 - k
+	for k in 0..(t.xs.Len() - 1 - i) {
+		let j = t.xs.Len() - 1 - k
 		t.xs[j] = t.xs[j-1]
 	}
 	t.xs[i] = f
@@ -57,14 +58,14 @@ func Insert(s Set, f int) Set {
 // Remove is s without f.
 func Remove(s Set, f int) Set {
 	let i = at(s, f)
-	if i >= len(s.xs) || s.xs[i] != f {
+	if i >= s.xs.Len() || s.xs[i] != f {
 		return s
 	}
 	let mut t = s
-	for j in i..(len(t.xs) - 1) {
+	for j in i..(t.xs.Len() - 1) {
 		t.xs[j] = t.xs[j+1]
 	}
-	t.xs = t.xs[0 : len(t.xs)-1]
+	t.xs = t.xs[0 : t.xs.Len()-1]
 	t
 }
 
@@ -74,29 +75,29 @@ func InsertCapped(s Set, f int, cap int) Set fails Full {
 	if Has(s, f) {
 		return s
 	}
-	if len(s.xs) >= cap {
+	if s.xs.Len() >= cap {
 		return Full{Cap: cap}
 	}
 	Insert(s, f)
 }
 
 // Above is the least floor of s above f.
-func Above(s Set, f int) Option[int] {
+func Above(s Set, f int) option.Option[int] {
 	for x in s.xs {
 		if x > f {
-			return Some[int]{Value: x}
+			return option.Some[int]{Value: x}
 		}
 	}
-	None
+	option.None
 }
 
 // Below is the greatest floor of s below f.
-func Below(s Set, f int) Option[int] {
+func Below(s Set, f int) option.Option[int] {
 	let i = at(s, f)
 	if i > 0 {
-		return Some[int]{Value: s.xs[i-1]}
+		return option.Some[int]{Value: s.xs[i-1]}
 	}
-	None
+	option.None
 }
 
 // SetOf is the Set of the floors fs.
@@ -156,14 +157,14 @@ law CappedHoldsTheCap(fs []int, f int, c int) {
 // f, on each side.
 law AboveAndBelowAreNeighbours(fs []int, f int) {
 	let s = SetOf(fs)
-	let mut up Option[int] = None
-	let mut down Option[int] = None
+	let mut up option.Option[int] = option.None
+	let mut down option.Option[int] = option.None
 	for x in Floors(s) {
-		if x > f && up == None {
-			up = Some[int]{Value: x}
+		if x > f && up == option.None {
+			up = option.Some[int]{Value: x}
 		}
 		if x < f {
-			down = Some[int]{Value: x}
+			down = option.Some[int]{Value: x}
 		}
 	}
 	Above(s, f) == up && Below(s, f) == down

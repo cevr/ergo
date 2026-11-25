@@ -1,3 +1,4 @@
+import option
 import sync
 
 type memState {
@@ -56,7 +57,7 @@ func CreateExclusive(m MemoryLockOps, lockPath string) fails LockHeld | PathInva
 		return PathInvalid{Path: lockPath, Reason: "injected create fault"}
 	case _:
 	}
-	if st.locks.Get(lockPath) != None {
+	if st.locks.Get(lockPath) != option.None {
 		return LockHeld{Path: lockPath}
 	}
 	m.state.Set(memState{
@@ -75,7 +76,7 @@ func WriteLock(m MemoryLockOps, lockPath string, data string) fails NotHeld | Pa
 		return PathInvalid{Path: lockPath, Reason: "injected write fault"}
 	case _:
 	}
-	if st.locks.Get(lockPath) == None {
+	if st.locks.Get(lockPath) == option.None {
 		return NotHeld{Path: lockPath}
 	}
 	m.state.Set(memState{
@@ -94,7 +95,7 @@ func SyncFile(m MemoryLockOps, lockPath string) fails SyncFailed {
 		return SyncFailed{Path: lockPath, Reason: "injected sync fault"}
 	case _:
 	}
-	if st.locks.Get(lockPath) == None {
+	if st.locks.Get(lockPath) == option.None {
 		return SyncFailed{Path: lockPath, Reason: "lock missing during sync"}
 	}
 	m.state.Set(memState{
@@ -114,14 +115,14 @@ func RenamePublish(m MemoryLockOps, lockPath string, targetPath string) fails Pu
 	case _:
 	}
 	match st.locks.Get(lockPath) {
-	case Some[string] as staged:
+	case option.Some[string] as staged:
 		m.state.Set(memState{
 			targets: st.targets.Put(targetPath, staged.Value),
 			locks:   st.locks.Delete(lockPath),
 			events:  st.events.Append(OpRename),
 			fault:   st.fault,
 		})
-	case None:
+	case option.None:
 		return PublishFailed{Path: targetPath, Reason: "lock missing on rename"}
 	}
 }
@@ -129,7 +130,7 @@ func RenamePublish(m MemoryLockOps, lockPath string, targetPath string) fails Pu
 // RemoveLock removes lockPath from m, failing NotHeld if absent.
 func RemoveLock(m MemoryLockOps, lockPath string) fails NotHeld {
 	let st = m.state.Get()
-	if st.locks.Get(lockPath) == None {
+	if st.locks.Get(lockPath) == option.None {
 		return NotHeld{Path: lockPath}
 	}
 	m.state.Set(memState{
@@ -157,11 +158,11 @@ func SyncDir(m MemoryLockOps, dirPath string) fails DirSyncUncertain {
 }
 
 // ReadTarget returns the currently committed bytes at targetPath in m.
-func ReadTarget(m MemoryLockOps, targetPath string) Option[string] {
+func ReadTarget(m MemoryLockOps, targetPath string) option.Option[string] {
 	m.state.Get().targets.Get(targetPath)
 }
 
 // LockExists reports whether lockPath currently exists in m.
 func LockExists(m MemoryLockOps, lockPath string) bool {
-	m.state.Get().locks.Get(lockPath) != None
+	m.state.Get().locks.Get(lockPath) != option.None
 }

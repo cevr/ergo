@@ -1,4 +1,5 @@
 import actor
+import core
 import gen
 import stopwatch/screen
 import stopwatch/watch
@@ -17,8 +18,8 @@ func hasOfferLabel(offers []ui.Offer, label string) bool {
 
 func exploreStopwatch(steps int) ui.Finding needs gen.Draws {
 	let clock = time.NewManual(0)
-	with context { time.Clock: clock, Scheduler: clock } {
-		let app = actor.StartMachine(watch.Stopwatch{}, 16, func(o Never) { let _ = o })
+	with context { time.Clock: clock, time.Scheduler: clock } {
+		let app = actor.StartMachine(watch.Stopwatch{}, 16, func(o core.Never) { let _ = o })
 		let mut h = ui.NewTestHost(app, screen.Screen, clock, 64) catch {
 		case ui.BadPatch as bp:
 			app.Stop()

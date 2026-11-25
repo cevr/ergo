@@ -6,6 +6,7 @@ import exec
 import fs
 import fstest
 import github.com/cevr/ergo/modules/work/classes
+import option
 import strings
 import sync
 import github.com/cevr/ergo/modules/work/work
@@ -94,7 +95,7 @@ law CandidateNeverWorseThanGit(base string, ours string, theirs string, same int
 	let d = NewDriver(disk, text, status, if pinned { "1.0" } else { "0.9" })
 	let tool = configuredTool(d, disk, files)
 	let mut conflicted = false
-	let _ = tool.MergeFile("auto", theBase+"/m/b.go", theBase+"/m/o.go", theBase+"/m/t.go", work.MergeFileOptions{Path: Some[string]{Value: "f.go"}}) catch {
+	let _ = tool.MergeFile("auto", theBase+"/m/b.go", theBase+"/m/o.go", theBase+"/m/t.go", work.MergeFileOptions{Path: option.Some[string]{Value: "f.go"}}) catch {
 	case work.MergeConflict:
 		conflicted = true
 		work.FileMerged{Path: "", Class: "", Regenerate: false}
@@ -107,7 +108,7 @@ law CandidateNeverWorseThanGit(base string, ours string, theirs string, same int
 	}
 	let lines = classes.MergeText(base, o, theirs)
 	if lines.Clashes == 0 {
-		return !conflicted && got == classes.Text(lines) && len(d.Ran()) == 0
+		return !conflicted && got == classes.Text(lines) && d.Ran().Len() == 0
 	}
 	let ran = trusted && pinned
 	if ran && status == 0 && !bad && !marker {
@@ -116,5 +117,5 @@ law CandidateNeverWorseThanGit(base string, ours string, theirs string, same int
 	if ran && status == 1 {
 		return conflicted && got == text
 	}
-	conflicted && got == classes.Text(lines) && (ran || len(d.Ran()) == 0)
+	conflicted && got == classes.Text(lines) && (ran || d.Ran().Len() == 0)
 }

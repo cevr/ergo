@@ -17,12 +17,12 @@ func listInvariant(l todo.List) bool {
 			open = open + 1
 		}
 	}
-	l.Left == open && len(todo.Shown(l)) <= len(l.Items)
+	l.Left == open && todo.Shown(l).Len() <= l.Items.Len()
 }
 
 func exploreTodo(steps int) ui.Finding needs gen.Draws {
 	let clock = time.NewManual(0)
-	with context { Scheduler: clock } {
+	with context { time.Scheduler: clock } {
 		let app = actor.StartMachine(todo.Todo{}, 16, func(l todo.List) { let _ = l })
 		let mut h = ui.NewTestHost(app, View, clock, 64) catch {
 		case ui.BadPatch as bp:

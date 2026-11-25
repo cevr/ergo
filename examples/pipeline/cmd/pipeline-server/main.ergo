@@ -16,6 +16,7 @@ import runners pipeline/memory
 import rpc
 import pipeline/pipeline
 import pipeline/pipeline/pipelinerpc
+import time
 
 let addrFlag = flag.String("addr", "127.0.0.1:0", "the address to listen on (port 0 picks a free one)")
 
@@ -39,7 +40,7 @@ func Route(r http.Request) http.Response needs pipeline.Pipeline | http.Streamin
 	rpc.Answer(r, "/rpc", pipelinerpc.Handle)
 }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	let v = with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stderr: io.NewErrors() } {
 		flag.Parse(set, os.Process.Args()) catch {
 		case err:
@@ -54,7 +55,7 @@ func main() fails os.Exit needs Ambient {
 	with context { io.Stdout: io.NewHost() } {
 		io.Stdout.Println("listening \(l.Addr())")
 	}
-	with context { Scheduler: NewLiveScheduler(), pipeline.Runner: runners.New(Map[int, int]{}) } {
+	with context { time.Scheduler: time.NewLiveScheduler(), pipeline.Runner: runners.New(Map[int, int]{}) } {
 		let m = pipeline.Open(memory.New[pipeline.Entry]()) catch {
 		case domain.Conflict, domain.Reused:
 			return os.Exit{Code: 1, Message: "pipeline-server: the log refused a record"}

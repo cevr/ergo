@@ -2,6 +2,7 @@ import exec
 import filepath
 import fs
 import fstest
+import option
 import os
 import strings
 import github.com/cevr/ergo/modules/git/delta
@@ -18,7 +19,7 @@ func openRepoDiskODB(fmt oid.Format, objectsDir string, host fs.Host) pack.DiskO
 	pack.NewDiskODB(odb, host)
 }
 
-let onOracleSha1 = context fails pack.Corrupt | pack.MismatchedPair | pack.IOFailed needs TestAmbient {
+let onOracleSha1 = context fails pack.Corrupt | pack.MismatchedPair | pack.IOFailed needs fstest.TestAmbient {
 	exec.Runner:         exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
 	fs.Files:            fs.NewTestHost(),
 	fs.Writes:           fs.NewTestHost(),
@@ -28,7 +29,7 @@ let onOracleSha1 = context fails pack.Corrupt | pack.MismatchedPair | pack.IOFai
 	revisions.CommitDAG: revisions.NewStoreDAG(oid.Sha1, filepath.Join([]string{fstest.TestFolder(), "repo-sha1", ".git", "objects"}), []string{}, false, fs.NewTestHost()),
 }
 
-let onOracleSha256 = context fails pack.Corrupt | pack.MismatchedPair | pack.IOFailed needs TestAmbient {
+let onOracleSha256 = context fails pack.Corrupt | pack.MismatchedPair | pack.IOFailed needs fstest.TestAmbient {
 	exec.Runner:         exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
 	fs.Files:            fs.NewTestHost(),
 	fs.Writes:           fs.NewTestHost(),
@@ -46,7 +47,7 @@ let onMemoryMergerSha256 = context {
 	TreeMerger: NewMemoryMerger(oid.Sha256),
 }
 
-let onDiskMergerSha1 = context needs TestAmbient {
+let onDiskMergerSha1 = context needs fstest.TestAmbient {
 	TreeMerger: NewDiskMerger(oid.Sha1, filepath.Join([]string{fstest.TestFolder(), "law-disk-mergetree-objects"}), []string{}, fs.NewTestHost()),
 }
 
@@ -84,7 +85,7 @@ func gitMergeTreeOID(repoDir string, fmt oid.Format, ours string, theirs string,
 		return testFail{reason: "git merge-tree unexpected exit: " + err}
 	}
 	let parts = strings.Split(out, "\x00")
-	if len(parts) == 0 || parts[0] == "" {
+	if parts.Len() == 0 || parts[0] == "" {
 		return testFail{reason: "git merge-tree empty output"}
 	}
 	let treeId = try oid.ParseHex(fmt, strings.TrimSpace(parts[0]))
@@ -161,7 +162,7 @@ func runCleanAndDriverSuite(cwd string, oFmt oracle.OidFormat, fmt oid.Format, p
 
 	let gotClean = try MergeCommits(fmt, oursC, theirsC, DefaultOptions())
 	try check(gotClean.Clean, "MergeCommits must be clean on disjoint+rename+union")
-	try check(len(gotClean.Conflicts) == 0, "expected 0 conflicts on clean merge")
+	try check(gotClean.Conflicts.Len() == 0, "expected 0 conflicts on clean merge")
 	try check(oid.Equal(gotClean.TreeOID, gitTreeId), "clean merge TreeOID disagreed with git merge-tree --write-tree")
 
 	let _ = try runGitOk(repoDir, []string{"checkout", "-q", "-b", "bin-ours", "base"}, pathEnv, 12)
@@ -285,7 +286,7 @@ test MergeTreeConflictsAndCrissCrossMatchGit {
 		let ccA = try revParseOID(repoDir, oid.Sha1, "cc-a", pathEnv, 34)
 		let ccB = try revParseOID(repoDir, oid.Sha1, "cc-b", pathEnv, 34)
 		let bases = try revisions.MergeBases(ccA, ccB)
-		assert len(bases) == 2
+		assert bases.Len() == 2
 
 		let (gitCcClean, gitCcTree) = try gitMergeTreeOID(repoDir, oid.Sha1, "cc-a", "cc-b", pathEnv, 35)
 		assert gitCcClean
@@ -303,7 +304,7 @@ test MergeTreeConflictsAndCrissCrossMatchGit {
 	let tBase = try mem.InstallTree([]tree.Entry{tree.Entry{Mode: tree.ModeGitlink, Name: "submod", OID: gBase}})
 	let tOurs = try mem.InstallTree([]tree.Entry{tree.Entry{Mode: tree.ModeGitlink, Name: "submod", OID: gOurs}})
 	let tTheirs = try mem.InstallTree([]tree.Entry{tree.Entry{Mode: tree.ModeGitlink, Name: "submod", OID: gTheirs}})
-	let gRes = try mem.Merge(Some[oid.OID]{Value: tBase}, tOurs, tTheirs)
+	let gRes = try mem.Merge(option.Some[oid.OID]{Value: tBase}, tOurs, tTheirs)
 	assert !gRes.Clean
 	assert hasConflictKind(gRes.Conflicts, "submod", GitlinkConflict)
 }

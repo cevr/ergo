@@ -1,6 +1,8 @@
 // The NFA's tests: examples. ergo test runs the engine.Engine and
 // engine.Matcher laws here, against Engine and Compiled.
 
+import core
+import option
 import regex/syntax
 import regex/engine
 import machines
@@ -28,7 +30,7 @@ test WorkspaceReusesStorage {
 test LinesStop {
 	let c = NewSearchCompiled(syntax.Literal("cat"))
 	let pulled = sync.NewRef[int](0)
-	let source = Seq[string](func(yield func(v string) bool) {
+	let source = core.Seq[string](func(yield func(v string) bool) {
 		pulled.Update(func(n int) int { n + 1 })
 		if !yield("cat") {
 			return
@@ -84,18 +86,18 @@ test TaggedEndKeepsCapture {
 	let done Tagged = FinishTags(r)
 	let want = " (A@0 )A@1"
 	match done.Match {
-	case Some[Best] as found:
+	case option.Some[Best] as found:
 		assert syntax.ShowEvents(syntax.Events(found.Value.H)) == want
-	case None:
+	case option.None:
 		assert false
 	}
 	let initial Tags = StartTags(b)
 	match try machines.From(machines.Start(Tagger{}, b), initial, []Signal{Read{C: 'a'}, End}) {
 	case machines.Finished[Tags, Tagged] as f:
 		match f.Output.Match {
-		case Some[Best] as found:
+		case option.Some[Best] as found:
 			assert syntax.ShowEvents(syntax.Events(found.Value.H)) == want
-		case None:
+		case option.None:
 			assert false
 		}
 	case machines.Running[Tags, Tagged]:
@@ -109,11 +111,11 @@ func checked(text string) syntax.Pattern fails syntax.SyntaxError | syntax.Captu
 }
 
 // events is the events of a parse that matched, or none.
-func events(r Option[[]syntax.Event]) []syntax.Event {
+func events(r option.Option[[]syntax.Event]) []syntax.Event {
 	match r {
-	case Some[[]syntax.Event] as s:
+	case option.Some[[]syntax.Event] as s:
 		s.Value
-	case None:
+	case option.None:
 		[]syntax.Event{}
 	}
 }
@@ -127,17 +129,17 @@ test DateCaptures {
 	let date = NewCapturing(try checked("(?<Year>\\d{4})-(?<Month>\\d{2})(-(?<Day>\\d{2}))?"))
 	let full = events(date.ParseCaptures("2026-11-09"))
 	assert syntax.Occurrences(full, "Year") == []syntax.Occurrence{syntax.Occurrence{Start: 0, End: 4}}
-	assert syntax.Last(full, "Day") == Some{Value: syntax.Occurrence{Start: 8, End: 10}}
+	assert syntax.Last(full, "Day") == option.Some{Value: syntax.Occurrence{Start: 8, End: 10}}
 	let short = date.ParseCaptures("2026-11")
 	assert syntax.ShowParse(short) == "match (Year@0 )Year@4 (Month@5 )Month@7"
-	assert syntax.Last(events(short), "Day") == None
+	assert syntax.Last(events(short), "Day") == option.None
 	assert syntax.ShowParse(date.ParseCaptures("2026-1")) == "none"
 	let empty = NewCapturing(try checked("(?<Lead>a*)b"))
-	assert syntax.Last(events(empty.ParseCaptures("b")), "Lead") == Some{Value: syntax.Occurrence{Start: 0, End: 0}}
+	assert syntax.Last(events(empty.ParseCaptures("b")), "Lead") == option.Some{Value: syntax.Occurrence{Start: 0, End: 0}}
 	let list = NewCapturing(try checked("((?<Item>[a-z]+),)+"))
 	let items = events(list.ParseCaptures("ab,c,de,"))
 	assert syntax.Occurrences(items, "Item") == []syntax.Occurrence{syntax.Occurrence{Start: 0, End: 2}, syntax.Occurrence{Start: 3, End: 4}, syntax.Occurrence{Start: 5, End: 7}}
-	assert syntax.Last(items, "Item") == Some{Value: syntax.Occurrence{Start: 5, End: 7}}
+	assert syntax.Last(items, "Item") == option.Some{Value: syntax.Occurrence{Start: 5, End: 7}}
 	let found = list.FindCaptures("--x,yz,!")
 	assert syntax.ShowFound(found) == "found 2-7 (Item@2 )Item@3 (Item@4 )Item@6"
 }

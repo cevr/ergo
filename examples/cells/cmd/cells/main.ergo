@@ -100,16 +100,16 @@ func live[E comparable, S, D, F](h mut host.Host[S, E, D, F]) fails os.Exit need
 	io.Stdout.Print("\x1b[0m\x1b[2J\x1b[H")
 }
 
-func run(args []string, input io.Stdin) fails os.Exit needs io.Stdout | term.Terminal | Scheduler {
-	if len(args) == 0 {
+func run(args []string, input io.Stdin) fails os.Exit needs io.Stdout | term.Terminal | time.Scheduler {
+	if args.Len() == 0 {
 		return os.Exit{Code: 2, Message: usage}
 	}
 	let verb = args[0]
 	if verb == "gen" {
-		if len(args) < 2 {
+		if args.Len() < 2 {
 			return os.Exit{Code: 2, Message: usage}
 		}
-		let v = flag.Parse(genSet, slices.Slice(args, 2, len(args))) catch {
+		let v = flag.Parse(genSet, slices.Slice(args, 2, args.Len())) catch {
 		case err:
 			try flag.Exit(err, usage)
 			return
@@ -124,9 +124,9 @@ func run(args []string, input io.Stdin) fails os.Exit needs io.Stdout | term.Ter
 		return
 	}
 	let isLive = verb == "live"
-	let app = if isLive && len(args) > 1 { args[1] } else { verb }
-	let rest = slices.Slice(args, if isLive { 2 } else { 1 }, len(args))
-	let v = flag.Parse(playSet, if len(rest) > 0 { rest } else { []string{} }) catch {
+	let app = if isLive && args.Len() > 1 { args[1] } else { verb }
+	let rest = slices.Slice(args, if isLive { 2 } else { 1 }, args.Len())
+	let v = flag.Parse(playSet, if rest.Len() > 0 { rest } else { []string{} }) catch {
 	case err:
 		try flag.Exit(err, usage)
 		return
@@ -174,8 +174,8 @@ func run(args []string, input io.Stdin) fails os.Exit needs io.Stdout | term.Ter
 	}
 }
 
-func main() fails os.Exit needs Ambient {
-	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), term.Terminal: term.NewHost(), Scheduler: time.NewManual(0) } {
+func main() fails os.Exit needs os.Ambient {
+	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), term.Terminal: term.NewHost(), time.Scheduler: time.NewManual(0) } {
 		try run(os.Process.Args(), io.NewStdin())
 	}
 }

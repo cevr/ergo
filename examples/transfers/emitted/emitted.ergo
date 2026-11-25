@@ -6,6 +6,7 @@
 // that sink as a pure model on a clock the caller moves, so the shape runs
 // as a fold.
 
+import machines
 import transfers/transfer
 import slices
 
@@ -43,14 +44,14 @@ func Initial() Uploads { Uploads{Items: []Entry{}, Next: 0} }
 // status (Interrupted) or changes nothing (NotFound); cancel every asks
 // for one interrupt per uploading entry; a restart of a stopped entry
 // starts it again with its id and file; Succeeded completes the entry.
-func Step(u Uploads, s Signal) Decision[Uploads, []Command] {
+func Step(u Uploads, s Signal) machines.Decision[Uploads, []Command] {
 	match s {
 	case Begin:
 		let f = transfer.FileFor(u.Next)
 		let e = Entry{ID: u.Next, File: f, Status: Uploading}
-		Emit[Uploads, []Command]{Next: Uploads{Items: u.Items.Append(e), Next: u.Next + 1}, Output: []Command{StartUpload{ID: e.ID, MB: f.MB}}}
+		machines.Emit[Uploads, []Command]{Next: Uploads{Items: u.Items.Append(e), Next: u.Next + 1}, Output: []Command{StartUpload{ID: e.ID, MB: f.MB}}}
 	case CancelOne as c:
-		Emit[Uploads, []Command]{Next: u, Output: []Command{Interrupt{ID: c.ID}}}
+		machines.Emit[Uploads, []Command]{Next: u, Output: []Command{Interrupt{ID: c.ID}}}
 	case CancelEvery:
 		let mut out = []Command{}
 		for e in u.Items {
@@ -58,24 +59,24 @@ func Step(u Uploads, s Signal) Decision[Uploads, []Command] {
 				out = out.Append(Interrupt{ID: e.ID})
 			}
 		}
-		if len(out) == 0 {
-			return Ignore
+		if out.Len() == 0 {
+			return machines.Ignore
 		}
-		Emit[Uploads, []Command]{Next: u, Output: out}
+		machines.Emit[Uploads, []Command]{Next: u, Output: out}
 	case RestartOne as r:
 		let i = slices.IndexFunc(u.Items, func(e Entry) bool { e.ID == r.ID && e.Status == Stopped })
 		if i < 0 {
-			return Ignore
+			return machines.Ignore
 		}
-		Emit[Uploads, []Command]{Next: setStatus(u, r.ID, Uploading), Output: []Command{StartUpload{ID: r.ID, MB: u.Items[i].File.MB}}}
+		machines.Emit[Uploads, []Command]{Next: setStatus(u, r.ID, Uploading), Output: []Command{StartUpload{ID: r.ID, MB: u.Items[i].File.MB}}}
 	case Succeeded as d:
-		Stay[Uploads]{Next: setStatus(u, d.ID, Complete)}
+		machines.Stay[Uploads]{Next: setStatus(u, d.ID, Complete)}
 	case Answered as a:
 		match a.Outcome {
 		case Interrupted:
-			Stay[Uploads]{Next: setStatus(u, a.ID, Stopped)}
+			machines.Stay[Uploads]{Next: setStatus(u, a.ID, Stopped)}
 		case NotFound:
-			Ignore
+			machines.Ignore
 		}
 	}
 }

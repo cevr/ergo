@@ -1,5 +1,6 @@
 import dense
 import maps
+import option
 import vt/plain
 import vt/vt
 import vt/traffic
@@ -64,15 +65,15 @@ func Audit(s mut Screen) bool {
 	}
 	for c in cells {
 		match dense.Unpack(c) {
-		case Some[dense.ID[vt.Style]] as id:
+		case option.Some[dense.ID[vt.Style]] as id:
 			seen[id.Value] = maps.GetOr(seen, id.Value, 0) + 1
-		case None:
+		case option.None:
 		}
 	}
 	for id, n in seen {
-		if dense.Uses(s.styles, id) != n || dense.Find(s.styles, dense.Member(s.styles, id)) != (Some[dense.ID[vt.Style]]{Value: id}) {
+		if dense.Uses(s.styles, id) != n || dense.Find(s.styles, dense.Member(s.styles, id)) != (option.Some[dense.ID[vt.Style]]{Value: id}) {
 			return false
 		}
 	}
-	dense.Live(s.styles) == len(seen)
+	dense.Live(s.styles) == seen.Len()
 }

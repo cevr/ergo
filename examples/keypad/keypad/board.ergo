@@ -79,7 +79,7 @@ func Start() Pad {
 // takes no input yet (V4), so a program runs the machine with
 // machines.From(Keypad{}, Open(form), signals).
 func Open(specs []Spec) Pad fails NoFields | Duplicate | BadSpec {
-	if len(specs) == 0 {
+	if specs.Len() == 0 {
 		return NoFields
 	}
 	let mut b = Board{Fields: []Field{}, Focus: specs[0].ID, Mode: Lower}
@@ -151,7 +151,7 @@ func CanPress(b Board, k Key) bool {
 	case Char as c:
 		CanType(f, Cap(b.Mode, c.Cap))
 	case Backspace:
-		len(f.Chars) > 0
+		f.Chars.Len() > 0
 	case Shift:
 		true
 	case Return:
@@ -164,7 +164,7 @@ func CanPress(b Board, k Key) bool {
 // field when it is long enough; Focus enters another field; Add and
 // Remove change the form; Close is Done with every field. A greyed key is
 // Ignore. A refused signal fails, and the board stays as it is.
-func Step(p Pad, s Signal) Decision[Pad, Output] fails NoSuchField | LastField | Duplicate | BadSpec | TooShort {
+func Step(p Pad, s Signal) machines.Decision[Pad, Output] fails NoSuchField | LastField | Duplicate | BadSpec | TooShort {
 	let b = BoardOf(p)
 	match s {
 	case Pressed as k:
@@ -174,58 +174,58 @@ func Step(p Pad, s Signal) Decision[Pad, Output] fails NoSuchField | LastField |
 			return NoSuchField{ID: f.ID}
 		}
 		if f.ID == b.Focus {
-			return Ignore
+			return machines.Ignore
 		}
-		Enter[Pad]{Next: Board{..b, Focus: f.ID}}
+		machines.Enter[Pad]{Next: Board{..b, Focus: f.ID}}
 	case Add as a:
 		try checkSpec(b, a.Spec)
-		Stay[Pad]{Next: Board{..b, Fields: appended(b.Fields, Field{Spec: a.Spec, Chars: []string{}})}}
+		machines.Stay[Pad]{Next: Board{..b, Fields: appended(b.Fields, Field{Spec: a.Spec, Chars: []string{}})}}
 	case Remove as r:
 		let at = slices.IndexFunc(b.Fields, func(f Field) bool { f.Spec.ID == r.ID })
 		if at < 0 {
 			return NoSuchField{ID: r.ID}
 		}
-		if len(b.Fields) == 1 {
+		if b.Fields.Len() == 1 {
 			return LastField{ID: r.ID}
 		}
 		let rest = slices.Delete(b.Fields, at, at+1)
 		if r.ID != b.Focus {
-			return Stay[Pad]{Next: Board{..b, Fields: rest}}
+			return machines.Stay[Pad]{Next: Board{..b, Fields: rest}}
 		}
 		// The focus moves to the field that took the removed one's place,
 		// or to the one before it when it was the last.
-		let next = if at < len(rest) { rest[at].Spec.ID } else { rest[at-1].Spec.ID }
-		Enter[Pad]{Next: Board{..b, Fields: rest, Focus: next}}
+		let next = if at < rest.Len() { rest[at].Spec.ID } else { rest[at-1].Spec.ID }
+		machines.Enter[Pad]{Next: Board{..b, Fields: rest, Focus: next}}
 	case Close:
-		Done[Output]{Output: Closed{Fields: b.Fields}}
+		machines.Done[Output]{Output: Closed{Fields: b.Fields}}
 	}
 }
 
 // press is the decision of the key k at the time at on b.
 // Each key checks its own rule here; CanPress states the same rules for
 // the screen, and the law GreyedKeysAreIgnored holds the two together.
-func press(b Board, k Key, at duration) Decision[Pad, Output] fails TooShort {
+func press(b Board, k Key, at duration) machines.Decision[Pad, Output] fails TooShort {
 	let f = Focused(b)
 	match k {
 	case Char as c:
 		if !CanType(f, Cap(b.Mode, c.Cap)) {
-			return Ignore
+			return machines.Ignore
 		}
 		let typed = Field{..f, Chars: appended(f.Chars, Cap(b.Mode, c.Cap))}
 		let mode = machines.Next(b.Mode, ShiftStep(b.Mode, Typed))
-		Emit[Pad, Output]{Next: Board{..b, Fields: replaced(b.Fields, typed), Mode: mode}, Output: Published{ID: f.Spec.ID, Text: Text(typed)}}
+		machines.Emit[Pad, Output]{Next: Board{..b, Fields: replaced(b.Fields, typed), Mode: mode}, Output: Published{ID: f.Spec.ID, Text: Text(typed)}}
 	case Backspace:
-		if len(f.Chars) == 0 {
-			return Ignore
+		if f.Chars.Len() == 0 {
+			return machines.Ignore
 		}
-		let erased = Field{..f, Chars: slices.Delete(f.Chars, len(f.Chars)-1, len(f.Chars))}
-		Emit[Pad, Output]{Next: Board{..b, Fields: replaced(b.Fields, erased)}, Output: Published{ID: f.Spec.ID, Text: Text(erased)}}
+		let erased = Field{..f, Chars: slices.Delete(f.Chars, f.Chars.Len()-1, f.Chars.Len())}
+		machines.Emit[Pad, Output]{Next: Board{..b, Fields: replaced(b.Fields, erased)}, Output: Published{ID: f.Spec.ID, Text: Text(erased)}}
 	case Shift:
-		Stay[Pad]{Next: Board{..b, Mode: machines.Next(b.Mode, ShiftStep(b.Mode, ShiftTap{At: at}))}}
+		machines.Stay[Pad]{Next: Board{..b, Mode: machines.Next(b.Mode, ShiftStep(b.Mode, ShiftTap{At: at}))}}
 	case Return:
-		if len(f.Chars) < f.Spec.Min {
-			return TooShort{ID: f.Spec.ID, Need: f.Spec.Min, Has: len(f.Chars)}
+		if f.Chars.Len() < f.Spec.Min {
+			return TooShort{ID: f.Spec.ID, Need: f.Spec.Min, Has: f.Chars.Len()}
 		}
-		Emit[Pad, Output]{Next: b, Output: Submitted{ID: f.Spec.ID, Text: Text(f)}}
+		machines.Emit[Pad, Output]{Next: b, Output: Submitted{ID: f.Spec.ID, Text: Text(f)}}
 	}
 }

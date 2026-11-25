@@ -2,11 +2,13 @@
 // K sets through the write-through cache over N keys, each value 48 bytes
 // with a quote and a tab to escape.
 
+import io
+import option
 import strconv
 import wtcache/memory
 import wtcache/settings
 
-func main() fails strconv.Malformed needs Console {
+func main() fails strconv.Malformed needs io.Console {
 	let n = 64
 	let k = 200000
 	let lines = memory.NewLines()
@@ -24,15 +26,15 @@ func main() fails strconv.Malformed needs Console {
 	let mut total = 0
 	for key in keys {
 		match settings.Get(c, key) {
-		case Some[string] as v:
-			total = total + len(v.Value)
-		case None:
+		case option.Some[string] as v:
+			total = total + v.Value.Len()
+		case option.None:
 		}
 		match memory.Read(lines, key) {
-		case Some[string] as l:
-			total = total + len(l.Value)
-		case None:
+		case option.Some[string] as l:
+			total = total + l.Value.Len()
+		case option.None:
 		}
 	}
-	Console.Println("\(total) \(memory.Writes(lines))")
+	io.Console.Println("\(total) \(memory.Writes(lines))")
 }

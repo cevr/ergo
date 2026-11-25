@@ -3,6 +3,7 @@
 // time): Keep keeps the entry and its timer, Commit opens a new one.
 
 import machines
+import option
 import testing
 import time
 
@@ -12,18 +13,18 @@ type Bell = Note{N int} | Ring{}
 
 // bellStep records each note with Keep, by a StepID, and ends at the
 // timer.
-func bellStep(l Ledger[int, int], s Bell) Decision[Ledger[int, int], Receipt] {
+func bellStep(l Ledger[int, int], s Bell) machines.Decision[Ledger[int, int], Receipt] {
 	match s {
 	case Note as n:
 		Keep(l, StepID(l, "note"), l.State+n.N, []int{n.N})
 	case Ring:
-		Done[Receipt]{Output: Receipt{ID: CommandID("ring"), Stream: l.Stream, Position: l.Position}}
+		machines.Done[Receipt]{Output: Receipt{ID: CommandID("ring"), Stream: l.Stream, Position: l.Position}}
 	}
 }
 
 // bellTimer rings 10s after the entry opens.
-func bellTimer(l Ledger[int, int]) Option[Timeout[Bell]] {
-	Some[Timeout[Bell]]{Value: Timeout[Bell]{In: 10s, Signal: Ring}}
+func bellTimer(l Ledger[int, int]) option.Option[machines.Timeout[Bell]] {
+	option.Some[machines.Timeout[Bell]]{Value: machines.Timeout[Bell]{In: 10s, Signal: Ring}}
 }
 
 // Bells is the law's machine.
@@ -36,7 +37,7 @@ type Bells machine[Ledger[int, int], Bell] {
 // rung is the position the ledger had when the bell rang, over trace,
 // or -1 when it did not ring by end, or -3 when the run's outputs are not
 // the receipts of positions 1, 2, ….
-func rung(trace []machines.Timed[Bell], end duration) int needs time.Clock | Scheduler {
+func rung(trace []machines.Timed[Bell], end duration) int needs time.Clock | time.Scheduler {
 	let o = machines.RunTimed(Bells{}, trace, end) catch {
 	case machines.Rejected:
 		return -2
@@ -48,7 +49,7 @@ func rung(trace []machines.Timed[Bell], end duration) int needs time.Clock | Sch
 				return -3
 			}
 		}
-		if len(f.Emitted) != f.State.Position {
+		if f.Emitted.Len() != f.State.Position {
 			return -3
 		}
 		f.State.Position
@@ -71,9 +72,9 @@ law KeepKeepsTheTimer(notes []int) {
 		}
 		trace = trace.Append(machines.Timed[Bell]{At: duration(int64(i+1) * int64(1s)), Signal: Note{N: n}})
 	}
-	let before = len(trace)
+	let before = trace.Len()
 	trace = trace.Append(machines.Timed[Bell]{At: 10s + 500ms, Signal: Note{N: 1}})
 	let c = testing.NewVirtualClock(0)
-	let at = with context { Scheduler: c, time.Clock: c } { rung(trace, 60s) }
+	let at = with context { time.Scheduler: c, time.Clock: c } { rung(trace, 60s) }
 	at == before
 }

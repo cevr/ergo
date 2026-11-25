@@ -12,17 +12,17 @@ let ints = []int{0, 1, -1, 42, 1000000, 9223372036854775807, -922337203685477580
 func at0() Pos { Pos{Line: 0, Column: 0} }
 
 // GenValue is a value, with arrays nested at most depth deep.
-func GenValue(depth int) Value needs Random {
-	match Random.IntN(if depth > 0 { 4 } else { 3 }) {
+func GenValue(depth int) Value needs rand.Random {
+	match rand.Random.IntN(if depth > 0 { 4 } else { 3 }) {
 	case 0:
-		Str{S: texts[Random.IntN(len(texts))]}
+		Str{S: texts[rand.Random.IntN(texts.Len())]}
 	case 1:
-		Int{N: ints[Random.IntN(len(ints))]}
+		Int{N: ints[rand.Random.IntN(ints.Len())]}
 	case 2:
-		Bool{B: Random.IntN(2) == 0}
+		Bool{B: rand.Random.IntN(2) == 0}
 	case _:
 		let mut items = []Item{}
-		for _ in 0..Random.IntN(4) {
+		for _ in 0..rand.Random.IntN(4) {
 			items = items.Append(Item{Value: GenValue(depth - 1), At: at0()})
 		}
 		Arr{Items: items}
@@ -30,10 +30,10 @@ func GenValue(depth int) Value needs Random {
 }
 
 // GenTable is a table named name with distinct keys.
-func GenTable(name string, many bool) Table needs Random {
+func GenTable(name string, many bool) Table needs rand.Random {
 	let mut entries = []Entry{}
 	for k in keys {
-		if Random.IntN(2) == 0 {
+		if rand.Random.IntN(2) == 0 {
 			entries = entries.Append(Entry{Key: k, KeyAt: at0(), Value: GenValue(2), At: at0()})
 		}
 	}
@@ -42,14 +42,14 @@ func GenTable(name string, many bool) Table needs Random {
 
 // Gen is a document: a root, at most one [name] of each name, and some
 // [[upstream]] elements.
-func Gen() Doc needs Random {
+func Gen() Doc needs rand.Random {
 	let mut tables = []Table{}
 	for n in names {
-		if Random.IntN(2) == 0 {
+		if rand.Random.IntN(2) == 0 {
 			tables = tables.Append(GenTable(n, false))
 		}
 	}
-	for _ in 0..Random.IntN(3) {
+	for _ in 0..rand.Random.IntN(3) {
 		tables = tables.Append(GenTable("upstream", true))
 	}
 	Doc{Root: GenTable("", false), Tables: tables}
@@ -57,7 +57,7 @@ func Gen() Doc needs Random {
 
 // Sample is the document Gen builds from seed.
 func Sample(seed int) Doc {
-	with context { Random: rand.Seeded(uint64(seed)) } {
+	with context { rand.Random: rand.Seeded(uint64(seed)) } {
 		Gen()
 	}
 }

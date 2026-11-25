@@ -4,12 +4,14 @@
 // screen reader says. Its output is the commands the host runs: make a
 // card's id, save the board, and focus the form or a card.
 
+import machines
+import option
 import taskboard/board
 import taskboard/drag
 import strings
 
 // Board is the program's state.
-type Board { Columns []board.Column, Drag drag.Drag, Adding Option[string], Title string, Said string }
+type Board { Columns []board.Column, Drag drag.Drag, Adding option.Option[string], Title string, Said string }
 
 // CancelRestoresTheBoard: any drag, by pointer or keyboard, that is
 // given up (Escape, or a release over nothing) leaves the board as it
@@ -22,7 +24,7 @@ law CancelRestoresTheBoard(ops []int) {
 		case drag.Dragging as g:
 			// A release here would drop on the target; give it up instead.
 			if pick(o/3, 2) == 0 {
-				r = feed(r, Dragging{Signal: drag.Moved{Screen: g.Origin, Client: g.At, Target: None}})
+				r = feed(r, Dragging{Signal: drag.Moved{Screen: g.Origin, Client: g.At, Target: option.None}})
 				r = feed(r, Dragging{Signal: drag.Released})
 			}
 		case drag.Idle, drag.Pending, drag.Lifted:
@@ -38,13 +40,13 @@ law CancelRestoresTheBoard(ops []int) {
 func dragSignal(b Board, o int) drag.Signal {
 	let col = b.Columns[pick(o/8, 3)]
 	let index = pick(o/24, 8)
-	let item = if len(col.Cards) == 0 { "card-1" } else { col.Cards[pick(o/24, len(col.Cards))].ID }
+	let item = if col.Cards.Len() == 0 { "card-1" } else { col.Cards[pick(o/24, col.Cards.Len())].ID }
 	let op = pick(o, 8)
 	if op == 0 {
 		return drag.Pressed{Item: item, Container: col.ID, Index: index, Screen: drag.Point{X: 100, Y: 100}}
 	}
 	if op == 1 || op == 2 {
-		let target Option[drag.Target] = if op == 1 { Some[drag.Target]{Value: drag.Target{Container: col.ID, Index: index}} } else { None }
+		let target option.Option[drag.Target] = if op == 1 { option.Some[drag.Target]{Value: drag.Target{Container: col.ID, Index: index}} } else { option.None }
 		return drag.Moved{Screen: drag.Point{X: 100 + index*3, Y: 100 + index*7}, Client: drag.Point{X: 1, Y: 1}, Target: target}
 	}
 	if op == 3 {
@@ -60,7 +62,7 @@ func dragSignal(b Board, o int) drag.Signal {
 	if op == 6 {
 		return drag.ScrollFrame
 	}
-	drag.Moved{Screen: drag.Point{X: 0, Y: 0}, Client: drag.Point{X: 0, Y: 0}, Target: None}
+	drag.Moved{Screen: drag.Point{X: 0, Y: 0}, Client: drag.Point{X: 0, Y: 0}, Target: option.None}
 }
 
 // Signal is what the program reads: a signal of the drag; Add card
@@ -88,7 +90,7 @@ law NewCardFollowsTheForm(ops []int) {
 			adding = c
 			title = ""
 		} else if op == 1 {
-			let t = titles[pick(o/4, len(titles))]
+			let t = titles[pick(o/4, titles.Len())]
 			r = feed(r, Typed{Text: t})
 			title = t
 		} else if op == 2 {
@@ -109,7 +111,7 @@ law NewCardFollowsTheForm(ops []int) {
 			adding = ""
 			title = ""
 		}
-		let open Option[string] = if adding == "" { None } else { Some[string]{Value: adding} }
+		let open option.Option[string] = if adding == "" { option.None } else { option.Some[string]{Value: adding} }
 		if r.Board.Adding != open || r.Board.Title != title || r.Board.Columns != lists || r.Saves != want.Saves {
 			return false
 		}
@@ -125,7 +127,7 @@ type Run { Board Board, Saves int, Made int }
 func feed(r Run, sig Signal) Run {
 	let mut at = r
 	let mut queue = []Signal{sig}
-	for len(queue) > 0 {
+	for queue.Len() > 0 {
 		let s = queue[0]
 		queue = queue[1:]
 		let d = Step(at.Board, s)
@@ -166,15 +168,15 @@ let titles = []string{"", "   ", "Polish the lens", "  Count the moths  "}
 law KeyboardDropEqualsPointerDrop(card int where 1 <= card && card <= 17, to int where 0 <= to && to <= 2, index int where 0 <= index && index <= 7) {
 	let id = "card-\(card)"
 	let from = match board.Where(board.Defaults, id) {
-	case Some[board.Spot] as s:
+	case option.Some[board.Spot] as s:
 		s.Value
-	case None:
+	case option.None:
 		return false
 	}
 	let target = drag.Target{Container: columnIDs[to], Index: index}
 	let mut p = fresh()
 	p = feed(p, Dragging{Signal: drag.Pressed{Item: id, Container: from.Column, Index: from.Index, Screen: drag.Point{X: 100, Y: 100}}})
-	p = feed(p, Dragging{Signal: drag.Moved{Screen: drag.Point{X: 100, Y: 200}, Client: drag.Point{X: 100, Y: 200}, Target: Some[drag.Target]{Value: target}}})
+	p = feed(p, Dragging{Signal: drag.Moved{Screen: drag.Point{X: 100, Y: 200}, Client: drag.Point{X: 100, Y: 200}, Target: option.Some[drag.Target]{Value: target}}})
 	p = feed(p, Dragging{Signal: drag.Released})
 	let mut k = fresh()
 	k = feed(k, Dragging{Signal: drag.Activated{Item: id, Container: from.Column, Index: from.Index}})
@@ -192,7 +194,7 @@ type Command = MakeID{Column string, Title string} | Save{Columns []board.Column
 
 // Start is the program on columns, idle, with the form shut.
 func Start(columns []board.Column) Board {
-	Board{Columns: columns, Drag: drag.New("kanban"), Adding: None, Title: "", Said: ""}
+	Board{Columns: columns, Drag: drag.New("kanban"), Adding: option.None, Title: "", Said: ""}
 }
 
 // Kanban is the program as a machine.
@@ -202,47 +204,47 @@ type Kanban machine[Board, Signal] {
 }
 
 // Step is the program's transition.
-func Step(b Board, sig Signal) Decision[Board, []Command] {
+func Step(b Board, sig Signal) machines.Decision[Board, []Command] {
 	match sig {
 	case Dragging as g:
 		dragged(b, g.Signal)
 	case AddClicked as a:
-		give(Board{..b, Adding: Some[string]{Value: a.Column}, Title: ""}, []Command{FocusForm})
+		give(Board{..b, Adding: option.Some[string]{Value: a.Column}, Title: ""}, []Command{FocusForm})
 	case Typed as t:
 		give(Board{..b, Title: t.Text}, []Command{})
 	case Submitted:
 		match b.Adding {
-		case Some[string] as c:
+		case option.Some[string] as c:
 			let title = strings.TrimSpace(b.Title)
 			if title == "" {
-				return Ignore
+				return machines.Ignore
 			}
 			give(b, []Command{MakeID{Column: c.Value, Title: title}})
-		case None:
-			Ignore
+		case option.None:
+			machines.Ignore
 		}
 	case IDMade as m:
 		let mut columns = []board.Column{}
 		for c in b.Columns {
 			columns = columns.Append(if c.ID == m.Column { board.Append(c, board.Card{ID: m.ID, Title: m.Title, Description: "", Key: ""}) } else { c })
 		}
-		give(Board{..b, Columns: columns, Adding: None, Title: ""}, []Command{Save{Columns: columns}})
+		give(Board{..b, Columns: columns, Adding: option.None, Title: ""}, []Command{Save{Columns: columns}})
 	case Cancelled:
-		give(Board{..b, Adding: None, Title: ""}, []Command{})
+		give(Board{..b, Adding: option.None, Title: ""}, []Command{})
 	case Saved, FormFocused:
-		Ignore
+		machines.Ignore
 	}
 }
 
 // dragged steps the drag with sig and folds what it gives into the
 // board: the new phase and what a screen reader says of it, a focus or a
 // move to locate for the host, and a drop's reorder and save.
-func dragged(b Board, sig drag.Signal) Decision[Board, []Command] {
+func dragged(b Board, sig drag.Signal) machines.Decision[Board, []Command] {
 	let dec = drag.Step(b.Drag, sig)
 	match dec {
-	case Ignore, Reject, Done[[]drag.Effect]:
-		return Ignore
-	case Emit[drag.Drag, []drag.Effect], Tell[drag.Drag, []drag.Effect], Enter[drag.Drag], Stay[drag.Drag]:
+	case machines.Ignore, machines.Reject, machines.Done[[]drag.Effect]:
+		return machines.Ignore
+	case machines.Emit[drag.Drag, []drag.Effect], machines.Tell[drag.Drag, []drag.Effect], machines.Enter[drag.Drag], machines.Stay[drag.Drag]:
 	}
 	let next = drag.After(b.Drag, dec)
 	let mut at = Board{..b, Drag: next, Said: announce(b, next.State)}
@@ -255,9 +257,9 @@ func dragged(b Board, sig drag.Signal) Decision[Board, []Command] {
 			out = out.Append(Save{Columns: columns})
 		case drag.Cancelled:
 			let said = match drag.Item(b.Drag.State) {
-			case Some[string] as id:
+			case option.Some[string] as id:
 				"Drag cancelled, \(board.Title(b.Columns, id.Value)) returned to original position."
-			case None:
+			case option.None:
 				"Drag cancelled."
 			}
 			at = Board{..at, Said: said}
@@ -313,33 +315,33 @@ func way(d drag.Direction) board.Way {
 }
 
 // give is the program at b asking out.
-func give(b Board, out []Command) Decision[Board, []Command] {
-	if len(out) == 0 {
-		return Stay[Board]{Next: b}
+func give(b Board, out []Command) machines.Decision[Board, []Command] {
+	if out.Len() == 0 {
+		return machines.Stay[Board]{Next: b}
 	}
-	Emit[Board, []Command]{Next: b, Output: out}
+	machines.Emit[Board, []Command]{Next: b, Output: out}
 }
 
 // Commands is what the decision asks.
-func Commands(d Decision[Board, []Command]) []Command {
+func Commands(d machines.Decision[Board, []Command]) []Command {
 	match d {
-	case Emit[Board, []Command] as e:
+	case machines.Emit[Board, []Command] as e:
 		e.Output
-	case Enter[Board], Stay[Board], Tell[Board, []Command], Ignore, Reject, Done[[]Command]:
+	case machines.Enter[Board], machines.Stay[Board], machines.Tell[Board, []Command], machines.Ignore, machines.Reject, machines.Done[[]Command]:
 		[]Command{}
 	}
 }
 
 // After is the program after the decision.
-func After(b Board, d Decision[Board, []Command]) Board {
+func After(b Board, d machines.Decision[Board, []Command]) Board {
 	match d {
-	case Emit[Board, []Command] as e:
+	case machines.Emit[Board, []Command] as e:
 		e.Next
-	case Enter[Board] as e:
+	case machines.Enter[Board] as e:
 		e.Next
-	case Stay[Board] as s:
+	case machines.Stay[Board] as s:
 		s.Next
-	case Ignore, Tell[Board, []Command], Reject, Done[[]Command]:
+	case machines.Ignore, machines.Tell[Board, []Command], machines.Reject, machines.Done[[]Command]:
 		b
 	}
 }

@@ -1,6 +1,7 @@
 import ergo.dev/fluid/a11y
 import ergo.dev/fluid/part
 import html
+import option
 import ui
 
 // AccessOfWebIsAccessOfPart: the access tree read back from the HTML of a part tree is the
@@ -22,12 +23,12 @@ law AccessOfWebIsAccessOfPart(seed []int, links bool) {
 type Gen { xs []int, at int }
 
 func draw(g mut Gen, n int) int {
-	let v = if len(g.xs) == 0 { g.at * 7919 } else { g.xs[g.at%len(g.xs)] + g.at*7919 }
+	let v = if g.xs.Len() == 0 { g.at * 7919 } else { g.xs[g.at%g.xs.Len()] + g.at*7919 }
 	g.at = g.at + 1
 	((v % n) + n) % n
 }
 
-func pick[T](g mut Gen, xs []T) T { xs[draw(g, len(xs))] }
+func pick[T](g mut Gen, xs []T) T { xs[draw(g, xs.Len())] }
 
 let words = []string{"a", "b c", "<x>", "&amp", "\"q\"", "it's", "é", ""}
 
@@ -109,14 +110,14 @@ func drawNode(g mut Gen, depth int) part.Node[int] {
 		let keys = if draw(g, 3) == 0 { []part.Binding[int]{part.Binding[int]{Key: "ArrowRight", On: draw(g, 4)}} } else { []part.Binding[int]{} }
 		part.Box{Sem: drawSem(g, pick(g, a11y.Roles())), Skin: pick(g, skins), Inline: draw(g, 2) == 0, Keys: keys, Kids: drawKids(g, depth)}
 	case 7:
-		let on = if draw(g, 3) == 0 { None } else { Some[int]{Value: draw(g, 4)} }
+		let on = if draw(g, 3) == 0 { option.None } else { option.Some[int]{Value: draw(g, 4)} }
 		part.Press{Sem: drawSem(g, pick(g, pressRoles)), Skin: part.Control{Root: pick(g, skins), Plate: part.Bare(), Content: pick(g, skins)}, On: on, Kids: drawKids(g, depth)}
 	case 8:
-		part.Field{Sem: drawSem(g, part.Generic), Skin: pick(g, skins), Name: "f", Value: pick(g, words), Hint: pick(g, words), Lines: draw(g, 3), On: func(s string) int { len(s) }}
+		part.Field{Sem: drawSem(g, part.Generic), Skin: pick(g, skins), Name: "f", Value: pick(g, words), Hint: pick(g, words), Lines: draw(g, 3), On: func(s string) int { s.Len() }}
 	case 9:
 		part.Scale{Sem: drawSem(g, part.Generic), Skin: pick(g, skins), Name: "s", Min: 0, Max: float64(draw(g, 5) + 1), Step: 0.5, Value: float64(draw(g, 3)) / 2.0, On: func(v float64) int { int(v) }}
 	case 10:
-		part.Layer{Z: draw(g, 3), Modal: draw(g, 3) == 0, Dismiss: None, Kids: drawKids(g, depth)}
+		part.Layer{Z: draw(g, 3), Modal: draw(g, 3) == 0, Dismiss: option.None, Kids: drawKids(g, depth)}
 	case 11:
 		part.Keyed{Key: "k", Node: drawNode(g, depth+1)}
 	case _:

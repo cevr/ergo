@@ -319,7 +319,7 @@ func execOp(repoDir string, bare bool, op Op, pathEnv Map[string, string], epoch
 			return Failed{Err: ClassifyGitFailure("cat-file", qc.Spec, dr.Status, dr.Stderr)}
 		}
 		let data = dr.Stdout.Bytes()
-		OkObject{Kind: kind, Size: len(data), Data: data}
+		OkObject{Kind: kind, Size: data.Len(), Data: data}
 	case QuerySnapshot:
 		let snap = try SnapshotRepo(repoDir, bare, pathEnv, epoch)
 		OkSnapshot{Snap: snap}
@@ -343,9 +343,9 @@ func RunHistory(root string, seed uint64, spec RepoSpec, ops []Op, pathEnv Map[s
 			Result:    res,
 		})
 	}
-	let finalEpoch = StepEpoch(len(ops))
+	let finalEpoch = StepEpoch(ops.Len())
 	let finalSnap = try SnapshotRepo(repoDir, bare, pathEnv, finalEpoch)
-	let replay = "ergo test --native ./modules/git/oracle --seed " + strconv.FormatInt(int64(seed), 10) + " # rev=" + GeneratorRevision + " fmt=" + FormatName(spec.Format) + " layout=" + LayoutName(spec.Layout) + " steps=" + strconv.Itoa(len(ops))
+	let replay = "ergo test --native ./modules/git/oracle --seed " + strconv.FormatInt(int64(seed), 10) + " # rev=" + GeneratorRevision + " fmt=" + FormatName(spec.Format) + " layout=" + LayoutName(spec.Layout) + " steps=" + strconv.Itoa(ops.Len())
 	Transcript{
 		Seed:         seed,
 		GeneratorRev: GeneratorRevision,

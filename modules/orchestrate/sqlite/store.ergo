@@ -1,16 +1,17 @@
 import github.com/cevr/ergo/modules/orchestrate/orchestrate
 import github.com/cevr/ergo/modules/sqlite/sqlite
 import go os
+import option
 import sql
 import sync
 
 // Store is a transactional SQLite provider of orchestrate.Store writing events,
 // projections, and receipts atomically inside one BEGIN IMMEDIATE transaction.
-type Store { db Option[sqlite.DB], err string } implements orchestrate.Store
+type Store { db option.Option[sqlite.DB], err string } implements orchestrate.Store
 
 // WALStore is a file-backed WAL SQLite provider of orchestrate.Store used to run
 // Store contract laws natively over real WAL files on disk.
-type WALStore { db Option[sqlite.DB], err string } implements orchestrate.Store
+type WALStore { db option.Option[sqlite.DB], err string } implements orchestrate.Store
 
 // Open opens or initializes a file-backed WAL SQLite orchestrate Store at path,
 // enforcing CurrentSchemaVersion before accepting any writes.
@@ -41,7 +42,7 @@ func OpenMemory() Store fails orchestrate.StoreFailed needs go.Foreign {
 func NewStore() Store needs go.Foreign {
 	OpenMemory() catch {
 	case orchestrate.StoreFailed as e:
-		Store{db: None, err: e.Reason}
+		Store{db: option.None, err: e.Reason}
 	}
 }
 
@@ -49,7 +50,7 @@ func NewStore() Store needs go.Foreign {
 func NewWALStore() WALStore needs go.Foreign {
 	let st = openLawFileWAL() catch {
 	case orchestrate.StoreFailed as e:
-		Store{db: None, err: e.Reason}
+		Store{db: option.None, err: e.Reason}
 	}
 	WALStore{db: st.db, err: st.err}
 }
@@ -65,11 +66,11 @@ func Close(s Store) fails orchestrate.StoreFailed needs go.Foreign {
 	}
 }
 
-func openDB(opt Option[sqlite.DB], err string) sqlite.DB fails orchestrate.StoreFailed {
+func openDB(opt option.Option[sqlite.DB], err string) sqlite.DB fails orchestrate.StoreFailed {
 	match opt {
-	case Some[sqlite.DB] as d:
+	case option.Some[sqlite.DB] as d:
 		d.Value
-	case None:
+	case option.None:
 		orchestrate.StoreFailed{Reason: err}
 	}
 }
@@ -103,7 +104,7 @@ func initStore(db sqlite.DB) Store fails orchestrate.StoreFailed needs go.Foreig
 		closeIgnoring(db)
 		return orchestrate.StoreFailed{Reason: "init failed: " + e.Message}
 	}
-	Store{db: Some[sqlite.DB]{Value: db}, err: ""}
+	Store{db: option.Some[sqlite.DB]{Value: db}, err: ""}
 }
 
 func closeIgnoring(db sqlite.DB) needs go.Foreign {
@@ -112,7 +113,7 @@ func closeIgnoring(db sqlite.DB) needs go.Foreign {
 	}
 }
 
-func executeOn(opt Option[sqlite.DB], err string, env orchestrate.Envelope) orchestrate.ExecuteResult fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.StaleClaim | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.StoreFailed needs go.Foreign {
+func executeOn(opt option.Option[sqlite.DB], err string, env orchestrate.Envelope) orchestrate.ExecuteResult fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.StaleClaim | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.StoreFailed needs go.Foreign {
 	let db = try openDB(opt, err)
 	with context { sql.DB: db } {
 		sqlite.WriteTransaction() {
@@ -167,7 +168,7 @@ func executeTx(env orchestrate.Envelope) orchestrate.ExecuteResult fails orchest
 		"SELECT payload_digest, payload_json FROM commands WHERE command_id = ?",
 		[]sql.Value{sql.Text{S: string(env.ID)}},
 	)
-	if len(seenRows) > 0 {
+	if seenRows.Len() > 0 {
 		let storedDigest = try textAt(seenRows[0], 0, "payload_digest")
 		let storedJSON = try textAt(seenRows[0], 1, "payload_json")
 		if storedDigest == digest && storedJSON == payloadJSON {
@@ -192,7 +193,7 @@ func executeTx(env orchestrate.Envelope) orchestrate.ExecuteResult fails orchest
 		)
 		try applyEventSQL(ev, seq)
 	}
-	orchestrate.ExecuteResult{Seq: seq, Events: events, Duplicate: len(events) == 0}
+	orchestrate.ExecuteResult{Seq: seq, Events: events, Duplicate: events.Len() == 0}
 }
 
 func decideForTx(state orchestrate.State, env orchestrate.Envelope) []orchestrate.Event fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.StaleClaim | orchestrate.CommandReused | orchestrate.InvalidInput {
@@ -214,13 +215,13 @@ func decideForTx(state orchestrate.State, env orchestrate.Envelope) []orchestrat
 
 func lastSeqTx() int fails orchestrate.StoreFailed needs sql.Tx {
 	let rows = try queryTx("SELECT COALESCE(MAX(seq), 0) FROM events", []sql.Value{})
-	if len(rows) == 0 {
+	if rows.Len() == 0 {
 		return 0
 	}
 	try intAt(rows[0], 0, "seq")
 }
 
-func readOn[T](opt Option[sqlite.DB], err string, body func() T fails orchestrate.StoreFailed needs sql.Tx) T fails orchestrate.StoreFailed needs go.Foreign {
+func readOn[T](opt option.Option[sqlite.DB], err string, body func() T fails orchestrate.StoreFailed needs sql.Tx) T fails orchestrate.StoreFailed needs go.Foreign {
 	let db = try openDB(opt, err)
 	with context { sql.DB: sqlite.ReadOnly(db) } {
 		sql.Transaction() {
@@ -265,73 +266,73 @@ func Events(w WALStore, fromSeq int) []orchestrate.StoredEvent fails orchestrate
 }
 
 // Unit looks up one unit projection by ID.
-func Unit(s Store, id string) Option[orchestrate.Unit] fails orchestrate.StoreFailed needs go.Foreign {
-	try readOn(s.db, s.err, func() Option[orchestrate.Unit] fails orchestrate.StoreFailed needs sql.Tx { try queryUnitTx(id) })
+func Unit(s Store, id string) option.Option[orchestrate.Unit] fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(s.db, s.err, func() option.Option[orchestrate.Unit] fails orchestrate.StoreFailed needs sql.Tx { try queryUnitTx(id) })
 }
 
 // Unit looks up one unit projection by ID on WALStore.
-func Unit(w WALStore, id string) Option[orchestrate.Unit] fails orchestrate.StoreFailed needs go.Foreign {
-	try readOn(w.db, w.err, func() Option[orchestrate.Unit] fails orchestrate.StoreFailed needs sql.Tx { try queryUnitTx(id) })
+func Unit(w WALStore, id string) option.Option[orchestrate.Unit] fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(w.db, w.err, func() option.Option[orchestrate.Unit] fails orchestrate.StoreFailed needs sql.Tx { try queryUnitTx(id) })
 }
 
 // ListUnits lists unit projections optionally filtered by status, sorted by ID.
-func ListUnits(s Store, status Option[orchestrate.UnitStatus]) []orchestrate.Unit fails orchestrate.StoreFailed needs go.Foreign {
+func ListUnits(s Store, status option.Option[orchestrate.UnitStatus]) []orchestrate.Unit fails orchestrate.StoreFailed needs go.Foreign {
 	try readOn(s.db, s.err, func() []orchestrate.Unit fails orchestrate.StoreFailed needs sql.Tx { try queryUnitsTx(status) })
 }
 
 // ListUnits lists unit projections optionally filtered by status, sorted by ID on WALStore.
-func ListUnits(w WALStore, status Option[orchestrate.UnitStatus]) []orchestrate.Unit fails orchestrate.StoreFailed needs go.Foreign {
+func ListUnits(w WALStore, status option.Option[orchestrate.UnitStatus]) []orchestrate.Unit fails orchestrate.StoreFailed needs go.Foreign {
 	try readOn(w.db, w.err, func() []orchestrate.Unit fails orchestrate.StoreFailed needs sql.Tx { try queryUnitsTx(status) })
 }
 
 // Receipts lists receipt projections for unitID, optionally filtered by round, in recorded order.
-func Receipts(s Store, unitID string, round Option[int]) []orchestrate.Receipt fails orchestrate.StoreFailed needs go.Foreign {
+func Receipts(s Store, unitID string, round option.Option[int]) []orchestrate.Receipt fails orchestrate.StoreFailed needs go.Foreign {
 	try readOn(s.db, s.err, func() []orchestrate.Receipt fails orchestrate.StoreFailed needs sql.Tx { try queryReceiptsTx(unitID, round) })
 }
 
 // Receipts lists receipt projections for unitID, optionally filtered by round, in recorded order on WALStore.
-func Receipts(w WALStore, unitID string, round Option[int]) []orchestrate.Receipt fails orchestrate.StoreFailed needs go.Foreign {
+func Receipts(w WALStore, unitID string, round option.Option[int]) []orchestrate.Receipt fails orchestrate.StoreFailed needs go.Foreign {
 	try readOn(w.db, w.err, func() []orchestrate.Receipt fails orchestrate.StoreFailed needs sql.Tx { try queryReceiptsTx(unitID, round) })
 }
 
 // Commitment looks up one commitment projection by ID.
-func Commitment(s Store, id string) Option[orchestrate.Commitment] fails orchestrate.StoreFailed needs go.Foreign {
-	try readOn(s.db, s.err, func() Option[orchestrate.Commitment] fails orchestrate.StoreFailed needs sql.Tx { try queryCommitmentTx(id) })
+func Commitment(s Store, id string) option.Option[orchestrate.Commitment] fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(s.db, s.err, func() option.Option[orchestrate.Commitment] fails orchestrate.StoreFailed needs sql.Tx { try queryCommitmentTx(id) })
 }
 
 // Commitment looks up one commitment projection by ID on WALStore.
-func Commitment(w WALStore, id string) Option[orchestrate.Commitment] fails orchestrate.StoreFailed needs go.Foreign {
-	try readOn(w.db, w.err, func() Option[orchestrate.Commitment] fails orchestrate.StoreFailed needs sql.Tx { try queryCommitmentTx(id) })
+func Commitment(w WALStore, id string) option.Option[orchestrate.Commitment] fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(w.db, w.err, func() option.Option[orchestrate.Commitment] fails orchestrate.StoreFailed needs sql.Tx { try queryCommitmentTx(id) })
 }
 
 // ListCommitments lists commitment projections optionally filtered by status and owner, sorted by ID.
-func ListCommitments(s Store, status Option[orchestrate.CommitmentStatus], owner Option[string]) []orchestrate.Commitment fails orchestrate.StoreFailed needs go.Foreign {
+func ListCommitments(s Store, status option.Option[orchestrate.CommitmentStatus], owner option.Option[string]) []orchestrate.Commitment fails orchestrate.StoreFailed needs go.Foreign {
 	try readOn(s.db, s.err, func() []orchestrate.Commitment fails orchestrate.StoreFailed needs sql.Tx { try queryCommitmentsTx(status, owner) })
 }
 
 // ListCommitments lists commitment projections optionally filtered by status and owner, sorted by ID on WALStore.
-func ListCommitments(w WALStore, status Option[orchestrate.CommitmentStatus], owner Option[string]) []orchestrate.Commitment fails orchestrate.StoreFailed needs go.Foreign {
+func ListCommitments(w WALStore, status option.Option[orchestrate.CommitmentStatus], owner option.Option[string]) []orchestrate.Commitment fails orchestrate.StoreFailed needs go.Foreign {
 	try readOn(w.db, w.err, func() []orchestrate.Commitment fails orchestrate.StoreFailed needs sql.Tx { try queryCommitmentsTx(status, owner) })
 }
 
 // ListQueue lists queue projections optionally filtered by status, ordered by priority then key.
-func ListQueue(s Store, status Option[string]) []orchestrate.QueueItem fails orchestrate.StoreFailed needs go.Foreign {
+func ListQueue(s Store, status option.Option[string]) []orchestrate.QueueItem fails orchestrate.StoreFailed needs go.Foreign {
 	try readOn(s.db, s.err, func() []orchestrate.QueueItem fails orchestrate.StoreFailed needs sql.Tx { try queryQueueTx(status) })
 }
 
 // ListQueue lists queue projections optionally filtered by status, ordered by priority then key on WALStore.
-func ListQueue(w WALStore, status Option[string]) []orchestrate.QueueItem fails orchestrate.StoreFailed needs go.Foreign {
+func ListQueue(w WALStore, status option.Option[string]) []orchestrate.QueueItem fails orchestrate.StoreFailed needs go.Foreign {
 	try readOn(w.db, w.err, func() []orchestrate.QueueItem fails orchestrate.StoreFailed needs sql.Tx { try queryQueueTx(status) })
 }
 
 // Question looks up one question projection by monotonic ID.
-func Question(s Store, id int) Option[orchestrate.Question] fails orchestrate.StoreFailed needs go.Foreign {
-	try readOn(s.db, s.err, func() Option[orchestrate.Question] fails orchestrate.StoreFailed needs sql.Tx { try queryQuestionTx(id) })
+func Question(s Store, id int) option.Option[orchestrate.Question] fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(s.db, s.err, func() option.Option[orchestrate.Question] fails orchestrate.StoreFailed needs sql.Tx { try queryQuestionTx(id) })
 }
 
 // Question looks up one question projection by monotonic ID on WALStore.
-func Question(w WALStore, id int) Option[orchestrate.Question] fails orchestrate.StoreFailed needs go.Foreign {
-	try readOn(w.db, w.err, func() Option[orchestrate.Question] fails orchestrate.StoreFailed needs sql.Tx { try queryQuestionTx(id) })
+func Question(w WALStore, id int) option.Option[orchestrate.Question] fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(w.db, w.err, func() option.Option[orchestrate.Question] fails orchestrate.StoreFailed needs sql.Tx { try queryQuestionTx(id) })
 }
 
 // ListQuestions lists question projections (all or open-only), sorted by ascending ID.
@@ -344,7 +345,7 @@ func ListQuestions(w WALStore, openOnly bool) []orchestrate.Question fails orche
 	try readOn(w.db, w.err, func() []orchestrate.Question fails orchestrate.StoreFailed needs sql.Tx { try queryQuestionsTx(openOnly) })
 }
 
-let prevLawDB = sync.NewRef[Option[Store]](None)
+let prevLawDB = sync.NewRef[option.Option[Store]](option.None)
 
 let lawWALDir = sync.NewRef("")
 
@@ -414,15 +415,15 @@ func resetStoreData(st Store) Store fails orchestrate.StoreFailed needs go.Forei
 
 func openLawFileWAL() Store fails orchestrate.StoreFailed needs go.Foreign {
 	match prevLawDB.Get() {
-	case Some[Store] as existing:
+	case option.Some[Store] as existing:
 		return try resetStoreData(existing.Value)
-	case None:
+	case option.None:
 	}
 	let dir = try freshWALDir()
 	cleanFile(dir, "law.db")
 	cleanFile(dir, "law.db-wal")
 	cleanFile(dir, "law.db-shm")
 	let st = try Open(dir + "/law.db")
-	prevLawDB.Set(Some[Store]{Value: st})
+	prevLawDB.Set(option.Some[Store]{Value: st})
 	st
 }

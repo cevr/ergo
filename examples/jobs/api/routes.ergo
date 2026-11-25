@@ -2,6 +2,7 @@ import http
 import jobsapp/api/endpoint
 import jobsapp/jobs
 import json
+import option
 import time
 import strconv
 import strings
@@ -38,7 +39,7 @@ law AgreesWithModel(store jobs.Store, moves []int) { disagreement(store, moves) 
 
 // Entry is a job in the model: when it was submitted and, if it was,
 // cancelled, in ms since the start.
-type Entry { Name string, Priority int, Created int64, Cancelled Option[int64] }
+type Entry { Name string, Priority int, Created int64, Cancelled option.Option[int64] }
 
 // Model is the reference: the entries by id, the last id and the time.
 type Model { Entries Map[int, Entry], Last int, Now int64 }
@@ -58,9 +59,9 @@ func viewOf(id int, e Entry, now int64) View {
 	let age = now - e.Created
 	let v = View{Id: id, Name: e.Name, Priority: e.Priority, State: "queued", Created: stampAt(e.Created), Ended: json.Null}
 	match e.Cancelled {
-	case Some[int64] as c:
+	case option.Some[int64] as c:
 		View{..v, State: "cancelled", Ended: json.NonNull{Value: stampAt(c.Value)}}
-	case None:
+	case option.None:
 		if age >= finished {
 			View{..v, State: "done", Ended: json.NonNull{Value: stampAt(e.Created + finished)}}
 		} else if age >= started {
@@ -73,7 +74,7 @@ func viewOf(id int, e Entry, now int64) View {
 
 // Answer is what a response says, as the model and the law compare it:
 // the status, the body, and the Location and Allow headers.
-type Answer { Status int, Body string, Location Option[string], Allow Option[string] }
+type Answer { Status int, Body string, Location option.Option[string], Allow option.Option[string] }
 
 func answerOf(r http.Response) Answer {
 	Answer{Status: r.Status, Body: r.Body, Location: http.Header(r.Header, "Location"), Allow: http.Header(r.Header, "Allow")}
@@ -83,19 +84,19 @@ func answerOf(r http.Response) Answer {
 func AnswerText(a Answer) string {
 	let mut text = "\(a.Status)"
 	match a.Location {
-	case Some[string] as l:
+	case option.Some[string] as l:
 		text = text + " Location: " + l.Value
-	case None:
+	case option.None:
 	}
 	match a.Allow {
-	case Some[string] as l:
+	case option.Some[string] as l:
 		text = text + " Allow: " + l.Value
-	case None:
+	case option.None:
 	}
 	text + " " + a.Body
 }
 
-func plain(status int, body string) Answer { Answer{Status: status, Body: body, Location: None, Allow: None} }
+func plain(status int, body string) Answer { Answer{Status: status, Body: body, Location: option.None, Allow: option.None} }
 
 func refusal(status int, message string) Answer { plain(status, ProblemText(Problem{Error: message})) }
 
@@ -154,7 +155,7 @@ func AskOf(model Model, m int) Ask {
 		Wait{Ms: int64(arg%4+1) * 700}
 	case _:
 		let odd = []http.Request{request("PUT", "/jobs", ""), request("GET", "/nope", ""), request("GET", "/jobs/x", ""), request("POST", "/jobs/1", ""), request("HEAD", "/jobs", "")}
-		Send{Request: odd[arg%len(odd)]}
+		Send{Request: odd[arg%odd.Len()]}
 	}
 }
 
@@ -167,9 +168,9 @@ func Expect(model Model, r http.Request) (Answer, Model) {
 			let mut views = []View{}
 			for id in 1..model.Last+1 {
 				match model.Entries.Get(id) {
-				case Some[Entry] as e:
+				case option.Some[Entry] as e:
 					views = views.Append(viewOf(id, e.Value, model.Now))
-				case None:
+				case option.None:
 				}
 			}
 			return (plain(200, ListingText(Listing{Jobs: views})), model)
@@ -196,24 +197,24 @@ func Expect(model Model, r http.Request) (Answer, Model) {
 			case json.Absent:
 				0
 			}
-			let e = Entry{Name: d.Name, Priority: priority, Created: model.Now, Cancelled: None}
+			let e = Entry{Name: d.Name, Priority: priority, Created: model.Now, Cancelled: option.None}
 			let id = model.Last + 1
 			let mut entries = model.Entries
 			entries[id] = e
-			let created = Answer{..plain(201, ViewText(viewOf(id, e, model.Now))), Location: Some{"/jobs/\(id)"}}
+			let created = Answer{..plain(201, ViewText(viewOf(id, e, model.Now))), Location: option.Some{"/jobs/\(id)"}}
 			return (created, Model{..model, Entries: entries, Last: id})
 		case _:
-			return (Answer{..refusal(405, r.Method+" is not allowed on /jobs"), Allow: Some{"GET, HEAD, POST"}}, model)
+			return (Answer{..refusal(405, r.Method+" is not allowed on /jobs"), Allow: option.Some{"GET, HEAD, POST"}}, model)
 		}
 	}
-	if len(parts) < 3 || parts[1] != "jobs" || len(parts) > 4 || (len(parts) == 4 && parts[3] != "cancel") {
+	if parts.Len() < 3 || parts[1] != "jobs" || parts.Len() > 4 || (parts.Len() == 4 && parts[3] != "cancel") {
 		return (refusal(404, "no route "+r.Method+" "+r.Path), model)
 	}
-	let cancel = len(parts) == 4
+	let cancel = parts.Len() == 4
 	let allowed = if cancel { r.Method == "POST" } else { r.Method == "GET" || r.Method == "HEAD" || r.Method == "DELETE" }
 	if !allowed {
 		let allow = if cancel { "POST" } else { "GET, HEAD, DELETE" }
-		return (Answer{..refusal(405, r.Method+" is not allowed on "+r.Path), Allow: Some{allow}}, model)
+		return (Answer{..refusal(405, r.Method+" is not allowed on "+r.Path), Allow: option.Some{allow}}, model)
 	}
 	let text = parts[2]
 	let id = strconv.Atoi(text) catch {
@@ -224,9 +225,9 @@ func Expect(model Model, r http.Request) (Answer, Model) {
 		return (refusal(404, "no job "+text), model)
 	}
 	let e = match model.Entries.Get(id) {
-	case Some[Entry] as found:
+	case option.Some[Entry] as found:
 		found.Value
-	case None:
+	case option.None:
 		return (failed(404, contractFailure{Error: jobs.NotFound{Id: id}}), model)
 	}
 	let v = viewOf(id, e, model.Now)
@@ -235,7 +236,7 @@ func Expect(model Model, r http.Request) (Answer, Model) {
 		if ended {
 			return (failed(409, contractFailure{Error: jobs.Conflict{Id: id, State: v.State, Asked: "cancel"}}), model)
 		}
-		let next = Entry{..e, Cancelled: Some{model.Now}}
+		let next = Entry{..e, Cancelled: option.Some{model.Now}}
 		let mut entries = model.Entries
 		entries[id] = next
 		return (plain(200, ViewText(viewOf(id, next, model.Now))), Model{..model, Entries: entries})

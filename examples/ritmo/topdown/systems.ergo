@@ -4,6 +4,7 @@
 // can read one (ritmo's lint rules, checked here by the rows).
 
 import machines
+import option
 import rand
 import ritmo/ecs
 
@@ -33,9 +34,9 @@ func Update(w World, c Controls) World {
 // Diagonal along each of two (ritmo's PlanPlayerVelocity).
 func Plan(w World) World {
 	match PlayerOf(w) {
-	case None:
+	case option.None:
 		w
-	case Some[ecs.Entity] as p:
+	case option.Some[ecs.Entity] as p:
 		let c = w.Input
 		let along = if c.DX != 0 && c.DY != 0 { Diagonal } else { Speed }
 		World{..w, Vel: w.Vel.Set(p.Value, Vec{X: c.DX * along, Y: c.DY * along})}
@@ -46,9 +47,9 @@ func Plan(w World) World {
 // stopping at each wall it would enter (ritmo's MovePlayer).
 func Move(w World) World {
 	match PlayerOf(w) {
-	case None:
+	case option.None:
 		w
-	case Some[ecs.Entity] as p:
+	case option.Some[ecs.Entity] as p:
 		let v = VelocityOf(w, p.Value)
 		if v.X == 0 && v.Y == 0 {
 			return w
@@ -67,9 +68,9 @@ func Move(w World) World {
 // wins.
 func Aim(w World) World {
 	match PlayerOf(w) {
-	case None:
+	case option.None:
 		w
-	case Some[ecs.Entity] as p:
+	case option.Some[ecs.Entity] as p:
 		let at = PositionOf(w, p.Value)
 		let mut focus Focus = Nothing
 		let mut best = -1
@@ -112,11 +113,11 @@ func Collect(w World) World {
 // velocity (ritmo's ResolveFacing and ResolveLocomotion).
 func Signal(w World) World {
 	match PlayerOf(w) {
-	case None:
+	case option.None:
 		w
-	case Some[ecs.Entity] as p:
+	case option.Some[ecs.Entity] as p:
 		let v = VelocityOf(w, p.Value)
-		World{..w, TurnQueued: Some[Turn]{Value: TurnOf(v)}, StepQueued: Some[Stride]{Value: StrideOf(v)}}
+		World{..w, TurnQueued: option.Some[Turn]{Value: TurnOf(v)}, StepQueued: option.Some[Stride]{Value: StrideOf(v)}}
 	}
 }
 
@@ -139,18 +140,18 @@ func Apply(w World) World {
 // applyStateTransitions).
 func Commit(w World) World {
 	let facing = match w.TurnQueued {
-	case Some[Turn] as t:
+	case option.Some[Turn] as t:
 		machines.Next(w.Facing, Face(w.Facing, t.Value))
-	case None:
+	case option.None:
 		w.Facing
 	}
 	let gait = match w.StepQueued {
-	case Some[Stride] as s:
+	case option.Some[Stride] as s:
 		machines.Next(w.Gait, Walk(w.Gait, s.Value))
-	case None:
+	case option.None:
 		w.Gait
 	}
-	World{..w, Facing: facing, Gait: gait, TurnQueued: None, StepQueued: None}
+	World{..w, Facing: facing, Gait: gait, TurnQueued: option.None, StepQueued: option.None}
 }
 
 // Block is a wall's box: its centre and size.
@@ -235,14 +236,14 @@ func Root(n int) int {
 // and, one tick in four, interact. An input is held for 1 to 30 ticks,
 // as a person holds a key, so the walk reaches the walls and the
 // pickups.
-func Fuzz(n int) []Controls needs Random {
+func Fuzz(n int) []Controls needs rand.Random {
 	let mut out = []Controls{}
 	for _ in 0..n {
-		if len(out) >= n {
+		if out.Len() >= n {
 			break
 		}
-		let c = Controls{DX: Random.IntN(3) - 1, DY: Random.IntN(3) - 1, Interact: Random.IntN(4) == 0}
-		for _ in 0..(1 + Random.IntN(30)) {
+		let c = Controls{DX: rand.Random.IntN(3) - 1, DY: rand.Random.IntN(3) - 1, Interact: rand.Random.IntN(4) == 0}
+		for _ in 0..(1 + rand.Random.IntN(30)) {
 			out = out.Append(c)
 		}
 	}
@@ -262,7 +263,7 @@ func Play(inputs []Controls) []World {
 
 // Run is the worlds of 400 ticks of fuzzed input from seed.
 func Run(seed int) []World {
-	with context { Random: rand.Seeded(uint64(seed)) } {
+	with context { rand.Random: rand.Seeded(uint64(seed)) } {
 		Play(Fuzz(400))
 	}
 }
@@ -272,9 +273,9 @@ func Run(seed int) []World {
 law PlayerStaysInTheWorld(seed int) {
 	for w in Run(seed) {
 		match PlayerOf(w) {
-		case None:
+		case option.None:
 			return false
-		case Some[ecs.Entity] as p:
+		case option.Some[ecs.Entity] as p:
 			let at = PositionOf(w, p.Value)
 			let half = PlayerSide / 2
 			if at.X < half || at.Y < half || at.X > WorldWidth-half || at.Y > WorldHeight-half {
@@ -290,9 +291,9 @@ law PlayerStaysInTheWorld(seed int) {
 law NeverInsideAWall(seed int) {
 	for w in Run(seed) {
 		match PlayerOf(w) {
-		case None:
+		case option.None:
 			return false
-		case Some[ecs.Entity] as p:
+		case option.Some[ecs.Entity] as p:
 			let at = PositionOf(w, p.Value)
 			let box = BoxOf(w, p.Value)
 			for b in WallsOf(w) {
@@ -337,8 +338,8 @@ law FocusIsInReach(seed int) {
 law MachinesFollowTheWalk(seed int) {
 	for w in Run(seed) {
 		match PlayerOf(w) {
-		case None:
-		case Some[ecs.Entity] as p:
+		case option.None:
+		case option.Some[ecs.Entity] as p:
 			let v = VelocityOf(w, p.Value)
 			let walking = match w.Gait {
 			case Walking:

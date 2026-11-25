@@ -5,7 +5,9 @@
 // when it began, never from when a tick came, so the phases do not drift.
 // It is pure: the clock reaches it only as the time of each cue.
 
+import core
 import machines
+import option
 
 // Light is the colour the cars see and the time it began.
 type Light = Red{Since duration} | Green{Since duration, Asked bool} | Yellow{Since duration} | Flashing{Since duration}
@@ -28,13 +30,13 @@ law ColoursFollow(l Light, cues []Cue) {
 // deadline, however late the tick came.
 law PhasesDoNotDrift(l Light, at duration) {
 	match Deadline(l) {
-	case Some[duration] as d:
+	case option.Some[duration] as d:
 		let next = machines.Next(l, Step(l, Tick{At: at}))
 		if at < d.Value {
 			return Colour(next) == Colour(l) && SinceOf(next) == SinceOf(l)
 		}
 		SinceOf(next) == d.Value
-	case None:
+	case option.None:
 		true
 	}
 }
@@ -48,7 +50,7 @@ type Cue = Tick{At duration} | Button{At duration} | Fault{At duration} | Repair
 law ButtonShortensGreen(since duration, at duration) {
 	let g Light = Green{Since: since, Asked: false}
 	let pressed = machines.Next(g, Step(g, Button{At: at}))
-	Deadline(pressed) == Some[duration]{Value: since + MinGreen}
+	Deadline(pressed) == option.Some[duration]{Value: since + MinGreen}
 }
 
 // OnlyRepairEndsFlashing: a flashing light stays flashing for every cue
@@ -125,16 +127,16 @@ func SinceOf(l Light) duration {
 // Deadline is the time l ends by itself: a green ends at MinGreen once
 // the button asked, else at MaxGreen. A flashing light waits for a
 // repair.
-func Deadline(l Light) Option[duration] {
+func Deadline(l Light) option.Option[duration] {
 	match l {
 	case Red as r:
-		Some[duration]{Value: r.Since + RedFor}
+		option.Some[duration]{Value: r.Since + RedFor}
 	case Green as g:
-		Some[duration]{Value: g.Since + (if g.Asked { MinGreen } else { MaxGreen })}
+		option.Some[duration]{Value: g.Since + (if g.Asked { MinGreen } else { MaxGreen })}
 	case Yellow as y:
-		Some[duration]{Value: y.Since + YellowFor}
+		option.Some[duration]{Value: y.Since + YellowFor}
 	case Flashing:
-		None
+		option.None
 	}
 }
 
@@ -157,26 +159,26 @@ func after(l Light, end duration) Light {
 // an early end; a press in another phase, or a second press, is ignored.
 // A fault flashes from any phase; only a repair ends it, at red. The
 // light gives no output and never ends: its output is Never.
-func Step(l Light, c Cue) Decision[Light, Never] {
+func Step(l Light, c Cue) machines.Decision[Light, core.Never] {
 	match (l, c) {
 	case (Flashing, Repair as r):
-		Enter[Light]{Next: Red{Since: r.At}}
+		machines.Enter[Light]{Next: Red{Since: r.At}}
 	case (Flashing, _):
-		Ignore
+		machines.Ignore
 	case (_, Fault as f):
-		Enter[Light]{Next: Flashing{Since: f.At}}
+		machines.Enter[Light]{Next: Flashing{Since: f.At}}
 	case (_, Repair):
-		Ignore
+		machines.Ignore
 	case (Green as g, Button):
-		if g.Asked { Ignore } else { Stay[Light]{Next: Green{..g, Asked: true}} }
+		if g.Asked { machines.Ignore } else { machines.Stay[Light]{Next: Green{..g, Asked: true}} }
 	case (_, Button):
-		Ignore
+		machines.Ignore
 	case (_, Tick as t):
 		match Deadline(l) {
-		case Some[duration] as d:
-			if t.At >= d.Value { Enter[Light]{Next: after(l, d.Value)} } else { Ignore }
-		case None:
-			Ignore
+		case option.Some[duration] as d:
+			if t.At >= d.Value { machines.Enter[Light]{Next: after(l, d.Value)} } else { machines.Ignore }
+		case option.None:
+			machines.Ignore
 		}
 	}
 }

@@ -1,5 +1,6 @@
 import cron
 import gen
+import option
 import temporal
 import testing
 import time
@@ -16,7 +17,7 @@ let sampleCronExprs = []string{
 type firingStep {
 	Due     time.Time,
 	Woke    time.Time,
-	PrevDue Option[time.Time],
+	PrevDue option.Option[time.Time],
 }
 
 // UpcomingStrictlyIncreasingAndMatchesRun proves schedule.Run on a virtual clock
@@ -36,30 +37,30 @@ law UpcomingStrictlyIncreasingAndMatchesRun() {
 		let horizon = time.Add(start, 2h)
 		let clock = testing.NewVirtualClock(time.UnixSeconds(start))
 		let mut firings = []Firing{}
-		with context { time.Clock: clock, Scheduler: clock } {
+		with context { time.Clock: clock, time.Scheduler: clock } {
 			Run([]Job{Job{Name: "j", When: expr}}, utc, horizon, func(f Firing) {
 				firings = firings.Append(f)
 			})
 		}
-		let upcoming = Upcoming(expr, utc, start, len(firings)+1)
+		let upcoming = Upcoming(expr, utc, start, firings.Len()+1)
 		let mut trace = []temporal.Seen[firingStep]{}
-		let mut prev Option[time.Time] = None
+		let mut prev option.Option[time.Time] = option.None
 		for i, f in firings {
-			if i >= len(upcoming) || !time.Equal(f.Due, upcoming[i]) {
+			if i >= upcoming.Len() || !time.Equal(f.Due, upcoming[i]) {
 				return false
 			}
 			trace = trace.Append(temporal.Seen[firingStep]{State: firingStep{Due: f.Due, Woke: f.Woke, PrevDue: prev}, At: f.Woke})
-			prev = Some[time.Time]{Value: f.Due}
+			prev = option.Some[time.Time]{Value: f.Due}
 		}
-		if len(upcoming) > len(firings) && !time.After(upcoming[len(firings)], horizon) {
+		if upcoming.Len() > firings.Len() && !time.After(upcoming[firings.Len()], horizon) {
 			return false
 		}
 		let onTime = temporal.Named("woke-equals-due", func(s firingStep) bool { time.Equal(s.Woke, s.Due) })
 		let strictIncrease = temporal.Named("strictly-increasing", func(s firingStep) bool {
 			match s.PrevDue {
-			case Some[time.Time] as p:
+			case option.Some[time.Time] as p:
 				time.After(s.Due, p.Value)
-			case None:
+			case option.None:
 				true
 			}
 		})

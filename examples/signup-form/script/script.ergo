@@ -3,6 +3,8 @@
 // binds, and shows the screen after each one.
 
 import actor
+import core
+import machines
 import signupform/screen
 import signupform/subscribe
 import io
@@ -74,7 +76,7 @@ func Read(lines []string) []Line fails BadLine {
 func fill(label string, text string) Do { Act{Act: ui.FillIn{At: ui.WithPlaceholder{Text: label}, Text: text}} }
 
 // Host is the form on the test host.
-type Host = ui.TestHost[subscribe.Form, subscribe.Signal, Decision[subscribe.Form, Never]]
+type Host = ui.TestHost[subscribe.Form, subscribe.Signal, machines.Decision[subscribe.Form, core.Never]]
 
 // Run reads the script from io.Stdin and plays it on the screen, on std
 // ui's test host over clock, with the Subscribers of its context. It shows
@@ -82,42 +84,42 @@ type Host = ui.TestHost[subscribe.Form, subscribe.Signal, Decision[subscribe.For
 // line. An act whose locator finds no node, or more than one, does
 // nothing and says so, as a scene that names no node fails. It returns the
 // exit status: 0, or 1 when the script is refused or the screen fails.
-func Run(clock time.Manual) int needs Console | io.Stdin | Scheduler | subscribe.Subscribers {
+func Run(clock time.Manual) int needs io.Console | io.Stdin | time.Scheduler | subscribe.Subscribers {
 	let mut lines = []string{}
 	for line in io.Stdin.Lines() {
 		lines = lines.Append(line)
 	}
 	let script = Read(lines) catch {
 	case BadLine as b:
-		Console.Println("? line \(b.Line): \(b.Why)")
+		io.Console.Println("? line \(b.Line): \(b.Why)")
 		return 1
 	}
-	let app = actor.StartMachine(subscribe.Subscribing{}, 8, func(o Never) {})
+	let app = actor.StartMachine(subscribe.Subscribing{}, 8, func(o core.Never) {})
 	let status = play(app, clock, script) catch {
 	case actor.Stopped:
-		Console.Println("? the form stopped")
+		io.Console.Println("? the form stopped")
 		1
 	case ui.BadPatch as p:
-		Console.Println("? a patch is refused: \(p.Why)")
+		io.Console.Println("? a patch is refused: \(p.Why)")
 		1
 	}
 	app.Stop()
 	status
 }
 
-func play(app actor.Actor[subscribe.Form, subscribe.Signal, Decision[subscribe.Form, Never]], clock time.Manual, script []Line) int fails actor.Stopped | ui.BadPatch needs Console {
+func play(app actor.Actor[subscribe.Form, subscribe.Signal, machines.Decision[subscribe.Form, core.Never]], clock time.Manual, script []Line) int fails actor.Stopped | ui.BadPatch needs io.Console {
 	let mut h = try ui.NewTestHost(app, screen.Screen, clock, 8)
-	Console.Println(Shown(&h))
+	io.Console.Println(Shown(&h))
 	for x in script {
-		Console.Println("> \(x.Text)")
+		io.Console.Println("> \(x.Text)")
 		match x.Do {
 		case Act as a:
 			ui.Play(&h, []ui.Act{a.Act, ui.SettleAll}) catch {
 			case ui.NoNode as no:
-				Console.Println("? no node: \(no.Label)")
+				io.Console.Println("? no node: \(no.Label)")
 				continue
 			case ui.Ambiguous as m:
-				Console.Println("? \(m.Count) nodes: \(m.At)")
+				io.Console.Println("? \(m.Count) nodes: \(m.At)")
 				continue
 			case ui.Mismatch:
 				continue
@@ -126,9 +128,9 @@ func play(app actor.Actor[subscribe.Form, subscribe.Signal, Decision[subscribe.F
 			case ui.BadPatch as p:
 				return p
 			}
-			Console.Println(Shown(&h))
+			io.Console.Println(Shown(&h))
 		case Stats:
-			Console.Println("stats: \(ui.CountsLine(ui.Counts(&h)))")
+			io.Console.Println("stats: \(ui.CountsLine(ui.Counts(&h)))")
 		}
 	}
 	0

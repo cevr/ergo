@@ -1,3 +1,4 @@
+import option
 import slices
 import strings
 import github.com/cevr/ergo/modules/git/oid
@@ -18,14 +19,14 @@ func compareEntries(a Entry, b Entry) int {
 func NewMemoryIndex(format oid.Format, raw []Entry) MemoryIndex {
 	let mut filtered = []Entry{}
 	for e in raw {
-		if sameFormat(format, e.OID.Format) && len(e.OID.Raw) == oid.ByteLen(format) {
+		if sameFormat(format, e.OID.Format) && e.OID.Raw.Len() == oid.ByteLen(format) {
 			filtered = filtered.Append(e)
 		}
 	}
 	let sorted = slices.SortFunc(filtered, compareEntries)
-	let mut dedup = slices.WithCapacity[Entry](len(sorted))
+	let mut dedup = slices.WithCapacity[Entry](sorted.Len())
 	for e in sorted {
-		if len(dedup) == 0 || !oid.Equal(dedup[len(dedup)-1].OID, e.OID) {
+		if dedup.Len() == 0 || !oid.Equal(dedup[dedup.Len()-1].OID, e.OID) {
 			dedup = dedup.Append(e)
 		}
 	}
@@ -37,24 +38,24 @@ func NewMemoryIndex(format oid.Format, raw []Entry) MemoryIndex {
 
 // Count implements IndexReader.Count on MemoryIndex.
 func Count(m MemoryIndex) int {
-	len(m.entries)
+	m.entries.Len()
 }
 
 // At implements IndexReader.At on MemoryIndex.
-func At(m MemoryIndex, i int) Option[Entry] {
-	if i < 0 || i >= len(m.entries) {
-		return None
+func At(m MemoryIndex, i int) option.Option[Entry] {
+	if i < 0 || i >= m.entries.Len() {
+		return option.None
 	}
-	Some[Entry]{Value: m.entries[i]}
+	option.Some[Entry]{Value: m.entries[i]}
 }
 
 // Lookup implements IndexReader.Lookup on MemoryIndex.
-func Lookup(m MemoryIndex, id oid.OID) Option[Entry] {
-	if !sameFormat(m.format, id.Format) || len(id.Raw) != oid.ByteLen(m.format) {
-		return None
+func Lookup(m MemoryIndex, id oid.OID) option.Option[Entry] {
+	if !sameFormat(m.format, id.Format) || id.Raw.Len() != oid.ByteLen(m.format) {
+		return option.None
 	}
 	let mut lo = 0
-	let mut hi = len(m.entries)
+	let mut hi = m.entries.Len()
 	for _ in 0..64 {
 		if lo >= hi {
 			break
@@ -62,7 +63,7 @@ func Lookup(m MemoryIndex, id oid.OID) Option[Entry] {
 		let mid = lo + (hi-lo)/2
 		let cmp = oid.Compare(m.entries[mid].OID, id)
 		if cmp == 0 {
-			return Some[Entry]{Value: m.entries[mid]}
+			return option.Some[Entry]{Value: m.entries[mid]}
 		}
 		if cmp < 0 {
 			lo = mid + 1
@@ -70,13 +71,13 @@ func Lookup(m MemoryIndex, id oid.OID) Option[Entry] {
 			hi = mid
 		}
 	}
-	None
+	option.None
 }
 
 // FindPrefix implements IndexReader.FindPrefix on MemoryIndex.
 func FindPrefix(m MemoryIndex, hexPrefix string) []Entry {
 	let pb = hexPrefix.Bytes()
-	if len(pb) > oid.HexLen(m.format) {
+	if pb.Len() > oid.HexLen(m.format) {
 		return []Entry{}
 	}
 	for c in pb {

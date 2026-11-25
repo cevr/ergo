@@ -45,27 +45,27 @@ func count(s string) int fails os.Exit {
 
 // Parse is the command of args.
 func Parse(args []string) Command fails os.Exit {
-	if len(args) == 2 && args[0] == "gen" && args[1] == "control" {
+	if args.Len() == 2 && args[0] == "gen" && args[1] == "control" {
 		return GenControl
 	}
-	if len(args) == 2 && args[0] == "gen" && args[1] == "control-stop" {
+	if args.Len() == 2 && args[0] == "gen" && args[1] == "control-stop" {
 		return GenControlStop
 	}
-	if len(args) == 7 && args[0] == "gen" && args[1] == "seeded" {
+	if args.Len() == 7 && args[0] == "gen" && args[1] == "seeded" {
 		return GenSeeded{Seed: try count(args[2]), D: try count(args[3]), F: try count(args[4]), K: try count(args[5]), H: try count(args[6])}
 	}
-	if len(args) == 2 && args[0] == "id" {
+	if args.Len() == 2 && args[0] == "id" {
 		return Identify{Weights: args[1]}
 	}
-	if len(args) == 3 && args[0] == "run" {
+	if args.Len() == 3 && args[0] == "run" {
 		return RunOne{Weights: args[1], Record: args[2]}
 	}
-	if len(args) == 2 && args[0] == "vectors" {
+	if args.Len() == 2 && args[0] == "vectors" {
 		return Vectors{Dir: args[1]}
 	}
-	if (len(args) == 4 || len(args) == 5) && args[0] == "score" {
+	if (args.Len() == 4 || args.Len() == 5) && args[0] == "score" {
 		let mut bar suite.Bar = suite.Train
-		if len(args) == 5 {
+		if args.Len() == 5 {
 			match args[4] {
 			case "train":
 				bar = suite.Train
@@ -100,7 +100,7 @@ func named(dir string, suffix string) []tn1.Named fails os.Exit needs fs.Files {
 			out = out.Append(tn1.Named{Name: name, Text: try read(dir + "/" + name)})
 		}
 	}
-	if len(out) == 0 {
+	if out.Len() == 0 {
 		return os.Exit{Code: 1, Message: "tn1: \(dir) holds no \(suffix) file"}
 	}
 	out
@@ -154,7 +154,7 @@ func Run(c Command) string fails os.Exit needs fs.Files {
 		case tn1.BadFile as b:
 			return bad(b)
 		}
-		let head = "weights \(s.Weights): D=\(n.D) F=\(n.F) K=\(n.K) H=\(n.H), \(len(tn1.Packed(n))) bytes packed, model \(tn1.ID(n))\n"
+		let head = "weights \(s.Weights): D=\(n.D) F=\(n.F) K=\(n.K) H=\(n.H), \(tn1.Packed(n).Len()) bytes packed, model \(tn1.ID(n))\n"
 		if !suite.Passes(r, s.Bar) {
 			return os.Exit{Code: 1, Message: strings.TrimSuffix(head+suite.Report(r, s.Bar), "\n")}
 		}
@@ -162,7 +162,7 @@ func Run(c Command) string fails os.Exit needs fs.Files {
 	}
 }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	let c = try Parse(os.NewHost().Args())
 	let out = try with context { fs.Files: fs.NewHost() } { Run(c) }
 	with context { io.Stdout: io.NewHost() } { io.Stdout.Print(out) }

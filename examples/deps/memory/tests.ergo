@@ -14,7 +14,7 @@ test KeepsTheIndexLaws(entries []resolve.Entry, n int) {
 	case resolve.UnknownPackage:
 		return
 	}
-	for i in 1..len(vs) {
+	for i in 1..vs.Len() {
 		assert semver.Compare(vs[i-1], vs[i]) > 0
 	}
 	for x in vs {

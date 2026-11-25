@@ -4,6 +4,7 @@
 // directory markers (STD-GIT: G-INDEX).
 
 import github.com/cevr/ergo/modules/git/oid
+import option
 
 // ModeRegular is the Git index mode for a non-executable regular file (0100644).
 let ModeRegular uint32 = uint32(0x81a4)
@@ -75,7 +76,7 @@ type Index {
 	version    int,
 	entries    []Entry,
 	extensions []Extension,
-	splitLink  Option[SplitLink],
+	splitLink  option.Option[SplitLink],
 	checksum   oid.OID,
 } implements IndexReader
 
@@ -83,7 +84,7 @@ type Index {
 // carrying laws enforced identically on Index and MemoryIndex.
 type IndexReader {
 	Entries() []Entry,
-	Lookup(path string, stage int) Option[Entry],
+	Lookup(path string, stage int) option.Option[Entry],
 	LookupAllStages(path string) []Entry,
 
 	// LookupFindsAllStagedEntries: every staged entry returned by Entries is
@@ -92,9 +93,9 @@ type IndexReader {
 		let all = Entries()
 		for e in all {
 			match Lookup(e.Path, e.Stage) {
-			case None:
+			case option.None:
 				return false
-			case Some[Entry] as got:
+			case option.Some[Entry] as got:
 				if got.Value.Path != e.Path || got.Value.Stage != e.Stage || !oid.Equal(got.Value.OID, e.OID) || got.Value.Mode != e.Mode {
 					return false
 				}
@@ -110,7 +111,7 @@ type IndexReader {
 		for e in all {
 			let stages = LookupAllStages(e.Path)
 			let mut sawThisStage = false
-			for i in 0..len(stages) {
+			for i in 0..stages.Len() {
 				if stages[i].Path != e.Path {
 					return false
 				}
@@ -131,8 +132,8 @@ type IndexReader {
 	// MissingPathReturnsNone: querying an absent path returns None and empty stages.
 	law MissingPathReturnsNone() {
 		let missing = "__ergo_nonexistent_index_path__/missing.txt"
-			Lookup(missing, 0) == None &&
-			Lookup(missing, 1) == None &&
-			len(LookupAllStages(missing)) == 0
+			Lookup(missing, 0) == option.None &&
+			Lookup(missing, 1) == option.None &&
+			LookupAllStages(missing).Len() == 0
 	},
 }

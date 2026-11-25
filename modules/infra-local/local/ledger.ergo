@@ -14,6 +14,7 @@
 import github.com/cevr/ergo/modules/infra
 import fs
 import hex
+import option
 import strconv
 import strings
 
@@ -32,10 +33,10 @@ func entryPath(l Ledger, kind string, id string) string { l.Root + "/" + kind + 
 
 // get is the fields of the object id of kind, None when the ledger has
 // none.
-func get(l Ledger, kind string, id string) Option[[]string] fails infra.Failed {
+func get(l Ledger, kind string, id string) option.Option[[]string] fails infra.Failed {
 	let text = l.files.ReadFile(entryPath(l, kind, id)) catch {
 	case fs.NotFound:
-		return None
+		return option.None
 	case fs.Denied as e:
 		return infra.Failed{ID: id, Reason: "the ledger cannot read \(e.Path)"}
 	case fs.Failed as e:
@@ -49,7 +50,7 @@ func get(l Ledger, kind string, id string) Option[[]string] fails infra.Failed {
 		}
 		fields = fields.Append(field)
 	}
-	Some[[]string]{Value: fields}
+	option.Some[[]string]{Value: fields}
 }
 
 // put writes the fields of the object id of kind, replacing the entry.

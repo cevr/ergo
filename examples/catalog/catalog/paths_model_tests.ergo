@@ -1,6 +1,8 @@
+import core
 import explore
 import gen
 import machines
+import option
 import sync
 import temporal
 import testing
@@ -31,7 +33,7 @@ type catDriveErr { Message string }
 
 type catSession {
 	status sync.Ref[Status],
-} implements explore.PathSession[catAct, explore.Observed[catObs, catOut, Never], catDriveErr]
+} implements explore.PathSession[catAct, explore.Observed[catObs, catOut, core.Never], catDriveErr]
 
 func catEventOf(act catAct) Event {
 	match act {
@@ -56,30 +58,30 @@ func applyCatLive(ref sync.Ref[Status], act catAct) catOut {
 	let next = machines.Next(cur, dec)
 	ref.Set(next)
 	match dec {
-	case Enter[Status]:
+	case machines.Enter[Status]:
 		CatOutEntered
-	case Ignore:
+	case machines.Ignore:
 		CatOutIgnored
-	case Reject:
+	case machines.Reject:
 		CatOutRejected
-	case Stay[Status], Emit[Status, Status], Tell[Status, Status], Done[Status]:
+	case machines.Stay[Status], machines.Emit[Status, Status], machines.Tell[Status, Status], machines.Done[Status]:
 		CatOutIgnored
 	}
 }
 
-func Read(s catSession) explore.Observed[catObs, catOut, Never] fails catDriveErr {
+func Read(s catSession) explore.Observed[catObs, catOut, core.Never] fails catDriveErr {
 	explore.InitialRead[catObs]{State: observeCat(s.status.Get())}
 }
 
-func Apply(s catSession, act catAct) explore.Observed[catObs, catOut, Never] fails catDriveErr {
+func Apply(s catSession, act catAct) explore.Observed[catObs, catOut, core.Never] fails catDriveErr {
 	let out = applyCatLive(s.status, act)
 	let obs = observeCat(s.status.Get())
-	explore.StepResult[catObs, catOut, Never]{
-		Step: explore.StepObs[catObs, catOut, Never]{
+	explore.StepResult[catObs, catOut, core.Never]{
+		Step: explore.StepObs[catObs, catOut, core.Never]{
 			Kind:     explore.DisEmit,
-			State:    Some[catObs]{Value: obs},
+			State:    option.Some[catObs]{Value: obs},
 			Outputs:  []catOut{out},
-			Error:    None,
+			Error:    option.None,
 			Terminal: false,
 		},
 	}
@@ -135,21 +137,21 @@ func catStep(st catState, act catAct) (catState, catOut) {
 	}
 }
 
-func catModel() explore.PathModel[catState, catAct, catObs, catOut, Never] {
-	explore.PathModelProjected[catState, catAct, catObs, catOut, Never](
+func catModel() explore.PathModel[catState, catAct, catObs, catOut, core.Never] {
+	explore.PathModelProjected[catState, catAct, catObs, catOut, core.Never](
 		[]catState{catState{Status: "draft"}},
 		catSignals,
 		"catalog.listing",
 		catProject,
-		func(st catState, act catAct) explore.EdgeOutcome[catState, explore.StepObs[catObs, catOut, Never]] {
+		func(st catState, act catAct) explore.EdgeOutcome[catState, explore.StepObs[catObs, catOut, core.Never]] {
 			let (next, out) = catStep(st, act)
-			explore.Continue[catState, explore.StepObs[catObs, catOut, Never]]{
+			explore.Continue[catState, explore.StepObs[catObs, catOut, core.Never]]{
 				Next: next,
-				Obs:  explore.StepObs[catObs, catOut, Never]{
+				Obs:  explore.StepObs[catObs, catOut, core.Never]{
 					Kind:     explore.DisEmit,
-					State:    Some[catObs]{Value: catProject(next)},
+					State:    option.Some[catObs]{Value: catProject(next)},
 					Outputs:  []catOut{out},
-					Error:    None,
+					Error:    option.None,
 					Terminal: false,
 				},
 			}
@@ -168,7 +170,7 @@ type CatalogListingPaths {
 			catModel(),
 			explore.ToDepth{Depth: 3},
 			bounds,
-			func(start catState) explore.PathSession[catAct, explore.Observed[catObs, catOut, Never], catDriveErr] fails catOpenErr {
+			func(start catState) explore.PathSession[catAct, explore.Observed[catObs, catOut, core.Never], catDriveErr] fails catOpenErr {
 				try OpenSession(start)
 			},
 			testing.ActiveEvidenceSink(),
@@ -267,7 +269,7 @@ law SampleAndCountAgreeWithRun() {
 		}
 		let n = gen.IntIn(4, 12)
 		let sample = Sample(n)
-		if len(sample.Products) != n {
+		if sample.Products.Len() != n {
 			return false
 		}
 		for i, p in sample.Products {
@@ -283,7 +285,7 @@ law SampleAndCountAgreeWithRun() {
 			let wantMug = i%3 == 0
 			let hasMug = p.Title[0] == 'M'
 			let wantTags = if i%2 == 0 { 2 } else { 1 }
-			if p.Status != wantStatus || p.Stock != wantStock || hasMug != wantMug || len(p.Tags) != wantTags {
+			if p.Status != wantStatus || p.Stock != wantStock || hasMug != wantMug || p.Tags.Len() != wantTags {
 				return false
 			}
 		}

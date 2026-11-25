@@ -1,3 +1,4 @@
+import option
 import sha1dc
 import sha256
 import slices
@@ -63,7 +64,7 @@ func indexModeToTreeMode(path string, m uint32) tree.Mode fails InvalidMode {
 }
 
 func sortAndValidateEntries(entries []index.Entry) []index.Entry fails InvalidPath | DuplicateEntry | InvalidStage | InvalidMode {
-	let mut copy = slices.WithCapacity[index.Entry](len(entries))
+	let mut copy = slices.WithCapacity[index.Entry](entries.Len())
 	for e in entries {
 		try ValidatePath(e.Path)
 		if e.Stage < 0 || e.Stage > 3 {
@@ -87,7 +88,7 @@ func sortAndValidateEntries(entries []index.Entry) []index.Entry fails InvalidPa
 			0
 		}
 	})
-	for i in 1..len(sorted) {
+	for i in 1..sorted.Len() {
 		if sorted[i-1].Path == sorted[i].Path && sorted[i-1].Stage == sorted[i].Stage {
 			return DuplicateEntry{Path: sorted[i].Path, Stage: sorted[i].Stage}
 		}
@@ -130,10 +131,10 @@ func Encode(format oid.Format, entries []index.Entry) []byte fails InvalidPath |
 
 	let mut raw = "DIRC".Bytes()
 	raw = appendU32BE(raw, version)
-	raw = appendU32BE(raw, uint32(len(sorted)))
+	raw = appendU32BE(raw, uint32(sorted.Len()))
 
 	for e in sorted {
-		let entryStart = len(raw)
+		let entryStart = raw.Len()
 		raw = appendU32BE(raw, e.CTimeSec)
 		raw = appendU32BE(raw, e.CTimeNsec)
 		raw = appendU32BE(raw, e.MTimeSec)
@@ -144,14 +145,14 @@ func Encode(format oid.Format, entries []index.Entry) []byte fails InvalidPath |
 		raw = appendU32BE(raw, e.UID)
 		raw = appendU32BE(raw, e.GID)
 		raw = appendU32BE(raw, e.FileSize)
-		if len(e.OID.Raw) == hashLen {
+		if e.OID.Raw.Len() == hashLen {
 			raw = slices.AppendAll(raw, e.OID.Raw)
 		} else {
 			raw = slices.AppendAll(raw, oid.Zero(format).Raw)
 		}
 
 		let pathBytes = e.Path.Bytes()
-		let nameLen = if len(pathBytes) < 0x0fff { uint16(len(pathBytes)) } else { uint16(0x0fff) }
+		let nameLen = if pathBytes.Len() < 0x0fff { uint16(pathBytes.Len()) } else { uint16(0x0fff) }
 		let mut flags = (uint16(e.Stage&3) << uint16(12)) | nameLen
 		if e.AssumeValid {
 			flags = flags | uint16(0x8000)
@@ -173,7 +174,7 @@ func Encode(format oid.Format, entries []index.Entry) []byte fails InvalidPath |
 		}
 
 		raw = slices.AppendAll(raw, pathBytes)
-		let unpadded = len(raw) - entryStart
+		let unpadded = raw.Len() - entryStart
 		let padLen = 8 - (unpadded % 8)
 		for _ in 0..padLen {
 			raw = raw.Append(byte(0))
@@ -225,9 +226,9 @@ func buildSubtreeRec(format oid.Format, items []treeItem) oid.OID fails InvalidP
 			let rest = item.relPath[slash+1:]
 			let child = treeItem{relPath: rest, mode: item.mode, id: item.id}
 			match dirGroups.Get(dirName) {
-			case Some[[]treeItem] as prev:
+			case option.Some[[]treeItem] as prev:
 				dirGroups[dirName] = prev.Value.Append(child)
-			case None:
+			case option.None:
 				dirOrder = dirOrder.Append(dirName)
 				dirGroups[dirName] = []treeItem{child}
 			}
@@ -236,9 +237,9 @@ func buildSubtreeRec(format oid.Format, items []treeItem) oid.OID fails InvalidP
 
 	for dirName in dirOrder {
 		let group = match dirGroups.Get(dirName) {
-		case Some[[]treeItem] as g:
+		case option.Some[[]treeItem] as g:
 			g.Value
-		case None:
+		case option.None:
 			[]treeItem{}
 		}
 		let subOid = try buildSubtreeRec(format, group)
@@ -264,7 +265,7 @@ func buildSubtreeRec(format oid.Format, items []treeItem) oid.OID fails InvalidP
 // `git write-tree`. Any entry with Stage != 0 fails strictly with UnmergedIndex.
 func WriteTree(format oid.Format, entries []index.Entry) oid.OID fails InvalidPath | DuplicateEntry | InvalidStage | InvalidMode | UnmergedIndex | Collision | ObjectFailed needs loose.Objects {
 	let sorted = try sortAndValidateEntries(entries)
-	let mut items = slices.WithCapacity[treeItem](len(sorted))
+	let mut items = slices.WithCapacity[treeItem](sorted.Len())
 	for e in sorted {
 		if e.Stage != 0 {
 			return UnmergedIndex{Path: e.Path}
@@ -291,13 +292,13 @@ func BuildSnapshotTree(format oid.Format, baseEntries []index.Entry, updates []i
 	}
 	let mut merged = []index.Entry{}
 	for e in baseEntries {
-		if dropSet.Get(e.Path) != None || updateSet.Get(e.Path) != None {
+		if dropSet.Get(e.Path) != option.None || updateSet.Get(e.Path) != option.None {
 			continue
 		}
 		merged = merged.Append(e)
 	}
 	for u in updates {
-		if dropSet.Get(u.Path) != None {
+		if dropSet.Get(u.Path) != option.None {
 			continue
 		}
 		merged = merged.Append(u)

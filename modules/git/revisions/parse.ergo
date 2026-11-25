@@ -1,4 +1,5 @@
 import fs
+import option
 import slices
 import strconv
 import strings
@@ -32,7 +33,7 @@ func NewDiskResolver(odb pack.ODB, refStore refs.Store) Resolver {
 // NewMemoryResolver creates an in-memory Resolver over store, refStore, and
 // knownOIDs for deterministic short-OID ambiguity and grammar testing.
 func NewMemoryResolver(format oid.Format, store pack.MemoryODB, refStore refs.MemoryRefs, knownOIDs []oid.OID) Resolver {
-	let mut ids = slices.WithCapacity[oid.OID](len(knownOIDs))
+	let mut ids = slices.WithCapacity[oid.OID](knownOIDs.Len())
 	for id in knownOIDs {
 		ids = ids.Append(id)
 	}
@@ -45,7 +46,7 @@ func NewMemoryResolver(format oid.Format, store pack.MemoryODB, refStore refs.Me
 
 func isLowerHex(s string) bool {
 	let bs = s.Bytes()
-	if len(bs) == 0 {
+	if bs.Len() == 0 {
 		return false
 	}
 	for b in bs {
@@ -121,7 +122,7 @@ func findResolverPrefix(r Resolver, hexPrefix string) []oid.OID fails StoreError
 		let mut out = []oid.OID{}
 		for id in m.knownOIDs {
 			if strings.HasPrefix(oid.Hex(id), hexPrefix) {
-				if len(out) == 0 || !oid.Equal(out[len(out)-1], id) {
+				if out.Len() == 0 || !oid.Equal(out[out.Len()-1], id) {
 					out = out.Append(id)
 				}
 			}
@@ -130,12 +131,12 @@ func findResolverPrefix(r Resolver, hexPrefix string) []oid.OID fails StoreError
 	}
 }
 
-func tryResolveRef(r Resolver, candidate string) Option[oid.OID] fails StoreError needs fs.Files {
+func tryResolveRef(r Resolver, candidate string) option.Option[oid.OID] fails StoreError needs fs.Files {
 	match r.backend {
 	case diskBackend as d:
 		let res = d.refStore.Resolve(candidate) catch {
 		case refs.NotFound, refs.InvalidRefName, refs.PathEscape:
-			return None
+			return option.None
 		case refs.CyclicSymref:
 			return StoreError{Detail: "cyclic symbolic ref: " + candidate}
 		case refs.CorruptRef as e:
@@ -143,11 +144,11 @@ func tryResolveRef(r Resolver, candidate string) Option[oid.OID] fails StoreErro
 		case refs.IOFailed as e:
 			return StoreError{Detail: e.Op + ": " + e.Detail}
 		}
-		Some[oid.OID]{Value: res.OID}
+		option.Some[oid.OID]{Value: res.OID}
 	case memoryBackend as m:
 		let res = m.refStore.Resolve(candidate) catch {
 		case refs.NotFound, refs.InvalidRefName, refs.PathEscape:
-			return None
+			return option.None
 		case refs.CyclicSymref:
 			return StoreError{Detail: "cyclic symbolic ref: " + candidate}
 		case refs.CorruptRef as e:
@@ -155,11 +156,11 @@ func tryResolveRef(r Resolver, candidate string) Option[oid.OID] fails StoreErro
 		case refs.IOFailed as e:
 			return StoreError{Detail: e.Op + ": " + e.Detail}
 		}
-		Some[oid.OID]{Value: res.OID}
+		option.Some[oid.OID]{Value: res.OID}
 	}
 }
 
-func resolveRefDWIM(r Resolver, name string) Option[oid.OID] fails StoreError needs fs.Files {
+func resolveRefDWIM(r Resolver, name string) option.Option[oid.OID] fails StoreError needs fs.Files {
 	let candidates = []string{
 		name,
 		"refs/" + name,
@@ -170,20 +171,20 @@ func resolveRefDWIM(r Resolver, name string) Option[oid.OID] fails StoreError ne
 	}
 	for cand in candidates {
 		match try tryResolveRef(r, cand) {
-		case Some[oid.OID] as id:
-			return Some[oid.OID]{Value: id.Value}
-		case None:
+		case option.Some[oid.OID] as id:
+			return option.Some[oid.OID]{Value: id.Value}
+		case option.None:
 		}
 	}
-	None
+	option.None
 }
 
 func resolvePrefixOID(r Resolver, spec string) oid.OID fails NotFound | Ambiguous | StoreError needs fs.Files {
 	let matches = try findResolverPrefix(r, spec)
-	if len(matches) == 0 {
+	if matches.Len() == 0 {
 		return NotFound{Spec: spec}
 	}
-	if len(matches) > 1 {
+	if matches.Len() > 1 {
 		return Ambiguous{Spec: spec, Candidates: matches}
 	}
 	matches[0]
@@ -191,12 +192,12 @@ func resolvePrefixOID(r Resolver, spec string) oid.OID fails NotFound | Ambiguou
 
 func resolveBaseName(r Resolver, base string) oid.OID fails NotFound | Ambiguous | StoreError needs fs.Files {
 	match try resolveRefDWIM(r, base) {
-	case Some[oid.OID] as id:
+	case option.Some[oid.OID] as id:
 		return id.Value
-	case None:
+	case option.None:
 	}
 	let hexLen = oid.HexLen(r.format)
-	if len(base) == hexLen && isLowerHex(base) {
+	if base.Len() == hexLen && isLowerHex(base) {
 		let full = oid.ParseHex(r.format, base) catch {
 		case oid.BadHex, oid.WrongLength:
 			return NotFound{Spec: base}
@@ -206,7 +207,7 @@ func resolveBaseName(r Resolver, base string) oid.OID fails NotFound | Ambiguous
 		}
 		return NotFound{Spec: base}
 	}
-	if len(base) >= 4 && len(base) < hexLen && isLowerHex(base) {
+	if base.Len() >= 4 && base.Len() < hexLen && isLowerHex(base) {
 		return try resolvePrefixOID(r, base)
 	}
 	return NotFound{Spec: base}
@@ -266,15 +267,15 @@ func peelToTreeOID(r Resolver, start oid.OID) oid.OID fails NotFound | WrongKind
 	}
 }
 
-func lookupTreePath(r Resolver, treeOid oid.OID, relPath string) Option[tree.Entry] fails NotFound | WrongKind | StoreError needs fs.Files {
+func lookupTreePath(r Resolver, treeOid oid.OID, relPath string) option.Option[tree.Entry] fails NotFound | WrongKind | StoreError needs fs.Files {
 	if relPath == "" || strings.HasPrefix(relPath, "/") || strings.HasSuffix(relPath, "/") {
-		return None
+		return option.None
 	}
 	let parts = strings.Split(relPath, "/")
 	let mut curTree = treeOid
 	for i, seg in parts {
 		if seg == "" || seg == "." || seg == ".." {
-			return None
+			return option.None
 		}
 		let obj = try readResolverObject(r, curTree)
 		match obj.Kind {
@@ -292,39 +293,39 @@ func lookupTreePath(r Resolver, treeOid oid.OID, relPath string) Option[tree.Ent
 		case tree.DuplicateEntry as e:
 			return StoreError{Detail: "duplicate tree entry: " + e.Name}
 		}
-		let mut matched Option[tree.Entry] = None
+		let mut matched option.Option[tree.Entry] = option.None
 		for e in entries {
 			if e.Name == seg {
-				matched = Some[tree.Entry]{Value: e}
+				matched = option.Some[tree.Entry]{Value: e}
 				break
 			}
 		}
 		match matched {
-		case None:
-			return None
-		case Some[tree.Entry] as found:
-			if i == len(parts)-1 {
-				return Some[tree.Entry]{Value: found.Value}
+		case option.None:
+			return option.None
+		case option.Some[tree.Entry] as found:
+			if i == parts.Len()-1 {
+				return option.Some[tree.Entry]{Value: found.Value}
 			}
 			if !tree.IsTree(found.Value.Mode) {
-				return None
+				return option.None
 			}
 			curTree = found.Value.OID
 		}
 	}
-	None
+	option.None
 }
 
 func selectParent(commitOid oid.OID, parents []oid.OID, oneBasedIndex int) oid.OID fails MissingParent {
-	if oneBasedIndex < 1 || oneBasedIndex > len(parents) {
-		return MissingParent{OID: commitOid, Index: oneBasedIndex, Count: len(parents)}
+	if oneBasedIndex < 1 || oneBasedIndex > parents.Len() {
+		return MissingParent{OID: commitOid, Index: oneBasedIndex, Count: parents.Len()}
 	}
 	parents[oneBasedIndex-1]
 }
 
 func parseOptionalCount(bs []byte, start int) (int, int) fails InvalidRev {
 	let mut pos = start
-	for pos < len(bs) && bs[pos] >= byte('0') && bs[pos] <= byte('9') {
+	for pos < bs.Len() && bs[pos] >= byte('0') && bs[pos] <= byte('9') {
 		pos = pos + 1
 	}
 	if pos == start {
@@ -340,12 +341,12 @@ func parseOptionalCount(bs []byte, start int) (int, int) fails InvalidRev {
 
 func findFirstOperator(s string) int {
 	let bs = s.Bytes()
-	for i in 0..len(bs) {
+	for i in 0..bs.Len() {
 		if bs[i] == byte('^') || bs[i] == byte('~') {
 			return i
 		}
 	}
-	len(bs)
+	bs.Len()
 }
 
 func applyPeelBrace(r Resolver, cur oid.OID, peelSpec string, fullSpec string) oid.OID fails NotFound | InvalidRev | WrongKind | DepthExceeded | StoreError needs fs.Files {
@@ -394,7 +395,7 @@ func applyOperators(r Resolver, start oid.OID, ops string, fullSpec string) oid.
 	let bs = ops.Bytes()
 	let mut pos = 0
 	let mut cur = start
-	for pos < len(bs) {
+	for pos < bs.Len() {
 		let ch = bs[pos]
 		if ch == byte('~') {
 			pos = pos + 1
@@ -408,12 +409,12 @@ func applyOperators(r Resolver, start oid.OID, ops string, fullSpec string) oid.
 			}
 		} else if ch == byte('^') {
 			pos = pos + 1
-			if pos < len(bs) && bs[pos] == byte('{') {
+			if pos < bs.Len() && bs[pos] == byte('{') {
 				let mut closePos = pos + 1
-				for closePos < len(bs) && bs[closePos] != byte('}') {
+				for closePos < bs.Len() && bs[closePos] != byte('}') {
 					closePos = closePos + 1
 				}
-				if closePos >= len(bs) {
+				if closePos >= bs.Len() {
 					return InvalidRev{Spec: fullSpec, Reason: "unterminated ^{...} peel suffix"}
 				}
 				let peelSpec = bs[pos+1 : closePos].Text()
@@ -439,7 +440,7 @@ func applyOperators(r Resolver, start oid.OID, ops string, fullSpec string) oid.
 func findColonOutsideBraces(s string) int {
 	let bs = s.Bytes()
 	let mut depth = 0
-	for i in 0..len(bs) {
+	for i in 0..bs.Len() {
 		if bs[i] == byte('{') {
 			depth = depth + 1
 		} else if bs[i] == byte('}') && depth > 0 {
@@ -481,9 +482,9 @@ func ResolveRev(r Resolver, spec string) oid.OID fails NotFound | Ambiguous | In
 		return treeOid
 	}
 	match try lookupTreePath(r, treeOid, pathPart) {
-	case Some[tree.Entry] as e:
+	case option.Some[tree.Entry] as e:
 		e.Value.OID
-	case None:
+	case option.None:
 		return NotFound{Spec: spec}
 	}
 }
@@ -503,7 +504,7 @@ func ResolveRange(r Resolver, spec string) RangeSpec fails NotFound | Ambiguous 
 		return InvalidRev{Spec: spec, Reason: "empty range specification"}
 	}
 	let tokens = strings.Fields(trimmed)
-	if len(tokens) == 1 {
+	if tokens.Len() == 1 {
 		let tok = tokens[0]
 		let tri = strings.Index(tok, "...")
 		if tri >= 0 {

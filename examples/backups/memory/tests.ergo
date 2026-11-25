@@ -79,7 +79,7 @@ test ARejectionLeavesTheStoreAsItWas {
 		let _, first = sent(backup.Plan{Backup: "a", Host: "alpha", Files: []backup.File{backup.File{Path: "a.txt", Count: 2, Size: 150}}})
 		let _, wrong = sent(backup.Store{Backup: "a", Size: 1})
 		assert first == "" && wrong == "WrongSize"
-		assert len(backup.Backups.History("a")) == 2
+		assert backup.Backups.History("a").Len() == 2
 		assert backup.Backups.Current("a") == backup.Open{S: backup.Summary{Host: "alpha", Total: 300, Files: 2}}
 	}
 }

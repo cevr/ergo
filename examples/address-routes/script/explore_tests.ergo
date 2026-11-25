@@ -5,6 +5,7 @@ import addressroutes/route
 import addressroutes/screen
 import gen
 import machines
+import option
 import sync
 import temporal
 import time
@@ -19,7 +20,7 @@ func offersValidForAddressRoutes(s ui.ExploreSnapshot[app.App, app.Signal]) bool
 	}
 	for o in s.Offers {
 		match o.Locator {
-		case Some[ui.Locator]:
+		case option.Some[ui.Locator]:
 			if o.Matches == 1 {
 				continue
 			}
@@ -27,7 +28,7 @@ func offersValidForAddressRoutes(s ui.ExploreSnapshot[app.App, app.Signal]) bool
 				continue
 			}
 			return false
-		case None:
+		case option.None:
 		}
 	}
 	true
@@ -40,17 +41,17 @@ func exploreProperties() []temporal.Formula[ui.ExploreSnapshot[app.App, app.Sign
 			temporal.Named[ui.ExploreSnapshot[app.App, app.Signal]]("offers-unambiguous-except-files-breadcrumb", offersValidForAddressRoutes),
 		),
 	}
-	for i in 1..len(base) {
+	for i in 1..base.Len() {
 		props = props.Append(base[i])
 	}
 	props = props.Append(temporal.Always[ui.ExploreSnapshot[app.App, app.Signal]](
 		temporal.Named[ui.ExploreSnapshot[app.App, app.Signal]]("history-within-limit", func(s ui.ExploreSnapshot[app.App, app.Signal]) bool {
-			len(s.State.Page.History) <= people.HistoryLimit
+			s.State.Page.History.Len() <= people.HistoryLimit
 		}),
 	))
 	props = props.Append(temporal.Always[ui.ExploreSnapshot[app.App, app.Signal]](
 		temporal.Named[ui.ExploreSnapshot[app.App, app.Signal]]("offers-non-empty", func(s ui.ExploreSnapshot[app.App, app.Signal]) bool {
-			len(s.Offers) > 0
+			s.Offers.Len() > 0
 		}),
 	))
 	props
@@ -58,13 +59,13 @@ func exploreProperties() []temporal.Formula[ui.ExploreSnapshot[app.App, app.Sign
 
 func exploreOnce(steps int) ui.Finding needs gen.Draws {
 	let clock = time.NewManual(0)
-	let histRef = sync.NewRef[Option[ui.MemoryHistory]](None)
-	with context { Scheduler: clock } {
+	let histRef = sync.NewRef[option.Option[ui.MemoryHistory]](option.None)
+	with context { time.Scheduler: clock } {
 		let p = actor.StartMachine(machines.Start(app.Router{}, "/"), 16, func(g app.Go) {
 			match histRef.Get() {
-			case Some[ui.MemoryHistory] as loc:
+			case option.Some[ui.MemoryHistory] as loc:
 				ui.Push(loc.Value, ui.ParseURL(g.Path))
-			case None:
+			case option.None:
 			}
 		})
 		let mut h = ui.NewTestHost(p, screen.Screen, clock, 16) catch {
@@ -73,7 +74,7 @@ func exploreOnce(steps int) ui.Finding needs gen.Draws {
 			return ui.Found{Script: []ui.Act{}, Step: 0, Violation: bp.Why}
 		}
 		ui.OpenAt(&h, "/")
-		histRef.Set(Some[ui.MemoryHistory]{Value: ui.History(&h)})
+		histRef.Set(option.Some[ui.MemoryHistory]{Value: ui.History(&h)})
 		let res = ui.Explore(&h, exploreProperties(), ui.ExploreConfig{Steps: steps, Swarm: false, AdvanceStep: 500ms, Weights: Map[string, int]{}})
 		p.Stop()
 		res

@@ -4,6 +4,7 @@
 // both; cmd/admit binds them with -memory.
 
 import admit/jobs
+import option
 import sync
 
 // Gate is a jobs.Gate whose free capacity is a counter. Every copy of a
@@ -47,8 +48,8 @@ type Checker {} implements jobs.Checker
 // Check fails with the first bad payload.
 func Check(_ Checker, js []jobs.Job) fails jobs.BadPayload {
 	match jobs.FirstBad(js) {
-	case Some[jobs.BadPayload] as b:
+	case option.Some[jobs.BadPayload] as b:
 		return b.Value
-	case None:
+	case option.None:
 	}
 }

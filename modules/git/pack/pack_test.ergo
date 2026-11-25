@@ -2,6 +2,7 @@ import exec
 import filepath
 import fs
 import fstest
+import option
 import os
 import sha1dc
 import slices
@@ -15,7 +16,7 @@ import github.com/cevr/ergo/modules/git/oracle
 import github.com/cevr/ergo/modules/git/packidx
 import github.com/cevr/ergo/modules/git/root
 
-let onOracle = context needs TestAmbient {
+let onOracle = context needs fstest.TestAmbient {
 	exec.Runner: exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
 	fs.Files:    fs.NewTestHost(),
 	fs.Writes:   fs.NewTestHost(),
@@ -30,7 +31,7 @@ let onMemorySha256 = context {
 	ObjectStore: NewMemoryODB(oid.Sha256),
 }
 
-let onDiskSha1 = context needs TestAmbient {
+let onDiskSha1 = context needs fstest.TestAmbient {
 	ObjectStore: makeLawDiskODB(filepath.Join([]string{fstest.TestFolder(), "law-disk-pack-odb"}), fs.NewTestHost()),
 }
 
@@ -88,9 +89,9 @@ func collectAllObjectHexes(repoDir string, pathEnv Map[string, string], step int
 	let mut out = []string{}
 	for line in strings.Split(strings.TrimSpace(raw), "\n") {
 		let fields = strings.Fields(line)
-		if len(fields) > 0 {
+		if fields.Len() > 0 {
 			let h = fields[0]
-			if seen.Get(h) == None {
+			if seen.Get(h) == option.None {
 				seen[h] = true
 				out = out.Append(h)
 			}
@@ -104,12 +105,12 @@ func verifyAllAgainstBatch(repoDir string, odb ODB, hexIds []string, pathEnv Map
 
 	let batchCheckOut = try runGitOk(repoDir, []string{"cat-file", "--batch-check=%(objectname) %(objecttype) %(objectsize)"}, stdin, pathEnv, step)
 	let checkLines = strings.Split(strings.TrimSpace(batchCheckOut), "\n")
-	if len(checkLines) != len(hexIds) {
+	if checkLines.Len() != hexIds.Len() {
 		return testFail{reason: "batch-check line count mismatch"}
 	}
 	for line in checkLines {
 		let parts = strings.Fields(line)
-		if len(parts) != 3 {
+		if parts.Len() != 3 {
 			return testFail{reason: "unexpected batch-check line: " + line}
 		}
 		let id = try oid.ParseHex(odb.Format, parts[0])
@@ -129,7 +130,7 @@ func verifyAllAgainstBatch(repoDir string, odb ODB, hexIds []string, pathEnv Map
 
 	let batchRaw = (try runGitOk(repoDir, []string{"cat-file", "--batch"}, stdin, pathEnv, step)).Bytes()
 	let mut pos = 0
-	let totalLen = len(batchRaw)
+	let totalLen = batchRaw.Len()
 	let mut count = 0
 	for pos < totalLen {
 		let mut nl = pos
@@ -141,7 +142,7 @@ func verifyAllAgainstBatch(repoDir string, odb ODB, hexIds []string, pathEnv Map
 		}
 		let hdrLine = batchRaw[pos:nl].Text()
 		let parts = strings.Fields(hdrLine)
-		if len(parts) != 3 {
+		if parts.Len() != 3 {
 			return testFail{reason: "unexpected batch header: " + hdrLine}
 		}
 		let id = try oid.ParseHex(odb.Format, parts[0])
@@ -163,7 +164,7 @@ func verifyAllAgainstBatch(repoDir string, odb ODB, hexIds []string, pathEnv Map
 		pos = bodyEnd + 1
 		count = count + 1
 	}
-	if count != len(hexIds) {
+	if count != hexIds.Len() {
 		return testFail{reason: "batch object count mismatch"}
 	}
 }
@@ -193,7 +194,7 @@ func buildSyntheticSingleBlobPackAndIdx(indexedOid oid.OID, actualPayload []byte
 	let mut packBody = "PACK".Bytes()
 	packBody = appendU32BE(packBody, uint32(2))
 	packBody = appendU32BE(packBody, uint32(1))
-	let n = len(actualPayload)
+	let n = actualPayload.Len()
 	packBody = packBody.Append(byte(0x30 | (n & 0x0f)))
 	packBody = slices.AppendAll(packBody, zlib.Deflate(actualPayload))
 	let packSum = try sha1Bytes(packBody)
@@ -292,11 +293,11 @@ func verifyFormatLifecycle(base string, cwd string, oFmt oracle.OidFormat, fmt o
 
 	let samplePrefix = phase2All[0][:10]
 	let prefixMatches = try FindPrefix(odb, samplePrefix)
-	if len(prefixMatches) == 0 {
+	if prefixMatches.Len() == 0 {
 		return testFail{reason: "FindPrefix returned empty for " + samplePrefix}
 	}
 	let listed = try ListObjects(odb)
-	if len(listed) < len(phase2All) {
+	if listed.Len() < phase2All.Len() {
 		return testFail{reason: "ListObjects missed packed objects"}
 	}
 
@@ -400,12 +401,12 @@ test RejectsMismatchedPairAndCorruptPack {
 		let parsedIdx = try packidx.Parse(oid.Sha1, idxBytes)
 		assert parsedIdx.Count() > 0
 		let firstEntry = match parsedIdx.At(0) {
-		case Some[packidx.Entry] as e:
+		case option.Some[packidx.Entry] as e:
 			e.Value
-		case None:
+		case option.None:
 			packidx.Entry{OID: oid.Zero(oid.Sha1), Offset: uint64(0), CRC32: uint32(0)}
 		}
-		let mut damagedPack = slices.WithCapacity[byte](len(origPackA.Bytes()))
+		let mut damagedPack = slices.WithCapacity[byte](origPackA.Bytes().Len())
 		for b in origPackA.Bytes() {
 			damagedPack = damagedPack.Append(b)
 		}

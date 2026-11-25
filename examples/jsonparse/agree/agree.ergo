@@ -35,25 +35,25 @@ func FlatReading(text string) string {
 
 // space is whitespace between tokens: none two times in three, else one
 // to three bytes of space, tab, newline and return.
-func space() string needs Random {
-	if Random.IntN(3) != 0 {
+func space() string needs rand.Random {
+	if rand.Random.IntN(3) != 0 {
 		return ""
 	}
 	let ws = " \t\n\r"
 	let mut b = strings.NewBuilder()
-	for _ in 0..(1 + Random.IntN(3)) {
-		b.WriteByte(ws[Random.IntN(4)])
+	for _ in 0..(1 + rand.Random.IntN(3)) {
+		b.WriteByte(ws[rand.Random.IntN(4)])
 	}
 	b.String()
 }
 
 // spaced is v's text with drawn whitespace around every token.
-func spaced(v json.Value) string needs Random {
+func spaced(v json.Value) string needs rand.Random {
 	match v {
 	case json.Array as a:
 		let mut b = strings.NewBuilder()
 		b.WriteString("[" + space())
-		for i in 0..len(a.Items) {
+		for i in 0..a.Items.Len() {
 			if i > 0 {
 				b.WriteString("," + space())
 			}
@@ -64,7 +64,7 @@ func spaced(v json.Value) string needs Random {
 	case json.Object as o:
 		let mut b = strings.NewBuilder()
 		b.WriteString("{" + space())
-		for i in 0..len(o.Members) {
+		for i in 0..o.Members.Len() {
 			if i > 0 {
 				b.WriteString("," + space())
 			}
@@ -117,7 +117,7 @@ func both(what string, text string, want string) string {
 
 // broken is the readings of the documents of seed that are not what the
 // generator built, one line each.
-func broken(seed int) string needs Random {
+func broken(seed int) string needs rand.Random {
 	let mut bad = strings.NewBuilder()
 	for v in json.Samples(seed) {
 		let c = json.Compact(v)
@@ -125,15 +125,15 @@ func broken(seed int) string needs Random {
 		// A byte that is not UTF-8 reads as U+FFFD.
 		bad.WriteString(both("not UTF-8", "["+c+",\"x\xffy\"]", "ok ["+c+",\"x\ufffdy\"]"))
 		// A control byte inside a string is the first byte that is not JSON.
-		let ctl = if Random.IntN(2) == 0 { "\n" } else { "\x1f" }
-		bad.WriteString(both("control byte", "["+c+",\"a"+ctl+"b\"]", "fail \(len(c) + 4)"))
+		let ctl = if rand.Random.IntN(2) == 0 { "\n" } else { "\x1f" }
+		bad.WriteString(both("control byte", "["+c+",\"a"+ctl+"b\"]", "fail \(c.Len() + 4)"))
 		// After a backslash, the byte that is no escape.
-		bad.WriteString(both("unknown escape", "["+c+",\"a\\qb\"]", "fail \(len(c) + 5)"))
+		bad.WriteString(both("unknown escape", "["+c+",\"a\\qb\"]", "fail \(c.Len() + 5)"))
 		// An index one past an array's end names nothing.
 		for p in json.Places(v) {
 			match p.At {
 			case json.Array as a:
-				let ptr = p.Pointer + "/\(len(a.Items))"
+				let ptr = p.Pointer + "/\(a.Items.Len())"
 				if !getsNothing(v, ptr) || !flatGetsNothing(c, ptr) {
 					bad.WriteString("index past the end: " + strconv.Quote(c) + " " + ptr + "\n")
 				}
@@ -148,7 +148,7 @@ func broken(seed int) string needs Random {
 // into both trees, as the generator built them, and fail where the first
 // byte that is not JSON stands.
 test GeneratedDocumentsReadAsBuilt(seed int) {
-	let bad = with context { Random: rand.Seeded(uint64(seed)) } {
+	let bad = with context { rand.Random: rand.Seeded(uint64(seed)) } {
 		broken(seed)
 	}
 	assert bad == ""

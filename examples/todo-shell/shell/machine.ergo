@@ -1,3 +1,4 @@
+import machines
 import todoshell/todo
 
 // Signal is what the shell reads: a typed line, or the end of the input.
@@ -6,12 +7,12 @@ type Signal = Typed{Line string} | Ended{}
 // Step is the machine's transition: on a line, the events Decide records,
 // folded into the mode by Apply; at the end of the input, Done with the
 // list, in any mode.
-func Step(m Mode, s Signal) Decision[Mode, todo.List] fails Unknown | BadNumber | MissingText | todo.NoSuchItem {
+func Step(m Mode, s Signal) machines.Decision[Mode, todo.List] fails Unknown | BadNumber | MissingText | todo.NoSuchItem {
 	match s {
 	case Typed as t:
 		Apply(m, try Decide(m, t.Line))
 	case Ended:
-		Done[todo.List]{Output: ListOf(m)}
+		machines.Done[todo.List]{Output: ListOf(m)}
 	}
 }
 
@@ -26,16 +27,16 @@ type Shell machine[Mode, Signal] {
 // Apply is the decision of the events es in m: no event is Ignore; a
 // quit is Done with the list; a list or a help is Stay, since only the
 // output changes; any other events Enter the mode that Evolve reaches.
-func Apply(m Mode, es []Event) Decision[Mode, todo.List] {
-	if len(es) == 0 {
-		return Ignore
+func Apply(m Mode, es []Event) machines.Decision[Mode, todo.List] {
+	if es.Len() == 0 {
+		return machines.Ignore
 	}
 	let mut next = m
 	let mut moved = false
 	for e in es {
 		match e {
 		case Quitted:
-			return Done[todo.List]{Output: ListOf(m)}
+			return machines.Done[todo.List]{Output: ListOf(m)}
 		case Shown:
 		case Helped:
 		case Added:
@@ -62,8 +63,8 @@ func Apply(m Mode, es []Event) Decision[Mode, todo.List] {
 		next = Evolve(next, e)
 	}
 	if moved {
-		Enter[Mode]{Next: next}
+		machines.Enter[Mode]{Next: next}
 	} else {
-		Stay[Mode]{Next: next}
+		machines.Stay[Mode]{Next: next}
 	}
 }

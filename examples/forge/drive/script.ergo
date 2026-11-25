@@ -4,6 +4,7 @@
 // a Tick to each machine at each deadline the machine has, in time order.
 // It is pure, except that ores go through the forge.Assayer contract.
 
+import option
 import strconv
 import time
 import strings
@@ -46,9 +47,9 @@ func ParseScript(text string) []Item fails BadLine {
 	let mut last = 0s
 	for n, raw in strings.Split(text, "\n") {
 		let line = strings.TrimSpace(match strings.Cut(raw, "#") {
-		case Some[strings.Halves] as h:
+		case option.Some[strings.Halves] as h:
 			h.Value.Before
-		case None:
+		case option.None:
 			raw
 		})
 		if line == "" {
@@ -70,8 +71,8 @@ func ParseScript(text string) []Item fails BadLine {
 
 // item is the item of the words of a line at the time at.
 func item(n int, raw string, at duration, words []string) Item fails BadLine {
-	let verb = if len(words) > 1 { words[1] } else { "" }
-	let arg = if len(words) > 2 { words[2] } else { "" }
+	let verb = if words.Len() > 1 { words[1] } else { "" }
+	let arg = if words.Len() > 2 { words[2] } else { "" }
 	let want = match verb {
 	case "ore":
 		2
@@ -80,7 +81,7 @@ func item(n int, raw string, at duration, words []string) Item fails BadLine {
 	case _:
 		1
 	}
-	if len(words) != want+1 {
+	if words.Len() != want+1 {
 		return BadLine{Line: n, Text: raw, Reason: "\(verb) takes \(want - 1) word after it"}
 	}
 	match verb {

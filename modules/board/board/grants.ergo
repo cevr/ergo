@@ -5,7 +5,7 @@ import strings
 // ASCII letters, digits, or hyphens.
 func ValidBoardName(name string) bool {
 	let bs = strings.Bytes(name)
-	if len(bs) < 1 || len(bs) > 32 {
+	if bs.Len() < 1 || bs.Len() > 32 {
 		return false
 	}
 	for b in bs {
@@ -21,16 +21,16 @@ func ValidBoardName(name string) bool {
 // of lowercase letters, digits, underscores, or hyphens within 128 bytes.
 func ValidChannelPath(path string) bool {
 	let bs = strings.Bytes(path)
-	if len(bs) < 1 || len(bs) > 128 {
+	if bs.Len() < 1 || bs.Len() > 128 {
 		return false
 	}
 	let segs = strings.Split(path, "/")
-	if len(segs) < 1 || len(segs) > 8 {
+	if segs.Len() < 1 || segs.Len() > 8 {
 		return false
 	}
 	for seg in segs {
 		let sbs = strings.Bytes(seg)
-		if len(sbs) == 0 {
+		if sbs.Len() == 0 {
 			return false
 		}
 		for b in sbs {
@@ -63,12 +63,12 @@ func PatternSpecificity(pat string, channel string) int {
 		return 0
 	}
 	if pat == channel {
-		return 10000 + len(strings.Bytes(pat))
+		return 10000 + strings.Bytes(pat).Len()
 	}
 	if strings.HasSuffix(pat, "/") {
 		let prefix = strings.TrimSuffix(pat, "/")
 		if channel == prefix || strings.HasPrefix(channel, pat) {
-			return len(strings.Bytes(pat))
+			return strings.Bytes(pat).Len()
 		}
 	}
 	-1
@@ -119,7 +119,7 @@ func admittedByOtherGrant(grants []Grant, c Caller) bool {
 	for g in grants {
 		if bestPrincipalMatch(g.Principals, c) >= 2 {
 			for r in g.Rules {
-				if !r.Deny && len(r.Allow) > 0 {
+				if !r.Deny && r.Allow.Len() > 0 {
 					return true
 				}
 			}
@@ -279,7 +279,7 @@ func refEffective(grants []Grant, c Caller, channel string) []Permission {
 		for m in g.Principals {
 			if PrincipalSpecificity(m, c) >= 2 {
 				for r in g.Rules {
-					if !r.Deny && len(r.Allow) > 0 {
+					if !r.Deny && r.Allow.Len() > 0 {
 						hasNonEveryone = true
 					}
 				}
@@ -473,5 +473,5 @@ law EveryoneAloneAdmitsNoService(chanIdx int) {
 		},
 	}
 	let svc = Caller{Principal: "svc:ci", Profile: "", Role: Member, Kind: Service, Email: "", Narrowed: false, NarrowedCan: Map[string, []Permission]{}, NarrowedProfile: "", NarrowedBoards: []string{}}
-	len(EffectivePermissions(gs, svc, ch)) == 0
+	EffectivePermissions(gs, svc, ch).Len() == 0
 }

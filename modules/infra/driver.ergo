@@ -15,6 +15,8 @@
 // that a human breaks; Pulumi's direct style, with no deferred outputs:
 // a plan takes an object's attributes from the driver's pure Attrs.
 
+import option
+
 // Failed is the failure of a driver or a state store: the object's id
 // and the provider's reason.
 type Failed { ID string, Reason string }
@@ -29,7 +31,7 @@ type Driver[P comparable, A comparable] {
 	// Apply creates or updates the object id with p.
 	Apply(id string, p P) A fails Failed,
 	// Read is the object id as it is, None when there is none.
-	Read(id string) Option[A] fails Failed,
+	Read(id string) option.Option[A] fails Failed,
 	// Delete removes the object id; there may be none.
 	Delete(id string) fails Failed,
 
@@ -68,7 +70,7 @@ type Driver[P comparable, A comparable] {
 		case Failed:
 			return true
 		}
-		read == (Some[A]{Value: a})
+		read == (option.Some[A]{Value: a})
 	},
 	// DeleteIsIdempotent: after a Delete, and a second one, Read gives
 	// None.
@@ -89,7 +91,7 @@ type Driver[P comparable, A comparable] {
 		case Failed:
 			return true
 		}
-		read == None
+		read == option.None
 	},
 }
 

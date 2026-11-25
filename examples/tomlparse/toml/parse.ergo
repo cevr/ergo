@@ -1,3 +1,4 @@
+import option
 import slices
 import strconv
 import strings
@@ -66,7 +67,7 @@ func Parse(src string) Value fails Malformed | Duplicate | Clash {
 	b.nodes = b.nodes.Append(node{parent: -1, name: "", shape: Header, form: Keys, val: Bool{B: false}, last: 0})
 	for {
 		blank(&b)
-		if b.pos >= len(b.src) {
+		if b.pos >= b.src.Len() {
 			break
 		}
 		let c = b.src[b.pos]
@@ -97,7 +98,7 @@ func fail(b mut builder, at int, reason string) Malformed { Locate(b.src, at, re
 
 // found is how a failure names the byte at offset at.
 func found(b mut builder, at int) string {
-	if at >= len(b.src) {
+	if at >= b.src.Len() {
 		return "the end"
 	}
 	strconv.Quote(strings.Slice(b.src, at, at+1))
@@ -106,12 +107,12 @@ func found(b mut builder, at int) string {
 // checkUTF8 fails at the first byte of src that is not UTF-8.
 func checkUTF8(b mut builder) fails Malformed {
 	let mut i = 0
-	for i < len(b.src) {
+	for i < b.src.Len() {
 		if b.src[i] < 0x80 {
 			i += 1
 			continue
 		}
-		let d = utf8.DecodeRuneInString(strings.Slice(b.src, i, len(b.src)))
+		let d = utf8.DecodeRuneInString(strings.Slice(b.src, i, b.src.Len()))
 		if d.Size == 1 {
 			return fail(b, i, "a byte that is not UTF-8")
 		}
@@ -121,7 +122,7 @@ func checkUTF8(b mut builder) fails Malformed {
 
 // blank moves past spaces and tabs.
 func blank(b mut builder) {
-	for b.pos < len(b.src) && (b.src[b.pos] == ' ' || b.src[b.pos] == '\t') {
+	for b.pos < b.src.Len() && (b.src[b.pos] == ' ' || b.src[b.pos] == '\t') {
 		b.pos += 1
 	}
 }
@@ -134,9 +135,9 @@ func control(c byte) bool { (c < 0x20 && c != '\t') || c == 0x7f }
 // end of its line.
 func comment(b mut builder) fails Malformed {
 	b.pos += 1
-	for b.pos < len(b.src) {
+	for b.pos < b.src.Len() {
 		let c = b.src[b.pos]
-		if c == '\n' || (c == '\r' && b.pos+1 < len(b.src) && b.src[b.pos+1] == '\n') {
+		if c == '\n' || (c == '\r' && b.pos+1 < b.src.Len() && b.src[b.pos+1] == '\n') {
 			return
 		}
 		if control(c) {
@@ -149,11 +150,11 @@ func comment(b mut builder) fails Malformed {
 // newline moves past a newline at the next byte, and says whether there
 // was one.
 func newline(b mut builder) bool {
-	if b.pos < len(b.src) && b.src[b.pos] == '\n' {
+	if b.pos < b.src.Len() && b.src[b.pos] == '\n' {
 		b.pos += 1
 		return true
 	}
-	if b.pos+1 < len(b.src) && b.src[b.pos] == '\r' && b.src[b.pos+1] == '\n' {
+	if b.pos+1 < b.src.Len() && b.src[b.pos] == '\r' && b.src[b.pos+1] == '\n' {
 		b.pos += 2
 		return true
 	}
@@ -164,10 +165,10 @@ func newline(b mut builder) bool {
 // newline or the end of the text.
 func endLine(b mut builder) fails Malformed {
 	blank(b)
-	if b.pos < len(b.src) && b.src[b.pos] == '#' {
+	if b.pos < b.src.Len() && b.src[b.pos] == '#' {
 		try comment(b)
 	}
-	if b.pos >= len(b.src) || newline(b) {
+	if b.pos >= b.src.Len() || newline(b) {
 		return
 	}
 	fail(b, b.pos, "expected the end of the line, found "+found(b, b.pos))
@@ -183,23 +184,23 @@ func key(b mut builder) []Seg fails Malformed {
 	let mut segs = []Seg{}
 	for {
 		let at = b.pos
-		if b.pos >= len(b.src) {
+		if b.pos >= b.src.Len() {
 			return fail(b, b.pos, "expected a key, found the end")
 		}
 		let c = b.src[b.pos]
 		if c == '"' {
-			if strings.HasPrefix(strings.Slice(b.src, b.pos, len(b.src)), "\"\"\"") {
+			if strings.HasPrefix(strings.Slice(b.src, b.pos, b.src.Len()), "\"\"\"") {
 				return fail(b, b.pos, "a key cannot be a multi-line string")
 			}
 			segs = segs.Append(Seg{Name: try basic(b), At: at})
 		} else if c == '\'' {
-			if strings.HasPrefix(strings.Slice(b.src, b.pos, len(b.src)), "'''") {
+			if strings.HasPrefix(strings.Slice(b.src, b.pos, b.src.Len()), "'''") {
 				return fail(b, b.pos, "a key cannot be a multi-line string")
 			}
 			segs = segs.Append(Seg{Name: try literal(b), At: at})
 		} else if bare(c) {
 			let mut i = b.pos
-			for i < len(b.src) && bare(b.src[i]) {
+			for i < b.src.Len() && bare(b.src[i]) {
 				i += 1
 			}
 			segs = segs.Append(Seg{Name: strings.Slice(b.src, b.pos, i), At: at})
@@ -208,7 +209,7 @@ func key(b mut builder) []Seg fails Malformed {
 			return fail(b, b.pos, "expected a key, found "+found(b, b.pos))
 		}
 		blank(b)
-		if b.pos >= len(b.src) || b.src[b.pos] != '.' {
+		if b.pos >= b.src.Len() || b.src[b.pos] != '.' {
 			return segs
 		}
 		b.pos += 1
@@ -218,10 +219,10 @@ func key(b mut builder) []Seg fails Malformed {
 
 // Shown is a key as a failure names it: bare when it can be, else quoted.
 func Shown(name string) string {
-	if len(name) == 0 {
+	if name.Len() == 0 {
 		return "\"\""
 	}
-	for i in 0..len(name) {
+	for i in 0..name.Len() {
 		if !bare(name[i]) {
 			return Quoted(name)
 		}
@@ -230,7 +231,7 @@ func Shown(name string) string {
 }
 
 func joined(path string, name string) string {
-	if len(path) == 0 {
+	if path.Len() == 0 {
 		return Shown(name)
 	}
 	path + "." + Shown(name)
@@ -239,7 +240,7 @@ func joined(path string, name string) string {
 // add puts a node below parent and is its id.
 func add(b mut builder, parent int, name string, shape Shape, form Form) int {
 	b.nodes = b.nodes.Append(node{parent: parent, name: name, shape: shape, form: form, val: Bool{B: false}, last: 0})
-	len(b.nodes) - 1
+	b.nodes.Len() - 1
 }
 
 // touch is the use u of the key seg in the table node parent, by the
@@ -251,10 +252,10 @@ func touch(b mut builder, parent int, seg Seg, u Use, shown string) int fails Du
 	let mut id = -1
 	let mut s Shape = Absent
 	match b.index.Get(at) {
-	case Some[int] as f:
+	case option.Some[int] as f:
 		id = f.Value
 		s = b.nodes[id].shape
-	case None:
+	case option.None:
 	}
 	let next = Define(s, u) catch {
 	case Twice:
@@ -297,20 +298,20 @@ func touch(b mut builder, parent int, seg Seg, u Use, shown string) int fails Du
 // header reads a [table] or [[array of tables]] header and makes its
 // table the one that key/value pairs go to.
 func header(b mut builder) fails Malformed | Duplicate | Clash {
-	let tables = b.pos+1 < len(b.src) && b.src[b.pos+1] == '['
+	let tables = b.pos+1 < b.src.Len() && b.src[b.pos+1] == '['
 	b.pos += if tables { 2 } else { 1 }
 	blank(b)
 	let segs = try key(b)
 	let close = if tables { "]]" } else { "]" }
-	if !strings.HasPrefix(strings.Slice(b.src, b.pos, len(b.src)), close) {
+	if !strings.HasPrefix(strings.Slice(b.src, b.pos, b.src.Len()), close) {
 		return fail(b, b.pos, "expected '"+close+"', found "+found(b, b.pos))
 	}
-	b.pos += len(close)
+	b.pos += close.Len()
 	let mut at = 0
 	let mut shown = ""
 	for i, seg in segs {
 		shown = joined(shown, seg.Name)
-		let u Use = if i < len(segs)-1 { Pass } else if tables { Append } else { Open }
+		let u Use = if i < segs.Len()-1 { Pass } else if tables { Append } else { Open }
 		at = try touch(b, at, seg, u, shown)
 	}
 	b.table = at
@@ -321,7 +322,7 @@ func header(b mut builder) fails Malformed | Duplicate | Clash {
 // path is path.
 func keyval(b mut builder, table int, path string) fails Malformed | Duplicate | Clash {
 	let segs = try key(b)
-	if b.pos >= len(b.src) || b.src[b.pos] != '=' {
+	if b.pos >= b.src.Len() || b.src[b.pos] != '=' {
 		return fail(b, b.pos, "expected '=' after a key, found "+found(b, b.pos))
 	}
 	b.pos += 1
@@ -330,7 +331,7 @@ func keyval(b mut builder, table int, path string) fails Malformed | Duplicate |
 	let mut shown = path
 	for i, seg in segs {
 		shown = joined(shown, seg.Name)
-		let u Use = if i < len(segs)-1 { Dot } else { Set }
+		let u Use = if i < segs.Len()-1 { Dot } else { Set }
 		at = try touch(b, at, seg, u, shown)
 	}
 	try value(b, at, shown)
@@ -339,7 +340,7 @@ func keyval(b mut builder, table int, path string) fails Malformed | Duplicate |
 // value reads the value at the next byte into the node id, whose dotted
 // path is shown.
 func value(b mut builder, id int, shown string) fails Malformed | Duplicate | Clash {
-	if b.pos >= len(b.src) {
+	if b.pos >= b.src.Len() {
 		return fail(b, b.pos, "expected a value, found the end")
 	}
 	let c = b.src[b.pos]
@@ -381,17 +382,17 @@ func reform(b mut builder, id int, f Form) {
 
 // word moves past the literal w, which must end there.
 func word(b mut builder, w string) fails Malformed {
-	if !strings.HasPrefix(strings.Slice(b.src, b.pos, len(b.src)), w) {
+	if !strings.HasPrefix(strings.Slice(b.src, b.pos, b.src.Len()), w) {
 		return fail(b, b.pos, "expected a value, found "+found(b, b.pos))
 	}
-	b.pos += len(w)
+	b.pos += w.Len()
 	try ended(b, b.pos)
 }
 
 // ended fails unless a value may end at offset at: at the end of the
 // text, a blank, a newline, a comma, a closing bracket or a comment.
 func ended(b mut builder, at int) fails Malformed {
-	if at >= len(b.src) {
+	if at >= b.src.Len() {
 		return
 	}
 	match b.src[at] {
@@ -416,7 +417,7 @@ func enter(b mut builder) fails Malformed {
 func fill(b mut builder) fails Malformed {
 	for {
 		blank(b)
-		if b.pos < len(b.src) && b.src[b.pos] == '#' {
+		if b.pos < b.src.Len() && b.src[b.pos] == '#' {
 			try comment(b)
 		}
 		if !newline(b) {
@@ -431,7 +432,7 @@ func array(b mut builder, id int, shown string) fails Malformed | Duplicate | Cl
 	reform(b, id, Items)
 	for {
 		try fill(b)
-		if b.pos < len(b.src) && b.src[b.pos] == ']' {
+		if b.pos < b.src.Len() && b.src[b.pos] == ']' {
 			b.pos += 1
 			b.depth -= 1
 			return
@@ -439,11 +440,11 @@ func array(b mut builder, id int, shown string) fails Malformed | Duplicate | Cl
 		let item = add(b, id, "", Closed, Leaf)
 		try value(b, item, shown)
 		try fill(b)
-		if b.pos < len(b.src) && b.src[b.pos] == ',' {
+		if b.pos < b.src.Len() && b.src[b.pos] == ',' {
 			b.pos += 1
 			continue
 		}
-		if b.pos < len(b.src) && b.src[b.pos] == ']' {
+		if b.pos < b.src.Len() && b.src[b.pos] == ']' {
 			b.pos += 1
 			b.depth -= 1
 			return
@@ -459,7 +460,7 @@ func inline(b mut builder, id int, shown string) fails Malformed | Duplicate | C
 	try enter(b)
 	reform(b, id, Keys)
 	blank(b)
-	if b.pos < len(b.src) && b.src[b.pos] == '}' {
+	if b.pos < b.src.Len() && b.src[b.pos] == '}' {
 		b.pos += 1
 		b.depth -= 1
 		return
@@ -467,12 +468,12 @@ func inline(b mut builder, id int, shown string) fails Malformed | Duplicate | C
 	for {
 		try keyval(b, id, shown)
 		blank(b)
-		if b.pos < len(b.src) && b.src[b.pos] == ',' {
+		if b.pos < b.src.Len() && b.src[b.pos] == ',' {
 			b.pos += 1
 			blank(b)
 			continue
 		}
-		if b.pos < len(b.src) && b.src[b.pos] == '}' {
+		if b.pos < b.src.Len() && b.src[b.pos] == '}' {
 			b.pos += 1
 			b.depth -= 1
 			return
@@ -483,7 +484,7 @@ func inline(b mut builder, id int, shown string) fails Malformed | Duplicate | C
 
 // tree is the root table the builder's nodes make.
 func tree(b mut builder) Value {
-	let n = len(b.nodes)
+	let n = b.nodes.Len()
 	let mut first = slices.Repeat([]int{0}, n+1)
 	for id in 1..n {
 		first[b.nodes[id].parent+1] += 1

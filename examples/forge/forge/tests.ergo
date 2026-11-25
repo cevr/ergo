@@ -1,6 +1,7 @@
 // The machine's tests: a worked session. `ergo test` runs the laws.
 
 import machines
+import option
 
 // refused is the name of the failure of sig in s, or "taken".
 func refused(s State, sig Signal) string {
@@ -43,9 +44,9 @@ test OresExtendTheWait {
 	let end, _ = Run(Start(rack()), []Signal{Ore{At: 1s, Worth: 25}, Ore{At: 20s, Worth: 25}, Tick{At: 40s}})
 	assert CreditOf(end) == 50
 	match Deadline(end) {
-	case Some[duration] as d:
+	case option.Some[duration] as d:
 		assert d.Value == 50s
-	case None:
+	case option.None:
 		assert false
 	}
 }

@@ -5,6 +5,7 @@
 
 import domain-search/domains
 import json
+import option
 import slices
 
 // Sample is the sample registry, sample.Sample. It holds nothing: every
@@ -37,9 +38,9 @@ func listing(label string, tld string) domains.Listing {
 		return domains.Unavailable{Name: name, TLD: tld}
 	}
 	let price = match prices.Get(tld) {
-	case Some as p:
+	case option.Some as p:
 		p.Value
-	case None:
+	case option.None:
 		otherPrice()
 	}
 	domains.Available{Name: name, TLD: tld, Price: price, RenewalPrice: price, Years: 1, IsPremium: false}
@@ -58,11 +59,11 @@ func SearchDomains(s Sample, label domains.Label, offset json.Optional[domains.O
 	case json.Present[domains.Limit] as n:
 		int(n.Value)
 	case json.Absent:
-		len(domains.Catalog)
+		domains.Catalog.Len()
 	}
 	let mut to = from + count
-	if to > len(domains.Catalog) {
-		to = len(domains.Catalog)
+	if to > domains.Catalog.Len() {
+		to = domains.Catalog.Len()
 	}
 	let text = string(label)
 	let mut out = slices.WithCapacity[domains.Listing](to - from)

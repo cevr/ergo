@@ -1,0 +1,65 @@
+{
+  "about": "Mutant ledger for scripts/compiler-drift (GUARD-2): Go<->Ergo dual-compiler drift gate and fingerprinted IR stop/diff grouping.",
+  "mutants": [
+    {
+      "name": "compiler-drift-ignores-unmirrored-go-edit",
+      "origin": "wf10 GUARD-2",
+      "file": "scripts/compiler-drift/main.go",
+      "decl": "runCheckDrift",
+      "from": "\tif len(report.Violations) > 0 {\n\t\treturn 1\n\t}",
+      "to": "\tif len(report.Violations) > 0 {\n\t\treturn 0\n\t}",
+      "rule": "-check-drift exits 1 whenever a Go compiler rule file changed without a self-hosted compiler/ mirror edit or an active exemption.",
+      "killers": ["scripts/compiler-drift:TestCheckDriftEndToEndGitRepo"]
+    },
+    {
+      "name": "compiler-drift-ignores-missing-exemption-reason",
+      "origin": "wf10 GUARD-2",
+      "file": "scripts/compiler-drift/drift.go",
+      "decl": "validateExemptions",
+      "from": "\t\tif strings.TrimSpace(ex.Reason) == \"\" {\n\t\t\terrs = append(errs, fmt.Sprintf(\"%s: reason must not be empty\", f))\n\t\t}",
+      "to": "\t\tif false && strings.TrimSpace(ex.Reason) == \"\" {\n\t\t\terrs = append(errs, fmt.Sprintf(\"%s: reason must not be empty\", f))\n\t\t}",
+      "rule": "Exemption validation refuses any entry whose reason is empty.",
+      "killers": ["scripts/compiler-drift:TestValidateExemptionsAndExpiry", "scripts/compiler-drift:TestCheckDriftEndToEndGitRepo"]
+    },
+    {
+      "name": "compiler-drift-allows-expired-exemption",
+      "origin": "wf10 GUARD-2",
+      "file": "scripts/compiler-drift/drift.go",
+      "decl": "activeExemption",
+      "from": "\t\t\tif isExpired(exp, now) {\n\t\t\t\treturn false, fmt.Sprintf(\"exemption expired on %s\", ex.Expires)\n\t\t\t}",
+      "to": "\t\t\tif false && isExpired(exp, now) {\n\t\t\t\treturn false, fmt.Sprintf(\"exemption expired on %s\", ex.Expires)\n\t\t\t}",
+      "rule": "An expired exemption does not satisfy the dual-compiler drift check.",
+      "killers": ["scripts/compiler-drift:TestValidateExemptionsAndExpiry"]
+    },
+    {
+      "name": "compiler-drift-skips-test-file-exclusion",
+      "origin": "wf10 GUARD-2",
+      "file": "scripts/compiler-drift/drift.go",
+      "decl": "isGoCompilerRuleFile",
+      "from": "\tif strings.HasSuffix(base, \"_test.go\") || strings.HasSuffix(base, \"_gen.go\") {\n\t\treturn \"\", false\n\t}",
+      "to": "\tif strings.HasSuffix(base, \"_gen.go\") {\n\t\treturn \"\", false\n\t}",
+      "rule": "Go test files (*_test.go) under internal/sketch/ are excluded from the compiler rule drift gate.",
+      "killers": ["scripts/compiler-drift:TestIsGoCompilerRuleFileExclusions", "scripts/compiler-drift:TestCheckDriftEndToEndGitRepo"]
+    },
+    {
+      "name": "compiler-drift-misses-regression-exit",
+      "origin": "wf10 GUARD-2",
+      "file": "scripts/compiler-drift/main.go",
+      "decl": "runDiffStops",
+      "from": "\tif failOnRegression && (len(diff.Regressed) > 0 || len(diff.NewDiffs) > 0) {\n\t\treturn 1\n\t}",
+      "to": "\tif failOnRegression && len(diff.Regressed) > 0 {\n\t\treturn 1\n\t}",
+      "rule": "-diff-stops -fail-on-regression exits 1 when a new D IR diff appears even if stop counts decreased.",
+      "killers": ["scripts/compiler-drift:TestDiffStopsReductionAndRegressionExit"]
+    },
+    {
+      "name": "compiler-drift-wrong-stop-count",
+      "origin": "wf10 GUARD-2",
+      "file": "scripts/compiler-drift/stops.go",
+      "decl": "ParseStopLog",
+      "from": "\tfor fp, g := range log.Groups {\n\t\tg.Functions = len(groupFuncs[fp])\n\t\tg.Files = len(groupFiles[fp])\n\t}",
+      "to": "\tfor fp, g := range log.Groups {\n\t\tg.Functions = g.Events\n\t\tg.Files = len(groupFiles[fp])\n\t}",
+      "rule": "Each stop fingerprint counts distinct (file, offset) functions rather than duplicate emission events.",
+      "killers": ["scripts/compiler-drift:TestStopFingerprintingAndCounting"]
+    }
+  ]
+}

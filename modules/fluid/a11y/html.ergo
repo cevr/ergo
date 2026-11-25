@@ -1,4 +1,5 @@
 import ergo.dev/fluid/part
+import option
 import strconv
 import strings
 
@@ -40,22 +41,22 @@ func isVoid(tag string) bool {
 // parseKids reads nodes up to the end tag of `until` (or the end of the text) and past it.
 func parseKids(p mut Parser, until string) []Dom {
 	let mut out = []Dom{}
-	for p.at < len(p.s) {
+	for p.at < p.s.Len() {
 		if p.s[p.at] == '<' {
-			if p.at+1 < len(p.s) && p.s[p.at+1] == '/' {
+			if p.at+1 < p.s.Len() && p.s[p.at+1] == '/' {
 				let end = indexFrom(p.s, ">", p.at)
-				p.at = if end < 0 { len(p.s) } else { end + 1 }
+				p.at = if end < 0 { p.s.Len() } else { end + 1 }
 				return out
 			}
-			if p.at+1 < len(p.s) && p.s[p.at+1] == '!' {
+			if p.at+1 < p.s.Len() && p.s[p.at+1] == '!' {
 				let end = indexFrom(p.s, ">", p.at)
-				p.at = if end < 0 { len(p.s) } else { end + 1 }
+				p.at = if end < 0 { p.s.Len() } else { end + 1 }
 				continue
 			}
 			out = out.Append(parseEl(p))
 		} else {
 			let end = indexFrom(p.s, "<", p.at)
-			let stop = if end < 0 { len(p.s) } else { end }
+			let stop = if end < 0 { p.s.Len() } else { end }
 			out = out.Append(Txt{S: unescape(strings.Slice(p.s, p.at, stop))})
 			p.at = stop
 		}
@@ -68,9 +69,9 @@ func parseEl(p mut Parser) Dom {
 	p.at = p.at + 1
 	let tag = word(p)
 	let mut attrs = []Attr{}
-	for p.at < len(p.s) {
+	for p.at < p.s.Len() {
 		skipSpace(p)
-		if p.at >= len(p.s) {
+		if p.at >= p.s.Len() {
 			break
 		}
 		let c = p.s[p.at]
@@ -87,12 +88,12 @@ func parseEl(p mut Parser) Dom {
 			p.at = p.at + 1
 			continue
 		}
-		if p.at < len(p.s) && p.s[p.at] == '=' {
+		if p.at < p.s.Len() && p.s[p.at] == '=' {
 			p.at = p.at + 1
-			if p.at < len(p.s) && (p.s[p.at] == '"' || p.s[p.at] == '\'') {
+			if p.at < p.s.Len() && (p.s[p.at] == '"' || p.s[p.at] == '\'') {
 				let q = strings.Slice(p.s, p.at, p.at+1)
 				let end = indexFrom(p.s, q, p.at+1)
-				let stop = if end < 0 { len(p.s) } else { end }
+				let stop = if end < 0 { p.s.Len() } else { end }
 				attrs = attrs.Append(Attr{Name: name, Value: unescape(strings.Slice(p.s, p.at+1, stop))})
 				p.at = stop + 1
 			} else {
@@ -107,9 +108,9 @@ func parseEl(p mut Parser) Dom {
 	}
 	if tag == "style" || tag == "script" {
 		let end = indexFrom(p.s, "</"+tag, p.at)
-		let stop = if end < 0 { len(p.s) } else { end }
+		let stop = if end < 0 { p.s.Len() } else { end }
 		let close = indexFrom(p.s, ">", stop)
-		p.at = if close < 0 { len(p.s) } else { close + 1 }
+		p.at = if close < 0 { p.s.Len() } else { close + 1 }
 		return El{Tag: tag, Attrs: attrs, Kids: []Dom{}}
 	}
 	El{Tag: tag, Attrs: attrs, Kids: parseKids(p, tag)}
@@ -117,7 +118,7 @@ func parseEl(p mut Parser) Dom {
 
 func word(p mut Parser) string {
 	let from = p.at
-	for p.at < len(p.s) {
+	for p.at < p.s.Len() {
 		let c = p.s[p.at]
 		if c == ' ' || c == '>' || c == '=' || c == '/' || c == '\n' || c == '\t' {
 			break
@@ -128,13 +129,13 @@ func word(p mut Parser) string {
 }
 
 func skipSpace(p mut Parser) {
-	for p.at < len(p.s) && (p.s[p.at] == ' ' || p.s[p.at] == '\n' || p.s[p.at] == '\t') {
+	for p.at < p.s.Len() && (p.s[p.at] == ' ' || p.s[p.at] == '\n' || p.s[p.at] == '\t') {
 		p.at = p.at + 1
 	}
 }
 
 func indexFrom(s string, sub string, from int) int {
-	let i = strings.Index(strings.Slice(s, from, len(s)), sub)
+	let i = strings.Index(strings.Slice(s, from, s.Len()), sub)
 	if i < 0 { -1 } else { from + i }
 }
 
@@ -150,29 +151,29 @@ func unescape(s string) string {
 	out
 }
 
-func attr(attrs []Attr, name string) Option[string] {
+func attr(attrs []Attr, name string) option.Option[string] {
 	for a in attrs {
 		if a.Name == name {
-			return Some[string]{Value: a.Value}
+			return option.Some[string]{Value: a.Value}
 		}
 	}
-	None
+	option.None
 }
 
 func attrOr(attrs []Attr, name string, or string) string {
 	match attr(attrs, name) {
-	case Some as v:
+	case option.Some as v:
 		v.Value
-	case None:
+	case option.None:
 		or
 	}
 }
 
 func hasAttr(attrs []Attr, name string) bool {
 	match attr(attrs, name) {
-	case Some:
+	case option.Some:
 		true
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -203,9 +204,9 @@ func fromEl(e El) []Tree {
 	}
 	let kids = joined(fromDom(e.Kids))
 	let role = match attr(a, "role") {
-	case Some as r:
+	case option.Some as r:
 		roleNamed(r.Value)
-	case None:
+	case option.None:
 		implicit(e)
 	}
 	let native = e.Tag == "button" || e.Tag == "input" || e.Tag == "textarea" || e.Tag == "select" || (e.Tag == "a" && hasAttr(a, "href"))
@@ -223,26 +224,26 @@ func fromEl(e El) []Tree {
 		}
 	}
 	match attr(a, "aria-checked") {
-	case Some as v:
+	case option.Some as v:
 		states = states.Append(part.Checked{Value: if v.Value == "true" { part.On } else if v.Value == "mixed" { part.Mixed } else { part.Off }})
-	case None:
+	case option.None:
 	}
 	for s in []string{"selected", "expanded", "pressed"} {
 		match attr(a, "aria-"+s) {
-		case Some as v:
+		case option.Some as v:
 			states = states.Append(boolState(s, v.Value == "true"))
-		case None:
+		case option.None:
 		}
 	}
 	match attr(a, "aria-current") {
-	case Some as v:
+	case option.Some as v:
 		states = states.Append(part.Current{Kind: v.Value})
-	case None:
+	case option.None:
 	}
 	match attr(a, "aria-valuenow") {
-	case Some as v:
+	case option.Some as v:
 		states = states.Append(part.Value{Now: float(v.Value), Min: float(attrOr(a, "aria-valuemin", "0")), Max: float(attrOr(a, "aria-valuemax", "0")), Text: attrOr(a, "aria-valuetext", "")})
-	case None:
+	case option.None:
 		if e.Tag == "input" && attrOr(a, "type", "") == "range" {
 			states = states.Append(part.Value{Now: float(attrOr(a, "value", "0")), Min: float(attrOr(a, "min", "0")), Max: float(attrOr(a, "max", "100")), Text: ""})
 		}
@@ -250,15 +251,15 @@ func fromEl(e El) []Tree {
 	let mut rels = []part.Rel{}
 	for r in []string{"controls", "labelledby", "describedby", "activedescendant"} {
 		match attr(a, "aria-"+r) {
-		case Some as v:
+		case option.Some as v:
 			rels = rels.Append(relNamed(r, v.Value))
-		case None:
+		case option.None:
 		}
 	}
 	match attr(a, "aria-haspopup") {
-	case Some as v:
+	case option.Some as v:
 		rels = rels.Append(part.HasPopup{Role: if v.Value == "true" { part.Menu } else { roleNamed(v.Value) }})
-	case None:
+	case option.None:
 	}
 	let label = attrOr(a, "aria-label", "")
 	let name = if label != "" { label } else if FromContent(role) { textOf(kids) } else { "" }
@@ -331,7 +332,7 @@ func implicit(e El) part.Role {
 	if t == "a" {
 		return if hasAttr(e.Attrs, "href") { part.Link } else { part.Generic }
 	}
-	if len(t) == 2 && t[0] == 'h' && t[1] >= '1' && t[1] <= '6' {
+	if t.Len() == 2 && t[0] == 'h' && t[1] >= '1' && t[1] <= '6' {
 		return part.Heading{Level: int(t[1]) - int('0')}
 	}
 	if t == "input" {

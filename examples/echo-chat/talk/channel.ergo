@@ -3,6 +3,8 @@
 // and the machine Session, whose Connecting entry owns the line from the
 // dial to the entry's end. Package memory provides Channel in process.
 
+import core
+
 // Refused is a dial that gave no line, and why.
 type Refused { Why string }
 
@@ -17,7 +19,7 @@ type Broke { Why string }
 
 // Line is an open connection. It is a resource: its release (Close) hangs
 // up and frees the line. Read waits for the next frame.
-type Line { ID int, read func() string fails Hangup | Broke, hang func() } implements Closer
+type Line { ID int, read func() string fails Hangup | Broke, hang func() } implements core.Closer
 
 // NewLine is the line id whose frames read gives and whose release calls
 // hang.

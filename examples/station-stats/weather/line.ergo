@@ -61,10 +61,10 @@ type Reading { Len int, Tenths int, Next int }
 // ParseLine parses the line that starts at p, byte by byte.
 func ParseLine(text fs.Text, p int) Reading fails Malformed {
 	let mut i = p
-	for i < len(text) && text[i] != ';' && text[i] != '\n' {
+	for i < text.Len() && text[i] != ';' && text[i] != '\n' {
 		i += 1
 	}
-	if i == len(text) || text[i] == '\n' {
+	if i == text.Len() || text[i] == '\n' {
 		return Malformed{Offset: p, Reason: NoSeparator}
 	}
 	let n = i - p
@@ -75,10 +75,10 @@ func ParseLine(text fs.Text, p int) Reading fails Malformed {
 		return Malformed{Offset: p, Reason: LongStation}
 	}
 	let mut j = i + 1
-	for j < len(text) && text[j] != '\n' {
+	for j < text.Len() && text[j] != '\n' {
 		j += 1
 	}
-	if j == len(text) {
+	if j == text.Len() {
 		return Malformed{Offset: p, Reason: NoNewline}
 	}
 	let neg = j > i+1 && text[i+1] == '-'

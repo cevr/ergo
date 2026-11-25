@@ -2,276 +2,378 @@
   "about": "dash-gui's application mutants (wf10 corpus wave GP4a): edits of the example, each with the law or the test that kills it. A killer examples/dash-gui/PKG:law L is `ergo test examples/dash-gui/PKG --law L`; cmd/ergo:TestDashGuiAgreesWithControl is the seeded agreement property against the one-loop reference model and the hand Go control, which kills the mutants no law sees.",
   "mutants": [
     {
-      "name": "dash-ring-overwrites-one-slot", "origin": "wf10 GP4a",
+      "name": "dash-ring-overwrites-one-slot",
+      "origin": "wf10 GP4a",
       "file": "examples/dash-gui/panel/ring.ergo",
       "from": "head: (r.head + 1) % r.cap",
       "to": "head: r.head",
       "rule": "A ring holds the last N values pushed, oldest first.",
-      "killers": ["examples:dash-gui"]
+      "killers": [
+        "examples:dash-gui"
+      ]
     },
     {
-      "name": "dash-column-skips-its-last-sample", "origin": "wf10 GP4a",
+      "name": "dash-column-skips-its-last-sample",
+      "origin": "wf10 GP4a",
       "file": "examples/dash-gui/panel/draw.ergo",
       "from": "for i in from+1..to {\n\t\t\tif xs[i] < lo {",
       "to": "for i in from+1..to-1 {\n\t\t\tif xs[i] < lo {",
       "rule": "A chart's columns keep the samples' least and greatest value.",
-      "killers": ["examples:dash-gui"]
+      "killers": [
+        "examples:dash-gui"
+      ]
     },
     {
-      "name": "dash-ring-column-skips-its-last-sample", "origin": "wf10 GP frame",
+      "name": "dash-ring-column-skips-its-last-sample",
+      "origin": "wf10 GP frame",
       "file": "examples/dash-gui/panel/draw.ergo",
       "from": "for i in from+1..to {\n\t\t\tlet x = r.items",
       "to": "for i in from+1..to-1 {\n\t\t\tlet x = r.items",
       "rule": "Drawing a chart from its ring in place reads every sample of each column.",
-      "killers": ["examples:dash-gui"]
+      "killers": [
+        "examples:dash-gui"
+      ]
     },
     {
-      "name": "dash-ease-runs-backwards", "origin": "wf10 GP4a",
+      "name": "dash-ease-runs-backwards",
+      "origin": "wf10 GP4a",
       "file": "examples/dash-gui/panel/draw.ergo",
       "from": "from + (to-from)*(d*d*d-rest*rest*rest)",
       "to": "to - (to-from)*(d*d*d-rest*rest*rest)",
       "rule": "An ease moves from its origin toward its target and never back.",
-      "killers": ["examples:dash-gui"]
+      "killers": [
+        "examples:dash-gui"
+      ]
     },
     {
-      "name": "dash-stale-one-frame-early", "origin": "wf10 GP4a",
+      "name": "dash-stale-one-frame-early",
+      "origin": "wf10 GP4a",
       "file": "examples/dash-gui/panel/feed.ergo",
       "from": "if t.Frame-l.P.Seen > StaleAfter {",
       "to": "if t.Frame-l.P.Seen >= StaleAfter {",
       "rule": "A live panel is live up to StaleAfter frames after its last sample and stale at the next.",
-      "killers": ["examples:dash-gui"]
+      "killers": [
+        "examples:dash-gui"
+      ]
     },
     {
-      "name": "dash-resume-leaves-it-paused", "origin": "wf10 GP4a",
+      "name": "dash-resume-leaves-it-paused",
+      "origin": "wf10 GP4a",
       "file": "examples/dash-gui/panel/feed.ergo",
       "from": "Enter[State]{Next: Live{P: p.P}}",
       "to": "Stay[State]{Next: Paused{P: p.P}}",
       "rule": "A resume ends a pause.",
-      "killers": ["examples:dash-gui"]
+      "killers": [
+        "examples:dash-gui"
+      ]
     },
     {
-      "name": "dash-drop-newest-uncounted", "origin": "wf10 GP4a",
+      "name": "dash-drop-newest-uncounted",
+      "origin": "wf10 GP4a",
       "file": "examples/dash-gui/feed/source.ergo",
       "from": "\tcase DropNewest:\n\t\ttrue\n",
       "to": "\tcase DropNewest:\n\t\tfalse\n",
       "rule": "A sample a full queue drops is counted as dropped.",
-      "killers": ["examples:dash-gui"]
+      "killers": [
+        "examples:dash-gui"
+      ]
     },
     {
-      "name": "dash-queue-one-short", "origin": "wf10 GP4a",
+      "name": "dash-queue-one-short",
+      "origin": "wf10 GP4a",
       "file": "examples/dash-gui/feed/source.ergo",
       "from": "if q.Len() < cap {",
       "to": "if q.Len() < cap-1 {",
       "rule": "A queue holds cap samples before it drops.",
-      "killers": ["examples:dash-gui"]
+      "killers": [
+        "examples:dash-gui"
+      ]
     },
     {
-      "name": "dash-sample-out-of-range", "origin": "wf10 GP4a",
+      "name": "dash-sample-out-of-range",
+      "origin": "wf10 GP4a",
       "file": "examples/dash-gui/synth/synth.ergo",
       "from": "% 400)",
       "to": "% 1400)",
       "rule": "A sample is from 0 to panel.Top.",
-      "killers": ["examples:dash-gui"]
+      "killers": [
+        "examples:dash-gui"
+      ]
     },
     {
-      "name": "dash-newest-writes-oldest", "origin": "wf10 GP4a",
+      "name": "dash-newest-writes-oldest",
+      "origin": "wf10 GP4a",
       "file": "examples/dash-gui/script/script.ergo",
       "from": "\"policy \\(s.Panel) newest\"",
       "to": "\"policy \\(s.Panel) oldest\"",
       "rule": "A command's line reads back as the command.",
-      "killers": ["examples:dash-gui"]
+      "killers": [
+        "examples:dash-gui"
+      ]
     },
     {
-      "name": "dash-takes-a-plus-sign", "origin": "wf10 GP4a",
+      "name": "dash-takes-a-plus-sign",
+      "origin": "wf10 GP4a",
       "file": "examples/dash-gui/script/script.ergo",
       "from": "if n < 0 || strings.HasPrefix(word, \"+\") {",
       "to": "if n < 0 {",
       "rule": "A number in a script is digits only.",
-      "killers": ["cmd/ergo:TestDashGuiAgreesWithControl"]
+      "killers": [
+        "cmd/ergo:TestDashGuiAgreesWithControl"
+      ]
     },
     {
-      "name": "dash-gauge-jumps", "origin": "wf10 GP4a",
+      "name": "dash-gauge-jumps",
+      "origin": "wf10 GP4a",
       "file": "examples/dash-gui/panel/feed.ergo",
       "from": "GaugeView{From: Shown(g, m.Frame),",
       "to": "GaugeView{From: g.To,",
       "rule": "A gauge eases from where it is shown, not from its last target.",
-      "killers": ["cmd/ergo:TestDashGuiAgreesWithControl"]
+      "killers": [
+        "cmd/ergo:TestDashGuiAgreesWithControl"
+      ]
     },
     {
-      "name": "dash-log-takes-the-alarm-level", "origin": "wf10 GP4a",
+      "name": "dash-log-takes-the-alarm-level",
+      "origin": "wf10 GP4a",
       "file": "examples/dash-gui/panel/feed.ergo",
       "from": "if x > p.Alarm {",
       "to": "if x >= p.Alarm {",
       "rule": "The log writes the samples above the alarm level.",
-      "killers": ["cmd/ergo:TestDashGuiAgreesWithControl"]
+      "killers": [
+        "cmd/ergo:TestDashGuiAgreesWithControl"
+      ]
     },
     {
-      "name": "dash-clock-before-samples", "origin": "wf10 GP4a",
+      "name": "dash-clock-before-samples",
+      "origin": "wf10 GP4a",
       "file": "examples/dash-gui/feed/board.ergo",
       "from": "[]panel.Event{panel.Samples{Frame: f, Values: values}, panel.Tick{Frame: f}}",
       "to": "[]panel.Event{panel.Tick{Frame: f}, panel.Samples{Frame: f, Values: values}}",
       "rule": "A panel takes a frame's samples before the frame's tick, so samples that come on the stale bound keep it live.",
-      "killers": ["cmd/ergo:TestDashGuiAgreesWithControl"]
+      "killers": [
+        "cmd/ergo:TestDashGuiAgreesWithControl"
+      ]
     },
     {
-      "name": "dash-stale-cannot-pause", "origin": "wf10 GP4a",
+      "name": "dash-stale-cannot-pause",
+      "origin": "wf10 GP4a",
       "file": "examples/dash-gui/panel/feed.ergo",
       "from": "Enter[State]{Next: Paused{P: t.P}}",
       "to": "Reject",
       "rule": "A stale panel can be paused.",
-      "killers": ["cmd/ergo:TestDashGuiAgreesWithControl"]
+      "killers": [
+        "cmd/ergo:TestDashGuiAgreesWithControl"
+      ]
     },
     {
-      "name": "dash-gauge-shows-its-origin", "origin": "wf10 GP4a",
+      "name": "dash-gauge-shows-its-origin",
+      "origin": "wf10 GP4a",
       "file": "examples/dash-gui/panel/frame.ergo",
       "from": "gauge at=\\(Shown(g, f))",
       "to": "gauge at=\\(g.From)",
       "rule": "A gauge shows its eased value at the frame.",
-      "killers": ["cmd/ergo:TestDashGuiAgreesWithControl"]
+      "killers": [
+        "cmd/ergo:TestDashGuiAgreesWithControl"
+      ]
     },
     {
-      "name": "dash-heat-loses-the-top-bin", "origin": "wf10 GP4a",
+      "name": "dash-heat-loses-the-top-bin",
+      "origin": "wf10 GP4a",
       "file": "examples/dash-gui/panel/draw.ergo",
       "from": "let b = (c - lo) * Bins / span",
       "to": "let b = (c - lo) * (Bins - 1) / span",
       "rule": "A heat strip's bins are even.",
-      "killers": ["cmd/ergo:TestDashGuiAgreesWithControl"]
+      "killers": [
+        "cmd/ergo:TestDashGuiAgreesWithControl"
+      ]
     },
     {
-      "name": "dash-policy-ignored", "origin": "wf10 GP4a",
+      "name": "dash-policy-ignored",
+      "origin": "wf10 GP4a",
       "file": "examples/dash-gui/feed/board.ergo",
       "from": "\tpolicies[i] = p\n",
       "to": "\tpolicies[i] = DropOldest\n",
       "rule": "A policy command sets what the source's queue drops.",
-      "killers": ["cmd/ergo:TestDashGuiAgreesWithControl"]
+      "killers": [
+        "cmd/ergo:TestDashGuiAgreesWithControl"
+      ]
     },
     {
-      "name": "dash-drops-uncounted", "origin": "wf10 GP4a",
+      "name": "dash-drops-uncounted",
+      "origin": "wf10 GP4a",
       "file": "examples/dash-gui/feed/board.ergo",
       "from": "dropped[r.Source] + r.Dropped",
       "to": "dropped[r.Source] + 0",
       "rule": "The board counts every sample a queue dropped.",
-      "killers": ["cmd/ergo:TestDashGuiAgreesWithControl"]
+      "killers": [
+        "cmd/ergo:TestDashGuiAgreesWithControl"
+      ]
     },
     {
-      "name": "dash-ring-columns-ignore-the-head", "origin": "wf10 GP frame",
+      "name": "dash-ring-columns-ignore-the-head",
+      "origin": "wf10 GP frame",
       "file": "examples/dash-gui/panel/draw.ergo",
       "from": "let x = r.items[(r.head+i)%n]",
       "to": "let x = r.items[i%n]",
       "rule": "A chart's columns read the ring oldest first, from its head.",
-      "killers": ["examples:dash-gui"]
+      "killers": [
+        "examples:dash-gui"
+      ]
     },
     {
-      "name": "dash-view-asks-no-frames", "origin": "wf10 GP4b",
+      "name": "dash-view-asks-no-frames",
+      "origin": "wf10 GP4b",
       "file": "examples/dash-gui/screen/view.ergo",
       "from": "\tui.Animate(f, func(at duration) Signal { Next })\n",
       "to": "\n",
       "rule": "The view asks the host for frames, so the clock moves the board.",
-      "killers": ["cmd/ergo:TestDashGuiAgreesWithControl"]
+      "killers": [
+        "cmd/ergo:TestDashGuiAgreesWithControl"
+      ]
     },
     {
-      "name": "dash-pause-button-swaps-the-policy", "origin": "wf10 GP4b",
+      "name": "dash-pause-button-swaps-the-policy",
+      "origin": "wf10 GP4b",
       "file": "examples/dash-gui/screen/app.ergo",
       "from": "Dash{Board: feed.Toggle(d.Board, t.Panel)}",
       "to": "Dash{Board: feed.Swap(d.Board, t.Panel)}",
       "rule": "A panel's pause button pauses or resumes it.",
-      "killers": ["cmd/ergo:TestDashGuiAgreesWithControl"]
+      "killers": [
+        "cmd/ergo:TestDashGuiAgreesWithControl"
+      ]
     },
     {
-      "name": "dash-app-drops-the-notes", "origin": "wf10 GP4b",
+      "name": "dash-app-drops-the-notes",
+      "origin": "wf10 GP4b",
       "file": "examples/dash-gui/screen/app.ergo",
-      "from": "if len(s.Notes) == 0 {",
+      "from": "if s.Notes.Len() == 0 {",
       "to": "if true {",
       "rule": "A frame's notes reach the app's output.",
-      "killers": ["cmd/ergo:TestDashGuiAgreesWithControl"]
+      "killers": [
+        "cmd/ergo:TestDashGuiAgreesWithControl"
+      ]
     },
     {
-      "name": "dash-frame-ignores-the-policy", "origin": "wf10 GP4b",
+      "name": "dash-frame-ignores-the-policy",
+      "origin": "wf10 GP4b",
       "file": "examples/dash-gui/feed/board.ergo",
       "from": "Offer(q, Capacity, b.Policies[i], Sensors.Read(i, f, k))",
       "to": "Offer(q, Capacity, DropOldest, Sensors.Read(i, f, k))",
       "rule": "The tasks-free frame drops by each source's policy, as the tasks do.",
-      "killers": ["cmd/ergo:TestDashGuiAgreesWithControl"]
+      "killers": [
+        "cmd/ergo:TestDashGuiAgreesWithControl"
+      ]
     },
     {
-      "name": "dash-screen-reads-button-captions", "origin": "wf10 GP4b",
+      "name": "dash-screen-reads-button-captions",
+      "origin": "wf10 GP4b",
       "file": "examples/dash-gui/script/scene.ergo",
       "from": "\t\tcase ui.PressableNode:\n\t\t\tcontinue\n",
       "to": "\t\tcase ui.PressableNode:\n",
       "rule": "A scene's show writes the panels' lines, not the buttons' captions.",
-      "killers": ["cmd/ergo:TestDashGuiAgreesWithControl"]
+      "killers": [
+        "cmd/ergo:TestDashGuiAgreesWithControl"
+      ]
     },
     {
-      "name": "dash-chart-column-off-centre", "origin": "wf10 GP4b",
+      "name": "dash-chart-column-off-centre",
+      "origin": "wf10 GP4b",
       "file": "examples/dash-gui/screen/view.ergo",
       "from": "let x = px(i*4 + 2)",
       "to": "let x = px(i * 4)",
       "rule": "A chart column is drawn at the middle of its four pixels.",
-      "killers": ["examples:dash-gui"]
+      "killers": [
+        "examples:dash-gui"
+      ]
     },
     {
-      "name": "dash-samples-drawn-upside-down", "origin": "wf10 GP4b",
+      "name": "dash-samples-drawn-upside-down",
+      "origin": "wf10 GP4b",
       "file": "examples/dash-gui/screen/view.ergo",
       "from": "px(Height - v*Height/(panel.Top+1))",
       "to": "px(v * Height / (panel.Top + 1))",
       "rule": "A greater sample is drawn higher.",
-      "killers": ["examples:dash-gui"]
+      "killers": [
+        "examples:dash-gui"
+      ]
     },
     {
-      "name": "dash-gauge-bar-skips-the-ease", "origin": "wf10 GP4b",
+      "name": "dash-gauge-bar-skips-the-ease",
+      "origin": "wf10 GP4b",
       "file": "examples/dash-gui/screen/view.ergo",
       "from": "px(panel.Shown(g, f)*Width/(panel.Top+1))",
       "to": "px(g.To*Width/(panel.Top+1))",
       "rule": "A gauge's bar shows its eased value.",
-      "killers": ["examples:dash-gui"]
+      "killers": [
+        "examples:dash-gui"
+      ]
     },
     {
-      "name": "dash-heat-alpha-not-a-share", "origin": "wf10 GP4b",
+      "name": "dash-heat-alpha-not-a-share",
+      "origin": "wf10 GP4b",
       "file": "examples/dash-gui/screen/view.ergo",
       "from": "A: uint8(bins[i] * 255 / most)",
       "to": "A: uint8(bins[i])",
       "rule": "A heat bin's alpha is its share of the fullest bin.",
-      "killers": ["examples:dash-gui"]
+      "killers": [
+        "examples:dash-gui"
+      ]
     },
     {
-      "name": "dash-paused-button-says-pause", "origin": "wf10 GP4b",
+      "name": "dash-paused-button-says-pause",
+      "origin": "wf10 GP4b",
       "file": "examples/dash-gui/screen/view.ergo",
       "from": "\t\t\"resume\"\n",
       "to": "\t\t\"pause\"\n",
       "rule": "A paused panel's button offers to resume it.",
-      "killers": ["examples:dash-gui"]
+      "killers": [
+        "examples:dash-gui"
+      ]
     },
     {
-      "name": "dash-play-skips-the-edge", "origin": "wf10 RT-SPIKE PACE1",
+      "name": "dash-play-skips-the-edge",
+      "origin": "wf10 RT-SPIKE PACE1",
       "file": "examples/dash-gui/script/script.ergo",
       "from": "\t\tpace.Pacing.Edge()\n",
       "to": "",
       "rule": "Play ends each frame with one pacing edge (law PlayPacesEachFrame).",
-      "killers": ["examples:dash-gui"]
+      "killers": [
+        "examples:dash-gui"
+      ]
     },
     {
-      "name": "dash-main-ignores-pace", "origin": "wf10 RT-SPIKE PACE1",
+      "name": "dash-main-ignores-pace",
+      "origin": "wf10 RT-SPIKE PACE1",
       "file": "examples/dash-gui/cmd/dash-gui/main.ergo",
       "from": "\tcase _:\n\t\tpace.NewAtEdges(PaceLimit)\n",
       "to": "\tcase _:\n\t\tpace.Default\n",
       "rule": "play's -pace edges, the default, binds pace.NewAtEdges: Go collects between frames.",
-      "killers": ["cmd/ergo:TestDashGuiAgreesWithControl"]
+      "killers": [
+        "cmd/ergo:TestDashGuiAgreesWithControl"
+      ]
     },
     {
-      "name": "dash-play-never-holds", "origin": "wf10 RT-SPIKE PACE2",
+      "name": "dash-play-never-holds",
+      "origin": "wf10 RT-SPIKE PACE2",
       "file": "examples/dash-gui/script/script.ergo",
       "from": "\t\t\tif r.Frames <= hold {",
       "to": "\t\t\tif false {",
       "rule": "Play holds the pacing over each run of at most hold frames (law PlayPacesEachFrame).",
-      "killers": ["examples:dash-gui"]
+      "killers": [
+        "examples:dash-gui"
+      ]
     },
     {
-      "name": "dash-main-ignores-hold", "origin": "wf10 RT-SPIKE PACE2",
+      "name": "dash-main-ignores-hold",
+      "origin": "wf10 RT-SPIKE PACE2",
       "file": "examples/dash-gui/cmd/dash-gui/main.ergo",
       "from": "holdFlag.Get(v))",
       "to": "0)",
       "rule": "play's -hold N holds each run of at most N frames: one forced collection after a held run.",
-      "killers": ["cmd/ergo:TestDashGuiAgreesWithControl"]
+      "killers": [
+        "cmd/ergo:TestDashGuiAgreesWithControl"
+      ]
     }
   ]
 }

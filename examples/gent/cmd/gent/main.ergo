@@ -47,7 +47,7 @@ let set = flag.Set{Name: "gent", Usage: "", Flags: []flag.Flag{promptFlag, scrip
 let usage = "usage: gent --script FILE [--here] [--session FILE] [-p TEXT [--allow-shell] [--record FILE]] | gent --replay FILE"
 
 // run is the program on args.
-func run(args []string) fails os.Exit needs Ambient | io.Stdout | io.Stdin | fs.Files | fs.Writes | term.Terminal | Scheduler | time.Clock {
+func run(args []string) fails os.Exit needs os.Ambient | io.Stdout | io.Stdin | fs.Files | fs.Writes | term.Terminal | time.Scheduler | time.Clock {
 	let v = flag.Parse(set, args) catch {
 	case err:
 		try flag.Exit(err, usage)
@@ -84,7 +84,7 @@ func run(args []string) fails os.Exit needs Ambient | io.Stdout | io.Stdin | fs.
 
 // talk is one turn with no terminal (-p), or a chat at the terminal; the
 // session file, if any, is read and written with disk.
-func talk(v flag.Values, limits agent.Limits, disk fs.Host) fails os.Exit needs agent.Model | agent.Tools | exec.Runner | io.Stdout | io.Stdin | fs.Writes | term.Terminal | Scheduler | time.Clock {
+func talk(v flag.Values, limits agent.Limits, disk fs.Host) fails os.Exit needs agent.Model | agent.Tools | exec.Runner | io.Stdout | io.Stdin | fs.Writes | term.Terminal | time.Scheduler | time.Clock {
 	let text = promptFlag.Get(v)
 	if text != "" {
 		let (last, record) = agent.Headless(try openSession(disk, limits, sessionFlag.Get(v)), []string{text}, allowShellFlag.Get(v))
@@ -148,8 +148,8 @@ func print(log []agent.Row) needs io.Stdout {
 	}
 }
 
-func main() fails os.Exit needs Ambient {
-	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stdin: io.NewStdin(), fs.Files: fs.NewHost(), fs.Writes: fs.NewHost(), term.Terminal: term.NewHost(), Scheduler: NewLiveScheduler(), time.Clock: time.NewHost() } {
+func main() fails os.Exit needs os.Ambient {
+	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stdin: io.NewStdin(), fs.Files: fs.NewHost(), fs.Writes: fs.NewHost(), term.Terminal: term.NewHost(), time.Scheduler: time.NewLiveScheduler(), time.Clock: time.NewHost() } {
 		try run(os.Process.Args())
 	}
 }

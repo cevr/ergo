@@ -5,6 +5,8 @@
 // view asks the host for (ui.Load), whose end comes back as a signal.
 
 import ergo.local/prototype/examples/editorgui/edit
+import machines
+import option
 
 // Signal is what the view sends the app: a signal of the editor (a key,
 // a button, committed text, a click), the end of a save the host ran, a
@@ -21,7 +23,7 @@ type Clip = Put{Text string} | Take{}
 // were asked for, which keys the write so that a new save replaces the
 // old; and the same for the clipboard: the task in flight and how many
 // were asked for.
-type Window { Ed edit.State, Name string, Writing Option[string], Saves int, Clipping Option[Clip], Clips int }
+type Window { Ed edit.State, Name string, Writing option.Option[string], Saves int, Clipping option.Option[Clip], Clips int }
 
 // Opening is what the app starts on: the document's text and name.
 type Opening { Text string, Name string }
@@ -31,7 +33,7 @@ type Note = SavedNote{Name string, Bytes int} | CannotSave{Name string, Reason s
 
 // Begin is the editor on o: the machine's input.
 func Begin(o Opening) Window {
-	Window{Ed: edit.Open(o.Text), Name: o.Name, Writing: None, Saves: 0, Clipping: None, Clips: 0}
+	Window{Ed: edit.Open(o.Text), Name: o.Name, Writing: option.None, Saves: 0, Clipping: option.None, Clips: 0}
 }
 
 // Step is the app's transition. The editor's Write starts a save; its end
@@ -39,36 +41,36 @@ func Begin(o Opening) Window {
 // edits unsaved, as the headless driver does. The editor's Copied starts
 // a clipboard write; a paste starts a clipboard read, whose text the
 // editor gets typed, as the headless driver types it.
-func Step(w Window, e Signal) Decision[Window, Note] {
+func Step(w Window, e Signal) machines.Decision[Window, Note] {
 	match e {
 	case Do as d:
 		match edit.Step(w.Ed, d.Signal) {
-		case Enter[edit.State] as x:
-			Stay[Window]{Next: Window{..w, Ed: x.Next}}
-		case Stay[edit.State] as x:
-			Stay[Window]{Next: Window{..w, Ed: x.Next}}
-		case Emit[edit.State, edit.Output] as x:
+		case machines.Enter[edit.State] as x:
+			machines.Stay[Window]{Next: Window{..w, Ed: x.Next}}
+		case machines.Stay[edit.State] as x:
+			machines.Stay[Window]{Next: Window{..w, Ed: x.Next}}
+		case machines.Emit[edit.State, edit.Output] as x:
 			match x.Output {
 			case edit.Write as t:
-				Stay[Window]{Next: Window{..w, Ed: x.Next, Writing: Some{Value: t.Text}, Saves: w.Saves + 1}}
+				machines.Stay[Window]{Next: Window{..w, Ed: x.Next, Writing: option.Some{Value: t.Text}, Saves: w.Saves + 1}}
 			case edit.Copied as c:
-				Stay[Window]{Next: Window{..w, Ed: x.Next, Clipping: Some{Value: Put{Text: c.Text}}, Clips: w.Clips + 1}}
+				machines.Stay[Window]{Next: Window{..w, Ed: x.Next, Clipping: option.Some{Value: Put{Text: c.Text}}, Clips: w.Clips + 1}}
 			}
-		case Ignore, Tell[edit.State, edit.Output]:
-			Ignore
-		case Reject, Done[edit.Output]:
-			Reject
+		case machines.Ignore, machines.Tell[edit.State, edit.Output]:
+			machines.Ignore
+		case machines.Reject, machines.Done[edit.Output]:
+			machines.Reject
 		}
 	case Wrote as x:
-		Emit[Window, Note]{Next: Window{..w, Ed: edit.After(w.Ed, edit.Saved), Writing: None}, Output: SavedNote{Name: w.Name, Bytes: x.Bytes}}
+		machines.Emit[Window, Note]{Next: Window{..w, Ed: edit.After(w.Ed, edit.Saved), Writing: option.None}, Output: SavedNote{Name: w.Name, Bytes: x.Bytes}}
 	case WriteFailed as x:
-		Emit[Window, Note]{Next: Window{..w, Writing: None}, Output: CannotSave{Name: w.Name, Reason: x.Reason}}
+		machines.Emit[Window, Note]{Next: Window{..w, Writing: option.None}, Output: CannotSave{Name: w.Name, Reason: x.Reason}}
 	case AskPaste:
-		Stay[Window]{Next: Window{..w, Clipping: Some{Value: Take}, Clips: w.Clips + 1}}
+		machines.Stay[Window]{Next: Window{..w, Clipping: option.Some{Value: Take}, Clips: w.Clips + 1}}
 	case Clipped as c:
-		Stay[Window]{Next: Window{..w, Ed: edit.After(w.Ed, edit.Type{Text: c.Text}), Clipping: None}}
+		machines.Stay[Window]{Next: Window{..w, Ed: edit.After(w.Ed, edit.Type{Text: c.Text}), Clipping: option.None}}
 	case ClipWritten:
-		Stay[Window]{Next: Window{..w, Clipping: None}}
+		machines.Stay[Window]{Next: Window{..w, Clipping: option.None}}
 	}
 }
 
@@ -86,13 +88,13 @@ func NoteLine(n Note) string {
 // it was.
 func After(w Window, e Signal) Window {
 	match Step(w, e) {
-	case Enter[Window] as x:
+	case machines.Enter[Window] as x:
 		x.Next
-	case Stay[Window] as x:
+	case machines.Stay[Window] as x:
 		x.Next
-	case Emit[Window, Note] as x:
+	case machines.Emit[Window, Note] as x:
 		x.Next
-	case Ignore, Tell[Window, Note], Reject, Done[Note]:
+	case machines.Ignore, machines.Tell[Window, Note], machines.Reject, machines.Done[Note]:
 		w
 	}
 }
@@ -106,14 +108,14 @@ type App machine[Window, Signal] {
 	// with no write in flight.
 	law WroteIsSaved(o Opening, typed string) {
 		let w = After(After(After(Begin(o), Do{Signal: edit.Type{Text: typed + "x"}}), Do{Signal: edit.Save}), Wrote{Bytes: 0})
-		!edit.DocOf(w.Ed).Dirty && w.Writing == None
+		!edit.DocOf(w.Ed).Dirty && w.Writing == option.None
 	},
 
 	// FailedSaveKeepsEdits: a save that fails leaves the edits unsaved,
 	// with no write in flight.
 	law FailedSaveKeepsEdits(o Opening, typed string, reason string) {
 		let w = After(After(After(Begin(o), Do{Signal: edit.Type{Text: typed + "x"}}), Do{Signal: edit.Save}), WriteFailed{Reason: reason})
-		edit.DocOf(w.Ed).Dirty && w.Writing == None
+		edit.DocOf(w.Ed).Dirty && w.Writing == option.None
 	},
 
 	// CopyPutsTheSelection: a copy of a selection asks the host to put
@@ -121,7 +123,7 @@ type App machine[Window, Signal] {
 	law CopyPutsTheSelection(o Opening, n int) {
 		let w = After(After(After(Begin(o), Do{Signal: edit.Select}), Do{Signal: edit.Right{N: n % 64}}), Do{Signal: edit.Copy})
 		let d = edit.DocOf(w.Ed)
-		w.Clipping == Some{Value: Put{Text: edit.Text(d)[0:d.Caret]}} && After(w, ClipWritten).Clipping == None
+		w.Clipping == option.Some{Value: Put{Text: edit.Text(d)[0:d.Caret]}} && After(w, ClipWritten).Clipping == option.None
 	},
 
 	// PasteTypesTheClipboard: a paste asks the host for the clipboard,
@@ -130,6 +132,6 @@ type App machine[Window, Signal] {
 		let w = After(After(Begin(o), AskPaste), Clipped{Text: clip})
 		let d = edit.DocOf(w.Ed)
 		let undos = if clip == "" { 0 } else { 1 }
-		After(Begin(o), AskPaste).Clipping == Some{Value: Take} && w.Clipping == None && edit.Text(d) == clip+o.Text && len(d.Undo) == undos
+		After(Begin(o), AskPaste).Clipping == option.Some{Value: Take} && w.Clipping == option.None && edit.Text(d) == clip+o.Text && d.Undo.Len() == undos
 	},
 }

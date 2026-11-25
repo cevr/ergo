@@ -6,6 +6,7 @@
 // and the destroy at the end.
 
 import github.com/cevr/ergo/modules/infra
+import option
 
 // World is what the runs share: the cloud, a store per kind, the lock,
 // and the fuse every call goes through.
@@ -109,12 +110,12 @@ func destroy(w World, holder string) Ran {
 // noOrphan: every object in the cloud has a row (models/infra NoOrphan).
 func noOrphan(w World) bool {
 	for id in DirIDs(w.cloud) {
-		if w.dirs.Get(id) == None {
+		if w.dirs.Get(id) == option.None {
 			return false
 		}
 	}
 	for id in FileIDs(w.cloud) {
-		if w.files.Get(id) == None {
+		if w.files.Get(id) == option.None {
 			return false
 		}
 	}
@@ -126,7 +127,7 @@ func liveIsTrue(w World) bool {
 	for r in w.dirs.List() {
 		match r.Status {
 		case infra.Live:
-			if w.cloud.dirs.Get().Get(r.ID) != (Some[Dir]{Value: Dir{Path: r.Props.Path}}) {
+			if w.cloud.dirs.Get().Get(r.ID) != (option.Some[Dir]{Value: Dir{Path: r.Props.Path}}) {
 				return false
 			}
 		case infra.Creating, infra.Deleting:
@@ -135,7 +136,7 @@ func liveIsTrue(w World) bool {
 	for r in w.files.List() {
 		match r.Status {
 		case infra.Live:
-			if w.cloud.files.Get().Get(r.ID) != (Some[File]{Value: File{Path: r.Props.Dir + "/" + r.Props.Name, Size: len(r.Props.Text)}}) {
+			if w.cloud.files.Get().Get(r.ID) != (option.Some[File]{Value: File{Path: r.Props.Dir + "/" + r.Props.Name, Size: r.Props.Text.Len()}}) {
 				return false
 			}
 		case infra.Creating, infra.Deleting:
@@ -155,28 +156,28 @@ func converged(w World, want Want) bool {
 		let d = w.dirs.Get("d\(i)")
 		let f = w.files.Get("f\(i)")
 		if want.Of[i] == 0 {
-			if d != None || w.cloud.dirs.Get().Get("d\(i)") != None {
+			if d != option.None || w.cloud.dirs.Get().Get("d\(i)") != option.None {
 				return false
 			}
-		} else if d != (Some[infra.Row[DirProps]]{Value: infra.Row[DirProps]{ID: "d\(i)", Status: infra.Live, Props: dirProps(i, want.Of[i]), Seq: seqOf(d)}}) || w.cloud.dirs.Get().Get("d\(i)") == None {
+		} else if d != (option.Some[infra.Row[DirProps]]{Value: infra.Row[DirProps]{ID: "d\(i)", Status: infra.Live, Props: dirProps(i, want.Of[i]), Seq: seqOf(d)}}) || w.cloud.dirs.Get().Get("d\(i)") == option.None {
 			return false
 		}
 		if want.Of[3+i] == 0 {
-			if f != None || w.cloud.files.Get().Get("f\(i)") != None {
+			if f != option.None || w.cloud.files.Get().Get("f\(i)") != option.None {
 				return false
 			}
-		} else if f != (Some[infra.Row[FileProps]]{Value: infra.Row[FileProps]{ID: "f\(i)", Status: infra.Live, Props: fileProps(home, i, want.Of[3+i]), Seq: seqOf(f)}}) || w.cloud.files.Get().Get("f\(i)") == None {
+		} else if f != (option.Some[infra.Row[FileProps]]{Value: infra.Row[FileProps]{ID: "f\(i)", Status: infra.Live, Props: fileProps(home, i, want.Of[3+i]), Seq: seqOf(f)}}) || w.cloud.files.Get().Get("f\(i)") == option.None {
 			return false
 		}
 	}
-	w.lock.Holder() == None
+	w.lock.Holder() == option.None
 }
 
-func seqOf[P comparable](r Option[infra.Row[P]]) int {
+func seqOf[P comparable](r option.Option[infra.Row[P]]) int {
 	match r {
-	case Some[infra.Row[P]] as x:
+	case option.Some[infra.Row[P]] as x:
 		x.Value.Seq
-	case None:
+	case option.None:
 		0
 	}
 }
@@ -191,15 +192,15 @@ func newestFirst(w World, steps []infra.Step) bool {
 	for r in w.files.List() {
 		seqs = seqs.Put("file/"+r.ID, r.Seq)
 	}
-	if len(steps) != len(seqs) {
+	if steps.Len() != seqs.Len() {
 		return false
 	}
 	let mut last = -1
 	for i, s in steps {
 		let seq = match seqs.Get(s.Kind + "/" + s.ID) {
-		case Some[int] as n:
+		case option.Some[int] as n:
 			n.Value
-		case None:
+		case option.None:
 			return false
 		}
 		if s.Change != infra.Delete || (i > 0 && seq >= last) {
@@ -224,7 +225,7 @@ func newestFirst(w World, steps []infra.Step) bool {
 // first.
 func Applies(runs []int, crashes []int) bool {
 	let w = newWorld()
-	let mut held Option[string] = None
+	let mut held option.Option[string] = option.None
 	for i, n in runs {
 		let want = wantOf(n)
 		let holder = if i%2 == 0 { "r1" } else { "r2" }
@@ -238,7 +239,7 @@ func Applies(runs []int, crashes []int) bool {
 			return false
 		}
 		Arm(w.fuse, -1, false)
-		if i < len(crashes) {
+		if i < crashes.Len() {
 			let k = ((crashes[i] % 40) + 40) % 40
 			if k < 30 {
 				Arm(w.fuse, k, ((crashes[i]/40)%2+2)%2 == 1)
@@ -248,7 +249,7 @@ func Applies(runs []int, crashes []int) bool {
 		match ran {
 		case Locked as l:
 			// The other runner crashed and holds the lock: break it.
-			if held != (Some[string]{Value: l.Holder}) {
+			if held != (option.Some[string]{Value: l.Holder}) {
 				return false
 			}
 			w.lock.Break(l.Holder) catch {
@@ -257,7 +258,7 @@ func Applies(runs []int, crashes []int) bool {
 			}
 			ran = run(w, infra.Applying, holder, want)
 		case Finished, Crashed:
-			if held != None && held != (Some[string]{Value: holder}) {
+			if held != option.None && held != (option.Some[string]{Value: holder}) {
 				// Another held the lock, and the run did not see it.
 				return false
 			}
@@ -268,42 +269,42 @@ func Applies(runs []int, crashes []int) bool {
 		}
 		match ran {
 		case Finished:
-			held = None
+			held = option.None
 			if !converged(w, want) {
 				return false
 			}
 			match run(w, infra.Planning, holder, want) {
 			case Finished as again:
-				if len(again.Steps) != 0 {
+				if again.Steps.Len() != 0 {
 					return false
 				}
 			case Crashed, Locked:
 				return false
 			}
 		case Crashed:
-			held = Some[string]{Value: holder}
+			held = option.Some[string]{Value: holder}
 		case Locked:
 			return false
 		}
 	}
 	match held {
-	case Some[string] as h:
+	case option.Some[string] as h:
 		w.lock.Break(h.Value) catch {
 		case infra.Held:
 			return false
 		}
-	case None:
+	case option.None:
 	}
-	let rows = len(w.dirs.List()) + len(w.files.List())
+	let rows = w.dirs.List().Len() + w.files.List().Len()
 	match destroy(w, "operator") {
 	case Finished as f:
-		if len(f.Steps) != rows {
+		if f.Steps.Len() != rows {
 			return false
 		}
 	case Crashed, Locked:
 		return false
 	}
-	Objects(w.cloud) == 0 && len(w.dirs.List()) == 0 && len(w.files.List()) == 0 && w.lock.Holder() == None
+	Objects(w.cloud) == 0 && w.dirs.List().Len() == 0 && w.files.List().Len() == 0 && w.lock.Holder() == option.None
 }
 
 // ApplyConverges: whatever stacks, crashes and turns of two runners, the
@@ -335,7 +336,7 @@ law DestroyIsNewestFirst(runs []int) {
 
 // planned is the steps of a plan in mode over w of the stack of want, run
 // times times in the one pass.
-func planned(w World, mode infra.Mode, want Want, times int) Option[[]infra.Step] {
+func planned(w World, mode infra.Mode, want Want, times int) option.Option[[]infra.Step] {
 	let r = infra.NewPass(mode)
 	let dirs = infra.Engine[DirProps, Dir]{Kind: "dir", Driver: DirsIn(w.cloud), State: w.dirs, Pass: r}
 	let files = infra.Engine[FileProps, File]{Kind: "file", Driver: FilesIn(w.cloud), State: w.files, Pass: r}
@@ -344,10 +345,10 @@ func planned(w World, mode infra.Mode, want Want, times int) Option[[]infra.Step
 			stack(want)
 		} catch {
 		case infra.Failed:
-			return None
+			return option.None
 		}
 	}
-	Some[[]infra.Step]{Value: infra.Steps(r)}
+	option.Some[[]infra.Step]{Value: infra.Steps(r)}
 }
 
 // PlanCountsEachObjectOnce: a stack that ensures each of its objects twice
@@ -365,5 +366,5 @@ law PlanCountsEachObjectOnce(applied int, n int, refresh bool) {
 		mode = infra.Refreshing
 	}
 	let once = planned(w, mode, wantOf(n), 1)
-	once != None && planned(w, mode, wantOf(n), 2) == once
+	once != option.None && planned(w, mode, wantOf(n), 2) == once
 }

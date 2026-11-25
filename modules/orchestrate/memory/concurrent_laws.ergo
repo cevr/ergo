@@ -1,4 +1,5 @@
 import github.com/cevr/ergo/modules/orchestrate/orchestrate
+import option
 import pace
 import strings
 import testing
@@ -19,11 +20,11 @@ type orchStory {
 	seq   int,
 }
 
-func optStringText(o Option[string]) string {
+func optStringText(o option.Option[string]) string {
 	match o {
-	case Some[string] as s:
+	case option.Some[string] as s:
 		s.Value
-	case None:
+	case option.None:
 		""
 	}
 }
@@ -61,16 +62,16 @@ func orchStoryStep(st orchStory, a orchAct) (orchStory, orchRes) {
 		case orchestrate.InvalidInput:
 			return (st, OrchRefused{Kind: "InvalidInput"})
 		}
-		if len(events) == 0 {
+		if events.Len() == 0 {
 			return (st, OrchExecOK{Seq: st.seq, Duplicate: true})
 		}
-		let nextSeq = st.seq + len(events)
+		let nextSeq = st.seq + events.Len()
 		let nextState = orchestrate.ApplyAll(st.state, events)
 		(orchStory{state: nextState, seq: nextSeq}, OrchExecOK{Seq: nextSeq, Duplicate: false})
 	case OrchListUnits:
-		(st, OrchUnits{Summary: summarizeUnits(orchestrate.ListUnits(st.state, None))})
+		(st, OrchUnits{Summary: summarizeUnits(orchestrate.ListUnits(st.state, option.None))})
 	case OrchListCommitments:
-		(st, OrchCommitments{Summary: summarizeCommitments(orchestrate.ListCommitments(st.state, None, None))})
+		(st, OrchCommitments{Summary: summarizeCommitments(orchestrate.ListCommitments(st.state, option.None, option.None))})
 	}
 }
 
@@ -95,13 +96,13 @@ func runOrchAct(store Store, a orchAct) orchRes {
 		}
 		OrchExecOK{Seq: r.Seq, Duplicate: r.Duplicate}
 	case OrchListUnits:
-		let us = store.ListUnits(None) catch {
+		let us = store.ListUnits(option.None) catch {
 		case orchestrate.StoreFailed:
 			return OrchRefused{Kind: "StoreFailed"}
 		}
 		OrchUnits{Summary: summarizeUnits(us)}
 	case OrchListCommitments:
-		let cs = store.ListCommitments(None, None) catch {
+		let cs = store.ListCommitments(option.None, option.None) catch {
 		case orchestrate.StoreFailed:
 			return OrchRefused{Kind: "StoreFailed"}
 		}

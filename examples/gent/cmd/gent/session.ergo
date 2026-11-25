@@ -10,6 +10,7 @@ import journal/file
 import json
 import os
 import strconv
+import time
 
 // SignalText is the codec of the session file's signals: their JSON.
 type SignalText {} implements journal.Codec[agent.Signal]
@@ -45,7 +46,7 @@ func Decode(_ StateText, text string) agent.State fails journal.Failed {
 // empty, else the one the file at path keeps (read and written with
 // host), resumed. A file the loop
 // no longer fits names the first signal it does not take.
-func openSession(host fs.Host, l agent.Limits, path string) agent.Session fails os.Exit needs agent.Model | agent.Tools | exec.Runner | Scheduler {
+func openSession(host fs.Host, l agent.Limits, path string) agent.Session fails os.Exit needs agent.Model | agent.Tools | exec.Runner | time.Scheduler {
 	if path == "" {
 		return agent.Open(l)
 	}
@@ -67,7 +68,7 @@ func named(j file.Journal[agent.State, agent.Signal], i int) string {
 	case journal.Failed:
 		return "unreadable"
 	}
-	if i < 0 || i >= len(log.Signals) {
+	if i < 0 || i >= log.Signals.Len() {
 		return "past the end"
 	}
 	SignalText.Encode(log.Signals[i])

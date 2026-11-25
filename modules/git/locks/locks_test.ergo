@@ -1,7 +1,10 @@
+import core
 import explore
 import filepath
 import go os
 import go os/exec
+import machines
+import option
 import strings
 import sync
 import testing
@@ -33,25 +36,25 @@ type pathDriveErr { Why string }
 
 type lockSession {
 	mem    MemoryLockOps,
-	lock   sync.Ref[Option[LockFile]],
+	lock   sync.Ref[option.Option[LockFile]],
 	staged sync.Ref[string],
 	mode   sync.Ref[Durability],
-} implements explore.PathSession[pathCmd, explore.Observed[modelState, LockPhase, Never], pathDriveErr]
+} implements explore.PathSession[pathCmd, explore.Observed[modelState, LockPhase, core.Never], pathDriveErr]
 
 func pathTarget() string { "refs/heads/main" }
 
 func stateOf(s lockSession) modelState {
 	let lOpt = s.lock.Get()
 	let phase = match lOpt {
-	case Some[LockFile] as l:
+	case option.Some[LockFile] as l:
 		Phase(l.Value)
-	case None:
+	case option.None:
 		PhaseIdle
 	}
 	let committed = match s.mem.ReadTarget(pathTarget()) {
-	case Some[string] as v:
+	case option.Some[string] as v:
 		v.Value
-	case None:
+	case option.None:
 		""
 	}
 	modelState{
@@ -63,109 +66,109 @@ func stateOf(s lockSession) modelState {
 	}
 }
 
-func rejectObs(s lockSession) explore.Observed[modelState, LockPhase, Never] {
-	explore.StepResult[modelState, LockPhase, Never]{Step: explore.StepObs[modelState, LockPhase, Never]{
+func rejectObs(s lockSession) explore.Observed[modelState, LockPhase, core.Never] {
+	explore.StepResult[modelState, LockPhase, core.Never]{Step: explore.StepObs[modelState, LockPhase, core.Never]{
 		Kind:     explore.DisReject,
-		State:    Some[modelState]{Value: stateOf(s)},
+		State:    option.Some[modelState]{Value: stateOf(s)},
 		Outputs:  []LockPhase{},
-		Error:    None,
+		Error:    option.None,
 		Terminal: false,
 	}}
 }
 
-func emitObs(v modelState) explore.Observed[modelState, LockPhase, Never] {
-	explore.StepResult[modelState, LockPhase, Never]{Step: explore.StepObs[modelState, LockPhase, Never]{
+func emitObs(v modelState) explore.Observed[modelState, LockPhase, core.Never] {
+	explore.StepResult[modelState, LockPhase, core.Never]{Step: explore.StepObs[modelState, LockPhase, core.Never]{
 		Kind:     explore.DisEmit,
-		State:    Some[modelState]{Value: v},
+		State:    option.Some[modelState]{Value: v},
 		Outputs:  []LockPhase{v.Phase},
-		Error:    None,
+		Error:    option.None,
 		Terminal: false,
 	}}
 }
 
-func Read(s lockSession) explore.Observed[modelState, LockPhase, Never] fails pathDriveErr {
+func Read(s lockSession) explore.Observed[modelState, LockPhase, core.Never] fails pathDriveErr {
 	explore.InitialRead[modelState]{State: stateOf(s)}
 }
 
-func Apply(s lockSession, c pathCmd) explore.Observed[modelState, LockPhase, Never] fails pathDriveErr {
+func Apply(s lockSession, c pathCmd) explore.Observed[modelState, LockPhase, core.Never] fails pathDriveErr {
 	with context { LockOps: s.mem } {
 		match c {
 		case CmdAcquireDurable:
-			if s.lock.Get() != None {
+			if s.lock.Get() != option.None {
 				return rejectObs(s)
 			}
 			let l = Acquire(pathTarget(), Durable) catch {
 			case LockHeld, PathInvalid:
 				return rejectObs(s)
 			}
-			s.lock.Set(Some[LockFile]{Value: l})
+			s.lock.Set(option.Some[LockFile]{Value: l})
 			s.mode.Set(Durable)
 			s.staged.Set("")
 			emitObs(stateOf(s))
 		case CmdAcquireAtomic:
-			if s.lock.Get() != None {
+			if s.lock.Get() != option.None {
 				return rejectObs(s)
 			}
 			let l = Acquire(pathTarget(), Atomic) catch {
 			case LockHeld, PathInvalid:
 				return rejectObs(s)
 			}
-			s.lock.Set(Some[LockFile]{Value: l})
+			s.lock.Set(option.Some[LockFile]{Value: l})
 			s.mode.Set(Atomic)
 			s.staged.Set("")
 			emitObs(stateOf(s))
 		case CmdWrite:
 			match s.lock.Get() {
-			case None:
+			case option.None:
 				rejectObs(s)
-			case Some[LockFile] as cur:
+			case option.Some[LockFile] as cur:
 				let mut l = cur.Value
 				l.Write("new-oid") catch {
 				case NotHeld, AlreadyPublished, PathInvalid:
 					return rejectObs(s)
 				}
-				s.lock.Set(Some[LockFile]{Value: l})
+				s.lock.Set(option.Some[LockFile]{Value: l})
 				s.staged.Set("new-oid")
 				emitObs(stateOf(s))
 			}
 		case CmdSync:
 			match s.lock.Get() {
-			case None:
+			case option.None:
 				rejectObs(s)
-			case Some[LockFile] as cur:
+			case option.Some[LockFile] as cur:
 				let mut l = cur.Value
 				l.Sync() catch {
 				case NotHeld, AlreadyPublished, SyncFailed:
 					return rejectObs(s)
 				}
-				s.lock.Set(Some[LockFile]{Value: l})
+				s.lock.Set(option.Some[LockFile]{Value: l})
 				emitObs(stateOf(s))
 			}
 		case CmdCommit:
 			match s.lock.Get() {
-			case None:
+			case option.None:
 				rejectObs(s)
-			case Some[LockFile] as cur:
+			case option.Some[LockFile] as cur:
 				let mut l = cur.Value
 				l.Commit() catch {
 				case NotHeld, AlreadyPublished, SyncFailed, PublishFailed, DirSyncUncertain:
 					return rejectObs(s)
 				}
-				s.lock.Set(Some[LockFile]{Value: l})
+				s.lock.Set(option.Some[LockFile]{Value: l})
 				s.staged.Set("")
 				emitObs(stateOf(s))
 			}
 		case CmdAbort:
 			match s.lock.Get() {
-			case None:
+			case option.None:
 				rejectObs(s)
-			case Some[LockFile] as cur:
+			case option.Some[LockFile] as cur:
 				if !IsOwned(cur.Value) {
 					return rejectObs(s)
 				}
 				let mut l = cur.Value
 				l.Abort()
-				s.lock.Set(Some[LockFile]{Value: l})
+				s.lock.Set(option.Some[LockFile]{Value: l})
 				s.staged.Set("")
 				emitObs(stateOf(s))
 			}
@@ -175,29 +178,29 @@ func Apply(s lockSession, c pathCmd) explore.Observed[modelState, LockPhase, Nev
 
 func Close(_ lockSession) {}
 
-func lockPathModel() explore.PathModel[modelState, pathCmd, modelState, LockPhase, Never] {
+func lockPathModel() explore.PathModel[modelState, pathCmd, modelState, LockPhase, core.Never] {
 	explore.PathModelOfMachine[modelState, pathCmd, LockPhase](
 		[]modelState{modelState{Phase: PhaseIdle, Mode: Durable, Committed: "old-oid", Staged: "", LockAlive: false}},
 		[]pathCmd{CmdAcquireDurable, CmdAcquireAtomic, CmdWrite, CmdSync, CmdCommit, CmdAbort},
-		func(s modelState, c pathCmd) Decision[modelState, LockPhase] {
+		func(s modelState, c pathCmd) machines.Decision[modelState, LockPhase] {
 			match (s.Phase, c) {
 			case (PhaseIdle, CmdAcquireDurable):
-				Emit[modelState, LockPhase]{
+				machines.Emit[modelState, LockPhase]{
 					Next:   modelState{Phase: PhaseHeld, Mode: Durable, Committed: s.Committed, Staged: "", LockAlive: true},
 					Output: PhaseHeld,
 				}
 			case (PhaseIdle, CmdAcquireAtomic):
-				Emit[modelState, LockPhase]{
+				machines.Emit[modelState, LockPhase]{
 					Next:   modelState{Phase: PhaseHeld, Mode: Atomic, Committed: s.Committed, Staged: "", LockAlive: true},
 					Output: PhaseHeld,
 				}
 			case (PhaseHeld, CmdWrite), (PhaseWritten, CmdWrite):
-				Emit[modelState, LockPhase]{
+				machines.Emit[modelState, LockPhase]{
 					Next:   modelState{Phase: PhaseWritten, Mode: s.Mode, Committed: s.Committed, Staged: "new-oid", LockAlive: true},
 					Output: PhaseWritten,
 				}
 			case (PhaseWritten, CmdSync), (PhaseSynced, CmdSync):
-				Emit[modelState, LockPhase]{
+				machines.Emit[modelState, LockPhase]{
 					Next:   modelState{Phase: PhaseSynced, Mode: s.Mode, Committed: s.Committed, Staged: s.Staged, LockAlive: true},
 					Output: PhaseSynced,
 				}
@@ -208,17 +211,17 @@ func lockPathModel() explore.PathModel[modelState, pathCmd, modelState, LockPhas
 				case Atomic:
 					PhasePublished
 				}
-				Emit[modelState, LockPhase]{
+				machines.Emit[modelState, LockPhase]{
 					Next:   modelState{Phase: nextPhase, Mode: s.Mode, Committed: s.Staged, Staged: "", LockAlive: false},
 					Output: nextPhase,
 				}
 			case (PhaseHeld, CmdAbort), (PhaseWritten, CmdAbort), (PhaseSynced, CmdAbort):
-				Emit[modelState, LockPhase]{
+				machines.Emit[modelState, LockPhase]{
 					Next:   modelState{Phase: PhaseAborted, Mode: s.Mode, Committed: s.Committed, Staged: "", LockAlive: false},
 					Output: PhaseAborted,
 				}
 			case _:
-				Reject
+				machines.Reject
 			}
 		},
 	)
@@ -232,9 +235,9 @@ test LockProtocolPathsAgree {
 		lockPathModel(),
 		explore.ToDepth{Depth: 3},
 		explore.PathBounds{MaxStates: 128, MaxEdges: 512, MaxPaths: 512, MaxSteps: 2048, MaxWork: 16384, MaxBytes: 131072},
-		func(start modelState) explore.PathSession[pathCmd, explore.Observed[modelState, LockPhase, Never], pathDriveErr] fails pathOpenErr {
+		func(start modelState) explore.PathSession[pathCmd, explore.Observed[modelState, LockPhase, core.Never], pathDriveErr] fails pathOpenErr {
 			let m = NewMemory(Map[string, string]{}.Put(pathTarget(), start.Committed))
-			let noLock Option[LockFile] = None
+			let noLock option.Option[LockFile] = option.None
 			lockSession{
 				mem:    m,
 				lock:   sync.NewRef(noLock),
@@ -297,7 +300,7 @@ test CrashAtEveryEdgePreservesInvariant {
 	with context { LockOps: memOk } {
 		try CommitBytes(target, "new-oid\n", Durable)
 	}
-	assert memOk.ReadTarget(target) == Some[string]{Value: "new-oid\n"}
+	assert memOk.ReadTarget(target) == option.Some[string]{Value: "new-oid\n"}
 	assert !memOk.LockExists(lockPath)
 	let okEvents = Events(memOk)
 	assert hasSyncBeforeRename(okEvents)
@@ -314,7 +317,7 @@ test CrashAtEveryEdgePreservesInvariant {
 		}
 	}
 	assert sawCreateErr
-	assert memCreate.ReadTarget(target) == Some[string]{Value: "old-oid\n"}
+	assert memCreate.ReadTarget(target) == option.Some[string]{Value: "old-oid\n"}
 	assert !memCreate.LockExists(lockPath)
 
 	let memWrite = NewMemoryWithFault(init, EdgeWrite)
@@ -328,7 +331,7 @@ test CrashAtEveryEdgePreservesInvariant {
 		}
 	}
 	assert sawWriteErr
-	assert memWrite.ReadTarget(target) == Some[string]{Value: "old-oid\n"}
+	assert memWrite.ReadTarget(target) == option.Some[string]{Value: "old-oid\n"}
 	assert !memWrite.LockExists(lockPath)
 
 	let memSync = NewMemoryWithFault(init, EdgeSyncFile)
@@ -342,7 +345,7 @@ test CrashAtEveryEdgePreservesInvariant {
 		}
 	}
 	assert sawSyncErr
-	assert memSync.ReadTarget(target) == Some[string]{Value: "old-oid\n"}
+	assert memSync.ReadTarget(target) == option.Some[string]{Value: "old-oid\n"}
 	assert !memSync.LockExists(lockPath)
 
 	let memRename = NewMemoryWithFault(init, EdgeRename)
@@ -356,7 +359,7 @@ test CrashAtEveryEdgePreservesInvariant {
 		}
 	}
 	assert sawRenameErr
-	assert memRename.ReadTarget(target) == Some[string]{Value: "old-oid\n"}
+	assert memRename.ReadTarget(target) == option.Some[string]{Value: "old-oid\n"}
 	assert !memRename.LockExists(lockPath)
 
 	let memDirSync = NewMemoryWithFault(init, EdgeSyncDir)
@@ -370,7 +373,7 @@ test CrashAtEveryEdgePreservesInvariant {
 		}
 	}
 	assert sawUncertain
-	assert memDirSync.ReadTarget(target) == Some[string]{Value: "new-oid\n"}
+	assert memDirSync.ReadTarget(target) == option.Some[string]{Value: "new-oid\n"}
 	assert !memDirSync.LockExists(lockPath)
 
 	let memRival = NewMemory(init)
@@ -390,7 +393,7 @@ test CrashAtEveryEdgePreservesInvariant {
 		assert memRival.LockExists(lockPath)
 		try winner.Commit()
 	}
-	assert memRival.ReadTarget(target) == Some[string]{Value: "winner-oid\n"}
+	assert memRival.ReadTarget(target) == option.Some[string]{Value: "winner-oid\n"}
 	assert !memRival.LockExists(lockPath)
 }
 
@@ -408,9 +411,9 @@ func runHostGit(dir string, args []string, envSlice []string) (bool, string) nee
 	let fullArgs = []string{"-i"}.Concat(envSlice).Concat([]string{"git", "-C", dir}).Concat(args)
 	let cmdOpt = exec.Command("env", fullArgs)
 	match cmdOpt {
-	case None:
+	case option.None:
 		(false, "")
-	case Some[go.Ref[exec.Cmd]] as c:
+	case option.Some[go.Ref[exec.Cmd]] as c:
 		let out = c.Value.Output() catch {
 		case go.Error:
 			return (false, "")

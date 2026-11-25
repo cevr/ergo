@@ -148,7 +148,7 @@ func statementsOf(code []Token) []Span {
 	let mut start = -1
 	let mut nest = 0 // open ( [ { at this point
 	let mut i = 0
-	for i < len(code) {
+	for i < code.Len() {
 		let t = code[i]
 		if start >= 0 && nest == 0 && t.NewLine {
 			let p = code[i-1]
@@ -172,7 +172,7 @@ func statementsOf(code []Token) []Span {
 			start = -1
 		} else if nest == 0 && x == "}" && block(head(code, start, i+1)) {
 			let next = i + 1
-			if next >= len(code) || !(isPunctOrWord(code[next]) && joins(code[next].Text)) {
+			if next >= code.Len() || !(isPunctOrWord(code[next]) && joins(code[next].Text)) {
 				// A do statement ends after its while (...); every other
 				// block statement ends here.
 				if head(code, start, i+1) != "do" {
@@ -184,7 +184,7 @@ func statementsOf(code []Token) []Span {
 		i += 1
 	}
 	if start >= 0 {
-		out = out.Append(Span{From: code[start].From, To: code[len(code)-1].To})
+		out = out.Append(Span{From: code[start].From, To: code[code.Len()-1].To})
 	}
 	out
 }

@@ -9,8 +9,8 @@ func Play[S Screen](s mut S, input string, chunk int) Played {
 	let mut p = NewStream(true)
 	let mut u = NewUnhandled()
 	let mut at = 0
-	for at < len(input) {
-		let end = if at+size < len(input) { at + size } else { len(input) }
+	for at < input.Len() {
+		let end = if at+size < input.Len() { at + size } else { input.Len() }
 		p.Feed(input[at:end])
 		p.Flush(s, &u)
 		at = end

@@ -1,4 +1,5 @@
 import ergo.dev/fluid/part
+import option
 
 // The rule tables: total functions of part.Role, after WAI-ARIA 1.2 (as @ui-sdk/core's
 // kernel/roles.ts lists them).
@@ -181,7 +182,7 @@ func checkTo(t Tree, keys Map[string, bool], f func(p Problem)) {
 		}
 		for rel in t.Rels {
 			let to = relKey(rel)
-			if to != "" && keys.Get(to) == None {
+			if to != "" && keys.Get(to) == option.None {
 				f(Dangling{Key: k, To: to})
 			}
 			match rel {
@@ -293,17 +294,17 @@ law RolesHaveRequiredStates(r part.Role, i int) {
 	for s in need {
 		ok = ok && Supports(r, s)
 	}
-	if len(need) > 0 {
-		let drop = ((i % len(need)) + len(need)) % len(need)
+	if need.Len() > 0 {
+		let drop = ((i % need.Len()) + need.Len()) % need.Len()
 		let mut fewer = []part.State{}
-		for j in 0..len(need) {
+		for j in 0..need.Len() {
 			if j != drop {
 				fewer = fewer.Append(need[j])
 			}
 		}
 		ok = ok && count(Check(Tree{..fit(r), States: fewer}), "missing") == 1
 	}
-	ok && (!isRole(r, part.Tab) || len(need) == 1) && (!isRole(r, part.Checkbox) || len(need) == 1)
+	ok && (!isRole(r, part.Tab) || need.Len() == 1) && (!isRole(r, part.Checkbox) || need.Len() == 1)
 }
 
 // StatesAreSupportedByRole: a node stating s is flagged exactly when its role does not take s;
@@ -370,7 +371,7 @@ law ModalHidesTheRest(outside int, modal bool) {
 	for i in 0..n {
 		kids = kids.Append(press("out \(i)"))
 	}
-	kids = kids.Append(part.Layer{Z: 1, Modal: modal, Dismiss: None, Kids: []part.Node[int]{press("in")}})
+	kids = kids.Append(part.Layer{Z: 1, Modal: modal, Dismiss: option.None, Kids: []part.Node[int]{press("in")}})
 	let root part.Node[int] = part.Box{Sem: part.Plain(), Skin: part.Bare(), Inline: false, Keys: []part.Binding[int]{}, Kids: kids}
 	let t = Of(root)
 	stops(t.Kids) == (if modal { 1 } else { n + 1 }) && (!modal || textOf(t.Kids) == "in")
@@ -378,5 +379,5 @@ law ModalHidesTheRest(outside int, modal bool) {
 
 // press is an enabled button. (a law's helper)
 func press(label string) part.Node[int] {
-	part.Press{Sem: part.Of(part.Button), Skin: part.Control{Root: part.Bare(), Plate: part.Bare(), Content: part.Bare()}, On: Some[int]{Value: 1}, Kids: []part.Node[int]{part.Text{Value: label, Skin: part.Bare()}}}
+	part.Press{Sem: part.Of(part.Button), Skin: part.Control{Root: part.Bare(), Plate: part.Bare(), Content: part.Bare()}, On: option.Some[int]{Value: 1}, Kids: []part.Node[int]{part.Text{Value: label, Skin: part.Bare()}}}
 }

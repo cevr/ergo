@@ -2,13 +2,14 @@
 // eight lines and marks a 24-line page. It prints how many pages it kept
 // and the first line of the first and last page.
 
+import io
 import os
 import strconv
 import pager/screen
 
-func main() fails os.Exit needs Console | Ambient {
+func main() fails os.Exit needs io.Console | os.Ambient {
 	let args = os.NewHost().Args()
-	if len(args) != 1 {
+	if args.Len() != 1 {
 		return os.Exit{Code: 2, Message: "usage: pager N"}
 	}
 	let n = strconv.Atoi(args[0]) catch {
@@ -30,9 +31,9 @@ func main() fails os.Exit needs Console | Ambient {
 			return os.Exit{Code: 1, Message: "frame \(f) marks past the buffer"}
 		}
 	}
-	Console.Println("pages \(pages)")
+	io.Console.Println("pages \(pages)")
 	if pages > 0 {
-		Console.Println("first page \(screen.PageOf(s, 0)[0])")
-		Console.Println("last page \(screen.PageOf(s, pages-1)[0])")
+		io.Console.Println("first page \(screen.PageOf(s, 0)[0])")
+		io.Console.Println("last page \(screen.PageOf(s, pages-1)[0])")
 	}
 }

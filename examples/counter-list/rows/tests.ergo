@@ -30,13 +30,13 @@ func counts(r Rows) []int {
 test AddAppendsAFreshRowWithTheNextKey {
 	// ClickedAddRow appends a fresh Counter row with the next id.
 	let r = after(two(0, 0), []Signal{Add})
-	assert len(r.Items) == 3 && Name(r.Items[2].Key) == "counter-2" && r.Items[2].Counter.N == 0 && r.Next == 3
+	assert r.Items.Len() == 3 && Name(r.Items[2].Key) == "counter-2" && r.Items[2].Counter.N == 0 && r.Next == 3
 }
 
 test RemoveDropsOnlyThatRow {
 	// ClickedRemoveRow drops only the targeted row.
 	let r = after(two(0, 0), []Signal{Remove{Key: 0}})
-	assert len(r.Items) == 1 && r.Items[0].Key == 1
+	assert r.Items.Len() == 1 && r.Items[0].Key == 1
 }
 
 test IncrementGoesToItsRowOnly {
@@ -52,7 +52,7 @@ test DecrementGoesToItsRowOnly {
 test SignalForAMissingKeyChangesNothing {
 	// GotCounterMessage for a missing id leaves the model unchanged.
 	let r = two(0, 0)
-	assert Step(r, At{Key: 99, Sig: counter.Increment}) == Ignore
+	assert Step(r, At{Key: 99, Sig: counter.Increment}) == machines.Ignore
 }
 
 test RowsAccumulateIndependently {

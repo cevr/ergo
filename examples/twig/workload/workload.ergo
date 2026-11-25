@@ -8,15 +8,15 @@ import strings
 
 // Program is the workload of n rounds for seed.
 func Program(seed int, n int) string {
-	with context { Random: rand.Seeded(uint64(seed)) } {
+	with context { rand.Random: rand.Seeded(uint64(seed)) } {
 		write(seed, n)
 	}
 }
 
 // coord is a float literal of twig drawn from Random: an int over 1000.
-func coord() string needs Random { "float(\(Random.IntN(4001) - 2000)) / 1000.0" }
+func coord() string needs rand.Random { "float(\(rand.Random.IntN(4001) - 2000)) / 1000.0" }
 
-func write(seed int, n int) string needs Random {
+func write(seed int, n int) string needs rand.Random {
 	let mut b = strings.NewBuilder()
 	b.WriteString("// twig workload: seed \(seed), \(n) rounds\n")
 	b.WriteString("fn fib(n) {\n\tif n < 2 {\n\t\treturn n\n\t}\n\treturn fib(n - 1) + fib(n - 2)\n}\n\n")
@@ -32,15 +32,15 @@ func write(seed int, n int) string needs Random {
 		b.WriteString("push(bodies, {x: " + coord() + ", y: " + coord() + ", vx: 0.0, vy: 0.0, m: " + coord() + " + 3.0})\n")
 	}
 	b.WriteString("let words = [")
-	let count = 3 + Random.IntN(4)
+	let count = 3 + rand.Random.IntN(4)
 	for i in 0..count {
 		if i > 0 {
 			b.WriteString(", ")
 		}
-		b.WriteString("\"w\(Random.IntN(100))\"")
+		b.WriteString("\"w\(rand.Random.IntN(100))\"")
 	}
 	b.WriteString("]\n")
-	let depth = 8 + Random.IntN(4)
+	let depth = 8 + rand.Random.IntN(4)
 	b.WriteString("let total = 0\nlet round = 0\nwhile round < \(n) {\n")
 	b.WriteString("\ttotal = total + fib(\(depth))\n\tstep(bodies, 0.01)\n")
 	b.WriteString("\tlet s = \"\"\n\tfor w in words {\n\t\ts = s + w\n\t}\n")

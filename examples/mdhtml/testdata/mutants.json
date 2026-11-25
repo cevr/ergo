@@ -8,7 +8,9 @@
       "from": "b.WriteString(\"&lt;\")",
       "to": "b.WriteString(\"<\")",
       "rule": "Escaped text starts no tag (law html.EscapeHasNoMarkup).",
-      "killers": ["examples:mdhtml"]
+      "killers": [
+        "examples:mdhtml"
+      ]
     },
     {
       "name": "mdhtml-unescape-keeps-amp",
@@ -17,7 +19,9 @@
       "from": "strings.ReplaceAll(c, \"&amp;\", \"&\")",
       "to": "c",
       "rule": "Unescape reads back what Escape wrote (law html.EscapeRoundTrip).",
-      "killers": ["examples:mdhtml"]
+      "killers": [
+        "examples:mdhtml"
+      ]
     },
     {
       "name": "mdhtml-href-lets-javascript-through",
@@ -26,7 +30,9 @@
       "from": "if strings.HasPrefix(l, \"javascript:\") || strings.HasPrefix(l, \"vbscript:\")",
       "to": "if strings.HasPrefix(l, \"vbscript:\")",
       "rule": "A safe Url never names javascript: (law html.HrefIsSafe).",
-      "killers": ["examples:mdhtml"]
+      "killers": [
+        "examples:mdhtml"
+      ]
     },
     {
       "name": "mdhtml-escapable-skips-the-first-range",
@@ -35,16 +41,20 @@
       "from": "(c >= '!' && c <= '/') || (c >= ':' && c <= '@')",
       "to": "(c >= ':' && c <= '@')",
       "rule": "Every ASCII punctuation character can be escaped (law markdown.EscapedPunctuationIsText).",
-      "killers": ["examples:mdhtml"]
+      "killers": [
+        "examples:mdhtml"
+      ]
     },
     {
       "name": "mdhtml-code-span-strips-one-side",
       "origin": "wf10 PA3",
       "file": "examples/mdhtml/markdown/inline.ergo",
-      "from": "contents[0] == ' ' && contents[len(contents)-1] == ' ' && strings.TrimLeft",
+      "from": "contents[0] == ' ' && contents[contents.Len()-1] == ' ' && strings.TrimLeft",
       "to": "contents[0] == ' ' && strings.TrimLeft",
       "rule": "A code span loses one space at each end only when it has both (law markdown.CodeSpanKeepsText).",
-      "killers": ["examples:mdhtml"]
+      "killers": [
+        "examples:mdhtml"
+      ]
     },
     {
       "name": "mdhtml-emphasis-never-strong",
@@ -53,7 +63,9 @@
       "from": "let use = if c.num >= 2 && q.delims[opener].num >= 2 { 2 } else { 1 }",
       "to": "let use = 1",
       "rule": "Two delimiters make strong emphasis (law markdown.EmphasisNests).",
-      "killers": ["examples:mdhtml"]
+      "killers": [
+        "examples:mdhtml"
+      ]
     },
     {
       "name": "mdhtml-list-items-never-loosen",
@@ -62,7 +74,9 @@
       "from": "if p.blocks[item].next >= 0 && endsBlank(p, item) {",
       "to": "if false && endsBlank(p, item) {",
       "rule": "Items apart by a blank line make a loose list (law markdown.TightListsHaveNoParagraphs).",
-      "killers": ["examples:mdhtml"]
+      "killers": [
+        "examples:mdhtml"
+      ]
     },
     {
       "name": "mdhtml-labels-do-not-fold",
@@ -71,9 +85,21 @@
       "from": "strings.ReplaceAll(strings.ToUpper(strings.ToLower(b.String())), \"ß\", \"SS\")",
       "to": "b.String()",
       "rule": "A label matches in any case (law markdown.DefinitionsAnywhere).",
-      "killers": ["examples:mdhtml"]
+      "killers": [
+        "examples:mdhtml"
+      ]
     },
-    {"name":"mdhtml-bad-reference-is-its-number","origin":"wf10 PA3","file":"examples/mdhtml/markdown/entity.ergo","from":"|| (v >= 0xD800 && v <= 0xDFFF) { '\\uFFFD' } else { rune(v) }\n\t\t","to":"|| (v >= 0xD800 && v <= 0xDFFF) { '?' } else { rune(v) }\n\t\t","rule":"A numeric reference past U+10FFFF or of a surrogate is U+FFFD (law markdown.EntitiesAreTheirText).","killers":["examples:mdhtml"]},
+    {
+      "name": "mdhtml-bad-reference-is-its-number",
+      "origin": "wf10 PA3",
+      "file": "examples/mdhtml/markdown/entity.ergo",
+      "from": "|| (v >= 0xD800 && v <= 0xDFFF) { '\\uFFFD' } else { rune(v) }\n\t\t",
+      "to": "|| (v >= 0xD800 && v <= 0xDFFF) { '?' } else { rune(v) }\n\t\t",
+      "rule": "A numeric reference past U+10FFFF or of a surrogate is U+FFFD (law markdown.EntitiesAreTheirText).",
+      "killers": [
+        "examples:mdhtml"
+      ]
+    },
     {
       "name": "mdhtml-keywords-drop-a-space",
       "origin": "wf10 PA3",
@@ -81,7 +107,9 @@
       "from": "out = out.Append(html.Text{S: piece})",
       "to": "out = out.Append(html.Text{S: strings.TrimLeft(piece, \" \")})",
       "rule": "The go keywords highlighter keeps the code's text (law markdown.KeywordsMarkEachKeyword).",
-      "killers": ["examples:mdhtml"]
+      "killers": [
+        "examples:mdhtml"
+      ]
     },
     {
       "name": "mdhtml-keyword-class",
@@ -90,25 +118,31 @@
       "from": "Value: \"kw\"",
       "to": "Value: \"keyword\"",
       "rule": "A Go keyword in a go block is one <span class=\"kw\"> (law markdown.KeywordsMarkEachKeyword).",
-      "killers": ["examples:mdhtml"]
+      "killers": [
+        "examples:mdhtml"
+      ]
     },
     {
       "name": "mdhtml-tag-block-keeps-the-blank",
       "origin": "wf10 PA3",
       "file": "examples/mdhtml/markdown/rawhtml.ergo",
-      "from": "case TagBlock, LoneTag:\n\t\t\tDone[Ending]{Output: Before}",
-      "to": "case TagBlock, LoneTag:\n\t\t\tDone[Ending]{Output: With}",
+      "from": "case TagBlock, LoneTag:\n\t\t\tmachines.Done[Ending]{Output: Before}",
+      "to": "case TagBlock, LoneTag:\n\t\t\tmachines.Done[Ending]{Output: With}",
       "rule": "A blank line ends a TagBlock or a LoneTag before it (law HtmlBlock.TagsEndAtABlankLine).",
-      "killers": ["examples:mdhtml"]
+      "killers": [
+        "examples:mdhtml"
+      ]
     },
     {
       "name": "mdhtml-marker-ends-before",
       "origin": "wf10 PA3",
       "file": "examples/mdhtml/markdown/rawhtml.ergo",
-      "from": "if ends { Done[Ending]{Output: With} }",
-      "to": "if ends { Done[Ending]{Output: Before} }",
+      "from": "if ends { machines.Done[Ending]{Output: With} }",
+      "to": "if ends { machines.Done[Ending]{Output: Before} }",
       "rule": "The line with the end marker is the block's (law HtmlBlock.MarkersEndWithTheLine).",
-      "killers": ["examples:mdhtml"]
+      "killers": [
+        "examples:mdhtml"
+      ]
     },
     {
       "name": "mdhtml-tag-block-ends-at-any-line",
@@ -117,7 +151,9 @@
       "from": "case TagBlock, LoneTag:\n\t\t\tfalse",
       "to": "case TagBlock, LoneTag:\n\t\t\ttrue",
       "rule": "A line with no > ends no HTML block (law HtmlBlock.NoMarkerStays).",
-      "killers": ["examples:mdhtml"]
+      "killers": [
+        "examples:mdhtml"
+      ]
     },
     {
       "name": "mdhtml-workload-has-no-quote",
@@ -126,7 +162,9 @@
       "from": "b.WriteString(\"> \\(line(i))\\n> \\(line(i))\\nlazy \\(word())\\n\\n\")",
       "to": "b.WriteString(\"\\(line(i))\\n\\n\")",
       "rule": "The workload reaches every block (law workload.DocumentHasEveryBlock).",
-      "killers": ["examples:mdhtml"]
+      "killers": [
+        "examples:mdhtml"
+      ]
     },
     {
       "name": "mdhtml-unsafe-flag-ignored",
@@ -135,7 +173,9 @@
       "from": "markdown.Render(text, if unsafeFlag.Get(v) { markdown.Unsafe } else { markdown.Safe })",
       "to": "markdown.Render(text, markdown.Safe)",
       "rule": "-unsafe keeps raw HTML and every link (test UnsafeTrustsTheAuthor; the full tier's spec examples see it too).",
-      "killers": ["examples:mdhtml"]
+      "killers": [
+        "examples:mdhtml"
+      ]
     },
     {
       "name": "mdhtml-sharp-s-does-not-fold",
@@ -144,7 +184,9 @@
       "from": "strings.ReplaceAll(strings.ToUpper(strings.ToLower(b.String())), \"ß\", \"SS\")",
       "to": "strings.ToUpper(strings.ToLower(b.String()))",
       "rule": "Label folding is Unicode case folding: ẞ matches SS (spec example 540).",
-      "killers": ["cmd/ergo:TestMdhtmlAgreesWithControl"]
+      "killers": [
+        "cmd/ergo:TestMdhtmlAgreesWithControl"
+      ]
     },
     {
       "name": "mdhtml-no-rule-of-three",
@@ -153,7 +195,9 @@
       "from": "let odd = (c.canOpen || o.canClose) && c.orig%3 != 0 && (o.orig+c.orig)%3 == 0",
       "to": "let odd = false",
       "rule": "A run that can open and close does not match one whose lengths sum to a multiple of 3 (rule 9; spec examples 411 and on).",
-      "killers": ["cmd/ergo:TestMdhtmlAgreesWithControl"]
+      "killers": [
+        "cmd/ergo:TestMdhtmlAgreesWithControl"
+      ]
     },
     {
       "name": "mdhtml-symbols-are-not-punctuation",
@@ -162,7 +206,9 @@
       "from": "unicode.IsPunct(r) || unicode.IsSymbol(r)",
       "to": "unicode.IsPunct(r)",
       "rule": "A Unicode symbol counts as punctuation for flanking (0.31; spec example 354).",
-      "killers": ["cmd/ergo:TestMdhtmlAgreesWithControl"]
+      "killers": [
+        "cmd/ergo:TestMdhtmlAgreesWithControl"
+      ]
     },
     {
       "name": "mdhtml-loose-block-in-an-item-is-tight",
@@ -171,9 +217,21 @@
       "from": "if p.blocks[sub].next >= 0 && endsBlank(p, sub) {",
       "to": "if false && endsBlank(p, sub) {",
       "rule": "Two blocks of one item apart by a blank line make the list loose (spec example 312).",
-      "killers": ["cmd/ergo:TestMdhtmlAgreesWithControl"]
+      "killers": [
+        "cmd/ergo:TestMdhtmlAgreesWithControl"
+      ]
     },
-    {"name":"mdhtml-null-reference-is-null","origin":"wf10 PA3","file":"examples/mdhtml/markdown/entity.ergo","from":"let r = if v == 0 || v > 0x10FFFF || (v >= 0xD800 && v <= 0xDFFF) { '\\uFFFD' } else { rune(v) }\n\t\t","to":"let r = if v > 0x10FFFF || (v >= 0xD800 && v <= 0xDFFF) { '\\uFFFD' } else { rune(v) }\n\t\t","rule":"&#0; is U+FFFD (spec example 26).","killers":["cmd/ergo:TestMdhtmlAgreesWithControl"]},
+    {
+      "name": "mdhtml-null-reference-is-null",
+      "origin": "wf10 PA3",
+      "file": "examples/mdhtml/markdown/entity.ergo",
+      "from": "let r = if v == 0 || v > 0x10FFFF || (v >= 0xD800 && v <= 0xDFFF) { '\\uFFFD' } else { rune(v) }\n\t\t",
+      "to": "let r = if v > 0x10FFFF || (v >= 0xD800 && v <= 0xDFFF) { '\\uFFFD' } else { rune(v) }\n\t\t",
+      "rule": "&#0; is U+FFFD (spec example 26).",
+      "killers": [
+        "cmd/ergo:TestMdhtmlAgreesWithControl"
+      ]
+    },
     {
       "name": "mdhtml-safe-mode-keeps-data-text",
       "origin": "wf10 PA3",
@@ -181,17 +239,25 @@
       "from": "for img in []string{\"image/png\", \"image/gif\", \"image/jpeg\", \"image/webp\"} {",
       "to": "for img in []string{\"image/png\", \"image/gif\", \"image/jpeg\", \"image/webp\", \"text/\"} {",
       "rule": "A safe Url is no data: link other than an image (law html.HrefIsSafe).",
-      "killers": ["examples:mdhtml"]
+      "killers": [
+        "examples:mdhtml"
+      ]
     },
     {
       "name": "nou-mdhtml-entity-accepts-bad-hex",
       "origin": "wf10 NOU-DATA-REP r3",
       "file": "examples/mdhtml/markdown/entity.ergo",
-      "from": "\t\t\tif !hexDigit(code[i]) {\n\t\t\t\treturn None\n\t\t\t}",
-      "to": "\t\t\tif false && !hexDigit(code[i]) {\n\t\t\t\treturn None\n\t\t\t}",
+      "from": "\t\t\tif !hexDigit(code[i]) {\n\t\t\t\treturn option.None\n\t\t\t}",
+      "to": "\t\t\tif false && !hexDigit(code[i]) {\n\t\t\t\treturn option.None\n\t\t\t}",
       "rule": "parseEntityCodes refuses non-hex code points with None rather than decoding garbage.",
-      "anchor": {"tests": ["examples:mdhtml"]},
-      "killers": ["examples:mdhtml"]
+      "anchor": {
+        "tests": [
+          "examples:mdhtml"
+        ]
+      },
+      "killers": [
+        "examples:mdhtml"
+      ]
     }
   ]
 }

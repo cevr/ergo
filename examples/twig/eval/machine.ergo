@@ -83,7 +83,7 @@ func Run(p resolve.Program) Report {
 // int expression, and fails with a division by zero where the model
 // divides by zero.
 law ArithmeticAgreesWithModel(seed int) {
-	with context { Random: rand.Seeded(uint64(seed)) } {
+	with context { rand.Random: rand.Seeded(uint64(seed)) } {
 		for _ in 0..20 {
 			let e = genInt(5)
 			let call = syntax.ExprStmt{X: syntax.Call{Fn: syntax.Name{Id: "print", At: nowhere}, Args: []syntax.Expr{e}, At: nowhere}, At: nowhere}
@@ -115,9 +115,9 @@ let nowhere = syntax.Pos{Line: 0, Col: 0}
 
 // genInt is an expression of ints of depth at most depth: literals near
 // 0, 1 and the extremes, negations and the arithmetic operators.
-func genInt(depth int) syntax.Expr needs Random {
-	if depth <= 0 || Random.IntN(4) == 0 {
-		let n = match Random.IntN(6) {
+func genInt(depth int) syntax.Expr needs rand.Random {
+	if depth <= 0 || rand.Random.IntN(4) == 0 {
+		let n = match rand.Random.IntN(6) {
 		case 0:
 			0
 		case 1:
@@ -125,15 +125,15 @@ func genInt(depth int) syntax.Expr needs Random {
 		case 2:
 			9223372036854775807
 		case _:
-			Random.IntN(41)
+			rand.Random.IntN(41)
 		}
 		return syntax.IntLit{N: n, At: nowhere}
 	}
-	if Random.IntN(5) == 0 {
+	if rand.Random.IntN(5) == 0 {
 		return syntax.Unary{Op: syntax.Neg, X: genInt(depth - 1), At: nowhere}
 	}
 	let ops = []syntax.BinOp{syntax.Add, syntax.Sub, syntax.Mul, syntax.Div, syntax.Mod}
-	syntax.Binary{Op: ops[Random.IntN(len(ops))], L: genInt(depth - 1), R: genInt(depth - 1), At: nowhere}
+	syntax.Binary{Op: ops[rand.Random.IntN(ops.Len())], L: genInt(depth - 1), R: genInt(depth - 1), At: nowhere}
 }
 
 // Model is the outcome of an int expression: its value, or a division
@@ -182,13 +182,13 @@ func model(e syntax.Expr) Model {
 // function a block binds at its start can be called before the let of a
 // name it reads) is nil, never a value of an earlier call.
 func enter(m mut Machine, slots int, env int) int {
-	if len(m.free) == 0 {
+	if m.free.Len() == 0 {
 		m.frames = m.frames.Append(Frame{Slots: slices.Repeat([]Value{Nil}, slots), Parent: env})
-		return len(m.frames) - 1
+		return m.frames.Len() - 1
 	}
-	let id = m.free[len(m.free)-1]
-	m.free = m.free[0 : len(m.free)-1]
-	if len(m.frames[id].Slots) < slots {
+	let id = m.free[m.free.Len()-1]
+	m.free = m.free[0 : m.free.Len()-1]
+	if m.frames[id].Slots.Len() < slots {
 		m.frames[id].Slots = slices.Repeat([]Value{Nil}, slots)
 	} else {
 		for i in 0..slots {

@@ -1,3 +1,4 @@
+import option
 import slices
 import strconv
 import strings
@@ -12,14 +13,14 @@ import strings
 // layout Go's json.MarshalIndent gives it (keys sorted, two spaces), the
 // numbers as their sides wrote them.
 func MergeMeasured(base string, ours string, theirs string) Merged fails Unreadable {
-	let (text, again) = try measured(Some[string]{Value: base}, Some[string]{Value: ours}, Some[string]{Value: theirs}, 0)
+	let (text, again) = try measured(option.Some[string]{Value: base}, option.Some[string]{Value: ours}, option.Some[string]{Value: theirs}, 0)
 	Merged{Text: text + "\n", Conflicts: []string{}, Regenerate: again}
 }
 
 // measured is the merged text of one value at the depth depth, from each
 // side's raw text (None when the side has no such key), and whether a
 // number in it was measured apart by both sides.
-func measured(base Option[string], ours Option[string], theirs Option[string], depth int) (string, bool) fails Unreadable {
+func measured(base option.Option[string], ours option.Option[string], theirs option.Option[string], depth int) (string, bool) fails Unreadable {
 	let objects = isObject(base) && isObject(ours) && isObject(theirs)
 	if !objects {
 		match Choose(base, ours, theirs, sameNumber) {
@@ -44,25 +45,25 @@ func measured(base Option[string], ours Option[string], theirs Option[string], d
 		let bv = member(b, key)
 		let ov = member(o, key)
 		let tv = member(t, key)
-		let gone = (ov == None && equal(tv, bv, sameNumber)) || (tv == None && equal(ov, bv, sameNumber))
+		let gone = (ov == option.None && equal(tv, bv, sameNumber)) || (tv == option.None && equal(ov, bv, sameNumber))
 		if gone {
 			continue
 		}
 		let value = match (ov, tv) {
-		case (Some[string], Some[string]):
+		case (option.Some[string], option.Some[string]):
 			let (v, apart) = try measured(bv, ov, tv, depth+1)
 			again = again || apart
 			v
-		case (Some[string], None):
+		case (option.Some[string], option.None):
 			textOf(ov)
-		case (None, Some[string]):
+		case (option.None, option.Some[string]):
 			textOf(tv)
-		case (None, None):
+		case (option.None, option.None):
 			""
 		}
 		parts = parts.Append(indent(depth+1) + strconv.Quote(key) + ": " + value)
 	}
-	if len(parts) == 0 {
+	if parts.Len() == 0 {
 		return ("{}", again)
 	}
 	("{\n" + strings.Join(parts, ",\n") + "\n" + indent(depth) + "}", again)
@@ -70,20 +71,20 @@ func measured(base Option[string], ours Option[string], theirs Option[string], d
 
 func indent(depth int) string { strings.Repeat("  ", depth) }
 
-func isObject(v Option[string]) bool {
+func isObject(v option.Option[string]) bool {
 	match v {
-	case Some[string] as s:
+	case option.Some[string] as s:
 		strings.HasPrefix(strings.TrimSpace(s.Value), "{")
-	case None:
+	case option.None:
 		true
 	}
 }
 
-func membersOf(v Option[string], side string) []Entry fails Unreadable {
+func membersOf(v option.Option[string], side string) []Entry fails Unreadable {
 	match v {
-	case Some[string] as s:
+	case option.Some[string] as s:
 		try Members(s.Value, side)
-	case None:
+	case option.None:
 		[]Entry{}
 	}
 }
@@ -110,37 +111,37 @@ func durations(units Map[int, int]) string {
 	let mut rows = []string{}
 	for key in 0..6 {
 		match units.Get(key) {
-		case Some[int] as v:
+		case option.Some[int] as v:
 			rows = rows.Append("    \"k\(key)\": \(v.Value)")
-		case None:
+		case option.None:
 		}
 	}
-	let inner = if len(rows) == 0 { "{}" } else { "{\n" + strings.Join(rows, ",\n") + "\n  }" }
+	let inner = if rows.Len() == 0 { "{}" } else { "{\n" + strings.Join(rows, ",\n") + "\n  }" }
 	"{\n  \"pkg\": " + inner + "\n}\n"
 }
 
-func durationsRead(text string) Option[Map[int, int]] {
+func durationsRead(text string) option.Option[Map[int, int]] {
 	let top = Members(text, "merged") catch {
 	case Unreadable:
-		return None
+		return option.None
 	}
 	let inner = Members(textOf(member(top, "pkg")), "merged") catch {
 	case Unreadable:
-		return None
+		return option.None
 	}
 	let mut out = Map[int, int]{}
 	for m in inner {
 		let key = strconv.Atoi(strings.TrimPrefix(m.Key, "k")) catch {
 		case strconv.Malformed, strconv.OutOfRange:
-			return None
+			return option.None
 		}
 		let value = strconv.Atoi(m.Raw) catch {
 		case strconv.Malformed, strconv.OutOfRange:
-			return None
+			return option.None
 		}
 		out[key] = value
 	}
-	Some[Map[int, int]]{Value: out}
+	option.Some[Map[int, int]]{Value: out}
 }
 
 // MeasuredIsTheReference: two scripts on a durations file merge key by
@@ -159,19 +160,19 @@ law MeasuredIsTheReference(units Map[int, int], ourEdits []Edit, theirEdits []Ed
 	let mut units2 = applied(want.Units, []Edit{})
 	for key in want.Clashes {
 		match ours.Get(key) {
-		case Some[int] as v:
+		case option.Some[int] as v:
 			units2[key] = v.Value
-		case None:
+		case option.None:
 			match theirs.Get(key) {
-			case Some[int] as v:
+			case option.Some[int] as v:
 				units2[key] = v.Value
-			case None:
+			case option.None:
 			}
 		}
 	}
 	let mut measuredApart = false
 	for key in want.Clashes {
-		measuredApart = measuredApart || (ours.Get(key) != None && theirs.Get(key) != None)
+		measuredApart = measuredApart || (ours.Get(key) != option.None && theirs.Get(key) != option.None)
 	}
-	len(got.Conflicts) == 0 && got.Regenerate == measuredApart && durationsRead(got.Text) == Some[Map[int, int]]{Value: units2}
+	got.Conflicts.Len() == 0 && got.Regenerate == measuredApart && durationsRead(got.Text) == option.Some[Map[int, int]]{Value: units2}
 }

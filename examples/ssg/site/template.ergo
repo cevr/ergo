@@ -54,7 +54,7 @@ func tokens(name string, text string) []token fails Unclosed {
 			out = out.Append(Chunk{Text: before})
 		}
 		line = line + strings.Count(before, "\n")
-		let after = strings.Slice(rest, open+2, len(rest))
+		let after = strings.Slice(rest, open+2, rest.Len())
 		let close = strings.Index(after, "}}")
 		if close < 0 {
 			return Unclosed{Template: name, Line: line, Tag: "{{"}
@@ -62,7 +62,7 @@ func tokens(name string, text string) []token fails Unclosed {
 		let inner = strings.Slice(after, 0, close)
 		out = out.Append(Tag{Words: strings.Fields(inner), Line: line})
 		line = line + strings.Count(inner, "\n")
-		rest = strings.Slice(after, close+2, len(after))
+		rest = strings.Slice(after, close+2, after.Len())
 	}
 	out
 }
@@ -73,36 +73,36 @@ func tokens(name string, text string) []token fails Unclosed {
 func block(name string, toks []token, at int, opener string, opened int) ([]Node, int) fails Unclosed | Stray | BadTag {
 	let mut nodes = []Node{}
 	let mut i = at
-	for i < len(toks) {
+	for i < toks.Len() {
 		match toks[i] {
 		case Chunk as c:
 			nodes = nodes.Append(Lit{Text: c.Text})
 			i = i + 1
 		case Tag as t:
 			let w = t.Words
-			if len(w) == 1 && w[0] == "end" {
+			if w.Len() == 1 && w[0] == "end" {
 				if opener == "" {
 					return Stray{Template: name, Line: t.Line}
 				}
 				return (nodes, i + 1)
 			}
-			if len(w) == 4 && w[0] == "for" && w[2] == "in" {
+			if w.Len() == 4 && w[0] == "for" && w[2] == "in" {
 				let body, next = try block(name, toks, i+1, "for", t.Line)
 				nodes = nodes.Append(Each{Name: w[1], Over: strings.Split(w[3], "."), Body: body, Line: t.Line})
 				i = next
-			} else if len(w) == 2 && w[0] == "if" {
+			} else if w.Len() == 2 && w[0] == "if" {
 				let body, next = try block(name, toks, i+1, "if", t.Line)
 				nodes = nodes.Append(When{Path: strings.Split(w[1], "."), Body: body, Line: t.Line})
 				i = next
-			} else if len(w) == 2 && w[0] == "include" {
+			} else if w.Len() == 2 && w[0] == "include" {
 				nodes = nodes.Append(Include{Name: w[1], Line: t.Line})
 				i = i + 1
-			} else if len(w) == 2 && w[0] == "raw" {
+			} else if w.Len() == 2 && w[0] == "raw" {
 				nodes = nodes.Append(Var{Path: strings.Split(w[1], "."), Raw: true, Line: t.Line})
 				i = i + 1
-			} else if len(w) == 1 && reserved(w[0]) {
+			} else if w.Len() == 1 && reserved(w[0]) {
 				return BadTag{Template: name, Line: t.Line, Text: strings.Join(w, " ")}
-			} else if len(w) == 1 {
+			} else if w.Len() == 1 {
 				nodes = nodes.Append(Var{Path: strings.Split(w[0], "."), Raw: false, Line: t.Line})
 				i = i + 1
 			} else {

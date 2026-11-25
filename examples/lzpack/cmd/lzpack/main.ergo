@@ -14,6 +14,7 @@ import io
 import lzpack/corpus
 import lzpack/lz
 import lzpack/mapped
+import option
 import os
 import strconv
 
@@ -33,19 +34,19 @@ func usage(why string) os.Exit {
 
 // Parse is the command of args.
 func Parse(args []string) Command fails os.Exit {
-	if len(args) == 2 && args[0] == "pack" {
+	if args.Len() == 2 && args[0] == "pack" {
 		return PackFile{Path: args[1]}
 	}
-	if len(args) == 2 && args[0] == "unpack" {
+	if args.Len() == 2 && args[0] == "unpack" {
 		return UnpackFile{Path: args[1]}
 	}
-	if len(args) != 4 || args[0] != "gen" {
+	if args.Len() != 4 || args[0] != "gen" {
 		return usage("")
 	}
 	let kind = match corpus.KindOf(args[1]) {
-	case Some[corpus.Kind] as k:
+	case option.Some[corpus.Kind] as k:
 		k.Value
-	case None:
+	case option.None:
 		return usage("KIND is text, binary, zeros or random")
 	}
 	let n = strconv.Atoi(args[2]) catch {
@@ -87,7 +88,7 @@ func read(path string) string fails os.Exit needs lz.Source {
 	}
 }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	let host = os.NewHost()
 	let c = try Parse(host.Args())
 	let source = mapped.New(fs.NewHost())

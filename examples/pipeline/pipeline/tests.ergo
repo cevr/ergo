@@ -14,7 +14,7 @@ type passes {} implements Runner
 func Run(p passes, id string, stage int, attempt int) bool fails Offline { true }
 
 let overMemory = context fails domain.Conflict | domain.Reused | domain.Unkept {
-	Scheduler: time.NewManual(0),
-	Runner:    passes,
-	Pipeline:  try Open(memory.New[Entry]()),
+	time.Scheduler: time.NewManual(0),
+	Runner:         passes,
+	Pipeline:       try Open(memory.New[Entry]()),
 }

@@ -38,12 +38,12 @@ let noise = []string{"", " ", "  ", "\"", "[", "]", "\\", "x", "-", ".", "9"}
 // not parse.
 func Damaged(r Request, i int, j int, cut int) string {
 	let line = Format(r)
-	let at = natural(i) % len(line)
-	let damaged = strings.Slice(line, 0, at) + noise[natural(j)%len(noise)] + strings.Slice(line, at+1, len(line))
+	let at = natural(i) % line.Len()
+	let damaged = strings.Slice(line, 0, at) + noise[natural(j)%noise.Len()] + strings.Slice(line, at+1, line.Len())
 	if natural(cut)%3 != 0 {
 		return damaged
 	}
-	strings.Slice(damaged, 0, natural(cut)%(len(damaged)+1))
+	strings.Slice(damaged, 0, natural(cut)%(damaged.Len()+1))
 }
 
 // natural is n, or -(n+1) when n is negative: never negative.

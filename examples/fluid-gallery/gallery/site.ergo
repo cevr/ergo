@@ -3,6 +3,7 @@ import ergo.dev/fluid/token
 import ergo.dev/fluid/web
 import appweb github.com/cevr/ergo/modules/web
 import html
+import option
 import strconv
 import strings
 import ui
@@ -22,18 +23,18 @@ func Href(_ Docs, r Route) ui.URL {
 	}
 }
 
-func Parse(_ Docs, u ui.URL) Option[Route] {
+func Parse(_ Docs, u ui.URL) option.Option[Route] {
 	let s = ui.Segments(u)
-	if len(s) != 2 || s[0] != "docs" {
-		return None
+	if s.Len() != 2 || s[0] != "docs" {
+		return option.None
 	}
 	if s[1] == "button" {
-		return Some[Route]{Value: ButtonDocs}
+		return option.Some[Route]{Value: ButtonDocs}
 	}
 	if s[1] == "badge" {
-		return Some[Route]{Value: BadgeDocs}
+		return option.Some[Route]{Value: BadgeDocs}
 	}
-	None
+	option.None
 }
 
 // Gone is a page that is no longer served; no route fails today.

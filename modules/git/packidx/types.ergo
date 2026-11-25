@@ -2,6 +2,7 @@
 // verification, and O(log N) fan-out binary-search lookup (STD-GIT: G-PACKIDX).
 
 import github.com/cevr/ergo/modules/git/oid
+import option
 
 // Error is the closed failure union for pack index decoding and file reads.
 type Error =
@@ -38,8 +39,8 @@ type Index {
 // held identically by both parsed Index and in-memory MemoryIndex providers.
 type IndexReader {
 	Count() int,
-	At(i int) Option[Entry],
-	Lookup(id oid.OID) Option[Entry],
+	At(i int) option.Option[Entry],
+	Lookup(id oid.OID) option.Option[Entry],
 	FindPrefix(hexPrefix string) []Entry,
 
 	// LookupFindsAllEntries: every entry at 0..Count() is found by Lookup
@@ -48,13 +49,13 @@ type IndexReader {
 		let n = Count()
 		for i in 0..n {
 			match At(i) {
-			case None:
+			case option.None:
 				return false
-			case Some[Entry] as e:
+			case option.Some[Entry] as e:
 				match Lookup(e.Value.OID) {
-				case None:
+				case option.None:
 					return false
-				case Some[Entry] as got:
+				case option.Some[Entry] as got:
 					if !oid.Equal(got.Value.OID, e.Value.OID) || got.Value.Offset != e.Value.Offset || got.Value.CRC32 != e.Value.CRC32 {
 						return false
 					}
@@ -68,27 +69,27 @@ type IndexReader {
 	law LookupMissingReturnsNone() {
 		let n = Count()
 		if n == 0 {
-			return Lookup(oid.Zero(oid.Sha1)) == None && Lookup(oid.Zero(oid.Sha256)) == None
+			return Lookup(oid.Zero(oid.Sha1)) == option.None && Lookup(oid.Zero(oid.Sha256)) == option.None
 		}
 		match At(0) {
-		case None:
+		case option.None:
 			false
-		case Some[Entry] as first:
+		case option.Some[Entry] as first:
 			let probe = oid.Zero(first.Value.OID.Format)
 			let mut exists = false
 			for i in 0..n {
 				match At(i) {
-				case Some[Entry] as e:
+				case option.Some[Entry] as e:
 					if oid.Equal(e.Value.OID, probe) {
 						exists = true
 					}
-				case None:
+				case option.None:
 				}
 			}
 			if exists {
 				true
 			} else {
-				Lookup(probe) == None
+				Lookup(probe) == option.None
 			}
 		}
 	},
@@ -99,13 +100,13 @@ type IndexReader {
 		let n = Count()
 		for i in 1..n {
 			match At(i - 1) {
-			case None:
+			case option.None:
 				return false
-			case Some[Entry] as prev:
+			case option.Some[Entry] as prev:
 				match At(i) {
-				case None:
+				case option.None:
 					return false
-				case Some[Entry] as cur:
+				case option.Some[Entry] as cur:
 					if oid.Compare(prev.Value.OID, cur.Value.OID) >= 0 {
 						return false
 					}
@@ -114,9 +115,9 @@ type IndexReader {
 		}
 		for i in 0..n {
 			match At(i) {
-			case None:
+			case option.None:
 				return false
-			case Some[Entry] as e:
+			case option.Some[Entry] as e:
 				let matches = FindPrefix(oid.ShortHex(e.Value.OID, 8))
 				let mut found = false
 				for m in matches {
