@@ -19,9 +19,12 @@ import (
 // StopsWhenAsked under its own named context, overText (stdio's
 // Transport over io.NewInput and io.NewRecorder), which TestStdMCPLawsRun
 // runs with ergo test (stdioStopsWhenAsked).
-const stdMCPLawsProbe = `import json
+const stdMCPLawsProbe = `import http
+import json
 import mcp
+import mcp/httpmcp
 import mcp/memory
+import rand
 import strings
 
 // echo is a tool named name that gives its name back.
@@ -196,6 +199,286 @@ func lawCallAnswersOnce(kinds []int) bool {
 
 test MemoryCallAnswersOnce(kinds []int) { assert lawCallAnswersOnce(kinds) }
 
+func httpLawServer(tag string) mcp.Server {
+	let schema = parsed("{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"integer\"},\"b\":{\"type\":\"integer\"}},\"required\":[\"a\"]}")
+	let addTool = mcp.Tool{
+		Name:        "add",
+		Description: "adds a and b",
+		Input:       schema,
+		Call: func(arguments json.Value) json.Value fails mcp.ToolError {
+			let a = try integer(arguments, "a")
+			let b = try integer(arguments, "b")
+			json.IntNumber(a + b)
+		},
+	}
+	let whoTool = mcp.Tool{
+		Name:        "who",
+		Description: "identifies caller",
+		Input:       json.Object{Members: []json.Member{}},
+		Call: func(_ json.Value) json.Value fails mcp.ToolError {
+			json.Str{Value: tag}
+		},
+	}
+	mcp.Server{Name: "calc-" + tag, Version: "0.1.0", Tools: []mcp.Tool{addTool, whoTool}}
+}
+
+func httpInMemoryHandler(e httpmcp.Endpoint) http.Handler {
+	http.InMemory(func(r http.Request) http.Response needs http.Streaming { httpmcp.Handle(e, r) })
+}
+
+func lawHttpMatchesMemory(kinds []int) bool {
+	let s = httpLawServer("m")
+	let mut input = []string{}
+	for i, k in kinds {
+		let mode = ((k % 7) + 7) % 7
+		let msg = match mode {
+		case 0:
+			"{\"jsonrpc\":\"2.0\",\"id\":\"r\(i)\",\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},\"clientInfo\":{\"name\":\"t\",\"version\":\"1\"}}}"
+		case 1:
+			"{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}"
+		case 2:
+			"{\"jsonrpc\":\"2.0\",\"id\":\"r\(i)\",\"method\":\"tools/list\"}"
+		case 3:
+			"{\"jsonrpc\":\"2.0\",\"id\":\"r\(i)\",\"method\":\"tools/call\",\"params\":{\"name\":\"add\",\"arguments\":{\"a\":\(i),\"b\":2}}}"
+		case 4:
+			"{\"jsonrpc\":\"2.0\",\"id\":\"r\(i)\",\"method\":\"tools/call\",\"params\":{\"name\":\"add\",\"arguments\":{\"a\":\(i)}}}"
+		case 5:
+			"{\"jsonrpc\":\"2.0\",\"id\":\"r\(i)\",\"method\":\"tools/call\",\"params\":{\"name\":\"missing\",\"arguments\":{}}}"
+		case _:
+			"{\"jsonrpc\":\"2.0\",\"id\":\(i),"
+		}
+		input = input.Append(msg)
+	}
+	let mem = memory.New(input)
+	if mcp.Serve(s, mem) != len(input) {
+		return false
+	}
+	let ep = httpmcp.New(s, httpmcp.DefaultOptions())
+	let jsonClient = httpmcp.NewClient(httpInMemoryHandler(ep), "/mcp")
+	let sseClient = httpmcp.NewSSEClient(httpInMemoryHandler(ep), "/mcp")
+	let mut gotJSON = []string{}
+	let mut gotSSE = []string{}
+	for msg in input {
+		let a = jsonClient.Call(msg) catch {
+		case _:
+			return false
+		}
+		match a {
+		case Some[string] as line:
+			gotJSON = gotJSON.Append(line.Value)
+		case None:
+		}
+		let b = sseClient.Call(msg) catch {
+		case _:
+			return false
+		}
+		match b {
+		case Some[string] as line:
+			gotSSE = gotSSE.Append(line.Value)
+		case None:
+		}
+	}
+	let want = mem.Sent()
+	gotJSON == want && gotSSE == want
+}
+
+test HttpmcpHttpMatchesMemory(kinds []int) { assert lawHttpMatchesMemory(kinds) }
+
+func lawProtocolHeadersAndSecurity(seed int) bool {
+	let s = httpLawServer("sec")
+	let opts = httpmcp.Options{
+		AllowedOrigins: []string{"http://localhost:3000"},
+		MaxBodyBytes:   96,
+		Sessions:       httpmcp.Stateless,
+	}
+	let ep = httpmcp.New(s, opts)
+	let ping = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}"
+	let notif = "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}"
+	let okReq = http.Request{
+		Method:  "POST",
+		Path:    "/mcp",
+		RawPath: "/mcp",
+		Query:   []http.Field{},
+		Header: []http.Field{
+			http.Field{Name: "Origin", Value: "HTTP://LOCALHOST:3000/"},
+			http.Field{Name: "Content-Type", Value: "application/json; charset=utf-8"},
+			http.Field{Name: "Accept", Value: "application/json"},
+		},
+		Body: http.Buffered{Text: ping},
+	}
+	let okResp = httpmcp.Handle(ep, okReq)
+	if okResp.Status != 200 || http.Header(okResp.Header, httpmcp.ProtocolVersionHeader) != (Some[string]{Value: mcp.Version}) {
+		return false
+	}
+	let notifResp = httpmcp.Handle(ep, http.Request{..okReq, Body: http.Buffered{Text: notif}})
+	if notifResp.Status != 202 || notifResp.Body != "" || http.Header(notifResp.Header, httpmcp.ProtocolVersionHeader) != (Some[string]{Value: mcp.Version}) {
+		return false
+	}
+	let evilOrigin = httpmcp.Handle(ep, http.Request{..okReq, Header: []http.Field{
+		http.Field{Name: "Origin", Value: "http://evil-\(seed).test"},
+		http.Field{Name: "Content-Type", Value: "application/json"},
+		http.Field{Name: "Accept", Value: "application/json"},
+	}})
+	if evilOrigin.Status != 403 {
+		return false
+	}
+	let badAccept = httpmcp.Handle(ep, http.Request{..okReq, Header: []http.Field{
+		http.Field{Name: "Content-Type", Value: "application/json"},
+		http.Field{Name: "Accept", Value: "text/plain"},
+	}})
+	if badAccept.Status != 406 {
+		return false
+	}
+	let badCT = httpmcp.Handle(ep, http.Request{..okReq, Header: []http.Field{
+		http.Field{Name: "Content-Type", Value: "text/plain"},
+		http.Field{Name: "Accept", Value: "application/json"},
+	}})
+	if badCT.Status != 415 {
+		return false
+	}
+	let tooBig = httpmcp.Handle(ep, http.Request{..okReq, Body: http.Buffered{Text: strings.Repeat("a", 128)}})
+	if tooBig.Status != 413 {
+		return false
+	}
+	let getResp = httpmcp.Handle(ep, http.Request{..okReq, Method: "GET"})
+	let delResp = httpmcp.Handle(ep, http.Request{..okReq, Method: "DELETE"})
+	getResp.Status == 405 && delResp.Status == 405
+}
+
+test HttpmcpProtocolHeadersAndSecurity(seed int) { assert lawProtocolHeadersAndSecurity(seed) }
+
+func lawSessionLifecycleAndIsolation(seed int) bool {
+	let store = httpmcp.NewSessions(rand.NewSeededSecure(uint64(seed) + 1))
+	let opts = httpmcp.Options{
+		AllowedOrigins: []string{},
+		MaxBodyBytes:   1048576,
+		Sessions:       httpmcp.Stateful{Store: store},
+	}
+	let ep = httpmcp.NewDynamic(opts, func(req http.Request) httpmcp.Resolved {
+		match http.Header(req.Header, "Authorization") {
+		case Some[string] as auth:
+			if auth.Value == "Bearer alice" {
+				return httpmcp.Use{Server: httpLawServer("alice")}
+			}
+			if auth.Value == "Bearer bob" {
+				return httpmcp.Use{Server: httpLawServer("bob")}
+			}
+			httpmcp.Reject{Response: http.Response{Status: 401, Header: []http.Field{http.Field{Name: "WWW-Authenticate", Value: "Bearer"}}, Body: "unauthorized"}}
+		case None:
+			httpmcp.Reject{Response: http.Response{Status: 401, Header: []http.Field{http.Field{Name: "WWW-Authenticate", Value: "Bearer"}}, Body: "unauthorized"}}
+		}
+	})
+	let net = httpInMemoryHandler(ep)
+	let initMsg = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},\"clientInfo\":{\"name\":\"c\",\"version\":\"1\"}}}"
+	let whoMsg = "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"who\",\"arguments\":{}}}"
+	let anon = httpmcp.NewClient(net, "/mcp")
+	let mut unauthOK = false
+	let _ = anon.Call(initMsg) catch {
+	case httpmcp.UnexpectedStatus as u:
+		unauthOK = u.Status == 401
+		None
+	case _:
+		return false
+	}
+	if !unauthOK {
+		return false
+	}
+	let alice = httpmcp.NewClientWithHeaders(net, "/mcp", []http.Field{http.Field{Name: "Authorization", Value: "Bearer alice"}})
+	let bob = httpmcp.NewClientWithHeaders(net, "/mcp", []http.Field{http.Field{Name: "Authorization", Value: "Bearer bob"}})
+	let mut missingSessionOK = false
+	let _ = alice.Call(whoMsg) catch {
+	case httpmcp.UnexpectedStatus as u:
+		missingSessionOK = u.Status == 400
+		None
+	case _:
+		return false
+	}
+	if !missingSessionOK {
+		return false
+	}
+	let _ = alice.Call(initMsg) catch {
+	case _:
+		return false
+	}
+	let _ = bob.Call(initMsg) catch {
+	case _:
+		return false
+	}
+	let aliceID = alice.SessionID()
+	let bobID = bob.SessionID()
+	if aliceID == "" || bobID == "" || aliceID == bobID || httpmcp.Count(store) != 2 {
+		return false
+	}
+	let aliceWho = alice.Call(whoMsg) catch {
+	case _:
+		return false
+	}
+	let bobWho = bob.Call(whoMsg) catch {
+	case _:
+		return false
+	}
+	if aliceWho != (Some[string]{Value: "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"\\\"alice\\\"\"}],\"isError\":false}}"}) {
+		return false
+	}
+	if bobWho != (Some[string]{Value: "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"\\\"bob\\\"\"}],\"isError\":false}}"}) {
+		return false
+	}
+	alice.Terminate() catch {
+	case _:
+		return false
+	}
+	if httpmcp.Has(store, aliceID) || !httpmcp.Has(store, bobID) {
+		return false
+	}
+	let postDelete = httpmcp.Handle(ep, http.Request{
+		Method:  "POST",
+		Path:    "/mcp",
+		RawPath: "/mcp",
+		Query:   []http.Field{},
+		Header: []http.Field{
+			http.Field{Name: "Authorization", Value: "Bearer alice"},
+			http.Field{Name: "Content-Type", Value: "application/json"},
+			http.Field{Name: "Accept", Value: "application/json"},
+			http.Field{Name: httpmcp.SessionHeader, Value: aliceID},
+		},
+		Body: http.Buffered{Text: whoMsg},
+	})
+	postDelete.Status == 404
+}
+
+test HttpmcpSessionLifecycleAndIsolation(seed int) { assert lawSessionLifecycleAndIsolation(seed) }
+
+func lawBatchMatchesMemory(kinds []int) bool {
+	if len(kinds) == 0 {
+		return true
+	}
+	let s = httpLawServer("batch")
+	let mut items = []string{}
+	for i, k in kinds {
+		if k%2 == 0 {
+			items = items.Append("{\"jsonrpc\":\"2.0\",\"id\":\"b\(i)\",\"method\":\"ping\"}")
+		} else {
+			items = items.Append("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}")
+		}
+	}
+	let mem = memory.New(items)
+	let _ = mcp.Serve(s, mem)
+	let want = mem.Sent()
+	let ep = httpmcp.New(s, httpmcp.DefaultOptions())
+	let client = httpmcp.NewClient(httpInMemoryHandler(ep), "/mcp")
+	let batch = "[" + strings.Join(items, ",") + "]"
+	let got = client.Call(batch) catch {
+	case _:
+		return false
+	}
+	if len(want) == 0 {
+		return got == None
+	}
+	got == Some[string]{Value: "[" + strings.Join(want, ",") + "]"}
+}
+
+test HttpmcpBatchMatchesMemory(kinds []int) { assert lawBatchMatchesMemory(kinds) }
+
 ` + stdMCPSession
 
 // stdMCPSession is a client's session: initialize, the initialized
@@ -240,7 +523,11 @@ var stdMCPLawStatements = map[string]string{
 	"mcp UnknownToolIsATypedError":            `UnknownToolIsATypedError(names []string, asked string) { for n in names { if n == asked { return true } } let s = serverOf(names) let mut failed = false let _ = Call(s, asked, json.Null) catch { case UnknownTool as u: failed = u.Name == asked json.Null case ToolError: json.Null } let message = "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"tools/call\",\"params\":{\"name\":" + quoted(asked) + "}}" failed && Handle(s, message) == Refused{ID: json.IntNumber(7), Code: InvalidParams, Message: "unknown tool: \(asked)"} }`,
 	"mcp ArgumentsOutsideTheSchemaAreRefused": `ArgumentsOutsideTheSchemaAreRefused(key string, keys []string) { let schema = parsed("{\"type\":\"object\",\"required\":[" + quoted(key) + "]}") let s = Server{Name: "laws", Version: "1", Tools: []Tool{Tool{Name: "t", Description: "t", Input: schema, Call: func(arguments json.Value) json.Value fails ToolError { json.Str{Value: "ran"} }}}} let mut members = []string{} let mut has = false for k in keys { members = members.Append(quoted(k) + ":null") has = has || k == key } let message = "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"tools/call\",\"params\":{\"name\":\"t\",\"arguments\":{" + strings.Join(members, ",") + "}}}" match Handle(s, message) { case Answered: has case Refused as r: !has && r.Code == InvalidParams case Silent: false } }`,
 	"mcp Transport.StopsWhenAsked":            `StopsWhenAsked() { let mut n = 0 for _ in Messages() { n = n + 1 break } n <= 1 }`,
-	"mcp/memory CallAnswersOnce":              `CallAnswersOnce(kinds []int) { let mut input = []string{} let mut ids = []string{} for i, k in kinds { let method = match ((k % 3) + 3) % 3 { case 0: "tools/call\",\"params\":{\"name\":\"add\",\"arguments\":{\"a\":\(i),\"b\":1}}" case 1: "tools/list\"" case _: "ping\"" } if k%2 == 0 { input = input.Append("{\"jsonrpc\":\"2.0\",\"id\":\"r\(i)\",\"method\":\"" + method + "}") ids = ids.Append("r\(i)") } else { input = input.Append("{\"jsonrpc\":\"2.0\",\"method\":\"" + method + "}") } } let t = New(input) if mcp.Serve(calc, t) != len(kinds) { return false } let sent = t.Sent() if len(sent) != len(ids) { return false } for i, line in sent { if !strings.HasPrefix(line, "{\"jsonrpc\":\"2.0\",\"id\":\"\(ids[i])\",\"result\":") { return false } } true }`,
+	"mcp/memory CallAnswersOnce":                 `CallAnswersOnce(kinds []int) { let mut input = []string{} let mut ids = []string{} for i, k in kinds { let method = match ((k % 3) + 3) % 3 { case 0: "tools/call\",\"params\":{\"name\":\"add\",\"arguments\":{\"a\":\(i),\"b\":1}}" case 1: "tools/list\"" case _: "ping\"" } if k%2 == 0 { input = input.Append("{\"jsonrpc\":\"2.0\",\"id\":\"r\(i)\",\"method\":\"" + method + "}") ids = ids.Append("r\(i)") } else { input = input.Append("{\"jsonrpc\":\"2.0\",\"method\":\"" + method + "}") } } let t = New(input) if mcp.Serve(calc, t) != len(kinds) { return false } let sent = t.Sent() if len(sent) != len(ids) { return false } for i, line in sent { if !strings.HasPrefix(line, "{\"jsonrpc\":\"2.0\",\"id\":\"\(ids[i])\",\"result\":") { return false } } true }`,
+	"mcp/httpmcp HttpMatchesMemory":              `HttpMatchesMemory(kinds []int) { let s = lawServer("m") let mut input = []string{} for i, k in kinds { let mode = ((k % 7) + 7) % 7 let msg = match mode { case 0: "{\"jsonrpc\":\"2.0\",\"id\":\"r\(i)\",\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},\"clientInfo\":{\"name\":\"t\",\"version\":\"1\"}}}" case 1: "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}" case 2: "{\"jsonrpc\":\"2.0\",\"id\":\"r\(i)\",\"method\":\"tools/list\"}" case 3: "{\"jsonrpc\":\"2.0\",\"id\":\"r\(i)\",\"method\":\"tools/call\",\"params\":{\"name\":\"add\",\"arguments\":{\"a\":\(i),\"b\":2}}}" case 4: "{\"jsonrpc\":\"2.0\",\"id\":\"r\(i)\",\"method\":\"tools/call\",\"params\":{\"name\":\"add\",\"arguments\":{\"a\":\(i)}}}" case 5: "{\"jsonrpc\":\"2.0\",\"id\":\"r\(i)\",\"method\":\"tools/call\",\"params\":{\"name\":\"missing\",\"arguments\":{}}}" case _: "{\"jsonrpc\":\"2.0\",\"id\":\(i)," } input = input.Append(msg) } let mem = memory.New(input) if mcp.Serve(s, mem) != len(input) { return false } let ep = New(s, DefaultOptions()) let jsonClient = NewClient(lawInMemoryHandler(ep), "/mcp") let sseClient = NewSSEClient(lawInMemoryHandler(ep), "/mcp") let mut gotJSON = []string{} let mut gotSSE = []string{} for msg in input { let a = jsonClient.Call(msg) catch { case _: return false } match a { case Some[string] as line: gotJSON = gotJSON.Append(line.Value) case None: } let b = sseClient.Call(msg) catch { case _: return false } match b { case Some[string] as line: gotSSE = gotSSE.Append(line.Value) case None: } } let want = mem.Sent() gotJSON == want && gotSSE == want }`,
+	"mcp/httpmcp ProtocolHeadersAndSecurity":     `ProtocolHeadersAndSecurity(seed int) { let s = lawServer("sec") let opts = Options{ AllowedOrigins: []string{"http://localhost:3000"}, MaxBodyBytes: 96, Sessions: Stateless, } let ep = New(s, opts) let ping = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}" let notif = "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}" let okReq = http.Request{ Method: "POST", Path: "/mcp", RawPath: "/mcp", Query: []http.Field{}, Header: []http.Field{ http.Field{Name: "Origin", Value: "HTTP://LOCALHOST:3000/"}, http.Field{Name: "Content-Type", Value: "application/json; charset=utf-8"}, http.Field{Name: "Accept", Value: "application/json"}, }, Body: http.Buffered{Text: ping}, } let okResp = Handle(ep, okReq) if okResp.Status != 200 || http.Header(okResp.Header, ProtocolVersionHeader) != (Some[string]{Value: mcp.Version}) { return false } let notifResp = Handle(ep, http.Request{..okReq, Body: http.Buffered{Text: notif}}) if notifResp.Status != 202 || notifResp.Body != "" || http.Header(notifResp.Header, ProtocolVersionHeader) != (Some[string]{Value: mcp.Version}) { return false } let evilOrigin = Handle(ep, http.Request{..okReq, Header: []http.Field{ http.Field{Name: "Origin", Value: "http://evil-\(seed).test"}, http.Field{Name: "Content-Type", Value: "application/json"}, http.Field{Name: "Accept", Value: "application/json"}, }}) if evilOrigin.Status != 403 { return false } let badAccept = Handle(ep, http.Request{..okReq, Header: []http.Field{ http.Field{Name: "Content-Type", Value: "application/json"}, http.Field{Name: "Accept", Value: "text/plain"}, }}) if badAccept.Status != 406 { return false } let badCT = Handle(ep, http.Request{..okReq, Header: []http.Field{ http.Field{Name: "Content-Type", Value: "text/plain"}, http.Field{Name: "Accept", Value: "application/json"}, }}) if badCT.Status != 415 { return false } let tooBig = Handle(ep, http.Request{..okReq, Body: http.Buffered{Text: strings.Repeat("a", 128)}}) if tooBig.Status != 413 { return false } let getResp = Handle(ep, http.Request{..okReq, Method: "GET"}) let delResp = Handle(ep, http.Request{..okReq, Method: "DELETE"}) getResp.Status == 405 && delResp.Status == 405 }`,
+	"mcp/httpmcp SessionLifecycleAndIsolation":   `SessionLifecycleAndIsolation(seed int) { let store = NewSessions(rand.NewSeededSecure(uint64(seed) + 1)) let opts = Options{ AllowedOrigins: []string{}, MaxBodyBytes: 1048576, Sessions: Stateful{Store: store}, } let ep = NewDynamic(opts, func(req http.Request) Resolved { match http.Header(req.Header, "Authorization") { case Some[string] as auth: if auth.Value == "Bearer alice" { return Use{Server: lawServer("alice")} } if auth.Value == "Bearer bob" { return Use{Server: lawServer("bob")} } Reject{Response: http.Response{Status: 401, Header: []http.Field{http.Field{Name: "WWW-Authenticate", Value: "Bearer"}}, Body: "unauthorized"}} case None: Reject{Response: http.Response{Status: 401, Header: []http.Field{http.Field{Name: "WWW-Authenticate", Value: "Bearer"}}, Body: "unauthorized"}} } }) let net = lawInMemoryHandler(ep) let initMsg = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},\"clientInfo\":{\"name\":\"c\",\"version\":\"1\"}}}" let whoMsg = "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"who\",\"arguments\":{}}}" let anon = NewClient(net, "/mcp") let mut unauthOK = false let _ = anon.Call(initMsg) catch { case UnexpectedStatus as u: unauthOK = u.Status == 401 None case _: return false } if !unauthOK { return false } let alice = NewClientWithHeaders(net, "/mcp", []http.Field{http.Field{Name: "Authorization", Value: "Bearer alice"}}) let bob = NewClientWithHeaders(net, "/mcp", []http.Field{http.Field{Name: "Authorization", Value: "Bearer bob"}}) let mut missingSessionOK = false let _ = alice.Call(whoMsg) catch { case UnexpectedStatus as u: missingSessionOK = u.Status == 400 None case _: return false } if !missingSessionOK { return false } let _ = alice.Call(initMsg) catch { case _: return false } let _ = bob.Call(initMsg) catch { case _: return false } let aliceID = alice.SessionID() let bobID = bob.SessionID() if aliceID == "" || bobID == "" || aliceID == bobID || Count(store) != 2 { return false } let aliceWho = alice.Call(whoMsg) catch { case _: return false } let bobWho = bob.Call(whoMsg) catch { case _: return false } if aliceWho != (Some[string]{Value: "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"\\\"alice\\\"\"}],\"isError\":false}}"}) { return false } if bobWho != (Some[string]{Value: "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"\\\"bob\\\"\"}],\"isError\":false}}"}) { return false } alice.Terminate() catch { case _: return false } if Has(store, aliceID) || !Has(store, bobID) { return false } let postDelete = Handle(ep, http.Request{ Method: "POST", Path: "/mcp", RawPath: "/mcp", Query: []http.Field{}, Header: []http.Field{ http.Field{Name: "Authorization", Value: "Bearer alice"}, http.Field{Name: "Content-Type", Value: "application/json"}, http.Field{Name: "Accept", Value: "application/json"}, http.Field{Name: SessionHeader, Value: aliceID}, }, Body: http.Buffered{Text: whoMsg}, }) postDelete.Status == 404 }`,
+	"mcp/httpmcp BatchMatchesMemory":             `BatchMatchesMemory(kinds []int) { if len(kinds) == 0 { return true } let s = lawServer("batch") let mut items = []string{} for i, k in kinds { if k%2 == 0 { items = items.Append("{\"jsonrpc\":\"2.0\",\"id\":\"b\(i)\",\"method\":\"ping\"}") } else { items = items.Append("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}") } } let mem = memory.New(items) let _ = mcp.Serve(s, mem) let want = mem.Sent() let ep = New(s, DefaultOptions()) let client = NewClient(lawInMemoryHandler(ep), "/mcp") let batch = "[" + strings.Join(items, ",") + "]" let got = client.Call(batch) catch { case _: return false } if len(want) == 0 { return got == None } got == Some[string]{Value: "[" + strings.Join(want, ",") + "]"} }`,
 }
 
 // TestStdMCPLawsRun runs std mcp's laws as the probe's tests with --seed
@@ -283,5 +570,185 @@ func stdioStopsWhenAsked(t *testing.T) {
 	out, err := cmd.CombinedOutput()
 	if err != nil || !strings.Contains(string(out), "ok law mcp.Transport.StopsWhenAsked under overText") {
 		t.Errorf("ergo test std mcp/stdio: %v; want the law mcp.Transport.StopsWhenAsked to pass under overText:\n%s", err, out)
+	}
+}
+
+const stdMCPHttpLoopbackProgram = `import http
+import json
+import mcp
+import mcp/httpmcp
+import net
+import rand
+import task
+import time
+
+func loopbackServer(user string) mcp.Server {
+	let echoTool = mcp.Tool{
+		Name:        "whoami",
+		Description: "returns caller identity",
+		Input:       json.Object{Members: []json.Member{}},
+		Call: func(_ json.Value) json.Value fails mcp.ToolError {
+			json.Str{Value: user}
+		},
+	}
+	mcp.Server{Name: "loopback-" + user, Version: "1.0.0", Tools: []mcp.Tool{echoTool}}
+}
+
+func main() fails http.InvalidClient | http.InvalidLimits | net.ListenFailed | net.Denied needs Ambient | Console {
+	let limits = http.Limits{MaxBodyBytes: 65536, MaxHeaderBytes: 8192, IdleTimeout: 5s, ReadHeaderTimeout: 5s, ReadBodyTimeout: 5s}
+	let store = httpmcp.NewSessions(rand.NewSecureHost())
+	let opts = httpmcp.Options{
+		AllowedOrigins: []string{"http://localhost:3000"},
+		MaxBodyBytes:   65536,
+		Sessions:       httpmcp.Stateful{Store: store},
+	}
+	let ep = httpmcp.NewDynamic(opts, func(req http.Request) httpmcp.Resolved {
+		match http.Header(req.Header, "Authorization") {
+		case Some[string] as auth:
+			if auth.Value == "Bearer secret-token" {
+				return httpmcp.Use{Server: loopbackServer("alice")}
+			}
+			httpmcp.Reject{Response: http.Response{Status: 401, Header: []http.Field{http.Field{Name: "WWW-Authenticate", Value: "Bearer"}}, Body: "unauthorized"}}
+		case None:
+			httpmcp.Reject{Response: http.Response{Status: 401, Header: []http.Field{http.Field{Name: "WWW-Authenticate", Value: "Bearer"}}, Body: "unauthorized"}}
+		}
+	})
+	let listener = try net.NewHost().Listen("127.0.0.1:0")
+	let origin = "http://" + listener.Addr()
+	let server = task.Go() {
+		with context { Scheduler: time.NewManual(0) } {
+			http.Serve(listener, limits, func(r http.Request) http.Response needs http.Streaming {
+				httpmcp.Handle(ep, r)
+			}) catch {
+			case http.InvalidLimits:
+			}
+		}
+	}
+	let httpClient = try http.NewClient(origin, limits, []http.Credential{})
+	let initMsg = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},\"clientInfo\":{\"name\":\"loop\",\"version\":\"1\"}}}"
+	let notifMsg = "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}"
+	let callMsg = "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"whoami\",\"arguments\":{}}}"
+
+	let anon = httpmcp.NewClient(httpClient, "/mcp")
+	let _ = anon.Call(initMsg) catch {
+	case httpmcp.UnexpectedStatus as u:
+		Console.Println("unauth:" + if u.Status == 401 { "401" } else { "wrong" })
+		None
+	case _:
+		Console.Println("unauth:err")
+		None
+	}
+
+	let evil = httpmcp.NewClientWithHeaders(httpClient, "/mcp", []http.Field{
+		http.Field{Name: "Authorization", Value: "Bearer secret-token"},
+		http.Field{Name: "Origin", Value: "http://evil.example"},
+	})
+	let _ = evil.Call(initMsg) catch {
+	case httpmcp.UnexpectedStatus as u:
+		Console.Println("origin:" + if u.Status == 403 { "403" } else { "wrong" })
+		None
+	case _:
+		Console.Println("origin:err")
+		None
+	}
+
+	let authed = httpmcp.NewClientWithHeaders(httpClient, "/mcp", []http.Field{
+		http.Field{Name: "Authorization", Value: "Bearer secret-token"},
+		http.Field{Name: "Origin", Value: "http://localhost:3000"},
+	})
+	let initResp = authed.Call(initMsg) catch {
+	case _:
+		Console.Println("init:err")
+		server.Stop()
+		return
+	}
+	let sid = authed.SessionID()
+	Console.Println("init:" + if initResp != None && sid != "" { "ok" } else { "bad" })
+
+	let notifResp = authed.Call(notifMsg) catch {
+	case _:
+		Console.Println("notif:err")
+		server.Stop()
+		return
+	}
+	Console.Println("notif:" + if notifResp == None { "202" } else { "bad" })
+
+	let callResp = authed.Call(callMsg) catch {
+	case _:
+		Console.Println("call:err")
+		server.Stop()
+		return
+	}
+	let wantCall = Some[string]{Value: "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"\\\"alice\\\"\"}],\"isError\":false}}"}
+	Console.Println("call:" + if callResp == wantCall { "ok" } else { "bad" })
+
+	let sseResp = httpClient.Send(http.Request{
+		Method:  "POST",
+		Path:    "/mcp",
+		RawPath: "/mcp",
+		Query:   []http.Field{},
+		Header: []http.Field{
+			http.Field{Name: "Authorization", Value: "Bearer secret-token"},
+			http.Field{Name: "Content-Type", Value: "application/json"},
+			http.Field{Name: "Accept", Value: "text/event-stream"},
+			http.Field{Name: httpmcp.ProtocolVersionHeader, Value: mcp.Version},
+			http.Field{Name: httpmcp.SessionHeader, Value: sid},
+		},
+		Body: http.Buffered{Text: callMsg},
+	}) catch {
+	case _:
+		Console.Println("sse:err")
+		server.Stop()
+		return
+	}
+	let sseEvents = http.ReadEvents(sseResp.Body) catch {
+	case http.Truncated:
+		[]http.ServerEvent{}
+	}
+	Console.Println("sse:" + if sseResp.Status == 200 && len(sseEvents) == 1 && (Some[string]{Value: sseEvents[0].Data}) == wantCall { "ok" } else { "bad" })
+
+	authed.Terminate() catch {
+	case _:
+		Console.Println("del:err")
+		server.Stop()
+		return
+	}
+	Console.Println("del:204")
+
+	let postDel = httpClient.Send(http.Request{
+		Method:  "POST",
+		Path:    "/mcp",
+		RawPath: "/mcp",
+		Query:   []http.Field{},
+		Header: []http.Field{
+			http.Field{Name: "Authorization", Value: "Bearer secret-token"},
+			http.Field{Name: "Content-Type", Value: "application/json"},
+			http.Field{Name: "Accept", Value: "application/json"},
+			http.Field{Name: httpmcp.ProtocolVersionHeader, Value: mcp.Version},
+			http.Field{Name: httpmcp.SessionHeader, Value: sid},
+		},
+		Body: http.Buffered{Text: callMsg},
+	}) catch {
+	case _:
+		Console.Println("postdel:err")
+		server.Stop()
+		return
+	}
+	Console.Println("postdel:" + if postDel.Status == 404 { "404" } else { "bad" })
+	server.Stop()
+}
+`
+
+// TestStdMCPHttpLoopback verifies std mcp/httpmcp end-to-end over a live
+// loopback TCP http.Serve listener and http.NewClient: Bearer rejection (401),
+// Origin rejection (403), stateful initialize + Mcp-Session-Id minting,
+// notification 202 Accepted, tools/call over JSON and SSE, DELETE termination
+// (204), and post-DELETE rejection (404).
+func TestStdMCPHttpLoopback(t *testing.T) {
+	needsBuild(t)
+	stdout, stderr, code := runExeArgs(t, tableExe(t, "stdmcphttp"))
+	want := "unauth:401\norigin:403\ninit:ok\nnotif:202\ncall:ok\nsse:ok\ndel:204\npostdel:404\n"
+	if code != 0 || stdout != want {
+		t.Fatalf("stdmcphttp: exit=%d\ngot:\n%s\nwant:\n%s\nstderr:\n%s", code, stdout, want, firstLines(stderr, 20))
 	}
 }

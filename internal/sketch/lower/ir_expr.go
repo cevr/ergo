@@ -417,7 +417,7 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 			if b.l.valueFacts().seeds[x] && len(lit.Elems) == 1 {
 				// append(slices.Grow([]T{}, seedCap), e) (seedcap.go).
 				et := b.goType(tt.Elem, x)
-				keep := lit.T
+				keep := b.fc.goType(t)
 				if b.namesTypeParam(keep) {
 					keep = "[]int" // a generic body's slice is no package-level type (ir_loops.go)
 				}
