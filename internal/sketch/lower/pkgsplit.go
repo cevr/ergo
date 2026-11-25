@@ -579,6 +579,7 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 	all := map[string]bool{}
 	usesImport := make([]map[string]bool, len(f.Decls))
 	refSeen := map[[2]int]bool{}
+	irTParams := map[string]map[string]bool{}
 	for i, d := range f.Decls {
 		g := declGroup[i]
 		if g < 0 {
@@ -588,8 +589,12 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 		skip := map[*ast.Ident]bool{}
 		fieldIDs := map[*ast.Ident]bool{}
 		defs := map[*ast.Ident]bool{}
+		tparams := declTypeParams(d)
 		switch d := d.(type) {
 		case *ast.FuncDecl:
+			if len(tparams) > 0 {
+				irTParams[funcIRName(d)] = tparams
+			}
 			if d.Recv != nil {
 				fieldIDs[d.Name] = true
 			} else if !isGoInit(d.Name.Name) {
@@ -696,6 +701,9 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 			case defs[id]:
 				occs = append(occs, occ{id: id, decl: i, ref: -1, def: true})
 			default:
+				if tparams[id.Name] {
+					return true
+				}
 				obj := scope.Lookup(id.Name)
 				if obj == nil || (id.Obj != nil && id.Obj != obj) {
 					return true
@@ -717,7 +725,7 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 	var irs *irSplit
 	if ir != nil {
 		var reason string
-		if irs, reason = newIRSplit(ir, groupOf); reason != "" {
+		if irs, reason = newIRSplit(ir, groupOf, irTParams); reason != "" {
 			return nil, SplitReport{Reason: reason}
 		}
 		for i := range ir.Funcs {
@@ -1385,6 +1393,80 @@ func recvBase(r *ast.FieldList) string {
 			return ""
 		}
 	}
+}
+
+// funcIRName is the name an IR function entry uses for fd: "Name" for a
+// package function, "RecvType.Name" for a method.
+func funcIRName(fd *ast.FuncDecl) string {
+	if fd.Recv == nil {
+		return fd.Name.Name
+	}
+	return recvBase(fd.Recv) + "." + fd.Name.Name
+}
+
+// declTypeParams returns the generic type parameter names bound by d
+// (TypeSpec.TypeParams, FuncDecl.Type.TypeParams, and method receiver
+// type-parameter lists). go/parser does not populate ast.Ident.Obj for generic
+// type parameters, so pkgsplit must skip them explicitly to avoid qualifying
+// them as same-named package-scope types.
+func declTypeParams(d ast.Decl) map[string]bool {
+	var names map[string]bool
+	add := func(id *ast.Ident) {
+		if id == nil || id.Name == "_" {
+			return
+		}
+		if names == nil {
+			names = map[string]bool{}
+		}
+		names[id.Name] = true
+	}
+	addList := func(fl *ast.FieldList) {
+		if fl == nil {
+			return
+		}
+		for _, f := range fl.List {
+			for _, id := range f.Names {
+				add(id)
+			}
+		}
+	}
+	switch d := d.(type) {
+	case *ast.FuncDecl:
+		addList(d.Type.TypeParams)
+		if d.Recv != nil {
+			for _, f := range d.Recv.List {
+				t := f.Type
+				for {
+					switch x := t.(type) {
+					case *ast.StarExpr:
+						t = x.X
+						continue
+					case *ast.ParenExpr:
+						t = x.X
+						continue
+					case *ast.IndexExpr:
+						if id, ok := x.Index.(*ast.Ident); ok {
+							add(id)
+						}
+					case *ast.IndexListExpr:
+						for _, ix := range x.Indices {
+							if id, ok := ix.(*ast.Ident); ok {
+								add(id)
+							}
+						}
+					}
+					break
+				}
+			}
+		}
+	case *ast.GenDecl:
+		for _, s := range d.Specs {
+			if ts, ok := s.(*ast.TypeSpec); ok {
+				addList(ts.TypeParams)
+			}
+		}
+	}
+	return names
 }
 
 // hasEmbed reports a //go:embed directive in a declaration's comments.
