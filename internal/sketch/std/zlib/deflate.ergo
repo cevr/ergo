@@ -1,0 +1,263 @@
+import slices
+
+type bitWriter {
+	out   []byte,
+	bits  uint32,
+	nbits int,
+}
+
+func writeBits(w bitWriter, value uint32, count int) bitWriter {
+	let mut bw = w
+	bw.bits = bw.bits | (value << uint32(bw.nbits))
+	bw.nbits = bw.nbits + count
+	for bw.nbits >= 8 {
+		bw.out = bw.out.Append(byte(bw.bits & uint32(255)))
+		bw.bits = bw.bits >> uint32(8)
+		bw.nbits = bw.nbits - 8
+	}
+	bw
+}
+
+func flushBits(w bitWriter) bitWriter {
+	let mut bw = w
+	if bw.nbits > 0 {
+		bw.out = bw.out.Append(byte(bw.bits & uint32(255)))
+		bw.bits = uint32(0)
+		bw.nbits = 0
+	}
+	bw
+}
+
+func writeFixedLit(w bitWriter, sym int) bitWriter {
+	if sym <= 143 {
+		let rev = reverseBits(48+sym, 8)
+		writeBits(w, uint32(rev), 8)
+	} else if sym <= 255 {
+		let rev = reverseBits(400+(sym-144), 9)
+		writeBits(w, uint32(rev), 9)
+	} else if sym <= 279 {
+		let rev = reverseBits(sym-256, 7)
+		writeBits(w, uint32(rev), 7)
+	} else {
+		let rev = reverseBits(192+(sym-280), 8)
+		writeBits(w, uint32(rev), 8)
+	}
+}
+
+func lengthCodeIndex(length int) int {
+	if length == 258 {
+		return 28
+	}
+	let mut i = 0
+	for i < 28 {
+		if length < lenBases[i+1] {
+			return i
+		}
+		i = i + 1
+	}
+	28
+}
+
+func distCodeIndex(dist int) int {
+	let mut i = 0
+	for i < 29 {
+		if dist < distBases[i+1] {
+			return i
+		}
+		i = i + 1
+	}
+	29
+}
+
+func writeMatch(w bitWriter, length int, dist int) bitWriter {
+	let li = lengthCodeIndex(length)
+	let mut bw = writeFixedLit(w, 257+li)
+	let le = lenExtras[li]
+	if le > 0 {
+		bw = writeBits(bw, uint32(length-lenBases[li]), le)
+	}
+	let di = distCodeIndex(dist)
+	let drev = reverseBits(di, 5)
+	bw = writeBits(bw, uint32(drev), 5)
+	let de = distExtras[di]
+	if de > 0 {
+		bw = writeBits(bw, uint32(dist-distBases[di]), de)
+	}
+	bw
+}
+
+func hash3(src []byte, pos int, mask int) int {
+	let v = (uint32(src[pos]) << uint32(10)) ^ (uint32(src[pos+1]) << uint32(5)) ^ uint32(src[pos+2])
+	int((v * uint32(2654435761) >> uint32(16)) & uint32(mask))
+}
+
+func appendZlibTrailer(out []byte, src []byte) []byte {
+	let sum = Adler32(src)
+	let mut dst = out
+	dst = dst.Append(byte((sum >> uint32(24)) & uint32(255)))
+	dst = dst.Append(byte((sum >> uint32(16)) & uint32(255)))
+	dst = dst.Append(byte((sum >> uint32(8)) & uint32(255)))
+	dst = dst.Append(byte(sum & uint32(255)))
+	dst
+}
+
+func deflateStored(src []byte) []byte {
+	let n = len(src)
+	let mut out = slices.WithCapacity[byte](n + 16)
+	out = out.Append(byte(120))
+	out = out.Append(byte(1))
+	if n == 0 {
+		out = out.Append(byte(1))
+		out = out.Append(byte(0))
+		out = out.Append(byte(0))
+		out = out.Append(byte(255))
+		out = out.Append(byte(255))
+		return appendZlibTrailer(out, src)
+	}
+	let mut pos = 0
+	for pos < n {
+		let mut chunk = n - pos
+		if chunk > 65535 {
+			chunk = 65535
+		}
+		let finalByte = if pos+chunk == n { byte(1) } else { byte(0) }
+		let nlen = chunk ^ 65535
+		out = out.Append(finalByte)
+		out = out.Append(byte(chunk & 255))
+		out = out.Append(byte((chunk >> 8) & 255))
+		out = out.Append(byte(nlen & 255))
+		out = out.Append(byte((nlen >> 8) & 255))
+		for i in 0..chunk {
+			out = out.Append(src[pos+i])
+		}
+		pos = pos + chunk
+	}
+	appendZlibTrailer(out, src)
+}
+
+func headerFlgForLevel(level int) byte {
+	if level <= 0 {
+		byte(1)
+	} else if level <= 3 {
+		byte(94)
+	} else if level <= 6 {
+		byte(156)
+	} else {
+		byte(218)
+	}
+}
+
+func maxChainForLevel(level int) int {
+	if level <= 1 {
+		4
+	} else if level <= 4 {
+		8
+	} else if level <= 6 {
+		16
+	} else {
+		48
+	}
+}
+
+func hashSizeFor(n int) int {
+	if n < 64 {
+		64
+	} else if n < 512 {
+		512
+	} else {
+		4096
+	}
+}
+
+// DeflateLevel compresses src into an RFC 1950 zlib stream at the requested
+// compression level (0 = stored, 1..9 = LZ77 + fixed Huffman).
+func DeflateLevel(src []byte, level int) []byte {
+	if level <= 0 {
+		return deflateStored(src)
+	}
+	let n = len(src)
+	let mut out = slices.WithCapacity[byte](n + 16)
+	out = out.Append(byte(120))
+	out = out.Append(headerFlgForLevel(level))
+	let mut bw = bitWriter{out: out, bits: uint32(0), nbits: 0}
+	bw = writeBits(bw, uint32(1), 1)
+	bw = writeBits(bw, uint32(1), 2)
+	if n < 3 {
+		for b in src {
+			bw = writeFixedLit(bw, int(b))
+		}
+		bw = writeFixedLit(bw, 256)
+		bw = flushBits(bw)
+		return appendZlibTrailer(bw.out, src)
+	}
+	let hSize = hashSizeFor(n)
+	let hMask = hSize - 1
+	let mut head = slices.WithCapacity[int](hSize)
+	for _ in 0..hSize {
+		head = head.Append(-1)
+	}
+	let mut prev = slices.WithCapacity[int](n)
+	for _ in 0..n {
+		prev = prev.Append(-1)
+	}
+	let maxChain = maxChainForLevel(level)
+	let mut pos = 0
+	for pos < n {
+		let mut bestLen = 0
+		let mut bestDist = 0
+		if pos+2 < n {
+			let h = hash3(src, pos, hMask)
+			let mut cand = head[h]
+			let minPos = if pos > 32768 { pos - 32768 } else { 0 }
+			let mut maxLen = n - pos
+			if maxLen > 258 {
+				maxLen = 258
+			}
+			let mut steps = 0
+			for cand >= minPos && steps < maxChain {
+				if src[cand] == src[pos] && src[cand+1] == src[pos+1] && src[cand+2] == src[pos+2] {
+					let mut ml = 3
+					for ml < maxLen && src[cand+ml] == src[pos+ml] {
+						ml = ml + 1
+					}
+					if ml > bestLen {
+						bestLen = ml
+						bestDist = pos - cand
+						if bestLen == maxLen {
+							break
+						}
+					}
+				}
+				cand = prev[cand]
+				steps = steps + 1
+			}
+			prev[pos] = head[h]
+			head[h] = pos
+		}
+		if bestLen >= 3 {
+			bw = writeMatch(bw, bestLen, bestDist)
+			let mut k = 1
+			for k < bestLen {
+				let p = pos + k
+				if p+2 < n {
+					let hk = hash3(src, p, hMask)
+					prev[p] = head[hk]
+					head[hk] = p
+				}
+				k = k + 1
+			}
+			pos = pos + bestLen
+		} else {
+			bw = writeFixedLit(bw, int(src[pos]))
+			pos = pos + 1
+		}
+	}
+	bw = writeFixedLit(bw, 256)
+	bw = flushBits(bw)
+	appendZlibTrailer(bw.out, src)
+}
+
+// Deflate compresses src into an RFC 1950 zlib stream at DefaultLevel.
+func Deflate(src []byte) []byte {
+	DeflateLevel(src, DefaultLevel)
+}

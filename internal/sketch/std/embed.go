@@ -58,6 +58,7 @@ import "embed"
 //go:embed graph/*.ergo codegraph/*.ergo
 //go:embed html/*.ergo xml/*.ergo
 //go:embed build/*.ergo
+//go:embed zlib/*.ergo
 var Sources embed.FS
 
 // LedgerText is the std law ledger (runtime.md, Tests 10), as

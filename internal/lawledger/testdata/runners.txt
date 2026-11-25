@@ -1172,3 +1172,10 @@ xml OutputIsWellFormed	TestStdXmlLawsRun
 xml RoundTrips	TestStdXmlLawsRun
 xml Text.RawJoins	none
 xml TruncationIsRejectedInsideTheText	TestStdXmlLawsRun
+zlib Adler32Associates	TestStdZlibLawsRun
+zlib InflatePrefixStopsAtBoundary	TestStdZlibLawsRun
+zlib RejectsBadTrailer	TestStdZlibLawsRun
+zlib RejectsLimitExceeded	TestStdZlibLawsRun
+zlib RejectsTrailingData	TestStdZlibLawsRun
+zlib RejectsTruncated	TestStdZlibLawsRun
+zlib RoundTrips	TestStdZlibLawsRun

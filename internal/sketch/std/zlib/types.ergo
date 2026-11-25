@@ -1,0 +1,74 @@
+// Package zlib implements pure-Ergo RFC 1950 (ZLIB) and RFC 1951 (DEFLATE)
+// compression, decompression, and Adler-32 checksums with exact member-boundary
+// framing, strict output-size bounds, and classified typed errors.
+//
+// Pure functions over flat byte and table buffers are used rather than a
+// per-symbol state machine so inner bit-stream and LZ77 loops avoid per-symbol
+// transition overhead while remaining total, pure, and native-IR lowered.
+
+// NoCompression emits RFC 1951 stored blocks without LZ77 matching.
+let NoCompression = 0
+
+// BestSpeed uses a shallow LZ77 hash-chain search.
+let BestSpeed = 1
+
+// DefaultLevel is the default RFC 1951 compression level.
+let DefaultLevel = 6
+
+// BestCompression uses the deepest LZ77 hash-chain search.
+let BestCompression = 9
+
+// BadHeader is the failure of a zlib stream whose CMF/FLG header fails
+// RFC 1950 method (CM=8), window (CINFO<=7), or modulo-31 check validation.
+type BadHeader { Cmf byte, Flg byte }
+
+// UnsupportedDict is the failure of a zlib stream with the FDICT preset
+// dictionary flag set.
+type UnsupportedDict {}
+
+// BadBlock is the failure of an invalid DEFLATE block type (BTYPE=3) or a
+// stored block whose LEN and NLEN complement check fails.
+type BadBlock { Kind int }
+
+// BadDistance is the failure of an LZ77 back-reference whose distance is zero
+// or reaches before the start of the decompressed output.
+type BadDistance { Distance int, OutputLen int }
+
+// BadHuffman is the failure of a malformed canonical Huffman tree, invalid
+// symbol code, or out-of-range length/distance symbol.
+type BadHuffman { Reason string }
+
+// BadChecksum is the failure of a zlib Adler-32 trailer mismatch.
+type BadChecksum { Expected uint32, Actual uint32 }
+
+// Truncated is the failure of a stream that ends before a complete RFC 1950
+// header, DEFLATE final block, or 4-byte Adler-32 trailer.
+type Truncated { Offset int }
+
+// TrailingData is the failure of Inflate when bytes remain after the end of
+// the complete zlib member. Use InflatePrefix to decode concatenated streams.
+type TrailingData { Offset int, Extra int }
+
+// LimitExceeded is the failure of Inflate or InflatePrefix when the decoded
+// output would exceed maxBytes.
+type LimitExceeded { Limit int }
+
+// Error is the closed union of all zlib decoding failures.
+type Error =
+	| BadHeader
+	| UnsupportedDict
+	| BadBlock
+	| BadDistance
+	| BadHuffman
+	| BadChecksum
+	| Truncated
+	| TrailingData
+	| LimitExceeded
+
+// Inflated is the result of InflatePrefix: the decompressed payload Data and
+// the exact byte count Consumed from the input buffer (stopping immediately
+// after the 4-byte Adler-32 trailer without reading into any following member).
+type Inflated {
+	Data     []byte,
+	Consumed int,
+}
