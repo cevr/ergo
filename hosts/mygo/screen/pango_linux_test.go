@@ -279,3 +279,84 @@ func TestFastPangoCallsAllocateNothing(t *testing.T) {
 		t.Fatalf("a layout's Pango calls allocate %v times", n)
 	}
 }
+
+// TestPangoPinBeforeUintptr verifies that every Go pointer passed through
+// uintptr(unsafe.Pointer(x)) inside fastPango's rebound closures is pinned
+// with runtime.Pinner before the uintptr conversion / wordPool.Get() call and
+// unpinned before returning (CFFI-4).
+func TestPangoPinBeforeUintptr(t *testing.T) {
+	fs := token.NewFileSet()
+	f, err := parser.ParseFile(fs, "pango_linux.go", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fastFn *ast.FuncDecl
+	for _, decl := range f.Decls {
+		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.Name == "fastPango" {
+			fastFn = fn
+			break
+		}
+	}
+	if fastFn == nil {
+		t.Fatal("pango_linux.go: fastPango not found")
+	}
+	checked := 0
+	ast.Inspect(fastFn.Body, func(n ast.Node) bool {
+		lit, ok := n.(*ast.FuncLit)
+		if !ok || lit.Body == nil {
+			return true
+		}
+		pins := map[string]token.Pos{}
+		unpinPos := token.NoPos
+		var uintptrCalls []*ast.CallExpr
+		ast.Inspect(lit.Body, func(m ast.Node) bool {
+			c, ok := m.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			var sb strings.Builder
+			_ = printer.Fprint(&sb, fs, c.Fun)
+			name := sb.String()
+			switch {
+			case name == "pin.Pin" && len(c.Args) == 1:
+				var arg strings.Builder
+				_ = printer.Fprint(&arg, fs, c.Args[0])
+				if _, exists := pins[arg.String()]; !exists {
+					pins[arg.String()] = c.Pos()
+				}
+			case name == "pin.Unpin":
+				unpinPos = c.Pos()
+			case name == "uintptr" && len(c.Args) == 1:
+				if inner, ok := c.Args[0].(*ast.CallExpr); ok {
+					var innerFn strings.Builder
+					_ = printer.Fprint(&innerFn, fs, inner.Fun)
+					if innerFn.String() == "unsafe.Pointer" && len(inner.Args) == 1 {
+						uintptrCalls = append(uintptrCalls, inner)
+					}
+				}
+			}
+			return true
+		})
+		for _, inner := range uintptrCalls {
+			var arg strings.Builder
+			_ = printer.Fprint(&arg, fs, inner.Args[0])
+			target := arg.String()
+			checked++
+			pinPos, ok := pins[target]
+			if !ok {
+				t.Errorf("%s: uintptr(unsafe.Pointer(%s)) has no runtime.Pinner Pin(%s)", fs.Position(inner.Pos()), target, target)
+				continue
+			}
+			if pinPos >= inner.Pos() {
+				t.Errorf("%s: pin.Pin(%s) at %s must precede uintptr conversion", fs.Position(inner.Pos()), target, fs.Position(pinPos))
+			}
+			if unpinPos == token.NoPos || unpinPos <= inner.Pos() {
+				t.Errorf("%s: pin.Unpin() missing after uintptr(unsafe.Pointer(%s))", fs.Position(inner.Pos()), target)
+			}
+		}
+		return true
+	})
+	if checked < 2 {
+		t.Fatalf("expected at least 2 pinned pointer conversions in fastPango (text, glyph), checked %d", checked)
+	}
+}

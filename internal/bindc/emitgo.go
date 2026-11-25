@@ -131,8 +131,17 @@ func (e *goEmitter) file() string {
 	e.p("// sliceData is the address of the first element of s, or nil when s is empty.\nfunc sliceData[T any](s []T) unsafe.Pointer {\n\tif len(s) == 0 {\n\t\treturn nil\n\t}\n\treturn unsafe.Pointer(unsafe.SliceData(s))\n}\n\n")
 	pg := e.use("github.com/ebitengine/purego")
 	hasWordDirect, hasWordDirectArgs, hasWordDirectZero, hasWordDirectBool := false, false, false, false
+	hasBuffers := false
 	for _, f := range b.Funcs {
-		if !f.goTyped() || !b.isWordDirect(f.C) {
+		if !f.goTyped() {
+			continue
+		}
+		for _, q := range f.Positions {
+			if q.Class == ClassInBuffer || q.Class == ClassOutBuffer {
+				hasBuffers = true
+			}
+		}
+		if !b.isWordDirect(f.C) {
 			continue
 		}
 		hasWordDirect = true
@@ -146,6 +155,9 @@ func (e *goEmitter) file() string {
 				hasWordDirectBool = true
 			}
 		}
+	}
+	if hasBuffers {
+		e.p("// cGuardIn and cGuardOut are optional guard-page hooks installed by\n// -tags ergocguard test harnesses via SetCGuardHooks. When nil (default\n// builds), buffer calls pay zero allocations.\nvar (\n\tcGuardIn  func(ptr unsafe.Pointer, nbytes uintptr, fn, param string) (unsafe.Pointer, func())\n\tcGuardOut func(ptr unsafe.Pointer, nbytes uintptr, fn, param string) (unsafe.Pointer, func())\n)\n\n// SetCGuardHooks installs (or clears, with nil) guard-page hooks called around\n// every typed in_buffer and out_buffer C call.\nfunc SetCGuardHooks(in, out func(ptr unsafe.Pointer, nbytes uintptr, fn, param string) (unsafe.Pointer, func())) {\n\tcGuardIn, cGuardOut = in, out\n}\n\n")
 	}
 	abiIndex := 0
 	e.p("// symbols are the raw functions, in header order.\nvar symbols = [...]struct {\n\tname string\n\tfn   any\n}{\n")
@@ -657,8 +669,8 @@ func (e *goEmitter) typedFunc(f *BoundFunc, symIdx int) {
 		return off, true
 	}
 
-	// Autofill, out-parameters, pin list, and word-direct uintptr conversions.
-	var args, wordArgs, pins, convs []string
+	// Autofill, out-parameters, guard-page hooks, pin list, and word-direct uintptr conversions.
+	var args, wordArgs, pins, convs, guardDones []string
 	outVar := map[int]string{}
 	outPooled := map[int]bool{}
 	var pooledOutIdx []int
@@ -776,10 +788,24 @@ func (e *goEmitter) typedFunc(f *BoundFunc, symIdx int) {
 			}
 		case isPos && (q.Class == ClassInBuffer || q.Class == ClassOutBuffer):
 			e.fill(gp.Name, Type{Kind: TypeArray, Elem: p.Type.Elem}, 0)
-			args = append(args, "sliceData("+gp.Name+")")
-			pins = append(pins, fmt.Sprintf("\tif len(%s) > 0 {\n\t\t_pin.Pin(sliceData(%s))\n\t}\n", gp.Name, gp.Name))
+			v := "_v" + strconv.Itoa(i)
+			g := "_g" + strconv.Itoa(i)
+			hook := "cGuardIn"
+			if q.Class == ClassOutBuffer {
+				hook = "cGuardOut"
+			}
+			es := e.elemSize(*p.Type.Elem)
+			nbytes := "uintptr(len(" + gp.Name + "))"
+			if es != 1 {
+				nbytes += "*" + strconv.FormatInt(es, 10)
+			}
+			e.p("\t%s := sliceData(%s)\n\tvar %s func()\n\tif %s != nil && len(%s) > 0 {\n\t\t%s, %s = %s(%s, %s, %q, %q)\n\t}\n",
+				v, gp.Name, g, hook, gp.Name, v, g, hook, v, nbytes, c.Name, p.Name)
+			guardDones = append(guardDones, g)
+			args = append(args, v)
+			pins = append(pins, fmt.Sprintf("\tif %s == nil && len(%s) > 0 {\n\t\t_pin.Pin(%s)\n\t}\n", g, gp.Name, v))
 			if wordDirect {
-				convs = append(convs, "\t"+u+" := uintptr(sliceData("+gp.Name+"))\n")
+				convs = append(convs, "\t"+u+" := uintptr("+v+")\n")
 				wordArgs = append(wordArgs, u)
 			}
 		default:
@@ -887,6 +913,9 @@ func (e *goEmitter) typedFunc(f *BoundFunc, symIdx int) {
 		for _, u := range uses {
 			e.cbFailed(u)
 		}
+		for _, g := range guardDones {
+			e.p("\t\tif %s != nil {\n\t\t\t%s()\n\t\t}\n", g, g)
+		}
 		if hasPin {
 			e.p("\t\t_pin.Unpin()\n")
 		}
@@ -915,6 +944,9 @@ func (e *goEmitter) typedFunc(f *BoundFunc, symIdx int) {
 		nv := "_out" + strconv.Itoa(i)
 		e.p("\t%s := *%s\n", nv, outVar[i])
 		outVar[i] = nv
+	}
+	for _, g := range guardDones {
+		e.p("\tif %s != nil {\n\t\t%s()\n\t}\n", g, g)
 	}
 	if hasPin {
 		e.p("\t_pin.Unpin()\n")
