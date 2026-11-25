@@ -62,12 +62,15 @@ func internalFuncs(p *Pass) map[*check.Func]bool {
 		}
 	}
 	out := map[*check.Func]bool{}
+	if len(declared) == 0 {
+		return out
+	}
 	for _, u := range p.Program() {
 		for _, f := range u.Files {
 			if f.Syntax == nil {
 				continue
 			}
-			syntax.Inspect(f.Syntax, func(n syntax.Node) bool {
+			walkNode(f.Syntax, func(n syntax.Node) bool {
 				switch x := n.(type) {
 				case *syntax.TestDecl, *syntax.LawDecl:
 					return false

@@ -105,13 +105,15 @@ func stringStates(p *Pass) map[*check.Field]fieldStates {
 					markSet(info, d, own, set, literal, field)
 				}
 			}
-			syntax.Inspect(file.Syntax, func(n syntax.Node) bool {
+			fi := p.run.shared.fileIndexOf(file.Syntax)
+			for _, x := range fi.binaries {
+				if x.Op == syntax.EQL || x.Op == syntax.NEQ {
+					compare(x.X, x.Y, x.Pos(), x.End())
+					compare(x.Y, x.X, x.Pos(), x.End())
+				}
+			}
+			for _, n := range fi.switches {
 				switch x := n.(type) {
-				case *syntax.BinaryExpr:
-					if x.Op == syntax.EQL || x.Op == syntax.NEQ {
-						compare(x.X, x.Y, x.Pos(), x.End())
-						compare(x.Y, x.X, x.Pos(), x.End())
-					}
 				case *syntax.SwitchStmt:
 					if x.Tag == nil {
 						break
@@ -122,8 +124,7 @@ func stringStates(p *Pass) map[*check.Field]fieldStates {
 						}
 					}
 				}
-				return true
-			})
+			}
 		}
 	}
 	slices.SortStableFunc(all, func(a, b comparison) int {
@@ -155,7 +156,7 @@ func stringStates(p *Pass) map[*check.Field]fieldStates {
 // of a record literal, or an assignment to a selected field.
 func markSet(info *check.Info, d syntax.Node, own map[*check.Package]bool, set map[*check.Field]map[string]bool,
 	literal func(syntax.Expr) (string, bool), field func(syntax.Expr) *check.Field) {
-	syntax.Inspect(d, func(n syntax.Node) bool {
+	walkNode(d, func(n syntax.Node) bool {
 		switch x := n.(type) {
 		case *syntax.CompositeLit:
 			for _, e := range x.Elts {

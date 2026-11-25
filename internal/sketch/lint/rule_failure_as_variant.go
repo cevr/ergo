@@ -51,7 +51,7 @@ func checkFailureAsVariant(p *Pass) {
 // that hold a failure variant were 7 of 9 findings).
 func builds(info *check.Info, body *syntax.BlockStmt, tn *check.TypeName) bool {
 	found := false
-	syntax.Inspect(body, func(n syntax.Node) bool {
+	walkNode(body, func(n syntax.Node) bool {
 		switch x := n.(type) {
 		case *syntax.FuncLit:
 			return false

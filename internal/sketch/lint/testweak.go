@@ -59,9 +59,21 @@ func constValue(info *check.Info, e syntax.Expr) constant.Value {
 // gives what it gave. Nested blocks are read on their own.
 func repeatedAsserts(info *check.Info, body *syntax.BlockStmt) []*syntax.AssertStmt {
 	var out []*syntax.AssertStmt
-	syntax.Inspect(body, func(n syntax.Node) bool {
+	walkNode(body, func(n syntax.Node) bool {
 		b, ok := n.(*syntax.BlockStmt)
 		if !ok {
+			return true
+		}
+		asserts := 0
+		for _, s := range b.List {
+			if _, isAssert := s.(*syntax.AssertStmt); isAssert {
+				asserts++
+				if asserts >= 2 {
+					break
+				}
+			}
+		}
+		if asserts < 2 {
 			return true
 		}
 		seen := map[string]bool{}
@@ -88,7 +100,7 @@ func repeatedAsserts(info *check.Info, body *syntax.BlockStmt) []*syntax.AssertS
 // pureExpr reports an expression none of whose calls adds a footprint.
 func pureExpr(info *check.Info, e syntax.Expr) bool {
 	pure := true
-	syntax.Inspect(e, func(n syntax.Node) bool {
+	walkNode(e, func(n syntax.Node) bool {
 		if c, ok := n.(*syntax.CallExpr); ok && check.CallAddsFootprint(info, c) {
 			pure = false
 		}

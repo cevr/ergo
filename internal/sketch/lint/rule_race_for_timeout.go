@@ -29,37 +29,42 @@ type sleeper struct {
 }
 
 func checkRaceForTimeout(p *Pass) {
-	caught := map[syntax.Expr]bool{}
-	syntax.Inspect(p.File, func(n syntax.Node) bool {
-		if c, ok := n.(*syntax.CatchExpr); ok {
-			caught[c.X] = true
-		}
-		return true
-	})
-	syntax.Inspect(p.File, func(n syntax.Node) bool {
-		x, ok := n.(*syntax.CallExpr)
-		if !ok {
-			return true
-		}
+	fi := p.fileIndex()
+	if len(fi.calls) == 0 {
+		return
+	}
+	var caught map[syntax.Expr]bool
+	for _, x := range fi.calls {
 		call := p.Info.Calls[x]
 		if call == nil || check.RoleOf(call.Func) != check.RoleRace || len(x.Args) != 1 {
-			return true
+			continue
 		}
 		lit, ok := x.Args[0].(*syntax.CompositeLit)
 		if !ok || len(lit.Elts) != 2 {
-			return true
+			continue
 		}
 		var blocks [2]*syntax.FuncLit
 		var sleeps [2]*sleeper
+		valid := true
 		for i, e := range lit.Elts {
 			fl, isLit := e.(*syntax.FuncLit)
 			if !isLit {
-				return true
+				valid = false
+				break
 			}
 			blocks[i], sleeps[i] = fl, sleeperOf(p.Info, fl)
 		}
+		if !valid {
+			continue
+		}
 		if (sleeps[0] == nil) == (sleeps[1] == nil) {
-			return true
+			continue
+		}
+		if caught == nil && len(fi.catches) > 0 {
+			caught = make(map[syntax.Expr]bool, len(fi.catches))
+			for _, c := range fi.catches {
+				caught[c.X] = true
+			}
 		}
 		timer, body := 0, 1
 		if sleeps[0] == nil {
@@ -71,8 +76,7 @@ func checkRaceForTimeout(p *Pass) {
 			fix = timeoutFixOf(p, x, blocks[body], sleeps[timer])
 		}
 		p.ReportFix(x.Pos(), x.End(), message, fix)
-		return true
-	})
+	}
 }
 
 // sleeperOf is the block's sleep and fallback when its body is a
@@ -110,7 +114,7 @@ func sleeperOf(info *check.Info, fl *syntax.FuncLit) *sleeper {
 // does the same.
 func quiet(info *check.Info, e syntax.Expr) bool {
 	ok := true
-	syntax.Inspect(e, func(n syntax.Node) bool {
+	walkNode(e, func(n syntax.Node) bool {
 		switch n := n.(type) {
 		case *syntax.FuncLit:
 			return false

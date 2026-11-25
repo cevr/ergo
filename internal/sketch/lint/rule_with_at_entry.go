@@ -59,7 +59,7 @@ func checkWithAtEntry(p *Pass) {
 		if fn, _ := p.Info.Defs[f.Name].(*check.Func); listedFunction(p.Rel(), fn, listed) {
 			continue
 		}
-		syntax.Inspect(f.Body, func(n syntax.Node) bool {
+		walkNode(f.Body, func(n syntax.Node) bool {
 			x, ok := n.(*syntax.CallExpr)
 			if !ok {
 				return true
@@ -117,7 +117,7 @@ func testFile(f *syntax.File) bool {
 	for work := contexts; len(work) > 0; {
 		n := work[len(work)-1]
 		work = work[:len(work)-1]
-		syntax.Inspect(n, func(x syntax.Node) bool {
+		walkNode(n, func(x syntax.Node) bool {
 			if id, ok := x.(*syntax.Ident); ok && lets[id.Name] != nil && !needed[id.Name] {
 				needed[id.Name] = true
 				work = append(work, lets[id.Name])

@@ -38,6 +38,12 @@ type programGraph struct {
 	// at lists, by file index, the edges positioned in that file; into,
 	// the uses edges whose target sits in that file; both in row order.
 	at, into rowLists
+	// Cached packed columns and sorted edge permutation (built once per run).
+	colsStrs    []string
+	colsInts    []int
+	colsBuilt   bool
+	sorted      []int
+	sortedBuilt bool
 }
 
 // rowLists is a list of edge rows for each of a run of keys, in one
@@ -159,6 +165,25 @@ func (g *programGraph) edgesIn(f uint32, kind graphrows.EdgeKind, visit func(e g
 	}
 }
 
+// columns returns the packed string and int columns of g.t, built once per
+// programGraph and reused across all graph queries in the run.
+func (g *programGraph) columns() ([]string, []int) {
+	if !g.colsBuilt {
+		g.colsStrs, g.colsInts = g.t.AppendColumns(nil, nil)
+		g.colsBuilt = true
+	}
+	return g.colsStrs, g.colsInts
+}
+
+// sortedEdges returns g.t.Sorted(), computed once per programGraph.
+func (g *programGraph) sortedEdges() []int {
+	if !g.sortedBuilt {
+		g.sorted = g.t.Sorted()
+		g.sortedBuilt = true
+	}
+	return g.sorted
+}
+
 // query runs a linked `ergo graph` query over g's columns for the
 // modules of units' own packages and returns its JSON stdout.
 func (g *programGraph) query(units []Unit, args ...string) ([]byte, error) {
@@ -170,7 +195,7 @@ func (g *programGraph) query(units []Unit, args ...string) ([]byte, error) {
 			full = append(full, "--module", u.Module)
 		}
 	}
-	strs, ints := g.t.AppendColumns(nil, nil)
+	strs, ints := g.columns()
 	out, err := graph.RunColumns(context.Background(), full, strs, ints)
 	if err != nil {
 		return nil, err

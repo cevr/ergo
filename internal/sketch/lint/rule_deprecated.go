@@ -29,24 +29,23 @@ func checkDeprecated(p *Pass) {
 			p.Report(at.Pos(), at.End(), "this declaration is deprecated: "+paragraph)
 		}
 	}
-	syntax.Inspect(p.File, func(n syntax.Node) bool {
-		switch n := n.(type) {
-		case *syntax.Ident:
-			if o := p.Info.Uses[n]; o != nil {
-				doc, owner := check.DocOf(o)
-				report(n, doc, owner)
-			}
-		case *syntax.SelectorExpr:
-			if o := check.QualifiedMember(p.Info, n); o != nil {
-				doc, owner := check.DocOf(o)
-				report(n.Sel, doc, owner)
-			}
-		case *syntax.CallExpr:
-			doc, owner := check.OpDoc(p.Info, n)
-			if sel, ok := n.Fun.(*syntax.SelectorExpr); ok {
-				report(sel.Sel, doc, owner)
-			}
+	fi := p.fileIndex()
+	for _, n := range fi.idents {
+		if o := p.Info.Uses[n]; o != nil {
+			doc, owner := check.DocOf(o)
+			report(n, doc, owner)
 		}
-		return true
-	})
+	}
+	for _, n := range fi.selectors {
+		if o := check.QualifiedMember(p.Info, n); o != nil {
+			doc, owner := check.DocOf(o)
+			report(n.Sel, doc, owner)
+		}
+	}
+	for _, n := range fi.calls {
+		doc, owner := check.OpDoc(p.Info, n)
+		if sel, ok := n.Fun.(*syntax.SelectorExpr); ok {
+			report(sel.Sel, doc, owner)
+		}
+	}
 }

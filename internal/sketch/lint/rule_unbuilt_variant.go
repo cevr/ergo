@@ -43,7 +43,7 @@ func checkUnbuiltVariant(p *Pass) {
 		}
 		p.Report(id.Pos(), id.End(), "no code builds "+id.Name+", a variant of a union")
 	}
-	syntax.Inspect(p.File, func(n syntax.Node) bool {
+	walkNode(p.File, func(n syntax.Node) bool {
 		switch x := n.(type) {
 		case *syntax.TypeDecl:
 			if x.TypeParams == nil && x.Extern == nil && x.Origin == nil {
@@ -65,7 +65,7 @@ func checkUnbuiltVariant(p *Pass) {
 // position (a field, parameter or let's type, a case or catch pattern, a
 // literal's type) builds nothing, so those subtrees are skipped.
 func builtNames(info *check.Info, n syntax.Node, built map[*check.TypeName]bool) {
-	syntax.Inspect(n, func(n syntax.Node) bool {
+	walkNode(n, func(n syntax.Node) bool {
 		switch x := n.(type) {
 		case *syntax.Field, *syntax.FuncType, *syntax.TypeDecl:
 			return false
@@ -134,8 +134,25 @@ func variantsOf(p *Pass) variantFacts {
 			if f.Syntax == nil {
 				continue
 			}
-			syntax.Inspect(f.Syntax, func(n syntax.Node) bool {
-				switch x := n.(type) {
+			fi := p.run.shared.fileIndexOf(f.Syntax)
+			for _, x := range fi.lits {
+				if n, ok := info.Types[x].(*check.Named); ok {
+					facts.built[origin(n).Obj] = true
+				}
+			}
+			for _, x := range fi.calls {
+				// a generic call given a type, such as a decoder, can
+				// build every type that type reaches
+				if c := info.Calls[x]; c != nil {
+					for _, a := range c.TypeArgs {
+						for _, tn := range check.Mentions(a, nil) {
+							facts.built[tn] = true
+						}
+					}
+				}
+			}
+			for _, d := range f.Syntax.Decls {
+				switch x := d.(type) {
 				case *syntax.TypeDecl:
 					if tn, ok := info.Defs[x.Name].(*check.TypeName); ok {
 						if union, ok := underlying(tn).(*check.Union); ok && union.Row == nil {
@@ -146,18 +163,19 @@ func variantsOf(p *Pass) variantFacts {
 							}
 						}
 					}
-				case *syntax.CompositeLit:
-					if n, ok := info.Types[x].(*check.Named); ok {
-						facts.built[origin(n).Obj] = true
-					}
-				case *syntax.CallExpr:
-					// a generic call given a type, such as a decoder, can
-					// build every type that type reaches
-					if c := info.Calls[x]; c != nil {
-						for _, a := range c.TypeArgs {
-							for _, tn := range check.Mentions(a, nil) {
-								facts.built[tn] = true
+					if it, ok := x.Spec.(*syntax.InterfaceType); ok {
+						for _, l := range it.Laws {
+							if l.Body != nil {
+								builtNames(info, l.Body, facts.built)
 							}
+							generated(info, l.Params, facts.built)
+						}
+					} else if mt, ok := x.Spec.(*syntax.MachineType); ok {
+						for _, l := range mt.Laws {
+							if l.Body != nil {
+								builtNames(info, l.Body, facts.built)
+							}
+							generated(info, l.Params, facts.built)
 						}
 					}
 				case *syntax.FuncDecl:
@@ -179,8 +197,7 @@ func variantsOf(p *Pass) variantFacts {
 						}
 					}
 				}
-				return true
-			})
+			}
 		}
 	}
 	return facts

@@ -28,7 +28,10 @@ var defaultOnFailure = &Rule{
 }
 
 func checkDefaultOnFailure(p *Pass) {
-	syntax.Inspect(p.File, func(n syntax.Node) bool {
+	if len(p.fileIndex().catches) == 0 {
+		return
+	}
+	walkNode(p.File, func(n syntax.Node) bool {
 		switch x := n.(type) {
 		case *syntax.TestDecl, *syntax.LawDecl:
 			return false

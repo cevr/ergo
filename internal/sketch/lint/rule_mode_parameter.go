@@ -66,7 +66,7 @@ func checkModeParameter(p *Pass) {
 					continue
 				}
 				uses, picks := 0, 0
-				syntax.Inspect(f.Body, func(n syntax.Node) bool {
+				walkNode(f.Body, func(n syntax.Node) bool {
 					if x, ok := n.(*syntax.Ident); ok && p.Info.Uses[x] == v {
 						uses++
 						if modes[x] {
@@ -97,6 +97,14 @@ func (s *callSites) constantAt(fn *check.Func, i int) bool {
 // callSitesOf reads every call and value use of a function in the
 // program; with code, only the calls outside tests and laws are read.
 func callSitesOf(p *Pass, code bool) *callSites {
+	if sh := p.run.shared; sh != nil {
+		if !code && sh.callsAll != nil {
+			return sh.callsAll
+		}
+		if code && sh.callsCode != nil {
+			return sh.callsCode
+		}
+	}
 	s := &callSites{calls: map[*check.Func][][]syntax.Expr{}, value: map[*check.Func]bool{}, info: map[syntax.Expr]*check.Info{}}
 	for _, u := range p.Program() {
 		info := u.Package.Info
@@ -104,32 +112,21 @@ func callSitesOf(p *Pass, code bool) *callSites {
 			if f.Syntax == nil {
 				continue
 			}
-			called := map[*syntax.Ident]bool{}
-			excluded := map[*syntax.CallExpr]bool{}
-			exclude := func(n syntax.Node) bool {
-				if x, ok := n.(*syntax.CallExpr); ok {
-					excluded[x] = true
-				}
-				return true
-			}
+			fi := p.run.shared.fileIndexOf(f.Syntax)
+			called := make(map[*syntax.Ident]bool, len(fi.calls))
+			var excluded map[*syntax.CallExpr]bool
 			if code {
-				syntax.Inspect(f.Syntax, func(n syntax.Node) bool {
-					switch n.(type) {
-					case *syntax.TestDecl, *syntax.LawDecl:
-						syntax.Inspect(n, exclude)
-						return false
+				excluded = map[*syntax.CallExpr]bool{}
+				for i, x := range fi.calls {
+					if fi.callFlags[i]&nodeInTestLaw != 0 {
+						excluded[x] = true
 					}
-					return true
-				})
-			}
-			syntax.Inspect(f.Syntax, func(n syntax.Node) bool {
-				x, ok := n.(*syntax.CallExpr)
-				if !ok {
-					return true
 				}
+			}
+			for _, x := range fi.calls {
 				c := info.Calls[x]
 				if c == nil || c.Func == nil {
-					return true
+					continue
 				}
 				switch fun := unparen(x.Fun).(type) {
 				case *syntax.Ident:
@@ -141,26 +138,31 @@ func callSitesOf(p *Pass, code bool) *callSites {
 						called[id] = true
 					}
 				}
-				args := x.Args
-				if c.Recv != nil {
-					args = append([]syntax.Expr{c.Recv}, args...)
-				}
-				for _, a := range args {
-					s.info[a] = info
-				}
 				if !excluded[x] {
+					args := x.Args
+					if c.Recv != nil {
+						args = append([]syntax.Expr{c.Recv}, args...)
+					}
+					for _, a := range args {
+						s.info[a] = info
+					}
 					s.calls[c.Func] = append(s.calls[c.Func], args)
 				}
-				return true
-			})
-			syntax.Inspect(f.Syntax, func(n syntax.Node) bool {
-				if id, ok := n.(*syntax.Ident); ok && !called[id] {
+			}
+			for _, id := range fi.idents {
+				if !called[id] {
 					if fn, ok := info.Uses[id].(*check.Func); ok {
 						s.value[fn] = true
 					}
 				}
-				return true
-			})
+			}
+		}
+	}
+	if sh := p.run.shared; sh != nil {
+		if code {
+			sh.callsCode = s
+		} else {
+			sh.callsAll = s
 		}
 	}
 	return s

@@ -36,7 +36,7 @@ func checkCauseDropped(p *Pass) {
 		if !ok || fn.Sig == nil || fn.Sig.Errors == nil {
 			continue
 		}
-		syntax.Inspect(f.Body, func(n syntax.Node) bool {
+		walkNode(f.Body, func(n syntax.Node) bool {
 			x, ok := n.(*syntax.CatchExpr)
 			if !ok || p.Info.Matches[x] == nil {
 				return true
@@ -61,7 +61,7 @@ func checkCauseDropped(p *Pass) {
 func ownReturns(body []syntax.Stmt) []*syntax.ReturnStmt {
 	var out []*syntax.ReturnStmt
 	for _, s := range body {
-		syntax.Inspect(s, func(n syntax.Node) bool {
+		walkNode(s, func(n syntax.Node) bool {
 			switch n := n.(type) {
 			case *syntax.FuncLit:
 				return false

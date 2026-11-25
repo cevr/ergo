@@ -46,7 +46,7 @@ func testBodies(f *syntax.File, visit func(body *syntax.BlockStmt)) {
 
 func checkConstantRestated(p *Pass) {
 	testBodies(p.File, func(body *syntax.BlockStmt) {
-		syntax.Inspect(body, func(n syntax.Node) bool {
+		walkNode(body, func(n syntax.Node) bool {
 			if a, ok := n.(*syntax.AssertStmt); ok && restated(p.Info, a) {
 				p.Report(a.Pos(), a.End(), "both sides of this assert are constants of one value")
 			}

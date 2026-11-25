@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"io"
 	"slices"
 	"strconv"
 	"strings"
@@ -38,12 +39,13 @@ func Facts(in Input, families []sdk.Family) *sdk.Snapshot {
 				continue
 			}
 			s.Sources = append(s.Sources, sdk.Source{File: f.Rel, Bytes: len(f.Syntax.Src), Text: f.Syntax.Src})
-			for _, field := range []string{f.Rel, f.Syntax.Src} {
-				var n [8]byte
-				binary.BigEndian.PutUint64(n[:], uint64(len(field)))
-				revision.Write(n[:])
-				revision.Write([]byte(field))
-			}
+			var n [8]byte
+			binary.BigEndian.PutUint64(n[:], uint64(len(f.Rel)))
+			revision.Write(n[:])
+			_, _ = io.WriteString(revision, f.Rel)
+			binary.BigEndian.PutUint64(n[:], uint64(len(f.Syntax.Src)))
+			revision.Write(n[:])
+			_, _ = io.WriteString(revision, f.Syntax.Src)
 		}
 	}
 	s.Semantic.Revision = "sha256:" + hex.EncodeToString(revision.Sum(nil))
@@ -62,12 +64,21 @@ func Facts(in Input, families []sdk.Family) *sdk.Snapshot {
 	if len(want) == 0 {
 		return s
 	}
-	x := &extractor{snap: s, want: want, providerFile: map[syntax.Expr]File{}}
-	for _, unit := range in.Units {
-		if !programUnit(unit) {
-			continue
+	x := &extractor{
+		snap:         s,
+		want:         want,
+		providerFile: map[syntax.Expr]File{},
+		funcIDs:      map[*check.Func]string{},
+		typeIDs:      map[check.Type]string{},
+		typeStrs:     map[check.Type]string{},
+	}
+	if want[sdk.FamilyDeclarations] || want[sdk.FamilyWiths] {
+		for _, unit := range in.Units {
+			if !programUnit(unit) {
+				continue
+			}
+			x.indexProviders(unit)
 		}
-		x.indexProviders(unit)
 	}
 	for _, unit := range in.Units {
 		if !programUnit(unit) {
@@ -92,6 +103,55 @@ type extractor struct {
 	// expression, for the spans of named contexts' entries that a with in
 	// another file binds.
 	providerFile map[syntax.Expr]File
+	funcIDs      map[*check.Func]string
+	typeIDs      map[check.Type]string
+	typeStrs     map[check.Type]string
+	// reusable buffers for single-pass binding extraction
+	varIndex map[*check.Var]int
+	pending  []varUse
+	idBuf    [128]byte
+}
+
+func (x *extractor) typeStr(t check.Type) string {
+	if t == nil {
+		return ""
+	}
+	if s, ok := x.typeStrs[t]; ok {
+		return s
+	}
+	s := t.String()
+	x.typeStrs[t] = s
+	return s
+}
+
+func (x *extractor) bindingID(caller string, offset int) string {
+	b := append(x.idBuf[:0], caller...)
+	b = append(b, '@')
+	b = strconv.AppendInt(b, int64(offset), 10)
+	return string(b)
+}
+
+type varUse struct {
+	v  *check.Var
+	id *syntax.Ident
+}
+
+func (x *extractor) funcID(f *check.Func) string {
+	if id, ok := x.funcIDs[f]; ok {
+		return id
+	}
+	id := funcIdentity(f)
+	x.funcIDs[f] = id
+	return id
+}
+
+func (x *extractor) typeID(t check.Type) string {
+	if id, ok := x.typeIDs[t]; ok {
+		return id
+	}
+	id := typeIdentity(t)
+	x.typeIDs[t] = id
+	return id
 }
 
 // indexProviders records the file of every context entry's provider
@@ -102,7 +162,7 @@ func (x *extractor) indexProviders(unit Unit) {
 			continue
 		}
 		file := f
-		syntax.Inspect(f.Syntax, func(n syntax.Node) bool {
+		walkNode(f.Syntax, func(n syntax.Node) bool {
 			if e, ok := n.(*syntax.ContextEntry); ok && e.Value != nil {
 				x.providerFile[e.Value] = file
 			}
@@ -141,9 +201,9 @@ func (x *extractor) unit(unit Unit) {
 					continue
 				}
 				c := sdk.Callable{
-					Identity: funcIdentity(fn), Package: pkg.Path, Name: fn.Name, Kind: sdk.CallableFunction, Exported: fn.Exported(),
+					Identity: x.funcID(fn), Package: pkg.Path, Name: fn.Name, Kind: sdk.CallableFunction, Exported: fn.Exported(),
 					Span: spanOf(f, d.Name.Pos(), d.Name.End()), Extent: spanOf(f, d.Pos(), d.End()),
-					Fails: rowIdentities(fn.Sig.Errors), Needs: rowIdentities(fn.Sig.Uses),
+					Fails: x.rowIdentities(fn.Sig.Errors), Needs: x.rowIdentities(fn.Sig.Uses),
 				}
 				x.callable(f, info, c, d, d.Body)
 			case *syntax.TestDecl:
@@ -176,7 +236,7 @@ func (x *extractor) typeDecl(f File, info *check.Info, d *syntax.TypeDecl) {
 	if n == nil || n.Alias() != nil {
 		return
 	}
-	t := sdk.TypeDecl{Identity: typeIdentity(n), Package: tn.Pkg.Path, Name: tn.Name, Kind: sdk.TypeDefined, Exported: exported(tn.Name), Span: spanOf(f, d.Name.Pos(), d.Name.End())}
+	t := sdk.TypeDecl{Identity: x.typeID(n), Package: tn.Pkg.Path, Name: tn.Name, Kind: sdk.TypeDefined, Exported: exported(tn.Name), Span: spanOf(f, d.Name.Pos(), d.Name.End())}
 	switch under := n.Underlying().(type) {
 	case *check.Struct:
 		if n.Defined() == nil {
@@ -185,7 +245,7 @@ func (x *extractor) typeDecl(f File, info *check.Info, d *syntax.TypeDecl) {
 	case *check.Union:
 		t.Kind = sdk.TypeUnion
 		for _, v := range under.Variants {
-			t.Variants = append(t.Variants, typeIdentity(v))
+			t.Variants = append(t.Variants, x.typeID(v))
 		}
 	case *check.Interface:
 		if n.Defined() == nil {
@@ -239,7 +299,7 @@ func (x *extractor) callable(f File, info *check.Info, c sdk.Callable, decl synt
 	if fp, ok := info.Footprints[decl]; ok {
 		c.Footprint = sdk.Footprint{Tasks: fp.Tasks, Opaque: fp.Opaque}
 		for _, capability := range fp.Caps {
-			c.Footprint.Capabilities = append(c.Footprint.Capabilities, typeIdentity(capability))
+			c.Footprint.Capabilities = append(c.Footprint.Capabilities, x.typeID(capability))
 		}
 		slices.Sort(c.Footprint.Capabilities)
 		c.Footprint.Capabilities = slices.Compact(c.Footprint.Capabilities)
@@ -247,25 +307,85 @@ func (x *extractor) callable(f File, info *check.Info, c sdk.Callable, decl synt
 	if x.want[sdk.FamilyCallables] {
 		x.snap.Callables = append(x.snap.Callables, c)
 	}
-	if x.want[sdk.FamilyBindings] {
-		x.bindings(f, info, c.Identity, decl)
-	}
-	if body == nil || !x.want[sdk.FamilyCalls] && !x.want[sdk.FamilyWiths] {
+	wantBindings := x.want[sdk.FamilyBindings]
+	wantCalls := body != nil && x.want[sdk.FamilyCalls]
+	wantWiths := body != nil && x.want[sdk.FamilyWiths] && len(info.Withs) > 0
+	if !wantBindings && !wantCalls && !wantWiths {
 		return
 	}
-	syntax.Inspect(body, func(n syntax.Node) bool {
-		call, ok := n.(*syntax.CallExpr)
-		if !ok {
+	if !wantBindings {
+		walkNode(body, func(n syntax.Node) bool {
+			call, ok := n.(*syntax.CallExpr)
+			if !ok {
+				return true
+			}
+			if wantWiths {
+				if w := info.Withs[call]; w != nil {
+					x.with(f, c.Identity, call, w)
+				}
+			}
+			if wantCalls {
+				if site := info.Calls[call]; site != nil {
+					x.snap.Calls = append(x.snap.Calls, sdk.Call{Caller: c.Identity, Callee: x.calleeOf(info, call, site), Kind: callKind(site.Kind), Span: spanOf(f, call.Pos(), call.End()), Fails: x.rowIdentities(site.Fails)})
+				}
+			}
+			return true
+		})
+		return
+	}
+	// Single-pass flat extraction for bindings + calls + withs.
+	if x.varIndex == nil {
+		x.varIndex = make(map[*check.Var]int, 16)
+	} else {
+		clear(x.varIndex)
+	}
+	x.pending = x.pending[:0]
+	inBody := false
+	walkNode(decl, func(n syntax.Node) bool {
+		if body != nil && n == body {
+			inBody = true
 			return true
 		}
-		if w := info.Withs[call]; w != nil && x.want[sdk.FamilyWiths] {
-			x.with(f, c.Identity, call, w)
-		}
-		if site := info.Calls[call]; site != nil && x.want[sdk.FamilyCalls] {
-			x.snap.Calls = append(x.snap.Calls, sdk.Call{Caller: c.Identity, Callee: calleeOf(info, call, site), Kind: callKind(site.Kind), Span: spanOf(f, call.Pos(), call.End()), Fails: rowIdentities(site.Fails)})
+		switch m := n.(type) {
+		case *syntax.Ident:
+			if v, ok := info.Defs[m].(*check.Var); ok {
+				if _, seen := x.varIndex[v]; !seen {
+					span := spanOf(f, m.Pos(), m.End())
+					x.varIndex[v] = len(x.snap.Bindings)
+					x.snap.Bindings = append(x.snap.Bindings, sdk.Binding{
+						Identity: x.bindingID(c.Identity, span.Offset), Callable: c.Identity, Name: v.Name,
+						Type: x.typeStr(v.Type), Mutable: v.Mut(), Span: span,
+					})
+				}
+			}
+			if v, ok := info.Uses[m].(*check.Var); ok {
+				if i, known := x.varIndex[v]; known {
+					x.snap.Bindings[i].Uses = append(x.snap.Bindings[i].Uses, spanOf(f, m.Pos(), m.End()))
+				} else {
+					x.pending = append(x.pending, varUse{v: v, id: m})
+				}
+			}
+		case *syntax.CallExpr:
+			if inBody {
+				if wantWiths {
+					if w := info.Withs[m]; w != nil {
+						x.with(f, c.Identity, m, w)
+					}
+				}
+				if wantCalls {
+					if site := info.Calls[m]; site != nil {
+						x.snap.Calls = append(x.snap.Calls, sdk.Call{Caller: c.Identity, Callee: x.calleeOf(info, m, site), Kind: callKind(site.Kind), Span: spanOf(f, m.Pos(), m.End()), Fails: x.rowIdentities(site.Fails)})
+					}
+				}
+			}
 		}
 		return true
 	})
+	for _, u := range x.pending {
+		if i, known := x.varIndex[u.v]; known {
+			x.snap.Bindings[i].Uses = append(x.snap.Bindings[i].Uses, spanOf(f, u.id.Pos(), u.id.End()))
+		}
+	}
 }
 
 // with records a with and its later operands as one fact.
@@ -302,41 +422,6 @@ func (x *extractor) with(f File, caller string, call *syntax.CallExpr, w *check.
 		}
 	}
 	x.snap.Withs = append(x.snap.Withs, out)
-}
-
-// bindings records each local of the callable that the checker defined in
-// its syntax, with every use the checker resolved to it.
-func (x *extractor) bindings(f File, info *check.Info, caller string, decl syntax.Node) {
-	index := map[*check.Var]int{}
-	syntax.Inspect(decl, func(n syntax.Node) bool {
-		id, ok := n.(*syntax.Ident)
-		if !ok {
-			return true
-		}
-		if v, ok := info.Defs[id].(*check.Var); ok {
-			if _, seen := index[v]; !seen {
-				span := spanOf(f, id.Pos(), id.End())
-				index[v] = len(x.snap.Bindings)
-				x.snap.Bindings = append(x.snap.Bindings, sdk.Binding{
-					Identity: caller + "@" + strconv.Itoa(span.Offset), Callable: caller, Name: v.Name,
-					Type: typeString(v.Type), Mutable: v.Mut(), Span: span,
-				})
-			}
-		}
-		return true
-	})
-	syntax.Inspect(decl, func(n syntax.Node) bool {
-		id, ok := n.(*syntax.Ident)
-		if !ok {
-			return true
-		}
-		if v, ok := info.Uses[id].(*check.Var); ok {
-			if i, known := index[v]; known {
-				x.snap.Bindings[i].Uses = append(x.snap.Bindings[i].Uses, spanOf(f, id.Pos(), id.End()))
-			}
-		}
-		return true
-	})
 }
 
 // spanOf is the span from..to of file f.
@@ -378,7 +463,19 @@ func typeString(t check.Type) string {
 
 // rowIdentities are a row's elements as type identities, sorted. An
 // inferred row's variable stands for its solution.
-func rowIdentities(r *check.Row) []string {
+func (x *extractor) rowIdentities(r *check.Row) []string {
+	if r == nil {
+		return nil
+	}
+	elems := r.Elems()
+	if len(elems) == 0 {
+		return nil
+	}
+	if len(elems) == 1 {
+		if _, isVar := elems[0].(*check.RowVar); !isVar {
+			return []string{x.typeID(elems[0])}
+		}
+	}
 	var out []string
 	var add func(r *check.Row, depth int)
 	add = func(r *check.Row, depth int) {
@@ -389,7 +486,7 @@ func rowIdentities(r *check.Row) []string {
 				}
 				continue
 			}
-			out = append(out, typeIdentity(t))
+			out = append(out, x.typeID(t))
 		}
 	}
 	add(r, 0)
@@ -401,11 +498,9 @@ func rowIdentities(r *check.Row) []string {
 // of the same name in the package (functions x.f(…) reaches may share a
 // name).
 func funcIdentity(f *check.Func) string {
-	id := "func:" + f.Name
 	if f.Pkg == nil {
-		return id
+		return "func:" + f.Name
 	}
-	id = "func:" + f.Pkg.Path + "." + f.Name
 	n := 0
 	for _, other := range f.Pkg.Funcs {
 		if other == f {
@@ -416,9 +511,9 @@ func funcIdentity(f *check.Func) string {
 		}
 	}
 	if n > 0 {
-		id += "#" + strconv.Itoa(n)
+		return "func:" + f.Pkg.Path + "." + f.Name + "#" + strconv.Itoa(n)
 	}
-	return id
+	return "func:" + f.Pkg.Path + "." + f.Name
 }
 
 func contextIdentity(pkg *check.Package, c *check.Context) string {
@@ -436,23 +531,23 @@ func contextIdentityOf(c *check.Context) string {
 
 // calleeOf is the resolved callee of a call: a function's identity, or an
 // operation's as its type's identity and the operation's name.
-func calleeOf(info *check.Info, x *syntax.CallExpr, site *check.Call) string {
+func (x *extractor) calleeOf(info *check.Info, call *syntax.CallExpr, site *check.Call) string {
 	switch site.Kind {
 	case check.CallFunc:
 		if site.Func != nil {
-			return funcIdentity(site.Func)
+			return x.funcID(site.Func)
 		}
 	case check.CallOp, check.CallProviderOp:
 		if site.Op == nil {
 			return ""
 		}
 		recv := site.Recv
-		if sel, ok := x.Fun.(*syntax.SelectorExpr); ok && site.Kind == check.CallProviderOp {
+		if sel, ok := call.Fun.(*syntax.SelectorExpr); ok && site.Kind == check.CallProviderOp {
 			recv = sel.X
 		}
 		if recv != nil {
 			if t := info.Types[recv]; t != nil {
-				return typeIdentity(t) + "." + site.Op.Name
+				return x.typeID(t) + "." + site.Op.Name
 			}
 		}
 	}

@@ -323,7 +323,7 @@ func siteEnd(info *check.Info, k, x syntax.Expr, c *syntax.CallExpr) (bool, bool
 // markReads marks every name ix reads (the let it indexes, the len of it)
 // as covered by a fact.
 func markReads(ix *syntax.IndexExpr, covered map[*syntax.Ident]bool) {
-	syntax.Inspect(ix, func(n syntax.Node) bool {
+	walkNode(ix, func(n syntax.Node) bool {
 		if id, ok := n.(*syntax.Ident); ok {
 			covered[id] = true
 		}
