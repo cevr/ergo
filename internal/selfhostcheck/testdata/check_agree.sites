@@ -1275,6 +1275,7 @@ case unused internal/selfhostcheck/testdata/bind/port_control.ergo
 case unused internal/selfhostcheck/testdata/bind/port_frame.ergo
 case unused internal/selfhostcheck/testdata/bind/port_frame_fails.ergo
 case unused internal/selfhostcheck/testdata/bind/port_frame_results.ergo
+case unused internal/selfhostcheck/testdata/bind/port_laws.ergo
 case unused internal/selfhostcheck/testdata/bind/port_shapes.ergo
 case unused internal/selfhostcheck/testdata/bind/port_union.ergo
 case unused internal/selfhostcheck/testdata/bind/port_unit.ergo
@@ -1539,6 +1540,7 @@ site S108 missing in unused examples/ssg/site/source.ergo: p.ergo 1:8: S108 an i
 site S108 missing in unused examples/timetable/timetable/line.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import strings
 site S108 missing in unused examples/weather/weather/forecast.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import strconv
 site S108 missing in unused examples/wire-config/config/config.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import strings
+site S108 missing in unused internal/selfhostcheck/testdata/bind/port_laws.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import strings
 site S108 missing in unused internal/sketch/std/codec/codec.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import strings
 site S108 missing in unused internal/sketch/std/kv/kv.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import math
 site S108 missing in unused internal/sketch/std/kv/memory/memory.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import maps
