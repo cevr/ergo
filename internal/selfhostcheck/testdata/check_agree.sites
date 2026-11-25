@@ -155,7 +155,6 @@ case examples/fieldnotes/memory
 case examples/fieldnotes/site
 case examples/flattree/app
 case examples/flattree/cmd/flattree
-case examples/flattree/dense
 case examples/flattree/files
 case examples/flattree/flat
 case examples/flattree/memory
@@ -1186,7 +1185,6 @@ case unused examples/editor-gui/piece/piece.ergo
 case unused examples/elevator/floors/set.ergo
 case unused examples/extract/receipt/receipt.ergo
 case unused examples/fieldnotes/journal/journal.ergo
-case unused examples/flattree/dense/dense.ergo
 case unused examples/flattree/tree/number.ergo
 case unused examples/flattree/tree/value.ergo
 case unused examples/forge/drive/script.ergo

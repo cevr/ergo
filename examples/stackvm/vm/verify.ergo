@@ -28,7 +28,29 @@ import slices
 // at most high values with no call, and (MaxFrames+1)*high with calls,
 // since a run that would open more than MaxFrames frames traps first.
 // The return points take MaxFrames more.
-type Verified { code []Instr, room int, calls bool }
+// flatInstr is an instruction of a call-free verified program: Instr
+// without Call or Ret, so execFlat matches exhaustively with no dead arm.
+type flatInstr =
+	| Push
+	| Pop
+	| Dup
+	| Swap
+	| Over
+	| Add
+	| Sub
+	| Mul
+	| Div
+	| Mod
+	| Less
+	| Same
+	| Not
+	| Jump
+	| JumpIf
+	| JumpIfNot
+	| Print
+	| Halt
+
+type Verified { code []Instr, flat []flatInstr, room int, calls bool }
 
 // Code is the program of v.
 func Code(v Verified) []Instr { v.code }
@@ -56,6 +78,9 @@ func Verify(program []Instr) Option[Verified] {
 	let size = len(program)
 	let mut v = verifier{program: program, entries: []int{0}, fn: slices.Repeat([]int{-1}, size+1), sums: []summary{summary{returns: false, delta: 0, need: 0}}, at: []int{}, work: []int{}, high: 0, calls: false, changed: false}
 	for i in program {
+		if i == Ret {
+			v.calls = true
+		}
 		match Target(i) {
 		case Some[int] as t:
 			if t.Value < 0 || t.Value > size {
@@ -98,7 +123,65 @@ func Verify(program []Instr) Option[Verified] {
 	for room <= bound {
 		room = room * 2
 	}
-	Some{Verified{code: program, room: room, calls: v.calls}}
+	let flat = if !v.calls && room <= 64 {
+		match toFlat(program) {
+		case Some[[]flatInstr] as fs:
+			fs.Value
+		case None:
+			v.calls = true
+			[]flatInstr{}
+		}
+	} else {
+		[]flatInstr{}
+	}
+	Some{Verified{code: program, flat: flat, room: room, calls: v.calls}}
+}
+
+func toFlat(program []Instr) Option[[]flatInstr] {
+	let mut out = slices.WithCapacity[flatInstr](len(program))
+	for i in program {
+		match i {
+		case Push as p:
+			out = out.Append(p)
+		case Pop:
+			out = out.Append(Pop)
+		case Dup:
+			out = out.Append(Dup)
+		case Swap:
+			out = out.Append(Swap)
+		case Over:
+			out = out.Append(Over)
+		case Add:
+			out = out.Append(Add)
+		case Sub:
+			out = out.Append(Sub)
+		case Mul:
+			out = out.Append(Mul)
+		case Div:
+			out = out.Append(Div)
+		case Mod:
+			out = out.Append(Mod)
+		case Less:
+			out = out.Append(Less)
+		case Same:
+			out = out.Append(Same)
+		case Not:
+			out = out.Append(Not)
+		case Jump as j:
+			out = out.Append(j)
+		case JumpIf as j:
+			out = out.Append(j)
+		case JumpIfNot as j:
+			out = out.Append(j)
+		case Print:
+			out = out.Append(Print)
+		case Halt:
+			out = out.Append(Halt)
+		case Call, Ret:
+			return None
+		}
+	}
+	Some{out}
 }
 
 // walk visits subroutine f from its start, and is false when the program
@@ -238,7 +321,7 @@ func returns(v mut verifier, f int, d int) bool {
 // execCalls, measured with resume still in the loops).
 func Exec(v Verified, fuel int) Result fails Trap {
 	if !v.calls && v.room <= 64 {
-		return try execFlat(v.code, fuel)
+		return try execFlat(v.code, v.flat, fuel)
 	}
 	try execCalls(v.code, v.room, fuel)
 }
@@ -383,8 +466,8 @@ func opened(mem []int, n int) []int {
 
 // execFlat is Exec's loop for a program with no call whose stack stays
 // under 64 values: its stack is a [64]int, indexed under the mask 63.
-func execFlat(code []Instr, fuel int) Result fails Trap {
-	let end = len(code)
+func execFlat(code []Instr, flat []flatInstr, fuel int) Result fails Trap {
+	let end = len(flat)
 	if fuel <= end {
 		return try Checked(code, fuel)
 	}
@@ -398,7 +481,7 @@ func execFlat(code []Instr, fuel int) Result fails Trap {
 		let at = pc
 		pc += 1
 		steps += 1
-		match code[at] {
+		match flat[at] {
 		case Push as p:
 			stack[sp&63] = p.N
 			sp += 1
@@ -469,8 +552,6 @@ func execFlat(code []Instr, fuel int) Result fails Trap {
 					break
 				}
 			}
-		case Call, Ret:
-			Unreachable("Exec runs a program with a call on execCalls")
 		case Print:
 			sp -= 1
 			printed = printed.Append(stack[sp&63])
@@ -633,7 +714,7 @@ func Stacked(seed int, size int) []Instr {
 		let one = []Instr{Pop, Dup, Not, Print}
 		let two = []Instr{Swap, Over, Add, Sub, Mul, Div, Mod, Less, Same}
 		let back = earlier(depths, if k == 5 { depth - 1 } else { depth }, d.Next(len(depths)))
-		let i = match k {
+		let i Instr = match k {
 		case 0, 1:
 			if depth < 8 { Push{N: d.Next(21) - 10} } else { Pop }
 		case 2:

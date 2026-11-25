@@ -1,29 +1,71 @@
-// The timetable's text: each format is built once from LDML letters, and
-// a time is written on the wall clock of its stop with the zone's
-// abbreviation, so a traveller reads each time as the station clock shows
-// it.
+// The timetable's text: each date and time is written on the wall clock of
+// its stop with the zone's abbreviation, so a traveller reads each time as
+// the station clock shows it.
 
 import civil
 import time
 import tz
 
-// clock is a call's time: "Sun 14 Mar 03:00 ADT".
-let clock = civil.ZonedPattern("EEE d MMM HH:mm zzz") catch {
-case civil.BadPattern:
-	Unreachable("the clock's pattern is LDML")
+func shortWeekday(w time.Weekday) string {
+	match w {
+	case time.Monday:
+		"Mon"
+	case time.Tuesday:
+		"Tue"
+	case time.Wednesday:
+		"Wed"
+	case time.Thursday:
+		"Thu"
+	case time.Friday:
+		"Fri"
+	case time.Saturday:
+		"Sat"
+	case time.Sunday:
+		"Sun"
+	}
 }
 
-// day is a date: "Sun 14 Mar 2027".
-let day = civil.DatePattern("EEE d MMM yyyy") catch {
-case civil.BadPattern:
-	Unreachable("the day's pattern is LDML")
+func shortMonth(m time.Month) string {
+	match m {
+	case time.January:
+		"Jan"
+	case time.February:
+		"Feb"
+	case time.March:
+		"Mar"
+	case time.April:
+		"Apr"
+	case time.May:
+		"May"
+	case time.June:
+		"Jun"
+	case time.July:
+		"Jul"
+	case time.August:
+		"Aug"
+	case time.September:
+		"Sep"
+	case time.October:
+		"Oct"
+	case time.November:
+		"Nov"
+	case time.December:
+		"Dec"
+	}
 }
 
-// ClockText is z on its zone's wall clock.
-func ClockText(z tz.Zoned) string { tz.FormatZoned(z, clock) }
+// ClockText is z on its zone's wall clock: "Sun 14 Mar 03:00 ADT".
+func ClockText(z tz.Zoned) string {
+	let w = tz.Wall(z)
+	let d = w.Date
+	let abbrev = tz.OffsetAt(z.Zone, z.At).Abbreviation
+	"\(shortWeekday(civil.Weekday(d))) \(civil.Day(d)) \(shortMonth(civil.Month(d))) \(civil.FormatDateTime(w, civil.ClockMinutes)) \(abbrev)"
+}
 
-// DayText is d with its weekday.
-func DayText(d civil.Date) string { civil.FormatDate(d, day) }
+// DayText is d with its weekday: "Sun 14 Mar 2027".
+func DayText(d civil.Date) string {
+	"\(shortWeekday(civil.Weekday(d))) \(civil.Day(d)) \(shortMonth(civil.Month(d))) \(civil.Text(d)[0:4])"
+}
 
 // WeekText is the ISO week of d.
 func WeekText(d civil.Date) string { civil.FormatDate(d, civil.ISOWeekFormat) }

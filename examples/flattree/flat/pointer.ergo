@@ -1,4 +1,4 @@
-import flattree/dense
+import dense
 import flattree/tree
 
 // Get is the id of the value at ptr (RFC 6901) in t, with tree.Get's

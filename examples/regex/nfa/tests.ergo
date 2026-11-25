@@ -5,6 +5,7 @@ import regex/syntax
 import regex/engine
 import machines
 import strings
+import sync
 
 let Fast = context { engine.Engine: Engine }
 
@@ -26,16 +27,20 @@ test WorkspaceReusesStorage {
 // observe pulling the source after the consumer has stopped.
 test LinesStop {
 	let c = NewSearchCompiled(syntax.Literal("cat"))
+	let pulled = sync.NewRef[int](0)
 	let source = Seq[string](func(yield func(v string) bool) {
+		pulled.Update(func(n int) int { n + 1 })
 		if !yield("cat") {
 			return
 		}
-		Unreachable("Lines pulled after its consumer stopped")
+		pulled.Update(func(n int) int { n + 1 })
+		let _ = yield("cat")
 	})
 	for line in c.Lines(source) {
 		assert line == "cat"
 		break
 	}
+	assert pulled.Get() == 1
 }
 
 // matches reports whether the NFA matches pattern, parsed, on text.

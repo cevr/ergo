@@ -58,9 +58,8 @@ A reader never sees the columns. `flat.ViewOf(t, id)` is a `View`, a small union
 
 ## Layout
 
-- `flat/`: the flat tree (`flat.ergo`), its parser, printers, pointer walk and laws.
+- `flat/`: the flat tree (`flat.ergo`), its parser, printers, pointer walk and laws (using std `dense`).
 - `tree/`: the plain twin. It is examples/jsonparse's package `json` under a new name, plus `stats.ergo`: `Stats`, `StatsOf` and `Equal`.
-- `dense/`: a byte copy of std `dense` at wf10/dn1 b01688b9a (DOD DN1). It stays here until the compiler lines merge; then the import becomes std `dense` and the copy goes.
 - `app/`: the `Documents` contract and the commands, each on a `Side` (`Flat` or `Plain`).
 - `files/`, `memory/`: the `Documents` providers.
 - `workload/`: the generator of the receipts' document.

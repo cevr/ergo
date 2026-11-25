@@ -13,20 +13,16 @@ func answer(status int, body string) http.Response { http.Response{Status: statu
 
 // over is the forecast over a network of the two services, under Live's
 // policy and budget, that answers with handle.
-func over(handle own func(origin string, r http.Request) http.Response needs http.Streaming) OpenMeteo {
-	let n = http.InMemoryNetwork(Services, Budget, http.NoRedirects, handle) catch {
-	case http.InvalidClient, http.InvalidLimits:
-		Unreachable("Services and Budget are valid")
-	}
-	NewOpenMeteo(n)
+func over(handle own func(origin string, r http.Request) http.Response needs http.Streaming) OpenMeteo fails http.InvalidClient | http.InvalidLimits {
+	NewOpenMeteo(try http.InMemoryNetwork(Services, Budget, http.NoRedirects, handle))
 }
 
 // fixture is the forecast over a network that knows one place: a
 // geocoding ask for 90210 finds Beverly Hills, any other finds none, the
 // forecast service answers the fixture's weather, and any other URL is
 // not found.
-func fixture() OpenMeteo {
-	over(func(origin string, r http.Request) http.Response {
+func fixture() OpenMeteo fails http.InvalidClient | http.InvalidLimits {
+	try over(func(origin string, r http.Request) http.Response {
 		if origin == GeocodingOrigin && r.Path == "/v1/search" {
 			if http.Query(r.Query, "name") == (Some{"90210"}) { answer(200, geocoded) } else { answer(200, `{"results":[]}`) }
 		} else if origin == ForecastOrigin && r.Path == "/v1/forecast" {
@@ -38,13 +34,12 @@ func fixture() OpenMeteo {
 }
 
 // down is the forecast over a network that answers every ask with status.
-func down(status int) OpenMeteo {
-	over(func(origin string, r http.Request) http.Response { answer(status, "") })
+func down(status int) OpenMeteo fails http.InvalidClient | http.InvalidLimits {
+	try over(func(origin string, r http.Request) http.Response { answer(status, "") })
 }
 
 test FetchGivesTheReport {
-	// fetchWeather returns SucceededFetchWeather with data on success
-	let r = try Fetch(fixture(), "90210")
+	let r = try Fetch(try fixture(), "90210")
 	assert r == weather.Report{Zip: "90210", Temperature: 72, Description: "Clear sky", Humidity: 45, WindSpeed: 10, Location: "Beverly Hills", Region: "California"}
 }
 
@@ -63,15 +58,12 @@ func failure(o OpenMeteo, zip string) Option[weather.Why] {
 }
 
 test HTTPFailureFails {
-	// The fetch fails on HTTP failure: "Location not found" when the
-	// geocoding answer is not 200.
 	let why weather.Why = weather.NotFound{Zip: "invalid"}
-	assert failure(down(404), "invalid") == Some{why}
+	assert failure(try down(404), "invalid") == Some{why}
 }
 
 test NoPlaceIsNotFound {
-	// fetchWeather returns FailedFetchWeather when no results found
-	match failure(fixture(), "00000") {
+	match failure(try fixture(), "00000") {
 	case Some[weather.Why] as w:
 		assert weather.Said(w.Value) == "Location not found"
 	case None:
@@ -82,4 +74,4 @@ test NoPlaceIsNotFound {
 // overTheFixture is the context the Forecast laws run OpenMeteo under: the
 // fixture network (the law runner cannot build an OpenMeteo itself: an
 // http.Network has no generator).
-let overTheFixture = context { weather.Forecast: fixture() }
+let overTheFixture = context fails http.InvalidClient | http.InvalidLimits { weather.Forecast: try fixture() }

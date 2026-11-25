@@ -1,4 +1,4 @@
-import flattree/dense
+import dense
 import flattree/flat
 
 // An unfinished builder cannot be read as a parsed document.
