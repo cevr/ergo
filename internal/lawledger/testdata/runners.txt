@@ -569,6 +569,9 @@ llm/memory ReleasedArriveInOrder	TestStdLLMLawsRun
 llm/memory RetryFollowsSafety	TestStdLLMLawsRun
 llm/memory RetryHonoursAfter	TestStdLLMLawsRun
 llm/memory RetryKeepsUpTo	TestStdLLMLawsRun
+llm/memory ScriptedModelExhaustedFailsClosed	TestStdLLMScriptedLawsRun
+llm/memory ScriptedModelRecordsEveryRequest	TestStdLLMScriptedLawsRun
+llm/memory ScriptedModelReplaysInExactOrder	TestStdLLMScriptedLawsRun
 llm/memory UsageAdds	TestStdLLMLawsRun
 llm/recorded DigestIsTheRequest	TestStdLLMLawsRun
 llm/recorded FileIsTheRecording	TestStdLLMLawsRun
