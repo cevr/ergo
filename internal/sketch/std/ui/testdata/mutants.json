@@ -1,0 +1,65 @@
+{
+  "about": "Autonomous UI exploration (ui.Offers, ui.Explore, ui.Defaults) mutants for PROPERTY-TESTING P5.",
+  "mutants": [
+    {
+      "name": "ux-offer-disabled-node",
+      "origin": "wf10 PROPERTY-TESTING P5",
+      "file": "internal/sketch/std/ui/explore.ergo",
+      "decl": "collectOffers",
+      "from": "\t\t\tif !a.Disabled {\n",
+      "to": "\t\t\tif true {\n",
+      "rule": "OffersIn excludes disabled controls under disabled Fieldsets or disabled Semantic nodes (OffersArePlayable).",
+      "killers": ["internal/sketch/stdlib:TestStdUIExploreOffersArePlayable"]
+    },
+    {
+      "name": "ux-settle-skipped",
+      "origin": "wf10 PROPERTY-TESTING P5",
+      "file": "internal/sketch/std/ui/explore.ergo",
+      "decl": "exploreStep",
+      "from": "\ttry Play(h, []Act{act})\n\ttry Settle(h)\n",
+      "to": "\ttry Play(h, []Act{act})\n",
+      "rule": "Explore calls Settle(h) after playing each act before snapshotting state and stepping temporal properties (ExploreSettlesBeforeChecking).",
+      "killers": ["internal/sketch/stdlib:TestStdUIExploreSettlesBeforeChecking"]
+    },
+    {
+      "name": "ux-idle-end-reported-as-cut",
+      "origin": "wf10 PROPERTY-TESTING P5",
+      "file": "internal/sketch/std/ui/explore.ergo",
+      "decl": "exploreEnd",
+      "from": "\t\treturn temporal.Idle\n",
+      "to": "\t\treturn temporal.Cut\n",
+      "rule": "When no offers remain and nothing is pending, Explore closes temporal residuals with temporal.Idle rather than temporal.Cut (ExploreEndsIdleWhenExhausted).",
+      "killers": ["internal/sketch/stdlib:TestStdUIExploreEndsIdleWhenExhausted"]
+    },
+    {
+      "name": "ux-script-drops-typed-text",
+      "origin": "wf10 PROPERTY-TESTING P5",
+      "file": "internal/sketch/std/ui/explore.ergo",
+      "decl": "recordPlayedAct",
+      "from": "\t\tFillIn{At: x.At, Text: x.Text}\n",
+      "to": "\t\tFillIn{At: x.At, Text: \"\"}\n",
+      "rule": "Found.Script preserves the exact drawn Text of every played FillIn act so findings replay identically (FindingsReplay).",
+      "killers": ["internal/sketch/stdlib:TestStdUIExploreFindingsReplay"]
+    },
+    {
+      "name": "ux-swarm-can-leave-none",
+      "origin": "wf10 PROPERTY-TESTING P5",
+      "file": "internal/sketch/std/ui/explore.ergo",
+      "decl": "filterSwarm",
+      "from": "\tif len(out) == 0 {\n\t\treturn offersOfKind(offers, offers[0].Kind)\n\t}\n",
+      "to": "\tlet _ = offersOfKind(offers, offers[0].Kind)\n",
+      "rule": "Swarm subsetting never leaves zero offers when the screen has at least one actionable offer (SwarmNeverLeavesNone).",
+      "killers": ["internal/sketch/stdlib:TestStdUIExploreSwarmNeverLeavesNone"]
+    },
+    {
+      "name": "ux-covered-pairs-overcounted",
+      "origin": "wf10 PROPERTY-TESTING P5",
+      "file": "internal/sketch/std/ui/explore.ergo",
+      "decl": "recordCoveredPair",
+      "from": "\t\tif existing == pair {\n\t\t\treturn seen\n\t\t}\n",
+      "to": "\t\tif existing == \"\" {\n\t\t\treturn seen\n\t\t}\n",
+      "rule": "Covered (state, act) pairs are deduplicated so repeated transitions never overcount Clean.Covered (CoveredPairsNeverOvercount).",
+      "killers": ["internal/sketch/stdlib:TestStdUIExploreCoveredPairsNeverOvercount"]
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+import gen
+import os
+import tallyboard/board
+import ui
+
+func main() fails os.Exit needs Console {
+	let mut finding ui.Finding = ui.Found{Script: []ui.Act{}, Step: 0, Violation: "not run"}
+	let _ = gen.Replay(gen.Tape{Size: 4, Draws: []uint64{uint64(0), uint64(1), uint64(0), uint64(2), uint64(0), uint64(0)}}, func() bool fails gen.Rejected needs gen.Draws {
+		finding = board.ExploreOnce(6)
+		true
+	})
+	match finding {
+	case ui.Clean as c:
+		Console.Println("tally-board: clean steps=\(c.Steps) covered=\(c.Covered)")
+	case ui.Found as f:
+		return os.Exit{Code: 1, Message: "tally-board: violation at step \(f.Step): \(f.Violation)"}
+	}
+}

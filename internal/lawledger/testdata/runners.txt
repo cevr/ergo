@@ -996,11 +996,15 @@ ui Clipboard.WriteThenRead	TestUITextModel
 ui CountsAreTheStep	TestUIHostModel
 ui CountsLineText	TestUITreeModel
 ui CountsSumToPatch	TestUITreeModel
+ui CoveredPairsNeverOvercount	TestStdUIExploreLawsRun
 ui CrashShowsTheCrashView	TestUIHostModel
 ui EdgeScrollRunsEachFrame	TestUIHostModel
 ui EdgeScrollStaysInRange	TestUIHostModel
 ui EscapeRoundTrips	TestUIHostModel
+ui ExploreEndsIdleWhenExhausted	TestStdUIExploreLawsRun
+ui ExploreSettlesBeforeChecking	TestStdUIExploreLawsRun
 ui ExitTakesItsDuration	TestUIHostModel
+ui FindingsReplay	TestStdUIExploreLawsRun
 ui FingerLocksOneAxis	TestUIHostModel
 ui FlingStops	TestUIHostModel
 ui FocusFollowsTheRing	TestUIHostModel
@@ -1043,6 +1047,7 @@ ui NavigationFollowsModel	TestUIHostModel
 ui NoTickWhenRowsSettle	TestUIHostModel
 ui NoTickWhenSettled	TestUIHostModel
 ui OffClockAnswerIsWaitedFor	TestUIHostModel
+ui OffersArePlayable	TestStdUIExploreLawsRun
 ui OverscrollReturns	TestUIHostModel
 ui PaintIsNotInherited	TestUIHostModel
 ui PaintIsWhatWasGiven	TestUIHostModel
@@ -1076,6 +1081,7 @@ ui SlowNamesItsCounter	TestUITreeModel
 ui SlotKeyKeepsSiteIdentity	none
 ui StateKeeps	TestUILoadModel
 ui StatsCountEveryPhase	TestUIHostModel
+ui SwarmNeverLeavesNone	TestStdUIExploreLawsRun
 ui TabWalksTheFocusables	TestUIHostModel
 ui TapIsNotADrag	TestUIHostModel
 ui TrackCostsNoPass	TestUIHostModel

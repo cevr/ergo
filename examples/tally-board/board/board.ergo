@@ -1,0 +1,305 @@
+import actor
+import explore
+import gen
+import strconv
+import strings
+import sync
+import temporal
+import time
+import ui
+
+// MaxItems is the maximum number of tally items allowed on the board.
+let MaxItems = 3
+
+// Board is the state of the tally board: active item IDs, next ID to allocate,
+// optional open item detail, and async sync state.
+type Board {
+	Items       []int,
+	NextID      int,
+	Selected    Option[int],
+	Syncing     bool,
+	SyncID      int,
+	SyncedCount int,
+}
+
+// AddItem appends a new item up to MaxItems.
+type AddItem {}
+
+// OpenItem opens item ID in detail view and emits its route path.
+type OpenItem { ID int }
+
+// RouteOpen handles browser back/forward navigation to an item route.
+type RouteOpen { ID int }
+
+// DeleteSelected removes the currently selected item and returns to the list.
+type DeleteSelected {}
+
+// BackToList returns to the list view.
+type BackToList {}
+
+// ResetBoard resets the board to a single initial item.
+type ResetBoard {}
+
+// StartSync begins an asynchronous sync load.
+type StartSync {}
+
+// Synced completes an in-flight sync load.
+type Synced { ID int }
+
+// Signal is an event accepted by the Board machine.
+type Signal = AddItem | OpenItem | RouteOpen | DeleteSelected | BackToList | ResetBoard | StartSync | Synced
+
+// Initial returns the starting board with one item so open/delete/back flows
+// are immediately reachable.
+func Initial() Board {
+	Board{Items: []int{1}, NextID: 2, Selected: None, Syncing: false, SyncID: 0, SyncedCount: 0}
+}
+
+// HasItem reports whether id is present in items.
+func HasItem(items []int, id int) bool {
+	for x in items {
+		if x == id {
+			return true
+		}
+	}
+	false
+}
+
+func removeItem(items []int, id int) []int {
+	let mut out = []int{}
+	for x in items {
+		if x != id {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+// SelectedExists reports whether any selected item is currently in s.Items.
+func SelectedExists(s Board) bool {
+	match s.Selected {
+	case None:
+		true
+	case Some[int] as id:
+		HasItem(s.Items, id.Value)
+	}
+}
+
+// Step advances the Board state machine by one Signal, emitting route paths to
+// push onto browser history.
+func Step(s Board, sig Signal) Decision[Board, string] {
+	match sig {
+	case AddItem:
+		if len(s.Items) >= MaxItems {
+			return Ignore
+		}
+		Enter[Board]{Next: Board{..s, Items: s.Items.Append(s.NextID), NextID: s.NextID + 1}}
+	case OpenItem as x:
+		if !HasItem(s.Items, x.ID) {
+			return Enter[Board]{Next: Board{..s, Selected: None}}
+		}
+		Emit[Board, string]{Next: Board{..s, Selected: Some[int]{Value: x.ID}}, Output: "/item/\(x.ID)"}
+	case RouteOpen as x:
+		if !HasItem(s.Items, x.ID) {
+			return Enter[Board]{Next: Board{..s, Selected: None}}
+		}
+		Enter[Board]{Next: Board{..s, Selected: Some[int]{Value: x.ID}}}
+	case DeleteSelected:
+		match s.Selected {
+		case Some[int] as id:
+			Emit[Board, string]{Next: Board{..s, Items: removeItem(s.Items, id.Value), Selected: None}, Output: "/"}
+		case None:
+			Ignore
+		}
+	case BackToList:
+		Enter[Board]{Next: Board{..s, Selected: None}}
+	case ResetBoard:
+		Enter[Board]{Next: Board{Items: []int{1}, NextID: 2, Selected: None, Syncing: s.Syncing, SyncID: s.SyncID, SyncedCount: s.SyncedCount}}
+	case StartSync:
+		if s.Syncing {
+			return Ignore
+		}
+		Enter[Board]{Next: Board{..s, Syncing: true, SyncID: s.SyncID + 1}}
+	case Synced as x:
+		if s.Syncing && s.SyncID == x.ID {
+			return Enter[Board]{Next: Board{..s, Syncing: false, SyncedCount: s.SyncedCount + 1}}
+		}
+		Ignore
+	}
+}
+
+func syncDelay() duration { 100ms }
+
+func resetButtonLabel() string { "Reset" }
+
+func parseRoute(u ui.URL) Option[Signal] {
+	if u.Path == "/" {
+		return Some[Signal]{Value: BackToList}
+	}
+	if strings.HasPrefix(u.Path, "/item/") {
+		let raw = u.Path[6:]
+		let id = strconv.Atoi(raw) catch {
+		case _:
+			return Some[Signal]{Value: BackToList}
+		}
+		return Some[Signal]{Value: RouteOpen{ID: id}}
+	}
+	None
+}
+
+// View renders the tally board screen into f.
+func View(f mut ui.Frame[Signal], s Board) needs Scheduler {
+	ui.OnURL(f, parseRoute)
+	if s.Syncing {
+		let sid = s.SyncID
+		ui.Load(f, ui.ByInt(sid), func() Signal needs Scheduler {
+			Scheduler.Sleep(syncDelay())
+			Synced{ID: sid}
+		})
+	}
+	ui.Column(f, ui.Plain()) {
+		ui.Text(f, "items: \(len(s.Items)) synced: \(s.SyncedCount)")
+		match s.Selected {
+		case None:
+			ui.Pressable(f, "Add", AddItem) {
+				ui.Text(f, "Add")
+			}
+			if len(s.Items) > 0 {
+				ui.Pressable(f, "Open", OpenItem{ID: s.Items[0]}) {
+					ui.Text(f, "Open")
+				}
+			}
+			if !s.Syncing {
+				ui.Pressable(f, "Sync", StartSync) {
+					ui.Text(f, "Sync")
+				}
+			}
+			ui.Pressable(f, resetButtonLabel(), ResetBoard) {
+				ui.Text(f, resetButtonLabel())
+			}
+		case Some[int] as id:
+			ui.Text(f, "detail #\(id.Value)")
+			ui.Pressable(f, "Delete", DeleteSelected) {
+				ui.Text(f, "Delete")
+			}
+			ui.Pressable(f, "Back", BackToList) {
+				ui.Text(f, "Back")
+			}
+		}
+	}
+}
+
+// BoardMachine constructs the tally board state machine.
+func BoardMachine() Machine[Board, Signal, string] {
+	Machine[Board, Signal, string]{
+		Initial: Initial(),
+		Step:    Step,
+		After:   func(s Board) Option[Timeout[Signal]] { None },
+		Work:    func(s Board) Option[func(send func(e Signal))] { None },
+		Exit:    func(s Board) Option[func()] { None },
+	}
+}
+
+// Properties returns ui.Defaults plus the board's domain invariants.
+func Properties() []temporal.Formula[ui.ExploreSnapshot[Board, Signal]] {
+	let mut props = ui.DefaultsWith[Board, Signal](1s)
+	props = props.Append(temporal.Always[ui.ExploreSnapshot[Board, Signal]](
+		temporal.Named[ui.ExploreSnapshot[Board, Signal]]("count-within-limit", func(s ui.ExploreSnapshot[Board, Signal]) bool {
+			len(s.State.Items) <= MaxItems
+		}),
+	))
+	props = props.Append(temporal.Always[ui.ExploreSnapshot[Board, Signal]](
+		temporal.Named[ui.ExploreSnapshot[Board, Signal]]("selected-exists", func(s ui.ExploreSnapshot[Board, Signal]) bool {
+			SelectedExists(s.State)
+		}),
+	))
+	props
+}
+
+// ExploreOnce runs a single autonomous exploration walk on a fresh TestHost.
+func ExploreOnce(steps int) ui.Finding needs gen.Draws {
+	let m = time.NewManual(0)
+	let histRef = sync.NewRef[Option[ui.MemoryHistory]](None)
+	with context { Scheduler: m } {
+		let a = actor.StartMachine(BoardMachine(), 8, func(path string) {
+			match histRef.Get() {
+			case Some[ui.MemoryHistory] as loc:
+				ui.Push(loc.Value, ui.ParseURL(path))
+			case None:
+			}
+		})
+		let mut h = ui.NewTestHost(a, View, m, 8) catch {
+		case ui.BadPatch as bp:
+			return ui.Found{Script: []ui.Act{}, Step: 0, Violation: bp.Why}
+		}
+		histRef.Set(Some[ui.MemoryHistory]{Value: ui.History(&h)})
+		ui.Explore(&h, Properties(), ui.ExploreConfig{Steps: steps, Swarm: false, AdvanceStep: 500ms, Weights: Map[string, int]{}})
+	}
+}
+
+// Explored holds that autonomous exploration over seeds 1 to 3 finds no default
+// or domain property violation on the tally board.
+law Explored() {
+	let mut allClean = true
+	for seed in 1..4 {
+		let cfg = gen.Config{Seed: uint64(seed), Cases: 20, Shrinks: 200, MaxDraws: 4096, MaxRejected: 100}
+		let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+			match ExploreOnce(25) {
+			case ui.Clean:
+				true
+			case ui.Found:
+				false
+			}
+		})
+		match outcome {
+		case gen.Held:
+		case _:
+			allClean = false
+		}
+	}
+	allClean
+}
+
+// NavState is the abstract navigation state used by ReferenceModelBoundsReach.
+type NavState { Items int, Selected bool, HasDeletedRoute bool }
+
+// ReferenceModelBoundsReach verifies via exhaustive BFS on the abstract board
+// navigation graph that count stays within MaxItems and back-after-delete is
+// reachable in 3 steps.
+law ReferenceModelBoundsReach() {
+	let g = explore.Graph[NavState, int]{
+		Starts:  []NavState{NavState{Items: 1, Selected: false, HasDeletedRoute: false}},
+		Signals: []int{0, 1, 2, 3, 4},
+		Step:    func(s NavState, a int) Option[NavState] {
+			if a == 0 && !s.Selected {
+				let n = if s.Items < MaxItems { s.Items + 1 } else { s.Items }
+				Some[NavState]{Value: NavState{..s, Items: n}}
+			} else if a == 1 && !s.Selected && s.Items > 0 {
+				Some[NavState]{Value: NavState{..s, Selected: true}}
+			} else if a == 2 && s.Selected {
+				Some[NavState]{Value: NavState{Items: s.Items - 1, Selected: false, HasDeletedRoute: true}}
+			} else if a == 3 && s.Selected {
+				Some[NavState]{Value: NavState{..s, Selected: false}}
+			} else if a == 4 && !s.Selected && s.HasDeletedRoute {
+				Some[NavState]{Value: s}
+			} else {
+				None
+			}
+		},
+	}
+	let safe = explore.Always[NavState, int](g, func(s NavState) bool { s.Items <= MaxItems }, 100)
+	let reach = explore.Sometimes[NavState, int](g, func(s NavState) bool { s.HasDeletedRoute }, 100)
+	let safeOK = match safe {
+	case explore.Proved:
+		true
+	case _:
+		false
+	}
+	let reachOK = match reach {
+	case explore.Witness as w:
+		len(w.Run.Signals) == 2
+	case _:
+		false
+	}
+	safeOK && reachOK
+}
