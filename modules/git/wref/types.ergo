@@ -1,0 +1,153 @@
+// Package wref implements atomic compare-and-set files-backend Git reference
+// updates, symbolic reference updates, deletions, multi-ref batches, and
+// reflog appends over modules/git/locks (G-WREF).
+
+import github.com/cevr/ergo/modules/git/locks
+import github.com/cevr/ergo/modules/git/oid
+
+// Error is the closed failure union for Git reference mutations and batches.
+type Error =
+	| InvalidRefName{Name string}
+	| PathEscape{Name string}
+	| StaleExpected{Ref string, Expected string, Actual string}
+	| ObjectMissing{OID oid.OID}
+	| DirectoryFileConflict{Ref string, Conflicting string}
+	| LockHeld{Path string}
+	| LockFailed{Detail string}
+	| IOFailed{Op string, Detail string}
+
+// ReflogIdentity holds the author/committer identity recorded in a reflog line.
+type ReflogIdentity {
+	Name   string,
+	Email  string,
+	Epoch  int64,
+	Offset string,
+}
+
+// ReflogSpec describes an optional reflog entry appended upon successful ref update.
+type ReflogSpec {
+	Ident   ReflogIdentity,
+	Message string,
+}
+
+// UpdateKind selects one ref mutation inside a batch transaction.
+type UpdateKind =
+	| SetDirect{NewOID oid.OID, Expected Option[oid.OID]}
+	| DeleteDirect{Expected oid.OID}
+	| SetSymbolic{Target string}
+
+// BatchOp is one ref mutation in a multi-ref atomic prepare/commit batch.
+type BatchOp {
+	RefName string,
+	Kind    UpdateKind,
+	Log     Option[ReflogSpec],
+}
+
+type preparedEntry {
+	refName    string,
+	lock       locks.LockFile,
+	isDelete   bool,
+	loosePath  string,
+	reflogLine Option[(string, string)],
+}
+
+// PreparedBatch holds all exclusively acquired ref locks and validated staged
+// payloads ready for CommitBatch or AbortBatch.
+type PreparedBatch {
+	format    oid.Format,
+	commonDir string,
+	gitDir    string,
+	mode      locks.Durability,
+	entries   []preparedEntry,
+	deletes   []string,
+}
+
+// RefWriter is the capability seam for compare-and-set reference updates,
+// carrying laws held identically by MemoryRefWriter and DiskRefWriter.
+type RefWriter {
+	ReadDirect(refName string) Option[oid.OID] fails InvalidRefName | PathEscape | IOFailed,
+	UpdateDirect(refName string, newOID oid.OID, expected Option[oid.OID]) fails InvalidRefName | PathEscape | StaleExpected | ObjectMissing | DirectoryFileConflict | LockHeld | LockFailed | IOFailed,
+	SeedObject(data []byte) oid.OID fails IOFailed,
+
+	// CreateThenReadReturnsTarget: creating a fresh ref with expected=None
+	// stores newOID so ReadDirect returns Some(newOID).
+	law CreateThenReadReturnsTarget(tag string) {
+		let id = SeedObject(("create-ref-" + tag).Bytes()) catch {
+		case IOFailed:
+			return false
+		}
+		let refName = "refs/heads/law-create-" + oid.ShortHex(id, 12)
+		match ReadDirect(refName) catch {
+		case InvalidRefName, PathEscape, IOFailed:
+			return false
+		} {
+		case Some[oid.OID]:
+			return true
+		case None:
+		}
+		UpdateDirect(refName, id, None) catch {
+		case InvalidRefName, PathEscape, StaleExpected, ObjectMissing, DirectoryFileConflict, LockHeld, LockFailed, IOFailed:
+			return false
+		}
+		match ReadDirect(refName) catch {
+		case InvalidRefName, PathEscape, IOFailed:
+			return false
+		} {
+		case Some[oid.OID] as got:
+			oid.Equal(got.Value, id)
+		case None:
+			false
+		}
+	},
+
+	// CASRejectsStaleExpected: updating an existing ref with a mismatched
+	// expected OID fails StaleExpected and leaves the ref unchanged.
+	law CASRejectsStaleExpected(tag string) {
+		let id1 = SeedObject(("cas-1-" + tag).Bytes()) catch {
+		case IOFailed:
+			return false
+		}
+		let id2 = SeedObject(("cas-2-" + tag).Bytes()) catch {
+		case IOFailed:
+			return false
+		}
+		let id3 = SeedObject(("cas-3-" + tag).Bytes()) catch {
+		case IOFailed:
+			return false
+		}
+		if oid.Equal(id1, id2) || oid.Equal(id1, id3) || oid.Equal(id2, id3) {
+			return true
+		}
+		let refName = "refs/heads/law-cas-" + oid.ShortHex(id1, 12)
+		match ReadDirect(refName) catch {
+		case InvalidRefName, PathEscape, IOFailed:
+			return false
+		} {
+		case Some[oid.OID]:
+			return true
+		case None:
+		}
+		UpdateDirect(refName, id1, None) catch {
+		case InvalidRefName, PathEscape, StaleExpected, ObjectMissing, DirectoryFileConflict, LockHeld, LockFailed, IOFailed:
+			return false
+		}
+		let mut sawStale = false
+		UpdateDirect(refName, id3, Some[oid.OID]{Value: id2}) catch {
+		case StaleExpected:
+			sawStale = true
+		case InvalidRefName, PathEscape, ObjectMissing, DirectoryFileConflict, LockHeld, LockFailed, IOFailed:
+		}
+		if !sawStale {
+			return false
+		}
+		match ReadDirect(refName) catch {
+		case InvalidRefName, PathEscape, IOFailed:
+			return false
+		} {
+		case Some[oid.OID] as cur:
+			oid.Equal(cur.Value, id1)
+		case None:
+			false
+		}
+	},
+}

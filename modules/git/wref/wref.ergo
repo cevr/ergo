@@ -1,0 +1,519 @@
+import filepath
+import fs
+import strconv
+import strings
+import github.com/cevr/ergo/modules/git/locks
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/pack
+import github.com/cevr/ergo/modules/git/refs
+
+func refBaseDir(store refs.Store, name string) string {
+	if refs.IsPerWorktreeRef(name) {
+		store.GitDir
+	} else {
+		store.CommonDir
+	}
+}
+
+func refFilePath(store refs.Store, name string) string {
+	filepath.Join([]string{refBaseDir(store, name), name})
+}
+
+func reflogFilePath(store refs.Store, name string) string {
+	filepath.Join([]string{refBaseDir(store, name), "logs", name})
+}
+
+func validateTargetRefName(name string, allowHead bool) fails InvalidRefName | PathEscape {
+	if refs.IsPathEscape(name) {
+		return PathEscape{Name: name}
+	}
+	if allowHead && name == "HEAD" {
+		return
+	}
+	if !refs.ValidateRefName(name) {
+		return InvalidRefName{Name: name}
+	}
+}
+
+func verifyTargetExists(id oid.OID) fails ObjectMissing needs pack.ObjectStore {
+	if !pack.ObjectStore.Contains(id) {
+		return ObjectMissing{OID: id}
+	}
+}
+
+func readCurrentDirectOID(store refs.Store, refName string) Option[oid.OID] fails InvalidRefName | PathEscape | IOFailed needs fs.Files {
+	let r = store.ReadRef(refName) catch {
+	case refs.NotFound:
+		return None
+	case refs.InvalidRefName as e:
+		return InvalidRefName{Name: e.Name}
+	case refs.PathEscape as e:
+		return PathEscape{Name: e.Name}
+	case refs.CorruptRef as e:
+		return IOFailed{Op: "read-ref", Detail: e.Why}
+	case refs.IOFailed as e:
+		return IOFailed{Op: "read-ref", Detail: e.Detail}
+	}
+	match r.Target {
+	case refs.Direct as d:
+		Some[oid.OID]{Value: d.OID}
+	case refs.Symbolic:
+		let resolved = store.Resolve(refName) catch {
+		case refs.NotFound:
+			return None
+		case refs.InvalidRefName as e:
+			return InvalidRefName{Name: e.Name}
+		case refs.PathEscape as e:
+			return PathEscape{Name: e.Name}
+		case refs.CyclicSymref:
+			return IOFailed{Op: "resolve-ref", Detail: "cyclic symref"}
+		case refs.CorruptRef as e:
+			return IOFailed{Op: "resolve-ref", Detail: e.Why}
+		case refs.IOFailed as e:
+			return IOFailed{Op: "resolve-ref", Detail: e.Detail}
+		}
+		Some[oid.OID]{Value: resolved.OID}
+	}
+}
+
+func formatOptHex(format oid.Format, id Option[oid.OID]) string {
+	match id {
+	case None:
+		oid.Hex(oid.Zero(format))
+	case Some[oid.OID] as v:
+		oid.Hex(v.Value)
+	}
+}
+
+func checkExpectedOID(format oid.Format, refName string, current Option[oid.OID], expected Option[oid.OID]) fails StaleExpected {
+	let wantNone = match expected {
+	case None:
+		true
+	case Some[oid.OID] as exp:
+		oid.IsZero(exp.Value)
+	}
+	if wantNone {
+		match current {
+		case None:
+			return
+		case Some[oid.OID] as cur:
+			return StaleExpected{
+				Ref:      refName,
+				Expected: oid.Hex(oid.Zero(format)),
+				Actual:   oid.Hex(cur.Value),
+			}
+		}
+	}
+	let want = match expected {
+	case Some[oid.OID] as exp:
+		exp.Value
+	case None:
+		oid.Zero(format)
+	}
+	match current {
+	case None:
+		return StaleExpected{
+			Ref:      refName,
+			Expected: oid.Hex(want),
+			Actual:   oid.Hex(oid.Zero(format)),
+		}
+	case Some[oid.OID] as cur:
+		if !oid.Equal(cur.Value, want) {
+			return StaleExpected{
+				Ref:      refName,
+				Expected: oid.Hex(want),
+				Actual:   oid.Hex(cur.Value),
+			}
+		}
+	}
+}
+
+func refsConflictDF(a string, b string) bool {
+	if a == b {
+		return false
+	}
+	strings.HasPrefix(a, b+"/") || strings.HasPrefix(b, a+"/")
+}
+
+func checkDFConflicts(store refs.Store, refName string, deleting Map[string, bool]) fails DirectoryFileConflict | IOFailed needs fs.Files {
+	let existing = store.ListRefs("") catch {
+	case refs.InvalidRefName as e:
+		return IOFailed{Op: "list-refs", Detail: e.Name}
+	case refs.CorruptRef as e:
+		return IOFailed{Op: "list-refs", Detail: e.Why}
+	case refs.PathEscape as e:
+		return IOFailed{Op: "list-refs", Detail: e.Name}
+	case refs.IOFailed as e:
+		return IOFailed{Op: "list-refs", Detail: e.Detail}
+	}
+	for r in existing {
+		if deleting.Get(r.Name) != None {
+			continue
+		}
+		if refsConflictDF(refName, r.Name) {
+			return DirectoryFileConflict{Ref: refName, Conflicting: r.Name}
+		}
+	}
+}
+
+func formatReflogLine(format oid.Format, oldOID Option[oid.OID], newOID Option[oid.OID], spec ReflogSpec) string {
+	let oldHex = formatOptHex(format, oldOID)
+	let newHex = formatOptHex(format, newOID)
+	let epochStr = strconv.Itoa(int(spec.Ident.Epoch))
+	oldHex + " " + newHex + " " + spec.Ident.Name + " <" + spec.Ident.Email + "> " + epochStr + " " + spec.Ident.Offset + "\t" + spec.Message + "\n"
+}
+
+func appendReflog(path string, line string) fails IOFailed needs fs.Writes {
+	fs.Writes.MkdirAll(filepath.Dir(path)) catch {
+	case fs.Denied as e:
+		return IOFailed{Op: "mkdir-reflog", Detail: e.Path}
+	case fs.Failed as e:
+		return IOFailed{Op: "mkdir-reflog", Detail: e.Reason}
+	}
+	fs.Writes.AppendFile(path, line) catch {
+	case fs.NotFound as e:
+		return IOFailed{Op: "append-reflog", Detail: e.Path}
+	case fs.Denied as e:
+		return IOFailed{Op: "append-reflog", Detail: e.Path}
+	case fs.Failed as e:
+		return IOFailed{Op: "append-reflog", Detail: e.Reason}
+	}
+}
+
+func ensureParentDir(targetPath string) fails IOFailed needs fs.Writes {
+	fs.Writes.MkdirAll(filepath.Dir(targetPath)) catch {
+	case fs.Denied as e:
+		return IOFailed{Op: "mkdir-ref", Detail: e.Path}
+	case fs.Failed as e:
+		return IOFailed{Op: "mkdir-ref", Detail: e.Reason}
+	}
+}
+
+func prunePackedRefs(commonDir string, deleteSet Map[string, bool], mode locks.Durability) fails LockHeld | LockFailed | IOFailed needs locks.LockOps | fs.Files {
+	if len(deleteSet) == 0 {
+		return
+	}
+	let packedPath = filepath.Join([]string{commonDir, "packed-refs"})
+	let rawOpt = fs.Files.ReadFile(packedPath) catch {
+	case fs.NotFound:
+		return
+	case fs.Denied as e:
+		return IOFailed{Op: "read-packed-refs", Detail: e.Path}
+	case fs.Failed as e:
+		return IOFailed{Op: "read-packed-refs", Detail: e.Reason}
+	}
+	let mut kept = []string{}
+	let mut changed = false
+	let mut skipPeeled = false
+	for line in strings.Split(rawOpt, "\n") {
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "^") {
+			if skipPeeled {
+				continue
+			}
+			kept = kept.Append(line)
+			continue
+		}
+		skipPeeled = false
+		if strings.HasPrefix(line, "#") {
+			kept = kept.Append(line)
+			continue
+		}
+		let fields = strings.Fields(line)
+		if len(fields) >= 2 && deleteSet.Get(fields[1]) != None {
+			changed = true
+			skipPeeled = true
+			continue
+		}
+		kept = kept.Append(line)
+	}
+	if !changed {
+		return
+	}
+	let nextContent = if len(kept) == 0 { "" } else { strings.Join(kept, "\n") + "\n" }
+	locks.CommitBytes(packedPath, nextContent, mode) catch {
+	case locks.LockHeld as e:
+		return LockHeld{Path: e.Path}
+	case locks.NotHeld as e:
+		return LockFailed{Detail: e.Path}
+	case locks.AlreadyPublished as e:
+		return LockFailed{Detail: e.Path}
+	case locks.SyncFailed as e:
+		return LockFailed{Detail: e.Reason}
+	case locks.PublishFailed as e:
+		return LockFailed{Detail: e.Reason}
+	case locks.DirSyncUncertain as e:
+		return LockFailed{Detail: e.Reason}
+	case locks.PathInvalid as e:
+		return LockFailed{Detail: e.Reason}
+	}
+}
+
+func abortAllEntries(entries []preparedEntry) needs locks.LockOps {
+	for i in 0..len(entries) {
+		let mut lf = entries[i].lock
+		lf.Abort()
+	}
+}
+
+// PrepareBatch validates all ref updates in ops, checks D/F conflicts and
+// object existence, exclusively acquires all `.lock` files, verifies every
+// compare-and-set expectation while holding the locks, and stages payloads.
+// On any failure, all acquired locks are aborted cleanly with zero mutations.
+func PrepareBatch(store refs.Store, ops []BatchOp, mode locks.Durability) PreparedBatch fails InvalidRefName | PathEscape | StaleExpected | ObjectMissing | DirectoryFileConflict | LockHeld | LockFailed | IOFailed needs locks.LockOps | pack.ObjectStore | fs.Files | fs.Writes {
+	let mut deleting = Map[string, bool]{}
+	let mut activeNames = []string{}
+	for op in ops {
+		match op.Kind {
+		case DeleteDirect:
+			try validateTargetRefName(op.RefName, false)
+			deleting[op.RefName] = true
+		case SetDirect as sd:
+			try validateTargetRefName(op.RefName, false)
+			try verifyTargetExists(sd.NewOID)
+			activeNames = activeNames.Append(op.RefName)
+		case SetSymbolic as ss:
+			try validateTargetRefName(op.RefName, true)
+			try validateTargetRefName(ss.Target, false)
+			activeNames = activeNames.Append(op.RefName)
+		}
+	}
+	for i in 0..len(activeNames) {
+		try checkDFConflicts(store, activeNames[i], deleting)
+		for j in i+1..len(activeNames) {
+			if refsConflictDF(activeNames[i], activeNames[j]) {
+				return DirectoryFileConflict{Ref: activeNames[i], Conflicting: activeNames[j]}
+			}
+		}
+	}
+
+	let mut prepared = []preparedEntry{}
+	let mut deleteNames = []string{}
+	for op in ops {
+		let targetPath = refFilePath(store, op.RefName)
+		ensureParentDir(targetPath) catch {
+		case IOFailed as e:
+			abortAllEntries(prepared)
+			return e
+		}
+		let mut lf = locks.Acquire(targetPath, mode) catch {
+		case locks.LockHeld as e:
+			abortAllEntries(prepared)
+			return LockHeld{Path: e.Path}
+		case locks.PathInvalid as e:
+			abortAllEntries(prepared)
+			return LockFailed{Detail: e.Reason}
+		}
+
+		let curOID = readCurrentDirectOID(store, op.RefName) catch {
+		case InvalidRefName as e:
+			lf.Abort()
+			abortAllEntries(prepared)
+			return e
+		case PathEscape as e:
+			lf.Abort()
+			abortAllEntries(prepared)
+			return e
+		case IOFailed as e:
+			lf.Abort()
+			abortAllEntries(prepared)
+			return e
+		}
+
+		match op.Kind {
+		case SetDirect as sd:
+			checkExpectedOID(store.Format, op.RefName, curOID, sd.Expected) catch {
+			case StaleExpected as e:
+				lf.Abort()
+				abortAllEntries(prepared)
+				return e
+			}
+			let payload = oid.Hex(sd.NewOID) + "\n"
+			lf.Write(payload) catch {
+			case locks.NotHeld as e:
+				lf.Abort()
+				abortAllEntries(prepared)
+				return LockFailed{Detail: e.Path}
+			case locks.AlreadyPublished as e:
+				lf.Abort()
+				abortAllEntries(prepared)
+				return LockFailed{Detail: e.Path}
+			case locks.PathInvalid as e:
+				lf.Abort()
+				abortAllEntries(prepared)
+				return LockFailed{Detail: e.Reason}
+			}
+			let logOpt Option[(string, string)] = match op.Log {
+			case None:
+				None
+			case Some[ReflogSpec] as spec:
+				Some[(string, string)]{Value: (reflogFilePath(store, op.RefName), formatReflogLine(store.Format, curOID, Some[oid.OID]{Value: sd.NewOID}, spec.Value))}
+			}
+			prepared = prepared.Append(preparedEntry{
+				refName:    op.RefName,
+				lock:       lf,
+				isDelete:   false,
+				loosePath:  targetPath,
+				reflogLine: logOpt,
+			})
+		case DeleteDirect as dd:
+			checkExpectedOID(store.Format, op.RefName, curOID, Some[oid.OID]{Value: dd.Expected}) catch {
+			case StaleExpected as e:
+				lf.Abort()
+				abortAllEntries(prepared)
+				return e
+			}
+			deleteNames = deleteNames.Append(op.RefName)
+			prepared = prepared.Append(preparedEntry{
+				refName:    op.RefName,
+				lock:       lf,
+				isDelete:   true,
+				loosePath:  targetPath,
+				reflogLine: None,
+			})
+		case SetSymbolic as ss:
+			let payload = "ref: " + ss.Target + "\n"
+			lf.Write(payload) catch {
+			case locks.NotHeld as e:
+				lf.Abort()
+				abortAllEntries(prepared)
+				return LockFailed{Detail: e.Path}
+			case locks.AlreadyPublished as e:
+				lf.Abort()
+				abortAllEntries(prepared)
+				return LockFailed{Detail: e.Path}
+			case locks.PathInvalid as e:
+				lf.Abort()
+				abortAllEntries(prepared)
+				return LockFailed{Detail: e.Reason}
+			}
+			let newTargetOID = readCurrentDirectOID(store, ss.Target) catch {
+			case InvalidRefName, PathEscape, IOFailed:
+				None
+			}
+			let logOpt Option[(string, string)] = match op.Log {
+			case None:
+				None
+			case Some[ReflogSpec] as spec:
+				Some[(string, string)]{Value: (reflogFilePath(store, op.RefName), formatReflogLine(store.Format, curOID, newTargetOID, spec.Value))}
+			}
+			prepared = prepared.Append(preparedEntry{
+				refName:    op.RefName,
+				lock:       lf,
+				isDelete:   false,
+				loosePath:  targetPath,
+				reflogLine: logOpt,
+			})
+		}
+	}
+
+	PreparedBatch{
+		format:    store.Format,
+		commonDir: store.CommonDir,
+		gitDir:    store.GitDir,
+		mode:      mode,
+		entries:   prepared,
+		deletes:   deleteNames,
+	}
+}
+
+// AbortBatch releases every unpublished lock held by batch without modifying any ref.
+func AbortBatch(batch mut PreparedBatch) needs locks.LockOps {
+	for i in 0..len(batch.entries) {
+		let mut lf = batch.entries[i].lock
+		lf.Abort()
+		batch.entries[i] = preparedEntry{
+			refName:    batch.entries[i].refName,
+			lock:       lf,
+			isDelete:   batch.entries[i].isDelete,
+			loosePath:  batch.entries[i].loosePath,
+			reflogLine: batch.entries[i].reflogLine,
+		}
+	}
+}
+
+// CommitBatch publishes every prepared ref update, executes deletions (loose
+// and packed-refs), and appends configured reflog entries.
+func CommitBatch(batch mut PreparedBatch) fails LockHeld | LockFailed | IOFailed needs locks.LockOps | fs.Files | fs.Writes {
+	let mut delSet = Map[string, bool]{}
+	for name in batch.deletes {
+		delSet[name] = true
+	}
+	try prunePackedRefs(batch.commonDir, delSet, batch.mode)
+
+	for i in 0..len(batch.entries) {
+		let e = batch.entries[i]
+		let mut lf = e.lock
+		if e.isDelete {
+			fs.Writes.Remove(e.loosePath) catch {
+			case fs.NotFound:
+			case fs.Denied as err:
+				lf.Abort()
+				return IOFailed{Op: "remove-ref", Detail: err.Path}
+			case fs.Failed as err:
+				lf.Abort()
+				return IOFailed{Op: "remove-ref", Detail: err.Reason}
+			}
+			lf.Abort()
+		} else {
+			lf.Commit() catch {
+			case locks.NotHeld as err:
+				lf.Abort()
+				return LockFailed{Detail: err.Path}
+			case locks.AlreadyPublished as err:
+				return LockFailed{Detail: err.Path}
+			case locks.SyncFailed as err:
+				lf.Abort()
+				return LockFailed{Detail: err.Reason}
+			case locks.PublishFailed as err:
+				lf.Abort()
+				return LockFailed{Detail: err.Reason}
+			case locks.DirSyncUncertain as err:
+				return LockFailed{Detail: err.Reason}
+			}
+			match e.reflogLine {
+			case Some[(string, string)] as rl:
+				let (logPath, line) = rl.Value
+				try appendReflog(logPath, line)
+			case None:
+			}
+		}
+		batch.entries[i] = preparedEntry{
+			refName:    e.refName,
+			lock:       lf,
+			isDelete:   e.isDelete,
+			loosePath:  e.loosePath,
+			reflogLine: e.reflogLine,
+		}
+	}
+}
+
+// UpdateRef atomically creates or updates refName to newOID using compare-and-set
+// against expected (None means create-only), verifying object existence and D/F
+// conflicts and optionally appending a reflog line.
+func UpdateRef(store refs.Store, refName string, newOID oid.OID, expected Option[oid.OID], log Option[ReflogSpec], mode locks.Durability) fails InvalidRefName | PathEscape | StaleExpected | ObjectMissing | DirectoryFileConflict | LockHeld | LockFailed | IOFailed needs locks.LockOps | pack.ObjectStore | fs.Files | fs.Writes {
+	let mut batch = try PrepareBatch(store, []BatchOp{
+		BatchOp{RefName: refName, Kind: SetDirect{NewOID: newOID, Expected: expected}, Log: log},
+	}, mode)
+	try batch.CommitBatch()
+}
+
+// DeleteRef atomically deletes refName (from loose and packed-refs storage)
+// after verifying its current value equals expected while holding `<ref>.lock`.
+func DeleteRef(store refs.Store, refName string, expected oid.OID, mode locks.Durability) fails InvalidRefName | PathEscape | StaleExpected | ObjectMissing | DirectoryFileConflict | LockHeld | LockFailed | IOFailed needs locks.LockOps | pack.ObjectStore | fs.Files | fs.Writes {
+	let mut batch = try PrepareBatch(store, []BatchOp{
+		BatchOp{RefName: refName, Kind: DeleteDirect{Expected: expected}, Log: None},
+	}, mode)
+	try batch.CommitBatch()
+}
+
+// UpdateSymbolicRef atomically writes `ref: <targetRef>` into refName (such as
+// `HEAD`) using `<refName>.lock` and optionally appends a reflog entry.
+func UpdateSymbolicRef(store refs.Store, refName string, targetRef string, log Option[ReflogSpec], mode locks.Durability) fails InvalidRefName | PathEscape | StaleExpected | ObjectMissing | DirectoryFileConflict | LockHeld | LockFailed | IOFailed needs locks.LockOps | pack.ObjectStore | fs.Files | fs.Writes {
+	let mut batch = try PrepareBatch(store, []BatchOp{
+		BatchOp{RefName: refName, Kind: SetSymbolic{Target: targetRef}, Log: log},
+	}, mode)
+	try batch.CommitBatch()
+}

@@ -1,0 +1,115 @@
+// Package windex implements pure-Ergo Git binary index v2/v3 encoding, atomic
+// lock-file publication over modules/git/locks, canonical tree construction
+// matching `git write-tree`, and non-mutating snapshot tree building (G-WINDEX).
+
+import github.com/cevr/ergo/modules/git/index
+import github.com/cevr/ergo/modules/git/loose
+import github.com/cevr/ergo/modules/git/oid
+
+// Error is the closed failure union for Git index encoding, atomic writing,
+// and canonical tree building.
+type Error =
+	| InvalidPath{Path string, Reason string}
+	| DuplicateEntry{Path string, Stage int}
+	| InvalidStage{Path string, Stage int}
+	| InvalidMode{Path string, Mode uint32}
+	| UnmergedIndex{Path string}
+	| Collision{Digest string}
+	| LockFailed{Detail string}
+	| ObjectFailed{Detail string}
+
+// IndexWriter is the capability seam for Git index encoding and tree building,
+// carrying laws held by DefaultIndexWriter.
+type IndexWriter {
+	EncodeIndex(format oid.Format, entries []index.Entry) []byte fails InvalidPath | DuplicateEntry | InvalidStage | InvalidMode | Collision,
+	BuildTree(format oid.Format, entries []index.Entry) oid.OID fails InvalidPath | DuplicateEntry | InvalidStage | InvalidMode | UnmergedIndex | Collision | ObjectFailed,
+
+	// EncodeParseRoundTrips: encoding valid index entries and parsing them back
+	// via index.Parse reproduces every path, stage, mode, and OID identically.
+	law EncodeParseRoundTrips(payload string) {
+		let id = oid.HashObject(oid.Sha1, oid.Blob, payload.Bytes()) catch {
+		case oid.Collision:
+			return true
+		}
+		let entries = []index.Entry{
+			index.Entry{
+				CTimeSec:    uint32(10), CTimeNsec: uint32(0), MTimeSec: uint32(10), MTimeNsec: uint32(0),
+				Dev:         uint32(1), Ino: uint32(2), Mode: index.ModeExecutable, UID: uint32(0), GID: uint32(0),
+				FileSize:    uint32(len(payload.Bytes())), OID: id, Stage: 0,
+				AssumeValid: false, Extended: false, SkipWorktree: false, IntentToAdd: false, Path: "bin/run.sh",
+			},
+			index.Entry{
+				CTimeSec:    uint32(10), CTimeNsec: uint32(0), MTimeSec: uint32(10), MTimeNsec: uint32(0),
+				Dev:         uint32(1), Ino: uint32(3), Mode: index.ModeRegular, UID: uint32(0), GID: uint32(0),
+				FileSize:    uint32(len(payload.Bytes())), OID: id, Stage: 0,
+				AssumeValid: false, Extended: false, SkipWorktree: false, IntentToAdd: false, Path: "a.txt",
+			},
+		}
+		let raw = EncodeIndex(oid.Sha1, entries) catch {
+		case InvalidPath, DuplicateEntry, InvalidStage, InvalidMode, Collision:
+			return false
+		}
+		let parsed = index.Parse(oid.Sha1, raw) catch {
+		case index.BadMagic, index.UnsupportedVersion, index.Truncated, index.ChecksumMismatch, index.CorruptEntry, index.BadPathCompression, index.UnsupportedMandatoryExtension, index.DuplicateStage, index.UnsortedEntries:
+			return false
+		}
+		let got = parsed.Entries()
+		if len(got) != 2 {
+			return false
+		}
+			got[0].Path == "a.txt" &&
+			got[0].Mode == index.ModeRegular &&
+			oid.Equal(got[0].OID, id) &&
+			got[1].Path == "bin/run.sh" &&
+			got[1].Mode == index.ModeExecutable &&
+			oid.Equal(got[1].OID, id)
+	},
+
+	// WriteTreeRejectsUnmergedStage: BuildTree refuses any index containing a
+	// non-zero conflict stage with UnmergedIndex.
+	law WriteTreeRejectsUnmergedStage(payload string) {
+		let id = oid.HashObject(oid.Sha1, oid.Blob, payload.Bytes()) catch {
+		case oid.Collision:
+			return true
+		}
+		let conflicted = []index.Entry{
+			index.Entry{
+				CTimeSec:    uint32(0), CTimeNsec: uint32(0), MTimeSec: uint32(0), MTimeNsec: uint32(0),
+				Dev:         uint32(0), Ino: uint32(0), Mode: index.ModeRegular, UID: uint32(0), GID: uint32(0),
+				FileSize:    uint32(0), OID: id, Stage: 2,
+				AssumeValid: false, Extended: false, SkipWorktree: false, IntentToAdd: false, Path: "conflict.txt",
+			},
+		}
+		let mut sawUnmerged = false
+		let _ = BuildTree(oid.Sha1, conflicted) catch {
+		case UnmergedIndex as e:
+			sawUnmerged = e.Path == "conflict.txt"
+			id
+		case InvalidPath, DuplicateEntry, InvalidStage, InvalidMode, Collision, ObjectFailed:
+			id
+		}
+		sawUnmerged
+	},
+}
+
+// DefaultIndexWriter implements IndexWriter over a loose.MemoryStore.
+type DefaultIndexWriter {
+	store loose.MemoryStore,
+} implements IndexWriter
+
+// NewDefaultIndexWriter creates a DefaultIndexWriter backed by a fresh MemoryStore.
+func NewDefaultIndexWriter(format oid.Format) DefaultIndexWriter {
+	DefaultIndexWriter{store: loose.NewMemoryStore(format)}
+}
+
+// EncodeIndex implements IndexWriter.EncodeIndex on DefaultIndexWriter.
+func EncodeIndex(_ DefaultIndexWriter, format oid.Format, entries []index.Entry) []byte fails InvalidPath | DuplicateEntry | InvalidStage | InvalidMode | Collision {
+	try Encode(format, entries)
+}
+
+// BuildTree implements IndexWriter.BuildTree on DefaultIndexWriter.
+func BuildTree(w DefaultIndexWriter, format oid.Format, entries []index.Entry) oid.OID fails InvalidPath | DuplicateEntry | InvalidStage | InvalidMode | UnmergedIndex | Collision | ObjectFailed {
+	with context { loose.Objects: w.store } {
+		try WriteTree(format, entries)
+	}
+}
