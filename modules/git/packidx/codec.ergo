@@ -1,0 +1,368 @@
+import fs
+import hex
+import sha1dc
+import sha256
+import slices
+import strings
+import github.com/cevr/ergo/modules/git/oid
+
+func readU32BE(b []byte, off int) uint32 {
+		(uint32(b[off]) << uint32(24)) |
+		(uint32(b[off+1]) << uint32(16)) |
+		(uint32(b[off+2]) << uint32(8)) |
+		uint32(b[off+3])
+}
+
+func readU64BE(b []byte, off int) uint64 {
+	(uint64(readU32BE(b, off)) << uint64(32)) | uint64(readU32BE(b, off+4))
+}
+
+func computeDigest(format oid.Format, data []byte) []byte fails ChecksumMismatch {
+	match format {
+	case oid.Sha1:
+		let d = sha1dc.Sum(data) catch {
+		case sha1dc.CollisionDetected as c:
+			return ChecksumMismatch{Expected: "collision-free", Got: hex.Encode(c.Digest)}
+		}
+		let mut out = slices.WithCapacity[byte](20)
+		for i in 0..20 {
+			out = out.Append(d[i])
+		}
+		out
+	case oid.Sha256:
+		let h = sha256.New()
+		h.Write(data.Text())
+		h.Digest().Bytes()
+	}
+}
+
+func verifyTrailers(format oid.Format, raw []byte) (oid.OID, oid.OID) fails Truncated | ChecksumMismatch {
+	let hashLen = oid.ByteLen(format)
+	let trailerLen = 2 * hashLen
+	if len(raw) < trailerLen {
+		return Truncated{Expected: trailerLen, Got: len(raw)}
+	}
+	let bodyEnd = len(raw) - hashLen
+	let packStart = bodyEnd - hashLen
+	let wantIdx = raw[bodyEnd:]
+	let gotIdx = try computeDigest(format, raw[:bodyEnd])
+	if !slices.Equal(gotIdx, wantIdx) {
+		return ChecksumMismatch{
+			Expected: hex.Encode(wantIdx.Text()),
+			Got:      hex.Encode(gotIdx.Text()),
+		}
+	}
+	let packSum = oid.FromBytes(format, raw[packStart:bodyEnd]) catch {
+	case oid.WrongLength:
+		oid.Zero(format)
+	}
+	let idxSum = oid.FromBytes(format, wantIdx) catch {
+	case oid.WrongLength:
+		oid.Zero(format)
+	}
+	(packSum, idxSum)
+}
+
+func parseFanout(raw []byte, base int) []uint32 fails CorruptFanout {
+	let mut fanout = slices.WithCapacity[uint32](256)
+	let mut prev = uint32(0)
+	for i in 0..256 {
+		let cur = readU32BE(raw, base+i*4)
+		if i > 0 && cur < prev {
+			return CorruptFanout{Bucket: i, Prev: prev, Cur: cur}
+		}
+		fanout = fanout.Append(cur)
+		prev = cur
+	}
+	fanout
+}
+
+func parseV2(format oid.Format, raw []byte) Index fails Truncated | CorruptFanout | UnsortedOIDs | BadLargeOffset | ChecksumMismatch {
+	let hashLen = oid.ByteLen(format)
+	let minHeader = 8 + 1024 + 2*hashLen
+	if len(raw) < minHeader {
+		return Truncated{Expected: minHeader, Got: len(raw)}
+	}
+	let fanout = try parseFanout(raw, 8)
+	let n = int(fanout[255])
+	let oidBase = 8 + 1024
+	let crcBase = oidBase + n*hashLen
+	let off32Base = crcBase + n*4
+	let off64Base = off32Base + n*4
+	let minTotal = off64Base + 2*hashLen
+	if len(raw) < minTotal {
+		return Truncated{Expected: minTotal, Got: len(raw)}
+	}
+	let largeBytes = (len(raw) - 2*hashLen) - off64Base
+	if largeBytes%8 != 0 {
+		return Truncated{Expected: off64Base + ((largeBytes/8)+1)*8 + 2*hashLen, Got: len(raw)}
+	}
+	let largeCount = largeBytes / 8
+	let (packSum, idxSum) = try verifyTrailers(format, raw)
+
+	let mut entries = slices.WithCapacity[Entry](n)
+	for i in 0..n {
+		let idStart = oidBase + i*hashLen
+		let id = oid.FromBytes(format, raw[idStart:idStart+hashLen]) catch {
+		case oid.WrongLength:
+			oid.Zero(format)
+		}
+		if i > 0 && oid.Compare(entries[i-1].OID, id) >= 0 {
+			return UnsortedOIDs{Index: i}
+		}
+		let b = int(id.Raw[0])
+		let bucketLo = if b == 0 { 0 } else { int(fanout[b-1]) }
+		let bucketHi = int(fanout[b])
+		if i < bucketLo || i >= bucketHi {
+			return CorruptFanout{Bucket: b, Prev: uint32(bucketLo), Cur: uint32(bucketHi)}
+		}
+		let crc = readU32BE(raw, crcBase+i*4)
+		let rawOff = readU32BE(raw, off32Base+i*4)
+		let mut packOff = uint64(rawOff)
+		if (rawOff & uint32(0x80000000)) != uint32(0) {
+			let largeIdx = rawOff & uint32(0x7fffffff)
+			if int(largeIdx) >= largeCount {
+				return BadLargeOffset{Entry: i, TableIndex: largeIdx, TableLen: largeCount}
+			}
+			packOff = readU64BE(raw, off64Base+int(largeIdx)*8)
+		}
+		entries = entries.Append(Entry{
+			OID:    id,
+			Offset: packOff,
+			CRC32:  crc,
+		})
+	}
+	Index{
+		format:       format,
+		version:      2,
+		fanout:       fanout,
+		entries:      entries,
+		packChecksum: packSum,
+		idxChecksum:  idxSum,
+	}
+}
+
+func parseV1(raw []byte) Index fails Truncated | BadMagic | CorruptFanout | UnsortedOIDs | ChecksumMismatch {
+	let minV1 = 1024 + 40
+	if len(raw) < minV1 {
+		return BadMagic{Reason: "missing pack index magic and shorter than v1 minimum"}
+	}
+	let fanout = parseFanout(raw, 0) catch {
+	case CorruptFanout:
+		return BadMagic{Reason: "unrecognized pack index header"}
+	}
+	let n = int(fanout[255])
+	let exactLen = 1024 + n*24 + 40
+	if len(raw) < exactLen {
+		return Truncated{Expected: exactLen, Got: len(raw)}
+	}
+	if len(raw) != exactLen {
+		return BadMagic{Reason: "unexpected length for pack index v1"}
+	}
+	let (packSum, idxSum) = try verifyTrailers(oid.Sha1, raw)
+	let mut entries = slices.WithCapacity[Entry](n)
+	for i in 0..n {
+		let off = 1024 + i*24
+		let packOff = uint64(readU32BE(raw, off))
+		let id = oid.FromBytes(oid.Sha1, raw[off+4:off+24]) catch {
+		case oid.WrongLength:
+			oid.Zero(oid.Sha1)
+		}
+		if i > 0 && oid.Compare(entries[i-1].OID, id) >= 0 {
+			return UnsortedOIDs{Index: i}
+		}
+		let b = int(id.Raw[0])
+		let bucketLo = if b == 0 { 0 } else { int(fanout[b-1]) }
+		let bucketHi = int(fanout[b])
+		if i < bucketLo || i >= bucketHi {
+			return CorruptFanout{Bucket: b, Prev: uint32(bucketLo), Cur: uint32(bucketHi)}
+		}
+		entries = entries.Append(Entry{
+			OID:    id,
+			Offset: packOff,
+			CRC32:  uint32(0),
+		})
+	}
+	Index{
+		format:       oid.Sha1,
+		version:      1,
+		fanout:       fanout,
+		entries:      entries,
+		packChecksum: packSum,
+		idxChecksum:  idxSum,
+	}
+}
+
+// Parse decodes and verifies a Git pack index (v2 for Sha1/Sha256, or v1 for
+// Sha1 only). Unknown v2+ versions fail with UnsupportedVersion without guessing.
+func Parse(format oid.Format, raw []byte) Index fails Truncated | BadMagic | UnsupportedVersion | CorruptFanout | UnsortedOIDs | BadLargeOffset | ChecksumMismatch | WrongFormat {
+	if len(raw) < 8 {
+		return Truncated{Expected: 8, Got: len(raw)}
+	}
+	let hasV2Magic = raw[0] == byte(0xff) && raw[1] == byte(0x74) && raw[2] == byte(0x4f) && raw[3] == byte(0x63)
+	if hasV2Magic {
+		let ver = readU32BE(raw, 4)
+		if ver != uint32(2) {
+			return UnsupportedVersion{Version: ver}
+		}
+		return try parseV2(format, raw)
+	}
+	match format {
+	case oid.Sha256:
+		return WrongFormat{Reason: "pack index v1 only supports SHA-1"}
+	case oid.Sha1:
+		return try parseV1(raw)
+	}
+}
+
+// Open reads and verifies a Git pack index file from path.
+func Open(format oid.Format, path string) Index fails Truncated | BadMagic | UnsupportedVersion | CorruptFanout | UnsortedOIDs | BadLargeOffset | ChecksumMismatch | WrongFormat | IOFailed needs fs.Files {
+	let raw = fs.Files.ReadFile(path) catch {
+	case fs.NotFound as e:
+		return IOFailed{Op: "read-packidx", Detail: e.Path}
+	case fs.Denied as e:
+		return IOFailed{Op: "read-packidx", Detail: e.Path}
+	case fs.Failed as e:
+		return IOFailed{Op: "read-packidx", Detail: e.Reason}
+	}
+	try Parse(format, raw.Bytes())
+}
+
+// PackChecksum returns the trailing packfile digest recorded in idx.
+func PackChecksum(idx Index) oid.OID {
+	idx.packChecksum
+}
+
+// IdxChecksum returns the trailing verified digest of idx itself.
+func IdxChecksum(idx Index) oid.OID {
+	idx.idxChecksum
+}
+
+// Version returns the decoded pack index format version (1 or 2).
+func Version(idx Index) int {
+	idx.version
+}
+
+// Count implements IndexReader.Count on Index.
+func Count(idx Index) int {
+	len(idx.entries)
+}
+
+// At implements IndexReader.At on Index.
+func At(idx Index, i int) Option[Entry] {
+	if i < 0 || i >= len(idx.entries) {
+		return None
+	}
+	Some[Entry]{Value: idx.entries[i]}
+}
+
+func sameFormat(a oid.Format, b oid.Format) bool {
+	match a {
+	case oid.Sha1:
+		match b {
+		case oid.Sha1:
+			true
+		case oid.Sha256:
+			false
+		}
+	case oid.Sha256:
+		match b {
+		case oid.Sha1:
+			false
+		case oid.Sha256:
+			true
+		}
+	}
+}
+
+// Lookup implements IndexReader.Lookup on Index using O(log N) fan-out bounded
+// binary search.
+func Lookup(idx Index, id oid.OID) Option[Entry] {
+	if !sameFormat(idx.format, id.Format) || len(id.Raw) != oid.ByteLen(idx.format) {
+		return None
+	}
+	let b = int(id.Raw[0])
+	let mut lo = if b == 0 { 0 } else { int(idx.fanout[b-1]) }
+	let mut hi = int(idx.fanout[b])
+	for _ in 0..64 {
+		if lo >= hi {
+			break
+		}
+		let mid = lo + (hi-lo)/2
+		let cmp = oid.Compare(idx.entries[mid].OID, id)
+		if cmp == 0 {
+			return Some[Entry]{Value: idx.entries[mid]}
+		}
+		if cmp < 0 {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+	None
+}
+
+func lowerHexNibble(b byte) int {
+	if b >= byte('0') && b <= byte('9') {
+		return int(b - byte('0'))
+	}
+	if b >= byte('a') && b <= byte('f') {
+		return 10 + int(b-byte('a'))
+	}
+	-1
+}
+
+// FindPrefix implements IndexReader.FindPrefix on Index using the fan-out
+// table and binary search for short lowercase hexadecimal OID prefixes.
+func FindPrefix(idx Index, hexPrefix string) []Entry {
+	let pb = hexPrefix.Bytes()
+	if len(pb) > oid.HexLen(idx.format) {
+		return []Entry{}
+	}
+	for c in pb {
+		if lowerHexNibble(c) < 0 {
+			return []Entry{}
+		}
+	}
+	if len(pb) == 0 {
+		let mut all = slices.WithCapacity[Entry](len(idx.entries))
+		for e in idx.entries {
+			all = all.Append(e)
+		}
+		return all
+	}
+	let mut lo = 0
+	let mut hi = len(idx.entries)
+	if len(pb) >= 2 {
+		let b = (lowerHexNibble(pb[0]) << 4) | lowerHexNibble(pb[1])
+		lo = if b == 0 { 0 } else { int(idx.fanout[b-1]) }
+		hi = int(idx.fanout[b])
+	} else {
+		let firstB = lowerHexNibble(pb[0]) << 4
+		let lastB = firstB | 15
+		lo = if firstB == 0 { 0 } else { int(idx.fanout[firstB-1]) }
+		hi = int(idx.fanout[lastB])
+	}
+	let mut left = lo
+	let mut right = hi
+	for _ in 0..64 {
+		if left >= right {
+			break
+		}
+		let mid = left + (right-left)/2
+		if oid.Hex(idx.entries[mid].OID) < hexPrefix {
+			left = mid + 1
+		} else {
+			right = mid
+		}
+	}
+	let mut matches = []Entry{}
+	for i in left..hi {
+		let h = oid.Hex(idx.entries[i].OID)
+		if !strings.HasPrefix(h, hexPrefix) {
+			break
+		}
+		matches = matches.Append(idx.entries[i])
+	}
+	matches
+}

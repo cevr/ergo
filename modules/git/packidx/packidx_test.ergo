@@ -1,0 +1,521 @@
+import exec
+import filepath
+import fs
+import os
+import sha1dc
+import sha256
+import slices
+import strconv
+import strings
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/oracle
+import github.com/cevr/ergo/modules/git/root
+
+let onOracle = context needs TestAmbient {
+	exec.Runner: exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
+	fs.Files:    fs.NewTestHost(),
+	fs.Writes:   fs.NewTestHost(),
+	os.Process:  os.NewTestHost(),
+}
+
+func appendU32BE(buf []byte, v uint32) []byte {
+	let mut out = buf
+	out = out.Append(byte((v >> uint32(24)) & uint32(0xff)))
+	out = out.Append(byte((v >> uint32(16)) & uint32(0xff)))
+	out = out.Append(byte((v >> uint32(8)) & uint32(0xff)))
+	out = out.Append(byte(v & uint32(0xff)))
+	out
+}
+
+func appendU64BE(buf []byte, v uint64) []byte {
+	let out = appendU32BE(buf, uint32((v>>uint64(32))&uint64(0xffffffff)))
+	appendU32BE(out, uint32(v&uint64(0xffffffff)))
+}
+
+func appendBytes(buf []byte, src []byte) []byte {
+	let mut out = buf
+	for b in src {
+		out = out.Append(b)
+	}
+	out
+}
+
+func signIndexTrailer(format oid.Format, bodyWithoutIdxSum []byte) []byte {
+	match format {
+	case oid.Sha1:
+		let d = sha1dc.Sum(bodyWithoutIdxSum) catch {
+		case sha1dc.CollisionDetected:
+			[20]byte{}
+		}
+		let mut out = bodyWithoutIdxSum
+		for i in 0..20 {
+			out = out.Append(d[i])
+		}
+		out
+	case oid.Sha256:
+		let h = sha256.New()
+		h.Write(bodyWithoutIdxSum.Text())
+		appendBytes(bodyWithoutIdxSum, h.Digest().Bytes())
+	}
+}
+
+func buildSyntheticV2(format oid.Format, entries []Entry, packSum oid.OID) []byte {
+	let sorted = slices.SortFunc(entries, compareEntries)
+	let mut counts = slices.WithCapacity[uint32](256)
+	for _ in 0..256 {
+		counts = counts.Append(uint32(0))
+	}
+	for e in sorted {
+		let b = int(e.OID.Raw[0])
+		counts[b] = counts[b] + uint32(1)
+	}
+	let mut fanout = slices.WithCapacity[uint32](256)
+	let mut acc = uint32(0)
+	for i in 0..256 {
+		acc = acc + counts[i]
+		fanout = fanout.Append(acc)
+	}
+	let mut buf = []byte{byte(0xff), byte(0x74), byte(0x4f), byte(0x63)}
+	buf = appendU32BE(buf, uint32(2))
+	for i in 0..256 {
+		buf = appendU32BE(buf, fanout[i])
+	}
+	for e in sorted {
+		buf = appendBytes(buf, e.OID.Raw)
+	}
+	for e in sorted {
+		buf = appendU32BE(buf, e.CRC32)
+	}
+	let mut large = []uint64{}
+	for e in sorted {
+		if e.Offset >= uint64(0x80000000) {
+			let lIdx = uint32(len(large))
+			large = large.Append(e.Offset)
+			buf = appendU32BE(buf, uint32(0x80000000)|lIdx)
+		} else {
+			buf = appendU32BE(buf, uint32(e.Offset))
+		}
+	}
+	for lo in large {
+		buf = appendU64BE(buf, lo)
+	}
+	buf = appendBytes(buf, packSum.Raw)
+	signIndexTrailer(format, buf)
+}
+
+func makeSeededEntries(format oid.Format) []Entry {
+	let mut out = []Entry{}
+	for i in 0..12 {
+		let payload = ("seeded-pack-entry-" + strconv.Itoa(i)).Bytes()
+		let id = oid.HashObject(format, oid.Blob, payload) catch {
+		case oid.Collision:
+			oid.Zero(format)
+		}
+		let off = if i%4 == 0 {
+			uint64(0x100000000) + uint64(i*4096)
+		} else {
+			uint64(12 + i*512)
+		}
+		out = out.Append(Entry{OID: id, Offset: off, CRC32: uint32(0x10203040 + i*17)})
+	}
+	out
+}
+
+func makeSeededIndex(format oid.Format) Index {
+	let entries = makeSeededEntries(format)
+	let packSum = oid.HashObject(format, oid.Blob, "pack-trailer".Bytes()) catch {
+	case oid.Collision:
+		oid.Zero(format)
+	}
+	let raw = buildSyntheticV2(format, entries, packSum)
+	Parse(format, raw) catch {
+	case Truncated, BadMagic, UnsupportedVersion, CorruptFanout, UnsortedOIDs, BadLargeOffset, ChecksumMismatch, WrongFormat:
+		Index{format: format, version: 2, fanout: []uint32{}, entries: []Entry{}, packChecksum: oid.Zero(format), idxChecksum: oid.Zero(format)}
+	}
+}
+
+let onParsedSha1 = context {
+	IndexReader: makeSeededIndex(oid.Sha1),
+}
+
+let onParsedSha256 = context {
+	IndexReader: makeSeededIndex(oid.Sha256),
+}
+
+let onMemorySha1 = context {
+	IndexReader: NewMemoryIndex(oid.Sha1, makeSeededEntries(oid.Sha1)),
+}
+
+let onMemorySha256 = context {
+	IndexReader: NewMemoryIndex(oid.Sha256, makeSeededEntries(oid.Sha256)),
+}
+
+func runGit(dir string, args []string, pathEnv Map[string, string]) (int, string) fails exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	let res = try exec.Runner.Run(oracle.GitCommand(dir, args, pathEnv, int64(1700000000)))
+	(res.Status, res.Stdout)
+}
+
+func runGitStdin(dir string, args []string, stdin string, pathEnv Map[string, string]) (int, string) fails exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	let base = oracle.GitCommand(dir, args, pathEnv, int64(1700000000))
+	let res = try exec.Runner.Run(exec.WithStdin(base, stdin))
+	(res.Status, res.Stdout)
+}
+
+func parseHexU32(s string) uint32 {
+	let bs = s.Bytes()
+	let mut val = uint32(0)
+	for b in bs {
+		let d = lowerHexNibble(b)
+		if d < 0 {
+			return uint32(0)
+		}
+		val = (val << uint32(4)) | uint32(d)
+	}
+	val
+}
+
+func parseShowIndex(format oid.Format, raw string, expectCRC bool) []Entry fails oid.BadHex | oid.WrongLength | strconv.Malformed | strconv.OutOfRange {
+	let mut out = []Entry{}
+	for line in strings.Split(raw, "\n") {
+		let trimmed = strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		let fields = strings.Fields(trimmed)
+		if len(fields) < 2 {
+			continue
+		}
+		let off = uint64(try strconv.Atoi(fields[0]))
+		let id = try oid.ParseHex(format, fields[1])
+		let mut crc = uint32(0)
+		if expectCRC && len(fields) >= 3 {
+			let hexCrc = strings.TrimSuffix(strings.TrimPrefix(fields[2], "("), ")")
+			crc = parseHexU32(hexCrc)
+		}
+		out = out.Append(Entry{OID: id, Offset: off, CRC32: crc})
+	}
+	slices.SortFunc(out, compareEntries)
+}
+
+func findPackIdxPath(packDir string) string fails fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	let entries = try fs.Files.ReadDir(packDir)
+	for e in entries {
+		if strings.HasSuffix(e, ".idx") {
+			return filepath.Join([]string{packDir, e})
+		}
+	}
+	""
+}
+
+func findPackFilePath(packDir string) string fails fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	let entries = try fs.Files.ReadDir(packDir)
+	for e in entries {
+		if strings.HasSuffix(e, ".pack") {
+			return filepath.Join([]string{packDir, e})
+		}
+	}
+	""
+}
+
+// V2MatchesGitShowIndex: repacks real Sha1 and Sha256 Git repositories with
+// C Git and verifies every (OID, Offset, CRC32), Lookup, FindPrefix, and
+// trailer checksum against `git show-index`.
+test V2MatchesGitShowIndex {
+	with onOracle {
+		let pathEnv = exec.PathOf(os.Process.Environ())
+		let cwd = try os.Process.Getwd()
+		let base = filepath.Join([]string{cwd, "packidx-v2"})
+
+		for fmtSpec in []oracle.OidFormat{oracle.Sha1, oracle.Sha256} {
+			let label = oracle.FormatName(fmtSpec)
+			let oidFmt = match fmtSpec {
+			case oracle.Sha1:
+				oid.Sha1
+			case oracle.Sha256:
+				oid.Sha256
+			}
+			let repoDir = try oracle.InitRepo(filepath.Join([]string{base, "repo-" + label}), oracle.RepoSpec{Format: fmtSpec, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, int64(1700000000))
+
+			for i in 0..10 {
+				let rel = "file-" + strconv.Itoa(i) + ".txt"
+				try fs.Writes.WriteFile(filepath.Join([]string{repoDir, rel}), "packidx test payload #"+strconv.Itoa(i)+"\n")
+				let (sAdd, _) = try runGit(repoDir, []string{"add", rel}, pathEnv)
+				assert sAdd == 0
+				let (sCom, _) = try runGit(repoDir, []string{"commit", "-m", "commit " + strconv.Itoa(i)}, pathEnv)
+				assert sCom == 0
+			}
+			let (sTag, _) = try runGit(repoDir, []string{"tag", "-a", "v1", "-m", "packed tag"}, pathEnv)
+			assert sTag == 0
+			let (sRepack, _) = try runGit(repoDir, []string{"repack", "-ad"}, pathEnv)
+			assert sRepack == 0
+
+			let layout = try root.Discover(repoDir, root.DiscoverOptions{CeilingDirs: []string{cwd}, Trust: root.ConfinedTrust(cwd)})
+			let packDir = filepath.Join([]string{layout.ObjectsDir, "pack"})
+			let idxPath = try findPackIdxPath(packDir)
+			assert idxPath != ""
+
+			let idx = try Open(oidFmt, idxPath)
+			assert Version(idx) == 2
+			assert idx.Count() >= 20
+
+			let idxRaw = try fs.Files.ReadFile(idxPath)
+			let (sShow, showOut) = try runGitStdin(repoDir, []string{"show-index", "--object-format=" + label}, idxRaw, pathEnv)
+			assert sShow == 0
+			let want = try parseShowIndex(oidFmt, showOut, true)
+			assert len(want) == idx.Count()
+
+			for i in 0..len(want) {
+				match idx.At(i) {
+				case None:
+					assert false
+				case Some[Entry] as got:
+					assert oid.Equal(got.Value.OID, want[i].OID)
+					assert got.Value.Offset == want[i].Offset
+					assert got.Value.CRC32 == want[i].CRC32
+				}
+				match idx.Lookup(want[i].OID) {
+				case None:
+					assert false
+				case Some[Entry] as got:
+					assert got.Value.Offset == want[i].Offset
+					assert got.Value.CRC32 == want[i].CRC32
+				}
+				let pref = oid.ShortHex(want[i].OID, 7)
+				let hits = idx.FindPrefix(pref)
+				assert len(hits) >= 1
+				let mut sawHit = false
+				for h in hits {
+					if oid.Equal(h.OID, want[i].OID) {
+						sawHit = true
+					}
+				}
+				assert sawHit
+			}
+
+			let absent = try oid.HashObject(oidFmt, oid.Blob, "definitely-not-in-this-pack".Bytes())
+			assert idx.Lookup(absent) == None
+		}
+	}
+}
+
+// V1CompatMatchesGitShowIndex: generates a real C Git pack index v1 via
+// `git index-pack --index-version=1` and verifies Parse/Open/Lookup agree
+// 100% with `git show-index`.
+test V1CompatMatchesGitShowIndex {
+	with onOracle {
+		let pathEnv = exec.PathOf(os.Process.Environ())
+		let cwd = try os.Process.Getwd()
+		let repoDir = try oracle.InitRepo(filepath.Join([]string{cwd, "packidx-v1", "repo"}), oracle.RepoSpec{Format: oracle.Sha1, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, int64(1700000050))
+
+		for i in 0..5 {
+			let rel = "v1-" + strconv.Itoa(i) + ".txt"
+			try fs.Writes.WriteFile(filepath.Join([]string{repoDir, rel}), "v1 payload "+strconv.Itoa(i)+"\n")
+			let (sAdd, _) = try runGit(repoDir, []string{"add", rel}, pathEnv)
+			assert sAdd == 0
+			let (sCom, _) = try runGit(repoDir, []string{"commit", "-m", "v1 commit " + strconv.Itoa(i)}, pathEnv)
+			assert sCom == 0
+		}
+		let (sRepack, _) = try runGit(repoDir, []string{"repack", "-ad"}, pathEnv)
+		assert sRepack == 0
+
+		let layout = try root.Discover(repoDir, root.DiscoverOptions{CeilingDirs: []string{cwd}, Trust: root.ConfinedTrust(cwd)})
+		let packDir = filepath.Join([]string{layout.ObjectsDir, "pack"})
+		let packPath = try findPackFilePath(packDir)
+		assert packPath != ""
+
+		let v1IdxPath = filepath.Join([]string{cwd, "packidx-v1", "v1.idx"})
+		let (sIdx1, _) = try runGit(repoDir, []string{"index-pack", "--index-version=1", "-o", v1IdxPath, packPath}, pathEnv)
+		assert sIdx1 == 0
+
+		let idx = try Open(oid.Sha1, v1IdxPath)
+		assert Version(idx) == 1
+		assert idx.Count() >= 10
+
+		let rawV1 = try fs.Files.ReadFile(v1IdxPath)
+		let (sShow, showOut) = try runGitStdin(repoDir, []string{"show-index"}, rawV1, pathEnv)
+		assert sShow == 0
+		let want = try parseShowIndex(oid.Sha1, showOut, false)
+		assert len(want) == idx.Count()
+		for i in 0..len(want) {
+			match idx.Lookup(want[i].OID) {
+			case None:
+				assert false
+			case Some[Entry] as got:
+				assert got.Value.Offset == want[i].Offset
+				assert got.Value.CRC32 == uint32(0)
+			}
+		}
+	}
+}
+
+// LargeOffsetsAndCorruptionMatrix: verifies synthetic 64-bit large-offset v2
+// indexes (>4 GiB offsets) and rejects truncated, bad-checksum, non-monotonic
+// fanout, unsorted OIDs, unknown version, and out-of-bounds large-offset index.
+test LargeOffsetsAndCorruptionMatrix {
+	let idA = try oid.HashObject(oid.Sha1, oid.Blob, "large-off-a".Bytes())
+	let idB = try oid.HashObject(oid.Sha1, oid.Blob, "large-off-b".Bytes())
+	let idC = try oid.HashObject(oid.Sha1, oid.Blob, "large-off-c".Bytes())
+	let packSum = try oid.HashObject(oid.Sha1, oid.Blob, "pack-sum".Bytes())
+
+	let bigOff1 = uint64(0x100000000) + uint64(4096)
+	let bigOff2 = uint64(0x200000000) + uint64(98765)
+	let smallOff = uint64(512)
+	let entries = []Entry{
+		Entry{OID: idA, Offset: bigOff1, CRC32: uint32(0x11223344)},
+		Entry{OID: idB, Offset: smallOff, CRC32: uint32(0x55667788)},
+		Entry{OID: idC, Offset: bigOff2, CRC32: uint32(0x99aabbcc)},
+	}
+	let validRaw = buildSyntheticV2(oid.Sha1, entries, packSum)
+	let idx = try Parse(oid.Sha1, validRaw)
+	assert Version(idx) == 2 && idx.Count() == 3
+	assert oid.Equal(PackChecksum(idx), packSum)
+
+	match idx.Lookup(idA) {
+	case Some[Entry] as e:
+		assert e.Value.Offset == bigOff1 && e.Value.CRC32 == uint32(0x11223344)
+	case None:
+		assert false
+	}
+	match idx.Lookup(idB) {
+	case Some[Entry] as e:
+		assert e.Value.Offset == smallOff && e.Value.CRC32 == uint32(0x55667788)
+	case None:
+		assert false
+	}
+	match idx.Lookup(idC) {
+	case Some[Entry] as e:
+		assert e.Value.Offset == bigOff2 && e.Value.CRC32 == uint32(0x99aabbcc)
+	case None:
+		assert false
+	}
+
+	let mut sawTrunc = false
+	let _ = Parse(oid.Sha1, validRaw[:20]) catch {
+	case Truncated:
+		sawTrunc = true
+		idx
+	case BadMagic, UnsupportedVersion, CorruptFanout, UnsortedOIDs, BadLargeOffset, ChecksumMismatch, WrongFormat:
+		assert false
+		idx
+	}
+	assert sawTrunc
+
+	let mut flipped = appendBytes([]byte{}, validRaw)
+	flipped[len(flipped)-1] = flipped[len(flipped)-1] ^ byte(1)
+	let mut sawChecksum = false
+	let _ = Parse(oid.Sha1, flipped) catch {
+	case ChecksumMismatch:
+		sawChecksum = true
+		idx
+	case Truncated, BadMagic, UnsupportedVersion, CorruptFanout, UnsortedOIDs, BadLargeOffset, WrongFormat:
+		assert false
+		idx
+	}
+	assert sawChecksum
+
+	let mut badVerBody = appendBytes([]byte{}, validRaw[:len(validRaw)-20])
+	badVerBody[7] = byte(3)
+	let badVerRaw = signIndexTrailer(oid.Sha1, badVerBody)
+	let mut sawUnsupported = false
+	let _ = Parse(oid.Sha1, badVerRaw) catch {
+	case UnsupportedVersion as u:
+		sawUnsupported = u.Version == uint32(3)
+		idx
+	case Truncated, BadMagic, CorruptFanout, UnsortedOIDs, BadLargeOffset, ChecksumMismatch, WrongFormat:
+		assert false
+		idx
+	}
+	assert sawUnsupported
+
+	let mut badFanoutBody = appendBytes([]byte{}, validRaw[:len(validRaw)-20])
+	badFanoutBody[8+3] = byte(9)
+	let badFanoutRaw = signIndexTrailer(oid.Sha1, badFanoutBody)
+	let mut sawFanout = false
+	let _ = Parse(oid.Sha1, badFanoutRaw) catch {
+	case CorruptFanout:
+		sawFanout = true
+		idx
+	case Truncated, BadMagic, UnsupportedVersion, UnsortedOIDs, BadLargeOffset, ChecksumMismatch, WrongFormat:
+		assert false
+		idx
+	}
+	assert sawFanout
+
+	let hiSameBucket = try oid.ParseHex(oid.Sha1, "4202000000000000000000000000000000000000")
+	let loSameBucket = try oid.ParseHex(oid.Sha1, "4201000000000000000000000000000000000000")
+	let mut unsortedBody = []byte{byte(0xff), byte(0x74), byte(0x4f), byte(0x63)}
+	unsortedBody = appendU32BE(unsortedBody, uint32(2))
+	for i in 0..256 {
+		let cnt = if i >= 0x42 { uint32(2) } else { uint32(0) }
+		unsortedBody = appendU32BE(unsortedBody, cnt)
+	}
+	unsortedBody = appendBytes(unsortedBody, hiSameBucket.Raw)
+	unsortedBody = appendBytes(unsortedBody, loSameBucket.Raw)
+	for _ in 0..2 {
+		unsortedBody = appendU32BE(unsortedBody, uint32(0))
+	}
+	for _ in 0..2 {
+		unsortedBody = appendU32BE(unsortedBody, uint32(100))
+	}
+	unsortedBody = appendBytes(unsortedBody, packSum.Raw)
+	let unsortedRaw = signIndexTrailer(oid.Sha1, unsortedBody)
+	let mut sawUnsorted = false
+	let _ = Parse(oid.Sha1, unsortedRaw) catch {
+	case UnsortedOIDs as u:
+		sawUnsorted = u.Index == 1
+		idx
+	case Truncated, BadMagic, UnsupportedVersion, CorruptFanout, BadLargeOffset, ChecksumMismatch, WrongFormat:
+		assert false
+		idx
+	}
+	assert sawUnsorted
+
+	let off32Base = 8 + 1024 + 3*20 + 3*4
+	let mut badLargeBody = appendBytes([]byte{}, validRaw[:len(validRaw)-20])
+	badLargeBody[off32Base] = byte(0x80)
+	badLargeBody[off32Base+1] = byte(0)
+	badLargeBody[off32Base+2] = byte(0)
+	badLargeBody[off32Base+3] = byte(99)
+	let badLargeRaw = signIndexTrailer(oid.Sha1, badLargeBody)
+	let mut sawBadLarge = false
+	let _ = Parse(oid.Sha1, badLargeRaw) catch {
+	case BadLargeOffset as b:
+		sawBadLarge = b.TableIndex == uint32(99) && b.TableLen == 2
+		idx
+	case Truncated, BadMagic, UnsupportedVersion, CorruptFanout, UnsortedOIDs, ChecksumMismatch, WrongFormat:
+		assert false
+		idx
+	}
+	assert sawBadLarge
+}
+
+// LookupAndPrefixAgreeWithLinearScan: verifies binary-search Lookup and
+// fan-out FindPrefix agree with linear scans for arbitrary probe keys and prefixes.
+law LookupAndPrefixAgreeWithLinearScan(seed string) {
+	let idx = makeSeededIndex(oid.Sha1)
+	let mem = NewMemoryIndex(oid.Sha1, makeSeededEntries(oid.Sha1))
+	let probe = oid.HashObject(oid.Sha1, oid.Blob, seed.Bytes()) catch {
+	case oid.Collision:
+		oid.Zero(oid.Sha1)
+	}
+	let gotIdx = idx.Lookup(probe)
+	let gotMem = mem.Lookup(probe)
+	let lookupAgrees = match gotIdx {
+	case None:
+		gotMem == None
+	case Some[Entry] as a:
+		match gotMem {
+		case None:
+			false
+		case Some[Entry] as b:
+			oid.Equal(a.Value.OID, b.Value.OID) && a.Value.Offset == b.Value.Offset && a.Value.CRC32 == b.Value.CRC32
+		}
+	}
+	let pref1 = oid.ShortHex(probe, 1)
+	let pref2 = oid.ShortHex(probe, 2)
+	let p1Idx = idx.FindPrefix(pref1)
+	let p1Mem = mem.FindPrefix(pref1)
+	let p2Idx = idx.FindPrefix(pref2)
+	let p2Mem = mem.FindPrefix(pref2)
+	lookupAgrees && len(p1Idx) == len(p1Mem) && len(p2Idx) == len(p2Mem)
+}
