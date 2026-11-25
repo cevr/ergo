@@ -48,7 +48,7 @@ func GenerateAPI(pkg *check.Package, path, opName string) (Files, error) {
 		return Files{}, err
 	}
 	pkgName := lastElem(path)
-	g := &hubGen{pkg: pkg, path: path, op: opName, imports: map[string]string{"json": "json", "sync": "sync"}}
+	g := &hubGen{pkg: pkg, path: path, op: opName, imports: map[string]string{"json": "json", "rpc": "rpc", "sync": "sync"}}
 	g.importOf(pkg)
 	g.failures(ops)
 	docs := Docs(pkg, opName)
@@ -226,7 +226,7 @@ func (g *hubGen) failures(ops []Op) {
 }
 
 // hubFixed are the hub's own declarations.
-var hubFixed = []string{"Request", "Op", "Reply", "Failure", "Outcome", "Done", "Rejected", "Values", "Given", "OutcomeOf", "Client", "NewClient", "OpOf", "Name", "Doc", "Schema", "Call", "CallIsTheOperation", "ClientIsCall", "inRow", "scripted", "valueOf", NoFailure}
+var hubFixed = []string{"Request", "Op", "Reply", "Failure", "Outcome", "Done", "Rejected", "Values", "Given", "OutcomeOf", "Client", "NewClient", "ClientInForce", "CheckedClient", "NewCheckedClient", "OpOf", "Name", "Doc", "Schema", "Call", "CallIsTheOperation", "ClientIsCall", "inRow", "scripted", "callChecked", "valueOf", NoFailure}
 
 // hubLocals are the names a Client function uses beside the operation's
 // parameters (the only place they are in scope): a parameter of one of
@@ -252,6 +252,7 @@ func (g *hubGen) checkNames(ops []Op) {
 	}
 	for _, op := range ops {
 		claim(op.Name, "the operation "+op.Name)
+		claim(op.Name+"Checked", "the checked operation "+op.Name)
 		claim(RequestName(op.Name), "the Request of "+op.Name)
 		claim(ReplyName(op.Name), "the Reply of "+op.Name)
 		claim(OpName(op.Name), "the Op of "+op.Name)
@@ -499,17 +500,112 @@ func (g *hubGen) callFunc(b *strings.Builder, capName string, ops []Op) {
 	b.WriteString("}\n}\n\n")
 }
 
-// client writes Client and its functions, one per operation.
+// hasTransport reports whether op's failure row already contains rpc.Transport.
+func (g *hubGen) hasTransport(op Op) bool {
+	for _, f := range op.Fails {
+		if g.expr(f) == "rpc.Transport" {
+			return true
+		}
+	}
+	return false
+}
+
+// freshName returns base unless it clashes with a parameter name in ops or an
+// imported package name, in which case it appends a small integer suffix.
+func (g *hubGen) freshName(base string, ops []Op) string {
+	used := map[string]bool{}
+	for _, name := range g.imports {
+		used[name] = true
+	}
+	for _, op := range ops {
+		for _, p := range op.Params {
+			used[p.Name] = true
+		}
+	}
+	if !used[base] {
+		return base
+	}
+	for i := 0; ; i++ {
+		cand := fmt.Sprintf("%s%d", base, i)
+		if !used[cand] {
+			return cand
+		}
+	}
+}
+
+// opFuncSig formats the parameter list, return type, and failure row of op
+// (everything after "func" or "func Name").
+func (g *hubGen) opFuncSig(op Op, named bool) string {
+	var params []string
+	for _, p := range op.Params {
+		if named {
+			params = append(params, p.Name+" "+g.expr(p.Type))
+		} else {
+			params = append(params, g.expr(p.Type))
+		}
+	}
+	sig := "(" + strings.Join(params, ", ") + ")"
+	if op.Result != nil {
+		sig += " " + g.expr(op.Result)
+	}
+	if len(op.Fails) > 0 {
+		var fs []string
+		for _, f := range op.Fails {
+			fs = append(fs, g.expr(f))
+		}
+		sig += " fails " + strings.Join(fs, " | ")
+	}
+	return sig
+}
+
+// client writes Client (zero-overhead typed per-operation invokes implementing
+// the contract, built from a concrete provider or the Context in force) and
+// CheckedClient (erased Request -> Outcome calls returning rpc.Transport on a
+// mismatched reply or an outside-row failure).
 func (g *hubGen) client(b *strings.Builder, capName string, ops []Op) {
 	pkgName := APIDir(lastElem(g.path))
-	fmt.Fprintf(b, "// Client provides %s over send, any way to carry a Request to a\n// Call and its Outcome back. An Outcome that is not the operation's (the\n// value of another, a failure outside its row) is a defect.\n", capName)
-	fmt.Fprintf(b, "type Client { send func(r Request) Outcome } implements %s\n\n", capName)
-	fmt.Fprintf(b, "// NewClient is the %s that send answers.\nfunc NewClient(send own func(r Request) Outcome) Client { Client{send: send} }\n", capName)
+	var fields []string
 	for _, op := range ops {
-		var params, fields []string
+		fields = append(fields, "op"+op.Name+" func"+g.opFuncSig(op, false))
+	}
+	fmt.Fprintf(b, "// Client provides %s by invoking typed per-operation handlers directly:\n// a direct call returns its exact value or declared failure row with no Outcome boxing.\n", capName)
+	fmt.Fprintf(b, "type Client { %s } implements %s\n\n", strings.Join(fields, ", "), capName)
+
+	innerVar := g.freshName("inner", ops)
+	fmt.Fprintf(b, "// NewClient is the %s that invokes %s directly per operation.\nfunc NewClient(%s %s) Client {\nClient{\n", capName, innerVar, innerVar, capName)
+	for _, op := range ops {
+		var args []string
+		for _, p := range op.Params {
+			args = append(args, p.Name)
+		}
+		prefix := ""
+		if len(op.Fails) > 0 {
+			prefix = "try "
+		}
+		fmt.Fprintf(b, "op%s: func%s { %s%s.%s(%s) },\n", op.Name, g.opFuncSig(op, true), prefix, innerVar, op.Name, strings.Join(args, ", "))
+	}
+	b.WriteString("}\n}\n\n")
+
+	heldVar := g.freshName("held", ops)
+	fmt.Fprintf(b, "// ClientInForce is the %s that invokes the provider currently in force.\nfunc ClientInForce() Client needs %s {\nlet %s = InForce[%s]()\nClient{\n", capName, capName, heldVar, capName)
+	for _, op := range ops {
+		var args []string
+		for _, p := range op.Params {
+			args = append(args, p.Name)
+		}
+		prefix := ""
+		if len(op.Fails) > 0 {
+			prefix = "try "
+		}
+		fmt.Fprintf(b, "op%s: func%s { with %s { %s%s.%s(%s) } },\n", op.Name, g.opFuncSig(op, true), heldVar, prefix, capName, op.Name, strings.Join(args, ", "))
+	}
+	b.WriteString("}\n}\n")
+
+	for _, op := range ops {
+		var params, args []string
 		for _, p := range op.Params {
 			params = append(params, p.Name+" "+g.expr(p.Type))
-			fields = append(fields, FieldName(p.Name)+": "+p.Name)
+			args = append(args, p.Name)
 		}
 		sig := fmt.Sprintf("func %s(%s)", op.Name, strings.Join(append([]string{"client Client"}, params...), ", "))
 		if op.Result != nil {
@@ -522,24 +618,53 @@ func (g *hubGen) client(b *strings.Builder, capName string, ops []Op) {
 			}
 			sig += " fails " + strings.Join(fs, " | ")
 		}
+		prefix := ""
+		if len(op.Fails) > 0 {
+			prefix = "try "
+		}
+		fmt.Fprintf(b, "\n// %s invokes %s's %s directly.\n%s {\n%sclient.op%s(%s)\n}\n", op.Name, capName, op.Name, sig, prefix, op.Name, strings.Join(args, ", "))
+	}
+
+	fmt.Fprintf(b, "\n// CheckedClient carries erased %s requests over send and validates each\n// Outcome against the requested operation, failing rpc.Transport on a\n// sibling reply or a failure outside the operation's row.\n", capName)
+	b.WriteString("type CheckedClient { send func(r Request) Outcome fails rpc.Transport }\n\n")
+	b.WriteString("// NewCheckedClient is the CheckedClient that send answers.\nfunc NewCheckedClient(send own func(r Request) Outcome fails rpc.Transport) CheckedClient { CheckedClient{send: send} }\n")
+
+	for _, op := range ops {
+		var params, fields []string
+		for _, p := range op.Params {
+			params = append(params, p.Name+" "+g.expr(p.Type))
+			fields = append(fields, FieldName(p.Name)+": "+p.Name)
+		}
+		sig := fmt.Sprintf("func %sChecked(%s)", op.Name, strings.Join(append([]string{"client CheckedClient"}, params...), ", "))
+		if op.Result != nil {
+			sig += " " + g.expr(op.Result)
+		}
+		var fs []string
+		for _, f := range op.Fails {
+			fs = append(fs, g.expr(f))
+		}
+		if !g.hasTransport(op) {
+			fs = append(fs, "rpc.Transport")
+		}
+		sig += " fails " + strings.Join(fs, " | ")
 		req := RequestName(op.Name)
 		if len(fields) > 0 {
 			req += "{" + strings.Join(fields, ", ") + "}"
 		}
-		fmt.Fprintf(b, "\n// %s sends %s's %s and answers its Outcome.\n%s {\n", op.Name, capName, op.Name, sig)
-		fmt.Fprintf(b, "match client.send(%s) {\ncase Done as done:\nmatch done.Reply {\n", req)
+		fmt.Fprintf(b, "\n// %sChecked sends %s's %s over send and validates its Outcome.\n%s {\n", op.Name, capName, op.Name, sig)
+		fmt.Fprintf(b, "match try client.send(%s) {\ncase Done as done:\nmatch done.Reply {\n", req)
 		if op.Result != nil {
 			fmt.Fprintf(b, "case %s as reply:\nreply.Value\n", ReplyName(op.Name))
 		} else {
 			fmt.Fprintf(b, "case %s:\n", ReplyName(op.Name))
 		}
 		if len(ops) > 1 {
-			fmt.Fprintf(b, "case _:\nUnreachable(%s)\n", lit(pkgName+": "+op.Name+" was answered with the value of another operation"))
+			fmt.Fprintf(b, "case _:\nreturn rpc.Transport{Reason: %s}\n", lit(pkgName+": "+op.Name+" was answered with the value of another operation"))
 		}
 		b.WriteString("}\n")
 		outside := lit(pkgName + ": " + op.Name + " was answered with a failure outside its row")
 		if len(op.Fails) == 0 {
-			fmt.Fprintf(b, "case Rejected:\nUnreachable(%s)\n}\n}\n", outside)
+			fmt.Fprintf(b, "case Rejected:\nreturn rpc.Transport{Reason: %s}\n}\n}\n", outside)
 			continue
 		}
 		b.WriteString("case Rejected as rejected:\nmatch rejected.Failure {\n")
@@ -547,7 +672,7 @@ func (g *hubGen) client(b *strings.Builder, capName string, ops []Op) {
 			fmt.Fprintf(b, "case %s as failure:\nreturn failure.E\n", g.variant(f))
 		}
 		if !g.covers(op) {
-			fmt.Fprintf(b, "case _:\nUnreachable(%s)\n", outside)
+			fmt.Fprintf(b, "case _:\nreturn rpc.Transport{Reason: %s}\n", outside)
 		}
 		b.WriteString("}\n}\n}\n")
 	}
@@ -603,10 +728,71 @@ func (g *hubGen) laws(b *strings.Builder, capName string, ops []Op) {
 	}
 	b.WriteString("}\n}\n\n")
 
-	fmt.Fprintf(b, "// scripted is a %s that keeps each Request it is sent and answers\n// want.\nfunc scripted(want Outcome, sent sync.Ref[[]Request]) Client {\nNewClient(func(q Request) Outcome {\nsent.Update(func(rs []Request) []Request { rs.Append(q) })\nwant\n})\n}\n\n", capName)
+	gVar := g.freshName("g", ops)
+	sentVar := g.freshName("sent", ops)
+	fmt.Fprintf(b, "// scripted is a Client that keeps each Request it is sent and answers %s.\nfunc scripted(%s Given, %s sync.Ref[[]Request]) Client {\nClient{\n", gVar, gVar, sentVar)
+	for _, op := range ops {
+		var fields []string
+		for _, p := range op.Params {
+			fields = append(fields, FieldName(p.Name)+": "+p.Name)
+		}
+		req := RequestName(op.Name)
+		if len(fields) > 0 {
+			req += "{" + strings.Join(fields, ", ") + "}"
+		}
+		rsVar := g.freshName("rs", []Op{op})
+		errVar := g.freshName("err", []Op{op})
+		fmt.Fprintf(b, "op%s: func%s {\n%s.Update(func(%s []Request) []Request { %s.Append(%s) })\n", op.Name, g.opFuncSig(op, true), sentVar, rsVar, rsVar, req)
+		if len(op.Fails) > 0 {
+			fmt.Fprintf(b, "if %s.Failing {\nmatch %s.Failure {\n", gVar, gVar)
+			for _, f := range op.Fails {
+				fmt.Fprintf(b, "case %s as %s:\nreturn %s.E\n", g.variant(f), errVar, errVar)
+			}
+			if !g.covers(op) {
+				b.WriteString("case _:\n")
+			}
+			b.WriteString("}\n}\n")
+		}
+		if op.Result != nil {
+			fmt.Fprintf(b, "%s.Values.%s\n", gVar, op.Name)
+		}
+		b.WriteString("},\n")
+	}
+	b.WriteString("}\n}\n\n")
 
-	fmt.Fprintf(b, "// CallIsTheOperation: Call(r) calls r's operation once, with r's\n// arguments, and answers its value or failure as r's own Outcome.\nlaw CallIsTheOperation(r Request, g Given) {\nlet want = OutcomeOf(r, g)\nlet sent = sync.NewRef[[]Request]([]Request{})\nlet got = with context { %s: scripted(want, sent) } { Call(r) }\ngot == want && sent.Get() == []Request{r}\n}\n\n", capName)
-	fmt.Fprintf(b, "// ClientIsCall: a Client whose send is Call answers each call as the\n// provider Call is bound to does.\nlaw ClientIsCall(r Request, g Given) {\nlet want = OutcomeOf(r, g)\nlet sent = sync.NewRef[[]Request]([]Request{})\nlet inner = scripted(want, sent)\nlet outer = NewClient(func(q Request) Outcome {\nwith context { %s: inner } { Call(q) }\n})\nlet got = with context { %s: outer } { Call(r) }\ngot == want && sent.Get() == []Request{r}\n}\n", capName, capName)
+	b.WriteString("// callChecked dispatches r through client and encodes its typed outcome.\nfunc callChecked(client CheckedClient, r Request) Outcome fails rpc.Transport {\nmatch r {\n")
+	for _, op := range ops {
+		if len(op.Params) == 0 {
+			fmt.Fprintf(b, "case %s:\n", RequestName(op.Name))
+		} else {
+			fmt.Fprintf(b, "case %s as x:\n", RequestName(op.Name))
+		}
+		args := []string{"client"}
+		for _, p := range op.Params {
+			args = append(args, "x."+FieldName(p.Name))
+		}
+		call := fmt.Sprintf("%sChecked(%s)", op.Name, strings.Join(args, ", "))
+		if op.Result != nil {
+			call = "let v = " + call
+		}
+		b.WriteString(call + " catch {\n")
+		for _, f := range op.Fails {
+			b.WriteString("case " + g.expr(f) + " as e:\nreturn Rejected{Failure: " + g.variant(f) + "{E: e}}\n")
+		}
+		if !g.hasTransport(op) {
+			b.WriteString("case rpc.Transport as t:\nreturn t\n")
+		}
+		b.WriteString("}\n")
+		if op.Result != nil {
+			b.WriteString("Done{Reply: " + ReplyName(op.Name) + "{Value: v}}\n")
+		} else {
+			b.WriteString("Done{Reply: " + ReplyName(op.Name) + "}\n")
+		}
+	}
+	b.WriteString("}\n}\n\n")
+
+	fmt.Fprintf(b, "// CallIsTheOperation: Call(r) calls r's operation once, with r's\n// arguments, and answers its value or failure as r's own Outcome.\nlaw CallIsTheOperation(r Request, g Given) {\nlet want = OutcomeOf(r, g)\nlet sent = sync.NewRef[[]Request]([]Request{})\nlet got = with context { %s: scripted(g, sent) } { Call(r) }\ngot == want && sent.Get() == []Request{r}\n}\n\n", capName)
+	fmt.Fprintf(b, "// ClientIsCall: a direct Client and a CheckedClient over Call both\n// answer each call as the provider Call is bound to does.\nlaw ClientIsCall(r Request, g Given) {\nlet want = OutcomeOf(r, g)\nlet sent = sync.NewRef[[]Request]([]Request{})\nlet inner = scripted(g, sent)\nlet outer = NewClient(inner)\nlet got = with context { %s: outer } { Call(r) }\nlet sentChecked = sync.NewRef[[]Request]([]Request{})\nlet innerChecked = scripted(g, sentChecked)\nlet checked = NewCheckedClient(func(q Request) Outcome fails rpc.Transport {\nwith context { %s: innerChecked } { Call(q) }\n})\nlet gotChecked = callChecked(checked, r) catch {\ncase rpc.Transport:\nreturn false\n}\ngot == want && sent.Get() == []Request{r} && gotChecked == want && sentChecked.Get() == []Request{r}\n}\n", capName, capName)
 }
 
 // importBlock imports each package the declarations text names.

@@ -142,6 +142,7 @@ func (hostConsole) ambient(_ *rt.Task) {}
 
 type ergo__Env struct {
 	task    *rt.Task
+	with    *ergo.Scope
 	Reader  code__Reader_1
 	Ambient ergo__Ambient
 }
@@ -33334,8 +33335,8 @@ var ergoDecls = [...]ergoDecl{
 	{Name: "Api", File: "tool.ergo", Line: 55, End: 62},
 	{Name: "ApiDiff", File: "tool.ergo", Line: 66, End: 77},
 	{Name: "Machines", File: "tool.ergo", Line: 82, End: 111},
-	{Name: "Doc", File: "codeapi/api.ergo", Line: 68, End: 87},
-	{Name: "Call", File: "codeapi/api.ergo", Line: 121, End: 180},
+	{Name: "Doc", File: "codeapi/api.ergo", Line: 69, End: 88},
+	{Name: "Call", File: "codeapi/api.ergo", Line: 122, End: 181},
 	{Name: "Commands", File: "codecli/cli.ergo", Line: 20, End: 22},
 	{Name: "commandDescribe", File: "codecli/cli.ergo", Line: 24, End: 29},
 	{Name: "commandSymbols", File: "codecli/cli.ergo", Line: 31, End: 42},
@@ -33462,14 +33463,14 @@ var ergoCalls = [...]ergoCall{
 	{Func: 45, Callee: 47, File: 33, Line: 100, Column: 12},
 	{Func: 45, Callee: 4, File: 33, Line: 104, Column: 24},
 	{Func: 45, Callee: 48, File: 33, Line: 108, Column: 11},
-	{Func: 49, Callee: 50, File: 51, Line: 124, Column: 11},
-	{Func: 49, Callee: 52, File: 51, Line: 127, Column: 11},
-	{Func: 49, Callee: 53, File: 51, Line: 130, Column: 11},
-	{Func: 49, Callee: 54, File: 51, Line: 138, Column: 11},
-	{Func: 49, Callee: 55, File: 51, Line: 146, Column: 11},
-	{Func: 49, Callee: 39, File: 51, Line: 156, Column: 11},
-	{Func: 49, Callee: 56, File: 51, Line: 162, Column: 11},
-	{Func: 49, Callee: 46, File: 51, Line: 170, Column: 11},
+	{Func: 49, Callee: 50, File: 51, Line: 125, Column: 11},
+	{Func: 49, Callee: 52, File: 51, Line: 128, Column: 11},
+	{Func: 49, Callee: 53, File: 51, Line: 131, Column: 11},
+	{Func: 49, Callee: 54, File: 51, Line: 139, Column: 11},
+	{Func: 49, Callee: 55, File: 51, Line: 147, Column: 11},
+	{Func: 49, Callee: 39, File: 51, Line: 157, Column: 11},
+	{Func: 49, Callee: 56, File: 51, Line: 163, Column: 11},
+	{Func: 49, Callee: 46, File: 51, Line: 171, Column: 11},
 	{Func: 57, Callee: 58, File: 59, Line: 21, Column: 26},
 	{Func: 57, Callee: 60, File: 59, Line: 21, Column: 45},
 	{Func: 57, Callee: 61, File: 59, Line: 21, Column: 63},
@@ -35614,433 +35615,433 @@ func codetool_scodecli__runOver(env *ergo__Env, args []string, p codetool_scodec
 	/*line codecli/cli.ergo:542:3*/
 }
 
-//line codeapi/api.ergo:121:1
+//line codeapi/api.ergo:122:1
 func codetool_scodeapi__Call(env *ergo__Env, r codetool_scodeapi__Request) codetool_scodeapi__Outcome {
-//line codeapi/api.ergo:122:2
+//line codeapi/api.ergo:123:2
 	switch v := r.(type) {
-	/*line codeapi/api.ergo:122:2*/ case codetool_scodeapi__DescribeRequest:
-		/*line codeapi/api.ergo:122:2*/ _ = v
-//line codeapi/api.ergo:124:3
-		env.task.Check()
-//line codeapi/api.ergo:124:11
-		v_1 := env.Reader.Describe(env.task)
-//line codeapi/api.ergo:124:3
+	/*line codeapi/api.ergo:123:2*/ case codetool_scodeapi__DescribeRequest:
+		/*line codeapi/api.ergo:123:2*/ _ = v
 //line codeapi/api.ergo:125:3
+		env.task.Check()
+//line codeapi/api.ergo:125:11
+		v_1 := env.Reader.Describe(env.task)
+//line codeapi/api.ergo:125:3
+//line codeapi/api.ergo:126:3
 		return codetool_scodeapi__Done_1{Reply: codetool_scodeapi__DescribeReply{Value: v_1}}
-		/*line codeapi/api.ergo:125:3*/
+		/*line codeapi/api.ergo:126:3*/
 	case codetool_scodeapi__SymbolsRequest:
-		/*line codeapi/api.ergo:125:3*/ x := v
-//line codeapi/api.ergo:127:3
-		env.task.Check()
-//line codeapi/api.ergo:127:11
-		v_2 := env.Reader.Symbols(env.task, x.Q)
-//line codeapi/api.ergo:127:3
+		/*line codeapi/api.ergo:126:3*/ x := v
 //line codeapi/api.ergo:128:3
+		env.task.Check()
+//line codeapi/api.ergo:128:11
+		v_2 := env.Reader.Symbols(env.task, x.Q)
+//line codeapi/api.ergo:128:3
+//line codeapi/api.ergo:129:3
 		return codetool_scodeapi__Done_1{Reply: codetool_scodeapi__SymbolsReply{Value: v_2}}
-		/*line codeapi/api.ergo:128:3*/
+		/*line codeapi/api.ergo:129:3*/
 	case codetool_scodeapi__SymbolRequest:
-		/*line codeapi/api.ergo:128:3*/ x_1 := v
-//line codeapi/api.ergo:130:3
+		/*line codeapi/api.ergo:129:3*/ x_1 := v
+//line codeapi/api.ergo:131:3
 		env.task.Check()
-//line codeapi/api.ergo:130:11
+//line codeapi/api.ergo:131:11
 		v_3, err := env.Reader.Symbol(env.task, x_1.A)
-//line codeapi/api.ergo:130:3
+//line codeapi/api.ergo:131:3
 		if err != nil {
-			/*line codeapi/api.ergo:130:3*/ switch caught := err.(type) {
-			/*line codeapi/api.ergo:130:3*/ case code__NoSymbol:
-				/*line codeapi/api.ergo:130:3*/ e := caught
-//line codeapi/api.ergo:132:4
+			/*line codeapi/api.ergo:131:3*/ switch caught := err.(type) {
+			/*line codeapi/api.ergo:131:3*/ case code__NoSymbol:
+				/*line codeapi/api.ergo:131:3*/ e := caught
+//line codeapi/api.ergo:133:4
 				return codetool_scodeapi__Rejected{Failure: codetool_scodeapi__NoSymbol{E: e}}
-				/*line codeapi/api.ergo:132:4*/
+				/*line codeapi/api.ergo:133:4*/
 			case code__Ambiguous:
-				/*line codeapi/api.ergo:132:4*/ e_1 := caught
-//line codeapi/api.ergo:134:4
+				/*line codeapi/api.ergo:133:4*/ e_1 := caught
+//line codeapi/api.ergo:135:4
 				return codetool_scodeapi__Rejected{Failure: codetool_scodeapi__Ambiguous{E: e_1}}
-				/*line codeapi/api.ergo:134:4*/
+				/*line codeapi/api.ergo:135:4*/
 			default:
-				/*line codeapi/api.ergo:134:4*/ _ = caught
-				/*line codeapi/api.ergo:134:4*/ panic(err)
-				/*line codeapi/api.ergo:134:4*/
+				/*line codeapi/api.ergo:135:4*/ _ = caught
+				/*line codeapi/api.ergo:135:4*/ panic(err)
+				/*line codeapi/api.ergo:135:4*/
 			}
-			/*line codeapi/api.ergo:134:4*/
+			/*line codeapi/api.ergo:135:4*/
 		}
-//line codeapi/api.ergo:136:3
+//line codeapi/api.ergo:137:3
 		return codetool_scodeapi__Done_1{Reply: codetool_scodeapi__SymbolReply{Value: v_3}}
-		/*line codeapi/api.ergo:136:3*/
+		/*line codeapi/api.ergo:137:3*/
 	case codetool_scodeapi__ReferencesRequest:
-		/*line codeapi/api.ergo:136:3*/ x_2 := v
-//line codeapi/api.ergo:138:3
+		/*line codeapi/api.ergo:137:3*/ x_2 := v
+//line codeapi/api.ergo:139:3
 		env.task.Check()
-//line codeapi/api.ergo:138:11
+//line codeapi/api.ergo:139:11
 		v_4, err_1 := env.Reader.References(env.task, x_2.Q)
-//line codeapi/api.ergo:138:3
+//line codeapi/api.ergo:139:3
 		if err_1 != nil {
-			/*line codeapi/api.ergo:138:3*/ switch caught_1 := err_1.(type) {
-			/*line codeapi/api.ergo:138:3*/ case code__NoSymbol:
-				/*line codeapi/api.ergo:138:3*/ e_2 := caught_1
-//line codeapi/api.ergo:140:4
+			/*line codeapi/api.ergo:139:3*/ switch caught_1 := err_1.(type) {
+			/*line codeapi/api.ergo:139:3*/ case code__NoSymbol:
+				/*line codeapi/api.ergo:139:3*/ e_2 := caught_1
+//line codeapi/api.ergo:141:4
 				return codetool_scodeapi__Rejected{Failure: codetool_scodeapi__NoSymbol{E: e_2}}
-				/*line codeapi/api.ergo:140:4*/
+				/*line codeapi/api.ergo:141:4*/
 			case code__Ambiguous:
-				/*line codeapi/api.ergo:140:4*/ e_3 := caught_1
-//line codeapi/api.ergo:142:4
+				/*line codeapi/api.ergo:141:4*/ e_3 := caught_1
+//line codeapi/api.ergo:143:4
 				return codetool_scodeapi__Rejected{Failure: codetool_scodeapi__Ambiguous{E: e_3}}
-				/*line codeapi/api.ergo:142:4*/
+				/*line codeapi/api.ergo:143:4*/
 			default:
-				/*line codeapi/api.ergo:142:4*/ _ = caught_1
-				/*line codeapi/api.ergo:142:4*/ panic(err_1)
-				/*line codeapi/api.ergo:142:4*/
+				/*line codeapi/api.ergo:143:4*/ _ = caught_1
+				/*line codeapi/api.ergo:143:4*/ panic(err_1)
+				/*line codeapi/api.ergo:143:4*/
 			}
-			/*line codeapi/api.ergo:142:4*/
+			/*line codeapi/api.ergo:143:4*/
 		}
-//line codeapi/api.ergo:144:3
+//line codeapi/api.ergo:145:3
 		return codetool_scodeapi__Done_1{Reply: codetool_scodeapi__ReferencesReply{Value: v_4}}
-		/*line codeapi/api.ergo:144:3*/
+		/*line codeapi/api.ergo:145:3*/
 	case codetool_scodeapi__CallsRequest:
-		/*line codeapi/api.ergo:144:3*/ x_3 := v
-//line codeapi/api.ergo:146:3
+		/*line codeapi/api.ergo:145:3*/ x_3 := v
+//line codeapi/api.ergo:147:3
 		env.task.Check()
-//line codeapi/api.ergo:146:11
+//line codeapi/api.ergo:147:11
 		v_5, err_2 := env.Reader.Calls(env.task, x_3.Q)
-//line codeapi/api.ergo:146:3
+//line codeapi/api.ergo:147:3
 		if err_2 != nil {
-			/*line codeapi/api.ergo:146:3*/ switch caught_2 := err_2.(type) {
-			/*line codeapi/api.ergo:146:3*/ case code__NoSymbol:
-				/*line codeapi/api.ergo:146:3*/ e_4 := caught_2
-//line codeapi/api.ergo:148:4
+			/*line codeapi/api.ergo:147:3*/ switch caught_2 := err_2.(type) {
+			/*line codeapi/api.ergo:147:3*/ case code__NoSymbol:
+				/*line codeapi/api.ergo:147:3*/ e_4 := caught_2
+//line codeapi/api.ergo:149:4
 				return codetool_scodeapi__Rejected{Failure: codetool_scodeapi__NoSymbol{E: e_4}}
-				/*line codeapi/api.ergo:148:4*/
+				/*line codeapi/api.ergo:149:4*/
 			case code__Ambiguous:
-				/*line codeapi/api.ergo:148:4*/ e_5 := caught_2
-//line codeapi/api.ergo:150:4
+				/*line codeapi/api.ergo:149:4*/ e_5 := caught_2
+//line codeapi/api.ergo:151:4
 				return codetool_scodeapi__Rejected{Failure: codetool_scodeapi__Ambiguous{E: e_5}}
-				/*line codeapi/api.ergo:150:4*/
+				/*line codeapi/api.ergo:151:4*/
 			case code__NotCallable:
-				/*line codeapi/api.ergo:150:4*/ e_6 := caught_2
-//line codeapi/api.ergo:152:4
+				/*line codeapi/api.ergo:151:4*/ e_6 := caught_2
+//line codeapi/api.ergo:153:4
 				return codetool_scodeapi__Rejected{Failure: codetool_scodeapi__NotCallable{E: e_6}}
-				/*line codeapi/api.ergo:152:4*/
+				/*line codeapi/api.ergo:153:4*/
 			default:
-				/*line codeapi/api.ergo:152:4*/ _ = caught_2
-				/*line codeapi/api.ergo:152:4*/ panic(err_2)
-				/*line codeapi/api.ergo:152:4*/
+				/*line codeapi/api.ergo:153:4*/ _ = caught_2
+				/*line codeapi/api.ergo:153:4*/ panic(err_2)
+				/*line codeapi/api.ergo:153:4*/
 			}
-			/*line codeapi/api.ergo:152:4*/
+			/*line codeapi/api.ergo:153:4*/
 		}
-//line codeapi/api.ergo:154:3
+//line codeapi/api.ergo:155:3
 		return codetool_scodeapi__Done_1{Reply: codetool_scodeapi__CallsReply{Value: v_5}}
-		/*line codeapi/api.ergo:154:3*/
+		/*line codeapi/api.ergo:155:3*/
 	case codetool_scodeapi__ApiRequest:
-		/*line codeapi/api.ergo:154:3*/ x_4 := v
-//line codeapi/api.ergo:156:3
+		/*line codeapi/api.ergo:155:3*/ x_4 := v
+//line codeapi/api.ergo:157:3
 		env.task.Check()
-//line codeapi/api.ergo:156:11
+//line codeapi/api.ergo:157:11
 		v_6, err_3 := env.Reader.Api(env.task, x_4.Q)
-//line codeapi/api.ergo:156:3
+//line codeapi/api.ergo:157:3
 		if err_3 != nil {
-			/*line codeapi/api.ergo:156:3*/ switch caught_3 := err_3.(type) {
-			/*line codeapi/api.ergo:156:3*/ case code__NoPackage:
-				/*line codeapi/api.ergo:156:3*/ e_7 := caught_3
-//line codeapi/api.ergo:158:4
+			/*line codeapi/api.ergo:157:3*/ switch caught_3 := err_3.(type) {
+			/*line codeapi/api.ergo:157:3*/ case code__NoPackage:
+				/*line codeapi/api.ergo:157:3*/ e_7 := caught_3
+//line codeapi/api.ergo:159:4
 				return codetool_scodeapi__Rejected{Failure: codetool_scodeapi__NoPackage{E: e_7}}
-				/*line codeapi/api.ergo:158:4*/
+				/*line codeapi/api.ergo:159:4*/
 			default:
-				/*line codeapi/api.ergo:158:4*/ _ = caught_3
-				/*line codeapi/api.ergo:158:4*/ panic(err_3)
-				/*line codeapi/api.ergo:158:4*/
+				/*line codeapi/api.ergo:159:4*/ _ = caught_3
+				/*line codeapi/api.ergo:159:4*/ panic(err_3)
+				/*line codeapi/api.ergo:159:4*/
 			}
-			/*line codeapi/api.ergo:158:4*/
+			/*line codeapi/api.ergo:159:4*/
 		}
-//line codeapi/api.ergo:160:3
+//line codeapi/api.ergo:161:3
 		return codetool_scodeapi__Done_1{Reply: codetool_scodeapi__ApiReply{Value: v_6}}
-		/*line codeapi/api.ergo:160:3*/
+		/*line codeapi/api.ergo:161:3*/
 	case codetool_scodeapi__ReachRequest:
-		/*line codeapi/api.ergo:160:3*/ x_5 := v
-//line codeapi/api.ergo:162:3
+		/*line codeapi/api.ergo:161:3*/ x_5 := v
+//line codeapi/api.ergo:163:3
 		env.task.Check()
-//line codeapi/api.ergo:162:11
+//line codeapi/api.ergo:163:11
 		v_7, err_4 := env.Reader.Reach(env.task, x_5.Q)
-//line codeapi/api.ergo:162:3
+//line codeapi/api.ergo:163:3
 		if err_4 != nil {
-			/*line codeapi/api.ergo:162:3*/ switch caught_4 := err_4.(type) {
-			/*line codeapi/api.ergo:162:3*/ case code__NoSymbol:
-				/*line codeapi/api.ergo:162:3*/ e_8 := caught_4
-//line codeapi/api.ergo:164:4
+			/*line codeapi/api.ergo:163:3*/ switch caught_4 := err_4.(type) {
+			/*line codeapi/api.ergo:163:3*/ case code__NoSymbol:
+				/*line codeapi/api.ergo:163:3*/ e_8 := caught_4
+//line codeapi/api.ergo:165:4
 				return codetool_scodeapi__Rejected{Failure: codetool_scodeapi__NoSymbol{E: e_8}}
-				/*line codeapi/api.ergo:164:4*/
+				/*line codeapi/api.ergo:165:4*/
 			case code__Ambiguous:
-				/*line codeapi/api.ergo:164:4*/ e_9 := caught_4
-//line codeapi/api.ergo:166:4
+				/*line codeapi/api.ergo:165:4*/ e_9 := caught_4
+//line codeapi/api.ergo:167:4
 				return codetool_scodeapi__Rejected{Failure: codetool_scodeapi__Ambiguous{E: e_9}}
-				/*line codeapi/api.ergo:166:4*/
+				/*line codeapi/api.ergo:167:4*/
 			default:
-				/*line codeapi/api.ergo:166:4*/ _ = caught_4
-				/*line codeapi/api.ergo:166:4*/ panic(err_4)
-				/*line codeapi/api.ergo:166:4*/
+				/*line codeapi/api.ergo:167:4*/ _ = caught_4
+				/*line codeapi/api.ergo:167:4*/ panic(err_4)
+				/*line codeapi/api.ergo:167:4*/
 			}
-			/*line codeapi/api.ergo:166:4*/
+			/*line codeapi/api.ergo:167:4*/
 		}
-//line codeapi/api.ergo:168:3
+//line codeapi/api.ergo:169:3
 		return codetool_scodeapi__Done_1{Reply: codetool_scodeapi__ReachReply{Value: v_7}}
-		/*line codeapi/api.ergo:168:3*/
+		/*line codeapi/api.ergo:169:3*/
 	case codetool_scodeapi__MachineOfRequest:
-		/*line codeapi/api.ergo:168:3*/ x_6 := v
-//line codeapi/api.ergo:170:3
+		/*line codeapi/api.ergo:169:3*/ x_6 := v
+//line codeapi/api.ergo:171:3
 		env.task.Check()
-//line codeapi/api.ergo:170:11
+//line codeapi/api.ergo:171:11
 		v_8, err_5 := env.Reader.MachineOf(env.task, x_6.A)
-//line codeapi/api.ergo:170:3
+//line codeapi/api.ergo:171:3
 		if err_5 != nil {
-			/*line codeapi/api.ergo:170:3*/ switch caught_5 := err_5.(type) {
-			/*line codeapi/api.ergo:170:3*/ case code__NoSymbol:
-				/*line codeapi/api.ergo:170:3*/ e_10 := caught_5
-//line codeapi/api.ergo:172:4
+			/*line codeapi/api.ergo:171:3*/ switch caught_5 := err_5.(type) {
+			/*line codeapi/api.ergo:171:3*/ case code__NoSymbol:
+				/*line codeapi/api.ergo:171:3*/ e_10 := caught_5
+//line codeapi/api.ergo:173:4
 				return codetool_scodeapi__Rejected{Failure: codetool_scodeapi__NoSymbol{E: e_10}}
-				/*line codeapi/api.ergo:172:4*/
+				/*line codeapi/api.ergo:173:4*/
 			case code__Ambiguous:
-				/*line codeapi/api.ergo:172:4*/ e_11 := caught_5
-//line codeapi/api.ergo:174:4
+				/*line codeapi/api.ergo:173:4*/ e_11 := caught_5
+//line codeapi/api.ergo:175:4
 				return codetool_scodeapi__Rejected{Failure: codetool_scodeapi__Ambiguous{E: e_11}}
-				/*line codeapi/api.ergo:174:4*/
+				/*line codeapi/api.ergo:175:4*/
 			case code__NotMachine:
-				/*line codeapi/api.ergo:174:4*/ e_12 := caught_5
-//line codeapi/api.ergo:176:4
+				/*line codeapi/api.ergo:175:4*/ e_12 := caught_5
+//line codeapi/api.ergo:177:4
 				return codetool_scodeapi__Rejected{Failure: codetool_scodeapi__NotMachine{E: e_12}}
-				/*line codeapi/api.ergo:176:4*/
+				/*line codeapi/api.ergo:177:4*/
 			default:
-				/*line codeapi/api.ergo:176:4*/ _ = caught_5
-				/*line codeapi/api.ergo:176:4*/ panic(err_5)
-				/*line codeapi/api.ergo:176:4*/
+				/*line codeapi/api.ergo:177:4*/ _ = caught_5
+				/*line codeapi/api.ergo:177:4*/ panic(err_5)
+				/*line codeapi/api.ergo:177:4*/
 			}
-			/*line codeapi/api.ergo:176:4*/
+			/*line codeapi/api.ergo:177:4*/
 		}
-//line codeapi/api.ergo:178:3
+//line codeapi/api.ergo:179:3
 		return codetool_scodeapi__Done_1{Reply: codetool_scodeapi__MachineOfReply{Value: v_8}}
-		/*line codeapi/api.ergo:178:3*/
+		/*line codeapi/api.ergo:179:3*/
 	default:
-		/*line codeapi/api.ergo:178:3*/ _ = v
-		/*line codeapi/api.ergo:178:3*/ panic("ergo: defect: no case of the match at 122:2 matched")
-		/*line codeapi/api.ergo:178:3*/
+		/*line codeapi/api.ergo:179:3*/ _ = v
+		/*line codeapi/api.ergo:179:3*/ panic("ergo: defect: no case of the match at 123:2 matched")
+		/*line codeapi/api.ergo:179:3*/
 	}
-	/*line codeapi/api.ergo:178:3*/
+	/*line codeapi/api.ergo:179:3*/
 }
 
-//line codeapi/api.ergo:7:1
+//line codeapi/api.ergo:8:1
 type codetool_scodeapi__Request interface{ iscodetool_scodeapi__Request() }
 
-//line codeapi/api.ergo:7:16
+//line codeapi/api.ergo:8:16
 type codetool_scodeapi__DescribeRequest struct {
-	/*line codeapi/api.ergo:7:16*/
+	/*line codeapi/api.ergo:8:16*/
 }
 
-/*line codeapi/api.ergo:7:16*/
+/*line codeapi/api.ergo:8:16*/
 func (codetool_scodeapi__DescribeRequest) iscodetool_scodeapi__Request() {}
 
-//line codeapi/api.ergo:7:36
+//line codeapi/api.ergo:8:36
 type codetool_scodeapi__SymbolsRequest struct {
-	/*line codeapi/api.ergo:7:36*/ Q code__SymbolQuery
-	/*line codeapi/api.ergo:7:36*/
+	/*line codeapi/api.ergo:8:36*/ Q code__SymbolQuery
+	/*line codeapi/api.ergo:8:36*/
 }
 
-/*line codeapi/api.ergo:7:36*/
+/*line codeapi/api.ergo:8:36*/
 func (codetool_scodeapi__SymbolsRequest) iscodetool_scodeapi__Request() {}
 
-//line codeapi/api.ergo:7:73
+//line codeapi/api.ergo:8:73
 type codetool_scodeapi__SymbolRequest struct {
-	/*line codeapi/api.ergo:7:73*/ A string
-	/*line codeapi/api.ergo:7:73*/
+	/*line codeapi/api.ergo:8:73*/ A string
+	/*line codeapi/api.ergo:8:73*/
 }
 
-/*line codeapi/api.ergo:7:73*/
+/*line codeapi/api.ergo:8:73*/
 func (codetool_scodeapi__SymbolRequest) iscodetool_scodeapi__Request() {}
 
-//line codeapi/api.ergo:7:99
+//line codeapi/api.ergo:8:99
 type codetool_scodeapi__ReferencesRequest struct {
-	/*line codeapi/api.ergo:7:99*/ Q code__RefQuery
-	/*line codeapi/api.ergo:7:99*/
+	/*line codeapi/api.ergo:8:99*/ Q code__RefQuery
+	/*line codeapi/api.ergo:8:99*/
 }
 
-/*line codeapi/api.ergo:7:99*/
+/*line codeapi/api.ergo:8:99*/
 func (codetool_scodeapi__ReferencesRequest) iscodetool_scodeapi__Request() {}
 
-//line codeapi/api.ergo:7:136
+//line codeapi/api.ergo:8:136
 type codetool_scodeapi__CallsRequest struct {
-	/*line codeapi/api.ergo:7:136*/ Q code__CallQuery
-	/*line codeapi/api.ergo:7:136*/
+	/*line codeapi/api.ergo:8:136*/ Q code__CallQuery
+	/*line codeapi/api.ergo:8:136*/
 }
 
-/*line codeapi/api.ergo:7:136*/
+/*line codeapi/api.ergo:8:136*/
 func (codetool_scodeapi__CallsRequest) iscodetool_scodeapi__Request() {}
 
-//line codeapi/api.ergo:7:169
+//line codeapi/api.ergo:8:169
 type codetool_scodeapi__ApiRequest struct {
-	/*line codeapi/api.ergo:7:169*/ Q code__ApiQuery
-	/*line codeapi/api.ergo:7:169*/
+	/*line codeapi/api.ergo:8:169*/ Q code__ApiQuery
+	/*line codeapi/api.ergo:8:169*/
 }
 
-/*line codeapi/api.ergo:7:169*/
+/*line codeapi/api.ergo:8:169*/
 func (codetool_scodeapi__ApiRequest) iscodetool_scodeapi__Request() {}
 
-//line codeapi/api.ergo:7:199
+//line codeapi/api.ergo:8:199
 type codetool_scodeapi__ReachRequest struct {
-	/*line codeapi/api.ergo:7:199*/ Q code__ReachQuery
-	/*line codeapi/api.ergo:7:199*/
+	/*line codeapi/api.ergo:8:199*/ Q code__ReachQuery
+	/*line codeapi/api.ergo:8:199*/
 }
 
-/*line codeapi/api.ergo:7:199*/
+/*line codeapi/api.ergo:8:199*/
 func (codetool_scodeapi__ReachRequest) iscodetool_scodeapi__Request() {}
 
-//line codeapi/api.ergo:7:233
+//line codeapi/api.ergo:8:233
 type codetool_scodeapi__MachineOfRequest struct {
-	/*line codeapi/api.ergo:7:233*/ A string
-	/*line codeapi/api.ergo:7:233*/
+	/*line codeapi/api.ergo:8:233*/ A string
+	/*line codeapi/api.ergo:8:233*/
 }
 
-/*line codeapi/api.ergo:7:233*/
+/*line codeapi/api.ergo:8:233*/
 func (codetool_scodeapi__MachineOfRequest) iscodetool_scodeapi__Request() {}
 
-//line codeapi/api.ergo:21:1
+//line codeapi/api.ergo:22:1
 type codetool_scodeapi__Outcome interface{ iscodetool_scodeapi__Outcome() }
 
-//line codeapi/api.ergo:21:16
+//line codeapi/api.ergo:22:16
 type codetool_scodeapi__Done_1 struct {
-	/*line codeapi/api.ergo:21:16*/ Reply codetool_scodeapi__Reply
-	/*line codeapi/api.ergo:21:16*/
+	/*line codeapi/api.ergo:22:16*/ Reply codetool_scodeapi__Reply
+	/*line codeapi/api.ergo:22:16*/
 }
 
-/*line codeapi/api.ergo:21:16*/
+/*line codeapi/api.ergo:22:16*/
 func (codetool_scodeapi__Done_1) iscodetool_scodeapi__Outcome() {}
 
-//line codeapi/api.ergo:21:36
+//line codeapi/api.ergo:22:36
 type codetool_scodeapi__Rejected struct {
-	/*line codeapi/api.ergo:21:36*/ Failure codetool_scodeapi__Failure
-	/*line codeapi/api.ergo:21:36*/
+	/*line codeapi/api.ergo:22:36*/ Failure codetool_scodeapi__Failure
+	/*line codeapi/api.ergo:22:36*/
 }
 
-/*line codeapi/api.ergo:21:36*/
+/*line codeapi/api.ergo:22:36*/
 func (codetool_scodeapi__Rejected) iscodetool_scodeapi__Outcome() {}
 
-//line codeapi/api.ergo:17:1
+//line codeapi/api.ergo:18:1
 type codetool_scodeapi__Failure interface{ iscodetool_scodeapi__Failure() }
 
-//line codeapi/api.ergo:17:16
+//line codeapi/api.ergo:18:16
 type codetool_scodeapi__NoSymbol struct {
-	/*line codeapi/api.ergo:17:16*/ E code__NoSymbol
-	/*line codeapi/api.ergo:17:16*/
+	/*line codeapi/api.ergo:18:16*/ E code__NoSymbol
+	/*line codeapi/api.ergo:18:16*/
 }
 
-/*line codeapi/api.ergo:17:16*/
+/*line codeapi/api.ergo:18:16*/
 func (codetool_scodeapi__NoSymbol) iscodetool_scodeapi__Failure() {}
 
-//line codeapi/api.ergo:17:44
+//line codeapi/api.ergo:18:44
 type codetool_scodeapi__Ambiguous struct {
-	/*line codeapi/api.ergo:17:44*/ E code__Ambiguous
-	/*line codeapi/api.ergo:17:44*/
+	/*line codeapi/api.ergo:18:44*/ E code__Ambiguous
+	/*line codeapi/api.ergo:18:44*/
 }
 
-/*line codeapi/api.ergo:17:44*/
+/*line codeapi/api.ergo:18:44*/
 func (codetool_scodeapi__Ambiguous) iscodetool_scodeapi__Failure() {}
 
-//line codeapi/api.ergo:17:74
+//line codeapi/api.ergo:18:74
 type codetool_scodeapi__NotCallable struct {
-	/*line codeapi/api.ergo:17:74*/ E code__NotCallable
-	/*line codeapi/api.ergo:17:74*/
+	/*line codeapi/api.ergo:18:74*/ E code__NotCallable
+	/*line codeapi/api.ergo:18:74*/
 }
 
-/*line codeapi/api.ergo:17:74*/
+/*line codeapi/api.ergo:18:74*/
 func (codetool_scodeapi__NotCallable) iscodetool_scodeapi__Failure() {}
 
-//line codeapi/api.ergo:17:108
+//line codeapi/api.ergo:18:108
 type codetool_scodeapi__NoPackage struct {
-	/*line codeapi/api.ergo:17:108*/ E code__NoPackage
-	/*line codeapi/api.ergo:17:108*/
+	/*line codeapi/api.ergo:18:108*/ E code__NoPackage
+	/*line codeapi/api.ergo:18:108*/
 }
 
-/*line codeapi/api.ergo:17:108*/
+/*line codeapi/api.ergo:18:108*/
 func (codetool_scodeapi__NoPackage) iscodetool_scodeapi__Failure() {}
 
-//line codeapi/api.ergo:17:138
+//line codeapi/api.ergo:18:138
 type codetool_scodeapi__NotMachine struct {
-	/*line codeapi/api.ergo:17:138*/ E code__NotMachine
-	/*line codeapi/api.ergo:17:138*/
+	/*line codeapi/api.ergo:18:138*/ E code__NotMachine
+	/*line codeapi/api.ergo:18:138*/
 }
 
-/*line codeapi/api.ergo:17:138*/
+/*line codeapi/api.ergo:18:138*/
 func (codetool_scodeapi__NotMachine) iscodetool_scodeapi__Failure() {}
 
-//line codeapi/api.ergo:13:1
+//line codeapi/api.ergo:14:1
 type codetool_scodeapi__Reply interface{ iscodetool_scodeapi__Reply() }
 
-//line codeapi/api.ergo:13:14
+//line codeapi/api.ergo:14:14
 type codetool_scodeapi__DescribeReply struct {
-	/*line codeapi/api.ergo:13:14*/ Value code__Summary
-	/*line codeapi/api.ergo:13:14*/
+	/*line codeapi/api.ergo:14:14*/ Value code__Summary
+	/*line codeapi/api.ergo:14:14*/
 }
 
-/*line codeapi/api.ergo:13:14*/
+/*line codeapi/api.ergo:14:14*/
 func (codetool_scodeapi__DescribeReply) iscodetool_scodeapi__Reply() {}
 
-//line codeapi/api.ergo:13:50
+//line codeapi/api.ergo:14:50
 type codetool_scodeapi__SymbolsReply struct {
-	/*line codeapi/api.ergo:13:50*/ Value code__SymbolPage
-	/*line codeapi/api.ergo:13:50*/
+	/*line codeapi/api.ergo:14:50*/ Value code__SymbolPage
+	/*line codeapi/api.ergo:14:50*/
 }
 
-/*line codeapi/api.ergo:13:50*/
+/*line codeapi/api.ergo:14:50*/
 func (codetool_scodeapi__SymbolsReply) iscodetool_scodeapi__Reply() {}
 
-//line codeapi/api.ergo:13:88
+//line codeapi/api.ergo:14:88
 type codetool_scodeapi__SymbolReply struct {
-	/*line codeapi/api.ergo:13:88*/ Value code__Decl
-	/*line codeapi/api.ergo:13:88*/
+	/*line codeapi/api.ergo:14:88*/ Value code__Decl
+	/*line codeapi/api.ergo:14:88*/
 }
 
-/*line codeapi/api.ergo:13:88*/
+/*line codeapi/api.ergo:14:88*/
 func (codetool_scodeapi__SymbolReply) iscodetool_scodeapi__Reply() {}
 
-//line codeapi/api.ergo:13:119
+//line codeapi/api.ergo:14:119
 type codetool_scodeapi__ReferencesReply struct {
-	/*line codeapi/api.ergo:13:119*/ Value code__SitePage
-	/*line codeapi/api.ergo:13:119*/
+	/*line codeapi/api.ergo:14:119*/ Value code__SitePage
+	/*line codeapi/api.ergo:14:119*/
 }
 
-/*line codeapi/api.ergo:13:119*/
+/*line codeapi/api.ergo:14:119*/
 func (codetool_scodeapi__ReferencesReply) iscodetool_scodeapi__Reply() {}
 
-//line codeapi/api.ergo:13:158
+//line codeapi/api.ergo:14:158
 type codetool_scodeapi__CallsReply struct {
-	/*line codeapi/api.ergo:13:158*/ Value code__CallPage
-	/*line codeapi/api.ergo:13:158*/
+	/*line codeapi/api.ergo:14:158*/ Value code__CallPage
+	/*line codeapi/api.ergo:14:158*/
 }
 
-/*line codeapi/api.ergo:13:158*/
+/*line codeapi/api.ergo:14:158*/
 func (codetool_scodeapi__CallsReply) iscodetool_scodeapi__Reply() {}
 
-//line codeapi/api.ergo:13:192
+//line codeapi/api.ergo:14:192
 type codetool_scodeapi__ApiReply struct {
-	/*line codeapi/api.ergo:13:192*/ Value code__ApiView
-	/*line codeapi/api.ergo:13:192*/
+	/*line codeapi/api.ergo:14:192*/ Value code__ApiView
+	/*line codeapi/api.ergo:14:192*/
 }
 
-/*line codeapi/api.ergo:13:192*/
+/*line codeapi/api.ergo:14:192*/
 func (codetool_scodeapi__ApiReply) iscodetool_scodeapi__Reply() {}
 
-//line codeapi/api.ergo:13:223
+//line codeapi/api.ergo:14:223
 type codetool_scodeapi__ReachReply struct {
-	/*line codeapi/api.ergo:13:223*/ Value code__ReachPage
-	/*line codeapi/api.ergo:13:223*/
+	/*line codeapi/api.ergo:14:223*/ Value code__ReachPage
+	/*line codeapi/api.ergo:14:223*/
 }
 
-/*line codeapi/api.ergo:13:223*/
+/*line codeapi/api.ergo:14:223*/
 func (codetool_scodeapi__ReachReply) iscodetool_scodeapi__Reply() {}
 
-//line codeapi/api.ergo:13:258
+//line codeapi/api.ergo:14:258
 type codetool_scodeapi__MachineOfReply struct {
-	/*line codeapi/api.ergo:13:258*/ Value code__MachineView
-	/*line codeapi/api.ergo:13:258*/
+	/*line codeapi/api.ergo:14:258*/ Value code__MachineView
+	/*line codeapi/api.ergo:14:258*/
 }
 
-/*line codeapi/api.ergo:13:258*/
+/*line codeapi/api.ergo:14:258*/
 func (codetool_scodeapi__MachineOfReply) iscodetool_scodeapi__Reply() {}
 
 //line codecli/cli.ergo:496:54
@@ -37747,154 +37748,154 @@ func codetool_scodecli__Commands() []flag__Command[codetool_scodeapi__Request] {
 	/*line codecli/cli.ergo:21:2*/
 }
 
-//line codeapi/api.ergo:68:1
+//line codeapi/api.ergo:69:1
 func codetool_scodeapi__Doc(op codetool_scodeapi__Op) string {
-//line codeapi/api.ergo:69:2
+//line codeapi/api.ergo:70:2
 	s := op
-	/*line codeapi/api.ergo:69:2*/ switch s.tag {
-	/*line codeapi/api.ergo:69:2*/ case 0:
-//line codeapi/api.ergo:71:3
+	/*line codeapi/api.ergo:70:2*/ switch s.tag {
+	/*line codeapi/api.ergo:70:2*/ case 0:
+//line codeapi/api.ergo:72:3
 		return "Describe is the revision and the extent of the tables."
-		/*line codeapi/api.ergo:71:3*/
+		/*line codeapi/api.ergo:72:3*/
 	case 1:
-//line codeapi/api.ergo:73:3
+//line codeapi/api.ergo:74:3
 		return "Symbols is a page of the declarations q asks for."
-		/*line codeapi/api.ergo:73:3*/
+		/*line codeapi/api.ergo:74:3*/
 	case 2:
-//line codeapi/api.ergo:75:3
+//line codeapi/api.ergo:76:3
 		return "Symbol is the declaration at the address a."
-		/*line codeapi/api.ergo:75:3*/
+		/*line codeapi/api.ergo:76:3*/
 	case 3:
-//line codeapi/api.ergo:77:3
+//line codeapi/api.ergo:78:3
 		return "References is a page of the sites of the declaration at q.Of."
-		/*line codeapi/api.ergo:77:3*/
+		/*line codeapi/api.ergo:78:3*/
 	case 4:
-//line codeapi/api.ergo:79:3
+//line codeapi/api.ergo:80:3
 		return "Calls is a page of the calls out of the declaration at q.Of, or into it, to a depth."
-		/*line codeapi/api.ergo:79:3*/
+		/*line codeapi/api.ergo:80:3*/
 	case 5:
-//line codeapi/api.ergo:81:3
+//line codeapi/api.ergo:82:3
 		return "Api is the contracts of a package's exported functions."
-		/*line codeapi/api.ergo:81:3*/
+		/*line codeapi/api.ergo:82:3*/
 	case 6:
-//line codeapi/api.ergo:83:3
+//line codeapi/api.ergo:84:3
 		return "Reach is a page of the functions whose row holds a capability, each with a chain of calls that brings it, and where withs discharge it."
-		/*line codeapi/api.ergo:83:3*/
+		/*line codeapi/api.ergo:84:3*/
 	case 7:
-//line codeapi/api.ergo:85:3
+//line codeapi/api.ergo:86:3
 		return "MachineOf is the graph of the machine declaration at a, and the pairs a run of it can step."
-		/*line codeapi/api.ergo:85:3*/
+		/*line codeapi/api.ergo:86:3*/
 	default:
-		/*line codeapi/api.ergo:85:3*/ panic("ergo: defect: no case of the match at 69:2 matched")
-		/*line codeapi/api.ergo:85:3*/
+		/*line codeapi/api.ergo:86:3*/ panic("ergo: defect: no case of the match at 70:2 matched")
+		/*line codeapi/api.ergo:86:3*/
 	}
-	/*line codeapi/api.ergo:85:3*/
+	/*line codeapi/api.ergo:86:3*/
 }
 
-//line codeapi/api.ergo:10:11
+//line codeapi/api.ergo:11:11
 type codetool_scodeapi__DescribeOp struct {
-	/*line codeapi/api.ergo:10:11*/
+	/*line codeapi/api.ergo:11:11*/
 }
 
-//line codeapi/api.ergo:10:1
-//line codeapi/api.ergo:10:26
+//line codeapi/api.ergo:11:1
+//line codeapi/api.ergo:11:26
 type codetool_scodeapi__SymbolsOp struct {
-	/*line codeapi/api.ergo:10:26*/
+	/*line codeapi/api.ergo:11:26*/
 }
 
-//line codeapi/api.ergo:10:40
+//line codeapi/api.ergo:11:40
 type codetool_scodeapi__SymbolOp struct {
-	/*line codeapi/api.ergo:10:40*/
+	/*line codeapi/api.ergo:11:40*/
 }
 
-//line codeapi/api.ergo:10:53
+//line codeapi/api.ergo:11:53
 type codetool_scodeapi__ReferencesOp struct {
-	/*line codeapi/api.ergo:10:53*/
+	/*line codeapi/api.ergo:11:53*/
 }
 
-//line codeapi/api.ergo:10:70
+//line codeapi/api.ergo:11:70
 type codetool_scodeapi__CallsOp struct {
-	/*line codeapi/api.ergo:10:70*/
+	/*line codeapi/api.ergo:11:70*/
 }
 
-//line codeapi/api.ergo:10:82
+//line codeapi/api.ergo:11:82
 type codetool_scodeapi__ApiOp struct {
-	/*line codeapi/api.ergo:10:82*/
+	/*line codeapi/api.ergo:11:82*/
 }
 
-//line codeapi/api.ergo:10:92
+//line codeapi/api.ergo:11:92
 type codetool_scodeapi__ReachOp struct {
-	/*line codeapi/api.ergo:10:92*/
+	/*line codeapi/api.ergo:11:92*/
 }
 
-//line codeapi/api.ergo:10:104
+//line codeapi/api.ergo:11:104
 type codetool_scodeapi__MachineOfOp struct {
-	/*line codeapi/api.ergo:10:104*/
+	/*line codeapi/api.ergo:11:104*/
 }
 
-/*line codeapi/api.ergo:10:104*/
+/*line codeapi/api.ergo:11:104*/
 type codetool_scodeapi__Op struct {
-	/*line codeapi/api.ergo:10:104*/ tag uint8
-	/*line codeapi/api.ergo:10:104*/
+	/*line codeapi/api.ergo:11:104*/ tag uint8
+	/*line codeapi/api.ergo:11:104*/
 }
 
-/*line codeapi/api.ergo:10:104*/
+/*line codeapi/api.ergo:11:104*/
 func (codetool_scodeapi__Op) of0(_ codetool_scodeapi__DescribeOp) codetool_scodeapi__Op {
-	/*line codeapi/api.ergo:10:104*/ return codetool_scodeapi__Op{tag: 0}
-	/*line codeapi/api.ergo:10:104*/
+	/*line codeapi/api.ergo:11:104*/ return codetool_scodeapi__Op{tag: 0}
+	/*line codeapi/api.ergo:11:104*/
 }
 
-/*line codeapi/api.ergo:10:104*/
+/*line codeapi/api.ergo:11:104*/
 func (codetool_scodeapi__Op) of1(_ codetool_scodeapi__SymbolsOp) codetool_scodeapi__Op {
-	/*line codeapi/api.ergo:10:104*/ return codetool_scodeapi__Op{tag: 1}
-	/*line codeapi/api.ergo:10:104*/
+	/*line codeapi/api.ergo:11:104*/ return codetool_scodeapi__Op{tag: 1}
+	/*line codeapi/api.ergo:11:104*/
 }
 
-/*line codeapi/api.ergo:10:104*/
+/*line codeapi/api.ergo:11:104*/
 func (codetool_scodeapi__Op) of2(_ codetool_scodeapi__SymbolOp) codetool_scodeapi__Op {
-	/*line codeapi/api.ergo:10:104*/ return codetool_scodeapi__Op{tag: 2}
-	/*line codeapi/api.ergo:10:104*/
+	/*line codeapi/api.ergo:11:104*/ return codetool_scodeapi__Op{tag: 2}
+	/*line codeapi/api.ergo:11:104*/
 }
 
-/*line codeapi/api.ergo:10:104*/
+/*line codeapi/api.ergo:11:104*/
 func (codetool_scodeapi__Op) of3(_ codetool_scodeapi__ReferencesOp) codetool_scodeapi__Op {
-	/*line codeapi/api.ergo:10:104*/ return codetool_scodeapi__Op{tag: 3}
-	/*line codeapi/api.ergo:10:104*/
+	/*line codeapi/api.ergo:11:104*/ return codetool_scodeapi__Op{tag: 3}
+	/*line codeapi/api.ergo:11:104*/
 }
 
-/*line codeapi/api.ergo:10:104*/
+/*line codeapi/api.ergo:11:104*/
 func (codetool_scodeapi__Op) of4(_ codetool_scodeapi__CallsOp) codetool_scodeapi__Op {
-	/*line codeapi/api.ergo:10:104*/ return codetool_scodeapi__Op{tag: 4}
-	/*line codeapi/api.ergo:10:104*/
+	/*line codeapi/api.ergo:11:104*/ return codetool_scodeapi__Op{tag: 4}
+	/*line codeapi/api.ergo:11:104*/
 }
 
-/*line codeapi/api.ergo:10:104*/
+/*line codeapi/api.ergo:11:104*/
 func (codetool_scodeapi__Op) of5(_ codetool_scodeapi__ApiOp) codetool_scodeapi__Op {
-	/*line codeapi/api.ergo:10:104*/ return codetool_scodeapi__Op{tag: 5}
-	/*line codeapi/api.ergo:10:104*/
+	/*line codeapi/api.ergo:11:104*/ return codetool_scodeapi__Op{tag: 5}
+	/*line codeapi/api.ergo:11:104*/
 }
 
-/*line codeapi/api.ergo:10:104*/
+/*line codeapi/api.ergo:11:104*/
 func (codetool_scodeapi__Op) of6(_ codetool_scodeapi__ReachOp) codetool_scodeapi__Op {
-	/*line codeapi/api.ergo:10:104*/ return codetool_scodeapi__Op{tag: 6}
-	/*line codeapi/api.ergo:10:104*/
+	/*line codeapi/api.ergo:11:104*/ return codetool_scodeapi__Op{tag: 6}
+	/*line codeapi/api.ergo:11:104*/
 }
 
-/*line codeapi/api.ergo:10:104*/
+/*line codeapi/api.ergo:11:104*/
 func (codetool_scodeapi__Op) of7(_ codetool_scodeapi__MachineOfOp) codetool_scodeapi__Op {
-	/*line codeapi/api.ergo:10:104*/ return codetool_scodeapi__Op{tag: 7}
-	/*line codeapi/api.ergo:10:104*/
+	/*line codeapi/api.ergo:11:104*/ return codetool_scodeapi__Op{tag: 7}
+	/*line codeapi/api.ergo:11:104*/
 }
 
-/*line codeapi/api.ergo:10:104*/
+/*line codeapi/api.ergo:11:104*/
 func (x codetool_scodeapi__Op) ErgoVariant() string {
-	/*line codeapi/api.ergo:10:104*/ return [...]string{"DescribeOp", "SymbolsOp", "SymbolOp", "ReferencesOp", "CallsOp", "ApiOp", "ReachOp", "MachineOfOp"}[x.tag]
-	/*line codeapi/api.ergo:10:104*/
+	/*line codeapi/api.ergo:11:104*/ return [...]string{"DescribeOp", "SymbolsOp", "SymbolOp", "ReferencesOp", "CallsOp", "ApiOp", "ReachOp", "MachineOfOp"}[x.tag]
+	/*line codeapi/api.ergo:11:104*/
 }
 
 // ergoInit runs the package-level lets in Go's initialization order,
 // inside the program's root task.
-/*line codeapi/api.ergo:10:104*/
+/*line codeapi/api.ergo:11:104*/
 func ergoInit(env *ergo__Env) {
 //line std/json/stream.ergo:397:5
 	{

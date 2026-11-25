@@ -90,25 +90,17 @@ func count(n int, word string) int fails BadLine {
 }
 
 // Site is the running site.
-type Site = actor.Actor[gallery.Site, gallery.Signal, Decision[gallery.Site, []gallery.Command]]
+type Site = actor.Actor[gallery.Site, gallery.Signal, Decision[gallery.Site, []gallery.Action]]
 
-// Host is the site on the test host.
-type Host = ui.TestHost[gallery.Site, gallery.Signal, Decision[gallery.Site, []gallery.Command]]
+type Host = ui.TestHost[gallery.Site, gallery.Signal, Decision[gallery.Site, []gallery.Action]]
 
-// Ran is what the host saw of the site's commands: how many jobs the site
-// has asked for so far, and how each command since shows.
 type Ran { Seen int, Asks []string }
 
-// Frame is what a line or an answer shows: its heading, what the site
-// asked, and the screen's lines, with the work of the step.
 type Frame { Head string, Asks []string, Lines []string, Counts ui.StepCounts }
 
-// PlayScreen plays s on the site's screen, on the test host over clock,
-// and gives each frame to show: one per line, one per answer, and one at
-// the end.
 func PlayScreen[R](s Script, clock time.Manual, show func(f Frame) needs R) fails actor.Stopped | ui.BadPatch needs R | time.Clock | Scheduler | gallery.Drafts {
-	let gone = queue.New[[]gallery.Command](64)
-	let site = actor.StartMachine(gallery.Gallerist{}, 16, func(cs []gallery.Command) {
+	let gone = queue.New[[]gallery.Action](64)
+	let site = actor.StartMachine(gallery.Gallerist{}, 16, func(cs []gallery.Action) {
 		gone.Push(cs) catch {
 		case queue.Closed:
 		}
@@ -121,7 +113,7 @@ func PlayScreen[R](s Script, clock time.Manual, show func(f Frame) needs R) fail
 	site.Stop()
 }
 
-func played[R](site Site, gone queue.Queue[[]gallery.Command], s Script, clock time.Manual, show func(f Frame) needs R) fails actor.Stopped | ui.BadPatch needs R | Scheduler {
+func played[R](site Site, gone queue.Queue[[]gallery.Action], s Script, clock time.Manual, show func(f Frame) needs R) fails actor.Stopped | ui.BadPatch needs R | Scheduler {
 	let mut h = try ui.NewTestHost(site, screen.Screen, clock, 16)
 	let start = clock.Now()
 	let mut seen = 0
@@ -212,37 +204,34 @@ func played[R](site Site, gone queue.Queue[[]gallery.Command], s Script, clock t
 // ago: the jobs it added (its work runs them), and what its step gave the
 // host. A push of the site's own URL is followed at once, and what that
 // navigation asks shows next; a page elsewhere is left for.
-func run(h mut Host, gone queue.Queue[[]gallery.Command], seen int) Ran fails actor.Stopped | ui.BadPatch {
+func run(h mut Host, gone queue.Queue[[]gallery.Action], seen int) Ran fails actor.Stopped | ui.BadPatch {
 	let mut ran = asked(h, Ran{Seen: seen, Asks: []string{}})
 	for {
 		let cs = match gone.Poll() {
-		case Some[[]gallery.Command] as x:
+		case Some[[]gallery.Action] as x:
 			x.Value
 		case None:
 			return ran
 		}
 		for c in cs {
-			ran = Ran{..ran, Asks: ran.Asks.Append(Ask(c))}
+			ran = Ran{..ran, Asks: ran.Asks.Append(AskAction(c))}
 			match c {
 			case gallery.Push as p:
 				try ui.Navigate(h, p.URL)
 				try ui.Settle(h)
 				ran = asked(h, ran)
 			case gallery.Leave:
-			case gallery.LoadCatalog, gallery.LoadPainting:
-				Unreachable("script: a job is never the step's output")
 			}
 		}
 	}
 }
 
-// asked adds to r the jobs the site asked for after the first r.Seen.
 func asked(h mut Host, r Ran) Ran {
 	let s = ui.StateOf(h)
 	let mut asks = r.Asks
 	for j in s.Jobs {
 		if j.Seq > r.Seen {
-			asks = asks.Append(Ask(j.Do))
+			asks = asks.Append(AskLoad(j.Do))
 		}
 	}
 	Ran{Seen: s.Asked, Asks: asks}
@@ -356,12 +345,17 @@ func Word(a Act) string {
 }
 
 // Ask is how a command shows.
-func Ask(c gallery.Command) string {
+func AskLoad(c gallery.Load) string {
 	match c {
 	case gallery.LoadCatalog:
 		"load the catalog"
 	case gallery.LoadPainting as p:
 		"load painting \(p.ID)"
+	}
+}
+
+func AskAction(c gallery.Action) string {
+	match c {
 	case gallery.Push as p:
 		"push \(p.URL)"
 	case gallery.Leave as l:

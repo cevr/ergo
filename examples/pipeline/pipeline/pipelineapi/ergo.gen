@@ -2,4 +2,4 @@ kind api
 generator ergo gen api
 subject pipeline/pipeline.Pipeline
 contract sha256:9551527a1455c9f7c1e837e99fbf827e9ac389f4f4a7265393bd017aac0ec26f
-digest sha256:d85ea5fef00408935b84cc4aa7deb80b78f95b3feca5a96a79bdb06f31f85327
+digest sha256:054c3f7c1bd5bafa69269e20bb408268c24fda2e1466c4fc8d493b6ae0bc049a

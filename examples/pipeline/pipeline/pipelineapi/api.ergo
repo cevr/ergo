@@ -1,4 +1,5 @@
 import json
+import rpc
 import sync
 import pipeline/board
 import pipeline/pipeline
@@ -158,23 +159,75 @@ func Call(r Request) Outcome needs pipeline.Pipeline {
 	}
 }
 
-// Client provides pipeline.Pipeline over send, any way to carry a Request to a
-// Call and its Outcome back. An Outcome that is not the operation's (the
-// value of another, a failure outside its row) is a defect.
-type Client { send func(r Request) Outcome } implements pipeline.Pipeline
+// Client provides pipeline.Pipeline by invoking typed per-operation handlers directly:
+// a direct call returns its exact value or declared failure row with no Outcome boxing.
+type Client { opSubmit func(pipeline.SubmitRun) pipeline.Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | pipeline.NoSuchRun | pipeline.Unavailable, opCancel func(pipeline.CancelRun) pipeline.Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | pipeline.NoSuchRun | pipeline.Unavailable, opRetry func(pipeline.RetryRun) pipeline.Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | pipeline.NoSuchRun | pipeline.Unavailable, opBoard func() board.View, opRunOf func(string) run.Run fails pipeline.NoSuchRun } implements pipeline.Pipeline
 
-// NewClient is the pipeline.Pipeline that send answers.
-func NewClient(send own func(r Request) Outcome) Client { Client{send: send} }
+// NewClient is the pipeline.Pipeline that invokes inner directly per operation.
+func NewClient(inner pipeline.Pipeline) Client {
+	Client{
+		opSubmit: func(c pipeline.SubmitRun) pipeline.Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | pipeline.NoSuchRun | pipeline.Unavailable { try inner.Submit(c) },
+		opCancel: func(c pipeline.CancelRun) pipeline.Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | pipeline.NoSuchRun | pipeline.Unavailable { try inner.Cancel(c) },
+		opRetry:  func(c pipeline.RetryRun) pipeline.Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | pipeline.NoSuchRun | pipeline.Unavailable { try inner.Retry(c) },
+		opBoard:  func() board.View { inner.Board() },
+		opRunOf:  func(id string) run.Run fails pipeline.NoSuchRun { try inner.RunOf(id) },
+	}
+}
 
-// Submit sends pipeline.Pipeline's Submit and answers its Outcome.
+// ClientInForce is the pipeline.Pipeline that invokes the provider currently in force.
+func ClientInForce() Client needs pipeline.Pipeline {
+	let held = InForce[pipeline.Pipeline]()
+	Client{
+		opSubmit: func(c pipeline.SubmitRun) pipeline.Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | pipeline.NoSuchRun | pipeline.Unavailable { with held { try pipeline.Pipeline.Submit(c) } },
+		opCancel: func(c pipeline.CancelRun) pipeline.Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | pipeline.NoSuchRun | pipeline.Unavailable { with held { try pipeline.Pipeline.Cancel(c) } },
+		opRetry:  func(c pipeline.RetryRun) pipeline.Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | pipeline.NoSuchRun | pipeline.Unavailable { with held { try pipeline.Pipeline.Retry(c) } },
+		opBoard:  func() board.View { with held { pipeline.Pipeline.Board() } },
+		opRunOf:  func(id string) run.Run fails pipeline.NoSuchRun { with held { try pipeline.Pipeline.RunOf(id) } },
+	}
+}
+
+// Submit invokes pipeline.Pipeline's Submit directly.
 func Submit(client Client, c pipeline.SubmitRun) pipeline.Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | pipeline.NoSuchRun | pipeline.Unavailable {
-	match client.send(SubmitRequest{C: c}) {
+	try client.opSubmit(c)
+}
+
+// Cancel invokes pipeline.Pipeline's Cancel directly.
+func Cancel(client Client, c pipeline.CancelRun) pipeline.Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | pipeline.NoSuchRun | pipeline.Unavailable {
+	try client.opCancel(c)
+}
+
+// Retry invokes pipeline.Pipeline's Retry directly.
+func Retry(client Client, c pipeline.RetryRun) pipeline.Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | pipeline.NoSuchRun | pipeline.Unavailable {
+	try client.opRetry(c)
+}
+
+// Board invokes pipeline.Pipeline's Board directly.
+func Board(client Client) board.View {
+	client.opBoard()
+}
+
+// RunOf invokes pipeline.Pipeline's RunOf directly.
+func RunOf(client Client, id string) run.Run fails pipeline.NoSuchRun {
+	try client.opRunOf(id)
+}
+
+// CheckedClient carries erased pipeline.Pipeline requests over send and validates each
+// Outcome against the requested operation, failing rpc.Transport on a
+// sibling reply or a failure outside the operation's row.
+type CheckedClient { send func(r Request) Outcome fails rpc.Transport }
+
+// NewCheckedClient is the CheckedClient that send answers.
+func NewCheckedClient(send own func(r Request) Outcome fails rpc.Transport) CheckedClient { CheckedClient{send: send} }
+
+// SubmitChecked sends pipeline.Pipeline's Submit over send and validates its Outcome.
+func SubmitChecked(client CheckedClient, c pipeline.SubmitRun) pipeline.Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | pipeline.NoSuchRun | pipeline.Unavailable | rpc.Transport {
+	match try client.send(SubmitRequest{C: c}) {
 	case Done as done:
 		match done.Reply {
 		case SubmitReply as reply:
 			reply.Value
 		case _:
-			Unreachable("pipelineapi: Submit was answered with the value of another operation")
+			return rpc.Transport{Reason: "pipelineapi: Submit was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -194,15 +247,15 @@ func Submit(client Client, c pipeline.SubmitRun) pipeline.Receipt fails run.Wron
 	}
 }
 
-// Cancel sends pipeline.Pipeline's Cancel and answers its Outcome.
-func Cancel(client Client, c pipeline.CancelRun) pipeline.Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | pipeline.NoSuchRun | pipeline.Unavailable {
-	match client.send(CancelRequest{C: c}) {
+// CancelChecked sends pipeline.Pipeline's Cancel over send and validates its Outcome.
+func CancelChecked(client CheckedClient, c pipeline.CancelRun) pipeline.Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | pipeline.NoSuchRun | pipeline.Unavailable | rpc.Transport {
+	match try client.send(CancelRequest{C: c}) {
 	case Done as done:
 		match done.Reply {
 		case CancelReply as reply:
 			reply.Value
 		case _:
-			Unreachable("pipelineapi: Cancel was answered with the value of another operation")
+			return rpc.Transport{Reason: "pipelineapi: Cancel was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -222,15 +275,15 @@ func Cancel(client Client, c pipeline.CancelRun) pipeline.Receipt fails run.Wron
 	}
 }
 
-// Retry sends pipeline.Pipeline's Retry and answers its Outcome.
-func Retry(client Client, c pipeline.RetryRun) pipeline.Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | pipeline.NoSuchRun | pipeline.Unavailable {
-	match client.send(RetryRequest{C: c}) {
+// RetryChecked sends pipeline.Pipeline's Retry over send and validates its Outcome.
+func RetryChecked(client CheckedClient, c pipeline.RetryRun) pipeline.Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | pipeline.NoSuchRun | pipeline.Unavailable | rpc.Transport {
+	match try client.send(RetryRequest{C: c}) {
 	case Done as done:
 		match done.Reply {
 		case RetryReply as reply:
 			reply.Value
 		case _:
-			Unreachable("pipelineapi: Retry was answered with the value of another operation")
+			return rpc.Transport{Reason: "pipelineapi: Retry was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -250,37 +303,37 @@ func Retry(client Client, c pipeline.RetryRun) pipeline.Receipt fails run.WrongS
 	}
 }
 
-// Board sends pipeline.Pipeline's Board and answers its Outcome.
-func Board(client Client) board.View {
-	match client.send(BoardRequest) {
+// BoardChecked sends pipeline.Pipeline's Board over send and validates its Outcome.
+func BoardChecked(client CheckedClient) board.View fails rpc.Transport {
+	match try client.send(BoardRequest) {
 	case Done as done:
 		match done.Reply {
 		case BoardReply as reply:
 			reply.Value
 		case _:
-			Unreachable("pipelineapi: Board was answered with the value of another operation")
+			return rpc.Transport{Reason: "pipelineapi: Board was answered with the value of another operation"}
 		}
 	case Rejected:
-		Unreachable("pipelineapi: Board was answered with a failure outside its row")
+		return rpc.Transport{Reason: "pipelineapi: Board was answered with a failure outside its row"}
 	}
 }
 
-// RunOf sends pipeline.Pipeline's RunOf and answers its Outcome.
-func RunOf(client Client, id string) run.Run fails pipeline.NoSuchRun {
-	match client.send(RunOfRequest{Id: id}) {
+// RunOfChecked sends pipeline.Pipeline's RunOf over send and validates its Outcome.
+func RunOfChecked(client CheckedClient, id string) run.Run fails pipeline.NoSuchRun | rpc.Transport {
+	match try client.send(RunOfRequest{Id: id}) {
 	case Done as done:
 		match done.Reply {
 		case RunOfReply as reply:
 			reply.Value
 		case _:
-			Unreachable("pipelineapi: RunOf was answered with the value of another operation")
+			return rpc.Transport{Reason: "pipelineapi: RunOf was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
 		case NoSuchRun as failure:
 			return failure.E
 		case _:
-			Unreachable("pipelineapi: RunOf was answered with a failure outside its row")
+			return rpc.Transport{Reason: "pipelineapi: RunOf was answered with a failure outside its row"}
 		}
 	}
 }
@@ -343,11 +396,157 @@ func OutcomeOf(r Request, g Given) Outcome {
 	}
 }
 
-func scripted(want Outcome, sent sync.Ref[[]Request]) Client {
-	NewClient(func(q Request) Outcome {
-		sent.Update(func(rs []Request) []Request { rs.Append(q) })
-		want
-	})
+func scripted(g Given, sent sync.Ref[[]Request]) Client {
+	Client{
+		opSubmit: func(c pipeline.SubmitRun) pipeline.Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | pipeline.NoSuchRun | pipeline.Unavailable {
+			sent.Update(func(rs []Request) []Request { rs.Append(SubmitRequest{C: c}) })
+			if g.Failing {
+				match g.Failure {
+				case WrongState as err:
+					return err.E
+				case WrongStage as err:
+					return err.E
+				case Closed as err:
+					return err.E
+				case BadLength as err:
+					return err.E
+				case NoSuchRun as err:
+					return err.E
+				case Unavailable as err:
+					return err.E
+				}
+			}
+			g.Values.Submit
+		},
+		opCancel: func(c pipeline.CancelRun) pipeline.Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | pipeline.NoSuchRun | pipeline.Unavailable {
+			sent.Update(func(rs []Request) []Request { rs.Append(CancelRequest{C: c}) })
+			if g.Failing {
+				match g.Failure {
+				case WrongState as err:
+					return err.E
+				case WrongStage as err:
+					return err.E
+				case Closed as err:
+					return err.E
+				case BadLength as err:
+					return err.E
+				case NoSuchRun as err:
+					return err.E
+				case Unavailable as err:
+					return err.E
+				}
+			}
+			g.Values.Cancel
+		},
+		opRetry: func(c pipeline.RetryRun) pipeline.Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | pipeline.NoSuchRun | pipeline.Unavailable {
+			sent.Update(func(rs []Request) []Request { rs.Append(RetryRequest{C: c}) })
+			if g.Failing {
+				match g.Failure {
+				case WrongState as err:
+					return err.E
+				case WrongStage as err:
+					return err.E
+				case Closed as err:
+					return err.E
+				case BadLength as err:
+					return err.E
+				case NoSuchRun as err:
+					return err.E
+				case Unavailable as err:
+					return err.E
+				}
+			}
+			g.Values.Retry
+		},
+		opBoard: func() board.View {
+			sent.Update(func(rs []Request) []Request { rs.Append(BoardRequest) })
+			g.Values.Board
+		},
+		opRunOf: func(id string) run.Run fails pipeline.NoSuchRun {
+			sent.Update(func(rs []Request) []Request { rs.Append(RunOfRequest{Id: id}) })
+			if g.Failing {
+				match g.Failure {
+				case NoSuchRun as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.RunOf
+		},
+	}
+}
+
+func callChecked(client CheckedClient, r Request) Outcome fails rpc.Transport {
+	match r {
+	case SubmitRequest as x:
+		let v = SubmitChecked(client, x.C) catch {
+		case run.WrongState as e:
+			return Rejected{Failure: WrongState{E: e}}
+		case run.WrongStage as e:
+			return Rejected{Failure: WrongStage{E: e}}
+		case run.Closed as e:
+			return Rejected{Failure: Closed{E: e}}
+		case run.BadLength as e:
+			return Rejected{Failure: BadLength{E: e}}
+		case pipeline.NoSuchRun as e:
+			return Rejected{Failure: NoSuchRun{E: e}}
+		case pipeline.Unavailable as e:
+			return Rejected{Failure: Unavailable{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: SubmitReply{Value: v}}
+	case CancelRequest as x:
+		let v = CancelChecked(client, x.C) catch {
+		case run.WrongState as e:
+			return Rejected{Failure: WrongState{E: e}}
+		case run.WrongStage as e:
+			return Rejected{Failure: WrongStage{E: e}}
+		case run.Closed as e:
+			return Rejected{Failure: Closed{E: e}}
+		case run.BadLength as e:
+			return Rejected{Failure: BadLength{E: e}}
+		case pipeline.NoSuchRun as e:
+			return Rejected{Failure: NoSuchRun{E: e}}
+		case pipeline.Unavailable as e:
+			return Rejected{Failure: Unavailable{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: CancelReply{Value: v}}
+	case RetryRequest as x:
+		let v = RetryChecked(client, x.C) catch {
+		case run.WrongState as e:
+			return Rejected{Failure: WrongState{E: e}}
+		case run.WrongStage as e:
+			return Rejected{Failure: WrongStage{E: e}}
+		case run.Closed as e:
+			return Rejected{Failure: Closed{E: e}}
+		case run.BadLength as e:
+			return Rejected{Failure: BadLength{E: e}}
+		case pipeline.NoSuchRun as e:
+			return Rejected{Failure: NoSuchRun{E: e}}
+		case pipeline.Unavailable as e:
+			return Rejected{Failure: Unavailable{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: RetryReply{Value: v}}
+	case BoardRequest:
+		let v = BoardChecked(client) catch {
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: BoardReply{Value: v}}
+	case RunOfRequest as x:
+		let v = RunOfChecked(client, x.Id) catch {
+		case pipeline.NoSuchRun as e:
+			return Rejected{Failure: NoSuchRun{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: RunOfReply{Value: v}}
+	}
 }
 
 // CallIsTheOperation: Call(r) calls r's operation once, with r's
@@ -355,19 +554,26 @@ func scripted(want Outcome, sent sync.Ref[[]Request]) Client {
 law CallIsTheOperation(r Request, g Given) {
 	let want = OutcomeOf(r, g)
 	let sent = sync.NewRef[[]Request]([]Request{})
-	let got = with context { pipeline.Pipeline: scripted(want, sent) } { Call(r) }
+	let got = with context { pipeline.Pipeline: scripted(g, sent) } { Call(r) }
 	got == want && sent.Get() == []Request{r}
 }
 
-// ClientIsCall: a Client whose send is Call answers each call as the
-// provider Call is bound to does.
+// ClientIsCall: a direct Client and a CheckedClient over Call both
+// answer each call as the provider Call is bound to does.
 law ClientIsCall(r Request, g Given) {
 	let want = OutcomeOf(r, g)
 	let sent = sync.NewRef[[]Request]([]Request{})
-	let inner = scripted(want, sent)
-	let outer = NewClient(func(q Request) Outcome {
-		with context { pipeline.Pipeline: inner } { Call(q) }
-	})
+	let inner = scripted(g, sent)
+	let outer = NewClient(inner)
 	let got = with context { pipeline.Pipeline: outer } { Call(r) }
-	got == want && sent.Get() == []Request{r}
+	let sentChecked = sync.NewRef[[]Request]([]Request{})
+	let innerChecked = scripted(g, sentChecked)
+	let checked = NewCheckedClient(func(q Request) Outcome fails rpc.Transport {
+		with context { pipeline.Pipeline: innerChecked } { Call(q) }
+	})
+	let gotChecked = callChecked(checked, r) catch {
+	case rpc.Transport:
+		return false
+	}
+	got == want && sent.Get() == []Request{r} && gotChecked == want && sentChecked.Get() == []Request{r}
 }

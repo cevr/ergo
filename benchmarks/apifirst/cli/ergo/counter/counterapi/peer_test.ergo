@@ -1,0 +1,90 @@
+import rpc
+import testing
+import clibench/counter
+
+type fixedCounter {} implements counter.Counter
+
+func Add(_ fixedCounter, entry counter.Entry) int fails counter.Negative {
+	if entry.N < 0 {
+		return counter.Negative{N: entry.N}
+	}
+	entry.N
+}
+
+func Get(_ fixedCounter, key string) int fails counter.Unknown {
+	if key == "" {
+		return counter.Unknown{Key: key}
+	}
+	7
+}
+
+func isTransportOnAdd(p CheckedClient, entry counter.Entry) bool {
+	let _ = AddChecked(p, entry) catch {
+	case counter.Negative:
+		return false
+	case rpc.Transport:
+		return true
+	}
+	false
+}
+
+test CheckedClientRefusesWrongOperationAndOutsideRow {
+	let wrongOp = NewCheckedClient(func(_ Request) Outcome fails rpc.Transport {
+		Done{Reply: GetReply{Value: 99}}
+	})
+	assert isTransportOnAdd(wrongOp, counter.Entry{Key: "a", N: 1})
+}
+
+test CheckedClientRefusesOutsideRow {
+	let outside = NewCheckedClient(func(_ Request) Outcome fails rpc.Transport {
+		Rejected{Failure: Unknown{E: counter.Unknown{Key: "a"}}}
+	})
+	assert isTransportOnAdd(outside, counter.Entry{Key: "a", N: 1})
+}
+
+test CheckedClientKeepsValidOutcomes {
+	let okPeer = NewCheckedClient(func(r Request) Outcome fails rpc.Transport {
+		with context { counter.Counter: fixedCounter } { Call(r) }
+	})
+	let sum = AddChecked(okPeer, counter.Entry{Key: "a", N: 5}) catch {
+	case counter.Negative, rpc.Transport:
+		-1
+	}
+	assert sum == 5
+	let mut neg = false
+	let _ = AddChecked(okPeer, counter.Entry{Key: "a", N: -2}) catch {
+	case counter.Negative as e:
+		neg = e.N == -2
+		0
+	case rpc.Transport:
+		0
+	}
+	assert neg
+}
+
+let allocCounts = context needs TestAmbient { testing.Allocs: testing.NewAllocCounter() }
+
+test DirectClientHasNoExtraAlloc {
+	let c = NewClient(fixedCounter)
+	let entry = counter.Entry{Key: "a", N: 5}
+	let mut direct = 0
+	let mut viaClient = 0
+	let base = with allocCounts {
+		testing.Allocs.PerRun(64, func() {
+			direct = fixedCounter.Add(entry) catch {
+			case counter.Negative:
+				0
+			}
+		})
+	}
+	let n = with allocCounts {
+		testing.Allocs.PerRun(64, func() {
+			viaClient = c.Add(entry) catch {
+			case counter.Negative:
+				0
+			}
+		})
+	}
+	assert n <= base
+	assert direct == 5 && viaClient == 5
+}

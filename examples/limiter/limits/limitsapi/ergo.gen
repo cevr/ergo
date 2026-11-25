@@ -2,4 +2,4 @@ kind api
 generator ergo gen api
 subject limiter/limits.Limiter
 contract sha256:250bde175fb81ff064550e40c6d31e629f0ceae3f45f2ca00697a6f7e3105372
-digest sha256:151293a6691bad1401d429580c837b351b46d04b5dddf618835076c2ba092e49
+digest sha256:09bc11ee0563a59fbe16ceadc27db1cf3605ad2f22cc5f23e30ed9381612d12c

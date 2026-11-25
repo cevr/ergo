@@ -2,4 +2,4 @@ kind api
 generator ergo gen api
 subject code.Reader
 contract sha256:cbe75f5db457d71f71e9bd831a06cdb2b9f4ab49a5b50745178ebd752e86927e
-digest sha256:3a3a4637aecbac1f1348efb98d287b8119ca8e710de6ba6a503b284167b01364
+digest sha256:c456db17caf9a03c4fb4715045a7f9158438cef36aa430f7fc98d443247f980c

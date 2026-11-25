@@ -123,6 +123,99 @@ func TestApiRefusesTwoFailuresOfOneName(t *testing.T) {
 	}
 }
 
+// TestApiHubCheckedClientRefusesMismatch verifies that a generated hub's
+// CheckedClient fails with rpc.Transport when a peer returns a sibling
+// operation's Reply or a Failure outside the operation's declared row, and
+// preserves the operation's own value and declared failures.
+func TestApiHubCheckedClientRefusesMismatch(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "ergo.mod"), "module mismatch\n")
+	writeFile(t, filepath.Join(dir, "svc", "svc.ergo"), strings.Join([]string{
+		"type Neg { N int }",
+		"type Missing { Key string }",
+		"type Svc {",
+		"\tAdd(n int) int fails Neg,",
+		"\tGet(key string) int fails Missing,",
+		"\tPing() string,",
+		"}",
+		"",
+	}, "\n"))
+	a, err := sketchfront.CheckDir(filepath.Join(dir, "svc"))
+	if err != nil || a.Root().Package == nil || len(a.Diagnostics) > 0 {
+		t.Fatalf("contract does not check: %v %v", err, a.Diagnostics)
+	}
+	out, err := apigen.Generate(a.Root().Package, "mismatch/svc", "Svc")
+	if err != nil {
+		t.Fatalf("ergo gen api: %v", err)
+	}
+	for name, text := range out.Files {
+		writeFile(t, filepath.Join(dir, "svc", out.Dir, name), text)
+	}
+	writeFile(t, filepath.Join(dir, "svc", out.Dir, "mismatch_test.ergo"), strings.Join([]string{
+		"import rpc",
+		"import mismatch/svc",
+		"",
+		"law SiblingReplyIsTransport(n int) {",
+		"\tlet p = NewCheckedClient(func(_ Request) Outcome fails rpc.Transport { Done{Reply: GetReply{Value: n}} })",
+		"\tlet _ = AddChecked(p, n) catch {",
+		"\tcase svc.Neg:",
+		"\t\treturn false",
+		"\tcase rpc.Transport:",
+		"\t\treturn true",
+		"\t}",
+		"\tfalse",
+		"}",
+		"",
+		"law OutsideRowFailureIsTransport(key string, n int) {",
+		"\tlet p = NewCheckedClient(func(_ Request) Outcome fails rpc.Transport { Rejected{Failure: Missing{E: svc.Missing{Key: key}}} })",
+		"\tlet _ = AddChecked(p, n) catch {",
+		"\tcase svc.Neg:",
+		"\t\treturn false",
+		"\tcase rpc.Transport:",
+		"\t\treturn true",
+		"\t}",
+		"\tfalse",
+		"}",
+		"",
+		"law InfallibleRejectedIsTransport(key string) {",
+		"\tlet p = NewCheckedClient(func(_ Request) Outcome fails rpc.Transport { Rejected{Failure: Missing{E: svc.Missing{Key: key}}} })",
+		"\tlet _ = PingChecked(p) catch {",
+		"\tcase rpc.Transport:",
+		"\t\treturn true",
+		"\t}",
+		"\tfalse",
+		"}",
+		"",
+	}, "\n"))
+	hub, err := sketchfront.CheckDir(filepath.Join(dir, "svc", out.Dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hub.Diagnostics) > 0 {
+		t.Fatalf("hub with mismatch tests does not check: %v", hub.Diagnostics)
+	}
+	b := eval.DefaultBudget()
+	b.Seed = 1
+	rep, err := hub.Evaluate(b)
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	for _, law := range []string{"law SiblingReplyIsTransport", "law OutsideRowFailureIsTransport", "law InfallibleRejectedIsTransport"} {
+		found := false
+		for _, res := range rep.Results {
+			if res.Name == law {
+				found = true
+				if res.Status != eval.Passed || res.Cases == 0 {
+					t.Errorf("%s: %s after %d cases: %s", law, res.Status, res.Cases, res.Reason)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("missing %s", law)
+		}
+	}
+}
+
 func writeFile(t testing.TB, path, src string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

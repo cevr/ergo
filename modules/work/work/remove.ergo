@@ -710,11 +710,7 @@ func activation(t Tool, w Workspace, at int64) Workspace {
 		EmptyConfig()
 	}
 	let installedAs = if len(c.LeaveOut) == 0 { lockDigest(t, w.Path, c) } else { "" }
-	moved(Workspace{..w, Deps: installedAs}, Cloned, at) catch {
-	case Busy:
-		Unreachable("a workspace being created takes Cloned")
-		w
-	}
+	activateCreating(Workspace{..w, Deps: installedAs}, at)
 }
 
 // DiscardOf deletes the folder of w, with no lock: by the Cloner that

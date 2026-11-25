@@ -1,4 +1,5 @@
 import json
+import rpc
 import sync
 import llmtools/tools
 
@@ -81,41 +82,72 @@ func Call(r Request) Outcome needs tools.Search {
 	}
 }
 
-// Client provides tools.Search over send, any way to carry a Request to a
-// Call and its Outcome back. An Outcome that is not the operation's (the
-// value of another, a failure outside its row) is a defect.
-type Client { send func(r Request) Outcome } implements tools.Search
+// Client provides tools.Search by invoking typed per-operation handlers directly:
+// a direct call returns its exact value or declared failure row with no Outcome boxing.
+type Client { opFind func(tools.Query) []tools.Hit, opCount func(string) int } implements tools.Search
 
-// NewClient is the tools.Search that send answers.
-func NewClient(send own func(r Request) Outcome) Client { Client{send: send} }
+// NewClient is the tools.Search that invokes inner directly per operation.
+func NewClient(inner tools.Search) Client {
+	Client{
+		opFind:  func(q tools.Query) []tools.Hit { inner.Find(q) },
+		opCount: func(word string) int { inner.Count(word) },
+	}
+}
 
-// Find sends tools.Search's Find and answers its Outcome.
+// ClientInForce is the tools.Search that invokes the provider currently in force.
+func ClientInForce() Client needs tools.Search {
+	let held = InForce[tools.Search]()
+	Client{
+		opFind:  func(q tools.Query) []tools.Hit { with held { tools.Search.Find(q) } },
+		opCount: func(word string) int { with held { tools.Search.Count(word) } },
+	}
+}
+
+// Find invokes tools.Search's Find directly.
 func Find(client Client, q tools.Query) []tools.Hit {
-	match client.send(FindRequest{Q: q}) {
+	client.opFind(q)
+}
+
+// Count invokes tools.Search's Count directly.
+func Count(client Client, word string) int {
+	client.opCount(word)
+}
+
+// CheckedClient carries erased tools.Search requests over send and validates each
+// Outcome against the requested operation, failing rpc.Transport on a
+// sibling reply or a failure outside the operation's row.
+type CheckedClient { send func(r Request) Outcome fails rpc.Transport }
+
+// NewCheckedClient is the CheckedClient that send answers.
+func NewCheckedClient(send own func(r Request) Outcome fails rpc.Transport) CheckedClient { CheckedClient{send: send} }
+
+// FindChecked sends tools.Search's Find over send and validates its Outcome.
+func FindChecked(client CheckedClient, q tools.Query) []tools.Hit fails rpc.Transport {
+	match try client.send(FindRequest{Q: q}) {
 	case Done as done:
 		match done.Reply {
 		case FindReply as reply:
 			reply.Value
 		case _:
-			Unreachable("toolsapi: Find was answered with the value of another operation")
+			return rpc.Transport{Reason: "toolsapi: Find was answered with the value of another operation"}
 		}
 	case Rejected:
-		Unreachable("toolsapi: Find was answered with a failure outside its row")
+		return rpc.Transport{Reason: "toolsapi: Find was answered with a failure outside its row"}
 	}
 }
 
-// Count sends tools.Search's Count and answers its Outcome.
-func Count(client Client, word string) int {
-	match client.send(CountRequest{Word: word}) {
+// CountChecked sends tools.Search's Count over send and validates its Outcome.
+func CountChecked(client CheckedClient, word string) int fails rpc.Transport {
+	match try client.send(CountRequest{Word: word}) {
 	case Done as done:
 		match done.Reply {
 		case CountReply as reply:
 			reply.Value
 		case _:
-			Unreachable("toolsapi: Count was answered with the value of another operation")
+			return rpc.Transport{Reason: "toolsapi: Count was answered with the value of another operation"}
 		}
 	case Rejected:
-		Unreachable("toolsapi: Count was answered with a failure outside its row")
+		return rpc.Transport{Reason: "toolsapi: Count was answered with a failure outside its row"}
 	}
 }
 
@@ -149,11 +181,34 @@ func OutcomeOf(r Request, g Given) Outcome {
 	}
 }
 
-func scripted(want Outcome, sent sync.Ref[[]Request]) Client {
-	NewClient(func(q Request) Outcome {
-		sent.Update(func(rs []Request) []Request { rs.Append(q) })
-		want
-	})
+func scripted(g Given, sent sync.Ref[[]Request]) Client {
+	Client{
+		opFind: func(q tools.Query) []tools.Hit {
+			sent.Update(func(rs []Request) []Request { rs.Append(FindRequest{Q: q}) })
+			g.Values.Find
+		},
+		opCount: func(word string) int {
+			sent.Update(func(rs []Request) []Request { rs.Append(CountRequest{Word: word}) })
+			g.Values.Count
+		},
+	}
+}
+
+func callChecked(client CheckedClient, r Request) Outcome fails rpc.Transport {
+	match r {
+	case FindRequest as x:
+		let v = FindChecked(client, x.Q) catch {
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: FindReply{Value: v}}
+	case CountRequest as x:
+		let v = CountChecked(client, x.Word) catch {
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: CountReply{Value: v}}
+	}
 }
 
 // CallIsTheOperation: Call(r) calls r's operation once, with r's
@@ -161,19 +216,26 @@ func scripted(want Outcome, sent sync.Ref[[]Request]) Client {
 law CallIsTheOperation(r Request, g Given) {
 	let want = OutcomeOf(r, g)
 	let sent = sync.NewRef[[]Request]([]Request{})
-	let got = with context { tools.Search: scripted(want, sent) } { Call(r) }
+	let got = with context { tools.Search: scripted(g, sent) } { Call(r) }
 	got == want && sent.Get() == []Request{r}
 }
 
-// ClientIsCall: a Client whose send is Call answers each call as the
-// provider Call is bound to does.
+// ClientIsCall: a direct Client and a CheckedClient over Call both
+// answer each call as the provider Call is bound to does.
 law ClientIsCall(r Request, g Given) {
 	let want = OutcomeOf(r, g)
 	let sent = sync.NewRef[[]Request]([]Request{})
-	let inner = scripted(want, sent)
-	let outer = NewClient(func(q Request) Outcome {
-		with context { tools.Search: inner } { Call(q) }
-	})
+	let inner = scripted(g, sent)
+	let outer = NewClient(inner)
 	let got = with context { tools.Search: outer } { Call(r) }
-	got == want && sent.Get() == []Request{r}
+	let sentChecked = sync.NewRef[[]Request]([]Request{})
+	let innerChecked = scripted(g, sentChecked)
+	let checked = NewCheckedClient(func(q Request) Outcome fails rpc.Transport {
+		with context { tools.Search: innerChecked } { Call(q) }
+	})
+	let gotChecked = callChecked(checked, r) catch {
+	case rpc.Transport:
+		return false
+	}
+	got == want && sent.Get() == []Request{r} && gotChecked == want && sentChecked.Get() == []Request{r}
 }

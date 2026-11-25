@@ -562,6 +562,10 @@ func freeName(t Tool, name string) fails Unkept {
 
 // moved is w after the signal e at the Unix second at. The lifecycle
 // decides; a signal it rejects is Busy.
+func activateCreating(w Workspace, at int64) Workspace {
+	Workspace{..w, State: Active, Since: at}
+}
+
 func moved(w Workspace, e Signal, at int64) Workspace fails Busy {
 	match Step(w.State, e) {
 	case Enter[State] as n:

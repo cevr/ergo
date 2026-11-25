@@ -31,22 +31,17 @@ func apply[J](q Queue[J], op jobs.Op[J]) jobs.Outcome[J] {
 
 // EnqueueAt adds job, ready at at.
 func EnqueueAt[J](q Queue[J], job J, at time.Time) int fails jobs.Failed {
-	match apply(q, jobs.Enqueue[J]{Job: job, At: at}) {
-	case jobs.Enqueued as e:
-		e.ID
-	case _:
-		Unreachable("an enqueue is Enqueued")
-	}
+	sync.Modify(q.state, func(s jobs.State[J]) (int, jobs.State[J]) {
+		jobs.ApplyEnqueue(s, job, at)
+	})
 }
 
-// ReserveAt leases the earliest ready job.
 func ReserveAt[J](q Queue[J], now time.Time) Option[jobs.Lease[J]] fails jobs.Failed {
-	match apply(q, jobs.Reserve{Now: now}) {
-	case jobs.Reserved[J] as r:
-		r.Lease
-	case _:
-		Unreachable("a reserve is Reserved")
-	}
+	let p = q.policy
+	sync.Modify(q.state, func(s jobs.State[J]) (Option[jobs.Lease[J]], jobs.State[J]) {
+		let (lease, next, _) = jobs.ApplyReserve(p, s, now)
+		(lease, next)
+	})
 }
 
 // AckAt ends the lease of t as done.

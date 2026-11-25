@@ -87,17 +87,22 @@ func openOnMemory() Store {
 	Store{path: "proofs.log", files: disk, writes: disk, state: sync.NewRef(proof.Empty()), broken: sync.NewRef(false), lock: sync.NewSemaphore(1)}
 }
 
-func apply(s Store, op proof.Op) proof.Outcome fails proof.Failed {
-	try sync.With(s.lock, func() proof.Outcome fails proof.Failed { try step(s, op) })
+func apply[R](s Store, op proof.Op, fn func(st proof.State) (R, proof.State, bool)) R fails proof.Failed {
+	try sync.With(s.lock, func() R fails proof.Failed { try stepWith(s, op, fn) })
 }
 
-// step is apply's work, under the lock.
-func step(s Store, op proof.Op) proof.Outcome fails proof.Failed {
+func applyOp(s Store, op proof.Op) proof.Outcome fails proof.Failed {
+	try apply(s, op, func(st proof.State) (proof.Outcome, proof.State, bool) {
+		proof.Apply(st, op)
+	})
+}
+
+func stepWith[R](s Store, op proof.Op, fn func(st proof.State) (R, proof.State, bool)) R fails proof.Failed {
 	if s.broken.Get() {
 		return proof.Failed{Reason: "\(s.path): a write failed; open the store again"}
 	}
-	let (o, changed) = sync.Modify(s.state, func(st proof.State) ((proof.Outcome, bool), proof.State) {
-		let (o, next, changed) = proof.Apply(st, op)
+	let (o, changed) = sync.Modify(s.state, func(st proof.State) ((R, bool), proof.State) {
+		let (o, next, changed) = fn(st)
 		((o, changed), next)
 	})
 	if changed {
@@ -116,37 +121,36 @@ func step(s Store, op proof.Op) proof.Outcome fails proof.Failed {
 	o
 }
 
-// Issue keeps a proof under id.
 func Issue(s Store, id string, d proof.Digest, expires time.Time, attempts int) fails proof.Conflict | proof.Failed {
-	match try apply(s, proof.IssueOp{ID: id, Digest: d, Expires: expires, Attempts: attempts}) {
+	match try applyOp(s, proof.IssueOp{ID: id, Digest: d, Expires: expires, Attempts: attempts}) {
 	case proof.Refused:
 		return proof.Conflict
 	case _:
 	}
 }
 
-// Redeem spends the proof under id.
 func Redeem(s Store, id string, d proof.Digest, now time.Time) fails proof.Unknown | proof.Expired | proof.Spent | proof.TooManyAttempts | proof.Wrong | proof.Failed {
-	match try apply(s, proof.RedeemOp{ID: id, Digest: d, Now: now}) {
-	case proof.Redeemed:
-	case proof.Missing:
+	let op = proof.RedeemOp{ID: id, Digest: d, Now: now}
+	match try apply(s, op, func(st proof.State) (proof.RedeemResult, proof.State, bool) {
+		proof.ApplyRedeem(st, id, d, now)
+	}) {
+	case proof.RedeemOK:
+	case proof.RedeemUnknown:
 		return proof.Unknown
-	case proof.Late:
+	case proof.RedeemExpired:
 		return proof.Expired
-	case proof.Used:
+	case proof.RedeemSpent:
 		return proof.Spent
-	case proof.Exhausted:
+	case proof.RedeemExhausted:
 		return proof.TooManyAttempts
-	case proof.Mismatch as m:
-		return proof.Wrong{Left: m.Left}
-	case proof.Kept, proof.Refused:
-		Unreachable("a redeem is not kept or refused")
+	case proof.RedeemWrong as w:
+		return proof.Wrong{Left: w.Left}
 	}
 }
 
 // Claim marks key used until until.
 func Claim(s Store, key string, until time.Time, now time.Time) fails proof.Spent | proof.Failed {
-	match try apply(s, proof.ClaimOp{Key: key, Until: until, Now: now}) {
+	match try applyOp(s, proof.ClaimOp{Key: key, Until: until, Now: now}) {
 	case proof.Used:
 		return proof.Spent
 	case _:

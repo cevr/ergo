@@ -7,10 +7,7 @@ import pipeline/pipeline
 import time
 
 func apiOver() Client needs pipeline.Pipeline {
-	let held = InForce[pipeline.Pipeline]()
-	NewClient(func(r Request) Outcome {
-		with held { Call(r) }
-	})
+	ClientInForce()
 }
 
 let overModel = context fails domain.Conflict | domain.Reused | domain.Unkept {

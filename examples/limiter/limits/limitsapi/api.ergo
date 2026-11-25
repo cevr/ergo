@@ -1,4 +1,5 @@
 import json
+import rpc
 import sync
 import limiter/limits
 
@@ -126,23 +127,75 @@ func Call(r Request) Outcome needs limits.Limiter {
 	}
 }
 
-// Client provides limits.Limiter over send, any way to carry a Request to a
-// Call and its Outcome back. An Outcome that is not the operation's (the
-// value of another, a failure outside its row) is a defect.
-type Client { send func(r Request) Outcome } implements limits.Limiter
+// Client provides limits.Limiter by invoking typed per-operation handlers directly:
+// a direct call returns its exact value or declared failure row with no Outcome boxing.
+type Client { opTake func(string, int) limits.Grant fails limits.Limited | limits.UnknownBucket | limits.BadCost, opHold func(string, int) limits.Grant fails limits.UnknownBucket | limits.BadCost, opPeek func(string) Option[limits.Level], opAdvance func(int), opBuckets func() []string } implements limits.Limiter
 
-// NewClient is the limits.Limiter that send answers.
-func NewClient(send own func(r Request) Outcome) Client { Client{send: send} }
+// NewClient is the limits.Limiter that invokes inner directly per operation.
+func NewClient(inner limits.Limiter) Client {
+	Client{
+		opTake:    func(key string, cost int) limits.Grant fails limits.Limited | limits.UnknownBucket | limits.BadCost { try inner.Take(key, cost) },
+		opHold:    func(key string, cost int) limits.Grant fails limits.UnknownBucket | limits.BadCost { try inner.Hold(key, cost) },
+		opPeek:    func(key string) Option[limits.Level] { inner.Peek(key) },
+		opAdvance: func(ms int) { inner.Advance(ms) },
+		opBuckets: func() []string { inner.Buckets() },
+	}
+}
 
-// Take sends limits.Limiter's Take and answers its Outcome.
+// ClientInForce is the limits.Limiter that invokes the provider currently in force.
+func ClientInForce() Client needs limits.Limiter {
+	let held = InForce[limits.Limiter]()
+	Client{
+		opTake:    func(key string, cost int) limits.Grant fails limits.Limited | limits.UnknownBucket | limits.BadCost { with held { try limits.Limiter.Take(key, cost) } },
+		opHold:    func(key string, cost int) limits.Grant fails limits.UnknownBucket | limits.BadCost { with held { try limits.Limiter.Hold(key, cost) } },
+		opPeek:    func(key string) Option[limits.Level] { with held { limits.Limiter.Peek(key) } },
+		opAdvance: func(ms int) { with held { limits.Limiter.Advance(ms) } },
+		opBuckets: func() []string { with held { limits.Limiter.Buckets() } },
+	}
+}
+
+// Take invokes limits.Limiter's Take directly.
 func Take(client Client, key string, cost int) limits.Grant fails limits.Limited | limits.UnknownBucket | limits.BadCost {
-	match client.send(TakeRequest{Key: key, Cost: cost}) {
+	try client.opTake(key, cost)
+}
+
+// Hold invokes limits.Limiter's Hold directly.
+func Hold(client Client, key string, cost int) limits.Grant fails limits.UnknownBucket | limits.BadCost {
+	try client.opHold(key, cost)
+}
+
+// Peek invokes limits.Limiter's Peek directly.
+func Peek(client Client, key string) Option[limits.Level] {
+	client.opPeek(key)
+}
+
+// Advance invokes limits.Limiter's Advance directly.
+func Advance(client Client, ms int) {
+	client.opAdvance(ms)
+}
+
+// Buckets invokes limits.Limiter's Buckets directly.
+func Buckets(client Client) []string {
+	client.opBuckets()
+}
+
+// CheckedClient carries erased limits.Limiter requests over send and validates each
+// Outcome against the requested operation, failing rpc.Transport on a
+// sibling reply or a failure outside the operation's row.
+type CheckedClient { send func(r Request) Outcome fails rpc.Transport }
+
+// NewCheckedClient is the CheckedClient that send answers.
+func NewCheckedClient(send own func(r Request) Outcome fails rpc.Transport) CheckedClient { CheckedClient{send: send} }
+
+// TakeChecked sends limits.Limiter's Take over send and validates its Outcome.
+func TakeChecked(client CheckedClient, key string, cost int) limits.Grant fails limits.Limited | limits.UnknownBucket | limits.BadCost | rpc.Transport {
+	match try client.send(TakeRequest{Key: key, Cost: cost}) {
 	case Done as done:
 		match done.Reply {
 		case TakeReply as reply:
 			reply.Value
 		case _:
-			Unreachable("limitsapi: Take was answered with the value of another operation")
+			return rpc.Transport{Reason: "limitsapi: Take was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -156,15 +209,15 @@ func Take(client Client, key string, cost int) limits.Grant fails limits.Limited
 	}
 }
 
-// Hold sends limits.Limiter's Hold and answers its Outcome.
-func Hold(client Client, key string, cost int) limits.Grant fails limits.UnknownBucket | limits.BadCost {
-	match client.send(HoldRequest{Key: key, Cost: cost}) {
+// HoldChecked sends limits.Limiter's Hold over send and validates its Outcome.
+func HoldChecked(client CheckedClient, key string, cost int) limits.Grant fails limits.UnknownBucket | limits.BadCost | rpc.Transport {
+	match try client.send(HoldRequest{Key: key, Cost: cost}) {
 	case Done as done:
 		match done.Reply {
 		case HoldReply as reply:
 			reply.Value
 		case _:
-			Unreachable("limitsapi: Hold was answered with the value of another operation")
+			return rpc.Transport{Reason: "limitsapi: Hold was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -173,52 +226,52 @@ func Hold(client Client, key string, cost int) limits.Grant fails limits.Unknown
 		case BadCost as failure:
 			return failure.E
 		case _:
-			Unreachable("limitsapi: Hold was answered with a failure outside its row")
+			return rpc.Transport{Reason: "limitsapi: Hold was answered with a failure outside its row"}
 		}
 	}
 }
 
-// Peek sends limits.Limiter's Peek and answers its Outcome.
-func Peek(client Client, key string) Option[limits.Level] {
-	match client.send(PeekRequest{Key: key}) {
+// PeekChecked sends limits.Limiter's Peek over send and validates its Outcome.
+func PeekChecked(client CheckedClient, key string) Option[limits.Level] fails rpc.Transport {
+	match try client.send(PeekRequest{Key: key}) {
 	case Done as done:
 		match done.Reply {
 		case PeekReply as reply:
 			reply.Value
 		case _:
-			Unreachable("limitsapi: Peek was answered with the value of another operation")
+			return rpc.Transport{Reason: "limitsapi: Peek was answered with the value of another operation"}
 		}
 	case Rejected:
-		Unreachable("limitsapi: Peek was answered with a failure outside its row")
+		return rpc.Transport{Reason: "limitsapi: Peek was answered with a failure outside its row"}
 	}
 }
 
-// Advance sends limits.Limiter's Advance and answers its Outcome.
-func Advance(client Client, ms int) {
-	match client.send(AdvanceRequest{Ms: ms}) {
+// AdvanceChecked sends limits.Limiter's Advance over send and validates its Outcome.
+func AdvanceChecked(client CheckedClient, ms int) fails rpc.Transport {
+	match try client.send(AdvanceRequest{Ms: ms}) {
 	case Done as done:
 		match done.Reply {
 		case AdvanceReply:
 		case _:
-			Unreachable("limitsapi: Advance was answered with the value of another operation")
+			return rpc.Transport{Reason: "limitsapi: Advance was answered with the value of another operation"}
 		}
 	case Rejected:
-		Unreachable("limitsapi: Advance was answered with a failure outside its row")
+		return rpc.Transport{Reason: "limitsapi: Advance was answered with a failure outside its row"}
 	}
 }
 
-// Buckets sends limits.Limiter's Buckets and answers its Outcome.
-func Buckets(client Client) []string {
-	match client.send(BucketsRequest) {
+// BucketsChecked sends limits.Limiter's Buckets over send and validates its Outcome.
+func BucketsChecked(client CheckedClient) []string fails rpc.Transport {
+	match try client.send(BucketsRequest) {
 	case Done as done:
 		match done.Reply {
 		case BucketsReply as reply:
 			reply.Value
 		case _:
-			Unreachable("limitsapi: Buckets was answered with the value of another operation")
+			return rpc.Transport{Reason: "limitsapi: Buckets was answered with the value of another operation"}
 		}
 	case Rejected:
-		Unreachable("limitsapi: Buckets was answered with a failure outside its row")
+		return rpc.Transport{Reason: "limitsapi: Buckets was answered with a failure outside its row"}
 	}
 }
 
@@ -270,11 +323,92 @@ func OutcomeOf(r Request, g Given) Outcome {
 	}
 }
 
-func scripted(want Outcome, sent sync.Ref[[]Request]) Client {
-	NewClient(func(q Request) Outcome {
-		sent.Update(func(rs []Request) []Request { rs.Append(q) })
-		want
-	})
+func scripted(g Given, sent sync.Ref[[]Request]) Client {
+	Client{
+		opTake: func(key string, cost int) limits.Grant fails limits.Limited | limits.UnknownBucket | limits.BadCost {
+			sent.Update(func(rs []Request) []Request { rs.Append(TakeRequest{Key: key, Cost: cost}) })
+			if g.Failing {
+				match g.Failure {
+				case Limited as err:
+					return err.E
+				case UnknownBucket as err:
+					return err.E
+				case BadCost as err:
+					return err.E
+				}
+			}
+			g.Values.Take
+		},
+		opHold: func(key string, cost int) limits.Grant fails limits.UnknownBucket | limits.BadCost {
+			sent.Update(func(rs []Request) []Request { rs.Append(HoldRequest{Key: key, Cost: cost}) })
+			if g.Failing {
+				match g.Failure {
+				case UnknownBucket as err:
+					return err.E
+				case BadCost as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.Hold
+		},
+		opPeek: func(key string) Option[limits.Level] {
+			sent.Update(func(rs []Request) []Request { rs.Append(PeekRequest{Key: key}) })
+			g.Values.Peek
+		},
+		opAdvance: func(ms int) {
+			sent.Update(func(rs []Request) []Request { rs.Append(AdvanceRequest{Ms: ms}) })
+		},
+		opBuckets: func() []string {
+			sent.Update(func(rs []Request) []Request { rs.Append(BucketsRequest) })
+			g.Values.Buckets
+		},
+	}
+}
+
+func callChecked(client CheckedClient, r Request) Outcome fails rpc.Transport {
+	match r {
+	case TakeRequest as x:
+		let v = TakeChecked(client, x.Key, x.Cost) catch {
+		case limits.Limited as e:
+			return Rejected{Failure: Limited{E: e}}
+		case limits.UnknownBucket as e:
+			return Rejected{Failure: UnknownBucket{E: e}}
+		case limits.BadCost as e:
+			return Rejected{Failure: BadCost{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: TakeReply{Value: v}}
+	case HoldRequest as x:
+		let v = HoldChecked(client, x.Key, x.Cost) catch {
+		case limits.UnknownBucket as e:
+			return Rejected{Failure: UnknownBucket{E: e}}
+		case limits.BadCost as e:
+			return Rejected{Failure: BadCost{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: HoldReply{Value: v}}
+	case PeekRequest as x:
+		let v = PeekChecked(client, x.Key) catch {
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: PeekReply{Value: v}}
+	case AdvanceRequest as x:
+		AdvanceChecked(client, x.Ms) catch {
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: AdvanceReply}
+	case BucketsRequest:
+		let v = BucketsChecked(client) catch {
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: BucketsReply{Value: v}}
+	}
 }
 
 // CallIsTheOperation: Call(r) calls r's operation once, with r's
@@ -282,19 +416,26 @@ func scripted(want Outcome, sent sync.Ref[[]Request]) Client {
 law CallIsTheOperation(r Request, g Given) {
 	let want = OutcomeOf(r, g)
 	let sent = sync.NewRef[[]Request]([]Request{})
-	let got = with context { limits.Limiter: scripted(want, sent) } { Call(r) }
+	let got = with context { limits.Limiter: scripted(g, sent) } { Call(r) }
 	got == want && sent.Get() == []Request{r}
 }
 
-// ClientIsCall: a Client whose send is Call answers each call as the
-// provider Call is bound to does.
+// ClientIsCall: a direct Client and a CheckedClient over Call both
+// answer each call as the provider Call is bound to does.
 law ClientIsCall(r Request, g Given) {
 	let want = OutcomeOf(r, g)
 	let sent = sync.NewRef[[]Request]([]Request{})
-	let inner = scripted(want, sent)
-	let outer = NewClient(func(q Request) Outcome {
-		with context { limits.Limiter: inner } { Call(q) }
-	})
+	let inner = scripted(g, sent)
+	let outer = NewClient(inner)
 	let got = with context { limits.Limiter: outer } { Call(r) }
-	got == want && sent.Get() == []Request{r}
+	let sentChecked = sync.NewRef[[]Request]([]Request{})
+	let innerChecked = scripted(g, sentChecked)
+	let checked = NewCheckedClient(func(q Request) Outcome fails rpc.Transport {
+		with context { limits.Limiter: innerChecked } { Call(q) }
+	})
+	let gotChecked = callChecked(checked, r) catch {
+	case rpc.Transport:
+		return false
+	}
+	got == want && sent.Get() == []Request{r} && gotChecked == want && sentChecked.Get() == []Request{r}
 }

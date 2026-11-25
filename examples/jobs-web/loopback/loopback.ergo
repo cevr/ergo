@@ -25,7 +25,5 @@ func NewLoopback(inner jobs.Jobs) jobsrpc.Client {
 // NewHub is the hub client of inner: each Request is a Call with inner
 // bound, so its laws hold exactly when inner's and Call's do.
 func NewHub(inner jobs.Jobs) jobsapi.Client {
-	jobsapi.NewClient(func(r jobsapi.Request) jobsapi.Outcome {
-		with context { jobs.Jobs: inner } { jobsapi.Call(r) }
-	})
+	jobsapi.NewClient(inner)
 }
