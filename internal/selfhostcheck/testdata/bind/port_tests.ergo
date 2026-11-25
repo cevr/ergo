@@ -11,3 +11,8 @@ test PortTestSkipBranch {
 	}
 	assert !done
 }
+
+test PortTestParamSlice(xs []int) {
+	let ok = len(xs) >= 0
+	assert ok
+}

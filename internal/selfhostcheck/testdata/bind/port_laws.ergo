@@ -1,5 +1,11 @@
 func PortLawDouble(n int) int { n + n }
 
+type PortLawPair { Left int, Right int }
+
 law PortLawTrivial() { true }
 
 law PortLawDoubleEven(n int) { PortLawDouble(n) == n+n }
+
+law PortLawSliceLen(xs []int) { len(xs) >= 0 }
+
+law PortLawRecordSum(p PortLawPair) { p.Left+p.Right == p.Right+p.Left }

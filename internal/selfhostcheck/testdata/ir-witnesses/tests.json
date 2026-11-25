@@ -1,4 +1,5 @@
 [
   {"fixture": "port_tests.ergo", "declaration": "test PortTestAssert {", "symbol": "ergo__TestPortTestAssert"},
-  {"fixture": "port_tests.ergo", "declaration": "test PortTestSkipBranch {", "symbol": "ergo__TestPortTestSkipBranch"}
+  {"fixture": "port_tests.ergo", "declaration": "test PortTestSkipBranch {", "symbol": "ergo__TestPortTestSkipBranch"},
+  {"fixture": "port_tests.ergo", "declaration": "test PortTestParamSlice(", "symbol": "ergo__TestPortTestParamSlice"}
 ]

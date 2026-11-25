@@ -46,10 +46,13 @@ func unionInstanceGo(st fnb, t dense.ID[store.TKey]) string {
 		return ""
 	}
 	let f = st.k.Foreign[i]
-	if f.Qual != "-" || f.Path != "prelude" || len(f.Variants) == 0 || f.Arity != len(args) || !has(st.prelude, f.Name) {
+	let isPrelude = f.Path == "prelude" && has(st.prelude, f.Name)
+	let isOption = f.Path == "option" && f.Name == "Option"
+	if f.Qual != "-" || (!isPrelude && !isOption) || len(f.Variants) == 0 || f.Arity != len(args) {
 		return ""
 	}
-	let mut name = f.Name + "["
+	let head = if isOption { pkgAlias(f.Path) + "__" + f.Name } else { f.Name }
+	let mut name = head + "["
 	for j, arg in args {
 		let gt = basicGo(st, arg)
 		if gt == "" {

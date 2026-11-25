@@ -4,6 +4,10 @@ import compiler/ir
 import compiler/syntax
 import dense
 
+func admittedLawParam(st fnb, t dense.ID[store.TKey]) bool {
+	shapeGo(st, t) != ""
+}
+
 func lawFrame(n int) framePlan {
 	framePlan{env: 0, slots: n + 1, pure: false, fallible: None, pollEntry: false, op: None}
 }
@@ -69,7 +73,7 @@ func lawFunction(st mut fnb, b mut ir.Builder, f expr.Fn, ld syntax.LawDecl, pla
 		if i < len(f.Takes) && f.Takes[i] {
 			return stop("law: owned parameter")
 		}
-		if basicGo(*st, ops[i]) == "" {
+		if !admittedLawParam(*st, ops[i]) {
 			return stop("law: parameter " + typeCause(*st, ops[i]))
 		}
 	}
