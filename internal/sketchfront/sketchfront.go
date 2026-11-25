@@ -522,7 +522,11 @@ func analysisUnit(a Analysis, source string) (lower.Unit, error) {
 // emission key: std, and every local package the program reaches, so an
 // edit of an imported package builds again.
 func analysisDependencies(a Analysis) []build.Dependency {
-	dependencies := stdDependencies()
+	var overrides map[string]map[string]string
+	if a.program != nil {
+		overrides = a.program.stdOverrides
+	}
+	dependencies := stdDependenciesWith(overrides)
 	if a.program != nil {
 		dependencies = append(dependencies, a.program.dependencies()...)
 	}
@@ -794,9 +798,23 @@ func emittedDigest(mode build.Mode, runtime, files []lower.File) string {
 // summary is the conservative digest of the package's whole source, for
 // its interface and its implementation alike.
 func stdDependencies() []build.Dependency {
+	return stdDependenciesWith(nil)
+}
+
+func stdDependenciesWith(overrides map[string]map[string]string) []build.Dependency {
 	deps := []build.Dependency{sourceDependency(stdlib.PreludePath, stdlib.Prelude())}
 	for _, path := range stdlib.Packages() {
 		files, _ := stdlib.Package(path)
+		if ov := overrides[path]; len(ov) > 0 {
+			merged := make(map[string]string, len(files))
+			for k, v := range files {
+				merged[k] = v
+			}
+			for k, v := range ov {
+				merged[k] = v
+			}
+			files = merged
+		}
 		deps = append(deps, sourceDependency(path, files))
 	}
 	return deps

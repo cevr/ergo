@@ -38,13 +38,14 @@ import workflow/memory
 import workflow
 
 type Store {
-	path   string,
-	files  fs.Files,
-	writes fs.Writes,
-	state  sync.Ref[workflow.State],
-	broken sync.Ref[bool],
-	cut    sync.Ref[int],
-	lock   sync.Semaphore,
+	path     string,
+	files    fs.Files,
+	writes   fs.Writes,
+	state    sync.Ref[workflow.State],
+	broken   sync.Ref[bool],
+	cut      sync.Ref[int],
+	lock     sync.Semaphore,
+	replayed int,
 } implements workflow.Store
 
 // Open is the store of the log at path, read with files and written with
@@ -92,8 +93,11 @@ func Crashing(files fs.Files, writes fs.Writes, path string, cut int) Store fail
 			return workflow.Failed{Reason: "\(path): \(f.Reason)"}
 		}
 	}
-	Store{path: path, files: files, writes: writes, state: sync.NewRef(s), broken: sync.NewRef(false), cut: sync.NewRef(cut), lock: sync.NewSemaphore(1)}
+	Store{path: path, files: files, writes: writes, state: sync.NewRef(s), broken: sync.NewRef(false), cut: sync.NewRef(cut), lock: sync.NewSemaphore(1), replayed: n}
 }
+
+// Replayed is the number of log operations replayed when s was opened.
+func Replayed(s Store) int { s.replayed }
 
 func apply[R](s Store, op workflow.Op, fn func(st workflow.State) (R, workflow.State, bool)) R fails workflow.Failed {
 	try sync.With(s.lock, func() R fails workflow.Failed { try stepWith(s, op, fn) })

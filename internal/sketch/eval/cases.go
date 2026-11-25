@@ -418,16 +418,18 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 			mustCharge(in, fr, 1)
 			r.Start(0)
 			r.Replay(sc.Tape)
+			in.resetCaseEv()
 			result, shows := run(0)
 			r.EndReplay()
 			if result.Status == Refuted {
 				best := slices.Clone(sc.Tape)
 				if sc.Stale {
-					result, shows = in.shrinkTapeCase(r, sc.Tape, result, shows, func() (Result, []func() Argument) { return run(0) })
+					result, shows = in.shrinkTapeCase(r, sc.Tape, result, shows, func() (Result, []func() Argument) { in.resetCaseEv(); return run(0) })
 					if len(result.ShrunkTape) > 0 {
 						best = result.ShrunkTape
 					}
 				}
+				in.resetCaseEv()
 				out.Status, out.Reason, out.Site, out.escaped, out.Message = result.Status, result.Reason, result.Site, result.escaped, result.Message
 				if result.Schedule != 0 {
 					out.Schedule = result.Schedule
@@ -441,6 +443,7 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 				return true
 			}
 			if result.Status != Passed {
+				in.resetCaseEv()
 				out.Status, out.Reason, out.Site, out.escaped, out.Message = result.Status, result.Reason, result.Site, result.escaped, result.Message
 				if result.Schedule != 0 {
 					out.Schedule = result.Schedule
@@ -448,6 +451,7 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 				out.Case, out.Arguments, out.Drawn = 0, shown(shows), result.Drawn
 				return true
 			}
+			in.resetCaseEv()
 			out.PassedStored = append(out.PassedStored, idx)
 			if sc.Stale {
 				out.ExtraStaleCases++
@@ -455,24 +459,39 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 		}
 		return false
 	}
+	evSeen, evSummary := false, ""
 	drawCases := func() bool {
 		for k := 0; k < p.Count; k++ {
 			out.Case = k + 1
 			mustCharge(in, fr, 1)
 			r.Start(k + 1)
 			r.Record()
+			in.resetCaseEv()
 			result, shows := run(k)
 			out.Cases = k + 1
 			if result.Status == Refuted && !p.Listed && len(p.Inputs) > 0 {
-				result, shows = in.shrinkCase(r, result, shows, func() (Result, []func() Argument) { return run(k) })
+				result, shows = in.shrinkCase(r, result, shows, func() (Result, []func() Argument) { in.resetCaseEv(); return run(k) })
 			}
 			out.Status, out.Reason, out.Site, out.escaped, out.Message = result.Status, result.Reason, result.Site, result.escaped, result.Message
 			if result.Schedule != 0 {
 				out.Schedule = result.Schedule
 			}
 			if result.Status != Passed {
+				in.resetCaseEv()
 				out.Case, out.Arguments, out.Drawn, out.ShrunkTape = k+1, shown(shows), result.Drawn, result.ShrunkTape
 				return true
+			}
+			if !in.applyCaseEv(&out, law) {
+				out.Case, out.Arguments = k+1, shown(shows)
+				return true
+			}
+			if out.Evidence == "tested" && out.Reason != "" {
+				evSeen = true
+				if evSummary == "" {
+					evSummary = out.Reason
+				} else if out.Reason != evSummary {
+					evSummary += "; " + out.Reason
+				}
 			}
 		}
 		return false
@@ -488,6 +507,10 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 	}
 	if drawCases() {
 		return
+	}
+	if evSeen && law {
+		out.Evidence = "tested"
+		out.Reason = evSummary
 	}
 	out.Case = 0
 	return

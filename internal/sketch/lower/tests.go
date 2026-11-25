@@ -152,6 +152,7 @@ var testHelpers = []struct{ key, base string }{
 	{"LitDuration", "ergoLitDuration"}, {"LitEntries", "ergoLitEntries"},
 	{"Seed", "ergoSeed"}, {"Tests", "ergoTests"}, {"Only", "ergoOnly"}, {"Want", "ergoWant"},
 	{"Try", "ergoTry"}, {"Prop", "ergoProp"}, {"Receipt", "ergoReceipt"},
+	{"LastEvidence", "ergoLastEvidence"}, {"ApplyEvidence", "ergoApplyEvidence"}, {"FinishListedLaw", "ergoFinishListedLaw"},
 	{"Record", "ergoRecord"}, {"RecordSearch", "ergoRecordSearch"}, {"WriteReceipt", "ergoWriteReceipt"}, {"JSON", "ergoJSON"},
 	{"Graph", "ergoGraph"}, {"Node", "ergoNode"}, {"Explore", "ergoExplore"}, {"Signals", "ergoSignals"}, {"Block", "ergoBlock"},
 	{"ExploreAll", "ergoExploreAll"}, {"ExploreRuns", "ergoExploreRuns"}, {"Trace", "ergoTrace"}, {"Refute", "ergoRefute"},
@@ -1595,13 +1596,91 @@ func $Case(t *$Task.Task, name, at string, args func() string, body func() error
 // body that held a Script call and never released it fails with kind 1
 // and the report that names the Script and the operation (stdlib.md,
 // Testing 12); every exit empties the report for the next case.
+// $LastEvidence holds the structured case evidence taken at the end of the
+// most recent $Try call.
+var $LastEvidence $Runtime.CaseEvidence
+
+// $ApplyEvidence merges ev into r, downgrading proof to bounded tested
+// evidence whenever any structured case evidence was submitted.
+func $ApplyEvidence(r *$Rand, ev $Runtime.CaseEvidence) {
+	if !ev.Active || r == nil {
+		return
+	}
+	r.hasEvidence = true
+	r.evTested += ev.Tested
+	r.evMatched += ev.Matched
+	r.evPlanned += ev.Planned
+	if r.evScope == "" {
+		r.evScope = ev.Scope
+	} else if ev.Scope != "" && ev.Scope != r.evScope {
+		r.evScope += "; " + ev.Scope
+	}
+	if r.evSummary == "" {
+		r.evSummary = ev.Summary
+	} else if ev.Summary != "" {
+		r.evSummary += "; " + ev.Summary
+	}
+	if ev.Refuted {
+		r.evRefuted = true
+		if r.evReason == "" {
+			r.evReason = ev.Reason
+		}
+	}
+	if ev.Incomplete {
+		r.evIncomplete = true
+		if r.evReason == "" {
+			r.evReason = ev.Reason
+		}
+	}
+}
+
+// $FinishListedLaw finalizes a passing finite-domain law run: if the case
+// submitted structured bounded evidence, the verdict is downgraded to tested
+// (never proved); otherwise it is proved over the listed domain.
+func $FinishListedLaw(label string, cases int, r *$Rand) {
+	if r != nil && r.hasEvidence {
+		r.proved = false
+		summary := r.evSummary
+		if summary == "" {
+			summary = $strconv.Itoa(r.evTested) + " tested"
+		}
+		$fmt.Println("ok " + label + " (tested: " + summary + ")")
+		return
+	}
+	if r != nil {
+		r.proved = true
+	}
+	if cases == 1 {
+		$fmt.Println("ok " + label + " (proved: 1 case)")
+	} else {
+		$fmt.Println("ok " + label + " (proved: all " + $strconv.Itoa(cases) + " cases)")
+	}
+}
+
 func $Try(t *$Task.Task, at string, body func() error) (msg string, kind int, exit error) {
+	$Runtime.CaseEvidenceReset()
+	$LastEvidence = $Runtime.CaseEvidence{}
 	done := false
 	defer func() {
+		ev := $Runtime.CaseEvidenceTake()
+		$LastEvidence = ev
 		held := $Runtime.ScriptHeldTake()
 		if done {
 			if kind == 0 && held != "" {
 				msg, kind = held, 1
+			}
+			if kind == 0 && ev.Active && ev.Refuted {
+				reason := ev.Reason
+				if reason == "" {
+					reason = "bounded campaign refuted"
+				}
+				msg, kind = "refuted bounded campaign: "+reason, 1
+			} else if kind == 0 && ev.Active && ev.Incomplete {
+				reason := ev.Reason
+				if reason == "" {
+					reason = "bounded campaign hit a hard cap"
+				}
+				msg, kind = "incomplete bounded campaign: "+reason, 1
 			}
 			return
 		}
@@ -1640,6 +1719,7 @@ func $Prop(t *$Task.Task, name, at string, r *$Rand, draw func() (func() string,
 		args, body = draw()
 		return body()
 	})
+	$ApplyEvidence(r, $LastEvidence)
 	switch kind {
 	case 0:
 		return true
@@ -1812,14 +1892,28 @@ func $Record(label string, r *$Rand, why string) {
 		rec += ", \"status\": \"skipped\", \"why\": " + $JSON(why)
 	case r.skip != "" && r.failure == "":
 		rec += ", \"status\": \"skipped\", \"why\": " + $JSON(r.skip)
+	case r.hasEvidence && r.evIncomplete && !r.evRefuted && r.failure == "":
+		rec += ", \"status\": \"incomplete\", \"cases\": " + $strconv.Itoa(r.cases) + ", \"why\": " + $JSON(r.evReason)
 	case r.failure != "":
-		rec += ", \"status\": \"refuted\", \"cases\": " + $strconv.Itoa(r.cases) + ", \"counterexample\": " + $JSON(r.failure)
-	case r.proved:
+		if r.hasEvidence && r.evIncomplete && !r.evRefuted {
+			rec += ", \"status\": \"incomplete\", \"cases\": " + $strconv.Itoa(r.cases) + ", \"why\": " + $JSON(r.evReason) + ", \"counterexample\": " + $JSON(r.failure)
+		} else {
+			rec += ", \"status\": \"refuted\", \"cases\": " + $strconv.Itoa(r.cases) + ", \"counterexample\": " + $JSON(r.failure)
+		}
+	case r.proved && !r.hasEvidence:
 		rec += ", \"status\": \"proved\", \"cases\": " + $strconv.Itoa(r.cases)
 	default:
 		rec += ", \"status\": \"tested\", \"cases\": " + $strconv.Itoa(r.cases)
 	}
-	if r != nil && r.rewrite {
+	if r != nil && r.hasEvidence {
+		rec += ", \"evidence\": {\"tested\": " + $strconv.Itoa(r.evTested) +
+			", \"matched\": " + $strconv.Itoa(r.evMatched) +
+			", \"planned\": " + $strconv.Itoa(r.evPlanned) +
+			", \"scope\": " + $JSON(r.evScope) +
+			", \"summary\": " + $JSON(r.evSummary) +
+			", \"complete\": " + $strconv.FormatBool(!r.evIncomplete && !r.evRefuted) + "}"
+	}
+	if r != nil && r.rewrite && !r.hasEvidence {
 		insts := make([]string, len(r.instances))
 		for i, s := range r.instances {
 			insts[i] = $JSON(s)
@@ -2016,6 +2110,16 @@ type $Rand struct {
 	// and the reason it is a skip when none did.
 	distinct int
 	skip     string
+	// Structured bounded-testing evidence submitted by the law's case(s).
+	hasEvidence  bool
+	evTested     int
+	evMatched    int
+	evPlanned    int
+	evScope      string
+	evSummary    string
+	evRefuted    bool
+	evIncomplete bool
+	evReason     string
 }
 
 // start begins case i of a run: its size is i/4, and its world is empty,

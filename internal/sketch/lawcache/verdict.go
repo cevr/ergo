@@ -63,7 +63,7 @@ func FromLine(label, line string) (Verdict, bool) {
 	if strings.HasPrefix(text, "proved") {
 		v.Evidence = "proved"
 	}
-	v.Cases = leadingCount(strings.TrimPrefix(strings.TrimPrefix(text, "proved: "), "all "))
+	v.Cases = leadingCount(strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(text, "proved: "), "tested: "), "all "))
 	return v, true
 }
 

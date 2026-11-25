@@ -9,5 +9,5 @@ let onMemoryDisk = context { workflow.Store: fresh() }
 
 func fresh() Store {
 	let disk = fstest.NewMemory()
-	Store{path: "runs.log", files: disk, writes: disk, state: sync.NewRef(workflow.Empty()), broken: sync.NewRef(false), cut: sync.NewRef(-1), lock: sync.NewSemaphore(1)}
+	Store{path: "runs.log", files: disk, writes: disk, state: sync.NewRef(workflow.Empty()), broken: sync.NewRef(false), cut: sync.NewRef(-1), lock: sync.NewSemaphore(1), replayed: 0}
 }

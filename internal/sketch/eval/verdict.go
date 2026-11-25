@@ -42,6 +42,9 @@ func VerdictLine(r Result, source string) (line string, ok bool) {
 		case "proved":
 			return "ok " + r.Name + " (" + provedText(r.Cases) + ")", true
 		case "tested":
+			if r.Reason != "" {
+				return "ok " + r.Name + " (tested: " + r.Reason + ")", true
+			}
 			text := strconv.Itoa(r.Cases) + " cases"
 			if r.ExtraStaleCases > 0 {
 				text += ", " + strconv.Itoa(r.ExtraStaleCases) + " extra case(s): digest changed"

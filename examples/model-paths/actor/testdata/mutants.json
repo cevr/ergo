@@ -1,0 +1,15 @@
+{
+  "about": "Native actor path-testing pilot mutants (MODEL-BASED-PATH-TESTS P8).",
+  "mutants": [
+    {
+      "name": "paths-actor-stale-failure-payload",
+      "origin": "wf10 MODEL-BASED-PATH-TESTS P8",
+      "file": "examples/model-paths/actor/actor.ergo",
+      "decl": "failurePayload",
+      "from": "\tlet _ = unchanged\n\tlet _ = lastCode\n\terr",
+      "to": "\tif unchanged >= 2 {\n\t\tStepErr{Tag: err.Tag, Code: lastCode}\n\t} else {\n\t\terr\n\t}",
+      "rule": "On a typed failure returned by Ask after two unchanged probes, the live actor adapter must report the real failure payload rather than substituting the previous ask's code while keeping tag, output log, and state identical.",
+      "killers": ["examples/model-paths/actor:law:ActorSession.PathsAgree"]
+    }
+  ]
+}

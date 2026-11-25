@@ -1,10 +1,13 @@
 package sketchfront
 
 import (
+	"path"
 	"path/filepath"
+	"strings"
 
 	"ergo.local/prototype/internal/report"
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -97,4 +100,35 @@ func (f overlayFS) ReadFile(name string) ([]byte, error) {
 		return []byte(text), nil
 	}
 	return f.hostFS.ReadFile(name)
+}
+
+// stdOverrides returns replacement file texts for any stdlib source files
+// present in the overlay (keyed by std import path -> filename -> source).
+func (f overlayFS) stdOverrides() map[string]map[string]string {
+	var out map[string]map[string]string
+	const marker = "/internal/sketch/std/"
+	for p, text := range f.contents {
+		slash := filepath.ToSlash(filepath.Clean(p))
+		_, after, ok := strings.Cut(slash, marker)
+		if !ok {
+			continue
+		}
+		pkgPath := path.Dir(after)
+		fileName := path.Base(after)
+		srcs, isStd := stdlib.Package(pkgPath)
+		if !isStd {
+			continue
+		}
+		if _, exists := srcs[fileName]; !exists {
+			continue
+		}
+		if out == nil {
+			out = map[string]map[string]string{}
+		}
+		if out[pkgPath] == nil {
+			out[pkgPath] = map[string]string{}
+		}
+		out[pkgPath][fileName] = text
+	}
+	return out
 }

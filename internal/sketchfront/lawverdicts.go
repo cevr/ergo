@@ -131,6 +131,9 @@ func (v *evalVerdicts) Cached(law *check.Law, binding []check.LawProvider) (eval
 		}
 		return out, true
 	}
+	if stored.Evidence == "tested" && strings.HasPrefix(stored.Text, "tested: ") {
+		return eval.Verdict{Evidence: stored.Evidence, Cases: stored.Cases, TotalCases: stored.Cases, Reason: strings.TrimPrefix(stored.Text, "tested: ")}, true
+	}
 	return eval.Verdict{Evidence: stored.Evidence, Cases: stored.Cases, TotalCases: stored.Cases}, true
 }
 
@@ -144,6 +147,10 @@ func (v *evalVerdicts) Held(law *check.Law, binding []check.LawProvider, held ev
 		if err == nil {
 			v.store.Put(k, lawcache.Verdict{Evidence: held.Evidence, Cases: held.Cases, Text: string(data)}.Encode())
 		}
+		return
+	}
+	if held.Evidence == "tested" && held.Reason != "" {
+		v.store.Put(k, lawcache.Verdict{Evidence: "tested", Cases: held.Cases, Text: "tested: " + held.Reason}.Encode())
 		return
 	}
 	v.store.Put(k, lawcache.Evaluated(held.Evidence, held.Cases).Encode())

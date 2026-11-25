@@ -1,0 +1,52 @@
+// CaseStatus is whether a bounded testing campaign completed its declared
+// scope, observed a refutation/mismatch, or stopped incomplete at a hard bound.
+type CaseStatus = EvidenceComplete{} | EvidenceRefuted{Reason string} | EvidenceIncomplete{Reason string}
+
+// CaseEvidence is a general structured evidence report that any test or law
+// case may submit to the active test runner. Submitting CaseEvidence may
+// downgrade a finite law's "proved" verdict to "tested" or mark an incomplete
+// campaign non-green; it never promotes a tested verdict to proved.
+type CaseEvidence {
+	Tested  int,
+	Matched int,
+	Planned int,
+	Scope   string,
+	Summary string,
+	Status  CaseStatus,
+}
+
+// CaseEvidenceSink wraps a callback accepting one structured CaseEvidence record.
+type CaseEvidenceSink {
+	Submit func(ev CaseEvidence),
+}
+
+extern go ergo.local/prototype/runtime/v1.RecordCaseEvidence func recordCaseEvidence(
+	tested int,
+	matched int,
+	planned int,
+	scope string,
+	summary string,
+	complete bool,
+	refuted bool,
+	reason string,
+)
+
+// RecordCaseEvidence submits structured bounded-test evidence for the running
+// test or law case. Outside a test runner it is a harmless no-op.
+func RecordCaseEvidence(ev CaseEvidence) {
+	let (complete, refuted, reason) = match ev.Status {
+	case EvidenceComplete:
+		(true, false, "")
+	case EvidenceRefuted as ref:
+		(false, true, ref.Reason)
+	case EvidenceIncomplete as inc:
+		(false, false, inc.Reason)
+	}
+	recordCaseEvidence(ev.Tested, ev.Matched, ev.Planned, ev.Scope, ev.Summary, complete, refuted, reason)
+}
+
+// ActiveEvidenceSink returns a CaseEvidenceSink wired to the active test
+// runner's case-evidence channel.
+func ActiveEvidenceSink() CaseEvidenceSink {
+	CaseEvidenceSink{Submit: func(ev CaseEvidence) { RecordCaseEvidence(ev) }}
+}

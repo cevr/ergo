@@ -144,24 +144,43 @@ func (in *interp) contextLaw(law *check.Law, lc *check.LawContext, res Result) (
 		}
 		return result, shows
 	}
+	evSeen, evSummary := false, ""
 	for k := 0; k < p.Count; k++ {
 		out.Case = k + 1
 		mustCharge(in, fr, 1)
 		r.Start(k + 1)
 		r.Record()
+		in.resetCaseEv()
 		result, shows := run(k)
 		out.Cases = k + 1
 		if result.Status == Refuted && !p.Listed && len(law.Params) > 0 {
-			result, shows = in.shrinkCase(r, result, shows, func() (Result, []func() Argument) { return run(k) })
+			result, shows = in.shrinkCase(r, result, shows, func() (Result, []func() Argument) { in.resetCaseEv(); return run(k) })
 		}
 		out.Status, out.Reason, out.Site, out.escaped, out.Message = result.Status, result.Reason, result.Site, result.escaped, result.Message
 		if result.Schedule != 0 {
 			out.Schedule = result.Schedule
 		}
 		if result.Status != Passed {
+			in.resetCaseEv()
 			out.Case, out.Arguments, out.Drawn, out.ShrunkTape = k+1, shown(shows), result.Drawn, result.ShrunkTape
 			return
 		}
+		if !in.applyCaseEv(&out, true) {
+			out.Case, out.Arguments = k+1, shown(shows)
+			return
+		}
+		if out.Evidence == "tested" && out.Reason != "" {
+			evSeen = true
+			if evSummary == "" {
+				evSummary = out.Reason
+			} else if out.Reason != evSummary {
+				evSummary += "; " + out.Reason
+			}
+		}
+	}
+	if evSeen {
+		out.Evidence = "tested"
+		out.Reason = evSummary
 	}
 	out.Case = 0
 	return

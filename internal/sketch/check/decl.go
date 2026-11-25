@@ -692,6 +692,13 @@ func (c *checker) importSpec(fi *fileInfo, spec *syntax.ImportSpec) {
 		// A std path always names std, whatever importer Check was given:
 		// a program package cannot shadow log or queue (C30).
 		imp = Std
+		if ov, ok := c.imp.(*stdImporter); ok {
+			imp = ov
+		} else if p, ok := c.imp.(StdOverrideProvider); ok {
+			if ov := p.StdOverride(); ov != nil && ov.imp != nil {
+				imp = ov.imp
+			}
+		}
 	}
 	pkg, err := imp.Import(path)
 	if err != nil || pkg == nil {
