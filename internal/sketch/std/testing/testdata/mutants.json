@@ -1,0 +1,45 @@
+{
+  "about": "Stateful model-based testing (testing.Model, Agrees, AgreesAnd) mutants for PROPERTY-TESTING P4.",
+  "mutants": [
+    {
+      "name": "model-offer-ignores-state",
+      "origin": "wf10 PROPERTY-TESTING P4",
+      "file": "internal/sketch/std/testing/model.ergo",
+      "decl": "runModel",
+      "from": "\t\tlet a = m.Offer(state)",
+      "to": "\t\tlet a = m.Offer(m.Start)",
+      "rule": "Agrees passes the current model state to m.Offer(state) at each step, not m.Start.",
+      "killers": ["internal/sketch/std/testing:law:DivergenceIsFoundAndReplays"]
+    },
+    {
+      "name": "model-compares-last-only",
+      "origin": "wf10 PROPERTY-TESTING P4",
+      "file": "internal/sketch/std/testing/model.ergo",
+      "decl": "runModel",
+      "from": "\t\tif want != got {",
+      "to": "\t\tif step == steps-1 && want != got {",
+      "rule": "Agrees compares want == got at every step so intermediate transient divergences are caught immediately.",
+      "killers": ["internal/sketch/std/testing:law:DivergenceIsFoundAndReplays"]
+    },
+    {
+      "name": "model-diverged-acts-truncated",
+      "origin": "wf10 PROPERTY-TESTING P4",
+      "file": "internal/sketch/std/testing/model.ergo",
+      "decl": "runModel",
+      "from": "\t\t\treturn Diverged[A, V]{Acts: played, At: step, Want: want, Got: got}",
+      "to": "\t\t\treturn Diverged[A, V]{Acts: played[0:step], At: step, Want: want, Got: got}",
+      "rule": "Diverged.Acts includes the complete prefix up to and including the diverging act at step At so replays reach Want != Got.",
+      "killers": ["internal/sketch/std/testing:law:DivergenceIsFoundAndReplays"]
+    },
+    {
+      "name": "model-step-order-swapped",
+      "origin": "wf10 PROPERTY-TESTING P4",
+      "file": "internal/sketch/std/testing/model.ergo",
+      "decl": "runModel",
+      "from": "\t\tlet (nextState, want) = m.Step(state, a)\n\t\ttry st.Do(a)",
+      "to": "\t\ttry st.Do(a)\n\t\tlet (nextState, want) = m.Step(state, a)",
+      "rule": "Agrees steps the pure story model before applying the act to the stage.",
+      "killers": ["internal/sketch/std/testing:law:StoryStepsBeforeStage"]
+    }
+  ]
+}

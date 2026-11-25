@@ -350,10 +350,10 @@ type Saga machine[Attempt, Signal] {
 
 <!-- quote examples/pipeline/pipeline/scene.ergo SceneAgreesWithStory -->
 ```go
-// SceneAgreesWithStory: the program, played act by act with a scripted
-// runner and a manual clock, ends in the desk that the story gives.
-law SceneAgreesWithStory(acts []Act, flaky []int) {
-	let want = Story(acts, flaky)
+// SceneAgreesWithStory: the program, driven step by step through
+// testing.Model against the reference story with state-dependent acts, a
+// scripted runner and a manual clock, agrees with the story at every step.
+law SceneAgreesWithStory(flaky []int, seed int) {
 	let s = testing.Script[Runner]{}
 	s.Run.Answer(func(id string, stage int, attempt int) bool fails Offline {
 		match answerOf(flaky, stage, attempt) {
@@ -364,15 +364,35 @@ law SceneAgreesWithStory(acts []Act, flaky []int) {
 		}
 	})
 	let clock = time.NewManual(0)
-	let got = with context { Scheduler: clock, Runner: s } { scene(acts, clock) } catch {
-	case domain.Conflict, domain.Reused, domain.Unkept, Unavailable:
-		return false
+	let m = sceneModel(flaky)
+	let rawSeed = if seed < 0 { -seed } else { seed }
+	let cfg = gen.Config{Seed: uint64(rawSeed) + uint64(1), Cases: 1, Shrinks: 0, MaxDraws: 4096, MaxRejected: 10}
+	let o = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		with context { Scheduler: clock, Runner: s } {
+			let (model, desk) = opened(memory.New[Entry]()) catch {
+			case domain.Conflict, domain.Reused, domain.Unkept:
+				return false
+			}
+			let st = stageOf(desk, clock)
+			testing.Agrees(m, st, 8) catch {
+			case testing.Diverged, testing.Refused:
+				model.Close()
+				return false
+			}
+			model.Close()
+			true
+		}
+	})
+	match o {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
 	}
-	got == want
 }
 ```
 
-A **stage** (`testing.Stage`) is the one kernel that a domain scene, a UI scene and a page scene share: play an act, settle, advance the clock, show. `testing.Play(st, steps)` plays a list of `Step`s and gives what the stage shows after each, and `actor.NewStage(a, clock)` is the stage of an actor over a `time.Manual` (stdlib.md, Testing 14); its law `ActorStageAgreesWithFold` holds each settled show to the fold.
+A **stage** (`testing.Stage`) is the one kernel that a domain scene, a UI scene and a page scene share: play an act, settle, advance the clock, show. `testing.Play(st, steps)` plays a list of `Step`s and gives what the stage shows after each, and `actor.NewStage(a, clock)` is the stage of an actor over a `time.Manual` (stdlib.md, Testing 14); its law `ActorStageAgreesWithFold` holds each settled show to the fold. A **model** (`testing.Model[S, A, V]`) pairs an initial state `Start`, a state-dependent act generator `Offer(s S) A needs gen.Draws`, and a pure story step `Step(s S, a A) (S, V)` (`testing.ModelOf` adapts a pure Ergo `Machine` directly). `testing.Agrees(m, st, steps)` draws valid acts from the current story state, computes `m.Step` before acting on `st`, settles, and compares `want == got` at every step; on divergence it fails with `Diverged{Acts, At, Want, Got}`, which `testing.FormatTest` renders as a paste-able scene `test` block. `testing.AgreesAnd` and `testing.AgreesAndEnd` step `std/temporal` formulas over each observed stage value alongside model agreement.
 
 ## 8. A UI is a view of a domain
 
