@@ -5362,6 +5362,9 @@ type CallbackPanic struct {
 	Value any
 	// Stack is the stack of the panic (runtime/debug.Stack).
 	Stack []byte
+	// tunnel holds an Ergo typed-failure tunnel error (v1.GoTunnel) so the
+	// enclosing typed C call returns it as its error instead of panicking.
+	tunnel error
 }
 
 func (p *CallbackPanic) Error() string {
@@ -5399,7 +5402,14 @@ func cbContain(typedef string, done *bool) {
 	}
 	p, ok := v.(*CallbackPanic)
 	if !ok {
-		p = &CallbackPanic{Typedef: typedef, Value: v, Stack: debug.Stack()}
+		if te, isTunnel := v.(interface {
+			error
+			IsErgoTunnel()
+		}); isTunnel {
+			p = &CallbackPanic{Typedef: typedef, Value: te, tunnel: te}
+		} else {
+			p = &CallbackPanic{Typedef: typedef, Value: v, Stack: debug.Stack()}
+		}
 	}
 	t := cbThread()
 	cbPendMu.Lock()
@@ -5984,6 +5994,9 @@ func SceneSetHooks(context *Context, node Handle, sceneHooks SceneHooks) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -5991,6 +6004,9 @@ func SceneSetHooks(context *Context, node Handle, sceneHooks SceneHooks) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -6062,6 +6078,9 @@ func SceneFrameStepWithGeometry(context *Context, session Handle, previous Scene
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return SceneFrameRequest{}, SceneFrameGeometry{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return SceneFrameRequest{}, SceneFrameGeometry{}, err
@@ -6072,6 +6091,9 @@ func SceneFrameStepWithGeometry(context *Context, session Handle, previous Scene
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return SceneFrameRequest{}, SceneFrameGeometry{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _o6, _o7, nil
@@ -6136,6 +6158,9 @@ func SceneFrameGetPaintSlots(context *Context, session Handle, recordRequest Sce
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -6147,6 +6172,9 @@ func SceneFrameGetPaintSlots(context *Context, session Handle, recordRequest Sce
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out5, nil
@@ -6180,6 +6208,9 @@ func SceneFrameCancel(context *Context, session Handle, frameId uint64) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -6187,6 +6218,9 @@ func SceneFrameCancel(context *Context, session Handle, frameId uint64) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -6226,6 +6260,9 @@ func SceneCreateNode(context *Context, session Handle, kind uint32, num uint32) 
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return Handle{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return Handle{}, err
@@ -6234,6 +6271,9 @@ func SceneCreateNode(context *Context, session Handle, kind uint32, num uint32) 
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return Handle{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out4, nil
@@ -6272,6 +6312,9 @@ func SceneDestroyNode(context *Context, node Handle) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -6280,6 +6323,9 @@ func SceneDestroyNode(context *Context, node Handle) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -6318,6 +6364,9 @@ func SceneMoveNode(context *Context, node Handle, parent Handle, index uint32) e
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -6325,6 +6374,9 @@ func SceneMoveNode(context *Context, node Handle, parent Handle, index uint32) e
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -6357,6 +6409,9 @@ func SceneClearChildren(context *Context, node Handle) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -6364,6 +6419,9 @@ func SceneClearChildren(context *Context, node Handle) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -6419,6 +6477,9 @@ func SceneSetMeasure(context *Context, node Handle, sceneMeasureCallback SceneMe
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -6429,6 +6490,9 @@ func SceneSetMeasure(context *Context, node Handle, sceneMeasureCallback SceneMe
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -6466,6 +6530,9 @@ func SceneHasMeasure(context *Context, node Handle) (uint32, error) {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -6474,6 +6541,9 @@ func SceneHasMeasure(context *Context, node Handle) (uint32, error) {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out2, nil
@@ -6511,6 +6581,9 @@ func SceneReachesHooks(context *Context, node Handle) (uint32, error) {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -6519,6 +6592,9 @@ func SceneReachesHooks(context *Context, node Handle) (uint32, error) {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out2, nil
@@ -6556,6 +6632,9 @@ func ScenePainted(context *Context, node Handle) (uint32, error) {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -6564,6 +6643,9 @@ func ScenePainted(context *Context, node Handle) (uint32, error) {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out2, nil
@@ -6596,6 +6678,9 @@ func SceneMarkDirty(context *Context, node Handle) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -6603,6 +6688,9 @@ func SceneMarkDirty(context *Context, node Handle) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -6623,12 +6711,18 @@ func SceneSetStyle(context *Context, node Handle, group uint32, kind uint32, edg
 	if err := statusError(_r); err != nil {
 		_pin.Unpin()
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
 	}
 	_pin.Unpin()
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -6670,6 +6764,9 @@ func SceneGetStyle(context *Context, node Handle, group uint32, kind uint32, edg
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return SceneStyleValue{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return SceneStyleValue{}, err
@@ -6678,6 +6775,9 @@ func SceneGetStyle(context *Context, node Handle, group uint32, kind uint32, edg
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return SceneStyleValue{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out5, nil
@@ -6716,6 +6816,9 @@ func SceneSetPaint(context *Context, node Handle, scenePaintOptions ScenePaintOp
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -6723,6 +6826,9 @@ func SceneSetPaint(context *Context, node Handle, scenePaintOptions ScenePaintOp
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -6772,6 +6878,9 @@ func SceneFlush(context *Context, updates []byte) (uint32, error) {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -6783,6 +6892,9 @@ func SceneFlush(context *Context, updates []byte) (uint32, error) {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out3, nil
@@ -6820,6 +6932,9 @@ func SceneSetSurface(context *Context, node Handle, buffer Handle) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -6827,6 +6942,9 @@ func SceneSetSurface(context *Context, node Handle, buffer Handle) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -6899,6 +7017,9 @@ func SceneSetBoxDetails(context *Context, node Handle, sceneBoxDetails SceneBoxD
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -6912,6 +7033,9 @@ func SceneSetBoxDetails(context *Context, node Handle, sceneBoxDetails SceneBoxD
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -6949,6 +7073,9 @@ func SceneSetViewport(context *Context, node Handle, viewport Handle) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -6956,6 +7083,9 @@ func SceneSetViewport(context *Context, node Handle, viewport Handle) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -6994,6 +7124,9 @@ func SceneSetScroll(context *Context, node Handle, sceneScrollOptions SceneScrol
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -7001,6 +7134,9 @@ func SceneSetScroll(context *Context, node Handle, sceneScrollOptions SceneScrol
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -7058,6 +7194,9 @@ func SceneSetScrollArrow(context *Context, node Handle, axis uint32, end uint32,
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -7068,6 +7207,9 @@ func SceneSetScrollArrow(context *Context, node Handle, axis uint32, end uint32,
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -7091,12 +7233,18 @@ func SceneScrollTo(context *Context, node Handle, x float64, y float64, flags ui
 	if err := statusError(_r); err != nil {
 		_pin.Unpin()
 		if _p != nil {
+			if _p.tunnel != nil {
+				return SceneScrollState{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return SceneScrollState{}, err
 	}
 	_pin.Unpin()
 	if _p != nil {
+		if _p.tunnel != nil {
+			return SceneScrollState{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _o5, nil
@@ -7142,6 +7290,9 @@ func SceneScrollRequest(context *Context, node Handle, kind uint32, target Handl
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return SceneScrollState{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return SceneScrollState{}, err
@@ -7149,6 +7300,9 @@ func SceneScrollRequest(context *Context, node Handle, kind uint32, target Handl
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return SceneScrollState{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _o6, nil
@@ -7186,6 +7340,9 @@ func SceneGetScroll(context *Context, node Handle) (SceneScrollState, error) {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return SceneScrollState{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return SceneScrollState{}, err
@@ -7193,6 +7350,9 @@ func SceneGetScroll(context *Context, node Handle) (SceneScrollState, error) {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return SceneScrollState{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _o2, nil
@@ -7226,6 +7386,9 @@ func SceneSetFocus(context *Context, node Handle, focused uint32) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -7233,6 +7396,9 @@ func SceneSetFocus(context *Context, node Handle, focused uint32) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -7271,6 +7437,9 @@ func SceneSetSlider(context *Context, node Handle, sceneSliderOptions SceneSlide
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -7278,6 +7447,9 @@ func SceneSetSlider(context *Context, node Handle, sceneSliderOptions SceneSlide
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -7333,6 +7505,9 @@ func SceneSetArrow(context *Context, node Handle, sceneArrowOptions SceneArrowOp
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -7343,6 +7518,9 @@ func SceneSetArrow(context *Context, node Handle, sceneArrowOptions SceneArrowOp
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -7381,6 +7559,9 @@ func SceneGetSliderThumb(context *Context, node Handle) (SceneSliderThumb, error
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return SceneSliderThumb{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return SceneSliderThumb{}, err
@@ -7389,6 +7570,9 @@ func SceneGetSliderThumb(context *Context, node Handle) (SceneSliderThumb, error
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return SceneSliderThumb{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out2, nil
@@ -7438,6 +7622,9 @@ func SceneSetText(context *Context, node Handle, bytes []byte) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -7448,6 +7635,9 @@ func SceneSetText(context *Context, node Handle, bytes []byte) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -7535,6 +7725,9 @@ func SceneSetStyledText(context *Context, node Handle, bytes []byte, chunks []St
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -7551,6 +7744,9 @@ func SceneSetStyledText(context *Context, node Handle, bytes []byte, chunks []St
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -7589,6 +7785,9 @@ func SceneSetTextOptions(context *Context, node Handle, sceneTextOptions SceneTe
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -7596,6 +7795,9 @@ func SceneSetTextOptions(context *Context, node Handle, sceneTextOptions SceneTe
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -7639,6 +7841,9 @@ func SceneSetTextSelection(context *Context, node Handle, sceneTextSelectionOpti
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -7647,6 +7852,9 @@ func SceneSetTextSelection(context *Context, node Handle, sceneTextSelectionOpti
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out3, nil
@@ -7684,6 +7892,9 @@ func SceneGetTextSelection(context *Context, node Handle) (uint64, error) {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -7692,6 +7903,9 @@ func SceneGetTextSelection(context *Context, node Handle) (uint64, error) {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out2, nil
@@ -7746,6 +7960,9 @@ func SceneGetSelectedText(context *Context, node Handle, bytes []byte) (uint32, 
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -7757,6 +7974,9 @@ func SceneGetSelectedText(context *Context, node Handle, bytes []byte) (uint32, 
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out4, nil
@@ -7811,6 +8031,9 @@ func SceneGetText(context *Context, node Handle, bytes []byte) (uint32, error) {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -7822,6 +8045,9 @@ func SceneGetText(context *Context, node Handle, bytes []byte) (uint32, error) {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out4, nil
@@ -7860,6 +8086,9 @@ func SceneGetTextInfo(context *Context, node Handle) (SceneTextInfo, error) {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return SceneTextInfo{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return SceneTextInfo{}, err
@@ -7868,6 +8097,9 @@ func SceneGetTextInfo(context *Context, node Handle) (SceneTextInfo, error) {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return SceneTextInfo{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out2, nil
@@ -7923,6 +8155,9 @@ func SceneGetTextLines(context *Context, node Handle, firstLine uint32, lines []
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -7934,6 +8169,9 @@ func SceneGetTextLines(context *Context, node Handle, firstLine uint32, lines []
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out5, nil
@@ -7973,6 +8211,9 @@ func SceneGetTextByteAt(context *Context, node Handle, x int32, y int32) (uint32
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -7981,6 +8222,9 @@ func SceneGetTextByteAt(context *Context, node Handle, x int32, y int32) (uint32
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out4, nil
@@ -8020,6 +8264,9 @@ func SceneGetLayout(context *Context, node Handle, observation uint32) (SceneLay
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return SceneLayout{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return SceneLayout{}, err
@@ -8028,6 +8275,9 @@ func SceneGetLayout(context *Context, node Handle, observation uint32) (SceneLay
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return SceneLayout{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out3, nil
@@ -8073,6 +8323,9 @@ func ScenePaint(context *Context, session Handle, background [4]uint16, useMouse
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return SceneFrameRequest{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return SceneFrameRequest{}, err
@@ -8081,6 +8334,9 @@ func ScenePaint(context *Context, session Handle, background [4]uint16, useMouse
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return SceneFrameRequest{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out5, nil
@@ -8120,6 +8376,9 @@ func SceneHitTest(context *Context, session Handle, x int32, y int32) (uint32, e
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -8128,6 +8387,9 @@ func SceneHitTest(context *Context, session Handle, x int32, y int32) (uint32, e
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out4, nil
@@ -8168,6 +8430,9 @@ func SceneHitTestExcluding(context *Context, session Handle, x int32, y int32, e
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -8176,6 +8441,9 @@ func SceneHitTestExcluding(context *Context, session Handle, x int32, y int32, e
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out5, nil
@@ -8214,6 +8482,9 @@ func SceneGetStats(context *Context, session Handle) (SceneStats, error) {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return SceneStats{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return SceneStats{}, err
@@ -8222,6 +8493,9 @@ func SceneGetStats(context *Context, session Handle) (SceneStats, error) {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return SceneStats{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out2, nil
@@ -8255,6 +8529,9 @@ func SceneSetDebugFlags(context *Context, session Handle, flags uint32) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -8262,6 +8539,9 @@ func SceneSetDebugFlags(context *Context, session Handle, flags uint32) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -8300,6 +8580,9 @@ func SceneGetCursorState(context *Context, session Handle) (SceneCursorState, er
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return SceneCursorState{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return SceneCursorState{}, err
@@ -8308,6 +8591,9 @@ func SceneGetCursorState(context *Context, session Handle) (SceneCursorState, er
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return SceneCursorState{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out2, nil
@@ -8351,6 +8637,9 @@ func SceneFrameCopyBuffer(context *Context, session Handle, sceneFrameRequest Sc
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -8358,6 +8647,9 @@ func SceneFrameCopyBuffer(context *Context, session Handle, sceneFrameRequest Sc
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -8395,6 +8687,9 @@ func SceneMeasureLayout(context *Context, session Handle, root Handle) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -8402,6 +8697,9 @@ func SceneMeasureLayout(context *Context, session Handle, root Handle) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -8470,6 +8768,9 @@ func SessionRenderSplit(context *Context, session Handle, sceneFrameRequest *Sce
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -8481,6 +8782,9 @@ func SessionRenderSplit(context *Context, session Handle, sceneFrameRequest *Sce
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out7, nil
@@ -8524,6 +8828,9 @@ func SessionSplitControl(context *Context, session Handle, splitControl SplitCon
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -8532,6 +8839,9 @@ func SessionSplitControl(context *Context, session Handle, splitControl SplitCon
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out3, nil
@@ -8584,6 +8894,9 @@ func SessionSetScreen(context *Context, session Handle, alternate uint32, width 
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -8594,6 +8907,9 @@ func SessionSetScreen(context *Context, session Handle, alternate uint32, width 
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -8631,6 +8947,9 @@ func SessionSyncDetached(context *Context, session Handle, parent Handle) error 
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -8638,6 +8957,9 @@ func SessionSyncDetached(context *Context, session Handle, parent Handle) error 
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -8688,6 +9010,9 @@ func UnicodeCreate(context *Context, bytes []byte, widthMethod uint32) (Handle, 
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return Handle{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return Handle{}, err
@@ -8699,6 +9024,9 @@ func UnicodeCreate(context *Context, bytes []byte, widthMethod uint32) (Handle, 
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return Handle{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out4, nil
@@ -8731,6 +9059,9 @@ func UnicodeDestroy(context *Context, unicode Handle) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -8738,6 +9069,9 @@ func UnicodeDestroy(context *Context, unicode Handle) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -8792,6 +9126,9 @@ func UnicodeGet(context *Context, unicode Handle, characters []UnicodeChar) (uin
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -8803,6 +9140,9 @@ func UnicodeGet(context *Context, unicode Handle, characters []UnicodeChar) (uin
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out4, nil
@@ -8860,6 +9200,9 @@ func BufferDrawUnicode(context *Context, target Handle, frame SceneFrameRequest,
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -8867,6 +9210,9 @@ func BufferDrawUnicode(context *Context, target Handle, frame SceneFrameRequest,
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -8905,6 +9251,9 @@ func EmbeddedTerminalCreate(context *Context, embeddedTerminalOptions EmbeddedTe
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return Handle{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return Handle{}, err
@@ -8913,6 +9262,9 @@ func EmbeddedTerminalCreate(context *Context, embeddedTerminalOptions EmbeddedTe
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return Handle{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out2, nil
@@ -8945,6 +9297,9 @@ func EmbeddedTerminalDestroy(context *Context, terminal Handle) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -8952,6 +9307,9 @@ func EmbeddedTerminalDestroy(context *Context, terminal Handle) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -9001,6 +9359,9 @@ func EmbeddedTerminalWrite(context *Context, terminal Handle, bytes []byte) erro
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -9011,6 +9372,9 @@ func EmbeddedTerminalWrite(context *Context, terminal Handle, bytes []byte) erro
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -9045,6 +9409,9 @@ func EmbeddedTerminalResize(context *Context, terminal Handle, cols uint32, rows
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -9052,6 +9419,9 @@ func EmbeddedTerminalResize(context *Context, terminal Handle, cols uint32, rows
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -9086,6 +9456,9 @@ func EmbeddedTerminalCommand(context *Context, terminal Handle, command uint32, 
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -9093,6 +9466,9 @@ func EmbeddedTerminalCommand(context *Context, terminal Handle, command uint32, 
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -9129,6 +9505,9 @@ func EmbeddedTerminalSetSelection(context *Context, terminal Handle, startX uint
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -9136,6 +9515,9 @@ func EmbeddedTerminalSetSelection(context *Context, terminal Handle, startX uint
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -9190,6 +9572,9 @@ func EmbeddedTerminalGetSelectedText(context *Context, terminal Handle, bytes []
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -9201,6 +9586,9 @@ func EmbeddedTerminalGetSelectedText(context *Context, terminal Handle, bytes []
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out4, nil
@@ -9246,6 +9634,9 @@ func EmbeddedTerminalCompose(context *Context, terminal Handle, target Handle, f
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -9253,6 +9644,9 @@ func EmbeddedTerminalCompose(context *Context, terminal Handle, target Handle, f
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -9291,6 +9685,9 @@ func EmbeddedTerminalCursorGet(context *Context, terminal Handle) (EmbeddedTermi
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return EmbeddedTerminalCursor{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return EmbeddedTerminalCursor{}, err
@@ -9299,6 +9696,9 @@ func EmbeddedTerminalCursorGet(context *Context, terminal Handle) (EmbeddedTermi
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return EmbeddedTerminalCursor{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out2, nil
@@ -9337,6 +9737,9 @@ func EmbeddedTerminalScrollbarGet(context *Context, terminal Handle) (EmbeddedTe
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return EmbeddedTerminalScrollbar{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return EmbeddedTerminalScrollbar{}, err
@@ -9345,6 +9748,9 @@ func EmbeddedTerminalScrollbarGet(context *Context, terminal Handle) (EmbeddedTe
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return EmbeddedTerminalScrollbar{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out2, nil
@@ -9439,6 +9845,9 @@ func EmbeddedTerminalEncodeKey(context *Context, terminal Handle, embeddedTermin
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -9456,6 +9865,9 @@ func EmbeddedTerminalEncodeKey(context *Context, terminal Handle, embeddedTermin
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out9, nil
@@ -9516,6 +9928,9 @@ func EmbeddedTerminalEncodeMouse(context *Context, terminal Handle, embeddedTerm
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -9527,6 +9942,9 @@ func EmbeddedTerminalEncodeMouse(context *Context, terminal Handle, embeddedTerm
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out5, nil
@@ -9598,6 +10016,9 @@ func EmbeddedTerminalEncodePaste(context *Context, terminal Handle, input []byte
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -9612,6 +10033,9 @@ func EmbeddedTerminalEncodePaste(context *Context, terminal Handle, input []byte
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out6, nil
@@ -9667,6 +10091,9 @@ func EmbeddedTerminalEncodeFocus(context *Context, terminal Handle, focused uint
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -9678,6 +10105,9 @@ func EmbeddedTerminalEncodeFocus(context *Context, terminal Handle, focused uint
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out5, nil
@@ -9732,6 +10162,9 @@ func EmbeddedTerminalDrainResponses(context *Context, terminal Handle, bytes []b
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -9743,6 +10176,9 @@ func EmbeddedTerminalDrainResponses(context *Context, terminal Handle, bytes []b
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out4, nil
@@ -9781,6 +10217,9 @@ func EditBufferCreate(context *Context, editBufferOptions EditBufferOptions) (Ha
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return Handle{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return Handle{}, err
@@ -9789,6 +10228,9 @@ func EditBufferCreate(context *Context, editBufferOptions EditBufferOptions) (Ha
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return Handle{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out2, nil
@@ -9821,6 +10263,9 @@ func EditBufferDestroy(context *Context, editBuffer Handle) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -9828,6 +10273,9 @@ func EditBufferDestroy(context *Context, editBuffer Handle) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -9867,6 +10315,9 @@ func EditorViewCreate(context *Context, editBuffer Handle, width uint32, height 
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return Handle{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return Handle{}, err
@@ -9875,6 +10326,9 @@ func EditorViewCreate(context *Context, editBuffer Handle, width uint32, height 
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return Handle{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out4, nil
@@ -9907,6 +10361,9 @@ func EditorViewDestroy(context *Context, view Handle) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -9914,6 +10371,9 @@ func EditorViewDestroy(context *Context, view Handle) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -9946,6 +10406,9 @@ func SyntaxStyleCreate(context *Context) (Handle, error) {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return Handle{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return Handle{}, err
@@ -9954,6 +10417,9 @@ func SyntaxStyleCreate(context *Context) (Handle, error) {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return Handle{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out1, nil
@@ -9986,6 +10452,9 @@ func SyntaxStyleDestroy(context *Context, style Handle) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -9993,6 +10462,9 @@ func SyntaxStyleDestroy(context *Context, style Handle) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -10030,6 +10502,9 @@ func EditBufferSetSyntaxStyle(context *Context, editBuffer Handle, style Handle)
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -10037,6 +10512,9 @@ func EditBufferSetSyntaxStyle(context *Context, editBuffer Handle, style Handle)
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -10087,6 +10565,9 @@ func EditBufferSetText(context *Context, editBuffer Handle, bytes []byte, preser
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -10097,6 +10578,9 @@ func EditBufferSetText(context *Context, editBuffer Handle, bytes []byte, preser
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -10146,6 +10630,9 @@ func EditBufferInsertText(context *Context, editBuffer Handle, bytes []byte) err
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -10156,6 +10643,9 @@ func EditBufferInsertText(context *Context, editBuffer Handle, bytes []byte) err
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -10192,6 +10682,9 @@ func EditBufferDeleteRange(context *Context, editBuffer Handle, startRow uint32,
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -10199,6 +10692,9 @@ func EditBufferDeleteRange(context *Context, editBuffer Handle, startRow uint32,
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -10233,6 +10729,9 @@ func EditBufferSetCursor(context *Context, editBuffer Handle, row uint32, col ui
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -10240,6 +10739,9 @@ func EditBufferSetCursor(context *Context, editBuffer Handle, row uint32, col ui
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -10294,6 +10796,9 @@ func EditBufferGetText(context *Context, editBuffer Handle, bytes []byte) (uint3
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -10305,6 +10810,9 @@ func EditBufferGetText(context *Context, editBuffer Handle, bytes []byte) (uint3
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out4, nil
@@ -10343,6 +10851,9 @@ func EditBufferGetInfo(context *Context, editBuffer Handle) (EditBufferInfo, err
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return EditBufferInfo{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return EditBufferInfo{}, err
@@ -10351,6 +10862,9 @@ func EditBufferGetInfo(context *Context, editBuffer Handle) (EditBufferInfo, err
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return EditBufferInfo{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out2, nil
@@ -10384,6 +10898,9 @@ func EditBufferSetTabWidth(context *Context, editBuffer Handle, width uint32) er
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -10391,6 +10908,9 @@ func EditBufferSetTabWidth(context *Context, editBuffer Handle, width uint32) er
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -10425,6 +10945,9 @@ func EditBufferCommand(context *Context, handle Handle, command uint32, argument
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -10432,6 +10955,9 @@ func EditBufferCommand(context *Context, handle Handle, command uint32, argument
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -10487,6 +11013,9 @@ func EditBufferHistory(context *Context, handle Handle, redo uint32, bytes []byt
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -10498,6 +11027,9 @@ func EditBufferHistory(context *Context, handle Handle, redo uint32, bytes []byt
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out5, nil
@@ -10539,6 +11071,9 @@ func EditBufferGetPosition(context *Context, handle Handle, query uint32, a uint
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return EditPosition{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return EditPosition{}, err
@@ -10547,6 +11082,9 @@ func EditBufferGetPosition(context *Context, handle Handle, query uint32, a uint
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return EditPosition{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out5, nil
@@ -10606,6 +11144,9 @@ func EditBufferGetRange(context *Context, handle Handle, byCoords uint32, startR
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -10617,6 +11158,9 @@ func EditBufferGetRange(context *Context, handle Handle, byCoords uint32, startR
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out9, nil
@@ -10656,6 +11200,9 @@ func EditBufferConvertOffset(context *Context, editBuffer Handle, conversion uin
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -10664,6 +11211,9 @@ func EditBufferConvertOffset(context *Context, editBuffer Handle, conversion uin
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out4, nil
@@ -10718,6 +11268,9 @@ func EditBufferMeasureText(context *Context, editBuffer Handle, bytes []byte) (u
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -10729,6 +11282,9 @@ func EditBufferMeasureText(context *Context, editBuffer Handle, bytes []byte) (u
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out4, nil
@@ -10780,6 +11336,9 @@ func EditMeasureText(context *Context, bytes []byte, widthMethod uint32, tabWidt
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -10791,6 +11350,9 @@ func EditMeasureText(context *Context, bytes []byte, widthMethod uint32, tabWidt
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out5, nil
@@ -10830,6 +11392,9 @@ func EditBufferSetDefaults(context *Context, handle Handle, mask uint32, editorS
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -10837,6 +11402,9 @@ func EditBufferSetDefaults(context *Context, handle Handle, mask uint32, editorS
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -10897,6 +11465,9 @@ func SyntaxStyleRegister(context *Context, handle Handle, name []byte, editorSty
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -10908,6 +11479,9 @@ func SyntaxStyleRegister(context *Context, handle Handle, name []byte, editorSty
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out5, nil
@@ -10962,6 +11536,9 @@ func SyntaxStyleResolve(context *Context, handle Handle, name []byte) (uint32, e
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -10973,6 +11550,9 @@ func SyntaxStyleResolve(context *Context, handle Handle, name []byte) (uint32, e
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out4, nil
@@ -11010,6 +11590,9 @@ func SyntaxStyleGetCount(context *Context, handle Handle) (uint32, error) {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -11018,6 +11601,9 @@ func SyntaxStyleGetCount(context *Context, handle Handle) (uint32, error) {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out2, nil
@@ -11057,6 +11643,9 @@ func EditBufferHighlight(context *Context, handle Handle, operation uint32, argu
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -11064,6 +11653,9 @@ func EditBufferHighlight(context *Context, handle Handle, operation uint32, argu
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -11119,6 +11711,9 @@ func EditBufferGetHighlights(context *Context, handle Handle, line uint32, highl
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -11130,6 +11725,9 @@ func EditBufferGetHighlights(context *Context, handle Handle, line uint32, highl
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out5, nil
@@ -11174,6 +11772,9 @@ func EditBufferMark(context *Context, handle Handle, operation uint32, mark Edit
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -11182,6 +11783,9 @@ func EditBufferMark(context *Context, handle Handle, operation uint32, mark Edit
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out4, nil
@@ -11242,6 +11846,9 @@ func EditBufferGetMarks(context *Context, handle Handle, id uint32, kind uint32,
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -11253,6 +11860,9 @@ func EditBufferGetMarks(context *Context, handle Handle, id uint32, kind uint32,
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out6, nil
@@ -11289,6 +11899,9 @@ func MarkdownCreate(context *Context, markdownOptions MarkdownOptions) (Handle, 
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return Handle{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return Handle{}, err
@@ -11297,6 +11910,9 @@ func MarkdownCreate(context *Context, markdownOptions MarkdownOptions) (Handle, 
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return Handle{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out2, nil
@@ -11329,6 +11945,9 @@ func MarkdownDestroy(context *Context, doc Handle) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -11336,6 +11955,9 @@ func MarkdownDestroy(context *Context, doc Handle) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -11374,6 +11996,9 @@ func MarkdownBind(context *Context, doc Handle, blockIndex uint32, textNode Hand
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -11381,6 +12006,9 @@ func MarkdownBind(context *Context, doc Handle, blockIndex uint32, textNode Hand
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -11421,6 +12049,9 @@ func EditorViewSetViewport(context *Context, handle Handle, editorViewport Edito
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -11428,6 +12059,9 @@ func EditorViewSetViewport(context *Context, handle Handle, editorViewport Edito
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -11466,6 +12100,9 @@ func EditorViewGetViewport(context *Context, handle Handle) (EditorViewport, err
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return EditorViewport{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return EditorViewport{}, err
@@ -11474,6 +12111,9 @@ func EditorViewGetViewport(context *Context, handle Handle) (EditorViewport, err
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return EditorViewport{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out2, nil
@@ -11494,12 +12134,18 @@ func EditorViewSetScrollMargin(context *Context, handle Handle, margin float32) 
 	if err := statusError(_r); err != nil {
 		_pin.Unpin()
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
 	}
 	_pin.Unpin()
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -11534,6 +12180,9 @@ func EditorViewCommand(context *Context, handle Handle, command uint32, argument
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -11541,6 +12190,9 @@ func EditorViewCommand(context *Context, handle Handle, command uint32, argument
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -11595,6 +12247,9 @@ func EditorViewReplaceSelection(context *Context, handle Handle, bytes []byte) (
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -11606,6 +12261,9 @@ func EditorViewReplaceSelection(context *Context, handle Handle, bytes []byte) (
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out4, nil
@@ -11643,6 +12301,9 @@ func EditorViewSetTabColor(context *Context, handle Handle, color [4]uint16) err
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -11650,6 +12311,9 @@ func EditorViewSetTabColor(context *Context, handle Handle, color [4]uint16) err
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -11693,6 +12357,9 @@ func EditorViewSelect(context *Context, handle Handle, editorSelection EditorSel
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -11701,6 +12368,9 @@ func EditorViewSelect(context *Context, handle Handle, editorSelection EditorSel
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out3, nil
@@ -11740,6 +12410,9 @@ func EditorViewGetInfo(context *Context, handle Handle, followCursor uint32) (Ed
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return EditorViewInfo{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return EditorViewInfo{}, err
@@ -11748,6 +12421,9 @@ func EditorViewGetInfo(context *Context, handle Handle, followCursor uint32) (Ed
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return EditorViewInfo{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out3, nil
@@ -11786,6 +12462,9 @@ func EditorViewGetSelection(context *Context, handle Handle) (EditorViewInfo, er
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return EditorViewInfo{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return EditorViewInfo{}, err
@@ -11794,6 +12473,9 @@ func EditorViewGetSelection(context *Context, handle Handle) (EditorViewInfo, er
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return EditorViewInfo{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out2, nil
@@ -11848,6 +12530,9 @@ func EditorViewGetSelectedText(context *Context, handle Handle, bytes []byte) (u
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -11859,6 +12544,9 @@ func EditorViewGetSelectedText(context *Context, handle Handle, bytes []byte) (u
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out4, nil
@@ -11898,6 +12586,9 @@ func EditorViewGetPosition(context *Context, handle Handle, query uint32) (Edito
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return EditorPosition{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return EditorPosition{}, err
@@ -11906,6 +12597,9 @@ func EditorViewGetPosition(context *Context, handle Handle, query uint32) (Edito
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return EditorPosition{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out3, nil
@@ -11946,6 +12640,9 @@ func EditorViewMeasure(context *Context, handle Handle, width uint32, height uin
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return EditorMeasure{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return EditorMeasure{}, err
@@ -11954,6 +12651,9 @@ func EditorViewMeasure(context *Context, handle Handle, width uint32, height uin
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return EditorMeasure{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out4, nil
@@ -12024,6 +12724,9 @@ func EditorViewSetPlaceholder(context *Context, handle Handle, bytes []byte, chu
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -12037,6 +12740,9 @@ func EditorViewSetPlaceholder(context *Context, handle Handle, bytes []byte, chu
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -12074,6 +12780,9 @@ func SceneSetEditorView(context *Context, node Handle, view Handle) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -12081,6 +12790,9 @@ func SceneSetEditorView(context *Context, node Handle, view Handle) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -12119,6 +12831,9 @@ func SceneSetEditorOptions(context *Context, node Handle, sceneEditorOptions Sce
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -12126,6 +12841,9 @@ func SceneSetEditorOptions(context *Context, node Handle, sceneEditorOptions Sce
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -12158,6 +12876,9 @@ func ImageDestroy(context *Context, image Handle) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -12165,6 +12886,9 @@ func ImageDestroy(context *Context, image Handle) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -12214,6 +12938,9 @@ func ImageInspect(context *Context, bytes []byte) (ImageInfo, error) {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return ImageInfo{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return ImageInfo{}, err
@@ -12225,6 +12952,9 @@ func ImageInspect(context *Context, bytes []byte) (ImageInfo, error) {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return ImageInfo{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out3, nil
@@ -12274,6 +13004,9 @@ func ImageDecode(context *Context, bytes []byte) (Handle, error) {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return Handle{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return Handle{}, err
@@ -12285,6 +13018,9 @@ func ImageDecode(context *Context, bytes []byte) (Handle, error) {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return Handle{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out3, nil
@@ -12339,6 +13075,9 @@ func ImageCreatePixels(context *Context, pixels []byte, width uint32, height uin
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return Handle{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return Handle{}, err
@@ -12350,6 +13089,9 @@ func ImageCreatePixels(context *Context, pixels []byte, width uint32, height uin
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return Handle{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out8, nil
@@ -12402,6 +13144,9 @@ func ImageUpdatePixels(context *Context, image Handle, pixels []byte, stride uin
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -12412,6 +13157,9 @@ func ImageUpdatePixels(context *Context, image Handle, pixels []byte, stride uin
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -12453,6 +13201,9 @@ func ImageClone(destination *Context, source *Context, image Handle) (Handle, er
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return Handle{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return Handle{}, err
@@ -12461,6 +13212,9 @@ func ImageClone(destination *Context, source *Context, image Handle) (Handle, er
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return Handle{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out3, nil
@@ -12498,6 +13252,9 @@ func ImageRetain(context *Context, image Handle) (Handle, error) {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return Handle{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return Handle{}, err
@@ -12506,6 +13263,9 @@ func ImageRetain(context *Context, image Handle) (Handle, error) {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return Handle{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out2, nil
@@ -12543,6 +13303,9 @@ func ImageGetInfo(context *Context, image Handle) (ImageInfo, error) {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return ImageInfo{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return ImageInfo{}, err
@@ -12551,6 +13314,9 @@ func ImageGetInfo(context *Context, image Handle) (ImageInfo, error) {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return ImageInfo{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out2, nil
@@ -12591,6 +13357,9 @@ func ImageResize(context *Context, image Handle, width uint32, height uint32, fi
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return Handle{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return Handle{}, err
@@ -12599,6 +13368,9 @@ func ImageResize(context *Context, image Handle, width uint32, height uint32, fi
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return Handle{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out5, nil
@@ -12640,6 +13412,9 @@ func ImageExtract(context *Context, image Handle, left uint32, top uint32, width
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return Handle{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return Handle{}, err
@@ -12648,6 +13423,9 @@ func ImageExtract(context *Context, image Handle, left uint32, top uint32, width
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return Handle{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out6, nil
@@ -12686,6 +13464,9 @@ func ImageTransform(context *Context, image Handle, operation uint32) (Handle, e
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return Handle{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return Handle{}, err
@@ -12694,6 +13475,9 @@ func ImageTransform(context *Context, image Handle, operation uint32) (Handle, e
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return Handle{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out3, nil
@@ -12740,6 +13524,9 @@ func ImageComposite(context *Context, base Handle, overlay Handle, left int32, t
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return Handle{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return Handle{}, err
@@ -12748,6 +13535,9 @@ func ImageComposite(context *Context, base Handle, overlay Handle, left int32, t
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return Handle{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out7, nil
@@ -12799,6 +13589,9 @@ func ImageCopyPng(context *Context, image Handle, destination []byte) (uint64, e
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -12810,6 +13603,9 @@ func ImageCopyPng(context *Context, image Handle, destination []byte) (uint64, e
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out4, nil
@@ -12847,6 +13643,9 @@ func ImageTakePixels(context *Context, image Handle) (ImagePixels, error) {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return ImagePixels{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return ImagePixels{}, err
@@ -12855,6 +13654,9 @@ func ImageTakePixels(context *Context, image Handle) (ImagePixels, error) {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return ImagePixels{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out2, nil
@@ -12887,6 +13689,9 @@ func ImagePixelsRelease(context *Context, lease Handle) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -12894,6 +13699,9 @@ func ImagePixelsRelease(context *Context, lease Handle) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -12938,6 +13746,9 @@ func SceneSetImage(context *Context, node Handle, image Handle, fit uint32, prot
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -12945,6 +13756,9 @@ func SceneSetImage(context *Context, node Handle, image Handle, fit uint32, prot
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -12981,6 +13795,9 @@ func SceneSetCrop(context *Context, node Handle, left uint32, top uint32, width 
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -12988,6 +13805,9 @@ func SceneSetCrop(context *Context, node Handle, left uint32, top uint32, width 
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -13026,6 +13846,9 @@ func SceneSetVideo(context *Context, node Handle, fit uint32, buffer Handle) err
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -13033,6 +13856,9 @@ func SceneSetVideo(context *Context, node Handle, fit uint32, buffer Handle) err
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -13088,6 +13914,9 @@ func VideoOpen(context *Context, node Handle, path []byte, flags uint32) (VideoI
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return VideoInfo{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return VideoInfo{}, err
@@ -13099,6 +13928,9 @@ func VideoOpen(context *Context, node Handle, path []byte, flags uint32) (VideoI
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return VideoInfo{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out5, nil
@@ -13131,6 +13963,9 @@ func VideoPlay(context *Context, node Handle) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -13138,6 +13973,9 @@ func VideoPlay(context *Context, node Handle) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -13170,6 +14008,9 @@ func VideoPause(context *Context, node Handle) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -13177,6 +14018,9 @@ func VideoPause(context *Context, node Handle) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -13210,6 +14054,9 @@ func VideoSeek(context *Context, node Handle, timeUs int64) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -13217,6 +14064,9 @@ func VideoSeek(context *Context, node Handle, timeUs int64) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -13250,6 +14100,9 @@ func VideoSetLoop(context *Context, node Handle, loop uint32) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -13257,6 +14110,9 @@ func VideoSetLoop(context *Context, node Handle, loop uint32) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -13290,6 +14146,9 @@ func VideoSetMuted(context *Context, node Handle, muted uint32) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -13297,6 +14156,9 @@ func VideoSetMuted(context *Context, node Handle, muted uint32) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -13317,12 +14179,18 @@ func VideoSetVolume(context *Context, node Handle, volume float32) error {
 	if err := statusError(_r); err != nil {
 		_pin.Unpin()
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
 	}
 	_pin.Unpin()
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -13356,6 +14224,9 @@ func VideoSetAvSyncOffset(context *Context, node Handle, offsetUs int64) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -13363,6 +14234,9 @@ func VideoSetAvSyncOffset(context *Context, node Handle, offsetUs int64) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -13396,6 +14270,9 @@ func VideoSetMaxFps(context *Context, node Handle, fps uint32) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -13403,6 +14280,9 @@ func VideoSetMaxFps(context *Context, node Handle, fps uint32) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -13440,6 +14320,9 @@ func VideoGetState(context *Context, node Handle) (VideoState, error) {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return VideoState{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return VideoState{}, err
@@ -13448,6 +14331,9 @@ func VideoGetState(context *Context, node Handle) (VideoState, error) {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return VideoState{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out2, nil
@@ -13502,6 +14388,9 @@ func VideoGetError(context *Context, node Handle, bytes []byte) (uint32, error) 
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -13513,6 +14402,9 @@ func VideoGetError(context *Context, node Handle, bytes []byte) (uint32, error) 
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out4, nil
@@ -13545,6 +14437,9 @@ func AudioCreate(context *Context) (Handle, error) {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return Handle{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return Handle{}, err
@@ -13553,6 +14448,9 @@ func AudioCreate(context *Context) (Handle, error) {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return Handle{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out1, nil
@@ -13585,6 +14483,9 @@ func AudioDestroy(context *Context, engine Handle) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -13592,6 +14493,9 @@ func AudioDestroy(context *Context, engine Handle) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -13625,6 +14529,9 @@ func AudioStart(context *Context, engine Handle, flags uint32) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -13632,6 +14539,9 @@ func AudioStart(context *Context, engine Handle, flags uint32) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -13664,6 +14574,9 @@ func AudioStop(context *Context, engine Handle) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -13671,6 +14584,9 @@ func AudioStop(context *Context, engine Handle) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -13725,6 +14641,9 @@ func AudioLoad(context *Context, engine Handle, bytes []byte) (uint32, error) {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -13736,6 +14655,9 @@ func AudioLoad(context *Context, engine Handle, bytes []byte) (uint32, error) {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out4, nil
@@ -13758,12 +14680,18 @@ func AudioPlay(context *Context, engine Handle, sound uint32, volume float32) (u
 	if err := statusError(_r); err != nil {
 		_pin.Unpin()
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
 	}
 	_pin.Unpin()
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _o4, nil
@@ -13797,6 +14725,9 @@ func AudioStopVoice(context *Context, engine Handle, voice uint32) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -13804,6 +14735,9 @@ func AudioStopVoice(context *Context, engine Handle, voice uint32) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -13824,12 +14758,18 @@ func AudioSetVolume(context *Context, engine Handle, volume float32) error {
 	if err := statusError(_r); err != nil {
 		_pin.Unpin()
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
 	}
 	_pin.Unpin()
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -13890,6 +14830,9 @@ func BufferDrawImage(context *Context, target Handle, frame *SceneFrameRequest, 
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -13898,6 +14841,9 @@ func BufferDrawImage(context *Context, target Handle, frame *SceneFrameRequest, 
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out5, nil
@@ -13934,6 +14880,9 @@ func SessionSetImageResolution(context *Context, session Handle, terminalWidth u
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -13941,6 +14890,9 @@ func SessionSetImageResolution(context *Context, session Handle, terminalWidth u
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -13974,6 +14926,9 @@ func SessionSetKittyImageTransport(context *Context, session Handle, mode uint32
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -13981,6 +14936,9 @@ func SessionSetKittyImageTransport(context *Context, session Handle, mode uint32
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -14019,6 +14977,9 @@ func SessionGetKittyImageTransport(context *Context, session Handle) (SessionKit
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return SessionKittyImageTransport{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return SessionKittyImageTransport{}, err
@@ -14027,6 +14988,9 @@ func SessionGetKittyImageTransport(context *Context, session Handle) (SessionKit
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return SessionKittyImageTransport{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out2, nil
@@ -14065,6 +15029,9 @@ func SessionPollKittyImageTransport(context *Context, session Handle, nowNs uint
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -14073,6 +15040,9 @@ func SessionPollKittyImageTransport(context *Context, session Handle, nowNs uint
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out3, nil
@@ -14106,6 +15076,9 @@ func SessionCancelKittyImageTransport(context *Context, session Handle, failed u
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -14113,6 +15086,9 @@ func SessionCancelKittyImageTransport(context *Context, session Handle, failed u
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -14167,6 +15143,9 @@ func SessionProcessKittyImageReply(context *Context, session Handle, bytes []byt
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -14178,6 +15157,9 @@ func SessionProcessKittyImageReply(context *Context, session Handle, bytes []byt
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out4, nil
@@ -14210,6 +15192,9 @@ func SessionStartKittyFileProbe(context *Context, session Handle) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -14217,6 +15202,9 @@ func SessionStartKittyFileProbe(context *Context, session Handle) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -14255,6 +15243,9 @@ func TextBufferCreate(context *Context, editBufferOptions EditBufferOptions) (Ha
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return Handle{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return Handle{}, err
@@ -14263,6 +15254,9 @@ func TextBufferCreate(context *Context, editBufferOptions EditBufferOptions) (Ha
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return Handle{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out2, nil
@@ -14295,6 +15289,9 @@ func TextBufferDestroy(context *Context, handle Handle) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -14302,6 +15299,9 @@ func TextBufferDestroy(context *Context, handle Handle) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -14339,6 +15339,9 @@ func TextBufferViewCreate(context *Context, buffer Handle) (Handle, error) {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return Handle{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return Handle{}, err
@@ -14347,6 +15350,9 @@ func TextBufferViewCreate(context *Context, buffer Handle) (Handle, error) {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return Handle{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out2, nil
@@ -14379,6 +15385,9 @@ func TextBufferViewDestroy(context *Context, handle Handle) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -14386,6 +15395,9 @@ func TextBufferViewDestroy(context *Context, handle Handle) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -14435,6 +15447,9 @@ func TextBufferSetText(context *Context, handle Handle, arg2 []byte) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -14445,6 +15460,9 @@ func TextBufferSetText(context *Context, handle Handle, arg2 []byte) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -14494,6 +15512,9 @@ func TextBufferAppend(context *Context, handle Handle, arg2 []byte) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -14504,6 +15525,9 @@ func TextBufferAppend(context *Context, handle Handle, arg2 []byte) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -14537,6 +15561,9 @@ func TextBufferClear(context *Context, handle Handle, reset uint32) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -14544,6 +15571,9 @@ func TextBufferClear(context *Context, handle Handle, reset uint32) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -14631,6 +15661,9 @@ func TextBufferSetStyledText(context *Context, handle Handle, arg2 []byte, style
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -14647,6 +15680,9 @@ func TextBufferSetStyledText(context *Context, handle Handle, arg2 []byte, style
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -14755,6 +15791,9 @@ func TextBufferReplaceStyledBatch(context *Context, textBufferReplacement []Text
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return TextBufferReplacementInfo{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return TextBufferReplacementInfo{}, err
@@ -14775,6 +15814,9 @@ func TextBufferReplaceStyledBatch(context *Context, textBufferReplacement []Text
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return TextBufferReplacementInfo{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out9, nil
@@ -14812,6 +15854,9 @@ func TextBufferSetSyntaxStyle(context *Context, handle Handle, style Handle) err
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -14819,6 +15864,9 @@ func TextBufferSetSyntaxStyle(context *Context, handle Handle, style Handle) err
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -14857,6 +15905,9 @@ func TextBufferGetInfo(context *Context, handle Handle) (TextBufferInfo, error) 
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return TextBufferInfo{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return TextBufferInfo{}, err
@@ -14865,6 +15916,9 @@ func TextBufferGetInfo(context *Context, handle Handle) (TextBufferInfo, error) 
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return TextBufferInfo{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out2, nil
@@ -14919,6 +15973,9 @@ func TextBufferGetText(context *Context, handle Handle, arg2 []byte) (uint32, er
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -14930,6 +15987,9 @@ func TextBufferGetText(context *Context, handle Handle, arg2 []byte) (uint32, er
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out4, nil
@@ -14986,6 +16046,9 @@ func TextBufferGetRange(context *Context, handle Handle, start uint32, end uint3
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -14997,6 +16060,9 @@ func TextBufferGetRange(context *Context, handle Handle, start uint32, end uint3
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out6, nil
@@ -15036,6 +16102,9 @@ func TextBufferSetDefaults(context *Context, handle Handle, mask uint32, editorS
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -15043,6 +16112,9 @@ func TextBufferSetDefaults(context *Context, handle Handle, mask uint32, editorS
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -15076,6 +16148,9 @@ func TextBufferSetTabWidth(context *Context, handle Handle, width uint32) error 
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -15083,6 +16158,9 @@ func TextBufferSetTabWidth(context *Context, handle Handle, width uint32) error 
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -15116,6 +16194,9 @@ func TextBufferSetWidthMethod(context *Context, handle Handle, widthMethod uint3
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -15123,6 +16204,9 @@ func TextBufferSetWidthMethod(context *Context, handle Handle, widthMethod uint3
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -15162,6 +16246,9 @@ func TextBufferHighlight(context *Context, handle Handle, operation uint32, argu
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -15169,6 +16256,9 @@ func TextBufferHighlight(context *Context, handle Handle, operation uint32, argu
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -15224,6 +16314,9 @@ func TextBufferGetHighlights(context *Context, handle Handle, line uint32, editH
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -15235,6 +16328,9 @@ func TextBufferGetHighlights(context *Context, handle Handle, line uint32, editH
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out5, nil
@@ -15274,6 +16370,9 @@ func TextBufferViewSetViewport(context *Context, handle Handle, editorViewport E
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -15281,6 +16380,9 @@ func TextBufferViewSetViewport(context *Context, handle Handle, editorViewport E
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -15315,6 +16417,9 @@ func TextBufferViewCommand(context *Context, handle Handle, command uint32, argu
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -15322,6 +16427,9 @@ func TextBufferViewCommand(context *Context, handle Handle, command uint32, argu
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -15359,6 +16467,9 @@ func TextBufferViewSetTabColor(context *Context, handle Handle, color [4]uint16)
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -15366,6 +16477,9 @@ func TextBufferViewSetTabColor(context *Context, handle Handle, color [4]uint16)
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -15409,6 +16523,9 @@ func TextBufferViewSelect(context *Context, handle Handle, editorSelection Edito
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -15417,6 +16534,9 @@ func TextBufferViewSelect(context *Context, handle Handle, editorSelection Edito
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out3, nil
@@ -15455,6 +16575,9 @@ func TextBufferViewGetInfo(context *Context, handle Handle) (EditorViewInfo, err
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return EditorViewInfo{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return EditorViewInfo{}, err
@@ -15463,6 +16586,9 @@ func TextBufferViewGetInfo(context *Context, handle Handle) (EditorViewInfo, err
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return EditorViewInfo{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out2, nil
@@ -15517,6 +16643,9 @@ func TextBufferViewGetSelectedText(context *Context, handle Handle, arg2 []byte)
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -15528,6 +16657,9 @@ func TextBufferViewGetSelectedText(context *Context, handle Handle, arg2 []byte)
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out4, nil
@@ -15568,6 +16700,9 @@ func TextBufferViewMeasure(context *Context, handle Handle, width uint32, height
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return EditorMeasure{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return EditorMeasure{}, err
@@ -15576,6 +16711,9 @@ func TextBufferViewMeasure(context *Context, handle Handle, width uint32, height
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return EditorMeasure{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out4, nil
@@ -15613,6 +16751,9 @@ func SceneSetTextView(context *Context, node Handle, view Handle) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -15620,6 +16761,9 @@ func SceneSetTextView(context *Context, node Handle, view Handle) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -15653,6 +16797,9 @@ func SceneSetTextViewPaint(context *Context, node Handle, enabled uint32) error 
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -15660,6 +16807,9 @@ func SceneSetTextViewPaint(context *Context, node Handle, enabled uint32) error 
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -15711,6 +16861,9 @@ func BufferDrawTextView(context *Context, target Handle, sceneFrameRequest *Scen
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -15718,6 +16871,9 @@ func BufferDrawTextView(context *Context, target Handle, sceneFrameRequest *Scen
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -15769,6 +16925,9 @@ func BufferDrawEditorView(context *Context, target Handle, sceneFrameRequest *Sc
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -15776,6 +16935,9 @@ func BufferDrawEditorView(context *Context, target Handle, sceneFrameRequest *Sc
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -15827,6 +16989,9 @@ func BufferDrawSceneBody(context *Context, target Handle, sceneFrameRequest *Sce
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -15834,6 +16999,9 @@ func BufferDrawSceneBody(context *Context, target Handle, sceneFrameRequest *Sce
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -15879,6 +17047,9 @@ func SceneFrameAcquireBufferLease(context *Context, session Handle, frameRequest
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return BufferLeaseSnapshot{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return BufferLeaseSnapshot{}, err
@@ -15887,6 +17058,9 @@ func SceneFrameAcquireBufferLease(context *Context, session Handle, frameRequest
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return BufferLeaseSnapshot{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out4, nil
@@ -15931,6 +17105,9 @@ func SceneFrameCommit(context *Context, session Handle, frameRequest SceneFrameR
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -15939,6 +17116,9 @@ func SceneFrameCommit(context *Context, session Handle, frameRequest SceneFrameR
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out4, nil
@@ -15957,6 +17137,9 @@ func ContextAbiVersion() (uint32, error) {
 	}
 	_p := cbTake()
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _r, nil
@@ -15994,6 +17177,9 @@ func ContextCreate(options ContextOptions) (*Context, error) {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return nil, _p.tunnel
+			}
 			panic(_p)
 		}
 		return nil, err
@@ -16002,6 +17188,9 @@ func ContextCreate(options ContextOptions) (*Context, error) {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return nil, _p.tunnel
+		}
 		panic(_p)
 	}
 	return &Context{p: _out1, t: _t}, nil
@@ -16028,6 +17217,9 @@ func ContextDestroy(context *Context) error {
 	if err := statusError(_r); err != nil {
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -16036,6 +17228,9 @@ func ContextDestroy(context *Context) error {
 	context.p = 0
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -16069,6 +17264,9 @@ func ContextGetLastError(context *Context) (ContextError, error) {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return ContextError{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return ContextError{}, err
@@ -16077,6 +17275,9 @@ func ContextGetLastError(context *Context) (ContextError, error) {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return ContextError{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out1, nil
@@ -16127,6 +17328,9 @@ func ContextGetLinkUrl(context *Context, linkId uint32, bytes []byte) (uint32, e
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -16138,6 +17342,9 @@ func ContextGetLinkUrl(context *Context, linkId uint32, bytes []byte) (uint32, e
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out4, nil
@@ -16176,6 +17383,9 @@ func BufferCreate(context *Context, options BufferOptions) (Handle, error) {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return Handle{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return Handle{}, err
@@ -16184,6 +17394,9 @@ func BufferCreate(context *Context, options BufferOptions) (Handle, error) {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return Handle{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out2, nil
@@ -16216,6 +17429,9 @@ func BufferDestroy(context *Context, buffer Handle) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -16223,6 +17439,9 @@ func BufferDestroy(context *Context, buffer Handle) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -16257,6 +17476,9 @@ func BufferResize(context *Context, buffer Handle, width uint32, height uint32) 
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -16264,6 +17486,9 @@ func BufferResize(context *Context, buffer Handle, width uint32, height uint32) 
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -16356,6 +17581,9 @@ func BufferDraw(context *Context, target Handle, frame *SceneFrameRequest, optio
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -16369,6 +17597,9 @@ func BufferDraw(context *Context, target Handle, frame *SceneFrameRequest, optio
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -16453,6 +17684,9 @@ func BufferDrawGrid(context *Context, target Handle, frame *SceneFrameRequest, o
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -16466,6 +17700,9 @@ func BufferDrawGrid(context *Context, target Handle, frame *SceneFrameRequest, o
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -16531,6 +17768,9 @@ func BufferDrawPacked(context *Context, handle Handle, sceneFrameRequest *SceneF
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -16541,6 +17781,9 @@ func BufferDrawPacked(context *Context, handle Handle, sceneFrameRequest *SceneF
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -16606,6 +17849,9 @@ func BufferDrawSupersample(context *Context, handle Handle, sceneFrameRequest *S
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -16616,6 +17862,9 @@ func BufferDrawSupersample(context *Context, handle Handle, sceneFrameRequest *S
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -16654,6 +17903,9 @@ func BufferAcquireLease(context *Context, buffer Handle) (BufferLeaseSnapshot, e
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return BufferLeaseSnapshot{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return BufferLeaseSnapshot{}, err
@@ -16662,6 +17914,9 @@ func BufferAcquireLease(context *Context, buffer Handle) (BufferLeaseSnapshot, e
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return BufferLeaseSnapshot{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out2, nil
@@ -16700,6 +17955,9 @@ func SessionCreate(context *Context, options SessionOptions) (Handle, error) {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return Handle{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return Handle{}, err
@@ -16708,6 +17966,9 @@ func SessionCreate(context *Context, options SessionOptions) (Handle, error) {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return Handle{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out2, nil
@@ -16746,6 +18007,9 @@ func SessionAttachRenderer(context *Context, session Handle, options SessionRend
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -16753,6 +18017,9 @@ func SessionAttachRenderer(context *Context, session Handle, options SessionRend
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -16791,6 +18058,9 @@ func SessionRender(context *Context, session Handle, force uint32) (uint32, erro
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -16799,6 +18069,9 @@ func SessionRender(context *Context, session Handle, force uint32) (uint32, erro
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out3, nil
@@ -16833,6 +18106,9 @@ func SessionResizeRenderer(context *Context, session Handle, width uint32, heigh
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -16840,6 +18116,9 @@ func SessionResizeRenderer(context *Context, session Handle, width uint32, heigh
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -16879,6 +18158,9 @@ func SessionDrawBuffer(context *Context, session Handle, source Handle, x int32,
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -16886,6 +18168,9 @@ func SessionDrawBuffer(context *Context, session Handle, source Handle, x int32,
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -16931,6 +18216,9 @@ func SceneFrameDrawBuffer(context *Context, session Handle, frameRequest SceneFr
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -16938,6 +18226,9 @@ func SceneFrameDrawBuffer(context *Context, session Handle, frameRequest SceneFr
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -16972,6 +18263,9 @@ func SessionSetDebugOverlay(context *Context, session Handle, enabled uint32, co
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -16979,6 +18273,9 @@ func SessionSetDebugOverlay(context *Context, session Handle, enabled uint32, co
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -16999,12 +18296,18 @@ func SessionUpdateStats(context *Context, session Handle, overallMs float64, fps
 	if err := statusError(_r); err != nil {
 		_pin.Unpin()
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
 	}
 	_pin.Unpin()
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -17040,6 +18343,9 @@ func SessionUpdateMemoryStats(context *Context, session Handle, heapUsed uint32,
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -17047,6 +18353,9 @@ func SessionUpdateMemoryStats(context *Context, session Handle, heapUsed uint32,
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -17079,6 +18388,9 @@ func SessionDumpHitGrid(context *Context, session Handle) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -17086,6 +18398,9 @@ func SessionDumpHitGrid(context *Context, session Handle) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -17124,6 +18439,9 @@ func SessionGetRendererState(context *Context, session Handle) (SessionRendererS
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return SessionRendererState{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return SessionRendererState{}, err
@@ -17132,6 +18450,9 @@ func SessionGetRendererState(context *Context, session Handle) (SessionRendererS
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return SessionRendererState{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out2, nil
@@ -17171,6 +18492,9 @@ func SessionAcquireBufferLease(context *Context, session Handle, which uint32) (
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return BufferLeaseSnapshot{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return BufferLeaseSnapshot{}, err
@@ -17179,6 +18503,9 @@ func SessionAcquireBufferLease(context *Context, session Handle, which uint32) (
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return BufferLeaseSnapshot{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out3, nil
@@ -17218,6 +18545,9 @@ func SessionGetLinkId(context *Context, session Handle, x int32, y int32) (uint3
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -17226,6 +18556,9 @@ func SessionGetLinkId(context *Context, session Handle, x int32, y int32) (uint3
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out4, nil
@@ -17258,6 +18591,9 @@ func BufferLeaseValidate(context *Context, lease Handle) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -17265,6 +18601,9 @@ func BufferLeaseValidate(context *Context, lease Handle) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -17297,6 +18636,9 @@ func BufferLeaseRelease(context *Context, lease Handle) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -17304,6 +18646,9 @@ func BufferLeaseRelease(context *Context, lease Handle) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -17342,6 +18687,9 @@ func BufferLeaseGetRealCharSize(context *Context, lease Handle, addLineBreaks ui
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -17350,6 +18698,9 @@ func BufferLeaseGetRealCharSize(context *Context, lease Handle, addLineBreaks ui
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out3, nil
@@ -17388,6 +18739,9 @@ func SessionSetupTerminal(context *Context, session Handle, options SessionTermi
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -17395,6 +18749,9 @@ func SessionSetupTerminal(context *Context, session Handle, options SessionTermi
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -17427,6 +18784,9 @@ func SessionSuspend(context *Context, session Handle) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -17434,6 +18794,9 @@ func SessionSuspend(context *Context, session Handle) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -17466,6 +18829,9 @@ func SessionResume(context *Context, session Handle) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -17473,6 +18839,9 @@ func SessionResume(context *Context, session Handle) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -17510,6 +18879,9 @@ func SessionGetTerminalState(context *Context, session Handle) (uint32, error) {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -17518,6 +18890,9 @@ func SessionGetTerminalState(context *Context, session Handle) (uint32, error) {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out2, nil
@@ -17573,6 +18948,9 @@ func SessionControl(context *Context, session Handle, options SessionControlOpti
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -17583,6 +18961,9 @@ func SessionControl(context *Context, session Handle, options SessionControlOpti
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -17621,6 +19002,9 @@ func SessionGetCapabilities(context *Context, session Handle) (SessionCapabiliti
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return SessionCapabilities{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return SessionCapabilities{}, err
@@ -17629,6 +19013,9 @@ func SessionGetCapabilities(context *Context, session Handle) (SessionCapabiliti
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return SessionCapabilities{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out2, nil
@@ -17684,6 +19071,9 @@ func SessionClipboard(context *Context, session Handle, target uint32, bytes []b
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -17695,6 +19085,9 @@ func SessionClipboard(context *Context, session Handle, target uint32, bytes []b
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out5, nil
@@ -17766,6 +19159,9 @@ func SessionNotification(context *Context, handle Handle, message []byte, title 
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -17780,6 +19176,9 @@ func SessionNotification(context *Context, handle Handle, message []byte, title 
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out6, nil
@@ -17820,6 +19219,9 @@ func SessionPump(context *Context, session Handle, nowNs uint64, workBudget uint
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return SessionPumpResult{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return SessionPumpResult{}, err
@@ -17828,6 +19230,9 @@ func SessionPump(context *Context, session Handle, nowNs uint64, workBudget uint
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return SessionPumpResult{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out4, nil
@@ -17861,6 +19266,9 @@ func SessionInputExpect(context *Context, session Handle, flags uint32) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -17868,6 +19276,9 @@ func SessionInputExpect(context *Context, session Handle, flags uint32) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -17901,6 +19312,9 @@ func SessionInputReset(context *Context, session Handle, flags uint32) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -17908,6 +19322,9 @@ func SessionInputReset(context *Context, session Handle, flags uint32) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -17945,6 +19362,9 @@ func SessionGetWriteLimit(context *Context, session Handle) (uint64, error) {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -17953,6 +19373,9 @@ func SessionGetWriteLimit(context *Context, session Handle) (uint64, error) {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out2, nil
@@ -18002,6 +19425,9 @@ func SessionWrite(context *Context, session Handle, bytes []byte) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -18012,6 +19438,9 @@ func SessionWrite(context *Context, session Handle, bytes []byte) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -18059,6 +19488,9 @@ func SessionDrainOutput(context *Context, session Handle, maxBytes uint32, write
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -18067,6 +19499,9 @@ func SessionDrainOutput(context *Context, session Handle, maxBytes uint32, write
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out3, nil
@@ -18105,6 +19540,9 @@ func SessionDrainStdout(context *Context, session Handle, maxBytes uint32) (uint
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -18113,6 +19551,9 @@ func SessionDrainStdout(context *Context, session Handle, maxBytes uint32) (uint
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out3, nil
@@ -18157,6 +19598,9 @@ func SessionPostStdout(context *Context, session Handle, maxBytes uint32, wait u
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, 0, err
@@ -18166,6 +19610,9 @@ func SessionPostStdout(context *Context, session Handle, maxBytes uint32, wait u
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out4, _out5, nil
@@ -18204,6 +19651,9 @@ func SessionCompleteOutput(context *Context, session Handle, ticket OutputTicket
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -18211,6 +19661,9 @@ func SessionCompleteOutput(context *Context, session Handle, ticket OutputTicket
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -18243,6 +19696,9 @@ func SessionClose(context *Context, session Handle) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -18250,6 +19706,9 @@ func SessionClose(context *Context, session Handle) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -18282,6 +19741,9 @@ func SessionDropOutput(context *Context, session Handle) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -18289,6 +19751,9 @@ func SessionDropOutput(context *Context, session Handle) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -18326,6 +19791,9 @@ func SessionPumpExit(context *Context, session Handle) (uint32, error) {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -18334,6 +19802,9 @@ func SessionPumpExit(context *Context, session Handle) (uint32, error) {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out2, nil
@@ -18353,11 +19824,17 @@ func TerminalFlushInput() error {
 	_p := cbTake()
 	if err := statusError(_r); err != nil {
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
 	}
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -18390,6 +19867,9 @@ func SessionCancel(context *Context, session Handle) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -18397,6 +19877,9 @@ func SessionCancel(context *Context, session Handle) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -18434,6 +19917,9 @@ func SessionGetState(context *Context, session Handle) (uint32, error) {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -18442,6 +19928,9 @@ func SessionGetState(context *Context, session Handle) (uint32, error) {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out2, nil
@@ -18474,6 +19963,9 @@ func SessionDestroy(context *Context, session Handle) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -18481,6 +19973,9 @@ func SessionDestroy(context *Context, session Handle) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -18526,6 +20021,9 @@ func ClipboardServiceCreate(context *Context, maxOperations uint32, maxProviderT
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _r, nil
@@ -18550,6 +20048,9 @@ func ClipboardServiceBeginShutdown(context *Context) (uint8, error) {
 	_p := cbTake()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _r, nil
@@ -18574,6 +20075,9 @@ func ClipboardServicePollShutdown(context *Context) (uint8, error) {
 	_p := cbTake()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _r, nil
@@ -18598,6 +20102,9 @@ func ClipboardServiceDestroy(context *Context) (uint8, error) {
 	_p := cbTake()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _r, nil
@@ -18622,6 +20129,9 @@ func ClipboardServiceDrain(context *Context) (uint8, error) {
 	_p := cbTake()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _r, nil
@@ -18676,6 +20186,9 @@ func ClipboardReadOperationStart(context *Context, request []byte, selection uin
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, Handle{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _r, _out8, nil
@@ -18727,6 +20240,9 @@ func ClipboardWriteOperationStart(context *Context, text []byte, selection uint8
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, Handle{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _r, _out5, nil
@@ -18761,6 +20277,9 @@ func ClipboardClearOperationStart(context *Context, selection uint8, timeoutMs u
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, Handle{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _r, _out3, nil
@@ -18792,6 +20311,9 @@ func ClipboardOperationPoll(context *Context, operation Handle) (uint8, error) {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _r, nil
@@ -18823,6 +20345,9 @@ func ClipboardOperationCancel(context *Context, operation Handle) (uint8, error)
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _r, nil
@@ -18860,6 +20385,9 @@ func ClipboardOperationResultMimeLength(context *Context, operation Handle) (uin
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _r, _out2, nil
@@ -18897,6 +20425,9 @@ func ClipboardOperationResultDataLength(context *Context, operation Handle) (uin
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _r, _out2, nil
@@ -18934,6 +20465,9 @@ func ClipboardOperationResultErrorCode(context *Context, operation Handle) (uint
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _r, _out2, nil
@@ -18971,6 +20505,9 @@ func ClipboardOperationResultDiagnosticLength(context *Context, operation Handle
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _r, _out2, nil
@@ -19002,6 +20539,9 @@ func ClipboardOperationDestroy(context *Context, operation Handle) (uint8, error
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _r, nil
