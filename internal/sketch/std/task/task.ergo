@@ -112,7 +112,8 @@ func OutcomeOf[T own, E](t own Task[T, E]) Outcome[T, E] {
 		return Failed[E]{Error: err}
 	}
 	if k == 2 {
-		return Defected{Reason: exitReason(t)}
+		let d = exitDefect(t)
+		return Defected{Reason: d.Text(), Defect: d}
 	}
 	if k == 4 {
 		let _ = exitReason(t)
