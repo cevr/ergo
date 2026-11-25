@@ -25,7 +25,7 @@ func TestFixHiddenPreludeType(t *testing.T) {
 	for _, c := range []struct{ name, arg, decl, want string }{
 		{"map", "Map[string, int]", "type Map[K, V] { k K }", "Map"},
 		{"basic", "[]string", "type string { b []byte }", "string"},
-		{"prelude generic", "Option[int]", "type Option { v int }", "Option"},
+		{"prelude generic", "Decision[int, int]", "type Decision { v int }", "Decision"},
 	} {
 		dir := t.TempDir()
 		files := map[string]string{

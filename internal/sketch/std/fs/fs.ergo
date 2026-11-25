@@ -459,6 +459,9 @@ extern go ergo.local/prototype/runtime/v1.FSMapText func MapText(text string) Ma
 // Clone is a copy of the text t as a string, which outlives t's Mapped.
 extern go ergo.local/prototype/runtime/v1.FSClone func Clone(t Text) string
 
+// Len returns the number of bytes in t.
+extern go len func Len(t Text) int
+
 // MapTextIsText: the text of MapText(s) is s.
 law MapTextIsText(s string) {
 	let m = MapText(s)

@@ -71,3 +71,52 @@ func TestMappedTextRows(t *testing.T) {
 		})
 	}
 }
+
+// TestMappedTextLenMethod verifies that t.Len() and fs.Len(t) work on fs.Text
+// while preserving Borrows 8 lifetime checks (use-after-close and escaping
+// method values remain refused S108).
+func TestMappedTextLenMethod(t *testing.T) {
+	const okSrc = `import fs
+
+func count(t fs.Text) int {
+	t.Len() + fs.Len(t) + t[0:1].Len()
+}
+
+func fromMapped() int {
+	let m = fs.MapText("abc")
+	let t = m.Text()
+	t.Len() + m.Text().Len()
+}
+
+func main() {}
+`
+	if _, diags := CheckSource(okSrc); len(diags) != 0 {
+		t.Fatalf("valid fs.Text .Len() calls must check cleanly: %v", diags)
+	}
+	const afterCloseSrc = `import fs
+
+func bad() int {
+	let m = fs.MapText("abc")
+	let t = m.Text()
+	m.Close()
+	t.Len()
+}
+
+func main() {}
+`
+	if _, diags := CheckSource(afterCloseSrc); len(diags) == 0 || !strings.Contains(diags[0].Message, "handed off") {
+		t.Fatalf("t.Len() after m.Close() must be refused S108; got %v", diags)
+	}
+	const methodValSrc = `import fs
+
+func bad(t fs.Text) int {
+	let f = t.Len
+	f()
+}
+
+func main() {}
+`
+	if _, diags := CheckSource(methodValSrc); len(diags) == 0 || !strings.Contains(diags[0].Message, "mapped text (fs.Text)") {
+		t.Fatalf("escaping method value t.Len must be refused S108; got %v", diags)
+	}
+}
