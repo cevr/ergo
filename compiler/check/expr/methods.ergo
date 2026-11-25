@@ -278,16 +278,17 @@ func importedBare(s mut store.Store, k Pkg, t mut Typer, sel dense.ID[syntax.Nod
 // preludeBare is the type of the name x when it names a record of the
 // prelude with no fields (None): the foreign type of the name.
 func preludeBare(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node]) Option[dense.ID[store.TKey]] {
-	let di = depOf(k, "prelude")
-	if di < 0 {
-		return None
-	}
 	let text = types.NameText(k.Parsed[t.file], x)
-	if !bare(k.Deps[di].S, k.Deps[di].K, text) {
-		return None
+	for path in []string{"prelude", "option"} {
+		let di = depOf(k, path)
+		if di >= 0 && bare(k.Deps[di].S, k.Deps[di].K, text) {
+			let f = foreignAt(k, path, text)
+			if f >= 0 {
+				return some(store.TForeign(s, f))
+			}
+		}
 	}
-	let f = foreignAt(k, "prelude", text)
-	if f >= 0 { some(store.TForeign(s, f)) } else { None }
+	None
 }
 
 // preludeOp is the type of the name x when it names an operation type of

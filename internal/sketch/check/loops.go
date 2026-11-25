@@ -1,7 +1,6 @@
 package check
 
 import (
-	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -20,28 +19,38 @@ import (
 //   - A refused domain or a refused second binding still binds its names
 //     with the invalid type, so their uses add no diagnostic (D3).
 
-// preludeOrigin returns the generic prelude type name (Range, Seq) as its
-// origin, or nil inside the prelude itself, which sees only the universe.
+// preludeOrigin returns the generic std type name (Range, Seq) as its
+// origin, or nil inside a package whose scope does not see it.
 func (c *checker) preludeOrigin(name string) *Named {
-	tn, ok := c.universe.names[name].(*TypeName)
-	if !ok || tn.Pkg == nil || tn.Pkg.Path != stdlib.PreludePath {
-		return nil
+	if tn, ok := c.universe.names[name].(*TypeName); ok && tn.Pkg != nil && tn.Pkg.Std() {
+		n, _ := tn.Type.(*Named)
+		return n
 	}
-	n, _ := tn.Type.(*Named)
-	return n
+	if c.pkg != nil && c.pkg.Std() {
+		if tn, ok := c.pkg.Scope.names[name].(*TypeName); ok && tn.Pkg == c.pkg {
+			n, _ := tn.Type.(*Named)
+			return n
+		}
+	}
+	return nil
 }
 
-// preludeElem returns T when t is the prelude's name[T] (Range or Seq).
+// preludeElem returns T when t is the std name[T] (Range or Seq).
 func (c *checker) preludeElem(t Type, name string) (Type, bool) {
 	n, ok := t.(*Named)
 	if !ok || n.Orig == nil || len(n.TArgs) != 1 {
 		return nil, false
 	}
 	origin := c.preludeOrigin(name)
-	if origin == nil || n.Orig.Obj != origin.Obj {
-		return nil, false
+	if origin != nil && n.Orig.Obj == origin.Obj {
+		return n.TArgs[0], true
 	}
-	return n.TArgs[0], true
+	if c.pkg != nil && n.Orig.Obj.Pkg == c.pkg && n.Orig.Obj.Name == name {
+		if sig, ok := n.Orig.Underlying().(*Signature); ok && len(sig.Params) == 1 && len(sig.Results) == 0 {
+			return n.TArgs[0], true
+		}
+	}
+	return nil, false
 }
 
 // rangeExpr checks `a..b`: the bounds are integers of one type, a literal

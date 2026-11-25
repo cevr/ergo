@@ -100,6 +100,29 @@ func StdSnapshotNow() (base *stdBase, paths []string, pkgs []*Package, err error
 // snapshot's base segment reaches first.
 func BasePrelude(base *stdBase) *Package { return base.prelude.pkg }
 
+// BasePackages are the packages a snapshot's base segment reaches before
+// encoding the base: the prelude and the canonical bootstrap std packages
+// (collections, option) whose declarations the prelude scope re-exports.
+func BasePackages(base *stdBase) []*Package {
+	if base == nil {
+		return nil
+	}
+	seen := map[*Package]bool{}
+	var out []*Package
+	if base.prelude.scope != nil {
+		for _, name := range sortedKeys(base.prelude.scope.names) {
+			if tn, ok := base.prelude.scope.names[name].(*TypeName); ok && tn.Pkg != nil && tn.Pkg != base.prelude.pkg && !seen[tn.Pkg] {
+				seen[tn.Pkg] = true
+				out = append(out, tn.Pkg)
+			}
+		}
+	}
+	if base.prelude.pkg != nil {
+		out = append(out, base.prelude.pkg)
+	}
+	return out
+}
+
 // ErrInstalled refuses a snapshot after this process has built its
 // universe: the checked state is already in use.
 var ErrInstalled = fmt.Errorf("check: the universe is already built; a std snapshot installs only before the first check")

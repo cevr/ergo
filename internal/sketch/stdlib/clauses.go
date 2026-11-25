@@ -62,6 +62,15 @@ var ArgClauses = []ArgClause{
 	// declaration's own: a transport may hand answer to a server it starts
 	// (an Effect RPC loopback serves it on a task of its own).
 	{"api.Transport.Carry", "answer", "escaping", "no Go body: a provider is Ergo the checker reads; answer is own, so a transport may keep it for a server it starts, as rpc's Loopback runs its handle on a task below the caller"},
+	// collections: constraint-only container contracts with no Go body;
+	// every provider is Ergo the checker reads, and Map/Then/Fold invoke
+	// their callback synchronously during the call and never retain it.
+	{"collections.Mappable.Map", "f", "non-escaping", "no Go body: a provider is Ergo the checker reads; Map invokes f synchronously during the call and never retains it"},
+	{"collections.Chainable.Map", "f", "non-escaping", "no Go body: included from Mappable; Map invokes f synchronously during the call and never retains it"},
+	{"collections.Chainable.Then", "f", "non-escaping", "no Go body: a provider is Ergo the checker reads; Then invokes f synchronously during the call and never retains it"},
+	{"collections.Foldable.Fold", "f", "non-escaping", "no Go body: a provider is Ergo the checker reads; Fold invokes f synchronously during the call and never retains it"},
+	{"collections.MapFold.Map", "f", "non-escaping", "no Go body: included from Mappable; Map invokes f synchronously during the call and never retains it"},
+	{"collections.MapFold.Fold", "f", "non-escaping", "no Go body: included from Foldable; Fold invokes f synchronously during the call and never retains it"},
 	{"csv.scan", "each", "non-escaping", "CSVScan calls each in a loop over Go's csv.Reader on the caller's goroutine, one record at a time, and keeps nothing"},
 	{"exec.waitFor", "p", "lent", "ExecWaitFor calls p's Wait on the caller's task, or through After on a child that After stops and joins on every exit before it returns; Wait waits on channels and finish runs once, so the child's Wait is sound while the caller owns p; it keeps nothing and never releases p"},
 	// fs: SameAs reads only the identity m kept when it was mapped.

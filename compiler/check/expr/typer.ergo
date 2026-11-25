@@ -1287,13 +1287,13 @@ func ident(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node]) Optio
 			report(k, t, x)
 			return None
 		}
-		// The prelude's record written bare (None) is its value, of the
-		// foreign table's type.
-		let p = depOf(k, "prelude")
-		if p >= 0 && recOf(k.Deps[p].S, k.Deps[p].K, text) >= 0 {
-			let fi = foreignAt(k, "prelude", text)
-			if fi >= 0 {
-				return some(store.TForeign(s, fi))
+		for path in []string{"prelude", "option"} {
+			let p = depOf(k, path)
+			if p >= 0 && recOf(k.Deps[p].S, k.Deps[p].K, text) >= 0 {
+				let fi = foreignAt(k, path, text)
+				if fi >= 0 {
+					return some(store.TForeign(s, fi))
+				}
 			}
 		}
 		preludeBare(s, k, t, x)

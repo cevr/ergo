@@ -859,6 +859,27 @@ var preludeOnce preludeState
 func prelude() preludeResult {
 	preludeOnce.Do(func() {
 		u := universe()
+		imp := Std.(*stdImporter)
+		optPkg, err := imp.importPreludeDep("option")
+		if err != nil {
+			panic("check: std option does not check: " + err.Error())
+		}
+		colPkg, err := imp.importPreludeDep("collections")
+		if err != nil {
+			panic("check: std collections does not check: " + err.Error())
+		}
+		parent := newScope(u)
+		reexports := make([]Object, 0, 4)
+		for _, tn := range optPkg.Types {
+			if isExported(tn.Name) {
+				parent.insert(tn.Name, tn)
+				reexports = append(reexports, tn)
+			}
+		}
+		if o := colPkg.Scope.names["Seq"]; o != nil {
+			parent.insert("Seq", o)
+			reexports = append(reexports, o)
+		}
 		var files []*syntax.File
 		for _, name := range sortedKeys(stdlib.Prelude()) {
 			f, err := syntax.Parse(stdlib.Prelude()[name])
@@ -874,7 +895,7 @@ func prelude() preludeResult {
 		if collFile == nil {
 			panic("check: the prelude has no " + collFileName)
 		}
-		c := newChecker(stdlib.PreludePath, nil, u)
+		c := newChecker(stdlib.PreludePath, nil, parent)
 		c.pkg.std = true
 		c.pkg.trusted = true // the toolchain vouches for what it ships
 		c.pkg.module = StdModule
@@ -893,6 +914,11 @@ func prelude() preludeResult {
 			f.primitive = PrimitiveCaptureContext
 		}
 		scope := newScope(u)
+		for _, o := range reexports {
+			name := o.name()
+			pkg.Scope.insert(name, o)
+			scope.insert(name, o)
+		}
 		coll := map[Object]bool{}
 		for _, f := range pkg.collFuncs {
 			coll[f] = true
@@ -952,6 +978,7 @@ type stdImporter struct {
 	// sources reads a package's files; nil reads the embedded std
 	// (stdlib.Package). A test gives a library of its own.
 	sources func(path string) (map[string]string, bool)
+	noCount int // guarded by mu: prelude bootstrap loads do not inflate program Work
 }
 
 // stdEntry is one std package, checked once.
@@ -974,6 +1001,25 @@ var Std Importer = newStdImporter()
 
 func newStdImporter() *stdImporter {
 	return &stdImporter{entries: map[string]*stdEntry{}, ready: map[string]bool{}}
+}
+
+// isBootstrapStd reports a low-level std package checked above the
+// universe before the transitional prelude scope (core -> option ->
+// collections).
+func isBootstrapStd(path string) bool {
+	return path == "collections" || path == "option" || path == "core"
+}
+
+func (s *stdImporter) importPreludeDep(path string) (*Package, error) {
+	s.mu.Lock()
+	s.noCount++
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		s.noCount--
+		s.mu.Unlock()
+	}()
+	return s.Import(path)
 }
 
 func (s *stdImporter) Import(path string) (*Package, error) {
@@ -1032,6 +1078,11 @@ func (s *stdImporter) decoded(path string, pkg *Package) {
 // process's prelude, marked std as the checked one is (prelude).
 func installPrelude(r preludeResult) {
 	preludeOnce.Do(func() {
+		for _, o := range r.scope.names {
+			if tn, ok := o.(*TypeName); ok && tn.Pkg != nil {
+				tn.Pkg.std = true
+			}
+		}
 		r.pkg.std = true
 		preludeOnce.r = r
 	})
@@ -1081,8 +1132,10 @@ func (s *stdImporter) done() Work {
 // count adds files parsed and packages checked to s's Work.
 func (s *stdImporter) count(files, packages int64) {
 	s.mu.Lock()
-	s.work.StdFilesParsed += files
-	s.work.StdPackagesChecked += packages
+	if s.noCount == 0 {
+		s.work.StdFilesParsed += files
+		s.work.StdPackagesChecked += packages
+	}
 	s.mu.Unlock()
 }
 
@@ -1112,7 +1165,11 @@ func (s *stdImporter) load(path string) (*Package, error) {
 		f.Name = name // the embedded name, which the lowering reports (Files)
 		files = append(files, f)
 	}
-	c := newChecker(path, s, prelude().scope)
+	parent := universe()
+	if !isBootstrapStd(path) {
+		parent = prelude().scope
+	}
+	c := newChecker(path, s, parent)
 	c.pkg.std = true
 	c.pkg.trusted = true     // the toolchain vouches for what it ships
 	c.pkg.module = StdModule // its laws are judged over std as one module (lawmodule.go)

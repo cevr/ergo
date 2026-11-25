@@ -162,9 +162,27 @@ func encodeSnapshot(s *stdSnapshot) (out []byte, err error) {
 			}
 		}
 	}
-	write("", func() { reach(check.BasePrelude(s.base)); e.encPtrstdBase(s.base) })
+	write("", func() {
+		for _, p := range check.BasePackages(s.base) {
+			reach(p)
+		}
+		e.encPtrstdBase(s.base)
+	})
+	segIndex := make(map[*check.Package]int, len(s.packages))
+	for i, p := range s.packages {
+		segIndex[p] = i + 1
+	}
 	for i, pkg := range s.packages {
 		write(s.paths[i], func() { reach(pkg); e.encPtrPackage(pkg) })
+		seg := &segs[len(segs)-1]
+		for _, f := range pkg.Files() {
+			for _, imp := range pkg.ImportsOf(f) {
+				if idx, ok := segIndex[imp.Pkg]; ok && idx < i+1 && !slices.Contains(seg.deps, idx) {
+					seg.deps = append(seg.deps, idx)
+				}
+			}
+		}
+		slices.Sort(seg.deps)
 	}
 	// The header: every segment's path, starts, deps, size and checksum,
 	// and the ends of the last segment. Its own checksum is verified before

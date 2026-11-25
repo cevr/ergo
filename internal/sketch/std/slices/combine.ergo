@@ -1,16 +1,12 @@
 // Combining slices: FlatMap and Zip (std-spike D1).
 
+import collections
+
 // FlatMap is f of each element of xs, first to last, joined in one new
 // slice (Effect Array.flatMap, Gleam list.flat_map). Its first failure
 // ends it.
 func FlatMap[T, U, E, R](xs []T, f func(x T) []U fails E needs R) []U fails E needs R {
-	let mut out = []U{}
-	for x in xs {
-		for y in try f(x) {
-			out = out.Append(y)
-		}
-	}
-	out
+	xs.Then(f)
 }
 
 // FlatMapIsConcatOfTransform: FlatMap is the Transform's slices joined in

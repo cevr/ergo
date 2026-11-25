@@ -276,7 +276,8 @@ func (c *checker) binary(x *syntax.BinaryExpr, hint Type) operand {
 	if isComparison(x.Op) {
 		switch x.Op {
 		case syntax.EQL, syntax.NEQ:
-			if !Equatable(t) {
+			inClaimLaw := c.fn != nil && c.fn.law != nil && c.fn.law.Claimed()
+			if !Equatable(t) && (!inClaimLaw || !equatableInClaimLaw(t)) {
 				c.errorf(x, CodeType, "%s values cannot be compared with %s", t, x.Op)
 				return bad(x)
 			}

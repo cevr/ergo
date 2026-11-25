@@ -669,9 +669,20 @@ func (c *checker) recordOwnMark(name string, tparams []*TypeParam, targs []Type,
 	if c.silent > 0 || at == nil {
 		return
 	}
+	var lawOwnerTParams []*TypeParam
+	if c.fn != nil && c.fn.law != nil && c.fn.law.Claimed() {
+		if n, ok := c.fn.law.Owner.Type.(*Named); ok {
+			lawOwnerTParams = n.TParams
+		}
+	}
 	for i, tp := range tparams {
 		if i >= len(targs) || tp.Kind != KindType || tp.Own || targs[i] == nil {
 			continue
+		}
+		if len(lawOwnerTParams) > 0 {
+			if argTP, ok := targs[i].(*TypeParam); ok && slices.Contains(lawOwnerTParams, argTP) {
+				continue
+			}
 		}
 		c.ownMarkSites = append(c.ownMarkSites, ownMarkSite{file: c.cur, at: at, name: name, tp: tp, arg: targs[i]})
 	}

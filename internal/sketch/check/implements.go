@@ -43,7 +43,7 @@ func (c *checker) implementsClause(n *Named, d *syntax.TypeDecl, ctx *typeCtx) {
 	}
 	for _, x := range d.Implements {
 		var t Type
-		if id, ok := x.(*syntax.Ident); ok && (id.Name == n.Obj.Name || c.hidesNoOps(id.Name)) && c.pkg.Path != stdlib.PreludePath {
+		if id, ok := x.(*syntax.Ident); ok && (id.Name == n.Obj.Name || c.hidesNoOps(id.Name)) && c.pkg.Path != stdlib.PreludePath && !isBootstrapStd(c.pkg.Path) {
 			// A type named like a prelude type hides it in its package
 			// (types.md, Scope 2), and no type implements itself: its
 			// own name in its clause is the prelude's type it hides
@@ -187,6 +187,9 @@ func (c *checker) preludeContract(name string) *Named {
 		}
 		n, _ := tn.Type.(*Named)
 		return n
+	}
+	if isBootstrapStd(c.pkg.Path) {
+		return nil
 	}
 	return preludeType(name)
 }
@@ -851,7 +854,7 @@ func (c *checker) opAtOwnParams(n *Named, op *Named) Type {
 // name), and an operation type that lists a Close() of the contract's
 // shape, where neither declares the contract.
 func (c *checker) recordLegacyReleases() {
-	if legacyRecord == nil || c.pkg.Path == stdlib.PreludePath {
+	if legacyRecord == nil || c.pkg.Path == stdlib.PreludePath || isBootstrapStd(c.pkg.Path) {
 		return
 	}
 	cl := c.closer()

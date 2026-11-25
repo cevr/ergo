@@ -1,0 +1,25 @@
+// Package core defines foundational container contracts shared by the
+// standard library: Lengthed, Appender, and Lookup.
+
+import option
+
+// Lengthed is a container with a known element count.
+// law-exempt: STD-ROLES adds the signature only; LEN-METHOD and CORE-LAWS add built-type providers and LenIsNotNegative next.
+type Lengthed {
+	Len() int,
+}
+
+// Appender is a Lengthed container that appends elements and reserves capacity.
+// law-exempt: STD-ROLES adds the signature only; CORE-LAWS adds built-type providers and Append/Reserve laws next.
+type Appender[E own] {
+	..Lengthed,
+	own Append(e own E) Self,
+	own Reserve(extra int) Self,
+}
+
+// Lookup is a Lengthed container keyed by K whose Get returns an Option[V].
+// law-exempt: STD-ROLES adds the signature only; CORE-LAWS adds built-type providers and Lookup laws next.
+type Lookup[K, V own] {
+	..Lengthed,
+	Get(k K) option.Option[V],
+}

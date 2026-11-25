@@ -105,6 +105,15 @@ func TestLawledgerSameIsTheFormatters(t *testing.T) {
 		respaced := outsideLiterals(src, unformat.Replace)
 		format := func(text string) (string, error) {
 			out, err := hostsyntax.Source("law " + text + "\n")
+			if err != nil {
+				if wrapped, werr := hostsyntax.Source("type _ {\n\tlaw " + text + ",\n}\n"); werr == nil {
+					if inner, ok := strings.CutPrefix(wrapped, "type _ {\n\tlaw "); ok {
+						inner = strings.TrimSuffix(strings.TrimSpace(inner), "}")
+						inner = strings.TrimSuffix(strings.TrimSpace(inner), ",")
+						return lawledger.Normalize(inner), nil
+					}
+				}
+			}
 			return lawledger.Normalize(strings.TrimPrefix(out, "law ")), err
 		}
 		fromSource, err := format(src)

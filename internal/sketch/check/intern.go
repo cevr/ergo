@@ -287,6 +287,17 @@ func (tab *typeTable) node(k nodeKey, size int64) int32 {
 // rows and whether it is non-escaping (not its fallibility or its own type
 // parameters); a type parameter,
 // a basic type, a union and a machine are identical only to themselves.
+func selfArgsOf(t *SelfType) []Type {
+	if len(t.Args) != 0 || t.owner == nil || len(t.owner.TParams) == 0 {
+		return t.Args
+	}
+	args := make([]Type, len(t.owner.TParams))
+	for i, p := range t.owner.TParams {
+		args[i] = p
+	}
+	return args
+}
+
 // No case sorts: an interface's methods were sorted once, when its type
 // was resolved (byName).
 func shape(t Type) (kind byte, ref any, n int64, s string, kids []Type) {
@@ -298,7 +309,8 @@ func shape(t Type) (kind byte, ref any, n int64, s string, kids []Type) {
 	case *TypeParam:
 		return vParam, t, 0, "", nil
 	case *SelfType:
-		return vSelf, t.owner, int64(len(t.Args)), "", t.Args
+		args := selfArgsOf(t)
+		return vSelf, t.owner, int64(len(args)), "", args
 	case *Reapplied:
 		return vReapplied, t.Param, int64(len(t.Args)), "", t.Args
 	case *Slice:

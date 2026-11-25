@@ -22,6 +22,7 @@
 // stdlib.md names the Go test that runs each law until #162.
 
 import cmp
+import collections
 
 // WithCapacity is an empty slice with room for n elements. It makes no
 // element; a negative n is a defect, as Go's make panics.
@@ -566,13 +567,7 @@ func Equal[T comparable](a []T, b []T) bool {
 }
 
 // Collect is the values of s, in order, in a new slice.
-func Collect[T](s Seq[T]) []T {
-	let mut out = []T{}
-	for v in s {
-		out = out.Append(v)
-	}
-	out
-}
+func Collect[T](s Seq[T]) []T { collections.Collect(s) }
 
 // CollectInvertsValues: Collect(Values(xs)) is xs.
 law CollectInvertsValues(xs []int) { Equal(Collect(Values(xs)), xs) }
@@ -585,15 +580,7 @@ func Sorted[T ordered](s Seq[T]) []T {
 }
 
 // Values is xs as a Seq: each element, in order.
-func Values[T](xs []T) Seq[T] {
-	Seq[T](func(yield func(v T) bool) {
-		for x in xs {
-			if !yield(x) {
-				return
-			}
-		}
-	})
-}
+func Values[T](xs []T) Seq[T] { collections.FromSlice(xs) }
 
 // ValuesStops: Values is a Seq that stops (stdlib.md, Std laws 5): for
 // each k from 1 to len(xs)+1, a yield that returns false at its k-th call
@@ -619,11 +606,7 @@ law ValuesStops(xs []int) {
 // name is the one types.md, Generics, uses. f runs once per element, first
 // to last; its first failure ends Transform with it.
 func Transform[T, U, E, R](xs []T, f func(x T) U fails E needs R) []U fails E needs R {
-	let mut out = WithCapacity[U](len(xs))
-	for x in xs {
-		out = out.Append(try f(x))
-	}
-	out
+	xs.Map(f)
 }
 
 // TransformIdentity: Transform with the identity is xs.
@@ -715,11 +698,7 @@ func FilterTransform[T, U, E, R](xs []T, keep func(x T) bool fails E needs R, f 
 // Fold is f applied to init and each element of xs, first to last (Effect
 // Array.reduce, Gleam list.fold): Fold([a, b], z, f) is f(f(z, a), b).
 func Fold[T, A, E, R](xs []T, init A, f func(acc A, x T) A fails E needs R) A fails E needs R {
-	let mut acc = init
-	for x in xs {
-		acc = try f(acc, x)
-	}
-	acc
+	xs.Fold(init, f)
 }
 
 // FoldSumMatchesLoop: Fold with + is the sum a loop computes.

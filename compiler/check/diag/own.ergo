@@ -281,7 +281,7 @@ func language(k expr.Pkg, o store.XRef) bool {
 		return false
 	}
 	let f = k.Foreign[int(o.Decl)]
-	(f.Path == "prelude" && (f.Name == "Option" || f.Name == "Some")) || (f.Qual == "go" && f.Name == "Ref")
+	((f.Path == "prelude" || f.Path == "option") && (f.Name == "Option" || f.Name == "Some")) || (f.Qual == "go" && f.Name == "Ref")
 }
 
 // resources is each type name of the package that holds a resource: one

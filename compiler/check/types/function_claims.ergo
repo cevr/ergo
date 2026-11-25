@@ -510,7 +510,7 @@ func publishFunctionGroup(s mut store.Store, e Env, roles []Role, g functionGrou
 	let mut members = []store.FunctionMember{}
 	let mut names = []string{}
 	for m in role.Members {
-		let written = groupMember(s, g, includes, groups, m.Name)
+		let written = groupMember(s, e, roles, g, includes, groups, m.Name)
 		let inherited = importedFunctionMember(s, e, roles, foreign, m.Name)
 		match (written, inherited) {
 		case (Some, Some{Value: existing}):
@@ -580,14 +580,30 @@ func importedFunctionMember(s mut store.Store, e Env, roles []Role, claims []sto
 	None
 }
 
-func groupMember(s mut store.Store, g functionGroup, includes []dense.ID[store.TKey], groups []functionGroup, name string) Option[functionHead] {
+func groupMember(s mut store.Store, e Env, roles []Role, g functionGroup, includes []dense.ID[store.TKey], groups []functionGroup, name string) Option[functionHead] {
 	for h in g.members {
 		if h.name == name { return Some{Value: h} }
 	}
 	for op in includes {
+		let shape = functionHead{..g.head, claim: store.ClaimHead{..g.head.claim, Role: op}}
 		for other in groups {
-			let shape = functionHead{..g.head, claim: store.ClaimHead{..g.head.claim, Role: op}}
-			if !sameFunctionGroup(s, other.head, shape) { continue }
+			let mut matched = sameFunctionGroup(s, other.head, shape)
+			if !matched {
+				match ReadRole(s, e.deps, e.foreign, roles, other.head.claim.Role) {
+				case Some{Value: otherRole}:
+					let otherArgs = store.OperandsOf(*s, other.head.claim.Role)
+					for inc in otherRole.Includes {
+						let at = store.TSubst(s, inc, otherArgs)
+						let proj = functionHead{..other.head, claim: store.ClaimHead{..other.head.claim, Role: at}}
+						if sameFunctionGroup(s, proj, shape) {
+							matched = true
+							break
+						}
+					}
+				case None:
+				}
+			}
+			if !matched { continue }
 			for h in other.members {
 				if h.name == name { return Some{Value: h} }
 			}
