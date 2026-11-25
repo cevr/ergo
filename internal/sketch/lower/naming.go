@@ -260,7 +260,7 @@ func (l *lowerer) nameAll() {
 			}
 		}
 	}
-	l.reserveScripts(func(key pkgKey, base string) {
+	l.reserveScripts(append([]*check.Package{l.pkg}, libs...), func(key pkgKey, base string) {
 		generated = append(generated, entry{key, "script " + key.obj.(string), base})
 	})
 	l.reserveDefaults(func(key pkgKey, base string) {

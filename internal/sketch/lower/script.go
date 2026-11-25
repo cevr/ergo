@@ -45,7 +45,7 @@ func (l *lowerer) scriptType(n *check.Named, site syntax.Node) string {
 // reserveScripts reserves the struct name of every Script instance the
 // program's facts name: the types of its expressions and variables, at any
 // depth of a type (naming.go, step 4).
-func (l *lowerer) reserveScripts(reserve func(key pkgKey, base string)) {
+func (l *lowerer) reserveScripts(pkgs []*check.Package, reserve func(key pkgKey, base string)) {
 	walked := map[check.Type]bool{}
 	var walk func(t check.Type)
 	walk = func(t check.Type) {
@@ -89,7 +89,10 @@ func (l *lowerer) reserveScripts(reserve func(key pkgKey, base string)) {
 			}
 		}
 	}
-	for _, p := range l.sourcedPkgs() {
+	for _, p := range pkgs {
+		if p.Info == nil {
+			continue
+		}
 		for _, tn := range l.canon.types(p) {
 			walk(tn.Type)
 		}
