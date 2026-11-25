@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/sha256"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -190,7 +191,7 @@ func (w *warm) record(answer sketchfront.WarmAnswer) {
 // was written: a build that printed a note is not answered warm, since
 // the answer would not print it.
 type quiet struct {
-	w       *os.File
+	w       io.Writer
 	written bool
 }
 
