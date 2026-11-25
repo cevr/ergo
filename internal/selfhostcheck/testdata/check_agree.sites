@@ -869,6 +869,7 @@ case internal/selfhostcheck/testdata/agree/self-imports/cmd
 case internal/selfhostcheck/testdata/agree/self-imports/role
 case internal/selfhostcheck/testdata/agree/self-include
 case internal/selfhostcheck/testdata/agree/self_type
+case internal/selfhostcheck/testdata/agree/std-roles
 case internal/selfhostcheck/testdata/bind
 case internal/sketch/check/testdata/fixtures/negative/argument-mismatch.ergo
 case internal/sketch/check/testdata/fixtures/negative/ascending-is-the-only-way-in.ergo
@@ -1030,7 +1031,9 @@ case internal/sketch/std/cmp
 case internal/sketch/std/code
 case internal/sketch/std/codec
 case internal/sketch/std/codegraph
+case internal/sketch/std/collections
 case internal/sketch/std/config
+case internal/sketch/std/core
 case internal/sketch/std/crc32
 case internal/sketch/std/cron
 case internal/sketch/std/csv
@@ -1079,6 +1082,7 @@ case internal/sketch/std/mcp/memory
 case internal/sketch/std/mcp/stdio
 case internal/sketch/std/net
 case internal/sketch/std/nettest
+case internal/sketch/std/option
 case internal/sketch/std/os
 case internal/sketch/std/pace
 case internal/sketch/std/process
@@ -1311,6 +1315,7 @@ case unused internal/sketch/std/bench/stats.ergo
 case unused internal/sketch/std/cache/cache.ergo
 case unused internal/sketch/std/codec/codec.ergo
 case unused internal/sketch/std/codegraph/codegraph.ergo
+case unused internal/sketch/std/collections/collections.ergo
 case unused internal/sketch/std/crc32/crc32.ergo
 case unused internal/sketch/std/cron/expr.ergo
 case unused internal/sketch/std/decimal/u128.ergo
@@ -1345,6 +1350,7 @@ case unused internal/sketch/std/mcp/httpmcp/httpmcp.ergo
 case unused internal/sketch/std/mcp/mcp.ergo
 case unused internal/sketch/std/mcp/memory/memory.ergo
 case unused internal/sketch/std/mcp/stdio/stdio.ergo
+case unused internal/sketch/std/option/option.ergo
 case unused internal/sketch/std/pace/pace.ergo
 case unused internal/sketch/std/process/process.ergo
 case unused internal/sketch/std/prompt/machines.ergo
