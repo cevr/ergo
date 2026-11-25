@@ -74,6 +74,20 @@ func (b *irBuilder) updateLit(x *syntax.CompositeLit, t check.Type, p irPos) *ir
 		lit.Elems = append(lit.Elems, b.expr(kv.Value))
 		set[id.Name] = true
 	}
+	if n.Obj != nil && n.Obj.Pkg != nil && n.Obj.Pkg.Host() {
+		tmp := b.temp("upd", gt, p)
+		stmts := []*irStmt{{K: "def", Pos: p, Local: tmp, X: base}}
+		for i, e := range lit.Elems {
+			stmts = append(stmts, &irStmt{
+				K:   "store",
+				Pos: e.Pos,
+				X:   &irExpr{K: "field", Pos: e.Pos, Name: lit.Keys[i], X: &irExpr{K: "local", Pos: e.Pos, I: tmp}},
+				Y:   e,
+			})
+		}
+		b.runFirst(stmts)
+		return &irExpr{K: "local", Pos: p, I: tmp}
+	}
 	for _, f := range td.fields {
 		if set[f.Name] {
 			continue

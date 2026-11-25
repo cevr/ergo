@@ -583,7 +583,7 @@ func (w *valueWalk) walk(n syntax.Node, loops []syntax.Node) {
 				list = append([]syntax.Expr{c.Recv}, list...)
 			}
 			for i, a := range list {
-				if goShared(w.typeOf(a)) {
+				if goShared(w.typeOf(a)) || w.l.holdsValue(w.typeOf(a)) {
 					w.goArgs = append(w.goArgs, a)
 					w.goOperand(a, n, c, i)
 				}

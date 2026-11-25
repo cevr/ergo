@@ -52,24 +52,21 @@ func (b *irBuilder) copyDeep(t check.Type, x syntax.Node, e *irExpr, deep bool) 
 		if !deep && !b.l.entryWritten(t) || !b.l.holdsValue(u.Elem) || valueMutant == "shallow" {
 			k, v := b.goType(u.Key, x), b.goType(u.Elem, x)
 			m := "map[" + k + "]" + v
-			if b.goType(t, x) != m {
-				// The decoder instantiates Clone at identical types only.
-				irNo("value copy of a defined Map type")
+			if b.goType(t, x) == m {
+				// The import is kept used at one fixed instance: the copied
+				// type may name the body's type parameters, which package
+				// scope does not.
+				b.keepImport("var _ = " + b.l.goPkg("maps") + ".Clone[map[string]bool]")
+				return &irExpr{K: "pcall", Pos: e.Pos, T: "maps", Name: "Clone", V: m + ", " + k + ", " + v, Args: []*irExpr{e}}
 			}
-			// The import is kept used at one fixed instance: the copied
-			// type may name the body's type parameters, which package
-			// scope does not.
-			b.keepImport("var _ = " + b.l.goPkg("maps") + ".Clone[map[string]bool]")
-			return &irExpr{K: "pcall", Pos: e.Pos, T: "maps", Name: "Clone", V: m + ", " + k + ", " + v, Args: []*irExpr{e}}
 		}
 	case *check.Slice:
 		if !b.l.holdsValue(u.Elem) || valueMutant == "shallow" {
 			elem := b.goType(u.Elem, x)
-			if b.goType(t, x) != "[]"+elem {
-				irNo("value copy of a defined slice type")
+			if b.goType(t, x) == "[]"+elem {
+				b.keepImport("var _ = " + b.l.goPkg("slices") + ".Clone[[]byte]")
+				return &irExpr{K: "pcall", Pos: e.Pos, T: "slices", Name: "Clone", V: "[]" + elem + ", " + elem, Args: []*irExpr{e}}
 			}
-			b.keepImport("var _ = " + b.l.goPkg("slices") + ".Clone[[]byte]")
-			return &irExpr{K: "pcall", Pos: e.Pos, T: "slices", Name: "Clone", V: "[]" + elem + ", " + elem, Args: []*irExpr{e}}
 		}
 	}
 	b.goType(t, x)
