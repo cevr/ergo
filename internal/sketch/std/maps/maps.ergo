@@ -4,6 +4,16 @@
 // 1). slices.Sorted(maps.Keys(m)) gives the keys in a fixed order. It is
 // Ergo source; Clone is the Map operation m.Clone() (PRIM-4).
 
+// Hashing is the hash and equality contract for Map keys.
+//
+// ergo:alias Hashing
+type Hashing[K comparable] {}
+
+// Structural is the default Hashing provider for comparable keys.
+//
+// ergo:alias Structural
+type Structural[K comparable] {}
+
 // Hash returns a uint64 hash of k such that a == b implies Hash(a) == Hash(b).
 //
 // ergo:builtin hash

@@ -926,6 +926,12 @@ func prelude() preludeResult {
 			pkg.Scope.insert(name, o)
 			scope.insert(name, o)
 		}
+		for name, target := range corePkg.pendingAliases {
+			if orig, ok := pkg.Scope.names[target].(*TypeName); ok {
+				corePkg.Scope.names[name] = orig
+			}
+		}
+		corePkg.pendingAliases = nil
 		coll := map[Object]bool{}
 		for _, f := range pkg.builtinFuncs {
 			coll[f] = true

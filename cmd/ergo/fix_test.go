@@ -244,3 +244,47 @@ func TestFixGlobalFuncsCommand(t *testing.T) {
 		t.Fatalf("fix --global-funcs --check after fix: %v", err)
 	}
 }
+
+func TestFixStdTypesCommand(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "main.ergo")
+	src := "func main() needs Console {\n\tConsole.Println(\"hi\")\n}\n"
+	want := "import io\n\nfunc main() needs io.Console {\n\tio.Console.Println(\"hi\")\n}\n"
+	if err := os.WriteFile(path, []byte(src), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	read := func() string {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	if err := command([]string{"fix", "--check", "--json", path}); err != nil {
+		t.Fatalf("default fix --check without --std-types: %v", err)
+	}
+	if err, ok := command([]string{"fix", "--global-funcs", "--std-types", path}).(usageError); !ok {
+		t.Fatalf("fix --global-funcs --std-types: %v, want usageError", err)
+	}
+	if err, ok := command([]string{"fix", "--std-types", "--check", "--json", path}).(exitStatusError); !ok || err.code != 1 {
+		t.Fatalf("fix --std-types --check: %v, want exit 1", err)
+	}
+	if got := read(); got != src {
+		t.Fatalf("fix --std-types --check wrote:\n%s", got)
+	}
+	if err := command([]string{"fix", "--std-types", "--dry-run", "--json", path}); err != nil {
+		t.Fatalf("fix --std-types --dry-run: %v", err)
+	}
+	if got := read(); got != src {
+		t.Fatalf("fix --std-types --dry-run wrote:\n%s", got)
+	}
+	if err := command([]string{"fix", "--std-types", "--json", path}); err != nil {
+		t.Fatalf("fix --std-types: %v", err)
+	}
+	if got := read(); got != want {
+		t.Fatalf("fix --std-types wrote:\n%s\nwant:\n%s", got, want)
+	}
+	if err := command([]string{"fix", "--std-types", "--check", "--json", path}); err != nil {
+		t.Fatalf("fix --std-types --check after fix: %v", err)
+	}
+}

@@ -11,6 +11,11 @@
 
 import filepath
 
+// Ambient is the capability authorizing construction of host OS providers.
+//
+// ergo:alias Ambient
+type Ambient {}
+
 // Exit is the failure that ends main with status Code. When it is main's
 // only reason, the entry writes Message and a line feed to standard error,
 // verbatim (nothing when Message is empty), and exits with Code; Code is

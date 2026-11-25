@@ -17,7 +17,7 @@ import (
 	"ergo.local/prototype/internal/sketch/lint"
 )
 
-const fixUsage = "usage: ergo fix [--check|--dry-run] [--json] [--lint] [--comments|--len|--global-funcs] [--std DIR] [--go] PATH..."
+const fixUsage = "usage: ergo fix [--check|--dry-run] [--json] [--lint] [--comments|--len|--global-funcs|--std-types] [--std DIR] [--go] PATH..."
 
 const fixHelp = fixUsage + `
 
@@ -68,6 +68,14 @@ first. Other diagnostics are printed, and the exit status is then 1.
                  TestFolderHandle, NewLiveScheduler) into their std-package
                  forms, adding missing imports in sorted order and leaving
                  user shadows untouched; with --json it lists every rewrite
+  --std-types    only rewrite, under each PATH and the --std DIR, references
+                 to Unit-8 prelude types (Console, Ambient, Scheduler, Random,
+                 Writer, Reader, Wire*, Hashing, Structural, Task, ordered,
+                 number, TestAmbient, TestDirectory, TestLoopback, Range, Seq,
+                 Never, Context, CallSite, Closer, Keeping, Unsatisfied,
+                 NoMatch) into their std-package forms, adding missing imports
+                 in sorted order and leaving user shadows untouched; with
+                 --json it lists every rewrite
 
 Exit codes: 0 done; 1 a file could not be read or written, a diagnostic
 remains, or --check found a change; 2 invalid invocation.
@@ -85,7 +93,7 @@ type fixReport struct {
 // clause pass over each PATH that is a program.
 func fixCommand(args []string) error {
 	var paths []string
-	var check, dry, asJSON, goLits, withLint, comments, rewriteLen, globalFuncs bool
+	var check, dry, asJSON, goLits, withLint, comments, rewriteLen, globalFuncs, stdTypes bool
 	stdRoot := ""
 	for i := 0; i < len(args); i++ {
 		switch a := args[i]; a {
@@ -105,6 +113,8 @@ func fixCommand(args []string) error {
 			rewriteLen = true
 		case "--global-funcs":
 			globalFuncs = true
+		case "--std-types":
+			stdTypes = true
 		case "--std":
 			if i+1 == len(args) {
 				return usageError{message: fixUsage}
@@ -128,6 +138,9 @@ func fixCommand(args []string) error {
 	if globalFuncs {
 		specials++
 	}
+	if stdTypes {
+		specials++
+	}
 	if len(paths) == 0 && stdRoot == "" || check && dry || specials > 1 {
 		return usageError{message: fixUsage}
 	}
@@ -140,6 +153,9 @@ func fixCommand(args []string) error {
 	}
 	if globalFuncs {
 		return fixGlobalFuncs(fixFolders(paths), stdRoot, write, check, asJSON)
+	}
+	if stdTypes {
+		return fixStdTypes(fixFolders(paths), stdRoot, write, check, asJSON)
 	}
 	// The respells come first: they are syntactic, so they read a file
 	// that does not check, and every checked pass below reads the new
@@ -497,6 +513,43 @@ func fixGlobalFuncs(paths []string, stdRoot string, write, check, asJSON bool) e
 		return exitStatusError{code: 1, message: "fix: global function calls left in files it could not change", handled: true}
 	case check && len(rep.Files) > 0:
 		return exitStatusError{code: 1, message: "fix: global function calls would be rewritten", handled: true}
+	}
+	return nil
+}
+
+type fixStdTypesReport struct {
+	Written  bool                 `json:"written"`
+	Rewrites []fix.StdTypeRewrite `json:"rewrites"`
+	Errors   []string             `json:"errors,omitempty"`
+}
+
+func fixStdTypes(paths []string, stdRoot string, write, check, asJSON bool) error {
+	rep, err := fix.RunStdTypes(fix.Options{Paths: paths, StdRoot: stdRoot, Write: write})
+	if err != nil {
+		return exitStatusError{code: 1, message: "ergo fix: " + err.Error()}
+	}
+	if asJSON {
+		out := fixStdTypesReport{
+			Written:  write && len(rep.Files) > 0,
+			Rewrites: rep.Rewrites,
+			Errors:   rep.Errs,
+		}
+		if out.Rewrites == nil {
+			out.Rewrites = []fix.StdTypeRewrite{}
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(out); err != nil {
+			return err
+		}
+	} else {
+		fmt.Fprint(os.Stdout, rep.Text())
+	}
+	switch {
+	case len(rep.Errs) > 0:
+		return exitStatusError{code: 1, message: "fix: std type references left in files it could not change", handled: true}
+	case check && len(rep.Files) > 0:
+		return exitStatusError{code: 1, message: "fix: std type references would be rewritten", handled: true}
 	}
 	return nil
 }

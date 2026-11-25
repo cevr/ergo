@@ -328,12 +328,30 @@ func patternNames(s mut store.Store, p syntax.Parsed, f int, x dense.ID[syntax.N
 	}
 }
 
+// hasAliasDirective reports whether doc comment group g carries a
+// `// ergo:alias <target>` re-export directive.
+func hasAliasDirective(p syntax.Parsed, g int) bool {
+	if g < 0 {
+		return false
+	}
+	let src = syntax.SourceOf(p)[syntax.GroupPos(p, g):syntax.GroupEnd(p, g)]
+	for l in strings.Split(src, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(l), "// ergo:alias ") {
+			return true
+		}
+	}
+	false
+}
+
 // collectDecl puts the declarations of one top-level declaration row.
 func collectDecl(s mut store.Store, p syntax.Parsed, f int, d dense.ID[syntax.Node]) {
 	match syntax.ViewOf(p.Tree, d) {
 	case syntax.FuncDecl as fd:
 		declare(s, p, f, fd.Name, 1)
 	case syntax.TypeDecl as td:
+		if hasAliasDirective(p, td.Doc) {
+			return
+		}
 		declare(s, p, f, td.Name, 3)
 		// A refinement of a type with no type parameters derives its
 		// parse function, at the type's name (syntax/refine.go).
