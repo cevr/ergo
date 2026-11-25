@@ -1,0 +1,452 @@
+import filepath
+import fs
+import slices
+import strings
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/pack
+import github.com/cevr/ergo/modules/git/tree
+
+func resolveGlobalCommitOID(layers []chainLayer, pos uint32) Option[oid.OID] {
+	let p = int(pos)
+	for layer in layers {
+		let lo = layer.baseOffset
+		let hi = lo + len(layer.graph.commits)
+		if p >= lo && p < hi {
+			return Some[oid.OID]{Value: layer.graph.commits[p-lo].id}
+		}
+	}
+	None
+}
+
+// BuildChain validates and links an ordered stack of commit-graph layers from
+// base (index 0) to tip (last index) into a queryable Chain.
+func BuildChain(format oid.Format, graphs []Graph) Chain fails BadBaseChain {
+	let mut layers = slices.WithCapacity[chainLayer](len(graphs))
+	let mut runningOffset = 0
+	for idx, g in graphs {
+		if len(g.baseHashes) != idx {
+			return BadBaseChain{Reason: "layer base count does not match chain position"}
+		}
+		for bIdx in 0..idx {
+			if !oid.Equal(g.baseHashes[bIdx], graphs[bIdx].checksum) {
+				return BadBaseChain{Reason: "layer BASE hash does not match preceding graph checksum"}
+			}
+		}
+		let baseOff = runningOffset
+		layers = layers.Append(chainLayer{baseOffset: baseOff, graph: g})
+		runningOffset = runningOffset + len(g.commits)
+	}
+
+	let mut resolved = slices.WithCapacity[CommitInfo](runningOffset)
+	for layer in layers {
+		for rc in layer.graph.commits {
+			let mut parents = slices.WithCapacity[oid.OID](len(rc.parentPos))
+			for pPos in rc.parentPos {
+				match resolveGlobalCommitOID(layers, pPos) {
+				case Some[oid.OID] as pOid:
+					parents = parents.Append(pOid.Value)
+				case None:
+					return BadBaseChain{Reason: "commit parent position out of chain bounds"}
+				}
+			}
+			resolved = resolved.Append(CommitInfo{
+				OID:           rc.id,
+				TreeOID:       rc.treeOid,
+				Parents:       parents,
+				Generation:    rc.generation,
+				CommitTime:    rc.commitTime,
+				CorrectedDate: rc.correctedDate,
+				HasBloom:      rc.hasBloom,
+				BloomFilter:   rc.bloomFilter,
+				BloomSettings: layer.graph.bloomSettings,
+			})
+		}
+	}
+
+	Chain{
+		format:  format,
+		layers:  layers,
+		commits: resolved,
+	}
+}
+
+// OpenDir opens a commit-graph from infoDir (typically `<objectsDir>/info`),
+// loading either a split chain (`commit-graphs/commit-graph-chain` +
+// `graph-<hex>.graph`) or a monolithic `commit-graph` file.
+func OpenDir(format oid.Format, infoDir string) Chain fails Truncated | BadMagic | UnsupportedVersion | WrongFormat | CorruptChunk | MissingChunk | ChecksumMismatch | BadBaseChain | IOFailed needs fs.Files {
+	let chainDir = filepath.Join([]string{infoDir, "commit-graphs"})
+	let chainFile = filepath.Join([]string{chainDir, "commit-graph-chain"})
+	let chainRawOpt = fs.Files.ReadFile(chainFile) catch {
+	case fs.NotFound:
+		""
+	case fs.Denied as e:
+		return IOFailed{Op: "read-chain", Detail: e.Path}
+	case fs.Failed as e:
+		return IOFailed{Op: "read-chain", Detail: e.Reason}
+	}
+	if strings.TrimSpace(chainRawOpt) != "" {
+		let mut graphs = []Graph{}
+		for line in strings.Split(chainRawOpt, "\n") {
+			let h = strings.TrimSpace(line)
+			if h == "" {
+				continue
+			}
+			let layerPath = filepath.Join([]string{chainDir, "graph-" + h + ".graph"})
+			let layerRaw = fs.Files.ReadFile(layerPath) catch {
+			case fs.NotFound as e:
+				return IOFailed{Op: "read-split-layer", Detail: e.Path}
+			case fs.Denied as e:
+				return IOFailed{Op: "read-split-layer", Detail: e.Path}
+			case fs.Failed as e:
+				return IOFailed{Op: "read-split-layer", Detail: e.Reason}
+			}
+			let g = try Parse(format, layerRaw.Bytes())
+			if oid.Hex(g.checksum) != h {
+				return BadBaseChain{Reason: "split layer filename hash does not match verified checksum"}
+			}
+			graphs = graphs.Append(g)
+		}
+		return try BuildChain(format, graphs)
+	}
+
+	let monoPath = filepath.Join([]string{infoDir, "commit-graph"})
+	let monoRaw = fs.Files.ReadFile(monoPath) catch {
+	case fs.NotFound as e:
+		return IOFailed{Op: "read-commit-graph", Detail: e.Path}
+	case fs.Denied as e:
+		return IOFailed{Op: "read-commit-graph", Detail: e.Path}
+	case fs.Failed as e:
+		return IOFailed{Op: "read-commit-graph", Detail: e.Reason}
+	}
+	let g = try Parse(format, monoRaw.Bytes())
+	try BuildChain(format, []Graph{g})
+}
+
+func sameFormat(a oid.Format, b oid.Format) bool {
+	match a {
+	case oid.Sha1:
+		match b {
+		case oid.Sha1:
+			true
+		case oid.Sha256:
+			false
+		}
+	case oid.Sha256:
+		match b {
+		case oid.Sha1:
+			false
+		case oid.Sha256:
+			true
+		}
+	}
+}
+
+func lookupInLayer(layer chainLayer, id oid.OID) Option[int] {
+	let g = layer.graph
+	if !sameFormat(g.format, id.Format) || len(id.Raw) != oid.ByteLen(g.format) {
+		return None
+	}
+	let b = int(id.Raw[0])
+	let mut lo = if b == 0 { 0 } else { int(g.fanout[b-1]) }
+	let mut hi = int(g.fanout[b])
+	for _ in 0..64 {
+		if lo >= hi {
+			break
+		}
+		let mid = lo + (hi-lo)/2
+		let cmp = oid.Compare(g.commits[mid].id, id)
+		if cmp == 0 {
+			return Some[int]{Value: layer.baseOffset + mid}
+		}
+		if cmp < 0 {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+	None
+}
+
+// CommitCount implements GraphReader.CommitCount on Chain.
+func CommitCount(c Chain) int {
+	len(c.commits)
+}
+
+// At implements GraphReader.At on Chain.
+func At(c Chain, i int) Option[CommitInfo] {
+	if i < 0 || i >= len(c.commits) {
+		return None
+	}
+	Some[CommitInfo]{Value: c.commits[i]}
+}
+
+// Lookup implements GraphReader.Lookup on Chain using O(log N) fanout binary
+// search across all layers.
+func Lookup(c Chain, id oid.OID) Option[CommitInfo] {
+	for layer in c.layers {
+		match lookupInLayer(layer, id) {
+		case Some[int] as pos:
+			return Some[CommitInfo]{Value: c.commits[pos.Value]}
+		case None:
+		}
+	}
+	None
+}
+
+// LayerCount returns the number of commit-graph layers in c (1 for monolithic,
+// >1 for split chains).
+func LayerCount(c Chain) int {
+	len(c.layers)
+}
+
+func popNewest(frontier []CommitInfo) (CommitInfo, []CommitInfo) {
+	let mut best = 0
+	for i in 1..len(frontier) {
+		let cur = frontier[i]
+		let top = frontier[best]
+		if cur.CommitTime > top.CommitTime || (cur.CommitTime == top.CommitTime && oid.Compare(cur.OID, top.OID) > 0) {
+			best = i
+		}
+	}
+	let picked = frontier[best]
+	let mut rest = slices.WithCapacity[CommitInfo](len(frontier) - 1)
+	for i in 0..len(frontier) {
+		if i != best {
+			rest = rest.Append(frontier[i])
+		}
+	}
+	(picked, rest)
+}
+
+// LogCommits walks commits reachable from start inside c in reverse-chronological
+// commit-time order, returning at most maxCount OIDs (unlimited when maxCount <= 0).
+func LogCommits(c Chain, start oid.OID, maxCount int) []oid.OID {
+	let first = match c.Lookup(start) {
+	case Some[CommitInfo] as info:
+		info.Value
+	case None:
+		return []oid.OID{}
+	}
+	let mut frontier = []CommitInfo{first}
+	let mut seen = Map[string, bool]{}
+	seen[oid.Hex(first.OID)] = true
+	let mut out = []oid.OID{}
+	for len(frontier) > 0 {
+		if maxCount > 0 && len(out) >= maxCount {
+			break
+		}
+		let (cur, nextFrontier) = popNewest(frontier)
+		frontier = nextFrontier
+		out = out.Append(cur.OID)
+		for p in cur.Parents {
+			let pk = oid.Hex(p)
+			if seen.Get(pk) != None {
+				continue
+			}
+			match c.Lookup(p) {
+			case Some[CommitInfo] as pi:
+				seen[pk] = true
+				frontier = frontier.Append(pi.Value)
+			case None:
+			}
+		}
+	}
+	out
+}
+
+func sameOptTreeEntry(a Option[tree.Entry], b Option[tree.Entry]) bool {
+	match a {
+	case None:
+		b == None
+	case Some[tree.Entry] as ea:
+		match b {
+		case None:
+			false
+		case Some[tree.Entry] as eb:
+			oid.Equal(ea.Value.OID, eb.Value.OID) && tree.ModeOctal(ea.Value.Mode) == tree.ModeOctal(eb.Value.Mode)
+		}
+	}
+}
+
+func lookupTreeEntry(format oid.Format, treeOid oid.OID, relPath string, maxBytes int) Option[tree.Entry] fails IOFailed needs pack.ObjectStore {
+	tree.LookupPath(format, treeOid, relPath, maxBytes) catch {
+	case tree.CorruptTree as e:
+		return IOFailed{Op: "tree-lookup", Detail: e.Reason}
+	case tree.InvalidEntryName as e:
+		return IOFailed{Op: "tree-lookup", Detail: e.Reason}
+	case tree.UnsortedTree as e:
+		return IOFailed{Op: "tree-lookup", Detail: e.Prev + " >= " + e.Cur}
+	case tree.DuplicateEntry as e:
+		return IOFailed{Op: "tree-lookup", Detail: e.Name}
+	case tree.WrongKind as e:
+		return IOFailed{Op: "tree-lookup", Detail: e.Expected + " != " + e.Got}
+	case tree.DepthExceeded:
+		return IOFailed{Op: "tree-lookup", Detail: "tree depth exceeded"}
+	case tree.MissingObject as e:
+		return IOFailed{Op: "tree-lookup", Detail: "missing object " + oid.Hex(e.OID)}
+	case tree.StoreError as e:
+		return IOFailed{Op: "tree-lookup", Detail: e.Detail}
+	}
+}
+
+// PathLimitedLog computes the history-simplified list of commits touching path
+// reachable from start using c's changed-path Bloom filters to skip untouched
+// commits and pack.ObjectStore tree lookups to verify candidates, matching
+// `git rev-list HEAD -- <path>`.
+func PathLimitedLog(c Chain, start oid.OID, path string, maxBytes int) []oid.OID fails IOFailed needs pack.ObjectStore {
+	let cleaned = trimSlashes(path)
+	let first = match c.Lookup(start) {
+	case Some[CommitInfo] as info:
+		info.Value
+	case None:
+		return []oid.OID{}
+	}
+	let mut frontier = []CommitInfo{first}
+	let mut seen = Map[string, bool]{}
+	seen[oid.Hex(first.OID)] = true
+	let mut out = []oid.OID{}
+
+	for len(frontier) > 0 {
+		let (cur, nextFrontier) = popNewest(frontier)
+		frontier = nextFrontier
+
+		let mut enqueueParents = cur.Parents
+		if len(cur.Parents) == 0 {
+			if MayTouchPath(cur, cleaned) {
+				let entry = try lookupTreeEntry(c.format, cur.TreeOID, cleaned, maxBytes)
+				if entry != None {
+					out = out.Append(cur.OID)
+				}
+			}
+		} else if len(cur.Parents) == 1 {
+			if MayTouchPath(cur, cleaned) {
+				let curEntry = try lookupTreeEntry(c.format, cur.TreeOID, cleaned, maxBytes)
+				let pEntry = match c.Lookup(cur.Parents[0]) {
+				case Some[CommitInfo] as pi:
+					try lookupTreeEntry(c.format, pi.Value.TreeOID, cleaned, maxBytes)
+				case None:
+					None
+				}
+				if !sameOptTreeEntry(curEntry, pEntry) {
+					out = out.Append(cur.OID)
+				}
+			}
+		} else {
+			let curEntry = try lookupTreeEntry(c.format, cur.TreeOID, cleaned, maxBytes)
+			let mut treesameParent Option[oid.OID] = None
+			for p in cur.Parents {
+				match c.Lookup(p) {
+				case Some[CommitInfo] as pi:
+					let pEntry = try lookupTreeEntry(c.format, pi.Value.TreeOID, cleaned, maxBytes)
+					if sameOptTreeEntry(curEntry, pEntry) {
+						treesameParent = Some[oid.OID]{Value: p}
+						break
+					}
+				case None:
+				}
+			}
+			match treesameParent {
+			case Some[oid.OID] as tp:
+				enqueueParents = []oid.OID{tp.Value}
+			case None:
+				out = out.Append(cur.OID)
+			}
+		}
+
+		for p in enqueueParents {
+			let pk = oid.Hex(p)
+			if seen.Get(pk) != None {
+				continue
+			}
+			match c.Lookup(p) {
+			case Some[CommitInfo] as pi:
+				seen[pk] = true
+				frontier = frontier.Append(pi.Value)
+			case None:
+			}
+		}
+	}
+	out
+}
+
+// MemoryGraph implements GraphReader over an in-memory list of CommitInfo records.
+type MemoryGraph {
+	commits []CommitInfo,
+} implements GraphReader
+
+func oidMapKey(id oid.OID) string {
+	let tag = match id.Format {
+	case oid.Sha1:
+		"1:"
+	case oid.Sha256:
+		"2:"
+	}
+	tag + oid.Hex(id)
+}
+
+// NewMemoryGraph creates a MemoryGraph holding a deduplicated, acyclic
+// commit-graph normalized with canonical topological generation numbers.
+func NewMemoryGraph(commits []CommitInfo) MemoryGraph {
+	let mut seen = Map[string, uint32]{}
+	let mut normalized = []CommitInfo{}
+	for c in commits {
+		let key = oidMapKey(c.OID)
+		if seen.Get(key) != None {
+			continue
+		}
+		let mut validParents = []oid.OID{}
+		let mut maxParentGen = uint32(0)
+		for p in c.Parents {
+			let pk = oidMapKey(p)
+			if pk == key {
+				continue
+			}
+			match seen.Get(pk) {
+			case Some[uint32] as pg:
+				validParents = validParents.Append(p)
+				if pg.Value > maxParentGen {
+					maxParentGen = pg.Value
+				}
+			case None:
+			}
+		}
+		let minGen = maxParentGen + uint32(1)
+		let gen = if c.Generation >= minGen && c.Generation < uint32(0x3fffffff) { c.Generation } else { minGen }
+		seen[key] = gen
+		normalized = normalized.Append(CommitInfo{
+			OID:           c.OID,
+			TreeOID:       c.TreeOID,
+			Parents:       validParents,
+			Generation:    gen,
+			CommitTime:    c.CommitTime,
+			CorrectedDate: c.CorrectedDate,
+			HasBloom:      c.HasBloom,
+			BloomFilter:   c.BloomFilter,
+			BloomSettings: c.BloomSettings,
+		})
+	}
+	MemoryGraph{commits: normalized}
+}
+
+// CommitCount implements GraphReader.CommitCount on MemoryGraph.
+func CommitCount(m MemoryGraph) int {
+	len(m.commits)
+}
+
+// At implements GraphReader.At on MemoryGraph.
+func At(m MemoryGraph, i int) Option[CommitInfo] {
+	if i < 0 || i >= len(m.commits) {
+		return None
+	}
+	Some[CommitInfo]{Value: m.commits[i]}
+}
+
+// Lookup implements GraphReader.Lookup on MemoryGraph.
+func Lookup(m MemoryGraph, id oid.OID) Option[CommitInfo] {
+	for c in m.commits {
+		if oid.Equal(c.OID, id) {
+			return Some[CommitInfo]{Value: c}
+		}
+	}
+	None
+}

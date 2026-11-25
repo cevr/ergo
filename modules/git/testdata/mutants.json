@@ -690,6 +690,70 @@
       ]
     },
     {
+      "name": "git-graph-bloom-false-negative",
+      "origin": "STD-GIT G-GRAPH",
+      "file": "modules/git/graph/bloom.ergo",
+      "from": "\t\tlet pos = (h0 + uint32(i)*h1) % numBits",
+      "to": "\t\tlet pos = (h0 + uint32(i+1)*h1 + uint32(1)) % numBits",
+      "rule": "Changed-path Bloom filter probing uses exact Git Murmur3 double-hashing (h0 + i*h1) % numBits so touched paths never produce false negatives.",
+      "anchor": {
+        "tests": [
+          "modules/git/graph:MonolithicAndSplitCommitGraphMatchGit"
+        ]
+      },
+      "killers": [
+        "modules/git/graph:MonolithicAndSplitCommitGraphMatchGit"
+      ]
+    },
+    {
+      "name": "git-graph-drop-octopus-edge",
+      "origin": "STD-GIT G-GRAPH",
+      "file": "modules/git/graph/codec.ergo",
+      "from": "\tif (p2 & extraMask) == uint32(0) {\n\t\treturn out.Append(p2)\n\t}",
+      "to": "\tif (p2 & extraMask) == uint32(0) {\n\t\treturn out.Append(p2)\n\t}\n\treturn out",
+      "rule": "Commit-graph decoding expands MSB-set parent2 indices through the EDGE chunk to preserve all octopus merge parents.",
+      "anchor": {
+        "tests": [
+          "modules/git/graph:MonolithicAndSplitCommitGraphMatchGit"
+        ]
+      },
+      "killers": [
+        "modules/git/graph:MonolithicAndSplitCommitGraphMatchGit"
+      ]
+    },
+    {
+      "name": "git-graph-ignore-checksum",
+      "origin": "STD-GIT G-GRAPH",
+      "file": "modules/git/graph/codec.ergo",
+      "from": "\tif !slices.Equal(gotSum, wantSum) {",
+      "to": "\tif false && !slices.Equal(gotSum, wantSum) {",
+      "rule": "Commit-graph parsing verifies the trailing checksum over all preceding bytes.",
+      "anchor": {
+        "tests": [
+          "modules/git/graph:CorruptionAndOverflowMatrix"
+        ]
+      },
+      "killers": [
+        "modules/git/graph:CorruptionAndOverflowMatrix"
+      ]
+    },
+    {
+      "name": "git-graph-wrong-base-chain-offset",
+      "origin": "STD-GIT G-GRAPH",
+      "file": "modules/git/graph/chain.ergo",
+      "from": "\t\tlet baseOff = runningOffset",
+      "to": "\t\tlet baseOff = 0",
+      "rule": "Split commit-graph chains offset each layer's local commit indices by the cumulative commit count of preceding base layers.",
+      "anchor": {
+        "tests": [
+          "modules/git/graph:MonolithicAndSplitCommitGraphMatchGit"
+        ]
+      },
+      "killers": [
+        "modules/git/graph:MonolithicAndSplitCommitGraphMatchGit"
+      ]
+    },
+    {
       "name": "git-diff-ignore-mode-only-change",
       "origin": "STD-GIT G-DIFF",
       "file": "modules/git/diff/diff.ergo",
