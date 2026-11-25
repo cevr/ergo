@@ -49,7 +49,7 @@ func (b *irBuilder) hostArgs(x *syntax.CallExpr, c *check.Call, f *check.Func, p
 			shapes[i] = b.callbackShape(cb, x)
 			continue
 		}
-		if !b.hostValue(q.Type) && !isGoErrorArg(q.Type) && !basicSlice(q.Type) && !goAnyArg(q.Type) && !goPointerArg(q.Type) { // ir_golib.go
+		if !b.hostValue(q.Type) && !isGoErrorArg(q.Type) && !basicSlice(q.Type) && !goAnyArg(q.Type) && !b.hostArgValue(q.Type) && !goPointerArg(q.Type) { // ir_golib.go
 			irNo("call of a Go package function")
 		}
 	}
@@ -195,6 +195,30 @@ func (b *irBuilder) hostValue(t check.Type) bool {
 	}
 	n, ok := t.(*check.Named)
 	return ok && n.Obj != nil && n.Obj.Pkg.Host() && !check.IsGoError(n) && !isGoRef(n) && len(n.TArgs) == 0 && !b.l.holdsValue(n)
+}
+
+// hostArgValue reports a Go parameter type beyond hostValue/basicSlice/go.Error/
+// go.Any/go.Ref that crosses Go's boundary in Go's own type on the IR:
+// a Go package named type that holds a slice or Map (driver.Arg, url.Values),
+// a slice or array of admitted host types ([]driver.Arg, [][]byte, []go.Ref[T]),
+// or a plain Go Map of admitted host types. Value-rule boundary copies are
+// applied to the operand by valueCopy (values.go goArgs).
+func (b *irBuilder) hostArgValue(t check.Type) bool {
+	switch t := t.(type) {
+	case *check.Named:
+		return t.Obj != nil && t.Obj.Pkg.Host() && !check.IsGoError(t) && !isGoRef(t) && len(t.TArgs) == 0
+	case *check.Slice:
+		return b.hostArgElem(t.Elem)
+	case *check.Array:
+		return b.hostArgElem(t.Elem)
+	case *check.Map:
+		return !b.l.intMap(t) && !check.IsProviderMap(t) && b.hostArgElem(t.Key) && b.hostArgElem(t.Elem)
+	}
+	return false
+}
+
+func (b *irBuilder) hostArgElem(t check.Type) bool {
+	return b.hostValue(t) || basicSlice(t) || goAnyArg(t) || goPointerArg(t) || b.hostArgValue(t)
 }
 
 // admitHost admits t, a type of a Go package or a go.Ref of one (gocall.go

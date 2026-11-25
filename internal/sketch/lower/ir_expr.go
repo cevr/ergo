@@ -518,6 +518,9 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 			if plain {
 				lit.FT = b.recordFieldTypes(fts, x) // ir_forms_store.go
 			}
+			if tt.Obj != nil && tt.Obj.Pkg != nil && tt.Obj.Pkg.Host() {
+				return b.hostStructLit(lit.T, td, s, names, lit.Keys, lit.Elems, values, x, p)
+			}
 			if len(names) != len(s.Fields) {
 				b.omittedFields(lit, td, s, names, x, p)
 			}
@@ -640,4 +643,41 @@ func (b *irBuilder) omittedFields(lit *irExpr, td *typeDecl, s *check.Struct, se
 		lit.Keys = append(lit.Keys, name)
 		lit.Elems = append(lit.Elems, b.defaultOf(f.Type, x, p))
 	}
+}
+
+// hostStructLit builds a Go-package struct literal via zero-init plus field
+// stores rather than an IR "lit" node. The IR toolchain requires "lit" to key
+// every Go struct field including unexported ones (ergoir: literal with M of N
+// fields), which Ergo cannot name; zero-init plus stores handles both
+// exported-only and mixed exported+unexported Go structs identically to Go.
+func (b *irBuilder) hostStructLit(gt string, td *typeDecl, s *check.Struct, set []string, keys []string, elems []*irExpr, values []syntax.Expr, x *syntax.CompositeLit, p irPos) *irExpr {
+	for _, f := range s.Fields {
+		if slices.Contains(set, f.Name) || !b.l.holdsMap(f.Type) {
+			continue
+		}
+		name, ok := td.fieldName[f.Name]
+		if !ok {
+			irNo("record literal without a field of its record")
+		}
+		if !b.defaultable(f.Type, x) {
+			irNo("record literal without a field whose default holds a Map")
+		}
+		keys = append(keys, name)
+		elems = append(elems, b.defaultOf(f.Type, x, p))
+	}
+	if len(elems) == 0 {
+		return &irExpr{K: "zero", Pos: p, T: gt}
+	}
+	tmp := b.temp("lit", gt, p)
+	stmts := []*irStmt{{K: "def", Pos: p, Local: tmp, X: &irExpr{K: "zero", Pos: p, T: gt}}}
+	for i, e := range elems {
+		stmts = append(stmts, &irStmt{
+			K:   "store",
+			Pos: e.Pos,
+			X:   &irExpr{K: "field", Pos: e.Pos, Name: keys[i], X: &irExpr{K: "local", Pos: e.Pos, I: tmp}},
+			Y:   e,
+		})
+	}
+	b.runFirst(stmts)
+	return b.handRecordParts(values, &irExpr{K: "local", Pos: p, I: tmp})
 }
