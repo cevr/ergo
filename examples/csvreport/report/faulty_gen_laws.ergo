@@ -1,6 +1,5 @@
 import csv
 import gen
-import sync
 import testing
 
 type stubReportSource {
@@ -37,9 +36,6 @@ func runReportWithSource(name string) reportFaultOutcome needs Source {
 // clean reads produce a valid report table.
 law ReportPropagatesSourceFaults() {
 	let cfg = gen.Config{Seed: uint64(1), Cases: 64, Shrinks: 0, MaxDraws: 2048, MaxRejected: 10}
-	let sawSuccess = sync.NewRef(false)
-	let sawMissing = sync.NewRef(false)
-	let sawUnreadable = sync.NewRef(false)
 	let base = stubReportSource{Body: "site,device,hours,kw\nnorth,pump,4,1.50\nsouth,fan,2,0.50\n"}
 	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
 		let faulty = testing.Faulty[Source](base)
@@ -48,16 +44,14 @@ law ReportPropagatesSourceFaults() {
 		let faulted = len(faulty.Read.Faults()) > f0
 		match res {
 		case ReportFaultOk as ok:
-			if faulted {
-				return false
-			}
-			sawSuccess.Set(true)
+			always !faulted
+			sometimes ok.Lines == 4
 			ok.Lines == 4
 		case ReportFaultMissing:
-			sawMissing.Set(true)
+			sometimes faulted
 			faulted
 		case ReportFaultUnreadable:
-			sawUnreadable.Set(true)
+			sometimes faulted
 			faulted
 		case ReportFaultOther:
 			false
@@ -65,10 +59,22 @@ law ReportPropagatesSourceFaults() {
 	})
 	match outcome {
 	case gen.Held:
-		sawSuccess.Get() && sawMissing.Get() && sawUnreadable.Get()
+		true
 	case gen.Refuted, gen.GaveUp:
 		false
 	}
+}
+
+// FilterSometimesKeepsReadings proves an AtLeast threshold can select a strict
+// non-empty subset of a sample reading table across generated thresholds.
+law FilterSometimesKeepsReadings sometimes(hours int) {
+	let sample = []Reading{
+		Reading{Site: "north", Device: "pump", Hours: 4, Kw: int64(150)},
+		Reading{Site: "south", Device: "fan", Hours: 2, Kw: int64(50)},
+	}
+	let kept = Filter(sample, AtLeast{Hours: hours})
+	always len(kept) <= len(sample)
+	len(kept) == 1
 }
 
 // FilterChainAndTableConsistency proves Filter composition commutes across AtSite

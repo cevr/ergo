@@ -256,9 +256,6 @@ func tryRowPut(rows Rows[int], id string, val int) bool {
 // phantom ledger or state entry.
 law LocalFilesWriteFaultsFailClosed() {
 	let cfg = gen.Config{Seed: uint64(1), Cases: 64, Shrinks: 0, MaxDraws: 1024, MaxRejected: 10}
-	let sawApplyFault = sync.NewRef(false)
-	let sawRowOk = sync.NewRef(false)
-	let sawRowFault = sync.NewRef(false)
 	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
 		let disk = fstest.NewMemory()
 		let faultyWrites = testing.Faulty[fs.Writes](disk)
@@ -274,7 +271,7 @@ law LocalFilesWriteFaultsFailClosed() {
 			len(faultyWrites.WriteFileMode.Faults()) > writeBefore ||
 			len(faultyWrites.WriteFile.Faults()) > wfBefore
 		if applyFaulted {
-			sawApplyFault.Set(true)
+			sometimes applied.Size < 0
 			if applied.Size >= 0 {
 				return false
 			}
@@ -296,18 +293,18 @@ law LocalFilesWriteFaultsFailClosed() {
 		let rowOk = tryRowPut(rows, "r0", 1)
 		let rowFaulted = len(faultyWrites.MkdirAll.Faults()) > mBefore || len(faultyWrites.WriteFile.Faults()) > wBefore
 		if rowFaulted {
-			sawRowFault.Set(true)
+			sometimes !rowOk
 			return !rowOk && rows.Get("r0") == None
 		}
 		if !rowOk {
 			return false
 		}
-		sawRowOk.Set(true)
+		sometimes rowOk
 		rows.Get("r0") == (Some[infra.Row[int]]{Value: infra.Row[int]{ID: "r0", Status: infra.Live, Props: 1, Seq: 1}})
 	})
 	match outcome {
 	case gen.Held:
-		sawApplyFault.Get() && sawRowOk.Get() && sawRowFault.Get()
+		true
 	case gen.Refuted, gen.GaveUp:
 		false
 	}

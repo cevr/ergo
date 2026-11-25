@@ -1,6 +1,5 @@
 import gen
 import semver
-import sync
 import testing
 
 func semverOf(major int, minor int, patch int) semver.Version {
@@ -47,9 +46,6 @@ func runResolveOutcome(root []Requirement) faultResolveOutcome needs Index {
 // while every un-faulted resolution remains Sound.
 law ResolveHandlesFaultyIndexCleanly() {
 	let cfg = gen.Config{Seed: uint64(1), Cases: 128, Shrinks: 0, MaxDraws: 4096, MaxRejected: 10}
-	let sawSuccess = sync.NewRef(false)
-	let sawVersionsFault = sync.NewRef(false)
-	let sawNeedsFault = sync.NewRef(false)
 	let base = singlePkgTable()
 	let root = singlePkgRoot()
 	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
@@ -59,18 +55,12 @@ law ResolveHandlesFaultyIndexCleanly() {
 		let res = with context { Index: faulty } { runResolveOutcome(root) }
 		let vFault = len(faulty.Versions.Faults()) > v0
 		let nFault = len(faulty.Needs.Faults()) > n0
-		if vFault {
-			sawVersionsFault.Set(true)
-		}
-		if nFault {
-			sawNeedsFault.Set(true)
-		}
+		sometimes vFault
+		sometimes nFault
 		match res {
 		case FaultResolved as ok:
-			if vFault || nFault {
-				return false
-			}
-			sawSuccess.Set(true)
+			always !vFault && !nFault
+			sometimes len(ok.Plan.Pins) == 1
 			Sound(base, root, ok.Plan) && len(ok.Plan.Pins) == 1 && ok.Plan.Pins[0].V == semverOf(1, 1, 0)
 		case FaultUnknownPkg:
 			vFault || nFault
@@ -82,8 +72,29 @@ law ResolveHandlesFaultyIndexCleanly() {
 	})
 	match outcome {
 	case gen.Held:
-		sawSuccess.Get() && sawVersionsFault.Get() && sawNeedsFault.Get()
+		true
 	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}
+
+// CanResolveAppRelease proves singlePkgTable admits a sound resolution when
+// the requested caret minor version falls within its published releases.
+law CanResolveAppRelease sometimes(minor int) {
+	if minor < 0 {
+		return false
+	}
+	let c = ParseConstraint("^1.\(minor).0") catch {
+	case semver.Malformed:
+		return false
+	}
+	let base = singlePkgTable()
+	let req = []Requirement{Requirement{Name: "app", Want: c}}
+	match with context { Index: base } { runResolveOutcome(req) } {
+	case FaultResolved as ok:
+		always Sound(base, req, ok.Plan)
+		len(ok.Plan.Pins) == 1
+	case _:
 		false
 	}
 }

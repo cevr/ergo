@@ -244,6 +244,21 @@ skip law Runner.Runs: its operation type Runner has the row parameter E, and a r
 
 A refuted law's replay is a line of its own, which reruns that law alone (`--law`, X1b); a test's replay stays in its `FAIL` line.
 
+### `always` and `sometimes` in laws
+
+Laws support two contextual property-testing forms (`always` and `sometimes` remain contextual words, never scanner keywords, so types and locals named `always` or `sometimes` keep working):
+
+- **`always <bool>` and `sometimes <bool>` statements inside law bodies** (including inside function literals nested in a law, such as `gen.Check` callbacks):
+  - `always e` evaluates `e` once and refutes the case immediately (with exact `file:line:col`, `<expr>`, shown comparison operands, and shrinking) if `false`.
+  - Every `sometimes e` site in a law body — including inside `if`/`match` arms, loops, and nested closures — is **statically registered before case 1 runs**. Executing it increments its hit counter when `e` evaluates `true`. After all cases finish without refutation, if any statically registered `sometimes` site has zero hits (whether never `true` or in an unreached branch), the law fails naming that exact site and expression (`file:line:col: sometimes <expr> was never true across N cases`).
+  - Use `always` / `sometimes` directly instead of hand-rolled `sync.NewRef(false)` witness flags — see for example [examples/csvreport/report/faulty_gen_laws.ergo](../examples/csvreport/report/faulty_gen_laws.ergo), [modules/infra/memory/faulty_model_concurrent_tests.ergo](../modules/infra/memory/faulty_model_concurrent_tests.ergo), and [modules/web/faulty_model_tests.ergo](../modules/web/faulty_model_tests.ergo).
+- **Existential (`law Name sometimes(...)`) and universal (`law Name always(...)`) law headers:**
+  - `law Name always(...)` has the ordinary universal semantics.
+  - `law Name sometimes(...)` is existential: it searches across the law's listed domain or drawn case budget and passes immediately on the first case whose body returns `true` with no `always`, `assert`, or escaped failure (`witness found at ...`). Any `always` failure refutes and shrinks immediately; if every case returns `false`, the law fails (`no witness found across N cases`).
+  - See `FilterSometimesKeepsReadings` in [examples/csvreport/report/faulty_gen_laws.ergo](../examples/csvreport/report/faulty_gen_laws.ergo), `CanResolveAppRelease` in [examples/deps/resolve/faulty_tests.ergo](../examples/deps/resolve/faulty_tests.ergo), `WebRouterSometimesMatchesItem` in [modules/web/faulty_model_tests.ergo](../modules/web/faulty_model_tests.ergo), and `WorkToolSometimesPinsWorkspace` in [modules/work/memory/faulty_model_tests.ergo](../modules/work/memory/faulty_model_tests.ergo).
+
+Both forms run identically at check time (`ergo check`) and natively (`ergo test --native`).
+
 ### Stored regression cases (`ergo.cases`)
 
 When a drawn property (a law or a parameterized test) is refuted during `ergo test`, its shrunk draw tape and current reach digest are appended to `ergo.cases` beside `ergo.laws`:

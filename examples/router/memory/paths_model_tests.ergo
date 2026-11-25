@@ -390,8 +390,6 @@ func tryCheckRoute(t route.Table, ch route.Change) Option[route.Table] needs rou
 // proves injected route.Unknown faults fail closed while clean checks update the table.
 law RouterDirectoryFaultsFailClosed() {
 	let cfg = gen.Config{Seed: uint64(1), Cases: 48, Shrinks: 0, MaxDraws: 1024, MaxRejected: 10}
-	let sawSuccess = sync.NewRef(false)
-	let sawFault = sync.NewRef(false)
 	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
 		let dir = NewDirectory()
 		let faulty = testing.Faulty[route.Registry](dir)
@@ -401,12 +399,12 @@ law RouterDirectoryFaultsFailClosed() {
 		}
 		let faulted = len(faulty.Check.Faults()) > f0
 		if faulted {
-			sawFault.Set(true)
+			sometimes res == None
 			return res == None
 		}
 		match res {
 		case Some[route.Table] as next:
-			sawSuccess.Set(true)
+			sometimes route.DestOf(next.Value, "logs") == Some[string]{Value: "disk"}
 			route.DestOf(next.Value, "logs") == Some[string]{Value: "disk"}
 		case None:
 			false
@@ -414,7 +412,7 @@ law RouterDirectoryFaultsFailClosed() {
 	})
 	match outcome {
 	case gen.Held:
-		sawSuccess.Get() && sawFault.Get()
+		true
 	case gen.Refuted, gen.GaveUp:
 		false
 	}

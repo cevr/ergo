@@ -112,9 +112,6 @@ func openAndNumber(id int, attempts int) int fails domain.Offline needs domain.F
 law OpenWithRetryReturnsLastErrorUnderFaulty(seed int) {
 	let s = (seed%50 + 50) % 50
 	let cfg = gen.Config{Seed: uint64(s + 1), Cases: 40, Shrinks: 0, MaxDraws: 512, MaxRejected: 50}
-	let sawSuccess = sync.NewRef[bool](false)
-	let sawAllFaults = sync.NewRef[bool](false)
-	let sawInnerLast = sync.NewRef[bool](false)
 	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
 		let innerOk = retryFetcher{opens: sync.NewRef[int](0), closed: sync.NewRef[int](0)}
 		let fOk = testing.Faulty[domain.Fetcher](innerOk)
@@ -131,12 +128,12 @@ law OpenWithRetryReturnsLastErrorUnderFaulty(seed int) {
 				if len(fOk.Open.Faults()) != 3 || innerOk.opens.Get() != 0 || errID < 0 || errID == 7 {
 					return false
 				}
-				sawAllFaults.Set(true)
+				sometimes failed
 			} else {
 				if got != 7 || innerOk.opens.Get() != 1 || innerOk.closed.Get() != 1 {
 					return false
 				}
-				sawSuccess.Set(true)
+				sometimes !failed
 			}
 			true
 		}
@@ -154,7 +151,7 @@ law OpenWithRetryReturnsLastErrorUnderFaulty(seed int) {
 			}
 			let injected = len(fFail.Open.Faults())
 			if injected == 0 {
-				sawInnerLast.Set(true)
+				sometimes injected == 0
 				if errID != -2 {
 					return false
 				}
@@ -166,11 +163,10 @@ law OpenWithRetryReturnsLastErrorUnderFaulty(seed int) {
 			true
 		}
 	})
-	let held = match outcome {
+	match outcome {
 	case gen.Held:
 		true
 	case _:
 		false
 	}
-	held && sawSuccess.Get() && sawAllFaults.Get() && sawInnerLast.Get()
 }

@@ -1,7 +1,6 @@
 import fstest
 import gen
 import github.com/cevr/ergo/modules/work/work
-import sync
 import temporal
 import testing
 import time
@@ -42,9 +41,6 @@ func tryWorkList(tool work.Tool) int {
 // the inner registry.
 law WorkRegistryFaultsFailClosed() {
 	let cfg = gen.Config{Seed: uint64(1), Cases: 48, Shrinks: 0, MaxDraws: 512, MaxRejected: 10}
-	let sawSuccess = sync.NewRef(false)
-	let sawWriteFault = sync.NewRef(false)
-	let sawReadFault = sync.NewRef(false)
 	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
 		let inner = NewRegistry()
 		let (cleanTool, _) = workToolWithRegistry(inner)
@@ -65,7 +61,8 @@ law WorkRegistryFaultsFailClosed() {
 		let putBefore = len(faulty.Put.Faults())
 		let allBefore = len(faulty.All.Faults())
 		let pinRes = tryWorkPin(tool, "alpha")
-		if pinRes < 0 || lock.Holds() != 0 {
+		always lock.Holds() == 0
+		if pinRes < 0 {
 			return false
 		}
 		let putFaulted = len(faulty.Put.Faults()) > putBefore
@@ -74,7 +71,7 @@ law WorkRegistryFaultsFailClosed() {
 			if !putFaulted && !allFaulted {
 				return false
 			}
-			sawWriteFault.Set(true)
+			sometimes pinRes == 1
 			let innerAll = inner.All() catch {
 			case work.Unkept:
 				return false
@@ -86,7 +83,7 @@ law WorkRegistryFaultsFailClosed() {
 			if putFaulted {
 				return false
 			}
-			sawSuccess.Set(true)
+			sometimes pinRes == 0
 			let innerAll = inner.All() catch {
 			case work.Unkept:
 				return false
@@ -102,7 +99,7 @@ law WorkRegistryFaultsFailClosed() {
 		}
 		let readFaulted = len(faulty.All.Faults()) > readFaultsBefore
 		if readFaulted {
-			sawReadFault.Set(true)
+			sometimes listRes == 1
 			if listRes != 1 {
 				return false
 			}
@@ -113,7 +110,7 @@ law WorkRegistryFaultsFailClosed() {
 	})
 	match outcome {
 	case gen.Held:
-		sawSuccess.Get() && sawWriteFault.Get() && sawReadFault.Get()
+		true
 	case gen.Refuted, gen.GaveUp:
 		false
 	}
@@ -298,4 +295,28 @@ law WorkLockAndRegistryConcurrentLinearizable() {
 	case gen.Refuted, gen.GaveUp:
 		false
 	}
+}
+
+// WorkToolSometimesPinsWorkspace proves on a finite domain that pinning moves a
+// workspace into the pinned state while keeping the lock balanced.
+law WorkToolSometimesPinsWorkspace sometimes(pin bool) {
+	let inner = NewRegistry()
+	let (tool, lock) = workToolWithRegistry(inner)
+	let _ = tool.Init() catch {
+	case _:
+		return false
+	}
+	let _ = tool.New("alpha", work.NewOptions{Copy: false, From: None, Branch: None, On: None, Token: None}) catch {
+	case _:
+		return false
+	}
+	if pin {
+		let _ = tryWorkPin(tool, "alpha")
+	}
+	always lock.Holds() == 0
+	let all = inner.All() catch {
+	case work.Unkept:
+		return false
+	}
+	len(all) == 1 && all[0].Pinned
 }

@@ -2,7 +2,6 @@ import gen
 import quota/memory
 import quota/quota
 import strings
-import sync
 import testing
 
 func innerSnapshot(inner memory.Store) ([]string, []int64, bool) {
@@ -30,14 +29,13 @@ func sameSnapshot(inner memory.Store, wantVols []string, wantSizes []int64) bool
 // console.Do propagates Unavailable, formats every injected domain refusal
 // cleanly, and leaves the inner store untouched whenever Open or Post faults.
 law ConsoleHandlesFaultyStore() {
-	let sawSuccess = sync.NewRef(false)
-	let sawUnavailable = sync.NewRef(false)
-	let sawDomainFault = sync.NewRef(false)
 	let cfg = gen.Config{Seed: uint64(1), Cases: 50, Shrinks: 100, MaxDraws: 2048, MaxRejected: 50}
 	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
 		let inner = memory.NewStore()
 		let faulty = testing.Faulty[quota.Store](inner)
 		with context { quota.Store: faulty } {
+			let mut unavailable = false
+			let mut domainFault = false
 			let (vols0, sizes0, ok0) = innerSnapshot(inner)
 			if !ok0 {
 				return false
@@ -57,12 +55,12 @@ law ConsoleHandlesFaultyStore() {
 				}
 				let injected = openFaults1[len(openFaults1)-1].Failure
 				if injected == "Unavailable" {
-					sawUnavailable.Set(true)
+					unavailable = true
 					if !openUnavail {
 						return false
 					}
 				} else {
-					sawDomainFault.Set(true)
+					domainFault = true
 					if openUnavail || !strings.HasPrefix(openAns, "refused:") {
 						return false
 					}
@@ -71,7 +69,7 @@ law ConsoleHandlesFaultyStore() {
 				if openUnavail || openAns != "opened app" {
 					return false
 				}
-				sawSuccess.Set(true)
+				sometimes openAns == "opened app"
 			}
 
 			let (vols1, sizes1, ok1) = innerSnapshot(inner)
@@ -93,12 +91,12 @@ law ConsoleHandlesFaultyStore() {
 				}
 				let injected = postFaults1[len(postFaults1)-1].Failure
 				if injected == "Unavailable" {
-					sawUnavailable.Set(true)
+					unavailable = true
 					if !postUnavail {
 						return false
 					}
 				} else {
-					sawDomainFault.Set(true)
+					domainFault = true
 					if postUnavail || !strings.HasPrefix(postAns, "refused g1:") {
 						return false
 					}
@@ -115,17 +113,16 @@ law ConsoleHandlesFaultyStore() {
 				""
 			}
 			if len(faulty.Volumes.Faults()) > listFaults0 {
-				sawUnavailable.Set(true)
+				unavailable = true
 				if !listUnavail {
 					return false
 				}
 			}
+			sometimes unavailable
+			sometimes domainFault
 			true
 		}
 	})
 	assert gen.Report(outcome) == ""
-	assert sawSuccess.Get()
-	assert sawUnavailable.Get()
-	assert sawDomainFault.Get()
 	true
 }
