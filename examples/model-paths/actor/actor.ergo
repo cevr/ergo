@@ -1,0 +1,488 @@
+// Package actor is the P8 native actor path-testing pilot comparing live
+// actor.StartMachine execution against an independent pure timed fold.
+import actor
+import explore
+import sync
+import testing
+import time
+
+// Phase distinguishes the initial armed entry from a re-entered timed state.
+type Phase = PhaseArmed{} | PhaseReentered{}
+
+// MachineState is the committed state held by the pilot actor machine.
+type MachineState {
+	Phase Phase,
+	Count int,
+	Ticks int,
+}
+
+// TimedState is the independent pure timed-fold state including elapsed time
+// toward the active 1s entry timer.
+type TimedState {
+	State     MachineState,
+	ElapsedMs int,
+	Exits     int,
+	Alive     bool,
+}
+
+// ObsState is the observed actor state read through public actor boundaries.
+type ObsState {
+	State MachineState,
+	Exits int,
+	Alive bool,
+}
+
+// StepErr is the typed failure payload returned by Ask on SigFail.
+type StepErr {
+	Tag  string,
+	Code int,
+}
+
+// ActorSig is the signal union stepped by the pilot actor machine.
+type ActorSig = SigProbe{} | SigTell{} | SigFail{} | SigTick{} | SigFinish{}
+
+// ActorCmd is the enumerated typed command alphabet driven by the path model.
+type ActorCmd = CmdProbe{} | CmdTell{} | CmdFail{} | CmdAdvance{} | CmdFinish{} | CmdStop{}
+
+// ActorOpenErr is an infrastructure failure opening a live actor session.
+type ActorOpenErr { Why string }
+
+// ActorDriveErr is an infrastructure failure driving a live actor session.
+type ActorDriveErr { Why string }
+
+func pilotStep(s MachineState, sig ActorSig) Decision[MachineState, int] fails StepErr {
+	match sig {
+	case SigProbe:
+		Ignore
+	case SigTell:
+		let next = MachineState{Phase: s.Phase, Count: s.Count + 1, Ticks: s.Ticks}
+		match s.Phase {
+		case PhaseArmed:
+			Tell[MachineState, int]{Next: next, Output: 10 + s.Count}
+		case PhaseReentered:
+			Stay[MachineState]{Next: next}
+		}
+	case SigFail:
+		return StepErr{Tag: "cmd-fail", Code: 700 + s.Count*10 + s.Ticks}
+	case SigTick:
+		Emit[MachineState, int]{
+			Next:   MachineState{Phase: PhaseReentered, Count: s.Count, Ticks: s.Ticks + 1},
+			Output: 200 + s.Ticks,
+		}
+	case SigFinish:
+		Done[int]{Output: 900 + s.Count*10 + s.Ticks}
+	}
+}
+
+func pilotAfter(_ MachineState) Option[Timeout[ActorSig]] {
+	Some[Timeout[ActorSig]]{Value: Timeout[ActorSig]{In: 1s, Signal: SigTick}}
+}
+
+func pilotWork(_ MachineState) Option[func(send func(e ActorSig))] {
+	None
+}
+
+func pureTimedStep(st TimedState, cmd ActorCmd) explore.EdgeOutcome[TimedState, explore.StepObs[ObsState, int, StepErr]] {
+	if !st.Alive {
+		return explore.Disabled[explore.StepObs[ObsState, int, StepErr]]{
+			Obs: explore.StepObs[ObsState, int, StepErr]{
+				Kind:     explore.DisIgnore,
+				State:    Some[ObsState]{Value: ObsState{State: st.State, Exits: st.Exits, Alive: false}},
+				Outputs:  []int{},
+				Error:    None,
+				Terminal: true,
+			},
+		}
+	}
+	let s = st.State
+	match cmd {
+	case CmdProbe:
+		let obs = ObsState{State: s, Exits: st.Exits, Alive: true}
+		explore.Continue[TimedState, explore.StepObs[ObsState, int, StepErr]]{
+			Next: st,
+			Obs:  explore.StepObs[ObsState, int, StepErr]{
+				Kind:     explore.DisIgnore,
+				State:    Some[ObsState]{Value: obs},
+				Outputs:  []int{},
+				Error:    None,
+				Terminal: false,
+			},
+		}
+	case CmdTell:
+		let nextState = MachineState{Phase: s.Phase, Count: s.Count + 1, Ticks: s.Ticks}
+		let next = TimedState{State: nextState, ElapsedMs: st.ElapsedMs, Exits: st.Exits, Alive: true}
+		let obs = ObsState{State: nextState, Exits: st.Exits, Alive: true}
+		match s.Phase {
+		case PhaseArmed:
+			explore.Continue[TimedState, explore.StepObs[ObsState, int, StepErr]]{
+				Next: next,
+				Obs:  explore.StepObs[ObsState, int, StepErr]{
+					Kind:     explore.DisTell,
+					State:    Some[ObsState]{Value: obs},
+					Outputs:  []int{10 + s.Count},
+					Error:    None,
+					Terminal: false,
+				},
+			}
+		case PhaseReentered:
+			explore.Continue[TimedState, explore.StepObs[ObsState, int, StepErr]]{
+				Next: next,
+				Obs:  explore.StepObs[ObsState, int, StepErr]{
+					Kind:     explore.DisStay,
+					State:    Some[ObsState]{Value: obs},
+					Outputs:  []int{},
+					Error:    None,
+					Terminal: false,
+				},
+			}
+		}
+	case CmdFail:
+		let obs = ObsState{State: s, Exits: st.Exits, Alive: true}
+		let err = StepErr{Tag: "cmd-fail", Code: 700 + s.Count*10 + s.Ticks}
+		explore.Continue[TimedState, explore.StepObs[ObsState, int, StepErr]]{
+			Next: st,
+			Obs:  explore.StepObs[ObsState, int, StepErr]{
+				Kind:     explore.DisReject,
+				State:    Some[ObsState]{Value: obs},
+				Outputs:  []int{},
+				Error:    Some[StepErr]{Value: err},
+				Terminal: false,
+			},
+		}
+	case CmdAdvance:
+		let elapsed = st.ElapsedMs + 500
+		if elapsed < 1000 {
+			let next = TimedState{State: s, ElapsedMs: elapsed, Exits: st.Exits, Alive: true}
+			let obs = ObsState{State: s, Exits: st.Exits, Alive: true}
+			return explore.Continue[TimedState, explore.StepObs[ObsState, int, StepErr]]{
+				Next: next,
+				Obs:  explore.StepObs[ObsState, int, StepErr]{
+					Kind:     explore.DisIgnore,
+					State:    Some[ObsState]{Value: obs},
+					Outputs:  []int{},
+					Error:    None,
+					Terminal: false,
+				},
+			}
+		}
+		let nextState = MachineState{Phase: PhaseReentered, Count: s.Count, Ticks: s.Ticks + 1}
+		let nextExits = st.Exits + 1
+		let next = TimedState{State: nextState, ElapsedMs: elapsed - 1000, Exits: nextExits, Alive: true}
+		let obs = ObsState{State: nextState, Exits: nextExits, Alive: true}
+		explore.Continue[TimedState, explore.StepObs[ObsState, int, StepErr]]{
+			Next: next,
+			Obs:  explore.StepObs[ObsState, int, StepErr]{
+				Kind:     explore.DisEmit,
+				State:    Some[ObsState]{Value: obs},
+				Outputs:  []int{200 + s.Ticks},
+				Error:    None,
+				Terminal: false,
+			},
+		}
+	case CmdFinish:
+		let nextExits = st.Exits + 1
+		let obs = ObsState{State: s, Exits: nextExits, Alive: false}
+		explore.Terminal[explore.StepObs[ObsState, int, StepErr]]{
+			Obs: explore.StepObs[ObsState, int, StepErr]{
+				Kind:     explore.DisDone,
+				State:    Some[ObsState]{Value: obs},
+				Outputs:  []int{900 + s.Count*10 + s.Ticks},
+				Error:    None,
+				Terminal: true,
+			},
+		}
+	case CmdStop:
+		let nextExits = st.Exits + 1
+		let obs = ObsState{State: s, Exits: nextExits, Alive: false}
+		explore.Terminal[explore.StepObs[ObsState, int, StepErr]]{
+			Obs: explore.StepObs[ObsState, int, StepErr]{
+				Kind:     explore.DisDone,
+				State:    Some[ObsState]{Value: obs},
+				Outputs:  []int{},
+				Error:    None,
+				Terminal: true,
+			},
+		}
+	}
+}
+
+// PilotModel returns the independent pure timed-fold PathModel for the pilot actor.
+func PilotModel() explore.PathModel[TimedState, ActorCmd, ObsState, int, StepErr] {
+	explore.PathModel[TimedState, ActorCmd, ObsState, int, StepErr]{
+		Graph: explore.ConcreteGraph[TimedState, ActorCmd, explore.StepObs[ObsState, int, StepErr]]{
+			Starts: []TimedState{
+				TimedState{State: MachineState{Phase: PhaseArmed, Count: 0, Ticks: 0}, ElapsedMs: 0, Exits: 0, Alive: true},
+				TimedState{State: MachineState{Phase: PhaseReentered, Count: 0, Ticks: 0}, ElapsedMs: 0, Exits: 0, Alive: true},
+			},
+			Signals: []ActorCmd{CmdProbe, CmdTell, CmdFail, CmdAdvance, CmdFinish, CmdStop},
+			Step:    pureTimedStep,
+		},
+		InitialObs: func(st TimedState) ObsState {
+			ObsState{State: st.State, Exits: st.Exits, Alive: st.Alive}
+		},
+		ProjectionName: Some[string]{Value: "actor-committed-state"},
+	}
+}
+
+func decisionKind(d Decision[MachineState, int]) explore.Disposition {
+	match d {
+	case Enter[MachineState]:
+		explore.DisEnter
+	case Stay[MachineState]:
+		explore.DisStay
+	case Emit[MachineState, int]:
+		explore.DisEmit
+	case Tell[MachineState, int]:
+		explore.DisTell
+	case Ignore:
+		explore.DisIgnore
+	case Reject:
+		explore.DisReject
+	case Done[int]:
+		explore.DisDone
+	}
+}
+
+func failurePayload(err StepErr, unchanged int, lastCode int) StepErr {
+	let _ = unchanged
+	let _ = lastCode
+	err
+}
+
+type liveActorSess {
+	act       actor.Actor[MachineState, ActorSig, Decision[MachineState, int], StepErr],
+	clock     time.Manual,
+	outputs   sync.Ref[[]int],
+	seenOut   sync.Ref[int],
+	exits     sync.Ref[int],
+	alive     sync.Ref[bool],
+	unchanged sync.Ref[int],
+	lastCode  sync.Ref[int],
+	closes    sync.Ref[int],
+	closed    sync.Ref[bool],
+} implements explore.PathSession[ActorCmd, explore.Observed[ObsState, int, StepErr], ActorDriveErr]
+
+func takeNewOutputs(s liveActorSess) []int {
+	let all = s.outputs.Get()
+	let start = s.seenOut.Get()
+	let mut delta = []int{}
+	for i in start..len(all) {
+		delta = delta.Append(all[i])
+	}
+	s.seenOut.Set(len(all))
+	delta
+}
+
+func Read(s liveActorSess) explore.Observed[ObsState, int, StepErr] fails ActorDriveErr {
+	explore.InitialRead[ObsState]{
+		State: ObsState{State: s.act.State(), Exits: s.exits.Get(), Alive: s.alive.Get()},
+	}
+}
+
+func Apply(s liveActorSess, cmd ActorCmd) explore.Observed[ObsState, int, StepErr] fails ActorDriveErr {
+	match cmd {
+	case CmdProbe:
+		let d = s.act.Ask(SigProbe) catch {
+		case actor.Stopped:
+			return ActorDriveErr{Why: "actor stopped on probe"}
+		case StepErr as err:
+			return ActorDriveErr{Why: "unexpected step error on probe: \(err.Tag)"}
+		}
+		let outs = takeNewOutputs(s)
+		s.unchanged.Set(s.unchanged.Get() + 1)
+		explore.StepResult[ObsState, int, StepErr]{Step: explore.StepObs[ObsState, int, StepErr]{
+			Kind:     decisionKind(d),
+			State:    Some[ObsState]{Value: ObsState{State: s.act.State(), Exits: s.exits.Get(), Alive: true}},
+			Outputs:  outs,
+			Error:    None,
+			Terminal: false,
+		}}
+	case CmdTell:
+		let d = s.act.Ask(SigTell) catch {
+		case actor.Stopped:
+			return ActorDriveErr{Why: "actor stopped on tell"}
+		case StepErr as err:
+			return ActorDriveErr{Why: "unexpected step error on tell: \(err.Tag)"}
+		}
+		let outs = takeNewOutputs(s)
+		s.unchanged.Set(0)
+		let st = s.act.State()
+		s.lastCode.Set(st.Count)
+		explore.StepResult[ObsState, int, StepErr]{Step: explore.StepObs[ObsState, int, StepErr]{
+			Kind:     decisionKind(d),
+			State:    Some[ObsState]{Value: ObsState{State: st, Exits: s.exits.Get(), Alive: true}},
+			Outputs:  outs,
+			Error:    None,
+			Terminal: false,
+		}}
+	case CmdFail:
+		let prevUnchanged = s.unchanged.Get()
+		let prevCode = s.lastCode.Get()
+		let got = s.act.Ask(SigFail) catch {
+		case actor.Stopped:
+			return ActorDriveErr{Why: "actor stopped on fail"}
+		case StepErr as err:
+			let reported = failurePayload(err, prevUnchanged, prevCode)
+			let outs = takeNewOutputs(s)
+			s.unchanged.Set(0)
+			s.lastCode.Set(reported.Code)
+			return explore.StepResult[ObsState, int, StepErr]{Step: explore.StepObs[ObsState, int, StepErr]{
+				Kind:     explore.DisReject,
+				State:    Some[ObsState]{Value: ObsState{State: s.act.State(), Exits: s.exits.Get(), Alive: true}},
+				Outputs:  outs,
+				Error:    Some[StepErr]{Value: reported},
+				Terminal: false,
+			}}
+		}
+		let _ = got
+		ActorDriveErr{Why: "expected typed failure on SigFail"}
+	case CmdAdvance:
+		let beforeExits = s.exits.Get()
+		s.clock.Advance(500ms)
+		let afterExits = s.exits.Get()
+		let outs = takeNewOutputs(s)
+		let kind = if afterExits > beforeExits { explore.DisEmit } else { explore.DisIgnore }
+		if afterExits > beforeExits {
+			s.unchanged.Set(0)
+		}
+		explore.StepResult[ObsState, int, StepErr]{Step: explore.StepObs[ObsState, int, StepErr]{
+			Kind:     kind,
+			State:    Some[ObsState]{Value: ObsState{State: s.act.State(), Exits: afterExits, Alive: true}},
+			Outputs:  outs,
+			Error:    None,
+			Terminal: false,
+		}}
+	case CmdFinish:
+		let d = s.act.Ask(SigFinish) catch {
+		case actor.Stopped:
+			return ActorDriveErr{Why: "actor stopped on finish"}
+		case StepErr as err:
+			return ActorDriveErr{Why: "unexpected step error on finish: \(err.Tag)"}
+		}
+		s.act.Stop() catch {
+		case StepErr:
+		}
+		s.alive.Set(false)
+		let outs = takeNewOutputs(s)
+		explore.StepResult[ObsState, int, StepErr]{Step: explore.StepObs[ObsState, int, StepErr]{
+			Kind:     decisionKind(d),
+			State:    Some[ObsState]{Value: ObsState{State: s.act.State(), Exits: s.exits.Get(), Alive: false}},
+			Outputs:  outs,
+			Error:    None,
+			Terminal: true,
+		}}
+	case CmdStop:
+		s.act.Stop() catch {
+		case StepErr:
+		}
+		s.alive.Set(false)
+		let outs = takeNewOutputs(s)
+		explore.StepResult[ObsState, int, StepErr]{Step: explore.StepObs[ObsState, int, StepErr]{
+			Kind:     explore.DisDone,
+			State:    Some[ObsState]{Value: ObsState{State: s.act.State(), Exits: s.exits.Get(), Alive: false}},
+			Outputs:  outs,
+			Error:    None,
+			Terminal: true,
+		}}
+	}
+}
+
+func Close(s liveActorSess) {
+	if s.closed.Get() {
+		return
+	}
+	s.closed.Set(true)
+	s.act.Stop() catch {
+	case StepErr:
+	}
+	s.alive.Set(false)
+	s.closes.Set(s.closes.Get() + 1)
+}
+
+// ActorSession is the path-testing contract for opening fresh live actor sessions.
+type ActorSession {
+	Open(start TimedState) explore.PathSession[ActorCmd, explore.Observed[ObsState, int, StepErr], ActorDriveErr] fails ActorOpenErr,
+	Counts() (int, int),
+
+	// PathsAgree checks every legal command path up to depth 3 against the
+	// independent pure timed fold and verifies every opened actor released cleanly.
+	law PathsAgree() {
+		let res = explore.CheckPathsWithSink(
+			PilotModel(),
+			explore.ToDepth{Depth: 3},
+			explore.PathBounds{
+				MaxStates: 512,
+				MaxEdges:  2048,
+				MaxPaths:  512,
+				MaxSteps:  2048,
+				MaxWork:   65536,
+				MaxBytes:  262144,
+			},
+			func(start TimedState) explore.PathSession[ActorCmd, explore.Observed[ObsState, int, StepErr], ActorDriveErr] fails ActorOpenErr {
+				try Open(start)
+			},
+			testing.ActiveEvidenceSink(),
+		)
+		let (opened, closed) = Counts()
+		assert opened > 0 && opened == closed
+		assert res.Counts.Opened == res.Counts.Planned
+		match res.Verdict {
+		case explore.CampaignPassed:
+			true
+		case explore.CampaignRefuted, explore.CampaignIncomplete:
+			false
+		}
+	},
+}
+
+// LiveActorProvider opens fresh runtime/v1 actors via actor.StartMachine on a
+// per-session time.Manual scheduler.
+type LiveActorProvider {
+	opens  sync.Ref[int],
+	closes sync.Ref[int],
+} implements ActorSession
+
+func makeLiveActorProvider() LiveActorProvider {
+	LiveActorProvider{opens: sync.NewRef(0), closes: sync.NewRef(0)}
+}
+
+func Open(p LiveActorProvider, start TimedState) explore.PathSession[ActorCmd, explore.Observed[ObsState, int, StepErr], ActorDriveErr] fails ActorOpenErr {
+	let clock = time.NewManual(0)
+	let outputs = sync.NewRef[[]int]([]int{})
+	let exits = sync.NewRef(0)
+	let m = Machine[MachineState, ActorSig, int, StepErr]{
+		Initial: start.State,
+		Step:    pilotStep,
+		After:   pilotAfter,
+		Work:    pilotWork,
+		Exit:    func(_ MachineState) Option[func()] {
+			Some[func()]{Value: func() { exits.Set(exits.Get() + 1) }}
+		},
+	}
+	let a = with context { Scheduler: clock } {
+		let spawned = actor.StartMachine(m, 4, func(o int) {
+			outputs.Set(outputs.Get().Append(o))
+		})
+		clock.Advance(0s)
+		spawned
+	}
+	p.opens.Set(p.opens.Get() + 1)
+	liveActorSess{
+		act:       a,
+		clock:     clock,
+		outputs:   outputs,
+		seenOut:   sync.NewRef(0),
+		exits:     exits,
+		alive:     sync.NewRef(true),
+		unchanged: sync.NewRef(0),
+		lastCode:  sync.NewRef(0),
+		closes:    p.closes,
+		closed:    sync.NewRef(false),
+	}
+}
+
+func Counts(p LiveActorProvider) (int, int) {
+	(p.opens.Get(), p.closes.Get())
+}
+
+let onLiveActor = context { ActorSession: makeLiveActorProvider() }
