@@ -45,7 +45,9 @@ var contextPlaceRows = map[string]externPlaceRow{
 	"ContextEntry.Key": {guardEmbed, "func main() {\n\t$W\n\t_ = with context { @w } { Greeter.Greet(\"x\") }\n}\n"},
 
 	// Values.
+	"AlwaysStmt.X":             {guardValue, "law L() {\n\t$W\n\talways @w\n\ttrue\n}\n"},
 	"AssertStmt.X":             {guardValue, "test T {\n\t$W\n\tassert @w\n}\n"},
+	"SometimesStmt.X":          {guardValue, "law L() {\n\t$W\n\tsometimes @w\n\ttrue\n}\n"},
 	"AssignStmt.Lhs":           {guardValue, "func main() {\n\t$W\n\t@w = 1\n}\n"},
 	"AssignStmt.Rhs":           {guardValue, "func main() {\n\t$W\n\t_ = @w\n}\n"},
 	"BinaryExpr.X":             {guardValue, "func main() {\n\t$W\n\t_ = @w == 1\n}\n"},

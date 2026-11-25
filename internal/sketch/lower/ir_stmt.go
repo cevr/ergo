@@ -349,6 +349,10 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 	switch s := s.(type) {
 	case *syntax.AssertStmt:
 		return b.assert(s) // ir_assert.go
+	case *syntax.AlwaysStmt:
+		return b.always(s) // ir_assert.go
+	case *syntax.SometimesStmt:
+		return b.sometimes(s) // ir_assert.go
 	case *syntax.SkipStmt:
 		return b.skip(s) // ir_assert.go
 	case *syntax.DeclStmt:

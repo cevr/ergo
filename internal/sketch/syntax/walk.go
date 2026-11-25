@@ -81,6 +81,10 @@ func Inspect(n Node, f func(Node) bool) {
 	case *SkipStmt:
 	case *DieStmt:
 		walk(n.X)
+	case *AlwaysStmt:
+		walk(n.X)
+	case *SometimesStmt:
+		walk(n.X)
 	case *VariantSpec:
 		walk(n.Name, n.TypeArgs, n.Fields)
 	case *AsPattern:

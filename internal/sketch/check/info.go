@@ -1328,6 +1328,8 @@ type Law struct {
 	// parameters up to it whose body is the where. A case is admitted
 	// when every admission holds. nil without any.
 	Admit []*Law
+	// Sometimes is true for an existential law (`law Name sometimes(...)`).
+	Sometimes bool
 	// Near holds, at the same index, the earlier parameter of an
 	// identical type that the where names, whose near variants the run
 	// searches for the parameter's value, or -1.

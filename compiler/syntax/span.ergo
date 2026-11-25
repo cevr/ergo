@@ -28,7 +28,7 @@ func posOf(t Tree, k tokens, x uint32) int {
 	let kd = uint8(t.kind[i])
 	let tok = int(t.tok[i])
 	let a = t.a[i]
-	if kd == KIdent || kd == KBasicLit || kd == KParenExpr || kd == KStarExpr || kd == KUnaryExpr || kd == KTryExpr || kd == KReturnStmt || kd == KBranchStmt || kd == KBlockStmt || kd == KIfStmt || kd == KSwitchStmt || kd == KTypeSwitchStmt || kd == KForStmt || kd == KRangeStmt || kd == KAssertStmt || kd == KSkipStmt || kd == KDieStmt || kd == KArrayType || kd == KContextLit || kd == KErrorRow || kd == KMachineType || kd == KImportDecl || kd == KContextDecl || kd == KTestDecl || kd == KLawDecl || kd == KExternSpec || kd == KContextBody || kd == KNeedsClause || kd == KTakesClause || kd == KProvidesClause || kd == KMachineEntry || kd == KCatchArm || kd == KCaseClause {
+	if kd == KIdent || kd == KBasicLit || kd == KParenExpr || kd == KStarExpr || kd == KUnaryExpr || kd == KTryExpr || kd == KReturnStmt || kd == KBranchStmt || kd == KBlockStmt || kd == KIfStmt || kd == KSwitchStmt || kd == KTypeSwitchStmt || kd == KForStmt || kd == KRangeStmt || kd == KAssertStmt || kd == KSkipStmt || kd == KDieStmt || kd == KAlwaysStmt || kd == KSometimesStmt || kd == KArrayType || kd == KContextLit || kd == KErrorRow || kd == KMachineType || kd == KImportDecl || kd == KContextDecl || kd == KTestDecl || kd == KLawDecl || kd == KExternSpec || kd == KContextBody || kd == KNeedsClause || kd == KTakesClause || kd == KProvidesClause || kd == KMachineEntry || kd == KCatchArm || kd == KCaseClause {
 		return tokPos(k, tok)
 	}
 	if kd == KSelectorExpr || kd == KBinaryExpr || kd == KKeyValueExpr || kd == KFuncLit || kd == KAsPattern || kd == KDeclStmt || kd == KExprStmt || kd == KAssignStmt || kd == KStructType {
@@ -148,7 +148,7 @@ func endOf(t Tree, k tokens, x uint32) int {
 	if kd == KSkipStmt {
 		return tokEnd(k, int(a))
 	}
-	if kd == KStarExpr || kd == KUnaryExpr || kd == KTryExpr || kd == KArrayType || kd == KDeclStmt || kd == KExprStmt || kd == KAssertStmt || kd == KDieStmt || kd == KStructType || kd == KMachineEntry || kd == KImportDecl {
+	if kd == KStarExpr || kd == KUnaryExpr || kd == KTryExpr || kd == KArrayType || kd == KDeclStmt || kd == KExprStmt || kd == KAssertStmt || kd == KDieStmt || kd == KAlwaysStmt || kd == KSometimesStmt || kd == KStructType || kd == KMachineEntry || kd == KImportDecl {
 		return endOf(t, k, a)
 	}
 	if kd == KBinaryExpr || kd == KSelectorExpr || kd == KKeyValueExpr || kd == KFuncLit || kd == KAsPattern || kd == KAssignStmt || kd == KForStmt || kd == KImportSpec || kd == KExternSpec {
@@ -309,8 +309,8 @@ func endOf(t Tree, k tokens, x uint32) int {
 		return if body != uint32(0) { endOf(t, k, body-uint32(1)) } else { endOf(t, k, fixed(t, x, 4, 1)) }
 	}
 	if kd == KLawDecl {
-		let r = fixed(t, x, 9, 5)
-		return if r != uint32(0) { endOf(t, k, r-uint32(1)) } else { endOf(t, k, fixed(t, x, 9, 4)-uint32(1)) }
+		let r = fixed(t, x, 10, 5)
+		return if r != uint32(0) { endOf(t, k, r-uint32(1)) } else { endOf(t, k, fixed(t, x, 10, 4)-uint32(1)) }
 	}
 	if kd == KLawReach {
 		if fixed(t, x, 6, 1) != uint32(0) {

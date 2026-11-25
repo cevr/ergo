@@ -116,12 +116,12 @@ const (
 // lawNoBinder are the fields that bind no name in a law body, each with its
 // reason.
 var lawNoBinder = map[string]string{
-	"AssertStmt.X": lawUse, "AssignStmt.Rhs": lawUse, "BinaryExpr.X": lawUse, "BinaryExpr.Y": lawUse,
+	"AlwaysStmt.X": lawUse, "AssertStmt.X": lawUse, "AssignStmt.Rhs": lawUse, "BinaryExpr.X": lawUse, "BinaryExpr.Y": lawUse,
 	"CallExpr.Args": lawUse, "CallExpr.Fun": lawUse, "CatchExpr.X": lawUse, "CompositeLit.Base": lawUse, "ContextEntry.Value": lawUse, "DieStmt.X": lawUse,
 	"ExprStmt.X": lawUse, "ForStmt.Cond": lawUse, "IfStmt.Cond": lawUse, "IndexExpr.Indices": lawUse,
 	"IndexExpr.X": lawUse, "InterpolatedString.Exprs": lawUse, "RangeStmt.X": lawUse,
 	"ReturnStmt.Results": lawUse, "SelectorExpr.X": lawUse, "SliceExpr.High": lawUse, "SliceExpr.Low": lawUse,
-	"SliceExpr.X": lawUse, "StarExpr.X": lawUse, "TryExpr.X": lawUse, "TypeGuard.X": lawUse,
+	"SliceExpr.X": lawUse, "SometimesStmt.X": lawUse, "StarExpr.X": lawUse, "TryExpr.X": lawUse, "TypeGuard.X": lawUse,
 	"UnaryExpr.X": lawUse, "VarSpec.Values": lawUse,
 	"AssignStmt.Lhs": "an assignment writes a let mut already bound; Ergo has no :=",
 	"ArrayType.Elt":  lawType, "CompositeLit.Type": lawType, "ErrorRow.Types": lawType, "Field.Type": lawType,

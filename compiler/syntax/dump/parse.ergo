@@ -204,7 +204,8 @@ func node(d mut dumper, depth int, id dense.ID[syntax.Node]) {
 		opt(d, c, x.Params)
 		opt(d, c, x.Body)
 	case syntax.LawDecl as x:
-		line(d, depth, "LawDecl "+a+" doc="+itoa(x.Doc)+" Law="+itoa(tp(d, x.Law))+" Rewrite="+(if x.Equation { "2" } else { b01(x.Rewrite) })+" When="+itoa(tp(d, x.When))+" Eq="+itoa(tp(d, x.Eq)))
+		let quant = if x.Quant >= 0 { " Quant=" + syntax.TokText(d.p, x.Quant) } else { "" }
+		line(d, depth, "LawDecl "+a+" doc="+itoa(x.Doc)+" Law="+itoa(tp(d, x.Law))+" Rewrite="+(if x.Equation { "2" } else { b01(x.Rewrite) })+" When="+itoa(tp(d, x.When))+" Eq="+itoa(tp(d, x.Eq))+quant)
 		node(d, c, x.Name)
 		opt(d, c, x.Params)
 		opt(d, c, x.Body)
@@ -445,6 +446,12 @@ func node(d mut dumper, depth int, id dense.ID[syntax.Node]) {
 		node(d, c, x.X)
 	case syntax.DieStmt as x:
 		line(d, depth, "DieStmt "+a+" Die="+itoa(tp(d, x.Die)))
+		node(d, c, x.X)
+	case syntax.AlwaysStmt as x:
+		line(d, depth, "AlwaysStmt "+a+" Always="+itoa(tp(d, x.Always)))
+		node(d, c, x.X)
+	case syntax.SometimesStmt as x:
+		line(d, depth, "SometimesStmt "+a+" Sometimes="+itoa(tp(d, x.Sometimes)))
 		node(d, c, x.X)
 	case syntax.SkipStmt as x:
 		line(d, depth, "SkipStmt "+a+" Skip="+itoa(tp(d, x.Skip))+" ReasonPos="+itoa(tp(d, x.Reason))+" Reason="+strconv.Quote(syntax.TokText(d.p, x.Reason)))

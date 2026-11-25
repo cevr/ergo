@@ -82,6 +82,10 @@ func (in *interp) stmtOnly(fr *frame, s syntax.Stmt) *abrupt {
 		return fr.abrupt(ctlUnsupported, s, nil, why)
 	case *syntax.AssertStmt:
 		return in.assertStmt(fr, s)
+	case *syntax.AlwaysStmt:
+		return in.alwaysStmt(fr, s)
+	case *syntax.SometimesStmt:
+		return in.sometimesStmt(fr, s)
 	}
 	ice("a statement of the kind %T", s)
 	return nil

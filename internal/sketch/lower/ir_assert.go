@@ -137,8 +137,9 @@ func (st *irState) lawBody(fc *funcCtx, law *check.Law, name string, needsFrame 
 // emitter's.
 func (b *irBuilder) lawResult(x syntax.Expr, out []*irStmt) []*irStmt {
 	last := out[len(out)-1]
-	if x == nil || last.K != "ret" || last.X == nil || b.law.Admits != nil {
-		// An admission's false only skips its case (lawnear.go).
+	if x == nil || last.K != "ret" || last.X == nil || b.law.Admits != nil || b.law.Sometimes {
+		// An admission's false only skips its case (lawnear.go), and an
+		// existential law returns false so the runner continues searching.
 		return out
 	}
 	if b.fallibleCall(x) != nil {
@@ -196,16 +197,43 @@ var refutedKey = pkgKey{"law refuted", nil}
 // assert is `assert cond` (the emitter's assert): the condition, and the
 // failure the harness reports when it is false.
 func (b *irBuilder) assert(s *syntax.AssertStmt) []*irStmt {
+	return b.checkAssert(s, s.X, "AssertFail")
+}
+
+func (b *irBuilder) always(s *syntax.AlwaysStmt) []*irStmt {
+	return b.checkAssert(s, s.X, "AlwaysFail")
+}
+
+func (b *irBuilder) sometimes(s *syntax.SometimesStmt) []*irStmt {
+	l := b.l
+	if l.tests == nil {
+		irNo("sometimes outside the test build")
+	}
+	idx, ok := l.tests.sometimesIdx[s]
+	if !ok {
+		irNo("sometimes statement not registered")
+	}
+	p := b.pos(s, s.Pos())
+	pre, cond := b.value(s.X)
+	b.keepImport("var _ = " + l.rt() + ".LawSometimesHit")
+	call := &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "LawSometimesHit", Args: []*irExpr{
+		{K: "const", Pos: p, T: "int", V: strconv.Itoa(idx)},
+		cond,
+	}}
+	return append(pre, &irStmt{K: "expr", Pos: p, X: call})
+}
+
+func (b *irBuilder) checkAssert(s syntax.Stmt, expr syntax.Expr, helper string) []*irStmt {
 	l := b.l
 	if l.tests == nil {
 		irNo("assert outside the test build")
 	}
 	p := b.pos(s, s.Pos())
-	i, _, _, _ := l.at(s.X, s.X.Pos())
-	text := &irExpr{K: "const", Pos: p, T: "string", V: l.srcs[i].text[s.X.Pos():s.X.End()]}
+	i, _, _, _ := l.at(expr, expr.Pos())
+	text := &irExpr{K: "const", Pos: p, T: "string", V: l.srcs[i].text[expr.Pos():expr.End()]}
 	var pre []*irStmt
 	var cond *irExpr
-	if x, lt, rt, shown := l.assertShown(s.X); shown {
+	if x, lt, rt, shown := l.assertShown(expr); shown {
 		// Each operand once, left to right, into a local (a constant
 		// stays inline): the comparison and the failure text read them.
 		b.plain(x)
@@ -214,7 +242,7 @@ func (b *irBuilder) assert(s *syntax.AssertStmt) []*irStmt {
 		build := func() []*irExpr {
 			// A try that starts the assert covers the whole comparison:
 			// its operands are built under it (the emitter's assert, q105).
-			inTry := tried(s.X) != s.X
+			inTry := tried(expr) != expr
 			if inTry {
 				b.tries++
 			}
@@ -249,10 +277,10 @@ func (b *irBuilder) assert(s *syntax.AssertStmt) []*irStmt {
 		show := &irExpr{K: "call", Pos: p, Name: l.assertShowFunc(s, lt, rt, x), Args: vals}
 		text = &irExpr{K: "bin", Pos: p, Op: "+", X: text, Y: show}
 	} else {
-		pre, cond = b.value(s.X)
+		pre, cond = b.value(expr)
 	}
 	site := &irExpr{K: "const", Pos: p, T: "string", V: l.siteText(s)}
-	fail := &irExpr{K: "call", Pos: p, Name: l.helper("AssertFail"), Args: []*irExpr{site, text}}
+	fail := &irExpr{K: "call", Pos: p, Name: l.helper(helper), Args: []*irExpr{site, text}}
 	return append(pre, &irStmt{K: "if", Pos: p, End: p, X: &irExpr{K: "un", Pos: p, Op: "!", X: cond}, Then: []*irStmt{{K: "expr", Pos: p, X: fail}}})
 }
 

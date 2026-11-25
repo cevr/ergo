@@ -983,6 +983,10 @@ func stmt(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, s dense.ID[s
 		loop(w, ws, wk, wt, s, dense.NoID[syntax.Node](), true, rs.Body, rangeBinds(w, ws, wk, wt, rs))
 	} else if kind == syntax.KAssertStmt {
 		region(w, ws, wk, wt, syntax.AssertStmtOf(wk.Parsed[w.file].Tree, s).X, mLend, noHand())
+	} else if kind == syntax.KAlwaysStmt {
+		region(w, ws, wk, wt, syntax.AlwaysStmtOf(wk.Parsed[w.file].Tree, s).X, mLend, noHand())
+	} else if kind == syntax.KSometimesStmt {
+		region(w, ws, wk, wt, syntax.SometimesStmtOf(wk.Parsed[w.file].Tree, s).X, mLend, noHand())
 	}
 }
 

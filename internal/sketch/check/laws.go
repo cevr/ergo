@@ -126,7 +126,7 @@ func (law *Law) Title(from *Package) string {
 // type is resolved.
 func (c *checker) collectTopLaw(d *syntax.LawDecl, fi *fileInfo) {
 	c.ownBody(d, OwnerLaw)
-	law := &Law{Name: d.Name.Name, Decl: d, Pkg: c.pkg, file: fi}
+	law := &Law{Name: d.Name.Name, Decl: d, Pkg: c.pkg, Sometimes: d.IsSometimes(), file: fi}
 	c.def(d.Name, law)
 	// A second law of a name is checked as well, so which one is reported
 	// does not decide which body's diagnostics appear.
@@ -150,7 +150,7 @@ func (c *checker) collectLaws(spec *syntax.InterfaceType, tn *TypeName, fi *file
 	}
 	names := map[string]bool{}
 	for _, d := range spec.Laws {
-		law := &Law{Name: d.Name.Name, Decl: d, Owner: tn, Pkg: c.pkg, file: fi}
+		law := &Law{Name: d.Name.Name, Decl: d, Owner: tn, Pkg: c.pkg, Sometimes: d.IsSometimes(), file: fi}
 		c.def(d.Name, law)
 		// A second law of a name is checked as well, so which one is
 		// reported does not decide which body's diagnostics appear.
@@ -176,7 +176,7 @@ func (c *checker) collectLaws(spec *syntax.InterfaceType, tn *TypeName, fi *file
 func (c *checker) collectMachineLaws(spec *syntax.MachineType, tn *TypeName, fi *fileInfo) {
 	names := map[string]bool{}
 	for _, d := range spec.Laws {
-		law := &Law{Name: d.Name.Name, Decl: d, Machine: tn, Pkg: c.pkg, file: fi}
+		law := &Law{Name: d.Name.Name, Decl: d, Machine: tn, Pkg: c.pkg, Sometimes: d.IsSometimes(), file: fi}
 		c.def(d.Name, law)
 		c.pkg.Laws = append(c.pkg.Laws, law)
 		if names[law.Name] {
@@ -1136,6 +1136,9 @@ func (c *checker) checkLaw(law *Law) {
 	if d.Reach != nil {
 		c.checkReachLaw(law)
 		return
+	}
+	if d.Quant != "" && (d.Rewrite != nil || d.Equation != nil) {
+		c.errorIn(d, d.QuantPos, d.QuantPos+syntax.Pos(len(d.Quant)), CodeType, "a rewrite law cannot take %s", d.Quant)
 	}
 	defer c.beginBodyCheck(law)()
 	if d.TypeParams != nil && law.TParams == nil {

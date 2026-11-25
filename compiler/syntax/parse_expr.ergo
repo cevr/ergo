@@ -929,6 +929,31 @@ func parseDie(p mut parser) uint32 {
 	row(&p.t, KDieStmt, uint32(d), x, none)
 }
 
+func startsLawCheckWord(p mut parser, word string) bool {
+	if !isWord(p, word) {
+		return false
+	}
+	let n = peek(p, 1)
+	if n == Ident || n == Int || n == Float || n == String || n == StringHead || n == Rune || n == Not || n == Try || n == If || n == Match || (n == LBrack && peek(p, 2) == RBrack) || (n == Go && peek(p, 2) == Period) {
+		return true
+	}
+	n == LParen && p.i+1 < p.ntok && p.toks.start[p.i+1] > p.toks.end[p.i]
+}
+
+func parseAlways(p mut parser) uint32 {
+	let a = p.i
+	next(p)
+	let x = parseExpr(p)
+	row(&p.t, KAlwaysStmt, uint32(a), x, none)
+}
+
+func parseSometimes(p mut parser) uint32 {
+	let s = p.i
+	next(p)
+	let x = parseExpr(p)
+	row(&p.t, KSometimesStmt, uint32(s), x, none)
+}
+
 func parseStmt(p mut parser) uint32 {
 	enter(p)
 	let s = parseStmt1(p)
@@ -943,6 +968,12 @@ func parseStmt1(p mut parser) uint32 {
 	}
 	if startsDie(p) {
 		return parseDie(p)
+	}
+	if startsLawCheckWord(p, "always") {
+		return parseAlways(p)
+	}
+	if startsLawCheckWord(p, "sometimes") {
+		return parseSometimes(p)
 	}
 	if k == Let {
 		let d = parseLetDecl(p, none, false)

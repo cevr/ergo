@@ -121,11 +121,24 @@ func (l *lowerer) lawContextRun(b *strings.Builder, law *check.Law, lc check.Law
 			// refutation (FALLIBLE-CONTEXT Design 4): its error names the
 			// context, and the run prints the case and its replay line.
 			built = func(args string) string {
+				if law.Sometimes {
+					return "if " + err + " := " + buildCall(args) + "; " + err + " != nil { return false, " + fmtPkg + ".Errorf(" + strconv.Quote("law context "+lc.Context.Name+" could not be built: %v") + ", " + err + ") }; "
+				}
 				return "if " + err + " := " + buildCall(args) + "; " + err + " != nil { return " + fmtPkg + ".Errorf(" + strconv.Quote("law context "+lc.Context.Name+" could not be built: %v") + ", " + err + ") }; "
 			}
 		}
 		call := held + ", " + err + " := " + callee + "(" + strings.Join(args, ", ") + "); if " + err + " != nil { return " + err + " }; if !" + held + " { " + l.helper("Refuted") + "(" + at + ") }; return nil"
+		if law.Sometimes {
+			call = "return " + callee + "(" + strings.Join(args, ", ") + ")"
+		}
 		if ownsResources(lc.With) {
+			if law.Sometimes {
+				fs, ws, resBool, exit := inner.alloc("fs"), inner.alloc("ws"), inner.alloc("held"), inner.alloc("exit")
+				head := "func() (" + resBool + " bool, " + exit + " error) { "
+				open := e + " := *" + env + "; " + folder + fs + " := " + l.rt() + ".NewScope(" + task + "); defer " + fs + ".End(&" + exit + "); " +
+					ws + " := " + fs + ".OpenWith(); " + built("&"+e+", "+env+", "+ws)
+				return "return " + head + open + call + " }()"
+			}
 			head, open := l.lawCaseScope(inner, e, env, task, built, folder)
 			return "return " + head + open + call + " }()"
 		}
@@ -146,7 +159,7 @@ func (l *lowerer) lawContextRun(b *strings.Builder, law *check.Law, lc check.Law
 		}
 		vals = append(vals, listedValue{v.Name, t})
 	}
-	if l.listedRun(b, label, law.Decl, vals, true, scope, env, failed, l.replayLine(law, `""`), body) {
+	if l.listedRun(b, label, law.Decl, vals, law, scope, env, failed, l.replayLine(law, `""`), body) {
 		return
 	}
 	inner := newNamer(scope)
@@ -154,6 +167,44 @@ func (l *lowerer) lawContextRun(b *strings.Builder, law *check.Law, lc check.Law
 	b.WriteString("\t{\n")
 	b.WriteString("\t\t" + r + " := " + l.helper("NewRand") + "(" + seed + ", " + strconv.Quote(label) + ")\n")
 	b.WriteString("\t\t" + r + ".env = " + env + "\n")
+	hasSometimes := l.emitSometimesBegin(b, "\t\t", law)
+	if law.Sometimes {
+		found, witness := inner.alloc("found"), inner.alloc("witness")
+		b.WriteString("\t\t" + ok + ", " + found + ", " + witness + " := true, false, \"\"\n")
+		b.WriteString("\t\tfor " + i + " := 1; " + ok + " && !" + found + " && " + i + " <= " + strconv.Itoa(testCases) + "; " + i + "++ {\n")
+		b.WriteString("\t\t\t" + r + ".start(" + i + ")\n")
+		b.WriteString("\t\t\t" + ok + ", " + found + ", " + witness + " = " + l.helper("PropExist") + "(" + task + ", " + strconv.Quote(label) + ", " + at + ", " + r + ", func() (func() string, func() (bool, error)) {\n")
+		shown := []string{strconv.Quote("case "), conv + ".Itoa(" + i + ")", strconv.Quote(" of " + strconv.Itoa(testCases) + ", seed "), conv + ".FormatUint(" + seed + ", 10)", strconv.Quote(", size "), conv + ".Itoa(" + i + " / 4)"}
+		sep := ": "
+		var args []string
+		for _, v := range vals {
+			vt := v.t
+			base := v.name
+			if base == "_" {
+				base = "arg"
+			}
+			a := inner.alloc(base)
+			b.WriteString("\t\t\t" + a + " := " + l.genExpr(vt, r, strconv.Itoa(testDepth), inner, law.Decl) + "\n")
+			args = append(args, a)
+			shown = append(shown, strconv.Quote(sep+v.name+" = "), l.litExpr(vt, a, law.Decl))
+			sep = ", "
+		}
+		b.WriteString("\t\t\treturn func() string { return " + strings.Join(shown, " + ") + " }, func() (bool, error) { " + body(inner, args) + " }\n\t\t\t})\n")
+		b.WriteString("\t\t}\n")
+		b.WriteString("\t\tif " + ok + " && !" + found + " {\n")
+		b.WriteString("\t\t\t" + ok + " = false\n")
+		b.WriteString("\t\t\t" + r + ".failure = " + strconv.Quote(fmt.Sprintf("no witness found across %d cases", testCases)) + "\n")
+		b.WriteString("\t\t\t" + fmtPkg + ".Println(" + strconv.Quote(fmt.Sprintf("FAIL %s: no witness found across %d cases", label, testCases)) + ")\n")
+		b.WriteString("\t\t}\n")
+		if hasSometimes {
+			b.WriteString("\t\tif " + ok + " {\n\t\t\t" + ok + " = " + l.helper("SometimesCheck") + "(" + strconv.Quote(label) + ", " + r + ".cases, " + r + ")\n\t\t} else {\n\t\t\t_, _, _ = " + l.rt() + ".LawSometimesEnd()\n\t\t}\n")
+		}
+		b.WriteString("\t\tif " + ok + " {\n\t\t\t" + fmtPkg + ".Println(" + strconv.Quote("ok "+label+" (witness found at ") + " + " + witness + " + \")\")\n")
+		b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n")
+		b.WriteString("\t\t\t" + l.replayLine(law, strconv.Quote("--seed ")+" + "+conv+".FormatUint("+seed+", 10)") + "\n\t\t}\n")
+		b.WriteString("\t\t" + l.helper("Record") + "(" + strconv.Quote(label) + ", " + r + ", \"\")\n\t}\n")
+		return
+	}
 	b.WriteString("\t\t" + ok + " := true\n")
 	b.WriteString("\t\tfor " + i + " := 1; " + ok + " && " + i + " <= " + strconv.Itoa(testCases) + "; " + i + "++ {\n")
 	b.WriteString("\t\t\t" + r + ".start(" + i + ")\n")
@@ -175,6 +226,9 @@ func (l *lowerer) lawContextRun(b *strings.Builder, law *check.Law, lc check.Law
 	}
 	b.WriteString("\t\t\treturn func() string { return " + strings.Join(shown, " + ") + " }, func() error { " + body(inner, args) + " }\n\t\t\t})\n")
 	b.WriteString("\t\t}\n")
+	if hasSometimes {
+		b.WriteString("\t\tif " + ok + " {\n\t\t\t" + ok + " = " + l.helper("SometimesCheck") + "(" + strconv.Quote(label) + ", " + r + ".cases, " + r + ")\n\t\t} else {\n\t\t\t_, _, _ = " + l.rt() + ".LawSometimesEnd()\n\t\t}\n")
+	}
 	b.WriteString("\t\tif " + ok + " {\n\t\t\t" + fmtPkg + ".Println(" + strconv.Quote(fmt.Sprintf("ok %s (%d cases)", label, testCases)) + ")\n")
 	b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n")
 	b.WriteString("\t\t\t" + l.replayLine(law, strconv.Quote("--seed ")+" + "+conv+".FormatUint("+seed+", 10)") + "\n\t\t}\n")

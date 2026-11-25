@@ -419,6 +419,10 @@ func (fc *funcCtx) stmt(s syntax.Stmt) bool {
 		return fc.rangeStmt(s)
 	case *syntax.AssertStmt:
 		fc.assert(s) // the test build only (tests.go)
+	case *syntax.AlwaysStmt:
+		fc.always(s) // the test build only (tests.go)
+	case *syntax.SometimesStmt:
+		fc.sometimes(s) // the test build only (tests.go)
 	case *syntax.SkipStmt:
 		fc.skip(s) // the test build only (tests.go)
 	default:
@@ -852,8 +856,8 @@ func (fc *funcCtx) lawResult(x syntax.Expr, val, err string) string {
 	if err != "nil" {
 		cond = err + " == nil && " + cond
 	}
-	if fc.l.tests.law.Admits != nil {
-		return held // an admission's false only skips its case (lawnear.go)
+	if fc.l.tests.law.Admits != nil || fc.l.tests.law.Sometimes {
+		return held // an admission's false skips its case; an existential law keeps searching
 	}
 	fc.line("if " + cond + " { " + fc.l.helper("Refuted") + "(" + fc.resultSite(x) + ", " + strconv.Quote(fc.l.siteText(fc.l.tests.law.Decl)) + ") }")
 	return held

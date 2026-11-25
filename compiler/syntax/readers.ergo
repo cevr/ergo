@@ -129,6 +129,22 @@ func DieStmtOf(t Tree, id dense.ID[Node]) DieStmt {
 	DieStmt{Die: int(tok), X: nid(t, a)}
 }
 
+// AlwaysStmtOf reads a row of kind KAlwaysStmt.
+func AlwaysStmtOf(t Tree, id dense.ID[Node]) AlwaysStmt {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	let a = t.a[int(i)]
+	AlwaysStmt{Always: int(tok), X: nid(t, a)}
+}
+
+// SometimesStmtOf reads a row of kind KSometimesStmt.
+func SometimesStmtOf(t Tree, id dense.ID[Node]) SometimesStmt {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	let a = t.a[int(i)]
+	SometimesStmt{Sometimes: int(tok), X: nid(t, a)}
+}
+
 // BlockStmtOf reads a row of kind KBlockStmt.
 func BlockStmtOf(t Tree, id dense.ID[Node]) BlockStmt {
 	let i = uint32(dense.Index(id))
@@ -501,17 +517,18 @@ func LawDeclOf(t Tree, id dense.ID[Node]) LawDecl {
 	let i = uint32(dense.Index(id))
 	let tok = t.tok[int(i)]
 	return LawDecl{
-		Doc:        otok(fixed(t, i, 9, 0)),
+		Doc:        otok(fixed(t, i, 10, 0)),
 		Law:        int(tok),
-		Name:       nid(t, fixed(t, i, 9, 1)),
-		TypeParams: onid(t, fixed(t, i, 9, 2)),
-		Params:     onid(t, fixed(t, i, 9, 3)),
-		Body:       onid(t, fixed(t, i, 9, 4)),
-		Reach:      onid(t, fixed(t, i, 9, 5)),
-		Rewrite:    flag(fixed(t, i, 9, 6)),
-		Equation:   fixed(t, i, 9, 6) == uint32(2),
-		When:       otok(fixed(t, i, 9, 7)),
-		Eq:         otok(fixed(t, i, 9, 8)),
+		Name:       nid(t, fixed(t, i, 10, 1)),
+		TypeParams: onid(t, fixed(t, i, 10, 2)),
+		Params:     onid(t, fixed(t, i, 10, 3)),
+		Body:       onid(t, fixed(t, i, 10, 4)),
+		Reach:      onid(t, fixed(t, i, 10, 5)),
+		Rewrite:    flag(fixed(t, i, 10, 6)),
+		Equation:   fixed(t, i, 10, 6) == uint32(2),
+		When:       otok(fixed(t, i, 10, 7)),
+		Eq:         otok(fixed(t, i, 10, 8)),
+		Quant:      otok(fixed(t, i, 10, 9)),
 	}
 }
 

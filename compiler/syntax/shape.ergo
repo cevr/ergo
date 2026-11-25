@@ -58,7 +58,7 @@ func shapeOf(p Parsed, x uint32, b mut strings.Builder) {
 
 // recordWords is fixedWords for a kind whose row holds a record, else 0.
 func recordWords(k uint8) int {
-	if k == KIdent || k == KBasicLit || k == KBranchStmt || k == KSkipStmt || k == KKeyValueExpr || k == KFuncLit || k == KSelectorExpr || k == KBinaryExpr || k == KAsPattern || k == KAssignStmt || k == KImportDecl || k == KMachineEntry || k == KParenExpr || k == KStarExpr || k == KUnaryExpr || k == KTryExpr || k == KArrayType || k == KStructType || k == KDeclStmt || k == KExprStmt || k == KAssertStmt || k == KDieStmt || k == KExternSpec || k == KImportSpec || k == KReturnStmt || k == KForStmt {
+	if k == KIdent || k == KBasicLit || k == KBranchStmt || k == KSkipStmt || k == KKeyValueExpr || k == KFuncLit || k == KSelectorExpr || k == KBinaryExpr || k == KAsPattern || k == KAssignStmt || k == KImportDecl || k == KMachineEntry || k == KParenExpr || k == KStarExpr || k == KUnaryExpr || k == KTryExpr || k == KArrayType || k == KStructType || k == KDeclStmt || k == KExprStmt || k == KAssertStmt || k == KDieStmt || k == KAlwaysStmt || k == KSometimesStmt || k == KExternSpec || k == KImportSpec || k == KReturnStmt || k == KForStmt {
 		return 0
 	}
 	fixedWords(k)

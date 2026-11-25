@@ -1,6 +1,7 @@
 package eval
 
 import (
+	"fmt"
 	"go/constant"
 	gotoken "go/token"
 	"math/big"
@@ -166,7 +167,7 @@ func (in *interp) operationCall(fr *frame, x *syntax.CallExpr, c *check.Call) (V
 func (in *interp) testCases(pkg *check.Package, t *check.Test, res Result) Result {
 	fr := in.newFrame(pkg, t.Decl)
 	p := testplan.Test(t)
-	return in.cases(fr, t.Decl.Body, false, t.Params, p, res)
+	return in.cases(fr, t.Decl.Body, false, false, t.Params, p, res)
 }
 
 // AdmissionVerdict is why check time skips a law with a where over earlier
@@ -232,12 +233,12 @@ func (in *interp) runLawTarget(law *check.Law, tg lawTarget, res Result) (out Re
 			fr.env.bind(tp, rtype{t: tg.binding[0].Slot.TArgs[i]})
 		}
 	}
-	return in.cases(fr, law.Decl.Body, true, law.Params, testplan.Law(law, tg.binding), res)
+	return in.cases(fr, law.Decl.Body, true, law.Sometimes, law.Params, testplan.Law(law, tg.binding), res)
 }
 
 // cases runs one plan. A panic of *abrupt is private to value construction:
 // it lets a metered stream stop before allocating or drawing further values.
-func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*check.Var, p testplan.Plan, res Result) (out Result) {
+func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law, existential bool, params []*check.Var, p testplan.Plan, res Result) (out Result) {
 	start := in.steps
 	out = res
 	out.TotalCases = p.Count
@@ -456,8 +457,59 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 		}
 		return false
 	}
+	if law {
+		defer in.beginSometimes(fr, body)()
+	}
 	evSeen, evSummary := false, ""
 	drawCases := func() bool {
+		if existential {
+			for k := 0; k < p.Count; k++ {
+				out.Case = k + 1
+				mustCharge(in, fr, 1)
+				r.Start(k + 1)
+				r.Record()
+				in.resetCaseEv()
+				result, shows := run(k)
+				out.Cases = k + 1
+				if result.Status == Passed {
+					out.Status, out.Reason, out.Site, out.escaped, out.Message = result.Status, result.Reason, result.Site, result.escaped, result.Message
+					if result.Schedule != 0 {
+						out.Schedule = result.Schedule
+					}
+					if !in.applyCaseEv(&out, law) {
+						out.Case, out.Arguments = k+1, shown(shows)
+						return true
+					}
+					out.Case = 0
+					out.Arguments = shown(shows)
+					if !in.checkSometimes(&out, k+1) {
+						return true
+					}
+					return true
+				}
+				if result.Status == Refuted && result.bodyFalse {
+					in.resetCaseEv()
+					continue
+				}
+				if result.Status == Refuted && !p.Listed && len(p.Inputs) > 0 {
+					result, shows = in.shrinkCase(r, result, shows, func() (Result, []func() Argument) { in.resetCaseEv(); return run(k) })
+				}
+				out.Status, out.Reason, out.Site, out.escaped, out.Message = result.Status, result.Reason, result.Site, result.escaped, result.Message
+				if result.Schedule != 0 {
+					out.Schedule = result.Schedule
+				}
+				in.resetCaseEv()
+				out.Case, out.Arguments, out.Drawn, out.ShrunkTape = k+1, shown(shows), result.Drawn, result.ShrunkTape
+				return true
+			}
+			msg := fmt.Sprintf("no witness found across %d cases", p.Count)
+			out.Status = Refuted
+			out.Reason = msg
+			out.Message = msg
+			out.Site = in.site(fr.pkg, fr.decl, fr.decl.Pos())
+			out.Case = 0
+			return true
+		}
 		for k := 0; k < p.Count; k++ {
 			out.Case = k + 1
 			mustCharge(in, fr, 1)
@@ -493,7 +545,7 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 		}
 		return false
 	}
-	if replayStored() {
+	if !existential && replayStored() {
 		return
 	}
 	if in.budget.PruneCases {
@@ -503,6 +555,9 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 		return
 	}
 	if drawCases() {
+		return
+	}
+	if law && !in.checkSometimes(&out, out.Cases) {
 		return
 	}
 	if evSeen && law {
@@ -551,7 +606,7 @@ func (in *interp) shrinkTapeCase(r *testgen.Stream, tape []uint64, drawn Result,
 			stopped = true
 			return false
 		}
-		return got.Status == Refuted && got.escaped == drawn.escaped
+		return got.Status == Refuted && got.escaped == drawn.escaped && got.bodyFalse == drawn.bodyFalse
 	}, shrinkBudget)
 	defer r.EndReplay()
 	if stopped {
@@ -561,7 +616,7 @@ func (in *interp) shrinkTapeCase(r *testgen.Stream, tape []uint64, drawn Result,
 		return drawn, drawnShows
 	}
 	got, shows := replay(best)
-	if got.Status != Refuted || got.escaped != drawn.escaped {
+	if got.Status != Refuted || got.escaped != drawn.escaped || got.bodyFalse != drawn.bodyFalse {
 		return drawn, drawnShows // not deterministic: the drawn case
 	}
 	got.ShrunkTape = slices.Clone(best)

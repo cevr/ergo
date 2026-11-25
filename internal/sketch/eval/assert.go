@@ -1,6 +1,7 @@
 package eval
 
 import (
+	"fmt"
 	"path"
 	"strconv"
 	"strings"
@@ -9,12 +10,12 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// shownAssert is a failed assert's report, the text the native runner
-// prints after "assert failed at SITE: " (TESTSPEED FT1): the assert's
-// source text and, for a comparison whose operands the report shows
-// (assertShown), its two operand values, rendered when the case is
-// reported.
+// shownAssert is a failed assert or always report, the text the native runner
+// prints after "assert failed at SITE: " or "always failed at SITE: " (TESTSPEED FT1):
+// the statement's source text and, for a comparison whose operands the report shows
+// (assertShown), its two operand values, rendered when the case is reported.
 type shownAssert struct {
+	what string // "" for assert ("assert failed"), or "always failed"
 	text string
 	// report is a harnessed test's whole report, when reported: its
 	// harness's failure message (check.CallTestReport).
@@ -26,6 +27,59 @@ type shownAssert struct {
 	lt, rt     check.Type
 	left, rite Value
 	shown      bool
+}
+
+// evalSometimes tracks all statically present `sometimes` statements across
+// the cases of one law obligation.
+type evalSometimes struct {
+	order []*syntax.SometimesStmt
+	hits  map[*syntax.SometimesStmt]int
+	fr    *frame
+}
+
+func (in *interp) beginSometimes(fr *frame, body *syntax.BlockStmt) func() {
+	prev := in.sometimes
+	if body == nil {
+		in.sometimes = nil
+		return func() { in.sometimes = prev }
+	}
+	var order []*syntax.SometimesStmt
+	syntax.Inspect(body, func(n syntax.Node) bool {
+		if s, ok := n.(*syntax.SometimesStmt); ok {
+			order = append(order, s)
+		}
+		return true
+	})
+	if len(order) == 0 {
+		in.sometimes = nil
+		return func() { in.sometimes = prev }
+	}
+	hits := make(map[*syntax.SometimesStmt]int, len(order))
+	for _, s := range order {
+		hits[s] = 0
+	}
+	in.sometimes = &evalSometimes{order: order, hits: hits, fr: fr}
+	return func() { in.sometimes = prev }
+}
+
+func (in *interp) checkSometimes(out *Result, cases int) bool {
+	if in.sometimes == nil {
+		return true
+	}
+	for _, s := range in.sometimes.order {
+		if in.sometimes.hits[s] == 0 {
+			site := in.site(in.sometimes.fr.pkg, in.sometimes.fr.decl, s.Pos())
+			expr := in.sourceText(in.sometimes.fr, s.X)
+			msg := fmt.Sprintf("%s: sometimes %s was never true across %d cases", nativeSite(site), expr, cases)
+			out.Status = Refuted
+			out.Site = site
+			out.Reason = msg
+			out.Message = msg
+			out.Case = 0
+			return false
+		}
+	}
+	return true
 }
 
 // assertOperands is an assert whose report shows its operands
@@ -41,19 +95,38 @@ type assertOperands struct {
 // comparison, a step each before its work; its operands left to right),
 // with the operands kept for the report; any other x is evaluated whole.
 func (in *interp) assertStmt(fr *frame, s *syntax.AssertStmt) *abrupt {
+	return in.checkAssert(fr, s, s.X, "")
+}
+
+func (in *interp) alwaysStmt(fr *frame, s *syntax.AlwaysStmt) *abrupt {
+	return in.checkAssert(fr, s, s.X, "always failed")
+}
+
+func (in *interp) sometimesStmt(fr *frame, s *syntax.SometimesStmt) *abrupt {
+	v, ab := in.expr(fr, s.X)
+	if ab != nil {
+		return ab
+	}
+	if truth(v) && in.sometimes != nil {
+		in.sometimes.hits[s]++
+	}
+	return nil
+}
+
+func (in *interp) checkAssert(fr *frame, s syntax.Stmt, expr syntax.Expr, what string) *abrupt {
 	var v Value
 	var left, right Value
 	sf := in.sx(fr, s)
 	if !sf.assertSeen {
 		sf.assertSeen = true
-		if b, lt, rt, ok := in.assertShown(fr, s.X); ok {
+		if b, lt, rt, ok := in.assertShown(fr, expr); ok {
 			sf.assertShown = &assertOperands{b, lt, rt}
 		}
 	}
 	shown := sf.assertShown
 	if shown != nil {
 		b := shown.x
-		x := s.X
+		x := expr
 		for {
 			p, isParen := x.(*syntax.ParenExpr)
 			if !isParen {
@@ -82,13 +155,13 @@ func (in *interp) assertStmt(fr *frame, s *syntax.AssertStmt) *abrupt {
 		left, right = a, c
 	} else {
 		var ab *abrupt
-		if v, ab = in.expr(fr, s.X); ab != nil {
+		if v, ab = in.expr(fr, expr); ab != nil {
 			return ab
 		}
 	}
 	if !truth(v) {
-		// The report is made only when the assert fails.
-		report := &shownAssert{text: in.sourceText(fr, s.X), unshown: in.tryShown(fr, s.X)}
+		// The report is made only when the assert/always fails.
+		report := &shownAssert{what: what, text: in.sourceText(fr, expr), unshown: in.tryShown(fr, expr)}
 		if shown != nil {
 			report.lt, report.rt, report.left, report.rite, report.shown = shown.lt, shown.rt, left, right, true
 		}
@@ -149,7 +222,11 @@ func (in *interp) assertMessage(fr *frame, site Site, a *shownAssert) string {
 			}
 		}
 	}
-	return "assert failed at " + nativeSite(site) + ": " + text
+	what := a.what
+	if what == "" {
+		what = "assert failed"
+	}
+	return what + " at " + nativeSite(site) + ": " + text
 }
 
 // defectMessage is a defect's report on the native runner's FAIL line; the
@@ -161,6 +238,7 @@ const defectMessage = "a defect, which stops the run"
 // declaration on a line of its own.
 func (in *interp) lawFalse(res Result, pkg *check.Package, decl syntax.Decl, pos syntax.Pos) Result {
 	res.Status, res.Reason = Refuted, "the law is false"
+	res.bodyFalse = true
 	res.Site = in.site(pkg, decl, pos)
 	res.Message = "law refuted at " + nativeSite(res.Site) + ": the law is false\n\tlaw declared at " + nativeSite(in.site(pkg, decl, decl.Pos()))
 	return res

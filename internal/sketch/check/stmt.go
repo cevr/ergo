@@ -134,6 +134,10 @@ func (c *checker) stmt(s syntax.Stmt) {
 		c.rangeStmt(s)
 	case *syntax.AssertStmt:
 		c.assertStmt(s)
+	case *syntax.AlwaysStmt:
+		c.alwaysStmt(s)
+	case *syntax.SometimesStmt:
+		c.sometimesStmt(s)
 	case *syntax.SkipStmt:
 		c.skipStmt(s)
 	default:

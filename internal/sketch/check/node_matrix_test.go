@@ -96,6 +96,14 @@ func Step(s U, e U) Decision[U, int] { return Ignore }`, "S104", "Nope"},
 	{"AssertStmt", `test T {
 	assert nope
 }`, "S104", "nope"},
+	{"AlwaysStmt", `law L(x int) {
+	always nope
+	x == x
+}`, "S104", "nope"},
+	{"SometimesStmt", `law L(x int) {
+	sometimes nope
+	x == x
+}`, "S104", "nope"},
 	{"SkipStmt", `test T {
 	skip " "
 }`, "S108", "\" \""},
