@@ -70,15 +70,17 @@ type etask struct {
 	state  taskRun
 	ready  func() bool // a blocked task goes on when it holds
 	why    string      // what a blocked task waits for
-	// stopped marks a task asked to stop; mask counts the releases it is
-	// in, where a stop waits (I2).
+	// stopped marks a task asked to stop; mask counts the releases or
+	// atomic Ref updates it is in, where a stop waits (I2); noYield counts
+	// atomic Ref updates where loop back-edges do not switch tasks.
 	stopped     bool
 	mask        int
+	noYield     int
 	stepBudget  *evalStepBudget
 	budgetSpent bool
 	settling    bool     // an Advance waiting for the other tasks to wait
-	sleep    *sleeper // the sleep a blocked task waits on, if any
-	saved    taskState
+	sleep       *sleeper // the sleep a blocked task waits on, if any
+	saved       taskState
 	// Its exit: the body's value, or the cause (nil for a value). ended
 	// says the body returned val, also when a stop won (Gap 47).
 	val   Value
@@ -160,6 +162,15 @@ func (in *interp) mask(n int) {
 	}
 }
 
+// noYield enters (n = 1) or leaves (n = -1) an atomic region of the running
+// task (sync.Ref Update/Modify): loop back-edges do not yield to another task
+// until the callback returns, matching runtime/v1's mutex.
+func (in *interp) noYield(n int) {
+	if in.cur != nil {
+		in.cur.noYield += n
+	}
+}
+
 // stoppedNow reports a stop the running task observes at an interruption
 // point.
 func (in *interp) stoppedNow() bool {
@@ -231,7 +242,7 @@ func (in *interp) backEdge(fr *frame, at syntax.Node) *abrupt {
 		return ab
 	}
 	s := in.sched
-	if s == nil || len(s.tasks) < 2 || s.rng.IntN(2) == 0 {
+	if s == nil || len(s.tasks) < 2 || (in.cur != nil && in.cur.noYield > 0) || s.rng.IntN(2) == 0 {
 		return nil
 	}
 	return in.park(fr, at)

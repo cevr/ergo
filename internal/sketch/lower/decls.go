@@ -593,6 +593,10 @@ func (l *lowerer) emitType(td *typeDecl) {
 	if td.emitted {
 		return
 	}
+	if td.named != nil && td.tn.Decl != nil && l.runtimeNamed(td.named, td.tn.Decl.Name) {
+		td.emitted = true
+		return
+	}
 	td.emitted = true
 	defer l.leave(l.enter(td.tn.Decl.Name, td.tn.Pkg))
 	b := &l.user

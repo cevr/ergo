@@ -479,6 +479,12 @@ func registerNatives(t nativeTables) {
 		if !ok {
 			return nil, fr.unsupported(at, "a Ref that is not the std's own")
 		}
+		in.mask(1)
+		in.noYield(1)
+		defer func() {
+			in.noYield(-1)
+			in.mask(-1)
+		}()
 		out, ab := in.callValue(fr, at, args[1], []Value{r.v})
 		if ab != nil {
 			return nil, ab
@@ -747,6 +753,12 @@ func (r *refV) opCall(in *interp, fr *frame, at syntax.Node, name string, args [
 		r.v = args[0]
 		return unit{}, nil
 	case "Update":
+		in.mask(1)
+		in.noYield(1)
+		defer func() {
+			in.noYield(-1)
+			in.mask(-1)
+		}()
 		v, ab := in.callValue(fr, at, args[0], []Value{r.v})
 		if ab != nil {
 			return nil, ab

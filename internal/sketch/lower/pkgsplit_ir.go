@@ -50,6 +50,10 @@ type irSplit struct {
 	uses map[int]map[string]bool
 	// groupOf is the group of each package-scope name of main.go.
 	groupOf map[string]int
+	// tparams are, by original IR function name, the generic type parameter
+	// names bound by that function or its receiver, which must never be
+	// resolved against package-scope declarations.
+	tparams map[string]map[string]bool
 	// qual are, by package, the generic names of other packages its IR
 	// bodies use, each spelled PATH.Name (foreignDecls).
 	qual map[int]map[string]string
@@ -86,8 +90,8 @@ func (s *irSplit) localName(k int, name string) string {
 
 // newIRSplit reads the references of ir's bodies; groupOf is the group
 // of each package-scope name of main.go.
-func newIRSplit(ir *irFile, groupOf map[string]int) (*irSplit, string) {
-	s := &irSplit{ir: ir, uses: map[int]map[string]bool{}, groupOf: groupOf}
+func newIRSplit(ir *irFile, groupOf map[string]int, tparams map[string]map[string]bool) (*irSplit, string) {
+	s := &irSplit{ir: ir, uses: map[int]map[string]bool{}, groupOf: groupOf, tparams: tparams}
 	for i := range ir.Funcs {
 		fn := &ir.Funcs[i]
 		recv, method, isMethod := strings.Cut(fn.Name, ".")
@@ -95,11 +99,15 @@ func newIRSplit(ir *irFile, groupOf map[string]int) (*irSplit, string) {
 		if !ok {
 			return nil, "the IR function " + fn.Name + " is not declared in main.go"
 		}
+		tp := tparams[fn.Name]
 		names, members := map[string]bool{}, map[string]bool{}
 		if isMethod {
 			members[method] = true
 		}
 		fn.walk(func(n *string) {
+			if tp[*n] {
+				return
+			}
 			if _, ok := groupOf[*n]; ok {
 				names[*n] = true
 			}
@@ -327,8 +335,14 @@ func (s *irSplit) files(pkgOf func(i int) int, nameOf, member func(string) strin
 		// own work.
 		fn := &s.ir.Funcs[i]
 		p := pkgOf(i)
+		tp := s.tparams[fn.Name]
 		renamed := func(n *string) { *n = member(*n) }
 		own := func(n *string) {
+			// Bound generic type parameters keep their own names even when
+			// another package declares a package-scope type with the same name.
+			if tp[*n] {
+				return
+			}
 			// A name of another package is spelled as its alias or
 			// forwarding function in p is declared (localName). A
 			// generic one is spelled PATH.Name. A name of no declaration
