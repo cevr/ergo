@@ -1,0 +1,166 @@
+// Package graph implements pure-Ergo Git commit-graph decoding (monolithic and
+// split-chain), generation numbers v1/v2 (GDAT/GDOV), changed-path Bloom
+// filters (BIDX/BDAT with Murmur3-32), commit-DAG traversal, and Bloom-guided
+// path-limited log (G-GRAPH).
+
+import github.com/cevr/ergo/modules/git/oid
+
+// Error is the closed failure union for commit-graph parsing, split-chain
+// loading, and path-limited log queries.
+type Error =
+	| Truncated{Expected int, Got int}
+	| BadMagic{Reason string}
+	| UnsupportedVersion{Version byte}
+	| WrongFormat{Reason string}
+	| CorruptChunk{ChunkID string, Reason string}
+	| MissingChunk{ChunkID string}
+	| ChecksumMismatch{Expected string, Got string}
+	| BadBaseChain{Reason string}
+	| IOFailed{Op string, Detail string}
+
+// BloomSettings holds the decoded BDAT header parameters for a commit-graph
+// layer's changed-path Bloom filters.
+type BloomSettings {
+	HashVersion  uint32,
+	NumHashes    uint32,
+	BitsPerEntry uint32,
+}
+
+// CommitInfo is the fully resolved commit-graph metadata for one commit inside
+// a monolithic or split commit-graph chain.
+type CommitInfo {
+	OID           oid.OID,
+	TreeOID       oid.OID,
+	Parents       []oid.OID,
+	Generation    uint32,
+	CommitTime    uint64,
+	CorrectedDate uint64,
+	HasBloom      bool,
+	BloomFilter   []byte,
+	BloomSettings BloomSettings,
+}
+
+type rawCommit {
+	id            oid.OID,
+	treeOid       oid.OID,
+	parentPos     []uint32,
+	generation    uint32,
+	commitTime    uint64,
+	correctedDate uint64,
+	hasBloom      bool,
+	bloomFilter   []byte,
+}
+
+// Graph is a single verified commit-graph layer (monolithic or one split layer).
+type Graph {
+	format        oid.Format,
+	baseHashes    []oid.OID,
+	checksum      oid.OID,
+	fanout        []uint32,
+	commits       []rawCommit,
+	hasBloom      bool,
+	bloomSettings BloomSettings,
+}
+
+type chainLayer {
+	baseOffset int,
+	graph      Graph,
+}
+
+// Chain is a verified ordered stack of commit-graph layers (one layer for
+// monolithic graphs, or base-to-tip layers for split chains).
+type Chain {
+	format  oid.Format,
+	layers  []chainLayer,
+	commits []CommitInfo,
+} implements GraphReader
+
+// GraphReader is the capability seam for querying commit-graph entries,
+// carrying laws held identically by Chain and MemoryGraph.
+type GraphReader {
+	CommitCount() int,
+	At(i int) Option[CommitInfo],
+	Lookup(id oid.OID) Option[CommitInfo],
+
+	// LookupFindsAllCommits: every commit at 0..CommitCount() is found by
+	// Lookup with identical OID, TreeOID, Generation, CommitTime, and parent count.
+	law LookupFindsAllCommits() {
+		let n = CommitCount()
+		for i in 0..n {
+			match At(i) {
+			case None:
+				return false
+			case Some[CommitInfo] as c:
+				match Lookup(c.Value.OID) {
+				case None:
+					return false
+				case Some[CommitInfo] as got:
+					if !oid.Equal(got.Value.OID, c.Value.OID) ||
+						!oid.Equal(got.Value.TreeOID, c.Value.TreeOID) ||
+						got.Value.Generation != c.Value.Generation ||
+						got.Value.CommitTime != c.Value.CommitTime ||
+						len(got.Value.Parents) != len(c.Value.Parents) {
+						return false
+					}
+				}
+			}
+		}
+		true
+	},
+
+	// ParentGenerationStrictlyLess: every parent present in the graph has a
+	// strictly smaller topological generation than its child commit.
+	law ParentGenerationStrictlyLess() {
+		let n = CommitCount()
+		let maxGen = uint32(0x3fffffff)
+		for i in 0..n {
+			match At(i) {
+			case None:
+				return false
+			case Some[CommitInfo] as c:
+				if c.Value.Generation == uint32(0) || c.Value.Generation >= maxGen {
+					continue
+				}
+				for p in c.Value.Parents {
+					match Lookup(p) {
+					case None:
+					case Some[CommitInfo] as pc:
+						if pc.Value.Generation > uint32(0) && pc.Value.Generation >= c.Value.Generation {
+							return false
+						}
+					}
+				}
+			}
+		}
+		true
+	},
+
+	// MissingCommitReturnsNone: an absent OID returns None from Lookup.
+	law MissingCommitReturnsNone() {
+		let n = CommitCount()
+		if n == 0 {
+			return Lookup(oid.Zero(oid.Sha1)) == None && Lookup(oid.Zero(oid.Sha256)) == None
+		}
+		match At(0) {
+		case None:
+			false
+		case Some[CommitInfo] as first:
+			let probe = oid.Zero(first.Value.OID.Format)
+			let mut exists = false
+			for i in 0..n {
+				match At(i) {
+				case Some[CommitInfo] as c:
+					if oid.Equal(c.Value.OID, probe) {
+						exists = true
+					}
+				case None:
+				}
+			}
+			if exists {
+				true
+			} else {
+				Lookup(probe) == None
+			}
+		}
+	},
+}

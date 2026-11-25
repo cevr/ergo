@@ -1,0 +1,347 @@
+import hex
+import sha1dc
+import sha256
+import slices
+import github.com/cevr/ergo/modules/git/oid
+
+func readU32BE(b []byte, off int) uint32 {
+		(uint32(b[off]) << uint32(24)) |
+		(uint32(b[off+1]) << uint32(16)) |
+		(uint32(b[off+2]) << uint32(8)) |
+		uint32(b[off+3])
+}
+
+func readU64BE(b []byte, off int) uint64 {
+	(uint64(readU32BE(b, off)) << uint64(32)) | uint64(readU32BE(b, off+4))
+}
+
+func computeGraphDigest(format oid.Format, data []byte) []byte fails ChecksumMismatch {
+	match format {
+	case oid.Sha1:
+		let d = sha1dc.Sum(data) catch {
+		case sha1dc.CollisionDetected as c:
+			return ChecksumMismatch{Expected: "collision-free", Got: hex.Encode(c.Digest)}
+		}
+		let mut out = slices.WithCapacity[byte](20)
+		for i in 0..20 {
+			out = out.Append(d[i])
+		}
+		out
+	case oid.Sha256:
+		let h = sha256.New()
+		h.Write(data.Text())
+		h.Digest().Bytes()
+	}
+}
+
+type chunkSpan {
+	id    string,
+	start int,
+	end   int,
+}
+
+func findChunk(chunks []chunkSpan, id string) Option[chunkSpan] {
+	for c in chunks {
+		if c.id == id {
+			return Some[chunkSpan]{Value: c}
+		}
+	}
+	None
+}
+
+func decodeParents(p1 uint32, p2 uint32, edgeChunk []byte) []uint32 fails CorruptChunk {
+	let parentNone = uint32(0x70000000)
+	let extraMask = uint32(0x80000000)
+	if p1 == parentNone {
+		return []uint32{}
+	}
+	let mut out = []uint32{p1}
+	if p2 == parentNone {
+		return out
+	}
+	if (p2 & extraMask) == uint32(0) {
+		return out.Append(p2)
+	}
+	let edgeCount = len(edgeChunk) / 4
+	let mut idx = int(p2 & uint32(0x7fffffff))
+	for {
+		if idx < 0 || idx >= edgeCount {
+			return CorruptChunk{ChunkID: "EDGE", Reason: "extra parent edge index out of bounds"}
+		}
+		let val = readU32BE(edgeChunk, idx*4)
+		out = out.Append(val & uint32(0x7fffffff))
+		if (val & extraMask) != uint32(0) {
+			break
+		}
+		idx = idx + 1
+	}
+	out
+}
+
+// Parse decodes and checksum-verifies a single Git commit-graph file (v1) for
+// format, including OIDF, OIDL, CDAT, optional EDGE, BASE, GDAT/GDOV, and
+// BIDX/BDAT changed-path Bloom filter chunks.
+func Parse(format oid.Format, raw []byte) Graph fails Truncated | BadMagic | UnsupportedVersion | WrongFormat | CorruptChunk | MissingChunk | ChecksumMismatch {
+	let hashLen = oid.ByteLen(format)
+	if len(raw) < 8+12+hashLen {
+		return Truncated{Expected: 8 + 12 + hashLen, Got: len(raw)}
+	}
+	if raw[0] != byte('C') || raw[1] != byte('G') || raw[2] != byte('P') || raw[3] != byte('H') {
+		return BadMagic{Reason: "missing CGPH commit-graph magic"}
+	}
+	if raw[4] != byte(1) {
+		return UnsupportedVersion{Version: raw[4]}
+	}
+	let wantHashVer = match format {
+	case oid.Sha1:
+		byte(1)
+	case oid.Sha256:
+		byte(2)
+	}
+	if raw[5] != wantHashVer {
+		return WrongFormat{Reason: "commit-graph hash version does not match requested format"}
+	}
+	let chunkCount = int(raw[6])
+	let baseCount = int(raw[7])
+	let tableEnd = 8 + (chunkCount+1)*12
+	let bodyEnd = len(raw) - hashLen
+	if tableEnd > bodyEnd {
+		return Truncated{Expected: tableEnd + hashLen, Got: len(raw)}
+	}
+
+	let wantSum = raw[bodyEnd:]
+	let gotSum = try computeGraphDigest(format, raw[:bodyEnd])
+	if !slices.Equal(gotSum, wantSum) {
+		return ChecksumMismatch{
+			Expected: hex.Encode(wantSum.Text()),
+			Got:      hex.Encode(gotSum.Text()),
+		}
+	}
+	let checksum = oid.FromBytes(format, wantSum) catch {
+	case oid.WrongLength:
+		oid.Zero(format)
+	}
+
+	let mut ids = slices.WithCapacity[string](chunkCount + 1)
+	let mut offs = slices.WithCapacity[uint64](chunkCount + 1)
+	for i in 0..chunkCount+1 {
+		let base = 8 + i*12
+		let id = raw[base : base+4].Text()
+		let off = readU64BE(raw, base+4)
+		if i == 0 && off < uint64(tableEnd) {
+			return CorruptChunk{ChunkID: id, Reason: "first chunk starts inside chunk table"}
+		}
+		if i > 0 && off < offs[i-1] {
+			return CorruptChunk{ChunkID: id, Reason: "chunk offsets are not monotonic"}
+		}
+		if off > uint64(bodyEnd) {
+			return CorruptChunk{ChunkID: id, Reason: "chunk offset exceeds file body"}
+		}
+		ids = ids.Append(id)
+		offs = offs.Append(off)
+	}
+	if ids[chunkCount] != "\x00\x00\x00\x00" {
+		return CorruptChunk{ChunkID: ids[chunkCount], Reason: "missing terminating zero chunk entry"}
+	}
+	let mut chunks = slices.WithCapacity[chunkSpan](chunkCount)
+	for i in 0..chunkCount {
+		chunks = chunks.Append(chunkSpan{id: ids[i], start: int(offs[i]), end: int(offs[i+1])})
+	}
+
+	let oidfSpan = match findChunk(chunks, "OIDF") {
+	case Some[chunkSpan] as s:
+		s.Value
+	case None:
+		return MissingChunk{ChunkID: "OIDF"}
+	}
+	if oidfSpan.end-oidfSpan.start != 1024 {
+		return CorruptChunk{ChunkID: "OIDF", Reason: "OIDF chunk must be 1024 bytes"}
+	}
+	let mut fanout = slices.WithCapacity[uint32](256)
+	let mut prevFan = uint32(0)
+	for i in 0..256 {
+		let cur = readU32BE(raw, oidfSpan.start+i*4)
+		if i > 0 && cur < prevFan {
+			return CorruptChunk{ChunkID: "OIDF", Reason: "non-monotonic OIDF fanout"}
+		}
+		fanout = fanout.Append(cur)
+		prevFan = cur
+	}
+	let n = int(fanout[255])
+
+	let oidlSpan = match findChunk(chunks, "OIDL") {
+	case Some[chunkSpan] as s:
+		s.Value
+	case None:
+		return MissingChunk{ChunkID: "OIDL"}
+	}
+	if oidlSpan.end-oidlSpan.start != n*hashLen {
+		return CorruptChunk{ChunkID: "OIDL", Reason: "OIDL chunk length mismatch"}
+	}
+
+	let cdatSpan = match findChunk(chunks, "CDAT") {
+	case Some[chunkSpan] as s:
+		s.Value
+	case None:
+		return MissingChunk{ChunkID: "CDAT"}
+	}
+	let cdatStride = hashLen + 16
+	if cdatSpan.end-cdatSpan.start != n*cdatStride {
+		return CorruptChunk{ChunkID: "CDAT", Reason: "CDAT chunk length mismatch"}
+	}
+
+	let edgeBytes = match findChunk(chunks, "EDGE") {
+	case Some[chunkSpan] as s:
+		raw[s.Value.start:s.Value.end]
+	case None:
+		[]byte{}
+	}
+
+	let mut baseHashes = slices.WithCapacity[oid.OID](baseCount)
+	if baseCount > 0 {
+		let baseSpan = match findChunk(chunks, "BASE") {
+		case Some[chunkSpan] as s:
+			s.Value
+		case None:
+			return MissingChunk{ChunkID: "BASE"}
+		}
+		if baseSpan.end-baseSpan.start != baseCount*hashLen {
+			return CorruptChunk{ChunkID: "BASE", Reason: "BASE chunk length mismatch"}
+		}
+		for i in 0..baseCount {
+			let off = baseSpan.start + i*hashLen
+			let bh = oid.FromBytes(format, raw[off:off+hashLen]) catch {
+			case oid.WrongLength:
+				return CorruptChunk{ChunkID: "BASE", Reason: "invalid base graph hash length"}
+			}
+			baseHashes = baseHashes.Append(bh)
+		}
+	}
+
+	let mut hasGdat = false
+	let mut gdatBytes = []byte{}
+	match findChunk(chunks, "GDAT") {
+	case Some[chunkSpan] as s:
+		if s.Value.end-s.Value.start != n*4 {
+			return CorruptChunk{ChunkID: "GDAT", Reason: "GDAT chunk length mismatch"}
+		}
+		hasGdat = true
+		gdatBytes = raw[s.Value.start:s.Value.end]
+	case None:
+	}
+	let gdovBytes = match findChunk(chunks, "GDOV") {
+	case Some[chunkSpan] as s:
+		if (s.Value.end-s.Value.start)%8 != 0 {
+			return CorruptChunk{ChunkID: "GDOV", Reason: "GDOV chunk length not multiple of 8"}
+		}
+		raw[s.Value.start:s.Value.end]
+	case None:
+		[]byte{}
+	}
+
+	let mut hasBloom = false
+	let mut bloomSettings = BloomSettings{HashVersion: uint32(0), NumHashes: uint32(0), BitsPerEntry: uint32(0)}
+	let mut bidxBytes = []byte{}
+	let mut bdatData = []byte{}
+	match findChunk(chunks, "BIDX") {
+	case Some[chunkSpan] as bi:
+		match findChunk(chunks, "BDAT") {
+		case Some[chunkSpan] as bd:
+			if bi.Value.end-bi.Value.start != n*4 {
+				return CorruptChunk{ChunkID: "BIDX", Reason: "BIDX chunk length mismatch"}
+			}
+			if bd.Value.end-bd.Value.start < 12 {
+				return CorruptChunk{ChunkID: "BDAT", Reason: "BDAT chunk shorter than 12-byte header"}
+			}
+			hasBloom = true
+			bloomSettings = BloomSettings{
+				HashVersion:  readU32BE(raw, bd.Value.start),
+				NumHashes:    readU32BE(raw, bd.Value.start+4),
+				BitsPerEntry: readU32BE(raw, bd.Value.start+8),
+			}
+			bidxBytes = raw[bi.Value.start:bi.Value.end]
+			bdatData = raw[bd.Value.start+12 : bd.Value.end]
+		case None:
+		}
+	case None:
+	}
+
+	let mut commits = slices.WithCapacity[rawCommit](n)
+	let timeMask = (uint64(1) << uint64(34)) - uint64(1)
+	for i in 0..n {
+		let idOff = oidlSpan.start + i*hashLen
+		let id = oid.FromBytes(format, raw[idOff:idOff+hashLen]) catch {
+		case oid.WrongLength:
+			return CorruptChunk{ChunkID: "OIDL", Reason: "invalid commit OID length"}
+		}
+		if i > 0 && oid.Compare(commits[i-1].id, id) >= 0 {
+			return CorruptChunk{ChunkID: "OIDL", Reason: "OIDL entries are not strictly sorted"}
+		}
+		let cOff = cdatSpan.start + i*cdatStride
+		let treeOid = oid.FromBytes(format, raw[cOff:cOff+hashLen]) catch {
+		case oid.WrongLength:
+			return CorruptChunk{ChunkID: "CDAT", Reason: "invalid root tree OID length"}
+		}
+		let p1 = readU32BE(raw, cOff+hashLen)
+		let p2 = readU32BE(raw, cOff+hashLen+4)
+		let genAndTime = readU64BE(raw, cOff+hashLen+8)
+		let gen = uint32((genAndTime >> uint64(34)) & uint64(0x3fffffff))
+		let ctime = genAndTime & timeMask
+		let parentPos = try decodeParents(p1, p2, edgeBytes)
+
+		let mut corrDate = ctime
+		if hasGdat {
+			let gVal = readU32BE(gdatBytes, i*4)
+			if (gVal & uint32(0x80000000)) == uint32(0) {
+				corrDate = ctime + uint64(gVal)
+			} else {
+				let ovIdx = int(gVal & uint32(0x7fffffff))
+				if ovIdx*8+8 > len(gdovBytes) {
+					return CorruptChunk{ChunkID: "GDOV", Reason: "GDOV overflow index out of bounds"}
+				}
+				corrDate = ctime + readU64BE(gdovBytes, ovIdx*8)
+			}
+		}
+
+		let mut bloomSlice = []byte{}
+		if hasBloom {
+			let bStart = if i == 0 { 0 } else { int(readU32BE(bidxBytes, (i-1)*4)) }
+			let bEnd = int(readU32BE(bidxBytes, i*4))
+			if bStart < 0 || bEnd < bStart || bEnd > len(bdatData) {
+				return CorruptChunk{ChunkID: "BIDX", Reason: "BIDX filter range out of BDAT bounds"}
+			}
+			bloomSlice = bdatData[bStart:bEnd]
+		}
+
+		commits = commits.Append(rawCommit{
+			id:            id,
+			treeOid:       treeOid,
+			parentPos:     parentPos,
+			generation:    gen,
+			commitTime:    ctime,
+			correctedDate: corrDate,
+			hasBloom:      hasBloom,
+			bloomFilter:   bloomSlice,
+		})
+	}
+
+	Graph{
+		format:        format,
+		baseHashes:    baseHashes,
+		checksum:      checksum,
+		fanout:        fanout,
+		commits:       commits,
+		hasBloom:      hasBloom,
+		bloomSettings: bloomSettings,
+	}
+}
+
+// Checksum returns the verified trailing digest of g.
+func Checksum(g Graph) oid.OID {
+	g.checksum
+}
+
+// BaseHashes returns the ordered base-layer graph hashes declared in g's BASE chunk.
+func BaseHashes(g Graph) []oid.OID {
+	g.baseHashes
+}

@@ -1,0 +1,128 @@
+import strings
+
+func rotl32(x uint32, r uint32) uint32 {
+	(x << r) | (x >> (uint32(32) - r))
+}
+
+func bloomByte(b byte, hashVersion uint32) uint32 {
+	if hashVersion == uint32(1) && b >= byte(0x80) {
+		return uint32(0xffffff00) | uint32(b)
+	}
+	uint32(b)
+}
+
+// Murmur3Seeded computes Git's seeded 32-bit Murmur3 hash over data using
+// either hashVersion 1 (signed-char legacy) or hashVersion 2 (unsigned-char).
+func Murmur3Seeded(seed uint32, data []byte, hashVersion uint32) uint32 {
+	let c1 = uint32(0xcc9e2d51)
+	let c2 = uint32(0x1b873593)
+	let m = uint32(5)
+	let nConst = uint32(0xe6546b64)
+
+	let mut hash = seed
+	let total = len(data)
+	let nblocks = total / 4
+	for i in 0..nblocks {
+		let off = i * 4
+		let mut k = bloomByte(data[off], hashVersion) |
+			(bloomByte(data[off+1], hashVersion) << uint32(8)) |
+			(bloomByte(data[off+2], hashVersion) << uint32(16)) |
+			(bloomByte(data[off+3], hashVersion) << uint32(24))
+		k = k * c1
+		k = rotl32(k, uint32(15))
+		k = k * c2
+		hash = hash ^ k
+		hash = rotl32(hash, uint32(13))*m + nConst
+	}
+	let tail = nblocks * 4
+	let rem = total & 3
+	if rem > 0 {
+		let mut k1 = uint32(0)
+		if rem >= 3 {
+			k1 = k1 ^ (bloomByte(data[tail+2], hashVersion) << uint32(16))
+		}
+		if rem >= 2 {
+			k1 = k1 ^ (bloomByte(data[tail+1], hashVersion) << uint32(8))
+		}
+		k1 = k1 ^ bloomByte(data[tail], hashVersion)
+		k1 = k1 * c1
+		k1 = rotl32(k1, uint32(15))
+		k1 = k1 * c2
+		hash = hash ^ k1
+	}
+	hash = hash ^ uint32(total)
+	hash = hash ^ (hash >> uint32(16))
+	hash = hash * uint32(0x85ebca6b)
+	hash = hash ^ (hash >> uint32(13))
+	hash = hash * uint32(0xc2b2ae35)
+	hash = hash ^ (hash >> uint32(16))
+	hash
+}
+
+func bloomFilterMatchesSingle(filter []byte, settings BloomSettings, key string) bool {
+	let numBits = uint32(len(filter)) * uint32(8)
+	let raw = key.Bytes()
+	let h0 = Murmur3Seeded(uint32(0x293ae76f), raw, settings.HashVersion)
+	let h1 = Murmur3Seeded(uint32(0x7e646e2c), raw, settings.HashVersion)
+	let count = int(settings.NumHashes)
+	for i in 0..count {
+		let pos = (h0 + uint32(i)*h1) % numBits
+		let byteIdx = int(pos / uint32(8))
+		let mask = byte(1) << byte(pos%uint32(8))
+		if (filter[byteIdx] & mask) == byte(0) {
+			return false
+		}
+	}
+	true
+}
+
+func trimSlashes(s string) string {
+	let mut out = s
+	for strings.HasPrefix(out, "/") {
+		out = strings.TrimPrefix(out, "/")
+	}
+	for strings.HasSuffix(out, "/") {
+		out = strings.TrimSuffix(out, "/")
+	}
+	out
+}
+
+// MayTouchPath reports whether commit c's changed-path Bloom filter indicates
+// that c may have modified path. Missing or 0xff-truncated filters conservatively
+// return true (zero false negatives), while 1-byte 0x00 filters return false.
+func MayTouchPath(c CommitInfo, path string) bool {
+	if !c.HasBloom {
+		return true
+	}
+	let filter = c.BloomFilter
+	if len(filter) == 0 {
+		return true
+	}
+	if len(filter) == 1 {
+		if filter[0] == byte(0xff) {
+			return true
+		}
+		if filter[0] == byte(0x00) {
+			return false
+		}
+	}
+	if c.BloomSettings.HashVersion != uint32(1) && c.BloomSettings.HashVersion != uint32(2) {
+		return true
+	}
+	if c.BloomSettings.NumHashes == uint32(0) {
+		return true
+	}
+	let cleaned = trimSlashes(path)
+	if cleaned == "" {
+		return true
+	}
+	let parts = strings.Split(cleaned, "/")
+	let mut cur = ""
+	for i, seg in parts {
+		cur = if i == 0 { seg } else { cur + "/" + seg }
+		if !bloomFilterMatchesSingle(filter, c.BloomSettings, cur) {
+			return false
+		}
+	}
+	true
+}

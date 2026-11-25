@@ -1,0 +1,420 @@
+import exec
+import filepath
+import fs
+import fstest
+import os
+import sha1dc
+import slices
+import strings
+import github.com/cevr/ergo/modules/git/delta
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/oracle
+import github.com/cevr/ergo/modules/git/pack
+import github.com/cevr/ergo/modules/git/tree
+
+func openRepoDiskODB(fmt oid.Format, objectsDir string, host fs.Host) pack.DiskODB fails pack.Corrupt | pack.MismatchedPair | pack.IOFailed {
+	let odb = with context { fs.Files: host } {
+		try pack.Open(fmt, objectsDir, []string{}, delta.DefaultLimits())
+	}
+	pack.NewDiskODB(odb, host)
+}
+
+let onOracleSha1 = context fails pack.Corrupt | pack.MismatchedPair | pack.IOFailed needs TestAmbient {
+	exec.Runner:      exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
+	fs.Files:         fs.NewTestHost(),
+	fs.Writes:        fs.NewTestHost(),
+	os.Process:       os.NewTestHost(),
+	pack.ObjectStore: try openRepoDiskODB(oid.Sha1, filepath.Join([]string{fstest.TestFolder(), "repo", ".git", "objects"}), fs.NewTestHost()),
+}
+
+let onOracleSha256 = context fails pack.Corrupt | pack.MismatchedPair | pack.IOFailed needs TestAmbient {
+	exec.Runner:      exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
+	fs.Files:         fs.NewTestHost(),
+	fs.Writes:        fs.NewTestHost(),
+	os.Process:       os.NewTestHost(),
+	pack.ObjectStore: try openRepoDiskODB(oid.Sha256, filepath.Join([]string{fstest.TestFolder(), "repo", ".git", "objects"}), fs.NewTestHost()),
+}
+
+func makeSampleMemoryGraph(fmt oid.Format) MemoryGraph {
+	let t0 = oid.HashObject(fmt, oid.Tree, "t0".Bytes()) catch {
+	case oid.Collision:
+		oid.Zero(fmt)
+	}
+	let c0 = oid.HashObject(fmt, oid.Commit, "c0".Bytes()) catch {
+	case oid.Collision:
+		oid.Zero(fmt)
+	}
+	let c1 = oid.HashObject(fmt, oid.Commit, "c1".Bytes()) catch {
+	case oid.Collision:
+		oid.Zero(fmt)
+	}
+	let emptySettings = BloomSettings{HashVersion: uint32(0), NumHashes: uint32(0), BitsPerEntry: uint32(0)}
+	NewMemoryGraph([]CommitInfo{
+		CommitInfo{OID: c0, TreeOID: t0, Parents: []oid.OID{}, Generation: uint32(1), CommitTime: uint64(1700000000), CorrectedDate: uint64(1700000000), HasBloom: false, BloomFilter: []byte{}, BloomSettings: emptySettings},
+		CommitInfo{OID: c1, TreeOID: t0, Parents: []oid.OID{c0}, Generation: uint32(2), CommitTime: uint64(1700000010), CorrectedDate: uint64(1700000010), HasBloom: false, BloomFilter: []byte{}, BloomSettings: emptySettings},
+	})
+}
+
+let onMemoryGraphSha1 = context {
+	GraphReader: makeSampleMemoryGraph(oid.Sha1),
+}
+
+let onMemoryGraphSha256 = context {
+	GraphReader: makeSampleMemoryGraph(oid.Sha256),
+}
+
+func makeSampleParsedChain() Chain fails testFail | Truncated | BadMagic | UnsupportedVersion | WrongFormat | CorruptChunk | MissingChunk | ChecksumMismatch | BadBaseChain | oid.Collision {
+	let cid = try oid.HashObject(oid.Sha1, oid.Commit, "law-parsed-chain-commit".Bytes())
+	let tid = try oid.HashObject(oid.Sha1, oid.Tree, "law-parsed-chain-tree".Bytes())
+	let raw = try buildSyntheticGraphWithGDOV(cid, tid, uint64(1700000000), uint64(42))
+	let g = try Parse(oid.Sha1, raw)
+	try BuildChain(oid.Sha1, []Graph{g})
+}
+
+let onParsedChainSha1 = context fails testFail | Truncated | BadMagic | UnsupportedVersion | WrongFormat | CorruptChunk | MissingChunk | ChecksumMismatch | BadBaseChain | oid.Collision {
+	GraphReader: try makeSampleParsedChain(),
+}
+
+type testFail {
+	reason string,
+}
+
+func runGitOk(dir string, args []string, stdin string, pathEnv Map[string, string], step int) string fails testFail | exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	let base = oracle.GitCommand(dir, args, pathEnv, oracle.StepEpoch(step))
+	let cmd = if stdin == "" { base } else { exec.WithStdin(base, stdin) }
+	let res = try exec.Runner.Run(cmd)
+	if res.Status != 0 {
+		return testFail{reason: "git failed: " + res.Stderr}
+	}
+	res.Stdout
+}
+
+func verifyChainAgainstParsedCommits(c Chain, fmt oid.Format) fails testFail | tree.CorruptCommit | tree.CorruptTag | tree.CorruptSignature | tree.WrongKind | tree.DepthExceeded | tree.MissingObject | tree.StoreError needs pack.ObjectStore {
+	let n = c.CommitCount()
+	if n == 0 {
+		return testFail{reason: "empty commit graph chain"}
+	}
+	for i in 0..n {
+		let info = match c.At(i) {
+		case Some[CommitInfo] as v:
+			v.Value
+		case None:
+			return testFail{reason: "At returned None"}
+		}
+		let (_, parsed) = try tree.PeelToCommit(fmt, info.OID, 4, 1048576)
+		if !oid.Equal(info.TreeOID, parsed.Tree) {
+			return testFail{reason: "TreeOID mismatch for " + oid.Hex(info.OID)}
+		}
+		if len(info.Parents) != len(parsed.Parents) {
+			return testFail{reason: "parent count mismatch for " + oid.Hex(info.OID) + ": got \(len(info.Parents)), want \(len(parsed.Parents))"}
+		}
+		for pi in 0..len(parsed.Parents) {
+			if !oid.Equal(info.Parents[pi], parsed.Parents[pi]) {
+				return testFail{reason: "parent \(pi) OID mismatch for " + oid.Hex(info.OID)}
+			}
+		}
+		if info.CommitTime != uint64(parsed.Committer.Epoch) {
+			return testFail{reason: "commitTime mismatch for " + oid.Hex(info.OID)}
+		}
+		if info.Generation == uint32(0) {
+			return testFail{reason: "expected positive generation number for " + oid.Hex(info.OID)}
+		}
+		for p in info.Parents {
+			match c.Lookup(p) {
+			case Some[CommitInfo] as pInfo:
+				if pInfo.Value.Generation >= info.Generation {
+					return testFail{reason: "parent generation not strictly less than child"}
+				}
+			case None:
+				return testFail{reason: "parent missing from graph chain"}
+			}
+		}
+	}
+}
+
+func verifyPathLogMatchesGit(repoDir string, c Chain, head oid.OID, queryPath string, pathEnv Map[string, string], step int) fails testFail | IOFailed | exec.NotFound | exec.Denied | exec.Failed needs exec.Runner | pack.ObjectStore {
+	let raw = strings.TrimSpace(try runGitOk(repoDir, []string{"rev-list", oid.Hex(head), "--", queryPath}, "", pathEnv, step))
+	let mut want = []string{}
+	if raw != "" {
+		for line in strings.Split(raw, "\n") {
+			let h = strings.TrimSpace(line)
+			if h != "" {
+				want = want.Append(h)
+			}
+		}
+	}
+	let gotOids = try PathLimitedLog(c, head, queryPath, 1048576)
+	if len(gotOids) != len(want) {
+		return testFail{reason: "PathLimitedLog count mismatch for \(queryPath): got \(len(gotOids)), want \(len(want))"}
+	}
+	for i in 0..len(want) {
+		if oid.Hex(gotOids[i]) != want[i] {
+			return testFail{reason: "PathLimitedLog commit mismatch for \(queryPath) at \(i): got \(oid.Hex(gotOids[i])), want \(want[i])"}
+		}
+	}
+}
+
+func verifyFormatCommitGraph(cwd string, oFmt oracle.OidFormat, fmt oid.Format, pathEnv Map[string, string]) fails testFail | Truncated | BadMagic | UnsupportedVersion | WrongFormat | CorruptChunk | MissingChunk | ChecksumMismatch | BadBaseChain | IOFailed | tree.CorruptCommit | tree.CorruptTag | tree.CorruptSignature | tree.WrongKind | tree.DepthExceeded | tree.MissingObject | tree.StoreError | oid.BadHex | oid.WrongLength | oracle.Missing | oracle.Corrupt | oracle.Ambiguous | oracle.InvalidRef | oracle.Conflict | oracle.CommandFailed | exec.NotFound | exec.Denied | exec.Failed | fs.NotFound | fs.Denied | fs.Failed needs exec.Runner | fs.Files | fs.Writes | pack.ObjectStore {
+	let repoDir = try oracle.InitRepo(filepath.Join([]string{cwd, "repo"}), oracle.RepoSpec{Format: oFmt, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, oracle.BaseEpoch)
+
+	try fs.Writes.MkdirAll(filepath.Join([]string{repoDir, "dir", "sub"}))
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "root.txt"}), "root v0\n")
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "dir", "sub", "deep.txt"}), "deep v0\n")
+	let _ = try runGitOk(repoDir, []string{"add", "."}, "", pathEnv, 1)
+	let _ = try runGitOk(repoDir, []string{"commit", "-q", "-m", "root"}, "", pathEnv, 2)
+	let baseHex = strings.TrimSpace(try runGitOk(repoDir, []string{"rev-parse", "HEAD"}, "", pathEnv, 3))
+
+	let _ = try runGitOk(repoDir, []string{"checkout", "-q", "-b", "b1"}, "", pathEnv, 4)
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "b1.txt"}), "branch 1 file\n")
+	let _ = try runGitOk(repoDir, []string{"add", "b1.txt"}, "", pathEnv, 5)
+	let _ = try runGitOk(repoDir, []string{"commit", "-q", "-m", "b1 commit"}, "", pathEnv, 6)
+
+	let _ = try runGitOk(repoDir, []string{"checkout", "-q", "-b", "b2", baseHex}, "", pathEnv, 7)
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "b2.txt"}), "branch 2 file\n")
+	let _ = try runGitOk(repoDir, []string{"add", "b2.txt"}, "", pathEnv, 8)
+	let _ = try runGitOk(repoDir, []string{"commit", "-q", "-m", "b2 commit"}, "", pathEnv, 9)
+
+	let _ = try runGitOk(repoDir, []string{"checkout", "-q", "main"}, "", pathEnv, 10)
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "main.txt"}), "main branch file\n")
+	let _ = try runGitOk(repoDir, []string{"add", "main.txt"}, "", pathEnv, 11)
+	let _ = try runGitOk(repoDir, []string{"commit", "-q", "-m", "main commit"}, "", pathEnv, 12)
+
+	let _ = try runGitOk(repoDir, []string{"merge", "-q", "--no-ff", "-m", "octopus merge", "b1", "b2"}, "", pathEnv, 13)
+	let mergeHex = strings.TrimSpace(try runGitOk(repoDir, []string{"rev-parse", "HEAD"}, "", pathEnv, 14))
+
+	for step in 0..5 {
+		if step%2 == 0 {
+			try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "dir", "sub", "deep.txt"}), "deep v\(step + 1)\n")
+		} else {
+			try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "other.txt"}), "other v\(step)\n")
+		}
+		let _ = try runGitOk(repoDir, []string{"add", "."}, "", pathEnv, 15+step*2)
+		let _ = try runGitOk(repoDir, []string{"commit", "-q", "-m", "linear \(step)"}, "", pathEnv, 16+step*2)
+	}
+
+	let _ = try runGitOk(repoDir, []string{"commit-graph", "write", "--reachable", "--changed-paths"}, "", pathEnv, 30)
+	let _ = try runGitOk(repoDir, []string{"commit-graph", "verify"}, "", pathEnv, 31)
+
+	let infoDir = filepath.Join([]string{repoDir, ".git", "objects", "info"})
+	let monoChain = try OpenDir(fmt, infoDir)
+	if LayerCount(monoChain) != 1 {
+		return testFail{reason: "expected 1 layer in monolithic commit-graph"}
+	}
+	try verifyChainAgainstParsedCommits(monoChain, fmt)
+
+	let mergeOid = try oid.ParseHex(fmt, mergeHex)
+	let mergeInfo = match monoChain.Lookup(mergeOid) {
+	case Some[CommitInfo] as v:
+		v.Value
+	case None:
+		return testFail{reason: "octopus merge commit missing from graph"}
+	}
+	if len(mergeInfo.Parents) != 3 {
+		return testFail{reason: "expected 3 parents on octopus merge via EDGE chunk"}
+	}
+
+	let head1 = try oid.ParseHex(fmt, strings.TrimSpace(try runGitOk(repoDir, []string{"rev-parse", "HEAD"}, "", pathEnv, 32)))
+	let log1 = LogCommits(monoChain, head1, 0)
+	if len(log1) != monoChain.CommitCount() {
+		return testFail{reason: "LogCommits count mismatch on monolithic graph"}
+	}
+	for qp in []string{"root.txt", "dir/sub/deep.txt", "b1.txt", "b2.txt", "other.txt", "does-not-exist.txt"} {
+		try verifyPathLogMatchesGit(repoDir, monoChain, head1, qp, pathEnv, 33)
+	}
+
+	let mut prunedCount = 0
+	for i in 0..monoChain.CommitCount() {
+		match monoChain.At(i) {
+		case Some[CommitInfo] as ci:
+			if !MayTouchPath(ci.Value, "b1.txt") {
+				prunedCount = prunedCount + 1
+			}
+		case None:
+		}
+	}
+	if prunedCount == 0 {
+		return testFail{reason: "expected Bloom filter to prune untouched commits for b1.txt"}
+	}
+
+	let _ = try runGitOk(repoDir, []string{"commit-graph", "write", "--reachable", "--changed-paths", "--split=no-merge"}, "", pathEnv, 40)
+	for extra in 0..3 {
+		try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "root.txt"}), "root split v\(extra)\n")
+		let _ = try runGitOk(repoDir, []string{"add", "root.txt"}, "", pathEnv, 41+extra*2)
+		let _ = try runGitOk(repoDir, []string{"commit", "-q", "-m", "split commit \(extra)"}, "", pathEnv, 42+extra*2)
+	}
+	let _ = try runGitOk(repoDir, []string{"commit-graph", "write", "--reachable", "--changed-paths", "--split=no-merge"}, "", pathEnv, 50)
+	let _ = try runGitOk(repoDir, []string{"commit-graph", "verify"}, "", pathEnv, 51)
+
+	let splitChain = try OpenDir(fmt, infoDir)
+	if LayerCount(splitChain) < 2 {
+		return testFail{reason: "expected at least 2 layers in split commit-graph chain"}
+	}
+	try verifyChainAgainstParsedCommits(splitChain, fmt)
+
+	let head2 = try oid.ParseHex(fmt, strings.TrimSpace(try runGitOk(repoDir, []string{"rev-parse", "HEAD"}, "", pathEnv, 52)))
+	for qp in []string{"root.txt", "dir/sub/deep.txt", "b1.txt", "b2.txt", "other.txt", "does-not-exist.txt"} {
+		try verifyPathLogMatchesGit(repoDir, splitChain, head2, qp, pathEnv, 53)
+	}
+}
+
+test MonolithicAndSplitCommitGraphMatchGit {
+	with try onOracleSha1 {
+		let pathEnv = exec.PathOf(os.Process.Environ())
+		let cwd = try os.Process.Getwd()
+		try verifyFormatCommitGraph(cwd, oracle.Sha1, oid.Sha1, pathEnv)
+	}
+	with try onOracleSha256 {
+		let pathEnv = exec.PathOf(os.Process.Environ())
+		let cwd = try os.Process.Getwd()
+		try verifyFormatCommitGraph(cwd, oracle.Sha256, oid.Sha256, pathEnv)
+	}
+}
+
+func appendU32BE(out []byte, v uint32) []byte {
+	let mut res = out
+	res = res.Append(byte((v >> uint32(24)) & uint32(0xff)))
+	res = res.Append(byte((v >> uint32(16)) & uint32(0xff)))
+	res = res.Append(byte((v >> uint32(8)) & uint32(0xff)))
+	res = res.Append(byte(v & uint32(0xff)))
+	res
+}
+
+func appendU64BE(out []byte, v uint64) []byte {
+	let res = appendU32BE(out, uint32((v>>uint64(32))&uint64(0xffffffff)))
+	appendU32BE(res, uint32(v&uint64(0xffffffff)))
+}
+
+func buildSyntheticGraphWithGDOV(commitId oid.OID, treeId oid.OID, ctime uint64, ovOffset uint64) []byte fails testFail {
+	let chunkCount = 5
+	let tableEnd = uint64(8 + (chunkCount+1)*12)
+	let oidfOff = tableEnd
+	let oidlOff = oidfOff + uint64(1024)
+	let cdatOff = oidlOff + uint64(20)
+	let gdatOff = cdatOff + uint64(36)
+	let gdovOff = gdatOff + uint64(4)
+	let endOff = gdovOff + uint64(8)
+
+	let mut raw = []byte{byte('C'), byte('G'), byte('P'), byte('H'), byte(1), byte(1), byte(chunkCount), byte(0)}
+	raw = slices.AppendAll(raw, "OIDF".Bytes())
+	raw = appendU64BE(raw, oidfOff)
+	raw = slices.AppendAll(raw, "OIDL".Bytes())
+	raw = appendU64BE(raw, oidlOff)
+	raw = slices.AppendAll(raw, "CDAT".Bytes())
+	raw = appendU64BE(raw, cdatOff)
+	raw = slices.AppendAll(raw, "GDAT".Bytes())
+	raw = appendU64BE(raw, gdatOff)
+	raw = slices.AppendAll(raw, "GDOV".Bytes())
+	raw = appendU64BE(raw, gdovOff)
+	raw = slices.AppendAll(raw, []byte{byte(0), byte(0), byte(0), byte(0)})
+	raw = appendU64BE(raw, endOff)
+
+	let fb = int(commitId.Raw[0])
+	for b in 0..256 {
+		raw = appendU32BE(raw, if b < fb { uint32(0) } else { uint32(1) })
+	}
+	raw = slices.AppendAll(raw, commitId.Raw)
+	raw = slices.AppendAll(raw, treeId.Raw)
+	raw = appendU32BE(raw, uint32(0x70000000))
+	raw = appendU32BE(raw, uint32(0x70000000))
+	raw = appendU64BE(raw, (uint64(1)<<uint64(34))|ctime)
+	raw = appendU32BE(raw, uint32(0x80000000))
+	raw = appendU64BE(raw, ovOffset)
+
+	let sum = sha1dc.Sum(raw) catch {
+	case sha1dc.CollisionDetected:
+		return testFail{reason: "unexpected sha1 collision"}
+	}
+	for i in 0..20 {
+		raw = raw.Append(sum[i])
+	}
+	raw
+}
+
+test CorruptionAndOverflowMatrix {
+	let cid = try oid.HashObject(oid.Sha1, oid.Commit, "synthetic-gdov-commit".Bytes())
+	let tid = try oid.HashObject(oid.Sha1, oid.Tree, "synthetic-gdov-tree".Bytes())
+	let ctime = uint64(1700000000)
+	let bigOffset = uint64(5000000000)
+
+	let validRaw = try buildSyntheticGraphWithGDOV(cid, tid, ctime, bigOffset)
+	let g = try Parse(oid.Sha1, validRaw)
+	let chain = try BuildChain(oid.Sha1, []Graph{g})
+	match chain.Lookup(cid) {
+	case Some[CommitInfo] as ci:
+		assert ci.Value.CorrectedDate == ctime+bigOffset
+		assert ci.Value.Generation == uint32(1)
+	case None:
+		assert false
+	}
+
+	let mut badSum = slices.WithCapacity[byte](len(validRaw))
+	for b in validRaw {
+		badSum = badSum.Append(b)
+	}
+	badSum[len(badSum)-1] = badSum[len(badSum)-1] ^ byte(1)
+	let mut sawChecksum = false
+	let _ = Parse(oid.Sha1, badSum) catch {
+	case ChecksumMismatch:
+		sawChecksum = true
+		g
+	case Truncated, BadMagic, UnsupportedVersion, WrongFormat, CorruptChunk, MissingChunk:
+		g
+	}
+	assert sawChecksum
+
+	let mut badMagic = slices.WithCapacity[byte](len(validRaw))
+	for b in validRaw {
+		badMagic = badMagic.Append(b)
+	}
+	badMagic[0] = byte('X')
+	let mut sawMagic = false
+	let _ = Parse(oid.Sha1, badMagic) catch {
+	case BadMagic:
+		sawMagic = true
+		g
+	case Truncated, UnsupportedVersion, WrongFormat, CorruptChunk, MissingChunk, ChecksumMismatch:
+		g
+	}
+	assert sawMagic
+
+	let mut badVer = slices.WithCapacity[byte](len(validRaw))
+	for b in validRaw {
+		badVer = badVer.Append(b)
+	}
+	badVer[4] = byte(2)
+	let mut sawVer = false
+	let _ = Parse(oid.Sha1, badVer) catch {
+	case UnsupportedVersion as e:
+		sawVer = e.Version == byte(2)
+		g
+	case Truncated, BadMagic, WrongFormat, CorruptChunk, MissingChunk, ChecksumMismatch:
+		g
+	}
+	assert sawVer
+
+	let mut sawWrongFmt = false
+	let _ = Parse(oid.Sha256, validRaw) catch {
+	case WrongFormat:
+		sawWrongFmt = true
+		g
+	case Truncated, BadMagic, UnsupportedVersion, CorruptChunk, MissingChunk, ChecksumMismatch:
+		g
+	}
+	assert sawWrongFmt
+
+	let mut sawTrunc = false
+	let _ = Parse(oid.Sha1, validRaw[:10]) catch {
+	case Truncated:
+		sawTrunc = true
+		g
+	case BadMagic, UnsupportedVersion, WrongFormat, CorruptChunk, MissingChunk, ChecksumMismatch:
+		g
+	}
+	assert sawTrunc
+
+	let settings = BloomSettings{HashVersion: uint32(2), NumHashes: uint32(7), BitsPerEntry: uint32(10)}
+	let truncBloom = CommitInfo{OID: cid, TreeOID: tid, Parents: []oid.OID{}, Generation: uint32(1), CommitTime: ctime, CorrectedDate: ctime, HasBloom: true, BloomFilter: []byte{byte(0xff)}, BloomSettings: settings}
+	let emptyBloom = CommitInfo{OID: cid, TreeOID: tid, Parents: []oid.OID{}, Generation: uint32(1), CommitTime: ctime, CorrectedDate: ctime, HasBloom: true, BloomFilter: []byte{byte(0x00)}, BloomSettings: settings}
+	assert MayTouchPath(truncBloom, "any/path.txt")
+	assert !MayTouchPath(emptyBloom, "any/path.txt")
+}
