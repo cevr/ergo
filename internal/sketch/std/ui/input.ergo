@@ -227,7 +227,12 @@ type focusHit[E] { found bool, signal Option[E] }
 // on the way back up, asks each node's OnFocusKey for k until one gives a
 // signal.
 func focusKey[E](f mut Frame[E], r arena.Ref[node[E]], k KeyPress) focusHit[E] {
-	let n = nodeAt(f, r)
+	let n = match nodeAt(f, r) {
+	case Some[node[E]] as found:
+		found.Value
+	case None:
+		return focusHit[E]{found: false, signal: None}
+	}
 	let mut hit = focusHit[E]{found: r == f.focus, signal: None}
 	if !hit.found {
 		for c in n.kids {
@@ -271,7 +276,12 @@ func sends[E](on Option[E]) bool {
 // focusables is the focusable nodes under r, r's own included, in tree
 // order, onto out.
 func focusables[E](f mut Frame[E], r arena.Ref[node[E]], out []arena.Ref[node[E]]) []arena.Ref[node[E]] {
-	let n = nodeAt(f, r)
+	let n = match nodeAt(f, r) {
+	case Some[node[E]] as found:
+		found.Value
+	case None:
+		return out
+	}
 	let mut all = out
 	if !n.off && Focusable(n.node) {
 		all = all.Append(r)

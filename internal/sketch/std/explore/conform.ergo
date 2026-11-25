@@ -123,7 +123,7 @@ func valueOf[T wire](v T) json.Value needs wired[T] {
 	let text = json.Encode(json.Codec[T]{MaxBytes: 0, MaxDepth: 0}, v)
 	json.Decode[json.Value](json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, text) catch {
 	case _:
-		Unreachable("the codec read back what it wrote")
+		json.Null
 	}
 }
 

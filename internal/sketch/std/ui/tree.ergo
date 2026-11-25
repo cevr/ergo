@@ -56,17 +56,19 @@ law TreeAgreesWithLocate(seed int) {
 	let mut m = NewMirror[int](Root(&f))
 	for _ in 0..3 {
 		let s = genState(&r)
+		let mut escaped = false
 		let ops = Render(&f, func(g mut Frame[int], st []int) {
 			for p in ps {
 				render(g, p, st, 0) catch {
-				case Missing:
-					Unreachable("ui laws: a read is drawn only under a boundary")
-				case Pending:
-					Unreachable("ui laws: a read is drawn only under a boundary")
+				case Missing, Pending:
+					escaped = true
 				}
 			}
 			extras(g, st[0])
 		}, s)
+		if escaped {
+			return false
+		}
 		Apply(&m, ops) catch {
 		case BadPatch:
 			return false

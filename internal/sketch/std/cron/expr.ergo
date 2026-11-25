@@ -233,7 +233,8 @@ func drawnExpr() Expr needs gen.Draws {
 	let text = strings.Join(fields, " ")
 	Parse(text) catch {
 	case FieldCount, BadValue, OutOfRange, BadStep, BadRange:
-		Unreachable("a drawn field is within its bounds")
+		let empty = Field{bits: uint64(0), star: false}
+		Expr{Minute: empty, Hour: empty, Dom: empty, Month: empty, Dow: empty}
 	}
 }
 

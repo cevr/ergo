@@ -524,7 +524,12 @@ func Arrive[E](f mut Frame[E], epoch int) bool {
 }
 
 func live[E](f mut Frame[E], r arena.Ref[node[E]], epoch int) bool {
-	let n = nodeAt(f, r)
+	let n = match nodeAt(f, r) {
+	case Some[node[E]] as found:
+		found.Value
+	case None:
+		return false
+	}
 	for _, l in n.loads {
 		if l.epoch == epoch {
 			return true
@@ -670,7 +675,12 @@ func loadAt[E](f mut Frame[E], r arena.Ref[node[E]], id ident) Option[slot] {
 // store gives the node r names this pass's cells and loads, and cancels
 // each load it held that this pass does not keep.
 func store[E](f mut Frame[E], r arena.Ref[node[E]], cells Map[arena.Ref[node[E]], Map[ident, Cell]], loads Map[arena.Ref[node[E]], Map[ident, slot]], hold bool) {
-	let n = nodeAt(f, r)
+	let n = match nodeAt(f, r) {
+	case Some[node[E]] as found:
+		found.Value
+	case None:
+		return
+	}
 	let mut now = loadsOf(loads, r)
 	for id, l in n.loads {
 		match now.Get(id) {
@@ -747,14 +757,25 @@ type Handled[E] { Signal Option[E], Changed bool, Ops []Op[E] }
 // on a control's text presses the control, as a click on a button's text
 // does in a DOM and as the terminal's click does (OT, the press rule).
 func pressTarget[E](f mut Frame[E], r arena.Ref[node[E]]) arena.Ref[node[E]] {
-	if !arena.Has(f.nodes, r) || answersPress(nodeAt(f, r).node) {
+	match nodeAt(f, r) {
+	case Some[node[E]] as found:
+		if answersPress(found.Value.node) {
+			return r
+		}
+	case None:
 		return r
 	}
 	match above(f, r) {
 	case Some[[]arena.Ref[node[E]]] as up:
 		for u in up.Value {
-			if u != f.root && answersPress(nodeAt(f, u).node) {
-				return u
+			if u != f.root {
+				match nodeAt(f, u) {
+				case Some[node[E]] as found:
+					if answersPress(found.Value.node) {
+						return u
+					}
+				case None:
+				}
 			}
 		}
 	case None:
@@ -1042,10 +1063,13 @@ func edited[E](f mut Frame[E], id Id[E], text string, caret int, anchor int) Han
 }
 
 func write[E](f mut Frame[E], b bound[E], c Cell) bool {
-	if !arena.Has(f.nodes, b.owner) {
+	let owner = match nodeAt(f, b.owner) {
+	case Some[node[E]] as found:
+		found.Value
+	case None:
 		return false
 	}
-	match nodeAt(f, b.owner).cells.Get(b.id) {
+	match owner.cells.Get(b.id) {
 	case Some[Cell] as old:
 		change(f, b.owner, func(n mut node[E]) { n.cells[b.id] = c })
 		if old.Value != c {

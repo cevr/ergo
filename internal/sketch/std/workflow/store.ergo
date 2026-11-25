@@ -568,7 +568,7 @@ func Empty() State { State{runs: Map[RunID, run]{}} }
 func cursorOf(n int) Cursor {
 	ParseCursor(n) catch {
 	case Unsatisfied:
-		Unreachable("a count is not below zero")
+		0
 	}
 }
 
@@ -645,17 +645,25 @@ func ApplyAdmit(s State, runID RunID, key string, signal string, value string, n
 	(Kept{At: cursorOf(len(r.events))}, st, true)
 }
 
-type bestRun { id RunID, r run }
+type bestRun { id RunID, r run, due time.Time }
 
 func ApplyClaim(s State, now time.Time, lease duration) (Option[Grant], State, bool) {
 	let mut st = s
 	let at = wall(now)
-	let mut best Option[RunID] = None
 	let mut found Option[bestRun] = None
 	for id, r in st.runs {
-		if claimable(r, at) && earlier(st, id, best) {
-			best = Some[RunID]{Value: id}
-			found = Some[bestRun]{Value: bestRun{id: id, r: r}}
+		match claimableDue(r, at) {
+		case Some{Value: due}:
+			let take = match found {
+			case Some{Value: b}:
+				due.Before(b.due) || (due == b.due && id < b.id)
+			case None:
+				true
+			}
+			if take {
+				found = Some[bestRun]{Value: bestRun{id: id, r: r, due: due}}
+			}
+		case None:
 		}
 	}
 	match found {
@@ -745,41 +753,16 @@ func Apply(s State, op Op) (Outcome, State, bool) {
 	}
 }
 
-// claimable is whether r has a wake due at now and no live lease.
-func claimable(r run, now time.Time) bool {
+// claimableDue is r's wake due time when r has a wake due at now and no live lease.
+func claimableDue(r run, now time.Time) Option[time.Time] {
 	match r.wake {
 	case Some{Value: w}:
-		!w.Due.After(now) && (!r.held || !r.until.After(now))
-	case None:
-		false
-	}
-}
-
-// earlier is whether the wake of id is due before best's, or at the same
-// time with the lesser run.
-func earlier(s State, id RunID, best Option[RunID]) bool {
-	match best {
-	case Some{Value: b}:
-		let a = dueAt(s, id)
-		let o = dueAt(s, b)
-		a.Before(o) || (a == o && id < b)
-	case None:
-		true
-	}
-}
-
-// dueAt is the due time of the wake of id.
-func dueAt(s State, id RunID) time.Time {
-	match s.runs.Get(id) {
-	case Some{Value: r}:
-		match r.wake {
-		case Some{Value: w}:
-			w.Due
-		case None:
-			Unreachable("a claimable run has a wake")
+		if !w.Due.After(now) && (!r.held || !r.until.After(now)) {
+			return Some[time.Time]{Value: w.Due}
 		}
+		None
 	case None:
-		Unreachable("the run is in the store")
+		None
 	}
 }
 

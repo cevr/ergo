@@ -483,10 +483,11 @@ extern go ergo.local/prototype/runtime/v1.Set type Set[E] {
 	// StopEndsEveryMember: after Stop no member runs, and a second Stop
 	// returns and changes nothing.
 	law StopEndsEveryMember() {
+		let before = Len()
 		Stop()
 		let left = Len()
 		Stop()
-		left == 0 && Len() == left
+		before > 0 && left == 0 && Len() == left
 	},
 }
 
@@ -542,17 +543,17 @@ func setWithMembers() Set[setFailed] {
 	let blocked = sync.NewLatch()
 	for _ in 0..2 {
 		let ready = sync.NewLatch()
+		let mut started = true
 		Go(s, func() {
 			ready.Open()
 			blocked.Await()
 		}) catch {
 		case Closed:
-			Unreachable("a fresh Set refused a member")
+			started = false
 		}
-		ready.Await()
-	}
-	if s.Len() != 2 {
-		Unreachable("the law needs two live members")
+		if started {
+			ready.Await()
+		}
 	}
 	s
 }

@@ -230,6 +230,8 @@ law EveryCutIsAllOrNothing(texts []string, cut int) {
 		operation(crashing, i, events, now) catch {
 		case workflow.Failed:
 			break
+		case workflow.Conflict, workflow.Fenced:
+			return false
 		}
 	}
 	let back workflow.Store = try Open(disk, disk, "runs.log")
@@ -252,20 +254,14 @@ func lengths(texts []string) []int {
 }
 
 // operation is the i-th operation of EveryCutIsAllOrNothing on s.
-func operation(s workflow.Store, i int, events []workflow.Event, now time.Time) fails workflow.Failed {
+func operation(s workflow.Store, i int, events []workflow.Event, now time.Time) fails workflow.Failed | workflow.Conflict | workflow.Fenced {
 	match i {
 	case 0:
 		let _ = try s.Create(runOf(0), workflow.Started{Payload: "p", Version: "1", At: now}, now)
 	case 1:
-		let _ = try workflow.Work(s, now, 1s, func(c own workflow.Claimed) fails workflow.Failed {
-			let _ = try s.Commit(c, 1, events, Some[time.Time]{Value: now.Add(1s)}) catch {
-			case workflow.Conflict, workflow.Fenced:
-				Unreachable("the run's one claim commits at its cursor")
-			}
-			try s.Settle(c) catch {
-			case workflow.Fenced:
-				Unreachable("the run's one claim settles")
-			}
+		let _ = try workflow.Work(s, now, 1s, func(c own workflow.Claimed) fails workflow.Failed | workflow.Conflict | workflow.Fenced {
+			let _ = try s.Commit(c, 1, events, Some[time.Time]{Value: now.Add(1s)})
+			try s.Settle(c)
 		})
 	case _:
 		let _ = try s.Admit(runOf(0), "k", "go", "v", now)

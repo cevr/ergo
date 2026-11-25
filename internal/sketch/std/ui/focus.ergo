@@ -245,10 +245,12 @@ func askScreen(f mut Frame[int], s int, n int) {
 // LookStateIn is the state whose look a host paints for the node id
 // (LookState).
 func LookStateIn[E](f mut Frame[E], id Id[E]) LookState {
-	if !arena.Has(f.nodes, id.ref) {
+	let n = match nodeAt(f, id.ref) {
+	case Some[node[E]] as found:
+		found.Value
+	case None:
 		return Rest
 	}
-	let n = nodeAt(f, id.ref)
 	if n.off {
 		return Disabled
 	}
@@ -392,7 +394,12 @@ func focusTo[E](f mut Frame[E], r arena.Ref[node[E]], visible bool) {
 // tabStops is the tab stops under r, r's own included, in tree order,
 // onto out: each focusable node, but of a roving group only its stop.
 func tabStops[E](f mut Frame[E], r arena.Ref[node[E]], out []arena.Ref[node[E]]) []arena.Ref[node[E]] {
-	let n = nodeAt(f, r)
+	let n = match nodeAt(f, r) {
+	case Some[node[E]] as found:
+		found.Value
+	case None:
+		return out
+	}
 	if n.focusAs == focusRove && r != f.root {
 		match rovingStop(f, r) {
 		case Some[arena.Ref[node[E]]] as s:
