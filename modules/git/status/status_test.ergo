@@ -1,0 +1,221 @@
+import exec
+import filepath
+import fs
+import fstest
+import os
+import strings
+import github.com/cevr/ergo/modules/git/index
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/oracle
+import github.com/cevr/ergo/modules/git/root
+
+let onMemoryClean = context {
+	StatusReader: NewMemoryStatus([]Entry{}, ParseGitignore("", "*.log\n!keep.log\nbuild/\n")),
+}
+
+let onMemoryMixed = context {
+	StatusReader: NewMemoryStatus(
+		[]Entry{
+			Entry{Path: "dirty.txt", OrigPath: None, IndexCode: " ", WorkCode: "M", RenameScore: 0, ModeHead: None, ModeIndex: None, ModeWork: None, OIDHead: None, OIDIndex: None},
+			Entry{Path: "app.log", OrigPath: None, IndexCode: "!", WorkCode: "!", RenameScore: 0, ModeHead: None, ModeIndex: None, ModeWork: None, OIDHead: None, OIDIndex: None},
+		},
+		ParseGitignore("", "*.log\n!keep.log\n"),
+	),
+}
+
+// IgnoreNegationAndDirectoryRules: gitignore negation re-includes matching files
+// while directory-only rules match only directories.
+law IgnoreNegationAndDirectoryRules(stem string) {
+	let clean = strings.ReplaceAll(strings.ReplaceAll(stem, "/", "_"), "\n", "_")
+	let rules = ParseGitignore("", "# comment\n*.log\n!keep.log\nbuild/\n/rootonly.txt\n")
+	let a = MatchIgnored(rules, clean+".log", false)
+	let b = !MatchIgnored(rules, "keep.log", false)
+	let c = !MatchIgnored(rules, "build", false)
+	let d = MatchIgnored(rules, "build", true)
+	let e = MatchIgnored(rules, "rootonly.txt", false)
+	let f = !MatchIgnored(rules, "sub/rootonly.txt", false)
+	a && b && c && d && e && f
+}
+
+type testFail {
+	reason string,
+}
+
+func runGitOk(dir string, args []string, stdin string, pathEnv Map[string, string], step int) string fails testFail | exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	let base = oracle.GitCommand(dir, args, pathEnv, oracle.StepEpoch(step))
+	let cmd = if stdin == "" { base } else { exec.WithStdin(base, stdin) }
+	let res = try exec.Runner.Run(cmd)
+	if res.Status != 0 {
+		return testFail{reason: "git failed: " + res.Stderr}
+	}
+	res.Stdout
+}
+
+func verifyPorcelainMatchesGit(repoDir string, layout root.Layout, opts StatusOptions, gitArgs []string, pathEnv Map[string, string], step int, host fs.Host) fails testFail | BareRepository | StatusError | exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	let wantRaw = try runGitOk(repoDir, gitArgs, "", pathEnv, step)
+	let gotEntries = try Status(layout, opts, host)
+	let gotRaw = FormatPorcelainV1Z(gotEntries)
+	if gotRaw != wantRaw {
+		return testFail{reason: "porcelain v1 -z mismatch:\ngot:  \(strings.ReplaceAll(gotRaw, "\x00", "|"))\nwant: \(strings.ReplaceAll(wantRaw, "\x00", "|"))"}
+	}
+}
+
+let onRepoStatusSha1 = context fails testFail | root.NotARepository | root.BadGitDirFile | root.BadCommonDir | root.UnsupportedVersion | root.UnsupportedExtension | root.UntrustedPath | root.PathEscape | root.AlternateCycle | root.AlternateDepthExceeded | root.ConfigSyntax | root.ConfigBadValue | root.IncludeCycle | root.IncludeDepthExceeded | root.IncludeRefused | oracle.Missing | oracle.Corrupt | oracle.Ambiguous | oracle.InvalidRef | oracle.Conflict | oracle.CommandFailed | exec.NotFound | exec.Denied | exec.Failed | fs.NotFound | fs.Denied | fs.Failed needs TestAmbient {
+	StatusReader: try makeLawRepoStatus(fstest.TestFolder(), fs.NewTestHost(), exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())), exec.PathOf(os.NewTestHost().Environ())),
+}
+
+func makeLawRepoStatus(dir string, host fs.Host, runner exec.Host, pathEnv Map[string, string]) RepoStatus fails testFail | root.NotARepository | root.BadGitDirFile | root.BadCommonDir | root.UnsupportedVersion | root.UnsupportedExtension | root.UntrustedPath | root.PathEscape | root.AlternateCycle | root.AlternateDepthExceeded | root.ConfigSyntax | root.ConfigBadValue | root.IncludeCycle | root.IncludeDepthExceeded | root.IncludeRefused | oracle.Missing | oracle.Corrupt | oracle.Ambiguous | oracle.InvalidRef | oracle.Conflict | oracle.CommandFailed | exec.NotFound | exec.Denied | exec.Failed | fs.NotFound | fs.Denied | fs.Failed {
+	let repoDir = filepath.Join([]string{dir, "law-status-repo"})
+	with context { exec.Runner: runner, fs.Files: host, fs.Writes: host } {
+		let _ = try oracle.InitRepo(repoDir, oracle.RepoSpec{Format: oracle.Sha1, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, oracle.BaseEpoch)
+		try fs.Writes.WriteFile(filepath.Join([]string{repoDir, ".gitignore"}), "*.tmp\n")
+		try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "tracked.txt"}), "clean\n")
+		let _ = try runGitOk(repoDir, []string{"add", "."}, "", pathEnv, 1)
+		let _ = try runGitOk(repoDir, []string{"commit", "-q", "-m", "init"}, "", pathEnv, 2)
+		try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "ignored.tmp"}), "skip\n")
+		let layout = try root.Discover(repoDir, root.DiscoverOptions{CeilingDirs: []string{dir}, Trust: root.ConfinedTrust(dir)})
+		NewRepoStatus(layout, host)
+	}
+}
+
+func verifyFormatStatus(cwd string, oFmt oracle.OidFormat, fmt oid.Format, pathEnv Map[string, string], host fs.Host) fails testFail | BareRepository | StatusError | index.BadMagic | index.UnsupportedVersion | index.Truncated | index.ChecksumMismatch | index.CorruptEntry | index.BadPathCompression | index.UnsupportedMandatoryExtension | index.DuplicateStage | index.UnsortedEntries | index.IOFailed | oid.BadHex | oid.WrongLength | root.NotARepository | root.BadGitDirFile | root.BadCommonDir | root.UnsupportedVersion | root.UnsupportedExtension | root.UntrustedPath | root.PathEscape | root.AlternateCycle | root.AlternateDepthExceeded | root.ConfigSyntax | root.ConfigBadValue | root.IncludeCycle | root.IncludeDepthExceeded | root.IncludeRefused | oracle.Missing | oracle.Corrupt | oracle.Ambiguous | oracle.InvalidRef | oracle.Conflict | oracle.CommandFailed | exec.NotFound | exec.Denied | exec.Failed | fs.NotFound | fs.Denied | fs.Failed needs exec.Runner | fs.Files | fs.Writes | oracle.Symlinks {
+	let label = oracle.FormatName(oFmt)
+	let repoDir = try oracle.InitRepo(filepath.Join([]string{cwd, "status-" + label}), oracle.RepoSpec{Format: oFmt, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, oracle.BaseEpoch)
+	let layout = try root.Discover(repoDir, root.DiscoverOptions{CeilingDirs: []string{cwd}, Trust: root.ConfinedTrust(cwd)})
+
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "unborn.txt"}), "staged before first commit\n")
+	let _ = try runGitOk(repoDir, []string{"add", "unborn.txt"}, "", pathEnv, 1)
+	let optsAll = StatusOptions{Untracked: UntrackedAll, IncludeIgnored: false, DetectRenames: true, RenameThreshold: 50, Submodules: IgnoreSubmodulesNone, MaxBytes: 16777216}
+	try verifyPorcelainMatchesGit(repoDir, layout, optsAll, []string{"status", "--porcelain=v1", "-z", "-uall"}, pathEnv, 2, host)
+
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, ".gitignore"}), "*.log\n!keep.log\nbuild/\n")
+	try fs.Writes.MkdirAll(filepath.Join([]string{repoDir, "nested"}))
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "nested", ".gitignore"}), "*.bak\n!nested-keep.bak\n")
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "keep.txt"}), "same len 11\n")
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "mod-both.txt"}), "base\n")
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "del-staged.txt"}), "delete staged\n")
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "del-work.txt"}), "delete worktree\n")
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "ren-old.txt"}), "rename exact payload line1\nline2\n")
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "exec.sh"}), "#!/bin/sh\necho ok\n")
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "target.txt"}), "symlink target body\n")
+	try oracle.Symlinks.CreateSymlink("target.txt", filepath.Join([]string{repoDir, "link-clean"}))
+	try oracle.Symlinks.CreateSymlink("target.txt", filepath.Join([]string{repoDir, "link-mod"}))
+	try oracle.Symlinks.CreateSymlink("target.txt", filepath.Join([]string{repoDir, "link-type"}))
+	let _ = try runGitOk(repoDir, []string{"add", "."}, "", pathEnv, 3)
+	let _ = try runGitOk(repoDir, []string{"commit", "-q", "-m", "initial commit"}, "", pathEnv, 4)
+
+	try verifyPorcelainMatchesGit(repoDir, layout, optsAll, []string{"status", "--porcelain=v1", "-z", "-uall"}, pathEnv, 5, host)
+
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "keep.txt"}), "diff len 11\n")
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "mod-both.txt"}), "staged edit\n")
+	let _ = try runGitOk(repoDir, []string{"add", "mod-both.txt"}, "", pathEnv, 6)
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "mod-both.txt"}), "worktree edit after stage\n")
+
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "added-and-mod.txt"}), "staged new\n")
+	let _ = try runGitOk(repoDir, []string{"add", "added-and-mod.txt"}, "", pathEnv, 7)
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "added-and-mod.txt"}), "modified after add\n")
+
+	let _ = try runGitOk(repoDir, []string{"rm", "-q", "del-staged.txt"}, "", pathEnv, 8)
+	try fs.Writes.Remove(filepath.Join([]string{repoDir, "del-work.txt"}))
+
+	let _ = try runGitOk(repoDir, []string{"mv", "ren-old.txt", "ren-new.txt"}, "", pathEnv, 9)
+	let _ = try runGitOk(repoDir, []string{"update-index", "--chmod=+x", "exec.sh"}, "", pathEnv, 10)
+	try fs.Writes.Chmod(filepath.Join([]string{repoDir, "exec.sh"}), fs.SharedDir())
+
+	try fs.Writes.Remove(filepath.Join([]string{repoDir, "link-mod"}))
+	try oracle.Symlinks.CreateSymlink("keep.txt", filepath.Join([]string{repoDir, "link-mod"}))
+	try fs.Writes.Remove(filepath.Join([]string{repoDir, "link-type"}))
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "link-type"}), "now regular file\n")
+
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "skip.log"}), "ignored log\n")
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "keep.log"}), "negated keep log\n")
+	try fs.Writes.MkdirAll(filepath.Join([]string{repoDir, "build"}))
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "build", "out.o"}), "ignored dir content\n")
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "nested", "drop.bak"}), "ignored nested bak\n")
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "nested", "nested-keep.bak"}), "negated nested bak\n")
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "untracked.txt"}), "plain untracked\n")
+
+	try verifyPorcelainMatchesGit(repoDir, layout, optsAll, []string{"status", "--porcelain=v1", "-z", "-uall"}, pathEnv, 11, host)
+
+	let optsIgn = StatusOptions{Untracked: UntrackedNormal, IncludeIgnored: true, DetectRenames: true, RenameThreshold: 50, Submodules: IgnoreSubmodulesNone, MaxBytes: 16777216}
+	try verifyPorcelainMatchesGit(repoDir, layout, optsIgn, []string{"status", "--porcelain=v1", "-z", "--ignored=matching"}, pathEnv, 12, host)
+
+	let v2Out = FormatPorcelainV2Z(fmt, try Status(layout, optsAll, host))
+	if !strings.Contains(v2Out, "2 R. ") || !strings.Contains(v2Out, "? keep.log\x00") {
+		return testFail{reason: "unexpected porcelain v2 output: " + v2Out}
+	}
+
+	let idx = try index.Open(fmt, filepath.Join([]string{layout.GitDir, "index"}))
+	let keepEntry = match idx.Lookup("keep.txt", 0) {
+	case Some[index.Entry] as e:
+		e.Value
+	case None:
+		return testFail{reason: "keep.txt missing from index"}
+	}
+	let racyTime = StatTime{Sec: keepEntry.MTimeSec, Nsec: keepEntry.MTimeNsec}
+	let racySnap = WorktreeSnap{
+		Exists:    true,
+		IsDir:     false,
+		IsSymlink: false,
+		Mode:      keepEntry.Mode,
+		Size:      int(keepEntry.FileSize),
+		MTime:     Some[StatTime]{Value: racyTime},
+		Content:   "diff len 11\n".Bytes(),
+	}
+	let racyChange = try CheckEntryAgainstSnap(fmt, keepEntry, racySnap, Some[StatTime]{Value: racyTime}, IgnoreSubmodulesNone)
+	match racyChange {
+	case Some[WorktreeChange] as wc:
+		if wc.Value.WorkCode != "M" {
+			return testFail{reason: "racy-git same-timestamp edit expected M, got " + wc.Value.WorkCode}
+		}
+	case None:
+		return testFail{reason: "racy-git same-timestamp edit was falsely treated as clean"}
+	}
+
+	let blobHex = strings.TrimSpace(try runGitOk(repoDir, []string{"rev-parse", "HEAD:keep.txt"}, "", pathEnv, 13))
+	let conflictInput = "100644 " + blobHex + " 1\tconflict.txt\n100644 " + blobHex + " 2\tconflict.txt\n100644 " + blobHex + " 3\tconflict.txt\n"
+	let _ = try runGitOk(repoDir, []string{"update-index", "--index-info"}, conflictInput, pathEnv, 14)
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "conflict.txt"}), "conflict markers\n")
+	try verifyPorcelainMatchesGit(repoDir, layout, optsAll, []string{"status", "--porcelain=v1", "-z", "-uall"}, pathEnv, 15, host)
+}
+
+type hostProvider {
+	Get() fs.Host,
+
+	// HostNotEmpty: a host provider can read its current directory without error.
+	law HostNotEmpty() {
+		let h = Get()
+		let _ = fs.ReadDir(h, ".") catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return false
+		}
+		true
+	},
+}
+
+type testHostBox {
+	host fs.Host,
+} implements hostProvider
+
+func Get(b testHostBox) fs.Host {
+	b.host
+}
+
+let onOracleWithHost = context needs TestAmbient {
+	exec.Runner:     exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
+	fs.Files:        fs.NewTestHost(),
+	fs.Writes:       fs.NewTestHost(),
+	os.Process:      os.NewTestHost(),
+	oracle.Symlinks: oracle.NewHostSymlinks(fs.NewTestHost()),
+	hostProvider:    testHostBox{host: fs.NewTestHost()},
+}
+
+test StatusMatchesGitPorcelainAndRacyGit {
+	with onOracleWithHost {
+		let pathEnv = exec.PathOf(os.Process.Environ())
+		let cwd = try os.Process.Getwd()
+		let host = hostProvider.Get()
+		try verifyFormatStatus(cwd, oracle.Sha1, oid.Sha1, pathEnv, host)
+		try verifyFormatStatus(cwd, oracle.Sha256, oid.Sha256, pathEnv, host)
+	}
+}

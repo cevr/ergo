@@ -1,0 +1,133 @@
+// Package status implements pure-Ergo Git working-tree status (G-STATUS):
+// full .gitignore matching with negation and nested precedence, racy-git safe
+// worktree-to-index verification, symlink and gitlink handling, unmerged
+// conflict stage classification, porcelain v1/v2 -z formatting, and the
+// StatusReader capability.
+
+import strings
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/tree
+
+// Error is the closed failure union for repository status queries.
+type Error =
+	| NotARepository{Reason string}
+	| BareRepository{GitDir string}
+	| StatusError{Op string, Detail string}
+
+// UntrackedMode controls how untracked files and directories are reported.
+type UntrackedMode = UntrackedNo{} | UntrackedNormal{} | UntrackedAll{}
+
+// SubmodulePolicy controls how gitlink (160000) entries are evaluated.
+type SubmodulePolicy = IgnoreSubmodulesNone{} | IgnoreSubmodulesDirty{} | IgnoreSubmodulesAll{}
+
+// StatusOptions configures a Git working-tree status scan.
+type StatusOptions {
+	Untracked       UntrackedMode,
+	IncludeIgnored  bool,
+	DetectRenames   bool,
+	RenameThreshold int,
+	Submodules      SubmodulePolicy,
+	MaxBytes        int,
+}
+
+// DefaultOptions returns Git's default status options (normal untracked
+// collapsing, ignored excluded, rename detection at 50%).
+func DefaultOptions() StatusOptions {
+	StatusOptions{
+		Untracked:       UntrackedNormal,
+		IncludeIgnored:  false,
+		DetectRenames:   true,
+		RenameThreshold: 50,
+		Submodules:      IgnoreSubmodulesNone,
+		MaxBytes:        16777216,
+	}
+}
+
+// StatTime is a second/nanosecond file modification timestamp pair used for
+// racy-git index stat cache verification.
+type StatTime {
+	Sec  uint32,
+	Nsec uint32,
+}
+
+// IgnoreRule is one parsed rule from a `.gitignore` or `.git/info/exclude` file.
+type IgnoreRule {
+	BaseDir  string,
+	Pattern  string,
+	Negated  bool,
+	DirOnly  bool,
+	Anchored bool,
+}
+
+// Entry is one typed status item matching Git's porcelain v1 and v2 schemas.
+type Entry {
+	Path        string,
+	OrigPath    Option[string],
+	IndexCode   string,
+	WorkCode    string,
+	RenameScore int,
+	ModeHead    Option[tree.Mode],
+	ModeIndex   Option[tree.Mode],
+	ModeWork    Option[tree.Mode],
+	OIDHead     Option[oid.OID],
+	OIDIndex    Option[oid.OID],
+}
+
+// StatusReader is the capability seam for querying Git repository status,
+// carrying laws held identically by MemoryStatus and RepoStatus.
+type StatusReader {
+	Query(opts StatusOptions) []Entry fails StatusError,
+	IsClean() bool fails StatusError,
+	IsIgnored(relPath string, isDir bool) bool,
+
+	// CleanRepoHasEmptyStatus: IsClean agrees exactly with Query(DefaultOptions())
+	// returning zero entries.
+	law CleanRepoHasEmptyStatus() {
+		let clean = IsClean() catch {
+		case StatusError:
+			return false
+		}
+		let entries = Query(DefaultOptions()) catch {
+		case StatusError:
+			return false
+		}
+		clean == (len(entries) == 0)
+	},
+
+	// UntrackedIgnoredExcludedByDefault: default status queries never emit
+	// ignored ("!!") entries, and any ignored entry emitted when IncludeIgnored
+	// is true is classified as ignored by IsIgnored.
+	law UntrackedIgnoredExcludedByDefault() {
+		let defEntries = Query(DefaultOptions()) catch {
+		case StatusError:
+			return false
+		}
+		for e in defEntries {
+			if e.IndexCode == "!" || e.WorkCode == "!" {
+				return false
+			}
+		}
+		let withIgn = StatusOptions{
+			Untracked:       UntrackedAll,
+			IncludeIgnored:  true,
+			DetectRenames:   true,
+			RenameThreshold: 50,
+			Submodules:      IgnoreSubmodulesNone,
+			MaxBytes:        16777216,
+		}
+		let allEntries = Query(withIgn) catch {
+		case StatusError:
+			return false
+		}
+		for e in allEntries {
+			if e.IndexCode == "!" && e.WorkCode == "!" {
+				let isDir = strings.HasSuffix(e.Path, "/")
+				let trimmed = if isDir { strings.TrimSuffix(e.Path, "/") } else { e.Path }
+				if !IsIgnored(trimmed, isDir) {
+					return false
+				}
+			}
+		}
+		true
+	},
+}

@@ -1,0 +1,435 @@
+import filepath
+import fs
+import slices
+import strings
+import github.com/cevr/ergo/modules/git/index
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/tree
+
+// WorktreeSnap is a snapshot of one working-tree path used for racy-git stat
+// verification and worktree-to-index comparison.
+type WorktreeSnap {
+	Exists    bool,
+	IsDir     bool,
+	IsSymlink bool,
+	Mode      uint32,
+	Size      int,
+	MTime     Option[StatTime],
+	Content   []byte,
+}
+
+// WorktreeChange describes one working-tree difference relative to the index.
+type WorktreeChange {
+	Path     string,
+	WorkCode string,
+	ModeWork Option[tree.Mode],
+}
+
+func isStrictlyOlder(a StatTime, b StatTime) bool {
+	a.Sec < b.Sec || (a.Sec == b.Sec && a.Nsec < b.Nsec)
+}
+
+// IsStatCacheClean reports whether an index entry's stat cache proves the
+// working-tree file is unmodified without re-hashing. Equal or newer mtimes
+// relative to indexMTime are racy and MUST return false.
+func IsStatCacheClean(entry index.Entry, snap WorktreeSnap, indexMTime Option[StatTime]) bool {
+	if !snap.Exists || snap.IsDir {
+		return false
+	}
+	if uint32(snap.Size) != entry.FileSize || snap.Mode != entry.Mode {
+		return false
+	}
+	let wm = match snap.MTime {
+	case Some[StatTime] as t:
+		t.Value
+	case None:
+		return false
+	}
+	let im = match indexMTime {
+	case Some[StatTime] as t:
+		t.Value
+	case None:
+		return false
+	}
+	if wm.Sec != entry.MTimeSec || wm.Nsec != entry.MTimeNsec {
+		return false
+	}
+	isStrictlyOlder(wm, im)
+}
+
+func indexModeToTreeMode(m uint32) Option[tree.Mode] {
+	if m == index.ModeRegular {
+		return Some[tree.Mode]{Value: tree.ModeRegular}
+	}
+	if m == index.ModeExecutable {
+		return Some[tree.Mode]{Value: tree.ModeExecutable}
+	}
+	if m == index.ModeSymlink {
+		return Some[tree.Mode]{Value: tree.ModeSymlink}
+	}
+	if m == index.ModeGitlink {
+		return Some[tree.Mode]{Value: tree.ModeGitlink}
+	}
+	None
+}
+
+// CheckEntryAgainstSnap compares a single stage-0 index entry against a
+// working-tree snapshot, enforcing racy-git re-hashing and symlink/mode checks.
+func CheckEntryAgainstSnap(format oid.Format, entry index.Entry, snap WorktreeSnap, indexMTime Option[StatTime], subPolicy SubmodulePolicy) Option[WorktreeChange] fails StatusError {
+	if entry.SkipWorktree {
+		return None
+	}
+	if entry.IntentToAdd {
+		if !snap.Exists {
+			return Some[WorktreeChange]{Value: WorktreeChange{Path: entry.Path, WorkCode: "D", ModeWork: None}}
+		}
+		return Some[WorktreeChange]{Value: WorktreeChange{Path: entry.Path, WorkCode: "A", ModeWork: indexModeToTreeMode(snap.Mode)}}
+	}
+	if entry.Mode == index.ModeGitlink {
+		match subPolicy {
+		case IgnoreSubmodulesAll:
+			return None
+		case IgnoreSubmodulesNone, IgnoreSubmodulesDirty:
+			if !snap.Exists {
+				return Some[WorktreeChange]{Value: WorktreeChange{Path: entry.Path, WorkCode: "D", ModeWork: None}}
+			}
+			if !snap.IsDir {
+				return Some[WorktreeChange]{Value: WorktreeChange{Path: entry.Path, WorkCode: "T", ModeWork: indexModeToTreeMode(snap.Mode)}}
+			}
+			return None
+		}
+	}
+	if !snap.Exists || snap.IsDir {
+		return Some[WorktreeChange]{Value: WorktreeChange{Path: entry.Path, WorkCode: "D", ModeWork: None}}
+	}
+	let idxIsSym = entry.Mode == index.ModeSymlink
+	if idxIsSym != snap.IsSymlink {
+		return Some[WorktreeChange]{Value: WorktreeChange{Path: entry.Path, WorkCode: "T", ModeWork: indexModeToTreeMode(snap.Mode)}}
+	}
+	if IsStatCacheClean(entry, snap, indexMTime) {
+		return None
+	}
+	if snap.Mode != entry.Mode {
+		return Some[WorktreeChange]{Value: WorktreeChange{Path: entry.Path, WorkCode: "M", ModeWork: indexModeToTreeMode(snap.Mode)}}
+	}
+	let wtOid = oid.HashObject(format, oid.Blob, snap.Content) catch {
+	case oid.Collision as c:
+		return StatusError{Op: "hash-worktree", Detail: "sha1 collision: " + c.Digest}
+	}
+	if !oid.Equal(wtOid, entry.OID) {
+		return Some[WorktreeChange]{Value: WorktreeChange{Path: entry.Path, WorkCode: "M", ModeWork: indexModeToTreeMode(snap.Mode)}}
+	}
+	None
+}
+
+func readWorktreeSnap(host fs.Host, workTree string, relPath string) WorktreeSnap fails StatusError {
+	let absPath = filepath.Join([]string{workTree, relPath})
+	let isLink = fs.IsLink(host, absPath) catch {
+	case fs.NotFound:
+		return WorktreeSnap{Exists: false, IsDir: false, IsSymlink: false, Mode: uint32(0), Size: 0, MTime: None, Content: []byte{}}
+	case fs.Denied as e:
+		return StatusError{Op: "islink", Detail: e.Path}
+	case fs.Failed as e:
+		return StatusError{Op: "islink", Detail: e.Reason}
+	}
+	if isLink {
+		let target = fs.Readlink(host, absPath) catch {
+		case fs.NotFound:
+			return WorktreeSnap{Exists: false, IsDir: false, IsSymlink: false, Mode: uint32(0), Size: 0, MTime: None, Content: []byte{}}
+		case fs.Denied as e:
+			return StatusError{Op: "readlink", Detail: e.Path}
+		case fs.Failed as e:
+			return StatusError{Op: "readlink", Detail: e.Reason}
+		}
+		let tb = target.Bytes()
+		return WorktreeSnap{
+			Exists:    true,
+			IsDir:     false,
+			IsSymlink: true,
+			Mode:      index.ModeSymlink,
+			Size:      len(tb),
+			MTime:     None,
+			Content:   tb,
+		}
+	}
+	let info = fs.Lstat(host, absPath) catch {
+	case fs.NotFound:
+		return WorktreeSnap{Exists: false, IsDir: false, IsSymlink: false, Mode: uint32(0), Size: 0, MTime: None, Content: []byte{}}
+	case fs.Denied as e:
+		return StatusError{Op: "lstat", Detail: e.Path}
+	case fs.Failed as e:
+		return StatusError{Op: "lstat", Detail: e.Reason}
+	}
+	if info.Dir {
+		return WorktreeSnap{
+			Exists:    true,
+			IsDir:     true,
+			IsSymlink: false,
+			Mode:      index.ModeSparseDir,
+			Size:      0,
+			MTime:     None,
+			Content:   []byte{},
+		}
+	}
+	let raw = fs.ReadFile(host, absPath) catch {
+	case fs.NotFound:
+		return WorktreeSnap{Exists: false, IsDir: false, IsSymlink: false, Mode: uint32(0), Size: 0, MTime: None, Content: []byte{}}
+	case fs.Denied as e:
+		return StatusError{Op: "read-worktree", Detail: e.Path}
+	case fs.Failed as e:
+		return StatusError{Op: "read-worktree", Detail: e.Reason}
+	}
+	let mode = if (info.Perm & 64) != 0 { index.ModeExecutable } else { index.ModeRegular }
+	let bs = raw.Bytes()
+	WorktreeSnap{
+		Exists:    true,
+		IsDir:     false,
+		IsSymlink: false,
+		Mode:      mode,
+		Size:      len(bs),
+		MTime:     None,
+		Content:   bs,
+	}
+}
+
+// DiffIndexToWorktree compares all stage-0 entries in idx against the on-disk
+// working tree at workTree via host.
+func DiffIndexToWorktree(format oid.Format, workTree string, idx index.Index, subPolicy SubmodulePolicy, host fs.Host) Map[string, WorktreeChange] fails StatusError {
+	let mut out = Map[string, WorktreeChange]{}
+	for e in idx.Entries() {
+		if e.Stage != 0 {
+			continue
+		}
+		let snap = try readWorktreeSnap(host, workTree, e.Path)
+		match try CheckEntryAgainstSnap(format, e, snap, None, subPolicy) {
+		case Some[WorktreeChange] as ch:
+			out[e.Path] = ch.Value
+		case None:
+		}
+	}
+	out
+}
+
+func conflictCodes(has1 bool, has2 bool, has3 bool) (string, string) {
+	if !has1 && has2 && has3 {
+		return ("A", "A")
+	}
+	if has1 && !has2 && !has3 {
+		return ("D", "D")
+	}
+	if has1 && has2 && !has3 {
+		return ("U", "D")
+	}
+	if has1 && !has2 && has3 {
+		return ("D", "U")
+	}
+	if !has1 && has2 && !has3 {
+		return ("A", "U")
+	}
+	if !has1 && !has2 && has3 {
+		return ("U", "A")
+	}
+	("U", "U")
+}
+
+func loadIgnoreFile(host fs.Host, path string, baseDir string) []IgnoreRule {
+	let raw = fs.ReadFile(host, path) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return []IgnoreRule{}
+	}
+	ParseGitignore(baseDir, raw)
+}
+
+func appendRules(base []IgnoreRule, extra []IgnoreRule) []IgnoreRule {
+	if len(extra) == 0 {
+		return base
+	}
+	let mut out = slices.WithCapacity[IgnoreRule](len(base) + len(extra))
+	for r in base {
+		out = out.Append(r)
+	}
+	for r in extra {
+		out = out.Append(r)
+	}
+	out
+}
+
+func dirHasNonIgnoredFile(host fs.Host, workTree string, relDir string, rules []IgnoreRule) bool {
+	let absDir = filepath.Join([]string{workTree, relDir})
+	let curRules = appendRules(rules, loadIgnoreFile(host, filepath.Join([]string{absDir, ".gitignore"}), relDir))
+	let names = fs.ReadDir(host, absDir) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	for name in names {
+		if name == ".git" {
+			continue
+		}
+		let childRel = relDir + "/" + name
+		let childAbs = filepath.Join([]string{absDir, name})
+		let isLink = fs.IsLink(host, childAbs) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			false
+		}
+		let mut isDir = false
+		if !isLink {
+			let info = fs.Lstat(host, childAbs) catch {
+			case fs.NotFound, fs.Denied, fs.Failed:
+				fs.Info{Name: "", Size: 0, Dir: false, Perm: 0}
+			}
+			isDir = info.Dir
+		}
+		if MatchIgnored(curRules, childRel, isDir) {
+			continue
+		}
+		if isDir {
+			if dirHasNonIgnoredFile(host, workTree, childRel, curRules) {
+				return true
+			}
+		} else {
+			return true
+		}
+	}
+	false
+}
+
+func collectUntrackedRec(host fs.Host, workTree string, relDir string, rules []IgnoreRule, trackedFiles Map[string, bool], trackedDirs Map[string, bool], opts StatusOptions, acc []Entry) []Entry fails StatusError {
+	let absDir = if relDir == "" { workTree } else { filepath.Join([]string{workTree, relDir}) }
+	let curRules = appendRules(rules, loadIgnoreFile(host, filepath.Join([]string{absDir, ".gitignore"}), relDir))
+	let names = fs.ReadDir(host, absDir) catch {
+	case fs.NotFound:
+		return acc
+	case fs.Denied as e:
+		return StatusError{Op: "readdir-worktree", Detail: e.Path}
+	case fs.Failed as e:
+		return StatusError{Op: "readdir-worktree", Detail: e.Reason}
+	}
+	let mut out = acc
+	for name in names {
+		if name == ".git" {
+			continue
+		}
+		let rel = if relDir == "" { name } else { relDir + "/" + name }
+		let abs = filepath.Join([]string{absDir, name})
+		let isLink = fs.IsLink(host, abs) catch {
+		case fs.NotFound:
+			continue
+		case fs.Denied as e:
+			return StatusError{Op: "islink-walk", Detail: e.Path}
+		case fs.Failed as e:
+			return StatusError{Op: "islink-walk", Detail: e.Reason}
+		}
+		let mut isDir = false
+		if !isLink {
+			let info = fs.Lstat(host, abs) catch {
+			case fs.NotFound:
+				continue
+			case fs.Denied as e:
+				return StatusError{Op: "lstat-walk", Detail: e.Path}
+			case fs.Failed as e:
+				return StatusError{Op: "lstat-walk", Detail: e.Reason}
+			}
+			isDir = info.Dir
+		}
+		if isDir {
+			if trackedFiles.Get(rel) != None {
+				continue
+			}
+			if trackedDirs.Get(rel) != None {
+				out = try collectUntrackedRec(host, workTree, rel, curRules, trackedFiles, trackedDirs, opts, out)
+				continue
+			}
+			if MatchIgnored(curRules, rel, true) {
+				if opts.IncludeIgnored {
+					out = out.Append(Entry{
+						Path:        rel + "/",
+						OrigPath:    None,
+						IndexCode:   "!",
+						WorkCode:    "!",
+						RenameScore: 0,
+						ModeHead:    None,
+						ModeIndex:   None,
+						ModeWork:    None,
+						OIDHead:     None,
+						OIDIndex:    None,
+					})
+				}
+				continue
+			}
+			match opts.Untracked {
+			case UntrackedNo:
+			case UntrackedNormal:
+				if dirHasNonIgnoredFile(host, workTree, rel, curRules) {
+					out = out.Append(Entry{
+						Path:        rel + "/",
+						OrigPath:    None,
+						IndexCode:   "?",
+						WorkCode:    "?",
+						RenameScore: 0,
+						ModeHead:    None,
+						ModeIndex:   None,
+						ModeWork:    None,
+						OIDHead:     None,
+						OIDIndex:    None,
+					})
+				} else if opts.IncludeIgnored {
+					out = try collectUntrackedRec(host, workTree, rel, curRules, trackedFiles, trackedDirs, opts, out)
+				}
+			case UntrackedAll:
+				out = try collectUntrackedRec(host, workTree, rel, curRules, trackedFiles, trackedDirs, opts, out)
+			}
+		} else {
+			if trackedFiles.Get(rel) != None {
+				continue
+			}
+			if MatchIgnored(curRules, rel, false) {
+				if opts.IncludeIgnored {
+					out = out.Append(Entry{
+						Path:        rel,
+						OrigPath:    None,
+						IndexCode:   "!",
+						WorkCode:    "!",
+						RenameScore: 0,
+						ModeHead:    None,
+						ModeIndex:   None,
+						ModeWork:    None,
+						OIDHead:     None,
+						OIDIndex:    None,
+					})
+				}
+			} else {
+				match opts.Untracked {
+				case UntrackedNo:
+				case UntrackedNormal, UntrackedAll:
+					out = out.Append(Entry{
+						Path:        rel,
+						OrigPath:    None,
+						IndexCode:   "?",
+						WorkCode:    "?",
+						RenameScore: 0,
+						ModeHead:    None,
+						ModeIndex:   None,
+						ModeWork:    None,
+						OIDHead:     None,
+						OIDIndex:    None,
+					})
+				}
+			}
+		}
+	}
+	out
+}
+
+func collectAllRulesForPath(host fs.Host, gitDir string, commonDir string, workTree string, relPath string) []IgnoreRule {
+	let excludePath = filepath.Join([]string{commonDir, "info", "exclude"})
+	let mut rules = loadIgnoreFile(host, excludePath, "")
+	rules = appendRules(rules, loadIgnoreFile(host, filepath.Join([]string{workTree, ".gitignore"}), ""))
+	let parts = strings.Split(relPath, "/")
+	let mut dir = ""
+	for i in 0..len(parts)-1 {
+		dir = if i == 0 { parts[i] } else { dir + "/" + parts[i] }
+		rules = appendRules(rules, loadIgnoreFile(host, filepath.Join([]string{workTree, dir, ".gitignore"}), dir))
+	}
+	let _ = gitDir
+	rules
+}
