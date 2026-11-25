@@ -219,3 +219,45 @@ func TestStdConfigLawsRun(t *testing.T) {
 		lawledger.Run(t, laws)
 	}
 }
+
+const configDefaultsProbe = `import config
+import utf8
+
+type server { Host string, Debug bool }
+type quiet {}
+type loud { Level int }
+type volume = quiet | loud
+type settings { Name string, Port int, Ratio float64, Tags []string, Server server, Volume volume }
+
+test DefaultsRoundTrip(v settings) {
+	if !utf8.ValidString(v.Name) || !utf8.ValidString(v.Server.Host) {
+		return
+	}
+	for tag in v.Tags {
+		if !utf8.ValidString(tag) {
+			return
+		}
+	}
+	let spec = config.Spec{Prefix: "", Flags: config.NoFlags(), Files: []config.File{}, Defaults: config.DefaultsOf(v)}
+	let got = with context { config.Config: config.NewMemory(Map[string, string]{}, Map[string, string]{}) } {
+		config.Load[settings](spec)
+	} catch {
+	case _:
+		assert false
+		return
+	}
+	assert got == v
+}
+`
+
+func TestConfigDefaultsRoundTrip(t *testing.T) {
+	needsBuild(t)
+	exes := buildAll(t, []*lowered{lowerTestBuild(t, "configdefaults", configDefaultsProbe)}, true)
+	if exes == nil {
+		return
+	}
+	out, errout, code := runExeArgs(t, exes["configdefaults"], "--seed", "1")
+	if code != 0 {
+		t.Fatalf("exit %d\n%s\n%s", code, out, errout)
+	}
+}

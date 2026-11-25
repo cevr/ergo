@@ -132,39 +132,57 @@ func repeatOf(kind int, of Node, min int, max int) Node {
 // the same tree with those groups inside one group.
 type Sided { Tree Node, Names []string, Wrapped Node }
 
-// Witness is a text that n matches, of seed; n has no class that
-// matches no byte. Repeats take zero to two more copies than they must.
-func Witness(n Node, seed int) string {
+func Witness(n Node, seed int) Option[string] {
 	let mut g = seeded(seed + 15485863)
 	g.word(n)
 }
 
-// word is a text that n matches.
-func word(g mut source, n Node) string {
+func word(g mut source, n Node) Option[string] {
 	match n {
 	case Empty:
-		""
+		Some[string]{Value: ""}
 	case Lit as l:
-		ByteText(l.C)
+		Some[string]{Value: ByteText(l.C)}
 	case Any:
 		let i = g.next(len(alphabet))
-		alphabet[i : i+1]
+		Some[string]{Value: alphabet[i : i+1]}
 	case Class as k:
 		classMember(g, k)
 	case Cat as c:
 		let mut out = ""
 		for p in c.Parts {
-			out = out + g.word(p)
+			match g.word(p) {
+			case Some[string] as s:
+				out = out + s.Value
+			case None:
+				return None
+			}
 		}
-		out
+		Some[string]{Value: out}
 	case Alt as a:
-		if g.next(2) == 0 { g.word(a.Left) } else { g.word(a.Right) }
+		let (first, second) = if g.next(2) == 0 { (a.Left, a.Right) } else { (a.Right, a.Left) }
+		match g.word(first) {
+		case Some[string] as s:
+			s
+		case None:
+			g.word(second)
+		}
 	case Star as s:
-		g.copies(s.Of, g.next(3))
+		match g.copies(s.Of, g.next(3)) {
+		case Some[string] as w:
+			w
+		case None:
+			Some[string]{Value: ""}
+		}
 	case Plus as p:
 		g.copies(p.Of, 1+g.next(3))
 	case Quest as q:
-		g.copies(q.Of, g.next(2))
+		match g.copies(q.Of, g.next(2)) {
+		case Some[string] as w:
+			w
+		case None:
+			Some[string]{Value: ""}
+		}
 	case Count as c:
 		g.word(c.As)
 	case Group as gr:
@@ -172,29 +190,35 @@ func word(g mut source, n Node) string {
 	}
 }
 
-// copies is k texts that of matches, one after another.
-func copies(g mut source, of Node, k int) string {
+func copies(g mut source, of Node, k int) Option[string] {
 	let mut out = ""
 	for _ in 0..k {
-		out = out + g.word(of)
+		match g.word(of) {
+		case Some[string] as s:
+			out = out + s.Value
+		case None:
+			return None
+		}
 	}
-	out
+	Some[string]{Value: out}
 }
 
-// classMember is a byte that k matches, as text: one of the alphabet when
-// k has one, else the first byte it has. k matches some byte.
-func classMember(g mut source, k Class) string {
+func classMember(g mut source, k Class) Option[string] {
 	let start = g.next(len(alphabet))
 	for d in 0..len(alphabet) {
 		let i = (start + d) % len(alphabet)
 		if k.Has(alphabet[i]) {
-			return alphabet[i : i+1]
+			return Some[string]{Value: alphabet[i : i+1]}
 		}
 	}
 	for i in 0..256 {
 		if k.Has(byte(i)) {
-			return ByteText(byte(i))
+			return Some[string]{Value: ByteText(byte(i))}
 		}
 	}
-	Unreachable("Witness of a class that matches no byte")
+	None
+}
+
+law EmptyClassHasNoWitness(seed int) {
+	Witness(Class{Spans: []Span{}, Negated: false}, seed) == None && Witness(CaptureSample(seed), seed) != None
 }

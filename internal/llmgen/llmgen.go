@@ -70,7 +70,11 @@ func Generate(pkg *check.Package, path, opName, apiPath string) (Files, error) {
 		if err != nil {
 			return Files{}, err
 		}
-		t := &tool{op: op, name: rpcgen.Kebab(op.Name), flat: rpcgen.Flat(op), schema: schema}
+		schemaExpr, err := rpcgen.SchemaExpr(schema)
+		if err != nil {
+			return Files{}, err
+		}
+		t := &tool{op: op, name: rpcgen.Kebab(op.Name), flat: rpcgen.Flat(op), schema: schema, schemaExpr: schemaExpr}
 		if t.flat != "" {
 			expr, imports, err := rpcgen.TypeExpr(pkg, path, op.Params[0].Type)
 			if err != nil {
@@ -153,6 +157,8 @@ type tool struct {
 	flat string
 	// schema is the JSON schema text of the arguments: the hub's.
 	schema string
+	// schemaExpr is schema as a typed jsonschema.Schema Ergo expression.
+	schemaExpr string
 	// flatType is the flat parameter's type in the generated source.
 	flatType string
 }
@@ -183,14 +189,13 @@ func (g *gen) file() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "// Request is one call of %s: the hub's Request.\ntype Request = %sRequest\n\n", capName, g.rq)
 
-	b.WriteString("// specs are the tools' specs, each schema checked and encoded once.\nlet specs = toolSpecs()\n\n")
-	fmt.Fprintf(&b, "// toolSpecs are the specs of the tools of %s, one per operation, in\n// its order: the hub's Name, Doc and Schema.\nfunc toolSpecs() []llm.ToolSpec {\n[]llm.ToolSpec{\n", capName)
+	b.WriteString("let specs = toolSpecs()\n\n")
+	b.WriteString("func toolSpecs() []llm.ToolSpec {\n[]llm.ToolSpec{\n")
 	for _, t := range g.tools {
-		fmt.Fprintf(&b, "llm.ToolSpec{Name: %s, Description: %sDoc(%s%sOp), Input: encoded(%s)},\n", lit(t.name), g.rq, g.rq, t.op.Name, lit(t.schema))
+		fmt.Fprintf(&b, "llm.ToolSpec{Name: %s, Description: %sDoc(%s%sOp), Input: jsonschema.Encode(%s)},\n", lit(t.name), g.rq, g.rq, t.op.Name, t.schemaExpr)
 	}
 	b.WriteString("}\n}\n\n")
-	b.WriteString("// encoded is the schema text spells, encoded. The text is the hub's\n// Schema, which ergo gen api writes as a schema, so Parse refuses none.\nfunc encoded(text string) jsonschema.Encoded {\nlet s = jsonschema.Parse(text) catch {\ncase jsonschema.Invalid as e:\nUnreachable(\"ergo gen llm wrote a schema that is no schema: \" + e.Reason)\n}\njsonschema.Encode(s)\n}\n\n")
-	fmt.Fprintf(&b, "// Specs are the tools of %s, one per operation, in its order: what a\n// Request's Tools carries.\nfunc Specs() []llm.ToolSpec { specs }\n\n", capName)
+	fmt.Fprintf(&b, "func Specs() []llm.ToolSpec { specs }\n\n")
 
 	b.WriteString("// argumentsOf is the argument text of c: the empty object when the\n// model wrote none.\nfunc argumentsOf(c llm.Call) string {\nif c.Arguments == \"\" {\nreturn \"{}\"\n}\nc.Arguments\n}\n\n")
 

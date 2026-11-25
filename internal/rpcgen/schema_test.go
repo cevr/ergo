@@ -123,3 +123,40 @@ func TestGenSchemaRefusesNoWireForm(t *testing.T) {
 		}
 	}
 }
+
+func TestSchemaExprCoversAllShapes(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{`{}`, `jsonschema.Any()`},
+		{`{"type":"null"}`, `jsonschema.Null()`},
+		{`{"type":"boolean"}`, `jsonschema.Bool()`},
+		{`{"type":"string"}`, `jsonschema.String()`},
+		{`{"type":"integer"}`, `jsonschema.Integer()`},
+		{`{"type":"number"}`, `jsonschema.Number()`},
+		{`{"const":"Card"}`, `jsonschema.ConstString("Card")`},
+		{`{"type":"array","items":{"type":"string"}}`, `jsonschema.Array(jsonschema.String())`},
+		{`{"type":"array","items":{"type":"integer"},"minItems":3,"maxItems":3}`, `jsonschema.FixedArray(jsonschema.Integer(), 3)`},
+		{`{"type":"array","prefixItems":[{"type":"string"},{"type":"boolean"}]}`, `jsonschema.Tuple([]jsonschema.Schema{jsonschema.String(), jsonschema.Bool()})`},
+		{`{"type":"object"}`, `jsonschema.ObjectAny()`},
+		{`{"type":"object","additionalProperties":{"type":"number"}}`, `jsonschema.Record(jsonschema.Number())`},
+		{`{"type":"object","properties":{"a":{"type":"string"},"b":{"type":"integer"}},"required":["a"]}`, `jsonschema.Object([]jsonschema.Prop{jsonschema.Prop{Key: "a", Schema: jsonschema.String()}, jsonschema.Prop{Key: "b", Schema: jsonschema.Integer()}}, []string{"a"})`},
+		{`{"anyOf":[{"type":"string"},{"type":"null"}]}`, `jsonschema.AnyOf(jsonschema.String(), []jsonschema.Schema{jsonschema.Null()})`},
+	}
+	for _, tc := range cases {
+		got, err := rpcgen.SchemaExpr(tc.in)
+		if err != nil {
+			t.Errorf("SchemaExpr(%s): unexpected error: %v", tc.in, err)
+			continue
+		}
+		if got != tc.want {
+			t.Errorf("SchemaExpr(%s) = %s, want %s", tc.in, got, tc.want)
+		}
+	}
+	for _, bad := range []string{`not-json`, `[]`, `{"anyOf":[]}`, `{"type":"unknown"}`, `{"extra":1}`} {
+		if got, err := rpcgen.SchemaExpr(bad); err == nil {
+			t.Errorf("SchemaExpr(%s) = %s, want error", bad, got)
+		}
+	}
+}

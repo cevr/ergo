@@ -2,4 +2,4 @@ kind llm
 generator ergo gen llm
 subject llmtools/tools.Search
 contract sha256:0fd9f7ad3319cb1491ce81948ff74861dbec89c8cfe32f88cecad9eccb9b6546
-digest sha256:04b4b4e6208109a18f410300e862e0d58b2f544a200f40a5fb9ac573a41a6342
+digest sha256:209d05a5a6e9e9da60f2c3742deca7e50406449583f2f6288dca3727b6536166

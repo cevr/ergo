@@ -2,21 +2,10 @@ import json
 import jsonschema
 import extract/receipt
 
-// Receipt is the JSON schema of receipt.Receipt's wire form: the JSON its derived
-// codec writes and reads.
 func Receipt() jsonschema.Schema { receiptSchema }
 
-let receiptSchema = parseReceipt()
+let receiptSchema = jsonschema.Object([]jsonschema.Prop{jsonschema.Prop{Key: "merchant", Schema: jsonschema.String()}, jsonschema.Prop{Key: "items", Schema: jsonschema.Array(jsonschema.Object([]jsonschema.Prop{jsonschema.Prop{Key: "name", Schema: jsonschema.String()}, jsonschema.Prop{Key: "count", Schema: jsonschema.Integer()}, jsonschema.Prop{Key: "cents", Schema: jsonschema.Integer()}}, []string{"name", "count", "cents"}))}, jsonschema.Prop{Key: "total", Schema: jsonschema.Integer()}, jsonschema.Prop{Key: "paid", Schema: jsonschema.AnyOf(jsonschema.Object([]jsonschema.Prop{jsonschema.Prop{Key: "_tag", Schema: jsonschema.ConstString("Card")}, jsonschema.Prop{Key: "last4", Schema: jsonschema.String()}}, []string{"_tag", "last4"}), []jsonschema.Schema{jsonschema.Object([]jsonschema.Prop{jsonschema.Prop{Key: "_tag", Schema: jsonschema.ConstString("Cash")}}, []string{"_tag"})})}, jsonschema.Prop{Key: "note", Schema: jsonschema.String()}}, []string{"merchant", "items", "total", "paid"})
 
-func parseReceipt() jsonschema.Schema {
-	jsonschema.Parse("{\"type\":\"object\",\"properties\":{\"merchant\":{\"type\":\"string\"},\"items\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"},\"count\":{\"type\":\"integer\"},\"cents\":{\"type\":\"integer\"}},\"required\":[\"name\",\"count\",\"cents\"]}},\"total\":{\"type\":\"integer\"},\"paid\":{\"anyOf\":[{\"type\":\"object\",\"properties\":{\"_tag\":{\"const\":\"Card\"},\"last4\":{\"type\":\"string\"}},\"required\":[\"_tag\",\"last4\"]},{\"type\":\"object\",\"properties\":{\"_tag\":{\"const\":\"Cash\"}},\"required\":[\"_tag\"]}]},\"note\":{\"type\":\"string\"}},\"required\":[\"merchant\",\"items\",\"total\",\"paid\"]}") catch {
-	case jsonschema.Invalid:
-		Unreachable("ergo gen schema writes a schema")
-	}
-}
-
-// ReceiptValuesFitTheSchema: the JSON the codec writes for any receipt.Receipt fits
-// Receipt().
 law ReceiptValuesFitTheSchema(v receipt.Receipt) {
 	let written = json.Decode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, json.Encode(json.Codec[receipt.Receipt]{MaxBytes: 0, MaxDepth: 0}, v)) catch {
 	case _:

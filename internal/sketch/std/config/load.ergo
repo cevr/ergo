@@ -1,4 +1,3 @@
-import codec
 import flag
 import json
 import strings
@@ -16,10 +15,14 @@ type Source = FromFlag | FromEnv | FromFile | FromDefault
 // NOTES_API_TOKEN", "file /home/a/.config/notes/config.toml", "default".
 func Describe(s Source) string {
 	match s {
-	case FromFlag as f: "flag --" + f.Name
-	case FromEnv as e: "env " + e.Name
-	case FromFile as f: "file " + f.Path
-	case FromDefault: "default"
+	case FromFlag as f:
+		"flag --" + f.Name
+	case FromEnv as e:
+		"env " + e.Name
+	case FromFile as f:
+		"file " + f.Path
+	case FromDefault:
+		"default"
 	}
 }
 
@@ -42,21 +45,15 @@ func FromFlags(v flag.Values) Flags { Flags{given: flag.GivenFlags(v), declared:
 // NoFlags is a layer of no flags.
 func NoFlags() Flags { Flags{given: []flag.Given{}, declared: []string{}} }
 
-// Defaults are the stated defaults, the lowest layer: the fields of a
-// value of any wire record D, read as keys of the configuration. D holds
-// only the keys that have a default; a key of the configuration that D
-// does not hold has none.
-type Defaults { events []codec.Event }
+type Defaults { root Option[node] }
 
-// DefaultsOf states d's fields as defaults.
 func DefaultsOf[D wire](d D) Defaults needs wired[D] {
-	let e = codec.NewEvents()
-	encode(d, e)
-	Defaults{events: codec.Recorded(e)}
+	let w = newTreeWriter(FromDefault)
+	encode(d, w)
+	Defaults{root: w.finish()}
 }
 
-// NoDefaults states no default.
-func NoDefaults() Defaults { Defaults{events: []codec.Event{}} }
+func NoDefaults() Defaults { Defaults{root: None} }
 
 // HigherLayerWins: a key that several layers set has the value of the
 // highest: the flag, then the variable, then the file, then the default;
@@ -142,7 +139,7 @@ type Malformed { Path string, Line int, Key string, Reason string }
 func Load[T wire](s Spec) T fails Unreadable | Malformed | wired[T] needs Config | wired[T] {
 	let mut root = fromFlags(s.Flags.given)
 	if s.Prefix != "" {
-		root = merge(root, fromEnv(Config.Environ(s.Prefix + "_"), s.Prefix))
+		root = merge(root, fromEnv(Config.Environ(s.Prefix+"_"), s.Prefix))
 	}
 	for f in s.Files {
 		match try Config.ReadFile(f.Path) {
@@ -151,21 +148,18 @@ func Load[T wire](s Spec) T fails Unreadable | Malformed | wired[T] needs Config
 		case None:
 		}
 	}
-	if len(s.Defaults.events) > 0 {
-		let (d, _) = fromEvents(s.Defaults.events, 0, FromDefault)
-		root = merge(root, d)
+	match s.Defaults.root {
+	case Some as d:
+		root = merge(root, d.Value)
+	case None:
 	}
 	try decode[T](newReader(root))
 }
 
-// LoadSecret is Load of a T that the program keeps as a secret: the T is
-// never in a value the program holds outside the Redacted, and a failure
-// names the key and the source, never the text (WireWrongKind's Path).
 func LoadSecret[T wire](s Spec) Redacted[T] fails Unreadable | Malformed | wired[T] needs Config | wired[T] {
 	NewRedacted(try Load[T](s))
 }
 
-// parseFile is the tree of the file f, whose text is text.
 func parseFile(f File, text string) node fails Malformed {
 	let c = json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}
 	match f.Format {
@@ -173,8 +167,14 @@ func parseFile(f File, text string) node fails Malformed {
 		let v = toml.Decode(c, text) catch {
 		case toml.Malformed as m:
 			return Malformed{Path: f.Path, Line: m.Line, Key: m.Key, Reason: m.Reason}
-		case _:
-			Unreachable("config: a validated TOML text reads as a json.Value")
+		case json.Malformed as m:
+			return Malformed{Path: f.Path, Line: 0, Key: "", Reason: m.Reason}
+		case WireWrongKind as w:
+			return Malformed{Path: f.Path, Line: 0, Key: w.Path, Reason: "expected " + w.Want}
+		case WireMissingField as w:
+			return Malformed{Path: f.Path, Line: 0, Key: MissingKey(w), Reason: "missing field"}
+		case WireUnknownTag as w:
+			return Malformed{Path: f.Path, Line: 0, Key: w.Path, Reason: "unknown tag " + w.Tag}
 		}
 		fromValue(v, FromFile{Path: f.Path})
 	case JSON:
@@ -182,8 +182,12 @@ func parseFile(f File, text string) node fails Malformed {
 		case json.Malformed as m:
 			let line = strings.Count(strings.Slice(text, 0, m.Offset), "\n") + 1
 			return Malformed{Path: f.Path, Line: line, Key: "", Reason: m.Reason}
-		case _:
-			Unreachable("config: a validated JSON text reads as a json.Value")
+		case WireWrongKind as w:
+			return Malformed{Path: f.Path, Line: 0, Key: w.Path, Reason: "expected " + w.Want}
+		case WireMissingField as w:
+			return Malformed{Path: f.Path, Line: 0, Key: MissingKey(w), Reason: "missing field"}
+		case WireUnknownTag as w:
+			return Malformed{Path: f.Path, Line: 0, Key: w.Path, Reason: "unknown tag " + w.Tag}
 		}
 		fromValue(v, FromFile{Path: f.Path})
 	}
@@ -211,8 +215,10 @@ func Looked(s Spec, key string) []Source {
 	for f in s.Files {
 		out = out.Append(FromFile{Path: f.Path})
 	}
-	if len(s.Defaults.events) > 0 {
+	match s.Defaults.root {
+	case Some:
 		out = out.Append(FromDefault)
+	case None:
 	}
 	out
 }
@@ -246,4 +252,4 @@ law NamesInvert(picks []int) {
 
 // EnvKey is the key that the variable name sets under prefix: EnvName's
 // inverse (law NamesInvert), "server.port" for "NOTES_SERVER__PORT".
-func EnvKey(prefix string, name string) string { envKey(strings.TrimPrefix(name, prefix + "_")) }
+func EnvKey(prefix string, name string) string { envKey(strings.TrimPrefix(name, prefix+"_")) }

@@ -1,6 +1,5 @@
 // Entity and numeric character references.
 
-import strconv
 import strings
 import utf8
 import mdhtml/html
@@ -43,25 +42,45 @@ func namesOf(table string) []string {
 	out
 }
 
+func parseEntityCodes(codes string) Option[string] {
+	let mut b = strings.NewBuilder()
+	for code in strings.Split(codes, "+") {
+		if len(code) == 0 || len(code) > 6 {
+			return None
+		}
+		let mut v = 0
+		for i in 0..len(code) {
+			if !hexDigit(code[i]) {
+				return None
+			}
+			v = v*16 + hexValue(code[i])
+		}
+		if v > 0x10FFFF {
+			return None
+		}
+		b.WriteString(utf8.RuneText(rune(v)))
+	}
+	Some[string]{Value: b.String()}
+}
+
 func loadEntities(table string) Map[string, string] {
 	let mut m = Map[string, string]{}
 	for entry in strings.Split(table, ",") {
 		match strings.Cut(entry, ":") {
 		case Some as h:
-			let mut b = strings.NewBuilder()
-			for code in strings.Split(h.Value.After, "+") {
-				let r = strconv.ParseInt(code, 16, 32) catch {
-				case strconv.Malformed, strconv.OutOfRange:
-					Unreachable("the table holds hex code points")
-					0
-				}
-				b.WriteString(utf8.RuneText(rune(r)))
+			match parseEntityCodes(h.Value.After) {
+			case Some as text:
+				m = m.Put(h.Value.Before, text.Value)
+			case None:
 			}
-			m = m.Put(h.Value.Before, b.String())
 		case None:
 		}
 	}
 	m
+}
+
+law EntitiesTableIsValid() {
+	len(entities) == len(entityNames) && parseEntityCodes("zz") == None
 }
 
 // EntityAt reads the entity or numeric character reference that s starts

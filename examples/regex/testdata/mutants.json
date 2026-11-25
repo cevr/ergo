@@ -356,6 +356,16 @@
       "rule": "SearchTransitionsAreLinear rejects redundant suffix rescans that Boolean agreement cannot see; the actual sequential-candidate implementation at bb95113d is also red under this law.",
       "anchor": {"tests": ["examples:regex"]},
       "killers": ["examples:regex"]
+    },
+    {
+      "name": "nou-regex-empty-class-witness",
+      "origin": "wf10 NOU-DATA-REP r3",
+      "file": "examples/regex/syntax/witness.ergo",
+      "from": "\tfor i in 0..256 {\n\t\tif k.Has(byte(i)) {\n\t\t\treturn Some[string]{Value: ByteText(byte(i))}\n\t\t}\n\t}\n\tNone\n}",
+      "to": "\tfor i in 0..256 {\n\t\tif k.Has(byte(i)) {\n\t\t\treturn Some[string]{Value: ByteText(byte(i))}\n\t\t}\n\t}\n\tSome[string]{Value: \"\"}\n}",
+      "rule": "Witness returns None for a Class that matches no byte (law EmptyClassHasNoWitness).",
+      "anchor": {"tests": ["examples:regex"]},
+      "killers": ["examples:regex"]
     }
   ]
 }
