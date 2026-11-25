@@ -1,0 +1,152 @@
+import cmp
+import slices
+
+// UnitByID looks up one unit in State by ID.
+func UnitByID(state State, id string) Option[Unit] {
+	state.Units.Get(id)
+}
+
+// ListUnits returns units filtered by optional status, sorted deterministically by ID.
+func ListUnits(state State, status Option[UnitStatus]) []Unit {
+	let mut out = []Unit{}
+	for _, u in state.Units {
+		let keep = match status {
+		case Some[UnitStatus] as want:
+			u.Status == want.Value
+		case None:
+			true
+		}
+		if keep {
+			out = out.Append(u)
+		}
+	}
+	slices.SortFunc(out, func(a Unit, b Unit) int { cmp.Compare(a.ID, b.ID) })
+}
+
+// ReceiptsOf returns receipts for unitID, optionally filtered by round, in recorded order.
+func ReceiptsOf(state State, unitID string, round Option[int]) []Receipt {
+	let mut out = []Receipt{}
+	for id in state.ReceiptOrder {
+		match state.Receipts.Get(id) {
+		case Some[Receipt] as r:
+			let sameUnit = r.Value.UnitID == unitID
+			let sameRound = match round {
+			case Some[int] as want:
+				r.Value.Round == want.Value
+			case None:
+				true
+			}
+			if sameUnit && sameRound {
+				out = out.Append(r.Value)
+			}
+		case None:
+		}
+	}
+	out
+}
+
+// CommitmentByID looks up one commitment in State by ID.
+func CommitmentByID(state State, id string) Option[Commitment] {
+	state.Commitments.Get(id)
+}
+
+// ListCommitments returns commitments filtered by optional status and owner, sorted deterministically by ID.
+func ListCommitments(state State, status Option[CommitmentStatus], owner Option[string]) []Commitment {
+	let mut out = []Commitment{}
+	for _, c in state.Commitments {
+		let statusMatch = match status {
+		case Some[CommitmentStatus] as want:
+			c.Status == want.Value
+		case None:
+			true
+		}
+		let ownerMatch = match owner {
+		case Some[string] as want:
+			c.Owner == Some[string]{Value: want.Value}
+		case None:
+			true
+		}
+		if statusMatch && ownerMatch {
+			out = out.Append(c)
+		}
+	}
+	slices.SortFunc(out, func(a Commitment, b Commitment) int { cmp.Compare(a.ID, b.ID) })
+}
+
+// ListQueue returns queue items filtered by optional status, ordered by ascending priority then ascending key.
+func ListQueue(state State, status Option[string]) []QueueItem {
+	let mut out = []QueueItem{}
+	for _, item in state.Queue {
+		let keep = match status {
+		case Some[string] as want:
+			item.Status == want.Value
+		case None:
+			true
+		}
+		if keep {
+			out = out.Append(item)
+		}
+	}
+	slices.SortFunc(out, func(a QueueItem, b QueueItem) int {
+		if a.Priority != b.Priority {
+			return cmp.Compare(a.Priority, b.Priority)
+		}
+		cmp.Compare(a.Key, b.Key)
+	})
+}
+
+// ListQueueOrdersByPriorityThenKey verifies that ListQueue always returns items in non-decreasing (Priority, Key) order.
+law ListQueueOrdersByPriorityThenKey(priorities []int) {
+	let mut s = EmptyState()
+	for i, p in priorities {
+		let key = "k-\(len(priorities) - i)-\(i)"
+		let evs = Decide(s, Envelope{
+			ID:      CommandID("lq-\(i)"),
+			Actor:   "root",
+			At:      "2026-11-24T06:00:00Z",
+			Command: UpsertQueueItem{
+				Key:      key,
+				Priority: p,
+				Title:    "T",
+				Body:     "",
+				Status:   "open",
+				Tags:     []string{},
+			},
+		}) catch {
+		case NotFound, AlreadyExists, InvalidTransition, StaleClaim, CommandReused, InvalidInput:
+			return false
+		}
+		s = ApplyAll(s, evs)
+	}
+	let items = ListQueue(s, None)
+	if len(items) != len(priorities) {
+		return false
+	}
+	for i in 1..len(items) {
+		let prev = items[i-1]
+		let cur = items[i]
+		if prev.Priority > cur.Priority {
+			return false
+		}
+		if prev.Priority == cur.Priority && prev.Key > cur.Key {
+			return false
+		}
+	}
+	true
+}
+
+// QuestionByID looks up one async question in State by monotonic ID.
+func QuestionByID(state State, id int) Option[Question] {
+	state.Questions.Get(id)
+}
+
+// ListQuestions returns all questions (or only open ones when openOnly is true), sorted by ascending ID.
+func ListQuestions(state State, openOnly bool) []Question {
+	let mut out = []Question{}
+	for _, q in state.Questions {
+		if !openOnly || q.Status == QuestionOpen {
+			out = out.Append(q)
+		}
+	}
+	slices.SortFunc(out, func(a Question, b Question) int { cmp.Compare(a.ID, b.ID) })
+}

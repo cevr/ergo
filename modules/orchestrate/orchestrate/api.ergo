@@ -1,0 +1,619 @@
+// UnitOpenInput is the wire-compatible input for opening a unit.
+type UnitOpenInput {
+	CommandID CommandID,
+	Actor     string,
+	At        string,
+	ID        string,
+	Title     string,
+	Area      string,
+}
+
+// UnitClaimInput is the wire-compatible input for claiming a unit.
+type UnitClaimInput {
+	CommandID CommandID,
+	Actor     string,
+	At        string,
+	ID        string,
+	Owner     string,
+	Lane      string,
+	Harness   string,
+}
+
+// UnitRoundInput is the wire-compatible input for advancing a unit's round.
+type UnitRoundInput {
+	CommandID    CommandID,
+	Actor        string,
+	At           string,
+	ID           string,
+	Owner        Option[string],
+	Round        int,
+	RequestPath  Option[string],
+	FindingsPath Option[string],
+}
+
+// UnitHandBackInput is the wire-compatible input for handing back a claimed unit.
+type UnitHandBackInput {
+	CommandID    CommandID,
+	Actor        string,
+	At           string,
+	ID           string,
+	Owner        string,
+	HeadSHA      string,
+	Summary      string,
+	RequestPath  Option[string],
+	FindingsPath Option[string],
+}
+
+// UnitLandInput is the wire-compatible input for marking a handed-back unit landed.
+type UnitLandInput {
+	CommandID CommandID,
+	Actor     string,
+	At        string,
+	ID        string,
+	HeadSHA   string,
+}
+
+// UnitCloseInput is the wire-compatible input for closing a non-terminal unit.
+type UnitCloseInput {
+	CommandID CommandID,
+	Actor     string,
+	At        string,
+	ID        string,
+	Summary   Option[string],
+}
+
+// UnitGetInput is the wire-compatible input for reading one unit by ID.
+type UnitGetInput { ID string }
+
+// UnitListInput is the wire-compatible input for listing units with an optional status filter.
+type UnitListInput { Status Option[string] }
+
+// ReceiptRecordInput is the wire-compatible input for recording a verification receipt.
+type ReceiptRecordInput {
+	CommandID      CommandID,
+	Actor          string,
+	At             string,
+	ID             string,
+	UnitID         string,
+	Round          int,
+	Kind           string,
+	Command        string,
+	CommitSHA      string,
+	ExitCode       int,
+	SummaryMetrics string,
+	LogPath        string,
+	LogSHA256      string,
+}
+
+// ReceiptReadInput is the wire-compatible input for reading receipts of a unit.
+type ReceiptReadInput { UnitID string, Round Option[int] }
+
+// CommitmentAddInput is the wire-compatible input for adding a commitment.
+type CommitmentAddInput {
+	CommandID CommandID,
+	Actor     string,
+	At        string,
+	ID        string,
+	Title     string,
+	Kind      string,
+}
+
+// CommitmentAssignInput is the wire-compatible input for assigning a commitment.
+type CommitmentAssignInput {
+	CommandID CommandID,
+	Actor     string,
+	At        string,
+	ID        string,
+	Owner     string,
+	Lane      string,
+}
+
+// CommitmentLandedInput is the wire-compatible input for marking a commitment landed.
+type CommitmentLandedInput {
+	CommandID CommandID,
+	Actor     string,
+	At        string,
+	ID        string,
+	LandedSHA string,
+}
+
+// CommitmentDecideInput is the wire-compatible input for deciding or withdrawing a commitment.
+type CommitmentDecideInput {
+	CommandID CommandID,
+	Actor     string,
+	At        string,
+	ID        string,
+	Note      string,
+	Withdraw  bool,
+}
+
+// CommitmentListInput is the wire-compatible input for listing commitments by optional status and owner.
+type CommitmentListInput { Status Option[string], Owner Option[string] }
+
+// QueueUpsertInput is the wire-compatible input for inserting or replacing a queue item.
+type QueueUpsertInput {
+	CommandID CommandID,
+	Actor     string,
+	At        string,
+	Key       string,
+	Priority  int,
+	Title     string,
+	Body      string,
+	Status    string,
+	Tags      []string,
+}
+
+// QueueRemoveInput is the wire-compatible input for deleting a queue item by key.
+type QueueRemoveInput {
+	CommandID CommandID,
+	Actor     string,
+	At        string,
+	Key       string,
+}
+
+// QueueRemovedReply is the wire-compatible reply confirming a queue item removal.
+type QueueRemovedReply { Key string, Removed bool }
+
+// QueueListInput is the wire-compatible input for listing queue items by optional status.
+type QueueListInput { Status Option[string] }
+
+// QuestionAskInput is the wire-compatible input for opening an async question.
+type QuestionAskInput {
+	CommandID      CommandID,
+	Actor          string,
+	At             string,
+	ID             Option[int],
+	Prompt         string,
+	Assumption     string,
+	ConcreteAction string,
+}
+
+// QuestionAnswerInput is the wire-compatible input for answering or withdrawing an open question.
+type QuestionAnswerInput {
+	CommandID CommandID,
+	Actor     string,
+	At        string,
+	ID        int,
+	Answer    string,
+	Withdraw  bool,
+}
+
+// QuestionListInput is the wire-compatible input for listing async questions.
+type QuestionListInput { OpenOnly bool }
+
+// Api is the wire-, CLI-, and MCP-projectable operation contract covering all 5 orchestrate v1 tool groups.
+type Api {
+	// UnitOpen opens a new work unit.
+	UnitOpen(input UnitOpenInput) Unit fails NotFound | AlreadyExists | InvalidTransition | StaleClaim | CommandReused | InvalidInput | StoreFailed,
+
+	// UnitClaim claims an open or handed-back unit for an owner, lane, and harness.
+	UnitClaim(input UnitClaimInput) Unit fails NotFound | AlreadyExists | InvalidTransition | StaleClaim | CommandReused | InvalidInput | StoreFailed,
+
+	// UnitRound advances a unit to the next round and records optional request or findings paths.
+	UnitRound(input UnitRoundInput) Unit fails NotFound | AlreadyExists | InvalidTransition | StaleClaim | CommandReused | InvalidInput | StoreFailed,
+
+	// UnitHandBack hands back a claimed unit with its commit head, summary, and artifact paths.
+	UnitHandBack(input UnitHandBackInput) Unit fails NotFound | AlreadyExists | InvalidTransition | StaleClaim | CommandReused | InvalidInput | StoreFailed,
+
+	// UnitLand marks a handed-back unit as landed.
+	UnitLand(input UnitLandInput) Unit fails NotFound | AlreadyExists | InvalidTransition | StaleClaim | CommandReused | InvalidInput | StoreFailed,
+
+	// UnitClose closes a non-terminal unit without landing.
+	UnitClose(input UnitCloseInput) Unit fails NotFound | AlreadyExists | InvalidTransition | StaleClaim | CommandReused | InvalidInput | StoreFailed,
+
+	// UnitGet returns one unit by ID.
+	UnitGet(input UnitGetInput) Unit fails NotFound | InvalidInput | StoreFailed,
+
+	// UnitList lists units filtered by optional status.
+	UnitList(input UnitListInput) []Unit fails InvalidInput | StoreFailed,
+
+	// ReceiptRecord records structured verification evidence pointing to an external log path and SHA-256 digest.
+	ReceiptRecord(input ReceiptRecordInput) Receipt fails NotFound | AlreadyExists | InvalidTransition | StaleClaim | CommandReused | InvalidInput | StoreFailed,
+
+	// ReceiptRead lists receipts recorded for a unit, optionally filtered by round.
+	ReceiptRead(input ReceiptReadInput) []Receipt fails InvalidInput | StoreFailed,
+
+	// CommitmentAdd registers a new commitment.
+	CommitmentAdd(input CommitmentAddInput) Commitment fails NotFound | AlreadyExists | InvalidTransition | StaleClaim | CommandReused | InvalidInput | StoreFailed,
+
+	// CommitmentAssign assigns an open or assigned commitment to an owner and lane.
+	CommitmentAssign(input CommitmentAssignInput) Commitment fails NotFound | AlreadyExists | InvalidTransition | StaleClaim | CommandReused | InvalidInput | StoreFailed,
+
+	// CommitmentLanded marks a commitment as landed at a commit SHA.
+	CommitmentLanded(input CommitmentLandedInput) Commitment fails NotFound | AlreadyExists | InvalidTransition | StaleClaim | CommandReused | InvalidInput | StoreFailed,
+
+	// CommitmentDecide resolves or withdraws an open or assigned commitment with a note.
+	CommitmentDecide(input CommitmentDecideInput) Commitment fails NotFound | AlreadyExists | InvalidTransition | StaleClaim | CommandReused | InvalidInput | StoreFailed,
+
+	// CommitmentList lists commitments filtered by optional status and owner.
+	CommitmentList(input CommitmentListInput) []Commitment fails InvalidInput | StoreFailed,
+
+	// QueueUpsert inserts or replaces a prioritized queue entry by key.
+	QueueUpsert(input QueueUpsertInput) QueueItem fails NotFound | AlreadyExists | InvalidTransition | StaleClaim | CommandReused | InvalidInput | StoreFailed,
+
+	// QueueRemove deletes an existing queue entry by key.
+	QueueRemove(input QueueRemoveInput) QueueRemovedReply fails NotFound | AlreadyExists | InvalidTransition | StaleClaim | CommandReused | InvalidInput | StoreFailed,
+
+	// QueueList lists queue items filtered by optional status, ordered by priority then key.
+	QueueList(input QueueListInput) []QueueItem fails StoreFailed,
+
+	// QuestionAsk opens a new async question with a monotonic ID and default assumption.
+	QuestionAsk(input QuestionAskInput) Question fails NotFound | AlreadyExists | InvalidTransition | StaleClaim | CommandReused | InvalidInput | StoreFailed,
+
+	// QuestionAnswer answers or withdraws an open async question.
+	QuestionAnswer(input QuestionAnswerInput) Question fails NotFound | AlreadyExists | InvalidTransition | StaleClaim | CommandReused | InvalidInput | StoreFailed,
+
+	// QuestionList lists async questions, optionally restricted to open questions.
+	QuestionList(input QuestionListInput) []Question fails StoreFailed,
+
+	// ApiUnitOpenIsIdempotent verifies that opening a unit through Api is idempotent on retry and readable via UnitGet.
+	law ApiUnitOpenIsIdempotent(tag int) {
+		let input = UnitOpenInput{
+			CommandID: CommandID("api-open-\(tag)"),
+			Actor:     "root",
+			At:        "2026-11-24T11:00:00Z",
+			ID:        "api-u-\(tag)",
+			Title:     "Api Unit",
+			Area:      "orch",
+		}
+		let first = UnitOpen(input) catch {
+		case NotFound, AlreadyExists, InvalidTransition, StaleClaim, CommandReused, InvalidInput:
+			return false
+		case StoreFailed:
+			return true
+		}
+		let again = UnitOpen(input) catch {
+		case NotFound, AlreadyExists, InvalidTransition, StaleClaim, CommandReused, InvalidInput:
+			return false
+		case StoreFailed:
+			return true
+		}
+		let fetched = UnitGet(UnitGetInput{ID: input.ID}) catch {
+		case NotFound, InvalidInput:
+			return false
+		case StoreFailed:
+			return true
+		}
+		first == again && fetched == first
+	},
+}
+
+// Service implements Api over any Store provider.
+type Service { store Store } implements Api
+
+// NewService constructs an Api Service backed by store.
+func NewService(store Store) Service {
+	Service{store: store}
+}
+
+// UnitOpen executes OpenUnit and returns the resulting Unit projection.
+func UnitOpen(s Service, req UnitOpenInput) Unit fails NotFound | AlreadyExists | InvalidTransition | StaleClaim | CommandReused | InvalidInput | StoreFailed {
+	let env = Envelope{
+		ID:      req.CommandID,
+		Actor:   req.Actor,
+		At:      req.At,
+		Command: OpenUnit{ID: req.ID, Title: req.Title, Area: req.Area},
+	}
+	let _ = try s.store.Execute(env)
+	try mustUnit(s.store, req.ID)
+}
+
+// UnitClaim executes ClaimUnit and returns the resulting Unit projection.
+func UnitClaim(s Service, req UnitClaimInput) Unit fails NotFound | AlreadyExists | InvalidTransition | StaleClaim | CommandReused | InvalidInput | StoreFailed {
+	let env = Envelope{
+		ID:      req.CommandID,
+		Actor:   req.Actor,
+		At:      req.At,
+		Command: ClaimUnit{ID: req.ID, Owner: req.Owner, Lane: req.Lane, Harness: req.Harness},
+	}
+	let _ = try s.store.Execute(env)
+	try mustUnit(s.store, req.ID)
+}
+
+// UnitRound executes AdvanceUnitRound and returns the resulting Unit projection.
+func UnitRound(s Service, req UnitRoundInput) Unit fails NotFound | AlreadyExists | InvalidTransition | StaleClaim | CommandReused | InvalidInput | StoreFailed {
+	let env = Envelope{
+		ID:      req.CommandID,
+		Actor:   req.Actor,
+		At:      req.At,
+		Command: AdvanceUnitRound{
+			ID:           req.ID,
+			Owner:        req.Owner,
+			Round:        req.Round,
+			RequestPath:  req.RequestPath,
+			FindingsPath: req.FindingsPath,
+		},
+	}
+	let _ = try s.store.Execute(env)
+	try mustUnit(s.store, req.ID)
+}
+
+// UnitHandBack executes HandBackUnit and returns the resulting Unit projection.
+func UnitHandBack(s Service, req UnitHandBackInput) Unit fails NotFound | AlreadyExists | InvalidTransition | StaleClaim | CommandReused | InvalidInput | StoreFailed {
+	let env = Envelope{
+		ID:      req.CommandID,
+		Actor:   req.Actor,
+		At:      req.At,
+		Command: HandBackUnit{
+			ID:           req.ID,
+			Owner:        req.Owner,
+			HeadSHA:      req.HeadSHA,
+			Summary:      req.Summary,
+			RequestPath:  req.RequestPath,
+			FindingsPath: req.FindingsPath,
+		},
+	}
+	let _ = try s.store.Execute(env)
+	try mustUnit(s.store, req.ID)
+}
+
+// UnitLand executes LandUnit and returns the resulting Unit projection.
+func UnitLand(s Service, req UnitLandInput) Unit fails NotFound | AlreadyExists | InvalidTransition | StaleClaim | CommandReused | InvalidInput | StoreFailed {
+	let env = Envelope{
+		ID:      req.CommandID,
+		Actor:   req.Actor,
+		At:      req.At,
+		Command: LandUnit{ID: req.ID, HeadSHA: req.HeadSHA},
+	}
+	let _ = try s.store.Execute(env)
+	try mustUnit(s.store, req.ID)
+}
+
+// UnitClose executes CloseUnit and returns the resulting Unit projection.
+func UnitClose(s Service, req UnitCloseInput) Unit fails NotFound | AlreadyExists | InvalidTransition | StaleClaim | CommandReused | InvalidInput | StoreFailed {
+	let env = Envelope{
+		ID:      req.CommandID,
+		Actor:   req.Actor,
+		At:      req.At,
+		Command: CloseUnit{ID: req.ID, Summary: req.Summary},
+	}
+	let _ = try s.store.Execute(env)
+	try mustUnit(s.store, req.ID)
+}
+
+// UnitGet looks up one Unit by ID.
+func UnitGet(s Service, req UnitGetInput) Unit fails NotFound | InvalidInput | StoreFailed {
+	if req.ID == "" {
+		return InvalidInput{Field: "id", Why: "must not be empty"}
+	}
+	match try s.store.Unit(req.ID) {
+	case Some[Unit] as u:
+		u.Value
+	case None:
+		NotFound{Kind: "unit", ID: req.ID}
+	}
+}
+
+// UnitList lists units filtered by optional status name.
+func UnitList(s Service, req UnitListInput) []Unit fails InvalidInput | StoreFailed {
+	let filter = match req.Status {
+	case Some[string] as raw:
+		match ParseUnitStatus(raw.Value) {
+		case Some[UnitStatus] as st:
+			Some[UnitStatus]{Value: st.Value}
+		case None:
+			return InvalidInput{Field: "status", Why: "unknown unit status"}
+		}
+	case None:
+		None
+	}
+	try s.store.ListUnits(filter)
+}
+
+// ReceiptRecord executes RecordReceipt and returns the persisted Receipt.
+func ReceiptRecord(s Service, req ReceiptRecordInput) Receipt fails NotFound | AlreadyExists | InvalidTransition | StaleClaim | CommandReused | InvalidInput | StoreFailed {
+	let env = Envelope{
+		ID:      req.CommandID,
+		Actor:   req.Actor,
+		At:      req.At,
+		Command: RecordReceipt{
+			ID:             req.ID,
+			UnitID:         req.UnitID,
+			Round:          req.Round,
+			Kind:           req.Kind,
+			Command:        req.Command,
+			CommitSHA:      req.CommitSHA,
+			ExitCode:       req.ExitCode,
+			SummaryMetrics: req.SummaryMetrics,
+			LogPath:        req.LogPath,
+			LogSHA256:      req.LogSHA256,
+		},
+	}
+	let _ = try s.store.Execute(env)
+	let list = try s.store.Receipts(req.UnitID, Some[int]{Value: req.Round})
+	for r in list {
+		if r.ID == req.ID {
+			return r
+		}
+	}
+	StoreFailed{Reason: "receipt missing after execute"}
+}
+
+// ReceiptRead reads receipts for a unit and optional round.
+func ReceiptRead(s Service, req ReceiptReadInput) []Receipt fails InvalidInput | StoreFailed {
+	if req.UnitID == "" {
+		return InvalidInput{Field: "unitId", Why: "must not be empty"}
+	}
+	try s.store.Receipts(req.UnitID, req.Round)
+}
+
+// CommitmentAdd executes AddCommitment and returns the resulting Commitment.
+func CommitmentAdd(s Service, req CommitmentAddInput) Commitment fails NotFound | AlreadyExists | InvalidTransition | StaleClaim | CommandReused | InvalidInput | StoreFailed {
+	let env = Envelope{
+		ID:      req.CommandID,
+		Actor:   req.Actor,
+		At:      req.At,
+		Command: AddCommitment{ID: req.ID, Title: req.Title, Kind: req.Kind},
+	}
+	let _ = try s.store.Execute(env)
+	try mustCommitment(s.store, req.ID)
+}
+
+// CommitmentAssign executes AssignCommitment and returns the resulting Commitment.
+func CommitmentAssign(s Service, req CommitmentAssignInput) Commitment fails NotFound | AlreadyExists | InvalidTransition | StaleClaim | CommandReused | InvalidInput | StoreFailed {
+	let env = Envelope{
+		ID:      req.CommandID,
+		Actor:   req.Actor,
+		At:      req.At,
+		Command: AssignCommitment{ID: req.ID, Owner: req.Owner, Lane: req.Lane},
+	}
+	let _ = try s.store.Execute(env)
+	try mustCommitment(s.store, req.ID)
+}
+
+// CommitmentLanded executes LandCommitment and returns the resulting Commitment.
+func CommitmentLanded(s Service, req CommitmentLandedInput) Commitment fails NotFound | AlreadyExists | InvalidTransition | StaleClaim | CommandReused | InvalidInput | StoreFailed {
+	let env = Envelope{
+		ID:      req.CommandID,
+		Actor:   req.Actor,
+		At:      req.At,
+		Command: LandCommitment{ID: req.ID, LandedSHA: req.LandedSHA},
+	}
+	let _ = try s.store.Execute(env)
+	try mustCommitment(s.store, req.ID)
+}
+
+// CommitmentDecide executes DecideCommitment and returns the resulting Commitment.
+func CommitmentDecide(s Service, req CommitmentDecideInput) Commitment fails NotFound | AlreadyExists | InvalidTransition | StaleClaim | CommandReused | InvalidInput | StoreFailed {
+	let env = Envelope{
+		ID:      req.CommandID,
+		Actor:   req.Actor,
+		At:      req.At,
+		Command: DecideCommitment{ID: req.ID, Note: req.Note, Withdraw: req.Withdraw},
+	}
+	let _ = try s.store.Execute(env)
+	try mustCommitment(s.store, req.ID)
+}
+
+// CommitmentList lists commitments filtered by optional status name and owner.
+func CommitmentList(s Service, req CommitmentListInput) []Commitment fails InvalidInput | StoreFailed {
+	let filter = match req.Status {
+	case Some[string] as raw:
+		match ParseCommitmentStatus(raw.Value) {
+		case Some[CommitmentStatus] as st:
+			Some[CommitmentStatus]{Value: st.Value}
+		case None:
+			return InvalidInput{Field: "status", Why: "unknown commitment status"}
+		}
+	case None:
+		None
+	}
+	try s.store.ListCommitments(filter, req.Owner)
+}
+
+// QueueUpsert executes UpsertQueueItem and returns the stored QueueItem.
+func QueueUpsert(s Service, req QueueUpsertInput) QueueItem fails NotFound | AlreadyExists | InvalidTransition | StaleClaim | CommandReused | InvalidInput | StoreFailed {
+	let env = Envelope{
+		ID:      req.CommandID,
+		Actor:   req.Actor,
+		At:      req.At,
+		Command: UpsertQueueItem{
+			Key:      req.Key,
+			Priority: req.Priority,
+			Title:    req.Title,
+			Body:     req.Body,
+			Status:   req.Status,
+			Tags:     req.Tags,
+		},
+	}
+	let _ = try s.store.Execute(env)
+	let items = try s.store.ListQueue(None)
+	for item in items {
+		if item.Key == req.Key {
+			return item
+		}
+	}
+	StoreFailed{Reason: "queue item missing after execute"}
+}
+
+// QueueRemove executes RemoveQueueItem and returns confirmation.
+func QueueRemove(s Service, req QueueRemoveInput) QueueRemovedReply fails NotFound | AlreadyExists | InvalidTransition | StaleClaim | CommandReused | InvalidInput | StoreFailed {
+	let env = Envelope{
+		ID:      req.CommandID,
+		Actor:   req.Actor,
+		At:      req.At,
+		Command: RemoveQueueItem{Key: req.Key},
+	}
+	let _ = try s.store.Execute(env)
+	QueueRemovedReply{Key: req.Key, Removed: true}
+}
+
+// QueueList lists queue items filtered by optional status.
+func QueueList(s Service, req QueueListInput) []QueueItem fails StoreFailed {
+	try s.store.ListQueue(req.Status)
+}
+
+// QuestionAsk executes AskQuestion and returns the opened Question (including on idempotent retry).
+func QuestionAsk(s Service, req QuestionAskInput) Question fails NotFound | AlreadyExists | InvalidTransition | StaleClaim | CommandReused | InvalidInput | StoreFailed {
+	let env = Envelope{
+		ID:      req.CommandID,
+		Actor:   req.Actor,
+		At:      req.At,
+		Command: AskQuestion{
+			ID:             req.ID,
+			Prompt:         req.Prompt,
+			Assumption:     req.Assumption,
+			ConcreteAction: req.ConcreteAction,
+		},
+	}
+	let res = try s.store.Execute(env)
+	for ev in res.Events {
+		match ev {
+		case QuestionAsked as qa:
+			return qa.Question
+		case CommandAccepted, UnitOpened, UnitWasClaimed, UnitRoundAdvanced, UnitWasHandedBack, UnitWasLanded, UnitWasClosed, ReceiptRecorded, CommitmentAdded, CommitmentWasAssigned, CommitmentWasLanded, CommitmentWasDecided, CommitmentWasWithdrawn, QueueUpserted, QueueRemoved, QuestionWasAnswered, QuestionWasWithdrawn:
+		}
+	}
+	let snap = try s.store.Snapshot()
+	match snap.QuestionByCommand.Get(req.CommandID) {
+	case Some[int] as qid:
+		match try s.store.Question(qid.Value) {
+		case Some[Question] as q:
+			q.Value
+		case None:
+			StoreFailed{Reason: "question missing after execute"}
+		}
+	case None:
+		StoreFailed{Reason: "question command mapping missing after execute"}
+	}
+}
+
+// QuestionAnswer executes AnswerQuestion and returns the updated Question.
+func QuestionAnswer(s Service, req QuestionAnswerInput) Question fails NotFound | AlreadyExists | InvalidTransition | StaleClaim | CommandReused | InvalidInput | StoreFailed {
+	let env = Envelope{
+		ID:      req.CommandID,
+		Actor:   req.Actor,
+		At:      req.At,
+		Command: AnswerQuestion{ID: req.ID, Answer: req.Answer, Withdraw: req.Withdraw},
+	}
+	let _ = try s.store.Execute(env)
+	match try s.store.Question(req.ID) {
+	case Some[Question] as q:
+		q.Value
+	case None:
+		StoreFailed{Reason: "question missing after execute"}
+	}
+}
+
+// QuestionList lists async questions, optionally restricted to open ones.
+func QuestionList(s Service, req QuestionListInput) []Question fails StoreFailed {
+	try s.store.ListQuestions(req.OpenOnly)
+}
+
+func mustUnit(store Store, id string) Unit fails StoreFailed {
+	match try store.Unit(id) {
+	case Some[Unit] as u:
+		u.Value
+	case None:
+		StoreFailed{Reason: "unit missing after execute"}
+	}
+}
+
+func mustCommitment(store Store, id string) Commitment fails StoreFailed {
+	match try store.Commitment(id) {
+	case Some[Commitment] as c:
+		c.Value
+	case None:
+		StoreFailed{Reason: "commitment missing after execute"}
+	}
+}

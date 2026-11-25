@@ -1,0 +1,101 @@
+{
+  "about": "module orchestrate's domain and memory store mutants; each is judged by the module's tests and laws (scripts/examples -modules orchestrate).",
+  "mutants": [
+    {
+      "name": "orch2-skip-command-reused",
+      "origin": "wf10/ORCH-2",
+      "file": "modules/orchestrate/orchestrate/decide.ergo",
+      "from": "\t\tif prev.Value == env.Command {\n\t\t\treturn []Event{}\n\t\t}\n\t\treturn CommandReused{ID: env.ID}\n",
+      "to": "\t\tif prev.Value == env.Command {\n\t\t\treturn []Event{}\n\t\t}\n\t\treturn []Event{}\n",
+      "rule": "Reusing an accepted CommandID with a different payload must fail CommandReused: IdempotentCommandID and Store.StoreIdempotentExecute.",
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      },
+      "killers": [
+        "examples:modules/orchestrate"
+      ]
+    },
+    {
+      "name": "orch2-allow-handback-without-claim",
+      "origin": "wf10/ORCH-2",
+      "file": "modules/orchestrate/orchestrate/decide.ergo",
+      "from": "\t\ttry requireUnitAction(u, ActHandBack)\n\t\ttry requireActiveOwner(u, c.Owner)\n",
+      "to": "\t\tlet _ = u\n",
+      "rule": "HandBackUnit requires an active claim by the matching owner: UnitLifecycleOrder.",
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      },
+      "killers": [
+        "examples:modules/orchestrate"
+      ]
+    },
+    {
+      "name": "orch2-drop-receipt-on-fold",
+      "origin": "wf10/ORCH-2",
+      "file": "modules/orchestrate/orchestrate/events.ergo",
+      "from": "\t\tState{..state, Receipts: state.Receipts.Put(r.ID, r), ReceiptOrder: order}\n",
+      "to": "\t\tState{..state, ReceiptOrder: order}\n",
+      "rule": "Apply(ReceiptRecorded) must project the receipt into State.Receipts so Fold and ReceiptsOf read it: ReceiptRecordedReadable and Store.StoreQueriesMatchSnapshot.",
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      },
+      "killers": [
+        "examples:modules/orchestrate"
+      ]
+    },
+    {
+      "name": "orch2-mutate-landed-commitment",
+      "origin": "wf10/ORCH-2",
+      "file": "modules/orchestrate/orchestrate/decide.ergo",
+      "from": "\tcase CommitLanded, CommitDecided, CommitWithdrawn:\n\t\tInvalidTransition{Kind: \"commitment\", ID: c.ID, From: CommitmentStatusName(c.Status), Action: action}\n",
+      "to": "\tcase CommitDecided, CommitWithdrawn:\n\t\tInvalidTransition{Kind: \"commitment\", ID: c.ID, From: CommitmentStatusName(c.Status), Action: action}\n\tcase CommitLanded:\n",
+      "rule": "A landed commitment is monotone terminal and cannot be reassigned, relanded, or decided: CommitmentLandedMonotone.",
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      },
+      "killers": [
+        "examples:modules/orchestrate"
+      ]
+    },
+    {
+      "name": "orch2-reanswer-question",
+      "origin": "wf10/ORCH-2",
+      "file": "modules/orchestrate/orchestrate/lifecycle.ergo",
+      "from": "\tcase (QuestionAnswered | QuestionWithdrawn, ActAnswer | ActWithdraw):\n\t\tReject\n",
+      "to": "\tcase (QuestionAnswered, ActAnswer):\n\t\tEnter[QuestionStatus]{Next: QuestionAnswered}\n\tcase (QuestionAnswered, ActWithdraw):\n\t\tReject\n\tcase (QuestionWithdrawn, ActAnswer | ActWithdraw):\n\t\tReject\n",
+      "rule": "An answered question cannot be answered again: FinalQuestionTakesNoAction and QuestionAnsweredOnce.",
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      },
+      "killers": [
+        "examples:modules/orchestrate"
+      ]
+    },
+    {
+      "name": "orch2-memory-appends-duplicate",
+      "origin": "wf10/ORCH-2",
+      "file": "modules/orchestrate/memory/store.ergo",
+      "from": "\t\tif len(events) == 0 {\n\t\t\treturn (execOK{Result: orchestrate.ExecuteResult{Seq: len(b.log), Events: []orchestrate.Event{}, Duplicate: true}}, b)\n\t\t}\n",
+      "to": "\t\tif len(events) == 0 {\n\t\t\treturn (execOK{Result: orchestrate.ExecuteResult{Seq: len(b.log), Events: []orchestrate.Event{}, Duplicate: false}}, b)\n\t\t}\n",
+      "rule": "An idempotent resend must report Duplicate: true: Store.StoreIdempotentExecute.",
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      },
+      "killers": [
+        "examples:modules/orchestrate"
+      ]
+    }
+  ]
+}
