@@ -56,13 +56,10 @@ func bindingName(pkg *check.Package, law *check.Law, b []check.LawProvider) stri
 	n := qualifiedLaw(pkg, law)
 	var with []string
 	for k, slot := range law.Slots {
-		p := b[k].Type.Obj.Name
-		if b[k].Type.Obj.Pkg != pkg {
-			p = b[k].Type.Obj.Pkg.Name + "." + p
-		}
+		p := b[k].ClaimantTitle(pkg)
 		if slot.Param < 0 {
 			n += " for " + p
-			if b[k].Claim != nil && b[k].At != b[k].Type {
+			if b[k].HasDistinctInstance() {
 				n += " at " + b[k].InstanceTitle()
 			}
 		} else {

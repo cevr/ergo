@@ -1300,8 +1300,13 @@ func equatableInClaimLaw(t Type) bool { return equatableSeen(t, map[Type]bool{},
 
 func equatableSeen(t Type, seen map[Type]bool, allowSelf bool) bool {
 	if allowSelf {
-		if _, ok := t.(*SelfType); ok {
+		switch u := t.(type) {
+		case *SelfType:
 			return true
+		case *TypeParam:
+			if u.Kind == KindType {
+				return true
+			}
 		}
 	}
 	switch u := under(t).(type) {

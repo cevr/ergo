@@ -667,17 +667,18 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	if c.Recv != nil {
 		ops = append([]syntax.Expr{c.Recv}, x.Args...)
 	}
+	tuple, isTuple := b.l.info.Types[x].(*check.Tuple)
 	switch {
 	case !ok:
 		irNo("call of a std intrinsic")
-	case c.Recv != nil && check.CollOpOf(f) == check.CollNone:
+	case c.Recv != nil && check.CollOpOf(f) == check.CollNone && (f.Decl == nil || f.Decl.Implements == nil):
 		irNo("dot call of a std function")
 	case b.fc.refSiteOf(x) != nil:
 		if b.inPlaceSite(x) {
 			return b.ownedSiteCall(x, c, b.fc.refSiteOf(x), p) // ir_ownlit.go
 		}
 		return b.ownedRefCall(x, c, b.fc.refSiteOf(x), ops, nil, p) // ir_refown.go
-	case commaOk(body):
+	case commaOk(body) && !isTuple:
 		irNo("std call with an adapted result")
 	case len(body.Params) != len(ops)+trailing(x):
 		irNo("std call with another arity")
@@ -691,7 +692,6 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	if _, bound := runtimeBindings()[name]; !bound {
 		irNo("std call with no runtime binding")
 	}
-	tuple, isTuple := b.l.info.Types[x].(*check.Tuple)
 	if isTuple {
 		// A body with Go's several results, one per element, is bound by
 		// a tdef (ir_tuple.go, F4b: bits.Add64); any other is adapted.
@@ -729,6 +729,7 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 		}
 		conv, ok := b.operandConv(ops[i], q.Type, subst, body.Package) // ir_operand.go
 		if !ok {
+			b.l.intMapCall(x, c.Recv, f, true)
 			irNo("std call with a converted operand")
 		}
 		if conv != "" {
@@ -739,6 +740,7 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 		irNo("fallible call with an empty row at its site")
 	}
 	if !isTuple && !defersCall(body) && goValue(body) && !b.sameGo(b.l.info.Types[x], body.Results[0]) && !b.sameRT(b.l.info.Types[x], body.Results[0], subst, body.Package) {
+		b.l.intMapCall(x, c.Recv, f, true)
 		irNo("std call with a converted result")
 	}
 	hidden := b.hidden(body, x, c, p)

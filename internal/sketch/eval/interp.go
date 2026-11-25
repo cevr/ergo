@@ -464,6 +464,13 @@ func (in *interp) callPlanned(fr *frame, at *syntax.CallExpr, p *funcPlan, targs
 			}
 			return evalLenValue(v), nil
 		}
+		if check.GoBuiltin(fn) == "delete" && len(args) == 2 {
+			var site syntax.Node = fr.decl
+			if at != nil {
+				site = at
+			}
+			return in.deleteIn(fr, site, args[0].(mapV), args[1], nil)
+		}
 		if spreads := check.AppendSpreads(fn); check.GoBuiltin(fn) == "append" && (in.sym == nil || in.sym.tmpl && isSliceV(args[0]) && (!spreads || isSliceV(args[1]))) {
 			// An extern of Go's append (check/builtin.go) at its first
 			// shape, [T](xs []T, x T) []T: the prelude's xs.Append(x),

@@ -262,7 +262,7 @@ func Law(l *check.Law, bd []check.LawProvider) Plan {
 		}
 		out := makePlan(ins).withTies(l.Ties, 0)
 		if p.Native {
-			out.Native = p.Type.Obj.Name
+			out.Native = p.ClaimantTitle(l.Pkg)
 		}
 		return out
 	}

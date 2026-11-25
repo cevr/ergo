@@ -261,7 +261,7 @@ func (c *checker) funcRewrite(law *Law) (*FuncRewrite, syntax.Node, string) {
 		if claim := law.ClaimRewriteBinding(); claim != nil {
 			// Read the original law's own parameters before closing Self.
 			original := *law
-			original.TParams = law.TParams[len(claim.Type.TParams):]
+			original.TParams = law.TParams[len(claim.ClaimantTParams()):]
 			read, why := claim.Subst(&original)
 			if why != "" {
 				return nil, lhs, why

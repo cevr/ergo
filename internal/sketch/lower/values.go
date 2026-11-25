@@ -3889,4 +3889,40 @@ func (l *lowerer) reserveClones(pkgs []*check.Package, reserve func(key pkgKey, 
 			}
 		}
 	}
+	if l.tests != nil {
+		for _, r := range l.runLaws() {
+			law := r.Law
+			if !law.Claimed() || !lawLowered(r) || law.Decl == nil || law.Decl.Body == nil || law.Pkg == nil || law.Pkg.Info == nil {
+				continue
+			}
+			var claims []check.LawProvider
+			for _, bd := range r.Bindings {
+				if bindingUnrun(bd) == "" && len(bd) > 0 {
+					claims = append(claims, bd[0])
+				}
+			}
+			for _, lc := range r.Contexts {
+				if lc.Unrun == "" && lc.Claim != nil {
+					claims = append(claims, *lc.Claim)
+				}
+			}
+			for _, claim := range claims {
+				read, why := claim.Subst(law)
+				if why != "" {
+					continue
+				}
+				for _, pt := range claim.Params {
+					walk(pt)
+				}
+				syntax.Inspect(law.Decl.Body, func(n syntax.Node) bool {
+					if e, ok := n.(syntax.Expr); ok {
+						if t, ok := typedIn(law.Pkg.Info, e); ok {
+							walk(read(t))
+						}
+					}
+					return true
+				})
+			}
+		}
+	}
 }

@@ -53,10 +53,81 @@ func (c *Call) Operands(x *syntax.CallExpr) []syntax.Expr {
 	return append([]syntax.Expr{c.Recv}, x.Args...)
 }
 
+// ClaimantType is the concrete sampled type of a claim law binding
+// (nominal At, or function-form ClaimAt).
+func (p LawProvider) ClaimantType() Type {
+	if p.At != nil {
+		return p.At
+	}
+	return p.ClaimAt
+}
+
+// ClaimantDeclType is the declaring type of a claim law binding
+// (nominal Type, or function-form ClaimType).
+func (p LawProvider) ClaimantDeclType() Type {
+	if p.Type != nil {
+		return p.Type
+	}
+	return p.ClaimType
+}
+
+// ClaimantPkg is the package that declares the claim.
+func (p LawProvider) ClaimantPkg() *Package {
+	if p.Type != nil {
+		return p.Type.Obj.Pkg
+	}
+	if p.ClaimHead != nil {
+		return p.ClaimHead.Pkg
+	}
+	return nil
+}
+
+// ClaimantTitle is the report's name for the claimant relative to pkg.
+func (p LawProvider) ClaimantTitle(pkg *Package) string {
+	if p.Type != nil {
+		if q := p.Type.Obj.Pkg; q != nil && q != pkg {
+			return q.Name + "." + p.Type.Obj.Name
+		}
+		return p.Type.Obj.Name
+	}
+	if p.ClaimType != nil {
+		return p.ClaimType.String()
+	}
+	return ""
+}
+
+// ClaimantTParams are the claimant's declaration type parameters
+// (nominal Type.TParams, or function-form receiver binders).
+func (p LawProvider) ClaimantTParams() []*TypeParam {
+	if p.Type != nil {
+		return p.Type.TParams
+	}
+	if p.ClaimHead != nil && p.ClaimHead.Sig != nil {
+		return receiverBinders(p.ClaimHead.Sig)
+	}
+	return nil
+}
+
+// HasDistinctInstance reports whether the sampled instance differs from the
+// declaring claimant spelling (e.g. Tree at Tree[int], []T at []int).
+func (p LawProvider) HasDistinctInstance() bool {
+	if p.Claim == nil {
+		return false
+	}
+	if p.Type != nil {
+		return p.At != p.Type
+	}
+	return p.ClaimAt != nil && p.ClaimType != nil && p.ClaimAt.String() != p.ClaimType.String()
+}
+
 // Subst reads the law's types at this binding. The persisted inputs,
 // rather than a closure, are the snapshot representation of this reader.
 func (p LawProvider) Subst(law *Law) (func(Type) Type, string) {
-	read, why := SubstSelf(law, p.At, p.ClaimSlot)
+	slot := p.ClaimSlot
+	if p.At == nil && p.Slot != nil {
+		slot = p.Slot
+	}
+	read, why := SubstSelf(law, p.ClaimantType(), slot)
 	if why != "" || len(p.LawTypeArgs) == 0 {
 		return read, why
 	}
@@ -66,25 +137,44 @@ func (p LawProvider) Subst(law *Law) (func(Type) Type, string) {
 
 // InstanceTitle is the reported sample type, relative to the claim.
 func (p LawProvider) InstanceTitle() string {
-	if p.At == nil {
-		return ""
+	if p.At != nil {
+		return strings.TrimPrefix(p.At.String(), p.At.Obj.Pkg.Path+".")
 	}
-	return strings.TrimPrefix(p.At.String(), p.At.Obj.Pkg.Path+".")
+	if p.ClaimAt != nil {
+		return p.ClaimAt.String()
+	}
+	return ""
 }
 
 // ClaimBlame points to the written claim, not the projected contract.
 func (p LawProvider) ClaimBlame() string {
-	if p.ClaimExpr == nil || p.Type == nil || p.Type.Obj.file == nil {
+	if p.ClaimExpr == nil {
 		return ""
 	}
-	f := p.Type.Obj.file.syntax
+	if p.Type != nil {
+		if p.Type.Obj.file == nil {
+			return ""
+		}
+		f := p.Type.Obj.file.syntax
+		line, col := f.Position(p.ClaimExpr.Pos())
+		file := f.Name
+		if file == "" {
+			file = path.Base(p.Type.Obj.Pkg.Path) + ".ergo"
+		}
+		text := f.Src[p.ClaimExpr.Pos():p.ClaimExpr.End()]
+		return fmt.Sprintf("; %s claims %s at %s:%d:%d", p.Type.Obj.Name, text, file, line, col)
+	}
+	if p.ClaimType == nil || p.ClaimHead == nil || p.ClaimHead.file == nil {
+		return ""
+	}
+	f := p.ClaimHead.file.syntax
 	line, col := f.Position(p.ClaimExpr.Pos())
 	file := f.Name
 	if file == "" {
-		file = path.Base(p.Type.Obj.Pkg.Path) + ".ergo"
+		file = path.Base(p.ClaimHead.Pkg.Path) + ".ergo"
 	}
 	text := f.Src[p.ClaimExpr.Pos():p.ClaimExpr.End()]
-	return fmt.Sprintf("; %s claims %s at %s:%d:%d", p.Type.Obj.Name, text, file, line, col)
+	return fmt.Sprintf("; %s claims %s at %s:%d:%d", p.ClaimType.String(), text, file, line, col)
 }
 
 // claimBindings runs inherited laws at the law's declaring slot. A claim
@@ -107,6 +197,35 @@ func (c *checker) claimBindings(law *Law) (out [][]LawProvider) {
 				c.claimBinding(law, &b)
 				out = append(out, []LawProvider{b})
 			}
+		}
+	}
+	if own.Obj != nil && own.Obj.Pkg == c.pkg && len(c.pkg.functionClaims[own]) > 0 {
+		var seen []*functionClaim
+		for _, g := range c.pkg.functionClaims[own] {
+			if slices.ContainsFunc(seen, func(prev *functionClaim) bool { return c.sameFunctionClaim(prev, g) }) {
+				continue
+			}
+			seen = append(seen, g)
+			root := g.role
+			if g.head != nil && g.head.Decl != nil && g.head.Decl.Implements != nil {
+				if r, ok := c.pkg.Info.Types[g.head.Decl.Implements].(*Named); ok {
+					root = r
+				}
+			}
+			var claimExpr syntax.Expr
+			if g.head != nil && g.head.Decl != nil {
+				claimExpr = g.head.Decl.Implements
+			}
+			b := LawProvider{
+				ClaimType: g.recv,
+				ClaimHead: g.head,
+				Slot:      g.role,
+				ClaimSlot: g.role,
+				Claim:     root,
+				ClaimExpr: claimExpr,
+			}
+			c.functionClaimBinding(law, g, &b)
+			out = append(out, []LawProvider{b})
 		}
 	}
 	return out
@@ -238,6 +357,83 @@ func (c *checker) claimBinding(law *Law, b *LawProvider) {
 	}
 }
 
+func (c *checker) functionClaimBinding(law *Law, g *functionClaim, lp *LawProvider) {
+	at, why := c.lawSample(g.bind)
+	if why != "" {
+		lp.Unrun, lp.noGenerator = why, !law.ClaimEquation()
+		return
+	}
+	m := paramMap(g.bind, at)
+	lp.ClaimAt = c.subst(g.recv, m)
+	lp.Slot = c.subst(lp.ClaimSlot, m).(*Named)
+	if it := asInterface(lp.Slot); it != nil {
+		var held captured
+		for _, op := range it.Methods {
+			fn, _ := c.functionProvider(lp.ClaimAt, lp.Slot, op.Name, nil)
+			if fn != nil && fn.Sig != nil {
+				held.add(fn.Sig.Uses)
+			}
+		}
+		if held.ambient != nil {
+			lp.Unrun = "its operations require Ambient, which a law case does not hold"
+			lp.noGenerator = !law.ClaimEquation()
+			return
+		}
+		lp.Native = held.foreign
+	}
+	lp.LawTypeArgs, why = c.lawSample(law.TParams)
+	if why == "" {
+		var read func(Type) Type
+		read, why = lp.Subst(law)
+		if why == "" {
+			lp.Params = make([]Type, len(law.Params))
+			for i, p := range law.Params {
+				t := read(p.Type)
+				lp.Params[i] = t
+				if sig, ok := t.(*Signature); ok {
+					if len(sig.Results) != 1 {
+						if law.ClaimEquation() {
+							continue
+						}
+						why = "its callback " + p.Name + " has no pure generated family"
+						break
+					}
+					if !law.ClaimEquation() && !ClaimCallback(sig) {
+						why = "its callback " + p.Name + " has no pure generated family"
+						break
+					}
+					t = sig.Results[0]
+				}
+				if s := c.ungeneratableFrom(t, law.Pkg); s != "" {
+					why = "its parameter " + p.Name + " has no generator: " + s
+					break
+				}
+			}
+			if why == "" && !law.ClaimEquation() && law.Decl != nil && law.Decl.Body != nil && law.Pkg != nil && law.Pkg.Info != nil {
+				syntax.Inspect(law.Decl.Body, func(n syntax.Node) bool {
+					if why != "" {
+						return false
+					}
+					be, ok := n.(*syntax.BinaryExpr)
+					if !ok || (be.Op != syntax.EQL && be.Op != syntax.NEQ) {
+						return true
+					}
+					if lt := law.Pkg.Info.Types[be.X]; lt != nil {
+						if ct := read(lt); !isInvalid(ct) && !Equatable(ct) {
+							why = fmt.Sprintf("%s values cannot be compared with %s", ct, be.Op)
+							return false
+						}
+					}
+					return true
+				})
+			}
+		}
+	}
+	if why != "" {
+		lp.Unrun, lp.noGenerator = why, !law.ClaimEquation()
+	}
+}
+
 // ClaimCallback is the checked shape of a callback drawn for a claim
 // property. Results are independently drawable; the callback has no
 // authority and uses up to two integer operands to select its result.
@@ -333,7 +529,7 @@ func (l *Law) ClaimRewriteBinding() *LawProvider { return l.rewriteClaim }
 
 func (l *Law) RewritePackage() *Package {
 	if l.rewriteClaim != nil {
-		return l.rewriteClaim.Type.Obj.Pkg
+		return l.rewriteClaim.ClaimantPkg()
 	}
 	return l.Pkg
 }
@@ -366,19 +562,32 @@ func (l *Law) rewriteSides() (syntax.Expr, syntax.Expr) {
 // claimRewriteView keeps the claimant's declaration parameters symbolic
 // for matching sites. The licence run uses ClaimInfo at the int sample.
 func claimRewriteView(l *Law, p *LawProvider) (*Law, string) {
-	origin := p.Type
-	at := origin
-	if len(origin.TParams) != 0 {
-		args := make([]Type, len(origin.TParams))
-		for i, tp := range origin.TParams {
-			args[i] = tp
-			if tp.Kind != KindType {
-				args[i] = &RowArg{Row: newRow().with(origin.ctx.types, tp)}
+	var at Type
+	var declParams []*TypeParam
+	if p.Type != nil {
+		origin := p.Type
+		atNamed := origin
+		if len(origin.TParams) != 0 {
+			args := make([]Type, len(origin.TParams))
+			for i, tp := range origin.TParams {
+				args[i] = tp
+				if tp.Kind != KindType {
+					args[i] = &RowArg{Row: newRow().with(origin.ctx.types, tp)}
+				}
 			}
+			lawSelfMu.Lock()
+			atNamed = origin.Obj.Pkg.claimReader().instantiate(origin, args)
+			lawSelfMu.Unlock()
 		}
-		lawSelfMu.Lock()
-		at = origin.Obj.Pkg.claimReader().instantiate(origin, args)
-		lawSelfMu.Unlock()
+		at = atNamed
+		declParams = origin.TParams
+	} else if p.ClaimType != nil {
+		at = p.ClaimType
+		if p.ClaimHead != nil && p.ClaimHead.Sig != nil {
+			declParams = receiverBinders(p.ClaimHead.Sig)
+		}
+	} else {
+		return nil, "claim rewrite has no claimant"
 	}
 	read, why := SubstSelf(l, at, p.ClaimSlot)
 	if why != "" {
@@ -391,7 +600,7 @@ func claimRewriteView(l *Law, p *LawProvider) (*Law, string) {
 	view := *l
 	view.rewriteClaim, view.rewriteInfo, view.rewriteRead = p, info, read
 	view.FuncsRewrite = p.ClaimRewrite
-	params := append(slices.Clone(origin.TParams), l.TParams...)
+	params := append(slices.Clone(declParams), l.TParams...)
 	view.TParams = params
 	return &view, ""
 }
@@ -443,8 +652,12 @@ func (c *checker) checkClaimRewrites() {
 					rw, _, why = c.funcRewrite(view)
 				}
 				if why != "" {
-					c.cur = b.Type.Obj.file
-					c.errorf(b.ClaimExpr, CodeType, "law %s is no rewrite at %s: %s%s", l.Title(c.pkg), b.Type.Obj.Name, why, b.ClaimBlame())
+					if b.Type != nil {
+						c.cur = b.Type.Obj.file
+					} else if b.ClaimHead != nil {
+						c.cur = b.ClaimHead.file
+					}
+					c.errorf(b.ClaimExpr, CodeType, "law %s is no rewrite at %s: %s%s", l.Title(c.pkg), b.ClaimantTitle(c.pkg), why, b.ClaimBlame())
 					continue
 				}
 			}

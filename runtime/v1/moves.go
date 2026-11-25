@@ -20,6 +20,7 @@ var movesOnly = sync.OnceValue(func() map[string]bool {
 	return map[string]bool{
 		"New":            true, // queue.New: an empty queue; Push takes, Pop gives (Q7)
 		"Append":         true, // prelude Append: takes xs and x, gives one slice
+		"Reserve":        true, // slices.Grow: moves elements once into a larger backing array
 		"WithCapacity":   true, // an empty slice
 		"SlicesTake":     true, // the element and the disjoint remainder move out
 		"MapTake":        true, // a found value and the disjoint remainder move out

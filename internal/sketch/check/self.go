@@ -586,12 +586,22 @@ func CopyInfo(base *Info, root syntax.Node, read func(Type) Type) (*Info, string
 			if r, ok := recv.(*Reapplied); ok {
 				tp = r.Param
 			}
-			_, symbolicSelf := recv.(*SelfType)
+			selfRecv, symbolicSelf := recv.(*SelfType)
 			if symbolicSelf || tp != nil {
 				self := read(recv)
 				var f *Func
 				var args []Type
-				if tp != nil {
+				if symbolicSelf {
+					var role *Named
+					if len(selfRecv.Args) != 0 {
+						role = closedClaimRole(selfRecv.owner, mapTypes(selfRecv.Args, read))
+					} else if len(selfRecv.owner.TParams) != 0 {
+						role = closedClaimRole(selfRecv.owner, mapTypes(paramTypes(selfRecv.owner.TParams), read))
+					} else {
+						role = selfRecv.owner
+					}
+					f, args = closedClaimProvider(self, role, src.Op.Name, next.TypeArgs)
+				} else if tp != nil {
 					op, _ := read(tp.Constraint).(*Named)
 					if r, ok := recv.(*Reapplied); ok && op != nil {
 						op = closedClaimRole(op, mapTypes(r.Args, read))

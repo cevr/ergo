@@ -1,12 +1,14 @@
 // Package core defines foundational container contracts shared by the
-// standard library: Lengthed, Appender, and Lookup.
+// standard library: Lengthed, Appender, View, Joins, Lookup, and MapWriter.
 
 import option
 
 // Lengthed is a container with a known element count.
-// law-exempt: CORE-LAWS adds LenIsNotNegative next.
 type Lengthed {
 	Len() int,
+
+	// LenIsNotNegative: a container's length is never negative.
+	law LenIsNotNegative(x Self) { x.Len() >= 0 },
 }
 
 // Len returns the number of elements in xs.
@@ -19,16 +21,217 @@ extern go len func Len[K comparable, V own](m Map[K, V]) int implements Lengthed
 extern go len func Len(s string) int implements Lengthed
 
 // Appender is a Lengthed container that appends elements and reserves capacity.
-// law-exempt: STD-ROLES adds the signature only; CORE-LAWS adds built-type providers and Append/Reserve laws next.
 type Appender[E own] {
 	..Lengthed,
 	own Append(e own E) Self,
 	own Reserve(extra int) Self,
+
+	// AppendGrowsByOne: appending one element increases the length by one.
+	law AppendGrowsByOne(x Self, e E) { x.Append(e).Len() == x.Len()+1 },
+
+	// ReserveKeepsLength: reserving capacity does not change the length.
+	law ReserveKeepsLength(x Self, n int where 0 <= n && n <= 64) { x.Reserve(n).Len() == x.Len() },
+
+	// ReserveIsUnobservable: reserving capacity before Append gives the same value as Append alone.
+	law ReserveIsUnobservable(x Self, n int where 0 <= n && n <= 64, e E) { x.Reserve(n).Append(e) == x.Append(e) },
 }
 
+extern go ergo.local/prototype/runtime/v1.Reserve func reserveSlice[T own](xs own []T, extra int) []T
+
+// Append returns xs with e added at the end.
+extern go append func Append[T own](xs own []T, e own T) []T implements Appender[T]
+
+// Reserve returns xs with room for extra more elements.
+func Reserve[T own](xs own []T, extra int) []T implements Appender[T] {
+	if extra <= 0 {
+		return xs
+	}
+	reserveSlice(xs, extra)
+}
+
+// View is a Lengthed sequence read by index, sliced, and taken from.
+type View[E] {
+	..Lengthed,
+	At(i int) E,
+	Slice(i int, j int) Self,
+	TakeAt(i int) (E, Self),
+
+	// SliceIsWindow: Slice(i, j) has length j-i and matches elements i..j-1.
+	law SliceIsWindow(x Self, i int, j int) {
+		if i < 0 || j > x.Len() || i > j {
+			return true
+		}
+		let w = x.Slice(i, j)
+		if w.Len() != j-i {
+			return false
+		}
+		let mut k = 0
+		for k < w.Len() {
+			if w.At(k) != x.At(i+k) {
+				return false
+			}
+			k = k + 1
+		}
+		true
+	},
+
+	// TakeAtIsIndexAndRest: TakeAt(i) returns the element at i and the remaining elements in order.
+	law TakeAtIsIndexAndRest(x Self, i int) {
+		if i < 0 || i >= x.Len() {
+			return true
+		}
+		let elem, rest = x.TakeAt(i)
+		if elem != x.At(i) || rest.Len() != x.Len()-1 {
+			return false
+		}
+		let mut k = 0
+		for k < rest.Len() {
+			let want = if k < i { x.At(k) } else { x.At(k + 1) }
+			if rest.At(k) != want {
+				return false
+			}
+			k = k + 1
+		}
+		true
+	},
+}
+
+// At returns the element of xs at index i.
+func At[T](xs []T, i int) T implements View[T] { xs[i] }
+
+extern go ergo.local/prototype/runtime/v1.SlicesSlice func sliceWindow[T](xs []T, i int, j int) []T
+
+// Slice returns the elements of xs from index i up to j.
+func Slice[T](xs []T, i int, j int) []T implements View[T] { sliceWindow(xs, i, j) }
+
+extern go ergo.local/prototype/runtime/v1.SlicesTake func sliceTakeAt[T](xs []T, i int) (T, []T)
+
+// TakeAt removes and returns the element at index i and the remaining slice.
+func TakeAt[T](xs []T, i int) (T, []T) implements View[T] { sliceTakeAt(xs, i) }
+
+// SliceAppendIsLast: appending x to xs places x at index xs.Len().
+law SliceAppendIsLast(xs []int, x int) {
+	let ys = xs.Append(x)
+	ys.Len() == xs.Len()+1 && ys.At(xs.Len()) == x
+}
+
+// Joins is a Lengthed sequence with associative concatenation and repetition.
+type Joins {
+	..Lengthed,
+	Concat(other Self) Self,
+	Repeat(n int) Self,
+
+	// ConcatAssociates: Concat is associative.
+	law ConcatAssociates(a Self, b Self, c Self) { a.Concat(b).Concat(c) == a.Concat(b.Concat(c)) },
+
+	// ConcatAddsLengths: concatenating two sequences sums their lengths.
+	law ConcatAddsLengths(a Self, b Self) { a.Concat(b).Len() == a.Len()+b.Len() },
+
+	// RepeatIsConcat: repeating n+1 times equals repeating n times then concatenating once.
+	law RepeatIsConcat(a Self, n int where 0 <= n && n < 8) { a.Repeat(n+1) == a.Repeat(n).Concat(a) },
+}
+
+extern go ergo.local/prototype/runtime/v1.SlicesConcat func sliceConcat[T](xs []T, ys []T) []T
+
+// Concat returns xs followed by ys.
+func Concat[T](xs []T, ys []T) []T implements Joins { sliceConcat(xs, ys) }
+
+extern go ergo.local/prototype/runtime/v1.SlicesRepeat func sliceRepeat[T](xs []T, n int) []T
+
+// Repeat returns xs repeated n times.
+func Repeat[T](xs []T, n int) []T implements Joins { sliceRepeat(xs, n) }
+
 // Lookup is a Lengthed container keyed by K whose Get returns an Option[V].
-// law-exempt: STD-ROLES adds the signature only; CORE-LAWS adds built-type providers and Lookup laws next.
 type Lookup[K, V own] {
 	..Lengthed,
 	Get(k K) option.Option[V],
+
+	// GetIsConsistent: reading the same key twice returns the same result.
+	law GetIsConsistent(m Self, k K) { m.Get(k) == m.Get(k) },
 }
+
+extern go ergo.local/prototype/runtime/v1.Get func mapGet[K comparable, V](m Map[K, V], k K) (V, bool)
+
+// Get returns the value stored at k in m, or option.None if absent.
+func Get[K comparable, V](m Map[K, V], k K) option.Option[V] implements Lookup[K, V] {
+	let v, ok = mapGet(m, k)
+	if ok {
+		option.Some{Value: v}
+	} else {
+		option.None
+	}
+}
+
+// MapWriter is a Lookup container that puts, deletes, takes, and clones entries.
+type MapWriter[K, V own] {
+	..Lookup[K, V],
+	Put(k K, v V) Self,
+	Delete(k K) Self,
+	own Take(k K) (option.Option[V], Self),
+	Clone() Self,
+
+	// GetAfterPut: Get of a key just Put returns Some of the value put.
+	law GetAfterPut(m Self, k K, v V) {
+		match m.Put(k, v).Get(k) {
+		case option.Some[V] as x:
+			x.Value == v
+		case option.None:
+			false
+		}
+	},
+
+	// GetAfterDelete: Get of a deleted key returns None.
+	law GetAfterDelete(m Self, k K) {
+		match m.Delete(k).Get(k) {
+		case option.Some[V]:
+			false
+		case option.None:
+			true
+		}
+	},
+
+	// PutKeepsOthers: Put on key k leaves Get on any other key unchanged.
+	law PutKeepsOthers(m Self, k K, v V, o K) {
+		if o == k {
+			return true
+		}
+		m.Put(k, v).Get(o) == m.Get(o)
+	},
+
+	// TakeIsGetAndDelete: Take returns the entry at k and the map without k.
+	law TakeIsGetAndDelete(m Self, k K) {
+		let got, rest = m.Take(k)
+		got == m.Get(k) && rest.Get(k) == option.None && rest.Len() == m.Delete(k).Len()
+	},
+
+	// CloneIsEqual: a cloned container keeps its length and entries.
+	law CloneIsEqual(m Self, k K) {
+		let c = m.Clone()
+		c.Len() == m.Len() && c.Get(k) == m.Get(k)
+	},
+}
+
+extern go ergo.local/prototype/runtime/v1.Put func mapPut[K comparable, V](m Map[K, V], k K, v V) Map[K, V]
+
+// Put returns m with k set to v.
+func Put[K comparable, V](m Map[K, V], k K, v V) Map[K, V] implements MapWriter[K, V] { mapPut(m, k, v) }
+
+// Delete returns m without key k.
+extern go delete func Delete[K comparable, V](m Map[K, V], k K) Map[K, V] implements MapWriter[K, V]
+
+extern go ergo.local/prototype/runtime/v1.MapTake func mapTake[K comparable, V](m Map[K, V], k K) (V, bool, Map[K, V])
+
+// Take removes and returns the entry at k and the remaining map.
+func Take[K comparable, V](m own Map[K, V], k K) (option.Option[V], Map[K, V]) implements MapWriter[K, V] {
+	let v, ok, rest = mapTake(m, k)
+	if ok {
+		(option.Some{Value: v}, rest)
+	} else {
+		(option.None, rest)
+	}
+}
+
+extern go ergo.local/prototype/runtime/v1.MapsClone func mapClone[K comparable, V](m Map[K, V]) Map[K, V]
+
+// Clone returns a copy of m with the same entries.
+func Clone[K comparable, V](m Map[K, V]) Map[K, V] implements MapWriter[K, V] { mapClone(m) }

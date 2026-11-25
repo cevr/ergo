@@ -439,7 +439,7 @@ func targetWalk(law *check.Law, binding []check.LawProvider) (*digester, []strin
 	}
 	var slots []string
 	for k, p := range binding {
-		if p.Type == nil {
+		if p.ClaimantDeclType() == nil {
 			continue
 		}
 		if p.Claim != nil {
@@ -709,7 +709,7 @@ func BindingLabel(pkg *check.Package, law *check.Law, b []check.LawProvider) str
 	for k, s := range law.Slots {
 		if s.Param < 0 {
 			label += " for " + providerTitleIn(pkg, b[k])
-			if b[k].Claim != nil && b[k].At != b[k].Type {
+			if b[k].HasDistinctInstance() {
 				label += " at " + b[k].InstanceTitle()
 			}
 			continue
@@ -726,10 +726,7 @@ func BindingLabel(pkg *check.Package, law *check.Law, b []check.LawProvider) str
 // provider: its type's name, with its package's name before it when it
 // is of another package.
 func providerTitleIn(pkg *check.Package, p check.LawProvider) string {
-	if q := p.Type.Obj.Pkg; q != nil && q != pkg {
-		return q.Name + "." + p.Type.Obj.Name
-	}
-	return p.Type.Obj.Name
+	return p.ClaimantTitle(pkg)
 }
 
 // tableFuncs are the conversion's functions, in operation order.

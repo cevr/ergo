@@ -189,8 +189,8 @@ func licenceOrdered(pkg *check.Package, law *check.Law, b Budget, corpus []strin
 	in := &interp{budget: b, root: pkg, files: map[syntax.Decl]*syntax.File{}, initials: map[*check.TypeName]Value{}, mapOrder: order, goBodies: goBodies}
 	l.Name = lawName(law)
 	if claim := law.ClaimRewriteBinding(); claim != nil {
-		l.Name = "law " + law.Title(pkg) + " for " + claim.Type.Obj.Name
-		if claim.At != nil && claim.At != claim.Type {
+		l.Name = "law " + law.Title(pkg) + " for " + claim.ClaimantTitle(pkg)
+		if claim.HasDistinctInstance() {
 			l.Name += " at " + claim.InstanceTitle()
 		}
 		if claim.Unrun != "" {
@@ -235,7 +235,7 @@ func (in *interp) licence(law *check.Law, l *Licence, corpus []string) {
 		// parameters for matching; only the law's own parameters need
 		// instantiation in the concrete licence body.
 		original := *law
-		original.TParams = law.TParams[len(claim.Type.TParams):]
+		original.TParams = law.TParams[len(claim.ClaimantTParams()):]
 		info, why := claim.ClaimInfo(&original)
 		if why != "" {
 			l.Verdict, l.Reason = "skipped", why
@@ -250,7 +250,7 @@ func (in *interp) licence(law *check.Law, l *Licence, corpus []string) {
 	r := testgen.New(in.budget.Seed, l.Name)
 	r.Charge = func(k int64) { mustCharge(in, fr, k) }
 	draw := func(t check.Type) Value {
-		if claim != nil && claim.ClaimCtor != nil && t == claim.At {
+		if claim != nil && claim.ClaimCtor != nil && t == claim.ClaimantType() {
 			var args []Value
 			for _, tp := range claim.ClaimCtorParams {
 				args = append(args, in.generate(fr, r, tp, testplan.Depth, nil))
