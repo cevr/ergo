@@ -15,7 +15,7 @@ func severalTargets(command string, opts fileOptions, targets []string) error {
 	switch {
 	case opts.law != "" || opts.skipLaw != "":
 		return fmt.Errorf("incorrect arguments for test: --law and --skip-law take one target")
-	case opts.run != "":
+	case opts.run != "" && !opts.mutants:
 		return fmt.Errorf("incorrect arguments for test: --run takes one target")
 	case opts.receipt != "":
 		return fmt.Errorf("incorrect arguments for test: --receipt takes one target")

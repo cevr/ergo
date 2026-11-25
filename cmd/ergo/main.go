@@ -202,7 +202,12 @@ type fileOptions struct {
 	// (tier 2), never on the check-time evaluator (TESTSPEED FT1). The gate
 	// and CI use it.
 	native bool
-	file   string
+	// mutants is test's --mutants: run .ergo mutant ledger rows in memory
+	// using graph read sets and reach-digest verdict caching (MN1).
+	mutants bool
+	// fresh is test's --fresh with --mutants: bypass stored mutant verdicts.
+	fresh bool
+	file  string
 	// more are test's targets after the first (`ergo test A B C/...`),
 	// each a file, a folder or a pattern; none for every other command.
 	more []string
@@ -410,6 +415,10 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 			opts.release = true
 		case "--native":
 			opts.native = true
+		case "--mutants":
+			opts.mutants = true
+		case "--fresh":
+			opts.fresh = true
 		case "--go-trace":
 			opts.goTrace = true
 		case "--explore":
@@ -429,7 +438,7 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("%s: %s", diagnostic.Code, diagnostic.Message)
 	}
 	switch {
-	case len(positional) == 0:
+	case len(positional) == 0 && !opts.mutants:
 		return opts, fmt.Errorf("source file required")
 	case opts.strict && command != "diagnostics" && command != "lint" && command != "check":
 		return opts, fmt.Errorf("--strict is only supported by diagnostics, lint and check")
@@ -501,12 +510,21 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("--list and --why need --affected")
 	case opts.affected.on && (selected || ran || opts.receipt != "" || opts.emitted || opts.explore || searched || opts.work):
 		return opts, fmt.Errorf("--affected selects the obligations itself: it takes no --law, --skip-law, --run, --receipt, --emitted, --explore or -work")
+	case opts.mutants && command != "test":
+		return opts, fmt.Errorf("--mutants is only supported by test")
+	case opts.fresh && !opts.mutants:
+		return opts, fmt.Errorf("--fresh needs --mutants")
+	case opts.mutants && (opts.affected.on || selected || opts.receipt != "" || opts.emitted || opts.explore || searched || opts.work):
+		return opts, fmt.Errorf("--mutants selects tests itself: it takes no --affected, --law, --skip-law, --receipt, --emitted, --explore or -work")
 	case laws > 1 || skips > 1:
 		return opts, fmt.Errorf("--law and --skip-law each select one law: given twice, the first would be dropped")
 	case selected && (!validLaw(opts.law) || !validLaw(opts.skipLaw) || opts.law+opts.skipLaw == ""):
 		return opts, fmt.Errorf("--law and --skip-law take a law's name, as a report shows it (Design.Safe)")
 	case len(positional) > 1 && command != "test" && command != "check", len(positional) == 0 && command != "test":
 		return opts, fmt.Errorf("incorrect arguments for %s", command)
+	}
+	if len(positional) == 0 && opts.mutants {
+		positional = []string{"."}
 	}
 	if len(positional) > 1 {
 		if err := severalTargets(command, opts, positional); err != nil {

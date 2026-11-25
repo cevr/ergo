@@ -10,6 +10,12 @@ func CheckDirOverlay(dir string, contents map[string]string) (Analysis, error) {
 	return checkDir(overlayFS{contents: contents}, dir)
 }
 
+// OverlayFS returns an FS that serves replacement contents for clean absolute
+// file paths from memory and reads all other paths from the host file system.
+func OverlayFS(contents map[string]string) FS {
+	return overlayFS{contents: contents}
+}
+
 type overlayFS struct {
 	hostFS
 	contents map[string]string
