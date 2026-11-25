@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"sync"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -131,25 +130,23 @@ func (s *nameScope) isReserved(n string) bool {
 var (
 	// goPackageHelpers are the unexported package-level names and the
 	// imported packages of the emitted file.
-	goPackageHelpers = sync.OnceValue(func() map[string]bool {
-		return map[string]bool{
-			"ready": true, "statusError": true, "sliceData": true, "toABI": true, "fromABI": true,
-			"loadMu": true, "loaded": true, "symbols": true,
-			// Word-direct SyscallN fast path and C guard-page hooks (emitgo.go).
-			"wordBuf": true, "wordPool": true, "symAddrs": true, "forceRegisterFunc": true,
-			"cCall0": true, "cCall": true, "boolWord": true,
-			"cGuardIn": true, "cGuardOut": true,
-			// The callbacks (emitgo.go, callbacks): the registry, its lock and
-			// helpers, the token counter and the trampolines' C pointers.
-			"cbMu": true, "cbNext": true, "cbPtr": true, "cbFuncs": true, "cbEntry": true, "cbMake": true, "cbNew": true,
-			"cbToken": true, "cbPut": true, "cbUndo": true, "cbDrop": true, "cbDropOwner": true, "cbOther": true, "cbDropOf": true,
-			// The panic containment, the thread id and the Owner (emitthread.go).
-			"cbPendMu": true, "cbPendN": true, "cbPendOn": true, "cbContain": true, "cbPending": true, "cbPendingHere": true,
-			"cbTake": true, "cbTakeHere": true, "cbThread": true, "ownerJob": true, "ownerServe": true, "ownerRun": true, "ownerHere": true,
-			"strconv": true, "atomic": true, "sync": true, "errors": true, "fmt": true, "runtime": true, "unsafe": true, "purego": true,
-			"os": true, "debug": true, "syscall": true,
-		}
-	})
+	goPackageHelpers = map[string]bool{
+		"ready": true, "statusError": true, "sliceData": true, "toABI": true, "fromABI": true,
+		"loadMu": true, "loaded": true, "symbols": true,
+		// Word-direct SyscallN fast path and C guard-page hooks (emitgo.go).
+		"wordBuf": true, "wordPool": true, "symAddrs": true, "forceRegisterFunc": true,
+		"cCall0": true, "cCall": true, "boolWord": true,
+		"cGuardIn": true, "cGuardOut": true,
+		// The callbacks (emitgo.go, callbacks): the registry, its lock and
+		// helpers, the token counter and the trampolines' C pointers.
+		"cbMu": true, "cbNext": true, "cbPtr": true, "cbFuncs": true, "cbEntry": true, "cbMake": true, "cbNew": true,
+		"cbToken": true, "cbPut": true, "cbUndo": true, "cbDrop": true, "cbDropOwner": true, "cbOther": true, "cbDropOf": true,
+		// The panic containment, the thread id and the Owner (emitthread.go).
+		"cbPendMu": true, "cbPendN": true, "cbPendOn": true, "cbContain": true, "cbPending": true, "cbPendingHere": true,
+		"cbTake": true, "cbTakeHere": true, "cbThread": true, "ownerJob": true, "ownerServe": true, "ownerRun": true, "ownerHere": true,
+		"strconv": true, "atomic": true, "sync": true, "errors": true, "fmt": true, "runtime": true, "unsafe": true, "purego": true,
+		"os": true, "debug": true, "syscall": true,
+	}
 	// goExported are the exported package-level names that come from no
 	// declaration of the header.
 	goExported = []string{"Status", "Load", "ABIMismatchError", "ErrNotLoaded", "ErrDestroyed", "ErrTooLong",
@@ -162,17 +159,16 @@ var (
 	// goMethods are the methods the emitter gives a struct of the header.
 	goMethods = map[string]bool{"fill": true, "record": true}
 	// goPredeclared are Go's predeclared identifiers.
-	goPredeclared = sync.OnceValue(func() map[string]bool {
-		words := strings.Fields(`bool byte complex64 complex128 error float32 float64 int int8 int16 int32 int64
-		rune string uint uint8 uint16 uint32 uint64 uintptr any comparable true false iota nil append cap clear close
-		complex copy delete imag len make max min new panic print println real recover`)
-		m := make(map[string]bool, len(words))
-		for _, n := range words {
-			m[n] = true
-		}
-		return m
-	})
+	goPredeclared = map[string]bool{}
 )
+
+func init() {
+	for _, n := range strings.Fields(`bool byte complex64 complex128 error float32 float64 int int8 int16 int32 int64
+		rune string uint uint8 uint16 uint32 uint64 uintptr any comparable true false iota nil append cap clear close
+		complex copy delete imag len make max min new panic print println real recover`) {
+		goPredeclared[n] = true
+	}
+}
 
 // hasNumber reports whether n is prefix followed by a decimal number.
 func hasNumber(n, prefix string) bool {
@@ -187,7 +183,7 @@ func hasNumber(n, prefix string) bool {
 // An escape must reach a name that is not reserved: every reserved name
 // with "_" appended is free.
 func isGoPackageHelper(n string) bool {
-	return goPackageHelpers()[n] || hasNumber(n, "abiW") || hasNumber(n, "abiF32x") || hasNumber(n, "abiF64x") ||
+	return goPackageHelpers[n] || hasNumber(n, "abiW") || hasNumber(n, "abiF32x") || hasNumber(n, "abiF64x") ||
 		hasNumber(n, "cbMap") || hasNumber(n, "cbTramp") || hasNumber(n, "cbKey")
 }
 
@@ -209,7 +205,7 @@ func isGoLocal(n string) bool {
 }
 
 // isGoWord reports whether n is a Go keyword or a predeclared identifier.
-func isGoWord(n string) bool { return goKeywords()[n] || goPredeclared()[n] || n == "_" }
+func isGoWord(n string) bool { return goKeywords[n] || goPredeclared[n] || n == "_" }
 
 // goPackageScope is the scope of the package-level names of the Go package.
 func goPackageScope() *nameScope {

@@ -3,7 +3,6 @@ package bindc
 import (
 	"regexp"
 	"strings"
-	"sync"
 )
 
 // The directive pass reads every preprocessing directive in order and
@@ -244,16 +243,16 @@ func (p *pre) included(header string, pos Pos) bool {
 // reserves as macro names once the header is included; `defined`; and
 // C23's `typeof_unqual`. A C compiler would expand such a name where the
 // parser sees an identifier, or predefine it.
-var reservedMacro = sync.OnceValue(func() *regexp.Regexp {
+var reservedMacro = lazy[*regexp.Regexp]{make: func() *regexp.Regexp {
 	return regexp.MustCompile(`^(_[A-Z_].*|linux|unix|i386|OBJC_NEW_PROPERTIES|TARGET_OS_[A-Z0-9_]+|TARGET_IPHONE_SIMULATOR|` +
 		`U?INT[0-9]+_(C|MAX|MIN)|U?INT(_LEAST|_FAST)[0-9]+_(MAX|MIN)|U?INT(PTR|MAX)_(C|MAX|MIN)|(R?SIZE|PTRDIFF|SIG_ATOMIC|WCHAR|WINT)_(MAX|MIN)|` +
 		`u?int(_least|_fast)?[0-9]+_t|u?int(ptr|max)_t|r?size_t|ptrdiff_t|wchar_t|max_align_t|nullptr_t|` +
 		`NULL|offsetof|unreachable|bool|true|false|defined|typeof_unqual)$`)
-})
+}}
 
 // reservedName reports whether a macro of the header may not have name.
 func reservedName(name string) bool {
-	return keywords()[name] || scalarNames()[name] || reservedMacro().MatchString(name)
+	return keywords[name] || scalarNames[name] || reservedMacro.get().MatchString(name)
 }
 
 func (p *pre) define(hash token, dir []token, end Pos) {

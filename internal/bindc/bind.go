@@ -7,7 +7,6 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"sync"
 )
 
 // Binding is a model bound by its contract: the class of every pointer
@@ -722,11 +721,10 @@ func isGoIdent(s string) bool {
 	return true
 }
 
-var goKeywords = sync.OnceValue(func() map[string]bool {
-	words := strings.Fields("break case chan const continue default defer else fallthrough for func go goto if import interface map package range return select struct switch type var")
-	m := make(map[string]bool, len(words))
-	for _, k := range words {
-		m[k] = true
+var goKeywords = map[string]bool{}
+
+func init() {
+	for _, k := range strings.Fields("break case chan const continue default defer else fallthrough for func go goto if import interface map package range return select struct switch type var") {
+		goKeywords[k] = true
 	}
-	return m
-})
+}

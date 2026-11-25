@@ -317,7 +317,7 @@ func respell(r *rand.Rand, c string) string {
 func adversarialNames(t *testing.T) []string {
 	t.Helper()
 	var goNames []string
-	for _, m := range []map[string]bool{goPackageHelpers(), goLocals, goMethods, goKeywords(), goPredeclared()} {
+	for _, m := range []map[string]bool{goPackageHelpers, goLocals, goMethods, goKeywords, goPredeclared} {
 		for n := range m {
 			goNames = append(goNames, n)
 		}
