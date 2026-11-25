@@ -3,8 +3,9 @@
 // steps of game time, whatever time each frame takes. The machine is
 // pure; the loop needs a Scheduler, a time.Clock and a Screen.
 
-import particles/world
+import gen
 import machines
+import particles/world
 
 // Game is the box and what happened to it since it was loaded: the steps
 // and the count of their events.
@@ -15,8 +16,11 @@ type Game { W world.World, Steps int, T world.Tally }
 type Phase = Running{G Game} | Paused{G Game}
 
 // PausedIgnoresTicks: a paused game does not move.
-law PausedIgnoresTicks(seed uint64, n int) {
-	word(Step(Paused{G: Fresh(box(seed, n))}, Tick)) == "ignore"
+law PausedIgnoresTicks() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		word(Step(Paused{G: Fresh(drawnBox())}, Tick)) == "ignore"
+	})) == ""
+	true
 }
 
 // word names a decision.
@@ -39,14 +43,17 @@ func word(d Decision[Phase, Game]) string {
 
 // RunningTicksStay: a tick of a running game is one step, in the same
 // phase.
-law RunningTicksStay(seed uint64, n int) {
-	let g = Fresh(box(seed, n))
-	match Step(Running{G: g}, Tick) {
-	case Stay[Phase] as s:
-		GameOf(s.Next).Steps == 1 && Name(s.Next) == "running"
-	case Enter[Phase], Emit[Phase, Game], Tell[Phase, Game], Ignore, Reject, Done[Game]:
-		false
-	}
+law RunningTicksStay() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let g = Fresh(drawnBox())
+		match Step(Running{G: g}, Tick) {
+		case Stay[Phase] as s:
+			GameOf(s.Next).Steps == 1 && Name(s.Next) == "running"
+		case Enter[Phase], Emit[Phase, Game], Tell[Phase, Game], Ignore, Reject, Done[Game]:
+			false
+		}
+	})) == ""
+	true
 }
 
 // Input is what drives the machine: a tick of game time or a key of the
@@ -54,29 +61,35 @@ law RunningTicksStay(seed uint64, n int) {
 type Input = Tick{} | Pause{} | Resume{} | Quit{}
 
 // QuitIsDone: quit ends the game with the game as it is, in each phase.
-law QuitIsDone(seed uint64, n int) {
-	let g = Advance(Fresh(box(seed, n)))
-	for p in []Phase{Running{G: g}, Paused{G: g}} {
-		match Step(p, Quit) {
-		case Done[Game] as d:
-			if d.Output.W != g.W || d.Output.Steps != 1 {
+law QuitIsDone() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let g = Advance(Fresh(drawnBox()))
+		for p in []Phase{Running{G: g}, Paused{G: g}} {
+			match Step(p, Quit) {
+			case Done[Game] as d:
+				if d.Output.W != g.W || d.Output.Steps != 1 {
+					return false
+				}
+			case Enter[Phase], Stay[Phase], Emit[Phase, Game], Tell[Phase, Game], Ignore, Reject:
 				return false
 			}
-		case Enter[Phase], Stay[Phase], Emit[Phase, Game], Tell[Phase, Game], Ignore, Reject:
-			return false
 		}
-	}
+		true
+	})) == ""
 	true
 }
 
 // PauseResumeRoundTrips: pausing then resuming gives the running game
 // back, unchanged.
-law PauseResumeRoundTrips(seed uint64, n int) {
-	let g = Advance(Fresh(box(seed, n)))
-	let running Phase = Running{G: g}
-	let paused = machines.Next(running, Step(running, Pause))
-	let back = machines.Next(paused, Step(paused, Resume))
-	Name(paused) == "paused" && Name(back) == "running" && GameOf(back).W == g.W
+law PauseResumeRoundTrips() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let g = Advance(Fresh(drawnBox()))
+		let running Phase = Running{G: g}
+		let paused = machines.Next(running, Step(running, Pause))
+		let back = machines.Next(paused, Step(paused, Resume))
+		Name(paused) == "paused" && Name(back) == "running" && GameOf(back).W == g.W
+	})) == ""
+	true
 }
 
 // Fresh is the game of a box just loaded.

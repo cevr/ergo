@@ -5,10 +5,10 @@
 // minute the zone shows twice fires once, at its earlier instant.
 
 import civil
+import gen
+import hex
 import time
 import tz
-import hex
-import rand
 
 // Next is the first instant after t at which e fires in z, or None when e
 // does not fire within Horizon years. Instants come from wall minutes by
@@ -150,32 +150,38 @@ func overlapBehind(z tz.Zone, t time.Time) int64 {
 // after t that tz.Compatible gives a wall minute e fires at: a walk of
 // every wall minute from a day before t's to two days after it finds the
 // same instant when either is within a day of t.
-law NextIsFirstFiring(seed uint64) {
-	let e = drawnExpr(seed)
-	let z = try drawnZone(seed)
-	let t = drawnInstant(seed, z)
-	let found = firstFiring(e, z, t)
-	let day = time.Add(t, 24h)
-	let next = Next(e, z, t)
-	let nextNear = match next {
-	case Some[time.Time] as n:
-		time.After(n.Value, t) && !time.After(n.Value, day)
-	case None:
-		false
-	}
-	let foundNear = match found {
-	case Some[time.Time] as f:
-		!time.After(f.Value, day)
-	case None:
-		false
-	}
-	let after = match next {
-	case Some[time.Time] as n:
-		time.After(n.Value, t)
-	case None:
-		true
-	}
-	after && (!nextNear || found == next) && (!foundNear || found == next)
+law NextIsFirstFiring() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let e = gen.Named("expr", Format, drawnExpr)
+		let z = drawnZone() catch {
+		case hex.Malformed, tz.BadData, tz.BadOffset:
+			return false
+		}
+		let t = gen.Named("at", func(v time.Time) string { "\(time.UnixSeconds(v))" }, func() time.Time needs gen.Draws { drawnInstant(z) })
+		let found = firstFiring(e, z, t)
+		let day = time.Add(t, 24h)
+		let next = Next(e, z, t)
+		let nextNear = match next {
+		case Some[time.Time] as n:
+			time.After(n.Value, t) && !time.After(n.Value, day)
+		case None:
+			false
+		}
+		let foundNear = match found {
+		case Some[time.Time] as f:
+			!time.After(f.Value, day)
+		case None:
+			false
+		}
+		let after = match next {
+		case Some[time.Time] as n:
+			time.After(n.Value, t)
+		case None:
+			true
+		}
+		after && (!nextNear || found == next) && (!foundNear || found == next)
+	})) == ""
+	true
 }
 
 // ruleZone is the zone of a TZif file in hex that holds no changes and
@@ -193,8 +199,20 @@ func lordHowe() tz.Zone fails hex.Malformed | tz.BadData {
 	try ruleZone("Australia/Lord_Howe", "545a696632000000000000000000000000000000000000000000000000000000000000000000000100000006000093a800002b3130333000545a696632000000000000000000000000000000000000000000000000000000000000000000000100000006000093a800002b31303330000a3c2b313033303e2d31303a33303c2b31313e2d31312c4d31302e312e302c4d342e312e300a")
 }
 
-func drawnZone(seed uint64) tz.Zone fails hex.Malformed | tz.BadData | tz.BadOffset {
-	match seed % 4 {
+func drawnZone() tz.Zone fails hex.Malformed | tz.BadData | tz.BadOffset needs gen.Draws {
+	let pick = gen.Named("zone", func(v int) string {
+		match v {
+		case 0:
+			"UTC"
+		case 1:
+			"+05:30"
+		case 2:
+			"America/New_York"
+		case _:
+			"Australia/Lord_Howe"
+		}
+	}, func() int needs gen.Draws { gen.IntIn(0, 3) })
+	match pick {
 	case 0:
 		tz.UTC()
 	case 1:
@@ -206,14 +224,13 @@ func drawnZone(seed uint64) tz.Zone fails hex.Malformed | tz.BadData | tz.BadOff
 	}
 }
 
-// drawnInstant is an instant from 1970 to 2100 drawn from seed; one time
-// in two it is within two hours of a change of z, where gaps and repeated
-// hours are.
-func drawnInstant(seed uint64, z tz.Zone) time.Time {
-	let r = rand.Seeded(seed + 1)
-	let base = time.Unix(int64(r.IntN(4102444800)), 0)
-	let near = int64(r.IntN(14400)) - 7200
-	if r.IntN(2) == 0 {
+// drawnInstant is an instant from 1970 to 2100 drawn from gen.Draws; one
+// time in two it is within two hours of a change of z, where gaps and
+// repeated hours are.
+func drawnInstant(z tz.Zone) time.Time needs gen.Draws {
+	let base = time.Unix(int64(gen.IntIn(0, 4102444799)), 0)
+	let near = int64(gen.IntIn(-7200, 7199))
+	if !gen.Bool() {
 		return base
 	}
 	for c in tz.Transitions(z, base, time.Unix(time.UnixSeconds(base)+366*86400, 0)) {
@@ -252,23 +269,29 @@ func firstFiring(e Expr, z tz.Zone, t time.Time) Option[time.Time] {
 
 // PreviousUndoesNext: the last firing before t is before t, and the next
 // firing after it is at or after t.
-law PreviousUndoesNext(seed uint64) {
-	let e = drawnExpr(seed)
-	let z = try drawnZone(seed)
-	let t = drawnInstant(seed, z)
-	let p = match Previous(e, z, t) {
-	case Some[time.Time] as v:
-		v.Value
-	case None:
-		return true
-	}
-	let n = match Next(e, z, p) {
-	case Some[time.Time] as v:
-		v.Value
-	case None:
-		return false
-	}
-	time.Before(p, t) && !time.Before(n, t)
+law PreviousUndoesNext() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let e = gen.Named("expr", Format, drawnExpr)
+		let z = drawnZone() catch {
+		case hex.Malformed, tz.BadData, tz.BadOffset:
+			return false
+		}
+		let t = gen.Named("at", func(v time.Time) string { "\(time.UnixSeconds(v))" }, func() time.Time needs gen.Draws { drawnInstant(z) })
+		let p = match Previous(e, z, t) {
+		case Some[time.Time] as v:
+			v.Value
+		case None:
+			return true
+		}
+		let n = match Next(e, z, p) {
+		case Some[time.Time] as v:
+			v.Value
+		case None:
+			return false
+		}
+		time.Before(p, t) && !time.Before(n, t)
+	})) == ""
+	true
 }
 
 // GapFiresOnce: on 2026-03-08, when New York's clocks go forward from

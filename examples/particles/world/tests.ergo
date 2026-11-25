@@ -1,5 +1,6 @@
 // The box's tests: worked steps. The laws run under ergo test.
 
+import gen
 import rand
 
 // one is a box of the particles ps, with no loss.
@@ -81,8 +82,7 @@ test SpawnRefusesBadBoxes {
 	assert refusal(3, 3, 9, 0) == "made"
 }
 
-// Every box NewWorld makes has particles to move, for most seeds: the laws
-// above are not vacuous.
-test SamplesAreNotEmpty(seed uint64) {
-	assert newWorld(seed, 20, 30, 0).Count() == 30
+test SamplesAreNotEmpty {
+	let s0 = gen.Below(uint64(0))
+	assert newWorld(s0, 20, 30, 0).Count() == 30
 }

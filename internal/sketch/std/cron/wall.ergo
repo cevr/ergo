@@ -4,9 +4,9 @@
 // reading does; a zone gives it an instant (next.ergo).
 
 import civil
-import time
-import rand
+import gen
 import strings
+import time
 
 // Horizon is how many years NextWall and Next look ahead, and PreviousWall
 // and Previous look back: a 29th of February that is a given weekday
@@ -199,41 +199,53 @@ func previousAt(e Expr, w int64, limit int) Option[int64] {
 // weekly one every 7 days on a Friday, 60 times each way: the walks keep
 // the date's fields as civil reads them, across months, years and leap
 // days.
-law WalksKeepTheCalendar(seed uint64) {
-	let start = -717662 + int64(seed%3640000)
-	let at = civil.DateTime{Date: civil.FromUnixDays(start), Time: civil.Midnight()}
-	let daily = try Parse("0 0 * * *")
-	let monthly = try Parse("0 0 1 * *")
-	let friday = try Parse("0 0 * * fri")
-	let first = civil.StartOf(at.Date, civil.Months)
-	let mut ok = true
-	let mut f = at
-	let mut b = at
-	for k in 1..401 {
-		f = wallOr(NextWall(daily, f), at)
-		b = wallOr(PreviousWall(daily, b), at)
-		ok = ok && f.Date == civil.FromUnixDays(start+int64(k)) && b.Date == civil.FromUnixDays(start-int64(k))
-	}
-	f = at
-	b = at
-	for k in 1..31 {
-		f = wallOr(NextWall(monthly, f), at)
-		b = wallOr(PreviousWall(monthly, b), at)
-		let back = if civil.Day(at.Date) == 1 { k } else { k - 1 }
-		ok = ok && f.Date == civil.AddMonths(first, k) && b.Date == civil.AddMonths(first, -back)
-	}
-	f = at
-	b = at
-	for k in 1..61 {
-		let nf = wallOr(NextWall(friday, f), at)
-		let nb = wallOr(PreviousWall(friday, b), at)
-		let fridays = time.WeekdayNumber(civil.Weekday(nf.Date)) == 5 && time.WeekdayNumber(civil.Weekday(nb.Date)) == 5
-		let apart = k == 1 || civil.UnixDays(nf.Date)-civil.UnixDays(f.Date) == 7 && civil.UnixDays(b.Date)-civil.UnixDays(nb.Date) == 7
-		ok = ok && fridays && apart
-		f = nf
-		b = nb
-	}
-	ok
+law WalksKeepTheCalendar() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let start = int64(gen.Named("day", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(-717662, 2922337) }))
+		let at = civil.DateTime{Date: civil.FromUnixDays(start), Time: civil.Midnight()}
+		let daily = Parse("0 0 * * *") catch {
+		case FieldCount, BadValue, OutOfRange, BadStep, BadRange:
+			return false
+		}
+		let monthly = Parse("0 0 1 * *") catch {
+		case FieldCount, BadValue, OutOfRange, BadStep, BadRange:
+			return false
+		}
+		let friday = Parse("0 0 * * fri") catch {
+		case FieldCount, BadValue, OutOfRange, BadStep, BadRange:
+			return false
+		}
+		let first = civil.StartOf(at.Date, civil.Months)
+		let mut ok = true
+		let mut f = at
+		let mut b = at
+		for k in 1..401 {
+			f = wallOr(NextWall(daily, f), at)
+			b = wallOr(PreviousWall(daily, b), at)
+			ok = ok && f.Date == civil.FromUnixDays(start+int64(k)) && b.Date == civil.FromUnixDays(start-int64(k))
+		}
+		f = at
+		b = at
+		for k in 1..31 {
+			f = wallOr(NextWall(monthly, f), at)
+			b = wallOr(PreviousWall(monthly, b), at)
+			let back = if civil.Day(at.Date) == 1 { k } else { k - 1 }
+			ok = ok && f.Date == civil.AddMonths(first, k) && b.Date == civil.AddMonths(first, -back)
+		}
+		f = at
+		b = at
+		for k in 1..61 {
+			let nf = wallOr(NextWall(friday, f), at)
+			let nb = wallOr(PreviousWall(friday, b), at)
+			let fridays = time.WeekdayNumber(civil.Weekday(nf.Date)) == 5 && time.WeekdayNumber(civil.Weekday(nb.Date)) == 5
+			let apart = k == 1 || civil.UnixDays(nf.Date)-civil.UnixDays(f.Date) == 7 && civil.UnixDays(b.Date)-civil.UnixDays(nb.Date) == 7
+			ok = ok && fridays && apart
+			f = nf
+			b = nb
+		}
+		ok
+	})) == ""
+	true
 }
 
 // wallOr is o's wall time, or d when o is None.
@@ -249,22 +261,24 @@ func wallOr(o Option[civil.DateTime], d civil.DateTime) civil.DateTime {
 // NextWallIsFirstMatch: no wall minute between dt and NextWall(e, dt)
 // fires, and e fires at it: a walk of every minute of two days finds the
 // same minute, or none when NextWall's is later.
-law NextWallIsFirstMatch(seed uint64) {
-	let e = drawnExpr(seed)
-	let dt = drawnWall(seed)
-	let walked = walkWall(e, dt, 2880, 1)
-	let ok = match NextWall(e, dt) {
-	case Some[civil.DateTime] as n:
-		Matches(e, n.Value) && (walked == Some[civil.DateTime]{Value: n.Value} || walked == None && civil.Sub(n.Value, dt) > 2880m)
-	case None:
-		walked == None
-	}
-	ok
+law NextWallIsFirstMatch() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let e = gen.Named("expr", Format, drawnExpr)
+		let dt = gen.Named("wall", func(v civil.DateTime) string { "\(civil.UnixDays(v.Date)):\(civil.Hour(v.Time)):\(civil.Minute(v.Time))" }, drawnWall)
+		let walked = walkWall(e, dt, 2880, 1)
+		match NextWall(e, dt) {
+		case Some[civil.DateTime] as n:
+			Matches(e, n.Value) && (walked == Some[civil.DateTime]{Value: n.Value} || walked == None && civil.Sub(n.Value, dt) > 2880m)
+		case None:
+			walked == None
+		}
+	})) == ""
+	true
 }
 
-// drawnWall is a wall minute from 1970 to 2100 drawn from seed.
-func drawnWall(seed uint64) civil.DateTime {
-	civil.DateTimeOf(time.Unix(int64(rand.Seeded(seed+2).IntN(68374080))*60, 0))
+// drawnWall is a wall minute from 1970 to 2100 drawn from gen.Draws.
+func drawnWall() civil.DateTime needs gen.Draws {
+	civil.DateTimeOf(time.Unix(int64(gen.IntIn(0, 68374079))*60, 0))
 }
 
 // walkWall is the first of the n wall minutes after dt (step 1) or before
@@ -281,17 +295,19 @@ func walkWall(e Expr, dt civil.DateTime, n int, step int) Option[civil.DateTime]
 }
 
 // PreviousWallIsLastMatch: as NextWallIsFirstMatch, backward.
-law PreviousWallIsLastMatch(seed uint64) {
-	let e = drawnExpr(seed)
-	let dt = drawnWall(seed)
-	let walked = walkWall(e, dt, 2880, -1)
-	let ok = match PreviousWall(e, dt) {
-	case Some[civil.DateTime] as p:
-		Matches(e, p.Value) && (walked == Some[civil.DateTime]{Value: p.Value} || walked == None && civil.Sub(dt, p.Value) > 2880m)
-	case None:
-		walked == None
-	}
-	ok
+law PreviousWallIsLastMatch() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let e = gen.Named("expr", Format, drawnExpr)
+		let dt = gen.Named("wall", func(v civil.DateTime) string { "\(civil.UnixDays(v.Date)):\(civil.Hour(v.Time)):\(civil.Minute(v.Time))" }, drawnWall)
+		let walked = walkWall(e, dt, 2880, -1)
+		match PreviousWall(e, dt) {
+		case Some[civil.DateTime] as p:
+			Matches(e, p.Value) && (walked == Some[civil.DateTime]{Value: p.Value} || walked == None && civil.Sub(dt, p.Value) > 2880m)
+		case None:
+			walked == None
+		}
+	})) == ""
+	true
 }
 
 // EitherDayMatches: when neither day field is *, a day fires when either

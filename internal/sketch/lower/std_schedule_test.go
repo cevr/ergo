@@ -283,6 +283,7 @@ func TestScheduleAgreesWithModel(t *testing.T) {
 // stdScheduleLawsProbe restates schedule's laws and tasks' Retry and
 // Repeat laws as Ergo tests over the exported API.
 const stdScheduleLawsProbe = `import cron
+import gen
 import schedule
 import sync
 import tasks
@@ -300,37 +301,27 @@ func within(n int64, lo int64, hi int64) int64 {
 	}
 }
 
-func mix(x uint64) uint64 {
-	let mut z = x + 0x9e3779b97f4a7c15
-	z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9
-	z = (z ^ (z >> 27)) * 0x94d049bb133111eb
-	z ^ (z >> 31)
-}
-
-func draw(seed uint64, k int, n int) int { int(mix(seed+uint64(k)*0x9e3779b97f4a7c15) % uint64(n)) }
-
-func gen(seed uint64, depth int) schedule.Schedule {
+func drawnSchedule(depth int) schedule.Schedule needs gen.Draws {
 	let kinds = if depth > 0 { 8 } else { 4 }
-	let d = duration(int64(draw(seed, 1, 1000)) * 1000000)
-	let left = mix(seed + 2)
-	let right = mix(seed + 3)
-	match draw(seed, 0, kinds) {
+	let kind = gen.IntIn(0, kinds-1)
+	let d = duration(int64(gen.IntIn(0, 999)) * 1000000)
+	match kind {
 	case 0:
 		schedule.Spaced(d)
 	case 1:
-		schedule.Exponential(d, 1.0+float64(draw(seed, 4, 30))/10.0, duration(int64(draw(seed, 5, 10000))*1000000))
+		schedule.Exponential(d, 1.0+float64(gen.IntIn(0, 29))/10.0, duration(int64(gen.IntIn(0, 9999))*1000000))
 	case 2:
-		schedule.Recurs(draw(seed, 4, 8))
+		schedule.Recurs(gen.IntIn(0, 7))
 	case 3:
 		schedule.Forever()
 	case 4:
-		schedule.UpTo(gen(left, depth-1), duration(int64(d)*10))
+		schedule.UpTo(drawnSchedule(depth-1), duration(int64(d)*10))
 	case 5:
-		schedule.Jitter(gen(left, depth-1), float64(draw(seed, 4, 20))/10.0, float64(draw(seed, 5, 20))/10.0, right)
+		schedule.Jitter(drawnSchedule(depth-1), float64(gen.IntIn(0, 19))/10.0, float64(gen.IntIn(0, 19))/10.0, gen.Below(uint64(0)))
 	case 6:
-		schedule.And(gen(left, depth-1), gen(right, depth-1))
+		schedule.And(drawnSchedule(depth-1), drawnSchedule(depth-1))
 	case _:
-		schedule.Or(gen(left, depth-1), gen(right, depth-1))
+		schedule.Or(drawnSchedule(depth-1), drawnSchedule(depth-1))
 	}
 }
 
@@ -369,20 +360,29 @@ test ScheduleRecursStopsAfter(n int64, at int64) {
 	}
 }
 
-test ScheduleUpToNeverPassesLimit(seed uint64, limit int64, runs int64, at int64) {
-	let l = duration(within(limit, 0, 10000000000))
-	let e = duration(within(at, 0, 20000000000))
-	match schedule.Decide(schedule.UpTo(gen(seed, 3), l), int(within(runs, 1, 20)), e) {
-	case schedule.Continue as c:
-		assert e+c.After <= l
-	case schedule.Stop:
-	}
+test ScheduleUpToNeverPassesLimit {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let s = drawnSchedule(3)
+		let l = duration(int64(gen.IntIn(0, 10000)) * 1000000)
+		let e = duration(int64(gen.IntIn(0, 20000)) * 1000000)
+		let r = gen.IntIn(1, 20)
+		match schedule.Decide(schedule.UpTo(s, l), r, e) {
+		case schedule.Continue as c:
+			e+c.After <= l
+		case schedule.Stop:
+			true
+		}
+	})) == ""
 }
 
-test ScheduleUntimedIgnoresElapsed(seed uint64, runs int64, a int64, b int64) {
-	let s = gen(seed, 3)
-	let r = int(within(runs, 1, 20))
-	assert schedule.Timed(s) || schedule.Decide(s, r, duration(within(a, 0, 20000000000))) == schedule.Decide(s, r, duration(within(b, 0, 20000000000)))
+test ScheduleUntimedIgnoresElapsed {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let s = drawnSchedule(3)
+		let r = gen.IntIn(1, 20)
+		let a = duration(int64(gen.IntIn(0, 20000)) * 1000000)
+		let b = duration(int64(gen.IntIn(0, 20000)) * 1000000)
+		schedule.Timed(s) || schedule.Decide(s, r, a) == schedule.Decide(s, r, b)
+	})) == ""
 }
 
 test ScheduleExponentialUnderCap(base int64, cap int64, factor int64, runs int64) {
@@ -397,17 +397,23 @@ test ScheduleExponentialUnderCap(base int64, cap int64, factor int64, runs int64
 	}
 }
 
-test ScheduleJitterInBounds(seed uint64, every int64, runs int64) {
-	let d = duration(within(every, 0, 1099511627776))
-	let low = float64(draw(seed, 0, 30)) / 10.0
-	let high = low + float64(draw(seed, 1, 30))/10.0
-	match schedule.Decide(schedule.Jitter(schedule.Spaced(d), low, high, seed), int(within(runs, 1, 1000)), 0s) {
-	case schedule.Continue as c:
-		let got = float64(int64(c.After))
-		assert got >= float64(int64(d))*low-1.0 && got <= float64(int64(d))*high+1.0
-	case schedule.Stop:
-		assert false
-	}
+test ScheduleJitterInBounds {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let d = duration(int64(gen.IntIn(0, 1099511)) * 1000000)
+		let loStep = gen.IntIn(0, 29)
+		let spanStep = gen.IntIn(0, 29)
+		let low = float64(loStep) / 10.0
+		let high = low + float64(spanStep)/10.0
+		let r = gen.IntIn(1, 1000)
+		let s0 = gen.Below(uint64(0))
+		match schedule.Decide(schedule.Jitter(schedule.Spaced(d), low, high, s0), r, 0s) {
+		case schedule.Continue as c:
+			let got = float64(int64(c.After))
+			got >= float64(int64(d))*low-1.0 && got <= float64(int64(d))*high+1.0
+		case schedule.Stop:
+			false
+		}
+	})) == ""
 }
 
 test ScheduleCronWaitsForAFiring(sec int64, wait int64, runs int) {
@@ -423,25 +429,27 @@ test ScheduleCronWaitsForAFiring(sec int64, wait int64, runs int) {
 	}
 }
 
-test ScheduleAndIsMaxOrIsMin(a uint64, b uint64, runs int64, at int64) {
-	let x = gen(a, 2)
-	let y = gen(b, 2)
-	let r = int(within(runs, 1, 20))
-	let e = duration(within(at, 0, 20000000000))
-	let both = schedule.Decide(schedule.And(x, y), r, e)
-	let either = schedule.Decide(schedule.Or(x, y), r, e)
-	match (schedule.Decide(x, r, e), schedule.Decide(y, r, e)) {
-	case (schedule.Continue as p, schedule.Continue as q):
-		let long = if p.After >= q.After { p.After } else { q.After }
-		let short = if p.After <= q.After { p.After } else { q.After }
-		assert both == schedule.Continue{After: long} && either == schedule.Continue{After: short}
-	case (schedule.Continue as p, schedule.Stop):
-		assert both == schedule.Stop && either == p
-	case (schedule.Stop, schedule.Continue as q):
-		assert both == schedule.Stop && either == q
-	case (schedule.Stop, schedule.Stop):
-		assert both == schedule.Stop && either == schedule.Stop
-	}
+test ScheduleAndIsMaxOrIsMin {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let x = drawnSchedule(2)
+		let y = drawnSchedule(2)
+		let r = gen.IntIn(1, 20)
+		let e = duration(int64(gen.IntIn(0, 20000)) * 1000000)
+		let both = schedule.Decide(schedule.And(x, y), r, e)
+		let either = schedule.Decide(schedule.Or(x, y), r, e)
+		match (schedule.Decide(x, r, e), schedule.Decide(y, r, e)) {
+		case (schedule.Continue as p, schedule.Continue as q):
+			let long = if p.After >= q.After { p.After } else { q.After }
+			let short = if p.After <= q.After { p.After } else { q.After }
+			both == schedule.Continue{After: long} && either == schedule.Continue{After: short}
+		case (schedule.Continue as p, schedule.Stop):
+			both == schedule.Stop && either == p
+		case (schedule.Stop, schedule.Continue as q):
+			both == schedule.Stop && either == q
+		case (schedule.Stop, schedule.Stop):
+			both == schedule.Stop && either == schedule.Stop
+		}
+	})) == ""
 }
 
 test TasksRetryFollowsDecide(failing int, work int, k int, limit int, timed bool) {
@@ -524,11 +532,11 @@ test TasksRepeatFollowsDecide(work int, k int, limit int, timed bool) {
 var stdScheduleLawStatements = map[string]string{
 	"schedule CronWaitsForAFiring":   `CronWaitsForAFiring(sec int64, wait int64, runs int) { let e = try cron.Parse("0 9 * * mon-fri") let start = time.Unix(within(sec, 0, 4102444800), 0) let elapsed = duration(within(wait, 0, 864000) * 1000000000) match Decide(Cron(e, tz.UTC(), start), runs, elapsed) { case Continue as c: let at = time.Add(time.Add(start, elapsed), c.After) c.After > 0s && c.After <= 72h && cron.Matches(e, tz.Civil(tz.UTC(), at)) && time.UnixSeconds(at)%60 == 0 case Stop: false } }`,
 	"schedule RecursStopsAfter":      `RecursStopsAfter(n int64, at int64) { let k = int(within(n, 0, 64)) let e = duration(within(at, 0, 1000000000000)) let s = Recurs(k) let mut ok = Decide(s, k+1, e) == Stop for runs in 1..k+1 { ok = ok && Decide(s, runs, e) == Continue{After: 0s} } ok }`,
-	"schedule UntimedIgnoresElapsed": `UntimedIgnoresElapsed(seed uint64, runs int64, a int64, b int64) { let s = gen(seed, 3) let r = int(within(runs, 1, 20)) Timed(s) || Decide(s, r, duration(within(a, 0, 20000000000))) == Decide(s, r, duration(within(b, 0, 20000000000))) }`,
-	"schedule UpToNeverPassesLimit":  `UpToNeverPassesLimit(seed uint64, limit int64, runs int64, at int64) { let l = duration(within(limit, 0, 10000000000)) let e = duration(within(at, 0, 20000000000)) match Decide(UpTo(gen(seed, 3), l), int(within(runs, 1, 20)), e) { case Continue as c: e+c.After <= l case Stop: true } }`,
+	"schedule UntimedIgnoresElapsed": `UntimedIgnoresElapsed() { assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws { let s = gen.Named("schedule", showSchedule, func() Schedule needs gen.Draws { drawnSchedule(3) }) let r = gen.Named("runs", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(1, 20) }) let a = duration(int64(gen.Named("aMs", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(0, 20000) })) * 1000000) let b = duration(int64(gen.Named("bMs", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(0, 20000) })) * 1000000) Timed(s) || Decide(s, r, a) == Decide(s, r, b) })) == "" true }`,
+	"schedule UpToNeverPassesLimit":  `UpToNeverPassesLimit() { assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws { let s = gen.Named("schedule", showSchedule, func() Schedule needs gen.Draws { drawnSchedule(3) }) let l = duration(int64(gen.Named("limitMs", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(0, 10000) })) * 1000000) let e = duration(int64(gen.Named("elapsedMs", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(0, 20000) })) * 1000000) let r = gen.Named("runs", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(1, 20) }) match Decide(UpTo(s, l), r, e) { case Continue as c: e+c.After <= l case Stop: true } })) == "" true }`,
 	"schedule ExponentialUnderCap":   `ExponentialUnderCap(base int64, cap int64, factor int64, runs int64) { let c = duration(within(cap, 0, 1000000000000)) let s = Exponential(duration(within(base, 0, 1000000000000)), 1.0+float64(within(factor, 0, 40))/10.0, c) let r = int(within(runs, 1, 200)) match (Decide(s, r, 0s), Decide(s, r+1, 0s)) { case (Continue as x, Continue as y): x.After <= c && x.After <= y.After case _: false } }`,
-	"schedule JitterInBounds":        `JitterInBounds(seed uint64, every int64, runs int64) { let d = duration(within(every, 0, 1099511627776)) let low = float64(draw(seed, 0, 30)) / 10.0 let high = low + float64(draw(seed, 1, 30))/10.0 match Decide(Jitter(Spaced(d), low, high, seed), int(within(runs, 1, 1000)), 0s) { case Continue as c: let got = float64(int64(c.After)) got >= float64(int64(d))*low-1.0 && got <= float64(int64(d))*high+1.0 case Stop: false } }`,
-	"schedule AndIsMaxOrIsMin":       `AndIsMaxOrIsMin(a uint64, b uint64, runs int64, at int64) { let x = gen(a, 2) let y = gen(b, 2) let r = int(within(runs, 1, 20)) let e = duration(within(at, 0, 20000000000)) let both = Decide(And(x, y), r, e) let either = Decide(Or(x, y), r, e) match (Decide(x, r, e), Decide(y, r, e)) { case (Continue as p, Continue as q): let long = if p.After >= q.After { p.After } else { q.After } let short = if p.After <= q.After { p.After } else { q.After } both == Continue{After: long} && either == Continue{After: short} case (Continue as p, Stop): both == Stop && either == p case (Stop, Continue as q): both == Stop && either == q case (Stop, Stop): both == Stop && either == Stop } }`,
+	"schedule JitterInBounds":        `JitterInBounds() { assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws { let d = duration(int64(gen.Named("everyMs", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(0, 1099511) })) * 1000000) let loStep = gen.Named("lowTenths", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(0, 29) }) let spanStep = gen.Named("spanTenths", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(0, 29) }) let low = float64(loStep) / 10.0 let high = low + float64(spanStep)/10.0 let r = gen.Named("runs", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(1, 1000) }) let s0 = gen.Below(uint64(0)) match Decide(Jitter(Spaced(d), low, high, s0), r, 0s) { case Continue as c: let got = float64(int64(c.After)) got >= float64(int64(d))*low-1.0 && got <= float64(int64(d))*high+1.0 case Stop: false } })) == "" true }`,
+	"schedule AndIsMaxOrIsMin":       `AndIsMaxOrIsMin() { assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws { let x = gen.Named("first", showSchedule, func() Schedule needs gen.Draws { drawnSchedule(2) }) let y = gen.Named("second", showSchedule, func() Schedule needs gen.Draws { drawnSchedule(2) }) let r = gen.Named("runs", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(1, 20) }) let e = duration(int64(gen.Named("elapsedMs", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(0, 20000) })) * 1000000) let both = Decide(And(x, y), r, e) let either = Decide(Or(x, y), r, e) match (Decide(x, r, e), Decide(y, r, e)) { case (Continue as p, Continue as q): let long = if p.After >= q.After { p.After } else { q.After } let short = if p.After <= q.After { p.After } else { q.After } both == Continue{After: long} && either == Continue{After: short} case (Continue as p, Stop): both == Stop && either == p case (Stop, Continue as q): both == Stop && either == q case (Stop, Stop): both == Stop && either == Stop } })) == "" true }`,
 	"tasks RetryFollowsDecide":       `RetryFollowsDecide(failing int, work int, k int, limit int, timed bool) { let s = lawSchedule(k, limit, timed) let w = duration(int64(1+(work%300+300)%300) * 1000000) let n = (failing%10 + 10) % 10 let mut runs = 0 let mut decisions = 0 let mut at = 0s let mut want = 0 for want == 0 { runs = runs + 1 at = at + w if runs > n { want = runs } else { decisions = decisions + 1 match schedule.Decide(s, runs, at) { case schedule.Continue as c: at = at + c.After case schedule.Stop: want = 0 - runs } } } let p = newLawClock() let c = p.clock let calls = sync.NewRef[int](0) let start = c.Now() with context { Scheduler: c, time.Clock: p } { let got = Retry(s, func() int fails lawFailed needs Scheduler { Scheduler.Sleep(w) let i = sync.Modify(calls, func(v int) (int, int) { (v + 1, v + 1) }) if i <= n { return lawFailed{Run: i} } i }) catch { case lawFailed as f: 0 - f.Run } let wantReads = if timed { decisions + 1 } else { 0 } got == want && calls.Get() == runs && c.Elapsed(start) == at && p.reads.Get() == wantReads } }`,
 	"tasks RepeatFollowsDecide":      `RepeatFollowsDecide(work int, k int, limit int, timed bool) { let s = lawSchedule(k, limit, timed) let w = duration(int64(1+(work%300+300)%300) * 1000000) let mut runs = 0 let mut at = 0s let mut more = true for more { runs = runs + 1 at = at + w match schedule.Decide(s, runs, at) { case schedule.Continue as c: at = at + c.After case schedule.Stop: more = false } } let p = newLawClock() let c = p.clock let calls = sync.NewRef[int](0) let start = c.Now() with context { Scheduler: c, time.Clock: p } { let got = Repeat(s, func() int needs Scheduler { Scheduler.Sleep(w) sync.Modify(calls, func(v int) (int, int) { (v + 1, v + 1) }) }) let wantReads = if timed { runs + 1 } else { 0 } got == runs && calls.Get() == runs && c.Elapsed(start) == at && p.reads.Get() == wantReads } }`,
 }

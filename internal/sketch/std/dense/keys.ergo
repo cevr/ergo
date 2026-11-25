@@ -1,3 +1,6 @@
+import gen
+import strings
+
 // Keys is a set of 128-bit keys (two uint64 words each), open addressed
 // with linear probing over two columns of words: the visited set of a
 // state search (std explore), where Go would keep a map[[16]byte]struct{}
@@ -79,37 +82,53 @@ func growKeys(s mut Keys) {
 	s.lo = lo
 }
 
+type keyPair { hi uint64, lo uint64 }
+
+func showKeyPairs(xs []keyPair) string {
+	let mut parts = []string{}
+	for kv in xs {
+		parts = parts.Append("(\(kv.hi),\(kv.lo))")
+	}
+	"[\(strings.Join(parts, ", "))]"
+}
+
 // KeysAgreeWithAList: after adding keys, each added key is in the set, the
 // count is the number of distinct keys, and a key not added is not
 // (KeysAgreeWithAList checks the set against a plain list, through
 // growth: 40 keys pass the first three resizes). Keys share their low
 // word often, so probes collide.
-law KeysAgreeWithAList(seed uint64, n uint8) {
-	let mut s = NewKeys()
-	let mut his = []uint64{}
-	let mut los = []uint64{}
-	let mut x = seed
-	for _ in 0..int(n % uint8(40)) {
-		x = x * uint64(6364136223846793005) + uint64(1442695040888963407)
-		let hi = x >> uint64(60)
-		let lo = (x >> uint64(56)) << uint64(32)
-		let mut fresh = true
-		for j in 0..len(his) {
-			if his[j] == hi && los[j] == lo {
-				fresh = false
+law KeysAgreeWithAList() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let pairs = gen.Named("keys", showKeyPairs, func() []keyPair needs gen.Draws {
+			gen.ListOf(0, 48, func() keyPair needs gen.Draws {
+				let hi = gen.Below(uint64(16))
+				let lo = gen.Below(uint64(256)) << uint64(32)
+				keyPair{hi: hi, lo: lo}
+			})
+		})
+		let mut s = NewKeys()
+		let mut his = []uint64{}
+		let mut los = []uint64{}
+		for kv in pairs {
+			let mut fresh = true
+			for j in 0..len(his) {
+				if his[j] == kv.hi && los[j] == kv.lo {
+					fresh = false
+				}
+			}
+			if AddKey(&s, kv.hi, kv.lo) != fresh {
+				return false
+			}
+			if fresh {
+				his = his.Append(kv.hi)
+				los = los.Append(kv.lo)
 			}
 		}
-		if AddKey(&s, hi, lo) != fresh {
-			return false
+		let mut ok = KeyCount(s) == len(his)
+		for j in 0..len(his) {
+			ok = ok && HasKey(s, his[j], los[j])
 		}
-		if fresh {
-			his = his.Append(hi)
-			los = los.Append(lo)
-		}
-	}
-	let mut ok = KeyCount(s) == len(his)
-	for j in 0..len(his) {
-		ok = ok && HasKey(s, his[j], los[j])
-	}
-	ok && (len(his) == 0 || !HasKey(s, his[0] + uint64(16), los[0]))
+		ok && (len(his) == 0 || !HasKey(s, his[0]+uint64(16), los[0]))
+	})) == ""
+	true
 }

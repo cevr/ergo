@@ -12,6 +12,7 @@ import (
 // draws; a law over a package's private helpers restates them.
 const stdProofLawsProbe = `import fs
 import fstest
+import gen
 import proof
 import proof/file
 import proof/memory
@@ -329,39 +330,44 @@ func redeems(s memory.Store, id string, d proof.Digest, now time.Time) bool {
 	true
 }
 
-func lawSentCodeRedeems(seed uint64, dest string) bool {
-	let s = memory.New()
-	let r = proof.NewRecorder()
-	with context { rand.Secure: rand.NewSeededSecure(seed), time.Clock: time.NewManual(0) } {
-		let c = proof.SendCode(s, r, dest, "confirm", 10m, 3) catch {
-		case proof.Conflict, proof.Failed, proof.Undelivered:
-			return false
-		}
-		let out = r.Outbox()
-		if len(out) != 1 || out[0].Dest != dest || out[0].Purpose != "confirm" || len(out[0].Code) != 6 {
-			return false
-		}
-		proof.RedeemCode(s, proof.Challenge{ID: out[0].Code}, "confirm", out[0].Code) catch {
-		case proof.Unknown:
-		case proof.Expired, proof.Spent, proof.TooManyAttempts, proof.Wrong, proof.Failed:
-			return false
-		}
-		proof.RedeemCode(s, c, "confirm", out[0].Code) catch {
-		case proof.Unknown, proof.Expired, proof.Spent, proof.TooManyAttempts, proof.Wrong, proof.Failed:
-			return false
-		}
-		proof.RedeemCode(s, c, "confirm", out[0].Code) catch {
-		case proof.Spent:
-			return true
-		case proof.Unknown, proof.Expired, proof.TooManyAttempts, proof.Wrong, proof.Failed:
-			return false
-		}
-		false
-	}
+func drawDest() string needs gen.Draws {
+	strings.Join(gen.ListOf(0, 8, func() string needs gen.Draws { gen.OneOf([]string{"a", "b", "0", "@", "."}) }), "")
 }
 
-test MemorySentCodeRedeems(seed uint64, dest string) {
-	assert lawSentCodeRedeems(seed, dest)
+test MemorySentCodeRedeems {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let dest = gen.Named("dest", func(v string) string { "\"\(v)\"" }, drawDest)
+		let s0 = gen.Below(uint64(0))
+		let s = memory.New()
+		let r = proof.NewRecorder()
+		with context { rand.Secure: rand.NewSeededSecure(s0), time.Clock: time.NewManual(0) } {
+			let c = proof.SendCode(s, r, dest, "confirm", 10m, 3) catch {
+			case proof.Conflict, proof.Failed, proof.Undelivered:
+				return false
+			}
+			let out = r.Outbox()
+			if len(out) != 1 || out[0].Dest != dest || out[0].Purpose != "confirm" || len(out[0].Code) != 6 {
+				return false
+			}
+			gen.Draws.Show("code", out[0].Code)
+			proof.RedeemCode(s, proof.Challenge{ID: out[0].Code}, "confirm", out[0].Code) catch {
+			case proof.Unknown:
+			case proof.Expired, proof.Spent, proof.TooManyAttempts, proof.Wrong, proof.Failed:
+				return false
+			}
+			proof.RedeemCode(s, c, "confirm", out[0].Code) catch {
+			case proof.Unknown, proof.Expired, proof.Spent, proof.TooManyAttempts, proof.Wrong, proof.Failed:
+				return false
+			}
+			proof.RedeemCode(s, c, "confirm", out[0].Code) catch {
+			case proof.Spent:
+				return true
+			case proof.Unknown, proof.Expired, proof.TooManyAttempts, proof.Wrong, proof.Failed:
+				return false
+			}
+			false
+		}
+	})) == ""
 }
 
 func lawStepIsUsedOnce(secret string, sec int64) bool {
@@ -588,7 +594,7 @@ var stdProofLawStatements = map[string]string{
 	"proof Store.AttemptsAreBounded":    `AttemptsAreBounded(id string, code string, n int) { let limit = 1 + ((n%5)+5)%5 let now = time.Unix(0, 0) let d = DigestOf("p", code) try Issue(id, d, now.Add(1m), limit) catch { case Conflict: return true } for i in 0..limit { try Redeem(id, DigestOf("p", code + "x"), now) catch { case Wrong as w: if w.Left != limit - i - 1 { return false } case Unknown, Expired, Spent, TooManyAttempts: return false } } try Redeem(id, d, now) catch { case TooManyAttempts: return true case Unknown, Expired, Spent, Wrong: return false } false }`,
 	"proof Store.WrongPurposeFails":     `WrongPurposeFails(id string, code string) { let now = time.Unix(0, 0) try Issue(id, DigestOf("confirm", code), now.Add(1m), 3) catch { case Conflict: return true } try Redeem(id, DigestOf("reset", code), now) catch { case Wrong: case Unknown, Expired, Spent, TooManyAttempts: return false } try Redeem(id, DigestOf("confirm", code), now) catch { case Unknown, Expired, Spent, TooManyAttempts, Wrong: return false } true }`,
 	"proof Store.ClaimOnce":             `ClaimOnce(key string, sec int64) { let now = time.Unix(sec % 1000000000, 0) try Claim(key, now.Add(1m), now) catch { case Spent: return true } try Claim(key, now.Add(1m), now.Add(59s)) catch { case Spent: try Claim(key, now.Add(2m), now.Add(1m)) catch { case Spent: return false } return true } false }`,
-	"proof/memory SentCodeRedeems":      `SentCodeRedeems(seed uint64, dest string) { let s = New() let r = proof.NewRecorder() with context { rand.Secure: rand.NewSeededSecure(seed), time.Clock: time.NewManual(0) } { let c = proof.SendCode(s, r, dest, "confirm", 10m, 3) catch { case proof.Conflict, proof.Failed, proof.Undelivered: return false } let out = r.Outbox() if len(out) != 1 || out[0].Dest != dest || out[0].Purpose != "confirm" || len(out[0].Code) != 6 { return false } proof.RedeemCode(s, proof.Challenge{ID: out[0].Code}, "confirm", out[0].Code) catch { case proof.Unknown: case proof.Expired, proof.Spent, proof.TooManyAttempts, proof.Wrong, proof.Failed: return false } proof.RedeemCode(s, c, "confirm", out[0].Code) catch { case proof.Unknown, proof.Expired, proof.Spent, proof.TooManyAttempts, proof.Wrong, proof.Failed: return false } proof.RedeemCode(s, c, "confirm", out[0].Code) catch { case proof.Spent: return true case proof.Unknown, proof.Expired, proof.TooManyAttempts, proof.Wrong, proof.Failed: return false } false } }`,
+	"proof/memory SentCodeRedeems":      `SentCodeRedeems() { assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws { let dest = gen.Named("dest", func(v string) string { "\"\(v)\"" }, drawDest) let s0 = gen.Below(uint64(0)) let s = New() let r = proof.NewRecorder() with context { rand.Secure: rand.NewSeededSecure(s0), time.Clock: time.NewManual(0) } { let c = proof.SendCode(s, r, dest, "confirm", 10m, 3) catch { case proof.Conflict, proof.Failed, proof.Undelivered: return false } let out = r.Outbox() if len(out) != 1 || out[0].Dest != dest || out[0].Purpose != "confirm" || len(out[0].Code) != 6 { return false } gen.Draws.Show("code", out[0].Code) proof.RedeemCode(s, proof.Challenge{ID: out[0].Code}, "confirm", out[0].Code) catch { case proof.Unknown: case proof.Expired, proof.Spent, proof.TooManyAttempts, proof.Wrong, proof.Failed: return false } proof.RedeemCode(s, c, "confirm", out[0].Code) catch { case proof.Unknown, proof.Expired, proof.Spent, proof.TooManyAttempts, proof.Wrong, proof.Failed: return false } proof.RedeemCode(s, c, "confirm", out[0].Code) catch { case proof.Spent: return true case proof.Unknown, proof.Expired, proof.TooManyAttempts, proof.Wrong, proof.Failed: return false } false } })) == "" true }`,
 	"proof/memory StepIsUsedOnce":       `StepIsUsedOnce(secret string, sec int64) { let s = New() let p = totp.Default() let m = time.NewManual(((sec%1000000000)+1000000000)%1000000000) with context { time.Clock: m } { let code = totp.Code(p, secret, m.Now()) proof.VerifyCode(s, p, "a", secret, code) catch { case proof.Wrong, proof.Spent, proof.Failed: return false } proof.VerifyCode(s, p, "b", secret, code) catch { case proof.Wrong, proof.Spent, proof.Failed: return false } m.Advance(30s) proof.VerifyCode(s, p, "a", secret, code) catch { case proof.Spent: return true case proof.Wrong, proof.Failed: return false } false } }`,
 	"proof/memory RedeemHasOneWinner":   `RedeemHasOneWinner(id string, code string) { let s = New() let now = time.Unix(0, 0) let d = proof.DigestOf("p", code) s.Issue(id, d, now.Add(1m), 3) catch { case proof.Conflict, proof.Failed: return false } let ta = task.Go() { redeems(s, id, d, now) } let tb = task.Go() { redeems(s, id, d, now) } ta.Wait() != tb.Wait() }`,
 	"proof/file FileIsMemory":           `FileIsMemory(steps []script, torn string) { let disk = fstest.NewMemory() let want = memory.New() let mut got = try Open(disk, disk, "proofs.log") let mut now = time.Unix(0, 0) for st in steps { match st { case issue as i: now = later(now, i.Wait) let id = "p\t\"\(((i.Pick%4)+4)%4)" if try issued(want, id, now) != try issued(got, id, now) { return false } case redeem as r: now = later(now, r.Wait) let id = "p\t\"\(((r.Pick%4)+4)%4)" let d = proof.DigestOf("p", if r.Right { "123456" } else { "654321" }) if try redeemed(want, id, d, now) != try redeemed(got, id, d, now) { return false } case claim as c: now = later(now, c.Wait) let key = "k\(((c.Pick%3)+3)%3)" if try claimed(want, key, now) != try claimed(got, key, now) { return false } case reopen: got = try Open(disk, disk, "proofs.log") } } let edge = time.Unix(time.UnixSeconds(now) + 1, 999) let e = proof.DigestOf("p", "edge") try want.Issue("edge", e, edge, 1) catch { case proof.Conflict: return false } try got.Issue("edge", e, edge, 1) catch { case proof.Conflict: return false } try disk.AppendFile("proofs.log", "red\t" + strings.ReplaceAll(torn, "\n", "")) let back = try Open(disk, disk, "proofs.log") let justBefore = time.Unix(time.UnixSeconds(now) + 1, 500) if try redeemed(want, "edge", e, justBefore) != try redeemed(back, "edge", e, justBefore) { return false } for i in 0..4 { let id = "p\t\"\(i)" let d = proof.DigestOf("p", "123456") if try redeemed(want, id, d, now) != try redeemed(back, id, d, now) { return false } } for k in 0..3 { if try claimed(want, "k\(k)", now) != try claimed(back, "k\(k)", now) { return false } } true }`,

@@ -12,6 +12,7 @@ import (
 // draws; a law over a package's private helpers restates them.
 const stdSessionLawsProbe = `import fs
 import fstest
+import gen
 import rand
 import session
 import session/file
@@ -321,41 +322,45 @@ test MemoryRotateHasOneWinner(key string) {
 	assert lawRotateHasOneWinner(key)
 }
 
-func lawStartChecksValid(seed uint64, subject string) bool {
-	let p = session.NewPolicy(10ms, 30ms, 100ms) catch {
-	case session.BadPolicy:
-		return false
-	}
-	let s = memory.New(p)
-	with context { rand.Secure: rand.NewSeededSecure(seed), time.Clock: time.NewManual(0) } {
-		let t = session.Start(s, subject, 0) catch {
-		case session.Conflict, session.Failed:
-			return false
-		}
-		let now = time.Clock.Now()
-		let want = session.Valid{Record: session.Record{Subject: subject, Revision: 0, Created: now, Renewed: now}}
-		let checked = session.Check(s, t) catch {
-		case session.Failed:
-			return false
-		}
-		let byDigest = session.Check(s, session.TokenOf(session.DigestText(session.DigestOf(t)))) catch {
-		case session.Failed:
-			return false
-		}
-		let ended = session.End(s, t) catch {
-		case session.Failed:
-			return false
-		}
-		let after = session.Check(s, t) catch {
-		case session.Failed:
-			return false
-		}
-		checked == want && byDigest == session.Invalid && ended && after == session.Invalid
-	}
+func drawSubject() string needs gen.Draws {
+	strings.Join(gen.ListOf(0, 8, func() string needs gen.Draws { gen.OneOf([]string{"a", "b", "0", "-", "_"}) }), "")
 }
 
-test MemoryStartChecksValid(seed uint64, subject string) {
-	assert lawStartChecksValid(seed, subject)
+test MemoryStartChecksValid {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let subject = gen.Named("subject", func(v string) string { "\"\(v)\"" }, drawSubject)
+		let s0 = gen.Below(uint64(0))
+		let p = session.NewPolicy(10ms, 30ms, 100ms) catch {
+		case session.BadPolicy:
+			return false
+		}
+		let s = memory.New(p)
+		with context { rand.Secure: rand.NewSeededSecure(s0), time.Clock: time.NewManual(0) } {
+			let t = session.Start(s, subject, 0) catch {
+			case session.Conflict, session.Failed:
+				return false
+			}
+			let now = time.Clock.Now()
+			let want = session.Valid{Record: session.Record{Subject: subject, Revision: 0, Created: now, Renewed: now}}
+			let checked = session.Check(s, t) catch {
+			case session.Failed:
+				return false
+			}
+			let byDigest = session.Check(s, session.TokenOf(session.DigestText(session.DigestOf(t)))) catch {
+			case session.Failed:
+				return false
+			}
+			let ended = session.End(s, t) catch {
+			case session.Failed:
+				return false
+			}
+			let after = session.Check(s, t) catch {
+			case session.Failed:
+				return false
+			}
+			checked == want && byDigest == session.Invalid && ended && after == session.Invalid
+		}
+	})) == ""
 }
 
 // session/file's law helpers, restated.
@@ -523,7 +528,7 @@ var stdSessionLawStatements = map[string]string{
 	"session OldKeyStillVerifies":            `OldKeyStillVerifies(subject string) { let first = ring("k1", "one", []Key{}, 0) let token = Sign(first, subject, time.Unix(100, 0)) let kept = ring("k2", "two", []Key{Key{ID: "k1", Secret: sha256.Sum("one")}}, 0) let dropped = ring("k2", "two", []Key{}, 0) let c = Open(kept, token, time.Unix(0, 0)) catch { case Tampered, Expired, Retired: return false } let _ = Open(dropped, token, time.Unix(0, 0)) catch { case Tampered: return c.Subject == subject case Expired, Retired: return false } false }`,
 	"session GenerationBumpEndsTokens":       `GenerationBumpEndsTokens(subject string, gen int) { let g = ((gen%100)+100)%100 let token = Sign(ring("k1", "one", []Key{}, g), subject, time.Unix(100, 0)) let _ = Open(ring("k1", "one", []Key{}, g + 1), token, time.Unix(0, 0)) catch { case Retired as r: return r.Generation == g case Tampered, Expired: return false } false }`,
 	"session/memory RotateHasOneWinner":      `RotateHasOneWinner(key string) { let p = session.NewPolicy(10ms, 30ms, 100ms) catch { case session.BadPolicy: return false } let s = New(p) let now = time.Unix(0, 0) let old = session.DigestOf(session.TokenOf(key)) let a = session.DigestOf(session.TokenOf(key + "a")) let b = session.DigestOf(session.TokenOf(key + "b")) s.Establish(old, "subject", 0, now) catch { case session.Conflict, session.Failed: return false } let ta = task.Go() { wins(s, old, a, now) } let tb = task.Go() { wins(s, old, b, now) } let wa = ta.Wait() let wb = tb.Wait() let va = s.Verify(a, now) catch { case session.Failed: session.Invalid } let vb = s.Verify(b, now) catch { case session.Failed: session.Invalid } wa != wb && (va != session.Invalid) == wa && (vb != session.Invalid) == wb }`,
-	"session/memory StartChecksValid":        `StartChecksValid(seed uint64, subject string) { let p = session.NewPolicy(10ms, 30ms, 100ms) catch { case session.BadPolicy: return false } let s = New(p) with context { rand.Secure: rand.NewSeededSecure(seed), time.Clock: time.NewManual(0) } { let t = session.Start(s, subject, 0) catch { case session.Conflict, session.Failed: return false } let now = time.Clock.Now() let want = session.Valid{Record: session.Record{Subject: subject, Revision: 0, Created: now, Renewed: now}} let checked = session.Check(s, t) catch { case session.Failed: return false } let byDigest = session.Check(s, session.TokenOf(session.DigestText(session.DigestOf(t)))) catch { case session.Failed: return false } let ended = session.End(s, t) catch { case session.Failed: return false } let after = session.Check(s, t) catch { case session.Failed: return false } checked == want && byDigest == session.Invalid && ended && after == session.Invalid } }`,
+	"session/memory StartChecksValid":        `StartChecksValid() { assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws { let subject = gen.Named("subject", func(v string) string { "\"\(v)\"" }, drawSubject) let s0 = gen.Below(uint64(0)) let p = session.NewPolicy(10ms, 30ms, 100ms) catch { case session.BadPolicy: return false } let s = New(p) with context { rand.Secure: rand.NewSeededSecure(s0), time.Clock: time.NewManual(0) } { let t = session.Start(s, subject, 0) catch { case session.Conflict, session.Failed: return false } let now = time.Clock.Now() let want = session.Valid{Record: session.Record{Subject: subject, Revision: 0, Created: now, Renewed: now}} let checked = session.Check(s, t) catch { case session.Failed: return false } let byDigest = session.Check(s, session.TokenOf(session.DigestText(session.DigestOf(t)))) catch { case session.Failed: return false } let ended = session.End(s, t) catch { case session.Failed: return false } let after = session.Check(s, t) catch { case session.Failed: return false } checked == want && byDigest == session.Invalid && ended && after == session.Invalid } })) == "" true }`,
 	"session/file FileIsMemory":              `FileIsMemory(steps []script, torn string) { let p = session.NewPolicy(10ms, 30ms, 100ms) catch { case session.BadPolicy: return false } let disk = fstest.NewMemory() let want = memory.New(p) let mut got = try Open(disk, disk, "sessions.log", p) let mut now = time.Unix(0, 0) let mut n = 0 let mut digests = []session.Digest{session.DigestOf(session.TokenOf("none"))} for st in steps { match st { case establish as e: now = later(now, ((e.Wait%20)+20)%20) n = n + 1 let d = session.DigestOf(session.TokenOf("t\(n)")) let subject = "s\t\"\(((e.Subject%3)+3)%3)" let rev = ((e.Revision%3)+3)%3 if try established(want, d, subject, rev, now) != try established(got, d, subject, rev, now) { return false } digests = digests.Append(d) case verify as v: now = later(now, ((v.Wait%20)+20)%20) let d = digests[((v.Pick%len(digests))+len(digests))%len(digests)] if try want.Verify(d, now) != try got.Verify(d, now) { return false } case rotate as r: now = later(now, ((r.Wait%20)+20)%20) n = n + 1 let d = digests[((r.Pick%len(digests))+len(digests))%len(digests)] let next = session.DigestOf(session.TokenOf("t\(n)")) if try rotated(want, d, next, now) != try rotated(got, d, next, now) { return false } digests = digests.Append(next) case revoke as r: let d = digests[((r.Pick%len(digests))+len(digests))%len(digests)] if try want.Revoke(d) != try got.Revoke(d) { return false } case revokeAll as a: let subject = "s\t\"\(((a.Subject%3)+3)%3)" let rev = ((a.Revision%4)+4)%4 try want.RevokeAll(subject, rev) try got.RevokeAll(subject, rev) case reopen: got = try Open(disk, disk, "sessions.log", p) } } try disk.AppendFile("sessions.log", "est\t" + strings.ReplaceAll(torn, "\n", "")) let back = try Open(disk, disk, "sessions.log", p) for d in digests { if try want.Verify(d, now) != try back.Verify(d, now) { return false } } true }`,
 	"session/file OpenRefusesABrokenLine":    `OpenRefusesABrokenLine(key string, line string) { let p = session.NewPolicy(10ms, 30ms, 100ms) catch { case session.BadPolicy: return false } let disk = fstest.NewMemory() let s = try Open(disk, disk, "sessions.log", p) try s.Establish(session.DigestOf(session.TokenOf(key)), "a", 0, time.Unix(0, 0)) catch { case session.Conflict: return false } try disk.AppendFile("sessions.log", "x" + strings.ReplaceAll(line, "\n", "") + "\n") let _ = Open(disk, disk, "sessions.log", p) catch { case session.Failed: return true } false }`,
 	"session/file LogHoldsNoToken":           `LogHoldsNoToken(key string) { let p = session.NewPolicy(10ms, 30ms, 100ms) catch { case session.BadPolicy: return false } let token = "token:" + key let d = session.DigestOf(session.TokenOf(token)) let disk = fstest.NewMemory() let s = try Open(disk, disk, "sessions.log", p) try s.Establish(d, "a", 0, time.Unix(0, 0)) catch { case session.Conflict: return false } let log = try disk.ReadFile("sessions.log") !strings.Contains(log, token) && strings.Contains(log, session.DigestText(d)) }`,

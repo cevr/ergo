@@ -1,3 +1,5 @@
+import gen
+
 // Wall is a side of the box.
 type Wall = West{} | East{} | North{} | South{}
 
@@ -110,23 +112,30 @@ func Step(w World) (World, []Event) {
 }
 
 // StaysInTheBox: every particle is in a cell after every step.
-law StaysInTheBox(seed uint64, size int, n int, loss int, steps int) {
-	let mut w = newWorld(seed, size, n, loss)
-	for _ in 0..within(steps, 0, 50) {
-		let next, _ = Step(w)
-		if !Inside(next) {
-			return false
+law StaysInTheBox() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let mut w = gen.Named("world", showWorld, func() World needs gen.Draws { drawnWorld(true) })
+		let steps = gen.Named("steps", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(0, 50) })
+		for _ in 0..steps {
+			let next, _ = Step(w)
+			if !Inside(next) {
+				return false
+			}
+			w = next
 		}
-		w = next
-	}
+		true
+	})) == ""
 	true
 }
 
 // StepCountsOne: a step adds one to the tick and keeps every particle.
-law StepCountsOne(seed uint64, size int, n int, loss int) {
-	let w = newWorld(seed, size, n, loss)
-	let next, _ = Step(w)
-	next.Tick() == w.Tick()+1 && next.Count() == w.Count()
+law StepCountsOne() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let w = gen.Named("world", showWorld, func() World needs gen.Draws { drawnWorld(true) })
+		let next, _ = Step(w)
+		next.Tick() == w.Tick()+1 && next.Count() == w.Count()
+	})) == ""
+	true
 }
 
 // Run is w after n steps, and the count of each kind of event.
@@ -142,11 +151,18 @@ func Run(w World, n int) (World, Tally) {
 }
 
 // SeedReplays: one seed makes one run, step for step.
-law SeedReplays(seed uint64, size int, n int, loss int, steps int) {
-	let k = within(steps, 0, 50)
-	let a, ta = Run(newWorld(seed, size, n, loss), k)
-	let b, tb = Run(newWorld(seed, size, n, loss), k)
-	a == b && ta == tb
+law SeedReplays() {
+	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
+		let s0 = gen.Below(uint64(0))
+		let size = gen.Named("size", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(MinSide, 24) })
+		let n = gen.Named("n", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(0, 40) })
+		let loss = gen.Named("loss", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(0, 2) })
+		let k = gen.Named("steps", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(0, 50) })
+		let a, ta = Run(newWorld(s0, size, n, loss), k)
+		let b, tb = Run(newWorld(s0, size, n, loss), k)
+		a == b && ta == tb
+	})) == ""
+	true
 }
 
 // Tally counts the events of some steps.
