@@ -1,0 +1,312 @@
+import exec
+import filepath
+import fs
+import fstest
+import os
+import strings
+import github.com/cevr/ergo/modules/git/checkout
+import github.com/cevr/ergo/modules/git/diff
+import github.com/cevr/ergo/modules/git/local
+import github.com/cevr/ergo/modules/git/locks
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/oracle
+import github.com/cevr/ergo/modules/git/status
+import github.com/cevr/ergo/modules/git/wref
+
+type testFail {
+	reason string,
+}
+
+type hostBox {
+	Host() fs.Host,
+
+	// HostReadable: test host can read current directory.
+	law HostReadable() {
+		let h = Host()
+		let _ = fs.ReadDir(h, ".") catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return false
+		}
+		true
+	},
+}
+
+type realHostBox {
+	h fs.Host,
+} implements hostBox
+
+func Host(b realHostBox) fs.Host {
+	b.h
+}
+
+let onHostGitRepo = context needs fstest.TestAmbient {
+	GitRepo: NewHostGitRepo(filepath.Join([]string{fstest.TestFolder(), "law-host-git-repo"}), fs.NewTestHost()),
+}
+
+let onOracleWithHost = context needs fstest.TestAmbient {
+	exec.Runner:   exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
+	fs.Files:      fs.NewTestHost(),
+	fs.Writes:     fs.NewTestHost(),
+	os.Process:    os.NewTestHost(),
+	locks.LockOps: wref.NewFSLockOps(fs.NewTestHost()),
+	hostBox:       realHostBox{h: fs.NewTestHost()},
+}
+
+func runGit(dir string, args []string, pathEnv Map[string, string], step int) string fails testFail | exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	let r = try exec.Runner.Run(oracle.GitCommand(dir, args, pathEnv, oracle.StepEpoch(step)))
+	if r.Status != 0 {
+		return testFail{reason: "git " + strings.Join(args, " ") + " failed: " + r.Stderr}
+	}
+	r.Stdout
+}
+
+func check(ok bool, msg string) fails testFail {
+	if !ok {
+		return testFail{reason: msg}
+	}
+}
+
+func testIdent(ts int64) Identity {
+	Identity{
+		Name:      "Ergo Repo",
+		Email:     "repo@example.com",
+		Timestamp: ts,
+		TzOffset:  "+0000",
+	}
+}
+
+func exercisePureErgoWorkflow(rootDir string, label string, fmt oid.Format, pathEnv Map[string, string], host fs.Host) fails testFail | NotARepository | BareRepository | InvalidPath | MissingPath | EmptyCommit | UnmergedIndex | InvalidRevision | BranchExists | BranchNotFound | BranchCheckedOut | MergeConflict | CheckoutFailed | TransferFailed | RefError | ObjectError | IndexError | IOFailed | exec.NotFound | exec.Denied | exec.Failed | fs.NotFound | fs.Denied | fs.Failed needs exec.Runner | fs.Files | fs.Writes | locks.LockOps {
+	let originDir = filepath.Join([]string{rootDir, "origin-" + label})
+	let r = try Init(originDir, InitOptions{
+		HashAlg:       fmt,
+		Bare:          false,
+		DefaultBranch: "main",
+		RefFormat:     RefFiles,
+	}, host)
+
+	try fs.Writes.WriteFile(filepath.Join([]string{originDir, "readme.txt"}), "hello pure ergo repo\n")
+	let _ = try Add(r, []string{"readme.txt"}, locks.Durable)
+	let c1 = try Commit(r, CommitOptions{
+		Author:     testIdent(int64(1700000001)),
+		Committer:  testIdent(int64(1700000001)),
+		Message:    "initial commit\n",
+		AllowEmpty: false,
+		Durability: locks.Durable,
+	})
+	let st1 = try Status(r, status.DefaultOptions())
+	try check(st1.Len() == 0, "status not clean after initial commit")
+
+	let mut refusedEmpty = false
+	let _ = Commit(r, CommitOptions{
+		Author:     testIdent(int64(1700000002)),
+		Committer:  testIdent(int64(1700000002)),
+		Message:    "empty should fail\n",
+		AllowEmpty: false,
+		Durability: locks.Durable,
+	}) catch {
+	case EmptyCommit:
+		refusedEmpty = true
+		c1
+	case BareRepository, UnmergedIndex, RefError, ObjectError, IndexError, IOFailed:
+		return testFail{reason: "unexpected error instead of EmptyCommit"}
+	}
+	try check(refusedEmpty, "empty commit should have been refused")
+
+	let _ = try CreateBranch(r, "feature", "HEAD", locks.Durable)
+	let _ = try CheckoutBranch(r, "feature", checkout.DefaultOptions())
+	try fs.Writes.WriteFile(filepath.Join([]string{originDir, "feat.txt"}), "feature content\n")
+	let _ = try Add(r, []string{"feat.txt"}, locks.Durable)
+	let cFeat = try Commit(r, CommitOptions{
+		Author:     testIdent(int64(1700000010)),
+		Committer:  testIdent(int64(1700000010)),
+		Message:    "add feat\n",
+		AllowEmpty: false,
+		Durability: locks.Durable,
+	})
+
+	let _ = try CheckoutBranch(r, "main", checkout.DefaultOptions())
+	try fs.Writes.WriteFile(filepath.Join([]string{originDir, "main.txt"}), "main content\n")
+	let _ = try Add(r, []string{"main.txt"}, locks.Durable)
+	let cMain = try Commit(r, CommitOptions{
+		Author:     testIdent(int64(1700000020)),
+		Committer:  testIdent(int64(1700000020)),
+		Message:    "add main\n",
+		AllowEmpty: false,
+		Durability: locks.Durable,
+	})
+
+	let changes = try DiffTrees(r, "main~1", "main", diff.DefaultOptions())
+	try check(changes.Len() == 1 && diff.ChangePath(changes[0]) == "main.txt", "DiffTrees main~1..main mismatch")
+
+	let mRes = try Merge(r, "feature", MergeOptions{
+		Author:     testIdent(int64(1700000030)),
+		Committer:  testIdent(int64(1700000030)),
+		Message:    "Merge branch 'feature'\n",
+		Durability: locks.Durable,
+	})
+	match mRes.Kind {
+	case MergeCommitted:
+	case MergeAlreadyUpToDate, MergeFastForward:
+		return testFail{reason: "expected MergeCommitted for divergent merge"}
+	}
+	let cMerge = mRes.HeadOID
+	let origLog = try Log(r, "HEAD", 10)
+	try check(origLog.Len() == 4 && oid.Equal(origLog[0], cMerge), "unexpected origin log after merge")
+
+	let cloneDir = filepath.Join([]string{rootDir, "clone-" + label})
+	let cloneRepo = try CloneLocal(originDir, cloneDir, DefaultCloneOptions(), host)
+	let cloneHead = try ResolveRev(cloneRepo, "HEAD")
+	try check(oid.Equal(cloneHead, cMerge), "clone HEAD mismatch")
+	let cloneFeatText = try fs.Files.ReadFile(filepath.Join([]string{cloneDir, "feat.txt"}))
+	try check(cloneFeatText == "feature content\n", "clone working tree missing feat.txt")
+
+	try fs.Writes.WriteFile(filepath.Join([]string{cloneDir, "clone.txt"}), "from clone\n")
+	let _ = try Add(cloneRepo, []string{"clone.txt"}, locks.Durable)
+	let cClone = try Commit(cloneRepo, CommitOptions{
+		Author:     testIdent(int64(1700000040)),
+		Committer:  testIdent(int64(1700000040)),
+		Message:    "commit from clone\n",
+		AllowEmpty: false,
+		Durability: locks.Durable,
+	})
+
+	let bareDir = filepath.Join([]string{rootDir, "bare-" + label + ".git"})
+	let _ = try Init(bareDir, InitOptions{
+		HashAlg:       fmt,
+		Bare:          true,
+		DefaultBranch: "main",
+		RefFormat:     RefFiles,
+	}, host)
+	let _ = try PushLocal(cloneRepo, bareDir, []string{"refs/heads/main:refs/heads/main"}, local.DefaultPushOptions())
+	let _ = try FetchLocal(r, bareDir, []string{"refs/heads/main:refs/remotes/hub/main"}, local.DefaultFetchOptions())
+	let fetchedTip = try ResolveRev(r, "refs/remotes/hub/main")
+	try check(oid.Equal(fetchedTip, cClone), "fetched tip from bare hub mismatch")
+
+	let _ = try runGit(originDir, []string{"fsck", "--strict", "--full"}, pathEnv, 1)
+	let origGitStatus = try runGit(originDir, []string{"status", "--porcelain=v1", "-z"}, pathEnv, 2)
+	try check(origGitStatus == "", "origin git status not clean: "+origGitStatus)
+	let origGitHead = strings.TrimSpace(try runGit(originDir, []string{"rev-parse", "HEAD"}, pathEnv, 3))
+	try check(origGitHead == oid.Hex(cMerge), "origin git rev-parse HEAD mismatch")
+	let parentsLine = strings.TrimSpace(try runGit(originDir, []string{"rev-list", "--parents", "-n", "1", "HEAD"}, pathEnv, 4))
+	let parentParts = strings.Split(parentsLine, " ")
+	try check(parentParts.Len() == 3 && parentParts[0] == oid.Hex(cMerge) && parentParts[1] == oid.Hex(cMain) && parentParts[2] == oid.Hex(cFeat), "merge commit parents mismatch: "+parentsLine)
+	let origGitLog = strings.TrimSpace(try runGit(originDir, []string{"log", "--format=%H"}, pathEnv, 5))
+	let origGitLogLines = strings.Split(origGitLog, "\n")
+	try check(origGitLogLines.Len() == origLog.Len(), "origin git log count mismatch")
+	for i in 0..origLog.Len() {
+		try check(strings.TrimSpace(origGitLogLines[i]) == oid.Hex(origLog[i]), "origin git log OID mismatch")
+	}
+
+	let _ = try runGit(cloneDir, []string{"fsck", "--strict", "--full"}, pathEnv, 6)
+	let cloneGitStatus = try runGit(cloneDir, []string{"status", "--porcelain=v1", "-z"}, pathEnv, 7)
+	try check(cloneGitStatus == "", "clone git status not clean: "+cloneGitStatus)
+	let cloneGitHead = strings.TrimSpace(try runGit(cloneDir, []string{"rev-parse", "HEAD"}, pathEnv, 8))
+	try check(cloneGitHead == oid.Hex(cClone), "clone git rev-parse HEAD mismatch")
+	let cloneSym = strings.TrimSpace(try runGit(cloneDir, []string{"symbolic-ref", "HEAD"}, pathEnv, 9))
+	try check(cloneSym == "refs/heads/main", "clone symbolic-ref HEAD mismatch: "+cloneSym)
+
+	let _ = try runGit(bareDir, []string{"fsck", "--strict", "--full"}, pathEnv, 10)
+	let bareMain = strings.TrimSpace(try runGit(bareDir, []string{"rev-parse", "refs/heads/main"}, pathEnv, 11))
+	try check(bareMain == oid.Hex(cClone), "bare hub refs/heads/main mismatch")
+}
+
+// FullPureErgoWorkflowMatchesCGitSha1AndSha256: executes a complete pure-Ergo
+// Git lifecycle (Init, Add, Commit, Status, CreateBranch, CheckoutBranch,
+// DiffTrees, 2-parent Merge, CloneLocal, PushLocal, FetchLocal) with zero git
+// subprocesses during the workflow across SHA-1 and SHA-256, then verifies
+// every resulting repo with C `git fsck --strict --full`, `git status`, `git log`,
+// and `git rev-parse`.
+test FullPureErgoWorkflowMatchesCGitSha1AndSha256 {
+	with onOracleWithHost {
+		let host = hostBox.Host()
+		let pathEnv = exec.PathOf(os.Process.Environ())
+		let cwd = try os.Process.Getwd()
+		try exercisePureErgoWorkflow(cwd, "sha1", oid.Sha1, pathEnv, host)
+		try exercisePureErgoWorkflow(cwd, "sha256", oid.Sha256, pathEnv, host)
+	}
+}
+
+func exerciseReftableAndErrors(rootDir string, label string, fmt oid.Format, pathEnv Map[string, string], host fs.Host) fails testFail | NotARepository | BareRepository | InvalidPath | MissingPath | EmptyCommit | UnmergedIndex | InvalidRevision | BranchExists | BranchNotFound | BranchCheckedOut | MergeConflict | CheckoutFailed | TransferFailed | RefError | ObjectError | IndexError | IOFailed | exec.NotFound | exec.Denied | exec.Failed | fs.NotFound | fs.Denied | fs.Failed needs exec.Runner | fs.Files | fs.Writes | locks.LockOps {
+	let rtDir = filepath.Join([]string{rootDir, "rt-" + label})
+	let _ = try Init(rtDir, InitOptions{
+		HashAlg:       fmt,
+		Bare:          false,
+		DefaultBranch: "trunk",
+		RefFormat:     RefReftable,
+	}, host)
+	let reopened = try Open(rtDir, host)
+	match reopened.RefFormat {
+	case RefReftable:
+	case RefFiles:
+		return testFail{reason: "expected RefReftable after Open"}
+	}
+	try fs.Writes.WriteFile(filepath.Join([]string{rtDir, "data.txt"}), "reftable repo\n")
+	let _ = try Add(reopened, []string{"data.txt"}, locks.Durable)
+	let c1 = try Commit(reopened, CommitOptions{
+		Author:     testIdent(int64(1700000100)),
+		Committer:  testIdent(int64(1700000100)),
+		Message:    "reftable commit\n",
+		AllowEmpty: false,
+		Durability: locks.Durable,
+	})
+	let resolved = try ResolveRev(reopened, "HEAD")
+	try check(oid.Equal(resolved, c1), "reftable ResolveRev HEAD mismatch")
+	let logIDs = try Log(reopened, "HEAD", 5)
+	try check(logIDs.Len() == 1 && oid.Equal(logIDs[0], c1), "reftable Log mismatch")
+
+	let gitHead = strings.TrimSpace(try runGit(rtDir, []string{"rev-parse", "HEAD"}, pathEnv, 20))
+	try check(gitHead == oid.Hex(c1), "C git rev-parse HEAD mismatch on pure-Ergo reftable repo")
+	let _ = try runGit(rtDir, []string{"fsck", "--strict", "--full"}, pathEnv, 21)
+
+	let mut refusedDel = false
+	DeleteBranch(reopened, "trunk", locks.Durable) catch {
+	case BranchCheckedOut:
+		refusedDel = true
+	case BranchNotFound, RefError, ObjectError, IOFailed:
+		return testFail{reason: "unexpected error deleting checked-out branch"}
+	}
+	try check(refusedDel, "DeleteBranch should refuse checked-out branch")
+}
+
+// ReftableRepoAndConflictSafety: verifies Init with RefReftable + Open +
+// Commit + ResolveRev + C Git fsck across SHA-1 and SHA-256, plus merge
+// conflict safety and Remove / DeleteBranch refusal semantics.
+test ReftableRepoAndConflictSafety {
+	with onOracleWithHost {
+		let host = hostBox.Host()
+		let pathEnv = exec.PathOf(os.Process.Environ())
+		let cwd = try os.Process.Getwd()
+		try exerciseReftableAndErrors(cwd, "sha1", oid.Sha1, pathEnv, host)
+		try exerciseReftableAndErrors(cwd, "sha256", oid.Sha256, pathEnv, host)
+
+		let confDir = filepath.Join([]string{cwd, "conflict-repo"})
+		let r = try Init(confDir, DefaultInitOptions(), host)
+		try fs.Writes.WriteFile(filepath.Join([]string{confDir, "shared.txt"}), "base\n")
+		let _ = try Add(r, []string{"shared.txt"}, locks.Durable)
+		let _ = try Commit(r, CommitOptions{Author: testIdent(int64(1700000200)), Committer: testIdent(int64(1700000200)), Message: "base\n", AllowEmpty: false, Durability: locks.Durable})
+		let _ = try CreateBranch(r, "side", "HEAD", locks.Durable)
+		let _ = try CheckoutBranch(r, "side", checkout.DefaultOptions())
+		try fs.Writes.WriteFile(filepath.Join([]string{confDir, "shared.txt"}), "side change\n")
+		let _ = try Add(r, []string{"shared.txt"}, locks.Durable)
+		let _ = try Commit(r, CommitOptions{Author: testIdent(int64(1700000201)), Committer: testIdent(int64(1700000201)), Message: "side\n", AllowEmpty: false, Durability: locks.Durable})
+		let _ = try CheckoutBranch(r, "main", checkout.DefaultOptions())
+		try fs.Writes.WriteFile(filepath.Join([]string{confDir, "shared.txt"}), "main change\n")
+		let _ = try Add(r, []string{"shared.txt"}, locks.Durable)
+		let mainBefore = try Commit(r, CommitOptions{Author: testIdent(int64(1700000202)), Committer: testIdent(int64(1700000202)), Message: "main\n", AllowEmpty: false, Durability: locks.Durable})
+
+		let mut sawConflict = false
+		let _ = Merge(r, "side", MergeOptions{Author: testIdent(int64(1700000203)), Committer: testIdent(int64(1700000203)), Message: "merge side\n", Durability: locks.Durable}) catch {
+		case MergeConflict as mc:
+			sawConflict = mc.Conflicts.Len() == 1
+			MergeResult{Kind: MergeAlreadyUpToDate, HeadOID: mainBefore, TreeOID: mainBefore}
+		case BareRepository, InvalidRevision, CheckoutFailed, RefError, ObjectError, IndexError, IOFailed:
+			MergeResult{Kind: MergeAlreadyUpToDate, HeadOID: mainBefore, TreeOID: mainBefore}
+		}
+		assert sawConflict
+		let headAfter = try ResolveRev(r, "HEAD")
+		assert oid.Equal(headAfter, mainBefore)
+
+		let afterRm = try Remove(r, []string{"shared.txt"}, locks.Durable)
+		assert afterRm.Len() == 0
+	}
+}

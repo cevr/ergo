@@ -1,0 +1,336 @@
+import filepath
+import fs
+import option
+import strings
+import github.com/cevr/ergo/modules/git/checkout
+import github.com/cevr/ergo/modules/git/local
+import github.com/cevr/ergo/modules/git/locks
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/refs
+import github.com/cevr/ergo/modules/git/reftable
+import github.com/cevr/ergo/modules/git/root
+
+func formatOfLayout(layout root.Layout) oid.Format {
+	if layout.ObjectFormat == "sha256" { oid.Sha256 } else { oid.Sha1 }
+}
+
+func refFormatOfLayout(layout root.Layout) RefFormat {
+	if layout.RefStorage == "reftable" { RefReftable } else { RefFiles }
+}
+
+func buildInitConfig(opts InitOptions) string {
+	let isSha256 = match opts.HashAlg {
+	case oid.Sha1:
+		false
+	case oid.Sha256:
+		true
+	}
+	let isReftable = match opts.RefFormat {
+	case RefFiles:
+		false
+	case RefReftable:
+		true
+	}
+	let verLine = if isSha256 || isReftable { "\trepositoryformatversion = 1\n" } else { "\trepositoryformatversion = 0\n" }
+	let bareLine = if opts.Bare { "\tbare = true\n" } else { "\tbare = false\n\tlogallrefupdates = true\n" }
+	let mut cfg = "[core]\n" + verLine + "\tfilemode = true\n" + bareLine
+	if isSha256 || isReftable {
+		cfg = cfg + "[extensions]\n"
+		if isSha256 {
+			cfg = cfg + "\tobjectformat = sha256\n"
+		}
+		if isReftable {
+			cfg = cfg + "\trefstorage = reftable\n"
+		}
+	}
+	cfg
+}
+
+// Init creates a new C-Git-compatible repository at dir with the requested
+// hash algorithm, bare/non-bare layout, default branch, and reference backend
+// (`RefFiles` or `RefReftable`), then returns the opened Repository handle.
+func Init(dir string, opts InitOptions, host fs.Host) Repository fails NotARepository | RefError | ObjectError | IOFailed needs locks.LockOps {
+	let branch = if opts.DefaultBranch == "" { "main" } else { opts.DefaultBranch }
+	let cleanDir = filepath.Clean(dir)
+	let gitDir = if opts.Bare { cleanDir } else { filepath.Join([]string{cleanDir, ".git"}) }
+
+	with context { fs.Writes: host } {
+		fs.Writes.MkdirAll(filepath.Join([]string{gitDir, "objects", "pack"})) catch {
+		case fs.Denied as e:
+			return IOFailed{Op: "mkdir-objects-pack", Detail: e.Path}
+		case fs.Failed as e:
+			return IOFailed{Op: "mkdir-objects-pack", Detail: e.Reason}
+		}
+		fs.Writes.MkdirAll(filepath.Join([]string{gitDir, "objects", "info"})) catch {
+		case fs.Denied as e:
+			return IOFailed{Op: "mkdir-objects-info", Detail: e.Path}
+		case fs.Failed as e:
+			return IOFailed{Op: "mkdir-objects-info", Detail: e.Reason}
+		}
+		fs.Writes.MkdirAll(filepath.Join([]string{gitDir, "info"})) catch {
+		case fs.Denied as e:
+			return IOFailed{Op: "mkdir-info", Detail: e.Path}
+		case fs.Failed as e:
+			return IOFailed{Op: "mkdir-info", Detail: e.Reason}
+		}
+		fs.Writes.WriteFile(filepath.Join([]string{gitDir, "config"}), buildInitConfig(opts)) catch {
+		case fs.NotFound as e:
+			return IOFailed{Op: "write-config", Detail: e.Path}
+		case fs.Denied as e:
+			return IOFailed{Op: "write-config", Detail: e.Path}
+		case fs.Failed as e:
+			return IOFailed{Op: "write-config", Detail: e.Reason}
+		}
+	}
+
+	match opts.RefFormat {
+	case RefFiles:
+		with context { fs.Writes: host } {
+			fs.Writes.MkdirAll(filepath.Join([]string{gitDir, "refs", "heads"})) catch {
+			case fs.Denied as e:
+				return IOFailed{Op: "mkdir-refs-heads", Detail: e.Path}
+			case fs.Failed as e:
+				return IOFailed{Op: "mkdir-refs-heads", Detail: e.Reason}
+			}
+			fs.Writes.MkdirAll(filepath.Join([]string{gitDir, "refs", "tags"})) catch {
+			case fs.Denied as e:
+				return IOFailed{Op: "mkdir-refs-tags", Detail: e.Path}
+			case fs.Failed as e:
+				return IOFailed{Op: "mkdir-refs-tags", Detail: e.Reason}
+			}
+			fs.Writes.WriteFile(filepath.Join([]string{gitDir, "HEAD"}), "ref: refs/heads/"+branch+"\n") catch {
+			case fs.NotFound as e:
+				return IOFailed{Op: "write-head", Detail: e.Path}
+			case fs.Denied as e:
+				return IOFailed{Op: "write-head", Detail: e.Path}
+			case fs.Failed as e:
+				return IOFailed{Op: "write-head", Detail: e.Reason}
+			}
+		}
+	case RefReftable:
+		with context { fs.Writes: host } {
+			fs.Writes.MkdirAll(filepath.Join([]string{gitDir, "refs"})) catch {
+			case fs.Denied as e:
+				return IOFailed{Op: "mkdir-refs", Detail: e.Path}
+			case fs.Failed as e:
+				return IOFailed{Op: "mkdir-refs", Detail: e.Reason}
+			}
+			fs.Writes.WriteFile(filepath.Join([]string{gitDir, "refs", "heads"}), "this repository uses the reftable format\n") catch {
+			case fs.NotFound as e:
+				return IOFailed{Op: "write-refs-heads-stub", Detail: e.Path}
+			case fs.Denied as e:
+				return IOFailed{Op: "write-refs-heads-stub", Detail: e.Path}
+			case fs.Failed as e:
+				return IOFailed{Op: "write-refs-heads-stub", Detail: e.Reason}
+			}
+			fs.Writes.WriteFile(filepath.Join([]string{gitDir, "HEAD"}), "ref: refs/heads/.invalid\n") catch {
+			case fs.NotFound as e:
+				return IOFailed{Op: "write-reftable-head", Detail: e.Path}
+			case fs.Denied as e:
+				return IOFailed{Op: "write-reftable-head", Detail: e.Path}
+			case fs.Failed as e:
+				return IOFailed{Op: "write-reftable-head", Detail: e.Reason}
+			}
+		}
+		let _ = reftable.AppendTable(gitDir, opts.HashAlg, []reftable.RefRecord{
+			reftable.RefRecord{
+				Name:        "HEAD",
+				UpdateIndex: uint64(1),
+				Value:       reftable.RefSymref{Target: "refs/heads/" + branch},
+			},
+		}, []reftable.LogRecord{}, locks.Atomic, host) catch {
+		case reftable.BadMagic, reftable.UnsupportedVersion, reftable.HashFormatMismatch, reftable.TruncatedTable, reftable.HeaderFooterMismatch, reftable.CorruptChecksum, reftable.CorruptBlock, reftable.CorruptRecord, reftable.ZlibFailed, reftable.InvalidUpdateIndex, reftable.LockFailed:
+			return RefError{Detail: "failed to initialize reftable stack"}
+		case reftable.IOFailed as e:
+			return IOFailed{Op: e.Op, Detail: e.Detail}
+		}
+	}
+
+	try Open(cleanDir, host)
+}
+
+// Open discovers and opens an existing Git repository from path (normal, bare,
+// linked worktree, SHA-1, SHA-256, files or reftable ref backend).
+func Open(path string, host fs.Host) Repository fails NotARepository | IOFailed {
+	let layout = with context { fs.Files: host } {
+		root.Discover(path, root.DefaultDiscoverOptions()) catch {
+		case root.NotARepository as e:
+			return NotARepository{Path: e.StartDir, Detail: "not a git repository"}
+		case root.BadGitDirFile as e:
+			return NotARepository{Path: e.Path, Detail: e.Reason}
+		case root.BadCommonDir as e:
+			return NotARepository{Path: e.Path, Detail: e.Reason}
+		case root.UnsupportedVersion:
+			return NotARepository{Path: path, Detail: "unsupported repositoryformatversion"}
+		case root.UnsupportedExtension as e:
+			return NotARepository{Path: path, Detail: "unsupported extension: " + e.Name}
+		case root.UntrustedPath as e:
+			return NotARepository{Path: e.Path, Detail: e.Reason}
+		case root.PathEscape as e:
+			return NotARepository{Path: e.Path, Detail: "path escape"}
+		case root.AlternateCycle as e:
+			return NotARepository{Path: e.Path, Detail: "alternate cycle"}
+		case root.AlternateDepthExceeded:
+			return NotARepository{Path: path, Detail: "alternate depth exceeded"}
+		case root.ConfigSyntax as e:
+			return NotARepository{Path: e.Path, Detail: e.Reason}
+		case root.ConfigBadValue as e:
+			return NotARepository{Path: path, Detail: "bad config value for " + e.Key}
+		case fs.NotFound as e:
+			return NotARepository{Path: e.Path, Detail: "path not found"}
+		case fs.Denied as e:
+			return IOFailed{Op: "discover", Detail: e.Path}
+		case fs.Failed as e:
+			return IOFailed{Op: "discover", Detail: e.Reason}
+		}
+	}
+	Repository{
+		Layout:    layout,
+		Format:    formatOfLayout(layout),
+		RefFormat: refFormatOfLayout(layout),
+		Host:      host,
+	}
+}
+
+func detectSourceDefaultBranch(src Repository) string {
+	let (symOpt, _) = readHeadState(src)
+	match symOpt {
+	case option.Some[string] as target:
+		if strings.HasPrefix(target.Value, "refs/heads/") {
+			return strings.TrimPrefix(target.Value, "refs/heads/")
+		}
+	case option.None:
+	}
+	"main"
+}
+
+func sourceHasBranch(src Repository, branch string) bool {
+	let full = "refs/heads/" + branch
+	match src.RefFormat {
+	case RefFiles:
+		let st = refs.FromLayout(src.Layout)
+		let ok = with context { fs.Files: src.Host } {
+			let _ = st.Resolve(full) catch {
+			case refs.NotFound, refs.InvalidRefName, refs.CyclicSymref, refs.CorruptRef, refs.PathEscape, refs.IOFailed:
+				return false
+			}
+			true
+		}
+		ok
+	case RefReftable:
+		let tables = reftable.ReadStack(src.Layout.GitDir, src.Host) catch {
+		case reftable.BadMagic, reftable.UnsupportedVersion, reftable.HashFormatMismatch, reftable.TruncatedTable, reftable.HeaderFooterMismatch, reftable.CorruptChecksum, reftable.CorruptBlock, reftable.CorruptRecord, reftable.ZlibFailed, reftable.InvalidUpdateIndex, reftable.IOFailed:
+			return false
+		}
+		match reftable.LookupRef(tables, full) {
+		case option.Some[reftable.RefRecord]:
+			true
+		case option.None:
+			false
+		}
+	}
+}
+
+// CloneLocal initializes a new repository at dstDir matching srcDir's hash
+// algorithm and default branch, fetches all branches via local.Fetch, writes
+// remote tracking config, and checks out the default branch into dstDir unless
+// opts.Bare is true.
+func CloneLocal(srcDir string, dstDir string, opts CloneOptions, host fs.Host) Repository fails NotARepository | BareRepository | CheckoutFailed | TransferFailed | RefError | ObjectError | IndexError | IOFailed needs locks.LockOps {
+	let src = try Open(srcDir, host)
+	let defaultBranch = detectSourceDefaultBranch(src)
+	let remoteName = if opts.RemoteName == "" { "origin" } else { opts.RemoteName }
+
+	let dst = try Init(dstDir, InitOptions{
+		HashAlg:       src.Format,
+		Bare:          opts.Bare,
+		DefaultBranch: defaultBranch,
+		RefFormat:     RefFiles,
+	}, host)
+
+	let remoteRefspec = "+refs/heads/*:refs/remotes/" + remoteName + "/*"
+	let hasDefault = sourceHasBranch(src, defaultBranch)
+	let mut specs = []string{remoteRefspec}
+	if hasDefault {
+		specs = specs.Append("+refs/heads/" + defaultBranch + ":refs/heads/" + defaultBranch)
+	}
+	let mut fetchOpts = local.DefaultFetchOptions()
+	fetchOpts.Force = true
+	fetchOpts.Durability = opts.Durability
+	let _ = local.Fetch(src.Layout, dst.Layout, specs, fetchOpts, host) catch {
+	case local.InvalidRefspec as e:
+		return TransferFailed{Detail: "invalid refspec: " + e.Spec}
+	case local.HashFormatMismatch as e:
+		return TransferFailed{Detail: "hash format mismatch: " + e.SrcFormat + " vs " + e.DstFormat}
+	case local.NonFastForward as e:
+		return TransferFailed{Detail: "non-fast-forward: " + e.Ref}
+	case local.LeaseMismatch as e:
+		return TransferFailed{Detail: "lease mismatch: " + e.Ref}
+	case local.ReceiveCurrentBranch as e:
+		return TransferFailed{Detail: "receive current branch: " + e.Ref}
+	case local.MissingRef as e:
+		return TransferFailed{Detail: "missing ref: " + e.Ref}
+	case local.MissingObject:
+		return TransferFailed{Detail: "missing object during clone"}
+	case local.DanglingObject:
+		return TransferFailed{Detail: "dangling object during clone"}
+	case local.TransferFailed as e:
+		return TransferFailed{Detail: e.Detail}
+	case local.RefUpdateFailed as e:
+		return RefError{Detail: e.Detail}
+	case local.IOFailed as e:
+		return IOFailed{Op: e.Op, Detail: e.Detail}
+	}
+
+	let cfgPath = dst.Layout.ConfigPath
+	let oldCfg = with context { fs.Files: host } {
+		fs.Files.ReadFile(cfgPath) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			""
+		}
+	}
+	let remoteBlock = "[remote \"" + remoteName + "\"]\n\turl = " + filepath.Clean(srcDir) + "\n\tfetch = " + remoteRefspec + "\n[branch \"" + defaultBranch + "\"]\n\tremote = " + remoteName + "\n\tmerge = refs/heads/" + defaultBranch + "\n"
+	with context { fs.Writes: host } {
+		fs.Writes.WriteFile(cfgPath, oldCfg+remoteBlock) catch {
+		case fs.NotFound as e:
+			return IOFailed{Op: "write-clone-config", Detail: e.Path}
+		case fs.Denied as e:
+			return IOFailed{Op: "write-clone-config", Detail: e.Path}
+		case fs.Failed as e:
+			return IOFailed{Op: "write-clone-config", Detail: e.Reason}
+		}
+	}
+
+	if !opts.Bare && hasDefault {
+		let mut coOpts = checkout.DefaultOptions()
+		coOpts.Force = true
+		coOpts.Durability = opts.Durability
+		let _ = checkout.CheckoutBranch(dst.Layout, defaultBranch, coOpts, host) catch {
+		case checkout.BareRepository:
+			return BareRepository{Op: "clone-checkout"}
+		case checkout.UnsafePath as e:
+			return CheckoutFailed{Detail: e.Reason}
+		case checkout.SymlinkTraversal as e:
+			return CheckoutFailed{Detail: "symlink traversal: " + e.Path}
+		case checkout.DirtyOverwrite as e:
+			return CheckoutFailed{Detail: "dirty overwrite: " + e.Path}
+		case checkout.UntrackedOverwrite as e:
+			return CheckoutFailed{Detail: "untracked overwrite: " + e.Path}
+		case checkout.UnmergedIndex as e:
+			return CheckoutFailed{Detail: "unmerged index: " + e.Path}
+		case checkout.InvalidTarget as e:
+			return CheckoutFailed{Detail: e.Reason}
+		case checkout.MissingObject:
+			return ObjectError{Detail: "missing object during clone checkout"}
+		case checkout.TreeError as e:
+			return ObjectError{Detail: e.Detail}
+		case checkout.IndexError as e:
+			return IndexError{Detail: e.Detail}
+		case checkout.RefError as e:
+			return RefError{Detail: e.Detail}
+		case checkout.IOFailed as e:
+			return IOFailed{Op: e.Op, Detail: e.Detail}
+		}
+	}
+
+	dst
+}
