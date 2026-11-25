@@ -4,7 +4,7 @@ import machines
 import maps
 import testing
 
-type limAct =
+type limConcAct =
 	| LimTake{Key string, Cost int}
 	| LimPeek{Key string}
 	| LimAdvance{Ms int}
@@ -24,7 +24,7 @@ func initialBuckets() Map[string, bucket.Bucket] {
 	bs
 }
 
-func limStoryStep(bs Map[string, bucket.Bucket], a limAct) (Map[string, bucket.Bucket], limRes) {
+func limStoryStep(bs Map[string, bucket.Bucket], a limConcAct) (Map[string, bucket.Bucket], limRes) {
 	match a {
 	case LimTake as x:
 		let b = match bs.Get(x.Key) {
@@ -64,7 +64,7 @@ func limStoryStep(bs Map[string, bucket.Bucket], a limAct) (Map[string, bucket.B
 	}
 }
 
-func runLimAct(m Memory, a limAct) limRes {
+func runLimAct(m Memory, a limConcAct) limRes {
 	match a {
 	case LimTake as x:
 		let g = m.Take(x.Key, x.Cost) catch {
@@ -84,7 +84,7 @@ func runLimAct(m Memory, a limAct) limRes {
 	}
 }
 
-func showLimAct(a limAct) string {
+func showLimAct(a limConcAct) string {
 	match a {
 	case LimTake as x:
 		"Take(\(x.Key),\(x.Cost))"
@@ -114,15 +114,15 @@ func showLimRes(r limRes) string {
 
 test LimiterConcurrentLinearizable {
 	let m = NewMemory()
-	let plans = [][]limAct{
-		[]limAct{LimTake{Key: "fast", Cost: 2}, LimPeek{Key: "fast"}, LimTake{Key: "slow", Cost: 2}},
-		[]limAct{LimTake{Key: "fast", Cost: 2}, LimAdvance{Ms: 7}, LimTake{Key: "fast", Cost: 1}},
-		[]limAct{LimTake{Key: "slow", Cost: 3}, LimPeek{Key: "slow"}, LimPeek{Key: "fast"}},
+	let plans = [][]limConcAct{
+		[]limConcAct{LimTake{Key: "fast", Cost: 2}, LimPeek{Key: "fast"}, LimTake{Key: "slow", Cost: 2}},
+		[]limConcAct{LimTake{Key: "fast", Cost: 2}, LimAdvance{Ms: 7}, LimTake{Key: "fast", Cost: 1}},
+		[]limConcAct{LimTake{Key: "slow", Cost: 3}, LimPeek{Key: "slow"}, LimPeek{Key: "fast"}},
 	}
-	testing.AgreesConcurrent(initialBuckets(), limStoryStep, plans, func(a limAct) limRes {
+	testing.AgreesConcurrent(initialBuckets(), limStoryStep, plans, func(a limConcAct) limRes {
 		runLimAct(m, a)
 	}) catch {
-	case testing.NotLinearizable[limAct, limRes] as nl:
+	case testing.NotLinearizable[limConcAct, limRes] as nl:
 		assert testing.FormatHistory(nl.History, showLimAct, showLimRes) == ""
 	}
 }
