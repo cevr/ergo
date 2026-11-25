@@ -21,6 +21,11 @@ extern go ergo.local/prototype/runtime/v1.FS type FS {
 	},
 }
 
+// File embeds the build-time asset or asset tree matched by pattern as type T.
+//
+// ergo:builtin embedded
+func File[T](pattern string) T { Unreachable(pattern) }
+
 // NewEmpty is an empty read-only tree, useful when a program has no assets.
 extern go ergo.local/prototype/runtime/v1.NewEmptyFS func NewEmpty() FS
 

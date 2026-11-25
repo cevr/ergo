@@ -18,6 +18,16 @@ import strconv
 import sync
 import utf8
 
+// Encode writes the wire representation of v to w.
+//
+// ergo:builtin encode
+func Encode[T wire](v T, w Writer) needs wired[T] { encode(v, w) }
+
+// Decode reads a value of type T from r.
+//
+// ergo:builtin decode
+func Decode[T wire](r Reader) T fails wired[T] needs wired[T] { try decode[T](r) }
+
 // The events, one record each, as the Writer's operations name them.
 type BoolEvent { V bool }
 type IntEvent { V int64 }

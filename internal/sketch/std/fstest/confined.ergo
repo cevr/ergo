@@ -47,6 +47,16 @@ type Confined {
 	},
 }
 
+// TestFolderHandle returns the enclosing case's folder and acquisition owner.
+//
+// ergo:alias TestFolderHandle
+func TestFolderHandle() TestDirectory needs TestAmbient { TestAmbient.folder() }
+
+// TestFolder returns the absolute path of the enclosing case's folder.
+//
+// ergo:alias TestFolder
+func TestFolder() string needs TestAmbient { TestFolderHandle().Name() }
+
 // Folder is the file system fs.NewTestHost gives, with its folder, as a
 // Confined. Its fields give this package the construction authority, so
 // only NewFolder makes one, and its files are never the host's own,

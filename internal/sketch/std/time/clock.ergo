@@ -41,6 +41,11 @@ type Host { live hostOnly } implements Clock
 // hostOnly is the zero-size type of Host's field.
 type hostOnly {}
 
+// NewLiveScheduler returns the host's Scheduler provider.
+//
+// ergo:alias NewLiveScheduler
+func NewLiveScheduler() LiveScheduler needs Ambient { NewLiveScheduler() }
+
 // NewHost is the host's Clock provider. It needs Ambient: only code whose
 // row holds the authority to choose the host makes one (docs/spec/
 // stdlib.md, Host packages).

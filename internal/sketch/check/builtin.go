@@ -1,7 +1,12 @@
 package check
 
-import "sync"
-import "fmt"
+import (
+	"fmt"
+	"strings"
+	"sync"
+
+	"ergo.local/prototype/internal/sketch/syntax"
+)
 
 // Go builtins as extern targets (OPT4b). `extern go append func Append[T](xs
 // []T, x T) []T` binds Go's builtin append, in std and in user code alike:
@@ -56,6 +61,45 @@ func GoBuiltin(f *Func) string {
 // builtin len(x) or through an extern go len binding such as x.Len().
 func IsLenCall(c *Call) bool {
 	return c != nil && (c.Kind == CallLen || c.Kind == CallFunc && GoBuiltin(c.Func) == "len")
+}
+
+// builtinDirective returns the compiler-derived builtin name declared by a
+// `// ergo:builtin <name>` doc directive (NO-PRELUDE §3.2: hash, encode,
+// decode, embedded), or "" if none.
+func builtinDirective(doc *syntax.CommentGroup) string {
+	if doc == nil {
+		return ""
+	}
+	for _, cm := range doc.List {
+		rest, ok := strings.CutPrefix(strings.TrimSpace(cm.Text), "// ergo:builtin ")
+		if !ok {
+			continue
+		}
+		switch name := strings.TrimSpace(rest); name {
+		case "hash", "encode", "decode", "embedded":
+			return name
+		}
+	}
+	return ""
+}
+
+// aliasDirective returns the parent-scope function name re-exported by a
+// `// ergo:alias <name>` doc directive during a two-spelling migration window,
+// or "" if none.
+func aliasDirective(doc *syntax.CommentGroup) string {
+	if doc == nil {
+		return ""
+	}
+	for _, cm := range doc.List {
+		rest, ok := strings.CutPrefix(strings.TrimSpace(cm.Text), "// ergo:alias ")
+		if !ok {
+			continue
+		}
+		if name := strings.TrimSpace(rest); name != "" {
+			return name
+		}
+	}
+	return ""
 }
 
 // AppendsString reports an extern of Go's append at its second shape,

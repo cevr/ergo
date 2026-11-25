@@ -354,6 +354,12 @@ func RedeemCode(s Store, c Challenge, purpose string, code string) fails Unknown
 	try s.Redeem(c.ID, DigestOf(purpose, code), time.Clock.Now())
 }
 
+// AsWritten returns v while keeping any call tree inside it as written,
+// preventing rewrite laws from rewriting its argument.
+//
+// ergo:aswritten
+func AsWritten[T](v T) T { v }
+
 // VerifyCode checks a TOTP code of subject's secret now, and claims its
 // period in s so it is used once: Wrong when no period of p's window has
 // that code, Spent when its period's code was used.

@@ -2,6 +2,11 @@
 // actions). The Go body is runtime/v1's OnExit; its hidden argument, the
 // caller's frame scope, is docs/spec/stdlib.md's Hidden arguments.
 
+// InForce captures the providers of R in force at the call as a Context value.
+//
+// ergo:alias InForce
+extern go ergo.local/prototype/runtime/v1.InForce func InForce[R]() Context[R] needs R
+
 // OnExit registers body on the innermost enclosing function, as Go's defer
 // does: it runs when that function returns, on every path, masked, and the
 // blocks one call registered run last registered first. The block reads

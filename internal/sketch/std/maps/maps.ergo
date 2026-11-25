@@ -4,6 +4,11 @@
 // 1). slices.Sorted(maps.Keys(m)) gives the keys in a fixed order. It is
 // Ergo source; Clone is the Map operation m.Clone() (PRIM-4).
 
+// Hash returns a uint64 hash of k such that a == b implies Hash(a) == Hash(b).
+//
+// ergo:builtin hash
+func Hash[K comparable](k K) uint64 { hash(k) }
+
 // Clone is a new Map with the keys and values of m: Go's maps.Clone. A
 // write to the clone never reaches m.
 func Clone[K comparable, V](m Map[K, V]) Map[K, V] { m.Clone() }
