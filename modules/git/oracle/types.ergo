@@ -11,6 +11,28 @@ import fs
 // coupling callers to fs.Host directly.
 type Symlinks {
 	CreateSymlink(target string, path string) fails fs.NotFound | fs.Denied | fs.Failed,
+
+	// DuplicateSymlinkFails: creating a symlink over an existing symlink path fails.
+	law DuplicateSymlinkFails() {
+		let p = "oracle-symlink-law-check"
+		CreateSymlink("target-a", p) catch {
+		case fs.NotFound:
+			return false
+		case fs.Denied:
+			return false
+		case fs.Failed:
+			return false
+		}
+		CreateSymlink("target-b", p) catch {
+		case fs.NotFound:
+			return true
+		case fs.Denied:
+			return true
+		case fs.Failed:
+			return true
+		}
+		false
+	},
 }
 
 // HostSymlinks implements Symlinks over an fs.Host.
