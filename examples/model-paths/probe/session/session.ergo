@@ -1,0 +1,76 @@
+// Package session defines the interface used to probe a fresh provider session.
+import sync
+
+type Fault { Reason string }
+type Rejected { At int }
+type Mismatch { Phase string, Got int }
+
+type Session {
+	..Closer,
+	Read() int fails Fault,
+	Apply(n int) fails Rejected | Fault,
+}
+
+type Sessions {
+	Open(id int, released sync.Ref[[]int]) Session fails Fault,
+
+	law FreshCrossPackage() {
+		let released = sync.NewRef([]int{})
+		let result = try withSession(func() Session fails Fault {
+			try Open(1, released)
+		}, func(first Session) int fails Fault | Mismatch | Rejected {
+			if len(released.Get()) != 0 {
+				return Mismatch{Phase: "released before first use", Got: len(released.Get())}
+			}
+			let initial = try first.Read()
+			if initial != 0 {
+				return Mismatch{Phase: "first initial read", Got: initial}
+			}
+			try first.Apply(1)
+			let mut rejected = false
+			first.Apply(-1) catch {
+			case Rejected as r:
+				if r.At != 1 {
+					return Mismatch{Phase: "acknowledged rejection payload", Got: r.At}
+				}
+				rejected = true
+			case Fault as f:
+				return f
+			}
+			if !rejected {
+				return Mismatch{Phase: "missing rejection", Got: 0}
+			}
+
+			let checked = withSession(func() Session fails Fault {
+				try Open(2, released)
+			}, func(second Session) int fails Fault | Mismatch {
+				let fresh = try second.Read()
+				if fresh != 0 {
+					return Mismatch{Phase: "second initial read", Got: fresh}
+				}
+				return Mismatch{Phase: "intentional mismatch", Got: 0}
+			}) catch {
+			case Mismatch as m:
+				if released.Get() != []int{2} {
+					return Mismatch{Phase: "release after mismatch", Got: len(released.Get())}
+				}
+				if m.Phase != "intentional mismatch" || m.Got != 0 {
+					return m
+				}
+				1
+			case Fault as f:
+				return f
+			}
+			if checked != 1 {
+				return Mismatch{Phase: "missing intentional mismatch", Got: checked}
+			}
+			try first.Read()
+		})
+		result == 1 && released.Get() == []int{2, 1}
+	},
+}
+
+func withSession[T, E](open own func() Session fails Fault, use func(s Session) T fails E) T fails Fault | E {
+	let s = try open()
+	try use(s)
+}

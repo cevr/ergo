@@ -868,6 +868,10 @@ type irBuilder struct {
 	// other body and inside a function literal: each value it returns is
 	// checked where it is returned.
 	law *check.Law
+	// lawOwner is the enclosing member law's operation type, kept inside
+	// nested function literals so bare law operation calls resolve through
+	// the captured environment (calls.go CallLawOp).
+	lawOwner *check.Named
 	// lawOwn is the local of the provider under test that a law of a
 	// generic operation type takes after its environment (the emitter's
 	// lawDecl `own`), which its operation calls call; 0 in any other body

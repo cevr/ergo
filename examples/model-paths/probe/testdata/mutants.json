@@ -1,0 +1,15 @@
+{
+  "about": "Model-path probe mutants; run against the probe's ordinary provider law.",
+  "mutants": [
+    {
+      "name": "probe-session-reuses-state",
+      "origin": "wf10/MODEL-PATHS/P0",
+      "file": "examples/model-paths/probe/disk/disk.ergo",
+      "decl": "Open",
+      "from": "\tlet dir = \"session-\\(id)\"\n",
+      "to": "\tlet dir = \"session-1\"\n",
+      "rule": "Two inner opens in one law case must start independently. Reopening the first live log exposes its already-used state in the second initial read.",
+      "killers": ["examples/model-paths/probe:law:session.Sessions.FreshCrossPackage"]
+    }
+  ]
+}

@@ -143,13 +143,14 @@ func (b *irBuilder) adaptOperand(sig *check.Signature, site syntax.Node, e *irEx
 	}
 	ok := len(shape.Params) == len(sig.Params)
 	switch {
+	case task:
+		// adaptTaskFunc: the Go values are the Ergo function's (0 or 1),
+		// including zero-parameter task callbacks such as actor's decide.
+		ok = ok && values == len(sig.Results)
 	case len(shape.Params) == 0:
 		// adaptFunc: a block; a Go result of error alone takes a block
 		// with no value.
 		ok = ok && values <= 1 && !(len(shape.Results) == 1 && fallible && len(sig.Results) != 0) && !(values == 1 && !fallible)
-	case task:
-		// adaptTaskFunc: the Go values are the Ergo function's.
-		ok = ok && values == len(sig.Results)
 	default:
 		// A plain Go result cannot carry a typed failure. A reviewed
 		// synchronous host callback can forward the caller's needs.
