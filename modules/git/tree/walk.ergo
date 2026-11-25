@@ -1,0 +1,236 @@
+import fs
+import strings
+import github.com/cevr/ergo/modules/git/delta
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/pack
+
+func readTreeEntries(format oid.Format, treeOid oid.OID, maxBytes int) []Entry fails CorruptTree | InvalidEntryName | UnsortedTree | DuplicateEntry | WrongKind | MissingObject | StoreError needs pack.ObjectStore {
+	let obj = try readStoreObject(treeOid, maxBytes)
+	match obj.Kind {
+	case oid.Tree:
+		try ParseTree(format, obj.Data)
+	case oid.Blob, oid.Commit, oid.Tag:
+		return WrongKind{Expected: "tree", Got: oid.KindName(obj.Kind)}
+	}
+}
+
+func statStoreSize(id oid.OID, maxBytes int) int fails MissingObject | StoreError needs pack.ObjectStore {
+	let hdr = pack.ObjectStore.Stat(id, maxBytes) catch {
+	case pack.Missing as e:
+		return MissingObject{OID: e.OID}
+	case pack.Corrupt as e:
+		return StoreError{Detail: e.Why}
+	case pack.MismatchedPair as e:
+		return StoreError{Detail: "mismatched pack pair: " + e.PackPath}
+	case pack.Collision as e:
+		return StoreError{Detail: "sha1 collision: " + e.Digest}
+	case pack.LimitExceeded:
+		return StoreError{Detail: "object exceeds byte limit"}
+	case pack.DepthExceeded:
+		return StoreError{Detail: "delta chain depth exceeded"}
+	case pack.IOFailed as e:
+		return StoreError{Detail: e.Op + ": " + e.Detail}
+	}
+	hdr.Size
+}
+
+func walkTreeRec(format oid.Format, treeOid oid.OID, prefix string, depth int, maxDepth int, maxBytes int, withSizes bool, acc []WalkEntry) []WalkEntry fails CorruptTree | InvalidEntryName | UnsortedTree | DuplicateEntry | WrongKind | DepthExceeded | MissingObject | StoreError needs pack.ObjectStore {
+	if depth > maxDepth {
+		return DepthExceeded{MaxDepth: maxDepth}
+	}
+	let entries = try readTreeEntries(format, treeOid, maxBytes)
+	let mut out = acc
+	for e in entries {
+		let fullPath = if prefix == "" { e.Name } else { prefix + "/" + e.Name }
+		match e.Mode {
+		case ModeTree:
+			out = try walkTreeRec(format, e.OID, fullPath, depth+1, maxDepth, maxBytes, withSizes, out)
+		case ModeGitlink:
+			out = out.Append(WalkEntry{
+				Path: fullPath,
+				Mode: ModeGitlink,
+				Kind: oid.Commit,
+				OID:  e.OID,
+				Size: None,
+			})
+		case ModeRegular, ModeExecutable, ModeSymlink:
+			let sizeOpt Option[int] = if withSizes {
+				let sz = try statStoreSize(e.OID, maxBytes)
+				Some[int]{Value: sz}
+			} else {
+				None
+			}
+			out = out.Append(WalkEntry{
+				Path: fullPath,
+				Mode: e.Mode,
+				Kind: oid.Blob,
+				OID:  e.OID,
+				Size: sizeOpt,
+			})
+		}
+	}
+	out
+}
+
+// WalkTree recursively enumerates leaf entries (blobs, symlinks, and gitlinks
+// without descending into gitlinks) in exact `git ls-tree -r -z --full-tree`
+// order.
+func WalkTree(format oid.Format, rootTree oid.OID, maxDepth int, maxBytes int) []WalkEntry fails CorruptTree | InvalidEntryName | UnsortedTree | DuplicateEntry | WrongKind | DepthExceeded | MissingObject | StoreError needs pack.ObjectStore {
+	try walkTreeRec(format, rootTree, "", 0, maxDepth, maxBytes, false, []WalkEntry{})
+}
+
+// WalkTreeWithSizes behaves identically to WalkTree and populates Size for
+// every blob/symlink entry (leaving Size as None for gitlinks, matching
+// `git ls-tree -r -l -z --full-tree`).
+func WalkTreeWithSizes(format oid.Format, rootTree oid.OID, maxDepth int, maxBytes int) []WalkEntry fails CorruptTree | InvalidEntryName | UnsortedTree | DuplicateEntry | WrongKind | DepthExceeded | MissingObject | StoreError needs pack.ObjectStore {
+	try walkTreeRec(format, rootTree, "", 0, maxDepth, maxBytes, true, []WalkEntry{})
+}
+
+// LookupPath resolves a slash-separated relative path inside rootTree,
+// returning Some(entry) when found or None if any segment is missing.
+func LookupPath(format oid.Format, rootTree oid.OID, relPath string, maxBytes int) Option[Entry] fails CorruptTree | InvalidEntryName | UnsortedTree | DuplicateEntry | WrongKind | DepthExceeded | MissingObject | StoreError needs pack.ObjectStore {
+	if relPath == "" || strings.HasPrefix(relPath, "/") || strings.HasSuffix(relPath, "/") {
+		return None
+	}
+	let parts = strings.Split(relPath, "/")
+	let mut curTree = rootTree
+	for i, seg in parts {
+		if seg == "" || seg == "." || seg == ".." {
+			return None
+		}
+		let entries = try readTreeEntries(format, curTree, maxBytes)
+		let mut matched Option[Entry] = None
+		for e in entries {
+			if e.Name == seg {
+				matched = Some[Entry]{Value: e}
+				break
+			}
+		}
+		match matched {
+		case None:
+			return None
+		case Some[Entry] as found:
+			if i == len(parts)-1 {
+				return Some[Entry]{Value: found.Value}
+			}
+			if !IsTree(found.Value.Mode) {
+				return None
+			}
+			curTree = found.Value.OID
+		}
+	}
+	None
+}
+
+// MemoryWalker implements TreeWalker over an in-memory pack.MemoryODB.
+type MemoryWalker {
+	format oid.Format,
+	store  pack.MemoryODB,
+} implements TreeWalker
+
+// NewMemoryWalker creates a MemoryWalker backed by a fresh MemoryODB for format.
+func NewMemoryWalker(format oid.Format) MemoryWalker {
+	MemoryWalker{format: format, store: pack.NewMemoryODB(format)}
+}
+
+// StoreBlob implements TreeWalker.StoreBlob on MemoryWalker.
+func StoreBlob(w MemoryWalker, data []byte) oid.OID fails StoreError {
+	w.store.Install(oid.Blob, data) catch {
+	case pack.Collision as e:
+		return StoreError{Detail: e.Digest}
+	case pack.IOFailed as e:
+		return StoreError{Detail: e.Detail}
+	}
+}
+
+// StoreTree implements TreeWalker.StoreTree on MemoryWalker.
+func StoreTree(w MemoryWalker, entries []Entry) oid.OID fails InvalidEntryName | DuplicateEntry | StoreError {
+	let raw = try EncodeTree(w.format, entries)
+	w.store.Install(oid.Tree, raw) catch {
+	case pack.Collision as e:
+		return StoreError{Detail: e.Digest}
+	case pack.IOFailed as e:
+		return StoreError{Detail: e.Detail}
+	}
+}
+
+// Walk implements TreeWalker.Walk on MemoryWalker.
+func Walk(w MemoryWalker, rootTree oid.OID, maxDepth int, maxBytes int) []WalkEntry fails CorruptTree | InvalidEntryName | UnsortedTree | DuplicateEntry | WrongKind | DepthExceeded | MissingObject | StoreError {
+	with context { pack.ObjectStore: w.store } {
+		try WalkTree(w.format, rootTree, maxDepth, maxBytes)
+	}
+}
+
+// Lookup implements TreeWalker.Lookup on MemoryWalker.
+func Lookup(w MemoryWalker, rootTree oid.OID, relPath string, maxBytes int) Option[Entry] fails CorruptTree | InvalidEntryName | UnsortedTree | DuplicateEntry | WrongKind | DepthExceeded | MissingObject | StoreError {
+	with context { pack.ObjectStore: w.store } {
+		try LookupPath(w.format, rootTree, relPath, maxBytes)
+	}
+}
+
+// StoreWalker implements TreeWalker over an on-disk Git objects directory via
+// pack.DiskODB and fs.Host.
+type StoreWalker {
+	format     oid.Format,
+	objectsDir string,
+	alternates []string,
+	host       fs.Host,
+} implements TreeWalker
+
+// NewStoreWalker builds a StoreWalker backed by objectsDir, alternates, and host.
+func NewStoreWalker(format oid.Format, objectsDir string, alternates []string, host fs.Host) StoreWalker {
+	StoreWalker{format: format, objectsDir: objectsDir, alternates: alternates, host: host}
+}
+
+func openStoreWalkerODB(w StoreWalker) pack.DiskODB fails StoreError {
+	let odb = with context { fs.Files: w.host } {
+		pack.Open(w.format, w.objectsDir, w.alternates, delta.DefaultLimits()) catch {
+		case pack.Corrupt as e:
+			return StoreError{Detail: e.Why}
+		case pack.MismatchedPair as e:
+			return StoreError{Detail: "mismatched pack pair: " + e.PackPath}
+		case pack.IOFailed as e:
+			return StoreError{Detail: e.Op + ": " + e.Detail}
+		}
+	}
+	pack.NewDiskODB(odb, w.host)
+}
+
+// StoreBlob implements TreeWalker.StoreBlob on StoreWalker.
+func StoreBlob(w StoreWalker, data []byte) oid.OID fails StoreError {
+	let disk = try openStoreWalkerODB(w)
+	disk.Install(oid.Blob, data) catch {
+	case pack.Collision as e:
+		return StoreError{Detail: e.Digest}
+	case pack.IOFailed as e:
+		return StoreError{Detail: e.Detail}
+	}
+}
+
+// StoreTree implements TreeWalker.StoreTree on StoreWalker.
+func StoreTree(w StoreWalker, entries []Entry) oid.OID fails InvalidEntryName | DuplicateEntry | StoreError {
+	let disk = try openStoreWalkerODB(w)
+	let raw = try EncodeTree(w.format, entries)
+	disk.Install(oid.Tree, raw) catch {
+	case pack.Collision as e:
+		return StoreError{Detail: e.Digest}
+	case pack.IOFailed as e:
+		return StoreError{Detail: e.Detail}
+	}
+}
+
+// Walk implements TreeWalker.Walk on StoreWalker.
+func Walk(w StoreWalker, rootTree oid.OID, maxDepth int, maxBytes int) []WalkEntry fails CorruptTree | InvalidEntryName | UnsortedTree | DuplicateEntry | WrongKind | DepthExceeded | MissingObject | StoreError {
+	let disk = try openStoreWalkerODB(w)
+	with context { pack.ObjectStore: disk } {
+		try WalkTree(w.format, rootTree, maxDepth, maxBytes)
+	}
+}
+
+// Lookup implements TreeWalker.Lookup on StoreWalker.
+func Lookup(w StoreWalker, rootTree oid.OID, relPath string, maxBytes int) Option[Entry] fails CorruptTree | InvalidEntryName | UnsortedTree | DuplicateEntry | WrongKind | DepthExceeded | MissingObject | StoreError {
+	let disk = try openStoreWalkerODB(w)
+	with context { pack.ObjectStore: disk } {
+		try LookupPath(w.format, rootTree, relPath, maxBytes)
+	}
+}

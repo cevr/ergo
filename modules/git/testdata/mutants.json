@@ -624,6 +624,70 @@
       "killers": [
         "modules/git/index:ExtensionsAndCorruptionMatrix"
       ]
+    },
+    {
+      "name": "git-tree-lex-sort-instead-of-slash",
+      "origin": "STD-GIT G-TREE",
+      "file": "modules/git/tree/tree.ergo",
+      "from": "\tlet ca = if n < len(ab) { int(ab[n]) } else if aIsTree { 47 } else { 0 }\n\tlet cb = if n < len(bb) { int(bb[n]) } else if bIsTree { 47 } else { 0 }",
+      "to": "\tlet ca = if n < len(ab) { int(ab[n]) } else { 0 }\n\tlet cb = if n < len(bb) { int(bb[n]) } else { 0 }",
+      "rule": "CompareEntryNames compares Git tree directory entries as if followed by '/' (0x2f) rather than plain lexicographical order.",
+      "anchor": {
+        "tests": [
+          "modules/git/tree:TreeCommitTagAndWalkMatchGit"
+        ]
+      },
+      "killers": [
+        "modules/git/tree:TreeCommitTagAndWalkMatchGit"
+      ]
+    },
+    {
+      "name": "git-tree-drop-octopus-parents",
+      "origin": "STD-GIT G-TREE",
+      "file": "modules/git/tree/object.ergo",
+      "from": "\t\t\tparents = parents.Append(p)",
+      "to": "\t\t\tif len(parents) == 0 {\n\t\t\t\tparents = parents.Append(p)\n\t\t\t}",
+      "rule": "ParseCommit preserves all parent headers including 2+ parents on merge and octopus-merge commits.",
+      "anchor": {
+        "tests": [
+          "modules/git/tree:TreeCommitTagAndWalkMatchGit"
+        ]
+      },
+      "killers": [
+        "modules/git/tree:TreeCommitTagAndWalkMatchGit"
+      ]
+    },
+    {
+      "name": "git-tree-recurse-gitlink",
+      "origin": "STD-GIT G-TREE",
+      "file": "modules/git/tree/walk.ergo",
+      "from": "\t\tcase ModeGitlink:\n\t\t\tout = out.Append(WalkEntry{\n\t\t\t\tPath: fullPath,\n\t\t\t\tMode: ModeGitlink,\n\t\t\t\tKind: oid.Commit,\n\t\t\t\tOID:  e.OID,\n\t\t\t\tSize: None,\n\t\t\t})",
+      "to": "\t\tcase ModeGitlink:\n\t\t\tout = try walkTreeRec(format, e.OID, fullPath, depth+1, maxDepth, maxBytes, withSizes, out)",
+      "rule": "WalkTree emits 160000 gitlink entries as leaf commits without descending into them.",
+      "anchor": {
+        "tests": [
+          "modules/git/tree:TreeCommitTagAndWalkMatchGit"
+        ]
+      },
+      "killers": [
+        "modules/git/tree:TreeCommitTagAndWalkMatchGit"
+      ]
+    },
+    {
+      "name": "git-tree-allow-leading-zero-tree-mode",
+      "origin": "STD-GIT G-TREE",
+      "file": "modules/git/tree/tree.ergo",
+      "from": "\tif s == \"40000\" {\n\t\treturn ModeTree\n\t}",
+      "to": "\tif s == \"40000\" || s == \"040000\" {\n\t\treturn ModeTree\n\t}",
+      "rule": "ParseTree rejects leading-zero \"040000\" raw tree entry modes per git fsck.",
+      "anchor": {
+        "tests": [
+          "modules/git/tree:RejectsCorruptTreesCommitsAndTags"
+        ]
+      },
+      "killers": [
+        "modules/git/tree:RejectsCorruptTreesCommitsAndTags"
+      ]
     }
   ]
 }

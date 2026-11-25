@@ -1,0 +1,239 @@
+// Package tree implements pure-Ergo Git tree, commit, and annotated tag object
+// parsers, canonical Git tree sorting and encoding, tag/commit peeling,
+// recursive tree walking, and path lookup (G-TREE).
+
+import github.com/cevr/ergo/modules/git/oid
+
+// Error is the closed failure union for tree, commit, tag, signature parsing,
+// peeling, and recursive tree walking.
+type Error =
+	| CorruptTree{Reason string}
+	| InvalidEntryName{Name string, Reason string}
+	| UnsortedTree{Prev string, Cur string}
+	| DuplicateEntry{Name string}
+	| CorruptCommit{Reason string}
+	| CorruptTag{Reason string}
+	| CorruptSignature{Reason string}
+	| WrongKind{Expected string, Got string}
+	| DepthExceeded{MaxDepth int}
+	| MissingObject{OID oid.OID}
+	| StoreError{Detail string}
+
+// Mode classifies a canonical Git tree entry mode.
+type Mode = ModeTree{} | ModeRegular{} | ModeExecutable{} | ModeSymlink{} | ModeGitlink{}
+
+// Entry is one entry decoded from or encoded into a Git binary tree object.
+type Entry {
+	Mode Mode,
+	Name string,
+	OID  oid.OID,
+}
+
+// Header is a single key/value header line in a Git commit or tag object,
+// preserving multi-line continuation headers (such as gpgsig).
+type Header {
+	Key   string,
+	Value string,
+}
+
+// Signature is a parsed Git identity and timestamp line (`Name <email> epoch offset`).
+type Signature {
+	Name   string,
+	Email  string,
+	Epoch  int64,
+	Offset string,
+}
+
+// Commit is a parsed Git commit object supporting zero, one, or multiple
+// parents (root, normal, and octopus merges), continuation headers, and message.
+type Commit {
+	Tree      oid.OID,
+	Parents   []oid.OID,
+	Author    Signature,
+	Committer Signature,
+	Encoding  string,
+	Headers   []Header,
+	Message   string,
+}
+
+// Tag is a parsed Git annotated tag object (with optional Tagger).
+type Tag {
+	Target     oid.OID,
+	TargetKind oid.Kind,
+	Name       string,
+	Tagger     Option[Signature],
+	Message    string,
+}
+
+// WalkEntry is one leaf entry yielded by a recursive tree walk in canonical
+// `git ls-tree -r -z` order.
+type WalkEntry {
+	Path string,
+	Mode Mode,
+	Kind oid.Kind,
+	OID  oid.OID,
+	Size Option[int],
+}
+
+// ModeOctal returns the canonical 6-digit octal string for m (`040000`,
+// `100644`, `100755`, `120000`, `160000`) matching `git ls-tree`.
+func ModeOctal(m Mode) string {
+	match m {
+	case ModeTree:
+		"040000"
+	case ModeRegular:
+		"100644"
+	case ModeExecutable:
+		"100755"
+	case ModeSymlink:
+		"120000"
+	case ModeGitlink:
+		"160000"
+	}
+}
+
+// ModeWire returns the raw Git tree wire octal string for m (`40000` without
+// leading zero for trees, 6 digits for all other modes).
+func ModeWire(m Mode) string {
+	match m {
+	case ModeTree:
+		"40000"
+	case ModeRegular:
+		"100644"
+	case ModeExecutable:
+		"100755"
+	case ModeSymlink:
+		"120000"
+	case ModeGitlink:
+		"160000"
+	}
+}
+
+// ModeKind returns the Git object kind referenced by a tree entry of mode m.
+func ModeKind(m Mode) oid.Kind {
+	match m {
+	case ModeTree:
+		oid.Tree
+	case ModeGitlink:
+		oid.Commit
+	case ModeRegular, ModeExecutable, ModeSymlink:
+		oid.Blob
+	}
+}
+
+// IsTree reports whether m is ModeTree.
+func IsTree(m Mode) bool {
+	match m {
+	case ModeTree:
+		true
+	case ModeRegular, ModeExecutable, ModeSymlink, ModeGitlink:
+		false
+	}
+}
+
+// IsGitlink reports whether m is ModeGitlink.
+func IsGitlink(m Mode) bool {
+	match m {
+	case ModeGitlink:
+		true
+	case ModeTree, ModeRegular, ModeExecutable, ModeSymlink:
+		false
+	}
+}
+
+// TreeWalker is the capability seam for tree storage, recursive walking, and
+// path lookup, carrying laws held identically by MemoryWalker and StoreWalker.
+type TreeWalker {
+	StoreBlob(data []byte) oid.OID fails StoreError,
+	StoreTree(entries []Entry) oid.OID fails InvalidEntryName | DuplicateEntry | StoreError,
+	Walk(rootTree oid.OID, maxDepth int, maxBytes int) []WalkEntry fails CorruptTree | InvalidEntryName | UnsortedTree | DuplicateEntry | WrongKind | DepthExceeded | MissingObject | StoreError,
+	Lookup(rootTree oid.OID, relPath string, maxBytes int) Option[Entry] fails CorruptTree | InvalidEntryName | UnsortedTree | DuplicateEntry | WrongKind | DepthExceeded | MissingObject | StoreError,
+
+	// WalkOrderMatchesCanonicalSort: recursively walking a nested tree with
+	// Git's tricky directory-vs-file boundary names yields entries in strict
+	// canonical Git tree path order.
+	law WalkOrderMatchesCanonicalSort(payload string) {
+		let b1 = StoreBlob(("leaf-1-" + payload).Bytes()) catch {
+		case StoreError:
+			return false
+		}
+		let b2 = StoreBlob(("leaf-2-" + payload).Bytes()) catch {
+		case StoreError:
+			return false
+		}
+		let subTree = StoreTree([]Entry{
+			Entry{Mode: ModeRegular, Name: "inner.txt", OID: b1},
+		}) catch {
+		case InvalidEntryName, DuplicateEntry, StoreError:
+			return false
+		}
+		let rootTree = StoreTree([]Entry{
+			Entry{Mode: ModeRegular, Name: "a0", OID: b2},
+			Entry{Mode: ModeTree, Name: "a", OID: subTree},
+			Entry{Mode: ModeRegular, Name: "a-file", OID: b1},
+			Entry{Mode: ModeRegular, Name: "a.txt", OID: b2},
+			Entry{Mode: ModeExecutable, Name: "a_b", OID: b1},
+		}) catch {
+		case InvalidEntryName, DuplicateEntry, StoreError:
+			return false
+		}
+		let walked = Walk(rootTree, 16, 1048576) catch {
+		case CorruptTree, InvalidEntryName, UnsortedTree, DuplicateEntry, WrongKind, DepthExceeded, MissingObject, StoreError:
+			return false
+		}
+		if len(walked) != 5 {
+			return false
+		}
+			walked[0].Path == "a-file" &&
+			walked[1].Path == "a.txt" &&
+			walked[2].Path == "a/inner.txt" &&
+			walked[3].Path == "a0" &&
+			walked[4].Path == "a_b"
+	},
+
+	// LookupPathFindsEveryWalkedEntry: Lookup finds every entry returned by
+	// Walk with identical Mode and OID, and returns None for an absent path.
+	law LookupPathFindsEveryWalkedEntry(payload string) {
+		let b = StoreBlob(("lookup-" + payload).Bytes()) catch {
+		case StoreError:
+			return false
+		}
+		let sub = StoreTree([]Entry{
+			Entry{Mode: ModeExecutable, Name: "run.sh", OID: b},
+		}) catch {
+		case InvalidEntryName, DuplicateEntry, StoreError:
+			return false
+		}
+		let rootTree = StoreTree([]Entry{
+			Entry{Mode: ModeTree, Name: "bin", OID: sub},
+			Entry{Mode: ModeRegular, Name: "README.md", OID: b},
+			Entry{Mode: ModeGitlink, Name: "submod", OID: b},
+		}) catch {
+		case InvalidEntryName, DuplicateEntry, StoreError:
+			return false
+		}
+		let walked = Walk(rootTree, 16, 1048576) catch {
+		case CorruptTree, InvalidEntryName, UnsortedTree, DuplicateEntry, WrongKind, DepthExceeded, MissingObject, StoreError:
+			return false
+		}
+		for w in walked {
+			let found = Lookup(rootTree, w.Path, 1048576) catch {
+			case CorruptTree, InvalidEntryName, UnsortedTree, DuplicateEntry, WrongKind, DepthExceeded, MissingObject, StoreError:
+				return false
+			}
+			match found {
+			case None:
+				return false
+			case Some[Entry] as e:
+				if !oid.Equal(e.Value.OID, w.OID) || ModeOctal(e.Value.Mode) != ModeOctal(w.Mode) {
+					return false
+				}
+			}
+		}
+		let absent = Lookup(rootTree, "bin/no-such-file", 1048576) catch {
+		case CorruptTree, InvalidEntryName, UnsortedTree, DuplicateEntry, WrongKind, DepthExceeded, MissingObject, StoreError:
+			return false
+		}
+		absent == None
+	},
+}
