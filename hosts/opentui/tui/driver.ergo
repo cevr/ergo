@@ -19,6 +19,7 @@
 
 import actor
 import go ergo.local/prototype/hosts/opentui/screen
+import option
 import queue
 import task
 import term
@@ -50,8 +51,8 @@ type Driver[S, E, D, F] {
 	labels  Map[ui.Id[E], int],
 	looks   Map[int, look],
 	next    int,
-	focus   Option[ui.Id[E]],
-	pressed Option[ui.Id[E]],
+	focus   option.Option[ui.Id[E]],
+	pressed option.Option[ui.Id[E]],
 	options Options,
 	history ui.MemoryHistory,
 	// The lists: each Rows node's content height (cells), each written
@@ -60,7 +61,7 @@ type Driver[S, E, D, F] {
 	lists     Map[ui.Id[E], float64],
 	tops      Map[ui.Id[E], float64],
 	viewports Map[ui.Id[E], ui.Viewport],
-	captured  Option[ui.Id[E]],
+	captured  option.Option[ui.Id[E]],
 	// The frames (frames.ergo): the period, the time since the driver
 	// started, the time owed to the next frame, the Ticks stepped, and
 	// whether the live screen's ticker runs.
@@ -73,7 +74,7 @@ type Driver[S, E, D, F] {
 	// its Area's box (DIPs), and the list an edge scroll moves with the
 	// offset it is at, exact, between the whole cells the scene shows.
 	heldY float64,
-	edge  Option[(ui.Id[E], ui.Length)],
+	edge  option.Option[(ui.Id[E], ui.Length)],
 }
 
 // held is a node of the tree and its children, in order.
@@ -119,21 +120,21 @@ func start[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E, D
 		labels:    Map[ui.Id[E], int]{},
 		looks:     Map[int, look]{},
 		next:      0,
-		focus:     None,
-		pressed:   None,
+		focus:     option.None,
+		pressed:   option.None,
 		options:   o,
 		history:   ui.NewMemoryHistory(ui.URL{Path: "/", Query: "", Fragment: ""}),
 		lists:     Map[ui.Id[E], float64]{},
 		tops:      Map[ui.Id[E], float64]{},
 		viewports: Map[ui.Id[E], ui.Viewport]{},
-		captured:  None,
+		captured:  option.None,
 		period:    16ms,
 		at:        duration(int64(0)),
 		owed:      duration(int64(0)),
 		frames:    0,
 		ticking:   false,
 		heldY:     0.0,
-		edge:      None,
+		edge:      option.None,
 	}
 	d.nodes[root] = held[E]{node: ui.BoxNode{Style: ui.Plain()}, kids: []ui.Id[E]{}}
 	d.nums[root] = 0
@@ -160,7 +161,7 @@ func show[E comparable, S, D, F](d mut Driver[S, E, D, F], ops []ui.Op[E]) fails
 			relabel(d, old)
 			attach(d, x.Id, x.Parent)
 		case ui.Remove[E] as x:
-			if d.nodes.Get(x.Id) != None {
+			if d.nodes.Get(x.Id) != option.None {
 				d.s.Destroy(numOf(d, x.Id))
 				let p = parentOf(d, x.Id)
 				unplace(d, p, x.Id)
@@ -177,11 +178,11 @@ func show[E comparable, S, D, F](d mut Driver[S, E, D, F], ops []ui.Op[E]) fails
 	placeRows(d)
 	// A focused node that left or is now disabled loses the focus.
 	match d.focus {
-	case Some[ui.Id[E]] as f:
-		if d.nodes.Get(f.Value) == None || disabled(d, f.Value) {
-			setFocus(d, None)
+	case option.Some[ui.Id[E]] as f:
+		if d.nodes.Get(f.Value) == option.None || disabled(d, f.Value) {
+			setFocus(d, option.None)
 		}
-	case None:
+	case option.None:
 	}
 	try repaint(d)
 }
@@ -196,20 +197,20 @@ func create[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) needs go.Foreign 
 	d.s.Create(n, kindOf(node))
 	d.looks[n] = if kindOf(node) == screen.Text { look{fg: white, bg: 0, attr: 0} } else { look{fg: 0, bg: 0, attr: 0} }
 	match shownText(d, node) {
-	case Some[string] as t:
+	case option.Some[string] as t:
 		if t.Value != "" {
 			d.s.SetText(n, t.Value)
 		}
-	case None:
+	case option.None:
 	}
 	match placeholderOf(node) {
-	case Some[string] as p:
+	case option.Some[string] as p:
 		if p.Value != "" {
 			d.s.SetPlaceholder(n, p.Value)
 		}
-	case None:
+	case option.None:
 	}
-	restyle(d, n, None, node)
+	restyle(d, n, option.None, node)
 	match node {
 	case ui.RowsNode as x:
 		content(d, id, x.Count, x.RowHeight)
@@ -240,9 +241,9 @@ func attach[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], parent ui.Id[E]) 
 // differ.
 func reset[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], node ui.Node[E]) needs go.Foreign {
 	let old = match d.nodes.Get(id) {
-	case Some[held[E]] as h:
+	case option.Some[held[E]] as h:
 		h.Value
-	case None:
+	case option.None:
 		return
 	}
 	d.nodes[id] = held[E]{node: node, kids: old.kids}
@@ -258,19 +259,19 @@ func reset[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], node ui.Node[E]) n
 	let now = shownText(d, node)
 	if was != now {
 		match now {
-		case Some[string] as t:
+		case option.Some[string] as t:
 			d.s.SetText(n, t.Value)
-		case None:
+		case option.None:
 		}
 	}
 	match placeholderOf(node) {
-	case Some[string] as p:
-		if placeholderOf(old.node) != (Some{Value: p.Value}) {
+	case option.Some[string] as p:
+		if placeholderOf(old.node) != (option.Some{Value: p.Value}) {
 			d.s.SetPlaceholder(n, p.Value)
 		}
-	case None:
+	case option.None:
 	}
-	restyle(d, n, Some{Value: old.node}, node)
+	restyle(d, n, option.Some{Value: old.node}, node)
 	match node {
 	case ui.RowsNode as x:
 		content(d, id, x.Count, x.RowHeight)
@@ -281,15 +282,15 @@ func reset[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], node ui.Node[E]) n
 	}
 	relabel(d, id)
 	match labelText(node) {
-	case Some[string] as t:
-		if labelText(old.node) != (Some{Value: t.Value}) {
+	case option.Some[string] as t:
+		if labelText(old.node) != (option.Some{Value: t.Value}) {
 			match d.labels.Get(id) {
-			case Some[int] as l:
+			case option.Some[int] as l:
 				d.s.SetText(l.Value, t.Value)
-			case None:
+			case option.None:
 			}
 		}
-	case None:
+	case option.None:
 	}
 	relookTree(d, id)
 }
@@ -307,13 +308,13 @@ func rebuild[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) needs go.Foreign
 // it away when a child comes or the node is no Pressable.
 func relabel[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) needs go.Foreign {
 	let want = match labelText(nodeOf(d, id)) {
-	case Some[string] as t:
-		if len(kidsOf(d, id)) == 0 { Some{Value: t.Value} } else { None }
-	case None:
-		None
+	case option.Some[string] as t:
+		if kidsOf(d, id).Len() == 0 { option.Some{Value: t.Value} } else { option.None }
+	case option.None:
+		option.None
 	}
 	match (want, d.labels.Get(id)) {
-	case (Some[string] as t, None):
+	case (option.Some[string] as t, option.None):
 		let n = fresh(d)
 		d.s.Create(n, screen.Text)
 		d.s.SetText(n, t.Value)
@@ -322,7 +323,7 @@ func relabel[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) needs go.Foreign
 		d.ids[n] = id
 		d.s.Move(n, numOf(d, id), 0)
 		relookTree(d, id)
-	case (None, Some[int] as l):
+	case (option.None, option.Some[int] as l):
 		d.s.Destroy(l.Value)
 		d.labels = d.labels.Delete(id)
 		d.ids = d.ids.Delete(l.Value)
@@ -339,27 +340,27 @@ func fresh[S, E, D, F](d mut Driver[S, E, D, F]) int {
 // numOf is id's scene number; the root's is 0.
 func numOf[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) int {
 	match d.nums.Get(id) {
-	case Some[int] as n:
+	case option.Some[int] as n:
 		n.Value
-	case None:
+	case option.None:
 		0
 	}
 }
 
 func nodeOf[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) ui.Node[E] {
 	match d.nodes.Get(id) {
-	case Some[held[E]] as h:
+	case option.Some[held[E]] as h:
 		h.Value.node
-	case None:
+	case option.None:
 		ui.BoxNode{Style: ui.Plain()}
 	}
 }
 
 func parentOf[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) ui.Id[E] {
 	match d.parents.Get(id) {
-	case Some[ui.Id[E]] as p:
+	case option.Some[ui.Id[E]] as p:
 		p.Value
-	case None:
+	case option.None:
 		d.root
 	}
 }
@@ -367,21 +368,21 @@ func parentOf[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) ui.Id[E] {
 // kidsOf is id's children.
 func kidsOf[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) []ui.Id[E] {
 	match d.nodes.Get(id) {
-	case Some[held[E]] as h:
+	case option.Some[held[E]] as h:
 		h.Value.kids
-	case None:
+	case option.None:
 		[]ui.Id[E]{}
 	}
 }
 
 // place puts id among parent's children, in front of before or last.
-func place[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], parent ui.Id[E], before Option[ui.Id[E]]) {
+func place[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], parent ui.Id[E], before option.Option[ui.Id[E]]) {
 	match d.nodes.Get(parent) {
-	case Some[held[E]] as p:
+	case option.Some[held[E]] as p:
 		let mut kids = []ui.Id[E]{}
 		let mut done = false
 		for k in p.Value.kids {
-			if !done && before == (Some{Value: k}) {
+			if !done && before == (option.Some{Value: k}) {
 				kids = kids.Append(id)
 				done = true
 			}
@@ -393,14 +394,14 @@ func place[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], parent ui.Id[E], b
 			kids = kids.Append(id)
 		}
 		d.nodes[parent] = held[E]{node: p.Value.node, kids: kids}
-	case None:
+	case option.None:
 	}
 }
 
 // unplace takes id out of parent's children.
 func unplace[S, E, D, F](d mut Driver[S, E, D, F], parent ui.Id[E], id ui.Id[E]) {
 	match d.nodes.Get(parent) {
-	case Some[held[E]] as p:
+	case option.Some[held[E]] as p:
 		let mut kids = []ui.Id[E]{}
 		for k in p.Value.kids {
 			if k != id {
@@ -408,7 +409,7 @@ func unplace[S, E, D, F](d mut Driver[S, E, D, F], parent ui.Id[E], id ui.Id[E])
 			}
 		}
 		d.nodes[parent] = held[E]{node: p.Value.node, kids: kids}
-	case None:
+	case option.None:
 	}
 }
 
@@ -421,14 +422,14 @@ func forget[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) {
 	d.nodes = d.nodes.Delete(id)
 	d.parents = d.parents.Delete(id)
 	d.viewports = d.viewports.Delete(id)
-	if d.captured == (Some{Value: id}) {
-		d.captured = None
+	if d.captured == (option.Some{Value: id}) {
+		d.captured = option.None
 	}
-	if d.focus == (Some{Value: id}) {
-		d.focus = None
+	if d.focus == (option.Some{Value: id}) {
+		d.focus = option.None
 	}
-	if d.pressed == (Some{Value: id}) {
-		d.pressed = None
+	if d.pressed == (option.Some{Value: id}) {
+		d.pressed = option.None
 	}
 }
 
@@ -444,10 +445,10 @@ func unnumber[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) {
 	d.lists = d.lists.Delete(id)
 	d.tops = d.tops.Delete(id)
 	match d.labels.Get(id) {
-	case Some[int] as l:
+	case option.Some[int] as l:
 		d.ids = d.ids.Delete(l.Value)
 		d.looks = d.looks.Delete(l.Value)
-	case None:
+	case option.None:
 	}
 	d.labels = d.labels.Delete(id)
 }
@@ -493,18 +494,18 @@ func key[E comparable, S, D, F](d mut Driver[S, E, D, F], input screen.Input) fa
 		let order = Focusables(d)
 		let mut at = -1
 		for i, id in order {
-			if d.focus == (Some{Value: id}) {
+			if d.focus == (option.Some{Value: id}) {
 				at = i
 			}
 		}
-		let next = Cycle(len(order), at, mods.Shift)
-		setFocus(d, if next < 0 { None } else { Some{Value: order[next]} })
+		let next = Cycle(order.Len(), at, mods.Shift)
+		setFocus(d, if next < 0 { option.None } else { option.Some{Value: order[next]} })
 		if next >= 0 {
 			match fieldValue(d, order[next]) {
-			case Some[string] as v:
+			case option.Some[string] as v:
 				try edited(d, order[next], v.Value, screen.EditEnd, 0, "")
 				return
-			case None:
+			case option.None:
 			}
 		}
 		try present(d.s)
@@ -512,20 +513,20 @@ func key[E comparable, S, D, F](d mut Driver[S, E, D, F], input screen.Input) fa
 	}
 	let press = ui.KeyPress{Name: name, Mods: mods}
 	match focusedNode(d) {
-	case Some[ui.Node[E]] as n:
+	case option.Some[ui.Node[E]] as n:
 		let id = match d.focus {
-		case Some[ui.Id[E]] as f:
+		case option.Some[ui.Id[E]] as f:
 			f.Value
-		case None:
+		case option.None:
 			d.root
 		}
 		match n.Value {
 		case ui.InputNode as x:
 			match EditOf(name, mods) {
-			case Some[int] as op:
+			case option.Some[int] as op:
 				try edited(d, id, x.Value, op.Value, 0, if op.Value == screen.EditInsert { name } else { "" })
 				return
-			case None:
+			case option.None:
 			}
 		case _:
 			if pressable(n.Value) && !chord && (name == "Enter" || name == " ") {
@@ -533,19 +534,19 @@ func key[E comparable, S, D, F](d mut Driver[S, E, D, F], input screen.Input) fa
 				return
 			}
 		}
-	case None:
+	case option.None:
 	}
 	try step(d, ui.KeyDown{Press: press})
 }
 
 // printable is whether a key name is a character a field takes: one
 // rune, not a functional key's name.
-func printable(name string) bool { len(runesOf(name)) == 1 && name != "\t" && name != "\r" }
+func printable(name string) bool { runesOf(name).Len() == 1 && name != "\t" && name != "\r" }
 
 // typed inserts text at the focused Input's caret, else gives each rune to OnKey.
 func typed[E comparable, S, D, F](d mut Driver[S, E, D, F], text string) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	match (d.focus, focusedNode(d)) {
-	case (Some[ui.Id[E]] as id, Some[ui.Node[E]] as n):
+	case (option.Some[ui.Id[E]] as id, option.Some[ui.Node[E]] as n):
 		match n.Value {
 		case ui.InputNode as x:
 			try edited(d, id.Value, x.Value, screen.EditInsert, 0, text)
@@ -574,29 +575,29 @@ func mouse[E comparable, S, D, F](d mut Driver[S, E, D, F], input screen.Input) 
 		let hit = targetAt(d, input.X, input.Y)
 		d.pressed = hit
 		match hit {
-		case Some[ui.Id[E]] as id:
+		case option.Some[ui.Id[E]] as id:
 			let usable = focusable(nodeOf(d, id.Value)) && !disabled(d, id.Value)
 			if usable && d.focus != hit {
 				setFocus(d, hit)
 				try present(d.s)
 			}
 			match fieldValue(d, id.Value) {
-			case Some[string] as v:
+			case option.Some[string] as v:
 				if usable {
 					try edited(d, id.Value, v.Value, screen.EditAt, input.X-d.s.BoxOf(numOf(d, id.Value)).X, "")
 				}
-			case None:
+			case option.None:
 			}
-		case None:
-			if d.focus != None {
-				setFocus(d, None)
+		case option.None:
+			if d.focus != option.None {
+				setFocus(d, option.None)
 				try present(d.s)
 			}
 		}
 		match Captured(d) {
-		case Some[ui.Id[E]] as a:
+		case option.Some[ui.Id[E]] as a:
 			try point(d, a.Value, input, ui.Down)
-		case None:
+		case option.None:
 			// Every Down goes to the node under the pointer, whatever its
 			// kind, so the session's hover and its Areas' crossings follow
 			// the pointer (OT-PHASES); an Area also holds it.
@@ -608,20 +609,20 @@ func mouse[E comparable, S, D, F](d mut Driver[S, E, D, F], input screen.Input) 
 		}
 	} else if input.Action == screen.Up {
 		match Captured(d) {
-		case Some[ui.Id[E]] as a:
-			d.captured = None
+		case option.Some[ui.Id[E]] as a:
+			d.captured = option.None
 			try point(d, a.Value, input, ui.Up)
-		case None:
+		case option.None:
 			try point(d, under(d, targetAt(d, input.X, input.Y)), input, ui.Up)
 		}
 		let was = d.pressed
-		d.pressed = None
+		d.pressed = option.None
 		match was {
-		case Some[ui.Id[E]] as id:
+		case option.Some[ui.Id[E]] as id:
 			if targetAt(d, input.X, input.Y) == was && pressable(nodeOf(d, id.Value)) && !disabled(d, id.Value) {
 				try step(d, ui.Press[E]{Id: id.Value})
 			}
-		case None:
+		case option.None:
 		}
 	}
 }
@@ -629,50 +630,50 @@ func mouse[E comparable, S, D, F](d mut Driver[S, E, D, F], input screen.Input) 
 // under is the node a pointer event goes to: the target hit, or the root
 // where no node takes input, as TestHost's click or move nowhere points
 // at the root (the hover then leaves every node).
-func under[S, E, D, F](d mut Driver[S, E, D, F], hit Option[ui.Id[E]]) ui.Id[E] {
+func under[S, E, D, F](d mut Driver[S, E, D, F], hit option.Option[ui.Id[E]]) ui.Id[E] {
 	match hit {
-	case Some[ui.Id[E]] as id:
+	case option.Some[ui.Id[E]] as id:
 		id.Value
-	case None:
+	case option.None:
 		d.root
 	}
 }
 
 // TargetAt is the node that takes the mouse at column x, row y, and that
 // node, None where none does (a script mirrors a click on TestHost by it).
-func TargetAt[S, E, D, F](d mut Driver[S, E, D, F], x int, y int) Option[(ui.Id[E], ui.Node[E])] needs go.Foreign {
+func TargetAt[S, E, D, F](d mut Driver[S, E, D, F], x int, y int) option.Option[(ui.Id[E], ui.Node[E])] needs go.Foreign {
 	match targetAt(d, x, y) {
-	case Some[ui.Id[E]] as id:
-		Some{Value: (id.Value, nodeOf(d, id.Value))}
-	case None:
-		None
+	case option.Some[ui.Id[E]] as id:
+		option.Some{Value: (id.Value, nodeOf(d, id.Value))}
+	case option.None:
+		option.None
 	}
 }
 
 // targetAt is the node that takes the mouse at column x, row y: the
 // scene's hit there, or the first of its ancestors that takes input (a
 // Pressable, a Check, a Toggle, an Input or an Area).
-func targetAt[S, E, D, F](d mut Driver[S, E, D, F], x int, y int) Option[ui.Id[E]] needs go.Foreign {
+func targetAt[S, E, D, F](d mut Driver[S, E, D, F], x int, y int) option.Option[ui.Id[E]] needs go.Foreign {
 	let n = d.s.HitTest(x, y)
 	let mut at = match d.ids.Get(n) {
-	case Some[ui.Id[E]] as id:
+	case option.Some[ui.Id[E]] as id:
 		id.Value
-	case None:
-		return None
+	case option.None:
+		return option.None
 	}
 	for at != d.root {
 		if takesInput(nodeOf(d, at)) {
-			return Some{Value: at}
+			return option.Some{Value: at}
 		}
 		at = parentOf(d, at)
 	}
-	None
+	option.None
 }
 
 // step steps the session with ev and shows its patch.
 func step[E comparable, S, D, F](d mut Driver[S, E, D, F], ev ui.Event[E]) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	let ops = try ui.Step(&d.session, ev)
-	if len(ops) > 0 {
+	if ops.Len() > 0 {
 		try show(d, ops)
 		try speak(d, ops)
 	}
@@ -693,12 +694,12 @@ func reread[E comparable, S, D, F](d mut Driver[S, E, D, F], id int) fails ui.Ba
 		match h.node {
 		case ui.ReadoutNode as x:
 			match shownText(d, h.node) {
-			case Some[string] as t:
+			case option.Some[string] as t:
 				if x.Readout == id {
 					d.s.SetText(numOf(d, k), t.Value)
 					any = true
 				}
-			case None:
+			case option.None:
 			}
 		case _:
 		}
@@ -711,14 +712,14 @@ func reread[E comparable, S, D, F](d mut Driver[S, E, D, F], id int) fails ui.Ba
 // shownText is the text node n shows on the screen: a Readout's reading,
 // clipped and padded to its reserve's width (readout.ergo: the box is the
 // reserve's), any other node's textOf.
-func shownText[S, E, D, F](d mut Driver[S, E, D, F], n ui.Node[E]) Option[string] {
+func shownText[S, E, D, F](d mut Driver[S, E, D, F], n ui.Node[E]) option.Option[string] {
 	match n {
 	case ui.ReadoutNode as x:
 		match ui.ReadingIn(&d.session, x.Readout) {
-		case Some[string] as t:
-			Some{Value: reserved(t.Value, x.Reserve)}
-		case None:
-			Some{Value: x.Reserve}
+		case option.Some[string] as t:
+			option.Some{Value: reserved(t.Value, x.Reserve)}
+		case option.None:
+			option.Some{Value: x.Reserve}
 		}
 	case _:
 		textOf(n)
@@ -727,35 +728,35 @@ func shownText[S, E, D, F](d mut Driver[S, E, D, F], n ui.Node[E]) Option[string
 
 // setFocus moves the focus to f, on the scene too, and gives the nodes
 // it leaves and reaches their look.
-func setFocus[S, E, D, F](d mut Driver[S, E, D, F], f Option[ui.Id[E]]) needs go.Foreign {
+func setFocus[S, E, D, F](d mut Driver[S, E, D, F], f option.Option[ui.Id[E]]) needs go.Foreign {
 	let old = d.focus
 	d.focus = f
 	match old {
-	case Some[ui.Id[E]] as o:
+	case option.Some[ui.Id[E]] as o:
 		relookTree(d, o.Value)
-	case None:
+	case option.None:
 	}
 	match f {
-	case Some[ui.Id[E]] as id:
+	case option.Some[ui.Id[E]] as id:
 		relookTree(d, id.Value)
 		d.s.Focus(numOf(d, id.Value))
-	case None:
+	case option.None:
 		d.s.Focus(0)
 	}
 }
 
 // focusedNode is what the focused node shows.
-func focusedNode[S, E, D, F](d mut Driver[S, E, D, F]) Option[ui.Node[E]] {
+func focusedNode[S, E, D, F](d mut Driver[S, E, D, F]) option.Option[ui.Node[E]] {
 	match d.focus {
-	case Some[ui.Id[E]] as f:
+	case option.Some[ui.Id[E]] as f:
 		match d.nodes.Get(f.Value) {
-		case Some[held[E]] as h:
-			Some{Value: h.Value.node}
-		case None:
-			None
+		case option.Some[held[E]] as h:
+			option.Some{Value: h.Value.node}
+		case option.None:
+			option.None
 		}
-	case None:
-		None
+	case option.None:
+		option.None
 	}
 }
 
@@ -833,9 +834,9 @@ func takesInput[E](n ui.Node[E]) bool {
 func Pump[E comparable, S, D, F](d mut Driver[S, E, D, F]) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	for {
 		match d.posted.Poll() {
-		case Some[ui.Event[E]] as ev:
+		case option.Some[ui.Event[E]] as ev:
 			try step(d, ev.Value)
-		case None:
+		case option.None:
 			return
 		}
 	}
@@ -874,9 +875,9 @@ func readoutsIn[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], into []Readou
 		match nodeOf(d, k) {
 		case ui.ReadoutNode as x:
 			let reading = match ui.ReadingIn(&d.session, x.Readout) {
-			case Some[string] as t:
+			case option.Some[string] as t:
 				t.Value
-			case None:
+			case option.None:
 				x.Reserve
 			}
 			out = out.Append(ReadoutShown{Box: d.s.BoxOf(numOf(d, k)), Reserve: x.Reserve, Reading: reading})
@@ -898,25 +899,25 @@ func shapesOf[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) []ui.Shape[E] {
 // SceneNodes is how many scene nodes the driver holds: one a node of its
 // tree (the root aside, which the scene has of its own) and one a
 // Pressable's label. The screen's Count is this many when no op was lost.
-func SceneNodes[S, E, D, F](d mut Driver[S, E, D, F]) int { len(d.nums) - 1 + len(d.labels) }
+func SceneNodes[S, E, D, F](d mut Driver[S, E, D, F]) int { d.nums.Len() - 1 + d.labels.Len() }
 
 // StateOf is the actor's state.
 func StateOf[S, E, D, F](d mut Driver[S, E, D, F]) S { d.actor.State() }
 
 // FocusId is the focused node, None for none.
-func FocusId[S, E, D, F](d mut Driver[S, E, D, F]) Option[ui.Id[E]] { d.focus }
+func FocusId[S, E, D, F](d mut Driver[S, E, D, F]) option.Option[ui.Id[E]] { d.focus }
 
 // FocusNode is what the focused node shows, None for none.
-func FocusNode[S, E, D, F](d mut Driver[S, E, D, F]) Option[ui.Node[E]] { focusedNode(d) }
+func FocusNode[S, E, D, F](d mut Driver[S, E, D, F]) option.Option[ui.Node[E]] { focusedNode(d) }
 
 // Number is the scene number of the node labelled label, None when none
 // is: what screen.BoxOf and screen.HitTest name it by.
-func Number[S, E, D, F](d mut Driver[S, E, D, F], label string) Option[int] {
+func Number[S, E, D, F](d mut Driver[S, E, D, F], label string) option.Option[int] {
 	match Find(d, label) {
-	case Some[ui.Id[E]] as id:
+	case option.Some[ui.Id[E]] as id:
 		d.nums.Get(id.Value)
-	case None:
-		None
+	case option.None:
+		option.None
 	}
 }
 

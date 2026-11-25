@@ -14,6 +14,8 @@ import actor
 import ergo.local/prototype/hosts/mygo/desktop
 import go ergo.local/prototype/hosts/mygo/screen
 import io
+import machines
+import option
 import os
 import strconv
 import sync
@@ -27,9 +29,9 @@ let Height = 24.0
 // views counts the view's runs: the passes.
 let views = sync.NewRef(0)
 
-func main() fails os.Exit needs Ambient | go.Foreign {
+func main() fails os.Exit needs os.Ambient | go.Foreign {
 	let args = with context { os.Process: os.NewHost() } { os.Process.Args() }
-	if len(args) > 1 && args[0] == "-headless" {
+	if args.Len() > 1 && args[0] == "-headless" {
 		let n = strconv.Atoi(args[1]) catch {
 		case strconv.Malformed, strconv.OutOfRange:
 			return os.Exit{Code: 2, Message: "scroll-gui: -headless takes a count, not \(args[1])"}
@@ -37,7 +39,7 @@ func main() fails os.Exit needs Ambient | go.Foreign {
 		try headless(n)
 		return
 	}
-	with context { Scheduler: NewLiveScheduler() } {
+	with context { time.Scheduler: time.NewLiveScheduler() } {
 		let w = screen.Open("Rows", 320, 480) catch {
 		case go.Error as e:
 			return os.Exit{Code: 1, Message: "scroll-gui: \(e.Text)"}
@@ -56,9 +58,9 @@ func main() fails os.Exit needs Ambient | go.Foreign {
 
 // headless wheels n steps of 7 dips down the list in a window with no
 // screen, and prints the first row shown and the passes run (views).
-func headless(n int) fails os.Exit needs Ambient | go.Foreign {
+func headless(n int) fails os.Exit needs os.Ambient | go.Foreign {
 	let out = io.NewHost()
-	with context { Scheduler: time.NewManual(0) } {
+	with context { time.Scheduler: time.NewManual(0) } {
 		let w = screen.Headless(320, 480) catch {
 		case go.Error as e:
 			return os.Exit{Code: 1, Message: "scroll-gui: \(e.Text)"}
@@ -77,9 +79,9 @@ func headless(n int) fails os.Exit needs Ambient | go.Foreign {
 			}
 		}
 		match desktop.Viewport(&d, "rows") {
-		case Some[ui.Viewport] as v:
+		case option.Some[ui.Viewport] as v:
 			out.Println("offset \(v.Value.Offset) views \(views.Get())")
-		case None:
+		case option.None:
 			out.Println("no viewport")
 		}
 	}
@@ -97,12 +99,12 @@ func view(f mut ui.Frame[int], s int) {
 }
 
 // still is the program's state: nothing changes it.
-func still() Machine[int, int, int] {
-	Machine[int, int, int]{Initial: 0, Step: stay, After: noTimer, Work: noWork, Exit: func(at int) Option[func()] { None }}
+func still() machines.Machine[int, int, int] {
+	machines.Machine[int, int, int]{Initial: 0, Step: stay, After: noTimer, Work: noWork, Exit: func(at int) option.Option[func()] { option.None }}
 }
 
-func stay(s int, e int) Decision[int, int] { Enter[int]{Next: s} }
+func stay(s int, e int) machines.Decision[int, int] { machines.Enter[int]{Next: s} }
 
-func noTimer(s int) Option[Timeout[int]] { None }
+func noTimer(s int) option.Option[machines.Timeout[int]] { option.None }
 
-func noWork(s int) Option[func(send func(e int))] { None }
+func noWork(s int) option.Option[func(send func(e int))] { option.None }

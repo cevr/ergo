@@ -48,11 +48,11 @@ type opts { headless bool, seed int, frames int }
 func parse(args []string) opts fails os.Exit {
 	let mut o = opts{headless: false, seed: 1, frames: 0}
 	let mut i = 0
-	for i < len(args) {
+	for i < args.Len() {
 		let a = args[i]
 		if a == "-headless" {
 			o.headless = true
-		} else if (a == "-seed" || a == "-frames") && i+1 < len(args) {
+		} else if (a == "-seed" || a == "-frames") && i+1 < args.Len() {
 			i = i + 1
 			let n = strconv.Atoi(args[i]) catch {
 			case strconv.Malformed, strconv.OutOfRange:
@@ -76,13 +76,13 @@ func parse(args []string) opts fails os.Exit {
 	o
 }
 
-func main() fails os.Exit needs Ambient | go.Foreign {
+func main() fails os.Exit needs os.Ambient | go.Foreign {
 	let o = try parse(with context { os.Process: os.NewHost() } { os.Process.Args() })
 	if o.headless {
 		try headless(o)
 		return
 	}
-	with context { Scheduler: NewLiveScheduler(), term.Terminal: term.NewHost(), feed.Sensors: synth.Bank{Seed: o.seed} } {
+	with context { time.Scheduler: time.NewLiveScheduler(), term.Terminal: term.NewHost(), feed.Sensors: synth.Bank{Seed: o.seed} } {
 		let a = actor.StartMachine(machines.Start(dash.App{}, feed.NewBoard()), 8, func(n []feed.Notice) {})
 		tui.RunTerminal(a, dash.View, tui.DefaultOptions()) catch {
 		// ergo-lint-disable-next-line silent-catch -- the app stopped: the program ends as the example's own binary does
@@ -99,14 +99,14 @@ func main() fails os.Exit needs Ambient | go.Foreign {
 
 // headless plays the scene script on standard input through a screen with
 // no terminal and prints what the scene prints.
-func headless(o opts) fails os.Exit needs Ambient | go.Foreign {
+func headless(o opts) fails os.Exit needs os.Ambient | go.Foreign {
 	let input = io.NewStdin().ReadAll() catch {
 	case io.ReadFailed:
 		return os.Exit{Code: 1, Message: "dash-tui: cannot read the script"}
 	}
 	let out = io.NewHost()
-	with context { Scheduler: time.NewManual(0), feed.Sensors: synth.Bank{Seed: o.seed} } {
-		tui.Headless(Cols, Lines, func(s go.Ref[screen.Screen]) fails os.Exit needs Scheduler | feed.Sensors | go.Foreign {
+	with context { time.Scheduler: time.NewManual(0), feed.Sensors: synth.Bank{Seed: o.seed} } {
+		tui.Headless(Cols, Lines, func(s go.Ref[screen.Screen]) fails os.Exit needs time.Scheduler | feed.Sensors | go.Foreign {
 			let notes = sync.NewRef[[]feed.Notice]([]feed.Notice{})
 			let a = actor.StartMachine(machines.Start(dash.App{}, feed.NewBoard()), 8, func(ns []feed.Notice) {
 				notes.Update(func(old []feed.Notice) []feed.Notice {
@@ -133,7 +133,7 @@ func headless(o opts) fails os.Exit needs Ambient | go.Foreign {
 				let words = strings.Split(l, " ")
 				match words[0] {
 				case "frames":
-					let n = strconv.Atoi(if len(words) == 2 { words[1] } else { "" }) catch {
+					let n = strconv.Atoi(if words.Len() == 2 { words[1] } else { "" }) catch {
 					case strconv.Malformed, strconv.OutOfRange:
 						out.Println("? \"" + l + "\": want frames N")
 						continue

@@ -16,6 +16,9 @@ import actor
 import ergo.local/prototype/hosts/opentui/tui
 import go ergo.local/prototype/hosts/opentui/screen
 import io
+import machines
+import option
+import os
 import strings
 import time
 import ui
@@ -25,24 +28,24 @@ let Texts = []string{"", "saved", "3 items", "saved"}
 
 type live { k int, shown bool }
 
-func liveStep(s live, e int) Decision[live, int] {
+func liveStep(s live, e int) machines.Decision[live, int] {
 	if e == 4 {
-		return Enter[live]{Next: live{k: s.k, shown: !s.shown}}
+		return machines.Enter[live]{Next: live{k: s.k, shown: !s.shown}}
 	}
-	Enter[live]{Next: live{k: e, shown: s.shown}}
+	machines.Enter[live]{Next: live{k: e, shown: s.shown}}
 }
 
-func none(s live) Option[Timeout[int]] { None }
+func none(s live) option.Option[machines.Timeout[int]] { option.None }
 
-func idle(s live) Option[func(send func(e int))] { None }
+func idle(s live) option.Option[func(send func(e int))] { option.None }
 
-func liveMachine() Machine[live, int, int] {
-	Machine[live, int, int]{Initial: live{k: 1, shown: true}, Step: liveStep, After: none, Work: idle, Exit: func(s live) Option[func()] { None }}
+func liveMachine() machines.Machine[live, int, int] {
+	machines.Machine[live, int, int]{Initial: live{k: 1, shown: true}, Step: liveStep, After: none, Work: idle, Exit: func(s live) option.Option[func()] { option.None }}
 }
 
 func liveView(f mut ui.Frame[int], s live) {
 	ui.Column(f, ui.Plain()) {
-		for i in 0..len(Texts) {
+		for i in 0..Texts.Len() {
 			ui.Pressable(f, "s\(i)", i) {
 				ui.Text(f, "S\(i)")
 			}
@@ -58,67 +61,67 @@ func liveView(f mut ui.Frame[int], s live) {
 
 // differs is why the terminal's said texts are not the test host's, None
 // when they are the same.
-func differs(said []string, announced []string) Option[string] {
+func differs(said []string, announced []string) option.Option[string] {
 	if said == announced {
-		return None
+		return option.None
 	}
-	Some{Value: "terminal said [\(strings.Join(said, "|"))], test host announced [\(strings.Join(announced, "|"))]"}
+	option.Some{Value: "terminal said [\(strings.Join(said, "|"))], test host announced [\(strings.Join(announced, "|"))]"}
 }
 
-func main() needs Console | Ambient | go.Foreign {
-	with context { io.Stdin: io.NewStdin(), Scheduler: time.NewManual(0) } {
+func main() needs io.Console | os.Ambient | go.Foreign {
+	with context { io.Stdin: io.NewStdin(), time.Scheduler: time.NewManual(0) } {
 		let text = io.Stdin.ReadAll() catch {
 		case io.ReadFailed:
-			Console.Println("differ 0: no input")
+			io.Console.Println("differ 0: no input")
 			return
 		}
-		tui.Headless(40, 10, func(s go.Ref[screen.Screen]) needs Console | Scheduler | go.Foreign {
+		tui.Headless(40, 10, func(s go.Ref[screen.Screen]) needs io.Console | time.Scheduler | go.Foreign {
 			let ta = actor.StartMachine(liveMachine(), 1, func(o int) {})
 			let da = actor.StartMachine(liveMachine(), 1, func(o int) {})
 			let mut h = ui.NewTestHost(ta, liveView, time.NewManual(0), 16) catch {
 			case ui.BadPatch as b:
-				Console.Println("differ 0: test host: \(b.Why)")
+				io.Console.Println("differ 0: test host: \(b.Why)")
 				return
 			}
 			let mut d = tui.New(s, da, liveView, 16) catch {
 			case ui.BadPatch as b:
-				Console.Println("differ 0: driver: \(b.Why)")
+				io.Console.Println("differ 0: driver: \(b.Why)")
 				return
 			case tui.ScreenFailed as e:
-				Console.Println("differ 0: driver: \(e.Why)")
+				io.Console.Println("differ 0: driver: \(e.Why)")
 				return
 			}
 			match differs(tui.Said(&d), ui.Announced(&h)) {
-			case Some[string] as why:
-				Console.Println("differ 0: \(why.Value)")
-			case None:
-				Console.Println("ok 0")
+			case option.Some[string] as why:
+				io.Console.Println("differ 0: \(why.Value)")
+			case option.None:
+				io.Console.Println("ok 0")
 			}
 			for i, line in strings.Split(strings.TrimSpace(text), "\n") {
 				let n = i + 1
 				let label = strings.TrimPrefix(line, "tap ")
 				ui.Play(&h, []ui.Act{ui.TapOn{Label: label}}) catch {
 				case ui.NoNode, ui.Ambiguous, ui.Mismatch, actor.Stopped, ui.BadPatch:
-					Console.Println("differ \(n): \(line): the test host failed")
+					io.Console.Println("differ \(n): \(line): the test host failed")
 					continue
 				}
 				tui.Play(&d, []ui.Act{ui.TapOn{Label: label}}) catch {
 				case ui.NoNode, ui.Ambiguous, ui.Mismatch, ui.Closed, actor.Stopped, ui.BadPatch, tui.ScreenFailed:
-					Console.Println("differ \(n): \(line): the terminal failed")
+					io.Console.Println("differ \(n): \(line): the terminal failed")
 					continue
 				}
 				match differs(tui.Said(&d), ui.Announced(&h)) {
-				case Some[string] as why:
-					Console.Println("differ \(n): \(line): \(why.Value)")
-				case None:
-					Console.Println("ok \(n)")
+				case option.Some[string] as why:
+					io.Console.Println("differ \(n): \(line): \(why.Value)")
+				case option.None:
+					io.Console.Println("ok \(n)")
 				}
 			}
 		}) catch {
 		case tui.ScreenFailed as e:
-			Console.Println("differ 0: the screen: \(e.Why)")
+			io.Console.Println("differ 0: the screen: \(e.Why)")
 			return
 		}
-		Console.Println("end")
+		io.Console.Println("end")
 	}
 }

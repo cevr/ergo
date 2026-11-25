@@ -16,14 +16,16 @@ import ergo.local/prototype/examples/countergui/view
 import ergo.local/prototype/hosts/opentui/tui
 import go ergo.local/prototype/hosts/opentui/screen
 import io
+import option
 import os
 import strconv
 import term
+import time
 import ui
 
-func main() fails os.Exit needs Ambient | go.Foreign {
+func main() fails os.Exit needs os.Ambient | go.Foreign {
 	let args = with context { os.Process: os.NewHost() } { os.Process.Args() }
-	if len(args) != 3 {
+	if args.Len() != 3 {
 		return os.Exit{Code: 2, Message: "usage: failterm AT CALL STATUS"}
 	}
 	screen.FailAt(number(args[0]), number(args[1]), number(args[2]))
@@ -39,8 +41,8 @@ func main() fails os.Exit needs Ambient | go.Foreign {
 }
 
 // run runs the app on the terminal and is how it ended.
-func run() string needs Ambient | go.Foreign {
-	with context { Scheduler: NewLiveScheduler(), term.Terminal: term.NewHost() } {
+func run() string needs os.Ambient | go.Foreign {
+	with context { time.Scheduler: time.NewLiveScheduler(), term.Terminal: term.NewHost() } {
 		let a = actor.StartMachine(counter.Counter{}, 8, func(c counter.Count) {})
 		tui.RunTerminal(a, view.View, tui.DefaultOptions()) catch {
 		case actor.Stopped:
@@ -51,9 +53,9 @@ func run() string needs Ambient | go.Foreign {
 			return "bad patch \(b.Why)"
 		case tui.ScreenFailed as e:
 			let st = match e.Status {
-			case Some[int] as s:
+			case option.Some[int] as s:
 				"\(s.Value)"
-			case None:
+			case option.None:
 				"-"
 			}
 			return "failed \(tui.CallName(e.Call)) \(e.Node) \(st)"

@@ -5,62 +5,63 @@
 
 import actor
 import go ergo.local/prototype/hosts/opentui/screen
+import option
 import ui
 
 // EditOf is the edit a key makes in a focused field (screen.Edit*), None
 // for a key the field does not take (Enter, Escape, ArrowUp, ArrowDown, a
 // function key: they go on to the view's OnKey). A character typed with
 // no Ctrl, Alt or Meta inserts itself.
-func EditOf(name string, mods ui.Mods) Option[int] {
+func EditOf(name string, mods ui.Mods) option.Option[int] {
 	let chord = mods.Ctrl || mods.Alt || mods.Meta
 	if !chord {
 		if printable(name) {
-			return Some{Value: screen.EditInsert}
+			return option.Some{Value: screen.EditInsert}
 		}
 		return match name {
 		case "Backspace":
-			Some{Value: screen.EditBackspace}
+			option.Some{Value: screen.EditBackspace}
 		case "Delete":
-			Some{Value: screen.EditDelete}
+			option.Some{Value: screen.EditDelete}
 		case "ArrowLeft":
-			Some{Value: screen.EditLeft}
+			option.Some{Value: screen.EditLeft}
 		case "ArrowRight":
-			Some{Value: screen.EditRight}
+			option.Some{Value: screen.EditRight}
 		case "Home":
-			Some{Value: screen.EditHome}
+			option.Some{Value: screen.EditHome}
 		case "End":
-			Some{Value: screen.EditEnd}
+			option.Some{Value: screen.EditEnd}
 		case _:
-			None
+			option.None
 		}
 	}
 	if mods.Ctrl && !mods.Alt && !mods.Meta {
 		return match name {
 		case "a":
-			Some{Value: screen.EditHome}
+			option.Some{Value: screen.EditHome}
 		case "e":
-			Some{Value: screen.EditEnd}
+			option.Some{Value: screen.EditEnd}
 		case "w":
-			Some{Value: screen.EditWordBack}
+			option.Some{Value: screen.EditWordBack}
 		case "k":
-			Some{Value: screen.EditKillEnd}
+			option.Some{Value: screen.EditKillEnd}
 		case "u":
-			Some{Value: screen.EditKillStart}
+			option.Some{Value: screen.EditKillStart}
 		case _:
-			None
+			option.None
 		}
 	}
 	if mods.Alt && !mods.Ctrl && !mods.Meta {
 		return match name {
 		case "ArrowLeft":
-			Some{Value: screen.EditWordLeft}
+			option.Some{Value: screen.EditWordLeft}
 		case "ArrowRight":
-			Some{Value: screen.EditWordRight}
+			option.Some{Value: screen.EditWordRight}
 		case _:
-			None
+			option.None
 		}
 	}
-	None
+	option.None
 }
 
 // EditOfIsTheTable: the keys rule 3 names edit the field and the keys it
@@ -104,7 +105,7 @@ func edited[E comparable, S, D, F](d mut Driver[S, E, D, F], id ui.Id[E], value 
 		try step(d, ui.Type[E]{Id: id, Text: now})
 	}
 	match d.nodes.Get(id) {
-	case Some[held[E]] as h:
+	case option.Some[held[E]] as h:
 		match h.Value.node {
 		case ui.InputNode as x:
 			if x.Value != now {
@@ -112,17 +113,17 @@ func edited[E comparable, S, D, F](d mut Driver[S, E, D, F], id ui.Id[E], value 
 			}
 		case _:
 		}
-	case None:
+	case option.None:
 	}
 	try present(d.s)
 }
 
 // fieldValue is the text of the Input id shows, None when id is no Input.
-func fieldValue[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) Option[string] {
+func fieldValue[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) option.Option[string] {
 	match nodeOf(d, id) {
 	case ui.InputNode as x:
-		Some{Value: x.Value}
+		option.Some{Value: x.Value}
 	case _:
-		None
+		option.None
 	}
 }

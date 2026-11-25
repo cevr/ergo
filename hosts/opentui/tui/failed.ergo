@@ -18,6 +18,7 @@
 // Quit's own failure is.
 
 import go ergo.local/prototype/hosts/opentui/screen
+import option
 import scope
 
 // Call is the screen call that failed.
@@ -27,17 +28,17 @@ type Call = Open{} | Setup{} | Create{} | Move{} | SetText{} | SetStyle{} | Dest
 // about (0 for none), the library's status when the library refused it
 // (None when the failure is Go's own: a write to the terminal, a closed
 // screen), the screen's message, and the Go error.
-type ScreenFailed { Call Call, Node int, Status Option[int], Why string, Cause go.Error }
+type ScreenFailed { Call Call, Node int, Status option.Option[int], Why string, Cause go.Error }
 
 // failed is the ScreenFailed of a screen call's error. Every error the
 // screen returns is a screen.Failure (TestScreenErrorsAreFailures).
 func failed(e go.Error) ScreenFailed needs go.Foreign {
 	match go.As[go.Ref[screen.Failure]](e) {
-	case Some[go.Ref[screen.Failure]] as f:
+	case option.Some[go.Ref[screen.Failure]] as f:
 		let st = f.Value.Status()
-		ScreenFailed{Call: callOf(f.Value.Call), Node: f.Value.Node, Status: if st == 0 { None } else { Some{Value: st} }, Why: e.Text, Cause: e}
-	case None:
-		Unreachable("screen returned an error that is no screen.Failure: \(e.Text)")
+		ScreenFailed{Call: callOf(f.Value.Call), Node: f.Value.Node, Status: if st == 0 { option.None } else { option.Some{Value: st} }, Why: e.Text, Cause: e}
+	case option.None:
+		ScreenFailed{Call: Open, Node: 0, Status: option.None, Why: e.Text, Cause: e}
 	}
 }
 

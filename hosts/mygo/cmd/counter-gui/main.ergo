@@ -29,14 +29,14 @@ import os
 import time
 import ui
 
-func main() fails os.Exit needs Ambient | go.Foreign {
+func main() fails os.Exit needs os.Ambient | go.Foreign {
 	let args = with context { os.Process: os.NewHost() } { os.Process.Args() }
 	let drive = screen.DriveAddr()
-	if len(args) > 0 && args[0] == "-headless" {
+	if args.Len() > 0 && args[0] == "-headless" {
 		try headless(args)
 		return
 	}
-	with context { Scheduler: NewLiveScheduler() } {
+	with context { time.Scheduler: time.NewLiveScheduler() } {
 		let w = screen.Open("Counter", 360, 220) catch {
 		case go.Error as e:
 			return os.Exit{Code: 1, Message: "counter-gui: \(e.Text)"}
@@ -67,7 +67,7 @@ func main() fails os.Exit needs Ambient | go.Foreign {
 
 // listen listens on addr for the script a test drives the window with
 // (desktop.Drive, desktop.Answer).
-func listen(addr string) net.Listener fails os.Exit needs Ambient {
+func listen(addr string) net.Listener fails os.Exit needs os.Ambient {
 	net.Listen(net.NewHost(), addr) catch {
 	case net.ListenFailed as f:
 		return os.Exit{Code: 1, Message: "counter-gui: cannot listen on \(f.Addr): \(f.Reason)"}
@@ -85,14 +85,14 @@ func parse(line string) []ui.Act {
 // answer plays the script lines one connection to addr sends through a
 // window with no screen, and answers each with the count after each step
 // (desktop.Answer). It prints the address it listens on first.
-func answer(addr string) fails os.Exit needs Ambient | go.Foreign {
+func answer(addr string) fails os.Exit needs os.Ambient | go.Foreign {
 	let l = try listen(addr)
 	io.NewHost().Println("listening \(l.Addr())")
 	let c = l.Accept() catch {
 	case net.Failed as f:
 		return os.Exit{Code: 1, Message: "counter-gui: \(f.Reason)"}
 	}
-	with context { Scheduler: time.NewManual(0) } {
+	with context { time.Scheduler: time.NewManual(0) } {
 		let w = screen.Headless(360, 220) catch {
 		case go.Error as e:
 			return os.Exit{Code: 1, Message: "counter-gui: \(e.Text)"}
@@ -115,18 +115,18 @@ func answer(addr string) fails os.Exit needs Ambient | go.Foreign {
 // headless plays the script on standard input through a window with no
 // screen, a press and a release at each node's place, and prints the count
 // after each step.
-func headless(args []string) fails os.Exit needs Ambient | go.Foreign {
+func headless(args []string) fails os.Exit needs os.Ambient | go.Foreign {
 	let mut tree = false
 	let mut file = ""
 	let mut picture = ""
 	for i, a in args {
 		if a == "-tree" {
 			tree = true
-		} else if a == "-script" && i+1 < len(args) {
+		} else if a == "-script" && i+1 < args.Len() {
 			file = args[i+1]
-		} else if a == "-png" && i+1 < len(args) {
+		} else if a == "-png" && i+1 < args.Len() {
 			picture = args[i+1]
-		} else if a == "-drive" && i+1 < len(args) {
+		} else if a == "-drive" && i+1 < args.Len() {
 			try answer(args[i+1])
 			return
 		}
@@ -157,9 +157,9 @@ func headless(args []string) fails os.Exit needs Ambient | go.Foreign {
 // play plays acts through a window with no screen and prints the state
 // after each, then, with tree, the screen as JSON lines, and, with a
 // picture path, the screen as a PNG there.
-func play(acts []ui.Act, tree bool, picture string) fails os.Exit needs Ambient | go.Foreign {
+func play(acts []ui.Act, tree bool, picture string) fails os.Exit needs os.Ambient | go.Foreign {
 	let out = io.NewHost()
-	with context { Scheduler: time.NewManual(0) } {
+	with context { time.Scheduler: time.NewManual(0) } {
 		let w = screen.Headless(360, 220) catch {
 		case go.Error as e:
 			return os.Exit{Code: 1, Message: "counter-gui: \(e.Text)"}

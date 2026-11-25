@@ -5,12 +5,13 @@
 // driver keeps no colour of its own for a node with a Style: the default
 // looks are std's (ui.PressLook).
 
+import option
 import ui
 import ui/layout
 
 // lookProbe is a painted look whose colours a test can sample: where its
 // fill shows, and what shows at its top-left corner (outside its radius).
-type lookProbe { label string, box layout.Box, clip layout.Box, look ui.Look, state ui.LookState, under Option[uint32], padTop float32, padLeft float32, alpha float64, ringed bool }
+type lookProbe { label string, box layout.Box, clip layout.Box, look ui.Look, state ui.LookState, under option.Option[uint32], padTop float32, padLeft float32, alpha float64, ringed bool }
 
 // LookAt is a labelled node's look state and the look the window painted
 // for it (UG3).
@@ -18,7 +19,7 @@ type LookAt { Label string, State ui.LookState, Look ui.Look }
 
 // painted is what painting a look changed, for unpaint: the opacity and
 // the colour under the node's children before it.
-type painted { opacity float64, under Option[uint32] }
+type painted { opacity float64, under option.Option[uint32] }
 
 // rgba is a ui Color as 0xRRGGBBAA.
 func rgba(c ui.Color) uint32 {
@@ -49,8 +50,8 @@ func LookStates[S, E, D, F](d mut Driver[S, E, D, F]) []LookAt {
 func paintLook[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], n ui.Node[E], b layout.Box, clip layout.Box, lineH float32, focus bool) painted needs go.Foreign {
 	let before = painted{opacity: d.w.Opacity(), under: d.under}
 	match ui.StyleOf(n) {
-	case Some[ui.Style]:
-	case None:
+	case option.Some[ui.Style]:
+	case option.None:
 		return before
 	}
 	let l = lookOf(d, id, n)
@@ -85,9 +86,9 @@ func paintLook[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], n ui.Node[E], 
 	// What shows under the children: the fill, when it is opaque and
 	// nothing else of the look paints over it there; else unknown.
 	if l.Fill.A == 255 && line == 0 && !inset && l.Opacity == 1.0 {
-		d.under = Some{Value: rgba(l.Fill)}
+		d.under = option.Some{Value: rgba(l.Fill)}
 	} else if l.Fill.A != 0 || line > 0 || inset {
-		d.under = None
+		d.under = option.None
 	}
 	before
 }
@@ -103,9 +104,9 @@ func unpaint[S, E, D, F](d mut Driver[S, E, D, F], p painted) needs go.Foreign {
 // probeLabel names a node in a probe: its label, or its kind.
 func probeLabel[E](n ui.Node[E]) string {
 	match labelOf(n) {
-	case Some[string] as s:
+	case option.Some[string] as s:
 		s.Value
-	case None:
+	case option.None:
 		"a node's look"
 	}
 }
@@ -138,7 +139,7 @@ func lookProbes[S, E, D, F](d mut Driver[S, E, D, F]) []Probe {
 			}
 		}
 		match p.under {
-		case Some[uint32] as u:
+		case option.Some[uint32] as u:
 			if !d.shadowed && !p.ringed && float64(l.Corners.TopLeft) >= 9 && p.padTop >= 1 && p.padLeft >= 1 {
 				let x = int(fceil(b.X))
 				let y = int(fceil(b.Y))
@@ -146,7 +147,7 @@ func lookProbes[S, E, D, F](d mut Driver[S, E, D, F]) []Probe {
 					out = out.Append(Probe{Label: p.label + " corner", X: x, Y: y, Color: u.Value})
 				}
 			}
-		case None:
+		case option.None:
 		}
 	}
 	out

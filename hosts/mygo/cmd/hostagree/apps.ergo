@@ -2,22 +2,24 @@
 // deletes, a form of fields and checks, a load whose key changes, and a
 // pointer pad.
 
+import machines
+import option
 import ui
 
-func none[S, E](s S) Option[Timeout[E]] { None }
+func none[S, E](s S) option.Option[machines.Timeout[E]] { option.None }
 
-func idle[S, E](s S) Option[func(send func(e E))] { None }
+func idle[S, E](s S) option.Option[func(send func(e E))] { option.None }
 
 // counter: a signal adds to the count; 0 resets it.
-func counterStep(s int, e int) Decision[int, int] {
+func counterStep(s int, e int) machines.Decision[int, int] {
 	if e == 0 {
-		return Enter[int]{Next: 0}
+		return machines.Enter[int]{Next: 0}
 	}
-	Enter[int]{Next: s + e}
+	machines.Enter[int]{Next: s + e}
 }
 
-func counterMachine() Machine[int, int, int] {
-	Machine[int, int, int]{Initial: 0, Step: counterStep, After: none[int, int], Work: idle[int, int], Exit: func(s int) Option[func()] { None }}
+func counterMachine() machines.Machine[int, int, int] {
+	machines.Machine[int, int, int]{Initial: 0, Step: counterStep, After: none[int, int], Work: idle[int, int], Exit: func(s int) option.Option[func()] { option.None }}
 }
 
 func counterView(f mut ui.Frame[int], s int) {
@@ -39,16 +41,16 @@ func counterView(f mut ui.Frame[int], s int) {
 				ui.Text(f, "Reset")
 			}
 		}
-		ui.OnKey(f, func(k ui.KeyPress) Option[int] {
+		ui.OnKey(f, func(k ui.KeyPress) option.Option[int] {
 			match k.Name {
 			case "+":
-				Some{Value: 1}
+				option.Some{Value: 1}
 			case "-":
-				Some{Value: -1}
+				option.Some{Value: -1}
 			case "x":
-				Some{Value: 0}
+				option.Some{Value: 0}
 			case _:
-				None
+				option.None
 			}
 		})
 	}
@@ -57,9 +59,9 @@ func counterView(f mut ui.Frame[int], s int) {
 // shelf: rows by key; signal 0 adds one, k removes row k.
 type shelf { rows []int, next int }
 
-func shelfStep(s shelf, e int) Decision[shelf, int] {
+func shelfStep(s shelf, e int) machines.Decision[shelf, int] {
 	if e == 0 {
-		return Enter[shelf]{Next: shelf{rows: s.rows.Append(s.next), next: s.next + 1}}
+		return machines.Enter[shelf]{Next: shelf{rows: s.rows.Append(s.next), next: s.next + 1}}
 	}
 	let mut rows = []int{}
 	for k in s.rows {
@@ -67,11 +69,11 @@ func shelfStep(s shelf, e int) Decision[shelf, int] {
 			rows = rows.Append(k)
 		}
 	}
-	Enter[shelf]{Next: shelf{rows: rows, next: s.next}}
+	machines.Enter[shelf]{Next: shelf{rows: rows, next: s.next}}
 }
 
 func sameShelf(a shelf, b shelf) bool {
-	if a.next != b.next || len(a.rows) != len(b.rows) {
+	if a.next != b.next || a.rows.Len() != b.rows.Len() {
 		return false
 	}
 	for i, k in a.rows {
@@ -82,15 +84,15 @@ func sameShelf(a shelf, b shelf) bool {
 	true
 }
 
-func shelfMachine() Machine[shelf, int, int] {
-	Machine[shelf, int, int]{Initial: shelf{rows: []int{}, next: 1}, Step: shelfStep, After: none[shelf, int], Work: idle[shelf, int], Exit: func(s shelf) Option[func()] { None }}
+func shelfMachine() machines.Machine[shelf, int, int] {
+	machines.Machine[shelf, int, int]{Initial: shelf{rows: []int{}, next: 1}, Step: shelfStep, After: none[shelf, int], Work: idle[shelf, int], Exit: func(s shelf) option.Option[func()] { option.None }}
 }
 
 // shelfView: every row's delete button is labelled "del", so a script's
 // "del" takes the first row on the screen; the list scrolls.
 func shelfView(f mut ui.Frame[int], s shelf) {
 	ui.Column(f, ui.Plain()) {
-		ui.Text(f, "\(len(s.rows)) rows")
+		ui.Text(f, "\(s.rows.Len()) rows")
 		ui.Pressable(f, "add", 0) {
 			ui.Text(f, "Add")
 		}
@@ -118,19 +120,19 @@ type form { name string, done bool, sent int }
 
 type formEvent = Named{Text string} | Flipped{} | Sent{}
 
-func formStep(s form, e formEvent) Decision[form, int] {
+func formStep(s form, e formEvent) machines.Decision[form, int] {
 	match e {
 	case Named as n:
-		Enter[form]{Next: form{name: n.Text, done: s.done, sent: s.sent}}
+		machines.Enter[form]{Next: form{name: n.Text, done: s.done, sent: s.sent}}
 	case Flipped:
-		Enter[form]{Next: form{name: s.name, done: !s.done, sent: s.sent}}
+		machines.Enter[form]{Next: form{name: s.name, done: !s.done, sent: s.sent}}
 	case Sent:
-		Enter[form]{Next: form{name: s.name, done: s.done, sent: s.sent + 1}}
+		machines.Enter[form]{Next: form{name: s.name, done: s.done, sent: s.sent + 1}}
 	}
 }
 
-func formMachine() Machine[form, formEvent, int] {
-	Machine[form, formEvent, int]{Initial: form{name: "", done: false, sent: 0}, Step: formStep, After: none[form, formEvent], Work: idle[form, formEvent], Exit: func(s form) Option[func()] { None }}
+func formMachine() machines.Machine[form, formEvent, int] {
+	machines.Machine[form, formEvent, int]{Initial: form{name: "", done: false, sent: 0}, Step: formStep, After: none[form, formEvent], Work: idle[form, formEvent], Exit: func(s form) option.Option[func()] { option.None }}
 }
 
 func formView(f mut ui.Frame[formEvent], s form) {
@@ -158,15 +160,15 @@ func formView(f mut ui.Frame[formEvent], s form) {
 // back as a negative signal.
 type chosen { key int, ready int }
 
-func chosenStep(s chosen, e int) Decision[chosen, int] {
+func chosenStep(s chosen, e int) machines.Decision[chosen, int] {
 	if e >= 0 {
-		return Enter[chosen]{Next: chosen{key: s.key + 1, ready: -1}}
+		return machines.Enter[chosen]{Next: chosen{key: s.key + 1, ready: -1}}
 	}
-	Enter[chosen]{Next: chosen{key: s.key, ready: -1 - e}}
+	machines.Enter[chosen]{Next: chosen{key: s.key, ready: -1 - e}}
 }
 
-func loadMachine() Machine[chosen, int, int] {
-	Machine[chosen, int, int]{Initial: chosen{key: 0, ready: -1}, Step: chosenStep, After: none[chosen, int], Work: idle[chosen, int], Exit: func(s chosen) Option[func()] { None }}
+func loadMachine() machines.Machine[chosen, int, int] {
+	machines.Machine[chosen, int, int]{Initial: chosen{key: 0, ready: -1}, Step: chosenStep, After: none[chosen, int], Work: idle[chosen, int], Exit: func(s chosen) option.Option[func()] { option.None }}
 }
 
 func loadView(f mut ui.Frame[int], s chosen) {
@@ -184,10 +186,10 @@ func loadView(f mut ui.Frame[int], s chosen) {
 // (the window's hit test takes the one painted last).
 type pad { last int, n int }
 
-func padStep(s pad, e int) Decision[pad, int] { Enter[pad]{Next: pad{last: e, n: s.n + 1}} }
+func padStep(s pad, e int) machines.Decision[pad, int] { machines.Enter[pad]{Next: pad{last: e, n: s.n + 1}} }
 
-func padMachine() Machine[pad, int, int] {
-	Machine[pad, int, int]{Initial: pad{last: 0, n: 0}, Step: padStep, After: none[pad, int], Work: idle[pad, int], Exit: func(s pad) Option[func()] { None }}
+func padMachine() machines.Machine[pad, int, int] {
+	machines.Machine[pad, int, int]{Initial: pad{last: 0, n: 0}, Step: padStep, After: none[pad, int], Work: idle[pad, int], Exit: func(s pad) option.Option[func()] { option.None }}
 }
 
 func padView(f mut ui.Frame[int], s pad) {
@@ -195,18 +197,18 @@ func padView(f mut ui.Frame[int], s pad) {
 	let mut area = ui.Plain()
 	area.Width = ui.Fixed{Value: 200}
 	area.Height = ui.Fixed{Value: 120}
-	ui.Area(f, "pad", area, func(p ui.PointerEvent) Option[int] {
+	ui.Area(f, "pad", area, func(p ui.PointerEvent) option.Option[int] {
 		match p.Phase {
 		case ui.Down:
-			Some{Value: 1000 + int(p.X) + 100*(s.n%3)}
+			option.Some{Value: 1000 + int(p.X) + 100*(s.n%3)}
 		case ui.Up:
-			Some{Value: 2000 + int(p.Y)}
+			option.Some{Value: 2000 + int(p.Y)}
 		case ui.Wheel as w:
-			Some{Value: 3000 + int(w.DY)}
+			option.Some{Value: 3000 + int(w.DY)}
 		case ui.Drag:
-			Some{Value: 4000 + int(p.X)}
+			option.Some{Value: 4000 + int(p.X)}
 		case ui.Moved, ui.PointerEnter, ui.PointerLeave:
-			None
+			option.None
 		}
 	}) {
 		ui.Text(f, "pad")
@@ -222,27 +224,27 @@ func padView(f mut ui.Frame[int], s pad) {
 // its own, so it takes the window below it, which the note moves.
 type rowsApp { n int, last int, note bool, cur int }
 
-func rowsStep(s rowsApp, e int) Decision[rowsApp, int] {
+func rowsStep(s rowsApp, e int) machines.Decision[rowsApp, int] {
 	if e == -1 {
-		return Enter[rowsApp]{Next: rowsApp{n: s.n + 25, last: s.last, note: s.note, cur: s.cur}}
+		return machines.Enter[rowsApp]{Next: rowsApp{n: s.n + 25, last: s.last, note: s.note, cur: s.cur}}
 	}
 	if e == -2 {
-		return Enter[rowsApp]{Next: rowsApp{n: if s.n > 25 { s.n - 25 } else { 0 }, last: s.last, note: s.note, cur: s.cur}}
+		return machines.Enter[rowsApp]{Next: rowsApp{n: if s.n > 25 { s.n - 25 } else { 0 }, last: s.last, note: s.note, cur: s.cur}}
 	}
 	if e == -3 {
-		return Enter[rowsApp]{Next: rowsApp{n: s.n, last: s.last, note: !s.note, cur: s.cur}}
+		return machines.Enter[rowsApp]{Next: rowsApp{n: s.n, last: s.last, note: !s.note, cur: s.cur}}
 	}
 	if e == -4 {
-		return Enter[rowsApp]{Next: rowsApp{n: s.n, last: s.last, note: s.note, cur: s.cur + 17}}
+		return machines.Enter[rowsApp]{Next: rowsApp{n: s.n, last: s.last, note: s.note, cur: s.cur + 17}}
 	}
 	if e == -5 {
-		return Enter[rowsApp]{Next: rowsApp{n: s.n, last: s.last, note: s.note, cur: if s.cur > 17 { s.cur - 17 } else { 0 }}}
+		return machines.Enter[rowsApp]{Next: rowsApp{n: s.n, last: s.last, note: s.note, cur: if s.cur > 17 { s.cur - 17 } else { 0 }}}
 	}
-	Enter[rowsApp]{Next: rowsApp{n: s.n, last: e, note: s.note, cur: s.cur}}
+	machines.Enter[rowsApp]{Next: rowsApp{n: s.n, last: e, note: s.note, cur: s.cur}}
 }
 
-func rowsMachine() Machine[rowsApp, int, int] {
-	Machine[rowsApp, int, int]{Initial: rowsApp{n: 60, last: -1, note: false, cur: 0}, Step: rowsStep, After: none[rowsApp, int], Work: idle[rowsApp, int], Exit: func(s rowsApp) Option[func()] { None }}
+func rowsMachine() machines.Machine[rowsApp, int, int] {
+	machines.Machine[rowsApp, int, int]{Initial: rowsApp{n: 60, last: -1, note: false, cur: 0}, Step: rowsStep, After: none[rowsApp, int], Work: idle[rowsApp, int], Exit: func(s rowsApp) option.Option[func()] { option.None }}
 }
 
 func rowsView(f mut ui.Frame[int], s rowsApp) {
@@ -282,22 +284,22 @@ func rowsView(f mut ui.Frame[int], s rowsApp) {
 // (the probe's fill).
 type sketch { x int, y int, n int }
 
-func sketchStep(s sketch, e int) Decision[sketch, int] {
-	Enter[sketch]{Next: sketch{x: e % 1000, y: e / 1000, n: s.n + 1}}
+func sketchStep(s sketch, e int) machines.Decision[sketch, int] {
+	machines.Enter[sketch]{Next: sketch{x: e % 1000, y: e / 1000, n: s.n + 1}}
 }
 
-func sketchMachine() Machine[sketch, int, int] {
-	Machine[sketch, int, int]{Initial: sketch{x: 100, y: 75, n: 0}, Step: sketchStep, After: none[sketch, int], Work: idle[sketch, int], Exit: func(s sketch) Option[func()] { None }}
+func sketchMachine() machines.Machine[sketch, int, int] {
+	machines.Machine[sketch, int, int]{Initial: sketch{x: 100, y: 75, n: 0}, Step: sketchStep, After: none[sketch, int], Work: idle[sketch, int], Exit: func(s sketch) option.Option[func()] { option.None }}
 }
 
 func sketchView(f mut ui.Frame[int], s sketch) {
 	ui.Text(f, "mark \(s.x),\(s.y) of \(s.n)")
-	ui.Area(f, "sketch", ui.Plain(), func(p ui.PointerEvent) Option[int] {
+	ui.Area(f, "sketch", ui.Plain(), func(p ui.PointerEvent) option.Option[int] {
 		match p.Phase {
 		case ui.Down:
-			Some{Value: int(p.X) + 1000*int(p.Y)}
+			option.Some{Value: int(p.X) + 1000*int(p.Y)}
 		case _:
-			None
+			option.None
 		}
 	}) {
 		ui.Canvas(f, "ink", 200, 150) func(p mut ui.Paint) {
@@ -334,15 +336,15 @@ type looksApp { theme int, dim bool }
 // inkedReading is the looks app's readout, drawn in the theme's ink.
 let inkedReading = ui.NewReadout("reading")
 
-func looksStep(s looksApp, e int) Decision[looksApp, int] {
+func looksStep(s looksApp, e int) machines.Decision[looksApp, int] {
 	if e == 0 {
-		return Enter[looksApp]{Next: looksApp{theme: (s.theme + 1) % 3, dim: s.dim}}
+		return machines.Enter[looksApp]{Next: looksApp{theme: (s.theme + 1) % 3, dim: s.dim}}
 	}
-	Enter[looksApp]{Next: looksApp{theme: s.theme, dim: !s.dim}}
+	machines.Enter[looksApp]{Next: looksApp{theme: s.theme, dim: !s.dim}}
 }
 
-func looksMachine() Machine[looksApp, int, int] {
-	Machine[looksApp, int, int]{Initial: looksApp{theme: 0, dim: false}, Step: looksStep, After: none[looksApp, int], Work: idle[looksApp, int], Exit: func(s looksApp) Option[func()] { None }}
+func looksMachine() machines.Machine[looksApp, int, int] {
+	machines.Machine[looksApp, int, int]{Initial: looksApp{theme: 0, dim: false}, Step: looksStep, After: none[looksApp, int], Work: idle[looksApp, int], Exit: func(s looksApp) option.Option[func()] { option.None }}
 }
 
 // looked is a Style of the look l.
@@ -421,12 +423,12 @@ func looksView(f mut ui.Frame[int], s looksApp) {
 // keys, and to a key no node has) change with each tap of "next", some
 // of them under a disabled Fieldset, so the window's accessibility tree
 // carries what ui reads of each.
-func rolesStep(s int, e int) Decision[int, int] {
-	Enter[int]{Next: s + 1}
+func rolesStep(s int, e int) machines.Decision[int, int] {
+	machines.Enter[int]{Next: s + 1}
 }
 
-func rolesMachine() Machine[int, int, int] {
-	Machine[int, int, int]{Initial: 0, Step: rolesStep, After: none[int, int], Work: idle[int, int], Exit: func(s int) Option[func()] { None }}
+func rolesMachine() machines.Machine[int, int, int] {
+	machines.Machine[int, int, int]{Initial: 0, Step: rolesStep, After: none[int, int], Work: idle[int, int], Exit: func(s int) option.Option[func()] { option.None }}
 }
 
 func allRoles() []ui.Role {
@@ -438,19 +440,19 @@ func roleDecl(r ui.Role, i int, t int, n int) ui.Access {
 	let mut a = ui.Named(r, "s\(i)")
 	let v = i + t
 	a.Key = ui.ByInt(i)
-	a.Checked = if v%3 == 0 { Some{Value: true} } else { None }
+	a.Checked = if v%3 == 0 { option.Some{Value: true} } else { option.None }
 	a.Mixed = v%7 == 1
-	a.Selected = if v%2 == 0 { Some{Value: true} } else { Some{Value: false} }
-	a.Expanded = if v%4 == 1 { Some{Value: true} } else { None }
+	a.Selected = if v%2 == 0 { option.Some{Value: true} } else { option.Some{Value: false} }
+	a.Expanded = if v%4 == 1 { option.Some{Value: true} } else { option.None }
 	a.Busy = v%5 == 2
 	a.Invalid = v%6 == 3
 	a.MultiSelectable = v%5 == 4
-	a.Level = if v%3 == 1 { Some{Value: v%4 + 1} } else { None }
+	a.Level = if v%3 == 1 { option.Some{Value: v%4 + 1} } else { option.None }
 	if v%4 == 2 {
-		a.Range = Some{Value: ui.Range{Now: float64(v % 10), Min: 0, Max: 10}}
+		a.Range = option.Some{Value: ui.Range{Now: float64(v % 10), Min: 0, Max: 10}}
 	}
 	if v%5 == 0 {
-		a.Current = Some{Value: "page"}
+		a.Current = option.Some{Value: "page"}
 	}
 	a.HasPopup = v%6 == 0
 	if v%4 == 3 {
@@ -472,7 +474,7 @@ func roleDecl(r ui.Role, i int, t int, n int) ui.Access {
 
 func rolesView(f mut ui.Frame[int], t int) {
 	let roles = allRoles()
-	let n = len(roles)
+	let n = roles.Len()
 	let mut col = ui.Plain()
 	col.Gap = 2
 	ui.Column(f, col) {
@@ -488,12 +490,12 @@ func rolesView(f mut ui.Frame[int], t int) {
 					if i < n {
 						if (i+t)%9 == 4 {
 							ui.Fieldset(f, true, "off") {
-								ui.Semantic(f, roleDecl(roles[i], i, t, n), None, ui.Plain()) {
+								ui.Semantic(f, roleDecl(roles[i], i, t, n), option.None, ui.Plain()) {
 									ui.Text(f, "r\(i)")
 								}
 							}
 						} else {
-							ui.Semantic(f, roleDecl(roles[i], i, t, n), if i%3 == 0 { Some{Value: 0} } else { None }, ui.Plain()) {
+							ui.Semantic(f, roleDecl(roles[i], i, t, n), if i%3 == 0 { option.Some{Value: 0} } else { option.None }, ui.Plain()) {
 								ui.Text(f, "r\(i)")
 							}
 						}
@@ -511,21 +513,21 @@ func rolesView(f mut ui.Frame[int], t int) {
 // from the pointer, the keys and the passes.
 type statesApp { open bool, asked int }
 
-func statesStep(s statesApp, e int) Decision[statesApp, int] {
+func statesStep(s statesApp, e int) machines.Decision[statesApp, int] {
 	if e == 0 {
-		return Enter[statesApp]{Next: statesApp{open: false, asked: s.asked}}
+		return machines.Enter[statesApp]{Next: statesApp{open: false, asked: s.asked}}
 	}
 	if e == 1 {
-		return Enter[statesApp]{Next: statesApp{open: true, asked: s.asked}}
+		return machines.Enter[statesApp]{Next: statesApp{open: true, asked: s.asked}}
 	}
 	if e == 2 {
-		return Enter[statesApp]{Next: statesApp{open: s.open, asked: s.asked + 1}}
+		return machines.Enter[statesApp]{Next: statesApp{open: s.open, asked: s.asked + 1}}
 	}
-	Enter[statesApp]{Next: s}
+	machines.Enter[statesApp]{Next: s}
 }
 
-func statesMachine() Machine[statesApp, int, int] {
-	Machine[statesApp, int, int]{Initial: statesApp{open: false, asked: 0}, Step: statesStep, After: none[statesApp, int], Work: idle[statesApp, int], Exit: func(s statesApp) Option[func()] { None }}
+func statesMachine() machines.Machine[statesApp, int, int] {
+	machines.Machine[statesApp, int, int]{Initial: statesApp{open: false, asked: 0}, Step: statesStep, After: none[statesApp, int], Work: idle[statesApp, int], Exit: func(s statesApp) option.Option[func()] { option.None }}
 }
 
 // stateLook is a filled, rounded look of the colour c.
@@ -552,8 +554,8 @@ func statePress(f mut ui.Frame[int], label string, on int, k int) {
 }
 
 func statesView(f mut ui.Frame[int], s statesApp) {
-	ui.OnKey(f, func(k ui.KeyPress) Option[int] {
-		if k.Name == "Escape" { Some{Value: 0} } else { None }
+	ui.OnKey(f, func(k ui.KeyPress) option.Option[int] {
+		if k.Name == "Escape" { option.Some{Value: 0} } else { option.None }
 	})
 	ui.Focus(f, ui.ByInt(s.asked%3))
 	let mut col = ui.Plain()
@@ -568,7 +570,7 @@ func statesView(f mut ui.Frame[int], s statesApp) {
 			for i in 0..3 {
 				let mut a = ui.Named(ui.Group, "z\(i)")
 				a.Key = ui.ByInt(i)
-				ui.Semantic(f, a, None, ui.Plain()) {
+				ui.Semantic(f, a, option.None, ui.Plain()) {
 					statePress(f, "p\(i)", 3, i+2)
 				}
 			}

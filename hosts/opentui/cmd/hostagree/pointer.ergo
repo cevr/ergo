@@ -1,6 +1,8 @@
 // The apps of areas and lists, as hosts/mygo's hostagree has them: a
 // pointer pad and a virtual list.
 
+import machines
+import option
 import ui
 
 // pad: an Area whose pointer events become signals, over a Pressable
@@ -8,10 +10,10 @@ import ui
 // it: a press over the Zone says where in the Zone it went down.
 type pad { last int, n int }
 
-func padStep(s pad, e int) Decision[pad, int] { Enter[pad]{Next: pad{last: e, n: s.n + 1}} }
+func padStep(s pad, e int) machines.Decision[pad, int] { machines.Enter[pad]{Next: pad{last: e, n: s.n + 1}} }
 
-func padMachine() Machine[pad, int, int] {
-	Machine[pad, int, int]{Initial: pad{last: 0, n: 0}, Step: padStep, After: none[pad, int], Work: idle[pad, int], Exit: func(s pad) Option[func()] { None }}
+func padMachine() machines.Machine[pad, int, int] {
+	machines.Machine[pad, int, int]{Initial: pad{last: 0, n: 0}, Step: padStep, After: none[pad, int], Work: idle[pad, int], Exit: func(s pad) option.Option[func()] { option.None }}
 }
 
 func padView(f mut ui.Frame[int], s pad) {
@@ -19,30 +21,30 @@ func padView(f mut ui.Frame[int], s pad) {
 	let mut area = ui.Plain()
 	area.Width = ui.Fixed{Value: 200}
 	area.Height = ui.Fixed{Value: 120}
-	ui.Area(f, "pad", area, func(p ui.PointerEvent) Option[int] {
+	ui.Area(f, "pad", area, func(p ui.PointerEvent) option.Option[int] {
 		match p.Phase {
 		case ui.Down:
 			match p.Zone {
-			case Some[ui.ZoneHit] as z:
-				Some{Value: 10000 + int(z.Value.X) + 1000*int(z.Value.Y) + 100000*len(z.Value.Path)}
-			case None:
-				Some{Value: 1000 + int(p.X) + 100*(s.n%3)}
+			case option.Some[ui.ZoneHit] as z:
+				option.Some{Value: 10000 + int(z.Value.X) + 1000*int(z.Value.Y) + 100000*z.Value.Path.Len()}
+			case option.None:
+				option.Some{Value: 1000 + int(p.X) + 100*(s.n%3)}
 			}
 		case ui.Up:
-			Some{Value: 2000 + int(p.Y)}
+			option.Some{Value: 2000 + int(p.Y)}
 		case ui.Wheel as w:
-			Some{Value: 3000 + int(w.DY)}
+			option.Some{Value: 3000 + int(w.DY)}
 		case ui.Drag:
-			Some{Value: 4000 + int(p.Y)}
+			option.Some{Value: 4000 + int(p.Y)}
 			// The composer's crossings (UG3), which follow the Areas that
 			// hold the node under the pointer: a host that sends them other
 			// than TestHost does differs in the pad's state (OT-PHASES).
 		case ui.PointerEnter:
-			Some{Value: 7000}
+			option.Some{Value: 7000}
 		case ui.PointerLeave:
-			Some{Value: 7001}
+			option.Some{Value: 7001}
 		case ui.Moved:
-			None
+			option.None
 		}
 	}) {
 		ui.Text(f, "pad")
@@ -72,27 +74,27 @@ func padView(f mut ui.Frame[int], s pad) {
 // below it, which the note moves.
 type rowsApp { n int, last int, note bool, cur int }
 
-func rowsStep(s rowsApp, e int) Decision[rowsApp, int] {
+func rowsStep(s rowsApp, e int) machines.Decision[rowsApp, int] {
 	if e == -1 {
-		return Enter[rowsApp]{Next: rowsApp{n: s.n + 25, last: s.last, note: s.note, cur: s.cur}}
+		return machines.Enter[rowsApp]{Next: rowsApp{n: s.n + 25, last: s.last, note: s.note, cur: s.cur}}
 	}
 	if e == -2 {
-		return Enter[rowsApp]{Next: rowsApp{n: if s.n > 25 { s.n - 25 } else { 0 }, last: s.last, note: s.note, cur: s.cur}}
+		return machines.Enter[rowsApp]{Next: rowsApp{n: if s.n > 25 { s.n - 25 } else { 0 }, last: s.last, note: s.note, cur: s.cur}}
 	}
 	if e == -3 {
-		return Enter[rowsApp]{Next: rowsApp{n: s.n, last: s.last, note: !s.note, cur: s.cur}}
+		return machines.Enter[rowsApp]{Next: rowsApp{n: s.n, last: s.last, note: !s.note, cur: s.cur}}
 	}
 	if e == -4 {
-		return Enter[rowsApp]{Next: rowsApp{n: s.n, last: s.last, note: s.note, cur: s.cur + 17}}
+		return machines.Enter[rowsApp]{Next: rowsApp{n: s.n, last: s.last, note: s.note, cur: s.cur + 17}}
 	}
 	if e == -5 {
-		return Enter[rowsApp]{Next: rowsApp{n: s.n, last: s.last, note: s.note, cur: if s.cur > 17 { s.cur - 17 } else { 0 }}}
+		return machines.Enter[rowsApp]{Next: rowsApp{n: s.n, last: s.last, note: s.note, cur: if s.cur > 17 { s.cur - 17 } else { 0 }}}
 	}
-	Enter[rowsApp]{Next: rowsApp{n: s.n, last: e, note: s.note, cur: s.cur}}
+	machines.Enter[rowsApp]{Next: rowsApp{n: s.n, last: e, note: s.note, cur: s.cur}}
 }
 
-func rowsMachine() Machine[rowsApp, int, int] {
-	Machine[rowsApp, int, int]{Initial: rowsApp{n: 60, last: -1, note: false, cur: 0}, Step: rowsStep, After: none[rowsApp, int], Work: idle[rowsApp, int], Exit: func(s rowsApp) Option[func()] { None }}
+func rowsMachine() machines.Machine[rowsApp, int, int] {
+	machines.Machine[rowsApp, int, int]{Initial: rowsApp{n: 60, last: -1, note: false, cur: 0}, Step: rowsStep, After: none[rowsApp, int], Work: idle[rowsApp, int], Exit: func(s rowsApp) option.Option[func()] { option.None }}
 }
 
 func rowsView(f mut ui.Frame[int], s rowsApp) {

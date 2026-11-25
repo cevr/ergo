@@ -68,7 +68,7 @@ func parse(args []string) opts fails os.Exit {
 	o
 }
 
-func main() fails os.Exit needs Ambient | go.Foreign {
+func main() fails os.Exit needs os.Ambient | go.Foreign {
 	let o = try parse(with context { os.Process: os.NewHost() } { os.Process.Args() })
 	let store = files.New(fs.NewHost())
 	let pic = with context { canvas.Store: store } {
@@ -85,7 +85,7 @@ func main() fails os.Exit needs Ambient | go.Foreign {
 		}
 		return
 	}
-	with context { Scheduler: NewLiveScheduler() } {
+	with context { time.Scheduler: time.NewLiveScheduler() } {
 		let w = screen.Open("Draw", Width, Height) catch {
 		case go.Error as e:
 			return os.Exit{Code: 1, Message: "draw-gui: \(e.Text)"}
@@ -104,13 +104,13 @@ func main() fails os.Exit needs Ambient | go.Foreign {
 
 // headless plays the script on standard input through a window with no
 // screen and prints what the scene prints.
-func headless(pic canvas.Picture, name string, check bool) fails os.Exit needs canvas.Store | Ambient | go.Foreign {
+func headless(pic canvas.Picture, name string, check bool) fails os.Exit needs canvas.Store | os.Ambient | go.Foreign {
 	let input = io.NewStdin().ReadAll() catch {
 	case io.ReadFailed:
 		return os.Exit{Code: 1, Message: "draw-gui: cannot read the script"}
 	}
 	let out = io.NewHost()
-	with context { Scheduler: time.NewManual(0), io.Stdout: out } {
+	with context { time.Scheduler: time.NewManual(0), io.Stdout: out } {
 		let w = screen.Headless(Width, Height) catch {
 		case go.Error as e:
 			return os.Exit{Code: 1, Message: "draw-gui: \(e.Text)"}

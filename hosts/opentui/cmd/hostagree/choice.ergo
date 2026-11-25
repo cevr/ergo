@@ -1,3 +1,5 @@
+import machines
+import option
 import ui
 
 // choice: four radios as ui.Semantic nodes, "a" to "d", each sending its
@@ -9,15 +11,15 @@ type choice { picked int, picks int }
 
 let radios = []string{"a", "b", "c", "d"}
 
-func choiceStep(s choice, e int) Decision[choice, int] {
+func choiceStep(s choice, e int) machines.Decision[choice, int] {
 	if e < 0 {
-		return Enter[choice]{Next: choice{picked: -1, picks: s.picks}}
+		return machines.Enter[choice]{Next: choice{picked: -1, picks: s.picks}}
 	}
-	Enter[choice]{Next: choice{picked: e, picks: s.picks + 1}}
+	machines.Enter[choice]{Next: choice{picked: e, picks: s.picks + 1}}
 }
 
-func choiceMachine() Machine[choice, int, int] {
-	Machine[choice, int, int]{Initial: choice{picked: -1, picks: 0}, Step: choiceStep, After: none[choice, int], Work: idle[choice, int], Exit: func(s choice) Option[func()] { None }}
+func choiceMachine() machines.Machine[choice, int, int] {
+	machines.Machine[choice, int, int]{Initial: choice{picked: -1, picks: 0}, Step: choiceStep, After: none[choice, int], Work: idle[choice, int], Exit: func(s choice) option.Option[func()] { option.None }}
 }
 
 func choiceView(f mut ui.Frame[int], s choice) {
@@ -25,9 +27,9 @@ func choiceView(f mut ui.Frame[int], s choice) {
 		ui.Text(f, "picked \(s.picked) of \(s.picks)")
 		for i, name in radios {
 			let mut a = ui.Named(ui.Radio, name)
-			a.Checked = Some{Value: s.picked == i}
+			a.Checked = option.Some{Value: s.picked == i}
 			a.Disabled = name == "d"
-			ui.Semantic(f, a, Some{Value: i}, ui.Plain()) {
+			ui.Semantic(f, a, option.Some{Value: i}, ui.Plain()) {
 				ui.Text(f, "radio \(name)")
 			}
 		}
@@ -46,10 +48,10 @@ let dial = ui.NewReadout("00:00")
 // keeps the reading its last Publish gave (OT-READOUT).
 type reading { taps int }
 
-func readingStep(s reading, e int) Decision[reading, int] { Enter[reading]{Next: reading{taps: s.taps + 1}} }
+func readingStep(s reading, e int) machines.Decision[reading, int] { machines.Enter[reading]{Next: reading{taps: s.taps + 1}} }
 
-func readingMachine() Machine[reading, int, int] {
-	Machine[reading, int, int]{Initial: reading{taps: 0}, Step: readingStep, After: none[reading, int], Work: idle[reading, int], Exit: func(s reading) Option[func()] { None }}
+func readingMachine() machines.Machine[reading, int, int] {
+	machines.Machine[reading, int, int]{Initial: reading{taps: 0}, Step: readingStep, After: none[reading, int], Work: idle[reading, int], Exit: func(s reading) option.Option[func()] { option.None }}
 }
 
 func readingView(f mut ui.Frame[int], s reading) {

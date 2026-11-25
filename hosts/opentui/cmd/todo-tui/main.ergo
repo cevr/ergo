@@ -20,13 +20,13 @@ import term
 import time
 import ui
 
-func main() fails os.Exit needs Ambient | go.Foreign {
+func main() fails os.Exit needs os.Ambient | go.Foreign {
 	let args = with context { os.Process: os.NewHost() } { os.Process.Args() }
-	if len(args) > 0 && args[0] == "-headless" {
+	if args.Len() > 0 && args[0] == "-headless" {
 		try headless()
 		return
 	}
-	with context { Scheduler: NewLiveScheduler(), term.Terminal: term.NewHost() } {
+	with context { time.Scheduler: time.NewLiveScheduler(), term.Terminal: term.NewHost() } {
 		let a = actor.StartMachine(todo.Todo{}, 8, func(l todo.List) {})
 		tui.RunTerminal(a, view.View, tui.DefaultOptions()) catch {
 		// ergo-lint-disable-next-line silent-catch -- the app stopped: the program ends as the example's own binary does
@@ -46,7 +46,7 @@ func main() fails os.Exit needs Ambient | go.Foreign {
 // cell): a tap is a mouse press and release at the node's first cell, a
 // typed text is a tap on the field, Backspaces and the text. It prints the
 // list after each step.
-func headless() fails os.Exit needs Ambient | go.Foreign {
+func headless() fails os.Exit needs os.Ambient | go.Foreign {
 	let text = io.NewStdin().ReadAll() catch {
 	case io.ReadFailed:
 		return os.Exit{Code: 1, Message: "todo-tui: cannot read the script"}
@@ -56,8 +56,8 @@ func headless() fails os.Exit needs Ambient | go.Foreign {
 		return os.Exit{Code: 2, Message: "todo-tui: line \(b.Line) is no step: \(b.Text)"}
 	}
 	let out = io.NewHost()
-	with context { Scheduler: time.NewManual(0) } {
-		tui.Headless(53, 33, func(s go.Ref[screen.Screen]) fails os.Exit needs Scheduler | go.Foreign {
+	with context { time.Scheduler: time.NewManual(0) } {
+		tui.Headless(53, 33, func(s go.Ref[screen.Screen]) fails os.Exit needs time.Scheduler | go.Foreign {
 			let a = actor.StartMachine(todo.Todo{}, 8, func(l todo.List) {})
 			let mut d = tui.New(s, a, view.View, 64) catch {
 			case ui.BadPatch as b:

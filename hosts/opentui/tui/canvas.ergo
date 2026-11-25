@@ -55,7 +55,7 @@ func Raster(ops []ui.PaintOp, w int, h int, sx float64, sy float64) []byte {
 			fill(&pic, flatten(x.Path, m), x.Color, clip)
 		case ui.StrokeOp as x:
 			for c in flatten(x.Path, ui.Identity()) {
-				for i in 1..len(c) {
+				for i in 1..c.Len() {
 					fill(&pic, [][]pt{quad(c[i-1], c[i], x.Width/2, m)}, x.Color, clip)
 				}
 			}
@@ -71,9 +71,9 @@ func Raster(ops []ui.PaintOp, w int, h int, sx float64, sy float64) []byte {
 			// nothing (follow-up OT-IMAGE: decode Src and blend its pixels
 			// into the picture as fill does).
 		case ui.PopPaint:
-			if len(stack) > 0 {
-				let top = stack[len(stack)-1]
-				stack = stack[:len(stack)-1]
+			if stack.Len() > 0 {
+				let top = stack[stack.Len()-1]
+				stack = stack[:stack.Len()-1]
 				m = top.was
 				clip = top.clip
 			}
@@ -99,7 +99,7 @@ func quad(p pt, q pt, half float64, m ui.Affine) []pt {
 // fill paints with color the pixels inside clip whose centres the
 // contours cs hold under the nonzero rule.
 func fill(pic mut picture, cs [][]pt, color ui.Color, clip area) {
-	if len(cs) == 0 || color.A == 0 {
+	if cs.Len() == 0 || color.A == 0 {
 		return
 	}
 	let (lo, hi) = bounds(cs)
@@ -109,9 +109,9 @@ func fill(pic mut picture, cs [][]pt, color ui.Color, clip area) {
 		let sy = float64(y) + 0.5
 		let mut xs = []crossing{}
 		for c in cs {
-			for i in 0..len(c) {
+			for i in 0..c.Len() {
 				let p = c[i]
-				let q = c[(i+1)%len(c)]
+				let q = c[(i+1)%c.Len()]
 				if (p.Y <= sy && sy < q.Y) || (q.Y <= sy && sy < p.Y) {
 					let x = p.X + (sy-p.Y)*(q.X-p.X)/(q.Y-p.Y)
 					xs = insert(xs, crossing{x: x, wind: if p.Y < q.Y { 1 } else { -1 }})
@@ -119,9 +119,9 @@ func fill(pic mut picture, cs [][]pt, color ui.Color, clip area) {
 			}
 		}
 		let mut wind = 0
-		for i in 0..len(xs) {
+		for i in 0..xs.Len() {
 			wind = wind + xs[i].wind
-			if wind != 0 && i+1 < len(xs) {
+			if wind != 0 && i+1 < xs.Len() {
 				// The pixels whose centres lie in [xs[i].x, xs[i+1].x).
 				let from = int(fmax(math.Ceil(xs[i].x-0.5), clip.x0))
 				let to = int(fmin(math.Ceil(xs[i+1].x-0.5), clip.x1))
@@ -153,7 +153,7 @@ func blend(p mut picture, i int, c ui.Color) {
 // insert puts c into xs, which is in order of x.
 func insert(xs []crossing, c crossing) []crossing {
 	let mut out = xs.Append(c)
-	let mut i = len(out) - 1
+	let mut i = out.Len() - 1
 	for i > 0 && out[i-1].x > out[i].x {
 		let t = out[i-1]
 		out[i-1] = out[i]
@@ -187,7 +187,7 @@ func flatten(path ui.Path, m ui.Affine) [][]pt {
 	for s in path.Segs {
 		match s {
 		case ui.MoveTo as x:
-			if len(cur) > 1 {
+			if cur.Len() > 1 {
 				out = out.Append(cur)
 			}
 			at = pt{X: x.X, Y: x.Y}
@@ -214,14 +214,14 @@ func flatten(path ui.Path, m ui.Affine) [][]pt {
 			at = pt{X: x.X, Y: x.Y}
 		case ui.ClosePath:
 			cur = cur.Append(apply(m, start.X, start.Y))
-			if len(cur) > 1 {
+			if cur.Len() > 1 {
 				out = out.Append(cur)
 			}
 			at = start
 			cur = []pt{apply(m, start.X, start.Y)}
 		}
 	}
-	if len(cur) > 1 {
+	if cur.Len() > 1 {
 		out = out.Append(cur)
 	}
 	out

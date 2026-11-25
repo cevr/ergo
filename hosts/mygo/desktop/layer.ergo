@@ -7,6 +7,7 @@
 // layer, so the frame sends the top layer's dismiss signal.
 
 import arena
+import option
 import ui
 import ui/layout
 
@@ -50,17 +51,17 @@ func isLayer[E](n ui.Node[E]) bool {
 }
 
 // layerNode is the node id when it is a layer.
-func layerNode[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) Option[ui.LayerNode[E]] {
+func layerNode[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) option.Option[ui.LayerNode[E]] {
 	match d.nodes.Get(id) {
-	case Some[held[E]] as h:
+	case option.Some[held[E]] as h:
 		match h.Value.node {
 		case ui.LayerNode[E] as l:
-			Some{Value: l}
+			option.Some{Value: l}
 		case _:
-			None
+			option.None
 		}
-	case None:
-		None
+	case option.None:
+		option.None
 	}
 }
 
@@ -68,9 +69,9 @@ func layerNode[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) Option[ui.Laye
 func layersFrom[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], out []ui.Id[E]) []ui.Id[E] {
 	let mut all = out
 	match layerNode(d, id) {
-	case Some[ui.LayerNode[E]]:
+	case option.Some[ui.LayerNode[E]]:
 		all = all.Append(id)
-	case None:
+	case option.None:
 	}
 	for k in kidsOf(d, id) {
 		all = layersFrom[S, E, D, F](d, k, all)
@@ -84,9 +85,9 @@ func stacked[S, E, D, F](d mut Driver[S, E, D, F]) []ui.Id[E] {
 	let mut zs = []ui.Z{}
 	for l in ls {
 		match layerNode(d, l) {
-		case Some[ui.LayerNode[E]] as x:
+		case option.Some[ui.LayerNode[E]] as x:
 			zs = zs.Append(x.Value.Z)
-		case None:
+		case option.None:
 		}
 	}
 	let mut out = []ui.Id[E]{}
@@ -107,38 +108,38 @@ func insetBox[S, E, D, F](d mut Driver[S, E, D, F]) layout.Box {
 // is not under at.
 func liftOf[S, E, D, F](d mut Driver[S, E, D, F], at ui.Id[E], id ui.Id[E]) float32 {
 	match upFrom(d, at, id) {
-	case Some[float32] as l:
+	case option.Some[float32] as l:
 		l.Value
-	case None:
+	case option.None:
 		0
 	}
 }
 
 // upFrom is the lift of id under at (at's own offset counted), None when
 // id is not under at.
-func upFrom[S, E, D, F](d mut Driver[S, E, D, F], at ui.Id[E], id ui.Id[E]) Option[float32] {
+func upFrom[S, E, D, F](d mut Driver[S, E, D, F], at ui.Id[E], id ui.Id[E]) option.Option[float32] {
 	let own = match d.nodes.Get(at) {
-	case Some[held[E]] as h:
+	case option.Some[held[E]] as h:
 		match h.Value.node {
 		case ui.ScrollNode, ui.RowsNode:
 			scrolledBy(d, at)
 		case _:
 			float32(0)
 		}
-	case None:
+	case option.None:
 		float32(0)
 	}
 	for k in kidsOf(d, at) {
 		if k == id {
-			return Some{Value: own}
+			return option.Some{Value: own}
 		}
 		match upFrom[S, E, D, F](d, k, id) {
-		case Some[float32] as l:
-			return Some{Value: own + l.Value}
-		case None:
+		case option.Some[float32] as l:
+			return option.Some{Value: own + l.Value}
+		case option.None:
 		}
 	}
-	None
+	option.None
 }
 
 // rectOf is a laid box as a ui Rect.
@@ -153,24 +154,24 @@ func placeLayers[S, E, D, F](d mut Driver[S, E, D, F], t mut layout.Tree, ids Ma
 	let view = ui.InsetRect(ui.Rect{X: 0, Y: 0, W: ui.Length(float64(d.width)), H: ui.Length(float64(d.height))}, d.insets)
 	for l in stacked(d) {
 		match (layerNode(d, l), ids.Get(l)) {
-		case (Some[ui.LayerNode[E]] as x, Some[layout.Id] as li):
+		case (option.Some[ui.LayerNode[E]] as x, option.Some[layout.Id] as li):
 			let b = boxOf(t, li.Value)
-			let mut anchor Option[ui.Rect] = None
+			let mut anchor option.Option[ui.Rect] = option.None
 			match x.Value.Anchor {
-			case Some[ui.Key] as k:
+			case option.Some[ui.Key] as k:
 				match ui.AnchorIn(&d.mirror, k.Value) {
-				case Some[ui.Id[E]] as a:
+				case option.Some[ui.Id[E]] as a:
 					match ids.Get(a.Value) {
-					case Some[layout.Id] as ai:
+					case option.Some[layout.Id] as ai:
 						// Where the anchor shows: lifted by the offsets of the
 						// Scrolls and lists it is in, as draw lifts it.
 						let laid = boxOf(t, ai.Value)
-						anchor = Some{Value: rectOf(layout.Box{X: laid.X, Y: laid.Y - liftOf(d, d.root, a.Value), W: laid.W, H: laid.H})}
-					case None:
+						anchor = option.Some{Value: rectOf(layout.Box{X: laid.X, Y: laid.Y - liftOf(d, d.root, a.Value), W: laid.W, H: laid.H})}
+					case option.None:
 					}
-				case None:
+				case option.None:
 				}
-			case None:
+			case option.None:
 			}
 			let p = ui.PlaceLayer(anchor, ui.Length(float64(b.W)), ui.Length(float64(b.H)), view, x.Value.Place)
 			let at = layout.Absolute{Left: float32(float64(p.X)), Top: float32(float64(p.Y))}
@@ -208,20 +209,20 @@ func paintLayers[S, E, D, F](d mut Driver[S, E, D, F], line float32, soiled Map[
 	let full = layout.Box{X: 0, Y: 0, W: d.width, H: d.height}
 	for l in stacked(d) {
 		match layerNode(d, l) {
-		case Some[ui.LayerNode[E]] as x:
+		case option.Some[ui.LayerNode[E]] as x:
 			if x.Value.Scrim {
-				d.covers = d.covers.Append(cover{box: full, looks: len(d.looked), spots: len(d.spots)})
+				d.covers = d.covers.Append(cover{box: full, looks: d.looked.Len(), spots: d.spots.Len()})
 				fill(d, full, 0, scrimColor)
-				d.under = None
+				d.under = option.None
 				d.spots = d.spots.Append(spot[E]{id: d.root, node: x.Value, box: full, clip: full})
 			}
 			match d.lids.Get(l) {
-			case Some[layout.Id] as li:
-				d.covers = d.covers.Append(cover{box: boxOf(&d.tree, li.Value), looks: len(d.looked), spots: len(d.spots)})
-			case None:
+			case option.Some[layout.Id] as li:
+				d.covers = d.covers.Append(cover{box: boxOf(&d.tree, li.Value), looks: d.looked.Len(), spots: d.spots.Len()})
+			case option.None:
 			}
 			draw(d, l, 0, 0, full, line, soiled, again)
-		case None:
+		case option.None:
 		}
 	}
 }
@@ -229,7 +230,7 @@ func paintLayers[S, E, D, F](d mut Driver[S, E, D, F], line float32, soiled Map[
 // LayerAt is a layer as the last paint placed it: its box, its anchor's
 // box (None: no anchor, or none the window holds), its Place and the
 // window's box.
-type LayerAt { Box layout.Box, Anchor Option[layout.Box], Place ui.Place, View layout.Box }
+type LayerAt { Box layout.Box, Anchor option.Option[layout.Box], Place ui.Place, View layout.Box }
 
 // LayerBoxes is the window's layers as the last paint placed them, the
 // bottom first.
@@ -237,16 +238,16 @@ func LayerBoxes[S, E, D, F](d mut Driver[S, E, D, F]) []LayerAt {
 	let mut out = []LayerAt{}
 	for l in stacked(d) {
 		match (layerNode(d, l), d.boxes.Get(l)) {
-		case (Some[ui.LayerNode[E]] as x, Some[layout.Box] as b):
-			let mut anchor Option[layout.Box] = None
+		case (option.Some[ui.LayerNode[E]] as x, option.Some[layout.Box] as b):
+			let mut anchor option.Option[layout.Box] = option.None
 			match x.Value.Anchor {
-			case Some[ui.Key] as k:
+			case option.Some[ui.Key] as k:
 				match ui.AnchorIn(&d.mirror, k.Value) {
-				case Some[ui.Id[E]] as a:
+				case option.Some[ui.Id[E]] as a:
 					anchor = d.boxes.Get(a.Value)
-				case None:
+				case option.None:
 				}
-			case None:
+			case option.None:
 			}
 			out = out.Append(LayerAt{Box: b.Value, Anchor: anchor, Place: x.Value.Place, View: insetBox(d)})
 		case _:

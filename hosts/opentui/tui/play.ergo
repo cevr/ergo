@@ -6,6 +6,7 @@
 
 import actor
 import go ergo.local/prototype/hosts/opentui/screen
+import option
 import ui
 
 // Drain feeds the screen's queued input to d, with Feed's failures.
@@ -35,11 +36,11 @@ func Send[E comparable, S, D, F](d mut Driver[S, E, D, F], b string) fails ui.Cl
 // OTMR-label-first-of-many).
 func found[S, E, D, F](d mut Driver[S, E, D, F], label string) ui.Id[E] fails ui.NoNode | ui.Ambiguous {
 	let ids = withLabel(d, d.root, label, []ui.Id[E]{})
-	if len(ids) == 0 {
+	if ids.Len() == 0 {
 		return ui.NoNode{Label: label}
 	}
-	if len(ids) > 1 {
-		return ui.Ambiguous{At: "label \"\(label)\"", Count: len(ids)}
+	if ids.Len() > 1 {
+		return ui.Ambiguous{At: "label \"\(label)\"", Count: ids.Len()}
 	}
 	ids[0]
 }
@@ -51,7 +52,7 @@ func found[S, E, D, F](d mut Driver[S, E, D, F], label string) ui.Id[E] fails ui
 func withLabel[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], label string, acc []ui.Id[E]) []ui.Id[E] {
 	let mut out = acc
 	for k in kidsOf(d, id) {
-		if labelOf(nodeOf(d, k)) == (Some{Value: label}) {
+		if labelOf(nodeOf(d, k)) == (option.Some{Value: label}) {
 			out = out.Append(k)
 			continue
 		}
@@ -62,49 +63,49 @@ func withLabel[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], label string, 
 
 // Find is the first node of the tree, in tree order, whose label is
 // label (labelOf).
-func Find[S, E, D, F](d mut Driver[S, E, D, F], label string) Option[ui.Id[E]] { findIn(d, d.root, label) }
+func Find[S, E, D, F](d mut Driver[S, E, D, F], label string) option.Option[ui.Id[E]] { findIn(d, d.root, label) }
 
-func findIn[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], label string) Option[ui.Id[E]] {
+func findIn[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], label string) option.Option[ui.Id[E]] {
 	for k in kidsOf(d, id) {
-		if labelOf(nodeOf(d, k)) == (Some{Value: label}) {
-			return Some{Value: k}
+		if labelOf(nodeOf(d, k)) == (option.Some{Value: label}) {
+			return option.Some{Value: k}
 		}
 		match findIn[S, E, D, F](d, k, label) {
-		case Some[ui.Id[E]] as found:
+		case option.Some[ui.Id[E]] as found:
 			return found
-		case None:
+		case option.None:
 		}
 	}
-	None
+	option.None
 }
 
 // labelOf is the label a script names a node by, as ui.Find matches it:
 // a Pressable's, a Check's, a Toggle's, an Area's, a Canvas's or a
 // list's label, a Text's value, an Input's field label or else its
 // placeholder.
-func labelOf[E](n ui.Node[E]) Option[string] {
+func labelOf[E](n ui.Node[E]) option.Option[string] {
 	match n {
 	case ui.PressableNode[E] as x:
-		Some{Value: x.Label}
+		option.Some{Value: x.Label}
 	case ui.CanvasNode as x:
-		Some{Value: x.Label}
+		option.Some{Value: x.Label}
 	case ui.RowsNode as x:
-		Some{Value: x.Label}
+		option.Some{Value: x.Label}
 	case ui.CheckNode[E] as x:
-		Some{Value: x.Label}
+		option.Some{Value: x.Label}
 	case ui.ToggleNode as x:
-		Some{Value: x.Label}
+		option.Some{Value: x.Label}
 	case ui.AreaNode as x:
-		Some{Value: x.Label}
+		option.Some{Value: x.Label}
 	case ui.TextNode as x:
-		Some{Value: x.Value}
+		option.Some{Value: x.Value}
 	case ui.InputNode as x:
 		// its field label when it has one, else its placeholder, as
 		// ui.Find names a field (std ui's fieldName)
-		if x.Label != "" { Some{Value: x.Label} } else { Some{Value: x.Placeholder} }
+		if x.Label != "" { option.Some{Value: x.Label} } else { option.Some{Value: x.Placeholder} }
 	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.SemanticNode[E], ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
 		// No label: ui.Find names none of these either.
-		None
+		option.None
 	}
 }
 
@@ -143,7 +144,7 @@ func pointOn[E comparable, S, D, F](d mut Driver[S, E, D, F], id ui.Id[E], label
 	case ui.Moved, ui.Drag, ui.PointerEnter, ui.PointerLeave:
 		// A move: a drag while an Area holds the pointer (the composer
 		// tells Drag from Moved, not the host).
-		try Send(d, Mouse(if Captured(d) != None { 32 } else { 35 }, x, y, true))
+		try Send(d, Mouse(if Captured(d) != option.None { 32 } else { 35 }, x, y, true))
 	case ui.Wheel as w:
 		let (code, by, unit) = if w.DY != 0 { (if w.DY > 0 { 65 } else { 64 }, w.DY, c.H) } else { (if w.DX > 0 { 67 } else { 66 }, w.DX, c.W) }
 		let turn = float64(WheelRows) * unit
@@ -241,7 +242,7 @@ func Locate[S, E, D, F](d mut Driver[S, E, D, F], loc ui.Locator) []ui.Id[E] { u
 // located is the first node of the tree loc finds.
 func located[E comparable, S, D, F](d mut Driver[S, E, D, F], loc ui.Locator) ui.Id[E] fails ui.NoNode {
 	let ids = ui.LocateIn(&d.mirror, loc)
-	if len(ids) == 0 {
+	if ids.Len() == 0 {
 		return ui.NoNode{Label: "a locator"}
 	}
 	ids[0]

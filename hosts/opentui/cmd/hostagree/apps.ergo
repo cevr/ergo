@@ -3,22 +3,24 @@
 // checks, and a load whose key changes (the pointer pad and the virtual
 // list are in pointer.ergo; the sketch comes with canvases, OT5).
 
+import machines
+import option
 import ui
 
-func none[S, E](s S) Option[Timeout[E]] { None }
+func none[S, E](s S) option.Option[machines.Timeout[E]] { option.None }
 
-func idle[S, E](s S) Option[func(send func(e E))] { None }
+func idle[S, E](s S) option.Option[func(send func(e E))] { option.None }
 
 // counter: a signal adds to the count; 0 resets it.
-func counterStep(s int, e int) Decision[int, int] {
+func counterStep(s int, e int) machines.Decision[int, int] {
 	if e == 0 {
-		return Enter[int]{Next: 0}
+		return machines.Enter[int]{Next: 0}
 	}
-	Enter[int]{Next: s + e}
+	machines.Enter[int]{Next: s + e}
 }
 
-func counterMachine() Machine[int, int, int] {
-	Machine[int, int, int]{Initial: 0, Step: counterStep, After: none[int, int], Work: idle[int, int], Exit: func(s int) Option[func()] { None }}
+func counterMachine() machines.Machine[int, int, int] {
+	machines.Machine[int, int, int]{Initial: 0, Step: counterStep, After: none[int, int], Work: idle[int, int], Exit: func(s int) option.Option[func()] { option.None }}
 }
 
 func counterView(f mut ui.Frame[int], s int) {
@@ -40,16 +42,16 @@ func counterView(f mut ui.Frame[int], s int) {
 				ui.Text(f, "Reset")
 			}
 		}
-		ui.OnKey(f, func(k ui.KeyPress) Option[int] {
+		ui.OnKey(f, func(k ui.KeyPress) option.Option[int] {
 			match k.Name {
 			case "+":
-				Some{Value: 1}
+				option.Some{Value: 1}
 			case "-":
-				Some{Value: -1}
+				option.Some{Value: -1}
 			case "x":
-				Some{Value: 0}
+				option.Some{Value: 0}
 			case _:
-				None
+				option.None
 			}
 		})
 	}
@@ -59,16 +61,16 @@ func counterView(f mut ui.Frame[int], s int) {
 // (an Insert before a row), k removes row k.
 type shelf { rows []int, next int }
 
-func shelfStep(s shelf, e int) Decision[shelf, int] {
+func shelfStep(s shelf, e int) machines.Decision[shelf, int] {
 	if e == 0 {
-		return Enter[shelf]{Next: shelf{rows: s.rows.Append(s.next), next: s.next + 1}}
+		return machines.Enter[shelf]{Next: shelf{rows: s.rows.Append(s.next), next: s.next + 1}}
 	}
 	if e == -1 {
 		let mut rows = []int{s.next}
 		for k in s.rows {
 			rows = rows.Append(k)
 		}
-		return Enter[shelf]{Next: shelf{rows: rows, next: s.next + 1}}
+		return machines.Enter[shelf]{Next: shelf{rows: rows, next: s.next + 1}}
 	}
 	let mut rows = []int{}
 	for k in s.rows {
@@ -76,11 +78,11 @@ func shelfStep(s shelf, e int) Decision[shelf, int] {
 			rows = rows.Append(k)
 		}
 	}
-	Enter[shelf]{Next: shelf{rows: rows, next: s.next}}
+	machines.Enter[shelf]{Next: shelf{rows: rows, next: s.next}}
 }
 
 func sameShelf(a shelf, b shelf) bool {
-	if a.next != b.next || len(a.rows) != len(b.rows) {
+	if a.next != b.next || a.rows.Len() != b.rows.Len() {
 		return false
 	}
 	for i, k in a.rows {
@@ -91,15 +93,15 @@ func sameShelf(a shelf, b shelf) bool {
 	true
 }
 
-func shelfMachine() Machine[shelf, int, int] {
-	Machine[shelf, int, int]{Initial: shelf{rows: []int{}, next: 1}, Step: shelfStep, After: none[shelf, int], Work: idle[shelf, int], Exit: func(s shelf) Option[func()] { None }}
+func shelfMachine() machines.Machine[shelf, int, int] {
+	machines.Machine[shelf, int, int]{Initial: shelf{rows: []int{}, next: 1}, Step: shelfStep, After: none[shelf, int], Work: idle[shelf, int], Exit: func(s shelf) option.Option[func()] { option.None }}
 }
 
 // shelfView: row k's delete button is labelled "del k"; the list is 64
 // DIPs high (4 cells), so a tap on a row past it scrolls it into view.
 func shelfView(f mut ui.Frame[int], s shelf) {
 	ui.Column(f, ui.Plain()) {
-		ui.Text(f, "\(len(s.rows)) rows")
+		ui.Text(f, "\(s.rows.Len()) rows")
 		ui.Pressable(f, "add", 0) {
 			ui.Text(f, "Add")
 		}
@@ -130,19 +132,19 @@ type form { name string, done bool, sent int }
 
 type formEvent = Named{Text string} | Flipped{} | Sent{}
 
-func formStep(s form, e formEvent) Decision[form, int] {
+func formStep(s form, e formEvent) machines.Decision[form, int] {
 	match e {
 	case Named as n:
-		Enter[form]{Next: form{name: n.Text, done: s.done, sent: s.sent}}
+		machines.Enter[form]{Next: form{name: n.Text, done: s.done, sent: s.sent}}
 	case Flipped:
-		Enter[form]{Next: form{name: s.name, done: !s.done, sent: s.sent}}
+		machines.Enter[form]{Next: form{name: s.name, done: !s.done, sent: s.sent}}
 	case Sent:
-		Enter[form]{Next: form{name: s.name, done: s.done, sent: s.sent + 1}}
+		machines.Enter[form]{Next: form{name: s.name, done: s.done, sent: s.sent + 1}}
 	}
 }
 
-func formMachine() Machine[form, formEvent, int] {
-	Machine[form, formEvent, int]{Initial: form{name: "", done: false, sent: 0}, Step: formStep, After: none[form, formEvent], Work: idle[form, formEvent], Exit: func(s form) Option[func()] { None }}
+func formMachine() machines.Machine[form, formEvent, int] {
+	machines.Machine[form, formEvent, int]{Initial: form{name: "", done: false, sent: 0}, Step: formStep, After: none[form, formEvent], Work: idle[form, formEvent], Exit: func(s form) option.Option[func()] { option.None }}
 }
 
 func formView(f mut ui.Frame[formEvent], s form) {
@@ -168,15 +170,15 @@ func formView(f mut ui.Frame[formEvent], s form) {
 // back as a negative signal.
 type chosen { key int, ready int }
 
-func chosenStep(s chosen, e int) Decision[chosen, int] {
+func chosenStep(s chosen, e int) machines.Decision[chosen, int] {
 	if e >= 0 {
-		return Enter[chosen]{Next: chosen{key: s.key + 1, ready: -1}}
+		return machines.Enter[chosen]{Next: chosen{key: s.key + 1, ready: -1}}
 	}
-	Enter[chosen]{Next: chosen{key: s.key, ready: -1 - e}}
+	machines.Enter[chosen]{Next: chosen{key: s.key, ready: -1 - e}}
 }
 
-func loadMachine() Machine[chosen, int, int] {
-	Machine[chosen, int, int]{Initial: chosen{key: 0, ready: -1}, Step: chosenStep, After: none[chosen, int], Work: idle[chosen, int], Exit: func(s chosen) Option[func()] { None }}
+func loadMachine() machines.Machine[chosen, int, int] {
+	machines.Machine[chosen, int, int]{Initial: chosen{key: 0, ready: -1}, Step: chosenStep, After: none[chosen, int], Work: idle[chosen, int], Exit: func(s chosen) option.Option[func()] { option.None }}
 }
 
 func loadView(f mut ui.Frame[int], s chosen) {

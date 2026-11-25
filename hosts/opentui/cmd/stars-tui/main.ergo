@@ -27,6 +27,7 @@ import go ergo.local/prototype/hosts/opentui/screen
 import fs
 import io
 import machines
+import option
 import os
 import strconv
 import strings
@@ -52,11 +53,11 @@ type opts { headless bool, rows int, catalogue string }
 func parse(args []string) opts fails os.Exit {
 	let mut o = opts{headless: false, rows: 10, catalogue: ""}
 	let mut i = 0
-	for i < len(args) {
+	for i < args.Len() {
 		let a = args[i]
 		if a == "-headless" {
 			o.headless = true
-		} else if a == "-rows" && i+1 < len(args) {
+		} else if a == "-rows" && i+1 < args.Len() {
 			i = i + 1
 			o.rows = strconv.Atoi(args[i]) catch {
 			case strconv.Malformed, strconv.OutOfRange:
@@ -75,14 +76,14 @@ func parse(args []string) opts fails os.Exit {
 	o
 }
 
-func main() fails os.Exit needs Ambient | go.Foreign {
+func main() fails os.Exit needs os.Ambient | go.Foreign {
 	let o = try parse(with context { os.Process: os.NewHost() } { os.Process.Args() })
 	let rows = try load(o.catalogue)
 	if o.headless {
 		try headless(rows, o.rows)
 		return
 	}
-	with context { Scheduler: NewLiveScheduler(), term.Terminal: term.NewHost() } {
+	with context { time.Scheduler: time.NewLiveScheduler(), term.Terminal: term.NewHost() } {
 		let a = actor.StartMachine(machines.Start(window.App{}, window.Opening{Rows: rows, Height: o.rows}), 8, func(r catalog.Refused) {})
 		tui.RunTerminal(a, window.View, options()) catch {
 		// ergo-lint-disable-next-line silent-catch -- the app stopped: the program ends as the example's own binary does
@@ -98,7 +99,7 @@ func main() fails os.Exit needs Ambient | go.Foreign {
 }
 
 // load reads and parses the catalogue named name from the host's files.
-func load(name string) []catalog.Star fails os.Exit needs Ambient {
+func load(name string) []catalog.Star fails os.Exit needs os.Ambient {
 	let text = with context { catalog.Shelf: files.New(fs.NewHost()) } {
 		catalog.Shelf.Text(name) catch {
 		case catalog.Unreadable as u:
@@ -113,14 +114,14 @@ func load(name string) []catalog.Star fails os.Exit needs Ambient {
 
 // headless plays the script on standard input through a screen with no
 // terminal, height rows a table window, and prints what the scene prints.
-func headless(rows []catalog.Star, height int) fails os.Exit needs Ambient | go.Foreign {
+func headless(rows []catalog.Star, height int) fails os.Exit needs os.Ambient | go.Foreign {
 	let text = io.NewStdin().ReadAll() catch {
 	case io.ReadFailed:
 		return os.Exit{Code: 1, Message: "stars-tui: cannot read the script"}
 	}
 	let out = io.NewHost()
-	with context { Scheduler: time.NewManual(0) } {
-		tui.Headless(Cols, Lines, func(s go.Ref[screen.Screen]) fails os.Exit needs Scheduler | go.Foreign {
+	with context { time.Scheduler: time.NewManual(0) } {
+		tui.Headless(Cols, Lines, func(s go.Ref[screen.Screen]) fails os.Exit needs time.Scheduler | go.Foreign {
 			let refused = sync.NewRef[[]catalog.Refused]([]catalog.Refused{})
 			let a = actor.StartMachine(machines.Start(window.App{}, window.Opening{Rows: rows, Height: height}), 8, func(r catalog.Refused) {
 				refused.Update(func(old []catalog.Refused) []catalog.Refused { old.Append(r) })
@@ -203,14 +204,14 @@ func send[D, F](d mut tui.Driver[catalog.State, window.Signal, D, F], s go.Ref[s
 // unfocus clicks the list, which takes no focus, so a key goes to the
 // table and not to a focused button or field.
 func unfocus[D, F](d mut tui.Driver[catalog.State, window.Signal, D, F], s go.Ref[screen.Screen]) fails ui.Closed | actor.Stopped | ui.BadPatch | tui.ScreenFailed needs go.Foreign {
-	if tui.FocusId(d) == None {
+	if tui.FocusId(d) == option.None {
 		return
 	}
 	match tui.Number(d, "stars") {
-	case Some[int] as n:
+	case option.Some[int] as n:
 		let b = s.BoxOf(n.Value)
 		try tui.Send(d, tui.Click(b.X+b.Width/2, b.Y+b.Height/2))
-	case None:
+	case option.None:
 	}
 }
 

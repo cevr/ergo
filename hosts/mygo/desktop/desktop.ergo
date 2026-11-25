@@ -18,6 +18,7 @@
 import actor
 import arena
 import go ergo.local/prototype/hosts/mygo/screen
+import option
 import queue
 import task
 import ui
@@ -36,7 +37,7 @@ type Driver[S, E, D, F] {
 	spots     []spot[E],
 	canvases  []spot[E],
 	viewports Map[ui.Id[E], ui.Viewport],
-	pressed   Option[ui.Id[E]],
+	pressed   option.Option[ui.Id[E]],
 	scrolled  Map[ui.Id[E], float32],
 	names     Map[ui.Id[E], int],
 	named     int,
@@ -63,7 +64,7 @@ type Driver[S, E, D, F] {
 	// computed (LaidOut).
 	rebuild bool,
 	check   bool,
-	differ  Option[string],
+	differ  option.Option[string],
 	work    int,
 	history ui.MemoryHistory,
 	// The damage paint (paint.ergo): the nodes a pass, a scroll or the
@@ -83,9 +84,9 @@ type Driver[S, E, D, F] {
 	lastLook  []lookProbe,
 	lastUnder []Probe,
 	lastInks  []InkAt,
-	shownFoc  Option[ui.Id[E]],
-	shownHov  Option[ui.Id[E]],
-	shownAct  Option[ui.Id[E]],
+	shownFoc  option.Option[ui.Id[E]],
+	shownHov  option.Option[ui.Id[E]],
+	shownAct  option.Option[ui.Id[E]],
 	drawn     int,
 	// looked is the looks the last paint painted, under the colour
 	// under the node painting now (None: unknown), shadowed whether it
@@ -100,7 +101,7 @@ type Driver[S, E, D, F] {
 	// inks is the ink each Text and Readout of the last paint was drawn
 	// in, by its text (Inks).
 	inks     []InkAt,
-	under    Option[uint32],
+	under    option.Option[uint32],
 	shadowed bool,
 	// covers is what the last paint's layers painted over what came
 	// before them (layer.ergo): no probe reads a pixel one covers.
@@ -111,7 +112,7 @@ type Driver[S, E, D, F] {
 	// finger is the finger on the window, or the fling or return it left
 	// (touch.ergo, MB4); look is the touch constants; insets what the
 	// system covers, which the root lays out inside.
-	finger Option[fingered[E]],
+	finger option.Option[fingered[E]],
 	look   ui.TouchLook,
 	insets ui.Insets,
 	// fingerAt is the window clock a finger script last set (FingerScroll).
@@ -168,7 +169,7 @@ func start[E comparable, S, D, F](w go.Ref[screen.Window], a actor.Actor[S, E, D
 		spots:      []spot[E]{},
 		canvases:   []spot[E]{},
 		viewports:  Map[ui.Id[E], ui.Viewport]{},
-		pressed:    None,
+		pressed:    option.None,
 		scrolled:   Map[ui.Id[E], float32]{},
 		names:      Map[ui.Id[E], int]{},
 		named:      0,
@@ -187,7 +188,7 @@ func start[E comparable, S, D, F](w go.Ref[screen.Window], a actor.Actor[S, E, D
 		roomed:     Map[ui.Id[E], layout.Style]{},
 		rebuild:    false,
 		check:      false,
-		differ:     None,
+		differ:     option.None,
 		work:       0,
 		history:    ui.NewMemoryHistory(ui.URL{Path: "/", Query: "", Fragment: ""}),
 		soiled:     Map[ui.Id[E], bool]{},
@@ -197,12 +198,12 @@ func start[E comparable, S, D, F](w go.Ref[screen.Window], a actor.Actor[S, E, D
 		lastSpot:   []spot[E]{},
 		lastCanv:   []spot[E]{},
 		lastSem:    []ui.Id[E]{},
-		shownFoc:   None,
-		shownHov:   None,
-		shownAct:   None,
+		shownFoc:   option.None,
+		shownHov:   option.None,
+		shownAct:   option.None,
 		drawn:      0,
 		looked:     []lookProbe{},
-		under:      None,
+		under:      option.None,
 		shadowed:   false,
 		underlines: []Probe{},
 		slants:     0,
@@ -212,7 +213,7 @@ func start[E comparable, S, D, F](w go.Ref[screen.Window], a actor.Actor[S, E, D
 		lastInks:   []InkAt{},
 		covers:     []cover{},
 		semantics:  []ui.Id[E]{},
-		finger:     None,
+		finger:     option.None,
 		look:       ui.AndroidTouch(),
 		insets:     ui.NoInsets,
 		fingerAt:   int64(0),
@@ -244,18 +245,18 @@ func show[E comparable, S, D, F](d mut Driver[S, E, D, F], ops []ui.Op[E]) fails
 			d.soiled[x.Parent] = true
 		case ui.Remove[E] as x:
 			match d.lparent.Get(x.Id) {
-			case Some[ui.Id[E]] as p:
+			case option.Some[ui.Id[E]] as p:
 				d.soiled[p.Value] = true
-			case None:
+			case option.None:
 			}
 			drop(d, x.Id)
 		case ui.Set[E] as x:
 			d.soiled[x.Id] = true
 			scrollTo(d, x.Id, x.Node)
 			match d.nodes.Get(x.Id) {
-			case Some[held[E]] as h:
+			case option.Some[held[E]] as h:
 				d.nodes[x.Id] = held[E]{node: x.Node, kids: h.Value.kids}
-			case None:
+			case option.None:
 			}
 			runTrack(d, x.Id, x.Node)
 		case ui.Define:
@@ -309,7 +310,7 @@ func report[E comparable, S, D, F](d mut Driver[S, E, D, F]) fails actor.Stopped
 				continue
 			}
 			let v = ui.Viewport{Offset: ui.Length(float64(scrolledBy(d, s.id))), Height: ui.Length(float64(s.box.H))}
-			if d.viewports.Get(s.id) != (Some{Value: v}) {
+			if d.viewports.Get(s.id) != (option.Some{Value: v}) {
 				d.viewports[s.id] = v
 				try step(d, ui.Scrolled[E]{Id: s.id, Offset: v.Offset, Height: v.Height})
 				return
@@ -321,23 +322,23 @@ func report[E comparable, S, D, F](d mut Driver[S, E, D, F]) fails actor.Stopped
 
 // Viewport is the viewport the window last reported for the list
 // labelled label, None before it showed one.
-func Viewport[S, E, D, F](d mut Driver[S, E, D, F], label string) Option[ui.Viewport] {
+func Viewport[S, E, D, F](d mut Driver[S, E, D, F], label string) option.Option[ui.Viewport] {
 	match Find(d, label) {
-	case Some[ui.Id[E]] as id:
+	case option.Some[ui.Id[E]] as id:
 		d.viewports.Get(id.Value)
-	case None:
-		None
+	case option.None:
+		option.None
 	}
 }
 
 // place puts id among parent's children, in front of before or last.
-func place[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], parent ui.Id[E], before Option[ui.Id[E]]) {
+func place[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], parent ui.Id[E], before option.Option[ui.Id[E]]) {
 	match d.nodes.Get(parent) {
-	case Some[held[E]] as p:
+	case option.Some[held[E]] as p:
 		let mut kids = []ui.Id[E]{}
 		let mut done = false
 		for k in p.Value.kids {
-			if !done && before == (Some{Value: k}) {
+			if !done && before == (option.Some{Value: k}) {
 				kids = kids.Append(id)
 				done = true
 			}
@@ -349,14 +350,14 @@ func place[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], parent ui.Id[E], b
 			kids = kids.Append(id)
 		}
 		d.nodes[parent] = held[E]{node: p.Value.node, kids: kids}
-	case None:
+	case option.None:
 	}
 }
 
 // unplace takes id out of parent's children.
 func unplace[S, E, D, F](d mut Driver[S, E, D, F], parent ui.Id[E], id ui.Id[E]) {
 	match d.nodes.Get(parent) {
-	case Some[held[E]] as p:
+	case option.Some[held[E]] as p:
 		let mut kids = []ui.Id[E]{}
 		for k in p.Value.kids {
 			if k != id {
@@ -364,7 +365,7 @@ func unplace[S, E, D, F](d mut Driver[S, E, D, F], parent ui.Id[E], id ui.Id[E])
 			}
 		}
 		d.nodes[parent] = held[E]{node: p.Value.node, kids: kids}
-	case None:
+	case option.None:
 	}
 }
 
@@ -375,11 +376,11 @@ func drop[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) {
 		// (UG4), so the layers under id go out on their own.
 		for l in layersFrom(d, id, []ui.Id[E]{}).Append(id) {
 			match d.lids.Get(l) {
-			case Some[layout.Id] as b:
+			case option.Some[layout.Id] as b:
 				layout.Remove(&d.tree, b.Value) catch {
 				case arena.Stale:
 				}
-			case None:
+			case option.None:
 			}
 		}
 	}
@@ -395,11 +396,11 @@ func drop[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) {
 
 func forget[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) {
 	match d.nodes.Get(id) {
-	case Some[held[E]] as h:
+	case option.Some[held[E]] as h:
 		for k in h.Value.kids {
 			forget[S, E, D, F](d, k)
 		}
-	case None:
+	case option.None:
 	}
 	d.nodes = d.nodes.Delete(id)
 	d.tracks = d.tracks.Delete(id)
@@ -417,17 +418,17 @@ func forget[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) {
 	d.drew = d.drew.Delete(id)
 	d.keys = d.keys.Delete(id)
 	d.soiled = d.soiled.Delete(id)
-	if d.pressed == (Some{Value: id}) {
-		d.pressed = None
+	if d.pressed == (option.Some{Value: id}) {
+		d.pressed = option.None
 	}
 }
 
 // kidsOf is id's children in the window's tree.
 func kidsOf[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) []ui.Id[E] {
 	match d.nodes.Get(id) {
-	case Some[held[E]] as h:
+	case option.Some[held[E]] as h:
 		h.Value.kids
-	case None:
+	case option.None:
 		[]ui.Id[E]{}
 	}
 }
@@ -449,11 +450,11 @@ func Feed[E comparable, S, D, F](d mut Driver[S, E, D, F], input screen.Input) f
 		try touched(d, input)
 	} else if input.Kind == screen.Down {
 		let hit = hitAt(d, x, y)
-		d.pressed = None
+		d.pressed = option.None
 		let back = match hit {
-		case Some[spot[E]] as s:
+		case option.Some[spot[E]] as s:
 			s.Value.id == d.root
-		case None:
+		case option.None:
 			true
 		}
 		if back {
@@ -463,48 +464,48 @@ func Feed[E comparable, S, D, F](d mut Driver[S, E, D, F], input screen.Input) f
 			// to the root, outside every layer, so the top layer with a
 			// dismiss signal sends it (UG4); its Up goes to the root too.
 			try nowhere(d)
-			d.pressed = Some{Value: d.root}
-			if ui.SessionFocus(&d.session) != None {
-				ui.FocusSession(&d.session, None)
+			d.pressed = option.Some{Value: d.root}
+			if ui.SessionFocus(&d.session) != option.None {
+				ui.FocusSession(&d.session, option.None)
 			}
-			try step(d, ui.Point[E]{Id: d.root, Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: ui.Down, X: 0, Y: 0, Zone: None}, Over: None})
+			try step(d, ui.Point[E]{Id: d.root, Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: ui.Down, X: 0, Y: 0, Zone: option.None}, Over: option.None})
 			paint(d)
 			return
 		}
 		match hit {
-		case Some[spot[E]] as s:
-			d.pressed = Some{Value: s.Value.id}
-			if focusable(s.Value.node) && ui.SessionFocus(&d.session) != (Some{Value: s.Value.id}) {
-				ui.FocusSession(&d.session, Some{Value: s.Value.id})
+		case option.Some[spot[E]] as s:
+			d.pressed = option.Some{Value: s.Value.id}
+			if focusable(s.Value.node) && ui.SessionFocus(&d.session) != (option.Some{Value: s.Value.id}) {
+				ui.FocusSession(&d.session, option.Some{Value: s.Value.id})
 				paint(d)
 			}
 			try pointed(d, s.Value, ui.Down, x, y)
 			paint(d)
-		case None:
+		case option.None:
 		}
 	} else if input.Kind == screen.Up {
 		match d.pressed {
-		case Some[ui.Id[E]] as p:
-			d.pressed = None
+		case option.Some[ui.Id[E]] as p:
+			d.pressed = option.None
 			if p.Value == d.root {
-				try step(d, ui.Point[E]{Id: d.root, Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: ui.Up, X: 0, Y: 0, Zone: None}, Over: None})
+				try step(d, ui.Point[E]{Id: d.root, Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: ui.Up, X: 0, Y: 0, Zone: option.None}, Over: option.None})
 				paint(d)
 				return
 			}
 			match spotOf(d, p.Value) {
-			case Some[spot[E]] as s:
+			case option.Some[spot[E]] as s:
 				try pointed(d, s.Value, ui.Up, x, y)
 				if pressable(s.Value.node) && inside(s.Value, x, y) {
 					try step(d, ui.Press[E]{Id: p.Value})
 				}
 				paint(d)
-			case None:
+			case option.None:
 			}
-		case None:
+		case option.None:
 			match hitAt(d, x, y) {
-			case Some[spot[E]] as s:
+			case option.Some[spot[E]] as s:
 				try pointed(d, s.Value, ui.Up, x, y)
-			case None:
+			case option.None:
 			}
 		}
 	} else if input.Kind == screen.Move {
@@ -515,19 +516,19 @@ func Feed[E comparable, S, D, F](d mut Driver[S, E, D, F], input screen.Input) f
 		// A pressed pointer's moves go to the node it went down on, over
 		// any other node or none; a free pointer's to the node under it.
 		let held = match d.pressed {
-		case Some[ui.Id[E]] as p:
+		case option.Some[ui.Id[E]] as p:
 			spotOf(d, p.Value)
-		case None:
-			None
+		case option.None:
+			option.None
 		}
 		match held {
-		case Some[spot[E]] as s:
+		case option.Some[spot[E]] as s:
 			try pointed(d, s.Value, ui.Moved, x, y)
-		case None:
+		case option.None:
 			match hitAt(d, x, y) {
-			case Some[spot[E]] as s:
+			case option.Some[spot[E]] as s:
 				try pointed(d, s.Value, ui.Moved, x, y)
-			case None:
+			case option.None:
 				try nowhere(d)
 			}
 		}
@@ -558,7 +559,7 @@ func Feed[E comparable, S, D, F](d mut Driver[S, E, D, F], input screen.Input) f
 func step[E comparable, S, D, F](d mut Driver[S, E, D, F], ev ui.Event[E]) fails actor.Stopped | ui.BadPatch needs go.Foreign {
 	let was = markOf(d)
 	let ops = try ui.Step(&d.session, ev)
-	if len(ops) > 0 {
+	if ops.Len() > 0 {
 		try show(d, ops)
 	} else if markOf(d) != was {
 		paint(d)
@@ -592,15 +593,15 @@ func reread[S, E, D, F](d mut Driver[S, E, D, F], id int) needs go.Foreign {
 
 // lookMark is what a step can change in the looks with no op (UG3): the
 // focus, whether its look shows, and the hover.
-type lookMark[E] { focus Option[ui.Id[E]], shown bool, hover Option[ui.Id[E]] }
+type lookMark[E] { focus option.Option[ui.Id[E]], shown bool, hover option.Option[ui.Id[E]] }
 
 // markOf is d's lookMark now.
 func markOf[S, E, D, F](d mut Driver[S, E, D, F]) lookMark[E] {
 	let focus = ui.SessionFocus(&d.session)
 	let shown = match focus {
-	case Some[ui.Id[E]] as id:
+	case option.Some[ui.Id[E]] as id:
 		ui.SessionLookState(&d.session, id.Value) == ui.FocusVisible
-	case None:
+	case option.None:
 		false
 	}
 	lookMark[E]{focus: focus, shown: shown, hover: ui.SessionHovered(&d.session)}
@@ -610,14 +611,14 @@ func markOf[S, E, D, F](d mut Driver[S, E, D, F]) lookMark[E] {
 // Area makes its signal, and any spot is where the pointer is, which the
 // frame's hover and pressed states follow (UG3).
 func pointed[E comparable, S, D, F](d mut Driver[S, E, D, F], s spot[E], phase ui.Phase, x float32, y float32) fails actor.Stopped | ui.BadPatch needs go.Foreign {
-	try step(d, ui.Point[E]{Id: s.id, Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: phase, X: float64(x - s.box.X), Y: float64(y - s.box.Y), Zone: None}, Over: None})
+	try step(d, ui.Point[E]{Id: s.id, Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: phase, X: float64(x - s.box.X), Y: float64(y - s.box.Y), Zone: option.None}, Over: option.None})
 }
 
 // nowhere tells the frame the pointer is over no node (a move to the
 // root, UG3).
 func nowhere[E comparable, S, D, F](d mut Driver[S, E, D, F]) fails actor.Stopped | ui.BadPatch needs go.Foreign {
-	if ui.SessionHovered(&d.session) != None {
-		try step(d, ui.Point[E]{Id: ui.SessionRoot(&d.session), Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: ui.Moved, X: 0, Y: 0, Zone: None}, Over: None})
+	if ui.SessionHovered(&d.session) != option.None {
+		try step(d, ui.Point[E]{Id: ui.SessionRoot(&d.session), Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: ui.Moved, X: 0, Y: 0, Zone: option.None}, Over: option.None})
 	}
 }
 
@@ -631,34 +632,34 @@ func PointAway[E comparable, S, D, F](d mut Driver[S, E, D, F]) fails actor.Stop
 // scroll moves the innermost Scroll under x, y by dy, within its content,
 // and sends the wheel to an Area under it.
 func scroll[E comparable, S, D, F](d mut Driver[S, E, D, F], x float32, y float32, dx float32, dy float32) fails actor.Stopped | ui.BadPatch needs go.Foreign {
-	let mut target Option[spot[E]] = None
-	let mut area Option[spot[E]] = None
+	let mut target option.Option[spot[E]] = option.None
+	let mut area option.Option[spot[E]] = option.None
 	for s in d.spots {
 		if s.id == d.root {
 			// A scrim, over every spot before it: the wheel over it
 			// scrolls nothing under it, as the frame takes no event of a
 			// node it covers (UG4).
-			target = None
-			area = None
+			target = option.None
+			area = option.None
 			continue
 		}
 		if inside(s, x, y) {
 			match s.node {
 			case ui.ScrollNode, ui.RowsNode:
-				target = Some{Value: s}
+				target = option.Some{Value: s}
 			case ui.AreaNode:
-				area = Some{Value: s}
+				area = option.Some{Value: s}
 			case _:
 			}
 		}
 	}
 	match area {
-	case Some[spot[E]] as a:
+	case option.Some[spot[E]] as a:
 		try pointed(d, a.Value, ui.Wheel{DX: float64(dx), DY: float64(dy)}, x, y)
-	case None:
+	case option.None:
 	}
 	match target {
-	case Some[spot[E]] as s:
+	case option.Some[spot[E]] as s:
 		let at = scrolledBy(d, s.Value.id)
 		let most = fmax(contentHeight(d, s.Value.id)-s.Value.box.H, 0)
 		let next = fmin(fmax(at+dy, 0), most)
@@ -668,7 +669,7 @@ func scroll[E comparable, S, D, F](d mut Driver[S, E, D, F], x float32, y float3
 			paint(d)
 			try report(d)
 		}
-	case None:
+	case option.None:
 	}
 }
 
@@ -685,7 +686,7 @@ func key[E comparable, S, D, F](d mut Driver[S, E, D, F], k ui.KeyPress) fails a
 		return
 	}
 	match focused(d) {
-	case Some[spot[E]] as s:
+	case option.Some[spot[E]] as s:
 		match s.Value.node {
 		case ui.InputNode as x:
 			// A key that edits the field or moves its caret is an Edit
@@ -693,12 +694,12 @@ func key[E comparable, S, D, F](d mut Driver[S, E, D, F], k ui.KeyPress) fails a
 			// taken all the same, as a field takes Backspace at its start.
 			let was = ui.EditingOf(x)
 			match ui.KeyEdit(was, k, x.Lines) {
-			case Some[ui.Editing] as e:
+			case option.Some[ui.Editing] as e:
 				if e.Value != was {
 					try step(d, ui.Edit[E]{Id: s.Value.id, Text: e.Value.Text, Caret: e.Value.Caret, Anchor: e.Value.Anchor})
 				}
 				return
-			case None:
+			case option.None:
 			}
 		case _:
 			if pressable(s.Value.node) && (k.Name == "Enter" || k.Name == " ") {
@@ -706,7 +707,7 @@ func key[E comparable, S, D, F](d mut Driver[S, E, D, F], k ui.KeyPress) fails a
 				return
 			}
 		}
-	case None:
+	case option.None:
 	}
 	// A roving group's arrows move the focus with no pass (UG3).
 	let was = ui.SessionFocus(&d.session)
@@ -720,7 +721,7 @@ func key[E comparable, S, D, F](d mut Driver[S, E, D, F], k ui.KeyPress) fails a
 // as a key of that name.
 func typed[E comparable, S, D, F](d mut Driver[S, E, D, F], text string, mods ui.Mods) fails actor.Stopped | ui.BadPatch needs go.Foreign {
 	match focused(d) {
-	case Some[spot[E]] as s:
+	case option.Some[spot[E]] as s:
 		match s.Value.node {
 		case ui.InputNode as x:
 			// The text goes in at the caret, over the selection.
@@ -729,7 +730,7 @@ func typed[E comparable, S, D, F](d mut Driver[S, E, D, F], text string, mods ui
 			return
 		case _:
 		}
-	case None:
+	case option.None:
 	}
 	for r in runesOf(text) {
 		try key(d, ui.KeyPress{Name: r, Mods: mods})
@@ -737,54 +738,54 @@ func typed[E comparable, S, D, F](d mut Driver[S, E, D, F], text string, mods ui
 }
 
 // focused is the spot of the focused node.
-func focused[S, E, D, F](d mut Driver[S, E, D, F]) Option[spot[E]] {
+func focused[S, E, D, F](d mut Driver[S, E, D, F]) option.Option[spot[E]] {
 	match ui.SessionFocus(&d.session) {
-	case Some[ui.Id[E]] as f:
+	case option.Some[ui.Id[E]] as f:
 		spotOf(d, f.Value)
-	case None:
-		None
+	case option.None:
+		option.None
 	}
 }
 
 // spotOf is id's spot, when it takes input.
-func spotOf[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) Option[spot[E]] {
+func spotOf[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) option.Option[spot[E]] {
 	for s in d.spots {
 		if s.id == id {
-			return Some{Value: s}
+			return option.Some{Value: s}
 		}
 	}
-	None
+	option.None
 }
 
 // holder is the Area spot that holds the pointer: the one pressed, if it
 // is an Area and still shown.
-func holder[S, E, D, F](d mut Driver[S, E, D, F]) Option[spot[E]] {
+func holder[S, E, D, F](d mut Driver[S, E, D, F]) option.Option[spot[E]] {
 	match d.pressed {
-	case Some[ui.Id[E]] as p:
+	case option.Some[ui.Id[E]] as p:
 		match spotOf(d, p.Value) {
-		case Some[spot[E]] as s:
+		case option.Some[spot[E]] as s:
 			match s.Value.node {
 			case ui.AreaNode:
-				return Some{Value: s.Value}
+				return option.Some{Value: s.Value}
 			case _:
 			}
-		case None:
+		case option.None:
 		}
-	case None:
+	case option.None:
 	}
-	None
+	option.None
 }
 
 // hitAt is the spot on top at x, y: the last painted whose visible box
 // holds the point, Scrolls left out.
-func hitAt[S, E, D, F](d mut Driver[S, E, D, F], x float32, y float32) Option[spot[E]] {
-	let mut hit Option[spot[E]] = None
+func hitAt[S, E, D, F](d mut Driver[S, E, D, F], x float32, y float32) option.Option[spot[E]] {
+	let mut hit option.Option[spot[E]] = option.None
 	for s in d.spots {
 		match s.node {
 		case ui.ScrollNode, ui.RowsNode:
 		case _:
 			if inside(s, x, y) {
-				hit = Some{Value: s}
+				hit = option.Some{Value: s}
 			}
 		}
 	}
@@ -816,9 +817,9 @@ func focusable[E](n ui.Node[E]) bool { ui.Focusable(n) }
 // scrolledBy is how far id's Scroll is scrolled.
 func scrolledBy[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) float32 {
 	match d.scrolled.Get(id) {
-	case Some[float32] as v:
+	case option.Some[float32] as v:
 		v.Value
-	case None:
+	case option.None:
 		0
 	}
 }
@@ -827,9 +828,9 @@ func scrolledBy[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) float32 {
 func Pump[E comparable, S, D, F](d mut Driver[S, E, D, F]) fails actor.Stopped | ui.BadPatch needs go.Foreign {
 	for {
 		match d.posted.Poll() {
-		case Some[ui.Event[E]] as ev:
+		case option.Some[ui.Event[E]] as ev:
 			try step(d, ev.Value)
-		case None:
+		case option.None:
 			return
 		}
 	}
@@ -871,14 +872,14 @@ func Check[S, E, D, F](d mut Driver[S, E, D, F]) needs go.Foreign {
 
 // Differs is the first box where the kept tree and the reference differed
 // at a paint since Check, None while they agree.
-func Differs[S, E, D, F](d mut Driver[S, E, D, F]) Option[string] { d.differ }
+func Differs[S, E, D, F](d mut Driver[S, E, D, F]) option.Option[string] { d.differ }
 
 // LaidOut is how many boxes the last paint's layouts computed
 // (layout.Work): the boxes whose style or children changed since the
 // paint before and those around them, not the tree, unless it rebuilds.
 func LaidOut[S, E, D, F](d mut Driver[S, E, D, F]) int {
 	if d.rebuild {
-		return len(d.lids)
+		return d.lids.Len()
 	}
 	d.work
 }
@@ -893,15 +894,15 @@ func Painted[S, E, D, F](d mut Driver[S, E, D, F]) int { d.painted }
 func Drawn[S, E, D, F](d mut Driver[S, E, D, F]) int { d.drawn }
 
 // FocusId is the focused node, None for none.
-func FocusId[S, E, D, F](d mut Driver[S, E, D, F]) Option[ui.Id[E]] { ui.SessionFocus(&d.session) }
+func FocusId[S, E, D, F](d mut Driver[S, E, D, F]) option.Option[ui.Id[E]] { ui.SessionFocus(&d.session) }
 
 // FocusNode is what the focused node shows, None for none.
-func FocusNode[S, E, D, F](d mut Driver[S, E, D, F]) Option[ui.Node[E]] {
+func FocusNode[S, E, D, F](d mut Driver[S, E, D, F]) option.Option[ui.Node[E]] {
 	match focused(d) {
-	case Some[spot[E]] as s:
-		Some{Value: s.Value.node}
-	case None:
-		None
+	case option.Some[spot[E]] as s:
+		option.Some{Value: s.Value.node}
+	case option.None:
+		option.None
 	}
 }
 
@@ -964,7 +965,7 @@ func Probes[S, E, D, F](d mut Driver[S, E, D, F]) []Probe {
 		match s.node {
 		case ui.CanvasNode as cv:
 			match canvasProbe(cv.Paint, s.box) {
-			case Some[shown] as p:
+			case option.Some[shown] as p:
 				let px = int(p.Value.at.X)
 				let py = int(p.Value.at.Y)
 				let cx = float32(px)
@@ -973,7 +974,7 @@ func Probes[S, E, D, F](d mut Driver[S, E, D, F]) []Probe {
 				if cx >= c.X && cy >= c.Y && cx < c.X+c.W && cy < c.Y+c.H {
 					out = out.Append(Probe{Label: cv.Label, X: px, Y: py, Color: p.Value.color})
 				}
-			case None:
+			case option.None:
 			}
 		case _:
 		}
@@ -982,12 +983,12 @@ func Probes[S, E, D, F](d mut Driver[S, E, D, F]) []Probe {
 }
 
 // Focus is the label of the focused node, None for none.
-func Focus[S, E, D, F](d mut Driver[S, E, D, F]) Option[string] {
+func Focus[S, E, D, F](d mut Driver[S, E, D, F]) option.Option[string] {
 	match focused(d) {
-	case Some[spot[E]] as s:
+	case option.Some[spot[E]] as s:
 		labelOf(s.Value.node)
-	case None:
-		None
+	case option.None:
+		option.None
 	}
 }
 

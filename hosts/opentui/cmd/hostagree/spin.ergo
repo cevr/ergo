@@ -3,20 +3,22 @@
 // in four change nothing on the screen. When the count reaches 12 the view
 // stops animating, and the screen settles.
 
+import machines
+import option
 import ui
 
 type spin { n int, on bool }
 
 // The signals: -1 is "go", a count is a frame's.
-func spinStep(s spin, e int) Decision[spin, int] {
+func spinStep(s spin, e int) machines.Decision[spin, int] {
 	if e == -1 {
-		return Enter[spin]{Next: spin{n: 0, on: true}}
+		return machines.Enter[spin]{Next: spin{n: 0, on: true}}
 	}
-	Enter[spin]{Next: spin{n: s.n + 1, on: s.n+1 < 12}}
+	machines.Enter[spin]{Next: spin{n: s.n + 1, on: s.n+1 < 12}}
 }
 
-func spinMachine() Machine[spin, int, int] {
-	Machine[spin, int, int]{Initial: spin{n: 0, on: false}, Step: spinStep, After: none[spin, int], Work: idle[spin, int], Exit: func(s spin) Option[func()] { None }}
+func spinMachine() machines.Machine[spin, int, int] {
+	machines.Machine[spin, int, int]{Initial: spin{n: 0, on: false}, Step: spinStep, After: none[spin, int], Work: idle[spin, int], Exit: func(s spin) option.Option[func()] { option.None }}
 }
 
 func spinView(f mut ui.Frame[int], s spin) {

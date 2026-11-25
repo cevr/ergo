@@ -5,6 +5,7 @@
 
 import go ergo.local/prototype/hosts/opentui/screen
 import math
+import option
 import strings
 import utf8
 import ui
@@ -62,44 +63,44 @@ func reserved(reading string, reserve string) string {
 
 // textOf is the text a TEXT or an EDITOR node of n shows (an empty
 // field's placeholder is the editor's own: placeholderOf).
-func textOf[E](n ui.Node[E]) Option[string] {
+func textOf[E](n ui.Node[E]) option.Option[string] {
 	match n {
 	case ui.TextNode as x:
-		Some{Value: x.Value}
+		option.Some{Value: x.Value}
 	case ui.CheckNode[E] as x:
-		Some{Value: (if x.Checked { "[x] " } else { "[ ] " }) + x.Label}
+		option.Some{Value: (if x.Checked { "[x] " } else { "[ ] " }) + x.Label}
 	case ui.ToggleNode as x:
-		Some{Value: (if x.On { "(on) " } else { "(off) " }) + x.Label}
+		option.Some{Value: (if x.On { "(on) " } else { "(off) " }) + x.Label}
 	case ui.InputNode as x:
-		Some{Value: x.Value}
+		option.Some{Value: x.Value}
 	case ui.LiveNode as x:
-		Some{Value: x.Text}
+		option.Some{Value: x.Text}
 	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.PressableNode[E], ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.TransitionNode, ui.SemanticNode[E], ui.LayerNode[E], ui.TrackNode:
 		// No text of their own: a Pressable's label is labelText's.
-		None
+		option.None
 	case ui.ReadoutNode:
 		// Its reading is the session's, not the node's: shownText.
-		None
+		option.None
 	}
 }
 
 // placeholderOf is the text an empty field shows, None for no Input.
-func placeholderOf[E](n ui.Node[E]) Option[string] {
+func placeholderOf[E](n ui.Node[E]) option.Option[string] {
 	match n {
 	case ui.InputNode as x:
-		Some{Value: x.Placeholder}
+		option.Some{Value: x.Placeholder}
 	case _:
-		None
+		option.None
 	}
 }
 
 // labelText is the label a Pressable with no children shows.
-func labelText[E](n ui.Node[E]) Option[string] {
+func labelText[E](n ui.Node[E]) option.Option[string] {
 	match n {
 	case ui.PressableNode[E] as x:
-		Some{Value: " \(x.Label) "}
+		option.Some{Value: " \(x.Label) "}
 	case _:
-		None
+		option.None
 	}
 }
 
@@ -190,14 +191,14 @@ func justifyOf(j ui.Justify) float64 {
 
 // restyle sets the layout of scene node num from old's (None: a node just
 // made, every property) to node's, only where they differ.
-func restyle[S, E, D, F](d mut Driver[S, E, D, F], num int, old Option[ui.Node[E]], node ui.Node[E]) needs go.Foreign {
+func restyle[S, E, D, F](d mut Driver[S, E, D, F], num int, old option.Option[ui.Node[E]], node ui.Node[E]) needs go.Foreign {
 	let c = d.options.Cell
 	let now = layoutOf(node)
 	let s = now.style
 	let (was, all) = match old {
-	case Some[ui.Node[E]] as o:
+	case option.Some[ui.Node[E]] as o:
 		(layoutOf(o.Value), false)
-	case None:
+	case option.None:
 		(now, true)
 	}
 	let p = was.style
@@ -255,7 +256,7 @@ func edges[S, E, D, F](d mut Driver[S, E, D, F], num int, prop int, all bool, wa
 // dark, and bold when the Pressable is focused.
 func lookOf[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) look {
 	let n = nodeOf(d, id)
-	let on = d.focus == (Some{Value: id})
+	let on = d.focus == (option.Some{Value: id})
 	let off = disabled(d, id)
 	match n {
 	case ui.PressableNode[E]:
@@ -267,9 +268,9 @@ func lookOf[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) look {
 	case ui.TextNode, ui.LiveNode, ui.ReadoutNode:
 		// A Readout is a text on the terminal (kindOf).
 		match pressableAbove(d, id) {
-		case Some[ui.Id[E]] as p:
+		case option.Some[ui.Id[E]] as p:
 			textOn(d, p.Value)
-		case None:
+		case option.None:
 			look{fg: white, bg: 0, attr: 0}
 		}
 	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.TransitionNode, ui.SemanticNode[E], ui.LayerNode[E], ui.TrackNode:
@@ -281,22 +282,22 @@ func lookOf[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) look {
 
 // textOn is the look of a text inside the Pressable p.
 func textOn[S, E, D, F](d mut Driver[S, E, D, F], p ui.Id[E]) look {
-	let on = d.focus == (Some{Value: p})
+	let on = d.focus == (option.Some{Value: p})
 	look{fg: if disabled(d, p) { grey } else { black }, bg: 0, attr: if on { screen.Bold } else { 0 }}
 }
 
 // pressableAbove is the nearest Pressable that holds id.
-func pressableAbove[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) Option[ui.Id[E]] {
+func pressableAbove[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) option.Option[ui.Id[E]] {
 	let mut at = id
 	for at != d.root {
 		at = parentOf(d, at)
 		match nodeOf(d, at) {
 		case ui.PressableNode[E]:
-			return Some{Value: at}
+			return option.Some{Value: at}
 		case _:
 		}
 	}
-	None
+	option.None
 }
 
 // relook gives id's scene node (and a Pressable's label) its look, when
@@ -304,9 +305,9 @@ func pressableAbove[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) Option[ui
 func relook[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) needs go.Foreign {
 	paint(d, numOf(d, id), lookOf(d, id))
 	match d.labels.Get(id) {
-	case Some[int] as l:
+	case option.Some[int] as l:
 		paint(d, l.Value, textOn(d, id))
-	case None:
+	case option.None:
 	}
 }
 
@@ -319,7 +320,7 @@ func relookTree[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) needs go.Fore
 }
 
 func paint[S, E, D, F](d mut Driver[S, E, D, F], num int, l look) needs go.Foreign {
-	if num == 0 || d.looks.Get(num) == (Some{Value: l}) {
+	if num == 0 || d.looks.Get(num) == (option.Some{Value: l}) {
 		return
 	}
 	d.looks[num] = l
@@ -330,8 +331,8 @@ func paint[S, E, D, F](d mut Driver[S, E, D, F], num int, l look) needs go.Forei
 func runesOf(s string) []string {
 	let mut out = []string{}
 	let mut at = 0
-	for at < len(s) {
-		let r = utf8.DecodeRuneInString(strings.Slice(s, at, len(s)))
+	for at < s.Len() {
+		let r = utf8.DecodeRuneInString(strings.Slice(s, at, s.Len()))
 		out = out.Append(strings.Slice(s, at, at+r.Size))
 		at = at + r.Size
 	}

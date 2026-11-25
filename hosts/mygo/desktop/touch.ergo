@@ -6,13 +6,14 @@
 
 import go ergo.local/prototype/hosts/mygo/screen
 import actor
+import option
 import ui
 import ui/layout
 
 // fingered is a finger on the window, or the fling or return it left: the
 // machine, the Scroll or list it scrolls (None: none under the touch),
 // and the control it may press (None: none within reach).
-type fingered[E] { touch ui.Touch, scrolls Option[ui.Id[E]], target Option[ui.Id[E]] }
+type fingered[E] { touch ui.Touch, scrolls option.Option[ui.Id[E]], target option.Option[ui.Id[E]] }
 
 // TheFinger is the one finger this pin's surface tells apart (it names no
 // pointer id yet).
@@ -27,23 +28,23 @@ func SetInsets[E comparable, S, D, F](d mut Driver[S, E, D, F], insets ui.Insets
 
 // RootBox is where the root lies in the window, and the part of the
 // window the insets leave.
-func RootBox[S, E, D, F](d mut Driver[S, E, D, F]) (Option[layout.Box], ui.Rect) {
+func RootBox[S, E, D, F](d mut Driver[S, E, D, F]) (option.Option[layout.Box], ui.Rect) {
 	(d.boxes.Get(d.root), ui.InsetRect(ui.Rect{X: 0, Y: 0, W: ui.Length(float64(d.width)), H: ui.Length(float64(d.height))}, d.insets))
 }
 
 // fingerMoving is whether a fling or a return is under way.
 func fingerMoving[S, E, D, F](d mut Driver[S, E, D, F]) bool {
 	match d.finger {
-	case Some[fingered[E]] as f:
+	case option.Some[fingered[E]] as f:
 		ui.TouchMoving(f.Value.touch)
-	case None:
+	case option.None:
 		false
 	}
 }
 
 // reachAt is the spot a finger at x, y hits: the top one under it, else
 // the nearest pressable one within the reach margin (ui.Reach).
-func reachAt[S, E, D, F](d mut Driver[S, E, D, F], x float32, y float32) Option[spot[E]] {
+func reachAt[S, E, D, F](d mut Driver[S, E, D, F], x float32, y float32) option.Option[spot[E]] {
 	let mut ts = []ui.Reachable{}
 	let mut ss = []spot[E]{}
 	for s in d.spots {
@@ -56,10 +57,10 @@ func reachAt[S, E, D, F](d mut Driver[S, E, D, F], x float32, y float32) Option[
 		}
 	}
 	match ui.Reach(ts, float64(x), float64(y), ui.ReachMargin) {
-	case Some[int] as i:
-		Some{Value: ss[i.Value]}
-	case None:
-		None
+	case option.Some[int] as i:
+		option.Some{Value: ss[i.Value]}
+	case option.None:
+		option.None
 	}
 }
 
@@ -73,13 +74,13 @@ func visible[E](s spot[E]) layout.Box {
 }
 
 // scrollsAt is the innermost Scroll or list under x, y.
-func scrollsAt[S, E, D, F](d mut Driver[S, E, D, F], x float32, y float32) Option[spot[E]] {
-	let mut out Option[spot[E]] = None
+func scrollsAt[S, E, D, F](d mut Driver[S, E, D, F], x float32, y float32) option.Option[spot[E]] {
+	let mut out option.Option[spot[E]] = option.None
 	for s in d.spots {
 		match s.node {
 		case ui.ScrollNode, ui.RowsNode:
 			if inside(s, x, y) {
-				out = Some{Value: s}
+				out = option.Some{Value: s}
 			}
 		case _:
 		}
@@ -89,7 +90,7 @@ func scrollsAt[S, E, D, F](d mut Driver[S, E, D, F], x float32, y float32) Optio
 
 // fingerPointed sends a finger's pointer event to a spot.
 func fingerPointed[E comparable, S, D, F](d mut Driver[S, E, D, F], s spot[E], phase ui.Phase, x float32, y float32) fails actor.Stopped | ui.BadPatch needs go.Foreign {
-	try step(d, ui.Point[E]{Id: s.id, Pointer: ui.PointerEvent{Pointer: TheFinger, Phase: phase, X: float64(x - s.box.X), Y: float64(y - s.box.Y), Zone: None}, Over: None})
+	try step(d, ui.Point[E]{Id: s.id, Pointer: ui.PointerEvent{Pointer: TheFinger, Phase: phase, X: float64(x - s.box.X), Y: float64(y - s.box.Y), Zone: option.None}, Over: option.None})
 }
 
 // touched takes a finger's input (input.Finger): Down, Move or Up.
@@ -98,66 +99,66 @@ func touched[E comparable, S, D, F](d mut Driver[S, E, D, F], input screen.Input
 	let y = float32(input.Y)
 	let at = duration(input.At)
 	if input.Kind == screen.Down {
-		d.pressed = None
+		d.pressed = option.None
 		// A finger on an Area is its pointer: the Area holds it.
 		match hitAt(d, x, y) {
-		case Some[spot[E]] as s:
+		case option.Some[spot[E]] as s:
 			match s.Value.node {
 			case ui.AreaNode:
-				d.finger = None
-				d.pressed = Some{Value: s.Value.id}
+				d.finger = option.None
+				d.pressed = option.Some{Value: s.Value.id}
 				try fingerPointed(d, s.Value, ui.Down, x, y)
 				paint(d)
 				return
 			case _:
 			}
-		case None:
+		case option.None:
 		}
 		let target = reachAt(d, x, y)
 		let under = scrollsAt(d, x, y)
 		let mut t = match under {
-		case Some[spot[E]] as s:
+		case option.Some[spot[E]] as s:
 			ui.NewTouch(0, float64(fmax(contentHeight(d, s.Value.id)-s.Value.box.H, 0)))
-		case None:
+		case option.None:
 			ui.NewTouch(0, 0)
 		}
 		match under {
-		case Some[spot[E]] as s:
+		case option.Some[spot[E]] as s:
 			t.Y = float64(scrolledBy(d, s.Value.id))
-		case None:
+		case option.None:
 		}
 		let (n, _) = ui.TouchStep(t, ui.FingerDown{Id: TheFinger.Id, X: input.X, Y: input.Y, At: at}, d.look)
-		d.finger = Some{Value: fingered[E]{touch: n, scrolls: match under {
-		case Some[spot[E]] as s:
-			Some{Value: s.Value.id}
-		case None:
-			None
+		d.finger = option.Some{Value: fingered[E]{touch: n, scrolls: match under {
+		case option.Some[spot[E]] as s:
+			option.Some{Value: s.Value.id}
+		case option.None:
+			option.None
 		}, target: match target {
-		case Some[spot[E]] as s:
-			Some{Value: s.Value.id}
-		case None:
-			None
+		case option.Some[spot[E]] as s:
+			option.Some{Value: s.Value.id}
+		case option.None:
+			option.None
 		}}}
 		match target {
-		case Some[spot[E]] as s:
+		case option.Some[spot[E]] as s:
 			try fingerPointed(d, s.Value, ui.Down, x, y)
-		case None:
+		case option.None:
 		}
 		return
 	}
 	match holder(d) {
-	case Some[spot[E]] as s:
+	case option.Some[spot[E]] as s:
 		if input.Kind == screen.Up {
-			d.pressed = None
+			d.pressed = option.None
 			try fingerPointed(d, s.Value, ui.Up, x, y)
 		} else {
 			try fingerPointed(d, s.Value, ui.Moved, x, y)
 		}
 		return
-	case None:
+	case option.None:
 	}
 	match d.finger {
-	case Some[fingered[E]] as f:
+	case option.Some[fingered[E]] as f:
 		let ev = if input.Kind == screen.Up { ui.FingerUp{Id: TheFinger.Id, X: input.X, Y: input.Y, At: at} } else { ui.FingerMove{Id: TheFinger.Id, X: input.X, Y: input.Y, At: at} }
 		let (n, sig) = ui.TouchStep(f.Value.touch, ev, d.look)
 		try fingerTo(d, fingered[E]{touch: n, scrolls: f.Value.scrolls, target: f.Value.target})
@@ -171,36 +172,36 @@ func touched[E comparable, S, D, F](d mut Driver[S, E, D, F], input screen.Input
 		}
 		if input.Kind == screen.Up && pressed {
 			match f.Value.target {
-			case Some[ui.Id[E]] as id:
+			case option.Some[ui.Id[E]] as id:
 				match spotOf(d, id.Value) {
-				case Some[spot[E]] as sp:
+				case option.Some[spot[E]] as sp:
 					// The finger lets go of the node it went down on (a
 					// drag let go of it already, fingerTo).
 					try fingerPointed(d, sp.Value, ui.Up, x, y)
 					let tapped = match sig {
-					case Some[ui.TouchSignal] as s:
+					case option.Some[ui.TouchSignal] as s:
 						match s.Value {
 						case ui.Tapped:
 							true
 						case _:
 							false
 						}
-					case None:
+					case option.None:
 						false
 					}
 					if tapped && pressable(sp.Value.node) {
-						if focusable(sp.Value.node) && ui.SessionFocus(&d.session) != (Some{Value: id.Value}) {
-							ui.FocusSession(&d.session, Some{Value: id.Value})
+						if focusable(sp.Value.node) && ui.SessionFocus(&d.session) != (option.Some{Value: id.Value}) {
+							ui.FocusSession(&d.session, option.Some{Value: id.Value})
 						}
 						try step(d, ui.Press[E]{Id: id.Value})
 					}
 					paint(d)
-				case None:
+				case option.None:
 				}
-			case None:
+			case option.None:
 			}
 		}
-	case None:
+	case option.None:
 	}
 }
 
@@ -220,10 +221,10 @@ func fingerTo[E comparable, S, D, F](d mut Driver[S, E, D, F], g fingered[E]) fa
 	let mut f = g
 	if dragged {
 		match g.target {
-		case Some[ui.Id[E]] as id:
-			try step(d, ui.Point[E]{Id: id.Value, Pointer: ui.PointerEvent{Pointer: TheFinger, Phase: ui.Up, X: 0, Y: 0, Zone: None}, Over: None})
-			f = fingered[E]{touch: g.touch, scrolls: g.scrolls, target: None}
-		case None:
+		case option.Some[ui.Id[E]] as id:
+			try step(d, ui.Point[E]{Id: id.Value, Pointer: ui.PointerEvent{Pointer: TheFinger, Phase: ui.Up, X: 0, Y: 0, Zone: option.None}, Over: option.None})
+			f = fingered[E]{touch: g.touch, scrolls: g.scrolls, target: option.None}
+		case option.None:
 		}
 	}
 	let rested = match f.touch.Phase {
@@ -232,10 +233,10 @@ func fingerTo[E comparable, S, D, F](d mut Driver[S, E, D, F], g fingered[E]) fa
 	case _:
 		false
 	}
-	d.finger = if rested { None } else { Some{Value: f} }
+	d.finger = if rested { option.None } else { option.Some{Value: f} }
 	d.w.Frames(d.frames || fingerMoving(d))
 	match f.scrolls {
-	case Some[ui.Id[E]] as id:
+	case option.Some[ui.Id[E]] as id:
 		let v = float32(f.touch.Y)
 		if v != scrolledBy(d, id.Value) {
 			d.scrolled[id.Value] = v
@@ -244,19 +245,19 @@ func fingerTo[E comparable, S, D, F](d mut Driver[S, E, D, F], g fingered[E]) fa
 			paint(d)
 			try report(d)
 		}
-	case None:
+	case option.None:
 	}
 }
 
 // touchFrame moves a fling or a return to the frame's time.
 func touchFrame[E comparable, S, D, F](d mut Driver[S, E, D, F], at duration) fails actor.Stopped | ui.BadPatch needs go.Foreign {
 	match d.finger {
-	case Some[fingered[E]] as f:
+	case option.Some[fingered[E]] as f:
 		if ui.TouchMoving(f.Value.touch) {
 			let (n, _) = ui.TouchStep(f.Value.touch, ui.TouchFrame{At: at}, d.look)
-			try fingerTo(d, fingered[E]{touch: n, scrolls: f.Value.scrolls, target: None})
+			try fingerTo(d, fingered[E]{touch: n, scrolls: f.Value.scrolls, target: option.None})
 		}
-	case None:
+	case option.None:
 	}
 }
 
@@ -282,7 +283,7 @@ func fingerStep[E comparable, S, D, F](d mut Driver[S, E, D, F], ms int, kind in
 func FingerScroll[E comparable, S, D, F](d mut Driver[S, E, D, F], label string, dy float32) fails ui.NoNode | ui.Ambiguous | ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
 	let id = try found(d, label)
 	match spotOf(d, id) {
-	case Some[spot[E]] as s:
+	case option.Some[spot[E]] as s:
 		let x = s.Value.box.X + s.Value.box.W/2
 		let y = s.Value.box.Y + s.Value.box.H/2
 		let from = y - float32(d.look.Slop) - 1
@@ -293,7 +294,7 @@ func FingerScroll[E comparable, S, D, F](d mut Driver[S, E, D, F], label string,
 		}
 		try fingerStep(d, 200, screen.Move, x, from-dy)
 		try fingerStep(d, 0, screen.Up, x, from-dy)
-	case None:
+	case option.None:
 		return ui.NoNode{Label: label}
 	}
 }
@@ -305,13 +306,13 @@ func FingerTap[E comparable, S, D, F](d mut Driver[S, E, D, F], label string, be
 	let id = try found(d, label)
 	try reveal(d, id)
 	match spotOf(d, id) {
-	case Some[spot[E]] as s:
+	case option.Some[spot[E]] as s:
 		let v = visible(s.Value)
 		let x = if beyond > 0 { v.X + v.W + beyond } else { v.X + v.W/2 }
 		let y = v.Y + v.H/2
 		try fingerStep(d, 1000, screen.Down, x, y)
 		try fingerStep(d, 50, screen.Up, x, y)
-	case None:
+	case option.None:
 		return ui.NoNode{Label: label}
 	}
 }

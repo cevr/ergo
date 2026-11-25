@@ -1,7 +1,10 @@
 import actor
 import go ergo.local/prototype/hosts/mygo/screen
 import ergo.local/prototype/hosts/mygo/desktop
+import io
+import machines
 import math
+import option
 import strconv
 import strings
 import time
@@ -15,54 +18,54 @@ type result = Done{} | Missing{Label string} | Broke{Why string}
 
 // agree plays steps on both hosts and prints whether they agree after
 // each.
-func agree[E comparable, S](m Machine[S, E, int], view own func(f mut ui.Frame[E], s S), same func(a S, b S) bool, steps []string) needs Console | Scheduler | go.Foreign {
+func agree[E comparable, S](m machines.Machine[S, E, int], view own func(f mut ui.Frame[E], s S), same func(a S, b S) bool, steps []string) needs io.Console | time.Scheduler | go.Foreign {
 	let w = screen.Headless(480, 640) catch {
 	case go.Error as e:
-		Console.Println("differ 0: no window: \(e.Text)")
+		io.Console.Println("differ 0: no window: \(e.Text)")
 		return
 	}
 	let ta = actor.StartMachine(m, 1, func(o int) {})
 	let da = actor.StartMachine(m, 1, func(o int) {})
 	let mut h = ui.NewTestHost(ta, view, time.NewManual(0), 16) catch {
 	case ui.BadPatch as b:
-		Console.Println("differ 0: test host: \(b.Why)")
+		io.Console.Println("differ 0: test host: \(b.Why)")
 		return
 	}
 	let mut d = desktop.New(w, da, view, 16) catch {
 	case ui.BadPatch as b:
-		Console.Println("differ 0: driver: \(b.Why)")
+		io.Console.Println("differ 0: driver: \(b.Why)")
 		return
 	}
 	desktop.Check(&d)
 	match compare(&h, &d, w, same) {
-	case Some[string] as why:
-		Console.Println("differ 0: \(why.Value)")
-	case None:
-		Console.Println("ok 0")
+	case option.Some[string] as why:
+		io.Console.Println("differ 0: \(why.Value)")
+	case option.None:
+		io.Console.Println("ok 0")
 	}
 	for i, line in steps {
 		let n = i + 1
 		if line == "work" {
-			Console.Println("work \(desktop.LaidOut(&d))")
+			io.Console.Println("work \(desktop.LaidOut(&d))")
 			continue
 		}
 		if line == "drawn" {
-			Console.Println("drawn \(desktop.Drawn(&d))")
+			io.Console.Println("drawn \(desktop.Drawn(&d))")
 			continue
 		}
 		let (a, b) = run(&h, &d, w, line, same)
 		if a != b {
-			Console.Println("differ \(n): \(line): test host \(said(a)), desktop \(said(b))")
+			io.Console.Println("differ \(n): \(line): test host \(said(a)), desktop \(said(b))")
 			continue
 		}
 		match compare(&h, &d, w, same) {
-		case Some[string] as why:
-			Console.Println("differ \(n): \(line): \(why.Value)")
-		case None:
-			Console.Println("ok \(n)")
+		case option.Some[string] as why:
+			io.Console.Println("differ \(n): \(line): \(why.Value)")
+		case option.None:
+			io.Console.Println("ok \(n)")
 		}
 	}
-	Console.Println("end")
+	io.Console.Println("end")
 }
 
 func said(r result) string {
@@ -80,74 +83,74 @@ func said(r result) string {
 // the app state, each probe's pixel in the window's frame, the window's
 // accessibility tree (access.ergo), and each look's state (states.ergo). First
 // TestHost takes the viewport the window reported for each list (follow).
-func compare[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut desktop.Driver[S, E, D, F], w go.Ref[screen.Window], same func(a S, b S) bool) Option[string] needs go.Foreign {
+func compare[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut desktop.Driver[S, E, D, F], w go.Ref[screen.Window], same func(a S, b S) bool) option.Option[string] needs go.Foreign {
 	follow(h, d, desktop.Screen(d))
 	match desktop.Differs(d) {
-	case Some[string] as why:
-		return Some{Value: "the kept layout differs from the reference: \(why.Value)"}
-	case None:
+	case option.Some[string] as why:
+		return option.Some{Value: "the kept layout differs from the reference: \(why.Value)"}
+	case option.None:
 	}
 	if !ui.SameShapes(ui.Screen(h), desktop.Screen(d)) {
-		return Some{Value: "trees differ:\n\(ui.Screenshot(h))desktop:\n\(shot(desktop.Screen(d), ""))"}
+		return option.Some{Value: "trees differ:\n\(ui.Screenshot(h))desktop:\n\(shot(desktop.Screen(d), ""))"}
 	}
 	if !same(ui.StateOf(h), desktop.StateOf(d)) {
-		return Some{Value: "states differ"}
+		return option.Some{Value: "states differ"}
 	}
 	match placed(d, desktop.Screen(d)) {
-	case Some[string] as why:
+	case option.Some[string] as why:
 		return why
-	case None:
+	case option.None:
 	}
 	match fits(d, w, desktop.Screen(d)) {
-	case Some[string] as why:
+	case option.Some[string] as why:
 		return why
-	case None:
+	case option.None:
 	}
 	match layersPlacedWrong(d) {
-	case Some[string] as why:
+	case option.Some[string] as why:
 		return why
-	case None:
+	case option.None:
 	}
 	// The window was told the keyboard the focused field asks for (MB5).
 	let (told, asks) = desktop.Keyboard(d)
 	if told != asks {
-		return Some{Value: "the window was told the \(told) keyboard, the field asks for \(asks)"}
+		return option.Some{Value: "the window was told the \(told) keyboard, the field asks for \(asks)"}
 	}
 	// The root lies inside the insets (MB4): at their top left corner and
 	// no further than their right and bottom edges.
 	match desktop.RootBox(d) {
-	case (Some[layout.Box] as b, room):
+	case (option.Some[layout.Box] as b, room):
 		let rx = float64(room.X)
 		let ry = float64(room.Y)
 		if float64(b.Value.X) != rx || float64(b.Value.Y) != ry || float64(b.Value.X+b.Value.W) > rx+float64(room.W)+0.01 || float64(b.Value.Y+b.Value.H) > ry+float64(room.H)+0.01 {
-			return Some{Value: "the root is at \(bx(Some{Value: b.Value})), outside the insets' \(rx),\(ry) \(float64(room.W))x\(float64(room.H))"}
+			return option.Some{Value: "the root is at \(bx(option.Some{Value: b.Value})), outside the insets' \(rx),\(ry) \(float64(room.W))x\(float64(room.H))"}
 		}
 	case _:
 	}
 	let _ = w.Render()
 	if w.Slanted() != desktop.Slants(d) {
-		return Some{Value: "the window slanted \(w.Slanted()) runs, the driver drew \(desktop.Slants(d)) italic"}
+		return option.Some{Value: "the window slanted \(w.Slanted()) runs, the driver drew \(desktop.Slants(d)) italic"}
 	}
 	for p in desktop.Probes(d) {
 		let got = w.Pixel(p.X, p.Y)
 		if got != p.Color {
-			return Some{Value: "pixel of \(p.Label) at \(p.X),\(p.Y) is \(strconv.FormatInt(int64(got), 16)), want \(strconv.FormatInt(int64(p.Color), 16))"}
+			return option.Some{Value: "pixel of \(p.Label) at \(p.X),\(p.Y) is \(strconv.FormatInt(int64(got), 16)), want \(strconv.FormatInt(int64(p.Color), 16))"}
 		}
 	}
 	match trackedWrong(h, d, desktop.Screen(d)) {
-	case Some[string] as why:
+	case option.Some[string] as why:
 		return why
-	case None:
+	case option.None:
 	}
 	match accessDiffers(d, w) {
-	case Some[string] as why:
+	case option.Some[string] as why:
 		return why
-	case None:
+	case option.None:
 	}
 	match inksDiffer(h, d) {
-	case Some[string] as why:
+	case option.Some[string] as why:
 		return why
-	case None:
+	case option.None:
 	}
 	lookStatesDiffer(h, d)
 }
@@ -156,7 +159,7 @@ func compare[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut desktop
 // TestHost's track value puts it (TRACKS): its look's probe, which sits
 // where the window painted the body, is at the middle of its laid box
 // moved by the value; None when every one is there.
-func trackedWrong[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut desktop.Driver[S, E, D, F], shapes []ui.Shape[E]) Option[string] needs go.Foreign {
+func trackedWrong[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut desktop.Driver[S, E, D, F], shapes []ui.Shape[E]) option.Option[string] needs go.Foreign {
 	for s in shapes {
 		match s.Node {
 		case ui.TrackNode as x:
@@ -166,28 +169,28 @@ func trackedWrong[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut de
 					match k.Node {
 					case ui.PressableNode[E] as p:
 						let v = match ui.TrackedValue(h, x.Key) {
-						case Some[float64] as t:
+						case option.Some[float64] as t:
 							t.Value
-						case None:
-							return Some{Value: "TestHost runs no track for \(p.Label)"}
+						case option.None:
+							return option.Some{Value: "TestHost runs no track for \(p.Label)"}
 						}
 						match desktop.LaidOf(d, p.Label) {
-						case Some[layout.Box] as lb:
+						case option.Some[layout.Box] as lb:
 							let want = int(lb.Value.X + float32(v) + lb.Value.W/2)
 							let mut seen = false
 							for pr in desktop.Probes(d) {
 								if pr.Label == p.Label {
 									seen = true
 									if pr.X != want {
-										return Some{Value: "\(p.Label) on a track at \(v) is painted at x \(pr.X), want \(want)"}
+										return option.Some{Value: "\(p.Label) on a track at \(v) is painted at x \(pr.X), want \(want)"}
 									}
 								}
 							}
 							if !seen {
-								return Some{Value: "\(p.Label) on a track has no look probe"}
+								return option.Some{Value: "\(p.Label) on a track has no look probe"}
 							}
-						case None:
-							return Some{Value: "\(p.Label) on a track has no box"}
+						case option.None:
+							return option.Some{Value: "\(p.Label) on a track has no box"}
 						}
 					case _:
 					}
@@ -197,12 +200,12 @@ func trackedWrong[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut de
 		case _:
 		}
 		match trackedWrong[E, S, D, F](h, d, s.Kids) {
-		case Some[string] as why:
+		case option.Some[string] as why:
 			return why
-		case None:
+		case option.None:
 		}
 	}
-	None
+	option.None
 }
 
 // shielded is whether a layer's scrim covers the list labelled label in
@@ -286,11 +289,11 @@ func maxOffset[E](shapes []ui.Shape[E], label string, height float64) float64 {
 	-1
 }
 
-func bx(o Option[layout.Box]) string {
+func bx(o option.Option[layout.Box]) string {
 	match o {
-	case Some[layout.Box] as b:
+	case option.Some[layout.Box] as b:
 		"\(b.Value.X),\(b.Value.Y) \(b.Value.W)x\(b.Value.H)"
-	case None:
+	case option.None:
 		"none"
 	}
 }
@@ -308,7 +311,7 @@ func shot[E](shapes []ui.Shape[E], indent string) string {
 		case ui.TextNode as x:
 			"text \"\(x.Value)\""
 		case ui.CanvasNode as x:
-			"canvas \"\(x.Label)\" \(len(x.Paint)) ops"
+			"canvas \"\(x.Label)\" \(x.Paint.Len()) ops"
 		case _:
 			"node"
 		}
@@ -321,7 +324,7 @@ func shot[E](shapes []ui.Shape[E], indent string) string {
 // viewport the window reported is the list's box height and an offset
 // inside its content, and each row it wrote (a button, by label) shows at
 // the list's top plus its index's rows, less the offset.
-func placed[E comparable, S, D, F](d mut desktop.Driver[S, E, D, F], shapes []ui.Shape[E]) Option[string] {
+func placed[E comparable, S, D, F](d mut desktop.Driver[S, E, D, F], shapes []ui.Shape[E]) option.Option[string] {
 	for s in shapes {
 		match s.Node {
 		case ui.RowsNode as x:
@@ -331,51 +334,51 @@ func placed[E comparable, S, D, F](d mut desktop.Driver[S, E, D, F], shapes []ui
 				continue
 			}
 			let (v, lb) = match (desktop.Viewport(d, x.Label), desktop.BoxOf(d, x.Label)) {
-			case (Some[ui.Viewport] as v, Some[layout.Box] as b):
+			case (option.Some[ui.Viewport] as v, option.Some[layout.Box] as b):
 				(v.Value, b.Value)
 			case _:
-				return Some{Value: "list \(x.Label) has no viewport or box"}
+				return option.Some{Value: "list \(x.Label) has no viewport or box"}
 			}
 			let rh = float64(x.RowHeight)
 			let off = float64(v.Offset)
 			let most = float64(x.Count)*rh - float64(lb.H)
 			if float64(v.Height) != float64(lb.H) || off < 0 || (off > 0 && off > most) {
-				return Some{Value: "list \(x.Label): viewport \(off)+\(float64(v.Height)) in a box \(lb.H) high over \(x.Count) rows"}
+				return option.Some{Value: "list \(x.Label): viewport \(off)+\(float64(v.Height)) in a box \(lb.H) high over \(x.Count) rows"}
 			}
 			if off != float64(x.Offset) && !(float64(x.Offset) > most && off == most) {
-				return Some{Value: "list \(x.Label) shows at offset \(off); its pass wrote \(float64(x.Offset))"}
+				return option.Some{Value: "list \(x.Label) shows at offset \(off); its pass wrote \(float64(x.Offset))"}
 			}
 			for i, k in s.Kids {
 				match k.Node {
 				case ui.PressableNode[E] as p:
 					match desktop.BoxOf(d, p.Label) {
-					case Some[layout.Box] as b:
+					case option.Some[layout.Box] as b:
 						let want = float64(lb.Y) + float64(x.First+i)*rh - off
 						if float64(b.Value.Y) != want || float64(b.Value.H) != rh || b.Value.X != lb.X || b.Value.W != lb.W {
-							return Some{Value: "\(p.Label) shows at \(bx(Some{Value: b.Value})); want y \(want), \(rh) high, as wide as the list at \(bx(Some{Value: lb}))"}
+							return option.Some{Value: "\(p.Label) shows at \(bx(option.Some{Value: b.Value})); want y \(want), \(rh) high, as wide as the list at \(bx(option.Some{Value: lb}))"}
 						}
-					case None:
-						return Some{Value: "\(p.Label) has no box"}
+					case option.None:
+						return option.Some{Value: "\(p.Label) has no box"}
 					}
 				case _:
 				}
 			}
 		case _:
 			match placed[E, S, D, F](d, s.Kids) {
-			case Some[string] as why:
+			case option.Some[string] as why:
 				return why
-			case None:
+			case option.None:
 			}
 		}
 	}
-	None
+	option.None
 }
 
 // fits is why a text's box does not hold it, None when each does: the
 // box the driver laid a text out in (by its value, the first node of that
 // label) is at least as wide as its widest word, as the window's text
 // engine measures it at the driver's size, 16 DIPs.
-func fits[E comparable, S, D, F](d mut desktop.Driver[S, E, D, F], w go.Ref[screen.Window], shapes []ui.Shape[E]) Option[string] needs go.Foreign {
+func fits[E comparable, S, D, F](d mut desktop.Driver[S, E, D, F], w go.Ref[screen.Window], shapes []ui.Shape[E]) option.Option[string] needs go.Foreign {
 	for s in shapes {
 		match s.Node {
 		case ui.TextNode as x:
@@ -387,21 +390,21 @@ func fits[E comparable, S, D, F](d mut desktop.Driver[S, E, D, F], w go.Ref[scre
 				}
 			}
 			match desktop.BoxOf(d, x.Value) {
-			case Some[layout.Box] as b:
+			case option.Some[layout.Box] as b:
 				if float64(b.Value.W)+0.01 < widest {
-					return Some{Value: "text \"\(x.Value)\" is laid out \(b.Value.W) wide; its widest word is \(widest)"}
+					return option.Some{Value: "text \"\(x.Value)\" is laid out \(b.Value.W) wide; its widest word is \(widest)"}
 				}
-			case None:
+			case option.None:
 			}
 		case _:
 		}
 		match fits[E, S, D, F](d, w, s.Kids) {
-		case Some[string] as why:
+		case option.Some[string] as why:
 			return why
-		case None:
+		case option.None:
 		}
 	}
-	None
+	option.None
 }
 
 // follow scrolls each list of TestHost to the viewport the window
@@ -413,7 +416,7 @@ func follow[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut desktop.
 		match s.Node {
 		case ui.RowsNode as x:
 			match (desktop.Viewport(d, x.Label), ui.Find(h, x.Label)) {
-			case (Some[ui.Viewport] as v, Some[ui.Id[E]] as id):
+			case (option.Some[ui.Viewport] as v, option.Some[ui.Id[E]] as id):
 				ui.ScrollTo(h, id.Value, v.Value.Offset, v.Value.Height) catch {
 				case actor.Stopped, ui.BadPatch:
 				}
@@ -428,9 +431,9 @@ func follow[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut desktop.
 // run does one step on each host.
 func run[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut desktop.Driver[S, E, D, F], w go.Ref[screen.Window], line string, same func(a S, b S) bool) (result, result) needs go.Foreign {
 	let (verb, rest) = match strings.Cut(line, " ") {
-	case Some[strings.Halves] as c:
+	case option.Some[strings.Halves] as c:
 		(c.Value.Before, c.Value.After)
-	case None:
+	case option.None:
 		(line, "")
 	}
 	match verb {
@@ -438,9 +441,9 @@ func run[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut desktop.Dri
 		both(h, d, ui.TapOn{Label: rest})
 	case "type":
 		match strings.Cut(rest, "\t") {
-		case Some[strings.Halves] as c:
+		case option.Some[strings.Halves] as c:
 			both(h, d, ui.TypeInto{Label: c.Value.Before, Text: c.Value.After})
-		case None:
+		case option.None:
 			(Broke{Why: "type needs a tab"}, Broke{Why: "type needs a tab"})
 		}
 	case "key":
@@ -448,7 +451,7 @@ func run[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut desktop.Dri
 		// A character typed with a field focused goes into the field on the
 		// desktop; TestHost, which has no focus, types it there too.
 		match (desktop.FocusId(d), desktop.FocusNode(d)) {
-		case (Some[ui.Id[E]] as id, Some[ui.Node[E]] as n):
+		case (option.Some[ui.Id[E]] as id, option.Some[ui.Node[E]] as n):
 			match n.Value {
 			case ui.InputNode as x:
 				if utf8.RuneCount(rest) == 1 && rest != " " {
@@ -467,7 +470,7 @@ func run[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut desktop.Dri
 		both(h, d, act)
 	case "point":
 		let f = strings.Fields(rest)
-		if len(f) != 4 {
+		if f.Len() != 4 {
 			return (Broke{Why: "point LABEL PHASE X Y"}, Broke{Why: "point LABEL PHASE X Y"})
 		}
 		let x = float64(atoi(f[2]))
@@ -482,21 +485,21 @@ func run[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut desktop.Dri
 		case _:
 			ui.Wheel{DX: 0, DY: y}
 		}
-		both(h, d, ui.PointOn{Label: f[0], Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: phase, X: x, Y: y, Zone: None}})
+		both(h, d, ui.PointOn{Label: f[0], Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: phase, X: x, Y: y, Zone: option.None}})
 	case "scroll":
 		let f = strings.Fields(rest)
-		if len(f) != 2 {
+		if f.Len() != 2 {
 			return (Broke{Why: "scroll LABEL N"}, Broke{Why: "scroll LABEL N"})
 		}
 		let to = float64(atoi(f[1]))
 		// Under a scrim the wheel scrolls nothing: the list stays (UG4).
-		let mut stays Option[float64] = None
+		let mut stays option.Option[float64] = option.None
 		match desktop.Viewport(d, f[0]) {
-		case Some[ui.Viewport] as v:
+		case option.Some[ui.Viewport] as v:
 			if shielded(desktop.Screen(d), f[0]) {
-				stays = Some{Value: float64(v.Value.Offset)}
+				stays = option.Some{Value: float64(v.Value.Offset)}
 			}
-		case None:
+		case option.None:
 		}
 		let mut b = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch needs go.Foreign {
 			try desktop.Play(d, []ui.Act{ui.ScrollOn{Label: f[0], Offset: ui.Length(to), Height: 0}})
@@ -504,12 +507,12 @@ func run[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut desktop.Dri
 		// The list is where the step scrolled it: at the offset, or as far
 		// as its content goes.
 		match (b, desktop.Viewport(d, f[0])) {
-		case (Done, Some[ui.Viewport] as v):
+		case (Done, option.Some[ui.Viewport] as v):
 			let most = maxOffset(desktop.Screen(d), f[0], float64(v.Value.Height))
 			let want = match stays {
-			case Some[float64] as s:
+			case option.Some[float64] as s:
 				s.Value
-			case None:
+			case option.None:
 				if to < most { to } else { most }
 			}
 			if float64(v.Value.Offset) != want {
@@ -518,9 +521,9 @@ func run[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut desktop.Dri
 		case _:
 		}
 		let a = match ui.Find(h, f[0]) {
-		case Some[ui.Id[E]]:
+		case option.Some[ui.Id[E]]:
 			Done
-		case None:
+		case option.None:
 			Missing{Label: f[0]}
 		}
 		(a, b)
@@ -529,13 +532,13 @@ func run[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut desktop.Dri
 		// within its content; "finger tap LABEL" taps it; "finger near
 		// LABEL" taps 10 DIP past its right edge, within the reach margin.
 		let f = strings.Fields(rest)
-		if len(f) < 2 {
+		if f.Len() < 2 {
 			return (Broke{Why: "finger scroll|tap|near LABEL"}, Broke{Why: "finger scroll|tap|near LABEL"})
 		}
-		if f[0] == "scroll" && len(f) == 3 {
+		if f[0] == "scroll" && f.Len() == 3 {
 			let mut b result = Done
 			match desktop.Viewport(d, f[1]) {
-			case Some[ui.Viewport] as v:
+			case option.Some[ui.Viewport] as v:
 				let most = maxOffset(desktop.Screen(d), f[1], float64(v.Value.Height))
 				let at = float64(v.Value.Offset)
 				let to = float64(atoi(f[2]))
@@ -544,19 +547,19 @@ func run[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut desktop.Dri
 					try desktop.FingerScroll(d, f[1], float32(want-at))
 				})
 				match (b, desktop.Viewport(d, f[1])) {
-				case (Done, Some[ui.Viewport] as v2):
+				case (Done, option.Some[ui.Viewport] as v2):
 					if math.Abs(float64(v2.Value.Offset)-want) > 0.01 {
 						b = Broke{Why: "a finger scrolled to \(float64(v2.Value.Offset)), want \(want)"}
 					}
 				case _:
 				}
-			case None:
+			case option.None:
 				b = Missing{Label: f[1]}
 			}
 			let a = match ui.Find(h, f[1]) {
-			case Some[ui.Id[E]]:
+			case option.Some[ui.Id[E]]:
 				Done
-			case None:
+			case option.None:
 				Missing{Label: f[1]}
 			}
 			return (a, b)
@@ -564,11 +567,11 @@ func run[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut desktop.Dri
 		let beyond = if f[0] == "near" { float32(10) } else { float32(0) }
 		// The test host taps with the finger too: a finger does not hover.
 		let a = match ui.Find(h, f[1]) {
-		case Some[ui.Id[E]] as id:
+		case option.Some[ui.Id[E]] as id:
 			played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch needs go.Foreign {
 				try ui.TapWith(h, id.Value, desktop.TheFinger)
 			})
-		case None:
+		case option.None:
 			Missing{Label: f[1]}
 		}
 		let b = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch needs go.Foreign {
@@ -579,7 +582,7 @@ func run[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut desktop.Dri
 		// The system covers the window's edges (MB4): the window lays the
 		// root out inside them; TestHost has no window.
 		let f = strings.Fields(rest)
-		if len(f) != 4 {
+		if f.Len() != 4 {
 			return (Broke{Why: "insets T R B L"}, Broke{Why: "insets T R B L"})
 		}
 		let b = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch needs go.Foreign {
@@ -591,7 +594,7 @@ func run[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut desktop.Dri
 		// commits it (MB5): the program's state stays as it was while the
 		// composition is open, then the field's value is TEXT.
 		match strings.Cut(rest, "\t") {
-		case Some[strings.Halves] as c:
+		case option.Some[strings.Halves] as c:
 			let was = desktop.StateOf(d)
 			let mut b = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch needs go.Foreign {
 				try desktop.ComposeOn(d, c.Value.Before, c.Value.After)
@@ -609,7 +612,7 @@ func run[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut desktop.Dri
 			(played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch needs go.Foreign {
 				try ui.Play(h, []ui.Act{ui.TypeInto{Label: c.Value.Before, Text: c.Value.After}})
 			}), b)
-		case None:
+		case option.None:
 			(Broke{Why: "compose needs a tab"}, Broke{Why: "compose needs a tab"})
 		}
 	case "settle":
@@ -685,17 +688,17 @@ func focusPress[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut desk
 		try desktop.Drain(d)
 	})
 	let order = desktop.Focusables(d)
-	let mut want Option[ui.Id[E]] = None
-	if k > 0 && len(order) > 0 {
-		want = Some{Value: order[(k-1)%len(order)]}
+	let mut want option.Option[ui.Id[E]] = option.None
+	if k > 0 && order.Len() > 0 {
+		want = option.Some{Value: order[(k-1)%order.Len()]}
 	}
 	if desktop.FocusId(d) != want {
-		return (Done, Broke{Why: "after \(k) Tabs the focus is not on the node it reaches in tree order (of \(len(order)))"})
+		return (Done, Broke{Why: "after \(k) Tabs the focus is not on the node it reaches in tree order (of \(order.Len()))"})
 	}
 	match desktop.FocusId(d) {
-	case Some[ui.Id[E]] as id:
+	case option.Some[ui.Id[E]] as id:
 		match desktop.FocusNode(d) {
-		case Some[ui.Node[E]] as n:
+		case option.Some[ui.Node[E]] as n:
 			match n.Value {
 			case ui.InputNode as x:
 				w.Type("z")
@@ -718,9 +721,9 @@ func focusPress[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut desk
 				})
 				return (a, b2)
 			}
-		case None:
+		case option.None:
 		}
-	case None:
+	case option.None:
 	}
 	(a0, b)
 }

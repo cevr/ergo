@@ -4,6 +4,7 @@
 // track moves the window asks for frames, and each frame repaints it with
 // no pass of the session (a Tick with no Animate runs none).
 
+import option
 import ui
 
 // runTrack runs a TrackNode a patch wrote.
@@ -12,11 +13,11 @@ func runTrack[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], n ui.Node[E]) n
 	case ui.TrackNode as x:
 		let now = duration(d.w.Now())
 		match d.tracks.Get(id) {
-		case Some[ui.TrackState] as t:
+		case option.Some[ui.TrackState] as t:
 			if t.Value.To != x.Target {
 				d.tracks[id] = ui.TrackRetarget(t.Value, x.Target, now)
 			}
-		case None:
+		case option.None:
 			d.tracks[id] = ui.TrackStill(x.Target, x.Curve)
 		}
 	case _:
@@ -38,10 +39,10 @@ func tracksMoving[S, E, D, F](d mut Driver[S, E, D, F]) bool needs go.Foreign {
 // target: none yet).
 func trackedNow[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], target float64) float64 needs go.Foreign {
 	match d.tracks.Get(id) {
-	case Some[ui.TrackState] as t:
+	case option.Some[ui.TrackState] as t:
 		let (v, _) = ui.TrackAt(t.Value, duration(d.trackAt))
 		v
-	case None:
+	case option.None:
 		target
 	}
 }
@@ -49,7 +50,7 @@ func trackedNow[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], target float6
 // trackFrame repaints the moving tracks at a frame, and stops the frames
 // once every track rests and nothing animates.
 func trackFrame[S, E, D, F](d mut Driver[S, E, D, F]) needs go.Foreign {
-	if len(d.tracks) == 0 {
+	if d.tracks.Len() == 0 {
 		return
 	}
 	paint(d)

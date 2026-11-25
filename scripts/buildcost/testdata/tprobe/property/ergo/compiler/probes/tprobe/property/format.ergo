@@ -10,10 +10,11 @@
 // test of the product.
 
 import compiler/format
+import embed
 import strings
 
 // Inputs is the sources, each ended by a line of one record separator.
-let Inputs = embedded[string]("inputs.txt")
+let Inputs = embed.File[string]("inputs.txt")
 
 // FormatLawsHoldOnTheSources: every source the formatter formats keeps
 // its laws, and most sources format (a law holds vacuously on a source
@@ -34,7 +35,7 @@ test FormatLawsHoldOnTheSources {
 		formatted += 1
 		let laws = format.CheckLaws(src)
 		if laws != "ok\n" {
-			bad.WriteString(laws + "of: " + strings.Slice(src, 0, if len(src) < 200 { len(src) } else { 200 }) + "\n")
+			bad.WriteString(laws + "of: " + strings.Slice(src, 0, if src.Len() < 200 { src.Len() } else { 200 }) + "\n")
 		}
 	}
 	assert formatted*2 > all
