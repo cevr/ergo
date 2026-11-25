@@ -1,0 +1,874 @@
+import exec
+import filepath
+import fs
+import os
+import sha1dc
+import sha256
+import slices
+import strconv
+import strings
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/oracle
+import github.com/cevr/ergo/modules/git/pack
+import github.com/cevr/ergo/modules/git/root
+
+let onOracle = context needs TestAmbient {
+	exec.Runner: exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
+	fs.Files:    fs.NewTestHost(),
+	fs.Writes:   fs.NewTestHost(),
+	os.Process:  os.NewTestHost(),
+}
+
+type testFail {
+	reason string,
+}
+
+type synthChunk {
+	id   string,
+	data []byte,
+}
+
+func appendU32BE(buf []byte, v uint32) []byte {
+	let mut out = buf
+	out = out.Append(byte((v >> uint32(24)) & uint32(0xff)))
+	out = out.Append(byte((v >> uint32(16)) & uint32(0xff)))
+	out = out.Append(byte((v >> uint32(8)) & uint32(0xff)))
+	out = out.Append(byte(v & uint32(0xff)))
+	out
+}
+
+func appendU64BE(buf []byte, v uint64) []byte {
+	let out = appendU32BE(buf, uint32((v>>uint64(32))&uint64(0xffffffff)))
+	appendU32BE(out, uint32(v&uint64(0xffffffff)))
+}
+
+func signMIDXTrailer(format oid.Format, body []byte) []byte {
+	match format {
+	case oid.Sha1:
+		let d = sha1dc.Sum(body) catch {
+		case sha1dc.CollisionDetected:
+			[20]byte{}
+		}
+		let mut out = body
+		for i in 0..20 {
+			out = out.Append(d[i])
+		}
+		out
+	case oid.Sha256:
+		let h = sha256.New()
+		h.Write(body.Text())
+		slices.AppendAll(body, h.Digest().Bytes())
+	}
+}
+
+func encodePNAM(packNames []string) []byte {
+	let mut out = []byte{}
+	for name in packNames {
+		out = slices.AppendAll(out, name.Bytes())
+		out = out.Append(byte(0))
+	}
+	for len(out)%4 != 0 {
+		out = out.Append(byte(0))
+	}
+	out
+}
+
+func buildSyntheticMIDX(format oid.Format, baseCount int, packNames []string, entries []Location, extraChunks []synthChunk) []byte {
+	let sorted = slices.SortFunc(entries, compareLocations)
+	let mut counts = slices.WithCapacity[uint32](256)
+	for _ in 0..256 {
+		counts = counts.Append(uint32(0))
+	}
+	for e in sorted {
+		let b = int(e.OID.Raw[0])
+		counts[b] = counts[b] + uint32(1)
+	}
+	let mut oidf = slices.WithCapacity[byte](1024)
+	let mut acc = uint32(0)
+	for i in 0..256 {
+		acc = acc + counts[i]
+		oidf = appendU32BE(oidf, acc)
+	}
+	let mut oidl = slices.WithCapacity[byte](len(sorted) * oid.ByteLen(format))
+	let mut ooff = slices.WithCapacity[byte](len(sorted) * 8)
+	let mut loff = []byte{}
+	let mut loffCount = uint32(0)
+	for e in sorted {
+		oidl = slices.AppendAll(oidl, e.OID.Raw)
+		ooff = appendU32BE(ooff, e.PackID)
+		if e.Offset >= uint64(0x80000000) {
+			ooff = appendU32BE(ooff, uint32(0x80000000)|loffCount)
+			loff = appendU64BE(loff, e.Offset)
+			loffCount = loffCount + uint32(1)
+		} else {
+			ooff = appendU32BE(ooff, uint32(e.Offset))
+		}
+	}
+
+	let mut chunks = []synthChunk{
+		synthChunk{id: "PNAM", data: encodePNAM(packNames)},
+		synthChunk{id: "OIDF", data: oidf},
+		synthChunk{id: "OIDL", data: oidl},
+		synthChunk{id: "OOFF", data: ooff},
+	}
+	if len(loff) > 0 {
+		chunks = chunks.Append(synthChunk{id: "LOFF", data: loff})
+	}
+	for ec in extraChunks {
+		chunks = chunks.Append(ec)
+	}
+
+	let mut body = "MIDX".Bytes()
+	body = body.Append(byte(1))
+	body = body.Append(byte(expectedHashVersion(format)))
+	body = body.Append(byte(len(chunks)))
+	body = body.Append(byte(baseCount))
+	body = appendU32BE(body, uint32(len(packNames)))
+
+	let mut off = uint64(12 + (len(chunks)+1)*12)
+	for ch in chunks {
+		body = slices.AppendAll(body, ch.id.Bytes())
+		body = appendU64BE(body, off)
+		off = off + uint64(len(ch.data))
+	}
+	body = appendU32BE(body, uint32(0))
+	body = appendU64BE(body, off)
+
+	for ch in chunks {
+		body = slices.AppendAll(body, ch.data)
+	}
+	signMIDXTrailer(format, body)
+}
+
+func makeSeededPackNames() []string {
+	[]string{
+		"pack-0000000000000000000000000000000000000001.idx",
+		"pack-0000000000000000000000000000000000000002.idx",
+		"pack-0000000000000000000000000000000000000003.idx",
+	}
+}
+
+func makeSeededLocations(format oid.Format) []Location {
+	let packs = makeSeededPackNames()
+	let mut out = []Location{}
+	for i in 0..14 {
+		let payload = ("seeded-midx-entry-" + strconv.Itoa(i)).Bytes()
+		let id = oid.HashObject(format, oid.Blob, payload) catch {
+		case oid.Collision:
+			oid.Zero(format)
+		}
+		let pid = i % len(packs)
+		let off = if i%5 == 0 {
+			uint64(0x100000000) + uint64(i*4096)
+		} else {
+			uint64(12 + i*384)
+		}
+		out = out.Append(Location{
+			OID:      id,
+			PackName: packs[pid],
+			PackID:   uint32(pid),
+			Offset:   off,
+		})
+	}
+	out
+}
+
+func makeSeededMIDX(format oid.Format) MIDX {
+	let packs = makeSeededPackNames()
+	let locs = makeSeededLocations(format)
+	let raw = buildSyntheticMIDX(format, 0, packs, locs, []synthChunk{})
+	Parse(format, raw) catch {
+	case Truncated, BadMagic, UnsupportedVersion, WrongFormat, BadChunkTable, MissingChunk, CorruptPNAM, CorruptFanout, UnsortedOIDs, BadPackID, BadLargeOffset, ChecksumMismatch:
+		MIDX{format: format, version: 1, baseCount: 0, packNames: []string{}, fanout: []uint32{}, entries: []Location{}, checksum: oid.Zero(format), chunkIDs: []string{}}
+	}
+}
+
+let onParsedSha1 = context {
+	MIDXReader: makeSeededMIDX(oid.Sha1),
+}
+
+let onParsedSha256 = context {
+	MIDXReader: makeSeededMIDX(oid.Sha256),
+}
+
+let onMemorySha1 = context {
+	MIDXReader: NewMemoryMIDX(oid.Sha1, makeSeededPackNames(), makeSeededLocations(oid.Sha1)),
+}
+
+let onMemorySha256 = context {
+	MIDXReader: NewMemoryMIDX(oid.Sha256, makeSeededPackNames(), makeSeededLocations(oid.Sha256)),
+}
+
+func runGitOk(dir string, args []string, stdin string, pathEnv Map[string, string], step int) string fails testFail | exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	let base = oracle.GitCommand(dir, args, pathEnv, oracle.StepEpoch(step))
+	let cmd = if stdin == "" { base } else { exec.WithStdin(base, stdin) }
+	let res = try exec.Runner.Run(cmd)
+	if res.Status != 0 {
+		return testFail{reason: "git failed: " + res.Stderr}
+	}
+	res.Stdout
+}
+
+func collectAllObjectHexes(repoDir string, pathEnv Map[string, string], step int) []string fails testFail | exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	let raw = try runGitOk(repoDir, []string{"rev-list", "--objects", "--all"}, "", pathEnv, step)
+	let mut seen = Map[string, bool]{}
+	let mut out = []string{}
+	for line in strings.Split(strings.TrimSpace(raw), "\n") {
+		let fields = strings.Fields(line)
+		if len(fields) > 0 {
+			let h = fields[0]
+			if seen.Get(h) == None {
+				seen[h] = true
+				out = out.Append(h)
+			}
+		}
+	}
+	out
+}
+
+func makeRevisionText(rev int, lines int) string {
+	let mut out = []string{}
+	for i in 0..lines {
+		if i == rev*5+2 {
+			out = out.Append("midx-line-\(i)-changed-rev-\(rev)-payload-0123456789")
+		} else {
+			out = out.Append("midx-line-\(i)-shared-delta-body-0123456789abcdef")
+		}
+	}
+	strings.Join(out, "\n") + "\n"
+}
+
+func verifyMIDXMatchesGitAndODB(repoDir string, odb pack.ODB, c Chain, hexIds []string, pathEnv Map[string, string], step int) fails testFail | pack.Missing | pack.Corrupt | pack.MismatchedPair | pack.Collision | pack.LimitExceeded | pack.DepthExceeded | pack.IOFailed | oid.BadHex | oid.WrongLength | exec.NotFound | exec.Denied | exec.Failed needs exec.Runner | fs.Files {
+	let stdin = strings.Join(hexIds, "\n") + "\n"
+	let batchRaw = (try runGitOk(repoDir, []string{"cat-file", "--batch"}, stdin, pathEnv, step)).Bytes()
+	let mut pos = 0
+	let totalLen = len(batchRaw)
+	let mut count = 0
+	let chainPacks = ChainPackNames(c)
+
+	for pos < totalLen {
+		let mut nl = pos
+		for nl < totalLen && batchRaw[nl] != byte('\n') {
+			nl = nl + 1
+		}
+		if nl >= totalLen {
+			return testFail{reason: "unterminated cat-file --batch header"}
+		}
+		let hdrLine = batchRaw[pos:nl].Text()
+		let parts = strings.Fields(hdrLine)
+		if len(parts) != 3 {
+			return testFail{reason: "unexpected cat-file header: " + hdrLine}
+		}
+		let id = try oid.ParseHex(odb.Format, parts[0])
+		let wantKind = parts[1]
+		let wantSize = strconv.Atoi(parts[2]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return testFail{reason: "bad size in cat-file header"}
+		}
+		let bodyStart = nl + 1
+		let bodyEnd = bodyStart + wantSize
+		if bodyEnd >= totalLen {
+			return testFail{reason: "truncated cat-file body"}
+		}
+		let wantBody = batchRaw[bodyStart:bodyEnd]
+
+		let loc = match LookupChain(c, id) {
+		case None:
+			return testFail{reason: "LookupChain missed " + parts[0]}
+		case Some[Location] as l:
+			l.Value
+		}
+		if !oid.Equal(loc.OID, id) {
+			return testFail{reason: "Location OID mismatch for " + parts[0]}
+		}
+		if int(loc.PackID) >= len(chainPacks) || chainPacks[int(loc.PackID)] != loc.PackName {
+			return testFail{reason: "Location PackID/PackName mismatch for " + parts[0]}
+		}
+
+		let viaMidx = try ReadViaMIDX(odb, c, id, 16777216)
+		let viaPack = try pack.ReadObject(odb, id, 16777216)
+
+		if oid.KindName(viaMidx.Kind) != wantKind || viaMidx.Size != wantSize || !slices.Equal(viaMidx.Data, wantBody) || !oid.Equal(viaMidx.OID, id) {
+			return testFail{reason: "ReadViaMIDX disagreed with git cat-file for " + parts[0]}
+		}
+		if oid.KindName(viaMidx.Kind) != oid.KindName(viaPack.Kind) || viaMidx.Size != viaPack.Size || !slices.Equal(viaMidx.Data, viaPack.Data) || !oid.Equal(viaMidx.OID, viaPack.OID) {
+			return testFail{reason: "ReadViaMIDX disagreed with pack.ReadObject for " + parts[0]}
+		}
+
+		pos = bodyEnd + 1
+		count = count + 1
+	}
+	if count != len(hexIds) {
+		return testFail{reason: "verified object count mismatch"}
+	}
+}
+
+func makeRawOidWithFirstByte(format oid.Format, first byte, tag byte) oid.OID {
+	let n = oid.ByteLen(format)
+	let mut raw = slices.WithCapacity[byte](n)
+	raw = raw.Append(first)
+	for i in 1..n {
+		raw = raw.Append(byte((int(tag) + i*7) % 256))
+	}
+	oid.FromBytes(format, raw) catch {
+	case oid.WrongLength:
+		oid.Zero(format)
+	}
+}
+
+func mutateByte(src []byte, idx int, xorMask byte) []byte {
+	let mut out = slices.WithCapacity[byte](len(src))
+	for i in 0..len(src) {
+		if i == idx {
+			out = out.Append(src[i] ^ xorMask)
+		} else {
+			out = out.Append(src[i])
+		}
+	}
+	out
+}
+
+func setByte(src []byte, idx int, val byte) []byte {
+	let mut out = slices.WithCapacity[byte](len(src))
+	for i in 0..len(src) {
+		if i == idx {
+			out = out.Append(val)
+		} else {
+			out = out.Append(src[i])
+		}
+	}
+	out
+}
+
+// SingleMIDXMatchesGitAndODB: creates 3 overlapping packs (with duplicate
+// objects across packs) in both SHA-1 and SHA-256 repositories, runs
+// `git multi-pack-index write` and `verify`, and checks that every object
+// resolves via midx.Lookup and midx.ReadViaMIDX identically to pack.ReadObject
+// and `git cat-file --batch`.
+test SingleMIDXMatchesGitAndODB {
+	with onOracle {
+		let pathEnv = exec.PathOf(os.Process.Environ())
+		let cwd = try os.Process.Getwd()
+		let base = filepath.Join([]string{cwd, "midx-single"})
+
+		for oFmt in []oracle.OidFormat{oracle.Sha1, oracle.Sha256} {
+			let label = oracle.FormatName(oFmt)
+			let fmt = match oFmt {
+			case oracle.Sha1:
+				oid.Sha1
+			case oracle.Sha256:
+				oid.Sha256
+			}
+			let repoDir = try oracle.InitRepo(filepath.Join([]string{base, "repo-" + label}), oracle.RepoSpec{Format: oFmt, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, oracle.BaseEpoch)
+			let packDir = filepath.Join([]string{repoDir, ".git", "objects", "pack"})
+			let packPrefix = filepath.Join([]string{packDir, "pack"})
+
+			for p in 0..3 {
+				try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "doc.txt"}), makeRevisionText(p, 80))
+				try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "extra-\(p).txt"}), "pack-\(p)-unique-payload\n")
+				let _ = try runGitOk(repoDir, []string{"add", "."}, "", pathEnv, p*4+1)
+				let _ = try runGitOk(repoDir, []string{"commit", "-q", "-m", "pack commit \(p)"}, "", pathEnv, p*4+2)
+				if p == 2 {
+					let _ = try runGitOk(repoDir, []string{"tag", "-a", "v1", "-m", "midx tag"}, "", pathEnv, p*4+3)
+				}
+				let allSoFar = try collectAllObjectHexes(repoDir, pathEnv, p*4+4)
+				let _ = try runGitOk(repoDir, []string{"pack-objects", "-q", packPrefix}, strings.Join(allSoFar, "\n")+"\n", pathEnv, p*4+4)
+				let _ = try runGitOk(repoDir, []string{"prune-packed", "-q"}, "", pathEnv, p*4+4)
+			}
+
+			let _ = try runGitOk(repoDir, []string{"multi-pack-index", "write", "--bitmap"}, "", pathEnv, 20)
+			let _ = try runGitOk(repoDir, []string{"multi-pack-index", "verify"}, "", pathEnv, 21)
+
+			let layout = try root.Discover(repoDir, root.DiscoverOptions{CeilingDirs: []string{cwd}, Trust: root.ConfinedTrust(cwd)})
+			let odb = try pack.FromLayout(layout)
+			let c = try OpenDir(fmt, packDir)
+			let layers = ChainLayers(c)
+			assert len(layers) == 1
+			assert Version(layers[0]) == 1
+			assert BaseCount(layers[0]) == 0
+			assert len(ChainPackNames(c)) == 3
+
+			let allHex = try collectAllObjectHexes(repoDir, pathEnv, 22)
+			assert len(allHex) > 0
+			assert ChainCount(c) == len(allHex)
+			assert layers[0].Count() == len(allHex)
+
+			try verifyMIDXMatchesGitAndODB(repoDir, odb, c, allHex, pathEnv, 23)
+
+			let absent = oid.Zero(fmt)
+			assert LookupChain(c, absent) == None
+			let mut gotMissing = false
+			let _ = ReadViaMIDX(odb, c, absent, 4096) catch {
+			case pack.Missing:
+				gotMissing = true
+				pack.Object{Kind: oid.Blob, OID: absent, Size: 0, Data: []byte{}}
+			case pack.Corrupt, pack.MismatchedPair, pack.Collision, pack.LimitExceeded, pack.DepthExceeded, pack.IOFailed:
+				pack.Object{Kind: oid.Blob, OID: absent, Size: 0, Data: []byte{}}
+			}
+			assert gotMissing
+		}
+	}
+}
+
+// IncrementalChainedMIDXMatchesGitAndSyntheticChain: verifies both real C Git
+// 3-layer incremental MIDX chains (`multi-pack-index.d/multi-pack-index-chain`)
+// for SHA-1 and SHA-256 and a synthetic 2-layer base-referencing chain under
+// `multi-pack-indexes/multi-pack-index-chain` with duplicate-object precedence.
+test IncrementalChainedMIDXMatchesGitAndSyntheticChain {
+	with onOracle {
+		let pathEnv = exec.PathOf(os.Process.Environ())
+		let cwd = try os.Process.Getwd()
+		let base = filepath.Join([]string{cwd, "midx-chain"})
+
+		for oFmt in []oracle.OidFormat{oracle.Sha1, oracle.Sha256} {
+			let label = oracle.FormatName(oFmt)
+			let fmt = match oFmt {
+			case oracle.Sha1:
+				oid.Sha1
+			case oracle.Sha256:
+				oid.Sha256
+			}
+			let repoDir = try oracle.InitRepo(filepath.Join([]string{base, "inc-" + label}), oracle.RepoSpec{Format: oFmt, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, oracle.BaseEpoch)
+			let packDir = filepath.Join([]string{repoDir, ".git", "objects", "pack"})
+			let packPrefix = filepath.Join([]string{packDir, "pack"})
+
+			for p in 0..3 {
+				try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "layer-\(p).txt"}), makeRevisionText(p, 40))
+				let _ = try runGitOk(repoDir, []string{"add", "."}, "", pathEnv, p*5+1)
+				let _ = try runGitOk(repoDir, []string{"commit", "-q", "-m", "incremental layer \(p)"}, "", pathEnv, p*5+2)
+				let allSoFar = try collectAllObjectHexes(repoDir, pathEnv, p*5+3)
+				let _ = try runGitOk(repoDir, []string{"pack-objects", "-q", packPrefix}, strings.Join(allSoFar, "\n")+"\n", pathEnv, p*5+3)
+				let _ = try runGitOk(repoDir, []string{"prune-packed", "-q"}, "", pathEnv, p*5+4)
+				let _ = try runGitOk(repoDir, []string{"multi-pack-index", "write", "--incremental"}, "", pathEnv, p*5+5)
+			}
+
+			let _ = try runGitOk(repoDir, []string{"multi-pack-index", "verify"}, "", pathEnv, 30)
+
+			let layout = try root.Discover(repoDir, root.DiscoverOptions{CeilingDirs: []string{cwd}, Trust: root.ConfinedTrust(cwd)})
+			let odb = try pack.FromLayout(layout)
+			let c = try OpenDir(fmt, packDir)
+			assert len(ChainLayers(c)) == 3
+			assert len(ChainPackNames(c)) == 3
+
+			let allHex = try collectAllObjectHexes(repoDir, pathEnv, 31)
+			assert ChainCount(c) == len(allHex)
+			try verifyMIDXMatchesGitAndODB(repoDir, odb, c, allHex, pathEnv, 32)
+		}
+
+		let synthRepo = try oracle.InitRepo(filepath.Join([]string{base, "synth-chain"}), oracle.RepoSpec{Format: oracle.Sha1, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, oracle.BaseEpoch)
+		let synthPackDir = filepath.Join([]string{synthRepo, ".git", "objects", "pack"})
+		let synthPrefix = filepath.Join([]string{synthPackDir, "pack"})
+
+		try fs.Writes.WriteFile(filepath.Join([]string{synthRepo, "a.txt"}), "synth-layer-0\n")
+		let _ = try runGitOk(synthRepo, []string{"add", "."}, "", pathEnv, 1)
+		let _ = try runGitOk(synthRepo, []string{"commit", "-q", "-m", "s0"}, "", pathEnv, 2)
+		let oids0 = try collectAllObjectHexes(synthRepo, pathEnv, 3)
+		let pack0Hash = strings.TrimSpace(try runGitOk(synthRepo, []string{"pack-objects", "-q", synthPrefix}, strings.Join(oids0, "\n")+"\n", pathEnv, 3))
+		let _ = try runGitOk(synthRepo, []string{"prune-packed", "-q"}, "", pathEnv, 4)
+
+		try fs.Writes.WriteFile(filepath.Join([]string{synthRepo, "b.txt"}), "synth-layer-1\n")
+		let _ = try runGitOk(synthRepo, []string{"add", "."}, "", pathEnv, 5)
+		let _ = try runGitOk(synthRepo, []string{"commit", "-q", "-m", "s1"}, "", pathEnv, 6)
+		let oids1 = try collectAllObjectHexes(synthRepo, pathEnv, 7)
+		let pack1Hash = strings.TrimSpace(try runGitOk(synthRepo, []string{"pack-objects", "-q", synthPrefix}, strings.Join(oids1, "\n")+"\n", pathEnv, 7))
+		let _ = try runGitOk(synthRepo, []string{"prune-packed", "-q"}, "", pathEnv, 8)
+
+		let idx0Name = "pack-" + pack0Hash + ".idx"
+		let idx1Name = "pack-" + pack1Hash + ".idx"
+		let idA = try oid.ParseHex(oid.Sha1, oids0[0])
+		let idB = makeRawOidWithFirstByte(oid.Sha1, byte(0x77), byte(3))
+
+		let layer0Raw = buildSyntheticMIDX(oid.Sha1, 0, []string{idx0Name}, []Location{
+			Location{OID: idA, PackName: idx0Name, PackID: uint32(0), Offset: uint64(100)},
+		}, []synthChunk{})
+		let layer0 = try Parse(oid.Sha1, layer0Raw)
+
+		let layer1Raw = buildSyntheticMIDX(oid.Sha1, 1, []string{idx1Name}, []Location{
+			Location{OID: idA, PackName: idx1Name, PackID: uint32(1), Offset: uint64(250)},
+			Location{OID: idB, PackName: idx0Name, PackID: uint32(0), Offset: uint64(400)},
+		}, []synthChunk{})
+		let layer1 = try Parse(oid.Sha1, layer1Raw)
+
+		let chainDir = filepath.Join([]string{synthPackDir, "multi-pack-indexes"})
+		try fs.Writes.MkdirAll(chainDir)
+		let h0 = oid.Hex(Checksum(layer0))
+		let h1 = oid.Hex(Checksum(layer1))
+		try fs.Writes.WriteFile(filepath.Join([]string{chainDir, "multi-pack-index-" + h0 + ".midx"}), layer0Raw.Text())
+		try fs.Writes.WriteFile(filepath.Join([]string{chainDir, "multi-pack-index-" + h1 + ".midx"}), layer1Raw.Text())
+		try fs.Writes.WriteFile(filepath.Join([]string{chainDir, "multi-pack-index-chain"}), h0+"\n"+h1+"\n")
+
+		let opened = try OpenDir(oid.Sha1, synthPackDir)
+		assert len(ChainLayers(opened)) == 2
+		assert len(ChainPackNames(opened)) == 2
+		assert ChainPackNames(opened)[0] == idx0Name
+		assert ChainPackNames(opened)[1] == idx1Name
+
+		match LookupChain(opened, idA) {
+		case None:
+			assert false
+		case Some[Location] as loc:
+			assert loc.Value.PackID == uint32(1)
+			assert loc.Value.PackName == idx1Name
+			assert loc.Value.Offset == uint64(250)
+		}
+		match LookupChain(opened, idB) {
+		case None:
+			assert false
+		case Some[Location] as loc:
+			assert loc.Value.PackID == uint32(0)
+			assert loc.Value.PackName == idx0Name
+			assert loc.Value.Offset == uint64(400)
+		}
+
+		let mut sawBadBase = false
+		let badBaseRaw = buildSyntheticMIDX(oid.Sha1, 3, []string{idx1Name}, []Location{
+			Location{OID: idA, PackName: idx1Name, PackID: uint32(0), Offset: uint64(250)},
+		}, []synthChunk{})
+		let badBaseLayer = try Parse(oid.Sha1, badBaseRaw)
+		let _ = BuildChain(oid.Sha1, synthPackDir, []MIDX{layer0, badBaseLayer}) catch {
+		case BadChain:
+			sawBadBase = true
+			opened
+		case BadPackID, StaleManifest:
+			opened
+		}
+		assert sawBadBase
+
+		let mut sawDupPack = false
+		let _ = BuildChain(oid.Sha1, synthPackDir, []MIDX{layer0, layer0}) catch {
+		case StaleManifest:
+			sawDupPack = true
+			opened
+		case BadChain, BadPackID:
+			opened
+		}
+		assert sawDupPack
+
+		try fs.Writes.WriteFile(filepath.Join([]string{chainDir, "multi-pack-index-chain"}), h0+"\n"+oid.Hex(oid.Zero(oid.Sha1))+"\n")
+		let mut sawMissingLayer = false
+		let _ = OpenDir(oid.Sha1, synthPackDir) catch {
+		case BadChain:
+			sawMissingLayer = true
+			opened
+		case Truncated, BadMagic, UnsupportedVersion, WrongFormat, BadChunkTable, MissingChunk, CorruptPNAM, CorruptFanout, UnsortedOIDs, BadPackID, BadLargeOffset, ChecksumMismatch, StaleManifest, MissingPack, IOFailed:
+			opened
+		}
+		assert sawMissingLayer
+	}
+}
+
+// LargeOffsetAndStaleManifestDetection: verifies 64-bit LOFF (>4 GiB) offset
+// decoding and optional BTMP/RIDX chunk skipping for SHA-1 and SHA-256, and
+// asserts OpenDir rejects deleted .pack, deleted .idx, and swapped/mismatched
+// packs with MissingPack / StaleManifest instead of trusting stale tables.
+test LargeOffsetAndStaleManifestDetection {
+	with onOracle {
+		for fmt in []oid.Format{oid.Sha1, oid.Sha256} {
+			let packs = []string{
+				"pack-1111111111111111111111111111111111111111.idx",
+				"pack-2222222222222222222222222222222222222222.idx",
+			}
+			let id0 = makeRawOidWithFirstByte(fmt, byte(0x00), byte(1))
+			let id1 = makeRawOidWithFirstByte(fmt, byte(0x00), byte(2))
+			let id2 = makeRawOidWithFirstByte(fmt, byte(0x42), byte(3))
+			let id3 = makeRawOidWithFirstByte(fmt, byte(0xff), byte(4))
+			let bigOff1 = uint64(0x100000040)
+			let bigOff2 = uint64(0x280001234)
+			let raw = buildSyntheticMIDX(fmt, 0, packs, []Location{
+				Location{OID: id0, PackName: packs[0], PackID: uint32(0), Offset: uint64(12)},
+				Location{OID: id1, PackName: packs[1], PackID: uint32(1), Offset: bigOff1},
+				Location{OID: id2, PackName: packs[0], PackID: uint32(0), Offset: bigOff2},
+				Location{OID: id3, PackName: packs[1], PackID: uint32(1), Offset: uint64(900)},
+			}, []synthChunk{
+				synthChunk{id: "BTMP", data: []byte{byte(1), byte(2), byte(3), byte(4)}},
+				synthChunk{id: "RIDX", data: []byte{byte(0), byte(0), byte(0), byte(0)}},
+			})
+
+			let m = try Parse(fmt, raw)
+			assert m.Count() == 4
+			let cids = ChunkIDs(m)
+			assert len(cids) == 7
+
+			match m.Lookup(id0) {
+			case None:
+				assert false
+			case Some[Location] as l:
+				assert l.Value.Offset == uint64(12)
+				assert l.Value.PackID == uint32(0)
+			}
+			match m.Lookup(id1) {
+			case None:
+				assert false
+			case Some[Location] as l:
+				assert l.Value.Offset == bigOff1
+				assert l.Value.PackID == uint32(1)
+			}
+			match m.Lookup(id2) {
+			case None:
+				assert false
+			case Some[Location] as l:
+				assert l.Value.Offset == bigOff2
+				assert l.Value.PackID == uint32(0)
+			}
+			match m.Lookup(id3) {
+			case None:
+				assert false
+			case Some[Location] as l:
+				assert l.Value.Offset == uint64(900)
+				assert l.Value.PackID == uint32(1)
+			}
+			let wrongFmt = match fmt {
+			case oid.Sha1:
+				oid.Sha256
+			case oid.Sha256:
+				oid.Sha1
+			}
+			assert m.Lookup(oid.Zero(wrongFmt)) == None
+		}
+
+		let pathEnv = exec.PathOf(os.Process.Environ())
+		let cwd = try os.Process.Getwd()
+		let repoDir = try oracle.InitRepo(filepath.Join([]string{cwd, "midx-stale"}), oracle.RepoSpec{Format: oracle.Sha1, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, oracle.BaseEpoch)
+		let packDir = filepath.Join([]string{repoDir, ".git", "objects", "pack"})
+		let packPrefix = filepath.Join([]string{packDir, "pack"})
+
+		try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "p1.txt"}), "stale-pack-one\n")
+		let _ = try runGitOk(repoDir, []string{"add", "."}, "", pathEnv, 1)
+		let _ = try runGitOk(repoDir, []string{"commit", "-q", "-m", "p1"}, "", pathEnv, 2)
+		let h1 = try collectAllObjectHexes(repoDir, pathEnv, 3)
+		let _ = try runGitOk(repoDir, []string{"pack-objects", "-q", packPrefix}, strings.Join(h1, "\n")+"\n", pathEnv, 3)
+		let _ = try runGitOk(repoDir, []string{"prune-packed", "-q"}, "", pathEnv, 4)
+
+		try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "p2.txt"}), "stale-pack-two\n")
+		let _ = try runGitOk(repoDir, []string{"add", "."}, "", pathEnv, 5)
+		let _ = try runGitOk(repoDir, []string{"commit", "-q", "-m", "p2"}, "", pathEnv, 6)
+		let h2 = try collectAllObjectHexes(repoDir, pathEnv, 7)
+		let _ = try runGitOk(repoDir, []string{"pack-objects", "-q", packPrefix}, strings.Join(h2, "\n")+"\n", pathEnv, 7)
+		let _ = try runGitOk(repoDir, []string{"prune-packed", "-q"}, "", pathEnv, 8)
+
+		let _ = try runGitOk(repoDir, []string{"multi-pack-index", "write"}, "", pathEnv, 9)
+
+		let okChain = try OpenDir(oid.Sha1, packDir)
+		let packs = ChainPackNames(okChain)
+		assert len(packs) == 2
+
+		let pack0Path = filepath.Join([]string{packDir, PackFileName(packs[0])})
+		let pack1Path = filepath.Join([]string{packDir, PackFileName(packs[1])})
+		let idx0Path = filepath.Join([]string{packDir, packs[0]})
+		let savedPack0 = try fs.Files.ReadFile(pack0Path)
+		let savedPack1 = try fs.Files.ReadFile(pack1Path)
+		let savedIdx0 = try fs.Files.ReadFile(idx0Path)
+
+		try fs.Writes.Remove(pack0Path)
+		let mut sawMissingPack = false
+		let _ = OpenDir(oid.Sha1, packDir) catch {
+		case MissingPack:
+			sawMissingPack = true
+			okChain
+		case Truncated, BadMagic, UnsupportedVersion, WrongFormat, BadChunkTable, MissingChunk, CorruptPNAM, CorruptFanout, UnsortedOIDs, BadPackID, BadLargeOffset, ChecksumMismatch, StaleManifest, BadChain, IOFailed:
+			okChain
+		}
+		assert sawMissingPack
+
+		try fs.Writes.WriteFile(pack0Path, savedPack0)
+		try fs.Writes.Remove(idx0Path)
+		let mut sawMissingIdx = false
+		let _ = OpenDir(oid.Sha1, packDir) catch {
+		case MissingPack:
+			sawMissingIdx = true
+			okChain
+		case Truncated, BadMagic, UnsupportedVersion, WrongFormat, BadChunkTable, MissingChunk, CorruptPNAM, CorruptFanout, UnsortedOIDs, BadPackID, BadLargeOffset, ChecksumMismatch, StaleManifest, BadChain, IOFailed:
+			okChain
+		}
+		assert sawMissingIdx
+
+		try fs.Writes.WriteFile(idx0Path, savedIdx0)
+		try fs.Writes.WriteFile(pack0Path, savedPack1)
+		let mut sawStaleSwap = false
+		let _ = OpenDir(oid.Sha1, packDir) catch {
+		case StaleManifest:
+			sawStaleSwap = true
+			okChain
+		case Truncated, BadMagic, UnsupportedVersion, WrongFormat, BadChunkTable, MissingChunk, CorruptPNAM, CorruptFanout, UnsortedOIDs, BadPackID, BadLargeOffset, ChecksumMismatch, MissingPack, BadChain, IOFailed:
+			okChain
+		}
+		assert sawStaleSwap
+
+		try fs.Writes.WriteFile(pack0Path, savedPack0)
+		let restored = try OpenDir(oid.Sha1, packDir)
+		assert len(ChainPackNames(restored)) == 2
+	}
+}
+
+func makeUnsortedOidRaw(good []byte) []byte {
+	let mut body = slices.WithCapacity[byte](len(good) - 20)
+	for i in 0..(len(good) - 20) {
+		body = body.Append(good[i])
+	}
+	let oidlOff = int(readU64BE(body, 12+2*12+4))
+	for j in 0..20 {
+		let tmp = body[oidlOff+j]
+		body[oidlOff+j] = body[oidlOff+20+j]
+		body[oidlOff+20+j] = tmp
+	}
+	signMIDXTrailer(oid.Sha1, body)
+}
+
+func makeBadLoffRaw(good []byte) []byte {
+	let mut body = slices.WithCapacity[byte](len(good) - 20)
+	for i in 0..(len(good) - 20) {
+		body = body.Append(good[i])
+	}
+	let ooffOff = int(readU64BE(body, 12+3*12+4))
+	body[ooffOff+15] = byte(9)
+	signMIDXTrailer(oid.Sha1, body)
+}
+
+func makeMissingOoffRaw(packs []string) []byte {
+	let pnam = encodePNAM(packs)
+	let mut oidf = slices.WithCapacity[byte](1024)
+	for _ in 0..256 {
+		oidf = appendU32BE(oidf, uint32(0))
+	}
+	let mut body = "MIDX".Bytes()
+	body = body.Append(byte(1))
+	body = body.Append(byte(1))
+	body = body.Append(byte(3))
+	body = body.Append(byte(0))
+	body = appendU32BE(body, uint32(1))
+	let mut off = uint64(12 + 4*12)
+	body = slices.AppendAll(body, "PNAM".Bytes())
+	body = appendU64BE(body, off)
+	off = off + uint64(len(pnam))
+	body = slices.AppendAll(body, "OIDF".Bytes())
+	body = appendU64BE(body, off)
+	off = off + uint64(len(oidf))
+	body = slices.AppendAll(body, "OIDL".Bytes())
+	body = appendU64BE(body, off)
+	body = appendU32BE(body, uint32(0))
+	body = appendU64BE(body, off)
+	body = slices.AppendAll(body, pnam)
+	body = slices.AppendAll(body, oidf)
+	signMIDXTrailer(oid.Sha1, body)
+}
+
+// CorruptionMatrix: verifies Parse rejects bad magic, unsupported version,
+// wrong hash format, bad checksum, truncated input, missing chunks, unsorted
+// OIDs, out-of-range packID, and out-of-range LOFF index with exact error variants.
+test CorruptionMatrix {
+	let packs = []string{"pack-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.idx"}
+	let id1 = makeRawOidWithFirstByte(oid.Sha1, byte(0x10), byte(1))
+	let id2 = makeRawOidWithFirstByte(oid.Sha1, byte(0x80), byte(2))
+	let good = buildSyntheticMIDX(oid.Sha1, 0, packs, []Location{
+		Location{OID: id1, PackName: packs[0], PackID: uint32(0), Offset: uint64(64)},
+		Location{OID: id2, PackName: packs[0], PackID: uint32(0), Offset: uint64(0x100000100)},
+	}, []synthChunk{})
+	let parsedGood = try Parse(oid.Sha1, good)
+	assert parsedGood.Count() == 2
+
+	let mut gotTruncated = false
+	let _ = Parse(oid.Sha1, good[:16]) catch {
+	case Truncated:
+		gotTruncated = true
+		parsedGood
+	case BadMagic, UnsupportedVersion, WrongFormat, BadChunkTable, MissingChunk, CorruptPNAM, CorruptFanout, UnsortedOIDs, BadPackID, BadLargeOffset, ChecksumMismatch:
+		parsedGood
+	}
+	assert gotTruncated
+
+	let mut gotBadMagic = false
+	let _ = Parse(oid.Sha1, mutateByte(good, 0, byte(0x01))) catch {
+	case BadMagic:
+		gotBadMagic = true
+		parsedGood
+	case Truncated, UnsupportedVersion, WrongFormat, BadChunkTable, MissingChunk, CorruptPNAM, CorruptFanout, UnsortedOIDs, BadPackID, BadLargeOffset, ChecksumMismatch:
+		parsedGood
+	}
+	assert gotBadMagic
+
+	let mut gotBadVer = false
+	let _ = Parse(oid.Sha1, setByte(good, 4, byte(2))) catch {
+	case UnsupportedVersion:
+		gotBadVer = true
+		parsedGood
+	case Truncated, BadMagic, WrongFormat, BadChunkTable, MissingChunk, CorruptPNAM, CorruptFanout, UnsortedOIDs, BadPackID, BadLargeOffset, ChecksumMismatch:
+		parsedGood
+	}
+	assert gotBadVer
+
+	let mut gotWrongFmt = false
+	let _ = Parse(oid.Sha256, good) catch {
+	case WrongFormat:
+		gotWrongFmt = true
+		parsedGood
+	case Truncated, BadMagic, UnsupportedVersion, BadChunkTable, MissingChunk, CorruptPNAM, CorruptFanout, UnsortedOIDs, BadPackID, BadLargeOffset, ChecksumMismatch:
+		parsedGood
+	}
+	assert gotWrongFmt
+
+	let mut gotBadHashVer = false
+	let _ = Parse(oid.Sha1, setByte(good, 5, byte(3))) catch {
+	case WrongFormat:
+		gotBadHashVer = true
+		parsedGood
+	case Truncated, BadMagic, UnsupportedVersion, BadChunkTable, MissingChunk, CorruptPNAM, CorruptFanout, UnsortedOIDs, BadPackID, BadLargeOffset, ChecksumMismatch:
+		parsedGood
+	}
+	assert gotBadHashVer
+
+	let mut gotBadCsum = false
+	let _ = Parse(oid.Sha1, mutateByte(good, len(good)-1, byte(0xff))) catch {
+	case ChecksumMismatch:
+		gotBadCsum = true
+		parsedGood
+	case Truncated, BadMagic, UnsupportedVersion, WrongFormat, BadChunkTable, MissingChunk, CorruptPNAM, CorruptFanout, UnsortedOIDs, BadPackID, BadLargeOffset:
+		parsedGood
+	}
+	assert gotBadCsum
+
+	let badOidRaw = makeUnsortedOidRaw(good)
+	let mut gotUnsorted = false
+	let _ = Parse(oid.Sha1, badOidRaw) catch {
+	case UnsortedOIDs, CorruptFanout:
+		gotUnsorted = true
+		parsedGood
+	case Truncated, BadMagic, UnsupportedVersion, WrongFormat, BadChunkTable, MissingChunk, CorruptPNAM, BadPackID, BadLargeOffset, ChecksumMismatch:
+		parsedGood
+	}
+	assert gotUnsorted
+
+	let badPackRaw = buildSyntheticMIDX(oid.Sha1, 0, packs, []Location{
+		Location{OID: id1, PackName: packs[0], PackID: uint32(5), Offset: uint64(64)},
+	}, []synthChunk{})
+	let mut gotBadPack = false
+	let _ = Parse(oid.Sha1, badPackRaw) catch {
+	case BadPackID:
+		gotBadPack = true
+		parsedGood
+	case Truncated, BadMagic, UnsupportedVersion, WrongFormat, BadChunkTable, MissingChunk, CorruptPNAM, CorruptFanout, UnsortedOIDs, BadLargeOffset, ChecksumMismatch:
+		parsedGood
+	}
+	assert gotBadPack
+
+	let badLoffRaw = makeBadLoffRaw(good)
+	let mut gotBadLoff = false
+	let _ = Parse(oid.Sha1, badLoffRaw) catch {
+	case BadLargeOffset:
+		gotBadLoff = true
+		parsedGood
+	case Truncated, BadMagic, UnsupportedVersion, WrongFormat, BadChunkTable, MissingChunk, CorruptPNAM, CorruptFanout, UnsortedOIDs, BadPackID, ChecksumMismatch:
+		parsedGood
+	}
+	assert gotBadLoff
+
+	let missingOoffRaw = makeMissingOoffRaw(packs)
+	let mut gotMissingChunk = false
+	let _ = Parse(oid.Sha1, missingOoffRaw) catch {
+	case MissingChunk:
+		gotMissingChunk = true
+		parsedGood
+	case Truncated, BadMagic, UnsupportedVersion, WrongFormat, BadChunkTable, CorruptPNAM, CorruptFanout, UnsortedOIDs, BadPackID, BadLargeOffset, ChecksumMismatch:
+		parsedGood
+	}
+	assert gotMissingChunk
+}

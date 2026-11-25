@@ -1,0 +1,95 @@
+import slices
+import github.com/cevr/ergo/modules/git/oid
+
+// MemoryMIDX is an in-memory provider of MIDXReader holding sorted entries and
+// pack names for representation-independent testing and law execution.
+type MemoryMIDX {
+	format    oid.Format,
+	packNames []string,
+	entries   []Location,
+} implements MIDXReader
+
+func compareLocations(a Location, b Location) int {
+	oid.Compare(a.OID, b.OID)
+}
+
+// NewMemoryMIDX builds a MemoryMIDX from packNames and raw locations, filtering
+// out entries whose format or PackID does not match packNames and sorting into
+// strict ascending OID order.
+func NewMemoryMIDX(format oid.Format, packNames []string, raw []Location) MemoryMIDX {
+	let mut packs = slices.WithCapacity[string](len(packNames))
+	for p in packNames {
+		packs = packs.Append(p)
+	}
+	let mut filtered = []Location{}
+	for e in raw {
+		let pid = int(e.PackID)
+		if sameFormat(format, e.OID.Format) && len(e.OID.Raw) == oid.ByteLen(format) && pid >= 0 && pid < len(packs) {
+			filtered = filtered.Append(Location{
+				OID:      e.OID,
+				PackName: packs[pid],
+				PackID:   e.PackID,
+				Offset:   e.Offset,
+			})
+		}
+	}
+	let sorted = slices.SortFunc(filtered, compareLocations)
+	let mut dedup = slices.WithCapacity[Location](len(sorted))
+	for e in sorted {
+		if len(dedup) == 0 || !oid.Equal(dedup[len(dedup)-1].OID, e.OID) {
+			dedup = dedup.Append(e)
+		}
+	}
+	MemoryMIDX{
+		format:    format,
+		packNames: packs,
+		entries:   dedup,
+	}
+}
+
+// Count implements MIDXReader.Count on MemoryMIDX.
+func Count(m MemoryMIDX) int {
+	len(m.entries)
+}
+
+// At implements MIDXReader.At on MemoryMIDX.
+func At(m MemoryMIDX, i int) Option[Location] {
+	if i < 0 || i >= len(m.entries) {
+		return None
+	}
+	Some[Location]{Value: m.entries[i]}
+}
+
+// PackNames implements MIDXReader.PackNames on MemoryMIDX.
+func PackNames(m MemoryMIDX) []string {
+	let mut out = slices.WithCapacity[string](len(m.packNames))
+	for p in m.packNames {
+		out = out.Append(p)
+	}
+	out
+}
+
+// Lookup implements MIDXReader.Lookup on MemoryMIDX.
+func Lookup(m MemoryMIDX, id oid.OID) Option[Location] {
+	if !sameFormat(m.format, id.Format) || len(id.Raw) != oid.ByteLen(m.format) {
+		return None
+	}
+	let mut lo = 0
+	let mut hi = len(m.entries)
+	for _ in 0..64 {
+		if lo >= hi {
+			break
+		}
+		let mid = lo + (hi-lo)/2
+		let cmp = oid.Compare(m.entries[mid].OID, id)
+		if cmp == 0 {
+			return Some[Location]{Value: m.entries[mid]}
+		}
+		if cmp < 0 {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+	None
+}
