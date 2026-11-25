@@ -1,0 +1,194 @@
+// Package wpack implements pure-Ergo Git Packfile v2 and Pack Index v2 encoding
+// with IEEE CRC32 and OFS_DELTA/REF_DELTA compression, connectivity gating,
+// quarantine staging, and crash-safe atomic pack-before-idx publication
+// (STD-GIT: G-WOBJECT + G-WPACK).
+
+import slices
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/pack
+import github.com/cevr/ergo/modules/git/packidx
+import github.com/cevr/ergo/modules/git/tree
+
+// Error is the closed failure union for pack/index encoding, connectivity
+// verification, quarantine staging, and atomic publication.
+type Error =
+	| Collision{Digest string}
+	| DanglingObject{From oid.OID, Missing oid.OID, Edge string}
+	| CorruptObject{OID oid.OID, Reason string}
+	| InvalidPack{Reason string}
+	| FaultInjected{Stage string}
+	| IOFailed{Op string, Detail string}
+
+// DeltaMode selects how a PackObject is encoded into a packfile stream.
+type DeltaMode =
+	| DeltaNone{}
+	| DeltaAuto{}
+	| DeltaOfs{BaseIndex int}
+	| DeltaRef{BaseOID oid.OID}
+
+// PackObject is one canonical Git object queued for pack encoding or batch
+// publication.
+type PackObject {
+	Kind  oid.Kind,
+	Data  []byte,
+	Delta DeltaMode,
+}
+
+// BaseObj constructs a full (non-delta) PackObject.
+func BaseObj(kind oid.Kind, data []byte) PackObject {
+	PackObject{Kind: kind, Data: data, Delta: DeltaNone}
+}
+
+// AutoDeltaObj constructs a PackObject eligible for automatic OFS_DELTA
+// compression against an earlier same-kind object in the pack.
+func AutoDeltaObj(kind oid.Kind, data []byte) PackObject {
+	PackObject{Kind: kind, Data: data, Delta: DeltaAuto}
+}
+
+// OfsDeltaObj constructs a PackObject requesting OFS_DELTA compression against
+// the input object at baseIndex.
+func OfsDeltaObj(kind oid.Kind, data []byte, baseIndex int) PackObject {
+	PackObject{Kind: kind, Data: data, Delta: DeltaOfs{BaseIndex: baseIndex}}
+}
+
+// RefDeltaObj constructs a PackObject requesting REF_DELTA compression against
+// an earlier object with baseOid.
+func RefDeltaObj(kind oid.Kind, data []byte, baseOid oid.OID) PackObject {
+	PackObject{Kind: kind, Data: data, Delta: DeltaRef{BaseOID: baseOid}}
+}
+
+// BuiltPack holds a complete, verified in-memory Git Packfile v2 and its
+// matching Pack Index v2 byte streams.
+type BuiltPack {
+	Format       oid.Format,
+	PackChecksum oid.OID,
+	IdxChecksum  oid.OID,
+	PackBytes    []byte,
+	IdxBytes     []byte,
+	Count        int,
+	Entries      []packidx.Entry,
+}
+
+// PublishFault injects deterministic crash or corruption edges into
+// PublishPackWithFault to verify crash-safe pack-before-idx ordering.
+type PublishFault =
+	| FaultNone{}
+	| FaultBeforePackRename{}
+	| FaultBeforeIdxRename{}
+	| FaultInvalidIdx{}
+
+// PublishedPack describes a verified pack/index pair published into objects/pack.
+type PublishedPack {
+	PackPath     string,
+	IdxPath      string,
+	PackChecksum oid.OID,
+	IdxChecksum  oid.OID,
+	Count        int,
+}
+
+func lawCommitBytes(treeId oid.OID, msg string) []byte {
+	let s = "tree " + oid.Hex(treeId) + "\nauthor Law <law@example.com> 1700000000 +0000\ncommitter Law <law@example.com> 1700000000 +0000\n\n" + msg + "\n"
+	s.Bytes()
+}
+
+// PackPublisher is the capability seam for connectivity-gated pack publishing
+// and verification, carrying laws held identically by MemoryPublisher and
+// DiskPublisher.
+type PackPublisher {
+	Format() oid.Format,
+	Publish(objects []PackObject) BuiltPack fails Collision | DanglingObject | CorruptObject | InvalidPack | FaultInjected | IOFailed,
+	ReadObject(id oid.OID, maxBytes int) pack.Object fails pack.Missing | pack.Corrupt | pack.MismatchedPair | pack.Collision | pack.LimitExceeded | pack.DepthExceeded | pack.IOFailed,
+
+	// PublishedPackIsReadable: publishing a connected blob + tree + commit batch
+	// makes every object readable back with identical OID, Kind, Size, and Data.
+	law PublishedPackIsReadable(payload string) {
+		let fmt = Format()
+		let blobData = ("wpack-law-blob-" + payload).Bytes()
+		let blobId = oid.HashObject(fmt, oid.Blob, blobData) catch {
+		case oid.Collision:
+			return true
+		}
+		let treeBytes = tree.EncodeTree(fmt, []tree.Entry{
+			tree.Entry{Mode: tree.ModeRegular, Name: "item.txt", OID: blobId},
+		}) catch {
+		case tree.InvalidEntryName, tree.DuplicateEntry:
+			return false
+		}
+		let treeId = oid.HashObject(fmt, oid.Tree, treeBytes) catch {
+		case oid.Collision:
+			return true
+		}
+		let commitBytes = lawCommitBytes(treeId, "law commit "+payload)
+		let commitId = oid.HashObject(fmt, oid.Commit, commitBytes) catch {
+		case oid.Collision:
+			return true
+		}
+		let built = Publish([]PackObject{
+			BaseObj(oid.Blob, blobData),
+			BaseObj(oid.Tree, treeBytes),
+			BaseObj(oid.Commit, commitBytes),
+		}) catch {
+		case Collision, DanglingObject, CorruptObject, InvalidPack, FaultInjected, IOFailed:
+			return false
+		}
+		if built.Count != 3 {
+			return false
+		}
+		let gotBlob = ReadObject(blobId, len(blobData)+256) catch {
+		case pack.Missing, pack.Corrupt, pack.MismatchedPair, pack.Collision, pack.LimitExceeded, pack.DepthExceeded, pack.IOFailed:
+			return false
+		}
+		let gotTree = ReadObject(treeId, len(treeBytes)+256) catch {
+		case pack.Missing, pack.Corrupt, pack.MismatchedPair, pack.Collision, pack.LimitExceeded, pack.DepthExceeded, pack.IOFailed:
+			return false
+		}
+		let gotCommit = ReadObject(commitId, len(commitBytes)+256) catch {
+		case pack.Missing, pack.Corrupt, pack.MismatchedPair, pack.Collision, pack.LimitExceeded, pack.DepthExceeded, pack.IOFailed:
+			return false
+		}
+			oid.Equal(gotBlob.OID, blobId) &&
+			oid.KindName(gotBlob.Kind) == "blob" &&
+			slices.Equal(gotBlob.Data, blobData) &&
+			oid.Equal(gotTree.OID, treeId) &&
+			oid.KindName(gotTree.Kind) == "tree" &&
+			slices.Equal(gotTree.Data, treeBytes) &&
+			oid.Equal(gotCommit.OID, commitId) &&
+			oid.KindName(gotCommit.Kind) == "commit" &&
+			slices.Equal(gotCommit.Data, commitBytes)
+	},
+
+	// ConnectivityRejectsDanglingCommit: publishing a commit pointing to a
+	// missing tree fails strictly with DanglingObject and publishes nothing.
+	law ConnectivityRejectsDanglingCommit(payload string) {
+		let fmt = Format()
+		let missingTree = oid.HashObject(fmt, oid.Tree, ("unwritten-tree-" + payload).Bytes()) catch {
+		case oid.Collision:
+			return true
+		}
+		let danglingBytes = lawCommitBytes(missingTree, "dangling "+payload)
+		let danglingId = oid.HashObject(fmt, oid.Commit, danglingBytes) catch {
+		case oid.Collision:
+			return true
+		}
+		let mut sawDangling = false
+		let _ = Publish([]PackObject{BaseObj(oid.Commit, danglingBytes)}) catch {
+		case DanglingObject:
+			sawDangling = true
+			BuiltPack{Format: fmt, PackChecksum: oid.Zero(fmt), IdxChecksum: oid.Zero(fmt), PackBytes: []byte{}, IdxBytes: []byte{}, Count: 0, Entries: []packidx.Entry{}}
+		case Collision, CorruptObject, InvalidPack, FaultInjected, IOFailed:
+			BuiltPack{Format: fmt, PackChecksum: oid.Zero(fmt), IdxChecksum: oid.Zero(fmt), PackBytes: []byte{}, IdxBytes: []byte{}, Count: 0, Entries: []packidx.Entry{}}
+		}
+		if !sawDangling {
+			return false
+		}
+		let mut stillMissing = false
+		let _ = ReadObject(danglingId, 4096) catch {
+		case pack.Missing:
+			stillMissing = true
+			pack.Object{Kind: oid.Commit, OID: danglingId, Size: 0, Data: []byte{}}
+		case pack.Corrupt, pack.MismatchedPair, pack.Collision, pack.LimitExceeded, pack.DepthExceeded, pack.IOFailed:
+			pack.Object{Kind: oid.Commit, OID: danglingId, Size: 0, Data: []byte{}}
+		}
+		stillMissing
+	},
+}

@@ -1,0 +1,464 @@
+import filepath
+import fs
+import sync
+import github.com/cevr/ergo/modules/git/delta
+import github.com/cevr/ergo/modules/git/loose
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/pack
+import github.com/cevr/ergo/modules/git/packidx
+import github.com/cevr/ergo/modules/git/tree
+
+func requireFound(found bool, from oid.OID, missingId oid.OID, edge string) fails DanglingObject {
+	if !found {
+		return DanglingObject{From: from, Missing: missingId, Edge: edge}
+	}
+}
+
+func hasKnownObject(odb Option[pack.ODB], present Map[string, bool], id oid.OID) bool needs fs.Files {
+	if present.Get(oid.Hex(id)) != None {
+		return true
+	}
+	match odb {
+	case None:
+		false
+	case Some[pack.ODB] as o:
+		pack.ContainsObject(o.Value, id)
+	}
+}
+
+func collectBatchEdges(format oid.Format, incoming []PackObject, existing Map[string, bool]) (Map[string, bool], [](oid.OID, oid.OID, string)) fails Collision | CorruptObject {
+	let mut present = existing
+	let mut hashed = []hashedPackObj{}
+	for i, obj in incoming {
+		let id = oid.HashObject(format, obj.Kind, obj.Data) catch {
+		case oid.Collision as c:
+			return Collision{Digest: c.Digest}
+		}
+		present = present.Put(oid.Hex(id), true)
+		hashed = hashed.Append(hashedPackObj{
+			id:      id,
+			kind:    obj.Kind,
+			data:    obj.Data,
+			delta:   obj.Delta,
+			origIdx: i,
+		})
+	}
+	let mut edges = [](oid.OID, oid.OID, string){}
+	for obj in hashed {
+		match obj.kind {
+		case oid.Blob:
+		case oid.Commit:
+			let parsed = tree.ParseCommit(format, obj.data) catch {
+			case tree.CorruptCommit as e:
+				return CorruptObject{OID: obj.id, Reason: e.Reason}
+			case tree.CorruptSignature as e:
+				return CorruptObject{OID: obj.id, Reason: e.Reason}
+			}
+			edges = edges.Append((obj.id, parsed.Tree, "commit.tree"))
+			for p in parsed.Parents {
+				edges = edges.Append((obj.id, p, "commit.parent"))
+			}
+		case oid.Tree:
+			let entries = tree.ParseTree(format, obj.data) catch {
+			case tree.CorruptTree as e:
+				return CorruptObject{OID: obj.id, Reason: e.Reason}
+			case tree.InvalidEntryName as e:
+				return CorruptObject{OID: obj.id, Reason: e.Reason}
+			case tree.UnsortedTree:
+				return CorruptObject{OID: obj.id, Reason: "unsorted tree object"}
+			case tree.DuplicateEntry as e:
+				return CorruptObject{OID: obj.id, Reason: "duplicate tree entry: " + e.Name}
+			}
+			for e in entries {
+				if tree.IsGitlink(e.Mode) {
+					continue
+				}
+				edges = edges.Append((obj.id, e.OID, "tree:" + e.Name))
+			}
+		case oid.Tag:
+			let parsed = tree.ParseTag(format, obj.data) catch {
+			case tree.CorruptTag as e:
+				return CorruptObject{OID: obj.id, Reason: e.Reason}
+			case tree.CorruptSignature as e:
+				return CorruptObject{OID: obj.id, Reason: e.Reason}
+			}
+			edges = edges.Append((obj.id, parsed.Target, "tag.object"))
+		}
+	}
+	(present, edges)
+}
+
+func verifyMemoryConnectivity(format oid.Format, incoming []PackObject, existing Map[string, bool]) fails Collision | DanglingObject | CorruptObject {
+	let (present, edges) = try collectBatchEdges(format, incoming, existing)
+	for edge in edges {
+		let (fromId, targetId, label) = edge
+		try requireFound(present.Get(oid.Hex(targetId)) != None, fromId, targetId, label)
+	}
+}
+
+// VerifyConnectivity verifies that every commit tree/parent, non-gitlink tree
+// entry, and annotated tag target referenced by incoming exists either in
+// incoming itself or in odb, rejecting dangling references with DanglingObject.
+func VerifyConnectivity(format oid.Format, incoming []PackObject, odb Option[pack.ODB]) fails Collision | DanglingObject | CorruptObject needs fs.Files {
+	let (present, edges) = try collectBatchEdges(format, incoming, Map[string, bool]{})
+	for edge in edges {
+		let (fromId, targetId, label) = edge
+		try requireFound(hasKnownObject(odb, present, targetId), fromId, targetId, label)
+	}
+}
+
+func validateIdxAndPackBytes(format oid.Format, idxPath string, idxRaw []byte, packPath string, packRaw []byte) fails InvalidPack {
+	let parsedIdx = packidx.Parse(format, idxRaw) catch {
+	case packidx.Truncated:
+		return InvalidPack{Reason: "truncated pack index"}
+	case packidx.BadMagic as e:
+		return InvalidPack{Reason: e.Reason}
+	case packidx.UnsupportedVersion:
+		return InvalidPack{Reason: "unsupported pack index version"}
+	case packidx.CorruptFanout:
+		return InvalidPack{Reason: "corrupt pack index fanout"}
+	case packidx.UnsortedOIDs:
+		return InvalidPack{Reason: "unsorted OIDs in pack index"}
+	case packidx.BadLargeOffset:
+		return InvalidPack{Reason: "invalid large offset in pack index"}
+	case packidx.ChecksumMismatch:
+		return InvalidPack{Reason: "pack index checksum mismatch"}
+	case packidx.WrongFormat as e:
+		return InvalidPack{Reason: e.Reason}
+	}
+	let _ = pack.ValidatePackPair(format, idxPath, parsedIdx, packPath, packRaw) catch {
+	case pack.Corrupt as e:
+		return InvalidPack{Reason: e.Why}
+	case pack.MismatchedPair:
+		return InvalidPack{Reason: "pack and index checksums do not match"}
+	}
+}
+
+func removeQuietly(path string) needs fs.Writes {
+	fs.Writes.Remove(path) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+	}
+}
+
+func corruptLastByte(src []byte) []byte {
+	let mut out = []byte{}
+	for i in 0..len(src) {
+		if i == len(src)-1 {
+			out = out.Append(src[i] ^ byte(0xff))
+		} else {
+			out = out.Append(src[i])
+		}
+	}
+	out
+}
+
+func writeFileChecked(path string, data []byte, op string) fails IOFailed needs fs.Writes {
+	fs.Writes.WriteFile(path, data.Text()) catch {
+	case fs.NotFound as e:
+		return IOFailed{Op: op, Detail: e.Path}
+	case fs.Denied as e:
+		return IOFailed{Op: op, Detail: e.Path}
+	case fs.Failed as e:
+		return IOFailed{Op: op, Detail: e.Reason}
+	}
+}
+
+func renameChecked(src string, dst string, op string) fails IOFailed needs fs.Writes {
+	fs.Writes.Rename(src, dst) catch {
+	case fs.NotFound as e:
+		return IOFailed{Op: op, Detail: e.Path}
+	case fs.Denied as e:
+		return IOFailed{Op: op, Detail: e.Path}
+	case fs.CrossDevice:
+		return IOFailed{Op: op, Detail: dst}
+	case fs.Failed as e:
+		return IOFailed{Op: op, Detail: e.Reason}
+	}
+}
+
+// PublishPackWithFault atomically stages and publishes a BuiltPack into
+// `<objectsDir>/pack/` while strictly enforcing pack-before-idx ordering and
+// pre-advertisement pack/idx pair validation, supporting fault injection at
+// crash boundaries.
+func PublishPackWithFault(objectsDir string, built BuiltPack, fault PublishFault) PublishedPack fails InvalidPack | FaultInjected | IOFailed needs fs.Files | fs.Writes {
+	let packDir = filepath.Join([]string{filepath.Clean(objectsDir), "pack"})
+	fs.Writes.MkdirAll(packDir) catch {
+	case fs.Denied as e:
+		return IOFailed{Op: "mkdir-pack", Detail: e.Path}
+	case fs.Failed as e:
+		return IOFailed{Op: "mkdir-pack", Detail: e.Reason}
+	}
+
+	let hexSum = oid.Hex(built.PackChecksum)
+	let tmpPackPath = filepath.Join([]string{packDir, "tmp_pack_" + hexSum})
+	let finalPackPath = filepath.Join([]string{packDir, "pack-" + hexSum + ".pack"})
+	let tmpIdxPath = filepath.Join([]string{packDir, "tmp_idx_" + hexSum})
+	let finalIdxPath = filepath.Join([]string{packDir, "pack-" + hexSum + ".idx"})
+
+	let idxPayload = match fault {
+	case FaultInvalidIdx:
+		corruptLastByte(built.IdxBytes)
+	case FaultNone, FaultBeforePackRename, FaultBeforeIdxRename:
+		built.IdxBytes
+	}
+
+	try validateIdxAndPackBytes(built.Format, tmpIdxPath, idxPayload, tmpPackPath, built.PackBytes)
+
+	let publishPackFirst = true
+	if publishPackFirst {
+		try writeFileChecked(tmpPackPath, built.PackBytes, "write-tmp-pack")
+		match fault {
+		case FaultBeforePackRename:
+			removeQuietly(tmpPackPath)
+			return FaultInjected{Stage: "before-pack-rename"}
+		case FaultNone, FaultBeforeIdxRename, FaultInvalidIdx:
+		}
+		try renameChecked(tmpPackPath, finalPackPath, "rename-pack")
+
+		try writeFileChecked(tmpIdxPath, idxPayload, "write-tmp-idx")
+		let diskPack = fs.Files.ReadFile(finalPackPath) catch {
+		case fs.NotFound as e:
+			removeQuietly(tmpIdxPath)
+			return IOFailed{Op: "verify-disk-pack", Detail: e.Path}
+		case fs.Denied as e:
+			removeQuietly(tmpIdxPath)
+			return IOFailed{Op: "verify-disk-pack", Detail: e.Path}
+		case fs.Failed as e:
+			removeQuietly(tmpIdxPath)
+			return IOFailed{Op: "verify-disk-pack", Detail: e.Reason}
+		}
+		let diskIdx = fs.Files.ReadFile(tmpIdxPath) catch {
+		case fs.NotFound as e:
+			removeQuietly(tmpIdxPath)
+			return IOFailed{Op: "verify-disk-idx", Detail: e.Path}
+		case fs.Denied as e:
+			removeQuietly(tmpIdxPath)
+			return IOFailed{Op: "verify-disk-idx", Detail: e.Path}
+		case fs.Failed as e:
+			removeQuietly(tmpIdxPath)
+			return IOFailed{Op: "verify-disk-idx", Detail: e.Reason}
+		}
+		validateIdxAndPackBytes(built.Format, tmpIdxPath, diskIdx.Bytes(), finalPackPath, diskPack.Bytes()) catch {
+		case InvalidPack as e:
+			removeQuietly(tmpIdxPath)
+			return e
+		}
+		match fault {
+		case FaultBeforeIdxRename:
+			removeQuietly(tmpIdxPath)
+			return FaultInjected{Stage: "before-idx-rename"}
+		case FaultNone, FaultBeforePackRename, FaultInvalidIdx:
+		}
+		try renameChecked(tmpIdxPath, finalIdxPath, "rename-idx")
+	} else {
+		try writeFileChecked(tmpIdxPath, idxPayload, "write-tmp-idx")
+		try renameChecked(tmpIdxPath, finalIdxPath, "rename-idx")
+		try writeFileChecked(tmpPackPath, built.PackBytes, "write-tmp-pack")
+		match fault {
+		case FaultBeforePackRename:
+			removeQuietly(tmpPackPath)
+			return FaultInjected{Stage: "before-pack-rename"}
+		case FaultNone, FaultBeforeIdxRename, FaultInvalidIdx:
+		}
+		try renameChecked(tmpPackPath, finalPackPath, "rename-pack")
+	}
+
+	PublishedPack{
+		PackPath:     finalPackPath,
+		IdxPath:      finalIdxPath,
+		PackChecksum: built.PackChecksum,
+		IdxChecksum:  built.IdxChecksum,
+		Count:        built.Count,
+	}
+}
+
+// PublishPack atomically publishes built into `<objectsDir>/pack/` using
+// pack-before-idx ordering and pair validation.
+func PublishPack(objectsDir string, built BuiltPack) PublishedPack fails InvalidPack | FaultInjected | IOFailed needs fs.Files | fs.Writes {
+	try PublishPackWithFault(objectsDir, built, FaultNone)
+}
+
+func cleanQuarantineDir(quarantineDir string, published Option[PublishedPack]) needs fs.Writes {
+	match published {
+	case Some[PublishedPack] as p:
+		removeQuietly(p.Value.IdxPath)
+		removeQuietly(p.Value.PackPath)
+	case None:
+	}
+	removeQuietly(filepath.Join([]string{quarantineDir, "pack"}))
+	removeQuietly(quarantineDir)
+}
+
+// PublishQuarantinedPack stages incoming objects into a temporary quarantine
+// directory, verifies full object connectivity against (quarantine + main ODB),
+// and publishes the pack/index pair into main objectsDir only on success;
+// on failure, quarantine is cleaned up leaving main objectsDir untouched.
+func PublishQuarantinedPack(format oid.Format, objectsDir string, alternates []string, objects []PackObject, fault PublishFault) (BuiltPack, PublishedPack) fails Collision | DanglingObject | CorruptObject | InvalidPack | FaultInjected | IOFailed needs fs.Files | fs.Writes {
+	let cleanDir = filepath.Clean(objectsDir)
+	let odb = pack.Open(format, cleanDir, alternates, delta.DefaultLimits()) catch {
+	case pack.Corrupt as e:
+		return InvalidPack{Reason: e.Why}
+	case pack.MismatchedPair as e:
+		return InvalidPack{Reason: "mismatched pack pair: " + e.PackPath}
+	case pack.IOFailed as e:
+		return IOFailed{Op: e.Op, Detail: e.Detail}
+	}
+	let built = try BuildPackPair(format, objects)
+	let qDir = filepath.Join([]string{cleanDir, "incoming-quarantine-" + oid.ShortHex(built.PackChecksum, 12)})
+	let staged = PublishPack(qDir, built) catch {
+	case InvalidPack as e:
+		cleanQuarantineDir(qDir, None)
+		return e
+	case FaultInjected as e:
+		cleanQuarantineDir(qDir, None)
+		return e
+	case IOFailed as e:
+		cleanQuarantineDir(qDir, None)
+		return e
+	}
+	VerifyConnectivity(format, objects, Some[pack.ODB]{Value: odb}) catch {
+	case Collision as e:
+		cleanQuarantineDir(qDir, Some[PublishedPack]{Value: staged})
+		return e
+	case DanglingObject as e:
+		cleanQuarantineDir(qDir, Some[PublishedPack]{Value: staged})
+		return e
+	case CorruptObject as e:
+		cleanQuarantineDir(qDir, Some[PublishedPack]{Value: staged})
+		return e
+	}
+	let published = PublishPackWithFault(cleanDir, built, fault) catch {
+	case InvalidPack as e:
+		cleanQuarantineDir(qDir, Some[PublishedPack]{Value: staged})
+		return e
+	case FaultInjected as e:
+		cleanQuarantineDir(qDir, Some[PublishedPack]{Value: staged})
+		return e
+	case IOFailed as e:
+		cleanQuarantineDir(qDir, Some[PublishedPack]{Value: staged})
+		return e
+	}
+	cleanQuarantineDir(qDir, Some[PublishedPack]{Value: staged})
+	(built, published)
+}
+
+// PublishLooseBatch validates connectivity of incoming objects against main
+// objectsDir (and alternates) before atomically installing each unique object
+// as a loose object, leaving main objectsDir untouched on dangling references.
+func PublishLooseBatch(format oid.Format, objectsDir string, alternates []string, objects []PackObject) []oid.OID fails Collision | DanglingObject | CorruptObject | InvalidPack | IOFailed needs fs.Files | fs.Writes {
+	let cleanDir = filepath.Clean(objectsDir)
+	let odb = pack.Open(format, cleanDir, alternates, delta.DefaultLimits()) catch {
+	case pack.Corrupt as e:
+		return InvalidPack{Reason: e.Why}
+	case pack.MismatchedPair as e:
+		return InvalidPack{Reason: "mismatched pack pair: " + e.PackPath}
+	case pack.IOFailed as e:
+		return IOFailed{Op: e.Op, Detail: e.Detail}
+	}
+	try VerifyConnectivity(format, objects, Some[pack.ODB]{Value: odb})
+	let (unique, _) = try dedupPackObjects(format, objects)
+	let ls = loose.NewStore(format, cleanDir, alternates)
+	let mut ids = []oid.OID{}
+	for obj in unique {
+		let id = loose.InstallObject(ls, obj.kind, obj.data) catch {
+		case loose.Collision as c:
+			return Collision{Digest: c.Digest}
+		case loose.IOFailed as e:
+			return IOFailed{Op: e.Op, Detail: e.Detail}
+		}
+		ids = ids.Append(id)
+	}
+	ids
+}
+
+// MemoryPublisher implements PackPublisher in memory using pack.MemoryODB,
+// enforcing identical connectivity, pack/idx encoding, and round-trip checks.
+type MemoryPublisher {
+	format oid.Format,
+	store  pack.MemoryODB,
+	known  sync.Ref[Map[string, bool]],
+} implements PackPublisher
+
+// NewMemoryPublisher builds an empty MemoryPublisher for format.
+func NewMemoryPublisher(format oid.Format) MemoryPublisher {
+	MemoryPublisher{
+		format: format,
+		store:  pack.NewMemoryODB(format),
+		known:  sync.NewRef(Map[string, bool]{}),
+	}
+}
+
+// Format implements PackPublisher.Format on MemoryPublisher.
+func Format(m MemoryPublisher) oid.Format {
+	m.format
+}
+
+// Publish implements PackPublisher.Publish on MemoryPublisher.
+func Publish(m MemoryPublisher, objects []PackObject) BuiltPack fails Collision | DanglingObject | CorruptObject | InvalidPack | FaultInjected | IOFailed {
+	try verifyMemoryConnectivity(m.format, objects, m.known.Get())
+	let built = try BuildPackPair(m.format, objects)
+	try validateIdxAndPackBytes(m.format, "memory.idx", built.IdxBytes, "memory.pack", built.PackBytes)
+	let materialized = with context { delta.BaseSource: delta.EmptyBases } {
+		delta.MaterializePack(built.PackBytes, m.format, delta.DefaultLimits()) catch {
+		case delta.Truncated, delta.CorruptDelta, delta.BaseSizeMismatch, delta.TargetSizeMismatch, delta.LimitExceeded, delta.BadOfsDistance, delta.BadPackHeader, delta.DepthExceeded, delta.MissingBase, delta.ZlibFailed:
+			return InvalidPack{Reason: "built pack failed delta materialization"}
+		}
+	}
+	let mut nextKnown = m.known.Get()
+	for obj in materialized {
+		let id = m.store.Install(obj.Kind, obj.Data) catch {
+		case pack.Collision as c:
+			return Collision{Digest: c.Digest}
+		case pack.IOFailed as e:
+			return IOFailed{Op: e.Op, Detail: e.Detail}
+		}
+		nextKnown = nextKnown.Put(oid.Hex(id), true)
+	}
+	m.known.Set(nextKnown)
+	built
+}
+
+// ReadObject implements PackPublisher.ReadObject on MemoryPublisher.
+func ReadObject(m MemoryPublisher, id oid.OID, maxBytes int) pack.Object fails pack.Missing | pack.Corrupt | pack.MismatchedPair | pack.Collision | pack.LimitExceeded | pack.DepthExceeded | pack.IOFailed {
+	try m.store.Read(id, maxBytes)
+}
+
+// DiskPublisher implements PackPublisher over an on-disk Git objects directory
+// using Quarantine + PublishPackWithFault via fs.Host.
+type DiskPublisher {
+	format     oid.Format,
+	objectsDir string,
+	alternates []string,
+	host       fs.Host,
+} implements PackPublisher
+
+// NewDiskPublisher builds a DiskPublisher backed by objectsDir, alternates, and host.
+func NewDiskPublisher(format oid.Format, objectsDir string, alternates []string, host fs.Host) DiskPublisher {
+	DiskPublisher{
+		format:     format,
+		objectsDir: filepath.Clean(objectsDir),
+		alternates: alternates,
+		host:       host,
+	}
+}
+
+// Format implements PackPublisher.Format on DiskPublisher.
+func Format(d DiskPublisher) oid.Format {
+	d.format
+}
+
+// Publish implements PackPublisher.Publish on DiskPublisher.
+func Publish(d DiskPublisher, objects []PackObject) BuiltPack fails Collision | DanglingObject | CorruptObject | InvalidPack | FaultInjected | IOFailed {
+	with context { fs.Files: d.host, fs.Writes: d.host } {
+		let (built, _) = try PublishQuarantinedPack(d.format, d.objectsDir, d.alternates, objects, FaultNone)
+		built
+	}
+}
+
+// ReadObject implements PackPublisher.ReadObject on DiskPublisher.
+func ReadObject(d DiskPublisher, id oid.OID, maxBytes int) pack.Object fails pack.Missing | pack.Corrupt | pack.MismatchedPair | pack.Collision | pack.LimitExceeded | pack.DepthExceeded | pack.IOFailed {
+	with context { fs.Files: d.host } {
+		let odb = try pack.Open(d.format, d.objectsDir, d.alternates, delta.DefaultLimits())
+		try pack.ReadObject(odb, id, maxBytes)
+	}
+}

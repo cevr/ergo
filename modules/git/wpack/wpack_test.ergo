@@ -1,0 +1,361 @@
+import exec
+import filepath
+import fs
+import fstest
+import os
+import slices
+import strconv
+import strings
+import github.com/cevr/ergo/modules/git/delta
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/oracle
+import github.com/cevr/ergo/modules/git/pack
+import github.com/cevr/ergo/modules/git/packidx
+import github.com/cevr/ergo/modules/git/root
+import github.com/cevr/ergo/modules/git/tree
+
+let onOracle = context needs TestAmbient {
+	exec.Runner: exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
+	fs.Files:    fs.NewTestHost(),
+	fs.Writes:   fs.NewTestHost(),
+	os.Process:  os.NewTestHost(),
+}
+
+let onMemoryPubSha1 = context {
+	PackPublisher: NewMemoryPublisher(oid.Sha1),
+}
+
+let onMemoryPubSha256 = context {
+	PackPublisher: NewMemoryPublisher(oid.Sha256),
+}
+
+let onDiskPubSha1 = context needs TestAmbient {
+	PackPublisher: NewDiskPublisher(oid.Sha1, filepath.Join([]string{fstest.TestFolder(), "law-disk-wpack-objects"}), []string{}, fs.NewTestHost()),
+}
+
+type testFail {
+	reason string,
+}
+
+func runGitOk(dir string, args []string, stdin string, pathEnv Map[string, string], step int) string fails testFail | exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	let base = oracle.GitCommand(dir, args, pathEnv, oracle.StepEpoch(step))
+	let cmd = if stdin == "" { base } else { exec.WithStdin(base, stdin) }
+	let res = try exec.Runner.Run(cmd)
+	if res.Status != 0 {
+		return testFail{reason: "git failed: " + res.Stderr}
+	}
+	res.Stdout
+}
+
+func check(cond bool, msg string) fails testFail {
+	if !cond {
+		return testFail{reason: msg}
+	}
+}
+
+func makeLargeBlob(seed int, lines int) []byte {
+	let mut out = []string{}
+	for i in 0..lines {
+		if i == seed*11+5 {
+			out = out.Append("large-blob-line-\(i)-mutated-seed-\(seed)-0123456789abcdef0123456789abcdef")
+		} else {
+			out = out.Append("large-blob-line-\(i)-shared-delta-content-0123456789abcdef0123456789abcdef")
+		}
+	}
+	(strings.Join(out, "\n") + "\n").Bytes()
+}
+
+func formatTestCommit(treeId oid.OID, parents []oid.OID, epoch int, msg string) []byte {
+	let mut s = "tree " + oid.Hex(treeId) + "\n"
+	for p in parents {
+		s = s + "parent " + oid.Hex(p) + "\n"
+	}
+	s = s + "author WPack <wpack@example.com> " + strconv.Itoa(epoch) + " +0000\n"
+	s = s + "committer WPack <wpack@example.com> " + strconv.Itoa(epoch) + " +0000\n\n" + msg + "\n"
+	s.Bytes()
+}
+
+func formatTestTag(targetId oid.OID, targetKind string, name string, msg string) []byte {
+	let s = "object " + oid.Hex(targetId) + "\ntype " + targetKind + "\ntag " + name + "\ntagger WPack <wpack@example.com> 1700000050 +0000\n\n" + msg + "\n"
+	s.Bytes()
+}
+
+func hexU32Lower(v uint32) string {
+	let digits = "0123456789abcdef".Bytes()
+	let mut out = slices.WithCapacity[byte](8)
+	for shift in []uint32{uint32(28), uint32(24), uint32(20), uint32(16), uint32(12), uint32(8), uint32(4), uint32(0)} {
+		out = out.Append(digits[int((v>>shift)&uint32(0x0f))])
+	}
+	out.Text()
+}
+
+func verifyFormatAgainstGit(base string, cwd string, oFmt oracle.OidFormat, fmt oid.Format, pathEnv Map[string, string]) fails testFail | Collision | DanglingObject | CorruptObject | InvalidPack | FaultInjected | IOFailed | oid.BadHex | oid.WrongLength | tree.InvalidEntryName | tree.DuplicateEntry | packidx.Truncated | packidx.BadMagic | packidx.UnsupportedVersion | packidx.CorruptFanout | packidx.UnsortedOIDs | packidx.BadLargeOffset | packidx.ChecksumMismatch | packidx.WrongFormat | delta.Truncated | delta.CorruptDelta | delta.BaseSizeMismatch | delta.TargetSizeMismatch | delta.LimitExceeded | delta.BadOfsDistance | delta.BadPackHeader | delta.DepthExceeded | delta.MissingBase | delta.ZlibFailed | oracle.Missing | oracle.Corrupt | oracle.Ambiguous | oracle.InvalidRef | oracle.Conflict | oracle.CommandFailed | root.NotARepository | root.BadGitDirFile | root.BadCommonDir | root.UnsupportedVersion | root.UnsupportedExtension | root.UntrustedPath | root.PathEscape | root.AlternateCycle | root.AlternateDepthExceeded | root.ConfigSyntax | root.ConfigBadValue | root.IncludeCycle | root.IncludeDepthExceeded | root.IncludeRefused | pack.Missing | pack.Corrupt | pack.MismatchedPair | pack.Collision | pack.LimitExceeded | pack.DepthExceeded | pack.IOFailed | exec.NotFound | exec.Denied | exec.Failed | fs.NotFound | fs.Denied | fs.Failed needs exec.Runner | fs.Files | fs.Writes {
+	let label = oracle.FormatName(oFmt)
+	let repoDir = try oracle.InitRepo(filepath.Join([]string{base, "repo-" + label}), oracle.RepoSpec{Format: oFmt, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, oracle.BaseEpoch)
+	let objectsDir = filepath.Join([]string{repoDir, ".git", "objects"})
+
+	let smallBlob = "hello from pure-ergo wpack\n".Bytes()
+	let bigBase = makeLargeBlob(1, 1100)
+	let bigDelta = makeLargeBlob(2, 1100)
+	try check(len(bigBase) > 70000, "bigBase must exceed 70 KiB")
+
+	let smallId = oid.HashObject(fmt, oid.Blob, smallBlob) catch {
+	case oid.Collision as c:
+		return Collision{Digest: c.Digest}
+	}
+	let bigBaseId = oid.HashObject(fmt, oid.Blob, bigBase) catch {
+	case oid.Collision as c:
+		return Collision{Digest: c.Digest}
+	}
+	let bigDeltaId = oid.HashObject(fmt, oid.Blob, bigDelta) catch {
+	case oid.Collision as c:
+		return Collision{Digest: c.Digest}
+	}
+
+	let tree1Raw = try tree.EncodeTree(fmt, []tree.Entry{
+		tree.Entry{Mode: tree.ModeRegular, Name: "big.txt", OID: bigBaseId},
+		tree.Entry{Mode: tree.ModeRegular, Name: "small.txt", OID: smallId},
+	})
+	let tree1Id = oid.HashObject(fmt, oid.Tree, tree1Raw) catch {
+	case oid.Collision as c:
+		return Collision{Digest: c.Digest}
+	}
+	let commit1Raw = formatTestCommit(tree1Id, []oid.OID{}, 1700000010, "first packed commit")
+	let commit1Id = oid.HashObject(fmt, oid.Commit, commit1Raw) catch {
+	case oid.Collision as c:
+		return Collision{Digest: c.Digest}
+	}
+
+	let tree2Raw = try tree.EncodeTree(fmt, []tree.Entry{
+		tree.Entry{Mode: tree.ModeRegular, Name: "big.txt", OID: bigDeltaId},
+		tree.Entry{Mode: tree.ModeRegular, Name: "small.txt", OID: smallId},
+	})
+	let tree2Id = oid.HashObject(fmt, oid.Tree, tree2Raw) catch {
+	case oid.Collision as c:
+		return Collision{Digest: c.Digest}
+	}
+	let commit2Raw = formatTestCommit(tree2Id, []oid.OID{commit1Id}, 1700000020, "second packed commit with ofs-delta")
+	let commit2Id = oid.HashObject(fmt, oid.Commit, commit2Raw) catch {
+	case oid.Collision as c:
+		return Collision{Digest: c.Digest}
+	}
+
+	let tagRaw = formatTestTag(commit2Id, "commit", "v1", "annotated packed tag")
+	let tagId = oid.HashObject(fmt, oid.Tag, tagRaw) catch {
+	case oid.Collision as c:
+		return Collision{Digest: c.Digest}
+	}
+
+	let batch = []PackObject{
+		BaseObj(oid.Blob, smallBlob),
+		BaseObj(oid.Blob, smallBlob),
+		BaseObj(oid.Blob, bigBase),
+		OfsDeltaObj(oid.Blob, bigDelta, 2),
+		BaseObj(oid.Tree, tree1Raw),
+		BaseObj(oid.Commit, commit1Raw),
+		AutoDeltaObj(oid.Tree, tree2Raw),
+		RefDeltaObj(oid.Commit, commit2Raw, commit1Id),
+		BaseObj(oid.Tag, tagRaw),
+		BaseObj(oid.Tag, tagRaw),
+	}
+
+	let (built, published) = try PublishQuarantinedPack(fmt, objectsDir, []string{}, batch, FaultNone)
+	try check(built.Count == 8, "duplicate objects must be deduplicated to exactly 8 unique entries")
+	try check(published.Count == 8, "published count must be 8")
+
+	let parsedIdx = try packidx.Parse(fmt, built.IdxBytes)
+	try check(parsedIdx.Count() == 8, "packidx.Parse entry count mismatch")
+	let mat = with context { delta.BaseSource: delta.EmptyBases } {
+		try delta.MaterializePack(built.PackBytes, fmt, delta.DefaultLimits())
+	}
+	try check(len(mat) == 8, "delta.MaterializePack object count mismatch")
+
+	let verifyOut = try runGitOk(repoDir, []string{"verify-pack", "-v", published.PackPath}, "", pathEnv, 5)
+	try check(strings.Contains(verifyOut, oid.Hex(bigDeltaId)), "git verify-pack -v missing bigDeltaId")
+	try check(strings.Contains(verifyOut, oid.Hex(tagId)), "git verify-pack -v missing tagId")
+
+	let showIdxOut = try runGitOk(repoDir, []string{"show-index", "--object-format=" + label}, built.IdxBytes.Text(), pathEnv, 6)
+	for entry in built.Entries {
+		let wantLine = strconv.Itoa(int(entry.Offset)) + " " + oid.Hex(entry.OID) + " (" + hexU32Lower(entry.CRC32) + ")"
+		try check(strings.Contains(showIdxOut, wantLine), "git show-index mismatch for "+wantLine)
+	}
+
+	let _ = try runGitOk(repoDir, []string{"update-ref", "refs/heads/main", oid.Hex(commit2Id)}, "", pathEnv, 7)
+	let _ = try runGitOk(repoDir, []string{"update-ref", "refs/tags/v1", oid.Hex(tagId)}, "", pathEnv, 8)
+	let _ = try runGitOk(repoDir, []string{"fsck", "--strict", "--full"}, "", pathEnv, 9)
+
+	let layout = try root.Discover(repoDir, root.DiscoverOptions{CeilingDirs: []string{cwd}, Trust: root.ConfinedTrust(cwd)})
+	let odb = try pack.FromLayout(layout)
+	let expectedIds = []oid.OID{smallId, bigBaseId, bigDeltaId, tree1Id, commit1Id, tree2Id, commit2Id, tagId}
+	for id in expectedIds {
+		let fromOdb = try pack.ReadObject(odb, id, 16777216)
+		let gitType = strings.TrimSpace(try runGitOk(repoDir, []string{"cat-file", "-t", oid.Hex(id)}, "", pathEnv, 10))
+		let gitBody = (try runGitOk(repoDir, []string{"cat-file", gitType, oid.Hex(id)}, "", pathEnv, 11)).Bytes()
+		try check(oid.KindName(fromOdb.Kind) == gitType, "kind mismatch against git cat-file")
+		try check(slices.Equal(fromOdb.Data, gitBody), "payload mismatch against git cat-file")
+	}
+}
+
+// BuildAndPublishMatchesGitVerifyPackAndFsck: builds SHA-1 and SHA-256 packs
+// containing >70 KiB blobs, OFS_DELTA, REF_DELTA, AutoDelta, duplicates,
+// trees, commits, and annotated tags, publishes them via Quarantine into real
+// C Git repos, and verifies 100% agreement with `git verify-pack -v`,
+// `git show-index`, `git cat-file`, and `git fsck --strict --full`.
+test BuildAndPublishMatchesGitVerifyPackAndFsck {
+	with onOracle {
+		let pathEnv = exec.PathOf(os.Process.Environ())
+		let cwd = try os.Process.Getwd()
+		let base = filepath.Join([]string{cwd, "wpack-oracle"})
+		try verifyFormatAgainstGit(base, cwd, oracle.Sha1, oid.Sha1, pathEnv)
+		try verifyFormatAgainstGit(base, cwd, oracle.Sha256, oid.Sha256, pathEnv)
+	}
+}
+
+// QuarantineCrashAndConnectivityGate: proves Quarantine rejects dangling
+// commits leaving main objects/ untouched, PublishLooseBatch rejects dangling
+// objects, and crash injection at FaultBeforePackRename / FaultBeforeIdxRename /
+// FaultInvalidIdx never advertises a `.idx` file without a valid `.pack`.
+test QuarantineCrashAndConnectivityGate {
+	with onOracle {
+		let pathEnv = exec.PathOf(os.Process.Environ())
+		let cwd = try os.Process.Getwd()
+		let repoDir = try oracle.InitRepo(filepath.Join([]string{cwd, "wpack-safety"}), oracle.RepoSpec{Format: oracle.Sha1, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, oracle.BaseEpoch)
+		let objectsDir = filepath.Join([]string{repoDir, ".git", "objects"})
+		let packDir = filepath.Join([]string{objectsDir, "pack"})
+
+		let missingTree = oid.HashObject(oid.Sha1, oid.Tree, "missing-tree-payload".Bytes()) catch {
+		case oid.Collision:
+			oid.Zero(oid.Sha1)
+		}
+		let danglingCommit = formatTestCommit(missingTree, []oid.OID{}, 1700000100, "dangling commit")
+		let mut sawDanglingPack = false
+		let _ = PublishQuarantinedPack(oid.Sha1, objectsDir, []string{}, []PackObject{BaseObj(oid.Commit, danglingCommit)}, FaultNone) catch {
+		case DanglingObject:
+			sawDanglingPack = true
+			(BuiltPack{Format: oid.Sha1, PackChecksum: oid.Zero(oid.Sha1), IdxChecksum: oid.Zero(oid.Sha1), PackBytes: []byte{}, IdxBytes: []byte{}, Count: 0, Entries: []packidx.Entry{}}, PublishedPack{PackPath: "", IdxPath: "", PackChecksum: oid.Zero(oid.Sha1), IdxChecksum: oid.Zero(oid.Sha1), Count: 0})
+		case Collision, CorruptObject, InvalidPack, FaultInjected, IOFailed:
+			(BuiltPack{Format: oid.Sha1, PackChecksum: oid.Zero(oid.Sha1), IdxChecksum: oid.Zero(oid.Sha1), PackBytes: []byte{}, IdxBytes: []byte{}, Count: 0, Entries: []packidx.Entry{}}, PublishedPack{PackPath: "", IdxPath: "", PackChecksum: oid.Zero(oid.Sha1), IdxChecksum: oid.Zero(oid.Sha1), Count: 0})
+		}
+		assert sawDanglingPack
+
+		let mut sawDanglingLoose = false
+		let _ = PublishLooseBatch(oid.Sha1, objectsDir, []string{}, []PackObject{BaseObj(oid.Commit, danglingCommit)}) catch {
+		case DanglingObject:
+			sawDanglingLoose = true
+			[]oid.OID{}
+		case Collision, CorruptObject, InvalidPack, IOFailed:
+			[]oid.OID{}
+		}
+		assert sawDanglingLoose
+
+		let packEntriesAfterDangling = fs.Files.ReadDir(packDir) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			[]string{}
+		}
+		assert len(packEntriesAfterDangling) == 0
+
+		let okBlob = "crash-safe-blob-payload\n".Bytes()
+		let built = try BuildPackPair(oid.Sha1, []PackObject{BaseObj(oid.Blob, okBlob)})
+		let hexSum = oid.Hex(built.PackChecksum)
+		let expectedIdx = filepath.Join([]string{packDir, "pack-" + hexSum + ".idx"})
+
+		let mut sawPrePackFault = false
+		let _ = PublishPackWithFault(objectsDir, built, FaultBeforePackRename) catch {
+		case FaultInjected:
+			sawPrePackFault = true
+			PublishedPack{PackPath: "", IdxPath: "", PackChecksum: oid.Zero(oid.Sha1), IdxChecksum: oid.Zero(oid.Sha1), Count: 0}
+		case InvalidPack, IOFailed:
+			PublishedPack{PackPath: "", IdxPath: "", PackChecksum: oid.Zero(oid.Sha1), IdxChecksum: oid.Zero(oid.Sha1), Count: 0}
+		}
+		assert sawPrePackFault
+
+		let mut idxAbsentAfterPackFault = false
+		let _ = fs.Files.ReadFile(expectedIdx) catch {
+		case fs.NotFound:
+			idxAbsentAfterPackFault = true
+			""
+		case fs.Denied, fs.Failed:
+			""
+		}
+		assert idxAbsentAfterPackFault
+
+		let mut sawPreIdxFault = false
+		let _ = PublishPackWithFault(objectsDir, built, FaultBeforeIdxRename) catch {
+		case FaultInjected:
+			sawPreIdxFault = true
+			PublishedPack{PackPath: "", IdxPath: "", PackChecksum: oid.Zero(oid.Sha1), IdxChecksum: oid.Zero(oid.Sha1), Count: 0}
+		case InvalidPack, IOFailed:
+			PublishedPack{PackPath: "", IdxPath: "", PackChecksum: oid.Zero(oid.Sha1), IdxChecksum: oid.Zero(oid.Sha1), Count: 0}
+		}
+		assert sawPreIdxFault
+
+		let mut idxAbsentAfterIdxFault = false
+		let _ = fs.Files.ReadFile(expectedIdx) catch {
+		case fs.NotFound:
+			idxAbsentAfterIdxFault = true
+			""
+		case fs.Denied, fs.Failed:
+			""
+		}
+		assert idxAbsentAfterIdxFault
+
+		let mut sawBadIdx = false
+		let _ = PublishPackWithFault(objectsDir, built, FaultInvalidIdx) catch {
+		case InvalidPack:
+			sawBadIdx = true
+			PublishedPack{PackPath: "", IdxPath: "", PackChecksum: oid.Zero(oid.Sha1), IdxChecksum: oid.Zero(oid.Sha1), Count: 0}
+		case FaultInjected, IOFailed:
+			PublishedPack{PackPath: "", IdxPath: "", PackChecksum: oid.Zero(oid.Sha1), IdxChecksum: oid.Zero(oid.Sha1), Count: 0}
+		}
+		assert sawBadIdx
+
+		let _ = try runGitOk(repoDir, []string{"fsck", "--strict", "--full"}, "", pathEnv, 20)
+
+		let looseIds = try PublishLooseBatch(oid.Sha1, objectsDir, []string{}, []PackObject{BaseObj(oid.Blob, okBlob)})
+		assert len(looseIds) == 1
+		let _ = try runGitOk(repoDir, []string{"fsck", "--strict", "--full"}, "", pathEnv, 21)
+	}
+}
+
+// BuildPackPairRoundTripsWithPackidxAndDelta: verifies BuildPackPair produces
+// pack/idx pairs that round-trip cleanly through packidx.Parse and
+// delta.MaterializePack with exact OID, offset, and payload equality.
+law BuildPackPairRoundTripsWithPackidxAndDelta(a string, b string) {
+	let dataA = ("pack-prop-a-" + a).Bytes()
+	let dataB = ("pack-prop-a-" + a + "-delta-" + b).Bytes()
+	let built = BuildPackPair(oid.Sha1, []PackObject{
+		BaseObj(oid.Blob, dataA),
+		AutoDeltaObj(oid.Blob, dataB),
+		BaseObj(oid.Blob, dataA),
+	}) catch {
+	case Collision:
+		return true
+	}
+	let idx = packidx.Parse(oid.Sha1, built.IdxBytes) catch {
+	case packidx.Truncated, packidx.BadMagic, packidx.UnsupportedVersion, packidx.CorruptFanout, packidx.UnsortedOIDs, packidx.BadLargeOffset, packidx.ChecksumMismatch, packidx.WrongFormat:
+		return false
+	}
+	if idx.Count() != built.Count {
+		return false
+	}
+	let objs = with context { delta.BaseSource: delta.EmptyBases } {
+		delta.MaterializePack(built.PackBytes, oid.Sha1, delta.DefaultLimits()) catch {
+		case delta.Truncated, delta.CorruptDelta, delta.BaseSizeMismatch, delta.TargetSizeMismatch, delta.LimitExceeded, delta.BadOfsDistance, delta.BadPackHeader, delta.DepthExceeded, delta.MissingBase, delta.ZlibFailed:
+			return false
+		}
+	}
+	if len(objs) != built.Count {
+		return false
+	}
+	for po in objs {
+		match idx.Lookup(po.Oid) {
+		case None:
+			return false
+		case Some[packidx.Entry] as e:
+			if e.Value.Offset != uint64(po.Offset) {
+				return false
+			}
+		}
+	}
+	true
+}

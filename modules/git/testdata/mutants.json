@@ -1072,6 +1072,70 @@
       "killers": [
         "modules/git/status:StatusMatchesGitPorcelainAndRacyGit"
       ]
+    },
+    {
+      "name": "git-wpack-allow-dangling-object",
+      "origin": "STD-GIT G-WPACK",
+      "file": "modules/git/wpack/publish.ergo",
+      "from": "\tif !found {",
+      "to": "\tif false && !found {",
+      "rule": "VerifyConnectivity rejects any commit/tree/tag referencing an unwritten OID with DanglingObject.",
+      "anchor": {
+        "tests": [
+          "modules/git/wpack:QuarantineCrashAndConnectivityGate"
+        ]
+      },
+      "killers": [
+        "modules/git/wpack:QuarantineCrashAndConnectivityGate"
+      ]
+    },
+    {
+      "name": "git-wpack-advertise-idx-before-pack",
+      "origin": "STD-GIT G-WPACK",
+      "file": "modules/git/wpack/publish.ergo",
+      "from": "\tlet publishPackFirst = true",
+      "to": "\tlet publishPackFirst = false",
+      "rule": "PublishPackWithFault writes and renames .pack into place before validating and renaming .idx so a crash before pack rename never advertises an orphaned .idx.",
+      "anchor": {
+        "tests": [
+          "modules/git/wpack:QuarantineCrashAndConnectivityGate"
+        ]
+      },
+      "killers": [
+        "modules/git/wpack:QuarantineCrashAndConnectivityGate"
+      ]
+    },
+    {
+      "name": "git-wpack-wrong-crc32",
+      "origin": "STD-GIT G-WPACK",
+      "file": "modules/git/wpack/encode.ergo",
+      "from": "\tcrc ^ uint32(0xffffffff)",
+      "to": "\tcrc ^ uint32(0x12345678)",
+      "rule": "CRC32IEEE computes exact IEEE 802.3 CRC-32 checksums matching Git pack index v2 and git show-index.",
+      "anchor": {
+        "tests": [
+          "modules/git/wpack:BuildAndPublishMatchesGitVerifyPackAndFsck"
+        ]
+      },
+      "killers": [
+        "modules/git/wpack:BuildAndPublishMatchesGitVerifyPackAndFsck"
+      ]
+    },
+    {
+      "name": "git-wpack-skip-dedup",
+      "origin": "STD-GIT G-WPACK",
+      "file": "modules/git/wpack/encode.ergo",
+      "from": "\t\tif seen.Get(h) != None {\n\t\t\tcontinue\n\t\t}",
+      "to": "\t\tif false && seen.Get(h) != None {\n\t\t\tcontinue\n\t\t}",
+      "rule": "BuildPackPair deduplicates identical input objects by canonical OID so no duplicate OIDs are written into .pack or .idx.",
+      "anchor": {
+        "tests": [
+          "modules/git/wpack:BuildAndPublishMatchesGitVerifyPackAndFsck"
+        ]
+      },
+      "killers": [
+        "modules/git/wpack:BuildAndPublishMatchesGitVerifyPackAndFsck"
+      ]
     }
   ]
 }
