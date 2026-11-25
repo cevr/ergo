@@ -627,7 +627,7 @@ func isOptionType(t check.Type) bool {
 	if n.Orig != nil {
 		n = n.Orig
 	}
-	return n.Obj.Pkg != nil && n.Obj.Pkg.Path == "prelude" && n.Obj.Name == "Option"
+	return n.Obj.Pkg != nil && (n.Obj.Pkg.Path == "prelude" || n.Obj.Pkg.Path == "option") && n.Obj.Name == "Option"
 }
 
 func isGoRef(t check.Type) bool {

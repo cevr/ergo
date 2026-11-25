@@ -267,14 +267,19 @@ func joinBranch(s mut store.Store, k Pkg, t Typer, kk mut sink, ty Option[dense.
 	}
 }
 
+func optionForeign(k Pkg, name string) int {
+	let f = foreignAt(k, "option", name)
+	if f >= 0 { f } else { foreignAt(k, "prelude", name) }
+}
+
 // optionJoin is the prelude's generic union join (check/join.go
 // joinInstance) for its Option: Some[T] and None join to Option[T], and
 // an Option[T] stands with either (the first branch's type); none for any
 // other pair.
 func optionJoin(s mut store.Store, k Pkg, cur dense.ID[store.TKey], next dense.ID[store.TKey]) Option[dense.ID[store.TKey]] {
-	let fo = foreignAt(k, "prelude", "Option")
-	let fs = foreignAt(k, "prelude", "Some")
-	let fn = foreignAt(k, "prelude", "None")
+	let fo = optionForeign(k, "Option")
+	let fs = optionForeign(k, "Some")
+	let fn = optionForeign(k, "None")
 	if fo < 0 || fs < 0 || fn < 0 {
 		return None
 	}

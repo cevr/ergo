@@ -1,0 +1,238 @@
+// Package collections defines the core container transformation and
+// folding contracts (Mappable, Chainable, Foldable, MapFold), the
+// function-form claims for slices, and the lazy sequence type Seq.
+
+// Mappable is a container whose elements a function replaces, one for one.
+type Mappable[T own] {
+	Map[U, E, R](f func(x T) U fails E needs R) Self[U] fails E needs R,
+
+	// MapIdentity: mapping the identity function leaves the container unchanged.
+	law MapIdentity(x Self) { x.Map(func(v T) T { v }) == x },
+
+	// MapFuses: two consecutive Maps fuse into one Map of the composition.
+	law MapFuses[U, V comparable](x Self, f func(v T) U, g func(v U) V) { x.Map(f).Map(g) } == { x.Map(func(v T) V { g(f(v)) }) },
+}
+
+// Chainable is a container whose elements a function replaces by containers.
+type Chainable[T own] {
+	..Mappable[T],
+	Then[U, E, R](f func(x T) Self[U] fails E needs R) Self[U] fails E needs R,
+
+	// ThenAssociates: chaining f then g equals chaining f composed with g.
+	law ThenAssociates[U, V comparable](x Self, f func(v T) Self[U], g func(v U) Self[V]) {
+		x.Then(f).Then(g) == x.Then(func(v T) Self[V] { f(v).Then(g) })
+	},
+}
+
+// Foldable is a container whose elements one accumulator visits in order.
+// law-exempt: a single fold operation has no equation of its own; MapFold states FoldOfMap over Mappable and Foldable together.
+type Foldable[T own] {
+	Fold[A, E, R](init A, f func(acc A, x T) A fails E needs R) A fails E needs R,
+}
+
+// MapFold joins Mappable and Foldable: a fold over a map is one fold.
+type MapFold[T own] {
+	..Mappable[T],
+	..Foldable[T],
+
+	// FoldOfMap: folding over a mapped container equals one fold with f composed into g.
+	law FoldOfMap[U, A comparable](x Self, f func(v T) U, init A, g func(acc A, v U) A) { x.Map(f).Fold(init, g) } == { x.Fold(init, func(acc A, v T) A { g(acc, f(v)) }) },
+}
+
+extern go append func appendElem[T](xs []T, x T) []T
+extern go append func appendSlice[T](xs []T, ys []T) []T
+
+// Map returns f applied to each element of xs, in order.
+func Map[T, U, E, R](xs []T, f func(x T) U fails E needs R) []U fails E needs R implements Chainable[T] {
+	let mut out = []U{}
+	for x in xs {
+		out = appendElem(out, try f(x))
+	}
+	out
+}
+
+// Then returns the concatenation of f(x) for each element x of xs, in order.
+func Then[T, U, E, R](xs []T, f func(x T) []U fails E needs R) []U fails E needs R implements Chainable[T] {
+	let mut out = []U{}
+	for x in xs {
+		out = appendSlice(out, try f(x))
+	}
+	out
+}
+
+// Fold visits each element of xs in order, folding from init with f.
+func Fold[T, A, E, R](xs []T, init A, f func(acc A, x T) A fails E needs R) A fails E needs R implements MapFold[T] {
+	let mut acc = init
+	for x in xs {
+		acc = try f(acc, x)
+	}
+	acc
+}
+
+// SliceMapIdentity: mapping the identity function over a slice returns an equal slice.
+law SliceMapIdentity(xs []int) { xs.Map(func(v int) int { v }) == xs }
+
+// SliceMapFuses: two consecutive slice Maps fuse into one Map of the composition.
+law SliceMapFuses[T, U, V comparable](xs []T, f func(v T) U, g func(v U) V) { xs.Map(f).Map(g) } == { xs.Map(func(v T) V { g(f(v)) }) }
+
+// SliceThenAssociates: chaining f then g over a slice associates.
+law SliceThenAssociates(xs []int) {
+	let f = func(v int) []int { []int{v, v + 1} }
+	let g = func(v int) []int { []int{v * 2} }
+	xs.Then(f).Then(g) == xs.Then(func(v int) []int { f(v).Then(g) })
+}
+
+// SliceFoldOfMap: folding over a mapped slice equals one fold with f composed into g.
+law SliceFoldOfMap[T, U, A comparable](xs []T, f func(v T) U, init A, g func(acc A, v U) A) { xs.Map(f).Fold(init, g) } == { xs.Fold(init, func(acc A, v T) A { g(acc, f(v)) }) }
+
+// Seq is an iterator: it calls yield with each value in turn and stops
+// when yield returns false.
+type Seq[T own] func(yield func(v T) bool) implements Foldable[T]
+
+// FromSlice returns a lazy Seq yielding each element of xs in order.
+func FromSlice[T](xs []T) Seq[T] {
+	Seq[T](func(yield func(v T) bool) {
+		for x in xs {
+			if !yield(x) {
+				return
+			}
+		}
+	})
+}
+
+// FromSliceStops: FromSlice stops yielding as soon as yield returns false.
+law FromSliceStops(xs []int) {
+	let s = FromSlice(xs)
+	let n = len(xs)
+	let mut k = 1
+	for k <= n+1 {
+		let mut calls = 0
+		s(func(v int) bool {
+			let _ = v
+			calls = calls + 1
+			calls < k
+		})
+		let want = if k < n { k } else { n }
+		if calls != want {
+			return false
+		}
+		k = k + 1
+	}
+	true
+}
+
+// Collect gathers the elements of s into a new slice, in order.
+func Collect[T](s Seq[T]) []T {
+	let mut out = []T{}
+	for v in s {
+		out = appendElem(out, v)
+	}
+	out
+}
+
+// Map returns a lazy Seq yielding f(v) for each v yielded by s.
+func Map[T, U](s Seq[T], f own func(x T) U) Seq[U] {
+	Seq[U](func(yield func(v U) bool) {
+		for v in s {
+			if !yield(f(v)) {
+				return
+			}
+		}
+	})
+}
+
+// Then returns a lazy Seq yielding the elements of f(v) for each v yielded by s.
+func Then[T, U](s Seq[T], f own func(x T) Seq[U]) Seq[U] {
+	Seq[U](func(yield func(v U) bool) {
+		for v in s {
+			for u in f(v) {
+				if !yield(u) {
+					return
+				}
+			}
+		}
+	})
+}
+
+// Fold visits each element yielded by s in order, folding from init with f.
+func Fold[T own, A, E, R](s Seq[T], init A, f func(acc A, x T) A fails E needs R) A fails E needs R {
+	let mut acc = init
+	for v in s {
+		acc = try f(acc, v)
+	}
+	acc
+}
+
+// SeqMapIdentity: mapping the identity function over a Seq yields the same elements.
+law SeqMapIdentity(xs []int) {
+	Collect(FromSlice(xs).Map(func(v int) int { v })) == xs
+}
+
+// SeqMapFuses: mapping f then g over a Seq yields the same elements as mapping g(f(v)).
+law SeqMapFuses(xs []int) {
+	let f = func(v int) int { v * 3 }
+	let g = func(v int) int { v - 7 }
+	Collect(FromSlice(xs).Map(f).Map(g)) == Collect(FromSlice(xs).Map(func(v int) int { g(f(v)) }))
+}
+
+// SeqThenAssociates: chaining f then g over a Seq associates.
+law SeqThenAssociates(xs []int) {
+	let f = func(v int) Seq[int] { FromSlice([]int{v, v + 1}) }
+	let g = func(v int) Seq[int] { FromSlice([]int{v * 2}) }
+	Collect(FromSlice(xs).Then(f).Then(g)) == Collect(FromSlice(xs).Then(func(v int) Seq[int] { f(v).Then(g) }))
+}
+
+// SeqFoldOfMap: folding over a mapped Seq agrees with folding with f composed into g.
+law SeqFoldOfMap(xs []int, init int) {
+	let f = func(v int) int { v + 5 }
+	let g = func(acc int, v int) int { acc*3 + v }
+	FromSlice(xs).Map(f).Fold(init, g) == FromSlice(xs).Fold(init, func(acc int, v int) int { g(acc, f(v)) })
+}
+
+// SeqMapStops: Map preserves laziness and stops invoking f once yield returns false.
+law SeqMapStops(xs []int) {
+	let n = len(xs)
+	let mut k = 1
+	for k <= n+1 {
+		let mut probe = []int{}
+		let mut i = 0
+		for i < n {
+			probe = appendElem(probe, if i < k { 1 } else { 0 })
+			i = i + 1
+		}
+		let s = FromSlice(probe).Map(func(v int) int { 10 / v })
+		let mut calls = 0
+		s(func(v int) bool {
+			let _ = v
+			calls = calls + 1
+			calls < k
+		})
+		let want = if k < n { k } else { n }
+		if calls != want {
+			return false
+		}
+		k = k + 1
+	}
+	true
+}
+
+// SeqThenStops: Then stops pulling outer and inner sequences once yield returns false.
+law SeqThenStops(xs []int) {
+	let s = FromSlice(xs).Then(func(v int) Seq[int] { FromSlice([]int{v, v + 1}) })
+	let n = len(xs) * 2
+	let mut k = 1
+	for k <= n+1 {
+		let mut calls = 0
+		s(func(v int) bool {
+			let _ = v
+			calls = calls + 1
+			calls < k
+		})
+		let want = if k < n { k } else { n }
+		if calls != want {
+			return false
+		}
+		k = k + 1
+	}
+	true
+}

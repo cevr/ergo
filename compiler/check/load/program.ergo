@@ -184,6 +184,23 @@ func LoadAll(units []Unit, have0 []types.Iface, threads int) Program {
 	Program{Loaded: loaded, Units: of}
 }
 
+func hasDep(deps []expr.Dep, path string) bool {
+	for e in deps {
+		if e.Path == path {
+			return true
+		}
+	}
+	false
+}
+
+func isBootstrapStd(path string) bool {
+	path == "collections" || path == "option" || path == "core"
+}
+
+func appendDep(deps []expr.Dep, e expr.Dep) []expr.Dep {
+	deps.Append(e)
+}
+
 // TypeAt types the program's i-th loaded package with its imports'
 // loaded packages as its deps (and the prelude's, every package's: its
 // Append, Get, Put and Delete are functions on slices and Maps; types.md,
@@ -194,11 +211,29 @@ func TypeAt(p Program, i int) Typed {
 	let mut deps = []expr.Dep{}
 	for e in p.Loaded {
 		if e.Path == "prelude" && d.Path != "prelude" {
-			deps = deps.Append(e)
+			if !isBootstrapStd(d.Path) {
+				deps = appendDep(deps, e)
+			}
 			break
 		}
 	}
+	if !isBootstrapStd(d.Path) {
+		for base in []string{"option", "collections"} {
+			if base == d.Path {
+				continue
+			}
+			for e in p.Loaded {
+				if e.Path == base && !hasDep(deps, base) {
+					deps = appendDep(deps, e)
+					break
+				}
+			}
+		}
+	}
 	for path in store.ImportPaths(d.S) {
+		if hasDep(deps, path) {
+			continue
+		}
 		for e in p.Loaded {
 			if e.Path == path {
 				deps = deps.Append(e)

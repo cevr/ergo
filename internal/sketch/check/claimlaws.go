@@ -208,6 +208,24 @@ func (c *checker) claimBinding(law *Law, b *LawProvider) {
 					break
 				}
 			}
+			if why == "" && !law.ClaimEquation() && law.Decl != nil && law.Decl.Body != nil && law.Pkg != nil && law.Pkg.Info != nil {
+				syntax.Inspect(law.Decl.Body, func(n syntax.Node) bool {
+					if why != "" {
+						return false
+					}
+					be, ok := n.(*syntax.BinaryExpr)
+					if !ok || (be.Op != syntax.EQL && be.Op != syntax.NEQ) {
+						return true
+					}
+					if lt := law.Pkg.Info.Types[be.X]; lt != nil {
+						if ct := read(lt); !isInvalid(ct) && !Equatable(ct) {
+							why = fmt.Sprintf("%s values cannot be compared with %s", ct, be.Op)
+							return false
+						}
+					}
+					return true
+				})
+			}
 			if why == "" {
 				why = builtWhy
 			} else {

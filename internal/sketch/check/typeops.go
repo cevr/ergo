@@ -1294,30 +1294,37 @@ func Comparable(t Type) bool { return comparable(t) }
 // structural, element by element, and the lowering generates it where Go
 // has none. A function, an operation type's value and a row value are not
 // equatable, as they are not comparable.
-func Equatable(t Type) bool { return equatableSeen(t, map[Type]bool{}) }
+func Equatable(t Type) bool { return equatableSeen(t, map[Type]bool{}, false) }
 
-func equatableSeen(t Type, seen map[Type]bool) bool {
+func equatableInClaimLaw(t Type) bool { return equatableSeen(t, map[Type]bool{}, true) }
+
+func equatableSeen(t Type, seen map[Type]bool, allowSelf bool) bool {
+	if allowSelf {
+		if _, ok := t.(*SelfType); ok {
+			return true
+		}
+	}
 	switch u := under(t).(type) {
 	case *Slice:
-		return equatableSeen(u.Elem, seen)
+		return equatableSeen(u.Elem, seen, allowSelf)
 	case *Array:
-		return equatableSeen(u.Elem, seen)
+		return equatableSeen(u.Elem, seen, allowSelf)
 	case *Map:
-		return equatableSeen(u.Elem, seen)
+		return equatableSeen(u.Elem, seen, allowSelf)
 	case *Struct:
 		if seen[t] {
 			return true
 		}
 		seen[t] = true
 		for _, f := range u.Fields {
-			if !equatableSeen(f.Type, seen) {
+			if !equatableSeen(f.Type, seen, allowSelf) {
 				return false
 			}
 		}
 		return true
 	case *Tuple:
 		for _, e := range u.Types {
-			if !equatableSeen(e, seen) {
+			if !equatableSeen(e, seen, allowSelf) {
 				return false
 			}
 		}
@@ -1330,7 +1337,7 @@ func equatableSeen(t Type, seen map[Type]bool) bool {
 		}
 		seen[t] = true
 		for _, v := range u.Variants {
-			if !equatableSeen(v, seen) {
+			if !equatableSeen(v, seen, allowSelf) {
 				return false
 			}
 		}

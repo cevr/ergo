@@ -635,8 +635,12 @@ func (c *checker) claimLookup(recv Type, name string) (*Func, []claimCandidate) 
 		if src.pkg == nil || len(src.pkg.functionClaims) == 0 {
 			continue
 		}
-		for _, groups := range src.pkg.functionClaims {
-			for _, g := range groups {
+		for _, tn := range src.pkg.Types {
+			role, ok := tn.Type.(*Named)
+			if !ok {
+				continue
+			}
+			for _, g := range src.pkg.functionClaims[role] {
 				fn := g.ops[name]
 				if fn == nil || (fn.Pkg != c.pkg && !isExported(fn.Name)) {
 					continue

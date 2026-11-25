@@ -39,11 +39,62 @@ func TestStdImportsAreAcyclic(t *testing.T) {
 	if !slices.Contains(edges["io"], "strings") {
 		t.Errorf("the walk found no import of strings in io: %v", edges)
 	}
+	if !slices.Contains(edges["core"], "option") {
+		t.Errorf("core must import option; got %v", edges["core"])
+	}
+	if slices.Contains(edges["core"], "collections") {
+		t.Errorf("core must not import collections directly (core -> option -> collections); got %v", edges["core"])
+	}
+	if !slices.Contains(edges["option"], "collections") {
+		t.Errorf("option must import collections; got %v", edges["option"])
+	}
+	if slices.Contains(edges["option"], "core") {
+		t.Errorf("option must not import core; got %v", edges["option"])
+	}
+	for _, forbidden := range []string{"core", "option", "slices"} {
+		if slices.Contains(edges["collections"], forbidden) {
+			t.Errorf("collections must not import %s; got %v", forbidden, edges["collections"])
+		}
+	}
 	if cycle := findCycle(edges); cycle != nil {
 		t.Errorf("std imports form a cycle: %s", strings.Join(cycle, " -> "))
 	}
 	if got := findCycle(map[string][]string{"a": {"b"}, "b": {"c"}, "c": {"a"}}); len(got) != 4 {
 		t.Errorf("the cycle finder missed a -> b -> c -> a: %v", got)
+	}
+	for _, path := range []string{"collections", "option", "core"} {
+		pkg, err := check.Std.Import(path)
+		if err != nil {
+			t.Fatalf("check.Std.Import(%q): %v", path, err)
+		}
+		var imported []string
+		for _, f := range pkg.Files() {
+			for _, imp := range pkg.ImportsOf(f) {
+				if imp.Pkg != nil && !imp.Pkg.Host() {
+					imported = append(imported, imp.Pkg.Path)
+				}
+			}
+		}
+		switch path {
+		case "core":
+			if !slices.Contains(imported, "option") {
+				t.Errorf("checked core.Imports = %v; want option", imported)
+			}
+			if slices.Contains(imported, "collections") {
+				t.Errorf("checked core.Imports = %v; must not import collections directly", imported)
+			}
+		case "option":
+			if !slices.Contains(imported, "collections") {
+				t.Errorf("checked option.Imports = %v; want collections", imported)
+			}
+			if slices.Contains(imported, "core") {
+				t.Errorf("checked option.Imports = %v; must not import core", imported)
+			}
+		case "collections":
+			if len(imported) != 0 {
+				t.Errorf("checked collections.Imports = %v; want no std imports", imported)
+			}
+		}
 	}
 }
 

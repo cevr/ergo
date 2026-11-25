@@ -1,0 +1,118 @@
+// Package option defines Option, Some, None, and their combinators.
+
+import collections
+
+// Some holds the present value of an Option.
+type Some[T own] { Value T }
+
+// None represents the absence of a value in an Option.
+type None {}
+
+// Option is a value that may be absent.
+type Option[T own] = Some[T] | None implements collections.Chainable[T], collections.MapFold[T]
+
+// Map applies f to the value inside Some, or keeps None unchanged.
+func Map[T own, U, E, R](o Option[T], f func(x T) U fails E needs R) Option[U] fails E needs R {
+	match o {
+	case Some[T] as s:
+		Some[U]{Value: try f(s.Value)}
+	case None:
+		None
+	}
+}
+
+// Then applies f to the value inside Some, or keeps None unchanged.
+func Then[T own, U, E, R](o Option[T], f func(x T) Option[U] fails E needs R) Option[U] fails E needs R {
+	match o {
+	case Some[T] as s:
+		try f(s.Value)
+	case None:
+		None
+	}
+}
+
+// Fold updates init with f on Some, or returns init unchanged on None.
+func Fold[T own, A, E, R](o Option[T], init A, f func(acc A, x T) A fails E needs R) A fails E needs R {
+	match o {
+	case Some[T] as s:
+		try f(init, s.Value)
+	case None:
+		init
+	}
+}
+
+// MapOr applies f to the value inside Some, or returns fallback unchanged on None without calling f.
+func MapOr[T own, U, E, R](o Option[T], fallback U, f func(x T) U fails E needs R) U fails E needs R {
+	match o {
+	case Some[T] as s:
+		try f(s.Value)
+	case None:
+		fallback
+	}
+}
+
+// OrFail returns o's value, or fails with f when o is None.
+func OrFail[T, F](o Option[T], f F) T fails F {
+	match o {
+	case Some[T] as s:
+		s.Value
+	case None:
+		f
+	}
+}
+
+// SomeThenUnit: wrapping v in Some and chaining f equals f(v), and chaining Some is the identity.
+law SomeThenUnit(v int, o Option[int]) {
+	let f = func(x int) Option[int] {
+		if x%2 == 0 {
+			Some[int]{Value: x + 1}
+		} else {
+			None
+		}
+	}
+	let left Option[int] = Some[int]{Value: v}
+	left.Then(f) == f(v) && o.Then(func(x int) Option[int] { Some[int]{Value: x} }) == o
+}
+
+// MapOrMatchesOption: MapOr runs f once on Some and returns fallback without calling f on None.
+law MapOrMatchesOption(o Option[int], fallback int) {
+	let mut called = 0
+	let got = o.MapOr(fallback, func(x int) int {
+		called = called + 1
+		x*3 + 1
+	})
+	match o {
+	case Some[int] as s:
+		called == 1 && got == s.Value*3+1
+	case None:
+		called == 0 && got == fallback
+	}
+}
+
+// OrFailIsMatch: OrFail is Some's value, or fails with exactly the
+// failure given, on None.
+law OrFailIsMatch(o Option[int], n int) {
+	let v = orFailOf(o, n) catch {
+	case orFailMiss as m:
+		return o == None && m.N == n
+	}
+	o == Some{Value: v}
+}
+
+// CatchUndoesOrFail: a catch arm that names the miss and gives None
+// takes an Option through OrFail and back unchanged.
+law CatchUndoesOrFail(o Option[int]) {
+	orFailBack(o) == o
+}
+
+type orFailMiss { N int }
+
+func orFailOf(o Option[int], n int) int fails orFailMiss { o.OrFail(orFailMiss{N: n}) }
+
+func orFailBack(o Option[int]) Option[int] {
+	let v = orFailOf(o, 0) catch {
+	case orFailMiss:
+		return None
+	}
+	Some{Value: v}
+}

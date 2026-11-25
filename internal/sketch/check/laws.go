@@ -1071,7 +1071,7 @@ func (c *checker) lawProviderFix(law *Law, p LawProvider) string {
 // sees: itself, the prelude and its imports at any depth (rule 7).
 func lawClosures(pkg *Package) map[*Package]map[*Package]bool {
 	pre := pkg
-	if pkg.Path != stdlib.PreludePath {
+	if pkg.Path != stdlib.PreludePath && !isBootstrapStd(pkg.Path) {
 		pre = prelude().pkg
 	}
 	out := map[*Package]map[*Package]bool{}

@@ -58,6 +58,12 @@ func (in *inferer) mentions(t Type) bool {
 		switch t := t.(type) {
 		case *TypeParam:
 			return in.set[t]
+		case *SelfType:
+			for _, a := range selfArgsOf(t) {
+				if walk(a) {
+					return true
+				}
+			}
 		case *Named:
 			if seen[t] {
 				return false
@@ -303,6 +309,21 @@ func (in *inferer) nify(x, y Type, mode unifyMode, depth int) bool {
 	switch x := x.(type) {
 	case *Basic:
 		return in.c.identical(x, y)
+	case *SelfType:
+		ys, ok := y.(*SelfType)
+		if !ok || ys.owner != x.owner {
+			return false
+		}
+		xargs, yargs := selfArgsOf(x), selfArgsOf(ys)
+		if len(xargs) != len(yargs) {
+			return false
+		}
+		for i := range xargs {
+			if !in.nify(xargs[i], yargs[i], emode, depth) {
+				return false
+			}
+		}
+		return true
 	case *Named:
 		yn, ok := y.(*Named)
 		if !ok || yn.origin() != x.origin() || len(yn.TArgs) != len(x.TArgs) {

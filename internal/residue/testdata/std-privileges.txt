@@ -187,7 +187,7 @@ debt	internal/sketch/check/lintfacts.go:TimeWaitOf	flag	"isSchedulerSleep"	TimeW
 debt	internal/sketch/check/lintfacts.go:isSchedulerSleep	flag	"IsScheduler"	isSchedulerSleep: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/lintfacts.go:isStdObj	mark	"Std()"	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
 debt	internal/sketch/check/lintfacts.go:stdRoles	mark	"stdlib.PreludePath"	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
-language	internal/sketch/check/loops.go:checker.preludeOrigin	mark	"stdlib.PreludePath"	Range and Seq, the iteration forms	-
+language	internal/sketch/check/loops.go:checker.preludeOrigin	mark	"Std()"	Range and Seq, the iteration forms	-
 debt	internal/sketch/check/mappedtext.go:escWalk.endsBeforeReturn	mark	"Trusted()"	escWalk.endsBeforeReturn: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/mappedtext.go:escWalk.endsBeforeReturn	runtime	"v1.EndsRunsBeforeReturn"	escWalk.endsBeforeReturn: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/mappedtext.go:escWalk.endsBeforeReturn	runtime	"v1.Owns"	escWalk.endsBeforeReturn: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP

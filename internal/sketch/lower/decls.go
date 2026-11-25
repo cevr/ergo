@@ -968,10 +968,21 @@ func isMapOf(t check.Type, key, val *check.TypeParam) bool {
 	return ok && m.Key == key && m.Elem == val
 }
 
-// isPreludeType reports the prelude's declared type name.
+// isPreludeType reports the prelude's declared type name (or a canonical
+// bootstrap std type re-exported through the transitional prelude).
 func isPreludeType(t check.Type, name string) bool {
 	n, ok := t.(*check.Named)
-	return ok && n.Obj.Name == name && n.Obj.Pkg != nil && n.Obj.Pkg.Path == "prelude"
+	if !ok || n.Obj.Name != name || n.Obj.Pkg == nil {
+		return false
+	}
+	if n.Obj.Pkg.Path == "prelude" {
+		return true
+	}
+	if n.Orig != nil {
+		n = n.Orig
+	}
+	p := check.PreludeType(name)
+	return p != nil && n.Obj == p.Obj
 }
 
 // isBasic reports the basic type of kind k.

@@ -2,4 +2,4 @@ kind cli
 generator ergo gen cli
 subject code.Reader
 contract sha256:cbe75f5db457d71f71e9bd831a06cdb2b9f4ab49a5b50745178ebd752e86927e
-digest sha256:96ef458d5094bd8525fa282a699473a4c663c700caa994f70ce7b49886da5acc
+digest sha256:72bfd2071b355da8f745598cf2ab53060f9f008108397b346ed1c88ff048eef7

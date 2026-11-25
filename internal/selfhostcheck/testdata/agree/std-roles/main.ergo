@@ -1,0 +1,128 @@
+import collections
+import core
+import option
+
+type Box[T] { Value T } implements collections.Chainable[T], collections.MapFold[T]
+
+func Map[T, U, E, R](b Box[T], f func(x T) U fails E needs R) Box[U] fails E needs R {
+	Box[U]{Value: try f(b.Value)}
+}
+
+func Then[T, U, E, R](b Box[T], f func(x T) Box[U] fails E needs R) Box[U] fails E needs R {
+	try f(b.Value)
+}
+
+func Fold[T, A, E, R](b Box[T], init A, f func(acc A, x T) A fails E needs R) A fails E needs R {
+	try f(init, b.Value)
+}
+
+type SmallVec[T] { items []T } implements core.Appender[T]
+
+func Len[T](v SmallVec[T]) int { len(v.items) }
+
+func Append[T](v own SmallVec[T], e own T) SmallVec[T] {
+	SmallVec[T]{items: v.items.Append(e)}
+}
+
+func Reserve[T](v own SmallVec[T], extra int) SmallVec[T] {
+	let _ = extra
+	v
+}
+
+type SmallMap[K comparable, V] { entries Map[K, V] } implements core.Lookup[K, V]
+
+func Len[K comparable, V](m SmallMap[K, V]) int { len(m.entries) }
+
+func Get[K comparable, V](m SmallMap[K, V], k K) option.Option[V] { m.entries.Get(k) }
+
+func foldAll[F collections.Foldable[int]](c F, seed int) int {
+	c.Fold(seed, func(acc int, x int) int { acc + x })
+}
+
+func mapAndFold[C collections.MapFold[int]](c C, seed int) int {
+	c.Map(func(x int) int { x * 2 }).Fold(seed, func(acc int, x int) int { acc + x })
+}
+
+func mapOnly[M collections.Mappable[int]](m M) M[int] {
+	m.Map(func(x int) int { x + 1 })
+}
+
+func chainOption(o option.Option[int]) option.Option[int] {
+	o.Map(func(x int) int { x + 1 }).Then(func(x int) option.Option[int] {
+		if x > 5 {
+			option.Some[int]{Value: x * 10}
+		} else {
+			option.None
+		}
+	})
+}
+
+func countLen[L core.Lengthed](x L) int { x.Len() }
+
+type miss {}
+
+test StdRolesGenericAndOption {
+	let xs = []int{1, 2, 3}
+	let someSix option.Option[int] = option.Some[int]{Value: 6}
+	assert foldAll(xs, 10) == 16
+	assert foldAll(collections.FromSlice(xs), 10) == 16
+	assert foldAll(Box[int]{Value: 6}, 10) == 16
+	assert foldAll(someSix, 10) == 16
+
+	assert mapAndFold(xs, 10) == 22
+	assert mapAndFold(Box[int]{Value: 6}, 10) == 22
+	assert mapAndFold(someSix, 10) == 22
+
+	let mappedSlice = mapOnly(xs)
+	assert len(mappedSlice) == 3 && mappedSlice[0] == 2 && mappedSlice[2] == 4
+	let mappedBox = mapOnly(Box[int]{Value: 9})
+	assert mappedBox.Value == 10
+
+	let someOpt option.Option[int] = option.Some[int]{Value: 5}
+	let noneOpt option.Option[int] = option.None
+	assert chainOption(someOpt) == Some[int]{Value: 60}
+	assert chainOption(noneOpt) == None
+	assert chainOption(Some[int]{Value: 2}) == None
+
+	let mut calls = 0
+	let fallback = noneOpt.MapOr(99, func(x int) int {
+		calls = calls + 1
+		x * 2
+	})
+	assert fallback == 99 && calls == 0
+	let mapped = someOpt.MapOr(99, func(x int) int {
+		calls = calls + 1
+		x * 2
+	})
+	assert mapped == 10 && calls == 1
+
+	let unwrapped = someOpt.OrFail(miss) catch {
+	case miss:
+		-1
+	}
+	let missed = noneOpt.OrFail(miss) catch {
+	case miss:
+		-1
+	}
+	assert unwrapped == 5 && missed == -1
+
+	let lazy = collections.FromSlice([]int{10, 20, 0, 40}).Map(func(x int) int { 100 / x })
+	let mut seen = 0
+	let mut acc = 0
+	for v in lazy {
+		seen = seen + 1
+		acc = acc + v
+		if seen == 2 {
+			break
+		}
+	}
+	assert seen == 2 && acc == 15
+
+	let mut vec = SmallVec[int]{items: []int{}}
+	vec = vec.Append(7).Reserve(4)
+	assert countLen(vec) == 1
+	let sm = SmallMap[string, int]{entries: Map[string, int]{"a": 42}}
+	assert countLen(sm) == 1
+	assert sm.Get("a") == Some[int]{Value: 42}
+	assert sm.Get("b") == None
+}

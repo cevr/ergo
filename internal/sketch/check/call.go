@@ -1190,6 +1190,9 @@ func (c *checker) collFuncs() map[collKey]*Func {
 	if c.pkg.collFuncs != nil {
 		return c.pkg.collFuncs
 	}
+	if isBootstrapStd(c.pkg.Path) {
+		return nil
+	}
 	return prelude().pkg.collFuncs
 }
 
@@ -1226,7 +1229,7 @@ func (c *checker) collFunc(t Type, name string) *Func {
 // prelude type (Sleep). The prelude's own operations are in its package
 // scope, so it has none here.
 func (c *checker) preludeOp(name string) *Func {
-	if c.pkg.Path == stdlib.PreludePath {
+	if c.pkg.Path == stdlib.PreludePath || isBootstrapStd(c.pkg.Path) {
 		return nil
 	}
 	return prelude().ops[name]

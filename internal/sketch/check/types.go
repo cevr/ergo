@@ -466,12 +466,16 @@ var Typ = func() []*Basic {
 var invalid = Typ[Invalid]
 
 func (t *Basic) String() string { return t.Name }
+func isTransitionalPreludeType(o *TypeName) bool {
+	return o != nil && preludeOnce.r.scope != nil && preludeOnce.r.scope.names[o.Name] == o
+}
+
 func (t *Named) String() string {
 	if IsProviderMap(t) {
 		return mapTypeString(t) // mapprovider.go
 	}
 	name := t.Obj.Name
-	if t.Obj.Pkg != nil && t.Obj.Pkg.qualify {
+	if t.Obj.Pkg != nil && t.Obj.Pkg.qualify && !isTransitionalPreludeType(t.Obj) {
 		name = t.Obj.Pkg.Name + "." + name
 	}
 	if len(t.TArgs) > 0 {

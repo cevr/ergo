@@ -46,11 +46,14 @@ func (e *tenv) witnessFor(tp *check.TypeParam) *witnessV {
 	return e.wits[tp]
 }
 
-// recvParam is the type parameter a CallOp's receiver has (P or *P), or
-// nil when the receiver is an operation-type value.
+// recvParam is the type parameter a CallOp's receiver has (P, *P, or P[…]),
+// or nil when the receiver is an operation-type value.
 func recvParam(t check.Type) *check.TypeParam {
 	if p, ok := t.(*check.Pointer); ok {
 		t = p.Elem
+	}
+	if r, ok := t.(*check.Reapplied); ok {
+		return r.Param
 	}
 	tp, _ := t.(*check.TypeParam)
 	return tp
@@ -101,7 +104,7 @@ func (in *interp) witnessCall(fr *frame, at *syntax.CallExpr, env *tenv, tp *che
 			targs = append(targs, wv.env.resolve(t))
 		}
 		wits = witnessesOf(op.Inst, wv.env)
-	} else if op.Func.Decl != nil && op.Func.Decl.Implements != nil && len(op.Func.Sig.TParams) != 0 {
+	} else if len(op.Func.Sig.TParams) != 0 {
 		// A generic operation's witness has no provider instance: its
 		// type arguments are the operation call's, not the outer call's.
 		bound := make(map[*check.TypeParam]check.Type)
@@ -112,9 +115,25 @@ func (in *interp) witnessCall(fr *frame, at *syntax.CallExpr, env *tenv, tp *che
 		for _, t := range call.TypeArgs {
 			own = append(own, fr.env.checkedType(fr.pkg, t))
 		}
-		f, resolved := check.ClosedFunctionClaim(fr.pkg, bound[tp], tp.Constraint, call.Op.Name, own, bound)
-		if f != op.Func {
-			return nil, fr.unsupported(at, "the generic operation %s has no closed function claim", call.Op.Name), true
+		selfType := bound[tp]
+		if call.Recv != nil {
+			rt := fr.typeOf(call.Recv)
+			if p, ok := rt.(*check.Pointer); ok {
+				rt = p.Elem
+			}
+			if _, isReapplied := rt.(*check.Reapplied); isReapplied {
+				selfType = fr.env.checkedType(fr.pkg, rt)
+			}
+		}
+		var resolved []check.Type
+		if op.Func.Decl != nil && op.Func.Decl.Implements != nil {
+			f, args := check.ClosedFunctionClaim(fr.pkg, selfType, tp.Constraint, call.Op.Name, own, bound)
+			if f != op.Func {
+				return nil, fr.unsupported(at, "the generic operation %s has no closed function claim", call.Op.Name), true
+			}
+			resolved = args
+		} else {
+			resolved = check.ProviderTypeArgs(selfType, op.Func, own)
 		}
 		for _, t := range resolved {
 			targs = append(targs, rtype{t: t})

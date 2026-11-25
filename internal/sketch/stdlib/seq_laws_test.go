@@ -134,11 +134,11 @@ func seqRuleViolations(path string, pkg *check.Package, seq *check.TypeName) []s
 	return out
 }
 
-// preludeSeq is the prelude's Seq type name.
+// preludeSeq is the canonical Seq type name (declared in collections).
 func preludeSeq(t *testing.T, pkgs []stdLawPackage) *check.TypeName {
 	t.Helper()
 	for _, p := range pkgs {
-		if p.path != "prelude" {
+		if p.path != "collections" && p.path != "prelude" {
 			continue
 		}
 		for _, tn := range p.pkg.Types {
@@ -147,7 +147,7 @@ func preludeSeq(t *testing.T, pkgs []stdLawPackage) *check.TypeName {
 			}
 		}
 	}
-	t.Fatal("the prelude declares no Seq")
+	t.Fatal("collections declares no Seq")
 	return nil
 }
 
