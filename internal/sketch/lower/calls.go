@@ -249,9 +249,9 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			return fc.hostCall(x, c, args), len(c.Func.Sig.Results) > 0, c.Func.Sig.Fallible
 		}
 		if body, name, ok := fc.l.stdBody(fd); ok {
-			if c.Recv != nil && check.CollOpOf(c.Func) != check.CollNone {
-				// An operation of the slice or Map type (PRIM-4): its
-				// receiver is the body's first operand.
+			if c.Recv != nil && c.RecvIsParam() {
+				// An Ergo dot-form function whose first parameter is the
+				// receiver passes its receiver as the body's first operand.
 				return fc.stdCall(x, c, append([]syntax.Expr{c.Recv}, args...), body, name)
 			}
 			if c.Recv != nil {

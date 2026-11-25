@@ -562,7 +562,12 @@ func (in *interp) handover(fr *frame, root *slot, steps []step, s *syntax.Assign
 		return nil, nil
 	}
 	c := fr.info.Calls[call]
-	if c == nil || c.Kind != check.CallFunc || !preludeCollection(c.Func) || c.Recv == nil || check.CollOpOf(c.Func) == check.CollGet || check.CollOpOf(c.Func) == check.CollTake {
+	if c == nil || c.Kind != check.CallFunc || c.Recv == nil {
+		return nil, nil
+	}
+	switch valueOpOf(c.Func) {
+	case valOpAppend, valOpDelete, valOpPut:
+	default:
 		return nil, nil
 	}
 	if _, conv := fr.info.Implicit[c.Recv]; conv {

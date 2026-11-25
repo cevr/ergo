@@ -167,10 +167,10 @@ type Package struct {
 	// own (owners.go); OwnerOf reads it.
 	owners map[syntax.Node]FactOwner
 	files  []*fileInfo
-	// collFuncs are the prelude's functions on slices and Maps by kind and
-	// name (D-D6, D-D8), which x.f(…) reaches from a value of exactly an
-	// unnamed slice or Map type; nil in every other package.
-	collFuncs map[collKey]*Func
+	// builtinFuncs are the prelude's functions on unnamed built-in receiver
+	// types by receiver kind and name (D-D6, D-D8), which x.f(…) reaches;
+	// nil in every other package.
+	builtinFuncs map[builtinKey]*Func
 	// testBuilds are, in a test package (fstest), the builders it declares
 	// for each operation type of the package it tests (builders.go rule
 	// 2). Only the package's own check writes it.
@@ -211,13 +211,6 @@ func (p *Package) Files() []*syntax.File {
 		out[i] = f.syntax
 	}
 	return out
-}
-
-// collKey names an operation of a built-in type by its name and the kind
-// of receiver it is on (collop.go).
-type collKey struct {
-	name string
-	on   collOn
 }
 
 // Info records the checker's results for the lowering.

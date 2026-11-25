@@ -65,6 +65,14 @@ type Body struct {
 	// FrameRelease: the body registers its callback as an exit action of
 	// the caller's frame (v1.Body.Release "frame"; scope.OnExit).
 	FrameRelease bool
+	// AppendsSlice, ReadsMap, WritesMap, DeletesMap and TakesMap are the
+	// AST-derived or Go-builtin primitive collection body facts, read from
+	// the declaration's Go target alone (never from a closed operation table).
+	AppendsSlice bool
+	ReadsMap     bool
+	WritesMap    bool
+	DeletesMap   bool
+	TakesMap     bool
 }
 
 // BodyOf returns the body contract of the extern f, the zero Body for
@@ -75,8 +83,15 @@ func BodyOf(f *Func) Body {
 	}
 	path, name := f.Decl.Extern.Split()
 	if !v1.Owns(path) {
-		if path == "" && (name == "len" || name == "cap" || name == "append") {
-			return Body{MovesOnly: true}
+		if path == "" {
+			switch name {
+			case "len", "cap":
+				return Body{MovesOnly: true}
+			case "append":
+				return Body{MovesOnly: true, AppendsSlice: !AppendsString(f) && !AppendSpreads(f)}
+			case "delete":
+				return Body{DeletesMap: true}
+			}
 		}
 		if body, ok := ModuleBody(f); ok {
 			// A module's own body: its shape and policy, call-only. Its
@@ -93,6 +108,10 @@ func BodyOf(f *Func) Body {
 		b.ReleasesResult = slices.Contains(body.Hidden, v1.ResultRelease)
 		b.FrameRelease = body.Release == "frame"
 		b.Value = valueBody(body)
+		b.AppendsSlice = body.AppendsSlice
+		b.ReadsMap = body.ReadsMap
+		b.WritesMap = body.WritesMap
+		b.TakesMap = body.TakesMap
 	}
 	b.MovingParam, b.Repeated, b.Moves = v1.MovingBody(name)
 	b.Keeper, b.Keeps = v1.CallbackKeeper(name)

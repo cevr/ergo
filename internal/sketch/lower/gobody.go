@@ -360,3 +360,67 @@ func (l *lowerer) madeResult(f *check.Func) bool {
 	path, name := f.Decl.Extern.Split()
 	return v1.Owns(path) && goBodyMakes(name)
 }
+
+// mapOpKind classifies a primitive Map operation from its Go body contract
+// (check.BodyOf) and Ergo signature, never from a closed operation table.
+type mapOpKind uint8
+
+const (
+	mapOpNone mapOpKind = iota
+	mapOpGet
+	mapOpPut
+	mapOpDelete
+	mapOpTake
+)
+
+// singleAppendExtern reports an extern whose runtime/v1 Go body is
+// single-element slice append (`return append(xs, x)`).
+func singleAppendExtern(f *check.Func) bool {
+	b := check.BodyOf(f)
+	return b.Runtime != "" && b.AppendsSlice
+}
+
+// mapPutExtern reports an extern whose Go body writes its Map operand and
+// returns it, with signature [K, V](m Map[K, V], k K, v V) Map[K, V].
+func mapPutExtern(f *check.Func) bool {
+	if !check.BodyOf(f).WritesMap || f == nil || f.Sig == nil {
+		return false
+	}
+	s := f.Sig
+	return len(rowElems(s.Errors)) == 0 && len(rowElems(s.Uses)) == 0 &&
+		len(s.TParams) == 2 && len(s.Params) == 3 && len(s.Results) == 1 &&
+		isMapOf(s.Params[0].Type, s.TParams[0], s.TParams[1]) &&
+		s.Params[1].Type == s.TParams[0] && s.Params[2].Type == s.TParams[1] &&
+		isMapOf(s.Results[0], s.TParams[0], s.TParams[1])
+}
+
+// mapTakeExtern reports an extern whose Go body reads and deletes a Map entry,
+// with Ergo signature [K, V](m Map[K, V], k K) (Option[V], Map[K, V]).
+func mapTakeExtern(f *check.Func) bool {
+	if !check.BodyOf(f).TakesMap || f == nil || f.Sig == nil {
+		return false
+	}
+	s := f.Sig
+	if len(rowElems(s.Errors)) != 0 || len(rowElems(s.Uses)) != 0 ||
+		len(s.TParams) != 2 || len(s.Params) != 2 || len(s.Results) != 1 ||
+		!isMapOf(s.Params[0].Type, s.TParams[0], s.TParams[1]) || s.Params[1].Type != s.TParams[0] {
+		return false
+	}
+	tuple, ok := s.Results[0].(*check.Tuple)
+	return ok && len(tuple.Types) == 2 && isPreludeType(tuple.Types[0], "Option") && isMapOf(tuple.Types[1], s.TParams[0], s.TParams[1])
+}
+
+// mapOpOf returns the primitive Map operation kind for f, or mapOpNone.
+func mapOpOf(f *check.Func) mapOpKind {
+	switch {
+	case preludeGet(f):
+		return mapOpGet
+	case mapPutExtern(f):
+		return mapOpPut
+	case check.BodyOf(f).DeletesMap:
+		return mapOpDelete
+	case mapTakeExtern(f):
+		return mapOpTake
+	}
+	return mapOpNone
+}

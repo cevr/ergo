@@ -1194,41 +1194,39 @@ func isCallLike(x syntax.Expr) bool {
 
 // ---------------------------------------------------------------- builtins
 
-// collFuncs are the operations on slices and Maps (D-D6; collop.go). The
-// package that holds their file reads its own; every other package reads
-// the checked prelude's.
-func (c *checker) collFuncs() map[collKey]*Func {
-	if c.pkg.collFuncs != nil {
-		return c.pkg.collFuncs
+// builtinFuncs are the dot-form operations on unnamed built-in receiver types
+// (D-D6). The package that holds their file reads its own; every other package
+// reads the checked prelude's.
+func (c *checker) builtinFuncs() map[builtinKey]*Func {
+	if c.pkg.builtinFuncs != nil {
+		return c.pkg.builtinFuncs
 	}
 	if isBootstrapStd(c.pkg.Path) {
 		return nil
 	}
-	return prelude().pkg.collFuncs
+	return prelude().pkg.builtinFuncs
 }
 
-// collFunc is the prelude function x.name(…) reaches from a value of type
-// t, or nil: only from exactly an unnamed slice or Map type (D-D8), as the
-// first parameter is written. A slice or Map has no field or method, so
-// the name is unambiguous; one mechanism with a function on a declared
-// type (196m), not a built-in branch (196a D1).
-func (c *checker) collFunc(t Type, name string) *Func {
+// builtinFunc is the prelude function x.name(…) reaches from a value of type
+// t, or nil: only from exactly an unnamed slice, Map, string or rune type
+// (D-D8), as the first parameter is written.
+func (c *checker) builtinFunc(t Type, name string) *Func {
 	switch t := t.(type) {
 	case *Slice:
 		if b, ok := t.Elem.(*Basic); ok && b.Kind == Uint8 {
-			if f := c.collFuncs()[collKey{name: name, on: onBytes}]; f != nil {
+			if f := c.builtinFuncs()[builtinKey{name: name, recv: recvBytes}]; f != nil {
 				return f
 			}
 		}
-		return c.collFuncs()[collKey{name: name}]
+		return c.builtinFuncs()[builtinKey{name: name}]
 	case *Map:
-		return c.collFuncs()[collKey{name: name, on: onMap}]
+		return c.builtinFuncs()[builtinKey{name: name, recv: recvMap}]
 	case *Basic:
 		switch t.Kind {
 		case String:
-			return c.collFuncs()[collKey{name: name, on: onString}]
+			return c.builtinFuncs()[builtinKey{name: name, recv: recvString}]
 		case Int32:
-			return c.collFuncs()[collKey{name: name, on: onRune}]
+			return c.builtinFuncs()[builtinKey{name: name, recv: recvRune}]
 		}
 	}
 	return nil

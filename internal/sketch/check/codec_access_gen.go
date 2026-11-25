@@ -38,6 +38,14 @@ type Codec_branch = branch
 
 type Codec_branchKind = branchKind
 
+type Codec_builtinKey = builtinKey
+
+type Codec_builtinRecv = builtinRecv
+
+type Codec_cCbTypeSpec = cCbTypeSpec
+
+type Codec_cScopedSpec = cScopedSpec
+
 type Codec_callbackDiagKey = callbackDiagKey
 
 type Codec_capBinding = capBinding
@@ -71,10 +79,6 @@ type Codec_claimCandidate = claimCandidate
 type Codec_claimUnification = claimUnification
 
 type Codec_colInfo = colInfo
-
-type Codec_collKey = collKey
-
-type Codec_collOn = collOn
 
 type Codec_collision = collision
 
@@ -461,7 +465,6 @@ type CodecFields_Func struct {
 	F_owner       **Named
 	F_selfArgs    *[]syntax.Expr
 	F_opOwner     **Named
-	F_collOp      *CollOp
 	F_same        *[]*Func
 	F_overloaded  *bool
 	F_size        *int
@@ -472,7 +475,7 @@ type CodecFields_Func struct {
 }
 
 func CodecFieldsOf_Func(v *Func) CodecFields_Func {
-	return CodecFields_Func{F_file: &v.file, F_state: &v.state, F_inferErrors: &v.inferErrors, F_inferUses: &v.inferUses, F_errVar: &v.errVar, F_useVar: &v.useVar, F_called: &v.called, F_owner: &v.owner, F_selfArgs: &v.selfArgs, F_opOwner: &v.opOwner, F_collOp: &v.collOp, F_same: &v.same, F_overloaded: &v.overloaded, F_size: &v.size, F_goExtern: &v.goExtern, F_goCall: &v.goCall, F_primitive: &v.primitive, F_asWritten: &v.asWritten}
+	return CodecFields_Func{F_file: &v.file, F_state: &v.state, F_inferErrors: &v.inferErrors, F_inferUses: &v.inferUses, F_errVar: &v.errVar, F_useVar: &v.useVar, F_called: &v.called, F_owner: &v.owner, F_selfArgs: &v.selfArgs, F_opOwner: &v.opOwner, F_same: &v.same, F_overloaded: &v.overloaded, F_size: &v.size, F_goExtern: &v.goExtern, F_goCall: &v.goCall, F_primitive: &v.primitive, F_asWritten: &v.asWritten}
 }
 
 type CodecFields_GoBindings struct {
@@ -568,14 +571,14 @@ type CodecFields_Package struct {
 	F_host           **hostPkg
 	F_owners         *map[syntax.Node]FactOwner
 	F_files          *[]*fileInfo
-	F_collFuncs      *map[collKey]*Func
+	F_builtinFuncs   *map[builtinKey]*Func
 	F_testBuilds     *map[*TypeName][]*Builder
 	F_testOf         **Package
 	F_lawSelf        **checker
 }
 
 func CodecFieldsOf_Package(v *Package) CodecFields_Package {
-	return CodecFields_Package{F_cellConvs: &v.cellConvs, F_functionClaims: &v.functionClaims, F_qualify: &v.qualify, F_module: &v.module, F_trusted: &v.trusted, F_host: &v.host, F_owners: &v.owners, F_files: &v.files, F_collFuncs: &v.collFuncs, F_testBuilds: &v.testBuilds, F_testOf: &v.testOf, F_lawSelf: &v.lawSelf}
+	return CodecFields_Package{F_cellConvs: &v.cellConvs, F_functionClaims: &v.functionClaims, F_qualify: &v.qualify, F_module: &v.module, F_trusted: &v.trusted, F_host: &v.host, F_owners: &v.owners, F_files: &v.files, F_builtinFuncs: &v.builtinFuncs, F_testBuilds: &v.testBuilds, F_testOf: &v.testOf, F_lawSelf: &v.lawSelf}
 }
 
 type CodecFields_PkgName struct {
@@ -826,6 +829,33 @@ type CodecFields_branch struct {
 
 func CodecFieldsOf_branch(v *branch) CodecFields_branch {
 	return CodecFields_branch{F_kind: &v.kind}
+}
+
+type CodecFields_builtinKey struct {
+	F_name *string
+	F_recv *builtinRecv
+}
+
+func CodecFieldsOf_builtinKey(v *builtinKey) CodecFields_builtinKey {
+	return CodecFields_builtinKey{F_name: &v.name, F_recv: &v.recv}
+}
+
+type CodecFields_cCbTypeSpec struct {
+	F_cbParam *string
+	F_goType  *string
+}
+
+func CodecFieldsOf_cCbTypeSpec(v *cCbTypeSpec) CodecFields_cCbTypeSpec {
+	return CodecFields_cCbTypeSpec{F_cbParam: &v.cbParam, F_goType: &v.goType}
+}
+
+type CodecFields_cScopedSpec struct {
+	F_cbParam    *string
+	F_sliceParam *string
+}
+
+func CodecFieldsOf_cScopedSpec(v *cScopedSpec) CodecFields_cScopedSpec {
+	return CodecFields_cScopedSpec{F_cbParam: &v.cbParam, F_sliceParam: &v.sliceParam}
 }
 
 type CodecFields_callbackDiagKey struct {
@@ -1155,15 +1185,6 @@ func CodecFieldsOf_colInfo(v *colInfo) CodecFields_colInfo {
 	return CodecFields_colInfo{F_t: &v.t, F_dom: &v.dom, F_u: &v.u}
 }
 
-type CodecFields_collKey struct {
-	F_name *string
-	F_on   *collOn
-}
-
-func CodecFieldsOf_collKey(v *collKey) CodecFields_collKey {
-	return CodecFields_collKey{F_name: &v.name, F_on: &v.on}
-}
-
 type CodecFields_collision struct {
 	F_cap   *Type
 	F_key   *capKey
@@ -1321,6 +1342,7 @@ type CodecFields_escWalk struct {
 	F_aliases       *map[*Var][]*Var
 	F_addressed     *map[*Var]bool
 	F_borrowHolders *map[*Var]Type
+	F_scopedVars    *map[*Var]string
 	F_collecting    *bool
 	F_litVar        *map[*syntax.FuncLit]*Var
 	F_litUses       *map[*Var][]litUse
@@ -1328,7 +1350,7 @@ type CodecFields_escWalk struct {
 }
 
 func CodecFieldsOf_escWalk(v *escWalk) CodecFields_escWalk {
-	return CodecFields_escWalk{F_c: &v.c, F_info: &v.info, F_stack: &v.stack, F_frames: &v.frames, F_varFrame: &v.varFrame, F_frameNodes: &v.frameNodes, F_regions: &v.regions, F_declDepth: &v.declDepth, F_writes: &v.writes, F_events: &v.events, F_order: &v.order, F_aliases: &v.aliases, F_addressed: &v.addressed, F_borrowHolders: &v.borrowHolders, F_collecting: &v.collecting, F_litVar: &v.litVar, F_litUses: &v.litUses, F_localUses: &v.localUses}
+	return CodecFields_escWalk{F_c: &v.c, F_info: &v.info, F_stack: &v.stack, F_frames: &v.frames, F_varFrame: &v.varFrame, F_frameNodes: &v.frameNodes, F_regions: &v.regions, F_declDepth: &v.declDepth, F_writes: &v.writes, F_events: &v.events, F_order: &v.order, F_aliases: &v.aliases, F_addressed: &v.addressed, F_borrowHolders: &v.borrowHolders, F_scopedVars: &v.scopedVars, F_collecting: &v.collecting, F_litVar: &v.litVar, F_litUses: &v.litUses, F_localUses: &v.localUses}
 }
 
 type CodecFields_explicitArgs struct {
@@ -1541,32 +1563,36 @@ func CodecFieldsOf_heldWalk(v *heldWalk) CodecFields_heldWalk {
 }
 
 type CodecFields_hostPkg struct {
-	F_set          **GoBindings
-	F_src          *string
-	F_c            **checker
-	F_fi           **fileInfo
-	F_loaded       *bool
-	F_err          *string
-	F_vars         *map[*Var]*syntax.VarSpec
-	F_refused      *map[string]string
-	F_recvPtr      *map[*Func]bool
-	F_variadic     *map[*Func]bool
-	F_context      *map[*Func]bool
-	F_goLines      *map[int]string
-	F_reads        *map[*Func][]string
-	F_vouched      *map[*Func][]vouch
-	F_writes       *map[*Func]int
-	F_effect       *map[*Func]bool
-	F_host         *map[*Func]bool
-	F_cBind        *bool
-	F_cChecked     *bool
-	F_cHeaderSHA   *string
-	F_cContractSHA *string
-	F_cdata        *map[*TypeName]bool
+	F_set            **GoBindings
+	F_src            *string
+	F_c              **checker
+	F_fi             **fileInfo
+	F_loaded         *bool
+	F_err            *string
+	F_vars           *map[*Var]*syntax.VarSpec
+	F_refused        *map[string]string
+	F_recvPtr        *map[*Func]bool
+	F_variadic       *map[*Func]bool
+	F_context        *map[*Func]bool
+	F_goLines        *map[int]string
+	F_reads          *map[*Func][]string
+	F_vouched        *map[*Func][]vouch
+	F_writes         *map[*Func]int
+	F_effect         *map[*Func]bool
+	F_host           *map[*Func]bool
+	F_cBind          *bool
+	F_cChecked       *bool
+	F_cHeaderSHA     *string
+	F_cContractSHA   *string
+	F_cdata          *map[*TypeName]bool
+	F_scoped         *map[*Func][]cScopedSpec
+	F_scopedResolved *map[*Func]map[int]map[int]bool
+	F_cbTypes        *map[*Func][]cCbTypeSpec
+	F_cbTypeResolved *map[*Func]map[int]string
 }
 
 func CodecFieldsOf_hostPkg(v *hostPkg) CodecFields_hostPkg {
-	return CodecFields_hostPkg{F_set: &v.set, F_src: &v.src, F_c: &v.c, F_fi: &v.fi, F_loaded: &v.loaded, F_err: &v.err, F_vars: &v.vars, F_refused: &v.refused, F_recvPtr: &v.recvPtr, F_variadic: &v.variadic, F_context: &v.context, F_goLines: &v.goLines, F_reads: &v.reads, F_vouched: &v.vouched, F_writes: &v.writes, F_effect: &v.effect, F_host: &v.host, F_cBind: &v.cBind, F_cChecked: &v.cChecked, F_cHeaderSHA: &v.cHeaderSHA, F_cContractSHA: &v.cContractSHA, F_cdata: &v.cdata}
+	return CodecFields_hostPkg{F_set: &v.set, F_src: &v.src, F_c: &v.c, F_fi: &v.fi, F_loaded: &v.loaded, F_err: &v.err, F_vars: &v.vars, F_refused: &v.refused, F_recvPtr: &v.recvPtr, F_variadic: &v.variadic, F_context: &v.context, F_goLines: &v.goLines, F_reads: &v.reads, F_vouched: &v.vouched, F_writes: &v.writes, F_effect: &v.effect, F_host: &v.host, F_cBind: &v.cBind, F_cChecked: &v.cChecked, F_cHeaderSHA: &v.cHeaderSHA, F_cContractSHA: &v.cContractSHA, F_cdata: &v.cdata, F_scoped: &v.scoped, F_scopedResolved: &v.scopedResolved, F_cbTypes: &v.cbTypes, F_cbTypeResolved: &v.cbTypeResolved}
 }
 
 type CodecFields_importAlias struct {

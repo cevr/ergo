@@ -5,8 +5,8 @@
 // dot form on exactly an unnamed slice or Map, a string, an unnamed []byte
 // or a rune (D-D8), never as a name in scope, and MakeSlice by name like
 // len. The checker registers the functions of this file, and of no other,
-// as the operations (internal/sketch/check collop.go names which operation
-// each one is, for the evaluator, the footprint and the lowerings); every
+// as the operations (the evaluator, footprint, and lowering classify each
+// primitive from its Go body contract, never from a closed table); every
 // checker, the Go one and compiler/check, reads this one file
 // (PRELUDE-ONE-SOURCE). Each extern's Go reference is the operation's
 // reference body in runtime/v1 (Go's delete for Delete), and the laws

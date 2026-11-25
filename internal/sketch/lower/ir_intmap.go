@@ -55,9 +55,9 @@ func (b *irBuilder) intMapValue(x syntax.Expr, p irPos, stmt bool, pre []*irStmt
 // map: Put (Delete binds Go's builtin, intMapBuiltin). ok is false when
 // x is no such call.
 func (b *irBuilder) intMapPrelude(x *syntax.CallExpr, c *check.Call, f *check.Func, p irPos, stmt bool) ([]*irStmt, *irExpr, bool) {
-	op := check.CollOpOf(f)
+	op := mapOpOf(f)
 	switch op {
-	case check.CollPut, check.CollDelete, check.CollGet, check.CollTake:
+	case mapOpPut, mapOpDelete, mapOpGet, mapOpTake:
 	default:
 		return nil, nil, false
 	}
@@ -72,7 +72,7 @@ func (b *irBuilder) intMapPrelude(x *syntax.CallExpr, c *check.Call, f *check.Fu
 		return nil, nil, false
 	}
 	switch op {
-	case check.CollPut:
+	case mapOpPut:
 		if len(list) != 3 {
 			irNo("Map write form")
 		}
@@ -80,7 +80,7 @@ func (b *irBuilder) intMapPrelude(x *syntax.CallExpr, c *check.Call, f *check.Fu
 		b.valueSource(x, c, list, args) // ir_pkg.go: a copy unless in place
 		pre, v := b.intMapValue(x, p, stmt, pre, args[0], "Put", args[1], args[2])
 		return pre, v, true
-	case check.CollDelete:
+	case mapOpDelete:
 		if len(list) != 2 {
 			irNo("Map write form")
 		}
@@ -89,7 +89,7 @@ func (b *irBuilder) intMapPrelude(x *syntax.CallExpr, c *check.Call, f *check.Fu
 		pre, v := b.intMapValue(x, p, stmt, pre, args[0], "Delete", args[1])
 		return pre, v, true
 	}
-	irNo("int map %s", map[check.CollOp]string{check.CollGet: "Get as a value", check.CollTake: "Take"}[op])
+	irNo("int map %s", map[mapOpKind]string{mapOpGet: "Get as a value", mapOpTake: "Take"}[op])
 	return nil, nil, false
 }
 

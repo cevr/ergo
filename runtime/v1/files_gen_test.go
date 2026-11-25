@@ -192,6 +192,18 @@ func bodyLiteral(b Body) string {
 	if b.View != "" {
 		fields = append(fields, fmt.Sprintf("View: %q", b.View))
 	}
+	if b.AppendsSlice {
+		fields = append(fields, "AppendsSlice: true")
+	}
+	if b.ReadsMap {
+		fields = append(fields, "ReadsMap: true")
+	}
+	if b.WritesMap {
+		fields = append(fields, "WritesMap: true")
+	}
+	if b.TakesMap {
+		fields = append(fields, "TakesMap: true")
+	}
 	if b.Package != "" {
 		fields = append(fields, packageField(b.Package))
 	}

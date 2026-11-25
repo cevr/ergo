@@ -48,10 +48,10 @@ type getArm struct {
 	value  *check.Var
 }
 
-// preludeGet reports the Map operation Get[K, V](m Map[K, V], k K)
-// Option[V] (check.CollOpOf), whose body intrinsic writes.
+// preludeGet reports a Map lookup extern whose Go body is Go's comma-ok read
+// (check.BodyOf) and whose Ergo signature returns Option[V].
 func preludeGet(f *check.Func) bool {
-	if check.CollOpOf(f) != check.CollGet {
+	if !check.BodyOf(f).ReadsMap || f == nil || f.Sig == nil {
 		return false
 	}
 	s := f.Sig
