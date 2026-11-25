@@ -587,10 +587,11 @@ func (t *Task[T]) Wait(ct *rt.Task) (T, error) {
 
 // Exit kinds of TaskExit: the order of std task's Exit variants.
 const (
-	taskDone     = iota // the block returned its value
-	taskFailed          // the task's whole exit is one typed failure
-	taskDefected        // a defect ended it (with or without a typed failure)
-	taskStopped         // a stop that was not the waiter's ended it
+	taskDone        = iota // the block returned its value
+	taskFailed             // the task's whole exit is one typed failure
+	taskDefected           // a defect ended it (with or without a typed failure)
+	taskStopped            // a stop that was not the waiter's ended it
+	taskBudgetSpent        // the task's own step budget ran out
 )
 
 // TaskExit is std task's exitOf(t) on ct, the waiting task: it waits for
@@ -630,12 +631,24 @@ func TaskExit[T any](ct *rt.Task, t *Task[T]) (int, error) {
 			return taskDefected, nil
 		case t.ended:
 			return taskDone, nil
+		case interrupted(err) && t.h.Task().BudgetExceeded():
+			return taskBudgetSpent, nil
 		case interrupted(err):
 			return taskStopped, nil
 		}
 	}
 	raise(err)
 	panic("unreachable")
+}
+
+// TaskLimitSteps sets a step budget of limit unmasked interruption points on
+// the calling task ct. A nonpositive limit does nothing.
+//
+//ergo:wait none
+func TaskLimitSteps(ct *rt.Task, limit int) {
+	if limit > 0 {
+		ct.SetStepBudget(int64(limit))
+	}
 }
 
 // TaskAlarm is std task's Alarm, what StopAfter armed: one alarm on the

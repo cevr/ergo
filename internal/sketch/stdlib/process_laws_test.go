@@ -16,7 +16,7 @@ import (
 // laws of std process (stdlib.md, Process), for its provider Local.
 var processLaws = map[string][]string{
 	"process": {"Runner.ValueOrFailurePasses", "Runner.DefectIsCrashed", "Runner.TimeIsExpired",
-		"Runner.CleanupRunsBeforeReturn", "Runner.ModelAgrees"},
+		"Runner.StepsIsExceeded", "Runner.CleanupRunsBeforeReturn", "Runner.ModelAgrees"},
 }
 
 // TestStdProcessLaws runs the laws of processLaws in process, at check

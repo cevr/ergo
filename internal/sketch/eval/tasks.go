@@ -65,6 +65,14 @@ func registerTasks(t nativeTables) {
 		v.delivered = true
 		return v.t.val, nil
 	}
+	t.reads["task.LimitSteps"] = "int64"
+	natives["task.LimitSteps"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		limit := args[0].(int64)
+		if limit > 0 && in.cur != nil {
+			in.cur.stepBudget = &evalStepBudget{rem: limit, root: in.cur, parent: in.cur.stepBudget}
+		}
+		return unit{}, nil
+	}
 	// task.StopAfter(t, d) (runtime/v1 TaskStopAfter): one alarm on the
 	// timeline of the run's Scheduler (a time.Manual's, whose Advance
 	// fires it, or a testing.VirtualClock's, whose idle does), which stops
@@ -347,6 +355,8 @@ func (v *taskV) exitOf(in *interp, fr *frame, at syntax.Node) (Value, *abrupt) {
 		// A stop that was not the waiter's came after the block returned:
 		// the value stays the task's (Gap 47).
 		return int64(0), nil
+	case t.exit.kind == ctlInterrupt && t.budgetSpent:
+		return int64(4), nil
 	case t.exit.kind == ctlInterrupt:
 		// A stop that was not the waiter's ended it (a StopAfter alarm).
 		return int64(3), nil
