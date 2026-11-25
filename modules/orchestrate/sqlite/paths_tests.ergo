@@ -1,0 +1,408 @@
+import explore
+import github.com/cevr/ergo/modules/orchestrate/orchestrate
+import sync
+import testing
+
+type osCmd = osOpenUnit{} | osReuseConflict{} | osClaimUnit{} | osReopen{}
+
+type osState {
+	Ops []osCmd,
+}
+
+type osObs {
+	Seq          int,
+	UnitCount    int,
+	ClaimedCount int,
+}
+
+type osReply =
+	| osExecuted{Seq int, Duplicate bool, EvCount int}
+	| osRefused{Kind string}
+	| osReopened{Seq int}
+
+type OrchSqlOpenErr { Why string }
+
+type OrchSqlDriveErr { Why string }
+
+func osEnvelope(cmd osCmd, step int) orchestrate.Envelope {
+	let ts = "2026-11-25T09:10:\(10 + step)Z"
+	match cmd {
+	case osOpenUnit, osReopen:
+		orchestrate.Envelope{
+			ID:      orchestrate.CommandID("sql-paths-open-u1"),
+			Actor:   "coord",
+			At:      ts,
+			Command: orchestrate.OpenUnit{ID: "u1", Title: "Unit One", Area: "core"},
+		}
+	case osReuseConflict:
+		orchestrate.Envelope{
+			ID:      orchestrate.CommandID("sql-paths-open-u1"),
+			Actor:   "coord",
+			At:      ts,
+			Command: orchestrate.OpenUnit{ID: "u1", Title: "Conflict Title", Area: "core"},
+		}
+	case osClaimUnit:
+		orchestrate.Envelope{
+			ID:      orchestrate.CommandID("sql-paths-claim-\(step)"),
+			Actor:   "w1",
+			At:      ts,
+			Command: orchestrate.ClaimUnit{ID: "u1", Owner: "w1", Lane: "l1", Harness: "agy"},
+		}
+	}
+}
+
+func osApplyModel(st orchestrate.State, seq int, cmd osCmd, step int) (orchestrate.State, int, osReply) {
+	match cmd {
+	case osReopen:
+		return (st, seq, osReopened{Seq: seq})
+	case osOpenUnit, osReuseConflict, osClaimUnit:
+		let env = osEnvelope(cmd, step)
+		let evts = orchestrate.Decide(st, env) catch {
+		case orchestrate.NotFound:
+			return (st, seq, osRefused{Kind: "not_found"})
+		case orchestrate.AlreadyExists:
+			return (st, seq, osRefused{Kind: "already_exists"})
+		case orchestrate.InvalidTransition:
+			return (st, seq, osRefused{Kind: "invalid_transition"})
+		case orchestrate.StaleClaim:
+			return (st, seq, osRefused{Kind: "stale_claim"})
+		case orchestrate.CommandReused:
+			return (st, seq, osRefused{Kind: "command_reused"})
+		case orchestrate.InvalidInput:
+			return (st, seq, osRefused{Kind: "invalid_input"})
+		}
+		if len(evts) == 0 {
+			return (st, seq, osExecuted{Seq: seq, Duplicate: true, EvCount: 0})
+		}
+		let nextSt = orchestrate.ApplyAll(st, evts)
+		let nextSeq = seq + len(evts)
+		(nextSt, nextSeq, osExecuted{Seq: nextSeq, Duplicate: false, EvCount: len(evts)})
+	}
+}
+
+func osFold(ops []osCmd) (orchestrate.State, int) {
+	let mut st = orchestrate.EmptyState()
+	let mut seq = 0
+	for i, op in ops {
+		let (ns, nseq, _) = osApplyModel(st, seq, op, i+1)
+		st = ns
+		seq = nseq
+	}
+	(st, seq)
+}
+
+func osObsOf(st orchestrate.State, seq int) osObs {
+	osObs{
+		Seq:          seq,
+		UnitCount:    len(orchestrate.ListUnits(st, None)),
+		ClaimedCount: len(orchestrate.ListUnits(st, Some[orchestrate.UnitStatus]{Value: orchestrate.UnitClaimed})),
+	}
+}
+
+func osModel() explore.PathModel[osState, osCmd, osObs, osReply, Never] {
+	explore.PathModel[osState, osCmd, osObs, osReply, Never]{
+		Graph: explore.ConcreteGraph[osState, osCmd, explore.StepObs[osObs, osReply, Never]]{
+			Starts:  []osState{osState{Ops: []osCmd{}}},
+			Signals: []osCmd{osOpenUnit, osReuseConflict, osClaimUnit, osReopen},
+			Step:    func(s osState, cmd osCmd) explore.EdgeOutcome[osState, explore.StepObs[osObs, osReply, Never]] {
+				let (curSt, curSeq) = osFold(s.Ops)
+				let step = len(s.Ops) + 1
+				let (nextSt, nextSeq, reply) = osApplyModel(curSt, curSeq, cmd, step)
+				let nextOps = match reply {
+				case osExecuted as ex:
+					if ex.Duplicate { s.Ops } else { s.Ops.Append(cmd) }
+				case osRefused, osReopened:
+					s.Ops
+				}
+				let kind = match reply {
+				case osExecuted as ex:
+					if ex.Duplicate { explore.DisIgnore } else { explore.DisEmit }
+				case osReopened:
+					explore.DisEmit
+				case osRefused:
+					explore.DisReject
+				}
+				explore.Continue[osState, explore.StepObs[osObs, osReply, Never]]{
+					Next: osState{Ops: nextOps},
+					Obs:  explore.StepObs[osObs, osReply, Never]{
+						Kind:     kind,
+						State:    Some[osObs]{Value: osObsOf(nextSt, nextSeq)},
+						Outputs:  []osReply{reply},
+						Error:    None,
+						Terminal: false,
+					},
+				}
+			},
+		},
+		InitialObs: func(s osState) osObs {
+			let (st, seq) = osFold(s.Ops)
+			osObsOf(st, seq)
+		},
+		ProjectionName: Some[string]{Value: "orchestrate-sqlite-durable-store"},
+	}
+}
+
+type osLiveSlot {
+	dir    string,
+	name   string,
+	store  sync.Ref[Store],
+	step   sync.Ref[int],
+	closed sync.Ref[bool],
+}
+
+type osSessHandle {
+	read  func() explore.Observed[osObs, osReply, Never] fails OrchSqlDriveErr,
+	apply func(cmd osCmd) explore.Observed[osObs, osReply, Never] fails OrchSqlDriveErr,
+	close func(),
+} implements explore.PathSession[osCmd, explore.Observed[osObs, osReply, Never], OrchSqlDriveErr]
+
+func Read(s osSessHandle) explore.Observed[osObs, osReply, Never] fails OrchSqlDriveErr { try s.read() }
+
+func Apply(s osSessHandle, cmd osCmd) explore.Observed[osObs, osReply, Never] fails OrchSqlDriveErr { try s.apply(cmd) }
+
+func Close(s osSessHandle) { s.close() }
+
+func osObserveLive(st Store) osObs fails OrchSqlDriveErr needs go.Foreign {
+	let evts = st.Events(0) catch {
+	case orchestrate.StoreFailed as e:
+		return OrchSqlDriveErr{Why: e.Reason}
+	}
+	for i, item in evts {
+		if item.Seq != i+1 {
+			return OrchSqlDriveErr{Why: "non-dense event sequence"}
+		}
+	}
+	let snap = st.Snapshot() catch {
+	case orchestrate.StoreFailed as e:
+		return OrchSqlDriveErr{Why: e.Reason}
+	}
+	if orchestrate.Fold(orchestrate.EventList(evts)) != snap {
+		return OrchSqlDriveErr{Why: "fold mismatch with snapshot"}
+	}
+	let units = st.ListUnits(None) catch {
+	case orchestrate.StoreFailed as e:
+		return OrchSqlDriveErr{Why: e.Reason}
+	}
+	let claimed = st.ListUnits(Some[orchestrate.UnitStatus]{Value: orchestrate.UnitClaimed}) catch {
+	case orchestrate.StoreFailed as e:
+		return OrchSqlDriveErr{Why: e.Reason}
+	}
+	osObs{
+		Seq:          len(evts),
+		UnitCount:    len(units),
+		ClaimedCount: len(claimed),
+	}
+}
+
+// OrchSQLitePaths is the model-based path-testing contract for file-backed WAL
+// SQLite orchestrate stores including explicit close-and-reopen durability paths.
+type OrchSQLitePaths {
+	OpenSession() int fails OrchSqlOpenErr,
+	ReadSession(id int) explore.Observed[osObs, osReply, Never] fails OrchSqlDriveErr,
+	ApplySession(id int, cmd osCmd) explore.Observed[osObs, osReply, Never] fails OrchSqlDriveErr,
+	CloseSession(id int),
+	Counts() (int, int),
+
+	// PathsAgree checks every bounded WAL SQLite orchestrate path up to depth 3
+	// including open, idempotent retry, CommandReused conflict, claim, and
+	// close/reopen durability against pure Decide/ApplyAll with full cleanup.
+	law PathsAgree() {
+		let (openBefore, closeBefore) = Counts()
+		let res = explore.CheckPathsWithSink(
+			osModel(),
+			explore.ToDepth{Depth: 3},
+			explore.PathBounds{
+				MaxStates: 256,
+				MaxEdges:  1024,
+				MaxPaths:  256,
+				MaxSteps:  1024,
+				MaxWork:   65536,
+				MaxBytes:  262144,
+			},
+			func(_ osState) explore.PathSession[osCmd, explore.Observed[osObs, osReply, Never], OrchSqlDriveErr] fails OrchSqlOpenErr {
+				let id = try OpenSession()
+				osSessHandle{
+					read:  func() explore.Observed[osObs, osReply, Never] fails OrchSqlDriveErr { try ReadSession(id) },
+					apply: func(cmd osCmd) explore.Observed[osObs, osReply, Never] fails OrchSqlDriveErr { try ApplySession(id, cmd) },
+					close: func() { CloseSession(id) },
+				}
+			},
+			testing.ActiveEvidenceSink(),
+		)
+		let (openAfter, closeAfter) = Counts()
+		let opened = openAfter - openBefore
+		let closed = closeAfter - closeBefore
+		assert opened > 0 && opened == closed
+		assert res.Counts.Opened == res.Counts.Planned
+		assert res.Counts.InitialReads == res.Counts.Opened
+		assert res.Counts.CheckedSteps == res.PlanStats.Steps
+		match res.Verdict {
+		case explore.CampaignPassed:
+			true
+		case explore.CampaignRefuted, explore.CampaignIncomplete:
+			false
+		}
+	},
+}
+
+let osSlots = sync.NewRef(Map[int, osLiveSlot]{})
+let osNextID = sync.NewRef(0)
+let osOpens = sync.NewRef(0)
+let osCloses = sync.NewRef(0)
+
+// OrchSQLitePathProvider implements OrchSQLitePaths over fresh per-path WAL
+// SQLite databases cleaned up when each session closes.
+type OrchSQLitePathProvider {} implements OrchSQLitePaths
+
+func OpenSession(_ OrchSQLitePathProvider) int fails OrchSqlOpenErr needs go.Foreign {
+	let (dir, name) = nextVerifyDBPath("orch-paths") catch {
+	case orchestrate.StoreFailed as e:
+		return OrchSqlOpenErr{Why: e.Reason}
+	}
+	let st = Open("\(dir)/\(name)") catch {
+	case orchestrate.StoreFailed as e:
+		cleanupVerifyDB(dir, name)
+		return OrchSqlOpenErr{Why: e.Reason}
+	}
+	let id = sync.Modify(osNextID, func(cur int) (int, int) { (cur + 1, cur + 1) })
+	osOpens.Update(func(cur int) int { cur + 1 })
+	let slot = osLiveSlot{
+		dir:    dir,
+		name:   name,
+		store:  sync.NewRef(st),
+		step:   sync.NewRef(0),
+		closed: sync.NewRef(false),
+	}
+	osSlots.Update(func(m Map[int, osLiveSlot]) Map[int, osLiveSlot] { m.Put(id, slot) })
+	id
+}
+
+func lookupOrchSlot(id int) osLiveSlot fails OrchSqlDriveErr {
+	match osSlots.Get().Get(id) {
+	case Some[osLiveSlot] as s:
+		s.Value
+	case None:
+		OrchSqlDriveErr{Why: "missing session slot \(id)"}
+	}
+}
+
+func ReadSession(_ OrchSQLitePathProvider, id int) explore.Observed[osObs, osReply, Never] fails OrchSqlDriveErr needs go.Foreign {
+	let slot = try lookupOrchSlot(id)
+	explore.InitialRead[osObs]{State: try osObserveLive(slot.store.Get())}
+}
+
+func ApplySession(_ OrchSQLitePathProvider, id int, cmd osCmd) explore.Observed[osObs, osReply, Never] fails OrchSqlDriveErr needs go.Foreign {
+	let slot = try lookupOrchSlot(id)
+	let n = slot.step.Get() + 1
+	slot.step.Set(n)
+	match cmd {
+	case osReopen:
+		slot.store.Get().Close() catch {
+		case orchestrate.StoreFailed as e:
+			return OrchSqlDriveErr{Why: "close before reopen failed: \(e.Reason)"}
+		}
+		let reopened = Open("\(slot.dir)/\(slot.name)") catch {
+		case orchestrate.StoreFailed as e:
+			return OrchSqlDriveErr{Why: "reopen failed: \(e.Reason)"}
+		}
+		slot.store.Set(reopened)
+		let obs = try osObserveLive(reopened)
+		explore.StepResult[osObs, osReply, Never]{Step: explore.StepObs[osObs, osReply, Never]{
+			Kind:     explore.DisEmit,
+			State:    Some[osObs]{Value: obs},
+			Outputs:  []osReply{osReopened{Seq: obs.Seq}},
+			Error:    None,
+			Terminal: false,
+		}}
+	case osOpenUnit, osReuseConflict, osClaimUnit:
+		let st = slot.store.Get()
+		let env = osEnvelope(cmd, n)
+		let res = st.Execute(env) catch {
+		case orchestrate.NotFound:
+			let obs = try osObserveLive(st)
+			return explore.StepResult[osObs, osReply, Never]{Step: explore.StepObs[osObs, osReply, Never]{
+				Kind:     explore.DisReject,
+				State:    Some[osObs]{Value: obs},
+				Outputs:  []osReply{osRefused{Kind: "not_found"}},
+				Error:    None,
+				Terminal: false,
+			}}
+		case orchestrate.AlreadyExists:
+			let obs = try osObserveLive(st)
+			return explore.StepResult[osObs, osReply, Never]{Step: explore.StepObs[osObs, osReply, Never]{
+				Kind:     explore.DisReject,
+				State:    Some[osObs]{Value: obs},
+				Outputs:  []osReply{osRefused{Kind: "already_exists"}},
+				Error:    None,
+				Terminal: false,
+			}}
+		case orchestrate.InvalidTransition:
+			let obs = try osObserveLive(st)
+			return explore.StepResult[osObs, osReply, Never]{Step: explore.StepObs[osObs, osReply, Never]{
+				Kind:     explore.DisReject,
+				State:    Some[osObs]{Value: obs},
+				Outputs:  []osReply{osRefused{Kind: "invalid_transition"}},
+				Error:    None,
+				Terminal: false,
+			}}
+		case orchestrate.StaleClaim:
+			let obs = try osObserveLive(st)
+			return explore.StepResult[osObs, osReply, Never]{Step: explore.StepObs[osObs, osReply, Never]{
+				Kind:     explore.DisReject,
+				State:    Some[osObs]{Value: obs},
+				Outputs:  []osReply{osRefused{Kind: "stale_claim"}},
+				Error:    None,
+				Terminal: false,
+			}}
+		case orchestrate.CommandReused:
+			let obs = try osObserveLive(st)
+			return explore.StepResult[osObs, osReply, Never]{Step: explore.StepObs[osObs, osReply, Never]{
+				Kind:     explore.DisReject,
+				State:    Some[osObs]{Value: obs},
+				Outputs:  []osReply{osRefused{Kind: "command_reused"}},
+				Error:    None,
+				Terminal: false,
+			}}
+		case orchestrate.InvalidInput:
+			let obs = try osObserveLive(st)
+			return explore.StepResult[osObs, osReply, Never]{Step: explore.StepObs[osObs, osReply, Never]{
+				Kind:     explore.DisReject,
+				State:    Some[osObs]{Value: obs},
+				Outputs:  []osReply{osRefused{Kind: "invalid_input"}},
+				Error:    None,
+				Terminal: false,
+			}}
+		case orchestrate.StoreFailed as e:
+			return OrchSqlDriveErr{Why: e.Reason}
+		}
+		let obs = try osObserveLive(st)
+		let kind = if res.Duplicate { explore.DisIgnore } else { explore.DisEmit }
+		explore.StepResult[osObs, osReply, Never]{Step: explore.StepObs[osObs, osReply, Never]{
+			Kind:     kind,
+			State:    Some[osObs]{Value: obs},
+			Outputs:  []osReply{osExecuted{Seq: res.Seq, Duplicate: res.Duplicate, EvCount: len(res.Events)}},
+			Error:    None,
+			Terminal: false,
+		}}
+	}
+}
+
+func CloseSession(_ OrchSQLitePathProvider, id int) needs go.Foreign {
+	match osSlots.Get().Get(id) {
+	case Some[osLiveSlot] as s:
+		if s.Value.closed.Get() {
+			return
+		}
+		s.Value.closed.Set(true)
+		s.Value.store.Get().Close() catch {
+		case orchestrate.StoreFailed:
+		}
+		cleanupVerifyDB(s.Value.dir, s.Value.name)
+		osCloses.Update(func(cur int) int { cur + 1 })
+	case None:
+	}
+}
+
+func Counts(_ OrchSQLitePathProvider) (int, int) {
+	(osOpens.Get(), osCloses.Get())
+}

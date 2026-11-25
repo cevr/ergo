@@ -1,0 +1,351 @@
+import explore
+import github.com/cevr/ergo/modules/orchestrate/orchestrate
+import sync
+import testing
+
+type omCmd = omOpenUnit{} | omReuseConflict{} | omClaimUnit{} | omAskQuestion{}
+
+type omState {
+	Ops []omCmd,
+}
+
+type omObs {
+	Seq           int,
+	UnitCount     int,
+	ClaimedCount  int,
+	OpenQuestions int,
+}
+
+type omReply =
+	| omExecuted{Seq int, Duplicate bool, EvCount int}
+	| omRefused{Kind string}
+
+type OrchMemOpenErr { Why string }
+
+type OrchMemDriveErr { Why string }
+
+func omEnvelope(cmd omCmd, step int) orchestrate.Envelope {
+	let ts = "2026-11-25T09:00:\(10 + step)Z"
+	match cmd {
+	case omOpenUnit:
+		orchestrate.Envelope{
+			ID:      orchestrate.CommandID("paths-open-u1"),
+			Actor:   "coord",
+			At:      ts,
+			Command: orchestrate.OpenUnit{ID: "u1", Title: "Unit One", Area: "core"},
+		}
+	case omReuseConflict:
+		orchestrate.Envelope{
+			ID:      orchestrate.CommandID("paths-open-u1"),
+			Actor:   "coord",
+			At:      ts,
+			Command: orchestrate.OpenUnit{ID: "u1", Title: "Conflict Title", Area: "core"},
+		}
+	case omClaimUnit:
+		orchestrate.Envelope{
+			ID:      orchestrate.CommandID("paths-claim-\(step)"),
+			Actor:   "w1",
+			At:      ts,
+			Command: orchestrate.ClaimUnit{ID: "u1", Owner: "w1", Lane: "l1", Harness: "agy"},
+		}
+	case omAskQuestion:
+		orchestrate.Envelope{
+			ID:      orchestrate.CommandID("paths-ask-\(step)"),
+			Actor:   "coord",
+			At:      ts,
+			Command: orchestrate.AskQuestion{ID: None, Prompt: "ship \(step)?", Assumption: "yes", ConcreteAction: "reply yes"},
+		}
+	}
+}
+
+func omApplyModel(st orchestrate.State, seq int, cmd omCmd, step int) (orchestrate.State, int, omReply) {
+	let env = omEnvelope(cmd, step)
+	let evts = orchestrate.Decide(st, env) catch {
+	case orchestrate.NotFound:
+		return (st, seq, omRefused{Kind: "not_found"})
+	case orchestrate.AlreadyExists:
+		return (st, seq, omRefused{Kind: "already_exists"})
+	case orchestrate.InvalidTransition:
+		return (st, seq, omRefused{Kind: "invalid_transition"})
+	case orchestrate.StaleClaim:
+		return (st, seq, omRefused{Kind: "stale_claim"})
+	case orchestrate.CommandReused:
+		return (st, seq, omRefused{Kind: "command_reused"})
+	case orchestrate.InvalidInput:
+		return (st, seq, omRefused{Kind: "invalid_input"})
+	}
+	if len(evts) == 0 {
+		return (st, seq, omExecuted{Seq: seq, Duplicate: true, EvCount: 0})
+	}
+	let nextSt = orchestrate.ApplyAll(st, evts)
+	let nextSeq = seq + len(evts)
+	(nextSt, nextSeq, omExecuted{Seq: nextSeq, Duplicate: false, EvCount: len(evts)})
+}
+
+func omFold(ops []omCmd) (orchestrate.State, int) {
+	let mut st = orchestrate.EmptyState()
+	let mut seq = 0
+	for i, op in ops {
+		let (ns, nseq, _) = omApplyModel(st, seq, op, i+1)
+		st = ns
+		seq = nseq
+	}
+	(st, seq)
+}
+
+func omObsOf(st orchestrate.State, seq int) omObs {
+	omObs{
+		Seq:           seq,
+		UnitCount:     len(orchestrate.ListUnits(st, None)),
+		ClaimedCount:  len(orchestrate.ListUnits(st, Some[orchestrate.UnitStatus]{Value: orchestrate.UnitClaimed})),
+		OpenQuestions: len(orchestrate.ListQuestions(st, true)),
+	}
+}
+
+func omModel() explore.PathModel[omState, omCmd, omObs, omReply, Never] {
+	explore.PathModel[omState, omCmd, omObs, omReply, Never]{
+		Graph: explore.ConcreteGraph[omState, omCmd, explore.StepObs[omObs, omReply, Never]]{
+			Starts:  []omState{omState{Ops: []omCmd{}}},
+			Signals: []omCmd{omOpenUnit, omReuseConflict, omClaimUnit, omAskQuestion},
+			Step:    func(s omState, cmd omCmd) explore.EdgeOutcome[omState, explore.StepObs[omObs, omReply, Never]] {
+				let (curSt, curSeq) = omFold(s.Ops)
+				let step = len(s.Ops) + 1
+				let (nextSt, nextSeq, reply) = omApplyModel(curSt, curSeq, cmd, step)
+				let nextOps = match reply {
+				case omExecuted as ex:
+					if ex.Duplicate { s.Ops } else { s.Ops.Append(cmd) }
+				case omRefused:
+					s.Ops
+				}
+				let kind = match reply {
+				case omExecuted as ex:
+					if ex.Duplicate { explore.DisIgnore } else { explore.DisEmit }
+				case omRefused:
+					explore.DisReject
+				}
+				explore.Continue[omState, explore.StepObs[omObs, omReply, Never]]{
+					Next: omState{Ops: nextOps},
+					Obs:  explore.StepObs[omObs, omReply, Never]{
+						Kind:     kind,
+						State:    Some[omObs]{Value: omObsOf(nextSt, nextSeq)},
+						Outputs:  []omReply{reply},
+						Error:    None,
+						Terminal: false,
+					},
+				}
+			},
+		},
+		InitialObs: func(s omState) omObs {
+			let (st, seq) = omFold(s.Ops)
+			omObsOf(st, seq)
+		},
+		ProjectionName: Some[string]{Value: "orchestrate-memory-store"},
+	}
+}
+
+type omSess {
+	store  Store,
+	step   sync.Ref[int],
+	closes sync.Ref[int],
+	closed sync.Ref[bool],
+} implements explore.PathSession[omCmd, explore.Observed[omObs, omReply, Never], OrchMemDriveErr]
+
+func omObserveLive(st Store) omObs fails OrchMemDriveErr {
+	let evts = Events(st, 0) catch {
+	case orchestrate.StoreFailed as e:
+		return OrchMemDriveErr{Why: e.Reason}
+	}
+	for i, item in evts {
+		if item.Seq != i+1 {
+			return OrchMemDriveErr{Why: "non-dense event sequence"}
+		}
+	}
+	if len(evts) > 0 {
+		let tail = Events(st, 1) catch {
+		case orchestrate.StoreFailed as e:
+			return OrchMemDriveErr{Why: e.Reason}
+		}
+		if len(tail) != len(evts)-1 {
+			return OrchMemDriveErr{Why: "Events(1) returned \(len(tail)) items for \(len(evts)) total"}
+		}
+		for item in tail {
+			if item.Seq <= 1 {
+				return OrchMemDriveErr{Why: "Events(1) included seq \(item.Seq)"}
+			}
+		}
+	}
+	let snap = Snapshot(st) catch {
+	case orchestrate.StoreFailed as e:
+		return OrchMemDriveErr{Why: e.Reason}
+	}
+	if orchestrate.Fold(orchestrate.EventList(evts)) != snap {
+		return OrchMemDriveErr{Why: "fold mismatch with snapshot"}
+	}
+	let units = ListUnits(st, None) catch {
+	case orchestrate.StoreFailed as e:
+		return OrchMemDriveErr{Why: e.Reason}
+	}
+	let claimed = ListUnits(st, Some[orchestrate.UnitStatus]{Value: orchestrate.UnitClaimed}) catch {
+	case orchestrate.StoreFailed as e:
+		return OrchMemDriveErr{Why: e.Reason}
+	}
+	let openQs = ListQuestions(st, true) catch {
+	case orchestrate.StoreFailed as e:
+		return OrchMemDriveErr{Why: e.Reason}
+	}
+	omObs{
+		Seq:           len(evts),
+		UnitCount:     len(units),
+		ClaimedCount:  len(claimed),
+		OpenQuestions: len(openQs),
+	}
+}
+
+func Read(s omSess) explore.Observed[omObs, omReply, Never] fails OrchMemDriveErr {
+	explore.InitialRead[omObs]{State: try omObserveLive(s.store)}
+}
+
+func Apply(s omSess, cmd omCmd) explore.Observed[omObs, omReply, Never] fails OrchMemDriveErr {
+	let n = s.step.Get() + 1
+	s.step.Set(n)
+	let env = omEnvelope(cmd, n)
+	let res = Execute(s.store, env) catch {
+	case orchestrate.NotFound:
+		let obs = try omObserveLive(s.store)
+		return explore.StepResult[omObs, omReply, Never]{Step: explore.StepObs[omObs, omReply, Never]{
+			Kind:     explore.DisReject,
+			State:    Some[omObs]{Value: obs},
+			Outputs:  []omReply{omRefused{Kind: "not_found"}},
+			Error:    None,
+			Terminal: false,
+		}}
+	case orchestrate.AlreadyExists:
+		let obs = try omObserveLive(s.store)
+		return explore.StepResult[omObs, omReply, Never]{Step: explore.StepObs[omObs, omReply, Never]{
+			Kind:     explore.DisReject,
+			State:    Some[omObs]{Value: obs},
+			Outputs:  []omReply{omRefused{Kind: "already_exists"}},
+			Error:    None,
+			Terminal: false,
+		}}
+	case orchestrate.InvalidTransition:
+		let obs = try omObserveLive(s.store)
+		return explore.StepResult[omObs, omReply, Never]{Step: explore.StepObs[omObs, omReply, Never]{
+			Kind:     explore.DisReject,
+			State:    Some[omObs]{Value: obs},
+			Outputs:  []omReply{omRefused{Kind: "invalid_transition"}},
+			Error:    None,
+			Terminal: false,
+		}}
+	case orchestrate.StaleClaim:
+		let obs = try omObserveLive(s.store)
+		return explore.StepResult[omObs, omReply, Never]{Step: explore.StepObs[omObs, omReply, Never]{
+			Kind:     explore.DisReject,
+			State:    Some[omObs]{Value: obs},
+			Outputs:  []omReply{omRefused{Kind: "stale_claim"}},
+			Error:    None,
+			Terminal: false,
+		}}
+	case orchestrate.CommandReused:
+		let obs = try omObserveLive(s.store)
+		return explore.StepResult[omObs, omReply, Never]{Step: explore.StepObs[omObs, omReply, Never]{
+			Kind:     explore.DisReject,
+			State:    Some[omObs]{Value: obs},
+			Outputs:  []omReply{omRefused{Kind: "command_reused"}},
+			Error:    None,
+			Terminal: false,
+		}}
+	case orchestrate.InvalidInput:
+		let obs = try omObserveLive(s.store)
+		return explore.StepResult[omObs, omReply, Never]{Step: explore.StepObs[omObs, omReply, Never]{
+			Kind:     explore.DisReject,
+			State:    Some[omObs]{Value: obs},
+			Outputs:  []omReply{omRefused{Kind: "invalid_input"}},
+			Error:    None,
+			Terminal: false,
+		}}
+	case orchestrate.StoreFailed as e:
+		return OrchMemDriveErr{Why: e.Reason}
+	}
+	let obs = try omObserveLive(s.store)
+	let kind = if res.Duplicate { explore.DisIgnore } else { explore.DisEmit }
+	explore.StepResult[omObs, omReply, Never]{Step: explore.StepObs[omObs, omReply, Never]{
+		Kind:     kind,
+		State:    Some[omObs]{Value: obs},
+		Outputs:  []omReply{omExecuted{Seq: res.Seq, Duplicate: res.Duplicate, EvCount: len(res.Events)}},
+		Error:    None,
+		Terminal: false,
+	}}
+}
+
+func Close(s omSess) {
+	if s.closed.Get() {
+		return
+	}
+	s.closed.Set(true)
+	s.closes.Set(s.closes.Get() + 1)
+}
+
+// OrchMemoryPaths is the model-based path-testing contract for memory.Store.
+type OrchMemoryPaths {
+	Open(start omState) explore.PathSession[omCmd, explore.Observed[omObs, omReply, Never], OrchMemDriveErr] fails OrchMemOpenErr,
+	Counts() (int, int),
+
+	// PathsAgree checks every bounded orchestrate memory store path up to depth 3
+	// against pure Decide/ApplyAll, verifying idempotency, CommandReused
+	// conflicts, unit lifecycle transitions, question projections, and cleanup.
+	law PathsAgree() {
+		let res = explore.CheckPathsWithSink(
+			omModel(),
+			explore.ToDepth{Depth: 3},
+			explore.PathBounds{
+				MaxStates: 256,
+				MaxEdges:  1024,
+				MaxPaths:  256,
+				MaxSteps:  1024,
+				MaxWork:   65536,
+				MaxBytes:  262144,
+			},
+			func(start omState) explore.PathSession[omCmd, explore.Observed[omObs, omReply, Never], OrchMemDriveErr] fails OrchMemOpenErr {
+				try Open(start)
+			},
+			testing.ActiveEvidenceSink(),
+		)
+		let (opened, closed) = Counts()
+		assert opened > 0 && opened == closed
+		assert res.Counts.Opened == res.Counts.Planned
+		assert res.Counts.InitialReads == res.Counts.Opened
+		assert res.Counts.CheckedSteps == res.PlanStats.Steps
+		match res.Verdict {
+		case explore.CampaignPassed:
+			true
+		case explore.CampaignRefuted, explore.CampaignIncomplete:
+			false
+		}
+	},
+}
+
+type omPathProvider {
+	opens  sync.Ref[int],
+	closes sync.Ref[int],
+} implements OrchMemoryPaths
+
+func makeOrchMemPathProvider() omPathProvider {
+	omPathProvider{opens: sync.NewRef(0), closes: sync.NewRef(0)}
+}
+
+func Open(p omPathProvider, _ omState) explore.PathSession[omCmd, explore.Observed[omObs, omReply, Never], OrchMemDriveErr] fails OrchMemOpenErr {
+	p.opens.Set(p.opens.Get() + 1)
+	omSess{
+		store:  New(),
+		step:   sync.NewRef(0),
+		closes: p.closes,
+		closed: sync.NewRef(false),
+	}
+}
+
+func Counts(p omPathProvider) (int, int) {
+	(p.opens.Get(), p.closes.Get())
+}
+
+let onOrchMemoryPaths = context { OrchMemoryPaths: makeOrchMemPathProvider() }
