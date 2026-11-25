@@ -1165,6 +1165,35 @@ var symbols = [...]struct {
 	{"ot_clipboard_operation_destroy", &c_ot_clipboard_operation_destroy},
 }
 
+var (
+	// symAddrs holds the resolved Dlsym address for each entry of symbols.
+	symAddrs [259]uintptr
+	// forceRegisterFunc routes word-direct typed calls through purego.RegisterFunc
+	// instead of purego.SyscallN for differential oracle testing.
+	forceRegisterFunc bool
+)
+
+// wordBuf holds the argument words and 8-byte-aligned local scratch memory
+// for one word-direct purego.SyscallN call.
+type wordBuf struct {
+	args    [15]uintptr
+	scratch [32]uint64
+}
+
+var wordPool = sync.Pool{New: func() any { return new(wordBuf) }}
+
+// cCall invokes a 1..15-argument word-direct C function via purego.SyscallN.
+func cCall(fn uintptr, b *wordBuf, n int) uintptr {
+	r, _, _ := purego.SyscallN(fn, b.args[:n]...)
+	return r
+}
+
+// cCall0 invokes a 0-argument word-direct C function via purego.SyscallN.
+func cCall0(fn uintptr) uintptr {
+	r, _, _ := purego.SyscallN(fn)
+	return r
+}
+
 // Load opens the library at path and binds every function of opentui.h.
 // It looks up every symbol first (an error names a missing one), then calls
 // ot_context_abi_version and returns *ABIMismatchError unless it returns OT_CONTEXT_ABI_VERSION (2),
@@ -1203,6 +1232,7 @@ func Load(path string) error {
 		return &ABIMismatchError{Want: 2, Got: got}
 	}
 	for i, s := range symbols {
+		symAddrs[i] = addrs[i]
 		purego.RegisterFunc(s.fn, addrs[i])
 	}
 	loaded.Store(true)
@@ -5399,17 +5429,37 @@ func SceneSetHooks(context *Context, node Handle, sceneHooks SceneHooks) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	sceneHooks.fill()
-	_r := c_ot_scene_set_hooks(context.p, unsafe.Pointer(&node), unsafe.Pointer(&sceneHooks))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	_s2 := (*SceneHooks)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = sceneHooks
+	_s2.fill()
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_set_hooks(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[0], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
-	runtime.KeepAlive(&sceneHooks)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -5427,26 +5477,59 @@ func SceneFrameStepWithGeometry(context *Context, session Handle, previous Scene
 	if uint64(len(recording)) > 4294967295 {
 		return SceneFrameRequest{}, SceneFrameGeometry{}, ErrTooLong
 	}
-	previous.fill()
-	sceneFrameOptions.fill()
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	_s2 := (*SceneFrameRequest)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = previous
+	_s2.fill()
+	_s3 := (*SceneFrameOptions)(unsafe.Pointer(&_buf.scratch[16]))
+	*_s3 = sceneFrameOptions
+	_s3.fill()
 	var _o6 SceneFrameRequest
 	_o6.fill()
 	var _o7 SceneFrameGeometry
 	_o7.fill()
-	_r := c_ot_scene_frame_step_with_geometry(context.p, unsafe.Pointer(&session), unsafe.Pointer(&previous), unsafe.Pointer(&sceneFrameOptions), sliceData(recording), uint32(len(recording)), unsafe.Pointer(&_o6), unsafe.Pointer(&_o7))
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	_pin.Pin(_s3)
+	if len(recording) > 0 {
+		_pin.Pin(sliceData(recording))
+	}
+	_pin.Pin(&_o6)
+	_pin.Pin(&_o7)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	_u3 := uintptr(unsafe.Pointer(_s3))
+	_u4 := uintptr(sliceData(recording))
+	_u6 := uintptr(unsafe.Pointer(&_o6))
+	_u7 := uintptr(unsafe.Pointer(&_o7))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_frame_step_with_geometry(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2), unsafe.Pointer(_s3), sliceData(recording), uint32(len(recording)), unsafe.Pointer(&_o6), unsafe.Pointer(&_o7))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = _u3
+		_buf.args[4] = _u4
+		_buf.args[5] = uintptr(uint32(len(recording)))
+		_buf.args[6] = _u6
+		_buf.args[7] = _u7
+		_r = int32(cCall(symAddrs[1], _buf, 8))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
-	runtime.KeepAlive(&previous)
-	runtime.KeepAlive(&sceneFrameOptions)
-	runtime.KeepAlive(recording)
-	runtime.KeepAlive(&_o6)
-	runtime.KeepAlive(&_o7)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return SceneFrameRequest{}, SceneFrameGeometry{}, err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -5465,27 +5548,56 @@ func SceneFrameGetPaintSlots(context *Context, session Handle, recordRequest Sce
 	if uint64(len(outSlots)) > 4294967295 {
 		return 0, ErrTooLong
 	}
-	recordRequest.fill()
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	_s2 := (*SceneFrameRequest)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = recordRequest
+	_s2.fill()
 	for _i0 := range outSlots {
 		outSlots[_i0].fill()
 	}
-	var _o5 uint32
-	_r := c_ot_scene_frame_get_paint_slots(context.p, unsafe.Pointer(&session), unsafe.Pointer(&recordRequest), sliceData(outSlots), uint32(len(outSlots)), unsafe.Pointer(&_o5))
+	_o5 := (*uint32)(unsafe.Pointer(&_buf.scratch[16]))
+	*_o5 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	if len(outSlots) > 0 {
+		_pin.Pin(sliceData(outSlots))
+	}
+	_pin.Pin(_o5)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	_u3 := uintptr(sliceData(outSlots))
+	_u5 := uintptr(unsafe.Pointer(_o5))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_frame_get_paint_slots(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2), sliceData(outSlots), uint32(len(outSlots)), unsafe.Pointer(_o5))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = _u3
+		_buf.args[4] = uintptr(uint32(len(outSlots)))
+		_buf.args[5] = _u5
+		_r = int32(cCall(symAddrs[2], _buf, 6))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
-	runtime.KeepAlive(&recordRequest)
-	runtime.KeepAlive(outSlots)
-	runtime.KeepAlive(&_o5)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out5 := *_o5
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o5, nil
+	return _out5, nil
 }
 
 // SceneFrameCancel calls ot_scene_frame_cancel.
@@ -5496,15 +5608,32 @@ func SceneFrameCancel(context *Context, session Handle, frameId uint64) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_scene_frame_cancel(context.p, unsafe.Pointer(&session), frameId)
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_frame_cancel(context.p, unsafe.Pointer(_s1), frameId)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(frameId)
+		_r = int32(cCall(symAddrs[3], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -5519,21 +5648,43 @@ func SceneCreateNode(context *Context, session Handle, kind uint32, num uint32) 
 	if context == nil || context.p == 0 {
 		return Handle{}, ErrDestroyed
 	}
-	var _o4 Handle
-	_r := c_ot_scene_create_node(context.p, unsafe.Pointer(&session), kind, num, unsafe.Pointer(&_o4))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	_o4 := (*Handle)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o4 = Handle{}
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o4)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u4 := uintptr(unsafe.Pointer(_o4))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_create_node(context.p, unsafe.Pointer(_s1), kind, num, unsafe.Pointer(_o4))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(kind)
+		_buf.args[3] = uintptr(num)
+		_buf.args[4] = _u4
+		_r = int32(cCall(symAddrs[4], _buf, 5))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
-	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return Handle{}, err
 	}
+	_out4 := *_o4
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o4, nil
+	return _out4, nil
 }
 
 // SceneDestroyNode calls ot_scene_destroy_node.
@@ -5550,16 +5701,32 @@ func SceneDestroyNode(context *Context, node Handle) error {
 	if context.t != _t {
 		return ErrWrongThread
 	}
-	_r := c_ot_scene_destroy_node(context.p, unsafe.Pointer(&node))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_destroy_node(context.p, unsafe.Pointer(_s1))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_r = int32(cCall(symAddrs[5], _buf, 2))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
 	cbDropOf(cbMap0, cbKey0{_t, node.ContextId, node.Slot, node.Generation}, context.p)
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -5574,16 +5741,37 @@ func SceneMoveNode(context *Context, node Handle, parent Handle, index uint32) e
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_scene_move_node(context.p, unsafe.Pointer(&node), unsafe.Pointer(&parent), index)
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	_s2 := (*Handle)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = parent
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_move_node(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2), index)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = uintptr(index)
+		_r = int32(cCall(symAddrs[6], _buf, 4))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
-	runtime.KeepAlive(&parent)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -5610,6 +5798,9 @@ func SceneSetMeasure(context *Context, node Handle, sceneMeasureCallback SceneMe
 	if cbOther(cbMap0, _k2, context.p) {
 		return ErrKeyInUse
 	}
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
 	var _c2 uintptr
 	var _s2 cbEntry[SceneMeasureCallback]
 	var _h2 bool
@@ -5617,13 +5808,25 @@ func SceneSetMeasure(context *Context, node Handle, sceneMeasureCallback SceneMe
 		_c2 = cbPtr[0]
 		_s2, _h2 = cbPut(cbMap0, _k2, cbEntry[SceneMeasureCallback]{fn: sceneMeasureCallback, owner: context.p})
 	}
-	_r := c_ot_scene_set_measure(context.p, unsafe.Pointer(&node), _c2)
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_set_measure(context.p, unsafe.Pointer(_s1), _c2)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _c2
+		_r = int32(cCall(symAddrs[7], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
 	if err := statusError(_r); err != nil {
 		if sceneMeasureCallback != nil {
 			cbUndo(cbMap0, _k2, _s2, _h2)
 		}
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
@@ -5632,6 +5835,8 @@ func SceneSetMeasure(context *Context, node Handle, sceneMeasureCallback SceneMe
 	if sceneMeasureCallback == nil {
 		cbDropOf(cbMap0, _k2, context.p)
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -5646,21 +5851,41 @@ func SceneHasMeasure(context *Context, node Handle) (uint32, error) {
 	if context == nil || context.p == 0 {
 		return 0, ErrDestroyed
 	}
-	var _o2 uint32
-	_r := c_ot_scene_has_measure(context.p, unsafe.Pointer(&node), unsafe.Pointer(&_o2))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	_o2 := (*uint32)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o2 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_o2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_has_measure(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_o2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[8], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
-	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out2 := *_o2
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o2, nil
+	return _out2, nil
 }
 
 // SceneMarkDirty calls ot_scene_mark_dirty.
@@ -5671,15 +5896,31 @@ func SceneMarkDirty(context *Context, node Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_scene_mark_dirty(context.p, unsafe.Pointer(&node))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_mark_dirty(context.p, unsafe.Pointer(_s1))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_r = int32(cCall(symAddrs[9], _buf, 2))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -5694,15 +5935,18 @@ func SceneSetStyle(context *Context, node Handle, group uint32, kind uint32, edg
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	var _pin runtime.Pinner
+	_pin.Pin(&node)
 	_r := c_ot_scene_set_style(context.p, unsafe.Pointer(&node), group, kind, edge, unit, value, flags)
 	_p := cbTake()
-	runtime.KeepAlive(&node)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
 	if _p != nil {
 		panic(_p)
 	}
@@ -5717,22 +5961,45 @@ func SceneGetStyle(context *Context, node Handle, group uint32, kind uint32, edg
 	if context == nil || context.p == 0 {
 		return SceneStyleValue{}, ErrDestroyed
 	}
-	var _o5 SceneStyleValue
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	_o5 := (*SceneStyleValue)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o5 = SceneStyleValue{}
 	_o5.fill()
-	_r := c_ot_scene_get_style(context.p, unsafe.Pointer(&node), group, kind, edge, unsafe.Pointer(&_o5))
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o5)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u5 := uintptr(unsafe.Pointer(_o5))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_get_style(context.p, unsafe.Pointer(_s1), group, kind, edge, unsafe.Pointer(_o5))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(group)
+		_buf.args[3] = uintptr(kind)
+		_buf.args[4] = uintptr(edge)
+		_buf.args[5] = _u5
+		_r = int32(cCall(symAddrs[11], _buf, 6))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
-	runtime.KeepAlive(&_o5)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return SceneStyleValue{}, err
 	}
+	_out5 := *_o5
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o5, nil
+	return _out5, nil
 }
 
 // SceneSetPaint calls ot_scene_set_paint.
@@ -5743,17 +6010,37 @@ func SceneSetPaint(context *Context, node Handle, scenePaintOptions ScenePaintOp
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	scenePaintOptions.fill()
-	_r := c_ot_scene_set_paint(context.p, unsafe.Pointer(&node), unsafe.Pointer(&scenePaintOptions))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	_s2 := (*ScenePaintOptions)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = scenePaintOptions
+	_s2.fill()
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_set_paint(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[12], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
-	runtime.KeepAlive(&scenePaintOptions)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -5771,21 +6058,42 @@ func SceneFlush(context *Context, updates []byte) (uint32, error) {
 	if uint64(len(updates)) > 4294967295 {
 		return 0, ErrTooLong
 	}
-	var _o3 uint32
-	_r := c_ot_scene_flush(context.p, sliceData(updates), uint32(len(updates)), unsafe.Pointer(&_o3))
+	_buf := wordPool.Get().(*wordBuf)
+	_o3 := (*uint32)(unsafe.Pointer(&_buf.scratch[0]))
+	*_o3 = 0
+	var _pin runtime.Pinner
+	if len(updates) > 0 {
+		_pin.Pin(sliceData(updates))
+	}
+	_pin.Pin(_o3)
+	_u1 := uintptr(sliceData(updates))
+	_u3 := uintptr(unsafe.Pointer(_o3))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_flush(context.p, sliceData(updates), uint32(len(updates)), unsafe.Pointer(_o3))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(uint32(len(updates)))
+		_buf.args[3] = _u3
+		_r = int32(cCall(symAddrs[13], _buf, 4))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(updates)
-	runtime.KeepAlive(&_o3)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out3 := *_o3
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o3, nil
+	return _out3, nil
 }
 
 // SceneSetSurface calls ot_scene_set_surface.
@@ -5796,16 +6104,36 @@ func SceneSetSurface(context *Context, node Handle, buffer Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_scene_set_surface(context.p, unsafe.Pointer(&node), unsafe.Pointer(&buffer))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	_s2 := (*Handle)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = buffer
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_set_surface(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[14], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
-	runtime.KeepAlive(&buffer)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -5826,19 +6154,49 @@ func SceneSetBoxDetails(context *Context, node Handle, sceneBoxDetails SceneBoxD
 	if uint64(len(bottomTitle)) > 4294967295 {
 		return ErrTooLong
 	}
-	sceneBoxDetails.fill()
-	_r := c_ot_scene_set_box_details(context.p, unsafe.Pointer(&node), unsafe.Pointer(&sceneBoxDetails), sliceData(title), uint32(len(title)), sliceData(bottomTitle), uint32(len(bottomTitle)))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	_s2 := (*SceneBoxDetails)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = sceneBoxDetails
+	_s2.fill()
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	if len(title) > 0 {
+		_pin.Pin(sliceData(title))
+	}
+	if len(bottomTitle) > 0 {
+		_pin.Pin(sliceData(bottomTitle))
+	}
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	_u3 := uintptr(sliceData(title))
+	_u5 := uintptr(sliceData(bottomTitle))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_set_box_details(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2), sliceData(title), uint32(len(title)), sliceData(bottomTitle), uint32(len(bottomTitle)))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = _u3
+		_buf.args[4] = uintptr(uint32(len(title)))
+		_buf.args[5] = _u5
+		_buf.args[6] = uintptr(uint32(len(bottomTitle)))
+		_r = int32(cCall(symAddrs[15], _buf, 7))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
-	runtime.KeepAlive(&sceneBoxDetails)
-	runtime.KeepAlive(title)
-	runtime.KeepAlive(bottomTitle)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -5853,16 +6211,36 @@ func SceneSetViewport(context *Context, node Handle, viewport Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_scene_set_viewport(context.p, unsafe.Pointer(&node), unsafe.Pointer(&viewport))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	_s2 := (*Handle)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = viewport
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_set_viewport(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[16], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
-	runtime.KeepAlive(&viewport)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -5877,17 +6255,37 @@ func SceneSetScroll(context *Context, node Handle, sceneScrollOptions SceneScrol
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	sceneScrollOptions.fill()
-	_r := c_ot_scene_set_scroll(context.p, unsafe.Pointer(&node), unsafe.Pointer(&sceneScrollOptions))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	_s2 := (*SceneScrollOptions)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = sceneScrollOptions
+	_s2.fill()
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_set_scroll(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[17], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
-	runtime.KeepAlive(&sceneScrollOptions)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -5905,18 +6303,45 @@ func SceneSetScrollArrow(context *Context, node Handle, axis uint32, end uint32,
 	if uint64(len(text)) > 4294967295 {
 		return ErrTooLong
 	}
-	sceneArrowOptions.fill()
-	_r := c_ot_scene_set_scroll_arrow(context.p, unsafe.Pointer(&node), axis, end, unsafe.Pointer(&sceneArrowOptions), sliceData(text), uint32(len(text)))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	_s4 := (*SceneArrowOptions)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s4 = sceneArrowOptions
+	_s4.fill()
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s4)
+	if len(text) > 0 {
+		_pin.Pin(sliceData(text))
+	}
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u4 := uintptr(unsafe.Pointer(_s4))
+	_u5 := uintptr(sliceData(text))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_set_scroll_arrow(context.p, unsafe.Pointer(_s1), axis, end, unsafe.Pointer(_s4), sliceData(text), uint32(len(text)))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(axis)
+		_buf.args[3] = uintptr(end)
+		_buf.args[4] = _u4
+		_buf.args[5] = _u5
+		_buf.args[6] = uintptr(uint32(len(text)))
+		_r = int32(cCall(symAddrs[18], _buf, 7))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
-	runtime.KeepAlive(&sceneArrowOptions)
-	runtime.KeepAlive(text)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -5933,16 +6358,19 @@ func SceneScrollTo(context *Context, node Handle, x float64, y float64, flags ui
 	}
 	var _o5 SceneScrollState
 	_o5.fill()
+	var _pin runtime.Pinner
+	_pin.Pin(&node)
+	_pin.Pin(&_o5)
 	_r := c_ot_scene_scroll_to(context.p, unsafe.Pointer(&node), x, y, flags, unsafe.Pointer(&_o5))
 	_p := cbTake()
-	runtime.KeepAlive(&node)
-	runtime.KeepAlive(&_o5)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
 		if _p != nil {
 			panic(_p)
 		}
 		return SceneScrollState{}, err
 	}
+	_pin.Unpin()
 	if _p != nil {
 		panic(_p)
 	}
@@ -5957,19 +6385,44 @@ func SceneScrollRequest(context *Context, node Handle, kind uint32, target Handl
 	if context == nil || context.p == 0 {
 		return SceneScrollState{}, ErrDestroyed
 	}
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	_s3 := (*Handle)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s3 = target
 	var _o6 SceneScrollState
 	_o6.fill()
-	_r := c_ot_scene_scroll_request(context.p, unsafe.Pointer(&node), kind, unsafe.Pointer(&target), align, inset, unsafe.Pointer(&_o6))
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s3)
+	_pin.Pin(&_o6)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u3 := uintptr(unsafe.Pointer(_s3))
+	_u6 := uintptr(unsafe.Pointer(&_o6))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_scroll_request(context.p, unsafe.Pointer(_s1), kind, unsafe.Pointer(_s3), align, inset, unsafe.Pointer(&_o6))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(kind)
+		_buf.args[3] = _u3
+		_buf.args[4] = uintptr(align)
+		_buf.args[5] = uintptr(inset)
+		_buf.args[6] = _u6
+		_r = int32(cCall(symAddrs[20], _buf, 7))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
-	runtime.KeepAlive(&target)
-	runtime.KeepAlive(&_o6)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return SceneScrollState{}, err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -5984,18 +6437,36 @@ func SceneGetScroll(context *Context, node Handle) (SceneScrollState, error) {
 	if context == nil || context.p == 0 {
 		return SceneScrollState{}, ErrDestroyed
 	}
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
 	var _o2 SceneScrollState
 	_o2.fill()
-	_r := c_ot_scene_get_scroll(context.p, unsafe.Pointer(&node), unsafe.Pointer(&_o2))
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(&_o2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(&_o2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_get_scroll(context.p, unsafe.Pointer(_s1), unsafe.Pointer(&_o2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[21], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
-	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return SceneScrollState{}, err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -6010,15 +6481,32 @@ func SceneSetFocus(context *Context, node Handle, focused uint32) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_scene_set_focus(context.p, unsafe.Pointer(&node), focused)
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_set_focus(context.p, unsafe.Pointer(_s1), focused)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(focused)
+		_r = int32(cCall(symAddrs[22], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -6033,17 +6521,37 @@ func SceneSetSlider(context *Context, node Handle, sceneSliderOptions SceneSlide
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	sceneSliderOptions.fill()
-	_r := c_ot_scene_set_slider(context.p, unsafe.Pointer(&node), unsafe.Pointer(&sceneSliderOptions))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	_s2 := (*SceneSliderOptions)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = sceneSliderOptions
+	_s2.fill()
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_set_slider(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[23], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
-	runtime.KeepAlive(&sceneSliderOptions)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -6061,18 +6569,43 @@ func SceneSetArrow(context *Context, node Handle, sceneArrowOptions SceneArrowOp
 	if uint64(len(text)) > 4294967295 {
 		return ErrTooLong
 	}
-	sceneArrowOptions.fill()
-	_r := c_ot_scene_set_arrow(context.p, unsafe.Pointer(&node), unsafe.Pointer(&sceneArrowOptions), sliceData(text), uint32(len(text)))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	_s2 := (*SceneArrowOptions)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = sceneArrowOptions
+	_s2.fill()
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	if len(text) > 0 {
+		_pin.Pin(sliceData(text))
+	}
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	_u3 := uintptr(sliceData(text))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_set_arrow(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2), sliceData(text), uint32(len(text)))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = _u3
+		_buf.args[4] = uintptr(uint32(len(text)))
+		_r = int32(cCall(symAddrs[24], _buf, 5))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
-	runtime.KeepAlive(&sceneArrowOptions)
-	runtime.KeepAlive(text)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -6087,22 +6620,42 @@ func SceneGetSliderThumb(context *Context, node Handle) (SceneSliderThumb, error
 	if context == nil || context.p == 0 {
 		return SceneSliderThumb{}, ErrDestroyed
 	}
-	var _o2 SceneSliderThumb
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	_o2 := (*SceneSliderThumb)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o2 = SceneSliderThumb{}
 	_o2.fill()
-	_r := c_ot_scene_get_slider_thumb(context.p, unsafe.Pointer(&node), unsafe.Pointer(&_o2))
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_o2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_get_slider_thumb(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_o2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[25], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
-	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return SceneSliderThumb{}, err
 	}
+	_out2 := *_o2
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o2, nil
+	return _out2, nil
 }
 
 // SceneSetText calls ot_scene_set_text.
@@ -6116,16 +6669,37 @@ func SceneSetText(context *Context, node Handle, bytes []byte) error {
 	if uint64(len(bytes)) > 4294967295 {
 		return ErrTooLong
 	}
-	_r := c_ot_scene_set_text(context.p, unsafe.Pointer(&node), sliceData(bytes), uint32(len(bytes)))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if len(bytes) > 0 {
+		_pin.Pin(sliceData(bytes))
+	}
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(sliceData(bytes))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_set_text(context.p, unsafe.Pointer(_s1), sliceData(bytes), uint32(len(bytes)))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = uintptr(uint32(len(bytes)))
+		_r = int32(cCall(symAddrs[26], _buf, 4))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
-	runtime.KeepAlive(bytes)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -6150,21 +6724,52 @@ func SceneSetStyledText(context *Context, node Handle, bytes []byte, chunks []St
 	if uint64(len(urls)) > 4294967295 {
 		return ErrTooLong
 	}
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
 	for _i0 := range chunks {
 		chunks[_i0].fill()
 	}
-	_r := c_ot_scene_set_styled_text(context.p, unsafe.Pointer(&node), sliceData(bytes), uint32(len(bytes)), sliceData(chunks), uint32(len(chunks)), sliceData(urls), uint32(len(urls)))
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if len(bytes) > 0 {
+		_pin.Pin(sliceData(bytes))
+	}
+	if len(chunks) > 0 {
+		_pin.Pin(sliceData(chunks))
+	}
+	if len(urls) > 0 {
+		_pin.Pin(sliceData(urls))
+	}
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(sliceData(bytes))
+	_u4 := uintptr(sliceData(chunks))
+	_u6 := uintptr(sliceData(urls))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_set_styled_text(context.p, unsafe.Pointer(_s1), sliceData(bytes), uint32(len(bytes)), sliceData(chunks), uint32(len(chunks)), sliceData(urls), uint32(len(urls)))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = uintptr(uint32(len(bytes)))
+		_buf.args[4] = _u4
+		_buf.args[5] = uintptr(uint32(len(chunks)))
+		_buf.args[6] = _u6
+		_buf.args[7] = uintptr(uint32(len(urls)))
+		_r = int32(cCall(symAddrs[27], _buf, 8))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
-	runtime.KeepAlive(bytes)
-	runtime.KeepAlive(chunks)
-	runtime.KeepAlive(urls)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -6179,17 +6784,37 @@ func SceneSetTextOptions(context *Context, node Handle, sceneTextOptions SceneTe
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	sceneTextOptions.fill()
-	_r := c_ot_scene_set_text_options(context.p, unsafe.Pointer(&node), unsafe.Pointer(&sceneTextOptions))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	_s2 := (*SceneTextOptions)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = sceneTextOptions
+	_s2.fill()
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_set_text_options(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[28], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
-	runtime.KeepAlive(&sceneTextOptions)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -6204,23 +6829,47 @@ func SceneSetTextSelection(context *Context, node Handle, sceneTextSelectionOpti
 	if context == nil || context.p == 0 {
 		return 0, ErrDestroyed
 	}
-	sceneTextSelectionOptions.fill()
-	var _o3 uint32
-	_r := c_ot_scene_set_text_selection(context.p, unsafe.Pointer(&node), unsafe.Pointer(&sceneTextSelectionOptions), unsafe.Pointer(&_o3))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	_s2 := (*SceneTextSelectionOptions)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = sceneTextSelectionOptions
+	_s2.fill()
+	_o3 := (*uint32)(unsafe.Pointer(&_buf.scratch[9]))
+	*_o3 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	_pin.Pin(_o3)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	_u3 := uintptr(unsafe.Pointer(_o3))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_set_text_selection(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2), unsafe.Pointer(_o3))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = _u3
+		_r = int32(cCall(symAddrs[29], _buf, 4))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
-	runtime.KeepAlive(&sceneTextSelectionOptions)
-	runtime.KeepAlive(&_o3)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out3 := *_o3
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o3, nil
+	return _out3, nil
 }
 
 // SceneGetTextSelection calls ot_scene_get_text_selection.
@@ -6231,21 +6880,41 @@ func SceneGetTextSelection(context *Context, node Handle) (uint64, error) {
 	if context == nil || context.p == 0 {
 		return 0, ErrDestroyed
 	}
-	var _o2 uint64
-	_r := c_ot_scene_get_text_selection(context.p, unsafe.Pointer(&node), unsafe.Pointer(&_o2))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	_o2 := (*uint64)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o2 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_o2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_get_text_selection(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_o2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[30], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
-	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out2 := *_o2
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o2, nil
+	return _out2, nil
 }
 
 // SceneGetSelectedText calls ot_scene_get_selected_text.
@@ -6259,22 +6928,47 @@ func SceneGetSelectedText(context *Context, node Handle, bytes []byte) (uint32, 
 	if uint64(len(bytes)) > 4294967295 {
 		return 0, ErrTooLong
 	}
-	var _o4 uint32
-	_r := c_ot_scene_get_selected_text(context.p, unsafe.Pointer(&node), sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(&_o4))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	_o4 := (*uint32)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o4 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if len(bytes) > 0 {
+		_pin.Pin(sliceData(bytes))
+	}
+	_pin.Pin(_o4)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(sliceData(bytes))
+	_u4 := uintptr(unsafe.Pointer(_o4))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_get_selected_text(context.p, unsafe.Pointer(_s1), sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(_o4))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = uintptr(uint32(len(bytes)))
+		_buf.args[4] = _u4
+		_r = int32(cCall(symAddrs[31], _buf, 5))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
-	runtime.KeepAlive(bytes)
-	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out4 := *_o4
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o4, nil
+	return _out4, nil
 }
 
 // SceneGetText calls ot_scene_get_text.
@@ -6288,22 +6982,47 @@ func SceneGetText(context *Context, node Handle, bytes []byte) (uint32, error) {
 	if uint64(len(bytes)) > 4294967295 {
 		return 0, ErrTooLong
 	}
-	var _o4 uint32
-	_r := c_ot_scene_get_text(context.p, unsafe.Pointer(&node), sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(&_o4))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	_o4 := (*uint32)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o4 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if len(bytes) > 0 {
+		_pin.Pin(sliceData(bytes))
+	}
+	_pin.Pin(_o4)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(sliceData(bytes))
+	_u4 := uintptr(unsafe.Pointer(_o4))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_get_text(context.p, unsafe.Pointer(_s1), sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(_o4))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = uintptr(uint32(len(bytes)))
+		_buf.args[4] = _u4
+		_r = int32(cCall(symAddrs[32], _buf, 5))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
-	runtime.KeepAlive(bytes)
-	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out4 := *_o4
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o4, nil
+	return _out4, nil
 }
 
 // SceneGetTextInfo calls ot_scene_get_text_info.
@@ -6314,22 +7033,42 @@ func SceneGetTextInfo(context *Context, node Handle) (SceneTextInfo, error) {
 	if context == nil || context.p == 0 {
 		return SceneTextInfo{}, ErrDestroyed
 	}
-	var _o2 SceneTextInfo
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	_o2 := (*SceneTextInfo)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o2 = SceneTextInfo{}
 	_o2.fill()
-	_r := c_ot_scene_get_text_info(context.p, unsafe.Pointer(&node), unsafe.Pointer(&_o2))
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_o2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_get_text_info(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_o2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[33], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
-	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return SceneTextInfo{}, err
 	}
+	_out2 := *_o2
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o2, nil
+	return _out2, nil
 }
 
 // SceneGetTextLines calls ot_scene_get_text_lines.
@@ -6343,22 +7082,48 @@ func SceneGetTextLines(context *Context, node Handle, firstLine uint32, lines []
 	if uint64(len(lines)) > 4294967295 {
 		return 0, ErrTooLong
 	}
-	var _o5 uint32
-	_r := c_ot_scene_get_text_lines(context.p, unsafe.Pointer(&node), firstLine, sliceData(lines), uint32(len(lines)), unsafe.Pointer(&_o5))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	_o5 := (*uint32)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o5 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if len(lines) > 0 {
+		_pin.Pin(sliceData(lines))
+	}
+	_pin.Pin(_o5)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u3 := uintptr(sliceData(lines))
+	_u5 := uintptr(unsafe.Pointer(_o5))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_get_text_lines(context.p, unsafe.Pointer(_s1), firstLine, sliceData(lines), uint32(len(lines)), unsafe.Pointer(_o5))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(firstLine)
+		_buf.args[3] = _u3
+		_buf.args[4] = uintptr(uint32(len(lines)))
+		_buf.args[5] = _u5
+		_r = int32(cCall(symAddrs[34], _buf, 6))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
-	runtime.KeepAlive(lines)
-	runtime.KeepAlive(&_o5)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out5 := *_o5
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o5, nil
+	return _out5, nil
 }
 
 // SceneGetLayout calls ot_scene_get_layout.
@@ -6369,22 +7134,43 @@ func SceneGetLayout(context *Context, node Handle, observation uint32) (SceneLay
 	if context == nil || context.p == 0 {
 		return SceneLayout{}, ErrDestroyed
 	}
-	var _o3 SceneLayout
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	_o3 := (*SceneLayout)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o3 = SceneLayout{}
 	_o3.fill()
-	_r := c_ot_scene_get_layout(context.p, unsafe.Pointer(&node), observation, unsafe.Pointer(&_o3))
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o3)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u3 := uintptr(unsafe.Pointer(_o3))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_get_layout(context.p, unsafe.Pointer(_s1), observation, unsafe.Pointer(_o3))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(observation)
+		_buf.args[3] = _u3
+		_r = int32(cCall(symAddrs[35], _buf, 4))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
-	runtime.KeepAlive(&_o3)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return SceneLayout{}, err
 	}
+	_out3 := *_o3
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o3, nil
+	return _out3, nil
 }
 
 // ScenePaint calls ot_scene_paint.
@@ -6395,23 +7181,49 @@ func ScenePaint(context *Context, session Handle, background [4]uint16, useMouse
 	if context == nil || context.p == 0 {
 		return SceneFrameRequest{}, ErrDestroyed
 	}
-	var _o5 SceneFrameRequest
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	_s2 := (*[4]uint16)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = background
+	_o5 := (*SceneFrameRequest)(unsafe.Pointer(&_buf.scratch[3]))
+	*_o5 = SceneFrameRequest{}
 	_o5.fill()
-	_r := c_ot_scene_paint(context.p, unsafe.Pointer(&session), unsafe.Pointer(&background), useMouse, excludedHitNum, unsafe.Pointer(&_o5))
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	_pin.Pin(_o5)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	_u5 := uintptr(unsafe.Pointer(_o5))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_paint(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2), useMouse, excludedHitNum, unsafe.Pointer(_o5))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = uintptr(useMouse)
+		_buf.args[4] = uintptr(excludedHitNum)
+		_buf.args[5] = _u5
+		_r = int32(cCall(symAddrs[36], _buf, 6))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
-	runtime.KeepAlive(&background)
-	runtime.KeepAlive(&_o5)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return SceneFrameRequest{}, err
 	}
+	_out5 := *_o5
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o5, nil
+	return _out5, nil
 }
 
 // SceneHitTest calls ot_scene_hit_test.
@@ -6422,21 +7234,43 @@ func SceneHitTest(context *Context, session Handle, x int32, y int32) (uint32, e
 	if context == nil || context.p == 0 {
 		return 0, ErrDestroyed
 	}
-	var _o4 uint32
-	_r := c_ot_scene_hit_test(context.p, unsafe.Pointer(&session), x, y, unsafe.Pointer(&_o4))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	_o4 := (*uint32)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o4 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o4)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u4 := uintptr(unsafe.Pointer(_o4))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_hit_test(context.p, unsafe.Pointer(_s1), x, y, unsafe.Pointer(_o4))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(x)
+		_buf.args[3] = uintptr(y)
+		_buf.args[4] = _u4
+		_r = int32(cCall(symAddrs[37], _buf, 5))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
-	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out4 := *_o4
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o4, nil
+	return _out4, nil
 }
 
 // SceneGetStats calls ot_scene_get_stats.
@@ -6447,22 +7281,42 @@ func SceneGetStats(context *Context, session Handle) (SceneStats, error) {
 	if context == nil || context.p == 0 {
 		return SceneStats{}, ErrDestroyed
 	}
-	var _o2 SceneStats
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	_o2 := (*SceneStats)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o2 = SceneStats{}
 	_o2.fill()
-	_r := c_ot_scene_get_stats(context.p, unsafe.Pointer(&session), unsafe.Pointer(&_o2))
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_o2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_get_stats(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_o2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[38], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
-	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return SceneStats{}, err
 	}
+	_out2 := *_o2
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o2, nil
+	return _out2, nil
 }
 
 // SceneSetDebugFlags calls ot_scene_set_debug_flags.
@@ -6473,15 +7327,32 @@ func SceneSetDebugFlags(context *Context, session Handle, flags uint32) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_scene_set_debug_flags(context.p, unsafe.Pointer(&session), flags)
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_set_debug_flags(context.p, unsafe.Pointer(_s1), flags)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(flags)
+		_r = int32(cCall(symAddrs[39], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -6496,22 +7367,42 @@ func SceneGetCursorState(context *Context, session Handle) (SceneCursorState, er
 	if context == nil || context.p == 0 {
 		return SceneCursorState{}, ErrDestroyed
 	}
-	var _o2 SceneCursorState
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	_o2 := (*SceneCursorState)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o2 = SceneCursorState{}
 	_o2.fill()
-	_r := c_ot_scene_get_cursor_state(context.p, unsafe.Pointer(&session), unsafe.Pointer(&_o2))
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_o2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_get_cursor_state(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_o2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[40], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
-	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return SceneCursorState{}, err
 	}
+	_out2 := *_o2
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o2, nil
+	return _out2, nil
 }
 
 // SceneFrameCopyBuffer calls ot_scene_frame_copy_buffer.
@@ -6522,18 +7413,42 @@ func SceneFrameCopyBuffer(context *Context, session Handle, sceneFrameRequest Sc
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	sceneFrameRequest.fill()
-	_r := c_ot_scene_frame_copy_buffer(context.p, unsafe.Pointer(&session), unsafe.Pointer(&sceneFrameRequest), unsafe.Pointer(&target))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	_s2 := (*SceneFrameRequest)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = sceneFrameRequest
+	_s2.fill()
+	_s3 := (*Handle)(unsafe.Pointer(&_buf.scratch[16]))
+	*_s3 = target
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	_pin.Pin(_s3)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	_u3 := uintptr(unsafe.Pointer(_s3))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_frame_copy_buffer(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2), unsafe.Pointer(_s3))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = _u3
+		_r = int32(cCall(symAddrs[41], _buf, 4))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
-	runtime.KeepAlive(&sceneFrameRequest)
-	runtime.KeepAlive(&target)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -6548,16 +7463,36 @@ func SceneMeasureLayout(context *Context, session Handle, root Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_scene_measure_layout(context.p, unsafe.Pointer(&session), unsafe.Pointer(&root))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	_s2 := (*Handle)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = root
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_measure_layout(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[42], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
-	runtime.KeepAlive(&root)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -6575,30 +7510,61 @@ func SessionRenderSplit(context *Context, session Handle, sceneFrameRequest *Sce
 	if uint64(len(splitSnapshot)) > 4294967295 {
 		return 0, ErrTooLong
 	}
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
 	var _v2 unsafe.Pointer
-	var _s2 SceneFrameRequest
 	if sceneFrameRequest != nil {
-		_s2 = *sceneFrameRequest
+		_s2 := (*SceneFrameRequest)(unsafe.Pointer(&_buf.scratch[2]))
+		*_s2 = *sceneFrameRequest
 		_s2.fill()
-		_v2 = unsafe.Pointer(&_s2)
+		_v2 = unsafe.Pointer(_s2)
 	}
-	var _o7 uint32
-	_r := c_ot_session_render_split(context.p, unsafe.Pointer(&session), _v2, sliceData(splitSnapshot), uint32(len(splitSnapshot)), pinnedRenderOffset, force, unsafe.Pointer(&_o7))
+	_o7 := (*uint32)(unsafe.Pointer(&_buf.scratch[16]))
+	*_o7 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if _v2 != nil {
+		_pin.Pin(_v2)
+	}
+	if len(splitSnapshot) > 0 {
+		_pin.Pin(sliceData(splitSnapshot))
+	}
+	_pin.Pin(_o7)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(_v2)
+	_u3 := uintptr(sliceData(splitSnapshot))
+	_u7 := uintptr(unsafe.Pointer(_o7))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_render_split(context.p, unsafe.Pointer(_s1), _v2, sliceData(splitSnapshot), uint32(len(splitSnapshot)), pinnedRenderOffset, force, unsafe.Pointer(_o7))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = _u3
+		_buf.args[4] = uintptr(uint32(len(splitSnapshot)))
+		_buf.args[5] = uintptr(pinnedRenderOffset)
+		_buf.args[6] = uintptr(force)
+		_buf.args[7] = _u7
+		_r = int32(cCall(symAddrs[43], _buf, 8))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
-	runtime.KeepAlive(_v2)
-	runtime.KeepAlive(splitSnapshot)
-	runtime.KeepAlive(&_o7)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out7 := *_o7
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o7, nil
+	return _out7, nil
 }
 
 // SessionSplitControl calls ot_session_split_control.
@@ -6609,23 +7575,47 @@ func SessionSplitControl(context *Context, session Handle, splitControl SplitCon
 	if context == nil || context.p == 0 {
 		return 0, ErrDestroyed
 	}
-	splitControl.fill()
-	var _o3 uint32
-	_r := c_ot_session_split_control(context.p, unsafe.Pointer(&session), unsafe.Pointer(&splitControl), unsafe.Pointer(&_o3))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	_s2 := (*SplitControl)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = splitControl
+	_s2.fill()
+	_o3 := (*uint32)(unsafe.Pointer(&_buf.scratch[7]))
+	*_o3 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	_pin.Pin(_o3)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	_u3 := uintptr(unsafe.Pointer(_o3))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_split_control(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2), unsafe.Pointer(_o3))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = _u3
+		_r = int32(cCall(symAddrs[44], _buf, 4))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
-	runtime.KeepAlive(&splitControl)
-	runtime.KeepAlive(&_o3)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out3 := *_o3
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o3, nil
+	return _out3, nil
 }
 
 // SessionSetScreen calls ot_session_set_screen.
@@ -6639,16 +7629,40 @@ func SessionSetScreen(context *Context, session Handle, alternate uint32, width 
 	if uint64(len(trailingOutput)) > 4294967295 {
 		return ErrTooLong
 	}
-	_r := c_ot_session_set_screen(context.p, unsafe.Pointer(&session), alternate, width, height, sliceData(trailingOutput), uint32(len(trailingOutput)))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if len(trailingOutput) > 0 {
+		_pin.Pin(sliceData(trailingOutput))
+	}
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u5 := uintptr(sliceData(trailingOutput))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_set_screen(context.p, unsafe.Pointer(_s1), alternate, width, height, sliceData(trailingOutput), uint32(len(trailingOutput)))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(alternate)
+		_buf.args[3] = uintptr(width)
+		_buf.args[4] = uintptr(height)
+		_buf.args[5] = _u5
+		_buf.args[6] = uintptr(uint32(len(trailingOutput)))
+		_r = int32(cCall(symAddrs[45], _buf, 7))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
-	runtime.KeepAlive(trailingOutput)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -6663,16 +7677,36 @@ func SessionSyncDetached(context *Context, session Handle, parent Handle) error 
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_session_sync_detached(context.p, unsafe.Pointer(&session), unsafe.Pointer(&parent))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	_s2 := (*Handle)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = parent
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_sync_detached(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[46], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
-	runtime.KeepAlive(&parent)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -6690,21 +7724,43 @@ func UnicodeCreate(context *Context, bytes []byte, widthMethod uint32) (Handle, 
 	if uint64(len(bytes)) > 4294967295 {
 		return Handle{}, ErrTooLong
 	}
-	var _o4 Handle
-	_r := c_ot_unicode_create(context.p, sliceData(bytes), uint32(len(bytes)), widthMethod, unsafe.Pointer(&_o4))
+	_buf := wordPool.Get().(*wordBuf)
+	_o4 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_o4 = Handle{}
+	var _pin runtime.Pinner
+	if len(bytes) > 0 {
+		_pin.Pin(sliceData(bytes))
+	}
+	_pin.Pin(_o4)
+	_u1 := uintptr(sliceData(bytes))
+	_u4 := uintptr(unsafe.Pointer(_o4))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_unicode_create(context.p, sliceData(bytes), uint32(len(bytes)), widthMethod, unsafe.Pointer(_o4))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(uint32(len(bytes)))
+		_buf.args[3] = uintptr(widthMethod)
+		_buf.args[4] = _u4
+		_r = int32(cCall(symAddrs[47], _buf, 5))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(bytes)
-	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return Handle{}, err
 	}
+	_out4 := *_o4
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o4, nil
+	return _out4, nil
 }
 
 // UnicodeDestroy calls ot_unicode_destroy.
@@ -6715,15 +7771,31 @@ func UnicodeDestroy(context *Context, unicode Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_unicode_destroy(context.p, unsafe.Pointer(&unicode))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = unicode
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_unicode_destroy(context.p, unsafe.Pointer(_s1))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_r = int32(cCall(symAddrs[48], _buf, 2))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&unicode)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -6741,22 +7813,47 @@ func UnicodeGet(context *Context, unicode Handle, characters []UnicodeChar) (uin
 	if uint64(len(characters)) > 4294967295 {
 		return 0, ErrTooLong
 	}
-	var _o4 uint32
-	_r := c_ot_unicode_get(context.p, unsafe.Pointer(&unicode), sliceData(characters), uint32(len(characters)), unsafe.Pointer(&_o4))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = unicode
+	_o4 := (*uint32)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o4 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if len(characters) > 0 {
+		_pin.Pin(sliceData(characters))
+	}
+	_pin.Pin(_o4)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(sliceData(characters))
+	_u4 := uintptr(unsafe.Pointer(_o4))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_unicode_get(context.p, unsafe.Pointer(_s1), sliceData(characters), uint32(len(characters)), unsafe.Pointer(_o4))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = uintptr(uint32(len(characters)))
+		_buf.args[4] = _u4
+		_r = int32(cCall(symAddrs[49], _buf, 5))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&unicode)
-	runtime.KeepAlive(characters)
-	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out4 := *_o4
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o4, nil
+	return _out4, nil
 }
 
 // BufferDrawUnicode calls ot_buffer_draw_unicode.
@@ -6767,20 +7864,56 @@ func BufferDrawUnicode(context *Context, target Handle, frame SceneFrameRequest,
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	frame.fill()
-	_r := c_ot_buffer_draw_unicode(context.p, unsafe.Pointer(&target), unsafe.Pointer(&frame), unsafe.Pointer(&unicode), index, x, y, unsafe.Pointer(&foreground), unsafe.Pointer(&background), attributes)
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = target
+	_s2 := (*SceneFrameRequest)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = frame
+	_s2.fill()
+	_s3 := (*Handle)(unsafe.Pointer(&_buf.scratch[16]))
+	*_s3 = unicode
+	_s7 := (*[4]uint16)(unsafe.Pointer(&_buf.scratch[18]))
+	*_s7 = foreground
+	_s8 := (*[4]uint16)(unsafe.Pointer(&_buf.scratch[19]))
+	*_s8 = background
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	_pin.Pin(_s3)
+	_pin.Pin(_s7)
+	_pin.Pin(_s8)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	_u3 := uintptr(unsafe.Pointer(_s3))
+	_u7 := uintptr(unsafe.Pointer(_s7))
+	_u8 := uintptr(unsafe.Pointer(_s8))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_buffer_draw_unicode(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2), unsafe.Pointer(_s3), index, x, y, unsafe.Pointer(_s7), unsafe.Pointer(_s8), attributes)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = _u3
+		_buf.args[4] = uintptr(index)
+		_buf.args[5] = uintptr(x)
+		_buf.args[6] = uintptr(y)
+		_buf.args[7] = _u7
+		_buf.args[8] = _u8
+		_buf.args[9] = uintptr(attributes)
+		_r = int32(cCall(symAddrs[50], _buf, 10))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&target)
-	runtime.KeepAlive(&frame)
-	runtime.KeepAlive(&unicode)
-	runtime.KeepAlive(&foreground)
-	runtime.KeepAlive(&background)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -6795,22 +7928,42 @@ func EmbeddedTerminalCreate(context *Context, embeddedTerminalOptions EmbeddedTe
 	if context == nil || context.p == 0 {
 		return Handle{}, ErrDestroyed
 	}
-	embeddedTerminalOptions.fill()
-	var _o2 Handle
-	_r := c_ot_embedded_terminal_create(context.p, unsafe.Pointer(&embeddedTerminalOptions), unsafe.Pointer(&_o2))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*EmbeddedTerminalOptions)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = embeddedTerminalOptions
+	_s1.fill()
+	_o2 := (*Handle)(unsafe.Pointer(&_buf.scratch[3]))
+	*_o2 = Handle{}
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_o2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_embedded_terminal_create(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_o2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[51], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&embeddedTerminalOptions)
-	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return Handle{}, err
 	}
+	_out2 := *_o2
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o2, nil
+	return _out2, nil
 }
 
 // EmbeddedTerminalDestroy calls ot_embedded_terminal_destroy.
@@ -6821,15 +7974,31 @@ func EmbeddedTerminalDestroy(context *Context, terminal Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_embedded_terminal_destroy(context.p, unsafe.Pointer(&terminal))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = terminal
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_embedded_terminal_destroy(context.p, unsafe.Pointer(_s1))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_r = int32(cCall(symAddrs[52], _buf, 2))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&terminal)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -6847,16 +8016,37 @@ func EmbeddedTerminalWrite(context *Context, terminal Handle, bytes []byte) erro
 	if uint64(len(bytes)) > 4294967295 {
 		return ErrTooLong
 	}
-	_r := c_ot_embedded_terminal_write(context.p, unsafe.Pointer(&terminal), sliceData(bytes), uint32(len(bytes)))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = terminal
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if len(bytes) > 0 {
+		_pin.Pin(sliceData(bytes))
+	}
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(sliceData(bytes))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_embedded_terminal_write(context.p, unsafe.Pointer(_s1), sliceData(bytes), uint32(len(bytes)))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = uintptr(uint32(len(bytes)))
+		_r = int32(cCall(symAddrs[53], _buf, 4))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&terminal)
-	runtime.KeepAlive(bytes)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -6871,15 +8061,33 @@ func EmbeddedTerminalResize(context *Context, terminal Handle, cols uint32, rows
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_embedded_terminal_resize(context.p, unsafe.Pointer(&terminal), cols, rows)
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = terminal
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_embedded_terminal_resize(context.p, unsafe.Pointer(_s1), cols, rows)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(cols)
+		_buf.args[3] = uintptr(rows)
+		_r = int32(cCall(symAddrs[54], _buf, 4))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&terminal)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -6894,15 +8102,33 @@ func EmbeddedTerminalCommand(context *Context, terminal Handle, command uint32, 
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_embedded_terminal_command(context.p, unsafe.Pointer(&terminal), command, argument)
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = terminal
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_embedded_terminal_command(context.p, unsafe.Pointer(_s1), command, argument)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(command)
+		_buf.args[3] = uintptr(argument)
+		_r = int32(cCall(symAddrs[55], _buf, 4))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&terminal)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -6917,15 +8143,35 @@ func EmbeddedTerminalSetSelection(context *Context, terminal Handle, startX uint
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_embedded_terminal_set_selection(context.p, unsafe.Pointer(&terminal), startX, startY, endX, endY)
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = terminal
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_embedded_terminal_set_selection(context.p, unsafe.Pointer(_s1), startX, startY, endX, endY)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(startX)
+		_buf.args[3] = uintptr(startY)
+		_buf.args[4] = uintptr(endX)
+		_buf.args[5] = uintptr(endY)
+		_r = int32(cCall(symAddrs[56], _buf, 6))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&terminal)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -6943,22 +8189,47 @@ func EmbeddedTerminalGetSelectedText(context *Context, terminal Handle, bytes []
 	if uint64(len(bytes)) > 4294967295 {
 		return 0, ErrTooLong
 	}
-	var _o4 uint32
-	_r := c_ot_embedded_terminal_get_selected_text(context.p, unsafe.Pointer(&terminal), sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(&_o4))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = terminal
+	_o4 := (*uint32)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o4 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if len(bytes) > 0 {
+		_pin.Pin(sliceData(bytes))
+	}
+	_pin.Pin(_o4)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(sliceData(bytes))
+	_u4 := uintptr(unsafe.Pointer(_o4))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_embedded_terminal_get_selected_text(context.p, unsafe.Pointer(_s1), sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(_o4))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = uintptr(uint32(len(bytes)))
+		_buf.args[4] = _u4
+		_r = int32(cCall(symAddrs[57], _buf, 5))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&terminal)
-	runtime.KeepAlive(bytes)
-	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out4 := *_o4
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o4, nil
+	return _out4, nil
 }
 
 // EmbeddedTerminalCompose calls ot_embedded_terminal_compose.
@@ -6969,18 +8240,44 @@ func EmbeddedTerminalCompose(context *Context, terminal Handle, target Handle, f
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	frame.fill()
-	_r := c_ot_embedded_terminal_compose(context.p, unsafe.Pointer(&terminal), unsafe.Pointer(&target), unsafe.Pointer(&frame), x, y)
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = terminal
+	_s2 := (*Handle)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = target
+	_s3 := (*SceneFrameRequest)(unsafe.Pointer(&_buf.scratch[4]))
+	*_s3 = frame
+	_s3.fill()
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	_pin.Pin(_s3)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	_u3 := uintptr(unsafe.Pointer(_s3))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_embedded_terminal_compose(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2), unsafe.Pointer(_s3), x, y)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = _u3
+		_buf.args[4] = uintptr(x)
+		_buf.args[5] = uintptr(y)
+		_r = int32(cCall(symAddrs[58], _buf, 6))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&terminal)
-	runtime.KeepAlive(&target)
-	runtime.KeepAlive(&frame)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -6995,22 +8292,42 @@ func EmbeddedTerminalCursorGet(context *Context, terminal Handle) (EmbeddedTermi
 	if context == nil || context.p == 0 {
 		return EmbeddedTerminalCursor{}, ErrDestroyed
 	}
-	var _o2 EmbeddedTerminalCursor
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = terminal
+	_o2 := (*EmbeddedTerminalCursor)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o2 = EmbeddedTerminalCursor{}
 	_o2.fill()
-	_r := c_ot_embedded_terminal_cursor_get(context.p, unsafe.Pointer(&terminal), unsafe.Pointer(&_o2))
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_o2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_embedded_terminal_cursor_get(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_o2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[59], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&terminal)
-	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return EmbeddedTerminalCursor{}, err
 	}
+	_out2 := *_o2
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o2, nil
+	return _out2, nil
 }
 
 // EmbeddedTerminalEncodeKey calls ot_embedded_terminal_encode_key.
@@ -7030,26 +8347,65 @@ func EmbeddedTerminalEncodeKey(context *Context, terminal Handle, embeddedTermin
 	if uint64(len(bytes)) > 4294967295 {
 		return 0, ErrTooLong
 	}
-	embeddedTerminalKey.fill()
-	var _o9 uint32
-	_r := c_ot_embedded_terminal_encode_key(context.p, unsafe.Pointer(&terminal), unsafe.Pointer(&embeddedTerminalKey), sliceData(key), uint32(len(key)), sliceData(text), uint32(len(text)), sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(&_o9))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = terminal
+	_s2 := (*EmbeddedTerminalKey)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = embeddedTerminalKey
+	_s2.fill()
+	_o9 := (*uint32)(unsafe.Pointer(&_buf.scratch[6]))
+	*_o9 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	if len(key) > 0 {
+		_pin.Pin(sliceData(key))
+	}
+	if len(text) > 0 {
+		_pin.Pin(sliceData(text))
+	}
+	if len(bytes) > 0 {
+		_pin.Pin(sliceData(bytes))
+	}
+	_pin.Pin(_o9)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	_u3 := uintptr(sliceData(key))
+	_u5 := uintptr(sliceData(text))
+	_u7 := uintptr(sliceData(bytes))
+	_u9 := uintptr(unsafe.Pointer(_o9))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_embedded_terminal_encode_key(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2), sliceData(key), uint32(len(key)), sliceData(text), uint32(len(text)), sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(_o9))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = _u3
+		_buf.args[4] = uintptr(uint32(len(key)))
+		_buf.args[5] = _u5
+		_buf.args[6] = uintptr(uint32(len(text)))
+		_buf.args[7] = _u7
+		_buf.args[8] = uintptr(uint32(len(bytes)))
+		_buf.args[9] = _u9
+		_r = int32(cCall(symAddrs[60], _buf, 10))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&terminal)
-	runtime.KeepAlive(&embeddedTerminalKey)
-	runtime.KeepAlive(key)
-	runtime.KeepAlive(text)
-	runtime.KeepAlive(bytes)
-	runtime.KeepAlive(&_o9)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out9 := *_o9
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o9, nil
+	return _out9, nil
 }
 
 // EmbeddedTerminalEncodeMouse calls ot_embedded_terminal_encode_mouse.
@@ -7063,24 +8419,53 @@ func EmbeddedTerminalEncodeMouse(context *Context, terminal Handle, embeddedTerm
 	if uint64(len(bytes)) > 4294967295 {
 		return 0, ErrTooLong
 	}
-	embeddedTerminalMouse.fill()
-	var _o5 uint32
-	_r := c_ot_embedded_terminal_encode_mouse(context.p, unsafe.Pointer(&terminal), unsafe.Pointer(&embeddedTerminalMouse), sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(&_o5))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = terminal
+	_s2 := (*EmbeddedTerminalMouse)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = embeddedTerminalMouse
+	_s2.fill()
+	_o5 := (*uint32)(unsafe.Pointer(&_buf.scratch[6]))
+	*_o5 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	if len(bytes) > 0 {
+		_pin.Pin(sliceData(bytes))
+	}
+	_pin.Pin(_o5)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	_u3 := uintptr(sliceData(bytes))
+	_u5 := uintptr(unsafe.Pointer(_o5))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_embedded_terminal_encode_mouse(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2), sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(_o5))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = _u3
+		_buf.args[4] = uintptr(uint32(len(bytes)))
+		_buf.args[5] = _u5
+		_r = int32(cCall(symAddrs[61], _buf, 6))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&terminal)
-	runtime.KeepAlive(&embeddedTerminalMouse)
-	runtime.KeepAlive(bytes)
-	runtime.KeepAlive(&_o5)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out5 := *_o5
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o5, nil
+	return _out5, nil
 }
 
 // EmbeddedTerminalEncodePaste calls ot_embedded_terminal_encode_paste.
@@ -7097,23 +8482,53 @@ func EmbeddedTerminalEncodePaste(context *Context, terminal Handle, input []byte
 	if uint64(len(bytes)) > 4294967295 {
 		return 0, ErrTooLong
 	}
-	var _o6 uint32
-	_r := c_ot_embedded_terminal_encode_paste(context.p, unsafe.Pointer(&terminal), sliceData(input), uint32(len(input)), sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(&_o6))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = terminal
+	_o6 := (*uint32)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o6 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if len(input) > 0 {
+		_pin.Pin(sliceData(input))
+	}
+	if len(bytes) > 0 {
+		_pin.Pin(sliceData(bytes))
+	}
+	_pin.Pin(_o6)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(sliceData(input))
+	_u4 := uintptr(sliceData(bytes))
+	_u6 := uintptr(unsafe.Pointer(_o6))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_embedded_terminal_encode_paste(context.p, unsafe.Pointer(_s1), sliceData(input), uint32(len(input)), sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(_o6))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = uintptr(uint32(len(input)))
+		_buf.args[4] = _u4
+		_buf.args[5] = uintptr(uint32(len(bytes)))
+		_buf.args[6] = _u6
+		_r = int32(cCall(symAddrs[62], _buf, 7))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&terminal)
-	runtime.KeepAlive(input)
-	runtime.KeepAlive(bytes)
-	runtime.KeepAlive(&_o6)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out6 := *_o6
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o6, nil
+	return _out6, nil
 }
 
 // EmbeddedTerminalEncodeFocus calls ot_embedded_terminal_encode_focus.
@@ -7127,22 +8542,48 @@ func EmbeddedTerminalEncodeFocus(context *Context, terminal Handle, focused uint
 	if uint64(len(bytes)) > 4294967295 {
 		return 0, ErrTooLong
 	}
-	var _o5 uint32
-	_r := c_ot_embedded_terminal_encode_focus(context.p, unsafe.Pointer(&terminal), focused, sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(&_o5))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = terminal
+	_o5 := (*uint32)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o5 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if len(bytes) > 0 {
+		_pin.Pin(sliceData(bytes))
+	}
+	_pin.Pin(_o5)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u3 := uintptr(sliceData(bytes))
+	_u5 := uintptr(unsafe.Pointer(_o5))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_embedded_terminal_encode_focus(context.p, unsafe.Pointer(_s1), focused, sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(_o5))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(focused)
+		_buf.args[3] = _u3
+		_buf.args[4] = uintptr(uint32(len(bytes)))
+		_buf.args[5] = _u5
+		_r = int32(cCall(symAddrs[63], _buf, 6))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&terminal)
-	runtime.KeepAlive(bytes)
-	runtime.KeepAlive(&_o5)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out5 := *_o5
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o5, nil
+	return _out5, nil
 }
 
 // EmbeddedTerminalDrainResponses calls ot_embedded_terminal_drain_responses.
@@ -7156,22 +8597,47 @@ func EmbeddedTerminalDrainResponses(context *Context, terminal Handle, bytes []b
 	if uint64(len(bytes)) > 4294967295 {
 		return 0, ErrTooLong
 	}
-	var _o4 uint32
-	_r := c_ot_embedded_terminal_drain_responses(context.p, unsafe.Pointer(&terminal), sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(&_o4))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = terminal
+	_o4 := (*uint32)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o4 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if len(bytes) > 0 {
+		_pin.Pin(sliceData(bytes))
+	}
+	_pin.Pin(_o4)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(sliceData(bytes))
+	_u4 := uintptr(unsafe.Pointer(_o4))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_embedded_terminal_drain_responses(context.p, unsafe.Pointer(_s1), sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(_o4))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = uintptr(uint32(len(bytes)))
+		_buf.args[4] = _u4
+		_r = int32(cCall(symAddrs[64], _buf, 5))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&terminal)
-	runtime.KeepAlive(bytes)
-	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out4 := *_o4
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o4, nil
+	return _out4, nil
 }
 
 // EditBufferCreate calls ot_edit_buffer_create.
@@ -7182,22 +8648,42 @@ func EditBufferCreate(context *Context, editBufferOptions EditBufferOptions) (Ha
 	if context == nil || context.p == 0 {
 		return Handle{}, ErrDestroyed
 	}
-	editBufferOptions.fill()
-	var _o2 Handle
-	_r := c_ot_edit_buffer_create(context.p, unsafe.Pointer(&editBufferOptions), unsafe.Pointer(&_o2))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*EditBufferOptions)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = editBufferOptions
+	_s1.fill()
+	_o2 := (*Handle)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o2 = Handle{}
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_o2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_edit_buffer_create(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_o2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[65], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&editBufferOptions)
-	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return Handle{}, err
 	}
+	_out2 := *_o2
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o2, nil
+	return _out2, nil
 }
 
 // EditBufferDestroy calls ot_edit_buffer_destroy.
@@ -7208,15 +8694,31 @@ func EditBufferDestroy(context *Context, editBuffer Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_edit_buffer_destroy(context.p, unsafe.Pointer(&editBuffer))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = editBuffer
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_edit_buffer_destroy(context.p, unsafe.Pointer(_s1))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_r = int32(cCall(symAddrs[66], _buf, 2))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&editBuffer)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -7231,21 +8733,43 @@ func EditorViewCreate(context *Context, editBuffer Handle, width uint32, height 
 	if context == nil || context.p == 0 {
 		return Handle{}, ErrDestroyed
 	}
-	var _o4 Handle
-	_r := c_ot_editor_view_create(context.p, unsafe.Pointer(&editBuffer), width, height, unsafe.Pointer(&_o4))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = editBuffer
+	_o4 := (*Handle)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o4 = Handle{}
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o4)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u4 := uintptr(unsafe.Pointer(_o4))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_editor_view_create(context.p, unsafe.Pointer(_s1), width, height, unsafe.Pointer(_o4))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(width)
+		_buf.args[3] = uintptr(height)
+		_buf.args[4] = _u4
+		_r = int32(cCall(symAddrs[67], _buf, 5))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&editBuffer)
-	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return Handle{}, err
 	}
+	_out4 := *_o4
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o4, nil
+	return _out4, nil
 }
 
 // EditorViewDestroy calls ot_editor_view_destroy.
@@ -7256,15 +8780,31 @@ func EditorViewDestroy(context *Context, view Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_editor_view_destroy(context.p, unsafe.Pointer(&view))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = view
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_editor_view_destroy(context.p, unsafe.Pointer(_s1))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_r = int32(cCall(symAddrs[68], _buf, 2))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&view)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -7279,20 +8819,36 @@ func SyntaxStyleCreate(context *Context) (Handle, error) {
 	if context == nil || context.p == 0 {
 		return Handle{}, ErrDestroyed
 	}
-	var _o1 Handle
-	_r := c_ot_syntax_style_create(context.p, unsafe.Pointer(&_o1))
+	_buf := wordPool.Get().(*wordBuf)
+	_o1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_o1 = Handle{}
+	var _pin runtime.Pinner
+	_pin.Pin(_o1)
+	_u1 := uintptr(unsafe.Pointer(_o1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_syntax_style_create(context.p, unsafe.Pointer(_o1))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_r = int32(cCall(symAddrs[69], _buf, 2))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&_o1)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return Handle{}, err
 	}
+	_out1 := *_o1
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o1, nil
+	return _out1, nil
 }
 
 // SyntaxStyleDestroy calls ot_syntax_style_destroy.
@@ -7303,15 +8859,31 @@ func SyntaxStyleDestroy(context *Context, style Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_syntax_style_destroy(context.p, unsafe.Pointer(&style))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = style
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_syntax_style_destroy(context.p, unsafe.Pointer(_s1))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_r = int32(cCall(symAddrs[70], _buf, 2))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&style)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -7326,16 +8898,36 @@ func EditBufferSetSyntaxStyle(context *Context, editBuffer Handle, style Handle)
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_edit_buffer_set_syntax_style(context.p, unsafe.Pointer(&editBuffer), unsafe.Pointer(&style))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = editBuffer
+	_s2 := (*Handle)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = style
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_edit_buffer_set_syntax_style(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[71], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&editBuffer)
-	runtime.KeepAlive(&style)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -7353,16 +8945,38 @@ func EditBufferSetText(context *Context, editBuffer Handle, bytes []byte, preser
 	if uint64(len(bytes)) > 4294967295 {
 		return ErrTooLong
 	}
-	_r := c_ot_edit_buffer_set_text(context.p, unsafe.Pointer(&editBuffer), sliceData(bytes), uint32(len(bytes)), preserveHistory)
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = editBuffer
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if len(bytes) > 0 {
+		_pin.Pin(sliceData(bytes))
+	}
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(sliceData(bytes))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_edit_buffer_set_text(context.p, unsafe.Pointer(_s1), sliceData(bytes), uint32(len(bytes)), preserveHistory)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = uintptr(uint32(len(bytes)))
+		_buf.args[4] = uintptr(preserveHistory)
+		_r = int32(cCall(symAddrs[72], _buf, 5))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&editBuffer)
-	runtime.KeepAlive(bytes)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -7380,16 +8994,37 @@ func EditBufferInsertText(context *Context, editBuffer Handle, bytes []byte) err
 	if uint64(len(bytes)) > 4294967295 {
 		return ErrTooLong
 	}
-	_r := c_ot_edit_buffer_insert_text(context.p, unsafe.Pointer(&editBuffer), sliceData(bytes), uint32(len(bytes)))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = editBuffer
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if len(bytes) > 0 {
+		_pin.Pin(sliceData(bytes))
+	}
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(sliceData(bytes))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_edit_buffer_insert_text(context.p, unsafe.Pointer(_s1), sliceData(bytes), uint32(len(bytes)))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = uintptr(uint32(len(bytes)))
+		_r = int32(cCall(symAddrs[73], _buf, 4))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&editBuffer)
-	runtime.KeepAlive(bytes)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -7404,15 +9039,35 @@ func EditBufferDeleteRange(context *Context, editBuffer Handle, startRow uint32,
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_edit_buffer_delete_range(context.p, unsafe.Pointer(&editBuffer), startRow, startCol, endRow, endCol)
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = editBuffer
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_edit_buffer_delete_range(context.p, unsafe.Pointer(_s1), startRow, startCol, endRow, endCol)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(startRow)
+		_buf.args[3] = uintptr(startCol)
+		_buf.args[4] = uintptr(endRow)
+		_buf.args[5] = uintptr(endCol)
+		_r = int32(cCall(symAddrs[74], _buf, 6))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&editBuffer)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -7427,15 +9082,33 @@ func EditBufferSetCursor(context *Context, editBuffer Handle, row uint32, col ui
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_edit_buffer_set_cursor(context.p, unsafe.Pointer(&editBuffer), row, col)
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = editBuffer
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_edit_buffer_set_cursor(context.p, unsafe.Pointer(_s1), row, col)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(row)
+		_buf.args[3] = uintptr(col)
+		_r = int32(cCall(symAddrs[75], _buf, 4))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&editBuffer)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -7453,22 +9126,47 @@ func EditBufferGetText(context *Context, editBuffer Handle, bytes []byte) (uint3
 	if uint64(len(bytes)) > 4294967295 {
 		return 0, ErrTooLong
 	}
-	var _o4 uint32
-	_r := c_ot_edit_buffer_get_text(context.p, unsafe.Pointer(&editBuffer), sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(&_o4))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = editBuffer
+	_o4 := (*uint32)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o4 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if len(bytes) > 0 {
+		_pin.Pin(sliceData(bytes))
+	}
+	_pin.Pin(_o4)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(sliceData(bytes))
+	_u4 := uintptr(unsafe.Pointer(_o4))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_edit_buffer_get_text(context.p, unsafe.Pointer(_s1), sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(_o4))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = uintptr(uint32(len(bytes)))
+		_buf.args[4] = _u4
+		_r = int32(cCall(symAddrs[76], _buf, 5))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&editBuffer)
-	runtime.KeepAlive(bytes)
-	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out4 := *_o4
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o4, nil
+	return _out4, nil
 }
 
 // EditBufferGetInfo calls ot_edit_buffer_get_info.
@@ -7479,22 +9177,42 @@ func EditBufferGetInfo(context *Context, editBuffer Handle) (EditBufferInfo, err
 	if context == nil || context.p == 0 {
 		return EditBufferInfo{}, ErrDestroyed
 	}
-	var _o2 EditBufferInfo
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = editBuffer
+	_o2 := (*EditBufferInfo)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o2 = EditBufferInfo{}
 	_o2.fill()
-	_r := c_ot_edit_buffer_get_info(context.p, unsafe.Pointer(&editBuffer), unsafe.Pointer(&_o2))
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_o2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_edit_buffer_get_info(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_o2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[77], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&editBuffer)
-	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return EditBufferInfo{}, err
 	}
+	_out2 := *_o2
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o2, nil
+	return _out2, nil
 }
 
 // EditBufferSetTabWidth calls ot_edit_buffer_set_tab_width.
@@ -7505,15 +9223,32 @@ func EditBufferSetTabWidth(context *Context, editBuffer Handle, width uint32) er
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_edit_buffer_set_tab_width(context.p, unsafe.Pointer(&editBuffer), width)
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = editBuffer
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_edit_buffer_set_tab_width(context.p, unsafe.Pointer(_s1), width)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(width)
+		_r = int32(cCall(symAddrs[78], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&editBuffer)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -7528,15 +9263,33 @@ func EditBufferCommand(context *Context, handle Handle, command uint32, argument
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_edit_buffer_command(context.p, unsafe.Pointer(&handle), command, argument)
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_edit_buffer_command(context.p, unsafe.Pointer(_s1), command, argument)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(command)
+		_buf.args[3] = uintptr(argument)
+		_r = int32(cCall(symAddrs[79], _buf, 4))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -7554,22 +9307,48 @@ func EditBufferHistory(context *Context, handle Handle, redo uint32, bytes []byt
 	if uint64(len(bytes)) > 4294967295 {
 		return 0, ErrTooLong
 	}
-	var _o5 uint32
-	_r := c_ot_edit_buffer_history(context.p, unsafe.Pointer(&handle), redo, sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(&_o5))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
+	_o5 := (*uint32)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o5 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if len(bytes) > 0 {
+		_pin.Pin(sliceData(bytes))
+	}
+	_pin.Pin(_o5)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u3 := uintptr(sliceData(bytes))
+	_u5 := uintptr(unsafe.Pointer(_o5))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_edit_buffer_history(context.p, unsafe.Pointer(_s1), redo, sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(_o5))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(redo)
+		_buf.args[3] = _u3
+		_buf.args[4] = uintptr(uint32(len(bytes)))
+		_buf.args[5] = _u5
+		_r = int32(cCall(symAddrs[80], _buf, 6))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
-	runtime.KeepAlive(bytes)
-	runtime.KeepAlive(&_o5)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out5 := *_o5
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o5, nil
+	return _out5, nil
 }
 
 // EditBufferGetPosition calls ot_edit_buffer_get_position.
@@ -7580,22 +9359,45 @@ func EditBufferGetPosition(context *Context, handle Handle, query uint32, a uint
 	if context == nil || context.p == 0 {
 		return EditPosition{}, ErrDestroyed
 	}
-	var _o5 EditPosition
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
+	_o5 := (*EditPosition)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o5 = EditPosition{}
 	_o5.fill()
-	_r := c_ot_edit_buffer_get_position(context.p, unsafe.Pointer(&handle), query, a, b, unsafe.Pointer(&_o5))
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o5)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u5 := uintptr(unsafe.Pointer(_o5))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_edit_buffer_get_position(context.p, unsafe.Pointer(_s1), query, a, b, unsafe.Pointer(_o5))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(query)
+		_buf.args[3] = uintptr(a)
+		_buf.args[4] = uintptr(b)
+		_buf.args[5] = _u5
+		_r = int32(cCall(symAddrs[81], _buf, 6))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
-	runtime.KeepAlive(&_o5)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return EditPosition{}, err
 	}
+	_out5 := *_o5
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o5, nil
+	return _out5, nil
 }
 
 // EditBufferGetRange calls ot_edit_buffer_get_range.
@@ -7609,22 +9411,52 @@ func EditBufferGetRange(context *Context, handle Handle, byCoords uint32, startR
 	if uint64(len(bytes)) > 4294967295 {
 		return 0, ErrTooLong
 	}
-	var _o9 uint32
-	_r := c_ot_edit_buffer_get_range(context.p, unsafe.Pointer(&handle), byCoords, startRow, startCol, endRow, endCol, sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(&_o9))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
+	_o9 := (*uint32)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o9 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if len(bytes) > 0 {
+		_pin.Pin(sliceData(bytes))
+	}
+	_pin.Pin(_o9)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u7 := uintptr(sliceData(bytes))
+	_u9 := uintptr(unsafe.Pointer(_o9))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_edit_buffer_get_range(context.p, unsafe.Pointer(_s1), byCoords, startRow, startCol, endRow, endCol, sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(_o9))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(byCoords)
+		_buf.args[3] = uintptr(startRow)
+		_buf.args[4] = uintptr(startCol)
+		_buf.args[5] = uintptr(endRow)
+		_buf.args[6] = uintptr(endCol)
+		_buf.args[7] = _u7
+		_buf.args[8] = uintptr(uint32(len(bytes)))
+		_buf.args[9] = _u9
+		_r = int32(cCall(symAddrs[82], _buf, 10))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
-	runtime.KeepAlive(bytes)
-	runtime.KeepAlive(&_o9)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out9 := *_o9
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o9, nil
+	return _out9, nil
 }
 
 // EditBufferMeasureText calls ot_edit_buffer_measure_text.
@@ -7638,22 +9470,47 @@ func EditBufferMeasureText(context *Context, editBuffer Handle, bytes []byte) (u
 	if uint64(len(bytes)) > 4294967295 {
 		return 0, ErrTooLong
 	}
-	var _o4 uint32
-	_r := c_ot_edit_buffer_measure_text(context.p, unsafe.Pointer(&editBuffer), sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(&_o4))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = editBuffer
+	_o4 := (*uint32)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o4 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if len(bytes) > 0 {
+		_pin.Pin(sliceData(bytes))
+	}
+	_pin.Pin(_o4)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(sliceData(bytes))
+	_u4 := uintptr(unsafe.Pointer(_o4))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_edit_buffer_measure_text(context.p, unsafe.Pointer(_s1), sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(_o4))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = uintptr(uint32(len(bytes)))
+		_buf.args[4] = _u4
+		_r = int32(cCall(symAddrs[83], _buf, 5))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&editBuffer)
-	runtime.KeepAlive(bytes)
-	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out4 := *_o4
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o4, nil
+	return _out4, nil
 }
 
 // EditMeasureText calls ot_edit_measure_text.
@@ -7667,21 +9524,44 @@ func EditMeasureText(context *Context, bytes []byte, widthMethod uint32, tabWidt
 	if uint64(len(bytes)) > 4294967295 {
 		return 0, ErrTooLong
 	}
-	var _o5 uint32
-	_r := c_ot_edit_measure_text(context.p, sliceData(bytes), uint32(len(bytes)), widthMethod, tabWidth, unsafe.Pointer(&_o5))
+	_buf := wordPool.Get().(*wordBuf)
+	_o5 := (*uint32)(unsafe.Pointer(&_buf.scratch[0]))
+	*_o5 = 0
+	var _pin runtime.Pinner
+	if len(bytes) > 0 {
+		_pin.Pin(sliceData(bytes))
+	}
+	_pin.Pin(_o5)
+	_u1 := uintptr(sliceData(bytes))
+	_u5 := uintptr(unsafe.Pointer(_o5))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_edit_measure_text(context.p, sliceData(bytes), uint32(len(bytes)), widthMethod, tabWidth, unsafe.Pointer(_o5))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(uint32(len(bytes)))
+		_buf.args[3] = uintptr(widthMethod)
+		_buf.args[4] = uintptr(tabWidth)
+		_buf.args[5] = _u5
+		_r = int32(cCall(symAddrs[84], _buf, 6))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(bytes)
-	runtime.KeepAlive(&_o5)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out5 := *_o5
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o5, nil
+	return _out5, nil
 }
 
 // EditBufferSetDefaults calls ot_edit_buffer_set_defaults.
@@ -7692,17 +9572,38 @@ func EditBufferSetDefaults(context *Context, handle Handle, mask uint32, editorS
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	editorStyle.fill()
-	_r := c_ot_edit_buffer_set_defaults(context.p, unsafe.Pointer(&handle), mask, unsafe.Pointer(&editorStyle))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
+	_s3 := (*EditorStyle)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s3 = editorStyle
+	_s3.fill()
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s3)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u3 := uintptr(unsafe.Pointer(_s3))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_edit_buffer_set_defaults(context.p, unsafe.Pointer(_s1), mask, unsafe.Pointer(_s3))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(mask)
+		_buf.args[3] = _u3
+		_r = int32(cCall(symAddrs[85], _buf, 4))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
-	runtime.KeepAlive(&editorStyle)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -7720,24 +9621,53 @@ func SyntaxStyleRegister(context *Context, handle Handle, name []byte, editorSty
 	if uint64(len(name)) > 4294967295 {
 		return 0, ErrTooLong
 	}
-	editorStyle.fill()
-	var _o5 uint32
-	_r := c_ot_syntax_style_register(context.p, unsafe.Pointer(&handle), sliceData(name), uint32(len(name)), unsafe.Pointer(&editorStyle), unsafe.Pointer(&_o5))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
+	_s4 := (*EditorStyle)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s4 = editorStyle
+	_s4.fill()
+	_o5 := (*uint32)(unsafe.Pointer(&_buf.scratch[6]))
+	*_o5 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if len(name) > 0 {
+		_pin.Pin(sliceData(name))
+	}
+	_pin.Pin(_s4)
+	_pin.Pin(_o5)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(sliceData(name))
+	_u4 := uintptr(unsafe.Pointer(_s4))
+	_u5 := uintptr(unsafe.Pointer(_o5))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_syntax_style_register(context.p, unsafe.Pointer(_s1), sliceData(name), uint32(len(name)), unsafe.Pointer(_s4), unsafe.Pointer(_o5))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = uintptr(uint32(len(name)))
+		_buf.args[4] = _u4
+		_buf.args[5] = _u5
+		_r = int32(cCall(symAddrs[86], _buf, 6))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
-	runtime.KeepAlive(name)
-	runtime.KeepAlive(&editorStyle)
-	runtime.KeepAlive(&_o5)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out5 := *_o5
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o5, nil
+	return _out5, nil
 }
 
 // SyntaxStyleResolve calls ot_syntax_style_resolve.
@@ -7751,22 +9681,47 @@ func SyntaxStyleResolve(context *Context, handle Handle, name []byte) (uint32, e
 	if uint64(len(name)) > 4294967295 {
 		return 0, ErrTooLong
 	}
-	var _o4 uint32
-	_r := c_ot_syntax_style_resolve(context.p, unsafe.Pointer(&handle), sliceData(name), uint32(len(name)), unsafe.Pointer(&_o4))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
+	_o4 := (*uint32)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o4 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if len(name) > 0 {
+		_pin.Pin(sliceData(name))
+	}
+	_pin.Pin(_o4)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(sliceData(name))
+	_u4 := uintptr(unsafe.Pointer(_o4))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_syntax_style_resolve(context.p, unsafe.Pointer(_s1), sliceData(name), uint32(len(name)), unsafe.Pointer(_o4))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = uintptr(uint32(len(name)))
+		_buf.args[4] = _u4
+		_r = int32(cCall(symAddrs[87], _buf, 5))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
-	runtime.KeepAlive(name)
-	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out4 := *_o4
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o4, nil
+	return _out4, nil
 }
 
 // SyntaxStyleGetCount calls ot_syntax_style_get_count.
@@ -7777,21 +9732,41 @@ func SyntaxStyleGetCount(context *Context, handle Handle) (uint32, error) {
 	if context == nil || context.p == 0 {
 		return 0, ErrDestroyed
 	}
-	var _o2 uint32
-	_r := c_ot_syntax_style_get_count(context.p, unsafe.Pointer(&handle), unsafe.Pointer(&_o2))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
+	_o2 := (*uint32)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o2 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_o2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_syntax_style_get_count(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_o2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[88], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
-	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out2 := *_o2
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o2, nil
+	return _out2, nil
 }
 
 // EditBufferHighlight calls ot_edit_buffer_highlight.
@@ -7802,16 +9777,38 @@ func EditBufferHighlight(context *Context, handle Handle, operation uint32, argu
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_edit_buffer_highlight(context.p, unsafe.Pointer(&handle), operation, argument, unsafe.Pointer(&highlight))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
+	_s4 := (*EditHighlight)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s4 = highlight
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s4)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u4 := uintptr(unsafe.Pointer(_s4))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_edit_buffer_highlight(context.p, unsafe.Pointer(_s1), operation, argument, unsafe.Pointer(_s4))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(operation)
+		_buf.args[3] = uintptr(argument)
+		_buf.args[4] = _u4
+		_r = int32(cCall(symAddrs[89], _buf, 5))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
-	runtime.KeepAlive(&highlight)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -7829,22 +9826,48 @@ func EditBufferGetHighlights(context *Context, handle Handle, line uint32, highl
 	if uint64(len(highlights)) > 4294967295 {
 		return 0, ErrTooLong
 	}
-	var _o5 uint32
-	_r := c_ot_edit_buffer_get_highlights(context.p, unsafe.Pointer(&handle), line, sliceData(highlights), uint32(len(highlights)), unsafe.Pointer(&_o5))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
+	_o5 := (*uint32)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o5 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if len(highlights) > 0 {
+		_pin.Pin(sliceData(highlights))
+	}
+	_pin.Pin(_o5)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u3 := uintptr(sliceData(highlights))
+	_u5 := uintptr(unsafe.Pointer(_o5))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_edit_buffer_get_highlights(context.p, unsafe.Pointer(_s1), line, sliceData(highlights), uint32(len(highlights)), unsafe.Pointer(_o5))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(line)
+		_buf.args[3] = _u3
+		_buf.args[4] = uintptr(uint32(len(highlights)))
+		_buf.args[5] = _u5
+		_r = int32(cCall(symAddrs[90], _buf, 6))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
-	runtime.KeepAlive(highlights)
-	runtime.KeepAlive(&_o5)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out5 := *_o5
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o5, nil
+	return _out5, nil
 }
 
 // EditorViewSetViewport calls ot_editor_view_set_viewport.
@@ -7855,17 +9878,39 @@ func EditorViewSetViewport(context *Context, handle Handle, editorViewport Edito
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	editorViewport.fill()
-	_r := c_ot_editor_view_set_viewport(context.p, unsafe.Pointer(&handle), unsafe.Pointer(&editorViewport), sizeOnly, moveCursor)
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
+	_s2 := (*EditorViewport)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = editorViewport
+	_s2.fill()
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_editor_view_set_viewport(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2), sizeOnly, moveCursor)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = uintptr(sizeOnly)
+		_buf.args[4] = uintptr(moveCursor)
+		_r = int32(cCall(symAddrs[91], _buf, 5))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
-	runtime.KeepAlive(&editorViewport)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -7880,22 +9925,42 @@ func EditorViewGetViewport(context *Context, handle Handle) (EditorViewport, err
 	if context == nil || context.p == 0 {
 		return EditorViewport{}, ErrDestroyed
 	}
-	var _o2 EditorViewport
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
+	_o2 := (*EditorViewport)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o2 = EditorViewport{}
 	_o2.fill()
-	_r := c_ot_editor_view_get_viewport(context.p, unsafe.Pointer(&handle), unsafe.Pointer(&_o2))
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_o2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_editor_view_get_viewport(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_o2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[92], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
-	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return EditorViewport{}, err
 	}
+	_out2 := *_o2
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o2, nil
+	return _out2, nil
 }
 
 // EditorViewSetScrollMargin calls ot_editor_view_set_scroll_margin.
@@ -7906,15 +9971,18 @@ func EditorViewSetScrollMargin(context *Context, handle Handle, margin float32) 
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	var _pin runtime.Pinner
+	_pin.Pin(&handle)
 	_r := c_ot_editor_view_set_scroll_margin(context.p, unsafe.Pointer(&handle), margin)
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
 	if _p != nil {
 		panic(_p)
 	}
@@ -7929,15 +9997,33 @@ func EditorViewCommand(context *Context, handle Handle, command uint32, argument
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_editor_view_command(context.p, unsafe.Pointer(&handle), command, argument)
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_editor_view_command(context.p, unsafe.Pointer(_s1), command, argument)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(command)
+		_buf.args[3] = uintptr(argument)
+		_r = int32(cCall(symAddrs[94], _buf, 4))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -7955,22 +10041,47 @@ func EditorViewReplaceSelection(context *Context, handle Handle, bytes []byte) (
 	if uint64(len(bytes)) > 4294967295 {
 		return 0, ErrTooLong
 	}
-	var _o4 uint32
-	_r := c_ot_editor_view_replace_selection(context.p, unsafe.Pointer(&handle), sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(&_o4))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
+	_o4 := (*uint32)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o4 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if len(bytes) > 0 {
+		_pin.Pin(sliceData(bytes))
+	}
+	_pin.Pin(_o4)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(sliceData(bytes))
+	_u4 := uintptr(unsafe.Pointer(_o4))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_editor_view_replace_selection(context.p, unsafe.Pointer(_s1), sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(_o4))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = uintptr(uint32(len(bytes)))
+		_buf.args[4] = _u4
+		_r = int32(cCall(symAddrs[95], _buf, 5))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
-	runtime.KeepAlive(bytes)
-	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out4 := *_o4
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o4, nil
+	return _out4, nil
 }
 
 // EditorViewSetTabColor calls ot_editor_view_set_tab_color.
@@ -7981,16 +10092,36 @@ func EditorViewSetTabColor(context *Context, handle Handle, color [4]uint16) err
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_editor_view_set_tab_color(context.p, unsafe.Pointer(&handle), unsafe.Pointer(&color))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
+	_s2 := (*[4]uint16)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = color
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_editor_view_set_tab_color(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[96], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
-	runtime.KeepAlive(&color)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -8005,23 +10136,47 @@ func EditorViewSelect(context *Context, handle Handle, editorSelection EditorSel
 	if context == nil || context.p == 0 {
 		return 0, ErrDestroyed
 	}
-	editorSelection.fill()
-	var _o3 uint32
-	_r := c_ot_editor_view_select(context.p, unsafe.Pointer(&handle), unsafe.Pointer(&editorSelection), unsafe.Pointer(&_o3))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
+	_s2 := (*EditorSelection)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = editorSelection
+	_s2.fill()
+	_o3 := (*uint32)(unsafe.Pointer(&_buf.scratch[11]))
+	*_o3 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	_pin.Pin(_o3)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	_u3 := uintptr(unsafe.Pointer(_o3))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_editor_view_select(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2), unsafe.Pointer(_o3))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = _u3
+		_r = int32(cCall(symAddrs[97], _buf, 4))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
-	runtime.KeepAlive(&editorSelection)
-	runtime.KeepAlive(&_o3)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out3 := *_o3
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o3, nil
+	return _out3, nil
 }
 
 // EditorViewGetInfo calls ot_editor_view_get_info.
@@ -8032,22 +10187,43 @@ func EditorViewGetInfo(context *Context, handle Handle, followCursor uint32) (Ed
 	if context == nil || context.p == 0 {
 		return EditorViewInfo{}, ErrDestroyed
 	}
-	var _o3 EditorViewInfo
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
+	_o3 := (*EditorViewInfo)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o3 = EditorViewInfo{}
 	_o3.fill()
-	_r := c_ot_editor_view_get_info(context.p, unsafe.Pointer(&handle), followCursor, unsafe.Pointer(&_o3))
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o3)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u3 := uintptr(unsafe.Pointer(_o3))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_editor_view_get_info(context.p, unsafe.Pointer(_s1), followCursor, unsafe.Pointer(_o3))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(followCursor)
+		_buf.args[3] = _u3
+		_r = int32(cCall(symAddrs[98], _buf, 4))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
-	runtime.KeepAlive(&_o3)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return EditorViewInfo{}, err
 	}
+	_out3 := *_o3
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o3, nil
+	return _out3, nil
 }
 
 // EditorViewGetSelection calls ot_editor_view_get_selection.
@@ -8058,22 +10234,42 @@ func EditorViewGetSelection(context *Context, handle Handle) (EditorViewInfo, er
 	if context == nil || context.p == 0 {
 		return EditorViewInfo{}, ErrDestroyed
 	}
-	var _o2 EditorViewInfo
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
+	_o2 := (*EditorViewInfo)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o2 = EditorViewInfo{}
 	_o2.fill()
-	_r := c_ot_editor_view_get_selection(context.p, unsafe.Pointer(&handle), unsafe.Pointer(&_o2))
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_o2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_editor_view_get_selection(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_o2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[99], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
-	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return EditorViewInfo{}, err
 	}
+	_out2 := *_o2
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o2, nil
+	return _out2, nil
 }
 
 // EditorViewGetSelectedText calls ot_editor_view_get_selected_text.
@@ -8087,22 +10283,47 @@ func EditorViewGetSelectedText(context *Context, handle Handle, bytes []byte) (u
 	if uint64(len(bytes)) > 4294967295 {
 		return 0, ErrTooLong
 	}
-	var _o4 uint32
-	_r := c_ot_editor_view_get_selected_text(context.p, unsafe.Pointer(&handle), sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(&_o4))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
+	_o4 := (*uint32)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o4 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if len(bytes) > 0 {
+		_pin.Pin(sliceData(bytes))
+	}
+	_pin.Pin(_o4)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(sliceData(bytes))
+	_u4 := uintptr(unsafe.Pointer(_o4))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_editor_view_get_selected_text(context.p, unsafe.Pointer(_s1), sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(_o4))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = uintptr(uint32(len(bytes)))
+		_buf.args[4] = _u4
+		_r = int32(cCall(symAddrs[100], _buf, 5))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
-	runtime.KeepAlive(bytes)
-	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out4 := *_o4
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o4, nil
+	return _out4, nil
 }
 
 // EditorViewGetPosition calls ot_editor_view_get_position.
@@ -8113,22 +10334,43 @@ func EditorViewGetPosition(context *Context, handle Handle, query uint32) (Edito
 	if context == nil || context.p == 0 {
 		return EditorPosition{}, ErrDestroyed
 	}
-	var _o3 EditorPosition
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
+	_o3 := (*EditorPosition)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o3 = EditorPosition{}
 	_o3.fill()
-	_r := c_ot_editor_view_get_position(context.p, unsafe.Pointer(&handle), query, unsafe.Pointer(&_o3))
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o3)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u3 := uintptr(unsafe.Pointer(_o3))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_editor_view_get_position(context.p, unsafe.Pointer(_s1), query, unsafe.Pointer(_o3))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(query)
+		_buf.args[3] = _u3
+		_r = int32(cCall(symAddrs[101], _buf, 4))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
-	runtime.KeepAlive(&_o3)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return EditorPosition{}, err
 	}
+	_out3 := *_o3
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o3, nil
+	return _out3, nil
 }
 
 // EditorViewMeasure calls ot_editor_view_measure.
@@ -8139,22 +10381,44 @@ func EditorViewMeasure(context *Context, handle Handle, width uint32, height uin
 	if context == nil || context.p == 0 {
 		return EditorMeasure{}, ErrDestroyed
 	}
-	var _o4 EditorMeasure
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
+	_o4 := (*EditorMeasure)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o4 = EditorMeasure{}
 	_o4.fill()
-	_r := c_ot_editor_view_measure(context.p, unsafe.Pointer(&handle), width, height, unsafe.Pointer(&_o4))
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o4)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u4 := uintptr(unsafe.Pointer(_o4))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_editor_view_measure(context.p, unsafe.Pointer(_s1), width, height, unsafe.Pointer(_o4))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(width)
+		_buf.args[3] = uintptr(height)
+		_buf.args[4] = _u4
+		_r = int32(cCall(symAddrs[103], _buf, 5))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
-	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return EditorMeasure{}, err
 	}
+	_out4 := *_o4
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o4, nil
+	return _out4, nil
 }
 
 // EditorViewSetPlaceholder calls ot_editor_view_set_placeholder.
@@ -8172,20 +10436,46 @@ func EditorViewSetPlaceholder(context *Context, handle Handle, bytes []byte, chu
 	if uint64(len(chunks)) > 4294967295 {
 		return ErrTooLong
 	}
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
 	for _i0 := range chunks {
 		chunks[_i0].fill()
 	}
-	_r := c_ot_editor_view_set_placeholder(context.p, unsafe.Pointer(&handle), sliceData(bytes), uint32(len(bytes)), sliceData(chunks), uint32(len(chunks)))
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if len(bytes) > 0 {
+		_pin.Pin(sliceData(bytes))
+	}
+	if len(chunks) > 0 {
+		_pin.Pin(sliceData(chunks))
+	}
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(sliceData(bytes))
+	_u4 := uintptr(sliceData(chunks))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_editor_view_set_placeholder(context.p, unsafe.Pointer(_s1), sliceData(bytes), uint32(len(bytes)), sliceData(chunks), uint32(len(chunks)))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = uintptr(uint32(len(bytes)))
+		_buf.args[4] = _u4
+		_buf.args[5] = uintptr(uint32(len(chunks)))
+		_r = int32(cCall(symAddrs[104], _buf, 6))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
-	runtime.KeepAlive(bytes)
-	runtime.KeepAlive(chunks)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -8200,16 +10490,36 @@ func SceneSetEditorView(context *Context, node Handle, view Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_scene_set_editor_view(context.p, unsafe.Pointer(&node), unsafe.Pointer(&view))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	_s2 := (*Handle)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = view
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_set_editor_view(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[106], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
-	runtime.KeepAlive(&view)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -8224,17 +10534,37 @@ func SceneSetEditorOptions(context *Context, node Handle, sceneEditorOptions Sce
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	sceneEditorOptions.fill()
-	_r := c_ot_scene_set_editor_options(context.p, unsafe.Pointer(&node), unsafe.Pointer(&sceneEditorOptions))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	_s2 := (*SceneEditorOptions)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = sceneEditorOptions
+	_s2.fill()
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_set_editor_options(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[107], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
-	runtime.KeepAlive(&sceneEditorOptions)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -8249,15 +10579,31 @@ func ImageDestroy(context *Context, image Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_image_destroy(context.p, unsafe.Pointer(&image))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = image
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_image_destroy(context.p, unsafe.Pointer(_s1))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_r = int32(cCall(symAddrs[108], _buf, 2))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&image)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -8275,21 +10621,42 @@ func ImageInspect(context *Context, bytes []byte) (ImageInfo, error) {
 	if uint64(len(bytes)) > 18446744073709551615 {
 		return ImageInfo{}, ErrTooLong
 	}
-	var _o3 ImageInfo
-	_r := c_ot_image_inspect(context.p, sliceData(bytes), uint64(len(bytes)), unsafe.Pointer(&_o3))
+	_buf := wordPool.Get().(*wordBuf)
+	_o3 := (*ImageInfo)(unsafe.Pointer(&_buf.scratch[0]))
+	*_o3 = ImageInfo{}
+	var _pin runtime.Pinner
+	if len(bytes) > 0 {
+		_pin.Pin(sliceData(bytes))
+	}
+	_pin.Pin(_o3)
+	_u1 := uintptr(sliceData(bytes))
+	_u3 := uintptr(unsafe.Pointer(_o3))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_image_inspect(context.p, sliceData(bytes), uint64(len(bytes)), unsafe.Pointer(_o3))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(uint64(len(bytes)))
+		_buf.args[3] = _u3
+		_r = int32(cCall(symAddrs[109], _buf, 4))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(bytes)
-	runtime.KeepAlive(&_o3)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return ImageInfo{}, err
 	}
+	_out3 := *_o3
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o3, nil
+	return _out3, nil
 }
 
 // ImageDecode calls ot_image_decode.
@@ -8303,21 +10670,42 @@ func ImageDecode(context *Context, bytes []byte) (Handle, error) {
 	if uint64(len(bytes)) > 18446744073709551615 {
 		return Handle{}, ErrTooLong
 	}
-	var _o3 Handle
-	_r := c_ot_image_decode(context.p, sliceData(bytes), uint64(len(bytes)), unsafe.Pointer(&_o3))
+	_buf := wordPool.Get().(*wordBuf)
+	_o3 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_o3 = Handle{}
+	var _pin runtime.Pinner
+	if len(bytes) > 0 {
+		_pin.Pin(sliceData(bytes))
+	}
+	_pin.Pin(_o3)
+	_u1 := uintptr(sliceData(bytes))
+	_u3 := uintptr(unsafe.Pointer(_o3))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_image_decode(context.p, sliceData(bytes), uint64(len(bytes)), unsafe.Pointer(_o3))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(uint64(len(bytes)))
+		_buf.args[3] = _u3
+		_r = int32(cCall(symAddrs[110], _buf, 4))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(bytes)
-	runtime.KeepAlive(&_o3)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return Handle{}, err
 	}
+	_out3 := *_o3
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o3, nil
+	return _out3, nil
 }
 
 // ImageCreatePixels calls ot_image_create_pixels.
@@ -8331,21 +10719,47 @@ func ImageCreatePixels(context *Context, pixels []byte, width uint32, height uin
 	if uint64(len(pixels)) > 18446744073709551615 {
 		return Handle{}, ErrTooLong
 	}
-	var _o8 Handle
-	_r := c_ot_image_create_pixels(context.p, sliceData(pixels), uint64(len(pixels)), width, height, stride, format, alpha, unsafe.Pointer(&_o8))
+	_buf := wordPool.Get().(*wordBuf)
+	_o8 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_o8 = Handle{}
+	var _pin runtime.Pinner
+	if len(pixels) > 0 {
+		_pin.Pin(sliceData(pixels))
+	}
+	_pin.Pin(_o8)
+	_u1 := uintptr(sliceData(pixels))
+	_u8 := uintptr(unsafe.Pointer(_o8))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_image_create_pixels(context.p, sliceData(pixels), uint64(len(pixels)), width, height, stride, format, alpha, unsafe.Pointer(_o8))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(uint64(len(pixels)))
+		_buf.args[3] = uintptr(width)
+		_buf.args[4] = uintptr(height)
+		_buf.args[5] = uintptr(stride)
+		_buf.args[6] = uintptr(format)
+		_buf.args[7] = uintptr(alpha)
+		_buf.args[8] = _u8
+		_r = int32(cCall(symAddrs[111], _buf, 9))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(pixels)
-	runtime.KeepAlive(&_o8)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return Handle{}, err
 	}
+	_out8 := *_o8
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o8, nil
+	return _out8, nil
 }
 
 // ImageUpdatePixels calls ot_image_update_pixels.
@@ -8359,16 +10773,40 @@ func ImageUpdatePixels(context *Context, image Handle, pixels []byte, stride uin
 	if uint64(len(pixels)) > 18446744073709551615 {
 		return ErrTooLong
 	}
-	_r := c_ot_image_update_pixels(context.p, unsafe.Pointer(&image), sliceData(pixels), uint64(len(pixels)), stride, format, alpha)
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = image
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if len(pixels) > 0 {
+		_pin.Pin(sliceData(pixels))
+	}
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(sliceData(pixels))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_image_update_pixels(context.p, unsafe.Pointer(_s1), sliceData(pixels), uint64(len(pixels)), stride, format, alpha)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = uintptr(uint64(len(pixels)))
+		_buf.args[4] = uintptr(stride)
+		_buf.args[5] = uintptr(format)
+		_buf.args[6] = uintptr(alpha)
+		_r = int32(cCall(symAddrs[112], _buf, 7))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&image)
-	runtime.KeepAlive(pixels)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -8386,21 +10824,42 @@ func ImageClone(destination *Context, source *Context, image Handle) (Handle, er
 	if source == nil || source.p == 0 {
 		return Handle{}, ErrDestroyed
 	}
-	var _o3 Handle
-	_r := c_ot_image_clone(destination.p, source.p, unsafe.Pointer(&image), unsafe.Pointer(&_o3))
+	_buf := wordPool.Get().(*wordBuf)
+	_s2 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s2 = image
+	_o3 := (*Handle)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o3 = Handle{}
+	var _pin runtime.Pinner
+	_pin.Pin(_s2)
+	_pin.Pin(_o3)
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	_u3 := uintptr(unsafe.Pointer(_o3))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_image_clone(destination.p, source.p, unsafe.Pointer(_s2), unsafe.Pointer(_o3))
+	} else {
+		_buf.args[0] = destination.p
+		_buf.args[1] = source.p
+		_buf.args[2] = _u2
+		_buf.args[3] = _u3
+		_r = int32(cCall(symAddrs[113], _buf, 4))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&image)
-	runtime.KeepAlive(&_o3)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return Handle{}, err
 	}
+	_out3 := *_o3
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o3, nil
+	return _out3, nil
 }
 
 // ImageRetain calls ot_image_retain.
@@ -8411,21 +10870,41 @@ func ImageRetain(context *Context, image Handle) (Handle, error) {
 	if context == nil || context.p == 0 {
 		return Handle{}, ErrDestroyed
 	}
-	var _o2 Handle
-	_r := c_ot_image_retain(context.p, unsafe.Pointer(&image), unsafe.Pointer(&_o2))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = image
+	_o2 := (*Handle)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o2 = Handle{}
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_o2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_image_retain(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_o2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[114], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&image)
-	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return Handle{}, err
 	}
+	_out2 := *_o2
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o2, nil
+	return _out2, nil
 }
 
 // ImageGetInfo calls ot_image_get_info.
@@ -8436,21 +10915,41 @@ func ImageGetInfo(context *Context, image Handle) (ImageInfo, error) {
 	if context == nil || context.p == 0 {
 		return ImageInfo{}, ErrDestroyed
 	}
-	var _o2 ImageInfo
-	_r := c_ot_image_get_info(context.p, unsafe.Pointer(&image), unsafe.Pointer(&_o2))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = image
+	_o2 := (*ImageInfo)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o2 = ImageInfo{}
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_o2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_image_get_info(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_o2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[115], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&image)
-	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return ImageInfo{}, err
 	}
+	_out2 := *_o2
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o2, nil
+	return _out2, nil
 }
 
 // ImageResize calls ot_image_resize.
@@ -8461,21 +10960,44 @@ func ImageResize(context *Context, image Handle, width uint32, height uint32, fi
 	if context == nil || context.p == 0 {
 		return Handle{}, ErrDestroyed
 	}
-	var _o5 Handle
-	_r := c_ot_image_resize(context.p, unsafe.Pointer(&image), width, height, filter, unsafe.Pointer(&_o5))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = image
+	_o5 := (*Handle)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o5 = Handle{}
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o5)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u5 := uintptr(unsafe.Pointer(_o5))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_image_resize(context.p, unsafe.Pointer(_s1), width, height, filter, unsafe.Pointer(_o5))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(width)
+		_buf.args[3] = uintptr(height)
+		_buf.args[4] = uintptr(filter)
+		_buf.args[5] = _u5
+		_r = int32(cCall(symAddrs[116], _buf, 6))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&image)
-	runtime.KeepAlive(&_o5)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return Handle{}, err
 	}
+	_out5 := *_o5
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o5, nil
+	return _out5, nil
 }
 
 // ImageExtract calls ot_image_extract.
@@ -8486,21 +11008,45 @@ func ImageExtract(context *Context, image Handle, left uint32, top uint32, width
 	if context == nil || context.p == 0 {
 		return Handle{}, ErrDestroyed
 	}
-	var _o6 Handle
-	_r := c_ot_image_extract(context.p, unsafe.Pointer(&image), left, top, width, height, unsafe.Pointer(&_o6))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = image
+	_o6 := (*Handle)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o6 = Handle{}
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o6)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u6 := uintptr(unsafe.Pointer(_o6))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_image_extract(context.p, unsafe.Pointer(_s1), left, top, width, height, unsafe.Pointer(_o6))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(left)
+		_buf.args[3] = uintptr(top)
+		_buf.args[4] = uintptr(width)
+		_buf.args[5] = uintptr(height)
+		_buf.args[6] = _u6
+		_r = int32(cCall(symAddrs[117], _buf, 7))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&image)
-	runtime.KeepAlive(&_o6)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return Handle{}, err
 	}
+	_out6 := *_o6
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o6, nil
+	return _out6, nil
 }
 
 // ImageTransform calls ot_image_transform.
@@ -8511,21 +11057,42 @@ func ImageTransform(context *Context, image Handle, operation uint32) (Handle, e
 	if context == nil || context.p == 0 {
 		return Handle{}, ErrDestroyed
 	}
-	var _o3 Handle
-	_r := c_ot_image_transform(context.p, unsafe.Pointer(&image), operation, unsafe.Pointer(&_o3))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = image
+	_o3 := (*Handle)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o3 = Handle{}
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o3)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u3 := uintptr(unsafe.Pointer(_o3))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_image_transform(context.p, unsafe.Pointer(_s1), operation, unsafe.Pointer(_o3))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(operation)
+		_buf.args[3] = _u3
+		_r = int32(cCall(symAddrs[119], _buf, 4))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&image)
-	runtime.KeepAlive(&_o3)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return Handle{}, err
 	}
+	_out3 := *_o3
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o3, nil
+	return _out3, nil
 }
 
 // ImageComposite calls ot_image_composite.
@@ -8536,22 +11103,50 @@ func ImageComposite(context *Context, base Handle, overlay Handle, left int32, t
 	if context == nil || context.p == 0 {
 		return Handle{}, ErrDestroyed
 	}
-	var _o7 Handle
-	_r := c_ot_image_composite(context.p, unsafe.Pointer(&base), unsafe.Pointer(&overlay), left, top, blend, opacity, unsafe.Pointer(&_o7))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = base
+	_s2 := (*Handle)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = overlay
+	_o7 := (*Handle)(unsafe.Pointer(&_buf.scratch[4]))
+	*_o7 = Handle{}
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	_pin.Pin(_o7)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	_u7 := uintptr(unsafe.Pointer(_o7))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_image_composite(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2), left, top, blend, opacity, unsafe.Pointer(_o7))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = uintptr(left)
+		_buf.args[4] = uintptr(top)
+		_buf.args[5] = uintptr(blend)
+		_buf.args[6] = uintptr(opacity)
+		_buf.args[7] = _u7
+		_r = int32(cCall(symAddrs[120], _buf, 8))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&base)
-	runtime.KeepAlive(&overlay)
-	runtime.KeepAlive(&_o7)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return Handle{}, err
 	}
+	_out7 := *_o7
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o7, nil
+	return _out7, nil
 }
 
 // ImageCopyPng calls ot_image_copy_png.
@@ -8562,22 +11157,47 @@ func ImageCopyPng(context *Context, image Handle, destination []byte) (uint64, e
 	if context == nil || context.p == 0 {
 		return 0, ErrDestroyed
 	}
-	var _o4 uint64
-	_r := c_ot_image_copy_png(context.p, unsafe.Pointer(&image), sliceData(destination), uint64(len(destination)), unsafe.Pointer(&_o4))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = image
+	_o4 := (*uint64)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o4 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if len(destination) > 0 {
+		_pin.Pin(sliceData(destination))
+	}
+	_pin.Pin(_o4)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(sliceData(destination))
+	_u4 := uintptr(unsafe.Pointer(_o4))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_image_copy_png(context.p, unsafe.Pointer(_s1), sliceData(destination), uint64(len(destination)), unsafe.Pointer(_o4))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = uintptr(uint64(len(destination)))
+		_buf.args[4] = _u4
+		_r = int32(cCall(symAddrs[122], _buf, 5))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&image)
-	runtime.KeepAlive(destination)
-	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out4 := *_o4
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o4, nil
+	return _out4, nil
 }
 
 // ImageTakePixels calls ot_image_take_pixels.
@@ -8588,21 +11208,41 @@ func ImageTakePixels(context *Context, image Handle) (ImagePixels, error) {
 	if context == nil || context.p == 0 {
 		return ImagePixels{}, ErrDestroyed
 	}
-	var _o2 ImagePixels
-	_r := c_ot_image_take_pixels(context.p, unsafe.Pointer(&image), unsafe.Pointer(&_o2))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = image
+	_o2 := (*ImagePixels)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o2 = ImagePixels{}
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_o2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_image_take_pixels(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_o2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[123], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&image)
-	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return ImagePixels{}, err
 	}
+	_out2 := *_o2
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o2, nil
+	return _out2, nil
 }
 
 // ImagePixelsRelease calls ot_image_pixels_release.
@@ -8613,15 +11253,31 @@ func ImagePixelsRelease(context *Context, lease Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_image_pixels_release(context.p, unsafe.Pointer(&lease))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = lease
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_image_pixels_release(context.p, unsafe.Pointer(_s1))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_r = int32(cCall(symAddrs[124], _buf, 2))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&lease)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -8636,17 +11292,43 @@ func SceneSetImage(context *Context, node Handle, image Handle, fit uint32, prot
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_scene_set_image(context.p, unsafe.Pointer(&node), unsafe.Pointer(&image), fit, protocol, unsafe.Pointer(&buffer))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	_s2 := (*Handle)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = image
+	_s5 := (*Handle)(unsafe.Pointer(&_buf.scratch[4]))
+	*_s5 = buffer
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	_pin.Pin(_s5)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	_u5 := uintptr(unsafe.Pointer(_s5))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_set_image(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2), fit, protocol, unsafe.Pointer(_s5))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = uintptr(fit)
+		_buf.args[4] = uintptr(protocol)
+		_buf.args[5] = _u5
+		_r = int32(cCall(symAddrs[125], _buf, 6))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
-	runtime.KeepAlive(&image)
-	runtime.KeepAlive(&buffer)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -8661,15 +11343,35 @@ func SceneSetCrop(context *Context, node Handle, left uint32, top uint32, width 
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_scene_set_crop(context.p, unsafe.Pointer(&node), left, top, width, height)
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_set_crop(context.p, unsafe.Pointer(_s1), left, top, width, height)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(left)
+		_buf.args[3] = uintptr(top)
+		_buf.args[4] = uintptr(width)
+		_buf.args[5] = uintptr(height)
+		_r = int32(cCall(symAddrs[126], _buf, 6))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -8684,16 +11386,37 @@ func SceneSetVideo(context *Context, node Handle, fit uint32, buffer Handle) err
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_scene_set_video(context.p, unsafe.Pointer(&node), fit, unsafe.Pointer(&buffer))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	_s3 := (*Handle)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s3 = buffer
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s3)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u3 := uintptr(unsafe.Pointer(_s3))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_set_video(context.p, unsafe.Pointer(_s1), fit, unsafe.Pointer(_s3))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(fit)
+		_buf.args[3] = _u3
+		_r = int32(cCall(symAddrs[127], _buf, 4))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
-	runtime.KeepAlive(&buffer)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -8711,22 +11434,48 @@ func VideoOpen(context *Context, node Handle, path []byte, flags uint32) (VideoI
 	if uint64(len(path)) > 4294967295 {
 		return VideoInfo{}, ErrTooLong
 	}
-	var _o5 VideoInfo
-	_r := c_ot_video_open(context.p, unsafe.Pointer(&node), sliceData(path), uint32(len(path)), flags, unsafe.Pointer(&_o5))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	_o5 := (*VideoInfo)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o5 = VideoInfo{}
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if len(path) > 0 {
+		_pin.Pin(sliceData(path))
+	}
+	_pin.Pin(_o5)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(sliceData(path))
+	_u5 := uintptr(unsafe.Pointer(_o5))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_video_open(context.p, unsafe.Pointer(_s1), sliceData(path), uint32(len(path)), flags, unsafe.Pointer(_o5))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = uintptr(uint32(len(path)))
+		_buf.args[4] = uintptr(flags)
+		_buf.args[5] = _u5
+		_r = int32(cCall(symAddrs[128], _buf, 6))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
-	runtime.KeepAlive(path)
-	runtime.KeepAlive(&_o5)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return VideoInfo{}, err
 	}
+	_out5 := *_o5
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o5, nil
+	return _out5, nil
 }
 
 // VideoPlay calls ot_video_play.
@@ -8737,15 +11486,31 @@ func VideoPlay(context *Context, node Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_video_play(context.p, unsafe.Pointer(&node))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_video_play(context.p, unsafe.Pointer(_s1))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_r = int32(cCall(symAddrs[129], _buf, 2))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -8760,15 +11525,31 @@ func VideoPause(context *Context, node Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_video_pause(context.p, unsafe.Pointer(&node))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_video_pause(context.p, unsafe.Pointer(_s1))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_r = int32(cCall(symAddrs[130], _buf, 2))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -8783,15 +11564,32 @@ func VideoSeek(context *Context, node Handle, timeUs int64) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_video_seek(context.p, unsafe.Pointer(&node), timeUs)
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_video_seek(context.p, unsafe.Pointer(_s1), timeUs)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(timeUs)
+		_r = int32(cCall(symAddrs[131], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -8806,15 +11604,32 @@ func VideoSetLoop(context *Context, node Handle, loop uint32) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_video_set_loop(context.p, unsafe.Pointer(&node), loop)
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_video_set_loop(context.p, unsafe.Pointer(_s1), loop)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(loop)
+		_r = int32(cCall(symAddrs[132], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -8829,15 +11644,32 @@ func VideoSetMuted(context *Context, node Handle, muted uint32) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_video_set_muted(context.p, unsafe.Pointer(&node), muted)
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_video_set_muted(context.p, unsafe.Pointer(_s1), muted)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(muted)
+		_r = int32(cCall(symAddrs[133], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -8852,15 +11684,18 @@ func VideoSetVolume(context *Context, node Handle, volume float32) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	var _pin runtime.Pinner
+	_pin.Pin(&node)
 	_r := c_ot_video_set_volume(context.p, unsafe.Pointer(&node), volume)
 	_p := cbTake()
-	runtime.KeepAlive(&node)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
 	if _p != nil {
 		panic(_p)
 	}
@@ -8875,15 +11710,32 @@ func VideoSetAvSyncOffset(context *Context, node Handle, offsetUs int64) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_video_set_av_sync_offset(context.p, unsafe.Pointer(&node), offsetUs)
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_video_set_av_sync_offset(context.p, unsafe.Pointer(_s1), offsetUs)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(offsetUs)
+		_r = int32(cCall(symAddrs[135], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -8898,15 +11750,32 @@ func VideoSetMaxFps(context *Context, node Handle, fps uint32) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_video_set_max_fps(context.p, unsafe.Pointer(&node), fps)
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_video_set_max_fps(context.p, unsafe.Pointer(_s1), fps)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(fps)
+		_r = int32(cCall(symAddrs[136], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -8921,21 +11790,41 @@ func VideoGetState(context *Context, node Handle) (VideoState, error) {
 	if context == nil || context.p == 0 {
 		return VideoState{}, ErrDestroyed
 	}
-	var _o2 VideoState
-	_r := c_ot_video_get_state(context.p, unsafe.Pointer(&node), unsafe.Pointer(&_o2))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	_o2 := (*VideoState)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o2 = VideoState{}
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_o2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_video_get_state(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_o2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[137], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
-	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return VideoState{}, err
 	}
+	_out2 := *_o2
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o2, nil
+	return _out2, nil
 }
 
 // VideoGetError calls ot_video_get_error.
@@ -8949,22 +11838,47 @@ func VideoGetError(context *Context, node Handle, bytes []byte) (uint32, error) 
 	if uint64(len(bytes)) > 4294967295 {
 		return 0, ErrTooLong
 	}
-	var _o4 uint32
-	_r := c_ot_video_get_error(context.p, unsafe.Pointer(&node), sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(&_o4))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	_o4 := (*uint32)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o4 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if len(bytes) > 0 {
+		_pin.Pin(sliceData(bytes))
+	}
+	_pin.Pin(_o4)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(sliceData(bytes))
+	_u4 := uintptr(unsafe.Pointer(_o4))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_video_get_error(context.p, unsafe.Pointer(_s1), sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(_o4))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = uintptr(uint32(len(bytes)))
+		_buf.args[4] = _u4
+		_r = int32(cCall(symAddrs[138], _buf, 5))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
-	runtime.KeepAlive(bytes)
-	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out4 := *_o4
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o4, nil
+	return _out4, nil
 }
 
 // BufferDrawImage calls ot_buffer_draw_image.
@@ -8975,32 +11889,64 @@ func BufferDrawImage(context *Context, target Handle, frame *SceneFrameRequest, 
 	if context == nil || context.p == 0 {
 		return 0, ErrDestroyed
 	}
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = target
 	var _v2 unsafe.Pointer
-	var _s2 SceneFrameRequest
 	if frame != nil {
-		_s2 = *frame
+		_s2 := (*SceneFrameRequest)(unsafe.Pointer(&_buf.scratch[2]))
+		*_s2 = *frame
 		_s2.fill()
-		_v2 = unsafe.Pointer(&_s2)
+		_v2 = unsafe.Pointer(_s2)
 	}
-	imageDrawOptions.fill()
-	var _o5 uint32
-	_r := c_ot_buffer_draw_image(context.p, unsafe.Pointer(&target), _v2, unsafe.Pointer(&image), unsafe.Pointer(&imageDrawOptions), unsafe.Pointer(&_o5))
+	_s3 := (*Handle)(unsafe.Pointer(&_buf.scratch[16]))
+	*_s3 = image
+	_s4 := (*ImageDrawOptions)(unsafe.Pointer(&_buf.scratch[18]))
+	*_s4 = imageDrawOptions
+	_s4.fill()
+	_o5 := (*uint32)(unsafe.Pointer(&_buf.scratch[26]))
+	*_o5 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if _v2 != nil {
+		_pin.Pin(_v2)
+	}
+	_pin.Pin(_s3)
+	_pin.Pin(_s4)
+	_pin.Pin(_o5)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(_v2)
+	_u3 := uintptr(unsafe.Pointer(_s3))
+	_u4 := uintptr(unsafe.Pointer(_s4))
+	_u5 := uintptr(unsafe.Pointer(_o5))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_buffer_draw_image(context.p, unsafe.Pointer(_s1), _v2, unsafe.Pointer(_s3), unsafe.Pointer(_s4), unsafe.Pointer(_o5))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = _u3
+		_buf.args[4] = _u4
+		_buf.args[5] = _u5
+		_r = int32(cCall(symAddrs[139], _buf, 6))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&target)
-	runtime.KeepAlive(_v2)
-	runtime.KeepAlive(&image)
-	runtime.KeepAlive(&imageDrawOptions)
-	runtime.KeepAlive(&_o5)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out5 := *_o5
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o5, nil
+	return _out5, nil
 }
 
 // SessionSetImageResolution calls ot_session_set_image_resolution.
@@ -9011,15 +11957,35 @@ func SessionSetImageResolution(context *Context, session Handle, terminalWidth u
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_session_set_image_resolution(context.p, unsafe.Pointer(&session), terminalWidth, terminalHeight, pixelWidth, pixelHeight)
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_set_image_resolution(context.p, unsafe.Pointer(_s1), terminalWidth, terminalHeight, pixelWidth, pixelHeight)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(terminalWidth)
+		_buf.args[3] = uintptr(terminalHeight)
+		_buf.args[4] = uintptr(pixelWidth)
+		_buf.args[5] = uintptr(pixelHeight)
+		_r = int32(cCall(symAddrs[140], _buf, 6))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -9034,15 +12000,32 @@ func SessionSetKittyImageTransport(context *Context, session Handle, mode uint32
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_session_set_kitty_image_transport(context.p, unsafe.Pointer(&session), mode)
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_set_kitty_image_transport(context.p, unsafe.Pointer(_s1), mode)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(mode)
+		_r = int32(cCall(symAddrs[141], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -9057,22 +12040,42 @@ func SessionGetKittyImageTransport(context *Context, session Handle) (SessionKit
 	if context == nil || context.p == 0 {
 		return SessionKittyImageTransport{}, ErrDestroyed
 	}
-	var _o2 SessionKittyImageTransport
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	_o2 := (*SessionKittyImageTransport)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o2 = SessionKittyImageTransport{}
 	_o2.fill()
-	_r := c_ot_session_get_kitty_image_transport(context.p, unsafe.Pointer(&session), unsafe.Pointer(&_o2))
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_o2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_get_kitty_image_transport(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_o2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[142], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
-	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return SessionKittyImageTransport{}, err
 	}
+	_out2 := *_o2
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o2, nil
+	return _out2, nil
 }
 
 // SessionPollKittyImageTransport calls ot_session_poll_kitty_image_transport.
@@ -9083,21 +12086,42 @@ func SessionPollKittyImageTransport(context *Context, session Handle, nowNs uint
 	if context == nil || context.p == 0 {
 		return 0, ErrDestroyed
 	}
-	var _o3 uint32
-	_r := c_ot_session_poll_kitty_image_transport(context.p, unsafe.Pointer(&session), nowNs, unsafe.Pointer(&_o3))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	_o3 := (*uint32)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o3 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o3)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u3 := uintptr(unsafe.Pointer(_o3))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_poll_kitty_image_transport(context.p, unsafe.Pointer(_s1), nowNs, unsafe.Pointer(_o3))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(nowNs)
+		_buf.args[3] = _u3
+		_r = int32(cCall(symAddrs[143], _buf, 4))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
-	runtime.KeepAlive(&_o3)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out3 := *_o3
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o3, nil
+	return _out3, nil
 }
 
 // SessionCancelKittyImageTransport calls ot_session_cancel_kitty_image_transport.
@@ -9108,15 +12132,32 @@ func SessionCancelKittyImageTransport(context *Context, session Handle, failed u
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_session_cancel_kitty_image_transport(context.p, unsafe.Pointer(&session), failed)
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_cancel_kitty_image_transport(context.p, unsafe.Pointer(_s1), failed)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(failed)
+		_r = int32(cCall(symAddrs[144], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -9134,22 +12175,47 @@ func SessionProcessKittyImageReply(context *Context, session Handle, bytes []byt
 	if uint64(len(bytes)) > 4294967295 {
 		return 0, ErrTooLong
 	}
-	var _o4 uint32
-	_r := c_ot_session_process_kitty_image_reply(context.p, unsafe.Pointer(&session), sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(&_o4))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	_o4 := (*uint32)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o4 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if len(bytes) > 0 {
+		_pin.Pin(sliceData(bytes))
+	}
+	_pin.Pin(_o4)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(sliceData(bytes))
+	_u4 := uintptr(unsafe.Pointer(_o4))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_process_kitty_image_reply(context.p, unsafe.Pointer(_s1), sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(_o4))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = uintptr(uint32(len(bytes)))
+		_buf.args[4] = _u4
+		_r = int32(cCall(symAddrs[145], _buf, 5))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
-	runtime.KeepAlive(bytes)
-	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out4 := *_o4
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o4, nil
+	return _out4, nil
 }
 
 // SessionStartKittyFileProbe calls ot_session_start_kitty_file_probe.
@@ -9160,15 +12226,31 @@ func SessionStartKittyFileProbe(context *Context, session Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_session_start_kitty_file_probe(context.p, unsafe.Pointer(&session))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_start_kitty_file_probe(context.p, unsafe.Pointer(_s1))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_r = int32(cCall(symAddrs[146], _buf, 2))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -9183,22 +12265,42 @@ func TextBufferCreate(context *Context, editBufferOptions EditBufferOptions) (Ha
 	if context == nil || context.p == 0 {
 		return Handle{}, ErrDestroyed
 	}
-	editBufferOptions.fill()
-	var _o2 Handle
-	_r := c_ot_text_buffer_create(context.p, unsafe.Pointer(&editBufferOptions), unsafe.Pointer(&_o2))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*EditBufferOptions)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = editBufferOptions
+	_s1.fill()
+	_o2 := (*Handle)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o2 = Handle{}
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_o2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_text_buffer_create(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_o2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[147], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&editBufferOptions)
-	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return Handle{}, err
 	}
+	_out2 := *_o2
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o2, nil
+	return _out2, nil
 }
 
 // TextBufferDestroy calls ot_text_buffer_destroy.
@@ -9209,15 +12311,31 @@ func TextBufferDestroy(context *Context, handle Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_text_buffer_destroy(context.p, unsafe.Pointer(&handle))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_text_buffer_destroy(context.p, unsafe.Pointer(_s1))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_r = int32(cCall(symAddrs[148], _buf, 2))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -9232,21 +12350,41 @@ func TextBufferViewCreate(context *Context, buffer Handle) (Handle, error) {
 	if context == nil || context.p == 0 {
 		return Handle{}, ErrDestroyed
 	}
-	var _o2 Handle
-	_r := c_ot_text_buffer_view_create(context.p, unsafe.Pointer(&buffer), unsafe.Pointer(&_o2))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = buffer
+	_o2 := (*Handle)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o2 = Handle{}
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_o2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_text_buffer_view_create(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_o2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[149], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&buffer)
-	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return Handle{}, err
 	}
+	_out2 := *_o2
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o2, nil
+	return _out2, nil
 }
 
 // TextBufferViewDestroy calls ot_text_buffer_view_destroy.
@@ -9257,15 +12395,31 @@ func TextBufferViewDestroy(context *Context, handle Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_text_buffer_view_destroy(context.p, unsafe.Pointer(&handle))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_text_buffer_view_destroy(context.p, unsafe.Pointer(_s1))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_r = int32(cCall(symAddrs[150], _buf, 2))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -9283,16 +12437,37 @@ func TextBufferSetText(context *Context, handle Handle, arg2 []byte) error {
 	if uint64(len(arg2)) > 4294967295 {
 		return ErrTooLong
 	}
-	_r := c_ot_text_buffer_set_text(context.p, unsafe.Pointer(&handle), sliceData(arg2), uint32(len(arg2)))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if len(arg2) > 0 {
+		_pin.Pin(sliceData(arg2))
+	}
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(sliceData(arg2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_text_buffer_set_text(context.p, unsafe.Pointer(_s1), sliceData(arg2), uint32(len(arg2)))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = uintptr(uint32(len(arg2)))
+		_r = int32(cCall(symAddrs[151], _buf, 4))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
-	runtime.KeepAlive(arg2)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -9310,16 +12485,37 @@ func TextBufferAppend(context *Context, handle Handle, arg2 []byte) error {
 	if uint64(len(arg2)) > 4294967295 {
 		return ErrTooLong
 	}
-	_r := c_ot_text_buffer_append(context.p, unsafe.Pointer(&handle), sliceData(arg2), uint32(len(arg2)))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if len(arg2) > 0 {
+		_pin.Pin(sliceData(arg2))
+	}
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(sliceData(arg2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_text_buffer_append(context.p, unsafe.Pointer(_s1), sliceData(arg2), uint32(len(arg2)))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = uintptr(uint32(len(arg2)))
+		_r = int32(cCall(symAddrs[152], _buf, 4))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
-	runtime.KeepAlive(arg2)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -9334,15 +12530,32 @@ func TextBufferClear(context *Context, handle Handle, reset uint32) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_text_buffer_clear(context.p, unsafe.Pointer(&handle), reset)
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_text_buffer_clear(context.p, unsafe.Pointer(_s1), reset)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(reset)
+		_r = int32(cCall(symAddrs[153], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -9367,21 +12580,52 @@ func TextBufferSetStyledText(context *Context, handle Handle, arg2 []byte, style
 	if uint64(len(urls)) > 4294967295 {
 		return ErrTooLong
 	}
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
 	for _i0 := range styledTextChunk {
 		styledTextChunk[_i0].fill()
 	}
-	_r := c_ot_text_buffer_set_styled_text(context.p, unsafe.Pointer(&handle), sliceData(arg2), uint32(len(arg2)), sliceData(styledTextChunk), uint32(len(styledTextChunk)), sliceData(urls), uint32(len(urls)))
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if len(arg2) > 0 {
+		_pin.Pin(sliceData(arg2))
+	}
+	if len(styledTextChunk) > 0 {
+		_pin.Pin(sliceData(styledTextChunk))
+	}
+	if len(urls) > 0 {
+		_pin.Pin(sliceData(urls))
+	}
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(sliceData(arg2))
+	_u4 := uintptr(sliceData(styledTextChunk))
+	_u6 := uintptr(sliceData(urls))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_text_buffer_set_styled_text(context.p, unsafe.Pointer(_s1), sliceData(arg2), uint32(len(arg2)), sliceData(styledTextChunk), uint32(len(styledTextChunk)), sliceData(urls), uint32(len(urls)))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = uintptr(uint32(len(arg2)))
+		_buf.args[4] = _u4
+		_buf.args[5] = uintptr(uint32(len(styledTextChunk)))
+		_buf.args[6] = _u6
+		_buf.args[7] = uintptr(uint32(len(urls)))
+		_r = int32(cCall(symAddrs[154], _buf, 8))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
-	runtime.KeepAlive(arg2)
-	runtime.KeepAlive(styledTextChunk)
-	runtime.KeepAlive(urls)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -9410,30 +12654,66 @@ func TextBufferReplaceStyledBatch(context *Context, textBufferReplacement []Text
 	if uint64(len(urls)) > 4294967295 {
 		return TextBufferReplacementInfo{}, ErrTooLong
 	}
+	_buf := wordPool.Get().(*wordBuf)
 	for _i0 := range textBufferReplacement {
 		textBufferReplacement[_i0].fill()
 	}
 	for _i0 := range styledTextChunk {
 		styledTextChunk[_i0].fill()
 	}
-	var _o9 TextBufferReplacementInfo
-	_r := c_ot_text_buffer_replace_styled_batch(context.p, sliceData(textBufferReplacement), uint32(len(textBufferReplacement)), sliceData(bytes), uint32(len(bytes)), sliceData(styledTextChunk), uint32(len(styledTextChunk)), sliceData(urls), uint32(len(urls)), unsafe.Pointer(&_o9))
+	_o9 := (*TextBufferReplacementInfo)(unsafe.Pointer(&_buf.scratch[0]))
+	*_o9 = TextBufferReplacementInfo{}
+	var _pin runtime.Pinner
+	if len(textBufferReplacement) > 0 {
+		_pin.Pin(sliceData(textBufferReplacement))
+	}
+	if len(bytes) > 0 {
+		_pin.Pin(sliceData(bytes))
+	}
+	if len(styledTextChunk) > 0 {
+		_pin.Pin(sliceData(styledTextChunk))
+	}
+	if len(urls) > 0 {
+		_pin.Pin(sliceData(urls))
+	}
+	_pin.Pin(_o9)
+	_u1 := uintptr(sliceData(textBufferReplacement))
+	_u3 := uintptr(sliceData(bytes))
+	_u5 := uintptr(sliceData(styledTextChunk))
+	_u7 := uintptr(sliceData(urls))
+	_u9 := uintptr(unsafe.Pointer(_o9))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_text_buffer_replace_styled_batch(context.p, sliceData(textBufferReplacement), uint32(len(textBufferReplacement)), sliceData(bytes), uint32(len(bytes)), sliceData(styledTextChunk), uint32(len(styledTextChunk)), sliceData(urls), uint32(len(urls)), unsafe.Pointer(_o9))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(uint32(len(textBufferReplacement)))
+		_buf.args[3] = _u3
+		_buf.args[4] = uintptr(uint32(len(bytes)))
+		_buf.args[5] = _u5
+		_buf.args[6] = uintptr(uint32(len(styledTextChunk)))
+		_buf.args[7] = _u7
+		_buf.args[8] = uintptr(uint32(len(urls)))
+		_buf.args[9] = _u9
+		_r = int32(cCall(symAddrs[155], _buf, 10))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(textBufferReplacement)
-	runtime.KeepAlive(bytes)
-	runtime.KeepAlive(styledTextChunk)
-	runtime.KeepAlive(urls)
-	runtime.KeepAlive(&_o9)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return TextBufferReplacementInfo{}, err
 	}
+	_out9 := *_o9
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o9, nil
+	return _out9, nil
 }
 
 // TextBufferSetSyntaxStyle calls ot_text_buffer_set_syntax_style.
@@ -9444,16 +12724,36 @@ func TextBufferSetSyntaxStyle(context *Context, handle Handle, style Handle) err
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_text_buffer_set_syntax_style(context.p, unsafe.Pointer(&handle), unsafe.Pointer(&style))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
+	_s2 := (*Handle)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = style
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_text_buffer_set_syntax_style(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[156], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
-	runtime.KeepAlive(&style)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -9468,22 +12768,42 @@ func TextBufferGetInfo(context *Context, handle Handle) (TextBufferInfo, error) 
 	if context == nil || context.p == 0 {
 		return TextBufferInfo{}, ErrDestroyed
 	}
-	var _o2 TextBufferInfo
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
+	_o2 := (*TextBufferInfo)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o2 = TextBufferInfo{}
 	_o2.fill()
-	_r := c_ot_text_buffer_get_info(context.p, unsafe.Pointer(&handle), unsafe.Pointer(&_o2))
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_o2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_text_buffer_get_info(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_o2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[157], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
-	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return TextBufferInfo{}, err
 	}
+	_out2 := *_o2
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o2, nil
+	return _out2, nil
 }
 
 // TextBufferGetText calls ot_text_buffer_get_text.
@@ -9497,22 +12817,47 @@ func TextBufferGetText(context *Context, handle Handle, arg2 []byte) (uint32, er
 	if uint64(len(arg2)) > 4294967295 {
 		return 0, ErrTooLong
 	}
-	var _o4 uint32
-	_r := c_ot_text_buffer_get_text(context.p, unsafe.Pointer(&handle), sliceData(arg2), uint32(len(arg2)), unsafe.Pointer(&_o4))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
+	_o4 := (*uint32)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o4 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if len(arg2) > 0 {
+		_pin.Pin(sliceData(arg2))
+	}
+	_pin.Pin(_o4)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(sliceData(arg2))
+	_u4 := uintptr(unsafe.Pointer(_o4))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_text_buffer_get_text(context.p, unsafe.Pointer(_s1), sliceData(arg2), uint32(len(arg2)), unsafe.Pointer(_o4))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = uintptr(uint32(len(arg2)))
+		_buf.args[4] = _u4
+		_r = int32(cCall(symAddrs[158], _buf, 5))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
-	runtime.KeepAlive(arg2)
-	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out4 := *_o4
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o4, nil
+	return _out4, nil
 }
 
 // TextBufferGetRange calls ot_text_buffer_get_range.
@@ -9526,22 +12871,49 @@ func TextBufferGetRange(context *Context, handle Handle, start uint32, end uint3
 	if uint64(len(arg4)) > 4294967295 {
 		return 0, ErrTooLong
 	}
-	var _o6 uint32
-	_r := c_ot_text_buffer_get_range(context.p, unsafe.Pointer(&handle), start, end, sliceData(arg4), uint32(len(arg4)), unsafe.Pointer(&_o6))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
+	_o6 := (*uint32)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o6 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if len(arg4) > 0 {
+		_pin.Pin(sliceData(arg4))
+	}
+	_pin.Pin(_o6)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u4 := uintptr(sliceData(arg4))
+	_u6 := uintptr(unsafe.Pointer(_o6))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_text_buffer_get_range(context.p, unsafe.Pointer(_s1), start, end, sliceData(arg4), uint32(len(arg4)), unsafe.Pointer(_o6))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(start)
+		_buf.args[3] = uintptr(end)
+		_buf.args[4] = _u4
+		_buf.args[5] = uintptr(uint32(len(arg4)))
+		_buf.args[6] = _u6
+		_r = int32(cCall(symAddrs[159], _buf, 7))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
-	runtime.KeepAlive(arg4)
-	runtime.KeepAlive(&_o6)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out6 := *_o6
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o6, nil
+	return _out6, nil
 }
 
 // TextBufferSetDefaults calls ot_text_buffer_set_defaults.
@@ -9552,17 +12924,38 @@ func TextBufferSetDefaults(context *Context, handle Handle, mask uint32, editorS
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	editorStyle.fill()
-	_r := c_ot_text_buffer_set_defaults(context.p, unsafe.Pointer(&handle), mask, unsafe.Pointer(&editorStyle))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
+	_s3 := (*EditorStyle)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s3 = editorStyle
+	_s3.fill()
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s3)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u3 := uintptr(unsafe.Pointer(_s3))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_text_buffer_set_defaults(context.p, unsafe.Pointer(_s1), mask, unsafe.Pointer(_s3))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(mask)
+		_buf.args[3] = _u3
+		_r = int32(cCall(symAddrs[160], _buf, 4))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
-	runtime.KeepAlive(&editorStyle)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -9577,15 +12970,32 @@ func TextBufferSetTabWidth(context *Context, handle Handle, width uint32) error 
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_text_buffer_set_tab_width(context.p, unsafe.Pointer(&handle), width)
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_text_buffer_set_tab_width(context.p, unsafe.Pointer(_s1), width)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(width)
+		_r = int32(cCall(symAddrs[161], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -9600,16 +13010,38 @@ func TextBufferHighlight(context *Context, handle Handle, operation uint32, argu
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_text_buffer_highlight(context.p, unsafe.Pointer(&handle), operation, argument, unsafe.Pointer(&editHighlight))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
+	_s4 := (*EditHighlight)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s4 = editHighlight
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s4)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u4 := uintptr(unsafe.Pointer(_s4))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_text_buffer_highlight(context.p, unsafe.Pointer(_s1), operation, argument, unsafe.Pointer(_s4))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(operation)
+		_buf.args[3] = uintptr(argument)
+		_buf.args[4] = _u4
+		_r = int32(cCall(symAddrs[162], _buf, 5))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
-	runtime.KeepAlive(&editHighlight)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -9627,22 +13059,48 @@ func TextBufferGetHighlights(context *Context, handle Handle, line uint32, editH
 	if uint64(len(editHighlight)) > 4294967295 {
 		return 0, ErrTooLong
 	}
-	var _o5 uint32
-	_r := c_ot_text_buffer_get_highlights(context.p, unsafe.Pointer(&handle), line, sliceData(editHighlight), uint32(len(editHighlight)), unsafe.Pointer(&_o5))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
+	_o5 := (*uint32)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o5 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if len(editHighlight) > 0 {
+		_pin.Pin(sliceData(editHighlight))
+	}
+	_pin.Pin(_o5)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u3 := uintptr(sliceData(editHighlight))
+	_u5 := uintptr(unsafe.Pointer(_o5))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_text_buffer_get_highlights(context.p, unsafe.Pointer(_s1), line, sliceData(editHighlight), uint32(len(editHighlight)), unsafe.Pointer(_o5))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(line)
+		_buf.args[3] = _u3
+		_buf.args[4] = uintptr(uint32(len(editHighlight)))
+		_buf.args[5] = _u5
+		_r = int32(cCall(symAddrs[163], _buf, 6))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
-	runtime.KeepAlive(editHighlight)
-	runtime.KeepAlive(&_o5)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out5 := *_o5
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o5, nil
+	return _out5, nil
 }
 
 // TextBufferViewSetViewport calls ot_text_buffer_view_set_viewport.
@@ -9653,17 +13111,38 @@ func TextBufferViewSetViewport(context *Context, handle Handle, editorViewport E
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	editorViewport.fill()
-	_r := c_ot_text_buffer_view_set_viewport(context.p, unsafe.Pointer(&handle), unsafe.Pointer(&editorViewport), sizeOnly)
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
+	_s2 := (*EditorViewport)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = editorViewport
+	_s2.fill()
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_text_buffer_view_set_viewport(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2), sizeOnly)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = uintptr(sizeOnly)
+		_r = int32(cCall(symAddrs[164], _buf, 4))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
-	runtime.KeepAlive(&editorViewport)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -9678,15 +13157,33 @@ func TextBufferViewCommand(context *Context, handle Handle, command uint32, argu
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_text_buffer_view_command(context.p, unsafe.Pointer(&handle), command, argument)
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_text_buffer_view_command(context.p, unsafe.Pointer(_s1), command, argument)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(command)
+		_buf.args[3] = uintptr(argument)
+		_r = int32(cCall(symAddrs[165], _buf, 4))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -9701,16 +13198,36 @@ func TextBufferViewSetTabColor(context *Context, handle Handle, color [4]uint16)
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_text_buffer_view_set_tab_color(context.p, unsafe.Pointer(&handle), unsafe.Pointer(&color))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
+	_s2 := (*[4]uint16)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = color
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_text_buffer_view_set_tab_color(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[166], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
-	runtime.KeepAlive(&color)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -9725,23 +13242,47 @@ func TextBufferViewSelect(context *Context, handle Handle, editorSelection Edito
 	if context == nil || context.p == 0 {
 		return 0, ErrDestroyed
 	}
-	editorSelection.fill()
-	var _o3 uint32
-	_r := c_ot_text_buffer_view_select(context.p, unsafe.Pointer(&handle), unsafe.Pointer(&editorSelection), unsafe.Pointer(&_o3))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
+	_s2 := (*EditorSelection)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = editorSelection
+	_s2.fill()
+	_o3 := (*uint32)(unsafe.Pointer(&_buf.scratch[11]))
+	*_o3 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	_pin.Pin(_o3)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	_u3 := uintptr(unsafe.Pointer(_o3))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_text_buffer_view_select(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2), unsafe.Pointer(_o3))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = _u3
+		_r = int32(cCall(symAddrs[167], _buf, 4))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
-	runtime.KeepAlive(&editorSelection)
-	runtime.KeepAlive(&_o3)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out3 := *_o3
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o3, nil
+	return _out3, nil
 }
 
 // TextBufferViewGetInfo calls ot_text_buffer_view_get_info.
@@ -9752,22 +13293,42 @@ func TextBufferViewGetInfo(context *Context, handle Handle) (EditorViewInfo, err
 	if context == nil || context.p == 0 {
 		return EditorViewInfo{}, ErrDestroyed
 	}
-	var _o2 EditorViewInfo
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
+	_o2 := (*EditorViewInfo)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o2 = EditorViewInfo{}
 	_o2.fill()
-	_r := c_ot_text_buffer_view_get_info(context.p, unsafe.Pointer(&handle), unsafe.Pointer(&_o2))
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_o2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_text_buffer_view_get_info(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_o2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[168], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
-	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return EditorViewInfo{}, err
 	}
+	_out2 := *_o2
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o2, nil
+	return _out2, nil
 }
 
 // TextBufferViewGetSelectedText calls ot_text_buffer_view_get_selected_text.
@@ -9781,22 +13342,47 @@ func TextBufferViewGetSelectedText(context *Context, handle Handle, arg2 []byte)
 	if uint64(len(arg2)) > 4294967295 {
 		return 0, ErrTooLong
 	}
-	var _o4 uint32
-	_r := c_ot_text_buffer_view_get_selected_text(context.p, unsafe.Pointer(&handle), sliceData(arg2), uint32(len(arg2)), unsafe.Pointer(&_o4))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
+	_o4 := (*uint32)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o4 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if len(arg2) > 0 {
+		_pin.Pin(sliceData(arg2))
+	}
+	_pin.Pin(_o4)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(sliceData(arg2))
+	_u4 := uintptr(unsafe.Pointer(_o4))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_text_buffer_view_get_selected_text(context.p, unsafe.Pointer(_s1), sliceData(arg2), uint32(len(arg2)), unsafe.Pointer(_o4))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = uintptr(uint32(len(arg2)))
+		_buf.args[4] = _u4
+		_r = int32(cCall(symAddrs[169], _buf, 5))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
-	runtime.KeepAlive(arg2)
-	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out4 := *_o4
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o4, nil
+	return _out4, nil
 }
 
 // TextBufferViewMeasure calls ot_text_buffer_view_measure.
@@ -9807,22 +13393,44 @@ func TextBufferViewMeasure(context *Context, handle Handle, width uint32, height
 	if context == nil || context.p == 0 {
 		return EditorMeasure{}, ErrDestroyed
 	}
-	var _o4 EditorMeasure
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
+	_o4 := (*EditorMeasure)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o4 = EditorMeasure{}
 	_o4.fill()
-	_r := c_ot_text_buffer_view_measure(context.p, unsafe.Pointer(&handle), width, height, unsafe.Pointer(&_o4))
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o4)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u4 := uintptr(unsafe.Pointer(_o4))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_text_buffer_view_measure(context.p, unsafe.Pointer(_s1), width, height, unsafe.Pointer(_o4))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(width)
+		_buf.args[3] = uintptr(height)
+		_buf.args[4] = _u4
+		_r = int32(cCall(symAddrs[171], _buf, 5))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
-	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return EditorMeasure{}, err
 	}
+	_out4 := *_o4
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o4, nil
+	return _out4, nil
 }
 
 // SceneSetTextView calls ot_scene_set_text_view.
@@ -9833,16 +13441,36 @@ func SceneSetTextView(context *Context, node Handle, view Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_scene_set_text_view(context.p, unsafe.Pointer(&node), unsafe.Pointer(&view))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	_s2 := (*Handle)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = view
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_set_text_view(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[172], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
-	runtime.KeepAlive(&view)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -9857,15 +13485,32 @@ func SceneSetTextViewPaint(context *Context, node Handle, enabled uint32) error 
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_scene_set_text_view_paint(context.p, unsafe.Pointer(&node), enabled)
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_set_text_view_paint(context.p, unsafe.Pointer(_s1), enabled)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(enabled)
+		_r = int32(cCall(symAddrs[173], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -9880,24 +13525,50 @@ func BufferDrawTextView(context *Context, target Handle, sceneFrameRequest *Scen
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = target
 	var _v2 unsafe.Pointer
-	var _s2 SceneFrameRequest
 	if sceneFrameRequest != nil {
-		_s2 = *sceneFrameRequest
+		_s2 := (*SceneFrameRequest)(unsafe.Pointer(&_buf.scratch[2]))
+		*_s2 = *sceneFrameRequest
 		_s2.fill()
-		_v2 = unsafe.Pointer(&_s2)
+		_v2 = unsafe.Pointer(_s2)
 	}
-	_r := c_ot_buffer_draw_text_view(context.p, unsafe.Pointer(&target), _v2, unsafe.Pointer(&view), x, y)
+	_s3 := (*Handle)(unsafe.Pointer(&_buf.scratch[16]))
+	*_s3 = view
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if _v2 != nil {
+		_pin.Pin(_v2)
+	}
+	_pin.Pin(_s3)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(_v2)
+	_u3 := uintptr(unsafe.Pointer(_s3))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_buffer_draw_text_view(context.p, unsafe.Pointer(_s1), _v2, unsafe.Pointer(_s3), x, y)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = _u3
+		_buf.args[4] = uintptr(x)
+		_buf.args[5] = uintptr(y)
+		_r = int32(cCall(symAddrs[174], _buf, 6))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&target)
-	runtime.KeepAlive(_v2)
-	runtime.KeepAlive(&view)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -9912,24 +13583,50 @@ func BufferDrawEditorView(context *Context, target Handle, sceneFrameRequest *Sc
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = target
 	var _v2 unsafe.Pointer
-	var _s2 SceneFrameRequest
 	if sceneFrameRequest != nil {
-		_s2 = *sceneFrameRequest
+		_s2 := (*SceneFrameRequest)(unsafe.Pointer(&_buf.scratch[2]))
+		*_s2 = *sceneFrameRequest
 		_s2.fill()
-		_v2 = unsafe.Pointer(&_s2)
+		_v2 = unsafe.Pointer(_s2)
 	}
-	_r := c_ot_buffer_draw_editor_view(context.p, unsafe.Pointer(&target), _v2, unsafe.Pointer(&view), x, y)
+	_s3 := (*Handle)(unsafe.Pointer(&_buf.scratch[16]))
+	*_s3 = view
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if _v2 != nil {
+		_pin.Pin(_v2)
+	}
+	_pin.Pin(_s3)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(_v2)
+	_u3 := uintptr(unsafe.Pointer(_s3))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_buffer_draw_editor_view(context.p, unsafe.Pointer(_s1), _v2, unsafe.Pointer(_s3), x, y)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = _u3
+		_buf.args[4] = uintptr(x)
+		_buf.args[5] = uintptr(y)
+		_r = int32(cCall(symAddrs[175], _buf, 6))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&target)
-	runtime.KeepAlive(_v2)
-	runtime.KeepAlive(&view)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -9944,24 +13641,50 @@ func BufferDrawSceneBody(context *Context, target Handle, sceneFrameRequest *Sce
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = target
 	var _v2 unsafe.Pointer
-	var _s2 SceneFrameRequest
 	if sceneFrameRequest != nil {
-		_s2 = *sceneFrameRequest
+		_s2 := (*SceneFrameRequest)(unsafe.Pointer(&_buf.scratch[2]))
+		*_s2 = *sceneFrameRequest
 		_s2.fill()
-		_v2 = unsafe.Pointer(&_s2)
+		_v2 = unsafe.Pointer(_s2)
 	}
-	_r := c_ot_buffer_draw_scene_body(context.p, unsafe.Pointer(&target), _v2, unsafe.Pointer(&node), x, y)
+	_s3 := (*Handle)(unsafe.Pointer(&_buf.scratch[16]))
+	*_s3 = node
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if _v2 != nil {
+		_pin.Pin(_v2)
+	}
+	_pin.Pin(_s3)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(_v2)
+	_u3 := uintptr(unsafe.Pointer(_s3))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_buffer_draw_scene_body(context.p, unsafe.Pointer(_s1), _v2, unsafe.Pointer(_s3), x, y)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = _u3
+		_buf.args[4] = uintptr(x)
+		_buf.args[5] = uintptr(y)
+		_r = int32(cCall(symAddrs[176], _buf, 6))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&target)
-	runtime.KeepAlive(_v2)
-	runtime.KeepAlive(&node)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -9976,24 +13699,49 @@ func SceneFrameAcquireBufferLease(context *Context, session Handle, frameRequest
 	if context == nil || context.p == 0 {
 		return BufferLeaseSnapshot{}, ErrDestroyed
 	}
-	frameRequest.fill()
-	var _o4 BufferLeaseSnapshot
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	_s2 := (*SceneFrameRequest)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = frameRequest
+	_s2.fill()
+	_o4 := (*BufferLeaseSnapshot)(unsafe.Pointer(&_buf.scratch[16]))
+	*_o4 = BufferLeaseSnapshot{}
 	_o4.fill()
-	_r := c_ot_scene_frame_acquire_buffer_lease(context.p, unsafe.Pointer(&session), unsafe.Pointer(&frameRequest), which, unsafe.Pointer(&_o4))
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	_pin.Pin(_o4)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	_u4 := uintptr(unsafe.Pointer(_o4))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_frame_acquire_buffer_lease(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2), which, unsafe.Pointer(_o4))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = uintptr(which)
+		_buf.args[4] = _u4
+		_r = int32(cCall(symAddrs[177], _buf, 5))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
-	runtime.KeepAlive(&frameRequest)
-	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return BufferLeaseSnapshot{}, err
 	}
+	_out4 := *_o4
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o4, nil
+	return _out4, nil
 }
 
 // SceneFrameCommit calls ot_scene_frame_commit.
@@ -10004,23 +13752,48 @@ func SceneFrameCommit(context *Context, session Handle, frameRequest SceneFrameR
 	if context == nil || context.p == 0 {
 		return 0, ErrDestroyed
 	}
-	frameRequest.fill()
-	var _o4 uint32
-	_r := c_ot_scene_frame_commit(context.p, unsafe.Pointer(&session), unsafe.Pointer(&frameRequest), force, unsafe.Pointer(&_o4))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	_s2 := (*SceneFrameRequest)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = frameRequest
+	_s2.fill()
+	_o4 := (*uint32)(unsafe.Pointer(&_buf.scratch[16]))
+	*_o4 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	_pin.Pin(_o4)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	_u4 := uintptr(unsafe.Pointer(_o4))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_frame_commit(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2), force, unsafe.Pointer(_o4))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = uintptr(force)
+		_buf.args[4] = _u4
+		_r = int32(cCall(symAddrs[178], _buf, 5))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
-	runtime.KeepAlive(&frameRequest)
-	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out4 := *_o4
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o4, nil
+	return _out4, nil
 }
 
 // ContextAbiVersion calls ot_context_abi_version.
@@ -10028,7 +13801,12 @@ func ContextAbiVersion() (uint32, error) {
 	if err := ready(); err != nil {
 		return 0, err
 	}
-	_r := c_ot_context_abi_version()
+	var _r uint32
+	if forceRegisterFunc {
+		_r = c_ot_context_abi_version()
+	} else {
+		_r = uint32(cCall0(symAddrs[179]))
+	}
 	_p := cbTake()
 	if _p != nil {
 		panic(_p)
@@ -10044,22 +13822,41 @@ func ContextCreate(options ContextOptions) (*Context, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	_t := cbThread()
-	options.fill()
-	var _o1 uintptr
-	_r := c_ot_context_create(unsafe.Pointer(&options), unsafe.Pointer(&_o1))
+	_buf := wordPool.Get().(*wordBuf)
+	_s0 := (*ContextOptions)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s0 = options
+	_s0.fill()
+	_o1 := (*uintptr)(unsafe.Pointer(&_buf.scratch[4]))
+	*_o1 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s0)
+	_pin.Pin(_o1)
+	_u0 := uintptr(unsafe.Pointer(_s0))
+	_u1 := uintptr(unsafe.Pointer(_o1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_context_create(unsafe.Pointer(_s0), unsafe.Pointer(_o1))
+	} else {
+		_buf.args[0] = _u0
+		_buf.args[1] = _u1
+		_r = int32(cCall(symAddrs[180], _buf, 2))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&options)
-	runtime.KeepAlive(&_o1)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return nil, err
 	}
+	_out1 := *_o1
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return &Context{p: _o1, t: _t}, nil
+	return &Context{p: _out1, t: _t}, nil
 }
 
 // ContextDestroy calls ot_context_destroy.
@@ -10071,9 +13868,17 @@ func ContextDestroy(context *Context) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_context_destroy(context.p)
+	_buf := wordPool.Get().(*wordBuf)
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_context_destroy(context.p)
+	} else {
+		_buf.args[0] = context.p
+		_r = int32(cCall(symAddrs[181], _buf, 1))
+	}
 	_p := cbTake()
 	if err := statusError(_r); err != nil {
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
@@ -10081,6 +13886,7 @@ func ContextDestroy(context *Context) error {
 	}
 	cbDropOwner(cbMap0, context.p)
 	context.p = 0
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -10095,21 +13901,37 @@ func ContextGetLastError(context *Context) (ContextError, error) {
 	if context == nil || context.p == 0 {
 		return ContextError{}, ErrDestroyed
 	}
-	var _o1 ContextError
+	_buf := wordPool.Get().(*wordBuf)
+	_o1 := (*ContextError)(unsafe.Pointer(&_buf.scratch[0]))
+	*_o1 = ContextError{}
 	_o1.fill()
-	_r := c_ot_context_get_last_error(context.p, unsafe.Pointer(&_o1))
+	var _pin runtime.Pinner
+	_pin.Pin(_o1)
+	_u1 := uintptr(unsafe.Pointer(_o1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_context_get_last_error(context.p, unsafe.Pointer(_o1))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_r = int32(cCall(symAddrs[182], _buf, 2))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&_o1)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return ContextError{}, err
 	}
+	_out1 := *_o1
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o1, nil
+	return _out1, nil
 }
 
 // ContextGetLinkUrl calls ot_context_get_link_url.
@@ -10123,21 +13945,43 @@ func ContextGetLinkUrl(context *Context, linkId uint32, bytes []byte) (uint32, e
 	if uint64(len(bytes)) > 4294967295 {
 		return 0, ErrTooLong
 	}
-	var _o4 uint32
-	_r := c_ot_context_get_link_url(context.p, linkId, sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(&_o4))
+	_buf := wordPool.Get().(*wordBuf)
+	_o4 := (*uint32)(unsafe.Pointer(&_buf.scratch[0]))
+	*_o4 = 0
+	var _pin runtime.Pinner
+	if len(bytes) > 0 {
+		_pin.Pin(sliceData(bytes))
+	}
+	_pin.Pin(_o4)
+	_u2 := uintptr(sliceData(bytes))
+	_u4 := uintptr(unsafe.Pointer(_o4))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_context_get_link_url(context.p, linkId, sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(_o4))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = uintptr(linkId)
+		_buf.args[2] = _u2
+		_buf.args[3] = uintptr(uint32(len(bytes)))
+		_buf.args[4] = _u4
+		_r = int32(cCall(symAddrs[184], _buf, 5))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(bytes)
-	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out4 := *_o4
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o4, nil
+	return _out4, nil
 }
 
 // BufferCreate calls ot_buffer_create.
@@ -10148,22 +13992,42 @@ func BufferCreate(context *Context, options BufferOptions) (Handle, error) {
 	if context == nil || context.p == 0 {
 		return Handle{}, ErrDestroyed
 	}
-	options.fill()
-	var _o2 Handle
-	_r := c_ot_buffer_create(context.p, unsafe.Pointer(&options), unsafe.Pointer(&_o2))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*BufferOptions)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = options
+	_s1.fill()
+	_o2 := (*Handle)(unsafe.Pointer(&_buf.scratch[3]))
+	*_o2 = Handle{}
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_o2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_buffer_create(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_o2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[185], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&options)
-	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return Handle{}, err
 	}
+	_out2 := *_o2
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o2, nil
+	return _out2, nil
 }
 
 // BufferDestroy calls ot_buffer_destroy.
@@ -10174,15 +14038,31 @@ func BufferDestroy(context *Context, buffer Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_buffer_destroy(context.p, unsafe.Pointer(&buffer))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = buffer
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_buffer_destroy(context.p, unsafe.Pointer(_s1))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_r = int32(cCall(symAddrs[186], _buf, 2))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&buffer)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -10197,15 +14077,33 @@ func BufferResize(context *Context, buffer Handle, width uint32, height uint32) 
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_buffer_resize(context.p, unsafe.Pointer(&buffer), width, height)
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = buffer
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_buffer_resize(context.p, unsafe.Pointer(_s1), width, height)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(width)
+		_buf.args[3] = uintptr(height)
+		_r = int32(cCall(symAddrs[187], _buf, 4))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&buffer)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -10226,31 +14124,69 @@ func BufferDraw(context *Context, target Handle, frame *SceneFrameRequest, optio
 	if uint64(len(bottomTitle)) > 4294967295 {
 		return ErrTooLong
 	}
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = target
 	var _v2 unsafe.Pointer
-	var _s2 SceneFrameRequest
 	if frame != nil {
-		_s2 = *frame
+		_s2 := (*SceneFrameRequest)(unsafe.Pointer(&_buf.scratch[2]))
+		*_s2 = *frame
 		_s2.fill()
-		_v2 = unsafe.Pointer(&_s2)
+		_v2 = unsafe.Pointer(_s2)
 	}
 	var _v3 unsafe.Pointer
 	if options != nil {
 		_v3 = options.record()
 	}
-	_r := c_ot_buffer_draw(context.p, unsafe.Pointer(&target), _v2, _v3, unsafe.Pointer(&source), sliceData(text), uint32(len(text)), sliceData(bottomTitle), uint32(len(bottomTitle)))
+	_s4 := (*Handle)(unsafe.Pointer(&_buf.scratch[16]))
+	*_s4 = source
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if _v2 != nil {
+		_pin.Pin(_v2)
+	}
+	if _v3 != nil {
+		_pin.Pin(_v3)
+	}
+	_pin.Pin(_s4)
+	if len(text) > 0 {
+		_pin.Pin(sliceData(text))
+	}
+	if len(bottomTitle) > 0 {
+		_pin.Pin(sliceData(bottomTitle))
+	}
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(_v2)
+	_u3 := uintptr(_v3)
+	_u4 := uintptr(unsafe.Pointer(_s4))
+	_u5 := uintptr(sliceData(text))
+	_u7 := uintptr(sliceData(bottomTitle))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_buffer_draw(context.p, unsafe.Pointer(_s1), _v2, _v3, unsafe.Pointer(_s4), sliceData(text), uint32(len(text)), sliceData(bottomTitle), uint32(len(bottomTitle)))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = _u3
+		_buf.args[4] = _u4
+		_buf.args[5] = _u5
+		_buf.args[6] = uintptr(uint32(len(text)))
+		_buf.args[7] = _u7
+		_buf.args[8] = uintptr(uint32(len(bottomTitle)))
+		_r = int32(cCall(symAddrs[188], _buf, 9))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&target)
-	runtime.KeepAlive(_v2)
-	runtime.KeepAlive(_v3)
-	runtime.KeepAlive(&source)
-	runtime.KeepAlive(text)
-	runtime.KeepAlive(bottomTitle)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -10271,27 +14207,61 @@ func BufferDrawGrid(context *Context, target Handle, frame *SceneFrameRequest, o
 	if uint64(len(rows)) > 4294967295 {
 		return ErrTooLong
 	}
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = target
 	var _v2 unsafe.Pointer
-	var _s2 SceneFrameRequest
 	if frame != nil {
-		_s2 = *frame
+		_s2 := (*SceneFrameRequest)(unsafe.Pointer(&_buf.scratch[2]))
+		*_s2 = *frame
 		_s2.fill()
-		_v2 = unsafe.Pointer(&_s2)
+		_v2 = unsafe.Pointer(_s2)
 	}
-	options.fill()
-	_r := c_ot_buffer_draw_grid(context.p, unsafe.Pointer(&target), _v2, unsafe.Pointer(&options), sliceData(columns), uint32(len(columns)), sliceData(rows), uint32(len(rows)))
+	_s3 := (*BufferGridOptions)(unsafe.Pointer(&_buf.scratch[16]))
+	*_s3 = options
+	_s3.fill()
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if _v2 != nil {
+		_pin.Pin(_v2)
+	}
+	_pin.Pin(_s3)
+	if len(columns) > 0 {
+		_pin.Pin(sliceData(columns))
+	}
+	if len(rows) > 0 {
+		_pin.Pin(sliceData(rows))
+	}
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(_v2)
+	_u3 := uintptr(unsafe.Pointer(_s3))
+	_u4 := uintptr(sliceData(columns))
+	_u6 := uintptr(sliceData(rows))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_buffer_draw_grid(context.p, unsafe.Pointer(_s1), _v2, unsafe.Pointer(_s3), sliceData(columns), uint32(len(columns)), sliceData(rows), uint32(len(rows)))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = _u3
+		_buf.args[4] = _u4
+		_buf.args[5] = uintptr(uint32(len(columns)))
+		_buf.args[6] = _u6
+		_buf.args[7] = uintptr(uint32(len(rows)))
+		_r = int32(cCall(symAddrs[190], _buf, 8))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&target)
-	runtime.KeepAlive(_v2)
-	runtime.KeepAlive(&options)
-	runtime.KeepAlive(columns)
-	runtime.KeepAlive(rows)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -10309,24 +14279,53 @@ func BufferDrawPacked(context *Context, handle Handle, sceneFrameRequest *SceneF
 	if uint64(len(data)) > 4294967295 {
 		return ErrTooLong
 	}
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
 	var _v2 unsafe.Pointer
-	var _s2 SceneFrameRequest
 	if sceneFrameRequest != nil {
-		_s2 = *sceneFrameRequest
+		_s2 := (*SceneFrameRequest)(unsafe.Pointer(&_buf.scratch[2]))
+		*_s2 = *sceneFrameRequest
 		_s2.fill()
-		_v2 = unsafe.Pointer(&_s2)
+		_v2 = unsafe.Pointer(_s2)
 	}
-	_r := c_ot_buffer_draw_packed(context.p, unsafe.Pointer(&handle), _v2, sliceData(data), uint32(len(data)), x, y, width, height)
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if _v2 != nil {
+		_pin.Pin(_v2)
+	}
+	if len(data) > 0 {
+		_pin.Pin(sliceData(data))
+	}
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(_v2)
+	_u3 := uintptr(sliceData(data))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_buffer_draw_packed(context.p, unsafe.Pointer(_s1), _v2, sliceData(data), uint32(len(data)), x, y, width, height)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = _u3
+		_buf.args[4] = uintptr(uint32(len(data)))
+		_buf.args[5] = uintptr(x)
+		_buf.args[6] = uintptr(y)
+		_buf.args[7] = uintptr(width)
+		_buf.args[8] = uintptr(height)
+		_r = int32(cCall(symAddrs[191], _buf, 9))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
-	runtime.KeepAlive(_v2)
-	runtime.KeepAlive(data)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -10344,24 +14343,53 @@ func BufferDrawSupersample(context *Context, handle Handle, sceneFrameRequest *S
 	if uint64(len(data)) > 4294967295 {
 		return ErrTooLong
 	}
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
 	var _v2 unsafe.Pointer
-	var _s2 SceneFrameRequest
 	if sceneFrameRequest != nil {
-		_s2 = *sceneFrameRequest
+		_s2 := (*SceneFrameRequest)(unsafe.Pointer(&_buf.scratch[2]))
+		*_s2 = *sceneFrameRequest
 		_s2.fill()
-		_v2 = unsafe.Pointer(&_s2)
+		_v2 = unsafe.Pointer(_s2)
 	}
-	_r := c_ot_buffer_draw_supersample(context.p, unsafe.Pointer(&handle), _v2, sliceData(data), uint32(len(data)), x, y, format, stride)
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if _v2 != nil {
+		_pin.Pin(_v2)
+	}
+	if len(data) > 0 {
+		_pin.Pin(sliceData(data))
+	}
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(_v2)
+	_u3 := uintptr(sliceData(data))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_buffer_draw_supersample(context.p, unsafe.Pointer(_s1), _v2, sliceData(data), uint32(len(data)), x, y, format, stride)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = _u3
+		_buf.args[4] = uintptr(uint32(len(data)))
+		_buf.args[5] = uintptr(x)
+		_buf.args[6] = uintptr(y)
+		_buf.args[7] = uintptr(format)
+		_buf.args[8] = uintptr(stride)
+		_r = int32(cCall(symAddrs[192], _buf, 9))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
-	runtime.KeepAlive(_v2)
-	runtime.KeepAlive(data)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -10376,22 +14404,42 @@ func BufferAcquireLease(context *Context, buffer Handle) (BufferLeaseSnapshot, e
 	if context == nil || context.p == 0 {
 		return BufferLeaseSnapshot{}, ErrDestroyed
 	}
-	var _o2 BufferLeaseSnapshot
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = buffer
+	_o2 := (*BufferLeaseSnapshot)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o2 = BufferLeaseSnapshot{}
 	_o2.fill()
-	_r := c_ot_buffer_acquire_lease(context.p, unsafe.Pointer(&buffer), unsafe.Pointer(&_o2))
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_o2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_buffer_acquire_lease(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_o2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[195], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&buffer)
-	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return BufferLeaseSnapshot{}, err
 	}
+	_out2 := *_o2
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o2, nil
+	return _out2, nil
 }
 
 // SessionCreate calls ot_session_create.
@@ -10402,22 +14450,42 @@ func SessionCreate(context *Context, options SessionOptions) (Handle, error) {
 	if context == nil || context.p == 0 {
 		return Handle{}, ErrDestroyed
 	}
-	options.fill()
-	var _o2 Handle
-	_r := c_ot_session_create(context.p, unsafe.Pointer(&options), unsafe.Pointer(&_o2))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*SessionOptions)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = options
+	_s1.fill()
+	_o2 := (*Handle)(unsafe.Pointer(&_buf.scratch[4]))
+	*_o2 = Handle{}
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_o2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_create(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_o2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[196], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&options)
-	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return Handle{}, err
 	}
+	_out2 := *_o2
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o2, nil
+	return _out2, nil
 }
 
 // SessionAttachRenderer calls ot_session_attach_renderer.
@@ -10428,17 +14496,37 @@ func SessionAttachRenderer(context *Context, session Handle, options SessionRend
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	options.fill()
-	_r := c_ot_session_attach_renderer(context.p, unsafe.Pointer(&session), unsafe.Pointer(&options))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	_s2 := (*SessionRendererOptions)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = options
+	_s2.fill()
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_attach_renderer(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[197], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
-	runtime.KeepAlive(&options)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -10453,21 +14541,42 @@ func SessionRender(context *Context, session Handle, force uint32) (uint32, erro
 	if context == nil || context.p == 0 {
 		return 0, ErrDestroyed
 	}
-	var _o3 uint32
-	_r := c_ot_session_render(context.p, unsafe.Pointer(&session), force, unsafe.Pointer(&_o3))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	_o3 := (*uint32)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o3 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o3)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u3 := uintptr(unsafe.Pointer(_o3))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_render(context.p, unsafe.Pointer(_s1), force, unsafe.Pointer(_o3))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(force)
+		_buf.args[3] = _u3
+		_r = int32(cCall(symAddrs[199], _buf, 4))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
-	runtime.KeepAlive(&_o3)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out3 := *_o3
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o3, nil
+	return _out3, nil
 }
 
 // SessionResizeRenderer calls ot_session_resize_renderer.
@@ -10478,15 +14587,33 @@ func SessionResizeRenderer(context *Context, session Handle, width uint32, heigh
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_session_resize_renderer(context.p, unsafe.Pointer(&session), width, height)
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_resize_renderer(context.p, unsafe.Pointer(_s1), width, height)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(width)
+		_buf.args[3] = uintptr(height)
+		_r = int32(cCall(symAddrs[200], _buf, 4))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -10501,16 +14628,38 @@ func SessionDrawBuffer(context *Context, session Handle, source Handle, x int32,
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_session_draw_buffer(context.p, unsafe.Pointer(&session), unsafe.Pointer(&source), x, y)
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	_s2 := (*Handle)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = source
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_draw_buffer(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2), x, y)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = uintptr(x)
+		_buf.args[4] = uintptr(y)
+		_r = int32(cCall(symAddrs[201], _buf, 5))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
-	runtime.KeepAlive(&source)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -10525,18 +14674,44 @@ func SceneFrameDrawBuffer(context *Context, session Handle, frameRequest SceneFr
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	frameRequest.fill()
-	_r := c_ot_scene_frame_draw_buffer(context.p, unsafe.Pointer(&session), unsafe.Pointer(&frameRequest), unsafe.Pointer(&source), x, y)
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	_s2 := (*SceneFrameRequest)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = frameRequest
+	_s2.fill()
+	_s3 := (*Handle)(unsafe.Pointer(&_buf.scratch[16]))
+	*_s3 = source
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	_pin.Pin(_s3)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	_u3 := uintptr(unsafe.Pointer(_s3))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_scene_frame_draw_buffer(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2), unsafe.Pointer(_s3), x, y)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = _u3
+		_buf.args[4] = uintptr(x)
+		_buf.args[5] = uintptr(y)
+		_r = int32(cCall(symAddrs[202], _buf, 6))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
-	runtime.KeepAlive(&frameRequest)
-	runtime.KeepAlive(&source)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -10551,15 +14726,33 @@ func SessionSetDebugOverlay(context *Context, session Handle, enabled uint32, co
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_session_set_debug_overlay(context.p, unsafe.Pointer(&session), enabled, corner)
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_set_debug_overlay(context.p, unsafe.Pointer(_s1), enabled, corner)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(enabled)
+		_buf.args[3] = uintptr(corner)
+		_r = int32(cCall(symAddrs[203], _buf, 4))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -10574,15 +14767,18 @@ func SessionUpdateStats(context *Context, session Handle, overallMs float64, fps
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	var _pin runtime.Pinner
+	_pin.Pin(&session)
 	_r := c_ot_session_update_stats(context.p, unsafe.Pointer(&session), overallMs, fps, callbackMs)
 	_p := cbTake()
-	runtime.KeepAlive(&session)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
 	if _p != nil {
 		panic(_p)
 	}
@@ -10597,15 +14793,34 @@ func SessionUpdateMemoryStats(context *Context, session Handle, heapUsed uint32,
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_session_update_memory_stats(context.p, unsafe.Pointer(&session), heapUsed, heapTotal, arrayBuffers)
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_update_memory_stats(context.p, unsafe.Pointer(_s1), heapUsed, heapTotal, arrayBuffers)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(heapUsed)
+		_buf.args[3] = uintptr(heapTotal)
+		_buf.args[4] = uintptr(arrayBuffers)
+		_r = int32(cCall(symAddrs[205], _buf, 5))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -10620,15 +14835,31 @@ func SessionDumpHitGrid(context *Context, session Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_session_dump_hit_grid(context.p, unsafe.Pointer(&session))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_dump_hit_grid(context.p, unsafe.Pointer(_s1))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_r = int32(cCall(symAddrs[206], _buf, 2))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -10643,22 +14874,42 @@ func SessionGetRendererState(context *Context, session Handle) (SessionRendererS
 	if context == nil || context.p == 0 {
 		return SessionRendererState{}, ErrDestroyed
 	}
-	var _o2 SessionRendererState
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	_o2 := (*SessionRendererState)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o2 = SessionRendererState{}
 	_o2.fill()
-	_r := c_ot_session_get_renderer_state(context.p, unsafe.Pointer(&session), unsafe.Pointer(&_o2))
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_o2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_get_renderer_state(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_o2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[207], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
-	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return SessionRendererState{}, err
 	}
+	_out2 := *_o2
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o2, nil
+	return _out2, nil
 }
 
 // SessionAcquireBufferLease calls ot_session_acquire_buffer_lease.
@@ -10669,22 +14920,43 @@ func SessionAcquireBufferLease(context *Context, session Handle, which uint32) (
 	if context == nil || context.p == 0 {
 		return BufferLeaseSnapshot{}, ErrDestroyed
 	}
-	var _o3 BufferLeaseSnapshot
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	_o3 := (*BufferLeaseSnapshot)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o3 = BufferLeaseSnapshot{}
 	_o3.fill()
-	_r := c_ot_session_acquire_buffer_lease(context.p, unsafe.Pointer(&session), which, unsafe.Pointer(&_o3))
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o3)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u3 := uintptr(unsafe.Pointer(_o3))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_acquire_buffer_lease(context.p, unsafe.Pointer(_s1), which, unsafe.Pointer(_o3))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(which)
+		_buf.args[3] = _u3
+		_r = int32(cCall(symAddrs[208], _buf, 4))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
-	runtime.KeepAlive(&_o3)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return BufferLeaseSnapshot{}, err
 	}
+	_out3 := *_o3
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o3, nil
+	return _out3, nil
 }
 
 // SessionGetLinkId calls ot_session_get_link_id.
@@ -10695,21 +14967,43 @@ func SessionGetLinkId(context *Context, session Handle, x int32, y int32) (uint3
 	if context == nil || context.p == 0 {
 		return 0, ErrDestroyed
 	}
-	var _o4 uint32
-	_r := c_ot_session_get_link_id(context.p, unsafe.Pointer(&session), x, y, unsafe.Pointer(&_o4))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	_o4 := (*uint32)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o4 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o4)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u4 := uintptr(unsafe.Pointer(_o4))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_get_link_id(context.p, unsafe.Pointer(_s1), x, y, unsafe.Pointer(_o4))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(x)
+		_buf.args[3] = uintptr(y)
+		_buf.args[4] = _u4
+		_r = int32(cCall(symAddrs[209], _buf, 5))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
-	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out4 := *_o4
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o4, nil
+	return _out4, nil
 }
 
 // BufferLeaseValidate calls ot_buffer_lease_validate.
@@ -10720,15 +15014,31 @@ func BufferLeaseValidate(context *Context, lease Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_buffer_lease_validate(context.p, unsafe.Pointer(&lease))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = lease
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_buffer_lease_validate(context.p, unsafe.Pointer(_s1))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_r = int32(cCall(symAddrs[210], _buf, 2))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&lease)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -10743,15 +15053,31 @@ func BufferLeaseRelease(context *Context, lease Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_buffer_lease_release(context.p, unsafe.Pointer(&lease))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = lease
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_buffer_lease_release(context.p, unsafe.Pointer(_s1))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_r = int32(cCall(symAddrs[211], _buf, 2))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&lease)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -10766,21 +15092,42 @@ func BufferLeaseGetRealCharSize(context *Context, lease Handle, addLineBreaks ui
 	if context == nil || context.p == 0 {
 		return 0, ErrDestroyed
 	}
-	var _o3 uint32
-	_r := c_ot_buffer_lease_get_real_char_size(context.p, unsafe.Pointer(&lease), addLineBreaks, unsafe.Pointer(&_o3))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = lease
+	_o3 := (*uint32)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o3 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o3)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u3 := uintptr(unsafe.Pointer(_o3))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_buffer_lease_get_real_char_size(context.p, unsafe.Pointer(_s1), addLineBreaks, unsafe.Pointer(_o3))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(addLineBreaks)
+		_buf.args[3] = _u3
+		_r = int32(cCall(symAddrs[212], _buf, 4))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&lease)
-	runtime.KeepAlive(&_o3)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out3 := *_o3
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o3, nil
+	return _out3, nil
 }
 
 // SessionSetupTerminal calls ot_session_setup_terminal.
@@ -10791,17 +15138,37 @@ func SessionSetupTerminal(context *Context, session Handle, options SessionTermi
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	options.fill()
-	_r := c_ot_session_setup_terminal(context.p, unsafe.Pointer(&session), unsafe.Pointer(&options))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	_s2 := (*SessionTerminalOptions)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = options
+	_s2.fill()
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_setup_terminal(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[214], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
-	runtime.KeepAlive(&options)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -10816,15 +15183,31 @@ func SessionSuspend(context *Context, session Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_session_suspend(context.p, unsafe.Pointer(&session))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_suspend(context.p, unsafe.Pointer(_s1))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_r = int32(cCall(symAddrs[215], _buf, 2))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -10839,15 +15222,31 @@ func SessionResume(context *Context, session Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_session_resume(context.p, unsafe.Pointer(&session))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_resume(context.p, unsafe.Pointer(_s1))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_r = int32(cCall(symAddrs[216], _buf, 2))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -10862,21 +15261,41 @@ func SessionGetTerminalState(context *Context, session Handle) (uint32, error) {
 	if context == nil || context.p == 0 {
 		return 0, ErrDestroyed
 	}
-	var _o2 uint32
-	_r := c_ot_session_get_terminal_state(context.p, unsafe.Pointer(&session), unsafe.Pointer(&_o2))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	_o2 := (*uint32)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o2 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_o2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_get_terminal_state(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_o2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[217], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
-	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out2 := *_o2
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o2, nil
+	return _out2, nil
 }
 
 // SessionControl calls ot_session_control.
@@ -10890,18 +15309,43 @@ func SessionControl(context *Context, session Handle, options SessionControlOpti
 	if uint64(len(bytes)) > 4294967295 {
 		return ErrTooLong
 	}
-	options.fill()
-	_r := c_ot_session_control(context.p, unsafe.Pointer(&session), unsafe.Pointer(&options), sliceData(bytes), uint32(len(bytes)))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	_s2 := (*SessionControlOptions)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = options
+	_s2.fill()
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	if len(bytes) > 0 {
+		_pin.Pin(sliceData(bytes))
+	}
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	_u3 := uintptr(sliceData(bytes))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_control(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2), sliceData(bytes), uint32(len(bytes)))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = _u3
+		_buf.args[4] = uintptr(uint32(len(bytes)))
+		_r = int32(cCall(symAddrs[218], _buf, 5))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
-	runtime.KeepAlive(&options)
-	runtime.KeepAlive(bytes)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -10916,22 +15360,42 @@ func SessionGetCapabilities(context *Context, session Handle) (SessionCapabiliti
 	if context == nil || context.p == 0 {
 		return SessionCapabilities{}, ErrDestroyed
 	}
-	var _o2 SessionCapabilities
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	_o2 := (*SessionCapabilities)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o2 = SessionCapabilities{}
 	_o2.fill()
-	_r := c_ot_session_get_capabilities(context.p, unsafe.Pointer(&session), unsafe.Pointer(&_o2))
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_o2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_get_capabilities(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_o2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[219], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
-	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return SessionCapabilities{}, err
 	}
+	_out2 := *_o2
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o2, nil
+	return _out2, nil
 }
 
 // SessionClipboard calls ot_session_clipboard.
@@ -10945,22 +15409,48 @@ func SessionClipboard(context *Context, session Handle, target uint32, bytes []b
 	if uint64(len(bytes)) > 4294967295 {
 		return 0, ErrTooLong
 	}
-	var _o5 uint32
-	_r := c_ot_session_clipboard(context.p, unsafe.Pointer(&session), target, sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(&_o5))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	_o5 := (*uint32)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o5 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if len(bytes) > 0 {
+		_pin.Pin(sliceData(bytes))
+	}
+	_pin.Pin(_o5)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u3 := uintptr(sliceData(bytes))
+	_u5 := uintptr(unsafe.Pointer(_o5))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_clipboard(context.p, unsafe.Pointer(_s1), target, sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(_o5))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(target)
+		_buf.args[3] = _u3
+		_buf.args[4] = uintptr(uint32(len(bytes)))
+		_buf.args[5] = _u5
+		_r = int32(cCall(symAddrs[220], _buf, 6))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
-	runtime.KeepAlive(bytes)
-	runtime.KeepAlive(&_o5)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out5 := *_o5
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o5, nil
+	return _out5, nil
 }
 
 // SessionNotification calls ot_session_notification.
@@ -10977,23 +15467,53 @@ func SessionNotification(context *Context, handle Handle, message []byte, title 
 	if uint64(len(title)) > 4294967295 {
 		return 0, ErrTooLong
 	}
-	var _o6 uint32
-	_r := c_ot_session_notification(context.p, unsafe.Pointer(&handle), sliceData(message), uint32(len(message)), sliceData(title), uint32(len(title)), unsafe.Pointer(&_o6))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = handle
+	_o6 := (*uint32)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o6 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if len(message) > 0 {
+		_pin.Pin(sliceData(message))
+	}
+	if len(title) > 0 {
+		_pin.Pin(sliceData(title))
+	}
+	_pin.Pin(_o6)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(sliceData(message))
+	_u4 := uintptr(sliceData(title))
+	_u6 := uintptr(unsafe.Pointer(_o6))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_notification(context.p, unsafe.Pointer(_s1), sliceData(message), uint32(len(message)), sliceData(title), uint32(len(title)), unsafe.Pointer(_o6))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = uintptr(uint32(len(message)))
+		_buf.args[4] = _u4
+		_buf.args[5] = uintptr(uint32(len(title)))
+		_buf.args[6] = _u6
+		_r = int32(cCall(symAddrs[222], _buf, 7))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&handle)
-	runtime.KeepAlive(message)
-	runtime.KeepAlive(title)
-	runtime.KeepAlive(&_o6)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out6 := *_o6
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o6, nil
+	return _out6, nil
 }
 
 // SessionPump calls ot_session_pump.
@@ -11004,22 +15524,44 @@ func SessionPump(context *Context, session Handle, nowNs uint64, workBudget uint
 	if context == nil || context.p == 0 {
 		return SessionPumpResult{}, ErrDestroyed
 	}
-	var _o4 SessionPumpResult
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	_o4 := (*SessionPumpResult)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o4 = SessionPumpResult{}
 	_o4.fill()
-	_r := c_ot_session_pump(context.p, unsafe.Pointer(&session), nowNs, workBudget, unsafe.Pointer(&_o4))
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o4)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u4 := uintptr(unsafe.Pointer(_o4))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_pump(context.p, unsafe.Pointer(_s1), nowNs, workBudget, unsafe.Pointer(_o4))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(nowNs)
+		_buf.args[3] = uintptr(workBudget)
+		_buf.args[4] = _u4
+		_r = int32(cCall(symAddrs[223], _buf, 5))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
-	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return SessionPumpResult{}, err
 	}
+	_out4 := *_o4
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o4, nil
+	return _out4, nil
 }
 
 // SessionInputExpect calls ot_session_input_expect.
@@ -11030,15 +15572,32 @@ func SessionInputExpect(context *Context, session Handle, flags uint32) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_session_input_expect(context.p, unsafe.Pointer(&session), flags)
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_input_expect(context.p, unsafe.Pointer(_s1), flags)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(flags)
+		_r = int32(cCall(symAddrs[225], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -11053,15 +15612,32 @@ func SessionInputReset(context *Context, session Handle, flags uint32) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_session_input_reset(context.p, unsafe.Pointer(&session), flags)
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_input_reset(context.p, unsafe.Pointer(_s1), flags)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(flags)
+		_r = int32(cCall(symAddrs[226], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -11076,21 +15652,41 @@ func SessionGetWriteLimit(context *Context, session Handle) (uint64, error) {
 	if context == nil || context.p == 0 {
 		return 0, ErrDestroyed
 	}
-	var _o2 uint64
-	_r := c_ot_session_get_write_limit(context.p, unsafe.Pointer(&session), unsafe.Pointer(&_o2))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	_o2 := (*uint64)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o2 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_o2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_get_write_limit(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_o2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[227], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
-	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out2 := *_o2
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o2, nil
+	return _out2, nil
 }
 
 // SessionWrite calls ot_session_write.
@@ -11104,16 +15700,37 @@ func SessionWrite(context *Context, session Handle, bytes []byte) error {
 	if uint64(len(bytes)) > 4294967295 {
 		return ErrTooLong
 	}
-	_r := c_ot_session_write(context.p, unsafe.Pointer(&session), sliceData(bytes), uint32(len(bytes)))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if len(bytes) > 0 {
+		_pin.Pin(sliceData(bytes))
+	}
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(sliceData(bytes))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_write(context.p, unsafe.Pointer(_s1), sliceData(bytes), uint32(len(bytes)))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = uintptr(uint32(len(bytes)))
+		_r = int32(cCall(symAddrs[228], _buf, 4))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
-	runtime.KeepAlive(bytes)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -11129,27 +15746,50 @@ func SessionDrainOutput(context *Context, session Handle, maxBytes uint32, write
 	if context == nil || context.p == 0 {
 		return 0, ErrDestroyed
 	}
-	var _o3 uint32
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	_o3 := (*uint32)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o3 = 0
 	var _c5, _k5 uintptr
 	if writer != nil {
 		_c5, _k5 = cbPtr[1], cbToken()
 		cbPut(cbMap1, _k5, cbEntry[OutputWriteCallback]{fn: writer})
 		defer cbDrop(cbMap1, _k5)
 	}
-	_r := c_ot_session_drain_output(context.p, unsafe.Pointer(&session), maxBytes, unsafe.Pointer(&_o3), _k5, _c5)
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o3)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u3 := uintptr(unsafe.Pointer(_o3))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_drain_output(context.p, unsafe.Pointer(_s1), maxBytes, unsafe.Pointer(_o3), _k5, _c5)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(maxBytes)
+		_buf.args[3] = _u3
+		_buf.args[4] = _k5
+		_buf.args[5] = _c5
+		_r = int32(cCall(symAddrs[230], _buf, 6))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
-	runtime.KeepAlive(&_o3)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out3 := *_o3
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o3, nil
+	return _out3, nil
 }
 
 // SessionDrainStdout calls ot_session_drain_stdout.
@@ -11160,21 +15800,42 @@ func SessionDrainStdout(context *Context, session Handle, maxBytes uint32) (uint
 	if context == nil || context.p == 0 {
 		return 0, ErrDestroyed
 	}
-	var _o3 uint32
-	_r := c_ot_session_drain_stdout(context.p, unsafe.Pointer(&session), maxBytes, unsafe.Pointer(&_o3))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	_o3 := (*uint32)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o3 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o3)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u3 := uintptr(unsafe.Pointer(_o3))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_drain_stdout(context.p, unsafe.Pointer(_s1), maxBytes, unsafe.Pointer(_o3))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(maxBytes)
+		_buf.args[3] = _u3
+		_r = int32(cCall(symAddrs[231], _buf, 4))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
-	runtime.KeepAlive(&_o3)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out3 := *_o3
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o3, nil
+	return _out3, nil
 }
 
 // SessionPostStdout calls ot_session_post_stdout.
@@ -11185,23 +15846,49 @@ func SessionPostStdout(context *Context, session Handle, maxBytes uint32, wait u
 	if context == nil || context.p == 0 {
 		return 0, 0, ErrDestroyed
 	}
-	var _o4 uint32
-	var _o5 uint32
-	_r := c_ot_session_post_stdout(context.p, unsafe.Pointer(&session), maxBytes, wait, unsafe.Pointer(&_o4), unsafe.Pointer(&_o5))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	_o4 := (*uint32)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o4 = 0
+	_o5 := (*uint32)(unsafe.Pointer(&_buf.scratch[3]))
+	*_o5 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o4)
+	_pin.Pin(_o5)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u4 := uintptr(unsafe.Pointer(_o4))
+	_u5 := uintptr(unsafe.Pointer(_o5))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_post_stdout(context.p, unsafe.Pointer(_s1), maxBytes, wait, unsafe.Pointer(_o4), unsafe.Pointer(_o5))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(maxBytes)
+		_buf.args[3] = uintptr(wait)
+		_buf.args[4] = _u4
+		_buf.args[5] = _u5
+		_r = int32(cCall(symAddrs[232], _buf, 6))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
-	runtime.KeepAlive(&_o4)
-	runtime.KeepAlive(&_o5)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, 0, err
 	}
+	_out4 := *_o4
+	_out5 := *_o5
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o4, _o5, nil
+	return _out4, _out5, nil
 }
 
 // SessionCompleteOutput calls ot_session_complete_output.
@@ -11212,16 +15899,37 @@ func SessionCompleteOutput(context *Context, session Handle, ticket OutputTicket
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_session_complete_output(context.p, unsafe.Pointer(&session), unsafe.Pointer(&ticket), success)
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	_s2 := (*OutputTicket)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = ticket
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_complete_output(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2), success)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = uintptr(success)
+		_r = int32(cCall(symAddrs[233], _buf, 4))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
-	runtime.KeepAlive(&ticket)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -11236,15 +15944,31 @@ func SessionClose(context *Context, session Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_session_close(context.p, unsafe.Pointer(&session))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_close(context.p, unsafe.Pointer(_s1))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_r = int32(cCall(symAddrs[234], _buf, 2))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -11259,15 +15983,31 @@ func SessionDropOutput(context *Context, session Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_session_drop_output(context.p, unsafe.Pointer(&session))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_drop_output(context.p, unsafe.Pointer(_s1))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_r = int32(cCall(symAddrs[235], _buf, 2))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -11282,21 +16022,41 @@ func SessionPumpExit(context *Context, session Handle) (uint32, error) {
 	if context == nil || context.p == 0 {
 		return 0, ErrDestroyed
 	}
-	var _o2 uint32
-	_r := c_ot_session_pump_exit(context.p, unsafe.Pointer(&session), unsafe.Pointer(&_o2))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	_o2 := (*uint32)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o2 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_o2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_pump_exit(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_o2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[236], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
-	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out2 := *_o2
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o2, nil
+	return _out2, nil
 }
 
 // TerminalFlushInput calls ot_terminal_flush_input.
@@ -11304,7 +16064,12 @@ func TerminalFlushInput() error {
 	if err := ready(); err != nil {
 		return err
 	}
-	_r := c_ot_terminal_flush_input()
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_terminal_flush_input()
+	} else {
+		_r = int32(cCall0(symAddrs[237]))
+	}
 	_p := cbTake()
 	if err := statusError(_r); err != nil {
 		if _p != nil {
@@ -11326,15 +16091,31 @@ func SessionCancel(context *Context, session Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_session_cancel(context.p, unsafe.Pointer(&session))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_cancel(context.p, unsafe.Pointer(_s1))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_r = int32(cCall(symAddrs[238], _buf, 2))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -11349,21 +16130,41 @@ func SessionGetState(context *Context, session Handle) (uint32, error) {
 	if context == nil || context.p == 0 {
 		return 0, ErrDestroyed
 	}
-	var _o2 uint32
-	_r := c_ot_session_get_state(context.p, unsafe.Pointer(&session), unsafe.Pointer(&_o2))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	_o2 := (*uint32)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o2 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_o2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_get_state(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_o2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[239], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
-	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out2 := *_o2
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o2, nil
+	return _out2, nil
 }
 
 // SessionDestroy calls ot_session_destroy.
@@ -11374,15 +16175,31 @@ func SessionDestroy(context *Context, session Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_ot_session_destroy(context.p, unsafe.Pointer(&session))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = session
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_session_destroy(context.p, unsafe.Pointer(_s1))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_r = int32(cCall(symAddrs[240], _buf, 2))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&session)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -11400,9 +16217,26 @@ func ClipboardServiceCreate(context *Context, maxOperations uint32, maxProviderT
 	if uint64(len(waylandSeat)) > 4294967295 {
 		return 0, ErrTooLong
 	}
-	_r := c_ot_clipboard_service_create(context.p, maxOperations, maxProviderTransfers, sliceData(waylandSeat), uint32(len(waylandSeat)))
+	_buf := wordPool.Get().(*wordBuf)
+	var _pin runtime.Pinner
+	if len(waylandSeat) > 0 {
+		_pin.Pin(sliceData(waylandSeat))
+	}
+	_u3 := uintptr(sliceData(waylandSeat))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_ot_clipboard_service_create(context.p, maxOperations, maxProviderTransfers, sliceData(waylandSeat), uint32(len(waylandSeat)))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = uintptr(maxOperations)
+		_buf.args[2] = uintptr(maxProviderTransfers)
+		_buf.args[3] = _u3
+		_buf.args[4] = uintptr(uint32(len(waylandSeat)))
+		_r = int32(cCall(symAddrs[241], _buf, 5))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(waylandSeat)
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -11417,8 +16251,16 @@ func ClipboardServiceBeginShutdown(context *Context) (uint8, error) {
 	if context == nil || context.p == 0 {
 		return 0, ErrDestroyed
 	}
-	_r := c_ot_clipboard_service_begin_shutdown(context.p)
+	_buf := wordPool.Get().(*wordBuf)
+	var _r uint8
+	if forceRegisterFunc {
+		_r = c_ot_clipboard_service_begin_shutdown(context.p)
+	} else {
+		_buf.args[0] = context.p
+		_r = uint8(cCall(symAddrs[242], _buf, 1))
+	}
 	_p := cbTake()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -11433,8 +16275,16 @@ func ClipboardServicePollShutdown(context *Context) (uint8, error) {
 	if context == nil || context.p == 0 {
 		return 0, ErrDestroyed
 	}
-	_r := c_ot_clipboard_service_poll_shutdown(context.p)
+	_buf := wordPool.Get().(*wordBuf)
+	var _r uint8
+	if forceRegisterFunc {
+		_r = c_ot_clipboard_service_poll_shutdown(context.p)
+	} else {
+		_buf.args[0] = context.p
+		_r = uint8(cCall(symAddrs[243], _buf, 1))
+	}
 	_p := cbTake()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -11449,8 +16299,16 @@ func ClipboardServiceDestroy(context *Context) (uint8, error) {
 	if context == nil || context.p == 0 {
 		return 0, ErrDestroyed
 	}
-	_r := c_ot_clipboard_service_destroy(context.p)
+	_buf := wordPool.Get().(*wordBuf)
+	var _r uint8
+	if forceRegisterFunc {
+		_r = c_ot_clipboard_service_destroy(context.p)
+	} else {
+		_buf.args[0] = context.p
+		_r = uint8(cCall(symAddrs[244], _buf, 1))
+	}
 	_p := cbTake()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -11465,8 +16323,16 @@ func ClipboardServiceDrain(context *Context) (uint8, error) {
 	if context == nil || context.p == 0 {
 		return 0, ErrDestroyed
 	}
-	_r := c_ot_clipboard_service_drain(context.p)
+	_buf := wordPool.Get().(*wordBuf)
+	var _r uint8
+	if forceRegisterFunc {
+		_r = c_ot_clipboard_service_drain(context.p)
+	} else {
+		_buf.args[0] = context.p
+		_r = uint8(cCall(symAddrs[245], _buf, 1))
+	}
 	_p := cbTake()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -11484,15 +16350,39 @@ func ClipboardReadOperationStart(context *Context, request []byte, selection uin
 	if uint64(len(request)) > 4294967295 {
 		return 0, Handle{}, ErrTooLong
 	}
-	var _o8 Handle
-	_r := c_ot_clipboard_read_operation_start(context.p, sliceData(request), uint32(len(request)), selection, maxBytes, maxImagePixels, maxConversionBytes, timeoutMs, unsafe.Pointer(&_o8))
+	_buf := wordPool.Get().(*wordBuf)
+	_o8 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_o8 = Handle{}
+	var _pin runtime.Pinner
+	if len(request) > 0 {
+		_pin.Pin(sliceData(request))
+	}
+	_pin.Pin(_o8)
+	_u1 := uintptr(sliceData(request))
+	_u8 := uintptr(unsafe.Pointer(_o8))
+	var _r uint8
+	if forceRegisterFunc {
+		_r = c_ot_clipboard_read_operation_start(context.p, sliceData(request), uint32(len(request)), selection, maxBytes, maxImagePixels, maxConversionBytes, timeoutMs, unsafe.Pointer(_o8))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(uint32(len(request)))
+		_buf.args[3] = uintptr(selection)
+		_buf.args[4] = uintptr(maxBytes)
+		_buf.args[5] = uintptr(maxImagePixels)
+		_buf.args[6] = uintptr(maxConversionBytes)
+		_buf.args[7] = uintptr(timeoutMs)
+		_buf.args[8] = _u8
+		_r = uint8(cCall(symAddrs[246], _buf, 9))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(request)
-	runtime.KeepAlive(&_o8)
+	_out8 := *_o8
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _r, _o8, nil
+	return _r, _out8, nil
 }
 
 // ClipboardWriteOperationStart calls ot_clipboard_write_operation_start.
@@ -11506,15 +16396,36 @@ func ClipboardWriteOperationStart(context *Context, text []byte, selection uint8
 	if uint64(len(text)) > 4294967295 {
 		return 0, Handle{}, ErrTooLong
 	}
-	var _o5 Handle
-	_r := c_ot_clipboard_write_operation_start(context.p, sliceData(text), uint32(len(text)), selection, timeoutMs, unsafe.Pointer(&_o5))
+	_buf := wordPool.Get().(*wordBuf)
+	_o5 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_o5 = Handle{}
+	var _pin runtime.Pinner
+	if len(text) > 0 {
+		_pin.Pin(sliceData(text))
+	}
+	_pin.Pin(_o5)
+	_u1 := uintptr(sliceData(text))
+	_u5 := uintptr(unsafe.Pointer(_o5))
+	var _r uint8
+	if forceRegisterFunc {
+		_r = c_ot_clipboard_write_operation_start(context.p, sliceData(text), uint32(len(text)), selection, timeoutMs, unsafe.Pointer(_o5))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(uint32(len(text)))
+		_buf.args[3] = uintptr(selection)
+		_buf.args[4] = uintptr(timeoutMs)
+		_buf.args[5] = _u5
+		_r = uint8(cCall(symAddrs[247], _buf, 6))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(text)
-	runtime.KeepAlive(&_o5)
+	_out5 := *_o5
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _r, _o5, nil
+	return _r, _out5, nil
 }
 
 // ClipboardClearOperationStart calls ot_clipboard_clear_operation_start.
@@ -11525,14 +16436,30 @@ func ClipboardClearOperationStart(context *Context, selection uint8, timeoutMs u
 	if context == nil || context.p == 0 {
 		return 0, Handle{}, ErrDestroyed
 	}
-	var _o3 Handle
-	_r := c_ot_clipboard_clear_operation_start(context.p, selection, timeoutMs, unsafe.Pointer(&_o3))
+	_buf := wordPool.Get().(*wordBuf)
+	_o3 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_o3 = Handle{}
+	var _pin runtime.Pinner
+	_pin.Pin(_o3)
+	_u3 := uintptr(unsafe.Pointer(_o3))
+	var _r uint8
+	if forceRegisterFunc {
+		_r = c_ot_clipboard_clear_operation_start(context.p, selection, timeoutMs, unsafe.Pointer(_o3))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = uintptr(selection)
+		_buf.args[2] = uintptr(timeoutMs)
+		_buf.args[3] = _u3
+		_r = uint8(cCall(symAddrs[248], _buf, 4))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&_o3)
+	_out3 := *_o3
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _r, _o3, nil
+	return _r, _out3, nil
 }
 
 // ClipboardOperationPoll calls ot_clipboard_operation_poll.
@@ -11543,9 +16470,23 @@ func ClipboardOperationPoll(context *Context, operation Handle) (uint8, error) {
 	if context == nil || context.p == 0 {
 		return 0, ErrDestroyed
 	}
-	_r := c_ot_clipboard_operation_poll(context.p, unsafe.Pointer(&operation))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = operation
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r uint8
+	if forceRegisterFunc {
+		_r = c_ot_clipboard_operation_poll(context.p, unsafe.Pointer(_s1))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_r = uint8(cCall(symAddrs[249], _buf, 2))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&operation)
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -11560,9 +16501,23 @@ func ClipboardOperationCancel(context *Context, operation Handle) (uint8, error)
 	if context == nil || context.p == 0 {
 		return 0, ErrDestroyed
 	}
-	_r := c_ot_clipboard_operation_cancel(context.p, unsafe.Pointer(&operation))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = operation
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r uint8
+	if forceRegisterFunc {
+		_r = c_ot_clipboard_operation_cancel(context.p, unsafe.Pointer(_s1))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_r = uint8(cCall(symAddrs[250], _buf, 2))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&operation)
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -11577,15 +16532,33 @@ func ClipboardOperationResultMimeLength(context *Context, operation Handle) (uin
 	if context == nil || context.p == 0 {
 		return 0, 0, ErrDestroyed
 	}
-	var _o2 uint32
-	_r := c_ot_clipboard_operation_result_mime_length(context.p, unsafe.Pointer(&operation), unsafe.Pointer(&_o2))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = operation
+	_o2 := (*uint32)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o2 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_o2))
+	var _r uint8
+	if forceRegisterFunc {
+		_r = c_ot_clipboard_operation_result_mime_length(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_o2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = uint8(cCall(symAddrs[251], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&operation)
-	runtime.KeepAlive(&_o2)
+	_out2 := *_o2
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _r, _o2, nil
+	return _r, _out2, nil
 }
 
 // ClipboardOperationResultDataLength calls ot_clipboard_operation_result_data_length.
@@ -11596,15 +16569,33 @@ func ClipboardOperationResultDataLength(context *Context, operation Handle) (uin
 	if context == nil || context.p == 0 {
 		return 0, 0, ErrDestroyed
 	}
-	var _o2 uint32
-	_r := c_ot_clipboard_operation_result_data_length(context.p, unsafe.Pointer(&operation), unsafe.Pointer(&_o2))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = operation
+	_o2 := (*uint32)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o2 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_o2))
+	var _r uint8
+	if forceRegisterFunc {
+		_r = c_ot_clipboard_operation_result_data_length(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_o2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = uint8(cCall(symAddrs[253], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&operation)
-	runtime.KeepAlive(&_o2)
+	_out2 := *_o2
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _r, _o2, nil
+	return _r, _out2, nil
 }
 
 // ClipboardOperationResultErrorCode calls ot_clipboard_operation_result_error_code.
@@ -11615,15 +16606,33 @@ func ClipboardOperationResultErrorCode(context *Context, operation Handle) (uint
 	if context == nil || context.p == 0 {
 		return 0, 0, ErrDestroyed
 	}
-	var _o2 uint32
-	_r := c_ot_clipboard_operation_result_error_code(context.p, unsafe.Pointer(&operation), unsafe.Pointer(&_o2))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = operation
+	_o2 := (*uint32)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o2 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_o2))
+	var _r uint8
+	if forceRegisterFunc {
+		_r = c_ot_clipboard_operation_result_error_code(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_o2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = uint8(cCall(symAddrs[255], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&operation)
-	runtime.KeepAlive(&_o2)
+	_out2 := *_o2
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _r, _o2, nil
+	return _r, _out2, nil
 }
 
 // ClipboardOperationResultDiagnosticLength calls ot_clipboard_operation_result_diagnostic_length.
@@ -11634,15 +16643,33 @@ func ClipboardOperationResultDiagnosticLength(context *Context, operation Handle
 	if context == nil || context.p == 0 {
 		return 0, 0, ErrDestroyed
 	}
-	var _o2 uint32
-	_r := c_ot_clipboard_operation_result_diagnostic_length(context.p, unsafe.Pointer(&operation), unsafe.Pointer(&_o2))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = operation
+	_o2 := (*uint32)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o2 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_o2))
+	var _r uint8
+	if forceRegisterFunc {
+		_r = c_ot_clipboard_operation_result_diagnostic_length(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_o2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = uint8(cCall(symAddrs[256], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&operation)
-	runtime.KeepAlive(&_o2)
+	_out2 := *_o2
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _r, _o2, nil
+	return _r, _out2, nil
 }
 
 // ClipboardOperationDestroy calls ot_clipboard_operation_destroy.
@@ -11653,9 +16680,23 @@ func ClipboardOperationDestroy(context *Context, operation Handle) (uint8, error
 	if context == nil || context.p == 0 {
 		return 0, ErrDestroyed
 	}
-	_r := c_ot_clipboard_operation_destroy(context.p, unsafe.Pointer(&operation))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Handle)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = operation
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r uint8
+	if forceRegisterFunc {
+		_r = c_ot_clipboard_operation_destroy(context.p, unsafe.Pointer(_s1))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_r = uint8(cCall(symAddrs[258], _buf, 2))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&operation)
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}

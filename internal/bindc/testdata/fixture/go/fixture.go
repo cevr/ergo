@@ -162,6 +162,35 @@ var symbols = [...]struct {
 	{"fx_box_z", &c_fx_box_z},
 }
 
+var (
+	// symAddrs holds the resolved Dlsym address for each entry of symbols.
+	symAddrs [28]uintptr
+	// forceRegisterFunc routes word-direct typed calls through purego.RegisterFunc
+	// instead of purego.SyscallN for differential oracle testing.
+	forceRegisterFunc bool
+)
+
+// wordBuf holds the argument words and 8-byte-aligned local scratch memory
+// for one word-direct purego.SyscallN call.
+type wordBuf struct {
+	args    [15]uintptr
+	scratch [32]uint64
+}
+
+var wordPool = sync.Pool{New: func() any { return new(wordBuf) }}
+
+// cCall invokes a 1..15-argument word-direct C function via purego.SyscallN.
+func cCall(fn uintptr, b *wordBuf, n int) uintptr {
+	r, _, _ := purego.SyscallN(fn, b.args[:n]...)
+	return r
+}
+
+// cCall0 invokes a 0-argument word-direct C function via purego.SyscallN.
+func cCall0(fn uintptr) uintptr {
+	r, _, _ := purego.SyscallN(fn)
+	return r
+}
+
 // Load opens the library at path and binds every function of fixture.h.
 // It looks up every symbol first (an error names a missing one), then calls
 // fx_abi_version and returns *ABIMismatchError unless it returns FX_ABI_VERSION (2),
@@ -200,6 +229,7 @@ func Load(path string) error {
 		return &ABIMismatchError{Want: 2, Got: got}
 	}
 	for i, s := range symbols {
+		symAddrs[i] = addrs[i]
 		purego.RegisterFunc(s.fn, addrs[i])
 	}
 	loaded.Store(true)
@@ -1081,7 +1111,12 @@ func AbiVersion() (uint32, error) {
 	if err := ready(); err != nil {
 		return 0, err
 	}
-	_r := c_fx_abi_version()
+	var _r uint32
+	if forceRegisterFunc {
+		_r = c_fx_abi_version()
+	} else {
+		_r = uint32(cCall0(symAddrs[0]))
+	}
 	_p := cbTake()
 	if _p != nil {
 		panic(_p)
@@ -1097,22 +1132,41 @@ func ContextCreate(options ContextOptions) (*Context, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	_t := cbThread()
-	options.fill()
-	var _o1 uintptr
-	_r := c_fx_context_create(unsafe.Pointer(&options), unsafe.Pointer(&_o1))
+	_buf := wordPool.Get().(*wordBuf)
+	_s0 := (*ContextOptions)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s0 = options
+	_s0.fill()
+	_o1 := (*uintptr)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o1 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s0)
+	_pin.Pin(_o1)
+	_u0 := uintptr(unsafe.Pointer(_s0))
+	_u1 := uintptr(unsafe.Pointer(_o1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_fx_context_create(unsafe.Pointer(_s0), unsafe.Pointer(_o1))
+	} else {
+		_buf.args[0] = _u0
+		_buf.args[1] = _u1
+		_r = int32(cCall(symAddrs[1], _buf, 2))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&options)
-	runtime.KeepAlive(&_o1)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return nil, err
 	}
+	_out1 := *_o1
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return &Context{p: _o1, t: _t}, nil
+	return &Context{p: _out1, t: _t}, nil
 }
 
 // ContextDestroy calls fx_context_destroy.
@@ -1124,9 +1178,17 @@ func ContextDestroy(context *Context) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_r := c_fx_context_destroy(context.p)
+	_buf := wordPool.Get().(*wordBuf)
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_fx_context_destroy(context.p)
+	} else {
+		_buf.args[0] = context.p
+		_r = int32(cCall(symAddrs[2], _buf, 1))
+	}
 	_p := cbTake()
 	if err := statusError(_r); err != nil {
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
@@ -1134,6 +1196,7 @@ func ContextDestroy(context *Context) error {
 	}
 	cbDropOwner(cbMap2, context.p)
 	context.p = 0
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -1148,20 +1211,37 @@ func NodeCreate(context *Context, kind uint32) (Node, error) {
 	if context == nil || context.p == 0 {
 		return Node{}, ErrDestroyed
 	}
-	var _o2 Node
-	_r := c_fx_node_create(context.p, kind, unsafe.Pointer(&_o2))
+	_buf := wordPool.Get().(*wordBuf)
+	_o2 := (*Node)(unsafe.Pointer(&_buf.scratch[0]))
+	*_o2 = Node{}
+	var _pin runtime.Pinner
+	_pin.Pin(_o2)
+	_u2 := uintptr(unsafe.Pointer(_o2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_fx_node_create(context.p, kind, unsafe.Pointer(_o2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = uintptr(kind)
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[3], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return Node{}, err
 	}
+	_out2 := *_o2
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o2, nil
+	return _out2, nil
 }
 
 // NodeDestroy calls fx_node_destroy.
@@ -1178,16 +1258,32 @@ func NodeDestroy(context *Context, node Node) error {
 	if context.t != _t {
 		return ErrWrongThread
 	}
-	_r := c_fx_node_destroy(context.p, unsafe.Pointer(&node))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Node)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_fx_node_destroy(context.p, unsafe.Pointer(_s1))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_r = int32(cCall(symAddrs[4], _buf, 2))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
 	cbDropOf(cbMap2, cbKey2{_t, node.ContextId, node.Slot, node.Generation}, context.p)
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -1202,20 +1298,36 @@ func NodeCount(context *Context) (uint32, error) {
 	if context == nil || context.p == 0 {
 		return 0, ErrDestroyed
 	}
-	var _o1 uint32
-	_r := c_fx_node_count(context.p, unsafe.Pointer(&_o1))
+	_buf := wordPool.Get().(*wordBuf)
+	_o1 := (*uint32)(unsafe.Pointer(&_buf.scratch[0]))
+	*_o1 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_o1)
+	_u1 := uintptr(unsafe.Pointer(_o1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_fx_node_count(context.p, unsafe.Pointer(_o1))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_r = int32(cCall(symAddrs[5], _buf, 2))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&_o1)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out1 := *_o1
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o1, nil
+	return _out1, nil
 }
 
 // NodeSetBox calls fx_node_set_box.
@@ -1226,17 +1338,37 @@ func NodeSetBox(context *Context, node Node, box Box) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	box.fill()
-	_r := c_fx_node_set_box(context.p, unsafe.Pointer(&node), unsafe.Pointer(&box))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Node)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	_s2 := (*Box)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = box
+	_s2.fill()
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_fx_node_set_box(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[6], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
-	runtime.KeepAlive(&box)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -1251,22 +1383,42 @@ func NodeGetBox(context *Context, node Node) (Box, error) {
 	if context == nil || context.p == 0 {
 		return Box{}, ErrDestroyed
 	}
-	var _o2 Box
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Node)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	_o2 := (*Box)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o2 = Box{}
 	_o2.fill()
-	_r := c_fx_node_get_box(context.p, unsafe.Pointer(&node), unsafe.Pointer(&_o2))
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_o2)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_o2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_fx_node_get_box(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_o2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[7], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
-	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return Box{}, err
 	}
+	_out2 := *_o2
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o2, nil
+	return _out2, nil
 }
 
 // NodeSetName calls fx_node_set_name.
@@ -1280,16 +1432,37 @@ func NodeSetName(context *Context, node Node, name []byte) error {
 	if uint64(len(name)) > 4294967295 {
 		return ErrTooLong
 	}
-	_r := c_fx_node_set_name(context.p, unsafe.Pointer(&node), sliceData(name), uint32(len(name)))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Node)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if len(name) > 0 {
+		_pin.Pin(sliceData(name))
+	}
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(sliceData(name))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_fx_node_set_name(context.p, unsafe.Pointer(_s1), sliceData(name), uint32(len(name)))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = uintptr(uint32(len(name)))
+		_r = int32(cCall(symAddrs[8], _buf, 4))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
-	runtime.KeepAlive(name)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -1307,22 +1480,47 @@ func NodeReadName(context *Context, node Node, bytes []byte) (uint32, error) {
 	if uint64(len(bytes)) > 4294967295 {
 		return 0, ErrTooLong
 	}
-	var _o4 uint32
-	_r := c_fx_node_read_name(context.p, unsafe.Pointer(&node), sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(&_o4))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Node)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	_o4 := (*uint32)(unsafe.Pointer(&_buf.scratch[2]))
+	*_o4 = 0
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	if len(bytes) > 0 {
+		_pin.Pin(sliceData(bytes))
+	}
+	_pin.Pin(_o4)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(sliceData(bytes))
+	_u4 := uintptr(unsafe.Pointer(_o4))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_fx_node_read_name(context.p, unsafe.Pointer(_s1), sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(_o4))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = uintptr(uint32(len(bytes)))
+		_buf.args[4] = _u4
+		_r = int32(cCall(symAddrs[9], _buf, 5))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
-	runtime.KeepAlive(bytes)
-	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out4 := *_o4
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o4, nil
+	return _out4, nil
 }
 
 // ContextVisit calls fx_context_visit.
@@ -1334,20 +1532,31 @@ func ContextVisit(context *Context, callback VisitCallback) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	_buf := wordPool.Get().(*wordBuf)
 	var _c1, _k1 uintptr
 	if callback != nil {
 		_c1, _k1 = cbPtr[0], cbToken()
 		cbPut(cbMap0, _k1, cbEntry[VisitCallback]{fn: callback})
 		defer cbDrop(cbMap0, _k1)
 	}
-	_r := c_fx_context_visit(context.p, _c1, _k1)
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_fx_context_visit(context.p, _c1, _k1)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _c1
+		_buf.args[2] = _k1
+		_r = int32(cCall(symAddrs[11], _buf, 3))
+	}
 	_p := cbTake()
 	if err := statusError(_r); err != nil {
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
 	}
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -1395,27 +1604,51 @@ func ContextWrite(context *Context, text []byte, maxBytes uint32, writer WriteCa
 	if uint64(len(text)) > 4294967295 {
 		return 0, ErrTooLong
 	}
-	var _o4 uint32
+	_buf := wordPool.Get().(*wordBuf)
+	_o4 := (*uint32)(unsafe.Pointer(&_buf.scratch[0]))
+	*_o4 = 0
 	var _c6, _k6 uintptr
 	if writer != nil {
 		_c6, _k6 = cbPtr[1], cbToken()
 		cbPut(cbMap1, _k6, cbEntry[WriteCallback]{fn: writer})
 		defer cbDrop(cbMap1, _k6)
 	}
-	_r := c_fx_context_write(context.p, sliceData(text), uint32(len(text)), maxBytes, unsafe.Pointer(&_o4), _k6, _c6)
+	var _pin runtime.Pinner
+	if len(text) > 0 {
+		_pin.Pin(sliceData(text))
+	}
+	_pin.Pin(_o4)
+	_u1 := uintptr(sliceData(text))
+	_u4 := uintptr(unsafe.Pointer(_o4))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_fx_context_write(context.p, sliceData(text), uint32(len(text)), maxBytes, unsafe.Pointer(_o4), _k6, _c6)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = uintptr(uint32(len(text)))
+		_buf.args[3] = uintptr(maxBytes)
+		_buf.args[4] = _u4
+		_buf.args[5] = _k6
+		_buf.args[6] = _c6
+		_r = int32(cCall(symAddrs[14], _buf, 7))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(text)
-	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out4 := *_o4
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o4, nil
+	return _out4, nil
 }
 
 // ContextRepeat calls fx_context_repeat.
@@ -1427,26 +1660,45 @@ func ContextRepeat(context *Context, times uint32, writer WriteCallback) (int64,
 	if context == nil || context.p == 0 {
 		return 0, ErrDestroyed
 	}
-	var _o2 int64
+	_buf := wordPool.Get().(*wordBuf)
+	_o2 := (*int64)(unsafe.Pointer(&_buf.scratch[0]))
+	*_o2 = 0
 	var _c4, _k4 uintptr
 	if writer != nil {
 		_c4, _k4 = cbPtr[1], cbToken()
 		cbPut(cbMap1, _k4, cbEntry[WriteCallback]{fn: writer})
 		defer cbDrop(cbMap1, _k4)
 	}
-	_r := c_fx_context_repeat(context.p, times, unsafe.Pointer(&_o2), _k4, _c4)
+	var _pin runtime.Pinner
+	_pin.Pin(_o2)
+	_u2 := uintptr(unsafe.Pointer(_o2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_fx_context_repeat(context.p, times, unsafe.Pointer(_o2), _k4, _c4)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = uintptr(times)
+		_buf.args[2] = _u2
+		_buf.args[3] = _k4
+		_buf.args[4] = _c4
+		_r = int32(cCall(symAddrs[15], _buf, 5))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out2 := *_o2
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o2, nil
+	return _out2, nil
 }
 
 // NodeSetMeasure calls fx_node_set_measure.
@@ -1469,6 +1721,9 @@ func NodeSetMeasure(context *Context, node Node, measure MeasureCallback) error 
 	if cbOther(cbMap2, _k2, context.p) {
 		return ErrKeyInUse
 	}
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Node)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
 	var _c2 uintptr
 	var _s2 cbEntry[MeasureCallback]
 	var _h2 bool
@@ -1476,13 +1731,25 @@ func NodeSetMeasure(context *Context, node Node, measure MeasureCallback) error 
 		_c2 = cbPtr[2]
 		_s2, _h2 = cbPut(cbMap2, _k2, cbEntry[MeasureCallback]{fn: measure, owner: context.p})
 	}
-	_r := c_fx_node_set_measure(context.p, unsafe.Pointer(&node), _c2)
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_fx_node_set_measure(context.p, unsafe.Pointer(_s1), _c2)
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _c2
+		_r = int32(cCall(symAddrs[16], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
 	if err := statusError(_r); err != nil {
 		if measure != nil {
 			cbUndo(cbMap2, _k2, _s2, _h2)
 		}
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
@@ -1491,6 +1758,8 @@ func NodeSetMeasure(context *Context, node Node, measure MeasureCallback) error 
 	if measure == nil {
 		cbDropOf(cbMap2, _k2, context.p)
 	}
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
@@ -1506,16 +1775,19 @@ func NodeMeasure(context *Context, node Node, width float32, height float32) (Po
 		return Point{}, ErrDestroyed
 	}
 	var _o4 Point
+	var _pin runtime.Pinner
+	_pin.Pin(&node)
+	_pin.Pin(&_o4)
 	_r := c_fx_node_measure(context.p, unsafe.Pointer(&node), width, height, unsafe.Pointer(&_o4))
 	_p := cbTake()
-	runtime.KeepAlive(&node)
-	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
 		if _p != nil {
 			panic(_p)
 		}
 		return Point{}, err
 	}
+	_pin.Unpin()
 	if _p != nil {
 		panic(_p)
 	}
@@ -1530,22 +1802,46 @@ func NodeMeasureAs(context *Context, node Node, as Node) (Point, error) {
 	if context == nil || context.p == 0 {
 		return Point{}, ErrDestroyed
 	}
-	var _o3 Point
-	_r := c_fx_node_measure_as(context.p, unsafe.Pointer(&node), unsafe.Pointer(&as), unsafe.Pointer(&_o3))
+	_buf := wordPool.Get().(*wordBuf)
+	_s1 := (*Node)(unsafe.Pointer(&_buf.scratch[0]))
+	*_s1 = node
+	_s2 := (*Node)(unsafe.Pointer(&_buf.scratch[2]))
+	*_s2 = as
+	_o3 := (*Point)(unsafe.Pointer(&_buf.scratch[4]))
+	*_o3 = Point{}
+	var _pin runtime.Pinner
+	_pin.Pin(_s1)
+	_pin.Pin(_s2)
+	_pin.Pin(_o3)
+	_u1 := uintptr(unsafe.Pointer(_s1))
+	_u2 := uintptr(unsafe.Pointer(_s2))
+	_u3 := uintptr(unsafe.Pointer(_o3))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_fx_node_measure_as(context.p, unsafe.Pointer(_s1), unsafe.Pointer(_s2), unsafe.Pointer(_o3))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_buf.args[3] = _u3
+		_r = int32(cCall(symAddrs[18], _buf, 4))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&node)
-	runtime.KeepAlive(&as)
-	runtime.KeepAlive(&_o3)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return Point{}, err
 	}
+	_out3 := *_o3
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o3, nil
+	return _out3, nil
 }
 
 // ContextMeasureAll calls fx_context_measure_all.
@@ -1557,15 +1853,18 @@ func ContextMeasureAll(context *Context, width float32, height float32) (uint32,
 		return 0, ErrDestroyed
 	}
 	var _o3 uint32
+	var _pin runtime.Pinner
+	_pin.Pin(&_o3)
 	_r := c_fx_context_measure_all(context.p, width, height, unsafe.Pointer(&_o3))
 	_p := cbTake()
-	runtime.KeepAlive(&_o3)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_pin.Unpin()
 	if _p != nil {
 		panic(_p)
 	}
@@ -1580,20 +1879,36 @@ func ContextCounters(context *Context) (Counters, error) {
 	if context == nil || context.p == 0 {
 		return Counters{}, ErrDestroyed
 	}
-	var _o1 Counters
-	_r := c_fx_context_counters(context.p, unsafe.Pointer(&_o1))
+	_buf := wordPool.Get().(*wordBuf)
+	_o1 := (*Counters)(unsafe.Pointer(&_buf.scratch[0]))
+	*_o1 = Counters{}
+	var _pin runtime.Pinner
+	_pin.Pin(_o1)
+	_u1 := uintptr(unsafe.Pointer(_o1))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_fx_context_counters(context.p, unsafe.Pointer(_o1))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_r = int32(cCall(symAddrs[20], _buf, 2))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(&_o1)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return Counters{}, err
 	}
+	_out1 := *_o1
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o1, nil
+	return _out1, nil
 }
 
 // ThreadId calls fx_thread_id.
@@ -1601,7 +1916,12 @@ func ThreadId() (uint64, error) {
 	if err := ready(); err != nil {
 		return 0, err
 	}
-	_r := c_fx_thread_id()
+	var _r uint64
+	if forceRegisterFunc {
+		_r = c_fx_thread_id()
+	} else {
+		_r = uint64(cCall0(symAddrs[21]))
+	}
 	_p := cbTake()
 	if _p != nil {
 		panic(_p)
@@ -1617,25 +1937,45 @@ func ShapeArea(context *Context, shape ShapeHeaderRecord) (int64, error) {
 	if context == nil || context.p == 0 {
 		return 0, ErrDestroyed
 	}
+	_buf := wordPool.Get().(*wordBuf)
 	var _v1 unsafe.Pointer
 	if shape != nil {
 		_v1 = shape.record()
 	}
-	var _o2 int64
-	_r := c_fx_shape_area(context.p, _v1, unsafe.Pointer(&_o2))
+	_o2 := (*int64)(unsafe.Pointer(&_buf.scratch[0]))
+	*_o2 = 0
+	var _pin runtime.Pinner
+	if _v1 != nil {
+		_pin.Pin(_v1)
+	}
+	_pin.Pin(_o2)
+	_u1 := uintptr(_v1)
+	_u2 := uintptr(unsafe.Pointer(_o2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_fx_shape_area(context.p, _v1, unsafe.Pointer(_o2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[26], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(_v1)
-	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out2 := *_o2
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o2, nil
+	return _out2, nil
 }
 
 // BoxZ calls fx_box_z.
@@ -1646,26 +1986,46 @@ func BoxZ(context *Context, clip *Box) (int64, error) {
 	if context == nil || context.p == 0 {
 		return 0, ErrDestroyed
 	}
+	_buf := wordPool.Get().(*wordBuf)
 	var _v1 unsafe.Pointer
-	var _s1 Box
 	if clip != nil {
-		_s1 = *clip
+		_s1 := (*Box)(unsafe.Pointer(&_buf.scratch[0]))
+		*_s1 = *clip
 		_s1.fill()
-		_v1 = unsafe.Pointer(&_s1)
+		_v1 = unsafe.Pointer(_s1)
 	}
-	var _o2 int64
-	_r := c_fx_box_z(context.p, _v1, unsafe.Pointer(&_o2))
+	_o2 := (*int64)(unsafe.Pointer(&_buf.scratch[12]))
+	*_o2 = 0
+	var _pin runtime.Pinner
+	if _v1 != nil {
+		_pin.Pin(_v1)
+	}
+	_pin.Pin(_o2)
+	_u1 := uintptr(_v1)
+	_u2 := uintptr(unsafe.Pointer(_o2))
+	var _r int32
+	if forceRegisterFunc {
+		_r = c_fx_box_z(context.p, _v1, unsafe.Pointer(_o2))
+	} else {
+		_buf.args[0] = context.p
+		_buf.args[1] = _u1
+		_buf.args[2] = _u2
+		_r = int32(cCall(symAddrs[27], _buf, 3))
+	}
 	_p := cbTake()
-	runtime.KeepAlive(_v1)
-	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		_pin.Unpin()
+		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return 0, err
 	}
+	_out2 := *_o2
+	_pin.Unpin()
+	wordPool.Put(_buf)
 	if _p != nil {
 		panic(_p)
 	}
-	return _o2, nil
+	return _out2, nil
 }

@@ -185,6 +185,73 @@ func (k *classifier) sizeOf(t Type) int64 {
 	return 0
 }
 
+// alignOf is the alignment in bytes of a value of type t.
+func (k *classifier) alignOf(t Type) int64 {
+	switch t.Kind {
+	case TypePointer:
+		return pointerSize
+	case TypeArray:
+		return k.alignOf(*t.Elem)
+	}
+	if s, ok := k.scalarOf(t); ok {
+		return scalarSize[s]
+	}
+	if t.Kind == TypeNamed {
+		if d := k.types[t.Name]; d != nil {
+			if d.Kind == DeclStruct {
+				return d.Align
+			}
+			return pointerSize
+		}
+	}
+	return 1
+}
+
+// puregoSyscallMaxArgs is the maximum argument count purego.SyscallN accepts
+// on linux and darwin (amd64 and arm64).
+const puregoSyscallMaxArgs = 15
+
+// isWordType reports whether a C parameter or result of type t travels in a
+// single integer/pointer word register (no float32/float64, no by-value struct).
+func (k *classifier) isWordType(t Type) bool {
+	if t.Kind == TypePointer {
+		return true
+	}
+	if s, ok := k.scalarOf(t); ok {
+		return s != Float32 && s != Float64
+	}
+	if t.Kind == TypeNamed {
+		d := k.types[t.Name]
+		return d != nil && d.Kind == DeclCallback
+	}
+	return false
+}
+
+// isWordDirect reports whether f can be invoked directly through
+// purego.SyscallN without purego.RegisterFunc overhead: at most
+// puregoSyscallMaxArgs parameters, every parameter and non-void result a word
+// type (no float32/float64, no by-value struct, no raw non-handle pointer
+// result).
+func (b *Binding) isWordDirect(f *Function) bool {
+	if len(f.Params) > puregoSyscallMaxArgs {
+		return false
+	}
+	if f.Result.Kind != TypeVoid {
+		if !b.k.isWordType(f.Result) {
+			return false
+		}
+		if f.Result.Kind == TypePointer && (f.Result.LenExpr != "" || !b.k.isHandleType(*f.Result.Elem)) {
+			return false
+		}
+	}
+	for _, p := range f.Params {
+		if !b.k.isWordType(p.Type) {
+			return false
+		}
+	}
+	return true
+}
+
 // isByValueStruct reports whether t is a struct passed or returned by value.
 func (k *classifier) isByValueStruct(t Type) bool {
 	if t.Kind != TypeNamed {

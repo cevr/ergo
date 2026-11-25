@@ -27,8 +27,11 @@ import (
 // returns an error last: ErrNotLoaded before a successful Load (no C call),
 // ErrDestroyed for a nil or destroyed handle (no C call), ErrTooLong for a
 // slice longer than its length type holds (no C call), or the Status of a
-// status result. A Go value passed by address stays alive until C returns
-// through runtime.KeepAlive after the call.
+// status result. Every Go pointer passed to C is pinned with runtime.Pinner
+// before any uintptr conversion and unpinned on every return and panic path.
+// Word-direct functions (no float32/float64, no by-value struct, at most 15
+// arguments) call purego.SyscallN directly using a pooled scratch/argument
+// buffer for zero steady-state allocations.
 func GoPackage(b *Binding) (name string, src []byte, err error) {
 	e := &goEmitter{b: b, imports: map[string]bool{}}
 	body := e.file()
@@ -127,6 +130,23 @@ func (e *goEmitter) file() string {
 	e.p("func ready() error {\n\tif !loaded.Load() {\n\t\treturn ErrNotLoaded\n\t}\n\treturn nil\n}\n\n")
 	e.p("// sliceData is the address of the first element of s, or nil when s is empty.\nfunc sliceData[T any](s []T) unsafe.Pointer {\n\tif len(s) == 0 {\n\t\treturn nil\n\t}\n\treturn unsafe.Pointer(unsafe.SliceData(s))\n}\n\n")
 	pg := e.use("github.com/ebitengine/purego")
+	hasWordDirect, hasWordDirectArgs, hasWordDirectZero, hasWordDirectBool := false, false, false, false
+	for _, f := range b.Funcs {
+		if !f.goTyped() || !b.isWordDirect(f.C) {
+			continue
+		}
+		hasWordDirect = true
+		if len(f.C.Params) == 0 {
+			hasWordDirectZero = true
+		} else {
+			hasWordDirectArgs = true
+		}
+		for _, p := range f.C.Params {
+			if sc, ok := k.scalarOf(p.Type); ok && sc == Bool {
+				hasWordDirectBool = true
+			}
+		}
+	}
 	abiIndex := 0
 	e.p("// symbols are the raw functions, in header order.\nvar symbols = [...]struct {\n\tname string\n\tfn   any\n}{\n")
 	for i, f := range b.Funcs {
@@ -136,6 +156,21 @@ func (e *goEmitter) file() string {
 		e.p("\t{%q, &%s},\n", f.C.Name, rawName(f.C.Name))
 	}
 	e.p("}\n\n")
+	symStore := ""
+	if hasWordDirect {
+		e.p("var (\n\t// symAddrs holds the resolved Dlsym address for each entry of symbols.\n\tsymAddrs [%d]uintptr\n\t// forceRegisterFunc routes word-direct typed calls through purego.RegisterFunc\n\t// instead of purego.SyscallN for differential oracle testing.\n\tforceRegisterFunc bool\n)\n\n", len(b.Funcs))
+		symStore = "\t\tsymAddrs[i] = addrs[i]\n"
+	}
+	if hasWordDirectArgs {
+		e.p("// wordBuf holds the argument words and 8-byte-aligned local scratch memory\n// for one word-direct purego.SyscallN call.\ntype wordBuf struct {\n\targs    [%d]uintptr\n\tscratch [32]uint64\n}\n\nvar wordPool = sync.Pool{New: func() any { return new(wordBuf) }}\n\n// cCall invokes a 1..%d-argument word-direct C function via purego.SyscallN.\nfunc cCall(fn uintptr, b *wordBuf, n int) uintptr {\n\tr, _, _ := %s.SyscallN(fn, b.args[:n]...)\n\treturn r\n}\n\n",
+			puregoSyscallMaxArgs, puregoSyscallMaxArgs, pg)
+	}
+	if hasWordDirectZero {
+		e.p("// cCall0 invokes a 0-argument word-direct C function via purego.SyscallN.\nfunc cCall0(fn uintptr) uintptr {\n\tr, _, _ := %s.SyscallN(fn)\n\treturn r\n}\n\n", pg)
+	}
+	if hasWordDirectBool {
+		e.p("// boolWord encodes a Go bool as a C _Bool register word.\nfunc boolWord(b bool) uintptr {\n\tif b {\n\t\treturn 1\n\t}\n\treturn 0\n}\n\n")
+	}
 	cbDoc, cbMake := "", ""
 	if len(e.boundCbs()) > 0 {
 		cbDoc = `
@@ -176,14 +211,14 @@ func Load(path string) error {
 		return &ABIMismatchError{Want: %[4]d, Got: got}
 	}
 	for i, s := range symbols {
-		%[7]s.RegisterFunc(s.fn, addrs[i])
+%[15]s		%[7]s.RegisterFunc(s.fn, addrs[i])
 	}
 	loaded.Store(true)
 	return nil
 }
 
 `, b.Contract.Header, b.Contract.ABI.Function, b.Contract.ABI.Macro, b.ABIWant, errs, pkg+": Load: already loaded",
-		pg, e.use("fmt"), pkg+": Load %s: %w", pkg+": Load %s: missing symbol %s (%v)", abiT, abiIndex, cbDoc, cbMake)
+		pg, e.use("fmt"), pkg+": Load %s: %w", pkg+": Load %s: missing symbol %s (%v)", abiT, abiIndex, cbDoc, cbMake, symStore)
 
 	// Types.
 	for _, d := range k.m.Types {
@@ -248,9 +283,9 @@ func Load(path string) error {
 	e.p(")\n\n")
 
 	// Typed layer.
-	for _, f := range b.Funcs {
+	for i, f := range b.Funcs {
 		if f.goTyped() {
-			e.typedFunc(f)
+			e.typedFunc(f, i)
 		}
 	}
 	return e.w.String()
@@ -477,8 +512,27 @@ func (e *goEmitter) rawResult(t Type) string {
 	return " " + e.rawType(t)
 }
 
+// wordScratchWords is the capacity in uint64 words (256 bytes) of wordBuf.scratch.
+const wordScratchWords = 32
+
+func (e *goEmitter) emitPinPhase(pins []string) {
+	if len(pins) == 0 {
+		return
+	}
+	e.p("\tvar _pin %s.Pinner\n", e.use("runtime"))
+	for _, p := range pins {
+		e.p("%s", p)
+	}
+}
+
+func (e *goEmitter) emitConvPhase(convs []string) {
+	for _, cv := range convs {
+		e.p("%s", cv)
+	}
+}
+
 // typedFunc emits the adapter of one typed function.
-func (e *goEmitter) typedFunc(f *BoundFunc) {
+func (e *goEmitter) typedFunc(f *BoundFunc, symIdx int) {
 	b, k, s := e.b, e.b.k, f.Sig
 	c := f.C
 	var params []string
@@ -571,58 +625,156 @@ func (e *goEmitter) typedFunc(f *BoundFunc) {
 			}
 		}
 	}
-	// Autofill and out-parameters.
-	var args, keep []string
+	// Callback key checks happen before acquiring pool/pinner resources.
+	uses := e.cbUses(f, goParam)
+	for _, u := range uses {
+		e.cbCheck(u, ret("ErrKeyInUse"))
+	}
+
+	wordDirect := b.isWordDirect(c)
+	useBuf := wordDirect && len(c.Params) > 0
+	if useBuf {
+		e.p("\t_buf := wordPool.Get().(*wordBuf)\n")
+	}
+	scratchUsed := 0
+	allocScratch := func(sz, align int64) (int, bool) {
+		if !useBuf || sz <= 0 || align > 8 {
+			return 0, false
+		}
+		words := int((sz + 7) / 8)
+		if scratchUsed+words > wordScratchWords {
+			return 0, false
+		}
+		off := scratchUsed
+		scratchUsed += words
+		return off, true
+	}
+
+	// Autofill, out-parameters, pin list, and word-direct uintptr conversions.
+	var args, wordArgs, pins, convs []string
 	outVar := map[int]string{}
+	outPooled := map[int]bool{}
+	var pooledOutIdx []int
 	for i, p := range c.Params {
 		q, isPos := pos[i]
 		gp := goParam[i]
+		u := "_u" + strconv.Itoa(i)
 		switch {
 		case isPos && (q.Class == ClassOut || q.Class == ClassOutCount):
 			v := "_o" + strconv.Itoa(i)
 			outVar[i] = v
 			t := *p.Type.Elem
+			var gt, zeroVal string
+			var sz, align int64
 			if q.By == ruleCreate {
-				e.p("\tvar %s uintptr\n", v)
+				gt, zeroVal, sz, align = "uintptr", "0", pointerSize, pointerSize
 			} else {
-				e.p("\tvar %s %s\n", v, b.GoType(t))
-				e.fill(v, t, 0)
+				gt = b.GoType(t)
+				zeroVal = e.zero(t, gt)
+				sz, align = k.sizeOf(t), k.alignOf(t)
 			}
-			args = append(args, "unsafe.Pointer(&"+v+")")
-			keep = append(keep, "&"+v)
+			if off, ok := allocScratch(sz, align); ok {
+				outPooled[i] = true
+				pooledOutIdx = append(pooledOutIdx, i)
+				e.p("\t%s := (*%s)(unsafe.Pointer(&_buf.scratch[%d]))\n\t*%s = %s\n", v, gt, off, v, zeroVal)
+				if q.By != ruleCreate {
+					e.fill(v, t, 0)
+				}
+				args = append(args, "unsafe.Pointer("+v+")")
+				pins = append(pins, "\t_pin.Pin("+v+")\n")
+				if wordDirect {
+					convs = append(convs, "\t"+u+" := uintptr(unsafe.Pointer("+v+"))\n")
+					wordArgs = append(wordArgs, u)
+				}
+			} else {
+				e.p("\tvar %s %s\n", v, gt)
+				if q.By != ruleCreate {
+					e.fill(v, t, 0)
+				}
+				args = append(args, "unsafe.Pointer(&"+v+")")
+				pins = append(pins, "\t_pin.Pin(&"+v+")\n")
+				if wordDirect {
+					convs = append(convs, "\t"+u+" := uintptr(unsafe.Pointer(&"+v+"))\n")
+					wordArgs = append(wordArgs, u)
+				}
+			}
 		case isPos && q.Class == ClassHandle:
 			args = append(args, gp.Name+".p")
+			wordArgs = append(wordArgs, gp.Name+".p")
 		case isPos && q.Class == ClassCallback:
-			args = append(args, "_c"+strconv.Itoa(i))
+			cbv := "_c" + strconv.Itoa(i)
+			args = append(args, cbv)
+			wordArgs = append(wordArgs, cbv)
 		case isPos && q.Class == ClassKey:
-			args = append(args, "_k"+strconv.Itoa(k.tokenOf(c, i)))
+			kv := "_k" + strconv.Itoa(k.tokenOf(c, i))
+			args = append(args, kv)
+			wordArgs = append(wordArgs, kv)
 		case isPos && q.Class == ClassValue && p.Type.LenExpr == "" && b.kinds[p.Type.Elem.Name] != nil:
 			// A record: its filled copy, or NULL for a nil record.
 			v := "_v" + strconv.Itoa(i)
 			e.p("\tvar %s unsafe.Pointer\n\tif %s != nil {\n\t\t%s = %s.record()\n\t}\n", v, gp.Name, v, gp.Name)
 			args = append(args, v)
-			keep = append(keep, v)
+			pins = append(pins, fmt.Sprintf("\tif %s != nil {\n\t\t_pin.Pin(%s)\n\t}\n", v, v))
+			if wordDirect {
+				convs = append(convs, "\t"+u+" := uintptr("+v+")\n")
+				wordArgs = append(wordArgs, u)
+			}
 		case isPos && q.Class == ClassOptional:
 			// A filled copy of the value, or NULL for nil.
 			v, s := "_v"+strconv.Itoa(i), "_s"+strconv.Itoa(i)
-			e.p("\tvar %s unsafe.Pointer\n\tvar %s %s\n\tif %s != nil {\n\t\t%s = *%s\n", v, s, b.GoType(*p.Type.Elem), gp.Name, s, gp.Name)
+			t := *p.Type.Elem
+			off, pooled := allocScratch(k.sizeOf(t), k.alignOf(t))
+			e.p("\tvar %s unsafe.Pointer\n", v)
+			if pooled {
+				e.p("\tif %s != nil {\n\t\t%s := (*%s)(unsafe.Pointer(&_buf.scratch[%d]))\n\t\t*%s = *%s\n", gp.Name, s, b.GoType(t), off, s, gp.Name)
+			} else {
+				e.p("\tvar %s %s\n\tif %s != nil {\n\t\t%s = *%s\n", s, b.GoType(t), gp.Name, s, gp.Name)
+			}
 			e.fill(s, *p.Type.Elem, 0)
-			e.p("\t\t%s = unsafe.Pointer(&%s)\n\t}\n", v, s)
+			if pooled {
+				e.p("\t\t%s = unsafe.Pointer(%s)\n\t}\n", v, s)
+			} else {
+				e.p("\t\t%s = unsafe.Pointer(&%s)\n\t}\n", v, s)
+			}
 			args = append(args, v)
-			keep = append(keep, v)
+			pins = append(pins, fmt.Sprintf("\tif %s != nil {\n\t\t_pin.Pin(%s)\n\t}\n", v, v))
+			if wordDirect {
+				convs = append(convs, "\t"+u+" := uintptr("+v+")\n")
+				wordArgs = append(wordArgs, u)
+			}
 		case isPos && q.Class == ClassValue:
 			t := *p.Type.Elem
 			if p.Type.LenExpr != "" {
 				// const T name[N]: the Go parameter is a [N]T.
 				t = Type{Kind: TypeArray, Elem: p.Type.Elem, Len: p.Type.Len}
 			}
-			e.fill(gp.Name, t, 0)
-			args = append(args, "unsafe.Pointer(&"+gp.Name+")")
-			keep = append(keep, "&"+gp.Name)
+			if off, ok := allocScratch(k.sizeOf(t), k.alignOf(t)); ok {
+				sv := "_s" + strconv.Itoa(i)
+				e.p("\t%s := (*%s)(unsafe.Pointer(&_buf.scratch[%d]))\n\t*%s = %s\n", sv, gp.Type, off, sv, gp.Name)
+				e.fill(sv, t, 0)
+				args = append(args, "unsafe.Pointer("+sv+")")
+				pins = append(pins, "\t_pin.Pin("+sv+")\n")
+				if wordDirect {
+					convs = append(convs, "\t"+u+" := uintptr(unsafe.Pointer("+sv+"))\n")
+					wordArgs = append(wordArgs, u)
+				}
+			} else {
+				e.fill(gp.Name, t, 0)
+				args = append(args, "unsafe.Pointer(&"+gp.Name+")")
+				pins = append(pins, "\t_pin.Pin(&"+gp.Name+")\n")
+				if wordDirect {
+					convs = append(convs, "\t"+u+" := uintptr(unsafe.Pointer(&"+gp.Name+"))\n")
+					wordArgs = append(wordArgs, u)
+				}
+			}
 		case isPos && (q.Class == ClassInBuffer || q.Class == ClassOutBuffer):
 			e.fill(gp.Name, Type{Kind: TypeArray, Elem: p.Type.Elem}, 0)
 			args = append(args, "sliceData("+gp.Name+")")
-			keep = append(keep, gp.Name)
+			pins = append(pins, fmt.Sprintf("\tif len(%s) > 0 {\n\t\t_pin.Pin(sliceData(%s))\n\t}\n", gp.Name, gp.Name))
+			if wordDirect {
+				convs = append(convs, "\t"+u+" := uintptr(sliceData("+gp.Name+"))\n")
+				wordArgs = append(wordArgs, u)
+			}
 		default:
 			if q, ok := lengthOf[i]; ok {
 				lt := e.rawType(p.Type)
@@ -633,7 +785,9 @@ func (e *goEmitter) typedFunc(f *BoundFunc) {
 						n += "*" + strconv.FormatInt(es, 10)
 					}
 				}
-				args = append(args, lt+"("+n+")")
+				expr := lt + "(" + n + ")"
+				args = append(args, expr)
+				wordArgs = append(wordArgs, "uintptr("+expr+")")
 				continue
 			}
 			rt := e.rawType(p.Type)
@@ -642,20 +796,36 @@ func (e *goEmitter) typedFunc(f *BoundFunc) {
 				e.fill(gp.Name, p.Type, 0)
 				args = append(args, "toABI["+rt+"]("+gp.Name+")")
 			} else if gp.Type != rt {
-				args = append(args, rt+"("+gp.Name+")")
+				expr := rt + "(" + gp.Name + ")"
+				args = append(args, expr)
+				if rt == "bool" {
+					wordArgs = append(wordArgs, "boolWord("+expr+")")
+				} else if rt == "uintptr" {
+					wordArgs = append(wordArgs, expr)
+				} else {
+					wordArgs = append(wordArgs, "uintptr("+expr+")")
+				}
 			} else {
 				args = append(args, gp.Name)
+				if rt == "bool" {
+					wordArgs = append(wordArgs, "boolWord("+gp.Name+")")
+				} else if rt == "uintptr" {
+					wordArgs = append(wordArgs, gp.Name)
+				} else {
+					wordArgs = append(wordArgs, "uintptr("+gp.Name+")")
+				}
 			}
 		}
 	}
-	// Callbacks: the registry entries before the C call (emitcb.go).
-	uses := e.cbUses(f, goParam)
-	for _, u := range uses {
-		e.cbCheck(u, ret("ErrKeyInUse"))
-	}
+	// Callbacks: the registry entries before pinning and the C call (emitcb.go).
 	for _, u := range uses {
 		e.cbBefore(u, s.Status)
 	}
+	// Pin every Go pointer BEFORE any uintptr conversion for SyscallN.
+	hasPin := len(pins) > 0
+	e.emitPinPhase(pins)
+	e.emitConvPhase(convs)
+
 	// With bound callbacks, the typed call takes the panic pending on its OS
 	// thread right after the C call (_p, emitthread.go): a callback that
 	// panicked during the C call ran on this goroutine and locked it to the
@@ -663,11 +833,39 @@ func (e *goEmitter) typedFunc(f *BoundFunc) {
 	// follows the status, before a result is converted.
 	guard := e.guardsCalls()
 	call := rawName(c.Name) + "(" + strings.Join(args, ", ") + ")"
-	switch {
-	case c.Result.Kind == TypeVoid:
-		e.p("\t%s\n", call)
-	default:
-		e.p("\t_r := %s\n", call)
+	if wordDirect {
+		wordCall := fmt.Sprintf("cCall0(symAddrs[%d])", symIdx)
+		if useBuf {
+			wordCall = fmt.Sprintf("cCall(symAddrs[%d], _buf, %d)", symIdx, len(c.Params))
+		}
+		if c.Result.Kind == TypeVoid {
+			e.p("\tif forceRegisterFunc {\n\t\t%s\n\t} else {\n", call)
+			for i, wa := range wordArgs {
+				e.p("\t\t_buf.args[%d] = %s\n", i, wa)
+			}
+			e.p("\t\t%s\n\t}\n", wordCall)
+		} else {
+			rr := e.rawType(c.Result)
+			e.p("\tvar _r %s\n\tif forceRegisterFunc {\n\t\t_r = %s\n\t} else {\n", rr, call)
+			for i, wa := range wordArgs {
+				e.p("\t\t_buf.args[%d] = %s\n", i, wa)
+			}
+			switch rr {
+			case "bool":
+				e.p("\t\t_r = uint8(%s) != 0\n\t}\n", wordCall)
+			case "uintptr":
+				e.p("\t\t_r = %s\n\t}\n", wordCall)
+			default:
+				e.p("\t\t_r = %s(%s)\n\t}\n", rr, wordCall)
+			}
+		}
+	} else {
+		switch {
+		case c.Result.Kind == TypeVoid:
+			e.p("\t%s\n", call)
+		default:
+			e.p("\t_r := %s\n", call)
+		}
 	}
 	if guard {
 		e.p("\t_p := cbTake()\n")
@@ -677,14 +875,16 @@ func (e *goEmitter) typedFunc(f *BoundFunc) {
 			e.p("%sif _p != nil {\n%s\tpanic(_p)\n%s}\n", indent, indent, indent)
 		}
 	}
-	for _, v := range keep {
-		// Only a function that passes Go memory imports runtime.
-		e.p("\t%s.KeepAlive(%s)\n", e.use("runtime"), v)
-	}
 	if s.Status {
 		e.p("\tif err := statusError(_r); err != nil {\n")
 		for _, u := range uses {
 			e.cbFailed(u)
+		}
+		if hasPin {
+			e.p("\t\t_pin.Unpin()\n")
+		}
+		if useBuf {
+			e.p("\t\twordPool.Put(_buf)\n")
 		}
 		raise("\t\t")
 		e.p("\t\t%s\n\t}\n", ret("err"))
@@ -702,6 +902,18 @@ func (e *goEmitter) typedFunc(f *BoundFunc) {
 				e.p("\t%s.p = 0\n", p.Name)
 			}
 		}
+	}
+	// Copy out-values out of pooled scratch before unpinning and returning _buf.
+	for _, i := range pooledOutIdx {
+		nv := "_out" + strconv.Itoa(i)
+		e.p("\t%s := *%s\n", nv, outVar[i])
+		outVar[i] = nv
+	}
+	if hasPin {
+		e.p("\t_pin.Unpin()\n")
+	}
+	if useBuf {
+		e.p("\twordPool.Put(_buf)\n")
 	}
 	raise("\t")
 	var outs []string

@@ -7,7 +7,7 @@
 //   - dlfcn_linux.go: RTLD_NOW, RTLD_LOCAL (dlfcn_darwin.go has other
 //     values of the same untyped constants);
 //   - func.go: RegisterFunc;
-//   - syscall_unix.go: NewCallback.
+//   - syscall_unix.go: NewCallback, SyscallN.
 //
 // Every body panics: the stub is type-checked, never run. TestLive builds
 // the same packages against the real module (testdata/purego.sum).
@@ -32,3 +32,6 @@ func RegisterFunc(fptr any, cfn uintptr) { panic("purego stub") }
 
 // NewCallback is syscall_unix.go's NewCallback.
 func NewCallback(fn any) uintptr { panic("purego stub") }
+
+// SyscallN is syscall_unix.go's SyscallN.
+func SyscallN(trap uintptr, args ...uintptr) (r1, r2, err uintptr) { panic("purego stub") }
