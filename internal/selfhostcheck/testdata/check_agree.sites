@@ -19,6 +19,7 @@ case examples/backups/cmd/backups
 case examples/backups/keeper
 case examples/backups/memory
 case examples/backups/usage
+case examples/board/cmd/board
 case examples/bookmarks/cmd/bookmarks
 case examples/bookmarks/disk
 case examples/bookmarks/settings
@@ -824,6 +825,15 @@ case flow seed 99
 case internal/selfhostcheck/testdata/agree/claim-laws/box
 case internal/selfhostcheck/testdata/agree/claim-laws/refused
 case internal/selfhostcheck/testdata/agree/claim-laws/role
+case internal/selfhostcheck/testdata/agree/claim-lookup/alias-ok
+case internal/selfhostcheck/testdata/agree/claim-lookup/ambiguous
+case internal/selfhostcheck/testdata/agree/claim-lookup/base
+case internal/selfhostcheck/testdata/agree/claim-lookup/exta
+case internal/selfhostcheck/testdata/agree/claim-lookup/extb
+case internal/selfhostcheck/testdata/agree/claim-lookup/no-import
+case internal/selfhostcheck/testdata/agree/claim-lookup/ok
+case internal/selfhostcheck/testdata/agree/claim-lookup/plain-func
+case internal/selfhostcheck/testdata/agree/claim-lookup/sibling-import
 case internal/selfhostcheck/testdata/agree/context-fails-import
 case internal/selfhostcheck/testdata/agree/func-claim/client
 case internal/selfhostcheck/testdata/agree/func-claim/crossing
@@ -1056,6 +1066,7 @@ case internal/sketch/std/machines
 case internal/sketch/std/maps
 case internal/sketch/std/math
 case internal/sketch/std/mcp
+case internal/sketch/std/mcp/httpmcp
 case internal/sketch/std/mcp/memory
 case internal/sketch/std/mcp/stdio
 case internal/sketch/std/net
@@ -1093,6 +1104,7 @@ case internal/sketch/std/strings
 case internal/sketch/std/sync
 case internal/sketch/std/task
 case internal/sketch/std/tasks
+case internal/sketch/std/temporal
 case internal/sketch/std/term
 case internal/sketch/std/testing
 case internal/sketch/std/text
@@ -1316,6 +1328,7 @@ case unused internal/sketch/std/llm/memory/scripted.ergo
 case unused internal/sketch/std/llm/recorded/recorded.ergo
 case unused internal/sketch/std/log/level.ergo
 case unused internal/sketch/std/maps/maps.ergo
+case unused internal/sketch/std/mcp/httpmcp/httpmcp.ergo
 case unused internal/sketch/std/mcp/mcp.ergo
 case unused internal/sketch/std/mcp/memory/memory.ergo
 case unused internal/sketch/std/mcp/stdio/stdio.ergo
@@ -1339,6 +1352,7 @@ case unused internal/sketch/std/sql/sql.ergo
 case unused internal/sketch/std/sqltest/script.ergo
 case unused internal/sketch/std/stream/debounced.ergo
 case unused internal/sketch/std/strings/bytes.ergo
+case unused internal/sketch/std/temporal/temporal.ergo
 case unused internal/sketch/std/testing/stage.ergo
 case unused internal/sketch/std/text/span.ergo
 case unused internal/sketch/std/url/url.ergo
@@ -1376,9 +1390,7 @@ site S104 missing in internal/sketch/check/testdata/v1/B6-case-domain.neg.ergo: 
 site S104 missing in internal/sketch/check/testdata/v1/D5-builtins.neg.ergo: D5-builtins.neg.ergo 13:2: S104 println is not predeclared in Ergo; write Console.Println("…")
 site S104 missing in internal/sketch/check/testdata/v1/D5-builtins.neg.ergo: D5-builtins.neg.ergo 5:2: S104 append is not predeclared in Ergo; write xs.Append(x)
 site S104 missing in internal/sketch/check/testdata/v1/D5-builtins.neg.ergo: D5-builtins.neg.ergo 9:2: S104 cap is not predeclared in Ergo; a slice's capacity is not part of the language; use len
-site S104 missing in internal/sketch/check/testdata/v1/D6-dot-calls.neg.ergo: D6-dot-calls.neg.ergo 17:4: S104 int has no field or method Double
 site S104 missing in internal/sketch/check/testdata/v1/D6-dot-calls.neg.ergo: D6-dot-calls.neg.ergo 22:12: S104 Order has no field or method Fee
-site S104 missing in internal/sketch/check/testdata/v1/D6-dot-calls.neg.ergo: D6-dot-calls.neg.ergo 27:4: S104 Order has no field or method Fee
 site S104 missing in internal/sketch/check/testdata/v1/E1-generics.neg.ergo: E1-generics.neg.ergo 11:11: S104 unknown type T
 site S104 missing in internal/sketch/check/testdata/v1/E2-closed-world.neg.ergo: E2-closed-world.neg.ergo 10:13: S104 Ergo has no any; use a type parameter or a union (types.md, Basic types)
 site S104 missing in internal/sketch/check/testdata/v1/E2-closed-world.neg.ergo: E2-closed-world.neg.ergo 14:13: S104 Ergo has no any; a parameter without a constraint is written bare, [T], and any only ends such a group before a constrained one, [E any, K comparable] (types.md, Generics 2)
