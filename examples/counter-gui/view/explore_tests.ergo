@@ -1,0 +1,92 @@
+import actor
+import ergo.local/prototype/examples/countergui/counter
+import gen
+import temporal
+import time
+import ui
+
+func exploreCounter(steps int) ui.Finding needs gen.Draws {
+	let clock = time.NewManual(0)
+	with context { Scheduler: clock } {
+		let app = actor.StartMachine(counter.Counter{}, 16, func(c counter.Count) { let _ = c })
+		let mut h = ui.NewTestHost(app, View, clock, 64) catch {
+		case ui.BadPatch as bp:
+			app.Stop()
+			return ui.Found{Script: []ui.Act{}, Step: 0, Violation: bp.Why}
+		}
+		let mut props = ui.DefaultsWith[counter.Count, counter.Op](1s)
+		props = props.Append(temporal.Always[ui.ExploreSnapshot[counter.Count, counter.Op]](
+			temporal.Named[ui.ExploreSnapshot[counter.Count, counter.Op]]("count-non-negative", func(s ui.ExploreSnapshot[counter.Count, counter.Op]) bool {
+				s.State.Value >= 0
+			}),
+		))
+		props = props.Append(temporal.Always[ui.ExploreSnapshot[counter.Count, counter.Op]](
+			temporal.Named[ui.ExploreSnapshot[counter.Count, counter.Op]]("step-offered", func(s ui.ExploreSnapshot[counter.Count, counter.Op]) bool {
+				s.State.By == 1 || s.State.By == 5 || s.State.By == 10
+			}),
+		))
+		props = props.Append(temporal.Always[ui.ExploreSnapshot[counter.Count, counter.Op]](
+			temporal.Named[ui.ExploreSnapshot[counter.Count, counter.Op]]("screen-shows-count", func(s ui.ExploreSnapshot[counter.Count, counter.Op]) bool {
+				hasText(s.Screen, "count \(s.State.Value)")
+			}),
+		))
+		props = props.Append(temporal.Always[ui.ExploreSnapshot[counter.Count, counter.Op]](
+			temporal.Named[ui.ExploreSnapshot[counter.Count, counter.Op]]("all-controls-offered", func(s ui.ExploreSnapshot[counter.Count, counter.Op]) bool {
+				hasAllOffers(s.Offers, []string{"dec", "inc", "reset", "by 1", "by 5", "by 10"})
+			}),
+		))
+		let finding = ui.Explore(&h, props, ui.ExploreConfig{Steps: steps, Swarm: false, AdvanceStep: 500ms, Weights: Map[string, int]{}})
+		app.Stop()
+		finding
+	}
+}
+
+func hasAllOffers(offers []ui.Offer, labels []string) bool {
+	for want in labels {
+		let mut found = false
+		for o in offers {
+			if o.Label == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	true
+}
+
+func hasText(shapes []ui.Shape[counter.Op], want string) bool {
+	for s in shapes {
+		match s.Node {
+		case ui.TextNode as t:
+			if t.Value == want {
+				return true
+			}
+		case _:
+		}
+		if hasText(s.Kids, want) {
+			return true
+		}
+	}
+	false
+}
+
+// Explored verifies via autonomous ui.Explore walks that the counter screen
+// keeps unambiguous controls, valid focus, settled loads/frames, non-negative
+// counts, valid step choices, and a rendered count matching machine state.
+law Explored() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 20, Shrinks: 120, MaxDraws: 4096, MaxRejected: 100}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		match exploreCounter(20) {
+		case ui.Clean:
+			true
+		case ui.Found as f:
+			gen.Draws.Show("finding", "step \(f.Step): \(f.Violation)")
+			false
+		}
+	})
+	assert gen.Report(outcome) == ""
+	true
+}

@@ -1,0 +1,102 @@
+import gen
+import strings
+import sync
+import testing
+
+type countingDownloader {
+	reads sync.Ref[int],
+	saves sync.Ref[int],
+} implements Downloader
+
+func Read(d countingDownloader, url string) string fails Denied | Failed {
+	d.reads.Update(func(n int) int { n + 1 })
+	if url == "" {
+		return Failed{Reason: "empty url"}
+	}
+	"body:" + url
+}
+
+func Save(d countingDownloader, url string, path string) fails Denied | Failed {
+	d.saves.Update(func(n int) int { n + 1 })
+	if url == "" {
+		return Failed{Reason: "empty url"}
+	}
+	let _ = path
+}
+
+// WorkflowsHandleFaultyDownloader verifies via testing.Faulty[Downloader] that
+// Run and Store map every injected Denied and Failed fault cleanly without
+// invoking the wrapped inner provider, while returning success when un-faulted.
+law WorkflowsHandleFaultyDownloader() {
+	let sawReadOk = sync.NewRef(false)
+	let sawReadDenied = sync.NewRef(false)
+	let sawReadFailed = sync.NewRef(false)
+	let sawSaveOk = sync.NewRef(false)
+	let sawSaveDenied = sync.NewRef(false)
+	let sawSaveFailed = sync.NewRef(false)
+	let cfg = gen.Config{Seed: uint64(1), Cases: 45, Shrinks: 100, MaxDraws: 1024, MaxRejected: 50}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let inner = countingDownloader{reads: sync.NewRef(0), saves: sync.NewRef(0)}
+		let faulty = testing.Faulty[Downloader](inner)
+		with context { Downloader: faulty } {
+			let body = Run("https://example.com/data")
+			let readFaults = faulty.Read.Faults()
+			if len(readFaults) > 0 {
+				if inner.reads.Get() != 0 {
+					gen.Draws.Show("read-fault", "inner.Read invoked despite injected fault")
+					return false
+				}
+				if readFaults[0].Failure == "Denied" {
+					sawReadDenied.Set(true)
+					if !strings.HasPrefix(body, "refused origin ") {
+						return false
+					}
+				} else {
+					sawReadFailed.Set(true)
+					if !strings.HasPrefix(body, "download failed: ") {
+						return false
+					}
+				}
+			} else {
+				sawReadOk.Set(true)
+				if inner.reads.Get() != 1 || body != "body:https://example.com/data" {
+					return false
+				}
+			}
+
+			let saved = Store("https://example.com/data", "/tmp/out.bin")
+			let saveFaults = faulty.Save.Faults()
+			if len(saveFaults) > 0 {
+				if inner.saves.Get() != 0 {
+					gen.Draws.Show("save-fault", "inner.Save invoked despite injected fault")
+					return false
+				}
+				if saveFaults[0].Failure == "Denied" {
+					sawSaveDenied.Set(true)
+					if !strings.HasPrefix(saved, "refused origin ") {
+						return false
+					}
+				} else {
+					sawSaveFailed.Set(true)
+					if !strings.HasPrefix(saved, "download failed: ") {
+						return false
+					}
+				}
+			} else {
+				sawSaveOk.Set(true)
+				if inner.saves.Get() != 1 || saved != "saved /tmp/out.bin" {
+					return false
+				}
+			}
+			true
+		}
+	})
+	assert gen.Report(outcome) == ""
+	assert sawReadOk.Get()
+	assert sawReadDenied.Get()
+	assert sawReadFailed.Get()
+	assert sawSaveOk.Get()
+	assert sawSaveDenied.Get()
+	assert sawSaveFailed.Get()
+	true
+}

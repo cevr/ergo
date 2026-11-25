@@ -1,0 +1,61 @@
+import actor
+import gen
+import permitwizard/desk
+import permitwizard/screen
+import strings
+import temporal
+import time
+import ui
+
+func noIgnoredEntries(entries []desk.Entry) bool {
+	for e in entries {
+		if strings.Contains(e.Summary, " ignored in ") {
+			return false
+		}
+	}
+	true
+}
+
+func exploreWizard(steps int) ui.Finding needs gen.Draws {
+	let clock = time.NewManual(0)
+	with context { Scheduler: clock } {
+		let clerk = actor.StartMachine(desk.Inspector{}, 16, func(o Never) { let _ = o })
+		let mut h = ui.NewTestHost(clerk, screen.Screen, clock, 64) catch {
+		case ui.BadPatch as bp:
+			clerk.Stop()
+			return ui.Found{Script: []ui.Act{}, Step: 0, Violation: bp.Why}
+		}
+		let mut props = ui.DefaultsWith[desk.Desk, desk.Signal](2s)
+		props = props.Append(temporal.Always[ui.ExploreSnapshot[desk.Desk, desk.Signal]](
+			temporal.Named[ui.ExploreSnapshot[desk.Desk, desk.Signal]]("log-within-limit", func(s ui.ExploreSnapshot[desk.Desk, desk.Signal]) bool {
+				len(s.State.Log) <= desk.LogLimit && s.State.Next >= len(s.State.Log)
+			}),
+		))
+		props = props.Append(temporal.Always[ui.ExploreSnapshot[desk.Desk, desk.Signal]](
+			temporal.Named[ui.ExploreSnapshot[desk.Desk, desk.Signal]]("screen-offers-only-transitions", func(s ui.ExploreSnapshot[desk.Desk, desk.Signal]) bool {
+				noIgnoredEntries(s.State.Log)
+			}),
+		))
+		let finding = ui.Explore(&h, props, ui.ExploreConfig{Steps: steps, Swarm: false, AdvanceStep: 500ms, Weights: Map[string, int]{}})
+		clerk.Stop()
+		finding
+	}
+}
+
+// Explored verifies via autonomous ui.Explore walks over the permit wizard
+// screen that controls stay unambiguous, focus stays valid, the inspector log
+// stays bounded by desk.LogLimit, and no offered control triggers an ignored step.
+law Explored() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 18, Shrinks: 120, MaxDraws: 4096, MaxRejected: 100}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		match exploreWizard(22) {
+		case ui.Clean:
+			true
+		case ui.Found as f:
+			gen.Draws.Show("finding", "step \(f.Step): \(f.Violation)")
+			false
+		}
+	})
+	assert gen.Report(outcome) == ""
+	true
+}

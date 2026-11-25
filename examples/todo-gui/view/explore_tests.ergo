@@ -1,0 +1,66 @@
+import actor
+import ergo.local/prototype/examples/todogui/todo
+import gen
+import temporal
+import time
+import ui
+
+func listInvariant(l todo.List) bool {
+	let mut open = 0
+	let mut prev = 0
+	for it in l.Items {
+		if it.Id <= prev || it.Id >= l.Next || it.Text == "" {
+			return false
+		}
+		prev = it.Id
+		if !it.Done {
+			open = open + 1
+		}
+	}
+	l.Left == open && len(todo.Shown(l)) <= len(l.Items)
+}
+
+func exploreTodo(steps int) ui.Finding needs gen.Draws {
+	let clock = time.NewManual(0)
+	with context { Scheduler: clock } {
+		let app = actor.StartMachine(todo.Todo{}, 16, func(l todo.List) { let _ = l })
+		let mut h = ui.NewTestHost(app, View, clock, 64) catch {
+		case ui.BadPatch as bp:
+			app.Stop()
+			return ui.Found{Script: []ui.Act{}, Step: 0, Violation: bp.Why}
+		}
+		let props = []temporal.Formula[ui.ExploreSnapshot[todo.List, todo.Op]]{
+			temporal.Always[ui.ExploreSnapshot[todo.List, todo.Op]](
+				temporal.Named[ui.ExploreSnapshot[todo.List, todo.Op]]("focus-valid", func(s ui.ExploreSnapshot[todo.List, todo.Op]) bool {
+					s.FocusValid
+				}),
+			),
+			temporal.Always[ui.ExploreSnapshot[todo.List, todo.Op]](
+				temporal.Named[ui.ExploreSnapshot[todo.List, todo.Op]]("list-invariant", func(s ui.ExploreSnapshot[todo.List, todo.Op]) bool {
+					listInvariant(s.State)
+				}),
+			),
+		}
+		let finding = ui.Explore(&h, props, ui.ExploreConfig{Steps: steps, Swarm: false, AdvanceStep: 200ms, Weights: Map[string, int]{}})
+		app.Stop()
+		finding
+	}
+}
+
+// Explored verifies via autonomous ui.Explore walks over the todo screen that
+// focus stays valid, Left always equals the open-item count, item IDs stay
+// strictly increasing with non-empty text, and Shown stays bounded by Items.
+law Explored() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 18, Shrinks: 120, MaxDraws: 4096, MaxRejected: 100}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		match exploreTodo(20) {
+		case ui.Clean:
+			true
+		case ui.Found as f:
+			gen.Draws.Show("finding", "step \(f.Step): \(f.Violation)")
+			false
+		}
+	})
+	assert gen.Report(outcome) == ""
+	true
+}

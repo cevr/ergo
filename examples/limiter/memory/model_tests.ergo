@@ -1,0 +1,210 @@
+import gen
+import limiter/bucket
+import limiter/limits
+import machines
+import queue
+import strings
+import sync
+import temporal
+import testing
+
+type limAct = limTake{Cost int} | limAdvance{Ms int}
+
+type limObs {
+	Kind         string,
+	Granted      bool,
+	Remaining    int,
+	RetryAfterMs int,
+	BadCost      bool,
+	LevelTag     string,
+	FullWindow   bool,
+}
+
+func levelTag(l limits.Level) string {
+	match l {
+	case limits.Full:
+		"full"
+	case limits.Partial as p:
+		"partial:\(p.Tokens)"
+	case limits.Empty as e:
+		"empty:\(e.RetryAfterMs)"
+	}
+}
+
+func offerLimAct(b bucket.Bucket) limAct needs gen.Draws {
+	if b.Tokens == 0 && gen.IntIn(0, 2) > 0 {
+		return limAdvance{Ms: gen.OneOf([]int{25, 50, 100, 200})}
+	}
+	if gen.IntIn(0, 3) == 0 {
+		return limAdvance{Ms: gen.OneOf([]int{0, 25, 50, 200})}
+	}
+	limTake{Cost: gen.IntIn(0, b.Capacity+1)}
+}
+
+func stepLimModel(b bucket.Bucket, a limAct) (bucket.Bucket, limObs) {
+	match a {
+	case limAdvance as adv:
+		let next = machines.Next(b, bucket.Step(b, bucket.Elapse{Ms: adv.Ms}))
+		(next, limObs{
+			Kind:         "advance",
+			Granted:      false,
+			Remaining:    0,
+			RetryAfterMs: 0,
+			BadCost:      false,
+			LevelTag:     levelTag(bucket.LevelOf(next)),
+			FullWindow:   adv.Ms >= b.Capacity*b.RefillMs,
+		})
+	case limTake as tk:
+		let d = bucket.Step(b, bucket.Spend{Cost: tk.Cost})
+		let next = machines.Next(b, d)
+		match d {
+		case Emit[bucket.Bucket, bucket.Told] as e:
+			match e.Output {
+			case bucket.Granted as g:
+				(next, limObs{
+					Kind:         "take",
+					Granted:      true,
+					Remaining:    g.Remaining,
+					RetryAfterMs: 0,
+					BadCost:      false,
+					LevelTag:     levelTag(bucket.LevelOf(next)),
+					FullWindow:   false,
+				})
+			case bucket.Short as s:
+				(next, limObs{
+					Kind:         "take",
+					Granted:      false,
+					Remaining:    0,
+					RetryAfterMs: s.RetryAfterMs,
+					BadCost:      false,
+					LevelTag:     levelTag(bucket.LevelOf(next)),
+					FullWindow:   false,
+				})
+			}
+		case Reject, Enter[bucket.Bucket], Stay[bucket.Bucket], Tell[bucket.Bucket, bucket.Told], Ignore, Done[bucket.Told]:
+			(next, limObs{
+				Kind:         "take",
+				Granted:      false,
+				Remaining:    0,
+				RetryAfterMs: 0,
+				BadCost:      true,
+				LevelTag:     levelTag(bucket.LevelOf(next)),
+				FullWindow:   false,
+			})
+		}
+	}
+}
+
+func limStage(m Memory, spec bucket.Spec) testing.Stage[limAct, limObs] {
+	let last = sync.NewRef(limObs{Kind: "init", Granted: false, Remaining: 0, RetryAfterMs: 0, BadCost: false, LevelTag: "full", FullWindow: false})
+	let st = testing.FuncProvider[testing.Stage[limAct, limObs]]{}
+	testing.Set(st.Do, func(a limAct) fails testing.Refused {
+		let obs = match a {
+		case limAdvance as adv:
+			Advance(m, adv.Ms)
+			let lvl = match Peek(m, "api") {
+			case Some[limits.Level] as l:
+				levelTag(l.Value)
+			case None:
+				return testing.Refused{Why: "missing bucket"}
+			}
+			limObs{
+				Kind:         "advance",
+				Granted:      false,
+				Remaining:    0,
+				RetryAfterMs: 0,
+				BadCost:      false,
+				LevelTag:     lvl,
+				FullWindow:   adv.Ms >= spec.Capacity*spec.RefillMs,
+			}
+		case limTake as tk:
+			let mut granted = true
+			let mut rem = 0
+			let mut retry = 0
+			let mut bad = false
+			let g = Take(m, "api", tk.Cost) catch {
+			case limits.Limited as l:
+				granted = false
+				retry = l.RetryAfterMs
+				limits.Grant{Remaining: 0}
+			case limits.BadCost:
+				granted = false
+				bad = true
+				limits.Grant{Remaining: 0}
+			case limits.UnknownBucket:
+				return testing.Refused{Why: "unknown bucket"}
+			}
+			if granted {
+				rem = g.Remaining
+			}
+			let lvl = match Peek(m, "api") {
+			case Some[limits.Level] as l:
+				levelTag(l.Value)
+			case None:
+				return testing.Refused{Why: "missing bucket"}
+			}
+			limObs{
+				Kind:         "take",
+				Granted:      granted,
+				Remaining:    rem,
+				RetryAfterMs: retry,
+				BadCost:      bad,
+				LevelTag:     lvl,
+				FullWindow:   false,
+			}
+		}
+		last.Set(obs)
+	})
+	testing.Set(st.Advance, func(d duration) { let _ = d })
+	testing.Set(st.Settle, func() {})
+	testing.Set(st.Show, func() limObs { last.Get() })
+	st
+}
+
+// MemoryMatchesBucketModel verifies via testing.Model and temporal formulas
+// that memory.Memory agrees with the pure bucket machine across state-dependent
+// Take and Advance sequences while keeping granted remaining tokens in bounds,
+// RetryAfterMs positive on Limited takes, and full-window advances restoring Full.
+law MemoryMatchesBucketModel() {
+	let spec = bucket.Spec{Capacity: 4, RefillMs: 50}
+	let model = testing.Model[bucket.Bucket, limAct, limObs]{
+		Start: bucket.Open(spec),
+		Offer: offerLimAct,
+		Step:  stepLimModel,
+	}
+	let formulas = []temporal.Formula[limObs]{
+		temporal.Always[limObs](temporal.Named[limObs]("remaining-in-bounds", func(o limObs) bool {
+			!o.Granted || (o.Remaining >= 0 && o.Remaining <= spec.Capacity)
+		})),
+		temporal.Always[limObs](temporal.Named[limObs]("retry-after-positive", func(o limObs) bool {
+			o.Kind != "take" || o.Granted || o.BadCost || o.RetryAfterMs >= 1
+		})),
+		temporal.Always[limObs](temporal.Named[limObs]("level-tag-well-formed", func(o limObs) bool {
+			o.LevelTag == "full" || strings.HasPrefix(o.LevelTag, "partial:") || strings.HasPrefix(o.LevelTag, "empty:")
+		})),
+		temporal.Always[limObs](temporal.Implies[limObs](
+			temporal.Named[limObs]("full-window-elapsed", func(o limObs) bool { o.FullWindow }),
+			temporal.Named[limObs]("refilled-to-full", func(o limObs) bool { o.LevelTag == "full" }),
+		)),
+	}
+	let cfg = gen.Config{Seed: uint64(1), Cases: 30, Shrinks: 120, MaxDraws: 2048, MaxRejected: 50}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let mut specs = Map[string, bucket.Spec]{}
+		specs["api"] = spec
+		let st = limStage(New(specs, queue.New[Note](16)), spec)
+		testing.AgreesAnd(model, st, 20, formulas) catch {
+		case testing.Diverged[limAct, limObs] as d:
+			gen.Draws.Show("diverged", "step \(d.At): want=\(d.Want.Kind)/\(d.Want.LevelTag) got=\(d.Got.Kind)/\(d.Got.LevelTag)")
+			return false
+		case testing.TemporalBreach[limAct, limObs] as tb:
+			gen.Draws.Show("temporal", "formula \(tb.FormulaIndex): \(temporal.FormatVerdict(tb.Verdict))")
+			return false
+		case testing.Refused as r:
+			gen.Draws.Show("refused", r.Why)
+			return false
+		}
+		true
+	})
+	assert gen.Report(outcome) == ""
+	true
+}

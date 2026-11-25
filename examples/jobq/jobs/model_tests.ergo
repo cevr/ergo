@@ -1,0 +1,219 @@
+import actor
+import gen
+import strings
+import sync
+import temporal
+import testing
+import time
+
+type jobAct = actStart{At duration, Takes duration} | actFinish{At duration, Res Result} | actObserve{}
+
+type jobModelState {
+	Phase   Phase,
+	Done    bool,
+	Outcome string,
+	Attempt int,
+	Policy  Policy,
+}
+
+type jobObs {
+	PhaseTag string,
+	Done     bool,
+	Outcome  string,
+	Attempt  int,
+}
+
+func outcomeTag(o Outcome) string {
+	match o {
+	case Succeeded as s:
+		"ok:\(s.N)"
+	case GaveUp as g:
+		"gaveup:\(g.N)"
+	}
+}
+
+func phaseTag(p Phase) string {
+	match p {
+	case Queued as q:
+		"queued:\(q.N)"
+	case Running as r:
+		"running:\(r.N)"
+	}
+}
+
+func offerJobAct(s jobModelState) jobAct needs gen.Draws {
+	if s.Done {
+		let _ = gen.Bool()
+		return actObserve
+	}
+	match s.Phase {
+	case Queued as q:
+		let extra = duration(int64(gen.IntIn(0, 3)) * int64(25ms))
+		let early = gen.IntIn(0, 4) == 0 && q.Ready > 0s
+		let at = if early { q.Ready - 1ms } else { q.Ready + extra }
+		let cost = duration(int64(gen.IntIn(1, 3)) * int64(50ms))
+		actStart{At: at, Takes: cost}
+	case Running as r:
+		let extra = duration(int64(gen.IntIn(0, 2)) * int64(25ms))
+		let early = gen.IntIn(0, 4) == 0 && r.Ends > 0s
+		let at = if early { r.Ends - 1ms } else { r.Ends + extra }
+		let res Result = match gen.IntIn(0, 3) {
+		case 0:
+			Ok
+		case 1:
+			Fatal{Reason: "bad"}
+		case _:
+			Transient{Reason: "busy"}
+		}
+		actFinish{At: at, Res: res}
+	}
+}
+
+func stepJobModel(s jobModelState, a jobAct) (jobModelState, jobObs) {
+	if s.Done {
+		return (s, jobObs{PhaseTag: "done", Done: true, Outcome: s.Outcome, Attempt: s.Attempt})
+	}
+	match a {
+	case actObserve:
+		(s, jobObs{PhaseTag: phaseTag(s.Phase), Done: false, Outcome: "", Attempt: s.Attempt})
+	case actStart as st:
+		match s.Phase {
+		case Queued as q:
+			let next = StartJob(q, st.At, st.Takes) catch {
+			case TooEarly:
+				return (s, jobObs{PhaseTag: phaseTag(s.Phase), Done: false, Outcome: "", Attempt: s.Attempt})
+			}
+			let ns = jobModelState{..s, Phase: next, Attempt: next.N}
+			(ns, jobObs{PhaseTag: phaseTag(next), Done: false, Outcome: "", Attempt: next.N})
+		case Running:
+			(s, jobObs{PhaseTag: phaseTag(s.Phase), Done: false, Outcome: "", Attempt: s.Attempt})
+		}
+	case actFinish as fn:
+		match s.Phase {
+		case Running as r:
+			let res = FinishJob(r, fn.At, fn.Res, s.Policy) catch {
+			case TooEarly:
+				return (s, jobObs{PhaseTag: phaseTag(s.Phase), Done: false, Outcome: "", Attempt: s.Attempt})
+			}
+			match res {
+			case Finished as d:
+				let tag = outcomeTag(d.Output)
+				let ns = jobModelState{..s, Done: true, Outcome: tag, Attempt: r.N}
+				(ns, jobObs{PhaseTag: "done", Done: true, Outcome: tag, Attempt: r.N})
+			case Retry as rt:
+				let ns = jobModelState{..s, Phase: rt.Next, Attempt: rt.Next.N}
+				(ns, jobObs{PhaseTag: phaseTag(rt.Next), Done: false, Outcome: "", Attempt: rt.Next.N})
+			}
+		case Queued:
+			(s, jobObs{PhaseTag: phaseTag(s.Phase), Done: false, Outcome: "", Attempt: s.Attempt})
+		}
+	}
+}
+
+func jobActorStage(p Policy) (testing.Stage[jobAct, jobObs], actor.Actor[Phase, Signal, Decision[Phase, Outcome]]) needs Scheduler {
+	let doneRef = sync.NewRef[Option[Outcome]](None)
+	let app = actor.StartMachine(Life{}, 16, func(o Outcome) {
+		doneRef.Set(Some[Outcome]{Value: o})
+	})
+	let attemptOf = func(ph Phase) int {
+		match ph {
+		case Queued as q:
+			q.N
+		case Running as r:
+			r.N
+		}
+	}
+	let readObs = func() jobObs {
+		match doneRef.Get() {
+		case Some[Outcome] as o:
+			let att = match o.Value {
+			case Succeeded as s:
+				s.N
+			case GaveUp as g:
+				g.N
+			}
+			jobObs{PhaseTag: "done", Done: true, Outcome: outcomeTag(o.Value), Attempt: att}
+		case None:
+			let ph = app.State()
+			jobObs{PhaseTag: phaseTag(ph), Done: false, Outcome: "", Attempt: attemptOf(ph)}
+		}
+	}
+	let st = testing.FuncProvider[testing.Stage[jobAct, jobObs]]{}
+	testing.Set(st.Do, func(a jobAct) fails testing.Refused {
+		match a {
+		case actObserve:
+		case actStart as s:
+			let _ = app.Ask(Start{At: s.At, Takes: s.Takes}) catch {
+			case actor.Stopped:
+				Reject
+			}
+		case actFinish as f:
+			let _ = app.Ask(Finish{At: f.At, R: f.Res, P: p}) catch {
+			case actor.Stopped:
+				Reject
+			}
+		}
+	})
+	testing.Set(st.Advance, func(d duration) { let _ = d })
+	testing.Set(st.Settle, func() {})
+	testing.Set(st.Show, readObs)
+	(st, app)
+}
+
+// LifeActorMatchesModel verifies via testing.Model and temporal formulas that
+// the Life machine running as an actor agrees with StartJob/FinishJob across
+// state-dependent Start/Finish traces while keeping attempts within Policy and
+// locking terminal outcomes once reached.
+law LifeActorMatchesModel() {
+	let policy = Policy{Attempts: 3, Base: 50ms, Max: 200ms}
+	let model = testing.Model[jobModelState, jobAct, jobObs]{
+		Start: jobModelState{Phase: Fresh(0s), Done: false, Outcome: "", Attempt: 1, Policy: policy},
+		Offer: offerJobAct,
+		Step:  stepJobModel,
+	}
+	let formulas = []temporal.Formula[jobObs]{
+		temporal.Always[jobObs](temporal.Named[jobObs]("attempt-within-policy", func(o jobObs) bool {
+			o.Attempt >= 1 && o.Attempt <= policy.Attempts
+		})),
+		temporal.Always[jobObs](temporal.Named[jobObs]("phase-and-outcome-tags-well-formed", func(o jobObs) bool {
+			if o.Done {
+				o.PhaseTag == "done" && (strings.HasPrefix(o.Outcome, "ok:") || strings.HasPrefix(o.Outcome, "gaveup:"))
+			} else {
+				(strings.HasPrefix(o.PhaseTag, "queued:") || strings.HasPrefix(o.PhaseTag, "running:")) && o.Outcome == ""
+			}
+		})),
+		temporal.Always[jobObs](temporal.Implies[jobObs](
+			temporal.Named[jobObs]("is-done", func(o jobObs) bool { o.Done }),
+			temporal.ThenNamed[jobObs]("terminal-outcome-permanent", func(term jobObs) temporal.Formula[jobObs] {
+				temporal.Always[jobObs](temporal.Named[jobObs]("stays-same-outcome", func(cur jobObs) bool {
+					cur.Done && cur.Outcome == term.Outcome
+				}))
+			}),
+		)),
+	}
+	let cfg = gen.Config{Seed: uint64(1), Cases: 30, Shrinks: 120, MaxDraws: 2048, MaxRejected: 50}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let clock = time.NewManual(0)
+		with context { Scheduler: clock } {
+			let (st, app) = jobActorStage(policy)
+			testing.AgreesAnd(model, st, 14, formulas) catch {
+			case testing.Diverged[jobAct, jobObs] as d:
+				app.Stop()
+				gen.Draws.Show("diverged", "step \(d.At): want=\(d.Want.PhaseTag)/\(d.Want.Outcome) got=\(d.Got.PhaseTag)/\(d.Got.Outcome)")
+				return false
+			case testing.TemporalBreach[jobAct, jobObs] as tb:
+				app.Stop()
+				gen.Draws.Show("temporal", "formula \(tb.FormulaIndex): \(temporal.FormatVerdict(tb.Verdict))")
+				return false
+			case testing.Refused as r:
+				app.Stop()
+				gen.Draws.Show("refused", r.Why)
+				return false
+			}
+			app.Stop()
+			true
+		}
+	})
+	assert gen.Report(outcome) == ""
+	true
+}

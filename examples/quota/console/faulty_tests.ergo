@@ -1,0 +1,131 @@
+import gen
+import quota/memory
+import quota/quota
+import strings
+import sync
+import testing
+
+func innerSnapshot(inner memory.Store) ([]string, []int64, bool) {
+	let vols = inner.Volumes() catch {
+	case quota.Unavailable:
+		return ([]string{}, []int64{}, false)
+	}
+	let mut sizes = []int64{}
+	for v in vols {
+		let sz = inner.SizeOf(v) catch {
+		case quota.UnknownVolume, quota.Unavailable:
+			return ([]string{}, []int64{}, false)
+		}
+		sizes = sizes.Append(sz)
+	}
+	(vols, sizes, true)
+}
+
+func sameSnapshot(inner memory.Store, wantVols []string, wantSizes []int64) bool {
+	let (vols, sizes, ok) = innerSnapshot(inner)
+	ok && vols == wantVols && sizes == wantSizes
+}
+
+// ConsoleHandlesFaultyStore verifies via testing.Faulty[quota.Store] that
+// console.Do propagates Unavailable, formats every injected domain refusal
+// cleanly, and leaves the inner store untouched whenever Open or Post faults.
+law ConsoleHandlesFaultyStore() {
+	let sawSuccess = sync.NewRef(false)
+	let sawUnavailable = sync.NewRef(false)
+	let sawDomainFault = sync.NewRef(false)
+	let cfg = gen.Config{Seed: uint64(1), Cases: 50, Shrinks: 100, MaxDraws: 2048, MaxRejected: 50}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let inner = memory.NewStore()
+		let faulty = testing.Faulty[quota.Store](inner)
+		with context { quota.Store: faulty } {
+			let (vols0, sizes0, ok0) = innerSnapshot(inner)
+			if !ok0 {
+				return false
+			}
+			let openFaults0 = len(faulty.Open.Faults())
+			let mut openUnavail = false
+			let openAns = Do(OpenCmd{ID: "app", Floor: 0}) catch {
+			case quota.Unavailable:
+				openUnavail = true
+				""
+			}
+			let openFaults1 = faulty.Open.Faults()
+			if len(openFaults1) > openFaults0 {
+				if !sameSnapshot(inner, vols0, sizes0) {
+					gen.Draws.Show("open-fault", "Open fault mutated inner store")
+					return false
+				}
+				let injected = openFaults1[len(openFaults1)-1].Failure
+				if injected == "Unavailable" {
+					sawUnavailable.Set(true)
+					if !openUnavail {
+						return false
+					}
+				} else {
+					sawDomainFault.Set(true)
+					if openUnavail || !strings.HasPrefix(openAns, "refused:") {
+						return false
+					}
+				}
+			} else {
+				if openUnavail || openAns != "opened app" {
+					return false
+				}
+				sawSuccess.Set(true)
+			}
+
+			let (vols1, sizes1, ok1) = innerSnapshot(inner)
+			if !ok1 {
+				return false
+			}
+			let postFaults0 = len(faulty.Post.Faults())
+			let mut postUnavail = false
+			let postAns = Do(Grant{Key: "g1", ID: "app", Size: 10}) catch {
+			case quota.Unavailable:
+				postUnavail = true
+				""
+			}
+			let postFaults1 = faulty.Post.Faults()
+			if len(postFaults1) > postFaults0 {
+				if !sameSnapshot(inner, vols1, sizes1) {
+					gen.Draws.Show("post-fault", "Post fault mutated inner store")
+					return false
+				}
+				let injected = postFaults1[len(postFaults1)-1].Failure
+				if injected == "Unavailable" {
+					sawUnavailable.Set(true)
+					if !postUnavail {
+						return false
+					}
+				} else {
+					sawDomainFault.Set(true)
+					if postUnavail || !strings.HasPrefix(postAns, "refused g1:") {
+						return false
+					}
+				}
+			} else if postUnavail {
+				return false
+			}
+
+			let listFaults0 = len(faulty.Volumes.Faults())
+			let mut listUnavail = false
+			let _ = Do(List) catch {
+			case quota.Unavailable:
+				listUnavail = true
+				""
+			}
+			if len(faulty.Volumes.Faults()) > listFaults0 {
+				sawUnavailable.Set(true)
+				if !listUnavail {
+					return false
+				}
+			}
+			true
+		}
+	})
+	assert gen.Report(outcome) == ""
+	assert sawSuccess.Get()
+	assert sawUnavailable.Get()
+	assert sawDomainFault.Get()
+	true
+}

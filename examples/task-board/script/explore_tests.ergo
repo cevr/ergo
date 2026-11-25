@@ -1,0 +1,85 @@
+import actor
+import gen
+import taskboard/board
+import taskboard/kanban
+import taskboard/screen
+import temporal
+import time
+import ui
+
+func boardInvariant(b kanban.Board, minCards int) bool {
+	let mut seen = Map[string, bool]{}
+	let mut total = 0
+	let mut colValid = b.Adding == None
+	for c in b.Columns {
+		match b.Adding {
+		case Some[string] as a:
+			if a.Value == c.ID {
+				colValid = true
+			}
+		case None:
+		}
+		for card in c.Cards {
+			if seen.Get(card.ID) != None {
+				return false
+			}
+			seen[card.ID] = true
+			total = total + 1
+		}
+	}
+	colValid && total >= minCards
+}
+
+func defaultCardCount() int {
+	let mut n = 0
+	for c in board.Defaults {
+		n = n + len(c.Cards)
+	}
+	n
+}
+
+func exploreBoard(steps int) ui.Finding needs gen.Draws {
+	let clock = time.NewManual(0)
+	let minCards = defaultCardCount()
+	with context { Scheduler: clock } {
+		let app = actor.StartMachine(kanban.Kanban{}, 16, func(cmds []kanban.Command) { let _ = cmds })
+		let mut h = ui.NewTestHost(app, screen.Screen, clock, 64) catch {
+		case ui.BadPatch as bp:
+			app.Stop()
+			return ui.Found{Script: []ui.Act{}, Step: 0, Violation: bp.Why}
+		}
+		let props = []temporal.Formula[ui.ExploreSnapshot[kanban.Board, kanban.Signal]]{
+			temporal.Always[ui.ExploreSnapshot[kanban.Board, kanban.Signal]](
+				temporal.Named[ui.ExploreSnapshot[kanban.Board, kanban.Signal]]("focus-valid", func(s ui.ExploreSnapshot[kanban.Board, kanban.Signal]) bool {
+					s.FocusValid
+				}),
+			),
+			temporal.Always[ui.ExploreSnapshot[kanban.Board, kanban.Signal]](
+				temporal.Named[ui.ExploreSnapshot[kanban.Board, kanban.Signal]]("board-invariant", func(s ui.ExploreSnapshot[kanban.Board, kanban.Signal]) bool {
+					boardInvariant(s.State, minCards)
+				}),
+			),
+		}
+		let finding = ui.Explore(&h, props, ui.ExploreConfig{Steps: steps, Swarm: false, AdvanceStep: 200ms, Weights: Map[string, int]{}})
+		app.Stop()
+		finding
+	}
+}
+
+// Explored verifies via autonomous ui.Explore walks over the task-board screen
+// that focus stays valid, card IDs remain unique across all columns with no
+// cards lost, and an open add-card form always targets an existing column.
+law Explored() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 15, Shrinks: 80, MaxDraws: 4096, MaxRejected: 100}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		match exploreBoard(18) {
+		case ui.Clean:
+			true
+		case ui.Found as f:
+			gen.Draws.Show("finding", "step \(f.Step): \(f.Violation)")
+			false
+		}
+	})
+	assert gen.Report(outcome) == ""
+	true
+}

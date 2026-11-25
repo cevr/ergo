@@ -1,0 +1,65 @@
+import backups/backup
+import backups/memory
+import gen
+import sync
+import testing
+
+func isRefused(o Outcome) bool {
+	match o {
+	case Refused:
+		true
+	case Recorded:
+		false
+	}
+}
+
+// DeskHandlesFaultyBackups verifies via testing.Faulty[backup.Backups] that
+// injected Backups.Send rejections produce Refused outcomes without mutating
+// the inner event log or starting spurious sagas, and that the inner snapshot
+// always matches event replay across multi-step saga runs.
+law DeskHandlesFaultyBackups() {
+	let sawSuccess = sync.NewRef(false)
+	let sawInjected = sync.NewRef(false)
+	let cfg = gen.Config{Seed: uint64(1), Cases: 45, Shrinks: 100, MaxDraws: 2048, MaxRejected: 50}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let inner = memory.NewLog()
+		let faulty = testing.Faulty[backup.Backups](inner)
+		with context { backup.Backups: faulty } {
+			let d0 = Open()
+			let f0 = len(faulty.Send.Faults())
+			let planCmd = backup.Plan{Backup: "b1", Host: "db-1", Files: []backup.File{backup.File{Path: "db.dump", Count: 1, Size: 50}}}
+			let (d1, out1) = Submit(d0, planCmd)
+			if len(faulty.Send.Faults()) > f0 {
+				sawInjected.Set(true)
+				if len(out1) != 1 || !isRefused(out1[0]) || len(inner.History("b1")) != 0 || inner.Current("b1") != backup.Absent || len(d1.Running) != 0 {
+					gen.Draws.Show("plan-fault", "Plan fault left partial state or started a saga")
+					return false
+				}
+			} else {
+				if len(out1) != 1 || isRefused(out1[0]) || len(d1.Running) != 1 {
+					return false
+				}
+				sawSuccess.Set(true)
+			}
+
+			let histBefore = inner.History("b1")
+			let stateBefore = inner.Current("b1")
+			let f1 = len(faulty.Send.Faults())
+			let (d2, out2) = Submit(d1, backup.Store{Backup: "b1", Size: 50})
+			if len(faulty.Send.Faults()) > f1 && len(out2) == 1 && isRefused(out2[0]) {
+				sawInjected.Set(true)
+				if inner.History("b1") != histBefore || inner.Current("b1") != stateBefore {
+					gen.Draws.Show("store-fault", "Store fault mutated inner log")
+					return false
+				}
+			}
+
+			let (_, _) = Advance(d2, StoreWithin)
+			backup.Replay(inner.History("b1")) == inner.Current("b1")
+		}
+	})
+	assert gen.Report(outcome) == ""
+	assert sawSuccess.Get()
+	assert sawInjected.Get()
+	true
+}
