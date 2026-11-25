@@ -1,0 +1,283 @@
+import github.com/cevr/ergo/modules/board/board
+import queue
+import scope
+import sync
+import task
+
+// WaitResult is the settled outcome of WaitHub.WaitFor: a matching event with
+// its cursor, a timeout returning the last judged cursor (never head), or
+// WaitStopped when the hub stopped during a restart.
+type WaitResult =
+	| WaitEvent{Event board.Event, Cursor board.Cursor}
+	| WaitTimeout{Cursor board.Cursor}
+	| WaitStopped{Cursor board.Cursor}
+
+type waiterSlot {
+	id    int,
+	board string,
+	from  board.Cursor,
+	wake  queue.Queue[int],
+}
+
+type hubState {
+	active     bool,
+	generation int,
+	nextID     int,
+	waiters    []waiterSlot,
+	heads      Map[string, board.Cursor],
+	stopLatch  sync.Latch,
+}
+
+// WaitHub coordinates cursor-based waits over committed board events following
+// M3 (NothingMissedNothingTwice): scan up to scanHead, register from scanHead,
+// judge each event in ascending log order, and return the judged position on
+// timeout.
+type WaitHub {
+	state sync.Ref[hubState],
+}
+
+// NewWaitHub creates an idle WaitHub ready to be started under supervision.
+func NewWaitHub() WaitHub {
+	WaitHub{
+		state: sync.NewRef(hubState{
+			active:     false,
+			generation: 0,
+			nextID:     1,
+			waiters:    []waiterSlot{},
+			heads:      Map[string, board.Cursor]{},
+			stopLatch:  sync.NewLatch(),
+		}),
+	}
+}
+
+// HubActive reports whether h is currently running.
+func HubActive(h WaitHub) bool { h.state.Get().active }
+
+// HubGeneration returns the number of times h has started.
+func HubGeneration(h WaitHub) int { h.state.Get().generation }
+
+// WaiterCount returns the number of currently parked waiters in h.
+func WaiterCount(h WaitHub) int { len(h.state.Get().waiters) }
+
+func hubHeadOf(st hubState, b string) board.Cursor {
+	match st.heads.Get(b) {
+	case Some[board.Cursor] as c:
+		c.Value
+	case None:
+		0
+	}
+}
+
+func stopAllWaiters(h WaitHub) {
+	let old = sync.Modify(h.state, func(st hubState) ([]waiterSlot, hubState) {
+		(st.waiters, hubState{..st, active: false, waiters: []waiterSlot{}})
+	})
+	for w in old {
+		w.wake.End()
+	}
+}
+
+// WaitHubBroken is the defect payload raised when WaitHub crashes so
+// supervision restarts the hub and downstream workers cleanly.
+type WaitHubBroken { Reason string }
+
+// RunWaitHub runs h as a supervised member task until stopped, closing all
+// parked waiter queues on exit so no waiter hangs across a restart.
+func RunWaitHub(h WaitHub, ready sync.Latch) defects {
+	let stop = sync.NewLatch()
+	h.state.Update(func(st hubState) hubState {
+		hubState{..st, active: true, generation: st.generation + 1, stopLatch: stop}
+	})
+	scope.OnExit() {
+		stopAllWaiters(h)
+	}
+	let _ = sync.Open(ready)
+	sync.Await(stop)
+	die WaitHubBroken{Reason: "wait hub crashed"}
+}
+
+// CrashWaitHub causes the active RunWaitHub incarnation to defect so
+// supervision exercises RestForOne recovery from the wait hub downward.
+func CrashWaitHub(h WaitHub) {
+	let l = h.state.Get().stopLatch
+	let _ = sync.Open(l)
+}
+
+// Publish notifies every waiter subscribed to boardName that committed events
+// have advanced to head.
+func Publish(h WaitHub, boardName string, head board.Cursor) {
+	let b = board.ResolveBoard(boardName)
+	let targets = sync.Modify(h.state, func(st hubState) ([]queue.Queue[int], hubState) {
+		let cur = hubHeadOf(st, b)
+		let nextHead = if head > cur { head } else { cur }
+		let mut wakes = []queue.Queue[int]{}
+		for w in st.waiters {
+			if w.board == b {
+				wakes = wakes.Append(w.wake)
+			}
+		}
+		(wakes, hubState{..st, heads: st.heads.Put(b, nextHead)})
+	})
+	for q in targets {
+		q.Offer(1) catch {
+		case queue.Full, queue.Closed:
+		}
+	}
+}
+
+func registerWaiter(h WaitHub, b string, scanHead board.Cursor) Option[(int, queue.Queue[int], bool, board.Cursor)] {
+	let wake = queue.New[int](1)
+	sync.Modify(h.state, func(st hubState) (Option[(int, queue.Queue[int], bool, board.Cursor)], hubState) {
+		if !st.active {
+			return (None, st)
+		}
+		let id = st.nextID
+		let curHead = hubHeadOf(st, b)
+		let slot = waiterSlot{id: id, board: b, from: scanHead, wake: wake}
+		let behind = curHead > scanHead
+		(Some[(int, queue.Queue[int], bool, board.Cursor)]{Value: (id, wake, behind, curHead)}, hubState{
+			..st,
+			nextID:  id + 1,
+			waiters: st.waiters.Append(slot),
+		})
+	})
+}
+
+func unregisterWaiter(h WaitHub, id int) {
+	h.state.Update(func(st hubState) hubState {
+		let mut kept = []waiterSlot{}
+		for w in st.waiters {
+			if w.id != id {
+				kept = kept.Append(w)
+			}
+		}
+		hubState{..st, waiters: kept}
+	})
+}
+
+func recordWaitLine(rec Option[TraceRecorder], line string) {
+	match rec {
+	case Some[TraceRecorder] as r:
+		RecordEventLogLine(r.Value, line)
+	case None:
+	}
+}
+
+// WaitFor scans events on boardName after cursor and, if none match yet,
+// registers from the scanned head so events arriving between scan and
+// registration are never missed and never delivered twice. A positive timeout
+// waits on Scheduler and returns the last judged cursor (never head); a
+// negative timeout waits without a timer until a matching event or hub stop.
+func WaitFor(
+	h WaitHub,
+	store board.Store,
+	boardName string,
+	after board.Cursor,
+	timeout duration,
+	matches func(snap board.State, ev board.Event) bool,
+	rec Option[TraceRecorder],
+) WaitResult fails board.StoreFailed needs Scheduler {
+	let b = board.ResolveBoard(boardName)
+	let snap0 = try store.Snapshot()
+	let initial = try store.ReadEvents(b, after)
+	let mut scanHead = after
+	for ev in initial {
+		if ev.Seq > scanHead {
+			scanHead = ev.Seq
+		}
+		if matches(snap0, ev) {
+			recordWaitLine(rec, FormatEventLogScan(ev.Seq, 0))
+			return WaitEvent{Event: ev, Cursor: ev.Seq}
+		}
+	}
+	recordWaitLine(rec, FormatEventLogScan(after, 1))
+
+	let reg = registerWaiter(h, b, scanHead)
+	let (waiterID, wake, behind, hubHead) = match reg {
+	case Some as r:
+		r.Value
+	case None:
+		return WaitStopped{Cursor: scanHead}
+	}
+	let _ = hubHead
+	scope.OnExit() {
+		unregisterWaiter(h, waiterID)
+	}
+	recordWaitLine(rec, FormatEventLogRegister(scanHead))
+
+	let mut from = scanHead
+	if behind {
+		wake.Offer(1) catch {
+		case queue.Full, queue.Closed:
+		}
+	}
+
+	if timeout == 0ns {
+		let snapNow = try store.Snapshot()
+		let evts = try store.ReadEvents(b, from)
+		for ev in evts {
+			if ev.Seq <= from {
+				continue
+			}
+			if matches(snapNow, ev) {
+				recordWaitLine(rec, FormatEventLogNotify(ev.Seq, 0))
+				return WaitEvent{Event: ev, Cursor: ev.Seq}
+			}
+			from = ev.Seq
+			recordWaitLine(rec, FormatEventLogNotify(after, 2))
+		}
+		recordWaitLine(rec, FormatEventLogTimeout(from))
+		return WaitTimeout{Cursor: from}
+	}
+
+	let timedOut = sync.NewRef(false)
+	if timeout > 0ns {
+		let timer = task.Go() {
+			Scheduler.Sleep(timeout)
+			timedOut.Set(true)
+			wake.Offer(2) catch {
+			case queue.Full, queue.Closed:
+			}
+			0
+		}
+		scope.OnExit() { timer.Stop() }
+		return waitLoop(store, b, after, from, matches, wake, timedOut, rec)
+	}
+	waitLoop(store, b, after, from, matches, wake, timedOut, rec)
+}
+
+func waitLoop(
+	store board.Store,
+	b string,
+	after board.Cursor,
+	start board.Cursor,
+	matches func(board.State, board.Event) bool,
+	wake queue.Queue[int],
+	timedOut sync.Ref[bool],
+	rec Option[TraceRecorder],
+) WaitResult fails board.StoreFailed {
+	let mut from = start
+	for {
+		let snap = try store.Snapshot()
+		let evts = try store.ReadEvents(b, from)
+		for ev in evts {
+			if ev.Seq <= from {
+				continue
+			}
+			if matches(snap, ev) {
+				recordWaitLine(rec, FormatEventLogNotify(ev.Seq, 0))
+				return WaitEvent{Event: ev, Cursor: ev.Seq}
+			}
+			from = ev.Seq
+			recordWaitLine(rec, FormatEventLogNotify(after, 2))
+		}
+		if timedOut.Get() {
+			recordWaitLine(rec, FormatEventLogTimeout(from))
+			return WaitTimeout{Cursor: from}
+		}
+		let _ = wake.Pop() catch {
+		case queue.Closed:
+			return WaitStopped{Cursor: from}
+		}
+	}
+}

@@ -1,0 +1,1168 @@
+import github.com/cevr/ergo/modules/board/board
+import github.com/cevr/ergo/modules/board/memory
+import http
+import net
+import nettest
+import strconv
+import strings
+import sync
+import task
+import time
+
+func testAdmins() []board.Principal {
+	[]board.Principal{
+		board.Principal{ID: "google:admin", Kind: board.Person, Handle: "admin", Email: "admin@example.com", Name: "Admin", Role: board.Admin, State: board.Active},
+		board.Principal{ID: "google:alice", Kind: board.Person, Handle: "alice", Email: "alice@example.com", Name: "Alice", Role: board.Member, State: board.Active},
+		board.Principal{ID: "google:bob", Kind: board.Person, Handle: "bob", Email: "bob@example.com", Name: "Bob", Role: board.Member, State: board.Active},
+	}
+}
+
+func testAlice() board.Caller {
+	board.Caller{Principal: "google:alice", Profile: "", Role: board.Member, Kind: board.Person, Email: "alice@example.com", Narrowed: false, NarrowedCan: Map[string, []board.Permission]{}, NarrowedProfile: "", NarrowedBoards: []string{}}
+}
+
+func testBob() board.Caller {
+	board.Caller{Principal: "google:bob", Profile: "", Role: board.Member, Kind: board.Person, Email: "bob@example.com", Narrowed: false, NarrowedCan: Map[string, []board.Permission]{}, NarrowedProfile: "", NarrowedBoards: []string{}}
+}
+
+func testWorker(profile string) board.Caller {
+	board.Caller{Principal: "google:alice", Profile: profile, Role: board.Admin, Kind: board.Person, Email: "alice@example.com", Narrowed: false, NarrowedCan: Map[string, []board.Permission]{}, NarrowedProfile: "", NarrowedBoards: []string{}}
+}
+
+func isMatchText(ev board.Event, needle string) bool {
+	match ev.Payload {
+	case board.MessagePosted as mp:
+		strings.Contains(mp.Message.Text, needle)
+	case _:
+		false
+	}
+}
+
+func parseHTTPResponse(raw string) (int, string) {
+	let (head, body) = match strings.Cut(raw, "\r\n\r\n") {
+	case Some[strings.Halves] as h:
+		(h.Value.Before, h.Value.After)
+	case None:
+		(raw, "")
+	}
+	let statusLine = match strings.Cut(head, "\r\n") {
+	case Some[strings.Halves] as h:
+		h.Value.Before
+	case None:
+		head
+	}
+	let parts = strings.Split(statusLine, " ")
+	let code = if len(parts) >= 2 {
+		int(strconv.ParseInt(parts[1], 10, 64) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			int64(0)
+		})
+	} else {
+		0
+	}
+	(code, body)
+}
+
+func sendPipeHTTP(pipe nettest.Pipe, addr string, method string, path string, extraHeaders string, body string) (int, string) fails net.DialFailed | net.Failed {
+	let conn = try pipe.Dial(addr)
+	let raw = "\(method) \(path) HTTP/1.1\r\nHost: \(addr)\r\nConnection: close\r\nContent-Length: \(len(strings.Bytes(body)))\r\n\(extraHeaders)\r\n\(body)"
+	try conn.Write(raw)
+	let resp = try net.ReadAll(conn)
+	conn.Close()
+	parseHTTPResponse(resp)
+}
+
+type manualClock {
+	base   time.Time,
+	offset sync.Ref[duration],
+} implements time.Clock
+
+func newManualClock(sec int64) manualClock {
+	let m = time.NewManual(sec)
+	manualClock{base: m.Now(), offset: sync.NewRef(0ns)}
+}
+
+func Now(c manualClock) time.Time { c.base.Add(c.offset.Get()) }
+
+func Elapsed(c manualClock, t time.Time) duration { c.base.Add(c.offset.Get()).Sub(t) }
+
+func advanceManualClock(c manualClock, d duration) {
+	c.offset.Update(func(cur duration) duration { cur + d })
+}
+
+let onManualClock = context { time.Clock: newManualClock(1000) }
+
+func mcpPostBody(id string, channel string, text string) string {
+	"{\"jsonrpc\":\"2.0\",\"id\":\"" + id + "\",\"method\":\"tools/call\",\"params\":{\"name\":\"post\",\"arguments\":{\"board\":{\"_tag\":\"None\"},\"channel\":\"" + channel + "\",\"text\":\"" + text + "\",\"labels\":[],\"noSync\":false,\"idempotencyKey\":{\"_tag\":\"None\"}}}}"
+}
+
+func mcpReadBody(id string, channel string) string {
+	"{\"jsonrpc\":\"2.0\",\"id\":\"" + id + "\",\"method\":\"tools/call\",\"params\":{\"name\":\"read\",\"arguments\":{\"board\":{\"_tag\":\"None\"},\"channel\":{\"_tag\":\"Some\",\"value\":\"" + channel + "\"},\"id\":{\"_tag\":\"None\"},\"by\":{\"_tag\":\"None\"},\"mentions\":{\"_tag\":\"None\"},\"label\":[],\"text\":{\"_tag\":\"None\"},\"after\":{\"_tag\":\"None\"},\"limit\":{\"_tag\":\"None\"}}}}"
+}
+
+func rpcPostBody(id string, channel string, text string) string {
+	"{\"_tag\":\"Request\",\"id\":\"" + id + "\",\"tag\":\"Post\",\"payload\":{\"input\":{\"board\":{\"_tag\":\"None\"},\"channel\":\"" + channel + "\",\"text\":\"" + text + "\",\"labels\":[],\"noSync\":false,\"idempotencyKey\":{\"_tag\":\"None\"}}}}"
+}
+
+func rpcReadBody(id string, channel string) string {
+	"{\"_tag\":\"Request\",\"id\":\"" + id + "\",\"tag\":\"Read\",\"payload\":{\"input\":{\"board\":{\"_tag\":\"None\"},\"channel\":{\"_tag\":\"Some\",\"value\":\"" + channel + "\"},\"id\":{\"_tag\":\"None\"},\"by\":{\"_tag\":\"None\"},\"mentions\":{\"_tag\":\"None\"},\"label\":[],\"text\":{\"_tag\":\"None\"},\"after\":{\"_tag\":\"None\"},\"limit\":{\"_tag\":\"None\"}}}}"
+}
+
+type workerBoom { Reason string }
+
+func crashWorker(reason string) defects {
+	die workerBoom{Reason: reason}
+}
+
+type raceHookStore {
+	inner   memory.Store,
+	hub     WaitHub,
+	armed   sync.Ref[bool],
+	trigger func(memory.Store, WaitHub),
+} implements board.Store
+
+func Commit(s raceHookStore, boardName string, expected board.Cursor, events []board.Event) board.Cursor fails board.StalePosition | board.StoreFailed {
+	try s.inner.Commit(boardName, expected, events)
+}
+
+func ReadEvents(s raceHookStore, boardName string, after board.Cursor) []board.Event fails board.StoreFailed {
+	let evts = try s.inner.ReadEvents(boardName, after)
+	let shouldFire = sync.Modify(s.armed, func(a bool) (bool, bool) { (a, false) })
+	if shouldFire {
+		s.trigger(s.inner, s.hub)
+	}
+	evts
+}
+
+func Snapshot(s raceHookStore) board.State fails board.StoreFailed {
+	try s.inner.Snapshot()
+}
+
+func Search(s raceHookStore, q board.SearchQuery) []board.SearchHit fails board.StoreFailed {
+	try s.inner.Search(q)
+}
+
+test TestBindGuardRefusesNonTailnet {
+	let refused = []string{
+		"0.0.0.0:8080",
+		"[::]:8080",
+		":8080",
+		"8.8.8.8:8080",
+		"192.168.1.10:8080",
+		"10.0.0.1:8080",
+		"100.63.255.254:8080",
+		"100.128.0.1:8080",
+		"[fe80::1]:8080",
+		"example.com:8080",
+		"badaddr",
+	}
+	for addr in refused {
+		let ok = ValidateBindAddr(addr) catch {
+		case BindRefused:
+			""
+		}
+		assert ok == ""
+	}
+	let allowed = []string{
+		"127.0.0.1:0",
+		"127.0.0.1:8080",
+		"127.42.0.1:9000",
+		"[::1]:8080",
+		"localhost:8080",
+		"100.64.0.1:8080",
+		"100.100.100.100:8080",
+		"100.127.255.254:8080",
+		"[fd7a:115c:a1e0::1]:8080",
+	}
+	for addr in allowed {
+		let got = ValidateBindAddr(addr) catch {
+		case BindRefused:
+			""
+		}
+		assert got != ""
+	}
+}
+
+test TestWaitHubExploreNothingMissedNothingTwice {
+	let clock = time.NewManual(1000)
+	let store = memory.NewWithAdmins(testAdmins(), 100)
+	let hub = NewWaitHub()
+	let writer = NewWriter(store, hub, None)
+	let writerReady = sync.NewLatch()
+	let hubReady = sync.NewLatch()
+
+	with context { Scheduler: clock, time.Clock: clock } {
+		let wt = task.Go() {
+			RunWriter(writer, writerReady)
+			0
+		}
+		let ht = task.Go() {
+			RunWaitHub(hub, hubReady)
+			0
+		}
+		sync.Await(writerReady)
+		sync.Await(hubReady)
+
+		let waiterA = task.Go() {
+			let res = WaitFor(hub, store, board.DefaultBoard, 0, -1ns, func(_ board.State, ev board.Event) bool {
+				isMatchText(ev, "match")
+			}, None) catch {
+			case board.StoreFailed:
+				WaitStopped{Cursor: 0}
+			}
+			match res {
+			case WaitEvent as we:
+				we.Cursor
+			case WaitTimeout, WaitStopped:
+				0
+			}
+		}
+
+		let waiterB = task.Go() {
+			let res = WaitFor(hub, store, board.DefaultBoard, 0, -1ns, func(_ board.State, ev board.Event) bool {
+				isMatchText(ev, "match")
+			}, None) catch {
+			case board.StoreFailed:
+				WaitStopped{Cursor: 0}
+			}
+			match res {
+			case WaitEvent as we:
+				we.Cursor
+			case WaitTimeout, WaitStopped:
+				0
+			}
+		}
+
+		let appender = task.Go() {
+			let out = WriterExecute(writer, board.PostMessage{
+				Caller:         testAlice(),
+				Board:          board.DefaultBoard,
+				Channel:        "dev",
+				Text:           "match-1",
+				Labels:         Map[string, string]{},
+				NoSync:         false,
+				From:           "",
+				IdempotencyKey: "",
+			}, 200)
+			match out {
+			case WriterCommitted:
+			case _:
+				assert false
+			}
+			0
+		}
+
+		let _ = appender.Wait()
+		let curA = waiterA.Wait()
+		let curB = waiterB.Wait()
+		assert curA > 0 && curA == curB
+
+		let evts = try store.ReadEvents(board.DefaultBoard, 0)
+		let mut expected = []board.Cursor{}
+		for ev in evts {
+			if isMatchText(ev, "match") {
+				expected = expected.Append(ev.Seq)
+			}
+		}
+		assert len(expected) == 1 && curA == expected[0]
+
+		let second = WaitFor(hub, store, board.DefaultBoard, curA, 0ns, func(_ board.State, ev board.Event) bool {
+			isMatchText(ev, "match")
+		}, None) catch {
+		case board.StoreFailed:
+			WaitStopped{Cursor: curA}
+		}
+		match second {
+		case WaitTimeout as wtRes:
+			assert wtRes.Cursor == curA
+		case WaitEvent, WaitStopped:
+			assert false
+		}
+
+		ht.Stop()
+		wt.Stop()
+	}
+}
+
+test TestWaitHubScanRegisterRace {
+	let clock = time.NewManual(1000)
+	let raceStoreMem = memory.NewWithAdmins(testAdmins(), 100)
+	let raceHub = NewWaitHub()
+	let raceHubReady = sync.NewLatch()
+
+	with context { Scheduler: clock, time.Clock: clock } {
+		let rht = task.Go() {
+			RunWaitHub(raceHub, raceHubReady)
+			0
+		}
+		sync.Await(raceHubReady)
+		let hook = raceHookStore{
+			inner:   raceStoreMem,
+			hub:     raceHub,
+			armed:   sync.NewRef(true),
+			trigger: func(st memory.Store, h WaitHub) {
+				let _ = board.Execute(st, board.PostMessage{
+					Caller:         testAlice(),
+					Board:          board.DefaultBoard,
+					Channel:        "dev",
+					Text:           "match-between-scan-and-register",
+					Labels:         Map[string, string]{},
+					NoSync:         false,
+					From:           "",
+					IdempotencyKey: "",
+				}, 500) catch {
+				case _:
+					([]board.Event{}, 0)
+				}
+				let evs = st.ReadEvents(board.DefaultBoard, 0) catch {
+				case board.StoreFailed:
+					[]board.Event{}
+				}
+				if len(evs) > 0 {
+					Publish(h, board.DefaultBoard, evs[len(evs)-1].Seq)
+				}
+			},
+		}
+		let raceRes = WaitFor(raceHub, hook, board.DefaultBoard, 0, 0ns, func(_ board.State, ev board.Event) bool {
+			isMatchText(ev, "match")
+		}, None) catch {
+		case board.StoreFailed:
+			WaitStopped{Cursor: 0}
+		}
+		let gotRaceMatch = match raceRes {
+		case WaitEvent as we:
+			we.Cursor > 0
+		case WaitTimeout, WaitStopped:
+			false
+		}
+		assert gotRaceMatch
+		rht.Stop()
+	}
+}
+
+test TestClaimRaceExploreOneWinner {
+	let clock = time.NewManual(1000)
+	let store = memory.NewWithAdmins(testAdmins(), 100)
+	let hub = NewWaitHub()
+	let writer = NewWriter(store, hub, None)
+	let writerReady = sync.NewLatch()
+	let hubReady = sync.NewLatch()
+
+	with context { Scheduler: clock, time.Clock: clock } {
+		let wt = task.Go() {
+			RunWriter(writer, writerReady)
+			0
+		}
+		let ht = task.Go() {
+			RunWaitHub(hub, hubReady)
+			0
+		}
+		sync.Await(writerReady)
+		sync.Await(hubReady)
+
+		let created = WriterExecute(writer, board.CreateTask{
+			Caller:         testAlice(),
+			Board:          board.DefaultBoard,
+			Channel:        "dev",
+			Thread:         "",
+			Text:           "race task",
+			Labels:         Map[string, string]{},
+			Needs:          []board.MessageID{},
+			For:            "",
+			Claim:          false,
+			LeaseMs:        0,
+			NoSync:         false,
+			IdempotencyKey: "",
+		}, 200)
+		match created {
+		case WriterCommitted:
+		case _:
+			assert false
+		}
+
+		let claimA = task.Go() {
+			WriterExecute(writer, board.ClaimTask{
+				Caller:  testWorker("a"),
+				Board:   board.DefaultBoard,
+				ID:      "msg_1",
+				LeaseMs: 60000,
+			}, 210)
+		}
+		let claimB = task.Go() {
+			WriterExecute(writer, board.ClaimTask{
+				Caller:  testWorker("b"),
+				Board:   board.DefaultBoard,
+				ID:      "msg_1",
+				LeaseMs: 60000,
+			}, 210)
+		}
+
+		let resA = claimA.Wait()
+		let resB = claimB.Wait()
+		let aWon = match resA {
+		case WriterCommitted:
+			true
+		case _:
+			false
+		}
+		let bWon = match resB {
+		case WriterCommitted:
+			true
+		case _:
+			false
+		}
+		let aRefused = match resA {
+		case WriterRefused as r:
+			r.Err == board.TaskClaimedRefusal
+		case _:
+			false
+		}
+		let bRefused = match resB {
+		case WriterRefused as r:
+			r.Err == board.TaskClaimedRefusal
+		case _:
+			false
+		}
+		assert (aWon && bRefused) || (bWon && aRefused)
+
+		let winner = if aWon { testWorker("a") } else { testWorker("b") }
+		let done = WriterExecute(writer, board.CompleteTask{
+			Caller: winner,
+			Board:  board.DefaultBoard,
+			ID:     "msg_1",
+			Token:  1,
+			Result: "finished",
+		}, 220)
+		match done {
+		case WriterCommitted:
+		case _:
+			assert false
+		}
+
+		ht.Stop()
+		wt.Stop()
+	}
+}
+
+law WriterDieAndRestForOneRecovery() {
+	let clock = time.NewManual(1000)
+	let store = memory.NewWithAdmins(testAdmins(), 100)
+	let pipe = nettest.NewPipe()
+	let srv = NewServer(DefaultConfig("127.0.0.1:0"), store, clock, None)
+	let ready = sync.NewLatch()
+
+	with context { Scheduler: clock, time.Clock: clock } {
+		let st = task.Go() {
+			Serve(srv, pipe, ready, []func() needs Scheduler{}) catch {
+			case _:
+			}
+			0
+		}
+		if !WaitServerGeneration(srv, 1) {
+			st.Stop()
+			return false
+		}
+		let addr1 = ServerBoundAddr(srv)
+		if WriterGeneration(ServerWriter(srv)) != 1 || HubGeneration(ServerWaitHub(srv)) != 1 {
+			st.Stop()
+			return false
+		}
+
+		let body1 = mcpPostBody("p1", "dev", "durable before crash")
+		let (code1, resp1) = sendPipeHTTP(pipe, addr1, "POST", "/mcp", "Content-Type: application/json\r\nAccept: application/json\r\n", body1) catch {
+		case _:
+			(0, "")
+		}
+		if code1 != 200 || !strings.Contains(resp1, "msg_1") {
+			st.Stop()
+			return false
+		}
+
+		InjectInvariantFault(ServerWriter(srv))
+		let crashOut = WriterExecute(ServerWriter(srv), board.PostMessage{
+			Caller:         testAlice(),
+			Board:          board.DefaultBoard,
+			Channel:        "dev",
+			Text:           "triggers invariant die",
+			Labels:         Map[string, string]{},
+			NoSync:         false,
+			From:           "",
+			IdempotencyKey: "",
+		}, 300)
+		let gotClosed = match crashOut {
+		case WriterClosed:
+			true
+		case _:
+			false
+		}
+		if !gotClosed {
+			st.Stop()
+			return false
+		}
+
+		if !WaitServerGeneration(srv, 2) {
+			st.Stop()
+			return false
+		}
+		if WriterGeneration(ServerWriter(srv)) < 2 || HubGeneration(ServerWaitHub(srv)) < 2 || ServerHTTPGeneration(srv) < 2 {
+			st.Stop()
+			return false
+		}
+
+		let snap = store.Snapshot() catch {
+		case board.StoreFailed:
+			st.Stop()
+			return false
+		}
+		let durable = match snap.Messages.Get("msg_1") {
+		case Some[board.Message] as m:
+			m.Value.Text == "durable before crash"
+		case None:
+			false
+		}
+		if !durable {
+			st.Stop()
+			return false
+		}
+
+		let addr2 = ServerBoundAddr(srv)
+		let body2 = mcpPostBody("p2", "dev", "after restart")
+		let (code2, resp2) = sendPipeHTTP(pipe, addr2, "POST", "/mcp", "Content-Type: application/json\r\nAccept: application/json\r\n", body2) catch {
+		case _:
+			(0, "")
+		}
+		st.Stop()
+		code2 == 200 && strings.Contains(resp2, "msg_3")
+	}
+}
+
+test TestWorkerCrashKeepsWaitsAndWriter {
+	let clock = time.NewManual(1000)
+	let store = memory.NewWithAdmins(testAdmins(), 100)
+	let pipe = nettest.NewPipe()
+	let srv = NewServer(DefaultConfig("127.0.0.1:0"), store, clock, None)
+	let ready = sync.NewLatch()
+	let crashNow = sync.NewLatch()
+	let workerRuns = sync.NewRef(0)
+	let restarted = sync.NewLatch()
+
+	let flakyWorker = func() needs Scheduler {
+		let run = sync.Modify(workerRuns, func(n int) (int, int) { (n + 1, n + 1) })
+		if run == 1 {
+			sync.Await(crashNow)
+			let t = task.Go() {
+				crashWorker("simulated worker crash")
+				0
+			}
+			let _ = t.Wait()
+			return
+		}
+		let _ = sync.Open(restarted)
+		let park = sync.NewLatch()
+		sync.Await(park)
+	}
+
+	with context { Scheduler: clock, time.Clock: clock } {
+		let st = task.Go() {
+			Serve(srv, pipe, ready, []func() needs Scheduler{flakyWorker}) catch {
+			case _:
+			}
+			0
+		}
+		assert WaitServerGeneration(srv, 1)
+
+		let waiterParked = sync.NewLatch()
+		let waiter = task.Go() {
+			let _ = sync.Open(waiterParked)
+			WaitFor(ServerWaitHub(srv), store, board.DefaultBoard, 0, -1ns, func(_ board.State, ev board.Event) bool {
+				isMatchText(ev, "survives-worker-crash")
+			}, None) catch {
+			case board.StoreFailed:
+				WaitStopped{Cursor: 0}
+			}
+		}
+		sync.Await(waiterParked)
+
+		let _ = sync.Open(crashNow)
+		sync.Await(restarted)
+		assert workerRuns.Get() == 2
+		assert WriterGeneration(ServerWriter(srv)) == 1
+		assert HubGeneration(ServerWaitHub(srv)) == 1
+
+		let pub = WriterExecute(ServerWriter(srv), board.PostMessage{
+			Caller:         testAlice(),
+			Board:          board.DefaultBoard,
+			Channel:        "dev",
+			Text:           "survives-worker-crash",
+			Labels:         Map[string, string]{},
+			NoSync:         false,
+			From:           "",
+			IdempotencyKey: "",
+		}, 400)
+		match pub {
+		case WriterCommitted:
+		case _:
+			assert false
+		}
+
+		let got = waiter.Wait()
+		match got {
+		case WaitEvent as we:
+			assert isMatchText(we.Event, "survives-worker-crash")
+		case WaitTimeout, WaitStopped:
+			assert false
+		}
+
+		st.Stop()
+	}
+}
+
+law StepBudgetStopsRunawayRequest() {
+	let clock = time.NewManual(1000)
+	let store = memory.NewWithAdmins(testAdmins(), 100)
+	let cfgTight = Config{..DefaultConfig("127.0.0.1:0"), RequestStepLimit: 1}
+	let srvTight = NewServer(cfgTight, store, clock, None)
+	let writerReady = sync.NewLatch()
+	let hubReady = sync.NewLatch()
+
+	with context { Scheduler: clock, time.Clock: clock } {
+		let wt = task.Go() {
+			RunWriter(ServerWriter(srvTight), writerReady)
+			0
+		}
+		let ht = task.Go() {
+			RunWaitHub(ServerWaitHub(srvTight), hubReady)
+			0
+		}
+		sync.Await(writerReady)
+		sync.Await(hubReady)
+
+		let req = http.Request{
+			Method:  "POST",
+			Path:    "/mcp",
+			RawPath: "/mcp",
+			Query:   []http.Field{},
+			Header:  []http.Field{
+				http.Field{Name: "Content-Type", Value: "application/json"},
+				http.Field{Name: "Accept", Value: "application/json"},
+			},
+			Body: http.Buffered{Text: mcpPostBody("s1", "dev", "bounded")},
+		}
+		let respTight = HandleHTTP(srvTight, req)
+		let srvNormal = Server{..srvTight, cfg: DefaultConfig("127.0.0.1:0")}
+		let respNormal = HandleHTTP(srvNormal, req)
+
+		ht.Stop()
+		wt.Stop()
+		respTight.Status == 429 && strings.Contains(respTight.Body, "step_budget_exceeded") && respNormal.Status == 200 && strings.Contains(respNormal.Body, "msg_1")
+	}
+}
+
+law HttpMcpAndRpcOverPipe() {
+	let clock = time.NewManual(1000)
+	let store = memory.NewWithAdmins(testAdmins(), 100)
+	let pipe = nettest.NewPipe()
+	let badSrv = NewServer(DefaultConfig("0.0.0.0:8080"), store, clock, None)
+	let badReady = sync.NewLatch()
+	let mut wasRefused = false
+	with context { Scheduler: clock, time.Clock: clock } {
+		Serve(badSrv, pipe, badReady, []func() needs Scheduler{}) catch {
+		case ServeBindRefused:
+			wasRefused = true
+		case _:
+		}
+	}
+	if !wasRefused {
+		return false
+	}
+
+	let srv = NewServer(DefaultConfig("127.0.0.1:0"), store, clock, None)
+	let ready = sync.NewLatch()
+
+	with context { Scheduler: clock, time.Clock: clock } {
+		let st = task.Go() {
+			Serve(srv, pipe, ready, []func() needs Scheduler{}) catch {
+			case _:
+			}
+			0
+		}
+		if !WaitServerGeneration(srv, 1) {
+			st.Stop()
+			return false
+		}
+		let addr = ServerBoundAddr(srv)
+
+		let (hc, hb) = sendPipeHTTP(pipe, addr, "GET", "/healthz", "", "") catch {
+		case _:
+			(0, "")
+		}
+		let mcpHdr = "Content-Type: application/json\r\nAccept: application/json\r\n"
+		let initBody = "{\"jsonrpc\":\"2.0\",\"id\":\"i1\",\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},\"clientInfo\":{\"name\":\"t\",\"version\":\"1\"}}}"
+		let (ic, ib) = sendPipeHTTP(pipe, addr, "POST", "/mcp", mcpHdr, initBody) catch {
+		case _:
+			(0, "")
+		}
+		let listBody = "{\"jsonrpc\":\"2.0\",\"id\":\"l1\",\"method\":\"tools/list\"}"
+		let (lc, lb) = sendPipeHTTP(pipe, addr, "POST", "/mcp", mcpHdr, listBody) catch {
+		case _:
+			(0, "")
+		}
+		let postMcp = mcpPostBody("m1", "dev", "hello via mcp")
+		let (pc, pb) = sendPipeHTTP(pipe, addr, "POST", "/mcp", mcpHdr, postMcp) catch {
+		case _:
+			(0, "")
+		}
+		let rpcHdr = "Content-Type: application/json\r\n"
+		let readRpc = rpcReadBody("r1", "dev")
+		let (rc, rb) = sendPipeHTTP(pipe, addr, "POST", "/rpc", rpcHdr, readRpc) catch {
+		case _:
+			(0, "")
+		}
+		let postRpc = rpcPostBody("r2", "dev", "hello via rpc")
+		let (pc2, pb2) = sendPipeHTTP(pipe, addr, "POST", "/rpc", rpcHdr, postRpc) catch {
+		case _:
+			(0, "")
+		}
+		let readMcp = mcpReadBody("m2", "dev")
+		let (rc2, rb2) = sendPipeHTTP(pipe, addr, "POST", "/mcp", mcpHdr, readMcp) catch {
+		case _:
+			(0, "")
+		}
+		st.Stop()
+			hc == 200 && strings.Contains(hb, "\"ok\":true") &&
+			ic == 200 && strings.Contains(ib, "protocolVersion") &&
+			lc == 200 && strings.Contains(lb, "\"post\"") && strings.Contains(lb, "\"tasks-claim\"") &&
+			pc == 200 && strings.Contains(pb, "msg_1") &&
+			rc == 200 && strings.Contains(rb, "hello via mcp") &&
+			pc2 == 200 && strings.Contains(pb2, "msg_2") &&
+			rc2 == 200 && strings.Contains(rb2, "hello via mcp") && strings.Contains(rb2, "hello via rpc")
+	}
+}
+
+// RunServeConformanceScenario drives a supervised Server through task, ask,
+// wait, and crash-recovery operations while recording conformance traces.
+func RunServeConformanceScenario(trace TraceRecorder) bool {
+	let boardClock = newManualClock(1000)
+	let sched = time.NewManual(1000)
+	let admins = testAdmins()
+	let initial = board.InitialState(admins, 100)
+	let store = memory.NewWithAdmins(admins, 100)
+	let pipe = nettest.NewPipe()
+	let srv = NewServer(DefaultConfig("127.0.0.1:0"), store, boardClock, Some[TraceRecorder]{Value: trace})
+	let ready = sync.NewLatch()
+	let workerCrash = sync.NewLatch()
+	let workerRuns = sync.NewRef(0)
+	let workerBack = sync.NewLatch()
+
+	let extra = func() needs Scheduler {
+		let run = sync.Modify(workerRuns, func(n int) (int, int) { (n + 1, n + 1) })
+		if run == 1 {
+			sync.Await(workerCrash)
+			let t = task.Go() {
+				crashWorker("model scenario worker crash")
+				0
+			}
+			let _ = t.Wait()
+			return
+		}
+		let _ = sync.Open(workerBack)
+		let park = sync.NewLatch()
+		sync.Await(park)
+	}
+
+	let ok = with context { Scheduler: sched, time.Clock: boardClock } {
+		let st = task.Go() {
+			Serve(srv, pipe, ready, []func() needs Scheduler{extra}) catch {
+			case _:
+			}
+			0
+		}
+		if !WaitServerGeneration(srv, 1) {
+			st.Stop()
+			return false
+		}
+		let mut ackedCursors = []board.Cursor{}
+		let w = ServerWriter(srv)
+		let h = ServerWaitHub(srv)
+
+		RecordBoardTreeLine(trace, "{\"signal\":\"BeginWrite\",\"state\":{\"inFlight\":1}}")
+		let planOut = WriterExecute(w, board.CreatePlan{
+			Caller:  testAlice(),
+			Board:   board.DefaultBoard,
+			Channel: "dev",
+			Tasks:   []board.PlanTaskSpec{
+				board.PlanTaskSpec{Key: "t0", Text: "step 0", Labels: Map[string, string]{}, Needs: []string{}, For: "", NoSync: false},
+				board.PlanTaskSpec{Key: "t1", Text: "step 1", Labels: Map[string, string]{}, Needs: []string{"t0"}, For: "", NoSync: false},
+			},
+			IdempotencyKey: "",
+		}, 100)
+		match planOut {
+		case WriterCommitted as c:
+			ackedCursors = ackedCursors.Append(c.Head)
+		case _:
+			st.Stop()
+			return false
+		}
+		RecordBoardTreeLine(trace, "{\"signal\":\"FinishWrite\",\"state\":{\"inFlight\":2,\"logWrites\":1,\"ackedWrites\":1}}")
+		RecordBoardTreeLine(trace, "{\"signal\":\"StartWait\",\"state\":{\"waitActive\":true}}")
+		RecordTaskLine(trace, "{\"signal\":\"ClaimRead\",\"args\":{\"w\":{\"_tag\":\"A\"},\"t\":{\"_tag\":\"T0\"}}}")
+		RecordTaskLine(trace, "{\"signal\":\"ClaimRead\",\"args\":{\"w\":{\"_tag\":\"B\"},\"t\":{\"_tag\":\"T0\"}}}")
+		let claimA = WriterExecute(w, board.ClaimTask{Caller: testWorker("a"), Board: board.DefaultBoard, ID: "msg_1", LeaseMs: board.MaxLeaseMs}, 100)
+		match claimA {
+		case WriterCommitted as c:
+			ackedCursors = ackedCursors.Append(c.Head)
+		case _:
+			st.Stop()
+			return false
+		}
+		RecordBoardTreeLine(trace, "{\"signal\":\"AcquireLease\",\"state\":{\"leaseState\":1}}")
+		RecordTaskLine(trace, "{\"signal\":\"ClaimWrite\",\"args\":{\"w\":{\"_tag\":\"A\"},\"t\":{\"_tag\":\"T0\"}},\"state\":{\"wins\":[1,0]}}")
+		let claimB = WriterExecute(w, board.ClaimTask{Caller: testWorker("b"), Board: board.DefaultBoard, ID: "msg_1", LeaseMs: board.MaxLeaseMs}, 100)
+		match claimB {
+		case WriterRefused as r:
+			if r.Err != board.TaskClaimedRefusal {
+				st.Stop()
+				return false
+			}
+		case _:
+			st.Stop()
+			return false
+		}
+		RecordTaskLine(trace, "{\"signal\":\"ClaimWrite\",\"args\":{\"w\":{\"_tag\":\"B\"},\"t\":{\"_tag\":\"T0\"}},\"state\":{\"wins\":[1,0]}}")
+
+		let _ = sync.Open(workerCrash)
+		RecordBoardTreeLine(trace, "{\"signal\":\"Crash\",\"args\":{\"m\":{\"_tag\":\"MWorker\"}},\"state\":{\"waitActive\":true,\"workerCrashKeptWait\":true}}")
+		sync.Await(workerBack)
+		if WriterGeneration(w) != 1 || HubGeneration(h) != 1 {
+			st.Stop()
+			return false
+		}
+		RecordBoardTreeLine(trace, "{\"signal\":\"Restart\",\"state\":{\"up\":[true,true,true,true]}}")
+
+		InjectInvariantFault(w)
+		let _ = WriterExecute(w, board.PostMessage{
+			Caller:         testAlice(),
+			Board:          board.DefaultBoard,
+			Channel:        "dev",
+			Text:           "crash trigger",
+			Labels:         Map[string, string]{},
+			NoSync:         false,
+			From:           "",
+			IdempotencyKey: "",
+		}, 120)
+		RecordBoardTreeLine(trace, "{\"signal\":\"Crash\",\"args\":{\"m\":{\"_tag\":\"MWriter\"}},\"state\":{\"up\":[false,false,false,false]}}")
+		RecordBoardTreeLine(trace, "{\"signal\":\"ExpireLease\",\"state\":{\"leaseState\":2}}")
+		if !WaitServerGeneration(srv, 2) {
+			st.Stop()
+			return false
+		}
+		RecordBoardTreeLine(trace, "{\"signal\":\"Restart\",\"state\":{\"up\":[true,true,true,true],\"writerRestarted\":true}}")
+
+		advanceManualClock(boardClock, 3601s)
+		let expOut = WriterExecute(w, board.ExpireTask{Board: board.DefaultBoard, ID: "msg_1"}, int(boardClock.Now().UnixSeconds()*1000))
+		match expOut {
+		case WriterCommitted as c:
+			ackedCursors = ackedCursors.Append(c.Head)
+		case _:
+			st.Stop()
+			return false
+		}
+		RecordBoardTreeLine(trace, "{\"signal\":\"ReaperSweep\",\"state\":{\"leaseState\":0,\"reaperReady\":true,\"sweptAfterRestart\":true}}")
+		RecordBoardTreeLine(trace, "{\"signal\":\"JudgeClaim\",\"state\":{\"claimedExpired\":false}}")
+		RecordTaskLine(trace, "{\"signal\":\"Expire\",\"args\":{\"t\":{\"_tag\":\"T0\"}},\"state\":{\"wins\":[0,0]}}")
+
+		let staleOut = WriterExecute(w, board.CompleteTask{Caller: testWorker("a"), Board: board.DefaultBoard, ID: "msg_1", Token: 1, Result: "stale"}, 100+board.MaxLeaseMs+2)
+		match staleOut {
+		case WriterRefused as r:
+			if r.Err != board.ClaimLost {
+				st.Stop()
+				return false
+			}
+		case _:
+			st.Stop()
+			return false
+		}
+		RecordTaskLine(trace, "{\"signal\":\"Complete\",\"args\":{\"w\":{\"_tag\":\"A\"},\"t\":{\"_tag\":\"T0\"}},\"state\":{\"lost\":true,\"stale\":false}}")
+
+		RecordTaskLine(trace, "{\"signal\":\"ClaimRead\",\"args\":{\"w\":{\"_tag\":\"B\"},\"t\":{\"_tag\":\"T0\"}}}")
+		let claimB2 = WriterExecute(w, board.ClaimTask{Caller: testWorker("b"), Board: board.DefaultBoard, ID: "msg_1", LeaseMs: board.MaxLeaseMs}, 100+board.MaxLeaseMs+3)
+		match claimB2 {
+		case WriterCommitted as c:
+			ackedCursors = ackedCursors.Append(c.Head)
+		case _:
+			st.Stop()
+			return false
+		}
+		RecordTaskLine(trace, "{\"signal\":\"ClaimWrite\",\"args\":{\"w\":{\"_tag\":\"B\"},\"t\":{\"_tag\":\"T0\"}},\"state\":{\"wins\":[1,0]}}")
+		let comp0 = WriterExecute(w, board.CompleteTask{Caller: testWorker("b"), Board: board.DefaultBoard, ID: "msg_1", Token: 2, Result: "ok"}, 100+board.MaxLeaseMs+4)
+		match comp0 {
+		case WriterCommitted as c:
+			ackedCursors = ackedCursors.Append(c.Head)
+		case _:
+			st.Stop()
+			return false
+		}
+		RecordTaskLine(trace, "{\"signal\":\"Complete\",\"args\":{\"w\":{\"_tag\":\"B\"},\"t\":{\"_tag\":\"T0\"}},\"state\":{\"done\":[1,0]}}")
+
+		RecordTaskLine(trace, "{\"signal\":\"ClaimRead\",\"args\":{\"w\":{\"_tag\":\"A\"},\"t\":{\"_tag\":\"T1\"}}}")
+		let claim1 = WriterExecute(w, board.ClaimTask{Caller: testWorker("a"), Board: board.DefaultBoard, ID: "msg_2", LeaseMs: board.MaxLeaseMs}, 100+board.MaxLeaseMs+5)
+		match claim1 {
+		case WriterCommitted as c:
+			ackedCursors = ackedCursors.Append(c.Head)
+		case _:
+			st.Stop()
+			return false
+		}
+		RecordTaskLine(trace, "{\"signal\":\"ClaimWrite\",\"args\":{\"w\":{\"_tag\":\"A\"},\"t\":{\"_tag\":\"T1\"}},\"state\":{\"wins\":[1,1]}}")
+		let comp1 = WriterExecute(w, board.CompleteTask{Caller: testWorker("a"), Board: board.DefaultBoard, ID: "msg_2", Token: 1, Result: "ok"}, 100+board.MaxLeaseMs+6)
+		match comp1 {
+		case WriterCommitted as c:
+			ackedCursors = ackedCursors.Append(c.Head)
+		case _:
+			st.Stop()
+			return false
+		}
+		RecordTaskLine(trace, "{\"signal\":\"Complete\",\"args\":{\"w\":{\"_tag\":\"A\"},\"t\":{\"_tag\":\"T1\"}},\"state\":{\"done\":[1,1]}}")
+
+		let writerBeforeHubCrash = WriterGeneration(w)
+		CrashWaitHub(h)
+		if !WaitServerGeneration(srv, 3) {
+			st.Stop()
+			return false
+		}
+		if WriterGeneration(w) != writerBeforeHubCrash || HubGeneration(h) < 3 {
+			st.Stop()
+			return false
+		}
+
+		let openAsk = WriterExecute(w, board.OpenAsk{
+			Caller:         testAlice(),
+			Board:          board.DefaultBoard,
+			Channel:        "dev",
+			Thread:         "",
+			Text:           "Ship release?",
+			To:             []board.ActorID{"google:bob", "google:admin"},
+			OnlyFromAsked:  true,
+			ExpiresAt:      0,
+			IdempotencyKey: "",
+		}, 100+board.MaxLeaseMs+10)
+		let askID = match openAsk {
+		case WriterCommitted as c:
+			ackedCursors = ackedCursors.Append(c.Head)
+			let mut found = ""
+			for ev in c.Events {
+				match ev.Payload {
+				case board.AskOpened as ao:
+					found = ao.Ask.ID
+				case _:
+				}
+			}
+			found
+		case _:
+			st.Stop()
+			return false
+		}
+		if askID == "" {
+			st.Stop()
+			return false
+		}
+		RecordAskLine(trace, "{\"signal\":\"ReplyRead\",\"args\":{\"r\":{\"_tag\":\"X\"}}}")
+		RecordAskLine(trace, "{\"signal\":\"ReplyRead\",\"args\":{\"r\":{\"_tag\":\"Y\"}}}")
+		let rep1 = WriterExecute(w, board.ReplyMessage{
+			Caller:         testBob(),
+			Board:          board.DefaultBoard,
+			Re:             askID,
+			Text:           "yes",
+			After:          "",
+			Labels:         Map[string, string]{},
+			NoSync:         false,
+			From:           "",
+			IdempotencyKey: "",
+		}, 100+board.MaxLeaseMs+11)
+		match rep1 {
+		case WriterCommitted as c:
+			ackedCursors = ackedCursors.Append(c.Head)
+		case _:
+			st.Stop()
+			return false
+		}
+		RecordAskLine(trace, "{\"signal\":\"ReplyWrite\",\"args\":{\"r\":{\"_tag\":\"X\"}},\"state\":{\"replies\":1,\"answerNotes\":1}}")
+		let adminCaller = board.Caller{Principal: "google:admin", Profile: "", Role: board.Admin, Kind: board.Person, Email: "admin@example.com", Narrowed: false, NarrowedCan: Map[string, []board.Permission]{}, NarrowedProfile: "", NarrowedBoards: []string{}}
+		let rep2 = WriterExecute(w, board.ReplyMessage{
+			Caller:         adminCaller,
+			Board:          board.DefaultBoard,
+			Re:             askID,
+			Text:           "second reply",
+			After:          "",
+			Labels:         Map[string, string]{},
+			NoSync:         false,
+			From:           "",
+			IdempotencyKey: "",
+		}, 100+board.MaxLeaseMs+12)
+		match rep2 {
+		case WriterCommitted as c:
+			ackedCursors = ackedCursors.Append(c.Head)
+		case _:
+			st.Stop()
+			return false
+		}
+		RecordAskLine(trace, "{\"signal\":\"ReplyWrite\",\"args\":{\"r\":{\"_tag\":\"Y\"}},\"state\":{\"replies\":2,\"answerNotes\":1,\"changed\":false}}")
+		let addr3 = ServerBoundAddr(srv)
+		let (rc, rb) = sendPipeHTTP(pipe, addr3, "POST", "/mcp", "Content-Type: application/json\r\nAccept: application/json\r\n", mcpReadBody("rask", "dev")) catch {
+		case _:
+			(0, "")
+		}
+		if rc != 200 || !strings.Contains(rb, "Ship release?") {
+			st.Stop()
+			return false
+		}
+		RecordAskLine(trace, "{\"signal\":\"AskerRead\",\"state\":{\"read\":true}}")
+
+		let mkBoard = WriterExecute(w, board.CreateBoard{Caller: adminCaller, Name: "waitlog"}, 100+board.MaxLeaseMs+20)
+		match mkBoard {
+		case WriterCommitted as c:
+			if len(c.Events) > 0 && c.Events[0].Board == "waitlog" {
+				for _ in c.Events {
+					RecordEventLogLine(trace, FormatEventLogAppend(false))
+				}
+			}
+		case _:
+			st.Stop()
+			return false
+		}
+		let firstWaitPost = WriterExecute(w, board.PostMessage{
+			Caller:         adminCaller,
+			Board:          "waitlog",
+			Channel:        "dev",
+			Text:           "skip-1",
+			Labels:         Map[string, string]{},
+			NoSync:         false,
+			From:           "",
+			IdempotencyKey: "",
+		}, 100+board.MaxLeaseMs+21)
+		let initialWaitHead = match firstWaitPost {
+		case WriterCommitted as c:
+			for _ in c.Events {
+				RecordEventLogLine(trace, FormatEventLogAppend(false))
+			}
+			c.Head
+		case _:
+			st.Stop()
+			return false
+		}
+		let beforeWaitLen = EventLogLineCount(trace)
+		let waitStep = task.Go() {
+			WaitFor(h, store, "waitlog", 0, -1ns, func(_ board.State, ev board.Event) bool {
+				isMatchText(ev, "hit")
+			}, Some[TraceRecorder]{Value: trace}) catch {
+			case board.StoreFailed:
+				WaitStopped{Cursor: 0}
+			}
+		}
+		for EventLogLineCount(trace) < beforeWaitLen+2 {
+			let yield = task.Go() { 0 }
+			let _ = yield.Wait()
+		}
+		let mut wantCursor = initialWaitHead + 1
+		if initialWaitHead <= 2 {
+			RecordEventLogLine(trace, FormatEventLogAppend(false))
+			let beforeNotify1 = EventLogLineCount(trace)
+			let _ = WriterExecute(w, board.PostMessage{
+				Caller:         adminCaller,
+				Board:          "waitlog",
+				Channel:        "dev",
+				Text:           "skip-2",
+				Labels:         Map[string, string]{},
+				NoSync:         false,
+				From:           "",
+				IdempotencyKey: "",
+			}, 100+board.MaxLeaseMs+22)
+			for EventLogLineCount(trace) < beforeNotify1+1 {
+				let yield = task.Go() { 0 }
+				let _ = yield.Wait()
+			}
+			wantCursor = initialWaitHead + 2
+		}
+		RecordEventLogLine(trace, FormatEventLogAppend(true))
+		let _ = WriterExecute(w, board.PostMessage{
+			Caller:         adminCaller,
+			Board:          "waitlog",
+			Channel:        "dev",
+			Text:           "hit-4",
+			Labels:         Map[string, string]{},
+			NoSync:         false,
+			From:           "",
+			IdempotencyKey: "",
+		}, 100+board.MaxLeaseMs+23)
+		let wres = waitStep.Wait()
+		let hitCursor = match wres {
+		case WaitEvent as we:
+			we.Cursor
+		case WaitTimeout, WaitStopped:
+			0
+		}
+		if hitCursor != wantCursor {
+			st.Stop()
+			return false
+		}
+
+		let toRes = WaitFor(h, store, "waitlog", hitCursor, 0ns, func(_ board.State, ev board.Event) bool {
+			isMatchText(ev, "hit")
+		}, Some[TraceRecorder]{Value: trace}) catch {
+		case board.StoreFailed:
+			WaitStopped{Cursor: 0}
+		}
+		let toOK = match toRes {
+		case WaitTimeout as wt:
+			wt.Cursor == hitCursor
+		case WaitEvent, WaitStopped:
+			false
+		}
+		if !toOK {
+			st.Stop()
+			return false
+		}
+
+		let snap = store.Snapshot() catch {
+		case board.StoreFailed:
+			st.Stop()
+			return false
+		}
+		let genEvts = store.ReadEvents(board.DefaultBoard, 0) catch {
+		case board.StoreFailed:
+			st.Stop()
+			return false
+		}
+		let waitEvts = store.ReadEvents("waitlog", 0) catch {
+		case board.StoreFailed:
+			st.Stop()
+			return false
+		}
+		for cur in ackedCursors {
+			if cur > len(genEvts) {
+				st.Stop()
+				return false
+			}
+		}
+		let mut all = []board.Event{}
+		for e in genEvts {
+			all = all.Append(e)
+		}
+		for e in waitEvts {
+			all = all.Append(e)
+		}
+		let folded = board.Fold(initial, all)
+		st.Stop()
+		snap == folded
+	}
+	ok
+}
+
+test TestServeAgreesWithModel {
+	let trace = NewTraceRecorder()
+	assert RunServeConformanceScenario(trace)
+	assert len(strings.Split(strings.TrimSpace(TaskTrace(trace)), "\n")) == 12
+	assert len(strings.Split(strings.TrimSpace(AskTrace(trace)), "\n")) == 5
+	assert len(strings.Split(strings.TrimSpace(BoardTreeTrace(trace)), "\n")) == 11
+	assert EventLogLineCount(trace) >= 8
+}

@@ -1,0 +1,202 @@
+import github.com/cevr/ergo/modules/board/board
+import json
+import strings
+import sync
+
+// TraceSnapshot holds the recorded JSONL trace streams formatted for
+// `ergo conform` against models/tasks.Design, models/ask.Design,
+// models/eventlog.Design, and models/boardtree.Design, plus domain events.
+type TraceSnapshot {
+	TaskLines      []string,
+	AskLines       []string,
+	EventLogLines  []string,
+	BoardTreeLines []string,
+	DomainLines    []string,
+}
+
+// TraceRecorder collects JSONL conformance observations in memory without
+// recording refused secrets.
+type TraceRecorder {
+	buf sync.Ref[TraceSnapshot],
+}
+
+// NewTraceRecorder returns an empty TraceRecorder.
+func NewTraceRecorder() TraceRecorder {
+	TraceRecorder{buf: sync.NewRef(TraceSnapshot{
+		TaskLines:      []string{},
+		AskLines:       []string{},
+		EventLogLines:  []string{},
+		BoardTreeLines: []string{},
+		DomainLines:    []string{},
+	})}
+}
+
+// Snapshot returns a copy of all recorded trace streams.
+func Snapshot(r TraceRecorder) TraceSnapshot { r.buf.Get() }
+
+// TaskTrace returns the newline-terminated JSONL trace for models/tasks.Design.
+func TaskTrace(r TraceRecorder) string { joinLines(r.buf.Get().TaskLines) }
+
+// AskTrace returns the newline-terminated JSONL trace for models/ask.Design.
+func AskTrace(r TraceRecorder) string { joinLines(r.buf.Get().AskLines) }
+
+// EventLogTrace returns the newline-terminated JSONL trace for models/eventlog.Design.
+func EventLogTrace(r TraceRecorder) string { joinLines(r.buf.Get().EventLogLines) }
+
+// BoardTreeTrace returns the newline-terminated JSONL trace for models/boardtree.Design.
+func BoardTreeTrace(r TraceRecorder) string { joinLines(r.buf.Get().BoardTreeLines) }
+
+// EventLogLineCount returns the number of recorded eventlog conformance lines.
+func EventLogLineCount(r TraceRecorder) int { len(r.buf.Get().EventLogLines) }
+
+func joinLines(lines []string) string {
+	if len(lines) == 0 {
+		return ""
+	}
+	strings.Join(lines, "\n") + "\n"
+}
+
+func jsonString(s string) string {
+	json.Encode(json.Codec[string]{MaxBytes: 0, MaxDepth: 0}, s)
+}
+
+// RecordTaskLine appends one JSONL observation line for `ergo conform --machine Task`.
+func RecordTaskLine(r TraceRecorder, line string) {
+	r.buf.Update(func(s TraceSnapshot) TraceSnapshot {
+		TraceSnapshot{..s, TaskLines: s.TaskLines.Append(line)}
+	})
+}
+
+// RecordAskLine appends one JSONL observation line for `ergo conform --machine Ask`.
+func RecordAskLine(r TraceRecorder, line string) {
+	r.buf.Update(func(s TraceSnapshot) TraceSnapshot {
+		TraceSnapshot{..s, AskLines: s.AskLines.Append(line)}
+	})
+}
+
+// RecordEventLogLine appends one JSONL observation line for `ergo conform --machine Design` on eventlog.
+func RecordEventLogLine(r TraceRecorder, line string) {
+	r.buf.Update(func(s TraceSnapshot) TraceSnapshot {
+		TraceSnapshot{..s, EventLogLines: s.EventLogLines.Append(line)}
+	})
+}
+
+// RecordBoardTreeLine appends one JSONL observation line for `ergo conform --machine Design` on boardtree.
+func RecordBoardTreeLine(r TraceRecorder, line string) {
+	r.buf.Update(func(s TraceSnapshot) TraceSnapshot {
+		TraceSnapshot{..s, BoardTreeLines: s.BoardTreeLines.Append(line)}
+	})
+}
+
+func payloadKindName(p board.EventPayload) string {
+	match p {
+	case board.BoardCreated:
+		"BoardCreated"
+	case board.BoardRenamed:
+		"BoardRenamed"
+	case board.BoardArchivedEvent:
+		"BoardArchivedEvent"
+	case board.ChannelCreated:
+		"ChannelCreated"
+	case board.MessagePosted:
+		"MessagePosted"
+	case board.MessageEdited:
+		"MessageEdited"
+	case board.MessageDeleted:
+		"MessageDeleted"
+	case board.ReactionChanged:
+		"ReactionChanged"
+	case board.LabelsChanged:
+		"LabelsChanged"
+	case board.PrincipalRegistered:
+		"PrincipalRegistered"
+	case board.PrincipalGone:
+		"PrincipalGone"
+	case board.ProfileSeen:
+		"ProfileSeen"
+	case board.GrantCreated:
+		"GrantCreated"
+	case board.GrantUpdated:
+		"GrantUpdated"
+	case board.GrantRevoked:
+		"GrantRevoked"
+	case board.AskOpened:
+		"AskOpened"
+	case board.AskAnsweredEvent:
+		"AskAnsweredEvent"
+	case board.AskWithdrawnEvent:
+		"AskWithdrawnEvent"
+	case board.AskExpiredEvent:
+		"AskExpiredEvent"
+	case board.TrustUpdated:
+		"TrustUpdated"
+	case board.TaskCreated:
+		"TaskCreated"
+	case board.TaskReadied:
+		"TaskReadied"
+	case board.TaskClaimedEvent:
+		"TaskClaimedEvent"
+	case board.TaskRenewed:
+		"TaskRenewed"
+	case board.TaskReleased:
+		"TaskReleased"
+	case board.TaskExpired:
+		"TaskExpired"
+	case board.TaskCompletedEvent:
+		"TaskCompletedEvent"
+	case board.TaskFailedEvent:
+		"TaskFailedEvent"
+	case board.TaskBlockedEvent:
+		"TaskBlockedEvent"
+	case board.TaskUnblocked:
+		"TaskUnblocked"
+	case board.TaskReopened:
+		"TaskReopened"
+	case board.TaskAssignedEvent:
+		"TaskAssignedEvent"
+	case board.TaskNeedsChanged:
+		"TaskNeedsChanged"
+	case board.TaskCanceledEvent:
+		"TaskCanceledEvent"
+	}
+}
+
+// RecordDomainEvent appends one committed board event to the domain trace stream.
+func RecordDomainEvent(r TraceRecorder, ev board.Event) {
+	let line = "{\"seq\":" + json.Encode(json.Codec[int]{MaxBytes: 0, MaxDepth: 0}, ev.Seq) +
+		",\"board\":" + jsonString(ev.Board) +
+		",\"kind\":" + jsonString(payloadKindName(ev.Payload)) +
+		",\"actor\":" + jsonString(ev.Actor) + "}"
+	r.buf.Update(func(s TraceSnapshot) TraceSnapshot {
+		TraceSnapshot{..s, DomainLines: s.DomainLines.Append(line)}
+	})
+}
+
+// FormatEventLogAppend formats an eventlog.Design Append observation line.
+func FormatEventLogAppend(matched bool) string {
+	let m = if matched { "true" } else { "false" }
+	"{\"signal\":\"Append\",\"args\":{\"m\":" + m + "}}"
+}
+
+// FormatEventLogScan formats an eventlog.Design Scan observation line.
+func FormatEventLogScan(cursor int, phase int) string {
+		"{\"signal\":\"Scan\",\"state\":{\"cursor\":" + json.Encode(json.Codec[int]{MaxBytes: 0, MaxDepth: 0}, cursor) +
+		",\"phase\":" + json.Encode(json.Codec[int]{MaxBytes: 0, MaxDepth: 0}, phase) + "}}"
+}
+
+// FormatEventLogRegister formats an eventlog.Design Register observation line.
+func FormatEventLogRegister(from int) string {
+	"{\"signal\":\"Register\",\"state\":{\"phase\":2,\"from\":" + json.Encode(json.Codec[int]{MaxBytes: 0, MaxDepth: 0}, from) + "}}"
+}
+
+// FormatEventLogNotify formats an eventlog.Design Notify observation line.
+func FormatEventLogNotify(cursor int, phase int) string {
+		"{\"signal\":\"Notify\",\"state\":{\"cursor\":" + json.Encode(json.Codec[int]{MaxBytes: 0, MaxDepth: 0}, cursor) +
+		",\"phase\":" + json.Encode(json.Codec[int]{MaxBytes: 0, MaxDepth: 0}, phase) + "}}"
+}
+
+// FormatEventLogTimeout formats an eventlog.Design Timeout observation line.
+func FormatEventLogTimeout(cursor int) string {
+		"{\"signal\":\"Timeout\",\"state\":{\"cursor\":" + json.Encode(json.Codec[int]{MaxBytes: 0, MaxDepth: 0}, cursor) +
+		",\"phase\":0,\"timedOut\":true}}"
+}

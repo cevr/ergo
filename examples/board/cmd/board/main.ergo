@@ -2,12 +2,15 @@ import api
 import filepath
 import github.com/cevr/ergo/modules/board/board
 import github.com/cevr/ergo/modules/board/board/boardcli
+import github.com/cevr/ergo/modules/board/serve
 import github.com/cevr/ergo/modules/board/sqlite
 import github.com/cevr/ergo/modules/board/surfaces
+import net
 import os
 import slices
 import strconv
 import strings
+import sync
 import time
 
 func defaultWorkspaceAdmins() []board.Principal {
@@ -103,6 +106,79 @@ func envOr(process os.Process, key string, def string) string {
 	}
 }
 
+func parseServeFlags(args []string, defaultAddr string, defaultSteps int) (string, int) fails os.Exit {
+	let mut addr = defaultAddr
+	let mut steps = defaultSteps
+	let mut i = 0
+	for i < len(args) {
+		let a = args[i]
+		if a == "--listen" || a == "-listen" {
+			if i+1 >= len(args) {
+				return os.Exit{Code: 2, Message: "board serve: --listen requires an address"}
+			}
+			addr = args[i+1]
+			i = i + 2
+			continue
+		}
+		if strings.HasPrefix(a, "--listen=") {
+			addr = strings.TrimPrefix(a, "--listen=")
+			i = i + 1
+			continue
+		}
+		if a == "--steps" || a == "-steps" {
+			if i+1 >= len(args) {
+				return os.Exit{Code: 2, Message: "board serve: --steps requires an integer"}
+			}
+			let n = strconv.ParseInt(args[i+1], 10, 64) catch {
+			case strconv.Malformed, strconv.OutOfRange:
+				return os.Exit{Code: 2, Message: "board serve: --steps must be an integer"}
+			}
+			steps = int(n)
+			i = i + 2
+			continue
+		}
+		if strings.HasPrefix(a, "--steps=") {
+			let n = strconv.ParseInt(strings.TrimPrefix(a, "--steps="), 10, 64) catch {
+			case strconv.Malformed, strconv.OutOfRange:
+				return os.Exit{Code: 2, Message: "board serve: --steps must be an integer"}
+			}
+			steps = int(n)
+			i = i + 1
+			continue
+		}
+		return os.Exit{Code: 2, Message: "board serve: unknown flag \(a)"}
+	}
+	(addr, steps)
+}
+
+func runServe(store board.Store, clock time.Clock, user string, addr string, steps int) fails os.Exit needs Ambient {
+	let checkedAddr = serve.ValidateBindAddr(addr) catch {
+	case serve.BindRefused as e:
+		return os.Exit{Code: 2, Message: "board serve: refused bind \(e.Addr): \(e.Reason)"}
+	}
+	let base = serve.DefaultConfig(checkedAddr)
+	let cfg = serve.Config{
+		..base,
+		RequestStepLimit: if steps > 0 { steps } else { base.RequestStepLimit },
+		DefaultUser:      user,
+	}
+	let srv = serve.NewServer(cfg, store, clock, None)
+	let ready = sync.NewLatch()
+	let netw = net.NewHost()
+	with context { time.Clock: clock, Scheduler: NewLiveScheduler() } {
+		serve.Serve(srv, netw, ready, []func() needs Scheduler{}) catch {
+		case serve.ServeBindRefused as e:
+			return os.Exit{Code: 2, Message: "board serve: refused bind \(e.Err.Addr): \(e.Err.Reason)"}
+		case serve.ServeListenFailed as e:
+			return os.Exit{Code: 1, Message: "board serve: listen \(e.Addr) failed: \(e.Reason)"}
+		case serve.ServeInvalidLimits:
+			return os.Exit{Code: 2, Message: "board serve: invalid HTTP limits"}
+		case serve.ServeGaveUp as e:
+			return os.Exit{Code: 1, Message: "board serve: supervision gave up on member \(e.Err.Member): \(e.Err.Reason)"}
+		}
+	}
+}
+
 func main() fails os.Exit needs Ambient | Console | go.Foreign {
 	let process = os.NewHost()
 	let clock = try clockOf(process.Getenv("BOARD_NOW"))
@@ -117,6 +193,25 @@ func main() fails os.Exit needs Ambient | Console | go.Foreign {
 	let (store, raw) = sqlite.OpenWithAdmins(dbPath, defaultWorkspaceAdmins(), initNow) catch {
 	case board.StoreFailed as e:
 		return os.Exit{Code: 1, Message: "board: open store failed: \(e.Reason)"}
+	}
+	if len(cliArgs) > 0 && cliArgs[0] == "serve" {
+		let defaultAddr = envOr(process, "BOARD_LISTEN", "127.0.0.1:8080")
+		let defaultSteps = strconv.ParseInt(envOr(process, "BOARD_STEPS", "50000"), 10, 64) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			int64(50000)
+		}
+		let (addr, steps) = try parseServeFlags(cliArgs[1:], defaultAddr, int(defaultSteps))
+		runServe(store, clock, user, addr, steps) catch {
+		case os.Exit as e:
+			sqlite.Close(raw) catch {
+			case board.StoreFailed:
+			}
+			return e
+		}
+		sqlite.Close(raw) catch {
+		case board.StoreFailed:
+		}
+		return
 	}
 	let handler = board.NewHandler(store, caller, clock)
 	let out = with context { board.Api: handler } {

@@ -384,6 +384,108 @@
       "killers": [
         "modules/board/surfaces:TestReadRefusesPrivateChannel"
       ]
+    },
+    {
+      "name": "board-serve-bind-allows-wildcard",
+      "origin": "BOARD-6",
+      "file": "modules/board/serve/bind.ergo",
+      "decl": "ValidateBindAddr",
+      "from": "\tif !isAllowedHost(host) {\n",
+      "to": "\tif false && !isAllowedHost(host) {\n",
+      "rule": "ValidateBindAddr refuses wildcard and external bind addresses, admitting only loopback and tailnet hosts.",
+      "anchor": {
+        "tests": [
+          "modules/board/serve:TestBindGuardRefusesNonTailnet"
+        ]
+      },
+      "killers": [
+        "modules/board/serve:TestBindGuardRefusesNonTailnet"
+      ]
+    },
+    {
+      "name": "board-serve-wait-subscribes-at-head",
+      "origin": "BOARD-6",
+      "file": "modules/board/serve/waithub.ergo",
+      "decl": "WaitFor",
+      "from": "\tlet mut from = scanHead\n",
+      "to": "\tlet mut from = hubHead\n",
+      "rule": "WaitFor subscribes from the scanned head so events arriving between scan and registration are never missed.",
+      "anchor": {
+        "tests": [
+          "modules/board/serve:TestWaitHubScanRegisterRace"
+        ]
+      },
+      "killers": [
+        "modules/board/serve:TestWaitHubScanRegisterRace"
+      ]
+    },
+    {
+      "name": "board-serve-writer-skips-invariant-die",
+      "origin": "BOARD-6",
+      "file": "modules/board/serve/writer.ergo",
+      "decl": "verifyWriterInvariant",
+      "from": "\tif inject {\n\t\tdie WriterInvariantBroken{Board: boardName, ExpectedHead: expectedHead, ActualHead: actual, Reason: \"injected writer invariant breach\"}\n\t}\n",
+      "to": "\tif false && inject {\n\t\tdie WriterInvariantBroken{Board: boardName, ExpectedHead: expectedHead, ActualHead: actual, Reason: \"injected writer invariant breach\"}\n\t}\n",
+      "rule": "RunWriter terminates with die on an invariant violation so supervision restarts the writer cleanly.",
+      "anchor": {
+        "tests": [
+          "modules/board/serve:law:WriterDieAndRestForOneRecovery"
+        ]
+      },
+      "killers": [
+        "modules/board/serve:law:WriterDieAndRestForOneRecovery"
+      ]
+    },
+    {
+      "name": "board-serve-tree-one-for-one-writer",
+      "origin": "BOARD-6",
+      "file": "modules/board/serve/server.ergo",
+      "decl": "SupervisionPolicy",
+      "from": "\t\tStrategy:  tasks.RestForOne,\n",
+      "to": "\t\tStrategy:  tasks.OneForOne,\n",
+      "rule": "SupervisionPolicy uses RestForOne so a writer crash restarts the wait hub and HTTP workers after it.",
+      "anchor": {
+        "tests": [
+          "modules/board/serve:law:WriterDieAndRestForOneRecovery"
+        ]
+      },
+      "killers": [
+        "modules/board/serve:law:WriterDieAndRestForOneRecovery"
+      ]
+    },
+    {
+      "name": "board-serve-skips-step-budget",
+      "origin": "BOARD-6",
+      "file": "modules/board/serve/server.ergo",
+      "decl": "HandleHTTP",
+      "from": "\t\tSteps: s.cfg.RequestStepLimit,\n",
+      "to": "\t\tSteps: 0,\n",
+      "rule": "HandleHTTP enforces per-request process.Limits.Steps and stops runaway requests with HTTP 429.",
+      "anchor": {
+        "tests": [
+          "modules/board/serve:law:StepBudgetStopsRunawayRequest"
+        ]
+      },
+      "killers": [
+        "modules/board/serve:law:StepBudgetStopsRunawayRequest"
+      ]
+    },
+    {
+      "name": "board-serve-mcp-dispatch-404",
+      "origin": "BOARD-6",
+      "file": "modules/board/serve/server.ergo",
+      "decl": "dispatchRequest",
+      "from": "\tif req.Path == \"/mcp\" {\n",
+      "to": "\tif false && req.Path == \"/mcp\" {\n",
+      "rule": "dispatchRequest routes /mcp to std/mcp/httpmcp backed by boardmcp.Tools.",
+      "anchor": {
+        "tests": [
+          "modules/board/serve:law:HttpMcpAndRpcOverPipe"
+        ]
+      },
+      "killers": [
+        "modules/board/serve:law:HttpMcpAndRpcOverPipe"
+      ]
     }
   ]
 }

@@ -1,0 +1,328 @@
+import github.com/cevr/ergo/modules/board/board
+import github.com/cevr/ergo/modules/board/board/boardmcp
+import github.com/cevr/ergo/modules/board/board/boardrpc
+import http
+import mcp
+import mcp/httpmcp
+import net
+import process
+import queue
+import rpc
+import schedule
+import strings
+import sync
+import task
+import tasks
+import time
+
+// Config configures a supervised board HTTP/MCP/RPC server.
+type Config {
+	Addr             string,
+	RequestStepLimit int,
+	RequestTimeout   duration,
+	MaxRestarts      int,
+	RestartPeriod    duration,
+	DefaultUser      string,
+	HttpLimits       http.Limits,
+}
+
+// DefaultConfig returns a loopback-bound Config matching M10's supervision
+// budget (5 restarts in 60s) and bounded per-request steps.
+func DefaultConfig(addr string) Config {
+	Config{
+		Addr:             addr,
+		RequestStepLimit: 50000,
+		RequestTimeout:   30s,
+		MaxRestarts:      5,
+		RestartPeriod:    60s,
+		DefaultUser:      "alice",
+		HttpLimits:       http.Limits{
+			MaxBodyBytes:      1048576,
+			MaxHeaderBytes:    65536,
+			IdleTimeout:       60s,
+			ReadHeaderTimeout: 10s,
+			ReadBodyTimeout:   30s,
+		},
+	}
+}
+
+// SupervisionPolicy builds M10's outer RestForOne supervision policy from cfg.
+func SupervisionPolicy(cfg Config) tasks.Supervision {
+	let max = if cfg.MaxRestarts > 0 { cfg.MaxRestarts } else { 5 }
+	let period = if cfg.RestartPeriod > 0ns { cfg.RestartPeriod } else { 60s }
+	tasks.Supervision{
+		Strategy:  tasks.RestForOne,
+		Intensity: tasks.Intensity{Max: max, Period: period},
+		Backoff:   schedule.Forever(),
+	}
+}
+
+// WorkerPolicy builds M10's inner OneForOne policy for workers after the writer.
+func WorkerPolicy(cfg Config) tasks.Supervision {
+	let max = if cfg.MaxRestarts > 0 { cfg.MaxRestarts } else { 5 }
+	let period = if cfg.RestartPeriod > 0ns { cfg.RestartPeriod } else { 60s }
+	tasks.Supervision{
+		Strategy:  tasks.OneForOne,
+		Intensity: tasks.Intensity{Max: max, Period: period},
+		Backoff:   schedule.Forever(),
+	}
+}
+
+// Server holds the supervised components of a running board server.
+type Server {
+	cfg       Config,
+	writer    Writer,
+	hub       WaitHub,
+	store     WriterStore,
+	clock     time.Clock,
+	trace     Option[TraceRecorder],
+	boundAddr sync.Ref[string],
+	httpGen   sync.Ref[int],
+	httpReady queue.Queue[int],
+}
+
+// NewServer constructs a Server over any provider-neutral board.Store.
+func NewServer(cfg Config, store board.Store, clock time.Clock, trace Option[TraceRecorder]) Server {
+	let hub = NewWaitHub()
+	let writer = NewWriter(store, hub, trace)
+	Server{
+		cfg:       cfg,
+		writer:    writer,
+		hub:       hub,
+		store:     NewWriterStore(writer),
+		clock:     clock,
+		trace:     trace,
+		boundAddr: sync.NewRef(""),
+		httpGen:   sync.NewRef(0),
+		httpReady: queue.New[int](32),
+	}
+}
+
+// ServerWriter returns s's supervised Writer.
+func ServerWriter(s Server) Writer { s.writer }
+
+// ServerWaitHub returns s's WaitHub.
+func ServerWaitHub(s Server) WaitHub { s.hub }
+
+// ServerBoundAddr returns the listener address bound by s's HTTP worker.
+func ServerBoundAddr(s Server) string { s.boundAddr.Get() }
+
+// ServerHTTPGeneration returns the number of HTTP worker incarnations started.
+func ServerHTTPGeneration(s Server) int { s.httpGen.Get() }
+
+// WaitServerGeneration blocks until s's HTTP worker has reached at least
+// minGen incarnations and bound its listener, returning false if closed.
+func WaitServerGeneration(s Server, minGen int) bool {
+	for s.httpGen.Get() < minGen {
+		let _ = s.httpReady.Pop() catch {
+		case queue.Closed:
+			return s.httpGen.Get() >= minGen
+		}
+	}
+	true
+}
+
+func callerForHeader(defaultUser string, hdr []http.Field) board.Caller {
+	let auth = match http.Header(hdr, "Board-Auth") {
+	case Some[string] as v:
+		strings.TrimSpace(v.Value)
+	case None:
+		""
+	}
+	if auth == "none" {
+		return board.Caller{
+			Principal:       "",
+			Profile:         "",
+			Role:            board.Member,
+			Kind:            board.Person,
+			Email:           "",
+			Narrowed:        false,
+			NarrowedCan:     Map[string, []board.Permission]{},
+			NarrowedProfile: "",
+			NarrowedBoards:  []string{},
+		}
+	}
+	let user = match http.Header(hdr, "Board-User") {
+	case Some[string] as v:
+		let u = strings.TrimSpace(v.Value)
+		if u != "" { u } else { defaultUser }
+	case None:
+		defaultUser
+	}
+	let profile = match http.Header(hdr, "Board-Profile") {
+	case Some[string] as v:
+		strings.TrimSpace(v.Value)
+	case None:
+		""
+	}
+	match user {
+	case "admin":
+		board.Caller{Principal: "google:admin", Profile: profile, Role: board.Admin, Kind: board.Person, Email: "admin@example.com", Narrowed: false, NarrowedCan: Map[string, []board.Permission]{}, NarrowedProfile: "", NarrowedBoards: []string{}}
+	case "bob":
+		board.Caller{Principal: "google:bob", Profile: profile, Role: board.Member, Kind: board.Person, Email: "bob@example.com", Narrowed: false, NarrowedCan: Map[string, []board.Permission]{}, NarrowedProfile: "", NarrowedBoards: []string{}}
+	case _:
+		board.Caller{Principal: "google:alice", Profile: profile, Role: board.Member, Kind: board.Person, Email: "alice@example.com", Narrowed: false, NarrowedCan: Map[string, []board.Permission]{}, NarrowedProfile: "", NarrowedBoards: []string{}}
+	}
+}
+
+func jsonResponse(status int, body string) http.Response {
+	http.Response{
+		Status: status,
+		Header: []http.Field{http.Field{Name: "Content-Type", Value: "application/json"}},
+		Body:   body,
+	}
+}
+
+func dispatchRequest(s Server, req http.Request) http.Response needs http.Streaming {
+	if req.Path == "/healthz" && req.Method == "GET" {
+		if WriterActive(s.writer) {
+			return jsonResponse(200, "{\"ok\":true}")
+		}
+		return jsonResponse(503, "{\"ok\":false}")
+	}
+	if req.Path == "/mcp" {
+		let opts = httpmcp.Options{
+			AllowedOrigins: []string{},
+			MaxBodyBytes:   s.cfg.HttpLimits.MaxBodyBytes,
+			Sessions:       httpmcp.Stateless,
+		}
+		return httpmcp.Dispatch(opts, req, func(r http.Request) httpmcp.Resolved {
+			let caller = callerForHeader(s.cfg.DefaultUser, r.Header)
+			let handler = board.NewHandler(s.store, caller, s.clock)
+			let tools = with context { board.Api: handler } { boardmcp.Tools() }
+			httpmcp.Use{Server: mcp.Server{Name: "board", Version: "0.1.0", Tools: tools}}
+		})
+	}
+	if req.Path == "/rpc" || req.Path == "/rpc/" {
+		let caller = callerForHeader(s.cfg.DefaultUser, req.Header)
+		let handler = board.NewHandler(s.store, caller, s.clock)
+		return rpc.Answer(req, "/rpc", func(tag string, payload string) string fails rpc.Failed {
+			with context { board.Api: handler } {
+				try boardrpc.Handle(tag, payload)
+			}
+		})
+	}
+	jsonResponse(404, "{\"error\":\"not_found\"}")
+}
+
+// HandleHTTP serves one HTTP request (/healthz, /mcp, /rpc) inside a
+// process.Run child bounded by s.cfg.RequestStepLimit and RequestTimeout.
+func HandleHTTP(s Server, req http.Request) http.Response needs Scheduler {
+	let limits = process.Limits{
+		Time:  s.cfg.RequestTimeout,
+		Steps: s.cfg.RequestStepLimit,
+	}
+	process.Run(limits, func() http.Response {
+		with context { http.Streaming: http.NewRecorder() } {
+			dispatchRequest(s, req)
+		}
+	}) catch {
+	case process.OverSteps:
+		jsonResponse(429, "{\"_tag\":\"RateLimited\",\"reason\":\"step_budget_exceeded\"}")
+	case process.OverTime:
+		jsonResponse(504, "{\"_tag\":\"Timeout\",\"reason\":\"request_timeout\"}")
+	case process.Crashed:
+		jsonResponse(500, "{\"_tag\":\"InternalError\",\"reason\":\"request_crashed\"}")
+	}
+}
+
+// ServeError is the typed error returned by Serve when bind validation, HTTP
+// listener setup, limits, or supervision fails.
+type ServeError =
+	| ServeBindRefused{Err BindRefused}
+	| ServeListenFailed{Addr string, Reason string}
+	| ServeInvalidLimits{Reason string}
+	| ServeGaveUp{Err tasks.GaveUp}
+
+// Serve validates s.cfg.Addr against loopback/tailnet rules and runs the M10
+// supervision tree (RestForOne from writer -> wait hub -> OneForOne workers
+// including the HTTP listener) on netw until stopped or supervision gives up.
+func Serve(
+	s Server,
+	netw net.Network,
+	ready sync.Latch,
+	extraWorkers []func() needs Scheduler,
+) fails ServeError needs Scheduler | time.Clock {
+	let addr = ValidateBindAddr(s.cfg.Addr) catch {
+	case BindRefused as e:
+		return ServeBindRefused{Err: e}
+	}
+	let writerReady = sync.NewLatch()
+	let hubReady = sync.NewLatch()
+
+	let httpWorker = func() fails ServeError needs Scheduler {
+		let l = ListenAllowed(netw, addr) catch {
+		case BindRefused as e:
+			return ServeBindRefused{Err: e}
+		case net.ListenFailed as e:
+			return ServeListenFailed{Addr: e.Addr, Reason: e.Reason}
+		case net.Denied as e:
+			return ServeBindRefused{Err: BindRefused{Addr: e.Addr, Reason: "network denied address"}}
+		}
+		s.boundAddr.Set(l.Addr())
+		let nextGen = sync.Modify(s.httpGen, func(n int) (int, int) { (n + 1, n + 1) })
+		s.httpReady.Offer(nextGen) catch {
+		case queue.Full, queue.Closed:
+		}
+		let _ = sync.Open(ready)
+		http.Serve(l, s.cfg.HttpLimits, func(req http.Request) http.Response needs Scheduler | http.Streaming {
+			HandleHTTP(s, req)
+		}) catch {
+		case http.InvalidLimits:
+			return ServeInvalidLimits{Reason: "invalid HTTP server limits"}
+		}
+	}
+
+	let workerGroup = func() fails ServeError needs Scheduler | time.Clock {
+		let mut workers = []func() fails ServeError needs Scheduler{httpWorker}
+		for w in extraWorkers {
+			let run = w
+			workers = workers.Append(func() fails ServeError needs Scheduler {
+				run()
+			})
+		}
+		tasks.Supervise(WorkerPolicy(s.cfg), workers) catch {
+		case tasks.GaveUp as g:
+			return ServeGaveUp{Err: g}
+		case ServeBindRefused as e:
+			return e
+		case ServeListenFailed as e:
+			return e
+		case ServeInvalidLimits as e:
+			return e
+		case ServeGaveUp as e:
+			return e
+		}
+	}
+
+	let members = []func() fails ServeError needs Scheduler | time.Clock{
+		func() fails ServeError needs Scheduler | time.Clock {
+			let t = task.Go() {
+				RunWriter(s.writer, writerReady)
+				0
+			}
+			let _ = t.Wait()
+		},
+		func() fails ServeError needs Scheduler | time.Clock {
+			let t = task.Go() {
+				RunWaitHub(s.hub, hubReady)
+				0
+			}
+			let _ = t.Wait()
+		},
+		workerGroup,
+	}
+
+	tasks.Supervise(SupervisionPolicy(s.cfg), members) catch {
+	case tasks.GaveUp as g:
+		return ServeGaveUp{Err: g}
+	case ServeBindRefused as e:
+		return e
+	case ServeListenFailed as e:
+		return e
+	case ServeInvalidLimits as e:
+		return e
+	case ServeGaveUp as e:
+		return e
+	}
+}
