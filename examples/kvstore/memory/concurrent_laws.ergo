@@ -1,0 +1,161 @@
+// Concurrent linearizability checks for memory.Table against the pure
+// key-value story (PROPERTY-TESTING P9). Run under `ergo test memory
+// --run TableConcurrentLinearizable --explore pct` (registered in
+// examples/kvstore/explored) to explore task interleavings and catch lost
+// updates or other non-atomic mutations.
+
+import kvstore/kv
+import maps
+import slices
+import strings
+import testing
+
+type kvAct =
+	| KVPut{Key string, Value string}
+	| KVGet{Key string}
+	| KVDelete{Key string}
+	| KVKeys{}
+
+type kvRes =
+	| KVOk{}
+	| KVFound{Value string}
+	| KVMissing{Key string}
+	| KVKeySet{Keys string}
+	| KVBroken{Reason string}
+
+func kvStoryStep(s Map[string, string], a kvAct) (Map[string, string], kvRes) {
+	match a {
+	case KVPut as p:
+		(s.Put(p.Key, p.Value), KVOk)
+	case KVGet as g:
+		match s.Get(g.Key) {
+		case Some[string] as v:
+			(s, KVFound{Value: v.Value})
+		case None:
+			(s, KVMissing{Key: g.Key})
+		}
+	case KVDelete as d:
+		match s.Get(d.Key) {
+		case Some[string]:
+			(s.Delete(d.Key), KVOk)
+		case None:
+			(s, KVMissing{Key: d.Key})
+		}
+	case KVKeys:
+		(s, KVKeySet{Keys: strings.Join(slices.Sorted(maps.Keys(s)), ",")})
+	}
+}
+
+func runKVAct(t Table, a kvAct) kvRes {
+	match a {
+	case KVPut as p:
+		t.Put(p.Key, p.Value) catch {
+		case kv.Broken as b:
+			return KVBroken{Reason: b.Reason}
+		}
+		KVOk
+	case KVGet as g:
+		let v = t.Get(g.Key) catch {
+		case kv.Missing as m:
+			return KVMissing{Key: m.Key}
+		case kv.Broken as b:
+			return KVBroken{Reason: b.Reason}
+		}
+		KVFound{Value: v}
+	case KVDelete as d:
+		t.Delete(d.Key) catch {
+		case kv.Missing as m:
+			return KVMissing{Key: m.Key}
+		case kv.Broken as b:
+			return KVBroken{Reason: b.Reason}
+		}
+		KVOk
+	case KVKeys:
+		let ks = t.Keys() catch {
+		case kv.Broken as b:
+			return KVBroken{Reason: b.Reason}
+		}
+		KVKeySet{Keys: strings.Join(ks, ",")}
+	}
+}
+
+func showKVAct(a kvAct) string {
+	match a {
+	case KVPut as p:
+		"KVPut{Key: \"\(p.Key)\", Value: \"\(p.Value)\"}"
+	case KVGet as g:
+		"KVGet{Key: \"\(g.Key)\"}"
+	case KVDelete as d:
+		"KVDelete{Key: \"\(d.Key)\"}"
+	case KVKeys:
+		"KVKeys"
+	}
+}
+
+func showKVRes(r kvRes) string {
+	match r {
+	case KVOk:
+		"KVOk"
+	case KVFound as f:
+		"KVFound{Value: \"\(f.Value)\"}"
+	case KVMissing as m:
+		"KVMissing{Key: \"\(m.Key)\"}"
+	case KVKeySet as ks:
+		"KVKeySet{Keys: \"\(ks.Keys)\"}"
+	case KVBroken as b:
+		"KVBroken{Reason: \"\(b.Reason)\"}"
+	}
+}
+
+// TableConcurrentLinearizable runs three concurrent tasks writing disjoint
+// keys and reading the full key set against the pure Map story. Under
+// `--explore pct` any non-atomic read-modify-write lost update produces a
+// non-linearizable history, fails immediately, minimizes via sched.Minimize,
+// and replays deterministically via --schedule.
+test TableConcurrentLinearizable {
+	let t = NewTable()
+	let plans = [][]kvAct{
+		[]kvAct{KVPut{Key: "a", Value: "1"}, KVPut{Key: "b", Value: "2"}, KVKeys},
+		[]kvAct{KVPut{Key: "c", Value: "3"}, KVPut{Key: "d", Value: "4"}, KVKeys},
+		[]kvAct{KVPut{Key: "e", Value: "5"}, KVPut{Key: "f", Value: "6"}, KVKeys},
+	}
+	testing.AgreesConcurrent(Map[string, string]{}, kvStoryStep, plans, func(a kvAct) kvRes {
+		runKVAct(t, a)
+	}) catch {
+	case testing.NotLinearizable[kvAct, kvRes] as nl:
+		assert testing.FormatHistory(nl.History, showKVAct, showKVRes) == ""
+	}
+}
+
+// TableConcurrentPutDeleteLinearizable checks concurrent Put, Delete, and Get
+// interleavings on overlapping keys against the pure Map story.
+test TableConcurrentPutDeleteLinearizable {
+	let t = NewTable()
+	let plans = [][]kvAct{
+		[]kvAct{KVPut{Key: "k", Value: "1"}, KVDelete{Key: "k"}, KVGet{Key: "k"}},
+		[]kvAct{KVPut{Key: "k", Value: "2"}, KVGet{Key: "k"}},
+	}
+	testing.AgreesConcurrent(Map[string, string]{}, kvStoryStep, plans, func(a kvAct) kvRes {
+		runKVAct(t, a)
+	}) catch {
+	case testing.NotLinearizable[kvAct, kvRes] as nl:
+		assert testing.FormatHistory(nl.History, showKVAct, showKVRes) == ""
+	}
+}
+
+// TableConcurrentLinearizableLaw checks linearizability for arbitrary keys
+// and values across two concurrent writer/reader tasks.
+law TableConcurrentLinearizableLaw(k1 string, k2 string, v1 string, v2 string) {
+	let t = NewTable()
+	let plans = [][]kvAct{
+		[]kvAct{KVPut{Key: k1, Value: v1}, KVGet{Key: k1}, KVKeys},
+		[]kvAct{KVPut{Key: k2, Value: v2}, KVGet{Key: k2}, KVKeys},
+	}
+	testing.AgreesConcurrent(Map[string, string]{}, kvStoryStep, plans, func(a kvAct) kvRes {
+		runKVAct(t, a)
+	}) catch {
+	case testing.NotLinearizable[kvAct, kvRes]:
+		return false
+	}
+	true
+}

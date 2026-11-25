@@ -16,6 +16,14 @@
       "to": "\t\t\tio.Stdout.Println(out)\n\t\t\tpace.Pacing.Edge()\n\t\t}\n",
       "rule": "An edge ends a request, not an answer line: a request of several lines or none is one edge (memory test SessionPacesEachRequest).",
       "anchor": {"tests": ["examples:kvstore"]}, "killers": ["examples:kvstore"]
+    },
+    {
+      "name": "kvstore-concurrent-lost-update", "origin": "wf10 PROPERTY-TESTING P9",
+      "file": "examples/kvstore/memory/table.ergo",
+      "from": "\tt.entries.Update() func(entries Map[string, string]) Map[string, string] { entries.Put(key, value) }\n",
+      "to": "\tlet entries = t.entries.Get()\n\tt.entries.Set(entries.Put(key, value))\n",
+      "rule": "Table.Put updates entries atomically so concurrent puts to disjoint keys never lose an update (memory test TableConcurrentLinearizable under --explore pct).",
+      "anchor": {"tests": ["examples:kvstore"]}, "killers": ["examples:kvstore"]
     }
   ]
 }
