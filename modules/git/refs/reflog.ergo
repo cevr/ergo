@@ -1,0 +1,66 @@
+import filepath
+import fs
+import strings
+import github.com/cevr/ergo/modules/git/oid
+
+// ParseReflog parses Git reflog lines (`<old-oid> <new-oid> <ident>\t<message>`)
+// in chronological file order (oldest first, newest last).
+func ParseReflog(format oid.Format, name string, content string) []ReflogEntry fails CorruptRef {
+	let mut entries = []ReflogEntry{}
+	for rawLine in strings.Split(content, "\n") {
+		let line = strings.TrimSuffix(rawLine, "\r")
+		if line == "" {
+			continue
+		}
+		let tabPos = strings.Index(line, "\t")
+		if tabPos < 0 {
+			return CorruptRef{Name: name, Why: "reflog entry missing tab separator"}
+		}
+		let meta = line[:tabPos]
+		let msg = line[tabPos+1:]
+		let sp1 = strings.Index(meta, " ")
+		if sp1 <= 0 || sp1+1 >= len(meta) {
+			return CorruptRef{Name: name, Why: "reflog entry missing old OID"}
+		}
+		let oldHex = meta[:sp1]
+		let rest = meta[sp1+1:]
+		let sp2 = strings.Index(rest, " ")
+		if sp2 <= 0 || sp2+1 >= len(rest) {
+			return CorruptRef{Name: name, Why: "reflog entry missing new OID"}
+		}
+		let newHex = rest[:sp2]
+		let ident = rest[sp2+1:]
+		let oldOID = oid.ParseHex(format, oldHex) catch {
+		case oid.BadHex, oid.WrongLength:
+			return CorruptRef{Name: name, Why: "invalid old OID in reflog"}
+		}
+		let newOID = oid.ParseHex(format, newHex) catch {
+		case oid.BadHex, oid.WrongLength:
+			return CorruptRef{Name: name, Why: "invalid new OID in reflog"}
+		}
+		entries = entries.Append(ReflogEntry{
+			OldOID:  oldOID,
+			NewOID:  newOID,
+			Ident:   ident,
+			Message: msg,
+		})
+	}
+	entries
+}
+
+// ReadReflog reads and parses the reflog file for name from store, resolving
+// per-worktree reflogs under GitDir and shared reflogs under CommonDir.
+func ReadReflog(store Store, name string) []ReflogEntry fails NotFound | InvalidRefName | CorruptRef | PathEscape | IOFailed needs fs.Files {
+	try ValidateReadName(name)
+	let base = if IsPerWorktreeRef(name) { store.GitDir } else { store.CommonDir }
+	let logPath = filepath.Join([]string{base, "logs", name})
+	let raw = fs.Files.ReadFile(logPath) catch {
+	case fs.NotFound:
+		return NotFound{Name: name}
+	case fs.Denied as e:
+		return IOFailed{Op: "read-reflog", Detail: e.Path}
+	case fs.Failed as e:
+		return IOFailed{Op: "read-reflog", Detail: e.Reason}
+	}
+	try ParseReflog(store.Format, name, raw)
+}

@@ -1,0 +1,471 @@
+import exec
+import filepath
+import fs
+import fstest
+import os
+import strings
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/oracle
+import github.com/cevr/ergo/modules/git/root
+
+let onOracle = context needs TestAmbient {
+	exec.Runner: exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
+	fs.Files:    fs.NewTestHost(),
+	fs.Writes:   fs.NewTestHost(),
+	os.Process:  os.NewTestHost(),
+}
+
+func makeSeededMemoryRefs(format oid.Format) MemoryRefs {
+	let m = NewMemoryRefs(format)
+	let id1 = oid.HashObject(format, oid.Commit, "commit-one".Bytes()) catch {
+	case oid.Collision:
+		oid.Zero(format)
+	}
+	let id2 = oid.HashObject(format, oid.Commit, "commit-two".Bytes()) catch {
+	case oid.Collision:
+		oid.Zero(format)
+	}
+	let tagID = oid.HashObject(format, oid.Tag, "tag-one".Bytes()) catch {
+	case oid.Collision:
+		oid.Zero(format)
+	}
+	PutPacked(m, Ref{Name: "refs/heads/main", Target: Direct{OID: id1}, Peeled: None})
+	PutLoose(m, Ref{Name: "refs/heads/main", Target: Direct{OID: id2}, Peeled: None})
+	PutPacked(m, Ref{Name: "refs/tags/v1", Target: Direct{OID: tagID}, Peeled: Some[oid.OID]{Value: id1}})
+	PutLoose(m, Ref{Name: "HEAD", Target: Symbolic{Target: "refs/heads/main"}, Peeled: None})
+	m
+}
+
+let onMemorySha1 = context {
+	RefReader: makeSeededMemoryRefs(oid.Sha1),
+}
+
+let onMemorySha256 = context {
+	RefReader: makeSeededMemoryRefs(oid.Sha256),
+}
+
+func makeSeededFilesStore(baseDir string, host fs.Host) FilesStore {
+	let gitDir = filepath.Join([]string{baseDir, ".git"})
+	let id1 = oid.HashObject(oid.Sha1, oid.Commit, "disk-commit-one".Bytes()) catch {
+	case oid.Collision:
+		oid.Zero(oid.Sha1)
+	}
+	let id2 = oid.HashObject(oid.Sha1, oid.Commit, "disk-commit-two".Bytes()) catch {
+	case oid.Collision:
+		oid.Zero(oid.Sha1)
+	}
+	let tagID = oid.HashObject(oid.Sha1, oid.Tag, "disk-tag-one".Bytes()) catch {
+	case oid.Collision:
+		oid.Zero(oid.Sha1)
+	}
+	with context { fs.Writes: host } {
+		fs.Writes.MkdirAll(filepath.Join([]string{gitDir, "refs", "heads"})) catch {
+		case fs.Denied, fs.Failed:
+		}
+		fs.Writes.WriteFile(
+			filepath.Join([]string{gitDir, "packed-refs"}),
+			"# pack-refs with: peeled fully-peeled sorted\n"+oid.Hex(id1)+" refs/heads/main\n"+oid.Hex(tagID)+" refs/tags/v1\n^"+oid.Hex(id1)+"\n",
+		) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+		}
+		fs.Writes.WriteFile(filepath.Join([]string{gitDir, "refs", "heads", "main"}), oid.Hex(id2)+"\n") catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+		}
+		fs.Writes.WriteFile(filepath.Join([]string{gitDir, "HEAD"}), "ref: refs/heads/main\n") catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+		}
+	}
+	NewFilesStore(NewStore(oid.Sha1, gitDir, gitDir), host)
+}
+
+let onFilesSha1 = context needs TestAmbient {
+	RefReader: makeSeededFilesStore(filepath.Join([]string{fstest.TestFolder(), "law-files-sha1"}), fs.NewTestHost()),
+}
+
+func runGit(dir string, args []string, pathEnv Map[string, string]) (int, string) fails exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	let res = try exec.Runner.Run(oracle.GitCommand(dir, args, pathEnv, int64(1700000000)))
+	(res.Status, res.Stdout)
+}
+
+func runGitAt(dir string, args []string, pathEnv Map[string, string], epoch int64) (int, string) fails exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	let res = try exec.Runner.Run(oracle.GitCommand(dir, args, pathEnv, epoch))
+	(res.Status, res.Stdout)
+}
+
+func commitFile(repoDir string, rel string, content string, msg string, pathEnv Map[string, string], epoch int64) string fails exec.NotFound | exec.Denied | exec.Failed | fs.NotFound | fs.Denied | fs.Failed needs exec.Runner | fs.Writes {
+	let full = filepath.Join([]string{repoDir, rel})
+	try fs.Writes.MkdirAll(filepath.Dir(full))
+	try fs.Writes.WriteFile(full, content)
+	let (sAdd, _) = try runGitAt(repoDir, []string{"add", rel}, pathEnv, epoch)
+	let (sCom, _) = try runGitAt(repoDir, []string{"commit", "-m", msg}, pathEnv, epoch)
+	let (sRev, out) = try runGitAt(repoDir, []string{"rev-parse", "HEAD"}, pathEnv, epoch)
+	if sAdd != 0 || sCom != 0 || sRev != 0 {
+		return ""
+	}
+	strings.TrimSpace(out)
+}
+
+func verifyForEachRef(repoDir string, store Store, prefix string, pathEnv Map[string, string]) bool fails exec.NotFound | exec.Denied | exec.Failed | InvalidRefName | CorruptRef | PathEscape | IOFailed | NotFound | CyclicSymref | oid.BadHex | oid.WrongLength needs exec.Runner | fs.Files {
+	let mut args = []string{"for-each-ref", "--format=%(refname)%00%(objectname)%00%(*objectname)%00%(symref)"}
+	if prefix != "" {
+		args = args.Append(prefix)
+	}
+	let (st, raw) = try runGit(repoDir, args, pathEnv)
+	if st != 0 {
+		return false
+	}
+	let got = try store.ListRefs(prefix)
+	let mut wantLines = []string{}
+	for line in strings.Split(raw, "\n") {
+		if line != "" {
+			wantLines = wantLines.Append(line)
+		}
+	}
+	if len(got) != len(wantLines) {
+		return false
+	}
+	for i in 0..len(wantLines) {
+		let parts = strings.Split(wantLines[i], "\x00")
+		if len(parts) != 4 {
+			return false
+		}
+		let wantName = parts[0]
+		let wantObjHex = parts[1]
+		let wantPeeledHex = parts[2]
+		let wantSymref = parts[3]
+		let g = got[i]
+		if g.Name != wantName {
+			return false
+		}
+		if wantSymref != "" {
+			let symMatch = match g.Target {
+			case Symbolic as s:
+				s.Target == wantSymref
+			case Direct:
+				false
+			}
+			if !symMatch {
+				return false
+			}
+		} else {
+			let directMatch = match g.Target {
+			case Direct as d:
+				oid.Hex(d.OID) == wantObjHex
+			case Symbolic:
+				false
+			}
+			if !directMatch {
+				return false
+			}
+		}
+		let res = try store.Resolve(g.Name)
+		if oid.Hex(res.OID) != wantObjHex {
+			return false
+		}
+		if wantPeeledHex != "" {
+			match g.Peeled {
+			case Some[oid.OID] as p:
+				if oid.Hex(p.Value) != wantPeeledHex {
+					return false
+				}
+			case None:
+				return false
+			}
+		}
+	}
+	true
+}
+
+// RefsMatchGitPlumbing: verifies ReadRef, Resolve, ListRefs, symrefs, peeled
+// annotated tags, loose-shadows-packed precedence, and linked worktree
+// per-worktree vs common refs against C Git across Sha1 and Sha256.
+test RefsMatchGitPlumbing {
+	with onOracle {
+		let pathEnv = exec.PathOf(os.Process.Environ())
+		let cwd = try os.Process.Getwd()
+		let base = filepath.Join([]string{cwd, "refs-plumbing"})
+
+		for fmtSpec in []oracle.OidFormat{oracle.Sha1, oracle.Sha256} {
+			let label = oracle.FormatName(fmtSpec)
+			let repoDir = try oracle.InitRepo(filepath.Join([]string{base, "repo-" + label}), oracle.RepoSpec{Format: fmtSpec, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, int64(1700000000))
+
+			let c1 = try commitFile(repoDir, "a.txt", "v1\n", "first commit", pathEnv, int64(1700000001))
+			assert c1 != ""
+			let (sBr, _) = try runGitAt(repoDir, []string{"branch", "feature"}, pathEnv, int64(1700000002))
+			assert sBr == 0
+			let (sLt, _) = try runGitAt(repoDir, []string{"tag", "light-v1", c1}, pathEnv, int64(1700000003))
+			assert sLt == 0
+			let (sAt, _) = try runGitAt(repoDir, []string{"tag", "-a", "ann-v1", "-m", "annotated v1", c1}, pathEnv, int64(1700000004))
+			assert sAt == 0
+			let (sSym, _) = try runGitAt(repoDir, []string{"symbolic-ref", "refs/heads/alias-main", "refs/heads/main"}, pathEnv, int64(1700000005))
+			assert sSym == 0
+			let (sPack, _) = try runGitAt(repoDir, []string{"pack-refs", "--all"}, pathEnv, int64(1700000006))
+			assert sPack == 0
+
+			let c2 = try commitFile(repoDir, "a.txt", "v2\n", "second commit shadows packed", pathEnv, int64(1700000007))
+			assert c2 != ""
+			let (sTagUpd, _) = try runGitAt(repoDir, []string{"tag", "-f", "ann-v1", c2}, pathEnv, int64(1700000008))
+			assert sTagUpd == 0
+			let (sAt2, _) = try runGitAt(repoDir, []string{"tag", "-a", "ann-v2", "-m", "annotated v2", c2}, pathEnv, int64(1700000009))
+			assert sAt2 == 0
+			let (sPack2, _) = try runGitAt(repoDir, []string{"pack-refs", "--all"}, pathEnv, int64(1700000010))
+			assert sPack2 == 0
+			let c3 = try commitFile(repoDir, "a.txt", "v3\n", "third commit loose over packed", pathEnv, int64(1700000011))
+			assert c3 != ""
+
+			let layout = try root.Discover(repoDir, root.DiscoverOptions{CeilingDirs: []string{cwd}, Trust: root.ConfinedTrust(cwd)})
+			let store = FromLayout(layout)
+
+			let (sHeadSym, headSymOut) = try runGit(repoDir, []string{"symbolic-ref", "HEAD"}, pathEnv)
+			assert sHeadSym == 0
+			let headRef = try store.ReadRef("HEAD")
+			match headRef.Target {
+			case Symbolic as s:
+				assert s.Target == strings.TrimSpace(headSymOut)
+			case Direct:
+				assert false
+			}
+
+			let headRes = try store.Resolve("HEAD")
+			assert oid.Hex(headRes.OID) == c3
+			assert len(headRes.Chain) == 2 && headRes.Chain[0] == "HEAD" && headRes.Chain[1] == "refs/heads/main"
+
+			let aliasRes = try store.Resolve("refs/heads/alias-main")
+			assert oid.Hex(aliasRes.OID) == c3
+			assert len(aliasRes.Chain) == 2 && aliasRes.Chain[0] == "refs/heads/alias-main" && aliasRes.Chain[1] == "refs/heads/main"
+
+			let annV2 = try store.ReadRef("refs/tags/ann-v2")
+			match annV2.Peeled {
+			case Some[oid.OID] as p:
+				assert oid.Hex(p.Value) == c2
+			case None:
+				assert false
+			}
+
+			let annV1 = try store.ReadRef("refs/tags/ann-v1")
+			assert annV1.Peeled == None
+
+			assert try verifyForEachRef(repoDir, store, "", pathEnv)
+			assert try verifyForEachRef(repoDir, store, "refs/heads/", pathEnv)
+			assert try verifyForEachRef(repoDir, store, "refs/tags/", pathEnv)
+		}
+
+		let wtDir = try oracle.InitRepo(filepath.Join([]string{base, "linked-wt"}), oracle.RepoSpec{Format: oracle.Sha1, Layout: oracle.LinkedWorktree, DefaultBranch: "main"}, pathEnv, int64(1700000020))
+		let (sWtRev, wtHeadHex) = try runGit(wtDir, []string{"rev-parse", "HEAD"}, pathEnv)
+		assert sWtRev == 0
+		let (sWtSym, wtHeadSym) = try runGit(wtDir, []string{"symbolic-ref", "HEAD"}, pathEnv)
+		assert sWtSym == 0
+		let (sWtPrivate, _) = try runGit(wtDir, []string{"update-ref", "refs/worktree/local-pin", strings.TrimSpace(wtHeadHex)}, pathEnv)
+		assert sWtPrivate == 0
+
+		let wtLayout = try root.Discover(wtDir, root.DiscoverOptions{CeilingDirs: []string{cwd}, Trust: root.ConfinedTrust(cwd)})
+		assert wtLayout.GitDir != wtLayout.CommonDir
+		let wtStore = FromLayout(wtLayout)
+
+		let wtHead = try wtStore.ReadRef("HEAD")
+		match wtHead.Target {
+		case Symbolic as s:
+			assert s.Target == strings.TrimSpace(wtHeadSym)
+		case Direct:
+			assert false
+		}
+		let wtResolved = try wtStore.Resolve("HEAD")
+		assert oid.Hex(wtResolved.OID) == strings.TrimSpace(wtHeadHex)
+
+		let wtPin = try wtStore.Resolve("refs/worktree/local-pin")
+		assert oid.Hex(wtPin.OID) == strings.TrimSpace(wtHeadHex)
+		assert try verifyForEachRef(wtDir, wtStore, "", pathEnv)
+	}
+}
+
+// ReflogMatchesGitReflog: verifies ReadReflog entries (old OID, new OID,
+// ident, and message) against C Git's `git reflog` across commits, resets,
+// and amends for both Sha1 and Sha256.
+test ReflogMatchesGitReflog {
+	with onOracle {
+		let pathEnv = exec.PathOf(os.Process.Environ())
+		let cwd = try os.Process.Getwd()
+		let base = filepath.Join([]string{cwd, "refs-reflog"})
+
+		for fmtSpec in []oracle.OidFormat{oracle.Sha1, oracle.Sha256} {
+			let label = oracle.FormatName(fmtSpec)
+			let repoDir = try oracle.InitRepo(filepath.Join([]string{base, "repo-" + label}), oracle.RepoSpec{Format: fmtSpec, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, int64(1700000100))
+
+			let c1 = try commitFile(repoDir, "log.txt", "one\n", "initial entry", pathEnv, int64(1700000101))
+			let c2 = try commitFile(repoDir, "log.txt", "two\n", "second entry", pathEnv, int64(1700000102))
+			assert c1 != "" && c2 != ""
+			let (sAmend, _) = try runGitAt(repoDir, []string{"commit", "--amend", "-m", "amended second"}, pathEnv, int64(1700000103))
+			assert sAmend == 0
+			let (sRev3, c3Raw) = try runGitAt(repoDir, []string{"rev-parse", "HEAD"}, pathEnv, int64(1700000103))
+			assert sRev3 == 0
+			let c3 = strings.TrimSpace(c3Raw)
+			let (sReset, _) = try runGitAt(repoDir, []string{"reset", "--hard", c1}, pathEnv, int64(1700000104))
+			assert sReset == 0
+
+			let layout = try root.Discover(repoDir, root.DiscoverOptions{CeilingDirs: []string{cwd}, Trust: root.ConfinedTrust(cwd)})
+			let store = FromLayout(layout)
+
+			let entries = try store.ReadReflog("HEAD")
+			assert len(entries) == 4
+			assert oid.IsZero(entries[0].OldOID) && oid.Hex(entries[0].NewOID) == c1
+			assert oid.Hex(entries[1].OldOID) == c1 && oid.Hex(entries[1].NewOID) == c2
+			assert oid.Hex(entries[2].OldOID) == c2 && oid.Hex(entries[2].NewOID) == c3
+			assert oid.Hex(entries[3].OldOID) == c3 && oid.Hex(entries[3].NewOID) == c1
+
+			let (sLog, logOut) = try runGit(repoDir, []string{"reflog", "show", "--format=%H%x00%gn <%ge>%x00%gs", "HEAD"}, pathEnv)
+			assert sLog == 0
+			let mut gitLines = []string{}
+			for line in strings.Split(logOut, "\n") {
+				if line != "" {
+					gitLines = gitLines.Append(line)
+				}
+			}
+			assert len(gitLines) == len(entries)
+			for i in 0..len(gitLines) {
+				let parts = strings.Split(gitLines[i], "\x00")
+				assert len(parts) == 3
+				let entry = entries[len(entries)-1-i]
+				assert oid.Hex(entry.NewOID) == parts[0]
+				assert strings.HasPrefix(entry.Ident, parts[1]+" ")
+				assert entry.Message == parts[2]
+			}
+		}
+	}
+}
+
+// CyclicSymrefAndInvalidNamesRefused: verifies 2-node symref cycles, self
+// cycles, invalid ref names, path escape names, and corrupt loose ref files
+// are classified distinctly without infinite loops.
+test CyclicSymrefAndInvalidNamesRefused {
+	with onOracle {
+		let cwd = try os.Process.Getwd()
+		let gitDir = filepath.Join([]string{cwd, "cyclic-repo", ".git"})
+		try fs.Writes.MkdirAll(filepath.Join([]string{gitDir, "refs", "heads"}))
+		try fs.Writes.WriteFile(filepath.Join([]string{gitDir, "refs", "heads", "a"}), "ref: refs/heads/b\n")
+		try fs.Writes.WriteFile(filepath.Join([]string{gitDir, "refs", "heads", "b"}), "ref: refs/heads/a\n")
+		try fs.Writes.WriteFile(filepath.Join([]string{gitDir, "refs", "heads", "self"}), "ref: refs/heads/self\n")
+		try fs.Writes.WriteFile(filepath.Join([]string{gitDir, "refs", "heads", "broken"}), "not-a-valid-oid\n")
+
+		let store = NewStore(oid.Sha1, gitDir, gitDir)
+
+		let mut sawTwoNode = false
+		let _ = store.Resolve("refs/heads/a") catch {
+		case CyclicSymref as c:
+			sawTwoNode = len(c.Chain) == 3 &&
+				c.Chain[0] == "refs/heads/a" &&
+				c.Chain[1] == "refs/heads/b" &&
+				c.Chain[2] == "refs/heads/a"
+			Resolved{Name: "", Chain: []string{}, OID: oid.Zero(oid.Sha1), Peeled: None}
+		case NotFound, InvalidRefName, CorruptRef, PathEscape, IOFailed:
+			assert false
+			Resolved{Name: "", Chain: []string{}, OID: oid.Zero(oid.Sha1), Peeled: None}
+		}
+		assert sawTwoNode
+
+		let mut sawSelf = false
+		let _ = store.Resolve("refs/heads/self") catch {
+		case CyclicSymref as c:
+			sawSelf = len(c.Chain) == 2 && c.Chain[0] == "refs/heads/self" && c.Chain[1] == "refs/heads/self"
+			Resolved{Name: "", Chain: []string{}, OID: oid.Zero(oid.Sha1), Peeled: None}
+		case NotFound, InvalidRefName, CorruptRef, PathEscape, IOFailed:
+			assert false
+			Resolved{Name: "", Chain: []string{}, OID: oid.Zero(oid.Sha1), Peeled: None}
+		}
+		assert sawSelf
+
+		let mut sawCorrupt = false
+		let _ = store.ReadRef("refs/heads/broken") catch {
+		case CorruptRef:
+			sawCorrupt = true
+			Ref{Name: "", Target: Symbolic{Target: ""}, Peeled: None}
+		case NotFound, InvalidRefName, PathEscape, IOFailed:
+			assert false
+			Ref{Name: "", Target: Symbolic{Target: ""}, Peeled: None}
+		}
+		assert sawCorrupt
+
+		let mut sawEscape = false
+		let _ = store.ReadRef("../escape") catch {
+		case PathEscape:
+			sawEscape = true
+			Ref{Name: "", Target: Symbolic{Target: ""}, Peeled: None}
+		case NotFound, InvalidRefName, CorruptRef, IOFailed:
+			assert false
+			Ref{Name: "", Target: Symbolic{Target: ""}, Peeled: None}
+		}
+		assert sawEscape
+
+		for bad in []string{"a..b", "foo.lock", "refs/heads/foo.lock", "a@{b}", "bad space", "@", "refs//heads/x", "refs/heads/.dot", "refs/heads/x~1", "refs/heads/x^2", "refs/heads/x:y", "refs/heads/x?y", "refs/heads/x*y", "refs/heads/x[y"} {
+			assert !ValidateRefName(bad)
+			let mut sawInvalid = false
+			let _ = store.ReadRef(bad) catch {
+			case InvalidRefName:
+				sawInvalid = true
+				Ref{Name: "", Target: Symbolic{Target: ""}, Peeled: None}
+			case NotFound, CorruptRef, PathEscape, IOFailed:
+				assert false
+				Ref{Name: "", Target: Symbolic{Target: ""}, Peeled: None}
+			}
+			assert sawInvalid
+		}
+	}
+}
+
+// MemoryAndFilesParity: verifies MemoryRefs and FilesStore agree identically
+// on loose-shadows-packed precedence, peeled tags, symref resolution, and
+// cyclic symref rejection.
+test MemoryAndFilesParity {
+	let id1 = try oid.HashObject(oid.Sha1, oid.Commit, "disk-commit-one".Bytes())
+	let id2 = try oid.HashObject(oid.Sha1, oid.Commit, "disk-commit-two".Bytes())
+	let tagID = try oid.HashObject(oid.Sha1, oid.Tag, "disk-tag-one".Bytes())
+	let mem = NewMemoryRefs(oid.Sha1)
+	PutPacked(mem, Ref{Name: "refs/heads/main", Target: Direct{OID: id1}, Peeled: None})
+	PutLoose(mem, Ref{Name: "refs/heads/main", Target: Direct{OID: id2}, Peeled: None})
+	PutPacked(mem, Ref{Name: "refs/tags/v1", Target: Direct{OID: tagID}, Peeled: Some[oid.OID]{Value: id1}})
+	PutLoose(mem, Ref{Name: "HEAD", Target: Symbolic{Target: "refs/heads/main"}, Peeled: None})
+	PutLoose(mem, Ref{Name: "refs/heads/cyc-a", Target: Symbolic{Target: "refs/heads/cyc-b"}, Peeled: None})
+	PutLoose(mem, Ref{Name: "refs/heads/cyc-b", Target: Symbolic{Target: "refs/heads/cyc-a"}, Peeled: None})
+
+	let mut memSawCycle = false
+	let _ = mem.Resolve("refs/heads/cyc-a") catch {
+	case CyclicSymref as c:
+		memSawCycle = len(c.Chain) == 3
+		Resolved{Name: "", Chain: []string{}, OID: oid.Zero(oid.Sha1), Peeled: None}
+	case NotFound, InvalidRefName, CorruptRef, PathEscape, IOFailed:
+		assert false
+		Resolved{Name: "", Chain: []string{}, OID: oid.Zero(oid.Sha1), Peeled: None}
+	}
+	assert memSawCycle
+
+	with onFilesSha1 {
+		let fHead = try RefReader.Resolve("HEAD")
+		let mHead = try mem.Resolve("HEAD")
+		assert oid.Equal(fHead.OID, mHead.OID) && oid.Equal(fHead.OID, id2)
+		assert len(fHead.Chain) == len(mHead.Chain)
+
+		let fAll = try RefReader.ListRefs("")
+		assert len(fAll) == 2
+		for r in fAll {
+			let mr = try mem.ReadRef(r.Name)
+			assert mr.Name == r.Name
+			assert sameOptOID(mr.Peeled, r.Peeled)
+		}
+	}
+}
+
+// RefNameValidationLaw: checks check-ref-format rejection invariants for
+// arbitrary suffixes across forbidden substrings and characters.
+law RefNameValidationLaw(seg string) {
+		!ValidateRefName("") &&
+		!ValidateRefName("@") &&
+		!ValidateRefName("refs/heads/"+seg+"..x") &&
+		!ValidateRefName("refs/heads/"+seg+"@{0}") &&
+		!ValidateRefName("refs/heads/"+seg+".lock") &&
+		!ValidateRefName("refs//heads/"+seg) &&
+		!ValidateRefName("/refs/heads/"+seg) &&
+		!ValidateRefName("refs/heads/"+seg+"/") &&
+		!ValidateRefName("refs/heads/"+seg+" bad") &&
+		ValidateRefName("HEAD") &&
+		ValidateRefName("refs/heads/main") &&
+		ValidateRefName("refs/tags/v1.0.0")
+}

@@ -1,0 +1,90 @@
+import strings
+
+// IsPathEscape reports whether name attempts directory traversal or absolute
+// path escape outside the repository ref directory.
+func IsPathEscape(name string) bool {
+	if strings.HasPrefix(name, "/") || strings.Contains(name, "\\") {
+		return true
+	}
+	for part in strings.Split(name, "/") {
+		if part == ".." {
+			return true
+		}
+	}
+	false
+}
+
+// ValidateRefName checks whether name conforms to Git's check-ref-format rules:
+// non-empty, not "@", no leading/trailing "/" or ".", no "..", no "//", no "@{",
+// no ASCII control chars/DEL/space or ~ ^ : ? * [ \, no empty path component,
+// no component starting or ending with ".", and no component ending with ".lock".
+func ValidateRefName(name string) bool {
+	let bs = name.Bytes()
+	let n = len(bs)
+	if n == 0 || name == "@" {
+		return false
+	}
+	if bs[0] == byte('/') || bs[n-1] == byte('/') || bs[0] == byte('.') || bs[n-1] == byte('.') {
+		return false
+	}
+	if strings.Contains(name, "..") || strings.Contains(name, "//") || strings.Contains(name, "@{") {
+		return false
+	}
+	for b in bs {
+		if b < byte(0x20) || b == byte(0x7f) {
+			return false
+		}
+		if b == byte(' ') || b == byte('~') || b == byte('^') || b == byte(':') || b == byte('?') || b == byte('*') || b == byte('[') || b == byte('\\') {
+			return false
+		}
+	}
+	for part in strings.Split(name, "/") {
+		let pb = part.Bytes()
+		if len(pb) == 0 {
+			return false
+		}
+		if pb[0] == byte('.') || pb[len(pb)-1] == byte('.') {
+			return false
+		}
+		if strings.HasSuffix(part, ".lock") {
+			return false
+		}
+	}
+	true
+}
+
+// ValidateReadName classifies name as PathEscape or InvalidRefName when it is
+// not a safe valid Git reference name.
+func ValidateReadName(name string) fails InvalidRefName | PathEscape {
+	if IsPathEscape(name) {
+		return PathEscape{Name: name}
+	}
+	if !ValidateRefName(name) {
+		return InvalidRefName{Name: name}
+	}
+}
+
+// IsPerWorktreeRef reports whether name is stored under Layout.GitDir rather
+// than Layout.CommonDir (HEAD and top-level pseudorefs without "/", plus
+// refs/bisect/*, refs/worktree/*, and refs/rewritten/*).
+func IsPerWorktreeRef(name string) bool {
+	if !strings.Contains(name, "/") {
+		return true
+	}
+		strings.HasPrefix(name, "refs/bisect/") ||
+		strings.HasPrefix(name, "refs/worktree/") ||
+		strings.HasPrefix(name, "refs/rewritten/")
+}
+
+// MatchesPrefix reports whether refName matches Git's ref prefix filter:
+// empty prefix matches all refs, trailing "/" matches prefix directly, and a
+// non-trailing-slash prefix matches either exact refName or component prefix.
+func MatchesPrefix(refName string, prefix string) bool {
+	if prefix == "" {
+		return true
+	}
+	if strings.HasSuffix(prefix, "/") {
+		return strings.HasPrefix(refName, prefix)
+	}
+	refName == prefix || strings.HasPrefix(refName, prefix+"/")
+}
