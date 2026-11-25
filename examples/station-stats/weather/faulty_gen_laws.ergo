@@ -1,0 +1,123 @@
+import fs
+import gen
+import strings
+import sync
+import testing
+
+type stubWeatherReadings {
+	Text string,
+} implements Readings
+
+func Open(r stubWeatherReadings, path string) fs.Mapped fails Unreadable {
+	if path == "sample.txt" {
+		return fs.MapText(r.Text)
+	}
+	Unreadable{Path: path, Reason: "missing"}
+}
+
+func summarizeFromReadings(path string, workers int) Option[[]Station] needs Readings {
+	let m = Readings.Open(path) catch {
+	case Unreadable:
+		return None
+	}
+	let got = Summarize(m.Text(), workers) catch {
+	case Malformed, TooManyStations:
+		m.Close()
+		return None
+	}
+	m.Close()
+	Some[[]Station]{Value: got}
+}
+
+// OpenReadingsFaultsPropagate wraps weather.Readings in testing.Faulty and proves
+// injected Unreadable faults surface cleanly while clean reads summarize accurately.
+law OpenReadingsFaultsPropagate() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 48, Shrinks: 0, MaxDraws: 1024, MaxRejected: 10}
+	let sawSuccess = sync.NewRef(false)
+	let sawFault = sync.NewRef(false)
+	let base = stubWeatherReadings{Text: "Hamburg;12.0\nBulawayo;8.9\nHamburg;14.0\n"}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let faulty = testing.Faulty[Readings](base)
+		let f0 = len(faulty.Open.Faults())
+		let res = with context { Readings: faulty } { summarizeFromReadings("sample.txt", 2) }
+		let faulted = len(faulty.Open.Faults()) > f0
+		if faulted {
+			sawFault.Set(true)
+			return res == None
+		}
+		match res {
+		case Some[[]Station] as st:
+			sawSuccess.Set(true)
+			len(st.Value) == 2 && st.Value[0].Name == "Bulawayo" && st.Value[1].Name == "Hamburg" && st.Value[1].Stats.Count == 2
+		case None:
+			false
+		}
+	})
+	match outcome {
+	case gen.Held:
+		sawSuccess.Get() && sawFault.Get()
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}
+
+// ParallelSummarizeMatchesSequentialWorkers proves Summarize produces identical
+// sorted Station statistics across 1, 2, and 4 workers and agrees with sequential Add.
+law ParallelSummarizeMatchesSequentialWorkers() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 32, Shrinks: 0, MaxDraws: 2048, MaxRejected: 10}
+	let names = []string{"Hamburg", "Bulawayo", "Palembang", "St. John's", "Cracow"}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let n = gen.IntIn(1, 18)
+		let mut b = strings.NewBuilder()
+		let mut seq = Map[string, Stats]{}
+		for _ in 0..n {
+			let name = gen.OneOf(names)
+			let tenths = gen.IntIn(-400, 450)
+			b.WriteString(name + ";" + Tenths(tenths) + "\n")
+			let prev = match seq.Get(name) {
+			case Some[Stats] as s:
+				s.Value
+			case None:
+				Empty()
+			}
+			seq[name] = Add(prev, tenths)
+		}
+		let mapped = fs.MapText(b.String())
+		let w1 = Summarize(mapped.Text(), 1) catch {
+		case Malformed, TooManyStations:
+			mapped.Close()
+			return false
+		}
+		let w2 = Summarize(mapped.Text(), 2) catch {
+		case Malformed, TooManyStations:
+			mapped.Close()
+			return false
+		}
+		let w4 = Summarize(mapped.Text(), 4) catch {
+		case Malformed, TooManyStations:
+			mapped.Close()
+			return false
+		}
+		mapped.Close()
+		if w1 != w2 || w1 != w4 || len(w1) != len(seq) {
+			return false
+		}
+		for st in w1 {
+			match seq.Get(st.Name) {
+			case Some[Stats] as want:
+				if want.Value != st.Stats {
+					return false
+				}
+			case None:
+				return false
+			}
+		}
+		true
+	})
+	match outcome {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}

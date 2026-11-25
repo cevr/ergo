@@ -1,0 +1,110 @@
+import gen
+import strconv
+import strings
+
+let triageHosts = []string{"web-1", "WEB-1", "Web-1", "db-2", "DB-2", "api-3"}
+
+// ParseFormatAndCaseInsensitiveCounts proves Parse round-trips formatted severity/host
+// lines, rejects malformed lines with exact line numbers, and Counts merges hosts
+// case-insensitively while conserving total entries.
+law ParseFormatAndCaseInsensitiveCounts() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 48, Shrinks: 0, MaxDraws: 2048, MaxRejected: 10}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let n = gen.IntIn(1, 12)
+		let mut entries = []Entry{}
+		let mut expectedLower = Map[string, int]{}
+		for i in 0..n {
+			let sev = gen.IntIn(0, len(Severities)-1)
+			let host = gen.OneOf(triageHosts)
+			let lineNum = i + 1
+			let text = Severities[sev] + " " + host
+			let parsed = Parse(text, lineNum) catch {
+			case Bad:
+				return false
+			}
+			if parsed.Severity != sev || parsed.Host != host || parsed.Line != lineNum {
+				return false
+			}
+			if Format(parsed) != Severities[sev]+" "+host+" "+strconv.Itoa(lineNum) {
+				return false
+			}
+			entries = entries.Append(parsed)
+			let low = strings.ToLower(host)
+			let prev = match expectedLower.Get(low) {
+			case Some[int] as v:
+				v.Value
+			case None:
+				0
+			}
+			expectedLower[low] = prev + 1
+		}
+		let counts = Counts(entries)
+		let mut total = 0
+		for h, c in counts {
+			total = total + c
+			match expectedLower.Get(strings.ToLower(h)) {
+			case Some[int] as want:
+				if want.Value != c {
+					return false
+				}
+			case None:
+				return false
+			}
+		}
+		if total != len(entries) || len(counts) != len(expectedLower) {
+			return false
+		}
+		let badText = gen.OneOf([]string{"", "onlyone", "a b c", "bogus web-1"})
+		let badLine = gen.IntIn(1, 50)
+		let _ = Parse(badText, badLine) catch {
+		case Bad as b:
+			return b.Line == badLine && b.Text == badText
+		}
+		false
+	})
+	match outcome {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}
+
+// GenerateProducesDeterministicParseableLog proves Generate(n) emits exactly n
+// parseable lines following its LCG schedule with varied severities and hosts,
+// and HostCase.Hash distinguishes distinct host names case-insensitively.
+law GenerateProducesDeterministicParseableLog() {
+	let hashOk = HostCase.Hash("web-1") != HostCase.Hash("db-2") && HostCase.Hash("web-1") == HostCase.Hash("WEB-1")
+	let x1 = (7*1103515245 + 12345) % 2147483648
+	let x2 = (x1*1103515245 + 12345) % 2147483648
+	let firstWant = Severities[x1/65536%4] + " host-" + strconv.Itoa(x2/65536%37) + "\n"
+	let cfg = gen.Config{Seed: uint64(1), Cases: 16, Shrinks: 0, MaxDraws: 256, MaxRejected: 10}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let n = gen.IntIn(16, 32)
+		let text = Generate(n)
+		if text != Generate(n) || !strings.HasPrefix(text, firstWant) {
+			return false
+		}
+		let rawLines = strings.Split(strings.TrimSuffix(text, "\n"), "\n")
+		if len(rawLines) != n {
+			return false
+		}
+		let mut sevs = Map[int, bool]{}
+		let mut hosts = Map[string, bool]{}
+		for i, line in rawLines {
+			let e = Parse(line, i+1) catch {
+			case Bad:
+				return false
+			}
+			sevs[e.Severity] = true
+			hosts[e.Host] = true
+		}
+		len(sevs) >= 2 && len(hosts) >= 2
+	})
+	match outcome {
+	case gen.Held:
+		hashOk
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}

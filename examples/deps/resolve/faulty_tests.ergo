@@ -1,0 +1,89 @@
+import gen
+import semver
+import sync
+import testing
+
+func semverOf(major int, minor int, patch int) semver.Version {
+	semver.Version{Major: major, Minor: minor, Patch: patch, Pre: []string{}, Build: []string{}}
+}
+
+func singlePkgTable() Table {
+	Table{
+		Releases: []Release{
+			Release{Name: "app", V: semverOf(1, 1, 0), Needs: []Requirement{}},
+			Release{Name: "app", V: semverOf(1, 0, 0), Needs: []Requirement{}},
+		},
+	}
+}
+
+func singlePkgRoot() []Requirement {
+	let c1 = ParseConstraint("^1.0.0") catch {
+	case semver.Malformed:
+		Any()
+	}
+	[]Requirement{Requirement{Name: "app", Want: c1}}
+}
+
+type faultResolveOutcome =
+	| FaultResolved{Plan Plan}
+	| FaultUnknownPkg{}
+	| FaultUnknownVer{}
+	| FaultOther{}
+
+func runResolveOutcome(root []Requirement) faultResolveOutcome needs Index {
+	let p = Resolve(root) catch {
+	case UnknownPackage:
+		return FaultUnknownPkg
+	case UnknownVersion:
+		return FaultUnknownVer
+	case NoVersion, NoPlan, TooHard, Circular:
+		return FaultOther
+	}
+	FaultResolved{Plan: p}
+}
+
+// ResolveHandlesFaultyIndexCleanly wraps resolve.Index in testing.Faulty and
+// verifies injected UnknownPackage/UnknownVersion faults propagate cleanly
+// while every un-faulted resolution remains Sound.
+law ResolveHandlesFaultyIndexCleanly() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 128, Shrinks: 0, MaxDraws: 4096, MaxRejected: 10}
+	let sawSuccess = sync.NewRef(false)
+	let sawVersionsFault = sync.NewRef(false)
+	let sawNeedsFault = sync.NewRef(false)
+	let base = singlePkgTable()
+	let root = singlePkgRoot()
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let faulty = testing.Faulty[Index](base)
+		let v0 = len(faulty.Versions.Faults())
+		let n0 = len(faulty.Needs.Faults())
+		let res = with context { Index: faulty } { runResolveOutcome(root) }
+		let vFault = len(faulty.Versions.Faults()) > v0
+		let nFault = len(faulty.Needs.Faults()) > n0
+		if vFault {
+			sawVersionsFault.Set(true)
+		}
+		if nFault {
+			sawNeedsFault.Set(true)
+		}
+		match res {
+		case FaultResolved as ok:
+			if vFault || nFault {
+				return false
+			}
+			sawSuccess.Set(true)
+			Sound(base, root, ok.Plan) && len(ok.Plan.Pins) == 1 && ok.Plan.Pins[0].V == semverOf(1, 1, 0)
+		case FaultUnknownPkg:
+			vFault || nFault
+		case FaultUnknownVer:
+			nFault
+		case FaultOther:
+			false
+		}
+	})
+	match outcome {
+	case gen.Held:
+		sawSuccess.Get() && sawVersionsFault.Get() && sawNeedsFault.Get()
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}

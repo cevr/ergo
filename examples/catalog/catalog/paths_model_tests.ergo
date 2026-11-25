@@ -1,0 +1,329 @@
+import explore
+import gen
+import machines
+import sync
+import temporal
+import testing
+
+type catState {
+	Status string,
+}
+
+type catAct =
+	| CatPublish{}
+	| CatSellOut{}
+	| CatRestock{}
+	| CatRetire{}
+
+type catOut =
+	| CatOutEntered{}
+	| CatOutIgnored{}
+	| CatOutRejected{}
+
+type catObs {
+	Status string,
+	Final  bool,
+}
+
+type catOpenErr { Message string }
+
+type catDriveErr { Message string }
+
+type catSession {
+	status sync.Ref[Status],
+} implements explore.PathSession[catAct, explore.Observed[catObs, catOut, Never], catDriveErr]
+
+func catEventOf(act catAct) Event {
+	match act {
+	case CatPublish:
+		Publish
+	case CatSellOut:
+		SellOut
+	case CatRestock:
+		Restock
+	case CatRetire:
+		Retire
+	}
+}
+
+func observeCat(s Status) catObs {
+	catObs{Status: Name(s), Final: Final(s)}
+}
+
+func applyCatLive(ref sync.Ref[Status], act catAct) catOut {
+	let cur = ref.Get()
+	let dec = Step(cur, catEventOf(act))
+	let next = machines.Next(cur, dec)
+	ref.Set(next)
+	match dec {
+	case Enter[Status]:
+		CatOutEntered
+	case Ignore:
+		CatOutIgnored
+	case Reject:
+		CatOutRejected
+	case Stay[Status], Emit[Status, Status], Tell[Status, Status], Done[Status]:
+		CatOutIgnored
+	}
+}
+
+func Read(s catSession) explore.Observed[catObs, catOut, Never] fails catDriveErr {
+	explore.InitialRead[catObs]{State: observeCat(s.status.Get())}
+}
+
+func Apply(s catSession, act catAct) explore.Observed[catObs, catOut, Never] fails catDriveErr {
+	let out = applyCatLive(s.status, act)
+	let obs = observeCat(s.status.Get())
+	explore.StepResult[catObs, catOut, Never]{
+		Step: explore.StepObs[catObs, catOut, Never]{
+			Kind:     explore.DisEmit,
+			State:    Some[catObs]{Value: obs},
+			Outputs:  []catOut{out},
+			Error:    None,
+			Terminal: false,
+		},
+	}
+}
+
+func Close(s catSession) {
+	let _ = s
+}
+
+func catProject(st catState) catObs {
+	catObs{Status: st.Status, Final: st.Status == "retired"}
+}
+
+let catSignals = []catAct{
+	CatPublish,
+	CatSellOut,
+	CatRestock,
+	CatRetire,
+}
+
+func catStep(st catState, act catAct) (catState, catOut) {
+	if st.Status == "draft" {
+		match act {
+		case CatPublish:
+			(catState{Status: "listed"}, CatOutEntered)
+		case CatRetire:
+			(catState{Status: "retired"}, CatOutEntered)
+		case CatSellOut, CatRestock:
+			(st, CatOutRejected)
+		}
+	} else if st.Status == "listed" {
+		match act {
+		case CatSellOut:
+			(catState{Status: "sold out"}, CatOutEntered)
+		case CatRetire:
+			(catState{Status: "retired"}, CatOutEntered)
+		case CatPublish, CatRestock:
+			(st, CatOutIgnored)
+		}
+	} else if st.Status == "sold out" {
+		match act {
+		case CatRestock:
+			(catState{Status: "listed"}, CatOutEntered)
+		case CatRetire:
+			(catState{Status: "retired"}, CatOutEntered)
+		case CatSellOut:
+			(st, CatOutIgnored)
+		case CatPublish:
+			(st, CatOutRejected)
+		}
+	} else {
+		(st, CatOutRejected)
+	}
+}
+
+func catModel() explore.PathModel[catState, catAct, catObs, catOut, Never] {
+	explore.PathModelProjected[catState, catAct, catObs, catOut, Never](
+		[]catState{catState{Status: "draft"}},
+		catSignals,
+		"catalog.listing",
+		catProject,
+		func(st catState, act catAct) explore.EdgeOutcome[catState, explore.StepObs[catObs, catOut, Never]] {
+			let (next, out) = catStep(st, act)
+			explore.Continue[catState, explore.StepObs[catObs, catOut, Never]]{
+				Next: next,
+				Obs:  explore.StepObs[catObs, catOut, Never]{
+					Kind:     explore.DisEmit,
+					State:    Some[catObs]{Value: catProject(next)},
+					Outputs:  []catOut{out},
+					Error:    None,
+					Terminal: false,
+				},
+			}
+		},
+	)
+}
+
+// CatalogListingPaths drives fresh catalog.Listing sessions for full transition coverage.
+type CatalogListingPaths {
+	OpenSession(start catState) catSession fails catOpenErr,
+
+	// PathsAgree verifies all 4 statuses and all 16 status-event pairs via CheckPathsWithSink.
+	law PathsAgree() {
+		let bounds = explore.PathBounds{MaxStates: 64, MaxEdges: 512, MaxPaths: 512, MaxSteps: 2048, MaxWork: 50000, MaxBytes: 4194304}
+		let res = explore.CheckPathsWithSink(
+			catModel(),
+			explore.ToDepth{Depth: 3},
+			bounds,
+			func(start catState) explore.PathSession[catAct, explore.Observed[catObs, catOut, Never], catDriveErr] fails catOpenErr {
+				try OpenSession(start)
+			},
+			testing.ActiveEvidenceSink(),
+		)
+		match res.Verdict {
+		case explore.CampaignPassed:
+			res.Counts.PathsCompleted > 0 && res.Counts.MatchedSteps > 0
+		case explore.CampaignRefuted, explore.CampaignIncomplete:
+			false
+		}
+	},
+}
+
+type memCatPaths {} implements CatalogListingPaths
+
+func OpenSession(_ memCatPaths, start catState) catSession fails catOpenErr {
+	let _ = start
+	catSession{status: sync.NewRef(machines.Initial(Listing{}))}
+}
+
+type catModelStage {
+	status sync.Ref[Status],
+} implements testing.Stage[catAct, catObs]
+
+func Do(st catModelStage, act catAct) fails testing.Refused {
+	let _ = applyCatLive(st.status, act)
+}
+
+func Advance(st catModelStage, d duration) {
+	let _ = (st, d)
+}
+
+func Settle(st catModelStage) {
+	let _ = st
+}
+
+func Show(st catModelStage) catObs {
+	observeCat(st.status.Get())
+}
+
+// CatalogListingModelTemporal proves catalog.Step agrees with the listing lifecycle
+// model and satisfies Always(retired -> Always(retired)) and Always(final <-> retired).
+law CatalogListingModelTemporal() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 24, Shrinks: 0, MaxDraws: 512, MaxRejected: 10}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let m = testing.Model[catState, catAct, catObs]{
+			Start: catState{Status: "draft"},
+			Offer: func(st catState) catAct needs gen.Draws {
+				let _ = st
+				gen.OneOf(catSignals)
+			},
+			Step: func(st catState, act catAct) (catState, catObs) {
+				let (next, _) = catStep(st, act)
+				(next, catProject(next))
+			},
+		}
+		let isRetired = temporal.Named("retired", func(v catObs) bool { v.Status == "retired" })
+		let finalMatches = temporal.Named("final-matches", func(v catObs) bool { v.Final == (v.Status == "retired") })
+		let formulas = []temporal.Formula[catObs]{
+			temporal.Always(finalMatches),
+			temporal.Always(temporal.Implies(isRetired, temporal.Always(isRetired))),
+		}
+		let stage = catModelStage{status: sync.NewRef(machines.Initial(Listing{}))}
+		testing.AgreesAnd(m, stage, 12, formulas) catch {
+		case testing.Diverged[catAct, catObs], testing.TemporalBreach[catAct, catObs], testing.Refused:
+			return false
+		}
+		true
+	})
+	match outcome {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}
+
+// SampleAndCountAgreeWithRun proves catalog.Run matches step-by-step transitions,
+// Sample builds n products with the documented status/stock/title/tag pattern,
+// and Count tallies every status and sums stock only for Listed products.
+law SampleAndCountAgreeWithRun() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 24, Shrinks: 0, MaxDraws: 1024, MaxRejected: 10}
+	let allEvents = []Event{Publish, SellOut, Restock, Retire}
+	let allStatuses = []Status{Draft, Listed, SoldOut, Retired}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let evLen = gen.IntIn(1, 6)
+		let mut evs = []Event{}
+		let mut expected Status = Draft
+		for _ in 0..evLen {
+			let e = gen.OneOf(allEvents)
+			evs = evs.Append(e)
+			expected = machines.Next(expected, Step(expected, e))
+		}
+		if Run(evs) != expected {
+			return false
+		}
+		let n = gen.IntIn(4, 12)
+		let sample = Sample(n)
+		if len(sample.Products) != n {
+			return false
+		}
+		for i, p in sample.Products {
+			let wantStatus Status = match i % 4 {
+			case 0, 2:
+				Listed
+			case 1:
+				SoldOut
+			case _:
+				Retired
+			}
+			let wantStock = if i%4 == 0 || i%4 == 2 { 10 + i%7 } else { 0 }
+			let wantMug = i%3 == 0
+			let hasMug = p.Title[0] == 'M'
+			let wantTags = if i%2 == 0 { 2 } else { 1 }
+			if p.Status != wantStatus || p.Stock != wantStock || hasMug != wantMug || len(p.Tags) != wantTags {
+				return false
+			}
+		}
+		let m = gen.IntIn(1, 10)
+		let mut prods = []Product{}
+		let mut wDraft = 0
+		let mut wListed = 0
+		let mut wSoldOut = 0
+		let mut wRetired = 0
+		let mut wUnits = 0
+		for i in 0..m {
+			let st = gen.OneOf(allStatuses)
+			let stock = gen.IntIn(1, 20)
+			match st {
+			case Draft:
+				wDraft = wDraft + 1
+			case Listed:
+				wListed = wListed + 1
+				wUnits = wUnits + stock
+			case SoldOut:
+				wSoldOut = wSoldOut + 1
+			case Retired:
+				wRetired = wRetired + 1
+			}
+			prods = prods.Append(Product{
+				Sku:    sample.Products[0].Sku,
+				Title:  "p",
+				Cents:  int64(100 + i),
+				Status: st,
+				Stock:  stock,
+				Tags:   []string{"t"},
+			})
+		}
+		let got = Count(Catalog{Shop: "S", Products: prods})
+		got.Draft == wDraft && got.Listed == wListed && got.SoldOut == wSoldOut && got.Retired == wRetired && got.Units == wUnits
+	})
+	match outcome {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}

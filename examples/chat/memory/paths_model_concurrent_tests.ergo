@@ -1,0 +1,307 @@
+import actor
+import chat/room
+import explore
+import gen
+import slices
+import sync
+import temporal
+import testing
+import time
+
+type chatPathState {
+	HasAda bool,
+	HasBob bool,
+	Closed bool,
+}
+
+type chatPathAct =
+	| ChatActJoin{Name string}
+	| ChatActLeave{Name string}
+	| ChatActSay{From string}
+	| ChatActShut{By string}
+
+type chatPathOut =
+	| ChatOutOk{}
+	| ChatOutTaken{}
+	| ChatOutNotMember{}
+	| ChatOutClosed{}
+
+type chatPathObs {
+	HasAda bool,
+	HasBob bool,
+	Closed bool,
+	Count  int,
+}
+
+type chatPathOpenErr { Message string }
+
+type chatPathDriveErr { Message string }
+
+type chatPathSession {
+	cur sync.Ref[room.State],
+} implements explore.PathSession[chatPathAct, explore.Observed[chatPathObs, chatPathOut, Never], chatPathDriveErr]
+
+func chatSignalOf(act chatPathAct) room.Signal {
+	match act {
+	case ChatActJoin as a:
+		room.Join{Name: a.Name}
+	case ChatActLeave as a:
+		room.Leave{Name: a.Name}
+	case ChatActSay as a:
+		room.Say{From: a.From, Text: "hi"}
+	case ChatActShut as a:
+		room.Shut{By: a.By}
+	}
+}
+
+func observeChat(st room.State) chatPathObs {
+	match st {
+	case room.Open as o:
+		chatPathObs{
+			HasAda: slices.Contains(o.Members, "ada"),
+			HasBob: slices.Contains(o.Members, "bob"),
+			Closed: false,
+			Count:  len(o.Members),
+		}
+	case room.Shutdown:
+		chatPathObs{HasAda: false, HasBob: false, Closed: true, Count: 0}
+	}
+}
+
+func applyChatRef(ref sync.Ref[room.State], act chatPathAct) chatPathOut {
+	let s = ref.Get()
+	let next = room.Apply(s, chatSignalOf(act)) catch {
+	case room.NameTaken:
+		return ChatOutTaken
+	case room.NotMember:
+		return ChatOutNotMember
+	case room.RoomClosed:
+		return ChatOutClosed
+	}
+	ref.Set(next)
+	ChatOutOk
+}
+
+func Read(s chatPathSession) explore.Observed[chatPathObs, chatPathOut, Never] fails chatPathDriveErr {
+	explore.InitialRead[chatPathObs]{State: observeChat(s.cur.Get())}
+}
+
+func Apply(s chatPathSession, act chatPathAct) explore.Observed[chatPathObs, chatPathOut, Never] fails chatPathDriveErr {
+	let out = applyChatRef(s.cur, act)
+	let obs = observeChat(s.cur.Get())
+	explore.StepResult[chatPathObs, chatPathOut, Never]{
+		Step: explore.StepObs[chatPathObs, chatPathOut, Never]{
+			Kind:     explore.DisEmit,
+			State:    Some[chatPathObs]{Value: obs},
+			Outputs:  []chatPathOut{out},
+			Error:    None,
+			Terminal: false,
+		},
+	}
+}
+
+func Close(s chatPathSession) {
+	let _ = s
+}
+
+func chatProject(st chatPathState) chatPathObs {
+	let count = if st.Closed { 0 } else { (if st.HasAda { 1 } else { 0 }) + (if st.HasBob { 1 } else { 0 }) }
+	chatPathObs{HasAda: !st.Closed && st.HasAda, HasBob: !st.Closed && st.HasBob, Closed: st.Closed, Count: count}
+}
+
+let chatSignals = []chatPathAct{
+	ChatActJoin{Name: "ada"},
+	ChatActJoin{Name: "bob"},
+	ChatActSay{From: "ada"},
+	ChatActLeave{Name: "ada"},
+	ChatActShut{By: "ada"},
+}
+
+func chatHas(st chatPathState, name string) bool {
+	if name == "ada" { st.HasAda } else { st.HasBob }
+}
+
+func chatStep(st chatPathState, act chatPathAct) (chatPathState, chatPathOut) {
+	if st.Closed {
+		return (st, ChatOutClosed)
+	}
+	match act {
+	case ChatActJoin as a:
+		if chatHas(st, a.Name) {
+			return (st, ChatOutTaken)
+		}
+		if a.Name == "ada" {
+			(chatPathState{..st, HasAda: true}, ChatOutOk)
+		} else {
+			(chatPathState{..st, HasBob: true}, ChatOutOk)
+		}
+	case ChatActLeave as a:
+		if !chatHas(st, a.Name) {
+			return (st, ChatOutNotMember)
+		}
+		if a.Name == "ada" {
+			(chatPathState{..st, HasAda: false}, ChatOutOk)
+		} else {
+			(chatPathState{..st, HasBob: false}, ChatOutOk)
+		}
+	case ChatActSay as a:
+		if !chatHas(st, a.From) {
+			return (st, ChatOutNotMember)
+		}
+		(st, ChatOutOk)
+	case ChatActShut as a:
+		if !chatHas(st, a.By) {
+			return (st, ChatOutNotMember)
+		}
+		(chatPathState{HasAda: false, HasBob: false, Closed: true}, ChatOutOk)
+	}
+}
+
+func chatModel() explore.PathModel[chatPathState, chatPathAct, chatPathObs, chatPathOut, Never] {
+	explore.PathModelProjected[chatPathState, chatPathAct, chatPathObs, chatPathOut, Never](
+		[]chatPathState{chatPathState{HasAda: false, HasBob: false, Closed: false}},
+		chatSignals,
+		"chat.room",
+		chatProject,
+		func(st chatPathState, act chatPathAct) explore.EdgeOutcome[chatPathState, explore.StepObs[chatPathObs, chatPathOut, Never]] {
+			let (next, out) = chatStep(st, act)
+			explore.Continue[chatPathState, explore.StepObs[chatPathObs, chatPathOut, Never]]{
+				Next: next,
+				Obs:  explore.StepObs[chatPathObs, chatPathOut, Never]{
+					Kind:     explore.DisEmit,
+					State:    Some[chatPathObs]{Value: chatProject(next)},
+					Outputs:  []chatPathOut{out},
+					Error:    None,
+					Terminal: false,
+				},
+			}
+		},
+	)
+}
+
+// ChatRoomPaths drives fresh chat room sessions for path exploration.
+type ChatRoomPaths {
+	OpenSession(start chatPathState) chatPathSession fails chatPathOpenErr,
+
+	// PathsAgree verifies all reachable Join/Say/Leave/Shut paths up to depth 3.
+	law PathsAgree() {
+		let bounds = explore.PathBounds{MaxStates: 64, MaxEdges: 512, MaxPaths: 512, MaxSteps: 2048, MaxWork: 50000, MaxBytes: 4194304}
+		let res = explore.CheckPathsWithSink(
+			chatModel(),
+			explore.ToDepth{Depth: 3},
+			bounds,
+			func(start chatPathState) explore.PathSession[chatPathAct, explore.Observed[chatPathObs, chatPathOut, Never], chatPathDriveErr] fails chatPathOpenErr {
+				try OpenSession(start)
+			},
+			testing.ActiveEvidenceSink(),
+		)
+		match res.Verdict {
+		case explore.CampaignPassed:
+			res.Counts.PathsCompleted > 0 && res.Counts.MatchedSteps > 0
+		case explore.CampaignRefuted, explore.CampaignIncomplete:
+			false
+		}
+	},
+}
+
+type memChatPaths {} implements ChatRoomPaths
+
+func OpenSession(_ memChatPaths, start chatPathState) chatPathSession fails chatPathOpenErr {
+	let _ = start
+	chatPathSession{cur: sync.NewRef[room.State](room.Start())}
+}
+
+type chatModelStage { cur sync.Ref[room.State] } implements testing.Stage[chatPathAct, chatPathObs]
+
+func Do(st chatModelStage, act chatPathAct) fails testing.Refused {
+	let _ = applyChatRef(st.cur, act)
+}
+
+func Advance(st chatModelStage, d duration) {
+	let _ = (st, d)
+}
+
+func Settle(st chatModelStage) {
+	let _ = st
+}
+
+func Show(st chatModelStage) chatPathObs {
+	observeChat(st.cur.Get())
+}
+
+// ChatRoomModelTemporal proves room.Room agrees with the state model and
+// satisfies Always(closed -> Always(closed && count == 0)).
+law ChatRoomModelTemporal() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 20, Shrinks: 0, MaxDraws: 256, MaxRejected: 10}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let m = testing.Model[chatPathState, chatPathAct, chatPathObs]{
+			Start: chatPathState{HasAda: false, HasBob: false, Closed: false},
+			Offer: func(st chatPathState) chatPathAct needs gen.Draws {
+				let _ = st
+				gen.OneOf(chatSignals)
+			},
+			Step: func(st chatPathState, act chatPathAct) (chatPathState, chatPathObs) {
+				let (next, _) = chatStep(st, act)
+				(next, chatProject(next))
+			},
+		}
+		let isClosed = temporal.Named("closed", func(v chatPathObs) bool { v.Closed })
+		let closedEmpty = temporal.Named("closed-empty", func(v chatPathObs) bool { v.Closed && v.Count == 0 })
+		let formulas = []temporal.Formula[chatPathObs]{
+			temporal.Always(temporal.Implies(isClosed, temporal.Always(closedEmpty))),
+		}
+		testing.AgreesAnd(m, chatModelStage{cur: sync.NewRef[room.State](room.Start())}, 10, formulas) catch {
+		case testing.Diverged[chatPathAct, chatPathObs], testing.TemporalBreach[chatPathAct, chatPathObs], testing.Refused:
+			return false
+		}
+		true
+	})
+	match outcome {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}
+
+// ChatRoomActorConcurrentLinearizable verifies that concurrent Ask requests on
+// a live room.Room actor are strictly linearizable against chatStep.
+law ChatRoomActorConcurrentLinearizable() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 16, Shrinks: 0, MaxDraws: 256, MaxRejected: 10}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		with context { Scheduler: time.NewManual(0) } {
+			let a = actor.StartMachine(room.Room{}, 8, func(evs []room.Event) { let _ = evs })
+			let plans = [][]chatPathAct{
+				[]chatPathAct{ChatActJoin{Name: "ada"}, ChatActSay{From: "ada"}, ChatActLeave{Name: "ada"}},
+				[]chatPathAct{ChatActJoin{Name: "bob"}, ChatActJoin{Name: "ada"}, ChatActSay{From: "bob"}},
+			}
+			let mut ok = true
+			testing.AgreesConcurrent(chatPathState{HasAda: false, HasBob: false, Closed: false}, chatStep, plans, func(act chatPathAct) chatPathOut {
+				let _ = a.Ask(chatSignalOf(act)) catch {
+				case room.NameTaken:
+					return ChatOutTaken
+				case room.NotMember:
+					return ChatOutNotMember
+				case room.RoomClosed:
+					return ChatOutClosed
+				case actor.Stopped:
+					return ChatOutClosed
+				}
+				ChatOutOk
+			}) catch {
+			case testing.NotLinearizable[chatPathAct, chatPathOut]:
+				ok = false
+			}
+			a.Stop() catch {
+			case room.NameTaken, room.NotMember, room.RoomClosed:
+			}
+			ok
+		}
+	})
+	match outcome {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}

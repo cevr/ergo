@@ -1,0 +1,302 @@
+import explore
+import gen
+import lru/cache
+import sync
+import temporal
+import testing
+
+type lruPathState {
+	Len int,
+	K0  int,
+	V0  int,
+	K1  int,
+	V1  int,
+}
+
+type lruPathAct =
+	| LruActPut{Key int, Val int}
+	| LruActGet{Key int}
+	| LruActPeek{Key int}
+	| LruActRemove{Key int}
+
+type lruPathOut =
+	| LruOutPut{EvictedKey int}
+	| LruOutGet{Val int}
+	| LruOutRemoved{Was bool}
+
+type lruPathObs {
+	Len       int,
+	K0        int,
+	V0        int,
+	K1        int,
+	V1        int,
+	WithinCap bool,
+}
+
+type lruPathOpenErr { Message string }
+
+type lruPathDriveErr { Message string }
+
+type lruSession {
+	cur sync.Ref[cache.Cache[int, int]],
+} implements explore.PathSession[lruPathAct, explore.Observed[lruPathObs, lruPathOut, Never], lruPathDriveErr]
+
+func observeCache(ref sync.Ref[cache.Cache[int, int]]) lruPathObs {
+	sync.Modify(ref, func(c cache.Cache[int, int]) (lruPathObs, cache.Cache[int, int]) {
+		let mut cc = c
+		let es = cc.Entries()
+		let n = len(es)
+		let k0 = if n > 0 { es[0].Key } else { -1 }
+		let v0 = if n > 0 { es[0].Value } else { -1 }
+		let k1 = if n > 1 { es[1].Key } else { -1 }
+		let v1 = if n > 1 { es[1].Value } else { -1 }
+		(lruPathObs{Len: n, K0: k0, V0: v0, K1: k1, V1: v1, WithinCap: cc.Len() <= cc.Capacity() && n == cc.Len()}, cc)
+	})
+}
+
+func applyCacheRef(ref sync.Ref[cache.Cache[int, int]], act lruPathAct) lruPathOut {
+	sync.Modify(ref, func(c cache.Cache[int, int]) (lruPathOut, cache.Cache[int, int]) {
+		let mut cc = c
+		let out = match act {
+		case LruActPut as a:
+			match cc.Put(a.Key, a.Val) {
+			case Some[cache.Entry[int, int]] as ev:
+				LruOutPut{EvictedKey: ev.Value.Key}
+			case None:
+				LruOutPut{EvictedKey: -1}
+			}
+		case LruActGet as a:
+			match cc.Get(a.Key) {
+			case Some[int] as v:
+				LruOutGet{Val: v.Value}
+			case None:
+				LruOutGet{Val: -1}
+			}
+		case LruActPeek as a:
+			match cc.Peek(a.Key) {
+			case Some[int] as v:
+				LruOutGet{Val: v.Value}
+			case None:
+				LruOutGet{Val: -1}
+			}
+		case LruActRemove as a:
+			LruOutRemoved{Was: cc.Remove(a.Key)}
+		}
+		(out, cc)
+	})
+}
+
+func Read(s lruSession) explore.Observed[lruPathObs, lruPathOut, Never] fails lruPathDriveErr {
+	explore.InitialRead[lruPathObs]{State: observeCache(s.cur)}
+}
+
+func Apply(s lruSession, act lruPathAct) explore.Observed[lruPathObs, lruPathOut, Never] fails lruPathDriveErr {
+	let out = applyCacheRef(s.cur, act)
+	let obs = observeCache(s.cur)
+	explore.StepResult[lruPathObs, lruPathOut, Never]{
+		Step: explore.StepObs[lruPathObs, lruPathOut, Never]{
+			Kind:     explore.DisEmit,
+			State:    Some[lruPathObs]{Value: obs},
+			Outputs:  []lruPathOut{out},
+			Error:    None,
+			Terminal: false,
+		},
+	}
+}
+
+func Close(s lruSession) {
+	let _ = s
+}
+
+func lruProject(st lruPathState) lruPathObs {
+	lruPathObs{Len: st.Len, K0: st.K0, V0: st.V0, K1: st.K1, V1: st.V1, WithinCap: true}
+}
+
+let lruSignals = []lruPathAct{
+	LruActPut{Key: 1, Val: 10},
+	LruActPut{Key: 2, Val: 20},
+	LruActPut{Key: 3, Val: 30},
+	LruActGet{Key: 1},
+	LruActPeek{Key: 2},
+	LruActRemove{Key: 1},
+}
+
+func lruStep(st lruPathState, act lruPathAct) (lruPathState, lruPathOut) {
+	match act {
+	case LruActPut as a:
+		if st.Len == 0 {
+			return (lruPathState{Len: 1, K0: a.Key, V0: a.Val, K1: -1, V1: -1}, LruOutPut{EvictedKey: -1})
+		}
+		if st.K0 == a.Key {
+			return (lruPathState{..st, V0: a.Val}, LruOutPut{EvictedKey: -1})
+		}
+		if st.Len == 1 {
+			return (lruPathState{Len: 2, K0: a.Key, V0: a.Val, K1: st.K0, V1: st.V0}, LruOutPut{EvictedKey: -1})
+		}
+		if st.K1 == a.Key {
+			return (lruPathState{Len: 2, K0: a.Key, V0: a.Val, K1: st.K0, V1: st.V0}, LruOutPut{EvictedKey: -1})
+		}
+		(lruPathState{Len: 2, K0: a.Key, V0: a.Val, K1: st.K0, V1: st.V0}, LruOutPut{EvictedKey: st.K1})
+	case LruActGet as a:
+		if st.Len > 0 && st.K0 == a.Key {
+			return (st, LruOutGet{Val: st.V0})
+		}
+		if st.Len > 1 && st.K1 == a.Key {
+			return (lruPathState{Len: 2, K0: st.K1, V0: st.V1, K1: st.K0, V1: st.V0}, LruOutGet{Val: st.V1})
+		}
+		(st, LruOutGet{Val: -1})
+	case LruActPeek as a:
+		if st.Len > 0 && st.K0 == a.Key {
+			return (st, LruOutGet{Val: st.V0})
+		}
+		if st.Len > 1 && st.K1 == a.Key {
+			return (st, LruOutGet{Val: st.V1})
+		}
+		(st, LruOutGet{Val: -1})
+	case LruActRemove as a:
+		if st.Len == 0 {
+			return (st, LruOutRemoved{Was: false})
+		}
+		if st.K0 == a.Key {
+			if st.Len == 1 {
+				return (lruPathState{Len: 0, K0: -1, V0: -1, K1: -1, V1: -1}, LruOutRemoved{Was: true})
+			}
+			return (lruPathState{Len: 1, K0: st.K1, V0: st.V1, K1: -1, V1: -1}, LruOutRemoved{Was: true})
+		}
+		if st.Len > 1 && st.K1 == a.Key {
+			return (lruPathState{Len: 1, K0: st.K0, V0: st.V0, K1: -1, V1: -1}, LruOutRemoved{Was: true})
+		}
+		(st, LruOutRemoved{Was: false})
+	}
+}
+
+func lruPathModel() explore.PathModel[lruPathState, lruPathAct, lruPathObs, lruPathOut, Never] {
+	explore.PathModelProjected[lruPathState, lruPathAct, lruPathObs, lruPathOut, Never](
+		[]lruPathState{lruPathState{Len: 0, K0: -1, V0: -1, K1: -1, V1: -1}},
+		lruSignals,
+		"lru.cache",
+		lruProject,
+		func(st lruPathState, act lruPathAct) explore.EdgeOutcome[lruPathState, explore.StepObs[lruPathObs, lruPathOut, Never]] {
+			let (next, out) = lruStep(st, act)
+			explore.Continue[lruPathState, explore.StepObs[lruPathObs, lruPathOut, Never]]{
+				Next: next,
+				Obs:  explore.StepObs[lruPathObs, lruPathOut, Never]{
+					Kind:     explore.DisEmit,
+					State:    Some[lruPathObs]{Value: lruProject(next)},
+					Outputs:  []lruPathOut{out},
+					Error:    None,
+					Terminal: false,
+				},
+			}
+		},
+	)
+}
+
+// LruCachePaths drives fresh capacity-2 LRU caches for path exploration.
+type LruCachePaths {
+	OpenSession(start lruPathState) lruSession fails lruPathOpenErr,
+
+	// PathsAgree verifies Put, Get, Peek, Remove, and LRU eviction paths up to depth 3.
+	law PathsAgree() {
+		let bounds = explore.PathBounds{MaxStates: 64, MaxEdges: 512, MaxPaths: 512, MaxSteps: 2048, MaxWork: 50000, MaxBytes: 4194304}
+		let res = explore.CheckPathsWithSink(
+			lruPathModel(),
+			explore.ToDepth{Depth: 3},
+			bounds,
+			func(start lruPathState) explore.PathSession[lruPathAct, explore.Observed[lruPathObs, lruPathOut, Never], lruPathDriveErr] fails lruPathOpenErr {
+				try OpenSession(start)
+			},
+			testing.ActiveEvidenceSink(),
+		)
+		match res.Verdict {
+		case explore.CampaignPassed:
+			res.Counts.PathsCompleted > 0 && res.Counts.MatchedSteps > 0
+		case explore.CampaignRefuted, explore.CampaignIncomplete:
+			false
+		}
+	},
+}
+
+type memLruPaths {} implements LruCachePaths
+
+func OpenSession(_ memLruPaths, start lruPathState) lruSession fails lruPathOpenErr {
+	let _ = start
+	let c = cache.New[int, int](2) catch {
+	case cache.BadCapacity:
+		return lruPathOpenErr{Message: "bad capacity"}
+	}
+	lruSession{cur: sync.NewRef(c)}
+}
+
+type lruModelStage {
+	show  func() lruPathObs,
+	apply func(act lruPathAct) lruPathOut,
+} implements testing.Stage[lruPathAct, lruPathObs]
+
+func newLruStage() lruModelStage {
+	let c = cache.New[int, int](2) catch {
+	case cache.BadCapacity:
+		return lruModelStage{
+			show:  func() lruPathObs { lruPathObs{Len: 0, K0: -1, V0: -1, K1: -1, V1: -1, WithinCap: true} },
+			apply: func(act lruPathAct) lruPathOut { LruOutGet{Val: -1} },
+		}
+	}
+	let ref = sync.NewRef(c)
+	lruModelStage{
+		show:  func() lruPathObs { observeCache(ref) },
+		apply: func(act lruPathAct) lruPathOut { applyCacheRef(ref, act) },
+	}
+}
+
+let onLruStage = context {
+	testing.Stage[lruPathAct, lruPathObs]: newLruStage(),
+}
+
+func Do(st lruModelStage, act lruPathAct) fails testing.Refused {
+	let _ = st.apply(act)
+}
+
+func Advance(st lruModelStage, d duration) {
+	let _ = (st, d)
+}
+
+func Settle(st lruModelStage) {
+	let _ = st
+}
+
+func Show(st lruModelStage) lruPathObs {
+	st.show()
+}
+
+// LruCacheModelTemporal proves cache.Cache agrees with the 2-slot LRU model and
+// satisfies Always(WithinCap && Len <= 2).
+law LruCacheModelTemporal() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 20, Shrinks: 0, MaxDraws: 512, MaxRejected: 10}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let m = testing.Model[lruPathState, lruPathAct, lruPathObs]{
+			Start: lruPathState{Len: 0, K0: -1, V0: -1, K1: -1, V1: -1},
+			Offer: func(st lruPathState) lruPathAct needs gen.Draws {
+				let _ = st
+				gen.OneOf(lruSignals)
+			},
+			Step: func(st lruPathState, act lruPathAct) (lruPathState, lruPathObs) {
+				let (next, _) = lruStep(st, act)
+				(next, lruProject(next))
+			},
+		}
+		let formulas = []temporal.Formula[lruPathObs]{
+			temporal.Always(temporal.Named("within-cap", func(v lruPathObs) bool { v.WithinCap && v.Len <= 2 })),
+		}
+		testing.AgreesAnd(m, newLruStage(), 12, formulas) catch {
+		case testing.Diverged[lruPathAct, lruPathObs], testing.TemporalBreach[lruPathAct, lruPathObs], testing.Refused:
+			return false
+		}
+		true
+	})
+	match outcome {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}
