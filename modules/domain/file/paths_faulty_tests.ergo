@@ -1,0 +1,256 @@
+import explore
+import fs
+import fstest
+import gen
+import github.com/cevr/ergo/modules/domain
+import sync
+import testing
+
+type fileLogState {
+	Pos  int,
+	C1   int,
+	C1Ev int,
+	C2   int,
+	C2Ev int,
+}
+
+type fileLogAct =
+	| FileActAppend{Expected int, ID string, Ev int}
+	| FileActReopen{}
+
+type fileLogOut =
+	| FileOutReceipt{Pos int}
+	| FileOutConflict{Actual int}
+	| FileOutReused{}
+	| FileOutReopened{Pos int}
+
+type fileLogObs {
+	Pos int,
+	C1  int,
+	C2  int,
+}
+
+type fileLogOpenErr { Message string }
+
+type fileLogDriveErr { Message string }
+
+type fileLogSession {
+	disk fstest.Memory,
+	cur  sync.Ref[Log[int]],
+} implements explore.PathSession[fileLogAct, explore.Observed[fileLogObs, fileLogOut, Never], fileLogDriveErr]
+
+func fileSeenPos(opt Option[domain.Receipt]) int {
+	match opt {
+	case Some[domain.Receipt] as r:
+		r.Value.Position
+	case None:
+		0
+	}
+}
+
+func readFileLogObs(s fileLogSession) fileLogObs {
+	let l = s.cur.Get()
+	fileLogObs{
+		Pos: len(l.Read("s", 0)),
+		C1:  fileSeenPos(l.Seen(domain.CommandID("c1"))),
+		C2:  fileSeenPos(l.Seen(domain.CommandID("c2"))),
+	}
+}
+
+func applyFileLogAct(s fileLogSession, act fileLogAct) fileLogOut fails fileLogDriveErr {
+	match act {
+	case FileActAppend as a:
+		let l = s.cur.Get()
+		let r = l.Append("s", a.Expected, domain.CommandID(a.ID), []int{a.Ev}) catch {
+		case domain.Conflict as c:
+			return FileOutConflict{Actual: c.Actual}
+		case domain.Reused:
+			return FileOutReused
+		case domain.Unkept as u:
+			return fileLogDriveErr{Message: u.Reason}
+		}
+		FileOutReceipt{Pos: r.Position}
+	case FileActReopen:
+		let reopened = Open[int](s.disk, s.disk, "log", Decimal) catch {
+		case domain.Unkept as u:
+			return fileLogDriveErr{Message: u.Reason}
+		}
+		s.cur.Set(reopened)
+		FileOutReopened{Pos: len(reopened.Read("s", 0))}
+	}
+}
+
+func Read(s fileLogSession) explore.Observed[fileLogObs, fileLogOut, Never] fails fileLogDriveErr {
+	explore.InitialRead[fileLogObs]{State: readFileLogObs(s)}
+}
+
+func Apply(s fileLogSession, act fileLogAct) explore.Observed[fileLogObs, fileLogOut, Never] fails fileLogDriveErr {
+	let out = try applyFileLogAct(s, act)
+	let obs = readFileLogObs(s)
+	explore.StepResult[fileLogObs, fileLogOut, Never]{
+		Step: explore.StepObs[fileLogObs, fileLogOut, Never]{
+			Kind:     explore.DisEmit,
+			State:    Some[fileLogObs]{Value: obs},
+			Outputs:  []fileLogOut{out},
+			Error:    None,
+			Terminal: false,
+		},
+	}
+}
+
+func Close(s fileLogSession) {
+	let _ = s
+}
+
+func fileLogProject(st fileLogState) fileLogObs {
+	fileLogObs{Pos: st.Pos, C1: st.C1, C2: st.C2}
+}
+
+let fileLogSignals = []fileLogAct{
+	FileActAppend{Expected: 0, ID: "c1", Ev: 1},
+	FileActAppend{Expected: 1, ID: "c2", Ev: 2},
+	FileActAppend{Expected: 0, ID: "c1", Ev: 9},
+	FileActAppend{Expected: 0, ID: "c2", Ev: 2},
+	FileActReopen,
+}
+
+func fileLogStep(st fileLogState, act fileLogAct) (fileLogState, fileLogOut) {
+	match act {
+	case FileActAppend as a:
+		if a.ID == "c1" && st.C1 > 0 {
+			if a.Ev == st.C1Ev {
+				return (st, FileOutReceipt{Pos: st.C1})
+			}
+			return (st, FileOutReused)
+		}
+		if a.ID == "c2" && st.C2 > 0 {
+			if a.Ev == st.C2Ev {
+				return (st, FileOutReceipt{Pos: st.C2})
+			}
+			return (st, FileOutReused)
+		}
+		if a.Expected != st.Pos {
+			return (st, FileOutConflict{Actual: st.Pos})
+		}
+		let nextPos = st.Pos + 1
+		if a.ID == "c1" {
+			(fileLogState{..st, Pos: nextPos, C1: nextPos, C1Ev: a.Ev}, FileOutReceipt{Pos: nextPos})
+		} else {
+			(fileLogState{..st, Pos: nextPos, C2: nextPos, C2Ev: a.Ev}, FileOutReceipt{Pos: nextPos})
+		}
+	case FileActReopen:
+		(st, FileOutReopened{Pos: st.Pos})
+	}
+}
+
+func fileLogModel() explore.PathModel[fileLogState, fileLogAct, fileLogObs, fileLogOut, Never] {
+	explore.PathModelProjected[fileLogState, fileLogAct, fileLogObs, fileLogOut, Never](
+		[]fileLogState{fileLogState{Pos: 0, C1: 0, C1Ev: 0, C2: 0, C2Ev: 0}},
+		fileLogSignals,
+		"domain.file.log",
+		fileLogProject,
+		func(st fileLogState, act fileLogAct) explore.EdgeOutcome[fileLogState, explore.StepObs[fileLogObs, fileLogOut, Never]] {
+			let (next, out) = fileLogStep(st, act)
+			explore.Continue[fileLogState, explore.StepObs[fileLogObs, fileLogOut, Never]]{
+				Next: next,
+				Obs:  explore.StepObs[fileLogObs, fileLogOut, Never]{
+					Kind:     explore.DisEmit,
+					State:    Some[fileLogObs]{Value: fileLogProject(next)},
+					Outputs:  []fileLogOut{out},
+					Error:    None,
+					Terminal: false,
+				},
+			}
+		},
+	)
+}
+
+// DomainFilePaths drives domain/file logs with explicit Reopen transitions.
+type DomainFilePaths {
+	OpenSession(start fileLogState) fileLogSession fails fileLogOpenErr,
+
+	// PathsAgree verifies append, idempotent resend, conflict, reuse, and reopen durability paths.
+	law PathsAgree() {
+		let bounds = explore.PathBounds{MaxStates: 64, MaxEdges: 512, MaxPaths: 512, MaxSteps: 2048, MaxWork: 50000, MaxBytes: 4194304}
+		let res = explore.CheckPathsWithSink(
+			fileLogModel(),
+			explore.ToDepth{Depth: 3},
+			bounds,
+			func(start fileLogState) explore.PathSession[fileLogAct, explore.Observed[fileLogObs, fileLogOut, Never], fileLogDriveErr] fails fileLogOpenErr {
+				try OpenSession(start)
+			},
+			testing.ActiveEvidenceSink(),
+		)
+		match res.Verdict {
+		case explore.CampaignPassed:
+			res.Counts.PathsCompleted > 0 && res.Counts.MatchedSteps > 0
+		case explore.CampaignRefuted, explore.CampaignIncomplete:
+			false
+		}
+	},
+}
+
+type memDomFilePaths {} implements DomainFilePaths
+
+func OpenSession(_ memDomFilePaths, start fileLogState) fileLogSession fails fileLogOpenErr {
+	let _ = start
+	let disk = fstest.NewMemory()
+	let l = Open[int](disk, disk, "log", Decimal) catch {
+	case domain.Unkept as u:
+		return fileLogOpenErr{Message: u.Reason}
+	}
+	fileLogSession{disk: disk, cur: sync.NewRef(l)}
+}
+
+func tryFileAppend(l Log[int]) int {
+	let _ = l.Append("s", 0, domain.CommandID("c1"), []int{7}) catch {
+	case domain.Unkept:
+		return 1
+	case domain.Conflict, domain.Reused:
+		return -1
+	}
+	0
+}
+
+// FileLogWriteFaultsPreserveState verifies that injected fs.Writes faults
+// during Append fail with domain.Unkept without advancing in-memory state.
+law FileLogWriteFaultsPreserveState() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 36, Shrinks: 0, MaxDraws: 512, MaxRejected: 10}
+	let sawSuccess = sync.NewRef(false)
+	let sawFault = sync.NewRef(false)
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let disk = fstest.NewMemory()
+		let faultyWrites = testing.Faulty[fs.Writes](disk)
+		let l = Open[int](disk, faultyWrites, "log", Decimal) catch {
+		case domain.Unkept:
+			return false
+		}
+		let before = len(faultyWrites.AppendFile.Faults())
+		let res = tryFileAppend(l)
+		if res < 0 {
+			return false
+		}
+		if len(faultyWrites.AppendFile.Faults()) > before {
+			sawFault.Set(true)
+			if res != 1 {
+				return false
+			}
+			return len(l.Read("s", 0)) == 0 && l.Seen(domain.CommandID("c1")) == None
+		}
+		if res != 0 {
+			return false
+		}
+		sawSuccess.Set(true)
+		let reopened = Open[int](disk, disk, "log", Decimal) catch {
+		case domain.Unkept:
+			return false
+		}
+		len(reopened.Read("s", 0)) == 1 && reopened.Seen(domain.CommandID("c1")) != None
+	})
+	match outcome {
+	case gen.Held:
+		sawSuccess.Get() && sawFault.Get()
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}

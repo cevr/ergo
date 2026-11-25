@@ -1,0 +1,241 @@
+import gen
+import html
+import strconv
+import sync
+import temporal
+import testing
+
+type webStoreDown { Reason string }
+
+type webStore {
+	Get(id int) Option[string] fails webStoreDown,
+	Put(id int, title string) fails webStoreDown,
+}
+
+type memWebStore { rows sync.Ref[Map[int, string]] } implements webStore
+
+func newMemWebStore() memWebStore {
+	memWebStore{rows: sync.NewRef(Map[int, string]{})}
+}
+
+func Get(s memWebStore, id int) Option[string] fails webStoreDown {
+	s.rows.Get().Get(id)
+}
+
+func Put(s memWebStore, id int, title string) fails webStoreDown {
+	s.rows.Update(func(m Map[int, string]) Map[int, string] { m.Put(id, title) })
+}
+
+type webLoadErr {
+	Code   int,
+	Detail string,
+}
+
+func siteWithLoader(load own func(r lawRoute) string fails webLoadErr) Site[lawRoute, string, webLoadErr] {
+	Site[lawRoute, string, webLoadErr]{
+		Routes: lawMap,
+		Load:   load,
+		View:   func(p string) html.Node { html.P([]html.Child{html.Text(p)}) },
+		Status: func(f webLoadErr) Reply {
+			Reply{Status: f.Code, Page: html.P([]html.Child{html.Text(f.Detail)})}
+		},
+		NotFound: func(path string) html.Node { html.P([]html.Child{html.Text("missing " + path)}) },
+		Assets:   []Asset{lawSheet},
+	}
+}
+
+func readViaWebStore(id int) Option[string] fails webStoreDown needs webStore {
+	try webStore.Get(id)
+}
+
+// WebLoaderFaultsMapToDeclaredStatus wraps a site's backing store capability in
+// testing.Faulty and verifies injected faults always map to the declared 503
+// reply on GET, empty body on HEAD, and never run on 404 or 405 requests.
+law WebLoaderFaultsMapToDeclaredStatus() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 32, Shrinks: 0, MaxDraws: 512, MaxRejected: 10}
+	let saw200 = sync.NewRef(false)
+	let saw503 = sync.NewRef(false)
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let inner = newMemWebStore()
+		inner.Put(1, "hello") catch {
+		case webStoreDown:
+			return false
+		}
+		let faulty = testing.Faulty[webStore](inner)
+		let site = siteWithLoader(func(r lawRoute) string fails webLoadErr {
+			match r {
+			case lawHome:
+				"home"
+			case lawItem as i:
+				let found = with context { webStore: faulty } { readViaWebStore(i.N) } catch {
+				case webStoreDown as d:
+					return webLoadErr{Code: 503, Detail: "down: " + d.Reason}
+				}
+				match found {
+				case Some[string] as title:
+					title.Value
+				case None:
+					webLoadErr{Code: 410, Detail: "gone " + strconv.Itoa(i.N)}
+				}
+			}
+		})
+		let before404 = len(faulty.Get.Faults())
+		let r404 = Fetch(site, Request("GET", "/no-such-route"))
+		let r405 = Fetch(site, Request("POST", "/item/1"))
+		if r404.Status != 404 || r405.Status != 405 || len(faulty.Get.Faults()) != before404 {
+			return false
+		}
+		let beforeGet = len(faulty.Get.Faults())
+		let rGet = Fetch(site, Request("GET", "/item/1"))
+		if len(faulty.Get.Faults()) > beforeGet {
+			saw503.Set(true)
+			if rGet.Status != 503 || rGet.Body == "" {
+				return false
+			}
+		} else {
+			saw200.Set(true)
+			if rGet.Status != 200 || rGet.Body != html.Render(html.P([]html.Child{html.Text("hello")})) {
+				return false
+			}
+		}
+		let beforeHead = len(faulty.Get.Faults())
+		let rHead = Fetch(site, Request("HEAD", "/item/1"))
+		if len(faulty.Get.Faults()) > beforeHead {
+			saw503.Set(true)
+			return rHead.Status == 503 && rHead.Body == ""
+		}
+		rHead.Status == 200 && rHead.Body == ""
+	})
+	match outcome {
+	case gen.Held:
+		saw200.Get() && saw503.Get()
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}
+
+type webModelState {
+	has1 bool,
+	has2 bool,
+}
+
+type webModelAct =
+	| WebActPut{ID int}
+	| WebActGet{ID int}
+	| WebActUnknown{}
+
+type webModelObs {
+	item1Status int,
+	item2Status int,
+	headMatches bool,
+	unknown404  bool,
+}
+
+type webModelStage {
+	store memWebStore,
+} implements testing.Stage[webModelAct, webModelObs]
+
+func Do(st webModelStage, act webModelAct) fails testing.Refused {
+	match act {
+	case WebActPut as a:
+		st.store.Put(a.ID, "item-\(a.ID)") catch {
+		case webStoreDown:
+			return testing.Refused{Why: "put failed"}
+		}
+	case WebActGet, WebActUnknown:
+	}
+}
+
+func Advance(st webModelStage, d duration) {
+	let _ = (st, d)
+}
+
+func Settle(st webModelStage) {
+	let _ = st
+}
+
+func Show(st webModelStage) webModelObs {
+	let site = siteWithLoader(func(r lawRoute) string fails webLoadErr {
+		match r {
+		case lawHome:
+			"home"
+		case lawItem as i:
+			let found = st.store.Get(i.N) catch {
+			case webStoreDown as d:
+				return webLoadErr{Code: 503, Detail: "down: " + d.Reason}
+			}
+			match found {
+			case Some[string] as title:
+				title.Value
+			case None:
+				webLoadErr{Code: 410, Detail: "gone " + strconv.Itoa(i.N)}
+			}
+		}
+	})
+	let g1 = Fetch(site, Request("GET", "/item/1"))
+	let h1 = Fetch(site, Request("HEAD", "/item/1"))
+	let g2 = Fetch(site, Request("GET", "/item/2"))
+	let h2 = Fetch(site, Request("HEAD", "/item/2"))
+	let u = Fetch(site, Request("GET", "/nowhere"))
+	webModelObs{
+		item1Status: g1.Status,
+		item2Status: g2.Status,
+		headMatches: h1.Status == g1.Status && h1.Body == "" && h2.Status == g2.Status && h2.Body == "",
+		unknown404:  u.Status == 404,
+	}
+}
+
+// WebSiteModelTemporal proves a stateful web.Site agrees with its route-status
+// model and satisfies Always(headMatches && unknown404).
+law WebSiteModelTemporal() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 24, Shrinks: 0, MaxDraws: 256, MaxRejected: 10}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let store = newMemWebStore()
+		let m = testing.Model[webModelState, webModelAct, webModelObs]{
+			Start: webModelState{has1: false, has2: false},
+			Offer: func(cur webModelState) webModelAct needs gen.Draws {
+				let _ = cur
+				gen.OneOf([]webModelAct{
+					WebActPut{ID: 1},
+					WebActPut{ID: 2},
+					WebActGet{ID: 1},
+					WebActGet{ID: 2},
+					WebActUnknown,
+				})
+			},
+			Step: func(cur webModelState, act webModelAct) (webModelState, webModelObs) {
+				let next = match act {
+				case WebActPut as a:
+					if a.ID == 1 {
+						webModelState{..cur, has1: true}
+					} else {
+						webModelState{..cur, has2: true}
+					}
+				case WebActGet, WebActUnknown:
+					cur
+				}
+				(next, webModelObs{
+					item1Status: if next.has1 { 200 } else { 410 },
+					item2Status: if next.has2 { 200 } else { 410 },
+					headMatches: true,
+					unknown404:  true,
+				})
+			},
+		}
+		let formulas = []temporal.Formula[webModelObs]{
+			temporal.Always(temporal.Named("head-matches-get", func(v webModelObs) bool { v.headMatches })),
+			temporal.Always(temporal.Named("unknown-is-404", func(v webModelObs) bool { v.unknown404 })),
+		}
+		testing.AgreesAnd(m, webModelStage{store: store}, 8, formulas) catch {
+		case testing.Diverged[webModelAct, webModelObs], testing.TemporalBreach[webModelAct, webModelObs], testing.Refused:
+			return false
+		}
+		true
+	})
+	match outcome {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}

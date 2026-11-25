@@ -1,0 +1,56 @@
+import ergo.dev/tn1
+import gen
+
+// ProjectGraphInvariants verifies over generated multi-package TypeScript
+// graphs (including cyclic imports) that Project preserves file cardinality and
+// produces bounded non-negative package and file graph metrics.
+law ProjectGraphInvariants() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 40, Shrinks: 0, MaxDraws: 512, MaxRejected: 10}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let dirs = []string{"pkgA", "pkgB", "pkgC"}
+		let n = gen.IntIn(2, 5)
+		let mut paths = []string{}
+		for i in 0..n {
+			let d = dirs[i%len(dirs)]
+			paths = paths.Append("\(d)/m\(i).ts")
+		}
+		let mut files = []tn1.Named{}
+		for i in 0..n {
+			let mut src = ""
+			if gen.Bool() {
+				let target = gen.IntIn(0, n-1)
+				let td = dirs[target%len(dirs)]
+				let rel = if td == dirs[i%len(dirs)] { "./m\(target)" } else { "../\(td)/m\(target)" }
+				src = src + "import { fn\(target) } from \"\(rel)\";\n"
+				src = src + "export function fn\(i)() { return fn\(target)(); }\n"
+			} else {
+				src = src + "export function fn\(i)() { return \(i); }\n"
+			}
+			files = files.Append(tn1.Named{Name: paths[i], Text: src})
+		}
+		let out = Project(files)
+		if len(out) != n {
+			return false
+		}
+		for f in out {
+			if f.Version != 3 || len(f.Packages) != 1 || len(f.Files) != 1 {
+				return false
+			}
+			let p = f.Packages[0]
+			let fi = f.Files[0]
+			if p.Files <= 0 || p.Depth < 0 || p.FanIn < 0 || p.FanOut < 0 {
+				return false
+			}
+			if fi.Decls < 0 || fi.FanIn < 0 || fi.FanOut < 0 || fi.BestOtherPackageShare < 0 || fi.BestOtherPackageShare > 1000 {
+				return false
+			}
+		}
+		true
+	})
+	match outcome {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}

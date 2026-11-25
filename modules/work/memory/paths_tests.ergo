@@ -1,0 +1,252 @@
+import explore
+import github.com/cevr/ergo/modules/work/work
+import strings
+import testing
+
+type workPathState {
+	AlphaActive bool,
+	AlphaPinned bool,
+	BetaActive  bool,
+	BetaPinned  bool,
+}
+
+type workPathAct =
+	| WorkActNew{Name string}
+	| WorkActPin{Name string}
+	| WorkActUnpin{Name string}
+	| WorkActRm{Name string}
+
+type workPathOut =
+	| WorkOutOk{}
+	| WorkOutTaken{}
+	| WorkOutMissing{}
+
+type workPathObs {
+	Active string,
+	Pinned string,
+}
+
+type workPathOpenErr { Message string }
+
+type workPathDriveErr { Message string }
+
+type workPathSession { tool work.Tool } implements explore.PathSession[workPathAct, explore.Observed[workPathObs, workPathOut, Never], workPathDriveErr]
+
+func readWorkObs(tool work.Tool) workPathObs fails workPathDriveErr {
+	let listed = tool.List(work.ListOptions{Status: false}) catch {
+	case _:
+		return workPathDriveErr{Message: "list failed"}
+	}
+	let mut alphaA = false
+	let mut alphaP = false
+	let mut betaA = false
+	let mut betaP = false
+	for item in listed {
+		if item.Name == "alpha" && work.StateName(item.State) == "active" {
+			alphaA = true
+			alphaP = item.Pinned
+		} else if item.Name == "beta" && work.StateName(item.State) == "active" {
+			betaA = true
+			betaP = item.Pinned
+		}
+	}
+	workPathProject(workPathState{AlphaActive: alphaA, AlphaPinned: alphaP, BetaActive: betaA, BetaPinned: betaP})
+}
+
+func applyWorkAct(tool work.Tool, act workPathAct) workPathOut fails workPathDriveErr {
+	match act {
+	case WorkActNew as a:
+		let _ = tool.New(a.Name, work.NewOptions{Copy: false, From: None, Branch: None, On: None, Token: None}) catch {
+		case work.NameTaken:
+			return WorkOutTaken
+		case _:
+			return workPathDriveErr{Message: "new failed"}
+		}
+		WorkOutOk
+	case WorkActPin as a:
+		let _ = tool.Pin(a.Name) catch {
+		case work.NoWorkspace:
+			return WorkOutMissing
+		case _:
+			return workPathDriveErr{Message: "pin failed"}
+		}
+		WorkOutOk
+	case WorkActUnpin as a:
+		let _ = tool.Unpin(a.Name) catch {
+		case work.NoWorkspace:
+			return WorkOutMissing
+		case _:
+			return workPathDriveErr{Message: "unpin failed"}
+		}
+		WorkOutOk
+	case WorkActRm as a:
+		let _ = tool.Rm(a.Name, work.RmOptions{Abandon: true, Expect: None, Tree: false}) catch {
+		case work.NoWorkspace:
+			return WorkOutMissing
+		case _:
+			return workPathDriveErr{Message: "rm failed"}
+		}
+		WorkOutOk
+	}
+}
+
+func Read(s workPathSession) explore.Observed[workPathObs, workPathOut, Never] fails workPathDriveErr {
+	explore.InitialRead[workPathObs]{State: try readWorkObs(s.tool)}
+}
+
+func Apply(s workPathSession, act workPathAct) explore.Observed[workPathObs, workPathOut, Never] fails workPathDriveErr {
+	let out = try applyWorkAct(s.tool, act)
+	let obs = try readWorkObs(s.tool)
+	explore.StepResult[workPathObs, workPathOut, Never]{
+		Step: explore.StepObs[workPathObs, workPathOut, Never]{
+			Kind:     explore.DisEmit,
+			State:    Some[workPathObs]{Value: obs},
+			Outputs:  []workPathOut{out},
+			Error:    None,
+			Terminal: false,
+		},
+	}
+}
+
+func Close(s workPathSession) {
+	let _ = s
+}
+
+func workPathProject(st workPathState) workPathObs {
+	let mut a = []string{}
+	let mut p = []string{}
+	if st.AlphaActive {
+		a = a.Append("alpha")
+		if st.AlphaPinned {
+			p = p.Append("alpha")
+		}
+	}
+	if st.BetaActive {
+		a = a.Append("beta")
+		if st.BetaPinned {
+			p = p.Append("beta")
+		}
+	}
+	workPathObs{Active: strings.Join(a, ","), Pinned: strings.Join(p, ",")}
+}
+
+let workPathSignals = []workPathAct{
+	WorkActNew{Name: "alpha"},
+	WorkActNew{Name: "beta"},
+	WorkActPin{Name: "alpha"},
+	WorkActUnpin{Name: "alpha"},
+	WorkActRm{Name: "alpha"},
+	WorkActRm{Name: "beta"},
+}
+
+func workPathStep(st workPathState, act workPathAct) (workPathState, workPathOut) {
+	match act {
+	case WorkActNew as a:
+		if a.Name == "alpha" {
+			if st.AlphaActive {
+				return (st, WorkOutTaken)
+			}
+			(workPathState{..st, AlphaActive: true, AlphaPinned: false}, WorkOutOk)
+		} else {
+			if st.BetaActive {
+				return (st, WorkOutTaken)
+			}
+			(workPathState{..st, BetaActive: true, BetaPinned: false}, WorkOutOk)
+		}
+	case WorkActPin as a:
+		if a.Name == "alpha" {
+			if !st.AlphaActive {
+				return (st, WorkOutMissing)
+			}
+			(workPathState{..st, AlphaPinned: true}, WorkOutOk)
+		} else {
+			if !st.BetaActive {
+				return (st, WorkOutMissing)
+			}
+			(workPathState{..st, BetaPinned: true}, WorkOutOk)
+		}
+	case WorkActUnpin as a:
+		if a.Name == "alpha" {
+			if !st.AlphaActive {
+				return (st, WorkOutMissing)
+			}
+			(workPathState{..st, AlphaPinned: false}, WorkOutOk)
+		} else {
+			if !st.BetaActive {
+				return (st, WorkOutMissing)
+			}
+			(workPathState{..st, BetaPinned: false}, WorkOutOk)
+		}
+	case WorkActRm as a:
+		if a.Name == "alpha" {
+			if !st.AlphaActive {
+				return (st, WorkOutMissing)
+			}
+			(workPathState{..st, AlphaActive: false, AlphaPinned: false}, WorkOutOk)
+		} else {
+			if !st.BetaActive {
+				return (st, WorkOutMissing)
+			}
+			(workPathState{..st, BetaActive: false, BetaPinned: false}, WorkOutOk)
+		}
+	}
+}
+
+func workPathModel() explore.PathModel[workPathState, workPathAct, workPathObs, workPathOut, Never] {
+	explore.PathModelProjected[workPathState, workPathAct, workPathObs, workPathOut, Never](
+		[]workPathState{workPathState{AlphaActive: false, AlphaPinned: false, BetaActive: false, BetaPinned: false}},
+		workPathSignals,
+		"work.lifecycle",
+		workPathProject,
+		func(st workPathState, act workPathAct) explore.EdgeOutcome[workPathState, explore.StepObs[workPathObs, workPathOut, Never]] {
+			let (next, out) = workPathStep(st, act)
+			explore.Continue[workPathState, explore.StepObs[workPathObs, workPathOut, Never]]{
+				Next: next,
+				Obs:  explore.StepObs[workPathObs, workPathOut, Never]{
+					Kind:     explore.DisEmit,
+					State:    Some[workPathObs]{Value: workPathProject(next)},
+					Outputs:  []workPathOut{out},
+					Error:    None,
+					Terminal: false,
+				},
+			}
+		},
+	)
+}
+
+// WorkPaths drives fresh in-memory work.Tool sessions for path exploration.
+type WorkPaths {
+	OpenSession(start workPathState) workPathSession fails workPathOpenErr,
+
+	// PathsAgree verifies all reachable workspace lifecycle paths up to depth 3.
+	law PathsAgree() {
+		let bounds = explore.PathBounds{MaxStates: 64, MaxEdges: 512, MaxPaths: 512, MaxSteps: 2048, MaxWork: 50000, MaxBytes: 4194304}
+		let res = explore.CheckPathsWithSink(
+			workPathModel(),
+			explore.ToDepth{Depth: 3},
+			bounds,
+			func(start workPathState) explore.PathSession[workPathAct, explore.Observed[workPathObs, workPathOut, Never], workPathDriveErr] fails workPathOpenErr {
+				try OpenSession(start)
+			},
+			testing.ActiveEvidenceSink(),
+		)
+		match res.Verdict {
+		case explore.CampaignPassed:
+			res.Counts.PathsCompleted > 0 && res.Counts.MatchedSteps > 0
+		case explore.CampaignRefuted, explore.CampaignIncomplete:
+			false
+		}
+	},
+}
+
+type memoryWorkPaths {} implements WorkPaths
+
+func OpenSession(_ memoryWorkPaths, start workPathState) workPathSession fails workPathOpenErr {
+	let _ = start
+	let tool = lawTool()
+	let _ = tool.Init() catch {
+	case _:
+		return workPathOpenErr{Message: "init failed"}
+	}
+	workPathSession{tool: tool}
+}

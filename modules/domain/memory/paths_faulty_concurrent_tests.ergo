@@ -1,0 +1,454 @@
+import actor
+import explore
+import gen
+import github.com/cevr/ergo/modules/domain
+import sync
+import temporal
+import testing
+import time
+
+type domPathState {
+	Pos  int,
+	C1   int,
+	C1Ev int,
+	C2   int,
+	C2Ev int,
+}
+
+type domPathAct =
+	| DomActAppend{Expected int, ID string, Ev int}
+	| DomActRead{From int}
+
+type domPathOut =
+	| DomOutReceipt{Pos int}
+	| DomOutConflict{Actual int}
+	| DomOutReused{}
+	| DomOutReadCount{Count int}
+
+type domPathObs {
+	Pos int,
+	C1  int,
+	C2  int,
+}
+
+type domPathOpenErr { Message string }
+
+type domPathDriveErr { Message string }
+
+type domPathSession { log Log[int] } implements explore.PathSession[domPathAct, explore.Observed[domPathObs, domPathOut, Never], domPathDriveErr]
+
+func seenPos(opt Option[domain.Receipt]) int {
+	match opt {
+	case Some[domain.Receipt] as r:
+		r.Value.Position
+	case None:
+		0
+	}
+}
+
+func readDomObs(log Log[int]) domPathObs {
+	domPathObs{
+		Pos: len(log.Read("s", 0)),
+		C1:  seenPos(log.Seen(domain.CommandID("c1"))),
+		C2:  seenPos(log.Seen(domain.CommandID("c2"))),
+	}
+}
+
+func applyDomAct(log Log[int], act domPathAct) domPathOut fails domPathDriveErr {
+	match act {
+	case DomActAppend as a:
+		let r = log.Append("s", a.Expected, domain.CommandID(a.ID), []int{a.Ev}) catch {
+		case domain.Conflict as c:
+			return DomOutConflict{Actual: c.Actual}
+		case domain.Reused:
+			return DomOutReused
+		case domain.Unkept as u:
+			return domPathDriveErr{Message: u.Reason}
+		}
+		DomOutReceipt{Pos: r.Position}
+	case DomActRead as a:
+		DomOutReadCount{Count: len(log.Read("s", a.From))}
+	}
+}
+
+func Read(s domPathSession) explore.Observed[domPathObs, domPathOut, Never] fails domPathDriveErr {
+	explore.InitialRead[domPathObs]{State: readDomObs(s.log)}
+}
+
+func Apply(s domPathSession, act domPathAct) explore.Observed[domPathObs, domPathOut, Never] fails domPathDriveErr {
+	let out = try applyDomAct(s.log, act)
+	let obs = readDomObs(s.log)
+	explore.StepResult[domPathObs, domPathOut, Never]{
+		Step: explore.StepObs[domPathObs, domPathOut, Never]{
+			Kind:     explore.DisEmit,
+			State:    Some[domPathObs]{Value: obs},
+			Outputs:  []domPathOut{out},
+			Error:    None,
+			Terminal: false,
+		},
+	}
+}
+
+func Close(s domPathSession) {
+	let _ = s
+}
+
+func domPathProject(st domPathState) domPathObs {
+	domPathObs{Pos: st.Pos, C1: st.C1, C2: st.C2}
+}
+
+let domPathSignals = []domPathAct{
+	DomActAppend{Expected: 0, ID: "c1", Ev: 1},
+	DomActAppend{Expected: 1, ID: "c2", Ev: 2},
+	DomActAppend{Expected: 0, ID: "c1", Ev: 9},
+	DomActRead{From: 0},
+	DomActRead{From: 1},
+}
+
+func domPathStep(st domPathState, act domPathAct) (domPathState, domPathOut) {
+	match act {
+	case DomActAppend as a:
+		if a.ID == "c1" && st.C1 > 0 {
+			if a.Ev == st.C1Ev {
+				return (st, DomOutReceipt{Pos: st.C1})
+			}
+			return (st, DomOutReused)
+		}
+		if a.ID == "c2" && st.C2 > 0 {
+			if a.Ev == st.C2Ev {
+				return (st, DomOutReceipt{Pos: st.C2})
+			}
+			return (st, DomOutReused)
+		}
+		if a.Expected != st.Pos {
+			return (st, DomOutConflict{Actual: st.Pos})
+		}
+		let nextPos = st.Pos + 1
+		if a.ID == "c1" {
+			(domPathState{..st, Pos: nextPos, C1: nextPos, C1Ev: a.Ev}, DomOutReceipt{Pos: nextPos})
+		} else {
+			(domPathState{..st, Pos: nextPos, C2: nextPos, C2Ev: a.Ev}, DomOutReceipt{Pos: nextPos})
+		}
+	case DomActRead as a:
+		let cnt = if st.Pos > a.From { st.Pos - a.From } else { 0 }
+		(st, DomOutReadCount{Count: cnt})
+	}
+}
+
+func domPathModel() explore.PathModel[domPathState, domPathAct, domPathObs, domPathOut, Never] {
+	explore.PathModelProjected[domPathState, domPathAct, domPathObs, domPathOut, Never](
+		[]domPathState{domPathState{Pos: 0, C1: 0, C1Ev: 0, C2: 0, C2Ev: 0}},
+		domPathSignals,
+		"domain.memory.log",
+		domPathProject,
+		func(st domPathState, act domPathAct) explore.EdgeOutcome[domPathState, explore.StepObs[domPathObs, domPathOut, Never]] {
+			let (next, out) = domPathStep(st, act)
+			explore.Continue[domPathState, explore.StepObs[domPathObs, domPathOut, Never]]{
+				Next: next,
+				Obs:  explore.StepObs[domPathObs, domPathOut, Never]{
+					Kind:     explore.DisEmit,
+					State:    Some[domPathObs]{Value: domPathProject(next)},
+					Outputs:  []domPathOut{out},
+					Error:    None,
+					Terminal: false,
+				},
+			}
+		},
+	)
+}
+
+// DomainMemoryPaths drives fresh domain/memory logs for path exploration.
+type DomainMemoryPaths {
+	OpenSession(start domPathState) domPathSession fails domPathOpenErr,
+
+	// PathsAgree verifies all reachable append/resend/conflict/reused/read paths.
+	law PathsAgree() {
+		let bounds = explore.PathBounds{MaxStates: 64, MaxEdges: 512, MaxPaths: 512, MaxSteps: 2048, MaxWork: 50000, MaxBytes: 4194304}
+		let res = explore.CheckPathsWithSink(
+			domPathModel(),
+			explore.ToDepth{Depth: 3},
+			bounds,
+			func(start domPathState) explore.PathSession[domPathAct, explore.Observed[domPathObs, domPathOut, Never], domPathDriveErr] fails domPathOpenErr {
+				try OpenSession(start)
+			},
+			testing.ActiveEvidenceSink(),
+		)
+		match res.Verdict {
+		case explore.CampaignPassed:
+			res.Counts.PathsCompleted > 0 && res.Counts.MatchedSteps > 0
+		case explore.CampaignRefuted, explore.CampaignIncomplete:
+			false
+		}
+	},
+}
+
+type memDomPaths {} implements DomainMemoryPaths
+
+func OpenSession(_ memDomPaths, start domPathState) domPathSession fails domPathOpenErr {
+	let _ = start
+	domPathSession{log: New[int]()}
+}
+
+// SourcedLogFaultsRecoverCleanly wraps domain.Log with testing.Faulty under
+// domain.Sourced + actor.StartDurable and proves failed appends leave the log
+// clean and a recovered host agrees with the log.
+law SourcedLogFaultsRecoverCleanly() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 32, Shrinks: 0, MaxDraws: 512, MaxRejected: 10}
+	let sawClean = sync.NewRef(false)
+	let sawFault = sync.NewRef(false)
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		with context { Scheduler: time.NewManual(0) } {
+			let inner = New[Event]()
+			let faulty = testing.Faulty[domain.Log[Event]](inner)
+			let store = domain.Sourced[Tally, domain.Envelope[Command], Event](faulty, "tally", Fresh, Evolve)
+			let a = match open(store) {
+			case Some[host] as h:
+				h.Value
+			case None:
+				return false
+			}
+			let faultsBefore = len(faulty.Append.Faults())
+			let env = domain.Envelope[Command]{ID: domain.CommandID("k1"), By: "t", At: time.Unix(0, 0), Command: Add{N: 5}}
+			let mut stopped = false
+			let _ = domain.Send(a, env) catch {
+			case Low:
+				return false
+			case actor.Stopped:
+				stopped = true
+				domain.Receipt{ID: env.ID, Stream: "", Position: 0}
+			}
+			if len(faulty.Append.Faults()) > faultsBefore {
+				sawFault.Set(true)
+				if !stopped {
+					return false
+				}
+				if len(inner.Read("tally", 0)) != 0 {
+					return false
+				}
+				let recovered = match open(store) {
+				case Some[host] as h:
+					h.Value
+				case None:
+					return false
+				}
+				let ok = Agrees(recovered.State(), inner.Read("tally", 0), Map[domain.CommandID, domain.Receipt]{}, func(id domain.CommandID) Option[domain.Receipt] { inner.Seen(id) })
+				recovered.Stop() catch {
+				case _:
+				}
+				return ok
+			}
+			if stopped {
+				return false
+			}
+			sawClean.Set(true)
+			let ok = a.State().State.Total == 5 && len(inner.Read("tally", 0)) == 1
+			a.Stop() catch {
+			case _:
+			}
+			ok
+		}
+	})
+	match outcome {
+	case gen.Held:
+		sawClean.Get() && sawFault.Get()
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}
+
+type tallyModelState {
+	Total   int,
+	Decides int,
+	Pos     int,
+}
+
+type tallyAct =
+	| TallyAdd{ID string, N int}
+	| TallyWithdraw{ID string, N int}
+
+type tallyObs {
+	Total   int,
+	Decides int,
+	Pos     int,
+	LogLen  int,
+}
+
+type tallyStage {
+	host host,
+	log  Log[Event],
+} implements testing.Stage[tallyAct, tallyObs]
+
+func Do(st tallyStage, act tallyAct) fails testing.Refused {
+	let id = match act {
+	case TallyAdd as a:
+		domain.CommandID(a.ID)
+	case TallyWithdraw as w:
+		domain.CommandID(w.ID)
+	}
+	let cmd Command = match act {
+	case TallyAdd as a:
+		Add{N: a.N}
+	case TallyWithdraw as w:
+		Withdraw{N: w.N}
+	}
+	let env = domain.Envelope[Command]{ID: id, By: "m", At: time.Unix(0, 0), Command: cmd}
+	let _ = domain.Send(st.host, env) catch {
+	case Low:
+		domain.Receipt{ID: id, Stream: "", Position: 0}
+	case actor.Stopped:
+		return testing.Refused{Why: "actor stopped"}
+	}
+}
+
+func Advance(st tallyStage, d duration) {
+	let _ = (st, d)
+}
+
+func Settle(st tallyStage) {
+	let _ = st
+}
+
+func Show(st tallyStage) tallyObs {
+	let l = st.host.State()
+	tallyObs{
+		Total:   l.State.Total,
+		Decides: l.State.Decides,
+		Pos:     l.Position,
+		LogLen:  len(st.log.Read("tally", 0)),
+	}
+}
+
+// SourcedActorModelTemporal proves a domain.Sourced actor agrees with the pure
+// tally model and satisfies Always(pos == logLen && total >= 0).
+law SourcedActorModelTemporal() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 20, Shrinks: 0, MaxDraws: 512, MaxRejected: 10}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		with context { Scheduler: time.NewManual(0) } {
+			let log = New[Event]()
+			let store = domain.Sourced[Tally, domain.Envelope[Command], Event](log, "tally", Fresh, Evolve)
+			let h = match open(store) {
+			case Some[host] as x:
+				x.Value
+			case None:
+				return false
+			}
+			let seq = sync.NewRef(0)
+			let m = testing.Model[tallyModelState, tallyAct, tallyObs]{
+				Start: tallyModelState{Total: 0, Decides: 0, Pos: 0},
+				Offer: func(st tallyModelState) tallyAct needs gen.Draws {
+					let _ = st
+					let n = sync.Modify(seq, func(k int) (int, int) { (k + 1, k + 1) })
+					let id = "cmd-\(n)"
+					if gen.Bool() {
+						TallyAdd{ID: id, N: gen.IntIn(1, 5)}
+					} else {
+						TallyWithdraw{ID: id, N: gen.IntIn(1, 5)}
+					}
+				},
+				Step: func(st tallyModelState, act tallyAct) (tallyModelState, tallyObs) {
+					let next = match act {
+					case TallyAdd as a:
+						tallyModelState{Total: st.Total + a.N, Decides: st.Decides + 1, Pos: st.Pos + 1}
+					case TallyWithdraw as w:
+						if w.N > st.Total {
+							st
+						} else {
+							tallyModelState{Total: st.Total - w.N, Decides: st.Decides + 1, Pos: st.Pos + 1}
+						}
+					}
+					(next, tallyObs{Total: next.Total, Decides: next.Decides, Pos: next.Pos, LogLen: next.Pos})
+				},
+			}
+			let formulas = []temporal.Formula[tallyObs]{
+				temporal.Always(temporal.Named("pos-matches-log", func(v tallyObs) bool { v.Pos == v.LogLen && v.Decides == v.Pos })),
+				temporal.Always(temporal.Named("total-non-negative", func(v tallyObs) bool { v.Total >= 0 })),
+			}
+			let mut ok = true
+			testing.AgreesAnd(m, tallyStage{host: h, log: log}, 8, formulas) catch {
+			case testing.Diverged[tallyAct, tallyObs], testing.TemporalBreach[tallyAct, tallyObs], testing.Refused:
+				ok = false
+			}
+			h.Stop() catch {
+			case _:
+			}
+			ok
+		}
+	})
+	match outcome {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}
+
+type logConcAct =
+	| LogConcAppend{Expected int, ID string, Ev int}
+	| LogConcRead{}
+
+func logConcStep(b Book[int], act logConcAct) (Book[int], int) {
+	match act {
+	case LogConcAppend as a:
+		let (o, next) = Admit(b, "s", a.Expected, domain.CommandID(a.ID), []int{a.Ev})
+		match o {
+		case Kept as k:
+			(next, k.Receipt.Position)
+		case Resent as r:
+			(next, r.Receipt.Position)
+		case Stale:
+			(b, -1)
+		case Taken:
+			(b, -2)
+		}
+	case LogConcRead:
+		(b, len(After(b, "s", 0)))
+	}
+}
+
+// DomainMemoryLogConcurrentLinearizable verifies that concurrent optimistic-lock
+// Append and Read calls on memory.Log are strictly linearizable.
+law DomainMemoryLogConcurrentLinearizable() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 24, Shrinks: 0, MaxDraws: 256, MaxRejected: 10}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let log = New[int]()
+		let plans = [][]logConcAct{
+			[]logConcAct{
+				LogConcAppend{Expected: 0, ID: "c1", Ev: 1},
+				LogConcAppend{Expected: 1, ID: "c3", Ev: 3},
+				LogConcRead,
+			},
+			[]logConcAct{
+				LogConcAppend{Expected: 0, ID: "c2", Ev: 2},
+				LogConcAppend{Expected: 0, ID: "c1", Ev: 1},
+				LogConcRead,
+			},
+		}
+		let start = Book[int]{Streams: Map[string, []domain.Recorded[int]]{}, Receipts: Map[domain.CommandID, domain.Receipt]{}}
+		testing.AgreesConcurrent(start, logConcStep, plans, func(act logConcAct) int {
+			match act {
+			case LogConcAppend as a:
+				let r = log.Append("s", a.Expected, domain.CommandID(a.ID), []int{a.Ev}) catch {
+				case domain.Conflict:
+					return -1
+				case domain.Reused:
+					return -2
+				case domain.Unkept:
+					return -99
+				}
+				r.Position
+			case LogConcRead:
+				len(log.Read("s", 0))
+			}
+		}) catch {
+		case testing.NotLinearizable[logConcAct, int]:
+			return false
+		}
+		true
+	})
+	match outcome {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}

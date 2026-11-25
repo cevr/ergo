@@ -1,0 +1,135 @@
+import gen
+import sync
+import temporal
+import testing
+
+type trackModelState {
+	lastMs int,
+	target int,
+	cues   int,
+}
+
+type trackModelAct {
+	DeltaMs int,
+	Target  int,
+}
+
+type trackModelObs {
+	cues       int,
+	target     int,
+	glitchFree bool,
+}
+
+type trackStage {
+	spring Spring,
+	timeMs sync.Ref[int],
+	trace  sync.Ref[[]Track],
+} implements testing.Stage[trackModelAct, trackModelObs]
+
+func Do(st trackStage, act trackModelAct) fails testing.Refused {
+	let nextMs = sync.Modify(st.timeMs, func(cur int) (int, int) {
+		let t = cur + act.DeltaMs
+		(t, t)
+	})
+	let at = duration(int64(nextMs) * int64(1000000))
+	st.trace.Update(func(tr []Track) []Track {
+		if len(tr) == 0 {
+			return []Track{Retarget(Still(st.spring, 0.0), at, float64(act.Target))}
+		}
+		let cur = tr[len(tr)-1]
+		tr.Append(Retarget(cur, at, float64(act.Target)))
+	})
+}
+
+func Advance(st trackStage, d duration) {
+	let _ = (st, d)
+}
+
+func Settle(st trackStage) {
+	let _ = st
+}
+
+func Show(st trackStage) trackModelObs {
+	let tr = st.trace.Get()
+	if len(tr) == 0 {
+		return trackModelObs{cues: 0, target: 0, glitchFree: true}
+	}
+	let last = tr[len(tr)-1]
+	trackModelObs{
+		cues:       len(tr) - 1,
+		target:     int(last.Target),
+		glitchFree: len(Glitches(tr)) == 0,
+	}
+}
+
+// MotionTrackModelTemporal proves stateful spring Track retargeting satisfies
+// Always(glitchFree) across generated timed retarget sequences.
+law MotionTrackModelTemporal() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 24, Shrinks: 0, MaxDraws: 256, MaxRejected: 10}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let bounce = float64(gen.IntIn(0, 5)) * 0.1
+		let sp = Spring{Duration: 200ms, Bounce: bounce}
+		let st = trackStage{
+			spring: sp,
+			timeMs: sync.NewRef(0),
+			trace:  sync.NewRef([]Track{Still(sp, 0.0)}),
+		}
+		let m = testing.Model[trackModelState, trackModelAct, trackModelObs]{
+			Start: trackModelState{lastMs: 0, target: 0, cues: 0},
+			Offer: func(cur trackModelState) trackModelAct needs gen.Draws {
+				let _ = cur
+				trackModelAct{
+					DeltaMs: gen.IntIn(5, 180),
+					Target:  gen.IntIn(-200, 200),
+				}
+			},
+			Step: func(cur trackModelState, act trackModelAct) (trackModelState, trackModelObs) {
+				let next = trackModelState{lastMs: cur.lastMs + act.DeltaMs, target: act.Target, cues: cur.cues + 1}
+				(next, trackModelObs{cues: next.cues, target: next.target, glitchFree: true})
+			},
+		}
+		let formulas = []temporal.Formula[trackModelObs]{
+			temporal.Always(temporal.Named("zero-glitches", func(v trackModelObs) bool { v.glitchFree })),
+		}
+		testing.AgreesAnd(m, st, 6, formulas) catch {
+		case testing.Diverged[trackModelAct, trackModelObs], testing.TemporalBreach[trackModelAct, trackModelObs], testing.Refused:
+			return false
+		}
+		true
+	})
+	match outcome {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}
+
+// GlitchesDetectsJumpAndVelocityBreak verifies that Glitches reports a Jump
+// when a hand-over teleports position and a Break when a mid-flight retarget
+// drops velocity to zero.
+law GlitchesDetectsJumpAndVelocityBreak() {
+	let sp = Spring{Duration: 200ms, Bounce: 0.2}
+	let start = Retarget(Still(sp, 0.0), 0ns, 100.0)
+	let jumped = Track{Spring: sp, Target: 100.0, X0: Pos(start, 50ms) + 25.0, V0: Vel(start, 50ms), Start: 50ms}
+	let jumpGlitches = Glitches([]Track{start, jumped})
+	let mut sawJump = false
+	for g in jumpGlitches {
+		match g {
+		case Jump:
+			sawJump = true
+		case Break, Unsettled:
+		}
+	}
+	let stopped = Track{Spring: sp, Target: 0.0, X0: Pos(start, 50ms), V0: 0.0, Start: 50ms}
+	let breakGlitches = Glitches([]Track{start, stopped})
+	let mut sawBreak = false
+	for g in breakGlitches {
+		match g {
+		case Break:
+			sawBreak = true
+		case Jump, Unsettled:
+		}
+	}
+	sawJump && sawBreak
+}

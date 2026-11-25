@@ -89,7 +89,7 @@ law SnapshotIsTheFiles(files Map[string, string], changed string, added string) 
 	case work.VcsFailed:
 		return false
 	}
-	let got = Read(v, "r", tree) catch {
+	let got = v.Read("r", tree) catch {
 	case work.VcsFailed:
 		return false
 	}
