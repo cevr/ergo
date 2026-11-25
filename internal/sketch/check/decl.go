@@ -402,6 +402,21 @@ func (c *checker) collect() {
 				}
 				c.importSpec(fi, d.Specs[0])
 			case *syntax.TypeDecl:
+				if target := aliasDirective(d.Doc); target != "" {
+					if c.pkg.Scope.parent != nil {
+						if obj, _ := c.pkg.Scope.parent.lookup(target); obj != nil {
+							if orig, ok := obj.(*TypeName); ok {
+								c.declare(d.Name, orig)
+								continue
+							}
+						}
+					}
+					if c.pkg.pendingAliases == nil {
+						c.pkg.pendingAliases = map[string]string{}
+					}
+					c.pkg.pendingAliases[d.Name.Name] = target
+					continue
+				}
 				tn := &TypeName{Name: d.Name.Name, Pkg: c.pkg, Pos: d.Name.Pos(), Decl: d, file: fi, id: newID(), testAuthority: c.testAuthorities[d.Name.Name]}
 				tn.Type = &Named{Obj: tn}
 				if prev, ok := c.pkg.Scope.names[d.Name.Name].(*Func); ok && len(prev.same) == 0 && memberShaped(prev.Decl) {

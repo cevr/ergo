@@ -1,0 +1,44 @@
+// Range is the half-open interval from Start up to End.
+//
+// ergo:alias Range
+type Range[T] {}
+
+// Seq is a lazy sequence of values of type T.
+//
+// ergo:alias Seq
+type Seq[T own] {}
+
+// Never is the uninhabited union type with no values.
+//
+// ergo:alias Never
+type Never {}
+
+// Context is a captured context providing capability row R.
+//
+// ergo:alias Context
+type Context[R] {}
+
+// CallSite records a source position passed to a callee.
+//
+// ergo:alias CallSite
+type CallSite {}
+
+// Closer is the resource release contract.
+//
+// ergo:alias Closer
+type Closer {}
+
+// Keeping is the contract of a container that releases kept values of T.
+//
+// ergo:alias Keeping
+type Keeping[T own] {}
+
+// Unsatisfied reports a failed refinement predicate.
+//
+// ergo:alias Unsatisfied
+type Unsatisfied {}
+
+// NoMatch reports a failed pattern match.
+//
+// ergo:alias NoMatch
+type NoMatch {}

@@ -41,6 +41,21 @@ type Host { live hostOnly } implements Clock
 // hostOnly is the zero-size type of Host's field.
 type hostOnly {}
 
+// Scheduler is the capability for sleeping and arming alarms.
+//
+// ergo:alias Scheduler
+type Scheduler {}
+
+// AlarmClock arms and cancels alarms on a scheduler.
+//
+// ergo:alias AlarmClock
+type AlarmClock {}
+
+// LiveScheduler is the host's Scheduler provider.
+//
+// ergo:alias LiveScheduler
+type LiveScheduler {}
+
 // NewLiveScheduler returns the host's Scheduler provider.
 //
 // ergo:alias NewLiveScheduler

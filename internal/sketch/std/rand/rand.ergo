@@ -14,6 +14,11 @@
 
 import slices
 
+// Random is the capability for drawing random numbers.
+//
+// ergo:alias Random
+type Random {}
+
 // Shuffle is a copy of xs in a random order: Go's Fisher-Yates shuffle,
 // from the last element down, each swapped with one at IntN(i+1).
 func Shuffle[T](xs []T) []T needs Random {

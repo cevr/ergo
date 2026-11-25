@@ -205,6 +205,18 @@ type capBinding struct {
 func (o *capBinding) name() string    { return o.tn.Name }
 func (o *capBinding) pos() syntax.Pos { return o.at }
 
+// TypeNameOf returns the canonical *TypeName referenced by o, unwrapping a
+// function-frame capability binding (*capBinding) to its capability *TypeName.
+func TypeNameOf(o Object) *TypeName {
+	switch o := o.(type) {
+	case *TypeName:
+		return o
+	case *capBinding:
+		return o.tn
+	}
+	return nil
+}
+
 // Context is a context: a named context (Decl), an inline context literal
 // (Lit), or a local context, the literal a body's `let x = context { … }`
 // binds (Lit, Local; rows.md, Context 9). A local context is a recipe: one
@@ -328,6 +340,15 @@ func (p *Package) Exported() []Object {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].name() < out[j].name() })
 	return out
+}
+
+// Lookup returns the object bound directly to name in p's package scope
+// (including re-exported aliases), or nil if none.
+func (p *Package) Lookup(name string) Object {
+	if p == nil || p.Scope == nil {
+		return nil
+	}
+	return p.Scope.names[name]
 }
 
 type fileInfo struct {

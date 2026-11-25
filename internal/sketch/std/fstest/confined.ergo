@@ -47,6 +47,21 @@ type Confined {
 	},
 }
 
+// TestAmbient is the capability authorizing construction of confined test folders.
+//
+// ergo:alias TestAmbient
+type TestAmbient {}
+
+// TestDirectory is a handle to a test case's confined temporary directory.
+//
+// ergo:alias TestDirectory
+type TestDirectory {}
+
+// TestLoopback is the capability authorizing loopback sockets in tests.
+//
+// ergo:alias TestLoopback
+type TestLoopback {}
+
 // TestFolderHandle returns the enclosing case's folder and acquisition owner.
 //
 // ergo:alias TestFolderHandle

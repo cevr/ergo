@@ -191,9 +191,10 @@ func (t factTable) of(info *check.Info, x syntax.Expr) *facts {
 		f.bare, _ = f.use.(*check.TypeName)
 	case *syntax.SelectorExpr:
 		if id, ok := unparen(h.X).(*syntax.Ident); ok {
-			pn, ok := info.Uses[id].(*check.PkgName)
-			if named, isNamed := f.typ.(*check.Named); ok && isNamed && named.Obj.Pkg == pn.Pkg && named.Obj.Name == h.Sel.Name {
-				f.bare = named.Obj
+			if pn, ok := info.Uses[id].(*check.PkgName); ok && pn.Pkg != nil {
+				if named, isNamed := f.typ.(*check.Named); isNamed && pn.Pkg.Lookup(h.Sel.Name) == named.Obj {
+					f.bare = named.Obj
+				}
 			}
 		}
 	case *syntax.CallExpr:

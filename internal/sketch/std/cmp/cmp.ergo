@@ -6,6 +6,16 @@
 // and min through runtime/v1 bodies (collections.go), whose sign of zero
 // no Ergo body over every ordered type can read.
 
+// Ordered constrains a type parameter to ordered types (integers, floats, string, and duration).
+//
+// ergo:alias ordered
+type Ordered {}
+
+// Number constrains a type parameter to numeric types (integers and floats).
+//
+// ergo:alias number
+type Number {}
+
 // Compare is -1 when a is before b, +1 when a is after b, and 0 otherwise.
 func Compare[T ordered](a T, b T) int {
 	if a != a {

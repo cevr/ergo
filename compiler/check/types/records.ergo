@@ -19,6 +19,19 @@ func fieldCount(p syntax.Parsed, l dense.ID[syntax.Node]) int {
 // NameText is the text of a name row, "" for any other row.
 func NameText(p syntax.Parsed, id dense.ID[syntax.Node]) string { nameText(p, id) }
 
+func hasAliasDirective(p syntax.Parsed, g int) bool {
+	if g < 0 {
+		return false
+	}
+	let src = syntax.SourceOf(p)[syntax.GroupPos(p, g):syntax.GroupEnd(p, g)]
+	for l in strings.Split(src, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(l), "// ergo:alias ") {
+			return true
+		}
+	}
+	false
+}
+
 // Records is the record declarations of p, in source order, a union's
 // inline variants after it. In the prelude, Never written with no fields
 // is the empty union, not a record (never.go emptyUnion).
@@ -27,6 +40,9 @@ func Records(p syntax.Parsed, prelude bool) []Record {
 	for d in topDecls(p) {
 		match syntax.ViewOf(p.Tree, d) {
 		case syntax.TypeDecl as td:
+			if hasAliasDirective(p, td.Doc) {
+				continue
+			}
 			let params = match dense.Unpack(td.TypeParams) {
 			case Some{Value: tp}:
 				let (names, _) = bracketNames(p, tp)

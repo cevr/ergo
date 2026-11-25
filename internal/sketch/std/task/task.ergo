@@ -8,6 +8,11 @@ import scope
 import strings
 import time
 
+// Task is a started child task whose result is T and failure row is E.
+//
+// ergo:alias Task
+type Task[T own, E] {}
+
 // Go starts body as a child task of the calling task and returns at once:
 // the block runs later (parse-v1 ruling 5). The calling function owns the
 // Task until a Wait, a Stop or a direct return; when it returns without

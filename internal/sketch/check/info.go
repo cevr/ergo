@@ -181,6 +181,9 @@ type Package struct {
 	testOf *Package
 	// lawSelf is the package-owned instance cache for standalone law readings.
 	lawSelf *checker
+	// pendingAliases holds `// ergo:alias <target>` type re-exports declared in
+	// bootstrap std packages before prelude exists; prelude() resolves and clears them.
+	pendingAliases map[string]string
 }
 
 // Std reports a std package: the prelude or a package of the embedded

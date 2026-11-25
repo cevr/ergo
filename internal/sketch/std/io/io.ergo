@@ -26,6 +26,11 @@
 import strings
 import sync
 
+// Console is the host standard-output console capability.
+//
+// ergo:alias Console
+type Console {}
+
 // ReadFailed is the failure of a read of standard input. Reason is the
 // host's text for it.
 extern go ergo.local/prototype/runtime/v1.ReadFailed type ReadFailed { Reason string }

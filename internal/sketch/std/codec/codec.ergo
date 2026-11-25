@@ -18,6 +18,96 @@ import strconv
 import sync
 import utf8
 
+// Writer receives wire events from Encode.
+//
+// ergo:alias Writer
+type Writer {}
+
+// Reader yields wire events to Decode.
+//
+// ergo:alias Reader
+type Reader {}
+
+// WireWrongKind reports a wire event whose kind does not match the expected type.
+//
+// ergo:alias WireWrongKind
+type WireWrongKind {}
+
+// WireNull marks a null wire value.
+//
+// ergo:alias WireNull
+type WireNull {}
+
+// WireBool marks a boolean wire value.
+//
+// ergo:alias WireBool
+type WireBool {}
+
+// WireNumber marks a numeric wire value.
+//
+// ergo:alias WireNumber
+type WireNumber {}
+
+// WireString marks a string wire value.
+//
+// ergo:alias WireString
+type WireString {}
+
+// WireList marks a list wire value.
+//
+// ergo:alias WireList
+type WireList {}
+
+// WireObject marks an object wire value.
+//
+// ergo:alias WireObject
+type WireObject {}
+
+// WireEnd marks the end of a wire list or object.
+//
+// ergo:alias WireEnd
+type WireEnd {}
+
+// WireKind is the union of wire value kinds returned by Reader.Peek.
+//
+// ergo:alias WireKind
+type WireKind {}
+
+// WireMissingField reports a missing required field during Decode.
+//
+// ergo:alias WireMissingField
+type WireMissingField {}
+
+// WireUnknownTag reports an unrecognized union tag during Decode.
+//
+// ergo:alias WireUnknownTag
+type WireUnknownTag {}
+
+// WireOmittable marks an omittable wire field representation.
+//
+// ergo:alias WireOmittable
+type WireOmittable {}
+
+// WireNullable marks a nullable wire field representation.
+//
+// ergo:alias WireNullable
+type WireNullable {}
+
+// WireBare marks a bare wire representation.
+//
+// ergo:alias WireBare
+type WireBare {}
+
+// WireNumberText marks a text-encoded numeric wire representation.
+//
+// ergo:alias WireNumberText
+type WireNumberText {}
+
+// WireMembers marks a members-encoded wire representation.
+//
+// ergo:alias WireMembers
+type WireMembers {}
+
 // Encode writes the wire representation of v to w.
 //
 // ergo:builtin encode
