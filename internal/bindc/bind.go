@@ -91,14 +91,11 @@ func (f *BoundFunc) callbacks() []string {
 func (f *BoundFunc) goTyped() bool { return f.Sig != nil }
 
 // ErgoUnbound says why the Ergo text has no extern for f, or "". A
-// raw-only function has its reason; a typed function that takes a callback
-// is not bound because callbacks into Ergo are bind-c-7.
+// raw-only function has its reason; every typed function (including those
+// taking bound callbacks) is bound into Ergo.
 func (f *BoundFunc) ErgoUnbound() string {
 	if f.Sig == nil {
 		return f.RawOnly
-	}
-	if cbs := f.callbacks(); len(cbs) > 0 {
-		return "it takes a callback (" + strings.Join(cbs, ", ") + "): callbacks into Ergo are bind-c-7"
 	}
 	return ""
 }
@@ -401,6 +398,12 @@ func (b *Binding) ergoNames() error {
 			errs = append(errs, err.Error())
 		}
 	}
+	for _, cb := range b.Callbacks {
+		if cb.Bound() {
+			claim("LiveCallbacks", "generated callback counter LiveCallbacks")
+			break
+		}
+	}
 	for _, x := range b.Codes {
 		claim(strings.TrimPrefix(b.CodeGoName(x), "Status"), "status code "+x.Name)
 	}
@@ -463,6 +466,21 @@ func (b *Binding) recordStructs() map[string]bool {
 		for _, p := range f.Sig.Params {
 			t := f.C.Params[p.C].Type
 			mark(t)
+			if p.Class == ClassCallback {
+				if cb := k.cbs[t.Name]; cb != nil && cb.Sig != nil {
+					cf := callbackFunc(cb.Decl)
+					for _, cp := range cb.Sig.Params {
+						mark(cf.Params[cp.C].Type)
+					}
+					for _, cr := range cb.Sig.Results {
+						if cr.C < 0 {
+							mark(cf.Result)
+						} else {
+							mark(cf.Params[cr.C].Type)
+						}
+					}
+				}
+			}
 			if p.Class == ClassValue && t.LenExpr == "" && b.kinds[t.Elem.Name] != nil {
 				// A record parameter: the union of its kinds.
 				b.unions[t.Elem.Name] = true

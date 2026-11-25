@@ -253,6 +253,8 @@ var bodyTable = []bodyRow{
 	{"GoReadsCheck", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "S", Constraint: "~[]E"}, {Name: "E", Constraint: "comparable"}}, Params: []Param{{Type: "S"}, {Type: "S"}, {Type: "string"}, {Type: "string"}, {Type: "string"}}, Package: Path}}},
 	{"GoReadsDefect.String", bodyFact{body: Body{Results: []string{"string"}, Package: Path}}},
 	{"GoTunnel.Error", bodyFact{body: Body{Results: []string{"string"}, Package: Path}}},
+	{"GoTunnel.IsErgoTunnel", bodyFact{body: Body{Package: Path}}},
+	{"GoTunnelError", bodyFact{body: Body{Params: []Param{{Type: "error"}}, Results: []string{"error"}, Package: Path}}},
 	{"GoUntunnel", bodyFact{body: Body{Params: []Param{{Type: "error"}}, Results: []string{"error"}, Package: Path}}},
 	{"GoUntunnelEager", bodyFact{body: Body{Params: []Param{{Type: "error"}}, Results: []string{"error"}, Package: Path}}},
 	{"GoWith", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}, {Name: "C", Constraint: "any"}}, Hidden: []Hidden{"frame", "site"}, Params: []Param{{Type: "C"}, {Type: "func(*rt.Task, *C) (T, error)", Func: &Body{Hidden: []Hidden{"task"}, Params: []Param{{Type: "*C"}}, Results: []string{"T", "error"}}}}, Results: []string{"*Task[T]"}, Wait: "none", Package: Path}}},

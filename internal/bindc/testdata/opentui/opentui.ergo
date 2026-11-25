@@ -2,6 +2,7 @@
 // ergo:bind c ergo.local/bind/opentui 477bd524f4c89f58393fda4d253eb6f9de748e548dfbec9a3926065bdf72a8ca 7587b8688dc9c5cc5f829f2a76a6038d049b217158892a2480c46c837e6ddcd8 darwin/amd64 darwin/arm64 linux/amd64 linux/arm64
 
 extern go ergo.local/bind/opentui.Load func Load(path string) fails go.Error needs go.Foreign
+extern go ergo.local/bind/opentui.LiveCallbacks func LiveCallbacks() int needs go.Foreign
 
 extern go ergo.local/bind/opentui.OT_CONTEXT_ABI_VERSION let OT_CONTEXT_ABI_VERSION uint32
 extern go ergo.local/bind/opentui.OT_OK let OT_OK int32
@@ -1517,7 +1518,8 @@ extern go ergo.local/bind/opentui.SceneFrameCancel func SceneFrameCancel(context
 extern go ergo.local/bind/opentui.SceneCreateNode func SceneCreateNode(contextArg *Context, session Handle, kind uint32, num uint32) Handle fails go.Error needs go.Foreign
 extern go ergo.local/bind/opentui.SceneDestroyNode func SceneDestroyNode(contextArg *Context, node Handle) fails go.Error needs go.Foreign
 extern go ergo.local/bind/opentui.SceneMoveNode func SceneMoveNode(contextArg *Context, node Handle, parent Handle, index uint32) fails go.Error needs go.Foreign
-// not bound: ot_scene_set_measure (it takes a callback (ot_scene_measure_callback): callbacks into Ergo are bind-c-7)
+// ergo:cbtype sceneMeasureCallback SceneMeasureCallback
+extern go ergo.local/bind/opentui.SceneSetMeasure func SceneSetMeasure(contextArg *Context, node Handle, sceneMeasureCallback own func(width float32, widthMode uint32, height float32, heightMode uint32) [2]float32) fails go.Error needs go.Foreign
 extern go ergo.local/bind/opentui.SceneHasMeasure func SceneHasMeasure(contextArg *Context, node Handle) uint32 fails go.Error needs go.Foreign
 extern go ergo.local/bind/opentui.SceneMarkDirty func SceneMarkDirty(contextArg *Context, node Handle) fails go.Error needs go.Foreign
 extern go ergo.local/bind/opentui.SceneSetStyle func SceneSetStyle(contextArg *Context, node Handle, group uint32, kind uint32, edge uint32, unit uint32, value float32, flags uint32) fails go.Error needs go.Foreign
@@ -1800,7 +1802,9 @@ extern go ergo.local/bind/opentui.SessionGetWriteLimit func SessionGetWriteLimit
 // ergo:reads bytes
 extern go ergo.local/bind/opentui.SessionWrite func SessionWrite(contextArg *Context, session Handle, bytes []byte) fails go.Error needs go.Foreign
 // not bound: ot_session_read_output (param 2 (bytes): no rule covers it; param 4 (out_ticket): no rule covers it)
-// not bound: ot_session_drain_output (it takes a callback (ot_output_write_callback): callbacks into Ergo are bind-c-7)
+// ergo:cbtype writer OutputWriteCallback
+// ergo:scoped writer.bytes
+extern go ergo.local/bind/opentui.SessionDrainOutput func SessionDrainOutput[CE, CR](contextArg *Context, session Handle, maxBytes uint32, writer func(bytes []byte) int64 fails CE needs CR) uint32 fails CE | go.Error needs CR | go.Foreign
 extern go ergo.local/bind/opentui.SessionDrainStdout func SessionDrainStdout(contextArg *Context, session Handle, maxBytes uint32) uint32 fails go.Error needs go.Foreign
 extern go ergo.local/bind/opentui.SessionPostStdout func SessionPostStdout(contextArg *Context, session Handle, maxBytes uint32, wait uint32) (uint32, uint32) fails go.Error needs go.Foreign
 extern go ergo.local/bind/opentui.SessionCompleteOutput func SessionCompleteOutput(contextArg *Context, session Handle, ticket OutputTicket, success uint32) fails go.Error needs go.Foreign

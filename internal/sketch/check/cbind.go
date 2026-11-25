@@ -199,15 +199,21 @@ func (h *hostPkg) verifyCBindFunc(fn *Func, isMethod bool) {
 	if !hasGoForeign(fn.Sig) {
 		h.c.errorf(fn.Decl.Name, CodeType, "C binding %s must declare needs go.Foreign", fn.Name)
 	}
-	// Package loader (`Load(path string)`), error formatting (`Status.Error()`),
-	// handle Close, and record marker methods have fixed Go interop shapes.
-	if !isMethod && fn.Name == "Load" {
+	// Package loader (`Load(path string)`), callback counter (`LiveCallbacks()`),
+	// error formatting (`Status.Error()`), handle Close, and record marker
+	// methods have fixed Go interop shapes.
+	if !isMethod && (fn.Name == "Load" || fn.Name == "LiveCallbacks") {
 		return
 	}
 	if isMethod && (fn.Name == "Error" || fn.Name == "Close" || strings.HasPrefix(fn.Name, "Is")) {
 		return
 	}
-	for _, p := range fn.Sig.Params {
+	h.verifyCBindScoped(fn)
+	for i, p := range fn.Sig.Params {
+		if cbSig, ok := under0(p.Type).(*Signature); ok {
+			h.verifyCBindCallbackParam(fn, i, p, cbSig)
+			continue
+		}
 		if ok, why := h.c.cBindBoundaryType(p.Type, true); !ok {
 			h.c.errorf(fn.Decl.Name, CodeType, "C binding %s parameter %s (%s) is not C-safe: %s", fn.Name, p.Name, p.Type, why)
 		}

@@ -76,6 +76,7 @@ func (c *checker) checkEscapes() {
 	for _, f := range c.files {
 		c.cur = f
 		w := &escWalk{c: c, info: c.pkg.Info, varFrame: map[*Var]int{}, declDepth: map[*Var]int{}, writes: map[*syntax.Ident]bool{}, borrowHolders: map[*Var]Type{}}
+		w.collectScopedVars(f)
 		for _, d := range f.syntax.Decls {
 			w.borrowAliases(d)
 			w.localFrames(d)
@@ -120,6 +121,9 @@ type escWalk struct {
 	// borrowHolders maps a local that holds a value converted from a
 	// borrow to the type it holds it as (borrowconv.go).
 	borrowHolders map[*Var]Type
+	// scopedVars maps a C-borrowed `// ergo:scoped` callback slice parameter
+	// (and any local immutable alias of it) to its origin description (cbind_cb.go).
+	scopedVars map[*Var]string
 
 	// Local frames (localFrames below): collecting is set during the
 	// first walk of a declaration, which records the uses of each local
@@ -145,6 +149,7 @@ func (w *escWalk) visit(n syntax.Node) {
 	}
 	w.checkBorrowConv(n)
 	w.checkMappedText(n)
+	w.checkScopedSlice(n)
 	if id, ok := n.(*syntax.Ident); ok {
 		if v, ok := w.info.Defs[id].(*Var); ok {
 			w.varFrame[v] = len(w.frames) - 1

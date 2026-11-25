@@ -773,6 +773,9 @@ type CallbackPanic struct {
 	Value any
 	// Stack is the stack of the panic (runtime/debug.Stack).
 	Stack []byte
+	// tunnel holds an Ergo typed-failure tunnel error (v1.GoTunnel) so the
+	// enclosing typed C call returns it as its error instead of panicking.
+	tunnel error
 }
 
 func (p *CallbackPanic) Error() string {
@@ -810,7 +813,14 @@ func cbContain(typedef string, done *bool) {
 	}
 	p, ok := v.(*CallbackPanic)
 	if !ok {
-		p = &CallbackPanic{Typedef: typedef, Value: v, Stack: debug.Stack()}
+		if te, isTunnel := v.(interface {
+			error
+			IsErgoTunnel()
+		}); isTunnel {
+			p = &CallbackPanic{Typedef: typedef, Value: te, tunnel: te}
+		} else {
+			p = &CallbackPanic{Typedef: typedef, Value: v, Stack: debug.Stack()}
+		}
 	}
 	t := cbThread()
 	cbPendMu.Lock()
@@ -1133,6 +1143,9 @@ func AbiVersion() (uint32, error) {
 	}
 	_p := cbTake()
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _r, nil
@@ -1170,6 +1183,9 @@ func ContextCreate(options ContextOptions) (*Context, error) {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return nil, _p.tunnel
+			}
 			panic(_p)
 		}
 		return nil, err
@@ -1178,6 +1194,9 @@ func ContextCreate(options ContextOptions) (*Context, error) {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return nil, _p.tunnel
+		}
 		panic(_p)
 	}
 	return &Context{p: _out1, t: _t}, nil
@@ -1204,6 +1223,9 @@ func ContextDestroy(context *Context) error {
 	if err := statusError(_r); err != nil {
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -1212,6 +1234,9 @@ func ContextDestroy(context *Context) error {
 	context.p = 0
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -1245,6 +1270,9 @@ func NodeCreate(context *Context, kind uint32) (Node, error) {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return Node{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return Node{}, err
@@ -1253,6 +1281,9 @@ func NodeCreate(context *Context, kind uint32) (Node, error) {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return Node{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out2, nil
@@ -1291,6 +1322,9 @@ func NodeDestroy(context *Context, node Node) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -1299,6 +1333,9 @@ func NodeDestroy(context *Context, node Node) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -1331,6 +1368,9 @@ func NodeCount(context *Context) (uint32, error) {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -1339,6 +1379,9 @@ func NodeCount(context *Context) (uint32, error) {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out1, nil
@@ -1377,6 +1420,9 @@ func NodeSetBox(context *Context, node Node, box Box) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -1384,6 +1430,9 @@ func NodeSetBox(context *Context, node Node, box Box) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -1422,6 +1471,9 @@ func NodeGetBox(context *Context, node Node) (Box, error) {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return Box{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return Box{}, err
@@ -1430,6 +1482,9 @@ func NodeGetBox(context *Context, node Node) (Box, error) {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return Box{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out2, nil
@@ -1471,6 +1526,9 @@ func NodeSetName(context *Context, node Node, name []byte) error {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -1478,6 +1536,9 @@ func NodeSetName(context *Context, node Node, name []byte) error {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -1524,6 +1585,9 @@ func NodeReadName(context *Context, node Node, bytes []byte) (uint32, error) {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -1532,6 +1596,9 @@ func NodeReadName(context *Context, node Node, bytes []byte) (uint32, error) {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out4, nil
@@ -1566,12 +1633,18 @@ func ContextVisit(context *Context, callback VisitCallback) error {
 	if err := statusError(_r); err != nil {
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
 	}
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -1585,6 +1658,9 @@ func PointLength(point Point) (float32, error) {
 	_r := c_fx_point_length(toABI[abiF32x2](point))
 	_p := cbTake()
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _r, nil
@@ -1601,6 +1677,9 @@ func ContextAge(context *Context) (Seconds, error) {
 	_r := c_fx_context_age(context.p)
 	_p := cbTake()
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return Seconds(_r), nil
@@ -1652,6 +1731,9 @@ func ContextWrite(context *Context, text []byte, maxBytes uint32, writer WriteCa
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -1660,6 +1742,9 @@ func ContextWrite(context *Context, text []byte, maxBytes uint32, writer WriteCa
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out4, nil
@@ -1702,6 +1787,9 @@ func ContextRepeat(context *Context, times uint32, writer WriteCallback) (int64,
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -1710,6 +1798,9 @@ func ContextRepeat(context *Context, times uint32, writer WriteCallback) (int64,
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out2, nil
@@ -1765,6 +1856,9 @@ func NodeSetMeasure(context *Context, node Node, measure MeasureCallback) error 
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return _p.tunnel
+			}
 			panic(_p)
 		}
 		return err
@@ -1775,6 +1869,9 @@ func NodeSetMeasure(context *Context, node Node, measure MeasureCallback) error 
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return _p.tunnel
+		}
 		panic(_p)
 	}
 	return nil
@@ -1797,12 +1894,18 @@ func NodeMeasure(context *Context, node Node, width float32, height float32) (Po
 	if err := statusError(_r); err != nil {
 		_pin.Unpin()
 		if _p != nil {
+			if _p.tunnel != nil {
+				return Point{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return Point{}, err
 	}
 	_pin.Unpin()
 	if _p != nil {
+		if _p.tunnel != nil {
+			return Point{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _o4, nil
@@ -1845,6 +1948,9 @@ func NodeMeasureAs(context *Context, node Node, as Node) (Point, error) {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return Point{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return Point{}, err
@@ -1853,6 +1959,9 @@ func NodeMeasureAs(context *Context, node Node, as Node) (Point, error) {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return Point{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out3, nil
@@ -1874,12 +1983,18 @@ func ContextMeasureAll(context *Context, width float32, height float32) (uint32,
 	if err := statusError(_r); err != nil {
 		_pin.Unpin()
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
 	}
 	_pin.Unpin()
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _o3, nil
@@ -1912,6 +2027,9 @@ func ContextCounters(context *Context) (Counters, error) {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return Counters{}, _p.tunnel
+			}
 			panic(_p)
 		}
 		return Counters{}, err
@@ -1920,6 +2038,9 @@ func ContextCounters(context *Context) (Counters, error) {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return Counters{}, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out1, nil
@@ -1938,6 +2059,9 @@ func ThreadId() (uint64, error) {
 	}
 	_p := cbTake()
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _r, nil
@@ -1979,6 +2103,9 @@ func ShapeArea(context *Context, shape ShapeHeaderRecord) (int64, error) {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -1987,6 +2114,9 @@ func ShapeArea(context *Context, shape ShapeHeaderRecord) (int64, error) {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out2, nil
@@ -2031,6 +2161,9 @@ func BoxZ(context *Context, clip *Box) (int64, error) {
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
+			if _p.tunnel != nil {
+				return 0, _p.tunnel
+			}
 			panic(_p)
 		}
 		return 0, err
@@ -2039,6 +2172,9 @@ func BoxZ(context *Context, clip *Box) (int64, error) {
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
+		if _p.tunnel != nil {
+			return 0, _p.tunnel
+		}
 		panic(_p)
 	}
 	return _out2, nil

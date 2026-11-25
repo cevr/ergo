@@ -16,7 +16,8 @@ import (
 // The binding's callback type decides Go's shape (whether Go's callback
 // returns an error); the argument's type, whose parameters and result are
 // the binding's after the call's type arguments, gives the Go types.
-func (fc *funcCtx) goCallbacks(sig *check.Signature, args []syntax.Expr, vals []string, site *syntax.CallExpr) (tunnels bool) {
+func (fc *funcCtx) goCallbacks(fn *check.Func, sig *check.Signature, args []syntax.Expr, vals []string, site *syntax.CallExpr) (tunnels bool) {
+	isCBind := check.IsCBindFunc(fn)
 	for i, p := range sig.Params {
 		if i >= len(vals) || i >= len(args) {
 			break
@@ -36,9 +37,59 @@ func (fc *funcCtx) goCallbacks(sig *check.Signature, args []syntax.Expr, vals []
 			// goroutine (v1.GoSyncCallbacks).
 			fc.line(fc.l.rt() + ".GoHanded()")
 		}
+		if isCBind {
+			vals[i] = fc.spill(fc.cCallback(fc.bindFunc(vals[i]), fc.argSig(args[i], site), cb.Fallible, check.GoScopedCallbackParams(fn, i), site))
+			continue
+		}
 		vals[i] = fc.spill(fc.goCallback(fc.bindFunc(vals[i]), fc.argSig(args[i], site), cb.Fallible, site))
 	}
 	return tunnels
+}
+
+// cCallback adapts fv, an Ergo function value, to the Go callback type of a
+// `// ergo:bind c` C binding (CFFI-3): Go's callback signature carries no
+// trailing error return, so a non-nil Ergo failure in a ScopeCall callback
+// panics with v1.GoTunnelError(err), which cbContain catches before any C
+// frame unwinds, returning C's contract default (e.g. -1) and surfacing the
+// typed failure at the caller through v1.GoUntunnel. Statically checked
+// `// ergo:scoped` slice parameters cross zero-copy.
+func (fc *funcCtx) cCallback(fv string, cb *check.Signature, fails bool, scoped map[int]bool, site syntax.Node) string {
+	if len(cb.Results) > 1 {
+		ice(site, "a C callback with more than one result")
+	}
+	return fc.envClosure(capturedEnv, "e", site, func(env string) (params []string, results, body string) {
+		ind := strings.Repeat("\t", fc.depth+1)
+		args := []string{env}
+		for i, p := range cb.Params {
+			name := fc.scope.alloc("p")
+			params = append(params, name+" "+fc.goCallbackType(p.Type))
+			if scoped[i] {
+				args = append(args, name)
+			} else {
+				args = append(args, fc.goCallbackIn(p.Type, name, site))
+			}
+		}
+		call := fv + "(" + strings.Join(args, ", ") + ")"
+		r, e := "_", "_"
+		if len(cb.Results) == 1 {
+			results = " " + fc.goCallbackType(cb.Results[0])
+			r = fc.scope.alloc("r")
+		}
+		if fails {
+			e = fc.scope.alloc("err")
+		}
+		if r == "_" && e == "_" {
+			return params, "", ind + "_, _ = " + call + "\n"
+		}
+		body = ind + r + ", " + e + " := " + call + "\n"
+		if fails {
+			body += ind + "if " + e + " != nil {\n" + ind + "\tpanic(" + fc.l.rt() + ".GoTunnelError(" + e + "))\n" + ind + "}\n"
+		}
+		if r != "_" {
+			body += ind + "return " + fc.goCallbackOut(cb.Results[0], r, site) + "\n"
+		}
+		return params, results, body
+	})
 }
 
 // goCallback adapts fv, an Ergo function value of the uniform shape

@@ -101,6 +101,9 @@ type CallbackPanic struct {
 	Value any
 	// Stack is the stack of the panic (runtime/debug.Stack).
 	Stack []byte
+	// tunnel holds an Ergo typed-failure tunnel error (v1.GoTunnel) so the
+	// enclosing typed C call returns it as its error instead of panicking.
+	tunnel error
 }
 
 func (p *CallbackPanic) Error() string {
@@ -138,7 +141,14 @@ func cbContain(typedef string, done *bool) {
 	}
 	p, ok := v.(*CallbackPanic)
 	if !ok {
-		p = &CallbackPanic{Typedef: typedef, Value: v, Stack: %[6]s.Stack()}
+		if te, isTunnel := v.(interface {
+			error
+			IsErgoTunnel()
+		}); isTunnel {
+			p = &CallbackPanic{Typedef: typedef, Value: te, tunnel: te}
+		} else {
+			p = &CallbackPanic{Typedef: typedef, Value: v, Stack: %[6]s.Stack()}
+		}
 	}
 	t := cbThread()
 	cbPendMu.Lock()
