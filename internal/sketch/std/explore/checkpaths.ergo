@@ -385,16 +385,13 @@ func caseInputsAndSteps[S, E, V, O, Err](
 	(inputs, steps)
 }
 
-// CheckPaths preflights all legal paths of model under scope and bounds before
-// opening any sessions, then streams each planned path through a fresh
-// PathSession, stopping on the first mismatch with complete release.
-func CheckPaths[S, E wire, V, O, Err comparable, OpenErr, DriveErr](
+// CheckPlanPaths replays an already-built PathPlan passed as an ordinary value
+// against fresh PathSessions without repeating preflight planning.
+func CheckPlanPaths[S, E any, V, O, Err comparable, OpenErr, DriveErr](
 	model PathModel[S, E, V, O, Err],
-	scope PathScope,
-	bounds PathBounds,
+	plan PathPlan[StepObs[V, O, Err]],
 	open own func(start S) PathSession[E, Observed[V, O, Err], DriveErr] fails OpenErr,
-) CheckResult[S, E, V, O, Err, OpenErr, DriveErr] needs wired[S] | wired[E] {
-	let plan = PlanPaths(model.Graph, scope, bounds)
+) CheckResult[S, E, V, O, Err, OpenErr, DriveErr] {
 	let mut ec = edgeCounters{checked: zeroInts(len(plan.Graph.Edges)), matched: zeroInts(len(plan.Graph.Edges))}
 	let mut counts = CheckCounts{Planned: plan.Stats.Paths, Opened: 0, InitialReads: 0, PathsCompleted: 0, CheckedSteps: 0, MatchedSteps: 0}
 
@@ -404,7 +401,7 @@ func CheckPaths[S, E wire, V, O, Err comparable, OpenErr, DriveErr](
 		return CheckResult[S, E, V, O, Err, OpenErr, DriveErr]{
 			Verdict:        CampaignIncomplete{Stop: plan.Stop},
 			Promise:        ExhaustiveScope,
-			Scope:          scope,
+			Scope:          plan.Scope,
 			ProjectionName: model.ProjectionName,
 			PlanStats:      plan.Stats,
 			Counts:         counts,
@@ -429,7 +426,7 @@ func CheckPaths[S, E wire, V, O, Err comparable, OpenErr, DriveErr](
 					return CheckResult[S, E, V, O, Err, OpenErr, DriveErr]{
 						Verdict:        CampaignRefuted[S, E, V, O, Err, OpenErr, DriveErr]{Failure: fail.Value},
 						Promise:        ExhaustiveScope,
-						Scope:          scope,
+						Scope:          plan.Scope,
 						ProjectionName: model.ProjectionName,
 						PlanStats:      plan.Stats,
 						Counts:         counts,
@@ -443,7 +440,7 @@ func CheckPaths[S, E wire, V, O, Err comparable, OpenErr, DriveErr](
 		CheckResult[S, E, V, O, Err, OpenErr, DriveErr]{
 			Verdict:        CampaignPassed,
 			Promise:        ExhaustiveScope,
-			Scope:          scope,
+			Scope:          plan.Scope,
 			ProjectionName: model.ProjectionName,
 			PlanStats:      plan.Stats,
 			Counts:         counts,
@@ -452,6 +449,19 @@ func CheckPaths[S, E wire, V, O, Err comparable, OpenErr, DriveErr](
 			Graph:          plan.Graph,
 		}
 	}
+}
+
+// CheckPaths preflights all legal paths of model under scope and bounds before
+// opening any sessions, then streams each planned path through a fresh
+// PathSession, stopping on the first mismatch with complete release.
+func CheckPaths[S, E wire, V, O, Err comparable, OpenErr, DriveErr](
+	model PathModel[S, E, V, O, Err],
+	scope PathScope,
+	bounds PathBounds,
+	open own func(start S) PathSession[E, Observed[V, O, Err], DriveErr] fails OpenErr,
+) CheckResult[S, E, V, O, Err, OpenErr, DriveErr] needs wired[S] | wired[E] {
+	let plan = PlanPaths(model.Graph, scope, bounds)
+	CheckPlanPaths(model, plan, open)
 }
 
 // CheckSelectedPaths preflights a selected (non-exhaustive) strategy over model

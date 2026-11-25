@@ -100,3 +100,15 @@ func CheckPathsWithSink[S, E wire, V, O, Err comparable, OpenErr, DriveErr](
 	let res = CheckPaths(model, scope, bounds, open)
 	SubmitEvidence(res, sink)
 }
+
+// CheckPlanPathsWithSink replays a pre-built PathPlan via CheckPlanPaths and
+// submits its structured bounded-test evidence to sink.
+func CheckPlanPathsWithSink[S, E any, V, O, Err comparable, OpenErr, DriveErr](
+	model PathModel[S, E, V, O, Err],
+	plan PathPlan[StepObs[V, O, Err]],
+	open own func(start S) PathSession[E, Observed[V, O, Err], DriveErr] fails OpenErr,
+	sink testing.CaseEvidenceSink,
+) CheckResult[S, E, V, O, Err, OpenErr, DriveErr] {
+	let res = CheckPlanPaths(model, plan, open)
+	SubmitEvidence(res, sink)
+}

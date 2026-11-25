@@ -308,7 +308,20 @@ func selectEdgeCases[O](g PathGraph[O], maxDepth int, bounds PathBounds, st mut 
 // SelectFromGraph applies a selected (non-exhaustive) strategy to an already
 // built PathGraph under scope and bounds.
 func SelectFromGraph[O](g PathGraph[O], strategy SelectedStrategy, scope PathScope, bounds PathBounds) SelectedPlan[O] {
-	let emptySt = PathStats{States: 0, Edges: 0, Disabled: 0, Frontier: 0, Paths: 0, Steps: 0, MaxDepth: 0, Work: 0, Bytes: 0}
+	let emptySt = PathStats{
+		States:          0,
+		Edges:           0,
+		Disabled:        0,
+		Frontier:        0,
+		Paths:           0,
+		Steps:           0,
+		MaxDepth:        0,
+		Work:            0,
+		Bytes:           0,
+		Expansions:      0,
+		StepAttempts:    0,
+		Reconstructions: 0,
+	}
 	match validatePathBounds(scope, bounds) {
 	case Some as err:
 		return stoppedSelected[O](BadBounds{Reason: err.Value}, strategy, emptySt, g)
@@ -319,15 +332,18 @@ func SelectFromGraph[O](g PathGraph[O], strategy SelectedStrategy, scope PathSco
 	}
 	let numStates = if len(g.OutStart) > 0 { len(g.OutStart) - 1 } else { 0 }
 	let mut st = PathStats{
-		States:   numStates,
-		Edges:    len(g.Edges),
-		Disabled: 0,
-		Frontier: 0,
-		Paths:    0,
-		Steps:    0,
-		MaxDepth: 0,
-		Work:     0,
-		Bytes:    0,
+		States:          numStates,
+		Edges:           len(g.Edges),
+		Disabled:        0,
+		Frontier:        0,
+		Paths:           0,
+		Steps:           0,
+		MaxDepth:        0,
+		Work:            0,
+		Bytes:           0,
+		Expansions:      0,
+		StepAttempts:    0,
+		Reconstructions: 0,
 	}
 	let maxDepth = match scope {
 	case ToDepth as d:
@@ -362,7 +378,20 @@ func SelectFromGraph[O](g PathGraph[O], strategy SelectedStrategy, scope PathSco
 // SelectPaths builds a bounded concrete graph for g and applies a selected
 // (non-exhaustive) strategy under scope and bounds.
 func SelectPaths[S wire, E wire, O](g ConcreteGraph[S, E, O], strategy SelectedStrategy, scope PathScope, bounds PathBounds) SelectedPlan[O] needs wired[S] | wired[E] {
-	let emptySt = PathStats{States: 0, Edges: 0, Disabled: 0, Frontier: 0, Paths: 0, Steps: 0, MaxDepth: 0, Work: 0, Bytes: 0}
+	let emptySt = PathStats{
+		States:          0,
+		Edges:           0,
+		Disabled:        0,
+		Frontier:        0,
+		Paths:           0,
+		Steps:           0,
+		MaxDepth:        0,
+		Work:            0,
+		Bytes:           0,
+		Expansions:      0,
+		StepAttempts:    0,
+		Reconstructions: 0,
+	}
 	match validatePathBounds(scope, bounds) {
 	case Some as err:
 		return stoppedSelected[O](BadBounds{Reason: err.Value}, strategy, emptySt, emptyPathGraph[O]())

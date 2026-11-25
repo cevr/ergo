@@ -1,3 +1,5 @@
+import sync
+
 // PathScope selects whether path planning runs to a finite command depth or
 // across a closed acyclic reachable graph.
 type PathScope = ToDepth{Depth int} | All{}
@@ -27,17 +29,21 @@ type PathStop =
 	| PathUnkeyable{Reason string}
 
 // PathStats records model graph sizes, unresolved frontier states, planned path
-// and step totals, longest planned depth, saturating work, and retained bytes.
+// and step totals, longest planned depth, saturating work, retained bytes, and
+// planning expansion counters (distinct from checkpoint reconstructions).
 type PathStats {
-	States   int,
-	Edges    int,
-	Disabled int,
-	Frontier int,
-	Paths    int,
-	Steps    int,
-	MaxDepth int,
-	Work     int,
-	Bytes    int,
+	States          int,
+	Edges           int,
+	Disabled        int,
+	Frontier        int,
+	Paths           int,
+	Steps           int,
+	MaxDepth        int,
+	Work            int,
+	Bytes           int,
+	Expansions      int,
+	StepAttempts    int,
+	Reconstructions int,
 }
 
 // PathCase is one concrete planned replay case: its explicit start index, the
@@ -134,7 +140,20 @@ func stoppedPlan[O](stop PathStop, scope PathScope, st PathStats, graph PathGrap
 }
 
 func buildPathGraph[S wire, E wire, O](g ConcreteGraph[S, E, O], maxDepth int, bounds PathBounds) (PathGraph[O], PathStats, PathStop) needs wired[S] | wired[E] {
-	let mut st = PathStats{States: 0, Edges: 0, Disabled: 0, Frontier: 0, Paths: 0, Steps: 0, MaxDepth: 0, Work: 0, Bytes: 0}
+	let mut st = PathStats{
+		States:          0,
+		Edges:           0,
+		Disabled:        0,
+		Frontier:        0,
+		Paths:           0,
+		Steps:           0,
+		MaxDepth:        0,
+		Work:            0,
+		Bytes:           0,
+		Expansions:      0,
+		StepAttempts:    0,
+		Reconstructions: 0,
+	}
 	let mut roots = []int{}
 	let mut sigIndex = []int{}
 	let mut outStart = []int{}
@@ -224,8 +243,10 @@ func buildPathGraph[S wire, E wire, O](g ConcreteGraph[S, E, O], maxDepth int, b
 		for f in 0..len(ids) {
 			let srcID = ids[f]
 			outStart = outStart.Append(len(edges))
+			st.Expansions = st.Expansions + 1
 			let (s, rebuildSteps) = concreteFrontierState(g, parentState, sig, kept[f], srcID)
 			if rebuildSteps > 0 {
+				st.Reconstructions = satAdd(st.Reconstructions, rebuildSteps)
 				st.Work = satAdd(st.Work, rebuildSteps)
 				if st.Work > bounds.MaxWork {
 					return (PathGraph[O]{Roots: roots, Signals: sigIndex, OutStart: outStart, Edges: edges, parentState: parentState, parentEdge: parentEdge, rootStart: rootStart, depthOf: depthOf}, st, PathOverWork)
@@ -233,6 +254,7 @@ func buildPathGraph[S wire, E wire, O](g ConcreteGraph[S, E, O], maxDepth int, b
 			}
 			for evID in 0..len(sigIndex) {
 				let eIdx = sigIndex[evID]
+				st.StepAttempts = satAdd(st.StepAttempts, 1)
 				st.Work = satAdd(st.Work, 1)
 				if st.Work > bounds.MaxWork {
 					return (PathGraph[O]{Roots: roots, Signals: sigIndex, OutStart: outStart, Edges: edges, parentState: parentState, parentEdge: parentEdge, rootStart: rootStart, depthOf: depthOf}, st, PathOverWork)
@@ -435,7 +457,20 @@ func ShortestPrefix[O](g PathGraph[O], stateID int) PathCase {
 // bounds. A plan that hits any hard cap or encounters a cycle under All returns
 // a structured stop reason and admits no replay cursor.
 func PlanPaths[S wire, E wire, O](g ConcreteGraph[S, E, O], scope PathScope, bounds PathBounds) PathPlan[O] needs wired[S] | wired[E] {
-	let emptySt = PathStats{States: 0, Edges: 0, Disabled: 0, Frontier: 0, Paths: 0, Steps: 0, MaxDepth: 0, Work: 0, Bytes: 0}
+	let emptySt = PathStats{
+		States:          0,
+		Edges:           0,
+		Disabled:        0,
+		Frontier:        0,
+		Paths:           0,
+		Steps:           0,
+		MaxDepth:        0,
+		Work:            0,
+		Bytes:           0,
+		Expansions:      0,
+		StepAttempts:    0,
+		Reconstructions: 0,
+	}
 	match validatePathBounds(scope, bounds) {
 	case Some as err:
 		return stoppedPlan[O](BadBounds{Reason: err.Value}, scope, emptySt, emptyPathGraph[O]())
@@ -594,6 +629,12 @@ func materializePathCase[O](plan PathPlan[O], start int, prefix []int, lastEdge 
 	edges = edges.Append(lastEdge)
 	sigs = sigs.Append(plan.Graph.Edges[lastEdge].Signal)
 	PathCase{Start: start, Edges: edges, Signals: sigs}
+}
+
+// CursorSpineDepth returns the number of states currently retained on c's
+// streaming DFS spine (bounded by MaxDepth + 1, never proportional to path count).
+func CursorSpineDepth(c PathCursor) int {
+	len(c.spineStates)
 }
 
 // NextPath advances c and returns the next planned PathCase in increasing
@@ -1056,6 +1097,231 @@ law WalksAgreeWithReference(seed uint64) {
 	case None:
 	case Some:
 		return false
+	}
+
+	true
+}
+
+type joinState { Layer int, Slot int }
+
+type joinCmd =
+	| JoinBranch{Idx int}
+	| JoinMerge{}
+	| JoinTailA{}
+	| JoinTailB{}
+
+type joinOpenErr {}
+
+type joinDriveErr {}
+
+type joinSess {
+	state  sync.Ref[joinState],
+	closes sync.Ref[int],
+} implements PathSession[joinCmd, Observed[joinState, int, Never], joinDriveErr]
+
+func Read(s joinSess) Observed[joinState, int, Never] fails joinDriveErr {
+	InitialRead[joinState]{State: s.state.Get()}
+}
+
+func Apply(s joinSess, cmd joinCmd) Observed[joinState, int, Never] fails joinDriveErr {
+	let cur = s.state.Get()
+	let (next, out) = match cmd {
+	case JoinBranch as b:
+		(joinState{Layer: 1, Slot: b.Idx}, 10 + b.Idx)
+	case JoinMerge:
+		(joinState{Layer: 2, Slot: 0}, 20)
+	case JoinTailA:
+		(joinState{Layer: cur.Layer + 1, Slot: 0}, 30 + cur.Layer)
+	case JoinTailB:
+		(joinState{Layer: cur.Layer + 1, Slot: 0}, 40 + cur.Layer)
+	}
+	s.state.Set(next)
+	StepResult[joinState, int, Never]{Step: StepObs[joinState, int, Never]{
+		Kind:     DisEmit,
+		State:    Some[joinState]{Value: next},
+		Outputs:  []int{out},
+		Error:    None,
+		Terminal: false,
+	}}
+}
+
+func Close(s joinSess) {
+	s.closes.Set(s.closes.Get() + 1)
+}
+
+func joinFamilyModel(branches int, tailCalls sync.Ref[int], totalCalls sync.Ref[int]) PathModel[joinState, joinCmd, joinState, int, Never] {
+	let signals = []joinCmd{
+		JoinBranch{Idx: 0},
+		JoinBranch{Idx: 1},
+		JoinBranch{Idx: 2},
+		JoinBranch{Idx: 3},
+		JoinMerge,
+		JoinTailA,
+		JoinTailB,
+	}
+	PathModel[joinState, joinCmd, joinState, int, Never]{
+		Graph: ConcreteGraph[joinState, joinCmd, StepObs[joinState, int, Never]]{
+			Starts:  []joinState{joinState{Layer: 0, Slot: 0}},
+			Signals: signals,
+			Step:    func(s joinState, cmd joinCmd) EdgeOutcome[joinState, StepObs[joinState, int, Never]] {
+				totalCalls.Set(totalCalls.Get() + 1)
+				if s.Layer >= 2 {
+					tailCalls.Set(tailCalls.Get() + 1)
+				}
+				if s.Layer == 0 {
+					match cmd {
+					case JoinBranch as b:
+						if b.Idx < branches {
+							let next = joinState{Layer: 1, Slot: b.Idx}
+							Continue[joinState, StepObs[joinState, int, Never]]{
+								Next: next,
+								Obs:  StepObs[joinState, int, Never]{Kind: DisEmit, State: Some[joinState]{Value: next}, Outputs: []int{10 + b.Idx}, Error: None, Terminal: false},
+							}
+						} else {
+							Disabled[StepObs[joinState, int, Never]]{Obs: StepObs[joinState, int, Never]{Kind: DisIgnore, State: None, Outputs: []int{}, Error: None, Terminal: false}}
+						}
+					case _:
+						Disabled[StepObs[joinState, int, Never]]{Obs: StepObs[joinState, int, Never]{Kind: DisIgnore, State: None, Outputs: []int{}, Error: None, Terminal: false}}
+					}
+				} else if s.Layer == 1 {
+					match cmd {
+					case JoinMerge:
+						let next = joinState{Layer: 2, Slot: 0}
+						Continue[joinState, StepObs[joinState, int, Never]]{
+							Next: next,
+							Obs:  StepObs[joinState, int, Never]{Kind: DisEmit, State: Some[joinState]{Value: next}, Outputs: []int{20}, Error: None, Terminal: false},
+						}
+					case _:
+						Disabled[StepObs[joinState, int, Never]]{Obs: StepObs[joinState, int, Never]{Kind: DisIgnore, State: None, Outputs: []int{}, Error: None, Terminal: false}}
+					}
+				} else if s.Layer < 5 {
+					match cmd {
+					case JoinTailA:
+						let next = joinState{Layer: s.Layer + 1, Slot: 0}
+						Continue[joinState, StepObs[joinState, int, Never]]{
+							Next: next,
+							Obs:  StepObs[joinState, int, Never]{Kind: DisEmit, State: Some[joinState]{Value: next}, Outputs: []int{30 + s.Layer}, Error: None, Terminal: false},
+						}
+					case JoinTailB:
+						let next = joinState{Layer: s.Layer + 1, Slot: 0}
+						Continue[joinState, StepObs[joinState, int, Never]]{
+							Next: next,
+							Obs:  StepObs[joinState, int, Never]{Kind: DisEmit, State: Some[joinState]{Value: next}, Outputs: []int{40 + s.Layer}, Error: None, Terminal: false},
+						}
+					case _:
+						Disabled[StepObs[joinState, int, Never]]{Obs: StepObs[joinState, int, Never]{Kind: DisIgnore, State: None, Outputs: []int{}, Error: None, Terminal: false}}
+					}
+				} else {
+					Disabled[StepObs[joinState, int, Never]]{Obs: StepObs[joinState, int, Never]{Kind: DisIgnore, State: None, Outputs: []int{}, Error: None, Terminal: false}}
+				}
+			},
+		},
+		InitialObs:     func(s joinState) joinState { s },
+		ProjectionName: None,
+	}
+}
+
+// PlanningReuseDoesNotRestepJoins verifies on a family of converging join
+// graphs that increasing history multiplicity increases logical replay paths
+// and steps while unique model-edge expansion of the shared tail stays constant
+// (one expansion per exact state), cursor spine depth stays bounded, and
+// planning performs zero live session opens.
+law PlanningReuseDoesNotRestepJoins() {
+	let bounds = PathBounds{MaxStates: 64, MaxEdges: 256, MaxPaths: 512, MaxSteps: 4096, MaxWork: 200000, MaxBytes: 1048576}
+	let mut baseTailCalls = -1
+	let mut prevPaths = 0
+	let mut prevSteps = 0
+
+	for k in 1..5 {
+		let tailCalls = sync.NewRef(0)
+		let totalCalls = sync.NewRef(0)
+		let opens = sync.NewRef(0)
+		let closes = sync.NewRef(0)
+		let model = joinFamilyModel(k, tailCalls, totalCalls)
+		let plan = PlanPaths(model.Graph, ToDepth{Depth: 5}, bounds)
+		match plan.Stop {
+		case PathComplete:
+		case _:
+			return false
+		}
+		if opens.Get() != 0 {
+			return false
+		}
+		let expandedUnique = plan.Stats.States - plan.Stats.Frontier
+		let sigCount = len(plan.Graph.Signals)
+		if plan.Stats.Expansions != expandedUnique {
+			return false
+		}
+		if plan.Stats.StepAttempts != expandedUnique*sigCount {
+			return false
+		}
+		if totalCalls.Get()-plan.Stats.Reconstructions != plan.Stats.StepAttempts {
+			return false
+		}
+		if baseTailCalls < 0 {
+			baseTailCalls = tailCalls.Get()
+		} else if tailCalls.Get() != baseTailCalls {
+			return false
+		}
+		if plan.Stats.Paths <= prevPaths || plan.Stats.Steps <= prevSteps {
+			return false
+		}
+		prevPaths = plan.Stats.Paths
+		prevSteps = plan.Stats.Steps
+
+		let openedCur = OpenPaths(plan)
+		let mut peakSpine = 0
+		let mut streamedPaths = 0
+		let mut streamedSteps = 0
+		match openedCur {
+		case None:
+			return false
+		case Some as c0:
+			let mut cur = c0.Value
+			for {
+				match NextPath(plan, &cur) {
+				case None:
+					break
+				case Some as pc:
+					let depth = CursorSpineDepth(cur)
+					if depth > peakSpine {
+						peakSpine = depth
+					}
+					streamedPaths = streamedPaths + 1
+					streamedSteps = streamedSteps + len(pc.Value.Signals)
+				}
+			}
+		}
+		if streamedPaths != plan.Stats.Paths || streamedSteps != plan.Stats.Steps {
+			return false
+		}
+		if peakSpine > plan.Stats.MaxDepth+1 {
+			return false
+		}
+
+		let stepBeforeReplay = totalCalls.Get()
+		let res = CheckPlanPaths(
+			model,
+			plan,
+			func(start joinState) PathSession[joinCmd, Observed[joinState, int, Never], joinDriveErr] fails joinOpenErr {
+				opens.Set(opens.Get() + 1)
+				joinSess{state: sync.NewRef(start), closes: closes}
+			},
+		)
+		match res.Verdict {
+		case CampaignPassed:
+		case _:
+			return false
+		}
+		if totalCalls.Get() != stepBeforeReplay {
+			return false
+		}
+		if opens.Get() != plan.Stats.Paths || closes.Get() != plan.Stats.Paths {
+			return false
+		}
+		if res.Counts.Opened != plan.Stats.Paths || res.Counts.InitialReads != plan.Stats.Paths || res.Counts.CheckedSteps != plan.Stats.Steps || res.Counts.MatchedSteps != plan.Stats.Steps {
+			return false
+		}
 	}
 
 	true
