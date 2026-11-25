@@ -65,6 +65,9 @@ type Budget struct {
 	// test whose verdict it holds is not run, and a test that passed is
 	// stored in it.
 	Tests TestVerdicts
+	// Select, when set, restricts evaluation to obligations whose name
+	// satisfies Select (a test's Name or a law target's name).
+	Select func(name string) bool
 }
 
 // TestVerdicts is a store of the verdicts of tests that passed, keyed by
@@ -339,6 +342,9 @@ func runOrdered(pkg *check.Package, b Budget, order mapOrder) (rep Report, range
 		}
 	}
 	for _, t := range pkg.Tests {
+		if b.Select != nil && !b.Select(t.Name) {
+			continue
+		}
 		if stopped != "" || initFail != nil {
 			add(Result{Name: t.Name, Site: in.site(pkg, t.Decl, t.Decl.Pos())})
 			continue
@@ -364,6 +370,9 @@ func runOrdered(pkg *check.Package, b Budget, order mapOrder) (rep Report, range
 	}
 	for _, run := range pkg.LawRuns {
 		for _, target := range lawTargets(pkg, run) {
+			if b.Select != nil && !b.Select(target.name) {
+				continue
+			}
 			res := Result{Name: target.name, Site: in.site(run.Law.Pkg, run.Law.Decl, run.Law.Decl.Pos()), title: run.Law.Title(pkg)}
 			if stopped != "" || initFail != nil {
 				add(res)

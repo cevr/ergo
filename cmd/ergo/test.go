@@ -82,6 +82,12 @@ func testCommand(args []string) error {
 		return invalidInvocation(err)
 	}
 	opts.trace = trace
+	if opts.mutants {
+		if trace {
+			return invalidInvocation(fmt.Errorf("ergo test: --mutants takes no --trace"))
+		}
+		return mutantsTestCommand(opts, os.Stdout, os.Stderr)
+	}
 	if trace && (recursivePattern(opts.file) || len(opts.more) > 0 || opts.explore || opts.search.mode != "") {
 		return invalidInvocation(fmt.Errorf("ergo test: --trace takes one package, played plainly, not a pattern or --explore"))
 	}
