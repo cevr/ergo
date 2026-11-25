@@ -1,0 +1,6 @@
+# The explore leg searches these tests' schedules (scripts/examples, explored.go).
+# Two concurrent tasks write disjoint keys and read both back against the pure
+# Map story (PROPERTY-TESTING P9): a non-atomic read-modify-write lost update
+# (testdata/mutants.json: kvstore-concurrent-lost-update) produces a
+# non-linearizable history that PCT finds, E4 minimizes, and --schedule replays.
+memory TableConcurrentLinearizable --explore pct --seed 1

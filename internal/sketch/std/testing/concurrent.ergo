@@ -1,0 +1,650 @@
+import gen
+import slices
+import strings
+import sync
+import task
+
+// HistoryOp records one concurrent operation invocation and its observed
+// result together with the monotonic logical real-time interval
+// [CallTime, ReturnTime] during which it executed. For a completed operation
+// (Completed == true), CallTime <= ReturnTime and operation i happens-before
+// operation j iff i.Completed && i.ReturnTime < j.CallTime. An incomplete
+// operation (Completed == false) may either take effect at any valid point
+// after its CallTime (matching Result) or be omitted in a linearization.
+type HistoryOp[A, R] {
+	Task       int,
+	Act        A,
+	Result     R,
+	CallTime   int,
+	ReturnTime int,
+	Completed  bool,
+}
+
+// NotLinearizable reports that a concurrent execution's real-time operation
+// history has no sequential linearization agreeing with the pure story.
+// Plans holds the per-task act sequences that ran, and History holds the
+// recorded invocation/return intervals ordered by CallTime.
+type NotLinearizable[A, R] {
+	Plans   [][]A,
+	History []HistoryOp[A, R],
+}
+
+type historyLog[A, R] {
+	clock int,
+	ops   []HistoryOp[A, R],
+}
+
+func recordCall[A, R](log sync.Ref[historyLog[A, R]]) int {
+	sync.Modify(log) func(l historyLog[A, R]) (int, historyLog[A, R]) {
+		let t = l.clock + 1
+		(t, historyLog[A, R]{clock: t, ops: l.ops})
+	}
+}
+
+func recordReturn[A, R](log sync.Ref[historyLog[A, R]], tid int, act A, res R, callT int) {
+	log.Update() func(l historyLog[A, R]) historyLog[A, R] {
+		let retT = l.clock + 1
+		let op = HistoryOp[A, R]{
+			Task:       tid,
+			Act:        act,
+			Result:     res,
+			CallTime:   callT,
+			ReturnTime: retT,
+			Completed:  true,
+		}
+		historyLog[A, R]{clock: retT, ops: l.ops.Append(op)}
+	}
+}
+
+func sortHistoryByCall[A, R](ops []HistoryOp[A, R]) []HistoryOp[A, R] {
+	let mut out = []HistoryOp[A, R]{}
+	for op in ops {
+		out = out.Append(op)
+	}
+	for i in 1..len(out) {
+		let cur = out[i]
+		let mut j = i
+		for j > 0 && (out[j-1].CallTime > cur.CallTime || (out[j-1].CallTime == cur.CallTime && out[j-1].ReturnTime > cur.ReturnTime)) {
+			out[j] = out[j-1]
+			j = j - 1
+		}
+		out[j] = cur
+	}
+	out
+}
+
+func candidateOrder[A, R](history []HistoryOp[A, R]) []int {
+	let n = len(history)
+	let mut order = []int{}
+	for i in 0..n {
+		order = order.Append(i)
+	}
+	for i in 1..n {
+		let cur = order[i]
+		let curOp = history[cur]
+		let mut j = i
+		for j > 0 && candidateBefore(curOp, cur, history[order[j-1]], order[j-1]) {
+			order[j] = order[j-1]
+			j = j - 1
+		}
+		order[j] = cur
+	}
+	order
+}
+
+func candidateBefore[A, R](a HistoryOp[A, R], ai int, b HistoryOp[A, R], bi int) bool {
+	if a.Completed != b.Completed {
+		return a.Completed
+	}
+	if a.ReturnTime != b.ReturnTime {
+		return a.ReturnTime < b.ReturnTime
+	}
+	if a.CallTime != b.CallTime {
+		return a.CallTime < b.CallTime
+	}
+	ai < bi
+}
+
+func searchLinearizeMask[S, A, R](
+	state S,
+	step func(s S, a A) (S, R),
+	equal func(a R, b R) bool,
+	history []HistoryOp[A, R],
+	order []int,
+	predMasks []uint64,
+	requiredMask uint64,
+	used uint64,
+	trace []int,
+) Option[[]int] {
+	if (used & requiredMask) == requiredMask {
+		return Some[[]int]{Value: trace}
+	}
+	for idx in order {
+		let bit = uint64(1) << uint64(idx)
+		if (used & bit) != uint64(0) {
+			continue
+		}
+		if (predMasks[idx] & used) != predMasks[idx] {
+			continue
+		}
+		let op = history[idx]
+		let (nextState, want) = step(state, op.Act)
+		if !equal(want, op.Result) {
+			continue
+		}
+		match searchLinearizeMask[S, A, R](nextState, step, equal, history, order, predMasks, requiredMask, used|bit, trace.Append(idx)) {
+		case Some[[]int] as found:
+			return found
+		case None:
+		}
+	}
+	None
+}
+
+func allPredsUsed(preds []int, used []bool) bool {
+	for p in preds {
+		if !used[p] {
+			return false
+		}
+	}
+	true
+}
+
+func searchLinearizeSlice[S, A, R](
+	state S,
+	step func(s S, a A) (S, R),
+	equal func(a R, b R) bool,
+	history []HistoryOp[A, R],
+	order []int,
+	preds [][]int,
+	completedLeft int,
+	used []bool,
+	trace []int,
+) Option[[]int] {
+	if completedLeft == 0 {
+		return Some[[]int]{Value: trace}
+	}
+	for idx in order {
+		if used[idx] {
+			continue
+		}
+		if !allPredsUsed(preds[idx], used) {
+			continue
+		}
+		let op = history[idx]
+		let (nextState, want) = step(state, op.Act)
+		if !equal(want, op.Result) {
+			continue
+		}
+		let mut nextUsed = used
+		nextUsed[idx] = true
+		let nextLeft = if op.Completed { completedLeft - 1 } else { completedLeft }
+		match searchLinearizeSlice[S, A, R](nextState, step, equal, history, order, preds, nextLeft, nextUsed, trace.Append(idx)) {
+		case Some[[]int] as found:
+			return found
+		case None:
+		}
+	}
+	None
+}
+
+// LinearizeBy searches for a sequential linearization of history under the
+// pure story (start, step) comparing return values with equal. It returns
+// Some(indices) naming a valid linearization order respecting strict real-time
+// happens-before (every completed op i with i.ReturnTime < j.CallTime precedes
+// j) and matching every linearized operation's Result, or None when no
+// linearization exists.
+func LinearizeBy[S, A, R](
+	start S,
+	step func(s S, a A) (S, R),
+	equal func(a R, b R) bool,
+	history []HistoryOp[A, R],
+) Option[[]int] {
+	let n = len(history)
+	if n == 0 {
+		return Some[[]int]{Value: []int{}}
+	}
+	for op in history {
+		if op.Completed && op.ReturnTime < op.CallTime {
+			return None
+		}
+	}
+	let order = candidateOrder(history)
+	if n <= 64 {
+		let mut requiredMask = uint64(0)
+		let mut predMasks = []uint64{}
+		for i in 0..n {
+			if history[i].Completed {
+				requiredMask = requiredMask | (uint64(1) << uint64(i))
+			}
+			let mut mask = uint64(0)
+			for j in 0..n {
+				if j != i && history[j].Completed && history[j].ReturnTime < history[i].CallTime {
+					mask = mask | (uint64(1) << uint64(j))
+				}
+			}
+			predMasks = predMasks.Append(mask)
+		}
+		return searchLinearizeMask(start, step, equal, history, order, predMasks, requiredMask, uint64(0), []int{})
+	}
+	let mut completedCount = 0
+	let mut preds = [][]int{}
+	let mut used = []bool{}
+	for i in 0..n {
+		if history[i].Completed {
+			completedCount = completedCount + 1
+		}
+		used = used.Append(false)
+		let mut ps = []int{}
+		for j in 0..n {
+			if j != i && history[j].Completed && history[j].ReturnTime < history[i].CallTime {
+				ps = ps.Append(j)
+			}
+		}
+		preds = preds.Append(ps)
+	}
+	searchLinearizeSlice(start, step, equal, history, order, preds, completedCount, used, []int{})
+}
+
+// LinearizableBy reports whether history has a valid linearization under
+// (start, step) using equal to compare return values.
+func LinearizableBy[S, A, R](
+	start S,
+	step func(s S, a A) (S, R),
+	equal func(a R, b R) bool,
+	history []HistoryOp[A, R],
+) bool {
+	match LinearizeBy(start, step, equal, history) {
+	case Some[[]int]:
+		true
+	case None:
+		false
+	}
+}
+
+// Linearize searches for a sequential linearization of history under (start,
+// step) using == on comparable return values R.
+func Linearize[S, A any, R comparable](
+	start S,
+	step func(s S, a A) (S, R),
+	history []HistoryOp[A, R],
+) Option[[]int] {
+	LinearizeBy(start, step, func(a R, b R) bool { a == b }, history)
+}
+
+// Linearizable reports whether history has a sequential linearization under
+// the pure story (start, step) respecting real-time happens-before order and
+// matching every linearized operation's observed Result.
+func Linearizable[S, A any, R comparable](
+	start S,
+	step func(s S, a A) (S, R),
+	history []HistoryOp[A, R],
+) bool {
+	LinearizableBy(start, step, func(a R, b R) bool { a == b }, history)
+}
+
+// AgreesConcurrentBy runs plans concurrently — one child task per slice in
+// plans via task.Go — invokes run(act) for each act, records each operation's
+// monotonic real-time [CallTime, ReturnTime] interval, and verifies that the
+// resulting history is linearizable against (start, step) under equal. On
+// refutation it fails with NotLinearizable carrying Plans and History.
+func AgreesConcurrentBy[S, A, R, Eff](
+	start S,
+	step func(s S, a A) (S, R),
+	equal func(a R, b R) bool,
+	plans [][]A,
+	run own func(a A) R needs Eff,
+) fails NotLinearizable[A, R] needs Eff {
+	let log = sync.NewRef(historyLog[A, R]{clock: 0, ops: []HistoryOp[A, R]{}})
+	let mut running = []Task[bool]{}
+	for taskID, plan in plans {
+		let tid = taskID
+		let acts = plan
+		let t = task.Go() {
+			for a in acts {
+				let callT = recordCall(log)
+				let res = run(a)
+				recordReturn(log, tid, a, res, callT)
+			}
+			true
+		}
+		running = running.Append(t)
+	}
+	for len(running) > 0 {
+		let last = len(running) - 1
+		let t, rest = slices.Take(running, last)
+		running = rest
+		let _ = t.Wait()
+	}
+	let ops = sortHistoryByCall(log.Get().ops)
+	if !LinearizableBy(start, step, equal, ops) {
+		return NotLinearizable[A, R]{Plans: plans, History: ops}
+	}
+}
+
+// AgreesConcurrent runs plans concurrently via task.Go and checks that the
+// recorded real-time operation history is linearizable against (start, step)
+// using == on comparable return values R.
+func AgreesConcurrent[S, A any, R comparable, Eff](
+	start S,
+	step func(s S, a A) (S, R),
+	plans [][]A,
+	run own func(a A) R needs Eff,
+) fails NotLinearizable[A, R] needs Eff {
+	try AgreesConcurrentBy(start, step, func(a R, b R) bool { a == b }, plans, run)
+}
+
+// AgreesConcurrentModel draws tasks per-task act sequences of length
+// opsPerTask from m.Offer (advancing a shadow story state so every drawn act
+// is offered in a reachable state) and runs them concurrently under
+// AgreesConcurrent against (m.Start, m.Step).
+func AgreesConcurrentModel[S, A any, R comparable, Eff](
+	m Model[S, A, R],
+	tasks int,
+	opsPerTask int,
+	run own func(a A) R needs Eff,
+) fails NotLinearizable[A, R] needs gen.Draws | Eff {
+	let mut state = m.Start
+	let mut plans = [][]A{}
+	for _ in 0..tasks {
+		gen.Draws.Begin("task")
+		let mut plan = []A{}
+		for _ in 0..opsPerTask {
+			let a = m.Offer(state)
+			let (nextState, _) = m.Step(state, a)
+			state = nextState
+			plan = plan.Append(a)
+		}
+		gen.Draws.End()
+		plans = plans.Append(plan)
+	}
+	try AgreesConcurrent(m.Start, m.Step, plans, run)
+}
+
+// FormatHistory renders a recorded concurrent history as human-readable lines
+// showing task id, act, result, and logical real-time [CallTime..ReturnTime].
+func FormatHistory[A, R](history []HistoryOp[A, R], showAct func(a A) string, showRes func(r R) string) string {
+	let mut lines = []string{}
+	for op in history {
+		let span = if op.Completed {
+			"[\(op.CallTime)..\(op.ReturnTime)]"
+		} else {
+			"[\(op.CallTime)..pending]"
+		}
+		lines = lines.Append("task \(op.Task): \(showAct(op.Act)) -> \(showRes(op.Result)) \(span)")
+	}
+	strings.Join(lines, "\n")
+}
+
+// FormatConcurrentTest renders a NotLinearizable counterexample as a
+// paste-able Ergo test block naming the per-task plans, recorded history, and
+// optional schedule token from `ergo test --explore`.
+func FormatConcurrentTest[A, R](
+	name string,
+	actType string,
+	setupExpr string,
+	storyExpr string,
+	runExpr string,
+	f NotLinearizable[A, R],
+	scheduleToken string,
+	showAct func(a A) string,
+	showRes func(r R) string,
+) string {
+	let mut lines = []string{}
+	for op in f.History {
+		let span = if op.Completed {
+			"[\(op.CallTime)..\(op.ReturnTime)]"
+		} else {
+			"[\(op.CallTime)..pending]"
+		}
+		lines = lines.Append("// task \(op.Task): \(showAct(op.Act)) -> \(showRes(op.Result)) \(span)")
+	}
+	lines = lines.Append("test \(name) {")
+	if scheduleToken != "" {
+		lines = lines.Append("\t// schedule: \(scheduleToken)")
+	}
+	lines = lines.Append("\t\(setupExpr)")
+	let mut planRows = []string{}
+	for plan in f.Plans {
+		let mut row = []string{}
+		for a in plan {
+			row = row.Append(showAct(a))
+		}
+		planRows = planRows.Append("[]\(actType){\(strings.Join(row, ", "))}")
+	}
+	lines = lines.Append("\tlet plans = [][]\(actType){\(strings.Join(planRows, ", "))}")
+	lines = lines.Append("\ttry testing.AgreesConcurrent(\(storyExpr), plans, \(runExpr))")
+	lines = lines.Append("}")
+	if scheduleToken != "" {
+		lines = lines.Append("// replay: ergo test --run \(name) --schedule '\(scheduleToken)'")
+	}
+	strings.Join(lines, "\n")
+}
+
+type regPair {
+	k0 int,
+	k1 int,
+}
+
+type regAct =
+	| RegWrite{Key int, Val int}
+	| RegAdd{Key int, Delta int}
+	| RegRead{Key int}
+
+func regStep(s regPair, a regAct) (regPair, int) {
+	match a {
+	case RegWrite as w:
+		if w.Key == 0 {
+			(regPair{k0: w.Val, k1: s.k1}, 0)
+		} else {
+			(regPair{k0: s.k0, k1: w.Val}, 0)
+		}
+	case RegAdd as d:
+		if d.Key == 0 {
+			let nv = s.k0 + d.Delta
+			(regPair{k0: nv, k1: s.k1}, nv)
+		} else {
+			let nv = s.k1 + d.Delta
+			(regPair{k0: s.k0, k1: nv}, nv)
+		}
+	case RegRead as r:
+		if r.Key == 0 {
+			(s, s.k0)
+		} else {
+			(s, s.k1)
+		}
+	}
+}
+
+func witnessIsValid(start regPair, history []HistoryOp[regAct, int], order []int) bool {
+	let n = len(history)
+	let mut pos = []int{}
+	for _ in 0..n {
+		pos = pos.Append(-1)
+	}
+	let mut state = start
+	for stepIdx, opIdx in order {
+		if opIdx < 0 || opIdx >= n || pos[opIdx] >= 0 {
+			return false
+		}
+		pos[opIdx] = stepIdx
+		let op = history[opIdx]
+		let (nextS, want) = regStep(state, op.Act)
+		if want != op.Result {
+			return false
+		}
+		state = nextS
+	}
+	for i in 0..n {
+		if history[i].Completed && pos[i] < 0 {
+			return false
+		}
+	}
+	for i in 0..n {
+		if !history[i].Completed {
+			continue
+		}
+		for j in 0..n {
+			if pos[j] >= 0 && history[i].ReturnTime < history[j].CallTime && pos[i] >= pos[j] {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// LinearizableAcceptsSequentialAndOverlappingValidHistories: every sequential
+// history generated by the pure story, every overlapping concurrent history
+// whose answers match a real-time-respecting permutation, and histories with
+// optional in-flight operations are accepted by Linearizable with a valid
+// witness from Linearize; FormatConcurrentTest produces a paste-able test.
+law LinearizableAcceptsSequentialAndOverlappingValidHistories(aRaw int, bRaw int, cRaw int) {
+	let a = 1 + modPos(aRaw, 40)
+	let b = a + 1 + modPos(bRaw, 40)
+	let c = 1 + modPos(cRaw, 10)
+	let start = regPair{k0: 0, k1: 0}
+
+	// 1. Sequential history built directly from regStep.
+	let seqActs = []regAct{
+		RegWrite{Key: 0, Val: a},
+		RegWrite{Key: 1, Val: b},
+		RegAdd{Key: 0, Delta: c},
+		RegRead{Key: 0},
+		RegRead{Key: 1},
+	}
+	let mut st = start
+	let mut seqHist = []HistoryOp[regAct, int]{}
+	for i, act in seqActs {
+		let (ns, res) = regStep(st, act)
+		st = ns
+		seqHist = seqHist.Append(HistoryOp[regAct, int]{
+			Task:       0,
+			Act:        act,
+			Result:     res,
+			CallTime:   i*2 + 1,
+			ReturnTime: i*2 + 2,
+			Completed:  true,
+		})
+	}
+	match Linearize(start, regStep, seqHist) {
+	case Some[[]int] as ord:
+		if !witnessIsValid(start, seqHist, ord.Value) {
+			return false
+		}
+	case None:
+		return false
+	}
+
+	// 2. Overlapping writes where the earlier-started write linearizes second.
+	let overlapHist = []HistoryOp[regAct, int]{
+		HistoryOp[regAct, int]{Task: 0, Act: RegWrite{Key: 0, Val: a}, Result: 0, CallTime: 1, ReturnTime: 4, Completed: true},
+		HistoryOp[regAct, int]{Task: 1, Act: RegWrite{Key: 0, Val: b}, Result: 0, CallTime: 2, ReturnTime: 5, Completed: true},
+		HistoryOp[regAct, int]{Task: 0, Act: RegRead{Key: 0}, Result: a, CallTime: 6, ReturnTime: 7, Completed: true},
+	}
+	match Linearize(start, regStep, overlapHist) {
+	case Some[[]int] as ord:
+		if !witnessIsValid(start, overlapHist, ord.Value) {
+			return false
+		}
+	case None:
+		return false
+	}
+
+	// 3. In-flight write: linearizable both when its effect is observed and when omitted.
+	let inflightVisible = []HistoryOp[regAct, int]{
+		HistoryOp[regAct, int]{Task: 0, Act: RegWrite{Key: 0, Val: a}, Result: 0, CallTime: 1, ReturnTime: 0, Completed: false},
+		HistoryOp[regAct, int]{Task: 1, Act: RegRead{Key: 0}, Result: a, CallTime: 2, ReturnTime: 3, Completed: true},
+	}
+	let inflightOmitted = []HistoryOp[regAct, int]{
+		HistoryOp[regAct, int]{Task: 0, Act: RegWrite{Key: 0, Val: a}, Result: 0, CallTime: 1, ReturnTime: 0, Completed: false},
+		HistoryOp[regAct, int]{Task: 1, Act: RegRead{Key: 0}, Result: 0, CallTime: 2, ReturnTime: 3, Completed: true},
+	}
+	if !Linearizable(start, regStep, inflightVisible) || !Linearizable(start, regStep, inflightOmitted) {
+		return false
+	}
+
+	// 4. Live AgreesConcurrent run on an atomic sync.Ref matches the story.
+	let cell = sync.NewRef(start)
+	let plans = [][]regAct{
+		[]regAct{RegWrite{Key: 0, Val: a}, RegRead{Key: 0}},
+		[]regAct{RegWrite{Key: 1, Val: b}, RegRead{Key: 1}},
+	}
+	AgreesConcurrent(start, regStep, plans, func(act regAct) int {
+		sync.Modify(cell) func(s regPair) (int, regPair) {
+			let (ns, r) = regStep(s, act)
+			(r, ns)
+		}
+	}) catch {
+	case NotLinearizable[regAct, int]:
+		return false
+	}
+
+	// 5. FormatConcurrentTest emits a paste-able test block with schedule token.
+	let sampleFail = NotLinearizable[regAct, int]{Plans: plans, History: overlapHist}
+	let rendered = FormatConcurrentTest(
+		"Repro",
+		"regAct",
+		"let cell = sync.NewRef(start)",
+		"start, regStep",
+		"exec",
+		sampleFail,
+		"1:0.1*2",
+		func(act regAct) string {
+			match act {
+			case RegWrite as w:
+				"RegWrite{Key: \(w.Key), Val: \(w.Val)}"
+			case RegAdd as d:
+				"RegAdd{Key: \(d.Key), Delta: \(d.Delta)}"
+			case RegRead as r:
+				"RegRead{Key: \(r.Key)}"
+			}
+		},
+		func(r int) string { "\(r)" },
+	)
+		strings.Contains(rendered, "test Repro {") &&
+		strings.Contains(rendered, "1:0.1*2") &&
+		strings.Contains(rendered, "testing.AgreesConcurrent(")
+}
+
+// LinearizableRejectsLostUpdateAndRespectsRealTimeOrder: Linearizable rejects
+// lost updates, rejects serializable-but-not-linearizable histories that invert
+// non-overlapping real-time order, and rejects return value mismatches.
+law LinearizableRejectsLostUpdateAndRespectsRealTimeOrder(v1Raw int, v2Raw int) {
+	let v1 = 1 + modPos(v1Raw, 50)
+	let v2 = v1 + 1 + modPos(v2Raw, 50)
+	let start = regPair{k0: 0, k1: 0}
+
+	// 1. Lost update: Write(0, v1) and Write(1, v2) both completed before Read(1)
+	// started, yet Read(1) returned 0 (v2 was overwritten/lost).
+	let lostUpdate = []HistoryOp[regAct, int]{
+		HistoryOp[regAct, int]{Task: 0, Act: RegWrite{Key: 0, Val: v1}, Result: 0, CallTime: 1, ReturnTime: 4, Completed: true},
+		HistoryOp[regAct, int]{Task: 1, Act: RegWrite{Key: 1, Val: v2}, Result: 0, CallTime: 2, ReturnTime: 3, Completed: true},
+		HistoryOp[regAct, int]{Task: 1, Act: RegRead{Key: 1}, Result: 0, CallTime: 5, ReturnTime: 6, Completed: true},
+	}
+	if Linearizable(start, regStep, lostUpdate) {
+		return false
+	}
+
+	// 2. Real-time order violation: Write(0, v1) finished BEFORE Write(0, v2)
+	// began (2 < 3), and Read(0) began AFTER Write(0, v2) finished (4 < 5),
+	// yet Read(0) observed stale v1. Serializable (W(v2), W(v1), R->v1), NOT linearizable!
+	let staleRealTime = []HistoryOp[regAct, int]{
+		HistoryOp[regAct, int]{Task: 0, Act: RegWrite{Key: 0, Val: v1}, Result: 0, CallTime: 1, ReturnTime: 2, Completed: true},
+		HistoryOp[regAct, int]{Task: 1, Act: RegWrite{Key: 0, Val: v2}, Result: 0, CallTime: 3, ReturnTime: 4, Completed: true},
+		HistoryOp[regAct, int]{Task: 0, Act: RegRead{Key: 0}, Result: v1, CallTime: 5, ReturnTime: 6, Completed: true},
+	}
+	if Linearizable(start, regStep, staleRealTime) {
+		return false
+	}
+
+	// 3. Return value mismatch: single write followed by read returning wrong value.
+	let wrongReturn = []HistoryOp[regAct, int]{
+		HistoryOp[regAct, int]{Task: 0, Act: RegWrite{Key: 0, Val: v1}, Result: 0, CallTime: 1, ReturnTime: 2, Completed: true},
+		HistoryOp[regAct, int]{Task: 0, Act: RegRead{Key: 0}, Result: v2, CallTime: 3, ReturnTime: 4, Completed: true},
+	}
+	if Linearizable(start, regStep, wrongReturn) {
+		return false
+	}
+
+	true
+}

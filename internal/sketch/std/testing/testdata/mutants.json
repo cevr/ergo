@@ -90,6 +90,26 @@
       "to": "\tif k == uint64(count) {\n\t\treturn None\n\t}\n",
       "rule": "A zero draw on the tape always passes through to inner without injecting a failure (FaultyZeroTapeMatchesInner).",
       "killers": ["internal/sketch/std/testing:law:FaultyZeroTapeMatchesInner"]
+    },
+    {
+      "name": "concurrent-ignores-realtime-order",
+      "origin": "wf10 PROPERTY-TESTING P9",
+      "file": "internal/sketch/std/testing/concurrent.ergo",
+      "decl": "searchLinearizeMask",
+      "from": "\t\tif (predMasks[idx] & used) != predMasks[idx] {\n\t\t\tcontinue\n\t\t}\n",
+      "to": "\t\tlet _ = predMasks[idx]\n",
+      "rule": "Linearizable enforces strict real-time happens-before order (completed op i with i.ReturnTime < j.CallTime must precede j), rejecting serializable-but-non-linearizable histories.",
+      "killers": ["internal/sketch/std/testing:law:LinearizableRejectsLostUpdateAndRespectsRealTimeOrder"]
+    },
+    {
+      "name": "concurrent-accepts-wrong-return",
+      "origin": "wf10 PROPERTY-TESTING P9",
+      "file": "internal/sketch/std/testing/concurrent.ergo",
+      "decl": "searchLinearizeMask",
+      "from": "\t\tif !equal(want, op.Result) {\n\t\t\tcontinue\n\t\t}\n",
+      "to": "\t\tlet _ = want\n",
+      "rule": "Linearizable checks every linearized operation's return value against the pure story Step.",
+      "killers": ["internal/sketch/std/testing:law:LinearizableRejectsLostUpdateAndRespectsRealTimeOrder"]
     }
   ]
 }
