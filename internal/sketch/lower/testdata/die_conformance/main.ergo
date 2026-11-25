@@ -1,0 +1,320 @@
+import queue
+import scope
+import strings
+import task
+import time
+
+type Simulated { Attempt int }
+
+type OtherSimulated { Attempt int }
+
+type Box[T] { V T }
+
+type Boom { Code int }
+
+type Tracked { log queue.Queue[int], id int } implements Closer
+
+func Close(r Tracked) {
+	r.log.Push(r.id) catch {
+	case queue.Closed:
+	}
+}
+
+func openTracked(log queue.Queue[int], id int) Tracked { Tracked{log: log, id: id} }
+
+func childPlain(n int) int { n + 1 }
+
+func childDefects(n int) int defects {
+	if n < 0 {
+		die Simulated{Attempt: n}
+	}
+	n + 1
+}
+
+func childWithCleanup(log queue.Queue[int], n int) int defects {
+	scope.OnExit() {
+		log.Push(10) catch {
+		case queue.Closed:
+		}
+	}
+	let r = openTracked(log, 20)
+	let _ = r.id
+	die Simulated{Attempt: n}
+}
+
+func childStaticResourceCleanup(log queue.Queue[int], n int) int defects {
+	let r1 = openTracked(log, 31)
+	let r2 = openTracked(log, 32)
+	let _ = r1.id + r2.id
+	die Simulated{Attempt: n}
+}
+
+func childGeneric(n int) int defects {
+	die Box[int]{V: n}
+}
+
+func childForeign() int {
+	let xs = []int{1}
+	xs[5]
+}
+
+func mayFail(fail bool) int fails Boom {
+	if fail {
+		return Boom{Code: 9}
+	}
+	42
+}
+
+func childEvalOperand(fail bool) int fails Boom defects {
+	die Simulated{Attempt: try mayFail(fail)}
+}
+
+func childCatchCannotIntercept(n int) int defects {
+	let _ = childWithFail(n) catch {
+	case Boom:
+		0
+	}
+	1
+}
+
+func childWithFail(n int) int fails Boom defects {
+	if n < 0 {
+		return Boom{Code: 1}
+	}
+	die Simulated{Attempt: n}
+}
+
+func childDoubleDefect(n int) int defects {
+	scope.OnExit() {
+		cleanupDefect()
+	}
+	die Simulated{Attempt: n}
+}
+
+func cleanupDefect() {
+	let xs = []int{1}
+	let _ = xs[9]
+}
+
+test DieNominalReasonAndCleanup {
+	let log = queue.New[int](4)
+	let t = task.Go() { childWithCleanup(log, 7) }
+	let ok = match task.ExitOf(t) {
+	case task.Defected as d:
+		let matched = match task.ReasonAs[Simulated](d) {
+		case Some{Value: r}:
+			r.Attempt == 7
+		case None:
+			false
+		}
+		let wrongStruct = match task.ReasonAs[OtherSimulated](d) {
+		case Some:
+			false
+		case None:
+			true
+		}
+		let wrongString = match task.ReasonAs[string](d) {
+		case Some:
+			false
+		case None:
+			true
+		}
+		let posOk = strings.Contains(d.Defect.Position(), "main.ergo:")
+		let occOk = d.Defect.Occurrence() > 0
+		let causeOk = d.Defect.CauseCount() == 1 && d.Defect.DefectCount() == 1
+		matched && wrongStruct && wrongString && posOk && occOk && causeOk
+	case _:
+		false
+	}
+	assert ok
+	let first = log.Pop() catch {
+	case queue.Closed:
+		-1
+	}
+	let second = log.Pop() catch {
+	case queue.Closed:
+		-1
+	}
+	assert first == 20
+	assert second == 10
+}
+
+test DieStaticResourceCleanup {
+	let log = queue.New[int](4)
+	let t = task.Go() { childStaticResourceCleanup(log, 19) }
+	let ok = match task.ExitOf(t) {
+	case task.Defected as d:
+		match task.ReasonAs[Simulated](d) {
+		case Some{Value: r}:
+			r.Attempt == 19
+		case None:
+			false
+		}
+	case _:
+		false
+	}
+	assert ok
+	let first = log.Pop() catch {
+	case queue.Closed:
+		-1
+	}
+	let second = log.Pop() catch {
+	case queue.Closed:
+		-1
+	}
+	assert first == 32
+	assert second == 31
+}
+
+test DieGenericInstantiationIdentity {
+	let t = task.Go() { childGeneric(55) }
+	let ok = match task.ExitOf(t) {
+	case task.Defected as d:
+		let intHit = match task.ReasonAs[Box[int]](d) {
+		case Some{Value: b}:
+			b.V == 55
+		case None:
+			false
+		}
+		let strMiss = match task.ReasonAs[Box[string]](d) {
+		case Some:
+			false
+		case None:
+			true
+		}
+		intHit && strMiss
+	case _:
+		false
+	}
+	assert ok
+}
+
+test DieForeignDefectNeverMatchesNominal {
+	let t = task.Go() { childForeign() }
+	let ok = match task.ExitOf(t) {
+	case task.Defected as d:
+		let noSim = match task.ReasonAs[Simulated](d) {
+		case Some:
+			false
+		case None:
+			true
+		}
+		let noStr = match task.ReasonAs[string](d) {
+		case Some:
+			false
+		case None:
+			true
+		}
+		noSim && noStr && d.Defect.Occurrence() > 0 && d.Defect.CauseCount() >= 1
+	case _:
+		false
+	}
+	assert ok
+}
+
+test DieOperandEvaluatedOnceUnderFails {
+	let t1 = task.Go() { try childEvalOperand(true) }
+	let failed = match task.ExitOf(t1) {
+	case task.Failed[Boom] as f:
+		f.Error.Code == 9
+	case _:
+		false
+	}
+	assert failed
+	let t2 = task.Go() { try childEvalOperand(false) }
+	let defected = match task.ExitOf(t2) {
+	case task.Defected as d:
+		match task.ReasonAs[Simulated](d) {
+		case Some{Value: r}:
+			r.Attempt == 42
+		case None:
+			false
+		}
+	case _:
+		false
+	}
+	assert defected
+}
+
+test DieNotInterceptedByCatch {
+	let t = task.Go() { childCatchCannotIntercept(11) }
+	let ok = match task.ExitOf(t) {
+	case task.Defected as d:
+		match task.ReasonAs[Simulated](d) {
+		case Some{Value: r}:
+			r.Attempt == 11
+		case None:
+			false
+		}
+	case _:
+		false
+	}
+	assert ok
+}
+
+test DiePreservesCauseAcrossCleanupDefect {
+	let t = task.Go() { childDoubleDefect(3) }
+	let ok = match task.ExitOf(t) {
+	case task.Defected as d:
+		let first = match task.ReasonAs[Simulated](d) {
+		case Some{Value: r}:
+			r.Attempt == 3
+		case None:
+			false
+		}
+		first && d.Defect.CauseCount() >= 2 && d.Defect.DefectCount() >= 2
+	case _:
+		false
+	}
+	assert ok
+}
+
+test DieOccurrencesAreMonotonic {
+	let t1 = task.Go() { childDefects(-1) }
+	let o1 = match task.ExitOf(t1) {
+	case task.Defected as d:
+		d.Defect.Occurrence()
+	case _:
+		0
+	}
+	let t2 = task.Go() { childDefects(-2) }
+	let o2 = match task.ExitOf(t2) {
+	case task.Defected as d:
+		d.Defect.Occurrence()
+	case _:
+		0
+	}
+	assert o1 > 0 && o2 > o1
+}
+
+test DieOrdinaryReturnAndStopRace {
+	let t1 = task.Go() { childDefects(4) }
+	let v = match task.ExitOf(t1) {
+	case task.Done[int] as d:
+		d.Value
+	case _:
+		-1
+	}
+	assert v == 5
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let t2 = task.Go() {
+			Scheduler.Sleep(5ms)
+			childDefects(-9)
+		}
+		let a = task.StopAfter(t2, 1ms)
+		m.Advance(2ms)
+		let stopped = match task.ExitOf(t2) {
+		case task.Stopped:
+			true
+		case _:
+			false
+		}
+		let _ = a.Cancel()
+		assert stopped
+	}
+}
+
+func main() {
+	let _ = childPlain(1)
+}
