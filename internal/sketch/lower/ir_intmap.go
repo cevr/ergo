@@ -27,7 +27,7 @@ import (
 // intMapOf is t as an int map: a Map type, not a type defined over one,
 // that the lowering spells IntMap.
 func (b *irBuilder) intMapOf(t check.Type) (*check.Map, bool) {
-	m, ok := t.(*check.Map)
+	m, ok := b.fc.boundType(t).(*check.Map)
 	return m, ok && b.l.intMap(m)
 }
 
