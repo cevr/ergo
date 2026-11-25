@@ -10,17 +10,21 @@ import maps
 import slices
 import sync
 
+type shelf {
+	runs Map[int, job.Run],
+	last int,
+}
+
 // Memory is a jobs.Jobs in memory. Its fields are unexported: New makes
 // one. Job numbers count from 1.
 type Memory {
-	runs sync.Ref[Map[int, job.Run]],
-	last sync.Ref[int],
+	cell sync.Ref[shelf],
 } implements jobs.Jobs
 
 // New is a Memory with no jobs. ergo test runs the jobs.Jobs laws
 // against it.
 func New() Memory {
-	Memory{runs: sync.NewRef[Map[int, job.Run]](Map[int, job.Run]{}), last: sync.NewRef[int](0)}
+	Memory{cell: sync.NewRef[shelf](shelf{runs: Map[int, job.Run]{}, last: 0})}
 }
 
 let emptyJobs = context { jobs.Jobs: New() }
@@ -38,13 +42,12 @@ func Submit(m Memory, spec jobs.Spec) int fails jobs.Rejected {
 	if spec.FailAt < 0 || spec.FailAt > spec.Steps {
 		return jobs.Rejected{Reason: "step \(spec.FailAt) is not one of the job's \(spec.Steps)"}
 	}
-	let id = sync.Modify(m.last, func(n int) (int, int) { (n + 1, n + 1) })
-	m.runs.Update(func(rs Map[int, job.Run]) Map[int, job.Run] {
-		let mut next = rs
+	sync.Modify(m.cell, func(s shelf) (int, shelf) {
+		let id = s.last + 1
+		let mut next = s.runs
 		next[id] = job.Open(spec)
-		next
+		(id, shelf{runs: next, last: id})
 	})
-	id
 }
 
 // cancelled is what one atomic cancel found.
@@ -53,21 +56,21 @@ type cancelled = Stopped{} | Missing{} | Ended{State jobs.State}
 // Cancel ends job id, unless it has ended already (AlreadyDone, with its
 // state) or there is no such job.
 func Cancel(m Memory, id int) fails jobs.NoSuchJob | jobs.AlreadyDone {
-	let found = sync.Modify(m.runs, func(rs Map[int, job.Run]) (cancelled, Map[int, job.Run]) {
-		let r = match rs.Get(id) {
-		case Some[job.Run] as s:
-			s.Value
+	let found = sync.Modify(m.cell, func(s shelf) (cancelled, shelf) {
+		let r = match s.runs.Get(id) {
+		case Some[job.Run] as x:
+			x.Value
 		case None:
-			return (Missing, rs)
+			return (Missing, s)
 		}
 		let d = job.Step(r, job.Cancel)
 		match d {
 		case Reject:
-			(Ended{State: r.State}, rs)
+			(Ended{State: r.State}, s)
 		case Emit[job.Run, jobs.State], Tell[job.Run, jobs.State], Enter[job.Run], Stay[job.Run], Ignore, Done[jobs.State]:
-			let mut next = rs
+			let mut next = s.runs
 			next[id] = machines.Next(r, d)
-			(Stopped, next)
+			(Stopped, shelf{runs: next, last: s.last})
 		}
 	})
 	match found {
@@ -81,7 +84,7 @@ func Cancel(m Memory, id int) fails jobs.NoSuchJob | jobs.AlreadyDone {
 
 // Status is job id, or None.
 func Status(m Memory, id int) Option[jobs.Job] {
-	match m.runs.Get().Get(id) {
+	match m.cell.Get().runs.Get(id) {
 	case Some[job.Run] as s:
 		Some[jobs.Job]{Value: job.View(id, s.Value)}
 	case None:
@@ -91,7 +94,7 @@ func Status(m Memory, id int) Option[jobs.Job] {
 
 // List is every job, by number.
 func List(m Memory) []jobs.Job {
-	let rs = m.runs.Get()
+	let rs = m.cell.Get().runs
 	let mut out = []jobs.Job{}
 	for id in slices.Sorted(maps.Keys(rs)) {
 		match rs.Get(id) {
@@ -106,16 +109,16 @@ func List(m Memory) []jobs.Job {
 // Work ticks every job ticks times, each tick one atomic step of all.
 func Work(m Memory, ticks int) {
 	for _ in 0..ticks {
-		m.runs.Update(func(rs Map[int, job.Run]) Map[int, job.Run] {
-			let mut next = rs
-			for id in maps.Keys(rs) {
-				match rs.Get(id) {
-				case Some[job.Run] as s:
-					next[id] = machines.Next(s.Value, job.Step(s.Value, job.Tick))
+		m.cell.Update(func(s shelf) shelf {
+			let mut next = s.runs
+			for id in maps.Keys(s.runs) {
+				match s.runs.Get(id) {
+				case Some[job.Run] as x:
+					next[id] = machines.Next(x.Value, job.Step(x.Value, job.Tick))
 				case None:
 				}
 			}
-			next
+			shelf{runs: next, last: s.last}
 		})
 	}
 }

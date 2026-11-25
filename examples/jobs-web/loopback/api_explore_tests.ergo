@@ -1,0 +1,201 @@
+import gen
+import jobsweb/job
+import jobsweb/jobs
+import jobsweb/jobs/jobsapi
+import jobsweb/jobs/jobsrpc
+import jobsweb/memory
+import machines
+import maps
+import slices
+import strings
+import testing
+
+type jwApiState {
+	runs Map[int, job.Run],
+	last int,
+}
+
+func jwSnapList(js []jobs.Job) string {
+	let mut parts = []string{}
+	for j in js {
+		parts = parts.Append("\(j.ID):\(j.Name):\(jobs.Rank(j.State))")
+	}
+	strings.Join(parts, ",")
+}
+
+func jwStateSnap(st jwApiState) string {
+	let mut out = []jobs.Job{}
+	for id in slices.Sorted(maps.Keys(st.runs)) {
+		match st.runs.Get(id) {
+		case Some[job.Run] as s:
+			out = out.Append(job.View(id, s.Value))
+		case None:
+		}
+	}
+	jwSnapList(out)
+}
+
+func jwFoldStep(st jwApiState, req jobsapi.Request) (jwApiState, jobsapi.Outcome) {
+	match req {
+	case jobsapi.SubmitRequest as x:
+		let spec = x.Spec
+		if spec.Name == "" {
+			return (st, jobsapi.Rejected{Failure: jobsapi.RejectedFailure{E: jobs.Rejected{Reason: "a job needs a name"}}})
+		}
+		if spec.Steps < 1 || spec.Steps > 100 {
+			return (st, jobsapi.Rejected{Failure: jobsapi.RejectedFailure{E: jobs.Rejected{Reason: "a job runs 1 to 100 steps, not \(spec.Steps)"}}})
+		}
+		if spec.FailAt < 0 || spec.FailAt > spec.Steps {
+			return (st, jobsapi.Rejected{Failure: jobsapi.RejectedFailure{E: jobs.Rejected{Reason: "step \(spec.FailAt) is not one of the job's \(spec.Steps)"}}})
+		}
+		let id = st.last + 1
+		let mut next = st.runs
+		next[id] = job.Open(spec)
+		(jwApiState{runs: next, last: id}, jobsapi.Done{Reply: jobsapi.SubmitReply{Value: id}})
+	case jobsapi.CancelRequest as x:
+		let r = match st.runs.Get(x.Id) {
+		case Some[job.Run] as s:
+			s.Value
+		case None:
+			return (st, jobsapi.Rejected{Failure: jobsapi.NoSuchJob{E: jobs.NoSuchJob{ID: x.Id}}})
+		}
+		let d = job.Step(r, job.Cancel)
+		match d {
+		case Reject:
+			(st, jobsapi.Rejected{Failure: jobsapi.AlreadyDone{E: jobs.AlreadyDone{ID: x.Id, State: r.State}}})
+		case Emit[job.Run, jobs.State], Tell[job.Run, jobs.State], Enter[job.Run], Stay[job.Run], Ignore, Done[jobs.State]:
+			let mut next = st.runs
+			next[x.Id] = machines.Next(r, d)
+			(jwApiState{runs: next, last: st.last}, jobsapi.Done{Reply: jobsapi.CancelReply})
+		}
+	case jobsapi.StatusRequest as x:
+		match st.runs.Get(x.Id) {
+		case Some[job.Run] as s:
+			(st, jobsapi.Done{Reply: jobsapi.StatusReply{Value: Some[jobs.Job]{Value: job.View(x.Id, s.Value)}}})
+		case None:
+			(st, jobsapi.Done{Reply: jobsapi.StatusReply{Value: None}})
+		}
+	case jobsapi.ListRequest:
+		let mut out = []jobs.Job{}
+		for id in slices.Sorted(maps.Keys(st.runs)) {
+			match st.runs.Get(id) {
+			case Some[job.Run] as s:
+				out = out.Append(job.View(id, s.Value))
+			case None:
+			}
+		}
+		(st, jobsapi.Done{Reply: jobsapi.ListReply{Value: out}})
+	case jobsapi.WorkRequest as x:
+		let mut rs = st.runs
+		for _ in 0..x.Ticks {
+			let mut next = rs
+			for id in maps.Keys(rs) {
+				match rs.Get(id) {
+				case Some[job.Run] as s:
+					next[id] = machines.Next(s.Value, job.Step(s.Value, job.Tick))
+				case None:
+				}
+			}
+			rs = next
+		}
+		(jwApiState{runs: rs, last: st.last}, jobsapi.Done{Reply: jobsapi.WorkReply})
+	}
+}
+
+let jwNames = []string{"", "build", "lint", "test"}
+
+func drawJWRequest() jobsapi.Request needs gen.Draws {
+	match gen.IntIn(0, 4) {
+	case 0:
+		let name = gen.OneOf(jwNames)
+		let steps = gen.IntIn(0, 4)
+		let failAt = gen.IntIn(0, 3)
+		jobsapi.SubmitRequest{Spec: jobs.Spec{Name: name, Steps: steps, FailAt: failAt}}
+	case 1:
+		jobsapi.CancelRequest{Id: gen.IntIn(1, 3)}
+	case 2:
+		jobsapi.StatusRequest{Id: gen.IntIn(1, 3)}
+	case 3:
+		jobsapi.ListRequest
+	case _:
+		jobsapi.WorkRequest{Ticks: gen.IntIn(0, 3)}
+	}
+}
+
+law ExploreJobsWebTransports(seed int) {
+	let s = ((seed % 50) + 50) % 50
+	let cfg = gen.Config{Seed: uint64(s + 1), Cases: 5, Shrinks: 0, MaxDraws: 512, MaxRejected: 10}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let refMem = memory.New()
+		let hubMem = memory.New()
+		let rpcMem = memory.New()
+		let model = testing.ApiModel[string, jobsapi.Request, jobsapi.Outcome]{
+			Start: "",
+			Offer: func(cur string) jobsapi.Request needs gen.Draws {
+				let _ = cur
+				drawJWRequest()
+			},
+			Fold: func(cur string, req jobsapi.Request) (string, jobsapi.Outcome) {
+				let _ = cur
+				let out = with context { jobs.Jobs: refMem } { jobsapi.Call(req) }
+				(jwSnapList(refMem.List()), out)
+			},
+		}
+		let runners = []testing.TransportRunner[jobsapi.Request, jobsapi.Outcome, string]{
+			testing.TransportRunner[jobsapi.Request, jobsapi.Outcome, string]{
+				Name:  "hub",
+				Carry: func(c jobsapi.Request) jobsapi.Outcome fails testing.Refused {
+					with context { jobs.Jobs: hubMem } { jobsapi.Call(c) }
+				},
+				Snap: func() string { jwSnapList(hubMem.List()) },
+			},
+			testing.TransportRunner[jobsapi.Request, jobsapi.Outcome, string]{
+				Name:  "rpc",
+				Carry: func(c jobsapi.Request) jobsapi.Outcome fails testing.Refused {
+					try testing.CarryTransport(jobsrpc.Wire, c, func(r jobsapi.Request) jobsapi.Outcome {
+						with context { jobs.Jobs: rpcMem } { jobsapi.Call(r) }
+					})
+				},
+				Snap: func() string { jwSnapList(rpcMem.List()) },
+			},
+		}
+		testing.ExploreTransports(model, runners, 6) catch {
+		case testing.TransportDiverged[jobsapi.Request, string], testing.Refused:
+			return false
+		}
+		true
+	})
+	match outcome {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}
+
+law JobsWebWireLaws(seed int) {
+	let s = ((seed % 50) + 50) % 50
+	let cfg = gen.Config{Seed: uint64(s + 1), Cases: 8, Shrinks: 0, MaxDraws: 512, MaxRejected: 10}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let mut st = jwApiState{runs: Map[int, job.Run]{}, last: 0}
+		for _ in 0..4 {
+			let req = drawJWRequest()
+			let (nextSt, out) = jwFoldStep(st, req)
+			st = nextSt
+			if !testing.WireRoundTrips(req) || !testing.WireRoundTrips(out) {
+				return false
+			}
+			if !testing.WireIgnoresUnknownField(req, "extraField", "ignored") {
+				return false
+			}
+		}
+			testing.WireRefusesUnknownTag[jobsapi.Request]("NoSuchJobsRequest") &&
+			testing.WireRefusesUnknownTag[jobsapi.Outcome]("NoSuchJobsOutcome")
+	})
+	match outcome {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}

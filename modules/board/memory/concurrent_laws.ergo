@@ -1,0 +1,326 @@
+import github.com/cevr/ergo/modules/board/board
+import testing
+
+type boardAct =
+	| ActPost{Who string, Text string}
+	| ActCreateTask{Who string, Text string}
+	| ActClaimTask{Who string, ID string}
+	| ActReadSnap{}
+	| ActReadEvents{}
+
+type boardRes =
+	| ResCommitted{Head int}
+	| ResRefused{Tag string}
+	| ResSnap{Messages int, Tasks int}
+	| ResEvents{Count int}
+
+type boardStory {
+	state board.State,
+	head  int,
+}
+
+func boardCallerOf(who string) board.Caller {
+	if who == "admin" {
+		return adminCaller()
+	}
+	if who == "agent" {
+		return aliceAgentCaller()
+	}
+	if who == "bob" {
+		return bobCaller()
+	}
+	aliceCaller()
+}
+
+func boardCmdOf(a boardAct) board.Command {
+	match a {
+	case ActPost as p:
+		board.PostMessage{
+			Caller:         boardCallerOf(p.Who),
+			Board:          board.DefaultBoard,
+			Channel:        "dev",
+			Text:           p.Text,
+			Labels:         Map[string, string]{},
+			NoSync:         false,
+			From:           "",
+			IdempotencyKey: "",
+		}
+	case ActCreateTask as t:
+		board.CreateTask{
+			Caller:         boardCallerOf(t.Who),
+			Board:          board.DefaultBoard,
+			Channel:        "dev",
+			Thread:         "",
+			Text:           t.Text,
+			Labels:         Map[string, string]{},
+			Needs:          []board.MessageID{},
+			For:            "",
+			Claim:          false,
+			LeaseMs:        0,
+			NoSync:         false,
+			IdempotencyKey: "",
+		}
+	case ActClaimTask as c:
+		board.ClaimTask{
+			Caller:  boardCallerOf(c.Who),
+			Board:   board.DefaultBoard,
+			ID:      board.MessageID(c.ID),
+			LeaseMs: 60000,
+		}
+	case ActReadSnap, ActReadEvents:
+		board.PostMessage{
+			Caller:         aliceCaller(),
+			Board:          board.DefaultBoard,
+			Channel:        "dev",
+			Text:           "",
+			Labels:         Map[string, string]{},
+			NoSync:         false,
+			From:           "",
+			IdempotencyKey: "",
+		}
+	}
+}
+
+func refusalTag(r board.Refusal) string {
+	match r {
+	case board.Unauthenticated:
+		"Unauthenticated"
+	case board.Forbidden:
+		"Forbidden"
+	case board.NotFound:
+		"NotFound"
+	case board.Invalid:
+		"Invalid"
+	case board.Gone:
+		"Gone"
+	case board.TooLarge:
+		"TooLarge"
+	case board.SecretDetected:
+		"SecretDetected"
+	case board.IdempotencyConflict:
+		"IdempotencyConflict"
+	case board.NewerMessage:
+		"NewerMessage"
+	case board.RevisionConflict:
+		"RevisionConflict"
+	case board.LabelConflict:
+		"LabelConflict"
+	case board.NotAuthor:
+		"NotAuthor"
+	case board.NotAsker:
+		"NotAsker"
+	case board.ReservedLabel:
+		"ReservedLabel"
+	case board.AskClosed:
+		"AskClosed"
+	case board.ChannelExists:
+		"ChannelExists"
+	case board.ChannelGranted:
+		"ChannelGranted"
+	case board.BoardNameTaken:
+		"BoardNameTaken"
+	case board.BoardNotFound:
+		"BoardNotFound"
+	case board.BoardArchived:
+		"BoardArchived"
+	case board.TaskClaimedRefusal:
+		"TaskClaimedRefusal"
+	case board.TaskAssignedRefusal:
+		"TaskAssignedRefusal"
+	case board.TaskWaitingRefusal:
+		"TaskWaitingRefusal"
+	case board.TaskBlockedRefusal:
+		"TaskBlockedRefusal"
+	case board.TaskFinished:
+		"TaskFinished"
+	case board.AlreadyTask:
+		"AlreadyTask"
+	case board.ClaimLost:
+		"ClaimLost"
+	case board.InvalidNeeds:
+		"InvalidNeeds"
+	case board.NotBlocked:
+		"NotBlocked"
+	case board.NotFailed:
+		"NotFailed"
+	case board.NothingReady:
+		"NothingReady"
+	case board.PlanTooLarge:
+		"PlanTooLarge"
+	case board.TaskNotOwned:
+		"TaskNotOwned"
+	case board.TaskOwnerUntrusted:
+		"TaskOwnerUntrusted"
+	}
+}
+
+func boardStoryStep(st boardStory, a boardAct) (boardStory, boardRes) {
+	match a {
+	case ActReadSnap:
+		(st, ResSnap{Messages: len(st.state.Messages), Tasks: len(st.state.Tasks)})
+	case ActReadEvents:
+		(st, ResEvents{Count: st.head})
+	case ActPost, ActCreateTask, ActClaimTask:
+		let cmd = boardCmdOf(a)
+		let evts = board.Decide(st.state, cmd, 200) catch {
+		case r:
+			return (st, ResRefused{Tag: refusalTag(r)})
+		}
+		if len(evts) == 0 {
+			return (st, ResCommitted{Head: st.head})
+		}
+		let mut seq = st.head
+		let mut nextState = st.state
+		for e in evts {
+			seq = seq + 1
+			let stamped = board.Event{..e, Seq: seq, Board: board.DefaultBoard}
+			nextState = board.Apply(nextState, stamped)
+		}
+		(boardStory{state: nextState, head: seq}, ResCommitted{Head: seq})
+	}
+}
+
+func execBoardOCC(store Store, cmd board.Command) boardRes {
+	for _ in 0..16 {
+		let (_, head) = board.Execute(store, cmd, 200) catch {
+		case board.StalePosition:
+			continue
+		case board.StoreFailed:
+			return ResRefused{Tag: "StoreFailed"}
+		case board.Unauthenticated:
+			return ResRefused{Tag: "Unauthenticated"}
+		case board.Forbidden:
+			return ResRefused{Tag: "Forbidden"}
+		case board.NotFound:
+			return ResRefused{Tag: "NotFound"}
+		case board.Invalid:
+			return ResRefused{Tag: "Invalid"}
+		case board.Gone:
+			return ResRefused{Tag: "Gone"}
+		case board.TooLarge:
+			return ResRefused{Tag: "TooLarge"}
+		case board.SecretDetected:
+			return ResRefused{Tag: "SecretDetected"}
+		case board.IdempotencyConflict:
+			return ResRefused{Tag: "IdempotencyConflict"}
+		case board.NewerMessage:
+			return ResRefused{Tag: "NewerMessage"}
+		case board.RevisionConflict:
+			return ResRefused{Tag: "RevisionConflict"}
+		case board.LabelConflict:
+			return ResRefused{Tag: "LabelConflict"}
+		case board.NotAuthor:
+			return ResRefused{Tag: "NotAuthor"}
+		case board.NotAsker:
+			return ResRefused{Tag: "NotAsker"}
+		case board.ReservedLabel:
+			return ResRefused{Tag: "ReservedLabel"}
+		case board.AskClosed:
+			return ResRefused{Tag: "AskClosed"}
+		case board.ChannelExists:
+			return ResRefused{Tag: "ChannelExists"}
+		case board.ChannelGranted:
+			return ResRefused{Tag: "ChannelGranted"}
+		case board.BoardNameTaken:
+			return ResRefused{Tag: "BoardNameTaken"}
+		case board.BoardNotFound:
+			return ResRefused{Tag: "BoardNotFound"}
+		case board.BoardArchived:
+			return ResRefused{Tag: "BoardArchived"}
+		case board.TaskClaimedRefusal:
+			return ResRefused{Tag: "TaskClaimedRefusal"}
+		case board.TaskAssignedRefusal:
+			return ResRefused{Tag: "TaskAssignedRefusal"}
+		case board.TaskWaitingRefusal:
+			return ResRefused{Tag: "TaskWaitingRefusal"}
+		case board.TaskBlockedRefusal:
+			return ResRefused{Tag: "TaskBlockedRefusal"}
+		case board.TaskFinished:
+			return ResRefused{Tag: "TaskFinished"}
+		case board.AlreadyTask:
+			return ResRefused{Tag: "AlreadyTask"}
+		case board.ClaimLost:
+			return ResRefused{Tag: "ClaimLost"}
+		case board.InvalidNeeds:
+			return ResRefused{Tag: "InvalidNeeds"}
+		case board.NotBlocked:
+			return ResRefused{Tag: "NotBlocked"}
+		case board.NotFailed:
+			return ResRefused{Tag: "NotFailed"}
+		case board.NothingReady:
+			return ResRefused{Tag: "NothingReady"}
+		case board.PlanTooLarge:
+			return ResRefused{Tag: "PlanTooLarge"}
+		case board.TaskNotOwned:
+			return ResRefused{Tag: "TaskNotOwned"}
+		case board.TaskOwnerUntrusted:
+			return ResRefused{Tag: "TaskOwnerUntrusted"}
+		}
+		return ResCommitted{Head: head}
+	}
+	ResRefused{Tag: "RetryExhausted"}
+}
+
+func runBoardAct(store Store, a boardAct) boardRes {
+	match a {
+	case ActReadSnap:
+		let snap = store.Snapshot() catch {
+		case board.StoreFailed:
+			return ResRefused{Tag: "StoreFailed"}
+		}
+		ResSnap{Messages: len(snap.Messages), Tasks: len(snap.Tasks)}
+	case ActReadEvents:
+		let evts = store.ReadEvents(board.DefaultBoard, 0) catch {
+		case board.StoreFailed:
+			return ResRefused{Tag: "StoreFailed"}
+		}
+		ResEvents{Count: len(evts)}
+	case ActPost, ActCreateTask, ActClaimTask:
+		execBoardOCC(store, boardCmdOf(a))
+	}
+}
+
+func showBoardAct(a boardAct) string {
+	match a {
+	case ActPost as p:
+		"Post(\(p.Who),\(p.Text))"
+	case ActCreateTask as t:
+		"CreateTask(\(t.Who),\(t.Text))"
+	case ActClaimTask as c:
+		"Claim(\(c.Who),\(c.ID))"
+	case ActReadSnap:
+		"ReadSnap"
+	case ActReadEvents:
+		"ReadEvents"
+	}
+}
+
+func showBoardRes(r boardRes) string {
+	match r {
+	case ResCommitted as c:
+		"Committed(\(c.Head))"
+	case ResRefused as x:
+		"Refused(\(x.Tag))"
+	case ResSnap as h:
+		"Snap(msgs=\(h.Messages),tasks=\(h.Tasks))"
+	case ResEvents as e:
+		"Events(\(e.Count))"
+	}
+}
+
+test BoardStoreConcurrentLinearizable {
+	let admins = testAdmins()
+	let store = NewWithAdmins(admins, 100)
+	let start = boardStory{state: board.InitialState(admins, 100), head: 0}
+	let plans = [][]boardAct{
+		[]boardAct{ActCreateTask{Who: "alice", Text: "ship release"}, ActClaimTask{Who: "agent", ID: "msg_1"}, ActReadSnap},
+		[]boardAct{ActPost{Who: "bob", Text: "status check"}, ActClaimTask{Who: "bob", ID: "msg_1"}, ActReadEvents},
+		[]boardAct{ActPost{Who: "alice", Text: "follow up"}, ActReadSnap},
+	}
+	testing.AgreesConcurrent(start, boardStoryStep, plans, func(a boardAct) boardRes {
+		runBoardAct(store, a)
+	}) catch {
+	case testing.NotLinearizable[boardAct, boardRes] as nl:
+		assert testing.FormatHistory(nl.History, showBoardAct, showBoardRes) == ""
+	}
+}

@@ -1,0 +1,110 @@
+import jobsapp/jobs
+import maps
+import slices
+import strings
+import testing
+import time
+
+type jobsAct =
+	| JobsAdd{Name string, Priority int}
+	| JobsGet{Id int}
+	| JobsAll{}
+
+type jobsRes =
+	| JobsAdded{Id int, Name string}
+	| JobsGot{Id int, Name string}
+	| JobsMissing{Id int}
+	| JobsList{Summary string}
+
+func summarizeJobs(js []jobs.Job) string {
+	let mut parts = []string{}
+	for j in js {
+		parts = parts.Append("\(j.Id):\(j.Name)")
+	}
+	strings.Join(parts, ",")
+}
+
+func jobsStoryStep(s Shelf, a jobsAct) (Shelf, jobsRes) {
+	let at = time.Unix(0, 0)
+	match a {
+	case JobsAdd as x:
+		let j = jobs.Job{Id: s.Last + 1, Name: x.Name, Priority: x.Priority, Created: at, State: jobs.Queued, Since: at}
+		let mut next = s.Jobs
+		next[j.Id] = j
+		(Shelf{Jobs: next, Last: j.Id}, JobsAdded{Id: j.Id, Name: j.Name})
+	case JobsGet as x:
+		match s.Jobs.Get(x.Id) {
+		case Some[jobs.Job] as j:
+			(s, JobsGot{Id: j.Value.Id, Name: j.Value.Name})
+		case None:
+			(s, JobsMissing{Id: x.Id})
+		}
+	case JobsAll:
+		let mut all = []jobs.Job{}
+		for id in slices.Sorted(maps.Keys(s.Jobs)) {
+			match s.Jobs.Get(id) {
+			case Some[jobs.Job] as j:
+				all = all.Append(j.Value)
+			case None:
+			}
+		}
+		(s, JobsList{Summary: summarizeJobs(all)})
+	}
+}
+
+func runJobsAct(t Table, a jobsAct) jobsRes {
+	let at = time.Unix(0, 0)
+	match a {
+	case JobsAdd as x:
+		let j = t.Add(x.Name, x.Priority, at)
+		JobsAdded{Id: j.Id, Name: j.Name}
+	case JobsGet as x:
+		let j = t.Get(x.Id) catch {
+		case jobs.NotFound as nf:
+			return JobsMissing{Id: nf.Id}
+		}
+		JobsGot{Id: j.Id, Name: j.Name}
+	case JobsAll:
+		JobsList{Summary: summarizeJobs(t.All())}
+	}
+}
+
+func showJobsAct(a jobsAct) string {
+	match a {
+	case JobsAdd as x:
+		"Add(\(x.Name),\(x.Priority))"
+	case JobsGet as x:
+		"Get(\(x.Id))"
+	case JobsAll:
+		"All"
+	}
+}
+
+func showJobsRes(r jobsRes) string {
+	match r {
+	case JobsAdded as x:
+		"Added(\(x.Id),\(x.Name))"
+	case JobsGot as x:
+		"Got(\(x.Id),\(x.Name))"
+	case JobsMissing as x:
+		"Missing(\(x.Id))"
+	case JobsList as x:
+		"All(\(x.Summary))"
+	}
+}
+
+test JobsTableConcurrentLinearizable {
+	let t = NewTable()
+	let start = Shelf{Jobs: Map[int, jobs.Job]{}, Last: 0}
+	let plans = [][]jobsAct{
+		[]jobsAct{JobsAdd{Name: "build", Priority: 1}, JobsGet{Id: 1}, JobsAll},
+		[]jobsAct{JobsAdd{Name: "test", Priority: 2}, JobsGet{Id: 2}, JobsAll},
+		[]jobsAct{JobsAdd{Name: "deploy", Priority: 3}, JobsAll},
+	}
+	testing.AgreesConcurrent(start, jobsStoryStep, plans, func(a jobsAct) jobsRes {
+		runJobsAct(t, a)
+	}) catch {
+	case testing.NotLinearizable[jobsAct, jobsRes] as nl:
+		assert testing.FormatHistory(nl.History, showJobsAct, showJobsRes) == ""
+	}
+}

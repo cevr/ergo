@@ -3,3 +3,4 @@
 # both name the same ID; Create takes the next ID again when the Store says
 # it is taken (testdata/mutants.json: "create takes a taken ID as invalid").
 memory TwoCreatesAtOnceBothLand --explore dfs --preempt 1
+memory TableConcurrentLinearizable --explore pct --seed 1

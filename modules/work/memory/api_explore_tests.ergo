@@ -1,0 +1,115 @@
+import gen
+import github.com/cevr/ergo/modules/work/work
+import github.com/cevr/ergo/modules/work/work/workapi
+import github.com/cevr/ergo/modules/work/work/workcli
+import strings
+import testing
+
+let workExploreNames = []string{"alpha", "beta", "gamma"}
+
+func drawWorkRequest() workapi.Request needs gen.Draws {
+	let name = gen.OneOf(workExploreNames)
+	match gen.IntIn(0, 5) {
+	case 0:
+		workapi.NewRequest{Name: name, O: work.NewOptions{Copy: false, From: None, Branch: None, On: None, Token: None}}
+	case 1:
+		workapi.ListRequest{O: work.ListOptions{Status: false}}
+	case 2:
+		workapi.PinRequest{Name: name}
+	case 3:
+		workapi.UnpinRequest{Name: name}
+	case 4:
+		workapi.RmRequest{Name: name, O: work.RmOptions{Abandon: true, Expect: None, Tree: false}}
+	case _:
+		workapi.VersionRequest
+	}
+}
+
+func workListSnap(tool work.Tool) string {
+	let xs = tool.List(work.ListOptions{Status: false}) catch {
+	case _:
+		return "err"
+	}
+	let mut parts = []string{}
+	for item in xs {
+		parts = parts.Append("\(item.Name):\(item.Id)")
+	}
+	strings.Join(parts, ",")
+}
+
+law ExploreWorkTransports(seed int) {
+	let s = ((seed % 30) + 30) % 30
+	let cfg = gen.Config{Seed: uint64(s + 1), Cases: 3, Shrinks: 0, MaxDraws: 512, MaxRejected: 10}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let refTool = lawTool()
+		let hubTool = lawTool()
+		let cliTool = lawTool()
+		let model = testing.ApiModel[string, workapi.Request, workapi.Outcome]{
+			Start: workListSnap(refTool),
+			Offer: func(cur string) workapi.Request needs gen.Draws {
+				let _ = cur
+				drawWorkRequest()
+			},
+			Fold: func(cur string, req workapi.Request) (string, workapi.Outcome) {
+				let _ = cur
+				let out = with context { work.Api: refTool } { workapi.Call(req) }
+				(workListSnap(refTool), out)
+			},
+		}
+		let runners = []testing.TransportRunner[workapi.Request, workapi.Outcome, string]{
+			testing.TransportRunner[workapi.Request, workapi.Outcome, string]{
+				Name:  "hub",
+				Carry: func(c workapi.Request) workapi.Outcome fails testing.Refused {
+					with context { work.Api: hubTool } { workapi.Call(c) }
+				},
+				Snap: func() string { workListSnap(hubTool) },
+			},
+			testing.TransportRunner[workapi.Request, workapi.Outcome, string]{
+				Name:  "cli",
+				Carry: func(c workapi.Request) workapi.Outcome fails testing.Refused {
+					try testing.CarryTransport(workcli.Wire, c, func(r workapi.Request) workapi.Outcome {
+						with context { work.Api: cliTool } { workapi.Call(r) }
+					})
+				},
+				Snap: func() string { workListSnap(cliTool) },
+			},
+		}
+		testing.ExploreTransports(model, runners, 5) catch {
+		case testing.TransportDiverged[workapi.Request, string], testing.Refused:
+			return false
+		}
+		true
+	})
+	match outcome {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}
+
+law WorkWireLaws(seed int) {
+	let s = ((seed % 30) + 30) % 30
+	let cfg = gen.Config{Seed: uint64(s + 1), Cases: 5, Shrinks: 0, MaxDraws: 512, MaxRejected: 10}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let refTool = lawTool()
+		for _ in 0..4 {
+			let req = drawWorkRequest()
+			let out = with context { work.Api: refTool } { workapi.Call(req) }
+			if !testing.WireRoundTrips(req) || !testing.WireRoundTrips(out) {
+				return false
+			}
+			if !testing.WireIgnoresUnknownField(req, "extraField", "ignored") {
+				return false
+			}
+		}
+			testing.WireRefusesUnknownTag[workapi.Request]("NoSuchWorkRequest") &&
+			testing.WireRefusesUnknownTag[workapi.Outcome]("NoSuchWorkOutcome")
+	})
+	match outcome {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}

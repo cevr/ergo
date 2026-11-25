@@ -1,0 +1,138 @@
+import deploys/deploys
+import strings
+import testing
+
+type deployAct =
+	| DepAdd{ID string, Service string}
+	| DepReplace{ID string, Service string}
+	| DepFind{ID string}
+	| DepCount{}
+	| DepAllIDs{}
+
+type deployRes =
+	| DepOK{}
+	| DepTaken{ID string}
+	| DepNotFound{ID string}
+	| DepFound{Service string}
+	| DepNum{N int}
+	| DepList{IDs string}
+
+func sampleDeploy(id string, service string) deploys.Deploy {
+	deploys.Deploy{
+		ID:      id,
+		Service: service,
+		Units:   []deploys.Unit{deploys.Unit{Image: service + ":1", Replicas: 1, Mem: 64}},
+		Total:   64,
+		Status:  deploys.Pending,
+	}
+}
+
+func deployStoryStep(e entries, a deployAct) (entries, deployRes) {
+	match a {
+	case DepAdd as x:
+		if e.byID.Get(x.ID) != None {
+			return (e, DepTaken{ID: x.ID})
+		}
+		let mut next = e.byID
+		next[x.ID] = sampleDeploy(x.ID, x.Service)
+		(entries{byID: next, order: e.order.Append(x.ID)}, DepOK)
+	case DepReplace as x:
+		if e.byID.Get(x.ID) == None {
+			return (e, DepNotFound{ID: x.ID})
+		}
+		let mut next = e.byID
+		next[x.ID] = sampleDeploy(x.ID, x.Service)
+		(entries{byID: next, order: e.order}, DepOK)
+	case DepFind as x:
+		match e.byID.Get(x.ID) {
+		case Some[deploys.Deploy] as d:
+			(e, DepFound{Service: d.Value.Service})
+		case None:
+			(e, DepNotFound{ID: x.ID})
+		}
+	case DepCount:
+		(e, DepNum{N: len(e.byID)})
+	case DepAllIDs:
+		(e, DepList{IDs: strings.Join(e.order, ",")})
+	}
+}
+
+func runDeployAct(t Table, a deployAct) deployRes {
+	match a {
+	case DepAdd as x:
+		t.Add(sampleDeploy(x.ID, x.Service)) catch {
+		case deploys.Taken as tk:
+			return DepTaken{ID: tk.ID}
+		}
+		DepOK
+	case DepReplace as x:
+		t.Replace(sampleDeploy(x.ID, x.Service)) catch {
+		case deploys.NotFound as nf:
+			return DepNotFound{ID: nf.ID}
+		}
+		DepOK
+	case DepFind as x:
+		let d = t.Find(x.ID) catch {
+		case deploys.NotFound as nf:
+			return DepNotFound{ID: nf.ID}
+		}
+		DepFound{Service: d.Service}
+	case DepCount:
+		DepNum{N: t.Count()}
+	case DepAllIDs:
+		let all = t.All()
+		let mut ids = []string{}
+		for d in all {
+			ids = ids.Append(d.ID)
+		}
+		DepList{IDs: strings.Join(ids, ",")}
+	}
+}
+
+func showDeployAct(a deployAct) string {
+	match a {
+	case DepAdd as x:
+		"Add(\(x.ID),\(x.Service))"
+	case DepReplace as x:
+		"Replace(\(x.ID),\(x.Service))"
+	case DepFind as x:
+		"Find(\(x.ID))"
+	case DepCount:
+		"Count"
+	case DepAllIDs:
+		"AllIDs"
+	}
+}
+
+func showDeployRes(r deployRes) string {
+	match r {
+	case DepOK:
+		"OK"
+	case DepTaken as t:
+		"Taken(\(t.ID))"
+	case DepNotFound as nf:
+		"NotFound(\(nf.ID))"
+	case DepFound as f:
+		"Found(\(f.Service))"
+	case DepNum as n:
+		"Count(\(n.N))"
+	case DepList as l:
+		"All(\(l.IDs))"
+	}
+}
+
+test TableConcurrentLinearizable {
+	let t = NewTable()
+	let start = entries{byID: Map[string, deploys.Deploy]{}, order: []string{}}
+	let plans = [][]deployAct{
+		[]deployAct{DepAdd{ID: "dep-1", Service: "web"}, DepReplace{ID: "dep-1", Service: "web-v2"}, DepAllIDs},
+		[]deployAct{DepAdd{ID: "dep-2", Service: "api"}, DepFind{ID: "dep-1"}, DepCount},
+		[]deployAct{DepAdd{ID: "dep-1", Service: "dup"}, DepAdd{ID: "dep-3", Service: "worker"}, DepAllIDs},
+	}
+	testing.AgreesConcurrent(start, deployStoryStep, plans, func(a deployAct) deployRes {
+		runDeployAct(t, a)
+	}) catch {
+	case testing.NotLinearizable[deployAct, deployRes] as nl:
+		assert testing.FormatHistory(nl.History, showDeployAct, showDeployRes) == ""
+	}
+}

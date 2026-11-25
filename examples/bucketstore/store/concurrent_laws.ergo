@@ -1,0 +1,81 @@
+import testing
+
+type bucketAct =
+	| BktBump{Bucket string, Counter string}
+	| BktCount{Bucket string, Counter string}
+	| BktBuckets{}
+
+func bucketStoryStep(all Map[string, Bucket], a bucketAct) (Map[string, Bucket], int) {
+	match a {
+	case BktBump as x:
+		let mut m = all
+		let mut k = fresh()
+		match m.Get(x.Bucket) {
+		case Some[Bucket] as v:
+			k = v.Value
+		case None:
+		}
+		let n = match k.counts.Get(x.Counter) {
+		case Some[int] as c:
+			c.Value + 1
+		case None:
+			1
+		}
+		k.counts[x.Counter] = n
+		m[x.Bucket] = k
+		(m, n)
+	case BktCount as x:
+		match all.Get(x.Bucket) {
+		case Some[Bucket] as v:
+			match v.Value.counts.Get(x.Counter) {
+			case Some[int] as c:
+				(all, c.Value)
+			case None:
+				(all, 0)
+			}
+		case None:
+			(all, 0)
+		}
+	case BktBuckets:
+		(all, len(all))
+	}
+}
+
+func runBucketAct(s Store, a bucketAct) int {
+	match a {
+	case BktBump as x:
+		Bump(s, x.Bucket, x.Counter)
+	case BktCount as x:
+		Count(s, x.Bucket, x.Counter)
+	case BktBuckets:
+		Buckets(s)
+	}
+}
+
+func showBucketAct(a bucketAct) string {
+	match a {
+	case BktBump as x:
+		"Bump(\(x.Bucket),\(x.Counter))"
+	case BktCount as x:
+		"Count(\(x.Bucket),\(x.Counter))"
+	case BktBuckets:
+		"Buckets"
+	}
+}
+
+func showBucketRes(r int) string { "\(r)" }
+
+test BucketStoreConcurrentLinearizable {
+	let s = New()
+	let plans = [][]bucketAct{
+		[]bucketAct{BktBump{Bucket: "http", Counter: "ok"}, BktBump{Bucket: "http", Counter: "ok"}, BktCount{Bucket: "http", Counter: "ok"}},
+		[]bucketAct{BktBump{Bucket: "http", Counter: "ok"}, BktBump{Bucket: "db", Counter: "q"}, BktBuckets},
+		[]bucketAct{BktBump{Bucket: "db", Counter: "q"}, BktCount{Bucket: "db", Counter: "q"}, BktCount{Bucket: "http", Counter: "ok"}},
+	}
+	testing.AgreesConcurrent(Map[string, Bucket]{}, bucketStoryStep, plans, func(a bucketAct) int {
+		runBucketAct(s, a)
+	}) catch {
+	case testing.NotLinearizable[bucketAct, int] as nl:
+		assert testing.FormatHistory(nl.History, showBucketAct, showBucketRes) == ""
+	}
+}

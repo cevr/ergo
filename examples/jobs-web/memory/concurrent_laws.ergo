@@ -1,0 +1,181 @@
+import jobsweb/job
+import jobsweb/jobs
+import machines
+import maps
+import slices
+import strings
+import testing
+
+type jwAct =
+	| JWSubmit{Name string, Steps int}
+	| JWCancel{ID int}
+	| JWWork{Ticks int}
+	| JWStatus{ID int}
+	| JWList{}
+
+type jwRes =
+	| JWSubmitted{ID int}
+	| JWRejected{}
+	| JWCancelled{}
+	| JWNoSuch{ID int}
+	| JWAlreadyDone{ID int}
+	| JWWorked{}
+	| JWStatusVal{Found bool, Name string}
+	| JWListVal{Summary string}
+
+type jwStory {
+	runs Map[int, job.Run],
+	last int,
+}
+
+func summarizeJW(js []jobs.Job) string {
+	let mut parts = []string{}
+	for j in js {
+		parts = parts.Append("\(j.ID):\(j.Name):\(jobs.Rank(j.State))")
+	}
+	strings.Join(parts, ",")
+}
+
+func jwStoryStep(st jwStory, a jwAct) (jwStory, jwRes) {
+	match a {
+	case JWSubmit as x:
+		let spec = jobs.Spec{Name: x.Name, Steps: x.Steps, FailAt: 0}
+		if spec.Name == "" || spec.Steps < 1 || spec.Steps > 100 {
+			return (st, JWRejected)
+		}
+		let id = st.last + 1
+		let mut next = st.runs
+		next[id] = job.Open(spec)
+		(jwStory{runs: next, last: id}, JWSubmitted{ID: id})
+	case JWCancel as x:
+		let r = match st.runs.Get(x.ID) {
+		case Some[job.Run] as s:
+			s.Value
+		case None:
+			return (st, JWNoSuch{ID: x.ID})
+		}
+		let d = job.Step(r, job.Cancel)
+		match d {
+		case Reject:
+			(st, JWAlreadyDone{ID: x.ID})
+		case Emit[job.Run, jobs.State], Tell[job.Run, jobs.State], Enter[job.Run], Stay[job.Run], Ignore, Done[jobs.State]:
+			let mut next = st.runs
+			next[x.ID] = machines.Next(r, d)
+			(jwStory{runs: next, last: st.last}, JWCancelled)
+		}
+	case JWWork as x:
+		let mut rs = st.runs
+		for _ in 0..x.Ticks {
+			let mut next = rs
+			for id in maps.Keys(rs) {
+				match rs.Get(id) {
+				case Some[job.Run] as s:
+					next[id] = machines.Next(s.Value, job.Step(s.Value, job.Tick))
+				case None:
+				}
+			}
+			rs = next
+		}
+		(jwStory{runs: rs, last: st.last}, JWWorked)
+	case JWStatus as x:
+		match st.runs.Get(x.ID) {
+		case Some[job.Run] as s:
+			(st, JWStatusVal{Found: true, Name: s.Value.Spec.Name})
+		case None:
+			(st, JWStatusVal{Found: false, Name: ""})
+		}
+	case JWList:
+		let mut out = []jobs.Job{}
+		for id in slices.Sorted(maps.Keys(st.runs)) {
+			match st.runs.Get(id) {
+			case Some[job.Run] as s:
+				out = out.Append(job.View(id, s.Value))
+			case None:
+			}
+		}
+		(st, JWListVal{Summary: summarizeJW(out)})
+	}
+}
+
+func runJWAct(m Memory, a jwAct) jwRes {
+	match a {
+	case JWSubmit as x:
+		let id = m.Submit(jobs.Spec{Name: x.Name, Steps: x.Steps, FailAt: 0}) catch {
+		case jobs.Rejected:
+			return JWRejected
+		}
+		JWSubmitted{ID: id}
+	case JWCancel as x:
+		m.Cancel(x.ID) catch {
+		case jobs.NoSuchJob as e:
+			return JWNoSuch{ID: e.ID}
+		case jobs.AlreadyDone as e:
+			return JWAlreadyDone{ID: e.ID}
+		}
+		JWCancelled
+	case JWWork as x:
+		m.Work(x.Ticks)
+		JWWorked
+	case JWStatus as x:
+		match m.Status(x.ID) {
+		case Some[jobs.Job] as j:
+			JWStatusVal{Found: true, Name: j.Value.Name}
+		case None:
+			JWStatusVal{Found: false, Name: ""}
+		}
+	case JWList:
+		JWListVal{Summary: summarizeJW(m.List())}
+	}
+}
+
+func showJWAct(a jwAct) string {
+	match a {
+	case JWSubmit as x:
+		"Submit(\(x.Name),\(x.Steps))"
+	case JWCancel as x:
+		"Cancel(\(x.ID))"
+	case JWWork as x:
+		"Work(\(x.Ticks))"
+	case JWStatus as x:
+		"Status(\(x.ID))"
+	case JWList:
+		"List"
+	}
+}
+
+func showJWRes(r jwRes) string {
+	match r {
+	case JWSubmitted as x:
+		"Submitted(\(x.ID))"
+	case JWRejected:
+		"Rejected"
+	case JWCancelled:
+		"Cancelled"
+	case JWNoSuch as x:
+		"NoSuch(\(x.ID))"
+	case JWAlreadyDone as x:
+		"AlreadyDone(\(x.ID))"
+	case JWWorked:
+		"Worked"
+	case JWStatusVal as x:
+		"Status(\(x.Found),\(x.Name))"
+	case JWListVal as x:
+		"List(\(x.Summary))"
+	}
+}
+
+test JobsWebMemoryConcurrentLinearizable {
+	let m = New()
+	let start = jwStory{runs: Map[int, job.Run]{}, last: 0}
+	let plans = [][]jwAct{
+		[]jwAct{JWSubmit{Name: "a", Steps: 2}, JWCancel{ID: 1}, JWList},
+		[]jwAct{JWSubmit{Name: "b", Steps: 2}, JWStatus{ID: 1}, JWList},
+		[]jwAct{JWSubmit{Name: "c", Steps: 1}, JWCancel{ID: 2}, JWList},
+	}
+	testing.AgreesConcurrent(start, jwStoryStep, plans, func(a jwAct) jwRes {
+		runJWAct(m, a)
+	}) catch {
+	case testing.NotLinearizable[jwAct, jwRes] as nl:
+		assert testing.FormatHistory(nl.History, showJWAct, showJWRes) == ""
+	}
+}

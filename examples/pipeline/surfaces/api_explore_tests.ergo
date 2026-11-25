@@ -1,0 +1,196 @@
+import gen
+import github.com/cevr/ergo/modules/domain
+import github.com/cevr/ergo/modules/domain/memory
+import pipeline/pipeline
+import pipeline/pipeline/pipelineapi
+import pipeline/pipeline/pipelinecli
+import pipeline/pipeline/pipelinemcp
+import pipeline/pipeline/pipelinerpc
+import rpc
+import runners pipeline/memory
+import testing
+import time
+
+func drawPipelineRequest(step int) pipelineapi.Request needs gen.Draws {
+	let name = gen.OneOf(Names)
+	match gen.IntIn(0, 5) {
+	case 0, 1:
+		pipelineapi.SubmitRequest{C: pipeline.SubmitRun{ID: "c\(step)", Run: name, Stages: gen.IntIn(0, 4)}}
+	case 2:
+		pipelineapi.CancelRequest{C: pipeline.CancelRun{ID: "c\(step)", Run: name, Why: "stop"}}
+	case 3:
+		pipelineapi.RetryRequest{C: pipeline.RetryRun{ID: "c\(step)", Run: name, Stage: gen.IntIn(0, 2)}}
+	case 4:
+		pipelineapi.BoardRequest
+	case _:
+		pipelineapi.RunOfRequest{Id: name}
+	}
+}
+
+func pipeSnapCtx(ctx Context[pipeline.Pipeline], clock time.Manual) string {
+	clock.Advance(0s)
+	with ctx { rpc.Encode(pipeline.Pipeline.Board()) }
+}
+
+func runPipelineExploreWithCtx(
+	clock time.Manual,
+	refCtx Context[pipeline.Pipeline],
+	hubCtx Context[pipeline.Pipeline],
+	cliCtx Context[pipeline.Pipeline],
+	mcpCtx Context[pipeline.Pipeline],
+	rpcCtx Context[pipeline.Pipeline],
+) bool needs gen.Draws {
+	let model = testing.ApiModel[string, pipelineapi.Request, pipelineapi.Outcome]{
+		Start: pipeSnapCtx(refCtx, clock),
+		Offer: func(cur string) pipelineapi.Request needs gen.Draws {
+			let _ = cur
+			drawPipelineRequest(gen.IntIn(0, 8))
+		},
+		Fold: func(cur string, req pipelineapi.Request) (string, pipelineapi.Outcome) {
+			let _ = cur
+			let out = with refCtx { pipelineapi.Call(req) }
+			(pipeSnapCtx(refCtx, clock), out)
+		},
+	}
+	let runnersList = []testing.TransportRunner[pipelineapi.Request, pipelineapi.Outcome, string]{
+		testing.TransportRunner[pipelineapi.Request, pipelineapi.Outcome, string]{
+			Name:  "hub",
+			Carry: func(c pipelineapi.Request) pipelineapi.Outcome fails testing.Refused {
+				let out = with hubCtx { pipelineapi.Call(c) }
+				clock.Advance(0s)
+				out
+			},
+			Snap: func() string { pipeSnapCtx(hubCtx, clock) },
+		},
+		testing.TransportRunner[pipelineapi.Request, pipelineapi.Outcome, string]{
+			Name:  "cli",
+			Carry: func(c pipelineapi.Request) pipelineapi.Outcome fails testing.Refused {
+				let out = try testing.CarryTransport(pipelinecli.Wire, c, func(r pipelineapi.Request) pipelineapi.Outcome {
+					with cliCtx { pipelineapi.Call(r) }
+				})
+				clock.Advance(0s)
+				out
+			},
+			Snap: func() string { pipeSnapCtx(cliCtx, clock) },
+		},
+		testing.TransportRunner[pipelineapi.Request, pipelineapi.Outcome, string]{
+			Name:  "mcp",
+			Carry: func(c pipelineapi.Request) pipelineapi.Outcome fails testing.Refused {
+				let out = try testing.CarryTransport(pipelinemcp.Wire, c, func(r pipelineapi.Request) pipelineapi.Outcome {
+					with mcpCtx { pipelineapi.Call(r) }
+				})
+				clock.Advance(0s)
+				out
+			},
+			Snap: func() string { pipeSnapCtx(mcpCtx, clock) },
+		},
+		testing.TransportRunner[pipelineapi.Request, pipelineapi.Outcome, string]{
+			Name:  "rpc",
+			Carry: func(c pipelineapi.Request) pipelineapi.Outcome fails testing.Refused {
+				let out = try testing.CarryTransport(pipelinerpc.Wire, c, func(r pipelineapi.Request) pipelineapi.Outcome {
+					with rpcCtx { pipelineapi.Call(r) }
+				})
+				clock.Advance(0s)
+				out
+			},
+			Snap: func() string { pipeSnapCtx(rpcCtx, clock) },
+		},
+	}
+	testing.ExploreTransports(model, runnersList, 5) catch {
+	case testing.TransportDiverged[pipelineapi.Request, string], testing.Refused:
+		return false
+	}
+	true
+}
+
+law ExplorePipelineTransports(seed int) {
+	let s = ((seed % 30) + 30) % 30
+	let cfg = gen.Config{Seed: uint64(s + 1), Cases: 3, Shrinks: 0, MaxDraws: 512, MaxRejected: 10}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let mut table = Map[int, int]{}
+		table[0] = 1
+		let clock = time.NewManual(0)
+		with context { Scheduler: clock, pipeline.Runner: runners.New(table) } {
+			let refM = pipeline.Open(memory.New[pipeline.Entry]()) catch {
+			case domain.Conflict, domain.Reused, domain.Unkept:
+				return false
+			}
+			let hubM = pipeline.Open(memory.New[pipeline.Entry]()) catch {
+			case domain.Conflict, domain.Reused, domain.Unkept:
+				return false
+			}
+			let cliM = pipeline.Open(memory.New[pipeline.Entry]()) catch {
+			case domain.Conflict, domain.Reused, domain.Unkept:
+				return false
+			}
+			let mcpM = pipeline.Open(memory.New[pipeline.Entry]()) catch {
+			case domain.Conflict, domain.Reused, domain.Unkept:
+				return false
+			}
+			let rpcM = pipeline.Open(memory.New[pipeline.Entry]()) catch {
+			case domain.Conflict, domain.Reused, domain.Unkept:
+				return false
+			}
+			with context { pipeline.Pipeline: refM } {
+				let refCtx = InForce[pipeline.Pipeline]()
+				with context { pipeline.Pipeline: hubM } {
+					let hubCtx = InForce[pipeline.Pipeline]()
+					with context { pipeline.Pipeline: cliM } {
+						let cliCtx = InForce[pipeline.Pipeline]()
+						with context { pipeline.Pipeline: mcpM } {
+							let mcpCtx = InForce[pipeline.Pipeline]()
+							with context { pipeline.Pipeline: rpcM } {
+								let rpcCtx = InForce[pipeline.Pipeline]()
+								runPipelineExploreWithCtx(clock, refCtx, hubCtx, cliCtx, mcpCtx, rpcCtx)
+							}
+						}
+					}
+				}
+			}
+		}
+	})
+	match outcome {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}
+
+law PipelineWireLaws(seed int) {
+	let s = ((seed % 30) + 30) % 30
+	let cfg = gen.Config{Seed: uint64(s + 1), Cases: 5, Shrinks: 0, MaxDraws: 512, MaxRejected: 10}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let mut table = Map[int, int]{}
+		table[0] = 1
+		let clock = time.NewManual(0)
+		with context { Scheduler: clock, pipeline.Runner: runners.New(table) } {
+			let m = pipeline.Open(memory.New[pipeline.Entry]()) catch {
+			case domain.Conflict, domain.Reused, domain.Unkept:
+				return false
+			}
+			for i in 0..4 {
+				let req = drawPipelineRequest(i)
+				let out = with context { pipeline.Pipeline: m } { pipelineapi.Call(req) }
+				let _ = m.Settle() catch {
+				case pipeline.Unavailable:
+					return false
+				}
+				if !testing.WireRoundTrips(req) || !testing.WireRoundTrips(out) {
+					return false
+				}
+				if !testing.WireIgnoresUnknownField(req, "extraField", "ignored") {
+					return false
+				}
+			}
+				testing.WireRefusesUnknownTag[pipelineapi.Request]("NoSuchPipelineRequest") &&
+				testing.WireRefusesUnknownTag[pipelineapi.Outcome]("NoSuchPipelineOutcome")
+		}
+	})
+	match outcome {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}

@@ -1,0 +1,204 @@
+import gen
+import limiter/bucket
+import limiter/limits
+import limiter/limits/limitsapi
+import limiter/limits/limitsrpc
+import limiter/memory
+import machines
+import maps
+import slices
+import strings
+import testing
+
+func limInitial() Map[string, bucket.Bucket] {
+	let mut bs = Map[string, bucket.Bucket]{}
+	bs["fast"] = bucket.Open(bucket.Spec{Capacity: 3, RefillMs: 7})
+	bs["slow"] = bucket.Open(bucket.Spec{Capacity: 4, RefillMs: 250})
+	bs
+}
+
+func limSnap(m memory.Memory) string {
+	let mut parts = []string{}
+	for k in []string{"fast", "slow"} {
+		let txt = match m.Peek(k) {
+		case Some[limits.Level] as lv:
+			match lv.Value {
+			case limits.Full:
+				"full"
+			case limits.Partial as p:
+				"part(\(p.Tokens))"
+			case limits.Empty as e:
+				"empty(\(e.RetryAfterMs))"
+			}
+		case None:
+			"none"
+		}
+		parts = parts.Append("\(k)=\(txt)")
+	}
+	strings.Join(parts, ",")
+}
+
+func limFoldSnap(bs Map[string, bucket.Bucket]) string {
+	let mut parts = []string{}
+	for k in []string{"fast", "slow"} {
+		let txt = match bs.Get(k) {
+		case Some[bucket.Bucket] as b:
+			match bucket.LevelOf(b.Value) {
+			case limits.Full:
+				"full"
+			case limits.Partial as p:
+				"part(\(p.Tokens))"
+			case limits.Empty as e:
+				"empty(\(e.RetryAfterMs))"
+			}
+		case None:
+			"none"
+		}
+		parts = parts.Append("\(k)=\(txt)")
+	}
+	strings.Join(parts, ",")
+}
+
+func limFoldStep(bs Map[string, bucket.Bucket], req limitsapi.Request) (Map[string, bucket.Bucket], limitsapi.Outcome) {
+	match req {
+	case limitsapi.TakeRequest as x:
+		let b = match bs.Get(x.Key) {
+		case Some[bucket.Bucket] as s:
+			s.Value
+		case None:
+			return (bs, limitsapi.Rejected{Failure: limitsapi.UnknownBucket{E: limits.UnknownBucket{Key: x.Key}}})
+		}
+		let d = bucket.Step(b, bucket.Spend{Cost: x.Cost})
+		let mut next = bs
+		next[x.Key] = machines.Next(b, d)
+		match d {
+		case Emit[bucket.Bucket, bucket.Told] as e:
+			match e.Output {
+			case bucket.Granted as g:
+				(next, limitsapi.Done{Reply: limitsapi.TakeReply{Value: limits.Grant{Remaining: g.Remaining}}})
+			case bucket.Short as s:
+				(next, limitsapi.Rejected{Failure: limitsapi.Limited{E: limits.Limited{RetryAfterMs: s.RetryAfterMs}}})
+			}
+		case Enter[bucket.Bucket], Stay[bucket.Bucket], Tell[bucket.Bucket, bucket.Told], Ignore, Reject, Done[bucket.Told]:
+			(bs, limitsapi.Rejected{Failure: limitsapi.BadCost{E: limits.BadCost{Cost: x.Cost, Capacity: b.Capacity}}})
+		}
+	case limitsapi.HoldRequest as x:
+		let b = match bs.Get(x.Key) {
+		case Some[bucket.Bucket] as s:
+			s.Value
+		case None:
+			return (bs, limitsapi.Rejected{Failure: limitsapi.UnknownBucket{E: limits.UnknownBucket{Key: x.Key}}})
+		}
+		(bs, limitsapi.Rejected{Failure: limitsapi.BadCost{E: limits.BadCost{Cost: x.Cost, Capacity: b.Capacity}}})
+	case limitsapi.PeekRequest as x:
+		match bs.Get(x.Key) {
+		case Some[bucket.Bucket] as s:
+			(bs, limitsapi.Done{Reply: limitsapi.PeekReply{Value: Some[limits.Level]{Value: bucket.LevelOf(s.Value)}}})
+		case None:
+			(bs, limitsapi.Done{Reply: limitsapi.PeekReply{Value: None}})
+		}
+	case limitsapi.AdvanceRequest as x:
+		let mut next = bs
+		for k in maps.Keys(bs) {
+			let b = maps.GetOr(bs, k, bucket.Open(bucket.Spec{Capacity: 1, RefillMs: 1}))
+			next[k] = machines.Next(b, bucket.Step(b, bucket.Elapse{Ms: x.Ms}))
+		}
+		(next, limitsapi.Done{Reply: limitsapi.AdvanceReply})
+	case limitsapi.BucketsRequest:
+		(bs, limitsapi.Done{Reply: limitsapi.BucketsReply{Value: slices.Sorted(maps.Keys(bs))}})
+	}
+}
+
+let limKeys = []string{"fast", "slow", "missing"}
+
+func drawLimiterRequest() limitsapi.Request needs gen.Draws {
+	match gen.IntIn(0, 3) {
+	case 0:
+		limitsapi.TakeRequest{Key: gen.OneOf(limKeys), Cost: gen.IntIn(0, 5)}
+	case 1:
+		limitsapi.PeekRequest{Key: gen.OneOf(limKeys)}
+	case 2:
+		limitsapi.AdvanceRequest{Ms: gen.IntIn(0, 20)}
+	case _:
+		limitsapi.BucketsRequest
+	}
+}
+
+law ExploreLimiterTransports(seed int) {
+	let s = ((seed % 50) + 50) % 50
+	let cfg = gen.Config{Seed: uint64(s + 1), Cases: 5, Shrinks: 0, MaxDraws: 512, MaxRejected: 10}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let refMem = memory.NewMemory()
+		let hubMem = memory.NewMemory()
+		let rpcMem = memory.NewMemory()
+		let model = testing.ApiModel[string, limitsapi.Request, limitsapi.Outcome]{
+			Start: limSnap(refMem),
+			Offer: func(cur string) limitsapi.Request needs gen.Draws {
+				let _ = cur
+				drawLimiterRequest()
+			},
+			Fold: func(cur string, req limitsapi.Request) (string, limitsapi.Outcome) {
+				let _ = cur
+				let out = with context { limits.Limiter: refMem } { limitsapi.Call(req) }
+				(limSnap(refMem), out)
+			},
+		}
+		let runners = []testing.TransportRunner[limitsapi.Request, limitsapi.Outcome, string]{
+			testing.TransportRunner[limitsapi.Request, limitsapi.Outcome, string]{
+				Name:  "hub",
+				Carry: func(c limitsapi.Request) limitsapi.Outcome fails testing.Refused {
+					with context { limits.Limiter: hubMem } { limitsapi.Call(c) }
+				},
+				Snap: func() string { limSnap(hubMem) },
+			},
+			testing.TransportRunner[limitsapi.Request, limitsapi.Outcome, string]{
+				Name:  "rpc",
+				Carry: func(c limitsapi.Request) limitsapi.Outcome fails testing.Refused {
+					try testing.CarryTransport(limitsrpc.Wire, c, func(r limitsapi.Request) limitsapi.Outcome {
+						with context { limits.Limiter: rpcMem } { limitsapi.Call(r) }
+					})
+				},
+				Snap: func() string { limSnap(rpcMem) },
+			},
+		}
+		testing.ExploreTransports(model, runners, 6) catch {
+		case testing.TransportDiverged[limitsapi.Request, string], testing.Refused:
+			return false
+		}
+		true
+	})
+	match outcome {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}
+
+law LimiterWireLaws(seed int) {
+	let s = ((seed % 50) + 50) % 50
+	let cfg = gen.Config{Seed: uint64(s + 1), Cases: 8, Shrinks: 0, MaxDraws: 512, MaxRejected: 10}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let mut bs = limInitial()
+		for _ in 0..4 {
+			let req = drawLimiterRequest()
+			let (nextBS, out) = limFoldStep(bs, req)
+			bs = nextBS
+			let _ = limFoldSnap(bs)
+			if !testing.WireRoundTrips(req) || !testing.WireRoundTrips(out) {
+				return false
+			}
+			if !testing.WireIgnoresUnknownField(req, "extraField", "ignored") {
+				return false
+			}
+		}
+			testing.WireRefusesUnknownTag[limitsapi.Request]("NoSuchLimiterRequest") &&
+			testing.WireRefusesUnknownTag[limitsapi.Outcome]("NoSuchLimiterOutcome")
+	})
+	match outcome {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}

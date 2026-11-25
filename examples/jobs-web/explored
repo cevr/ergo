@@ -1,0 +1,2 @@
+# The explore leg searches these tests' schedules (scripts/examples, explored.go).
+memory JobsWebMemoryConcurrentLinearizable --explore pct --seed 1
