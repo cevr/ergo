@@ -25,9 +25,9 @@ func bobCaller() board.Caller {
 }
 
 func generatedCommand(op int, step int) board.Command {
-	let k = ((op % 13) + 13) % 13
-	let key = "k\(((op/13)%3 + 3) % 3)"
-	let targetMsg = "msg_\(((op/39)%3+3)%3 + 1)"
+	let k = ((op % 17) + 17) % 17
+	let key = "k\(((op/17)%3 + 3) % 3)"
+	let targetMsg = "msg_\(((op/51)%4+4)%4 + 1)"
 	match k {
 	case 0:
 		board.PostMessage{Caller: aliceCaller(), Board: board.DefaultBoard, Channel: "dev", Text: "hello @bob step \(step)", Labels: Map[string, string]{}, NoSync: false, From: "", IdempotencyKey: key}
@@ -52,9 +52,17 @@ func generatedCommand(op int, step int) board.Command {
 	case 10:
 		board.DeleteMessage{Caller: adminCaller(), Board: board.DefaultBoard, ID: targetMsg, IfRevision: 0}
 	case 11:
-		board.CreateChannel{Caller: adminCaller(), Board: board.DefaultBoard, Path: "priv-\(((op/13)%3 + 3) % 3)", Private: true}
-	case _:
+		board.CreateChannel{Caller: adminCaller(), Board: board.DefaultBoard, Path: "priv-\(((op/17)%3 + 3) % 3)", Private: true}
+	case 12:
 		board.UpdateTrust{Caller: aliceCaller(), Subject: "google:alice+fx", TakesFrom: []board.ActorID{"google:alice", "google:bob"}}
+	case 13:
+		board.CreateTask{Caller: aliceCaller(), Board: board.DefaultBoard, Channel: "dev", Thread: "", Text: "task \(step)", Labels: Map[string, string]{}, Needs: []board.MessageID{}, For: "", Claim: false, LeaseMs: 0, NoSync: false, IdempotencyKey: ""}
+	case 14:
+		board.ClaimTask{Caller: aliceAgentCaller(), Board: board.DefaultBoard, ID: targetMsg, LeaseMs: 60000}
+	case 15:
+		board.CompleteTask{Caller: aliceAgentCaller(), Board: board.DefaultBoard, ID: targetMsg, Token: 1, Result: "ok"}
+	case _:
+		board.ExpireTask{Board: board.DefaultBoard, ID: targetMsg}
 	}
 }
 
@@ -169,6 +177,77 @@ test TestBoardAgreesWithFold {
 	case Some[board.Message] as m:
 		assert m.Value.Text == "from slack [removed: github]"
 		assert m.Value.Labels.Get("board.redacted") == Some[string]{Value: "github"}
+	case None:
+		assert false
+	}
+	let (ePlan, _) = try board.Execute(store, board.CreatePlan{
+		Caller:  aliceCaller(),
+		Board:   board.DefaultBoard,
+		Channel: "dev",
+		Tasks:   []board.PlanTaskSpec{
+			board.PlanTaskSpec{Key: "a", Text: "first task", Labels: Map[string, string]{}, Needs: []string{}, For: "", NoSync: false},
+			board.PlanTaskSpec{Key: "b", Text: "second task", Labels: Map[string, string]{}, Needs: []string{"a"}, For: "", NoSync: false},
+		},
+		IdempotencyKey: "plan-1",
+	}, 2000)
+	assert len(ePlan) == 4
+	let _ = try board.Execute(store, board.ClaimTask{
+		Caller:  aliceAgentCaller(),
+		Board:   board.DefaultBoard,
+		ID:      "msg_3",
+		LeaseMs: 60000,
+	}, 2001)
+	let _ = try board.Execute(store, board.RenewTask{
+		Caller:  aliceAgentCaller(),
+		Board:   board.DefaultBoard,
+		ID:      "msg_3",
+		Token:   1,
+		LeaseMs: 60000,
+	}, 2010)
+	let _ = try board.Execute(store, board.ExpireTask{
+		Board: board.DefaultBoard,
+		ID:    "msg_3",
+	}, 2010+60000)
+	let mut staleLost = false
+	let _ = board.Execute(store, board.CompleteTask{
+		Caller: aliceAgentCaller(),
+		Board:  board.DefaultBoard,
+		ID:     "msg_3",
+		Token:  1,
+		Result: "stale",
+	}, 2010+60001) catch {
+	case board.ClaimLost:
+		staleLost = true
+		([]board.Event{}, 0)
+	case _:
+		([]board.Event{}, 0)
+	}
+	assert staleLost
+	let _ = try board.Execute(store, board.ClaimTask{
+		Caller:  aliceAgentCaller(),
+		Board:   board.DefaultBoard,
+		ID:      "msg_3",
+		LeaseMs: 60000,
+	}, 2010+60002)
+	let _ = try board.Execute(store, board.CompleteTask{
+		Caller: aliceAgentCaller(),
+		Board:  board.DefaultBoard,
+		ID:     "msg_3",
+		Token:  2,
+		Result: "done",
+	}, 2010+60003)
+	let snap2 = try store.Snapshot()
+	let evts2 = try store.ReadEvents(board.DefaultBoard, 0)
+	assert snap2 == board.Fold(initial, evts2)
+	match snap2.Tasks.Get("msg_3") {
+	case Some[board.TaskRecord] as t3:
+		assert t3.Value.State == board.TaskCompleted && t3.Value.Epoch == 2
+	case None:
+		assert false
+	}
+	match snap2.Tasks.Get("msg_4") {
+	case Some[board.TaskRecord] as t4:
+		assert t4.Value.State == board.TaskReady
 	case None:
 		assert false
 	}

@@ -7,7 +7,7 @@ message board.
 
 | Package | Responsibility |
 | --- | --- |
-| `board/` | Pure domain entities, `Decide`/`Apply`/`Fold`, grant combination rule, mention settling, secret scanner, product `Ask` and `Access` machines, and the provider-neutral `Store` contract with its laws |
+| `board/` | Pure domain entities, `Decide`/`Apply`/`Fold`, grant combination rule, mention settling, secret scanner, task lifecycle/plans/prerequisites/trust enforcement, product `Ask`, `Access`, and `Task` machines, and the provider-neutral `Store` contract with its laws |
 | `memory/` | Pure in-memory provider of `board.Store` and model-based fold agreement tests |
 | `models/*` | Exhaustively checked design state machines (run in the gate's full tier via `full-tier`) |
 

@@ -112,6 +112,118 @@
       "killers": [
         "modules/board/memory:law:board.Store.SearchRespectsVisibilityAndMatches"
       ]
+    },
+    {
+      "name": "board-task-skips-fence-check",
+      "origin": "BOARD-3",
+      "file": "modules/board/board/task.ergo",
+      "from": "\tt.State == TaskClaimed && t.HasClaim && token > 0 && token == t.Epoch && now < t.Claim.LeaseUntil\n",
+      "to": "\tt.State == TaskClaimed && t.HasClaim && token > 0 && now < t.Claim.LeaseUntil\n",
+      "rule": "Holder task operations require the current claim epoch token so a stalled worker cannot settle another worker's claim.",
+      "anchor": {
+        "tests": [
+          "modules/board/board:law:Task.ClaimLostChangesNothing"
+        ]
+      },
+      "killers": [
+        "modules/board/board:law:Task.ClaimLostChangesNothing"
+      ]
+    },
+    {
+      "name": "board-task-claim-ignores-ready",
+      "origin": "BOARD-3",
+      "file": "modules/board/board/task.ergo",
+      "from": "\t\tcase TaskReady:\n\t\tcase TaskClaimed:\n\t\t\treturn TaskClaimedRefusal\n",
+      "to": "\t\tcase TaskReady, TaskClaimed:\n",
+      "rule": "ClaimTask succeeds only while the task is ready, ensuring at most one winner in a claim race.",
+      "anchor": {
+        "tests": [
+          "modules/board/board:law:Task.OneWinner"
+        ]
+      },
+      "killers": [
+        "modules/board/board:law:Task.OneWinner"
+      ]
+    },
+    {
+      "name": "board-task-reopen-completed",
+      "origin": "BOARD-3",
+      "file": "modules/board/board/task.ergo",
+      "from": "\t\tif task.State != TaskFailed {\n\t\t\treturn NotFailed\n\t\t}\n",
+      "to": "\t\tif task.State != TaskFailed && task.State != TaskCompleted {\n\t\t\treturn NotFailed\n\t\t}\n",
+      "rule": "Completed tasks are final and cannot be reopened to complete a second time.",
+      "anchor": {
+        "tests": [
+          "modules/board/board:law:Task.CompletedOnce"
+        ]
+      },
+      "killers": [
+        "modules/board/board:law:Task.CompletedOnce"
+      ]
+    },
+    {
+      "name": "board-task-skips-trust-set",
+      "origin": "BOARD-3",
+      "file": "modules/board/board/task.ergo",
+      "from": "\t\tif !TrustedOwner(s, c.Caller, task.Owner) {\n\t\t\treturn TaskOwnerUntrusted{Owner: task.Owner}\n\t\t}\n",
+      "to": "\t\tif false && !TrustedOwner(s, c.Caller, task.Owner) {\n\t\t\treturn TaskOwnerUntrusted{Owner: task.Owner}\n\t\t}\n",
+      "rule": "ClaimTask refuses with TaskOwnerUntrusted whenever the task owner is outside the claimer's trust set.",
+      "anchor": {
+        "tests": [
+          "modules/board/board:law:TrustSetEnforcedAtClaim"
+        ]
+      },
+      "killers": [
+        "modules/board/board:law:TrustSetEnforcedAtClaim"
+      ]
+    },
+    {
+      "name": "board-task-plan-allows-cycle",
+      "origin": "BOARD-3",
+      "file": "modules/board/board/task.ergo",
+      "from": "\t\tif HasCycle(graph) {\n\t\t\treturn InvalidNeeds{Why: \"prerequisite cycle\"}\n\t\t}\n",
+      "to": "\t\tif false && HasCycle(graph) {\n\t\t\treturn InvalidNeeds{Why: \"prerequisite cycle\"}\n\t\t}\n",
+      "rule": "CreatePlan refuses any prerequisite graph containing a cycle with InvalidNeeds.",
+      "anchor": {
+        "tests": [
+          "modules/board/board:law:CyclicPlanRefused"
+        ]
+      },
+      "killers": [
+        "modules/board/board:law:CyclicPlanRefused"
+      ]
+    },
+    {
+      "name": "board-task-plan-allows-oversized",
+      "origin": "BOARD-3",
+      "file": "modules/board/board/task.ergo",
+      "from": "\t\tif len(c.Tasks) > MaxPlanTasks {\n\t\t\treturn PlanTooLarge{Limit: MaxPlanTasks}\n\t\t}\n",
+      "to": "\t\tif false && len(c.Tasks) > MaxPlanTasks {\n\t\t\treturn PlanTooLarge{Limit: MaxPlanTasks}\n\t\t}\n",
+      "rule": "CreatePlan refuses plans exceeding 15 tasks with PlanTooLarge.",
+      "anchor": {
+        "tests": [
+          "modules/board/board:law:OversizedPlanRefused"
+        ]
+      },
+      "killers": [
+        "modules/board/board:law:OversizedPlanRefused"
+      ]
+    },
+    {
+      "name": "board-task-prereq-readies-on-incomplete",
+      "origin": "BOARD-3",
+      "file": "modules/board/board/task.ergo",
+      "from": "\t\t\t\t\tif d.Value.State != TaskCompleted {\n\t\t\t\t\t\tallDone = false\n\t\t\t\t\t}\n",
+      "to": "\t\t\t\t\tif false && d.Value.State != TaskCompleted {\n\t\t\t\t\t\tallDone = false\n\t\t\t\t\t}\n",
+      "rule": "Completing one prerequisite readies a waiting dependent only when every other prerequisite is also completed.",
+      "anchor": {
+        "tests": [
+          "modules/board/board:law:PrerequisiteGraphMatchesReference"
+        ]
+      },
+      "killers": [
+        "modules/board/board:law:PrerequisiteGraphMatchesReference"
+      ]
     }
   ]
 }

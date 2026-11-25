@@ -1,0 +1,907 @@
+import maps
+import slices
+import strings
+
+// MaxLeaseMs is the maximum duration of a task claim lease (5 minutes).
+let MaxLeaseMs = 300000
+
+// MaxPlanTasks is the maximum number of tasks allowed in a single atomic plan.
+let MaxPlanTasks = 15
+
+// TaskState is the lifecycle state of a task.
+type TaskState = TaskWaiting{} | TaskReady{} | TaskClaimed{} | TaskBlocked{} | TaskCompleted{} | TaskFailed{} | TaskCanceled{}
+
+// TaskClaim records the active holder, fencing epoch, and lease expiry of a
+// claimed task.
+type TaskClaim {
+	Holder     ActorID,
+	Epoch      int,
+	LeaseUntil Timestamp,
+}
+
+// TaskRecord holds the domain state of one task thread.
+type TaskRecord {
+	ID             MessageID,
+	Board          string,
+	Channel        string,
+	State          TaskState,
+	Owner          ActorID,
+	OwnerPrincipal PrincipalID,
+	For            ActorID,
+	Needs          []MessageID,
+	HasClaim       bool,
+	Claim          TaskClaim,
+	Epoch          int,
+	HoldKind       string,
+	HoldReason     string,
+	Result         string,
+	Reason         string,
+	CreatedAt      Timestamp,
+	ReadyAt        Timestamp,
+}
+
+// PlanTaskSpec specifies one task inside an atomic CreatePlan command.
+type PlanTaskSpec {
+	Key    string,
+	Text   string,
+	Labels Map[string, string],
+	Needs  []string,
+	For    ActorID,
+	NoSync bool,
+}
+
+func emptyClaim() TaskClaim {
+	TaskClaim{Holder: "", Epoch: 0, LeaseUntil: 0}
+}
+
+func clampLeaseMs(ms int) int {
+	if ms <= 0 || ms > MaxLeaseMs {
+		return MaxLeaseMs
+	}
+	ms
+}
+
+func taskStateLabel(st TaskState) string {
+	match st {
+	case TaskWaiting:
+		"waiting"
+	case TaskReady:
+		"ready"
+	case TaskClaimed:
+		"claimed"
+	case TaskBlocked:
+		"blocked"
+	case TaskCompleted:
+		"completed"
+	case TaskFailed:
+		"failed"
+	case TaskCanceled:
+		"canceled"
+	}
+}
+
+// TrustedOwner reports whether task owner is inside claimer's effective trust
+// set. A profile uses its own trust set when configured, else its principal's
+// trust set, else the default of the principal and all of that principal's
+// profiles.
+func TrustedOwner(s State, claimer Caller, owner ActorID) bool {
+	let actor = ActorOf(claimer)
+	let ownerPrin = actorPrincipal(owner)
+	match s.Trusts.Get(actor) {
+	case Some[TrustSet] as ts:
+		return slices.Contains(ts.Value.TakesFrom, owner) || slices.Contains(ts.Value.TakesFrom, ownerPrin)
+	case None:
+	}
+	match s.Trusts.Get(claimer.Principal) {
+	case Some[TrustSet] as ts:
+		return slices.Contains(ts.Value.TakesFrom, owner) || slices.Contains(ts.Value.TakesFrom, ownerPrin)
+	case None:
+	}
+	ownerPrin == claimer.Principal
+}
+
+// AllPrereqsCompleted reports whether every task id in prereqs exists in tasks
+// and is in TaskCompleted state.
+func AllPrereqsCompleted(tasks Map[MessageID, TaskRecord], prereqs []MessageID) bool {
+	for dep in prereqs {
+		match tasks.Get(dep) {
+		case Some[TaskRecord] as tr:
+			if tr.Value.State != TaskCompleted {
+				return false
+			}
+		case None:
+			return false
+		}
+	}
+	true
+}
+
+// HasCycle reports whether the directed prerequisite graph edges contains any
+// directed cycle.
+func HasCycle(edges Map[MessageID, []MessageID]) bool {
+	let nodes = slices.Sorted(maps.Keys(edges))
+	let mut color = Map[MessageID, int]{}
+	for start in nodes {
+		let curColor = match color.Get(start) {
+		case Some[int] as c:
+			c.Value
+		case None:
+			0
+		}
+		if curColor != 0 {
+			continue
+		}
+		let mut stackNode = []MessageID{start}
+		let mut stackIdx = []int{0}
+		color = color.Put(start, 1)
+		for len(stackNode) > 0 {
+			let top = len(stackNode) - 1
+			let u = stackNode[top]
+			let idx = stackIdx[top]
+			let deps = match edges.Get(u) {
+			case Some[[]MessageID] as ds:
+				ds.Value
+			case None:
+				[]MessageID{}
+			}
+			if idx >= len(deps) {
+				color = color.Put(u, 2)
+				stackNode = slices.Slice(stackNode, 0, top)
+				stackIdx = slices.Slice(stackIdx, 0, top)
+				continue
+			}
+			stackIdx[top] = idx + 1
+			let v = deps[idx]
+			let vColor = match color.Get(v) {
+			case Some[int] as c:
+				c.Value
+			case None:
+				0
+			}
+			if vColor == 1 {
+				return true
+			}
+			if vColor == 0 {
+				color = color.Put(v, 1)
+				stackNode = stackNode.Append(v)
+				stackIdx = stackIdx.Append(0)
+			}
+		}
+	}
+	false
+}
+
+func boardPrereqGraph(s State, board string) Map[MessageID, []MessageID] {
+	let mut g = Map[MessageID, []MessageID]{}
+	for id, tr in s.Tasks {
+		if tr.Board == board {
+			g = g.Put(id, tr.Needs)
+		}
+	}
+	g
+}
+
+func readyDependentsAfterComplete(s State, board string, completedID MessageID) []MessageID {
+	let mut out = []MessageID{}
+	for id in slices.Sorted(maps.Keys(s.Tasks)) {
+		match s.Tasks.Get(id) {
+		case Some[TaskRecord] as tr:
+			let t = tr.Value
+			if t.Board != board || t.State != TaskWaiting || !slices.Contains(t.Needs, completedID) {
+				continue
+			}
+			let mut allDone = true
+			for dep in t.Needs {
+				if dep == completedID {
+					continue
+				}
+				match s.Tasks.Get(dep) {
+				case Some[TaskRecord] as d:
+					if d.Value.State != TaskCompleted {
+						allDone = false
+					}
+				case None:
+					allDone = false
+				}
+			}
+			if allDone {
+				out = out.Append(id)
+			}
+		case None:
+		}
+	}
+	out
+}
+
+func isTaskOwnerOrManage(s State, board string, c Caller, t TaskRecord) bool {
+	let owns = if c.Profile != "" {
+		ActorOf(c) == t.Owner
+	} else {
+		c.Principal == t.OwnerPrincipal
+	}
+	if owns {
+		return true
+	}
+	Can(boardGrants(s, board), c, t.Channel, PermManage)
+}
+
+func isTaskFinished(st TaskState) bool {
+	st == TaskCompleted || st == TaskFailed || st == TaskCanceled
+}
+
+func isLeaseExpired(t TaskRecord, now Timestamp) bool {
+	t.State == TaskClaimed && t.HasClaim && now >= t.Claim.LeaseUntil
+}
+
+func validHolderFence(t TaskRecord, token int, now Timestamp) bool {
+	t.State == TaskClaimed && t.HasClaim && token > 0 && token == t.Epoch && now < t.Claim.LeaseUntil
+}
+
+func requireTaskOnBoard(s State, board string, id MessageID) TaskRecord fails Refusal {
+	match s.Tasks.Get(id) {
+	case Some[TaskRecord] as tr:
+		if tr.Value.Board != board {
+			return NotFound{What: id}
+		}
+		tr.Value
+	case None:
+		NotFound{What: id}
+	}
+}
+
+func dedupNeeds(xs []MessageID) []MessageID {
+	let mut out = []MessageID{}
+	for x in xs {
+		if !slices.Contains(out, x) {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+func validateExistingNeeds(s State, board string, selfID MessageID, prereqs []MessageID) []MessageID fails Refusal {
+	let clean = dedupNeeds(prereqs)
+	for dep in clean {
+		if dep == selfID {
+			return InvalidNeeds{Why: "task cannot depend on itself"}
+		}
+		match s.Tasks.Get(dep) {
+		case Some[TaskRecord] as tr:
+			if tr.Value.Board != board {
+				return InvalidNeeds{Why: "prerequisite is on another board"}
+			}
+		case None:
+			return InvalidNeeds{Why: "prerequisite task not found"}
+		}
+	}
+	let g = boardPrereqGraph(s, board).Put(selfID, clean)
+	if HasCycle(g) {
+		return InvalidNeeds{Why: "prerequisite cycle"}
+	}
+	clean
+}
+
+func decideTask(s State, cmd Command, now Timestamp) []Event fails Refusal {
+	match cmd {
+	case CreateTask as c:
+		try requireActiveCaller(s, c.Caller)
+		let b = try requireBoard(s, c.Caller, c.Board)
+		let actor = ActorOf(c.Caller)
+		let digest = CommandDigest(cmd)
+		if try checkIdempotency(s, actor, c.IdempotencyKey, digest, now) {
+			return []Event{}
+		}
+		if c.For != "" && actorPrincipal(c.For) != c.Caller.Principal {
+			return Invalid{Field: "for", Why: "for must belong to owner principal"}
+		}
+		let mut events = []Event{}
+		let mut msgID = ""
+		let mut channel = c.Channel
+		if c.Thread != "" {
+			let existing = match s.Messages.Get(c.Thread) {
+			case Some[Message] as m:
+				if m.Value.Board != b.Name || m.Value.Deleted {
+					return NotFound{What: c.Thread}
+				}
+				m.Value
+			case None:
+				return NotFound{What: c.Thread}
+			}
+			if existing.Re != "" {
+				return Invalid{Field: "thread", Why: "task must attach to a thread root"}
+			}
+			match s.Tasks.Get(existing.ID) {
+			case Some[TaskRecord]:
+				return AlreadyTask
+			case None:
+			}
+			channel = existing.Channel
+			try requirePerm(s, b.Name, c.Caller, channel, PermRead)
+			try requirePerm(s, b.Name, c.Caller, channel, PermPost)
+			msgID = existing.ID
+		} else {
+			if !ValidChannelPath(channel) {
+				return Invalid{Field: "channel", Why: "invalid channel path"}
+			}
+			try requirePerm(s, b.Name, c.Caller, channel, PermPost)
+			if strings.TrimSpace(c.Text) == "" {
+				return Invalid{Field: "text", Why: "task text is empty"}
+			}
+			try checkLabelsWritable(c.Labels)
+			let (cleanText, _) = try scanOrRedact(c.Text, "")
+			msgID = "msg_\(s.NextMessageNum)"
+			match maybeProfileEvent(s, c.Caller, b.Name, now) {
+			case Some[Event] as pe:
+				events = events.Append(pe.Value)
+			case None:
+			}
+			let chKey = ChannelKey(b.Name, channel)
+			match s.Channels.Get(chKey) {
+			case Some[Channel]:
+			case None:
+				let ch = Channel{Board: b.Name, Path: channel, CreatedAt: now, CreatedBy: actor, Private: false}
+				events = events.Append(Event{Seq: 0, Board: b.Name, At: now, Actor: actor, Payload: ChannelCreated{Channel: ch}})
+			}
+			let vis = VisibleActorHandles(s, b.Name, c.Caller)
+			let (mentioned, unresolved) = SettleMentions(cleanText, vis)
+			let readyInit = AllPrereqsCompleted(s.Tasks, c.Needs)
+			let labels = c.Labels.Put("board.task", if readyInit { "ready" } else { "waiting" })
+			let msg = Message{
+				ID:         msgID,
+				Board:      b.Name,
+				Channel:    channel,
+				Text:       cleanText,
+				Re:         "",
+				ReplyTo:    "",
+				By:         actor,
+				Principal:  c.Caller.Principal,
+				Profile:    c.Caller.Profile,
+				Labels:     labels,
+				Reactions:  Map[string, []ActorID]{},
+				Mentions:   mentioned,
+				Unresolved: unresolved,
+				From:       "",
+				NoSync:     c.NoSync,
+				Revision:   1,
+				CreatedAt:  now,
+				EditedAt:   0,
+				Deleted:    false,
+			}
+			events = events.Append(Event{Seq: 0, Board: b.Name, At: now, Actor: actor, Payload: MessagePosted{Message: msg, IdemKey: c.IdempotencyKey, IdemDigest: digest}})
+		}
+		let cleanNeeds = try validateExistingNeeds(s, b.Name, msgID, c.Needs)
+		let ready = AllPrereqsCompleted(s.Tasks, cleanNeeds)
+		let initState = if ready { TaskReady } else { TaskWaiting }
+		let task = TaskRecord{
+			ID:             msgID,
+			Board:          b.Name,
+			Channel:        channel,
+			State:          initState,
+			Owner:          actor,
+			OwnerPrincipal: c.Caller.Principal,
+			For:            c.For,
+			Needs:          cleanNeeds,
+			HasClaim:       false,
+			Claim:          emptyClaim(),
+			Epoch:          0,
+			HoldKind:       "",
+			HoldReason:     "",
+			Result:         "",
+			Reason:         "",
+			CreatedAt:      now,
+			ReadyAt:        if ready { now } else { 0 },
+		}
+		events = events.Append(Event{Seq: 0, Board: b.Name, At: now, Actor: actor, Payload: TaskCreated{Task: task}})
+		if c.Claim {
+			if !ready {
+				return TaskWaitingRefusal
+			}
+			if c.For != "" && c.For != actor {
+				return TaskAssignedRefusal
+			}
+			if !TrustedOwner(s, c.Caller, actor) {
+				return TaskOwnerUntrusted{Owner: actor}
+			}
+			let cl = TaskClaim{Holder: actor, Epoch: 1, LeaseUntil: now + clampLeaseMs(c.LeaseMs)}
+			events = events.Append(Event{Seq: 0, Board: b.Name, At: now, Actor: actor, Payload: TaskClaimedEvent{Board: b.Name, ID: msgID, Claim: cl}})
+		}
+		events
+
+	case CreatePlan as c:
+		try requireActiveCaller(s, c.Caller)
+		let b = try requireBoard(s, c.Caller, c.Board)
+		if !ValidChannelPath(c.Channel) {
+			return Invalid{Field: "channel", Why: "invalid channel path"}
+		}
+		try requirePerm(s, b.Name, c.Caller, c.Channel, PermPost)
+		let actor = ActorOf(c.Caller)
+		let digest = CommandDigest(cmd)
+		if try checkIdempotency(s, actor, c.IdempotencyKey, digest, now) {
+			return []Event{}
+		}
+		if len(c.Tasks) == 0 {
+			return Invalid{Field: "tasks", Why: "plan must contain at least one task"}
+		}
+		if len(c.Tasks) > MaxPlanTasks {
+			return PlanTooLarge{Limit: MaxPlanTasks}
+		}
+		let mut keyToID = Map[string, MessageID]{}
+		let mut ids = []MessageID{}
+		for i, spec in c.Tasks {
+			if strings.TrimSpace(spec.Text) == "" {
+				return Invalid{Field: "text", Why: "task text is empty"}
+			}
+			if spec.For != "" && actorPrincipal(spec.For) != c.Caller.Principal {
+				return Invalid{Field: "for", Why: "for must belong to owner principal"}
+			}
+			try checkLabelsWritable(spec.Labels)
+			let _ = try scanOrRedact(spec.Text, "")
+			let mid = "msg_\(s.NextMessageNum + i)"
+			ids = ids.Append(mid)
+			if spec.Key != "" {
+				match keyToID.Get(spec.Key) {
+				case Some[MessageID]:
+					return InvalidNeeds{Why: "duplicate plan task key"}
+				case None:
+					keyToID = keyToID.Put(spec.Key, mid)
+				}
+			}
+		}
+		let mut graph = boardPrereqGraph(s, b.Name)
+		let mut resolvedNeeds = [][]MessageID{}
+		for i, spec in c.Tasks {
+			let selfID = ids[i]
+			let mut deps = []MessageID{}
+			for raw in spec.Needs {
+				let depID = match keyToID.Get(raw) {
+				case Some[MessageID] as mid:
+					mid.Value
+				case None:
+					match s.Tasks.Get(raw) {
+					case Some[TaskRecord] as tr:
+						if tr.Value.Board != b.Name {
+							return InvalidNeeds{Why: "prerequisite is on another board"}
+						}
+						raw
+					case None:
+						return InvalidNeeds{Why: "unknown prerequisite"}
+					}
+				}
+				if depID == selfID {
+					return InvalidNeeds{Why: "task cannot depend on itself"}
+				}
+				if !slices.Contains(deps, depID) {
+					deps = deps.Append(depID)
+				}
+			}
+			resolvedNeeds = resolvedNeeds.Append(deps)
+			graph = graph.Put(selfID, deps)
+		}
+		if HasCycle(graph) {
+			return InvalidNeeds{Why: "prerequisite cycle"}
+		}
+		let mut events = []Event{}
+		match maybeProfileEvent(s, c.Caller, b.Name, now) {
+		case Some[Event] as pe:
+			events = events.Append(pe.Value)
+		case None:
+		}
+		let chKey = ChannelKey(b.Name, c.Channel)
+		match s.Channels.Get(chKey) {
+		case Some[Channel]:
+		case None:
+			let ch = Channel{Board: b.Name, Path: c.Channel, CreatedAt: now, CreatedBy: actor, Private: false}
+			events = events.Append(Event{Seq: 0, Board: b.Name, At: now, Actor: actor, Payload: ChannelCreated{Channel: ch}})
+		}
+		let vis = VisibleActorHandles(s, b.Name, c.Caller)
+		for i, spec in c.Tasks {
+			let mid = ids[i]
+			let deps = resolvedNeeds[i]
+			let ready = AllPrereqsCompleted(s.Tasks, deps)
+			let (mentioned, unresolved) = SettleMentions(spec.Text, vis)
+			let labels = spec.Labels.Put("board.task", if ready { "ready" } else { "waiting" })
+			let msg = Message{
+				ID:         mid,
+				Board:      b.Name,
+				Channel:    c.Channel,
+				Text:       spec.Text,
+				Re:         "",
+				ReplyTo:    "",
+				By:         actor,
+				Principal:  c.Caller.Principal,
+				Profile:    c.Caller.Profile,
+				Labels:     labels,
+				Reactions:  Map[string, []ActorID]{},
+				Mentions:   mentioned,
+				Unresolved: unresolved,
+				From:       "",
+				NoSync:     spec.NoSync,
+				Revision:   1,
+				CreatedAt:  now,
+				EditedAt:   0,
+				Deleted:    false,
+			}
+			let idemKey = if i == 0 { c.IdempotencyKey } else { "" }
+			let idemDigest = if i == 0 { digest } else { "" }
+			events = events.Append(Event{Seq: 0, Board: b.Name, At: now, Actor: actor, Payload: MessagePosted{Message: msg, IdemKey: idemKey, IdemDigest: idemDigest}})
+			let task = TaskRecord{
+				ID:             mid,
+				Board:          b.Name,
+				Channel:        c.Channel,
+				State:          if ready { TaskReady } else { TaskWaiting },
+				Owner:          actor,
+				OwnerPrincipal: c.Caller.Principal,
+				For:            spec.For,
+				Needs:          deps,
+				HasClaim:       false,
+				Claim:          emptyClaim(),
+				Epoch:          0,
+				HoldKind:       "",
+				HoldReason:     "",
+				Result:         "",
+				Reason:         "",
+				CreatedAt:      now,
+				ReadyAt:        if ready { now } else { 0 },
+			}
+			events = events.Append(Event{Seq: 0, Board: b.Name, At: now, Actor: actor, Payload: TaskCreated{Task: task}})
+		}
+		events
+
+	case ClaimTask as c:
+		try requireActiveCaller(s, c.Caller)
+		let b = try requireBoard(s, c.Caller, c.Board)
+		let task = try requireTaskOnBoard(s, b.Name, c.ID)
+		try requirePerm(s, b.Name, c.Caller, task.Channel, PermRead)
+		try requirePerm(s, b.Name, c.Caller, task.Channel, PermPost)
+		let actor = ActorOf(c.Caller)
+		let mut events = []Event{}
+		let mut effState = task.State
+		if isLeaseExpired(task, now) {
+			let readyNow = AllPrereqsCompleted(s.Tasks, task.Needs)
+			events = events.Append(Event{Seq: 0, Board: b.Name, At: now, Actor: "system", Payload: TaskExpired{Board: b.Name, ID: task.ID, Ready: readyNow, ReadyAt: if readyNow { now } else { 0 }}})
+			effState = if readyNow { TaskReady } else { TaskWaiting }
+		}
+		match effState {
+		case TaskReady:
+		case TaskClaimed:
+			return TaskClaimedRefusal
+		case TaskWaiting:
+			return TaskWaitingRefusal
+		case TaskBlocked:
+			return TaskBlockedRefusal
+		case TaskCompleted, TaskFailed, TaskCanceled:
+			return TaskFinished
+		}
+		if task.For != "" && task.For != actor {
+			return TaskAssignedRefusal
+		}
+		if !TrustedOwner(s, c.Caller, task.Owner) {
+			return TaskOwnerUntrusted{Owner: task.Owner}
+		}
+		match maybeProfileEvent(s, c.Caller, b.Name, now) {
+		case Some[Event] as pe:
+			events = events.Append(pe.Value)
+		case None:
+		}
+		let nextEpoch = task.Epoch + 1
+		let cl = TaskClaim{Holder: actor, Epoch: nextEpoch, LeaseUntil: now + clampLeaseMs(c.LeaseMs)}
+		events = events.Append(Event{Seq: 0, Board: b.Name, At: now, Actor: actor, Payload: TaskClaimedEvent{Board: b.Name, ID: task.ID, Claim: cl}})
+		events
+
+	case RenewTask as c:
+		try requireActiveCaller(s, c.Caller)
+		let b = try requireBoard(s, c.Caller, c.Board)
+		let task = try requireTaskOnBoard(s, b.Name, c.ID)
+		try requirePerm(s, b.Name, c.Caller, task.Channel, PermRead)
+		if !validHolderFence(task, c.Token, now) {
+			return ClaimLost
+		}
+		[]Event{Event{Seq: 0, Board: b.Name, At: now, Actor: ActorOf(c.Caller), Payload: TaskRenewed{Board: b.Name, ID: task.ID, LeaseUntil: now + clampLeaseMs(c.LeaseMs)}}}
+
+	case ReleaseTask as c:
+		try requireActiveCaller(s, c.Caller)
+		let b = try requireBoard(s, c.Caller, c.Board)
+		let task = try requireTaskOnBoard(s, b.Name, c.ID)
+		try requirePerm(s, b.Name, c.Caller, task.Channel, PermRead)
+		if !validHolderFence(task, c.Token, now) {
+			return ClaimLost
+		}
+		let ready = AllPrereqsCompleted(s.Tasks, task.Needs)
+		[]Event{Event{Seq: 0, Board: b.Name, At: now, Actor: ActorOf(c.Caller), Payload: TaskReleased{Board: b.Name, ID: task.ID, Ready: ready, ReadyAt: if ready { now } else { 0 }}}}
+
+	case CompleteTask as c:
+		try requireActiveCaller(s, c.Caller)
+		let b = try requireBoard(s, c.Caller, c.Board)
+		let task = try requireTaskOnBoard(s, b.Name, c.ID)
+		try requirePerm(s, b.Name, c.Caller, task.Channel, PermRead)
+		if !validHolderFence(task, c.Token, now) {
+			return ClaimLost
+		}
+		let (cleanResult, _) = try scanOrRedact(c.Result, "")
+		let actor = ActorOf(c.Caller)
+		let mut events = []Event{Event{Seq: 0, Board: b.Name, At: now, Actor: actor, Payload: TaskCompletedEvent{Board: b.Name, ID: task.ID, Result: cleanResult}}}
+		for depID in readyDependentsAfterComplete(s, b.Name, task.ID) {
+			events = events.Append(Event{Seq: 0, Board: b.Name, At: now, Actor: actor, Payload: TaskReadied{Board: b.Name, ID: depID, ReadyAt: now}})
+		}
+		events
+
+	case FailTask as c:
+		try requireActiveCaller(s, c.Caller)
+		let b = try requireBoard(s, c.Caller, c.Board)
+		let task = try requireTaskOnBoard(s, b.Name, c.ID)
+		try requirePerm(s, b.Name, c.Caller, task.Channel, PermRead)
+		if !validHolderFence(task, c.Token, now) {
+			return ClaimLost
+		}
+		let (cleanReason, _) = try scanOrRedact(c.Reason, "")
+		[]Event{Event{Seq: 0, Board: b.Name, At: now, Actor: ActorOf(c.Caller), Payload: TaskFailedEvent{Board: b.Name, ID: task.ID, Reason: cleanReason}}}
+
+	case BlockTask as c:
+		try requireActiveCaller(s, c.Caller)
+		let b = try requireBoard(s, c.Caller, c.Board)
+		let task = try requireTaskOnBoard(s, b.Name, c.ID)
+		try requirePerm(s, b.Name, c.Caller, task.Channel, PermRead)
+		let (cleanReason, _) = try scanOrRedact(c.Reason, "")
+		if c.Token > 0 {
+			if !validHolderFence(task, c.Token, now) {
+				return ClaimLost
+			}
+			return []Event{Event{Seq: 0, Board: b.Name, At: now, Actor: ActorOf(c.Caller), Payload: TaskBlockedEvent{Board: b.Name, ID: task.ID, Kind: c.Kind, Reason: cleanReason}}}
+		}
+		if !isTaskOwnerOrManage(s, b.Name, c.Caller, task) {
+			return TaskNotOwned
+		}
+		if isTaskFinished(task.State) {
+			return TaskFinished
+		}
+		if task.State == TaskClaimed && !isLeaseExpired(task, now) {
+			return TaskClaimedRefusal
+		}
+		[]Event{Event{Seq: 0, Board: b.Name, At: now, Actor: ActorOf(c.Caller), Payload: TaskBlockedEvent{Board: b.Name, ID: task.ID, Kind: c.Kind, Reason: cleanReason}}}
+
+	case UnblockTask as c:
+		try requireActiveCaller(s, c.Caller)
+		let b = try requireBoard(s, c.Caller, c.Board)
+		let task = try requireTaskOnBoard(s, b.Name, c.ID)
+		try requirePerm(s, b.Name, c.Caller, task.Channel, PermRead)
+		if !isTaskOwnerOrManage(s, b.Name, c.Caller, task) {
+			return TaskNotOwned
+		}
+		if task.State != TaskBlocked {
+			return NotBlocked
+		}
+		let ready = AllPrereqsCompleted(s.Tasks, task.Needs)
+		[]Event{Event{Seq: 0, Board: b.Name, At: now, Actor: ActorOf(c.Caller), Payload: TaskUnblocked{Board: b.Name, ID: task.ID, Ready: ready, ReadyAt: if ready { now } else { 0 }}}}
+
+	case ReopenTask as c:
+		try requireActiveCaller(s, c.Caller)
+		let b = try requireBoard(s, c.Caller, c.Board)
+		let task = try requireTaskOnBoard(s, b.Name, c.ID)
+		try requirePerm(s, b.Name, c.Caller, task.Channel, PermRead)
+		if !isTaskOwnerOrManage(s, b.Name, c.Caller, task) {
+			return TaskNotOwned
+		}
+		if task.State != TaskFailed {
+			return NotFailed
+		}
+		let ready = AllPrereqsCompleted(s.Tasks, task.Needs)
+		[]Event{Event{Seq: 0, Board: b.Name, At: now, Actor: ActorOf(c.Caller), Payload: TaskReopened{Board: b.Name, ID: task.ID, Ready: ready, ReadyAt: if ready { now } else { 0 }}}}
+
+	case AssignTask as c:
+		try requireActiveCaller(s, c.Caller)
+		let b = try requireBoard(s, c.Caller, c.Board)
+		let task = try requireTaskOnBoard(s, b.Name, c.ID)
+		try requirePerm(s, b.Name, c.Caller, task.Channel, PermRead)
+		if !isTaskOwnerOrManage(s, b.Name, c.Caller, task) {
+			return TaskNotOwned
+		}
+		if isTaskFinished(task.State) {
+			return TaskFinished
+		}
+		if c.For != "" && actorPrincipal(c.For) != task.OwnerPrincipal {
+			return Invalid{Field: "for", Why: "for must belong to owner principal"}
+		}
+		[]Event{Event{Seq: 0, Board: b.Name, At: now, Actor: ActorOf(c.Caller), Payload: TaskAssignedEvent{Board: b.Name, ID: task.ID, For: c.For}}}
+
+	case UpdateTaskNeeds as c:
+		try requireActiveCaller(s, c.Caller)
+		let b = try requireBoard(s, c.Caller, c.Board)
+		let task = try requireTaskOnBoard(s, b.Name, c.ID)
+		try requirePerm(s, b.Name, c.Caller, task.Channel, PermRead)
+		if !isTaskOwnerOrManage(s, b.Name, c.Caller, task) {
+			return TaskNotOwned
+		}
+		if isTaskFinished(task.State) {
+			return TaskFinished
+		}
+		if task.State == TaskClaimed && !isLeaseExpired(task, now) {
+			return TaskClaimedRefusal
+		}
+		let clean = try validateExistingNeeds(s, b.Name, task.ID, c.Needs)
+		let ready = AllPrereqsCompleted(s.Tasks, clean)
+		[]Event{Event{Seq: 0, Board: b.Name, At: now, Actor: ActorOf(c.Caller), Payload: TaskNeedsChanged{Board: b.Name, ID: task.ID, Needs: clean, Ready: ready, ReadyAt: if ready { now } else { 0 }}}}
+
+	case CancelTask as c:
+		try requireActiveCaller(s, c.Caller)
+		let b = try requireBoard(s, c.Caller, c.Board)
+		let task = try requireTaskOnBoard(s, b.Name, c.ID)
+		try requirePerm(s, b.Name, c.Caller, task.Channel, PermRead)
+		if !isTaskOwnerOrManage(s, b.Name, c.Caller, task) {
+			return TaskNotOwned
+		}
+		if isTaskFinished(task.State) {
+			return TaskFinished
+		}
+		let (cleanReason, _) = try scanOrRedact(c.Reason, "")
+		[]Event{Event{Seq: 0, Board: b.Name, At: now, Actor: ActorOf(c.Caller), Payload: TaskCanceledEvent{Board: b.Name, ID: task.ID, Reason: cleanReason}}}
+
+	case ExpireTask as c:
+		let bName = ResolveBoard(c.Board)
+		let task = try requireTaskOnBoard(s, bName, c.ID)
+		if !isLeaseExpired(task, now) {
+			return ClaimLost
+		}
+		let ready = AllPrereqsCompleted(s.Tasks, task.Needs)
+		[]Event{Event{Seq: 0, Board: bName, At: now, Actor: "system", Payload: TaskExpired{Board: bName, ID: task.ID, Ready: ready, ReadyAt: if ready { now } else { 0 }}}}
+
+	case _:
+		[]Event{}
+	}
+}
+
+func setTaskStateLabel(s State, id MessageID, st TaskState, holdKind string) State {
+	match s.Messages.Get(id) {
+	case Some[Message] as m:
+		let mut ls = m.Value.Labels.Put("board.task", taskStateLabel(st))
+		if holdKind != "" {
+			ls = ls.Put("board.held", holdKind)
+		} else {
+			ls = ls.Delete("board.held")
+		}
+		State{..s, Messages: s.Messages.Put(id, Message{..m.Value, Labels: ls})}
+	case None:
+		s
+	}
+}
+
+func applyTask(next State, e Event) State {
+	match e.Payload {
+	case TaskCreated as p:
+		let st = State{..next, Tasks: next.Tasks.Put(p.Task.ID, p.Task)}
+		setTaskStateLabel(st, p.Task.ID, p.Task.State, "")
+	case TaskReadied as p:
+		match next.Tasks.Get(p.ID) {
+		case Some[TaskRecord] as tr:
+			let updated = TaskRecord{..tr.Value, State: TaskReady, ReadyAt: p.ReadyAt}
+			let st = State{..next, Tasks: next.Tasks.Put(p.ID, updated)}
+			setTaskStateLabel(st, p.ID, TaskReady, "")
+		case None:
+			next
+		}
+	case TaskClaimedEvent as p:
+		match next.Tasks.Get(p.ID) {
+		case Some[TaskRecord] as tr:
+			let updated = TaskRecord{
+				..tr.Value,
+				State:    TaskClaimed,
+				HasClaim: true,
+				Claim:    p.Claim,
+				Epoch:    p.Claim.Epoch,
+			}
+			let st = State{..next, Tasks: next.Tasks.Put(p.ID, updated)}
+			setTaskStateLabel(st, p.ID, TaskClaimed, "")
+		case None:
+			next
+		}
+	case TaskRenewed as p:
+		match next.Tasks.Get(p.ID) {
+		case Some[TaskRecord] as tr:
+			let cl = TaskClaim{..tr.Value.Claim, LeaseUntil: p.LeaseUntil}
+			let updated = TaskRecord{..tr.Value, Claim: cl}
+			State{..next, Tasks: next.Tasks.Put(p.ID, updated)}
+		case None:
+			next
+		}
+	case TaskReleased as p:
+		match next.Tasks.Get(p.ID) {
+		case Some[TaskRecord] as tr:
+			let ns = if p.Ready { TaskReady } else { TaskWaiting }
+			let updated = TaskRecord{..tr.Value, State: ns, HasClaim: false, Claim: emptyClaim(), ReadyAt: p.ReadyAt}
+			let st = State{..next, Tasks: next.Tasks.Put(p.ID, updated)}
+			setTaskStateLabel(st, p.ID, ns, "")
+		case None:
+			next
+		}
+	case TaskExpired as p:
+		match next.Tasks.Get(p.ID) {
+		case Some[TaskRecord] as tr:
+			let ns = if p.Ready { TaskReady } else { TaskWaiting }
+			let updated = TaskRecord{..tr.Value, State: ns, HasClaim: false, Claim: emptyClaim(), ReadyAt: p.ReadyAt}
+			let st = State{..next, Tasks: next.Tasks.Put(p.ID, updated)}
+			setTaskStateLabel(st, p.ID, ns, "")
+		case None:
+			next
+		}
+	case TaskCompletedEvent as p:
+		match next.Tasks.Get(p.ID) {
+		case Some[TaskRecord] as tr:
+			let updated = TaskRecord{..tr.Value, State: TaskCompleted, HasClaim: false, Claim: emptyClaim(), Result: p.Result}
+			let st = State{..next, Tasks: next.Tasks.Put(p.ID, updated)}
+			setTaskStateLabel(st, p.ID, TaskCompleted, "")
+		case None:
+			next
+		}
+	case TaskFailedEvent as p:
+		match next.Tasks.Get(p.ID) {
+		case Some[TaskRecord] as tr:
+			let updated = TaskRecord{..tr.Value, State: TaskFailed, HasClaim: false, Claim: emptyClaim(), Reason: p.Reason}
+			let st = State{..next, Tasks: next.Tasks.Put(p.ID, updated)}
+			setTaskStateLabel(st, p.ID, TaskFailed, "")
+		case None:
+			next
+		}
+	case TaskBlockedEvent as p:
+		match next.Tasks.Get(p.ID) {
+		case Some[TaskRecord] as tr:
+			let updated = TaskRecord{..tr.Value, State: TaskBlocked, HasClaim: false, Claim: emptyClaim(), HoldKind: p.Kind, HoldReason: p.Reason}
+			let st = State{..next, Tasks: next.Tasks.Put(p.ID, updated)}
+			setTaskStateLabel(st, p.ID, TaskBlocked, p.Kind)
+		case None:
+			next
+		}
+	case TaskUnblocked as p:
+		match next.Tasks.Get(p.ID) {
+		case Some[TaskRecord] as tr:
+			let ns = if p.Ready { TaskReady } else { TaskWaiting }
+			let updated = TaskRecord{..tr.Value, State: ns, HoldKind: "", HoldReason: "", ReadyAt: p.ReadyAt}
+			let st = State{..next, Tasks: next.Tasks.Put(p.ID, updated)}
+			setTaskStateLabel(st, p.ID, ns, "")
+		case None:
+			next
+		}
+	case TaskReopened as p:
+		match next.Tasks.Get(p.ID) {
+		case Some[TaskRecord] as tr:
+			let ns = if p.Ready { TaskReady } else { TaskWaiting }
+			let updated = TaskRecord{..tr.Value, State: ns, Reason: "", ReadyAt: p.ReadyAt}
+			let st = State{..next, Tasks: next.Tasks.Put(p.ID, updated)}
+			setTaskStateLabel(st, p.ID, ns, "")
+		case None:
+			next
+		}
+	case TaskAssignedEvent as p:
+		match next.Tasks.Get(p.ID) {
+		case Some[TaskRecord] as tr:
+			State{..next, Tasks: next.Tasks.Put(p.ID, TaskRecord{..tr.Value, For: p.For})}
+		case None:
+			next
+		}
+	case TaskNeedsChanged as p:
+		match next.Tasks.Get(p.ID) {
+		case Some[TaskRecord] as tr:
+			let ns = if tr.Value.State == TaskBlocked {
+				TaskBlocked
+			} else if p.Ready {
+				TaskReady
+			} else {
+				TaskWaiting
+			}
+			let updated = TaskRecord{..tr.Value, Needs: p.Needs, State: ns, ReadyAt: if ns == TaskReady { p.ReadyAt } else { tr.Value.ReadyAt }}
+			let st = State{..next, Tasks: next.Tasks.Put(p.ID, updated)}
+			setTaskStateLabel(st, p.ID, ns, tr.Value.HoldKind)
+		case None:
+			next
+		}
+	case TaskCanceledEvent as p:
+		match next.Tasks.Get(p.ID) {
+		case Some[TaskRecord] as tr:
+			let updated = TaskRecord{..tr.Value, State: TaskCanceled, HasClaim: false, Claim: emptyClaim(), Reason: p.Reason}
+			let st = State{..next, Tasks: next.Tasks.Put(p.ID, updated)}
+			setTaskStateLabel(st, p.ID, TaskCanceled, "")
+		case None:
+			next
+		}
+	case _:
+		next
+	}
+}

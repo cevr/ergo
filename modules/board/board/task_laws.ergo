@@ -1,0 +1,308 @@
+import slices
+
+func dagEdgesFromBits(n int, bits int) [][]int {
+	let mut adj = [][]int{}
+	for _ in 0..n {
+		adj = adj.Append([]int{})
+	}
+	let mut bitIdx = 0
+	for j in 1..n {
+		for i in 0..j {
+			let shifted = bits >> bitIdx
+			if shifted&1 == 1 {
+				adj[j] = adj[j].Append(i)
+			}
+			bitIdx = bitIdx + 1
+		}
+	}
+	adj
+}
+
+func refWaitingMatches(s State, n int, adj [][]int) bool {
+	for i in 0..n {
+		let id = "msg_\(i + 1)"
+		let tr = match s.Tasks.Get(id) {
+		case Some[TaskRecord] as t:
+			t.Value
+		case None:
+			return false
+		}
+		let mut allDepsDone = true
+		for depIdx in adj[i] {
+			let depID = "msg_\(depIdx + 1)"
+			match s.Tasks.Get(depID) {
+			case Some[TaskRecord] as d:
+				if d.Value.State != TaskCompleted {
+					allDepsDone = false
+				}
+			case None:
+				allDepsDone = false
+			}
+		}
+		if tr.State == TaskWaiting && allDepsDone {
+			return false
+		}
+		if (tr.State == TaskReady || tr.State == TaskClaimed || tr.State == TaskCompleted) && !allDepsDone {
+			return false
+		}
+	}
+	true
+}
+
+func runPlanAndOrder(edgeBits int, orderSeed int) bool {
+	let n = 5
+	let adj = dagEdgesFromBits(n, edgeBits)
+	let owner = taskOwnerPrincipal()
+	let caller = taskOwnerCaller()
+	let s0 = InitialState([]Principal{owner}, 100)
+	let mut specs = []PlanTaskSpec{}
+	for i in 0..n {
+		let mut deps = []string{}
+		for d in adj[i] {
+			deps = deps.Append("t\(d)")
+		}
+		specs = specs.Append(PlanTaskSpec{
+			Key:    "t\(i)",
+			Text:   "task \(i)",
+			Labels: Map[string, string]{},
+			Needs:  deps,
+			For:    "",
+			NoSync: false,
+		})
+	}
+	let (s1, _, okPlan) = askApplyDecide(s0, CreatePlan{
+		Caller:         caller,
+		Board:          DefaultBoard,
+		Channel:        "dev",
+		Tasks:          specs,
+		IdempotencyKey: "",
+	}, 101)
+	if !okPlan || !refWaitingMatches(s1, n, adj) {
+		return false
+	}
+	let mut cur = s1
+	let mut stepNow = 200
+	let mut rng = orderSeed
+	if rng < 0 {
+		rng = 0 - rng
+	}
+	for _ in 0..16 {
+		let mut readyIDs = []MessageID{}
+		let mut failedIDs = []MessageID{}
+		for i in 0..n {
+			let id = "msg_\(i + 1)"
+			match cur.Tasks.Get(id) {
+			case Some[TaskRecord] as tr:
+				if tr.Value.State == TaskReady {
+					readyIDs = readyIDs.Append(id)
+				} else if tr.Value.State == TaskFailed {
+					failedIDs = failedIDs.Append(id)
+				}
+			case None:
+			}
+		}
+		if len(readyIDs) == 0 && len(failedIDs) == 0 {
+			break
+		}
+		rng = (rng*1103515245 + 12345) & 2147483647
+		if len(failedIDs) > 0 && rng%3 == 0 {
+			let pick = failedIDs[rng%len(failedIDs)]
+			let (ns, _, ok) = askApplyDecide(cur, ReopenTask{Caller: caller, Board: DefaultBoard, ID: pick}, stepNow)
+			if !ok {
+				return false
+			}
+			cur = ns
+		} else if len(readyIDs) > 0 {
+			let pick = readyIDs[rng%len(readyIDs)]
+			let (sClaimed, _, okC) = askApplyDecide(cur, ClaimTask{Caller: caller, Board: DefaultBoard, ID: pick, LeaseMs: MaxLeaseMs}, stepNow)
+			if !okC {
+				return false
+			}
+			let tok = match sClaimed.Tasks.Get(pick) {
+			case Some[TaskRecord] as tr:
+				tr.Value.Epoch
+			case None:
+				0
+			}
+			let mode = (rng / 7) % 4
+			let cmd = if mode == 0 {
+				FailTask{Caller: caller, Board: DefaultBoard, ID: pick, Token: tok, Reason: "boom"}
+			} else {
+				CompleteTask{Caller: caller, Board: DefaultBoard, ID: pick, Token: tok, Result: "done"}
+			}
+			let (sEnd, _, okE) = askApplyDecide(sClaimed, cmd, stepNow+1)
+			if !okE {
+				return false
+			}
+			cur = sEnd
+		}
+		stepNow = stepNow + 5
+		if !refWaitingMatches(cur, n, adj) {
+			return false
+		}
+	}
+	true
+}
+
+// PrerequisiteGraphMatchesReference verifies M12 over generated acyclic graphs
+// of up to 5 tasks and varied completion/failure/reopen orders against a
+// reference oracle that recomputes readiness from scratch.
+law PrerequisiteGraphMatchesReference(edgeBits int, orderSeed int) {
+	runPlanAndOrder(edgeBits, orderSeed)
+}
+
+// CyclicPlanRefused verifies that any prerequisite graph containing a cycle is
+// refused with InvalidNeeds by both CreatePlan and UpdateTaskNeeds.
+law CyclicPlanRefused(kind int) {
+	let owner = taskOwnerPrincipal()
+	let caller = taskOwnerCaller()
+	let s0 = InitialState([]Principal{owner}, 100)
+	let k = ((kind % 3) + 3) % 3
+	let specs = match k {
+	case 0:
+		[]PlanTaskSpec{
+			PlanTaskSpec{Key: "a", Text: "self", Labels: Map[string, string]{}, Needs: []string{"a"}, For: "", NoSync: false},
+		}
+	case 1:
+		[]PlanTaskSpec{
+			PlanTaskSpec{Key: "a", Text: "a", Labels: Map[string, string]{}, Needs: []string{"b"}, For: "", NoSync: false},
+			PlanTaskSpec{Key: "b", Text: "b", Labels: Map[string, string]{}, Needs: []string{"a"}, For: "", NoSync: false},
+		}
+	case _:
+		[]PlanTaskSpec{
+			PlanTaskSpec{Key: "a", Text: "a", Labels: Map[string, string]{}, Needs: []string{"c"}, For: "", NoSync: false},
+			PlanTaskSpec{Key: "b", Text: "b", Labels: Map[string, string]{}, Needs: []string{"a"}, For: "", NoSync: false},
+			PlanTaskSpec{Key: "c", Text: "c", Labels: Map[string, string]{}, Needs: []string{"b"}, For: "", NoSync: false},
+		}
+	}
+	let mut planRefused = false
+	let _ = Decide(s0, CreatePlan{Caller: caller, Board: DefaultBoard, Channel: "dev", Tasks: specs, IdempotencyKey: ""}, 101) catch {
+	case InvalidNeeds:
+		planRefused = true
+		[]Event{}
+	case _:
+		[]Event{}
+	}
+	let (s1, _, ok1) = askApplyDecide(s0, CreatePlan{
+		Caller:  caller,
+		Board:   DefaultBoard,
+		Channel: "dev",
+		Tasks:   []PlanTaskSpec{
+			PlanTaskSpec{Key: "a", Text: "a", Labels: Map[string, string]{}, Needs: []string{}, For: "", NoSync: false},
+			PlanTaskSpec{Key: "b", Text: "b", Labels: Map[string, string]{}, Needs: []string{"a"}, For: "", NoSync: false},
+		},
+		IdempotencyKey: "",
+	}, 102)
+	let mut updateRefused = false
+	let _ = Decide(s1, UpdateTaskNeeds{Caller: caller, Board: DefaultBoard, ID: "msg_1", Needs: []MessageID{"msg_2"}}, 103) catch {
+	case InvalidNeeds:
+		updateRefused = true
+		[]Event{}
+	case _:
+		[]Event{}
+	}
+	planRefused && ok1 && updateRefused
+}
+
+// OversizedPlanRefused verifies that CreatePlan rejects plans exceeding 15
+// tasks with PlanTooLarge and changes nothing.
+law OversizedPlanRefused(extra int) {
+	let count = MaxPlanTasks + 1 + (((extra % 5) + 5) % 5)
+	let owner = taskOwnerPrincipal()
+	let caller = taskOwnerCaller()
+	let s0 = InitialState([]Principal{owner}, 100)
+	let mut specs = []PlanTaskSpec{}
+	for i in 0..count {
+		specs = specs.Append(PlanTaskSpec{
+			Key:    "k\(i)",
+			Text:   "task \(i)",
+			Labels: Map[string, string]{},
+			Needs:  []string{},
+			For:    "",
+			NoSync: false,
+		})
+	}
+	let mut refused = false
+	let _ = Decide(s0, CreatePlan{Caller: caller, Board: DefaultBoard, Channel: "dev", Tasks: specs, IdempotencyKey: ""}, 101) catch {
+	case PlanTooLarge as p:
+		refused = p.Limit == MaxPlanTasks
+		[]Event{}
+	case _:
+		[]Event{}
+	}
+	refused
+}
+
+func sampleTaskOwner(idx int) Caller {
+	match ((idx % 4) + 4) % 4 {
+	case 0:
+		Caller{Principal: "google:alice", Profile: "", Role: Member, Kind: Person, Email: "alice@example.com", Narrowed: false, NarrowedCan: Map[string, []Permission]{}, NarrowedProfile: "", NarrowedBoards: []string{}}
+	case 1:
+		Caller{Principal: "google:alice", Profile: "fx", Role: Member, Kind: Person, Email: "alice@example.com", Narrowed: false, NarrowedCan: Map[string, []Permission]{}, NarrowedProfile: "", NarrowedBoards: []string{}}
+	case 2:
+		Caller{Principal: "google:bob", Profile: "", Role: Member, Kind: Person, Email: "bob@example.com", Narrowed: false, NarrowedCan: Map[string, []Permission]{}, NarrowedProfile: "", NarrowedBoards: []string{}}
+	case _:
+		Caller{Principal: "google:carol", Profile: "bot", Role: Member, Kind: Person, Email: "carol@example.com", Narrowed: false, NarrowedCan: Map[string, []Permission]{}, NarrowedProfile: "", NarrowedBoards: []string{}}
+	}
+}
+
+// TrustSetEnforcedAtClaim verifies that ClaimTask refuses with
+// TaskOwnerUntrusted whenever the task's owner is outside the claimer's
+// generated trust set, and succeeds whenever the owner is trusted.
+law TrustSetEnforcedAtClaim(ownerIdx int, trustedBits int) {
+	let claimer = Caller{Principal: "google:alice", Profile: "runner", Role: Member, Kind: Person, Email: "alice@example.com", Narrowed: false, NarrowedCan: Map[string, []Permission]{}, NarrowedProfile: "", NarrowedBoards: []string{}}
+	let alice = Caller{Principal: "google:alice", Profile: "", Role: Member, Kind: Person, Email: "alice@example.com", Narrowed: false, NarrowedCan: Map[string, []Permission]{}, NarrowedProfile: "", NarrowedBoards: []string{}}
+	let ownerCaller = sampleTaskOwner(ownerIdx)
+	let ownerActor = ActorOf(ownerCaller)
+	let s0 = InitialState([]Principal{taskOwnerPrincipal()}, 100)
+	let candidates = []ActorID{"google:alice", "google:bob", "google:carol+bot"}
+	let mut takesFrom = []ActorID{}
+	for i, cand in candidates {
+		if (trustedBits>>i)&1 == 1 {
+			takesFrom = takesFrom.Append(cand)
+		}
+	}
+	let (s1, _, okTrust) = askApplyDecide(s0, UpdateTrust{Caller: alice, Subject: ActorOf(claimer), TakesFrom: takesFrom}, 101)
+	if !okTrust {
+		return false
+	}
+	let (s2, _, okTask) = askApplyDecide(s1, CreateTask{
+		Caller:         ownerCaller,
+		Board:          DefaultBoard,
+		Channel:        "dev",
+		Thread:         "",
+		Text:           "run build",
+		Labels:         Map[string, string]{},
+		Needs:          []MessageID{},
+		For:            "",
+		Claim:          false,
+		LeaseMs:        0,
+		NoSync:         false,
+		IdempotencyKey: "",
+	}, 102)
+	if !okTask {
+		return false
+	}
+	let wantTrusted = slices.Contains(takesFrom, ownerActor) || slices.Contains(takesFrom, actorPrincipal(ownerActor))
+	let mut gotUntrusted = false
+	let mut gotOK = false
+	let evts = Decide(s2, ClaimTask{Caller: claimer, Board: DefaultBoard, ID: "msg_1", LeaseMs: MaxLeaseMs}, 103) catch {
+	case TaskOwnerUntrusted as u:
+		gotUntrusted = u.Owner == ownerActor
+		[]Event{}
+	case _:
+		[]Event{}
+	}
+	if len(evts) > 0 {
+		gotOK = true
+	}
+	let mut profileTrustRefused = false
+	let _ = Decide(s2, UpdateTrust{Caller: claimer, Subject: ActorOf(claimer), TakesFrom: []ActorID{"google:bob"}}, 104) catch {
+	case Forbidden:
+		profileTrustRefused = true
+		[]Event{}
+	case _:
+		[]Event{}
+	}
+	profileTrustRefused && (if wantTrusted { gotOK && !gotUntrusted } else { gotUntrusted && !gotOK })
+}

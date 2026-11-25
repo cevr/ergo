@@ -180,6 +180,22 @@ func CommandDigest(cmd Command) string {
 			tos = "\(tos)\(t),"
 		}
 		sha256.Sum("ask|\(ResolveBoard(c.Board))|\(c.Channel)|\(c.Thread)|\(c.Text)|\(tos)|\(c.OnlyFromAsked)|\(c.ExpiresAt)")
+	case CreateTask as c:
+		let mut ns = ""
+		for n in c.Needs {
+			ns = "\(ns)\(n),"
+		}
+		sha256.Sum("task|\(ResolveBoard(c.Board))|\(c.Channel)|\(c.Thread)|\(c.Text)|\(encodeLabelsCanonical(c.Labels))|\(ns)|\(c.For)|\(c.Claim)|\(c.NoSync)")
+	case CreatePlan as c:
+		let mut body = "plan|\(ResolveBoard(c.Board))|\(c.Channel)|"
+		for t in c.Tasks {
+			let mut ns = ""
+			for n in t.Needs {
+				ns = "\(ns)\(n),"
+			}
+			body = "\(body)\(t.Key):\(t.Text):\(encodeLabelsCanonical(t.Labels)):\(ns):\(t.For):\(t.NoSync);"
+		}
+		sha256.Sum(body)
 	case _:
 		sha256.Sum("other")
 	}
@@ -426,6 +442,34 @@ func BoardOfCommand(cmd Command) string {
 		ResolveBoard(c.Board)
 	case UpdateTrust:
 		DefaultBoard
+	case CreateTask as c:
+		ResolveBoard(c.Board)
+	case CreatePlan as c:
+		ResolveBoard(c.Board)
+	case ClaimTask as c:
+		ResolveBoard(c.Board)
+	case RenewTask as c:
+		ResolveBoard(c.Board)
+	case ReleaseTask as c:
+		ResolveBoard(c.Board)
+	case CompleteTask as c:
+		ResolveBoard(c.Board)
+	case FailTask as c:
+		ResolveBoard(c.Board)
+	case BlockTask as c:
+		ResolveBoard(c.Board)
+	case UnblockTask as c:
+		ResolveBoard(c.Board)
+	case ReopenTask as c:
+		ResolveBoard(c.Board)
+	case AssignTask as c:
+		ResolveBoard(c.Board)
+	case UpdateTaskNeeds as c:
+		ResolveBoard(c.Board)
+	case CancelTask as c:
+		ResolveBoard(c.Board)
+	case ExpireTask as c:
+		ResolveBoard(c.Board)
 	}
 }
 
@@ -741,13 +785,27 @@ func Decide(s State, cmd Command, now Timestamp) []Event fails Refusal {
 		if c.IfRevision > 0 && target.Revision != c.IfRevision {
 			return RevisionConflict
 		}
-		[]Event{Event{
+		let mut events = []Event{Event{
 			Seq:     0,
 			Board:   b.Name,
 			At:      now,
 			Actor:   ActorOf(c.Caller),
 			Payload: MessageDeleted{Board: b.Name, ID: target.ID, Revision: target.Revision + 1},
 		}}
+		match s.Tasks.Get(target.ID) {
+		case Some[TaskRecord] as tr:
+			if tr.Value.State != TaskCompleted && tr.Value.State != TaskCanceled {
+				events = events.Append(Event{
+					Seq:     0,
+					Board:   b.Name,
+					At:      now,
+					Actor:   ActorOf(c.Caller),
+					Payload: TaskCanceledEvent{Board: b.Name, ID: target.ID, Reason: "root_deleted"},
+				})
+			}
+		case None:
+		}
+		events
 
 	case ReactMessage as c:
 		try requireActiveCaller(s, c.Caller)
@@ -1053,6 +1111,9 @@ func Decide(s State, cmd Command, now Timestamp) []Event fails Refusal {
 			return Forbidden{Permission: "trust", Channel: "*"}
 		}
 		[]Event{Event{Seq: 0, Board: DefaultBoard, At: now, Actor: ActorOf(c.Caller), Payload: TrustUpdated{Trust: TrustSet{Subject: c.Subject, TakesFrom: c.TakesFrom}}}}
+
+	case CreateTask, CreatePlan, ClaimTask, RenewTask, ReleaseTask, CompleteTask, FailTask, BlockTask, UnblockTask, ReopenTask, AssignTask, UpdateTaskNeeds, CancelTask, ExpireTask:
+		try decideTask(s, cmd, now)
 	}
 }
 
@@ -1287,6 +1348,8 @@ func Apply(s State, e Event) State {
 		st
 	case TrustUpdated as p:
 		State{..next, Trusts: next.Trusts.Put(p.Trust.Subject, p.Trust)}
+	case TaskCreated, TaskReadied, TaskClaimedEvent, TaskRenewed, TaskReleased, TaskExpired, TaskCompletedEvent, TaskFailedEvent, TaskBlockedEvent, TaskUnblocked, TaskReopened, TaskAssignedEvent, TaskNeedsChanged, TaskCanceledEvent:
+		applyTask(next, e)
 	}
 }
 

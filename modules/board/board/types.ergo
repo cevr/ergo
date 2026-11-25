@@ -217,6 +217,20 @@ type Refusal =
 	| BoardNameTaken{}
 	| BoardNotFound{}
 	| BoardArchived{}
+	| TaskClaimedRefusal{}
+	| TaskAssignedRefusal{}
+	| TaskWaitingRefusal{}
+	| TaskBlockedRefusal{}
+	| TaskFinished{}
+	| AlreadyTask{}
+	| NotBlocked{}
+	| NotFailed{}
+	| TaskNotOwned{}
+	| TaskOwnerUntrusted{Owner ActorID}
+	| ClaimLost{}
+	| InvalidNeeds{Why string}
+	| PlanTooLarge{Limit int}
+	| NothingReady{}
 
 // EventPayload is the domain fact recorded by one event in a board's log.
 type EventPayload =
@@ -240,6 +254,20 @@ type EventPayload =
 	| AskWithdrawnEvent{Board string, ID MessageID}
 	| AskExpiredEvent{Board string, ID MessageID}
 	| TrustUpdated{Trust TrustSet}
+	| TaskCreated{Task TaskRecord}
+	| TaskReadied{Board string, ID MessageID, ReadyAt Timestamp}
+	| TaskClaimedEvent{Board string, ID MessageID, Claim TaskClaim}
+	| TaskRenewed{Board string, ID MessageID, LeaseUntil Timestamp}
+	| TaskReleased{Board string, ID MessageID, Ready bool, ReadyAt Timestamp}
+	| TaskExpired{Board string, ID MessageID, Ready bool, ReadyAt Timestamp}
+	| TaskCompletedEvent{Board string, ID MessageID, Result string}
+	| TaskFailedEvent{Board string, ID MessageID, Reason string}
+	| TaskBlockedEvent{Board string, ID MessageID, Kind string, Reason string}
+	| TaskUnblocked{Board string, ID MessageID, Ready bool, ReadyAt Timestamp}
+	| TaskReopened{Board string, ID MessageID, Ready bool, ReadyAt Timestamp}
+	| TaskAssignedEvent{Board string, ID MessageID, For ActorID}
+	| TaskNeedsChanged{Board string, ID MessageID, Needs []MessageID, Ready bool, ReadyAt Timestamp}
+	| TaskCanceledEvent{Board string, ID MessageID, Reason string}
 
 // Event is one ordered entry in a board's event log.
 type Event {
@@ -271,6 +299,20 @@ type Command =
 	| WithdrawAsk{Caller Caller, Board string, ID MessageID}
 	| ExpireAsk{Board string, ID MessageID}
 	| UpdateTrust{Caller Caller, Subject ActorID, TakesFrom []ActorID}
+	| CreateTask{Caller Caller, Board string, Channel string, Thread MessageID, Text string, Labels Map[string, string], Needs []MessageID, For ActorID, Claim bool, LeaseMs int, NoSync bool, IdempotencyKey string}
+	| CreatePlan{Caller Caller, Board string, Channel string, Tasks []PlanTaskSpec, IdempotencyKey string}
+	| ClaimTask{Caller Caller, Board string, ID MessageID, LeaseMs int}
+	| RenewTask{Caller Caller, Board string, ID MessageID, Token int, LeaseMs int}
+	| ReleaseTask{Caller Caller, Board string, ID MessageID, Token int}
+	| CompleteTask{Caller Caller, Board string, ID MessageID, Token int, Result string}
+	| FailTask{Caller Caller, Board string, ID MessageID, Token int, Reason string}
+	| BlockTask{Caller Caller, Board string, ID MessageID, Kind string, Reason string, Token int}
+	| UnblockTask{Caller Caller, Board string, ID MessageID}
+	| ReopenTask{Caller Caller, Board string, ID MessageID}
+	| AssignTask{Caller Caller, Board string, ID MessageID, For ActorID}
+	| UpdateTaskNeeds{Caller Caller, Board string, ID MessageID, Needs []MessageID}
+	| CancelTask{Caller Caller, Board string, ID MessageID, Reason string}
+	| ExpireTask{Board string, ID MessageID}
 
 // State is the pure projected state folded from the event log.
 type State {
@@ -282,6 +324,7 @@ type State {
 	Profiles       Map[ActorID, Profile],
 	Grants         Map[string, []Grant],
 	Asks           Map[MessageID, AskRecord],
+	Tasks          Map[MessageID, TaskRecord],
 	Trusts         Map[ActorID, TrustSet],
 	Idempotency    Map[IdempotencyKey, IdempotencyEntry],
 	NextBoardNum   int,
@@ -340,6 +383,7 @@ func InitialState(admins []Principal, now Timestamp) State {
 		Profiles:       Map[ActorID, Profile]{},
 		Grants:         Map[string, []Grant]{}.Put(DefaultBoard, initGrants),
 		Asks:           Map[MessageID, AskRecord]{},
+		Tasks:          Map[MessageID, TaskRecord]{},
 		Trusts:         Map[ActorID, TrustSet]{},
 		Idempotency:    Map[IdempotencyKey, IdempotencyEntry]{},
 		NextBoardNum:   2,
