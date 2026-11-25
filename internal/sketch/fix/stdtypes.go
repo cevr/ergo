@@ -480,7 +480,7 @@ func wouldCycleStd(currentStdPkg, targetPkg string) bool {
 		return false
 	}
 	if isBootstrapStdPath(currentStdPkg) {
-		return true
+		return !(currentStdPkg == "core" && targetPkg == "option")
 	}
 	return stdTransitiveDeps()[targetPkg][currentStdPkg]
 }
@@ -699,6 +699,9 @@ func resolvedStdTypeIdent(id *syntax.Ident, info *check.Info, lookup func(string
 		return spec, true
 	}
 	if tn.Name == "Seq" && tn.Pkg.Path == "collections" {
+		return spec, true
+	}
+	if tn.Pkg.Path == spec.pkg && tn.Pkg.Std() {
 		return spec, true
 	}
 	return stdTypeSpec{}, false
