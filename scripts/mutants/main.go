@@ -94,6 +94,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 	flags.StringVar(&jsonOut, "json", "", "write one JSON result per mutant to `FILE`")
 	var checkApplyFlag bool
 	flags.BoolVar(&checkApplyFlag, "check-apply", false, "judge nothing: print each selected row whose edit does not apply (ledger, row, owner, why, the commit that last changed its from in its file) and exit 1 if any")
+	var checkEditedKillers bool
+	var baseRev string
+	var dryRun bool
+	flags.BoolVar(&checkEditedKillers, "check-edited-killers", false, "anti-assertion-weakening guard: find test/law files edited since -base, map them to affected ledger rows, and re-judge those rows fresh (exit 1 if any survive, fail to apply, or become invalid)")
+	flags.StringVar(&baseRev, "base", "", "git base `REV` for -check-edited-killers")
+	flags.BoolVar(&dryRun, "dry-run", false, "with -check-edited-killers, list affected mutant rows and exit 0 without judging")
 	var anchorDecls bool
 	flags.BoolVar(&anchorDecls, "anchor-decls", false, "judge nothing: give each row of every testdata/mutants.json below -root the declaration that holds its edit (decl, MN0), printing what it cannot anchor; with -write, rewrite the ledgers")
 	var canonicalKillers bool
@@ -111,6 +117,18 @@ func run(args []string, stdout, stderr io.Writer) int {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
 		}
+		return 2
+	}
+	if checkEditedKillers {
+		var err error
+		if cfg.Memory, err = proclimit.ParseSize(memory); err != nil {
+			fmt.Fprintf(stderr, "mutants: -memory: %v\n", err)
+			return 2
+		}
+		return runEditedKillers(cfg, baseRev, dryRun, selectRE, ergoFlag, noNativeErgo, flags.Args(), stdout, stderr)
+	}
+	if dryRun {
+		fmt.Fprintln(stderr, "mutants: -dry-run requires -check-edited-killers")
 		return 2
 	}
 	if checkApplyFlag {
