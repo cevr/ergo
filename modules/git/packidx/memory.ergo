@@ -1,0 +1,94 @@
+import slices
+import strings
+import github.com/cevr/ergo/modules/git/oid
+
+// MemoryIndex is an in-memory provider of IndexReader holding sorted entries
+// for representation-independent testing and law execution.
+type MemoryIndex {
+	format  oid.Format,
+	entries []Entry,
+} implements IndexReader
+
+func compareEntries(a Entry, b Entry) int {
+	oid.Compare(a.OID, b.OID)
+}
+
+// NewMemoryIndex builds a MemoryIndex from entries, sorting and deduplicating
+// them into strict ascending OID order.
+func NewMemoryIndex(format oid.Format, raw []Entry) MemoryIndex {
+	let mut filtered = []Entry{}
+	for e in raw {
+		if sameFormat(format, e.OID.Format) && len(e.OID.Raw) == oid.ByteLen(format) {
+			filtered = filtered.Append(e)
+		}
+	}
+	let sorted = slices.SortFunc(filtered, compareEntries)
+	let mut dedup = slices.WithCapacity[Entry](len(sorted))
+	for e in sorted {
+		if len(dedup) == 0 || !oid.Equal(dedup[len(dedup)-1].OID, e.OID) {
+			dedup = dedup.Append(e)
+		}
+	}
+	MemoryIndex{
+		format:  format,
+		entries: dedup,
+	}
+}
+
+// Count implements IndexReader.Count on MemoryIndex.
+func Count(m MemoryIndex) int {
+	len(m.entries)
+}
+
+// At implements IndexReader.At on MemoryIndex.
+func At(m MemoryIndex, i int) Option[Entry] {
+	if i < 0 || i >= len(m.entries) {
+		return None
+	}
+	Some[Entry]{Value: m.entries[i]}
+}
+
+// Lookup implements IndexReader.Lookup on MemoryIndex.
+func Lookup(m MemoryIndex, id oid.OID) Option[Entry] {
+	if !sameFormat(m.format, id.Format) || len(id.Raw) != oid.ByteLen(m.format) {
+		return None
+	}
+	let mut lo = 0
+	let mut hi = len(m.entries)
+	for _ in 0..64 {
+		if lo >= hi {
+			break
+		}
+		let mid = lo + (hi-lo)/2
+		let cmp = oid.Compare(m.entries[mid].OID, id)
+		if cmp == 0 {
+			return Some[Entry]{Value: m.entries[mid]}
+		}
+		if cmp < 0 {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+	None
+}
+
+// FindPrefix implements IndexReader.FindPrefix on MemoryIndex.
+func FindPrefix(m MemoryIndex, hexPrefix string) []Entry {
+	let pb = hexPrefix.Bytes()
+	if len(pb) > oid.HexLen(m.format) {
+		return []Entry{}
+	}
+	for c in pb {
+		if lowerHexNibble(c) < 0 {
+			return []Entry{}
+		}
+	}
+	let mut out = []Entry{}
+	for e in m.entries {
+		if strings.HasPrefix(oid.Hex(e.OID), hexPrefix) {
+			out = out.Append(e)
+		}
+	}
+	out
+}

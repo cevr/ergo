@@ -242,6 +242,70 @@
       ]
     },
     {
+      "name": "git-packidx-swap-large-offset-index",
+      "origin": "STD-GIT G-PACKIDX",
+      "file": "modules/git/packidx/codec.ergo",
+      "from": "\t\t\tpackOff = readU64BE(raw, off64Base+int(largeIdx)*8)",
+      "to": "\t\t\tpackOff = uint64(largeIdx)",
+      "rule": "Pack index v2 resolves MSB-set 32-bit offsets through the 64-bit large-offset table rather than returning the table index as a pack offset.",
+      "anchor": {
+        "tests": [
+          "modules/git/packidx:LargeOffsetsAndCorruptionMatrix"
+        ]
+      },
+      "killers": [
+        "modules/git/packidx:LargeOffsetsAndCorruptionMatrix"
+      ]
+    },
+    {
+      "name": "git-packidx-ignore-checksum",
+      "origin": "STD-GIT G-PACKIDX",
+      "file": "modules/git/packidx/codec.ergo",
+      "from": "\tif !slices.Equal(gotIdx, wantIdx) {",
+      "to": "\tif false && !slices.Equal(gotIdx, wantIdx) {",
+      "rule": "Pack index parsing verifies the trailing index checksum over all preceding bytes.",
+      "anchor": {
+        "tests": [
+          "modules/git/packidx:LargeOffsetsAndCorruptionMatrix"
+        ]
+      },
+      "killers": [
+        "modules/git/packidx:LargeOffsetsAndCorruptionMatrix"
+      ]
+    },
+    {
+      "name": "git-packidx-accept-unknown-version",
+      "origin": "STD-GIT G-PACKIDX",
+      "file": "modules/git/packidx/codec.ergo",
+      "from": "\t\tif ver != uint32(2) {\n\t\t\treturn UnsupportedVersion{Version: ver}\n\t\t}",
+      "to": "\t\tif false && ver != uint32(2) {\n\t\t\treturn UnsupportedVersion{Version: ver}\n\t\t}",
+      "rule": "Pack index v2+ headers with unknown versions are rejected with UnsupportedVersion rather than parsed optimistically.",
+      "anchor": {
+        "tests": [
+          "modules/git/packidx:LargeOffsetsAndCorruptionMatrix"
+        ]
+      },
+      "killers": [
+        "modules/git/packidx:LargeOffsetsAndCorruptionMatrix"
+      ]
+    },
+    {
+      "name": "git-packidx-off-by-one-fanout",
+      "origin": "STD-GIT G-PACKIDX",
+      "file": "modules/git/packidx/codec.ergo",
+      "from": "\tlet mut hi = int(idx.fanout[b])",
+      "to": "\tlet mut hi = if idx.fanout[b] > uint32(0) { int(idx.fanout[b]) - 1 } else { 0 }",
+      "rule": "Pack index binary search uses the exact exclusive upper bound fanout[b] for bucket b.",
+      "anchor": {
+        "tests": [
+          "modules/git/packidx:V2MatchesGitShowIndex"
+        ]
+      },
+      "killers": [
+        "modules/git/packidx:V2MatchesGitShowIndex"
+      ]
+    },
+    {
       "name": "git-refs-packed-shadows-loose",
       "origin": "STD-GIT G-REFS",
       "file": "modules/git/refs/store.ergo",

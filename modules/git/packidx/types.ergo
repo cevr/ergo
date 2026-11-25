@@ -1,0 +1,134 @@
+// Package packidx implements Git pack index v2 and v1 decoding, integrity
+// verification, and O(log N) fan-out binary-search lookup (STD-GIT: G-PACKIDX).
+
+import github.com/cevr/ergo/modules/git/oid
+
+// Error is the closed failure union for pack index decoding and file reads.
+type Error =
+	| Truncated{Expected int, Got int}
+	| BadMagic{Reason string}
+	| UnsupportedVersion{Version uint32}
+	| CorruptFanout{Bucket int, Prev uint32, Cur uint32}
+	| UnsortedOIDs{Index int}
+	| BadLargeOffset{Entry int, TableIndex uint32, TableLen int}
+	| ChecksumMismatch{Expected string, Got string}
+	| WrongFormat{Reason string}
+	| IOFailed{Op string, Detail string}
+
+// Entry is a single object location record inside a Git pack index.
+// For v1 indexes (which carry no CRC32 table), CRC32 is 0.
+type Entry {
+	OID    oid.OID,
+	Offset uint64,
+	CRC32  uint32,
+}
+
+// Index is a verified, immutable Git pack index (v2 or v1) supporting
+// O(log N) fan-out binary search and prefix queries.
+type Index {
+	format       oid.Format,
+	version      int,
+	fanout       []uint32,
+	entries      []Entry,
+	packChecksum oid.OID,
+	idxChecksum  oid.OID,
+} implements IndexReader
+
+// IndexReader is the capability seam for pack index queries, carrying laws
+// held identically by both parsed Index and in-memory MemoryIndex providers.
+type IndexReader {
+	Count() int,
+	At(i int) Option[Entry],
+	Lookup(id oid.OID) Option[Entry],
+	FindPrefix(hexPrefix string) []Entry,
+
+	// LookupFindsAllEntries: every entry at 0..Count() is found by Lookup
+	// with identical OID, Offset, and CRC32.
+	law LookupFindsAllEntries() {
+		let n = Count()
+		for i in 0..n {
+			match At(i) {
+			case None:
+				return false
+			case Some[Entry] as e:
+				match Lookup(e.Value.OID) {
+				case None:
+					return false
+				case Some[Entry] as got:
+					if !oid.Equal(got.Value.OID, e.Value.OID) || got.Value.Offset != e.Value.Offset || got.Value.CRC32 != e.Value.CRC32 {
+						return false
+					}
+				}
+			}
+		}
+		true
+	},
+
+	// LookupMissingReturnsNone: an absent OID returns None from Lookup.
+	law LookupMissingReturnsNone() {
+		let n = Count()
+		if n == 0 {
+			return Lookup(oid.Zero(oid.Sha1)) == None && Lookup(oid.Zero(oid.Sha256)) == None
+		}
+		match At(0) {
+		case None:
+			false
+		case Some[Entry] as first:
+			let probe = oid.Zero(first.Value.OID.Format)
+			let mut exists = false
+			for i in 0..n {
+				match At(i) {
+				case Some[Entry] as e:
+					if oid.Equal(e.Value.OID, probe) {
+						exists = true
+					}
+				case None:
+				}
+			}
+			if exists {
+				true
+			} else {
+				Lookup(probe) == None
+			}
+		}
+	},
+
+	// EntriesStrictlySorted: entries are in strict ascending OID order and
+	// FindPrefix on each entry's 8-char prefix includes that entry.
+	law EntriesStrictlySorted() {
+		let n = Count()
+		for i in 1..n {
+			match At(i - 1) {
+			case None:
+				return false
+			case Some[Entry] as prev:
+				match At(i) {
+				case None:
+					return false
+				case Some[Entry] as cur:
+					if oid.Compare(prev.Value.OID, cur.Value.OID) >= 0 {
+						return false
+					}
+				}
+			}
+		}
+		for i in 0..n {
+			match At(i) {
+			case None:
+				return false
+			case Some[Entry] as e:
+				let matches = FindPrefix(oid.ShortHex(e.Value.OID, 8))
+				let mut found = false
+				for m in matches {
+					if oid.Equal(m.OID, e.Value.OID) {
+						found = true
+					}
+				}
+				if !found {
+					return false
+				}
+			}
+		}
+		true
+	},
+}
