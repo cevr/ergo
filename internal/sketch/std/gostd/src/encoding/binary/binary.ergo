@@ -74,11 +74,9 @@ extern go encoding/binary.ReadVarint func ReadVarint(r own io.ByteReader) int64 
 extern go encoding/binary.Size func Size(v go.Any) int needs go.Foreign
 
 // ergo:go func Uvarint(buf []byte) (uint64, int)
-// ergo:reads buf
 extern go encoding/binary.Uvarint func Uvarint(buf []byte) (uint64, int) needs go.Foreign
 
 // ergo:go func Varint(buf []byte) (int64, int)
-// ergo:reads buf
 extern go encoding/binary.Varint func Varint(buf []byte) (int64, int) needs go.Foreign
 
 // ergo:go func Write(w io.Writer, order ByteOrder, data any) error

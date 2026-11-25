@@ -38,6 +38,7 @@ import (
 type GoBindings struct {
 	lookup func(path string) (string, bool)
 	pkgs   map[string]*Package
+	std    Importer // Ergo std importer for binding imports (cmp, core, option); defaults to Std
 	// Stale, when set, is why the binding of a Go import path that lookup
 	// found no longer matches the module's go.mod (IG7: the loader compares
 	// the binding's stamp with go.mod, reading files only); "" when it
@@ -65,10 +66,18 @@ type GoImporter interface {
 	GoBindings() *GoBindings
 }
 
-// goImp is a binder's importer: a binding imports Go packages only.
+// goImp is a binder's importer: a binding imports Go packages and the Ergo
+// std packages its signatures name (cmp, core, option).
 type goImp struct{ set *GoBindings }
 
 func (g *goImp) Import(path string) (*Package, error) {
+	if path == "cmp" || path == "core" || path == "option" {
+		imp := g.set.std
+		if imp == nil {
+			imp = Std
+		}
+		return imp.Import(path)
+	}
 	return nil, fmt.Errorf("a binding imports Go packages only (%s)", path)
 }
 
@@ -77,10 +86,17 @@ func (g *goImp) GoBindings() *GoBindings { return g.set }
 // goBindings is the program's Go packages.
 func (c *checker) goBindings() *GoBindings {
 	if gi, ok := c.imp.(GoImporter); ok {
-		return gi.GoBindings()
+		b := gi.GoBindings()
+		if b.std == nil && c.imp != nil {
+			b.std = c.imp
+		}
+		return b
 	}
 	if c.ownGo == nil {
 		c.ownGo = NewGoBindings(nil)
+		if c.imp != nil {
+			c.ownGo.std = c.imp
+		}
 	}
 	return c.ownGo
 }
@@ -437,7 +453,14 @@ func (h *hostPkg) load() {
 					name = spec.Name.Name
 				}
 				pn := &PkgName{Name: name, Pos: spec.Pos(), spec: spec, used: true}
-				if pkg, ok := h.set.Package(path); ok {
+				if spec.Kind != syntax.ImportGo {
+					if pkg, err := c.imp.Import(path); err == nil {
+						pn.Pkg = pkg
+					} else {
+						c.errorf(spec, CodeUnknown, "package %q: %v", path, err)
+						pn.Pkg, pn.broken = &Package{Path: path, Name: name, Scope: newScope(nil)}, true
+					}
+				} else if pkg, ok := h.set.Package(path); ok {
 					pn.Pkg = pkg
 				} else {
 					c.errorf(spec, CodeUnknown, "no binding for Go package %q", path)

@@ -8,7 +8,6 @@ extern go crypto/rc4.Cipher type Cipher {}
 extern go crypto/rc4.Cipher.Reset func (c *Cipher) Reset() needs go.Foreign
 
 // ergo:go func (*Cipher).XORKeyStream(dst []byte, src []byte)
-// ergo:reads src
 extern go crypto/rc4.Cipher.XORKeyStream func (c *Cipher) XORKeyStream(dst []byte, src []byte) needs go.Foreign
 
 // ergo:go type KeySizeError int
@@ -18,5 +17,4 @@ extern go crypto/rc4.KeySizeError type KeySizeError int
 extern go crypto/rc4.KeySizeError.Error func (k KeySizeError) Error() string needs go.Foreign
 
 // ergo:go func NewCipher(key []byte) (*Cipher, error)
-// ergo:reads key
 extern go crypto/rc4.NewCipher func NewCipher(key []byte) go.Ref[Cipher] fails go.Error needs go.Foreign

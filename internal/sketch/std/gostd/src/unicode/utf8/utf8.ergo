@@ -5,14 +5,12 @@
 extern go unicode/utf8.AppendRune func AppendRune(p []byte, r rune) []byte
 
 // ergo:go func DecodeLastRune(p []byte) (r rune, size int)
-// ergo:reads p
 extern go unicode/utf8.DecodeLastRune func DecodeLastRune(p []byte) (rune, int)
 
 // ergo:go func DecodeLastRuneInString(s string) (r rune, size int)
 extern go unicode/utf8.DecodeLastRuneInString func DecodeLastRuneInString(s string) (rune, int)
 
 // ergo:go func DecodeRune(p []byte) (r rune, size int)
-// ergo:reads p
 extern go unicode/utf8.DecodeRune func DecodeRune(p []byte) (rune, int)
 
 // ergo:go func DecodeRuneInString(s string) (r rune, size int)
@@ -22,7 +20,6 @@ extern go unicode/utf8.DecodeRuneInString func DecodeRuneInString(s string) (run
 extern go unicode/utf8.EncodeRune func EncodeRune(p []byte, r rune) int
 
 // ergo:go func FullRune(p []byte) bool
-// ergo:reads p
 extern go unicode/utf8.FullRune func FullRune(p []byte) bool
 
 // ergo:go func FullRuneInString(s string) bool
@@ -32,7 +29,6 @@ extern go unicode/utf8.FullRuneInString func FullRuneInString(s string) bool
 extern go unicode/utf8.MaxRune let MaxRune rune
 
 // ergo:go func RuneCount(p []byte) int
-// ergo:reads p
 extern go unicode/utf8.RuneCount func RuneCount(p []byte) int
 
 // ergo:go func RuneCountInString(s string) (n int)
@@ -56,7 +52,6 @@ extern go unicode/utf8.RuneStart func RuneStart(b byte) bool
 extern go unicode/utf8.UTFMax let UTFMax int
 
 // ergo:go func Valid(p []byte) bool
-// ergo:reads p
 extern go unicode/utf8.Valid func Valid(p []byte) bool
 
 // ergo:go func ValidRune(r rune) bool

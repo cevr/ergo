@@ -5,7 +5,6 @@
 extern go unicode/utf16.AppendRune func AppendRune(a []uint16, r rune) []uint16
 
 // ergo:go func Decode(s []uint16) []rune
-// ergo:reads s
 extern go unicode/utf16.Decode func Decode(s []uint16) []rune
 
 // ergo:go func DecodeRune(r1 rune, r2 rune) rune
@@ -13,7 +12,6 @@ extern go unicode/utf16.Decode func Decode(s []uint16) []rune
 extern go unicode/utf16.DecodeRune func DecodeRune(r1 rune, r2 rune) rune
 
 // ergo:go func Encode(s []rune) []uint16
-// ergo:reads s
 extern go unicode/utf16.Encode func Encode(s []rune) []uint16
 
 // ergo:go func EncodeRune(r rune) (r1 rune, r2 rune)

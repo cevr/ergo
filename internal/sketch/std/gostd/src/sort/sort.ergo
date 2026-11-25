@@ -8,15 +8,12 @@ extern go sort.Find func Find[CR](n int, cmp func(int) int needs CR) (int, bool)
 extern go sort.Float64Slice type Float64Slice []float64
 
 // ergo:go func (Float64Slice).Len() int
-// ergo:reads x
 extern go sort.Float64Slice.Len func (x Float64Slice) Len() int
 
 // ergo:go func (Float64Slice).Less(i int, j int) bool
-// ergo:reads x
 extern go sort.Float64Slice.Less func (x Float64Slice) Less(i int, j int) bool
 
 // ergo:go func (Float64Slice).Search(x float64) int
-// ergo:reads p
 extern go sort.Float64Slice.Search func (p Float64Slice) Search(x float64) int
 
 // ergo:go func (Float64Slice).Sort()
@@ -30,22 +27,18 @@ extern go sort.Float64Slice.Swap func (x Float64Slice) Swap(i int, j int)
 extern go sort.Float64s func Float64s(x []float64) []float64
 
 // ergo:go func Float64sAreSorted(x []float64) bool
-// ergo:reads x
 extern go sort.Float64sAreSorted func Float64sAreSorted(x []float64) bool
 
 // ergo:go type IntSlice []int
 extern go sort.IntSlice type IntSlice []int
 
 // ergo:go func (IntSlice).Len() int
-// ergo:reads x
 extern go sort.IntSlice.Len func (x IntSlice) Len() int
 
 // ergo:go func (IntSlice).Less(i int, j int) bool
-// ergo:reads x
 extern go sort.IntSlice.Less func (x IntSlice) Less(i int, j int) bool
 
 // ergo:go func (IntSlice).Search(x int) int
-// ergo:reads p
 extern go sort.IntSlice.Search func (p IntSlice) Search(x int) int
 
 // ergo:go func (IntSlice).Sort()
@@ -66,7 +59,6 @@ extern go sort.Interface type Interface {
 extern go sort.Ints func Ints(x []int) []int
 
 // ergo:go func IntsAreSorted(x []int) bool
-// ergo:reads x
 extern go sort.IntsAreSorted func IntsAreSorted(x []int) bool
 
 // ergo:go func IsSorted(data Interface) bool
@@ -79,15 +71,12 @@ extern go sort.Reverse func Reverse(data own Interface) Interface
 extern go sort.Search func Search[CR](n int, f func(int) bool needs CR) int needs CR
 
 // ergo:go func SearchFloat64s(a []float64, x float64) int
-// ergo:reads a
 extern go sort.SearchFloat64s func SearchFloat64s(a []float64, x float64) int
 
 // ergo:go func SearchInts(a []int, x int) int
-// ergo:reads a
 extern go sort.SearchInts func SearchInts(a []int, x int) int
 
 // ergo:go func SearchStrings(a []string, x string) int
-// ergo:reads a
 extern go sort.SearchStrings func SearchStrings(a []string, x string) int
 
 // ergo:go func Slice(x any, less func(i int, j int) bool)
@@ -109,15 +98,12 @@ extern go sort.Stable func Stable(data own Interface)
 extern go sort.StringSlice type StringSlice []string
 
 // ergo:go func (StringSlice).Len() int
-// ergo:reads x
 extern go sort.StringSlice.Len func (x StringSlice) Len() int
 
 // ergo:go func (StringSlice).Less(i int, j int) bool
-// ergo:reads x
 extern go sort.StringSlice.Less func (x StringSlice) Less(i int, j int) bool
 
 // ergo:go func (StringSlice).Search(x string) int
-// ergo:reads p
 extern go sort.StringSlice.Search func (p StringSlice) Search(x string) int
 
 // ergo:go func (StringSlice).Sort()
@@ -131,5 +117,4 @@ extern go sort.StringSlice.Swap func (x StringSlice) Swap(i int, j int)
 extern go sort.Strings func Strings(x []string) []string
 
 // ergo:go func StringsAreSorted(x []string) bool
-// ergo:reads x
 extern go sort.StringsAreSorted func StringsAreSorted(x []string) bool

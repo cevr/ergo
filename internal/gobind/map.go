@@ -262,6 +262,15 @@ func plainElem(t types.Type, seen map[types.Type]bool) bool {
 // package of that name would hide (Close).
 func (m *mapper) prelude(name string) { m.refs = append(m.refs, "."+name) }
 
+// std qualifies a name from Ergo std package pkg (cmp, core, option): as a
+// Render placeholder when m.q produces placeholders, or as pkg directly.
+func (m *mapper) std(pkg string) string {
+	if strings.HasPrefix(m.q(types.NewPackage("x", "x")), "⟦") {
+		return "⟦ergo:" + pkg + " " + pkg + "⟧"
+	}
+	return pkg
+}
+
 type pos int
 
 const (
@@ -421,7 +430,7 @@ func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, bool,
 	unconstrainedBefore := false
 	for i := 0; i < sig.TypeParams().Len(); i++ {
 		tp := sig.TypeParams().At(i)
-		c, core, err := constraint(tp)
+		c, core, err := m.constraint(tp)
 		if err != nil {
 			return "", false, false, err
 		}
@@ -737,9 +746,9 @@ func inValueSet(n *types.Named, name string) bool {
 }
 
 // constraint maps a type parameter's constraint: "" for any, "comparable",
-// "ordered" for cmp.Ordered, or a core type ~[]E or ~map[K]V that replaces
+// "cmp.Ordered" for cmp.Ordered, or a core type ~[]E or ~map[K]V that replaces
 // the parameter (core is set).
-func constraint(tp *types.TypeParam) (string, types.Type, error) {
+func (m *mapper) constraint(tp *types.TypeParam) (string, types.Type, error) {
 	c := tp.Constraint()
 	if n, ok := c.(*types.Named); ok {
 		obj := n.Obj()
@@ -747,7 +756,7 @@ func constraint(tp *types.TypeParam) (string, types.Type, error) {
 			return "comparable", nil, nil
 		}
 		if obj.Pkg() != nil && obj.Pkg().Path() == "cmp" && obj.Name() == "Ordered" {
-			return "ordered", nil, nil
+			return m.std("cmp") + ".Ordered", nil, nil
 		}
 	}
 	iface, _ := c.Underlying().(*types.Interface)
@@ -1092,8 +1101,7 @@ func (m *sigMapper) named(n *types.Named, at pos, cb bool) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		m.prelude("Seq")
-		return "Seq[" + e + "]", nil
+		return m.std("core") + ".Seq[" + e + "]", nil
 	case n.TypeArgs().Len() > 0:
 		return "", refuse("the generic Go type %s maps to no Ergo type in v1", obj.Name())
 	}
@@ -1137,7 +1145,7 @@ func (m *sigMapper) pointer(p *types.Pointer, at pos, cb bool) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if s == "duration" || strings.HasPrefix(s, "Seq[") {
+	if s == "duration" || strings.HasPrefix(s, m.std("core")+".Seq[") {
 		return "", refuse("a pointer to %s", s)
 	}
 	switch at {
@@ -1148,8 +1156,7 @@ func (m *sigMapper) pointer(p *types.Pointer, at pos, cb bool) (string, error) {
 			return "go.Ref[" + s + "]", nil
 		}
 	}
-	m.prelude("Option")
-	return "Option[go.Ref[" + s + "]]", nil
+	return m.std("option") + ".Option[go.Ref[" + s + "]]", nil
 }
 
 // typeRefusal is why a named type's declaration does not map, or "".
@@ -1327,10 +1334,10 @@ func (m *mapper) releaseClause(n *types.Named) string {
 	if !resourceType(types.NewPointer(n)) {
 		return ""
 	}
-	if m.pkg.Path() != "io" && m.pkg.Scope().Lookup("Closer") != nil {
-		return " implements " + m.q(types.NewPackage("io", "io")) + ".Closer"
+	if m.pkg.Path() == "io" {
+		return " implements Closer"
 	}
-	return " implements Closer"
+	return " implements " + m.std("core") + ".Closer"
 }
 
 // isGoCloser reports Go's io.Closer, whose own Close stays listed.

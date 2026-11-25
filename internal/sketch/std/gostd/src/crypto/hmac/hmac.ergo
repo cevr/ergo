@@ -4,7 +4,6 @@
 import go hash
 
 // ergo:go func Equal(mac1 []byte, mac2 []byte) bool
-// ergo:reads mac1 mac2
 extern go crypto/hmac.Equal func Equal(mac1 []byte, mac2 []byte) bool
 
 // ergo:go func New(h func() hash.Hash, key []byte) hash.Hash

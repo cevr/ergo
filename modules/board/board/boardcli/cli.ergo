@@ -2,6 +2,7 @@ import api
 import flag
 import io
 import json
+import option
 import prompt
 import rpc
 import slices
@@ -23,7 +24,7 @@ func Commands() []flag.Command[Request] {
 }
 
 func commandWhoami() flag.Command[Request] {
-	let f0 = flag.OptionalString("board", "input.Board (Option[string])")
+	let f0 = flag.OptionalString("board", "input.Board (option.Option[string])")
 	let usage = boardapi.Doc(boardapi.WhoamiOp)
 	flag.Command[Request]{Name: "whoami", Usage: usage, Set: flag.Set{Name: "whoami", Usage: usage, Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		boardapi.WhoamiRequest{Input: board.WhoamiInput{Board: f0.Get(v)}}
@@ -38,8 +39,8 @@ func commandBoards() flag.Command[Request] {
 }
 
 func commandChannels() flag.Command[Request] {
-	let f0 = flag.OptionalString("board", "input.Board (Option[string])")
-	let f1 = flag.OptionalString("prefix", "input.Prefix (Option[string])")
+	let f0 = flag.OptionalString("board", "input.Board (option.Option[string])")
+	let f1 = flag.OptionalString("prefix", "input.Prefix (option.Option[string])")
 	let usage = boardapi.Doc(boardapi.ChannelsOp)
 	flag.Command[Request]{Name: "channels", Usage: usage, Set: flag.Set{Name: "channels", Usage: usage, Flags: []flag.Flag{f0, f1}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		boardapi.ChannelsRequest{Input: board.ChannelsInput{Board: f0.Get(v), Prefix: f1.Get(v)}}
@@ -47,7 +48,7 @@ func commandChannels() flag.Command[Request] {
 }
 
 func commandChannelCreate() flag.Command[Request] {
-	let f0 = flag.OptionalString("board", "input.Board (Option[string])")
+	let f0 = flag.OptionalString("board", "input.Board (option.Option[string])")
 	let f1 = flag.RequiredString("path", "input.Path (string)")
 	let f2 = flag.Bool("private", false, "input.Private (bool)")
 	let usage = boardapi.Doc(boardapi.ChannelCreateOp)
@@ -57,7 +58,7 @@ func commandChannelCreate() flag.Command[Request] {
 }
 
 func commandActors() flag.Command[Request] {
-	let f0 = flag.OptionalString("query", "input.Query (Option[string])")
+	let f0 = flag.OptionalString("query", "input.Query (option.Option[string])")
 	let usage = boardapi.Doc(boardapi.ActorsOp)
 	flag.Command[Request]{Name: "actors", Usage: usage, Set: flag.Set{Name: "actors", Usage: usage, Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		boardapi.ActorsRequest{Input: board.ActorsInput{Query: f0.Get(v)}}
@@ -65,15 +66,15 @@ func commandActors() flag.Command[Request] {
 }
 
 func commandRead() flag.Command[Request] {
-	let f0 = flag.OptionalString("board", "input.Board (Option[string])")
-	let f1 = flag.OptionalString("channel", "input.Channel (Option[string])")
-	let f2 = flag.OptionalString("id", "input.ID (Option[string])")
-	let f3 = flag.OptionalString("by", "input.By (Option[string])")
-	let f4 = flag.OptionalString("mentions", "input.Mentions (Option[string])")
+	let f0 = flag.OptionalString("board", "input.Board (option.Option[string])")
+	let f1 = flag.OptionalString("channel", "input.Channel (option.Option[string])")
+	let f2 = flag.OptionalString("id", "input.ID (option.Option[string])")
+	let f3 = flag.OptionalString("by", "input.By (option.Option[string])")
+	let f4 = flag.OptionalString("mentions", "input.Mentions (option.Option[string])")
 	let f5 = flag.String("label", "", "input.Label ([]string)").Repeated()
-	let f6 = flag.OptionalString("text", "input.Text (Option[string])")
-	let f7 = flag.OptionalInt("after", "input.After (Option[int])")
-	let f8 = flag.OptionalInt("limit", "input.Limit (Option[int])")
+	let f6 = flag.OptionalString("text", "input.Text (option.Option[string])")
+	let f7 = flag.OptionalInt("after", "input.After (option.Option[int])")
+	let f8 = flag.OptionalInt("limit", "input.Limit (option.Option[int])")
 	let usage = boardapi.Doc(boardapi.ReadOp)
 	flag.Command[Request]{Name: "read", Usage: usage, Set: flag.Set{Name: "read", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f5, f6, f7, f8}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		boardapi.ReadRequest{Input: board.ReadInput{Board: f0.Get(v), Channel: f1.Get(v), ID: f2.Get(v), By: f3.Get(v), Mentions: f4.Get(v), Label: f5.Get(v), Text: f6.Get(v), After: f7.Get(v), Limit: f8.Get(v)}}
@@ -81,10 +82,10 @@ func commandRead() flag.Command[Request] {
 }
 
 func commandSearch() flag.Command[Request] {
-	let f0 = flag.OptionalString("board", "input.Board (Option[string])")
+	let f0 = flag.OptionalString("board", "input.Board (option.Option[string])")
 	let f1 = flag.RequiredString("query", "input.Query (string)")
-	let f2 = flag.OptionalString("channel", "input.Channel (Option[string])")
-	let f3 = flag.OptionalInt("limit", "input.Limit (Option[int])")
+	let f2 = flag.OptionalString("channel", "input.Channel (option.Option[string])")
+	let f3 = flag.OptionalInt("limit", "input.Limit (option.Option[int])")
 	let usage = boardapi.Doc(boardapi.SearchOp)
 	flag.Command[Request]{Name: "search", Usage: usage, Set: flag.Set{Name: "search", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		boardapi.SearchRequest{Input: board.SearchInput{Board: f0.Get(v), Query: f1.Get(v), Channel: f2.Get(v), Limit: f3.Get(v)}}
@@ -92,12 +93,12 @@ func commandSearch() flag.Command[Request] {
 }
 
 func commandPost() flag.Command[Request] {
-	let f0 = flag.OptionalString("board", "input.Board (Option[string])")
+	let f0 = flag.OptionalString("board", "input.Board (option.Option[string])")
 	let f1 = flag.RequiredString("channel", "input.Channel (string)")
 	let f2 = flag.RequiredString("text", "input.Text (string)")
 	let f3 = flag.String("labels", "", "input.Labels ([]string)").Repeated()
 	let f4 = flag.Bool("no-sync", false, "input.NoSync (bool)")
-	let f5 = flag.OptionalString("idempotency-key", "input.IdempotencyKey (Option[string])")
+	let f5 = flag.OptionalString("idempotency-key", "input.IdempotencyKey (option.Option[string])")
 	let usage = boardapi.Doc(boardapi.PostOp)
 	flag.Command[Request]{Name: "post", Usage: usage, Set: flag.Set{Name: "post", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f5}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		boardapi.PostRequest{Input: board.PostInput{Board: f0.Get(v), Channel: f1.Get(v), Text: f2.Get(v), Labels: f3.Get(v), NoSync: f4.Get(v), IdempotencyKey: f5.Get(v)}}
@@ -105,13 +106,13 @@ func commandPost() flag.Command[Request] {
 }
 
 func commandThreadReply() flag.Command[Request] {
-	let f0 = flag.OptionalString("board", "input.Board (Option[string])")
+	let f0 = flag.OptionalString("board", "input.Board (option.Option[string])")
 	let f1 = flag.RequiredString("id", "input.ID (string)")
 	let f2 = flag.RequiredString("text", "input.Text (string)")
-	let f3 = flag.OptionalString("after", "input.After (Option[string])")
+	let f3 = flag.OptionalString("after", "input.After (option.Option[string])")
 	let f4 = flag.String("labels", "", "input.Labels ([]string)").Repeated()
 	let f5 = flag.Bool("no-sync", false, "input.NoSync (bool)")
-	let f6 = flag.OptionalString("idempotency-key", "input.IdempotencyKey (Option[string])")
+	let f6 = flag.OptionalString("idempotency-key", "input.IdempotencyKey (option.Option[string])")
 	let usage = boardapi.Doc(boardapi.ThreadReplyOp)
 	flag.Command[Request]{Name: "thread-reply", Usage: usage, Set: flag.Set{Name: "thread-reply", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f5, f6}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		boardapi.ThreadReplyRequest{Input: board.ReplyInput{Board: f0.Get(v), ID: f1.Get(v), Text: f2.Get(v), After: f3.Get(v), Labels: f4.Get(v), NoSync: f5.Get(v), IdempotencyKey: f6.Get(v)}}
@@ -119,10 +120,10 @@ func commandThreadReply() flag.Command[Request] {
 }
 
 func commandEdit() flag.Command[Request] {
-	let f0 = flag.OptionalString("board", "input.Board (Option[string])")
+	let f0 = flag.OptionalString("board", "input.Board (option.Option[string])")
 	let f1 = flag.RequiredString("id", "input.ID (string)")
 	let f2 = flag.RequiredString("text", "input.Text (string)")
-	let f3 = flag.OptionalInt("if-revision", "input.IfRevision (Option[int])")
+	let f3 = flag.OptionalInt("if-revision", "input.IfRevision (option.Option[int])")
 	let usage = boardapi.Doc(boardapi.EditOp)
 	flag.Command[Request]{Name: "edit", Usage: usage, Set: flag.Set{Name: "edit", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		boardapi.EditRequest{Input: board.EditInput{Board: f0.Get(v), ID: f1.Get(v), Text: f2.Get(v), IfRevision: f3.Get(v)}}
@@ -130,9 +131,9 @@ func commandEdit() flag.Command[Request] {
 }
 
 func commandDelete() flag.Command[Request] {
-	let f0 = flag.OptionalString("board", "input.Board (Option[string])")
+	let f0 = flag.OptionalString("board", "input.Board (option.Option[string])")
 	let f1 = flag.RequiredString("id", "input.ID (string)")
-	let f2 = flag.OptionalInt("if-revision", "input.IfRevision (Option[int])")
+	let f2 = flag.OptionalInt("if-revision", "input.IfRevision (option.Option[int])")
 	let usage = boardapi.Doc(boardapi.DeleteOp)
 	flag.Command[Request]{Name: "delete", Usage: usage, Set: flag.Set{Name: "delete", Usage: usage, Flags: []flag.Flag{f0, f1, f2}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		boardapi.DeleteRequest{Input: board.DeleteInput{Board: f0.Get(v), ID: f1.Get(v), IfRevision: f2.Get(v)}}
@@ -140,7 +141,7 @@ func commandDelete() flag.Command[Request] {
 }
 
 func commandReact() flag.Command[Request] {
-	let f0 = flag.OptionalString("board", "input.Board (Option[string])")
+	let f0 = flag.OptionalString("board", "input.Board (option.Option[string])")
 	let f1 = flag.RequiredString("id", "input.ID (string)")
 	let f2 = flag.RequiredString("emoji", "input.Emoji (string)")
 	let f3 = flag.Bool("remove", false, "input.Remove (bool)")
@@ -151,7 +152,7 @@ func commandReact() flag.Command[Request] {
 }
 
 func commandLabel() flag.Command[Request] {
-	let f0 = flag.OptionalString("board", "input.Board (Option[string])")
+	let f0 = flag.OptionalString("board", "input.Board (option.Option[string])")
 	let f1 = flag.RequiredString("id", "input.ID (string)")
 	let f2 = flag.String("set", "", "input.Set ([]string)").Repeated()
 	let f3 = flag.String("unset", "", "input.Unset ([]string)").Repeated()
@@ -164,15 +165,15 @@ func commandLabel() flag.Command[Request] {
 }
 
 func commandAsk() flag.Command[Request] {
-	let f0 = flag.OptionalString("board", "input.Board (Option[string])")
-	let f1 = flag.OptionalString("channel", "input.Channel (Option[string])")
-	let f2 = flag.OptionalString("thread", "input.Thread (Option[string])")
+	let f0 = flag.OptionalString("board", "input.Board (option.Option[string])")
+	let f1 = flag.OptionalString("channel", "input.Channel (option.Option[string])")
+	let f2 = flag.OptionalString("thread", "input.Thread (option.Option[string])")
 	let f3 = flag.RequiredString("text", "input.Text (string)")
 	let f4 = flag.String("to", "", "input.To ([]string)").Repeated()
 	let f5 = flag.Bool("only-from-asked", false, "input.OnlyFromAsked (bool)")
-	let f6 = flag.OptionalInt("expires-in-ms", "input.ExpiresInMs (Option[int])")
+	let f6 = flag.OptionalInt("expires-in-ms", "input.ExpiresInMs (option.Option[int])")
 	let f7 = flag.Bool("no-sync", false, "input.NoSync (bool)")
-	let f8 = flag.OptionalString("idempotency-key", "input.IdempotencyKey (Option[string])")
+	let f8 = flag.OptionalString("idempotency-key", "input.IdempotencyKey (option.Option[string])")
 	let usage = boardapi.Doc(boardapi.AskOp)
 	flag.Command[Request]{Name: "ask", Usage: usage, Set: flag.Set{Name: "ask", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f5, f6, f7, f8}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		boardapi.AskRequest{Input: board.AskInput{Board: f0.Get(v), Channel: f1.Get(v), Thread: f2.Get(v), Text: f3.Get(v), To: f4.Get(v), OnlyFromAsked: f5.Get(v), ExpiresInMs: f6.Get(v), NoSync: f7.Get(v), IdempotencyKey: f8.Get(v)}}
@@ -180,7 +181,7 @@ func commandAsk() flag.Command[Request] {
 }
 
 func commandAskWithdraw() flag.Command[Request] {
-	let f0 = flag.OptionalString("board", "input.Board (Option[string])")
+	let f0 = flag.OptionalString("board", "input.Board (option.Option[string])")
 	let f1 = flag.RequiredString("id", "input.ID (string)")
 	let usage = boardapi.Doc(boardapi.AskWithdrawOp)
 	flag.Command[Request]{Name: "ask-withdraw", Usage: usage, Set: flag.Set{Name: "ask-withdraw", Usage: usage, Flags: []flag.Flag{f0, f1}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
@@ -189,13 +190,13 @@ func commandAskWithdraw() flag.Command[Request] {
 }
 
 func commandTasksList() flag.Command[Request] {
-	let f0 = flag.OptionalString("board", "input.Board (Option[string])")
-	let f1 = flag.OptionalString("channel", "input.Channel (Option[string])")
-	let f2 = flag.OptionalString("state", "input.State (Option[string])")
+	let f0 = flag.OptionalString("board", "input.Board (option.Option[string])")
+	let f1 = flag.OptionalString("channel", "input.Channel (option.Option[string])")
+	let f2 = flag.OptionalString("state", "input.State (option.Option[string])")
 	let f3 = flag.String("label", "", "input.Label ([]string)").Repeated()
-	let f4 = flag.OptionalString("by", "input.By (Option[string])")
-	let f5 = flag.OptionalString("for", "input.For (Option[string])")
-	let f6 = flag.OptionalInt("limit", "input.Limit (Option[int])")
+	let f4 = flag.OptionalString("by", "input.By (option.Option[string])")
+	let f5 = flag.OptionalString("for", "input.For (option.Option[string])")
+	let f6 = flag.OptionalInt("limit", "input.Limit (option.Option[int])")
 	let usage = boardapi.Doc(boardapi.TasksListOp)
 	flag.Command[Request]{Name: "tasks-list", Usage: usage, Set: flag.Set{Name: "tasks-list", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f5, f6}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		boardapi.TasksListRequest{Input: board.TasksListInput{Board: f0.Get(v), Channel: f1.Get(v), State: f2.Get(v), Label: f3.Get(v), By: f4.Get(v), For: f5.Get(v), Limit: f6.Get(v)}}
@@ -203,17 +204,17 @@ func commandTasksList() flag.Command[Request] {
 }
 
 func commandTasksCreate() flag.Command[Request] {
-	let f0 = flag.OptionalString("board", "input.Board (Option[string])")
-	let f1 = flag.OptionalString("channel", "input.Channel (Option[string])")
-	let f2 = flag.OptionalString("id", "input.ID (Option[string])")
-	let f3 = flag.OptionalString("text", "input.Text (Option[string])")
+	let f0 = flag.OptionalString("board", "input.Board (option.Option[string])")
+	let f1 = flag.OptionalString("channel", "input.Channel (option.Option[string])")
+	let f2 = flag.OptionalString("id", "input.ID (option.Option[string])")
+	let f3 = flag.OptionalString("text", "input.Text (option.Option[string])")
 	let f4 = flag.String("labels", "", "input.Labels ([]string)").Repeated()
 	let f5 = flag.String("needs", "", "input.Needs ([]string)").Repeated()
-	let f6 = flag.OptionalString("for", "input.For (Option[string])")
+	let f6 = flag.OptionalString("for", "input.For (option.Option[string])")
 	let f7 = flag.Bool("claim", false, "input.Claim (bool)")
-	let f8 = flag.OptionalInt("lease-ms", "input.LeaseMs (Option[int])")
+	let f8 = flag.OptionalInt("lease-ms", "input.LeaseMs (option.Option[int])")
 	let f9 = flag.Bool("no-sync", false, "input.NoSync (bool)")
-	let f10 = flag.OptionalString("idempotency-key", "input.IdempotencyKey (Option[string])")
+	let f10 = flag.OptionalString("idempotency-key", "input.IdempotencyKey (option.Option[string])")
 	let usage = boardapi.Doc(boardapi.TasksCreateOp)
 	flag.Command[Request]{Name: "tasks-create", Usage: usage, Set: flag.Set{Name: "tasks-create", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		boardapi.TasksCreateRequest{Input: board.TasksCreateInput{Board: f0.Get(v), Channel: f1.Get(v), ID: f2.Get(v), Text: f3.Get(v), Labels: f4.Get(v), Needs: f5.Get(v), For: f6.Get(v), Claim: f7.Get(v), LeaseMs: f8.Get(v), NoSync: f9.Get(v), IdempotencyKey: f10.Get(v)}}
@@ -233,11 +234,11 @@ func commandTasksPlan() flag.Command[Request] {
 }
 
 func commandTasksClaim() flag.Command[Request] {
-	let f0 = flag.OptionalString("board", "input.Board (Option[string])")
-	let f1 = flag.OptionalString("id", "input.ID (Option[string])")
-	let f2 = flag.OptionalString("ready", "input.Ready (Option[string])")
+	let f0 = flag.OptionalString("board", "input.Board (option.Option[string])")
+	let f1 = flag.OptionalString("id", "input.ID (option.Option[string])")
+	let f2 = flag.OptionalString("ready", "input.Ready (option.Option[string])")
 	let f3 = flag.String("label", "", "input.Label ([]string)").Repeated()
-	let f4 = flag.OptionalInt("lease-ms", "input.LeaseMs (Option[int])")
+	let f4 = flag.OptionalInt("lease-ms", "input.LeaseMs (option.Option[int])")
 	let usage = boardapi.Doc(boardapi.TasksClaimOp)
 	flag.Command[Request]{Name: "tasks-claim", Usage: usage, Set: flag.Set{Name: "tasks-claim", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		boardapi.TasksClaimRequest{Input: board.TasksClaimInput{Board: f0.Get(v), ID: f1.Get(v), Ready: f2.Get(v), Label: f3.Get(v), LeaseMs: f4.Get(v)}}
@@ -245,10 +246,10 @@ func commandTasksClaim() flag.Command[Request] {
 }
 
 func commandTasksRenew() flag.Command[Request] {
-	let f0 = flag.OptionalString("board", "input.Board (Option[string])")
+	let f0 = flag.OptionalString("board", "input.Board (option.Option[string])")
 	let f1 = flag.RequiredString("id", "input.ID (string)")
 	let f2 = flag.RequiredInt("token", "input.Token (int)")
-	let f3 = flag.OptionalInt("lease-ms", "input.LeaseMs (Option[int])")
+	let f3 = flag.OptionalInt("lease-ms", "input.LeaseMs (option.Option[int])")
 	let usage = boardapi.Doc(boardapi.TasksRenewOp)
 	flag.Command[Request]{Name: "tasks-renew", Usage: usage, Set: flag.Set{Name: "tasks-renew", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		boardapi.TasksRenewRequest{Input: board.TasksRenewInput{Board: f0.Get(v), ID: f1.Get(v), Token: f2.Get(v), LeaseMs: f3.Get(v)}}
@@ -256,7 +257,7 @@ func commandTasksRenew() flag.Command[Request] {
 }
 
 func commandTasksRelease() flag.Command[Request] {
-	let f0 = flag.OptionalString("board", "input.Board (Option[string])")
+	let f0 = flag.OptionalString("board", "input.Board (option.Option[string])")
 	let f1 = flag.RequiredString("id", "input.ID (string)")
 	let f2 = flag.RequiredInt("token", "input.Token (int)")
 	let usage = boardapi.Doc(boardapi.TasksReleaseOp)
@@ -266,10 +267,10 @@ func commandTasksRelease() flag.Command[Request] {
 }
 
 func commandTasksComplete() flag.Command[Request] {
-	let f0 = flag.OptionalString("board", "input.Board (Option[string])")
+	let f0 = flag.OptionalString("board", "input.Board (option.Option[string])")
 	let f1 = flag.RequiredString("id", "input.ID (string)")
 	let f2 = flag.RequiredInt("token", "input.Token (int)")
-	let f3 = flag.OptionalString("result", "input.Result (Option[string])")
+	let f3 = flag.OptionalString("result", "input.Result (option.Option[string])")
 	let usage = boardapi.Doc(boardapi.TasksCompleteOp)
 	flag.Command[Request]{Name: "tasks-complete", Usage: usage, Set: flag.Set{Name: "tasks-complete", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		boardapi.TasksCompleteRequest{Input: board.TasksCompleteInput{Board: f0.Get(v), ID: f1.Get(v), Token: f2.Get(v), Result: f3.Get(v)}}
@@ -277,7 +278,7 @@ func commandTasksComplete() flag.Command[Request] {
 }
 
 func commandTasksFail() flag.Command[Request] {
-	let f0 = flag.OptionalString("board", "input.Board (Option[string])")
+	let f0 = flag.OptionalString("board", "input.Board (option.Option[string])")
 	let f1 = flag.RequiredString("id", "input.ID (string)")
 	let f2 = flag.RequiredInt("token", "input.Token (int)")
 	let f3 = flag.RequiredString("reason", "input.Reason (string)")
@@ -288,11 +289,11 @@ func commandTasksFail() flag.Command[Request] {
 }
 
 func commandTasksBlock() flag.Command[Request] {
-	let f0 = flag.OptionalString("board", "input.Board (Option[string])")
+	let f0 = flag.OptionalString("board", "input.Board (option.Option[string])")
 	let f1 = flag.RequiredString("id", "input.ID (string)")
 	let f2 = flag.RequiredString("reason", "input.Reason (string)")
-	let f3 = flag.OptionalString("kind", "input.Kind (Option[string])")
-	let f4 = flag.OptionalInt("token", "input.Token (Option[int])")
+	let f3 = flag.OptionalString("kind", "input.Kind (option.Option[string])")
+	let f4 = flag.OptionalInt("token", "input.Token (option.Option[int])")
 	let usage = boardapi.Doc(boardapi.TasksBlockOp)
 	flag.Command[Request]{Name: "tasks-block", Usage: usage, Set: flag.Set{Name: "tasks-block", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		boardapi.TasksBlockRequest{Input: board.TasksBlockInput{Board: f0.Get(v), ID: f1.Get(v), Reason: f2.Get(v), Kind: f3.Get(v), Token: f4.Get(v)}}
@@ -300,7 +301,7 @@ func commandTasksBlock() flag.Command[Request] {
 }
 
 func commandTasksUnblock() flag.Command[Request] {
-	let f0 = flag.OptionalString("board", "input.Board (Option[string])")
+	let f0 = flag.OptionalString("board", "input.Board (option.Option[string])")
 	let f1 = flag.RequiredString("id", "input.ID (string)")
 	let usage = boardapi.Doc(boardapi.TasksUnblockOp)
 	flag.Command[Request]{Name: "tasks-unblock", Usage: usage, Set: flag.Set{Name: "tasks-unblock", Usage: usage, Flags: []flag.Flag{f0, f1}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
@@ -309,7 +310,7 @@ func commandTasksUnblock() flag.Command[Request] {
 }
 
 func commandTasksReopen() flag.Command[Request] {
-	let f0 = flag.OptionalString("board", "input.Board (Option[string])")
+	let f0 = flag.OptionalString("board", "input.Board (option.Option[string])")
 	let f1 = flag.RequiredString("id", "input.ID (string)")
 	let usage = boardapi.Doc(boardapi.TasksReopenOp)
 	flag.Command[Request]{Name: "tasks-reopen", Usage: usage, Set: flag.Set{Name: "tasks-reopen", Usage: usage, Flags: []flag.Flag{f0, f1}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
@@ -318,9 +319,9 @@ func commandTasksReopen() flag.Command[Request] {
 }
 
 func commandTasksAssign() flag.Command[Request] {
-	let f0 = flag.OptionalString("board", "input.Board (Option[string])")
+	let f0 = flag.OptionalString("board", "input.Board (option.Option[string])")
 	let f1 = flag.RequiredString("id", "input.ID (string)")
-	let f2 = flag.OptionalString("for", "input.For (Option[string])")
+	let f2 = flag.OptionalString("for", "input.For (option.Option[string])")
 	let f3 = flag.Bool("pool", false, "input.Pool (bool)")
 	let usage = boardapi.Doc(boardapi.TasksAssignOp)
 	flag.Command[Request]{Name: "tasks-assign", Usage: usage, Set: flag.Set{Name: "tasks-assign", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
@@ -329,7 +330,7 @@ func commandTasksAssign() flag.Command[Request] {
 }
 
 func commandTasksNeeds() flag.Command[Request] {
-	let f0 = flag.OptionalString("board", "input.Board (Option[string])")
+	let f0 = flag.OptionalString("board", "input.Board (option.Option[string])")
 	let f1 = flag.RequiredString("id", "input.ID (string)")
 	let f2 = flag.String("needs", "", "input.Needs ([]string)").Repeated()
 	let usage = boardapi.Doc(boardapi.TasksNeedsOp)
@@ -339,7 +340,7 @@ func commandTasksNeeds() flag.Command[Request] {
 }
 
 func commandTasksCancel() flag.Command[Request] {
-	let f0 = flag.OptionalString("board", "input.Board (Option[string])")
+	let f0 = flag.OptionalString("board", "input.Board (option.Option[string])")
 	let f1 = flag.RequiredString("id", "input.ID (string)")
 	let f2 = flag.RequiredString("reason", "input.Reason (string)")
 	let usage = boardapi.Doc(boardapi.TasksCancelOp)
@@ -349,7 +350,7 @@ func commandTasksCancel() flag.Command[Request] {
 }
 
 func commandGrants() flag.Command[Request] {
-	let f0 = flag.OptionalString("board", "input.Board (Option[string])")
+	let f0 = flag.OptionalString("board", "input.Board (option.Option[string])")
 	let usage = boardapi.Doc(boardapi.GrantsOp)
 	flag.Command[Request]{Name: "grants", Usage: usage, Set: flag.Set{Name: "grants", Usage: usage, Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		boardapi.GrantsRequest{Input: board.GrantsInput{Board: f0.Get(v)}}
@@ -357,9 +358,9 @@ func commandGrants() flag.Command[Request] {
 }
 
 func commandGrantExplain() flag.Command[Request] {
-	let f0 = flag.OptionalString("board", "input.Board (Option[string])")
+	let f0 = flag.OptionalString("board", "input.Board (option.Option[string])")
 	let f1 = flag.RequiredString("channel", "input.Channel (string)")
-	let f2 = flag.OptionalString("principal", "input.Principal (Option[string])")
+	let f2 = flag.OptionalString("principal", "input.Principal (option.Option[string])")
 	let usage = boardapi.Doc(boardapi.GrantExplainOp)
 	flag.Command[Request]{Name: "grant-explain", Usage: usage, Set: flag.Set{Name: "grant-explain", Usage: usage, Flags: []flag.Flag{f0, f1, f2}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		boardapi.GrantExplainRequest{Input: board.GrantExplainInput{Board: f0.Get(v), Channel: f1.Get(v), Principal: f2.Get(v)}}
@@ -379,7 +380,7 @@ func commandGrantCreate() flag.Command[Request] {
 }
 
 func commandGrantRevoke() flag.Command[Request] {
-	let f0 = flag.OptionalString("board", "input.Board (Option[string])")
+	let f0 = flag.OptionalString("board", "input.Board (option.Option[string])")
 	let f1 = flag.RequiredString("id", "input.ID (string)")
 	let usage = boardapi.Doc(boardapi.GrantRevokeOp)
 	flag.Command[Request]{Name: "grant-revoke", Usage: usage, Set: flag.Set{Name: "grant-revoke", Usage: usage, Flags: []flag.Flag{f0, f1}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
@@ -423,9 +424,9 @@ func commandTrustUpdate() flag.Command[Request] {
 
 func argText(a flag.ArgSpec, v flag.Values) string {
 	match a.Get(v) {
-	case Some[string] as s:
+	case option.Some[string] as s:
 		s.Value
-	case None:
+	case option.None:
 		""
 	}
 }
@@ -434,155 +435,155 @@ func argText(a flag.ArgSpec, v flag.Values) string {
 // flags and arguments. It builds only the command args[0] names; the
 // list of every command is built only for help or an unknown command.
 func Parse(args []string) Request fails flag.Failure {
-	let first = if len(args) > 0 { args[0] } else { "" }
+	let first = if args.Len() > 0 { args[0] } else { "" }
 	match first {
 	case "whoami":
 		let c = commandWhoami()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "board whoami"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "board whoami"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "boards":
 		let c = commandBoards()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "board boards"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "board boards"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "channels":
 		let c = commandChannels()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "board channels"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "board channels"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "channel-create":
 		let c = commandChannelCreate()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "board channel-create"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "board channel-create"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "actors":
 		let c = commandActors()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "board actors"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "board actors"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "read":
 		let c = commandRead()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "board read"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "board read"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "search":
 		let c = commandSearch()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "board search"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "board search"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "post":
 		let c = commandPost()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "board post"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "board post"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "thread-reply":
 		let c = commandThreadReply()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "board thread-reply"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "board thread-reply"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "edit":
 		let c = commandEdit()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "board edit"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "board edit"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "delete":
 		let c = commandDelete()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "board delete"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "board delete"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "react":
 		let c = commandReact()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "board react"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "board react"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "label":
 		let c = commandLabel()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "board label"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "board label"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "ask":
 		let c = commandAsk()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "board ask"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "board ask"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "ask-withdraw":
 		let c = commandAskWithdraw()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "board ask-withdraw"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "board ask-withdraw"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "tasks-list":
 		let c = commandTasksList()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "board tasks-list"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "board tasks-list"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "tasks-create":
 		let c = commandTasksCreate()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "board tasks-create"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "board tasks-create"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "tasks-plan":
 		let c = commandTasksPlan()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "board tasks-plan"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "board tasks-plan"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "tasks-claim":
 		let c = commandTasksClaim()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "board tasks-claim"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "board tasks-claim"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "tasks-renew":
 		let c = commandTasksRenew()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "board tasks-renew"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "board tasks-renew"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "tasks-release":
 		let c = commandTasksRelease()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "board tasks-release"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "board tasks-release"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "tasks-complete":
 		let c = commandTasksComplete()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "board tasks-complete"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "board tasks-complete"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "tasks-fail":
 		let c = commandTasksFail()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "board tasks-fail"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "board tasks-fail"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "tasks-block":
 		let c = commandTasksBlock()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "board tasks-block"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "board tasks-block"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "tasks-unblock":
 		let c = commandTasksUnblock()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "board tasks-unblock"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "board tasks-unblock"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "tasks-reopen":
 		let c = commandTasksReopen()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "board tasks-reopen"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "board tasks-reopen"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "tasks-assign":
 		let c = commandTasksAssign()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "board tasks-assign"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "board tasks-assign"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "tasks-needs":
 		let c = commandTasksNeeds()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "board tasks-needs"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "board tasks-needs"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "tasks-cancel":
 		let c = commandTasksCancel()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "board tasks-cancel"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "board tasks-cancel"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "grants":
 		let c = commandGrants()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "board grants"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "board grants"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "grant-explain":
 		let c = commandGrantExplain()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "board grant-explain"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "board grant-explain"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "grant-create":
 		let c = commandGrantCreate()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "board grant-create"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "board grant-create"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "grant-revoke":
 		let c = commandGrantRevoke()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "board grant-revoke"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "board grant-revoke"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "board-create":
 		let c = commandBoardCreate()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "board board-create"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "board board-create"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "board-rename":
 		let c = commandBoardRename()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "board board-rename"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "board board-rename"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "board-archive":
 		let c = commandBoardArchive()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "board board-archive"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "board board-archive"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "trust-update":
 		let c = commandTrustUpdate()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "board trust-update"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "board trust-update"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case _:
 		try flag.ParseCommand("board", "board.Api on a command line", Commands(), args)
@@ -596,9 +597,9 @@ func Print(r Request) []string {
 	case boardapi.WhoamiRequest as x:
 		let mut out = []string{"whoami"}
 		match x.Input.Board {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-board=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out
 	case boardapi.BoardsRequest:
@@ -606,22 +607,22 @@ func Print(r Request) []string {
 	case boardapi.ChannelsRequest as x:
 		let mut out = []string{"channels"}
 		match x.Input.Board {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-board=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		match x.Input.Prefix {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-prefix=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out
 	case boardapi.ChannelCreateRequest as x:
 		let mut out = []string{"channel-create"}
 		match x.Input.Board {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-board=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out = out.Append("-path=\(x.Input.Path)")
 		out = out.Append("-private=\(x.Input.Private)")
@@ -629,82 +630,82 @@ func Print(r Request) []string {
 	case boardapi.ActorsRequest as x:
 		let mut out = []string{"actors"}
 		match x.Input.Query {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-query=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out
 	case boardapi.ReadRequest as x:
 		let mut out = []string{"read"}
 		match x.Input.Board {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-board=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		match x.Input.Channel {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-channel=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		match x.Input.ID {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-id=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		match x.Input.By {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-by=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		match x.Input.Mentions {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-mentions=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		for e in x.Input.Label {
 			out = out.Append("-label=\(e)")
 		}
 		match x.Input.Text {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-text=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		match x.Input.After {
-		case Some[int] as s:
+		case option.Some[int] as s:
 			out = out.Append("-after=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		match x.Input.Limit {
-		case Some[int] as s:
+		case option.Some[int] as s:
 			out = out.Append("-limit=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out
 	case boardapi.SearchRequest as x:
 		let mut out = []string{"search"}
 		match x.Input.Board {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-board=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out = out.Append("-query=\(x.Input.Query)")
 		match x.Input.Channel {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-channel=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		match x.Input.Limit {
-		case Some[int] as s:
+		case option.Some[int] as s:
 			out = out.Append("-limit=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out
 	case boardapi.PostRequest as x:
 		let mut out = []string{"post"}
 		match x.Input.Board {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-board=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out = out.Append("-channel=\(x.Input.Channel)")
 		out = out.Append("-text=\(x.Input.Text)")
@@ -713,70 +714,70 @@ func Print(r Request) []string {
 		}
 		out = out.Append("-no-sync=\(x.Input.NoSync)")
 		match x.Input.IdempotencyKey {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-idempotency-key=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out
 	case boardapi.ThreadReplyRequest as x:
 		let mut out = []string{"thread-reply"}
 		match x.Input.Board {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-board=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out = out.Append("-id=\(x.Input.ID)")
 		out = out.Append("-text=\(x.Input.Text)")
 		match x.Input.After {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-after=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		for e in x.Input.Labels {
 			out = out.Append("-labels=\(e)")
 		}
 		out = out.Append("-no-sync=\(x.Input.NoSync)")
 		match x.Input.IdempotencyKey {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-idempotency-key=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out
 	case boardapi.EditRequest as x:
 		let mut out = []string{"edit"}
 		match x.Input.Board {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-board=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out = out.Append("-id=\(x.Input.ID)")
 		out = out.Append("-text=\(x.Input.Text)")
 		match x.Input.IfRevision {
-		case Some[int] as s:
+		case option.Some[int] as s:
 			out = out.Append("-if-revision=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out
 	case boardapi.DeleteRequest as x:
 		let mut out = []string{"delete"}
 		match x.Input.Board {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-board=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out = out.Append("-id=\(x.Input.ID)")
 		match x.Input.IfRevision {
-		case Some[int] as s:
+		case option.Some[int] as s:
 			out = out.Append("-if-revision=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out
 	case boardapi.ReactRequest as x:
 		let mut out = []string{"react"}
 		match x.Input.Board {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-board=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out = out.Append("-id=\(x.Input.ID)")
 		out = out.Append("-emoji=\(x.Input.Emoji)")
@@ -785,9 +786,9 @@ func Print(r Request) []string {
 	case boardapi.LabelRequest as x:
 		let mut out = []string{"label"}
 		match x.Input.Board {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-board=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out = out.Append("-id=\(x.Input.ID)")
 		for e in x.Input.Set {
@@ -806,19 +807,19 @@ func Print(r Request) []string {
 	case boardapi.AskRequest as x:
 		let mut out = []string{"ask"}
 		match x.Input.Board {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-board=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		match x.Input.Channel {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-channel=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		match x.Input.Thread {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-thread=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out = out.Append("-text=\(x.Input.Text)")
 		for e in x.Input.To {
@@ -826,83 +827,83 @@ func Print(r Request) []string {
 		}
 		out = out.Append("-only-from-asked=\(x.Input.OnlyFromAsked)")
 		match x.Input.ExpiresInMs {
-		case Some[int] as s:
+		case option.Some[int] as s:
 			out = out.Append("-expires-in-ms=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out = out.Append("-no-sync=\(x.Input.NoSync)")
 		match x.Input.IdempotencyKey {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-idempotency-key=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out
 	case boardapi.AskWithdrawRequest as x:
 		let mut out = []string{"ask-withdraw"}
 		match x.Input.Board {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-board=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out = out.Append("-id=\(x.Input.ID)")
 		out
 	case boardapi.TasksListRequest as x:
 		let mut out = []string{"tasks-list"}
 		match x.Input.Board {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-board=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		match x.Input.Channel {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-channel=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		match x.Input.State {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-state=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		for e in x.Input.Label {
 			out = out.Append("-label=\(e)")
 		}
 		match x.Input.By {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-by=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		match x.Input.For {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-for=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		match x.Input.Limit {
-		case Some[int] as s:
+		case option.Some[int] as s:
 			out = out.Append("-limit=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out
 	case boardapi.TasksCreateRequest as x:
 		let mut out = []string{"tasks-create"}
 		match x.Input.Board {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-board=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		match x.Input.Channel {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-channel=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		match x.Input.ID {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-id=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		match x.Input.Text {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-text=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		for e in x.Input.Labels {
 			out = out.Append("-labels=\(e)")
@@ -911,21 +912,21 @@ func Print(r Request) []string {
 			out = out.Append("-needs=\(e)")
 		}
 		match x.Input.For {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-for=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out = out.Append("-claim=\(x.Input.Claim)")
 		match x.Input.LeaseMs {
-		case Some[int] as s:
+		case option.Some[int] as s:
 			out = out.Append("-lease-ms=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out = out.Append("-no-sync=\(x.Input.NoSync)")
 		match x.Input.IdempotencyKey {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-idempotency-key=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out
 	case boardapi.TasksPlanRequest as x:
@@ -935,50 +936,50 @@ func Print(r Request) []string {
 	case boardapi.TasksClaimRequest as x:
 		let mut out = []string{"tasks-claim"}
 		match x.Input.Board {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-board=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		match x.Input.ID {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-id=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		match x.Input.Ready {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-ready=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		for e in x.Input.Label {
 			out = out.Append("-label=\(e)")
 		}
 		match x.Input.LeaseMs {
-		case Some[int] as s:
+		case option.Some[int] as s:
 			out = out.Append("-lease-ms=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out
 	case boardapi.TasksRenewRequest as x:
 		let mut out = []string{"tasks-renew"}
 		match x.Input.Board {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-board=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out = out.Append("-id=\(x.Input.ID)")
 		out = out.Append("-token=\(x.Input.Token)")
 		match x.Input.LeaseMs {
-		case Some[int] as s:
+		case option.Some[int] as s:
 			out = out.Append("-lease-ms=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out
 	case boardapi.TasksReleaseRequest as x:
 		let mut out = []string{"tasks-release"}
 		match x.Input.Board {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-board=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out = out.Append("-id=\(x.Input.ID)")
 		out = out.Append("-token=\(x.Input.Token)")
@@ -986,24 +987,24 @@ func Print(r Request) []string {
 	case boardapi.TasksCompleteRequest as x:
 		let mut out = []string{"tasks-complete"}
 		match x.Input.Board {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-board=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out = out.Append("-id=\(x.Input.ID)")
 		out = out.Append("-token=\(x.Input.Token)")
 		match x.Input.Result {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-result=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out
 	case boardapi.TasksFailRequest as x:
 		let mut out = []string{"tasks-fail"}
 		match x.Input.Board {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-board=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out = out.Append("-id=\(x.Input.ID)")
 		out = out.Append("-token=\(x.Input.Token)")
@@ -1012,62 +1013,62 @@ func Print(r Request) []string {
 	case boardapi.TasksBlockRequest as x:
 		let mut out = []string{"tasks-block"}
 		match x.Input.Board {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-board=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out = out.Append("-id=\(x.Input.ID)")
 		out = out.Append("-reason=\(x.Input.Reason)")
 		match x.Input.Kind {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-kind=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		match x.Input.Token {
-		case Some[int] as s:
+		case option.Some[int] as s:
 			out = out.Append("-token=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out
 	case boardapi.TasksUnblockRequest as x:
 		let mut out = []string{"tasks-unblock"}
 		match x.Input.Board {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-board=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out = out.Append("-id=\(x.Input.ID)")
 		out
 	case boardapi.TasksReopenRequest as x:
 		let mut out = []string{"tasks-reopen"}
 		match x.Input.Board {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-board=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out = out.Append("-id=\(x.Input.ID)")
 		out
 	case boardapi.TasksAssignRequest as x:
 		let mut out = []string{"tasks-assign"}
 		match x.Input.Board {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-board=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out = out.Append("-id=\(x.Input.ID)")
 		match x.Input.For {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-for=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out = out.Append("-pool=\(x.Input.Pool)")
 		out
 	case boardapi.TasksNeedsRequest as x:
 		let mut out = []string{"tasks-needs"}
 		match x.Input.Board {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-board=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out = out.Append("-id=\(x.Input.ID)")
 		for e in x.Input.Needs {
@@ -1077,9 +1078,9 @@ func Print(r Request) []string {
 	case boardapi.TasksCancelRequest as x:
 		let mut out = []string{"tasks-cancel"}
 		match x.Input.Board {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-board=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out = out.Append("-id=\(x.Input.ID)")
 		out = out.Append("-reason=\(x.Input.Reason)")
@@ -1087,23 +1088,23 @@ func Print(r Request) []string {
 	case boardapi.GrantsRequest as x:
 		let mut out = []string{"grants"}
 		match x.Input.Board {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-board=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out
 	case boardapi.GrantExplainRequest as x:
 		let mut out = []string{"grant-explain"}
 		match x.Input.Board {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-board=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out = out.Append("-channel=\(x.Input.Channel)")
 		match x.Input.Principal {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-principal=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out
 	case boardapi.GrantCreateRequest as x:
@@ -1113,9 +1114,9 @@ func Print(r Request) []string {
 	case boardapi.GrantRevokeRequest as x:
 		let mut out = []string{"grant-revoke"}
 		match x.Input.Board {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-board=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out = out.Append("-id=\(x.Input.ID)")
 		out
@@ -1159,11 +1160,11 @@ law ArgsRoundTrip(r Request) { RoundTrips(r) }
 // without --json (default None: a basic value as its text, else its
 // JSON; --json never calls it); Confirm, the question a call asks before
 // it runs (default None: none; --yes answers it).
-type Policy { Code func(f boardapi.Failure) int, Text func(r boardapi.Reply) Option[string], Confirm func(r Request) Option[string] }
+type Policy { Code func(f boardapi.Failure) int, Text func(r boardapi.Reply) option.Option[string], Confirm func(r Request) option.Option[string] }
 
 // Defaults is the Policy of a binary that decides nothing.
 func Defaults() Policy {
-	Policy{Code: func(f boardapi.Failure) int { 1 }, Text: func(r boardapi.Reply) Option[string] { None }, Confirm: func(r Request) Option[string] { None }}
+	Policy{Code: func(f boardapi.Failure) int { 1 }, Text: func(r boardapi.Reply) option.Option[string] { option.None }, Confirm: func(r Request) option.Option[string] { option.None }}
 }
 
 func answer(asJSON bool, plain string, encoded string) Output {
@@ -1198,9 +1199,9 @@ func Show(o boardapi.Outcome, asJSON bool, p Policy) Output {
 	case boardapi.Done as done:
 		if !asJSON {
 			match p.Text(done.Reply) {
-			case Some[string] as s:
+			case option.Some[string] as s:
 				return Output{Out: line(s.Value), Err: "", Code: 0}
-			case None:
+			case option.None:
 			}
 		}
 		match done.Reply {
@@ -2777,9 +2778,9 @@ func runOver[R](args []string, p Policy, answer func(r Request) boardapi.Outcome
 	case asked as a:
 		if !a.Yes {
 			match p.Confirm(a.R) {
-			case Some[string] as q:
+			case option.Some[string] as q:
 				return needsYes(q.Value)
-			case None:
+			case option.None:
 			}
 		}
 		Show(answer(a.R), a.JSON, p)
@@ -2806,7 +2807,7 @@ func RunOnTerminal(args []string, p Policy) Output needs board.Api | term.Termin
 	case asked as a:
 		if !a.Yes {
 			match p.Confirm(a.R) {
-			case Some[string] as q:
+			case option.Some[string] as q:
 				let yes = prompt.Confirm(q.Value, false) catch {
 				case prompt.NotInteractive:
 					return needsYes(q.Value)
@@ -2818,7 +2819,7 @@ func RunOnTerminal(args []string, p Policy) Output needs board.Api | term.Termin
 				if !yes {
 					return declined(q.Value)
 				}
-			case None:
+			case option.None:
 			}
 		}
 		Show(boardapi.Call(a.R), a.JSON, p)
@@ -2868,7 +2869,7 @@ law CodeIsThePolicy(r Request, g boardapi.Given, k int) {
 // with --json every outcome prints as the wire's JSON, whatever Text says.
 law TextIsThePolicy(r Request, g boardapi.Given, t string) {
 	let d = Defaults()
-	let p = Policy{..d, Text: func(reply boardapi.Reply) Option[string] { Some[string]{Value: t} }}
+	let p = Policy{..d, Text: func(reply boardapi.Reply) option.Option[string] { option.Some[string]{Value: t} }}
 	let o = boardapi.OutcomeOf(r, g)
 	let same = Show(o, true, p) == Show(o, true, d)
 	match o {

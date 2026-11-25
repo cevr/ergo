@@ -2,6 +2,7 @@ import api
 import code
 import flag
 import io
+import option
 import prompt
 import rpc
 import slices
@@ -29,12 +30,12 @@ func commandDescribe() flag.Command[Request] {
 }
 
 func commandSymbols() flag.Command[Request] {
-	let f0 = flag.OptionalString("name", "q.Name (Option[string])")
-	let f1 = flag.OptionalString("match", "q.Match (Option[string])")
-	let f2 = flag.OptionalString("kind", "q.Kind (Option[string])")
-	let f3 = flag.OptionalString("package", "q.Package (Option[string])")
-	let f4 = flag.OptionalInt("offset", "q.Offset (Option[int])")
-	let f5 = flag.OptionalInt("limit", "q.Limit (Option[int])")
+	let f0 = flag.OptionalString("name", "q.Name (option.Option[string])")
+	let f1 = flag.OptionalString("match", "q.Match (option.Option[string])")
+	let f2 = flag.OptionalString("kind", "q.Kind (option.Option[string])")
+	let f3 = flag.OptionalString("package", "q.Package (option.Option[string])")
+	let f4 = flag.OptionalInt("offset", "q.Offset (option.Option[int])")
+	let f5 = flag.OptionalInt("limit", "q.Limit (option.Option[int])")
 	let usage = codeapi.Doc(codeapi.SymbolsOp)
 	flag.Command[Request]{Name: "symbols", Usage: usage, Set: flag.Set{Name: "symbols", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f5}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		codeapi.SymbolsRequest{Q: code.SymbolQuery{Name: f0.Get(v), Match: f1.Get(v), Kind: f2.Get(v), Package: f3.Get(v), Offset: f4.Get(v), Limit: f5.Get(v)}}
@@ -53,8 +54,8 @@ func commandSymbol() flag.Command[Request] {
 func commandReferences() flag.Command[Request] {
 	let f0 = flag.RequiredString("of", "q.Of (string)")
 	let f1 = flag.String("kinds", "", "q.Kinds ([]string)").Repeated()
-	let f2 = flag.OptionalInt("offset", "q.Offset (Option[int])")
-	let f3 = flag.OptionalInt("limit", "q.Limit (Option[int])")
+	let f2 = flag.OptionalInt("offset", "q.Offset (option.Option[int])")
+	let f3 = flag.OptionalInt("limit", "q.Limit (option.Option[int])")
 	let usage = codeapi.Doc(codeapi.ReferencesOp)
 	flag.Command[Request]{Name: "references", Usage: usage, Set: flag.Set{Name: "references", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		codeapi.ReferencesRequest{Q: code.RefQuery{Of: f0.Get(v), Kinds: f1.Get(v), Offset: f2.Get(v), Limit: f3.Get(v)}}
@@ -63,10 +64,10 @@ func commandReferences() flag.Command[Request] {
 
 func commandCalls() flag.Command[Request] {
 	let f0 = flag.RequiredString("of", "q.Of (string)")
-	let f1 = flag.OptionalString("direction", "q.Direction (Option[string])")
-	let f2 = flag.OptionalInt("depth", "q.Depth (Option[int])")
-	let f3 = flag.OptionalInt("offset", "q.Offset (Option[int])")
-	let f4 = flag.OptionalInt("limit", "q.Limit (Option[int])")
+	let f1 = flag.OptionalString("direction", "q.Direction (option.Option[string])")
+	let f2 = flag.OptionalInt("depth", "q.Depth (option.Option[int])")
+	let f3 = flag.OptionalInt("offset", "q.Offset (option.Option[int])")
+	let f4 = flag.OptionalInt("limit", "q.Limit (option.Option[int])")
 	let usage = codeapi.Doc(codeapi.CallsOp)
 	flag.Command[Request]{Name: "calls", Usage: usage, Set: flag.Set{Name: "calls", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		codeapi.CallsRequest{Q: code.CallQuery{Of: f0.Get(v), Direction: f1.Get(v), Depth: f2.Get(v), Offset: f3.Get(v), Limit: f4.Get(v)}}
@@ -74,7 +75,7 @@ func commandCalls() flag.Command[Request] {
 }
 
 func commandApi() flag.Command[Request] {
-	let f0 = flag.OptionalString("package", "q.Package (Option[string])")
+	let f0 = flag.OptionalString("package", "q.Package (option.Option[string])")
 	let usage = codeapi.Doc(codeapi.ApiOp)
 	flag.Command[Request]{Name: "api", Usage: usage, Set: flag.Set{Name: "api", Usage: usage, Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		codeapi.ApiRequest{Q: code.ApiQuery{Package: f0.Get(v)}}
@@ -83,8 +84,8 @@ func commandApi() flag.Command[Request] {
 
 func commandReach() flag.Command[Request] {
 	let f0 = flag.RequiredString("of", "q.Of (string)")
-	let f1 = flag.OptionalInt("offset", "q.Offset (Option[int])")
-	let f2 = flag.OptionalInt("limit", "q.Limit (Option[int])")
+	let f1 = flag.OptionalInt("offset", "q.Offset (option.Option[int])")
+	let f2 = flag.OptionalInt("limit", "q.Limit (option.Option[int])")
 	let usage = codeapi.Doc(codeapi.ReachOp)
 	flag.Command[Request]{Name: "reach", Usage: usage, Set: flag.Set{Name: "reach", Usage: usage, Flags: []flag.Flag{f0, f1, f2}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		codeapi.ReachRequest{Q: code.ReachQuery{Of: f0.Get(v), Offset: f1.Get(v), Limit: f2.Get(v)}}
@@ -102,9 +103,9 @@ func commandMachineOf() flag.Command[Request] {
 
 func argText(a flag.ArgSpec, v flag.Values) string {
 	match a.Get(v) {
-	case Some[string] as s:
+	case option.Some[string] as s:
 		s.Value
-	case None:
+	case option.None:
 		""
 	}
 }
@@ -113,39 +114,39 @@ func argText(a flag.ArgSpec, v flag.Values) string {
 // flags and arguments. It builds only the command args[0] names; the
 // list of every command is built only for help or an unknown command.
 func Parse(args []string) Request fails flag.Failure {
-	let first = if len(args) > 0 { args[0] } else { "" }
+	let first = if args.Len() > 0 { args[0] } else { "" }
 	match first {
 	case "describe":
 		let c = commandDescribe()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "code describe"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "code describe"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "symbols":
 		let c = commandSymbols()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "code symbols"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "code symbols"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "symbol":
 		let c = commandSymbol()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "code symbol"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "code symbol"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "references":
 		let c = commandReferences()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "code references"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "code references"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "calls":
 		let c = commandCalls()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "code calls"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "code calls"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "api":
 		let c = commandApi()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "code api"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "code api"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "reach":
 		let c = commandReach()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "code reach"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "code reach"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "machine-of":
 		let c = commandMachineOf()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "code machine-of"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "code machine-of"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case _:
 		try flag.ParseCommand("code", "code.Reader on a command line", Commands(), args)
@@ -161,34 +162,34 @@ func Print(r Request) []string {
 	case codeapi.SymbolsRequest as x:
 		let mut out = []string{"symbols"}
 		match x.Q.Name {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-name=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		match x.Q.Match {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-match=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		match x.Q.Kind {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-kind=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		match x.Q.Package {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-package=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		match x.Q.Offset {
-		case Some[int] as s:
+		case option.Some[int] as s:
 			out = out.Append("-offset=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		match x.Q.Limit {
-		case Some[int] as s:
+		case option.Some[int] as s:
 			out = out.Append("-limit=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out
 	case codeapi.SymbolRequest as x:
@@ -203,60 +204,60 @@ func Print(r Request) []string {
 			out = out.Append("-kinds=\(e)")
 		}
 		match x.Q.Offset {
-		case Some[int] as s:
+		case option.Some[int] as s:
 			out = out.Append("-offset=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		match x.Q.Limit {
-		case Some[int] as s:
+		case option.Some[int] as s:
 			out = out.Append("-limit=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out
 	case codeapi.CallsRequest as x:
 		let mut out = []string{"calls"}
 		out = out.Append("-of=\(x.Q.Of)")
 		match x.Q.Direction {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-direction=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		match x.Q.Depth {
-		case Some[int] as s:
+		case option.Some[int] as s:
 			out = out.Append("-depth=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		match x.Q.Offset {
-		case Some[int] as s:
+		case option.Some[int] as s:
 			out = out.Append("-offset=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		match x.Q.Limit {
-		case Some[int] as s:
+		case option.Some[int] as s:
 			out = out.Append("-limit=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out
 	case codeapi.ApiRequest as x:
 		let mut out = []string{"api"}
 		match x.Q.Package {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-package=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out
 	case codeapi.ReachRequest as x:
 		let mut out = []string{"reach"}
 		out = out.Append("-of=\(x.Q.Of)")
 		match x.Q.Offset {
-		case Some[int] as s:
+		case option.Some[int] as s:
 			out = out.Append("-offset=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		match x.Q.Limit {
-		case Some[int] as s:
+		case option.Some[int] as s:
 			out = out.Append("-limit=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out
 	case codeapi.MachineOfRequest as x:
@@ -284,11 +285,11 @@ law ArgsRoundTrip(r Request) { RoundTrips(r) }
 // without --json (default None: a basic value as its text, else its
 // JSON; --json never calls it); Confirm, the question a call asks before
 // it runs (default None: none; --yes answers it).
-type Policy { Code func(f codeapi.Failure) int, Text func(r codeapi.Reply) Option[string], Confirm func(r Request) Option[string] }
+type Policy { Code func(f codeapi.Failure) int, Text func(r codeapi.Reply) option.Option[string], Confirm func(r Request) option.Option[string] }
 
 // Defaults is the Policy of a binary that decides nothing.
 func Defaults() Policy {
-	Policy{Code: func(f codeapi.Failure) int { 1 }, Text: func(r codeapi.Reply) Option[string] { None }, Confirm: func(r Request) Option[string] { None }}
+	Policy{Code: func(f codeapi.Failure) int { 1 }, Text: func(r codeapi.Reply) option.Option[string] { option.None }, Confirm: func(r Request) option.Option[string] { option.None }}
 }
 
 func answer(asJSON bool, plain string, encoded string) Output {
@@ -323,9 +324,9 @@ func Show(o codeapi.Outcome, asJSON bool, p Policy) Output {
 	case codeapi.Done as done:
 		if !asJSON {
 			match p.Text(done.Reply) {
-			case Some[string] as s:
+			case option.Some[string] as s:
 				return Output{Out: line(s.Value), Err: "", Code: 0}
-			case None:
+			case option.None:
 			}
 		}
 		match done.Reply {
@@ -534,9 +535,9 @@ func runOver[R](args []string, p Policy, answer func(r Request) codeapi.Outcome 
 	case asked as a:
 		if !a.Yes {
 			match p.Confirm(a.R) {
-			case Some[string] as q:
+			case option.Some[string] as q:
 				return needsYes(q.Value)
-			case None:
+			case option.None:
 			}
 		}
 		Show(answer(a.R), a.JSON, p)
@@ -563,7 +564,7 @@ func RunOnTerminal(args []string, p Policy) Output needs code.Reader | term.Term
 	case asked as a:
 		if !a.Yes {
 			match p.Confirm(a.R) {
-			case Some[string] as q:
+			case option.Some[string] as q:
 				let yes = prompt.Confirm(q.Value, false) catch {
 				case prompt.NotInteractive:
 					return needsYes(q.Value)
@@ -575,7 +576,7 @@ func RunOnTerminal(args []string, p Policy) Output needs code.Reader | term.Term
 				if !yes {
 					return declined(q.Value)
 				}
-			case None:
+			case option.None:
 			}
 		}
 		Show(codeapi.Call(a.R), a.JSON, p)
@@ -625,7 +626,7 @@ law CodeIsThePolicy(r Request, g codeapi.Given, k int) {
 // with --json every outcome prints as the wire's JSON, whatever Text says.
 law TextIsThePolicy(r Request, g codeapi.Given, t string) {
 	let d = Defaults()
-	let p = Policy{..d, Text: func(reply codeapi.Reply) Option[string] { Some[string]{Value: t} }}
+	let p = Policy{..d, Text: func(reply codeapi.Reply) option.Option[string] { option.Some[string]{Value: t} }}
 	let o = codeapi.OutcomeOf(r, g)
 	let same = Show(o, true, p) == Show(o, true, d)
 	match o {

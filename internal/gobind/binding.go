@@ -311,17 +311,41 @@ func Render(path, name, stamp, module string, decls []Decl) (string, error) {
 	text := body.String()
 	// Each referenced package gets an import; the name an import binds is
 	// the Go package's name, aliased when it is a keyword or taken.
-	var keys []string
+	var ergoKeys, goKeys []string
 	for _, m := range placeholder().FindAllStringSubmatch(text, -1) {
-		if !slices.Contains(keys, m[1]) {
-			keys = append(keys, m[1])
+		k := m[1]
+		if strings.HasPrefix(k, "ergo:") {
+			if !slices.Contains(ergoKeys, k) {
+				ergoKeys = append(ergoKeys, k)
+			}
+		} else {
+			if !slices.Contains(goKeys, k) {
+				goKeys = append(goKeys, k)
+			}
 		}
 	}
-	sort.Strings(keys)
+	sort.Strings(ergoKeys)
+	sort.Strings(goKeys)
 	local := map[string]string{}
 	taken := map[string]bool{name: true}
 	var imports strings.Builder
-	for _, k := range keys {
+	for _, k := range ergoKeys {
+		p, n, _ := strings.Cut(strings.TrimPrefix(k, "ergo:"), " ")
+		if syntax.IsKeyword(n) {
+			n = "std" + n
+		}
+		for i := 2; taken[n]; i++ {
+			n = fmt.Sprintf("%s%d", strings.TrimRight(n, "0123456789"), i)
+		}
+		taken[n] = true
+		local[k] = n
+		if n == lastElem(p) {
+			imports.WriteString("import " + p + "\n")
+		} else {
+			imports.WriteString("import " + n + " " + p + "\n")
+		}
+	}
+	for _, k := range goKeys {
 		p, n, _ := strings.Cut(k, " ")
 		if syntax.IsKeyword(n) {
 			n = "go" + n

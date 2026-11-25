@@ -197,8 +197,8 @@ func TestNonNilResultsProperty(t *testing.T) {
 	for _, p := range pkgs {
 		got := pointerResults(p.path, files[p.path])
 		var bad []string
-		if !strings.Contains(files[p.path], "Make() Option[go.Ref[S]] fails go.Error") {
-			bad = append(bad, "Maker.Make: an interface method proves nothing, want Option[go.Ref[S]]")
+		if !strings.Contains(files[p.path], "Make() option.Option[go.Ref[S]] fails go.Error") {
+			bad = append(bad, "Maker.Make: an interface method proves nothing, want option.Option[go.Ref[S]]")
 		}
 		for fn, proven := range p.model {
 			ref, ok := got[fn]
