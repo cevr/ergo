@@ -1,0 +1,69 @@
+{
+  "about": "modules/git G-ORACLE mutants: hermetic environment isolation, deterministic fixed-clock timestamps, NUL-delimited (-z) plumbing parsing, and typed transcript comparison.",
+  "mutants": [
+    {
+      "name": "git-oracle-inherits-ambient-config",
+      "origin": "STD-GIT G-ORACLE",
+      "file": "modules/git/oracle/env.ergo",
+      "from": "\tlet mut env = isolateGitConfig(pathEnv)",
+      "to": "\tlet mut env = pathEnv",
+      "rule": "HermeticEnv isolates C Git from ambient HOME/.gitconfig, global config, attributes, and ambient identity overrides.",
+      "anchor": {
+        "tests": [
+          "modules/git/oracle:test:IsolationIgnoresAmbientConfig"
+        ]
+      },
+      "killers": [
+        "modules/git/oracle:test:IsolationIgnoresAmbientConfig"
+      ]
+    },
+    {
+      "name": "git-oracle-uses-wall-clock",
+      "origin": "STD-GIT G-ORACLE",
+      "file": "modules/git/oracle/env.ergo",
+      "from": "\tenv[\"GIT_AUTHOR_DATE\"] = date\n\tenv[\"GIT_COMMITTER_DATE\"] = date",
+      "to": "\tlet _ = date",
+      "rule": "HermeticEnv pins GIT_AUTHOR_DATE and GIT_COMMITTER_DATE to the deterministic step epoch rather than wall-clock time.",
+      "anchor": {
+        "tests": [
+          "modules/git/oracle:test:RootIndependence"
+        ]
+      },
+      "killers": [
+        "modules/git/oracle:test:RootIndependence"
+      ]
+    },
+    {
+      "name": "git-oracle-drops-z-nul-parse",
+      "origin": "STD-GIT G-ORACLE",
+      "file": "modules/git/oracle/parse.ergo",
+      "from": "\tlet parts = strings.Split(raw, \"\\x00\")\n\tif strings.HasSuffix(raw, \"\\x00\") {",
+      "to": "\tlet parts = strings.Split(raw, \"\\n\")\n\tif strings.HasSuffix(raw, \"\\n\") {",
+      "rule": "NUL-delimited (-z) plumbing parsers split records on NUL bytes rather than newlines.",
+      "anchor": {
+        "tests": [
+          "modules/git/oracle:test:PlumbingParsersHandleNulDelimitedRecords"
+        ]
+      },
+      "killers": [
+        "modules/git/oracle:test:PlumbingParsersHandleNulDelimitedRecords"
+      ]
+    },
+    {
+      "name": "git-oracle-compare-ignores-oid",
+      "origin": "STD-GIT G-ORACLE",
+      "file": "modules/git/oracle/gen.ergo",
+      "from": "\tif left.Final.HeadOid != right.Final.HeadOid {",
+      "to": "\tif false && left.Final.HeadOid != right.Final.HeadOid {",
+      "rule": "CompareTranscripts compares Final.HeadOid and reports typed mismatches on differing repository outcomes.",
+      "anchor": {
+        "tests": [
+          "modules/git/oracle:test:OppositeResultsDetectedAndReplayed"
+        ]
+      },
+      "killers": [
+        "modules/git/oracle:test:OppositeResultsDetectedAndReplayed"
+      ]
+    }
+  ]
+}
