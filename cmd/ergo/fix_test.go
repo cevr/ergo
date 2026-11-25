@@ -288,3 +288,47 @@ func TestFixStdTypesCommand(t *testing.T) {
 		t.Fatalf("fix --std-types --check after fix: %v", err)
 	}
 }
+
+func TestFixMachinesCommand(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "main.ergo")
+	src := "func step(s int, e int) Decision[int, int] {\n\tif e == 0 { Ignore } else { Stay{Next: s + e} }\n}\n\nfunc main() {\n\tlet _ = step(0, 1)\n}\n"
+	want := "import machines\n\nfunc step(s int, e int) machines.Decision[int, int] {\n\tif e == 0 { machines.Ignore } else { machines.Stay{Next: s + e} }\n}\n\nfunc main() {\n\tlet _ = step(0, 1)\n}\n"
+	if err := os.WriteFile(path, []byte(src), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	read := func() string {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	if err := command([]string{"fix", "--check", "--json", path}); err != nil {
+		t.Fatalf("default fix --check without --machines: %v", err)
+	}
+	if err, ok := command([]string{"fix", "--std-types", "--machines", path}).(usageError); !ok {
+		t.Fatalf("fix --std-types --machines: %v, want usageError", err)
+	}
+	if err, ok := command([]string{"fix", "--machines", "--check", "--json", path}).(exitStatusError); !ok || err.code != 1 {
+		t.Fatalf("fix --machines --check: %v, want exit 1", err)
+	}
+	if got := read(); got != src {
+		t.Fatalf("fix --machines --check wrote:\n%s", got)
+	}
+	if err := command([]string{"fix", "--machines", "--dry-run", "--json", path}); err != nil {
+		t.Fatalf("fix --machines --dry-run: %v", err)
+	}
+	if got := read(); got != src {
+		t.Fatalf("fix --machines --dry-run wrote:\n%s", got)
+	}
+	if err := command([]string{"fix", "--machines", "--json", path}); err != nil {
+		t.Fatalf("fix --machines: %v", err)
+	}
+	if got := read(); got != want {
+		t.Fatalf("fix --machines wrote:\n%s\nwant:\n%s", got, want)
+	}
+	if err := command([]string{"fix", "--machines", "--check", "--json", path}); err != nil {
+		t.Fatalf("fix --machines --check after fix: %v", err)
+	}
+}
