@@ -76,7 +76,9 @@ type goImp struct{ set *GoBindings }
 
 func (g *goImp) Import(path string) (*Package, error) {
 	if g.set.program == nil {
-		return nil, fmt.Errorf("a binding read outside a program imports Go packages only (%s)", path)
+		// Bindings read outside a program (ResolveAll of a tool) import
+		// from the embedded library, as a program with no module does.
+		return Std.Import(path)
 	}
 	return g.set.program.Import(path)
 }
