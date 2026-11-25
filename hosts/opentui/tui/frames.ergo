@@ -6,6 +6,7 @@
 // pass changes nothing shows nothing, and a settled view takes no frame.
 
 import actor
+import option
 import ui
 
 // FrameEvery sets the frame period (16ms when made); a period under 1ns
@@ -72,83 +73,83 @@ func ticker[S, E, D, F](d mut Driver[S, E, D, F]) needs go.Foreign {
 // whole cells), else the reported one. An Area with no such list
 // edge-scrolls the first plain Scroll inside it instead, at the viewport
 // the scene shows (ui.TestHost has no layout, so it models only lists).
-func edgeNext[S, E, D, F](d mut Driver[S, E, D, F]) Option[(ui.Id[E], ui.Length, ui.Length)] needs go.Foreign {
+func edgeNext[S, E, D, F](d mut Driver[S, E, D, F]) option.Option[(ui.Id[E], ui.Length, ui.Length)] needs go.Foreign {
 	match Captured(d) {
-	case Some[ui.Id[E]] as area:
+	case option.Some[ui.Id[E]] as area:
 		let c = d.options.Cell.H
 		let held = match listIn(d, area.Value) {
-		case Some[ui.Id[E]] as id:
+		case option.Some[ui.Id[E]] as id:
 			match (d.viewports.Get(id.Value), nodeOf(d, id.Value)) {
-			case (Some[ui.Viewport] as v, ui.RowsNode as x):
-				Some{Value: (id.Value, v.Value, ui.Length(float64(x.Count)) * x.RowHeight)}
+			case (option.Some[ui.Viewport] as v, ui.RowsNode as x):
+				option.Some{Value: (id.Value, v.Value, ui.Length(float64(x.Count)) * x.RowHeight)}
 			case _:
-				None
+				option.None
 			}
-		case None:
+		case option.None:
 			match scrollIn(d, area.Value) {
-			case Some[ui.Id[E]] as id:
+			case option.Some[ui.Id[E]] as id:
 				let st = d.s.ScrollOf(numOf(d, id.Value))
-				Some{Value: (id.Value, ui.Viewport{Offset: ui.Length(float64(st.Offset) * c), Height: ui.Length(float64(st.Height) * c)}, ui.Length(float64(st.Content) * c))}
-			case None:
-				None
+				option.Some{Value: (id.Value, ui.Viewport{Offset: ui.Length(float64(st.Offset) * c), Height: ui.Length(float64(st.Height) * c)}, ui.Length(float64(st.Content) * c))}
+			case option.None:
+				option.None
 			}
 		}
 		match held {
-		case Some[(ui.Id[E], ui.Viewport, ui.Length)] as x:
+		case option.Some[(ui.Id[E], ui.Viewport, ui.Length)] as x:
 			let (id, v, content) = x.Value
 			let mut at = v.Offset
 			match d.edge {
-			case Some[(ui.Id[E], ui.Length)] as e:
+			case option.Some[(ui.Id[E], ui.Length)] as e:
 				let (l, exact) = e.Value
 				if l == id && ui.Length(float64(int(float64(exact)/c+0.5))*c) == v.Offset {
 					at = exact
 				}
-			case None:
+			case option.None:
 			}
-			Some{Value: (id, at, ui.EdgeScroll(at, v.Height, content, ui.Length(d.heldY), ui.EdgeBand, ui.EdgeStep))}
-		case None:
-			None
+			option.Some{Value: (id, at, ui.EdgeScroll(at, v.Height, content, ui.Length(d.heldY), ui.EdgeBand, ui.EdgeStep))}
+		case option.None:
+			option.None
 		}
-	case None:
-		None
+	case option.None:
+		option.None
 	}
 }
 
 // listIn is the first list inside id, in tree order, whose viewport the
 // driver reported.
-func listIn[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) Option[ui.Id[E]] {
+func listIn[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) option.Option[ui.Id[E]] {
 	for k in kidsOf(d, id) {
 		match nodeOf(d, k) {
 		case ui.RowsNode:
-			if d.viewports.Get(k) != None {
-				return Some{Value: k}
+			if d.viewports.Get(k) != option.None {
+				return option.Some{Value: k}
 			}
 		case _:
 		}
 		match listIn[S, E, D, F](d, k) {
-		case Some[ui.Id[E]] as l:
-			return Some{Value: l.Value}
-		case None:
+		case option.Some[ui.Id[E]] as l:
+			return option.Some{Value: l.Value}
+		case option.None:
 		}
 	}
-	None
+	option.None
 }
 
 // scrollIn is the first plain Scroll inside id, in tree order.
-func scrollIn[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) Option[ui.Id[E]] {
+func scrollIn[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) option.Option[ui.Id[E]] {
 	for k in kidsOf(d, id) {
 		match nodeOf(d, k) {
 		case ui.ScrollNode:
-			return Some{Value: k}
+			return option.Some{Value: k}
 		case _:
 		}
 		match scrollIn[S, E, D, F](d, k) {
-		case Some[ui.Id[E]] as l:
-			return Some{Value: l.Value}
-		case None:
+		case option.Some[ui.Id[E]] as l:
+			return option.Some{Value: l.Value}
+		case option.None:
 		}
 	}
-	None
+	option.None
 }
 
 // ScrollsAt is the offset, in whole cells, of each plain Scroll the scene
@@ -171,10 +172,10 @@ func scrollsIn[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], into []int) []
 // edgeMoves is whether this frame's edge scroll moves a list.
 func edgeMoves[S, E, D, F](d mut Driver[S, E, D, F]) bool needs go.Foreign {
 	match edgeNext(d) {
-	case Some[(ui.Id[E], ui.Length, ui.Length)] as x:
+	case option.Some[(ui.Id[E], ui.Length, ui.Length)] as x:
 		let (_, at, next) = x.Value
 		next != at
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -184,13 +185,13 @@ func edgeMoves[S, E, D, F](d mut Driver[S, E, D, F]) bool needs go.Foreign {
 // the session the viewport the scene then shows.
 func edgeFrame[E comparable, S, D, F](d mut Driver[S, E, D, F]) fails ui.BadPatch | ScreenFailed needs go.Foreign {
 	match edgeNext(d) {
-	case Some[(ui.Id[E], ui.Length, ui.Length)] as x:
+	case option.Some[(ui.Id[E], ui.Length, ui.Length)] as x:
 		let (id, at, next) = x.Value
 		if next != at {
-			d.edge = Some{Value: (id, next)}
+			d.edge = option.Some{Value: (id, next)}
 			try scrollTo(d.s, numOf(d, id), int(float64(next)/d.options.Cell.H+0.5), false)
 			try repaint(d)
 		}
-	case None:
+	case option.None:
 	}
 }

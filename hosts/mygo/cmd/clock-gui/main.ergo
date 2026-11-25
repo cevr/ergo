@@ -15,6 +15,8 @@ import actor
 import go ergo.local/prototype/hosts/mygo/screen
 import ergo.local/prototype/hosts/mygo/desktop
 import io
+import machines
+import option
 import os
 import strconv
 import task
@@ -25,12 +27,12 @@ import ui/layout
 // Rate is the readings a second.
 let Rate = 60
 
-func main() fails os.Exit needs Ambient | go.Foreign {
+func main() fails os.Exit needs os.Ambient | go.Foreign {
 	let args = with context { os.Process: os.NewHost() } { os.Process.Args() }
 	let clock = ui.NewReadout(stamp(0))
 	let meter = ui.NewReadout(level(0))
 	let view = func(f mut ui.Frame[int], laps int) { screenOf(f, laps, clock, meter) }
-	if len(args) > 1 && args[0] == "-headless" {
+	if args.Len() > 1 && args[0] == "-headless" {
 		let n = strconv.Atoi(args[1]) catch {
 		case strconv.Malformed, strconv.OutOfRange:
 			return os.Exit{Code: 2, Message: "clock-gui: -headless takes a count, not \(args[1])"}
@@ -38,7 +40,7 @@ func main() fails os.Exit needs Ambient | go.Foreign {
 		try headless(view, clock, meter, n)
 		return
 	}
-	with context { Scheduler: NewLiveScheduler() } {
+	with context { time.Scheduler: time.NewLiveScheduler() } {
 		let w = screen.Open("Clock", 320, 200) catch {
 		case go.Error as e:
 			return os.Exit{Code: 1, Message: "clock-gui: \(e.Text)"}
@@ -47,7 +49,7 @@ func main() fails os.Exit needs Ambient | go.Foreign {
 		let ticker = task.Go() {
 			let mut i = 0
 			for {
-				Scheduler.Sleep(time.Times(1ms, 1000/Rate))
+				time.Scheduler.Sleep(time.Times(1ms, 1000/Rate))
 				i = i + 1
 				ui.Publish(clock, stamp(i))
 				ui.Publish(meter, level(i))
@@ -68,9 +70,9 @@ func main() fails os.Exit needs Ambient | go.Foreign {
 // headless publishes n readings of each readout through a window with no
 // screen, taking each wake as the window does, and prints what it shows
 // and how many passes ran.
-func headless(view own func(f mut ui.Frame[int], laps int), clock ui.Readout, meter ui.Readout, n int) fails os.Exit needs Ambient | go.Foreign {
+func headless(view own func(f mut ui.Frame[int], laps int), clock ui.Readout, meter ui.Readout, n int) fails os.Exit needs os.Ambient | go.Foreign {
 	let out = io.NewHost()
-	with context { Scheduler: time.NewManual(0) } {
+	with context { time.Scheduler: time.NewManual(0) } {
 		let w = screen.Headless(320, 200) catch {
 		case go.Error as e:
 			return os.Exit{Code: 1, Message: "clock-gui: \(e.Text)"}
@@ -128,9 +130,9 @@ func publishAll[E comparable, S, D, F](d mut desktop.Driver[S, E, D, F], clock u
 // reserve, so no reading moves it.
 func lapAt[S, E, D, F](d mut desktop.Driver[S, E, D, F]) string {
 	match desktop.BoxOf(d, "lap") {
-	case Some[layout.Box] as b:
+	case option.Some[layout.Box] as b:
 		"lap at \(b.Value.X) \(b.Value.Y)"
-	case None:
+	case option.None:
 		"no lap button"
 	}
 }
@@ -158,15 +160,15 @@ func screenOf(f mut ui.Frame[int], laps int, clock ui.Readout, meter ui.Readout)
 }
 
 // laps is the program's state: the laps counted.
-func laps() Machine[int, int, int] {
-	Machine[int, int, int]{Initial: 0, Step: lapStep, After: noTimer, Work: noWork, Exit: func(at int) Option[func()] { None }}
+func laps() machines.Machine[int, int, int] {
+	machines.Machine[int, int, int]{Initial: 0, Step: lapStep, After: noTimer, Work: noWork, Exit: func(at int) option.Option[func()] { option.None }}
 }
 
-func lapStep(s int, e int) Decision[int, int] { Enter[int]{Next: s + e} }
+func lapStep(s int, e int) machines.Decision[int, int] { machines.Enter[int]{Next: s + e} }
 
-func noTimer(s int) Option[Timeout[int]] { None }
+func noTimer(s int) option.Option[machines.Timeout[int]] { option.None }
 
-func noWork(s int) Option[func(send func(e int))] { None }
+func noWork(s int) option.Option[func(send func(e int))] { option.None }
 
 // stamp is reading i's time, minutes, seconds and hundredths.
 func stamp(i int) string {

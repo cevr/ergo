@@ -5,6 +5,7 @@
 
 import actor
 import go ergo.local/prototype/hosts/mygo/screen
+import option
 import ui
 import ui/layout
 import utf8
@@ -28,24 +29,24 @@ func Drain[E comparable, S, D, F](d mut Driver[S, E, D, F]) fails ui.Closed | ac
 
 // Find is the first node of the window's tree, in tree order, whose
 // label is label (labelOf).
-func Find[S, E, D, F](d mut Driver[S, E, D, F], label string) Option[ui.Id[E]] { findIn(d, d.root, label) }
+func Find[S, E, D, F](d mut Driver[S, E, D, F], label string) option.Option[ui.Id[E]] { findIn(d, d.root, label) }
 
-func findIn[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], label string) Option[ui.Id[E]] {
+func findIn[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], label string) option.Option[ui.Id[E]] {
 	for k in kidsOf(d, id) {
 		match d.nodes.Get(k) {
-		case Some[held[E]] as h:
-			if labelOf(h.Value.node) == (Some{Value: label}) {
-				return Some{Value: k}
+		case option.Some[held[E]] as h:
+			if labelOf(h.Value.node) == (option.Some{Value: label}) {
+				return option.Some{Value: k}
 			}
-		case None:
+		case option.None:
 		}
 		match findIn[S, E, D, F](d, k, label) {
-		case Some[ui.Id[E]] as found:
+		case option.Some[ui.Id[E]] as found:
 			return found
-		case None:
+		case option.None:
 		}
 	}
-	None
+	option.None
 }
 
 // found is the one node whose label is label, as ui.TestHost's acts find
@@ -53,11 +54,11 @@ func findIn[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], label string) Opt
 // a match is the same target.
 func found[S, E, D, F](d mut Driver[S, E, D, F], label string) ui.Id[E] fails ui.NoNode | ui.Ambiguous {
 	let ids = labelledIn(d, d.root, label, []ui.Id[E]{})
-	if len(ids) == 0 {
+	if ids.Len() == 0 {
 		return ui.NoNode{Label: label}
 	}
-	if len(ids) > 1 {
-		return ui.Ambiguous{At: "label \"\(label)\"", Count: len(ids)}
+	if ids.Len() > 1 {
+		return ui.Ambiguous{At: "label \"\(label)\"", Count: ids.Len()}
 	}
 	ids[0]
 }
@@ -68,12 +69,12 @@ func labelledIn[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], label string,
 	let mut out = acc
 	for k in kidsOf(d, id) {
 		match d.nodes.Get(k) {
-		case Some[held[E]] as h:
-			if labelOf(h.Value.node) == (Some{Value: label}) {
+		case option.Some[held[E]] as h:
+			if labelOf(h.Value.node) == (option.Some{Value: label}) {
 				out = out.Append(k)
 				continue
 			}
-		case None:
+		case option.None:
 		}
 		out = labelledIn[S, E, D, F](d, k, label, out)
 	}
@@ -89,11 +90,11 @@ func focusablesIn[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], into []ui.I
 	let mut out = into
 	for k in kidsOf(d, id) {
 		match d.nodes.Get(k) {
-		case Some[held[E]] as h:
+		case option.Some[held[E]] as h:
 			if focusable(h.Value.node) {
 				out = out.Append(k)
 			}
-		case None:
+		case option.None:
 		}
 		out = focusablesIn[S, E, D, F](d, k, out)
 	}
@@ -102,28 +103,28 @@ func focusablesIn[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], into []ui.I
 
 // BoxOf is where the node labelled label shows, as the last paint laid it
 // out (a Scroll's offset taken off).
-func BoxOf[S, E, D, F](d mut Driver[S, E, D, F], label string) Option[layout.Box] {
+func BoxOf[S, E, D, F](d mut Driver[S, E, D, F], label string) option.Option[layout.Box] {
 	match Find(d, label) {
-	case Some[ui.Id[E]] as id:
+	case option.Some[ui.Id[E]] as id:
 		d.boxes.Get(id.Value)
-	case None:
-		None
+	case option.None:
+		option.None
 	}
 }
 
 // LaidOf is the box the kept tree lays the node labelled label out in:
 // where it sits before a Scroll lifts it or a track moves it.
-func LaidOf[S, E, D, F](d mut Driver[S, E, D, F], label string) Option[layout.Box] {
+func LaidOf[S, E, D, F](d mut Driver[S, E, D, F], label string) option.Option[layout.Box] {
 	match Find(d, label) {
-	case Some[ui.Id[E]] as id:
+	case option.Some[ui.Id[E]] as id:
 		match d.lids.Get(id.Value) {
-		case Some[layout.Id] as l:
-			Some{Value: boxOf(&d.tree, l.Value)}
-		case None:
-			None
+		case option.Some[layout.Id] as l:
+			option.Some{Value: boxOf(&d.tree, l.Value)}
+		case option.None:
+			option.None
 		}
-	case None:
-		None
+	case option.None:
+		option.None
 	}
 }
 
@@ -143,7 +144,7 @@ func reveal[E comparable, S, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) fails 
 		case ui.ScrollNode, ui.RowsNode:
 			if sc.id != id && holds[S, E, D, F](d, sc.id, id) {
 				match d.boxes.Get(id) {
-				case Some[layout.Box] as b:
+				case option.Some[layout.Box] as b:
 					let mid = b.Value.Y + b.Value.H/2
 					let top = sc.box.Y
 					let bottom = sc.box.Y + sc.box.H
@@ -157,7 +158,7 @@ func reveal[E comparable, S, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) fails 
 						d.w.Wheel(float64(sc.box.X+sc.box.W/2), float64(sc.box.Y+sc.box.H/2), 0, float64(dy))
 						try Drain(d)
 					}
-				case None:
+				case option.None:
 				}
 			}
 		case _:
@@ -201,14 +202,14 @@ func Play[E comparable, S, D, F](d mut Driver[S, E, D, F], script []ui.Act) fail
 			try Drain(d)
 			let id = try found(d, x.Label)
 			let old = match d.nodes.Get(id) {
-			case Some[held[E]] as h:
+			case option.Some[held[E]] as h:
 				match h.Value.node {
 				case ui.InputNode as f:
 					f.Value
 				case _:
 					""
 				}
-			case None:
+			case option.None:
 				""
 			}
 			for _ in 0..utf8.RuneCount(old) {
@@ -251,14 +252,14 @@ func Play[E comparable, S, D, F](d mut Driver[S, E, D, F], script []ui.Act) fail
 			// the height is the window's, which the list reports.
 			let id = try found(d, x.Label)
 			match spotOf(d, id) {
-			case Some[spot[E]] as s:
+			case option.Some[spot[E]] as s:
 				let dy = dips(x.Offset) - scrolledBy(d, id)
 				if dy != 0 {
 					let b = s.Value.box
 					d.w.Wheel(float64(b.X+b.W/2), float64(b.Y+b.H/2), 0, float64(dy))
 					try Drain(d)
 				}
-			case None:
+			case option.None:
 				return ui.NoNode{Label: x.Label}
 			}
 		case ui.SettleAll:
@@ -274,14 +275,14 @@ func Play[E comparable, S, D, F](d mut Driver[S, E, D, F], script []ui.Act) fail
 			tap(d, b)
 			try Drain(d)
 			let old = match d.nodes.Get(id) {
-			case Some[held[E]] as h:
+			case option.Some[held[E]] as h:
 				match h.Value.node {
 				case ui.InputNode as f:
 					f.Value
 				case _:
 					""
 				}
-			case None:
+			case option.None:
 				""
 			}
 			for _ in 0..utf8.RuneCount(old) {
@@ -308,11 +309,11 @@ func Play[E comparable, S, D, F](d mut Driver[S, E, D, F], script []ui.Act) fail
 // First finds one).
 func located[E comparable, S, D, F](d mut Driver[S, E, D, F], loc ui.Locator) ui.Id[E] fails ui.NoNode | ui.Ambiguous {
 	let ids = ui.LocateIn(&d.mirror, loc)
-	if len(ids) == 0 {
+	if ids.Len() == 0 {
 		return ui.NoNode{Label: "a locator"}
 	}
-	if len(ids) > 1 {
-		return ui.Ambiguous{At: "a locator", Count: len(ids)}
+	if ids.Len() > 1 {
+		return ui.Ambiguous{At: "a locator", Count: ids.Len()}
 	}
 	ids[0]
 }
@@ -322,9 +323,9 @@ func located[E comparable, S, D, F](d mut Driver[S, E, D, F], loc ui.Locator) ui
 func boxAt[E comparable, S, D, F](d mut Driver[S, E, D, F], id ui.Id[E], label string) layout.Box fails ui.NoNode | ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
 	try reveal(d, id)
 	match d.boxes.Get(id) {
-	case Some[layout.Box] as b:
+	case option.Some[layout.Box] as b:
 		b.Value
-	case None:
+	case option.None:
 		ui.NoNode{Label: label}
 	}
 }

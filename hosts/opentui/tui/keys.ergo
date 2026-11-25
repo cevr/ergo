@@ -64,7 +64,7 @@ law KeyNameIsTotal(code int, other int) {
 	if KeyName(c, "") == "" {
 		return false
 	}
-	let a = keys[(other%len(keys)+len(keys))%len(keys)]
+	let a = keys[(other%keys.Len()+keys.Len())%keys.Len()]
 	if KeyName(a.code, "") != a.name || utf8.RuneCount(a.name) == 1 {
 		return false
 	}

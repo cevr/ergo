@@ -5,27 +5,29 @@
 // trees agree as they do with no edge scroll, and TestPlainScrollEdges
 // holds the offsets (the scrolls step) to its own reference.
 
+import machines
+import option
 import ui
 
 // pane counts the presses in the Area.
 type pane { n int }
 
-func paneStep(s pane, e int) Decision[pane, int] { Enter[pane]{Next: pane{n: s.n + 1}} }
+func paneStep(s pane, e int) machines.Decision[pane, int] { machines.Enter[pane]{Next: pane{n: s.n + 1}} }
 
-func paneMachine() Machine[pane, int, int] {
-	Machine[pane, int, int]{Initial: pane{n: 0}, Step: paneStep, After: none[pane, int], Work: idle[pane, int], Exit: func(s pane) Option[func()] { None }}
+func paneMachine() machines.Machine[pane, int, int] {
+	machines.Machine[pane, int, int]{Initial: pane{n: 0}, Step: paneStep, After: none[pane, int], Work: idle[pane, int], Exit: func(s pane) option.Option[func()] { option.None }}
 }
 
 func paneView(f mut ui.Frame[int], s pane) {
 	ui.Text(f, "\(s.n) presses")
 	let mut box = ui.Plain()
 	box.Height = ui.Fixed{Value: 160}
-	ui.Area(f, "pane", box, func(p ui.PointerEvent) Option[int] {
+	ui.Area(f, "pane", box, func(p ui.PointerEvent) option.Option[int] {
 		match p.Phase {
 		case ui.Down:
-			Some{Value: 1}
+			option.Some{Value: 1}
 		case _:
-			None
+			option.None
 		}
 	}) {
 		let mut view = ui.Plain()

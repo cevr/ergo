@@ -12,6 +12,7 @@
 // which hostagree and stars-gui's -check turn into a failing line.
 
 import arena
+import option
 import ui
 import ui/layout
 
@@ -31,9 +32,9 @@ func keep[S, E, D, F](d mut Driver[S, E, D, F], ops []ui.Op[E]) needs go.Foreign
 		case ui.Set[E] as x:
 			learn(&d.metrics, d.w, textOf(x.Node), textSize)
 			match d.lparent.Get(x.Id) {
-			case Some[ui.Id[E]] as p:
+			case option.Some[ui.Id[E]] as p:
 				touched[p.Value] = true
-			case None:
+			case option.None:
 			}
 			// A list's First places its rows.
 			touched[x.Id] = true
@@ -52,26 +53,26 @@ func keep[S, E, D, F](d mut Driver[S, E, D, F], ops []ui.Op[E]) needs go.Foreign
 // first child whose place changed, each is appended to p in turn.
 func keepKids[S, E, D, F](d mut Driver[S, E, D, F], p ui.Id[E], line float32) {
 	match d.nodes.Get(p) {
-	case Some[held[E]]:
-	case None:
+	case option.Some[held[E]]:
+	case option.None:
 		return
 	}
 	let into = boxFor(d, p)
 	let list = listOf(d, p)
 	let kids = kidsOf(d, p)
 	let old = match d.lkids.Get(p) {
-	case Some[[]ui.Id[E]] as o:
+	case option.Some[[]ui.Id[E]] as o:
 		o.Value
-	case None:
+	case option.None:
 		[]ui.Id[E]{}
 	}
 	let mut from = 0
-	for from < len(kids) && from < len(old) && kids[from] == old[from] {
+	for from < kids.Len() && from < old.Len() && kids[from] == old[from] {
 		from = from + 1
 	}
 	for i, k in kids {
 		match d.nodes.Get(k) {
-		case Some[held[E]] as h:
+		case option.Some[held[E]] as h:
 			let n = boxFor(d, k)
 			restyle(d, n, styleIn(list, i, h.Value.node, line))
 			if i >= from {
@@ -87,7 +88,7 @@ func keepKids[S, E, D, F](d mut Driver[S, E, D, F], p ui.Id[E], line float32) {
 			case _:
 				d.lists = d.lists.Delete(k)
 			}
-		case None:
+		case option.None:
 		}
 	}
 	d.lkids[p] = kids
@@ -100,9 +101,9 @@ func boxFor[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) layout.Id {
 		return d.top
 	}
 	match d.lids.Get(id) {
-	case Some[layout.Id] as l:
+	case option.Some[layout.Id] as l:
 		l.Value
-	case None:
+	case option.None:
 		let n = layout.Add(&d.tree, plainStyle())
 		d.lids[id] = n
 		n
@@ -124,17 +125,17 @@ func restyle[S, E, D, F](d mut Driver[S, E, D, F], n layout.Id, s layout.Style) 
 }
 
 // listOf is p's node when it is a list, whose rows it places.
-func listOf[S, E, D, F](d mut Driver[S, E, D, F], p ui.Id[E]) Option[ui.RowsNode] {
+func listOf[S, E, D, F](d mut Driver[S, E, D, F], p ui.Id[E]) option.Option[ui.RowsNode] {
 	match d.nodes.Get(p) {
-	case Some[held[E]] as h:
+	case option.Some[held[E]] as h:
 		match h.Value.node {
 		case ui.RowsNode as x:
-			Some{Value: x}
+			option.Some{Value: x}
 		case _:
-			None
+			option.None
 		}
-	case None:
-		None
+	case option.None:
+		option.None
 	}
 }
 
@@ -142,15 +143,15 @@ func listOf[S, E, D, F](d mut Driver[S, E, D, F], p ui.Id[E]) Option[ui.RowsNode
 // style, and a list's row is out of the flow, at its index's place below
 // the list's top (from the list's First), as wide as the list and one row
 // high.
-func styleIn[E](list Option[ui.RowsNode], i int, node ui.Node[E], line float32) layout.Style {
+func styleIn[E](list option.Option[ui.RowsNode], i int, node ui.Node[E], line float32) layout.Style {
 	let mut st = styleOf(node, line)
 	match list {
-	case Some[ui.RowsNode] as l:
+	case option.Some[ui.RowsNode] as l:
 		let rh = dips(l.Value.RowHeight)
 		st.Position = layout.Absolute{Left: 0, Top: float32(l.Value.First+i) * rh}
 		st.Width = layout.Percent{Value: 100}
 		st.Height = layout.Px{Value: rh}
-	case None:
+	case option.None:
 	}
 	// A layer is out of the flow, at its own size, where placeLayers
 	// moves it (UG4).
@@ -161,17 +162,17 @@ func styleIn[E](list Option[ui.RowsNode], i int, node ui.Node[E], line float32) 
 }
 
 // layerBase is the style layer l lays out in before placeLayers moves it.
-func layerBase[S, E, D, F](d mut Driver[S, E, D, F], l ui.Id[E], line float32) Option[layout.Style] {
+func layerBase[S, E, D, F](d mut Driver[S, E, D, F], l ui.Id[E], line float32) option.Option[layout.Style] {
 	match (d.lparent.Get(l), d.nodes.Get(l)) {
-	case (Some[ui.Id[E]] as p, Some[held[E]] as h):
+	case (option.Some[ui.Id[E]] as p, option.Some[held[E]] as h):
 		for i, k in kidsOf(d, p.Value) {
 			if k == l {
-				return Some{Value: styleIn(listOf(d, p.Value), i, h.Value.node, line)}
+				return option.Some{Value: styleIn(listOf(d, p.Value), i, h.Value.node, line)}
 			}
 		}
-		None
+		option.None
 	case _:
-		None
+		option.None
 	}
 }
 
@@ -185,16 +186,16 @@ func layOutKept[S, E, D, F](d mut Driver[S, E, D, F], line float32) {
 	restyle(d, d.top, rootStyle(d))
 	for l in stacked(d) {
 		match (d.lids.Get(l), layerBase(d, l, line)) {
-		case (Some[layout.Id] as n, Some[layout.Style] as s):
+		case (option.Some[layout.Id] as n, option.Some[layout.Style] as s):
 			restyle(d, n.Value, s.Value)
 		case _:
 		}
 	}
 	for k, s in d.roomed {
 		match d.lids.Get(k) {
-		case Some[layout.Id] as l:
+		case option.Some[layout.Id] as l:
 			restyle(d, l.Value, s)
-		case None:
+		case option.None:
 		}
 	}
 	d.roomed = Map[ui.Id[E], layout.Style]{}
@@ -207,12 +208,12 @@ func layOutKept[S, E, D, F](d mut Driver[S, E, D, F], line float32) {
 		let mut changed = false
 		for k, _ in d.lists {
 			match (d.lids.Get(k), listOf(d, k)) {
-			case (Some[layout.Id] as l, Some[ui.RowsNode] as x):
+			case (option.Some[layout.Id] as l, option.Some[ui.RowsNode] as x):
 				match giveRoom(&d.tree, l.Value, d.height, dips(x.Value.RowHeight)) {
-				case Some[layout.Style] as s:
+				case option.Some[layout.Style] as s:
 					d.roomed[k] = s.Value
 					changed = true
-				case None:
+				case option.None:
 				}
 			case _:
 			}
@@ -235,14 +236,14 @@ func layOutKept[S, E, D, F](d mut Driver[S, E, D, F], line float32) {
 // window's room below its top, at least one row, as a list with no height
 // of its own fills the window under it. It is the style l had, when it
 // gave it room.
-func giveRoom(t mut layout.Tree, l layout.Id, height float32, row float32) Option[layout.Style] {
+func giveRoom(t mut layout.Tree, l layout.Id, height float32, row float32) option.Option[layout.Style] {
 	let b = boxOf(t, l)
 	if b.H > 0 {
-		return None
+		return option.None
 	}
 	let base = layout.StyleOf(t, l) catch {
 	case arena.Stale:
-		return None
+		return option.None
 	}
 	let mut s = base
 	s.Height = layout.Px{Value: fmax(height-b.Y, row)}
@@ -250,5 +251,5 @@ func giveRoom(t mut layout.Tree, l layout.Id, height float32, row float32) Optio
 	layout.SetStyle(t, l, s) catch {
 	case arena.Stale:
 	}
-	Some{Value: base}
+	option.Some{Value: base}
 }

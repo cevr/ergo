@@ -9,6 +9,7 @@
 // in effect. The window has no path of its own to fill,
 // so a fill's edges are not smoothed.
 
+import option
 import ui
 import ui/layout
 
@@ -51,9 +52,9 @@ func paintCanvas[S, E, D, F](d mut Driver[S, E, D, F], ops []ui.PaintOp, b layou
 			let (lo, hi) = bounds([][]pt{c})
 			d.w.Clip(lo.X, lo.Y, hi.X-lo.X, hi.Y-lo.Y)
 		case ui.PopPaint:
-			if len(stack) > 0 {
-				let top = stack[len(stack)-1]
-				stack = stack[:len(stack)-1]
+			if stack.Len() > 0 {
+				let top = stack[stack.Len()-1]
+				stack = stack[:stack.Len()-1]
 				m = top.was
 				if top.clip {
 					d.w.Unclip()
@@ -193,7 +194,7 @@ func flatten(path ui.Path, m ui.Affine) [][]pt {
 	for s in path.Segs {
 		match s {
 		case ui.MoveTo as x:
-			if len(cur) > 1 {
+			if cur.Len() > 1 {
 				out = out.Append(cur)
 			}
 			at = pt{X: x.X, Y: x.Y}
@@ -220,14 +221,14 @@ func flatten(path ui.Path, m ui.Affine) [][]pt {
 			at = pt{X: x.X, Y: x.Y}
 		case ui.ClosePath:
 			cur = cur.Append(apply(m, start.X, start.Y))
-			if len(cur) > 1 {
+			if cur.Len() > 1 {
 				out = out.Append(cur)
 			}
 			at = start
 			cur = []pt{apply(m, start.X, start.Y)}
 		}
 	}
-	if len(cur) > 1 {
+	if cur.Len() > 1 {
 		out = out.Append(cur)
 	}
 	out
@@ -254,11 +255,11 @@ func bounds(cs [][]pt) (pt, pt) {
 
 // axisRect is whether cs is one rectangle with sides on the axes.
 func axisRect(cs [][]pt) bool {
-	if len(cs) != 1 {
+	if cs.Len() != 1 {
 		return false
 	}
 	let c = cs[0]
-	let n = if len(c) == 5 && c[4] == c[0] { 4 } else { len(c) }
+	let n = if c.Len() == 5 && c[4] == c[0] { 4 } else { c.Len() }
 	if n != 4 {
 		return false
 	}
@@ -277,7 +278,7 @@ type crossing { x float64, wind int }
 
 // fillPath fills the contours cs with color, inside clip.
 func fillPath[S, E, D, F](d mut Driver[S, E, D, F], cs [][]pt, color uint32, clip layout.Box) needs go.Foreign {
-	if len(cs) == 0 {
+	if cs.Len() == 0 {
 		return
 	}
 	let (lo, hi) = bounds(cs)
@@ -291,9 +292,9 @@ func fillPath[S, E, D, F](d mut Driver[S, E, D, F], cs [][]pt, color uint32, cli
 		let sy = float64(y) + 0.5
 		let mut xs = []crossing{}
 		for c in cs {
-			for i in 0..len(c) {
+			for i in 0..c.Len() {
 				let p = c[i]
-				let q = c[(i+1)%len(c)]
+				let q = c[(i+1)%c.Len()]
 				if (p.Y <= sy && sy < q.Y) || (q.Y <= sy && sy < p.Y) {
 					let x = p.X + (sy-p.Y)*(q.X-p.X)/(q.Y-p.Y)
 					xs = insert(xs, crossing{x: x, wind: if p.Y < q.Y { 1 } else { -1 }})
@@ -301,9 +302,9 @@ func fillPath[S, E, D, F](d mut Driver[S, E, D, F], cs [][]pt, color uint32, cli
 			}
 		}
 		let mut wind = 0
-		for i in 0..len(xs) {
+		for i in 0..xs.Len() {
 			wind = wind + xs[i].wind
-			if wind != 0 && i+1 < len(xs) && xs[i+1].x > xs[i].x {
+			if wind != 0 && i+1 < xs.Len() && xs[i+1].x > xs[i].x {
 				d.w.Fill(xs[i].x, float64(y), xs[i+1].x-xs[i].x, 1, 0, color)
 			}
 		}
@@ -313,7 +314,7 @@ func fillPath[S, E, D, F](d mut Driver[S, E, D, F], cs [][]pt, color uint32, cli
 // insert puts c into xs, which is in order of x.
 func insert(xs []crossing, c crossing) []crossing {
 	let mut out = xs.Append(c)
-	let mut i = len(out) - 1
+	let mut i = out.Len() - 1
 	for i > 0 && out[i-1].x > out[i].x {
 		let t = out[i-1]
 		out[i-1] = out[i]
@@ -339,33 +340,33 @@ type shown { at pt, color uint32 }
 // canvasProbe is where a canvas's last op shows its color: when the last
 // op that is not a PopPaint is an opaque fill, the centre of its path's
 // box (the agreement apps' fills are convex), in the window's DIPs.
-func canvasProbe(ops []ui.PaintOp, b layout.Box) Option[shown] {
+func canvasProbe(ops []ui.PaintOp, b layout.Box) option.Option[shown] {
 	let mut m = ui.Translate(float64(b.X), float64(b.Y))
 	let mut stack = []ui.Affine{}
-	let mut last Option[shown] = None
+	let mut last option.Option[shown] = option.None
 	for op in ops {
 		match op {
 		case ui.FillOp as x:
-			last = None
+			last = option.None
 			if x.Color.A == 255 {
 				let cs = flatten(x.Path, m)
-				if len(cs) > 0 {
+				if cs.Len() > 0 {
 					let (lo, hi) = bounds(cs)
-					last = Some{Value: shown{at: pt{X: (lo.X + hi.X) / 2, Y: (lo.Y + hi.Y) / 2}, color: colorOf(x.Color)}}
+					last = option.Some{Value: shown{at: pt{X: (lo.X + hi.X) / 2, Y: (lo.Y + hi.Y) / 2}, color: colorOf(x.Color)}}
 				}
 			}
 		case ui.StrokeOp, ui.ImageOp:
-			last = None
+			last = option.None
 		case ui.PushTransform as x:
 			stack = stack.Append(m)
 			m = compose(m, x.M)
 		case ui.PushClip:
-			last = None
+			last = option.None
 			stack = stack.Append(m)
 		case ui.PopPaint:
-			if len(stack) > 0 {
-				m = stack[len(stack)-1]
-				stack = stack[:len(stack)-1]
+			if stack.Len() > 0 {
+				m = stack[stack.Len()-1]
+				stack = stack[:stack.Len()-1]
 			}
 		}
 	}

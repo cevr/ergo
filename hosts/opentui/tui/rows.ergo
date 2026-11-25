@@ -8,6 +8,7 @@
 
 import actor
 import go ergo.local/prototype/hosts/opentui/screen
+import option
 import ui
 
 // WheelRows is how many rows one turn of the wheel scrolls.
@@ -20,7 +21,7 @@ func rowCells[S, E, D, F](d mut Driver[S, E, D, F], rh ui.Length) float64 { Cell
 // changed.
 func content[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], count int, rh ui.Length) needs go.Foreign {
 	let h = float64(count) * rowCells(d, rh)
-	if d.lists.Get(id) != (Some{Value: h}) {
+	if d.lists.Get(id) != (option.Some{Value: h}) {
 		d.lists[id] = h
 		d.s.SetStyle(numOf(d, id), screen.Content, -1, h)
 	}
@@ -39,11 +40,11 @@ func placeRows[S, E, D, F](d mut Driver[S, E, D, F]) needs go.Foreign {
 				let top = float64(x.First+i) * rh
 				let n = numOf(d, k)
 				match d.tops.Get(k) {
-				case Some[float64] as t:
+				case option.Some[float64] as t:
 					if t.Value != top {
 						d.s.SetStyle(n, screen.Inset, 1, top)
 					}
-				case None:
+				case option.None:
 					d.s.SetStyle(n, screen.Absolute, -1, 1)
 					d.s.SetStyle(n, screen.Inset, 0, 0)
 					d.s.SetStyle(n, screen.Inset, 2, 0)
@@ -68,9 +69,9 @@ func keep[S, E, D, F](d mut Driver[S, E, D, F]) bool fails ScreenFailed needs go
 		match nodeOf(d, id) {
 		case ui.RowsNode as x:
 			let at = match d.viewports.Get(id) {
-			case Some[ui.Viewport] as v:
+			case option.Some[ui.Viewport] as v:
 				v.Value.Offset
-			case None:
+			case option.None:
 				ui.Length(0.0)
 			}
 			if x.Offset != at {
@@ -92,7 +93,7 @@ func report[E comparable, S, D, F](d mut Driver[S, E, D, F]) fails ui.BadPatch |
 	for id, _ in d.lists {
 		let st = d.s.ScrollOf(numOf(d, id))
 		let v = ui.Viewport{Offset: ui.Length(float64(st.Offset) * c), Height: ui.Length(float64(st.Height) * c)}
-		if d.viewports.Get(id) != (Some{Value: v}) {
+		if d.viewports.Get(id) != (option.Some{Value: v}) {
 			d.viewports[id] = v
 			step(d, ui.Scrolled[E]{Id: id, Offset: v.Offset, Height: v.Height}) catch {
 			// ergo-lint-disable-next-line silent-catch -- a stopped actor takes no viewport; the next step it is sent fails actor.Stopped where the caller handles it
@@ -120,24 +121,24 @@ func repaint[E comparable, S, D, F](d mut Driver[S, E, D, F]) fails ui.BadPatch 
 
 // Viewport is the viewport the driver last reported for the list
 // labelled label, None before it reported one.
-func Viewport[S, E, D, F](d mut Driver[S, E, D, F], label string) Option[ui.Viewport] {
+func Viewport[S, E, D, F](d mut Driver[S, E, D, F], label string) option.Option[ui.Viewport] {
 	match Find(d, label) {
-	case Some[ui.Id[E]] as id:
+	case option.Some[ui.Id[E]] as id:
 		d.viewports.Get(id.Value)
-	case None:
-		None
+	case option.None:
+		option.None
 	}
 }
 
 // Captured is the Area that holds the pointer (a Down went to it, and no
 // Up yet), None when none does.
-func Captured[S, E, D, F](d mut Driver[S, E, D, F]) Option[ui.Id[E]] {
+func Captured[S, E, D, F](d mut Driver[S, E, D, F]) option.Option[ui.Id[E]] {
 	match d.captured {
-	case Some[ui.Id[E]] as c:
+	case option.Some[ui.Id[E]] as c:
 		// A node that left the tree is no Area (nodeOf).
-		if isArea(nodeOf(d, c.Value)) { d.captured } else { None }
-	case None:
-		None
+		if isArea(nodeOf(d, c.Value)) { d.captured } else { option.None }
+	case option.None:
+		option.None
 	}
 }
 
@@ -156,23 +157,23 @@ func isArea[E](n ui.Node[E]) bool {
 func wheel[E comparable, S, D, F](d mut Driver[S, E, D, F], input screen.Input) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	let dy = if input.Code == 0 { -WheelRows } else if input.Code == 1 { WheelRows } else { 0 }
 	let dx = if input.Code == 2 { -WheelRows } else if input.Code == 3 { WheelRows } else { 0 }
-	let mut area Option[ui.Id[E]] = None
-	let mut list Option[ui.Id[E]] = None
+	let mut area option.Option[ui.Id[E]] = option.None
+	let mut list option.Option[ui.Id[E]] = option.None
 	let mut at = match d.ids.Get(d.s.HitTest(input.X, input.Y)) {
-	case Some[ui.Id[E]] as id:
+	case option.Some[ui.Id[E]] as id:
 		id.Value
-	case None:
+	case option.None:
 		return
 	}
 	for at != d.root {
 		match nodeOf(d, at) {
 		case ui.AreaNode:
-			if area == None {
-				area = Some{Value: at}
+			if area == option.None {
+				area = option.Some{Value: at}
 			}
 		case ui.ScrollNode, ui.RowsNode:
-			if list == None {
-				list = Some{Value: at}
+			if list == option.None {
+				list = option.Some{Value: at}
 			}
 		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.TextNode, ui.PressableNode[E], ui.CheckNode[E], ui.InputNode, ui.ToggleNode, ui.CanvasNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.SemanticNode[E], ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
 			// Takes no wheel: the turn goes on to the nodes around.
@@ -180,18 +181,18 @@ func wheel[E comparable, S, D, F](d mut Driver[S, E, D, F], input screen.Input) 
 		at = parentOf(d, at)
 	}
 	match area {
-	case Some[ui.Id[E]] as a:
+	case option.Some[ui.Id[E]] as a:
 		let c = d.options.Cell
 		try point(d, a.Value, input, ui.Wheel{DX: float64(dx) * c.W, DY: float64(dy) * c.H})
-	case None:
+	case option.None:
 	}
 	match list {
-	case Some[ui.Id[E]] as l:
+	case option.Some[ui.Id[E]] as l:
 		if dy != 0 {
 			try scrollTo(d.s, numOf(d, l.Value), dy, true)
 			try repaint(d)
 		}
-	case None:
+	case option.None:
 	}
 }
 
@@ -203,51 +204,51 @@ func point[E comparable, S, D, F](d mut Driver[S, E, D, F], id ui.Id[E], input s
 	let b = d.s.BoxOf(numOf(d, id))
 	let over = zoneUnder(d, id, b, input.X, input.Y)
 	d.heldY = float64(input.Y-b.Y) * c.H
-	try step(d, ui.Point[E]{Id: id, Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: phase, X: float64(input.X-b.X) * c.W, Y: d.heldY, Zone: None}, Over: over})
+	try step(d, ui.Point[E]{Id: id, Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: phase, X: float64(input.X-b.X) * c.W, Y: d.heldY, Zone: option.None}, Over: over})
 }
 
 // zoneUnder is the topmost Zone of the Area area under column x, row y,
 // with its box in the Area's box (DIPs); None when the pointer is on no
 // Zone of it.
-func zoneUnder[S, E, D, F](d mut Driver[S, E, D, F], area ui.Id[E], ab screen.Rect, x int, y int) Option[ui.ZoneBox[E]] needs go.Foreign {
+func zoneUnder[S, E, D, F](d mut Driver[S, E, D, F], area ui.Id[E], ab screen.Rect, x int, y int) option.Option[ui.ZoneBox[E]] needs go.Foreign {
 	let mut at = match d.ids.Get(d.s.HitTest(x, y)) {
-	case Some[ui.Id[E]] as id:
+	case option.Some[ui.Id[E]] as id:
 		id.Value
-	case None:
-		return None
+	case option.None:
+		return option.None
 	}
-	let mut zone Option[ui.Id[E]] = None
+	let mut zone option.Option[ui.Id[E]] = option.None
 	for at != d.root {
 		if at == area {
 			match zone {
-			case Some[ui.Id[E]] as z:
+			case option.Some[ui.Id[E]] as z:
 				let c = d.options.Cell
 				let zb = d.s.BoxOf(numOf(d, z.Value))
 				let r = ui.Rect{X: ui.Length(float64(zb.X-ab.X) * c.W), Y: ui.Length(float64(zb.Y-ab.Y) * c.H), W: ui.Length(float64(zb.Width) * c.W), H: ui.Length(float64(zb.Height) * c.H)}
-				return Some{Value: ui.ZoneBox[E]{Id: z.Value, Box: r}}
-			case None:
-				return None
+				return option.Some{Value: ui.ZoneBox[E]{Id: z.Value, Box: r}}
+			case option.None:
+				return option.None
 			}
 		}
 		match nodeOf(d, at) {
 		case ui.ZoneNode:
-			if zone == None {
-				zone = Some{Value: at}
+			if zone == option.None {
+				zone = option.Some{Value: at}
 			}
 		case _:
 		}
 		at = parentOf(d, at)
 	}
-	None
+	option.None
 }
 
 // moved sends a move of the pointer (a drag, or a move with no button) to
 // the Area that holds it, or else to the Area under it.
 func moved[E comparable, S, D, F](d mut Driver[S, E, D, F], input screen.Input) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	match Captured(d) {
-	case Some[ui.Id[E]] as a:
+	case option.Some[ui.Id[E]] as a:
 		try point(d, a.Value, input, ui.Moved)
-	case None:
+	case option.None:
 		// A move goes to the node under the pointer whatever its kind
 		// (OT-PHASES): the session moves its hover there and crosses the
 		// Areas that hold it.

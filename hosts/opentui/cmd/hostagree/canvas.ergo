@@ -3,6 +3,8 @@
 
 import go ergo.local/prototype/hosts/opentui/screen
 import ergo.local/prototype/hosts/opentui/tui
+import machines
+import option
 import ui
 
 // sketch: a canvas in an Area; a press puts a mark where it went down,
@@ -12,24 +14,24 @@ import ui
 // under the even-odd rule), moved there by a transform.
 type sketch { x int, y int, n int }
 
-func sketchStep(s sketch, e int) Decision[sketch, int] {
+func sketchStep(s sketch, e int) machines.Decision[sketch, int] {
 	let x = e % 1000
 	let y = e / 1000
-	Enter[sketch]{Next: sketch{x: if x < 24 { 24 } else if x > 176 { 176 } else { x }, y: if y < 24 { 24 } else if y > 126 { 126 } else { y }, n: s.n + 1}}
+	machines.Enter[sketch]{Next: sketch{x: if x < 24 { 24 } else if x > 176 { 176 } else { x }, y: if y < 24 { 24 } else if y > 126 { 126 } else { y }, n: s.n + 1}}
 }
 
-func sketchMachine() Machine[sketch, int, int] {
-	Machine[sketch, int, int]{Initial: sketch{x: 100, y: 75, n: 0}, Step: sketchStep, After: none[sketch, int], Work: idle[sketch, int], Exit: func(s sketch) Option[func()] { None }}
+func sketchMachine() machines.Machine[sketch, int, int] {
+	machines.Machine[sketch, int, int]{Initial: sketch{x: 100, y: 75, n: 0}, Step: sketchStep, After: none[sketch, int], Work: idle[sketch, int], Exit: func(s sketch) option.Option[func()] { option.None }}
 }
 
 func sketchView(f mut ui.Frame[int], s sketch) {
 	ui.Text(f, "mark \(s.x),\(s.y) of \(s.n)")
-	ui.Area(f, "sketch", ui.Plain(), func(p ui.PointerEvent) Option[int] {
+	ui.Area(f, "sketch", ui.Plain(), func(p ui.PointerEvent) option.Option[int] {
 		match p.Phase {
 		case ui.Down:
-			Some{Value: int(p.X) + 1000*int(p.Y)}
+			option.Some{Value: int(p.X) + 1000*int(p.Y)}
 		case _:
-			None
+			option.None
 		}
 	}) {
 		ui.Canvas(f, "ink", 200, 150) func(p mut ui.Paint) {
@@ -64,15 +66,15 @@ func sketchView(f mut ui.Frame[int], s sketch) {
 // fill of straight lines, the centre of the box around its points.
 type probe { x float64, y float64, color ui.Color }
 
-func probeOf(ops []ui.PaintOp) Option[probe] {
+func probeOf(ops []ui.PaintOp) option.Option[probe] {
 	let mut m = ui.Identity()
 	let mut stack = []ui.Affine{}
-	let mut last Option[probe] = None
+	let mut last option.Option[probe] = option.None
 	for op in ops {
 		match op {
 		case ui.FillOp as x:
-			last = None
-			if x.Color.A == 255 && len(x.Path.Segs) > 0 {
+			last = option.None
+			if x.Color.A == 255 && x.Path.Segs.Len() > 0 {
 				let mut lo = (0.0, 0.0)
 				let mut hi = (0.0, 0.0)
 				let mut first = true
@@ -98,17 +100,17 @@ func probeOf(ops []ui.PaintOp) Option[probe] {
 				}
 				let (lx, ly) = lo
 				let (hx, hy) = hi
-				last = Some{Value: probe{x: (lx + hx) / 2, y: (ly + hy) / 2, color: x.Color}}
+				last = option.Some{Value: probe{x: (lx + hx) / 2, y: (ly + hy) / 2, color: x.Color}}
 			}
 		case ui.StrokeOp, ui.PushClip, ui.ImageOp:
-			last = None
+			last = option.None
 		case ui.PushTransform as x:
 			stack = stack.Append(m)
 			m = ui.Affine{A: m.A*x.M.A + m.C*x.M.B, B: m.B*x.M.A + m.D*x.M.B, C: m.A*x.M.C + m.C*x.M.D, D: m.B*x.M.C + m.D*x.M.D, E: m.A*x.M.E + m.C*x.M.F + m.E, F: m.B*x.M.E + m.D*x.M.F + m.F}
 		case ui.PopPaint:
-			if len(stack) > 0 {
-				m = stack[len(stack)-1]
-				stack = stack[:len(stack)-1]
+			if stack.Len() > 0 {
+				m = stack[stack.Len()-1]
+				stack = stack[:stack.Len()-1]
 			}
 		}
 	}
@@ -118,12 +120,12 @@ func probeOf(ops []ui.PaintOp) Option[probe] {
 // inked is why a canvas does not show its last fill, None when each does:
 // the cell under the probe of each canvas the terminal holds shows the
 // fill's color (a full block's foreground, or a space's background).
-func inked[E comparable, S, D, F](d mut tui.Driver[S, E, D, F], s go.Ref[screen.Screen], shapes []ui.Shape[E]) Option[string] needs go.Foreign {
+func inked[E comparable, S, D, F](d mut tui.Driver[S, E, D, F], s go.Ref[screen.Screen], shapes []ui.Shape[E]) option.Option[string] needs go.Foreign {
 	for sh in shapes {
 		match sh.Node {
 		case ui.CanvasNode as x:
 			match (probeOf(x.Paint), tui.Number(d, x.Label)) {
-			case (Some[probe] as p, Some[int] as n):
+			case (option.Some[probe] as p, option.Some[int] as n):
 				let b = s.BoxOf(n.Value)
 				let cx = b.X + int(p.Value.x/8)
 				let cy = b.Y + int(p.Value.y/cellH)
@@ -131,17 +133,17 @@ func inked[E comparable, S, D, F](d mut tui.Driver[S, E, D, F], s go.Ref[screen.
 				let want = uint32(p.Value.color.R)<<24 | uint32(p.Value.color.G)<<16 | uint32(p.Value.color.B)<<8 | uint32(p.Value.color.A)
 				let got = if c.Text == "█" { c.Fg } else { c.Bg }
 				if got != want || (c.Text != "█" && c.Text != " " && c.Text != "") {
-					return Some{Value: "canvas \(x.Label): cell \(cx),\(cy) shows \(c.Text) fg \(c.Fg) bg \(c.Bg), want the color \(want)"}
+					return option.Some{Value: "canvas \(x.Label): cell \(cx),\(cy) shows \(c.Text) fg \(c.Fg) bg \(c.Bg), want the color \(want)"}
 				}
 			case _:
 			}
 		case _:
 			match inked[E, S, D, F](d, s, sh.Kids) {
-			case Some[string] as why:
-				return Some{Value: why.Value}
-			case None:
+			case option.Some[string] as why:
+				return option.Some{Value: why.Value}
+			case option.None:
 			}
 		}
 	}
-	None
+	option.None
 }

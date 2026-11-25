@@ -13,7 +13,9 @@ import config
 import crc32
 import filepath
 import hex
+import io
 import math
+import option
 import os
 import sha256
 import slices
@@ -78,31 +80,31 @@ func run(kind string, n int) string fails os.Exit {
 		}
 	case "bits.RotateLeft32":
 		for i in 0..n {
-			acc += int(bits.RotateLeft32(uint32(i), i & 31) & 0xff)
+			acc += int(bits.RotateLeft32(uint32(i), i&31) & 0xff)
 		}
 	case "bits.RotateLeft64":
 		for i in 0..n {
-			acc += int(bits.RotateLeft64(uint64(i), i & 63) & 0xff)
+			acc += int(bits.RotateLeft64(uint64(i), i&63) & 0xff)
 		}
 	case "math.Abs":
 		for i in 0..n {
-			f += math.Abs(floats[i & 7])
+			f += math.Abs(floats[i&7])
 		}
 	case "math.Ceil":
 		for i in 0..n {
-			f += math.Ceil(floats[i & 7])
+			f += math.Ceil(floats[i&7])
 		}
 	case "math.Floor":
 		for i in 0..n {
-			f += math.Floor(floats[i & 7])
+			f += math.Floor(floats[i&7])
 		}
 	case "math.Trunc":
 		for i in 0..n {
-			f += math.Trunc(floats[i & 7])
+			f += math.Trunc(floats[i&7])
 		}
 	case "math.Round":
 		for i in 0..n {
-			f += math.Round(floats[i & 7])
+			f += math.Round(floats[i&7])
 		}
 	case "math.Sqrt":
 		for i in 0..n {
@@ -110,15 +112,15 @@ func run(kind string, n int) string fails os.Exit {
 		}
 	case "math.Pow":
 		for i in 0..n {
-			f += math.Pow(1.0001, float64(i & 63))
+			f += math.Pow(1.0001, float64(i&63))
 		}
 	case "math.FMA":
 		for i in 0..n {
-			f += math.FMA(floats[i & 7], 0.5, 1.0)
+			f += math.FMA(floats[i&7], 0.5, 1.0)
 		}
 	case "math.Mod":
 		for i in 0..n {
-			f += math.Mod(floats[i & 7], 3.0)
+			f += math.Mod(floats[i&7], 3.0)
 		}
 	case "math.Log":
 		for i in 0..n {
@@ -126,420 +128,420 @@ func run(kind string, n int) string fails os.Exit {
 		}
 	case "math.Exp":
 		for i in 0..n {
-			f += math.Exp(floats[i & 7] / 1e15)
+			f += math.Exp(floats[i&7] / 1e15)
 		}
 	case "math.Inf":
 		for i in 0..n {
-			if math.Inf((i & 1) * 2 - 1) > 0.0 {
+			if math.Inf((i&1)*2-1) > 0.0 {
 				acc += 1
 			}
 		}
 	case "math.NaN":
 		for i in 0..n {
-			if math.NaN() != floats[i & 7] {
+			if math.NaN() != floats[i&7] {
 				acc += 1
 			}
 		}
 	case "math.IsNaN":
 		for i in 0..n {
-			if math.IsNaN(floats[i & 7]) {
+			if math.IsNaN(floats[i&7]) {
 				acc += 1
 			}
 		}
 	case "math.IsInf":
 		for i in 0..n {
-			if math.IsInf(floats[i & 7] * 1e300, (i & 1) * 2 - 1) {
+			if math.IsInf(floats[i&7]*1e300, (i&1)*2-1) {
 				acc += 1
 			}
 		}
 	case "utf8.RuneCount":
 		for i in 0..n {
-			acc += utf8.RuneCount(words[i & 7])
+			acc += utf8.RuneCount(words[i&7])
 		}
 	case "utf8.DecodeRuneInString":
 		for i in 0..n {
-			let d = utf8.DecodeRuneInString(words[i & 7])
+			let d = utf8.DecodeRuneInString(words[i&7])
 			acc += int(d.Rune) + d.Size
 		}
 	case "utf8.AppendRune":
 		for i in 0..n {
-			acc += len(utf8.AppendRune([]byte{}, runes[i & 7]))
+			acc += utf8.AppendRune([]byte{}, runes[i&7]).Len()
 		}
 	case "utf8.ValidString":
 		for i in 0..n {
-			if utf8.ValidString(words[i & 7]) {
+			if utf8.ValidString(words[i&7]) {
 				acc += 1
 			}
 		}
 	case "utf8.ValidRune":
 		for i in 0..n {
-			if utf8.ValidRune(runes[i & 7]) {
+			if utf8.ValidRune(runes[i&7]) {
 				acc += 1
 			}
 		}
 	case "utf8.RuneLen":
 		for i in 0..n {
-			acc += utf8.RuneLen(runes[i & 7])
+			acc += utf8.RuneLen(runes[i&7])
 		}
 	case "strings.Compare":
 		for i in 0..n {
-			acc += strings.Compare(words[i & 7], words[(i + 3) & 7])
+			acc += strings.Compare(words[i&7], words[(i+3)&7])
 		}
 	case "strings.Split":
 		for i in 0..n {
-			acc += len(strings.Split(lines[i & 3], ","))
+			acc += strings.Split(lines[i&3], ",").Len()
 		}
 	case "strings.Join":
 		for i in 0..n {
-			acc += len(strings.Join(parts, words[i & 7]))
+			acc += strings.Join(parts, words[i&7]).Len()
 		}
 	case "strings.HasPrefix":
 		for i in 0..n {
-			if strings.HasPrefix(lines[i & 3], words[i & 7]) {
+			if strings.HasPrefix(lines[i&3], words[i&7]) {
 				acc += 1
 			}
 		}
 	case "strings.HasSuffix":
 		for i in 0..n {
-			if strings.HasSuffix(lines[i & 3], words[i & 7]) {
+			if strings.HasSuffix(lines[i&3], words[i&7]) {
 				acc += 1
 			}
 		}
 	case "strings.TrimSpace":
 		for i in 0..n {
-			acc += len(strings.TrimSpace(lines[i & 3]))
+			acc += strings.TrimSpace(lines[i&3]).Len()
 		}
 	case "strings.TrimPrefix":
 		for i in 0..n {
-			acc += len(strings.TrimPrefix(lines[i & 3], "  the"))
+			acc += strings.TrimPrefix(lines[i&3], "  the").Len()
 		}
 	case "strings.TrimSuffix":
 		for i in 0..n {
-			acc += len(strings.TrimSuffix(lines[i & 3], "dog "))
+			acc += strings.TrimSuffix(lines[i&3], "dog ").Len()
 		}
 	case "strings.TrimLeft":
 		for i in 0..n {
-			acc += len(strings.TrimLeft(lines[i & 3], " t"))
+			acc += strings.TrimLeft(lines[i&3], " t").Len()
 		}
 	case "strings.TrimRight":
 		for i in 0..n {
-			acc += len(strings.TrimRight(lines[i & 3], " g"))
+			acc += strings.TrimRight(lines[i&3], " g").Len()
 		}
 	case "strings.Fields":
 		for i in 0..n {
-			acc += len(strings.Fields(lines[i & 3]))
+			acc += strings.Fields(lines[i&3]).Len()
 		}
 	case "strings.Repeat":
 		for i in 0..n {
-			acc += len(strings.Repeat(words[i & 7], i & 3))
+			acc += strings.Repeat(words[i&7], i&3).Len()
 		}
 	case "strings.ToLower":
 		for i in 0..n {
-			acc += len(strings.ToLower(lines[i & 3]))
+			acc += strings.ToLower(lines[i&3]).Len()
 		}
 	case "strings.ToUpper":
 		for i in 0..n {
-			acc += len(strings.ToUpper(lines[i & 3]))
+			acc += strings.ToUpper(lines[i&3]).Len()
 		}
 	case "strings.Index":
 		for i in 0..n {
-			acc += strings.Index(lines[i & 3], words[i & 7])
+			acc += strings.Index(lines[i&3], words[i&7])
 		}
 	case "strings.IndexByte":
 		for i in 0..n {
-			acc += strings.IndexByte(lines[i & 3], byte(97 + (i & 15)))
+			acc += strings.IndexByte(lines[i&3], byte(97+(i&15)))
 		}
 	case "strings.Contains":
 		for i in 0..n {
-			if strings.Contains(lines[i & 3], words[i & 7]) {
+			if strings.Contains(lines[i&3], words[i&7]) {
 				acc += 1
 			}
 		}
 	case "strings.ReplaceAll":
 		for i in 0..n {
-			acc += len(strings.ReplaceAll(lines[i & 3], "o", "00"))
+			acc += strings.ReplaceAll(lines[i&3], "o", "00").Len()
 		}
 	case "strings.LastIndex":
 		for i in 0..n {
-			acc += strings.LastIndex(lines[i & 3], words[i & 7])
+			acc += strings.LastIndex(lines[i&3], words[i&7])
 		}
 	case "strings.Count":
 		for i in 0..n {
-			acc += strings.Count(lines[i & 3], "o")
+			acc += strings.Count(lines[i&3], "o")
 		}
 	case "strings.SplitN":
 		for i in 0..n {
-			acc += len(strings.SplitN(lines[i & 3], ",", i & 3))
+			acc += strings.SplitN(lines[i&3], ",", i&3).Len()
 		}
 	case "strings.EqualFold":
 		for i in 0..n {
-			if strings.EqualFold(words[i & 7], upper[i & 7]) {
+			if strings.EqualFold(words[i&7], upper[i&7]) {
 				acc += 1
 			}
 		}
 	case "strings.ContainsRune":
 		for i in 0..n {
-			if strings.ContainsRune(lines[i & 3], runes[i & 7]) {
+			if strings.ContainsRune(lines[i&3], runes[i&7]) {
 				acc += 1
 			}
 		}
 	case "strings.ToValidUTF8":
 		for i in 0..n {
-			acc += len(strings.ToValidUTF8(words[i & 7], "?"))
+			acc += strings.ToValidUTF8(words[i&7], "?").Len()
 		}
 	case "strconv.Itoa":
 		for i in 0..n {
-			acc += len(strconv.Itoa(i * 7919 - 500000))
+			acc += strconv.Itoa(i*7919 - 500000).Len()
 		}
 	case "strconv.FormatInt":
 		for i in 0..n {
-			acc += len(strconv.FormatInt(int64(i * 7919), 2 + (i & 31)))
+			acc += strconv.FormatInt(int64(i*7919), 2+(i&31)).Len()
 		}
 	case "strconv.FormatBool":
 		for i in 0..n {
-			acc += len(strconv.FormatBool((i & 1) == 0))
+			acc += strconv.FormatBool((i & 1) == 0).Len()
 		}
 	case "strconv.FormatFloat":
 		for i in 0..n {
-			acc += len(strconv.FormatFloat(floats[i & 7], 'g', -1))
+			acc += strconv.FormatFloat(floats[i&7], 'g', -1).Len()
 		}
 	case "strconv.Quote":
 		for i in 0..n {
-			acc += len(strconv.Quote(words[i & 7]))
+			acc += strconv.Quote(words[i&7]).Len()
 		}
 	case "hex.Encode":
 		for i in 0..n {
-			acc += len(hex.Encode(words[i & 7]))
+			acc += hex.Encode(words[i&7]).Len()
 		}
 	case "hex.Decode":
 		for i in 0..n {
-			acc += len(hex.Decode(hexes[i & 3]) catch {
+			acc += (hex.Decode(hexes[i&3]) catch {
 			case hex.Malformed as m:
 				"\(m.Offset)"
-			})
+			}).Len()
 		}
 	case "filepath.Base":
 		for i in 0..n {
-			acc += len(filepath.Base(paths[i & 7]))
+			acc += filepath.Base(paths[i&7]).Len()
 		}
 	case "filepath.Dir":
 		for i in 0..n {
-			acc += len(filepath.Dir(paths[i & 7]))
+			acc += filepath.Dir(paths[i&7]).Len()
 		}
 	case "filepath.Ext":
 		for i in 0..n {
-			acc += len(filepath.Ext(paths[i & 7]))
+			acc += filepath.Ext(paths[i&7]).Len()
 		}
 	case "filepath.Clean":
 		for i in 0..n {
-			acc += len(filepath.Clean(paths[i & 7]))
+			acc += filepath.Clean(paths[i&7]).Len()
 		}
 	case "filepath.IsAbs":
 		for i in 0..n {
-			if filepath.IsAbs(paths[i & 7]) {
+			if filepath.IsAbs(paths[i&7]) {
 				acc += 1
 			}
 		}
 	case "filepath.Split":
 		for i in 0..n {
-			let sp = filepath.Split(paths[i & 7])
-			acc += len(sp.Dir) + len(sp.File)
+			let sp = filepath.Split(paths[i&7])
+			acc += sp.Dir.Len() + sp.File.Len()
 		}
 	case "filepath.Rel":
 		for i in 0..n {
-			acc += len(filepath.Rel(paths[i & 7], paths[(i + 3) & 7]) catch {
+			acc += (filepath.Rel(paths[i&7], paths[(i+3)&7]) catch {
 			case filepath.NotRelative:
 				"x"
-			})
+			}).Len()
 		}
 	case "filepath.Join":
 		for i in 0..n {
-			acc += len(filepath.Join([]string{parts[i & 3], paths[i & 7]}))
+			acc += filepath.Join([]string{parts[i&3], paths[i&7]}).Len()
 		}
 	case "cmp.Compare":
 		for i in 0..n {
-			acc += cmp.Compare(i & 15, (i * 7) & 15)
+			acc += cmp.Compare(i&15, (i*7)&15)
 		}
 	case "cmp.CompareFloat":
 		for i in 0..n {
-			acc += cmp.Compare(floats[i & 7], floats[(i + 3) & 7])
+			acc += cmp.Compare(floats[i&7], floats[(i+3)&7])
 		}
 	case "cmp.CompareString":
 		for i in 0..n {
-			acc += cmp.Compare(words[i & 7], words[(i + 3) & 7])
+			acc += cmp.Compare(words[i&7], words[(i+3)&7])
 		}
 	case "cmp.Less":
 		for i in 0..n {
-			if cmp.Less(floats[i & 7], floats[(i + 5) & 7]) {
+			if cmp.Less(floats[i&7], floats[(i+5)&7]) {
 				acc += 1
 			}
 		}
 	case "strings.PadLeft":
 		for i in 0..n {
-			acc += len(strings.PadLeft(words[i & 7], i & 15, runes[i & 7]))
+			acc += strings.PadLeft(words[i&7], i&15, runes[i&7]).Len()
 		}
 	case "strings.PadRight":
 		for i in 0..n {
-			acc += len(strings.PadRight(words[i & 7], i & 15, ' '))
+			acc += strings.PadRight(words[i&7], i&15, ' ').Len()
 		}
 	case "slices.Contains":
 		for i in 0..n {
-			if slices.Contains(ints, i & 31) {
+			if slices.Contains(ints, i&31) {
 				acc += 1
 			}
 		}
 	case "slices.Index":
 		for i in 0..n {
-			acc += slices.Index(ints, i & 31)
+			acc += slices.Index(ints, i&31)
 		}
 	case "slices.Equal":
 		for i in 0..n {
-			if slices.Equal(ints, ints2[i & 1]) {
+			if slices.Equal(ints, ints2[i&1]) {
 				acc += 1
 			}
 		}
 	case "slices.Max":
 		for i in 0..n {
-			match slices.Max(ints2[i & 1]) {
-			case Some[int] as v:
+			match slices.Max(ints2[i&1]) {
+			case option.Some[int] as v:
 				acc += v.Value
-			case None:
+			case option.None:
 				acc += 1
 			}
 		}
 	case "slices.Min":
 		for i in 0..n {
-			match slices.Min(ints2[i & 1]) {
-			case Some[int] as v:
+			match slices.Min(ints2[i&1]) {
+			case option.Some[int] as v:
 				acc += v.Value
-			case None:
+			case option.None:
 				acc += 1
 			}
 		}
 	case "slices.BinarySearch":
 		for i in 0..n {
-			match slices.BinarySearch(asc, i & 31) {
-			case Some[int] as v:
+			match slices.BinarySearch(asc, i&31) {
+			case option.Some[int] as v:
 				acc += v.Value
-			case None:
+			case option.None:
 				acc += 1
 			}
 		}
 	case "math.ToInt":
 		for i in 0..n {
-			acc += int(math.ToInt(cfloats[i & 7]) catch {
+			acc += int(math.ToInt(cfloats[i&7]) catch {
 			case math.OutOfRange:
 				0
 			})
 		}
 	case "math.ToInt8":
 		for i in 0..n {
-			acc += int(math.ToInt8(cfloats[i & 7]) catch {
+			acc += int(math.ToInt8(cfloats[i&7]) catch {
 			case math.OutOfRange:
 				0
 			})
 		}
 	case "math.ToInt16":
 		for i in 0..n {
-			acc += int(math.ToInt16(cfloats[i & 7]) catch {
+			acc += int(math.ToInt16(cfloats[i&7]) catch {
 			case math.OutOfRange:
 				0
 			})
 		}
 	case "math.ToInt32":
 		for i in 0..n {
-			acc += int(math.ToInt32(cfloats[i & 7]) catch {
+			acc += int(math.ToInt32(cfloats[i&7]) catch {
 			case math.OutOfRange:
 				0
 			})
 		}
 	case "math.ToInt64":
 		for i in 0..n {
-			acc += int(math.ToInt64(cfloats[i & 7]) catch {
+			acc += int(math.ToInt64(cfloats[i&7]) catch {
 			case math.OutOfRange:
 				0
 			})
 		}
 	case "math.ToUint":
 		for i in 0..n {
-			acc += int(math.ToUint(cfloats[i & 7]) catch {
+			acc += int(math.ToUint(cfloats[i&7]) catch {
 			case math.OutOfRange:
 				0
 			})
 		}
 	case "math.ToUint8":
 		for i in 0..n {
-			acc += int(math.ToUint8(cfloats[i & 7]) catch {
+			acc += int(math.ToUint8(cfloats[i&7]) catch {
 			case math.OutOfRange:
 				0
 			})
 		}
 	case "math.ToUint16":
 		for i in 0..n {
-			acc += int(math.ToUint16(cfloats[i & 7]) catch {
+			acc += int(math.ToUint16(cfloats[i&7]) catch {
 			case math.OutOfRange:
 				0
 			})
 		}
 	case "math.ToUint32":
 		for i in 0..n {
-			acc += int(math.ToUint32(cfloats[i & 7]) catch {
+			acc += int(math.ToUint32(cfloats[i&7]) catch {
 			case math.OutOfRange:
 				0
 			})
 		}
 	case "math.ToUint64":
 		for i in 0..n {
-			acc += int(math.ToUint64(cfloats[i & 7]) catch {
+			acc += int(math.ToUint64(cfloats[i&7]) catch {
 			case math.OutOfRange:
 				0
 			})
 		}
 	case "math.ToUintptr":
 		for i in 0..n {
-			acc += int(math.ToUintptr(cfloats[i & 7]) catch {
+			acc += int(math.ToUintptr(cfloats[i&7]) catch {
 			case math.OutOfRange:
 				0
 			})
 		}
 	case "sha256.Sum":
 		for i in 0..n {
-			acc += int(sha256.Sum(words[i & 7] + lines[i & 3])[i & 31])
+			acc += int(sha256.Sum(words[i&7] + lines[i&3])[i&31])
 		}
 	case "base64.Encode":
 		for i in 0..n {
 			let e base64.Encoding = if (i & 1) == 0 { base64.StdEncoding } else { base64.URLEncoding }
-			acc += len(base64.Encode(e, words[i & 7] + lines[i & 3]))
+			acc += base64.Encode(e, words[i&7]+lines[i&3]).Len()
 		}
 	case "crc32.Update":
 		for i in 0..n {
-			acc += int(crc32.Update(uint32(i), lines[i & 3] + words[i & 7]) & 1023)
+			acc += int(crc32.Update(uint32(i), lines[i&3]+words[i&7]) & 1023)
 		}
 	case "slices.Sort":
 		for i in 0..n {
-			acc += slices.Sort(ints)[i & 15]
+			acc += slices.Sort(ints)[i&15]
 		}
 	case "slices.SortDead":
 		for i in 0..n {
 			let mut xs = slices.Clone(ints)
 			xs[0] = i & 31
-			acc += slices.Sort(xs)[i & 15]
+			acc += slices.Sort(xs)[i&15]
 		}
 	case "slices.SortFunc":
 		for i in 0..n {
-			acc += slices.SortFunc(ints, func(a int, b int) int { b - a })[i & 15]
+			acc += slices.SortFunc(ints, func(a int, b int) int { b - a })[i&15]
 		}
 	case "slices.SortStableFunc":
 		for i in 0..n {
-			acc += slices.SortStableFunc(ints, func(a int, b int) int { (a & 3) - (b & 3) })[i & 15]
+			acc += slices.SortStableFunc(ints, func(a int, b int) int { (a & 3) - (b & 3) })[i&15]
 		}
 	case "crc32.Checksum":
 		for i in 0..n {
-			acc += int(crc32.Checksum(lines[i & 3] + words[i & 7]) & 1023)
+			acc += int(crc32.Checksum(lines[i&3]+words[i&7]) & 1023)
 		}
 	case "strconv.ParseBool":
 		for i in 0..n {
-			if strconv.ParseBool(bools[i & 7]) catch {
+			if strconv.ParseBool(bools[i&7]) catch {
 			case strconv.Malformed:
 				acc += 2
 				false
@@ -549,28 +551,28 @@ func run(kind string, n int) string fails os.Exit {
 		}
 	case "strconv.Unquote":
 		for i in 0..n {
-			acc += len(strconv.Unquote(quoted[i & 7]) catch {
+			acc += (strconv.Unquote(quoted[i&7]) catch {
 			case strconv.Malformed:
 				"?"
-			})
+			}).Len()
 		}
 	case "time.Times":
 		for i in 0..n {
-			acc += int(int64(time.Times(durs[i & 7], i * 7919 - 500000)) & 1023)
+			acc += int(int64(time.Times(durs[i&7], i*7919-500000)) & 1023)
 		}
 	case "time.Divide":
 		for i in 0..n {
-			acc += int(int64(time.Divide(durs[i & 7], (i & 15) + 1)) & 1023)
+			acc += int(int64(time.Divide(durs[i&7], (i&15)+1)) & 1023)
 		}
 	case "atomic.Add":
 		let c = atomic.NewInt64(0)
 		for i in 0..n {
-			acc += int(c.Add(int64(i & 7)) & 1023)
+			acc += int(c.Add(int64(i&7)) & 1023)
 		}
 	case "atomic.CompareAndSwap":
 		let c = atomic.NewInt64(0)
 		for i in 0..n {
-			if c.CompareAndSwap(int64(i & 1), int64((i + 1) & 1)) {
+			if c.CompareAndSwap(int64(i&1), int64((i+1)&1)) {
 				acc += 1
 			}
 		}
@@ -597,31 +599,31 @@ func run(kind string, n int) string fails os.Exit {
 		}
 	case "time.Count":
 		for i in 0..n {
-			acc += time.Count(durs[i & 7], durs[(i + 3) & 7] + 1ns) & 1023
+			acc += time.Count(durs[i&7], durs[(i+3)&7]+1ns) & 1023
 		}
 	case "config.FlagName":
 		for i in 0..n {
-			acc += len(config.FlagName(keys[i & 7]))
+			acc += config.FlagName(keys[i&7]).Len()
 		}
 	case "config.EnvName":
 		for i in 0..n {
-			acc += len(config.EnvName("APP", keys[i & 7]))
+			acc += config.EnvName("APP", keys[i&7]).Len()
 		}
 	case "config.FlagKey":
 		for i in 0..n {
-			acc += len(config.FlagKey(flags[i & 7]))
+			acc += config.FlagKey(flags[i&7]).Len()
 		}
 	case "config.EnvKey":
 		for i in 0..n {
-			acc += len(config.EnvKey("APP", envs[i & 7]))
+			acc += config.EnvKey("APP", envs[i&7]).Len()
 		}
 	case "strings.TrimFunc":
 		for i in 0..n {
-			acc += len(strings.TrimFunc(lines[i & 3], utf8.IsSpace))
+			acc += strings.TrimFunc(lines[i&3], utf8.IsSpace).Len()
 		}
 	case "strings.FieldsFunc":
 		for i in 0..n {
-			acc += len(strings.FieldsFunc(lines[i & 3], utf8.IsSpace))
+			acc += strings.FieldsFunc(lines[i&3], utf8.IsSpace).Len()
 		}
 	case _:
 		return os.Exit{Code: 2, Message: "bodies: no kind \(strconv.Quote(kind))"}
@@ -629,14 +631,14 @@ func run(kind string, n int) string fails os.Exit {
 	"\(acc) \(f)"
 }
 
-func main() fails os.Exit needs Console | Ambient {
+func main() fails os.Exit needs io.Console | os.Ambient {
 	let args = os.NewHost().Args()
-	if len(args) != 2 {
+	if args.Len() != 2 {
 		return os.Exit{Code: 2, Message: "usage: bodies KIND N"}
 	}
 	let n = strconv.Atoi(args[1]) catch {
 	case strconv.Malformed, strconv.OutOfRange:
 		return os.Exit{Code: 2, Message: "bodies: N must be a count"}
 	}
-	Console.Println(try run(args[0], n))
+	io.Console.Println(try run(args[0], n))
 }

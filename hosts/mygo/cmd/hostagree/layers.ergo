@@ -6,13 +6,15 @@
 // layer first.
 
 import ergo.local/prototype/hosts/mygo/desktop
+import machines
+import option
 import ui
 import ui/layout
 
 // layersApp is the open layers and the last signal.
 type layersApp { menu bool, dialog bool, tip bool, pin bool, last int }
 
-func layersStep(s layersApp, e int) Decision[layersApp, int] {
+func layersStep(s layersApp, e int) machines.Decision[layersApp, int] {
 	let mut n = s
 	n.last = e
 	if e == 1 {
@@ -28,11 +30,11 @@ func layersStep(s layersApp, e int) Decision[layersApp, int] {
 	} else if e == 5 {
 		n.pin = !s.pin
 	}
-	Enter[layersApp]{Next: n}
+	machines.Enter[layersApp]{Next: n}
 }
 
-func layersMachine() Machine[layersApp, int, int] {
-	Machine[layersApp, int, int]{Initial: layersApp{menu: false, dialog: false, tip: false, pin: true, last: 0}, Step: layersStep, After: none[layersApp, int], Work: idle[layersApp, int], Exit: func(s layersApp) Option[func()] { None }}
+func layersMachine() machines.Machine[layersApp, int, int] {
+	machines.Machine[layersApp, int, int]{Initial: layersApp{menu: false, dialog: false, tip: false, pin: true, last: 0}, Step: layersStep, After: none[layersApp, int], Work: idle[layersApp, int], Exit: func(s layersApp) option.Option[func()] { option.None }}
 }
 
 // layerLook is a layer's panel: white, a border, rounded.
@@ -92,12 +94,12 @@ func layersView(f mut ui.Frame[int], s layersApp) {
 		})
 	}
 	if s.pin {
-		ui.Layer(f, ui.Layered[int]{Z: ui.PopoverZ, Anchor: Some{Value: ui.ByInt(105)}, Place: ui.Place{Side: ui.SideRight, Align: ui.AlignStart, Gap: 4}, Scrim: false, Dismiss: None}, layerLook(f)) {
+		ui.Layer(f, ui.Layered[int]{Z: ui.PopoverZ, Anchor: option.Some{Value: ui.ByInt(105)}, Place: ui.Place{Side: ui.SideRight, Align: ui.AlignStart, Gap: 4}, Scrim: false, Dismiss: option.None}, layerLook(f)) {
 			ui.Text(f, "pinned to row 5")
 		}
 	}
 	if s.menu {
-		ui.Layer(f, ui.Layered[int]{Z: ui.PopoverZ, Anchor: Some{Value: ui.ByInt(1)}, Place: ui.Place{Side: ui.SideBottom, Align: ui.AlignStart, Gap: 4}, Scrim: false, Dismiss: Some{Value: 2}}, layerLook(f)) {
+		ui.Layer(f, ui.Layered[int]{Z: ui.PopoverZ, Anchor: option.Some{Value: ui.ByInt(1)}, Place: ui.Place{Side: ui.SideBottom, Align: ui.AlignStart, Gap: 4}, Scrim: false, Dismiss: option.Some{Value: 2}}, layerLook(f)) {
 			ui.Pressable(f, "item0", 20) {
 				ui.Text(f, "Item zero")
 			}
@@ -110,7 +112,7 @@ func layersView(f mut ui.Frame[int], s layersApp) {
 		}
 	}
 	if s.dialog {
-		ui.Layer(f, ui.Layered[int]{Z: ui.ModalZ, Anchor: None, Place: ui.Place{Side: ui.SideBottom, Align: ui.AlignCenter, Gap: 0}, Scrim: true, Dismiss: Some{Value: 4}}, layerLook(f)) {
+		ui.Layer(f, ui.Layered[int]{Z: ui.ModalZ, Anchor: option.None, Place: ui.Place{Side: ui.SideBottom, Align: ui.AlignCenter, Gap: 0}, Scrim: true, Dismiss: option.Some{Value: 4}}, layerLook(f)) {
 			ui.Text(f, "A dialog")
 			ui.Zone(f, ui.ByInt(3), ui.Plain()) {
 				ui.Pressable(f, "ok", 4) {
@@ -121,7 +123,7 @@ func layersView(f mut ui.Frame[int], s layersApp) {
 				ui.Text(f, "Inside")
 			}
 			if s.tip {
-				ui.Layer(f, ui.Layered[int]{Z: ui.TooltipZ, Anchor: Some{Value: ui.ByInt(3)}, Place: ui.Place{Side: ui.SideTop, Align: ui.AlignCenter, Gap: 2}, Scrim: false, Dismiss: None}, layerLook(f)) {
+				ui.Layer(f, ui.Layered[int]{Z: ui.TooltipZ, Anchor: option.Some{Value: ui.ByInt(3)}, Place: ui.Place{Side: ui.SideTop, Align: ui.AlignCenter, Gap: 2}, Scrim: false, Dismiss: option.None}, layerLook(f)) {
 					ui.Text(f, "Closes it")
 				}
 			}
@@ -132,19 +134,19 @@ func layersView(f mut ui.Frame[int], s layersApp) {
 // layersPlacedWrong is why a layer of the window is not where
 // ui.PlaceLayer puts it against its anchor's box in the window, None when
 // each is.
-func layersPlacedWrong[E comparable, S, D, F](d mut desktop.Driver[S, E, D, F]) Option[string] {
+func layersPlacedWrong[E comparable, S, D, F](d mut desktop.Driver[S, E, D, F]) option.Option[string] {
 	for l in desktop.LayerBoxes(d) {
 		let view = ui.Rect{X: ui.Length(float64(l.View.X)), Y: ui.Length(float64(l.View.Y)), W: ui.Length(float64(l.View.W)), H: ui.Length(float64(l.View.H))}
 		let anchor = match l.Anchor {
-		case Some[layout.Box] as a:
-			Some{Value: ui.Rect{X: ui.Length(float64(a.Value.X)), Y: ui.Length(float64(a.Value.Y)), W: ui.Length(float64(a.Value.W)), H: ui.Length(float64(a.Value.H))}}
-		case None:
-			None
+		case option.Some[layout.Box] as a:
+			option.Some{Value: ui.Rect{X: ui.Length(float64(a.Value.X)), Y: ui.Length(float64(a.Value.Y)), W: ui.Length(float64(a.Value.W)), H: ui.Length(float64(a.Value.H))}}
+		case option.None:
+			option.None
 		}
 		let want = ui.PlaceLayer(anchor, ui.Length(float64(l.Box.W)), ui.Length(float64(l.Box.H)), view, l.Place)
 		if float64(want.X) != float64(l.Box.X) || float64(want.Y) != float64(l.Box.Y) {
-			return Some{Value: "a layer is at \(l.Box.X),\(l.Box.Y); placed against its anchor it is at \(float64(want.X)),\(float64(want.Y))"}
+			return option.Some{Value: "a layer is at \(l.Box.X),\(l.Box.Y); placed against its anchor it is at \(float64(want.X)),\(float64(want.Y))"}
 		}
 	}
-	None
+	option.None
 }

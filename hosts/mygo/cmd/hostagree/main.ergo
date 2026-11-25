@@ -30,19 +30,20 @@
 // then "end".
 
 import io
+import os
 import slices
 import strings
 import time
 
-func main() needs Console | Ambient | go.Foreign {
-	with context { io.Stdin: io.NewStdin(), Scheduler: time.NewManual(0) } {
+func main() needs io.Console | os.Ambient | go.Foreign {
+	with context { io.Stdin: io.NewStdin(), time.Scheduler: time.NewManual(0) } {
 		let text = io.Stdin.ReadAll() catch {
 		case io.ReadFailed:
-			Console.Println("differ 0: no input")
+			io.Console.Println("differ 0: no input")
 			return
 		}
 		let lines = strings.Split(strings.TrimSpace(text), "\n")
-		let steps = slices.Slice(lines, 1, len(lines))
+		let steps = slices.Slice(lines, 1, lines.Len())
 		match strings.TrimSpace(lines[0]) {
 		case "counter":
 			agree(counterMachine(), counterView, func(a int, b int) bool { a == b }, steps)
@@ -67,7 +68,7 @@ func main() needs Console | Ambient | go.Foreign {
 		case "layers":
 			agree(layersMachine(), layersView, func(a layersApp, b layersApp) bool { a == b }, steps)
 		case _:
-			Console.Println("differ 0: no app \(lines[0])")
+			io.Console.Println("differ 0: no app \(lines[0])")
 		}
 	}
 }

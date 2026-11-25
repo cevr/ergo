@@ -34,15 +34,16 @@
 import go ergo.local/prototype/hosts/opentui/screen
 import ergo.local/prototype/hosts/opentui/tui
 import io
+import os
 import slices
 import strings
 import time
 
-func main() needs Console | Ambient | go.Foreign {
-	with context { io.Stdin: io.NewStdin(), Scheduler: time.NewManual(0) } {
+func main() needs io.Console | os.Ambient | go.Foreign {
+	with context { io.Stdin: io.NewStdin(), time.Scheduler: time.NewManual(0) } {
 		let text = io.Stdin.ReadAll() catch {
 		case io.ReadFailed:
-			Console.Println("differ 0: no input")
+			io.Console.Println("differ 0: no input")
 			return
 		}
 		let mut lines = strings.Split(strings.TrimSpace(text), "\n")
@@ -50,24 +51,24 @@ func main() needs Console | Ambient | go.Foreign {
 		if faulted {
 			let f = strings.Fields(lines[0])
 			screen.FailAt(atoi(f[1]), screen.AnyCall, atoi(f[2]))
-			lines = slices.Slice(lines, 1, len(lines))
+			lines = slices.Slice(lines, 1, lines.Len())
 		}
-		let steps = slices.Slice(lines, 1, len(lines))
+		let steps = slices.Slice(lines, 1, lines.Len())
 		play(lines[0], steps) catch {
 		case tui.ScreenFailed as e:
-			Console.Println(failLine(e))
+			io.Console.Println(failLine(e))
 		}
 		if faulted {
 			for c in screen.Checks() {
-				Console.Println("check \(c.Call) \(c.Node)")
+				io.Console.Println("check \(c.Call) \(c.Node)")
 			}
-			Console.Println("live \(screen.Live())")
+			io.Console.Println("live \(screen.Live())")
 		}
 	}
 }
 
 // play runs the app named app on steps.
-func play(app string, steps []string) fails tui.ScreenFailed needs Console | Scheduler | go.Foreign {
+func play(app string, steps []string) fails tui.ScreenFailed needs io.Console | time.Scheduler | go.Foreign {
 	match strings.TrimSpace(app) {
 	case "counter":
 		try agree(counterMachine(), counterView, func(a int, b int) bool { a == b }, steps)
@@ -96,6 +97,6 @@ func play(app string, steps []string) fails tui.ScreenFailed needs Console | Sch
 	case "reading":
 		try agree(readingMachine(), readingView, func(a reading, b reading) bool { a == b }, steps)
 	case _:
-		Console.Println("differ 0: no app \(app)")
+		io.Console.Println("differ 0: no app \(app)")
 	}
 }

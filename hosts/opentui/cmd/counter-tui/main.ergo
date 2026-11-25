@@ -20,13 +20,13 @@ import term
 import time
 import ui
 
-func main() fails os.Exit needs Ambient | go.Foreign {
+func main() fails os.Exit needs os.Ambient | go.Foreign {
 	let args = with context { os.Process: os.NewHost() } { os.Process.Args() }
-	if len(args) > 0 && args[0] == "-headless" {
+	if args.Len() > 0 && args[0] == "-headless" {
 		try headless()
 		return
 	}
-	with context { Scheduler: NewLiveScheduler(), term.Terminal: term.NewHost() } {
+	with context { time.Scheduler: time.NewLiveScheduler(), term.Terminal: term.NewHost() } {
 		let a = actor.StartMachine(counter.Counter{}, 8, func(c counter.Count) {})
 		tui.RunTerminal(a, view.View, tui.DefaultOptions()) catch {
 		// ergo-lint-disable-next-line silent-catch -- the app stopped: the program ends as the example's own binary does
@@ -45,7 +45,7 @@ func main() fails os.Exit needs Ambient | go.Foreign {
 // terminal, 45 by 14 cells (the window of counter-gui at 8 by 16 DIPs a
 // cell): a tap is a mouse press and release at the node's first cell. It
 // prints the count after each step.
-func headless() fails os.Exit needs Ambient | go.Foreign {
+func headless() fails os.Exit needs os.Ambient | go.Foreign {
 	let text = io.NewStdin().ReadAll() catch {
 	case io.ReadFailed:
 		return os.Exit{Code: 1, Message: "counter-tui: cannot read the script"}
@@ -55,8 +55,8 @@ func headless() fails os.Exit needs Ambient | go.Foreign {
 		return os.Exit{Code: 2, Message: "counter-tui: line \(b.Line) is no step: \(b.Text)"}
 	}
 	let out = io.NewHost()
-	with context { Scheduler: time.NewManual(0) } {
-		tui.Headless(45, 14, func(s go.Ref[screen.Screen]) fails os.Exit | tui.ScreenFailed needs Scheduler | go.Foreign {
+	with context { time.Scheduler: time.NewManual(0) } {
+		tui.Headless(45, 14, func(s go.Ref[screen.Screen]) fails os.Exit | tui.ScreenFailed needs time.Scheduler | go.Foreign {
 			let a = actor.StartMachine(counter.Counter{}, 8, func(c counter.Count) {})
 			let mut d = tui.New(s, a, view.View, 64) catch {
 			case ui.BadPatch as b:

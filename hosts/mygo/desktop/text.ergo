@@ -2,6 +2,7 @@
 // OnKey takes rune by rune.
 
 import actor
+import option
 import strings
 import ui
 import utf8
@@ -10,8 +11,8 @@ import utf8
 func runesOf(s string) []string {
 	let mut out = []string{}
 	let mut at = 0
-	for at < len(s) {
-		let r = utf8.DecodeRuneInString(strings.Slice(s, at, len(s)))
+	for at < s.Len() {
+		let r = utf8.DecodeRuneInString(strings.Slice(s, at, s.Len()))
 		out = out.Append(strings.Slice(s, at, at+r.Size))
 		at = at + r.Size
 	}
@@ -25,7 +26,7 @@ func runesOf(s string) []string {
 func takeEdited[E comparable, S, D, F](d mut Driver[S, E, D, F], n int, text string) fails actor.Stopped | ui.BadPatch needs go.Foreign {
 	d.edited = n
 	match focused(d) {
-	case Some[spot[E]] as s:
+	case option.Some[spot[E]] as s:
 		match s.Value.node {
 		case ui.InputNode as x:
 			if x.Value != text {
@@ -37,7 +38,7 @@ func takeEdited[E comparable, S, D, F](d mut Driver[S, E, D, F], n int, text str
 			}
 		case _:
 		}
-	case None:
+	case option.None:
 	}
 	// Nothing was painted (the program kept its value): a paint names
 	// the edit taken, so the window's copy of the field follows.
@@ -65,14 +66,14 @@ func CommitComposition[E comparable, S, D, F](d mut Driver[S, E, D, F]) fails ui
 // ("" with none focused), and the one its hints name.
 func Keyboard[S, E, D, F](d mut Driver[S, E, D, F]) (string, string) needs go.Foreign {
 	let want = match focused(d) {
-	case Some[spot[E]] as s:
+	case option.Some[spot[E]] as s:
 		match s.Value.node {
 		case ui.InputNode as x:
 			ui.KeyboardName(x.Hints.Keyboard)
 		case _:
 			""
 		}
-	case None:
+	case option.None:
 		""
 	}
 	(d.w.EditingKeyboard(), want)

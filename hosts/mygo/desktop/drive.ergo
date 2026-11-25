@@ -6,6 +6,7 @@
 import actor
 import go ergo.local/prototype/hosts/mygo/screen
 import net
+import option
 import queue
 import strings
 import task
@@ -34,9 +35,9 @@ func Answer[E comparable, S, D, F](d mut Driver[S, E, D, F], c net.Conn, parse o
 		held = held + part
 		for strings.Contains(held, "\n") {
 			let (line, rest) = match strings.Cut(held, "\n") {
-			case Some[strings.Halves] as h:
+			case option.Some[strings.Halves] as h:
 				(h.Value.Before, h.Value.After)
-			case None:
+			case option.None:
 				(held, "")
 			}
 			held = rest

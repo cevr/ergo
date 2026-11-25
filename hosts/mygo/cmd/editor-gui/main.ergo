@@ -30,6 +30,7 @@ import go ergo.local/prototype/hosts/mygo/screen
 import fs
 import io
 import machines
+import option
 import os
 import strings
 import sync
@@ -68,7 +69,7 @@ func parse(args []string) opts fails os.Exit {
 	o
 }
 
-func main() fails os.Exit needs Ambient | go.Foreign {
+func main() fails os.Exit needs os.Ambient | go.Foreign {
 	let o = try parse(with context { os.Process: os.NewHost() } { os.Process.Args() })
 	let store = files.New(fs.NewHost())
 	let clip = ui.NewMemoryClipboard()
@@ -84,7 +85,7 @@ func main() fails os.Exit needs Ambient | go.Foreign {
 		try headless(text, o.file, store, clip, o.check)
 		return
 	}
-	with context { Scheduler: NewLiveScheduler() } {
+	with context { time.Scheduler: time.NewLiveScheduler() } {
 		let w = screen.Open("Editor", Width, Height) catch {
 		case go.Error as e:
 			return os.Exit{Code: 1, Message: "editor-gui: \(e.Text)"}
@@ -103,13 +104,13 @@ func main() fails os.Exit needs Ambient | go.Foreign {
 
 // headless plays the script on standard input through a window with no
 // screen and prints what the scene prints.
-func headless(text string, name string, store edit.Store, clip ui.Clipboard, check bool) fails os.Exit needs Ambient | go.Foreign {
+func headless(text string, name string, store edit.Store, clip ui.Clipboard, check bool) fails os.Exit needs os.Ambient | go.Foreign {
 	let input = io.NewStdin().ReadAll() catch {
 	case io.ReadFailed:
 		return os.Exit{Code: 1, Message: "editor-gui: cannot read the script"}
 	}
 	let out = io.NewHost()
-	with context { Scheduler: time.NewManual(0) } {
+	with context { time.Scheduler: time.NewManual(0) } {
 		let w = screen.Headless(Width, Height) catch {
 		case go.Error as e:
 			return os.Exit{Code: 1, Message: "editor-gui: \(e.Text)"}
@@ -191,7 +192,7 @@ func play[D, F](d mut desktop.Driver[window.Window, window.Signal, D, F], w go.R
 // a press, so a key goes to the editor and not to a focused button or
 // field.
 func unfocus[D, F](d mut desktop.Driver[window.Window, window.Signal, D, F], w go.Ref[screen.Window]) fails ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
-	if desktop.FocusId(d) == None {
+	if desktop.FocusId(d) == option.None {
 		return
 	}
 	match desktop.BoxOf(d, "type") {

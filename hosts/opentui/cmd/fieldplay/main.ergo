@@ -18,6 +18,9 @@ import base64
 import ergo.local/prototype/hosts/opentui/tui
 import go ergo.local/prototype/hosts/opentui/screen
 import io
+import machines
+import option
+import os
 import strconv
 import strings
 import time
@@ -32,88 +35,88 @@ type field { text string }
 
 type fieldEvent = Typed{Text string} | Replace{K int}
 
-func fieldStep(s field, e fieldEvent) Decision[field, int] {
+func fieldStep(s field, e fieldEvent) machines.Decision[field, int] {
 	match e {
 	case Typed as t:
-		Enter[field]{Next: field{text: t.Text}}
+		machines.Enter[field]{Next: field{text: t.Text}}
 	case Replace as r:
-		Enter[field]{Next: field{text: Replacements[r.K]}}
+		machines.Enter[field]{Next: field{text: Replacements[r.K]}}
 	}
 }
 
-func none(s field) Option[Timeout[fieldEvent]] { None }
+func none(s field) option.Option[machines.Timeout[fieldEvent]] { option.None }
 
-func idle(s field) Option[func(send func(e fieldEvent))] { None }
+func idle(s field) option.Option[func(send func(e fieldEvent))] { option.None }
 
-func fieldMachine() Machine[field, fieldEvent, int] {
-	Machine[field, fieldEvent, int]{Initial: field{text: ""}, Step: fieldStep, After: none, Work: idle, Exit: func(s field) Option[func()] { None }}
+func fieldMachine() machines.Machine[field, fieldEvent, int] {
+	machines.Machine[field, fieldEvent, int]{Initial: field{text: ""}, Step: fieldStep, After: none, Work: idle, Exit: func(s field) option.Option[func()] { option.None }}
 }
 
 func fieldView(f mut ui.Frame[fieldEvent], s field) {
 	ui.Column(f, ui.Plain()) {
 		ui.Input(f, s.text, "type here", func(t string) fieldEvent { Typed{Text: t} })
-		ui.OnKey(f, func(k ui.KeyPress) Option[fieldEvent] {
-			for i in 0..len(Replacements) {
+		ui.OnKey(f, func(k ui.KeyPress) option.Option[fieldEvent] {
+			for i in 0..Replacements.Len() {
 				if k.Name == "F\(i + 1)" {
-					return Some{Value: Replace{K: i}}
+					return option.Some{Value: Replace{K: i}}
 				}
 			}
-			None
+			option.None
 		})
 	}
 }
 
-func main() needs Console | Ambient | go.Foreign {
-	with context { io.Stdin: io.NewStdin(), Scheduler: time.NewManual(0) } {
+func main() needs io.Console | os.Ambient | go.Foreign {
+	with context { io.Stdin: io.NewStdin(), time.Scheduler: time.NewManual(0) } {
 		let text = io.Stdin.ReadAll() catch {
 		case io.ReadFailed:
-			Console.Println("fail 0: no input")
+			io.Console.Println("fail 0: no input")
 			return
 		}
-		tui.Headless(40, 5, func(s go.Ref[screen.Screen]) needs Console | Scheduler | go.Foreign {
+		tui.Headless(40, 5, func(s go.Ref[screen.Screen]) needs io.Console | time.Scheduler | go.Foreign {
 			let a = actor.StartMachine(fieldMachine(), 1, func(o int) {})
 			let mut d = tui.New(s, a, fieldView, 4) catch {
 			case ui.BadPatch as b:
-				Console.Println("fail 0: \(b.Why)")
+				io.Console.Println("fail 0: \(b.Why)")
 				return
 			case tui.ScreenFailed as e:
-				Console.Println("fail 0: \(e.Why)")
+				io.Console.Println("fail 0: \(e.Why)")
 				return
 			}
 			for i, line in strings.Split(strings.TrimSpace(text), "\n") {
 				let bytes = base64.Decode(base64.StdEncoding, strings.TrimPrefix(line, "send ")) catch {
 				case base64.Malformed:
-					Console.Println("fail \(i + 1): no base64")
+					io.Console.Println("fail \(i + 1): no base64")
 					continue
 				}
 				tui.Send(&d, bytes) catch {
 				case ui.Closed:
-					Console.Println("fail \(i + 1): closed")
+					io.Console.Println("fail \(i + 1): closed")
 					continue
 				case actor.Stopped:
-					Console.Println("fail \(i + 1): stopped")
+					io.Console.Println("fail \(i + 1): stopped")
 					continue
 				case ui.BadPatch as b:
-					Console.Println("fail \(i + 1): \(b.Why)")
+					io.Console.Println("fail \(i + 1): \(b.Why)")
 					continue
 				case tui.ScreenFailed as e:
-					Console.Println("fail \(i + 1): \(e.Why)")
+					io.Console.Println("fail \(i + 1): \(e.Why)")
 					continue
 				}
 				let b = match tui.Number(&d, "type here") {
-				case Some[int] as n:
+				case option.Some[int] as n:
 					s.BoxOf(n.Value)
-				case None:
+				case option.None:
 					screen.Rect{X: -1, Y: -1, Width: 0, Height: 0}
 				}
 				let rows = s.Rows()
-				let row = if b.Y >= 0 && b.Y < len(rows) { rows[b.Y] } else { "" }
+				let row = if b.Y >= 0 && b.Y < rows.Len() { rows[b.Y] } else { "" }
 				let c = s.Cursor()
-				Console.Println("\(strconv.Quote(tui.StateOf(&d).text))\t\(strconv.Quote(row))\t\(c.X) \(c.Y) \(c.Shown)\t\(b.X) \(b.Y) \(b.Width) \(b.Height)")
+				io.Console.Println("\(strconv.Quote(tui.StateOf(&d).text))\t\(strconv.Quote(row))\t\(c.X) \(c.Y) \(c.Shown)\t\(b.X) \(b.Y) \(b.Width) \(b.Height)")
 			}
 		}) catch {
 		case tui.ScreenFailed as e:
-			Console.Println("fail 0: \(e.Why)")
+			io.Console.Println("fail 0: \(e.Why)")
 		}
 	}
 }

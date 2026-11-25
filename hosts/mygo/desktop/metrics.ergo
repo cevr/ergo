@@ -15,6 +15,7 @@
 // of the Ref, over a whole text.
 
 import go ergo.local/prototype/hosts/mygo/screen
+import option
 import slices
 import strings
 import sync
@@ -41,9 +42,9 @@ func width(m Metrics, t string, size float32) float32 {
 // widthIn is what the table says of t at size, at least 0.
 func widthIn(k known, t string, size float32) float32 {
 	match k.runs.Get(run{text: t, size: size}) {
-	case Some[float32] as w:
+	case option.Some[float32] as w:
 		fmax(w.Value, 0)
-	case None:
+	case option.None:
 		0
 	}
 }
@@ -55,9 +56,9 @@ func lineHeight(m Metrics, size float32) float32 {
 
 func lineIn(k known, size float32) float32 {
 	match k.lines.Get(size) {
-	case Some[float32] as h:
+	case option.Some[float32] as h:
 		fmax(h.Value, 0)
-	case None:
+	case option.None:
 		0
 	}
 }
@@ -125,16 +126,16 @@ func countIn(k known, text string, size float32, wide float32) int {
 law CountIsLines(words []int, breaks []bool, widths []int, wide int) {
 	let mut text = ""
 	let mut runs = Map[run, float32]{run{text: " ", size: 13}: 3}
-	for i in 0..len(words) {
+	for i in 0..words.Len() {
 		let w = "w" + strings.Repeat("x", ((words[i]%6)+6)%6)
-		let gap = if i < len(breaks) && breaks[i] { "\n" } else { " " }
+		let gap = if i < breaks.Len() && breaks[i] { "\n" } else { " " }
 		text = if i == 0 { w } else { text + gap + w }
-		let v = if i < len(widths) { ((widths[i] % 40) + 40) % 40 } else { 10 }
+		let v = if i < widths.Len() { ((widths[i] % 40) + 40) % 40 } else { 10 }
 		runs = runs.Put(run{text: w, size: 13}, float32(v))
 	}
 	let k = known{runs: runs, lines: Map[float32, float32]{}}
 	let at = float32(((wide % 120) + 120) % 120)
-	countIn(k, text, 13, at) == len(linesIn(k, text, 13, at))
+	countIn(k, text, 13, at) == linesIn(k, text, 13, at).Len()
 }
 
 // Lines breaks each paragraph greedily: a run goes on the line when the
@@ -151,7 +152,7 @@ func linesIn(k known, text string, size float32, wide float32) []string {
 	let mut any = false
 	for p in strings.Split(text, "\n") {
 		let words = strings.Fields(p)
-		if len(words) > 0 && spaced(p, words) && widthOf(k, words, space, size) <= wide {
+		if words.Len() > 0 && spaced(p, words) && widthOf(k, words, space, size) <= wide {
 			// The paragraph fits on one line and is its runs one space
 			// apart: it is that line, with no line built run by run.
 			any = true
@@ -188,11 +189,11 @@ func linesIn(k known, text string, size float32, wide float32) []string {
 // spaced is whether p is words one space apart, with no other space: the
 // line Lines would build of them is p itself.
 func spaced(p string, words []string) bool {
-	let mut n = len(words) - 1
+	let mut n = words.Len() - 1
 	for w in words {
-		n = n + len(w)
+		n = n + w.Len()
 	}
-	n == len(p) && strings.Count(p, " ") == len(words)-1
+	n == p.Len() && strings.Count(p, " ") == words.Len()-1
 }
 
 // widthOf is the width of words on one line, summed as linesIn sums a
@@ -214,11 +215,11 @@ law FitIsBroken(words []int, gaps []int, widths []int, wide int) {
 	let seps = []string{" ", " ", "  ", "\t", "\n"}
 	let mut text = ""
 	let mut runs = Map[run, float32]{run{text: " ", size: 13}: 3}
-	for i in 0..len(words) {
+	for i in 0..words.Len() {
 		let w = "w" + strings.Repeat("x", ((words[i]%6)+6)%6)
-		let gap = if i < len(gaps) { seps[((gaps[i]%5)+5)%5] } else { " " }
+		let gap = if i < gaps.Len() { seps[((gaps[i]%5)+5)%5] } else { " " }
 		text = if i == 0 { w } else { text + gap + w }
-		let v = if i < len(widths) { ((widths[i] % 40) + 40) % 40 } else { 10 }
+		let v = if i < widths.Len() { ((widths[i] % 40) + 40) % 40 } else { 10 }
 		runs = runs.Put(run{text: w, size: 13}, float32(v))
 	}
 	let k = known{runs: runs, lines: Map[float32, float32]{}}
@@ -264,7 +265,7 @@ func byRun(k known, text string, size float32, wide float32) []string {
 // not measured yet, a space, and the size's line height.
 func learn(m mut Metrics, w go.Ref[screen.Window], text string, size float32) needs go.Foreign {
 	let (line, missing) = sync.Modify(m.known, func(k known) ((bool, []string), known) { (unknown(k, text, size), k) })
-	if !line && len(missing) == 0 {
+	if !line && missing.Len() == 0 {
 		return
 	}
 	let height = if line { float32(w.LineHeight(float64(size))) } else { 0 }
@@ -291,10 +292,10 @@ func unknown(k known, text string, size float32) (bool, []string) {
 	for p in strings.Split(text, "\n") {
 		let words = strings.Fields(p)
 		for t in words.Append(" ") {
-			if k.runs.Get(run{text: t, size: size}) == None && !slices.Contains(missing, t) {
+			if k.runs.Get(run{text: t, size: size}) == option.None && !slices.Contains(missing, t) {
 				missing = missing.Append(t)
 			}
 		}
 	}
-	(k.lines.Get(size) == None, missing)
+	(k.lines.Get(size) == option.None, missing)
 }
