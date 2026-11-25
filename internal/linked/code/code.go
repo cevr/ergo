@@ -790,14 +790,6 @@ func ergo__Readask_3(env *ergo__Env, r json__Stream) (ask, error) {
 	return *new(ask), ergo__WireUnknownTag{Path: (r).Path(env), Tag: tag}
 }
 
-func ergoNilTag[T comparable](v T) uint8 {
-	var zero T
-	if v == zero {
-		return 1
-	}
-	return 0
-}
-
 func ergo__EncodeDecl(env *ergo__Env, w ergo__Writer, v code__Decl) {
 	w.BeginObject(env.task, 8)
 	w.Key(env.task, "handle")
@@ -11884,16 +11876,14 @@ func ergo__EncodeVerdict(env *ergo__Env, w ergo__Writer, v code__Verdict) {
 }
 
 func ergo__EncodeOption(env *ergo__Env, w ergo__Writer, v ergo__Option[code__Contract]) {
-	switch v.tag {
-	case 0:
-		x := v.as0()
+	switch x := v.(type) {
+	case ergo__Some[code__Contract]:
 		w.BeginObject(env.task, 1)
 		w.Tag(env.task, "Some")
 		w.Key(env.task, "value")
 		ergo__EncodeContract(env, w, x.Value)
 		w.EndObject(env.task)
-	case 1:
-		x := ergo__None{}
+	case ergo__None:
 		_ = x
 		w.BeginObject(env.task, 0)
 		w.Tag(env.task, "None")
@@ -12198,7 +12188,7 @@ func ergo__DecodeOption(env *ergo__Env, r ergo__Reader) (ergo__Option[code__Cont
 		if !seen {
 			return *new(ergo__Option[code__Contract]), ergo__WireMissingField{Path: r.Path(env.task), Field: "value"}
 		}
-		return (ergo__Option[code__Contract]{}).of0(out), nil
+		return out, nil
 	case "None":
 		var out_1 ergo__None
 		for r.More(env.task) {
@@ -12208,7 +12198,7 @@ func ergo__DecodeOption(env *ergo__Env, r ergo__Reader) (ergo__Option[code__Cont
 			}
 		}
 		r.End(env.task)
-		return (ergo__Option[code__Contract]{}).of1(out_1), nil
+		return out_1, nil
 	}
 	return *new(ergo__Option[code__Contract]), ergo__WireUnknownTag{Path: r.Path(env.task), Tag: tag}
 }
@@ -12541,17 +12531,15 @@ func ergo__WriteContract_entry(env *ergo__Env, wv json__text, v code__Contract) 
 
 func ergo__WriteOption(env *ergo__Env, wv json__text, v ergo__Option[code__Contract]) json__text {
 	w := &wv
-	switch v.tag {
-	case 0:
-		x := v.as0()
+	switch x := v.(type) {
+	case ergo__Some[code__Contract]:
 		(w).sep()
 		(w).raw(string("{\"_tag\":\"Some\",\"value\":"))
 		(w).setComma(bool(false))
 		*w = ergo__WriteContract_entry(env, *w, x.Value)
 		(w).raw(string("}"))
 		(w).setComma(bool(true))
-	case 1:
-		x := ergo__None{}
+	case ergo__None:
 		_ = x
 		(w).sep()
 		(w).raw(string("{\"_tag\":\"None\"}"))
@@ -12562,18 +12550,15 @@ func ergo__WriteOption(env *ergo__Env, wv json__text, v ergo__Option[code__Contr
 
 func ergo__WriteOption_entry(env *ergo__Env, wv json__text, v ergo__Option[code__Contract]) json__text {
 	w := &wv
-	switch v.tag {
-	case 0:
-		x := v.as0()
+	switch x := v.(type) {
+	case ergo__Some[code__Contract]:
 		(w).raw(string("{\"_tag\":\"Some\",\"value\":"))
 		(w).setComma(bool(false))
 		*w = ergo__WriteContract_entry(env, *w, x.Value)
 		(w).raw(string("}"))
 		(w).setComma(bool(true))
-	case 1:
-		x := ergo__None{}
+	case ergo__None:
 		_ = x
-		(w).sep()
 		(w).raw(string("{\"_tag\":\"None\"}"))
 		(w).setComma(bool(true))
 	}
@@ -12960,7 +12945,7 @@ func ergo__ReadOption(env *ergo__Env, r config__reader) (ergo__Option[code__Cont
 		if !seen {
 			return *new(ergo__Option[code__Contract]), ergo__WireMissingField{Path: (r).Path(env), Field: "value"}
 		}
-		return (ergo__Option[code__Contract]{}).of0(out), nil
+		return out, nil
 	case "None":
 		var out_1 ergo__None
 		for (r).More(env) {
@@ -12970,7 +12955,7 @@ func ergo__ReadOption(env *ergo__Env, r config__reader) (ergo__Option[code__Cont
 			}
 		}
 		(r).End(env)
-		return (ergo__Option[code__Contract]{}).of1(out_1), nil
+		return out_1, nil
 	}
 	return *new(ergo__Option[code__Contract]), ergo__WireUnknownTag{Path: (r).Path(env), Tag: tag}
 }
@@ -13395,7 +13380,7 @@ func ergo__ReadOption_2(env *ergo__Env, r http__queryReader) (ergo__Option[code_
 		if !seen {
 			return *new(ergo__Option[code__Contract]), ergo__WireMissingField{Path: (r).Path(env), Field: "value"}
 		}
-		return (ergo__Option[code__Contract]{}).of0(out), nil
+		return out, nil
 	case "None":
 		var out_1 ergo__None
 		for (r).More(env) {
@@ -13405,7 +13390,7 @@ func ergo__ReadOption_2(env *ergo__Env, r http__queryReader) (ergo__Option[code_
 			}
 		}
 		(r).End(env)
-		return (ergo__Option[code__Contract]{}).of1(out_1), nil
+		return out_1, nil
 	}
 	return *new(ergo__Option[code__Contract]), ergo__WireUnknownTag{Path: (r).Path(env), Tag: tag}
 }
@@ -13830,7 +13815,7 @@ func ergo__ReadOption_4(env *ergo__Env, r json__Reader_1) (ergo__Option[code__Co
 		if !seen {
 			return *new(ergo__Option[code__Contract]), ergo__WireMissingField{Path: (r).Path(env), Field: "value"}
 		}
-		return (ergo__Option[code__Contract]{}).of0(out), nil
+		return out, nil
 	case "None":
 		var out_1 ergo__None
 		for (r).More(env) {
@@ -13840,7 +13825,7 @@ func ergo__ReadOption_4(env *ergo__Env, r json__Reader_1) (ergo__Option[code__Co
 			}
 		}
 		(r).End(env)
-		return (ergo__Option[code__Contract]{}).of1(out_1), nil
+		return out_1, nil
 	}
 	return *new(ergo__Option[code__Contract]), ergo__WireUnknownTag{Path: (r).Path(env), Tag: tag}
 }
@@ -14265,7 +14250,7 @@ func ergo__ReadOption_6(env *ergo__Env, r json__Stream) (ergo__Option[code__Cont
 		if !seen {
 			return *new(ergo__Option[code__Contract]), ergo__WireMissingField{Path: (r).Path(env), Field: "value"}
 		}
-		return (ergo__Option[code__Contract]{}).of0(out), nil
+		return out, nil
 	case "None":
 		var out_1 ergo__None
 		for (r).More(env) {
@@ -14275,7 +14260,7 @@ func ergo__ReadOption_6(env *ergo__Env, r json__Stream) (ergo__Option[code__Cont
 			}
 		}
 		(r).End(env)
-		return (ergo__Option[code__Contract]{}).of1(out_1), nil
+		return out_1, nil
 	}
 	return *new(ergo__Option[code__Contract]), ergo__WireUnknownTag{Path: (r).Path(env), Tag: tag}
 }
@@ -15705,7 +15690,7 @@ func ergo__CloneAlt(v code__Alt) code__Alt {
 	return c
 }
 
-func ergo__CloneSlice_5(v []code__Alt) []code__Alt {
+func ergo__CloneSlice_6(v []code__Alt) []code__Alt {
 	if v == nil {
 		return nil
 	}
@@ -15721,11 +15706,11 @@ func ergo__CloneArm(v code__Arm) code__Arm {
 	c.States = slices.Clone(v.States)
 	c.Signals = slices.Clone(v.Signals)
 	c.Edges = slices.Clone(v.Edges)
-	c.Alts = ergo__CloneSlice_5(v.Alts)
+	c.Alts = ergo__CloneSlice_6(v.Alts)
 	return c
 }
 
-func ergo__CloneSlice_6(v []code__Arm) []code__Arm {
+func ergo__CloneSlice_7(v []code__Arm) []code__Arm {
 	if v == nil {
 		return nil
 	}
@@ -15740,7 +15725,7 @@ func ergo__CloneMachineGraph(v code__MachineGraph) code__MachineGraph {
 	c := v
 	c.States = slices.Clone(v.States)
 	c.Signals = slices.Clone(v.Signals)
-	c.Arms = ergo__CloneSlice_6(v.Arms)
+	c.Arms = ergo__CloneSlice_7(v.Arms)
 	c.Timers = slices.Clone(v.Timers)
 	c.Work = slices.Clone(v.Work)
 	c.Exit = slices.Clone(v.Exit)
@@ -15755,7 +15740,7 @@ func ergo__ClonePair(v code__Pair) code__Pair {
 	return c
 }
 
-func ergo__CloneSlice_15(v []code__Pair) []code__Pair {
+func ergo__CloneSlice_16(v []code__Pair) []code__Pair {
 	if v == nil {
 		return nil
 	}
@@ -15769,7 +15754,7 @@ func ergo__CloneSlice_15(v []code__Pair) []code__Pair {
 func ergo__CloneMachineView(v code__MachineView) code__MachineView {
 	c := v
 	c.Graph = ergo__CloneMachineGraph(v.Graph)
-	c.Reachable = ergo__CloneSlice_15(v.Reachable)
+	c.Reachable = ergo__CloneSlice_16(v.Reachable)
 	return c
 }
 
@@ -16946,7 +16931,23 @@ func (r config__reader) BeginObject(env *ergo__Env) error {
 	case config__branch:
 		b := v_1
 		var ms []config__member = []config__member{}
-		var tag ergo__Option[string] = (ergo__Option[string]{tag: 1})
+		var tag uint8
+		_ = tag
+		var tagBox ergo__Option[string]
+		_ = tagBox
+		var tag_1 ergo__Some[string]
+		_ = tag_1
+		var tag_2 ergo__None
+		_ = tag_2
+		switch x := ergo__Option[string](ergo__None{}).(type) {
+		case ergo__Some[string]:
+			tag, tag_1, tagBox = 0, x, nil
+		case ergo__None:
+			tag, tag_2, tagBox = 1, x, nil
+		default:
+			_ = x
+			panic("ergo: defect: a value of ergo__Option[string] that is none of its variants")
+		}
 		for _, v_2 := range b.Members {
 			var m config__member = v_2
 			if m.Key == "_tag" {
@@ -16956,14 +16957,30 @@ func (r config__reader) BeginObject(env *ergo__Env) error {
 					switch v_4 := s.Value.(type) {
 					case json__Str:
 						name := v_4
-						tag = (ergo__Option[string]{}).of0(ergo__Some[string]{Value: name.Value})
+						switch x_1 := ergo__Option[string](ergo__Some[string]{Value: name.Value}).(type) {
+						case ergo__Some[string]:
+							tag, tag_1, tagBox = 0, x_1, nil
+						case ergo__None:
+							tag, tag_2, tagBox = 1, x_1, nil
+						default:
+							_ = x_1
+							panic("ergo: defect: a value of ergo__Option[string] that is none of its variants")
+						}
 					default:
 						_ = v_4
 					}
 				case config__texts:
 					t := v_3
 					v_5 := (t).last()
-					tag = (ergo__Option[string]{}).of0(ergo__Some[string]{Value: v_5})
+					switch x_2 := ergo__Option[string](ergo__Some[string]{Value: v_5}).(type) {
+					case ergo__Some[string]:
+						tag, tag_1, tagBox = 0, x_2, nil
+					case ergo__None:
+						tag, tag_2, tagBox = 1, x_2, nil
+					default:
+						_ = x_2
+						panic("ergo: defect: a value of ergo__Option[string] that is none of its variants")
+					}
 				default:
 					_ = v_3
 				}
@@ -16972,14 +16989,27 @@ func (r config__reader) BeginObject(env *ergo__Env) error {
 			}
 			env.task.Check()
 		}
-		(r).push(env, ms, false, tag)
+		t_1 := r
+		t_2 := ms
+		var g ergo__Option[string]
+		if tagBox != nil {
+			g = tagBox
+		} else {
+			switch tag {
+			case 0:
+				g = tag_1
+			case 1:
+				g = tag_2
+			}
+		}
+		(t_1).push(env, t_2, false, g)
 		return nil
 	case config__texts:
-		t_1 := v_1
-		t_2 := r
-		t_3 := []config__member{}
-		v_7 := (t_1).last()
-		(t_2).push(env, t_3, false, (ergo__Option[string]{}).of0(ergo__Some[string]{Value: v_7}))
+		t_3 := v_1
+		t_4 := r
+		t_5 := []config__member{}
+		v_7 := (t_3).last()
+		(t_4).push(env, t_5, false, ergo__Some[string]{Value: v_7})
 		return nil
 	default:
 		_ = v_1
@@ -16991,15 +17021,16 @@ func (r config__reader) BeginObject(env *ergo__Env) error {
 func (r config__reader) Tag(env *ergo__Env) (string, error) {
 	env.task.Check()
 	v := (r).top(env)
-	s := v.tag
-	switch s.tag {
-	case 0:
-		t := s.as0()
+	switch v_1 := v.tag.(type) {
+	case ergo__Some[string]:
+		t := v_1
 		return t.Value, nil
-	case 1:
-		v_1 := (r).Path(env)
-		return "", ergo__WireMissingField{Path: v_1, Field: "_tag"}
+	case ergo__None:
+		_ = v_1
+		v_2 := (r).Path(env)
+		return "", ergo__WireMissingField{Path: v_2, Field: "_tag"}
 	default:
+		_ = v_1
 		panic("ergo: defect: no case of the match at std/config/reader.ergo:350:2 matched")
 	}
 }
@@ -17035,7 +17066,7 @@ func (r config__reader) BeginList(env *ergo__Env) error {
 			ms = ergo__Append[config__member](ms, config__member{Key: "", Value: x})
 			env.task.Check()
 		}
-		(r).push(env, ms, true, (ergo__Option[string]{tag: 1}))
+		(r).push(env, ms, true, ergo__None{})
 		return nil
 	case config__texts:
 		t := v_1
@@ -17053,7 +17084,7 @@ func (r config__reader) BeginList(env *ergo__Env) error {
 			}
 			env.task.Check()
 		}
-		(r).push(env, ms_1, true, (ergo__Option[string]{tag: 1}))
+		(r).push(env, ms_1, true, ergo__None{})
 		return nil
 	default:
 		_ = v_1
@@ -17099,7 +17130,7 @@ func ergo__Cloneframe(v config__frame) config__frame {
 	return c
 }
 
-func ergo__CloneSlice_21(v []config__frame) []config__frame {
+func ergo__CloneSlice_22(v []config__frame) []config__frame {
 	if v == nil {
 		return nil
 	}
@@ -17121,7 +17152,7 @@ func (r config__reader) End(env *ergo__Env) {
 			}
 		}(env, p)
 		return r_1
-	}, func(v []config__frame) []config__frame { return ergo__CloneSlice_21(v) }, false, true)
+	}, func(v []config__frame) []config__frame { return ergo__CloneSlice_22(v) }, false, true)
 	return
 }
 
@@ -17812,6 +17843,11 @@ type ergo__Some[T any] struct {
 type ergo__None struct {
 }
 
+type ergo__Option[T any] interface{ isergo__Option() }
+
+func (ergo__Some[_]) isergo__Option() {}
+func (ergo__None) isergo__Option()    {}
+
 func json__Decode[T any](env *ergo__Env, wT struct {
 	Enc     func(*ergo__Env, ergo__Writer, T) (struct{}, error)
 	Dec     func(*ergo__Env, ergo__Reader) (T, error)
@@ -18108,55 +18144,33 @@ func (r config__reader) Bool(env *ergo__Env) (bool, error) {
 func (r config__reader) Int(env *ergo__Env) (int64, error) {
 	env.task.Check()
 	v := (r).take(env)
-	var v_1 ergo__Option[string]
-	_ = v_1
-	var kp ergo__Some[string]
-	_ = kp
-	{
-		switch v_2 := v.(type) {
-		case config__scalar:
-			s := v_2
-			switch v_3 := s.Value.(type) {
-			case json__Num:
-				v_4 := v_3
-				v_5 := (v_4).Wire()
-				kp = ergo__Some[string]{Value: v_5}
-				goto kn
-			default:
-				_ = v_3
-				_ = ergo__None{}
-				goto kn_1
-			}
-		case config__texts:
-			t := v_2
-			v_6 := (t).last()
-			kp = ergo__Some[string]{Value: v_6}
-			goto kn
-		default:
-			_ = v_2
-			_ = ergo__None{}
-			goto kn_1
-		}
-	}
-kn:
-	{
-		text := kp
-		v_7, err := ergo.StrconvParseInt(text.Value, int(0), int(64))
+	var m uint8
+	_ = m
+	var m_1 ergo__Some[string]
+	_ = m_1
+	var m_2 ergo__None
+	_ = m_2
+	v_1 := ergo__config__numberTextSlot(v, &m_1, &m_2)
+	m = v_1
+	switch m {
+	case 0:
+		text := m_1
+		v_2, err := ergo.StrconvParseInt(text.Value, int(0), int(64))
 		if err != nil {
 			switch err.(type) {
 			case ergo.Malformed, ergo.OutOfRange:
-				v_8 := (r).wrong(env, v, "int")
-				return 0, v_8
+				v_3 := (r).wrong(env, v, "int")
+				return 0, v_3
 			default:
 				panic(err)
 			}
 		}
-		return v_7, nil
-	}
-kn_1:
-	{
-		v_9 := (r).wrong(env, v, "int")
-		return 0, v_9
+		return v_2, nil
+	case 1:
+		v_4 := (r).wrong(env, v, "int")
+		return 0, v_4
+	default:
+		panic("ergo: defect: no case of the match at std/config/reader.ergo:201:2 matched")
 	}
 }
 
@@ -18634,21 +18648,6 @@ type code__ApiChange struct {
 	BreaksResourceCallers bool
 }
 
-type ergo__Option[T any] struct {
-	tag uint8
-	p0  T
-}
-
-func (ergo__Option[T]) of0(v ergo__Some[T]) ergo__Option[T] {
-	return ergo__Option[T]{tag: 0, p0: v.Value}
-}
-func (u ergo__Option[T]) as0() ergo__Some[T]             { return ergo__Some[T]{Value: u.p0} }
-func (ergo__Option[T]) of1(_ ergo__None) ergo__Option[T] { return ergo__Option[T]{tag: 1} }
-
-func (x ergo__Option[T]) ErgoVariant() string {
-	return [...]func() string{ergo.VariantOf[ergo__Some[T]], ergo.VariantOf[ergo__None]}[x.tag]()
-}
-
 func (p code__Planned) PlanText() string {
 	var b string = ("plan " + p.ID + "\nchange " + p.Change + "\n")
 	s := p.Verdict
@@ -19043,7 +19042,7 @@ func code__HostFilesIn(env *ergo__Env, host fs__Host, root string, state string)
 	t := host
 	t_1 := root
 	t_2 := state
-	v := ergo.NewRef[ergo__Option[fs__FileLock]]((ergo__Option[fs__FileLock]{tag: 1}))
+	v := ergo.NewRef[ergo__Option[fs__FileLock]](ergo__None{})
 	var d code__disk = code__disk{host: t, root: t_1, state: t_2, lock: v}
 	return code__HostFiles{read: func(env_1 *ergo__Env, path string) (string, error) {
 		env_1.task.Check()
@@ -19243,7 +19242,7 @@ func ergo__CloneCall(v code__Call) code__Call {
 	return c
 }
 
-func ergo__CloneSlice_7(v []code__Call) []code__Call {
+func ergo__CloneSlice_8(v []code__Call) []code__Call {
 	if v == nil {
 		return nil
 	}
@@ -19351,8 +19350,8 @@ func (t code__Tables) IndexOf() code__Index {
 		}
 	inl_2:
 		_ = 0
-		v_22 := ergo__Append[code__Call](slices.Clip(ergo__CloneSlice_7(v_19)), c)
-		t_5[t_6] = ergo__CloneSlice_7(v_22)
+		v_22 := ergo__Append[code__Call](slices.Clip(ergo__CloneSlice_8(v_19)), c)
+		t_5[t_6] = ergo__CloneSlice_8(v_22)
 		t_7 := callsIn
 		t_8 := c.To
 		var v_23 []code__Call
@@ -19372,8 +19371,8 @@ func (t code__Tables) IndexOf() code__Index {
 		}
 	inl_3:
 		_ = 0
-		v_26 := ergo__Append[code__Call](slices.Clip(ergo__CloneSlice_7(v_23)), c)
-		t_7[t_8] = ergo__CloneSlice_7(v_26)
+		v_26 := ergo__Append[code__Call](slices.Clip(ergo__CloneSlice_8(v_23)), c)
+		t_7[t_8] = ergo__CloneSlice_8(v_26)
 	}
 	var needers map[string][]string = map[string][]string{}
 	var kinds map[string]string = map[string]string{}
@@ -19475,8 +19474,8 @@ func (t code__Tables) IndexOf() code__Index {
 			}
 		inl_7:
 			_ = 0
-			v_48 := ergo__Append[code__Call](slices.Clip(ergo__CloneSlice_7(v_45)), c_1)
-			t_13[t_14] = ergo__CloneSlice_7(v_48)
+			v_48 := ergo__Append[code__Call](slices.Clip(ergo__CloneSlice_8(v_45)), c_1)
+			t_13[t_14] = ergo__CloneSlice_8(v_48)
 			brings[k_5] = by
 		}
 		for _, v_49 := range c_1.Raises {
@@ -19518,8 +19517,8 @@ func (t code__Tables) IndexOf() code__Index {
 			}
 		inl_9:
 			_ = 0
-			v_56 := ergo__Append[code__Call](slices.Clip(ergo__CloneSlice_7(v_53)), c_1)
-			t_15[t_16] = ergo__CloneSlice_7(v_56)
+			v_56 := ergo__Append[code__Call](slices.Clip(ergo__CloneSlice_8(v_53)), c_1)
+			t_15[t_16] = ergo__CloneSlice_8(v_56)
 			brings[k_7] = by_1
 		}
 		for _, v_57 := range c_1.Discharged {
@@ -19542,8 +19541,8 @@ func (t code__Tables) IndexOf() code__Index {
 			}
 		inl_10:
 			_ = 0
-			v_61 := ergo__Append[code__Call](slices.Clip(ergo__CloneSlice_7(v_58)), c_1)
-			t_17[t_18] = ergo__CloneSlice_7(v_61)
+			v_61 := ergo__Append[code__Call](slices.Clip(ergo__CloneSlice_8(v_58)), c_1)
+			t_17[t_18] = ergo__CloneSlice_8(v_61)
 		}
 		for _, v_62 := range c_1.Caught {
 			var k_10 string = v_62
@@ -19566,8 +19565,8 @@ func (t code__Tables) IndexOf() code__Index {
 			}
 		inl_11:
 			_ = 0
-			v_66 := ergo__Append[code__Call](slices.Clip(ergo__CloneSlice_7(v_63)), c_1)
-			t_19[t_20] = ergo__CloneSlice_7(v_66)
+			v_66 := ergo__Append[code__Call](slices.Clip(ergo__CloneSlice_8(v_63)), c_1)
+			t_19[t_20] = ergo__CloneSlice_8(v_66)
 		}
 		var providers []string = []string{}
 		for _, v_67 := range c_1.Bound {
@@ -19594,8 +19593,8 @@ func (t code__Tables) IndexOf() code__Index {
 				}
 			inl_12:
 				_ = 0
-				v_73 := ergo__Append[code__Call](slices.Clip(ergo__CloneSlice_7(v_70)), c_1)
-				t_21[t_22] = ergo__CloneSlice_7(v_73)
+				v_73 := ergo__Append[code__Call](slices.Clip(ergo__CloneSlice_8(v_70)), c_1)
+				t_21[t_22] = ergo__CloneSlice_8(v_73)
 			}
 		}
 	}
@@ -20158,10 +20157,10 @@ func json__DecodeMono_i3127479063(env *ergo__Env, wT struct {
 }
 
 func ergo__textergo__BadTables(v ergo__BadTables) string {
-	return "{" + "Out:" + ergo__textList_2(v.Out) + "}"
+	return "{" + "Out:" + ergo__textList_3(v.Out) + "}"
 }
 
-func ergo__textList_2(v []string) string {
+func ergo__textList_3(v []string) string {
 	texts := make([]string, len(v))
 	for i, e := range v {
 		texts[i] = e
@@ -20286,7 +20285,15 @@ func ergo__EqualSome_2(a, b ergo__Some[code__Contract]) bool {
 }
 
 func ergo__EqualOption_2(a, b ergo__Option[code__Contract]) bool {
-	return (a.tag == b.tag) && (a.tag != 0 || ergo__EqualSome_2(a.as0(), b.as0()))
+	switch av := a.(type) {
+	case ergo__Some[code__Contract]:
+		bv, ok := b.(ergo__Some[code__Contract])
+		return ok && ergo__EqualSome_2(av, bv)
+	case ergo__None:
+		bv, ok := b.(ergo__None)
+		return ok && (av == bv)
+	}
+	return false
 }
 
 func code__ApiDiff(env *ergo__Env, old []code__Contract, new_1 []code__Contract) []code__ApiChange {
@@ -20331,13 +20338,11 @@ func code__ApiDiff(env *ergo__Env, old []code__Contract, new_1 []code__Contract)
 			s_1 := v_8
 			_ = s_1
 			{
-				switch s.tag {
-				case 0:
-					n_1 := s.as0()
+				switch n_1 := s.(type) {
+				case ergo__Some[code__Contract]:
 					_ = n_1
-					switch s_1.tag {
-					case 0:
-						n_2 := s_1.as0()
+					switch n_2 := s_1.(type) {
+					case ergo__Some[code__Contract]:
 						_ = n_2
 						x := n_1
 						y := n_2
@@ -20419,23 +20424,23 @@ func code__ApiDiffText(changes []code__ApiChange) string {
 			b = (b + "; breaks callers that pass a resource")
 		}
 		b = (b + "\n")
-		s := c.Old
-		switch s.tag {
-		case 0:
-			o := s.as0()
+		switch v_1 := c.Old.(type) {
+		case ergo__Some[code__Contract]:
+			o := v_1
 			t := (b + "- ")
-			v_1 := code__ApiText([]code__Contract{o.Value})
-			b = (t + v_1)
-		case 1:
+			v_2 := code__ApiText([]code__Contract{o.Value})
+			b = (t + v_2)
+		case ergo__None:
+			_ = v_1
 		}
-		s_1 := c.New
-		switch s_1.tag {
-		case 0:
-			n := s_1.as0()
+		switch v_3 := c.New.(type) {
+		case ergo__Some[code__Contract]:
+			n := v_3
 			t_1 := (b + "+ ")
-			v_2 := code__ApiText([]code__Contract{n.Value})
-			b = (t_1 + v_2)
-		case 1:
+			v_4 := code__ApiText([]code__Contract{n.Value})
+			b = (t_1 + v_4)
+		case ergo__None:
+			_ = v_3
 		}
 	}
 	if len(changes) == int(0) {
@@ -21052,7 +21057,7 @@ func (r config__reader) push(env *ergo__Env, members []config__member, list bool
 			return v_1, nil
 		}(env, p)
 		return r_1
-	}, func(v_2 []config__frame) []config__frame { return ergo__CloneSlice_21(v_2) }, true, true)
+	}, func(v_2 []config__frame) []config__frame { return ergo__CloneSlice_22(v_2) }, true, true)
 	return
 }
 
@@ -21120,7 +21125,7 @@ func (r http__queryReader) value(env *ergo__Env, want string) (string, error) {
 		v_1 := (r.at).Get()
 		var g http__queryGroup = t[v_1]
 		if len(g.values) != int(1) {
-			(r.repeated).Set((ergo__Option[string]{}).of0(ergo__Some[string]{Value: g.name}))
+			(r.repeated).Set(ergo__Some[string]{Value: g.name})
 			return "", ergo__WireWrongKind{Path: g.name, Want: "one value"}
 		}
 		(r.state).Set(int(1))
@@ -21431,12 +21436,54 @@ func strconv__ParseBool(s string) (bool, error) {
 	}
 }
 
-type json__Num struct {
-	text string
+func config__numberText(n config__node) ergo__Option[string] {
+	switch v := n.(type) {
+	case config__scalar:
+		s := v
+		switch v_1 := s.Value.(type) {
+		case json__Num:
+			v_2 := v_1
+			v_3 := (v_2).Wire()
+			return ergo__Some[string]{Value: v_3}
+		default:
+			_ = v_1
+			return ergo__None{}
+		}
+	case config__texts:
+		t := v
+		v_4 := (t).last()
+		return ergo__Some[string]{Value: v_4}
+	default:
+		_ = v
+		return ergo__None{}
+	}
 }
 
-func (n json__Num) Wire() string {
-	return n.text
+func ergo__config__numberTextSlot(n config__node, s0 *ergo__Some[string], s1 *ergo__None) uint8 {
+	switch v := n.(type) {
+	case config__scalar:
+		s := v
+		switch v_1 := s.Value.(type) {
+		case json__Num:
+			v_2 := v_1
+			v_3 := (v_2).Wire()
+			*s0 = ergo__Some[string]{Value: v_3}
+			return 0
+		default:
+			_ = v_1
+			*s1 = ergo__None{}
+			return 1
+		}
+	case config__texts:
+		t := v
+		v_4 := (t).last()
+		*s0 = ergo__Some[string]{Value: v_4}
+		return 0
+	default:
+		_ = v
+		*s1 = ergo__None{}
+		return 1
+	}
 }
 
 const json__kBool int = int(1)
@@ -21626,7 +21673,7 @@ func ergo__ClonePlanned(v code__Planned) code__Planned {
 	return c
 }
 
-func ergo__CloneSlice_16(v []code__Planned) []code__Planned {
+func ergo__CloneSlice_17(v []code__Planned) []code__Planned {
 	if v == nil {
 		return nil
 	}
@@ -21664,7 +21711,7 @@ func (s code__Store) keep(env *ergo__Env, p code__Planned) {
 			}
 		}(env, p_1)
 		return r
-	}, func(v_5 []code__Planned) []code__Planned { return ergo__CloneSlice_16(v_5) }, false, true)
+	}, func(v_5 []code__Planned) []code__Planned { return ergo__CloneSlice_17(v_5) }, false, true)
 	return
 }
 
@@ -21681,7 +21728,7 @@ func ergo__textcode__OutsideWorkspace(v code__OutsideWorkspace) string {
 }
 
 func ergo__textcode__Capture(v code__Capture) string {
-	return "{" + "Handle:" + v.Handle + " To:" + v.To + " Rows:" + ergo__textList_2(v.Rows) + "}"
+	return "{" + "Handle:" + v.Handle + " To:" + v.To + " Rows:" + ergo__textList_3(v.Rows) + "}"
 }
 
 func code__changeAt(s string) (struct {
@@ -22111,11 +22158,10 @@ func (h code__disk) existsOn(env *ergo__Env, path string) (bool, error) {
 func (h code__disk) lockOn(env *ergo__Env) error {
 	env.task.Check()
 	v := (h.lock).Get()
-	s := v
-	switch s.tag {
-	case 0:
+	switch v.(type) {
+	case ergo__Some[fs__FileLock]:
 		return nil
-	case 1:
+	case ergo__None:
 	}
 	err := (h).folderOf(env, code__LockPath)
 	if err != nil {
@@ -22143,15 +22189,16 @@ func (h code__disk) lockOn(env *ergo__Env) error {
 			panic(err_1)
 		}
 	}
-	s_1 := v_2
-	switch s_1.tag {
-	case 0:
-		l := s_1.as0()
-		(h.lock).Set((ergo__Option[fs__FileLock]{}).of0(ergo__Some[fs__FileLock]{Value: l.Value}))
+	switch v_6 := v_2.(type) {
+	case ergo__Some[fs__FileLock]:
+		l := v_6
+		(h.lock).Set(ergo__Some[fs__FileLock]{Value: l.Value})
 		return nil
-	case 1:
+	case ergo__None:
+		_ = v_6
 		return code__Busy{}
 	default:
+		_ = v_6
 		panic("ergo: defect: no case of the match at std/code/fs.ergo:255:2 matched")
 	}
 }
@@ -22159,15 +22206,16 @@ func (h code__disk) lockOn(env *ergo__Env) error {
 func (h code__disk) unlockOn(env *ergo__Env) error {
 	env.task.Check()
 	v := (h.lock).Get()
-	s := v
-	switch s.tag {
-	case 0:
-		l := s.as0()
+	switch v_1 := v.(type) {
+	case ergo__Some[fs__FileLock]:
+		l := v_1
 		(h.host).UnlockFile(env, l.Value)
-		(h.lock).Set((ergo__Option[fs__FileLock]{tag: 1}))
+		(h.lock).Set(ergo__None{})
 		return nil
-	case 1:
+	case ergo__None:
+		_ = v_1
 	default:
+		_ = v_1
 		panic("ergo: defect: no case of the match at std/code/fs.ergo:265:2 matched")
 	}
 	return nil
@@ -22529,7 +22577,7 @@ func ergo__textcode__Edit(v code__Edit) string {
 }
 
 func ergo__textcode__Stale(v code__Stale) string {
-	return "{" + "ID:" + v.ID + " Files:" + ergo__textList_2(v.Files) + "}"
+	return "{" + "ID:" + v.ID + " Files:" + ergo__textList_3(v.Files) + "}"
 }
 
 func ergo__textcode__Busy(v code__Busy) string {
@@ -22614,14 +22662,15 @@ func (t code__Tables) machinesOf() map[string]code__MachineGraph {
 }
 
 func code__text(o ergo__Option[string]) string {
-	s := o
-	switch s.tag {
-	case 0:
-		v := s.as0()
-		return v.Value
-	case 1:
+	switch v := o.(type) {
+	case ergo__Some[string]:
+		v_1 := v
+		return v_1.Value
+	case ergo__None:
+		_ = v
 		return ""
 	default:
+		_ = v
 		panic("ergo: defect: no case of the match at std/code/code.ergo:450:2 matched")
 	}
 }
@@ -22815,30 +22864,31 @@ func (q code__CallQuery) depthOf() int {
 func (t code__Tables) apiOf(env *ergo__Env, q code__ApiQuery) (code__ApiView, error) {
 	env.task.Check()
 	var v string
-	s := q.Package
-	switch s.tag {
-	case 0:
-		p := s.as0()
+	switch v_1 := q.Package.(type) {
+	case ergo__Some[string]:
+		p := v_1
 		v = p.Value
-	case 1:
+	case ergo__None:
+		_ = v_1
 		v = t.Root
 	default:
+		_ = v_1
 		panic("ergo: defect: no case of the match at std/code/api.ergo:57:13 matched")
 	}
 	var want string = v
-	for _, v_1 := range t.Packages {
-		var p_1 code__Package = v_1
+	for _, v_2 := range t.Packages {
+		var p_1 code__Package = v_2
 		if p_1.Path == want {
 			t_1 := t.Revision
 			t_2 := p_1.Path
-			v_3 := ergo.SlicesSortFunc[code__Contract](p_1.Contracts, func(p_2 code__Contract, p_3 code__Contract) int {
+			v_4 := ergo.SlicesSortFunc[code__Contract](p_1.Contracts, func(p_2 code__Contract, p_3 code__Contract) int {
 				r, _ := func(env_1 *ergo__Env, a code__Contract, b code__Contract) (int, error) {
-					v_2 := strings__Compare(a.Name, b.Name)
-					return v_2, nil
+					v_3 := strings__Compare(a.Name, b.Name)
+					return v_3, nil
 				}(env, p_2, p_3)
 				return r
 			})
-			return code__ApiView{Revision: t_1, Package: t_2, Functions: v_3}, nil
+			return code__ApiView{Revision: t_1, Package: t_2, Functions: v_4}, nil
 		}
 		env.task.Check()
 	}
@@ -22898,7 +22948,7 @@ func (t code__Tables) reachPage(q code__ReachQuery, x string, kind string, funct
 		t_1 := reached
 		t_2 := f
 		v_2 := code__chainOf(out, f)
-		v_3 := ergo__Append[code__Reached](t_1, code__Reached{Function: t_2, Chain: ergo__CloneSlice_7(v_2)})
+		v_3 := ergo__Append[code__Reached](t_1, code__Reached{Function: t_2, Chain: ergo__CloneSlice_8(v_2)})
 		reached = v_3
 	}
 	t_3 := t.Revision
@@ -23053,9 +23103,9 @@ func maps__KeysMono_i1784119160(m map[string]bool) ergo__Seq[string] {
 
 func ergo__Get[K comparable, V any](m map[K]V, k K) ergo__Option[V] {
 	if v, ok := m[k]; ok {
-		return (ergo__Option[V]{}).of0(ergo__Some[V]{Value: v})
+		return ergo__Some[V]{Value: v}
 	}
-	return (ergo__Option[V]{tag: 1})
+	return ergo__None{}
 }
 
 func slices__Contains[T comparable](xs []T, x T) bool {
@@ -23121,8 +23171,13 @@ type json__Null struct {
 
 func (json__Null) isjson__Value()    {}
 func (json__Boolean) isjson__Value() {}
-func (json__Num) isjson__Value()     {}
-func (json__Str) isjson__Value()     {}
+
+type json__Num struct {
+	text string
+}
+
+func (json__Num) isjson__Value() {}
+func (json__Str) isjson__Value() {}
 
 type json__Array struct {
 	Items []json__Value
@@ -23181,7 +23236,7 @@ func (r config__reader) setTop(env *ergo__Env, f config__frame) {
 			(*p)[(len((*p)) - int(1))] = ergo__Cloneframe(f)
 			return struct{}{}, nil
 		}(env, p_1)
-	}, func(v []config__frame) []config__frame { return ergo__CloneSlice_21(v) }, true, true)
+	}, func(v []config__frame) []config__frame { return ergo__CloneSlice_22(v) }, true, true)
 	return
 }
 
@@ -23476,18 +23531,17 @@ func (s *json__scan) readChunk(env *ergo__Env) {
 			panic(err)
 		}
 	}
-	s_1 := v
-	switch s_1.tag {
-	case 0:
-		c_1 := s_1.as0()
+	switch v_1 := v.(type) {
+	case ergo__Some[string]:
+		c_1 := v_1
 		k.total = (k.total + len(c_1.Value))
-		var v_1 int
+		var v_2 int
 		if s.mark >= int(0) {
-			v_1 = s.mark
+			v_2 = s.mark
 		} else {
-			v_1 = s.i
+			v_2 = s.i
 		}
-		var keep int = v_1
+		var keep int = v_2
 		s.buf = (s.buf[keep:] + c_1.Value)
 		k.base = (k.base + keep)
 		s.i = (s.i - keep)
@@ -23501,19 +23555,21 @@ func (s *json__scan) readChunk(env *ergo__Env) {
 		if (k.maxBytes > int(0)) && (k.total > k.maxBytes) {
 			t := s
 			t_1 := k.maxBytes
-			var v_2 string
+			var v_3 string
 			{
 				var max_1 int = k.maxBytes
-				v_3 := strconv__Itoa(max_1)
-				v_2 = ("the text is longer than MaxBytes " + v_3)
+				v_4 := strconv__Itoa(max_1)
+				v_3 = ("the text is longer than MaxBytes " + v_4)
 			}
-			(t).fail(t_1, v_2)
+			(t).fail(t_1, v_3)
 			return
 		}
-	case 1:
+	case ergo__None:
+		_ = v_1
 		k.eof = true
 		s.rare = k
 	default:
+		_ = v_1
 		panic("ergo: defect: no case of the match at std/json/stream.ergo:302:2 matched")
 	}
 }
@@ -23605,6 +23661,10 @@ func (s *json__scan) after(env *ergo__Env, k int) int {
 			}
 		}
 	}
+}
+
+func (n json__Num) Wire() string {
+	return n.text
 }
 
 func code__checkWith(env *ergo__Env, checker code__Checker, sources []code__Source) (code__Report, error) {
@@ -24285,9 +24345,9 @@ func (h fs__Host) LockFile(env *ergo__Env, path string, wait time.Duration) (erg
 		return *new(ergo__Option[fs__FileLock]), err_1
 	}
 	if v_1 < int(0) {
-		return (ergo__Option[fs__FileLock]{tag: 1}), nil
+		return ergo__None{}, nil
 	}
-	return (ergo__Option[fs__FileLock]{}).of0(ergo__Some[fs__FileLock]{Value: fs__FileLock{fd: v_1}}), nil
+	return ergo__Some[fs__FileLock]{Value: fs__FileLock{fd: v_1}}, nil
 }
 
 func (_p fs__Host) UnlockFile(env *ergo__Env, l fs__FileLock) {
@@ -24380,14 +24440,15 @@ func (t code__Tables) complete() bool {
 }
 
 func code__or(o ergo__Option[int], d int) int {
-	s := o
-	switch s.tag {
-	case 0:
-		v := s.as0()
-		return v.Value
-	case 1:
+	switch v := o.(type) {
+	case ergo__Some[int]:
+		v_1 := v
+		return v_1.Value
+	case ergo__None:
+		_ = v
 		return d
 	default:
+		_ = v
 		panic("ergo: defect: no case of the match at std/code/code.ergo:440:2 matched")
 	}
 }
@@ -24401,7 +24462,7 @@ func ergo__textcode__NoSymbol(v code__NoSymbol) string {
 }
 
 func ergo__textcode__Ambiguous(v code__Ambiguous) string {
-	return "{" + "Address:" + v.Address + " Candidates:" + ergo__textList_2(v.Candidates) + "}"
+	return "{" + "Address:" + v.Address + " Candidates:" + ergo__textList_3(v.Candidates) + "}"
 }
 
 func ergo__textcode__NotCallable(v code__NotCallable) string {
@@ -24503,7 +24564,7 @@ func code__chainOf(out map[string][]code__Call, f string) []code__Call {
 				}
 			inl_1:
 				_ = 0
-				v_8 := ergo__Append[code__Call](slices.Clip(ergo__CloneSlice_7(v_5)), c)
+				v_8 := ergo__Append[code__Call](slices.Clip(ergo__CloneSlice_8(v_5)), c)
 				var v_9 []code__Call
 				{
 					var k string = c.To
@@ -24542,7 +24603,7 @@ func code__chainOf(out map[string][]code__Call, f string) []code__Call {
 				_ = 0
 				if !v_12 {
 					seen[c.To] = true
-					paths[c.To] = ergo__CloneSlice_7(v_8)
+					paths[c.To] = ergo__CloneSlice_8(v_8)
 					next = ergo__Append[string](next, c.To)
 					fresh = true
 				}
@@ -24564,8 +24625,8 @@ func code__chainOf(out map[string][]code__Call, f string) []code__Call {
 				}
 			inl_4:
 				_ = 0
-				v_19 := ergo__Append[code__Call](slices.Clip(ergo__CloneSlice_7(v_16)), v_1[int(0)])
-				back = ergo__CloneSlice_7(v_19)
+				v_19 := ergo__Append[code__Call](slices.Clip(ergo__CloneSlice_8(v_16)), v_1[int(0)])
+				back = ergo__CloneSlice_8(v_19)
 				found = true
 			}
 		}
@@ -30676,7 +30737,7 @@ func (report code__Report) rowsOf(env *ergo__Env, moved map[string]string, to st
 		for _, v_10 := range p.Decls {
 			var d code__Decl = v_10
 			v_11 := ergo__Get[string, string](moved, d.Handle)
-			var renamedHere bool = (v_11 != (ergo__Option[string]{tag: 1}))
+			var renamedHere bool = (v_11 != ergo__None{})
 			var v_12 string
 			if renamedHere {
 				v_12 = to
@@ -30915,11 +30976,17 @@ func ergo__Cloneslot(v flag__slot) flag__slot {
 func (s flag__Set) Parse(args []string) (flag__Values, error) {
 	{
 		var flags []flag__Flag = s.Flags
-		v := flag__doubled(flags)
-		s_1 := v
-		switch s_1.tag {
+		var m uint8
+		_ = m
+		var m_1 ergo__Some[string]
+		_ = m_1
+		var m_2 ergo__None
+		_ = m_2
+		v := ergo__flag__doubledSlot(flags, &m_1, &m_2)
+		m = v
+		switch m {
 		case 0:
-			d := s_1.as0()
+			d := m_1
 			panic(ergo.UnreachableAt(("flag: a flag spelling is declared twice: " + d.Value), "std/flag/parse.ergo:272:3"))
 		case 1:
 		default:
@@ -31067,8 +31134,8 @@ func (s flag__Set) Parse(args []string) (flag__Values, error) {
 	var next int = int(0)
 	for _, v_33 := range s.Args {
 		var a flag__ArgSpec = v_33
-		s_2 := a.arity
-		switch s_2.tag {
+		s_1 := a.arity
+		switch s_1.tag {
 		case 0:
 			if next >= len(v_8) {
 				return *new(flag__Values), flag__Missing{Name: a.name}
@@ -31166,7 +31233,7 @@ func ergo__textflag__Extra(v flag__Extra) string {
 }
 
 func ergo__textflag__UnknownCommand(v flag__UnknownCommand) string {
-	return "{" + "Name:" + v.Name + " Known:" + ergo__textList_2(v.Known) + " Group:" + ergo__textList_2(v.Group) + "}"
+	return "{" + "Name:" + v.Name + " Known:" + ergo__textList_3(v.Known) + " Group:" + ergo__textList_3(v.Group) + "}"
 }
 
 func json__EncodeMono_i3933687382(env *ergo__Env, wT struct {
@@ -31714,7 +31781,7 @@ func flag__doubled(flags []flag__Flag) ergo__Option[string] {
 		v_1 := flag__spellings(f)
 		name, alias = v_1.F0, v_1.F1
 		if (alias != "") && (alias == name) {
-			return (ergo__Option[string]{}).of0(ergo__Some[string]{Value: name})
+			return ergo__Some[string]{Value: name}
 		}
 		t := (ergo__Range[int]{Start: int(0), End: i})
 		for i_1 := t.Start; i_1 < t.End; i_1++ {
@@ -31724,14 +31791,47 @@ func flag__doubled(flags []flag__Flag) ergo__Option[string] {
 			v_3 := flag__spellings(flags[j])
 			gn, ga = v_3.F0, v_3.F1
 			if (name == gn) || ((name == ga) && (ga != "")) {
-				return (ergo__Option[string]{}).of0(ergo__Some[string]{Value: name})
+				return ergo__Some[string]{Value: name}
 			}
 			if (alias != "") && ((alias == gn) || (alias == ga)) {
-				return (ergo__Option[string]{}).of0(ergo__Some[string]{Value: alias})
+				return ergo__Some[string]{Value: alias}
 			}
 		}
 	}
-	return (ergo__Option[string]{tag: 1})
+	return ergo__None{}
+}
+
+func ergo__flag__doubledSlot(flags []flag__Flag, s0 *ergo__Some[string], s1 *ergo__None) uint8 {
+	for k, v := range flags {
+		var i int = k
+		var f flag__Flag = v
+		var name string
+		var alias string
+		v_1 := flag__spellings(f)
+		name, alias = v_1.F0, v_1.F1
+		if (alias != "") && (alias == name) {
+			*s0 = ergo__Some[string]{Value: name}
+			return 0
+		}
+		t := (ergo__Range[int]{Start: int(0), End: i})
+		for i_1 := t.Start; i_1 < t.End; i_1++ {
+			var j int = i_1
+			var gn string
+			var ga string
+			v_3 := flag__spellings(flags[j])
+			gn, ga = v_3.F0, v_3.F1
+			if (name == gn) || ((name == ga) && (ga != "")) {
+				*s0 = ergo__Some[string]{Value: name}
+				return 0
+			}
+			if (alias != "") && ((alias == gn) || (alias == ga)) {
+				*s0 = ergo__Some[string]{Value: alias}
+				return 0
+			}
+		}
+	}
+	*s1 = ergo__None{}
+	return 1
 }
 
 func flag__mayAskHelp(args []string) bool {
@@ -32039,9 +32139,9 @@ func (f flag__OptionalStringFlag) Get(v flag__Values) ergo__Option[string] {
 	v_1 := flag__heldFlag(f, v)
 	var s flag__slot = t[v_1]
 	if s.given == int(0) {
-		return (ergo__Option[string]{tag: 1})
+		return ergo__None{}
 	}
-	return (ergo__Option[string]{}).of0(ergo__Some[string]{Value: s.last.text})
+	return ergo__Some[string]{Value: s.last.text}
 }
 
 func (f flag__OptionalIntFlag) Get(v flag__Values) ergo__Option[int] {
@@ -32049,9 +32149,9 @@ func (f flag__OptionalIntFlag) Get(v flag__Values) ergo__Option[int] {
 	v_1 := flag__heldFlag(f, v)
 	var s flag__slot = t[v_1]
 	if s.given == int(0) {
-		return (ergo__Option[int]{tag: 1})
+		return ergo__None{}
 	}
-	return (ergo__Option[int]{}).of0(ergo__Some[int]{Value: s.last.n})
+	return ergo__Some[int]{Value: s.last.n}
 }
 
 func flag__Arg(name string, usage string) flag__ArgSpec {
@@ -32065,12 +32165,12 @@ func (a flag__ArgSpec) Get(v flag__Values) ergo__Option[string] {
 		if spec.name == a.name {
 			var s flag__slot = v.args[i]
 			if s.given == int(0) {
-				return (ergo__Option[string]{tag: 1})
+				return ergo__None{}
 			}
-			return (ergo__Option[string]{}).of0(ergo__Some[string]{Value: s.last.text})
+			return ergo__Some[string]{Value: s.last.text}
 		}
 	}
-	return (ergo__Option[string]{tag: 1})
+	return ergo__None{}
 }
 
 func flag__RequiredString(name string, usage string) flag__StringFlag {
@@ -32174,49 +32274,49 @@ func flag__parseLevel[C any](env *ergo__Env, name string, usage string, groups [
 		}
 	}
 	v_10 := flag__ownLeaf[C](commands)
-	s := v_10
-	switch s.tag {
-	case 0:
-		own := s.as0()
+	switch v_11 := v_10.(type) {
+	case ergo__Some[flag__Command[C]]:
+		own := v_11
 		var leaf flag__Command[C] = own.Value
 		if len(leaf.Commands) > int(0) {
 			return ergo.Never[C]("flag: a group's own leaf has no children", "std/flag/command.ergo:234:11"), nil
 		}
 		u_1 := leaf.Set
 		u_1.Name = name
-		v_11 := (u_1).helpAsked(args)
-		if v_11 {
-			v_12 := flag__CommandUsage[C](name, usage, commands)
-			return *new(C), flag__Help{Text: v_12}
+		v_12 := (u_1).helpAsked(args)
+		if v_12 {
+			v_13 := flag__CommandUsage[C](name, usage, commands)
+			return *new(C), flag__Help{Text: v_13}
 		}
 		b := (len(args) == int(0))
 		if !b {
-			v_13 := strings__HasPrefix(first, "-")
-			b = v_13
+			v_14 := strings__HasPrefix(first, "-")
+			b = v_14
 		}
 		if b || (len(leaf.Set.Args) > int(0)) {
 			u_2 := leaf.Set
 			u_2.Name = name
-			v_14, err_3 := (u_2).Parse(args)
+			v_15, err_3 := (u_2).Parse(args)
 			if err_3 != nil {
 				return *new(C), err_3
 			}
-			v_15, err_4 := leaf.Build(env, v_14)
+			v_16, err_4 := leaf.Build(env, v_15)
 			if err_4 != nil {
 				return *new(C), err_4
 			}
-			return v_15, nil
+			return v_16, nil
 		}
-	case 1:
-		v_16 := (flag__Set{Name: name, Usage: usage, Flags: []flag__Flag{}, Args: []flag__ArgSpec{}}).helpAsked(args)
-		if v_16 {
-			v_17 := flag__CommandUsage[C](name, usage, commands)
-			return *new(C), flag__Help{Text: v_17}
+	case ergo__None:
+		_ = v_11
+		v_17 := (flag__Set{Name: name, Usage: usage, Flags: []flag__Flag{}, Args: []flag__ArgSpec{}}).helpAsked(args)
+		if v_17 {
+			v_18 := flag__CommandUsage[C](name, usage, commands)
+			return *new(C), flag__Help{Text: v_18}
 		}
 	}
 	t_2 := first
-	v_18 := flag__commandNames[C](commands)
-	return *new(C), flag__UnknownCommand{Name: t_2, Known: v_18, Group: groups}
+	v_19 := flag__commandNames[C](commands)
+	return *new(C), flag__UnknownCommand{Name: t_2, Known: v_19, Group: groups}
 }
 
 func flag__parseLevelMono_i93032418(env *ergo__Env, name string, usage string, groups []string, commands []flag__Command[codetool_scodeapi__Request], args []string) (codetool_scodeapi__Request, error) {
@@ -32279,49 +32379,49 @@ func flag__parseLevelMono_i93032418(env *ergo__Env, name string, usage string, g
 		}
 	}
 	v_10 := flag__ownLeafMono_i93032418(commands)
-	s := v_10
-	switch s.tag {
-	case 0:
-		own := s.as0()
+	switch v_11 := v_10.(type) {
+	case ergo__Some[flag__Command[codetool_scodeapi__Request]]:
+		own := v_11
 		var leaf flag__Command[codetool_scodeapi__Request] = own.Value
 		if len(leaf.Commands) > int(0) {
 			return ergo.Never[codetool_scodeapi__Request]("flag: a group's own leaf has no children", "std/flag/command.ergo:234:11"), nil
 		}
 		u_1 := leaf.Set
 		u_1.Name = name
-		v_11 := (u_1).helpAsked(args)
-		if v_11 {
-			v_12 := flag__CommandUsageMono_i93032418(name, usage, commands)
-			return *new(codetool_scodeapi__Request), flag__Help{Text: v_12}
+		v_12 := (u_1).helpAsked(args)
+		if v_12 {
+			v_13 := flag__CommandUsageMono_i93032418(name, usage, commands)
+			return *new(codetool_scodeapi__Request), flag__Help{Text: v_13}
 		}
 		b := (len(args) == int(0))
 		if !b {
-			v_13 := strings__HasPrefix(first, "-")
-			b = v_13
+			v_14 := strings__HasPrefix(first, "-")
+			b = v_14
 		}
 		if b || (len(leaf.Set.Args) > int(0)) {
 			u_2 := leaf.Set
 			u_2.Name = name
-			v_14, err_3 := (u_2).Parse(args)
+			v_15, err_3 := (u_2).Parse(args)
 			if err_3 != nil {
 				return *new(codetool_scodeapi__Request), err_3
 			}
-			v_15, err_4 := leaf.Build(env, v_14)
+			v_16, err_4 := leaf.Build(env, v_15)
 			if err_4 != nil {
 				return *new(codetool_scodeapi__Request), err_4
 			}
-			return v_15, nil
+			return v_16, nil
 		}
-	case 1:
-		v_16 := (flag__Set{Name: name, Usage: usage, Flags: []flag__Flag{}, Args: []flag__ArgSpec{}}).helpAsked(args)
-		if v_16 {
-			v_17 := flag__CommandUsageMono_i93032418(name, usage, commands)
-			return *new(codetool_scodeapi__Request), flag__Help{Text: v_17}
+	case ergo__None:
+		_ = v_11
+		v_17 := (flag__Set{Name: name, Usage: usage, Flags: []flag__Flag{}, Args: []flag__ArgSpec{}}).helpAsked(args)
+		if v_17 {
+			v_18 := flag__CommandUsageMono_i93032418(name, usage, commands)
+			return *new(codetool_scodeapi__Request), flag__Help{Text: v_18}
 		}
 	}
 	t_2 := first
-	v_18 := flag__commandNamesMono_i93032418(commands)
-	return *new(codetool_scodeapi__Request), flag__UnknownCommand{Name: t_2, Known: v_18, Group: groups}
+	v_19 := flag__commandNamesMono_i93032418(commands)
+	return *new(codetool_scodeapi__Request), flag__UnknownCommand{Name: t_2, Known: v_19, Group: groups}
 }
 
 type flag__arity struct {
@@ -32436,217 +32536,215 @@ func flag__Defaults(flags []flag__Flag) string {
 			return out
 		}
 		var v_2 ergo__Option[flag__Flag]
-		_ = v_2
-		var kp ergo__Some[flag__Flag]
-		_ = kp
 		{
 			var name string = pick
 			v_3 := flag__spelled(flags, name)
 			if v_3 < int(0) {
-				_ = ergo__None{}
-				goto kn_1
+				v_2 = ergo__None{}
+				goto inl
 			}
-			kp = ergo__Some[flag__Flag]{Value: flags[v_3]}
-			goto kn
+			v_2 = ergo__Some[flag__Flag]{Value: flags[v_3]}
 		}
-	kn:
-		{
-			f_1 := kp
+	inl:
+		_ = 0
+		switch v_4 := v_2.(type) {
+		case ergo__Some[flag__Flag]:
+			f_1 := v_4
 			t := out
-			var v_4 string
+			var v_5 string
 			{
 				var f_2 flag__Flag = f_1.Value
 				var shape string
 				var usage string
-				var v_5 string
+				var v_6 string
 				{
-					var v_6 flag__scalarFlag
-					_ = v_6
-					var kp_1 flag__StringFlag
+					var v_7 flag__scalarFlag
+					_ = v_7
+					var kp flag__StringFlag
+					_ = kp
+					var kp_1 flag__IntFlag
 					_ = kp_1
-					var kp_2 flag__IntFlag
+					var kp_2 flag__BoolFlag
 					_ = kp_2
-					var kp_3 flag__BoolFlag
+					var kp_3 flag__DurationFlag
 					_ = kp_3
-					var kp_4 flag__DurationFlag
+					var kp_4 flag__ChoiceFlag
 					_ = kp_4
-					var kp_5 flag__ChoiceFlag
-					_ = kp_5
 					{
-						switch v_7 := f_2.(type) {
+						switch v_8 := f_2.(type) {
 						case flag__StringFlag:
-							s := v_7
-							kp_1 = s
-							goto kn_3
+							s := v_8
+							kp = s
+							goto kn
 						case flag__IntFlag:
-							n := v_7
-							kp_2 = n
-							goto kn_4
+							n := v_8
+							kp_1 = n
+							goto kn_1
 						case flag__BoolFlag:
-							b := v_7
-							kp_3 = b
-							goto kn_5
+							b := v_8
+							kp_2 = b
+							goto kn_2
 						case flag__DurationFlag:
-							d := v_7
-							kp_4 = d
-							goto kn_7
+							d := v_8
+							kp_3 = d
+							goto kn_4
 						case flag__ChoiceFlag:
-							c := v_7
-							kp_5 = c
-							goto kn_6
+							c := v_8
+							kp_4 = c
+							goto kn_3
 						case flag__OptionalStringFlag:
-							s_1 := v_7
-							kp_1 = s_1.base
-							goto kn_3
+							s_1 := v_8
+							kp = s_1.base
+							goto kn
 						case flag__OptionalIntFlag:
-							n_1 := v_7
-							kp_2 = n_1.base
-							goto kn_4
+							n_1 := v_8
+							kp_1 = n_1.base
+							goto kn_1
 						case flag__RepeatedStringFlag:
-							s_2 := v_7
-							kp_1 = s_2.base
-							goto kn_3
+							s_2 := v_8
+							kp = s_2.base
+							goto kn
 						case flag__RepeatedIntFlag:
-							n_2 := v_7
-							kp_2 = n_2.base
-							goto kn_4
+							n_2 := v_8
+							kp_1 = n_2.base
+							goto kn_1
 						case flag__RepeatedBoolFlag:
-							b_1 := v_7
-							kp_3 = b_1.base
-							goto kn_5
+							b_1 := v_8
+							kp_2 = b_1.base
+							goto kn_2
 						case flag__RepeatedDurationFlag:
-							d_1 := v_7
-							kp_4 = d_1.base
-							goto kn_7
+							d_1 := v_8
+							kp_3 = d_1.base
+							goto kn_4
 						case flag__RepeatedChoiceFlag:
-							c_1 := v_7
-							kp_5 = c_1.base
-							goto kn_6
+							c_1 := v_8
+							kp_4 = c_1.base
+							goto kn_3
 						default:
-							_ = v_7
+							_ = v_8
 							panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:41:2 matched")
 						}
 					}
+				kn:
+					{
+						s_3 := kp
+						v_6 = s_3.usage
+						goto inl_2
+					}
+				kn_1:
+					{
+						n_3 := kp_1
+						v_6 = n_3.usage
+						goto inl_2
+					}
+				kn_2:
+					{
+						b_2 := kp_2
+						v_6 = b_2.usage
+						goto inl_2
+					}
 				kn_3:
 					{
-						s_3 := kp_1
-						v_5 = s_3.usage
+						c_2 := kp_4
+						v_6 = c_2.usage
 						goto inl_2
 					}
 				kn_4:
 					{
-						n_3 := kp_2
-						v_5 = n_3.usage
-						goto inl_2
-					}
-				kn_5:
-					{
-						b_2 := kp_3
-						v_5 = b_2.usage
-						goto inl_2
-					}
-				kn_6:
-					{
-						c_2 := kp_5
-						v_5 = c_2.usage
-						goto inl_2
-					}
-				kn_7:
-					{
-						d_2 := kp_4
-						v_5 = d_2.usage
+						d_2 := kp_3
+						v_6 = d_2.usage
 						goto inl_2
 					}
 				}
 			inl_2:
 				_ = 0
-				t_1 := v_5
-				var v_8 string
+				t_1 := v_6
+				var v_9 string
 				{
-					var v_9 flag__scalarFlag
-					_ = v_9
-					var kp_6 flag__ChoiceFlag
-					_ = kp_6
+					var v_10 flag__scalarFlag
+					_ = v_10
+					var kp_5 flag__ChoiceFlag
+					_ = kp_5
 					{
-						switch v_10 := f_2.(type) {
+						switch v_11 := f_2.(type) {
 						case flag__StringFlag:
-							s_4 := v_10
+							s_4 := v_11
 							_ = s_4
-							goto kn_9
+							goto kn_6
 						case flag__IntFlag:
-							n_4 := v_10
+							n_4 := v_11
 							_ = n_4
-							goto kn_10
+							goto kn_7
 						case flag__BoolFlag:
-							b_3 := v_10
+							b_3 := v_11
 							_ = b_3
-							goto kn_11
+							goto kn_8
 						case flag__DurationFlag:
-							d_3 := v_10
+							d_3 := v_11
 							_ = d_3
-							goto kn_13
+							goto kn_10
 						case flag__ChoiceFlag:
-							c_3 := v_10
-							kp_6 = c_3
-							goto kn_12
+							c_3 := v_11
+							kp_5 = c_3
+							goto kn_9
 						case flag__OptionalStringFlag:
-							s_5 := v_10
+							s_5 := v_11
 							_ = s_5.base
-							goto kn_9
+							goto kn_6
 						case flag__OptionalIntFlag:
-							n_5 := v_10
+							n_5 := v_11
 							_ = n_5.base
-							goto kn_10
+							goto kn_7
 						case flag__RepeatedStringFlag:
-							s_6 := v_10
+							s_6 := v_11
 							_ = s_6.base
-							goto kn_9
+							goto kn_6
 						case flag__RepeatedIntFlag:
-							n_6 := v_10
+							n_6 := v_11
 							_ = n_6.base
-							goto kn_10
+							goto kn_7
 						case flag__RepeatedBoolFlag:
-							b_4 := v_10
+							b_4 := v_11
 							_ = b_4.base
-							goto kn_11
+							goto kn_8
 						case flag__RepeatedDurationFlag:
-							d_4 := v_10
+							d_4 := v_11
 							_ = d_4.base
-							goto kn_13
+							goto kn_10
 						case flag__RepeatedChoiceFlag:
-							c_4 := v_10
-							kp_6 = c_4.base
-							goto kn_12
+							c_4 := v_11
+							kp_5 = c_4.base
+							goto kn_9
 						default:
-							_ = v_10
+							_ = v_11
 							panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:41:2 matched")
 						}
 					}
+				kn_6:
+					{
+						v_9 = "string"
+						goto inl_4
+					}
+				kn_7:
+					{
+						v_9 = "int"
+						goto inl_4
+					}
+				kn_8:
+					{
+						v_9 = ""
+						goto inl_4
+					}
 				kn_9:
 					{
-						v_8 = "string"
+						c_5 := kp_5
+						v_12 := ergo.StringsJoin(c_5.choices, "|")
+						v_9 = v_12
 						goto inl_4
 					}
 				kn_10:
 					{
-						v_8 = "int"
-						goto inl_4
-					}
-				kn_11:
-					{
-						v_8 = ""
-						goto inl_4
-					}
-				kn_12:
-					{
-						c_5 := kp_6
-						v_11 := ergo.StringsJoin(c_5.choices, "|")
-						v_8 = v_11
-						goto inl_4
-					}
-				kn_13:
-					{
-						v_8 = "duration"
+						v_9 = "duration"
 						goto inl_4
 					}
 				}
@@ -32655,35 +32753,35 @@ func flag__Defaults(flags []flag__Flag) string {
 				{
 					{
 						var usage_1 string = t_1
-						var kind string = v_8
-						v_12 := strings__Index(usage_1, "`")
-						if v_12 < int(0) {
+						var kind string = v_9
+						v_13 := strings__Index(usage_1, "`")
+						if v_13 < int(0) {
 							shape, usage = kind, usage_1
 							goto inl_6
 						}
-						v_13 := strings__Slice_2(usage_1, (v_12 + int(1)), len(usage_1))
-						v_14 := strings__Index(v_13, "`")
-						if v_14 < int(0) {
+						v_14 := strings__Slice_2(usage_1, (v_13 + int(1)), len(usage_1))
+						v_15 := strings__Index(v_14, "`")
+						if v_15 < int(0) {
 							shape, usage = kind, usage_1
 							goto inl_6
 						}
-						v_15 := strings__Slice_2(v_13, int(0), v_14)
-						t_2 := v_15
-						v_16 := strings__Slice_2(usage_1, int(0), v_12)
-						t_3 := (v_16 + v_15)
-						v_17 := strings__Slice_2(v_13, (v_14 + int(1)), len(v_13))
-						shape, usage = t_2, (t_3 + v_17)
+						v_16 := strings__Slice_2(v_14, int(0), v_15)
+						t_2 := v_16
+						v_17 := strings__Slice_2(usage_1, int(0), v_13)
+						t_3 := (v_17 + v_16)
+						v_18 := strings__Slice_2(v_14, (v_15 + int(1)), len(v_14))
+						shape, usage = t_2, (t_3 + v_18)
 					}
 				inl_6:
 					_ = 0
 				}
-				v_18 := flag__nameOf(f_2)
-				var line string = ("  -" + v_18)
-				v_19 := flag__aliasOf(f_2)
-				if v_19 != "" {
+				v_19 := flag__nameOf(f_2)
+				var line string = ("  -" + v_19)
+				v_20 := flag__aliasOf(f_2)
+				if v_20 != "" {
 					t_4 := (line + ", -")
-					v_20 := flag__aliasOf(f_2)
-					line = (t_4 + v_20)
+					v_21 := flag__aliasOf(f_2)
+					line = (t_4 + v_21)
 				}
 				if shape != "" {
 					line = ((line + " ") + shape)
@@ -32694,20 +32792,15 @@ func flag__Defaults(flags []flag__Flag) string {
 					line = (line + "\n    \t")
 				}
 				t_5 := line
-				v_21 := strings__ReplaceAll(usage, "\n", "\n    \t")
-				t_6 := (t_5 + v_21)
-				v_22 := flag__defaultOf(f_2)
-				v_4 = ((t_6 + v_22) + "\n")
+				v_22 := strings__ReplaceAll(usage, "\n", "\n    \t")
+				t_6 := (t_5 + v_22)
+				v_23 := flag__defaultOf(f_2)
+				v_5 = ((t_6 + v_23) + "\n")
 			}
-			out = (t + v_4)
+			out = (t + v_5)
+		case ergo__None:
+			_ = v_4
 		}
-		goto kn_2
-	kn_1:
-		{
-		}
-		goto kn_2
-	kn_2:
-		_ = 0
 		last = pick
 		first = false
 	}
@@ -32777,10 +32870,10 @@ func flag__ownLeaf[C any](commands []flag__Command[C]) ergo__Option[flag__Comman
 	for _, v := range commands {
 		var c flag__Command[C] = v
 		if c.Name == "" {
-			return (ergo__Option[flag__Command[C]]{}).of0(ergo__Some[flag__Command[C]]{Value: c})
+			return ergo__Some[flag__Command[C]]{Value: c}
 		}
 	}
-	return (ergo__Option[flag__Command[C]]{tag: 1})
+	return ergo__None{}
 }
 
 func flag__CommandUsage[C any](name string, usage string, commands []flag__Command[C]) string {
@@ -32816,10 +32909,10 @@ func flag__ownLeafMono_i93032418(commands []flag__Command[codetool_scodeapi__Req
 	for _, v := range commands {
 		var c flag__Command[codetool_scodeapi__Request] = v
 		if c.Name == "" {
-			return (ergo__Option[flag__Command[codetool_scodeapi__Request]]{}).of0(ergo__Some[flag__Command[codetool_scodeapi__Request]]{Value: c})
+			return ergo__Some[flag__Command[codetool_scodeapi__Request]]{Value: c}
 		}
 	}
-	return (ergo__Option[flag__Command[codetool_scodeapi__Request]]{tag: 1})
+	return ergo__None{}
 }
 
 func flag__CommandUsageMono_i93032418(name string, usage string, commands []flag__Command[codetool_scodeapi__Request]) string {
@@ -33949,26 +34042,32 @@ func askGo(env *ergo__Env, rw go__io.ReadWriter, a ask) (reply, error) {
 //line plan.ergo:60:13
 //line plan.ergo:60:19
 	r_3 := go__bytes.NewBuffer(slices.Clone(answer))
+	/*line plan.ergo:60:19*/ var v_5 ergo__Option[*go__bytes.Buffer] = ergo__None{}
+	/*line plan.ergo:60:19*/ if r_3 != nil {
+		/*line plan.ergo:60:19*/ v_5 = ergo__Some[*go__bytes.Buffer]{Value: r_3}
+		/*line plan.ergo:60:19*/
+	}
 //line plan.ergo:60:13
-	s := r_3
-	/*line plan.ergo:60:13*/ switch ergoNilTag(s) {
-	/*line plan.ergo:60:13*/ case 0:
-		/*line plan.ergo:60:13*/ b_1 := ergo__Some[*go__bytes.Buffer]{Value: s}
+	switch v_6 := v_5.(type) {
+	/*line plan.ergo:60:13*/ case ergo__Some[*go__bytes.Buffer]:
+		/*line plan.ergo:60:13*/ b_1 := v_6
 //line plan.ergo:62:3
 		r_4 := b_1.Value.String()
 		/*line plan.ergo:62:3*/ v_4 = r_4
 		/*line plan.ergo:62:3*/
-	case 1:
+	case ergo__None:
+		/*line plan.ergo:62:3*/ _ = v_6
 //line plan.ergo:64:3
 		v_4 = ""
 		/*line plan.ergo:64:3*/
 	default:
+		/*line plan.ergo:64:3*/ _ = v_6
 		/*line plan.ergo:64:3*/ panic("ergo: defect: no case of the match at 60:13 matched")
 		/*line plan.ergo:64:3*/
 	}
 	/*line plan.ergo:64:3*/ var text string = v_4
 //line plan.ergo:66:2
-	v_7, err_4 := json__DecodeMono_i697505319(env, struct {
+	v_9, err_4 := json__DecodeMono_i697505319(env, struct {
 		/*line plan.ergo:66:2*/ Enc func(*ergo__Env, ergo__Writer, reply) (struct{}, error)
 		/*line plan.ergo:66:2*/ Dec func(*ergo__Env, ergo__Reader) (reply, error)
 		/*line plan.ergo:66:2*/ Direct0 func(*ergo__Env, json__text, reply) json__text
@@ -33989,8 +34088,8 @@ func askGo(env *ergo__Env, rw go__io.ReadWriter, a ask) (reply, error) {
 			/*line plan.ergo:66:2*/
 		}
 		/*line plan.ergo:66:2*/
-	}{Enc: func(e_3 *ergo__Env, w_1 ergo__Writer, v_5 reply) (struct{}, error) {
-		/*line plan.ergo:66:2*/ ergo__Encodereply(e_3, w_1, v_5)
+	}{Enc: func(e_3 *ergo__Env, w_1 ergo__Writer, v_7 reply) (struct{}, error) {
+		/*line plan.ergo:66:2*/ ergo__Encodereply(e_3, w_1, v_7)
 		/*line plan.ergo:66:2*/ return struct{}{}, nil
 		/*line plan.ergo:66:2*/
 	}, Dec: func(e_4 *ergo__Env, r_5 ergo__Reader) (reply, error) {
@@ -34002,7 +34101,7 @@ func askGo(env *ergo__Env, rw go__io.ReadWriter, a ask) (reply, error) {
 		/*line plan.ergo:66:2*/ return x_1, nil
 		/*line plan.ergo:66:2*/
 	}, Direct0: ergo__Writereply, Read0: ergo__Readreply, Read1: ergo__Readreply_1, Read2: ergo__Readreply_2, Read3: ergo__Readreply_3, Field: nil}, json__Codec[reply]{MaxBytes: int(1099511627776), MaxDepth: int(64)}, text)
-	/*line plan.ergo:66:2*/ var v_8 reply
+	/*line plan.ergo:66:2*/ var v_10 reply
 	/*line plan.ergo:66:2*/ if err_4 != nil {
 		/*line plan.ergo:66:2*/ switch n := err_4.(type) {
 		/*line plan.ergo:66:2*/ case ergo.JSONMalformed:
@@ -34028,10 +34127,10 @@ func askGo(env *ergo__Env, rw go__io.ReadWriter, a ask) (reply, error) {
 		}
 		/*line plan.ergo:74:3*/
 	} else {
-		/*line plan.ergo:74:3*/ v_8 = v_7
+		/*line plan.ergo:74:3*/ v_10 = v_9
 		/*line plan.ergo:74:3*/
 	}
-	/*line plan.ergo:74:3*/ return v_8, nil
+	/*line plan.ergo:74:3*/ return v_10, nil
 	/*line plan.ergo:74:3*/
 }
 
@@ -34924,7 +35023,7 @@ func rootApi(env *ergo__Env, t code__Tables) []code__Contract {
 //line tool.ergo:44:3
 		(&env_1).task.Check()
 //line tool.ergo:44:11
-		v_2, err := (&env_1).Reader.Api((&env_1).task, code__ApiQuery{Package: (ergo__Option[string]{tag: 1})})
+		v_2, err := (&env_1).Reader.Api((&env_1).task, code__ApiQuery{Package: ergo__None{}})
 //line tool.ergo:44:3
 		if err != nil {
 			/*line tool.ergo:44:3*/ switch err.(type) {
@@ -35345,26 +35444,32 @@ func ergo__askGoSlot(env *ergo__Env, rw go__io.ReadWriter, a ask, s0 *replyRepor
 //line plan.ergo:60:13
 //line plan.ergo:60:19
 	r_3 := go__bytes.NewBuffer(slices.Clone(answer))
+	/*line plan.ergo:60:19*/ var v_5 ergo__Option[*go__bytes.Buffer] = ergo__None{}
+	/*line plan.ergo:60:19*/ if r_3 != nil {
+		/*line plan.ergo:60:19*/ v_5 = ergo__Some[*go__bytes.Buffer]{Value: r_3}
+		/*line plan.ergo:60:19*/
+	}
 //line plan.ergo:60:13
-	s := r_3
-	/*line plan.ergo:60:13*/ switch ergoNilTag(s) {
-	/*line plan.ergo:60:13*/ case 0:
-		/*line plan.ergo:60:13*/ b_1 := ergo__Some[*go__bytes.Buffer]{Value: s}
+	switch v_6 := v_5.(type) {
+	/*line plan.ergo:60:13*/ case ergo__Some[*go__bytes.Buffer]:
+		/*line plan.ergo:60:13*/ b_1 := v_6
 //line plan.ergo:62:3
 		r_4 := b_1.Value.String()
 		/*line plan.ergo:62:3*/ v_4 = r_4
 		/*line plan.ergo:62:3*/
-	case 1:
+	case ergo__None:
+		/*line plan.ergo:62:3*/ _ = v_6
 //line plan.ergo:64:3
 		v_4 = ""
 		/*line plan.ergo:64:3*/
 	default:
+		/*line plan.ergo:64:3*/ _ = v_6
 		/*line plan.ergo:64:3*/ panic("ergo: defect: no case of the match at 60:13 matched")
 		/*line plan.ergo:64:3*/
 	}
 	/*line plan.ergo:64:3*/ var text string = v_4
 //line plan.ergo:66:2
-	v_7, err_4 := json__DecodeMono_i697505319(env, struct {
+	v_9, err_4 := json__DecodeMono_i697505319(env, struct {
 		/*line plan.ergo:66:2*/ Enc func(*ergo__Env, ergo__Writer, reply) (struct{}, error)
 		/*line plan.ergo:66:2*/ Dec func(*ergo__Env, ergo__Reader) (reply, error)
 		/*line plan.ergo:66:2*/ Direct0 func(*ergo__Env, json__text, reply) json__text
@@ -35385,8 +35490,8 @@ func ergo__askGoSlot(env *ergo__Env, rw go__io.ReadWriter, a ask, s0 *replyRepor
 			/*line plan.ergo:66:2*/
 		}
 		/*line plan.ergo:66:2*/
-	}{Enc: func(e_3 *ergo__Env, w_1 ergo__Writer, v_5 reply) (struct{}, error) {
-		/*line plan.ergo:66:2*/ ergo__Encodereply(e_3, w_1, v_5)
+	}{Enc: func(e_3 *ergo__Env, w_1 ergo__Writer, v_7 reply) (struct{}, error) {
+		/*line plan.ergo:66:2*/ ergo__Encodereply(e_3, w_1, v_7)
 		/*line plan.ergo:66:2*/ return struct{}{}, nil
 		/*line plan.ergo:66:2*/
 	}, Dec: func(e_4 *ergo__Env, r_5 ergo__Reader) (reply, error) {
@@ -35398,7 +35503,7 @@ func ergo__askGoSlot(env *ergo__Env, rw go__io.ReadWriter, a ask, s0 *replyRepor
 		/*line plan.ergo:66:2*/ return x_1, nil
 		/*line plan.ergo:66:2*/
 	}, Direct0: ergo__Writereply, Read0: ergo__Readreply, Read1: ergo__Readreply_1, Read2: ergo__Readreply_2, Read3: ergo__Readreply_3, Field: nil}, json__Codec[reply]{MaxBytes: int(1099511627776), MaxDepth: int(64)}, text)
-	/*line plan.ergo:66:2*/ var v_8 reply
+	/*line plan.ergo:66:2*/ var v_10 reply
 	/*line plan.ergo:66:2*/ if err_4 != nil {
 		/*line plan.ergo:66:2*/ switch n := err_4.(type) {
 		/*line plan.ergo:66:2*/ case ergo.JSONMalformed:
@@ -35424,10 +35529,10 @@ func ergo__askGoSlot(env *ergo__Env, rw go__io.ReadWriter, a ask, s0 *replyRepor
 		}
 		/*line plan.ergo:74:3*/
 	} else {
-		/*line plan.ergo:74:3*/ v_8 = v_7
+		/*line plan.ergo:74:3*/ v_10 = v_9
 		/*line plan.ergo:74:3*/
 	}
-	/*line plan.ergo:74:3*/ switch x_2 := reply(v_8).(type) {
+	/*line plan.ergo:74:3*/ switch x_2 := reply(v_10).(type) {
 	/*line plan.ergo:74:3*/ case replyReport:
 		/*line plan.ergo:74:3*/ *s0 = x_2
 		/*line plan.ergo:74:3*/ return 0, nil
@@ -35543,11 +35648,11 @@ func codetool_scodecli__Defaults() codetool_scodecli__Policy {
 		/*line codecli/cli.ergo:291:45*/
 	}, Text: func(env_1 *ergo__Env, r codetool_scodeapi__Reply) (ergo__Option[string], error) {
 //line codecli/cli.ergo:291:95
-		return (ergo__Option[string]{tag: 1}), nil
+		return ergo__None{}, nil
 		/*line codecli/cli.ergo:291:95*/
 	}, Confirm: func(env_2 *ergo__Env, r_1 codetool_scodeapi__Request) (ergo__Option[string], error) {
 //line codecli/cli.ergo:291:145
-		return (ergo__Option[string]{tag: 1}), nil
+		return ergo__None{}, nil
 		/*line codecli/cli.ergo:291:145*/
 	}}
 	/*line codecli/cli.ergo:291:145*/
@@ -35585,28 +35690,28 @@ func codetool_scodecli__runOver(env *ergo__Env, args []string, p codetool_scodec
 			v_1, err := p.Confirm(env, a.R)
 			/*line codecli/cli.ergo:536:10*/ _ = err
 //line codecli/cli.ergo:536:4
-			s_1 := v_1
-			/*line codecli/cli.ergo:536:4*/ switch s_1.tag {
-			/*line codecli/cli.ergo:536:4*/ case 0:
-				/*line codecli/cli.ergo:536:4*/ q := s_1.as0()
+			switch v_2 := v_1.(type) {
+			/*line codecli/cli.ergo:536:4*/ case ergo__Some[string]:
+				/*line codecli/cli.ergo:536:4*/ q := v_2
 //line codecli/cli.ergo:538:5
 //line codecli/cli.ergo:538:12
-				v_2 := codetool_scodecli__needsYes(q.Value)
+				v_3 := codetool_scodecli__needsYes(q.Value)
 //line codecli/cli.ergo:538:5
-				return v_2
+				return v_3
 				/*line codecli/cli.ergo:538:5*/
-			case 1:
+			case ergo__None:
+				/*line codecli/cli.ergo:538:5*/ _ = v_2
 				/*line codecli/cli.ergo:538:5*/
 			}
 			/*line codecli/cli.ergo:538:5*/
 		}
 //line codecli/cli.ergo:542:3
 //line codecli/cli.ergo:542:8
-		v_3, err_1 := answer_1(env, a.R)
+		v_4, err_1 := answer_1(env, a.R)
 		/*line codecli/cli.ergo:542:8*/ _ = err_1
 //line codecli/cli.ergo:542:3
-		v_4 := codetool_scodecli__Show(env, v_3, a.JSON, p)
-		/*line codecli/cli.ergo:542:3*/ return v_4
+		v_5 := codetool_scodecli__Show(env, v_4, a.JSON, p)
+		/*line codecli/cli.ergo:542:3*/ return v_5
 		/*line codecli/cli.ergo:542:3*/
 	default:
 		/*line codecli/cli.ergo:542:3*/ panic("ergo: defect: no case of the match at 531:2 matched")
@@ -36153,30 +36258,30 @@ func codetool_scodecli__Show(env *ergo__Env, o codetool_scodeapi__Outcome, asJSO
 			v_1, err := p.Text(env, done.Reply)
 			/*line codecli/cli.ergo:325:10*/ _ = err
 //line codecli/cli.ergo:325:4
-			s := v_1
-			/*line codecli/cli.ergo:325:4*/ switch s.tag {
-			/*line codecli/cli.ergo:325:4*/ case 0:
-				/*line codecli/cli.ergo:325:4*/ s_1 := s.as0()
+			switch v_2 := v_1.(type) {
+			/*line codecli/cli.ergo:325:4*/ case ergo__Some[string]:
+				/*line codecli/cli.ergo:325:4*/ s := v_2
 //line codecli/cli.ergo:327:5
 //line codecli/cli.ergo:327:24
-				v_2 := codetool_scodecli__line(s_1.Value)
+				v_3 := codetool_scodecli__line(s.Value)
 //line codecli/cli.ergo:327:5
-				return api__Output{Out: v_2, Err: "", Code: int(0)}
+				return api__Output{Out: v_3, Err: "", Code: int(0)}
 				/*line codecli/cli.ergo:327:5*/
-			case 1:
+			case ergo__None:
+				/*line codecli/cli.ergo:327:5*/ _ = v_2
 				/*line codecli/cli.ergo:327:5*/
 			}
 			/*line codecli/cli.ergo:327:5*/
 		}
 //line codecli/cli.ergo:331:3
-		switch v_3 := done.Reply.(type) {
+		switch v_4 := done.Reply.(type) {
 		/*line codecli/cli.ergo:331:3*/ case codetool_scodeapi__DescribeReply:
-			/*line codecli/cli.ergo:331:3*/ reply := v_3
+			/*line codecli/cli.ergo:331:3*/ reply := v_4
 //line codecli/cli.ergo:333:4
-			var v_4 code__Summary = reply.Value
+			var v_5 code__Summary = reply.Value
 //line codecli/cli.ergo:334:4
 //line codecli/cli.ergo:334:18
-			v_7 := rpc__EncodeMono_i3933687382(env, struct {
+			v_8 := rpc__EncodeMono_i3933687382(env, struct {
 				/*line codecli/cli.ergo:334:18*/ Enc func(*ergo__Env, ergo__Writer, code__Summary) (struct{}, error)
 				/*line codecli/cli.ergo:334:18*/ Dec func(*ergo__Env, ergo__Reader) (code__Summary, error)
 				/*line codecli/cli.ergo:334:18*/ Direct0 func(*ergo__Env, json__text, code__Summary) json__text
@@ -36197,8 +36302,8 @@ func codetool_scodecli__Show(env *ergo__Env, o codetool_scodeapi__Outcome, asJSO
 					/*line codecli/cli.ergo:334:18*/
 				}
 				/*line codecli/cli.ergo:334:18*/
-			}{Enc: func(e *ergo__Env, w ergo__Writer, v_5 code__Summary) (struct{}, error) {
-				/*line codecli/cli.ergo:334:18*/ ergo__EncodeSummary(e, w, v_5)
+			}{Enc: func(e *ergo__Env, w ergo__Writer, v_6 code__Summary) (struct{}, error) {
+				/*line codecli/cli.ergo:334:18*/ ergo__EncodeSummary(e, w, v_6)
 				/*line codecli/cli.ergo:334:18*/ return struct{}{}, nil
 				/*line codecli/cli.ergo:334:18*/
 			}, Dec: func(e_1 *ergo__Env, r ergo__Reader) (code__Summary, error) {
@@ -36209,19 +36314,19 @@ func codetool_scodecli__Show(env *ergo__Env, o codetool_scodeapi__Outcome, asJSO
 				}
 				/*line codecli/cli.ergo:334:18*/ return x, nil
 				/*line codecli/cli.ergo:334:18*/
-			}, Direct0: ergo__WriteSummary, Read0: ergo__ReadSummary, Read1: ergo__ReadSummary_1, Read2: ergo__ReadSummary_2, Read3: ergo__ReadSummary_3, Field: nil}, v_4)
+			}, Direct0: ergo__WriteSummary, Read0: ergo__ReadSummary, Read1: ergo__ReadSummary_1, Read2: ergo__ReadSummary_2, Read3: ergo__ReadSummary_3, Field: nil}, v_5)
 //line codecli/cli.ergo:334:4
 //line codecli/cli.ergo:335:4
-			v_8 := codetool_scodecli__answer(asJSON, v_7, v_7)
-			/*line codecli/cli.ergo:335:4*/ return v_8
+			v_9 := codetool_scodecli__answer(asJSON, v_8, v_8)
+			/*line codecli/cli.ergo:335:4*/ return v_9
 			/*line codecli/cli.ergo:335:4*/
 		case codetool_scodeapi__SymbolsReply:
-			/*line codecli/cli.ergo:335:4*/ reply_1 := v_3
+			/*line codecli/cli.ergo:335:4*/ reply_1 := v_4
 //line codecli/cli.ergo:337:4
-			var v_9 code__SymbolPage = reply_1.Value
+			var v_10 code__SymbolPage = reply_1.Value
 //line codecli/cli.ergo:338:4
 //line codecli/cli.ergo:338:18
-			v_12 := rpc__EncodeMono_i4203489249(env, struct {
+			v_13 := rpc__EncodeMono_i4203489249(env, struct {
 				/*line codecli/cli.ergo:338:18*/ Enc func(*ergo__Env, ergo__Writer, code__SymbolPage) (struct{}, error)
 				/*line codecli/cli.ergo:338:18*/ Dec func(*ergo__Env, ergo__Reader) (code__SymbolPage, error)
 				/*line codecli/cli.ergo:338:18*/ Direct0 func(*ergo__Env, json__text, code__SymbolPage) json__text
@@ -36242,8 +36347,8 @@ func codetool_scodecli__Show(env *ergo__Env, o codetool_scodeapi__Outcome, asJSO
 					/*line codecli/cli.ergo:338:18*/
 				}
 				/*line codecli/cli.ergo:338:18*/
-			}{Enc: func(e_3 *ergo__Env, w_1 ergo__Writer, v_10 code__SymbolPage) (struct{}, error) {
-				/*line codecli/cli.ergo:338:18*/ ergo__EncodeSymbolPage(e_3, w_1, v_10)
+			}{Enc: func(e_3 *ergo__Env, w_1 ergo__Writer, v_11 code__SymbolPage) (struct{}, error) {
+				/*line codecli/cli.ergo:338:18*/ ergo__EncodeSymbolPage(e_3, w_1, v_11)
 				/*line codecli/cli.ergo:338:18*/ return struct{}{}, nil
 				/*line codecli/cli.ergo:338:18*/
 			}, Dec: func(e_4 *ergo__Env, r_1 ergo__Reader) (code__SymbolPage, error) {
@@ -36254,19 +36359,19 @@ func codetool_scodecli__Show(env *ergo__Env, o codetool_scodeapi__Outcome, asJSO
 				}
 				/*line codecli/cli.ergo:338:18*/ return x_1, nil
 				/*line codecli/cli.ergo:338:18*/
-			}, Direct0: ergo__WriteSymbolPage, Read0: ergo__ReadSymbolPage, Read1: ergo__ReadSymbolPage_1, Read2: ergo__ReadSymbolPage_2, Read3: ergo__ReadSymbolPage_3, Field: nil}, v_9)
+			}, Direct0: ergo__WriteSymbolPage, Read0: ergo__ReadSymbolPage, Read1: ergo__ReadSymbolPage_1, Read2: ergo__ReadSymbolPage_2, Read3: ergo__ReadSymbolPage_3, Field: nil}, v_10)
 //line codecli/cli.ergo:338:4
 //line codecli/cli.ergo:339:4
-			v_13 := codetool_scodecli__answer(asJSON, v_12, v_12)
-			/*line codecli/cli.ergo:339:4*/ return v_13
+			v_14 := codetool_scodecli__answer(asJSON, v_13, v_13)
+			/*line codecli/cli.ergo:339:4*/ return v_14
 			/*line codecli/cli.ergo:339:4*/
 		case codetool_scodeapi__SymbolReply:
-			/*line codecli/cli.ergo:339:4*/ reply_2 := v_3
+			/*line codecli/cli.ergo:339:4*/ reply_2 := v_4
 //line codecli/cli.ergo:341:4
-			var v_14 code__Decl = reply_2.Value
+			var v_15 code__Decl = reply_2.Value
 //line codecli/cli.ergo:342:4
 //line codecli/cli.ergo:342:18
-			v_17 := rpc__EncodeMono_i1952133442(env, struct {
+			v_18 := rpc__EncodeMono_i1952133442(env, struct {
 				/*line codecli/cli.ergo:342:18*/ Enc func(*ergo__Env, ergo__Writer, code__Decl) (struct{}, error)
 				/*line codecli/cli.ergo:342:18*/ Dec func(*ergo__Env, ergo__Reader) (code__Decl, error)
 				/*line codecli/cli.ergo:342:18*/ Direct0 func(*ergo__Env, json__text, code__Decl) json__text
@@ -36287,8 +36392,8 @@ func codetool_scodecli__Show(env *ergo__Env, o codetool_scodeapi__Outcome, asJSO
 					/*line codecli/cli.ergo:342:18*/
 				}
 				/*line codecli/cli.ergo:342:18*/
-			}{Enc: func(e_6 *ergo__Env, w_2 ergo__Writer, v_15 code__Decl) (struct{}, error) {
-				/*line codecli/cli.ergo:342:18*/ ergo__EncodeDecl(e_6, w_2, v_15)
+			}{Enc: func(e_6 *ergo__Env, w_2 ergo__Writer, v_16 code__Decl) (struct{}, error) {
+				/*line codecli/cli.ergo:342:18*/ ergo__EncodeDecl(e_6, w_2, v_16)
 				/*line codecli/cli.ergo:342:18*/ return struct{}{}, nil
 				/*line codecli/cli.ergo:342:18*/
 			}, Dec: func(e_7 *ergo__Env, r_2 ergo__Reader) (code__Decl, error) {
@@ -36299,19 +36404,19 @@ func codetool_scodecli__Show(env *ergo__Env, o codetool_scodeapi__Outcome, asJSO
 				}
 				/*line codecli/cli.ergo:342:18*/ return x_2, nil
 				/*line codecli/cli.ergo:342:18*/
-			}, Direct0: ergo__WriteDecl, Read0: ergo__ReadDecl, Read1: ergo__ReadDecl_1, Read2: ergo__ReadDecl_2, Read3: ergo__ReadDecl_3, Field: nil}, v_14)
+			}, Direct0: ergo__WriteDecl, Read0: ergo__ReadDecl, Read1: ergo__ReadDecl_1, Read2: ergo__ReadDecl_2, Read3: ergo__ReadDecl_3, Field: nil}, v_15)
 //line codecli/cli.ergo:342:4
 //line codecli/cli.ergo:343:4
-			v_18 := codetool_scodecli__answer(asJSON, v_17, v_17)
-			/*line codecli/cli.ergo:343:4*/ return v_18
+			v_19 := codetool_scodecli__answer(asJSON, v_18, v_18)
+			/*line codecli/cli.ergo:343:4*/ return v_19
 			/*line codecli/cli.ergo:343:4*/
 		case codetool_scodeapi__ReferencesReply:
-			/*line codecli/cli.ergo:343:4*/ reply_3 := v_3
+			/*line codecli/cli.ergo:343:4*/ reply_3 := v_4
 //line codecli/cli.ergo:345:4
-			var v_19 code__SitePage = reply_3.Value
+			var v_20 code__SitePage = reply_3.Value
 //line codecli/cli.ergo:346:4
 //line codecli/cli.ergo:346:18
-			v_22 := rpc__EncodeMono_i1175879322(env, struct {
+			v_23 := rpc__EncodeMono_i1175879322(env, struct {
 				/*line codecli/cli.ergo:346:18*/ Enc func(*ergo__Env, ergo__Writer, code__SitePage) (struct{}, error)
 				/*line codecli/cli.ergo:346:18*/ Dec func(*ergo__Env, ergo__Reader) (code__SitePage, error)
 				/*line codecli/cli.ergo:346:18*/ Direct0 func(*ergo__Env, json__text, code__SitePage) json__text
@@ -36332,8 +36437,8 @@ func codetool_scodecli__Show(env *ergo__Env, o codetool_scodeapi__Outcome, asJSO
 					/*line codecli/cli.ergo:346:18*/
 				}
 				/*line codecli/cli.ergo:346:18*/
-			}{Enc: func(e_9 *ergo__Env, w_3 ergo__Writer, v_20 code__SitePage) (struct{}, error) {
-				/*line codecli/cli.ergo:346:18*/ ergo__EncodeSitePage(e_9, w_3, v_20)
+			}{Enc: func(e_9 *ergo__Env, w_3 ergo__Writer, v_21 code__SitePage) (struct{}, error) {
+				/*line codecli/cli.ergo:346:18*/ ergo__EncodeSitePage(e_9, w_3, v_21)
 				/*line codecli/cli.ergo:346:18*/ return struct{}{}, nil
 				/*line codecli/cli.ergo:346:18*/
 			}, Dec: func(e_10 *ergo__Env, r_3 ergo__Reader) (code__SitePage, error) {
@@ -36344,19 +36449,19 @@ func codetool_scodecli__Show(env *ergo__Env, o codetool_scodeapi__Outcome, asJSO
 				}
 				/*line codecli/cli.ergo:346:18*/ return x_3, nil
 				/*line codecli/cli.ergo:346:18*/
-			}, Direct0: ergo__WriteSitePage, Read0: ergo__ReadSitePage, Read1: ergo__ReadSitePage_1, Read2: ergo__ReadSitePage_2, Read3: ergo__ReadSitePage_3, Field: nil}, v_19)
+			}, Direct0: ergo__WriteSitePage, Read0: ergo__ReadSitePage, Read1: ergo__ReadSitePage_1, Read2: ergo__ReadSitePage_2, Read3: ergo__ReadSitePage_3, Field: nil}, v_20)
 //line codecli/cli.ergo:346:4
 //line codecli/cli.ergo:347:4
-			v_23 := codetool_scodecli__answer(asJSON, v_22, v_22)
-			/*line codecli/cli.ergo:347:4*/ return v_23
+			v_24 := codetool_scodecli__answer(asJSON, v_23, v_23)
+			/*line codecli/cli.ergo:347:4*/ return v_24
 			/*line codecli/cli.ergo:347:4*/
 		case codetool_scodeapi__CallsReply:
-			/*line codecli/cli.ergo:347:4*/ reply_4 := v_3
+			/*line codecli/cli.ergo:347:4*/ reply_4 := v_4
 //line codecli/cli.ergo:349:4
-			var v_24 code__CallPage = reply_4.Value
+			var v_25 code__CallPage = reply_4.Value
 //line codecli/cli.ergo:350:4
 //line codecli/cli.ergo:350:18
-			v_27 := rpc__EncodeMono_i589566837(env, struct {
+			v_28 := rpc__EncodeMono_i589566837(env, struct {
 				/*line codecli/cli.ergo:350:18*/ Enc func(*ergo__Env, ergo__Writer, code__CallPage) (struct{}, error)
 				/*line codecli/cli.ergo:350:18*/ Dec func(*ergo__Env, ergo__Reader) (code__CallPage, error)
 				/*line codecli/cli.ergo:350:18*/ Direct0 func(*ergo__Env, json__text, code__CallPage) json__text
@@ -36377,8 +36482,8 @@ func codetool_scodecli__Show(env *ergo__Env, o codetool_scodeapi__Outcome, asJSO
 					/*line codecli/cli.ergo:350:18*/
 				}
 				/*line codecli/cli.ergo:350:18*/
-			}{Enc: func(e_12 *ergo__Env, w_4 ergo__Writer, v_25 code__CallPage) (struct{}, error) {
-				/*line codecli/cli.ergo:350:18*/ ergo__EncodeCallPage(e_12, w_4, v_25)
+			}{Enc: func(e_12 *ergo__Env, w_4 ergo__Writer, v_26 code__CallPage) (struct{}, error) {
+				/*line codecli/cli.ergo:350:18*/ ergo__EncodeCallPage(e_12, w_4, v_26)
 				/*line codecli/cli.ergo:350:18*/ return struct{}{}, nil
 				/*line codecli/cli.ergo:350:18*/
 			}, Dec: func(e_13 *ergo__Env, r_4 ergo__Reader) (code__CallPage, error) {
@@ -36389,19 +36494,19 @@ func codetool_scodecli__Show(env *ergo__Env, o codetool_scodeapi__Outcome, asJSO
 				}
 				/*line codecli/cli.ergo:350:18*/ return x_4, nil
 				/*line codecli/cli.ergo:350:18*/
-			}, Direct0: ergo__WriteCallPage, Read0: ergo__ReadCallPage, Read1: ergo__ReadCallPage_1, Read2: ergo__ReadCallPage_2, Read3: ergo__ReadCallPage_3, Field: nil}, v_24)
+			}, Direct0: ergo__WriteCallPage, Read0: ergo__ReadCallPage, Read1: ergo__ReadCallPage_1, Read2: ergo__ReadCallPage_2, Read3: ergo__ReadCallPage_3, Field: nil}, v_25)
 //line codecli/cli.ergo:350:4
 //line codecli/cli.ergo:351:4
-			v_28 := codetool_scodecli__answer(asJSON, v_27, v_27)
-			/*line codecli/cli.ergo:351:4*/ return v_28
+			v_29 := codetool_scodecli__answer(asJSON, v_28, v_28)
+			/*line codecli/cli.ergo:351:4*/ return v_29
 			/*line codecli/cli.ergo:351:4*/
 		case codetool_scodeapi__ApiReply:
-			/*line codecli/cli.ergo:351:4*/ reply_5 := v_3
+			/*line codecli/cli.ergo:351:4*/ reply_5 := v_4
 //line codecli/cli.ergo:353:4
-			var v_29 code__ApiView = reply_5.Value
+			var v_30 code__ApiView = reply_5.Value
 //line codecli/cli.ergo:354:4
 //line codecli/cli.ergo:354:18
-			v_32 := rpc__EncodeMono_i3093881487(env, struct {
+			v_33 := rpc__EncodeMono_i3093881487(env, struct {
 				/*line codecli/cli.ergo:354:18*/ Enc func(*ergo__Env, ergo__Writer, code__ApiView) (struct{}, error)
 				/*line codecli/cli.ergo:354:18*/ Dec func(*ergo__Env, ergo__Reader) (code__ApiView, error)
 				/*line codecli/cli.ergo:354:18*/ Direct0 func(*ergo__Env, json__text, code__ApiView) json__text
@@ -36422,8 +36527,8 @@ func codetool_scodecli__Show(env *ergo__Env, o codetool_scodeapi__Outcome, asJSO
 					/*line codecli/cli.ergo:354:18*/
 				}
 				/*line codecli/cli.ergo:354:18*/
-			}{Enc: func(e_15 *ergo__Env, w_5 ergo__Writer, v_30 code__ApiView) (struct{}, error) {
-				/*line codecli/cli.ergo:354:18*/ ergo__EncodeApiView(e_15, w_5, v_30)
+			}{Enc: func(e_15 *ergo__Env, w_5 ergo__Writer, v_31 code__ApiView) (struct{}, error) {
+				/*line codecli/cli.ergo:354:18*/ ergo__EncodeApiView(e_15, w_5, v_31)
 				/*line codecli/cli.ergo:354:18*/ return struct{}{}, nil
 				/*line codecli/cli.ergo:354:18*/
 			}, Dec: func(e_16 *ergo__Env, r_5 ergo__Reader) (code__ApiView, error) {
@@ -36434,19 +36539,19 @@ func codetool_scodecli__Show(env *ergo__Env, o codetool_scodeapi__Outcome, asJSO
 				}
 				/*line codecli/cli.ergo:354:18*/ return x_5, nil
 				/*line codecli/cli.ergo:354:18*/
-			}, Direct0: ergo__WriteApiView, Read0: ergo__ReadApiView, Read1: ergo__ReadApiView_1, Read2: ergo__ReadApiView_2, Read3: ergo__ReadApiView_3, Field: nil}, v_29)
+			}, Direct0: ergo__WriteApiView, Read0: ergo__ReadApiView, Read1: ergo__ReadApiView_1, Read2: ergo__ReadApiView_2, Read3: ergo__ReadApiView_3, Field: nil}, v_30)
 //line codecli/cli.ergo:354:4
 //line codecli/cli.ergo:355:4
-			v_33 := codetool_scodecli__answer(asJSON, v_32, v_32)
-			/*line codecli/cli.ergo:355:4*/ return v_33
+			v_34 := codetool_scodecli__answer(asJSON, v_33, v_33)
+			/*line codecli/cli.ergo:355:4*/ return v_34
 			/*line codecli/cli.ergo:355:4*/
 		case codetool_scodeapi__ReachReply:
-			/*line codecli/cli.ergo:355:4*/ reply_6 := v_3
+			/*line codecli/cli.ergo:355:4*/ reply_6 := v_4
 //line codecli/cli.ergo:357:4
-			var v_34 code__ReachPage = reply_6.Value
+			var v_35 code__ReachPage = reply_6.Value
 //line codecli/cli.ergo:358:4
 //line codecli/cli.ergo:358:18
-			v_37 := rpc__EncodeMono_i1909667394(env, struct {
+			v_38 := rpc__EncodeMono_i1909667394(env, struct {
 				/*line codecli/cli.ergo:358:18*/ Enc func(*ergo__Env, ergo__Writer, code__ReachPage) (struct{}, error)
 				/*line codecli/cli.ergo:358:18*/ Dec func(*ergo__Env, ergo__Reader) (code__ReachPage, error)
 				/*line codecli/cli.ergo:358:18*/ Direct0 func(*ergo__Env, json__text, code__ReachPage) json__text
@@ -36467,8 +36572,8 @@ func codetool_scodecli__Show(env *ergo__Env, o codetool_scodeapi__Outcome, asJSO
 					/*line codecli/cli.ergo:358:18*/
 				}
 				/*line codecli/cli.ergo:358:18*/
-			}{Enc: func(e_18 *ergo__Env, w_6 ergo__Writer, v_35 code__ReachPage) (struct{}, error) {
-				/*line codecli/cli.ergo:358:18*/ ergo__EncodeReachPage(e_18, w_6, v_35)
+			}{Enc: func(e_18 *ergo__Env, w_6 ergo__Writer, v_36 code__ReachPage) (struct{}, error) {
+				/*line codecli/cli.ergo:358:18*/ ergo__EncodeReachPage(e_18, w_6, v_36)
 				/*line codecli/cli.ergo:358:18*/ return struct{}{}, nil
 				/*line codecli/cli.ergo:358:18*/
 			}, Dec: func(e_19 *ergo__Env, r_6 ergo__Reader) (code__ReachPage, error) {
@@ -36479,19 +36584,19 @@ func codetool_scodecli__Show(env *ergo__Env, o codetool_scodeapi__Outcome, asJSO
 				}
 				/*line codecli/cli.ergo:358:18*/ return x_6, nil
 				/*line codecli/cli.ergo:358:18*/
-			}, Direct0: ergo__WriteReachPage, Read0: ergo__ReadReachPage, Read1: ergo__ReadReachPage_1, Read2: ergo__ReadReachPage_2, Read3: ergo__ReadReachPage_3, Field: nil}, v_34)
+			}, Direct0: ergo__WriteReachPage, Read0: ergo__ReadReachPage, Read1: ergo__ReadReachPage_1, Read2: ergo__ReadReachPage_2, Read3: ergo__ReadReachPage_3, Field: nil}, v_35)
 //line codecli/cli.ergo:358:4
 //line codecli/cli.ergo:359:4
-			v_38 := codetool_scodecli__answer(asJSON, v_37, v_37)
-			/*line codecli/cli.ergo:359:4*/ return v_38
+			v_39 := codetool_scodecli__answer(asJSON, v_38, v_38)
+			/*line codecli/cli.ergo:359:4*/ return v_39
 			/*line codecli/cli.ergo:359:4*/
 		case codetool_scodeapi__MachineOfReply:
-			/*line codecli/cli.ergo:359:4*/ reply_7 := v_3
+			/*line codecli/cli.ergo:359:4*/ reply_7 := v_4
 //line codecli/cli.ergo:361:4
-			var v_39 code__MachineView = reply_7.Value
+			var v_40 code__MachineView = reply_7.Value
 //line codecli/cli.ergo:362:4
 //line codecli/cli.ergo:362:18
-			v_42 := rpc__EncodeMono_i3049539590(env, struct {
+			v_43 := rpc__EncodeMono_i3049539590(env, struct {
 				/*line codecli/cli.ergo:362:18*/ Enc func(*ergo__Env, ergo__Writer, code__MachineView) (struct{}, error)
 				/*line codecli/cli.ergo:362:18*/ Dec func(*ergo__Env, ergo__Reader) (code__MachineView, error)
 				/*line codecli/cli.ergo:362:18*/ Direct0 func(*ergo__Env, json__text, code__MachineView) json__text
@@ -36512,8 +36617,8 @@ func codetool_scodecli__Show(env *ergo__Env, o codetool_scodeapi__Outcome, asJSO
 					/*line codecli/cli.ergo:362:18*/
 				}
 				/*line codecli/cli.ergo:362:18*/
-			}{Enc: func(e_21 *ergo__Env, w_7 ergo__Writer, v_40 code__MachineView) (struct{}, error) {
-				/*line codecli/cli.ergo:362:18*/ ergo__EncodeMachineView(e_21, w_7, v_40)
+			}{Enc: func(e_21 *ergo__Env, w_7 ergo__Writer, v_41 code__MachineView) (struct{}, error) {
+				/*line codecli/cli.ergo:362:18*/ ergo__EncodeMachineView(e_21, w_7, v_41)
 				/*line codecli/cli.ergo:362:18*/ return struct{}{}, nil
 				/*line codecli/cli.ergo:362:18*/
 			}, Dec: func(e_22 *ergo__Env, r_7 ergo__Reader) (code__MachineView, error) {
@@ -36524,14 +36629,14 @@ func codetool_scodecli__Show(env *ergo__Env, o codetool_scodeapi__Outcome, asJSO
 				}
 				/*line codecli/cli.ergo:362:18*/ return x_7, nil
 				/*line codecli/cli.ergo:362:18*/
-			}, Direct0: ergo__WriteMachineView, Read0: ergo__ReadMachineView, Read1: ergo__ReadMachineView_1, Read2: ergo__ReadMachineView_2, Read3: ergo__ReadMachineView_3, Field: nil}, v_39)
+			}, Direct0: ergo__WriteMachineView, Read0: ergo__ReadMachineView, Read1: ergo__ReadMachineView_1, Read2: ergo__ReadMachineView_2, Read3: ergo__ReadMachineView_3, Field: nil}, v_40)
 //line codecli/cli.ergo:362:4
 //line codecli/cli.ergo:363:4
-			v_43 := codetool_scodecli__answer(asJSON, v_42, v_42)
-			/*line codecli/cli.ergo:363:4*/ return v_43
+			v_44 := codetool_scodecli__answer(asJSON, v_43, v_43)
+			/*line codecli/cli.ergo:363:4*/ return v_44
 			/*line codecli/cli.ergo:363:4*/
 		default:
-			/*line codecli/cli.ergo:363:4*/ _ = v_3
+			/*line codecli/cli.ergo:363:4*/ _ = v_4
 			/*line codecli/cli.ergo:363:4*/ panic("ergo: defect: no case of the match at 331:3 matched")
 			/*line codecli/cli.ergo:363:4*/
 		}
@@ -36540,17 +36645,17 @@ func codetool_scodecli__Show(env *ergo__Env, o codetool_scodeapi__Outcome, asJSO
 		/*line codecli/cli.ergo:363:4*/ rejected := v
 //line codecli/cli.ergo:366:3
 //line codecli/cli.ergo:366:16
-		v_44, err_9 := p.Code(env, rejected.Failure)
+		v_45, err_9 := p.Code(env, rejected.Failure)
 		/*line codecli/cli.ergo:366:16*/ _ = err_9
 //line codecli/cli.ergo:366:3
 //line codecli/cli.ergo:367:3
-		switch v_45 := rejected.Failure.(type) {
+		switch v_46 := rejected.Failure.(type) {
 		/*line codecli/cli.ergo:367:3*/ case codetool_scodeapi__NoSymbol:
-			/*line codecli/cli.ergo:367:3*/ failure := v_45
+			/*line codecli/cli.ergo:367:3*/ failure := v_46
 //line codecli/cli.ergo:369:4
 			t := asJSON
 //line codecli/cli.ergo:369:42
-			v_48 := rpc__EncodeMono_i1362702477(env, struct {
+			v_49 := rpc__EncodeMono_i1362702477(env, struct {
 				/*line codecli/cli.ergo:369:42*/ Enc func(*ergo__Env, ergo__Writer, code__NoSymbol) (struct{}, error)
 				/*line codecli/cli.ergo:369:42*/ Dec func(*ergo__Env, ergo__Reader) (code__NoSymbol, error)
 				/*line codecli/cli.ergo:369:42*/ Direct0 func(*ergo__Env, json__text, code__NoSymbol) json__text
@@ -36571,8 +36676,8 @@ func codetool_scodecli__Show(env *ergo__Env, o codetool_scodeapi__Outcome, asJSO
 					/*line codecli/cli.ergo:369:42*/
 				}
 				/*line codecli/cli.ergo:369:42*/
-			}{Enc: func(e_24 *ergo__Env, w_8 ergo__Writer, v_46 code__NoSymbol) (struct{}, error) {
-				/*line codecli/cli.ergo:369:42*/ ergo__EncodeNoSymbol(e_24, w_8, v_46)
+			}{Enc: func(e_24 *ergo__Env, w_8 ergo__Writer, v_47 code__NoSymbol) (struct{}, error) {
+				/*line codecli/cli.ergo:369:42*/ ergo__EncodeNoSymbol(e_24, w_8, v_47)
 				/*line codecli/cli.ergo:369:42*/ return struct{}{}, nil
 				/*line codecli/cli.ergo:369:42*/
 			}, Dec: func(e_25 *ergo__Env, r_8 ergo__Reader) (code__NoSymbol, error) {
@@ -36586,17 +36691,17 @@ func codetool_scodecli__Show(env *ergo__Env, o codetool_scodeapi__Outcome, asJSO
 			}, Direct0: ergo__WriteNoSymbol, Read0: ergo__ReadNoSymbol, Read1: ergo__ReadNoSymbol_1, Read2: ergo__ReadNoSymbol_2, Read3: ergo__ReadNoSymbol_3, Field: nil}, failure.E)
 //line codecli/cli.ergo:369:4
 //line codecli/cli.ergo:369:19
-			v_49 := ergorpc.RPCTagged("NoSymbol", v_48)
+			v_50 := ergorpc.RPCTagged("NoSymbol", v_49)
 //line codecli/cli.ergo:369:4
-			v_50 := codetool_scodecli__failed(env, t, v_49, v_44)
-			/*line codecli/cli.ergo:369:4*/ return v_50
+			v_51 := codetool_scodecli__failed(env, t, v_50, v_45)
+			/*line codecli/cli.ergo:369:4*/ return v_51
 			/*line codecli/cli.ergo:369:4*/
 		case codetool_scodeapi__Ambiguous:
-			/*line codecli/cli.ergo:369:4*/ failure_1 := v_45
+			/*line codecli/cli.ergo:369:4*/ failure_1 := v_46
 //line codecli/cli.ergo:371:4
 			t_1 := asJSON
 //line codecli/cli.ergo:371:43
-			v_53 := rpc__EncodeMono_i2857364534(env, struct {
+			v_54 := rpc__EncodeMono_i2857364534(env, struct {
 				/*line codecli/cli.ergo:371:43*/ Enc func(*ergo__Env, ergo__Writer, code__Ambiguous) (struct{}, error)
 				/*line codecli/cli.ergo:371:43*/ Dec func(*ergo__Env, ergo__Reader) (code__Ambiguous, error)
 				/*line codecli/cli.ergo:371:43*/ Direct0 func(*ergo__Env, json__text, code__Ambiguous) json__text
@@ -36617,8 +36722,8 @@ func codetool_scodecli__Show(env *ergo__Env, o codetool_scodeapi__Outcome, asJSO
 					/*line codecli/cli.ergo:371:43*/
 				}
 				/*line codecli/cli.ergo:371:43*/
-			}{Enc: func(e_27 *ergo__Env, w_9 ergo__Writer, v_51 code__Ambiguous) (struct{}, error) {
-				/*line codecli/cli.ergo:371:43*/ ergo__EncodeAmbiguous(e_27, w_9, v_51)
+			}{Enc: func(e_27 *ergo__Env, w_9 ergo__Writer, v_52 code__Ambiguous) (struct{}, error) {
+				/*line codecli/cli.ergo:371:43*/ ergo__EncodeAmbiguous(e_27, w_9, v_52)
 				/*line codecli/cli.ergo:371:43*/ return struct{}{}, nil
 				/*line codecli/cli.ergo:371:43*/
 			}, Dec: func(e_28 *ergo__Env, r_9 ergo__Reader) (code__Ambiguous, error) {
@@ -36632,17 +36737,17 @@ func codetool_scodecli__Show(env *ergo__Env, o codetool_scodeapi__Outcome, asJSO
 			}, Direct0: ergo__WriteAmbiguous, Read0: ergo__ReadAmbiguous, Read1: ergo__ReadAmbiguous_1, Read2: ergo__ReadAmbiguous_2, Read3: ergo__ReadAmbiguous_3, Field: nil}, failure_1.E)
 //line codecli/cli.ergo:371:4
 //line codecli/cli.ergo:371:19
-			v_54 := ergorpc.RPCTagged("Ambiguous", v_53)
+			v_55 := ergorpc.RPCTagged("Ambiguous", v_54)
 //line codecli/cli.ergo:371:4
-			v_55 := codetool_scodecli__failed(env, t_1, v_54, v_44)
-			/*line codecli/cli.ergo:371:4*/ return v_55
+			v_56 := codetool_scodecli__failed(env, t_1, v_55, v_45)
+			/*line codecli/cli.ergo:371:4*/ return v_56
 			/*line codecli/cli.ergo:371:4*/
 		case codetool_scodeapi__NotCallable:
-			/*line codecli/cli.ergo:371:4*/ failure_2 := v_45
+			/*line codecli/cli.ergo:371:4*/ failure_2 := v_46
 //line codecli/cli.ergo:373:4
 			t_2 := asJSON
 //line codecli/cli.ergo:373:45
-			v_58 := rpc__EncodeMono_i579832483(env, struct {
+			v_59 := rpc__EncodeMono_i579832483(env, struct {
 				/*line codecli/cli.ergo:373:45*/ Enc func(*ergo__Env, ergo__Writer, code__NotCallable) (struct{}, error)
 				/*line codecli/cli.ergo:373:45*/ Dec func(*ergo__Env, ergo__Reader) (code__NotCallable, error)
 				/*line codecli/cli.ergo:373:45*/ Direct0 func(*ergo__Env, json__text, code__NotCallable) json__text
@@ -36663,8 +36768,8 @@ func codetool_scodecli__Show(env *ergo__Env, o codetool_scodeapi__Outcome, asJSO
 					/*line codecli/cli.ergo:373:45*/
 				}
 				/*line codecli/cli.ergo:373:45*/
-			}{Enc: func(e_30 *ergo__Env, w_10 ergo__Writer, v_56 code__NotCallable) (struct{}, error) {
-				/*line codecli/cli.ergo:373:45*/ ergo__EncodeNotCallable(e_30, w_10, v_56)
+			}{Enc: func(e_30 *ergo__Env, w_10 ergo__Writer, v_57 code__NotCallable) (struct{}, error) {
+				/*line codecli/cli.ergo:373:45*/ ergo__EncodeNotCallable(e_30, w_10, v_57)
 				/*line codecli/cli.ergo:373:45*/ return struct{}{}, nil
 				/*line codecli/cli.ergo:373:45*/
 			}, Dec: func(e_31 *ergo__Env, r_10 ergo__Reader) (code__NotCallable, error) {
@@ -36678,17 +36783,17 @@ func codetool_scodecli__Show(env *ergo__Env, o codetool_scodeapi__Outcome, asJSO
 			}, Direct0: ergo__WriteNotCallable, Read0: ergo__ReadNotCallable, Read1: ergo__ReadNotCallable_1, Read2: ergo__ReadNotCallable_2, Read3: ergo__ReadNotCallable_3, Field: nil}, failure_2.E)
 //line codecli/cli.ergo:373:4
 //line codecli/cli.ergo:373:19
-			v_59 := ergorpc.RPCTagged("NotCallable", v_58)
+			v_60 := ergorpc.RPCTagged("NotCallable", v_59)
 //line codecli/cli.ergo:373:4
-			v_60 := codetool_scodecli__failed(env, t_2, v_59, v_44)
-			/*line codecli/cli.ergo:373:4*/ return v_60
+			v_61 := codetool_scodecli__failed(env, t_2, v_60, v_45)
+			/*line codecli/cli.ergo:373:4*/ return v_61
 			/*line codecli/cli.ergo:373:4*/
 		case codetool_scodeapi__NoPackage:
-			/*line codecli/cli.ergo:373:4*/ failure_3 := v_45
+			/*line codecli/cli.ergo:373:4*/ failure_3 := v_46
 //line codecli/cli.ergo:375:4
 			t_3 := asJSON
 //line codecli/cli.ergo:375:43
-			v_63 := rpc__EncodeMono_i845740567(env, struct {
+			v_64 := rpc__EncodeMono_i845740567(env, struct {
 				/*line codecli/cli.ergo:375:43*/ Enc func(*ergo__Env, ergo__Writer, code__NoPackage) (struct{}, error)
 				/*line codecli/cli.ergo:375:43*/ Dec func(*ergo__Env, ergo__Reader) (code__NoPackage, error)
 				/*line codecli/cli.ergo:375:43*/ Direct0 func(*ergo__Env, json__text, code__NoPackage) json__text
@@ -36709,8 +36814,8 @@ func codetool_scodecli__Show(env *ergo__Env, o codetool_scodeapi__Outcome, asJSO
 					/*line codecli/cli.ergo:375:43*/
 				}
 				/*line codecli/cli.ergo:375:43*/
-			}{Enc: func(e_33 *ergo__Env, w_11 ergo__Writer, v_61 code__NoPackage) (struct{}, error) {
-				/*line codecli/cli.ergo:375:43*/ ergo__EncodeNoPackage(e_33, w_11, v_61)
+			}{Enc: func(e_33 *ergo__Env, w_11 ergo__Writer, v_62 code__NoPackage) (struct{}, error) {
+				/*line codecli/cli.ergo:375:43*/ ergo__EncodeNoPackage(e_33, w_11, v_62)
 				/*line codecli/cli.ergo:375:43*/ return struct{}{}, nil
 				/*line codecli/cli.ergo:375:43*/
 			}, Dec: func(e_34 *ergo__Env, r_11 ergo__Reader) (code__NoPackage, error) {
@@ -36724,17 +36829,17 @@ func codetool_scodecli__Show(env *ergo__Env, o codetool_scodeapi__Outcome, asJSO
 			}, Direct0: ergo__WriteNoPackage, Read0: ergo__ReadNoPackage, Read1: ergo__ReadNoPackage_1, Read2: ergo__ReadNoPackage_2, Read3: ergo__ReadNoPackage_3, Field: nil}, failure_3.E)
 //line codecli/cli.ergo:375:4
 //line codecli/cli.ergo:375:19
-			v_64 := ergorpc.RPCTagged("NoPackage", v_63)
+			v_65 := ergorpc.RPCTagged("NoPackage", v_64)
 //line codecli/cli.ergo:375:4
-			v_65 := codetool_scodecli__failed(env, t_3, v_64, v_44)
-			/*line codecli/cli.ergo:375:4*/ return v_65
+			v_66 := codetool_scodecli__failed(env, t_3, v_65, v_45)
+			/*line codecli/cli.ergo:375:4*/ return v_66
 			/*line codecli/cli.ergo:375:4*/
 		case codetool_scodeapi__NotMachine:
-			/*line codecli/cli.ergo:375:4*/ failure_4 := v_45
+			/*line codecli/cli.ergo:375:4*/ failure_4 := v_46
 //line codecli/cli.ergo:377:4
 			t_4 := asJSON
 //line codecli/cli.ergo:377:44
-			v_68 := rpc__EncodeMono_i1966107540(env, struct {
+			v_69 := rpc__EncodeMono_i1966107540(env, struct {
 				/*line codecli/cli.ergo:377:44*/ Enc func(*ergo__Env, ergo__Writer, code__NotMachine) (struct{}, error)
 				/*line codecli/cli.ergo:377:44*/ Dec func(*ergo__Env, ergo__Reader) (code__NotMachine, error)
 				/*line codecli/cli.ergo:377:44*/ Direct0 func(*ergo__Env, json__text, code__NotMachine) json__text
@@ -36755,8 +36860,8 @@ func codetool_scodecli__Show(env *ergo__Env, o codetool_scodeapi__Outcome, asJSO
 					/*line codecli/cli.ergo:377:44*/
 				}
 				/*line codecli/cli.ergo:377:44*/
-			}{Enc: func(e_36 *ergo__Env, w_12 ergo__Writer, v_66 code__NotMachine) (struct{}, error) {
-				/*line codecli/cli.ergo:377:44*/ ergo__EncodeNotMachine(e_36, w_12, v_66)
+			}{Enc: func(e_36 *ergo__Env, w_12 ergo__Writer, v_67 code__NotMachine) (struct{}, error) {
+				/*line codecli/cli.ergo:377:44*/ ergo__EncodeNotMachine(e_36, w_12, v_67)
 				/*line codecli/cli.ergo:377:44*/ return struct{}{}, nil
 				/*line codecli/cli.ergo:377:44*/
 			}, Dec: func(e_37 *ergo__Env, r_12 ergo__Reader) (code__NotMachine, error) {
@@ -36770,13 +36875,13 @@ func codetool_scodecli__Show(env *ergo__Env, o codetool_scodeapi__Outcome, asJSO
 			}, Direct0: ergo__WriteNotMachine, Read0: ergo__ReadNotMachine, Read1: ergo__ReadNotMachine_1, Read2: ergo__ReadNotMachine_2, Read3: ergo__ReadNotMachine_3, Field: nil}, failure_4.E)
 //line codecli/cli.ergo:377:4
 //line codecli/cli.ergo:377:19
-			v_69 := ergorpc.RPCTagged("NotMachine", v_68)
+			v_70 := ergorpc.RPCTagged("NotMachine", v_69)
 //line codecli/cli.ergo:377:4
-			v_70 := codetool_scodecli__failed(env, t_4, v_69, v_44)
-			/*line codecli/cli.ergo:377:4*/ return v_70
+			v_71 := codetool_scodecli__failed(env, t_4, v_70, v_45)
+			/*line codecli/cli.ergo:377:4*/ return v_71
 			/*line codecli/cli.ergo:377:4*/
 		default:
-			/*line codecli/cli.ergo:377:4*/ _ = v_45
+			/*line codecli/cli.ergo:377:4*/ _ = v_46
 			/*line codecli/cli.ergo:377:4*/ panic("ergo: defect: no case of the match at 367:3 matched")
 			/*line codecli/cli.ergo:377:4*/
 		}
@@ -37360,20 +37465,21 @@ func codetool_scodecli__commandSymbol() flag__Command[codetool_scodeapi__Request
 //line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@48.12:104:8
 			v_5 := (v).Get(v_3)
 //line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@48.12:104:2
-			s := v_5
-			/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@48.12:104:2*/ switch s.tag {
-			/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@48.12:104:2*/ case 0:
-				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@48.12:104:2*/ s_1 := s.as0()
+			switch v_6 := v_5.(type) {
+			/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@48.12:104:2*/ case ergo__Some[string]:
+				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@48.12:104:2*/ s := v_6
 //line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@48.12:106:3
-				v_4 = s_1.Value
+				v_4 = s.Value
 				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@48.12:106:3*/ goto inl
 				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@48.12:106:3*/
-			case 1:
+			case ergo__None:
+				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@48.12:106:3*/ _ = v_6
 //line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@48.12:108:3
 				v_4 = ""
 				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@48.12:108:3*/ goto inl
 				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@48.12:108:3*/
 			default:
+				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@48.12:108:3*/ _ = v_6
 				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@48.12:108:3*/ panic("ergo: defect: no case of the match at 104:2 matched")
 				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@48.12:108:3*/
 			}
@@ -37681,20 +37787,21 @@ func codetool_scodecli__commandMachineOf() flag__Command[codetool_scodeapi__Requ
 //line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@98.12:104:8
 			v_5 := (v).Get(v_3)
 //line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@98.12:104:2
-			s := v_5
-			/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@98.12:104:2*/ switch s.tag {
-			/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@98.12:104:2*/ case 0:
-				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@98.12:104:2*/ s_1 := s.as0()
+			switch v_6 := v_5.(type) {
+			/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@98.12:104:2*/ case ergo__Some[string]:
+				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@98.12:104:2*/ s := v_6
 //line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@98.12:106:3
-				v_4 = s_1.Value
+				v_4 = s.Value
 				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@98.12:106:3*/ goto inl
 				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@98.12:106:3*/
-			case 1:
+			case ergo__None:
+				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@98.12:106:3*/ _ = v_6
 //line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@98.12:108:3
 				v_4 = ""
 				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@98.12:108:3*/ goto inl
 				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@98.12:108:3*/
 			default:
+				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@98.12:108:3*/ _ = v_6
 				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@98.12:108:3*/ panic("ergo: defect: no case of the match at 104:2 matched")
 				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@98.12:108:3*/
 			}
