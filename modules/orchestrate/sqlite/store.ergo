@@ -1,0 +1,428 @@
+import github.com/cevr/ergo/modules/orchestrate/orchestrate
+import github.com/cevr/ergo/modules/sqlite/sqlite
+import go os
+import sql
+import sync
+
+// Store is a transactional SQLite provider of orchestrate.Store writing events,
+// projections, and receipts atomically inside one BEGIN IMMEDIATE transaction.
+type Store { db Option[sqlite.DB], err string } implements orchestrate.Store
+
+// WALStore is a file-backed WAL SQLite provider of orchestrate.Store used to run
+// Store contract laws natively over real WAL files on disk.
+type WALStore { db Option[sqlite.DB], err string } implements orchestrate.Store
+
+// Open opens or initializes a file-backed WAL SQLite orchestrate Store at path,
+// enforcing CurrentSchemaVersion before accepting any writes.
+func Open(path string) Store fails orchestrate.StoreFailed needs go.Foreign {
+	let db = sqlite.Open(path) catch {
+	case sql.Unique as e:
+		return orchestrate.StoreFailed{Reason: "open unique: " + e.Constraint}
+	case sql.Serialization as e:
+		return orchestrate.StoreFailed{Reason: "open busy: " + e.Message}
+	case sql.Deadlock as e:
+		return orchestrate.StoreFailed{Reason: "open deadlock: " + e.Message}
+	case sql.Timeout as e:
+		return orchestrate.StoreFailed{Reason: "open timeout: " + e.Message}
+	case sql.Closed as e:
+		return orchestrate.StoreFailed{Reason: "open closed: " + e.Message}
+	case sql.Other as e:
+		return orchestrate.StoreFailed{Reason: "open failed: " + e.Message}
+	}
+	try initStore(db)
+}
+
+// OpenMemory opens a private in-memory SQLite orchestrate Store.
+func OpenMemory() Store fails orchestrate.StoreFailed needs go.Foreign {
+	try Open(":memory:")
+}
+
+// NewStore opens a fresh in-memory SQLite Store for native contract-law runs.
+func NewStore() Store needs go.Foreign {
+	OpenMemory() catch {
+	case orchestrate.StoreFailed as e:
+		Store{db: None, err: e.Reason}
+	}
+}
+
+// NewWALStore opens a fresh file-backed WAL SQLite Store for native contract-law runs.
+func NewWALStore() WALStore needs go.Foreign {
+	let st = openLawFileWAL() catch {
+	case orchestrate.StoreFailed as e:
+		Store{db: None, err: e.Reason}
+	}
+	WALStore{db: st.db, err: st.err}
+}
+
+// Close closes the underlying SQLite connection pool.
+func Close(s Store) fails orchestrate.StoreFailed needs go.Foreign {
+	let db = try openDB(s.db, s.err)
+	db.Close() catch {
+	case sql.Closed as e:
+		return orchestrate.StoreFailed{Reason: "close closed: " + e.Message}
+	case sql.Other as e:
+		return orchestrate.StoreFailed{Reason: "close failed: " + e.Message}
+	}
+}
+
+func openDB(opt Option[sqlite.DB], err string) sqlite.DB fails orchestrate.StoreFailed {
+	match opt {
+	case Some[sqlite.DB] as d:
+		d.Value
+	case None:
+		orchestrate.StoreFailed{Reason: err}
+	}
+}
+
+func initStore(db sqlite.DB) Store fails orchestrate.StoreFailed needs go.Foreign {
+	let _ = with context { sql.DB: db } {
+		sqlite.WriteTransaction() {
+			try initSchema()
+			true
+		}
+	} catch {
+	case orchestrate.StoreFailed as e:
+		closeIgnoring(db)
+		return e
+	case sql.Unique as e:
+		closeIgnoring(db)
+		return orchestrate.StoreFailed{Reason: "init unique: " + e.Constraint}
+	case sql.Serialization as e:
+		closeIgnoring(db)
+		return orchestrate.StoreFailed{Reason: "init busy: " + e.Message}
+	case sql.Deadlock as e:
+		closeIgnoring(db)
+		return orchestrate.StoreFailed{Reason: "init deadlock: " + e.Message}
+	case sql.Timeout as e:
+		closeIgnoring(db)
+		return orchestrate.StoreFailed{Reason: "init timeout: " + e.Message}
+	case sql.Closed as e:
+		closeIgnoring(db)
+		return orchestrate.StoreFailed{Reason: "init closed: " + e.Message}
+	case sql.Other as e:
+		closeIgnoring(db)
+		return orchestrate.StoreFailed{Reason: "init failed: " + e.Message}
+	}
+	Store{db: Some[sqlite.DB]{Value: db}, err: ""}
+}
+
+func closeIgnoring(db sqlite.DB) needs go.Foreign {
+	db.Close() catch {
+	case sql.Closed, sql.Other:
+	}
+}
+
+func executeOn(opt Option[sqlite.DB], err string, env orchestrate.Envelope) orchestrate.ExecuteResult fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.StaleClaim | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.StoreFailed needs go.Foreign {
+	let db = try openDB(opt, err)
+	with context { sql.DB: db } {
+		sqlite.WriteTransaction() {
+			try executeTx(env)
+		}
+	} catch {
+	case orchestrate.NotFound as e:
+		return e
+	case orchestrate.AlreadyExists as e:
+		return e
+	case orchestrate.InvalidTransition as e:
+		return e
+	case orchestrate.StaleClaim as e:
+		return e
+	case orchestrate.CommandReused as e:
+		return e
+	case orchestrate.InvalidInput as e:
+		return e
+	case orchestrate.StoreFailed as e:
+		return e
+	case sql.Unique as e:
+		return orchestrate.StoreFailed{Reason: "tx unique: " + e.Constraint}
+	case sql.Serialization as e:
+		return orchestrate.StoreFailed{Reason: "tx busy: " + e.Message}
+	case sql.Deadlock as e:
+		return orchestrate.StoreFailed{Reason: "tx deadlock: " + e.Message}
+	case sql.Timeout as e:
+		return orchestrate.StoreFailed{Reason: "tx timeout: " + e.Message}
+	case sql.Closed as e:
+		return orchestrate.StoreFailed{Reason: "tx closed: " + e.Message}
+	case sql.Other as e:
+		return orchestrate.StoreFailed{Reason: "tx failed: " + e.Message}
+	}
+}
+
+// Execute runs pure orchestrate.Decide and persists all emitted events and projection
+// rows atomically inside one BEGIN IMMEDIATE SQLite transaction.
+func Execute(s Store, env orchestrate.Envelope) orchestrate.ExecuteResult fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.StaleClaim | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.StoreFailed needs go.Foreign {
+	try executeOn(s.db, s.err, env)
+}
+
+// Execute runs pure orchestrate.Decide and persists all emitted events and projection
+// rows atomically inside one BEGIN IMMEDIATE SQLite WAL transaction.
+func Execute(w WALStore, env orchestrate.Envelope) orchestrate.ExecuteResult fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.StaleClaim | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.StoreFailed needs go.Foreign {
+	try executeOn(w.db, w.err, env)
+}
+
+func executeTx(env orchestrate.Envelope) orchestrate.ExecuteResult fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.StaleClaim | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.StoreFailed needs sql.Tx {
+	let payloadJSON = encodeCommand(env.Command)
+	let digest = commandDigest(payloadJSON)
+	let seenRows = try queryTx(
+		"SELECT payload_digest, payload_json FROM commands WHERE command_id = ?",
+		[]sql.Value{sql.Text{S: string(env.ID)}},
+	)
+	if len(seenRows) > 0 {
+		let storedDigest = try textAt(seenRows[0], 0, "payload_digest")
+		let storedJSON = try textAt(seenRows[0], 1, "payload_json")
+		if storedDigest == digest && storedJSON == payloadJSON {
+			let curSeq = try lastSeqTx()
+			return orchestrate.ExecuteResult{Seq: curSeq, Events: []orchestrate.Event{}, Duplicate: true}
+		}
+		return orchestrate.CommandReused{ID: env.ID}
+	}
+	let state = try loadStateTx()
+	let events = try decideForTx(state, env)
+	let mut seq = try lastSeqTx()
+	for ev in events {
+		seq = seq + 1
+		let _ = try execTx(
+			"INSERT INTO events (seq, command_id, payload_digest, event_json) VALUES (?, ?, ?, ?)",
+			[]sql.Value{
+				sql.Int{N: int64(seq)},
+				sql.Text{S: string(env.ID)},
+				sql.Text{S: digest},
+				sql.Text{S: encodeEvent(ev)},
+			},
+		)
+		try applyEventSQL(ev, seq)
+	}
+	orchestrate.ExecuteResult{Seq: seq, Events: events, Duplicate: len(events) == 0}
+}
+
+func decideForTx(state orchestrate.State, env orchestrate.Envelope) []orchestrate.Event fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.StaleClaim | orchestrate.CommandReused | orchestrate.InvalidInput {
+	orchestrate.Decide(state, env) catch {
+	case orchestrate.NotFound as e:
+		return e
+	case orchestrate.AlreadyExists as e:
+		return e
+	case orchestrate.InvalidTransition as e:
+		return e
+	case orchestrate.StaleClaim as e:
+		return e
+	case orchestrate.CommandReused as e:
+		return e
+	case orchestrate.InvalidInput as e:
+		return e
+	}
+}
+
+func lastSeqTx() int fails orchestrate.StoreFailed needs sql.Tx {
+	let rows = try queryTx("SELECT COALESCE(MAX(seq), 0) FROM events", []sql.Value{})
+	if len(rows) == 0 {
+		return 0
+	}
+	try intAt(rows[0], 0, "seq")
+}
+
+func readOn[T](opt Option[sqlite.DB], err string, body func() T fails orchestrate.StoreFailed needs sql.Tx) T fails orchestrate.StoreFailed needs go.Foreign {
+	let db = try openDB(opt, err)
+	with context { sql.DB: sqlite.ReadOnly(db) } {
+		sql.Transaction() {
+			try body()
+		}
+	} catch {
+	case orchestrate.StoreFailed as e:
+		return e
+	case sql.Unique as e:
+		return orchestrate.StoreFailed{Reason: "read unique: " + e.Constraint}
+	case sql.Serialization as e:
+		return orchestrate.StoreFailed{Reason: "read busy: " + e.Message}
+	case sql.Deadlock as e:
+		return orchestrate.StoreFailed{Reason: "read deadlock: " + e.Message}
+	case sql.Timeout as e:
+		return orchestrate.StoreFailed{Reason: "read timeout: " + e.Message}
+	case sql.Closed as e:
+		return orchestrate.StoreFailed{Reason: "read closed: " + e.Message}
+	case sql.Other as e:
+		return orchestrate.StoreFailed{Reason: "read failed: " + e.Message}
+	}
+}
+
+// Snapshot reads the complete projected State from the SQLite projection tables in one read transaction.
+func Snapshot(s Store) orchestrate.State fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(s.db, s.err, func() orchestrate.State fails orchestrate.StoreFailed needs sql.Tx { try loadStateTx() })
+}
+
+// Snapshot reads the complete projected State from the WAL SQLite projection tables in one read transaction.
+func Snapshot(w WALStore) orchestrate.State fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(w.db, w.err, func() orchestrate.State fails orchestrate.StoreFailed needs sql.Tx { try loadStateTx() })
+}
+
+// Events reads all persisted events with Seq > fromSeq in ascending order.
+func Events(s Store, fromSeq int) []orchestrate.StoredEvent fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(s.db, s.err, func() []orchestrate.StoredEvent fails orchestrate.StoreFailed needs sql.Tx { try queryEventsTx(fromSeq) })
+}
+
+// Events reads all persisted WAL events with Seq > fromSeq in ascending order.
+func Events(w WALStore, fromSeq int) []orchestrate.StoredEvent fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(w.db, w.err, func() []orchestrate.StoredEvent fails orchestrate.StoreFailed needs sql.Tx { try queryEventsTx(fromSeq) })
+}
+
+// Unit looks up one unit projection by ID.
+func Unit(s Store, id string) Option[orchestrate.Unit] fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(s.db, s.err, func() Option[orchestrate.Unit] fails orchestrate.StoreFailed needs sql.Tx { try queryUnitTx(id) })
+}
+
+// Unit looks up one unit projection by ID on WALStore.
+func Unit(w WALStore, id string) Option[orchestrate.Unit] fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(w.db, w.err, func() Option[orchestrate.Unit] fails orchestrate.StoreFailed needs sql.Tx { try queryUnitTx(id) })
+}
+
+// ListUnits lists unit projections optionally filtered by status, sorted by ID.
+func ListUnits(s Store, status Option[orchestrate.UnitStatus]) []orchestrate.Unit fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(s.db, s.err, func() []orchestrate.Unit fails orchestrate.StoreFailed needs sql.Tx { try queryUnitsTx(status) })
+}
+
+// ListUnits lists unit projections optionally filtered by status, sorted by ID on WALStore.
+func ListUnits(w WALStore, status Option[orchestrate.UnitStatus]) []orchestrate.Unit fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(w.db, w.err, func() []orchestrate.Unit fails orchestrate.StoreFailed needs sql.Tx { try queryUnitsTx(status) })
+}
+
+// Receipts lists receipt projections for unitID, optionally filtered by round, in recorded order.
+func Receipts(s Store, unitID string, round Option[int]) []orchestrate.Receipt fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(s.db, s.err, func() []orchestrate.Receipt fails orchestrate.StoreFailed needs sql.Tx { try queryReceiptsTx(unitID, round) })
+}
+
+// Receipts lists receipt projections for unitID, optionally filtered by round, in recorded order on WALStore.
+func Receipts(w WALStore, unitID string, round Option[int]) []orchestrate.Receipt fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(w.db, w.err, func() []orchestrate.Receipt fails orchestrate.StoreFailed needs sql.Tx { try queryReceiptsTx(unitID, round) })
+}
+
+// Commitment looks up one commitment projection by ID.
+func Commitment(s Store, id string) Option[orchestrate.Commitment] fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(s.db, s.err, func() Option[orchestrate.Commitment] fails orchestrate.StoreFailed needs sql.Tx { try queryCommitmentTx(id) })
+}
+
+// Commitment looks up one commitment projection by ID on WALStore.
+func Commitment(w WALStore, id string) Option[orchestrate.Commitment] fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(w.db, w.err, func() Option[orchestrate.Commitment] fails orchestrate.StoreFailed needs sql.Tx { try queryCommitmentTx(id) })
+}
+
+// ListCommitments lists commitment projections optionally filtered by status and owner, sorted by ID.
+func ListCommitments(s Store, status Option[orchestrate.CommitmentStatus], owner Option[string]) []orchestrate.Commitment fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(s.db, s.err, func() []orchestrate.Commitment fails orchestrate.StoreFailed needs sql.Tx { try queryCommitmentsTx(status, owner) })
+}
+
+// ListCommitments lists commitment projections optionally filtered by status and owner, sorted by ID on WALStore.
+func ListCommitments(w WALStore, status Option[orchestrate.CommitmentStatus], owner Option[string]) []orchestrate.Commitment fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(w.db, w.err, func() []orchestrate.Commitment fails orchestrate.StoreFailed needs sql.Tx { try queryCommitmentsTx(status, owner) })
+}
+
+// ListQueue lists queue projections optionally filtered by status, ordered by priority then key.
+func ListQueue(s Store, status Option[string]) []orchestrate.QueueItem fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(s.db, s.err, func() []orchestrate.QueueItem fails orchestrate.StoreFailed needs sql.Tx { try queryQueueTx(status) })
+}
+
+// ListQueue lists queue projections optionally filtered by status, ordered by priority then key on WALStore.
+func ListQueue(w WALStore, status Option[string]) []orchestrate.QueueItem fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(w.db, w.err, func() []orchestrate.QueueItem fails orchestrate.StoreFailed needs sql.Tx { try queryQueueTx(status) })
+}
+
+// Question looks up one question projection by monotonic ID.
+func Question(s Store, id int) Option[orchestrate.Question] fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(s.db, s.err, func() Option[orchestrate.Question] fails orchestrate.StoreFailed needs sql.Tx { try queryQuestionTx(id) })
+}
+
+// Question looks up one question projection by monotonic ID on WALStore.
+func Question(w WALStore, id int) Option[orchestrate.Question] fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(w.db, w.err, func() Option[orchestrate.Question] fails orchestrate.StoreFailed needs sql.Tx { try queryQuestionTx(id) })
+}
+
+// ListQuestions lists question projections (all or open-only), sorted by ascending ID.
+func ListQuestions(s Store, openOnly bool) []orchestrate.Question fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(s.db, s.err, func() []orchestrate.Question fails orchestrate.StoreFailed needs sql.Tx { try queryQuestionsTx(openOnly) })
+}
+
+// ListQuestions lists question projections (all or open-only), sorted by ascending ID on WALStore.
+func ListQuestions(w WALStore, openOnly bool) []orchestrate.Question fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(w.db, w.err, func() []orchestrate.Question fails orchestrate.StoreFailed needs sql.Tx { try queryQuestionsTx(openOnly) })
+}
+
+let prevLawDB = sync.NewRef[Option[Store]](None)
+
+let lawWALDir = sync.NewRef("")
+
+func cleanFile(dir string, name string) needs go.Foreign {
+	let root = os.OpenRoot(dir) catch {
+	case go.Error:
+		return
+	}
+	root.Remove(name) catch {
+	case go.Error:
+	}
+	root.Close() catch {
+	case go.Error:
+	}
+}
+
+func freshWALDir() string fails orchestrate.StoreFailed needs go.Foreign {
+	let existing = lawWALDir.Get()
+	if existing != "" {
+		return existing
+	}
+	let dir = os.MkdirTemp("", "orch-sqlite-wal-*") catch {
+	case go.Error as e:
+		return orchestrate.StoreFailed{Reason: "mkdirtemp: " + e.Text}
+	}
+	lawWALDir.Set(dir)
+	dir
+}
+
+func resetStoreData(st Store) Store fails orchestrate.StoreFailed needs go.Foreign {
+	let db = try openDB(st.db, st.err)
+	let _ = with context { sql.DB: db } {
+		sqlite.WriteTransaction() {
+			let stmts = []string{
+				"DELETE FROM receipts",
+				"DELETE FROM units",
+				"DELETE FROM commitments",
+				"DELETE FROM queue",
+				"DELETE FROM questions",
+				"DELETE FROM events",
+				"DELETE FROM commands",
+				"UPDATE schema_meta SET next_question_id = 1 WHERE id = 1",
+			}
+			for stmt in stmts {
+				let _ = try execTx(stmt, []sql.Value{})
+			}
+			true
+		}
+	} catch {
+	case orchestrate.StoreFailed as e:
+		return e
+	case sql.Unique as e:
+		return orchestrate.StoreFailed{Reason: "reset unique: " + e.Constraint}
+	case sql.Serialization as e:
+		return orchestrate.StoreFailed{Reason: "reset busy: " + e.Message}
+	case sql.Deadlock as e:
+		return orchestrate.StoreFailed{Reason: "reset deadlock: " + e.Message}
+	case sql.Timeout as e:
+		return orchestrate.StoreFailed{Reason: "reset timeout: " + e.Message}
+	case sql.Closed as e:
+		return orchestrate.StoreFailed{Reason: "reset closed: " + e.Message}
+	case sql.Other as e:
+		return orchestrate.StoreFailed{Reason: "reset failed: " + e.Message}
+	}
+	st
+}
+
+func openLawFileWAL() Store fails orchestrate.StoreFailed needs go.Foreign {
+	match prevLawDB.Get() {
+	case Some[Store] as existing:
+		return try resetStoreData(existing.Value)
+	case None:
+	}
+	let dir = try freshWALDir()
+	cleanFile(dir, "law.db")
+	cleanFile(dir, "law.db-wal")
+	cleanFile(dir, "law.db-shm")
+	let st = try Open(dir + "/law.db")
+	prevLawDB.Set(Some[Store]{Value: st})
+	st
+}

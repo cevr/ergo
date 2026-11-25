@@ -1,0 +1,547 @@
+import github.com/cevr/ergo/modules/orchestrate/orchestrate
+import sql
+
+func applyEventSQL(ev orchestrate.Event, seq int) fails orchestrate.StoreFailed needs sql.Tx {
+	match ev {
+	case orchestrate.CommandAccepted as e:
+		let payloadJSON = encodeCommand(e.Command)
+		let digest = commandDigest(payloadJSON)
+		let _ = try execTx(
+			"INSERT INTO commands (command_id, actor, at, payload_json, payload_digest) VALUES (?, ?, ?, ?, ?)",
+			[]sql.Value{
+				sql.Text{S: string(e.ID)},
+				sql.Text{S: e.Actor},
+				sql.Text{S: e.At},
+				sql.Text{S: payloadJSON},
+				sql.Text{S: digest},
+			},
+		)
+	case orchestrate.UnitOpened as e:
+		let _ = try execTx(
+			"INSERT INTO units (id, title, area, status, owner, lane, harness, round, head_sha, summary, request_path, findings_path, created_at, updated_at) VALUES (?, ?, ?, 'open', NULL, NULL, NULL, 0, NULL, NULL, NULL, NULL, ?, ?)",
+			[]sql.Value{
+				sql.Text{S: e.ID},
+				sql.Text{S: e.Title},
+				sql.Text{S: e.Area},
+				sql.Text{S: e.At},
+				sql.Text{S: e.At},
+			},
+		)
+	case orchestrate.UnitWasClaimed as e:
+		let _ = try execTx(
+			"UPDATE units SET status = 'claimed', owner = ?, lane = ?, harness = ?, round = ?, updated_at = ? WHERE id = ?",
+			[]sql.Value{
+				sql.Text{S: e.Owner},
+				sql.Text{S: e.Lane},
+				sql.Text{S: e.Harness},
+				sql.Int{N: int64(e.Round)},
+				sql.Text{S: e.At},
+				sql.Text{S: e.ID},
+			},
+		)
+	case orchestrate.UnitRoundAdvanced as e:
+		let _ = try execTx(
+			"UPDATE units SET round = ?, request_path = COALESCE(?, request_path), findings_path = COALESCE(?, findings_path), updated_at = ? WHERE id = ?",
+			[]sql.Value{
+				sql.Int{N: int64(e.Round)},
+				optTextVal(e.RequestPath),
+				optTextVal(e.FindingsPath),
+				sql.Text{S: e.At},
+				sql.Text{S: e.ID},
+			},
+		)
+	case orchestrate.UnitWasHandedBack as e:
+		let _ = try execTx(
+			"UPDATE units SET status = 'handed-back', head_sha = ?, summary = ?, request_path = COALESCE(?, request_path), findings_path = COALESCE(?, findings_path), updated_at = ? WHERE id = ?",
+			[]sql.Value{
+				sql.Text{S: e.HeadSHA},
+				sql.Text{S: e.Summary},
+				optTextVal(e.RequestPath),
+				optTextVal(e.FindingsPath),
+				sql.Text{S: e.At},
+				sql.Text{S: e.ID},
+			},
+		)
+	case orchestrate.UnitWasLanded as e:
+		let _ = try execTx(
+			"UPDATE units SET status = 'landed', head_sha = ?, updated_at = ? WHERE id = ?",
+			[]sql.Value{
+				sql.Text{S: e.HeadSHA},
+				sql.Text{S: e.At},
+				sql.Text{S: e.ID},
+			},
+		)
+	case orchestrate.UnitWasClosed as e:
+		let _ = try execTx(
+			"UPDATE units SET status = 'closed', summary = COALESCE(?, summary), updated_at = ? WHERE id = ?",
+			[]sql.Value{
+				optTextVal(e.Summary),
+				sql.Text{S: e.At},
+				sql.Text{S: e.ID},
+			},
+		)
+	case orchestrate.ReceiptRecorded as e:
+		let r = e.Receipt
+		let _ = try execTx(
+			"INSERT INTO receipts (id, seq_order, unit_id, round, kind, command, commit_sha, exit_code, summary_metrics, log_path, log_sha256, recorded_at, recorded_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			[]sql.Value{
+				sql.Text{S: r.ID},
+				sql.Int{N: int64(seq)},
+				sql.Text{S: r.UnitID},
+				sql.Int{N: int64(r.Round)},
+				sql.Text{S: r.Kind},
+				sql.Text{S: r.Command},
+				sql.Text{S: r.CommitSHA},
+				sql.Int{N: int64(r.ExitCode)},
+				sql.Text{S: r.SummaryMetrics},
+				sql.Text{S: r.LogPath},
+				sql.Text{S: r.LogSHA256},
+				sql.Text{S: r.RecordedAt},
+				sql.Text{S: r.RecordedBy},
+			},
+		)
+	case orchestrate.CommitmentAdded as e:
+		let _ = try execTx(
+			"INSERT INTO commitments (id, title, kind, status, owner, lane, landed_sha, decision_note, created_at, updated_at) VALUES (?, ?, ?, 'open', NULL, NULL, NULL, NULL, ?, ?)",
+			[]sql.Value{
+				sql.Text{S: e.ID},
+				sql.Text{S: e.Title},
+				sql.Text{S: e.Kind},
+				sql.Text{S: e.At},
+				sql.Text{S: e.At},
+			},
+		)
+	case orchestrate.CommitmentWasAssigned as e:
+		let _ = try execTx(
+			"UPDATE commitments SET status = 'assigned', owner = ?, lane = ?, updated_at = ? WHERE id = ?",
+			[]sql.Value{
+				sql.Text{S: e.Owner},
+				sql.Text{S: e.Lane},
+				sql.Text{S: e.At},
+				sql.Text{S: e.ID},
+			},
+		)
+	case orchestrate.CommitmentWasLanded as e:
+		let _ = try execTx(
+			"UPDATE commitments SET status = 'landed', landed_sha = ?, updated_at = ? WHERE id = ?",
+			[]sql.Value{
+				sql.Text{S: e.LandedSHA},
+				sql.Text{S: e.At},
+				sql.Text{S: e.ID},
+			},
+		)
+	case orchestrate.CommitmentWasDecided as e:
+		let _ = try execTx(
+			"UPDATE commitments SET status = 'decided', decision_note = ?, updated_at = ? WHERE id = ?",
+			[]sql.Value{
+				sql.Text{S: e.Note},
+				sql.Text{S: e.At},
+				sql.Text{S: e.ID},
+			},
+		)
+	case orchestrate.CommitmentWasWithdrawn as e:
+		let _ = try execTx(
+			"UPDATE commitments SET status = 'withdrawn', decision_note = ?, updated_at = ? WHERE id = ?",
+			[]sql.Value{
+				sql.Text{S: e.Note},
+				sql.Text{S: e.At},
+				sql.Text{S: e.ID},
+			},
+		)
+	case orchestrate.QueueUpserted as e:
+		let item = e.Item
+		let _ = try execTx(
+			"INSERT INTO queue (key, priority, title, body, status, tags_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET priority = excluded.priority, title = excluded.title, body = excluded.body, status = excluded.status, tags_json = excluded.tags_json, updated_at = excluded.updated_at",
+			[]sql.Value{
+				sql.Text{S: item.Key},
+				sql.Int{N: int64(item.Priority)},
+				sql.Text{S: item.Title},
+				sql.Text{S: item.Body},
+				sql.Text{S: item.Status},
+				sql.Text{S: encodeTags(item.Tags)},
+				sql.Text{S: item.UpdatedAt},
+			},
+		)
+	case orchestrate.QueueRemoved as e:
+		let _ = try execTx("DELETE FROM queue WHERE key = ?", []sql.Value{sql.Text{S: e.Key}})
+	case orchestrate.QuestionAsked as e:
+		let q = e.Question
+		let _ = try execTx(
+			"INSERT INTO questions (id, command_id, prompt, assumption, concrete_action, status, answer, asked_by, asked_at, answered_by, answered_at) VALUES (?, ?, ?, ?, ?, 'open', NULL, ?, ?, NULL, NULL)",
+			[]sql.Value{
+				sql.Int{N: int64(q.ID)},
+				sql.Text{S: string(e.CommandID)},
+				sql.Text{S: q.Prompt},
+				sql.Text{S: q.Assumption},
+				sql.Text{S: q.ConcreteAction},
+				sql.Text{S: q.AskedBy},
+				sql.Text{S: q.AskedAt},
+			},
+		)
+		let _ = try execTx(
+			"UPDATE schema_meta SET next_question_id = CASE WHEN next_question_id <= ? THEN ? ELSE next_question_id END WHERE id = 1",
+			[]sql.Value{
+				sql.Int{N: int64(q.ID)},
+				sql.Int{N: int64(q.ID + 1)},
+			},
+		)
+	case orchestrate.QuestionWasAnswered as e:
+		let _ = try execTx(
+			"UPDATE questions SET status = 'answered', answer = ?, answered_by = ?, answered_at = ? WHERE id = ?",
+			[]sql.Value{
+				sql.Text{S: e.Answer},
+				sql.Text{S: e.AnsweredBy},
+				sql.Text{S: e.AnsweredAt},
+				sql.Int{N: int64(e.ID)},
+			},
+		)
+	case orchestrate.QuestionWasWithdrawn as e:
+		let _ = try execTx(
+			"UPDATE questions SET status = 'withdrawn', answer = ?, answered_by = ?, answered_at = ? WHERE id = ?",
+			[]sql.Value{
+				optTextVal(e.Answer),
+				sql.Text{S: e.AnsweredBy},
+				sql.Text{S: e.AnsweredAt},
+				sql.Int{N: int64(e.ID)},
+			},
+		)
+	}
+}
+
+func loadStateTx() orchestrate.State fails orchestrate.StoreFailed needs sql.Tx {
+	let mut units = Map[string, orchestrate.Unit]{}
+	for u in try queryUnitsTx(None) {
+		units = units.Put(u.ID, u)
+	}
+	let mut receipts = Map[string, orchestrate.Receipt]{}
+	let mut receiptOrder = []string{}
+	let recRows = try queryTx(
+		"SELECT id, unit_id, round, kind, command, commit_sha, exit_code, summary_metrics, log_path, log_sha256, recorded_at, recorded_by FROM receipts ORDER BY seq_order ASC",
+		[]sql.Value{},
+	)
+	for row in recRows {
+		let r = try scanReceipt(row)
+		receipts = receipts.Put(r.ID, r)
+		receiptOrder = receiptOrder.Append(r.ID)
+	}
+	let mut commitments = Map[string, orchestrate.Commitment]{}
+	for c in try queryCommitmentsTx(None, None) {
+		commitments = commitments.Put(c.ID, c)
+	}
+	let mut queue = Map[string, orchestrate.QueueItem]{}
+	for item in try queryQueueTx(None) {
+		queue = queue.Put(item.Key, item)
+	}
+	let mut questions = Map[int, orchestrate.Question]{}
+	let mut questionByCommand = Map[orchestrate.CommandID, int]{}
+	let qRows = try queryTx(
+		"SELECT id, command_id, prompt, assumption, concrete_action, status, answer, asked_by, asked_at, answered_by, answered_at FROM questions ORDER BY id ASC",
+		[]sql.Value{},
+	)
+	for row in qRows {
+		let q = try scanQuestionWithCmd(row)
+		let cmdID = orchestrate.CommandID(try textAt(row, 1, "command_id"))
+		questions = questions.Put(q.ID, q)
+		questionByCommand = questionByCommand.Put(cmdID, q.ID)
+	}
+	let mut commands = Map[orchestrate.CommandID, orchestrate.Command]{}
+	let cmdRows = try queryTx("SELECT command_id, payload_json FROM commands", []sql.Value{})
+	for row in cmdRows {
+		let id = orchestrate.CommandID(try textAt(row, 0, "command_id"))
+		let payload = try textAt(row, 1, "payload_json")
+		commands = commands.Put(id, try decodeCommand(payload))
+	}
+	let mut nextQID = 1
+	let metaRows = try queryTx("SELECT next_question_id FROM schema_meta WHERE id = 1", []sql.Value{})
+	if len(metaRows) > 0 {
+		nextQID = try intAt(metaRows[0], 0, "next_question_id")
+	}
+	orchestrate.State{
+		Units:             units,
+		Receipts:          receipts,
+		ReceiptOrder:      receiptOrder,
+		Commitments:       commitments,
+		Queue:             queue,
+		Questions:         questions,
+		QuestionByCommand: questionByCommand,
+		NextQuestionID:    nextQID,
+		Commands:          commands,
+	}
+}
+
+func queryEventsTx(fromSeq int) []orchestrate.StoredEvent fails orchestrate.StoreFailed needs sql.Tx {
+	let rows = try queryTx(
+		"SELECT seq, event_json FROM events WHERE seq > ? ORDER BY seq ASC",
+		[]sql.Value{sql.Int{N: int64(fromSeq)}},
+	)
+	let mut out = []orchestrate.StoredEvent{}
+	for row in rows {
+		let seq = try intAt(row, 0, "seq")
+		let ev = try decodeEvent(try textAt(row, 1, "event_json"))
+		out = out.Append(orchestrate.StoredEvent{Seq: seq, Event: ev})
+	}
+	out
+}
+
+func queryUnitTx(id string) Option[orchestrate.Unit] fails orchestrate.StoreFailed needs sql.Tx {
+	let rows = try queryTx(
+		"SELECT id, title, area, status, owner, lane, harness, round, head_sha, summary, request_path, findings_path, created_at, updated_at FROM units WHERE id = ?",
+		[]sql.Value{sql.Text{S: id}},
+	)
+	if len(rows) == 0 {
+		return None
+	}
+	Some[orchestrate.Unit]{Value: try scanUnit(rows[0])}
+}
+
+func queryUnitsTx(status Option[orchestrate.UnitStatus]) []orchestrate.Unit fails orchestrate.StoreFailed needs sql.Tx {
+	let rows = match status {
+	case Some[orchestrate.UnitStatus] as st:
+		try queryTx(
+			"SELECT id, title, area, status, owner, lane, harness, round, head_sha, summary, request_path, findings_path, created_at, updated_at FROM units WHERE status = ? ORDER BY id ASC",
+			[]sql.Value{sql.Text{S: orchestrate.UnitStatusName(st.Value)}},
+		)
+	case None:
+		try queryTx(
+			"SELECT id, title, area, status, owner, lane, harness, round, head_sha, summary, request_path, findings_path, created_at, updated_at FROM units ORDER BY id ASC",
+			[]sql.Value{},
+		)
+	}
+	let mut out = []orchestrate.Unit{}
+	for row in rows {
+		out = out.Append(try scanUnit(row))
+	}
+	out
+}
+
+func queryReceiptsTx(unitID string, round Option[int]) []orchestrate.Receipt fails orchestrate.StoreFailed needs sql.Tx {
+	let rows = match round {
+	case Some[int] as r:
+		try queryTx(
+			"SELECT id, unit_id, round, kind, command, commit_sha, exit_code, summary_metrics, log_path, log_sha256, recorded_at, recorded_by FROM receipts WHERE unit_id = ? AND round = ? ORDER BY seq_order ASC",
+			[]sql.Value{sql.Text{S: unitID}, sql.Int{N: int64(r.Value)}},
+		)
+	case None:
+		try queryTx(
+			"SELECT id, unit_id, round, kind, command, commit_sha, exit_code, summary_metrics, log_path, log_sha256, recorded_at, recorded_by FROM receipts WHERE unit_id = ? ORDER BY seq_order ASC",
+			[]sql.Value{sql.Text{S: unitID}},
+		)
+	}
+	let mut out = []orchestrate.Receipt{}
+	for row in rows {
+		out = out.Append(try scanReceipt(row))
+	}
+	out
+}
+
+func queryCommitmentTx(id string) Option[orchestrate.Commitment] fails orchestrate.StoreFailed needs sql.Tx {
+	let rows = try queryTx(
+		"SELECT id, title, kind, status, owner, lane, landed_sha, decision_note, created_at, updated_at FROM commitments WHERE id = ?",
+		[]sql.Value{sql.Text{S: id}},
+	)
+	if len(rows) == 0 {
+		return None
+	}
+	Some[orchestrate.Commitment]{Value: try scanCommitment(rows[0])}
+}
+
+func queryCommitmentsTx(status Option[orchestrate.CommitmentStatus], owner Option[string]) []orchestrate.Commitment fails orchestrate.StoreFailed needs sql.Tx {
+	let rows = match (status, owner) {
+	case (Some[orchestrate.CommitmentStatus] as st, Some[string] as ow):
+		try queryTx(
+			"SELECT id, title, kind, status, owner, lane, landed_sha, decision_note, created_at, updated_at FROM commitments WHERE status = ? AND owner = ? ORDER BY id ASC",
+			[]sql.Value{sql.Text{S: orchestrate.CommitmentStatusName(st.Value)}, sql.Text{S: ow.Value}},
+		)
+	case (Some[orchestrate.CommitmentStatus] as st, None):
+		try queryTx(
+			"SELECT id, title, kind, status, owner, lane, landed_sha, decision_note, created_at, updated_at FROM commitments WHERE status = ? ORDER BY id ASC",
+			[]sql.Value{sql.Text{S: orchestrate.CommitmentStatusName(st.Value)}},
+		)
+	case (None, Some[string] as ow):
+		try queryTx(
+			"SELECT id, title, kind, status, owner, lane, landed_sha, decision_note, created_at, updated_at FROM commitments WHERE owner = ? ORDER BY id ASC",
+			[]sql.Value{sql.Text{S: ow.Value}},
+		)
+	case (None, None):
+		try queryTx(
+			"SELECT id, title, kind, status, owner, lane, landed_sha, decision_note, created_at, updated_at FROM commitments ORDER BY id ASC",
+			[]sql.Value{},
+		)
+	}
+	let mut out = []orchestrate.Commitment{}
+	for row in rows {
+		out = out.Append(try scanCommitment(row))
+	}
+	out
+}
+
+func queryQueueTx(status Option[string]) []orchestrate.QueueItem fails orchestrate.StoreFailed needs sql.Tx {
+	let rows = match status {
+	case Some[string] as st:
+		try queryTx(
+			"SELECT key, priority, title, body, status, tags_json, updated_at FROM queue WHERE status = ? ORDER BY priority ASC, key ASC",
+			[]sql.Value{sql.Text{S: st.Value}},
+		)
+	case None:
+		try queryTx(
+			"SELECT key, priority, title, body, status, tags_json, updated_at FROM queue ORDER BY priority ASC, key ASC",
+			[]sql.Value{},
+		)
+	}
+	let mut out = []orchestrate.QueueItem{}
+	for row in rows {
+		out = out.Append(try scanQueueItem(row))
+	}
+	out
+}
+
+func queryQuestionTx(id int) Option[orchestrate.Question] fails orchestrate.StoreFailed needs sql.Tx {
+	let rows = try queryTx(
+		"SELECT id, prompt, assumption, concrete_action, status, answer, asked_by, asked_at, answered_by, answered_at FROM questions WHERE id = ?",
+		[]sql.Value{sql.Int{N: int64(id)}},
+	)
+	if len(rows) == 0 {
+		return None
+	}
+	Some[orchestrate.Question]{Value: try scanQuestion(rows[0])}
+}
+
+func queryQuestionsTx(openOnly bool) []orchestrate.Question fails orchestrate.StoreFailed needs sql.Tx {
+	let rows = if openOnly {
+		try queryTx(
+			"SELECT id, prompt, assumption, concrete_action, status, answer, asked_by, asked_at, answered_by, answered_at FROM questions WHERE status = 'open' ORDER BY id ASC",
+			[]sql.Value{},
+		)
+	} else {
+		try queryTx(
+			"SELECT id, prompt, assumption, concrete_action, status, answer, asked_by, asked_at, answered_by, answered_at FROM questions ORDER BY id ASC",
+			[]sql.Value{},
+		)
+	}
+	let mut out = []orchestrate.Question{}
+	for row in rows {
+		out = out.Append(try scanQuestion(row))
+	}
+	out
+}
+
+func scanUnit(row sql.Row) orchestrate.Unit fails orchestrate.StoreFailed {
+	let statusText = try textAt(row, 3, "status")
+	let status = match orchestrate.ParseUnitStatus(statusText) {
+	case Some[orchestrate.UnitStatus] as st:
+		st.Value
+	case None:
+		return orchestrate.StoreFailed{Reason: "invalid stored unit status: " + statusText}
+	}
+	orchestrate.Unit{
+		ID:           try textAt(row, 0, "id"),
+		Title:        try textAt(row, 1, "title"),
+		Area:         try textAt(row, 2, "area"),
+		Status:       status,
+		Owner:        try optTextAt(row, 4, "owner"),
+		Lane:         try optTextAt(row, 5, "lane"),
+		Harness:      try optTextAt(row, 6, "harness"),
+		Round:        try intAt(row, 7, "round"),
+		HeadSHA:      try optTextAt(row, 8, "head_sha"),
+		Summary:      try optTextAt(row, 9, "summary"),
+		RequestPath:  try optTextAt(row, 10, "request_path"),
+		FindingsPath: try optTextAt(row, 11, "findings_path"),
+		CreatedAt:    try textAt(row, 12, "created_at"),
+		UpdatedAt:    try textAt(row, 13, "updated_at"),
+	}
+}
+
+func scanReceipt(row sql.Row) orchestrate.Receipt fails orchestrate.StoreFailed {
+	orchestrate.Receipt{
+		ID:             try textAt(row, 0, "id"),
+		UnitID:         try textAt(row, 1, "unit_id"),
+		Round:          try intAt(row, 2, "round"),
+		Kind:           try textAt(row, 3, "kind"),
+		Command:        try textAt(row, 4, "command"),
+		CommitSHA:      try textAt(row, 5, "commit_sha"),
+		ExitCode:       try intAt(row, 6, "exit_code"),
+		SummaryMetrics: try textAt(row, 7, "summary_metrics"),
+		LogPath:        try textAt(row, 8, "log_path"),
+		LogSHA256:      try textAt(row, 9, "log_sha256"),
+		RecordedAt:     try textAt(row, 10, "recorded_at"),
+		RecordedBy:     try textAt(row, 11, "recorded_by"),
+	}
+}
+
+func scanCommitment(row sql.Row) orchestrate.Commitment fails orchestrate.StoreFailed {
+	let statusText = try textAt(row, 3, "status")
+	let status = match orchestrate.ParseCommitmentStatus(statusText) {
+	case Some[orchestrate.CommitmentStatus] as st:
+		st.Value
+	case None:
+		return orchestrate.StoreFailed{Reason: "invalid stored commitment status: " + statusText}
+	}
+	orchestrate.Commitment{
+		ID:           try textAt(row, 0, "id"),
+		Title:        try textAt(row, 1, "title"),
+		Kind:         try textAt(row, 2, "kind"),
+		Status:       status,
+		Owner:        try optTextAt(row, 4, "owner"),
+		Lane:         try optTextAt(row, 5, "lane"),
+		LandedSHA:    try optTextAt(row, 6, "landed_sha"),
+		DecisionNote: try optTextAt(row, 7, "decision_note"),
+		CreatedAt:    try textAt(row, 8, "created_at"),
+		UpdatedAt:    try textAt(row, 9, "updated_at"),
+	}
+}
+
+func scanQueueItem(row sql.Row) orchestrate.QueueItem fails orchestrate.StoreFailed {
+	orchestrate.QueueItem{
+		Key:       try textAt(row, 0, "key"),
+		Priority:  try intAt(row, 1, "priority"),
+		Title:     try textAt(row, 2, "title"),
+		Body:      try textAt(row, 3, "body"),
+		Status:    try textAt(row, 4, "status"),
+		Tags:      try decodeTags(try textAt(row, 5, "tags_json")),
+		UpdatedAt: try textAt(row, 6, "updated_at"),
+	}
+}
+
+func scanQuestion(row sql.Row) orchestrate.Question fails orchestrate.StoreFailed {
+	let statusText = try textAt(row, 4, "status")
+	let status = match orchestrate.ParseQuestionStatus(statusText) {
+	case Some[orchestrate.QuestionStatus] as st:
+		st.Value
+	case None:
+		return orchestrate.StoreFailed{Reason: "invalid stored question status: " + statusText}
+	}
+	orchestrate.Question{
+		ID:             try intAt(row, 0, "id"),
+		Prompt:         try textAt(row, 1, "prompt"),
+		Assumption:     try textAt(row, 2, "assumption"),
+		ConcreteAction: try textAt(row, 3, "concrete_action"),
+		Status:         status,
+		Answer:         try optTextAt(row, 5, "answer"),
+		AskedBy:        try textAt(row, 6, "asked_by"),
+		AskedAt:        try textAt(row, 7, "asked_at"),
+		AnsweredBy:     try optTextAt(row, 8, "answered_by"),
+		AnsweredAt:     try optTextAt(row, 9, "answered_at"),
+	}
+}
+
+func scanQuestionWithCmd(row sql.Row) orchestrate.Question fails orchestrate.StoreFailed {
+	let statusText = try textAt(row, 5, "status")
+	let status = match orchestrate.ParseQuestionStatus(statusText) {
+	case Some[orchestrate.QuestionStatus] as st:
+		st.Value
+	case None:
+		return orchestrate.StoreFailed{Reason: "invalid stored question status: " + statusText}
+	}
+	orchestrate.Question{
+		ID:             try intAt(row, 0, "id"),
+		Prompt:         try textAt(row, 2, "prompt"),
+		Assumption:     try textAt(row, 3, "assumption"),
+		ConcreteAction: try textAt(row, 4, "concrete_action"),
+		Status:         status,
+		Answer:         try optTextAt(row, 6, "answer"),
+		AskedBy:        try textAt(row, 7, "asked_by"),
+		AskedAt:        try textAt(row, 8, "asked_at"),
+		AnsweredBy:     try optTextAt(row, 9, "answered_by"),
+		AnsweredAt:     try optTextAt(row, 10, "answered_at"),
+	}
+}
