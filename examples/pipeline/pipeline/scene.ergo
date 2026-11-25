@@ -6,12 +6,15 @@
 // a testing.Script, its clock a time.Manual that only the scene moves.
 // The law SceneAgreesWithStory says both end in the same desk.
 
+import actor
+import gen
 import github.com/cevr/ergo/modules/domain
 import github.com/cevr/ergo/modules/domain/memory
 import pipeline/board
-
 import pipeline/retry
 import pipeline/run
+import strings
+import sync
 import testing
 import time
 
@@ -338,10 +341,176 @@ func sceneOn(acts []Act, from int, clock time.Manual, log domain.Log[Entry]) (De
 	(d, v)
 }
 
-// SceneAgreesWithStory: the program, played act by act with a scripted
-// runner and a manual clock, ends in the desk that the story gives.
-law SceneAgreesWithStory(acts []Act, flaky []int) {
-	let want = Story(acts, flaky)
+type sceneState {
+	desk Desk,
+	step int,
+}
+
+func runSummary(r run.Run) string {
+	match r {
+	case run.Unsubmitted:
+		"unsubmitted"
+	case run.Queued as q:
+		"queued(\(q.Stages))"
+	case run.Running as rn:
+		"running(\(rn.Stages),\(rn.Next))"
+	case run.Failing as f:
+		"failing(\(f.Stages),\(f.Stage))"
+	case run.Done as d:
+		match d.Outcome {
+		case run.Passed:
+			"done(passed)"
+		case run.GaveUp as g:
+			"done(gaveup,\(g.Stage))"
+		case run.Cancelled as c:
+			"done(canceled,\(c.Why))"
+		}
+	}
+}
+
+func eventSummary(e run.Event) string {
+	match e {
+	case run.Submitted as s:
+		"sub(\(s.Stages))"
+	case run.Started:
+		"start"
+	case run.StagePassed as p:
+		"pass(\(p.Stage))"
+	case run.StageFailed as f:
+		"fail(\(f.Stage))"
+	case run.Retried as r:
+		"retry(\(r.Stage))"
+	case run.Finished:
+		"fin"
+	case run.Abandoned as a:
+		"ab(\(a.Stage))"
+	case run.Stopped as s:
+		"stop(\(s.Why))"
+	}
+}
+
+func deskText(d Desk) string {
+	let n = Normal(d)
+	let b = BookOf(n)
+	let head = match n {
+	case Idle:
+		"idle"
+	case Busy as w:
+		"busy(\(w.Job.Run),\(w.Job.Stage),\(retry.TryOf(w.Job.Attempt)))"
+	case Waiting as w:
+		"wait(\(w.Job.Run),\(w.Job.Stage),\(retry.TryOf(w.Job.Attempt)))"
+	}
+	let mut runs = []string{}
+	for name in Names {
+		runs = runs.Append("\(name)=\(runSummary(RunIn(b, name)))")
+	}
+	let mut logParts = []string{}
+	for entry in b.Log {
+		logParts = logParts.Append("\(entry.Run):\(eventSummary(entry.Event))")
+	}
+	"\(head)|q=[\(strings.Join(b.Queue, ","))]|r=[\(strings.Join(runs, ","))]|l=[\(strings.Join(logParts, ","))]"
+}
+
+func settleDesk(desk DeskActor, clock time.Manual) fails testing.Refused {
+	let _ = clock
+	let _ = actor.WaitFor(desk, func(l Ledger) bool { !IsBusy(l.State) }) catch {
+	case actor.Stopped:
+		return testing.Refused{Why: "unavailable"}
+	}
+}
+
+func stageOf(desk DeskActor, clock time.Manual) testing.Stage[Act, string] {
+	let step = sync.NewRef(0)
+	let st = testing.FuncProvider[testing.Stage[Act, string]]{}
+	testing.Set(st.Do, func(a Act) fails testing.Refused {
+		let idx = step.Get()
+		step.Set(idx + 1)
+		match envelopeOf(idx, a) {
+		case Some[Envelope] as e:
+			let _ = desk.Ask(Ask{Env: e.Value}) catch {
+			case actor.Stopped:
+				return testing.Refused{Why: "unavailable"}
+			case run.WrongState, run.WrongStage, run.Closed, run.BadLength, NoSuchRun:
+				Ignore
+			}
+		case None:
+			clock.Advance(1h)
+		}
+		try settleDesk(desk, clock)
+	})
+	testing.Set(st.Advance, func(d duration) {
+		clock.Advance(d)
+		settleDesk(desk, clock) catch {
+		case testing.Refused:
+		}
+	})
+	testing.Set(st.Settle, func() {
+		settleDesk(desk, clock) catch {
+		case testing.Refused:
+		}
+	})
+	testing.Set(st.Show, func() string { deskText(desk.State().State) })
+	st
+}
+
+func offerSceneAct(st sceneState) Act needs gen.Draws {
+	let b = BookOf(st.desk)
+	let mut unsubmitted = []int{}
+	let mut active = []int{}
+	for i, name in Names {
+		match RunIn(b, name) {
+		case run.Unsubmitted:
+			unsubmitted = unsubmitted.Append(i)
+		case run.Queued, run.Running, run.Failing:
+			active = active.Append(i)
+		case run.Done:
+		}
+	}
+	let mut choices = []Act{}
+	for idx in unsubmitted {
+		choices = choices.Append(Submits{Pick: idx, Stages: gen.IntIn(0, 2)})
+	}
+	for idx in active {
+		choices = choices.Append(Cancels{Pick: idx})
+	}
+	match st.desk {
+	case Waiting as w:
+		for i, name in Names {
+			if name == w.Job.Run {
+				choices = choices.Append(Retries{Pick: i, Stage: w.Job.Stage})
+			}
+		}
+		choices = choices.Append(Waits)
+	case Idle, Busy:
+		choices = choices.Append(Waits)
+	}
+	if len(choices) == 0 {
+		return Waits
+	}
+	gen.OneOf(choices)
+}
+
+func sceneModel(flaky []int) testing.Model[sceneState, Act, string] {
+	testing.Model[sceneState, Act, string]{
+		Start: sceneState{desk: Fresh, step: 0},
+		Offer: offerSceneAct,
+		Step:  func(st sceneState, a Act) (sceneState, string) {
+			let after = match envelopeOf(st.step, a) {
+			case Some[Envelope] as e:
+				told(st.desk, e.Value)
+			case None:
+				waited(st.desk, flaky)
+			}
+			let next = drive(after, flaky)
+			(sceneState{desk: next, step: st.step + 1}, deskText(next))
+		},
+	}
+}
+
+// SceneAgreesWithStory: the program, driven step by step through
+// testing.Model against the reference story with state-dependent acts, a
+// scripted runner and a manual clock, agrees with the story at every step.
+law SceneAgreesWithStory(flaky []int, seed int) {
 	let s = testing.Script[Runner]{}
 	s.Run.Answer(func(id string, stage int, attempt int) bool fails Offline {
 		match answerOf(flaky, stage, attempt) {
@@ -352,9 +521,29 @@ law SceneAgreesWithStory(acts []Act, flaky []int) {
 		}
 	})
 	let clock = time.NewManual(0)
-	let got = with context { Scheduler: clock, Runner: s } { scene(acts, clock) } catch {
-	case domain.Conflict, domain.Reused, domain.Unkept, Unavailable:
-		return false
+	let m = sceneModel(flaky)
+	let rawSeed = if seed < 0 { -seed } else { seed }
+	let cfg = gen.Config{Seed: uint64(rawSeed) + uint64(1), Cases: 1, Shrinks: 0, MaxDraws: 4096, MaxRejected: 10}
+	let o = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		with context { Scheduler: clock, Runner: s } {
+			let (model, desk) = opened(memory.New[Entry]()) catch {
+			case domain.Conflict, domain.Reused, domain.Unkept:
+				return false
+			}
+			let st = stageOf(desk, clock)
+			testing.Agrees(m, st, 8) catch {
+			case testing.Diverged, testing.Refused:
+				model.Close()
+				return false
+			}
+			model.Close()
+			true
+		}
+	})
+	match o {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
 	}
-	got == want
 }

@@ -1,0 +1,574 @@
+import gen
+import strings
+import sync
+import temporal
+import time
+
+// Model describes a stateful reference story for model-based testing: Start is
+// the initial story state, Offer draws a valid act for the current state from
+// gen.Draws, and Step computes the next state and expected stage observation
+// purely.
+type Model[S, A, V] {
+	Start S,
+	Offer func(s S) A needs gen.Draws,
+	Step  func(s S, a A) (S, V),
+}
+
+// Diverged reports the first step where a stage disagreed with its model:
+// Acts is the complete prefix of acts played up to and including step At
+// (0-indexed), Want is the model's expected observation, and Got is what the
+// stage showed.
+type Diverged[A, V] {
+	Acts []A,
+	At   int,
+	Want V,
+	Got  V,
+}
+
+// TemporalBreach reports that a temporal formula checked by AgreesAnd or
+// AgreesAndEnd did not hold over the stage observations: FormulaIndex names
+// which formula failed, Verdict carries its temporal.Violated or temporal.Open
+// verdict, Acts is the complete prefix of acts played, and Last is the final
+// observed stage value.
+type TemporalBreach[A, V] {
+	Acts         []A,
+	FormulaIndex int,
+	Verdict      temporal.Verdict,
+	Last         V,
+}
+
+// ModelOf adapts a pure Ergo Machine into a Model whose observation is its
+// current state S. Enter, Stay, Emit, and Tell advance to Next; Ignore,
+// Reject, and Done leave state unchanged.
+func ModelOf[S, A, O](m Machine[S, A, O], offer own func(s S) A needs gen.Draws) Model[S, A, S] {
+	Model[S, A, S]{
+		Start: m.Initial,
+		Offer: offer,
+		Step:  func(s S, a A) (S, S) {
+			let next = match m.Step(s, a) {
+			case Enter[S] as d:
+				d.Next
+			case Stay[S] as d:
+				d.Next
+			case Emit[S, O] as d:
+				d.Next
+			case Tell[S, O] as d:
+				d.Next
+			case Ignore, Reject, Done[O]:
+				s
+			}
+			(next, next)
+		},
+	}
+}
+
+// FormatTest renders d as a paste-able Ergo test block that plays d.Acts on
+// stageExpr and asserts d.Want, formatting acts with showAct and values with
+// showVal.
+func FormatTest[A, V](name string, stageExpr string, d Diverged[A, V], showAct func(a A) string, showVal func(v V) string) string {
+	let mut steps = []string{}
+	for a in d.Acts {
+		steps = steps.Append("testing.Do{Act: \(showAct(a))}")
+	}
+	let played = strings.Join(steps, ", ")
+	let lines = []string{
+		"test \(name) {",
+		"\tlet st = \(stageExpr)",
+		"\tlet got = testing.Play(st, []testing.Step{\(played)})",
+		"\tassert got[\(d.At)] == \(showVal(d.Want))",
+		"}",
+	}
+	strings.Join(lines, "\n")
+}
+
+func runModel[S any, A, V comparable](m Model[S, A, V], st Stage[A, V], steps int, formulas []temporal.Formula[V], end temporal.End) fails Diverged[A, V] | TemporalBreach[A, V] | Refused needs gen.Draws {
+	let mut state = m.Start
+	let mut played = []A{}
+	let mut residuals = []temporal.Residual[V]{}
+	for f in formulas {
+		residuals = residuals.Append(temporal.Start(f))
+	}
+	let mut lastGot = st.Show()
+	for step in 0..steps {
+		gen.Draws.Begin("step")
+		let a = m.Offer(state)
+		gen.Draws.End()
+		let (nextState, want) = m.Step(state, a)
+		try st.Do(a)
+		st.Settle()
+		let got = st.Show()
+		played = played.Append(a)
+		lastGot = got
+		if want != got {
+			return Diverged[A, V]{Acts: played, At: step, Want: want, Got: got}
+		}
+		let at = time.Unix(int64(step), 0)
+		for i in 0..len(residuals) {
+			let nextR = temporal.Step(residuals[i], got, at)
+			residuals[i] = nextR
+			if temporal.Decided(nextR) {
+				match temporal.Stop(nextR, end) {
+				case temporal.Violated as v:
+					return TemporalBreach[A, V]{Acts: played, FormulaIndex: i, Verdict: v, Last: got}
+				case temporal.Holds, temporal.Open:
+				}
+			}
+		}
+		state = nextState
+	}
+	for i in 0..len(residuals) {
+		match temporal.Stop(residuals[i], end) {
+		case temporal.Holds:
+		case temporal.Violated as v:
+			return TemporalBreach[A, V]{Acts: played, FormulaIndex: i, Verdict: v, Last: lastGot}
+		case temporal.Open as o:
+			return TemporalBreach[A, V]{Acts: played, FormulaIndex: i, Verdict: o, Last: lastGot}
+		}
+	}
+}
+
+// Agrees draws up to steps state-dependent acts from m.Offer, computes the
+// story transition m.Step before acting on st, settles st, and compares
+// m's expected observation against st.Show() at every step. On the first
+// mismatch it fails with Diverged carrying the complete prefix of played acts.
+func Agrees[S any, A, V comparable](m Model[S, A, V], st Stage[A, V], steps int) fails Diverged[A, V] | Refused needs gen.Draws {
+	runModel(m, st, steps, []temporal.Formula[V]{}, temporal.Idle) catch {
+	case Diverged[A, V] as d:
+		return d
+	case Refused as r:
+		return r
+	case TemporalBreach[A, V]:
+	}
+}
+
+// AgreesAnd runs Agrees while simultaneously stepping each temporal formula in
+// formulas over the stage's observations and closing residuals with
+// temporal.Idle at the end of the run.
+func AgreesAnd[S any, A, V comparable](m Model[S, A, V], st Stage[A, V], steps int, formulas []temporal.Formula[V]) fails Diverged[A, V] | TemporalBreach[A, V] | Refused needs gen.Draws {
+	try runModel(m, st, steps, formulas, temporal.Idle)
+}
+
+// AgreesAndEnd runs AgreesAnd and closes pending temporal residuals using the
+// caller-supplied temporal.End (Idle or Cut).
+func AgreesAndEnd[S any, A, V comparable](m Model[S, A, V], st Stage[A, V], steps int, formulas []temporal.Formula[V], end temporal.End) fails Diverged[A, V] | TemporalBreach[A, V] | Refused needs gen.Draws {
+	try runModel(m, st, steps, formulas, end)
+}
+
+type probeMachine {
+	next      [][]int,
+	offered   [][]int,
+	bugState  int,
+	bugAct    int,
+	hasBug    bool,
+	transient bool,
+}
+
+func modPos(x int, m int) int { ((x % m) + m) % m }
+
+func makeProbeMachine(specSeed int, bugState int, bugAct int, hasBug bool, transient bool) probeMachine {
+	let s0 = modPos(specSeed, 7)
+	let s1 = modPos(specSeed/7+1, 4)
+	let s2 = modPos(specSeed/29+2, 4)
+	let t0 = []int{1, 0, 2}
+	let t1 = []int{2, modPos(s0+2, 4), 1}
+	let t2 = []int{3, modPos(s1, 4), 0}
+	let t3 = []int{0, modPos(s2, 4), 2}
+	let o0 = []int{0}
+	let o1 = []int{0, 1}
+	let o2 = []int{0, 1, 2}
+	let o3 = []int{1, 2}
+	probeMachine{
+		next:      [][]int{t0, t1, t2, t3},
+		offered:   [][]int{o0, o1, o2, o3},
+		bugState:  modPos(bugState, 4),
+		bugAct:    modPos(bugAct, 3),
+		hasBug:    hasBug,
+		transient: transient,
+	}
+}
+
+func probeStep(pm probeMachine, s int, a int) int {
+	pm.next[modPos(s, 4)][modPos(a, 3)]
+}
+
+func probeOffers(pm probeMachine, s int) []int {
+	pm.offered[modPos(s, 4)]
+}
+
+func probeStageStep(pm probeMachine, s int, a int) (int, int) {
+	let normal = probeStep(pm, s, a)
+	if pm.hasBug && s == pm.bugState && a == pm.bugAct {
+		let wrongObs = (normal + 1) % 4
+		if pm.transient {
+			return (normal, wrongObs)
+		}
+		return (wrongObs, wrongObs)
+	}
+	(normal, normal)
+}
+
+// FuncOp is a pure-Ergo operation cell for FuncProvider, storing one
+// configured answer function without Go runtime externs so derived providers
+// run identically at check time and in native test builds.
+type FuncOp[A, F] {
+	answer sync.Ref[Option[F]],
+}
+
+// NewFuncOp constructs an unset FuncOp cell.
+func NewFuncOp[A, F]() FuncOp[A, F] {
+	FuncOp[A, F]{answer: sync.NewRef[Option[F]](None)}
+}
+
+// Call returns the configured answer function stored in op.
+func Call[A, F](op FuncOp[A, F], a A) Option[F] {
+	let _ = a
+	op.answer.Get()
+}
+
+// Set installs f as the answer function for op.
+func Set[A, F](op FuncOp[A, F], f F) { op.answer.Set(Some[F]{Value: f}) }
+
+// FuncProvider derives a pure-Ergo provider for any operation type S whose
+// operations are wired via Set on each FuncOp field.
+type FuncProvider[S] derive Provider(Of[S](), Of[FuncOp](), Of[NoArgs]())
+
+type probeStageState {
+	cur int,
+	obs int,
+}
+
+func newProbeStage(pm probeMachine) Stage[int, int] {
+	let st = sync.NewRef(probeStageState{cur: 0, obs: 0})
+	let p = FuncProvider[Stage[int, int]]{}
+	Set(p.Do, func(a int) fails Refused {
+		let cur = st.Get().cur
+		let (nextCur, obs) = probeStageStep(pm, cur, a)
+		st.Set(probeStageState{cur: nextCur, obs: obs})
+	})
+	Set(p.Advance, func(d duration) { let _ = d })
+	Set(p.Settle, func() {})
+	Set(p.Show, func() int { st.Get().obs })
+	p
+}
+
+func probeModelOf(pm probeMachine) Model[int, int, int] {
+	Model[int, int, int]{
+		Start: 0,
+		Offer: func(s int) int needs gen.Draws {
+			let opts = probeOffers(pm, s)
+			gen.OneOf(opts)
+		},
+		Step: func(s int, a int) (int, int) {
+			let n = probeStep(pm, s, a)
+			(n, n)
+		},
+	}
+}
+
+func bfsFindsDivergence(pm probeMachine, maxSteps int) bool {
+	if !pm.hasBug {
+		return false
+	}
+	let mut frontier = []int{0}
+	let mut seen = []bool{true, false, false, false}
+	for _ in 0..maxSteps {
+		let mut nextFrontier = []int{}
+		for s in frontier {
+			for a in probeOffers(pm, s) {
+				let want = probeStep(pm, s, a)
+				let (_, got) = probeStageStep(pm, s, a)
+				if want != got {
+					return true
+				}
+				if !seen[want] {
+					seen[want] = true
+					nextFrontier = nextFrontier.Append(want)
+				}
+			}
+		}
+		frontier = nextFrontier
+	}
+	false
+}
+
+func replayDivergence(pm probeMachine, d Diverged[int, int]) bool {
+	if len(d.Acts) != d.At+1 || d.Want == d.Got {
+		return false
+	}
+	let st = newProbeStage(pm)
+	let mut modelS = 0
+	for i, a in d.Acts {
+		let want = probeStep(pm, modelS, a)
+		st.Do(a) catch {
+		case Refused:
+			return false
+		}
+		let got = st.Show()
+		if i < d.At {
+			if want != got {
+				return false
+			}
+		} else {
+			if want != d.Want || got != d.Got {
+				return false
+			}
+		}
+		modelS = want
+	}
+	let formatted = FormatTest("Replayed", "newProbeStage(pm)", d, func(a int) string { "\(a)" }, func(v int) string { "\(v)" })
+	strings.Contains(formatted, "test Replayed {") && strings.Contains(formatted, "testing.Play(") && strings.Contains(formatted, "assert got[\(d.At)] == \(d.Want)")
+}
+
+// DivergenceIsFoundAndReplays: for generated small state machines as stories
+// and stages with one planted wrong transition or transient observation bug,
+// Agrees never reports a false divergence on a matching stage, finds a
+// divergence whenever a bounded reference search reaches one within steps,
+// and every reported Diverged.Acts replays deterministically to Want != Got
+// at At and formats as a paste-able test block.
+law DivergenceIsFoundAndReplays(specSeed int, bugState int, bugAct int, transient bool) {
+	let steps = 6
+	let cleanPM = makeProbeMachine(specSeed, bugState, bugAct, false, false)
+	let cleanModel = probeModelOf(cleanPM)
+	let cleanCfg = gen.Config{Seed: uint64(1), Cases: 12, Shrinks: 0, MaxDraws: 512, MaxRejected: 10}
+	let cleanOutcome = gen.Check(cleanCfg, func() bool fails gen.Rejected needs gen.Draws {
+		Agrees(cleanModel, newProbeStage(cleanPM), steps) catch {
+		case Diverged[int, int]:
+			return false
+		case Refused:
+			return false
+		}
+		true
+	})
+	match cleanOutcome {
+	case gen.Held:
+	case gen.Refuted, gen.GaveUp:
+		return false
+	}
+	let buggyPM = makeProbeMachine(specSeed, bugState, bugAct, true, transient)
+	let buggyModel = probeModelOf(buggyPM)
+	let expectedReachable = bfsFindsDivergence(buggyPM, steps)
+	let foundRef = sync.NewRef[Option[Diverged[int, int]]](None)
+	let buggyCfg = gen.Config{Seed: uint64(modPos(specSeed, 100) + 1), Cases: 40, Shrinks: 0, MaxDraws: 512, MaxRejected: 10}
+	let _ = gen.Check(buggyCfg, func() bool fails gen.Rejected needs gen.Draws {
+		Agrees(buggyModel, newProbeStage(buggyPM), steps) catch {
+		case Diverged[int, int] as d:
+			foundRef.Set(Some[Diverged[int, int]]{Value: d})
+			return false
+		case Refused:
+			return false
+		}
+		true
+	})
+	match foundRef.Get() {
+	case Some[Diverged[int, int]] as d:
+		expectedReachable && replayDivergence(buggyPM, d.Value)
+	case None:
+		!expectedReachable
+	}
+}
+
+func newOrderStage(log sync.Ref[[]string]) Stage[int, int] {
+	let cur = sync.NewRef(0)
+	let p = FuncProvider[Stage[int, int]]{}
+	Set(p.Do, func(a int) fails Refused {
+		log.Set(log.Get().Append("stage"))
+		cur.Set(cur.Get() + a)
+	})
+	Set(p.Advance, func(d duration) { let _ = d })
+	Set(p.Settle, func() {})
+	Set(p.Show, func() int { cur.Get() })
+	p
+}
+
+// StoryStepsBeforeStage: at every step, Agrees computes m.Step(state, a)
+// before calling st.Do(a).
+law StoryStepsBeforeStage(stepsRaw int) {
+	let steps = 1 + modPos(stepsRaw, 5)
+	let log = sync.NewRef([]string{})
+	let st = newOrderStage(log)
+	let m = Model[int, int, int]{
+		Start: 0,
+		Offer: func(s int) int needs gen.Draws {
+			let _ = s
+			gen.IntIn(1, 3)
+		},
+		Step: func(s int, a int) (int, int) {
+			log.Set(log.Get().Append("story"))
+			let n = s + a
+			(n, n)
+		},
+	}
+	let cfg = gen.Config{Seed: uint64(1), Cases: 1, Shrinks: 0, MaxDraws: 256, MaxRejected: 10}
+	let o = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		Agrees(m, st, steps) catch {
+		case Diverged[int, int], Refused:
+			return false
+		}
+		true
+	})
+	let entries = log.Get()
+	if len(entries) != steps*2 {
+		return false
+	}
+	for i in 0..steps {
+		if entries[i*2] != "story" || entries[i*2+1] != "stage" {
+			return false
+		}
+	}
+	match o {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}
+
+// AgreesAndChecksTemporal: AgreesAnd passes when both model and temporal
+// formulas hold, catches temporal violations even when stage and model agree
+// at every step, and reports Open under Cut versus Violated under Idle for
+// an unmet Eventually.
+law AgreesAndChecksTemporal(stepsRaw int) {
+	let steps = 2 + modPos(stepsRaw, 4)
+	let m = Model[int, int, int]{
+		Start: 0,
+		Offer: func(s int) int needs gen.Draws {
+			let _ = s
+			let _ = gen.Bool()
+			1
+		},
+		Step: func(s int, a int) (int, int) {
+			let n = s + a
+			(n, n)
+		},
+	}
+	let cfg = gen.Config{Seed: uint64(1), Cases: 1, Shrinks: 0, MaxDraws: 256, MaxRejected: 10}
+	let good = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let st = newOrderStage(sync.NewRef([]string{}))
+		let fs = []temporal.Formula[int]{
+			temporal.Always(temporal.Named("bounded", func(v int) bool { v <= steps })),
+			temporal.Eventually(temporal.Named("reached", func(v int) bool { v == steps })),
+		}
+		AgreesAnd(m, st, steps, fs) catch {
+		case Diverged[int, int], TemporalBreach[int, int], Refused:
+			return false
+		}
+		true
+	})
+	let goodOk = match good {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+	let alwaysHit = sync.NewRef(false)
+	let _ = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let st = newOrderStage(sync.NewRef([]string{}))
+		let fs = []temporal.Formula[int]{
+			temporal.Always(temporal.Named("below2", func(v int) bool { v < 2 })),
+		}
+		AgreesAnd(m, st, steps, fs) catch {
+		case TemporalBreach[int, int] as tb:
+			match tb.Verdict {
+			case temporal.Violated:
+				alwaysHit.Set(tb.FormulaIndex == 0 && len(tb.Acts) == 2 && tb.Last == 2)
+			case temporal.Holds, temporal.Open:
+			}
+			return false
+		case Diverged[int, int], Refused:
+			return false
+		}
+		true
+	})
+	let cutOpen = sync.NewRef(false)
+	let _ = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let st = newOrderStage(sync.NewRef([]string{}))
+		let fs = []temporal.Formula[int]{
+			temporal.Eventually(temporal.Named("never99", func(v int) bool { v == 99 })),
+		}
+		AgreesAndEnd(m, st, steps, fs, temporal.Cut) catch {
+		case TemporalBreach[int, int] as tb:
+			match tb.Verdict {
+			case temporal.Open:
+				cutOpen.Set(tb.FormulaIndex == 0 && len(tb.Acts) == steps)
+			case temporal.Holds, temporal.Violated:
+			}
+			return false
+		case Diverged[int, int], Refused:
+			return false
+		}
+		true
+	})
+	let idleViol = sync.NewRef(false)
+	let _ = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let st = newOrderStage(sync.NewRef([]string{}))
+		let fs = []temporal.Formula[int]{
+			temporal.Eventually(temporal.Named("never99", func(v int) bool { v == 99 })),
+		}
+		AgreesAnd(m, st, steps, fs) catch {
+		case TemporalBreach[int, int] as tb:
+			match tb.Verdict {
+			case temporal.Violated:
+				idleViol.Set(tb.FormulaIndex == 0 && len(tb.Acts) == steps)
+			case temporal.Holds, temporal.Open:
+			}
+			return false
+		case Diverged[int, int], Refused:
+			return false
+		}
+		true
+	})
+	goodOk && alwaysHit.Get() && cutOpen.Get() && idleViol.Get()
+}
+
+func counterMachineStep(s int, a int) Decision[int, int] {
+	if a == 0 {
+		return Ignore
+	}
+	Emit[int, int]{Next: s + a, Output: s + a}
+}
+
+func counterMachineTimer(s int) Option[Timeout[int]] {
+	let _ = s
+	None
+}
+
+func counterMachineWork(s int) Option[func(send func(e int))] {
+	let _ = s
+	None
+}
+
+func counterMachineExit(s int) Option[func()] {
+	let _ = s
+	None
+}
+
+// ModelOfMatchesMachine: ModelOf adapts a pure Ergo Machine into a Model that
+// agrees with a matching stage and catches a planted mismatch.
+law ModelOfMatchesMachine(seed int) {
+	let mach = Machine[int, int, int]{
+		Initial: 0,
+		Step:    counterMachineStep,
+		After:   counterMachineTimer,
+		Work:    counterMachineWork,
+		Exit:    counterMachineExit,
+	}
+	let m = ModelOf(mach, func(s int) int needs gen.Draws {
+		let _ = s
+		gen.IntIn(0, 2)
+	})
+	let cfg = gen.Config{Seed: uint64(modPos(seed, 50) + 1), Cases: 5, Shrinks: 0, MaxDraws: 256, MaxRejected: 10}
+	let ok = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let st = newOrderStage(sync.NewRef([]string{}))
+		Agrees(m, st, 4) catch {
+		case Diverged[int, int], Refused:
+			return false
+		}
+		true
+	})
+	match ok {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}
