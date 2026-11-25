@@ -192,6 +192,7 @@ func controlStatement(st mut fnb, p mut controlPlan, node dense.ID[syntax.Node],
 		}
 		let (l, mutable) = try letOf(*st, node, p.formals+len(p.locals))
 		try controlObserve(*st, p, l.value)
+		p.nonScalar = p.nonScalar || l.nonScalar
 		p.extended = p.extended || mutable || has(p.taken, l.name)
 		row.op = CDef
 		row.offset = syntax.TokPos(parsed, l.tok)

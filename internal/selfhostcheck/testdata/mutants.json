@@ -1630,6 +1630,46 @@
       "rule": "A parameterized test reserves slots for env plus all n parameters before body locals.",
       "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
       "killers": ["internal/selfhostcheck:TestIRTestBuildAndProductionControl"]
+    },
+    {
+      "name": "lower-let-shapes-restrict-to-basic",
+      "origin": "wf10/selfhost/S4-PORT LET-SHAPES",
+      "file": "compiler/lower/lower.ergo", "decl": "admittedLetType",
+      "from": "\tshapeGo(st, vt)",
+      "to": "\ttypeParamGo(st, vt)",
+      "rule": "Immutable local let bindings admit SHAPES value types rather than restricting to basic scalars and bare type parameters.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestIRLetShapes"]
+    },
+    {
+      "name": "lower-let-shapes-admit-mut-nonbasic",
+      "origin": "wf10/selfhost/S4-PORT LET-SHAPES",
+      "file": "compiler/lower/lower.ergo", "decl": "admittedLetType",
+      "from": "\tif mutable || hasWrittenType {",
+      "to": "\tif hasWrittenType {",
+      "rule": "Mutable non-basic let bindings stay stopped so value-rule copy/seedcap/scalar-form invariants cannot diverge.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestIRLetShapes"]
+    },
+    {
+      "name": "lower-let-shapes-admit-explicit-type",
+      "origin": "wf10/selfhost/S4-PORT LET-SHAPES",
+      "file": "compiler/lower/lower.ergo", "decl": "admittedLetType",
+      "from": "\tif mutable || hasWrittenType {",
+      "to": "\tif mutable {",
+      "rule": "Non-basic let bindings with explicit type annotations stay stopped so implicit union/interface conversions are never dropped.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestIRLetShapes"]
+    },
+    {
+      "name": "lower-let-shapes-wrong-local-type",
+      "origin": "wf10/selfhost/S4-PORT LET-SHAPES",
+      "file": "compiler/lower/lower.ergo", "decl": "admittedLetType",
+      "from": "\tshapeGo(st, vt)",
+      "to": "\tif shapeGo(st, vt) != \"\" { \"int\" } else { \"\" }",
+      "rule": "Shaped local let bindings record their exact shapeGo type in ir.Func.Locals rather than a placeholder scalar type.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestIRLetShapes"]
     }
   ]
 }

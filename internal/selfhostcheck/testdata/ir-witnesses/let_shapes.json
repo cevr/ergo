@@ -1,0 +1,6 @@
+[
+  {"fixture": "port_let_shapes.ergo", "declaration": "func PortLetSliceLen(", "symbol": "PortLetSliceLen"},
+  {"fixture": "port_let_shapes.ergo", "declaration": "func PortLetSliceLit(", "symbol": "PortLetSliceLit"},
+  {"fixture": "port_let_shapes.ergo", "declaration": "func PortLetRecordField(", "symbol": "PortLetBag.PortLetRecordField"},
+  {"fixture": "port_let_shapes.ergo", "declaration": "func PortLetOptionWrap(", "symbol": "PortLetOptionWrap"}
+]

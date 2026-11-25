@@ -627,10 +627,21 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 	true
 }
 
-// aLet is a let the slice builds: `let name = value` of a basic type.
-type aLet { tok int, at dense.ID[syntax.Node], name string, typ string, value dense.ID[syntax.Node], local int }
+// aLet is a let the slice builds: `let name = value` of an admitted type.
+type aLet { tok int, at dense.ID[syntax.Node], name string, typ string, value dense.ID[syntax.Node], local int, nonScalar bool }
 
-// letOf checks one initialized scalar let, and records whether it can be
+func admittedLetType(st fnb, vt dense.ID[store.TKey], mutable bool, hasWrittenType bool) string {
+	let basic = basicGo(st, vt)
+	if basic != "" {
+		return basic
+	}
+	if mutable || hasWrittenType {
+		return ""
+	}
+	shapeGo(st, vt)
+}
+
+// letOf checks one initialized let, and records whether it can be
 // reassigned. The control plan allocates its slot and Go name.
 func letOf(st fnb, s dense.ID[syntax.Node], local int) (aLet, bool) fails Unported {
 	let p = st.p
@@ -669,15 +680,17 @@ func letOf(st fnb, s dense.ID[syntax.Node], local int) (aLet, bool) fails Unport
 		return stop("let _")
 	}
 	let vt = try typeOf(st, value, "let value")
-	let mut gt = basicGo(st, vt)
-	if gt == "" && vd.Mut < 0 {
-		gt = typeParamGo(st, vt)
-	}
+	let mutable = vd.Mut >= 0
+	let hasWritten = dense.Unpack(spec.Type) != None
+	let gt = admittedLetType(st, vt, mutable, hasWritten)
 	if gt == "" {
+		if !mutable && hasWritten && shapeGo(st, vt) != "" {
+			return stop("let with explicit type annotation")
+		}
 		return stop("let of " + typeCause(st, vt))
 	}
 	try check(st, value)
-	(aLet{tok: vd.Var, at: at, name: name, typ: gt, value: value, local: local}, vd.Mut >= 0)
+	(aLet{tok: vd.Var, at: at, name: name, typ: gt, value: value, local: local, nonScalar: basicGo(st, vt) == ""}, mutable)
 }
 
 // aCall is a call the slice builds: the callee's Go name, whether it is
