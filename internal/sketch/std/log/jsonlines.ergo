@@ -21,16 +21,42 @@ func NewJSONLines(out io.Stderr, clock time.Clock, least Level) JSONLines {
 // Enabled reports that j writes entries of level l.
 func Enabled(j JSONLines, l Level) bool { Admits(j.least, l) }
 
-// Write writes e as one line of JSON, in one write.
+func hasAttrKey(attrs []Attr, key string) bool {
+	for a in attrs {
+		if a.Key == key {
+			return true
+		}
+	}
+	false
+}
+
+extern go ergo.local/prototype/runtime/v1.WideGet func wideGet[T](slot string) (T, bool)
+
+// Write writes e as one line of JSON, in one write. When called inside an
+// active trace.WithSpan, it automatically stamps `"trace_id"` and `"span_id"`
+// from the task's active span slots unless already present in e.Attrs.
 func Write(j JSONLines, e Entry) {
+	let tid, hasTrace = wideGet[string]("wide_trace_id")
+	let sid, hasSpan = wideGet[string]("wide_span_id")
+	let emitTrace = hasTrace && tid != "" && !hasAttrKey(e.Attrs, "trace_id")
+	let emitSpan = hasSpan && sid != "" && !hasAttrKey(e.Attrs, "span_id")
+	let extra = (if emitTrace { 1 } else { 0 }) + (if emitSpan { 1 } else { 0 })
 	let t = json.NewText()
-	t.BeginObject(3 + e.Attrs.Len())
+	t.BeginObject(3 + extra + e.Attrs.Len())
 	t.Key("time")
 	t.String(j.clock.Now().Format(time.RFC3339Nano))
 	t.Key("level")
 	t.String(e.Level.Name())
 	t.Key("msg")
 	t.String(e.Message)
+	if emitTrace {
+		t.Key("trace_id")
+		t.String(tid)
+	}
+	if emitSpan {
+		t.Key("span_id")
+		t.String(sid)
+	}
 	for a in e.Attrs {
 		t.Key(a.Key)
 		t.String(a.Text)
