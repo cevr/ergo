@@ -169,7 +169,9 @@ fact go unicode pure members validated by guard with go1.27.4 h1:xrgHefhY5L5swJn
 fact go unicode/utf16 pure members validated by guard with go1.27.4 h1:K4aT3aUE7yWhZc1b6BS8ydNOtgVDCAJ1L9aTgSqJp8Q=
 fact go unicode/utf8 pure members validated by guard with go1.27.4 h1:5gjyDHvaVojxyercf1zdUm+G09IguET6X0RIacP+gjo=
 law bits.RotateKeepsOnes validated by eval with go1.27.4 h1:jkq3gVnp5Rq0awjyucsBiOSHOpCngoSLaiUJihHHHU0=
+law collections.MapFold.FoldOfMap for collections.[]T validated by eval with go1.27.4 h1:Pml61yF0uJCMI+gPTEnLtac/TYV4lvw01lOr23ELmV0=
 law collections.MapFold.FoldOfMap for option.Option validated by eval h1:pWVDvge3rpPmh2J/exA933/9HIpvYe+KyHbrtv4dMgc=
+law collections.Mappable.MapFuses for collections.[]T validated by eval with go1.27.4 h1:wrzJYrWqd1GVJnwsynpvEYMTcQlr40w66QXQZK94Smw=
 law collections.Mappable.MapFuses for option.Option validated by eval h1:h+ckVE7N8w6Tz9Aoa498KdXSHTPhU7k5gkUm9Pe+ehM=
 law collections.SliceFoldOfMap validated by eval with go1.27.4 h1:O+i79wSxxNhN7WQbexPd+POMnC1YX0lwVmD5ItQ7YiM=
 law collections.SliceMapFuses validated by eval with go1.27.4 h1:Yg2oS3QU9cE08C81Wt1sV3eYnSitw7tezGhaH6A9mHU=
