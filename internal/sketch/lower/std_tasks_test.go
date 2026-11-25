@@ -127,7 +127,8 @@ func main() needs Console {
 		let again = tasks.NewSet(tasks.Restart{Limit: 2})
 		tasks.Go(again, func() {
 			if sync.Modify(runs, func(v int) (int, int) { (v + 1, v + 1) }) <= 2 {
-				Unreachable("restart me")
+				let z = 0
+				let _ = 1 / z
 			}
 		}) catch {
 		case tasks.Closed:

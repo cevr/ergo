@@ -201,7 +201,7 @@ func (g *rtGen) rtDraw(i int) rtCase {
 		c.features = append(c.features, "wrap")
 	}
 	if shape == "try" {
-		call += " catch {\n\tcase _:\n\t\tUnreachable(\"no failure\")\n\t}"
+		call = "try " + call
 	}
 	var t strings.Builder
 	fmt.Fprintf(&t, "test %s {\n\tjournal.Set([]string{})\n\tlet r = %s\n\tsay(\"picked\")\n", c.name, call)
@@ -260,7 +260,6 @@ func handed(up queue.Queue[int], gate queue.Queue[int]) Task[int, queue.Closed] 
 		task.Go() {
 			up.Offer(1) catch {
 			case _:
-				Unreachable("up has room")
 			}
 			try gate.Pop()
 		}

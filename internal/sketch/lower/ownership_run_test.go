@@ -414,7 +414,8 @@ type Bad { n int }
 func Close(r Res) needs Console {
 	Console.Println("close \(r.id)")
 	if r.bad {
-		Unreachable("close \(r.id)")
+		let z = 0
+		let _ = 1 / z
 	}
 }
 
@@ -467,7 +468,8 @@ func skip() {}
 
 func boom(n int, c int) {
 	if n > c {
-		Unreachable("boom")
+		let z = 0
+		let _ = 1 / z
 	}
 }
 

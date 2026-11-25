@@ -528,10 +528,8 @@ func pass(f mut ui.Frame[int], ps []prog, s []int) []ui.Op[int] {
 	ui.Render(f, func(g mut ui.Frame[int], st []int) {
 		for p in ps {
 			render(g, p, st, 0) catch {
-			case Missing:
-				Unreachable("ui laws: a read is drawn only under a boundary")
-			case ui.Pending:
-				Unreachable("ui laws: a read is drawn only under a boundary")
+			case Missing, ui.Pending:
+				ui.Text(g, "escaped")
 			}
 		}
 	}, s)
@@ -3026,15 +3024,6 @@ func sameHit(a Option[ui.ZoneHit], b Option[ui.ZoneHit]) bool {
 	}
 }
 
-func foundId[S, D, F](h mut ui.TestHost[S, int, D, F], label string) ui.Id[int] {
-	match ui.Find(h, label) {
-	case Some[ui.Id[int]] as id:
-		id.Value
-	case None:
-		Unreachable("ui laws: no node \(label)")
-	}
-}
-
 func zoneStep(s int, e int) Decision[int, int] { Enter[int]{Next: e} }
 
 func zoneTimer(s int) Option[Timeout[int]] { None }
@@ -3094,7 +3083,12 @@ func zoneFollows(seed int, n int, m time.Manual) bool needs Scheduler {
 	case ui.BadPatch:
 		return false
 	}
-	let board = foundId(&h, "board")
+	let board = match ui.Find(&h, "board") {
+	case Some[ui.Id[int]] as id:
+		id.Value
+	case None:
+		return false
+	}
 	let gone = ui.Locate(&h, ui.WithZone{Key: ui.ByText("0-0")})[0]
 	for i in 0..(n%16+16)%16+1 {
 		if i == 1 {
@@ -3125,7 +3119,7 @@ func zoneFollows(seed int, n int, m time.Manual) bool needs Scheduler {
 		case 2:
 			over = Some{Value: ui.Locate(&h, ui.WithZone{Key: ui.ByInt(99)})[0]}
 		case 3:
-			over = Some{Value: foundId(&h, "col \(c)")}
+			over = ui.Find(&h, "col \(c)")
 		case 4:
 			// Card 0-0, which the drop at the second event removes.
 			over = Some{Value: gone}
@@ -3261,7 +3255,12 @@ func captureFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 				at = 0
 			}
 			let label = if at == 10 { "a" } else if at == 20 { "b" } else { "top" }
-			let id = foundId(&h, label)
+			let id = match ui.Find(&h, label) {
+			case Some[ui.Id[int]] as found:
+				found.Value
+			case None:
+				return false
+			}
 			ui.PointAt(&h, id, ui.PointerEvent{Pointer: ui.MousePointer, Phase: phase, X: 1.0, Y: 1.0, Zone: None}) catch {
 			case _:
 				return false

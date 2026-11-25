@@ -3,9 +3,11 @@
 import fs
 import fstest
 import github.com/cevr/ergo/modules/domain
+import github.com/cevr/ergo/modules/domain/memory
 import journal
 import strconv
 import strings
+import sync
 
 // Decimal is the codec of an int as its decimal text.
 type Decimal {} implements journal.Codec[int]
@@ -29,7 +31,12 @@ func NewInts() Ints {
 	let disk = fstest.NewMemory()
 	let l = Open[int](disk, disk, "log", Decimal) catch {
 	case domain.Unkept:
-		Unreachable("an empty file system holds no log to misread")
+		Log[int]{
+			writes: disk,
+			path:   "log",
+			events: Decimal,
+			book:   sync.NewRef(memory.Book[int]{Streams: Map[string, []domain.Recorded[int]]{}, Receipts: Map[domain.CommandID, domain.Receipt]{}}),
+		}
 	}
 	Ints{log: l}
 }

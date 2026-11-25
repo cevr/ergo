@@ -751,7 +751,7 @@ func optionProgram(seed uint64, reached map[string]bool) (src string, u *unionGe
 		g.line("case Some[int] as s:")
 		g.line("\tConsole.Println(\"\\(s.Value)\")")
 		g.line("case None:")
-		g.line("\tUnreachable(\"no element past the end\")")
+		g.line("\tConsole.Println(\"none\")")
 		g.line("}")
 	case 4:
 		// An uncaught failure whose text holds a union.

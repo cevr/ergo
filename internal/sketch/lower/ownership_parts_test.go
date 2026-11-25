@@ -48,7 +48,8 @@ func openf(id int, bad bool, n int, c int) Res fails Bad needs Console {
 
 func openb(id int, bad bool, n int, c int) Res needs Console {
 	if n > c {
-		Unreachable("boom")
+		let z = 0
+		let _ = 1 / z
 	}
 	open(id, bad)
 }
@@ -80,7 +81,8 @@ type Snk { id int, bad bool } implements Sink, Closer
 
 func Close(s Snk) {
 	if s.bad {
-		Unreachable("sink \(s.id)")
+		let z = 0
+		let _ = 1 / z
 	}
 }
 
@@ -122,7 +124,8 @@ func fkey(n int, c int) string fails Bad {
 
 func bkey(n int, c int) string {
 	if n > c {
-		Unreachable("boom")
+		let z = 0
+		let _ = 1 / z
 	}
 	"k"
 }

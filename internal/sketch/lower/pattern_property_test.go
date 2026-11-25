@@ -57,7 +57,7 @@ func TestPatternMatchersAgree(t *testing.T) {
 		}
 		src := "import io\nimport strconv\nimport strings\n\n" + decls.String() +
 			"\nfunc parsed(i int, s string) string {\n\t" + cases.String() + "{ \"?\" }\n}\n" +
-			"\nfunc main() needs Ambient {\n\twith context { io.Stdout: io.NewHost(), io.Stdin: io.NewStdin() } {\n\t\tfor line in io.Stdin.Lines() {\n\t\t\tlet fields = strings.Split(line, \"\\x1f\")\n\t\t\tlet i = strconv.Atoi(fields[0]) catch { case _: Unreachable(\"test input index\") }\n\t\t\tio.Stdout.Println(parsed(i, fields[1]))\n\t\t}\n\t}\n}\n"
+			"\nfunc main() fails strconv.Malformed | strconv.OutOfRange needs Ambient {\n\twith context { io.Stdout: io.NewHost(), io.Stdin: io.NewStdin() } {\n\t\tfor line in io.Stdin.Lines() {\n\t\t\tlet fields = strings.Split(line, \"\\x1f\")\n\t\t\tlet i = try strconv.Atoi(fields[0])\n\t\t\tio.Stdout.Println(parsed(i, fields[1]))\n\t\t}\n\t}\n}\n"
 		// Each form, the other's reference: every matcher a table, then
 		// every matcher straight-line.
 		saved := PatternTableStates

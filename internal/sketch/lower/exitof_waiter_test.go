@@ -16,11 +16,15 @@ import (
 // Tasks 13 says a stop of the waiting task is Wait's: the sleeper is
 // stopped and drained, and ExitOf never returns to the waiter. The program
 // exits 0 when Stop returns with no sleeper left.
-const exitOfWaiterSource = `import task
+const exitOfWaiterSource = `import queue
+import task
 import time
 
-func main() {
+type waiterFailed {}
+
+func main() fails waiterFailed {
 	let m = time.NewManual(0)
+	let returned = queue.NewOpen[bool](1)
 	with context { Scheduler: m } {
 		let waiter = task.Go() {
 			let outer = task.Go() {
@@ -31,13 +35,13 @@ func main() {
 			}
 			let sleeper = outer.Wait()
 			let _ = task.ExitOf(sleeper)
-			Unreachable("ExitOf returned to a stopped waiter")
+			returned.Push(true)
 		}
 		for m.Sleepers() == 0 {
 		}
 		waiter.Stop()
-		if m.Sleepers() != 0 {
-			Unreachable("the sleeper outlived its waiter's stop")
+		if returned.Poll() != None || m.Sleepers() != 0 {
+			return waiterFailed
 		}
 	}
 }

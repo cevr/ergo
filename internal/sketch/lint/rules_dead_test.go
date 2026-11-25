@@ -134,12 +134,16 @@ func TestUnusedTypeParameterAgreesWithReference(t *testing.T) {
 				result = " (A, B)"
 			}
 			line := p.line + 1
-			p.write(fmt.Sprintf("\nfunc g%d[A, B](%s)%s {", i, strings.Join(params, ", "), result), a == 3, 1)
+			defects := ""
+			if len(results) > 0 {
+				defects = " defects"
+			}
+			p.write(fmt.Sprintf("\nfunc g%d[A, B](%s)%s%s {", i, strings.Join(params, ", "), result, defects), a == 3, 1)
 			if b == 3 {
 				p.want = append(p.want, line)
 			}
 			if len(results) > 0 {
-				body = append(body, "\tUnreachable(\"never called\")")
+				body = append(body, "\tdie \"never called\"")
 			}
 			p.write(strings.Join(append(body, "}"), "\n"), false, 0)
 		}

@@ -7,7 +7,7 @@ type payload { Items []int, Words Map[string, int] }
 func retained() arena.Of[payload] {
 	let mut a = arena.New[payload]()
 	let r = a.Put(payload{Items: []int{1, 2, 3}, Words: Map[string, int]{"kept": 1}})
-	let _ = a.Free(r) catch { case arena.Stale: Unreachable("fresh ref") }
+	let _ = a.Free(r) catch { case arena.Stale: payload{Items: []int{}, Words: Map[string, int]{}} }
 	a
 }
 func freeSlotIsStale() bool {
@@ -15,9 +15,9 @@ func freeSlotIsStale() bool {
 	let mut a = arena.New[payload]()
 	let mut b = arena.New[payload]()
 	let ra = a.Put(value)
-	let _ = a.Free(ra) catch { case arena.Stale: Unreachable("fresh ref") }
+	let _ = a.Free(ra) catch { case arena.Stale: return false }
 	let rb = b.Put(value)
-	let _ = b.Free(rb) catch { case arena.Stale: Unreachable("fresh ref") }
+	let _ = b.Free(rb) catch { case arena.Stale: return false }
 	// This Ref has a's free slot's generation, but must not read its
 	// cleared host storage. Wrong-store handles may alias a live value,
 	// never an uninitialized one.
@@ -34,7 +34,7 @@ import (
 	"testing"
 )
 func TestFreedStorage(t *testing.T) {
-	a := retained(nil)
+	a := retained()
 	// Inspect storage, not reachability through Get: its Stale check can
 	// hide a retained value. No finalizer or scheduling-dependent GC probe.
 	var retains func(reflect.Value) bool
@@ -63,7 +63,7 @@ func TestFreedStorage(t *testing.T) {
 		}
 	}
 	if !found { t.Fatal("the arena has no physical storage to inspect") }
-	if !freeSlotIsStale(nil) { t.Fatal("a foreign-store Ref exposes cleared host storage") }
+	if !freeSlotIsStale() { t.Fatal("a foreign-store Ref exposes cleared host storage") }
 }
 `
 

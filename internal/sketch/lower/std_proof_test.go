@@ -25,15 +25,12 @@ import totp
 
 // provider is a store of each kind, by pick: a memory store, or a file
 // store over its own fstest.Memory disk.
-func provider(pick int) proof.Store {
+func provider(pick int) proof.Store fails proof.Failed {
 	if ((pick%2)+2)%2 == 0 {
 		return memory.New()
 	}
 	let disk = fstest.NewMemory()
-	file.Open(disk, disk, "proofs.log") catch {
-	case proof.Failed:
-		Unreachable("an empty disk opens")
-	}
+	try file.Open(disk, disk, "proofs.log")
 }
 
 func storeRedeemOnce(s proof.Store, id string, purpose string, code string, sec int64) bool fails proof.Failed {
@@ -57,7 +54,7 @@ func storeRedeemOnce(s proof.Store, id string, purpose string, code string, sec 
 }
 
 test ProofStoreRedeemOnce(pick int, id string, purpose string, code string, sec int64) {
-	let ok = storeRedeemOnce(provider(pick), id, purpose, code, sec) catch {
+	let ok = storeRedeemOnce(try provider(pick), id, purpose, code, sec) catch {
 	case proof.Failed:
 		false
 	}
@@ -89,7 +86,7 @@ func storeExpiredFails(s proof.Store, id string, code string, sec int64) bool fa
 }
 
 test ProofStoreExpiredFails(pick int, id string, code string, sec int64) {
-	let ok = storeExpiredFails(provider(pick), id, code, sec) catch {
+	let ok = storeExpiredFails(try provider(pick), id, code, sec) catch {
 	case proof.Failed:
 		false
 	}
@@ -124,7 +121,7 @@ func storeAttemptsAreBounded(s proof.Store, id string, code string, n int) bool 
 }
 
 test ProofStoreAttemptsAreBounded(pick int, id string, code string, n int) {
-	let ok = storeAttemptsAreBounded(provider(pick), id, code, n) catch {
+	let ok = storeAttemptsAreBounded(try provider(pick), id, code, n) catch {
 	case proof.Failed:
 		false
 	}
@@ -150,7 +147,7 @@ func storeWrongPurposeFails(s proof.Store, id string, code string) bool fails pr
 }
 
 test ProofStoreWrongPurposeFails(pick int, id string, code string) {
-	let ok = storeWrongPurposeFails(provider(pick), id, code) catch {
+	let ok = storeWrongPurposeFails(try provider(pick), id, code) catch {
 	case proof.Failed:
 		false
 	}
@@ -175,7 +172,7 @@ func storeClaimOnce(s proof.Store, key string, sec int64) bool fails proof.Faile
 }
 
 test ProofStoreClaimOnce(pick int, key string, sec int64) {
-	let ok = storeClaimOnce(provider(pick), key, sec) catch {
+	let ok = storeClaimOnce(try provider(pick), key, sec) catch {
 	case proof.Failed:
 		false
 	}

@@ -372,7 +372,7 @@ func metered(m llm.Metered, r llm.Request, stream bool) llm.Turn fails llm.RateL
 	if stream {
 		return try m.Stream(r, func(d llm.Delta) fails llm.SinkFailed {}) catch {
 		case llm.SinkFailed:
-			Unreachable("a sink that drops every delta failed")
+			return llm.InvalidResponse{Reason: "sink failed"}
 		}
 	}
 	try m.Generate(r)
@@ -433,7 +433,7 @@ func asked(m llm.Model, r llm.Request, stream bool) seen {
 	let mut ds = []llm.Delta{}
 	let t = m.Stream(r, func(d llm.Delta) fails llm.SinkFailed { ds = ds.Append(d) }) catch {
 	case llm.SinkFailed:
-		Unreachable("a sink that keeps every delta failed")
+		return seen{Deltas: ds, End: recorded.Failed{Failure: llm.InvalidResponse{Reason: "sink failed"}}}
 	case f:
 		let failure llm.Failure = f
 		return seen{Deltas: ds, End: recorded.Failed{Failure: failure}}
@@ -743,7 +743,7 @@ var stdLLMLawStatements = map[string]string{
 	"llm/memory UsageAdds":                `UsageAdds(us []llm.Usage, f llm.Failure) { meter(us, f, false).Summed && meter(us, f, true).Summed }`,
 	"llm/memory MeteredIsTransparent":     `MeteredIsTransparent(us []llm.Usage, f llm.Failure) { meter(us, f, false).Transparent && meter(us, f, true).Transparent }`,
 	"llm FormatAgreesWithCodec":           `FormatAgreesWithCodec(v askProbe) { let text = json.Encode(askCodec(), v) let doc = json.Decode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, text) catch { case _: return false } let back = Parse(askCodec(), text) catch { case _: return false } jsonschema.Conforms(jsonschema.SchemaOf(askProbeSchema()), doc) && back.Value == v && len(back.Fixes) == 0 }`,
-	"llm FormatKeepsTheRequest":           `FormatKeepsTheRequest(system string, max int) { let r = Request{System: system, Messages: []Message{User{Text: "hi"}}, Tools: []ToolSpec{}, Choice: Auto, Format: Prose, MaxTokens: max} let f = Format(r, askProbeSchema()) let text = jsonschema.TextOf(askProbeSchema()) let form = match f.Format { case JSON as j: j.Schema == text case Prose: false } form && strings.HasSuffix(f.System, text) && strings.HasPrefix(f.System, system) && f.Messages == r.Messages && f.MaxTokens == max }`,
+	"llm FormatKeepsTheRequest":           `FormatKeepsTheRequest(system string, max int) { let r = Request{System: system, Messages: []Message{User{Text: "hi"}}, Tools: []ToolSpec{}, Choice: Auto, Format: Prose, MaxTokens: max} let f = WithSchema(r, askProbeSchema()) let text = jsonschema.TextOf(askProbeSchema()) let form = match f.Format { case JSON as j: j.Schema == text case Prose: false } form && strings.HasSuffix(f.System, text) && strings.HasPrefix(f.System, system) && f.Messages == r.Messages && f.MaxTokens == max }`,
 	"llm ParseDecodesOrFails":             `ParseDecodesOrFails(reply string) { let want = json.DecodeLoose(askCodec(), reply) catch { case _: let _ = Parse(askCodec(), reply) catch { case NoFit as n: return n.Reply == reply } return false } let got = Parse(askCodec(), reply) catch { case _: return false } got == want }`,
 	"llm/memory AskIsParseOfTheReply":     `AskIsParseOfTheReply(text string) { let m = NewSequence([]Reply{ok(text, none())}) askOf(m, plain("q")) == parsing(text) && Asks(m) == 1 }`,
 	"llm/memory LengthStopIsNotParsed":    `LengthStopIsNotParsed(v asked) { let text = json.Encode(askedCodec(), v) let m = NewSequence([]Reply{Says{Deltas: []llm.Delta{llm.Text{Text: text}}, Stop: llm.Length, Usage: none()}}) match askOf(m, plain("q")).NoFit { case Some[llm.NoFit] as n: n.Value.Reply == text && n.Value.Path == "" case None: false } }`,

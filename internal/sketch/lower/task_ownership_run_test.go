@@ -119,7 +119,7 @@ func taskOwnProgram(seed int) (string, string) {
 		src.WriteString("let calls = sync.NewRef[int](0)\n")
 		src.WriteString("try tasks.Go(set) {\nlet run = sync.Modify(calls, func(v int) (int, int) { (v + 1, v + 1) })\n")
 		src.WriteString(uses.String())
-		fmt.Fprintf(&src, "if run <= %d { Unreachable(\"restart\") }\n}\ntry set.Wait()\nConsole.Println(\"waited\")\n", limit)
+		fmt.Fprintf(&src, "if run <= %d { let z = 0; let _ = 1 / z }\n}\ntry set.Wait()\nConsole.Println(\"waited\")\n", limit)
 		for run := 0; run <= limit; run++ {
 			for i := 0; i < n; i++ {
 				fmt.Fprintf(&want, "use %d\n", i)

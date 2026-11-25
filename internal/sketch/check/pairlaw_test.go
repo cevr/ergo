@@ -94,11 +94,12 @@ func pairLawSource(r *rand.Rand) (string, bool) {
 	if withCtor {
 		fmt.Fprintf(&b, "func NewX(n int) X { %s }\n", ctor)
 	}
+	parseVal := strings.ReplaceAll(ctor, ": n", ": 0")
 	if r.IntN(2) == 0 {
-		b.WriteString("func ParseX(b []byte) X { Unreachable(\"not run\") }\n")
+		fmt.Fprintf(&b, "func ParseX(b []byte) X { %s }\n", parseVal)
 		b.WriteString("func Wire(v X, into []byte) []byte { into }\n")
 	} else {
-		b.WriteString("func ParseX(s string) X { Unreachable(\"not run\") }\n")
+		fmt.Fprintf(&b, "func ParseX(s string) X { %s }\n", parseVal)
 		b.WriteString("func Wire(v X) string { \"\" }\n")
 	}
 	src := b.String()

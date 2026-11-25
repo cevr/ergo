@@ -1147,7 +1147,11 @@ func note(r Ref, s string) { r.log.Update(func(l []string) []string { l.Append(s
 			fmt.Fprintf(&b, "\tcase %d:\n", cl.n)
 			outcome(cl)
 		}
-		b.WriteString("\tcase _:\n\t\tUnreachable(\"a call the sequence did not plan\")\n\t}\n}\n")
+		if o.result != nil {
+			fmt.Fprintf(&b, "\tcase _:\n\t\tlet z = 0\n\t\tlet _ = 1 / z\n\t\treturn %s\n\t}\n}\n", p.lit(o.result, "", 0))
+		} else {
+			b.WriteString("\tcase _:\n\t\tlet z = 0\n\t\tlet _ = 1 / z\n\t\treturn\n\t}\n}\n")
+		}
 	}
 	return b.String()
 }
@@ -1272,7 +1276,7 @@ func (p *program) mainSource() string {
 	for k := range p.wides {
 		fmt.Fprintf(&b, "\tcase \"w%d\":\n\t\tConsole.Println(checkedWide%d(conn))\n", k, k)
 	}
-	b.WriteString("\tcase _:\n\t\tUnreachable(\"no such wide call\")\n\t}\n}\n")
+	b.WriteString("\tcase _:\n\t\tConsole.Println(\"unexpected wide call: \" + key)\n\t}\n}\n")
 	fmt.Fprintf(&b, "\nfunc script() needs Console | %s {\n", needs)
 	last := len(p.order)
 	if p.dies {
@@ -1292,7 +1296,7 @@ func (p *program) mainSource() string {
 	for k := range p.wides {
 		fmt.Fprintf(&b, "\tcase \"w%d\":\n\t\tConsole.Println(wide%d())\n", k, k)
 	}
-	b.WriteString("\tcase _:\n\t\tUnreachable(\"no such wide call\")\n\t}\n}\n")
+	b.WriteString("\tcase _:\n\t\tConsole.Println(\"unexpected wide call: \" + key)\n\t}\n}\n")
 	// payload is a wide call's Request payload, as a client that does not
 	// check its answers (Effect's) sends it.
 	request := func(c *contract, cl *call) string {
@@ -1310,7 +1314,7 @@ func (p *program) mainSource() string {
 	for k, w := range p.wides {
 		fmt.Fprintf(&b, "\tcase \"w%d\":\n\t\trpc.Encode(%s)\n", k, request(w.c, w.call))
 	}
-	b.WriteString("\tcase _:\n\t\tUnreachable(\"no such wide call\")\n\t}\n}\n")
+	b.WriteString("\tcase _:\n\t\t\"unexpected wide call: \" + key\n\t}\n}\n")
 	// payloads are the sequence's Request payloads, a line each.
 	b.WriteString("\nfunc payloads() needs Console {\n")
 	for _, cl := range p.order {

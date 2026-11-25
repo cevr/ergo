@@ -159,7 +159,7 @@ type guardTicket { releases sync.Ref[int] } implements Closer
 func Close(g guardTicket) {
 	let n = g.releases.Get()
 	g.releases.Set(n + 1)
-	if n < 0 { Unreachable("guard cleanup") }
+	if n < 0 { let z = 0; let _ = 1 / z }
 }
 
 func makeResult(releases sync.Ref[int]) wrapped {
@@ -197,10 +197,10 @@ func main() {}
 	var lowered []string
 	for _, s := range shapes {
 		lowered = append(lowered, s.name)
-		row, extra, recover, rejected := "", "", "", ""
+		row, extra, prefix, rejected := "", "", "", ""
 		if s.fallible {
 			row, extra = " fails Bad", ", reject bool"
-			recover = " catch { case Bad: Unreachable(\"unexpected failure\") }"
+			prefix = "try "
 			rejected = "false"
 		}
 		fmt.Fprintf(&src, "\nfunc %s(releases sync.Ref[int], guard sync.Ref[int]%s) View%s {\n", s.name, extra, row)
@@ -218,7 +218,7 @@ func main() {}
 		}
 		start := 10 + r.IntN(1000)
 		fmt.Fprintf(&src, "\ntest Check%s {\nlet releases = sync.NewRef(%d)\nlet guard = sync.NewRef(0)\n", s.name, start)
-		fmt.Fprintf(&src, "let v = %s(releases, guard%s)%s\n", s.name, rejected, recover)
+		fmt.Fprintf(&src, "let v = %s%s(releases, guard%s)\n", prefix, s.name, rejected)
 		fmt.Fprintf(&src, "assert guard.Get() == 1\nassert firstUse(v) == %d\nassert releases.Get() == %d\n", start, start+1)
 		// A defect while leaving the producer must release the value that
 		// it was about to return; ownership has not reached the caller.
@@ -251,7 +251,7 @@ type dropTicket { id int, log sync.Ref[int], crash bool } implements Closer
 
 func Close(t dropTicket) {
 	t.log.Set(t.log.Get()*10 + t.id)
-	if t.crash { Unreachable("release defect") }
+	if t.crash { let z = 0; let _ = 1 / z }
 }
 
 type dropPair { left dropTicket, right dropTicket }
@@ -271,8 +271,8 @@ type dropNode { item dropTicket, more []dropNode }
 		{"Union", `let pair DropVariant = DropFull{pair: dropPair{left: l, right: r}}`, "0", "11*id+10"},
 		{"Recursive", `let pair = dropNode{item: l, more: []dropNode{dropNode{item: r, more: []dropNode{}}}}`, "0", "11*id+10"},
 		{"Drain", `let pair = queue.New[dropTicket](2)
-		pair.Push(l) catch { case queue.Closed: Unreachable("open queue") }
-		pair.Push(r) catch { case queue.Closed: Unreachable("open queue") }`, "0", "11*id+10"},
+		pair.Push(l) catch { case queue.Closed: return Bad }
+		pair.Push(r) catch { case queue.Closed: return Bad }`, "0", "11*id+10"},
 		{"Taken", `let pair = dropPair{left: l, right: r}
 		pair.left.Close()`, "id", "11*id+1"},
 	}
@@ -285,7 +285,7 @@ func %[1]s(log sync.Ref[int], id int, reject bool, defect bool) bool fails Bad {
 	let l = dropTicket{id: id, log: log, crash: false}
 	let r = dropTicket{id: id+1, log: log, crash: defect}
 	%[2]s
-	if log.Get() != %[3]s { Unreachable("early release") }
+	if log.Get() != %[3]s { log.Set(-999); return Bad }
 	if reject { return Bad }
 	false
 }
@@ -293,7 +293,7 @@ func %[1]s(log sync.Ref[int], id int, reject bool, defect bool) bool fails Bad {
 test Check%[1]s {
 	let log = sync.NewRef(0)
 	let id = %[4]d
-	%[1]s(log, id, false, false) catch { case Bad: Unreachable("unexpected failure") }
+	let _ = try %[1]s(log, id, false, false)
 	assert log.Get() == %[5]s
 	log.Set(0)
 	let rejected = %[1]s(log, id, true, false) catch { case Bad: true }
@@ -314,8 +314,8 @@ test Check%[1]s {
 	fmt.Fprintf(&src, `
 func DropCallback(log sync.Ref[int], id int, reject bool, defect bool) bool fails Bad {
 	let receive = func(t own dropTicket) bool fails Bad {
-		if t.log.Get() != 0 { Unreachable("early release") }
-		if defect { Unreachable("body defect") }
+		if t.log.Get() != 0 { t.log.Set(-999); return Bad }
+		if defect { let z = 0; let _ = 1 / z }
 		if reject { return Bad }
 		false
 	}
@@ -325,7 +325,7 @@ func DropCallback(log sync.Ref[int], id int, reject bool, defect bool) bool fail
 test CheckDropCallback {
 	let log = sync.NewRef(0)
 	let id = %d
-	DropCallback(log, id, false, false) catch { case Bad: Unreachable("unexpected failure") }
+	let _ = try DropCallback(log, id, false, false)
 	assert log.Get() == id
 	log.Set(0)
 	let rejected = DropCallback(log, id, true, false) catch { case Bad: true }
@@ -353,7 +353,7 @@ func DropReplace(log sync.Ref[int], id int, reject bool, defect bool) int fails 
 		let mut owner = dropTicket{id: id, log: log, crash: defect}
 		let sibling = dropTicket{id: id+1, log: log, crash: false}
 		owner = try replacement(log, id+2, reject)
-		if owner.log.Get() != id || sibling.log.Get() != id { Unreachable("released out of order") }
+		if owner.log.Get() != id || sibling.log.Get() != id { log.Set(-999); return Bad }
 	}
 	log.Get()
 }
@@ -384,7 +384,7 @@ func DropReplacePlace(log sync.Ref[int], id int) {
 	let mut pair = dropPair{left: dropTicket{id: id, log: log, crash: false}, right: dropTicket{id: id+1, log: log, crash: false}}
 	pair.left.Close()
 	pair = dropPair{left: dropTicket{id: id+2, log: log, crash: false}, right: dropTicket{id: id+3, log: log, crash: false}}
-	if pair.right.log.Get() != 11*id+1 { Unreachable("replacement not live") }
+	if pair.right.log.Get() != 11*id+1 { log.Set(-999); return }
 	pair.right.id = id+4
 }
 
@@ -404,7 +404,7 @@ func DropTask(p mut pendingOwnedTasks, id int, reject bool, defect bool) bool fa
 	p.jobs = rest
 	match found {
 	case Some[Task[bool]] as child:
-		if defect { Unreachable("body defect") }
+		if defect { let z = 0; let _ = 1 / z }
 		if reject { return Bad }
 		child.Value.Stop()
 		true
@@ -418,10 +418,10 @@ func exercisingTask(log sync.Ref[int], id int, reject bool, defect bool) bool fa
 	let idle = queue.New[bool](1)
 	let child = task.Go() {
 		scope.OnExit() { log.Set(log.Get()+1) }
-		started.Push(true) catch { case queue.Closed: Unreachable("start queue closed") }
+		started.Push(true) catch { case queue.Closed: }
 		idle.Pop() catch { case queue.Closed: false }
 	}
-	let _ = started.Pop() catch { case queue.Closed: Unreachable("start queue closed") }
+	let _ = started.Pop() catch { case queue.Closed: false }
 	let mut p = pendingOwnedTasks{jobs: Map[int, Task[bool]]{id: child}}
 	try DropTask(&p, id, reject, defect)
 }
@@ -429,8 +429,8 @@ func exercisingTask(log sync.Ref[int], id int, reject bool, defect bool) bool fa
 func DropPattern(found own Option[dropTicket], reject bool, defect bool) bool fails Bad {
 	match found {
 	case Some[dropTicket] as part:
-		if part.Value.log.Get() != 0 { Unreachable("early release") }
-		if defect { Unreachable("body defect") }
+		if part.Value.log.Get() != 0 { part.Value.log.Set(-999); return Bad }
+		if defect { let z = 0; let _ = 1 / z }
 		if reject { return Bad }
 		part.Value.Close()
 		true
@@ -446,11 +446,11 @@ type DropMove { item dropTicket }
 func DropPatternChoice(found own DropChoice, log sync.Ref[int]) bool {
 	match found {
 	case DropMove as part:
-		if part.item.log.Get() != 0 { Unreachable("early release") }
+		if part.item.log.Get() != 0 { part.item.log.Set(-999); return false }
 		part.item.Close()
 		true
 	case DropKeep:
-		if log.Get() != 0 { Unreachable("early release") }
+		if log.Get() != 0 { log.Set(-999); return true }
 		false
 	}
 }
@@ -518,14 +518,14 @@ test CheckDropPatternChoice {
 	fmt.Fprintf(&src, `
 func DropReturned(log sync.Ref[int], id int, reject bool, defect bool) (dropPair, int) fails Bad {
 	let guard = dropTicket{id: id, log: log, crash: defect}
-	if guard.log.Get() != 0 { Unreachable("early release") }
+	if guard.log.Get() != 0 { log.Set(-999); return Bad }
 	if reject { return Bad }
 	(dropPair{left: dropTicket{id: id+1, log: log, crash: false}, right: dropTicket{id: id+2, log: log, crash: false}}, id)
 }
 
 func useReturned(log sync.Ref[int], id int, reject bool, defect bool) bool fails Bad {
 	let pair, tag = try DropReturned(log, id, reject, defect)
-	if pair.right.log.Get() != id { Unreachable("returned owner is no longer live") }
+	if pair.right.log.Get() != id { log.Set(-999); return Bad }
 	tag == id
 }
 
@@ -550,19 +550,19 @@ test CheckDropReturned {
 }
 
 func lendTemp(pair dropPair, tag int) int {
-	if pair.left.log.Get() != 0 || pair.right.log.Get() != 0 { Unreachable("borrow not live") }
+	if pair.left.log.Get() != 0 || pair.right.log.Get() != 0 { pair.left.log.Set(-999); return -1 }
 	tag
 }
 
 func tempTag(id int, reject bool, defect bool) int fails Bad {
-	if defect { Unreachable("later argument defects") }
+	if defect { let z = 0; let _ = 1 / z }
 	if reject { return Bad }
 	id
 }
 
 func DropLentTemp(log sync.Ref[int], id int, reject bool, defect bool) int fails Bad {
 	let n = lendTemp(dropPair{left: dropTicket{id: id, log: log, crash: false}, right: dropTicket{id: id+1, log: log, crash: false}}, try tempTag(id, reject, defect))
-	if log.Get() != 11*id+10 { Unreachable("statement did not release its borrow") }
+	if log.Get() != 11*id+10 { log.Set(-999); return Bad }
 	n
 }
 
@@ -592,7 +592,7 @@ type refCloseTicket { id int, log sync.Ref[int], crash bool } implements Closer
 func Close(t mut refCloseTicket) {
 	t.log.Set(t.log.Get()*10 + t.id)
 	t.id = 0
-	if t.crash { Unreachable("release defect") }
+	if t.crash { let z = 0; let _ = 1 / z }
 }
 
 type refClosePair { left refCloseTicket, right refCloseTicket }
@@ -609,7 +609,7 @@ type refClosePair { left refCloseTicket, right refCloseTicket }
 		fmt.Fprintf(&src, `
 func %[1]s(log sync.Ref[int], id int, reject bool, defect bool) bool fails Bad {
 	%[2]s
-	if log.Get() != id { Unreachable("close has not run") }
+	if log.Get() != id { log.Set(-999); return Bad }
 	if reject { return Bad }
 	false
 }
@@ -641,22 +641,22 @@ type closePartsTicket { part dropTicket, log sync.Ref[int], id int, crash bool }
 type wrapCloseParts { item closePartsTicket }
 func Close(x closePartsTicket) {
 	x.log.Set(x.log.Get()*10 + x.id)
-	if x.crash { Unreachable("release defect") }
+	if x.crash { let z = 0; let _ = 1 / z }
 }
 
 type refClosePartsTicket { part dropTicket, log sync.Ref[int], id int, crash bool } implements Closer
 func Close(x mut refClosePartsTicket) {
 	x.log.Set(x.log.Get()*10 + x.id)
 	x.part.id = x.id+2
-	if x.crash { Unreachable("release defect") }
+	if x.crash { let z = 0; let _ = 1 / z }
 }
 `)
 	for _, f := range []struct{ name, body, expected string }{
 		{"DropCheckedClose", `let x = wrapCloseParts{item: closePartsTicket{part: dropTicket{id: id+1, log: log, crash: false}, log: log, id: id, crash: defect}}
-			if x.item.log.Get() != 0 { Unreachable("released too soon") }`, "11*id+1"},
+			if x.item.log.Get() != 0 { log.Set(-999); return Bad }`, "11*id+1"},
 		{"DropCheckedClosePlace", `let mut x = refClosePartsTicket{part: dropTicket{id: id+1, log: log, crash: false}, log: log, id: id, crash: defect}
 			x.Close()
-			if log.Get() != 11*id+2 { Unreachable("parts did not observe the Close's write") }`, "11*id+2"},
+			if log.Get() != 11*id+2 { log.Set(-999); return Bad }`, "11*id+2"},
 	} {
 		fmt.Fprintf(&src, `
 func %[1]s(log sync.Ref[int], id int, reject bool, defect bool) bool fails Bad {
@@ -691,13 +691,14 @@ func DropPartTemp(log sync.Ref[int], id int, reject bool, defect bool) int fails
 	let left = dropTicket{id: id, log: log, crash: false}
 	let pair = dropPair{left: left, right: try nextPart(log, id+1, reject, defect)}
 	if pair.left.log.Get() != 0 || pair.right.log.Get() != 0 {
-		Unreachable("a constructed record's parts are not live")
+		log.Set(-999)
+		return Bad
 	}
 	pair.right.id
 }
 
 func nextPart(log sync.Ref[int], id int, reject bool, defect bool) dropTicket fails Bad {
-	if defect { Unreachable("later field defects") }
+	if defect { let z = 0; let _ = 1 / z }
 	if reject { return Bad }
 	dropTicket{id: id, log: log, crash: false}
 }
@@ -736,10 +737,10 @@ func startBlocked(log sync.Ref[int]) Task[bool] {
 	let t = task.Go() {
 		let idle = queue.New[bool](1)
 		scope.OnExit() { log.Set(log.Get()+1) }
-		started.Push(true) catch { case queue.Closed: Unreachable("start queue closed") }
+		started.Push(true) catch { case queue.Closed: }
 		idle.Pop() catch { case queue.Closed: false }
 	}
-	let _ = started.Pop() catch { case queue.Closed: Unreachable("start queue closed") }
+	let _ = started.Pop() catch { case queue.Closed: false }
 	t
 }
 
@@ -780,8 +781,8 @@ test CheckDropSliceTask {
 func DropAppendTask(original own []Task[bool], next own Task[bool], a sync.Ref[int], b sync.Ref[int], reject bool, defect bool) bool fails Bad {
 	let mut owners = original
 	owners = owners.Append(next)
-	if a.Get() != 0 || b.Get() != 0 { Unreachable("a task was stopped during append") }
-	if defect { Unreachable("after append") }
+	if a.Get() != 0 || b.Get() != 0 { a.Set(-999); return Bad }
+	if defect { let z = 0; let _ = 1 / z }
 	if reject { return Bad }
 	let chosen, rest = owners.TakeAt(1)
 	chosen.Stop()

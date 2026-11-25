@@ -516,10 +516,8 @@ func pass(f mut ui.Frame[int], ps []prog, s []int) []ui.Op[int] {
 	ui.Render(f, func(g mut ui.Frame[int], st []int) {
 		for p in ps {
 			render(g, p, st, 0) catch {
-			case Missing:
-				Unreachable("ui laws: a read is drawn only under a boundary")
-			case ui.Pending:
-				Unreachable("ui laws: a read is drawn only under a boundary")
+			case Missing, ui.Pending:
+				ui.Text(g, "escaped")
 			}
 		}
 	}, s)

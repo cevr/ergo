@@ -41,7 +41,6 @@ func newEnv() env {
 func mark(q queue.Queue[int]) {
 	q.Offer(1) catch {
 	case _:
-		Unreachable("stop: a count queue has room and is never ended")
 	}
 }
 

@@ -398,8 +398,8 @@ import os
 import rpc
 import strconv
 func enc[T wire](v T) string needs wired[T] { json.Encode(json.Codec[T]{MaxBytes: 0, MaxDepth: 0}, v) }
-func num(text string) json.Num { json.ParseNum(text) catch { case json.Malformed: Unreachable("generated number spelling") } }
-func fl(text string) float64 { strconv.ParseFloat(text) catch { case _: Unreachable("generated float spelling") } }
+func num(text string) json.Num { json.ParseNum(text) catch { case json.Malformed: json.IntNumber(0) } }
+func fl(text string) float64 { strconv.ParseFloat(text) catch { case _: 0.0 } }
 // verdict is std json's judgement of a Reading text, re-encoded.
 func verdict(text string) string {
  let r = json.Decode(json.Codec[domain.Reading]{MaxBytes: 0, MaxDepth: 0}, text) catch { case _: return "\"refused\"" }

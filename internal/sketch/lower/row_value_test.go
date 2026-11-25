@@ -144,11 +144,11 @@ func (s rvShape) runProgram(r *rand.Rand, cases *[]rvCase) string {
 
 `)
 	fmt.Fprintf(&b, `func caught(m int, n int) Box[%[1]s] {
-	let v = fail(m, n) catch {
+	let _ = fail(m, n) catch {
 	case err:
 		return Box[%[1]s]{Tag: 1, Last: err}
 	}
-	Unreachable("fail always fails here: \(v)")
+	Box[%[1]s]{Tag: 0, Last: %[2]s}
 }
 
 func exitCode(x Exit[int, %[1]s]) int {
@@ -165,7 +165,7 @@ func check(i int, a Box[%[1]s], b Box[%[1]s], x Exit[int, %[1]s], y Exit[int, %[
 }
 
 func main() needs Console {
-`, row)
+`, row, s.lit(rvVal{m: 0, n: 0}))
 	box := func(c *rvBox) string {
 		if c.caught {
 			return fmt.Sprintf("caught(%d, %d)", c.v.m, c.v.n)

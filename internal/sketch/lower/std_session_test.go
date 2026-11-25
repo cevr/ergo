@@ -25,19 +25,13 @@ import time
 // provider is a store of each kind, by pick: a memory store, or a file
 // store over its own fstest.Memory disk; renewed after 10ms, idle 30ms,
 // at most 100ms.
-func provider(pick int) session.Store {
-	let p = session.NewPolicy(10ms, 30ms, 100ms) catch {
-	case session.BadPolicy:
-		Unreachable("the policy is good")
-	}
+func provider(pick int) session.Store fails session.BadPolicy | session.Failed {
+	let p = try session.NewPolicy(10ms, 30ms, 100ms)
 	if ((pick%2)+2)%2 == 0 {
 		return memory.New(p)
 	}
 	let disk = fstest.NewMemory()
-	file.Open(disk, disk, "sessions.log", p) catch {
-	case session.Failed:
-		Unreachable("an empty disk opens")
-	}
+	try file.Open(disk, disk, "sessions.log", p)
 }
 
 func storeVerifyAfterEstablish(s session.Store, key string, subject string, revision int, sec int64) bool fails session.Failed {
@@ -51,7 +45,7 @@ func storeVerifyAfterEstablish(s session.Store, key string, subject string, revi
 }
 
 test SessionStoreVerifyAfterEstablish(pick int, key string, subject string, revision int, sec int64) {
-	let ok = storeVerifyAfterEstablish(provider(pick), key, subject, revision, sec) catch {
+	let ok = storeVerifyAfterEstablish(try provider(pick), key, subject, revision, sec) catch {
 	case session.Failed:
 		false
 	}
@@ -76,7 +70,7 @@ func storeRevokedNeverVerifies(s session.Store, key string, subject string, sec 
 }
 
 test SessionStoreRevokedNeverVerifies(pick int, key string, subject string, sec int64) {
-	let ok = storeRevokedNeverVerifies(provider(pick), key, subject, sec) catch {
+	let ok = storeRevokedNeverVerifies(try provider(pick), key, subject, sec) catch {
 	case session.Failed:
 		false
 	}
@@ -106,7 +100,7 @@ func storeRotateMovesTheSession(s session.Store, key string, subject string, sec
 }
 
 test SessionStoreRotateMovesTheSession(pick int, key string, subject string, sec int64) {
-	let ok = storeRotateMovesTheSession(provider(pick), key, subject, sec) catch {
+	let ok = storeRotateMovesTheSession(try provider(pick), key, subject, sec) catch {
 	case session.Failed:
 		false
 	}
@@ -136,7 +130,7 @@ func storeRevisionEndsEverySession(s session.Store, key string, subject string, 
 }
 
 test SessionStoreRevisionEndsEverySession(pick int, key string, subject string, revision int, sec int64) {
-	let ok = storeRevisionEndsEverySession(provider(pick), key, subject, revision, sec) catch {
+	let ok = storeRevisionEndsEverySession(try provider(pick), key, subject, revision, sec) catch {
 	case session.Failed:
 		false
 	}
@@ -146,11 +140,8 @@ test SessionStoreRevisionEndsEverySession(pick int, key string, subject string, 
 // session's law helpers, restated.
 // ring is the keyring of the signed-token laws: key "k1" of 32 bytes made
 // from seed, older keys from older, at generation.
-func ring(id string, seed string, older []session.Key, generation int) session.Keyring {
-	session.NewKeyring(session.Key{ID: id, Secret: sha256.Sum(seed)}, older, generation) catch {
-	case session.BadKeyring:
-		Unreachable("a ring of the laws is good")
-	}
+func ring(id string, seed string, older []session.Key, generation int) session.Keyring fails session.BadKeyring {
+	try session.NewKeyring(session.Key{ID: id, Secret: sha256.Sum(seed)}, older, generation)
 }
 
 // expiredAt is whether token opens under k at at as session.Expired at at.
@@ -211,8 +202,8 @@ test SessionRenewalStaysUnderMaxAge(gaps []int) {
 	assert lawRenewalStaysUnderMaxAge(gaps)
 }
 
-func lawSignedTamperFails(subject string, sec int64, at int, by int) bool {
-	let k = ring("k1", "seed", []session.Key{}, 0)
+func lawSignedTamperFails(subject string, sec int64, at int, by int) bool fails session.BadKeyring {
+	let k = try ring("k1", "seed", []session.Key{}, 0)
 	let expires = time.Unix(((sec%1000000)+1000000)%1000000 + 10, 0)
 	let token = session.Sign(k, subject, expires)
 	let now = time.Unix(0, 0)
@@ -238,14 +229,14 @@ func lawSignedTamperFails(subject string, sec int64, at int, by int) bool {
 }
 
 test SessionSignedTamperFails(subject string, sec int64, at int, by int) {
-	assert lawSignedTamperFails(subject, sec, at, by)
+	assert try lawSignedTamperFails(subject, sec, at, by)
 }
 
-func lawOldKeyStillVerifies(subject string) bool {
-	let first = ring("k1", "one", []session.Key{}, 0)
+func lawOldKeyStillVerifies(subject string) bool fails session.BadKeyring {
+	let first = try ring("k1", "one", []session.Key{}, 0)
 	let token = session.Sign(first, subject, time.Unix(100, 0))
-	let kept = ring("k2", "two", []session.Key{session.Key{ID: "k1", Secret: sha256.Sum("one")}}, 0)
-	let dropped = ring("k2", "two", []session.Key{}, 0)
+	let kept = try ring("k2", "two", []session.Key{session.Key{ID: "k1", Secret: sha256.Sum("one")}}, 0)
+	let dropped = try ring("k2", "two", []session.Key{}, 0)
 	let c = session.Open(kept, token, time.Unix(0, 0)) catch {
 	case session.Tampered, session.Expired, session.Retired:
 		return false
@@ -260,13 +251,13 @@ func lawOldKeyStillVerifies(subject string) bool {
 }
 
 test SessionOldKeyStillVerifies(subject string) {
-	assert lawOldKeyStillVerifies(subject)
+	assert try lawOldKeyStillVerifies(subject)
 }
 
-func lawGenerationBumpEndsTokens(subject string, gen int) bool {
+func lawGenerationBumpEndsTokens(subject string, gen int) bool fails session.BadKeyring {
 	let g = ((gen%100)+100)%100
-	let token = session.Sign(ring("k1", "one", []session.Key{}, g), subject, time.Unix(100, 0))
-	let _ = session.Open(ring("k1", "one", []session.Key{}, g + 1), token, time.Unix(0, 0)) catch {
+	let token = session.Sign(try ring("k1", "one", []session.Key{}, g), subject, time.Unix(100, 0))
+	let _ = session.Open(try ring("k1", "one", []session.Key{}, g + 1), token, time.Unix(0, 0)) catch {
 	case session.Retired as r:
 		return r.Generation == g
 	case session.Tampered, session.Expired:
@@ -276,7 +267,7 @@ func lawGenerationBumpEndsTokens(subject string, gen int) bool {
 }
 
 test SessionGenerationBumpEndsTokens(subject string, gen int) {
-	assert lawGenerationBumpEndsTokens(subject, gen)
+	assert try lawGenerationBumpEndsTokens(subject, gen)
 }
 
 // session/memory's law helpers, restated.
@@ -524,9 +515,9 @@ var stdSessionLawStatements = map[string]string{
 	"session Store.RotateMovesTheSession":    `RotateMovesTheSession(key string, subject string, sec int64) { let old = DigestOf(TokenOf(key)) let new = DigestOf(TokenOf(key + "'")) let now = time.Unix(sec, 0) try Establish(old, subject, 0, now) catch { case Conflict: return true } let r = try Rotate(old, new, now) catch { case Conflict: return false } if r != (Record{Subject: subject, Revision: 0, Created: now, Renewed: now}) || try Verify(new, now) != (Valid{Record: r}) || try Verify(old, now) != Invalid { return false } let _ = try Rotate(old, DigestOf(TokenOf(key + "''")), now) catch { case Conflict: return true } false }`,
 	"session Store.RevisionEndsEverySession": `RevisionEndsEverySession(key string, subject string, revision int, sec int64) { let now = time.Unix(sec, 0) let rev = ((revision%1000)+1000)%1000 let old = DigestOf(TokenOf(key + "old")) let late = DigestOf(TokenOf(key + "late")) let kept = DigestOf(TokenOf(key + "kept")) try Establish(old, subject, rev, now) catch { case Conflict: return true } try RevokeAll(subject, rev + 1) try Establish(late, subject, rev, now) catch { case Conflict: return true } try Establish(kept, subject, rev + 1, now) catch { case Conflict: return true } try Verify(old, now) == Invalid && try Verify(late, now) == Invalid && try Verify(kept, now) != Invalid }`,
 	"session RenewalStaysUnderMaxAge":        `RenewalStaysUnderMaxAge(gaps []int) { let p = NewPolicy(10ms, 30ms, 100ms) catch { case BadPolicy: return false } let start = time.Unix(0, 0) let mut s = Empty() let mut d = DigestOf(TokenOf("0")) let (_, s0, _) = Apply(p, s, EstablishOp{Digest: d, Subject: "a", Revision: 0, Now: start}) s = s0 let mut now = start let mut renewed = start for i, g in gaps { now = now.Add(time.Times(1ms, ((g%35)+35)%35)) let v = VerifyIn(p, s, d, now) let over = !now.Before(start.Add(100ms)) || !now.Before(renewed.Add(30ms)) match v { case Invalid: if !over { return false } return true case Valid: if over || !now.Before(renewed.Add(10ms)) { return false } case Renew: if over || now.Before(renewed.Add(10ms)) { return false } let next = DigestOf(TokenOf("\(i + 1)")) let (o, s1, _) = Apply(p, s, RotateOp{Old: d, New: next, Now: now}) s = s1 if o != (Moved{Record: Record{Subject: "a", Revision: 0, Created: start, Renewed: now}}) { return false } d = next renewed = now } } true }`,
-	"session SignedTamperFails":              `SignedTamperFails(subject string, sec int64, at int, by int) { let k = ring("k1", "seed", []Key{}, 0) let expires = time.Unix(((sec%1000000)+1000000)%1000000 + 10, 0) let token = Sign(k, subject, expires) let now = time.Unix(0, 0) let c = Open(k, token, now) catch { case Tampered, Expired, Retired: return false } if c != (Claims{Subject: subject, Expires: expires, Generation: 0}) || !expiredAt(k, token, expires) { return false } let i = ((at%len(token))+len(token))%len(token) let b = 1 + ((by%255)+255)%255 let mut bs = strings.Bytes(token) bs[i] = byte((int(bs[i]) + b) % 256) let changed = strings.FromBytes(bs) let _ = Open(k, changed, now) catch { case Tampered: return true case Expired, Retired: return false } false }`,
-	"session OldKeyStillVerifies":            `OldKeyStillVerifies(subject string) { let first = ring("k1", "one", []Key{}, 0) let token = Sign(first, subject, time.Unix(100, 0)) let kept = ring("k2", "two", []Key{Key{ID: "k1", Secret: sha256.Sum("one")}}, 0) let dropped = ring("k2", "two", []Key{}, 0) let c = Open(kept, token, time.Unix(0, 0)) catch { case Tampered, Expired, Retired: return false } let _ = Open(dropped, token, time.Unix(0, 0)) catch { case Tampered: return c.Subject == subject case Expired, Retired: return false } false }`,
-	"session GenerationBumpEndsTokens":       `GenerationBumpEndsTokens(subject string, gen int) { let g = ((gen%100)+100)%100 let token = Sign(ring("k1", "one", []Key{}, g), subject, time.Unix(100, 0)) let _ = Open(ring("k1", "one", []Key{}, g + 1), token, time.Unix(0, 0)) catch { case Retired as r: return r.Generation == g case Tampered, Expired: return false } false }`,
+	"session SignedTamperFails":              `SignedTamperFails(subject string, sec int64, at int, by int) { let k = try ring("k1", "seed", []Key{}, 0) let expires = time.Unix(((sec%1000000)+1000000)%1000000 + 10, 0) let token = Sign(k, subject, expires) let now = time.Unix(0, 0) let c = Open(k, token, now) catch { case Tampered, Expired, Retired: return false } if c != (Claims{Subject: subject, Expires: expires, Generation: 0}) || !expiredAt(k, token, expires) { return false } let i = ((at%len(token))+len(token))%len(token) let b = 1 + ((by%255)+255)%255 let mut bs = strings.Bytes(token) bs[i] = byte((int(bs[i]) + b) % 256) let changed = strings.FromBytes(bs) let _ = Open(k, changed, now) catch { case Tampered: return true case Expired, Retired: return false } false }`,
+	"session OldKeyStillVerifies":            `OldKeyStillVerifies(subject string) { let first = try ring("k1", "one", []Key{}, 0) let token = Sign(first, subject, time.Unix(100, 0)) let kept = try ring("k2", "two", []Key{Key{ID: "k1", Secret: sha256.Sum("one")}}, 0) let dropped = try ring("k2", "two", []Key{}, 0) let c = Open(kept, token, time.Unix(0, 0)) catch { case Tampered, Expired, Retired: return false } let _ = Open(dropped, token, time.Unix(0, 0)) catch { case Tampered: return c.Subject == subject case Expired, Retired: return false } false }`,
+	"session GenerationBumpEndsTokens":       `GenerationBumpEndsTokens(subject string, gen int) { let g = ((gen%100)+100)%100 let token = Sign(try ring("k1", "one", []Key{}, g), subject, time.Unix(100, 0)) let _ = Open(try ring("k1", "one", []Key{}, g + 1), token, time.Unix(0, 0)) catch { case Retired as r: return r.Generation == g case Tampered, Expired: return false } false }`,
 	"session/memory RotateHasOneWinner":      `RotateHasOneWinner(key string) { let p = session.NewPolicy(10ms, 30ms, 100ms) catch { case session.BadPolicy: return false } let s = New(p) let now = time.Unix(0, 0) let old = session.DigestOf(session.TokenOf(key)) let a = session.DigestOf(session.TokenOf(key + "a")) let b = session.DigestOf(session.TokenOf(key + "b")) s.Establish(old, "subject", 0, now) catch { case session.Conflict, session.Failed: return false } let ta = task.Go() { wins(s, old, a, now) } let tb = task.Go() { wins(s, old, b, now) } let wa = ta.Wait() let wb = tb.Wait() let va = s.Verify(a, now) catch { case session.Failed: session.Invalid } let vb = s.Verify(b, now) catch { case session.Failed: session.Invalid } wa != wb && (va != session.Invalid) == wa && (vb != session.Invalid) == wb }`,
 	"session/memory StartChecksValid":        `StartChecksValid() { assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws { let subject = gen.Named("subject", func(v string) string { "\"\(v)\"" }, drawSubject) let s0 = gen.Below(uint64(0)) let p = session.NewPolicy(10ms, 30ms, 100ms) catch { case session.BadPolicy: return false } let s = New(p) with context { rand.Secure: rand.NewSeededSecure(s0), time.Clock: time.NewManual(0) } { let t = session.Start(s, subject, 0) catch { case session.Conflict, session.Failed: return false } let now = time.Clock.Now() let want = session.Valid{Record: session.Record{Subject: subject, Revision: 0, Created: now, Renewed: now}} let checked = session.Check(s, t) catch { case session.Failed: return false } let byDigest = session.Check(s, session.TokenOf(session.DigestText(session.DigestOf(t)))) catch { case session.Failed: return false } let ended = session.End(s, t) catch { case session.Failed: return false } let after = session.Check(s, t) catch { case session.Failed: return false } checked == want && byDigest == session.Invalid && ended && after == session.Invalid } })) == "" true }`,
 	"session/file FileIsMemory":              `FileIsMemory(steps []script, torn string) { let p = session.NewPolicy(10ms, 30ms, 100ms) catch { case session.BadPolicy: return false } let disk = fstest.NewMemory() let want = memory.New(p) let mut got = try Open(disk, disk, "sessions.log", p) let mut now = time.Unix(0, 0) let mut n = 0 let mut digests = []session.Digest{session.DigestOf(session.TokenOf("none"))} for st in steps { match st { case establish as e: now = later(now, ((e.Wait%20)+20)%20) n = n + 1 let d = session.DigestOf(session.TokenOf("t\(n)")) let subject = "s\t\"\(((e.Subject%3)+3)%3)" let rev = ((e.Revision%3)+3)%3 if try established(want, d, subject, rev, now) != try established(got, d, subject, rev, now) { return false } digests = digests.Append(d) case verify as v: now = later(now, ((v.Wait%20)+20)%20) let d = digests[((v.Pick%len(digests))+len(digests))%len(digests)] if try want.Verify(d, now) != try got.Verify(d, now) { return false } case rotate as r: now = later(now, ((r.Wait%20)+20)%20) n = n + 1 let d = digests[((r.Pick%len(digests))+len(digests))%len(digests)] let next = session.DigestOf(session.TokenOf("t\(n)")) if try rotated(want, d, next, now) != try rotated(got, d, next, now) { return false } digests = digests.Append(next) case revoke as r: let d = digests[((r.Pick%len(digests))+len(digests))%len(digests)] if try want.Revoke(d) != try got.Revoke(d) { return false } case revokeAll as a: let subject = "s\t\"\(((a.Subject%3)+3)%3)" let rev = ((a.Revision%4)+4)%4 try want.RevokeAll(subject, rev) try got.RevokeAll(subject, rev) case reopen: got = try Open(disk, disk, "sessions.log", p) } } try disk.AppendFile("sessions.log", "est\t" + strings.ReplaceAll(torn, "\n", "")) let back = try Open(disk, disk, "sessions.log", p) for d in digests { if try want.Verify(d, now) != try back.Verify(d, now) { return false } } true }`,
