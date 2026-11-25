@@ -1,0 +1,279 @@
+import slices
+import github.com/cevr/ergo/modules/git/oid
+
+// DecodeSizeVarint decodes a little-endian 7-bit Git delta size varint starting
+// at start, returning (size, nextOffset).
+func DecodeSizeVarint(src []byte, start int) (int, int) fails Truncated | CorruptDelta {
+	let n = len(src)
+	if start < 0 || start >= n {
+		return Truncated{Offset: n}
+	}
+	let mut pos = start
+	let mut val = uint64(0)
+	let mut shift = uint64(0)
+	for {
+		if pos >= n {
+			return Truncated{Offset: n}
+		}
+		let b = src[pos]
+		pos = pos + 1
+		let part = uint64(b & byte(0x7f))
+		if shift >= uint64(63) || (shift == uint64(56) && part > uint64(0x7f)) {
+			return CorruptDelta{Offset: pos - 1, Reason: "delta size varint overflow"}
+		}
+		val = val | (part << shift)
+		if (b & byte(0x80)) == byte(0) {
+			break
+		}
+		shift = shift + uint64(7)
+	}
+	if val > uint64(9223372036854775807) {
+		return CorruptDelta{Offset: start, Reason: "delta size exceeds int"}
+	}
+	(int(val), pos)
+}
+
+// EncodeSizeVarint encodes a non-negative integer as a Git delta size varint.
+func EncodeSizeVarint(n int) []byte {
+	let mut v = if n < 0 { uint64(0) } else { uint64(n) }
+	let mut out = []byte{}
+	for {
+		let mut b = byte(v & uint64(0x7f))
+		v = v >> uint64(7)
+		if v > uint64(0) {
+			b = b | byte(0x80)
+		}
+		out = out.Append(b)
+		if v == uint64(0) {
+			break
+		}
+	}
+	out
+}
+
+// ParseDeltaHeader decodes the base size and target size varints at the start
+// of delta, returning (baseSize, targetSize, instrStart).
+func ParseDeltaHeader(delta []byte) (int, int, int) fails Truncated | CorruptDelta {
+	let (baseSize, p1) = try DecodeSizeVarint(delta, 0)
+	let (targetSize, p2) = try DecodeSizeVarint(delta, p1)
+	(baseSize, targetSize, p2)
+}
+
+// Apply materializes delta against base, enforcing base/target header sizes,
+// maxTargetBytes, bounds-checked copies (including the Git 0 => 0x10000 copy
+// size rule), and strict rejection of reserved opcode 0x00.
+func Apply(base []byte, delta []byte, maxTargetBytes int) []byte fails Truncated | CorruptDelta | BaseSizeMismatch | TargetSizeMismatch | LimitExceeded {
+	if maxTargetBytes < 0 {
+		return LimitExceeded{Limit: maxTargetBytes, Needed: 0}
+	}
+	let (baseSize, targetSize, start) = try ParseDeltaHeader(delta)
+	if baseSize != len(base) {
+		return BaseSizeMismatch{Expected: baseSize, Got: len(base)}
+	}
+	if targetSize > maxTargetBytes {
+		return LimitExceeded{Limit: maxTargetBytes, Needed: targetSize}
+	}
+	let initCap = if targetSize > 65536 { 65536 } else { targetSize }
+	let mut out = slices.WithCapacity[byte](initCap)
+	let mut pos = start
+	let dlen = len(delta)
+	let blen = len(base)
+	for pos < dlen {
+		let cmdPos = pos
+		let cmd = delta[pos]
+		pos = pos + 1
+		if (cmd & byte(0x80)) != byte(0) {
+			let mut copyOff = 0
+			let mut copySize = 0
+			if (cmd & byte(0x01)) != byte(0) {
+				if pos >= dlen {
+					return Truncated{Offset: dlen}
+				}
+				copyOff = copyOff | int(delta[pos])
+				pos = pos + 1
+			}
+			if (cmd & byte(0x02)) != byte(0) {
+				if pos >= dlen {
+					return Truncated{Offset: dlen}
+				}
+				copyOff = copyOff | (int(delta[pos]) << 8)
+				pos = pos + 1
+			}
+			if (cmd & byte(0x04)) != byte(0) {
+				if pos >= dlen {
+					return Truncated{Offset: dlen}
+				}
+				copyOff = copyOff | (int(delta[pos]) << 16)
+				pos = pos + 1
+			}
+			if (cmd & byte(0x08)) != byte(0) {
+				if pos >= dlen {
+					return Truncated{Offset: dlen}
+				}
+				copyOff = copyOff | (int(delta[pos]) << 24)
+				pos = pos + 1
+			}
+			if (cmd & byte(0x10)) != byte(0) {
+				if pos >= dlen {
+					return Truncated{Offset: dlen}
+				}
+				copySize = copySize | int(delta[pos])
+				pos = pos + 1
+			}
+			if (cmd & byte(0x20)) != byte(0) {
+				if pos >= dlen {
+					return Truncated{Offset: dlen}
+				}
+				copySize = copySize | (int(delta[pos]) << 8)
+				pos = pos + 1
+			}
+			if (cmd & byte(0x40)) != byte(0) {
+				if pos >= dlen {
+					return Truncated{Offset: dlen}
+				}
+				copySize = copySize | (int(delta[pos]) << 16)
+				pos = pos + 1
+			}
+			if copySize == 0 {
+				copySize = 65536
+			}
+			if copyOff < 0 || copyOff+copySize > blen {
+				return CorruptDelta{Offset: cmdPos, Reason: "copy exceeds base bounds"}
+			}
+			if len(out)+copySize > targetSize {
+				return TargetSizeMismatch{Expected: targetSize, Got: len(out) + copySize}
+			}
+			out = slices.AppendAll(out, base[copyOff:copyOff+copySize])
+		} else if cmd != byte(0) {
+			let litLen = int(cmd)
+			if pos+litLen > dlen {
+				return Truncated{Offset: dlen}
+			}
+			if len(out)+litLen > targetSize {
+				return TargetSizeMismatch{Expected: targetSize, Got: len(out) + litLen}
+			}
+			out = slices.AppendAll(out, delta[pos:pos+litLen])
+			pos = pos + litLen
+		} else {
+			return CorruptDelta{Offset: cmdPos, Reason: "reserved delta opcode 0x00"}
+		}
+	}
+	if len(out) != targetSize {
+		return TargetSizeMismatch{Expected: targetSize, Got: len(out)}
+	}
+	out
+}
+
+// EncodeLiteralDelta builds a valid Git delta transforming any base of length
+// baseLen into target using literal insert instructions (at most 127 bytes
+// each).
+func EncodeLiteralDelta(baseLen int, target []byte) []byte {
+	let mut out = EncodeSizeVarint(baseLen)
+	out = slices.AppendAll(out, EncodeSizeVarint(len(target)))
+	let mut pos = 0
+	let n = len(target)
+	for pos < n {
+		let rem = n - pos
+		let chunk = if rem > 127 { 127 } else { rem }
+		out = out.Append(byte(chunk))
+		out = slices.AppendAll(out, target[pos:pos+chunk])
+		pos = pos + chunk
+	}
+	out
+}
+
+// ParsePackEntryHeader decodes the type-and-size varint header of a Git
+// packfile entry starting at start.
+func ParsePackEntryHeader(src []byte, start int) PackEntryHeader fails Truncated | BadPackHeader {
+	let n = len(src)
+	if start < 0 || start >= n {
+		return Truncated{Offset: n}
+	}
+	let b0 = src[start]
+	let typeNum = int((b0 >> byte(4)) & byte(0x07))
+	let kind PackEntryKind = match typeNum {
+	case 1:
+		BaseObject{Kind: oid.Commit}
+	case 2:
+		BaseObject{Kind: oid.Tree}
+	case 3:
+		BaseObject{Kind: oid.Blob}
+	case 4:
+		BaseObject{Kind: oid.Tag}
+	case 6:
+		OfsDelta
+	case 7:
+		RefDelta
+	case _:
+		return BadPackHeader{Reason: "invalid pack entry type"}
+	}
+	let mut size = uint64(b0 & byte(0x0f))
+	let mut pos = start + 1
+	let mut shift = uint64(4)
+	let mut cont = (b0 & byte(0x80)) != byte(0)
+	for cont {
+		if pos >= n {
+			return Truncated{Offset: n}
+		}
+		let b = src[pos]
+		pos = pos + 1
+		let part = uint64(b & byte(0x7f))
+		if shift >= uint64(63) || (shift == uint64(60) && part > uint64(0x07)) {
+			return BadPackHeader{Reason: "pack entry size overflow"}
+		}
+		size = size | (part << shift)
+		cont = (b & byte(0x80)) != byte(0)
+		shift = shift + uint64(7)
+	}
+	if size > uint64(9223372036854775807) {
+		return BadPackHeader{Reason: "pack entry size exceeds int"}
+	}
+	PackEntryHeader{Kind: kind, Size: int(size), Consumed: pos - start}
+}
+
+// ParseOfsDistance decodes a Git OFS_DELTA biased negative-distance varint
+// starting at start for an entry at entryOffset, returning (distance, nextPos).
+func ParseOfsDistance(src []byte, start int, entryOffset int) (uint64, int) fails Truncated | BadOfsDistance {
+	let n = len(src)
+	if start < 0 || start >= n {
+		return Truncated{Offset: n}
+	}
+	let mut b = src[start]
+	let mut pos = start + 1
+	let mut dist = uint64(b & byte(0x7f))
+	let maxBeforeShift = (uint64(1) << uint64(57)) - uint64(1)
+	for (b & byte(0x80)) != byte(0) {
+		if pos >= n {
+			return Truncated{Offset: n}
+		}
+		if dist >= maxBeforeShift {
+			return BadOfsDistance{EntryOffset: entryOffset, Distance: dist}
+		}
+		b = src[pos]
+		pos = pos + 1
+		dist = ((dist + uint64(1)) << uint64(7)) | uint64(b&byte(0x7f))
+	}
+	if dist == uint64(0) || entryOffset < 0 || dist > uint64(entryOffset) {
+		return BadOfsDistance{EntryOffset: entryOffset, Distance: dist}
+	}
+	(dist, pos)
+}
+
+// EncodeOfsDistance encodes a positive OFS_DELTA negative distance using Git's
+// biased MSB-first 7-bit varint encoding.
+func EncodeOfsDistance(dist uint64) []byte {
+	let mut rev = []byte{byte(dist & uint64(0x7f))}
+	let mut rem = dist >> uint64(7)
+	for rem > uint64(0) {
+		rem = rem - uint64(1)
+		rev = rev.Append(byte(0x80) | byte(rem&uint64(0x7f)))
+		rem = rem >> uint64(7)
+	}
+	let mut out = slices.WithCapacity[byte](len(rev))
+	let mut i = len(rev) - 1
+	for i >= 0 {
+		out = out.Append(rev[i])
+		i = i - 1
+	}
+	out
+}

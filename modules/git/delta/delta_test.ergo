@@ -1,0 +1,417 @@
+import exec
+import filepath
+import fs
+import os
+import slices
+import strconv
+import strings
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/oracle
+
+let onOracle = context needs TestAmbient {
+	exec.Runner: exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
+	fs.Files:    fs.NewTestHost(),
+	fs.Writes:   fs.NewTestHost(),
+	os.Process:  os.NewTestHost(),
+}
+
+// SizeVarintRoundTrips: EncodeSizeVarint and DecodeSizeVarint round-trip for
+// non-negative sizes across 1-, 2-, 3-, and 4-byte boundaries.
+law SizeVarintRoundTrips(raw int) {
+	let base = if raw < 0 { -(raw + 1) } else { raw }
+	let samples = []int{0, 1, 127, 128, 129, 16383, 16384, 65535, 65536, 2097151, 2097152, base % 100000000}
+	for n in samples {
+		let enc = EncodeSizeVarint(n)
+		let (got, next) = DecodeSizeVarint(enc, 0) catch {
+		case Truncated, CorruptDelta:
+			return false
+		}
+		if got != n || next != len(enc) {
+			return false
+		}
+	}
+	true
+}
+
+// OfsDistanceRoundTrips: EncodeOfsDistance and ParseOfsDistance round-trip
+// across Git's +1 biased 1-, 2-, 3-, and 4-byte varint boundaries.
+law OfsDistanceRoundTrips(raw uint64) {
+	let extra = (raw % uint64(50000000)) + uint64(1)
+	let samples = []uint64{
+		uint64(1),
+		uint64(127),
+		uint64(128),
+		uint64(129),
+		uint64(255),
+		uint64(256),
+		uint64(16511),
+		uint64(16512),
+		uint64(2113663),
+		uint64(2113664),
+		extra,
+	}
+	for d in samples {
+		let enc = EncodeOfsDistance(d)
+		let (got, next) = ParseOfsDistance(enc, 0, int(d)+100) catch {
+		case Truncated, BadOfsDistance:
+			return false
+		}
+		if got != d || next != len(enc) {
+			return false
+		}
+	}
+	true
+}
+
+// LiteralDeltaRoundTrips: EncodeLiteralDelta followed by Apply reproduces any
+// target byte sequence from any base byte sequence.
+law LiteralDeltaRoundTrips(base []byte, target []byte) {
+	let d = EncodeLiteralDelta(len(base), target)
+	let got = Apply(base, d, len(target)+64) catch {
+	case Truncated, CorruptDelta, BaseSizeMismatch, TargetSizeMismatch, LimitExceeded:
+		return false
+	}
+	slices.Equal(got, target)
+}
+
+test OfsDistanceExactWireBytes {
+	let (d1, n1) = try ParseOfsDistance([]byte{byte(0x01)}, 0, 100)
+	assert d1 == uint64(1) && n1 == 1
+
+	let (d127, n127) = try ParseOfsDistance([]byte{byte(0x7f)}, 0, 200)
+	assert d127 == uint64(127) && n127 == 1
+
+	let (d128, n128) = try ParseOfsDistance([]byte{byte(0x80), byte(0x00)}, 0, 200)
+	assert d128 == uint64(128) && n128 == 2
+
+	let (d129, n129) = try ParseOfsDistance([]byte{byte(0x80), byte(0x01)}, 0, 200)
+	assert d129 == uint64(129) && n129 == 2
+
+	let (d255, n255) = try ParseOfsDistance([]byte{byte(0x80), byte(0x7f)}, 0, 300)
+	assert d255 == uint64(255) && n255 == 2
+
+	let (d256, n256) = try ParseOfsDistance([]byte{byte(0x81), byte(0x00)}, 0, 300)
+	assert d256 == uint64(256) && n256 == 2
+
+	let (d16511, n16511) = try ParseOfsDistance([]byte{byte(0xff), byte(0x7f)}, 0, 20000)
+	assert d16511 == uint64(16511) && n16511 == 2
+
+	let (d16512, n16512) = try ParseOfsDistance([]byte{byte(0x80), byte(0x80), byte(0x00)}, 0, 20000)
+	assert d16512 == uint64(16512) && n16512 == 3
+
+	assert slices.Equal(EncodeOfsDistance(uint64(128)), []byte{byte(0x80), byte(0x00)})
+	assert slices.Equal(EncodeOfsDistance(uint64(16511)), []byte{byte(0xff), byte(0x7f)})
+	assert slices.Equal(EncodeOfsDistance(uint64(16512)), []byte{byte(0x80), byte(0x80), byte(0x00)})
+}
+
+test CopyZeroSizeMeans64K {
+	let total = 70000
+	let mut base = slices.WithCapacity[byte](total)
+	for i in 0..total {
+		base = base.Append(byte((i*31 + 7) % 256))
+	}
+	let tailLen = total - 65536
+	let mut delta = EncodeSizeVarint(total)
+	delta = slices.AppendAll(delta, EncodeSizeVarint(total))
+	delta = delta.Append(byte(0x80))
+	delta = delta.Append(byte(0x80 | 0x04 | 0x10 | 0x20))
+	delta = delta.Append(byte(0x01))
+	delta = delta.Append(byte(tailLen & 0xff))
+	delta = delta.Append(byte((tailLen >> 8) & 0xff))
+
+	let got = try Apply(base, delta, total+1024)
+	assert len(got) == total
+	assert slices.Equal(got, base)
+}
+
+test RejectsCorruptAndOversizedDeltas {
+	let base = "abcdef".Bytes()
+
+	let mut zeroOp = EncodeSizeVarint(len(base))
+	zeroOp = slices.AppendAll(zeroOp, EncodeSizeVarint(3))
+	zeroOp = zeroOp.Append(byte(0x00))
+	let mut gotZeroOp = false
+	let _ = Apply(base, zeroOp, 1024) catch {
+	case CorruptDelta:
+		gotZeroOp = true
+		[]byte{}
+	case Truncated, BaseSizeMismatch, TargetSizeMismatch, LimitExceeded:
+		[]byte{}
+	}
+	assert gotZeroOp
+
+	let mut badBase = EncodeSizeVarint(len(base) + 1)
+	badBase = slices.AppendAll(badBase, EncodeSizeVarint(1))
+	badBase = badBase.Append(byte(1))
+	badBase = badBase.Append(byte('x'))
+	let mut gotBadBase = false
+	let _ = Apply(base, badBase, 1024) catch {
+	case BaseSizeMismatch as e:
+		gotBadBase = e.Expected == 7 && e.Got == 6
+		[]byte{}
+	case Truncated, CorruptDelta, TargetSizeMismatch, LimitExceeded:
+		[]byte{}
+	}
+	assert gotBadBase
+
+	let mut badTarget = EncodeSizeVarint(len(base))
+	badTarget = slices.AppendAll(badTarget, EncodeSizeVarint(5))
+	badTarget = badTarget.Append(byte(2))
+	badTarget = badTarget.Append(byte('a'))
+	badTarget = badTarget.Append(byte('b'))
+	let mut gotBadTarget = false
+	let _ = Apply(base, badTarget, 1024) catch {
+	case TargetSizeMismatch as e:
+		gotBadTarget = e.Expected == 5 && e.Got == 2
+		[]byte{}
+	case Truncated, CorruptDelta, BaseSizeMismatch, LimitExceeded:
+		[]byte{}
+	}
+	assert gotBadTarget
+
+	let mut oobCopy = EncodeSizeVarint(len(base))
+	oobCopy = slices.AppendAll(oobCopy, EncodeSizeVarint(4))
+	oobCopy = oobCopy.Append(byte(0x80 | 0x01 | 0x10))
+	oobCopy = oobCopy.Append(byte(4))
+	oobCopy = oobCopy.Append(byte(4))
+	let mut gotOob = false
+	let _ = Apply(base, oobCopy, 1024) catch {
+	case CorruptDelta:
+		gotOob = true
+		[]byte{}
+	case Truncated, BaseSizeMismatch, TargetSizeMismatch, LimitExceeded:
+		[]byte{}
+	}
+	assert gotOob
+
+	let mut truncLit = EncodeSizeVarint(len(base))
+	truncLit = slices.AppendAll(truncLit, EncodeSizeVarint(5))
+	truncLit = truncLit.Append(byte(5))
+	truncLit = truncLit.Append(byte('a'))
+	let mut gotTrunc = false
+	let _ = Apply(base, truncLit, 1024) catch {
+	case Truncated:
+		gotTrunc = true
+		[]byte{}
+	case CorruptDelta, BaseSizeMismatch, TargetSizeMismatch, LimitExceeded:
+		[]byte{}
+	}
+	assert gotTrunc
+
+	let bigDelta = EncodeLiteralDelta(len(base), "0123456789".Bytes())
+	let mut gotLimit = false
+	let _ = Apply(base, bigDelta, 5) catch {
+	case LimitExceeded as e:
+		gotLimit = e.Limit == 5 && e.Needed == 10
+		[]byte{}
+	case Truncated, CorruptDelta, BaseSizeMismatch, TargetSizeMismatch:
+		[]byte{}
+	}
+	assert gotLimit
+
+	let mut gotBadOfs = false
+	let _ = ParseOfsDistance([]byte{byte(0x80), byte(0x00)}, 0, 50) catch {
+	case BadOfsDistance:
+		gotBadOfs = true
+		(uint64(0), 0)
+	case Truncated:
+		(uint64(0), 0)
+	}
+	assert gotBadOfs
+
+	let dStep = EncodeLiteralDelta(len(base), base)
+	let mut gotDepth = false
+	let _ = ResolveChain(Materialized{Kind: oid.Blob, Data: base}, [][]byte{dStep, dStep, dStep}, ChainLimits{MaxDepth: 2, MaxBytes: 1024}) catch {
+	case DepthExceeded as e:
+		gotDepth = e.MaxDepth == 2
+		Materialized{Kind: oid.Blob, Data: []byte{}}
+	case Truncated, CorruptDelta, BaseSizeMismatch, TargetSizeMismatch, LimitExceeded:
+		Materialized{Kind: oid.Blob, Data: []byte{}}
+	}
+	assert gotDepth
+}
+
+func makeRevisionText(rev int, lines int) string {
+	let mut out = []string{}
+	for i in 0..lines {
+		if i == rev*7+3 {
+			out = out.Append("line-\(i)-changed-at-rev-\(rev)-payload-alpha-beta-gamma-0123456789")
+		} else {
+			out = out.Append("line-\(i)-shared-body-content-for-delta-compression-0123456789abcdef")
+		}
+	}
+	strings.Join(out, "\n") + "\n"
+}
+
+type testMismatch {
+	reason string,
+}
+
+func runGitOk(dir string, args []string, stdin string, pathEnv Map[string, string], step int) string fails testMismatch | exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	let base = oracle.GitCommand(dir, args, pathEnv, oracle.StepEpoch(step))
+	let cmd = if stdin == "" { base } else { exec.WithStdin(base, stdin) }
+	let res = try exec.Runner.Run(cmd)
+	if res.Status != 0 {
+		return testMismatch{reason: "git failed: " + res.Stderr}
+	}
+	res.Stdout
+}
+
+func findPackFile(dir string) string fails fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	let entries = try fs.Files.ReadDir(dir)
+	for name in entries {
+		if strings.HasSuffix(name, ".pack") {
+			return filepath.Join([]string{dir, name})
+		}
+	}
+	""
+}
+
+func verifyMaterializedAgainstGit(repoDir string, objs []PackedObject, pathEnv Map[string, string]) fails testMismatch | exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	for obj in objs {
+		let hexId = oid.Hex(obj.Oid)
+		let wantKind = strings.TrimSpace(try runGitOk(repoDir, []string{"cat-file", "-t", hexId}, "", pathEnv, 99))
+		if wantKind != oid.KindName(obj.Kind) {
+			return testMismatch{reason: "kind mismatch for " + hexId}
+		}
+		let wantSizeStr = strings.TrimSpace(try runGitOk(repoDir, []string{"cat-file", "-s", hexId}, "", pathEnv, 99))
+		if wantSizeStr != strconv.Itoa(len(obj.Data)) {
+			return testMismatch{reason: "size mismatch for " + hexId}
+		}
+		let wantBody = try runGitOk(repoDir, []string{"cat-file", wantKind, hexId}, "", pathEnv, 99)
+		if !slices.Equal(obj.Data, wantBody.Bytes()) {
+			return testMismatch{reason: "body mismatch for " + hexId}
+		}
+	}
+}
+
+func verifyFormatPacks(repoName string, oFmt oracle.OidFormat, fmt oid.Format, pathEnv Map[string, string]) fails testMismatch | Truncated | CorruptDelta | BaseSizeMismatch | TargetSizeMismatch | LimitExceeded | BadOfsDistance | BadPackHeader | DepthExceeded | MissingBase | ZlibFailed | oid.BadHex | oid.WrongLength | oid.EmptyKind | oid.BadHeader | oracle.Missing | oracle.Corrupt | oracle.Ambiguous | oracle.InvalidRef | oracle.Conflict | oracle.CommandFailed | exec.NotFound | exec.Denied | exec.Failed | fs.NotFound | fs.Denied | fs.Failed needs exec.Runner | fs.Files | fs.Writes {
+	let repoDir = try oracle.InitRepo(repoName, oracle.RepoSpec{Format: oFmt, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, oracle.BaseEpoch)
+
+	let mut revOids = []string{}
+	for rev in 0..7 {
+		try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "multi.txt"}), makeRevisionText(rev, 120))
+		if rev == 0 || rev == 3 || rev == 6 {
+			try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "large.txt"}), makeRevisionText(rev, 1200))
+		}
+		let _ = try runGitOk(repoDir, []string{"add", "."}, "", pathEnv, rev*2)
+		let _ = try runGitOk(repoDir, []string{"commit", "-q", "-m", "rev \(rev)"}, "", pathEnv, rev*2+1)
+		let commitOid = strings.TrimSpace(try runGitOk(repoDir, []string{"rev-parse", "HEAD"}, "", pathEnv, rev*2+1))
+		revOids = revOids.Append(commitOid)
+	}
+
+	let allList = try runGitOk(repoDir, []string{"rev-list", "--objects", "--all"}, "", pathEnv, 30)
+	let mut oidLines = []string{}
+	for line in strings.Split(strings.TrimSpace(allList), "\n") {
+		let fields = strings.Fields(line)
+		if len(fields) > 0 {
+			oidLines = oidLines.Append(fields[0])
+		}
+	}
+	let stdinOids = strings.Join(oidLines, "\n") + "\n"
+
+	let ofsDir = filepath.Join([]string{repoDir, "ofs-out"})
+	try fs.Writes.MkdirAll(ofsDir)
+	let _ = try runGitOk(repoDir, []string{"pack-objects", "-q", "--delta-base-offset", "ofs-out/p"}, stdinOids, pathEnv, 31)
+	let ofsPath = try findPackFile(ofsDir)
+	if ofsPath == "" {
+		return testMismatch{reason: "missing ofs packfile"}
+	}
+	let ofsPack = (try fs.Files.ReadFile(ofsPath)).Bytes()
+	let ofsEntries = try ScanPackEntries(ofsPack, fmt, DefaultLimits())
+	let mut sawOfs = false
+	for e in ofsEntries {
+		match e.Entry {
+		case RawOfsDelta:
+			sawOfs = true
+		case RawBase, RawRefDelta:
+		}
+	}
+	if !sawOfs {
+		return testMismatch{reason: "expected at least one OFS_DELTA in ofs pack"}
+	}
+	let ofsObjs = with context { BaseSource: EmptyBases } {
+		try MaterializePack(ofsPack, fmt, DefaultLimits())
+	}
+	if len(ofsObjs) != len(oidLines) {
+		return testMismatch{reason: "ofs object count mismatch"}
+	}
+	try verifyMaterializedAgainstGit(repoDir, ofsObjs, pathEnv)
+
+	let refDir = filepath.Join([]string{repoDir, "ref-out"})
+	try fs.Writes.MkdirAll(refDir)
+	let _ = try runGitOk(repoDir, []string{"pack-objects", "-q", "ref-out/p"}, stdinOids, pathEnv, 32)
+	let refPath = try findPackFile(refDir)
+	if refPath == "" {
+		return testMismatch{reason: "missing ref packfile"}
+	}
+	let refPack = (try fs.Files.ReadFile(refPath)).Bytes()
+	let refEntries = try ScanPackEntries(refPack, fmt, DefaultLimits())
+	let mut sawRef = false
+	for e in refEntries {
+		match e.Entry {
+		case RawRefDelta:
+			sawRef = true
+		case RawBase, RawOfsDelta:
+		}
+	}
+	if !sawRef {
+		return testMismatch{reason: "expected at least one REF_DELTA in ref pack"}
+	}
+	let refObjs = with context { BaseSource: EmptyBases } {
+		try MaterializePack(refPack, fmt, DefaultLimits())
+	}
+	if len(refObjs) != len(oidLines) {
+		return testMismatch{reason: "ref object count mismatch"}
+	}
+	try verifyMaterializedAgainstGit(repoDir, refObjs, pathEnv)
+
+	let thinInput = revOids[len(revOids)-1] + "\n^" + revOids[len(revOids)-2] + "\n"
+	let thinPack = (try runGitOk(repoDir, []string{"pack-objects", "-q", "--revs", "--thin", "--stdout"}, thinInput, pathEnv, 33)).Bytes()
+	let thinEntries = try ScanPackEntries(thinPack, fmt, DefaultLimits())
+	let mut sawThinRef = false
+	for e in thinEntries {
+		match e.Entry {
+		case RawRefDelta:
+			sawThinRef = true
+		case RawBase, RawOfsDelta:
+		}
+	}
+	if !sawThinRef {
+		return testMismatch{reason: "expected at least one REF_DELTA in thin pack"}
+	}
+
+	let mut thinMissing = false
+	let _ = with context { BaseSource: EmptyBases } {
+		MaterializePack(thinPack, fmt, DefaultLimits()) catch {
+		case MissingBase:
+			thinMissing = true
+			[]PackedObject{}
+		case Truncated, CorruptDelta, BaseSizeMismatch, TargetSizeMismatch, LimitExceeded, BadOfsDistance, BadPackHeader, DepthExceeded, ZlibFailed:
+			[]PackedObject{}
+		}
+	}
+	if !thinMissing {
+		return testMismatch{reason: "expected MissingBase for thin pack under EmptyBases"}
+	}
+
+	let mut bases = NewMapBases()
+	for obj in ofsObjs {
+		bases = WithBase(bases, obj.Oid, Materialized{Kind: obj.Kind, Data: obj.Data})
+	}
+	let thinObjs = with context { BaseSource: bases } {
+		try MaterializePack(thinPack, fmt, DefaultLimits())
+	}
+	if len(thinObjs) == 0 {
+		return testMismatch{reason: "thin pack produced zero objects"}
+	}
+	try verifyMaterializedAgainstGit(repoDir, thinObjs, pathEnv)
+}
+
+test MaterializeRealGitPacks {
+	with onOracle {
+		let pathEnv = exec.PathOf(os.Process.Environ())
+		try verifyFormatPacks("delta-sha1", oracle.Sha1, oid.Sha1, pathEnv)
+		try verifyFormatPacks("delta-sha256", oracle.Sha256, oid.Sha256, pathEnv)
+	}
+}

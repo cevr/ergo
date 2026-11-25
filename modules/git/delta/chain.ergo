@@ -1,0 +1,271 @@
+import slices
+import zlib
+import github.com/cevr/ergo/modules/git/oid
+
+func inflatePackStream(src []byte, maxBytes int) zlib.Inflated fails ZlibFailed | LimitExceeded | Truncated {
+	zlib.InflatePrefix(src, maxBytes) catch {
+	case zlib.LimitExceeded as e:
+		return LimitExceeded{Limit: e.Limit, Needed: e.Limit + 1}
+	case zlib.Truncated as e:
+		return Truncated{Offset: e.Offset}
+	case zlib.BadHeader:
+		return ZlibFailed{Reason: "bad zlib header"}
+	case zlib.UnsupportedDict:
+		return ZlibFailed{Reason: "unsupported zlib preset dictionary"}
+	case zlib.BadBlock:
+		return ZlibFailed{Reason: "bad deflate block"}
+	case zlib.BadDistance:
+		return ZlibFailed{Reason: "bad deflate distance"}
+	case zlib.BadHuffman:
+		return ZlibFailed{Reason: "bad deflate huffman table"}
+	case zlib.BadChecksum:
+		return ZlibFailed{Reason: "zlib adler32 checksum mismatch"}
+	}
+}
+
+func readU32BE(src []byte, at int) uint64 {
+	(uint64(src[at]) << uint64(24)) | (uint64(src[at+1]) << uint64(16)) | (uint64(src[at+2]) << uint64(8)) | uint64(src[at+3])
+}
+
+// ResolveChain applies a sequence of deltas in order onto base, enforcing
+// limits.MaxDepth and limits.MaxBytes at every step.
+func ResolveChain(base Materialized, deltas [][]byte, limits ChainLimits) Materialized fails Truncated | CorruptDelta | BaseSizeMismatch | TargetSizeMismatch | LimitExceeded | DepthExceeded {
+	if limits.MaxDepth < 0 || len(deltas) > limits.MaxDepth {
+		return DepthExceeded{MaxDepth: limits.MaxDepth}
+	}
+	if len(base.Data) > limits.MaxBytes {
+		return LimitExceeded{Limit: limits.MaxBytes, Needed: len(base.Data)}
+	}
+	let mut cur = base.Data
+	for d in deltas {
+		cur = try Apply(cur, d, limits.MaxBytes)
+	}
+	Materialized{Kind: base.Kind, Data: cur}
+}
+
+// ScanPackEntries scans a raw Git version-2 packfile from start to trailer,
+// inflating each entry's zlib stream and returning every entry with its byte
+// offset and decoded delta/base payload.
+func ScanPackEntries(pack []byte, format oid.Format, limits ChainLimits) []PackEntry fails Truncated | BadPackHeader | BadOfsDistance | ZlibFailed | LimitExceeded {
+	let trailerLen = oid.ByteLen(format)
+	if len(pack) < 12+trailerLen {
+		return Truncated{Offset: len(pack)}
+	}
+	if pack[0] != byte('P') || pack[1] != byte('A') || pack[2] != byte('C') || pack[3] != byte('K') {
+		return BadPackHeader{Reason: "missing PACK magic"}
+	}
+	let version = readU32BE(pack, 4)
+	if version != uint64(2) {
+		return BadPackHeader{Reason: "unsupported pack version"}
+	}
+	let count = int(readU32BE(pack, 8))
+	let dataEnd = len(pack) - trailerLen
+	let mut pos = 12
+	let mut entries = slices.WithCapacity[PackEntry](if count > 1024 { 1024 } else { count })
+	for _ in 0..count {
+		if pos >= dataEnd {
+			return Truncated{Offset: pos}
+		}
+		let entryOff = pos
+		let hdr = try ParsePackEntryHeader(pack, pos)
+		pos = pos + hdr.Consumed
+		match hdr.Kind {
+		case BaseObject as b:
+			let inf = try inflatePackStream(pack[pos:dataEnd], limits.MaxBytes)
+			if len(inf.Data) != hdr.Size {
+				return BadPackHeader{Reason: "inflated base size mismatch"}
+			}
+			pos = pos + inf.Consumed
+			entries = entries.Append(PackEntry{Offset: entryOff, Entry: RawBase{Kind: b.Kind, Data: inf.Data}})
+		case OfsDelta:
+			let (dist, nextPos) = try ParseOfsDistance(pack, pos, entryOff)
+			pos = nextPos
+			let inf = try inflatePackStream(pack[pos:dataEnd], limits.MaxBytes)
+			if len(inf.Data) != hdr.Size {
+				return BadPackHeader{Reason: "inflated ofs delta size mismatch"}
+			}
+			pos = pos + inf.Consumed
+			entries = entries.Append(PackEntry{Offset: entryOff, Entry: RawOfsDelta{BaseOffset: entryOff - int(dist), Delta: inf.Data}})
+		case RefDelta:
+			let oidLen = oid.ByteLen(format)
+			if pos+oidLen > dataEnd {
+				return Truncated{Offset: dataEnd}
+			}
+			let baseOid = oid.FromBytes(format, pack[pos:pos+oidLen]) catch {
+			case oid.WrongLength:
+				return BadPackHeader{Reason: "invalid ref delta base oid length"}
+			}
+			pos = pos + oidLen
+			let inf = try inflatePackStream(pack[pos:dataEnd], limits.MaxBytes)
+			if len(inf.Data) != hdr.Size {
+				return BadPackHeader{Reason: "inflated ref delta size mismatch"}
+			}
+			pos = pos + inf.Consumed
+			entries = entries.Append(PackEntry{Offset: entryOff, Entry: RawRefDelta{BaseOid: baseOid, Delta: inf.Data}})
+		}
+	}
+	if pos != dataEnd {
+		return BadPackHeader{Reason: "pack stream trailing bytes before trailer"}
+	}
+	entries
+}
+
+func hashMaterialized(format oid.Format, m Materialized) oid.OID fails CorruptDelta {
+	oid.HashObject(format, m.Kind, m.Data) catch {
+	case oid.Collision:
+		return CorruptDelta{Offset: 0, Reason: "sha1 collision detected"}
+	}
+}
+
+type resolvedEntry {
+	obj   PackedObject,
+	depth int,
+}
+
+// MaterializeEntries resolves all scanned packfile entries (handling multi-hop
+// OFS_DELTA, REF_DELTA, and thin-pack external bases via BaseSource), enforcing
+// limits.MaxDepth and limits.MaxBytes.
+func MaterializeEntries(entries []PackEntry, format oid.Format, limits ChainLimits) []PackedObject fails Truncated | CorruptDelta | BaseSizeMismatch | TargetSizeMismatch | LimitExceeded | BadOfsDistance | DepthExceeded | MissingBase needs BaseSource {
+	if limits.MaxDepth < 0 {
+		return DepthExceeded{MaxDepth: limits.MaxDepth}
+	}
+	let n = len(entries)
+	let mut byOffset = Map[int, int]{}
+	for i, e in entries {
+		byOffset[e.Offset] = i
+	}
+	let mut done = Map[int, resolvedEntry]{}
+	let mut byOid = Map[string, resolvedEntry]{}
+
+	for i, e in entries {
+		match e.Entry {
+		case RawBase as b:
+			if len(b.Data) > limits.MaxBytes {
+				return LimitExceeded{Limit: limits.MaxBytes, Needed: len(b.Data)}
+			}
+			let mat = Materialized{Kind: b.Kind, Data: b.Data}
+			let id = try hashMaterialized(format, mat)
+			let po = PackedObject{Offset: e.Offset, Kind: b.Kind, Data: b.Data, Oid: id}
+			let re = resolvedEntry{obj: po, depth: 0}
+			done[i] = re
+			byOid[oid.Hex(id)] = re
+		case RawOfsDelta, RawRefDelta:
+		}
+	}
+
+	let mut remaining = n - len(done)
+	for remaining > 0 {
+		let mut progressed = false
+		for i, e in entries {
+			if done.Get(i) != None {
+				continue
+			}
+			match e.Entry {
+			case RawBase:
+			case RawOfsDelta as od:
+				match byOffset.Get(od.BaseOffset) {
+				case Some[int] as baseIdx:
+					match done.Get(baseIdx.Value) {
+					case Some[resolvedEntry] as baseRe:
+						let nextDepth = baseRe.Value.depth + 1
+						if nextDepth > limits.MaxDepth {
+							return DepthExceeded{MaxDepth: limits.MaxDepth}
+						}
+						let data = try Apply(baseRe.Value.obj.Data, od.Delta, limits.MaxBytes)
+						let mat = Materialized{Kind: baseRe.Value.obj.Kind, Data: data}
+						let id = try hashMaterialized(format, mat)
+						let po = PackedObject{Offset: e.Offset, Kind: mat.Kind, Data: data, Oid: id}
+						let re = resolvedEntry{obj: po, depth: nextDepth}
+						done[i] = re
+						byOid[oid.Hex(id)] = re
+						progressed = true
+					case None:
+					}
+				case None:
+					return BadOfsDistance{EntryOffset: e.Offset, Distance: uint64(e.Offset - od.BaseOffset)}
+				}
+			case RawRefDelta as rd:
+				let key = oid.Hex(rd.BaseOid)
+				match byOid.Get(key) {
+				case Some[resolvedEntry] as baseRe:
+					let nextDepth = baseRe.Value.depth + 1
+					if nextDepth > limits.MaxDepth {
+						return DepthExceeded{MaxDepth: limits.MaxDepth}
+					}
+					let data = try Apply(baseRe.Value.obj.Data, rd.Delta, limits.MaxBytes)
+					let mat = Materialized{Kind: baseRe.Value.obj.Kind, Data: data}
+					let id = try hashMaterialized(format, mat)
+					let po = PackedObject{Offset: e.Offset, Kind: mat.Kind, Data: data, Oid: id}
+					let re = resolvedEntry{obj: po, depth: nextDepth}
+					done[i] = re
+					byOid[oid.Hex(id)] = re
+					progressed = true
+				case None:
+				}
+			}
+		}
+		if !progressed {
+			for i, e in entries {
+				if done.Get(i) != None {
+					continue
+				}
+				match e.Entry {
+				case RawRefDelta as rd:
+					let mut foundExt = true
+					let ext = BaseSource.Lookup(rd.BaseOid) catch {
+					case MissingBase:
+						foundExt = false
+						Materialized{Kind: oid.Blob, Data: []byte{}}
+					}
+					if foundExt {
+						if 1 > limits.MaxDepth {
+							return DepthExceeded{MaxDepth: limits.MaxDepth}
+						}
+						let data = try Apply(ext.Data, rd.Delta, limits.MaxBytes)
+						let mat = Materialized{Kind: ext.Kind, Data: data}
+						let id = try hashMaterialized(format, mat)
+						let po = PackedObject{Offset: e.Offset, Kind: mat.Kind, Data: data, Oid: id}
+						let re = resolvedEntry{obj: po, depth: 1}
+						done[i] = re
+						byOid[oid.Hex(id)] = re
+						progressed = true
+					}
+				case RawBase, RawOfsDelta:
+				}
+			}
+		}
+		if !progressed {
+			for i, e in entries {
+				if done.Get(i) != None {
+					continue
+				}
+				match e.Entry {
+				case RawRefDelta as rd:
+					return MissingBase{BaseHex: oid.Hex(rd.BaseOid)}
+				case RawOfsDelta:
+					return DepthExceeded{MaxDepth: limits.MaxDepth}
+				case RawBase:
+				}
+			}
+		}
+		remaining = n - len(done)
+	}
+
+	let mut out = slices.WithCapacity[PackedObject](n)
+	for i in 0..n {
+		match done.Get(i) {
+		case Some[resolvedEntry] as re:
+			out = out.Append(re.Value.obj)
+		case None:
+			return CorruptDelta{Offset: entries[i].Offset, Reason: "unresolved pack entry"}
+		}
+	}
+	out
+}
+
+// MaterializePack scans a raw Git packfile and materializes every object,
+// resolving OFS_DELTA, REF_DELTA, and thin-pack external bases via BaseSource.
+func MaterializePack(pack []byte, format oid.Format, limits ChainLimits) []PackedObject fails Truncated | CorruptDelta | BaseSizeMismatch | TargetSizeMismatch | LimitExceeded | BadOfsDistance | BadPackHeader | DepthExceeded | MissingBase | ZlibFailed needs BaseSource {
+	let entries = try ScanPackEntries(pack, format, limits)
+	try MaterializeEntries(entries, format, limits)
+}
