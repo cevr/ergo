@@ -30,11 +30,7 @@ func ObservedConnection(conn Conn, clock time.Clock) ObservedConn {
 }
 
 func recordDBQuery(clock time.Clock, start time.Time, failed bool) {
-	trace.Count("db.queries", 1)
-	trace.AddTiming("db.ms", clock.Now().Sub(start))
-	if failed {
-		trace.Count("db.errors", 1)
-	}
+	trace.RecordOp("db.queries", "db.ms", "db.errors", clock.Elapsed(start), failed)
 }
 
 // Exec runs stmt through d.Inner.Exec and records db.queries, db.ms, and
@@ -45,22 +41,7 @@ func Exec(d ObservedDB, stmt string, args []Value) Result fails Unique | Seriali
 	}
 	let start = d.Clock.Now()
 	let res = d.Inner.Exec(stmt, args) catch {
-	case Unique as e:
-		recordDBQuery(d.Clock, start, true)
-		return e
-	case Serialization as e:
-		recordDBQuery(d.Clock, start, true)
-		return e
-	case Deadlock as e:
-		recordDBQuery(d.Clock, start, true)
-		return e
-	case Timeout as e:
-		recordDBQuery(d.Clock, start, true)
-		return e
-	case Closed as e:
-		recordDBQuery(d.Clock, start, true)
-		return e
-	case Other as e:
+	case e:
 		recordDBQuery(d.Clock, start, true)
 		return e
 	}
@@ -76,22 +57,7 @@ func Query(d ObservedDB, stmt string, args []Value) []Row fails Unique | Seriali
 	}
 	let start = d.Clock.Now()
 	let rows = d.Inner.Query(stmt, args) catch {
-	case Unique as e:
-		recordDBQuery(d.Clock, start, true)
-		return e
-	case Serialization as e:
-		recordDBQuery(d.Clock, start, true)
-		return e
-	case Deadlock as e:
-		recordDBQuery(d.Clock, start, true)
-		return e
-	case Timeout as e:
-		recordDBQuery(d.Clock, start, true)
-		return e
-	case Closed as e:
-		recordDBQuery(d.Clock, start, true)
-		return e
-	case Other as e:
+	case e:
 		recordDBQuery(d.Clock, start, true)
 		return e
 	}
@@ -100,33 +66,12 @@ func Query(d ObservedDB, stmt string, args []Value) []Row fails Unique | Seriali
 }
 
 // Begin opens a transaction on d.Inner and wraps the returned Conn in an
-// ObservedConn sharing d.Clock.
+// ObservedConn sharing d.Clock; a failed Begin adds 1 to db.errors inside a
+// span.
 func Begin(d ObservedDB) Conn fails Serialization | Deadlock | Timeout | Closed | Other {
 	let conn = d.Inner.Begin() catch {
-	case Serialization as e:
-		if trace.Active() {
-			trace.Count("db.errors", 1)
-		}
-		return e
-	case Deadlock as e:
-		if trace.Active() {
-			trace.Count("db.errors", 1)
-		}
-		return e
-	case Timeout as e:
-		if trace.Active() {
-			trace.Count("db.errors", 1)
-		}
-		return e
-	case Closed as e:
-		if trace.Active() {
-			trace.Count("db.errors", 1)
-		}
-		return e
-	case Other as e:
-		if trace.Active() {
-			trace.Count("db.errors", 1)
-		}
+	case e:
+		trace.Count("db.errors", 1)
 		return e
 	}
 	ObservedConn{Inner: conn, Clock: d.Clock}
@@ -140,22 +85,7 @@ func Exec(c ObservedConn, stmt string, args []Value) Result fails Unique | Seria
 	}
 	let start = c.Clock.Now()
 	let res = c.Inner.Exec(stmt, args) catch {
-	case Unique as e:
-		recordDBQuery(c.Clock, start, true)
-		return e
-	case Serialization as e:
-		recordDBQuery(c.Clock, start, true)
-		return e
-	case Deadlock as e:
-		recordDBQuery(c.Clock, start, true)
-		return e
-	case Timeout as e:
-		recordDBQuery(c.Clock, start, true)
-		return e
-	case Closed as e:
-		recordDBQuery(c.Clock, start, true)
-		return e
-	case Other as e:
+	case e:
 		recordDBQuery(c.Clock, start, true)
 		return e
 	}
@@ -171,22 +101,7 @@ func Query(c ObservedConn, stmt string, args []Value) []Row fails Unique | Seria
 	}
 	let start = c.Clock.Now()
 	let rows = c.Inner.Query(stmt, args) catch {
-	case Unique as e:
-		recordDBQuery(c.Clock, start, true)
-		return e
-	case Serialization as e:
-		recordDBQuery(c.Clock, start, true)
-		return e
-	case Deadlock as e:
-		recordDBQuery(c.Clock, start, true)
-		return e
-	case Timeout as e:
-		recordDBQuery(c.Clock, start, true)
-		return e
-	case Closed as e:
-		recordDBQuery(c.Clock, start, true)
-		return e
-	case Other as e:
+	case e:
 		recordDBQuery(c.Clock, start, true)
 		return e
 	}
@@ -194,38 +109,11 @@ func Query(c ObservedConn, stmt string, args []Value) []Row fails Unique | Seria
 	rows
 }
 
-// Commit commits c.Inner and records db.errors on failure inside a span.
+// Commit commits c.Inner; a failed Commit adds 1 to db.errors inside a span.
 func Commit(c ObservedConn) fails Unique | Serialization | Deadlock | Timeout | Closed | Other {
 	c.Inner.Commit() catch {
-	case Unique as e:
-		if trace.Active() {
-			trace.Count("db.errors", 1)
-		}
-		return e
-	case Serialization as e:
-		if trace.Active() {
-			trace.Count("db.errors", 1)
-		}
-		return e
-	case Deadlock as e:
-		if trace.Active() {
-			trace.Count("db.errors", 1)
-		}
-		return e
-	case Timeout as e:
-		if trace.Active() {
-			trace.Count("db.errors", 1)
-		}
-		return e
-	case Closed as e:
-		if trace.Active() {
-			trace.Count("db.errors", 1)
-		}
-		return e
-	case Other as e:
-		if trace.Active() {
-			trace.Count("db.errors", 1)
-		}
+	case e:
+		trace.Count("db.errors", 1)
 		return e
 	}
 }
@@ -233,65 +121,32 @@ func Commit(c ObservedConn) fails Unique | Serialization | Deadlock | Timeout | 
 // Rollback delegates to c.Inner.Rollback.
 func Rollback(c ObservedConn) { c.Inner.Rollback() }
 
-// Savepoint delegates to c.Inner.Savepoint and records db.errors on failure.
+// Savepoint delegates to c.Inner.Savepoint; a failure adds 1 to db.errors
+// inside a span.
 func Savepoint(c ObservedConn, name string) fails Timeout | Closed | Other {
 	c.Inner.Savepoint(name) catch {
-	case Timeout as e:
-		if trace.Active() {
-			trace.Count("db.errors", 1)
-		}
-		return e
-	case Closed as e:
-		if trace.Active() {
-			trace.Count("db.errors", 1)
-		}
-		return e
-	case Other as e:
-		if trace.Active() {
-			trace.Count("db.errors", 1)
-		}
+	case e:
+		trace.Count("db.errors", 1)
 		return e
 	}
 }
 
-// Release delegates to c.Inner.Release and records db.errors on failure.
+// Release delegates to c.Inner.Release; a failure adds 1 to db.errors inside a
+// span.
 func Release(c ObservedConn, name string) fails Timeout | Closed | Other {
 	c.Inner.Release(name) catch {
-	case Timeout as e:
-		if trace.Active() {
-			trace.Count("db.errors", 1)
-		}
-		return e
-	case Closed as e:
-		if trace.Active() {
-			trace.Count("db.errors", 1)
-		}
-		return e
-	case Other as e:
-		if trace.Active() {
-			trace.Count("db.errors", 1)
-		}
+	case e:
+		trace.Count("db.errors", 1)
 		return e
 	}
 }
 
-// RollbackTo delegates to c.Inner.RollbackTo and records db.errors on failure.
+// RollbackTo delegates to c.Inner.RollbackTo; a failure adds 1 to db.errors
+// inside a span.
 func RollbackTo(c ObservedConn, name string) fails Timeout | Closed | Other {
 	c.Inner.RollbackTo(name) catch {
-	case Timeout as e:
-		if trace.Active() {
-			trace.Count("db.errors", 1)
-		}
-		return e
-	case Closed as e:
-		if trace.Active() {
-			trace.Count("db.errors", 1)
-		}
-		return e
-	case Other as e:
-		if trace.Active() {
-			trace.Count("db.errors", 1)
-		}
+	case e:
+		trace.Count("db.errors", 1)
 		return e
 	}
 }

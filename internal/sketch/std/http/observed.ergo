@@ -106,6 +106,10 @@ func injectTraceparent(header []Field) []Field {
 	}
 }
 
+func recordOutbound(clock time.Clock, start time.Time, failed bool) {
+	trace.RecordOp("http.outbound.calls", "http.outbound.ms", "http.outbound.errors", clock.Elapsed(start), failed)
+}
+
 // ObservedNet wraps a Net provider to automatically inject W3C traceparent on
 // outbound requests when inside an active wide-event span (without overwriting
 // an explicit caller header) and accumulate http.outbound.calls,
@@ -128,20 +132,13 @@ func Send(c ObservedNet, r Request) Response fails RequestFailed {
 	if !trace.Active() {
 		return try c.Inner.Send(r)
 	}
-	let req = Request{..r, Header: injectTraceparent(r.Header)}
 	let start = c.Clock.Now()
-	let resp = c.Inner.Send(req) catch {
-	case RequestFailed as f:
-		trace.Count("http.outbound.calls", 1)
-		trace.AddTiming("http.outbound.ms", c.Clock.Now().Sub(start))
-		trace.Count("http.outbound.errors", 1)
+	let resp = c.Inner.Send(Request{..r, Header: injectTraceparent(r.Header)}) catch {
+	case f:
+		recordOutbound(c.Clock, start, true)
 		return f
 	}
-	trace.Count("http.outbound.calls", 1)
-	trace.AddTiming("http.outbound.ms", c.Clock.Now().Sub(start))
-	if resp.Status >= 500 {
-		trace.Count("http.outbound.errors", 1)
-	}
+	recordOutbound(c.Clock, start, resp.Status >= 500)
 	resp
 }
 
@@ -151,30 +148,13 @@ func SendInto(c ObservedNet, r Request, accept Accept, put func(part string) fai
 	if !trace.Active() {
 		return try c.Inner.SendInto(r, accept, put)
 	}
-	let req = Request{..r, Header: injectTraceparent(r.Header)}
 	let start = c.Clock.Now()
-	let resp = c.Inner.SendInto(req, accept, put) catch {
-	case RequestFailed as f:
-		trace.Count("http.outbound.calls", 1)
-		trace.AddTiming("http.outbound.ms", c.Clock.Now().Sub(start))
-		trace.Count("http.outbound.errors", 1)
-		return f
-	case StatusRefused as f:
-		trace.Count("http.outbound.calls", 1)
-		trace.AddTiming("http.outbound.ms", c.Clock.Now().Sub(start))
-		trace.Count("http.outbound.errors", 1)
-		return f
-	case SinkFailed as f:
-		trace.Count("http.outbound.calls", 1)
-		trace.AddTiming("http.outbound.ms", c.Clock.Now().Sub(start))
-		trace.Count("http.outbound.errors", 1)
+	let resp = c.Inner.SendInto(Request{..r, Header: injectTraceparent(r.Header)}, accept, put) catch {
+	case f:
+		recordOutbound(c.Clock, start, true)
 		return f
 	}
-	trace.Count("http.outbound.calls", 1)
-	trace.AddTiming("http.outbound.ms", c.Clock.Now().Sub(start))
-	if resp.Status >= 500 {
-		trace.Count("http.outbound.errors", 1)
-	}
+	recordOutbound(c.Clock, start, resp.Status >= 500)
 	resp
 }
 
@@ -199,35 +179,13 @@ func SendURL(n ObservedNetwork, r URLRequest) Response fails RequestFailed | Ori
 	if !trace.Active() {
 		return try n.Inner.SendURL(r)
 	}
-	let req = URLRequest{..r, Header: injectTraceparent(r.Header)}
 	let start = n.Clock.Now()
-	let resp = n.Inner.SendURL(req) catch {
-	case RequestFailed as f:
-		trace.Count("http.outbound.calls", 1)
-		trace.AddTiming("http.outbound.ms", n.Clock.Now().Sub(start))
-		trace.Count("http.outbound.errors", 1)
-		return f
-	case OriginRefused as f:
-		trace.Count("http.outbound.calls", 1)
-		trace.AddTiming("http.outbound.ms", n.Clock.Now().Sub(start))
-		trace.Count("http.outbound.errors", 1)
-		return f
-	case Denied as f:
-		trace.Count("http.outbound.calls", 1)
-		trace.AddTiming("http.outbound.ms", n.Clock.Now().Sub(start))
-		trace.Count("http.outbound.errors", 1)
-		return f
-	case RedirectLimit as f:
-		trace.Count("http.outbound.calls", 1)
-		trace.AddTiming("http.outbound.ms", n.Clock.Now().Sub(start))
-		trace.Count("http.outbound.errors", 1)
+	let resp = n.Inner.SendURL(URLRequest{..r, Header: injectTraceparent(r.Header)}) catch {
+	case f:
+		recordOutbound(n.Clock, start, true)
 		return f
 	}
-	trace.Count("http.outbound.calls", 1)
-	trace.AddTiming("http.outbound.ms", n.Clock.Now().Sub(start))
-	if resp.Status >= 500 {
-		trace.Count("http.outbound.errors", 1)
-	}
+	recordOutbound(n.Clock, start, resp.Status >= 500)
 	resp
 }
 
@@ -238,45 +196,13 @@ func SendURLInto(n ObservedNetwork, r URLRequest, accept Accept, put func(part s
 	if !trace.Active() {
 		return try n.Inner.SendURLInto(r, accept, put)
 	}
-	let req = URLRequest{..r, Header: injectTraceparent(r.Header)}
 	let start = n.Clock.Now()
-	let resp = n.Inner.SendURLInto(req, accept, put) catch {
-	case RequestFailed as f:
-		trace.Count("http.outbound.calls", 1)
-		trace.AddTiming("http.outbound.ms", n.Clock.Now().Sub(start))
-		trace.Count("http.outbound.errors", 1)
-		return f
-	case OriginRefused as f:
-		trace.Count("http.outbound.calls", 1)
-		trace.AddTiming("http.outbound.ms", n.Clock.Now().Sub(start))
-		trace.Count("http.outbound.errors", 1)
-		return f
-	case Denied as f:
-		trace.Count("http.outbound.calls", 1)
-		trace.AddTiming("http.outbound.ms", n.Clock.Now().Sub(start))
-		trace.Count("http.outbound.errors", 1)
-		return f
-	case RedirectLimit as f:
-		trace.Count("http.outbound.calls", 1)
-		trace.AddTiming("http.outbound.ms", n.Clock.Now().Sub(start))
-		trace.Count("http.outbound.errors", 1)
-		return f
-	case StatusRefused as f:
-		trace.Count("http.outbound.calls", 1)
-		trace.AddTiming("http.outbound.ms", n.Clock.Now().Sub(start))
-		trace.Count("http.outbound.errors", 1)
-		return f
-	case SinkFailed as f:
-		trace.Count("http.outbound.calls", 1)
-		trace.AddTiming("http.outbound.ms", n.Clock.Now().Sub(start))
-		trace.Count("http.outbound.errors", 1)
+	let resp = n.Inner.SendURLInto(URLRequest{..r, Header: injectTraceparent(r.Header)}, accept, put) catch {
+	case f:
+		recordOutbound(n.Clock, start, true)
 		return f
 	}
-	trace.Count("http.outbound.calls", 1)
-	trace.AddTiming("http.outbound.ms", n.Clock.Now().Sub(start))
-	if resp.Status >= 500 {
-		trace.Count("http.outbound.errors", 1)
-	}
+	recordOutbound(n.Clock, start, resp.Status >= 500)
 	resp
 }
 

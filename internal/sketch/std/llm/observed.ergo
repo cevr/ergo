@@ -17,17 +17,13 @@ func Observed(inner Model, clock time.Clock) ObservedModel {
 	ObservedModel{Inner: inner, Clock: clock}
 }
 
-func recordLLMSuccess(clock time.Clock, start time.Time, usage Usage) {
-	trace.Count("llm.calls", 1)
-	trace.AddTiming("llm.ms", clock.Now().Sub(start))
-	trace.Count("llm.tokens_in", usage.Input)
-	trace.Count("llm.tokens_out", usage.Output)
+func recordLLM(clock time.Clock, start time.Time, failed bool) {
+	trace.RecordOp("llm.calls", "llm.ms", "llm.errors", clock.Elapsed(start), failed)
 }
 
-func recordLLMError(clock time.Clock, start time.Time) {
-	trace.Count("llm.calls", 1)
-	trace.AddTiming("llm.ms", clock.Now().Sub(start))
-	trace.Count("llm.errors", 1)
+func recordTokens(usage Usage) {
+	trace.Count("llm.tokens_in", usage.Input)
+	trace.Count("llm.tokens_out", usage.Output)
 }
 
 // Generate forwards r to m.Inner.Generate and records llm.calls, llm.ms,
@@ -39,10 +35,11 @@ func Generate(m ObservedModel, r Request) Turn fails RateLimited | Overloaded | 
 	let start = m.Clock.Now()
 	let turn = m.Inner.Generate(r) catch {
 	case f:
-		recordLLMError(m.Clock, start)
-		return try Raise(f)
+		recordLLM(m.Clock, start, true)
+		return f
 	}
-	recordLLMSuccess(m.Clock, start, turn.Usage)
+	recordLLM(m.Clock, start, false)
+	recordTokens(turn.Usage)
 	turn
 }
 
@@ -54,14 +51,12 @@ func Stream(m ObservedModel, r Request, put func(d Delta) fails SinkFailed) Turn
 	}
 	let start = m.Clock.Now()
 	let turn = m.Inner.Stream(r, put) catch {
-	case SinkFailed as sf:
-		recordLLMError(m.Clock, start)
-		return sf
 	case f:
-		recordLLMError(m.Clock, start)
-		return try Raise(f)
+		recordLLM(m.Clock, start, true)
+		return f
 	}
-	recordLLMSuccess(m.Clock, start, turn.Usage)
+	recordLLM(m.Clock, start, false)
+	recordTokens(turn.Usage)
 	turn
 }
 
@@ -74,17 +69,18 @@ func StreamEach(m ObservedModel, r Request, put func(d Delta)) Turn fails RateLi
 	let start = m.Clock.Now()
 	let turn = m.Inner.StreamEach(r, put) catch {
 	case f:
-		recordLLMError(m.Clock, start)
-		return try Raise(f)
+		recordLLM(m.Clock, start, true)
+		return f
 	}
-	recordLLMSuccess(m.Clock, start, turn.Usage)
+	recordLLM(m.Clock, start, false)
+	recordTokens(turn.Usage)
 	turn
 }
 
 type observedStubModel {
-	clk       time.Manual,
-	usage     Usage,
-	failCall  bool,
+	clk      time.Manual,
+	usage    Usage,
+	failCall bool,
 } implements Model
 
 func Generate(s observedStubModel, _ Request) Turn fails RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | InvalidRequest | InvalidResponse | UnsupportedSchema {
@@ -106,6 +102,8 @@ func StreamEach(s observedStubModel, r Request, put func(d Delta)) Turn fails Ra
 	put(Text{Text: t.Text})
 	t
 }
+
+let onObservedStub = context { Model: observedStubModel{clk: time.NewManual(0), usage: Usage{Input: 3, Output: 5, CacheRead: 0, CacheWrite: 0}, failCall: false} }
 
 // ObservedModelAccumulatesCallsTokensAndErrors: ObservedModel accumulates
 // llm.calls, llm.ms, llm.tokens_in, llm.tokens_out, and llm.errors onto an

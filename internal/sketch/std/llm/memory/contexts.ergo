@@ -54,4 +54,6 @@ let lawFallenBack = context { llm.Model: lawFallback() }
 
 let lawMetered = context { llm.Model: llm.NewMetered(lawScript()) }
 
+let lawObserved = context { llm.Model: llm.Observed(lawScript(), testing.NewVirtualClock(0)) }
+
 let lawStacked = context { llm.Model: llm.NewMetered(llm.Retry{Inner: lawFallback(), Schedule: schedule.Recurs(1), Clock: testing.NewVirtualClock(0), Sleep: testing.NewVirtualClock(0)}) }

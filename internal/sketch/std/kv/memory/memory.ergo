@@ -14,6 +14,7 @@ import option
 import slices
 import strings
 import sync
+import time
 
 // Store is the memory store. New makes one.
 type Store { entries sync.Ref[Map[string, string]] } implements kv.Store
@@ -22,6 +23,8 @@ type Store { entries sync.Ref[Map[string, string]] } implements kv.Store
 func New() Store { Store{entries: sync.NewRef(Map[string, string]{})} }
 
 let emptyStore = context { kv.Store: New() }
+
+let observedStore = context { kv.Store: kv.Observed(New(), time.NewManual(0)) }
 
 // Get is the value key holds. It reads the map inside the Ref's step, so
 // the Ref never hands the map out and a later put changes it in place.

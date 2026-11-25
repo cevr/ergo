@@ -1,5 +1,7 @@
 import core
 import option
+import slices
+import strings
 import sync
 import time
 import trace
@@ -18,6 +20,10 @@ func Observed(inner Store, clock time.Clock) ObservedStore {
 	ObservedStore{Inner: inner, Clock: clock}
 }
 
+func recordKV(clock time.Clock, start time.Time, failed bool) {
+	trace.RecordOp("kv.ops", "kv.ms", "kv.errors", clock.Elapsed(start), failed)
+}
+
 // Get forwards to s.Inner.Get and records kv.ops, kv.ms, and kv.hits/kv.misses
 // or kv.errors when inside an active wide-event span.
 func Get(s ObservedStore, key string) option.Option[string] fails Failed {
@@ -26,14 +32,11 @@ func Get(s ObservedStore, key string) option.Option[string] fails Failed {
 	}
 	let start = s.Clock.Now()
 	let got = s.Inner.Get(key) catch {
-	case Failed as f:
-		trace.Count("kv.ops", 1)
-		trace.AddTiming("kv.ms", s.Clock.Now().Sub(start))
-		trace.Count("kv.errors", 1)
+	case f:
+		recordKV(s.Clock, start, true)
 		return f
 	}
-	trace.Count("kv.ops", 1)
-	trace.AddTiming("kv.ms", s.Clock.Now().Sub(start))
+	recordKV(s.Clock, start, false)
 	match got {
 	case option.Some:
 		trace.Count("kv.hits", 1)
@@ -47,18 +50,16 @@ func Get(s ObservedStore, key string) option.Option[string] fails Failed {
 // failure when inside an active wide-event span.
 func Put(s ObservedStore, key string, value string) fails Failed {
 	if !trace.Active() {
-		return try s.Inner.Put(key, value)
+		try s.Inner.Put(key, value)
+		return
 	}
 	let start = s.Clock.Now()
 	s.Inner.Put(key, value) catch {
-	case Failed as f:
-		trace.Count("kv.ops", 1)
-		trace.AddTiming("kv.ms", s.Clock.Now().Sub(start))
-		trace.Count("kv.errors", 1)
+	case f:
+		recordKV(s.Clock, start, true)
 		return f
 	}
-	trace.Count("kv.ops", 1)
-	trace.AddTiming("kv.ms", s.Clock.Now().Sub(start))
+	recordKV(s.Clock, start, false)
 }
 
 // Delete forwards to s.Inner.Delete and records kv.ops, kv.ms, and kv.errors
@@ -69,14 +70,11 @@ func Delete(s ObservedStore, key string) bool fails Failed {
 	}
 	let start = s.Clock.Now()
 	let removed = s.Inner.Delete(key) catch {
-	case Failed as f:
-		trace.Count("kv.ops", 1)
-		trace.AddTiming("kv.ms", s.Clock.Now().Sub(start))
-		trace.Count("kv.errors", 1)
+	case f:
+		recordKV(s.Clock, start, true)
 		return f
 	}
-	trace.Count("kv.ops", 1)
-	trace.AddTiming("kv.ms", s.Clock.Now().Sub(start))
+	recordKV(s.Clock, start, false)
 	removed
 }
 
@@ -89,14 +87,11 @@ func Scan(s ObservedStore, prefix string) core.Seq[Entry] fails Failed {
 	}
 	let start = s.Clock.Now()
 	let seq = s.Inner.Scan(prefix) catch {
-	case Failed as f:
-		trace.Count("kv.ops", 1)
-		trace.AddTiming("kv.ms", s.Clock.Now().Sub(start))
-		trace.Count("kv.errors", 1)
+	case f:
+		recordKV(s.Clock, start, true)
 		return f
 	}
-	trace.Count("kv.ops", 1)
-	trace.AddTiming("kv.ms", s.Clock.Now().Sub(start))
+	recordKV(s.Clock, start, false)
 	seq
 }
 
@@ -133,9 +128,25 @@ func Delete(s observedStubStore, key string) bool fails Failed {
 	})
 }
 
-func Scan(_ observedStubStore, _ string) core.Seq[Entry] fails Failed {
-	func(_ func(e Entry) bool) {}
+func Scan(s observedStubStore, prefix string) core.Seq[Entry] fails Failed {
+	s.clk.Advance(1ms)
+	let entries = s.entries
+	func(yield func(e Entry) bool) {
+		let mut found = []Entry{}
+		for k, v in entries.Get() {
+			if strings.HasPrefix(k, prefix) {
+				found = found.Append(Entry{Key: k, Value: v})
+			}
+		}
+		for e in slices.SortFunc(found, func(a Entry, b Entry) int { strings.Compare(a.Key, b.Key) }) {
+			if !yield(e) {
+				return
+			}
+		}
+	}
 }
+
+let onObservedStub = context { Store: observedStubStore{entries: sync.NewRef(Map[string, string]{}), clk: time.NewManual(0), failKey: ""} }
 
 // ObservedStoreAccumulatesOpsHitsMissesAndErrors: ObservedStore accumulates
 // kv.ops, kv.hits, kv.misses, kv.ms, and kv.errors onto an enclosing wide
@@ -149,11 +160,10 @@ law ObservedStoreAccumulatesOpsHitsMissesAndErrors(key string, val string, failG
 		failKey: if failGet { "bad" } else { "" },
 	}
 	let store = Observed(stub, clk)
-	let outPut = store.Put("outside", val) catch {
+	store.Put("outside", val) catch {
 	case Failed:
 		return false
 	}
-	let _ = outPut
 	let outGot = store.Get("outside") catch {
 	case Failed:
 		return false

@@ -16,6 +16,10 @@ func Observed(inner Runner, clock time.Clock) ObservedRunner {
 	ObservedRunner{Inner: inner, Clock: clock}
 }
 
+func recordExec(clock time.Clock, start time.Time, failed bool) {
+	trace.RecordOp("exec.calls", "exec.ms", "exec.errors", clock.Elapsed(start), failed)
+}
+
 // Env returns r.Inner.Env unchanged.
 func Env(r ObservedRunner) Map[string, string] {
 	r.Inner.Env()
@@ -29,27 +33,11 @@ func Run(r ObservedRunner, c Command) Result fails NotFound | Denied | Failed {
 	}
 	let start = r.Clock.Now()
 	let res = r.Inner.Run(c) catch {
-	case NotFound as e:
-		trace.Count("exec.calls", 1)
-		trace.AddTiming("exec.ms", r.Clock.Now().Sub(start))
-		trace.Count("exec.errors", 1)
-		return e
-	case Denied as e:
-		trace.Count("exec.calls", 1)
-		trace.AddTiming("exec.ms", r.Clock.Now().Sub(start))
-		trace.Count("exec.errors", 1)
-		return e
-	case Failed as e:
-		trace.Count("exec.calls", 1)
-		trace.AddTiming("exec.ms", r.Clock.Now().Sub(start))
-		trace.Count("exec.errors", 1)
+	case e:
+		recordExec(r.Clock, start, true)
 		return e
 	}
-	trace.Count("exec.calls", 1)
-	trace.AddTiming("exec.ms", r.Clock.Now().Sub(start))
-	if res.Status != 0 {
-		trace.Count("exec.errors", 1)
-	}
+	recordExec(r.Clock, start, res.Status != 0)
 	res
 }
 
@@ -61,24 +49,11 @@ func Start(r ObservedRunner, c Command, s Streams) Running fails NotFound | Deni
 	}
 	let start = r.Clock.Now()
 	let running = r.Inner.Start(c, s) catch {
-	case NotFound as e:
-		trace.Count("exec.calls", 1)
-		trace.AddTiming("exec.ms", r.Clock.Now().Sub(start))
-		trace.Count("exec.errors", 1)
-		return e
-	case Denied as e:
-		trace.Count("exec.calls", 1)
-		trace.AddTiming("exec.ms", r.Clock.Now().Sub(start))
-		trace.Count("exec.errors", 1)
-		return e
-	case Failed as e:
-		trace.Count("exec.calls", 1)
-		trace.AddTiming("exec.ms", r.Clock.Now().Sub(start))
-		trace.Count("exec.errors", 1)
+	case e:
+		recordExec(r.Clock, start, true)
 		return e
 	}
-	trace.Count("exec.calls", 1)
-	trace.AddTiming("exec.ms", r.Clock.Now().Sub(start))
+	recordExec(r.Clock, start, false)
 	running
 }
 
@@ -98,6 +73,8 @@ func Start(r observedStubRunner, c Command, s Streams) Running fails NotFound | 
 	r.clk.Advance(5ms)
 	try r.inner.Start(c, s)
 }
+
+let onObservedStub = context { Runner: observedStubRunner{inner: Script{Results: Map[string, Result]{}}, clk: time.NewManual(0)} }
 
 // ObservedRunnerAccumulatesCallsTimingsAndErrors: ObservedRunner accumulates
 // exec.calls, exec.ms, and exec.errors (on launch failure or non-zero exit
