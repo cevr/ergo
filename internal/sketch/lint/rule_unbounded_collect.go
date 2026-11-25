@@ -88,7 +88,7 @@ func appendsWithoutLeaving(info *check.Info, body *syntax.BlockStmt) bool {
 		case *syntax.FuncLit:
 			return false
 		case *syntax.ForStmt, *syntax.RangeStmt:
-			walkNode(n, func(m syntax.Node) bool {
+			syntax.Inspect(n, func(m syntax.Node) bool {
 				if m == n {
 					return true
 				}
@@ -108,6 +108,6 @@ func appendsWithoutLeaving(info *check.Info, body *syntax.BlockStmt) bool {
 		}
 		return true
 	}
-	walkNode(body, func(n syntax.Node) bool { return visit(n, false) })
+	syntax.Inspect(body, func(n syntax.Node) bool { return visit(n, false) })
 	return appends && !leaves
 }

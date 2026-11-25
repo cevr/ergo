@@ -21,7 +21,7 @@ func cyclomatic(body *syntax.BlockStmt) float64 {
 // decisions counts cyclomatic's decisions in n.
 func decisions(n syntax.Node) int {
 	count := 0
-	walkNode(n, func(node syntax.Node) bool {
+	syntax.Inspect(n, func(node syntax.Node) bool {
 		switch node := node.(type) {
 		case *syntax.TypeSwitchStmt:
 			count++
@@ -85,7 +85,7 @@ func cognitive(body *syntax.BlockStmt) float64 {
 		}
 	}
 	node = func(n syntax.Node, nesting int) {
-		walkNode(n, func(x syntax.Node) bool {
+		syntax.Inspect(n, func(x syntax.Node) bool {
 			switch x := x.(type) {
 			case *syntax.IfStmt:
 				ifChain(x, nesting, true)
@@ -201,7 +201,7 @@ func halstead(body *syntax.BlockStmt) float64 {
 	lits := map[string]bool{}
 	total := 0
 	op := func(name string) { operators[name] = true }
-	walkNode(body, func(n syntax.Node) bool {
+	syntax.Inspect(body, func(n syntax.Node) bool {
 		switch n := n.(type) {
 		case *syntax.Ident:
 			operands["id "+n.Name] = true

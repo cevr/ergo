@@ -114,7 +114,7 @@ func sleeperOf(info *check.Info, fl *syntax.FuncLit) *sleeper {
 // does the same.
 func quiet(info *check.Info, e syntax.Expr) bool {
 	ok := true
-	walkNode(e, func(n syntax.Node) bool {
+	syntax.Inspect(e, func(n syntax.Node) bool {
 		switch n := n.(type) {
 		case *syntax.FuncLit:
 			return false

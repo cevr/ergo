@@ -28,22 +28,17 @@ var defaultOnFailure = &Rule{
 }
 
 func checkDefaultOnFailure(p *Pass) {
-	if len(p.fileIndex().catches) == 0 {
-		return
-	}
-	walkNode(p.File, func(n syntax.Node) bool {
-		switch x := n.(type) {
-		case *syntax.TestDecl, *syntax.LawDecl:
-			return false
-		case *syntax.CatchExpr:
-			for _, arm := range x.Arms {
-				if takesEvery(p.Info, arm) && len(arm.Body) == 1 && defaultLiteral(p.Info, armValue(arm.Body[0])) {
-					p.Report(arm.Case, arm.End(), "this arm takes every failure and gives a literal, so a failure reads as an ordinary value and nothing records it")
-				}
+	fi := p.fileIndex()
+	for i, x := range fi.catches {
+		if fi.catchFlags[i]&nodeInTestLaw != 0 {
+			continue
+		}
+		for _, arm := range x.Arms {
+			if takesEvery(p.Info, arm) && len(arm.Body) == 1 && defaultLiteral(p.Info, armValue(arm.Body[0])) {
+				p.Report(arm.Case, arm.End(), "this arm takes every failure and gives a literal, so a failure reads as an ordinary value and nothing records it")
 			}
 		}
-		return true
-	})
+	}
 }
 
 // takesEvery reports an arm with a pattern that matches any failure: a

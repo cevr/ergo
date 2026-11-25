@@ -138,7 +138,7 @@ func checkScatteredEdit(p *Pass) {
 	}
 	groups := p.Memo(func() any { return scatteredHunks(p) }).(map[syntax.Node][]string)
 	for _, d := range p.File.Decls {
-		walkNode(d, func(n syntax.Node) bool {
+		syntax.Inspect(d, func(n syntax.Node) bool {
 			if pkgs, ok := groups[n]; ok {
 				p.Report(n.Pos(), n.End(), fmt.Sprintf("this change adds the same code in %d packages: %s", len(pkgs), listText(pkgs)))
 				return false
@@ -196,7 +196,7 @@ func scatteredHunks(p *Pass) map[syntax.Node][]string {
 func nodesWithin(file *syntax.File, r LineRange) []syntax.Node {
 	var out []syntax.Node
 	for _, d := range file.Decls {
-		walkNode(d, func(n syntax.Node) bool {
+		syntax.Inspect(d, func(n syntax.Node) bool {
 			in := r.From <= file.Line(n.Pos()) && file.Line(n.End()) <= r.To
 			switch n.(type) {
 			case syntax.Decl:

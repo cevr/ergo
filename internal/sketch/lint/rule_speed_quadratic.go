@@ -37,7 +37,7 @@ func checkQuadraticScan(p *Pass) {
 			}
 			return shapeOf(p.Info, e) == shape
 		}
-		walkNode(outer.Body, func(m syntax.Node) bool {
+		syntax.Inspect(outer.Body, func(m syntax.Node) bool {
 			switch m := m.(type) {
 			case *syntax.FuncLit, *syntax.ReturnStmt:
 				// A return runs once, ending the loop: its walk is no

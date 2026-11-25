@@ -162,7 +162,7 @@ func (x *extractor) indexProviders(unit Unit) {
 			continue
 		}
 		file := f
-		walkNode(f.Syntax, func(n syntax.Node) bool {
+		syntax.Inspect(f.Syntax, func(n syntax.Node) bool {
 			if e, ok := n.(*syntax.ContextEntry); ok && e.Value != nil {
 				x.providerFile[e.Value] = file
 			}
@@ -314,7 +314,7 @@ func (x *extractor) callable(f File, info *check.Info, c sdk.Callable, decl synt
 		return
 	}
 	if !wantBindings {
-		walkNode(body, func(n syntax.Node) bool {
+		syntax.Inspect(body, func(n syntax.Node) bool {
 			call, ok := n.(*syntax.CallExpr)
 			if !ok {
 				return true
@@ -341,7 +341,7 @@ func (x *extractor) callable(f File, info *check.Info, c sdk.Callable, decl synt
 	}
 	x.pending = x.pending[:0]
 	inBody := false
-	walkNode(decl, func(n syntax.Node) bool {
+	syntax.Inspect(decl, func(n syntax.Node) bool {
 		if body != nil && n == body {
 			inBody = true
 			return true

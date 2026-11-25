@@ -2,6 +2,7 @@ package lint
 
 import (
 	"fmt"
+	"maps"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -45,7 +46,7 @@ func loadSOATestInputs(t *testing.T) []Input {
 }
 
 // TestSOAFileIndexMatchesInspect verifies that the single-pass flat columnar
-// fileIndex and zero-closure walkNode match syntax.Inspect and lineAt
+// fileIndex matches syntax.Inspect and lineAt
 // node-for-node, flag-for-flag, and offset-for-offset across the corpus.
 func TestSOAFileIndexMatchesInspect(t *testing.T) {
 	inputs := loadSOATestInputs(t)
@@ -73,21 +74,12 @@ func verifyFileIndex(t *testing.T, rel string, f *syntax.File) {
 	t.Helper()
 	fi := buildFileIndex(f)
 
-	// 1. walkNode must emit the exact same node sequence as syntax.Inspect.
-	var wantNodes, gotNodes []syntax.Node
+	var wantNodes []syntax.Node
 	syntax.Inspect(f, func(n syntax.Node) bool {
 		wantNodes = append(wantNodes, n)
 		return true
 	})
-	walkNode(f, func(n syntax.Node) bool {
-		gotNodes = append(gotNodes, n)
-		return true
-	})
-	if !slices.Equal(gotNodes, wantNodes) {
-		t.Fatalf("%s: walkNode produced %d nodes, syntax.Inspect produced %d", rel, len(gotNodes), len(wantNodes))
-	}
 
-	// 2. Compare every flat column against a reference syntax.Inspect pass.
 	var (
 		wantIdents         []*syntax.Ident
 		wantCalls          []*syntax.CallExpr
@@ -306,6 +298,10 @@ func verifyFileIndex(t *testing.T, rel string, f *syntax.File) {
 		if !slices.Equal(fi.calls[dr.callStart:dr.callEnd], dc) {
 			t.Fatalf("%s: decl[%d] calls mismatch", rel, k)
 		}
+	}
+
+	if want := docComments(f); !maps.Equal(fi.docComments, want) {
+		t.Fatalf("%s: %d doc comments, want %d", rel, len(fi.docComments), len(want))
 	}
 
 	// 5. Verify merged bodySpans and inBody against naive linear scan over rawBodies.
@@ -541,4 +537,42 @@ func TestLooksLikeProseMatchesParser(t *testing.T) {
 	if checked == 0 {
 		t.Fatal("checked 0 comments")
 	}
+}
+
+// docComments is the reference of fileIndex.docComments: the comment
+// groups the file's declarations, fields, context entries and machine
+// entries carry as their doc comments.
+func docComments(f *syntax.File) map[*syntax.CommentGroup]bool {
+	out := map[*syntax.CommentGroup]bool{}
+	add := func(g *syntax.CommentGroup) {
+		if g != nil {
+			out[g] = true
+		}
+	}
+	syntax.Inspect(f, func(n syntax.Node) bool {
+		switch n := n.(type) {
+		case *syntax.ImportDecl:
+			add(n.Doc)
+		case *syntax.VarDecl:
+			add(n.Doc)
+		case *syntax.TypeDecl:
+			add(n.Doc)
+		case *syntax.FuncDecl:
+			add(n.Doc)
+		case *syntax.ContextDecl:
+			add(n.Doc)
+		case *syntax.ContextEntry:
+			add(n.Doc)
+		case *syntax.Field:
+			add(n.Doc)
+		case *syntax.MachineEntry:
+			add(n.Doc)
+		case *syntax.TestDecl:
+			add(n.Doc)
+		case *syntax.LawDecl:
+			add(n.Doc)
+		}
+		return true
+	})
+	return out
 }

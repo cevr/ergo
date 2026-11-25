@@ -51,7 +51,7 @@ func writtenRoot(info *check.Info, e syntax.Expr) *check.Var {
 // takes its address.
 func writes(info *check.Info, n syntax.Node, v *check.Var) bool {
 	found := false
-	walkNode(n, func(m syntax.Node) bool {
+	syntax.Inspect(n, func(m syntax.Node) bool {
 		switch m := m.(type) {
 		case *syntax.AssignStmt:
 			for _, l := range m.Lhs {
@@ -80,7 +80,7 @@ func leavesEarly(body *syntax.BlockStmt) bool {
 		case *syntax.FuncLit:
 			return false
 		case *syntax.ForStmt, *syntax.RangeStmt:
-			walkNode(n, func(m syntax.Node) bool {
+			syntax.Inspect(n, func(m syntax.Node) bool {
 				if m == n {
 					return true
 				}
@@ -96,14 +96,14 @@ func leavesEarly(body *syntax.BlockStmt) bool {
 		}
 		return !leaves
 	}
-	walkNode(body, func(n syntax.Node) bool { return visit(n, false) })
+	syntax.Inspect(body, func(n syntax.Node) bool { return visit(n, false) })
 	return leaves
 }
 
 // written is the variables n assigns, at their root.
 func written(info *check.Info, n syntax.Node) map[*check.Var]bool {
 	out := map[*check.Var]bool{}
-	walkNode(n, func(m syntax.Node) bool {
+	syntax.Inspect(n, func(m syntax.Node) bool {
 		if a, ok := m.(*syntax.AssignStmt); ok {
 			for _, l := range a.Lhs {
 				if v := writtenRoot(info, l); v != nil {
@@ -119,7 +119,7 @@ func written(info *check.Info, n syntax.Node) map[*check.Var]bool {
 // pointers is the pointer variables n uses.
 func pointers(info *check.Info, n syntax.Node) map[*check.Var]bool {
 	out := map[*check.Var]bool{}
-	walkNode(n, func(m syntax.Node) bool {
+	syntax.Inspect(n, func(m syntax.Node) bool {
 		if id, ok := m.(*syntax.Ident); ok {
 			if v, isVar := info.Uses[id].(*check.Var); isVar {
 				if _, isPtr := underOf(v.Type).(*check.Pointer); isPtr {
@@ -135,7 +135,7 @@ func pointers(info *check.Info, n syntax.Node) map[*check.Var]bool {
 // calls reports whether n holds a call.
 func calls(n syntax.Node) bool {
 	found := false
-	walkNode(n, func(m syntax.Node) bool {
+	syntax.Inspect(n, func(m syntax.Node) bool {
 		if _, ok := m.(*syntax.CallExpr); ok {
 			found = true
 		}
@@ -164,7 +164,7 @@ func usesAny(info *check.Info, n syntax.Node, vars map[*check.Var]bool) bool {
 		return false
 	}
 	found := false
-	walkNode(n, func(m syntax.Node) bool {
+	syntax.Inspect(n, func(m syntax.Node) bool {
 		if id, ok := m.(*syntax.Ident); ok {
 			if v, isVar := info.Uses[id].(*check.Var); isVar && vars[v] {
 				found = true
@@ -199,7 +199,7 @@ func docScans(fn *check.Func, i int) bool {
 // their own declared at the same place, so v is matched by position.
 func loopsOver(info *check.Info, body *syntax.BlockStmt, v *check.Var) bool {
 	found := false
-	walkNode(body, func(n syntax.Node) bool {
+	syntax.Inspect(body, func(n syntax.Node) bool {
 		switch n := n.(type) {
 		case *syntax.FuncLit:
 			return false
@@ -221,7 +221,7 @@ func loopsOver(info *check.Info, body *syntax.BlockStmt, v *check.Var) bool {
 func inLoops(f *syntax.File, visit func(n syntax.Node, loop syntax.Stmt)) {
 	var walk func(n syntax.Node, loop syntax.Stmt)
 	walk = func(n syntax.Node, loop syntax.Stmt) {
-		walkNode(n, func(m syntax.Node) bool {
+		syntax.Inspect(n, func(m syntax.Node) bool {
 			if m == n {
 				return true
 			}

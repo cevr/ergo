@@ -29,11 +29,10 @@ func checkNarrationComment(p *Pass) {
 	}
 	src := p.File.Src
 	fi := p.fileIndex()
-	bodies := fi.bodySpans
 	for _, g := range p.File.Comments {
 		for _, c := range g.List {
 			at := int(c.Pos())
-			if !lineComment(c) || !aloneOnLine(src, at) || !inBody(bodies, c.Pos()) {
+			if !lineComment(c) || !aloneOnLine(src, at) || !fi.inBody(c.Pos()) {
 				continue
 			}
 			start, end := fi.lineBounds(at)

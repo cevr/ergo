@@ -52,7 +52,7 @@ func checkTestWaitsOnTime(p *Pass) {
 		// callback).
 		var walk func(n syntax.Node, own bool)
 		walk = func(n syntax.Node, own bool) {
-			walkNode(n, func(n syntax.Node) bool {
+			syntax.Inspect(n, func(n syntax.Node) bool {
 				switch x := n.(type) {
 				case *syntax.FuncLit:
 					if own {
@@ -124,7 +124,7 @@ func checkTestWaitsOnTime(p *Pass) {
 // variables that check.IsManualClock holds.
 func clocksIn(info *check.Info, body *syntax.BlockStmt) []*check.Named {
 	var clocks []*check.Named
-	walkNode(body, func(n syntax.Node) bool {
+	syntax.Inspect(body, func(n syntax.Node) bool {
 		if id, ok := n.(*syntax.Ident); ok {
 			o := info.Uses[id]
 			if o == nil {
@@ -155,7 +155,7 @@ func sharedClock(info *check.Info, body *syntax.BlockStmt) bool {
 	// receivers are the uses as a manual clock call's receiver, and the
 	// names a let declares (the checker records a let's name as a use too)
 	receivers := map[*syntax.Ident]bool{}
-	walkNode(body, func(n syntax.Node) bool {
+	syntax.Inspect(body, func(n syntax.Node) bool {
 		switch x := n.(type) {
 		case *syntax.VarSpec:
 			for _, id := range x.Names {
@@ -178,7 +178,7 @@ func sharedClock(info *check.Info, body *syntax.BlockStmt) bool {
 		return true
 	})
 	shared := false
-	walkNode(body, func(n syntax.Node) bool {
+	syntax.Inspect(body, func(n syntax.Node) bool {
 		switch x := n.(type) {
 		case *syntax.ContextLit:
 			return false

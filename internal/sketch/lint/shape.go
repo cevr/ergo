@@ -97,7 +97,7 @@ func (s *shaper) writePtr(o check.Object) {
 }
 
 func (s *shaper) child(c syntax.Node) {
-	if c == nil || isTypedNil(c) {
+	if c == nil || syntax.IsNil(c) {
 		return
 	}
 	s.b.putByte(' ')
@@ -137,7 +137,7 @@ func (s *shaper) childFields(l *syntax.FieldList) {
 }
 
 func (s *shaper) node(n syntax.Node) {
-	if n == nil || isTypedNil(n) {
+	if n == nil || syntax.IsNil(n) {
 		return
 	}
 	switch x := n.(type) {

@@ -188,7 +188,7 @@ func (ff *fieldForms) write(info *check.Info, fields []*check.Field, set map[*ch
 // other.
 func readsVar(info *check.Info, e syntax.Expr) bool {
 	found := false
-	walkNode(e, func(n syntax.Node) bool {
+	syntax.Inspect(e, func(n syntax.Node) bool {
 		if id, ok := n.(*syntax.Ident); ok {
 			if _, isVar := info.Uses[id].(*check.Var); isVar {
 				found = true

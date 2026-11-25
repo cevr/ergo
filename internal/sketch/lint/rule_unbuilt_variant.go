@@ -43,7 +43,7 @@ func checkUnbuiltVariant(p *Pass) {
 		}
 		p.Report(id.Pos(), id.End(), "no code builds "+id.Name+", a variant of a union")
 	}
-	walkNode(p.File, func(n syntax.Node) bool {
+	syntax.Inspect(p.File, func(n syntax.Node) bool {
 		switch x := n.(type) {
 		case *syntax.TypeDecl:
 			if x.TypeParams == nil && x.Extern == nil && x.Origin == nil {
@@ -65,7 +65,7 @@ func checkUnbuiltVariant(p *Pass) {
 // position (a field, parameter or let's type, a case or catch pattern, a
 // literal's type) builds nothing, so those subtrees are skipped.
 func builtNames(info *check.Info, n syntax.Node, built map[*check.TypeName]bool) {
-	walkNode(n, func(n syntax.Node) bool {
+	syntax.Inspect(n, func(n syntax.Node) bool {
 		switch x := n.(type) {
 		case *syntax.Field, *syntax.FuncType, *syntax.TypeDecl:
 			return false

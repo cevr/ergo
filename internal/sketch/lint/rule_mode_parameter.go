@@ -66,7 +66,7 @@ func checkModeParameter(p *Pass) {
 					continue
 				}
 				uses, picks := 0, 0
-				walkNode(f.Body, func(n syntax.Node) bool {
+				syntax.Inspect(f.Body, func(n syntax.Node) bool {
 					if x, ok := n.(*syntax.Ident); ok && p.Info.Uses[x] == v {
 						uses++
 						if modes[x] {

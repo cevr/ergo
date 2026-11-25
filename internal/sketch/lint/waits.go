@@ -36,7 +36,7 @@ func waitOf(info *check.Info, s syntax.Stmt) (wait, bool) {
 		return wait{}, false
 	}
 	w := wait{vars: map[*check.Var]bool{}, caps: caps}
-	walkNode(d, func(n syntax.Node) bool {
+	syntax.Inspect(d, func(n syntax.Node) bool {
 		switch x := n.(type) {
 		case *syntax.Ident:
 			if v, ok := info.Defs[x].(*check.Var); ok {
@@ -55,7 +55,7 @@ func waitOf(info *check.Info, s syntax.Stmt) (wait, bool) {
 func footprintOf(info *check.Info, e syntax.Expr) ([]string, bool) {
 	var caps []string
 	known := true
-	walkNode(e, func(n syntax.Node) bool {
+	syntax.Inspect(e, func(n syntax.Node) bool {
 		switch x := n.(type) {
 		case *syntax.FuncLit:
 			known = false
@@ -98,7 +98,7 @@ func independent(info *check.Info, first, second wait, s syntax.Stmt) bool {
 		}
 	}
 	reads := false
-	walkNode(s, func(n syntax.Node) bool {
+	syntax.Inspect(s, func(n syntax.Node) bool {
 		if id, ok := n.(*syntax.Ident); ok {
 			if v, ok := info.Uses[id].(*check.Var); ok && first.vars[v] {
 				reads = true

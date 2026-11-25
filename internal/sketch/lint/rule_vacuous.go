@@ -48,7 +48,7 @@ func testCanFail(info *check.Info, body *syntax.BlockStmt) bool {
 			if x == nil {
 				continue
 			}
-			walkNode(x, func(n syntax.Node) bool {
+			syntax.Inspect(x, func(n syntax.Node) bool {
 				switch n := n.(type) {
 				case *syntax.CallExpr:
 					if c := info.Calls[n]; c != nil && c.Kind != check.CallConversion {
@@ -79,7 +79,7 @@ func testCanFail(info *check.Info, body *syntax.BlockStmt) bool {
 	}
 	var visit func(root syntax.Node, ctl bool)
 	visit = func(root syntax.Node, ctl bool) {
-		walkNode(root, func(m syntax.Node) bool {
+		syntax.Inspect(root, func(m syntax.Node) bool {
 			if m != root {
 				if g, ok := guards(m); ok {
 					visit(m, ctl || readsCall(g...))
@@ -164,7 +164,7 @@ func definedIdents(x syntax.Expr) []*syntax.Ident {
 		return nil
 	}
 	var out []*syntax.Ident
-	walkNode(x, func(n syntax.Node) bool {
+	syntax.Inspect(x, func(n syntax.Node) bool {
 		if id, ok := n.(*syntax.Ident); ok {
 			out = append(out, id)
 		}

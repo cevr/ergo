@@ -70,7 +70,7 @@ func internalFuncs(p *Pass) map[*check.Func]bool {
 			if f.Syntax == nil {
 				continue
 			}
-			walkNode(f.Syntax, func(n syntax.Node) bool {
+			syntax.Inspect(f.Syntax, func(n syntax.Node) bool {
 				switch x := n.(type) {
 				case *syntax.TestDecl, *syntax.LawDecl:
 					return false

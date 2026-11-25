@@ -156,7 +156,7 @@ func stringStates(p *Pass) map[*check.Field]fieldStates {
 // of a record literal, or an assignment to a selected field.
 func markSet(info *check.Info, d syntax.Node, own map[*check.Package]bool, set map[*check.Field]map[string]bool,
 	literal func(syntax.Expr) (string, bool), field func(syntax.Expr) *check.Field) {
-	walkNode(d, func(n syntax.Node) bool {
+	syntax.Inspect(d, func(n syntax.Node) bool {
 		switch x := n.(type) {
 		case *syntax.CompositeLit:
 			for _, e := range x.Elts {

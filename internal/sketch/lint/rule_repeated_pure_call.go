@@ -52,7 +52,7 @@ func checkRepeatedPureCall(p *Pass) {
 				repeatedInFrame(p, d.Body)
 			}
 		case *syntax.TypeDecl:
-			walkNode(d, func(n syntax.Node) bool {
+			syntax.Inspect(d, func(n syntax.Node) bool {
 				if l, ok := n.(*syntax.LawDecl); ok && l.Body != nil {
 					repeatedInFrame(p, l.Body)
 				}
@@ -77,7 +77,7 @@ func repeatedInFrame(p *Pass, body syntax.Node) {
 		}
 	}
 	walk = func(n syntax.Node, blocks []syntax.Node) {
-		walkNode(n, func(n syntax.Node) bool {
+		syntax.Inspect(n, func(n syntax.Node) bool {
 			switch x := n.(type) {
 			case *syntax.FuncLit:
 				return false

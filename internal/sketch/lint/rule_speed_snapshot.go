@@ -49,7 +49,7 @@ func checkSnapshotArgument(p *Pass) {
 func passesLater(info *check.Info, args []syntax.Expr, s *check.Var) bool {
 	found := false
 	for _, a := range args {
-		walkNode(a, func(n syntax.Node) bool {
+		syntax.Inspect(a, func(n syntax.Node) bool {
 			if c, ok := n.(*syntax.CallExpr); ok {
 				for _, b := range c.Args {
 					if id, isID := b.(*syntax.Ident); isID && info.Uses[id] == s {

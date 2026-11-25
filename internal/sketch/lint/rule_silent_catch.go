@@ -56,7 +56,7 @@ func readsFailure(info *check.Info, arm *syntax.CatchArm) bool {
 	}
 	reads := false
 	for _, s := range arm.Body {
-		walkNode(s, func(n syntax.Node) bool {
+		syntax.Inspect(s, func(n syntax.Node) bool {
 			if id, ok := n.(*syntax.Ident); ok {
 				if v, isVar := info.Uses[id].(*check.Var); isVar && bound[v] {
 					reads = true
@@ -79,7 +79,7 @@ func readsFailure(info *check.Info, arm *syntax.CatchArm) bool {
 func leavesTrace(info *check.Info, body []syntax.Stmt) bool {
 	own := map[check.Object]bool{}
 	for _, s := range body {
-		walkNode(s, func(n syntax.Node) bool {
+		syntax.Inspect(s, func(n syntax.Node) bool {
 			if id, ok := n.(*syntax.Ident); ok && info.Defs[id] != nil {
 				own[info.Defs[id]] = true
 			}
@@ -111,12 +111,12 @@ func leavesTrace(info *check.Info, body []syntax.Stmt) bool {
 				return false
 			}
 			if n.Trailing != nil {
-				walkNode(n.Fun, visit)
+				syntax.Inspect(n.Fun, visit)
 				for _, a := range n.Args {
-					walkNode(a, visit)
+					syntax.Inspect(a, visit)
 				}
 				if call := info.Calls[n]; call != nil && call.Kind == check.CallWith {
-					walkNode(n.Trailing, visit)
+					syntax.Inspect(n.Trailing, visit)
 				}
 				return false
 			}
@@ -124,7 +124,7 @@ func leavesTrace(info *check.Info, body []syntax.Stmt) bool {
 		return true
 	}
 	for _, s := range body {
-		walkNode(s, visit)
+		syntax.Inspect(s, visit)
 	}
 	return found
 }
