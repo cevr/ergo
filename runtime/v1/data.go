@@ -74,6 +74,7 @@ func Append[T any](xs []T, x T) []T { return append(xs, x) }
 // reserve.go), so the loop grows xs once.
 //
 //ergo:pure
+//ergo:wait none
 func Reserve[T any](xs []T, n int) []T { return slices.Grow(xs, n) }
 
 // Get is the read behind the prelude's m.Get(k): the value of k in m and
@@ -83,6 +84,7 @@ func Reserve[T any](xs []T, n int) []T { return slices.Grow(xs, n) }
 // read and its Go reference.
 //
 //ergo:pure
+//ergo:wait none
 func Get[K comparable, V any](m map[K]V, k K) (V, bool) {
 	v, ok := m[k]
 	return v, ok
@@ -93,6 +95,7 @@ func Get[K comparable, V any](m map[K]V, k K) (V, bool) {
 // copy of m where m is still seen elsewhere.
 //
 //ergo:pure
+//ergo:wait none
 func Put[K comparable, V any](m map[K]V, k K, v V) map[K]V {
 	m[k] = v
 	return m

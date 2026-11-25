@@ -93,6 +93,7 @@ func buildNatives() nativeTables {
 	registerRunnerdurable(t)
 	registerRunnerkids(t)
 	registerTasks(t)
+	registerCoreNatives(t)
 	return t
 }
 
@@ -464,6 +465,71 @@ func registerNatives(t nativeTables) {
 			return nil, ab
 		}
 		return &streamV{r: rand.New(rand.NewPCG(args[0].(uint64), randSeedHi))}, nil
+	}
+}
+
+func registerCoreNatives(t nativeTables) {
+	natives := t.std
+	t.reads["core.reserveSlice"] = "sliceV int64"
+	natives["core.reserveSlice"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		if n := args[1].(int64); n < 0 {
+			return nil, fr.defect(at, "cannot be negative")
+		}
+		if ab := in.charge(fr, at, 1); ab != nil {
+			return nil, ab
+		}
+		return args[0], nil
+	}
+	t.reads["core.sliceTakeAt"] = t.reads["slices.Take"]
+	natives["core.sliceTakeAt"] = natives["slices.Take"]
+	t.reads["core.sliceWindow"] = t.reads["slices.Slice"]
+	natives["core.sliceWindow"] = natives["slices.Slice"]
+	t.reads["core.sliceConcat"] = t.reads["slices.Concat"]
+	natives["core.sliceConcat"] = natives["slices.Concat"]
+	t.reads["core.sliceRepeat"] = t.reads["slices.Repeat"]
+	natives["core.sliceRepeat"] = natives["slices.Repeat"]
+	t.reads["core.mapClone"] = t.reads["maps.Clone"]
+	natives["core.mapClone"] = natives["maps.Clone"]
+	t.reads["core.mapPut"] = "mapV T T"
+	natives["core.mapPut"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		return in.putIn(fr, at, args[0].(mapV), args[1], args[2], nil)
+	}
+	t.reads["core.mapGet"] = "mapV T"
+	natives["core.mapGet"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		if ab := in.charge(fr, at, 1); ab != nil {
+			return nil, ab
+		}
+		v, found := args[0].(mapV).b.get(args[1])
+		if !found {
+			tup := fr.info.Types[at.(syntax.Expr)].(*check.Tuple)
+			var ab *abrupt
+			v, ab = in.zero(fr, at, fr.rt(tup.Types[0]))
+			if ab != nil {
+				return nil, ab
+			}
+		}
+		return tuple{elems: []Value{v, found}}, nil
+	}
+	t.reads["core.mapTake"] = "mapV T"
+	natives["core.mapTake"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		if ab := in.charge(fr, at, 1); ab != nil {
+			return nil, ab
+		}
+		m := args[0].(mapV)
+		v, found := m.b.get(args[1])
+		if !found {
+			tup := fr.info.Types[at.(syntax.Expr)].(*check.Tuple)
+			var ab *abrupt
+			v, ab = in.zero(fr, at, fr.rt(tup.Types[0]))
+			if ab != nil {
+				return nil, ab
+			}
+		}
+		rest, ab := in.deleteIn(fr, at, m, args[1], nil)
+		if ab != nil {
+			return nil, ab
+		}
+		return tuple{elems: []Value{v, found, rest}}, nil
 	}
 }
 

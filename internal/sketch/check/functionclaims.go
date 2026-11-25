@@ -514,12 +514,34 @@ func (c *checker) collectFunctionClaims() {
 		return
 	}
 	c.pkg.functionClaims = make(map[*Named][]*functionClaim)
-	accepted := make([]*functionClaim, 0, len(groups))
+	// First pass: register each group's written root claim, checking root
+	// overlaps before included-role projections look up existing claims.
+	roots := make([]*functionClaim, 0, len(groups))
 	for _, g := range groups {
 		c.cur = g.head.file
-		roles := append([]*Named{g.role}, c.declaredOps(g.role)...)
 		valid := true
-		for _, role := range roles {
+		for _, h := range c.pkg.functionClaims[g.role.origin()] {
+			if c.claimsIntersect(h, g) && !c.sameClaimBindings(h, g) {
+				c.claimOverlap(g, h.head)
+				valid = false
+				break
+			}
+		}
+		if !valid {
+			continue
+		}
+		roots = append(roots, g)
+		c.pkg.functionClaims[g.role.origin()] = append(c.pkg.functionClaims[g.role.origin()], g)
+	}
+	// Second pass: validate and project each group's included roles. When a
+	// broader or matching claim in this package already covers the included
+	// role with no conflicting operation, reuse it without duplicating.
+	accepted := make([]*functionClaim, 0, len(roots))
+	for _, g := range roots {
+		c.cur = g.head.file
+		valid := true
+		var toProject []*functionClaim
+		for _, role := range c.declaredOps(g.role) {
 			if role.Obj.Pkg != c.pkg {
 				if other, _ := c.functionClaim(g.recv, role); other == nil {
 					c.errorf(g.head.Decl.Implements, CodeProvider, "included %s has no function claim for %s in its declaring package; add one there or stop including %s", role, g.recv, role)
@@ -529,6 +551,21 @@ func (c *checker) collectFunctionClaims() {
 			}
 			projected := *g
 			projected.role = role
+			if other, _ := c.functionClaim(g.recv, role); other != nil {
+				conflict := false
+				for _, op := range asInterface(role).Methods {
+					if a, b := other.ops[op.Name], g.ops[op.Name]; a != nil && b != nil && a != b {
+						c.claimOverlap(g, other.head)
+						conflict = true
+						break
+					}
+				}
+				if conflict {
+					valid = false
+					break
+				}
+				continue
+			}
 			for _, h := range c.pkg.functionClaims[role.origin()] {
 				if c.claimsIntersect(h, &projected) && !c.sameClaimBindings(h, &projected) {
 					c.claimOverlap(g, h.head)
@@ -536,17 +573,18 @@ func (c *checker) collectFunctionClaims() {
 					break
 				}
 			}
+			if !valid {
+				break
+			}
+			toProject = append(toProject, &projected)
 		}
 		if !valid {
+			c.pkg.functionClaims[g.role.origin()] = slices.DeleteFunc(c.pkg.functionClaims[g.role.origin()], func(h *functionClaim) bool { return h == g })
 			continue
 		}
 		accepted = append(accepted, g)
-		for _, role := range roles {
-			if role.Obj.Pkg == c.pkg {
-				projected := *g
-				projected.role = role
-				c.pkg.functionClaims[role.origin()] = append(c.pkg.functionClaims[role.origin()], &projected)
-			}
+		for _, projected := range toProject {
+			c.pkg.functionClaims[projected.role.origin()] = append(c.pkg.functionClaims[projected.role.origin()], projected)
 		}
 	}
 

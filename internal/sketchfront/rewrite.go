@@ -249,7 +249,13 @@ func (s ledgerSource) declares(e lower.LedgerEntry) bool {
 			})
 			if isClaim && !slices.ContainsFunc(p.FunctionRewrites(), func(l *check.Law) bool {
 				b := l.ClaimRewriteBinding()
-				return b != nil && b.Type.Obj.Name == prov && s.names.Of(l.Pkg) == lawPkg && l.Owner.Name+"."+l.Name == law
+				if b == nil || s.names.Of(l.Pkg) != lawPkg || l.Owner.Name+"."+l.Name != law {
+					return false
+				}
+				if b.Type != nil {
+					return b.Type.Obj.Name == prov
+				}
+				return b.ClaimType != nil && strings.ReplaceAll(b.ClaimType.String(), " ", "") == prov
 			}) {
 				return false
 			}

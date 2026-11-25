@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"sort"
+	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -56,7 +57,11 @@ func funcLawDigest(names LedgerNames, law *check.Law, keys ForeignKeys) (digest,
 
 func (d *digester) claimLaw(law *check.Law, claim *check.LawProvider, info *check.Info) {
 	d.typ(law.Owner)
-	d.typ(claim.Type.Obj)
+	if claim.Type != nil {
+		d.typ(claim.Type.Obj)
+	} else if claim.ClaimHead != nil {
+		d.fn(claim.ClaimHead)
+	}
 	if claim.ClaimCtor != nil {
 		d.fn(claim.ClaimCtor)
 	}
@@ -64,6 +69,11 @@ func (d *digester) claimLaw(law *check.Law, claim *check.LawProvider, info *chec
 		if id != nil {
 			d.decls["claim law type "+id.String()] = true
 			d.typ(id.Obj)
+		}
+	}
+	for _, t := range []check.Type{claim.ClaimType, claim.ClaimAt} {
+		if t != nil {
+			d.decls["claim law type "+t.String()] = true
 		}
 	}
 	if info != nil {
@@ -90,7 +100,12 @@ func (n LedgerNames) funcLaw(law *check.Law) string {
 
 func (n LedgerNames) funcProvider(law *check.Law) string {
 	if p := law.ClaimRewriteBinding(); p != nil {
-		return n.Of(p.Type.Obj.Pkg) + "." + p.Type.Obj.Name
+		if p.Type != nil {
+			return n.Of(p.Type.Obj.Pkg) + "." + p.Type.Obj.Name
+		}
+		if p.ClaimType != nil && p.ClaimHead != nil {
+			return n.Of(p.ClaimHead.Pkg) + "." + strings.ReplaceAll(p.ClaimType.String(), " ", "")
+		}
 	}
 	return ""
 }

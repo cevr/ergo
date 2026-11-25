@@ -346,6 +346,12 @@ func (c *canonical) lawRuns(p *check.Package) []check.LawRun {
 // providerName is the declaration name of a law provider's type, nil when
 // it has none.
 func providerName(p check.LawProvider) syntax.Node {
+	if p.Type == nil {
+		if p.ClaimHead != nil && p.ClaimHead.Decl != nil {
+			return p.ClaimHead.Decl.Name
+		}
+		return nil
+	}
 	if p.Type.Obj.Decl == nil {
 		return nil
 	}

@@ -75,7 +75,7 @@ func BodyOf(f *Func) Body {
 	}
 	path, name := f.Decl.Extern.Split()
 	if !v1.Owns(path) {
-		if path == "" && (name == "len" || name == "cap") {
+		if path == "" && (name == "len" || name == "cap" || name == "append") {
 			return Body{MovesOnly: true}
 		}
 		if body, ok := ModuleBody(f); ok {

@@ -1431,6 +1431,9 @@ type LawProvider struct {
 	Claim        *Named
 	ClaimExpr    syntax.Expr
 	At           *Named
+	ClaimType    Type
+	ClaimAt      Type
+	ClaimHead    *Func
 	LawTypeArgs  []Type
 	ClaimSlot    *Named
 	ClaimRewrite *FuncRewrite

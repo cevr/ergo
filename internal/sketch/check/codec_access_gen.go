@@ -2365,6 +2365,7 @@ func CodecFieldsOf_refWalker(v *refWalker) CodecFields_refWalker {
 type CodecFields_refiner struct {
 	F_c       **checker
 	F_subject *string
+	F_typ     *Type
 	F_isLen   *bool
 	F_dom     *Span
 	F_shown   *string
@@ -2372,7 +2373,7 @@ type CodecFields_refiner struct {
 }
 
 func CodecFieldsOf_refiner(v *refiner) CodecFields_refiner {
-	return CodecFields_refiner{F_c: &v.c, F_subject: &v.subject, F_isLen: &v.isLen, F_dom: &v.dom, F_shown: &v.shown, F_allowed: &v.allowed}
+	return CodecFields_refiner{F_c: &v.c, F_subject: &v.subject, F_typ: &v.typ, F_isLen: &v.isLen, F_dom: &v.dom, F_shown: &v.shown, F_allowed: &v.allowed}
 }
 
 type CodecFields_relCap struct {
