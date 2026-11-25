@@ -475,7 +475,7 @@ func RunInterop(_ HostRivalLockSuite) bool needs go.Foreign {
 
 	let refPath = filepath.Join([]string{tmpDir, ".git", "refs", "heads", "main"})
 	let refLockPath = LockPathOf(refPath)
-	let host = NewHostLockOps(tmpDir) catch {
+	let host = OpenHostLockOps(tmpDir) catch {
 	case PathInvalid:
 		cleanupTempDir(tmpDir)
 		return false

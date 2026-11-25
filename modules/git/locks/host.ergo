@@ -11,12 +11,22 @@ type HostLockOps {
 	root string,
 } implements LockOps
 
-// NewHostLockOps returns a HostLockOps confined to absolute rootDir.
-func NewHostLockOps(rootDir string) HostLockOps fails PathInvalid {
+// OpenHostLockOps returns a HostLockOps confined to absolute rootDir.
+func OpenHostLockOps(rootDir string) HostLockOps fails PathInvalid {
 	if rootDir == "" || !filepath.IsAbs(rootDir) {
 		return PathInvalid{Path: rootDir, Reason: "host lock root must be an absolute path"}
 	}
 	HostLockOps{root: filepath.Clean(rootDir)}
+}
+
+// NewHostLockOps returns a HostLockOps confined to a fresh temporary directory
+// for native law verification on a real POSIX filesystem.
+func NewHostLockOps() HostLockOps needs go.Foreign {
+	let dir = os.MkdirTemp("", "ergo-git-locks-law-") catch {
+	case go.Error:
+		os.TempDir()
+	}
+	HostLockOps{root: filepath.Clean(dir)}
 }
 
 func resolveHostPath(h HostLockOps, p string) string fails PathInvalid {
