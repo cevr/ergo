@@ -1,0 +1,1227 @@
+import actor
+import gen
+import strings
+import temporal
+import time
+
+// OfferKind classifies an offered screen interaction for swarm subsetting and
+// weighting.
+type OfferKind = PressOffer | InputOffer | ScrollOffer | KeyOffer | BackOffer | TimeOffer
+
+// PressOffer is an offer that clicks an enabled button, checkbox, switch, or
+// clickable semantic control.
+type PressOffer {}
+
+// InputOffer is an offer that types text into an enabled text field.
+type InputOffer {}
+
+// ScrollOffer is an offer that scrolls a virtualized list.
+type ScrollOffer {}
+
+// KeyOffer is an offer that sends a key press to the focused node or key
+// handler.
+type KeyOffer {}
+
+// BackOffer is an offer that navigates back in history.
+type BackOffer {}
+
+// TimeOffer is an offer that advances the manual clock to wake timers or
+// animation frames.
+type TimeOffer {}
+
+// Offer is one actionable interaction the screen offers now: its kind, label,
+// selection weight, playable act, optional keyboard hint for input text
+// generation, optional raw accessible locator, and the number of nodes that
+// raw locator matches.
+type Offer {
+	Kind     OfferKind,
+	Label    string,
+	Weight   int,
+	Act      Act,
+	Keyboard Option[Keyboard],
+	Locator  Option[Locator],
+	Matches  int,
+}
+
+// ExploreSnapshot is the settled observation passed to temporal properties
+// after each exploration step.
+type ExploreSnapshot[S, E] {
+	State       S,
+	Screen      []Shape[E],
+	Offers      []Offer,
+	Fetching    int,
+	WantsFrames bool,
+	Focus       Option[Id[E]],
+	FocusValid  bool,
+	Time        time.Time,
+}
+
+// ExploreConfig configures an autonomous exploration walk: step budget,
+// optional swarm subsetting of offer kinds, clock step for advancing sleeping
+// timers, and optional per-label offer weights.
+type ExploreConfig {
+	Steps       int,
+	Swarm       bool,
+	AdvanceStep duration,
+	Weights     Map[string, int],
+}
+
+// DefaultExploreConfig returns the default exploration configuration: 40
+// steps, swarm disabled, 500ms clock step, and default offer weights.
+func DefaultExploreConfig() ExploreConfig {
+	ExploreConfig{Steps: 40, Swarm: false, AdvanceStep: 500ms, Weights: Map[string, int]{}}
+}
+
+// SwarmExploreConfig returns an exploration configuration with swarm offer-kind
+// subsetting enabled.
+func SwarmExploreConfig() ExploreConfig {
+	ExploreConfig{Steps: 40, Swarm: true, AdvanceStep: 500ms, Weights: Map[string, int]{}}
+}
+
+// Clean is a finding where no property was violated: how many steps ran, how
+// many distinct (state, act) pairs were covered, those covered pair keys, any
+// expected pairs that stayed uncovered, and how the run ended (Idle or Cut).
+type Clean {
+	Steps     int,
+	Covered   int,
+	Pairs     []string,
+	Uncovered []string,
+	End       temporal.End,
+}
+
+// Found is a finding where a property or host invariant failed: the exact
+// script of played acts up to the failure, the deciding step index, and a
+// human-readable violation description.
+type Found {
+	Script    []Act,
+	Step      int,
+	Violation string,
+}
+
+// Finding is the outcome of Explore: Clean or Found.
+type Finding = Clean | Found
+
+// Defaults returns the default exploration properties over ExploreSnapshot:
+// every offered locator is unambiguous, focus refers to an existing enabled
+// node, every started load settles within 2s of virtual time, and every
+// animation settles within 2s of virtual time.
+func Defaults[S, E]() []temporal.Formula[ExploreSnapshot[S, E]] {
+	DefaultsWith[S, E](2s)
+}
+
+// DefaultsWith returns the default exploration properties with settleTimeout as
+// the virtual-time bound for loads and animations to settle.
+func DefaultsWith[S, E](settleTimeout duration) []temporal.Formula[ExploreSnapshot[S, E]] {
+	[]temporal.Formula[ExploreSnapshot[S, E]]{
+		temporal.Always[ExploreSnapshot[S, E]](temporal.Named[ExploreSnapshot[S, E]]("offers-unambiguous", func(s ExploreSnapshot[S, E]) bool {
+			offersAreUnambiguous(s.Offers)
+		})),
+		temporal.Always[ExploreSnapshot[S, E]](temporal.Named[ExploreSnapshot[S, E]]("focus-valid", func(s ExploreSnapshot[S, E]) bool {
+			s.FocusValid
+		})),
+		temporal.Always[ExploreSnapshot[S, E]](temporal.Implies[ExploreSnapshot[S, E]](
+			temporal.Named[ExploreSnapshot[S, E]]("fetching", func(s ExploreSnapshot[S, E]) bool { s.Fetching > 0 }),
+			temporal.EventuallyWithin[ExploreSnapshot[S, E]](
+				temporal.Named[ExploreSnapshot[S, E]]("loads-settled", func(s ExploreSnapshot[S, E]) bool { s.Fetching == 0 }),
+				settleTimeout,
+			),
+		)),
+		temporal.Always[ExploreSnapshot[S, E]](temporal.Implies[ExploreSnapshot[S, E]](
+			temporal.Named[ExploreSnapshot[S, E]]("animating", func(s ExploreSnapshot[S, E]) bool { s.WantsFrames }),
+			temporal.EventuallyWithin[ExploreSnapshot[S, E]](
+				temporal.Named[ExploreSnapshot[S, E]]("frames-settled", func(s ExploreSnapshot[S, E]) bool { !s.WantsFrames }),
+				settleTimeout,
+			),
+		)),
+	}
+}
+
+func offersAreUnambiguous(offers []Offer) bool {
+	for o in offers {
+		match o.Locator {
+		case Some[Locator]:
+			if o.Matches != 1 {
+				return false
+			}
+		case None:
+		}
+	}
+	true
+}
+
+type mirrorCounts {
+	byRole     Map[string, int],
+	byRoleName Map[string, int],
+}
+
+func incCount(m Map[string, int], k string) Map[string, int] {
+	let mut next = m
+	let prev = match next.Get(k) {
+	case Some[int] as v:
+		v.Value
+	case None:
+		0
+	}
+	next[k] = prev + 1
+	next
+}
+
+func getCount(m Map[string, int], k string) int {
+	match m.Get(k) {
+	case Some[int] as v:
+		v.Value
+	case None:
+		0
+	}
+}
+
+func countMirror[E](m mut Mirror[E], at Option[Id[E]], off bool, desc string, acc mirrorCounts) mirrorCounts {
+	let mut counts = acc
+	let mut c = at
+	for {
+		match c {
+		case Some[Id[E]] as x:
+			let e = entry(m, refOf(m, x.Value))
+			let hn = Lower(e.node)
+			let (o, d) = HostScope(hn, off, desc)
+			let a = HostAccess(hn, o, d)
+			let rn = roleText(a.Role)
+			counts.byRole = incCount(counts.byRole, rn)
+			counts.byRoleName = incCount(counts.byRoleName, rn+"\x00"+a.Name)
+			counts = countMirror[E](m, e.first, o, d, counts)
+			c = e.next
+		case None:
+			return counts
+		}
+	}
+}
+
+func roleMatchCount(counts mirrorCounts, r Role, name string) int {
+	let rn = roleText(r)
+	if name == "" {
+		return getCount(counts.byRole, rn)
+	}
+	getCount(counts.byRoleName, rn+"\x00"+name)
+}
+
+// OffersIn inspects mirror m's access tree and returns all actionable offers in
+// tree order, excluding disabled controls.
+func OffersIn[E](m mut Mirror[E]) []Offer {
+	match entryOf(m, m.root) {
+	case Some[mirrored[E]] as r:
+		let counts = countMirror[E](m, r.Value.first, false, "", mirrorCounts{byRole: Map[string, int]{}, byRoleName: Map[string, int]{}})
+		collectOffers[E](m, r.Value.first, false, "", counts, []Offer{})
+	case None:
+		[]Offer{}
+	}
+}
+
+func collectOffers[E](m mut Mirror[E], at Option[Id[E]], off bool, desc string, counts mirrorCounts, acc []Offer) []Offer {
+	let mut out = acc
+	let mut c = at
+	for {
+		match c {
+		case Some[Id[E]] as x:
+			let e = entry(m, refOf(m, x.Value))
+			let hn = Lower(e.node)
+			let (o, d) = HostScope(hn, off, desc)
+			let a = HostAccess(hn, o, d)
+			if !a.Disabled {
+				out = appendNodeOffer[E](m, counts, e.node, a, out)
+			}
+			out = collectOffers[E](m, e.first, o, d, counts, out)
+			c = e.next
+		case None:
+			return out
+		}
+	}
+}
+
+func appendNodeOffer[E](m mut Mirror[E], counts mirrorCounts, n Node[E], a Access, out []Offer) []Offer {
+	match n {
+	case PressableNode[E]:
+		let raw = WithRole{Role: Button, Name: a.Name}
+		let nMatch = roleMatchCount(counts, Button, a.Name)
+		let playLoc = if nMatch > 1 { First{At: raw} } else { raw }
+		out.Append(Offer{Kind: PressOffer, Label: a.Name, Weight: 4, Act: ClickOn{At: playLoc}, Keyboard: None, Locator: Some[Locator]{Value: raw}, Matches: nMatch})
+	case CheckNode[E]:
+		let raw = WithRole{Role: Checkbox, Name: a.Name}
+		let nMatch = roleMatchCount(counts, Checkbox, a.Name)
+		let playLoc = if nMatch > 1 { First{At: raw} } else { raw }
+		out.Append(Offer{Kind: PressOffer, Label: a.Name, Weight: 3, Act: ClickOn{At: playLoc}, Keyboard: None, Locator: Some[Locator]{Value: raw}, Matches: nMatch})
+	case ToggleNode:
+		let raw = WithRole{Role: Switch, Name: a.Name}
+		let nMatch = roleMatchCount(counts, Switch, a.Name)
+		let playLoc = if nMatch > 1 { First{At: raw} } else { raw }
+		out.Append(Offer{Kind: PressOffer, Label: a.Name, Weight: 3, Act: ClickOn{At: playLoc}, Keyboard: None, Locator: Some[Locator]{Value: raw}, Matches: nMatch})
+	case SemanticNode[E] as x:
+		match x.On {
+		case Some[E]:
+			let raw = WithRole{Role: a.Role, Name: a.Name}
+			let nMatch = roleMatchCount(counts, a.Role, a.Name)
+			let playLoc = if nMatch > 1 { First{At: raw} } else { raw }
+			out.Append(Offer{Kind: PressOffer, Label: a.Name, Weight: 3, Act: ClickOn{At: playLoc}, Keyboard: None, Locator: Some[Locator]{Value: raw}, Matches: nMatch})
+		case None:
+			out
+		}
+	case InputNode as x:
+		let raw = WithRole{Role: TextBox, Name: a.Name}
+		let nMatch = roleMatchCount(counts, TextBox, a.Name)
+		let playLoc = if nMatch > 1 { First{At: raw} } else { raw }
+		out.Append(Offer{Kind: InputOffer, Label: a.Name, Weight: 3, Act: FillIn{At: playLoc, Text: ""}, Keyboard: Some[Keyboard]{Value: x.Hints.Keyboard}, Locator: Some[Locator]{Value: raw}, Matches: nMatch})
+	case RowsNode as x:
+		if x.Label == "" {
+			return out
+		}
+		let nMatch = len(withLabel(m, m.root, x.Label, []Id[E]{}))
+		let step = if x.RowHeight > Length(0.0) { x.RowHeight } else { Length(10.0) }
+		let nextOff = x.Offset + step
+		let vh = step * Length(4.0)
+		out.Append(Offer{Kind: ScrollOffer, Label: x.Label, Weight: 2, Act: ScrollOn{Label: x.Label, Offset: nextOff, Height: vh}, Keyboard: None, Locator: Some[Locator]{Value: WithRole{Role: List, Name: x.Label}}, Matches: nMatch})
+	case _:
+		out
+	}
+}
+
+func plainMods() Mods { Mods{Shift: false, Ctrl: false, Alt: false, Meta: false} }
+
+// Offers returns every actionable interaction the test host h offers right now:
+// enabled controls from the mirror's access tree, keys for the focused node or
+// active key handlers, GoBack when history depth is positive, and AdvanceBy
+// when timers or animations are pending.
+func Offers[S, E, D, F](h mut TestHost[S, E, D, F]) []Offer {
+	offersWithAdvance(h, 500ms)
+}
+
+func offersWithAdvance[S, E, D, F](h mut TestHost[S, E, D, F], adv duration) []Offer {
+	let mut out = OffersIn(&h.mirror)
+	match FocusOf(h) {
+	case Some[Id[E]] as fid:
+		match entryOf(&h.mirror, fid.Value) {
+		case Some[mirrored[E]] as e:
+			if !AccessOf(&h.mirror, fid.Value).Disabled {
+				match e.Value.node {
+				case InputNode, PressableNode[E], CheckNode[E], ToggleNode:
+					out = out.Append(Offer{Kind: KeyOffer, Label: "key:Enter", Weight: 1, Act: KeyIn{Press: KeyPress{Name: "Enter", Mods: plainMods()}}, Keyboard: None, Locator: None, Matches: 1})
+				case SemanticNode[E] as sx:
+					match sx.On {
+					case Some[E]:
+						out = out.Append(Offer{Kind: KeyOffer, Label: "key:Enter", Weight: 1, Act: KeyIn{Press: KeyPress{Name: "Enter", Mods: plainMods()}}, Keyboard: None, Locator: None, Matches: 1})
+					case None:
+					}
+				case _:
+				}
+			}
+		case None:
+		}
+	case None:
+	}
+	if h.session.frame.nkeys > 0 {
+		out = out.Append(Offer{Kind: KeyOffer, Label: "key:Tab", Weight: 1, Act: KeyIn{Press: KeyPress{Name: "Tab", Mods: plainMods()}}, Keyboard: None, Locator: None, Matches: 1})
+	}
+	if Depth(History(h)) > 0 {
+		out = out.Append(Offer{Kind: BackOffer, Label: "back", Weight: 3, Act: GoBack, Keyboard: None, Locator: None, Matches: 1})
+	}
+	if time.Sleepers(h.clock) > 0 || WantsFrames(h) {
+		let by = if WantsFrames(h) && time.Sleepers(h.clock) == 0 { h.period } else if adv > 0ns { adv } else { 500ms }
+		out = out.Append(Offer{Kind: TimeOffer, Label: "advance", Weight: 3, Act: AdvanceBy{By: by}, Keyboard: None, Locator: None, Matches: 1})
+	}
+	out
+}
+
+func focusIsValid[S, E, D, F](h mut TestHost[S, E, D, F]) bool {
+	match FocusOf(h) {
+	case None:
+		true
+	case Some[Id[E]] as fid:
+		if !holds(&h.mirror, fid.Value) {
+			return false
+		}
+		!AccessOf(&h.mirror, fid.Value).Disabled
+	}
+}
+
+func snapshotOf[S, E, D, F](h mut TestHost[S, E, D, F], adv duration) ExploreSnapshot[S, E] {
+	ExploreSnapshot[S, E]{
+		State:       StateOf(h),
+		Screen:      Screen(h),
+		Offers:      offersWithAdvance(h, adv),
+		Fetching:    Fetching(h),
+		WantsFrames: WantsFrames(h),
+		Focus:       FocusOf(h),
+		FocusValid:  focusIsValid(h),
+		Time:        Now(h),
+	}
+}
+
+func allOfferKinds() []OfferKind {
+	[]OfferKind{PressOffer, InputOffer, ScrollOffer, KeyOffer, BackOffer, TimeOffer}
+}
+
+func drawSwarmKinds() []OfferKind needs gen.Draws {
+	let mut out = []OfferKind{}
+	for k in allOfferKinds() {
+		if gen.Bool() {
+			out = out.Append(k)
+		}
+	}
+	out
+}
+
+func hasOfferKind(xs []OfferKind, k OfferKind) bool {
+	for x in xs {
+		if x == k {
+			return true
+		}
+	}
+	false
+}
+
+func offersOfKind(offers []Offer, k OfferKind) []Offer {
+	let mut out = []Offer{}
+	for o in offers {
+		if o.Kind == k {
+			out = out.Append(o)
+		}
+	}
+	out
+}
+
+func filterSwarm(offers []Offer, allowed []OfferKind) []Offer {
+	if len(offers) == 0 {
+		return offers
+	}
+	let mut out = []Offer{}
+	for o in offers {
+		if hasOfferKind(allowed, o.Kind) {
+			out = out.Append(o)
+		}
+	}
+	if len(out) == 0 {
+		return offersOfKind(offers, offers[0].Kind)
+	}
+	out
+}
+
+func drawInputText(kb Keyboard) string needs gen.Draws {
+	match kb {
+	case TextKeys:
+		gen.OneOf([]string{"", "a", "hello", "item-1", "long text value"})
+	case EmailKeys:
+		gen.OneOf([]string{"", "a@b.c", "user@example.com", "not-an-email"})
+	case NumberKeys:
+		gen.OneOf([]string{"", "0", "1", "42", "-1", "99999"})
+	case PhoneKeys:
+		gen.OneOf([]string{"", "555-0100", "+15550199"})
+	case URLKeys:
+		gen.OneOf([]string{"", "/", "/items", "https://example.com"})
+	case PasswordKeys:
+		gen.OneOf([]string{"", "x", "secret-123"})
+	}
+}
+
+func materializeOffer(o Offer) Act needs gen.Draws {
+	match o.Act {
+	case FillIn as x:
+		let kb = match o.Keyboard {
+		case Some[Keyboard] as k:
+			k.Value
+		case None:
+			TextKeys
+		}
+		let txt = drawInputText(kb)
+		FillIn{At: x.At, Text: txt}
+	case _:
+		o.Act
+	}
+}
+
+func recordPlayedAct(a Act) Act {
+	match a {
+	case FillIn as x:
+		FillIn{At: x.At, Text: x.Text}
+	case _:
+		a
+	}
+}
+
+func recordCoveredPair(seen []string, pair string) []string {
+	for existing in seen {
+		if existing == pair {
+			return seen
+		}
+	}
+	seen.Append(pair)
+}
+
+func containsPair(xs []string, pair string) bool {
+	for x in xs {
+		if x == pair {
+			return true
+		}
+	}
+	false
+}
+
+func offerWeight(o Offer, stateKey string, covered []string, weights Map[string, int]) int {
+	let mut w = match weights.Get(o.Label) {
+	case Some[int] as cw:
+		cw.Value
+	case None:
+		o.Weight
+	}
+	if w < 1 {
+		w = 1
+	}
+	let pair = pairKey(stateKey, actText(o.Act))
+	if !containsPair(covered, pair) {
+		w = w * 2
+	}
+	w
+}
+
+func pickWeightedOffer(offers []Offer, stateKey string, covered []string, weights Map[string, int]) Offer needs gen.Draws {
+	let mut total = 0
+	for o in offers {
+		total = total + offerWeight(o, stateKey, covered, weights)
+	}
+	let mut target = int(gen.Below(uint64(total)))
+	for o in offers {
+		let w = offerWeight(o, stateKey, covered, weights)
+		if target < w {
+			return o
+		}
+		target = target - w
+	}
+	offers[0]
+}
+
+func pairKey(stateKey string, actKey string) string {
+	stateKey + " -> " + actKey
+}
+
+func exploreEnd(exhausted bool) temporal.End {
+	if exhausted {
+		return temporal.Idle
+	}
+	temporal.Cut
+}
+
+func exploreStep[E comparable, S, D, F](h mut TestHost[S, E, D, F], act Act) fails NoNode | Ambiguous | Mismatch | actor.Stopped | BadPatch {
+	try Play(h, []Act{act})
+	try Settle(h)
+}
+
+func stepResiduals[S, E](rs []temporal.Residual[ExploreSnapshot[S, E]], snap ExploreSnapshot[S, E]) ([]temporal.Residual[ExploreSnapshot[S, E]], Option[string]) {
+	let mut next = []temporal.Residual[ExploreSnapshot[S, E]]{}
+	let mut violation Option[string] = None
+	for r in rs {
+		let r2 = temporal.Step[ExploreSnapshot[S, E]](r, snap, snap.Time)
+		next = next.Append(r2)
+		if violation == None && temporal.Decided[ExploreSnapshot[S, E]](r2) {
+			match temporal.Stop[ExploreSnapshot[S, E]](r2, temporal.Cut) {
+			case temporal.Violated as v:
+				violation = Some[string]{Value: temporal.FormatVerdict(v)}
+			case _:
+			}
+		}
+	}
+	(next, violation)
+}
+
+func stopResiduals[S, E](rs []temporal.Residual[ExploreSnapshot[S, E]], end temporal.End) Option[string] {
+	for r in rs {
+		match temporal.Stop[ExploreSnapshot[S, E]](r, end) {
+		case temporal.Violated as v:
+			return Some[string]{Value: temporal.FormatVerdict(v)}
+		case _:
+		}
+	}
+	None
+}
+
+func uncoveredOf(expected []string, covered []string) []string {
+	let mut out = []string{}
+	for p in expected {
+		if !containsPair(covered, p) {
+			out = out.Append(p)
+		}
+	}
+	out
+}
+
+// Explore runs an autonomous exploration walk on test host h using gen.Draws,
+// checking every temporal formula in props after each settled step. It stops
+// on the first violation (Found), at cfg.Steps (Clean with End Cut), or when
+// nothing is offered and nothing is pending (Clean with End Idle).
+func Explore[E comparable, S, D, F](h mut TestHost[S, E, D, F], props []temporal.Formula[ExploreSnapshot[S, E]], cfg ExploreConfig) Finding needs gen.Draws {
+	exploreRun(h, false, func(s S) string { "" }, []string{}, props, cfg)
+}
+
+// ExploreWith runs Explore with an explicit state key function and optional
+// expected (state, act) pair list for graph-guided weighting and uncovered
+// pair reporting in Clean.
+func ExploreWith[E comparable, S, D, F](h mut TestHost[S, E, D, F], stateKey func(s S) string, expectedPairs []string, props []temporal.Formula[ExploreSnapshot[S, E]], cfg ExploreConfig) Finding needs gen.Draws {
+	exploreRun(h, true, stateKey, expectedPairs, props, cfg)
+}
+
+func hostStateKey[S, E, D, F](h mut TestHost[S, E, D, F], useKey bool, stateKey func(s S) string) string {
+	if useKey {
+		return stateKey(StateOf(h))
+	}
+	Screenshot(h)
+}
+
+func exploreRun[E comparable, S, D, F](h mut TestHost[S, E, D, F], useKey bool, stateKey func(s S) string, expectedPairs []string, props []temporal.Formula[ExploreSnapshot[S, E]], cfg ExploreConfig) Finding needs gen.Draws {
+	let mut rs = []temporal.Residual[ExploreSnapshot[S, E]]{}
+	for p in props {
+		rs = rs.Append(temporal.Start[ExploreSnapshot[S, E]](p))
+	}
+	let allowed = if cfg.Swarm { drawSwarmKinds() } else { allOfferKinds() }
+	let mut script = []Act{}
+	let mut covered = []string{}
+	let initSnap = snapshotOf(h, cfg.AdvanceStep)
+	let (rs0, vio0) = stepResiduals[S, E](rs, initSnap)
+	rs = rs0
+	match vio0 {
+	case Some[string] as v:
+		return Found{Script: script, Step: 0, Violation: v.Value}
+	case None:
+	}
+	let mut steps = 0
+	let mut exhausted = false
+	for steps < cfg.Steps {
+		let rawOffers = offersWithAdvance(h, cfg.AdvanceStep)
+		if len(rawOffers) == 0 {
+			if Fetching(h) == 0 && !WantsFrames(h) && time.Sleepers(h.clock) == 0 {
+				exhausted = true
+			}
+			break
+		}
+		let candidates = if cfg.Swarm { filterSwarm(rawOffers, allowed) } else { rawOffers }
+		if len(candidates) == 0 {
+			break
+		}
+		let sk = hostStateKey(h, useKey, stateKey)
+		gen.Draws.Begin("step")
+		let chosen = pickWeightedOffer(candidates, sk, covered, cfg.Weights)
+		let act = materializeOffer(chosen)
+		gen.Draws.End()
+		let recorded = recordPlayedAct(act)
+		covered = recordCoveredPair(covered, pairKey(sk, actText(recorded)))
+		script = script.Append(recorded)
+		steps = steps + 1
+		exploreStep(h, act) catch {
+		case NoNode as x:
+			return Found{Script: script, Step: steps, Violation: "no node: \(x.Label)"}
+		case Ambiguous as x:
+			return Found{Script: script, Step: steps, Violation: "ambiguous locator \(x.At): matched \(x.Count) nodes"}
+		case Mismatch as x:
+			return Found{Script: script, Step: steps, Violation: "mismatch: want \(x.Want), got \(x.Got)"}
+		case actor.Stopped:
+			return Found{Script: script, Step: steps, Violation: "actor stopped unexpectedly"}
+		case BadPatch as x:
+			return Found{Script: script, Step: steps, Violation: "bad patch: \(x.Why)"}
+		}
+		let snap = snapshotOf(h, cfg.AdvanceStep)
+		let (rsNext, vio) = stepResiduals[S, E](rs, snap)
+		rs = rsNext
+		match vio {
+		case Some[string] as v:
+			return Found{Script: script, Step: steps, Violation: v.Value}
+		case None:
+		}
+	}
+	let end = exploreEnd(exhausted)
+	match stopResiduals[S, E](rs, end) {
+	case Some[string] as v:
+		return Found{Script: script, Step: steps, Violation: v.Value}
+	case None:
+	}
+	Clean{Steps: steps, Covered: len(covered), Pairs: covered, Uncovered: uncoveredOf(expectedPairs, covered), End: end}
+}
+
+// FormatSceneTest formats a Found exploration script as a paste-able Ergo test
+// block that replays script against hostExpr.
+func FormatSceneTest(name string, hostExpr string, script []Act, violation string) string {
+	let mut out = "test \(name) {\n\tlet mut h = \(hostExpr)\n\ttry ui.Play(&h, []ui.Act{\n"
+	for act in script {
+		out = out + "\t\t" + formatActLiteral(act) + ",\n"
+	}
+	out = out + "\t})\n\tlet _ = \"\(escapeErgoString(violation))\"\n}\n"
+	out
+}
+
+func escapeErgoString(s string) string {
+	let mut out = ""
+	for i in 0..len(s) {
+		let b = s[i]
+		if b == '\\' {
+			out = out + "\\\\"
+		} else if b == '"' {
+			out = out + "\\\""
+		} else if b == '\n' {
+			out = out + "\\n"
+		} else if b == '\t' {
+			out = out + "\\t"
+		} else {
+			out = out + s[i:i+1]
+		}
+	}
+	out
+}
+
+func formatRoleLiteral(r Role) string {
+	match r {
+	case Button:
+		"ui.Button"
+	case Checkbox:
+		"ui.Checkbox"
+	case Switch:
+		"ui.Switch"
+	case TextBox:
+		"ui.TextBox"
+	case Static:
+		"ui.Static"
+	case Group:
+		"ui.Group"
+	case Region:
+		"ui.Region"
+	case Image:
+		"ui.Image"
+	case List:
+		"ui.List"
+	case Status:
+		"ui.Status"
+	case Generic:
+		"ui.Generic"
+	case Tab:
+		"ui.Tab"
+	case TabList:
+		"ui.TabList"
+	case TabPanel:
+		"ui.TabPanel"
+	case Dialog:
+		"ui.Dialog"
+	case Menu:
+		"ui.Menu"
+	case MenuItem:
+		"ui.MenuItem"
+	case Tree:
+		"ui.Tree"
+	case TreeItem:
+		"ui.TreeItem"
+	case Heading:
+		"ui.Heading"
+	case Alert:
+		"ui.Alert"
+	case Link:
+		"ui.Link"
+	case Table:
+		"ui.Table"
+	case TableRow:
+		"ui.TableRow"
+	case TableCell:
+		"ui.TableCell"
+	case RadioGroup:
+		"ui.RadioGroup"
+	case Radio:
+		"ui.Radio"
+	case ListBox:
+		"ui.ListBox"
+	case ListOption:
+		"ui.ListOption"
+	case Slider:
+		"ui.Slider"
+	case SpinButton:
+		"ui.SpinButton"
+	case SearchBox:
+		"ui.SearchBox"
+	case MenuItemCheckbox:
+		"ui.MenuItemCheckbox"
+	case ComboBox:
+		"ui.ComboBox"
+	case Grid:
+		"ui.Grid"
+	case GridCell:
+		"ui.GridCell"
+	case ColumnHeader:
+		"ui.ColumnHeader"
+	case RowHeader:
+		"ui.RowHeader"
+	case Navigation:
+		"ui.Navigation"
+	case ListItem:
+		"ui.ListItem"
+	case Separator:
+		"ui.Separator"
+	case Tooltip:
+		"ui.Tooltip"
+	}
+}
+
+func formatLocatorLiteral(loc Locator) string {
+	match loc {
+	case WithRole as x:
+		"ui.WithRole{Role: \(formatRoleLiteral(x.Role)), Name: \"\(escapeErgoString(x.Name))\"}"
+	case WithLabel as x:
+		"ui.WithLabel{Label: \"\(escapeErgoString(x.Label))\"}"
+	case WithPlaceholder as x:
+		"ui.WithPlaceholder{Text: \"\(escapeErgoString(x.Text))\"}"
+	case WithText as x:
+		"ui.WithText{Text: \"\(escapeErgoString(x.Text))\"}"
+	case WithZone as x:
+		match x.Key {
+		case IntKey as k:
+			"ui.WithZone{Key: ui.ByInt(\(k.Value))}"
+		case TextKey as k:
+			"ui.WithZone{Key: ui.ByText(\"\(escapeErgoString(k.Value))\")}"
+		case NoKey:
+			"ui.WithZone{Key: ui.NoKey}"
+		}
+	case First as x:
+		"ui.First{At: \(formatLocatorLiteral(x.At))}"
+	case Within as x:
+		"ui.Within{In: \(formatLocatorLiteral(x.In)), At: \(formatLocatorLiteral(x.At))}"
+	}
+}
+
+func formatActLiteral(a Act) string {
+	match a {
+	case ClickOn as x:
+		"ui.ClickOn{At: \(formatLocatorLiteral(x.At))}"
+	case FillIn as x:
+		"ui.FillIn{At: \(formatLocatorLiteral(x.At)), Text: \"\(escapeErgoString(x.Text))\"}"
+	case ScrollOn as x:
+		"ui.ScrollOn{Label: \"\(escapeErgoString(x.Label))\", Offset: ui.Length(\(x.Offset)), Height: ui.Length(\(x.Height))}"
+	case KeyIn as x:
+		"ui.KeyIn{Press: ui.KeyPress{Name: \"\(escapeErgoString(x.Press.Name))\", Mods: ui.Mods{Shift: \(x.Press.Mods.Shift), Ctrl: \(x.Press.Mods.Ctrl), Alt: \(x.Press.Mods.Alt), Meta: \(x.Press.Mods.Meta)}}}"
+	case GoBack:
+		"ui.GoBack"
+	case AdvanceBy as x:
+		"ui.AdvanceBy{By: duration(\(int64(x.By)))}"
+	case NavigateTo as x:
+		"ui.NavigateTo{Href: \"\(escapeErgoString(x.Href))\"}"
+	case TapOn as x:
+		"ui.TapOn{Label: \"\(escapeErgoString(x.Label))\"}"
+	case TypeInto as x:
+		"ui.TypeInto{Label: \"\(escapeErgoString(x.Label))\", Text: \"\(escapeErgoString(x.Text))\"}"
+	case SettleAll:
+		"ui.SettleAll"
+	case ExpectOn as x:
+		"ui.ExpectOn{At: \(formatLocatorLiteral(x.At)), Is: ui.ToExist}"
+	case PointOn as x:
+		"ui.PointOn{Label: \"\(escapeErgoString(x.Label))\", Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: ui.Down, X: \(x.Pointer.X), Y: \(x.Pointer.Y), Zone: None}}"
+	}
+}
+
+func isActionableModelNode(x seen) bool {
+	if x.a.Disabled {
+		return false
+	}
+	match x.node {
+	case PressableNode[int], CheckNode[int], ToggleNode, InputNode:
+		true
+	case RowsNode as rn:
+		rn.Label != ""
+	case SemanticNode[int] as sn:
+		sn.On != None
+	case _:
+		false
+	}
+}
+
+func actResolvesOnce[E](m mut Mirror[E], a Act) bool {
+	match a {
+	case ClickOn as x:
+		len(LocateIn(m, x.At)) == 1
+	case FillIn as x:
+		len(LocateIn(m, x.At)) == 1
+	case ScrollOn as x:
+		len(withLabel(m, m.root, x.Label, []Id[E]{})) == 1
+	case _:
+		true
+	}
+}
+
+func offerTargetEnabled[E](m mut Mirror[E], a Act) bool {
+	match a {
+	case ClickOn as x:
+		let ids = LocateIn(m, x.At)
+		len(ids) == 1 && !AccessOf(m, ids[0]).Disabled
+	case FillIn as x:
+		let ids = LocateIn(m, x.At)
+		len(ids) == 1 && !AccessOf(m, ids[0]).Disabled
+	case ScrollOn as x:
+		let ids = withLabel(m, m.root, x.Label, []Id[E]{})
+		len(ids) == 1 && !AccessOf(m, ids[0]).Disabled
+	case _:
+		true
+	}
+}
+
+// OffersArePlayable: on the mirrors of generated programs (using the generator
+// of LocatorAgreesWithAccessTree with disabled Fieldsets), every enabled
+// actionable node produces an offer, no disabled node is offered, and every
+// offer resolves to exactly one enabled node without NoNode or Ambiguous.
+law OffersArePlayable(seed int) {
+	let mut r = seeded(seed)
+	let ps = genRoot(&r)
+	let mut f = NewFrame[int]()
+	let mut m = NewMirror[int](Root(&f))
+	for _ in 0..3 {
+		let s = genState(&r)
+		let ops = Render(&f, func(g mut Frame[int], st []int) {
+			for p in ps {
+				render(g, p, st, 0) catch {
+				case Missing:
+				case Pending:
+				}
+			}
+			extras(g, st[0])
+		}, s)
+		Apply(&m, ops) catch {
+		case BadPatch:
+			return false
+		}
+		let mut shapes = models(ps, s, 0)
+		for x in extraShapes(s[0]) {
+			shapes = shapes.Append(x)
+		}
+		let want = accessModel(shapes, false, "")
+		let mut wantCount = 0
+		for x in want {
+			if isActionableModelNode(x) {
+				wantCount = wantCount + 1
+			}
+		}
+		let offers = OffersIn(&m)
+		if len(offers) != wantCount {
+			return false
+		}
+		let mut checked = Map[string, bool]{}
+		for o in offers {
+			let key = actText(o.Act)
+			if checked.Get(key) != None {
+				continue
+			}
+			checked[key] = true
+			if !actResolvesOnce(&m, o.Act) {
+				return false
+			}
+			if o.Matches == 1 && !offerTargetEnabled(&m, o.Act) {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// SwarmNeverLeavesNone: for any non-empty list of offers and any drawn swarm
+// subset of offer kinds, filterSwarm keeps at least one offer from the list.
+law SwarmNeverLeavesNone(seed int) {
+	let mut r = seeded(seed)
+	let kinds = allOfferKinds()
+	let count = draw(&r, 6) + 1
+	let mut offers = []Offer{}
+	for i in 0..count {
+		let k = kinds[draw(&r, len(kinds))]
+		offers = offers.Append(Offer{Kind: k, Label: "o\(i)", Weight: 1, Act: GoBack, Keyboard: None, Locator: None, Matches: 1})
+	}
+	let mut allowed = []OfferKind{}
+	for k in kinds {
+		if draw(&r, 3) == 0 {
+			allowed = allowed.Append(k)
+		}
+	}
+	let filtered = filterSwarm(offers, allowed)
+	if len(filtered) == 0 {
+		return false
+	}
+	for fo in filtered {
+		let mut found = false
+		for orig in offers {
+			if orig.Label == fo.Label && orig.Kind == fo.Kind {
+				found = true
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	true
+}
+
+// CoveredPairsNeverOvercount: recording duplicate (state, act) pairs keeps each
+// distinct pair exactly once and never inflates the covered count.
+law CoveredPairsNeverOvercount(seed int) {
+	let mut r = seeded(seed)
+	let pool = []string{"s0 -> ClickOn \"a\"", "s0 -> ClickOn \"b\"", "s1 -> ClickOn \"a\"", "s1 -> GoBack"}
+	let mut seen = []string{}
+	let mut has0 = false
+	let mut has1 = false
+	let mut has2 = false
+	let mut has3 = false
+	for _ in 0..12 {
+		let idx = draw(&r, len(pool))
+		if idx == 0 { has0 = true }
+		if idx == 1 { has1 = true }
+		if idx == 2 { has2 = true }
+		if idx == 3 { has3 = true }
+		seen = recordCoveredPair(seen, pool[idx])
+	}
+	let mut distinct = 0
+	if has0 { distinct = distinct + 1 }
+	if has1 { distinct = distinct + 1 }
+	if has2 { distinct = distinct + 1 }
+	if has3 { distinct = distinct + 1 }
+	len(seen) == distinct
+}
+
+type noteState { text string, clicks int }
+
+type noteSignal = noteTyped{text string} | noteClick
+
+type noteClick {}
+
+func noteStep(s noteState, e noteSignal) Decision[noteState, int] {
+	match e {
+	case noteTyped as x:
+		Enter[noteState]{Next: noteState{text: x.text, clicks: s.clicks}}
+	case noteClick:
+		Enter[noteState]{Next: noteState{text: s.text, clicks: s.clicks + 1}}
+	}
+}
+
+func noteMachine() Machine[noteState, noteSignal, int] {
+	Machine[noteState, noteSignal, int]{
+		Initial: noteState{text: "", clicks: 0},
+		Step:    noteStep,
+		After:   func(s noteState) Option[Timeout[noteSignal]] { None },
+		Work:    func(s noteState) Option[func(send func(e noteSignal))] { None },
+		Exit:    func(s noteState) Option[func()] { None },
+	}
+}
+
+func noteView(f mut Frame[noteSignal], s noteState) {
+	Column(f, Plain()) {
+		Text(f, "clicks \(s.clicks)")
+		LabelledInput(f, FieldLabel{Text: "Note", Description: "", Invalid: false}, s.text, "note", func(t string) noteSignal { noteTyped{text: t} })
+		Pressable(f, "Count", noteClick) {
+			Text(f, "Count")
+		}
+	}
+}
+
+// FindingsReplay: every Found script produced by Explore replays on a fresh
+// TestHost to reproduce the same violation, including typed text in FillIn
+// steps, and FormatSceneTest renders a valid test block containing the script.
+law FindingsReplay() {
+	let mut foundText = false
+	let props = []temporal.Formula[ExploreSnapshot[noteState, noteSignal]]{
+		temporal.Always[ExploreSnapshot[noteState, noteSignal]](temporal.Named[ExploreSnapshot[noteState, noteSignal]]("note-empty", func(s ExploreSnapshot[noteState, noteSignal]) bool {
+			s.State.text == ""
+		})),
+	}
+	let mut replaysOK = true
+	for caseNum in 0..8 {
+		let m = time.NewManual(0)
+		with context { Scheduler: m } {
+			let a = actor.StartMachine(noteMachine(), 1, func(o int) {})
+			let mut h = NewTestHost(a, noteView, m, 4) catch {
+			case BadPatch:
+				return false
+			}
+			let mut finding Finding = Clean{Steps: 0, Covered: 0, Pairs: []string{}, Uncovered: []string{}, End: temporal.Cut}
+			let _ = gen.Replay(gen.Tape{Size: caseNum + 2, Draws: []uint64{uint64(caseNum % 2), uint64(1), uint64(caseNum % 2), uint64(2), uint64(0), uint64(1)}}, func() bool fails gen.Rejected needs gen.Draws {
+				finding = Explore(&h, props, ExploreConfig{Steps: 8, Swarm: false, AdvanceStep: 500ms, Weights: Map[string, int]{}})
+				true
+			})
+			match finding {
+			case Found as fd:
+				foundText = true
+				let m2 = time.NewManual(0)
+				with context { Scheduler: m2 } {
+					let a2 = actor.StartMachine(noteMachine(), 1, func(o int) {})
+					let mut h2 = NewTestHost(a2, noteView, m2, 4) catch {
+					case BadPatch:
+						replaysOK = false
+						return false
+					}
+					Play(&h2, fd.Script) catch {
+					case _:
+						replaysOK = false
+						return false
+					}
+					Settle(&h2) catch {
+					case _:
+						replaysOK = false
+						return false
+					}
+					if StateOf(&h2).text == "" {
+						replaysOK = false
+					}
+					let rendered = FormatSceneTest("ReplayNote", "runNoteHost(m)", fd.Script, fd.Violation)
+					if !strings.Contains(rendered, "test ReplayNote") || !strings.Contains(rendered, "ui.FillIn") {
+						replaysOK = false
+					}
+				}
+			case Clean:
+			}
+		}
+	}
+	foundText && replaysOK
+}
+
+type settleState { loading bool, done bool }
+
+func settleStep(s settleState, e int) Decision[settleState, int] {
+	if e == 1 {
+		return Enter[settleState]{Next: settleState{loading: true, done: false}}
+	}
+	Enter[settleState]{Next: settleState{loading: false, done: true}}
+}
+
+func settleWork(s settleState) Option[func(send func(e int))] {
+	if !s.loading {
+		return None
+	}
+	Some{Value: func(send func(e int)) {
+		let mut x = 1
+		for i in 0..2000000 {
+			x = (x*31 + i) % 1000003
+		}
+		if x >= 0 {
+			send(2)
+		}
+	}}
+}
+
+func settleMachine() Machine[settleState, int, int] {
+	Machine[settleState, int, int]{
+		Initial: settleState{loading: false, done: false},
+		Step:    settleStep,
+		After:   func(s settleState) Option[Timeout[int]] { None },
+		Work:    settleWork,
+		Exit:    func(s settleState) Option[func()] { None },
+	}
+}
+
+func settleView(f mut Frame[int], s settleState) {
+	Column(f, Plain()) {
+		Text(f, if s.loading { "loading" } else if s.done { "done" } else { "idle" })
+		if !s.done {
+			Pressable(f, "Load", 1) {
+				Text(f, "Load")
+			}
+		}
+	}
+}
+
+// ExploreSettlesBeforeChecking: Explore settles pending work after each act
+// before snapshotting state and stepping temporal properties.
+law ExploreSettlesBeforeChecking() {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let a = actor.StartMachine(settleMachine(), 1, func(o int) {})
+		let mut h = NewTestHost(a, settleView, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		let props = []temporal.Formula[ExploreSnapshot[settleState, int]]{
+			temporal.Always[ExploreSnapshot[settleState, int]](temporal.Named[ExploreSnapshot[settleState, int]]("never-observes-loading", func(s ExploreSnapshot[settleState, int]) bool {
+				!s.State.loading
+			})),
+		}
+		let mut finding Finding = Found{Script: []Act{}, Step: 0, Violation: "not run"}
+		let _ = gen.Replay(gen.Tape{Size: 2, Draws: []uint64{uint64(0)}}, func() bool fails gen.Rejected needs gen.Draws {
+			finding = Explore(&h, props, ExploreConfig{Steps: 5, Swarm: false, AdvanceStep: 500ms, Weights: Map[string, int]{}})
+			true
+		})
+		match finding {
+		case Clean as c:
+			c.Steps == 1 && StateOf(&h).done && !StateOf(&h).loading
+		case Found:
+			false
+		}
+	}
+}
+
+type termState { finished bool }
+
+func termStep(s termState, e int) Decision[termState, int] {
+	Enter[termState]{Next: termState{finished: true}}
+}
+
+func termMachine() Machine[termState, int, int] {
+	Machine[termState, int, int]{
+		Initial: termState{finished: false},
+		Step:    termStep,
+		After:   func(s termState) Option[Timeout[int]] { None },
+		Work:    func(s termState) Option[func(send func(e int))] { None },
+		Exit:    func(s termState) Option[func()] { None },
+	}
+}
+
+func termView(f mut Frame[int], s termState) {
+	Column(f, Plain()) {
+		Text(f, if s.finished { "finished" } else { "open" })
+		if !s.finished {
+			Pressable(f, "Finish", 1) {
+				Text(f, "Finish")
+			}
+		}
+	}
+}
+
+// ExploreEndsIdleWhenExhausted: when no offers remain and nothing is pending,
+// Explore closes with temporal.Idle so unmet Eventually formulas report Found
+// rather than Clean with Cut.
+law ExploreEndsIdleWhenExhausted() {
+	let m1 = time.NewManual(0)
+	let mut cleanIdle = false
+	with context { Scheduler: m1 } {
+		let a1 = actor.StartMachine(termMachine(), 1, func(o int) {})
+		let mut h1 = NewTestHost(a1, termView, m1, 4) catch {
+		case BadPatch:
+			return false
+		}
+		let mut f1 Finding = Found{Script: []Act{}, Step: 0, Violation: "not run"}
+		let _ = gen.Replay(gen.Tape{Size: 2, Draws: []uint64{uint64(0)}}, func() bool fails gen.Rejected needs gen.Draws {
+			f1 = Explore(&h1, Defaults[termState, int](), ExploreConfig{Steps: 5, Swarm: false, AdvanceStep: 500ms, Weights: Map[string, int]{}})
+			true
+		})
+		match f1 {
+		case Clean as c:
+			cleanIdle = c.End == temporal.Idle && c.Steps == 1
+		case Found:
+			cleanIdle = false
+		}
+	}
+	let m2 = time.NewManual(0)
+	let mut unmetFound = false
+	with context { Scheduler: m2 } {
+		let a2 = actor.StartMachine(termMachine(), 1, func(o int) {})
+		let mut h2 = NewTestHost(a2, termView, m2, 4) catch {
+		case BadPatch:
+			return false
+		}
+		let props2 = []temporal.Formula[ExploreSnapshot[termState, int]]{
+			temporal.Eventually[ExploreSnapshot[termState, int]](temporal.Named[ExploreSnapshot[termState, int]]("never-true", func(s ExploreSnapshot[termState, int]) bool {
+				false
+			})),
+		}
+		let mut f2 Finding = Clean{Steps: 0, Covered: 0, Pairs: []string{}, Uncovered: []string{}, End: temporal.Cut}
+		let _ = gen.Replay(gen.Tape{Size: 2, Draws: []uint64{uint64(0)}}, func() bool fails gen.Rejected needs gen.Draws {
+			f2 = Explore(&h2, props2, ExploreConfig{Steps: 5, Swarm: false, AdvanceStep: 500ms, Weights: Map[string, int]{}})
+			true
+		})
+		match f2 {
+		case Found:
+			unmetFound = true
+		case Clean:
+			unmetFound = false
+		}
+	}
+	cleanIdle && unmetFound
+}
