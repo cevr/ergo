@@ -133,6 +133,9 @@ var (
 	goPackageHelpers = map[string]bool{
 		"ready": true, "statusError": true, "sliceData": true, "toABI": true, "fromABI": true,
 		"loadMu": true, "loaded": true, "symbols": true,
+		// Word-direct SyscallN fast path (emitgo.go).
+		"wordBuf": true, "wordPool": true, "symAddrs": true, "forceRegisterFunc": true,
+		"cCall0": true, "cCall": true, "boolWord": true,
 		// The callbacks (emitgo.go, callbacks): the registry, its lock and
 		// helpers, the token counter and the trampolines' C pointers.
 		"cbMu": true, "cbNext": true, "cbPtr": true, "cbFuncs": true, "cbEntry": true, "cbMake": true, "cbNew": true,
@@ -149,9 +152,9 @@ var (
 		"LiveCallbacks", "CallbackSlotsError", "CallbackPanic", "Owner", "NewOwner", "ErrOwnerClosed", "ErrOwnerThread",
 		"ErrWrongThread", "ErrKeyInUse"}
 	// goLocals are the locals of a typed function's body (_p, the pending
-	// panic) and of a trampoline (_e, the registry entry; _ok, the Go
-	// function returned).
-	goLocals = map[string]bool{"err": true, "_r": true, "_e": true, "_p": true, "_ok": true, "_t": true}
+	// panic; _pin, the runtime.Pinner; _buf, the pooled wordBuf) and of a
+	// trampoline (_e, the registry entry; _ok, the Go function returned).
+	goLocals = map[string]bool{"err": true, "_r": true, "_e": true, "_p": true, "_ok": true, "_t": true, "_pin": true, "_buf": true}
 	// goMethods are the methods the emitter gives a struct of the header.
 	goMethods = map[string]bool{"fill": true, "record": true}
 	// goPredeclared are Go's predeclared identifiers.
@@ -192,7 +195,7 @@ func isGoLocal(n string) bool {
 	if goLocals[n] {
 		return true
 	}
-	for _, p := range []string{"_o", "_i", "_c", "_k", "_s", "_h", "_a", "_v"} {
+	for _, p := range []string{"_o", "_i", "_c", "_k", "_s", "_h", "_a", "_v", "_u", "_out"} {
 		if hasNumber(n, p) {
 			return true
 		}
