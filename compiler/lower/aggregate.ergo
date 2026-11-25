@@ -196,8 +196,6 @@ func sliceIndex(st fnb, x dense.ID[syntax.Node], ie syntax.IndexExpr) dense.ID[s
 	syntax.Item(st.p.Tree, ie.Indices, 0)
 }
 
-// bareEmptyRecord returns the Go type spelling when x names an admitted
-// zero-field record declaration directly (T or pkg.T), never a local value.
 func bareEmptyRecord(st fnb, x dense.ID[syntax.Node]) string {
 	let t = typeOf(st, x, "bare record") catch {
 	case Unported:
