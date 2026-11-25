@@ -284,6 +284,7 @@ explore KeyIsEquality	TestStdExploreLawsRun
 explore LimitNeverConforms	TestStdExploreLawsRun
 explore ProjectionsConform	TestStdExploreLawsRun
 explore TraceErrorsNameTheLine	TestStdExploreLawsRun
+explore WalksAgreeWithReference	TestStdExploreLawsRun
 filepath AbsFromIsAbsolute	TestStdLawsRun
 filepath MatchItself	TestStdLawsRun
 filepath BaseHasNoSeparator	none

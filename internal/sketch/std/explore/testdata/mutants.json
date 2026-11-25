@@ -30,6 +30,16 @@
       "to": "\t\t\tcase Reject:\n\t\t\t\tContinue[S, MachineObs[O]]{Next: s, Obs: MachineObs[O]{Kind: DisIgnore, Output: None}}",
       "rule": "ConcreteOf preserves Reject distinct from Ignore even though both keep the state unchanged.",
       "killers": ["internal/sketch/std/explore:law:EdgesKeepIdentity"]
+    },
+    {
+      "name": "paths-keeps-first-parent-only",
+      "origin": "wf10 MODEL-BASED-PATH-TESTS P2",
+      "file": "internal/sketch/std/explore/paths.ergo",
+      "decl": "materializePathCase",
+      "from": "\tfor e in prefix {\n\t\tedges = edges.Append(e)\n\t\tsigs = sigs.Append(plan.Graph.Edges[e].Signal)\n\t}",
+      "to": "\tlet base = ShortestPrefix(plan.Graph, plan.Graph.Edges[lastEdge].Source)\n\tfor e in base.Edges {\n\t\tedges = edges.Append(e)\n\t\tsigs = sigs.Append(plan.Graph.Edges[e].Signal)\n\t}",
+      "rule": "Full bounded path enumeration preserves every distinct legal history and repeat loop rather than replacing prefixes with each node's shortest predecessor.",
+      "killers": ["internal/sketch/std/explore:law:WalksAgreeWithReference"]
     }
   ]
 }
