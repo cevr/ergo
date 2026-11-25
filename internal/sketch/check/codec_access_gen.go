@@ -634,6 +634,14 @@ func CodecFieldsOf_SelfType(v *SelfType) CodecFields_SelfType {
 	return CodecFields_SelfType{F_owner: &v.owner, F_source: &v.source}
 }
 
+type CodecFields_StdOverlay struct {
+	F_imp **stdImporter
+}
+
+func CodecFieldsOf_StdOverlay(v *StdOverlay) CodecFields_StdOverlay {
+	return CodecFields_StdOverlay{F_imp: &v.imp}
+}
+
 type CodecFields_Struct struct {
 	F_includes  *[]*include
 	F_expanding *bool
@@ -2365,6 +2373,7 @@ func CodecFieldsOf_refWalker(v *refWalker) CodecFields_refWalker {
 type CodecFields_refiner struct {
 	F_c       **checker
 	F_subject *string
+	F_typ     *Type
 	F_isLen   *bool
 	F_dom     *Span
 	F_shown   *string
@@ -2372,7 +2381,7 @@ type CodecFields_refiner struct {
 }
 
 func CodecFieldsOf_refiner(v *refiner) CodecFields_refiner {
-	return CodecFields_refiner{F_c: &v.c, F_subject: &v.subject, F_isLen: &v.isLen, F_dom: &v.dom, F_shown: &v.shown, F_allowed: &v.allowed}
+	return CodecFields_refiner{F_c: &v.c, F_subject: &v.subject, F_typ: &v.typ, F_isLen: &v.isLen, F_dom: &v.dom, F_shown: &v.shown, F_allowed: &v.allowed}
 }
 
 type CodecFields_relCap struct {
@@ -2547,16 +2556,17 @@ func CodecFieldsOf_stdEntry(v *stdEntry) CodecFields_stdEntry {
 }
 
 type CodecFields_stdImporter struct {
-	F_entries *map[string]*stdEntry
-	F_work    *Work
-	F_snap    *SnapshotSource
-	F_order   *[]string
-	F_ready   *map[string]bool
-	F_noCount *int
+	F_entries  *map[string]*stdEntry
+	F_work     *Work
+	F_snap     *SnapshotSource
+	F_order    *[]string
+	F_ready    *map[string]bool
+	F_noCount  *int
+	F_affected *map[string]bool
 }
 
 func CodecFieldsOf_stdImporter(v *stdImporter) CodecFields_stdImporter {
-	return CodecFields_stdImporter{F_entries: &v.entries, F_work: &v.work, F_snap: &v.snap, F_order: &v.order, F_ready: &v.ready, F_noCount: &v.noCount}
+	return CodecFields_stdImporter{F_entries: &v.entries, F_work: &v.work, F_snap: &v.snap, F_order: &v.order, F_ready: &v.ready, F_noCount: &v.noCount, F_affected: &v.affected}
 }
 
 type CodecFields_switchGroup struct {

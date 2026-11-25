@@ -284,12 +284,16 @@ case examples/mdhtml/workload
 case examples/metrics/alert
 case examples/metrics/cmd/metrics
 case examples/metrics/series
+case examples/model-paths/actor
+case examples/model-paths/durable
 case examples/model-paths/probe
 case examples/model-paths/probe/disk
+case examples/model-paths/probe/evidence
 case examples/model-paths/probe/ownedreturn
 case examples/model-paths/probe/relay
 case examples/model-paths/probe/replay
 case examples/model-paths/probe/session
+case examples/model-paths/probe/userland
 case examples/pager/cmd/pager
 case examples/pager/screen
 case examples/pairing/cmd/pairing
@@ -861,6 +865,7 @@ case internal/selfhostcheck/testdata/agree/func-claim/wrong-row
 case internal/selfhostcheck/testdata/agree/func-claim/wrong-signature
 case internal/selfhostcheck/testdata/agree/imported-resource/cmd
 case internal/selfhostcheck/testdata/agree/imported-resource/res
+case internal/selfhostcheck/testdata/agree/len-method
 case internal/selfhostcheck/testdata/agree/provider-empty-row
 case internal/selfhostcheck/testdata/agree/provider-empty-row/refused
 case internal/selfhostcheck/testdata/agree/self-imports/bad
@@ -1218,6 +1223,9 @@ case unused examples/markup/render/render.ergo
 case unused examples/mdhtml/html/node.ergo
 case unused examples/metrics/alert/limiter.ergo
 case unused examples/metrics/series/sample.ergo
+case unused examples/model-paths/actor/actor.ergo
+case unused examples/model-paths/durable/durable.ergo
+case unused examples/model-paths/probe/evidence/evidence.ergo
 case unused examples/model-paths/probe/ownedreturn/return.ergo
 case unused examples/model-paths/probe/replay/replay.ergo
 case unused examples/model-paths/probe/session/session.ergo
