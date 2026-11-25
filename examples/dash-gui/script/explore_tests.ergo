@@ -1,0 +1,81 @@
+import actor
+import ergo.local/prototype/examples/dashgui/feed
+import ergo.local/prototype/examples/dashgui/screen
+import ergo.local/prototype/examples/dashgui/synth
+import gen
+import machines
+import queue
+import temporal
+import time
+import ui
+
+func exploreProperties() []temporal.Formula[ui.ExploreSnapshot[screen.Dash, screen.Signal]] {
+	let mut props = []temporal.Formula[ui.ExploreSnapshot[screen.Dash, screen.Signal]]{}
+	let base = ui.DefaultsWith[screen.Dash, screen.Signal](2s)
+	for i in 0..3 {
+		if i < len(base) {
+			props = props.Append(base[i])
+		}
+	}
+	props = props.Append(temporal.Always[ui.ExploreSnapshot[screen.Dash, screen.Signal]](
+		temporal.Named[ui.ExploreSnapshot[screen.Dash, screen.Signal]]("panel-counts-aligned", func(s ui.ExploreSnapshot[screen.Dash, screen.Signal]) bool {
+			let b = s.State.Board
+			b.Frame >= 0 && len(b.Panels) > 0 && len(b.Panels) == len(b.Policies) && len(b.Panels) == len(b.Dropped)
+		}),
+	))
+	props = props.Append(temporal.Always[ui.ExploreSnapshot[screen.Dash, screen.Signal]](
+		temporal.Named[ui.ExploreSnapshot[screen.Dash, screen.Signal]]("drops-non-negative", func(s ui.ExploreSnapshot[screen.Dash, screen.Signal]) bool {
+			for d in s.State.Board.Dropped {
+				if d < 0 {
+					return false
+				}
+			}
+			true
+		}),
+	))
+	props
+}
+
+func exploreOnce(steps int) ui.Finding needs gen.Draws {
+	let clock = time.NewManual(0)
+	let bank = synth.Bank{Seed: 1}
+	with context { Scheduler: clock, feed.Sensors: bank } {
+		let a = actor.StartMachine(machines.Start(screen.App{}, feed.NewBoard()), 8, func(_ []feed.Notice) {})
+		let mut h = ui.NewTestHost(a, screen.View, clock, 4) catch {
+		case ui.BadPatch as bp:
+			a.Stop() catch {
+			case queue.Closed:
+			}
+			return ui.Found{Script: []ui.Act{}, Step: 0, Violation: bp.Why}
+		}
+		ui.FrameEvery(&h, Period)
+		let res = ui.Explore(&h, exploreProperties(), ui.ExploreConfig{Steps: steps, Swarm: false, AdvanceStep: Period, Weights: Map[string, int]{}})
+		a.Stop() catch {
+		case queue.Closed:
+		}
+		res
+	}
+}
+
+// Explored holds that autonomous exploration over seeds 1 to 3 finds no
+// offer, focus, load, or dashboard state violation on dash-gui.
+law Explored() {
+	let mut allClean = true
+	for seed in 1..4 {
+		let cfg = gen.Config{Seed: uint64(seed), Cases: 8, Shrinks: 50, MaxDraws: 4096, MaxRejected: 100}
+		let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+			match exploreOnce(16) {
+			case ui.Clean:
+				true
+			case ui.Found:
+				false
+			}
+		})
+		match outcome {
+		case gen.Held:
+		case _:
+			allClean = false
+		}
+	}
+	allClean
+}

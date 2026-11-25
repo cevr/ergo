@@ -1,0 +1,72 @@
+import actor
+import canvasscenes/app
+import canvasscenes/screen
+import gen
+import machines
+import temporal
+import time
+import ui
+
+func exploreProperties() []temporal.Formula[ui.ExploreSnapshot[app.Program, app.Signal]] {
+	let mut props = []temporal.Formula[ui.ExploreSnapshot[app.Program, app.Signal]]{}
+	let base = ui.DefaultsWith[app.Program, app.Signal](2s)
+	for i in 0..3 {
+		if i < len(base) {
+			props = props.Append(base[i])
+		}
+	}
+	props = props.Append(temporal.Always[ui.ExploreSnapshot[app.Program, app.Signal]](
+		temporal.Named[ui.ExploreSnapshot[app.Program, app.Signal]]("paused-clears-last-frame", func(s ui.ExploreSnapshot[app.Program, app.Signal]) bool {
+			let lastOK = if app.Running(s.State.Scene) {
+				true
+			} else {
+				match s.State.Last {
+				case None:
+					true
+				case Some[float64]:
+					false
+				}
+			}
+			lastOK && len(s.Offers) > 0
+		}),
+	))
+	props
+}
+
+func exploreOnce(steps int) ui.Finding needs gen.Draws {
+	let clock = time.NewManual(0)
+	with context { Scheduler: clock } {
+		let site = actor.StartMachine(machines.Start(app.Shown{}, uint64(7)), 16, func(_ Never) {})
+		let mut h = ui.NewTestHost(site, screen.Screen, clock, 16) catch {
+		case ui.BadPatch as bp:
+			site.Stop()
+			return ui.Found{Script: []ui.Act{}, Step: 0, Violation: bp.Why}
+		}
+		let res = ui.Explore(&h, exploreProperties(), ui.ExploreConfig{Steps: steps, Swarm: false, AdvanceStep: 50ms, Weights: Map[string, int]{}})
+		site.Stop()
+		res
+	}
+}
+
+// Explored holds that autonomous exploration over seeds 1 to 3 finds no
+// offer, focus, load, or animation-frame invariant violation on canvas-scenes.
+law Explored() {
+	let mut allClean = true
+	for seed in 1..4 {
+		let cfg = gen.Config{Seed: uint64(seed), Cases: 8, Shrinks: 50, MaxDraws: 4096, MaxRejected: 100}
+		let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+			match exploreOnce(16) {
+			case ui.Clean:
+				true
+			case ui.Found:
+				false
+			}
+		})
+		match outcome {
+		case gen.Held:
+		case _:
+			allClean = false
+		}
+	}
+	allClean
+}

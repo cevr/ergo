@@ -1,0 +1,103 @@
+import actor
+import gallery/gallery
+import gallery/memory
+import gallery/screen
+import gen
+import sync
+import temporal
+import time
+import ui
+
+func exploreProperties() []temporal.Formula[ui.ExploreSnapshot[gallery.Site, gallery.Signal]] {
+	let mut props = ui.DefaultsWith[gallery.Site, gallery.Signal](2s)
+	props = props.Append(temporal.Always[ui.ExploreSnapshot[gallery.Site, gallery.Signal]](
+		temporal.Named[ui.ExploreSnapshot[gallery.Site, gallery.Signal]]("log-within-limit", func(s ui.ExploreSnapshot[gallery.Site, gallery.Signal]) bool {
+			len(s.State.Log) <= gallery.LogSize && s.State.Asked >= len(s.State.Jobs)
+		}),
+	))
+	props = props.Append(temporal.Always[ui.ExploreSnapshot[gallery.Site, gallery.Signal]](
+		temporal.Named[ui.ExploreSnapshot[gallery.Site, gallery.Signal]]("route-initialized", func(s ui.ExploreSnapshot[gallery.Site, gallery.Signal]) bool {
+			match s.State.Route {
+			case Some[gallery.Route]:
+				true
+			case None:
+				false
+			}
+		}),
+	))
+	props
+}
+
+func exploreOnce(steps int) ui.Finding needs gen.Draws {
+	let clock = time.NewManual(0)
+	let drafts = memory.NewDrafts()
+	let histRef = sync.NewRef[Option[ui.MemoryHistory]](None)
+	with context { Scheduler: clock, time.Clock: clock, gallery.Drafts: drafts } {
+		let site = actor.StartMachine(gallery.Gallerist{}, 16, func(actions []gallery.Action) {
+			match histRef.Get() {
+			case Some[ui.MemoryHistory] as loc:
+				for a in actions {
+					match a {
+					case gallery.Push as p:
+						ui.Push(loc.Value, ui.ParseURL(p.URL))
+					case gallery.Leave:
+					}
+				}
+			case None:
+			}
+		})
+		let mut h = ui.NewTestHost(site, screen.Screen, clock, 16) catch {
+		case ui.BadPatch as bp:
+			site.Stop()
+			return ui.Found{Script: []ui.Act{}, Step: 0, Violation: bp.Why}
+		}
+		ui.Navigate(&h, "/") catch {
+		case ui.BadPatch as bp:
+			site.Stop()
+			return ui.Found{Script: []ui.Act{}, Step: 0, Violation: bp.Why}
+		case actor.Stopped:
+			site.Stop()
+			return ui.Found{Script: []ui.Act{}, Step: 0, Violation: "actor stopped during initial navigate"}
+		}
+		ui.Settle(&h) catch {
+		case ui.BadPatch as bp:
+			site.Stop()
+			return ui.Found{Script: []ui.Act{}, Step: 0, Violation: bp.Why}
+		case actor.Stopped:
+			site.Stop()
+			return ui.Found{Script: []ui.Act{}, Step: 0, Violation: "actor stopped during settle"}
+		}
+		histRef.Set(Some[ui.MemoryHistory]{Value: ui.History(&h)})
+		let res = ui.Explore(&h, exploreProperties(), ui.ExploreConfig{Steps: steps, Swarm: false, AdvanceStep: 500ms, Weights: Map[string, int]{}})
+		site.Stop()
+		res
+	}
+}
+
+// Explored holds that autonomous exploration over seeds 1 to 3 finds no
+// default or gallery navigation/draft invariant violation on gallery.
+law Explored() {
+	let firstErr = sync.NewRef("")
+	let mut allClean = true
+	for seed in 1..4 {
+		let cfg = gen.Config{Seed: uint64(seed), Cases: 10, Shrinks: 50, MaxDraws: 4096, MaxRejected: 100}
+		let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+			match exploreOnce(20) {
+			case ui.Clean:
+				true
+			case ui.Found as found:
+				if firstErr.Get() == "" {
+					firstErr.Set(found.Violation)
+				}
+				false
+			}
+		})
+		match outcome {
+		case gen.Held:
+		case _:
+			allClean = false
+		}
+	}
+	assert firstErr.Get() == ""
+	allClean
+}

@@ -1,0 +1,446 @@
+import explore
+import github.com/cevr/ergo/modules/board/board
+import sync
+import testing
+
+type bsCmd = bsPostAlpha{} | bsStaleCommit{} | bsDeleteFirst{} | bsReopen{}
+
+type bsState {
+	Ops []bsCmd,
+}
+
+type bsObs {
+	Head       int,
+	AlphaHits  int,
+	ActiveMsg1 bool,
+}
+
+type bsReply =
+	| bsCommitted{Head int}
+	| bsStale{Expected int, Actual int}
+	| bsRefused{Kind string}
+	| bsReopened{Head int}
+
+type BoardSqlOpenErr { Why string }
+
+type BoardSqlDriveErr { Why string }
+
+func bsAdminCaller() board.Caller {
+	board.Caller{
+		Principal:       "google:admin",
+		Profile:         "",
+		Role:            board.Admin,
+		Kind:            board.Person,
+		Email:           "admin@example.com",
+		Narrowed:        false,
+		NarrowedCan:     Map[string, []board.Permission]{},
+		NarrowedProfile: "",
+		NarrowedBoards:  []string{},
+	}
+}
+
+func bsAlphaQuery() board.SearchQuery {
+	board.SearchQuery{Board: board.DefaultBoard, Channel: "dev", Query: "alpha", Caller: bsAdminCaller(), Limit: 20}
+}
+
+func bsCmdToBoard(cmd bsCmd, step int) board.Command {
+	match cmd {
+	case bsPostAlpha:
+		board.PostMessage{
+			Caller:         bsAdminCaller(),
+			Board:          board.DefaultBoard,
+			Channel:        "dev",
+			Text:           "alpha roadmap \(step)",
+			Labels:         Map[string, string]{},
+			NoSync:         false,
+			From:           "",
+			IdempotencyKey: "",
+		}
+	case bsStaleCommit, bsReopen:
+		board.PostMessage{
+			Caller:         bsAdminCaller(),
+			Board:          board.DefaultBoard,
+			Channel:        "dev",
+			Text:           "stale attempt \(step)",
+			Labels:         Map[string, string]{},
+			NoSync:         false,
+			From:           "",
+			IdempotencyKey: "",
+		}
+	case bsDeleteFirst:
+		board.DeleteMessage{
+			Caller:     bsAdminCaller(),
+			Board:      board.DefaultBoard,
+			ID:         "msg_1",
+			IfRevision: 0,
+		}
+	}
+}
+
+func bsCountSearch(st board.State, q board.SearchQuery) int {
+	let gs = match st.Grants.Get(board.DefaultBoard) {
+	case Some[[]board.Grant] as xs:
+		xs.Value
+	case None:
+		[]board.Grant{}
+	}
+	let mut n = 0
+	for _, m in st.Messages {
+		if board.MatchesSearchQuery(gs, m, q) {
+			n = n + 1
+		}
+	}
+	n
+}
+
+func bsMsg1Active(st board.State) bool {
+	match st.Messages.Get("msg_1") {
+	case Some[board.Message] as m:
+		!m.Value.Deleted
+	case None:
+		false
+	}
+}
+
+func bsApplyModel(st board.State, head int, cmd bsCmd, step int) (board.State, int, bsReply) {
+	let now = board.Timestamp(1000 + step*10)
+	match cmd {
+	case bsStaleCommit:
+		(st, head, bsStale{Expected: head + 3, Actual: head})
+	case bsReopen:
+		(st, head, bsReopened{Head: head})
+	case bsPostAlpha, bsDeleteFirst:
+		let evts = board.Decide(st, bsCmdToBoard(cmd, step), now) catch {
+		case board.NotFound:
+			return (st, head, bsRefused{Kind: "not_found"})
+		case _:
+			return (st, head, bsRefused{Kind: "refused"})
+		}
+		let mut nextSt = st
+		let mut nextHead = head
+		for e in evts {
+			nextHead = nextHead + 1
+			let stamped = board.Event{..e, Seq: nextHead, Board: board.DefaultBoard}
+			nextSt = board.Apply(nextSt, stamped)
+		}
+		(nextSt, nextHead, bsCommitted{Head: nextHead})
+	}
+}
+
+func bsFold(ops []bsCmd) (board.State, int) {
+	let mut st = board.InitialState([]board.Principal{defaultAdmin()}, 0)
+	let mut head = 0
+	for i, op in ops {
+		let (ns, nh, _) = bsApplyModel(st, head, op, i+1)
+		st = ns
+		head = nh
+	}
+	(st, head)
+}
+
+func bsObsOf(st board.State, head int) bsObs {
+	bsObs{
+		Head:       head,
+		AlphaHits:  bsCountSearch(st, bsAlphaQuery()),
+		ActiveMsg1: bsMsg1Active(st),
+	}
+}
+
+func bsModel() explore.PathModel[bsState, bsCmd, bsObs, bsReply, Never] {
+	explore.PathModel[bsState, bsCmd, bsObs, bsReply, Never]{
+		Graph: explore.ConcreteGraph[bsState, bsCmd, explore.StepObs[bsObs, bsReply, Never]]{
+			Starts:  []bsState{bsState{Ops: []bsCmd{}}},
+			Signals: []bsCmd{bsPostAlpha, bsStaleCommit, bsDeleteFirst, bsReopen},
+			Step:    func(s bsState, cmd bsCmd) explore.EdgeOutcome[bsState, explore.StepObs[bsObs, bsReply, Never]] {
+				let (curSt, curHead) = bsFold(s.Ops)
+				let step = len(s.Ops) + 1
+				let (nextSt, nextHead, reply) = bsApplyModel(curSt, curHead, cmd, step)
+				let nextOps = match reply {
+				case bsCommitted:
+					s.Ops.Append(cmd)
+				case bsStale, bsRefused, bsReopened:
+					s.Ops
+				}
+				let kind = match reply {
+				case bsCommitted, bsReopened:
+					explore.DisEmit
+				case bsStale, bsRefused:
+					explore.DisReject
+				}
+				explore.Continue[bsState, explore.StepObs[bsObs, bsReply, Never]]{
+					Next: bsState{Ops: nextOps},
+					Obs:  explore.StepObs[bsObs, bsReply, Never]{
+						Kind:     kind,
+						State:    Some[bsObs]{Value: bsObsOf(nextSt, nextHead)},
+						Outputs:  []bsReply{reply},
+						Error:    None,
+						Terminal: false,
+					},
+				}
+			},
+		},
+		InitialObs: func(s bsState) bsObs {
+			let (st, head) = bsFold(s.Ops)
+			bsObsOf(st, head)
+		},
+		ProjectionName: Some[string]{Value: "board-sqlite-durable-store"},
+	}
+}
+
+type bsLiveSlot {
+	suite  FileSuite,
+	store  sync.Ref[Store],
+	step   sync.Ref[int],
+	closed sync.Ref[bool],
+}
+
+type bsSessHandle {
+	read  func() explore.Observed[bsObs, bsReply, Never] fails BoardSqlDriveErr,
+	apply func(cmd bsCmd) explore.Observed[bsObs, bsReply, Never] fails BoardSqlDriveErr,
+	close func(),
+} implements explore.PathSession[bsCmd, explore.Observed[bsObs, bsReply, Never], BoardSqlDriveErr]
+
+func Read(s bsSessHandle) explore.Observed[bsObs, bsReply, Never] fails BoardSqlDriveErr { try s.read() }
+
+func Apply(s bsSessHandle, cmd bsCmd) explore.Observed[bsObs, bsReply, Never] fails BoardSqlDriveErr { try s.apply(cmd) }
+
+func Close(s bsSessHandle) { s.close() }
+
+func bsObserveLive(st Store) bsObs fails BoardSqlDriveErr {
+	let evts = ReadEvents(st, board.DefaultBoard, 0) catch {
+	case board.StoreFailed as e:
+		return BoardSqlDriveErr{Why: e.Reason}
+	}
+	for i, e in evts {
+		if e.Seq != i+1 {
+			return BoardSqlDriveErr{Why: "non-dense event sequence"}
+		}
+	}
+	let snap = Snapshot(st) catch {
+	case board.StoreFailed as e:
+		return BoardSqlDriveErr{Why: e.Reason}
+	}
+	let alpha = Search(st, bsAlphaQuery()) catch {
+	case board.StoreFailed as e:
+		return BoardSqlDriveErr{Why: e.Reason}
+	}
+	bsObs{
+		Head:       len(evts),
+		AlphaHits:  len(alpha),
+		ActiveMsg1: bsMsg1Active(snap),
+	}
+}
+
+// BoardSQLitePaths is the model-based path-testing contract for file-backed WAL
+// SQLite board stores including explicit close-and-reopen durability paths.
+type BoardSQLitePaths {
+	OpenSession() int fails BoardSqlOpenErr,
+	ReadSession(id int) explore.Observed[bsObs, bsReply, Never] fails BoardSqlDriveErr,
+	ApplySession(id int, cmd bsCmd) explore.Observed[bsObs, bsReply, Never] fails BoardSqlDriveErr,
+	CloseSession(id int),
+	Counts() (int, int),
+
+	// PathsAgree checks every bounded WAL SQLite board path up to depth 3
+	// including post, stale commit, delete, and close/reopen durability against
+	// the pure board fold, verifying full file and handle cleanup per path.
+	law PathsAgree() {
+		let (openBefore, closeBefore) = Counts()
+		let res = explore.CheckPathsWithSink(
+			bsModel(),
+			explore.ToDepth{Depth: 3},
+			explore.PathBounds{
+				MaxStates: 256,
+				MaxEdges:  1024,
+				MaxPaths:  256,
+				MaxSteps:  1024,
+				MaxWork:   65536,
+				MaxBytes:  262144,
+			},
+			func(_ bsState) explore.PathSession[bsCmd, explore.Observed[bsObs, bsReply, Never], BoardSqlDriveErr] fails BoardSqlOpenErr {
+				let id = try OpenSession()
+				bsSessHandle{
+					read:  func() explore.Observed[bsObs, bsReply, Never] fails BoardSqlDriveErr { try ReadSession(id) },
+					apply: func(cmd bsCmd) explore.Observed[bsObs, bsReply, Never] fails BoardSqlDriveErr { try ApplySession(id, cmd) },
+					close: func() { CloseSession(id) },
+				}
+			},
+			testing.ActiveEvidenceSink(),
+		)
+		let (openAfter, closeAfter) = Counts()
+		let opened = openAfter - openBefore
+		let closed = closeAfter - closeBefore
+		assert opened > 0 && opened == closed
+		assert res.Counts.Opened == res.Counts.Planned
+		assert res.Counts.InitialReads == res.Counts.Opened
+		assert res.Counts.CheckedSteps == res.PlanStats.Steps
+		match res.Verdict {
+		case explore.CampaignPassed:
+			true
+		case explore.CampaignRefuted, explore.CampaignIncomplete:
+			false
+		}
+	},
+}
+
+let bsSlots = sync.NewRef(Map[int, bsLiveSlot]{})
+let bsNextID = sync.NewRef(0)
+let bsOpens = sync.NewRef(0)
+let bsCloses = sync.NewRef(0)
+
+// BoardSQLitePathProvider implements BoardSQLitePaths over fresh per-path WAL
+// SQLite databases cleaned up when each session closes.
+type BoardSQLitePathProvider {} implements BoardSQLitePaths
+
+func OpenSession(_ BoardSQLitePathProvider) int fails BoardSqlOpenErr needs go.Foreign {
+	let suite = NewFileSuite()
+	let st = OpenAt(suite, "paths", []board.Principal{defaultAdmin()}, 0) catch {
+	case board.StoreFailed as e:
+		CleanUp(suite)
+		return BoardSqlOpenErr{Why: e.Reason}
+	}
+	let id = sync.Modify(bsNextID, func(cur int) (int, int) { (cur + 1, cur + 1) })
+	bsOpens.Update(func(cur int) int { cur + 1 })
+	let slot = bsLiveSlot{
+		suite:  suite,
+		store:  sync.NewRef(st),
+		step:   sync.NewRef(0),
+		closed: sync.NewRef(false),
+	}
+	bsSlots.Update(func(m Map[int, bsLiveSlot]) Map[int, bsLiveSlot] { m.Put(id, slot) })
+	id
+}
+
+func lookupBoardSlot(id int) bsLiveSlot fails BoardSqlDriveErr {
+	match bsSlots.Get().Get(id) {
+	case Some[bsLiveSlot] as s:
+		s.Value
+	case None:
+		BoardSqlDriveErr{Why: "missing session slot \(id)"}
+	}
+}
+
+func ReadSession(_ BoardSQLitePathProvider, id int) explore.Observed[bsObs, bsReply, Never] fails BoardSqlDriveErr {
+	let slot = try lookupBoardSlot(id)
+	explore.InitialRead[bsObs]{State: try bsObserveLive(slot.store.Get())}
+}
+
+func ApplySession(_ BoardSQLitePathProvider, id int, cmd bsCmd) explore.Observed[bsObs, bsReply, Never] fails BoardSqlDriveErr needs go.Foreign {
+	let slot = try lookupBoardSlot(id)
+	let n = slot.step.Get() + 1
+	slot.step.Set(n)
+	let now = board.Timestamp(1000 + n*10)
+	match cmd {
+	case bsReopen:
+		CloseHandles(slot.suite)
+		let reopened = OpenAt(slot.suite, "paths", []board.Principal{defaultAdmin()}, 0) catch {
+		case board.StoreFailed as e:
+			return BoardSqlDriveErr{Why: "reopen failed: \(e.Reason)"}
+		}
+		slot.store.Set(reopened)
+		let obs = try bsObserveLive(reopened)
+		explore.StepResult[bsObs, bsReply, Never]{Step: explore.StepObs[bsObs, bsReply, Never]{
+			Kind:     explore.DisEmit,
+			State:    Some[bsObs]{Value: obs},
+			Outputs:  []bsReply{bsReopened{Head: obs.Head}},
+			Error:    None,
+			Terminal: false,
+		}}
+	case bsStaleCommit:
+		let st = slot.store.Get()
+		let evts = ReadEvents(st, board.DefaultBoard, 0) catch {
+		case board.StoreFailed as e:
+			return BoardSqlDriveErr{Why: e.Reason}
+		}
+		let head = len(evts)
+		let snap = Snapshot(st) catch {
+		case board.StoreFailed as e:
+			return BoardSqlDriveErr{Why: e.Reason}
+		}
+		let planned = board.Decide(snap, bsCmdToBoard(cmd, n), now) catch {
+		case _:
+			return BoardSqlDriveErr{Why: "decide for stale commit failed"}
+		}
+		let mut reply bsReply = bsRefused{Kind: "unexpected"}
+		let mut sawStale = false
+		let _ = st.Commit(board.DefaultBoard, head+3, planned) catch {
+		case board.StalePosition as sp:
+			reply = bsStale{Expected: sp.Expected, Actual: sp.Actual}
+			sawStale = true
+			0
+		case board.StoreFailed as e:
+			return BoardSqlDriveErr{Why: e.Reason}
+		}
+		if !sawStale {
+			return BoardSqlDriveErr{Why: "stale commit unexpectedly succeeded"}
+		}
+		let obs = try bsObserveLive(st)
+		explore.StepResult[bsObs, bsReply, Never]{Step: explore.StepObs[bsObs, bsReply, Never]{
+			Kind:     explore.DisReject,
+			State:    Some[bsObs]{Value: obs},
+			Outputs:  []bsReply{reply},
+			Error:    None,
+			Terminal: false,
+		}}
+	case bsPostAlpha, bsDeleteFirst:
+		let st = slot.store.Get()
+		let snap = Snapshot(st) catch {
+		case board.StoreFailed as e:
+			return BoardSqlDriveErr{Why: e.Reason}
+		}
+		let curEvts = ReadEvents(st, board.DefaultBoard, 0) catch {
+		case board.StoreFailed as e:
+			return BoardSqlDriveErr{Why: e.Reason}
+		}
+		let decided = board.Decide(snap, bsCmdToBoard(cmd, n), now) catch {
+		case board.NotFound:
+			let obs = try bsObserveLive(st)
+			return explore.StepResult[bsObs, bsReply, Never]{Step: explore.StepObs[bsObs, bsReply, Never]{
+				Kind:     explore.DisReject,
+				State:    Some[bsObs]{Value: obs},
+				Outputs:  []bsReply{bsRefused{Kind: "not_found"}},
+				Error:    None,
+				Terminal: false,
+			}}
+		case _:
+			let obs = try bsObserveLive(st)
+			return explore.StepResult[bsObs, bsReply, Never]{Step: explore.StepObs[bsObs, bsReply, Never]{
+				Kind:     explore.DisReject,
+				State:    Some[bsObs]{Value: obs},
+				Outputs:  []bsReply{bsRefused{Kind: "refused"}},
+				Error:    None,
+				Terminal: false,
+			}}
+		}
+		let newHead = st.Commit(board.DefaultBoard, len(curEvts), decided) catch {
+		case board.StalePosition as sp:
+			return BoardSqlDriveErr{Why: "unexpected stale: \(sp.Expected) vs \(sp.Actual)"}
+		case board.StoreFailed as e:
+			return BoardSqlDriveErr{Why: e.Reason}
+		}
+		let obs = try bsObserveLive(st)
+		explore.StepResult[bsObs, bsReply, Never]{Step: explore.StepObs[bsObs, bsReply, Never]{
+			Kind:     explore.DisEmit,
+			State:    Some[bsObs]{Value: obs},
+			Outputs:  []bsReply{bsCommitted{Head: newHead}},
+			Error:    None,
+			Terminal: false,
+		}}
+	}
+}
+
+func CloseSession(_ BoardSQLitePathProvider, id int) needs go.Foreign {
+	match bsSlots.Get().Get(id) {
+	case Some[bsLiveSlot] as s:
+		if s.Value.closed.Get() {
+			return
+		}
+		s.Value.closed.Set(true)
+		CleanUp(s.Value.suite)
+		bsCloses.Update(func(cur int) int { cur + 1 })
+	case None:
+	}
+}
+
+func Counts(_ BoardSQLitePathProvider) (int, int) {
+	(bsOpens.Get(), bsCloses.Get())
+}

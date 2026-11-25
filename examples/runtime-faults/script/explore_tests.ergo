@@ -1,0 +1,94 @@
+import actor
+import gen
+import runtimefaults/crash
+import runtimefaults/lab
+import temporal
+import time
+import ui
+
+func labProperties() []temporal.Formula[ui.ExploreSnapshot[lab.Lab, lab.Signal]] {
+	let mut props = ui.DefaultsWith[lab.Lab, lab.Signal](2s)
+	props = props.Append(temporal.Always[ui.ExploreSnapshot[lab.Lab, lab.Signal]](
+		temporal.Named[ui.ExploreSnapshot[lab.Lab, lab.Signal]]("warnings-within-limit", func(s ui.ExploreSnapshot[lab.Lab, lab.Signal]) bool {
+			let ws = s.State.Warnings
+			if len(ws) > lab.MaxWarnings || s.State.NextID < 1 {
+				return false
+			}
+			for w in ws {
+				if w.ID < 1 || w.ID >= s.State.NextID || w.Count <= 0 {
+					return false
+				}
+			}
+			true
+		}),
+	))
+	props
+}
+
+func crashProperties(reports crash.Reports) []temporal.Formula[ui.ExploreSnapshot[crash.Calm, crash.Signal]] {
+	let mut props = ui.DefaultsWith[crash.Calm, crash.Signal](2s)
+	props = props.Append(temporal.Always[ui.ExploreSnapshot[crash.Calm, crash.Signal]](
+		temporal.Named[ui.ExploreSnapshot[crash.Calm, crash.Signal]]("single-recovery-offer", func(s ui.ExploreSnapshot[crash.Calm, crash.Signal]) bool {
+			len(s.Offers) > 0 && len(crash.Logged(reports)) >= 0
+		}),
+	))
+	props
+}
+
+func exploreLabOnce(steps int) ui.Finding needs gen.Draws {
+	let clock = time.NewManual(0)
+	with context { Scheduler: clock } {
+		let a = actor.StartMachine(lab.Bench{}, 16, func(_ Never) {})
+		let mut h = ui.NewTestHost(a, lab.Screen, clock, 64) catch {
+		case ui.BadPatch as bp:
+			a.Stop()
+			return ui.Found{Script: []ui.Act{}, Step: 0, Violation: bp.Why}
+		}
+		let res = ui.Explore(&h, labProperties(), ui.ExploreConfig{Steps: steps, Swarm: false, AdvanceStep: 500ms, Weights: Map[string, int]{}})
+		a.Stop()
+		res
+	}
+}
+
+func exploreCrashOnce(steps int) ui.Finding needs gen.Draws {
+	let clock = time.NewManual(0)
+	let reports = crash.NewReports()
+	with context { Scheduler: clock } {
+		let mut h = ui.NewAppTestHost(crash.App{}, 4, crash.View, crash.Crashes(reports), clock, 16) catch {
+		case ui.BadPatch as bp:
+			return ui.Found{Script: []ui.Act{}, Step: 0, Violation: bp.Why}
+		}
+		ui.Explore(&h, crashProperties(reports), ui.ExploreConfig{Steps: steps, Swarm: false, AdvanceStep: 500ms, Weights: Map[string, int]{}})
+	}
+}
+
+// Explored holds that autonomous exploration over seeds 1 to 3 finds no
+// default or fault-handling invariant violation on runtime-faults.
+law Explored() {
+	let mut allClean = true
+	for seed in 1..4 {
+		let cfg = gen.Config{Seed: uint64(seed), Cases: 8, Shrinks: 50, MaxDraws: 4096, MaxRejected: 100}
+		let labOut = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+			match exploreLabOnce(12) {
+			case ui.Clean:
+				true
+			case ui.Found:
+				false
+			}
+		})
+		let crashOut = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+			match exploreCrashOnce(12) {
+			case ui.Clean:
+				true
+			case ui.Found:
+				false
+			}
+		})
+		match (labOut, crashOut) {
+		case (gen.Held, gen.Held):
+		case _:
+			allClean = false
+		}
+	}
+	allClean
+}

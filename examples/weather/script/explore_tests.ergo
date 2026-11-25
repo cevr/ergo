@@ -1,0 +1,64 @@
+import actor
+import gen
+import temporal
+import time
+import ui
+import weather/memory
+import weather/screen
+import weather/weather
+
+func exploreProperties() []temporal.Formula[ui.ExploreSnapshot[weather.Lookup, weather.Signal]] {
+	let mut props = ui.DefaultsWith[weather.Lookup, weather.Signal](2s)
+	props = props.Append(temporal.Always[ui.ExploreSnapshot[weather.Lookup, weather.Signal]](
+		temporal.Named[ui.ExploreSnapshot[weather.Lookup, weather.Signal]]("panel-zip-valid", func(s ui.ExploreSnapshot[weather.Lookup, weather.Signal]) bool {
+			let panelOK = match s.State.Panel {
+			case weather.Blank, weather.Failed:
+				true
+			case weather.Loading as l:
+				l.Zip != ""
+			case weather.Ready as r:
+				r.Report.Zip != ""
+			}
+			panelOK && len(s.Offers) > 0
+		}),
+	))
+	props
+}
+
+func exploreOnce(steps int) ui.Finding needs gen.Draws {
+	let clock = time.NewManual(0)
+	with context { Scheduler: clock, weather.Forecast: memory.Stations } {
+		let app = actor.StartMachine(weather.Weather{}, 8, func(_ weather.Never) {})
+		let mut h = ui.NewTestHost(app, screen.Screen, clock, 8) catch {
+		case ui.BadPatch as bp:
+			app.Stop()
+			return ui.Found{Script: []ui.Act{}, Step: 0, Violation: bp.Why}
+		}
+		let res = ui.Explore(&h, exploreProperties(), ui.ExploreConfig{Steps: steps, Swarm: false, AdvanceStep: 500ms, Weights: Map[string, int]{}})
+		app.Stop()
+		res
+	}
+}
+
+// Explored holds that autonomous exploration over seeds 1 to 3 finds no
+// default or forecast-lookup invariant violation on weather.
+law Explored() {
+	let mut allClean = true
+	for seed in 1..4 {
+		let cfg = gen.Config{Seed: uint64(seed), Cases: 10, Shrinks: 50, MaxDraws: 4096, MaxRejected: 100}
+		let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+			match exploreOnce(20) {
+			case ui.Clean:
+				true
+			case ui.Found:
+				false
+			}
+		})
+		match outcome {
+		case gen.Held:
+		case _:
+			allClean = false
+		}
+	}
+	allClean
+}

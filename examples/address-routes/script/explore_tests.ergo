@@ -1,0 +1,109 @@
+import actor
+import addressroutes/app
+import addressroutes/people
+import addressroutes/route
+import addressroutes/screen
+import gen
+import machines
+import sync
+import temporal
+import time
+import ui
+
+func offersValidForAddressRoutes(s ui.ExploreSnapshot[app.App, app.Signal]) bool {
+	let onSubFiles = match s.State.Route {
+	case route.Files:
+		true
+	case _:
+		false
+	}
+	for o in s.Offers {
+		match o.Locator {
+		case Some[ui.Locator]:
+			if o.Matches == 1 {
+				continue
+			}
+			if onSubFiles && o.Label == "Files" && o.Matches == 2 {
+				continue
+			}
+			return false
+		case None:
+		}
+	}
+	true
+}
+
+func exploreProperties() []temporal.Formula[ui.ExploreSnapshot[app.App, app.Signal]] {
+	let base = ui.DefaultsWith[app.App, app.Signal](2s)
+	let mut props = []temporal.Formula[ui.ExploreSnapshot[app.App, app.Signal]]{
+		temporal.Always[ui.ExploreSnapshot[app.App, app.Signal]](
+			temporal.Named[ui.ExploreSnapshot[app.App, app.Signal]]("offers-unambiguous-except-files-breadcrumb", offersValidForAddressRoutes),
+		),
+	}
+	for i in 1..len(base) {
+		props = props.Append(base[i])
+	}
+	props = props.Append(temporal.Always[ui.ExploreSnapshot[app.App, app.Signal]](
+		temporal.Named[ui.ExploreSnapshot[app.App, app.Signal]]("history-within-limit", func(s ui.ExploreSnapshot[app.App, app.Signal]) bool {
+			len(s.State.Page.History) <= people.HistoryLimit
+		}),
+	))
+	props = props.Append(temporal.Always[ui.ExploreSnapshot[app.App, app.Signal]](
+		temporal.Named[ui.ExploreSnapshot[app.App, app.Signal]]("offers-non-empty", func(s ui.ExploreSnapshot[app.App, app.Signal]) bool {
+			len(s.Offers) > 0
+		}),
+	))
+	props
+}
+
+func exploreOnce(steps int) ui.Finding needs gen.Draws {
+	let clock = time.NewManual(0)
+	let histRef = sync.NewRef[Option[ui.MemoryHistory]](None)
+	with context { Scheduler: clock } {
+		let p = actor.StartMachine(machines.Start(app.Router{}, "/"), 16, func(g app.Go) {
+			match histRef.Get() {
+			case Some[ui.MemoryHistory] as loc:
+				ui.Push(loc.Value, ui.ParseURL(g.Path))
+			case None:
+			}
+		})
+		let mut h = ui.NewTestHost(p, screen.Screen, clock, 16) catch {
+		case ui.BadPatch as bp:
+			p.Stop()
+			return ui.Found{Script: []ui.Act{}, Step: 0, Violation: bp.Why}
+		}
+		ui.OpenAt(&h, "/")
+		histRef.Set(Some[ui.MemoryHistory]{Value: ui.History(&h)})
+		let res = ui.Explore(&h, exploreProperties(), ui.ExploreConfig{Steps: steps, Swarm: false, AdvanceStep: 500ms, Weights: Map[string, int]{}})
+		p.Stop()
+		res
+	}
+}
+
+// Explored holds that autonomous exploration over seeds 1 to 3 finds no
+// default or domain property violation on address-routes.
+law Explored() {
+	let firstErr = sync.NewRef("")
+	let mut allClean = true
+	for seed in 1..4 {
+		let cfg = gen.Config{Seed: uint64(seed), Cases: 10, Shrinks: 50, MaxDraws: 4096, MaxRejected: 100}
+		let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+			match exploreOnce(20) {
+			case ui.Clean:
+				true
+			case ui.Found as found:
+				if firstErr.Get() == "" {
+					firstErr.Set(found.Violation)
+				}
+				false
+			}
+		})
+		match outcome {
+		case gen.Held:
+		case _:
+			allClean = false
+		}
+	}
+	assert firstErr.Get() == ""
+	allClean
+}
