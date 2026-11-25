@@ -73,6 +73,10 @@ let KAssertStmt = uint8(63)
 let KSkipStmt = uint8(64)
 // KDieStmt is `die e`: tok is die, a the reason expression.
 let KDieStmt = uint8(65)
+// KAlwaysStmt is `always e`: tok is always, a the boolean expression.
+let KAlwaysStmt = uint8(66)
+// KSometimesStmt is `sometimes e`: tok is sometimes, a the boolean expression.
+let KSometimesStmt = uint8(67)
 
 // Tree is the syntax tree of one file as rows (self-layout plan §2.2): a
 // kind, a main token and two operand words per node, 13 bytes, and one

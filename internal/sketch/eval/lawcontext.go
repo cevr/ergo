@@ -1,6 +1,8 @@
 package eval
 
 import (
+	"fmt"
+
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
 	"ergo.local/prototype/internal/sketch/testplan"
@@ -144,7 +146,54 @@ func (in *interp) contextLaw(law *check.Law, lc *check.LawContext, res Result) (
 		}
 		return result, shows
 	}
+	defer in.beginSometimes(fr, law.Decl.Body)()
 	evSeen, evSummary := false, ""
+	if law.Sometimes {
+		for k := 0; k < p.Count; k++ {
+			out.Case = k + 1
+			mustCharge(in, fr, 1)
+			r.Start(k + 1)
+			r.Record()
+			in.resetCaseEv()
+			result, shows := run(k)
+			out.Cases = k + 1
+			if result.Status == Passed {
+				out.Status, out.Reason, out.Site, out.escaped, out.Message = result.Status, result.Reason, result.Site, result.escaped, result.Message
+				if result.Schedule != 0 {
+					out.Schedule = result.Schedule
+				}
+				if !in.applyCaseEv(&out, true) {
+					out.Case, out.Arguments = k+1, shown(shows)
+					return
+				}
+				out.Case = 0
+				out.Arguments = shown(shows)
+				in.checkSometimes(&out, k+1)
+				return
+			}
+			if result.Status == Refuted && result.bodyFalse {
+				in.resetCaseEv()
+				continue
+			}
+			if result.Status == Refuted && !p.Listed && len(law.Params) > 0 {
+				result, shows = in.shrinkCase(r, result, shows, func() (Result, []func() Argument) { in.resetCaseEv(); return run(k) })
+			}
+			out.Status, out.Reason, out.Site, out.escaped, out.Message = result.Status, result.Reason, result.Site, result.escaped, result.Message
+			if result.Schedule != 0 {
+				out.Schedule = result.Schedule
+			}
+			in.resetCaseEv()
+			out.Case, out.Arguments, out.Drawn, out.ShrunkTape = k+1, shown(shows), result.Drawn, result.ShrunkTape
+			return
+		}
+		msg := fmt.Sprintf("no witness found across %d cases", p.Count)
+		out.Status = Refuted
+		out.Reason = msg
+		out.Message = msg
+		out.Site = in.site(fr.pkg, fr.decl, fr.decl.Pos())
+		out.Case = 0
+		return
+	}
 	for k := 0; k < p.Count; k++ {
 		out.Case = k + 1
 		mustCharge(in, fr, 1)
@@ -177,6 +226,9 @@ func (in *interp) contextLaw(law *check.Law, lc *check.LawContext, res Result) (
 				evSummary += "; " + out.Reason
 			}
 		}
+	}
+	if !in.checkSometimes(&out, out.Cases) {
+		return
 	}
 	if evSeen {
 		out.Evidence = "tested"

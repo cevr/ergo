@@ -1269,6 +1269,10 @@ func (w *refWalker) stmt(s syntax.Stmt) {
 		}
 	case *syntax.AssertStmt:
 		w.expr(s.X)
+	case *syntax.AlwaysStmt:
+		w.expr(s.X)
+	case *syntax.SometimesStmt:
+		w.expr(s.X)
 	case *syntax.ExprStmt:
 		w.expr(s.X)
 	case *syntax.AssignStmt:

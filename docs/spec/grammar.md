@@ -50,7 +50,7 @@ test      law       assert    extern    with      takes
 
 - Ten are Go's (`break` to `type`); six are the earlier constructs (`try` to `machine`); twelve come from the decided stages: `let` and `mut` (196v), `in` (one `for`), `match` (196p), `escaping` (196e; retired by `own`, q168, and read only so that `ergo fix` rewrites it, rule 13), `fails` (fifth round), `test`, `law` and `assert` (196l), `extern` (196x), `with`, which is now a keyword because a `with` block is a construct (fifth round), and `takes`, the hand-off clause (rule 13 of Declarations).
 - **`as`** is a keyword too (ninth round, `case Declined as d:`), so the parser reserves 29 words. It binds the value a pattern matched, narrowed to the pattern's type ([Expressions](#expressions) rule 6).
-- **Contextual words.** `replace` (in a context), `initial`, `step` and `after` (in a machine), `reaches`, `never`, `path`, `always` and `sometimes` (after the name of a machine's law), `pure` (after a parameter's name, Declarations 16), `skip` (at the start of a statement, followed directly by a string literal: the skip statement of a test or law body, rule 11) and `go` (after `import` and `extern`) have their meaning only in those positions. Everywhere else each is an ordinary name: `func skip`, `let skip`, a field `skip` and a call `skip(x)` in a test are legal (decided by the owner, 2026-11-15, as C#'s `yield` and `await`, Kotlin's soft keywords and Python 3.10's `match`). `uses` is an ordinary identifier with no compatibility path: `func f() uses A {}` is the plain S001 any stray identifier gets.
+- **Contextual words.** `replace` (in a context), `initial`, `step` and `after` (in a machine), `reaches`, `never`, `path`, `always` and `sometimes` (after a law's name in `law Name always(…)` / `law Name sometimes(…)` or a machine's invariant law, and at the start of a statement inside a law body followed by an expression on the same line), `pure` (after a parameter's name, Declarations 16), `skip` (at the start of a statement, followed directly by a string literal: the skip statement of a test or law body, rule 11) and `go` (after `import` and `extern`) have their meaning only in those positions. Everywhere else each is an ordinary name: `func skip`, `let skip`, a field `skip`, `type always { … }`, `always{…}`, `case always:`, and a call `always(x)` or `skip(x)` are legal (decided by the owner, 2026-11-15, as C#'s `yield` and `await`, Kotlin's soft keywords and Python 3.10's `match`). `uses` is an ordinary identifier with no compatibility path: `func f() uses A {}` is the plain S001 any stray identifier gets.
 - **`needs` and `provides`** (owner, 2026-10-27). `needs A | B` lists what a function, a function type, an operation or a context requires; `provides A | B` lists what a context exposes ([rows.md](rows.md#context)). Each is a row, a union, so it is spelled as the error row is: `fails NotFound | Declined needs Orders | Payments` (owner, 2026-11-03, 196n). *Prior art:* Roc's `provides` and `requires`; Effect's `Layer<ROut, E, RIn>`, whose requirement channel is the type union `R1 | R2`.
 - Constructs use keyword syntax; a dot form is always library (owner, 2026-10-12). `timeout.After`, `task.Go` and `scope.OnExit` are therefore library functions ([runtime.md](runtime.md)).
 
@@ -121,8 +121,8 @@ TypeParam      = identifier { "," identifier } [ "own" ] [ TypeName ] .
 Members        = "{" [ Member { "," Member } [ "," ] ] "}" .
 Member         = FieldDecl | ".." TypeName [ TypeArgs ] | [ "mut" ] identifier [ TypeParams ] Signature | MemberLaw .
 FieldDecl      = identifier { "," identifier } Type [ string_lit ] .
-LawDecl        = "law" identifier [ TypeParams ] Params ( Block | [ "when" Expression ] Block "==" Block ) .
-MemberLaw      = "law" identifier [ TypeParams ] Params ( Block | [ "when" Expression ] Block "==" Block ) .
+LawDecl        = "law" identifier [ "always" | "sometimes" ] [ TypeParams ] Params ( Block | [ "when" Expression ] Block "==" Block ) .
+MemberLaw      = "law" identifier [ "always" | "sometimes" ] [ TypeParams ] Params ( Block | [ "when" Expression ] Block "==" Block ) .
 UnionType      = [ "|" ] Variant { "|" Variant } .
 Variant        = TypeName [ TypeArgs ] [ Members ] .
 MachineType    = "machine" TypeArgs "{" MachineEntry { "," MachineEntry } [ "," ] "}" .
@@ -213,7 +213,7 @@ Status: **implemented** for rules 2 and 3 on fields, operations and construction
 
 ```ebnf
 Block          = "{" { Statement ";" } "}" .
-Statement      = LetDecl | Expression | Assignment | ReturnStmt | "break" | "continue" | ForStmt | "assert" Expression .
+Statement      = LetDecl | Expression | Assignment | ReturnStmt | "break" | "continue" | ForStmt | "assert" Expression | "always" Expression | "sometimes" Expression .
 Assignment     = Expression assign_op Expression .
 ReturnStmt     = "return" [ Expression ] .
 ForStmt        = "for" [ Expression | Pattern { "," Pattern } "in" Expression ] Block .

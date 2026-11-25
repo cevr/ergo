@@ -235,6 +235,10 @@ type Result struct {
 	// not a failed assert or a false law: a shrink keeps a candidate only
 	// when it fails the same way.
 	escaped bool
+	// bodyFalse says a refutation came from the law's body evaluating to false
+	// (rather than an always/assert failure or escaped error), which an
+	// existential `law Name sometimes(...)` treats as "not a witness yet".
+	bodyFalse bool
 	// form is how its cases are made (verdict.go).
 	form caseForm
 	// title is a law's name in its replay command (--law), check.Law.Title.
@@ -552,8 +556,13 @@ func (in *interp) runBodyFrame(fr *frame, body *syntax.BlockStmt, law bool, res 
 		res.Site = in.site(pkg, decl, decl.Pos())
 	case ctlAssert:
 		res.Status, res.Reason = Refuted, "assert failed"
-		if a, ok := ab.val.(*shownAssert); ok && !a.unshown {
-			res.Message = in.assertMessage(fr, res.Site, a)
+		if a, ok := ab.val.(*shownAssert); ok {
+			if a.what != "" {
+				res.Reason = a.what
+			}
+			if !a.unshown {
+				res.Message = in.assertMessage(fr, res.Site, a)
+			}
 		}
 	case ctlFail, ctlEscape:
 		res.Status, res.Reason = Refuted, "a failure escaped: "+describe(ab.val)

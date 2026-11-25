@@ -150,10 +150,16 @@ var escPositions = map[string][]escCase{
 	"AsPattern.X": {
 		{src: "func u(f func(int) int, n int) int {\n\tmatch n {\n\t$case f as m:\n\t\tm\n\tcase _:\n\t\t2\n\t}\n}\n", want: "S108"},
 	},
+	"AlwaysStmt.X": {
+		{src: "func g(n int) int {\n\tn\n}\n\nlaw L() {\n\t$always g\n\ttrue\n}\n", want: "S108"},
+	},
 	"AssertStmt.X": {
 		// assert stands in a test body (stage E3a); a function value is
 		// not a bool there, whatever its escaping verdict.
 		{src: "func g(n int) int {\n\tn\n}\n\ntest T {\n\t$assert g\n}\n", want: "S108"},
+	},
+	"SometimesStmt.X": {
+		{src: "func g(n int) int {\n\tn\n}\n\nlaw L() {\n\t$sometimes g\n\ttrue\n}\n", want: "S108"},
 	},
 	"InterpolatedString.Exprs": {
 		// A function part has no text form (E6a): the text-form S108, and

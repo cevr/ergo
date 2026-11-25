@@ -36,7 +36,7 @@ var implementedFamilies = []string{
 	"basic:uint", "basic:uint8", "basic:uint16", "basic:uint32", "basic:uint64", "basic:float32", "basic:float64", "basic:duration",
 	// A test and its asserts lower in the test build (LowerTests, swept by
 	// stage_e3a_test.go); the run build this test lowers skips them whole.
-	"TestDecl", "AssertStmt",
+	"TestDecl", "AssertStmt", "AlwaysStmt", "SometimesStmt",
 	// A law lowers in the test build, which runs it (law-run-1,
 	// law_run_test.go); the run build this test lowers skips it whole
 	// (stage E3b-2).

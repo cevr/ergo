@@ -101,7 +101,9 @@ func ParseFiles(srcs []string) (files []*File, errs []error) {
 // optional implements token and contract type.
 // 8: a function type ends its fixed row with the optional defects token
 // (word 7), and kDieStmt (65) is added.
-const ColumnsVersion = 8
+// 9: a law's fixed row ends with the optional quantifier token (word 9),
+// and kAlwaysStmt (66) and kSometimesStmt (67) are added.
+const ColumnsVersion = 9
 
 // PreviousColumnsVersion is the layout before ColumnsVersion, which this
 // decoder still reads: the linked parser writes it until scripts/linked
@@ -109,7 +111,7 @@ const ColumnsVersion = 8
 // bootstrapped in two stages (go run ./scripts/linked -bootstrap): stage 1
 // regenerates with the linked parser one layout behind, stage 2 with the
 // parser stage 1 wrote.
-const PreviousColumnsVersion = 7
+const PreviousColumnsVersion = 8
 
 // LayoutError is a parse whose rows have a layout this decoder cannot
 // read: the linked parser is more than one layout behind or ahead.
@@ -398,11 +400,18 @@ func (d *rowDecoder) node(r uint32) Node {
 		x.Body = opt[*BlockStmt](d, d.fixed(r, 4, 3))
 		return x
 	case kLawDecl:
-		// Layouts 5 and 6 hold TypeParams at word 2 (layout 2, which had
-		// no such word, is no longer read).
-		w, s := 9, 1
+		w, s := 10, 1
+		if d.layout == PreviousColumnsVersion {
+			w = 9
+		}
 		l := &LawDecl{Doc: d.doc(d.fixed(r, w, 0)), Law: d.pos(t), Name: one[*Ident](d, d.fixed(r, w, 1)), Params: opt[*FieldList](d, d.fixed(r, w, 2+s)), Body: opt[*BlockStmt](d, d.fixed(r, w, 3+s)), Reach: opt[*LawReach](d, d.fixed(r, w, 4+s))}
 		l.TypeParams = opt[*FieldList](d, d.fixed(r, w, 2))
+		if w == 10 {
+			if q := d.fixed(r, w, 9); q != 0 {
+				l.QuantPos = d.pos(q - 1)
+				l.Quant = d.text(q - 1)
+			}
+		}
 		switch d.fixed(r, w, 5+s) {
 		case 1:
 			l.Rewrite = &LawRewrite{When: d.opos(d.fixed(r, w, 6+s)), Eq: d.opos(d.fixed(r, w, 7+s))}
@@ -525,15 +534,10 @@ func (d *rowDecoder) node(r uint32) Node {
 		return x
 	case kFuncType:
 		w := 8
-		if d.layout == PreviousColumnsVersion {
-			w = 7
-		}
 		x := &FuncType{Escaping: d.opos(d.fixed(r, w, 0)), EntryPos: d.zpos(d.fixed(r, w, 1)), Func: d.opos(d.fixed(r, w, 2)), Params: one[*FieldList](d, d.fixed(r, w, 3)), Results: opt[*FieldList](d, d.fixed(r, w, 4)), Needs: opt[*NeedsClause](d, d.fixed(r, w, 5)), Takes: opt[*TakesClause](d, d.fixed(r, w, 6))}
 		x.Entry = d.fixed(r, w, 1) != 0
-		if w == 8 {
-			x.Defects = d.fixed(r, w, 7) != 0
-			x.DefectsPos = d.zpos(d.fixed(r, w, 7))
-		}
+		x.Defects = d.fixed(r, w, 7) != 0
+		x.DefectsPos = d.zpos(d.fixed(r, w, 7))
 		if d.items(r, w) == 1 {
 			// An operation's own type parameters (GENERIC-OP).
 			x.TypeParams = one[*FieldList](d, d.item(r, 0))
@@ -660,6 +664,10 @@ func (d *rowDecoder) node(r uint32) Node {
 		return &SkipStmt{Skip: d.pos(t), ReasonPos: reason.pos, Reason: reason.lit, ReasonEnd: reason.end}
 	case kDieStmt:
 		return &DieStmt{Die: d.pos(t), X: one[Expr](d, a)}
+	case kAlwaysStmt:
+		return &AlwaysStmt{Always: d.pos(t), X: one[Expr](d, a)}
+	case kSometimesStmt:
+		return &SometimesStmt{Sometimes: d.pos(t), X: one[Expr](d, a)}
 	}
 	panic(fmt.Sprintf("syntax: row %d has kind %d, which the decoder does not know", r, d.kind(r)))
 }
@@ -755,6 +763,8 @@ const (
 	kAssertStmt         = 63
 	kSkipStmt           = 64
 	kDieStmt            = 65
+	kAlwaysStmt         = 66
+	kSometimesStmt      = 67
 )
 
 // equation sets a top-level rewrite law's Equation (word 2; LAWFFI LF6a)

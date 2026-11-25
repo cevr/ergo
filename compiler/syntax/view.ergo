@@ -66,6 +66,7 @@ type View =
 		Equation   bool,
 		When       int,
 		Eq         int,
+		Quant      int,
 	}
 	| LawReach{Never int, Word int, Path bool, Lbrack int, Targets List, Rbrack int, Invariant bool, Pred dense.Opt[Node]}
 	| ExternSpec{Extern int, Go int, Target dense.ID[Node]}
@@ -144,6 +145,8 @@ type View =
 	| AssertStmt{Assert int, X dense.ID[Node]}
 	| SkipStmt{Skip int, Reason int}
 	| DieStmt{Die int, X dense.ID[Node]}
+	| AlwaysStmt{Always int, X dense.ID[Node]}
+	| SometimesStmt{Sometimes int, X dense.ID[Node]}
 
 // ---------------------------------------------------------------- words
 
@@ -249,6 +252,12 @@ func ViewOf(t Tree, id dense.ID[Node]) View {
 	}
 	if k == KDieStmt {
 		return DieStmtOf(t, id)
+	}
+	if k == KAlwaysStmt {
+		return AlwaysStmtOf(t, id)
+	}
+	if k == KSometimesStmt {
+		return SometimesStmtOf(t, id)
 	}
 	if k == KBlockStmt {
 		return BlockStmtOf(t, id)
@@ -423,7 +432,7 @@ func Put(t mut Tree, v View) dense.ID[Node] {
 	case TestDecl as x:
 		mkTestDecl(t, m, wtok(x.Doc), x.Test, wid(x.Name), wopt(x.Params), wopt(x.Body))
 	case LawDecl as x:
-		mkLawDecl(t, m, wtok(x.Doc), x.Law, wid(x.Name), wopt(x.TypeParams), wopt(x.Params), wopt(x.Body), wopt(x.Reach), if x.Equation { uint32(2) } else { wflag(x.Rewrite) }, wtok(x.When), wtok(x.Eq))
+		mkLawDecl(t, m, wtok(x.Doc), x.Law, wid(x.Name), wopt(x.TypeParams), wopt(x.Params), wopt(x.Body), wopt(x.Reach), if x.Equation { uint32(2) } else { wflag(x.Rewrite) }, wtok(x.When), wtok(x.Eq), wtok(x.Quant))
 	case LawReach as x:
 		pushList(t, x.Targets)
 		mkLawReach(t, m, wtok(x.Never), x.Word, x.Path, wtok(x.Lbrack), wtok(x.Rbrack), x.Invariant, wopt(x.Pred))
@@ -567,6 +576,10 @@ func Put(t mut Tree, v View) dense.ID[Node] {
 		row(t, KSkipStmt, uint32(x.Skip), uint32(x.Reason), uint32(0))
 	case DieStmt as x:
 		row(t, KDieStmt, uint32(x.Die), wid(x.X), uint32(0))
+	case AlwaysStmt as x:
+		row(t, KAlwaysStmt, uint32(x.Always), wid(x.X), uint32(0))
+	case SometimesStmt as x:
+		row(t, KSometimesStmt, uint32(x.Sometimes), wid(x.X), uint32(0))
 	}
 	nid(*t, i)
 }
@@ -641,7 +654,7 @@ func mkTestDecl(t mut Tree, m int, doc uint32, testW int, name uint32, params ui
 	rec(t, KTestDecl, uint32(testW), m)
 }
 
-func mkLawDecl(t mut Tree, m int, doc uint32, lawW int, name uint32, tparams uint32, params uint32, body uint32, reach uint32, rewrite uint32, when uint32, eq uint32) uint32 {
+func mkLawDecl(t mut Tree, m int, doc uint32, lawW int, name uint32, tparams uint32, params uint32, body uint32, reach uint32, rewrite uint32, when uint32, eq uint32, quant uint32) uint32 {
 	pushW(t, doc)
 	pushW(t, name)
 	pushW(t, tparams)
@@ -651,6 +664,7 @@ func mkLawDecl(t mut Tree, m int, doc uint32, lawW int, name uint32, tparams uin
 	pushW(t, rewrite)
 	pushW(t, when)
 	pushW(t, eq)
+	pushW(t, quant)
 	rec(t, KLawDecl, uint32(lawW), m)
 }
 

@@ -59,7 +59,9 @@ import (
 type testState struct {
 	// stray holds each assert outside a test or law body, already reported
 	// by strayAsserts; the body check types its operand only.
-	stray map[*syntax.AssertStmt]bool
+	stray          map[*syntax.AssertStmt]bool
+	strayAlways    map[*syntax.AlwaysStmt]bool
+	straySometimes map[*syntax.SometimesStmt]bool
 	// names is the one namespace of the package's tests and top-level laws
 	// (rule 1; laws.go rule 1): each name maps to the kind, "test" or
 	// "law", of its first declaration in source order.
@@ -119,23 +121,27 @@ func (c *checker) claimTestName(id *syntax.Ident, kind string) bool {
 // when the literal is called, not as the test's or the law's own statement.
 // A trailing block and a with body are blocks of their owner, not bodies.
 func (c *checker) strayAsserts() {
-	var walk func(root syntax.Node, admits, skips bool)
-	walk = func(root syntax.Node, admits, skips bool) {
+	var walk func(root syntax.Node, admits, skips, inLaw bool)
+	walk = func(root syntax.Node, admits, skips, inLaw bool) {
 		syntax.Inspect(root, func(n syntax.Node) bool {
 			if n == root {
 				return true
 			}
 			switch n := n.(type) {
 			case *syntax.TestDecl:
-				walk(n, true, true)
+				walk(n, true, true, false)
 				return false
 			case *syntax.LawDecl:
 				// A rewrite law's sides and a reachability law's search are no
-				// run: no skip ends them (rule 6).
-				walk(n, true, n.Rewrite == nil && n.Reach == nil)
+				// run: no skip, always or sometimes ends them (rule 6).
+				lawBody := n.Rewrite == nil && n.Reach == nil && n.Equation == nil
+				walk(n, true, n.Rewrite == nil && n.Reach == nil, lawBody)
 				return false
 			case *syntax.FuncLit:
-				walk(n, false, false)
+				// assert and skip do not cross a function literal, whereas
+				// always and sometimes inside a closure nested in a law body
+				// (such as a gen.Check callback) belong to that enclosing law.
+				walk(n, false, false, inLaw)
 				return false
 			case *syntax.SkipStmt:
 				if !skips {
@@ -150,13 +156,31 @@ func (c *checker) strayAsserts() {
 				}
 				c.tests.stray[n] = true
 				c.errorf(n, CodeType, "assert stands only in a test or law body")
+			case *syntax.AlwaysStmt:
+				if inLaw {
+					return true
+				}
+				if c.tests.strayAlways == nil {
+					c.tests.strayAlways = map[*syntax.AlwaysStmt]bool{}
+				}
+				c.tests.strayAlways[n] = true
+				c.errorf(n, CodeType, "always stands only in a law body")
+			case *syntax.SometimesStmt:
+				if inLaw {
+					return true
+				}
+				if c.tests.straySometimes == nil {
+					c.tests.straySometimes = map[*syntax.SometimesStmt]bool{}
+				}
+				c.tests.straySometimes[n] = true
+				c.errorf(n, CodeType, "sometimes stands only in a law body")
 			}
 			return true
 		})
 	}
 	for _, fi := range c.files {
 		c.cur = fi
-		walk(fi.syntax, false, false)
+		walk(fi.syntax, false, false, false)
 	}
 	c.cur = nil
 }
@@ -178,6 +202,30 @@ func (c *checker) assertStmt(s *syntax.AssertStmt) {
 	}
 	if !isBoolean(op.typ) {
 		c.errorf(s.X, CodeType, "assert takes a bool, not %s", op.typ)
+	}
+}
+
+// alwaysStmt checks `always e`. A stray always was reported by strayAsserts;
+// its operand is still typed, so Info covers it.
+func (c *checker) alwaysStmt(s *syntax.AlwaysStmt) {
+	op := c.valueExpr(s.X, nil)
+	if c.tests.strayAlways[s] || op.invalid() {
+		return
+	}
+	if !isBoolean(op.typ) {
+		c.errorf(s.X, CodeType, "always takes a bool, not %s", op.typ)
+	}
+}
+
+// sometimesStmt checks `sometimes e`. A stray sometimes was reported by
+// strayAsserts; its operand is still typed, so Info covers it.
+func (c *checker) sometimesStmt(s *syntax.SometimesStmt) {
+	op := c.valueExpr(s.X, nil)
+	if c.tests.straySometimes[s] || op.invalid() {
+		return
+	}
+	if !isBoolean(op.typ) {
+		c.errorf(s.X, CodeType, "sometimes takes a bool, not %s", op.typ)
 	}
 }
 

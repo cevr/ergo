@@ -90,6 +90,9 @@ type interp struct {
 	// caseEv records structured bounded-test evidence submitted during the
 	// active evaluated test/law case (std testing.RecordCaseEvidence).
 	caseEv evalCaseEvidence
+	// sometimes tracks statically registered `sometimes` statements across
+	// all cases of the active law obligation.
+	sometimes *evalSometimes
 	// pairs are the by-name codec pairs every package's check recorded
 	// (codecwalk.go), built at the first codec call.
 	pairs map[*check.TypeName]*check.WirePair

@@ -90,6 +90,11 @@ type testLowering struct {
 	// importLaws are the imported packages' law runs the build runs
 	// beside the root's (Unit.ImportLaws).
 	importLaws []check.LawRun
+	// sometimesIdx maps each static `sometimes` statement in a lowered law
+	// to its index in that law's static site table.
+	sometimesIdx map[*syntax.SometimesStmt]int
+	// sometimesSites caches each law's static [site, exprText] table.
+	sometimesSites map[*syntax.LawDecl][][2]string
 }
 
 // testLoweringOf is the record of a test build of u, the one every test
@@ -143,7 +148,8 @@ func newTestLowerer(u Unit) *lowerer {
 // name, in the order the naming pass reserves them.
 var testHelpers = []struct{ key, base string }{
 	{"fmt", "fmt"}, {"os", "os"}, {"sort", "sort"}, {"strconv", "strconv"}, {"strings", "strings"},
-	{"Assertion", "ergoAssertion"}, {"AssertFail", "ergoAssertFail"}, {"Reported", "ergoReported"}, {"AssertDiff", "ergoAssertDiff"}, {"Refuted", "ergoRefuted"},
+	{"Assertion", "ergoAssertion"}, {"AssertFail", "ergoAssertFail"}, {"AlwaysFail", "ergoAlwaysFail"}, {"Reported", "ergoReported"}, {"AssertDiff", "ergoAssertDiff"}, {"Refuted", "ergoRefuted"},
+	{"SometimesCheck", "ergoSometimesCheck"}, {"PropExist", "ergoPropExist"}, {"CaseExist", "ergoCaseExist"},
 	{"Case", "ergoCase"}, {"Asserted", "ergoAsserted"}, {"Where", "ergoWhere"},
 	{"Rand", "ergoRand"}, {"NewRand", "ergoNewRand"},
 	{"GenSlice", "ergoGenSlice"}, {"GenMap", "ergoGenMap"},
@@ -287,22 +293,84 @@ func (l *lowerer) nameTests() {
 			return true
 		})
 	}
-	if l.ir != nil {
-		l.pkgName(refutedKey, "ergoLawRefuted") // ir_assert.go
-		// A law's asserts may take a helper in the IR too: each is named,
-		// since a law of another package is shown under its own Info.
-		for _, r := range l.runLaws() {
-			if r.Law == nil {
-				continue
-			}
-			syntax.Inspect(r.Law.Decl, func(n syntax.Node) bool {
-				if a, ok := n.(*syntax.AssertStmt); ok {
+	for _, r := range l.runLaws() {
+		if r.Law == nil {
+			continue
+		}
+		l.lawSometimesSites(r.Law)
+		syntax.Inspect(r.Law.Decl, func(n syntax.Node) bool {
+			var x syntax.Expr
+			switch a := n.(type) {
+			case *syntax.AssertStmt:
+				if l.ir != nil {
 					l.pkgName(assertShowKey(a), "ergoAssertShow")
 				}
-				return true
-			})
-		}
+				x = a.X
+			case *syntax.AlwaysStmt:
+				if l.ir != nil {
+					l.pkgName(assertShowKey(a), "ergoAssertShow")
+				}
+				x = a.X
+			}
+			if x != nil && r.Law.Pkg == l.pkg {
+				if _, lt, rt, shown := l.assertShown(x); shown {
+					reserveLit(lt)
+					reserveLit(rt)
+				}
+			}
+			return true
+		})
 	}
+	if l.ir != nil {
+		l.pkgName(refutedKey, "ergoLawRefuted") // ir_assert.go
+	}
+}
+
+// lawSometimesSites registers and returns the static [site, exprText] table
+// of every `sometimes` statement inside law's body (including nested closures).
+func (l *lowerer) lawSometimesSites(law *check.Law) [][2]string {
+	if l.tests == nil || law == nil || law.Decl == nil || law.Decl.Body == nil {
+		return nil
+	}
+	if sites, ok := l.tests.sometimesSites[law.Decl]; ok {
+		return sites
+	}
+	if l.tests.sometimesSites == nil {
+		l.tests.sometimesSites = map[*syntax.LawDecl][][2]string{}
+	}
+	if l.tests.sometimesIdx == nil {
+		l.tests.sometimesIdx = map[*syntax.SometimesStmt]int{}
+	}
+	defer l.leave(l.enter(law.Decl.Name, law.Pkg))
+	var sites [][2]string
+	syntax.Inspect(law.Decl.Body, func(n syntax.Node) bool {
+		if s, ok := n.(*syntax.SometimesStmt); ok {
+			idx := len(sites)
+			l.tests.sometimesIdx[s] = idx
+			i, _, _, _ := l.at(s.X, s.X.Pos())
+			exprText := ""
+			if i >= 0 && i < len(l.srcs) && int(s.X.End()) <= len(l.srcs[i].text) {
+				exprText = l.srcs[i].text[s.X.Pos():s.X.End()]
+			}
+			sites = append(sites, [2]string{l.siteText(s), exprText})
+		}
+		return true
+	})
+	l.tests.sometimesSites[law.Decl] = sites
+	return sites
+}
+
+func (l *lowerer) emitSometimesBegin(b *strings.Builder, ind string, law *check.Law) bool {
+	sites := l.lawSometimesSites(law)
+	if len(sites) == 0 {
+		return false
+	}
+	parts := make([]string, len(sites))
+	for i, s := range sites {
+		parts[i] = "{" + strconv.Quote(s[0]) + ", " + strconv.Quote(s[1]) + "}"
+	}
+	b.WriteString(ind + l.rt() + ".LawSometimesBegin([][2]string{" + strings.Join(parts, ", ") + "})\n")
+	return true
 }
 
 // genRoots calls f on each type the test build generates a value of: the
@@ -721,21 +789,41 @@ func (l *lowerer) testDecl(d *syntax.TestDecl) {
 // one: the checker refuses an assert outside a test or law body (S108), and
 // the run build lowers no test body.
 func (fc *funcCtx) assert(s *syntax.AssertStmt) {
+	fc.checkAssertStmt(s, s.X, "AssertFail")
+}
+
+func (fc *funcCtx) always(s *syntax.AlwaysStmt) {
+	fc.checkAssertStmt(s, s.X, "AlwaysFail")
+}
+
+func (fc *funcCtx) sometimes(s *syntax.SometimesStmt) {
+	if fc.l.tests == nil {
+		ice(s, "a sometimes reached the run build, which lowers no test or law body")
+	}
+	idx, ok := fc.l.tests.sometimesIdx[s]
+	if !ok {
+		ice(s, "sometimes statement not registered")
+	}
+	cond := fc.value(s.X)
+	fc.line(fc.l.rt() + ".LawSometimesHit(" + strconv.Itoa(idx) + ", bool(" + cond + "))")
+}
+
+func (fc *funcCtx) checkAssertStmt(s syntax.Stmt, expr syntax.Expr, helper string) {
 	if fc.l.tests == nil {
 		ice(s, "an assert reached the run build, which lowers no test or law body")
 	}
-	i, _, _, _ := fc.l.at(s.X, s.X.Pos())
-	text := strconv.Quote(fc.l.srcs[i].text[s.X.Pos():s.X.End()])
+	i, _, _, _ := fc.l.at(expr, expr.Pos())
+	text := strconv.Quote(fc.l.srcs[i].text[expr.Pos():expr.End()])
 	var cond string
-	if x, lt, rt, ok := fc.l.assertShown(s.X); ok {
+	if x, lt, rt, ok := fc.l.assertShown(expr); ok {
 		// A try that starts the assert covers the whole comparison: its
 		// operands are lowered under it, as (try a) == b lowers a (q105).
-		cond, text = fc.underTriedAssert(s.X, func() (string, string) { return fc.assertCompare(x, lt, rt, text) })
+		cond, text = fc.underTriedAssert(expr, func() (string, string) { return fc.assertCompare(x, lt, rt, text) })
 	} else {
-		cond = fc.value(s.X)
+		cond = fc.value(expr)
 	}
 	fc.line("if !(" + cond + ") {")
-	fc.line("\t" + fc.l.helper("AssertFail") + "(" + strconv.Quote(fc.l.siteText(s)) + ", " + text + ")")
+	fc.line("\t" + fc.l.helper(helper) + "(" + strconv.Quote(fc.l.siteText(s)) + ", " + text + ")")
 	fc.line("}")
 }
 
@@ -1182,7 +1270,11 @@ func (l *lowerer) lawTarget(b *strings.Builder, law *check.Law, label string, bd
 			return
 		}
 		inner := newNamer(scope)
-		r, ok, i, drawFn, extra := inner.alloc("r"), inner.alloc("ok"), inner.alloc("i"), inner.alloc("draw"), inner.alloc("extra")
+		r, ok, i, drawFn := inner.alloc("r"), inner.alloc("ok"), inner.alloc("i"), inner.alloc("draw")
+		extra := ""
+		if !law.Sometimes {
+			extra = inner.alloc("extra")
+		}
 		name := strconv.Quote(tg.label) + ", " + at
 		cases := testCases
 		if l.postRun(law, tg.b) {
@@ -1192,7 +1284,11 @@ func (l *lowerer) lawTarget(b *strings.Builder, law *check.Law, label string, bd
 		b.WriteString("\t\t" + r + " := " + l.helper("NewRand") + "(" + seed + ", " + strconv.Quote(tg.label) + ")\n")
 		b.WriteString("\t\t" + r + ".env = " + env + "\n")
 		b.WriteString("\t\t" + i + " := 0\n")
-		b.WriteString("\t\t" + drawFn + " := func() (func() string, func() error) {\n")
+		if law.Sometimes {
+			b.WriteString("\t\t" + drawFn + " := func() (func() string, func() (bool, error)) {\n")
+		} else {
+			b.WriteString("\t\t" + drawFn + " := func() (func() string, func() error) {\n")
+		}
 		shown := []string{strconv.Quote("case "), conv + ".Itoa(" + i + ")", strconv.Quote(" of " + strconv.Itoa(cases) + ", seed "), conv + ".FormatUint(" + seed + ", 10)", strconv.Quote(", size "), conv + ".Itoa(" + i + " / 4)"}
 		sep := ": "
 		var bind []string
@@ -1353,15 +1449,48 @@ func (l *lowerer) lawTarget(b *strings.Builder, law *check.Law, label string, bd
 			b.WriteString("\t\t\tif " + admitted + " { " + r + ".admitted++ }; if " + admitted + " && " + distinct + " { " + r + ".distinct++ }\n")
 			prefix = "if !" + admitted + " { return nil }; " + prefix
 		}
+		if law.Sometimes {
+			prefixExist := prefix
+			if admitted != "" {
+				prefixExist = "if !" + admitted + " { return false, nil }; " + prefixExist[len("if !"+admitted+" { return nil }; "):]
+			}
+			body := e + " := *" + env + "; " + strings.Join(append(bind, ""), "; ") + prefixExist +
+				"return " + callee + "(" + strings.Join(args, ", ") + ")"
+			b.WriteString("\t\t\treturn func() string { return " + strings.Join(shown, " + ") + " }, func() (bool, error) { " + body + " }\n\t\t}\n")
+			hasSometimes := l.emitSometimesBegin(b, "\t\t", law)
+			found, witness := inner.alloc("found"), inner.alloc("witness")
+			b.WriteString("\t\t" + ok + ", " + found + ", " + witness + " := true, false, \"\"\n")
+			b.WriteString("\t\tfor " + i + " = 1; " + ok + " && !" + found + " && " + i + " <= " + strconv.Itoa(cases) + "; " + i + "++ {\n")
+			b.WriteString("\t\t\t" + r + ".start(" + i + ")\n")
+			b.WriteString("\t\t\t" + ok + ", " + found + ", " + witness + " = " + l.helper("PropExist") + "(" + taskOf(env) + ", " + name + ", " + r + ", " + drawFn + ")\n")
+			b.WriteString("\t\t}\n")
+			b.WriteString("\t\tif " + ok + " && !" + found + " {\n")
+			b.WriteString("\t\t\t" + ok + " = false\n")
+			b.WriteString("\t\t\t" + r + ".failure = " + strconv.Quote(fmt.Sprintf("no witness found across %d cases", cases)) + "\n")
+			b.WriteString("\t\t\t" + fmtPkg + ".Println(" + strconv.Quote(fmt.Sprintf("FAIL %s: no witness found across %d cases", tg.label, cases)) + ")\n")
+			b.WriteString("\t\t}\n")
+			if hasSometimes {
+				b.WriteString("\t\tif " + ok + " {\n\t\t\t" + ok + " = " + l.helper("SometimesCheck") + "(" + strconv.Quote(tg.label) + ", " + r + ".cases, " + r + ")\n\t\t} else {\n\t\t\t_, _, _ = " + l.rt() + ".LawSometimesEnd()\n\t\t}\n")
+			}
+			b.WriteString("\t\tif " + ok + " {\n\t\t\t" + fmtPkg + ".Println(" + strconv.Quote("ok "+tg.label+" (witness found at ") + " + " + witness + " + \")\")\n")
+			b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n")
+			b.WriteString("\t\t\t" + l.replayLine(law, strconv.Quote("--seed ")+" + "+conv+".FormatUint("+seed+", 10)") + "\n\t\t}\n")
+			b.WriteString("\t\t" + l.helper("Record") + "(" + strconv.Quote(tg.label) + ", " + r + ", \"\")\n\t}\n")
+			return
+		}
 		body := e + " := *" + env + "; " + strings.Join(append(bind, ""), "; ") + prefix +
 			held + ", " + err + " := " + callee + "(" + strings.Join(args, ", ") + "); if " + err + " != nil { return " + err + " }; if !" + held + " { " + l.helper("Refuted") + "(" + at + ") }; return nil"
 		b.WriteString("\t\t\treturn func() string { return " + strings.Join(shown, " + ") + " }, func() error { " + body + " }\n\t\t}\n")
+		hasSometimes := l.emitSometimesBegin(b, "\t\t", law)
 		b.WriteString("\t\t" + ok + ", " + extra + " := " + l.helper("ReplayStored") + "(" + taskOf(env) + ", " + name + ", " + r + ", " + drawFn + ")\n")
 		b.WriteString("\t\tif !" + l.helper("PruneTapes") + " {\n")
 		b.WriteString("\t\t\tfor " + i + " = 1; " + ok + " && " + i + " <= " + strconv.Itoa(cases) + "; " + i + "++ {\n")
 		b.WriteString("\t\t\t\t" + r + ".start(" + i + ")\n")
 		b.WriteString("\t\t\t\t" + ok + " = " + l.helper("Prop") + "(" + taskOf(env) + ", " + name + ", " + r + ", " + drawFn + ")\n")
 		b.WriteString("\t\t\t}\n\t\t}\n")
+		if hasSometimes {
+			b.WriteString("\t\tif " + ok + " && !" + l.helper("PruneTapes") + " {\n\t\t\t" + ok + " = " + l.helper("SometimesCheck") + "(" + strconv.Quote(tg.label) + ", " + r + ".cases, " + r + ")\n\t\t} else {\n\t\t\t_, _, _ = " + l.rt() + ".LawSometimesEnd()\n\t\t}\n")
+		}
 		okLine := strconv.Quote(fmt.Sprintf("ok %s (%d cases", tg.label, cases)) + " + " + l.helper("ExtraNote") + "(" + extra + ") + \")\""
 		if l.postRun(law, tg.b) {
 			okLine = strconv.Quote(fmt.Sprintf("ok %s (%d cases, prefixes up to ", tg.label, cases)) + " + " + conv + ".Itoa(" + r + ".deepest) + " + strconv.Quote(" operations") + " + " + l.helper("ExtraNote") + "(" + extra + ") + \")\""
@@ -1505,6 +1634,21 @@ func (a $Assertion) String() string {
 
 func $AssertFail(at, text string) { panic($Assertion{at: at, text: text}) }
 
+func $AlwaysFail(at, text string) { panic($Assertion{at: at, text: text, what: "always failed"}) }
+
+func $SometimesCheck(label string, cases int, r *$Rand) bool {
+	site, expr, ok := $Runtime.LawSometimesEnd()
+	if ok {
+		return true
+	}
+	msg := site + ": sometimes " + expr + " was never true across " + $strconv.Itoa(cases) + " cases"
+	if r != nil {
+		r.failure = msg
+	}
+	$fmt.Println("FAIL " + label + ": " + msg)
+	return false
+}
+
 // $Reported fails a harnessed test with its harness's message as the
 // whole report (check.CallTestReport).
 func $Reported(text string) { panic($Assertion{report: text}) }
@@ -1586,6 +1730,26 @@ func $Case(t *$Task.Task, name, at string, args func() string, body func() error
 	}
 	$fmt.Println("FAIL " + name + $Where(args) + ": " + msg)
 	return false
+}
+
+func $CaseExist(t *$Task.Task, name, at string, args func() string, body func() (bool, error)) (bool, bool) {
+	var held bool
+	msg, kind, exit := $Try(t, at, func() error {
+		var err error
+		held, err = body()
+		return err
+	})
+	switch kind {
+	case 0:
+		return true, held
+	case 3:
+		$fmt.Println("FAIL " + name + $Where(args) + ": a defect, which stops the run")
+		$Runtime.Raise(exit)
+	case 4:
+		$Skipping(name, msg)
+	}
+	$fmt.Println("FAIL " + name + $Where(args) + ": " + msg)
+	return false, false
 }
 
 // $Try runs one case's body on the task t and says how it ended, printing
@@ -1776,6 +1940,75 @@ func $Prop(t *$Task.Task, name, at string, r *$Rand, draw func() (func() string,
 	}
 	$fmt.Println("FAIL " + name + " (" + text + "): " + smsg)
 	return false
+}
+
+func $PropExist(t *$Task.Task, name, at string, r *$Rand, draw func() (func() string, func() (bool, error))) (bool, bool, string) {
+	r.stream.Record()
+	r.cases++
+	var args func() string
+	var held bool
+	msg, kind, exit := $Try(t, at, func() error {
+		var body func() (bool, error)
+		args, body = draw()
+		var err error
+		held, err = body()
+		return err
+	})
+	$ApplyEvidence(r, $LastEvidence)
+	switch kind {
+	case 0:
+		if held {
+			w := ""
+			if args != nil {
+				w = args()
+			}
+			return true, true, w
+		}
+		return true, false, ""
+	case 3:
+		$fmt.Println("FAIL " + name + $Where(args) + ": a defect, which stops the run")
+		$Runtime.Raise(exit)
+	case 4:
+		$Skipping(name, msg)
+	}
+	drawn := r.stream.Tape()
+	replay := func(c []uint64) (func() string, string, int) {
+		r.stream.Replay(c)
+		var shown func() string
+		m, k, _ := $Try(t, at, func() error {
+			var body func() (bool, error)
+			shown, body = draw()
+			_, err := body()
+			return err
+		})
+		return shown, m, k
+	}
+	best, _ := $Runtime.ShrinkTape(drawn, func(c []uint64) bool {
+		_, _, k := replay(c)
+		return k == kind
+	}, 500)
+	shown, smsg, skind := args, msg, kind
+	steps := len(best) != len(drawn)
+	for i := 0; !steps && i < len(best); i++ {
+		steps = best[i] != drawn[i]
+	}
+	if steps {
+		shown, smsg, skind = replay(best)
+		if skind != kind {
+			shown, smsg, steps = args, msg, false
+		}
+	}
+	r.stream.EndReplay()
+	r.failure = shown()
+	text := r.failure
+	if drawn := args(); steps && drawn != text {
+		if i := $strings.Index(drawn, ": "); i >= 0 {
+			drawn = drawn[i+2:]
+		}
+		text += "; shrunk from: " + drawn
+	}
+	$fmt.Println("FAIL " + name + " (" + text + "): " + smsg)
+	return false, false, ""
 }
 
 type $StoredTape struct {

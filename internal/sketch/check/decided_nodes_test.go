@@ -896,6 +896,14 @@ law AddCommutes(a int, b int) {
 }
 func main() {}
 `, nil},
+	{"law", "an existential law with always and sometimes statements", `
+law CanHit sometimes(x int) {
+	always x == x
+	sometimes x > 0
+	x > 0
+}
+func main() {}
+`, nil},
 	{"law", "a type with laws and no operations", `
 func add(a int, b int) int { a + b }
 type AddLaws {

@@ -166,6 +166,7 @@ var nodeTable = map[string]nodeEntry{
 	"TupleExpr":   {"tuple value", ""},
 	"VariantSpec": {"variant in place", ""},
 	"LawDecl":     {"law", ""}, "LawReach": {"machine", ""}, "TestDecl": {"test", ""}, "AssertStmt": {"assert", ""}, "SkipStmt": {"skip", ""},
+	"AlwaysStmt": {"law", ""}, "SometimesStmt": {"law", ""},
 	// The forms that left the language left the syntax package in
 	// lower-v1 stage 5 (D10), so no type names notBuiltFamily today.
 }

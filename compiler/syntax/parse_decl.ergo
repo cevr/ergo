@@ -891,7 +891,7 @@ func parseMachineLaw(p mut parser, doc uint32) uint32 {
 		expected(p, "expected (, reaches, never reaches, path, always or sometimes after a machine law's name, found ")
 	}
 	let r = mkLawReach(&p.t, m, never, word, path, lbrack, rbrack, invariant, pred)
-	mkLawDecl(&p.t, mark(p.t), doc, lawTok, name, none, none, none, some(r), uint32(0), none, none)
+	mkLawDecl(&p.t, mark(p.t), doc, lawTok, name, none, none, none, some(r), uint32(0), none, none, none)
 }
 
 func parseFuncDecl(p mut parser, doc uint32) uint32 {
@@ -1070,6 +1070,11 @@ func parseTestDecl(p mut parser, doc uint32) uint32 {
 func parseLawDecl(p mut parser, doc uint32, top bool) uint32 {
 	let lawTok = want(p, Law)
 	let name = parseIdent(p)
+	let mut quant = none
+	if (isWord(p, "always") || isWord(p, "sometimes")) && (peek(p, 1) == LParen || peek(p, 1) == LBrack) {
+		quant = someTok(p.i)
+		next(p)
+	}
 	// Member laws and top-level rewrites have their own brackets.
 	let mut tparams = none
 	let tparamPos = pos(p)
@@ -1092,7 +1097,7 @@ func parseLawDecl(p mut parser, doc uint32, top bool) uint32 {
 		if top && tparams != none {
 			errorAt(p, tparamPos, 1, "only a rewrite law over functions has type parameters, law L[T](x T) { f(g(x)) } == { x }; state a property at concrete types, or as a member of the protocol's operation type")
 		}
-		return mkLawDecl(&p.t, mark(p.t), doc, lawTok, name, tparams, some(params), some(lhs), none, uint32(0), none, none)
+		return mkLawDecl(&p.t, mark(p.t), doc, lawTok, name, tparams, some(params), some(lhs), none, uint32(0), none, none, quant)
 	}
 	if top && when != none {
 		errorAt(p, tpos(p, int(when)-1), 4, "a top-level rewrite law takes no when: a law over functions has no guard in v1, and a law true only under a guard stays a property")
@@ -1121,7 +1126,7 @@ func parseLawDecl(p mut parser, doc uint32, top bool) uint32 {
 	pushW(&p.t, lhs)
 	pushW(&p.t, rhs)
 	let body = mkBlock(&p.t, bm, int(p.t.tok[int(lhs)]), int(fixed(p.t, rhs, 1, 0)))
-	mkLawDecl(&p.t, mark(p.t), doc, lawTok, name, tparams, some(params), some(body), none, if top { uint32(2) } else { uint32(1) }, when, eq)
+	mkLawDecl(&p.t, mark(p.t), doc, lawTok, name, tparams, some(params), some(body), none, if top { uint32(2) } else { uint32(1) }, when, eq, quant)
 }
 
 // oneSide refuses a side of a top-level rewrite law that is not one

@@ -820,6 +820,10 @@ func (w *ownWalk) stmt(s syntax.Stmt) {
 		w.loop(s, nil, s.Body, w.rangeBinds(s))
 	case *syntax.AssertStmt:
 		w.region(s, func() { w.expr(s.X, mLend, hand{}) })
+	case *syntax.AlwaysStmt:
+		w.region(s, func() { w.expr(s.X, mLend, hand{}) })
+	case *syntax.SometimesStmt:
+		w.region(s, func() { w.expr(s.X, mLend, hand{}) })
 	}
 }
 

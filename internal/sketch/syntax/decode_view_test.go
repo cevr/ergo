@@ -151,7 +151,11 @@ func (d *dumper) node(depth int, n Node) {
 			}
 			body = &BlockStmt{Lbrace: e.LhsLbrace, List: []Stmt{side(e.LhsLbrace, e.LhsRbrace, lhs), side(e.RhsLbrace, e.RhsRbrace, rhs)}, Rbrace: e.RhsRbrace}
 		}
-		d.line(depth, "LawDecl %s doc=%d Law=%d Rewrite=%d When=%d Eq=%d", at, d.doc(x.Doc), x.Law, rewrite, when, eq)
+		quant := ""
+		if x.Quant != "" {
+			quant = " Quant=" + x.Quant
+		}
+		d.line(depth, "LawDecl %s doc=%d Law=%d Rewrite=%d When=%d Eq=%d%s", at, d.doc(x.Doc), x.Law, rewrite, when, eq, quant)
 		d.node(c, x.Name)
 		d.node(c, x.Params)
 		d.node(c, body)
@@ -438,6 +442,12 @@ func (d *dumper) node(depth int, n Node) {
 		d.line(depth, "SkipStmt %s Skip=%d ReasonPos=%d Reason=%s", at, x.Skip, x.ReasonPos, strconv.Quote(x.Reason))
 	case *DieStmt:
 		d.line(depth, "DieStmt %s Die=%d", at, x.Die)
+		d.node(c, x.X)
+	case *AlwaysStmt:
+		d.line(depth, "AlwaysStmt %s Always=%d", at, x.Always)
+		d.node(c, x.X)
+	case *SometimesStmt:
+		d.line(depth, "SometimesStmt %s Sometimes=%d", at, x.Sometimes)
 		d.node(c, x.X)
 	default:
 		d.line(depth, "unknown %T", n)

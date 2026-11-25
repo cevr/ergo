@@ -57,7 +57,9 @@ var externPlaceRows = map[string]externPlaceRow{
 	"CallExpr.Fun": {guardCallee, "func main() { _ = @Upper(\"x\") }\n"},
 
 	// Values.
+	"AlwaysStmt.X":             {guardValue, "law L() {\n\talways @Upper\n\ttrue\n}\n"},
 	"AssertStmt.X":             {guardValue, "test T {\n\tassert @Upper\n}\n"},
+	"SometimesStmt.X":          {guardValue, "law L() {\n\tsometimes @Upper\n\ttrue\n}\n"},
 	"AssignStmt.Lhs":           {guardValue, "func main() {\n\t@Upper = upper\n}\nfunc upper(s string) string { s }\n"},
 	"AssignStmt.Rhs":           {guardValue, "func main() {\n\t_ = @Upper\n}\n"},
 	"BinaryExpr.X":             {guardValue, "func main() {\n\tlet k = 1\n\t_ = @Upper == k\n}\n"},

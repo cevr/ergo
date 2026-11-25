@@ -107,6 +107,10 @@ type LawDecl struct {
 	Doc  *CommentGroup
 	Law  Pos
 	Name *Ident
+	// Quant is the optional contextual quantifier after the law's name
+	// (`law Name sometimes(...)` or `law Name always(...)`), or "".
+	QuantPos Pos
+	Quant    string
 	// TypeParams are a top-level rewrite law's type parameters (`law
 	// L[T, U](…) { lhs } == { rhs }`, owner q234), nil without a list.
 	TypeParams *FieldList
@@ -133,6 +137,9 @@ type LawDecl struct {
 	// trip the parser derived this law from (pair.go), or nil.
 	Pair *FuncDecl
 }
+
+// IsSometimes reports whether d is an existential law (`law Name sometimes(...)`).
+func (d *LawDecl) IsSometimes() bool { return d != nil && d.Quant == "sometimes" }
 
 func (d *LawDecl) Pos() Pos { return d.Law }
 func (d *LawDecl) End() Pos {
@@ -252,6 +259,28 @@ type DieStmt struct {
 func (s *DieStmt) Pos() Pos { return s.Die }
 func (s *DieStmt) End() Pos { return s.X.End() }
 func (*DieStmt) stmtNode()  {}
+
+// AlwaysStmt is `always e`: an invariant check statement inside a law body.
+type AlwaysStmt struct {
+	Always Pos
+	X      Expr
+}
+
+func (s *AlwaysStmt) Pos() Pos { return s.Always }
+func (s *AlwaysStmt) End() Pos { return s.X.End() }
+func (*AlwaysStmt) stmtNode()  {}
+
+// SometimesStmt is `sometimes e`: an existential witness check statement
+// inside a law body, statically registered and required to evaluate true
+// at least once across the law's cases.
+type SometimesStmt struct {
+	Sometimes Pos
+	X         Expr
+}
+
+func (s *SometimesStmt) Pos() Pos { return s.Sometimes }
+func (s *SometimesStmt) End() Pos { return s.X.End() }
+func (*SometimesStmt) stmtNode()  {}
 
 // SkipStmt is `skip "reason"` (runtime.md, Tests 4): it ends the test or
 // law run it stands in as skipped, with the reason, a string literal.

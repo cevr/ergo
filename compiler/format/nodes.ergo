@@ -142,6 +142,10 @@ func decl(p mut Printer, d dense.ID[syntax.Node]) {
 		p.token(p.tp(x.Law), "law")
 		p.space()
 		p.ident(x.Name)
+		if x.Quant >= 0 {
+			p.space()
+			p.token(p.tp(x.Quant), p.text(x.Quant))
+		}
 		if some(x.TypeParams) {
 			p.fieldList(the(x.TypeParams), "[", "]")
 		}
@@ -765,6 +769,10 @@ func memberLaw(p mut Printer, l dense.ID[syntax.Node]) {
 		p.token(p.tp(r.Rbrack), "]")
 		return
 	}
+	if x.Quant >= 0 {
+		p.space()
+		p.token(p.tp(x.Quant), p.text(x.Quant))
+	}
 	if some(x.TypeParams) {
 		p.fieldList(the(x.TypeParams), "[", "]")
 	}
@@ -953,6 +961,16 @@ func stmt(p mut Printer, x dense.ID[syntax.Node]) {
 	} else if k == syntax.KDieStmt {
 		let s = syntax.DieStmtOf(p.P.Tree, x)
 		p.token(p.tp(s.Die), "die")
+		p.space()
+		p.expr(s.X)
+	} else if k == syntax.KAlwaysStmt {
+		let s = syntax.AlwaysStmtOf(p.P.Tree, x)
+		p.token(p.tp(s.Always), "always")
+		p.space()
+		p.expr(s.X)
+	} else if k == syntax.KSometimesStmt {
+		let s = syntax.SometimesStmtOf(p.P.Tree, x)
+		p.token(p.tp(s.Sometimes), "sometimes")
 		p.space()
 		p.expr(s.X)
 	} else if k == syntax.KBlockStmt {

@@ -167,7 +167,7 @@ func (l *lowerer) listedRuns(b *strings.Builder, law *check.Law, label string, b
 		vals = append(vals, listedValue{v.Name, v.Type})
 	}
 	at := strconv.Quote(l.siteText(law.Decl))
-	return l.listedRun(b, label, law.Decl, vals, true, scope, env, failed, l.replayLine(law, `""`), func(inner *namer, vs []string) string {
+	return l.listedRun(b, label, law.Decl, vals, law, scope, env, failed, l.replayLine(law, `""`), func(inner *namer, vs []string) string {
 		e, held, err := inner.alloc("e"), inner.alloc("held"), inner.alloc("err")
 		fc := newFuncCtx(l, inner, false)
 		fc.site = law.Decl
@@ -205,6 +205,9 @@ func (l *lowerer) listedRuns(b *strings.Builder, law *check.Law, label string, b
 			}
 			args = append(args, vs[i])
 		}
+		if law.Sometimes {
+			return e + " := *" + env + "; " + bind + "return " + callee + "(" + strings.Join(args, ", ") + ")"
+		}
 		return e + " := *" + env + "; " + bind + held + ", " + err + " := " + callee + "(" + strings.Join(args, ", ") + "); if " + err + " != nil { return " + err + " }; if !" + held + " { " + l.helper("Refuted") + "(" + at + ") }; return nil"
 	})
 }
@@ -223,7 +226,7 @@ func (l *lowerer) listedTest(b *strings.Builder, t *check.Test, scope *namer, en
 	for i, v := range plan.Inputs {
 		vals[i] = listedValue{v.Name, v.Type}
 	}
-	return l.listedRun(b, t.Name, t.Decl, vals, false, scope, env, failed, "", func(_ *namer, bound []string) string {
+	return l.listedRun(b, t.Name, t.Decl, vals, nil, scope, env, failed, "", func(_ *namer, bound []string) string {
 		return "return " + l.testFunc(t) + "(" + strings.Join(append([]string{env}, bound...), ", ") + ")"
 	})
 }
@@ -236,7 +239,9 @@ func (l *lowerer) listedTest(b *strings.Builder, t *check.Test, scope *namer, en
 // its first case that fails, then prints replay, the command that reruns
 // it, when replay is not empty. A law's run adds its receipt entry
 // ($Record): proved, or refuted with its case (L10).
-func (l *lowerer) listedRun(b *strings.Builder, label string, site syntax.Node, vals []listedValue, law bool, scope *namer, env, failed, replay string, call func(inner *namer, bound []string) string) bool {
+func (l *lowerer) listedRun(b *strings.Builder, label string, site syntax.Node, vals []listedValue, lawObj *check.Law, scope *namer, env, failed, replay string, call func(inner *namer, bound []string) string) bool {
+	law := lawObj != nil
+	existential := law && lawObj.Sometimes
 	types := make([]check.Type, len(vals))
 	for i, v := range vals {
 		types[i] = v.t
@@ -257,9 +262,16 @@ func (l *lowerer) listedRun(b *strings.Builder, label string, site syntax.Node, 
 		b.WriteString("\t{\n\t\t" + ok1 + " := true\n")
 	}
 	rec := ""
+	hasSometimes := false
+	found, witness := "", ""
 	if law {
 		rec = inner.alloc("rec")
 		b.WriteString("\t\t" + rec + " := &" + l.helper("Rand") + "{}\n")
+		hasSometimes = l.emitSometimesBegin(b, "\t\t", lawObj)
+		if existential {
+			found, witness = inner.alloc("found"), inner.alloc("witness")
+			b.WriteString("\t\t" + found + ", " + witness + " := false, \"\"\n")
+		}
 	}
 	shown := []string{strconv.Quote("case "), conv + ".Itoa(" + k + ")", strconv.Quote(" of " + strconv.Itoa(cases) + ", every value")}
 	ind := "\t\t"
@@ -281,22 +293,31 @@ func (l *lowerer) listedRun(b *strings.Builder, label string, site syntax.Node, 
 		shown = append(shown, strconv.Quote(sep+v.name+" = "), l.litExpr(v.t, a, site))
 	}
 	body := call(inner, bound)
-	// The first refuted case ends the run; the cases after it are skipped.
-	b.WriteString(ind + "if " + ok1 + " {\n")
+	cond := ok1
+	if existential {
+		cond = ok1 + " && !" + found
+	}
+	// The first refuted case (or first witness for an existential law) ends the run.
+	b.WriteString(ind + "if " + cond + " {\n")
 	describe := "nil"
 	if len(vals) > 0 {
 		b.WriteString(ind + "\t" + k + "++\n")
 		describe = "func() string { return " + strings.Join(shown, " + ") + " }"
 	}
-	b.WriteString(ind + "\t" + ok1 + " = " + run + "(" + taskOf(env) + ", " + strconv.Quote(label) + ", " + at + ", " + describe + ", func() error { " + body + " })\n")
-	if law {
+	cex := strconv.Quote("()")
+	if len(vals) > 0 {
+		cex = describe + "()"
+	}
+	if existential {
+		b.WriteString(ind + "\t" + ok1 + ", " + found + " = " + l.helper("CaseExist") + "(" + taskOf(env) + ", " + strconv.Quote(label) + ", " + at + ", " + describe + ", func() (bool, error) { " + body + " })\n")
 		b.WriteString(ind + "\t" + l.helper("ApplyEvidence") + "(" + rec + ", " + l.helper("LastEvidence") + ")\n")
-		// The receipt's counterexample is the refuted case's text.
-		cex := strconv.Quote("()")
-		if len(vals) > 0 {
-			cex = describe + "()"
+		b.WriteString(ind + "\tif " + found + " {\n" + ind + "\t\t" + witness + " = " + cex + "\n" + ind + "\t} else if !" + ok1 + " {\n" + ind + "\t\t" + rec + ".failure = " + cex + "\n" + ind + "\t}\n")
+	} else {
+		b.WriteString(ind + "\t" + ok1 + " = " + run + "(" + taskOf(env) + ", " + strconv.Quote(label) + ", " + at + ", " + describe + ", func() error { " + body + " })\n")
+		if law {
+			b.WriteString(ind + "\t" + l.helper("ApplyEvidence") + "(" + rec + ", " + l.helper("LastEvidence") + ")\n")
+			b.WriteString(ind + "\tif !" + ok1 + " {\n" + ind + "\t\t" + rec + ".failure = " + cex + "\n" + ind + "\t}\n")
 		}
-		b.WriteString(ind + "\tif !" + ok1 + " {\n" + ind + "\t\t" + rec + ".failure = " + cex + "\n" + ind + "\t}\n")
 	}
 	b.WriteString(ind + "}\n")
 	for range vals {
@@ -309,7 +330,22 @@ func (l *lowerer) listedRun(b *strings.Builder, label string, site syntax.Node, 
 			n = k
 		}
 		b.WriteString("\t\t" + rec + ".cases = " + n + "\n")
-		b.WriteString("\t\tif " + ok1 + " {\n\t\t\t" + l.helper("FinishListedLaw") + "(" + strconv.Quote(label) + ", " + strconv.Itoa(cases) + ", " + rec + ")\n")
+		if existential {
+			noWitness := "no witness found across " + strconv.Itoa(cases) + " cases"
+			b.WriteString("\t\tif " + ok1 + " && !" + found + " {\n")
+			b.WriteString("\t\t\t" + ok1 + " = false\n")
+			b.WriteString("\t\t\t" + rec + ".failure = " + strconv.Quote(noWitness) + "\n")
+			b.WriteString("\t\t\t" + fmtPkg + ".Println(" + strconv.Quote("FAIL "+label+": "+noWitness) + ")\n")
+			b.WriteString("\t\t}\n")
+		}
+		if hasSometimes {
+			b.WriteString("\t\tif " + ok1 + " {\n\t\t\t" + ok1 + " = " + l.helper("SometimesCheck") + "(" + strconv.Quote(label) + ", " + rec + ".cases, " + rec + ")\n\t\t} else {\n\t\t\t_, _, _ = " + l.rt() + ".LawSometimesEnd()\n\t\t}\n")
+		}
+		if existential {
+			b.WriteString("\t\tif " + ok1 + " {\n\t\t\t" + rec + ".proved = true\n\t\t\t" + fmtPkg + ".Println(" + strconv.Quote("ok "+label+" (proved: witness found at ") + " + " + witness + " + \")\")\n")
+		} else {
+			b.WriteString("\t\tif " + ok1 + " {\n\t\t\t" + l.helper("FinishListedLaw") + "(" + strconv.Quote(label) + ", " + strconv.Itoa(cases) + ", " + rec + ")\n")
+		}
 		b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n")
 		if replay != "" {
 			b.WriteString("\t\t\t" + replay + "\n")
