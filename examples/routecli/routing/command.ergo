@@ -1,9 +1,10 @@
+import option
 import strconv
 import strings
 
 // Command is the typed input to a route planner. Parsing does not choose
 // a network or a storage provider.
-type Command = Add{Name string, Note Option[string], Priority Option[int], Targets []string} | List{}
+type Command = Add{Name string, Note option.Option[string], Priority option.Option[int], Targets []string} | List{}
 
 func Describe(c Command) string {
 	match c {
@@ -11,15 +12,15 @@ func Describe(c Command) string {
 		"list routes"
 	case Add as a:
 		let note = match a.Note {
-		case None:
+		case option.None:
 			"absent"
-		case Some as n:
+		case option.Some as n:
 			strconv.Quote(n.Value)
 		}
 		let priority = match a.Priority {
-		case None:
+		case option.None:
 			"absent"
-		case Some as n:
+		case option.Some as n:
 			strconv.Itoa(n.Value)
 		}
 		"add " + a.Name + " note=" + note + " priority=" + priority + " targets=" + strings.Join(a.Targets, ",")

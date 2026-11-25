@@ -60,8 +60,8 @@ func Parse(text string) []Star fails Malformed {
 func ParseLine(line string, n int) Star fails Malformed {
 	let cells = strings.Split(line, "\t")
 	let all = Columns()
-	if len(cells) != len(all) {
-		return Malformed{Line: n, Problem: CellCount{Got: len(cells)}}
+	if cells.Len() != all.Len() {
+		return Malformed{Line: n, Problem: CellCount{Got: cells.Len()}}
 	}
 	let mut s = Star{Name: "", Constellation: "", Magnitude: 0, Distance: 0, Class: "", Ascension: 0, Declination: 0, Planets: 0}
 	for i, c in all {

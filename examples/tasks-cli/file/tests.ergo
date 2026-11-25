@@ -29,5 +29,5 @@ test ACorruptLineIsBroken {
 }
 
 test AMissingFileIsEmpty {
-	assert len(try fresh(fstest.NewMemory()).All()) == 0
+	assert (try fresh(fstest.NewMemory()).All()).Len() == 0
 }

@@ -20,7 +20,7 @@ type Press = Start{} | Cancel{ID int} | CancelAll{} | Restart{ID int}
 // live board sends.
 law CancelAllLeavesNoneRunning(gaps []int, kinds []int, ids []int) {
 	let ls = lines(gaps, kinds, ids)
-	let shown = live(ls, if len(ls) > 0 { ls[len(ls)-1].At } else { 0s })
+	let shown = live(ls, if ls.Len() > 0 { ls[ls.Len()-1].At } else { 0s })
 	for i, l in ls {
 		if l.Press == CancelAll {
 			for row in shown[i] {
@@ -41,7 +41,7 @@ type Line { At duration, Press Press }
 // keeps its id.
 law IdsNeverReused(gaps []int, kinds []int, ids []int) {
 	let ls = lines(gaps, kinds, ids)
-	for rows in live(ls, if len(ls) > 0 { ls[len(ls)-1].At } else { 0s }) {
+	for rows in live(ls, if ls.Len() > 0 { ls[ls.Len()-1].At } else { 0s }) {
 		for i, row in rows {
 			if !strings.HasPrefix(row, "\(i) ") {
 				return false
@@ -68,10 +68,10 @@ func Read(text []string) Script fails BadLine {
 		let n = i + 1
 		let t = strings.TrimSpace(raw)
 		let words = strings.Fields(t)
-		if len(words) == 0 || strings.HasPrefix(t, "#") {
+		if words.Len() == 0 || strings.HasPrefix(t, "#") {
 			continue
 		}
-		if len(words) < 2 || !strings.HasPrefix(words[0], "@") {
+		if words.Len() < 2 || !strings.HasPrefix(words[0], "@") {
 			return BadLine{Line: n, Why: "a line is @MS WORD"}
 		}
 		let at = time.Times(1ms, try count(n, strings.TrimPrefix(words[0], "@")))
@@ -88,7 +88,7 @@ func Read(text []string) Script fails BadLine {
 		case "cancelall":
 			CancelAll
 		case "cancel", "restart":
-			if len(words) != 3 {
+			if words.Len() != 3 {
 				return BadLine{Line: n, Why: "\(word) takes one id"}
 			}
 			let id = try count(n, words[2])
@@ -98,7 +98,7 @@ func Read(text []string) Script fails BadLine {
 		}
 		lines = lines.Append(Line{At: at, Press: press})
 	}
-	BadLine{Line: len(text) + 1, Why: "the script has no @MS end line"}
+	BadLine{Line: text.Len() + 1, Why: "the script has no @MS end line"}
 }
 
 func count(n int, word string) int fails BadLine {
@@ -117,7 +117,7 @@ func count(n int, word string) int fails BadLine {
 // PlayA plays lines on shape A, the live board, moving clock to each
 // line's time first (so a transfer due by then has arrived), and gives the
 // board after each press, then after end.
-func PlayA(lines []Line, end duration, clock time.Manual) [][]string needs Scheduler {
+func PlayA(lines []Line, end duration, clock time.Manual) [][]string needs time.Scheduler {
 	let mut b = board.New()
 	let mut out = [][]string{}
 	let mut now = 0s
@@ -172,7 +172,7 @@ func PlayB(lines []Line, end duration) [][]string {
 // and at the end, over generated presses and clock moves.
 law ShapesAgree(gaps []int, kinds []int, ids []int, tail int) {
 	let ls = lines(gaps, kinds, ids)
-	let end = (if len(ls) > 0 { ls[len(ls)-1].At } else { 0s }) + time.Times(1ms, pick(tail, 10000))
+	let end = (if ls.Len() > 0 { ls[ls.Len()-1].At } else { 0s }) + time.Times(1ms, pick(tail, 10000))
 	let a = live(ls, end)
 	a == PlayB(ls, end) && a == onScreen(ls, end)
 }
@@ -186,8 +186,8 @@ func lines(gaps []int, kinds []int, ids []int) []Line {
 	let mut t = 0s
 	for i, g in gaps {
 		t = t + if pick(g, 2) == 0 { time.Times(100ms, pick(g/2, 100)) } else { time.Times(1ms, pick(g, 3000)) }
-		let k = if i < len(kinds) { kinds[i] } else { 0 }
-		let id = pick(if i < len(ids) { ids[i] } else { i }, 6)
+		let k = if i < kinds.Len() { kinds[i] } else { 0 }
+		let id = pick(if i < ids.Len() { ids[i] } else { i }, 6)
 		let press = match pick(k, 4) {
 		case 0:
 			Start
@@ -206,7 +206,7 @@ func lines(gaps []int, kinds []int, ids []int) []Line {
 // live is shape A over ls until end, on a fresh time.Manual.
 func live(ls []Line, end duration) [][]string {
 	let c = time.NewManual(0)
-	with context { Scheduler: c } { PlayA(ls, end, c) }
+	with context { time.Scheduler: c } { PlayA(ls, end, c) }
 }
 
 // onScreen is the rows of the desk's screen over ls until end, after each
@@ -216,7 +216,7 @@ func onScreen(ls []Line, end duration) [][]string {
 	let c = time.NewManual(0)
 	let mut out = [][]string{}
 	let mut first = true
-	with context { Scheduler: c } {
+	with context { time.Scheduler: c } {
 		PlayScreen(ls, end, c, func(f Frame) {
 			if !first {
 				out = out.Append(f.Rows)
@@ -238,35 +238,35 @@ func pick(n int, count int) int { ((n % count) + count) % count }
 // the buttons and the empty line), and one `  ID NAME WORD [BUTTON]` line
 // per transfer; with stats, also the work of the press. It returns the
 // exit status: 0, or 1 when the script is refused or the screen fails.
-func Run(clock time.Manual, stats bool) int needs Console | io.Stdin | Scheduler {
+func Run(clock time.Manual, stats bool) int needs io.Console | io.Stdin | time.Scheduler {
 	let mut text = []string{}
 	for line in io.Stdin.Lines() {
 		text = text.Append(line)
 	}
 	let s = Read(text) catch {
 	case BadLine as b:
-		Console.Println("? line \(b.Line): \(b.Why)")
+		io.Console.Println("? line \(b.Line): \(b.Why)")
 		return 1
 	}
 	let mut i = 0
-	PlayScreen(s.Lines, s.End, clock, func(f Frame) needs Console {
-		let at = if i == 0 { 0s } else if i <= len(s.Lines) { s.Lines[i-1].At } else { s.End }
-		let what = if i == 0 { "open" } else if i <= len(s.Lines) { Name(s.Lines[i-1].Press) } else { "end" }
+	PlayScreen(s.Lines, s.End, clock, func(f Frame) needs io.Console {
+		let at = if i == 0 { 0s } else if i <= s.Lines.Len() { s.Lines[i-1].At } else { s.End }
+		let what = if i == 0 { "open" } else if i <= s.Lines.Len() { Name(s.Lines[i-1].Press) } else { "end" }
 		i = i + 1
-		Console.Println("@\(time.Count(at, 1ms)) \(what)")
-		Console.Println("  \(strings.Join(f.Top, " "))")
+		io.Console.Println("@\(time.Count(at, 1ms)) \(what)")
+		io.Console.Println("  \(strings.Join(f.Top, " "))")
 		for j, r in f.Rows {
-			Console.Println(if f.Actions[j] == "" { "  \(r)" } else { "  \(r) \(f.Actions[j])" })
+			io.Console.Println(if f.Actions[j] == "" { "  \(r)" } else { "  \(r) \(f.Actions[j])" })
 		}
 		if stats {
-			Console.Println("  stats: \(ui.CountsLine(f.Counts))")
+			io.Console.Println("  stats: \(ui.CountsLine(f.Counts))")
 		}
 	}) catch {
 	case actor.Stopped:
-		Console.Println("? the desk stopped")
+		io.Console.Println("? the desk stopped")
 		return 1
 	case ui.BadPatch as p:
-		Console.Println("? the screen: \(p.Why)")
+		io.Console.Println("? the screen: \(p.Why)")
 		return 1
 	}
 	0

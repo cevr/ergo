@@ -1,4 +1,5 @@
 import actor
+import core
 import gen
 import temporal
 import time
@@ -8,7 +9,7 @@ import transfers/transfer
 import ui
 
 func rowsWellFormed(d desk.Desk) bool {
-	if len(d.Rows) != d.Next {
+	if d.Rows.Len() != d.Next {
 		return false
 	}
 	for i, r in d.Rows {
@@ -39,8 +40,8 @@ func offerPresent(offers []ui.Offer, label string) bool {
 
 func exploreTransfers(steps int) ui.Finding needs gen.Draws {
 	let clock = time.NewManual(0)
-	with context { time.Clock: clock, Scheduler: clock } {
-		let app = actor.StartMachine(desk.Desks{}, 16, func(o Never) { let _ = o })
+	with context { time.Clock: clock, time.Scheduler: clock } {
+		let app = actor.StartMachine(desk.Desks{}, 16, func(o core.Never) { let _ = o })
 		let mut h = ui.NewTestHost(app, screen.Screen, clock, 64) catch {
 		case ui.BadPatch as bp:
 			app.Stop()

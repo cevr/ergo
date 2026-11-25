@@ -3,6 +3,7 @@
 // callback owns the Map it is given, so the lookup copies nothing and the
 // write replaces one entry (the entry rule, docs/spec/types.md, Bindings).
 
+import option
 import sync
 
 // Bucket is the counters of one name and the labels each counter carries.
@@ -25,14 +26,14 @@ func Bump(s Store, b string, c string) int {
 		let mut m = all
 		let mut k = fresh()
 		match m.Get(b) {
-		case Some[Bucket] as v:
+		case option.Some[Bucket] as v:
 			k = v.Value
-		case None:
+		case option.None:
 		}
 		let n = match k.counts.Get(c) {
-		case Some[int] as x:
+		case option.Some[int] as x:
 			x.Value + 1
-		case None:
+		case option.None:
 			1
 		}
 		k.counts[c] = n
@@ -55,20 +56,20 @@ law BumpCounts(b int, c int, n int) {
 // Count is counter c of bucket b, 0 when it was never bumped.
 func Count(s Store, b string, c string) int {
 	match s.cell.Get().Get(b) {
-	case Some[Bucket] as v:
+	case option.Some[Bucket] as v:
 		match v.Value.counts.Get(c) {
-		case Some[int] as x:
+		case option.Some[int] as x:
 			x.Value
-		case None:
+		case option.None:
 			0
 		}
-	case None:
+	case option.None:
 		0
 	}
 }
 
 // Buckets is the number of buckets.
-func Buckets(s Store) int { len(s.cell.Get()) }
+func Buckets(s Store) int { s.cell.Get().Len() }
 
 // BucketsApart: a bump of one bucket leaves another unchanged.
 law BucketsApart(b int, c int) {

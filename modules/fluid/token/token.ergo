@@ -469,11 +469,11 @@ func Shadows(l Level) []Shadow {
 // ShadowCSS is a level's shadow as a box-shadow value.
 func ShadowCSS(l Level) string {
 	let layers = Shadows(l)
-	if len(layers) == 0 {
+	if layers.Len() == 0 {
 		return "none"
 	}
 	let mut b = strings.NewBuilder()
-	for i in 0..len(layers) {
+	for i in 0..layers.Len() {
 		let s = layers[i]
 		if i > 0 {
 			b.WriteString(", ")
@@ -503,7 +503,7 @@ func reach(l Level) int {
 // higher surface always reads as higher.
 law SurfacesRise(i int) {
 	let ls = Levels()
-	let k = ((i % (len(ls) - 1)) + (len(ls) - 1)) % (len(ls) - 1)
+	let k = ((i % (ls.Len() - 1)) + (ls.Len() - 1)) % (ls.Len() - 1)
 	reach(ls[k]) < reach(ls[k+1])
 }
 

@@ -1,7 +1,9 @@
 import actor
 import chat/room
+import core
 import explore
 import gen
+import option
 import slices
 import sync
 import temporal
@@ -39,7 +41,7 @@ type chatPathDriveErr { Message string }
 
 type chatPathSession {
 	cur sync.Ref[room.State],
-} implements explore.PathSession[chatPathAct, explore.Observed[chatPathObs, chatPathOut, Never], chatPathDriveErr]
+} implements explore.PathSession[chatPathAct, explore.Observed[chatPathObs, chatPathOut, core.Never], chatPathDriveErr]
 
 func chatSignalOf(act chatPathAct) room.Signal {
 	match act {
@@ -61,7 +63,7 @@ func observeChat(st room.State) chatPathObs {
 			HasAda: slices.Contains(o.Members, "ada"),
 			HasBob: slices.Contains(o.Members, "bob"),
 			Closed: false,
-			Count:  len(o.Members),
+			Count:  o.Members.Len(),
 		}
 	case room.Shutdown:
 		chatPathObs{HasAda: false, HasBob: false, Closed: true, Count: 0}
@@ -82,19 +84,19 @@ func applyChatRef(ref sync.Ref[room.State], act chatPathAct) chatPathOut {
 	ChatOutOk
 }
 
-func Read(s chatPathSession) explore.Observed[chatPathObs, chatPathOut, Never] fails chatPathDriveErr {
+func Read(s chatPathSession) explore.Observed[chatPathObs, chatPathOut, core.Never] fails chatPathDriveErr {
 	explore.InitialRead[chatPathObs]{State: observeChat(s.cur.Get())}
 }
 
-func Apply(s chatPathSession, act chatPathAct) explore.Observed[chatPathObs, chatPathOut, Never] fails chatPathDriveErr {
+func Apply(s chatPathSession, act chatPathAct) explore.Observed[chatPathObs, chatPathOut, core.Never] fails chatPathDriveErr {
 	let out = applyChatRef(s.cur, act)
 	let obs = observeChat(s.cur.Get())
-	explore.StepResult[chatPathObs, chatPathOut, Never]{
-		Step: explore.StepObs[chatPathObs, chatPathOut, Never]{
+	explore.StepResult[chatPathObs, chatPathOut, core.Never]{
+		Step: explore.StepObs[chatPathObs, chatPathOut, core.Never]{
 			Kind:     explore.DisEmit,
-			State:    Some[chatPathObs]{Value: obs},
+			State:    option.Some[chatPathObs]{Value: obs},
 			Outputs:  []chatPathOut{out},
-			Error:    None,
+			Error:    option.None,
 			Terminal: false,
 		},
 	}
@@ -157,21 +159,21 @@ func chatStep(st chatPathState, act chatPathAct) (chatPathState, chatPathOut) {
 	}
 }
 
-func chatModel() explore.PathModel[chatPathState, chatPathAct, chatPathObs, chatPathOut, Never] {
-	explore.PathModelProjected[chatPathState, chatPathAct, chatPathObs, chatPathOut, Never](
+func chatModel() explore.PathModel[chatPathState, chatPathAct, chatPathObs, chatPathOut, core.Never] {
+	explore.PathModelProjected[chatPathState, chatPathAct, chatPathObs, chatPathOut, core.Never](
 		[]chatPathState{chatPathState{HasAda: false, HasBob: false, Closed: false}},
 		chatSignals,
 		"chat.room",
 		chatProject,
-		func(st chatPathState, act chatPathAct) explore.EdgeOutcome[chatPathState, explore.StepObs[chatPathObs, chatPathOut, Never]] {
+		func(st chatPathState, act chatPathAct) explore.EdgeOutcome[chatPathState, explore.StepObs[chatPathObs, chatPathOut, core.Never]] {
 			let (next, out) = chatStep(st, act)
-			explore.Continue[chatPathState, explore.StepObs[chatPathObs, chatPathOut, Never]]{
+			explore.Continue[chatPathState, explore.StepObs[chatPathObs, chatPathOut, core.Never]]{
 				Next: next,
-				Obs:  explore.StepObs[chatPathObs, chatPathOut, Never]{
+				Obs:  explore.StepObs[chatPathObs, chatPathOut, core.Never]{
 					Kind:     explore.DisEmit,
-					State:    Some[chatPathObs]{Value: chatProject(next)},
+					State:    option.Some[chatPathObs]{Value: chatProject(next)},
 					Outputs:  []chatPathOut{out},
-					Error:    None,
+					Error:    option.None,
 					Terminal: false,
 				},
 			}
@@ -190,7 +192,7 @@ type ChatRoomPaths {
 			chatModel(),
 			explore.ToDepth{Depth: 3},
 			bounds,
-			func(start chatPathState) explore.PathSession[chatPathAct, explore.Observed[chatPathObs, chatPathOut, Never], chatPathDriveErr] fails chatPathOpenErr {
+			func(start chatPathState) explore.PathSession[chatPathAct, explore.Observed[chatPathObs, chatPathOut, core.Never], chatPathDriveErr] fails chatPathOpenErr {
 				try OpenSession(start)
 			},
 			testing.ActiveEvidenceSink(),
@@ -269,7 +271,7 @@ law ChatRoomModelTemporal() {
 law ChatRoomActorConcurrentLinearizable() {
 	let cfg = gen.Config{Seed: uint64(1), Cases: 16, Shrinks: 0, MaxDraws: 256, MaxRejected: 10}
 	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
-		with context { Scheduler: time.NewManual(0) } {
+		with context { time.Scheduler: time.NewManual(0) } {
 			let a = actor.StartMachine(room.Room{}, 8, func(evs []room.Event) { let _ = evs })
 			let plans = [][]chatPathAct{
 				[]chatPathAct{ChatActJoin{Name: "ada"}, ChatActSay{From: "ada"}, ChatActLeave{Name: "ada"}},

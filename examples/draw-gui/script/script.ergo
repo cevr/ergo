@@ -4,8 +4,11 @@
 // the tool reports. Saving writes the picture's SVG to the Store in its
 // context.
 
+import core
 import ergo.local/prototype/examples/drawgui/canvas
 import io
+import machines
+import option
 import strconv
 import strings
 
@@ -25,7 +28,7 @@ type BadLine { Text string, Want string }
 //	delete, escape
 func Parse(line string) Command fails BadLine {
 	let words = strings.Split(line, " ")
-	let args = len(words) - 1
+	let args = words.Len() - 1
 	match words[0] {
 	case "show", "export", "save", "delete", "escape":
 		if args != 0 {
@@ -71,9 +74,9 @@ func Parse(line string) Command fails BadLine {
 			return BadLine{Text: line, Want: "a tool: pen rect ellipse line select"}
 		}
 		match canvas.ToolNamed(words[1]) {
-		case Some[canvas.Kind] as k:
+		case option.Some[canvas.Kind] as k:
 			Send{Signal: canvas.Pick{Tool: k.Value}}
-		case None:
+		case option.None:
 			BadLine{Text: line, Want: "a tool: pen rect ellipse line select"}
 		}
 	case _:
@@ -96,7 +99,7 @@ func whole(line string, text string) int fails BadLine {
 // Play runs the script's lines on s and writes what each shows. A blank
 // line and a line that starts with # do nothing. It is the state after
 // the last line.
-func Play(s canvas.State, name string, lines Seq[string]) canvas.State needs canvas.Store | io.Stdout {
+func Play(s canvas.State, name string, lines core.Seq[string]) canvas.State needs canvas.Store | io.Stdout {
 	let mut at = s
 	for line in lines {
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -121,13 +124,13 @@ func Play(s canvas.State, name string, lines Seq[string]) canvas.State needs can
 				io.Stdout.Println("cannot save " + u.Name + ": " + u.Reason)
 				continue
 			}
-			io.Stdout.Println("saved " + name + " (\(len(text)) bytes)")
+			io.Stdout.Println("saved " + name + " (\(text.Len()) bytes)")
 		case Hit as h:
 			let cv = canvas.CanvasOf(at)
 			match canvas.Top(cv.Pic, canvas.World(cv.View, h.At)) {
-			case Some[int] as id:
+			case option.Some[int] as id:
 				io.Stdout.Println("hit \(h.At.X),\(h.At.Y) = \(id.Value)")
-			case None:
+			case option.None:
 				io.Stdout.Println("hit \(h.At.X),\(h.At.Y) = none")
 			}
 		case Send as m:
@@ -140,18 +143,18 @@ func Play(s canvas.State, name string, lines Seq[string]) canvas.State needs can
 // step is the state after sig, with what the tool reports written.
 func step(s canvas.State, sig canvas.Signal) canvas.State needs io.Stdout {
 	match canvas.Step(s, sig) {
-	case Enter[canvas.State] as e:
+	case machines.Enter[canvas.State] as e:
 		e.Next
-	case Stay[canvas.State] as t:
+	case machines.Stay[canvas.State] as t:
 		t.Next
-	case Emit[canvas.State, canvas.Output] as m:
+	case machines.Emit[canvas.State, canvas.Output] as m:
 		let c = canvas.CanvasOf(m.Next)
 		match m.Output {
 		case canvas.Added as a:
 			match c.Pic.Shapes.Get(a.Id) {
-			case Some[canvas.Placed] as p:
+			case option.Some[canvas.Placed] as p:
 				io.Stdout.Println("added " + canvas.Paint(c.View, p.Value))
-			case None:
+			case option.None:
 			}
 		case canvas.Removed as r:
 			let mut ids = []string{}
@@ -161,7 +164,7 @@ func step(s canvas.State, sig canvas.Signal) canvas.State needs io.Stdout {
 			io.Stdout.Println("removed " + strings.Join(ids, ","))
 		}
 		m.Next
-	case Ignore, Tell[canvas.State, canvas.Output], Reject, Done[canvas.Output]:
+	case machines.Ignore, machines.Tell[canvas.State, canvas.Output], machines.Reject, machines.Done[canvas.Output]:
 		s
 	}
 }

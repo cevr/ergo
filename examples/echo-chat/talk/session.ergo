@@ -1,6 +1,8 @@
 // The chat as a machine.
 
+import core
 import machines
+import option
 import strings
 import time
 
@@ -18,7 +20,7 @@ type Link = Offline{} | Connecting{} | Online{Log []Said, Out []string} | Broken
 // end, and the field clears. No other step adds to it, and every step
 // in Online is a Stay, so the line's entry lasts.
 law SendOnlyWhenOnline(k int, i int, g int) {
-	let s = Session{Link: linkOf(k), Input: inputs[pick(i, len(inputs))]}
+	let s = Session{Link: linkOf(k), Input: inputs[pick(i, inputs.Len())]}
 	let sig = signalOf(g)
 	let d = Step(s, sig)
 	let text = strings.TrimSpace(s.Input)
@@ -30,9 +32,9 @@ law SendOnlyWhenOnline(k int, i int, g int) {
 	}
 	let next = machines.Next(s, d)
 	if asks {
-		return d == Stay[Session]{Next: next} && Outbox(next) == Outbox(s).Append(text) && next.Input == ""
+		return d == machines.Stay[Session]{Next: next} && Outbox(next) == Outbox(s).Append(text) && next.Input == ""
 	}
-	len(Outbox(next)) <= len(Outbox(s))
+	Outbox(next).Len() <= Outbox(s).Len()
 }
 
 func pick(n int, size int) int { ((n % size) + size) % size }
@@ -45,13 +47,13 @@ let inputs = []string{"", "   ", "hi", "  Hello there  "}
 // linkOf is a link of each kind, drawn by k.
 func linkOf(k int) Link {
 	let links = []Link{Offline, Connecting, Online{Log: []Said{Said{Text: "old", Mine: true, At: at}}, Out: []string{"mine"}}, Broken{Why: "Connection error"}}
-	links[pick(k, len(links))]
+	links[pick(k, links.Len())]
 }
 
 // signalOf is each signal but Typed, drawn by k.
 func signalOf(k int) Signal {
 	let sigs = []Signal{Connect, Submit, Opened, Denied{Why: "Timeout"}, Received{Text: "echo", At: at}, Closed, Failed{Why: "Connection error"}, Sent{Text: "mine", At: at}, Unsent{Why: "Socket unavailable"}, TimedOut}
-	sigs[pick(k, len(sigs))]
+	sigs[pick(k, sigs.Len())]
 }
 
 // Session is the machine's state: the link and the text being typed.
@@ -67,9 +69,9 @@ law ReconnectIsAFreshEntry(k int where 0 <= k && k <= 1, g int) {
 	let d = Step(s, sig)
 	match sig {
 	case Connect:
-		d == Enter[Session]{Next: Session{..s, Link: Connecting}}
+		d == machines.Enter[Session]{Next: Session{..s, Link: Connecting}}
 	case Submit, Opened, Denied, Received, Closed, Failed, Sent, Unsent, TimedOut:
-		d == Ignore
+		d == machines.Ignore
 	case Typed:
 		false
 	}
@@ -86,15 +88,15 @@ law DisconnectReleasesTheConnection(g int) {
 	let sig = signalOf(g)
 	match sig {
 	case Denied as d:
-		Step(connecting, sig) == Enter[Session]{Next: Session{..connecting, Link: Broken{Why: d.Why}}}
+		Step(connecting, sig) == machines.Enter[Session]{Next: Session{..connecting, Link: Broken{Why: d.Why}}}
 	case Failed as f:
-		Step(online, sig) == Enter[Session]{Next: Session{..online, Link: Broken{Why: f.Why}}}
+		Step(online, sig) == machines.Enter[Session]{Next: Session{..online, Link: Broken{Why: f.Why}}}
 	case Unsent as u:
-		Step(online, sig) == Enter[Session]{Next: Session{..online, Link: Broken{Why: u.Why}}}
+		Step(online, sig) == machines.Enter[Session]{Next: Session{..online, Link: Broken{Why: u.Why}}}
 	case Closed:
-		Step(online, sig) == Enter[Session]{Next: Session{..online, Link: Offline}}
+		Step(online, sig) == machines.Enter[Session]{Next: Session{..online, Link: Offline}}
 	case TimedOut:
-		Step(connecting, sig) == Enter[Session]{Next: Session{..connecting, Link: Broken{Why: TimeoutWhy}}} && Step(online, sig) == Ignore
+		Step(connecting, sig) == machines.Enter[Session]{Next: Session{..connecting, Link: Broken{Why: TimeoutWhy}}} && Step(online, sig) == machines.Ignore
 	case Connect, Submit, Opened, Received, Sent, Typed:
 		true
 	}
@@ -150,39 +152,39 @@ let Blank = Session{Link: Offline, Input: ""}
 // the line with it). A server's close enters Offline, and a failure
 // Broken: both end the entry, which releases the line. Every other pair
 // is ignored: the news of a line whose entry has ended among them.
-func Step(s Session, sig Signal) Decision[Session, Never] {
+func Step(s Session, sig Signal) machines.Decision[Session, core.Never] {
 	match (s.Link, sig) {
 	case (Offline, Connect), (Broken, Connect):
-		Enter[Session]{Next: Session{..s, Link: Connecting}}
+		machines.Enter[Session]{Next: Session{..s, Link: Connecting}}
 	case (Connecting, Opened):
-		Stay[Session]{Next: Session{..s, Link: Online{Log: []Said{}, Out: []string{}}}}
+		machines.Stay[Session]{Next: Session{..s, Link: Online{Log: []Said{}, Out: []string{}}}}
 	case (Connecting, TimedOut):
-		Enter[Session]{Next: Session{..s, Link: Broken{Why: TimeoutWhy}}}
+		machines.Enter[Session]{Next: Session{..s, Link: Broken{Why: TimeoutWhy}}}
 	case (Connecting, Denied as d):
-		Enter[Session]{Next: Session{..s, Link: Broken{Why: d.Why}}}
+		machines.Enter[Session]{Next: Session{..s, Link: Broken{Why: d.Why}}}
 	case (Online as o, Received as r):
-		Stay[Session]{Next: Session{..s, Link: Online{..o, Log: o.Log.Append(Said{Text: r.Text, Mine: false, At: r.At})}}}
+		machines.Stay[Session]{Next: Session{..s, Link: Online{..o, Log: o.Log.Append(Said{Text: r.Text, Mine: false, At: r.At})}}}
 	case (Online as o, Sent as t):
-		if len(o.Out) == 0 || o.Out[0] != t.Text {
-			return Ignore
+		if o.Out.Len() == 0 || o.Out[0] != t.Text {
+			return machines.Ignore
 		}
-		Stay[Session]{Next: Session{..s, Link: Online{Log: o.Log.Append(Said{Text: t.Text, Mine: true, At: t.At}), Out: o.Out[1:]}}}
+		machines.Stay[Session]{Next: Session{..s, Link: Online{Log: o.Log.Append(Said{Text: t.Text, Mine: true, At: t.At}), Out: o.Out[1:]}}}
 	case (Online, Closed):
-		Enter[Session]{Next: Session{..s, Link: Offline}}
+		machines.Enter[Session]{Next: Session{..s, Link: Offline}}
 	case (Online, Failed as f):
-		Enter[Session]{Next: Session{..s, Link: Broken{Why: f.Why}}}
+		machines.Enter[Session]{Next: Session{..s, Link: Broken{Why: f.Why}}}
 	case (Online, Unsent as u):
-		Enter[Session]{Next: Session{..s, Link: Broken{Why: u.Why}}}
+		machines.Enter[Session]{Next: Session{..s, Link: Broken{Why: u.Why}}}
 	case (Online as o, Submit):
 		let text = strings.TrimSpace(s.Input)
 		if text == "" {
-			return Ignore
+			return machines.Ignore
 		}
-		Stay[Session]{Next: Session{Link: Online{..o, Out: o.Out.Append(text)}, Input: ""}}
+		machines.Stay[Session]{Next: Session{Link: Online{..o, Out: o.Out.Append(text)}, Input: ""}}
 	case (_, Typed as t):
-		Stay[Session]{Next: Session{..s, Input: t.Text}}
+		machines.Stay[Session]{Next: Session{..s, Input: t.Text}}
 	case (Offline, _), (Connecting, _), (Online, _), (Broken, _):
-		Ignore
+		machines.Ignore
 	}
 }
 
@@ -205,10 +207,10 @@ func Outbox(s Session) []string {
 // dial, say whether the line opened, then pass each frame on until the
 // server closes the line or it fails. The entry's end stops the work at
 // its wait, and the line is released then, on every path.
-func listen(s Session) Option[machines.Work[Signal, Channel | time.Clock]] {
+func listen(s Session) option.Option[machines.Work[Signal, Channel | time.Clock]] {
 	match s.Link {
 	case Connecting:
-		Some{machines.Work[Signal, Channel | time.Clock]{Start: func(send entry func(sig Signal)) needs Channel | time.Clock {
+		option.Some{machines.Work[Signal, Channel | time.Clock]{Start: func(send entry func(sig Signal)) needs Channel | time.Clock {
 			let line = Channel.Dial() catch {
 			case Refused as r:
 				send(Denied{Why: r.Why})
@@ -228,19 +230,19 @@ func listen(s Session) Option[machines.Work[Signal, Channel | time.Clock]] {
 			}
 		}}}
 	case Offline, Online, Broken:
-		None
+		option.None
 	}
 }
 
 // dialTimer is Connecting's timer: TimedOut once the dial has taken
 // DialTimeout. A Connecting entry that opened its line is Online, whose
 // state sets no timer.
-func dialTimer(s Session) Option[Timeout[Signal]] {
+func dialTimer(s Session) option.Option[machines.Timeout[Signal]] {
 	match s.Link {
 	case Connecting:
-		Some{Timeout[Signal]{In: DialTimeout, Signal: TimedOut}}
+		option.Some{machines.Timeout[Signal]{In: DialTimeout, Signal: TimedOut}}
 	case Offline, Online, Broken:
-		None
+		option.None
 	}
 }
 

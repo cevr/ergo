@@ -15,7 +15,7 @@ test TableOnlyNavigatesOrRequests {
 	let m = machines.Start(Table{}, "/")
 	match try machines.Run(m, []Signal{sig}) {
 	case machines.Running[query.Route, Replace] as r:
-		assert r.State == initial && len(r.Emitted) == 1
+		assert r.State == initial && r.Emitted.Len() == 1
 		assert query.Decode(r.Emitted[0].Path) == want
 	case machines.Finished[query.Route, Replace]:
 		assert false

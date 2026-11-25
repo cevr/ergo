@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
 	"ergo.local/prototype/internal/proclimit"
 	"ergo.local/prototype/internal/sketch/build"
@@ -88,10 +89,13 @@ func testCommand(args []string) error {
 		}
 		return mutantsTestCommand(opts, os.Stdout, os.Stderr)
 	}
-	if trace && (recursivePattern(opts.file) || len(opts.more) > 0 || opts.explore || opts.search.mode != "") {
-		return invalidInvocation(fmt.Errorf("ergo test: --trace takes one package, played plainly, not a pattern or --explore"))
+	if trace && (recursivePattern(opts.file) || len(opts.more) > 0 || opts.explore || opts.search.mode != "" || opts.sharding.shard.enabled || opts.sharding.parallel || opts.sharding.jobs > 1) {
+		return invalidInvocation(fmt.Errorf("ergo test: --trace takes one package, played plainly, not a pattern, --explore or --parallel/--shard"))
 	}
 	if isStdTarget(opts.file) {
+		if opts.sharding.active() {
+			return invalidInvocation(fmt.Errorf("ergo test: --parallel/--shard/--timings take package targets, not std:PKG"))
+		}
 		return stdTestPackage(opts)
 	}
 	if opts.affected.on {
@@ -101,6 +105,9 @@ func testCommand(args []string) error {
 		// Each package's check envelope and emitted digests, one JSON
 		// line each, from one process (emittedjson.go, gate-speed GS31b).
 		return printEmittedJSON(opts)
+	}
+	if opts.sharding.active() {
+		return shardedTestCommand(opts, os.Stdout, os.Stderr)
 	}
 	if len(opts.more) > 0 {
 		return manyTestCommand(opts)
@@ -139,7 +146,7 @@ func traceFlag(args []string) ([]string, bool) {
 // takesValue reports whether option a reads the next word as its value.
 func takesValue(a string) bool {
 	switch a {
-	case "--target", "-o", "--seed", "--states", "--receipt", "--law", "--skip-law", "--platform", "--eval-steps", "--eval-bytes", "--run", "--preempt", "--depth", "--schedules", "--schedule", "--count":
+	case "--target", "-o", "--seed", "--states", "--receipt", "--law", "--skip-law", "--platform", "--eval-steps", "--eval-bytes", "--run", "--preempt", "--depth", "--schedules", "--schedule", "--count", "-j", "--jobs", "--shard", "--timings":
 		return true
 	}
 	return false
@@ -150,22 +157,28 @@ func takesValue(a string) bool {
 // result is replayed with no check, no emission, no link and no process.
 // The request's key adds the law ledger a full run writes. A traced run
 // takes no warm answer and keeps none: the answer has no trace.
+var ledgerWriteMu sync.Mutex
+
 func testPackage(opts fileOptions) error {
+	return testPackageIO(opts, os.Stdout, os.Stderr)
+}
+
+func testPackageIO(opts fileOptions, outW, errW io.Writer) error {
 	var w *warm
 	if testCacheable(opts) && !opts.trace && !opts.pruneCases {
 		w = startWarm(opts, warmToolchain(opts), ledgerPart(ledgerPath(opts.file)))
 	}
 	if w != nil && w.hit {
-		return replayTestResult(w.answer.Test, opts.file, os.Stdout, os.Stderr)
+		return replayTestResult(w.answer.Test, opts.file, outW, errW)
 	}
 	l, err := loadThrough(w.fsys(), opts.file, opts.target, opts.platform)
 	if err != nil {
 		return err
 	}
 	if !l.result.Checked {
-		return refuseUnchecked(l, opts)
+		return refuseUncheckedIO(l, opts, outW, errW)
 	}
-	return testLoadedPackage(opts, l, func(result []byte) {
+	return testLoadedPackageIO(opts, l, outW, errW, func(result []byte) {
 		if result != nil {
 			w.recordAs(sketchfront.WarmAnswer{Test: result}, ledgerPart(ledgerPath(opts.file)))
 		}
@@ -176,25 +189,29 @@ func testPackage(opts fileOptions) error {
 // the stored result of a passing run whose build printed nothing (nil for
 // a package with nothing to test), to be kept as a warm answer.
 func testLoadedPackage(opts fileOptions, l loaded, keep func(result []byte)) error {
+	return testLoadedPackageIO(opts, l, os.Stdout, os.Stderr, keep)
+}
+
+func testLoadedPackageIO(opts fileOptions, l loaded, outW, errW io.Writer, keep func(result []byte)) error {
 	if keep == nil {
 		keep = func([]byte) {}
 	}
 	if opts.pruneCases {
-		return pruneCasesForLoaded(opts, l, os.Stdout, os.Stderr)
+		return pruneCasesForLoaded(opts, l, outW, errW)
 	}
 	// A package with nothing to test is neither built nor run, so its
 	// initializers never run (empty.go); a schedule search still builds it.
 	if opts.search.mode == "" && nothingToTest(l.analysis.Root().Package) {
-		err := emptyTestRun(opts, l.result.Revision, os.Stdout, os.Stderr)
+		err := emptyTestRun(opts, l.result.Revision, outW, errW)
 		if err == nil && opts.law == "" && opts.skipLaw == "" && opts.run == "" && !opts.explore {
-			err = writeLedger(opts, l)
+			err = writeLedgerIO(opts, l, outW, errW)
 		}
 		if err == nil {
 			keep(nil)
 		}
 		return err
 	}
-	if answered, err := evaluatedTestRun(opts, l, os.Stdout, os.Stderr, keep); answered {
+	if answered, err := evaluatedTestRun(opts, l, outW, errW, keep); answered {
 		return err
 	}
 	dir, err := os.MkdirTemp("", "ergo-test-")
@@ -243,7 +260,7 @@ func testLoadedPackage(opts fileOptions, l loaded, keep func(result []byte)) err
 	hit := false
 	// A build that printed a note is not answered warm, since the answer
 	// would not print it.
-	buildStderr := &quiet{w: os.Stderr}
+	buildStderr := &quiet{w: errW}
 	// The direct path links nothing for an unchanged module (its action
 	// store holds the executable, build/direct.go); a cached passing
 	// result skips even that.
@@ -259,7 +276,7 @@ func testLoadedPackage(opts fileOptions, l loaded, keep func(result []byte)) err
 	}
 	module, err := sketchfront.Build(l.analysis, req)
 	if opts.work && module.Dir != "" {
-		fmt.Fprintf(os.Stderr, "WORK=%s\n", module.Dir)
+		fmt.Fprintf(errW, "WORK=%s\n", module.Dir)
 	}
 	if err != nil {
 		return err
@@ -268,7 +285,7 @@ func testLoadedPackage(opts fileOptions, l loaded, keep func(result []byte)) err
 		if !buildStderr.written {
 			keep(cached)
 		}
-		return replayTestResult(cached, opts.file, os.Stdout, os.Stderr)
+		return replayTestResult(cached, opts.file, outW, errW)
 	}
 	var store func(testResult)
 	if key != "" {
@@ -282,7 +299,7 @@ func testLoadedPackage(opts fileOptions, l loaded, keep func(result []byte)) err
 			}
 		}
 	}
-	return runTestBinary(opts, l, tc, binary, nil, store)
+	return runTestBinaryIO(opts, l, tc, binary, nil, outW, errW, store)
 }
 
 // runTestBinary runs the tests of the package l in the test binary, its
@@ -291,6 +308,10 @@ func testLoadedPackage(opts fileOptions, l loaded, keep func(result []byte)) err
 // nil, is given the output of a passing run, after the run wrote the law
 // ledger (testcache.go).
 func runTestBinary(opts fileOptions, l loaded, tc build.Toolchain, binary string, prefix []string, store func(testResult)) error {
+	return runTestBinaryIO(opts, l, tc, binary, prefix, os.Stdout, os.Stderr, store)
+}
+
+func runTestBinaryIO(opts fileOptions, l loaded, tc build.Toolchain, binary string, prefix []string, outW, errW io.Writer, store func(testResult)) error {
 	args, err := testChildArgs(opts, l.result.Revision)
 	if err != nil {
 		return err
@@ -311,7 +332,7 @@ func runTestBinary(opts fileOptions, l loaded, tc build.Toolchain, binary string
 		if opts.seed != "" {
 			seed, _ = strconv.ParseUint(opts.seed, 10, 64)
 		}
-		return exploreSearch(os.Stdout, l, binary, childArgs, opts.search, opts.run, seed, limit)
+		return exploreSearch(outW, l, binary, childArgs, opts.search, opts.run, seed, limit)
 	}
 	// The law runs whose verdict the store holds at this seed and budget
 	// print it "(cached)" and do not run (lawcache); an explored run
@@ -385,41 +406,40 @@ func runTestBinary(opts fileOptions, l loaded, tc build.Toolchain, binary string
 	shadows := &shadowLines{}
 	// The printed lines, for the skips the module does not expect.
 	var printed bytes.Buffer
-	stderrSink := io.Writer(os.Stderr)
+	stderrSink := errW
 	if store != nil {
-		stderrSink = io.MultiWriter(os.Stderr, &result.stderr)
+		stderrSink = io.MultiWriter(errW, &result.stderr)
 	}
 	tapes := &tapeLines{next: stderrSink}
-	stdout, stderr := []io.Writer{os.Stdout, &printed}, []io.Writer{tapes, shadows}
+	stdout, stderr := []io.Writer{outW, &printed}, []io.Writer{tapes, shadows}
 	if verdicts != nil {
 		stdout = append(stdout, &out)
 	}
 	if store != nil {
 		stdout = append(stdout, &result.stdout)
 	}
-	if len(stdout) > 1 {
-		child.Stdout = io.MultiWriter(stdout...)
-	}
-	if len(stderr) > 1 {
-		child.Stderr = io.MultiWriter(stderr...)
-	}
+	child.Stdout = io.MultiWriter(stdout...)
+	child.Stderr = io.MultiWriter(stderr...)
 	err = runEntryProcess(child, limit, proclimit.Watch(child))
 	tapes.Flush()
 	if opts.trace {
-		if err := printSteps(os.Stdout, tracePath); err != nil {
+		if err := printSteps(outW, tracePath); err != nil {
 			return err
 		}
 	}
 	// Each run that printed its ok line held, whatever later runs did.
 	verdicts.Record(out.String())
 	if len(tapes.recorded) > 0 {
-		if rerr := recordRefutedTapes(opts.file, l.analysis.Root().Package, tapes.recorded); rerr != nil && err == nil {
+		ledgerWriteMu.Lock()
+		rerr := recordRefutedTapes(opts.file, l.analysis.Root().Package, tapes.recorded)
+		ledgerWriteMu.Unlock()
+		if rerr != nil && err == nil {
 			err = rerr
 		}
 	}
 	if len(shadows.refs) > 0 {
 		// A failed run too: the refutation is a fact of the sources.
-		if werr := writeRefutations(opts, l, shadows.refs); werr != nil && err == nil {
+		if werr := writeRefutationsIO(opts, l, shadows.refs, errW); werr != nil && err == nil {
 			err = werr
 		}
 	}
@@ -444,7 +464,7 @@ func runTestBinary(opts fileOptions, l loaded, tc build.Toolchain, binary string
 		}
 		return nil
 	}
-	if err := writeLedger(opts, l); err != nil {
+	if err := writeLedgerIO(opts, l, outW, errW); err != nil {
 		return err
 	}
 	if store != nil {
@@ -462,6 +482,10 @@ func runTestBinary(opts fileOptions, l loaded, tc build.Toolchain, binary string
 // entries stale, and its ergo test, which tests nothing, never rewrote
 // them).
 func writeLedger(opts fileOptions, l loaded) error {
+	return writeLedgerIO(opts, l, os.Stdout, os.Stderr)
+}
+
+func writeLedgerIO(opts fileOptions, l loaded, outW, errW io.Writer) error {
 	if isStdTarget(opts.file) {
 		return nil // std's ledger is compiled in (stdTestPackage)
 	}
@@ -478,24 +502,26 @@ func writeLedger(opts fileOptions, l loaded) error {
 			return err
 		}
 	}
+	ledgerWriteMu.Lock()
+	defer ledgerWriteMu.Unlock()
 	changed, err := sketchfront.UpdateLedger(l.analysis, sketchfront.BuildRequest{
 		Mode:      build.ModeBuild,
 		Source:    l.source.Admitted(),
 		Cache:     build.Cache{Root: root},
 		Toolchain: tc, // no explore tag: an explored run returned before
-		Stderr:    os.Stderr,
+		Stderr:    errW,
 		Ledger:    ledgerPath(opts.file),
 		Laws:      lawStore(),
 	})
 	if changed > 0 {
-		fmt.Fprintf(os.Stderr, "ergo.laws: %d entries changed\n", changed)
+		fmt.Fprintf(errW, "ergo.laws: %d entries changed\n", changed)
 	}
 	var skipped *sketchfront.LicenceSkippedError
 	if errors.As(err, &skipped) {
 		// A rewrite law with no licence verdict fails the test (AC10):
 		// its line is a test's FAIL line, with the fix.
 		for _, s := range skipped.Skipped {
-			fmt.Fprintln(os.Stdout, s.Line())
+			fmt.Fprintln(outW, s.Line())
 		}
 		return exitStatusError{code: 1, handled: true}
 	}
@@ -531,21 +557,27 @@ func (s *shadowLines) Write(p []byte) (int, error) {
 // writeRefutations writes the shadows' refutations of a test run into the
 // module's ergo.laws and ergo.cases (sketchfront.RecordRefutations).
 func writeRefutations(opts fileOptions, l loaded, refs []sketchfront.ShadowRefutation) error {
+	return writeRefutationsIO(opts, l, refs, os.Stderr)
+}
+
+func writeRefutationsIO(opts fileOptions, l loaded, refs []sketchfront.ShadowRefutation, errW io.Writer) error {
 	if isStdTarget(opts.file) {
 		// A std rewrite law's refutation is a failed run, its line on
 		// stdout; no ergo.laws of std's is written.
 		return nil
 	}
+	ledgerWriteMu.Lock()
+	defer ledgerWriteMu.Unlock()
 	changed, err := sketchfront.RecordRefutations(l.analysis, sketchfront.BuildRequest{
 		Source: l.source.Admitted(),
-		Stderr: os.Stderr,
+		Stderr: errW,
 		Ledger: ledgerPath(opts.file),
 	}, refs)
 	if err != nil {
 		return err
 	}
 	if changed > 0 {
-		fmt.Fprintf(os.Stderr, "ergo.laws: %d entries changed\n", changed)
+		fmt.Fprintf(errW, "ergo.laws: %d entries changed\n", changed)
 	}
 	return nil
 }

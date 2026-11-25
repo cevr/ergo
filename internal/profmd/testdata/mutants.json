@@ -1,0 +1,59 @@
+{
+  "about": "Behavior mutants for internal/profmd (PROF-1): pprof protobuf decoding and Markdown CPU/Heap rendering.",
+  "mutants": [
+    {
+      "name": "profmd-wrong-self-sort",
+      "origin": "wf10 PROF-1",
+      "file": "internal/profmd/render.go",
+      "from": "return bySelf[i].self > bySelf[j].self",
+      "to": "return bySelf[i].self < bySelf[j].self",
+      "rule": "Top Functions by Self Time ranks the hottest leaf functions first.",
+      "killers": ["internal/profmd:TestRenderCPUMarkdownSyntheticAccountingAndTopLimit"]
+    },
+    {
+      "name": "profmd-drops-cum-accounting",
+      "origin": "wf10 PROF-1",
+      "file": "internal/profmd/render.go",
+      "from": "// Cumulative time accrues once per unique function in the sample stack\n\t\t// so recursive frames are never double-counted.\n\t\tseen := make(map[string]struct{}, len(frames))\n\t\tfor _, f := range frames {",
+      "to": "// Cumulative time accrues once per unique function in the sample stack\n\t\t// so recursive frames are never double-counted.\n\t\tseen := make(map[string]struct{}, len(frames))\n\t\tfor _, f := range frames[:1] {",
+      "rule": "CPU cumulative time walks every caller frame in the stack, not only the leaf frame.",
+      "killers": ["internal/profmd:TestRenderCPUMarkdownSyntheticAccountingAndTopLimit"]
+    },
+    {
+      "name": "profmd-double-counts-recursive-cum",
+      "origin": "wf10 PROF-1",
+      "file": "internal/profmd/render.go",
+      "from": "if _, dup := seen[f.key]; dup {\n\t\t\t\tcontinue\n\t\t\t}\n\t\t\tseen[f.key] = struct{}{}\n\t\t\tst := getOrCreateCPUStat(funcs, f)",
+      "to": "if _, dup := seen[f.key]; false && dup {\n\t\t\t\tcontinue\n\t\t\t}\n\t\t\tseen[f.key] = struct{}{}\n\t\t\tst := getOrCreateCPUStat(funcs, f)",
+      "rule": "Recursive frames in a single CPU sample accrue cumulative time at most once per function.",
+      "killers": ["internal/profmd:TestRenderCPUMarkdownSyntheticAccountingAndTopLimit"]
+    },
+    {
+      "name": "profmd-wrong-heap-index",
+      "origin": "wf10 PROF-1",
+      "file": "internal/profmd/render.go",
+      "from": "inuseSpaceIdx := findSampleType(p, \"inuse_space\")",
+      "to": "inuseSpaceIdx := findSampleType(p, \"alloc_space\")",
+      "rule": "Heap live-memory reporting reads inuse_space rather than alloc_space.",
+      "killers": ["internal/profmd:TestRenderHeapMarkdownSyntheticAllocVsInuse"]
+    },
+    {
+      "name": "profmd-accepts-corrupt-gzip",
+      "origin": "wf10 PROF-1",
+      "file": "internal/profmd/pprof.go",
+      "from": "if err != nil {\n\t\treturn nil, fmt.Errorf(\"profmd: invalid gzip profile: %w\", err)\n\t}",
+      "to": "if err != nil {\n\t\treturn &Profile{}, nil\n\t}",
+      "rule": "ParseProfile rejects non-gzip or corrupt gzip inputs with an error.",
+      "killers": ["internal/profmd:TestParseProfileRejectsInvalidInputs"]
+    },
+    {
+      "name": "profmd-ignores-top-limit",
+      "origin": "wf10 PROF-1",
+      "file": "internal/profmd/render.go",
+      "from": "if len(bySelf) > opts.Top {\n\t\tbySelf = bySelf[:opts.Top]\n\t}",
+      "to": "if false && len(bySelf) > opts.Top {\n\t\tbySelf = bySelf[:opts.Top]\n\t}",
+      "rule": "CPU self-time table enforces Options.Top row limit.",
+      "killers": ["internal/profmd:TestRenderCPUMarkdownSyntheticAccountingAndTopLimit"]
+    }
+  ]
+}

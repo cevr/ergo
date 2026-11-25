@@ -2,6 +2,7 @@ import gen
 import github.com/cevr/ergo/modules/aws/aws
 import github.com/cevr/ergo/modules/aws/s3
 import http
+import option
 import sync
 import temporal
 import testing
@@ -14,15 +15,15 @@ func observeS3Key[S s3.S3](store S, key string) string fails awsPathDriveErr {
 		return awsPathDriveErr{Message: "head failed"}
 	}
 	let n = match head.ContentLength {
-	case Some[int] as v:
+	case option.Some[int] as v:
 		v.Value
-	case None:
+	case option.None:
 		-1
 	}
 	let isGlacier = match head.StorageClass {
-	case Some[s3.StorageClass] as c:
+	case option.Some[s3.StorageClass] as c:
 		c.Value == s3.StorageClassGlacier
-	case None:
+	case option.None:
 		false
 	}
 	if isGlacier {
@@ -45,7 +46,7 @@ func applyS3StoreAct[S s3.S3](store S, act awsPathAct) awsPathOut fails awsPathD
 		}
 		AwsOutPutOk
 	case AwsActPutGlacier as a:
-		let _ = store.PutObject(s3.PutObjectRequest{..s3.NewPutObjectRequest("bk", a.Key), Body: a.Body, StorageClass: Some[s3.StorageClass]{s3.StorageClassGlacier}}) catch {
+		let _ = store.PutObject(s3.PutObjectRequest{..s3.NewPutObjectRequest("bk", a.Key), Body: a.Body, StorageClass: option.Some[s3.StorageClass]{s3.StorageClassGlacier}}) catch {
 		case _:
 			return awsPathDriveErr{Message: "put glacier failed"}
 		}
@@ -58,15 +59,15 @@ func applyS3StoreAct[S s3.S3](store S, act awsPathAct) awsPathOut fails awsPathD
 			return awsPathDriveErr{Message: "head failed"}
 		}
 		let n = match out.ContentLength {
-		case Some[int] as v:
+		case option.Some[int] as v:
 			v.Value
-		case None:
+		case option.None:
 			-1
 		}
 		let archived = match out.StorageClass {
-		case Some[s3.StorageClass] as c:
+		case option.Some[s3.StorageClass] as c:
 			c.Value == s3.StorageClassGlacier
-		case None:
+		case option.None:
 			false
 		}
 		AwsOutHead{Length: n, Archived: archived}
@@ -171,11 +172,11 @@ law AwsS3FaultsFailClosed() {
 		}
 		let faulty = testing.Faulty[s3.S3](inner)
 		let mut readFault = false
-		let putBefore = len(faulty.PutObject.Faults())
+		let putBefore = faulty.PutObject.Faults().Len()
 		let putOk = with context { s3.S3: faulty } {
 			tryS3Put(s3.PutObjectRequest{..s3.NewPutObjectRequest("bk", "fresh"), Body: "v2"})
 		}
-		if len(faulty.PutObject.Faults()) > putBefore {
+		if faulty.PutObject.Faults().Len() > putBefore {
 			sometimes !putOk
 			if putOk {
 				return false
@@ -197,11 +198,11 @@ law AwsS3FaultsFailClosed() {
 			}
 			sometimes putOk
 		}
-		let headBefore = len(faulty.HeadObject.Faults())
+		let headBefore = faulty.HeadObject.Faults().Len()
 		let headOk = with context { s3.S3: faulty } {
 			tryS3Head(s3.NewHeadObjectRequest("bk", "existing"))
 		}
-		if len(faulty.HeadObject.Faults()) > headBefore {
+		if faulty.HeadObject.Faults().Len() > headBefore {
 			readFault = true
 			if headOk {
 				return false
@@ -212,11 +213,11 @@ law AwsS3FaultsFailClosed() {
 			}
 			sometimes headOk
 		}
-		let getBefore = len(faulty.GetObject.Faults())
+		let getBefore = faulty.GetObject.Faults().Len()
 		let getOk = with context { s3.S3: faulty } {
 			tryS3Get(s3.NewGetObjectRequest("bk", "existing"), "v1")
 		}
-		if len(faulty.GetObject.Faults()) > getBefore {
+		if faulty.GetObject.Faults().Len() > getBefore {
 			readFault = true
 			if getOk {
 				return false
@@ -225,11 +226,11 @@ law AwsS3FaultsFailClosed() {
 			return false
 		}
 		sometimes readFault
-		let delBefore = len(faulty.DeleteObject.Faults())
+		let delBefore = faulty.DeleteObject.Faults().Len()
 		let delOk = with context { s3.S3: faulty } {
 			tryS3Del(s3.NewDeleteObjectRequest("bk", "existing"))
 		}
-		if len(faulty.DeleteObject.Faults()) > delBefore {
+		if faulty.DeleteObject.Faults().Len() > delBefore {
 			sometimes !delOk
 			if delOk {
 				return false
@@ -238,7 +239,7 @@ law AwsS3FaultsFailClosed() {
 			case _:
 				return false
 			}
-			return still.ContentLength == Some[int]{Value: 2}
+			return still.ContentLength == option.Some[int]{Value: 2}
 		}
 		if !delOk {
 			return false
@@ -361,12 +362,12 @@ type awsConcAct =
 func awsConcStep(m Map[string, int], act awsConcAct) (Map[string, int], int) {
 	match act {
 	case ConcPut as a:
-		(m.Put(a.Key, len(a.Body)), 0)
+		(m.Put(a.Key, a.Body.Len()), 0)
 	case ConcHead as a:
 		match m.Get(a.Key) {
-		case Some[int] as v:
+		case option.Some[int] as v:
 			(m, v.Value)
-		case None:
+		case option.None:
 			(m, -1)
 		}
 	case ConcDel as a:
@@ -402,9 +403,9 @@ law AwsS3ConcurrentLinearizable() {
 					return -99
 				}
 				match out.ContentLength {
-				case Some[int] as v:
+				case option.Some[int] as v:
 					v.Value
-				case None:
+				case option.None:
 					-2
 				}
 			case ConcDel as a:

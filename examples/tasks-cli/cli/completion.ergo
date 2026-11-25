@@ -18,7 +18,7 @@ let Specs = []Spec{
 // CompletionsMatchTheParser: Specs names each command of Commands, in
 // order, with the flags its usage lists, no more and no fewer.
 law CompletionsMatchTheParser() {
-	if len(Specs) != len(Commands) {
+	if Specs.Len() != Commands.Len() {
 		return false
 	}
 	for i, c in Commands {

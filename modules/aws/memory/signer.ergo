@@ -13,6 +13,7 @@ import github.com/cevr/ergo/modules/aws/aws
 import github.com/cevr/ergo/modules/aws/s3
 import config
 import http
+import option
 import strconv
 import strings
 import sync
@@ -46,7 +47,7 @@ func textOf(r http.Request) string {
 
 let keys = []string{"k", "a/b c", "dir/x%2F+y/", "", "über/ünder"}
 
-func keyOf(n int) string { keys[(n%len(keys)+len(keys))%len(keys)] }
+func keyOf(n int) string { keys[(n%keys.Len()+keys.Len())%keys.Len()] }
 
 // call sends one drawn operation through api, its outcome dropped.
 func call(api s3.Api, n int, key string) {
@@ -112,7 +113,7 @@ law KeyOnlyInTheNet(secret string, steps []int) {
 			return false
 		}
 	}
-	len(got.Get()) == len(signer.Requests())
+	got.Get().Len() == signer.Requests().Len()
 }
 
 // SlashesStayInThePath: a key's "/" is sent as a path separator, each
@@ -130,9 +131,9 @@ law SlashesStayInThePath(n int) {
 
 func holds(r http.Request, name string, value string) bool {
 	match http.Header(r.Header, name) {
-	case Some as v:
+	case option.Some as v:
 		v.Value == value
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -147,7 +148,7 @@ type Derived { secret config.Redacted[string] } implements aws.Signer
 func Sign(d Derived, r http.Request) http.Request {
 	let mut h uint64 = 14695981039346656037
 	let text = d.secret.Reveal() + "\n" + r.Method + "\n" + r.RawPath
-	for i in 0..len(text) {
+	for i in 0..text.Len() {
 		h = (h ^ uint64(text[i])) * 1099511628211
 	}
 	http.Request{..r, Header: r.Header.Append(http.Field{Name: "Authorization", Value: "TEST4-HMAC " + strconv.AppendUint([]byte{}, h, 16).Text()})}
@@ -187,15 +188,15 @@ law RecordingSitsAboveTheSigner(secret string, steps []int) {
 	}
 	for r in got.Get() {
 		match http.Header(r.Header, "Authorization") {
-		case Some as v:
+		case option.Some as v:
 			if !strings.HasPrefix(v.Value, "TEST4-HMAC ") {
 				return false
 			}
-		case None:
+		case option.None:
 			return false
 		}
 	}
-	len(got.Get()) == len(rec.log.Get())
+	got.Get().Len() == rec.log.Get().Len()
 }
 
 // The signer Signer's law runs under: a Recorded over Unsigned.

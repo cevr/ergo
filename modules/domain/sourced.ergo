@@ -36,6 +36,8 @@
 //	let a = try actor.StartDurable(Tallies{}, 8, func(r domain.Receipt) {}, s.Recover, s.Save)
 
 import actor
+import machines
+import option
 
 // Ledger is the state of the host: the aggregate's state after the
 // stream's records, the stream, the position of its last record, the
@@ -59,9 +61,9 @@ func Begin[S, E](stream string, initial S) Ledger[S, E] {
 // with Ignore, and the sender reads the first receipt (ReceiptOf).
 func Taken[S, E](l Ledger[S, E], id CommandID) bool {
 	match l.Receipts.Get(id) {
-	case Some[Receipt]:
+	case option.Some[Receipt]:
 		true
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -70,22 +72,22 @@ func Taken[S, E](l Ledger[S, E], id CommandID) bool {
 // aggregate to next: the ledger at the next position, with the events as
 // its last record, and the command's receipt as the output. As Emit, it
 // opens a new entry: the state's work and timer start again.
-func Commit[S, E](l Ledger[S, E], id CommandID, next S, events []E) Decision[Ledger[S, E], Receipt] {
+func Commit[S, E](l Ledger[S, E], id CommandID, next S, events []E) machines.Decision[Ledger[S, E], Receipt] {
 	let r = Receipt{ID: id, Stream: l.Stream, Position: l.Position + 1}
-	Emit[Ledger[S, E], Receipt]{Next: Ledger[S, E]{Stream: l.Stream, State: next, Position: r.Position, Receipts: l.Receipts.Put(id, r), Last: Recorded[E]{Position: r.Position, ID: id, Events: events}}, Output: r}
+	machines.Emit[Ledger[S, E], Receipt]{Next: Ledger[S, E]{Stream: l.Stream, State: next, Position: r.Position, Receipts: l.Receipts.Put(id, r), Last: Recorded[E]{Position: r.Position, ID: id, Events: events}}, Output: r}
 }
 
 // ReceiptOf is the receipt of the command id in l, if l's stream kept it.
-func ReceiptOf[S, E](l Ledger[S, E], id CommandID) Option[Receipt] { l.Receipts.Get(id) }
+func ReceiptOf[S, E](l Ledger[S, E], id CommandID) option.Option[Receipt] { l.Receipts.Get(id) }
 
 // Keep is Commit that keeps the entry: the ledger at the next position,
 // with the events as its last record, and the command's receipt as the
 // output, as a Tell. The state's work and timer go on (runtime.md,
 // Machines and actors 9.2: a Tell neither restarts nor cancels them; laws
 // KeepKeepsTheTimer and machines.StayAndTellKeepTheTimer).
-func Keep[S, E](l Ledger[S, E], id CommandID, next S, events []E) Decision[Ledger[S, E], Receipt] {
+func Keep[S, E](l Ledger[S, E], id CommandID, next S, events []E) machines.Decision[Ledger[S, E], Receipt] {
 	let r = Receipt{ID: id, Stream: l.Stream, Position: l.Position + 1}
-	Tell[Ledger[S, E], Receipt]{Next: Ledger[S, E]{Stream: l.Stream, State: next, Position: r.Position, Receipts: l.Receipts.Put(id, r), Last: Recorded[E]{Position: r.Position, ID: id, Events: events}}, Output: r}
+	machines.Tell[Ledger[S, E], Receipt]{Next: Ledger[S, E]{Stream: l.Stream, State: next, Position: r.Position, Receipts: l.Receipts.Put(id, r), Last: Recorded[E]{Position: r.Position, ID: id, Events: events}}, Output: r}
 }
 
 // StepID names the record of a step that no command caused (the end of
@@ -98,7 +100,7 @@ func StepID[S, E](l Ledger[S, E], kind string) CommandID { CommandID("#\(kind)@\
 // actor.StartDurable takes. Sig is the actor's signal, which save does
 // not read.
 type Store[S, Sig, E] {
-	Recover func() Option[Ledger[S, E]] fails Conflict | Reused | Unkept,
+	Recover func() option.Option[Ledger[S, E]] fails Conflict | Reused | Unkept,
 	Save    func(prev Ledger[S, E], next Ledger[S, E], sig Sig) fails Conflict | Reused | Unkept,
 }
 
@@ -112,7 +114,7 @@ type Store[S, Sig, E] {
 // restart recovers from the log.
 func Sourced[S, Sig any, E comparable](log Log[E], stream string, initial S, evolve own func(s S, e E) S) Store[S, Sig, E] {
 	Store[S, Sig, E]{
-		Recover: func() Option[Ledger[S, E]] fails Conflict | Reused | Unkept {
+		Recover: func() option.Option[Ledger[S, E]] fails Conflict | Reused | Unkept {
 			let mut l = Begin[S, E](stream, initial)
 			for r in log.Read(stream, 0) {
 				let mut s = l.State
@@ -121,7 +123,7 @@ func Sourced[S, Sig any, E comparable](log Log[E], stream string, initial S, evo
 				}
 				l = Ledger[S, E]{..l, State: s, Position: r.Position, Receipts: l.Receipts.Put(r.ID, Receipt{ID: r.ID, Stream: stream, Position: r.Position}), Last: r}
 			}
-			Some[Ledger[S, E]]{Value: l}
+			option.Some[Ledger[S, E]]{Value: l}
 		},
 		Save: func(prev Ledger[S, E], next Ledger[S, E], sig Sig) fails Conflict | Reused | Unkept {
 			if next.Position == prev.Position {
@@ -138,19 +140,19 @@ func Sourced[S, Sig any, E comparable](log Log[E], stream string, initial S, evo
 // Send asks the host a to take env and is its receipt: the step's, or the
 // first one for a resend. It fails with the step's failure (the
 // aggregate's rejection), or Stopped when the actor ended first.
-func Send[S, C, E, F](a actor.Actor[Ledger[S, E], Envelope[C], Decision[Ledger[S, E], Receipt], F], env Envelope[C]) Receipt fails F | actor.Stopped {
+func Send[S, C, E, F](a actor.Actor[Ledger[S, E], Envelope[C], machines.Decision[Ledger[S, E], Receipt], F], env Envelope[C]) Receipt fails F | actor.Stopped {
 	let d = try a.Ask(env)
 	match d {
-	case Emit[Ledger[S, E], Receipt] as e:
+	case machines.Emit[Ledger[S, E], Receipt] as e:
 		return e.Output
-	case Tell[Ledger[S, E], Receipt] as t:
+	case machines.Tell[Ledger[S, E], Receipt] as t:
 		return t.Output
-	case Enter[Ledger[S, E]], Stay[Ledger[S, E]], Ignore, Reject, Done[Receipt]:
+	case machines.Enter[Ledger[S, E]], machines.Stay[Ledger[S, E]], machines.Ignore, machines.Reject, machines.Done[Receipt]:
 	}
 	match ReceiptOf(a.State(), env.ID) {
-	case Some[Receipt] as r:
+	case option.Some[Receipt] as r:
 		r.Value
-	case None:
+	case option.None:
 		actor.Stopped
 	}
 }

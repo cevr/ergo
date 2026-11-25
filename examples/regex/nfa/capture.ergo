@@ -6,6 +6,8 @@
 // other dropped; that keeps the list as long as the program at most and
 // keeps the history of the path the reference engine would choose.
 
+import machines
+import option
 import regex/syntax
 import slices
 import regex/backtrack
@@ -24,7 +26,7 @@ type Begin { P Program, At int, Find bool }
 type Best { End int, H syntax.History }
 
 // Tagged is what the tagged machine outputs: its match, and its work.
-type Tagged { Match Option[Best], Work TagWork }
+type Tagged { Match option.Option[Best], Work TagWork }
 
 // TagWork counts the tagged machine's work: Steps is the threads moved
 // over a byte, Events the Save instructions followed.
@@ -32,14 +34,14 @@ type TagWork { Steps int, Events int }
 
 // Tags is the tagged machine's state. A machine's state is a union
 // (G-ex-c-16), so Tags is a union of one variant.
-type Tags = Running{B Begin, Threads []Thread, At int, Best Option[Best], Work TagWork}
+type Tags = Running{B Begin, Threads []Thread, At int, Best option.Option[Best], Work TagWork}
 
 // StartTags is the state before the first byte: the closure of the start
 // instruction with an empty history.
 func StartTags(b Begin) Running {
 	let mut v = newVisit(b.P)
 	v.add(b.P, b.P.start, syntax.Start, b.At)
-	let mut r = Running{B: b, Threads: v.out, At: b.At, Best: None, Work: TagWork{Steps: 0, Events: v.events}}
+	let mut r = Running{B: b, Threads: v.out, At: b.At, Best: option.None, Work: TagWork{Steps: 0, Events: v.events}}
 	settle(&r)
 	r
 }
@@ -65,7 +67,7 @@ func StepTags(r mut Running, rd Read) {
 		case Split, Save, Accept:
 		}
 	}
-	r.Work = TagWork{Steps: r.Work.Steps + len(r.Threads), Events: r.Work.Events + v.events}
+	r.Work = TagWork{Steps: r.Work.Steps + r.Threads.Len(), Events: r.Work.Events + v.events}
 	r.Threads = v.out
 	r.At = at
 	settle(r)
@@ -80,26 +82,26 @@ func FinishTags(r Running) Tagged {
 	for t in r.Threads {
 		match r.B.P.insts[t.Pc] {
 		case Accept:
-			return Tagged{Match: Some{Value: Best{End: r.At, H: t.H}}, Work: r.Work}
+			return Tagged{Match: option.Some{Value: Best{End: r.At, H: t.H}}, Work: r.Work}
 		case _:
 		}
 	}
-	Tagged{Match: None, Work: r.Work}
+	Tagged{Match: option.None, Work: r.Work}
 }
 
 func taggerStart(b Begin) Tags { StartTags(b) }
 
-func decideTags(s Tags, sig Signal) Decision[Tags, Tagged] {
+func decideTags(s Tags, sig Signal) machines.Decision[Tags, Tagged] {
 	match (s, sig) {
 	case (Running as r, Read as rd):
 		let mut next = r
 		next.StepTags(rd)
-		if len(next.Threads) == 0 {
-			return Done[Tagged]{Output: Tagged{Match: next.Best, Work: next.Work}}
+		if next.Threads.Len() == 0 {
+			return machines.Done[Tagged]{Output: Tagged{Match: next.Best, Work: next.Work}}
 		}
-		Enter[Tags]{Next: next}
+		machines.Enter[Tags]{Next: next}
 	case (Running as r, End):
-		Done[Tagged]{Output: FinishTags(r)}
+		machines.Done[Tagged]{Output: FinishTags(r)}
 	}
 }
 
@@ -110,10 +112,10 @@ func settle(r mut Running) {
 	if !r.B.Find {
 		return
 	}
-	for i in 0..len(r.Threads) {
+	for i in 0..r.Threads.Len() {
 		match r.B.P.insts[r.Threads[i].Pc] {
 		case Accept:
-			r.Best = Some{Value: Best{End: r.At, H: r.Threads[i].H}}
+			r.Best = option.Some{Value: Best{End: r.At, H: r.Threads[i].H}}
 			r.Threads = r.Threads[:i]
 			return
 		case _:
@@ -132,7 +134,7 @@ type Tagger machine[Tags, Signal] {
 type tagVisit { out []Thread, marked []bool, events int }
 
 // newVisit is an empty closure over the instructions of p.
-func newVisit(p Program) tagVisit { tagVisit{out: []Thread{}, marked: slices.Repeat([]bool{false}, len(p.insts)), events: 0} }
+func newVisit(p Program) tagVisit { tagVisit{out: []Thread{}, marked: slices.Repeat([]bool{false}, p.insts.Len()), events: 0} }
 
 // add adds the thread at pc with history h, at offset at, and what it
 // reaches through Split (X first) and Save, each instruction once.
@@ -177,15 +179,15 @@ law CapturesAgree(seed int, text string) {
 	}
 	let c = NewCapturing(p)
 	let w = match syntax.Witness(tree, seed) {
-	case Some[string] as s:
+	case option.Some[string] as s:
 		s.Value
-	case None:
+	case option.None:
 		return false
 	}
 	let w2 = match syntax.Witness(tree, seed+1) {
-	case Some[string] as s:
+	case option.Some[string] as s:
 		s.Value
-	case None:
+	case option.None:
 		return false
 	}
 	let texts = []string{w, w2, text, "", syntax.SampleText(seed), "b" + w + "a", w + w, w}
@@ -253,16 +255,16 @@ law TagWorkIsBounded(seed int) {
 		let c = NewCapturing(p)
 		let size = c.program.Len()
 		let w = match syntax.Witness(tree, seed) {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			s.Value
-		case None:
+		case option.None:
 			return false
 		}
 		for t in []string{strings.Repeat("a", n), w} {
 			let work = c.MeasureCaptures(t)
 			let description = "source=\(syntax.Print(tree)) text=\(t) size=\(size) "
-			assert description+"steps=\(work.Steps <= len(t)*size)" == description+"steps=true"
-			assert description+"events=\(work.Events <= (len(t)+1)*size)" == description+"events=true"
+			assert description+"steps=\(work.Steps <= t.Len()*size)" == description+"steps=true"
+			assert description+"events=\(work.Events <= (t.Len()+1)*size)" == description+"events=true"
 		}
 	}
 	true
@@ -271,9 +273,9 @@ law TagWorkIsBounded(seed int) {
 // runTags runs the tagged machine on text from start.
 func runTags(p Program, text string, start int, find bool) Tagged {
 	let mut r = StartTags(Begin{P: p, At: start, Find: find})
-	for i in start..len(text) {
+	for i in start..text.Len() {
 		r.StepTags(Read{C: text[i]})
-		if len(r.Threads) == 0 {
+		if r.Threads.Len() == 0 {
 			return Tagged{Match: r.Best, Work: r.Work}
 		}
 	}
@@ -282,27 +284,27 @@ func runTags(p Program, text string, start int, find bool) Tagged {
 
 // ParseCaptures is the events of the match of c on the whole text, or
 // None when it does not match.
-func ParseCaptures(c Capturing, text string) Option[[]syntax.Event] {
+func ParseCaptures(c Capturing, text string) option.Option[[]syntax.Event] {
 	match runTags(c.program, text, 0, false).Match {
-	case Some[Best] as b:
-		Some{Value: syntax.Events(b.Value.H)}
-	case None:
-		None
+	case option.Some[Best] as b:
+		option.Some{Value: syntax.Events(b.Value.H)}
+	case option.None:
+		option.None
 	}
 }
 
 // FindCaptures is the leftmost match of c in text, of highest priority
 // at its start, or None. It starts the machine again at each offset, so a
 // failing long text costs time quadratic in its length.
-func FindCaptures(c Capturing, text string) Option[syntax.Found] {
-	for start in 0..len(text)+1 {
+func FindCaptures(c Capturing, text string) option.Option[syntax.Found] {
+	for start in 0..text.Len()+1 {
 		match runTags(c.program, text, start, true).Match {
-		case Some[Best] as b:
-			return Some{Value: syntax.Found{Start: start, End: b.Value.End, Events: syntax.Events(b.Value.H)}}
-		case None:
+		case option.Some[Best] as b:
+			return option.Some{Value: syntax.Found{Start: start, End: b.Value.End, Events: syntax.Events(b.Value.H)}}
+		case option.None:
 		}
 	}
-	None
+	option.None
 }
 
 // MeasureCaptures is the work of parsing text with c.

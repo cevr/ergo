@@ -7,6 +7,7 @@
 // clonefile, copy, journal, git, memory), and the binary chooses them.
 
 import machines
+import option
 
 // State is where a workspace is in its lifecycle. A crash between the
 // clone and the registry's record of it leaves Creating, which gc
@@ -39,9 +40,9 @@ law OnlyActiveLands(s State, e Signal) {
 // StateNamesRoundTrip: every state's name reads back as the state.
 law StateNamesRoundTrip(s State) {
 	match StateNamed(StateName(s)) {
-	case Some[State] as back:
+	case option.Some[State] as back:
 		StateName(back.Value) == StateName(s)
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -58,40 +59,40 @@ type Signal = Cloned{} | Land{} | Refused{} | Committed{} | Abandon{} | Remove{}
 // workspace whose clone never ended is only removed; the trash takes no
 // signal. The match names every pair, so a new state or signal stops the
 // build until its row is written.
-func Step(s State, e Signal) Decision[State, State] {
+func Step(s State, e Signal) machines.Decision[State, State] {
 	match (s, e) {
 	case (Creating, Cloned):
-		Enter[State]{Next: Active}
+		machines.Enter[State]{Next: Active}
 	case (Creating, Remove):
-		Enter[State]{Next: Trashed}
+		machines.Enter[State]{Next: Trashed}
 	case (Creating, Land), (Creating, Refused), (Creating, Committed), (Creating, Abandon), (Creating, Restore):
-		Reject
+		machines.Reject
 	case (Active, Land):
-		Enter[State]{Next: Landing}
+		machines.Enter[State]{Next: Landing}
 	case (Active, Abandon):
-		Enter[State]{Next: Abandoned}
+		machines.Enter[State]{Next: Abandoned}
 	case (Active, Remove):
-		Enter[State]{Next: Trashed}
+		machines.Enter[State]{Next: Trashed}
 	case (Active, Cloned), (Active, Refused), (Active, Committed), (Active, Restore):
-		Reject
+		machines.Reject
 	case (Landing, Committed):
-		Enter[State]{Next: Landed}
+		machines.Enter[State]{Next: Landed}
 	case (Landing, Refused):
-		Enter[State]{Next: Active}
+		machines.Enter[State]{Next: Active}
 	case (Landing, Cloned), (Landing, Land), (Landing, Abandon), (Landing, Remove), (Landing, Restore):
-		Reject
+		machines.Reject
 	case (Landed, Remove):
-		Enter[State]{Next: Trashed}
+		machines.Enter[State]{Next: Trashed}
 	case (Landed, Cloned), (Landed, Land), (Landed, Refused), (Landed, Committed), (Landed, Abandon), (Landed, Restore):
-		Reject
+		machines.Reject
 	case (Abandoned, Restore):
-		Enter[State]{Next: Active}
+		machines.Enter[State]{Next: Active}
 	case (Abandoned, Remove):
-		Enter[State]{Next: Trashed}
+		machines.Enter[State]{Next: Trashed}
 	case (Abandoned, Cloned), (Abandoned, Land), (Abandoned, Refused), (Abandoned, Committed), (Abandoned, Abandon):
-		Reject
+		machines.Reject
 	case (Trashed, Cloned), (Trashed, Land), (Trashed, Refused), (Trashed, Committed), (Trashed, Abandon), (Trashed, Remove), (Trashed, Restore):
-		Reject
+		machines.Reject
 	}
 }
 
@@ -157,13 +158,13 @@ func StateName(s State) string {
 }
 
 // StateNamed is the state of an external name.
-func StateNamed(name string) Option[State] {
+func StateNamed(name string) option.Option[State] {
 	for s in States() {
 		if StateName(s) == name {
-			return Some[State]{Value: s}
+			return option.Some[State]{Value: s}
 		}
 	}
-	None
+	option.None
 }
 
 // States is every state, in lifecycle order.

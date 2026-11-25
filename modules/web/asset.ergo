@@ -18,7 +18,7 @@ type Asset { Path string, Type string, Body string }
 func Hashed(name string, contentType string, body string) Asset {
 	let digest = strings.Slice(hex.Encode(sha256.Sum(body)), 0, 12)
 	let dot = strings.LastIndex(name, ".")
-	let file = if dot < 0 { name + "." + digest } else { strings.Slice(name, 0, dot) + "." + digest + strings.Slice(name, dot, len(name)) }
+	let file = if dot < 0 { name + "." + digest } else { strings.Slice(name, 0, dot) + "." + digest + strings.Slice(name, dot, name.Len()) }
 	Asset{Path: "/" + file, Type: contentType, Body: body}
 }
 
@@ -34,5 +34,5 @@ func Link(a Asset) html.URL { html.LocalURL(a.Path) }
 law HashedNameIsItsBytes(a string, b string) {
 	let x = Hashed("site.css", "text/css", a)
 	let y = Hashed("site.css", "text/css", b)
-	(x.Path == y.Path) == (a == b) && strings.HasPrefix(x.Path, "/site.") && strings.HasSuffix(x.Path, ".css") && len(x.Path) == len("/site.css")+13
+	(x.Path == y.Path) == (a == b) && strings.HasPrefix(x.Path, "/site.") && strings.HasSuffix(x.Path, ".css") && x.Path.Len() == "/site.css".Len()+13
 }

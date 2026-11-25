@@ -6,6 +6,7 @@ import limiter/limits/limitsrpc
 import limiter/memory
 import machines
 import maps
+import option
 import slices
 import strings
 import testing
@@ -21,7 +22,7 @@ func limSnap(m memory.Memory) string {
 	let mut parts = []string{}
 	for k in []string{"fast", "slow"} {
 		let txt = match m.Peek(k) {
-		case Some[limits.Level] as lv:
+		case option.Some[limits.Level] as lv:
 			match lv.Value {
 			case limits.Full:
 				"full"
@@ -30,7 +31,7 @@ func limSnap(m memory.Memory) string {
 			case limits.Empty as e:
 				"empty(\(e.RetryAfterMs))"
 			}
-		case None:
+		case option.None:
 			"none"
 		}
 		parts = parts.Append("\(k)=\(txt)")
@@ -42,7 +43,7 @@ func limFoldSnap(bs Map[string, bucket.Bucket]) string {
 	let mut parts = []string{}
 	for k in []string{"fast", "slow"} {
 		let txt = match bs.Get(k) {
-		case Some[bucket.Bucket] as b:
+		case option.Some[bucket.Bucket] as b:
 			match bucket.LevelOf(b.Value) {
 			case limits.Full:
 				"full"
@@ -51,7 +52,7 @@ func limFoldSnap(bs Map[string, bucket.Bucket]) string {
 			case limits.Empty as e:
 				"empty(\(e.RetryAfterMs))"
 			}
-		case None:
+		case option.None:
 			"none"
 		}
 		parts = parts.Append("\(k)=\(txt)")
@@ -63,39 +64,39 @@ func limFoldStep(bs Map[string, bucket.Bucket], req limitsapi.Request) (Map[stri
 	match req {
 	case limitsapi.TakeRequest as x:
 		let b = match bs.Get(x.Key) {
-		case Some[bucket.Bucket] as s:
+		case option.Some[bucket.Bucket] as s:
 			s.Value
-		case None:
+		case option.None:
 			return (bs, limitsapi.Rejected{Failure: limitsapi.UnknownBucket{E: limits.UnknownBucket{Key: x.Key}}})
 		}
 		let d = bucket.Step(b, bucket.Spend{Cost: x.Cost})
 		let mut next = bs
 		next[x.Key] = machines.Next(b, d)
 		match d {
-		case Emit[bucket.Bucket, bucket.Told] as e:
+		case machines.Emit[bucket.Bucket, bucket.Told] as e:
 			match e.Output {
 			case bucket.Granted as g:
 				(next, limitsapi.Done{Reply: limitsapi.TakeReply{Value: limits.Grant{Remaining: g.Remaining}}})
 			case bucket.Short as s:
 				(next, limitsapi.Rejected{Failure: limitsapi.Limited{E: limits.Limited{RetryAfterMs: s.RetryAfterMs}}})
 			}
-		case Enter[bucket.Bucket], Stay[bucket.Bucket], Tell[bucket.Bucket, bucket.Told], Ignore, Reject, Done[bucket.Told]:
+		case machines.Enter[bucket.Bucket], machines.Stay[bucket.Bucket], machines.Tell[bucket.Bucket, bucket.Told], machines.Ignore, machines.Reject, machines.Done[bucket.Told]:
 			(bs, limitsapi.Rejected{Failure: limitsapi.BadCost{E: limits.BadCost{Cost: x.Cost, Capacity: b.Capacity}}})
 		}
 	case limitsapi.HoldRequest as x:
 		let b = match bs.Get(x.Key) {
-		case Some[bucket.Bucket] as s:
+		case option.Some[bucket.Bucket] as s:
 			s.Value
-		case None:
+		case option.None:
 			return (bs, limitsapi.Rejected{Failure: limitsapi.UnknownBucket{E: limits.UnknownBucket{Key: x.Key}}})
 		}
 		(bs, limitsapi.Rejected{Failure: limitsapi.BadCost{E: limits.BadCost{Cost: x.Cost, Capacity: b.Capacity}}})
 	case limitsapi.PeekRequest as x:
 		match bs.Get(x.Key) {
-		case Some[bucket.Bucket] as s:
-			(bs, limitsapi.Done{Reply: limitsapi.PeekReply{Value: Some[limits.Level]{Value: bucket.LevelOf(s.Value)}}})
-		case None:
-			(bs, limitsapi.Done{Reply: limitsapi.PeekReply{Value: None}})
+		case option.Some[bucket.Bucket] as s:
+			(bs, limitsapi.Done{Reply: limitsapi.PeekReply{Value: option.Some[limits.Level]{Value: bucket.LevelOf(s.Value)}}})
+		case option.None:
+			(bs, limitsapi.Done{Reply: limitsapi.PeekReply{Value: option.None}})
 		}
 	case limitsapi.AdvanceRequest as x:
 		let mut next = bs

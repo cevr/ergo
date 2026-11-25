@@ -17,6 +17,7 @@ import admit/memory
 import admit/semaphore
 import go errors
 import io
+import option
 import os
 import strconv
 
@@ -28,11 +29,11 @@ type Config { Capacity int, Memory bool }
 
 // Parse is the config of args.
 func Parse(args []string) Config fails os.Exit {
-	let memory = len(args) == 2 && args[0] == "-memory"
-	if len(args) != 1 && !memory {
+	let memory = args.Len() == 2 && args[0] == "-memory"
+	if args.Len() != 1 && !memory {
 		return os.Exit{Code: 2, Message: Usage}
 	}
-	let capacity = strconv.Atoi(args[len(args)-1]) catch {
+	let capacity = strconv.Atoi(args[args.Len()-1]) catch {
 	case strconv.Malformed, strconv.OutOfRange:
 		return os.Exit{Code: 2, Message: Usage}
 	}
@@ -57,7 +58,7 @@ func refusals(events []jobs.Event) []go.Error {
 
 // Admit checks the payloads of js, runs them through the gate and prints
 // each step, then the refused jobs.
-func Admit(js []jobs.Job) fails os.Exit needs Console | jobs.Gate | jobs.Checker | go.Foreign {
+func Admit(js []jobs.Job) fails os.Exit needs io.Console | jobs.Gate | jobs.Checker | go.Foreign {
 	jobs.Checker.Check(js) catch {
 	case jobs.BadPayload as b:
 		return os.Exit{Code: 1, Message: "admit: job \(b.Name): \(b.Reason)"}
@@ -67,16 +68,16 @@ func Admit(js []jobs.Job) fails os.Exit needs Console | jobs.Gate | jobs.Checker
 		return os.Exit{Code: 1, Message: "admit: stopped"}
 	}
 	for e in events {
-		Console.Println(jobs.Line(e))
+		io.Console.Println(jobs.Line(e))
 	}
 	errors.Join(refusals(events)) catch {
 	case go.Error as e:
-		Console.Println("refused:\n\(e.Text)")
-		return os.Exit{Code: 1, Message: "admit: \(len(refusals(events))) refused"}
+		io.Console.Println("refused:\n\(e.Text)")
+		return os.Exit{Code: 1, Message: "admit: \(refusals(events).Len()) refused"}
 	}
 }
 
-func main() fails os.Exit needs Console | Ambient | go.Foreign {
+func main() fails os.Exit needs io.Console | os.Ambient | go.Foreign {
 	let config = try Parse(os.NewHost().Args())
 	let text = io.NewStdin().ReadAll() catch {
 	case io.ReadFailed as r:
@@ -93,11 +94,11 @@ func main() fails os.Exit needs Console | Ambient | go.Foreign {
 		return
 	}
 	match semaphore.New(config.Capacity) {
-	case Some[semaphore.Gate] as g:
+	case option.Some[semaphore.Gate] as g:
 		with context { jobs.Gate: g.Value, jobs.Checker: errgroup.New(4) } {
 			try Admit(js)
 		}
-	case None:
+	case option.None:
 		return os.Exit{Code: 1, Message: "admit: Go gave no semaphore"}
 	}
 }

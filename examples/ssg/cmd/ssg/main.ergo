@@ -9,6 +9,7 @@ import flag
 import fs
 import fstest
 import io
+import option
 import os
 import ssg/files
 import ssg/memory
@@ -30,9 +31,9 @@ func run(args []string) fails os.Exit needs io.Stdout | fs.Files | fs.Writes {
 		return
 	}
 	let root = match siteArg.Get(v) {
-	case Some[string] as s:
+	case option.Some[string] as s:
 		s.Value
-	case None:
+	case option.None:
 		"."
 	}
 	let src = files.Read(root) catch {
@@ -75,13 +76,13 @@ func run(args []string) fails os.Exit needs io.Stdout | fs.Files | fs.Writes {
 	for path in wrote {
 		io.Stdout.Println("wrote " + path)
 	}
-	io.Stdout.Println("\(len(wrote)) pages")
+	io.Stdout.Println("\(wrote.Len()) pages")
 }
 
 // failed is the end of a failed build: status 1 and message after "ssg: ".
 func failed(message string) os.Exit { os.Exit{Code: 1, Message: "ssg: " + message} }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), fs.Writes: fs.NewHost(), io.Stdout: io.NewHost() } {
 		try run(os.Process.Args())
 	}

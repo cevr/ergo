@@ -3,6 +3,7 @@
 // navigation means (an entry, a stay, an exit) from the route before and
 // the route after, with no transition helper.
 
+import option
 import strconv
 import strings
 import sync
@@ -31,30 +32,30 @@ func Save(k kept, draft string) {
 	k.saved.Update(func(v []string) []string { v.Append(draft) })
 }
 
-func Last(k kept) Option[string] {
+func Last(k kept) option.Option[string] {
 	let v = k.saved.Get()
-	if len(v) == 0 {
-		return None
+	if v.Len() == 0 {
+		return option.None
 	}
-	Some[string]{Value: v[len(v)-1]}
+	option.Some[string]{Value: v[v.Len()-1]}
 }
 
 // drawn is the law's op: a key typed, a URL arrived at, a link of the
 // site clicked, or (None) a clock move. Half the arrivals are at the
 // studio, so a stay in the studio with a draft is drawn often.
-func drawn(o int) Option[Signal] {
+func drawn(o int) option.Option[Signal] {
 	let texts = []string{"", "a", "half-finished thought"}
 	let op = if o < 0 { -(o / 2) } else { o }
 	match op % 4 {
 	case 0:
-		Some[Signal]{Value: Drafted{Text: texts[(op/4)%3]}}
+		option.Some[Signal]{Value: Drafted{Text: texts[(op/4)%3]}}
 	case 1:
 		let to = if (op/4)%2 == 0 { Studio } else { routeOf(op/8, 1+op%5) }
-		Some[Signal]{Value: Arrived{URL: Print(to)}}
+		option.Some[Signal]{Value: Arrived{URL: Print(to)}}
 	case 2:
-		Some[Signal]{Value: Clicked{Link: Internal{URL: Print(routeOf(op/4, 1+op%5))}}}
+		option.Some[Signal]{Value: Clicked{Link: Internal{URL: Print(routeOf(op/4, 1+op%5))}}}
 	case _:
-		None
+		option.None
 	}
 }
 
@@ -64,16 +65,16 @@ func drawn(o int) Option[Signal] {
 func saved(ops []int) []string {
 	let clock = time.NewManual(0)
 	let store = kept{saved: sync.NewRef[[]string]([]string{})}
-	with context { time.Clock: clock, Scheduler: clock, Drafts: store } {
+	with context { time.Clock: clock, time.Scheduler: clock, Drafts: store } {
 		let site = actor.StartMachine(Gallerist{}, 16, func(cs []Action) {})
 		for i, o in ops {
 			match drawn(o) {
-			case Some[Signal] as s:
+			case option.Some[Signal] as s:
 				site.Send(s.Value) catch {
 				case actor.Stopped:
 					return []string{"? stopped"}
 				}
-			case None:
+			case option.None:
 				clock.Advance(time.Times(100ms, i%8))
 			}
 		}
@@ -92,7 +93,7 @@ func leaves(ops []int) []string {
 	let mut want = []string{}
 	for o in ops {
 		match drawn(o) {
-		case Some[Signal] as s:
+		case option.Some[Signal] as s:
 			match s.Value {
 			case Drafted as d:
 				draft = d.Text
@@ -104,7 +105,7 @@ func leaves(ops []int) []string {
 				inStudio = next
 			case Clicked, CatalogLoaded, PaintingLoaded, Recalled, Dated, Answered:
 			}
-		case None:
+		case option.None:
 		}
 	}
 	if inStudio && draft != "" {
@@ -120,24 +121,24 @@ func leaves(ops []int) []string {
 func Parse(url string) Route {
 	let mut path = url
 	match strings.Cut(path, "://") {
-	case Some as h:
+	case option.Some as h:
 		path = match strings.Cut(h.Value.After, "/") {
-		case Some as p:
+		case option.Some as p:
 			"/" + p.Value.After
-		case None:
+		case option.None:
 			"/"
 		}
-	case None:
+	case option.None:
 	}
 	match strings.Cut(path, "#") {
-	case Some as h:
+	case option.Some as h:
 		path = h.Value.Before
-	case None:
+	case option.None:
 	}
 	match strings.Cut(path, "?") {
-	case Some as h:
+	case option.Some as h:
 		path = h.Value.Before
-	case None:
+	case option.None:
 	}
 	let mut parts = []string{}
 	for p in strings.Split(path, "/") {
@@ -145,16 +146,16 @@ func Parse(url string) Route {
 			parts = parts.Append(p)
 		}
 	}
-	if len(parts) == 0 {
+	if parts.Len() == 0 {
 		return Home
 	}
-	if len(parts) == 1 && parts[0] == "gallery" {
+	if parts.Len() == 1 && parts[0] == "gallery" {
 		return Gallery
 	}
-	if len(parts) == 1 && parts[0] == "studio" {
+	if parts.Len() == 1 && parts[0] == "studio" {
 		return Studio
 	}
-	if len(parts) == 2 && parts[0] == "gallery" {
+	if parts.Len() == 2 && parts[0] == "gallery" {
 		let id = strconv.Atoi(parts[1]) catch {
 		case strconv.Malformed, strconv.OutOfRange:
 			return NotFound{Path: path}

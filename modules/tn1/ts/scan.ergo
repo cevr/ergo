@@ -104,7 +104,7 @@ law ClassesAreClassOf(c byte) { classes[int(c)] == classOf(c) }
 
 // at is src[i], or 0 past its end.
 func at(src string, i int) byte {
-	if i < len(src) {
+	if i < src.Len() {
 		return src[i]
 	}
 	byte(0)
@@ -165,10 +165,10 @@ func regexAfter(s string) bool {
 // expression: at the start, after a punctuator other than ) and ], or
 // after one of regexAfter.
 func regexAllowed(toks []Token) bool {
-	if len(toks) == 0 {
+	if toks.Len() == 0 {
 		return true
 	}
-	let p = toks[len(toks)-1]
+	let p = toks[toks.Len()-1]
 	match p.Kind {
 	case Punct:
 		p.Text != ")" && p.Text != "]"
@@ -184,16 +184,16 @@ func regexAllowed(toks []Token) bool {
 func quoted(src string, i int) int {
 	let q = src[i]
 	let mut j = i + 1
-	for j < len(src) && src[j] != q && src[j] != '\n' {
+	for j < src.Len() && src[j] != q && src[j] != '\n' {
 		if src[j] == '\\' {
 			j += 1
 		}
 		j += 1
 	}
-	if j < len(src) && src[j] == q {
+	if j < src.Len() && src[j] == q {
 		return j + 1
 	}
-	lo(j, len(src))
+	lo(j, src.Len())
 }
 
 func lo(a int, b int) int {
@@ -210,19 +210,19 @@ type Piece { End int, Opens bool }
 
 func templateEnd(src string, i int) Piece {
 	let mut j = i
-	for j < len(src) {
+	for j < src.Len() {
 		let c = src[j]
 		if c == '\\' {
 			j += 2
 		} else if c == '`' {
 			return Piece{End: j + 1, Opens: false}
-		} else if c == '$' && j+1 < len(src) && src[j+1] == '{' {
+		} else if c == '$' && j+1 < src.Len() && src[j+1] == '{' {
 			return Piece{End: j + 2, Opens: true}
 		} else {
 			j += 1
 		}
 	}
-	Piece{End: len(src), Opens: false}
+	Piece{End: src.Len(), Opens: false}
 }
 
 // regexEnd is the end of the regular expression that opens at i, flags
@@ -230,7 +230,7 @@ func templateEnd(src string, i int) Piece {
 func regexEnd(src string, i int) int {
 	let mut j = i + 1
 	let mut class = false
-	for j < len(src) && src[j] != '\n' {
+	for j < src.Len() && src[j] != '\n' {
 		let c = src[j]
 		if c == '\\' {
 			j += 2
@@ -242,21 +242,21 @@ func regexEnd(src string, i int) int {
 			class = false
 		} else if c == '/' && !class {
 			j += 1
-			for j < len(src) && identByte(src[j]) {
+			for j < src.Len() && identByte(src[j]) {
 				j += 1
 			}
 			return j
 		}
 		j += 1
 	}
-	lo(j, len(src))
+	lo(j, src.Len())
 }
 
 // Scan is the tokens of src, comments included, in order.
 func Scan(src string) []Token {
 	// About one token in four bytes: room for that many, so the array
 	// grows once or not at all, as hand Go's make([]T, 0, n).
-	let mut toks = slices.WithCapacity[Token](len(src) / 4)
+	let mut toks = slices.WithCapacity[Token](src.Len() / 4)
 	// stack holds one entry per open brace: false for a block or an
 	// object, true for a template substitution.
 	let mut stack = []bool{}
@@ -264,11 +264,11 @@ func Scan(src string) []Token {
 	let mut newLine = false
 	if strings.HasPrefix(src, "#!") {
 		let end = strings.IndexByte(src, '\n')
-		let to = if end < 0 { len(src) } else { end }
+		let to = if end < 0 { src.Len() } else { end }
 		toks = toks.Append(Token{Kind: LineComment, From: 0, To: to, Text: "", NewLine: false, Depth: 0})
 		i = to
 	}
-	for i < len(src) {
+	for i < src.Len() {
 		let c = src[i]
 		let cl = classes[int(c)]
 		if cl == cNewline {
@@ -280,19 +280,19 @@ func Scan(src string) []Token {
 			i += 1
 			continue
 		}
-		let depth = len(stack)
+		let depth = stack.Len()
 		let next = at(src, i+1)
 		let mut kind Kind = Punct
 		let mut end = i + 1
 		let mut text = ""
 		if cl == cSlash && next == '/' {
 			kind = LineComment
-			let n = strings.IndexByte(strings.Slice(src, i, len(src)), '\n')
-			end = if n < 0 { len(src) } else { i + n }
+			let n = strings.IndexByte(strings.Slice(src, i, src.Len()), '\n')
+			end = if n < 0 { src.Len() } else { i + n }
 		} else if cl == cSlash && next == '*' {
 			kind = BlockComment
-			let n = strings.Index(strings.Slice(src, i+2, len(src)), "*/")
-			end = if n < 0 { len(src) } else { i + 2 + n + 2 }
+			let n = strings.Index(strings.Slice(src, i+2, src.Len()), "*/")
+			end = if n < 0 { src.Len() } else { i + 2 + n + 2 }
 		} else if cl == cQuote {
 			kind = Literal
 			end = quoted(src, i)
@@ -315,14 +315,14 @@ func Scan(src string) []Token {
 			kind = Literal
 			let hex = c == '0' && (next == 'x' || next == 'X')
 			let mut j = i + 1
-			for j < len(src) && (classes[int(src[j])] <= cDigit || src[j] == '.' || (src[j] == '+' || src[j] == '-') && (src[j-1] == 'e' || src[j-1] == 'E') && !hex) {
+			for j < src.Len() && (classes[int(src[j])] <= cDigit || src[j] == '.' || (src[j] == '+' || src[j] == '-') && (src[j-1] == 'e' || src[j-1] == 'E') && !hex) {
 				j += 1
 			}
 			end = j
 		} else if cl == cIdent || cl == cHash && classes[int(next)] == cIdent || cl == cBackslash {
 			kind = Ident
 			let mut j = i + 1
-			for j < len(src) && (classes[int(src[j])] <= cDigit || src[j] == '\\') {
+			for j < src.Len() && (classes[int(src[j])] <= cDigit || src[j] == '\\') {
 				j += 1
 			}
 			end = j
@@ -360,7 +360,7 @@ func IsComment(t Token) bool {
 // a comment, or in it, or after a // comment, is a line break before the
 // next token.
 func Code(src string, toks []Token) []Token {
-	let mut out = slices.WithCapacity[Token](len(toks))
+	let mut out = slices.WithCapacity[Token](toks.Len())
 	let mut pending = false
 	for t in toks {
 		if IsComment(t) {

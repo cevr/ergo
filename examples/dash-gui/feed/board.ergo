@@ -1,6 +1,8 @@
 // The board: twelve panels, a source task for each, and the frame loop.
 
 import ergo.local/prototype/examples/dashgui/panel
+import machines
+import option
 import queue
 import slices
 import tasks
@@ -67,11 +69,11 @@ func Stop(w Pipes) {
 // samples and the clock.
 func Advance(b Board, w Pipes) Step fails queue.Closed needs Sensors {
 	let f = b.Frame + 1
-	for i in 0..len(b.Panels) {
+	for i in 0..b.Panels.Len() {
 		try w.Orders[i].Push(Order{Frame: f, Count: Sensors.Count(i, f), Policy: b.Policies[i]})
 	}
 	let mut dropped = slices.Clone(b.Dropped)
-	for _ in 0..len(b.Panels) {
+	for _ in 0..b.Panels.Len() {
 		let r = try w.Done.Pop()
 		dropped[r.Source] = dropped[r.Source] + r.Dropped
 	}
@@ -91,7 +93,7 @@ func NextFrame(b Board) Step fails queue.Closed needs Sensors {
 	let f = b.Frame + 1
 	let mut dropped = slices.Clone(b.Dropped)
 	let mut data = [][]int{}
-	for i in 0..len(b.Panels) {
+	for i in 0..b.Panels.Len() {
 		let q = queue.New[int](Capacity)
 		for k in 0..Sensors.Count(i, f) {
 			if try Offer(q, Capacity, b.Policies[i], Sensors.Read(i, f, k)) {
@@ -108,9 +110,9 @@ func drain(q queue.Queue[int]) []int {
 	let mut values = []int{}
 	for {
 		match q.Poll() {
-		case Some[int] as v:
+		case option.Some[int] as v:
 			values = values.Append(v.Value)
-		case None:
+		case option.None:
 			break
 		}
 	}
@@ -122,19 +124,19 @@ func drain(q queue.Queue[int]) []int {
 func Shown(b Board, f int, data [][]int, dropped []int) Step {
 	let mut panels = []panel.State{}
 	let mut notes = []Notice{}
-	for i in 0..len(b.Panels) {
+	for i in 0..b.Panels.Len() {
 		let values = data[i]
 		let mut s = b.Panels[i]
 		for e in []panel.Event{panel.Samples{Frame: f, Values: values}, panel.Tick{Frame: f}} {
 			match panel.Step(s, e) {
-			case Enter[panel.State] as n:
+			case machines.Enter[panel.State] as n:
 				s = n.Next
-			case Stay[panel.State] as t:
+			case machines.Stay[panel.State] as t:
 				s = t.Next
-			case Emit[panel.State, panel.Note] as m:
+			case machines.Emit[panel.State, panel.Note] as m:
 				s = m.Next
 				notes = notes.Append(Notice{Panel: i, Note: m.Output})
-			case Ignore, Tell[panel.State, panel.Note], Reject, Done[panel.Note]:
+			case machines.Ignore, machines.Tell[panel.State, panel.Note], machines.Reject, machines.Done[panel.Note]:
 			}
 		}
 		panels = panels.Append(s)
@@ -149,19 +151,19 @@ type Step { Board Board, Notes []Notice }
 // panel that rejects it is left as it was. Ok is false for a rejected
 // event or a panel that does not exist.
 func Send(b Board, i int, e panel.Event) Sent {
-	if i < 0 || i >= len(b.Panels) {
+	if i < 0 || i >= b.Panels.Len() {
 		return Sent{Board: b, Ok: false}
 	}
 	match panel.Step(b.Panels[i], e) {
-	case Enter[panel.State] as n:
+	case machines.Enter[panel.State] as n:
 		Sent{Board: Board{..b, Panels: replace(b.Panels, i, n.Next)}, Ok: true}
-	case Stay[panel.State] as t:
+	case machines.Stay[panel.State] as t:
 		Sent{Board: Board{..b, Panels: replace(b.Panels, i, t.Next)}, Ok: true}
-	case Emit[panel.State, panel.Note] as m:
+	case machines.Emit[panel.State, panel.Note] as m:
 		Sent{Board: Board{..b, Panels: replace(b.Panels, i, m.Next)}, Ok: true}
-	case Ignore, Tell[panel.State, panel.Note]:
+	case machines.Ignore, machines.Tell[panel.State, panel.Note]:
 		Sent{Board: b, Ok: true}
-	case Reject, Done[panel.Note]:
+	case machines.Reject, machines.Done[panel.Note]:
 		Sent{Board: b, Ok: false}
 	}
 }
@@ -177,7 +179,7 @@ type Sent { Board Board, Ok bool }
 
 // SetPolicy is b with source i's queue dropping by p.
 func SetPolicy(b Board, i int, p Policy) Board {
-	if i < 0 || i >= len(b.Policies) {
+	if i < 0 || i >= b.Policies.Len() {
 		return b
 	}
 	let mut policies = slices.Clone(b.Policies)
@@ -188,7 +190,7 @@ func SetPolicy(b Board, i int, p Policy) Board {
 // Toggle is b with panel i paused, or resumed when it was paused: what a
 // panel's pause button does. A panel that does not exist leaves b.
 func Toggle(b Board, i int) Board {
-	if i < 0 || i >= len(b.Panels) {
+	if i < 0 || i >= b.Panels.Len() {
 		return b
 	}
 	match b.Panels[i] {
@@ -202,7 +204,7 @@ func Toggle(b Board, i int) Board {
 // Swap is b with source i's queue dropping by the other policy: what a
 // panel's policy button does.
 func Swap(b Board, i int) Board {
-	if i < 0 || i >= len(b.Policies) {
+	if i < 0 || i >= b.Policies.Len() {
 		return b
 	}
 	match b.Policies[i] {

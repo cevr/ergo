@@ -35,13 +35,13 @@ type IndexWriter {
 			index.Entry{
 				CTimeSec:    uint32(10), CTimeNsec: uint32(0), MTimeSec: uint32(10), MTimeNsec: uint32(0),
 				Dev:         uint32(1), Ino: uint32(2), Mode: index.ModeExecutable, UID: uint32(0), GID: uint32(0),
-				FileSize:    uint32(len(payload.Bytes())), OID: id, Stage: 0,
+				FileSize:    uint32(payload.Bytes().Len()), OID: id, Stage: 0,
 				AssumeValid: false, Extended: false, SkipWorktree: false, IntentToAdd: false, Path: "bin/run.sh",
 			},
 			index.Entry{
 				CTimeSec:    uint32(10), CTimeNsec: uint32(0), MTimeSec: uint32(10), MTimeNsec: uint32(0),
 				Dev:         uint32(1), Ino: uint32(3), Mode: index.ModeRegular, UID: uint32(0), GID: uint32(0),
-				FileSize:    uint32(len(payload.Bytes())), OID: id, Stage: 0,
+				FileSize:    uint32(payload.Bytes().Len()), OID: id, Stage: 0,
 				AssumeValid: false, Extended: false, SkipWorktree: false, IntentToAdd: false, Path: "a.txt",
 			},
 		}
@@ -54,7 +54,7 @@ type IndexWriter {
 			return false
 		}
 		let got = parsed.Entries()
-		if len(got) != 2 {
+		if got.Len() != 2 {
 			return false
 		}
 			got[0].Path == "a.txt" &&

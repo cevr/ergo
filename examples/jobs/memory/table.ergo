@@ -4,6 +4,7 @@
 
 import jobsapp/jobs
 import maps
+import option
 import slices
 import sync
 import time
@@ -32,9 +33,9 @@ func Add(t Table, name string, priority int, at time.Time) jobs.Job {
 // Get is the job of id.
 func Get(t Table, id int) jobs.Job fails jobs.NotFound {
 	match t.shelf.Get().Jobs.Get(id) {
-	case Some[jobs.Job] as j:
+	case option.Some[jobs.Job] as j:
 		j.Value
-	case None:
+	case option.None:
 		jobs.NotFound{Id: id}
 	}
 }
@@ -44,12 +45,12 @@ func All(t Table) []jobs.Job {
 	let s = t.shelf.Get()
 	// Every key has its job, so the slice takes them all: room for them
 	// first, as the match hides the one append per key from the lowering.
-	let mut all = slices.WithCapacity[jobs.Job](len(s.Jobs))
+	let mut all = slices.WithCapacity[jobs.Job](s.Jobs.Len())
 	for id in slices.Sorted(maps.Keys(s.Jobs)) {
 		match s.Jobs.Get(id) {
-		case Some[jobs.Job] as j:
+		case option.Some[jobs.Job] as j:
 			all = all.Append(j.Value)
-		case None:
+		case option.None:
 		}
 	}
 	all
@@ -61,9 +62,9 @@ type Held = Same{} | Other{} | Gone{}
 // held is what s holds under old.Id, against old.
 func held(s Shelf, old jobs.Job) Held {
 	match s.Jobs.Get(old.Id) {
-	case Some[jobs.Job] as j:
+	case option.Some[jobs.Job] as j:
 		if j.Value == old { Same } else { Other }
-	case None:
+	case option.None:
 		Gone
 	}
 }

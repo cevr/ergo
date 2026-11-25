@@ -13,7 +13,7 @@ import os
 
 let Live = context { keypad.Forms: memory.Fixed }
 
-func main() fails os.Exit needs Console | Ambient {
+func main() fails os.Exit needs io.Console | os.Ambient {
 	let status = with Live {
 		with context { io.Stdin: io.NewStdin() } {
 			script.Run()

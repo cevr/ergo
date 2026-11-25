@@ -1,6 +1,7 @@
 // The resolver's tests: a small registry by hand. The laws run under ergo
 // test over generated registries.
 
+import option
 import semver
 
 func v(text string) semver.Version {
@@ -81,9 +82,9 @@ test WhyIsTheShortestChain {
 	with context { Index: registry } {
 		let p = try Resolve(root)
 		match Why(p, root, "log") {
-		case Some[[]Pin] as chain:
-			assert len(chain.Value) == 2 && chain.Value[0].Name == "web" && chain.Value[1].Name == "log"
-		case None:
+		case option.Some[[]Pin] as chain:
+			assert chain.Value.Len() == 2 && chain.Value[0].Name == "web" && chain.Value[1].Name == "log"
+		case option.None:
 			assert false
 		}
 	}

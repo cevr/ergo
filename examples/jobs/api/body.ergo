@@ -5,6 +5,7 @@
 // std http's Serve runs it for each request, and the tests call it with
 // no socket.
 
+import codec
 import jobsapp/jobs
 import json
 import time
@@ -56,11 +57,11 @@ func DraftOf(text string) Draft fails json.Malformed | BadBody {
 	let d = json.Decode(draftCodec(), text) catch {
 	case json.Malformed as m:
 		return m
-	case WireMissingField as m:
+	case codec.WireMissingField as m:
 		return BadBody{Field: m.Field, Reason: "is missing"}
-	case WireWrongKind as w:
+	case codec.WireWrongKind as w:
 		return BadBody{Field: if w.Path == "" { "body" } else { w.Path }, Reason: "is not " + w.Want}
-	case WireUnknownTag as u:
+	case codec.WireUnknownTag as u:
 		return BadBody{Field: u.Path, Reason: "has no variant " + u.Tag}
 	}
 	if d.Name == "" {

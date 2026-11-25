@@ -28,7 +28,7 @@ func runReportWithSource(name string) reportFaultOutcome needs Source {
 	case csv.ParseError, MissingColumn, BadNumber:
 		return ReportFaultOther
 	}
-	ReportFaultOk{Lines: len(lines)}
+	ReportFaultOk{Lines: lines.Len()}
 }
 
 // ReportPropagatesSourceFaults wraps report.Source in testing.Faulty and proves
@@ -39,9 +39,9 @@ law ReportPropagatesSourceFaults() {
 	let base = stubReportSource{Body: "site,device,hours,kw\nnorth,pump,4,1.50\nsouth,fan,2,0.50\n"}
 	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
 		let faulty = testing.Faulty[Source](base)
-		let f0 = len(faulty.Read.Faults())
+		let f0 = faulty.Read.Faults().Len()
 		let res = with context { Source: faulty } { runReportWithSource("meters.csv") }
-		let faulted = len(faulty.Read.Faults()) > f0
+		let faulted = faulty.Read.Faults().Len() > f0
 		match res {
 		case ReportFaultOk as ok:
 			always !faulted
@@ -73,8 +73,8 @@ law FilterSometimesKeepsReadings sometimes(hours int) {
 		Reading{Site: "south", Device: "fan", Hours: 2, Kw: int64(50)},
 	}
 	let kept = Filter(sample, AtLeast{Hours: hours})
-	always len(kept) <= len(sample)
-	len(kept) == 1
+	always kept.Len() <= sample.Len()
+	kept.Len() == 1
 }
 
 // FilterChainAndTableConsistency proves Filter composition commutes across AtSite
@@ -106,7 +106,7 @@ law FilterChainAndTableConsistency() {
 		let key = if gen.Bool() { BySite } else { ByDevice }
 		let groups = Group(rs, key)
 		let tbl = Table(rs, key)
-		if len(tbl) != len(groups)+2 {
+		if tbl.Len() != groups.Len()+2 {
 			return false
 		}
 		let bad = gen.OneOf([]string{"", "12.", "12.345", "-1.00", "abc", ".5"})

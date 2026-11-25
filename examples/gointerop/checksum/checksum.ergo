@@ -3,6 +3,7 @@
 // texts it names. The hash itself is a contract, Hasher, that a provider
 // package supplies.
 
+import option
 import strings
 
 // Hasher computes a digest of a text, as lower-case hex.
@@ -15,7 +16,7 @@ type Hasher {
 
 	// FixedWidth: every digest has the width of the digest of "", in hex
 	// digits only.
-	law FixedWidth(text string) { len(Sum(text)) == len(Sum("")) && IsHex(Sum(text)) },
+	law FixedWidth(text string) { Sum(text).Len() == Sum("").Len() && IsHex(Sum(text)) },
 
 	// Distinguishes: a text and the same text with one more byte have
 	// different digests. (Tested, as every law is, never proved: a
@@ -25,7 +26,7 @@ type Hasher {
 
 // IsHex reports whether text is lower-case hex digits only.
 func IsHex(text string) bool {
-	for i in 0..len(text) {
+	for i in 0..text.Len() {
 		if !strings.Contains("0123456789abcdef", strings.Slice(text, i, i+1)) {
 			return false
 		}
@@ -51,12 +52,12 @@ func Parse(text string) []Entry fails BadLine {
 		}
 		let halves = strings.Cut(l, "  ")
 		match halves {
-		case Some[strings.Halves] as h:
+		case option.Some[strings.Halves] as h:
 			if !IsHex(h.Value.Before) || h.Value.Before == "" || h.Value.After == "" {
 				return BadLine{Line: n + 1, Text: l}
 			}
 			out = out.Append(Entry{Digest: h.Value.Before, Name: h.Value.After})
-		case None:
+		case option.None:
 			return BadLine{Line: n + 1, Text: l}
 		}
 	}
@@ -67,12 +68,12 @@ func Parse(text string) []Entry fails BadLine {
 type Verdict = Matches{} | Differs{Got string} | Missing{}
 
 // Check is the verdict of e against the text of its file, if there is one.
-func Check(e Entry, text Option[string]) Verdict needs Hasher {
+func Check(e Entry, text option.Option[string]) Verdict needs Hasher {
 	match text {
-	case Some[string] as t:
+	case option.Some[string] as t:
 		let got = Hasher.Sum(t.Value)
 		if got == e.Digest { Matches } else { Differs{Got: got} }
-	case None:
+	case option.None:
 		Missing
 	}
 }

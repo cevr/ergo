@@ -3,6 +3,7 @@
 // validation, O(log N) fan-out lookup, and unified pack reading (STD-GIT: G-MIDX).
 
 import github.com/cevr/ergo/modules/git/oid
+import option
 
 // Error is the closed failure union for MIDX parsing, chain assembly, pack
 // manifest validation, and file I/O.
@@ -61,9 +62,9 @@ type Chain {
 // laws held identically by both parsed MIDX and in-memory MemoryMIDX providers.
 type MIDXReader {
 	Count() int,
-	At(i int) Option[Location],
+	At(i int) option.Option[Location],
 	PackNames() []string,
-	Lookup(id oid.OID) Option[Location],
+	Lookup(id oid.OID) option.Option[Location],
 
 	// LookupFindsAllIndexedObjects: every indexed entry at 0..Count() is found
 	// by Lookup with identical OID, PackName, PackID, and Offset.
@@ -71,13 +72,13 @@ type MIDXReader {
 		let n = Count()
 		for i in 0..n {
 			match At(i) {
-			case None:
+			case option.None:
 				return false
-			case Some[Location] as e:
+			case option.Some[Location] as e:
 				match Lookup(e.Value.OID) {
-				case None:
+				case option.None:
 					return false
-				case Some[Location] as got:
+				case option.Some[Location] as got:
 					if !oid.Equal(got.Value.OID, e.Value.OID) || got.Value.PackName != e.Value.PackName || got.Value.PackID != e.Value.PackID || got.Value.Offset != e.Value.Offset {
 						return false
 					}
@@ -91,27 +92,27 @@ type MIDXReader {
 	law LookupMissingReturnsNone() {
 		let n = Count()
 		if n == 0 {
-			return Lookup(oid.Zero(oid.Sha1)) == None && Lookup(oid.Zero(oid.Sha256)) == None
+			return Lookup(oid.Zero(oid.Sha1)) == option.None && Lookup(oid.Zero(oid.Sha256)) == option.None
 		}
 		match At(0) {
-		case None:
+		case option.None:
 			false
-		case Some[Location] as first:
+		case option.Some[Location] as first:
 			let probe = oid.Zero(first.Value.OID.Format)
 			let mut exists = false
 			for i in 0..n {
 				match At(i) {
-				case Some[Location] as e:
+				case option.Some[Location] as e:
 					if oid.Equal(e.Value.OID, probe) {
 						exists = true
 					}
-				case None:
+				case option.None:
 				}
 			}
 			if exists {
 				true
 			} else {
-				Lookup(probe) == None
+				Lookup(probe) == option.None
 			}
 		}
 	},
@@ -123,11 +124,11 @@ type MIDXReader {
 		let n = Count()
 		for i in 0..n {
 			match At(i) {
-			case None:
+			case option.None:
 				return false
-			case Some[Location] as e:
+			case option.Some[Location] as e:
 				let pid = int(e.Value.PackID)
-				if pid < 0 || pid >= len(packs) {
+				if pid < 0 || pid >= packs.Len() {
 					return false
 				}
 				if packs[pid] != e.Value.PackName {
@@ -135,9 +136,9 @@ type MIDXReader {
 				}
 				if i > 0 {
 					match At(i - 1) {
-					case None:
+					case option.None:
 						return false
-					case Some[Location] as prev:
+					case option.Some[Location] as prev:
 						if oid.Compare(prev.Value.OID, e.Value.OID) >= 0 {
 							return false
 						}

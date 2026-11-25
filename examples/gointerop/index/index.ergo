@@ -44,11 +44,11 @@ func Rank(ix Index, k int) int {
 // Has reports whether k is a key.
 func Has(ix Index, k int) bool {
 	let i = Rank(ix, k)
-	i < len(ix.keys) && ix.keys[i] == k
+	i < ix.keys.Len() && ix.keys[i] == k
 }
 
 // Size is the number of keys.
-func Size(ix Index) int { len(ix.keys) }
+func Size(ix Index) int { ix.keys.Len() }
 
 // RankCountsTheLess: the rank of k is the count of keys below it.
 law RankCountsTheLess(xs []int, k int) {

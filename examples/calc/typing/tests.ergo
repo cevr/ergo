@@ -41,7 +41,7 @@ test MismatchesNameTheOperand {
 // Gen is well-typed at the type it is asked for, so half of the samples
 // the law Sound sees reach the evaluator.
 test GenIsWellTyped(seed int) {
-	with context { Random: rand.Seeded(uint64(seed)) } {
+	with context { rand.Random: rand.Seeded(uint64(seed)) } {
 		for _ in 0..5 {
 			let t = ast.AnyType()
 			assert try Check(ast.Gen(5, t, ast.Top)) == t

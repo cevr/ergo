@@ -1,4 +1,5 @@
 // Package session defines the interface used to probe a fresh provider session.
+import core
 import sync
 
 type Fault { Reason string }
@@ -6,7 +7,7 @@ type Rejected { At int }
 type Mismatch { Phase string, Got int }
 
 type Session {
-	..Closer,
+	..core.Closer,
 	Read() int fails Fault,
 	Apply(n int) fails Rejected | Fault,
 }
@@ -19,8 +20,8 @@ type Sessions {
 		let result = try withSession(func() Session fails Fault {
 			try Open(1, released)
 		}, func(first Session) int fails Fault | Mismatch | Rejected {
-			if len(released.Get()) != 0 {
-				return Mismatch{Phase: "released before first use", Got: len(released.Get())}
+			if released.Get().Len() != 0 {
+				return Mismatch{Phase: "released before first use", Got: released.Get().Len()}
 			}
 			let initial = try first.Read()
 			if initial != 0 {
@@ -52,7 +53,7 @@ type Sessions {
 			}) catch {
 			case Mismatch as m:
 				if released.Get() != []int{2} {
-					return Mismatch{Phase: "release after mismatch", Got: len(released.Get())}
+					return Mismatch{Phase: "release after mismatch", Got: released.Get().Len()}
 				}
 				if m.Phase != "intentional mismatch" || m.Got != 0 {
 					return m

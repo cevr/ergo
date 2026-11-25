@@ -1,5 +1,6 @@
 import filepath
 import fs
+import option
 import sync
 import github.com/cevr/ergo/modules/git/delta
 import github.com/cevr/ergo/modules/git/loose
@@ -14,14 +15,14 @@ func requireFound(found bool, from oid.OID, missingId oid.OID, edge string) fail
 	}
 }
 
-func hasKnownObject(odb Option[pack.ODB], present Map[string, bool], id oid.OID) bool needs fs.Files {
-	if present.Get(oid.Hex(id)) != None {
+func hasKnownObject(odb option.Option[pack.ODB], present Map[string, bool], id oid.OID) bool needs fs.Files {
+	if present.Get(oid.Hex(id)) != option.None {
 		return true
 	}
 	match odb {
-	case None:
+	case option.None:
 		false
-	case Some[pack.ODB] as o:
+	case option.Some[pack.ODB] as o:
 		pack.ContainsObject(o.Value, id)
 	}
 }
@@ -92,14 +93,14 @@ func verifyMemoryConnectivity(format oid.Format, incoming []PackObject, existing
 	let (present, edges) = try collectBatchEdges(format, incoming, existing)
 	for edge in edges {
 		let (fromId, targetId, label) = edge
-		try requireFound(present.Get(oid.Hex(targetId)) != None, fromId, targetId, label)
+		try requireFound(present.Get(oid.Hex(targetId)) != option.None, fromId, targetId, label)
 	}
 }
 
 // VerifyConnectivity verifies that every commit tree/parent, non-gitlink tree
 // entry, and annotated tag target referenced by incoming exists either in
 // incoming itself or in odb, rejecting dangling references with DanglingObject.
-func VerifyConnectivity(format oid.Format, incoming []PackObject, odb Option[pack.ODB]) fails Collision | DanglingObject | CorruptObject needs fs.Files {
+func VerifyConnectivity(format oid.Format, incoming []PackObject, odb option.Option[pack.ODB]) fails Collision | DanglingObject | CorruptObject needs fs.Files {
 	let (present, edges) = try collectBatchEdges(format, incoming, Map[string, bool]{})
 	for edge in edges {
 		let (fromId, targetId, label) = edge
@@ -142,8 +143,8 @@ func removeQuietly(path string) needs fs.Writes {
 
 func corruptLastByte(src []byte) []byte {
 	let mut out = []byte{}
-	for i in 0..len(src) {
-		if i == len(src)-1 {
+	for i in 0..src.Len() {
+		if i == src.Len()-1 {
 			out = out.Append(src[i] ^ byte(0xff))
 		} else {
 			out = out.Append(src[i])
@@ -278,12 +279,12 @@ func PublishPack(objectsDir string, built BuiltPack) PublishedPack fails Invalid
 	try PublishPackWithFault(objectsDir, built, FaultNone)
 }
 
-func cleanQuarantineDir(quarantineDir string, published Option[PublishedPack]) needs fs.Writes {
+func cleanQuarantineDir(quarantineDir string, published option.Option[PublishedPack]) needs fs.Writes {
 	match published {
-	case Some[PublishedPack] as p:
+	case option.Some[PublishedPack] as p:
 		removeQuietly(p.Value.IdxPath)
 		removeQuietly(p.Value.PackPath)
-	case None:
+	case option.None:
 	}
 	removeQuietly(filepath.Join([]string{quarantineDir, "pack"}))
 	removeQuietly(quarantineDir)
@@ -307,38 +308,38 @@ func PublishQuarantinedPack(format oid.Format, objectsDir string, alternates []s
 	let qDir = filepath.Join([]string{cleanDir, "incoming-quarantine-" + oid.ShortHex(built.PackChecksum, 12)})
 	let staged = PublishPack(qDir, built) catch {
 	case InvalidPack as e:
-		cleanQuarantineDir(qDir, None)
+		cleanQuarantineDir(qDir, option.None)
 		return e
 	case FaultInjected as e:
-		cleanQuarantineDir(qDir, None)
+		cleanQuarantineDir(qDir, option.None)
 		return e
 	case IOFailed as e:
-		cleanQuarantineDir(qDir, None)
+		cleanQuarantineDir(qDir, option.None)
 		return e
 	}
-	VerifyConnectivity(format, objects, Some[pack.ODB]{Value: odb}) catch {
+	VerifyConnectivity(format, objects, option.Some[pack.ODB]{Value: odb}) catch {
 	case Collision as e:
-		cleanQuarantineDir(qDir, Some[PublishedPack]{Value: staged})
+		cleanQuarantineDir(qDir, option.Some[PublishedPack]{Value: staged})
 		return e
 	case DanglingObject as e:
-		cleanQuarantineDir(qDir, Some[PublishedPack]{Value: staged})
+		cleanQuarantineDir(qDir, option.Some[PublishedPack]{Value: staged})
 		return e
 	case CorruptObject as e:
-		cleanQuarantineDir(qDir, Some[PublishedPack]{Value: staged})
+		cleanQuarantineDir(qDir, option.Some[PublishedPack]{Value: staged})
 		return e
 	}
 	let published = PublishPackWithFault(cleanDir, built, fault) catch {
 	case InvalidPack as e:
-		cleanQuarantineDir(qDir, Some[PublishedPack]{Value: staged})
+		cleanQuarantineDir(qDir, option.Some[PublishedPack]{Value: staged})
 		return e
 	case FaultInjected as e:
-		cleanQuarantineDir(qDir, Some[PublishedPack]{Value: staged})
+		cleanQuarantineDir(qDir, option.Some[PublishedPack]{Value: staged})
 		return e
 	case IOFailed as e:
-		cleanQuarantineDir(qDir, Some[PublishedPack]{Value: staged})
+		cleanQuarantineDir(qDir, option.Some[PublishedPack]{Value: staged})
 		return e
 	}
-	cleanQuarantineDir(qDir, Some[PublishedPack]{Value: staged})
+	cleanQuarantineDir(qDir, option.Some[PublishedPack]{Value: staged})
 	(built, published)
 }
 
@@ -355,7 +356,7 @@ func PublishLooseBatch(format oid.Format, objectsDir string, alternates []string
 	case pack.IOFailed as e:
 		return IOFailed{Op: e.Op, Detail: e.Detail}
 	}
-	try VerifyConnectivity(format, objects, Some[pack.ODB]{Value: odb})
+	try VerifyConnectivity(format, objects, option.Some[pack.ODB]{Value: odb})
 	let (unique, _) = try dedupPackObjects(format, objects)
 	let ls = loose.NewStore(format, cleanDir, alternates)
 	let mut ids = []oid.OID{}

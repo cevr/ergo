@@ -22,7 +22,7 @@ let set = flag.Set{Name: "gallery", Usage: "", Flags: []flag.Flag{statsFlag}, Ar
 
 let usage = "usage: gallery [-stats] < script"
 
-func main() fails os.Exit needs Console | Ambient {
+func main() fails os.Exit needs io.Console | os.Ambient {
 	let v = with context { os.Process: os.NewHost() } {
 		flag.Parse(set, os.Process.Args()) catch {
 		case err:
@@ -33,7 +33,7 @@ func main() fails os.Exit needs Console | Ambient {
 		}
 	}
 	let clock = time.NewManual(0)
-	let status = with context { io.Stdin: io.NewStdin(), time.Clock: clock, Scheduler: clock, gallery.Drafts: memory.NewDrafts() } { script.Run(clock, statsFlag.Get(v)) }
+	let status = with context { io.Stdin: io.NewStdin(), time.Clock: clock, time.Scheduler: clock, gallery.Drafts: memory.NewDrafts() } { script.Run(clock, statsFlag.Get(v)) }
 	if status != 0 {
 		return os.Exit{Code: 1, Message: "gallery: the script did not run"}
 	}

@@ -19,14 +19,14 @@ func decided(history []Event, c Command) string {
 	case NotAllowed as n:
 		return "NotAllowed " + n.Action + " " + n.Status
 	}
-	"\(len(events)) events"
+	"\(events.Len()) events"
 }
 
 let plannedA = []Event{Planned{Backup: "a", Host: "alpha"}, FileAdded{Backup: "a", Path: "a.txt", Count: 2, Size: 150}, FileAdded{Backup: "a", Path: "b.log", Count: 1, Size: 900}}
 
 test PlacingRecordsALineEach {
 	let events = try Decide(Absent, Plan{Backup: "a", Host: "alpha", Files: []File{small, large}})
-	assert len(events) == 3
+	assert events.Len() == 3
 	assert Replay(events) == Open{S: Summary{Host: "alpha", Total: 1200, Files: 3}}
 }
 
@@ -54,7 +54,7 @@ test AbortingAStoredBackupFreesIt {
 	let stored = plannedA.Append(Stored{Backup: "a", Size: 1200})
 	let events = try Decide(Replay(stored), Abort{Backup: "a", Reason: "late"})
 	// A slice has no == (G-ex-d-5), so the test compares its one element.
-	assert len(events) == 1 && events[0] == Aborted{Backup: "a", Reason: "late", Freed: 1200}
+	assert events.Len() == 1 && events[0] == Aborted{Backup: "a", Reason: "late", Freed: 1200}
 	assert Replay(stored.Append(events[0])) == Void{S: Summary{Host: "alpha", Total: 1200, Files: 3}, Reason: "late"}
 }
 

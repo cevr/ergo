@@ -23,7 +23,7 @@ let singles = []string{"+", "-", "*", "/", "%", "<", "!", "(", ")", "="}
 func Lex(src string) []Token fails BadChar {
 	let mut toks = []Token{}
 	let mut i = 0
-	for i < len(src) {
+	for i < src.Len() {
 		let c = src[i]
 		if c == ' ' || c == '\t' {
 			i += 1
@@ -31,14 +31,14 @@ func Lex(src string) []Token fails BadChar {
 		}
 		let start = i
 		if ast.IsDigit(c) {
-			for i < len(src) && ast.IsDigit(src[i]) {
+			for i < src.Len() && ast.IsDigit(src[i]) {
 				i += 1
 			}
 			toks = toks.Append(IntTok{Text: strings.Slice(src, start, i), At: start + 1})
 			continue
 		}
 		if ast.IsLetter(c) {
-			for i < len(src) && (ast.IsLetter(src[i]) || ast.IsDigit(src[i])) {
+			for i < src.Len() && (ast.IsLetter(src[i]) || ast.IsDigit(src[i])) {
 				i += 1
 			}
 			toks = toks.Append(NameTok{Name: strings.Slice(src, start, i), At: start + 1})
@@ -47,13 +47,13 @@ func Lex(src string) []Token fails BadChar {
 		let sym = symbolAt(src, i)
 		if sym == "" {
 			// The character is its whole UTF-8 sequence, or one invalid byte.
-			let size = utf8.DecodeRuneInString(strings.Slice(src, i, len(src))).Size
+			let size = utf8.DecodeRuneInString(strings.Slice(src, i, src.Len())).Size
 			return BadChar{At: start + 1, Char: strings.Slice(src, i, i+size)}
 		}
 		toks = toks.Append(SymTok{Sym: sym, At: start + 1})
-		i += len(sym)
+		i += sym.Len()
 	}
-	toks.Append(EndTok{At: len(src) + 1})
+	toks.Append(EndTok{At: src.Len() + 1})
 }
 
 // ColumnsIncrease: the tokens of a text stand in order, each after the
@@ -70,12 +70,12 @@ law ColumnsIncrease(src string) {
 		}
 		last = At(t)
 	}
-	last == len(src)+1
+	last == src.Len()+1
 }
 
 // symbolAt is the symbol that starts at byte i of src, or "".
 func symbolAt(src string, i int) string {
-	if i+2 <= len(src) {
+	if i+2 <= src.Len() {
 		let two = strings.Slice(src, i, i+2)
 		if slices.Contains(pairs, two) {
 			return two

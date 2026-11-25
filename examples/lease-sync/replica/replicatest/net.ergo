@@ -15,6 +15,7 @@ import lease-sync/domain
 import lease-sync/lease
 import lease-sync/replica
 import lease-sync/replica/server
+import machines
 import slices
 import time
 
@@ -43,7 +44,7 @@ let at = time.Unix(0, 0)
 
 func step(st Client, sig Sig) Client {
 	match replica.Step(source, st, sig) {
-	case Stay[Client] as s:
+	case machines.Stay[Client] as s:
 		s.Next
 	case _:
 		st
@@ -85,36 +86,36 @@ func Apply(n Net, op int) Net {
 	if k <= 1 {
 		let cmd = if k == 0 { lease.Take{Name: name} } else { lease.Give{Name: name} }
 		let st = step(p.State, replica.Submit[lease.Cmd]{Cmd: cmd})
-		if len(st.Pending) == len(p.State.Pending) {
+		if st.Pending.Len() == p.State.Pending.Len() {
 			return n
 		}
-		let made = st.Pending[len(st.Pending)-1]
+		let made = st.Pending[st.Pending.Len()-1]
 		return set(n, who, Peer{..p, State: st, Issued: p.Issued.Append(made)})
 	}
 	if k <= 3 {
 		// The push loop sends a pending command: the first, or any.
-		if !p.Up || len(p.State.Pending) == 0 {
+		if !p.Up || p.State.Pending.Len() == 0 {
 			return n
 		}
-		let m = if k == 2 { p.State.Pending[0] } else { p.State.Pending[x%len(p.State.Pending)] }
+		let m = if k == 2 { p.State.Pending[0] } else { p.State.Pending[x%p.State.Pending.Len()] }
 		return set(n, who, Peer{..p, Sent: p.Sent.Append(m)})
 	}
 	if k <= 6 {
 		// The network delivers a sent copy: and forgets it, keeps it for a
 		// duplicate, or delivers the last one before the first.
-		if len(p.Sent) == 0 {
+		if p.Sent.Len() == 0 {
 			return n
 		}
-		let i = if k == 6 { len(p.Sent) - 1 } else { x % len(p.Sent) }
+		let i = if k == 6 { p.Sent.Len() - 1 } else { x % p.Sent.Len() }
 		deliver(n.Auth, p.Sent[i])
 		let sent = if k == 5 { p.Sent } else { slices.Delete(p.Sent, i, i+1) }
 		return set(n, who, Peer{..p, Sent: sent})
 	}
 	if k == 7 {
-		if len(p.Sent) == 0 {
+		if p.Sent.Len() == 0 {
 			return n
 		}
-		return set(n, who, Peer{..p, Sent: slices.Delete(p.Sent, x%len(p.Sent), x%len(p.Sent)+1)})
+		return set(n, who, Peer{..p, Sent: slices.Delete(p.Sent, x%p.Sent.Len(), x%p.Sent.Len()+1)})
 	}
 	if k <= 9 {
 		// The pull loop asks from the cursor, or from an older position
@@ -129,10 +130,10 @@ func Apply(n Net, op int) Net {
 	}
 	if k <= 11 {
 		// A frame arrives: the oldest, or any; it may arrive again.
-		if len(p.Frames) == 0 {
+		if p.Frames.Len() == 0 {
 			return n
 		}
-		let i = if k == 10 { 0 } else { x % len(p.Frames) }
+		let i = if k == 10 { 0 } else { x % p.Frames.Len() }
 		let st = step(p.State, replica.Pulled[lease.Pool, lease.Event, lease.Refusal]{Frame: p.Frames[i], At: at})
 		let frames = if x%5 == 0 { p.Frames } else { slices.Delete(p.Frames, i, i+1) }
 		return set(n, who, Peer{..p, State: st, Frames: frames})
@@ -144,7 +145,7 @@ func Apply(n Net, op int) Net {
 		let conn = if p.Up { replica.Offline{Attempt: 1} } else { replica.Live }
 		return set(n, who, Peer{..p, Up: !p.Up, State: step(p.State, replica.Link{Conn: conn, At: at})})
 	}
-	if k == 14 && len(p.State.Refused) > 0 {
+	if k == 14 && p.State.Refused.Len() > 0 {
 		return set(n, who, Peer{..p, State: step(p.State, replica.Dismiss{ID: p.State.Refused[0].Envelope.ID})})
 	}
 	n
@@ -177,8 +178,8 @@ func Drain(n Net, rounds int) Net {
 // Quiet is whether no peer has a pending command and each has read the
 // whole log.
 func Quiet(n Net) bool {
-	let end = len(server.Records(n.Auth))
-	len(n.A.State.Pending) == 0 && len(n.B.State.Pending) == 0 && replica.Peek(n.A.State).Cursor == end && replica.Peek(n.B.State).Cursor == end
+	let end = server.Records(n.Auth).Len()
+	n.A.State.Pending.Len() == 0 && n.B.State.Pending.Len() == 0 && replica.Peek(n.A.State).Cursor == end && replica.Peek(n.B.State).Cursor == end
 }
 
 func seqOf(id domain.CommandID) int {

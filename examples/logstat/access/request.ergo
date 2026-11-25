@@ -36,7 +36,7 @@ law ColumnIsInTheLine(line string, r Request, i int, j int, cut int) {
 }
 
 // inLine reports whether column is a column of line or the one after it.
-func inLine(column int, line string) bool { column >= 1 && column <= len(line)+1 }
+func inLine(column int, line string) bool { column >= 1 && column <= line.Len()+1 }
 
 // column is the column a failure of Parse of line names, or 0 when the
 // line parses.

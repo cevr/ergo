@@ -9,6 +9,7 @@
 // text. Goto puts the caret where a pointer pressed.
 
 import ergo.local/prototype/examples/editorgui/piece
+import machines
 import strings
 import utf8
 
@@ -73,13 +74,13 @@ law CopyIsTheSelection(text string, signals []Signal, a int, b int) {
 		let lo = if l.Anchor < d.Caret { l.Anchor } else { d.Caret }
 		let hi = if l.Anchor < d.Caret { d.Caret } else { l.Anchor }
 		match Step(s, Copy) {
-		case Emit[State, Output] as e:
+		case machines.Emit[State, Output] as e:
 			e.Next == s && e.Output == Copied{Text: piece.Slice(d.Buf, lo, hi)}
-		case Enter[State], Stay[State], Tell[State, Output], Ignore, Reject, Done[Output]:
+		case machines.Enter[State], machines.Stay[State], machines.Tell[State, Output], machines.Ignore, machines.Reject, machines.Done[Output]:
 			false
 		}
 	case Editing, Searching:
-		Step(s, Copy) == Reject
+		Step(s, Copy) == machines.Reject
 	}
 }
 
@@ -106,7 +107,7 @@ law CutThenPasteRestores(text string, signals []Signal, a int, b int) {
 		let lo = if l.Anchor < d.Caret { l.Anchor } else { d.Caret }
 		let hi = if l.Anchor < d.Caret { d.Caret } else { l.Anchor }
 		match Step(s, Cut) {
-		case Emit[State, Output] as e:
+		case machines.Emit[State, Output] as e:
 			let cut = DocOf(e.Next)
 			let copied = match e.Output {
 			case Copied as c:
@@ -114,13 +115,13 @@ law CutThenPasteRestores(text string, signals []Signal, a int, b int) {
 			case Write:
 				return false
 			}
-			let undos = if lo < hi { len(d.Undo) + 1 } else { len(d.Undo) }
-			copied == piece.Slice(d.Buf, lo, hi) && len(cut.Undo) == undos && Text(DocOf(After(e.Next, Type{Text: copied}))) == Text(d)
-		case Enter[State], Stay[State], Tell[State, Output], Ignore, Reject, Done[Output]:
+			let undos = if lo < hi { d.Undo.Len() + 1 } else { d.Undo.Len() }
+			copied == piece.Slice(d.Buf, lo, hi) && cut.Undo.Len() == undos && Text(DocOf(After(e.Next, Type{Text: copied}))) == Text(d)
+		case machines.Enter[State], machines.Stay[State], machines.Tell[State, Output], machines.Ignore, machines.Reject, machines.Done[Output]:
 			false
 		}
 	case Editing, Searching:
-		Step(s, Cut) == Reject
+		Step(s, Cut) == machines.Reject
 	}
 }
 
@@ -146,7 +147,7 @@ func DocOf(s State) Doc {
 
 // Step is the editor's transition. A signal a mode has no use for is
 // rejected and changes nothing.
-func Step(s State, sig Signal) Decision[State, Output] {
+func Step(s State, sig Signal) machines.Decision[State, Output] {
 	match s {
 	case Editing as e:
 		editing(e.D, sig)
@@ -157,120 +158,120 @@ func Step(s State, sig Signal) Decision[State, Output] {
 	}
 }
 
-func editing(d Doc, sig Signal) Decision[State, Output] {
+func editing(d Doc, sig Signal) machines.Decision[State, Output] {
 	match sig {
 	case Type as t:
 		if t.Text == "" {
-			return Reject
+			return machines.Reject
 		}
-		Stay[State]{Next: Editing{D: Insert(d, t.Text)}}
+		machines.Stay[State]{Next: Editing{D: Insert(d, t.Text)}}
 	case Back:
 		let n = RuneBefore(d, d.Caret)
 		if n == 0 {
-			return Reject
+			return machines.Reject
 		}
-		Stay[State]{Next: Editing{D: Erase(d, d.Caret-n, d.Caret)}}
+		machines.Stay[State]{Next: Editing{D: Erase(d, d.Caret-n, d.Caret)}}
 	case Del:
 		let n = RuneAfter(d, d.Caret)
 		if n == 0 {
-			return Reject
+			return machines.Reject
 		}
-		Stay[State]{Next: Editing{D: Erase(d, d.Caret, d.Caret+n)}}
+		machines.Stay[State]{Next: Editing{D: Erase(d, d.Caret, d.Caret+n)}}
 	case Left, Right, Up, Down, Home, End, Top, Bottom, Goto:
-		Stay[State]{Next: Editing{D: Doc{..d, Caret: Move(d, sig)}}}
+		machines.Stay[State]{Next: Editing{D: Doc{..d, Caret: Move(d, sig)}}}
 	case Select:
-		Enter[State]{Next: Selecting{D: d, Anchor: d.Caret}}
+		machines.Enter[State]{Next: Selecting{D: d, Anchor: d.Caret}}
 	case Find:
-		Enter[State]{Next: Searching{D: d, Query: "", Origin: d.Caret, Count: 0}}
+		machines.Enter[State]{Next: Searching{D: d, Query: "", Origin: d.Caret, Count: 0}}
 	case UndoIt:
-		if len(d.Undo) == 0 {
-			return Reject
+		if d.Undo.Len() == 0 {
+			return machines.Reject
 		}
-		Stay[State]{Next: Editing{D: Undone(d)}}
+		machines.Stay[State]{Next: Editing{D: Undone(d)}}
 	case RedoIt:
-		if len(d.Redo) == 0 {
-			return Reject
+		if d.Redo.Len() == 0 {
+			return machines.Reject
 		}
-		Stay[State]{Next: Editing{D: Redone(d)}}
+		machines.Stay[State]{Next: Editing{D: Redone(d)}}
 	case Save:
-		Emit[State, Output]{Next: Editing{D: d}, Output: Write{Text: Text(d)}}
+		machines.Emit[State, Output]{Next: Editing{D: d}, Output: Write{Text: Text(d)}}
 	case Saved:
-		Stay[State]{Next: Editing{D: Doc{..d, Dirty: false}}}
+		machines.Stay[State]{Next: Editing{D: Doc{..d, Dirty: false}}}
 	case Next, Replace, Escape, Copy, Cut:
-		Reject
+		machines.Reject
 	}
 }
 
-func selecting(l Selecting, sig Signal) Decision[State, Output] {
+func selecting(l Selecting, sig Signal) machines.Decision[State, Output] {
 	let d = l.D
 	let lo = if l.Anchor < d.Caret { l.Anchor } else { d.Caret }
 	let hi = if l.Anchor < d.Caret { d.Caret } else { l.Anchor }
 	match sig {
 	case Type as t:
 		if t.Text == "" {
-			return Reject
+			return machines.Reject
 		}
 		let mut edits = []Edit{}
 		if lo < hi {
 			edits = edits.Append(Deleted{At: lo, Text: piece.Slice(d.Buf, lo, hi)})
 		}
 		edits = edits.Append(Inserted{At: lo, Text: t.Text})
-		Enter[State]{Next: Editing{D: Make(d, edits, lo+len(t.Text))}}
+		machines.Enter[State]{Next: Editing{D: Make(d, edits, lo+t.Text.Len())}}
 	case Back, Del:
-		Enter[State]{Next: Editing{D: Erase(d, lo, hi)}}
+		machines.Enter[State]{Next: Editing{D: Erase(d, lo, hi)}}
 	case Copy:
-		Emit[State, Output]{Next: l, Output: Copied{Text: piece.Slice(d.Buf, lo, hi)}}
+		machines.Emit[State, Output]{Next: l, Output: Copied{Text: piece.Slice(d.Buf, lo, hi)}}
 	case Cut:
-		Emit[State, Output]{Next: Editing{D: Erase(d, lo, hi)}, Output: Copied{Text: piece.Slice(d.Buf, lo, hi)}}
+		machines.Emit[State, Output]{Next: Editing{D: Erase(d, lo, hi)}, Output: Copied{Text: piece.Slice(d.Buf, lo, hi)}}
 	case Left, Right, Up, Down, Home, End, Top, Bottom, Goto:
-		Stay[State]{Next: Selecting{D: Doc{..d, Caret: Move(d, sig)}, Anchor: l.Anchor}}
+		machines.Stay[State]{Next: Selecting{D: Doc{..d, Caret: Move(d, sig)}, Anchor: l.Anchor}}
 	case Escape:
-		Enter[State]{Next: Editing{D: d}}
+		machines.Enter[State]{Next: Editing{D: d}}
 	case Saved:
-		Stay[State]{Next: Selecting{D: Doc{..d, Dirty: false}, Anchor: l.Anchor}}
+		machines.Stay[State]{Next: Selecting{D: Doc{..d, Dirty: false}, Anchor: l.Anchor}}
 	case Select, Find, Next, Replace, UndoIt, RedoIt, Save:
-		Reject
+		machines.Reject
 	}
 }
 
-func searching(f Searching, sig Signal) Decision[State, Output] {
+func searching(f Searching, sig Signal) machines.Decision[State, Output] {
 	let d = f.D
 	match sig {
 	case Type as t:
 		let q = f.Query + t.Text
-		Stay[State]{Next: Searching{D: Doc{..d, Caret: FirstFrom(d, q, f.Origin)}, Query: q, Origin: f.Origin, Count: piece.Count(d.Buf, q)}}
+		machines.Stay[State]{Next: Searching{D: Doc{..d, Caret: FirstFrom(d, q, f.Origin)}, Query: q, Origin: f.Origin, Count: piece.Count(d.Buf, q)}}
 	case Back:
 		if f.Query == "" {
-			return Reject
+			return machines.Reject
 		}
-		let q = strings.Slice(f.Query, 0, len(f.Query)-lastRune(f.Query))
-		Stay[State]{Next: Searching{D: Doc{..d, Caret: FirstFrom(d, q, f.Origin)}, Query: q, Origin: f.Origin, Count: piece.Count(d.Buf, q)}}
+		let q = strings.Slice(f.Query, 0, f.Query.Len()-lastRune(f.Query))
+		machines.Stay[State]{Next: Searching{D: Doc{..d, Caret: FirstFrom(d, q, f.Origin)}, Query: q, Origin: f.Origin, Count: piece.Count(d.Buf, q)}}
 	case Next:
 		if f.Query == "" || piece.Index(d.Buf, f.Query, 0) < 0 {
-			return Reject
+			return machines.Reject
 		}
-		Stay[State]{Next: Searching{D: Doc{..d, Caret: FirstFrom(d, f.Query, d.Caret+1)}, Query: f.Query, Origin: f.Origin, Count: f.Count}}
+		machines.Stay[State]{Next: Searching{D: Doc{..d, Caret: FirstFrom(d, f.Query, d.Caret+1)}, Query: f.Query, Origin: f.Origin, Count: f.Count}}
 	case Replace as r:
 		let at = piece.Matches(d.Buf, f.Query)
-		if len(at) == 0 {
-			return Reject
+		if at.Len() == 0 {
+			return machines.Reject
 		}
 		let mut edits = []Edit{}
-		let mut i = len(at) - 1
+		let mut i = at.Len() - 1
 		for i >= 0 {
 			edits = edits.Append(Deleted{At: at[i], Text: f.Query})
 			edits = edits.Append(Inserted{At: at[i], Text: r.With})
 			i = i - 1
 		}
-		Enter[State]{Next: Editing{D: Make(d, edits, at[0])}}
+		machines.Enter[State]{Next: Editing{D: Make(d, edits, at[0])}}
 	case Escape:
-		Enter[State]{Next: Editing{D: Doc{..d, Caret: f.Origin}}}
+		machines.Enter[State]{Next: Editing{D: Doc{..d, Caret: f.Origin}}}
 	case Saved:
-		Stay[State]{Next: Searching{D: Doc{..d, Dirty: false}, Query: f.Query, Origin: f.Origin, Count: f.Count}}
+		machines.Stay[State]{Next: Searching{D: Doc{..d, Dirty: false}, Query: f.Query, Origin: f.Origin, Count: f.Count}}
 	case Find:
-		Enter[State]{Next: Editing{D: d}}
+		machines.Enter[State]{Next: Editing{D: d}}
 	case Del, Left, Right, Up, Down, Home, End, Top, Bottom, Select, UndoIt, RedoIt, Save, Goto, Copy, Cut:
-		Reject
+		machines.Reject
 	}
 }
 
@@ -352,8 +353,8 @@ func FirstFrom(d Doc, query string, from int) int {
 // lastRune is the size of text's last rune, or 1.
 func lastRune(text string) int {
 	for s in 1..5 {
-		if s <= len(text) {
-			let part = strings.Slice(text, len(text)-s, len(text))
+		if s <= text.Len() {
+			let part = strings.Slice(text, text.Len()-s, text.Len())
 			if utf8.ValidString(part) && utf8.DecodeRuneInString(part).Size == s {
 				return s
 			}

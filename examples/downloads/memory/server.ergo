@@ -20,7 +20,7 @@ func NewServer() Server { Server{calls: sync.NewRef[int](0)} }
 // 400ms, …, Budget of them at most.
 law WaitsDouble(file int) {
 	let ws = waits(play(file, false))
-	if len(ws) > fetch.Budget {
+	if ws.Len() > fetch.Budget {
 		return false
 	}
 	let mut want = 100
@@ -72,9 +72,9 @@ func Size(url string) int {
 // its first wait ends cancelled, and one that never waits is saved.
 law EndIsTheFile(file int, cancel bool) {
 	let lines = play(file, cancel)
-	let url = fetch.Files[pick(file, len(fetch.Files))]
-	let last = lines[len(lines)-1]
-	let waited = len(waits(lines)) > 0
+	let url = fetch.Files[pick(file, fetch.Files.Len())]
+	let last = lines[lines.Len()-1]
+	let waited = waits(lines).Len() > 0
 	if cancel && waited {
 		return strings.Contains(last, " cancelled at ")
 	}
@@ -92,9 +92,9 @@ func pick(n int, count int) int { ((n % count) + count) % count }
 
 // play is what Play shows for one get of the file numbered file.
 func play(file int, cancel bool) []string {
-	let url = fetch.Files[pick(file, len(fetch.Files))]
+	let url = fetch.Files[pick(file, fetch.Files.Len())]
 	let clock = time.NewManual(0)
-	with context { fetch.Source: NewServer(), Scheduler: clock } {
+	with context { fetch.Source: NewServer(), time.Scheduler: clock } {
 		script.Play([]script.Line{script.Get{Url: url, Cancel: cancel}}, clock)
 	}
 }

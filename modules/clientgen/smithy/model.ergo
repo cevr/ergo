@@ -16,6 +16,7 @@
 // patched models this package reads.
 
 import json
+import option
 
 // Model is a model's version, its metadata as written, and its shapes in
 // the order the text gives them.
@@ -43,7 +44,7 @@ type Ref { Role string, Target string }
 
 // Kind is a shape's type and what it holds. Unsupported is a shape type
 // the reader does not read, kept by name with the shape's text.
-type Kind = Simple{Of Scalar} | Enum{Members []Member} | IntEnum{Members []Member} | List{Member Member} | Mapping{Key Member, Value Member} | Structure{Members []Member} | Union{Members []Member} | Operation{Input Option[string], Output Option[string], Errors []string} | Service{Version string, Operations []string, Resources []string, Errors []string, Rename json.Value} | Resource{Identifiers []Ref, Lifecycle []Ref, Operations []string, CollectionOperations []string, Resources []string} | Unsupported{Type string, Text json.Value}
+type Kind = Simple{Of Scalar} | Enum{Members []Member} | IntEnum{Members []Member} | List{Member Member} | Mapping{Key Member, Value Member} | Structure{Members []Member} | Union{Members []Member} | Operation{Input option.Option[string], Output option.Option[string], Errors []string} | Service{Version string, Operations []string, Resources []string, Errors []string, Rename json.Value} | Resource{Identifiers []Ref, Lifecycle []Ref, Operations []string, CollectionOperations []string, Resources []string} | Unsupported{Type string, Text json.Value}
 
 // NotSmithy is the failure of a text that is JSON but not a Smithy 2 JSON
 // AST: Path names where (`shapes/ns#Name/members`), Reason what is wrong.

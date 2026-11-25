@@ -1,4 +1,5 @@
 import gen
+import option
 import strconv
 import strings
 
@@ -14,7 +15,7 @@ law ParseFormatAndCaseInsensitiveCounts() {
 		let mut entries = []Entry{}
 		let mut expectedLower = Map[string, int]{}
 		for i in 0..n {
-			let sev = gen.IntIn(0, len(Severities)-1)
+			let sev = gen.IntIn(0, Severities.Len()-1)
 			let host = gen.OneOf(triageHosts)
 			let lineNum = i + 1
 			let text = Severities[sev] + " " + host
@@ -31,9 +32,9 @@ law ParseFormatAndCaseInsensitiveCounts() {
 			entries = entries.Append(parsed)
 			let low = strings.ToLower(host)
 			let prev = match expectedLower.Get(low) {
-			case Some[int] as v:
+			case option.Some[int] as v:
 				v.Value
-			case None:
+			case option.None:
 				0
 			}
 			expectedLower[low] = prev + 1
@@ -43,15 +44,15 @@ law ParseFormatAndCaseInsensitiveCounts() {
 		for h, c in counts {
 			total = total + c
 			match expectedLower.Get(strings.ToLower(h)) {
-			case Some[int] as want:
+			case option.Some[int] as want:
 				if want.Value != c {
 					return false
 				}
-			case None:
+			case option.None:
 				return false
 			}
 		}
-		if total != len(entries) || len(counts) != len(expectedLower) {
+		if total != entries.Len() || len(counts) != expectedLower.Len() {
 			return false
 		}
 		let badText = gen.OneOf([]string{"", "onlyone", "a b c", "bogus web-1"})
@@ -86,7 +87,7 @@ law GenerateProducesDeterministicParseableLog() {
 			return false
 		}
 		let rawLines = strings.Split(strings.TrimSuffix(text, "\n"), "\n")
-		if len(rawLines) != n {
+		if rawLines.Len() != n {
 			return false
 		}
 		let mut sevs = Map[int, bool]{}
@@ -99,7 +100,7 @@ law GenerateProducesDeterministicParseableLog() {
 			sevs[e.Severity] = true
 			hosts[e.Host] = true
 		}
-		len(sevs) >= 2 && len(hosts) >= 2
+		sevs.Len() >= 2 && hosts.Len() >= 2
 	})
 	match outcome {
 	case gen.Held:

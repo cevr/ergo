@@ -11,7 +11,7 @@ import jsonparse/json
 import strings
 
 // The whole pinned folder, its LICENSE and SOURCE with the files.
-let Suite = embedded[embed.FS]("JSONTestSuite-1ef36fa0")
+let Suite = embed.File[embed.FS]("JSONTestSuite-1ef36fa0")
 
 // SuiteVerdicts: each suite file reads as its name says, into both trees
 // alike.
@@ -33,7 +33,7 @@ test SuiteVerdicts {
 			bad.WriteString(name + ": " + tree + ", want a failure\n")
 		}
 	}
-	assert len(names) > 0
+	assert names.Len() > 0
 	assert bad.String() == ""
 }
 

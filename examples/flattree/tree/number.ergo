@@ -2,6 +2,9 @@
 // reader is in, and each byte is a signal of its class. The grammar is
 // RFC 8259's: -? (0 | [1-9][0-9]*) (. [0-9]+)? ([eE] [+-]? [0-9]+)?
 
+import machines
+import option
+
 // Part is where the reader is in a number.
 type Part = Start | Minus | Zero | Whole | Point | Fraction | Mark | Sign | Power
 
@@ -57,44 +60,44 @@ func ClassOf(c byte) Class {
 // NumberStep is the grammar's transition. A part where the number may end
 // ends it at any byte it cannot take (Ended: the byte is not the
 // number's); a part where it may not end breaks the number.
-func NumberStep(p Part, c Class) Decision[Part, Verdict] {
+func NumberStep(p Part, c Class) machines.Decision[Part, Verdict] {
 	match (p, c) {
 	case (Start, Dash):
-		Enter[Part]{Next: Minus}
+		machines.Enter[Part]{Next: Minus}
 	case (Start, Nought), (Minus, Nought):
-		Enter[Part]{Next: Zero}
+		machines.Enter[Part]{Next: Zero}
 	case (Start, Digit), (Minus, Digit):
-		Enter[Part]{Next: Whole}
+		machines.Enter[Part]{Next: Whole}
 	case (Start, _):
-		Done[Verdict]{Output: Broken{Why: "a number needs a digit"}}
+		machines.Done[Verdict]{Output: Broken{Why: "a number needs a digit"}}
 	case (Minus, _):
-		Done[Verdict]{Output: Broken{Why: "a number needs a digit after '-'"}}
+		machines.Done[Verdict]{Output: Broken{Why: "a number needs a digit after '-'"}}
 	case (Zero, Dot), (Whole, Dot):
-		Enter[Part]{Next: Point}
+		machines.Enter[Part]{Next: Point}
 	case (Zero, Exponent), (Whole, Exponent), (Fraction, Exponent):
-		Enter[Part]{Next: Mark}
+		machines.Enter[Part]{Next: Mark}
 	case (Whole, Nought), (Whole, Digit):
-		Stay[Part]{Next: Whole}
+		machines.Stay[Part]{Next: Whole}
 	case (Zero, _), (Whole, _):
-		Done[Verdict]{Output: Ended}
+		machines.Done[Verdict]{Output: Ended}
 	case (Point, Nought), (Point, Digit):
-		Enter[Part]{Next: Fraction}
+		machines.Enter[Part]{Next: Fraction}
 	case (Point, _):
-		Done[Verdict]{Output: Broken{Why: "a number needs a digit after '.'"}}
+		machines.Done[Verdict]{Output: Broken{Why: "a number needs a digit after '.'"}}
 	case (Fraction, Nought), (Fraction, Digit):
-		Stay[Part]{Next: Fraction}
+		machines.Stay[Part]{Next: Fraction}
 	case (Fraction, _):
-		Done[Verdict]{Output: Ended}
+		machines.Done[Verdict]{Output: Ended}
 	case (Mark, Dash), (Mark, Plus):
-		Enter[Part]{Next: Sign}
+		machines.Enter[Part]{Next: Sign}
 	case (Mark, Nought), (Mark, Digit), (Sign, Nought), (Sign, Digit):
-		Enter[Part]{Next: Power}
+		machines.Enter[Part]{Next: Power}
 	case (Mark, _), (Sign, _):
-		Done[Verdict]{Output: Broken{Why: "a number needs a digit in its exponent"}}
+		machines.Done[Verdict]{Output: Broken{Why: "a number needs a digit in its exponent"}}
 	case (Power, Nought), (Power, Digit):
-		Stay[Part]{Next: Power}
+		machines.Stay[Part]{Next: Power}
 	case (Power, _):
-		Done[Verdict]{Output: Ended}
+		machines.Done[Verdict]{Output: Ended}
 	}
 }
 
@@ -116,9 +119,9 @@ type Numeral machine[Part, Class] {
 		match ClassOf(c) {
 		case Nought, Digit:
 			match NumberStep(Zero, ClassOf(c)) {
-			case Done[Verdict] as d:
+			case machines.Done[Verdict] as d:
 				d.Output == Ended
-			case Enter[Part], Stay[Part], Emit[Part, Verdict], Tell[Part, Verdict], Ignore, Reject:
+			case machines.Enter[Part], machines.Stay[Part], machines.Emit[Part, Verdict], machines.Tell[Part, Verdict], machines.Ignore, machines.Reject:
 				false
 			}
 		case Dash, Plus, Dot, Exponent, Other:
@@ -129,27 +132,27 @@ type Numeral machine[Part, Class] {
 
 // Scan is the length of the number at the start of text, or why it is
 // broken and the offset where it broke.
-func Scan(text string) (int, Option[string]) {
+func Scan(text string) (int, option.Option[string]) {
 	let mut p Part = Start
 	let mut i = 0
 	for {
-		let c = if i < len(text) { ClassOf(text[i]) } else { Other }
+		let c = if i < text.Len() { ClassOf(text[i]) } else { Other }
 		match NumberStep(p, c) {
-		case Enter[Part] as e:
+		case machines.Enter[Part] as e:
 			p = e.Next
 			i += 1
-		case Stay[Part] as s:
+		case machines.Stay[Part] as s:
 			p = s.Next
 			i += 1
-		case Done[Verdict] as d:
+		case machines.Done[Verdict] as d:
 			match d.Output {
 			case Ended:
-				return (i, None)
+				return (i, option.None)
 			case Broken as b:
-				return (i, Some{Value: b.Why})
+				return (i, option.Some{Value: b.Why})
 			}
-		case Emit[Part, Verdict], Tell[Part, Verdict], Ignore, Reject:
-			return (i, Some{Value: "a number the grammar cannot read"})
+		case machines.Emit[Part, Verdict], machines.Tell[Part, Verdict], machines.Ignore, machines.Reject:
+			return (i, option.Some{Value: "a number the grammar cannot read"})
 		}
 	}
 }

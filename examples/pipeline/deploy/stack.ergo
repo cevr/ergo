@@ -12,6 +12,7 @@ import exec
 import fs
 import fstest
 import json
+import option
 import strings
 
 // Outputs is what an apply of a stage gives its clients: the server's URL
@@ -115,16 +116,16 @@ func stagesIn(m memory, port int) Stages {
 
 // outputsOn is the outputs an apply of stage wrote on m, None when there
 // are none.
-func outputsOn(m memory, s Stages, stage string) Option[Outputs] {
+func outputsOn(m memory, s Stages, stage string) option.Option[Outputs] {
 	let text = m.disk.ReadFile(s.Outputs(stage)) catch {
 	case fs.NotFound, fs.Denied, fs.Failed:
-		return None
+		return option.None
 	}
 	let o = json.Decode(json.Codec[Outputs]{MaxBytes: 0, MaxDepth: 0}, text) catch {
 	case _:
-		return None
+		return option.None
 	}
-	Some[Outputs]{Value: o}
+	option.Some[Outputs]{Value: o}
 }
 
 // StackConverges: on any port, a plan of a new stage lists its four
@@ -136,14 +137,14 @@ law StackConverges(port int) {
 	let s = stagesIn(m, port)
 	let d = Deployment(s, "me")
 	let plan = infra.Exec(d, []string{"plan"})
-	if plan.Out != "create dir/data\ncreate file/readme\ncreate file/address\ncreate process/server\nplan: 4 changes\n" || len(s.Place("dev").DirRows.List()) != 0 {
+	if plan.Out != "create dir/data\ncreate file/readme\ncreate file/address\ncreate process/server\nplan: 4 changes\n" || s.Place("dev").DirRows.List().Len() != 0 {
 		return false
 	}
 	if infra.Exec(d, []string{"apply", "-yes"}).Code != 0 {
 		return false
 	}
 	let want = Outputs{URL: "http://127.0.0.1:\(port)", Port: port, Data: "/srv/dev/data"}
-	if outputsOn(m, s, "dev") != (Some[Outputs]{Value: want}) || infra.Exec(d, []string{"plan"}).Out != "plan: no changes\n" {
+	if outputsOn(m, s, "dev") != (option.Some[Outputs]{Value: want}) || infra.Exec(d, []string{"plan"}).Out != "plan: no changes\n" {
 		return false
 	}
 	let found = s.Place("dev").Programs.Find("server") catch {
@@ -151,9 +152,9 @@ law StackConverges(port int) {
 		return false
 	}
 	let server = match found {
-	case Some[local.Running] as r:
+	case option.Some[local.Running] as r:
 		r.Value.Detached
-	case None:
+	case option.None:
 		return false
 	}
 	infra.Exec(d, []string{"destroy", "-yes"}).Code == 0 && infra.Exec(d, []string{"state"}).Out == "no objects\nlock: free\n" && !m.spawner.Alive(server)
@@ -168,9 +169,9 @@ law ServerListensOnTheOutputsPort(port int) {
 		return false
 	}
 	match (outputsOn(m, s, "dev"), s.Place("dev").ProcessRows.Get("server")) {
-	case (Some[Outputs] as o, Some[infra.Row[local.ProcessProps]] as r):
+	case (option.Some[Outputs] as o, option.Some[infra.Row[local.ProcessProps]] as r):
 		let args = exec.Split(r.Value.Props.Args)
-		r.Value.Props.Port == o.Value.Port && len(args) == 2 && args[0] == "-addr" && strings.HasSuffix(args[1], ":\(o.Value.Port)")
+		r.Value.Props.Port == o.Value.Port && args.Len() == 2 && args[0] == "-addr" && strings.HasSuffix(args[1], ":\(o.Value.Port)")
 	case _:
 		false
 	}

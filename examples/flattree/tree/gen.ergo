@@ -11,29 +11,29 @@ let Texts = []string{"", "a", "b", "a/b", "m~n", "q\"\\", "line\n\ttab\r", "\b\f
 // Numerals are the numbers the generator draws, one of each form.
 let Numerals = []string{"0", "-0", "7", "-12", "1234567890123456789012", "0.5", "-3.25", "1e5", "1E+2", "2.5e-3", "-0.0E-0"}
 
-func draw(xs []string) string needs Random { xs[Random.IntN(len(xs))] }
+func draw(xs []string) string needs rand.Random { xs[rand.Random.IntN(xs.Len())] }
 
 // GenValue is a value of depth at most depth.
-func GenValue(depth int) Value needs Random {
-	let n = if depth <= 0 { Random.IntN(5) } else { Random.IntN(8) }
+func GenValue(depth int) Value needs rand.Random {
+	let n = if depth <= 0 { rand.Random.IntN(5) } else { rand.Random.IntN(8) }
 	match n {
 	case 0:
 		Null
 	case 1:
-		Bool{B: Random.IntN(2) == 0}
+		Bool{B: rand.Random.IntN(2) == 0}
 	case 2:
 		Number{Text: draw(Numerals)}
 	case 3, 4:
 		Str{S: draw(Texts)}
 	case 5:
 		let mut items = []Value{}
-		for _ in 0..Random.IntN(4) {
+		for _ in 0..rand.Random.IntN(4) {
 			items = items.Append(GenValue(depth - 1))
 		}
 		Array{Items: items}
 	case _:
 		let mut members = []Member{}
-		for _ in 0..Random.IntN(4) {
+		for _ in 0..rand.Random.IntN(4) {
 			members = members.Append(Member{Key: draw(Texts), Val: GenValue(depth - 1)})
 		}
 		Object{Members: members}
@@ -42,7 +42,7 @@ func GenValue(depth int) Value needs Random {
 
 // Samples is ten values of depth at most 4 from seed.
 func Samples(seed int) []Value {
-	with context { Random: rand.Seeded(uint64(seed)) } {
+	with context { rand.Random: rand.Seeded(uint64(seed)) } {
 		let mut out = []Value{}
 		for _ in 0..10 {
 			out = out.Append(GenValue(4))
@@ -111,7 +111,7 @@ func places(out mut []Place, ptr string, v Value) {
 	case Object as o:
 		for i, m in o.Members {
 			let mut later = false
-			for k in i+1..len(o.Members) {
+			for k in i+1..o.Members.Len() {
 				if o.Members[k].Key == m.Key {
 					later = true
 				}

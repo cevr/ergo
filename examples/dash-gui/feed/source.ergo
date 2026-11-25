@@ -67,8 +67,8 @@ law DropNewestKeepsTheFirst(xs []int, cap int) {
 	}
 	q.End()
 	let kept = slices.Collect(q.Values())
-	let keep = if len(xs) < n { len(xs) } else { n }
-	kept == slices.Slice(xs, 0, keep) && dropped == len(xs)-keep
+	let keep = if xs.Len() < n { xs.Len() } else { n }
+	kept == slices.Slice(xs, 0, keep) && dropped == xs.Len()-keep
 }
 
 // DropOldestKeepsTheLast: a queue that drops old samples keeps the last
@@ -84,8 +84,8 @@ law DropOldestKeepsTheLast(xs []int, cap int) {
 	}
 	q.End()
 	let kept = slices.Collect(q.Values())
-	let from = if len(xs) > n { len(xs) - n } else { 0 }
-	kept == slices.Slice(xs, from, len(xs)) && dropped == from
+	let from = if xs.Len() > n { xs.Len() - n } else { 0 }
+	kept == slices.Slice(xs, from, xs.Len()) && dropped == from
 }
 
 // Order is what the board gives a source for one frame: how many samples

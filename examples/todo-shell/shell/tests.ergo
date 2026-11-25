@@ -10,7 +10,7 @@ import todoshell/todo
 // it returns.
 func session(script string) (string, todo.List) {
 	let out = io.NewRecorder()
-	with context { io.Stdin: io.Input{Text: script}, Console: out, io.Stdout: out } {
+	with context { io.Stdin: io.Input{Text: script}, io.Console: out, io.Stdout: out } {
 		let l = Run()
 		(out.Text(), l)
 	}
@@ -51,7 +51,7 @@ func IsTerminal(_ terminal) bool { true }
 
 test PromptsFollowTheMode {
 	let out = io.NewRecorder()
-	with context { io.Stdin: io.Input{Text: "note n\nline\n.\nclear\ny\n"}, Console: out, io.Stdout: terminal{out: out} } {
+	with context { io.Stdin: io.Input{Text: "note n\nline\n.\nclear\ny\n"}, io.Console: out, io.Stdout: terminal{out: out} } {
 		let _ = Run()
 	}
 	let prompts = strings.Count(out.Text(), "todo> ")

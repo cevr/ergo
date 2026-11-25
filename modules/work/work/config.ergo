@@ -246,7 +246,7 @@ func ParseConfig(text string) Config fails BadConfig {
 		for name in slices.Sorted(maps.Keys(m.Value)) {
 			let l = maps.GetOr(m.Value, name, languageTable{Command: json.Absent, Files: json.Absent})
 			let line = LanguageLine{Name: name, Command: orText(l.Command), Files: or(l.Files)}
-			if line.Command == "" || len(line.Files) == 0 {
+			if line.Command == "" || line.Files.Len() == 0 {
 				return BadConfig{Line: 0, Why: "[language.\(name)] needs a command and files"}
 			}
 			langs = langs.Append(line)
@@ -311,7 +311,7 @@ func folders(list []string) []string fails BadConfig {
 
 // folder is a path value: one word, relative, inside the root.
 func folder(value string) string fails BadConfig {
-	if value == "" || len(strings.Fields(value)) != 1 {
+	if value == "" || strings.Fields(value).Len() != 1 {
 		return BadConfig{Line: 0, Why: "a folder is one word: \(value)"}
 	}
 	if strings.HasPrefix(value, "/") || value == ".." || strings.HasPrefix(value, "../") || strings.Contains(value, "/../") || strings.HasSuffix(value, "/..") {

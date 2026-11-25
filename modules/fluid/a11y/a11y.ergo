@@ -8,6 +8,7 @@
 // layer is shown it is the whole tree.
 
 import ergo.dev/fluid/part
+import option
 import slices
 import strconv
 import strings
@@ -38,7 +39,7 @@ func nodes[E](n part.Node[E]) []Tree {
 			return []Tree{}
 		}
 		let kids = joined(all[E](b.Kids))
-		let t = Tree{..box(b.Sem.Role), Name: nameOf(b.Sem, kids), Key: b.Sem.Key, States: b.Sem.States, Rels: b.Sem.Rels, Reach: b.Sem.Reach, TabStop: tabStop(b.Sem.Reach, true), Focusable: focusable(b.Sem.Reach, true), Keyed: len(b.Keys) > 0, Kids: kids}
+		let t = Tree{..box(b.Sem.Role), Name: nameOf(b.Sem, kids), Key: b.Sem.Key, States: b.Sem.States, Rels: b.Sem.Rels, Reach: b.Sem.Reach, TabStop: tabStop(b.Sem.Reach, true), Focusable: focusable(b.Sem.Reach, true), Keyed: b.Keys.Len() > 0, Kids: kids}
 		if spliced(t) {
 			return kids
 		}
@@ -52,9 +53,9 @@ func nodes[E](n part.Node[E]) []Tree {
 			return []Tree{}
 		}
 		let on = !has(p.Sem.States, part.Disabled) && match p.On {
-		case Some:
+		case option.Some:
 			true
-		case None:
+		case option.None:
 			false
 		}
 		let kids = joined(all[E](p.Kids))
@@ -121,7 +122,7 @@ func hostOf[E](n part.Node[E]) []Tree {
 func all[E](kids []part.Node[E]) []Tree {
 	let shown = part.Shown[E](kids)
 	let mut out = []Tree{}
-	for i in 0..len(kids) {
+	for i in 0..kids.Len() {
 		if shown[i] {
 			for t in nodes[E](kids[i]) {
 				out = out.Append(t)
@@ -151,7 +152,7 @@ func spliced(t Tree) bool {
 	case _:
 		false
 	}
-	generic && t.Text == "" && t.Name == "" && t.Key == "" && len(t.States) == 0 && len(t.Rels) == 0 && !t.TabStop && !t.Focusable && !t.Keyed
+	generic && t.Text == "" && t.Name == "" && t.Key == "" && t.States.Len() == 0 && t.Rels.Len() == 0 && !t.TabStop && !t.Focusable && !t.Keyed
 }
 
 // joined is trees with adjacent text leaves joined and empty ones dropped.
@@ -162,9 +163,9 @@ func joined(ts []Tree) []Tree {
 		if text && t.Text == "" {
 			continue
 		}
-		if text && len(out) > 0 && isLeaf(out[len(out)-1]) {
-			let last = out[len(out)-1]
-			out = slices.Clone(out[0 : len(out)-1]).Append(leaf(last.Text + t.Text))
+		if text && out.Len() > 0 && isLeaf(out[out.Len()-1]) {
+			let last = out[out.Len()-1]
+			out = slices.Clone(out[0 : out.Len()-1]).Append(leaf(last.Text + t.Text))
 			continue
 		}
 		out = out.Append(t)
@@ -172,7 +173,7 @@ func joined(ts []Tree) []Tree {
 	out
 }
 
-func isLeaf(t Tree) bool { t.Text != "" || (spliced(t) && len(t.Kids) == 0) }
+func isLeaf(t Tree) bool { t.Text != "" || (spliced(t) && t.Kids.Len() == 0) }
 
 // nameOf is a node's name: its stated name, else its text when its role is named by content.
 func nameOf(s part.Sem, kids []Tree) string {

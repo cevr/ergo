@@ -22,7 +22,7 @@ func Tokens(ptr string) []string fails BadPointer {
 		return BadPointer{Pointer: ptr, Why: "a pointer starts with '/'"}
 	}
 	let mut out = []string{}
-	for raw in strings.Split(strings.Slice(ptr, 1, len(ptr)), "/") {
+	for raw in strings.Split(strings.Slice(ptr, 1, ptr.Len()), "/") {
 		out = out.Append(try unescape(ptr, raw))
 	}
 	out
@@ -34,14 +34,14 @@ func unescape(ptr string, raw string) string fails BadPointer {
 	}
 	let mut b = strings.NewBuilder()
 	let mut i = 0
-	for i < len(raw) {
+	for i < raw.Len() {
 		let c = raw[i]
 		if c != '~' {
 			b.WriteByte(c)
 			i += 1
 			continue
 		}
-		let next = if i+1 < len(raw) { raw[i+1] } else { 0 }
+		let next = if i+1 < raw.Len() { raw[i+1] } else { 0 }
 		match next {
 		case '0':
 			b.WriteByte('~')
@@ -75,7 +75,7 @@ func Get(v Value, ptr string) Value fails BadPointer | NoValue {
 func step(v Value, t string, prefix string) Value fails NoValue {
 	match v {
 	case Object as o:
-		let mut k = len(o.Members) - 1
+		let mut k = o.Members.Len() - 1
 		for k >= 0 {
 			if o.Members[k].Key == t {
 				return o.Members[k].Val
@@ -85,7 +85,7 @@ func step(v Value, t string, prefix string) Value fails NoValue {
 		NoValue{At: prefix}
 	case Array as a:
 		let i = Index(t)
-		if i < 0 || i >= len(a.Items) {
+		if i < 0 || i >= a.Items.Len() {
 			return NoValue{At: prefix}
 		}
 		a.Items[i]
@@ -97,11 +97,11 @@ func step(v Value, t string, prefix string) Value fails NoValue {
 // Index is the array index t spells: digits with no leading zero (but
 // "0"), or -1.
 func Index(t string) int {
-	if len(t) == 0 || len(t) > 9 || (t[0] == '0' && len(t) > 1) {
+	if t.Len() == 0 || t.Len() > 9 || (t[0] == '0' && t.Len() > 1) {
 		return -1
 	}
 	let mut n = 0
-	for i in 0..len(t) {
+	for i in 0..t.Len() {
 		let c = t[i]
 		if c < '0' || c > '9' {
 			return -1

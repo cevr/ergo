@@ -43,8 +43,8 @@ let genSet = flag.Set{
 }
 
 func run(args []string, input io.Stdin) fails os.Exit needs io.Stdout {
-	if len(args) > 0 && args[0] == "gen" {
-		let v = flag.Parse(genSet, slices.Slice(args, 1, len(args))) catch {
+	if args.Len() > 0 && args[0] == "gen" {
+		let v = flag.Parse(genSet, slices.Slice(args, 1, args.Len())) catch {
 		case err:
 			try flag.Exit(err, flag.UsageText(genSet))
 			return
@@ -66,7 +66,7 @@ func run(args []string, input io.Stdin) fails os.Exit needs io.Stdout {
 		return os.Exit{Code: 2, Message: "counter-gui: line \(b.Line) is no step: \(b.Text)"}
 	}
 	let clock = time.NewManual(0)
-	with context { Scheduler: clock } {
+	with context { time.Scheduler: clock } {
 		let a = actor.StartMachine(counter.Counter{}, 8, func(c counter.Count) {})
 		let mut h = ui.NewTestHost(a, view.View, clock, 64) catch {
 		case ui.BadPatch as b:
@@ -96,7 +96,7 @@ func run(args []string, input io.Stdin) fails os.Exit needs io.Stdout {
 	}
 }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost() } {
 		try run(os.Process.Args(), io.NewStdin())
 	}

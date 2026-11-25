@@ -74,14 +74,14 @@ type ObjectStore {
 		case Collision, IOFailed:
 			return false
 		}
-		let obj = Read(id, len(payload)+256) catch {
+		let obj = Read(id, payload.Len()+256) catch {
 		case Missing, Corrupt, MismatchedPair, Collision, LimitExceeded, DepthExceeded, IOFailed:
 			return false
 		}
 			Contains(id) &&
 			oid.Equal(obj.OID, id) &&
 			oid.KindName(obj.Kind) == "blob" &&
-			obj.Size == len(payload) &&
+			obj.Size == payload.Len() &&
 			slices.Equal(obj.Data, payload)
 	},
 
@@ -93,11 +93,11 @@ type ObjectStore {
 		case Collision, IOFailed:
 			return false
 		}
-		let obj = Read(id, len(payload)+256) catch {
+		let obj = Read(id, payload.Len()+256) catch {
 		case Missing, Corrupt, MismatchedPair, Collision, LimitExceeded, DepthExceeded, IOFailed:
 			return false
 		}
-		let hdr = Stat(id, len(payload)+256) catch {
+		let hdr = Stat(id, payload.Len()+256) catch {
 		case Missing, Corrupt, MismatchedPair, Collision, LimitExceeded, DepthExceeded, IOFailed:
 			return false
 		}

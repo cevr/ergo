@@ -27,7 +27,7 @@ func formatStatuses(xs []deploys.Status) string {
 }
 
 func firstStatusOf(xs []deploys.Status) string {
-	if len(xs) == 0 {
+	if xs.Len() == 0 {
 		return ""
 	}
 	deploys.Name(xs[0])
@@ -35,7 +35,7 @@ func firstStatusOf(xs []deploys.Status) string {
 
 func offerDeployAct(xs []deploys.Status) depAct needs gen.Draws {
 	let services = []string{"api", "web", "worker"}
-	if len(xs) == 0 || (len(xs) < 4 && gen.IntIn(0, 3) == 0) {
+	if xs.Len() == 0 || (xs.Len() < 4 && gen.IntIn(0, 3) == 0) {
 		return depCreate{
 			Service:  gen.OneOf(services),
 			Replicas: gen.IntIn(1, 4),
@@ -48,7 +48,7 @@ func offerDeployAct(xs []deploys.Status) depAct needs gen.Draws {
 			active = active.Append(i)
 		}
 	}
-	let idx = if len(active) > 0 && gen.IntIn(0, 3) > 0 { gen.OneOf(active) } else { gen.IntIn(0, len(xs)-1) }
+	let idx = if active.Len() > 0 && gen.IntIn(0, 3) > 0 { gen.OneOf(active) } else { gen.IntIn(0, xs.Len()-1) }
 	let ev deploys.Event = match gen.IntIn(0, 2) {
 	case 0:
 		deploys.Approve
@@ -66,7 +66,7 @@ func stepDeployModel(xs []deploys.Status, a depAct) ([]deploys.Status, depObs) {
 		let next = xs.Append(deploys.Pending)
 		(next, depObs{
 			Kind:        "create",
-			Count:       len(next),
+			Count:       next.Len(),
 			Rejected:    false,
 			LastStatus:  deploys.Name(deploys.Pending),
 			LastRank:    deploys.Rank(deploys.Pending),
@@ -77,27 +77,27 @@ func stepDeployModel(xs []deploys.Status, a depAct) ([]deploys.Status, depObs) {
 		let cur = xs[ap.Index]
 		let d = deploys.Step(cur, ap.Event)
 		match d {
-		case Reject:
+		case machines.Reject:
 			(xs, depObs{
 				Kind:        "apply",
-				Count:       len(xs),
+				Count:       xs.Len(),
 				Rejected:    true,
 				LastStatus:  deploys.Name(cur),
 				LastRank:    deploys.Rank(cur),
 				FirstStatus: firstStatusOf(xs),
 				StatusesKey: formatStatuses(xs),
 			})
-		case Ignore:
+		case machines.Ignore:
 			(xs, depObs{
 				Kind:        "apply",
-				Count:       len(xs),
+				Count:       xs.Len(),
 				Rejected:    false,
 				LastStatus:  deploys.Name(cur),
 				LastRank:    deploys.Rank(cur),
 				FirstStatus: firstStatusOf(xs),
 				StatusesKey: formatStatuses(xs),
 			})
-		case Enter[deploys.Status], Stay[deploys.Status]:
+		case machines.Enter[deploys.Status], machines.Stay[deploys.Status]:
 			let ns = machines.Next(cur, d)
 			let mut next = []deploys.Status{}
 			for i, s in xs {
@@ -105,7 +105,7 @@ func stepDeployModel(xs []deploys.Status, a depAct) ([]deploys.Status, depObs) {
 			}
 			(next, depObs{
 				Kind:        "apply",
-				Count:       len(next),
+				Count:       next.Len(),
 				Rejected:    false,
 				LastStatus:  deploys.Name(ns),
 				LastRank:    deploys.Rank(ns),

@@ -6,6 +6,7 @@ import exec
 import fs
 import github.com/cevr/ergo/modules/work/work
 import maps
+import option
 import slices
 import strconv
 import strings
@@ -24,7 +25,7 @@ func Sharing(l Lock, owner int) Lock { Lock{table: l.table, owner: owner} }
 
 func Hold(l Lock, key string) bool fails work.Unkept {
 	sync.Modify(l.table, func(t Map[string, int]) (bool, Map[string, int]) {
-		if t.Get(key) != None {
+		if t.Get(key) != option.None {
 			return (false, t)
 		}
 		let mut next = t
@@ -59,7 +60,7 @@ func Die(l Lock) {
 }
 
 // Holds is the number of locks any holder holds.
-func Holds(l Lock) int { len(l.table.Get()) }
+func Holds(l Lock) int { l.table.Get().Len() }
 
 // HookRun is one command a hook ran: the hook, the command, the folder,
 // and the holds of the lock when it started.
@@ -83,7 +84,7 @@ func Run(h Hooks, hook string, command string, dir string, env []work.Setting) f
 		return work.HookFailed{Hook: hook, Command: command, Status: 1, Stderr: "failed\n"}
 	}
 	match strings.Cut(command, "exit ") {
-	case Some[strings.Halves] as h2:
+	case option.Some[strings.Halves] as h2:
 		if h2.Value.Before == "" {
 			let status = strconv.Atoi(h2.Value.After) catch {
 			case strconv.Malformed, strconv.OutOfRange:
@@ -93,7 +94,7 @@ func Run(h Hooks, hook string, command string, dir string, env []work.Setting) f
 				return work.HookFailed{Hook: hook, Command: command, Status: status, Stderr: ""}
 			}
 		}
-	case None:
+	case option.None:
 	}
 }
 
@@ -123,7 +124,7 @@ func Use(r Runner, root string, why string) {
 // shellScript is the script in Work's two-argument shell invocation, or
 // empty for an invocation the in-process shell fakes do not model.
 func shellScript(c exec.Command) string {
-	if c.Name == "sh" && len(c.Args) == 2 && c.Args[0] == "-c" {
+	if c.Name == "sh" && c.Args.Len() == 2 && c.Args[0] == "-c" {
 		return c.Args[1]
 	}
 	""
@@ -133,7 +134,7 @@ func shellScript(c exec.Command) string {
 func Env(_ Runner) Map[string, string] { Map[string, string]{} }
 
 func Run(r Runner, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {
-	if c.Name == "sh" && len(c.Args) == 6 && c.Args[0] == "-c" && c.Args[1] == work.UseScript && c.Args[2] == work.UseProbe {
+	if c.Name == "sh" && c.Args.Len() == 6 && c.Args[0] == "-c" && c.Args[1] == work.UseScript && c.Args[2] == work.UseProbe {
 		return exec.Result{Status: 0, Stdout: maps.GetOr(r.uses.Get(), c.Args[3], ""), Stderr: ""}
 	}
 	let install = r.install.Get()
@@ -160,7 +161,7 @@ func hookConfig(n []int) string {
 	let mut lines = []string{"[hooks]"}
 	for i, name in names {
 		let mut list = []string{}
-		let count = if i < len(n) { n[i] % 3 } else { 1 }
+		let count = if i < n.Len() { n[i] % 3 } else { 1 }
 		for k in 0..count {
 			list = list.Append("\"\(letters[i])\(k)\"")
 		}
@@ -177,7 +178,7 @@ func hooked(n []int, path string) []HookRun {
 	let dirs = []string{theBase, path, path, theBase}
 	let mut out = []HookRun{}
 	for i, name in names {
-		let count = if i < len(n) { n[i] % 3 } else { 1 }
+		let count = if i < n.Len() { n[i] % 3 } else { 1 }
 		for k in 0..count {
 			out = out.Append(HookRun{Hook: name, Command: "\(letters[i])\(k)", Dir: dirs[i], Held: 0})
 		}
@@ -198,7 +199,7 @@ law HooksRunInOrder(n []int) {
 	case _:
 		return false
 	}
-	let _ = w.tool.Rm("a", work.RmOptions{Abandon: true, Expect: None, Tree: false}) catch {
+	let _ = w.tool.Rm("a", work.RmOptions{Abandon: true, Expect: option.None, Tree: false}) catch {
 	case _:
 		return false
 	}
@@ -219,20 +220,20 @@ law NoHookUnderTheLock(stack bool, failing bool) {
 		return false
 	}
 	if stack {
-		let _ = w.tool.New("b", work.NewOptions{Copy: false, From: None, Branch: None, On: Some[string]{Value: "a"}, Token: None}) catch {
+		let _ = w.tool.New("b", work.NewOptions{Copy: false, From: option.None, Branch: option.None, On: option.Some[string]{Value: "a"}, Token: option.None}) catch {
 		case _:
 			return false
 		}
-		let _ = w.tool.Rm("b", work.RmOptions{Abandon: true, Expect: None, Tree: false}) catch {
+		let _ = w.tool.Rm("b", work.RmOptions{Abandon: true, Expect: option.None, Tree: false}) catch {
 		case _:
 			return false
 		}
 	}
-	let _ = w.tool.Rm("a", work.RmOptions{Abandon: true, Expect: None, Tree: false}) catch {
+	let _ = w.tool.Rm("a", work.RmOptions{Abandon: true, Expect: option.None, Tree: false}) catch {
 	case _:
 		return false
 	}
-	len(w.hooks.Runs()) > 0 && slices.IndexFunc(w.hooks.Runs(), func(r HookRun) bool { r.Held != 0 }) < 0 && w.lock.Holds() == 0
+	w.hooks.Runs().Len() > 0 && slices.IndexFunc(w.hooks.Runs(), func(r HookRun) bool { r.Held != 0 }) < 0 && w.lock.Holds() == 0
 }
 
 // UnallowedConfigRunsNothing: a work.toml changed after init (its
@@ -265,14 +266,14 @@ law UnallowedConfigRunsNothing(n int) {
 		return false
 	}
 	let mut installRefused = false
-	let _ = w.tool.Deps(work.DepsOptions{Name: Some[string]{Value: "a"}}) catch {
+	let _ = w.tool.Deps(work.DepsOptions{Name: option.Some[string]{Value: "a"}}) catch {
 	case work.Untrusted:
 		installRefused = true
 		work.NoDeps
 	case _:
 		work.NoDeps
 	}
-	if !refused || !installRefused || len(w.hooks.Runs()) != 0 || len(w.runner.Ran()) != 0 {
+	if !refused || !installRefused || w.hooks.Runs().Len() != 0 || w.runner.Ran().Len() != 0 {
 		return false
 	}
 	let _ = w.tool.Trust() catch {
@@ -280,11 +281,11 @@ law UnallowedConfigRunsNothing(n int) {
 		return false
 	}
 	w.runner.install.Set(want.Install)
-	let _ = w.tool.Deps(work.DepsOptions{Name: Some[string]{Value: "a"}}) catch {
+	let _ = w.tool.Deps(work.DepsOptions{Name: option.Some[string]{Value: "a"}}) catch {
 	case _:
 		return false
 	}
-	len(w.runner.Ran()) == 1
+	w.runner.Ran().Len() == 1
 }
 
 // FailedPostcreateLeavesActive: a postcreate command that fails stops
@@ -313,7 +314,7 @@ law FailedPostcreateLeavesActive(before int) {
 	case work.NoBase, work.Unkept:
 		return false
 	}
-	failed && len(w.hooks.Runs()) == k+1 && len(listed) == 1 && listed[0].State == work.Active && listed[0].Path == made.Path
+	failed && w.hooks.Runs().Len() == k+1 && listed.Len() == 1 && listed[0].State == work.Active && listed[0].Path == made.Path
 }
 
 // InstallOnlyWhenTheLockDiffers: work deps starts the install exactly
@@ -326,21 +327,21 @@ law InstallOnlyWhenTheLockDiffers(locks []string) {
 		return false
 	}
 	// The workspace starts with no lock file: an empty one differs.
-	let mut last Option[string] = None
+	let mut last option.Option[string] = option.None
 	let mut want = 0
 	for text in locks {
 		w.disk.WriteFile(made.Path+"/bun.lock", text) catch {
 		case fs.NotFound, fs.Denied, fs.Failed:
 			return false
 		}
-		if last != (Some[string]{Value: text}) {
+		if last != (option.Some[string]{Value: text}) {
 			want = want + 1
-			last = Some[string]{Value: text}
+			last = option.Some[string]{Value: text}
 		}
-		let _ = w.tool.Deps(work.DepsOptions{Name: Some[string]{Value: "a"}}) catch {
+		let _ = w.tool.Deps(work.DepsOptions{Name: option.Some[string]{Value: "a"}}) catch {
 		case _:
 			return false
 		}
 	}
-	len(w.runner.Ran()) == want
+	w.runner.Ran().Len() == want
 }

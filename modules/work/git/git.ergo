@@ -7,6 +7,7 @@
 import exec
 import filepath
 import maps
+import option
 import slices
 import github.com/cevr/ergo/modules/work/work
 import strconv
@@ -35,7 +36,7 @@ func git(v Vcs, root string, args []string, env []string) exec.Result fails work
 		all = all.Append(a)
 	}
 	let mut c = exec.New("git", all)
-	for i in 0..len(env)/2 {
+	for i in 0..env.Len()/2 {
 		c = c.WithEnv(env[2*i], env[2*i+1])
 	}
 	v.run.Run(c) catch {
@@ -149,16 +150,16 @@ func Listed(v Vcs, root string) []string fails work.VcsFailed {
 	for entry in strings.Split(links, "\x00") {
 		if strings.HasPrefix(entry, "160000 ") {
 			match strings.Cut(entry, "\t") {
-			case Some[strings.Halves] as h:
+			case option.Some[strings.Halves] as h:
 				skip[h.Value.After] = true
-			case None:
+			case option.None:
 			}
 		}
 	}
 	let mut seen = Map[string, bool]{}
 	let mut out = []string{}
 	for path in strings.Split(all, "\x00") {
-		if path == "" || skip.Get(path) != None || seen.Get(path) != None {
+		if path == "" || skip.Get(path) != option.None || seen.Get(path) != option.None {
 			continue
 		}
 		seen[path] = true
@@ -180,20 +181,20 @@ func Read(v Vcs, root string, tree string) Map[string, string] fails work.VcsFai
 			continue
 		}
 		let (meta, path) = match strings.Cut(entry, "\t") {
-		case Some[strings.Halves] as h:
+		case option.Some[strings.Halves] as h:
 			(h.Value.Before, h.Value.After)
-		case None:
+		case option.None:
 			return work.VcsFailed{Reason: "git ls-tree: \(entry)"}
 		}
 		let words = strings.Fields(meta)
-		if len(words) != 3 || words[1] != "blob" {
+		if words.Len() != 3 || words[1] != "blob" {
 			continue
 		}
 		paths = paths.Append(path)
 		ids = ids.Append(words[2])
 	}
 	let mut files = Map[string, string]{}
-	if len(ids) == 0 {
+	if ids.Len() == 0 {
 		return files
 	}
 	let c = exec.New("git", []string{"-C", root, "--no-optional-locks", "cat-file", "--batch"}).WithStdin(strings.Join(ids, "\n") + "\n")
@@ -213,7 +214,7 @@ func Read(v Vcs, root string, tree string) Map[string, string] fails work.VcsFai
 			return work.VcsFailed{Reason: "git cat-file --batch in \(root): the answer for \(path) is cut short"}
 		}
 		let words = strings.Fields(out[at : at+end])
-		if len(words) != 3 || words[0] != ids[i] || words[1] != "blob" {
+		if words.Len() != 3 || words[0] != ids[i] || words[1] != "blob" {
 			return work.VcsFailed{Reason: "git cat-file --batch in \(root): \(out[at : at+end]) for \(path)"}
 		}
 		let size = strconv.Atoi(words[2]) catch {
@@ -221,7 +222,7 @@ func Read(v Vcs, root string, tree string) Map[string, string] fails work.VcsFai
 			return work.VcsFailed{Reason: "git cat-file --batch in \(root): a size \(words[2])"}
 		}
 		let start = at + end + 1
-		if start+size+1 > len(out) {
+		if start+size+1 > out.Len() {
 			return work.VcsFailed{Reason: "git cat-file --batch in \(root): the answer for \(path) is cut short"}
 		}
 		files[path] = out[start : start+size]
@@ -344,7 +345,7 @@ func Locals(v Vcs, root string) []work.Local fails work.VcsFailed {
 	let mut out = []work.Local{}
 	for line in exec.Split(try answer(v, root, []string{"for-each-ref", "--format=%(refname) %(objectname)", "refs/heads"})) {
 		let f = strings.Fields(line)
-		if len(f) == 2 {
+		if f.Len() == 2 {
 			out = out.Append(work.Local{Ref: f[0], Commit: f[1]})
 		}
 	}
@@ -379,7 +380,7 @@ func Exclude(v Vcs, root string, pattern string) fails work.VcsFailed {
 func Remote(v Vcs, root string, commit string, onDefault bool) bool fails work.VcsFailed {
 	let holding = exec.Split(try answer(v, root, []string{"for-each-ref", "--contains", commit, "--format=%(refname)", "refs/remotes"}))
 	if !onDefault {
-		return len(holding) > 0
+		return holding.Len() > 0
 	}
 	let defaults = exec.Split(try answer(v, root, []string{"for-each-ref", "--format=%(symref)", "refs/remotes"}))
 	slices.IndexFunc(holding, func(r string) bool { r != "" && slices.Contains(defaults, r) }) >= 0
@@ -408,7 +409,7 @@ func Merge(v Vcs, root string, parent string, branch string) string fails work.C
 	let r = try git(v, root, []string{"merge", "--quiet", "--no-edit", theirs}, []string{})
 	if r.Status != 0 {
 		let files = exec.Split(try answer(v, root, []string{"diff", "--name-only", "--diff-filter=U"}))
-		if len(files) > 0 {
+		if files.Len() > 0 {
 			return work.Conflicted{Files: files}
 		}
 		return work.VcsFailed{Reason: "git merge in \(root): \(strings.TrimSpace(r.Stdout + r.Stderr))"}
@@ -490,7 +491,7 @@ func StatDirty(v Vcs, root string) int fails work.VcsFailed {
 
 func lines(text string) int {
 	let t = strings.TrimSpace(text)
-	if t == "" { 0 } else { len(strings.Split(t, "\n")) }
+	if t == "" { 0 } else { strings.Split(t, "\n").Len() }
 }
 
 // Refresh is git update-index --refresh: status 1 only says that some
@@ -516,7 +517,7 @@ func TipOf(v Vcs, root string) work.Tip fails work.VcsFailed {
 		return work.VcsFailed{Reason: "git \(strings.Join(args, " ")) in \(root): \(strings.TrimSpace(r.Stderr))"}
 	}
 	let parts = strings.Split(strings.TrimSpace(r.Stdout), "\x00")
-	if len(parts) != 3 {
+	if parts.Len() != 3 {
 		return work.VcsFailed{Reason: "git log in \(root): \(r.Stdout)"}
 	}
 	let time = strconv.Atoi(parts[1]) catch {
@@ -534,9 +535,9 @@ func headBranch(decorations string) string {
 	}
 	let rest = strings.TrimPrefix(decorations, "HEAD -> ")
 	match strings.Cut(rest, ", ") {
-	case Some[strings.Halves] as h:
+	case option.Some[strings.Halves] as h:
 		h.Value.Before
-	case None:
+	case option.None:
 		rest
 	}
 }
@@ -552,7 +553,7 @@ func Default(v Vcs, parent string) work.Located fails work.VcsFailed {
 	let mut named = ""
 	for line in strings.Split(refs, "\n") {
 		let f = strings.Split(line, "\x00")
-		if len(f) != 4 {
+		if f.Len() != 4 {
 			continue
 		}
 		if f[1] == "refs/remotes/origin/HEAD" {
@@ -564,7 +565,7 @@ func Default(v Vcs, parent string) work.Located fails work.VcsFailed {
 			current = f[1]
 		}
 	}
-	let ref = if named != "" && heads.Get(named) != None { named } else { current }
+	let ref = if named != "" && heads.Get(named) != option.None { named } else { current }
 	work.Located{Ref: ref, Commit: maps.GetOr(heads, ref, ""), Objects: filepath.Join([]string{dir, "objects"})}
 }
 
@@ -574,7 +575,7 @@ func Default(v Vcs, parent string) work.Located fails work.VcsFailed {
 func Counts(v Vcs, root string, objects string, base string, head string) work.Apart fails work.VcsFailed {
 	let out = try counted(v, root, objects, []string{"rev-list", "--no-merges", "--left-right", "--count", base + "..." + head})
 	let f = strings.Fields(out)
-	if len(f) != 2 {
+	if f.Len() != 2 {
 		return work.VcsFailed{Reason: "git rev-list --count in \(root): \(out)"}
 	}
 	let behind = strconv.Atoi(f[0]) catch {

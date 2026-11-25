@@ -5,11 +5,14 @@
 
 import io
 import machines
+import option
 import queue
+import rand
 import snake/game
 import snake/screen
 import strings
 import task
+import time
 
 // Keys is the signals of the keys of line, in order: b begins, w a s d
 // turn up, left, down and right, p pauses or resumes, q quits. Any other
@@ -39,14 +42,14 @@ func Keys(line string) []game.Signal {
 // Turned is the mode after the signals of one tick from m, then the tick
 // itself, and whether one of them quit the game. A signal after Quit is
 // not read.
-func Turned(m game.Mode, signals []game.Signal) (game.Mode, bool) needs Random {
+func Turned(m game.Mode, signals []game.Signal) (game.Mode, bool) needs rand.Random {
 	let mut at = m
 	for s in signals.Append(game.Tick) {
 		let d = game.Step(at, s)
 		match d {
-		case Done[int]:
+		case machines.Done[int]:
 			return (at, true)
-		case Enter[game.Mode], Stay[game.Mode], Emit[game.Mode, int], Tell[game.Mode, int], Ignore, Reject:
+		case machines.Enter[game.Mode], machines.Stay[game.Mode], machines.Emit[game.Mode, int], machines.Tell[game.Mode, int], machines.Ignore, machines.Reject:
 		}
 		at = machines.Next(at, d)
 	}
@@ -56,7 +59,7 @@ func Turned(m game.Mode, signals []game.Signal) (game.Mode, bool) needs Random {
 // Script plays from m, one tick per line of standard input: the line's
 // keys, then a tick, then the frame. It stops at the end of the input, at
 // q, or when the game is over, and returns the last mode.
-func Script(m game.Mode) game.Mode needs io.Stdin | io.Stdout | Random {
+func Script(m game.Mode) game.Mode needs io.Stdin | io.Stdout | rand.Random {
 	let mut at = m
 	draw(at)
 	for line in io.Stdin.Lines() {
@@ -84,7 +87,7 @@ func Script(m game.Mode) game.Mode needs io.Stdin | io.Stdout | Random {
 // A read of standard input cannot be stopped (stdlib.md, io 3): when the
 // game ends first, Live returns only after the reader's next line or the
 // end of the input (G-ex-g-3).
-func Live(w int, h int, period duration) game.Mode needs io.Stdin | io.Stdout | Random | Scheduler {
+func Live(w int, h int, period duration) game.Mode needs io.Stdin | io.Stdout | rand.Random | time.Scheduler {
 	let keys = queue.New[game.Signal](64)
 	let reader = task.Go() {
 		read(keys)
@@ -93,13 +96,13 @@ func Live(w int, h int, period duration) game.Mode needs io.Stdin | io.Stdout | 
 	let mut at = machines.Next(title, game.Step(title, game.Begin))
 	draw(at)
 	for {
-		Scheduler.Sleep(period)
+		time.Scheduler.Sleep(period)
 		let mut waiting = []game.Signal{}
 		for {
 			match keys.Poll() {
-			case Some[game.Signal] as s:
+			case option.Some[game.Signal] as s:
 				waiting = waiting.Append(s.Value)
-			case None:
+			case option.None:
 				break
 			}
 		}

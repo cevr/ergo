@@ -1,4 +1,5 @@
 import machines
+import option
 import particles/world
 import strings
 import time
@@ -32,27 +33,27 @@ type Pace { Frame duration, Dt duration }
 // ticks the machine once for each whole Dt that passed, and shows the
 // frame. It returns the game when the player quits or the frames run
 // out.
-func Play(w world.World, keys string, frames int, pace Pace) Game needs Scheduler | time.Clock | Screen {
+func Play(w world.World, keys string, frames int, pace Pace) Game needs time.Scheduler | time.Clock | Screen {
 	let game = machines.Start(Sim{}, w)
 	let mut phase = machines.Initial(game)
 	let mut owed = 0s
 	let mut last = time.Clock.Now()
 	for n in 0..frames {
-		Scheduler.Sleep(pace.Frame)
+		time.Scheduler.Sleep(pace.Frame)
 		let now = time.Clock.Now()
 		owed = owed + now.Sub(last)
 		last = now
 		match keyAt(keys, n) {
-		case Some[Input] as k:
+		case option.Some[Input] as k:
 			let d = game.Step(phase, k.Value)
 			match d {
-			case Done[Game] as q:
+			case machines.Done[Game] as q:
 				Screen.Show(Frame{N: n + 1, Phase: "quit", G: q.Output})
 				return q.Output
-			case Enter[Phase], Stay[Phase], Emit[Phase, Game], Tell[Phase, Game], Ignore, Reject:
+			case machines.Enter[Phase], machines.Stay[Phase], machines.Emit[Phase, Game], machines.Tell[Phase, Game], machines.Ignore, machines.Reject:
 			}
 			phase = machines.Next(phase, d)
-		case None:
+		case option.None:
 		}
 		for owed >= pace.Dt {
 			owed = owed - pace.Dt
@@ -64,9 +65,9 @@ func Play(w world.World, keys string, frames int, pace Pace) Game needs Schedule
 }
 
 // keyAt is the input of the key of frame n, or None past the end of keys.
-func keyAt(keys string, n int) Option[Input] {
-	if n >= len(keys) {
-		return None
+func keyAt(keys string, n int) option.Option[Input] {
+	if n >= keys.Len() {
+		return option.None
 	}
 	Key(strings.Slice(keys, n, n+1))
 }

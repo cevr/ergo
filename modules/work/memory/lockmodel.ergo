@@ -8,6 +8,7 @@ import fs
 import fstest
 import github.com/cevr/ergo/modules/work/classes
 import github.com/cevr/ergo/modules/work/work
+import option
 import slices
 import strings
 import sync
@@ -33,9 +34,9 @@ func Run(p PackageManager, c exec.Command) exec.Result fails exec.NotFound | exe
 		return exec.Result{Status: 1, Stdout: "", Stderr: "no package.json"}
 	}
 	let lock = match LockOf(text) {
-	case Some[string] as l:
+	case option.Some[string] as l:
 		l.Value
-	case None:
+	case option.None:
 		return exec.Result{Status: 1, Stdout: "", Stderr: "package.json does not read"}
 	}
 	p.disk.WriteFile(filepath.Join([]string{c.Dir, "bun.lock"}), lock) catch {
@@ -52,24 +53,24 @@ func Start(p PackageManager, c exec.Command, s exec.Streams) exec.Running fails 
 
 // LockOf is the lock of a manifest: one line "name@version" for each
 // dependency, sorted.
-func LockOf(manifest string) Option[string] {
+func LockOf(manifest string) option.Option[string] {
 	match depsOf(manifest) {
-	case Some[Map[string, string]] as d:
+	case option.Some[Map[string, string]] as d:
 		let mut lines = []string{}
 		for k, v in d.Value {
 			lines = lines.Append(k + "@" + v)
 		}
-		Some[string]{Value: strings.Join(slices.Sort(lines), "\n") + "\n"}
-	case None:
-		None
+		option.Some[string]{Value: strings.Join(slices.Sort(lines), "\n") + "\n"}
+	case option.None:
+		option.None
 	}
 }
 
 // depsOf is the dependencies of a manifest, by name.
-func depsOf(manifest string) Option[Map[string, string]] {
+func depsOf(manifest string) option.Option[Map[string, string]] {
 	let top = classes.Members(manifest, "manifest") catch {
 	case classes.Unreadable:
-		return None
+		return option.None
 	}
 	let mut out = Map[string, string]{}
 	for m in top {
@@ -78,13 +79,13 @@ func depsOf(manifest string) Option[Map[string, string]] {
 		}
 		let deps = classes.Members(m.Raw, "manifest") catch {
 		case classes.Unreadable:
-			return None
+			return option.None
 		}
 		for d in deps {
 			out[d.Key] = strings.TrimSuffix(strings.TrimPrefix(d.Raw, "\""), "\"")
 		}
 	}
-	Some[Map[string, string]]{Value: out}
+	option.Some[Map[string, string]]{Value: out}
 }
 
 // packageJson is a manifest with the dependency k<key> at version
@@ -93,12 +94,12 @@ func packageJson(units Map[int, int]) string {
 	let mut deps = []string{}
 	for key in 0..6 {
 		match units.Get(key) {
-		case Some[int] as v:
+		case option.Some[int] as v:
 			deps = deps.Append("    \"k\(key)\": \"v\(v.Value)\"")
-		case None:
+		case option.None:
 		}
 	}
-	let inner = if len(deps) == 0 { "{}" } else { "{\n" + strings.Join(deps, ",\n") + "\n  }" }
+	let inner = if deps.Len() == 0 { "{}" } else { "{\n" + strings.Join(deps, ",\n") + "\n  }" }
 	"{\n  \"name\": \"app\",\n  \"dependencies\": " + inner + "\n}\n"
 }
 
@@ -132,9 +133,9 @@ law LockIsTheManifests(base Map[int, int], ours Map[int, int], theirs Map[int, i
 	let tree = func(units Map[int, int]) Map[string, string] {
 		let manifest = packageJson(units)
 		match LockOf(manifest) {
-		case Some[string] as l:
+		case option.Some[string] as l:
 			Map[string, string]{"package.json": manifest, "bun.lock": l.Value}
-		case None:
+		case option.None:
 			Map[string, string]{"package.json": manifest}
 		}
 	}
@@ -160,12 +161,12 @@ law LockIsTheManifests(base Map[int, int], ours Map[int, int], theirs Map[int, i
 			y
 		} else {
 			clash = true
-			None
+			option.None
 		}
 		match picked {
-		case Some[int] as v:
+		case option.Some[int] as v:
 			want[key] = v.Value
-		case None:
+		case option.None:
 		}
 	}
 	if clash {
@@ -175,5 +176,5 @@ law LockIsTheManifests(base Map[int, int], ours Map[int, int], theirs Map[int, i
 	case fs.NotFound, fs.Denied, fs.Failed:
 		return false
 	}
-	len(merged.Conflicts) == 0 && LockOf(packageJson(want)) == Some[string]{Value: got}
+	merged.Conflicts.Len() == 0 && LockOf(packageJson(want)) == option.Some[string]{Value: got}
 }

@@ -2,6 +2,8 @@ import lease-sync/domain
 import lease-sync/lease
 import lease-sync/replica
 import lease-sync/replica/server
+import option
+import os
 import rpc
 import time
 import lease-sync/replica/memory
@@ -30,7 +32,7 @@ func Codec() server.Codec[lease.Pool, lease.Cmd, lease.Event, lease.Refusal] {
 type Leases { r Remote[lease.Pool, lease.Cmd, lease.Event, lease.Refusal] } implements replica.Authority[lease.Pool, lease.Cmd, lease.Event, lease.Refusal]
 
 // Dial is the lease authority at url (lease-server), with long polls.
-func Dial(url string) Leases needs Ambient { Leases{r: NewRemote(rpc.Dial(url), Codec(), true)} }
+func Dial(url string) Leases needs os.Ambient { Leases{r: NewRemote(rpc.Dial(url), Codec(), true)} }
 
 // Over is the lease authority conn serves; wait asks for long polls.
 func Over(conn rpc.Conn, wait bool) Leases { Leases{r: NewRemote(conn, Codec(), wait)} }
@@ -52,7 +54,7 @@ law RetryResendsTheSameID(drops int, n int) {
 		pending = pending.Append(domain.Envelope[lease.Cmd]{ID: replica.IDOf(replica.ClientID("a"), i), By: "a", At: at, Command: lease.Give{Name: "n\(i)"}})
 	}
 	let c = testing.NewVirtualClock(0)
-	let conn = with context { Scheduler: c, time.Clock: c } {
+	let conn = with context { time.Scheduler: c, time.Clock: c } {
 		replica.Send(f, pending, schedule.Exponential(1s, 2.0, 1m).And(schedule.Recurs(4)))
 	}
 	if conn != replica.Live {
@@ -73,7 +75,7 @@ law RetryResendsTheSameID(drops int, n int) {
 	}
 	match log {
 	case replica.Delta[lease.Event, lease.Refusal] as d:
-		if len(d.Records) != k {
+		if d.Records.Len() != k {
 			return false
 		}
 		for i, r in d.Records {
@@ -107,8 +109,8 @@ func Pull(f Flaky, by replica.ClientID, from int) Frame fails replica.Unavailabl
 // Serve is the handler of std rpc for the lease authority a: the clients
 // allow takes, a long poll held up to wait, stamped and timed by the
 // clock the caller binds.
-func Serve(a Authority, allow own func(by replica.ClientID) bool, wait duration) func(tag string, payload string) string fails rpc.Failed needs Scheduler | time.Clock {
-	func(tag string, payload string) string fails rpc.Failed needs Scheduler | time.Clock {
+func Serve(a Authority, allow own func(by replica.ClientID) bool, wait duration) func(tag string, payload string) string fails rpc.Failed needs time.Scheduler | time.Clock {
+	func(tag string, payload string) string fails rpc.Failed needs time.Scheduler | time.Clock {
 		try server.Handle(a, Codec(), allow, wait, tag, payload)
 	}
 }
@@ -121,7 +123,7 @@ func NewLeases() Leases {
 	let serve = Serve(a, everyone, 0s)
 	let clock = time.NewManual(0)
 	Over(rpc.Loopback(func(tag string, payload string) string fails rpc.Failed {
-		with context { Scheduler: clock, time.Clock: clock } {
+		with context { time.Scheduler: clock, time.Clock: clock } {
 			try serve(tag, payload)
 		}
 	}), false)
@@ -138,9 +140,9 @@ law AgreesWithMemory(ops []int, froms []int) {
 	let kept = sync.NewRef(Map[replica.ClientID, int]{})
 	let next = func(o replica.ClientID) int {
 		match kept.Get().Get(o) {
-		case Some[int] as n:
+		case option.Some[int] as n:
 			n.Value + 1
-		case None:
+		case option.None:
 			1
 		}
 	}
@@ -154,11 +156,11 @@ law AgreesWithMemory(ops []int, froms []int) {
 			let o = server.Origin(m.ID)
 			kept.Update(func(k Map[replica.ClientID, int]) Map[replica.ClientID, int] { k.Put(o, replica.SeqOf(m.ID, o)) })
 		}
-		if i < len(froms) {
+		if i < froms.Len() {
 			let by = if froms[i]%2 == 0 { replica.ClientID("a") } else { replica.ClientID("b") }
 			let from = (froms[i]%12 + 12) % 12
 			let f = read(remote, by, from)
-			if f == None || f != read(mem, by, from) {
+			if f == option.None || f != read(mem, by, from) {
 				return false
 			}
 		}

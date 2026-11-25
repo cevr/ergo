@@ -33,26 +33,26 @@ func closeFrame(b Body) Ended { Ended{Total: b.Total} }
 
 func rejectExtra(e Ended) Reason { Trailing }
 
-func FrameStep(f Frame, p Part) Decision[Frame, Reason] {
+func FrameStep(f Frame, p Part) machines.Decision[Frame, Reason] {
 	match (f, p) {
 	case (Header, Opened as o):
 		let next = openFrame(o) catch {
 		case r:
-			return Done[Reason]{Output: r}
+			return machines.Done[Reason]{Output: r}
 		}
-		Enter[Frame]{Next: next}
+		machines.Enter[Frame]{Next: next}
 	case (Body as b, Block as k):
 		let next = stepBlock(b, k) catch {
 		case r:
-			return Done[Reason]{Output: r}
+			return machines.Done[Reason]{Output: r}
 		}
-		Stay[Frame]{Next: next}
+		machines.Stay[Frame]{Next: next}
 	case (Body as b, EndMark):
-		Enter[Frame]{Next: closeFrame(b)}
+		machines.Enter[Frame]{Next: closeFrame(b)}
 	case (Ended as e, Extra):
-		Done[Reason]{Output: rejectExtra(e)}
+		machines.Done[Reason]{Output: rejectExtra(e)}
 	case (Header, Block), (Header, EndMark), (Header, Extra), (Body, Opened), (Body, Extra), (Ended, Opened), (Ended, Block), (Ended, EndMark):
-		Reject
+		machines.Reject
 	}
 }
 

@@ -8,6 +8,7 @@
 
 import flag
 import io
+import option
 import os
 import particles/memory
 import particles/sim
@@ -41,19 +42,19 @@ let Paced = sim.Pace{Frame: 50ms, Dt: 20ms}
 // program: help prints the usage, and any other failure exits 2 with it.
 // Help is None, not a failure: os.Exit takes a status of 1 to 125, so a
 // status of 0 is a return from main.
-func read(args []string) Option[Options] fails os.Exit needs io.Stdout {
+func read(args []string) option.Option[Options] fails os.Exit needs io.Stdout {
 	let set = Set()
 	let v = flag.Parse(set, args) catch {
 	case err:
 		try flag.Exit(err, flag.UsageText(set))
-		return None
+		return option.None
 	}
-	Some[Options]{Value: Options{Seed: Seed.Get(v), Count: Count.Get(v), Width: Width.Get(v), Height: Height.Get(v), Loss: Loss.Get(v), Frames: Frames.Get(v), Keys: Keys.Get(v), Live: Live.Get(v)}}
+	option.Some[Options]{Value: Options{Seed: Seed.Get(v), Count: Count.Get(v), Width: Width.Get(v), Height: Height.Get(v), Loss: Loss.Get(v), Frames: Frames.Get(v), Keys: Keys.Get(v), Live: Live.Get(v)}}
 }
 
 // spawn is the box of o, or the end of the program with the reason.
 func spawn(o Options) world.World fails os.Exit {
-	with context { Random: rand.Seeded(uint64(o.Seed)) } { world.Spawn(o.Width, o.Height, o.Count, o.Loss) } catch {
+	with context { rand.Random: rand.Seeded(uint64(o.Seed)) } { world.Spawn(o.Width, o.Height, o.Count, o.Loss) } catch {
 	case world.BadSize as b:
 		return os.Exit{Code: 2, Message: "particles: a box of \(b.Width)x\(b.Height) is outside \(world.MinSide)..\(world.MaxSide) on a side"}
 	case world.BadLoss as b:
@@ -63,23 +64,23 @@ func spawn(o Options) world.World fails os.Exit {
 	}
 }
 
-func main() fails os.Exit needs Console | Ambient {
+func main() fails os.Exit needs io.Console | os.Ambient {
 	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost() } {
 		let o = match try read(os.Process.Args()) {
-		case Some[Options] as s:
+		case option.Some[Options] as s:
 			s.Value
-		case None:
+		case option.None:
 			return
 		}
 		let w = try spawn(o)
 		let screen = term.New(io.NewHost())
 		let g = if o.Live {
-			with context { Scheduler: NewLiveScheduler(), time.Clock: time.NewHost(), sim.Screen: screen } { sim.Play(w, o.Keys, o.Frames, Paced) }
+			with context { time.Scheduler: time.NewLiveScheduler(), time.Clock: time.NewHost(), sim.Screen: screen } { sim.Play(w, o.Keys, o.Frames, Paced) }
 		} else {
 			let c = memory.NewClock(0)
-			with context { Scheduler: c, time.Clock: c, sim.Screen: screen } { sim.Play(w, o.Keys, o.Frames, Paced) }
+			with context { time.Scheduler: c, time.Clock: c, sim.Screen: screen } { sim.Play(w, o.Keys, o.Frames, Paced) }
 		}
-		Console.Println(Summary(screen.Shown(), w, g))
+		io.Console.Println(Summary(screen.Shown(), w, g))
 	}
 }
 
@@ -106,15 +107,15 @@ func session(args []string) string {
 // game is the summary of a game of args, shown on out.
 func game(args []string, out io.Stdout) string fails os.Exit needs io.Stdout {
 	let o = match try read(args) {
-	case Some[Options] as s:
+	case option.Some[Options] as s:
 		s.Value
-	case None:
+	case option.None:
 		return "help"
 	}
 	let w = try spawn(o)
 	let screen = term.New(out)
 	let c = memory.NewClock(0)
-	let g = with context { Scheduler: c, time.Clock: c, sim.Screen: screen } { sim.Play(w, o.Keys, o.Frames, Paced) }
+	let g = with context { time.Scheduler: c, time.Clock: c, sim.Screen: screen } { sim.Play(w, o.Keys, o.Frames, Paced) }
 	Summary(screen.Shown(), w, g)
 }
 

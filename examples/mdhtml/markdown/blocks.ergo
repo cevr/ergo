@@ -3,6 +3,7 @@
 // it. Each line first continues the open blocks it can, then starts new
 // ones, then adds its text to the deepest open block.
 
+import option
 import slices
 import strings
 import mdhtml/html
@@ -91,7 +92,7 @@ func add(p mut parser, k Kind, line int) int {
 		fenceLen:  0, fenceOffset: 0, ends: TagBlock, lines: []string{}, content: "", info: "",
 		literal:   "", inlines: -1,
 	})
-	len(p.blocks) - 1
+	p.blocks.Len() - 1
 }
 
 func appendChild(p mut parser, parent int, child int) {
@@ -137,7 +138,7 @@ func parseBlocks(src string) parser {
 		incorporate(&p, ln)
 	}
 	for p.tip >= 0 {
-		finalize(&p, p.tip, len(lines))
+		finalize(&p, p.tip, lines.Len())
 	}
 	p
 }
@@ -149,19 +150,19 @@ func SplitLines(src string) []string {
 	let mut lines = []string{}
 	let mut start = 0
 	let mut i = 0
-	for i < len(text) {
+	for i < text.Len() {
 		let c = text[i]
 		if c == '\n' || c == '\r' {
 			lines = lines.Append(strings.Slice(text, start, i))
-			if c == '\r' && i+1 < len(text) && text[i+1] == '\n' {
+			if c == '\r' && i+1 < text.Len() && text[i+1] == '\n' {
 				i += 1
 			}
 			start = i + 1
 		}
 		i += 1
 	}
-	if start < len(text) {
-		lines = lines.Append(strings.Slice(text, start, len(text)))
+	if start < text.Len() {
+		lines = lines.Append(strings.Slice(text, start, text.Len()))
 	}
 	lines
 }
@@ -169,7 +170,7 @@ func SplitLines(src string) []string {
 func findNextNonspace(p mut parser) {
 	let mut i = p.offset
 	let mut cols = p.column
-	for i < len(p.line) {
+	for i < p.line.Len() {
 		let c = p.line[i]
 		if c == ' ' {
 			i += 1
@@ -181,7 +182,7 @@ func findNextNonspace(p mut parser) {
 			break
 		}
 	}
-	p.blank = i >= len(p.line)
+	p.blank = i >= p.line.Len()
 	p.nextNonspace = i
 	p.nextNonspaceColumn = cols
 	p.indent = cols - p.column
@@ -198,7 +199,7 @@ func advanceNextNonspace(p mut parser) {
 // (a tab may then be consumed in part).
 func advanceOffset(p mut parser, count int, columns bool) {
 	let mut left = count
-	for left > 0 && p.offset < len(p.line) {
+	for left > 0 && p.offset < p.line.Len() {
 		if p.line[p.offset] == '\t' {
 			let toTab = 4 - p.column%4
 			if columns {
@@ -226,12 +227,12 @@ func advanceOffset(p mut parser, count int, columns bool) {
 
 // at is the byte at i of the line, or -1 past its end.
 func at(p mut parser, i int) int {
-	if i < len(p.line) { int(p.line[i]) } else { -1 }
+	if i < p.line.Len() { int(p.line[i]) } else { -1 }
 }
 
 func spaceOrTab(c int) bool { c == 32 || c == 9 }
 
-func rest(p mut parser) string { strings.Slice(p.line, p.nextNonspace, len(p.line)) }
+func rest(p mut parser) string { strings.Slice(p.line, p.nextNonspace, p.line.Len()) }
 
 // addLine adds the rest of the line to the tip.
 func addLine(p mut parser) {
@@ -240,8 +241,8 @@ func addLine(p mut parser) {
 		p.offset += 1
 		text = strings.Repeat(" ", 4-p.column%4)
 	}
-	if p.offset < len(p.line) {
-		text = text + strings.Slice(p.line, p.offset, len(p.line))
+	if p.offset < p.line.Len() {
+		text = text + strings.Slice(p.line, p.offset, p.line.Len())
 	}
 	p.blocks[p.tip].lines = p.blocks[p.tip].lines.Append(text)
 }
@@ -350,7 +351,7 @@ func continues(p mut parser, id int) int {
 // only spaces and tabs follow it and it is at least three long, else 0.
 func closingFence(s string, c byte) int {
 	let mut n = 0
-	for n < len(s) && s[n] == c {
+	for n < s.Len() && s[n] == c {
 		n += 1
 	}
 	if n < 3 || !blankFrom(s, n) {
@@ -417,12 +418,12 @@ func incorporate(p mut parser, ln string) {
 	if acceptsLines(k) {
 		addLine(p)
 		if k == RawHtml {
-			let from = if p.offset < len(p.line) { p.offset } else { len(p.line) }
-			if EndsWith(p.blocks[container].ends, strings.Slice(p.line, from, len(p.line))) {
+			let from = if p.offset < p.line.Len() { p.offset } else { p.line.Len() }
+			if EndsWith(p.blocks[container].ends, strings.Slice(p.line, from, p.line.Len())) {
 				finalize(p, container, p.lineNumber)
 			}
 		}
-	} else if p.offset < len(ln) && !p.blank {
+	} else if p.offset < ln.Len() && !p.blank {
 		addChild(p, Para)
 		advanceNextNonspace(p)
 		addLine(p)
@@ -453,15 +454,15 @@ func start(p mut parser, s int, container int) int {
 		if !p.indented && n > 0 {
 			advanceNextNonspace(p)
 			let mut level = 0
-			for level < len(r) && r[level] == '#' {
+			for level < r.Len() && r[level] == '#' {
 				level += 1
 			}
 			advanceOffset(p, n, false)
 			closeUnmatched(p)
 			let id = addChild(p, Heading)
 			p.blocks[id].level = level
-			p.blocks[id].content = atxContent(strings.Slice(p.line, p.offset, len(p.line)))
-			advanceOffset(p, len(p.line)-p.offset, false)
+			p.blocks[id].content = atxContent(strings.Slice(p.line, p.offset, p.line.Len()))
+			advanceOffset(p, p.line.Len()-p.offset, false)
 			return 2
 		}
 	} else if s == 2 {
@@ -480,7 +481,7 @@ func start(p mut parser, s int, container int) int {
 	} else if s == 3 {
 		if !p.indented && at(p, p.nextNonspace) == '<' {
 			match HtmlStart(r) {
-			case Some as e:
+			case option.Some as e:
 				let lazy = !p.allClosed && !p.blank && p.blocks[p.tip].kind == Para
 				if !Interrupts(e.Value) && (p.blocks[container].kind == Para || lazy) {
 					return 0
@@ -489,7 +490,7 @@ func start(p mut parser, s int, container int) int {
 				let id = addChild(p, RawHtml)
 				p.blocks[id].ends = e.Value
 				return 2
-			case None:
+			case option.None:
 			}
 		}
 	} else if s == 4 {
@@ -503,7 +504,7 @@ func start(p mut parser, s int, container int) int {
 				p.blocks[container].content = content
 				p.blocks[container].lines = []string{}
 				p.tip = container
-				advanceOffset(p, len(p.line)-p.offset, false)
+				advanceOffset(p, p.line.Len()-p.offset, false)
 				return 2
 			}
 		}
@@ -511,13 +512,13 @@ func start(p mut parser, s int, container int) int {
 		if !p.indented && thematicBreak(r) {
 			closeUnmatched(p)
 			addChild(p, Rule)
-			advanceOffset(p, len(p.line)-p.offset, false)
+			advanceOffset(p, p.line.Len()-p.offset, false)
 			return 2
 		}
 	} else if s == 6 {
 		if !p.indented || p.blocks[container].kind == ListBlock {
 			match listMarker(p, container) {
-			case Some as d:
+			case option.Some as d:
 				closeUnmatched(p)
 				let t = p.blocks[p.tip]
 				if t.kind != ListBlock || !listsMatch(t.list, d.Value) {
@@ -527,7 +528,7 @@ func start(p mut parser, s int, container int) int {
 				let id = addChild(p, Item)
 				p.blocks[id].list = d.Value
 				return 1
-			case None:
+			case option.None:
 			}
 		}
 	} else {
@@ -545,19 +546,19 @@ func start(p mut parser, s int, container int) int {
 // the spaces and tabs after them, or the end), or 0.
 func atxMarker(s string) int {
 	let mut n = 0
-	for n < len(s) && s[n] == '#' {
+	for n < s.Len() && s[n] == '#' {
 		n += 1
 	}
 	if n == 0 || n > 6 {
 		return 0
 	}
-	if n == len(s) {
+	if n == s.Len() {
 		return n
 	}
 	if s[n] != ' ' && s[n] != '\t' {
 		return 0
 	}
-	for n < len(s) && (s[n] == ' ' || s[n] == '\t') {
+	for n < s.Len() && (s[n] == ' ' || s[n] == '\t') {
 		n += 1
 	}
 	n
@@ -566,17 +567,17 @@ func atxMarker(s string) int {
 // atxContent is a heading's text without its closing sequence.
 func atxContent(s string) string {
 	let mut i = 0
-	for i < len(s) && (s[i] == ' ' || s[i] == '\t') {
+	for i < s.Len() && (s[i] == ' ' || s[i] == '\t') {
 		i += 1
 	}
 	let mut j = i
-	for j < len(s) && s[j] == '#' {
+	for j < s.Len() && s[j] == '#' {
 		j += 1
 	}
 	if j > i && blankFrom(s, j) {
 		return ""
 	}
-	let mut e = len(s)
+	let mut e = s.Len()
 	for e > 0 && (s[e-1] == ' ' || s[e-1] == '\t') {
 		e -= 1
 	}
@@ -601,13 +602,13 @@ func openingFence(s string) int {
 	}
 	let c = s[0]
 	let mut n = 0
-	for n < len(s) && s[n] == c {
+	for n < s.Len() && s[n] == c {
 		n += 1
 	}
 	if n < 3 {
 		return 0
 	}
-	if c == '`' && strings.Contains(strings.Slice(s, n, len(s)), "`") {
+	if c == '`' && strings.Contains(strings.Slice(s, n, s.Len()), "`") {
 		return 0
 	}
 	n
@@ -621,7 +622,7 @@ func setextLevel(s string) int {
 	}
 	let c = s[0]
 	let mut i = 0
-	for i < len(s) && s[i] == c {
+	for i < s.Len() && s[i] == c {
 		i += 1
 	}
 	if !blankFrom(s, i) {
@@ -638,7 +639,7 @@ func thematicBreak(s string) bool {
 	}
 	let c = s[0]
 	let mut n = 0
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		if s[i] == c {
 			n += 1
 		} else if s[i] != ' ' && s[i] != '\t' {
@@ -654,9 +655,9 @@ func listsMatch(a listData, b listData) bool {
 
 // listMarker reads a list item's marker at the line, and moves past it
 // and the spaces of its content's indent.
-func listMarker(p mut parser, container int) Option[listData] {
+func listMarker(p mut parser, container int) option.Option[listData] {
 	if p.indent >= 4 {
-		return None
+		return option.None
 	}
 	let r = rest(p)
 	let mut data = listData{ordered: false, bullet: 0, start: 0, delim: 0, padding: 0, markerOffset: p.indent, tight: true}
@@ -666,18 +667,18 @@ func listMarker(p mut parser, container int) Option[listData] {
 		n = 1
 	} else {
 		let mut d = 0
-		for d < len(r) && d < 10 && r[d] >= '0' && r[d] <= '9' {
+		for d < r.Len() && d < 10 && r[d] >= '0' && r[d] <= '9' {
 			d += 1
 		}
-		if d == 0 || d > 9 || d >= len(r) || (r[d] != '.' && r[d] != ')') {
-			return None
+		if d == 0 || d > 9 || d >= r.Len() || (r[d] != '.' && r[d] != ')') {
+			return option.None
 		}
 		let mut num = 0
 		for i in 0..d {
 			num = num*10 + int(r[i]-'0')
 		}
 		if p.blocks[container].kind == Para && num != 1 {
-			return None
+			return option.None
 		}
 		data.ordered = true
 		data.start = num
@@ -686,10 +687,10 @@ func listMarker(p mut parser, container int) Option[listData] {
 	}
 	let next = at(p, p.nextNonspace+n)
 	if next != -1 && next != 9 && next != 32 {
-		return None
+		return option.None
 	}
-	if p.blocks[container].kind == Para && isBlank(strings.Slice(p.line, p.nextNonspace+n, len(p.line))) {
-		return None
+	if p.blocks[container].kind == Para && isBlank(strings.Slice(p.line, p.nextNonspace+n, p.line.Len())) {
+		return option.None
 	}
 	advanceNextNonspace(p)
 	advanceOffset(p, n, true)
@@ -713,12 +714,12 @@ func listMarker(p mut parser, container int) Option[listData] {
 	} else {
 		data.padding = n + spaces
 	}
-	Some[listData]{Value: data}
+	option.Some[listData]{Value: data}
 }
 
 // blankFrom says whether s holds only spaces and tabs from i on.
 func blankFrom(s string, i int) bool {
-	for k in i..len(s) {
+	for k in i..s.Len() {
 		if s[k] != ' ' && s[k] != '\t' {
 			return false
 		}
@@ -729,7 +730,7 @@ func blankFrom(s string, i int) bool {
 // text is the block's lines, each ended by a line feed.
 func text(p mut parser, id int) string {
 	let lines = p.blocks[id].lines
-	if len(lines) == 0 {
+	if lines.Len() == 0 {
 		return ""
 	}
 	strings.Join(lines, "\n") + "\n"
@@ -750,13 +751,13 @@ func finalize(p mut parser, id int, line int) {
 		}
 	case Code:
 		if b.fenced {
-			let first = if len(b.lines) > 0 { b.lines[0] } else { "" }
+			let first = if b.lines.Len() > 0 { b.lines[0] } else { "" }
 			p.blocks[id].info = UnescapeString(trimSpace(first))
-			if len(b.lines) > 1 {
-				p.blocks[id].literal = strings.Join(slices.Slice(b.lines, 1, len(b.lines)), "\n") + "\n"
+			if b.lines.Len() > 1 {
+				p.blocks[id].literal = strings.Join(slices.Slice(b.lines, 1, b.lines.Len()), "\n") + "\n"
 			}
 		} else {
-			let mut n = len(b.lines)
+			let mut n = b.lines.Len()
 			for n > 0 && blankFrom(b.lines[n-1], 0) {
 				n -= 1
 			}
@@ -765,7 +766,7 @@ func finalize(p mut parser, id int, line int) {
 		p.blocks[id].lines = []string{}
 	case RawHtml:
 		let s = text(p, id)
-		let mut e = len(s)
+		let mut e = s.Len()
 		for {
 			let mut i = e
 			for i > 0 && s[i-1] == ' ' {
@@ -814,15 +815,15 @@ func readDefinitions(p mut parser, content string) Definitions {
 	let mut s = content
 	let mut read = false
 	let mut more = true
-	for more && len(s) > 0 && s[0] == '[' {
+	for more && s.Len() > 0 && s[0] == '[' {
 		match ParseReference(s) {
-		case Some as d:
-			if p.refs.Get(d.Value.Key) == None {
+		case option.Some as d:
+			if p.refs.Get(d.Value.Key) == option.None {
 				p.refs = p.refs.Put(d.Value.Key, d.Value.Ref)
 			}
-			s = strings.Slice(s, d.Value.Len, len(s))
+			s = strings.Slice(s, d.Value.Len, s.Len())
 			read = true
-		case None:
+		case option.None:
 			more = false
 		}
 	}
@@ -839,7 +840,7 @@ func endsBlank(p mut parser, id int) bool {
 func isSpace(c byte) bool { c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v' }
 
 func isBlank(s string) bool {
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		if !isSpace(s[i]) {
 			return false
 		}
@@ -850,7 +851,7 @@ func isBlank(s string) bool {
 // trimSpace is s without the ASCII whitespace at its ends.
 func trimSpace(s string) string {
 	let mut i = 0
-	let mut j = len(s)
+	let mut j = s.Len()
 	for i < j && isSpace(s[i]) {
 		i += 1
 	}
@@ -863,7 +864,7 @@ func trimSpace(s string) string {
 // CodeSpanKeepsText: text between backticks is code as it is, escaped.
 law CodeSpanKeepsText(s string) {
 	let mut b = strings.NewBuilder()
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		let c = s[i]
 		if c != '`' && c != '\n' && c != '\r' && c != 0 {
 			b.WriteByte(c)

@@ -1,32 +1,437 @@
 {
   "about": "module web's mutants (wf10 SSR WEB1): each is judged by the module's laws and tests (scripts/examples modules/web) or by cmd/ergo's diagnostics case; the law or test that kills it is named in its rule, with 'only' where no other does. Run it with go run ./scripts/mutants ./modules/web.",
   "mutants": [
-    {"name":"web1-notfound-soft","origin":"wf10 SSR WEB1","file":"modules/web/app.ergo","from":"\t\tanswer(req.Method, 404, site.NotFound(req.Path))\n","to":"\t\tanswer(req.Method, 200, site.NotFound(req.Path))\n","rule":"A path that parses to no route is the 404 page with status 404, never a soft 404 (law UnknownPathIsNotFound; FixtureSiteAnswers).","anchor":{"tests":["examples:modules/web"]},"killers":["examples:modules/web"]},
-    {"name":"web1-unknown-not-allowed","origin":"wf10 SSR WEB1","file":"modules/web/app.ergo","from":"\t\tanswer(req.Method, 404, site.NotFound(req.Path))\n","to":"\t\tanswer(req.Method, if req.Method == \"GET\" || req.Method == \"HEAD\" { 404 } else { 405 }, site.NotFound(req.Path))\n","rule":"An unknown path is 404 for every method, not 405 (law UnknownPathIsNotFound only: the fixture posts to a route).","anchor":{"tests":["examples:modules/web"]},"killers":["examples:modules/web"]},
-    {"name":"web1-head-body","origin":"wf10 SSR WEB1","file":"modules/web/app.ergo","from":"\t\treturn http.Response{Status: status, Header: header, Body: \"\"}\n","to":"\t\treturn http.Response{Status: status, Header: header, Body: html.Render(page)}\n","rule":"HEAD answers with no body (law HeadIsGetWithoutBody; FixtureSiteAnswers).","anchor":{"tests":["examples:modules/web"]},"killers":["examples:modules/web"]},
-    {"name":"web1-head-header-dropped","origin":"wf10 SSR WEB1","file":"modules/web/app.ergo","from":"\t\treturn http.Response{Status: status, Header: header, Body: \"\"}\n","to":"\t\treturn http.Response{Status: status, Header: []http.Field{}, Body: \"\"}\n","rule":"HEAD answers with GET's header (law HeadIsGetWithoutBody only: the fixture reads no HEAD header).","anchor":{"tests":["examples:modules/web"]},"killers":["examples:modules/web"]},
-    {"name":"web1-405-without-allow","origin":"wf10 SSR WEB1","file":"modules/web/app.ergo","from":"Header: []http.Field{http.Field{Name: \"Allow\", Value: \"GET, HEAD\"}}, Body: \"\"}","to":"Header: []http.Field{}, Body: \"\"}","rule":"Another method on a route is 405 with Allow: GET, HEAD (law OtherMethodIsNotAllowed; FixtureSiteAnswers).","anchor":{"tests":["examples:modules/web"]},"killers":["examples:modules/web"]},
-    {"name":"web1-put-served","origin":"wf10 SSR WEB1","file":"modules/web/app.ergo","from":"\t\tif req.Method != \"GET\" && req.Method != \"HEAD\" {\n","to":"\t\tif req.Method == \"POST\" {\n","rule":"PUT, DELETE and PATCH on a route are 405 as POST is (law OtherMethodIsNotAllowed only: the fixture posts).","anchor":{"tests":["examples:modules/web"]},"killers":["examples:modules/web"]},
-    {"name":"web1-failure-answered-200","origin":"wf10 SSR WEB1","file":"modules/web/app.ergo","from":"\t\t\treturn answer(req.Method, reply.Status, reply.Page)\n","to":"\t\t\treturn answer(req.Method, 200, reply.Page)\n","rule":"A loader's failure answers with the status its table gives, never 200 (law KnownPathIsLoadThenView; FixtureSiteAnswers).","anchor":{"tests":["examples:modules/web"]},"killers":["examples:modules/web"]},
-    {"name":"web1-not-html","origin":"wf10 SSR WEB1","file":"modules/web/app.ergo","from":"Value: \"text/html; charset=utf-8\"","to":"Value: \"text/plain\"","rule":"A page is text/html in UTF-8 (law KnownPathIsLoadThenView only).","anchor":{"tests":["examples:modules/web"]},"killers":["examples:modules/web"]},
-    {"name":"web1-to-ignores-route","origin":"wf10 SSR WEB1","file":"modules/web/route.ergo","from":"html.LocalURL(ui.Href(m.Href(r)))","to":"html.LocalURL(\"/\")","rule":"To links to the route's own place (FixtureSiteAnswers reads the link).","anchor":{"tests":["examples:modules/web"]},"killers":["examples:modules/web"]},
-    {"name":"web1-webtest-head-gets","origin":"wf10 SSR WEB1","file":"modules/web/webtest/webtest.ergo","from":"web.Request(\"HEAD\", path)","to":"web.Request(\"GET\", path)","rule":"webtest.Head asks HEAD (FixtureSiteAnswers only: the laws call Fetch).","anchor":{"tests":["examples:modules/web"]},"killers":["examples:modules/web"]},
-    {"name":"web1-parse-trailing-segment","origin":"wf10 SSR WEB1","file":"modules/web/webtest/tests.ergo","from":"\tif len(s) == 2 && s[0] == \"notes\" {\n","to":"\tif len(s) >= 2 && s[0] == \"notes\" {\n","rule":"A route's Parse takes no trailing segment: /notes/a/extra is the 404 page (FixtureSiteAnswers).","anchor":{"tests":["examples:modules/web"]},"killers":["examples:modules/web"]},
-    {"name":"web1-empty-slug-unparsed","origin":"wf10 SSR WEB1","file":"modules/web/webtest/tests.ergo","from":"\tif len(s) == 1 && s[0] == \"notes\" {\n","to":"\tif false && len(s) == 1 && s[0] == \"notes\" {\n","rule":"The note of the empty slug parses from /notes, where Href puts it (law Routes.HrefParses for routes only).","anchor":{"tests":["examples:modules/web"]},"killers":["examples:modules/web"]},
-    {"name":"web1-status-case-wildcard","origin":"wf10 SSR WEB1","file":"cmd/ergo/testdata/diagnostics/web-failure-without-status/site.ergo","from":"\t\t\tcase gone as g:\n\t\t\t\tweb.Reply{Status: 410, Page: html.Text(g.Slug)}\n","to":"\t\t\tcase _:\n\t\t\t\tweb.Reply{Status: 410, Page: html.Text(\"\")}\n","rule":"A status table answers each failure by name, so a new variant does not compile until it has a page (the diagnostics case web-failure-without-status).","anchor":{"tests":["cmd/ergo:TestDiagnosticCases"]},"killers":["cmd/ergo:TestDiagnosticCases"]},
-    {"name":"web2-file-for-unlisted-route","origin":"wf10 SSR WEB2","file":"modules/web/static/static.ergo","from":"\tfiles.Append(File{Path: NotFoundPath, Body:","to":"\tfiles.Append(File{Path: \"missing/index.html\", Body:","rule":"A build writes a file for each listed route and the 404 page, and nothing else (law StaticEqualsServed; fieldnotes BuiltEqualsServed).","anchor":{"tests":["examples:modules/web"]},"killers":["examples:modules/web"]},
-    {"name":"web2-failed-route-skipped","origin":"wf10 SSR WEB2","file":"modules/web/static/static.ergo","from":"\t\t\tlet page = try site.Load(r)\n","to":"\t\t\tlet page = site.Load(r) catch {\n\t\t\tcase _:\n\t\t\t\tcontinue\n\t\t\t}\n","rule":"A listed route whose loader fails stops the build (law ListedRoutesLoad only: StaticEqualsServed lists routes that load).","anchor":{"tests":["examples:modules/web"]},"killers":["examples:modules/web"]},
-    {"name":"web2-pathof-dotdot","origin":"wf10 SSR WEB2","file":"modules/web/static/static.ergo","from":"\t\tif s == \".\" || s == \"..\" {\n","to":"\t\tif s == \".\" {\n","rule":"A place with a .. segment has no file, so a build never writes outside its folder (PathOfNamesTheFile only).","anchor":{"tests":["examples:modules/web"]},"killers":["examples:modules/web"]},
-    {"name":"web2-unresolved-judges-other-hosts","origin":"wf10 SSR WEB2","file":"modules/web/webtest/links.ergo","from":"\t\tif strings.HasPrefix(link, \"/\") && !strings.HasPrefix(link, \"//\") {\n","to":"\t\tif strings.HasPrefix(link, \"/\") {\n","rule":"A link to another host (//host/x) is not the site's to resolve (UnresolvedIsEachLocalLinkThatIsNotAPage only).","anchor":{"tests":["examples:modules/web"]},"killers":["examples:modules/web"]},
-    {"name":"web2-links-quote-not-read","origin":"wf10 SSR WEB2","file":"modules/web/webtest/links.ergo","from":"\tt = strings.ReplaceAll(t, \"&#34;\", \"\\\"\")\n","to":"","rule":"Links reads an href as a browser does, its references read back (LinksAreTheAnchorsHrefs only).","anchor":{"tests":["examples:modules/web"]},"killers":["examples:modules/web"]},
-    {"name":"assets-not-served","origin":"wf10 SSR WEB-ASSETS","file":"modules/web/app.ergo","from":"\t\tif a.Path == req.Path {\n","to":"\t\tif false && a.Path == req.Path {\n","rule":"An asset's place answers its bytes (law AssetServedIsItsBytes; static StaticEqualsServed).","anchor":{"tests":["examples:modules/web"]},"killers":["examples:modules/web"]},
-    {"name":"assets-served-as-html","origin":"wf10 SSR WEB-ASSETS","file":"modules/web/app.ergo","from":"\tlet header = []http.Field{http.Field{Name: \"Content-Type\", Value: a.Type}}\n","to":"\tlet header = []http.Field{http.Field{Name: \"Content-Type\", Value: \"text/html; charset=utf-8\"}}\n","rule":"An asset answers with its own Content-Type (law AssetServedIsItsBytes only).","anchor":{"tests":["examples:modules/web"]},"killers":["examples:modules/web"]},
-    {"name":"assets-head-body","origin":"wf10 SSR WEB-ASSETS","file":"modules/web/app.ergo","from":"Body: if method == \"HEAD\" { \"\" } else { a.Body }}","to":"Body: a.Body}","rule":"HEAD of an asset has no body (law AssetServedIsItsBytes only).","anchor":{"tests":["examples:modules/web"]},"killers":["examples:modules/web"]},
-    {"name":"assets-post-served","origin":"wf10 SSR WEB-ASSETS","file":"modules/web/app.ergo","from":"\tif method != \"GET\" && method != \"HEAD\" {\n\t\treturn notAllowed()\n","to":"\tif false {\n\t\treturn notAllowed()\n","rule":"Another method on an asset is 405 (law AssetServedIsItsBytes only).","anchor":{"tests":["examples:modules/web"]},"killers":["examples:modules/web"]},
-    {"name":"assets-not-built","origin":"wf10 SSR WEB-ASSETS","file":"modules/web/static/static.ergo","from":"\t\t\tfiles = files.Append(File{Path: path, Body: a.Body})\n","to":"","rule":"A build writes each asset (law StaticEqualsServed; fieldnotes BuiltEqualsServed and its build case).","anchor":{"tests":["examples:modules/web"]},"killers":["examples:modules/web"]},
-    {"name":"assets-hash-ignores-body","origin":"wf10 SSR WEB-ASSETS","file":"modules/web/asset.ergo","from":"hex.Encode(sha256.Sum(body))","to":"hex.Encode(sha256.Sum(name))","rule":"An asset's place is named by its bytes (law HashedNameIsItsBytes only).","anchor":{"tests":["examples:modules/web"]},"killers":["examples:modules/web"]},
-    {"name":"rq-fetch-drops-query","origin":"wf10 SSR ROUTE-QUERY","file":"modules/web/app.ergo","from":"Query: http.EncodeQuery(req.Query), Fragment: \"\"}) {","to":"Query: \"\", Fragment: \"\"}) {","rule":"Fetch parses a request's path with its query, so a route's query state reaches its loader (law TableRouteIsServed only).","anchor":{"tests":["examples:modules/web"]},"killers":["examples:modules/web"]},
-    {"name":"rq-scalar-twice","origin":"wf10 SSR ROUTE-QUERY","file":"modules/web/table.ergo","from":"\t\tif len(g.values) != 1 {\n\t\t\treturn WireWrongKind{Path: g.key, Want: \"one value\"}\n\t\t}\n","to":"","rule":"A scalar query key given twice is no place: no first or last wins, as http.DecodeQuery (law QueryIsTyped only).","anchor":{"tests":["examples:modules/web"]},"killers":["examples:modules/web"]},
-    {"name":"rq-segment-unescaped","origin":"wf10 SSR ROUTE-QUERY","file":"modules/web/table.ergo","from":"path.WriteString(ui.Escape(vs[0]))","to":"path.WriteString(vs[0])","rule":"A path key's value is one segment, escaped (law TableRouteIsServed's slug only).","anchor":{"tests":["examples:modules/web"]},"killers":["examples:modules/web"]}
+    {
+      "name": "web1-notfound-soft",
+      "origin": "wf10 SSR WEB1",
+      "file": "modules/web/app.ergo",
+      "from": "\t\tanswer(req.Method, 404, site.NotFound(req.Path))\n",
+      "to": "\t\tanswer(req.Method, 200, site.NotFound(req.Path))\n",
+      "rule": "A path that parses to no route is the 404 page with status 404, never a soft 404 (law UnknownPathIsNotFound; FixtureSiteAnswers).",
+      "anchor": {
+        "tests": [
+          "examples:modules/web"
+        ]
+      },
+      "killers": [
+        "examples:modules/web"
+      ]
+    },
+    {
+      "name": "web1-unknown-not-allowed",
+      "origin": "wf10 SSR WEB1",
+      "file": "modules/web/app.ergo",
+      "from": "\t\tanswer(req.Method, 404, site.NotFound(req.Path))\n",
+      "to": "\t\tanswer(req.Method, if req.Method == \"GET\" || req.Method == \"HEAD\" { 404 } else { 405 }, site.NotFound(req.Path))\n",
+      "rule": "An unknown path is 404 for every method, not 405 (law UnknownPathIsNotFound only: the fixture posts to a route).",
+      "anchor": {
+        "tests": [
+          "examples:modules/web"
+        ]
+      },
+      "killers": [
+        "examples:modules/web"
+      ]
+    },
+    {
+      "name": "web1-head-body",
+      "origin": "wf10 SSR WEB1",
+      "file": "modules/web/app.ergo",
+      "from": "\t\treturn http.Response{Status: status, Header: header, Body: \"\"}\n",
+      "to": "\t\treturn http.Response{Status: status, Header: header, Body: html.Render(page)}\n",
+      "rule": "HEAD answers with no body (law HeadIsGetWithoutBody; FixtureSiteAnswers).",
+      "anchor": {
+        "tests": [
+          "examples:modules/web"
+        ]
+      },
+      "killers": [
+        "examples:modules/web"
+      ]
+    },
+    {
+      "name": "web1-head-header-dropped",
+      "origin": "wf10 SSR WEB1",
+      "file": "modules/web/app.ergo",
+      "from": "\t\treturn http.Response{Status: status, Header: header, Body: \"\"}\n",
+      "to": "\t\treturn http.Response{Status: status, Header: []http.Field{}, Body: \"\"}\n",
+      "rule": "HEAD answers with GET's header (law HeadIsGetWithoutBody only: the fixture reads no HEAD header).",
+      "anchor": {
+        "tests": [
+          "examples:modules/web"
+        ]
+      },
+      "killers": [
+        "examples:modules/web"
+      ]
+    },
+    {
+      "name": "web1-405-without-allow",
+      "origin": "wf10 SSR WEB1",
+      "file": "modules/web/app.ergo",
+      "from": "Header: []http.Field{http.Field{Name: \"Allow\", Value: \"GET, HEAD\"}}, Body: \"\"}",
+      "to": "Header: []http.Field{}, Body: \"\"}",
+      "rule": "Another method on a route is 405 with Allow: GET, HEAD (law OtherMethodIsNotAllowed; FixtureSiteAnswers).",
+      "anchor": {
+        "tests": [
+          "examples:modules/web"
+        ]
+      },
+      "killers": [
+        "examples:modules/web"
+      ]
+    },
+    {
+      "name": "web1-put-served",
+      "origin": "wf10 SSR WEB1",
+      "file": "modules/web/app.ergo",
+      "from": "\t\tif req.Method != \"GET\" && req.Method != \"HEAD\" {\n",
+      "to": "\t\tif req.Method == \"POST\" {\n",
+      "rule": "PUT, DELETE and PATCH on a route are 405 as POST is (law OtherMethodIsNotAllowed only: the fixture posts).",
+      "anchor": {
+        "tests": [
+          "examples:modules/web"
+        ]
+      },
+      "killers": [
+        "examples:modules/web"
+      ]
+    },
+    {
+      "name": "web1-failure-answered-200",
+      "origin": "wf10 SSR WEB1",
+      "file": "modules/web/app.ergo",
+      "from": "\t\t\treturn answer(req.Method, reply.Status, reply.Page)\n",
+      "to": "\t\t\treturn answer(req.Method, 200, reply.Page)\n",
+      "rule": "A loader's failure answers with the status its table gives, never 200 (law KnownPathIsLoadThenView; FixtureSiteAnswers).",
+      "anchor": {
+        "tests": [
+          "examples:modules/web"
+        ]
+      },
+      "killers": [
+        "examples:modules/web"
+      ]
+    },
+    {
+      "name": "web1-not-html",
+      "origin": "wf10 SSR WEB1",
+      "file": "modules/web/app.ergo",
+      "from": "Value: \"text/html; charset=utf-8\"",
+      "to": "Value: \"text/plain\"",
+      "rule": "A page is text/html in UTF-8 (law KnownPathIsLoadThenView only).",
+      "anchor": {
+        "tests": [
+          "examples:modules/web"
+        ]
+      },
+      "killers": [
+        "examples:modules/web"
+      ]
+    },
+    {
+      "name": "web1-to-ignores-route",
+      "origin": "wf10 SSR WEB1",
+      "file": "modules/web/route.ergo",
+      "from": "html.LocalURL(ui.Href(m.Href(r)))",
+      "to": "html.LocalURL(\"/\")",
+      "rule": "To links to the route's own place (FixtureSiteAnswers reads the link).",
+      "anchor": {
+        "tests": [
+          "examples:modules/web"
+        ]
+      },
+      "killers": [
+        "examples:modules/web"
+      ]
+    },
+    {
+      "name": "web1-webtest-head-gets",
+      "origin": "wf10 SSR WEB1",
+      "file": "modules/web/webtest/webtest.ergo",
+      "from": "web.Request(\"HEAD\", path)",
+      "to": "web.Request(\"GET\", path)",
+      "rule": "webtest.Head asks HEAD (FixtureSiteAnswers only: the laws call Fetch).",
+      "anchor": {
+        "tests": [
+          "examples:modules/web"
+        ]
+      },
+      "killers": [
+        "examples:modules/web"
+      ]
+    },
+    {
+      "name": "web1-parse-trailing-segment",
+      "origin": "wf10 SSR WEB1",
+      "file": "modules/web/webtest/tests.ergo",
+      "from": "\tif s.Len() == 2 && s[0] == \"notes\" {\n",
+      "to": "\tif s.Len() >= 2 && s[0] == \"notes\" {\n",
+      "rule": "A route's Parse takes no trailing segment: /notes/a/extra is the 404 page (FixtureSiteAnswers).",
+      "anchor": {
+        "tests": [
+          "examples:modules/web"
+        ]
+      },
+      "killers": [
+        "examples:modules/web"
+      ]
+    },
+    {
+      "name": "web1-empty-slug-unparsed",
+      "origin": "wf10 SSR WEB1",
+      "file": "modules/web/webtest/tests.ergo",
+      "from": "\tif s.Len() == 1 && s[0] == \"notes\" {\n",
+      "to": "\tif false && s.Len() == 1 && s[0] == \"notes\" {\n",
+      "rule": "The note of the empty slug parses from /notes, where Href puts it (law Routes.HrefParses for routes only).",
+      "anchor": {
+        "tests": [
+          "examples:modules/web"
+        ]
+      },
+      "killers": [
+        "examples:modules/web"
+      ]
+    },
+    {
+      "name": "web1-status-case-wildcard",
+      "origin": "wf10 SSR WEB1",
+      "file": "cmd/ergo/testdata/diagnostics/web-failure-without-status/site.ergo",
+      "from": "\t\t\tcase gone as g:\n\t\t\t\tweb.Reply{Status: 410, Page: html.Text(g.Slug)}\n",
+      "to": "\t\t\tcase _:\n\t\t\t\tweb.Reply{Status: 410, Page: html.Text(\"\")}\n",
+      "rule": "A status table answers each failure by name, so a new variant does not compile until it has a page (the diagnostics case web-failure-without-status).",
+      "anchor": {
+        "tests": [
+          "cmd/ergo:TestDiagnosticCases"
+        ]
+      },
+      "killers": [
+        "cmd/ergo:TestDiagnosticCases"
+      ]
+    },
+    {
+      "name": "web2-file-for-unlisted-route",
+      "origin": "wf10 SSR WEB2",
+      "file": "modules/web/static/static.ergo",
+      "from": "\tfiles.Append(File{Path: NotFoundPath, Body:",
+      "to": "\tfiles.Append(File{Path: \"missing/index.html\", Body:",
+      "rule": "A build writes a file for each listed route and the 404 page, and nothing else (law StaticEqualsServed; fieldnotes BuiltEqualsServed).",
+      "anchor": {
+        "tests": [
+          "examples:modules/web"
+        ]
+      },
+      "killers": [
+        "examples:modules/web"
+      ]
+    },
+    {
+      "name": "web2-failed-route-skipped",
+      "origin": "wf10 SSR WEB2",
+      "file": "modules/web/static/static.ergo",
+      "from": "\t\t\tlet page = try site.Load(r)\n",
+      "to": "\t\t\tlet page = site.Load(r) catch {\n\t\t\tcase _:\n\t\t\t\tcontinue\n\t\t\t}\n",
+      "rule": "A listed route whose loader fails stops the build (law ListedRoutesLoad only: StaticEqualsServed lists routes that load).",
+      "anchor": {
+        "tests": [
+          "examples:modules/web"
+        ]
+      },
+      "killers": [
+        "examples:modules/web"
+      ]
+    },
+    {
+      "name": "web2-pathof-dotdot",
+      "origin": "wf10 SSR WEB2",
+      "file": "modules/web/static/static.ergo",
+      "from": "\t\tif s == \".\" || s == \"..\" {\n",
+      "to": "\t\tif s == \".\" {\n",
+      "rule": "A place with a .. segment has no file, so a build never writes outside its folder (PathOfNamesTheFile only).",
+      "anchor": {
+        "tests": [
+          "examples:modules/web"
+        ]
+      },
+      "killers": [
+        "examples:modules/web"
+      ]
+    },
+    {
+      "name": "web2-unresolved-judges-other-hosts",
+      "origin": "wf10 SSR WEB2",
+      "file": "modules/web/webtest/links.ergo",
+      "from": "\t\tif strings.HasPrefix(link, \"/\") && !strings.HasPrefix(link, \"//\") {\n",
+      "to": "\t\tif strings.HasPrefix(link, \"/\") {\n",
+      "rule": "A link to another host (//host/x) is not the site's to resolve (UnresolvedIsEachLocalLinkThatIsNotAPage only).",
+      "anchor": {
+        "tests": [
+          "examples:modules/web"
+        ]
+      },
+      "killers": [
+        "examples:modules/web"
+      ]
+    },
+    {
+      "name": "web2-links-quote-not-read",
+      "origin": "wf10 SSR WEB2",
+      "file": "modules/web/webtest/links.ergo",
+      "from": "\tt = strings.ReplaceAll(t, \"&#34;\", \"\\\"\")\n",
+      "to": "",
+      "rule": "Links reads an href as a browser does, its references read back (LinksAreTheAnchorsHrefs only).",
+      "anchor": {
+        "tests": [
+          "examples:modules/web"
+        ]
+      },
+      "killers": [
+        "examples:modules/web"
+      ]
+    },
+    {
+      "name": "assets-not-served",
+      "origin": "wf10 SSR WEB-ASSETS",
+      "file": "modules/web/app.ergo",
+      "from": "\t\tif a.Path == req.Path {\n",
+      "to": "\t\tif false && a.Path == req.Path {\n",
+      "rule": "An asset's place answers its bytes (law AssetServedIsItsBytes; static StaticEqualsServed).",
+      "anchor": {
+        "tests": [
+          "examples:modules/web"
+        ]
+      },
+      "killers": [
+        "examples:modules/web"
+      ]
+    },
+    {
+      "name": "assets-served-as-html",
+      "origin": "wf10 SSR WEB-ASSETS",
+      "file": "modules/web/app.ergo",
+      "from": "\tlet header = []http.Field{http.Field{Name: \"Content-Type\", Value: a.Type}}\n",
+      "to": "\tlet header = []http.Field{http.Field{Name: \"Content-Type\", Value: \"text/html; charset=utf-8\"}}\n",
+      "rule": "An asset answers with its own Content-Type (law AssetServedIsItsBytes only).",
+      "anchor": {
+        "tests": [
+          "examples:modules/web"
+        ]
+      },
+      "killers": [
+        "examples:modules/web"
+      ]
+    },
+    {
+      "name": "assets-head-body",
+      "origin": "wf10 SSR WEB-ASSETS",
+      "file": "modules/web/app.ergo",
+      "from": "Body: if method == \"HEAD\" { \"\" } else { a.Body }}",
+      "to": "Body: a.Body}",
+      "rule": "HEAD of an asset has no body (law AssetServedIsItsBytes only).",
+      "anchor": {
+        "tests": [
+          "examples:modules/web"
+        ]
+      },
+      "killers": [
+        "examples:modules/web"
+      ]
+    },
+    {
+      "name": "assets-post-served",
+      "origin": "wf10 SSR WEB-ASSETS",
+      "file": "modules/web/app.ergo",
+      "from": "\tif method != \"GET\" && method != \"HEAD\" {\n\t\treturn notAllowed()\n",
+      "to": "\tif false {\n\t\treturn notAllowed()\n",
+      "rule": "Another method on an asset is 405 (law AssetServedIsItsBytes only).",
+      "anchor": {
+        "tests": [
+          "examples:modules/web"
+        ]
+      },
+      "killers": [
+        "examples:modules/web"
+      ]
+    },
+    {
+      "name": "assets-not-built",
+      "origin": "wf10 SSR WEB-ASSETS",
+      "file": "modules/web/static/static.ergo",
+      "from": "\t\t\tfiles = files.Append(File{Path: path, Body: a.Body})\n",
+      "to": "",
+      "rule": "A build writes each asset (law StaticEqualsServed; fieldnotes BuiltEqualsServed and its build case).",
+      "anchor": {
+        "tests": [
+          "examples:modules/web"
+        ]
+      },
+      "killers": [
+        "examples:modules/web"
+      ]
+    },
+    {
+      "name": "assets-hash-ignores-body",
+      "origin": "wf10 SSR WEB-ASSETS",
+      "file": "modules/web/asset.ergo",
+      "from": "hex.Encode(sha256.Sum(body))",
+      "to": "hex.Encode(sha256.Sum(name))",
+      "rule": "An asset's place is named by its bytes (law HashedNameIsItsBytes only).",
+      "anchor": {
+        "tests": [
+          "examples:modules/web"
+        ]
+      },
+      "killers": [
+        "examples:modules/web"
+      ]
+    },
+    {
+      "name": "rq-fetch-drops-query",
+      "origin": "wf10 SSR ROUTE-QUERY",
+      "file": "modules/web/app.ergo",
+      "from": "Query: http.EncodeQuery(req.Query), Fragment: \"\"}) {",
+      "to": "Query: \"\", Fragment: \"\"}) {",
+      "rule": "Fetch parses a request's path with its query, so a route's query state reaches its loader (law TableRouteIsServed only).",
+      "anchor": {
+        "tests": [
+          "examples:modules/web"
+        ]
+      },
+      "killers": [
+        "examples:modules/web"
+      ]
+    },
+    {
+      "name": "rq-scalar-twice",
+      "origin": "wf10 SSR ROUTE-QUERY",
+      "file": "modules/web/table.ergo",
+      "from": "\t\tif g.values.Len() != 1 {\n\t\t\treturn codec.WireWrongKind{Path: g.key, Want: \"one value\"}\n\t\t}\n",
+      "to": "",
+      "rule": "A scalar query key given twice is no place: no first or last wins, as http.DecodeQuery (law QueryIsTyped only).",
+      "anchor": {
+        "tests": [
+          "examples:modules/web"
+        ]
+      },
+      "killers": [
+        "examples:modules/web"
+      ]
+    },
+    {
+      "name": "rq-segment-unescaped",
+      "origin": "wf10 SSR ROUTE-QUERY",
+      "file": "modules/web/table.ergo",
+      "from": "path.WriteString(ui.Escape(vs[0]))",
+      "to": "path.WriteString(vs[0])",
+      "rule": "A path key's value is one segment, escaped (law TableRouteIsServed's slug only).",
+      "anchor": {
+        "tests": [
+          "examples:modules/web"
+        ]
+      },
+      "killers": [
+        "examples:modules/web"
+      ]
+    }
   ]
 }

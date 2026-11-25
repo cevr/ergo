@@ -5,11 +5,12 @@
 // host's standard input and output.
 
 import io
+import os
 import todoshell/shell
 
-func main() needs Console | Ambient {
+func main() needs io.Console | os.Ambient {
 	with context { io.Stdin: io.NewStdin(), io.Stdout: io.NewHost() } {
 		let l = shell.Run()
-		Console.Println("bye: \(l.Open()) open of \(l.Count())")
+		io.Console.Println("bye: \(l.Open()) open of \(l.Count())")
 	}
 }

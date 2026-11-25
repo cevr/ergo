@@ -5,6 +5,8 @@
 // cancels it first; the time of each move is the machine's own timer, so
 // a job read at any time is the job the machine gives at that time.
 
+import machines
+import option
 import time
 
 // State is where a job is in its lifecycle.
@@ -23,7 +25,7 @@ law CancelBeforeTheEnd(state int, since int64, at int64) {
 	let settled = Settle(j, t)
 	let c = Apply(j, Cancel, t) catch {
 	case Conflict as x:
-		return Ended(settled.State) && x.State == Name(settled.State) && x.Asked == "cancel" && Timer(settled.State) == None
+		return Ended(settled.State) && x.State == Name(settled.State) && x.Asked == "cancel" && Timer(settled.State) == option.None
 	}
 	!Ended(settled.State) && c.State == Cancelled && c.Since == t
 }
@@ -82,33 +84,33 @@ type Conflict { Id int, State string, Asked string }
 // Step is the lifecycle. The match names every pair, so a new state or
 // signal stops the build until its row is written. A job that ended takes
 // no signal.
-func Step(s State, sig Signal) Decision[State, State] {
+func Step(s State, sig Signal) machines.Decision[State, State] {
 	match (s, sig) {
 	case (Queued, Start):
-		Enter[State]{Next: Running}
+		machines.Enter[State]{Next: Running}
 	case (Queued | Running, Cancel):
-		Enter[State]{Next: Cancelled}
+		machines.Enter[State]{Next: Cancelled}
 	case (Running, Finish):
-		Enter[State]{Next: Done}
+		machines.Enter[State]{Next: Done}
 	case (Queued, Finish), (Running, Start):
-		Ignore
+		machines.Ignore
 	case (Done, Start), (Done, Finish), (Done, Cancel):
-		Reject
+		machines.Reject
 	case (Cancelled, Start), (Cancelled, Finish), (Cancelled, Cancel):
-		Reject
+		machines.Reject
 	}
 }
 
 // Timer is the timer of each state: a queued job starts after QueueFor,
 // a running one finishes after RunFor. An ended job has none.
-func Timer(s State) Option[Timeout[Signal]] {
+func Timer(s State) option.Option[machines.Timeout[Signal]] {
 	match s {
 	case Queued:
-		Some[Timeout[Signal]]{Value: Timeout[Signal]{In: QueueFor, Signal: Start}}
+		option.Some[machines.Timeout[Signal]]{Value: machines.Timeout[Signal]{In: QueueFor, Signal: Start}}
 	case Running:
-		Some[Timeout[Signal]]{Value: Timeout[Signal]{In: RunFor, Signal: Finish}}
+		option.Some[machines.Timeout[Signal]]{Value: machines.Timeout[Signal]{In: RunFor, Signal: Finish}}
 	case Done, Cancelled:
-		None
+		option.None
 	}
 }
 
@@ -126,15 +128,15 @@ func Settle(j Job, now time.Time) Job {
 	let mut at = j
 	for {
 		match Timer(at.State) {
-		case None:
+		case option.None:
 			return at
-		case Some[Timeout[Signal]] as t:
+		case option.Some[machines.Timeout[Signal]] as t:
 			let due = at.Since.Add(t.Value.In)
 			if now.Before(due) {
 				return at
 			}
 			match Step(at.State, t.Value.Signal) {
-			case Enter[State] as e:
+			case machines.Enter[State] as e:
 				at = Job{..at, State: e.Next, Since: due}
 			case _:
 				return at
@@ -172,9 +174,9 @@ func stateOf(n int) State {
 func Apply(j Job, sig Signal, now time.Time) Job fails Conflict {
 	let settled = Settle(j, now)
 	match Step(settled.State, sig) {
-	case Enter[State] as e:
+	case machines.Enter[State] as e:
 		Job{..settled, State: e.Next, Since: now}
-	case Reject:
+	case machines.Reject:
 		Conflict{Id: j.Id, State: Name(settled.State), Asked: SignalName(sig)}
 	case _:
 		settled

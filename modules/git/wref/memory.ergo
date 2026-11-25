@@ -1,4 +1,5 @@
 import fs
+import option
 import sync
 import github.com/cevr/ergo/modules/git/locks
 import github.com/cevr/ergo/modules/git/oid
@@ -26,13 +27,13 @@ func NewMemoryRefWriter(format oid.Format) MemoryRefWriter {
 }
 
 // ReadDirect implements RefWriter.ReadDirect on MemoryRefWriter.
-func ReadDirect(m MemoryRefWriter, refName string) Option[oid.OID] fails InvalidRefName | PathEscape | IOFailed {
+func ReadDirect(m MemoryRefWriter, refName string) option.Option[oid.OID] fails InvalidRefName | PathEscape | IOFailed {
 	try validateTargetRefName(refName, true)
 	m.entries.Get().Get(refName)
 }
 
 // UpdateDirect implements RefWriter.UpdateDirect on MemoryRefWriter.
-func UpdateDirect(m MemoryRefWriter, refName string, newOID oid.OID, expected Option[oid.OID]) fails InvalidRefName | PathEscape | StaleExpected | ObjectMissing | DirectoryFileConflict | LockHeld | LockFailed | IOFailed {
+func UpdateDirect(m MemoryRefWriter, refName string, newOID oid.OID, expected option.Option[oid.OID]) fails InvalidRefName | PathEscape | StaleExpected | ObjectMissing | DirectoryFileConflict | LockHeld | LockFailed | IOFailed {
 	try validateTargetRefName(refName, false)
 	with context { pack.ObjectStore: m.odb } {
 		try verifyTargetExists(newOID)
@@ -164,12 +165,12 @@ func SyncDir(_ FSLockOps, _ string) fails locks.DirSyncUncertain {
 }
 
 // ReadTarget reads targetPath if present.
-func ReadTarget(l FSLockOps, targetPath string) Option[string] {
+func ReadTarget(l FSLockOps, targetPath string) option.Option[string] {
 	let data = fs.ReadFile(l.host, targetPath) catch {
 	case fs.NotFound, fs.Denied, fs.Failed:
-		return None
+		return option.None
 	}
-	Some[string]{Value: data}
+	option.Some[string]{Value: data}
 }
 
 // LockExists reports whether lockPath exists on disk.
@@ -196,16 +197,16 @@ func NewDiskRefWriter(store refs.Store, odb pack.DiskODB, host fs.Host) DiskRefW
 }
 
 // ReadDirect implements RefWriter.ReadDirect on DiskRefWriter.
-func ReadDirect(d DiskRefWriter, refName string) Option[oid.OID] fails InvalidRefName | PathEscape | IOFailed {
+func ReadDirect(d DiskRefWriter, refName string) option.Option[oid.OID] fails InvalidRefName | PathEscape | IOFailed {
 	with context { fs.Files: d.host } {
 		try readCurrentDirectOID(d.store, refName)
 	}
 }
 
 // UpdateDirect implements RefWriter.UpdateDirect on DiskRefWriter.
-func UpdateDirect(d DiskRefWriter, refName string, newOID oid.OID, expected Option[oid.OID]) fails InvalidRefName | PathEscape | StaleExpected | ObjectMissing | DirectoryFileConflict | LockHeld | LockFailed | IOFailed {
+func UpdateDirect(d DiskRefWriter, refName string, newOID oid.OID, expected option.Option[oid.OID]) fails InvalidRefName | PathEscape | StaleExpected | ObjectMissing | DirectoryFileConflict | LockHeld | LockFailed | IOFailed {
 	with context { locks.LockOps: d.lockOps, pack.ObjectStore: d.odb, fs.Files: d.host, fs.Writes: d.host } {
-		try UpdateRef(d.store, refName, newOID, expected, None, locks.Durable)
+		try UpdateRef(d.store, refName, newOID, expected, option.None, locks.Durable)
 	}
 }
 

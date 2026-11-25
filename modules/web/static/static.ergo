@@ -8,6 +8,7 @@
 import fs
 import github.com/cevr/ergo/modules/web
 import html
+import option
 import slices
 import strconv
 import strings
@@ -41,11 +42,11 @@ func PathOf(u ui.URL) string fails BadPath {
 			return BadPath{Place: ui.Href(u), Reason: "a segment holds a /"}
 		}
 	}
-	if len(segments) == 0 {
+	if segments.Len() == 0 {
 		return "index.html"
 	}
 	let path = strings.Join(segments, "/")
-	if strings.Contains(segments[len(segments)-1], ".") {
+	if strings.Contains(segments[segments.Len()-1], ".") {
 		return path
 	}
 	path + "/index.html"
@@ -108,9 +109,9 @@ func Differences[R comparable, P, F, N](site web.Site[R, P, F, N], routes []R) [
 		let path = try PathOf(site.Routes.Href(r))
 		want = want.Append(path)
 		match find(files, path) {
-		case None:
+		case option.None:
 			out = out.Append(place + ": no file")
-		case Some as f:
+		case option.Some as f:
 			let served = web.Fetch(site, web.Request("GET", place))
 			if served.Status != 200 || served.Body != f.Value.Body {
 				out = out.Append(place + ": " + path + " is not what Fetch answers")
@@ -122,9 +123,9 @@ func Differences[R comparable, P, F, N](site web.Site[R, P, F, N], routes []R) [
 		want = want.Append(path)
 		let served = web.Fetch(site, web.Request("GET", a.Path))
 		match find(files, path) {
-		case None:
+		case option.None:
 			out = out.Append(a.Path + ": no file")
-		case Some as f:
+		case option.Some as f:
 			if served.Status != 200 || served.Body != f.Value.Body {
 				out = out.Append(a.Path + ": " + path + " is not what Fetch answers")
 			}
@@ -137,9 +138,9 @@ func Differences[R comparable, P, F, N](site web.Site[R, P, F, N], routes []R) [
 	}
 	let missing = web.Fetch(site, web.Request("GET", "/"+NotFoundPath))
 	match find(files, NotFoundPath) {
-	case None:
+	case option.None:
 		out = out.Append(NotFoundPath + ": no file")
-	case Some as f:
+	case option.Some as f:
 		if missing.Status != 404 || missing.Body != f.Value.Body {
 			out = out.Append(NotFoundPath + " is not what Fetch answers for a path with no route")
 		}
@@ -148,13 +149,13 @@ func Differences[R comparable, P, F, N](site web.Site[R, P, F, N], routes []R) [
 }
 
 // find is the file at path among files.
-func find(files []File, path string) Option[File] {
+func find(files []File, path string) option.Option[File] {
 	for f in files {
 		if f.Path == path {
-			return Some{f}
+			return option.Some{f}
 		}
 	}
-	None
+	option.None
 }
 
 // The laws' site: a home page, numbered items (a negative item is gone)
@@ -177,24 +178,24 @@ func Href(_ lawMap, r lawRoute) ui.URL {
 	}
 }
 
-func Parse(_ lawMap, u ui.URL) Option[lawRoute] {
+func Parse(_ lawMap, u ui.URL) option.Option[lawRoute] {
 	let s = ui.Segments(u)
-	if len(s) == 0 {
-		return Some[lawRoute]{Value: lawHome}
+	if s.Len() == 0 {
+		return option.Some[lawRoute]{Value: lawHome}
 	}
-	if len(s) == 1 && s[0] == "feed.xml" {
-		return Some[lawRoute]{Value: lawFeed}
+	if s.Len() == 1 && s[0] == "feed.xml" {
+		return option.Some[lawRoute]{Value: lawFeed}
 	}
-	if len(s) == 2 && s[0] == "items" {
+	if s.Len() == 2 && s[0] == "items" {
 		let n = strconv.Atoi(s[1]) catch {
 		case _:
-			return None
+			return option.None
 		}
 		if strconv.Itoa(n) == s[1] {
-			return Some[lawRoute]{Value: lawItem{N: n}}
+			return option.Some[lawRoute]{Value: lawItem{N: n}}
 		}
 	}
-	None
+	option.None
 }
 
 func lawLoad(r lawRoute) string fails lawGone {
@@ -252,28 +253,28 @@ law StaticEqualsServed(routes []lawRoute) {
 	case _:
 		return false
 	}
-	len(diffs) == 0
+	diffs.Len() == 0
 }
 
 // ListedRoutesLoad: a build fails exactly when a listed route's loader
 // fails, with that route's failure, so no listed route is missing from
 // the tree or built as its failure page.
 law ListedRoutesLoad(routes []lawRoute) {
-	let mut gone Option[int] = None
+	let mut gone option.Option[int] = option.None
 	for r in routes {
 		match r {
 		case lawItem as i:
-			if i.N < 0 && gone == None {
-				gone = Some{i.N}
+			if i.N < 0 && gone == option.None {
+				gone = option.Some{i.N}
 			}
 		case lawHome, lawFeed:
 		}
 	}
 	let built = Pages(lawSite(), routes) catch {
 	case lawGone as g:
-		return gone == Some{g.N}
+		return gone == option.Some{g.N}
 	case BadPath:
 		return false
 	}
-	gone == None && len(built) > 0
+	gone == option.None && built.Len() > 0
 }

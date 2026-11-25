@@ -1,4 +1,5 @@
 import machines
+import option
 import time
 
 // The site as a machine. Rather than read each URL change through
@@ -27,7 +28,7 @@ type Shown = NoPainting{} | LoadingPainting{ID int} | ReadyPainting{ID int}
 // navigation to a painting loads it exactly when its id is another.
 law StayRefetchesOnlyOnIdChange(a int where 1 <= a && a <= 9, b int where 1 <= b && b <= 9, loaded bool) {
 	let shown Shown = if loaded { ReadyPainting{ID: a} } else { LoadingPainting{ID: a} }
-	let s = Site{..Blank, Route: Some[Route]{Value: Painting{ID: a}}, Painting: shown}
+	let s = Site{..Blank, Route: option.Some[Route]{Value: Painting{ID: a}}, Painting: shown}
 	let d = Step(s, Arrived{URL: "/gallery/\(b)"})
 	let asked = has(Commands(s, d), LoadPainting{ID: b})
 	let after = After(s, d).Painting
@@ -46,21 +47,21 @@ func has(cs []Load, c Load) bool {
 
 // Logged is one navigation in the log: its number, the route before (None
 // for the cold load) and the route after.
-type Logged { Seq int, From Option[Route], To Route }
+type Logged { Seq int, From option.Option[Route], To Route }
 
 // Site is the machine's state: the route (None before the first URL),
 // the log of navigations (newest first, at most LogSize), the catalog,
 // the painting, the studio's draft, the draft last saved, the jobs the
 // work runs (in the order asked), and the number of jobs asked.
-type Site { Route Option[Route], Log []Logged, Catalog Catalog, Painting Shown, Draft string, Saved Option[string], Jobs []Job, Asked int }
+type Site { Route option.Option[Route], Log []Logged, Catalog Catalog, Painting Shown, Draft string, Saved option.Option[string], Jobs []Job, Asked int }
 
 // Job is a load the site asked for: its number, the command,
 // and when it answers, once the work has read the clock.
-type Job { Seq int, Do Load, Due Option[time.Time] }
+type Job { Seq int, Do Load, Due option.Option[time.Time] }
 
 type Link = Internal{URL string} | External{Href string}
 
-type Signal = Arrived{URL string} | Clicked{Link Link} | CatalogLoaded{} | PaintingLoaded{ID int} | Drafted{Text string} | Recalled{Draft Option[string]} | Dated{Seq int, At time.Time} | Answered{Seq int, Job Load}
+type Signal = Arrived{URL string} | Clicked{Link Link} | CatalogLoaded{} | PaintingLoaded{ID int} | Drafted{Text string} | Recalled{Draft option.Option[string]} | Dated{Seq int, At time.Time} | Answered{Seq int, Job Load}
 
 type Load = LoadCatalog{} | LoadPainting{ID int}
 
@@ -70,7 +71,7 @@ type Action = Push{URL string} | Leave{Href string}
 let LogSize = 20
 
 // Blank is the site before its first URL.
-let Blank = Site{Route: None, Log: []Logged{}, Catalog: Idle, Painting: NoPainting, Draft: "", Saved: None, Jobs: []Job{}, Asked: 0}
+let Blank = Site{Route: option.None, Log: []Logged{}, Catalog: Idle, Painting: NoPainting, Draft: "", Saved: option.None, Jobs: []Job{}, Asked: 0}
 
 // CatalogueLoadsOncePerVisit: over drawn navigations and catalog answers,
 // the site asks for the catalog exactly when it enters the gallery (from
@@ -104,7 +105,7 @@ law CatalogueLoadsOncePerVisit(ops []int) {
 // Routes are one route of each kind; a painting's id comes from the case.
 func routeOf(k int, id int) Route {
 	let ks = []Route{Home, Gallery, Painting{ID: id}, Studio, NotFound{Path: "/nowhere"}}
-	ks[((k%len(ks))+len(ks))%len(ks)]
+	ks[((k%ks.Len())+ks.Len())%ks.Len()]
 }
 
 func catalogLoads(cs []Load) int {
@@ -127,7 +128,7 @@ law LogKeepsTheLastTwenty(n int where 0 <= n && n <= 60) {
 		s = After(s, Step(s, Arrived{URL: Print(routeOf(i, i))}))
 	}
 	let want = if n < LogSize { n } else { LogSize }
-	if len(s.Log) != want {
+	if s.Log.Len() != want {
 		return false
 	}
 	for i, l in s.Log {
@@ -147,35 +148,35 @@ type Gallerist machine[Site, Signal] {
 }
 
 // Step is the site's transition.
-func Step(s Site, sig Signal) Decision[Site, []Action] {
+func Step(s Site, sig Signal) machines.Decision[Site, []Action] {
 	match sig {
 	case Arrived as a:
 		arrive(s, Parse(a.URL))
 	case Clicked as c:
 		match c.Link {
 		case Internal as i:
-			Tell[Site, []Action]{Next: s, Output: []Action{Push{URL: i.URL}}}
+			machines.Tell[Site, []Action]{Next: s, Output: []Action{Push{URL: i.URL}}}
 		case External as e:
-			Tell[Site, []Action]{Next: s, Output: []Action{Leave{Href: e.Href}}}
+			machines.Tell[Site, []Action]{Next: s, Output: []Action{Leave{Href: e.Href}}}
 		}
 	case CatalogLoaded:
-		Stay[Site]{Next: Site{..s, Catalog: Ready}}
+		machines.Stay[Site]{Next: Site{..s, Catalog: Ready}}
 	case PaintingLoaded as p:
 		match s.Painting {
 		case LoadingPainting as l:
 			if l.ID != p.ID {
-				return Ignore
+				return machines.Ignore
 			}
-			Stay[Site]{Next: Site{..s, Painting: ReadyPainting{ID: p.ID}}}
+			machines.Stay[Site]{Next: Site{..s, Painting: ReadyPainting{ID: p.ID}}}
 		case NoPainting, ReadyPainting:
-			Ignore
+			machines.Ignore
 		}
 	case Dated as d:
 		let mut js = []Job{}
 		for j in s.Jobs {
-			js = js.Append(if j.Seq == d.Seq { Job{..j, Due: Some[time.Time]{Value: d.At}} } else { j })
+			js = js.Append(if j.Seq == d.Seq { Job{..j, Due: option.Some[time.Time]{Value: d.At}} } else { j })
 		}
-		Stay[Site]{Next: Site{..s, Jobs: js}}
+		machines.Stay[Site]{Next: Site{..s, Jobs: js}}
 	case Answered as a:
 		let mut js = []Job{}
 		for j in s.Jobs {
@@ -185,40 +186,40 @@ func Step(s Site, sig Signal) Decision[Site, []Action] {
 		}
 		let done = Site{..s, Jobs: js}
 		match Step(done, Answer(a.Job)) {
-		case Stay[Site] as st:
-			Stay[Site]{Next: st.Next}
-		case Enter[Site] as e:
-			Stay[Site]{Next: e.Next}
-		case Emit[Site, []Action] as e:
-			Stay[Site]{Next: e.Next}
-		case Tell[Site, []Action] as t:
-			Stay[Site]{Next: t.Next}
-		case Ignore, Reject, Done[[]Action]:
-			Stay[Site]{Next: done}
+		case machines.Stay[Site] as st:
+			machines.Stay[Site]{Next: st.Next}
+		case machines.Enter[Site] as e:
+			machines.Stay[Site]{Next: e.Next}
+		case machines.Emit[Site, []Action] as e:
+			machines.Stay[Site]{Next: e.Next}
+		case machines.Tell[Site, []Action] as t:
+			machines.Stay[Site]{Next: t.Next}
+		case machines.Ignore, machines.Reject, machines.Done[[]Action]:
+			machines.Stay[Site]{Next: done}
 		}
 	case Drafted as d:
-		Stay[Site]{Next: Site{..s, Draft: d.Text}}
+		machines.Stay[Site]{Next: Site{..s, Draft: d.Text}}
 	case Recalled as r:
-		Stay[Site]{Next: Site{..s, Saved: r.Draft}}
+		machines.Stay[Site]{Next: Site{..s, Saved: r.Draft}}
 	}
 }
 
-func arrive(s Site, next Route) Decision[Site, []Action] {
-	let seq = if len(s.Log) == 0 { 1 } else { s.Log[0].Seq + 1 }
+func arrive(s Site, next Route) machines.Decision[Site, []Action] {
+	let seq = if s.Log.Len() == 0 { 1 } else { s.Log[0].Seq + 1 }
 	let mut log = []Logged{Logged{Seq: seq, From: s.Route, To: next}}
 	for l in s.Log {
-		if len(log) < LogSize {
+		if log.Len() < LogSize {
 			log = log.Append(l)
 		}
 	}
-	let mut at = Site{..s, Route: Some[Route]{Value: next}, Log: log}
+	let mut at = Site{..s, Route: option.Some[Route]{Value: next}, Log: log}
 	let mut out = []Load{}
 	// A cold load comes from no page; as a path the site does not have, it
 	// enters every page of the site.
 	let before = match s.Route {
-	case Some[Route] as r:
+	case option.Some[Route] as r:
 		r.Value
-	case None:
+	case option.None:
 		NotFound{Path: ""}
 	}
 	let mut painting = false
@@ -226,7 +227,7 @@ func arrive(s Site, next Route) Decision[Site, []Action] {
 	case (Studio, Studio):
 		// A stay in the studio keeps its entry, so its exit action runs
 		// once, when the site leaves the studio.
-		return Stay[Site]{Next: at}
+		return machines.Stay[Site]{Next: at}
 	case (Gallery, Gallery):
 		// A stay on the gallery is no entry.
 	case (Home, Gallery), (Painting, Gallery), (Studio, Gallery), (NotFound, Gallery):
@@ -248,36 +249,36 @@ func arrive(s Site, next Route) Decision[Site, []Action] {
 		at = Site{..at, Painting: LoadingPainting{ID: paintingID(next)}}
 		out = out.Append(LoadPainting{ID: paintingID(next)})
 	}
-	if len(out) == 0 {
-		return Enter[Site]{Next: at}
+	if out.Len() == 0 {
+		return machines.Enter[Site]{Next: at}
 	}
 	// A navigation ends the entry, so the work starts again with the new
 	// jobs, and each job keeps its due time.
 	let mut js = at.Jobs
 	for i, c in out {
-		js = js.Append(Job{Seq: s.Asked + i + 1, Do: c, Due: None})
+		js = js.Append(Job{Seq: s.Asked + i + 1, Do: c, Due: option.None})
 	}
-	Enter[Site]{Next: Site{..at, Jobs: js, Asked: s.Asked + len(out)}}
+	machines.Enter[Site]{Next: Site{..at, Jobs: js, Asked: s.Asked + out.Len()}}
 }
 
 // leave is each state's exit action: in the studio with a draft, save the
 // draft. The runner gives it the state the studio's entry ends with, so
 // the draft is the one last typed (a key is a Stay), and it runs once per
 // studio visit, at the navigation away or at the site's end.
-func leave(s Site) Option[func() needs Drafts] {
+func leave(s Site) option.Option[func() needs Drafts] {
 	if !inStudio(s) || s.Draft == "" {
-		return None
+		return option.None
 	}
 	let draft = s.Draft
-	Some{func() needs Drafts { Drafts.Save(draft) }}
+	option.Some{func() needs Drafts { Drafts.Save(draft) }}
 }
 
 // inStudio is whether the site is in the studio.
 func inStudio(s Site) bool {
 	match s.Route {
-	case Some[Route] as r:
+	case option.Some[Route] as r:
 		r.Value == Studio
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -293,7 +294,7 @@ func paintingID(r Route) int {
 
 // Commands is what the decision d from s asks for: its output (a push or
 // a leave), then the jobs it adds, in the order asked.
-func Commands(s Site, d Decision[Site, []Action]) []Load {
+func Commands(s Site, d machines.Decision[Site, []Action]) []Load {
 	let mut out = []Load{}
 	for j in After(s, d).Jobs {
 		if j.Seq > s.Asked {
@@ -328,12 +329,12 @@ func Takes(c Load) duration {
 // the jobs left, each at its own due time. In the studio it first reads
 // the draft last saved (Recalled): the studio's exit action saved it as
 // the last visit ended, before this entry opened.
-func jobs(s Site) Option[machines.Work[Signal, time.Clock | Scheduler | Drafts]] {
+func jobs(s Site) option.Option[machines.Work[Signal, time.Clock | time.Scheduler | Drafts]] {
 	let studio = inStudio(s)
-	if len(s.Jobs) == 0 && !studio {
-		return None
+	if s.Jobs.Len() == 0 && !studio {
+		return option.None
 	}
-	Some{machines.Work{Start: func(send entry func(e Signal)) needs time.Clock | Scheduler | Drafts {
+	option.Some{machines.Work{Start: func(send entry func(e Signal)) needs time.Clock | time.Scheduler | Drafts {
 		if studio {
 			send(Recalled{Draft: Drafts.Last()})
 		}
@@ -341,9 +342,9 @@ func jobs(s Site) Option[machines.Work[Signal, time.Clock | Scheduler | Drafts]]
 		let mut dues = []due{}
 		for j in s.Jobs {
 			let at = match j.Due {
-			case Some[time.Time] as t:
+			case option.Some[time.Time] as t:
 				t.Value
-			case None:
+			case option.None:
 				let at = time.Add(now, Takes(j.Do))
 				send(Dated{Seq: j.Seq, At: at})
 				at
@@ -361,7 +362,7 @@ func jobs(s Site) Option[machines.Work[Signal, time.Clock | Scheduler | Drafts]]
 			dues[k] = due{..d, Done: true}
 			let t = time.Clock.Now()
 			if time.Before(t, d.At) {
-				Scheduler.Sleep(d.At.Sub(t))
+				time.Scheduler.Sleep(d.At.Sub(t))
 			}
 			send(Answered{Seq: d.Job.Seq, Job: d.Job.Do})
 		}
@@ -372,17 +373,17 @@ func jobs(s Site) Option[machines.Work[Signal, time.Clock | Scheduler | Drafts]]
 type due { At time.Time, Job Job, Done bool }
 
 // After is the site after the decision d from s.
-func After(s Site, d Decision[Site, []Action]) Site {
+func After(s Site, d machines.Decision[Site, []Action]) Site {
 	match d {
-	case Emit[Site, []Action] as e:
+	case machines.Emit[Site, []Action] as e:
 		e.Next
-	case Enter[Site] as e:
+	case machines.Enter[Site] as e:
 		e.Next
-	case Stay[Site] as st:
+	case machines.Stay[Site] as st:
 		st.Next
-	case Tell[Site, []Action] as t:
+	case machines.Tell[Site, []Action] as t:
 		t.Next
-	case Ignore, Reject, Done[[]Action]:
+	case machines.Ignore, machines.Reject, machines.Done[[]Action]:
 		s
 	}
 }

@@ -52,7 +52,7 @@ law NeverReadsOutsideWindow(s string, k int) {
 			total += c.Len
 		}
 	}
-	total == len(input)
+	total == input.Len()
 }
 
 // WindowMask is Window - 1: a position's slot in a window-sized ring.

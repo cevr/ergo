@@ -2,6 +2,7 @@
 // tests: an input is named by a key.
 
 import lzpack/lz
+import option
 
 // Texts holds the inputs by name.
 type Texts { Inputs Map[string, string] } implements lz.Source
@@ -9,9 +10,9 @@ type Texts { Inputs Map[string, string] } implements lz.Source
 // Bytes is the input named path.
 func Bytes(t Texts, path string) string fails lz.Unreadable {
 	match t.Inputs.Get(path) {
-	case Some[string] as s:
+	case option.Some[string] as s:
 		s.Value
-	case None:
+	case option.None:
 		return lz.Unreadable{Path: path, Reason: "no such input"}
 	}
 }

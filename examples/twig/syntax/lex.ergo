@@ -1,3 +1,4 @@
+import machines
 import strconv
 import strings
 
@@ -18,7 +19,7 @@ func Lex(src string) []Token fails LexError {
 	let mut line = 1
 	let mut lineStart = 0
 	let mut fresh = true
-	for i < len(src) {
+	for i < src.Len() {
 		let c = src[i]
 		if c == '\n' {
 			i += 1
@@ -31,8 +32,8 @@ func Lex(src string) []Token fails LexError {
 			i += 1
 			continue
 		}
-		if c == '/' && i+1 < len(src) && src[i+1] == '/' {
-			for i < len(src) && src[i] != '\n' {
+		if c == '/' && i+1 < src.Len() && src[i+1] == '/' {
+			for i < src.Len() && src[i] != '\n' {
 				i += 1
 			}
 			continue
@@ -40,20 +41,20 @@ func Lex(src string) []Token fails LexError {
 		let at = Pos{Line: line, Col: i - lineStart + 1}
 		let start = i
 		if IsLetter(c) {
-			for i < len(src) && (IsLetter(src[i]) || IsDigit(src[i])) {
+			for i < src.Len() && (IsLetter(src[i]) || IsDigit(src[i])) {
 				i += 1
 			}
 			let w = strings.Slice(src, start, i)
 			let kind Kind = if IsKeyword(w) { Keyword } else { Ident }
 			toks = toks.Append(Token{Kind: kind, Text: w, At: at, Fresh: fresh})
 		} else if IsDigit(c) {
-			for i < len(src) && IsDigit(src[i]) {
+			for i < src.Len() && IsDigit(src[i]) {
 				i += 1
 			}
-			let fraction = i+1 < len(src) && src[i] == '.' && IsDigit(src[i+1])
+			let fraction = i+1 < src.Len() && src[i] == '.' && IsDigit(src[i+1])
 			if fraction {
 				i += 1
-				for i < len(src) && IsDigit(src[i]) {
+				for i < src.Len() && IsDigit(src[i]) {
 					i += 1
 				}
 			}
@@ -68,12 +69,12 @@ func Lex(src string) []Token fails LexError {
 			if p == "" {
 				return LexError{At: at, Msg: "unexpected character " + strconv.Quote(strings.Slice(src, i, i+1))}
 			}
-			i += len(p)
+			i += p.Len()
 			toks = toks.Append(Token{Kind: Punct, Text: p, At: at, Fresh: fresh})
 		}
 		fresh = false
 	}
-	toks.Append(Token{Kind: End, Text: "", At: Pos{Line: line, Col: len(src) - lineStart + 1}, Fresh: fresh})
+	toks.Append(Token{Kind: End, Text: "", At: Pos{Line: line, Col: src.Len() - lineStart + 1}, Fresh: fresh})
 }
 
 // TokensStandInOrder: the tokens of a text stand in order, each after the
@@ -92,7 +93,7 @@ law TokensStandInOrder(src string) {
 		}
 		match t.Kind {
 		case End:
-			if i != len(toks)-1 {
+			if i != toks.Len()-1 {
 				return false
 			}
 		case Ident, Keyword, IntTok, FloatTok, StrTok, Punct:
@@ -110,20 +111,20 @@ func quoted(src string, from int, at Pos) (string, int) fails LexError {
 	let mut value = strings.NewBuilder()
 	let mut q Quote = Body
 	let mut i = from
-	for i < len(src) {
+	for i < src.Len() {
 		let d = QuoteStep(q, MarkOf(src[i]))
 		i += 1
 		match d {
-		case Emit[Quote, Piece] as e:
+		case machines.Emit[Quote, Piece] as e:
 			q = e.Next
 			match e.Output {
 			case Char as ch:
 				value.WriteByte(ch.C)
 			case Closed, Broken:
 			}
-		case Enter[Quote] as e:
+		case machines.Enter[Quote] as e:
 			q = e.Next
-		case Done[Piece] as e:
+		case machines.Done[Piece] as e:
 			match e.Output {
 			case Closed:
 				return (value.String(), i)
@@ -131,7 +132,7 @@ func quoted(src string, from int, at Pos) (string, int) fails LexError {
 				return LexError{At: at, Msg: b.Why}
 			case Char:
 			}
-		case Stay[Quote], Tell[Quote, Piece], Ignore, Reject:
+		case machines.Stay[Quote], machines.Tell[Quote, Piece], machines.Ignore, machines.Reject:
 		}
 	}
 	LexError{At: at, Msg: "a string has no closing quote"}
@@ -140,7 +141,7 @@ func quoted(src string, from int, at Pos) (string, int) fails LexError {
 // punctAt is the punctuation token that starts at byte i of src, or "".
 func punctAt(src string, i int) string {
 	for p in Puncts {
-		if i+len(p) <= len(src) && strings.Slice(src, i, i+len(p)) == p {
+		if i+p.Len() <= src.Len() && strings.Slice(src, i, i+p.Len()) == p {
 			return p
 		}
 	}

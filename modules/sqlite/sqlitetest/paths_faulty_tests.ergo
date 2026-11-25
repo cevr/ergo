@@ -1,6 +1,8 @@
+import core
 import explore
 import gen
 import go os
+import option
 import sql
 import sync
 import testing
@@ -38,8 +40,8 @@ type sqHandle {
 }
 
 let sqWalDir = sync.NewRef("")
-let sqCurrent = sync.NewRef[Option[sqHandle]](None)
-let sqMemCurrent = sync.NewRef[Option[sqlite.DB]](None)
+let sqCurrent = sync.NewRef[option.Option[sqHandle]](option.None)
+let sqMemCurrent = sync.NewRef[option.Option[sqlite.DB]](option.None)
 
 func sqFreshDir() string fails sqPathOpenErr needs go.Foreign {
 	let existing = sqWalDir.Get()
@@ -76,15 +78,15 @@ func sqInitSchema(db sqlite.DB) fails sqPathOpenErr needs go.Foreign {
 
 func sqCloseAndClean() needs go.Foreign {
 	match sqCurrent.Get() {
-	case Some[sqHandle] as h:
+	case option.Some[sqHandle] as h:
 		h.Value.db.Close() catch {
 		case _:
 		}
 		sqRemoveFile(h.Value.dir, "wal.db")
 		sqRemoveFile(h.Value.dir, "wal.db-wal")
 		sqRemoveFile(h.Value.dir, "wal.db-shm")
-		sqCurrent.Set(None)
-	case None:
+		sqCurrent.Set(option.None)
+	case option.None:
 	}
 }
 
@@ -93,7 +95,7 @@ func sqReadKey(db sqlite.DB, key string) int fails sqPathDriveErr needs go.Forei
 	case _:
 		return sqPathDriveErr{Message: "query failed"}
 	}
-	if len(rows) == 0 {
+	if rows.Len() == 0 {
 		return 0
 	}
 	match rows[0].Values[0] {
@@ -109,7 +111,7 @@ func sqRowCount(db sqlite.DB) int fails sqPathDriveErr needs go.Foreign {
 	case _:
 		return sqPathDriveErr{Message: "count failed"}
 	}
-	if len(rows) == 0 {
+	if rows.Len() == 0 {
 		return 0
 	}
 	match rows[0].Values[0] {
@@ -156,21 +158,21 @@ func sqStep(st sqPathState, act sqPathAct) (sqPathState, sqPathOut) {
 	}
 }
 
-func sqModel() explore.PathModel[sqPathState, sqPathAct, sqPathObs, sqPathOut, Never] {
-	explore.PathModelProjected[sqPathState, sqPathAct, sqPathObs, sqPathOut, Never](
+func sqModel() explore.PathModel[sqPathState, sqPathAct, sqPathObs, sqPathOut, core.Never] {
+	explore.PathModelProjected[sqPathState, sqPathAct, sqPathObs, sqPathOut, core.Never](
 		[]sqPathState{sqPathState{A: 0, B: 0}},
 		sqPathSignals,
 		"sqlite.wal",
 		sqProject,
-		func(st sqPathState, act sqPathAct) explore.EdgeOutcome[sqPathState, explore.StepObs[sqPathObs, sqPathOut, Never]] {
+		func(st sqPathState, act sqPathAct) explore.EdgeOutcome[sqPathState, explore.StepObs[sqPathObs, sqPathOut, core.Never]] {
 			let (next, out) = sqStep(st, act)
-			explore.Continue[sqPathState, explore.StepObs[sqPathObs, sqPathOut, Never]]{
+			explore.Continue[sqPathState, explore.StepObs[sqPathObs, sqPathOut, core.Never]]{
 				Next: next,
-				Obs:  explore.StepObs[sqPathObs, sqPathOut, Never]{
+				Obs:  explore.StepObs[sqPathObs, sqPathOut, core.Never]{
 					Kind:     explore.DisEmit,
-					State:    Some[sqPathObs]{Value: sqProject(next)},
+					State:    option.Some[sqPathObs]{Value: sqProject(next)},
 					Outputs:  []sqPathOut{out},
-					Error:    None,
+					Error:    option.None,
 					Terminal: false,
 				},
 			}
@@ -181,14 +183,14 @@ func sqModel() explore.PathModel[sqPathState, sqPathAct, sqPathObs, sqPathOut, N
 type sqAbort {}
 
 type sqClosureSession {
-	read  func() explore.Observed[sqPathObs, sqPathOut, Never] fails sqPathDriveErr,
-	apply func(act sqPathAct) explore.Observed[sqPathObs, sqPathOut, Never] fails sqPathDriveErr,
+	read  func() explore.Observed[sqPathObs, sqPathOut, core.Never] fails sqPathDriveErr,
+	apply func(act sqPathAct) explore.Observed[sqPathObs, sqPathOut, core.Never] fails sqPathDriveErr,
 	close func(),
-} implements explore.PathSession[sqPathAct, explore.Observed[sqPathObs, sqPathOut, Never], sqPathDriveErr]
+} implements explore.PathSession[sqPathAct, explore.Observed[sqPathObs, sqPathOut, core.Never], sqPathDriveErr]
 
-func Read(s sqClosureSession) explore.Observed[sqPathObs, sqPathOut, Never] fails sqPathDriveErr { try s.read() }
+func Read(s sqClosureSession) explore.Observed[sqPathObs, sqPathOut, core.Never] fails sqPathDriveErr { try s.read() }
 
-func Apply(s sqClosureSession, act sqPathAct) explore.Observed[sqPathObs, sqPathOut, Never] fails sqPathDriveErr { try s.apply(act) }
+func Apply(s sqClosureSession, act sqPathAct) explore.Observed[sqPathObs, sqPathOut, core.Never] fails sqPathDriveErr { try s.apply(act) }
 
 func Close(s sqClosureSession) { s.close() }
 
@@ -228,21 +230,21 @@ type SqliteWALPaths {
 	// PathsAgree verifies insert, commit, rollback isolation, and WAL reopen durability.
 	law PathsAgree() {
 		let bounds = explore.PathBounds{MaxStates: 64, MaxEdges: 512, MaxPaths: 512, MaxSteps: 2048, MaxWork: 50000, MaxBytes: 4194304}
-		let openFn = func(start sqPathState) explore.PathSession[sqPathAct, explore.Observed[sqPathObs, sqPathOut, Never], sqPathDriveErr] fails sqPathOpenErr {
+		let openFn = func(start sqPathState) explore.PathSession[sqPathAct, explore.Observed[sqPathObs, sqPathOut, core.Never], sqPathDriveErr] fails sqPathOpenErr {
 			try OpenSession(start)
 			sqClosureSession{
-				read: func() explore.Observed[sqPathObs, sqPathOut, Never] fails sqPathDriveErr {
+				read: func() explore.Observed[sqPathObs, sqPathOut, core.Never] fails sqPathDriveErr {
 					explore.InitialRead[sqPathObs]{State: try ReadSession()}
 				},
-				apply: func(act sqPathAct) explore.Observed[sqPathObs, sqPathOut, Never] fails sqPathDriveErr {
+				apply: func(act sqPathAct) explore.Observed[sqPathObs, sqPathOut, core.Never] fails sqPathDriveErr {
 					let out = try ApplySession(act)
 					let obs = try ReadSession()
-					explore.StepResult[sqPathObs, sqPathOut, Never]{
-						Step: explore.StepObs[sqPathObs, sqPathOut, Never]{
+					explore.StepResult[sqPathObs, sqPathOut, core.Never]{
+						Step: explore.StepObs[sqPathObs, sqPathOut, core.Never]{
 							Kind:     explore.DisEmit,
-							State:    Some[sqPathObs]{Value: obs},
+							State:    option.Some[sqPathObs]{Value: obs},
 							Outputs:  []sqPathOut{out},
-							Error:    None,
+							Error:    option.None,
 							Terminal: false,
 						},
 					}
@@ -275,9 +277,9 @@ type SqliteWALPaths {
 				return false
 			}
 			let faulty = testing.Faulty[sql.DB](inner)
-			let beginBefore = len(faulty.Begin.Faults())
+			let beginBefore = faulty.Begin.Faults().Len()
 			let txOk = with context { sql.DB: faulty } { tryWriteItem() }
-			let beginFaulted = len(faulty.Begin.Faults()) > beginBefore
+			let beginFaulted = faulty.Begin.Faults().Len() > beginBefore
 			if beginFaulted {
 				sometimes !txOk
 				let count = CountFaultyMemItems() catch {
@@ -296,10 +298,10 @@ type SqliteWALPaths {
 				}
 				sometimes txOk
 			}
-			let qBefore = len(faulty.Query.Faults())
+			let qBefore = faulty.Query.Faults().Len()
 			let qOk = with context { sql.DB: faulty } { tryQueryItem() }
 			CloseFaultyMemDB()
-			if len(faulty.Query.Faults()) > qBefore {
+			if faulty.Query.Faults().Len() > qBefore {
 				sometimes !qOk
 				return !qOk
 			}
@@ -334,17 +336,17 @@ func OpenSession(_ SqliteWALPathProvider, start sqPathState) fails sqPathOpenErr
 		return sqPathOpenErr{Message: "open failed"}
 	}
 	try sqInitSchema(db)
-	sqCurrent.Set(Some[sqHandle]{Value: sqHandle{dir: dir, path: path, db: db}})
+	sqCurrent.Set(option.Some[sqHandle]{Value: sqHandle{dir: dir, path: path, db: db}})
 }
 
 func ReadSession(_ SqliteWALPathProvider) sqPathObs fails sqPathDriveErr needs go.Foreign {
 	match sqCurrent.Get() {
-	case Some[sqHandle] as h:
+	case option.Some[sqHandle] as h:
 		sqPathObs{
 			A: try sqReadKey(h.Value.db, "a"),
 			B: try sqReadKey(h.Value.db, "b"),
 		}
-	case None:
+	case option.None:
 		sqPathDriveErr{Message: "no active db"}
 	}
 }
@@ -379,9 +381,9 @@ func runRollbackPair(a int, b int) bool fails sqAbort | sql.Unique | sql.Seriali
 
 func ApplySession(_ SqliteWALPathProvider, act sqPathAct) sqPathOut fails sqPathDriveErr needs go.Foreign {
 	let h = match sqCurrent.Get() {
-	case Some[sqHandle] as cur:
+	case option.Some[sqHandle] as cur:
 		cur.Value
-	case None:
+	case option.None:
 		return sqPathDriveErr{Message: "no active db"}
 	}
 	match act {
@@ -414,7 +416,7 @@ func ApplySession(_ SqliteWALPathProvider, act sqPathAct) sqPathOut fails sqPath
 		case _:
 			return sqPathDriveErr{Message: "reopen failed"}
 		}
-		sqCurrent.Set(Some[sqHandle]{Value: sqHandle{dir: h.dir, path: h.path, db: db2}})
+		sqCurrent.Set(option.Some[sqHandle]{Value: sqHandle{dir: h.dir, path: h.path, db: db2}})
 		SqOutReopened{Count: try sqRowCount(db2)}
 	}
 }
@@ -425,12 +427,12 @@ func CloseSession(_ SqliteWALPathProvider) needs go.Foreign {
 
 func OpenFaultyMemDB(_ SqliteWALPathProvider) sql.DB fails sqPathOpenErr needs go.Foreign {
 	match sqMemCurrent.Get() {
-	case Some[sqlite.DB] as prev:
+	case option.Some[sqlite.DB] as prev:
 		prev.Value.Close() catch {
 		case _:
 		}
-		sqMemCurrent.Set(None)
-	case None:
+		sqMemCurrent.Set(option.None)
+	case option.None:
 	}
 	let db = sqlite.OpenMemory() catch {
 	case _:
@@ -443,18 +445,18 @@ func OpenFaultyMemDB(_ SqliteWALPathProvider) sql.DB fails sqPathOpenErr needs g
 		}
 		return sqPathOpenErr{Message: "create items failed"}
 	}
-	sqMemCurrent.Set(Some[sqlite.DB]{Value: db})
+	sqMemCurrent.Set(option.Some[sqlite.DB]{Value: db})
 	db
 }
 
 func CountFaultyMemItems(_ SqliteWALPathProvider) int fails sqPathDriveErr needs go.Foreign {
 	match sqMemCurrent.Get() {
-	case Some[sqlite.DB] as db:
+	case option.Some[sqlite.DB] as db:
 		let rows = db.Value.Query("SELECT COUNT(*) FROM items", []sql.Value{}) catch {
 		case _:
 			return sqPathDriveErr{Message: "count items failed"}
 		}
-		if len(rows) == 0 {
+		if rows.Len() == 0 {
 			return 0
 		}
 		match rows[0].Values[0] {
@@ -463,18 +465,18 @@ func CountFaultyMemItems(_ SqliteWALPathProvider) int fails sqPathDriveErr needs
 		case _:
 			0
 		}
-	case None:
+	case option.None:
 		sqPathDriveErr{Message: "no mem db"}
 	}
 }
 
 func CloseFaultyMemDB(_ SqliteWALPathProvider) needs go.Foreign {
 	match sqMemCurrent.Get() {
-	case Some[sqlite.DB] as db:
+	case option.Some[sqlite.DB] as db:
 		db.Value.Close() catch {
 		case _:
 		}
-		sqMemCurrent.Set(None)
-	case None:
+		sqMemCurrent.Set(option.None)
+	case option.None:
 	}
 }

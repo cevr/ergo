@@ -1,5 +1,6 @@
 import filepath
 import fs
+import option
 import strings
 
 func isWithinBoundary(boundary string, target string) bool {
@@ -31,12 +32,12 @@ func checkPathTrust(path string, trust TrustPolicy) fails PathEscape | Untrusted
 	let clean = filepath.Clean(path)
 	let mut stopAt = ""
 	match trust.TrustedRoot {
-	case Some[string] as b:
+	case option.Some[string] as b:
 		if !isWithinBoundary(b.Value, clean) {
 			return PathEscape{Path: clean, Boundary: b.Value}
 		}
 		stopAt = filepath.Clean(b.Value)
-	case None:
+	case option.None:
 	}
 	if !trust.NoFollowSymlinks {
 		return
@@ -79,7 +80,7 @@ func isValidHeadContent(raw string) bool {
 	if strings.HasPrefix(trimmed, "ref:") {
 		return true
 	}
-	let n = len(trimmed)
+	let n = trimmed.Len()
 	if n != 40 && n != 64 {
 		return false
 	}
@@ -161,7 +162,7 @@ func resolveCommonDir(gitDir string, trust TrustPolicy) string fails BadCommonDi
 
 func unquoteAlternateLine(line string) string {
 	let bs = line.Bytes()
-	let n = len(bs)
+	let n = bs.Len()
 	if n < 2 || bs[0] != byte('"') || bs[n-1] != byte('"') {
 		return line
 	}
@@ -229,11 +230,11 @@ func isKnownExtension(name string) bool {
 }
 
 func inspectRepoFormat(cfg Config) (int, string, string, bool) fails UnsupportedVersion | UnsupportedExtension | ConfigBadValue {
-	let verOpt = try GetInt(cfg, "core", None, "repositoryformatversion")
+	let verOpt = try GetInt(cfg, "core", option.None, "repositoryformatversion")
 	let ver = match verOpt {
-	case Some[int64] as v:
+	case option.Some[int64] as v:
 		int(v.Value)
-	case None:
+	case option.None:
 		0
 	}
 	if ver < 0 || ver > 1 {
@@ -244,34 +245,34 @@ func inspectRepoFormat(cfg Config) (int, string, string, bool) fails Unsupported
 	let mut wtCfg = false
 	if ver == 1 {
 		for e in cfg.Entries {
-			if e.Section == "extensions" && sameSubsection(e.Subsection, None) {
+			if e.Section == "extensions" && sameSubsection(e.Subsection, option.None) {
 				if !isKnownExtension(e.Key) {
 					return UnsupportedExtension{Name: e.Key}
 				}
 			}
 		}
-		match GetLast(cfg, "extensions", None, "objectformat") {
-		case Some[string] as f:
+		match GetLast(cfg, "extensions", option.None, "objectformat") {
+		case option.Some[string] as f:
 			let lower = toLowerAscii(f.Value)
 			if lower != "sha1" && lower != "sha256" {
 				return UnsupportedExtension{Name: "objectformat=" + f.Value}
 			}
 			objFmt = lower
-		case None:
+		case option.None:
 		}
-		match GetLast(cfg, "extensions", None, "refstorage") {
-		case Some[string] as r:
+		match GetLast(cfg, "extensions", option.None, "refstorage") {
+		case option.Some[string] as r:
 			let lower = toLowerAscii(r.Value)
 			if lower != "files" && lower != "reftable" {
 				return UnsupportedExtension{Name: "refstorage=" + r.Value}
 			}
 			refStore = lower
-		case None:
+		case option.None:
 		}
-		match try GetBool(cfg, "extensions", None, "worktreeconfig") {
-		case Some[bool] as w:
+		match try GetBool(cfg, "extensions", option.None, "worktreeconfig") {
+		case option.Some[bool] as w:
 			wtCfg = w.Value
-		case None:
+		case option.None:
 		}
 	}
 	(ver, objFmt, refStore, wtCfg)
@@ -288,7 +289,7 @@ func Discover(startDir string, opts DiscoverOptions) Layout fails NotARepository
 	let mut cur = start
 	let mut found = false
 	let mut gitDir = ""
-	let mut workTree Option[string] = None
+	let mut workTree option.Option[string] = option.None
 
 	for !found {
 		let dotGit = filepath.Join([]string{cur, ".git"})
@@ -299,7 +300,7 @@ func Discover(startDir string, opts DiscoverOptions) Layout fails NotARepository
 		if lRes.Name != "" {
 			if lRes.Dir {
 				gitDir = dotGit
-				workTree = Some[string]{Value: cur}
+				workTree = option.Some[string]{Value: cur}
 				found = true
 			} else {
 				if opts.Trust.NoFollowSymlinks {
@@ -312,12 +313,12 @@ func Discover(startDir string, opts DiscoverOptions) Layout fails NotARepository
 					return BadGitDirFile{Path: dotGit, Reason: "gitdir target is not a valid git directory"}
 				}
 				gitDir = resolved
-				workTree = Some[string]{Value: cur}
+				workTree = option.Some[string]{Value: cur}
 				found = true
 			}
 		} else if isGitDir(cur) {
 			gitDir = cur
-			workTree = None
+			workTree = option.None
 			found = true
 		} else {
 			let parent = filepath.Dir(cur)
@@ -338,15 +339,15 @@ func Discover(startDir string, opts DiscoverOptions) Layout fails NotARepository
 	let cfg = Config{Entries: cfgEntries, SkippedIncludes: []string{}}
 	let (ver, objFmt, refStore, wtCfgEnabled) = try inspectRepoFormat(cfg)
 
-	let bareCfg = try GetBool(cfg, "core", None, "bare")
+	let bareCfg = try GetBool(cfg, "core", option.None, "bare")
 	let isBare = match workTree {
-	case Some[string]:
+	case option.Some[string]:
 		false
-	case None:
+	case option.None:
 		match bareCfg {
-		case Some[bool] as b:
+		case option.Some[bool] as b:
 			b.Value
-		case None:
+		case option.None:
 			true
 		}
 	}
@@ -354,11 +355,11 @@ func Discover(startDir string, opts DiscoverOptions) Layout fails NotARepository
 	let objectsDir = filepath.Join([]string{commonDir, "objects"})
 	let alternates = try resolveAlternatesRec(objectsDir, opts.Trust, []string{objectsDir}, 0)
 
-	let mut wtCfgPath Option[string] = None
+	let mut wtCfgPath option.Option[string] = option.None
 	if wtCfgEnabled {
 		let p = filepath.Join([]string{gitDir, "config.worktree"})
 		if fileExists(p) {
-			wtCfgPath = Some[string]{Value: p}
+			wtCfgPath = option.Some[string]{Value: p}
 		}
 	}
 

@@ -5,7 +5,7 @@ let sample = "# a service\nname = \"edge\"  # its name\ntags = ['a', \"b\\tc\", 
 
 test ReadsEachForm {
 	let d = try Parse(sample)
-	assert len(d.Root.Entries) == 2
+	assert d.Root.Entries.Len() == 2
 	assert d.Root.Entries[0].Key == "name" && Same(d.Root.Entries[0].Value, Str{S: "edge"})
 	assert d.Root.Entries[1].At == Pos{Line: 3, Column: 8}
 	assert Same(d.Root.Entries[1].Value, Arr{Items: []Item{
@@ -14,9 +14,9 @@ test ReadsEachForm {
 		Item{Value: Arr{Items: []Item{Item{Value: Int{N: 1}, At: Pos{Line: 0, Column: 0}}, Item{Value: Int{N: -2000}, At: Pos{Line: 0, Column: 0}}}}, At: Pos{Line: 0, Column: 0}},
 		Item{Value: Bool{B: true}, At: Pos{Line: 0, Column: 0}},
 	}})
-	assert len(d.Tables) == 3
+	assert d.Tables.Len() == 3
 	assert d.Tables[0].Name == "listen" && !d.Tables[0].Many && d.Tables[0].At == Pos{Line: 5, Column: 1}
-	assert len(Named(d, "upstream")) == 2
+	assert Named(d, "upstream").Len() == 2
 	assert Same(Named(d, "upstream")[1].Entries[0].Value, Str{S: "y"})
 }
 

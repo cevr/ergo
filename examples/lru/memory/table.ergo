@@ -1,6 +1,7 @@
 // Package memory holds an in-memory provider of registry.Registry.
 
 import lru/registry
+import option
 import strconv
 import strings
 import sync
@@ -32,10 +33,10 @@ func Parse(text string) Table fails BadRow {
 	let mut ports = Map[string, int]{}
 	for line in strings.Split(text, "\n") {
 		let fields = strings.Fields(line)
-		if len(fields) == 0 {
+		if fields.Len() == 0 {
 			continue
 		}
-		if len(fields) != 2 {
+		if fields.Len() != 2 {
 			return BadRow{Line: line}
 		}
 		let port = strconv.Atoi(fields[1]) catch {
@@ -54,9 +55,9 @@ func Parse(text string) Table fails BadRow {
 func Port(t Table, name string) int fails registry.Unknown {
 	t.lookups.Update(func(n int) int { n + 1 })
 	match t.ports.Get(name) {
-	case Some[int] as p:
+	case option.Some[int] as p:
 		p.Value
-	case None:
+	case option.None:
 		registry.Unknown{Name: name}
 	}
 }

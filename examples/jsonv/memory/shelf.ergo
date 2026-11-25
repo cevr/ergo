@@ -1,6 +1,7 @@
 // Package memory holds the in-memory provider of app.Documents.
 
 import jsonv/app
+import option
 
 // Doc is one document on a shelf.
 type Doc { Name string, Text string }
@@ -11,16 +12,16 @@ type Shelf { Docs []Doc } implements app.Documents
 
 // Read is the text of the last document named name.
 func Read(s Shelf, name string) string fails app.NoDocument {
-	let mut found Option[string] = None
+	let mut found option.Option[string] = option.None
 	for d in s.Docs {
 		if d.Name == name {
-			found = Some[string]{Value: d.Text}
+			found = option.Some[string]{Value: d.Text}
 		}
 	}
 	match found {
-	case Some[string] as t:
+	case option.Some[string] as t:
 		t.Value
-	case None:
+	case option.None:
 		app.NoDocument{Name: name}
 	}
 }

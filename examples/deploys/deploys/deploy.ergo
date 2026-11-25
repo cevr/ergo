@@ -41,10 +41,10 @@ func Validate(d Draft) fails Invalid {
 	if d.Service == "" {
 		return Invalid{Field: "service", Reason: "is empty"}
 	}
-	if len(d.Units) == 0 {
+	if d.Units.Len() == 0 {
 		return Invalid{Field: "units", Reason: "a deploy has at least one unit"}
 	}
-	if len(d.Units) > MaxUnits {
+	if d.Units.Len() > MaxUnits {
 		return Invalid{Field: "units", Reason: "a deploy has at most \(MaxUnits) units"}
 	}
 	for i, l in d.Units {
@@ -109,11 +109,11 @@ func Apply(id string, e Event) Deploy fails NotFound | Conflict needs Store {
 	let o = try Store.Find(id)
 	let d = Step(o.Status, e)
 	match d {
-	case Ignore:
+	case machines.Ignore:
 		return o
-	case Reject:
+	case machines.Reject:
 		return Conflict{ID: id, Status: Name(o.Status), Event: EventName(e)}
-	case Enter[Status], Stay[Status]:
+	case machines.Enter[Status], machines.Stay[Status]:
 	}
 	let changed = Deploy{..o, Status: machines.Next(o.Status, d)}
 	try Store.Replace(changed)

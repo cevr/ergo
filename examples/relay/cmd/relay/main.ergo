@@ -3,22 +3,23 @@
 // it forwards. A frame it cannot read ends it with status 1. This binary
 // is the only place that chooses the codecs: plain text for both kinds.
 
+import io
 import os
 import relay/text
 import relay/chat
 
-func run(frames []string) fails os.Exit needs Console | chat.Codec[chat.Note] | chat.Codec[chat.Join] {
+func run(frames []string) fails os.Exit needs io.Console | chat.Codec[chat.Note] | chat.Codec[chat.Join] {
 	for frame in frames {
 		let e = chat.Read(frame) catch {
 		case chat.Malformed as m:
 			return os.Exit{Code: 1, Message: "relay: \(m.Why): \(m.Frame)"}
 		}
-		Console.Println(chat.Describe(e))
-		Console.Println("  -> " + chat.Forward(e))
+		io.Console.Println(chat.Describe(e))
+		io.Console.Println("  -> " + chat.Forward(e))
 	}
 }
 
-func main() fails os.Exit needs Console | Ambient {
+func main() fails os.Exit needs io.Console | os.Ambient {
 	with context { os.Process: os.NewHost(), chat.Codec[chat.Note]: text.NoteText, chat.Codec[chat.Join]: text.JoinText } {
 		try run(os.Process.Args())
 	}

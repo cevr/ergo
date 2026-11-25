@@ -13,7 +13,7 @@ func exploreProperties() []temporal.Formula[ui.ExploreSnapshot[canvas.State, can
 	props = props.Append(temporal.Always[ui.ExploreSnapshot[canvas.State, canvas.Signal]](
 		temporal.Named[ui.ExploreSnapshot[canvas.State, canvas.Signal]]("canvas-layer-and-zoom-valid", func(s ui.ExploreSnapshot[canvas.State, canvas.Signal]) bool {
 			let c = canvas.CanvasOf(s.State)
-			c.Layer >= 0 && c.Layer < canvas.Layers && c.View.Zoom > 0 && len(s.Offers) > 0
+			c.Layer >= 0 && c.Layer < canvas.Layers && c.View.Zoom > 0 && s.Offers.Len() > 0
 		}),
 	))
 	props
@@ -22,7 +22,7 @@ func exploreProperties() []temporal.Formula[ui.ExploreSnapshot[canvas.State, can
 func exploreOnce(steps int) ui.Finding needs gen.Draws {
 	let clock = time.NewManual(0)
 	let shelf = memory.NewShelf()
-	with context { Scheduler: clock, canvas.Store: shelf } {
+	with context { time.Scheduler: clock, canvas.Store: shelf } {
 		let a = actor.StartMachine(machines.Start(window.App{}, canvas.Empty()), 8, func(_ canvas.Output) {})
 		let mut h = ui.NewTestHost(a, window.View, clock, 4) catch {
 		case ui.BadPatch as bp:

@@ -14,6 +14,8 @@
 // indented. A blank line or a comment changes nothing.
 
 import deps/resolve
+import machines
+import option
 import semver
 import slices
 import strings
@@ -68,19 +70,19 @@ func Finish(b Block) Manifest fails BadLine {
 }
 
 // decide exposes the line actions and end to the general machine runner.
-func decide(b Block, s Signal) Decision[Block, Manifest] fails BadLine {
+func decide(b Block, s Signal) machines.Decision[Block, Manifest] fails BadLine {
 	match s {
 	case End:
-		Done[Manifest]{Output: try Finish(b)}
+		machines.Done[Manifest]{Output: try Finish(b)}
 	case Line as l:
 		let (next, action) = try Step(b, l)
 		match action {
 		case Opened:
-			Enter[Block]{Next: next}
+			machines.Enter[Block]{Next: next}
 		case Extended:
-			Stay[Block]{Next: next}
+			machines.Stay[Block]{Next: next}
 		case Skipped:
-			Ignore
+			machines.Ignore
 		}
 	}
 }
@@ -97,7 +99,7 @@ func Step(b Block, l Line) (Block, LineAction) fails BadLine {
 	let m = ManifestOf(b)
 	match (words[0], indented) {
 	case ("project", false):
-		if len(words) != 2 {
+		if words.Len() != 2 {
 			return BadLine{No: l.No, Text: l.Text, Reason: "write project NAME"}
 		}
 		if m.Project != "" {
@@ -105,7 +107,7 @@ func Step(b Block, l Line) (Block, LineAction) fails BadLine {
 		}
 		(InProject{M: Manifest{..m, Project: words[1]}}, Opened)
 	case ("package", false):
-		if len(words) != 3 {
+		if words.Len() != 3 {
 			return BadLine{No: l.No, Text: l.Text, Reason: "write package NAME VERSION"}
 		}
 		let v = semver.Parse(words[2]) catch {
@@ -120,10 +122,10 @@ func Step(b Block, l Line) (Block, LineAction) fails BadLine {
 		let release = resolve.Release{Name: words[1], V: v, Needs: []resolve.Requirement{}}
 		(InRelease{M: Manifest{..m, Releases: m.Releases.Append(release)}}, Opened)
 	case ("needs", true):
-		if len(words) < 2 {
+		if words.Len() < 2 {
 			return BadLine{No: l.No, Text: l.Text, Reason: "write needs NAME [CONSTRAINT]"}
 		}
-		let want = resolve.ParseConstraint(strings.Join(slices.Slice(words, 2, len(words)), " ")) catch {
+		let want = resolve.ParseConstraint(strings.Join(slices.Slice(words, 2, words.Len()), " ")) catch {
 		case semver.Malformed as c:
 			return BadLine{No: l.No, Text: l.Text, Reason: "\(c.Text) names no version"}
 		}
@@ -146,9 +148,9 @@ func Step(b Block, l Line) (Block, LineAction) fails BadLine {
 // stripComment is text up to a #.
 func stripComment(text string) string {
 	match strings.Cut(text, "#") {
-	case Some[strings.Halves] as h:
+	case option.Some[strings.Halves] as h:
 		h.Value.Before
-	case None:
+	case option.None:
 		text
 	}
 }
@@ -157,8 +159,8 @@ func stripComment(text string) string {
 // is a value: the block before keeps its own releases.
 func withNeed(m Manifest, r resolve.Requirement) Manifest {
 	let mut rs = m.Releases
-	let last = rs[len(rs)-1]
-	rs[len(rs)-1] = resolve.Release{..last, Needs: last.Needs.Append(r)}
+	let last = rs[rs.Len()-1]
+	rs[rs.Len()-1] = resolve.Release{..last, Needs: last.Needs.Append(r)}
 	Manifest{..m, Releases: rs}
 }
 

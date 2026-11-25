@@ -13,7 +13,7 @@ import downloads/fetch
 import downloads/memory
 import downloads/script
 
-func main() fails os.Exit needs Console | Ambient {
+func main() fails os.Exit needs io.Console | os.Ambient {
 	let mut lines = []string{}
 	with context { io.Stdin: io.NewStdin() } {
 		for line in io.Stdin.Lines() {
@@ -25,10 +25,10 @@ func main() fails os.Exit needs Console | Ambient {
 		return os.Exit{Code: 1, Message: "downloads: line \(b.Line): \(b.Why)"}
 	}
 	let clock = time.NewManual(0)
-	let shown = with context { fetch.Source: memory.NewServer(), Scheduler: clock } {
+	let shown = with context { fetch.Source: memory.NewServer(), time.Scheduler: clock } {
 		script.Play(gets, clock)
 	}
 	for l in shown {
-		Console.Println(l)
+		io.Console.Println(l)
 	}
 }

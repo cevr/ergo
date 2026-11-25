@@ -23,7 +23,7 @@ let heightFlag = flag.Int("height", 8, "the board's height in cells")
 let set = flag.Set{Name: "snake", Usage: "keys: b begins, w a s d turn, p pauses, q quits", Flags: []flag.Flag{seedFlag, liveFlag, tickFlag, widthFlag, heightFlag}, Args: []flag.ArgSpec{}}
 
 // run plays one game on args and prints its score.
-func run(args []string) fails os.Exit needs io.Stdin | io.Stdout | Scheduler {
+func run(args []string) fails os.Exit needs io.Stdin | io.Stdout | time.Scheduler {
 	let v = flag.Parse(set, args) catch {
 	case err:
 		try flag.Exit(err, flag.UsageText(set))
@@ -34,7 +34,7 @@ func run(args []string) fails os.Exit needs io.Stdin | io.Stdout | Scheduler {
 	if w < 4 || h < 2 || w > 60 || h > 30 {
 		return os.Exit{Code: 2, Message: "snake: the board is 4 to 60 cells wide and 2 to 30 high"}
 	}
-	with context { Random: rand.Seeded(uint64(seedFlag.Get(v))) } {
+	with context { rand.Random: rand.Seeded(uint64(seedFlag.Get(v))) } {
 		let last = if liveFlag.Get(v) {
 			play.Live(w, h, time.Times(1ms, tickFlag.Get(v)))
 		} else {
@@ -44,8 +44,8 @@ func run(args []string) fails os.Exit needs io.Stdin | io.Stdout | Scheduler {
 	}
 }
 
-func main() fails os.Exit needs Ambient {
-	with context { os.Process: os.NewHost(), io.Stdin: io.NewStdin(), io.Stdout: io.NewHost(), Scheduler: NewLiveScheduler() } {
+func main() fails os.Exit needs os.Ambient {
+	with context { os.Process: os.NewHost(), io.Stdin: io.NewStdin(), io.Stdout: io.NewHost(), time.Scheduler: time.NewLiveScheduler() } {
 		try run(os.Process.Args())
 	}
 }

@@ -29,14 +29,14 @@ type Index {
 // Probe is a query the laws draw from the index: one or two letters
 // of the name of an entry, so that it has hits.
 func Probe(all []Entry, n int, k int) string {
-	if len(all) == 0 {
+	if all.Len() == 0 {
 		return "x"
 	}
-	let name = all[pick(n, len(all))].Name
-	if len(name) < 2 {
+	let name = all[pick(n, all.Len())].Name
+	if name.Len() < 2 {
 		return name
 	}
-	let at = pick(k, len(name)-1)
+	let at = pick(k, name.Len()-1)
 	if k%2 == 0 { name[at : at+1] } else { name[at : at+2] }
 }
 

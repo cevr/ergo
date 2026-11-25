@@ -1,3 +1,4 @@
+import option
 import slices
 
 // A listing of each kind and the names. The listing laws run under ergo
@@ -16,6 +17,6 @@ test AListingOfEachKind {
 }
 
 test PriorityNamesRoundTrip(p Priority) {
-	assert PriorityNamed(PriorityName(p)) == Some[Priority]{Value: p}
-	assert PriorityNamed("soon") == None
+	assert PriorityNamed(PriorityName(p)) == option.Some[Priority]{Value: p}
+	assert PriorityNamed("soon") == option.None
 }

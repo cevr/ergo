@@ -57,7 +57,7 @@ func closed(p []syntax.Stmt) []syntax.Stmt {
 // fits reports whether the slot at hops levels out of the frames sizes,
 // innermost last, is inside its frame.
 func fits(sizes []int, hops int, slot int) bool {
-	hops >= 0 && hops < len(sizes) && slot >= 0 && slot < sizes[len(sizes)-1-hops]
+	hops >= 0 && hops < sizes.Len() && slot >= 0 && slot < sizes[sizes.Len()-1-hops]
 }
 
 func codesFit(p Program, codes []Code, sizes []int) bool {
@@ -135,11 +135,11 @@ func nodeFits(p Program, n Node, sizes []int) bool {
 	case Elem as e:
 		nodeFits(p, e.X, sizes) && nodeFits(p, e.I, sizes)
 	case Get as g:
-		g.Key >= 0 && g.Key < len(p.Fields) && nodeFits(p, g.X, sizes)
+		g.Key >= 0 && g.Key < p.Fields.Len() && nodeFits(p, g.X, sizes)
 	case MakeList as l:
 		nodesFit(p, l.Items, sizes)
 	case MakeRec as r:
-		len(r.Keys) == len(r.Vals) && nodesFit(p, r.Vals, sizes)
+		r.Keys.Len() == r.Vals.Len() && nodesFit(p, r.Vals, sizes)
 	case Closure as c:
 		funcFits(p, c.Code, sizes)
 	}
@@ -160,14 +160,14 @@ law ResolvesSome(seed int) {
 }
 
 // depth is the depth of the innermost open function, the top level 0.
-func depth(r mut resolver) int { len(r.frames) - 1 }
+func depth(r mut resolver) int { r.frames.Len() - 1 }
 
 // declare binds name in the innermost block to a new slot of the
 // innermost function, or fails when the block already declares it.
 func declare(r mut resolver, name string, at Pos) int fails ResolveError {
 	let d = r.depth()
-	let from = r.blocks[len(r.blocks)-1]
-	for i in from..len(r.binds) {
+	let from = r.blocks[r.blocks.Len()-1]
+	for i in from..r.binds.Len() {
 		if r.binds[i].Name == name {
 			return ResolveError{At: at, Msg: name + " is already declared in this block"}
 		}
@@ -180,7 +180,7 @@ func declare(r mut resolver, name string, at Pos) int fails ResolveError {
 
 // lookup is the node that reads name.
 func lookup(r mut resolver, name string, at Pos) Node fails ResolveError {
-	let mut i = len(r.binds) - 1
+	let mut i = r.binds.Len() - 1
 	for i >= 0 {
 		let b = r.binds[i]
 		if b.Name == name {
@@ -208,22 +208,22 @@ func field(r mut resolver, name string) int {
 		}
 	}
 	r.fields = r.fields.Append(name)
-	len(r.fields) - 1
+	r.fields.Len() - 1
 }
 
 // block resolves the statements of a block. The functions it declares are
 // bound when the block starts, so they may call each other; every other
 // name is seen only after its let.
 func block(r mut resolver, stmts []syntax.Stmt) []Code fails ResolveError {
-	r.blocks = r.blocks.Append(len(r.binds))
+	r.blocks = r.blocks.Append(r.binds.Len())
 	let mut out = []Code{}
 	let mut pending = []int{}
 	for s in stmts {
 		match s {
 		case syntax.FnDecl as f:
 			let slot = try r.declare(f.Name, f.At)
-			let code = len(r.funcs)
-			r.funcs = r.funcs.Append(Func{Name: f.Name, Arity: len(f.Params), Slots: 0, Body: []Code{}, Captured: false, At: f.At})
+			let code = r.funcs.Len()
+			r.funcs = r.funcs.Append(Func{Name: f.Name, Arity: f.Params.Len(), Slots: 0, Body: []Code{}, Captured: false, At: f.At})
 			pending = pending.Append(code)
 			out = out.Append(MakeFn{Slot: slot, Code: code})
 			r.frames[r.depth()].captured = true
@@ -240,24 +240,24 @@ func block(r mut resolver, stmts []syntax.Stmt) []Code fails ResolveError {
 			out = out.Append(try r.statement(s))
 		}
 	}
-	r.binds = r.binds[0:r.blocks[len(r.blocks)-1]]
-	r.blocks = r.blocks[0 : len(r.blocks)-1]
+	r.binds = r.binds[0:r.blocks[r.blocks.Len()-1]]
+	r.blocks = r.blocks[0 : r.blocks.Len()-1]
 	out
 }
 
 // function resolves the body of the function at index code of the table.
 func function(r mut resolver, code int, name string, params []string, body []syntax.Stmt, at Pos) fails ResolveError {
 	r.frames = r.frames.Append(frame{slots: 0, captured: false, loops: 0})
-	r.blocks = r.blocks.Append(len(r.binds))
+	r.blocks = r.blocks.Append(r.binds.Len())
 	for p in params {
 		let _ = try r.declare(p, at)
 	}
 	let codes = try r.block(body)
-	r.binds = r.binds[0:r.blocks[len(r.blocks)-1]]
-	r.blocks = r.blocks[0 : len(r.blocks)-1]
+	r.binds = r.binds[0:r.blocks[r.blocks.Len()-1]]
+	r.blocks = r.blocks[0 : r.blocks.Len()-1]
 	let f = r.frames[r.depth()]
-	r.frames = r.frames[0 : len(r.frames)-1]
-	r.funcs[code] = Func{Name: name, Arity: len(params), Slots: f.slots, Body: codes, Captured: f.captured, At: at}
+	r.frames = r.frames[0 : r.frames.Len()-1]
+	r.funcs[code] = Func{Name: name, Arity: params.Len(), Slots: f.slots, Body: codes, Captured: f.captured, At: at}
 }
 
 // statement resolves a statement that declares no function.
@@ -298,13 +298,13 @@ func statement(r mut resolver, s syntax.Stmt) Code fails ResolveError {
 		Loop{Test: cond, Body: body, At: w.At}
 	case syntax.For as f:
 		let over = try r.expr(f.Over)
-		r.blocks = r.blocks.Append(len(r.binds))
+		r.blocks = r.blocks.Append(r.binds.Len())
 		let slot = try r.declare(f.Var, f.At)
 		r.frames[r.depth()].loops += 1
 		let body = try r.block(f.Body)
 		r.frames[r.depth()].loops -= 1
-		r.binds = r.binds[0:r.blocks[len(r.blocks)-1]]
-		r.blocks = r.blocks[0 : len(r.blocks)-1]
+		r.binds = r.binds[0:r.blocks[r.blocks.Len()-1]]
+		r.blocks = r.blocks[0 : r.blocks.Len()-1]
 		Each{Slot: slot, Over: over, Body: body, At: f.At}
 	case syntax.Return as ret:
 		if r.depth() == 0 {
@@ -389,8 +389,8 @@ func expr(r mut resolver, e syntax.Expr) Node fails ResolveError {
 		MakeRec{Keys: keys, Vals: try r.exprs(x.Vals)}
 	case syntax.FnLit as x:
 		r.frames[r.depth()].captured = true
-		let code = len(r.funcs)
-		r.funcs = r.funcs.Append(Func{Name: "fn", Arity: len(x.Params), Slots: 0, Body: []Code{}, Captured: false, At: x.At})
+		let code = r.funcs.Len()
+		r.funcs = r.funcs.Append(Func{Name: "fn", Arity: x.Params.Len(), Slots: 0, Body: []Code{}, Captured: false, At: x.At})
 		try r.function(code, "fn", x.Params, x.Body, x.At)
 		Closure{Code: code}
 	}

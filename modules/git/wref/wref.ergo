@@ -1,5 +1,6 @@
 import filepath
 import fs
+import option
 import strconv
 import strings
 import github.com/cevr/ergo/modules/git/locks
@@ -41,10 +42,10 @@ func verifyTargetExists(id oid.OID) fails ObjectMissing needs pack.ObjectStore {
 	}
 }
 
-func readCurrentDirectOID(store refs.Store, refName string) Option[oid.OID] fails InvalidRefName | PathEscape | IOFailed needs fs.Files {
+func readCurrentDirectOID(store refs.Store, refName string) option.Option[oid.OID] fails InvalidRefName | PathEscape | IOFailed needs fs.Files {
 	let r = store.ReadRef(refName) catch {
 	case refs.NotFound:
-		return None
+		return option.None
 	case refs.InvalidRefName as e:
 		return InvalidRefName{Name: e.Name}
 	case refs.PathEscape as e:
@@ -56,11 +57,11 @@ func readCurrentDirectOID(store refs.Store, refName string) Option[oid.OID] fail
 	}
 	match r.Target {
 	case refs.Direct as d:
-		Some[oid.OID]{Value: d.OID}
+		option.Some[oid.OID]{Value: d.OID}
 	case refs.Symbolic:
 		let resolved = store.Resolve(refName) catch {
 		case refs.NotFound:
-			return None
+			return option.None
 		case refs.InvalidRefName as e:
 			return InvalidRefName{Name: e.Name}
 		case refs.PathEscape as e:
@@ -72,31 +73,31 @@ func readCurrentDirectOID(store refs.Store, refName string) Option[oid.OID] fail
 		case refs.IOFailed as e:
 			return IOFailed{Op: "resolve-ref", Detail: e.Detail}
 		}
-		Some[oid.OID]{Value: resolved.OID}
+		option.Some[oid.OID]{Value: resolved.OID}
 	}
 }
 
-func formatOptHex(format oid.Format, id Option[oid.OID]) string {
+func formatOptHex(format oid.Format, id option.Option[oid.OID]) string {
 	match id {
-	case None:
+	case option.None:
 		oid.Hex(oid.Zero(format))
-	case Some[oid.OID] as v:
+	case option.Some[oid.OID] as v:
 		oid.Hex(v.Value)
 	}
 }
 
-func checkExpectedOID(format oid.Format, refName string, current Option[oid.OID], expected Option[oid.OID]) fails StaleExpected {
+func checkExpectedOID(format oid.Format, refName string, current option.Option[oid.OID], expected option.Option[oid.OID]) fails StaleExpected {
 	let wantNone = match expected {
-	case None:
+	case option.None:
 		true
-	case Some[oid.OID] as exp:
+	case option.Some[oid.OID] as exp:
 		oid.IsZero(exp.Value)
 	}
 	if wantNone {
 		match current {
-		case None:
+		case option.None:
 			return
-		case Some[oid.OID] as cur:
+		case option.Some[oid.OID] as cur:
 			return StaleExpected{
 				Ref:      refName,
 				Expected: oid.Hex(oid.Zero(format)),
@@ -105,19 +106,19 @@ func checkExpectedOID(format oid.Format, refName string, current Option[oid.OID]
 		}
 	}
 	let want = match expected {
-	case Some[oid.OID] as exp:
+	case option.Some[oid.OID] as exp:
 		exp.Value
-	case None:
+	case option.None:
 		oid.Zero(format)
 	}
 	match current {
-	case None:
+	case option.None:
 		return StaleExpected{
 			Ref:      refName,
 			Expected: oid.Hex(want),
 			Actual:   oid.Hex(oid.Zero(format)),
 		}
-	case Some[oid.OID] as cur:
+	case option.Some[oid.OID] as cur:
 		if !oid.Equal(cur.Value, want) {
 			return StaleExpected{
 				Ref:      refName,
@@ -147,7 +148,7 @@ func checkDFConflicts(store refs.Store, refName string, deleting Map[string, boo
 		return IOFailed{Op: "list-refs", Detail: e.Detail}
 	}
 	for r in existing {
-		if deleting.Get(r.Name) != None {
+		if deleting.Get(r.Name) != option.None {
 			continue
 		}
 		if refsConflictDF(refName, r.Name) {
@@ -156,7 +157,7 @@ func checkDFConflicts(store refs.Store, refName string, deleting Map[string, boo
 	}
 }
 
-func formatReflogLine(format oid.Format, oldOID Option[oid.OID], newOID Option[oid.OID], spec ReflogSpec) string {
+func formatReflogLine(format oid.Format, oldOID option.Option[oid.OID], newOID option.Option[oid.OID], spec ReflogSpec) string {
 	let oldHex = formatOptHex(format, oldOID)
 	let newHex = formatOptHex(format, newOID)
 	let epochStr = strconv.Itoa(int(spec.Ident.Epoch))
@@ -190,7 +191,7 @@ func ensureParentDir(targetPath string) fails IOFailed needs fs.Writes {
 }
 
 func prunePackedRefs(commonDir string, deleteSet Map[string, bool], mode locks.Durability) fails LockHeld | LockFailed | IOFailed needs locks.LockOps | fs.Files {
-	if len(deleteSet) == 0 {
+	if deleteSet.Len() == 0 {
 		return
 	}
 	let packedPath = filepath.Join([]string{commonDir, "packed-refs"})
@@ -222,7 +223,7 @@ func prunePackedRefs(commonDir string, deleteSet Map[string, bool], mode locks.D
 			continue
 		}
 		let fields = strings.Fields(line)
-		if len(fields) >= 2 && deleteSet.Get(fields[1]) != None {
+		if fields.Len() >= 2 && deleteSet.Get(fields[1]) != option.None {
 			changed = true
 			skipPeeled = true
 			continue
@@ -232,7 +233,7 @@ func prunePackedRefs(commonDir string, deleteSet Map[string, bool], mode locks.D
 	if !changed {
 		return
 	}
-	let nextContent = if len(kept) == 0 { "" } else { strings.Join(kept, "\n") + "\n" }
+	let nextContent = if kept.Len() == 0 { "" } else { strings.Join(kept, "\n") + "\n" }
 	locks.CommitBytes(packedPath, nextContent, mode) catch {
 	case locks.LockHeld as e:
 		return LockHeld{Path: e.Path}
@@ -252,7 +253,7 @@ func prunePackedRefs(commonDir string, deleteSet Map[string, bool], mode locks.D
 }
 
 func abortAllEntries(entries []preparedEntry) needs locks.LockOps {
-	for i in 0..len(entries) {
+	for i in 0..entries.Len() {
 		let mut lf = entries[i].lock
 		lf.Abort()
 	}
@@ -280,9 +281,9 @@ func PrepareBatch(store refs.Store, ops []BatchOp, mode locks.Durability) Prepar
 			activeNames = activeNames.Append(op.RefName)
 		}
 	}
-	for i in 0..len(activeNames) {
+	for i in 0..activeNames.Len() {
 		try checkDFConflicts(store, activeNames[i], deleting)
-		for j in i+1..len(activeNames) {
+		for j in i+1..activeNames.Len() {
 			if refsConflictDF(activeNames[i], activeNames[j]) {
 				return DirectoryFileConflict{Ref: activeNames[i], Conflicting: activeNames[j]}
 			}
@@ -345,11 +346,11 @@ func PrepareBatch(store refs.Store, ops []BatchOp, mode locks.Durability) Prepar
 				abortAllEntries(prepared)
 				return LockFailed{Detail: e.Reason}
 			}
-			let logOpt Option[(string, string)] = match op.Log {
-			case None:
-				None
-			case Some[ReflogSpec] as spec:
-				Some[(string, string)]{Value: (reflogFilePath(store, op.RefName), formatReflogLine(store.Format, curOID, Some[oid.OID]{Value: sd.NewOID}, spec.Value))}
+			let logOpt option.Option[(string, string)] = match op.Log {
+			case option.None:
+				option.None
+			case option.Some[ReflogSpec] as spec:
+				option.Some[(string, string)]{Value: (reflogFilePath(store, op.RefName), formatReflogLine(store.Format, curOID, option.Some[oid.OID]{Value: sd.NewOID}, spec.Value))}
 			}
 			prepared = prepared.Append(preparedEntry{
 				refName:    op.RefName,
@@ -359,7 +360,7 @@ func PrepareBatch(store refs.Store, ops []BatchOp, mode locks.Durability) Prepar
 				reflogLine: logOpt,
 			})
 		case DeleteDirect as dd:
-			checkExpectedOID(store.Format, op.RefName, curOID, Some[oid.OID]{Value: dd.Expected}) catch {
+			checkExpectedOID(store.Format, op.RefName, curOID, option.Some[oid.OID]{Value: dd.Expected}) catch {
 			case StaleExpected as e:
 				lf.Abort()
 				abortAllEntries(prepared)
@@ -371,7 +372,7 @@ func PrepareBatch(store refs.Store, ops []BatchOp, mode locks.Durability) Prepar
 				lock:       lf,
 				isDelete:   true,
 				loosePath:  targetPath,
-				reflogLine: None,
+				reflogLine: option.None,
 			})
 		case SetSymbolic as ss:
 			let payload = "ref: " + ss.Target + "\n"
@@ -391,13 +392,13 @@ func PrepareBatch(store refs.Store, ops []BatchOp, mode locks.Durability) Prepar
 			}
 			let newTargetOID = readCurrentDirectOID(store, ss.Target) catch {
 			case InvalidRefName, PathEscape, IOFailed:
-				None
+				option.None
 			}
-			let logOpt Option[(string, string)] = match op.Log {
-			case None:
-				None
-			case Some[ReflogSpec] as spec:
-				Some[(string, string)]{Value: (reflogFilePath(store, op.RefName), formatReflogLine(store.Format, curOID, newTargetOID, spec.Value))}
+			let logOpt option.Option[(string, string)] = match op.Log {
+			case option.None:
+				option.None
+			case option.Some[ReflogSpec] as spec:
+				option.Some[(string, string)]{Value: (reflogFilePath(store, op.RefName), formatReflogLine(store.Format, curOID, newTargetOID, spec.Value))}
 			}
 			prepared = prepared.Append(preparedEntry{
 				refName:    op.RefName,
@@ -421,7 +422,7 @@ func PrepareBatch(store refs.Store, ops []BatchOp, mode locks.Durability) Prepar
 
 // AbortBatch releases every unpublished lock held by batch without modifying any ref.
 func AbortBatch(batch mut PreparedBatch) needs locks.LockOps {
-	for i in 0..len(batch.entries) {
+	for i in 0..batch.entries.Len() {
 		let mut lf = batch.entries[i].lock
 		lf.Abort()
 		batch.entries[i] = preparedEntry{
@@ -443,7 +444,7 @@ func CommitBatch(batch mut PreparedBatch) fails LockHeld | LockFailed | IOFailed
 	}
 	try prunePackedRefs(batch.commonDir, delSet, batch.mode)
 
-	for i in 0..len(batch.entries) {
+	for i in 0..batch.entries.Len() {
 		let e = batch.entries[i]
 		let mut lf = e.lock
 		if e.isDelete {
@@ -474,10 +475,10 @@ func CommitBatch(batch mut PreparedBatch) fails LockHeld | LockFailed | IOFailed
 				return LockFailed{Detail: err.Reason}
 			}
 			match e.reflogLine {
-			case Some[(string, string)] as rl:
+			case option.Some[(string, string)] as rl:
 				let (logPath, line) = rl.Value
 				try appendReflog(logPath, line)
-			case None:
+			case option.None:
 			}
 		}
 		batch.entries[i] = preparedEntry{
@@ -493,7 +494,7 @@ func CommitBatch(batch mut PreparedBatch) fails LockHeld | LockFailed | IOFailed
 // UpdateRef atomically creates or updates refName to newOID using compare-and-set
 // against expected (None means create-only), verifying object existence and D/F
 // conflicts and optionally appending a reflog line.
-func UpdateRef(store refs.Store, refName string, newOID oid.OID, expected Option[oid.OID], log Option[ReflogSpec], mode locks.Durability) fails InvalidRefName | PathEscape | StaleExpected | ObjectMissing | DirectoryFileConflict | LockHeld | LockFailed | IOFailed needs locks.LockOps | pack.ObjectStore | fs.Files | fs.Writes {
+func UpdateRef(store refs.Store, refName string, newOID oid.OID, expected option.Option[oid.OID], log option.Option[ReflogSpec], mode locks.Durability) fails InvalidRefName | PathEscape | StaleExpected | ObjectMissing | DirectoryFileConflict | LockHeld | LockFailed | IOFailed needs locks.LockOps | pack.ObjectStore | fs.Files | fs.Writes {
 	let mut batch = try PrepareBatch(store, []BatchOp{
 		BatchOp{RefName: refName, Kind: SetDirect{NewOID: newOID, Expected: expected}, Log: log},
 	}, mode)
@@ -504,14 +505,14 @@ func UpdateRef(store refs.Store, refName string, newOID oid.OID, expected Option
 // after verifying its current value equals expected while holding `<ref>.lock`.
 func DeleteRef(store refs.Store, refName string, expected oid.OID, mode locks.Durability) fails InvalidRefName | PathEscape | StaleExpected | ObjectMissing | DirectoryFileConflict | LockHeld | LockFailed | IOFailed needs locks.LockOps | pack.ObjectStore | fs.Files | fs.Writes {
 	let mut batch = try PrepareBatch(store, []BatchOp{
-		BatchOp{RefName: refName, Kind: DeleteDirect{Expected: expected}, Log: None},
+		BatchOp{RefName: refName, Kind: DeleteDirect{Expected: expected}, Log: option.None},
 	}, mode)
 	try batch.CommitBatch()
 }
 
 // UpdateSymbolicRef atomically writes `ref: <targetRef>` into refName (such as
 // `HEAD`) using `<refName>.lock` and optionally appends a reflog entry.
-func UpdateSymbolicRef(store refs.Store, refName string, targetRef string, log Option[ReflogSpec], mode locks.Durability) fails InvalidRefName | PathEscape | StaleExpected | ObjectMissing | DirectoryFileConflict | LockHeld | LockFailed | IOFailed needs locks.LockOps | pack.ObjectStore | fs.Files | fs.Writes {
+func UpdateSymbolicRef(store refs.Store, refName string, targetRef string, log option.Option[ReflogSpec], mode locks.Durability) fails InvalidRefName | PathEscape | StaleExpected | ObjectMissing | DirectoryFileConflict | LockHeld | LockFailed | IOFailed needs locks.LockOps | pack.ObjectStore | fs.Files | fs.Writes {
 	let mut batch = try PrepareBatch(store, []BatchOp{
 		BatchOp{RefName: refName, Kind: SetSymbolic{Target: targetRef}, Log: log},
 	}, mode)

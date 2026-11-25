@@ -354,7 +354,7 @@ func InitialState(admins []Principal, now Timestamp) State {
 	}
 	let mut initGrants = []Grant{g1}
 	let mut nextGrant = 2
-	if len(adminMatches) > 0 {
+	if adminMatches.Len() > 0 {
 		let g2 = Grant{
 			ID:         "g2",
 			Principals: adminMatches,

@@ -6,6 +6,7 @@
 
 import kvstore/kv
 import maps
+import option
 import slices
 import strings
 import testing
@@ -29,16 +30,16 @@ func kvStoryStep(s Map[string, string], a kvConcAct) (Map[string, string], kvRes
 		(s.Put(p.Key, p.Value), KVOk)
 	case KVGet as g:
 		match s.Get(g.Key) {
-		case Some[string] as v:
+		case option.Some[string] as v:
 			(s, KVFound{Value: v.Value})
-		case None:
+		case option.None:
 			(s, KVMissing{Key: g.Key})
 		}
 	case KVDelete as d:
 		match s.Get(d.Key) {
-		case Some[string]:
+		case option.Some[string]:
 			(s.Delete(d.Key), KVOk)
-		case None:
+		case option.None:
 			(s, KVMissing{Key: d.Key})
 		}
 	case KVKeys:

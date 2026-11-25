@@ -2,6 +2,7 @@ import lease-sync/domain
 import lease-sync/lease
 import lease-sync/replica
 import lease-sync/replica/server
+import option
 import rpc
 import schedule
 import strings
@@ -27,12 +28,12 @@ func told(a replica.Authority[lease.Pool, lease.Cmd, lease.Event, lease.Refusal]
 	"kept \(r.ID) at \(r.Stream) \(r.Position)"
 }
 
-func read(a replica.Authority[lease.Pool, lease.Cmd, lease.Event, lease.Refusal], by replica.ClientID, from int) Option[Frame] {
+func read(a replica.Authority[lease.Pool, lease.Cmd, lease.Event, lease.Refusal], by replica.ClientID, from int) option.Option[Frame] {
 	let f = a.Pull(by, from) catch {
 	case replica.Unavailable, replica.Unauthorized:
-		return None
+		return option.None
 	}
-	Some[Frame]{Value: f}
+	option.Some[Frame]{Value: f}
 }
 
 // loopback is a fresh lease authority served through std rpc on the
@@ -43,7 +44,7 @@ func loopback(allow own func(by replica.ClientID) bool, c testing.VirtualClock) 
 	let a = server.Start[lease.Pool, lease.Cmd, lease.Event, lease.Refusal, lease.Refusal](source, server.Facts, 8)
 	let serve = Serve(a, allow, 30s)
 	Over(rpc.Loopback(func(tag string, payload string) string fails rpc.Failed {
-		with context { Scheduler: c, time.Clock: c } {
+		with context { time.Scheduler: c, time.Clock: c } {
 			try serve(tag, payload)
 		}
 	}), true)
@@ -59,37 +60,37 @@ test LongPollHolds {
 	let c = testing.NewVirtualClock(0)
 	let l = loopback(everyone, c)
 	let start = c.Now()
-	assert read(l, replica.ClientID("a"), 0) == Some[Frame]{Value: nothing}
+	assert read(l, replica.ClientID("a"), 0) == option.Some[Frame]{Value: nothing}
 	assert c.Now().Sub(start) == 30s
 	let held = c.Now()
-	let got = tasks.Transform([]int{0, 1}, 2, func(i int) Option[Frame] {
+	let got = tasks.Transform([]int{0, 1}, 2, func(i int) option.Option[Frame] {
 		if i == 1 {
-			with context { Scheduler: c } {
-				Scheduler.Sleep(5s)
+			with context { time.Scheduler: c } {
+				time.Scheduler.Sleep(5s)
 			}
 			let answer = told(l, domain.Envelope[lease.Cmd]{ID: replica.IDOf(replica.ClientID("a"), 1), By: "a", At: at, Command: lease.Take{Name: "build"}})
 			if strings.HasPrefix(answer, "kept") {
-				return None
+				return option.None
 			}
-			return Some[Frame]{Value: nothing}
+			return option.Some[Frame]{Value: nothing}
 		}
 		read(l, replica.ClientID("b"), 0)
 	})
 	assert c.Now().Sub(held) == 5s
-	assert got[1] == None
+	assert got[1] == option.None
 	match got[0] {
-	case Some[Frame] as f:
+	case option.Some[Frame] as f:
 		match f.Value {
 		case replica.Delta[lease.Event, lease.Refusal] as d:
-			assert len(d.Records) == 1
+			assert d.Records.Len() == 1
 		case replica.Snapshot[lease.Pool, lease.Refusal]:
 			assert false
 		}
-	case None:
+	case option.None:
 		assert false
 	}
 	let before = c.Now()
-	assert read(l, replica.ClientID("a"), 0) != Some[Frame]{Value: nothing}
+	assert read(l, replica.ClientID("a"), 0) != option.Some[Frame]{Value: nothing}
 	assert c.Now() == before
 }
 
@@ -101,13 +102,13 @@ test IdleCostsOneCallPerWait {
 	let l = loopback(everyone, c)
 	let start = c.Now()
 	let mut calls = 0
-	with context { Scheduler: c, time.Clock: c } {
-		replica.Follow(l, replica.ClientID("a"), 0, schedule.Recurs(0), func(sig replica.Signal[lease.Pool, lease.Cmd, lease.Event, lease.Refusal]) Option[int] {
+	with context { time.Scheduler: c, time.Clock: c } {
+		replica.Follow(l, replica.ClientID("a"), 0, schedule.Recurs(0), func(sig replica.Signal[lease.Pool, lease.Cmd, lease.Event, lease.Refusal]) option.Option[int] {
 			calls = calls + 1
 			if calls == 4 {
-				return None
+				return option.None
 			}
-			Some[int]{Value: 0}
+			option.Some[int]{Value: 0}
 		})
 	}
 	assert calls == 4
@@ -123,7 +124,7 @@ test RefusedClientNeedsSignIn {
 	let retry = schedule.Recurs(2)
 	let b = []domain.Envelope[lease.Cmd]{domain.Envelope[lease.Cmd]{ID: replica.IDOf(replica.ClientID("b"), 1), By: "b", At: at, Command: lease.Take{Name: "x"}}}
 	let a = []domain.Envelope[lease.Cmd]{domain.Envelope[lease.Cmd]{ID: replica.IDOf(replica.ClientID("a"), 1), By: "a", At: at, Command: lease.Take{Name: "x"}}}
-	with context { Scheduler: c, time.Clock: c } {
+	with context { time.Scheduler: c, time.Clock: c } {
 		assert replica.Send(l, b, retry) == replica.NeedsAuth
 		assert replica.Send(l, a, retry) == replica.Live
 		match replica.Fetch(l, replica.ClientID("b"), 0, retry) {

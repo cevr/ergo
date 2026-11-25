@@ -1,6 +1,7 @@
 // Package cli reads a plan from flags, for a run with no person to ask.
 
 import flag
+import option
 import starter/plan
 
 let name = flag.OptionalString("name", "the project's name").WithAlias("n")
@@ -15,9 +16,9 @@ func Set() flag.Set {
 
 // FromFlags is the plan the flags give, or None when they give no name:
 // then a person is asked.
-func FromFlags(v flag.Values) Option[plan.Plan] {
+func FromFlags(v flag.Values) option.Option[plan.Plan] {
 	match name.Get(v) {
-	case Some[string] as n:
+	case option.Some[string] as n:
 		let mut chosen = []plan.Feature{}
 		for f in features.Get(v) {
 			for each in plan.Features {
@@ -32,8 +33,8 @@ func FromFlags(v flag.Values) Option[plan.Plan] {
 				l = each
 			}
 		}
-		Some[plan.Plan]{Value: plan.Plan{Name: n.Value, License: l, Features: chosen, Git: git.Get(v)}}
-	case None:
-		None
+		option.Some[plan.Plan]{Value: plan.Plan{Name: n.Value, License: l, Features: chosen, Git: git.Get(v)}}
+	case option.None:
+		option.None
 	}
 }

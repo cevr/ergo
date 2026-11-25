@@ -5,6 +5,7 @@
 // rune is one column here: std has no display width yet (gap 8).
 
 import gent/agent
+import option
 import slices
 import strings
 import term
@@ -41,8 +42,8 @@ func Frame(v View, w term.Window) []string {
 	}
 	let body = Shown(v, cols)
 	let room = w.Rows - 2
-	let from = Top(v, len(body), room)
-	let to = if from+room < len(body) { from + room } else { len(body) }
+	let from = Top(v, body.Len(), room)
+	let to = if from+room < body.Len() { from + room } else { body.Len() }
 	let mut out = []string{}
 	for i in 0..(room - (to - from)) {
 		let _ = i
@@ -70,7 +71,7 @@ func Top(v View, n int, room int) int {
 func Paged(v View, up bool, w term.Window) View {
 	let cols = if w.Cols < 0 { 0 } else { w.Cols }
 	let room = if w.Rows > 2 { w.Rows - 2 } else { 1 }
-	let n = len(Shown(v, cols))
+	let n = Shown(v, cols).Len()
 	let last = if n > room { n - room } else { 0 }
 	let from = Top(v, n, room)
 	let to = if up { from - room } else { from + room }
@@ -98,16 +99,16 @@ func Wrap(text string, cols int) []string {
 	let mut rest = text
 	for utf8.RuneCount(rest) > cols {
 		let head = Clip(rest, cols)
-		let after = strings.Slice(rest, len(head), len(rest))
+		let after = strings.Slice(rest, head.Len(), rest.Len())
 		if strings.HasPrefix(after, " ") {
 			out = out.Append(head)
-			rest = strings.Slice(after, 1, len(after))
+			rest = strings.Slice(after, 1, after.Len())
 			continue
 		}
 		let space = strings.LastIndex(head, " ")
 		if space > 0 {
 			out = out.Append(strings.Slice(head, 0, space))
-			rest = strings.Slice(rest, space+1, len(rest))
+			rest = strings.Slice(rest, space+1, rest.Len())
 			continue
 		}
 		out = out.Append(head)
@@ -204,20 +205,20 @@ func Transcript(log []agent.Row, detail bool) []string {
 	for r in log {
 		match r {
 		case agent.Reply as rep:
-			if rep.Text != "" || len(rep.Calls) == 0 {
+			if rep.Text != "" || rep.Calls.Len() == 0 {
 				out = out.Concat(Lines(agent.Reply{..rep, Calls: []agent.Call{}}))
 			}
 			for c in rep.Calls {
 				match results.Get(c.Id) {
-				case Some[agent.Result] as hit:
+				case option.Some[agent.Result] as hit:
 					folded[c.Id] = true
 					out = out.Append(Folded(c, hit.Value))
-				case None:
+				case option.None:
 					out = out.Concat(marked("→ ", c.Name+" "+c.Arguments))
 				}
 			}
 		case agent.Result as res:
-			if folded.Get(res.Id) == None {
+			if folded.Get(res.Id) == option.None {
 				out = out.Concat(Lines(r))
 			}
 		case agent.User, agent.Cut, agent.Failed, agent.Note:
@@ -229,7 +230,7 @@ func Transcript(log []agent.Row, detail bool) []string {
 
 // Folded is the one line of call c with its result res.
 func Folded(c agent.Call, res agent.Result) string {
-	let n = len(strings.Split(strings.TrimSuffix(res.Text, "\n"), "\n"))
+	let n = strings.Split(strings.TrimSuffix(res.Text, "\n"), "\n").Len()
 	Printable("→ " + c.Name + " " + c.Arguments + " · " + (if res.Ok { "ok" } else { "failed" }) + " · \(n) lines")
 }
 
@@ -240,7 +241,7 @@ func Lines(r agent.Row) []string {
 	case agent.User as u:
 		marked("> ", u.Text)
 	case agent.Reply as rep:
-		let mut out = if rep.Text == "" && len(rep.Calls) > 0 { []string{} } else { marked("< ", rep.Text) }
+		let mut out = if rep.Text == "" && rep.Calls.Len() > 0 { []string{} } else { marked("< ", rep.Text) }
 		for c in rep.Calls {
 			out = out.Concat(marked("→ ", c.Name+" "+c.Arguments))
 		}
@@ -304,7 +305,7 @@ func window(rows int, cols int) term.Window { term.Window{Cols: ((cols % 101) + 
 law FrameFitsWindow(v View, rows int, cols int) {
 	let w = window(rows, cols)
 	let lines = Frame(v, w)
-	if len(lines) != w.Rows {
+	if lines.Len() != w.Rows {
 		return false
 	}
 	for line in lines {
@@ -321,11 +322,11 @@ law TailIsVisible(v View, rows int, cols int) {
 	let w = window(rows, cols)
 	let stuck = View{..v, Scroll: Stuck()}
 	let body = Shown(stuck, w.Cols)
-	if w.Rows < 3 || len(body) == 0 {
+	if w.Rows < 3 || body.Len() == 0 {
 		return true
 	}
 	let lines = Frame(stuck, w)
-	lines[w.Rows-3] == Clip(body[len(body)-1], w.Cols)
+	lines[w.Rows-3] == Clip(body[body.Len()-1], w.Cols)
 }
 
 // StuckToEndFollows: a view stuck to the end shows a row added to the
@@ -335,10 +336,10 @@ law StuckToEndFollows(v View, r agent.Row, rows int, cols int) {
 	let s = agent.State{..v.State, Log: v.State.Log.Append(r), Phase: agent.Idle}
 	let after = View{..v, State: s, Scroll: Stuck()}
 	let body = Shown(after, w.Cols)
-	if w.Rows < 3 || len(body) == 0 {
+	if w.Rows < 3 || body.Len() == 0 {
 		return true
 	}
-	Frame(after, w)[w.Rows-3] == Clip(body[len(body)-1], w.Cols)
+	Frame(after, w)[w.Rows-3] == Clip(body[body.Len()-1], w.Cols)
 }
 
 // ScrolledUpStays: a view scrolled up to a line of its body shows the
@@ -352,7 +353,7 @@ law ScrolledUpStays(v View, r agent.Row, top int, rows int, cols int) {
 	let idle = agent.State{..v.State, Phase: agent.Idle}
 	let room = w.Rows - 2
 	let scrolled = View{..v, State: idle, Scroll: Scroll{Top: top, Stuck: false}}
-	let n = len(Shown(scrolled, w.Cols))
+	let n = Shown(scrolled, w.Cols).Len()
 	let before = View{..scrolled, Scroll: Scroll{Top: Top(scrolled, n, room), Stuck: false}}
 	let after = View{..before, State: agent.State{..idle, Log: idle.Log.Append(r)}}
 	// The rows above the status line, when the old body filled them.
@@ -367,7 +368,7 @@ law ScrollStaysInRange(v View, ups []bool, rows int, cols int) {
 	for up in ups {
 		at = Paged(at, up, w)
 		let room = if w.Rows > 2 { w.Rows - 2 } else { 1 }
-		let n = len(Shown(at, w.Cols))
+		let n = Shown(at, w.Cols).Len()
 		let last = if n > room { n - room } else { 0 }
 		if at.Scroll.Top < 0 || at.Scroll.Top > last {
 			return false
@@ -395,7 +396,7 @@ law KindsLookDifferent(a agent.Row, b agent.Row) {
 	if kind(a) == kind(b) {
 		return true
 	}
-	strings.Slice(Lines(a)[0], 0, len(marker(a))) != marker(b)
+	strings.Slice(Lines(a)[0], 0, marker(a).Len()) != marker(b)
 }
 
 // kind is the kind of r as it shows: each variant, a result as fine or
@@ -405,7 +406,7 @@ func kind(r agent.Row) int {
 	case agent.User:
 		0
 	case agent.Reply as rep:
-		if rep.Text == "" && len(rep.Calls) > 0 { 1 } else { 2 }
+		if rep.Text == "" && rep.Calls.Len() > 0 { 1 } else { 2 }
 	case agent.Cut:
 		3
 	case agent.Failed:
@@ -439,7 +440,7 @@ type Write { Row int, Text string }
 func Changes(a []string, b []string) []Write {
 	let mut out = []Write{}
 	for i, line in b {
-		if len(a) != len(b) || a[i] != line {
+		if a.Len() != b.Len() || a[i] != line {
 			out = out.Append(Write{Row: i, Text: line})
 		}
 	}
@@ -450,7 +451,7 @@ func Changes(a []string, b []string) []Write {
 func Apply(a []string, n int, ws []Write) []string {
 	let mut out = []string{}
 	for i in 0..n {
-		out = out.Append(if i < len(a) { a[i] } else { "" })
+		out = out.Append(if i < a.Len() { a[i] } else { "" })
 	}
 	for w in ws {
 		if w.Row >= 0 && w.Row < n {
@@ -464,8 +465,8 @@ func Apply(a []string, n int, ws []Write) []string {
 // to a, give b; also from a frame of b's height (a cut or padded to it),
 // where only the changed lines are written.
 law ChangedLinesRedrawTheFrame(a []string, b []string) {
-	let same = Apply(a, len(b), []Write{})
-	slices.Equal(Apply(a, len(b), Changes(a, b)), b) && slices.Equal(Apply(same, len(b), Changes(same, b)), b)
+	let same = Apply(a, b.Len(), []Write{})
+	slices.Equal(Apply(a, b.Len(), Changes(a, b)), b) && slices.Equal(Apply(same, b.Len(), Changes(same, b)), b)
 }
 
 // PaintChanges is the bytes of ws: each row moved to and written, cleared

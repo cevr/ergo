@@ -4,6 +4,7 @@
 // frame the view's Animate sends the app a Next.
 
 import actor
+import core
 import ergo.local/prototype/examples/dashgui/feed
 import ergo.local/prototype/examples/dashgui/screen
 import io
@@ -28,7 +29,7 @@ let Period = duration(int64(8333333))
 // The panels' notes are written as the frames that make them pass, as the
 // headless driver writes them. A tap of a label that is on no node writes
 // `? no node LABEL`.
-func Scene(lines Seq[string], frames int, clock time.Manual) fails ui.BadPatch | actor.Stopped needs feed.Sensors | Scheduler | io.Stdout {
+func Scene(lines core.Seq[string], frames int, clock time.Manual) fails ui.BadPatch | actor.Stopped needs feed.Sensors | time.Scheduler | io.Stdout {
 	let notes = sync.NewRef[[]feed.Notice]([]feed.Notice{})
 	let a = actor.StartMachine(machines.Start(screen.App{}, feed.NewBoard()), 8, func(o []feed.Notice) {
 		notes.Update(func(old []feed.Notice) []feed.Notice {
@@ -49,7 +50,7 @@ func Scene(lines Seq[string], frames int, clock time.Manual) fails ui.BadPatch |
 		let words = strings.Split(line, " ")
 		match words[0] {
 		case "frames":
-			let n = strconv.Atoi(if len(words) == 2 { words[1] } else { "" }) catch {
+			let n = strconv.Atoi(if words.Len() == 2 { words[1] } else { "" }) catch {
 			case strconv.Malformed, strconv.OutOfRange:
 				io.Stdout.Println("? \"" + line + "\": want frames N")
 				continue
@@ -91,7 +92,7 @@ func Scene(lines Seq[string], frames int, clock time.Manual) fails ui.BadPatch |
 }
 
 // advance moves h's clock n frames, writing each frame's notes.
-func advance(h mut ui.TestHost[screen.Dash, screen.Signal, Decision[screen.Dash, []feed.Notice], queue.Closed], n int, notes sync.Ref[[]feed.Notice]) fails ui.BadPatch | actor.Stopped needs io.Stdout {
+func advance(h mut ui.TestHost[screen.Dash, screen.Signal, machines.Decision[screen.Dash, []feed.Notice], queue.Closed], n int, notes sync.Ref[[]feed.Notice]) fails ui.BadPatch | actor.Stopped needs io.Stdout {
 	for _ in 0..n {
 		try ui.Advance(h, Period)
 		for x in notes.Get() {

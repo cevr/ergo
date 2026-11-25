@@ -2,156 +2,304 @@
   "about": "module infra's mutants: the six of the design model models/infra, planted in the code, and the driver of d02; each is judged by the module's tests and laws (scripts/examples -modules infra). The law that kills each is named in its rule.",
   "mutants": [
     {
-      "name": "nou-status-admits-unknown", "origin": "wf10 NOU-DOMAIN-BOUNDARIES",
+      "name": "nou-status-admits-unknown",
+      "origin": "wf10 NOU-DOMAIN-BOUNDARIES",
       "file": "modules/infra/cli.ergo",
       "from": "type CommandStatus int where 0 <= it && it <= 3",
       "to": "type CommandStatus int where 0 <= it && it <= 4",
       "rule": "A raw code outside 0..3 is not an infra command result; CommandStatusKeepsNumber rejects it.",
-      "killers": ["modules/infra:law:CommandStatusKeepsNumber"], "gap": "not-run-crunch"
+      "killers": [
+        "modules/infra:law:CommandStatusKeepsNumber"
+      ],
+      "gap": "not-run-crunch"
     },
     {
-      "name": "ia1-no-write-ahead", "origin": "wf10/domain IA1 (models/infra NoWriteAhead)",
+      "name": "ia1-no-write-ahead",
+      "origin": "wf10/domain IA1 (models/infra NoWriteAhead)",
       "file": "modules/infra/engine.ergo",
       "from": "\ttry e.State.Put(Row[P]{ID: id, Status: Creating, Props: p, Seq: seq})\n",
       "to": "",
       "rule": "The row is written before the driver's Apply, so a crash after the call leaves no orphan: memory's ApplyConverges (NoOrphan).",
-      "anchor": {"tests": ["examples:modules/infra"]}, "killers": ["examples:modules/infra"]
+      "anchor": {
+        "tests": [
+          "examples:modules/infra"
+        ]
+      },
+      "killers": [
+        "examples:modules/infra"
+      ]
     },
     {
-      "name": "ia1-no-lock", "origin": "wf10/domain IA1 (models/infra NoLock)",
+      "name": "ia1-no-lock",
+      "origin": "wf10/domain IA1 (models/infra NoLock)",
       "file": "modules/infra/memory/state.ergo",
       "from": "\t\t\tif other.Value != holder {\n",
       "to": "\t\t\tif false && other.Value != holder {\n",
       "rule": "A run cannot start while another holds the lock: Lock.LockExcludes, and ApplyConverges (the second runner meets the crashed one's lock).",
-      "anchor": {"tests": ["examples:modules/infra"]}, "killers": ["examples:modules/infra"]
+      "anchor": {
+        "tests": [
+          "examples:modules/infra"
+        ]
+      },
+      "killers": [
+        "examples:modules/infra"
+      ]
     },
     {
-      "name": "ia1-live-early", "origin": "wf10/domain IA1 (models/infra LiveEarly)",
+      "name": "ia1-live-early",
+      "origin": "wf10/domain IA1 (models/infra LiveEarly)",
       "file": "modules/infra/engine.ergo",
       "from": "\ttry e.State.Put(Row[P]{ID: id, Status: Creating, Props: p, Seq: seq})\n",
       "to": "\ttry e.State.Put(Row[P]{ID: id, Status: Live, Props: p, Seq: seq})\n",
       "rule": "The row says live only after the driver's Apply: ApplyConverges (LiveIsTrue).",
-      "anchor": {"tests": ["examples:modules/infra"]}, "killers": ["examples:modules/infra"]
+      "anchor": {
+        "tests": [
+          "examples:modules/infra"
+        ]
+      },
+      "killers": [
+        "examples:modules/infra"
+      ]
     },
     {
-      "name": "ia1-no-resume", "origin": "wf10/domain IA1 (models/infra NoResume)",
+      "name": "ia1-no-resume",
+      "origin": "wf10/domain IA1 (models/infra NoResume)",
       "file": "modules/infra/engine.ergo",
-      "from": "\t\tcase Creating, Deleting:\n\t\t\tSome[Change]{Value: Resume}\n",
-      "to": "\t\tcase Creating, Deleting:\n\t\t\tNone\n",
+      "from": "\t\tcase Creating, Deleting:\n\t\t\toption.Some[Change]{Value: Resume}\n",
+      "to": "\t\tcase Creating, Deleting:\n\t\t\toption.None\n",
       "rule": "A row a crashed run left creating or deleting is work to do again: ApplyConverges (Converged).",
-      "anchor": {"tests": ["examples:modules/infra"]}, "killers": ["examples:modules/infra"]
+      "anchor": {
+        "tests": [
+          "examples:modules/infra"
+        ]
+      },
+      "killers": [
+        "examples:modules/infra"
+      ]
     },
     {
-      "name": "ia1-no-sweep", "origin": "wf10/domain IA1 (models/infra NoSweep)",
+      "name": "ia1-no-sweep",
+      "origin": "wf10/domain IA1 (models/infra NoSweep)",
       "file": "modules/infra/engine.ergo",
       "from": "\tfor o in left {\n",
       "to": "\tfor o in []Owned{} {\n",
       "rule": "An object the stack no longer wants is deleted, and its row with it: ApplyConverges (Converged).",
-      "anchor": {"tests": ["examples:modules/infra"]}, "killers": ["examples:modules/infra"]
+      "anchor": {
+        "tests": [
+          "examples:modules/infra"
+        ]
+      },
+      "killers": [
+        "examples:modules/infra"
+      ]
     },
     {
-      "name": "ia1-break-live", "origin": "wf10/domain IA1 (models/infra BreakLive)",
+      "name": "ia1-break-live",
+      "origin": "wf10/domain IA1 (models/infra BreakLive)",
       "file": "modules/infra/memory/state.ergo",
-      "from": "\t\tif h == (Some[string]{Value: holder}) {\n\t\t\treturn (None, None)\n\t\t}\n",
-      "to": "\t\tif true {\n\t\t\treturn (None, None)\n\t\t}\n",
+      "from": "\t\tif h == (option.Some[string]{Value: holder}) {\n\t\t\treturn (option.None, option.None)\n\t\t}\n",
+      "to": "\t\tif true {\n\t\t\treturn (option.None, option.None)\n\t\t}\n",
       "rule": "An operator breaks only the lock of the holder named (a dead one), never a running holder's: Lock.BreakNamesTheHolder.",
-      "anchor": {"tests": ["examples:modules/infra"]}, "killers": ["examples:modules/infra"]
+      "anchor": {
+        "tests": [
+          "examples:modules/infra"
+        ]
+      },
+      "killers": [
+        "examples:modules/infra"
+      ]
     },
     {
-      "name": "ia1-read-gives-none", "origin": "wf10/domain IA1 (probe d02)",
+      "name": "ia1-read-gives-none",
+      "origin": "wf10/domain IA1 (probe d02)",
       "file": "modules/infra/memory/cloud.ergo",
-      "from": "func Read(d Dirs, id string) Option[Dir] fails infra.Failed { d.cloud.dirs.Get().Get(id) }\n",
-      "to": "func Read(d Dirs, id string) Option[Dir] fails infra.Failed { None }\n",
+      "from": "func Read(d Dirs, id string) option.Option[Dir] fails infra.Failed { d.cloud.dirs.Get().Get(id) }\n",
+      "to": "func Read(d Dirs, id string) option.Option[Dir] fails infra.Failed { option.None }\n",
       "rule": "After an Apply, Read gives the object: Driver.ReadAfterApply.",
-      "anchor": {"tests": ["examples:modules/infra"]}, "killers": ["examples:modules/infra"]
+      "anchor": {
+        "tests": [
+          "examples:modules/infra"
+        ]
+      },
+      "killers": [
+        "examples:modules/infra"
+      ]
     },
     {
-      "name": "ia1-destroy-oldest-first", "origin": "wf10/domain IA1",
+      "name": "ia1-destroy-oldest-first",
+      "origin": "wf10/domain IA1",
       "file": "modules/infra/engine.ergo",
       "from": "\t\tif !placed && o.Row.Seq > x.Row.Seq {\n",
       "to": "\t\tif !placed && o.Row.Seq < x.Row.Seq {\n",
       "rule": "The sweep and a destroy delete the newest object first: DestroyIsNewestFirst.",
-      "anchor": {"tests": ["examples:modules/infra"]}, "killers": ["examples:modules/infra"]
+      "anchor": {
+        "tests": [
+          "examples:modules/infra"
+        ]
+      },
+      "killers": [
+        "examples:modules/infra"
+      ]
     },
     {
-      "name": "ia1-plan-calls-host", "origin": "wf10/domain IA1",
+      "name": "ia1-plan-calls-host",
+      "origin": "wf10/domain IA1",
       "file": "modules/infra/engine.ergo",
       "from": "\tcase Planning:\n\t\treturn e.Driver.Attrs(id, p)\n\tcase Applying:\n\t}\n",
       "to": "\tcase Planning:\n\t\treturn try e.Driver.Apply(id, p)\n\tcase Applying:\n\t}\n",
       "rule": "A plan calls no host: ApplyConverges arms the fuse at the next call before each plan and finds it armed after.",
-      "anchor": {"tests": ["examples:modules/infra"]}, "killers": ["examples:modules/infra"]
+      "anchor": {
+        "tests": [
+          "examples:modules/infra"
+        ]
+      },
+      "killers": [
+        "examples:modules/infra"
+      ]
     },
     {
-      "name": "ia4-outputs-before-the-end", "origin": "wf10/domain IA4",
+      "name": "ia4-outputs-before-the-end",
+      "origin": "wf10/domain IA4",
       "file": "modules/infra/outputs.ergo",
       "from": "\ttry Finish(pass, lock, holder, engines)\n\tmatch pass.mode {\n\tcase Applying:\n\t\ttry WriteOutputs(writes, path, o)\n\tcase Planning, Refreshing:\n\t}\n",
       "to": "\tmatch pass.mode {\n\tcase Applying:\n\t\ttry WriteOutputs(writes, path, o)\n\tcase Planning, Refreshing:\n\t}\n\ttry Finish(pass, lock, holder, engines)\n",
       "rule": "An apply writes its outputs only once it ended (after the sweep): memory's OutputsAfterTheApply.",
-      "anchor": {"tests": ["examples:modules/infra"]}, "killers": ["examples:modules/infra"]
+      "anchor": {
+        "tests": [
+          "examples:modules/infra"
+        ]
+      },
+      "killers": [
+        "examples:modules/infra"
+      ]
     },
     {
-      "name": "ia4-outputs-read-as-toml", "origin": "wf10/domain IA4",
+      "name": "ia4-outputs-read-as-toml",
+      "origin": "wf10/domain IA4",
       "file": "modules/infra/outputs.ergo",
       "from": "Format: config.JSON}",
       "to": "Format: config.TOML}",
       "rule": "std config reads the outputs in the format WriteOutputs writes: memory's OutputsRoundTrip.",
-      "anchor": {"tests": ["examples:modules/infra"]}, "killers": ["examples:modules/infra"]
+      "anchor": {
+        "tests": [
+          "examples:modules/infra"
+        ]
+      },
+      "killers": [
+        "examples:modules/infra"
+      ]
     },
     {
-      "name": "ia3-apply-without-yes", "origin": "wf10/domain IA3",
+      "name": "ia3-apply-without-yes",
+      "origin": "wf10/domain IA3",
       "file": "modules/infra/cli.ergo",
       "from": "\t\tif !a.Yes {\n",
       "to": "\t\tif false && !a.Yes {\n",
       "rule": "apply refuses without -yes and changes nothing: memory's CommandLineSession.",
-      "anchor": {"tests": ["examples:modules/infra"]}, "killers": ["examples:modules/infra"]
+      "anchor": {
+        "tests": [
+          "examples:modules/infra"
+        ]
+      },
+      "killers": [
+        "examples:modules/infra"
+      ]
     },
     {
-      "name": "ia3-drift-as-noop", "origin": "wf10/domain IA3",
+      "name": "ia3-drift-as-noop",
+      "origin": "wf10/domain IA3",
       "file": "modules/infra/engine.ergo",
       "from": "\t\t\tnote(e.Pass, Step{Kind: e.Kind, ID: id, Change: Drifted})\n",
       "to": "",
       "rule": "plan -refresh lists a drifted object as Drifted, not as no change: memory's RefreshFindsDrift.",
-      "anchor": {"tests": ["examples:modules/infra"]}, "killers": ["examples:modules/infra"]
+      "anchor": {
+        "tests": [
+          "examples:modules/infra"
+        ]
+      },
+      "killers": [
+        "examples:modules/infra"
+      ]
     },
     {
-      "name": "ia3-plain-plan-reads", "origin": "wf10/domain IA3",
+      "name": "ia3-plain-plan-reads",
+      "origin": "wf10/domain IA3",
       "file": "modules/infra/engine.ergo",
       "from": "\t\tcase Refreshing:\n\t\t\ttry refresh(e, id, p)\n\t\tcase Planning, Applying:\n",
       "to": "\t\tcase Refreshing, Planning:\n\t\t\ttry refresh(e, id, p)\n\t\tcase Applying:\n",
       "rule": "a plan without -refresh reads only the rows and reports no drift: memory's RefreshFindsDrift.",
-      "anchor": {"tests": ["examples:modules/infra"]}, "killers": ["examples:modules/infra"]
+      "anchor": {
+        "tests": [
+          "examples:modules/infra"
+        ]
+      },
+      "killers": [
+        "examples:modules/infra"
+      ]
     },
     {
-      "name": "ia3-held-exits-1", "origin": "wf10/domain IA3",
+      "name": "ia3-held-exits-1",
+      "origin": "wf10/domain IA3",
       "file": "modules/infra/cli.ergo",
       "from": "\", 3)\n}",
       "to": "\", 1)\n}",
       "rule": "a lock another holds is exit status 3, apart from a failed run's 1: memory's CommandLineSession.",
-      "anchor": {"tests": ["examples:modules/infra"]}, "killers": ["examples:modules/infra"]
+      "anchor": {
+        "tests": [
+          "examples:modules/infra"
+        ]
+      },
+      "killers": [
+        "examples:modules/infra"
+      ]
     },
     {
-      "name": "ia3-plan-text-count", "origin": "wf10/domain IA3",
+      "name": "ia3-plan-text-count",
+      "origin": "wf10/domain IA3",
       "file": "modules/infra/cli.ergo",
       "from": "\t\t\"\\(n) changes\"\n",
       "to": "\t\t\"\\(n) change(s)\"\n",
       "rule": "the plan's text ends with its count of changes: memory's CommandLineSession.",
-      "anchor": {"tests": ["examples:modules/infra"]}, "killers": ["examples:modules/infra"]
+      "anchor": {
+        "tests": [
+          "examples:modules/infra"
+        ]
+      },
+      "killers": [
+        "examples:modules/infra"
+      ]
     },
     {
-      "name": "px7-destroy-keeps-outputs", "origin": "wf10/domain PX7",
+      "name": "px7-destroy-keeps-outputs",
+      "origin": "wf10/domain PX7",
       "file": "modules/infra/cli.ergo",
       "from": "\t\td.Writes.Remove(path) catch {",
       "to": "\t\td.Writes.Remove(path + \".kept\") catch {",
       "rule": "A destroy removes the stage's outputs: memory's CommandLineSession (readBack after destroy -yes).",
-      "anchor": {"tests": ["examples:modules/infra"]}, "killers": ["examples:modules/infra"]
+      "anchor": {
+        "tests": [
+          "examples:modules/infra"
+        ]
+      },
+      "killers": [
+        "examples:modules/infra"
+      ]
     },
     {
-      "name": "px7-plan-twice", "origin": "wf10/domain PX7",
+      "name": "px7-plan-twice",
+      "origin": "wf10/domain PX7",
       "file": "modules/infra/engine.ergo",
       "from": "\t\tif again {\n",
       "to": "\t\tif false && again {\n",
       "rule": "A plan records an object ensured twice with the same props once: memory.PlanCountsEachObjectOnce.",
-      "anchor": {"tests": ["examples:modules/infra"]}, "killers": ["examples:modules/infra"]
+      "anchor": {
+        "tests": [
+          "examples:modules/infra"
+        ]
+      },
+      "killers": [
+        "examples:modules/infra"
+      ]
     }
   ]
 }

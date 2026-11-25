@@ -7,6 +7,8 @@
 // router's state (no postpone). The step is pure, so a journal of its
 // signals replays it.
 
+import option
+
 // Route sends the messages of Topic to the destination Dest.
 type Route { Topic string, Dest string }
 
@@ -106,20 +108,20 @@ func Unrouted(t Table, topic string) Table {
 }
 
 // DestOf is the destination of topic in t, if it has a route.
-func DestOf(t Table, topic string) Option[string] {
+func DestOf(t Table, topic string) option.Option[string] {
 	for r in t.Routes {
 		if r.Topic == topic {
-			return Some[string]{Value: r.Dest}
+			return option.Some[string]{Value: r.Dest}
 		}
 	}
-	None
+	option.None
 }
 
 // CheckRoutesOne is the law CheckRoutesOne of the Registry in the
 // context, as a function, which the providers' tests also call.
 func CheckRoutesOne(topic int, dest int) bool needs Registry {
-	let t = Topics[pick(topic, len(Topics))]
-	let d = Dests[pick(dest, len(Dests))]
+	let t = Topics[pick(topic, Topics.Len())]
+	let d = Dests[pick(dest, Dests.Len())]
 	let after = Registry.Check(Sample, Add{Topic: t, Dest: d}) catch {
 	case Unknown:
 		return true
@@ -129,7 +131,7 @@ func CheckRoutesOne(topic int, dest int) bool needs Registry {
 
 // CheckRemovesOne is the law CheckRemovesOne as a function.
 func CheckRemovesOne(topic int) bool needs Registry {
-	let t = Topics[pick(topic, len(Topics))]
+	let t = Topics[pick(topic, Topics.Len())]
 	let after = Registry.Check(Sample, Remove{Topic: t}) catch {
 	case Unknown:
 		return true
@@ -139,7 +141,7 @@ func CheckRemovesOne(topic int) bool needs Registry {
 
 // SameTable is whether a and b have the same routes, in order.
 func SameTable(a Table, b Table) bool {
-	if len(a.Routes) != len(b.Routes) {
+	if a.Routes.Len() != b.Routes.Len() {
 		return false
 	}
 	for i, r in a.Routes {

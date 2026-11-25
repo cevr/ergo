@@ -4,6 +4,7 @@
 // counter.Step on that row alone. A pure child needs no actor; it is
 // function composition.
 
+import core
 import counterlist/counter
 import machines
 import slices
@@ -19,7 +20,7 @@ law RowSignalTouchesOnlyItsRow(words []int, keys []int, key int, inc bool) {
 	let k = pick(key, 8)
 	for r in reached(words, keys) {
 		let n = machines.Next(r, Step(r, At{Key: k, Sig: sig}))
-		if len(n.Items) != len(r.Items) || n.Next != r.Next {
+		if n.Items.Len() != r.Items.Len() || n.Next != r.Next {
 			return false
 		}
 		for i, x in r.Items {
@@ -53,7 +54,7 @@ func reached(words []int, keys []int) []Rows {
 	let mut r = Initial()
 	let mut out = []Rows{r}
 	for i, w in words {
-		let k = if i < len(keys) { keys[i] } else { i }
+		let k = if i < keys.Len() { keys[i] } else { i }
 		r = machines.Next(r, Step(r, signalOf(w, k)))
 		out = out.Append(r)
 	}
@@ -118,18 +119,18 @@ func fresh(key int) Row { Row{Key: key, Counter: counter.Initial()} }
 // Remove drops the row with the key; At steps that row's counter and
 // leaves every other row as it was. A Remove or an At for a key with no
 // row changes nothing.
-func Step(r Rows, s Signal) Decision[Rows, Never] {
+func Step(r Rows, s Signal) machines.Decision[Rows, core.Never] {
 	match s {
 	case Add:
-		Stay[Rows]{Next: Rows{Items: r.Items.Append(fresh(r.Next)), Next: r.Next + 1}}
+		machines.Stay[Rows]{Next: Rows{Items: r.Items.Append(fresh(r.Next)), Next: r.Next + 1}}
 	case Remove as rm:
 		if !has(r, rm.Key) {
-			return Ignore
+			return machines.Ignore
 		}
-		Stay[Rows]{Next: Rows{Items: slices.Filter(r.Items, func(x Row) bool { x.Key != rm.Key }), Next: r.Next}}
+		machines.Stay[Rows]{Next: Rows{Items: slices.Filter(r.Items, func(x Row) bool { x.Key != rm.Key }), Next: r.Next}}
 	case At as at:
 		if !has(r, at.Key) {
-			return Ignore
+			return machines.Ignore
 		}
 		let step = func(x Row) Row {
 			if x.Key != at.Key {
@@ -137,7 +138,7 @@ func Step(r Rows, s Signal) Decision[Rows, Never] {
 			}
 			Row{Key: x.Key, Counter: machines.Next(x.Counter, counter.Step(x.Counter, at.Sig))}
 		}
-		Stay[Rows]{Next: Rows{Items: slices.Transform(r.Items, step), Next: r.Next}}
+		machines.Stay[Rows]{Next: Rows{Items: slices.Transform(r.Items, step), Next: r.Next}}
 	}
 }
 
@@ -154,7 +155,7 @@ func Given(counts []int) Rows {
 	for i, n in counts {
 		items = items.Append(Row{Key: i, Counter: counter.Count{N: n}})
 	}
-	Rows{Items: items, Next: len(counts)}
+	Rows{Items: items, Next: counts.Len()}
 }
 
 // CountersFrom is the list as a machine that starts from the given counts

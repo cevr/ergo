@@ -14,6 +14,7 @@ import flag
 import fs
 import fstest
 import io
+import option
 import os
 import testing
 import time
@@ -55,9 +56,9 @@ let commands = []flag.Command[Cmd]{
 // argOf is the value of a required argument, which Parse has checked.
 func argOf(a flag.ArgSpec, v flag.Values) string {
 	match a.Get(v) {
-	case Some[string] as s:
+	case option.Some[string] as s:
 		s.Value
-	case None:
+	case option.None:
 		""
 	}
 }
@@ -84,7 +85,7 @@ func zone(name string) tz.Zone fails os.Exit needs tz.Zones {
 }
 
 // run is cron on args.
-func run(args []string) fails os.Exit needs io.Stdout | fs.Files | time.Clock | Scheduler | tz.Zones {
+func run(args []string) fails os.Exit needs io.Stdout | fs.Files | time.Clock | time.Scheduler | tz.Zones {
 	let c = flag.ParseCommand("cron", "", commands, args) catch {
 	case err:
 		try flag.Exit(err, usage)
@@ -111,7 +112,7 @@ func run(args []string) fails os.Exit needs io.Stdout | fs.Files | time.Clock | 
 		for t in times {
 			io.Stdout.Println(schedule.Text(t, z))
 		}
-		if len(times) < n.Count {
+		if times.Len() < n.Count {
 			io.Stdout.Println("(no more firings within \(cron.Horizon()) years)")
 		}
 	case RunCmd as r:
@@ -137,16 +138,16 @@ func run(args []string) fails os.Exit needs io.Stdout | fs.Files | time.Clock | 
 			schedule.Run(jobs, z, until, print)
 		} else {
 			let clock = testing.NewVirtualClock(time.UnixSeconds(from))
-			with context { time.Clock: clock, Scheduler: clock } {
+			with context { time.Clock: clock, time.Scheduler: clock } {
 				schedule.Run(jobs, z, until, print)
 			}
 		}
 	}
 }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	let host = time.NewHost()
-	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), io.Stdout: io.NewHost(), time.Clock: host, Scheduler: NewLiveScheduler(), tz.Zones: iana.New() } {
+	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), io.Stdout: io.NewHost(), time.Clock: host, time.Scheduler: time.NewLiveScheduler(), tz.Zones: iana.New() } {
 		try run(os.Process.Args())
 	}
 }
@@ -162,7 +163,7 @@ func ran(text string, args []string) string fails fs.NotFound | fs.Denied | fs.F
 	let clock = testing.NewVirtualClock(1794139200)
 	let disk = fstest.NewMemory()
 	try disk.WriteFile("jobs", text)
-	with context { io.Stdout: out, fs.Files: disk, time.Clock: clock, Scheduler: clock, tz.Zones: iana.New() } {
+	with context { io.Stdout: out, fs.Files: disk, time.Clock: clock, time.Scheduler: clock, tz.Zones: iana.New() } {
 		run(args) catch {
 		case os.Exit as e:
 			io.Stdout.Println("exit \(e.Code): \(e.Message)")

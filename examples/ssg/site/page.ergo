@@ -1,4 +1,5 @@
 import html
+import option
 import strings
 
 // Page is one content file: its path under the content folder, its front
@@ -14,26 +15,26 @@ type BadFrontMatter { Path string, Line int, Text string }
 func ParsePage(path string, text string) Page fails BadFrontMatter {
 	let lines = strings.Split(text, "\n")
 	let mut meta = Map[string, string]{}
-	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
+	if lines.Len() == 0 || strings.TrimSpace(lines[0]) != "---" {
 		return Page{Path: path, Meta: meta, Body: text}
 	}
-	for i in 1..len(lines) {
+	for i in 1..lines.Len() {
 		let line = strings.TrimSpace(lines[i])
 		if line == "---" {
 			let mut rest = []string{}
-			for j in i+1..len(lines) {
+			for j in i+1..lines.Len() {
 				rest = rest.Append(lines[j])
 			}
 			return Page{Path: path, Meta: meta, Body: strings.Join(rest, "\n")}
 		}
 		match strings.Cut(line, ":") {
-		case Some[strings.Halves] as h:
+		case option.Some[strings.Halves] as h:
 			meta[strings.TrimSpace(h.Value.Before)] = strings.TrimSpace(h.Value.After)
-		case None:
+		case option.None:
 			return BadFrontMatter{Path: path, Line: i + 1, Text: line}
 		}
 	}
-	BadFrontMatter{Path: path, Line: len(lines), Text: "no closing ---"}
+	BadFrontMatter{Path: path, Line: lines.Len(), Text: "no closing ---"}
 }
 
 // Markup is body as HTML: blocks are separated by blank lines; a block
@@ -68,7 +69,7 @@ func blocks(body string) [][]string {
 	for raw in strings.Split(body, "\n") {
 		let line = strings.TrimSpace(raw)
 		if line == "" {
-			if len(cur) > 0 {
+			if cur.Len() > 0 {
 				out = out.Append(cur)
 				cur = []string{}
 			}
@@ -76,7 +77,7 @@ func blocks(body string) [][]string {
 			cur = cur.Append(line)
 		}
 	}
-	if len(cur) > 0 {
+	if cur.Len() > 0 {
 		out = out.Append(cur)
 	}
 	out

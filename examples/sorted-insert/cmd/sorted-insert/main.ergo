@@ -3,6 +3,7 @@
 //
 //	sorted-insert N...
 
+import io
 import os
 import sortedinsert/ordered
 import strconv
@@ -24,7 +25,7 @@ func Parse(args []string) []int fails os.Exit {
 	ns
 }
 
-func main() fails os.Exit needs Console | Ambient {
+func main() fails os.Exit needs io.Console | os.Ambient {
 	let ns = try Parse(os.NewHost().Args())
 	let mut xs = []int{}
 	for n in ns {
@@ -33,6 +34,6 @@ func main() fails os.Exit needs Console | Ambient {
 		for x in xs {
 			parts = parts.Append("\(x)")
 		}
-		Console.Println(strings.Join(parts, " "))
+		io.Console.Println(strings.Join(parts, " "))
 	}
 }

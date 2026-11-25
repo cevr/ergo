@@ -24,7 +24,7 @@ let set = flag.Set{Name: "transfers", Usage: "", Flags: []flag.Flag{statsFlag}, 
 
 let usage = "usage: transfers [-stats] < script"
 
-func main() fails os.Exit needs Console | Ambient {
+func main() fails os.Exit needs io.Console | os.Ambient {
 	let v = with context { os.Process: os.NewHost() } {
 		flag.Parse(set, os.Process.Args()) catch {
 		case err:
@@ -35,7 +35,7 @@ func main() fails os.Exit needs Console | Ambient {
 		}
 	}
 	let clock = time.NewManual(0)
-	let status = with context { io.Stdin: io.NewStdin(), Scheduler: clock } { script.Run(clock, statsFlag.Get(v)) }
+	let status = with context { io.Stdin: io.NewStdin(), time.Scheduler: clock } { script.Run(clock, statsFlag.Get(v)) }
 	if status != 0 {
 		return os.Exit{Code: 1, Message: "transfers: the script did not run"}
 	}

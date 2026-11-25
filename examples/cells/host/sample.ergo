@@ -4,6 +4,8 @@
 // gaps and padding of any number of points, over every kind of control.
 
 import io
+import machines
+import option
 import sync
 import term
 import ui
@@ -72,23 +74,23 @@ type Sample { Seed int, Rows int, Taps int }
 
 // sampleStep: signal 1 adds a row, signal 2 counts a tap; a row's button
 // (0) changes nothing.
-func sampleStep(s Sample, e int) Decision[Sample, int] {
+func sampleStep(s Sample, e int) machines.Decision[Sample, int] {
 	if e == 1 {
-		return Enter[Sample]{Next: Sample{Seed: s.Seed, Rows: s.Rows + 1, Taps: s.Taps}}
+		return machines.Enter[Sample]{Next: Sample{Seed: s.Seed, Rows: s.Rows + 1, Taps: s.Taps}}
 	}
 	if e == 2 {
-		return Enter[Sample]{Next: Sample{Seed: s.Seed, Rows: s.Rows, Taps: s.Taps + 1}}
+		return machines.Enter[Sample]{Next: Sample{Seed: s.Seed, Rows: s.Rows, Taps: s.Taps + 1}}
 	}
-	Stay[Sample]{Next: s}
+	machines.Stay[Sample]{Next: s}
 }
 
-func sampleTimer(s Sample) Option[Timeout[int]] { None }
+func sampleTimer(s Sample) option.Option[machines.Timeout[int]] { option.None }
 
-func sampleWork(s Sample) Option[func(send func(e int))] { None }
+func sampleWork(s Sample) option.Option[func(send func(e int))] { option.None }
 
 // SampleMachine is the generated app from seed.
-func SampleMachine(seed int) Machine[Sample, int, int] {
-	Machine[Sample, int, int]{Initial: Sample{Seed: seed, Rows: 0, Taps: 0}, Step: sampleStep, After: sampleTimer, Work: sampleWork, Exit: func(s Sample) Option[func()] { None }}
+func SampleMachine(seed int) machines.Machine[Sample, int, int] {
+	machines.Machine[Sample, int, int]{Initial: Sample{Seed: seed, Rows: 0, Taps: 0}, Step: sampleStep, After: sampleTimer, Work: sampleWork, Exit: func(s Sample) option.Option[func()] { option.None }}
 }
 
 // SampleView shows a count, a "more" button that adds a row of a text
@@ -168,7 +170,7 @@ func piece(f mut ui.Frame[int], p Piece) {
 		}
 	case Kit as k:
 		// bit 19: it holds a Text; bit 18: a press sends 2
-		let on Option[int] = if (k.Code/262144)%2 == 0 { Some{Value: 2} } else { None }
+		let on option.Option[int] = if (k.Code/262144)%2 == 0 { option.Some{Value: 2} } else { option.None }
 		ui.Semantic(f, kitAccess(k.Name, k.Code), on, ui.Plain()) {
 			if k.Code/524288 == 1 {
 				ui.Text(f, "in"+k.Name)
@@ -178,12 +180,12 @@ func piece(f mut ui.Frame[int], p Piece) {
 		ui.Announce(f, x.Text)
 	case Pad as x:
 		// an Area whose zone sends 2 when the pointer goes down over it
-		ui.Area(f, x.Label, ui.Plain(), func(ev ui.PointerEvent) Option[int] {
+		ui.Area(f, x.Label, ui.Plain(), func(ev ui.PointerEvent) option.Option[int] {
 			match ev.Zone {
-			case Some[ui.ZoneHit]:
-				if ev.Phase == ui.Down { Some{Value: 2} } else { None }
-			case None:
-				None
+			case option.Some[ui.ZoneHit]:
+				if ev.Phase == ui.Down { option.Some{Value: 2} } else { option.None }
+			case option.None:
+				option.None
 			}
 		}) {
 			ui.Zone(f, ui.ByInt(1), ui.Plain()) {
@@ -206,18 +208,18 @@ func kitRoles() []ui.Role {
 // state, from the code's digits in bases 25, 3 and 2.
 func kitAccess(name string, code int) ui.Access {
 	let roles = kitRoles()
-	let tri = func(n int) Option[bool] {
+	let tri = func(n int) option.Option[bool] {
 		match n % 3 {
 		case 0:
-			None
+			option.None
 		case 1:
-			Some{Value: true}
+			option.Some{Value: true}
 		case _:
-			Some{Value: false}
+			option.Some{Value: false}
 		}
 	}
-	let c = code / len(roles)
-	ui.Access{Role: roles[code%len(roles)], Name: name, Disabled: c%7 == 0, Description: "", Checked: tri(c), Value: if (c/3)%4 == 0 { Some{Value: "v"} } else { None }, Selected: tri(c / 5), Expanded: tri(c / 15), Pressed: tri(c / 45), Invalid: (c/135)%2 == 0, Busy: (c/270)%3 == 0, HasPopup: (c/810)%2 == 1, Level: if (c/1620)%2 == 0 { Some{Value: 2} } else { None }, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: ui.NoKey, Rels: []ui.Rel{}}
+	let c = code / roles.Len()
+	ui.Access{Role: roles[code%roles.Len()], Name: name, Disabled: c%7 == 0, Description: "", Checked: tri(c), Value: if (c/3)%4 == 0 { option.Some{Value: "v"} } else { option.None }, Selected: tri(c / 5), Expanded: tri(c / 15), Pressed: tri(c / 45), Invalid: (c/135)%2 == 0, Busy: (c/270)%3 == 0, HasPopup: (c/810)%2 == 1, Level: if (c/1620)%2 == 0 { option.Some{Value: 2} } else { option.None }, Mixed: false, Current: option.None, Modal: false, MultiSelectable: false, Range: option.None, Key: ui.NoKey, Rels: []ui.Rel{}}
 }
 
 // Logged is one operation a fake terminal saw: a write, or a read of a
@@ -240,7 +242,7 @@ func Restore(_ Fake) {}
 func ReadKey(f Fake) term.Key fails io.ReadFailed {
 	f.log.Update(func(l []Logged) []Logged { l.Append(Read) })
 	let i = f.at.Get()
-	if i >= len(f.keys) {
+	if i >= f.keys.Len() {
 		return term.EndOfInput
 	}
 	f.at.Set(i + 1)

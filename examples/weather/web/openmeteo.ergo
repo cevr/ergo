@@ -1,6 +1,7 @@
 // Package web holds the network provider of the weather contract: the
 // open-meteo geocoding and forecast services, asked over std http.
 
+import os
 import weather/weather
 import http
 import json
@@ -28,7 +29,7 @@ let Services = http.Origins{Values: []string{GeocodingOrigin, ForecastOrigin}}
 let Budget = http.Limits{MaxBodyBytes: 1 << 16, MaxHeaderBytes: 1 << 16, IdleTimeout: 30s, ReadHeaderTimeout: 10s, ReadBodyTimeout: 10s}
 
 // Live is the forecast over the host network.
-func Live() OpenMeteo fails http.InvalidClient | http.InvalidLimits needs Ambient {
+func Live() OpenMeteo fails http.InvalidClient | http.InvalidLimits needs os.Ambient {
 	NewOpenMeteo(try http.NewNet(Services, Budget, http.NoRedirects))
 }
 
@@ -60,7 +61,7 @@ func Fetch(o OpenMeteo, zip string) weather.Report fails weather.NotFound | weat
 	}
 	let p = match ps.Results {
 	case json.Present[[]place] as rs:
-		if len(rs.Value) == 0 {
+		if rs.Value.Len() == 0 {
 			return weather.NotFound{Zip: zip}
 		}
 		rs.Value[0]

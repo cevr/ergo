@@ -6,6 +6,7 @@ import fs
 import fstest
 import hex
 import github.com/cevr/ergo/modules/work/work
+import option
 import sha256
 import time
 
@@ -47,14 +48,14 @@ let recordRequest = "# The intent line\n\n```work-record\n{\"intent\": \"Add c.\
 // another names that one.
 test ReadyWritesTheRecord {
 	let (tool, trees, vcs, disk) = try recordWorld(recordFiles, recordConfig)
-	let w = try tool.New("w", work.NewOptions{Copy: false, From: None, Branch: None, On: None, Token: None})
+	let w = try tool.New("w", work.NewOptions{Copy: false, From: option.None, Branch: option.None, On: option.None, Token: option.None})
 	assert Write(trees, w.Path, "a.lines", "unit A(x)\n  call b\n# a note\nunit renamedB(y)\n  two\nunit c(z)\n  new\n")
 	assert Write(trees, w.Path, "doc.md", "# Title\n\none\ntwo three\n\n## Added\n\nnew\n")
 	assert Write(trees, w.Path, "x.txt", "y\n")
 	assert Write(trees, w.Path, "ledger.json", "{\"mutants\": [{\"name\": \"m1\",   \"to\": \"a\"}, {\"name\": \"m2\", \"to\": \"b\"}, {\"name\": \"m3\", \"to\": \"c\"}]}\n")
 	assert Commit(vcs, w.Path, "c1")
 	try disk.WriteFile("/req.md", recordRequest)
-	let handed = try tool.Ready(work.ReadyOptions{Name: Some[string]{Value: "w"}, Request: Some[string]{Value: "/req.md"}})
+	let handed = try tool.Ready(work.ReadyOptions{Name: option.Some[string]{Value: "w"}, Request: option.Some[string]{Value: "/req.md"}})
 	let r = try tool.Record(handed.Commit)
 	assert r.Tip == handed.Commit && r.Branch == handed.Branch && r.Unit == "w" && r.Intent == "Add c." && r.Owed == []string{"full gate"}
 	assert r.Request == work.RequestRef{Path: "/req.md", Sha256: hex.Encode(sha256.Sum(recordRequest))}
@@ -64,10 +65,10 @@ test ReadyWritesTheRecord {
 		seen = seen.Append("\(c.Kind) \(c.Unit) \(c.From) \(c.Why)")
 	}
 	assert seen == []string{"Added c  c is needed", "Renamed renamedB b ", "Added doc.md#Title > Added  ", "Added row:mutants/m3  ", "BodyChanged x.txt  "}
-	let v = try tool.New("v", work.NewOptions{Copy: false, From: None, Branch: None, On: Some[string]{Value: "w"}, Token: None})
+	let v = try tool.New("v", work.NewOptions{Copy: false, From: option.None, Branch: option.None, On: option.Some[string]{Value: "w"}, Token: option.None})
 	assert Write(trees, v.Path, "x.txt", "z\n")
 	assert Commit(vcs, v.Path, "c2")
-	let stacked = try tool.Ready(work.ReadyOptions{Name: Some[string]{Value: "v"}, Request: None})
+	let stacked = try tool.Ready(work.ReadyOptions{Name: option.Some[string]{Value: "v"}, Request: option.None})
 	let s = try tool.Record(stacked.Commit)
 	assert s.On == []work.OnTip{work.OnTip{Unit: "w", Tip: handed.Commit, Landed: false}} && s.Intent == "" && s.Request.Sha256 == ""
 	// HEAD is the base's own (c0, never handed back), not a workspace's.
@@ -91,8 +92,8 @@ func noRecord(tool work.Tool, tip string) string {
 test RecordNeedsReady {
 	let (tool, _, _, _) = try recordWorld(recordFiles, recordConfig)
 	assert noRecord(tool, "c0") == "c0"
-	let _ = try tool.New("w", work.NewOptions{Copy: false, From: None, Branch: None, On: None, Token: None})
-	let missing = tool.Ready(work.ReadyOptions{Name: Some[string]{Value: "w"}, Request: Some[string]{Value: "/nope.md"}}) catch {
+	let _ = try tool.New("w", work.NewOptions{Copy: false, From: option.None, Branch: option.None, On: option.None, Token: option.None})
+	let missing = tool.Ready(work.ReadyOptions{Name: option.Some[string]{Value: "w"}, Request: option.Some[string]{Value: "/nope.md"}}) catch {
 	case work.BadRequest as b:
 		work.Handed{Name: b.Why, Branch: "", Commit: "", Snapshot: "", Parent: ""}
 	case _:

@@ -94,7 +94,7 @@ func IsName(s string) bool {
 	if s == "" {
 		return false
 	}
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		let c = s[i]
 		let ok = IsLetter(c) || (i > 0 && IsDigit(c))
 		if !ok {

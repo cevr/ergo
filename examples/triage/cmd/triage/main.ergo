@@ -89,7 +89,7 @@ func run(args []string) fails os.Exit needs io.Stdout | io.Stdin {
 	}
 }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stdin: io.NewStdin() } {
 		try run(os.Process.Args())
 	}

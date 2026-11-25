@@ -59,7 +59,7 @@ func NewScripted(first []string, cut bool, rest []Entry) Scripted {
 // clock, no model and no shell.
 law ReplayIsTheRun(s Scripted, t Tree, texts []string, allow bool) {
 	let c = testing.NewVirtualClock(0)
-	let (live, record) = with context { agent.Model: s, agent.Tools: t, exec.Runner: exec.Script{Results: Map[string, exec.Result]{}}, Scheduler: c, time.Clock: c } {
+	let (live, record) = with context { agent.Model: s, agent.Tools: t, exec.Runner: exec.Script{Results: Map[string, exec.Result]{}}, time.Scheduler: c, time.Clock: c } {
 		agent.Headless(agent.Open(agent.Limits{MaxSteps: 4, MaxRetries: 2}), texts, allow)
 	}
 	agent.Replay(record) == live
@@ -82,11 +82,11 @@ func slowRead(d duration) agent.Recorded {
 	let read = agent.Call{Id: "c1", Name: "read", Arguments: "{\"path\":\"a.txt\"}"}
 	let world = Scripted{Replies: []Entry{Says{Pieces: []string{"Let me read."}, Calls: []agent.Call{read}, End: agent.ToolUse}, Says{Pieces: []string{"Done."}, Calls: []agent.Call{}, End: agent.Finished}}}
 	let c = testing.NewVirtualClock(0)
-	with context { agent.Model: world, agent.Tools: tools, exec.Runner: exec.Script{Results: Map[string, exec.Result]{}}, Scheduler: c, time.Clock: c } {
+	with context { agent.Model: world, agent.Tools: tools, exec.Runner: exec.Script{Results: Map[string, exec.Result]{}}, time.Scheduler: c, time.Clock: c } {
 		let s = agent.Open(agent.Limits{MaxSteps: 2, MaxRetries: 0})
 		let said = task.Go() { agent.Say(s, "read a.txt") }
 		if d > 0s {
-			Scheduler.Sleep(d)
+			time.Scheduler.Sleep(d)
 		}
 		tools.Read.Release(func(path string) string fails agent.NotFound | agent.Denied | agent.Escapes | agent.Unreadable { "hello" })
 		let _ = said.Wait()
@@ -99,7 +99,7 @@ func slowRead(d duration) agent.Recorded {
 // run out.
 func entry(s Scripted, p agent.Prompt) Entry {
 	let n = agent.Attempts(p.Log)
-	if n >= len(s.Replies) {
+	if n >= s.Replies.Len() {
 		let out agent.ModelFailure = agent.Malformed{Reason: "the script has no reply \(n + 1)"}
 		return Fails{Failure: out}
 	}

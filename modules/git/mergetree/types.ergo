@@ -8,6 +8,7 @@ import github.com/cevr/ergo/modules/git/attrs
 import github.com/cevr/ergo/modules/git/filemerge
 import github.com/cevr/ergo/modules/git/oid
 import github.com/cevr/ergo/modules/git/tree
+import option
 
 // Error is the closed failure union for 3-way tree and commit merging.
 type Error =
@@ -43,9 +44,9 @@ type StageEntry {
 type Conflict {
 	Path   string,
 	Kind   ConflictKind,
-	Stage1 Option[StageEntry],
-	Stage2 Option[StageEntry],
-	Stage3 Option[StageEntry],
+	Stage1 option.Option[StageEntry],
+	Stage2 option.Option[StageEntry],
+	Stage3 option.Option[StageEntry],
 	Detail string,
 }
 
@@ -95,7 +96,7 @@ type TreeMerger {
 	Format() oid.Format,
 	InstallBlob(data []byte) oid.OID fails StoreError,
 	InstallTree(entries []tree.Entry) oid.OID fails TreeError | StoreError,
-	Merge(baseTree Option[oid.OID], oursTree oid.OID, theirsTree oid.OID) MergeTreeResult fails TreeError | DiffError | UntrustedDriver | MissingObject | StoreError | DepthExceeded,
+	Merge(baseTree option.Option[oid.OID], oursTree oid.OID, theirsTree oid.OID) MergeTreeResult fails TreeError | DiffError | UntrustedDriver | MissingObject | StoreError | DepthExceeded,
 
 	// MergeSameCommitIsClean: merging any tree with itself always produces a
 	// Clean result with the exact same root TreeOID and zero conflicts.
@@ -110,11 +111,11 @@ type TreeMerger {
 		case TreeError, StoreError:
 			return false
 		}
-		let res = Merge(Some[oid.OID]{Value: t}, t, t) catch {
+		let res = Merge(option.Some[oid.OID]{Value: t}, t, t) catch {
 		case TreeError, DiffError, UntrustedDriver, MissingObject, StoreError, DepthExceeded:
 			return false
 		}
-		res.Clean && len(res.Conflicts) == 0 && oid.Equal(res.TreeOID, t)
+		res.Clean && res.Conflicts.Len() == 0 && oid.Equal(res.TreeOID, t)
 	},
 
 	// MergeFastForwardTakesDescendant: merging a base tree with a modified
@@ -142,19 +143,19 @@ type TreeMerger {
 		case TreeError, StoreError:
 			return false
 		}
-		let r1 = Merge(Some[oid.OID]{Value: baseT}, baseT, descT) catch {
+		let r1 = Merge(option.Some[oid.OID]{Value: baseT}, baseT, descT) catch {
 		case TreeError, DiffError, UntrustedDriver, MissingObject, StoreError, DepthExceeded:
 			return false
 		}
-		let r2 = Merge(Some[oid.OID]{Value: baseT}, descT, baseT) catch {
+		let r2 = Merge(option.Some[oid.OID]{Value: baseT}, descT, baseT) catch {
 		case TreeError, DiffError, UntrustedDriver, MissingObject, StoreError, DepthExceeded:
 			return false
 		}
 			r1.Clean &&
-			len(r1.Conflicts) == 0 &&
+			r1.Conflicts.Len() == 0 &&
 			oid.Equal(r1.TreeOID, descT) &&
 			r2.Clean &&
-			len(r2.Conflicts) == 0 &&
+			r2.Conflicts.Len() == 0 &&
 			oid.Equal(r2.TreeOID, descT)
 	},
 }

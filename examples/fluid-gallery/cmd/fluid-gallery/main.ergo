@@ -8,6 +8,8 @@
 // the module's looks as class names under the page's naming, and the page's one sheet.
 
 import fluidgallery/gallery
+import io
+import option
 import os
 import ui
 import github.com/cevr/ergo/modules/web
@@ -15,24 +17,24 @@ import github.com/cevr/ergo/modules/web
 // Usage: no path was given.
 type Usage { Text string }
 
-func main() fails Usage needs Console | Ambient {
+func main() fails Usage needs io.Console | os.Ambient {
 	let args = with context { os.Process: os.NewHost() } { os.Process.Args() }
-	if len(args) == 0 {
+	if args.Len() == 0 {
 		return Usage{Text: "usage: fluid-gallery PATH..."}
 	}
 	if args[0] == "ts" {
-		Console.Println(gallery.Island())
+		io.Console.Println(gallery.Island())
 		return
 	}
 	if args[0] == "gui" {
-		for i in 1..len(args) {
+		for i in 1..args.Len() {
 			let path = args[i]
 			match gallery.Parse(gallery.Docs, ui.ParseURL(path)) {
-			case Some as r:
-				Console.Println("GUI \(path)")
-				Console.Println(gallery.Headless(r.Value))
-			case None:
-				Console.Println("GUI \(path): no page")
+			case option.Some as r:
+				io.Console.Println("GUI \(path)")
+				io.Console.Println(gallery.Headless(r.Value))
+			case option.None:
+				io.Console.Println("GUI \(path): no page")
 			}
 		}
 		return
@@ -40,7 +42,7 @@ func main() fails Usage needs Console | Ambient {
 	let site = gallery.Site()
 	for path in args {
 		let answer = web.Fetch(site, web.Request("GET", path))
-		Console.Println("GET \(path) -> \(answer.Status)")
-		Console.Println(answer.Body)
+		io.Console.Println("GET \(path) -> \(answer.Status)")
+		io.Console.Println(answer.Body)
 	}
 }

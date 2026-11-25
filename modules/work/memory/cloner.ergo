@@ -8,6 +8,7 @@
 
 import github.com/cevr/ergo/modules/work/work
 import maps
+import option
 import slices
 import strings
 import sync
@@ -48,7 +49,7 @@ law WritesStayPrivate(files Map[string, string], path string, t string, inClone 
 	}
 	let (written, other) = if inClone { (to, base) } else { (base, to) }
 	let before = Files(c, other)
-	Write(c, written, path, t) && Files(c, other) == before && Files(c, written).Get(path) == Some[string]{Value: t}
+	Write(c, written, path, t) && Files(c, other) == before && Files(c, written).Get(path) == option.Some[string]{Value: t}
 }
 
 // NewCopier is a Cloner that copies each file's block, over an empty disk.
@@ -78,7 +79,7 @@ func used(d Disk) int {
 		for _, block in tree {
 			if !maps.GetOr(seen, block, false) {
 				seen[block] = true
-				n = n + len(text(d, block))
+				n = n + text(d, block).Len()
 			}
 		}
 	}
@@ -88,9 +89,9 @@ func used(d Disk) int {
 // Volume is the volume of root: the text before its first colon.
 func Volume(root string) string {
 	match strings.Cut(root, ":") {
-	case Some[strings.Halves] as h:
+	case option.Some[strings.Halves] as h:
 		h.Value.Before
-	case None:
+	case option.None:
 		""
 	}
 }
@@ -111,7 +112,7 @@ func volumeOf(d Disk, root string) string {
 	let mut best = ""
 	let mut volume = Volume(root)
 	for prefix, v in d.mounts {
-		if (root == prefix || strings.HasPrefix(root, prefix+"/")) && len(prefix) > len(best) {
+		if (root == prefix || strings.HasPrefix(root, prefix+"/")) && prefix.Len() > best.Len() {
 			best = prefix
 			volume = v
 		}
@@ -138,9 +139,9 @@ func Clone(c Cloner, from string, to string) fails work.NotSameVolume | work.Uns
 	}
 	let d = c.disk.Get()
 	let source = match d.trees.Get(from) {
-	case Some[Map[string, int]] as t:
+	case option.Some[Map[string, int]] as t:
 		t.Value
-	case None:
+	case option.None:
 		return work.Missing{Path: from}
 	}
 	if held(d, to) {
@@ -154,7 +155,7 @@ func Clone(c Cloner, from string, to string) fails work.NotSameVolume | work.Uns
 	if !c.shares && d.capacity > 0 {
 		let mut need = 0
 		for _, block in source {
-			need = need + len(text(d, block))
+			need = need + text(d, block).Len()
 		}
 		if used(d)+need > d.capacity {
 			return work.NoSpace{Path: to, Need: -1, Free: -1}
@@ -236,7 +237,7 @@ func Roots(c Cloner) []string { slices.Sorted(maps.Keys(c.disk.Get().trees)) }
 // of the tree is under it) or a file of it, as leave_out finds one.
 func Has(c Cloner, root string) bool {
 	let d = c.disk.Get()
-	held(d, root) || inner(d, root) != None
+	held(d, root) || inner(d, root) != option.None
 }
 
 // Inside is a folder inside a tree: the tree's root and the folder's
@@ -245,7 +246,7 @@ type Inside { Root string, Folder string }
 
 // inner is the tree root is a folder inside, when a file of it is under
 // root.
-func inner(d Disk, root string) Option[Inside] {
+func inner(d Disk, root string) option.Option[Inside] {
 	for at, tree in d.trees {
 		if !strings.HasPrefix(root, at+"/") {
 			continue
@@ -253,19 +254,19 @@ func inner(d Disk, root string) Option[Inside] {
 		let folder = strings.TrimPrefix(root, at+"/")
 		for path, _ in tree {
 			if path == folder || strings.HasPrefix(path, folder+"/") {
-				return Some[Inside]{Value: Inside{Root: at, Folder: folder}}
+				return option.Some[Inside]{Value: Inside{Root: at, Folder: folder}}
 			}
 		}
 	}
-	None
+	option.None
 }
 
 func Move(c Cloner, from string, to string) fails work.Exists | work.Missing | work.CloneFailed {
 	let d = c.disk.Get()
 	let tree = match d.trees.Get(from) {
-	case Some[Map[string, int]] as t:
+	case option.Some[Map[string, int]] as t:
 		t.Value
-	case None:
+	case option.None:
 		return work.Missing{Path: from}
 	}
 	if from == to {
@@ -293,12 +294,12 @@ func Placeable(c Cloner, staging string, home string) fails work.NotSameVolume |
 func Place(c Cloner, from string, to string) fails work.NotSameVolume | work.Exists | work.Missing | work.CloneFailed {
 	let d = c.disk.Get()
 	let tree = match d.trees.Get(from) {
-	case Some[Map[string, int]] as t:
+	case option.Some[Map[string, int]] as t:
 		t.Value
-	case None:
+	case option.None:
 		return work.Missing{Path: from}
 	}
-	if held(d, to) || inner(d, to) != None {
+	if held(d, to) || inner(d, to) != option.None {
 		return work.Exists{Path: to}
 	}
 	if volumeOf(d, from) != volumeOf(d, to) {
@@ -318,7 +319,7 @@ func Discard(c Cloner, root string) fails work.Missing | work.CloneFailed {
 		return
 	}
 	match inner(d, root) {
-	case Some[Inside] as hit:
+	case option.Some[Inside] as hit:
 		let mut kept = Map[string, int]{}
 		for path, block in maps.GetOr(d.trees, hit.Value.Root, Map[string, int]{}) {
 			if path != hit.Value.Folder && !strings.HasPrefix(path, hit.Value.Folder+"/") {
@@ -328,7 +329,7 @@ func Discard(c Cloner, root string) fails work.Missing | work.CloneFailed {
 		let mut trees = d.trees
 		trees[hit.Value.Root] = kept
 		c.disk.Set(Disk{..d, trees: trees})
-	case None:
+	case option.None:
 		return work.Missing{Path: root}
 	}
 }
@@ -336,9 +337,9 @@ func Discard(c Cloner, root string) fails work.Missing | work.CloneFailed {
 func Usage(c Cloner, root string) work.Usage fails work.Unsupported | work.Missing | work.CloneFailed {
 	let d = c.disk.Get()
 	let tree = match d.trees.Get(root) {
-	case Some[Map[string, int]] as t:
+	case option.Some[Map[string, int]] as t:
 		t.Value
-	case None:
+	case option.None:
 		return work.Missing{Path: root}
 	}
 	let mut seen = Map[int, bool]{}
@@ -349,7 +350,7 @@ func Usage(c Cloner, root string) work.Usage fails work.Unsupported | work.Missi
 			continue
 		}
 		seen[block] = true
-		let size = len(text(d, block))
+		let size = text(d, block).Len()
 		if heldElsewhere(d, root, block) {
 			shared = shared + size
 		} else {
@@ -375,13 +376,13 @@ func Free(c Cloner, root string) int fails work.Unsupported | work.Missing | wor
 func Entries(c Cloner, root string) int fails work.Missing | work.CloneFailed {
 	let d = c.disk.Get()
 	let (tree, folder) = match d.trees.Get(root) {
-	case Some[Map[string, int]] as found:
+	case option.Some[Map[string, int]] as found:
 		(found.Value, "")
-	case None:
+	case option.None:
 		match inner(d, root) {
-		case Some[Inside] as hit:
+		case option.Some[Inside] as hit:
 			(maps.GetOr(d.trees, hit.Value.Root, Map[string, int]{}), hit.Value.Folder + "/")
-		case None:
+		case option.None:
 			return work.Missing{Path: root}
 		}
 	}
@@ -392,11 +393,11 @@ func Entries(c Cloner, root string) int fails work.Missing | work.CloneFailed {
 		}
 		let rel = strings.TrimPrefix(path, folder)
 		let parts = strings.Split(rel, "/")
-		for i in 1..(len(parts) + 1) {
+		for i in 1..(parts.Len() + 1) {
 			seen[strings.Join(parts[0:i], "/")] = true
 		}
 	}
-	len(seen)
+	seen.Len()
 }
 
 // UsageSplitsTheBlocks: a fresh clone's bytes are all shared, and after a
@@ -404,12 +405,12 @@ func Entries(c Cloner, root string) int fails work.Missing | work.CloneFailed {
 // holds every byte alone.
 law UsageSplitsTheBlocks(files Map[string, string], t string) {
 	let path = "new file"
-	if files.Get(path) != None {
+	if files.Get(path) != option.None {
 		return true
 	}
 	let mut total = 0
 	for _, text in files {
-		total = total + len(text)
+		total = total + text.Len()
 	}
 	let c = NewCloner()
 	let to = cloneOf(c, files) catch {
@@ -434,15 +435,15 @@ law UsageSplitsTheBlocks(files Map[string, string], t string) {
 	case work.Unsupported, work.Missing, work.CloneFailed:
 		return false
 	}
-	fresh == work.Usage{Total: total, Exclusive: 0, Shared: total} && written.Exclusive == len(t) && written.Total == total+len(t) && copied == work.Usage{Total: total, Exclusive: total, Shared: 0}
+	fresh == work.Usage{Total: total, Exclusive: 0, Shared: total} && written.Exclusive == t.Len() && written.Total == total+t.Len() && copied == work.Usage{Total: total, Exclusive: total, Shared: 0}
 }
 
 // held reports whether a tree is at root.
 func held(d Disk, root string) bool {
 	match d.trees.Get(root) {
-	case Some[Map[string, int]]:
+	case option.Some[Map[string, int]]:
 		true
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -488,9 +489,9 @@ func Plant(c Cloner, root string, files Map[string, string]) {
 func Write(c Cloner, root string, path string, t string) bool {
 	let d = c.disk.Get()
 	let mut tree = match d.trees.Get(root) {
-	case Some[Map[string, int]] as found:
+	case option.Some[Map[string, int]] as found:
 		found.Value
-	case None:
+	case option.None:
 		return false
 	}
 	let mut blocks = d.blocks
@@ -507,9 +508,9 @@ func Write(c Cloner, root string, path string, t string) bool {
 func Unlink(c Cloner, root string, path string) bool {
 	let d = c.disk.Get()
 	let tree = match d.trees.Get(root) {
-	case Some[Map[string, int]] as found:
+	case option.Some[Map[string, int]] as found:
 		found.Value
-	case None:
+	case option.None:
 		return false
 	}
 	let mut trees = d.trees
@@ -524,11 +525,11 @@ func Files(c Cloner, root string) Map[string, string] {
 	let d = c.disk.Get()
 	let mut out = Map[string, string]{}
 	match d.trees.Get(root) {
-	case Some[Map[string, int]] as t:
+	case option.Some[Map[string, int]] as t:
 		for path, block in t.Value {
 			out[path] = text(d, block)
 		}
-	case None:
+	case option.None:
 	}
 	out
 }
@@ -546,7 +547,7 @@ law AdoptRiftKeepsTheTree(parents []int, bad []int) {
 	for c in w.copies {
 		before[c.Path] = Files(w.trees, c.Path)
 	}
-	let o = work.RiftOptions{Registry: Some[string]{Value: riftFile}}
+	let o = work.RiftOptions{Registry: option.Some[string]{Value: riftFile}}
 	let got = w.tool.AdoptRift(o) catch {
 	case _:
 		return false
@@ -567,7 +568,7 @@ law AdoptRiftKeepsTheTree(parents []int, bad []int) {
 	let mut paths = []string{}
 	for a in got.Adopted {
 		let up = parentOf.Get(a.Path)
-		if up != (Some[string]{Value: a.Parent}) || (a.Parent != theBase && !slices.Contains(paths, a.Parent)) {
+		if up != (option.Some[string]{Value: a.Parent}) || (a.Parent != theBase && !slices.Contains(paths, a.Parent)) {
 			return false
 		}
 		paths = paths.Append(a.Path)
@@ -588,11 +589,11 @@ law AdoptRiftKeepsTheTree(parents []int, bad []int) {
 	case _:
 		return false
 	}
-	let report = w.tool.Doctor(work.DoctorOptions{Rift: true, Registry: Some[string]{Value: riftFile}, Unguard: false, Fix: false, Here: false, Repair: false}) catch {
+	let report = w.tool.Doctor(work.DoctorOptions{Rift: true, Registry: option.Some[string]{Value: riftFile}, Unguard: false, Fix: false, Here: false, Repair: false}) catch {
 	case _:
 		return false
 	}
-	slices.Sort(paths) == slices.Sort(want) && len(again.Adopted) == 0 && slices.Sort(report.Rift) == slices.Sort(left)
+	slices.Sort(paths) == slices.Sort(want) && again.Adopted.Len() == 0 && slices.Sort(report.Rift) == slices.Sort(left)
 }
 
 // riftFile is the registry the laws name.
@@ -613,7 +614,7 @@ func riftWorldOf(parents []int, bad []int) riftWorld fails fstest.BadFixture | w
 	let mut files = Map[string, string]{riftFile: "SQLite format 3"}
 	let mut rows = []work.RiftCopy{work.RiftCopy{Id: "root", Parent: "", Path: theBase}, work.RiftCopy{Id: "other", Parent: "", Path: otherBase}, work.RiftCopy{Id: "otherkid", Parent: "other", Path: "/w/rifts/otherkid"}}
 	let mut copies = []work.RiftCopy{}
-	for i in 0..(if len(parents) < 5 { len(parents) } else { 5 }) {
+	for i in 0..(if parents.Len() < 5 { parents.Len() } else { 5 }) {
 		let p = small(parents[i], i+1)
 		let c = work.RiftCopy{Id: "r\(i)", Parent: if p == 0 { "root" } else { "r\(p - 1)" }, Path: "/w/rifts/c\(i)"}
 		Repo(vcs, c.Path, "b\(i)", Map[string, string]{"main.ergo": "func main() {}\n", "f\(i).txt": "\(i)\n"}, "k\(i)")
@@ -695,11 +696,11 @@ func entriesOf(files Map[string, string]) int {
 	let mut seen = Map[string, bool]{}
 	for path, _ in files {
 		let parts = strings.Split(path, "/")
-		for i in 1..(len(parts) + 1) {
+		for i in 1..(parts.Len() + 1) {
 			seen[strings.Join(parts[0:i], "/")] = true
 		}
 	}
-	len(seen)
+	seen.Len()
 }
 
 // CloneIsTheSource: work clone of the base (or, with leave, of all but

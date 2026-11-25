@@ -37,7 +37,7 @@ type Store {
 			let _ = Add(n, 0, time.Unix(0, 0))
 		}
 		let all = All()
-		if len(all) != len(names) {
+		if all.Len() != names.Len() {
 			return false
 		}
 		for i, j in all {
@@ -96,7 +96,7 @@ type Store {
 			case NotFound:
 				Remove(j) catch {
 				case NotFound:
-					return try Get(other.Id) == other && len(All()) == 1
+					return try Get(other.Id) == other && All().Len() == 1
 				case Stale:
 					return false
 				}

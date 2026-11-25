@@ -2,13 +2,14 @@
 // each and resolves every name from the innermost scope of its chain, then
 // prints how many resolved and how far out they were found in all.
 
+import io
 import os
 import strconv
 import scopes/table
 
-func main() fails os.Exit needs Console | Ambient {
+func main() fails os.Exit needs io.Console | os.Ambient {
 	let args = os.NewHost().Args()
-	if len(args) != 1 {
+	if args.Len() != 1 {
 		return os.Exit{Code: 2, Message: "usage: scopes N"}
 	}
 	let n = strconv.Atoi(args[0]) catch {
@@ -39,11 +40,11 @@ func main() fails os.Exit needs Console | Ambient {
 		case table.Unbound:
 		}
 	}
-	Console.Println("scopes \(n) resolved \(found) out \(out) sum \(sum)")
+	io.Console.Println("scopes \(n) resolved \(found) out \(out) sum \(sum)")
 	match table.Resolve(&t, n, "nowhere") {
 	case table.Bound:
-		Console.Println("nowhere is bound")
+		io.Console.Println("nowhere is bound")
 	case table.Unbound:
-		Console.Println("nowhere is unbound")
+		io.Console.Println("nowhere is unbound")
 	}
 }

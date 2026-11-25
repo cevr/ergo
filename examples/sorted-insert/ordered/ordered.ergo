@@ -20,7 +20,7 @@ func Insert(xs []int, x int) []int {
 
 // IsSorted reports whether xs is ascending.
 func IsSorted(xs []int) bool {
-	for i in 1..len(xs) {
+	for i in 1..xs.Len() {
 		if xs[i] < xs[i-1] {
 			return false
 		}

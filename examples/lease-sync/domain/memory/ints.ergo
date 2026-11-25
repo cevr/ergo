@@ -1,4 +1,5 @@
 import lease-sync/domain
+import option
 
 // Ints is the memory log of int events: the instance at which ergo test
 // runs domain.Log's laws in this package, since a generic provider fixes
@@ -15,4 +16,4 @@ func Append(l Ints, stream string, expected int, id domain.CommandID, events []i
 
 func Read(l Ints, stream string, from int) []domain.Recorded[int] { l.log.Read(stream, from) }
 
-func Seen(l Ints, id domain.CommandID) Option[domain.Receipt] { l.log.Seen(id) }
+func Seen(l Ints, id domain.CommandID) option.Option[domain.Receipt] { l.log.Seen(id) }

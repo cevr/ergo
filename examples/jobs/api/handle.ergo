@@ -3,6 +3,7 @@ import http
 import jobsapp/api/endpoint
 import jobsapp/jobs
 import json
+import option
 import strconv
 import strings
 
@@ -69,9 +70,9 @@ func answer(r http.Request) http.Response fails http.NotFound | WrongMethod | ht
 
 func idOf(f http.Found[Endpoint]) int fails BadId {
 	let text = match f.Params.Get("id") {
-	case Some[string] as s:
+	case option.Some[string] as s:
 		s.Value
-	case None:
+	case option.None:
 		""
 	}
 	let id = strconv.Atoi(text) catch {

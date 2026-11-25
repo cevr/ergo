@@ -35,7 +35,7 @@ func apply(b piece.Buffer, e Edit) piece.Buffer {
 	case Inserted as i:
 		piece.Insert(b, i.At, i.Text)
 	case Deleted as d:
-		piece.Delete(b, d.At, len(d.Text))
+		piece.Delete(b, d.At, d.Text.Len())
 	}
 }
 
@@ -52,7 +52,7 @@ func inverse(e Edit) Edit {
 // Make is d after the edits, as one change that undo takes back, with
 // the caret at after. It clears redo.
 func Make(d Doc, edits []Edit, after int) Doc {
-	if len(edits) == 0 {
+	if edits.Len() == 0 {
 		return d
 	}
 	let c = Change{Edits: edits, Before: d.Caret, After: after}
@@ -64,7 +64,7 @@ func Make(d Doc, edits []Edit, after int) Doc {
 // edit to the next as an argument: a `let mut` copy of the buffer would
 // copy its line index on every keystroke (GP/editor-gui-gaps.md, OWN1).
 func forward(b piece.Buffer, edits []Edit, i int) piece.Buffer {
-	if i >= len(edits) {
+	if i >= edits.Len() {
 		return b
 	}
 	forward(apply(b, edits[i]), edits, i+1)
@@ -79,27 +79,27 @@ func backward(b piece.Buffer, edits []Edit, i int) piece.Buffer {
 
 // Undone takes back the last change; it is d when there is none.
 func Undone(d Doc) Doc {
-	if len(d.Undo) == 0 {
+	if d.Undo.Len() == 0 {
 		return d
 	}
-	let c = d.Undo[len(d.Undo)-1]
-	Doc{Buf: backward(d.Buf, c.Edits, len(c.Edits)-1), Caret: c.Before, Undo: drop(d.Undo), Redo: d.Redo.Append(c), Dirty: true}
+	let c = d.Undo[d.Undo.Len()-1]
+	Doc{Buf: backward(d.Buf, c.Edits, c.Edits.Len()-1), Caret: c.Before, Undo: drop(d.Undo), Redo: d.Redo.Append(c), Dirty: true}
 }
 
 // Redone makes the last undone change again; it is d when there is none.
 func Redone(d Doc) Doc {
-	if len(d.Redo) == 0 {
+	if d.Redo.Len() == 0 {
 		return d
 	}
-	let c = d.Redo[len(d.Redo)-1]
+	let c = d.Redo[d.Redo.Len()-1]
 	Doc{Buf: forward(d.Buf, c.Edits, 0), Caret: c.After, Undo: d.Undo.Append(c), Redo: drop(d.Redo), Dirty: true}
 }
 
-func drop(cs []Change) []Change { slices.Slice(cs, 0, len(cs)-1) }
+func drop(cs []Change) []Change { slices.Slice(cs, 0, cs.Len()-1) }
 
 // Insert is d with text typed at the caret.
 func Insert(d Doc, text string) Doc {
-	Make(d, []Edit{Inserted{At: d.Caret, Text: text}}, d.Caret+len(text))
+	Make(d, []Edit{Inserted{At: d.Caret, Text: text}}, d.Caret+text.Len())
 }
 
 // Erase is d without the bytes from to to.
@@ -117,8 +117,8 @@ func RuneBefore(d Doc, at int) int {
 		return 0
 	}
 	let tail = piece.Slice(d.Buf, at-4, at)
-	for s in 1..len(tail)+1 {
-		let part = strings.Slice(tail, len(tail)-s, len(tail))
+	for s in 1..tail.Len()+1 {
+		let part = strings.Slice(tail, tail.Len()-s, tail.Len())
 		if utf8.ValidString(part) && utf8.DecodeRuneInString(part).Size == s {
 			return s
 		}
@@ -149,10 +149,10 @@ func Forward(d Doc, from int, col int, limit int) int {
 	let line = piece.Slice(d.Buf, from, limit)
 	let mut at = 0
 	for _ in 0..col {
-		if at >= len(line) {
+		if at >= line.Len() {
 			break
 		}
-		at = at + utf8.DecodeRuneInString(strings.Slice(line, at, len(line))).Size
+		at = at + utf8.DecodeRuneInString(strings.Slice(line, at, line.Len())).Size
 	}
 	from + at
 }

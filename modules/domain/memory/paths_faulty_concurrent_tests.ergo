@@ -1,7 +1,9 @@
 import actor
+import core
 import explore
 import gen
 import github.com/cevr/ergo/modules/domain
+import option
 import sync
 import temporal
 import testing
@@ -35,20 +37,20 @@ type domPathOpenErr { Message string }
 
 type domPathDriveErr { Message string }
 
-type domPathSession { log Log[int] } implements explore.PathSession[domPathAct, explore.Observed[domPathObs, domPathOut, Never], domPathDriveErr]
+type domPathSession { log Log[int] } implements explore.PathSession[domPathAct, explore.Observed[domPathObs, domPathOut, core.Never], domPathDriveErr]
 
-func seenPos(opt Option[domain.Receipt]) int {
+func seenPos(opt option.Option[domain.Receipt]) int {
 	match opt {
-	case Some[domain.Receipt] as r:
+	case option.Some[domain.Receipt] as r:
 		r.Value.Position
-	case None:
+	case option.None:
 		0
 	}
 }
 
 func readDomObs(log Log[int]) domPathObs {
 	domPathObs{
-		Pos: len(log.Read("s", 0)),
+		Pos: log.Read("s", 0).Len(),
 		C1:  seenPos(log.Seen(domain.CommandID("c1"))),
 		C2:  seenPos(log.Seen(domain.CommandID("c2"))),
 	}
@@ -67,23 +69,23 @@ func applyDomAct(log Log[int], act domPathAct) domPathOut fails domPathDriveErr 
 		}
 		DomOutReceipt{Pos: r.Position}
 	case DomActRead as a:
-		DomOutReadCount{Count: len(log.Read("s", a.From))}
+		DomOutReadCount{Count: log.Read("s", a.From).Len()}
 	}
 }
 
-func Read(s domPathSession) explore.Observed[domPathObs, domPathOut, Never] fails domPathDriveErr {
+func Read(s domPathSession) explore.Observed[domPathObs, domPathOut, core.Never] fails domPathDriveErr {
 	explore.InitialRead[domPathObs]{State: readDomObs(s.log)}
 }
 
-func Apply(s domPathSession, act domPathAct) explore.Observed[domPathObs, domPathOut, Never] fails domPathDriveErr {
+func Apply(s domPathSession, act domPathAct) explore.Observed[domPathObs, domPathOut, core.Never] fails domPathDriveErr {
 	let out = try applyDomAct(s.log, act)
 	let obs = readDomObs(s.log)
-	explore.StepResult[domPathObs, domPathOut, Never]{
-		Step: explore.StepObs[domPathObs, domPathOut, Never]{
+	explore.StepResult[domPathObs, domPathOut, core.Never]{
+		Step: explore.StepObs[domPathObs, domPathOut, core.Never]{
 			Kind:     explore.DisEmit,
-			State:    Some[domPathObs]{Value: obs},
+			State:    option.Some[domPathObs]{Value: obs},
 			Outputs:  []domPathOut{out},
-			Error:    None,
+			Error:    option.None,
 			Terminal: false,
 		},
 	}
@@ -135,21 +137,21 @@ func domPathStep(st domPathState, act domPathAct) (domPathState, domPathOut) {
 	}
 }
 
-func domPathModel() explore.PathModel[domPathState, domPathAct, domPathObs, domPathOut, Never] {
-	explore.PathModelProjected[domPathState, domPathAct, domPathObs, domPathOut, Never](
+func domPathModel() explore.PathModel[domPathState, domPathAct, domPathObs, domPathOut, core.Never] {
+	explore.PathModelProjected[domPathState, domPathAct, domPathObs, domPathOut, core.Never](
 		[]domPathState{domPathState{Pos: 0, C1: 0, C1Ev: 0, C2: 0, C2Ev: 0}},
 		domPathSignals,
 		"domain.memory.log",
 		domPathProject,
-		func(st domPathState, act domPathAct) explore.EdgeOutcome[domPathState, explore.StepObs[domPathObs, domPathOut, Never]] {
+		func(st domPathState, act domPathAct) explore.EdgeOutcome[domPathState, explore.StepObs[domPathObs, domPathOut, core.Never]] {
 			let (next, out) = domPathStep(st, act)
-			explore.Continue[domPathState, explore.StepObs[domPathObs, domPathOut, Never]]{
+			explore.Continue[domPathState, explore.StepObs[domPathObs, domPathOut, core.Never]]{
 				Next: next,
-				Obs:  explore.StepObs[domPathObs, domPathOut, Never]{
+				Obs:  explore.StepObs[domPathObs, domPathOut, core.Never]{
 					Kind:     explore.DisEmit,
-					State:    Some[domPathObs]{Value: domPathProject(next)},
+					State:    option.Some[domPathObs]{Value: domPathProject(next)},
 					Outputs:  []domPathOut{out},
-					Error:    None,
+					Error:    option.None,
 					Terminal: false,
 				},
 			}
@@ -168,7 +170,7 @@ type DomainMemoryPaths {
 			domPathModel(),
 			explore.ToDepth{Depth: 3},
 			bounds,
-			func(start domPathState) explore.PathSession[domPathAct, explore.Observed[domPathObs, domPathOut, Never], domPathDriveErr] fails domPathOpenErr {
+			func(start domPathState) explore.PathSession[domPathAct, explore.Observed[domPathObs, domPathOut, core.Never], domPathDriveErr] fails domPathOpenErr {
 				try OpenSession(start)
 			},
 			testing.ActiveEvidenceSink(),
@@ -195,17 +197,17 @@ func OpenSession(_ memDomPaths, start domPathState) domPathSession fails domPath
 law SourcedLogFaultsRecoverCleanly() {
 	let cfg = gen.Config{Seed: uint64(1), Cases: 32, Shrinks: 0, MaxDraws: 512, MaxRejected: 10}
 	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
-		with context { Scheduler: time.NewManual(0) } {
+		with context { time.Scheduler: time.NewManual(0) } {
 			let inner = New[Event]()
 			let faulty = testing.Faulty[domain.Log[Event]](inner)
 			let store = domain.Sourced[Tally, domain.Envelope[Command], Event](faulty, "tally", Fresh, Evolve)
 			let a = match open(store) {
-			case Some[host] as h:
+			case option.Some[host] as h:
 				h.Value
-			case None:
+			case option.None:
 				return false
 			}
-			let faultsBefore = len(faulty.Append.Faults())
+			let faultsBefore = faulty.Append.Faults().Len()
 			let env = domain.Envelope[Command]{ID: domain.CommandID("k1"), By: "t", At: time.Unix(0, 0), Command: Add{N: 5}}
 			let mut stopped = false
 			let _ = domain.Send(a, env) catch {
@@ -215,21 +217,21 @@ law SourcedLogFaultsRecoverCleanly() {
 				stopped = true
 				domain.Receipt{ID: env.ID, Stream: "", Position: 0}
 			}
-			if len(faulty.Append.Faults()) > faultsBefore {
+			if faulty.Append.Faults().Len() > faultsBefore {
 				sometimes stopped
 				if !stopped {
 					return false
 				}
-				if len(inner.Read("tally", 0)) != 0 {
+				if inner.Read("tally", 0).Len() != 0 {
 					return false
 				}
 				let recovered = match open(store) {
-				case Some[host] as h:
+				case option.Some[host] as h:
 					h.Value
-				case None:
+				case option.None:
 					return false
 				}
-				let ok = Agrees(recovered.State(), inner.Read("tally", 0), Map[domain.CommandID, domain.Receipt]{}, func(id domain.CommandID) Option[domain.Receipt] { inner.Seen(id) })
+				let ok = Agrees(recovered.State(), inner.Read("tally", 0), Map[domain.CommandID, domain.Receipt]{}, func(id domain.CommandID) option.Option[domain.Receipt] { inner.Seen(id) })
 				recovered.Stop() catch {
 				case _:
 				}
@@ -239,7 +241,7 @@ law SourcedLogFaultsRecoverCleanly() {
 				return false
 			}
 			sometimes !stopped
-			let ok = a.State().State.Total == 5 && len(inner.Read("tally", 0)) == 1
+			let ok = a.State().State.Total == 5 && inner.Read("tally", 0).Len() == 1
 			a.Stop() catch {
 			case _:
 			}
@@ -312,7 +314,7 @@ func Show(st tallyStage) tallyObs {
 		Total:   l.State.Total,
 		Decides: l.State.Decides,
 		Pos:     l.Position,
-		LogLen:  len(st.log.Read("tally", 0)),
+		LogLen:  st.log.Read("tally", 0).Len(),
 	}
 }
 
@@ -321,13 +323,13 @@ func Show(st tallyStage) tallyObs {
 law SourcedActorModelTemporal() {
 	let cfg = gen.Config{Seed: uint64(1), Cases: 20, Shrinks: 0, MaxDraws: 512, MaxRejected: 10}
 	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
-		with context { Scheduler: time.NewManual(0) } {
+		with context { time.Scheduler: time.NewManual(0) } {
 			let log = New[Event]()
 			let store = domain.Sourced[Tally, domain.Envelope[Command], Event](log, "tally", Fresh, Evolve)
 			let h = match open(store) {
-			case Some[host] as x:
+			case option.Some[host] as x:
 				x.Value
-			case None:
+			case option.None:
 				return false
 			}
 			let seq = sync.NewRef(0)
@@ -399,7 +401,7 @@ func logConcStep(b Book[int], act logConcAct) (Book[int], int) {
 			(b, -2)
 		}
 	case LogConcRead:
-		(b, len(After(b, "s", 0)))
+		(b, After(b, "s", 0).Len())
 	}
 }
 
@@ -435,7 +437,7 @@ law DomainMemoryLogConcurrentLinearizable() {
 				}
 				r.Position
 			case LogConcRead:
-				len(log.Read("s", 0))
+				log.Read("s", 0).Len()
 			}
 		}) catch {
 		case testing.NotLinearizable[logConcAct, int]:

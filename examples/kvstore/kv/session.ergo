@@ -24,7 +24,7 @@ func Exec(c Command) []string fails Broken needs Store {
 		[]string{"deleted " + d.Key}
 	case Keys:
 		let keys = try Store.Keys()
-		if len(keys) == 0 {
+		if keys.Len() == 0 {
 			return []string{"no keys"}
 		}
 		keys

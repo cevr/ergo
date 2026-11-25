@@ -58,20 +58,20 @@ func genProse(index int) string {
 }
 
 func genTS(seed int) string {
-	with context { Random: rand.Seeded(uint64(seed)) } {
-		let nl = if Random.IntN(3) == 0 { "\r\n" } else { "\n" }
+	with context { rand.Random: rand.Seeded(uint64(seed)) } {
+		let nl = if rand.Random.IntN(3) == 0 { "\r\n" } else { "\n" }
 		let mut parts = []string{}
-		if Random.IntN(2) == 0 {
+		if rand.Random.IntN(2) == 0 {
 			parts = parts.Append("#!/usr/bin/env bun")
 		}
-		let count = 3 + Random.IntN(8)
+		let count = 3 + rand.Random.IntN(8)
 		for i in 0..count {
-			let kind = Random.IntN(12)
+			let kind = rand.Random.IntN(12)
 			match kind {
 			case 0:
-				parts = parts.Append(genDirective(Random.IntN(15)))
+				parts = parts.Append(genDirective(rand.Random.IntN(15)))
 			case 1:
-				parts = parts.Append(genProse(Random.IntN(8)))
+				parts = parts.Append(genProse(rand.Random.IntN(8)))
 			case 2:
 				parts = parts.Append("const a\(i) = 1 // trailing note")
 			case 3:
@@ -99,19 +99,19 @@ func genTS(seed int) string {
 }
 
 func genTSX(seed int) string {
-	with context { Random: rand.Seeded(uint64(seed)) } {
-		let nl = if Random.IntN(3) == 0 { "\r\n" } else { "\n" }
+	with context { rand.Random: rand.Seeded(uint64(seed)) } {
+		let nl = if rand.Random.IntN(3) == 0 { "\r\n" } else { "\n" }
 		let mut lines = []string{}
-		if Random.IntN(2) == 0 {
+		if rand.Random.IntN(2) == 0 {
 			lines = lines.Append("/** @jsxImportSource react */")
 		}
 		lines = lines.Append("export function View() {")
 		lines = lines.Append("  // build tree")
 		lines = lines.Append("  return (")
 		lines = lines.Append("    <section /* attr note */ id=\"root\">")
-		let count = 2 + Random.IntN(6)
+		let count = 2 + rand.Random.IntN(6)
 		for i in 0..count {
-			match Random.IntN(8) {
+			match rand.Random.IntN(8) {
 			case 0:
 				lines = lines.Append("      {/* jsx comment \(i) */}")
 			case 1:
@@ -159,10 +159,10 @@ func codeTokens(src string) []string {
 }
 
 func sameStrings(a []string, b []string) bool {
-	if len(a) != len(b) {
+	if a.Len() != b.Len() {
 		return false
 	}
-	for i in 0..len(a) {
+	for i in 0..a.Len() {
 		if a[i] != b[i] {
 			return false
 		}
@@ -249,20 +249,20 @@ law FixPreservesCodeTokensTSX(seed int) {
 test EveryDirectiveFormPreserved {
 	let shebang = "#!/usr/bin/env bun\nconst x = 1\n"
 	let sc = Comments(shebang)
-	assert len(sc) == 1 && sc[0].Form == 0 && Fix(shebang) == shebang
-	for i in 1..len(DirectiveForms) {
+	assert sc.Len() == 1 && sc[0].Form == 0 && Fix(shebang) == shebang
+	for i in 1..DirectiveForms.Len() {
 		for o in DirectiveForms[i].Openings {
 			let lineSrc = "//" + o + " payload\nconst x = 1\n"
 			let lc = Comments(lineSrc)
-			assert len(lc) == 1 && lc[0].Form == i && Fix(lineSrc) == lineSrc
+			assert lc.Len() == 1 && lc[0].Form == i && Fix(lineSrc) == lineSrc
 			if DirectiveForms[i].Name != "triple-slash" {
 				let blockSrc = "/* " + o + " payload */\nconst x = 1\n"
 				let bc = Comments(blockSrc)
-				assert len(bc) == 1 && bc[0].Form == i && Fix(blockSrc) == blockSrc
+				assert bc.Len() == 1 && bc[0].Form == i && Fix(blockSrc) == blockSrc
 			}
 			let proseSrc = "// note about " + o + "\nconst x = 1\n"
 			let pc = Comments(proseSrc)
-			assert len(pc) == 1 && pc[0].Form == Prose && Fix(proseSrc) == "const x = 1\n"
+			assert pc.Len() == 1 && pc[0].Form == Prose && Fix(proseSrc) == "const x = 1\n"
 		}
 	}
 }

@@ -3,7 +3,7 @@ import strings
 
 func stripUnescapedTrailingSpaces(line string) string {
 	let bs = line.Bytes()
-	let mut end = len(bs)
+	let mut end = bs.Len()
 	for end > 0 && bs[end-1] == byte(' ') {
 		if end >= 2 && bs[end-2] == byte('\\') {
 			break
@@ -77,7 +77,7 @@ func ParseGitignore(baseDir string, content string) []IgnoreRule {
 }
 
 func matchCharClass(pb []byte, pStart int, ch byte) (bool, int) {
-	let n = len(pb)
+	let n = pb.Len()
 	let mut i = pStart + 1
 	if i >= n {
 		return (false, pStart)
@@ -113,8 +113,8 @@ func matchCharClass(pb []byte, pStart int, ch byte) (bool, int) {
 }
 
 func globMatchBytes(pb []byte, pi int, sb []byte, si int) bool {
-	let pn = len(pb)
-	let sn = len(sb)
+	let pn = pb.Len()
+	let sn = sb.Len()
 	if pi == pn {
 		return si == sn
 	}

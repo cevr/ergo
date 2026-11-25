@@ -23,8 +23,8 @@ func exploreProperties() []temporal.Formula[ui.ExploreSnapshot[catalog.State, sc
 	props = props.Append(temporal.Always[ui.ExploreSnapshot[catalog.State, screen.Signal]](
 		temporal.Named[ui.ExploreSnapshot[catalog.State, screen.Signal]]("grid-bounds-valid", func(s ui.ExploreSnapshot[catalog.State, screen.Signal]) bool {
 			let g = catalog.GridOf(s.State)
-			let viewOK = len(g.View) <= len(g.Rows)
-			let cursorOK = if len(g.View) == 0 { g.Cursor == 0 && g.Top == 0 } else { g.Cursor >= 0 && g.Cursor < len(g.View) && g.Top >= 0 && g.Top < len(g.View) }
+			let viewOK = g.View.Len() <= g.Rows.Len()
+			let cursorOK = if g.View.Len() == 0 { g.Cursor == 0 && g.Top == 0 } else { g.Cursor >= 0 && g.Cursor < g.View.Len() && g.Top >= 0 && g.Top < g.View.Len() }
 			viewOK && cursorOK && g.Height == 4
 		}),
 	))
@@ -33,7 +33,7 @@ func exploreProperties() []temporal.Formula[ui.ExploreSnapshot[catalog.State, sc
 
 func exploreOnce(steps int) ui.Finding needs gen.Draws {
 	let clock = time.NewManual(0)
-	with context { Scheduler: clock } {
+	with context { time.Scheduler: clock } {
 		let a = actor.StartMachine(machines.Start(screen.App{}, screen.Opening{Rows: sampleStars(), Height: 4}), 8, func(_ catalog.Refused) {})
 		let mut h = ui.NewTestHost(a, screen.View, clock, 4) catch {
 		case ui.BadPatch as bp:

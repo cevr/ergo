@@ -1,6 +1,8 @@
 import actor
 import machines
+import option
 import strings
+import time
 
 // Library is the library as pages of parts.
 type Library { Pages [][]Part }
@@ -29,16 +31,16 @@ law HistoryRestores(page int, i int, query string, fromSearch bool, add bool) {
 		m.Pages[small(page)%2]
 	}
 	match screenAfter(Step(h, Open{Index: small(i)})) {
-	case Some[Screen] as s:
+	case option.Some[Screen] as s:
 		let ending HubSignal = if add { UnitAdded{L: lineOf(i)} } else { EditorBack }
 		match screenAfter(Step(Hub{..h, Screen: s.Value}, ending)) {
-		case Some[Screen] as after:
+		case option.Some[Screen] as after:
 			sameScreen(after.Value, from)
-		case None:
+		case option.None:
 			false
 		}
-	case None:
-		small(i) >= len(parts)
+	case option.None:
+		small(i) >= parts.Len()
 	}
 }
 
@@ -57,14 +59,14 @@ func fixture() Library {
 
 func lineOf(n int) Unit { Unit{Part: "l\(small(n))", Size: small(n)*100 + 1, Count: small(n) + 1, Subs: []Unit{}} }
 
-func screenAfter(d Decision[Hub, Plan]) Option[Screen] {
+func screenAfter(d machines.Decision[Hub, Plan]) option.Option[Screen] {
 	match d {
-	case Enter[Hub] as x:
-		Some{x.Next.Screen}
-	case Stay[Hub] as x:
-		Some{x.Next.Screen}
+	case machines.Enter[Hub] as x:
+		option.Some{x.Next.Screen}
+	case machines.Stay[Hub] as x:
+		option.Some{x.Next.Screen}
 	case _:
-		None
+		option.None
 	}
 }
 
@@ -91,10 +93,10 @@ law BackChangesNothing(ns []int, n int, text string, add bool) {
 	let h = Hub{Library: fixture(), Units: plan, Screen: Editing{Part: fixture().Pages[0][0], From: FromList{Page: 0}, Editor: actor.NewHost[EditActor]()}}
 	if add {
 		let after = basketAfter(Step(h, UnitAdded{L: lineOf(n)}))
-		len(after) == len(plan)+1 && Total(after) == Total(plan)+Total([]Unit{lineOf(n)})
+		after.Len() == plan.Len()+1 && Total(after) == Total(plan)+Total([]Unit{lineOf(n)})
 	} else {
 		let after = basketAfter(Step(h, EditorBack))
-		len(after) == len(plan) && Total(after) == Total(plan)
+		after.Len() == plan.Len() && Total(after) == Total(plan)
 	}
 }
 
@@ -106,11 +108,11 @@ func basketOf(ns []int) []Unit {
 	out
 }
 
-func basketAfter(d Decision[Hub, Plan]) []Unit {
+func basketAfter(d machines.Decision[Hub, Plan]) []Unit {
 	match d {
-	case Enter[Hub] as x:
+	case machines.Enter[Hub] as x:
 		x.Next.Units
-	case Stay[Hub] as x:
+	case machines.Stay[Hub] as x:
 		x.Next.Units
 	case _:
 		[]Unit{}
@@ -145,7 +147,7 @@ law EditorOpensOnlyFromAList(n int, m int, text string) {
 	match (s, screenAfter(Step(h, e))) {
 	case (Editing, _):
 		true
-	case (_, Some[Screen] as next):
+	case (_, option.Some[Screen] as next):
 		match next.Value {
 		case Editing:
 			match e {
@@ -157,7 +159,7 @@ law EditorOpensOnlyFromAList(n int, m int, text string) {
 		case _:
 			true
 		}
-	case (_, None):
+	case (_, option.None):
 		true
 	}
 }
@@ -192,7 +194,7 @@ type Plan { Units []Unit, Total int }
 type Builder machine[Hub, HubSignal] { initial: Start, step: Step, work: hubWork }
 
 // HubActor is the hub's address (an alias, as EditActor is).
-type HubActor = actor.Actor[Hub, HubSignal, Decision[Hub, Plan]]
+type HubActor = actor.Actor[Hub, HubSignal, machines.Decision[Hub, Plan]]
 
 func Start(m Library) Hub { Hub{Library: m, Units: []Unit{}, Screen: Browsing{Page: 0}} }
 
@@ -228,45 +230,45 @@ func back(f From) Screen {
 	}
 }
 
-func show(h Hub, s Screen) Decision[Hub, Plan] { Stay[Hub]{Next: Hub{..h, Screen: s}} }
+func show(h Hub, s Screen) machines.Decision[Hub, Plan] { machines.Stay[Hub]{Next: Hub{..h, Screen: s}} }
 
-func open(h Hub, s Screen) Decision[Hub, Plan] { Enter[Hub]{Next: Hub{..h, Screen: s}} }
+func open(h Hub, s Screen) machines.Decision[Hub, Plan] { machines.Enter[Hub]{Next: Hub{..h, Screen: s}} }
 
 // pick opens the editor of the i-th of parts.
-func pick(h Hub, parts []Part, i int, from From) Decision[Hub, Plan] {
-	if i < 0 || i >= len(parts) {
-		return Reject
+func pick(h Hub, parts []Part, i int, from From) machines.Decision[Hub, Plan] {
+	if i < 0 || i >= parts.Len() {
+		return machines.Reject
 	}
 	open(h, Editing{Part: parts[i], From: from, Editor: actor.NewHost[EditActor]()})
 }
 
 // Step is the hub's step: a match on the screen region and the signal.
-func Step(h Hub, e HubSignal) Decision[Hub, Plan] {
+func Step(h Hub, e HubSignal) machines.Decision[Hub, Plan] {
 	match (h.Screen, e) {
 	case (Browsing as b, Next):
-		if b.Page+1 < len(h.Library.Pages) {
+		if b.Page+1 < h.Library.Pages.Len() {
 			show(h, Browsing{Page: b.Page + 1})
 		} else {
-			Reject
+			machines.Reject
 		}
 	case (Browsing as b, Prev):
 		if b.Page > 0 {
 			show(h, Browsing{Page: b.Page - 1})
 		} else {
-			Reject
+			machines.Reject
 		}
 	case (Browsing as b, Open as o):
 		pick(h, h.Library.Pages[b.Page], o.Index, FromList{Page: b.Page})
 	case (Browsing as b, Search):
 		open(h, Searching{Query: "", Page: b.Page})
 	case (Browsing, Deploy):
-		if len(h.Units) > 0 {
-			Done[Plan]{Output: Plan{Units: h.Units, Total: Total(h.Units)}}
+		if h.Units.Len() > 0 {
+			machines.Done[Plan]{Output: Plan{Units: h.Units, Total: Total(h.Units)}}
 		} else {
-			Reject
+			machines.Reject
 		}
 	case (Browsing, _):
-		Ignore
+		machines.Ignore
 	case (Searching as q, Type as t):
 		show(h, Searching{..q, Query: t.Text})
 	case (Searching as q, Open as o):
@@ -274,13 +276,13 @@ func Step(h Hub, e HubSignal) Decision[Hub, Plan] {
 	case (Searching as q, Close):
 		open(h, Browsing{Page: q.Page})
 	case (Searching, _):
-		Ignore
+		machines.Ignore
 	case (Editing as ed, UnitAdded as a):
-		Enter[Hub]{Next: Hub{..h, Units: h.Units.Append(a.L), Screen: back(ed.From)}}
+		machines.Enter[Hub]{Next: Hub{..h, Units: h.Units.Append(a.L), Screen: back(ed.From)}}
 	case (Editing as ed, EditorBack):
 		open(h, back(ed.From))
 	case (Editing, _):
-		Ignore
+		machines.Ignore
 	}
 }
 
@@ -296,15 +298,15 @@ func toHub(o EditOut) HubSignal {
 
 // hubWork: Editing hosts the part's editor, a child of the entry; the
 // same Editor machine is a child of the hub and of an editor.
-func hubWork(h Hub) Option[machines.Work[HubSignal, Scheduler]] {
+func hubWork(h Hub) option.Option[machines.Work[HubSignal, time.Scheduler]] {
 	match h.Screen {
 	case Editing as ed:
-		Some{machines.Work{Start: func(send entry func(e HubSignal)) needs Scheduler {
+		option.Some{machines.Work{Start: func(send entry func(e HubSignal)) needs time.Scheduler {
 			let _ = actor.ChildIn(send, ed.Editor, machines.Start(Editor{}, ed.Part), 4, toHub)
 		}}}
 	case Browsing:
-		None
+		option.None
 	case Searching:
-		None
+		option.None
 	}
 }

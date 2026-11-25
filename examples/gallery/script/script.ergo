@@ -11,6 +11,8 @@ import actor
 import gallery/gallery
 import gallery/screen
 import io
+import machines
+import option
 import queue
 import strconv
 import strings
@@ -46,7 +48,7 @@ func Read(text []string) Script fails BadLine {
 			continue
 		}
 		let words = strings.Fields(t)
-		if len(words) < 2 || !strings.HasPrefix(words[0], "@") {
+		if words.Len() < 2 || !strings.HasPrefix(words[0], "@") {
 			return BadLine{Line: n, Why: "a line is @MS WORD ..."}
 		}
 		let at = try count(n, strings.TrimPrefix(words[0], "@"))
@@ -54,7 +56,7 @@ func Read(text []string) Script fails BadLine {
 			return BadLine{Line: n, Why: "the time goes back"}
 		}
 		last = at
-		let rest = if len(words) > 2 { strings.Join(words[2:len(words)], " ") } else { "" }
+		let rest = if words.Len() > 2 { strings.Join(words[2:words.Len()], " ") } else { "" }
 		let act Act = match words[1] {
 		case "end":
 			return Script{Lines: lines, End: at}
@@ -73,7 +75,7 @@ func Read(text []string) Script fails BadLine {
 		}
 		lines = lines.Append(Line{At: at, Act: act})
 	}
-	BadLine{Line: len(text) + 1, Why: "the script has no @MS end line"}
+	BadLine{Line: text.Len() + 1, Why: "the script has no @MS end line"}
 }
 
 func count(n int, word string) int fails BadLine {
@@ -90,15 +92,15 @@ func count(n int, word string) int fails BadLine {
 }
 
 // Site is the running site.
-type Site = actor.Actor[gallery.Site, gallery.Signal, Decision[gallery.Site, []gallery.Action]]
+type Site = actor.Actor[gallery.Site, gallery.Signal, machines.Decision[gallery.Site, []gallery.Action]]
 
-type Host = ui.TestHost[gallery.Site, gallery.Signal, Decision[gallery.Site, []gallery.Action]]
+type Host = ui.TestHost[gallery.Site, gallery.Signal, machines.Decision[gallery.Site, []gallery.Action]]
 
 type Ran { Seen int, Asks []string }
 
 type Frame { Head string, Asks []string, Lines []string, Counts ui.StepCounts }
 
-func PlayScreen[R](s Script, clock time.Manual, show func(f Frame) needs R) fails actor.Stopped | ui.BadPatch needs R | time.Clock | Scheduler | gallery.Drafts {
+func PlayScreen[R](s Script, clock time.Manual, show func(f Frame) needs R) fails actor.Stopped | ui.BadPatch needs R | time.Clock | time.Scheduler | gallery.Drafts {
 	let gone = queue.New[[]gallery.Action](64)
 	let site = actor.StartMachine(gallery.Gallerist{}, 16, func(cs []gallery.Action) {
 		gone.Push(cs) catch {
@@ -113,40 +115,40 @@ func PlayScreen[R](s Script, clock time.Manual, show func(f Frame) needs R) fail
 	site.Stop()
 }
 
-func played[R](site Site, gone queue.Queue[[]gallery.Action], s Script, clock time.Manual, show func(f Frame) needs R) fails actor.Stopped | ui.BadPatch needs R | Scheduler {
+func played[R](site Site, gone queue.Queue[[]gallery.Action], s Script, clock time.Manual, show func(f Frame) needs R) fails actor.Stopped | ui.BadPatch needs R | time.Scheduler {
 	let mut h = try ui.NewTestHost(site, screen.Screen, clock, 16)
 	let start = clock.Now()
 	let mut seen = 0
 	let mut now = 0
-	for i in 0..len(s.Lines)+1 {
-		let until = if i < len(s.Lines) { s.Lines[i].At } else { s.End }
+	for i in 0..s.Lines.Len()+1 {
+		let until = if i < s.Lines.Len() { s.Lines[i].At } else { s.End }
 		// The site's work answers its jobs as the clock reaches them: the
 		// host moves the clock to each job due by then, in time order, and
 		// shows what its answer changed.
 		for {
-			let mut next Option[gallery.Job] = None
+			let mut next option.Option[gallery.Job] = option.None
 			let mut at = 0
 			for j in ui.StateOf(&h).Jobs {
 				match j.Due {
-				case Some[time.Time] as d:
+				case option.Some[time.Time] as d:
 					let ms = int(int64(d.Value.Sub(start)) / int64(1000000))
 					let first = match next {
-					case Some[gallery.Job]:
+					case option.Some[gallery.Job]:
 						ms < at
-					case None:
+					case option.None:
 						true
 					}
 					if ms <= until && first {
-						next = Some[gallery.Job]{Value: j}
+						next = option.Some[gallery.Job]{Value: j}
 						at = ms
 					}
-				case None:
+				case option.None:
 				}
 			}
 			let j = match next {
-			case Some[gallery.Job] as n:
+			case option.Some[gallery.Job] as n:
 				n.Value
-			case None:
+			case option.None:
 				break
 			}
 			try ui.Advance(&h, time.Times(1ms, at-now))
@@ -159,7 +161,7 @@ func played[R](site Site, gone queue.Queue[[]gallery.Action], s Script, clock ti
 		try ui.Advance(&h, time.Times(1ms, until-now))
 		try ui.Settle(&h)
 		now = until
-		if i == len(s.Lines) {
+		if i == s.Lines.Len() {
 			show(Frame{Head: "@\(now) end", Asks: []string{}, Lines: View(&h), Counts: ui.Counts(&h)})
 			return
 		}
@@ -208,9 +210,9 @@ func run(h mut Host, gone queue.Queue[[]gallery.Action], seen int) Ran fails act
 	let mut ran = asked(h, Ran{Seen: seen, Asks: []string{}})
 	for {
 		let cs = match gone.Poll() {
-		case Some[[]gallery.Action] as x:
+		case option.Some[[]gallery.Action] as x:
 			x.Value
-		case None:
+		case option.None:
 			return ran
 		}
 		for c in cs {
@@ -241,38 +243,38 @@ func asked(h mut Host, r Ran) Ran {
 // each frame: its heading, what the site asked, and the screen's lines
 // that changed; with stats, the work of each step too. It returns the
 // exit status: 0, or 1 when the script is refused or the screen fails.
-func Run(clock time.Manual, stats bool) int needs Console | io.Stdin | time.Clock | Scheduler | gallery.Drafts {
+func Run(clock time.Manual, stats bool) int needs io.Console | io.Stdin | time.Clock | time.Scheduler | gallery.Drafts {
 	let mut text = []string{}
 	for line in io.Stdin.Lines() {
 		text = text.Append(line)
 	}
 	let s = Read(text) catch {
 	case BadLine as b:
-		Console.Println("? line \(b.Line): \(b.Why)")
+		io.Console.Println("? line \(b.Line): \(b.Why)")
 		return 1
 	}
 	let shown = sync.NewRef[[]string]([]string{})
-	PlayScreen(s, clock, func(f Frame) needs Console {
-		Console.Println(f.Head)
-		if len(f.Asks) > 0 {
-			Console.Println("  asks: " + strings.Join(f.Asks, ", "))
+	PlayScreen(s, clock, func(f Frame) needs io.Console {
+		io.Console.Println(f.Head)
+		if f.Asks.Len() > 0 {
+			io.Console.Println("  asks: " + strings.Join(f.Asks, ", "))
 		}
 		let before = shown.Get()
 		for k, l in f.Lines {
-			if k >= len(before) || before[k] != l {
-				Console.Println("  " + l)
+			if k >= before.Len() || before[k] != l {
+				io.Console.Println("  " + l)
 			}
 		}
 		shown.Set(f.Lines)
 		if stats {
-			Console.Println("  stats: \(ui.CountsLine(f.Counts))")
+			io.Console.Println("  stats: \(ui.CountsLine(f.Counts))")
 		}
 	}) catch {
 	case actor.Stopped:
-		Console.Println("? the site stopped")
+		io.Console.Println("? the site stopped")
 		return 1
 	case ui.BadPatch as p:
-		Console.Println("? a patch is refused: \(p.Why)")
+		io.Console.Println("? a patch is refused: \(p.Why)")
 		return 1
 	}
 	0

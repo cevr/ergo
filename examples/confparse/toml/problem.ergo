@@ -11,7 +11,7 @@ type Problem = Unexpected | Unterminated | BadEscape | TooBig | Duplicate
 law ProblemPointsIntoTheText(text string, seed int, cut int) {
 	let printed = Print(Sample(seed))
 	let k = if cut < 0 { -(cut + 1) } else { cut }
-	let broken = strings.Slice(printed, 0, k%(len(printed)+1)) + text
+	let broken = strings.Slice(printed, 0, k%(printed.Len()+1)) + text
 	for t in []string{text, broken, printed + printed} {
 		let _ = Parse(t) catch {
 		case err:
@@ -29,7 +29,7 @@ law ProblemPointsIntoTheText(text string, seed int, cut int) {
 func Points(p Problem, text string) bool {
 	let lines = strings.Split(text, "\n")
 	let pos = PosOf(p)
-	if pos.Line < 1 || pos.Line > len(lines) || pos.Column < 1 || pos.Column > len(lines[pos.Line-1])+1 {
+	if pos.Line < 1 || pos.Line > lines.Len() || pos.Column < 1 || pos.Column > lines[pos.Line-1].Len()+1 {
 		return false
 	}
 	match p {

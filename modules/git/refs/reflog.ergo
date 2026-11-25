@@ -19,13 +19,13 @@ func ParseReflog(format oid.Format, name string, content string) []ReflogEntry f
 		let meta = line[:tabPos]
 		let msg = line[tabPos+1:]
 		let sp1 = strings.Index(meta, " ")
-		if sp1 <= 0 || sp1+1 >= len(meta) {
+		if sp1 <= 0 || sp1+1 >= meta.Len() {
 			return CorruptRef{Name: name, Why: "reflog entry missing old OID"}
 		}
 		let oldHex = meta[:sp1]
 		let rest = meta[sp1+1:]
 		let sp2 = strings.Index(rest, " ")
-		if sp2 <= 0 || sp2+1 >= len(rest) {
+		if sp2 <= 0 || sp2+1 >= rest.Len() {
 			return CorruptRef{Name: name, Why: "reflog entry missing new OID"}
 		}
 		let newHex = rest[:sp2]

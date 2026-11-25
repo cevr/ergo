@@ -1,5 +1,6 @@
 import fs
 import json
+import option
 import slices
 import strings
 import time
@@ -16,7 +17,7 @@ func Rm(t Tool, name string, o RmOptions) []Removed fails NoBase | BadConfig | N
 	let mut out = []Removed{}
 	if o.Tree {
 		for w in try descendants(t, name) {
-			out = out.Append(try removeLeaf(t, c, w.Name, Some[string]{Value: w.Id}, o.Abandon, 0))
+			out = out.Append(try removeLeaf(t, c, w.Name, option.Some[string]{Value: w.Id}, o.Abandon, 0))
 		}
 	}
 	out.Append(try removeLeaf(t, c, name, o.Expect, o.Abandon, 0))
@@ -27,7 +28,7 @@ func Rm(t Tool, name string, o RmOptions) []Removed fails NoBase | BadConfig | N
 // lock, it writes the intent, moves the folder to the trash and writes
 // that it is there; then it runs the postremove hooks. The trash is not
 // purged before the second until (0: at any time).
-func removeLeaf(t Tool, c Config, name string, expect Option[string], abandon bool, until int64) Removed fails NoWorkspace | NotHeld | Busy | Exists | Missing | CloneFailed | Unkept | VcsFailed | HookFailed | Locked | IdMismatch | HasDescendants {
+func removeLeaf(t Tool, c Config, name string, expect option.Option[string], abandon bool, until int64) Removed fails NoWorkspace | NotHeld | Busy | Exists | Missing | CloneFailed | Unkept | VcsFailed | HookFailed | Locked | IdMismatch | HasDescendants {
 	let env = try t.Check(c, name, expect, abandon)
 	match try Intend(t, name, expect, abandon, until) {
 	case Removed as r:
@@ -49,7 +50,7 @@ func forGood(t Tool, r Removed) Removed fails Missing | CloneFailed | Unkept | L
 	if r.Id == "" {
 		return r
 	}
-	let due = try Collect(t, Some[string]{Value: r.Id}, 0s)
+	let due = try Collect(t, option.Some[string]{Value: r.Id}, 0s)
 	for w in due {
 		try t.DiscardOf(w)
 	}
@@ -87,7 +88,7 @@ func NotHeldWhy(branch string, checkout string, head string, dirty bool, unheld 
 	if branch != "" && checkout != branch {
 		parts = parts.Append(if checkout == "" { "its HEAD is detached, not on its branch \(branch)" } else { "it has \(checkout) checked out, not its branch \(branch)" })
 	}
-	if len(parts) == 0 {
+	if parts.Len() == 0 {
 		parts = parts.Append("its snapshot is not the one the parent last took")
 	}
 	strings.Join(parts, "; ") + ": push or merge that work, or rm -abandon to drop it"
@@ -96,14 +97,14 @@ func NotHeldWhy(branch string, checkout string, head string, dirty bool, unheld 
 // Check is rm's first step, with no lock: a workspace whose work is not
 // held in its parent is NotHeld (unless it is abandoned), and the
 // preremove hooks run. It is the hooks' environment.
-func Check(t Tool, c Config, name string, expect Option[string], abandon bool) []Setting fails NotHeld | Busy | Unkept | VcsFailed | HookFailed {
+func Check(t Tool, c Config, name string, expect option.Option[string], abandon bool) []Setting fails NotHeld | Busy | Unkept | VcsFailed | HookFailed {
 	match try live(t, name) {
-	case Some[Workspace] as found:
+	case option.Some[Workspace] as found:
 		let w = found.Value
 		let mine = match expect {
-		case Some[string] as e:
+		case option.Some[string] as e:
 			e.Value == w.Id
-		case None:
+		case option.None:
 			true
 		}
 		if !mine {
@@ -139,7 +140,7 @@ func Check(t Tool, c Config, name string, expect Option[string], abandon bool) [
 		case HooksRan, Untrusted:
 		}
 		env
-	case None:
+	case option.None:
 		[]Setting{}
 	}
 }
@@ -149,7 +150,7 @@ func Check(t Tool, c Config, name string, expect Option[string], abandon bool) [
 // to remove gets its intent written, and the lock stays held for MoveOut
 // and Settle; any other answer gives the lock back. The intent's trash
 // is not purged before the second until.
-func Intend(t Tool, name string, expect Option[string], abandon bool, until int64) Removal fails NoWorkspace | IdMismatch | HasDescendants | Busy | Unkept | Locked {
+func Intend(t Tool, name string, expect option.Option[string], abandon bool, until int64) Removal fails NoWorkspace | IdMismatch | HasDescendants | Busy | Unkept | Locked {
 	try hold(t)
 	let r = intend(t, name, expect, abandon, until) catch {
 	case NoWorkspace as e:
@@ -176,15 +177,15 @@ func Intend(t Tool, name string, expect Option[string], abandon bool, until int6
 	r
 }
 
-func intend(t Tool, name string, expect Option[string], abandon bool, until int64) Removal fails NoWorkspace | IdMismatch | HasDescendants | Busy | Unkept {
+func intend(t Tool, name string, expect option.Option[string], abandon bool, until int64) Removal fails NoWorkspace | IdMismatch | HasDescendants | Busy | Unkept {
 	let all = try t.registry.All()
 	let row = liveIn(all, name)
 	match expect {
-	case Some[string] as e:
+	case option.Some[string] as e:
 		let here = match row {
-		case Some[Workspace] as w:
+		case option.Some[Workspace] as w:
 			w.Value.Id
-		case None:
+		case option.None:
 			""
 		}
 		if here != e.Value {
@@ -193,12 +194,12 @@ func intend(t Tool, name string, expect Option[string], abandon bool, until int6
 			}
 			return IdMismatch{Name: name, Expected: e.Value, Found: here}
 		}
-	case None:
+	case option.None:
 	}
 	let w = match row {
-	case Some[Workspace] as found:
+	case option.Some[Workspace] as found:
 		found.Value
-	case None:
+	case option.None:
 		return NoWorkspace{Name: name}
 	}
 	let marker = markerOf(t, w.Path)
@@ -206,7 +207,7 @@ func intend(t Tool, name string, expect Option[string], abandon bool, until int6
 		return IdMismatch{Name: name, Expected: w.Id, Found: marker}
 	}
 	let kids = children(all, w.Path)
-	if len(kids) > 0 {
+	if kids.Len() > 0 {
 		return HasDescendants{Name: name, Paths: kids}
 	}
 	let at = now(t)
@@ -268,18 +269,18 @@ func Settle(t Tool, intent Workspace) Removed fails Unkept {
 }
 
 // liveIn is the record of name in all unless it is trashed.
-func liveIn(all []Workspace, name string) Option[Workspace] {
+func liveIn(all []Workspace, name string) option.Option[Workspace] {
 	for w in all {
 		if w.Name == name {
 			match w.State {
 			case Trashed:
-				return None
+				return option.None
 			case Creating, Active, Landing, Landed, Abandoned:
-				return Some[Workspace]{Value: w}
+				return option.Some[Workspace]{Value: w}
 			}
 		}
 	}
-	None
+	option.None
 }
 
 // removedBefore reports whether the workspace id is in the trash or was
@@ -323,9 +324,9 @@ func children(all []Workspace, path string) []string {
 func descendants(t Tool, name string) []Workspace fails Unkept {
 	let all = try t.registry.All()
 	match liveIn(all, name) {
-	case Some[Workspace] as w:
+	case option.Some[Workspace] as w:
 		below(all, w.Value.Path)
-	case None:
+	case option.None:
 		[]Workspace{}
 	}
 }
@@ -360,16 +361,16 @@ func Gc(t Tool, o GcOptions) Collected fails NoBase | BadConfig | BadAge | BadRe
 	try initialized(t)
 	let older = try age(o.Older)
 	if o.Dry {
-		if o.Idle != None || o.Archive {
+		if o.Idle != option.None || o.Archive {
 			return BadRequest{Path: "", Why: "gc -dry cannot be combined with -idle or -archive"}
 		}
 		return Collected{Purged: []string{}, Idle: []Idle{}, Preview: json.Present[[]PurgeCandidate]{Value: try previewGc(t, o.Id, older)}}
 	}
 	try settled(t)
 	let idle = match o.Idle {
-	case Some[string]:
+	case option.Some[string]:
 		try Idled(t, try age(o.Idle), o.Archive)
-	case None:
+	case option.None:
 		[]Idle{}
 	}
 	let due = try Collect(t, o.Id, older)
@@ -391,15 +392,15 @@ func Gc(t Tool, o GcOptions) Collected fails NoBase | BadConfig | BadAge | BadRe
 	let purged = Purge(t, removed) catch {
 	case Unkept as e:
 		for w in removed { releaseCreating(t, w) }
-		if len(failed) == 0 { return e }
+		if failed.Len() == 0 { return e }
 		return GcFailed{Result: Collected{Purged: []string{}, Idle: idle, Preview: json.Absent}, Failures: failed, Registry: json.Present[GcRegistryFailure]{Value: e}}
 	case Locked as e:
 		for w in removed { releaseCreating(t, w) }
-		if len(failed) == 0 { return e }
+		if failed.Len() == 0 { return e }
 		return GcFailed{Result: Collected{Purged: []string{}, Idle: idle, Preview: json.Absent}, Failures: failed, Registry: json.Present[GcRegistryFailure]{Value: e}}
 	}
 	let result = Collected{Purged: purged, Idle: idle, Preview: json.Absent}
-	if len(failed) > 0 {
+	if failed.Len() > 0 {
 		return GcFailed{Result: result, Failures: failed, Registry: json.Absent}
 	}
 	result
@@ -413,17 +414,17 @@ func releaseCreating(t Tool, w Workspace) {
 	}
 }
 
-func picksId(w Workspace, id Option[string]) bool {
+func picksId(w Workspace, id option.Option[string]) bool {
 	match id {
-	case Some[string] as i:
+	case option.Some[string] as i:
 		w.Id == i.Value
-	case None:
+	case option.None:
 		true
 	}
 }
 
-func trashDue(w Workspace, id Option[string], older duration, at int64) bool {
-	picksId(w, id) && (id != None || time.Times(1s, int(at-w.Since)) >= older) && at >= w.Until && InTrash(w.Path)
+func trashDue(w Workspace, id option.Option[string], older duration, at int64) bool {
+	picksId(w, id) && (id != option.None || time.Times(1s, int(at-w.Since)) >= older) && at >= w.Until && InTrash(w.Path)
 }
 
 func unmarkedClone(t Tool, w Workspace) bool {
@@ -433,7 +434,7 @@ func unmarkedClone(t Tool, w Workspace) bool {
 // previewGc takes only the locks needed to read a consistent snapshot
 // and recognize dead makers. It deliberately does not call hold, which
 // would finish interrupted writes and move workspace directories.
-func previewGc(t Tool, id Option[string], older duration) []PurgeCandidate fails Unkept | Locked {
+func previewGc(t Tool, id option.Option[string], older duration) []PurgeCandidate fails Unkept | Locked {
 	if !try t.lock.Hold("") {
 		return Locked{Path: RegistryFile(t.home)}
 	}
@@ -473,7 +474,7 @@ func previewGc(t Tool, id Option[string], older duration) []PurgeCandidate fails
 	out
 }
 
-func previewCreating(t Tool, w Workspace, id Option[string]) string {
+func previewCreating(t Tool, w Workspace, id option.Option[string]) string {
 	if w.Id != "" {
 		let tomb = TombOf(t.home, w.Id)
 		if t.copier.Has(tomb) {
@@ -491,14 +492,14 @@ func previewCreating(t Tool, w Workspace, id Option[string]) string {
 }
 
 // age is the duration of a gc flag, 0s when absent.
-func age(text Option[string]) duration fails BadAge {
+func age(text option.Option[string]) duration fails BadAge {
 	match text {
-	case Some[string] as s:
+	case option.Some[string] as s:
 		time.ParseDuration(s.Value) catch {
 		case time.ParseError:
 			return BadAge{Text: s.Value}
 		}
-	case None:
+	case option.None:
 		0s
 	}
 }
@@ -523,8 +524,8 @@ func Idled(t Tool, idle duration, archive bool) []Idle fails NoWorkspace | BadCo
 	let window = time.Unix(0, 0).Add(idle).UnixSeconds()
 	let all = try t.registry.All()
 	let mut out = []Idle{}
-	for i in 0..len(all) {
-		let w = all[len(all)-1-i]
+	for i in 0..all.Len() {
+		let w = all[all.Len()-1-i]
 		match w.State {
 		case Active:
 		case Creating, Landing, Landed, Abandoned, Trashed:
@@ -626,7 +627,7 @@ func keepWork(t Tool, w Workspace) string fails VcsFailed {
 // rmOnce is rm of the idle w, its trash kept until the second until, ""
 // when removed, else the refusal's name.
 func rmOnce(t Tool, c Config, w Workspace, abandon bool, until int64) string fails NoWorkspace | Exists | Missing | CloneFailed | Unkept | VcsFailed | HookFailed | Locked {
-	let _ = removeLeaf(t, c, w.Name, Some[string]{Value: w.Id}, abandon, until) catch {
+	let _ = removeLeaf(t, c, w.Name, option.Some[string]{Value: w.Id}, abandon, until) catch {
 	case NotHeld:
 		return "NotHeld"
 	case HasDescendants:
@@ -660,7 +661,7 @@ func rmOnce(t Tool, c Config, w Workspace, abandon bool, until int64) string fai
 // maker is gone. It holds the lock of each such reservation until Purge.
 // hold settles marked checkouts; Collect never activates or deletes a
 // reservation over a checkout, including a mismatching legacy marker.
-func Collect(t Tool, id Option[string], older duration) []Workspace fails Unkept | Locked {
+func Collect(t Tool, id option.Option[string], older duration) []Workspace fails Unkept | Locked {
 	try hold(t)
 	let at = now(t)
 	let all = t.registry.All() catch {
@@ -709,7 +710,7 @@ func activation(t Tool, w Workspace, at int64) Workspace {
 	case BadConfig:
 		EmptyConfig()
 	}
-	let installedAs = if len(c.LeaveOut) == 0 { lockDigest(t, w.Path, c) } else { "" }
+	let installedAs = if c.LeaveOut.Len() == 0 { lockDigest(t, w.Path, c) } else { "" }
 	activateCreating(Workspace{..w, Deps: installedAs}, at)
 }
 

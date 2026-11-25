@@ -52,7 +52,7 @@ func DecodeAndVerify(id oid.OID, raw []byte, maxBytes int) Object fails Corrupt 
 		return Corrupt{OID: id, Why: e.Reason}
 	}
 	let payload = inflated[offset:]
-	if len(payload) != size {
+	if payload.Len() != size {
 		return Corrupt{OID: id, Why: "declared object size does not match payload length"}
 	}
 	let rehashed = oid.HashObject(id.Format, kind, payload) catch {
@@ -72,8 +72,8 @@ func DecodeAndVerify(id oid.OID, raw []byte, maxBytes int) Object fails Corrupt 
 
 // EncodeLoose formats and zlib-compresses a canonical Git loose object payload.
 func EncodeLoose(kind oid.Kind, data []byte) []byte {
-	let hdr = oid.Header(kind, len(data))
-	let mut framed = slices.WithCapacity[byte](len(hdr) + len(data))
+	let hdr = oid.Header(kind, data.Len())
+	let mut framed = slices.WithCapacity[byte](hdr.Len() + data.Len())
 	for b in hdr {
 		framed = framed.Append(b)
 	}
@@ -141,7 +141,7 @@ func ContainsObject(store Store, id oid.OID) bool needs fs.Files {
 
 func isLowerHex2(s string) bool {
 	let bs = s.Bytes()
-	if len(bs) != 2 {
+	if bs.Len() != 2 {
 		return false
 	}
 	for b in bs {

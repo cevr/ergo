@@ -2,13 +2,14 @@
 // every third section, a two-line quote and a rule) and prints how many
 // lines it made and its first and last line.
 
+import io
 import os
 import strconv
 import markup/render
 
-func main() fails os.Exit needs Console | Ambient {
+func main() fails os.Exit needs io.Console | os.Ambient {
 	let args = os.NewHost().Args()
-	if len(args) != 1 {
+	if args.Len() != 1 {
 		return os.Exit{Code: 2, Message: "usage: markup N"}
 	}
 	let n = strconv.Atoi(args[0]) catch {
@@ -23,9 +24,9 @@ func main() fails os.Exit needs Console | Ambient {
 		}
 	}
 	let lines = render.Tagged(render.Lines(doc), "doc")
-	Console.Println("lines \(len(lines))")
-	if len(lines) > 0 {
-		Console.Println("first \(lines[0])")
-		Console.Println("last \(lines[len(lines)-1])")
+	io.Console.Println("lines \(lines.Len())")
+	if lines.Len() > 0 {
+		io.Console.Println("first \(lines[0])")
+		io.Console.Println("last \(lines[lines.Len()-1])")
 	}
 }

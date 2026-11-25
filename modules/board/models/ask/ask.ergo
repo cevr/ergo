@@ -1,3 +1,5 @@
+import machines
+
 // The package ask is the design model of a question and its answer, with
 // the mention that carries it (spec.md, Ask and Mention; machines.md, M5).
 //
@@ -56,20 +58,20 @@ func first() World {
 		MentionNotes: 1, AnswerNotes: 0, Edits: 0, TimedOut: false, Read: false, Closed: false}
 }
 
-func step(s World, act Act, mutant int) Decision[World, string] {
+func step(s World, act Act, mutant int) machines.Decision[World, string] {
 	let mut w = s
 	match act {
 	case ReplyRead as a:
 		let r = ri(a.R)
 		if w.Q != 0 || w.Saw[r] {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Saw[r] = true
-		return Enter{w}
+		return machines.Enter{w}
 	case ReplyWrite as a:
 		let r = ri(a.R)
 		if !w.Saw[r] {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Saw[r] = false
 		w.Replies = w.Replies + 1
@@ -88,46 +90,46 @@ func step(s World, act Act, mutant int) Decision[World, string] {
 			w.AnswerBy = r
 			w.AnswerNotes = w.AnswerNotes + 1
 		}
-		return Enter{w}
+		return machines.Enter{w}
 	case Withdraw:
 		if w.Q != 0 {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Q = 2
 		w.Closed = true
-		return Enter{w}
+		return machines.Enter{w}
 	case Expire:
 		if w.Q != 0 {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Q = 3
 		w.Closed = true
-		return Enter{w}
+		return machines.Enter{w}
 	case Edit:
 		if w.Edits >= MaxEdits || w.Q != 0 {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Edits = w.Edits + 1
 		if mutant == RenotifyOnEditMutant {
 			w.MentionNotes = w.MentionNotes + 1
 		}
-		return Enter{w}
+		return machines.Enter{w}
 	case WaitTimeout:
 		if w.TimedOut || w.Q != 0 {
-			return Ignore
+			return machines.Ignore
 		}
 		w.TimedOut = true
 		if mutant == TimeoutClosesMutant {
 			w.Q = 3
 			w.Closed = true
 		}
-		return Enter{w}
+		return machines.Enter{w}
 	case AskerRead:
 		if w.Q != 1 || w.Read {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Read = true
-		return Enter{w}
+		return machines.Enter{w}
 	}
 }
 
@@ -154,11 +156,11 @@ func loserIsAReply(w World) bool        { w.Q == 1 && w.Replies == 2 }
 func answeredAfterTimeout(w World) bool { w.TimedOut && w.Q == 1 && w.Read }
 func closedUnanswered(w World) bool     { w.Q == 2 && w.Replies == 1 }
 
-func design(s World, a Act) Decision[World, string]           { return step(s, a, NoMutant) }
-func lastReplyWins(s World, a Act) Decision[World, string]    { return step(s, a, LastReplyWinsMutant) }
-func renotifyOnEdit(s World, a Act) Decision[World, string]   { return step(s, a, RenotifyOnEditMutant) }
-func answerAfterClose(s World, a Act) Decision[World, string] { return step(s, a, AnswerAfterCloseMutant) }
-func timeoutCloses(s World, a Act) Decision[World, string]    { return step(s, a, TimeoutClosesMutant) }
+func design(s World, a Act) machines.Decision[World, string]           { return step(s, a, NoMutant) }
+func lastReplyWins(s World, a Act) machines.Decision[World, string]    { return step(s, a, LastReplyWinsMutant) }
+func renotifyOnEdit(s World, a Act) machines.Decision[World, string]   { return step(s, a, RenotifyOnEditMutant) }
+func answerAfterClose(s World, a Act) machines.Decision[World, string] { return step(s, a, AnswerAfterCloseMutant) }
+func timeoutCloses(s World, a Act) machines.Decision[World, string]    { return step(s, a, TimeoutClosesMutant) }
 
 type Design machine[World, Act] {
 	initial: first(),

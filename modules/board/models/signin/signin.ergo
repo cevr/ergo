@@ -1,3 +1,5 @@
+import machines
+
 // The package signin is the design model of one sign-in and the session
 // it gives (spec.md, Sign-in; machines.md, M7): the authorization code,
 // PKCE, refresh-token rotation with reuse detection, revocation and the
@@ -68,15 +70,15 @@ func first() World {
 		ThiefIn: false, AfterEnd: false, Reused: false, Forked: false, Ended: false, Accepts: 0}
 }
 
-func step(s World, act Act, mutant int) Decision[World, string] {
+func step(s World, act Act, mutant int) machines.Decision[World, string] {
 	let mut w = s
 	match act {
 	case Authorize:
 		if w.Code != 0 {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Code = 1
-		return Enter{w}
+		return machines.Enter{w}
 	case Redeem as a:
 		let p = pi(a.W)
 		let mut open = w.Code == 1
@@ -88,7 +90,7 @@ func step(s World, act Act, mutant int) Decision[World, string] {
 			verifier = true
 		}
 		if !open || !verifier || w.Ended || w.Gen >= MaxGen || w.Redeems >= 2 {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Code = 2
 		w.Redeems = w.Redeems + 1
@@ -98,64 +100,64 @@ func step(s World, act Act, mutant int) Decision[World, string] {
 		if p == 1 {
 			w.ThiefIn = true
 		}
-		return Enter{w}
+		return machines.Enter{w}
 	case Steal:
 		if w.Stolen || w.Held[0] == 0 {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Stolen = true
 		w.Held[1] = w.Held[0]
-		return Enter{w}
+		return machines.Enter{w}
 	case Refresh as a:
 		let p = pi(a.W)
 		let h = w.Held[p]
 		if h == 0 || !w.Live || w.Gen >= MaxGen {
-			return Ignore
+			return machines.Ignore
 		}
 		if h == w.Gen {
 			w.Gen = w.Gen + 1
 			w.Held[p] = w.Gen
-			return Enter{w}
+			return machines.Enter{w}
 		}
 		w.Reused = true
 		if mutant == NoReuseDetectionMutant {
 			w.Forked = true
 			w.Gen = w.Gen + 1
 			w.Held[p] = w.Gen
-			return Enter{w}
+			return machines.Enter{w}
 		}
 		w.Live = false
-		return Enter{w}
+		return machines.Enter{w}
 	case Use as a:
 		let p = pi(a.W)
 		if w.Held[p] == 0 || w.Accepts >= 1 {
-			return Ignore
+			return machines.Ignore
 		}
 		let mut ok = w.Live
 		if mutant == StatelessAccessMutant {
 			ok = true
 		}
 		if !ok {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Accepts = w.Accepts + 1
 		if !w.Live {
 			w.AfterEnd = true
 		}
-		return Enter{w}
+		return machines.Enter{w}
 	case Revoke:
 		if !w.Live {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Live = false
-		return Enter{w}
+		return machines.Enter{w}
 	case Leave:
 		if w.Ended {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Ended = true
 		w.Live = false
-		return Enter{w}
+		return machines.Enter{w}
 	}
 }
 
@@ -186,11 +188,11 @@ func rotates(w World) bool         { w.Live && w.Held[0] == 3 && !w.Stolen }
 func theftDetected(w World) bool   { w.Stolen && w.Reused && !w.Live }
 func signedInAndUsed(w World) bool { w.Live && w.Accepts == 1 }
 
-func design(s World, a Act) Decision[World, string]           { return step(s, a, NoMutant) }
-func codeReplay(s World, a Act) Decision[World, string]       { return step(s, a, CodeReplayMutant) }
-func noPKCE(s World, a Act) Decision[World, string]           { return step(s, a, NoPKCEMutant) }
-func noReuseDetection(s World, a Act) Decision[World, string] { return step(s, a, NoReuseDetectionMutant) }
-func statelessAccess(s World, a Act) Decision[World, string]  { return step(s, a, StatelessAccessMutant) }
+func design(s World, a Act) machines.Decision[World, string]           { return step(s, a, NoMutant) }
+func codeReplay(s World, a Act) machines.Decision[World, string]       { return step(s, a, CodeReplayMutant) }
+func noPKCE(s World, a Act) machines.Decision[World, string]           { return step(s, a, NoPKCEMutant) }
+func noReuseDetection(s World, a Act) machines.Decision[World, string] { return step(s, a, NoReuseDetectionMutant) }
+func statelessAccess(s World, a Act) machines.Decision[World, string]  { return step(s, a, StatelessAccessMutant) }
 
 type Design machine[World, Act] {
 	initial: first(),

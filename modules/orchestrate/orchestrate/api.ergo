@@ -1,3 +1,5 @@
+import option
+
 // UnitOpenInput is the wire-compatible input for opening a unit.
 type UnitOpenInput {
 	CommandID CommandID,
@@ -25,10 +27,10 @@ type UnitRoundInput {
 	Actor        string,
 	At           string,
 	ID           string,
-	Owner        Option[string],
+	Owner        option.Option[string],
 	Round        int,
-	RequestPath  Option[string],
-	FindingsPath Option[string],
+	RequestPath  option.Option[string],
+	FindingsPath option.Option[string],
 }
 
 // UnitHandBackInput is the wire-compatible input for handing back a claimed unit.
@@ -40,8 +42,8 @@ type UnitHandBackInput {
 	Owner        string,
 	HeadSHA      string,
 	Summary      string,
-	RequestPath  Option[string],
-	FindingsPath Option[string],
+	RequestPath  option.Option[string],
+	FindingsPath option.Option[string],
 }
 
 // UnitLandInput is the wire-compatible input for marking a handed-back unit landed.
@@ -59,14 +61,14 @@ type UnitCloseInput {
 	Actor     string,
 	At        string,
 	ID        string,
-	Summary   Option[string],
+	Summary   option.Option[string],
 }
 
 // UnitGetInput is the wire-compatible input for reading one unit by ID.
 type UnitGetInput { ID string }
 
 // UnitListInput is the wire-compatible input for listing units with an optional status filter.
-type UnitListInput { Status Option[string] }
+type UnitListInput { Status option.Option[string] }
 
 // ReceiptRecordInput is the wire-compatible input for recording a verification receipt.
 type ReceiptRecordInput {
@@ -86,7 +88,7 @@ type ReceiptRecordInput {
 }
 
 // ReceiptReadInput is the wire-compatible input for reading receipts of a unit.
-type ReceiptReadInput { UnitID string, Round Option[int] }
+type ReceiptReadInput { UnitID string, Round option.Option[int] }
 
 // CommitmentAddInput is the wire-compatible input for adding a commitment.
 type CommitmentAddInput {
@@ -128,7 +130,7 @@ type CommitmentDecideInput {
 }
 
 // CommitmentListInput is the wire-compatible input for listing commitments by optional status and owner.
-type CommitmentListInput { Status Option[string], Owner Option[string] }
+type CommitmentListInput { Status option.Option[string], Owner option.Option[string] }
 
 // QueueUpsertInput is the wire-compatible input for inserting or replacing a queue item.
 type QueueUpsertInput {
@@ -155,14 +157,14 @@ type QueueRemoveInput {
 type QueueRemovedReply { Key string, Removed bool }
 
 // QueueListInput is the wire-compatible input for listing queue items by optional status.
-type QueueListInput { Status Option[string] }
+type QueueListInput { Status option.Option[string] }
 
 // QuestionAskInput is the wire-compatible input for opening an async question.
 type QuestionAskInput {
 	CommandID      CommandID,
 	Actor          string,
 	At             string,
-	ID             Option[int],
+	ID             option.Option[int],
 	Prompt         string,
 	Assumption     string,
 	ConcreteAction string,
@@ -377,9 +379,9 @@ func UnitGet(s Service, req UnitGetInput) Unit fails NotFound | InvalidInput | S
 		return InvalidInput{Field: "id", Why: "must not be empty"}
 	}
 	match try s.store.Unit(req.ID) {
-	case Some[Unit] as u:
+	case option.Some[Unit] as u:
 		u.Value
-	case None:
+	case option.None:
 		NotFound{Kind: "unit", ID: req.ID}
 	}
 }
@@ -387,15 +389,15 @@ func UnitGet(s Service, req UnitGetInput) Unit fails NotFound | InvalidInput | S
 // UnitList lists units filtered by optional status name.
 func UnitList(s Service, req UnitListInput) []Unit fails InvalidInput | StoreFailed {
 	let filter = match req.Status {
-	case Some[string] as raw:
+	case option.Some[string] as raw:
 		match ParseUnitStatus(raw.Value) {
-		case Some[UnitStatus] as st:
-			Some[UnitStatus]{Value: st.Value}
-		case None:
+		case option.Some[UnitStatus] as st:
+			option.Some[UnitStatus]{Value: st.Value}
+		case option.None:
 			return InvalidInput{Field: "status", Why: "unknown unit status"}
 		}
-	case None:
-		None
+	case option.None:
+		option.None
 	}
 	try s.store.ListUnits(filter)
 }
@@ -420,7 +422,7 @@ func ReceiptRecord(s Service, req ReceiptRecordInput) Receipt fails NotFound | A
 		},
 	}
 	let _ = try s.store.Execute(env)
-	let list = try s.store.Receipts(req.UnitID, Some[int]{Value: req.Round})
+	let list = try s.store.Receipts(req.UnitID, option.Some[int]{Value: req.Round})
 	for r in list {
 		if r.ID == req.ID {
 			return r
@@ -488,15 +490,15 @@ func CommitmentDecide(s Service, req CommitmentDecideInput) Commitment fails Not
 // CommitmentList lists commitments filtered by optional status name and owner.
 func CommitmentList(s Service, req CommitmentListInput) []Commitment fails InvalidInput | StoreFailed {
 	let filter = match req.Status {
-	case Some[string] as raw:
+	case option.Some[string] as raw:
 		match ParseCommitmentStatus(raw.Value) {
-		case Some[CommitmentStatus] as st:
-			Some[CommitmentStatus]{Value: st.Value}
-		case None:
+		case option.Some[CommitmentStatus] as st:
+			option.Some[CommitmentStatus]{Value: st.Value}
+		case option.None:
 			return InvalidInput{Field: "status", Why: "unknown commitment status"}
 		}
-	case None:
-		None
+	case option.None:
+		option.None
 	}
 	try s.store.ListCommitments(filter, req.Owner)
 }
@@ -517,7 +519,7 @@ func QueueUpsert(s Service, req QueueUpsertInput) QueueItem fails NotFound | Alr
 		},
 	}
 	let _ = try s.store.Execute(env)
-	let items = try s.store.ListQueue(None)
+	let items = try s.store.ListQueue(option.None)
 	for item in items {
 		if item.Key == req.Key {
 			return item
@@ -566,14 +568,14 @@ func QuestionAsk(s Service, req QuestionAskInput) Question fails NotFound | Alre
 	}
 	let snap = try s.store.Snapshot()
 	match snap.QuestionByCommand.Get(req.CommandID) {
-	case Some[int] as qid:
+	case option.Some[int] as qid:
 		match try s.store.Question(qid.Value) {
-		case Some[Question] as q:
+		case option.Some[Question] as q:
 			q.Value
-		case None:
+		case option.None:
 			StoreFailed{Reason: "question missing after execute"}
 		}
-	case None:
+	case option.None:
 		StoreFailed{Reason: "question command mapping missing after execute"}
 	}
 }
@@ -588,9 +590,9 @@ func QuestionAnswer(s Service, req QuestionAnswerInput) Question fails NotFound 
 	}
 	let _ = try s.store.Execute(env)
 	match try s.store.Question(req.ID) {
-	case Some[Question] as q:
+	case option.Some[Question] as q:
 		q.Value
-	case None:
+	case option.None:
 		StoreFailed{Reason: "question missing after execute"}
 	}
 }
@@ -602,18 +604,18 @@ func QuestionList(s Service, req QuestionListInput) []Question fails StoreFailed
 
 func mustUnit(store Store, id string) Unit fails StoreFailed {
 	match try store.Unit(id) {
-	case Some[Unit] as u:
+	case option.Some[Unit] as u:
 		u.Value
-	case None:
+	case option.None:
 		StoreFailed{Reason: "unit missing after execute"}
 	}
 }
 
 func mustCommitment(store Store, id string) Commitment fails StoreFailed {
 	match try store.Commitment(id) {
-	case Some[Commitment] as c:
+	case option.Some[Commitment] as c:
 		c.Value
-	case None:
+	case option.None:
 		StoreFailed{Reason: "commitment missing after execute"}
 	}
 }

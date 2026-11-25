@@ -1,4 +1,5 @@
 import machines
+import option
 import time
 
 // Slot is one column of the machine: its name on the keypad, what it
@@ -126,7 +127,7 @@ law ForgeTakesOne(slots []Slot, credit int, name string, n int) {
 func forged(slots []Slot, credit int, name string, refused bool) bool {
 	let s = Heating{Slots: slots, Credit: credit, Until: 30s}
 	match Tried(s, Select{At: 1s, Slot: name}) {
-	case Enter[State] as e:
+	case machines.Enter[State] as e:
 		let before = find(slots, name) catch {
 		case NoSuchSlot:
 			return false
@@ -136,9 +137,9 @@ func forged(slots []Slot, credit int, name string, refused bool) bool {
 			return false
 		}
 		before.Count > 0 && after.Count == before.Count-1 && before.Cost <= credit
-	case Reject:
+	case machines.Reject:
 		refused
-	case Stay[State], Emit[State, []Slot], Tell[State, []Slot], Ignore, Done[[]Slot]:
+	case machines.Stay[State], machines.Emit[State, []Slot], machines.Tell[State, []Slot], machines.Ignore, machines.Done[[]Slot]:
 		false
 	}
 }
@@ -152,7 +153,7 @@ law TimeoutReturns(slots []Slot, credit int, until duration, at duration) {
 		return false
 	}
 	if at < until {
-		return len(es) == 0
+		return es.Len() == 0
 	}
 	Kept(Tally{In: 0, Spent: 0, Leftover: 0, Returned: 0}, es).Returned == credit && Name(machines.Next(s, Apply(s, at, es))) == "idle"
 }
@@ -240,16 +241,16 @@ func CreditOf(s State) int {
 }
 
 // Deadline is the time at which s moves on by itself, or None.
-func Deadline(s State) Option[duration] {
+func Deadline(s State) option.Option[duration] {
 	match s {
 	case Heating as c:
-		Some[duration]{Value: c.Until}
+		option.Some[duration]{Value: c.Until}
 	case Forging as v:
-		Some[duration]{Value: v.Until}
+		option.Some[duration]{Value: v.Until}
 	case Idle:
-		None
+		option.None
 	case Cold:
-		None
+		option.None
 	}
 }
 
@@ -387,25 +388,25 @@ func AtOf(sig Signal) duration {
 
 // Apply is the decision of the events es in s at the time at: no event
 // is Ignore; events that keep the state's kind Stay; others Enter.
-func Apply(s State, at duration, es []Event) Decision[State, []Slot] {
-	if len(es) == 0 {
-		return Ignore
+func Apply(s State, at duration, es []Event) machines.Decision[State, []Slot] {
+	if es.Len() == 0 {
+		return machines.Ignore
 	}
 	let mut next = s
 	for e in es {
 		next = Evolve(next, at, e)
 	}
 	if Name(next) == Name(s) {
-		Stay[State]{Next: next}
+		machines.Stay[State]{Next: next}
 	} else {
-		Enter[State]{Next: next}
+		machines.Enter[State]{Next: next}
 	}
 }
 
 // Step is the machine's transition: the events Decide records, folded by
 // Apply. The machine never ends, so it is never Done: its output type is
 // the stock it would hand over.
-func Step(s State, sig Signal) Decision[State, []Slot] fails Refusal {
+func Step(s State, sig Signal) machines.Decision[State, []Slot] fails Refusal {
 	Apply(s, AtOf(sig), try Decide(s, sig))
 }
 
@@ -417,9 +418,9 @@ type Forge machine[State, Signal] {
 }
 
 // Tried is Step(s, sig), or Reject when the machine refuses sig.
-func Tried(s State, sig Signal) Decision[State, []Slot] {
+func Tried(s State, sig Signal) machines.Decision[State, []Slot] {
 	Step(s, sig) catch {
 	case Refusal:
-		Reject
+		machines.Reject
 	}
 }

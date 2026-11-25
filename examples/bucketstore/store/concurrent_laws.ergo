@@ -1,3 +1,4 @@
+import option
 import testing
 
 type bucketAct =
@@ -11,14 +12,14 @@ func bucketStoryStep(all Map[string, Bucket], a bucketAct) (Map[string, Bucket],
 		let mut m = all
 		let mut k = fresh()
 		match m.Get(x.Bucket) {
-		case Some[Bucket] as v:
+		case option.Some[Bucket] as v:
 			k = v.Value
-		case None:
+		case option.None:
 		}
 		let n = match k.counts.Get(x.Counter) {
-		case Some[int] as c:
+		case option.Some[int] as c:
 			c.Value + 1
-		case None:
+		case option.None:
 			1
 		}
 		k.counts[x.Counter] = n
@@ -26,18 +27,18 @@ func bucketStoryStep(all Map[string, Bucket], a bucketAct) (Map[string, Bucket],
 		(m, n)
 	case BktCount as x:
 		match all.Get(x.Bucket) {
-		case Some[Bucket] as v:
+		case option.Some[Bucket] as v:
 			match v.Value.counts.Get(x.Counter) {
-			case Some[int] as c:
+			case option.Some[int] as c:
 				(all, c.Value)
-			case None:
+			case option.None:
 				(all, 0)
 			}
-		case None:
+		case option.None:
 			(all, 0)
 		}
 	case BktBuckets:
-		(all, len(all))
+		(all, all.Len())
 	}
 }
 

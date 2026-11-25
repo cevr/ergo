@@ -23,28 +23,28 @@ law DeskHandlesFaultyBackups() {
 		let faulty = testing.Faulty[backup.Backups](inner)
 		with context { backup.Backups: faulty } {
 			let d0 = Open()
-			let f0 = len(faulty.Send.Faults())
+			let f0 = faulty.Send.Faults().Len()
 			let planCmd = backup.Plan{Backup: "b1", Host: "db-1", Files: []backup.File{backup.File{Path: "db.dump", Count: 1, Size: 50}}}
 			let (d1, out1) = Submit(d0, planCmd)
 			let mut injected = false
-			if len(faulty.Send.Faults()) > f0 {
+			if faulty.Send.Faults().Len() > f0 {
 				injected = true
-				if len(out1) != 1 || !isRefused(out1[0]) || len(inner.History("b1")) != 0 || inner.Current("b1") != backup.Absent || len(d1.Running) != 0 {
+				if out1.Len() != 1 || !isRefused(out1[0]) || inner.History("b1").Len() != 0 || inner.Current("b1") != backup.Absent || d1.Running.Len() != 0 {
 					gen.Draws.Show("plan-fault", "Plan fault left partial state or started a saga")
 					return false
 				}
 			} else {
-				if len(out1) != 1 || isRefused(out1[0]) || len(d1.Running) != 1 {
+				if out1.Len() != 1 || isRefused(out1[0]) || d1.Running.Len() != 1 {
 					return false
 				}
-				sometimes len(d1.Running) == 1
+				sometimes d1.Running.Len() == 1
 			}
 
 			let histBefore = inner.History("b1")
 			let stateBefore = inner.Current("b1")
-			let f1 = len(faulty.Send.Faults())
+			let f1 = faulty.Send.Faults().Len()
 			let (d2, out2) = Submit(d1, backup.Store{Backup: "b1", Size: 50})
-			if len(faulty.Send.Faults()) > f1 && len(out2) == 1 && isRefused(out2[0]) {
+			if faulty.Send.Faults().Len() > f1 && out2.Len() == 1 && isRefused(out2[0]) {
 				injected = true
 				if inner.History("b1") != histBefore || inner.Current("b1") != stateBefore {
 					gen.Draws.Show("store-fault", "Store fault mutated inner log")

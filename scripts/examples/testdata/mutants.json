@@ -191,8 +191,8 @@
     {
       "name": "x2-cancel-ended",
       "file": "examples/jobs-web/job/job.ergo",
-      "from": "\t\tif jobs.Terminal(r.State) {\n\t\t\treturn Reject",
-      "to": "\t\tif false && jobs.Terminal(r.State) {\n\t\t\treturn Reject",
+      "from": "\t\tif jobs.Terminal(r.State) {\n\t\t\treturn machines.Reject",
+      "to": "\t\tif false && jobs.Terminal(r.State) {\n\t\t\treturn machines.Reject",
       "rule": "A job that has ended stays ended: a cancel of it is rejected (AlreadyDone with its state), never a second end.",
       "killers": ["examples:jobs-web"],
       "anchor": {

@@ -5,6 +5,7 @@
 
 import deploys/memory
 import deploys/deploys
+import option
 import strings
 
 let jsonHeaders = []Header{Header{Name: "Content-Type", Value: "application/json; charset=utf-8"}}
@@ -22,7 +23,7 @@ test AConversation {
 		assert line(call("GET", "/deploys", "")) == "200 []"
 		let created = call("POST", "/deploys", "{\"service\":\"web\",\"units\":[{\"image\":\"app\",\"replicas\":2,\"mem\":450}]}")
 		assert line(created) == "201 {\"id\":\"dep-1\",\"service\":\"web\",\"status\":\"pending\",\"total\":900,\"units\":[{\"image\":\"app\",\"replicas\":2,\"mem\":450}]}"
-		assert HeaderOf(created.Headers, "location") == Some[string]{Value: "/deploys/dep-1"}
+		assert HeaderOf(created.Headers, "location") == option.Some[string]{Value: "/deploys/dep-1"}
 		assert call("GET", "/deploys/dep-1", "").Body == created.Body
 		assert line(call("POST", "/deploys/dep-1/approve", "")) == "200 {\"id\":\"dep-1\",\"service\":\"web\",\"status\":\"approved\",\"total\":900,\"units\":[{\"image\":\"app\",\"replicas\":2,\"mem\":450}]}"
 		assert strings.HasPrefix(call("GET", "/deploys", "").Body, "[{\"id\":\"dep-1\"")
@@ -39,7 +40,7 @@ test EachFailureHasItsStatus {
 		assert line(call("GET", "/users", "")) == "404 {\"error\":\"no route GET /users\"}"
 		let wrong = call("DELETE", "/deploys", "")
 		assert line(wrong) == "405 {\"error\":\"DELETE is not allowed here\"}"
-		assert HeaderOf(wrong.Headers, "Allow") == Some[string]{Value: "GET, POST"}
+		assert HeaderOf(wrong.Headers, "Allow") == option.Some[string]{Value: "GET, POST"}
 		let text = Handle(Request{Method: "POST", Path: "/deploys", Headers: []Header{Header{Name: "content-type", Value: "text/plain"}}, Body: "{}"})
 		assert line(text) == "415 {\"error\":\"the body is text/plain, not application/json\"}"
 		let _ = call("POST", "/deploys", "{\"service\":\"web\",\"units\":[{\"image\":\"app\",\"replicas\":1,\"mem\":1}]}")
@@ -59,7 +60,7 @@ test RoutesOfEachPath {
 }
 
 // pick is the element of xs that n names, for any n.
-func pick(xs []string, n int) string { xs[(if n < 0 { -(n + 1) } else { n })%len(xs)] }
+func pick(xs []string, n int) string { xs[(if n < 0 { -(n + 1) } else { n })%xs.Len()] }
 
 let paths = []string{"/deploys", "/deploys/dep-1", "/deploys/dep-1/approve", "/deploys/dep-1/release", "/deploys/dep-2/cancel", "/deploys/x/y", "/", "/deploys/"}
 let bodies = []string{"", "{}", "[]", "{\"service\":\"web\",\"units\":[{\"image\":\"app\",\"replicas\":1,\"mem\":5}]}", "{\"service\":1}", "{"}

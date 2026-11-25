@@ -1,6 +1,9 @@
 // Package evidence probes P7 structured bounded-test evidence on a member law
 // using explore.CheckPathsWithSink alongside an ordinary proved finite law.
+import core
 import explore
+import machines
+import option
 import sync
 import testing
 
@@ -13,13 +16,13 @@ type evDriveErr { Why string }
 type evSess {
 	val      sync.Ref[int],
 	released sync.Ref[bool],
-} implements explore.PathSession[evCmd, explore.Observed[int, int, Never], evDriveErr]
+} implements explore.PathSession[evCmd, explore.Observed[int, int, core.Never], evDriveErr]
 
-func Read(s evSess) explore.Observed[int, int, Never] fails evDriveErr {
+func Read(s evSess) explore.Observed[int, int, core.Never] fails evDriveErr {
 	explore.InitialRead[int]{State: s.val.Get()}
 }
 
-func Apply(s evSess, c evCmd) explore.Observed[int, int, Never] fails evDriveErr {
+func Apply(s evSess, c evCmd) explore.Observed[int, int, core.Never] fails evDriveErr {
 	let next = match c {
 	case evInc:
 		let v = s.val.Get() + 1
@@ -29,11 +32,11 @@ func Apply(s evSess, c evCmd) explore.Observed[int, int, Never] fails evDriveErr
 		s.val.Set(0)
 		0
 	}
-	explore.StepResult[int, int, Never]{Step: explore.StepObs[int, int, Never]{
+	explore.StepResult[int, int, core.Never]{Step: explore.StepObs[int, int, core.Never]{
 		Kind:     explore.DisEmit,
-		State:    Some[int]{Value: next},
+		State:    option.Some[int]{Value: next},
 		Outputs:  []int{next},
-		Error:    None,
+		Error:    option.None,
 		Terminal: false,
 	}}
 }
@@ -42,16 +45,16 @@ func Close(s evSess) {
 	s.released.Set(true)
 }
 
-func evModel() explore.PathModel[int, evCmd, int, int, Never] {
+func evModel() explore.PathModel[int, evCmd, int, int, core.Never] {
 	explore.PathModelOfMachine[int, evCmd, int](
 		[]int{0},
 		[]evCmd{evInc, evReset},
-		func(s int, c evCmd) Decision[int, int] {
+		func(s int, c evCmd) machines.Decision[int, int] {
 			match c {
 			case evInc:
-				Emit[int, int]{Next: s + 1, Output: s + 1}
+				machines.Emit[int, int]{Next: s + 1, Output: s + 1}
 			case evReset:
-				Emit[int, int]{Next: 0, Output: 0}
+				machines.Emit[int, int]{Next: 0, Output: 0}
 			}
 		},
 	)
@@ -59,14 +62,14 @@ func evModel() explore.PathModel[int, evCmd, int, int, Never] {
 
 // CounterBackend opens a fresh counter session per path case.
 type CounterBackend {
-	Open(start int) explore.PathSession[evCmd, explore.Observed[int, int, Never], evDriveErr] fails evOpenErr,
+	Open(start int) explore.PathSession[evCmd, explore.Observed[int, int, core.Never], evDriveErr] fails evOpenErr,
 
 	law PathsMatch() {
 		let res = explore.CheckPathsWithSink(
 			evModel(),
 			explore.ToDepth{Depth: 2},
 			explore.PathBounds{MaxStates: 64, MaxEdges: 256, MaxPaths: 256, MaxSteps: 1024, MaxWork: 8192, MaxBytes: 65536},
-			func(start int) explore.PathSession[evCmd, explore.Observed[int, int, Never], evDriveErr] fails evOpenErr {
+			func(start int) explore.PathSession[evCmd, explore.Observed[int, int, core.Never], evDriveErr] fails evOpenErr {
 				try Open(start)
 			},
 			testing.ActiveEvidenceSink(),
@@ -83,7 +86,7 @@ type CounterBackend {
 // MemCounter implements CounterBackend in memory.
 type MemCounter {} implements CounterBackend
 
-func Open(_ MemCounter, start int) explore.PathSession[evCmd, explore.Observed[int, int, Never], evDriveErr] fails evOpenErr {
+func Open(_ MemCounter, start int) explore.PathSession[evCmd, explore.Observed[int, int, core.Never], evDriveErr] fails evOpenErr {
 	evSess{val: sync.NewRef(start), released: sync.NewRef(false)}
 }
 

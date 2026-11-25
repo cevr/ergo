@@ -3,6 +3,8 @@
 // clock main binds, and shows the screen after each press and at the end.
 
 import actor
+import core
+import machines
 import stopwatch/screen
 import stopwatch/watch
 import io
@@ -38,10 +40,10 @@ func Read(lines []string) Script fails BadLine {
 		let n = i + 1
 		let text = strings.TrimSpace(line)
 		let words = strings.Fields(text)
-		if len(words) == 0 || strings.HasPrefix(text, "#") {
+		if words.Len() == 0 || strings.HasPrefix(text, "#") {
 			continue
 		}
-		if len(words) != 2 || !strings.HasPrefix(words[0], "@") {
+		if words.Len() != 2 || !strings.HasPrefix(words[0], "@") {
 			return BadLine{Line: n, Why: "a line is @MS WORD"}
 		}
 		let t = try millis(n, strings.TrimPrefix(words[0], "@"))
@@ -65,7 +67,7 @@ func Read(lines []string) Script fails BadLine {
 		}
 		trace = trace.Append(Line{At: t, Act: act})
 	}
-	BadLine{Line: len(lines) + 1, Why: "the script has no @MS end line"}
+	BadLine{Line: lines.Len() + 1, Why: "the script has no @MS end line"}
 }
 
 func millis(n int, word string) duration fails BadLine {
@@ -89,29 +91,29 @@ func millis(n int, word string) duration fails BadLine {
 // the screen (Stop while stopped, Start while running) presses nothing and
 // says so, as a click on an absent button does nothing. It returns the
 // exit status: 0, or 1 when the script is refused or the screen fails.
-func Run(clock time.Manual) int needs Console | io.Stdin | time.Clock | Scheduler {
+func Run(clock time.Manual) int needs io.Console | io.Stdin | time.Clock | time.Scheduler {
 	let mut lines = []string{}
 	for line in io.Stdin.Lines() {
 		lines = lines.Append(line)
 	}
 	let s = Read(lines) catch {
 	case BadLine as b:
-		Console.Println("? line \(b.Line): \(b.Why)")
+		io.Console.Println("? line \(b.Line): \(b.Why)")
 		return 1
 	}
-	let app = actor.StartMachine(watch.Stopwatch{}, 16, func(o Never) {})
+	let app = actor.StartMachine(watch.Stopwatch{}, 16, func(o core.Never) {})
 	let mut h = ui.NewTestHost(app, screen.Screen, clock, 64) catch {
 	case ui.BadPatch as p:
-		Console.Println("? the first screen is refused: \(p.Why)")
+		io.Console.Println("? the first screen is refused: \(p.Why)")
 		app.Stop()
 		return 1
 	}
 	let status = play(&h, s) catch {
 	case actor.Stopped:
-		Console.Println("? the watch stopped")
+		io.Console.Println("? the watch stopped")
 		1
 	case ui.BadPatch as p:
-		Console.Println("? a patch is refused: \(p.Why)")
+		io.Console.Println("? a patch is refused: \(p.Why)")
 		1
 	}
 	app.Stop()
@@ -119,9 +121,9 @@ func Run(clock time.Manual) int needs Console | io.Stdin | time.Clock | Schedule
 }
 
 // Host is the watch on the test host.
-type Host = ui.TestHost[watch.Watch, watch.Signal, Decision[watch.Watch, Never]]
+type Host = ui.TestHost[watch.Watch, watch.Signal, machines.Decision[watch.Watch, core.Never]]
 
-func play(h mut Host, s Script) int fails actor.Stopped | ui.BadPatch needs Console {
+func play(h mut Host, s Script) int fails actor.Stopped | ui.BadPatch needs io.Console {
 	let mut now = 0s
 	for x in s.Lines {
 		try ui.Advance(h, x.At-now)
@@ -135,7 +137,7 @@ func play(h mut Host, s Script) int fails actor.Stopped | ui.BadPatch needs Cons
 		case Press as p:
 			p.Button
 		case Count:
-			Console.Println("@\(time.Count(now, 1ms)) the last pass wrote \(tick.Written) nodes and patched \(tick.Inserted + tick.Moved + tick.Removed + tick.Set)")
+			io.Console.Println("@\(time.Count(now, 1ms)) the last pass wrote \(tick.Written) nodes and patched \(tick.Inserted + tick.Moved + tick.Removed + tick.Set)")
 			continue
 		}
 		let label = match b {
@@ -147,19 +149,19 @@ func play(h mut Host, s Script) int fails actor.Stopped | ui.BadPatch needs Cons
 			"Reset"
 		}
 		let ids = ui.Locate(h, ui.WithRole{Role: ui.Button, Name: label})
-		if len(ids) == 0 {
-			Console.Println("@\(time.Count(now, 1ms)) no \(label) button")
+		if ids.Len() == 0 {
+			io.Console.Println("@\(time.Count(now, 1ms)) no \(label) button")
 			continue
 		}
 		try ui.Tap(h, ids[0])
 		// A click of Start or Stop is answered by the entry's work; Settle
 		// runs started work (uc-g6), so the press is on the screen after it.
 		try ui.Settle(h)
-		Console.Println("@\(time.Count(now, 1ms)) \(Shown(h))")
+		io.Console.Println("@\(time.Count(now, 1ms)) \(Shown(h))")
 	}
 	try ui.Advance(h, s.End-now)
 	try ui.Settle(h)
-	Console.Println("@\(time.Count(s.End, 1ms)) \(Shown(h))")
+	io.Console.Println("@\(time.Count(s.End, 1ms)) \(Shown(h))")
 	0
 }
 

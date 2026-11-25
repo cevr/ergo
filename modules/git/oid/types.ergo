@@ -3,6 +3,7 @@
 // std/sha256), including canonical Git object framing ("<kind> <size>\x00"),
 // strict lowercase hex parsing, and streaming object hashing.
 
+import option
 import sha1dc
 import sha256
 
@@ -38,5 +39,5 @@ type ObjectHasher {
 	expectedLen int,
 	written     int,
 	sha1State   sha1dc.Hasher,
-	sha256State Option[sha256.Hasher],
+	sha256State option.Option[sha256.Hasher],
 }

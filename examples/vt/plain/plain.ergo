@@ -6,6 +6,7 @@
 // again. Package screen, the dense form, is held to it by law
 // ScreenMatchesPlain.
 
+import option
 import vt/vt
 
 // Cell is one cell: a character (0 for a blank), its part, its style.
@@ -29,7 +30,7 @@ type Screen {
 	pen     vt.Style,
 	top     int,
 	bottom  int,
-	saved   Option[Saved],
+	saved   option.Option[Saved],
 	title   string,
 } implements vt.Screen
 
@@ -52,7 +53,7 @@ func New(config vt.Config) Screen {
 		pen:     vt.Default,
 		top:     0,
 		bottom:  rows - 1,
-		saved:   None,
+		saved:   option.None,
 		title:   "",
 	}
 }
@@ -90,7 +91,7 @@ func most(a int, b int) int { if a > b { a } else { b } }
 
 // Print writes each byte of run.
 func Print(s mut Screen, run string) {
-	for i in 0..len(run) {
+	for i in 0..run.Len() {
 		s.put(rune(run[i]), 1)
 	}
 }
@@ -247,8 +248,8 @@ func scrollUp(s mut Screen, n int) {
 	for _ in 0..k {
 		if keep {
 			s.history = s.history.Append(s.shown[0])
-			if len(s.history) > vt.HistoryLimit(s.config) {
-				s.history = s.history[vt.PageRows:len(s.history)]
+			if s.history.Len() > vt.HistoryLimit(s.config) {
+				s.history = s.history[vt.PageRows:s.history.Len()]
 			}
 		}
 		let mut lines = []Line{}
@@ -283,19 +284,19 @@ func scrollDown(s mut Screen, n int) {
 
 // Save keeps the cursor and the pen.
 func Save(s mut Screen) {
-	s.saved = Some{Value: Saved{Row: s.cur.Row, Col: s.cur.Col, Pen: s.pen, Origin: s.cur.Origin, Pending: s.cur.Pending}}
+	s.saved = option.Some{Value: Saved{Row: s.cur.Row, Col: s.cur.Col, Pen: s.pen, Origin: s.cur.Origin, Pending: s.cur.Pending}}
 }
 
 // Restore brings back what Save kept.
 func Restore(s mut Screen) {
 	match s.saved {
-	case Some[Saved] as k:
+	case option.Some[Saved] as k:
 		s.cur.Row = k.Value.Row
 		s.cur.Col = k.Value.Col
 		s.pen = k.Value.Pen
 		s.cur.Origin = k.Value.Origin
 		s.cur.Pending = k.Value.Pending
-	case None:
+	case option.None:
 		s.cur.Row = 0
 		s.cur.Col = 0
 		s.pen = vt.Default
@@ -314,7 +315,7 @@ func Reset(s mut Screen) {
 	s.pen = vt.Default
 	s.top = 0
 	s.bottom = s.rows - 1
-	s.saved = None
+	s.saved = option.None
 	s.title = ""
 }
 
@@ -548,11 +549,11 @@ func Rows(s mut Screen) int { s.rows }
 func Cols(s mut Screen) int { s.cols }
 
 // History is the count of history lines.
-func History(s mut Screen) int { len(s.history) }
+func History(s mut Screen) int { s.history.Len() }
 
 // line is line l of the history and the buffer shown.
 func line(s mut Screen, l int) Line {
-	if l < len(s.history) { s.history[l] } else { s.shown[l-len(s.history)] }
+	if l < s.history.Len() { s.history[l] } else { s.shown[l-s.history.Len()] }
 }
 
 // CellAt is the cell at col of line l.

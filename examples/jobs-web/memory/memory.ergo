@@ -7,6 +7,7 @@ import jobsweb/job
 import jobsweb/jobs
 import machines
 import maps
+import option
 import slices
 import sync
 
@@ -58,16 +59,16 @@ type cancelled = Stopped{} | Missing{} | Ended{State jobs.State}
 func Cancel(m Memory, id int) fails jobs.NoSuchJob | jobs.AlreadyDone {
 	let found = sync.Modify(m.cell, func(s shelf) (cancelled, shelf) {
 		let r = match s.runs.Get(id) {
-		case Some[job.Run] as x:
+		case option.Some[job.Run] as x:
 			x.Value
-		case None:
+		case option.None:
 			return (Missing, s)
 		}
 		let d = job.Step(r, job.Cancel)
 		match d {
-		case Reject:
+		case machines.Reject:
 			(Ended{State: r.State}, s)
-		case Emit[job.Run, jobs.State], Tell[job.Run, jobs.State], Enter[job.Run], Stay[job.Run], Ignore, Done[jobs.State]:
+		case machines.Emit[job.Run, jobs.State], machines.Tell[job.Run, jobs.State], machines.Enter[job.Run], machines.Stay[job.Run], machines.Ignore, machines.Done[jobs.State]:
 			let mut next = s.runs
 			next[id] = machines.Next(r, d)
 			(Stopped, shelf{runs: next, last: s.last})
@@ -83,12 +84,12 @@ func Cancel(m Memory, id int) fails jobs.NoSuchJob | jobs.AlreadyDone {
 }
 
 // Status is job id, or None.
-func Status(m Memory, id int) Option[jobs.Job] {
+func Status(m Memory, id int) option.Option[jobs.Job] {
 	match m.cell.Get().runs.Get(id) {
-	case Some[job.Run] as s:
-		Some[jobs.Job]{Value: job.View(id, s.Value)}
-	case None:
-		None
+	case option.Some[job.Run] as s:
+		option.Some[jobs.Job]{Value: job.View(id, s.Value)}
+	case option.None:
+		option.None
 	}
 }
 
@@ -98,9 +99,9 @@ func List(m Memory) []jobs.Job {
 	let mut out = []jobs.Job{}
 	for id in slices.Sorted(maps.Keys(rs)) {
 		match rs.Get(id) {
-		case Some[job.Run] as s:
+		case option.Some[job.Run] as s:
 			out = out.Append(job.View(id, s.Value))
-		case None:
+		case option.None:
 		}
 	}
 	out
@@ -113,9 +114,9 @@ func Work(m Memory, ticks int) {
 			let mut next = s.runs
 			for id in maps.Keys(s.runs) {
 				match s.runs.Get(id) {
-				case Some[job.Run] as x:
+				case option.Some[job.Run] as x:
 					next[id] = machines.Next(x.Value, job.Step(x.Value, job.Tick))
-				case None:
+				case option.None:
 				}
 			}
 			shelf{runs: next, last: s.last}

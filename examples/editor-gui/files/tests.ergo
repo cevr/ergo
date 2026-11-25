@@ -6,6 +6,7 @@
 
 import ergo.local/prototype/examples/editorgui/edit
 import fs
+import fstest
 
 // onTestHost binds the store to a Disk over the test's folder.
-let onTestHost = context needs TestAmbient { edit.Store: New(fs.NewTestHost()) }
+let onTestHost = context needs fstest.TestAmbient { edit.Store: New(fs.NewTestHost()) }

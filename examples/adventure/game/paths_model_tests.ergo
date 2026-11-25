@@ -1,7 +1,9 @@
 import adventure/world
+import core
 import exp explore
 import gen
 import machines
+import option
 import sync
 import temporal
 import testing
@@ -61,7 +63,7 @@ type advLive {
 
 type advSession {
 	live sync.Ref[advLive],
-} implements exp.PathSession[advAct, exp.Observed[advObs, advOut, Never], advDriveErr]
+} implements exp.PathSession[advAct, exp.Observed[advObs, advOut, core.Never], advDriveErr]
 
 func advLineOf(act advAct) Signal {
 	match act {
@@ -130,13 +132,13 @@ func applyAdvLive(ref sync.Ref[advLive], act advAct) advOut {
 		return AdvOutNoExit
 	}
 	match d {
-	case Enter[State] as e:
+	case machines.Enter[State] as e:
 		ref.Set(advLive{State: e.Next, Ended: ""})
 		AdvOutMoved
-	case Stay[State] as st:
+	case machines.Stay[State] as st:
 		ref.Set(advLive{State: st.Next, Ended: ""})
 		AdvOutStayed
-	case Done[Ending] as done:
+	case machines.Done[Ending] as done:
 		match done.Output {
 		case Won:
 			ref.Set(advLive{State: cur.State, Ended: "won"})
@@ -145,24 +147,24 @@ func applyAdvLive(ref sync.Ref[advLive], act advAct) advOut {
 			ref.Set(advLive{State: cur.State, Ended: "stopped"})
 			AdvOutStopped
 		}
-	case Emit[State, Ending], Tell[State, Ending], Ignore, Reject:
+	case machines.Emit[State, Ending], machines.Tell[State, Ending], machines.Ignore, machines.Reject:
 		AdvOutStayed
 	}
 }
 
-func Read(s advSession) exp.Observed[advObs, advOut, Never] fails advDriveErr {
+func Read(s advSession) exp.Observed[advObs, advOut, core.Never] fails advDriveErr {
 	exp.InitialRead[advObs]{State: observeAdv(s.live.Get())}
 }
 
-func Apply(s advSession, act advAct) exp.Observed[advObs, advOut, Never] fails advDriveErr {
+func Apply(s advSession, act advAct) exp.Observed[advObs, advOut, core.Never] fails advDriveErr {
 	let out = applyAdvLive(s.live, act)
 	let obs = observeAdv(s.live.Get())
-	exp.StepResult[advObs, advOut, Never]{
-		Step: exp.StepObs[advObs, advOut, Never]{
+	exp.StepResult[advObs, advOut, core.Never]{
+		Step: exp.StepObs[advObs, advOut, core.Never]{
 			Kind:     exp.DisEmit,
-			State:    Some[advObs]{Value: obs},
+			State:    option.Some[advObs]{Value: obs},
 			Outputs:  []advOut{out},
-			Error:    None,
+			Error:    option.None,
 			Terminal: false,
 		},
 	}
@@ -308,21 +310,21 @@ func advPathSignals() []advAct {
 	[]advAct{AdvNorth, AdvEast, AdvWest, AdvDown, AdvTakeLamp, AdvQuit, AdvConfirmQuit}
 }
 
-func advModel() exp.PathModel[advState, advAct, advObs, advOut, Never] {
-	exp.PathModelProjected[advState, advAct, advObs, advOut, Never](
+func advModel() exp.PathModel[advState, advAct, advObs, advOut, core.Never] {
+	exp.PathModelProjected[advState, advAct, advObs, advOut, core.Never](
 		[]advState{advStart},
 		advPathSignals(),
 		"adventure.play",
 		advProject,
-		func(st advState, act advAct) exp.EdgeOutcome[advState, exp.StepObs[advObs, advOut, Never]] {
+		func(st advState, act advAct) exp.EdgeOutcome[advState, exp.StepObs[advObs, advOut, core.Never]] {
 			let (next, out) = advStep(st, act)
-			exp.Continue[advState, exp.StepObs[advObs, advOut, Never]]{
+			exp.Continue[advState, exp.StepObs[advObs, advOut, core.Never]]{
 				Next: next,
-				Obs:  exp.StepObs[advObs, advOut, Never]{
+				Obs:  exp.StepObs[advObs, advOut, core.Never]{
 					Kind:     exp.DisEmit,
-					State:    Some[advObs]{Value: advProject(next)},
+					State:    option.Some[advObs]{Value: advProject(next)},
 					Outputs:  []advOut{out},
-					Error:    None,
+					Error:    option.None,
 					Terminal: false,
 				},
 			}
@@ -341,7 +343,7 @@ type AdventurePaths {
 			advModel(),
 			exp.ToDepth{Depth: 3},
 			bounds,
-			func(start advState) exp.PathSession[advAct, exp.Observed[advObs, advOut, Never], advDriveErr] fails advOpenErr {
+			func(start advState) exp.PathSession[advAct, exp.Observed[advObs, advOut, core.Never], advDriveErr] fails advOpenErr {
 				try OpenSession(start)
 			},
 			testing.ActiveEvidenceSink(),

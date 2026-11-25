@@ -1,6 +1,8 @@
 // Raw HTML: the seven kinds of HTML block, what ends each as a machine,
 // and the tags a line may hold, read by hand.
 
+import machines
+import option
 import strings
 import mdhtml/html
 
@@ -47,14 +49,14 @@ type With {}
 // HtmlStep is CommonMark's end condition of each kind: a blank line ends
 // a TagBlock or a LoneTag before it; a line that holds the kind's end
 // marker ends the others with it.
-func HtmlStep(e HtmlEnd, s Seen) Decision[HtmlEnd, Ending] {
+func HtmlStep(e HtmlEnd, s Seen) machines.Decision[HtmlEnd, Ending] {
 	match s {
 	case Blank:
 		match e {
 		case TagBlock, LoneTag:
-			Done[Ending]{Output: Before}
+			machines.Done[Ending]{Output: Before}
 		case RawText, Comment, Instruction, Declaration, CData:
-			Stay[HtmlEnd]{Next: e}
+			machines.Stay[HtmlEnd]{Next: e}
 		}
 	case Line as l:
 		let ends = match e {
@@ -72,7 +74,7 @@ func HtmlStep(e HtmlEnd, s Seen) Decision[HtmlEnd, Ending] {
 		case TagBlock, LoneTag:
 			false
 		}
-		if ends { Done[Ending]{Output: With} } else { Stay[HtmlEnd]{Next: e} }
+		if ends { machines.Done[Ending]{Output: With} } else { machines.Stay[HtmlEnd]{Next: e} }
 	}
 }
 
@@ -86,14 +88,14 @@ type HtmlBlock machine[HtmlEnd, Seen] {
 	// TagsEndAtABlankLine: a blank line ends a TagBlock or a LoneTag
 	// before it, and no other kind.
 	law TagsEndAtABlankLine(pick int) {
-		let e = kinds[index(pick, len(kinds))]
+		let e = kinds[index(pick, kinds.Len())]
 		let tags = e == TagBlock || e == LoneTag
 		match HtmlStep(e, Blank) {
-		case Done[Ending] as d:
+		case machines.Done[Ending] as d:
 			tags && d.Output == Before
-		case Stay[HtmlEnd] as s:
+		case machines.Stay[HtmlEnd] as s:
 			!tags && s.Next == e
-		case Enter[HtmlEnd], Emit[HtmlEnd, Ending], Tell[HtmlEnd, Ending], Ignore, Reject:
+		case machines.Enter[HtmlEnd], machines.Emit[HtmlEnd, Ending], machines.Tell[HtmlEnd, Ending], machines.Ignore, machines.Reject:
 			false
 		}
 	},
@@ -103,11 +105,11 @@ type HtmlBlock machine[HtmlEnd, Seen] {
 	law MarkersEndWithTheLine(pick int, before string, after string) {
 		let markers = []string{"</SCRIPT>", "</pre>", "</TextArea>", "</style>", "-->", "?>", ">", "]]>"}
 		let ofKind = []HtmlEnd{RawText, RawText, RawText, RawText, Comment, Instruction, Declaration, CData}
-		let i = index(pick, len(markers))
+		let i = index(pick, markers.Len())
 		match HtmlStep(ofKind[i], Line{Text: before + markers[i] + after}) {
-		case Done[Ending] as d:
+		case machines.Done[Ending] as d:
 			d.Output == With
-		case Enter[HtmlEnd], Stay[HtmlEnd], Emit[HtmlEnd, Ending], Tell[HtmlEnd, Ending], Ignore, Reject:
+		case machines.Enter[HtmlEnd], machines.Stay[HtmlEnd], machines.Emit[HtmlEnd, Ending], machines.Tell[HtmlEnd, Ending], machines.Ignore, machines.Reject:
 			false
 		}
 	},
@@ -115,11 +117,11 @@ type HtmlBlock machine[HtmlEnd, Seen] {
 	// NoMarkerStays: every end marker holds a >, so a line with none
 	// ends no block.
 	law NoMarkerStays(pick int, s string) {
-		let e = kinds[index(pick, len(kinds))]
+		let e = kinds[index(pick, kinds.Len())]
 		match HtmlStep(e, Line{Text: strings.ReplaceAll(s, ">", "")}) {
-		case Stay[HtmlEnd] as st:
+		case machines.Stay[HtmlEnd] as st:
 			st.Next == e
-		case Enter[HtmlEnd], Done[Ending], Emit[HtmlEnd, Ending], Tell[HtmlEnd, Ending], Ignore, Reject:
+		case machines.Enter[HtmlEnd], machines.Done[Ending], machines.Emit[HtmlEnd, Ending], machines.Tell[HtmlEnd, Ending], machines.Ignore, machines.Reject:
 			false
 		}
 	},
@@ -136,9 +138,9 @@ func index(pick int, n int) int {
 // EndsBefore says whether a blank line ends a block of kind e.
 func EndsBefore(e HtmlEnd) bool {
 	match HtmlStep(e, Blank) {
-	case Done[Ending]:
+	case machines.Done[Ending]:
 		true
-	case Enter[HtmlEnd], Stay[HtmlEnd], Emit[HtmlEnd, Ending], Tell[HtmlEnd, Ending], Ignore, Reject:
+	case machines.Enter[HtmlEnd], machines.Stay[HtmlEnd], machines.Emit[HtmlEnd, Ending], machines.Tell[HtmlEnd, Ending], machines.Ignore, machines.Reject:
 		false
 	}
 }
@@ -146,9 +148,9 @@ func EndsBefore(e HtmlEnd) bool {
 // EndsWith says whether the line text ends a block of kind e with it.
 func EndsWith(e HtmlEnd, text string) bool {
 	match HtmlStep(e, Line{Text: text}) {
-	case Done[Ending] as d:
+	case machines.Done[Ending] as d:
 		d.Output == With
-	case Enter[HtmlEnd], Stay[HtmlEnd], Emit[HtmlEnd, Ending], Tell[HtmlEnd, Ending], Ignore, Reject:
+	case machines.Enter[HtmlEnd], machines.Stay[HtmlEnd], machines.Emit[HtmlEnd, Ending], machines.Tell[HtmlEnd, Ending], machines.Ignore, machines.Reject:
 		false
 	}
 }
@@ -159,39 +161,39 @@ func Interrupts(e HtmlEnd) bool { e != LoneTag }
 
 // HtmlStart is the kind of HTML block the line s (from its first
 // non-space) starts, if any.
-func HtmlStart(s string) Option[HtmlEnd] {
-	if len(s) < 2 || s[0] != '<' {
-		return None
+func HtmlStart(s string) option.Option[HtmlEnd] {
+	if s.Len() < 2 || s[0] != '<' {
+		return option.None
 	}
 	let e = tagName(s, 1)
-	if oneOf(strings.ToLower(strings.Slice(s, 1, e)), rawTags) && (e == len(s) || isSpace(s[e]) || s[e] == '>') {
-		return Some[HtmlEnd]{Value: RawText}
+	if oneOf(strings.ToLower(strings.Slice(s, 1, e)), rawTags) && (e == s.Len() || isSpace(s[e]) || s[e] == '>') {
+		return option.Some[HtmlEnd]{Value: RawText}
 	}
 	if strings.HasPrefix(s, "<!--") {
-		return Some[HtmlEnd]{Value: Comment}
+		return option.Some[HtmlEnd]{Value: Comment}
 	}
 	if strings.HasPrefix(s, "<?") {
-		return Some[HtmlEnd]{Value: Instruction}
+		return option.Some[HtmlEnd]{Value: Instruction}
 	}
-	if len(s) > 2 && s[1] == '!' && asciiLetter(s[2]) {
-		return Some[HtmlEnd]{Value: Declaration}
+	if s.Len() > 2 && s[1] == '!' && asciiLetter(s[2]) {
+		return option.Some[HtmlEnd]{Value: Declaration}
 	}
 	if strings.HasPrefix(s, "<![CDATA[") {
-		return Some[HtmlEnd]{Value: CData}
+		return option.Some[HtmlEnd]{Value: CData}
 	}
 	let i = if s[1] == '/' { 2 } else { 1 }
 	let f = tagName(s, i)
-	if oneOf(strings.ToLower(strings.Slice(s, i, f)), blockTags) && (f == len(s) || isSpace(s[f]) || s[f] == '>' || strings.HasPrefix(strings.Slice(s, f, len(s)), "/>")) {
-		return Some[HtmlEnd]{Value: TagBlock}
+	if oneOf(strings.ToLower(strings.Slice(s, i, f)), blockTags) && (f == s.Len() || isSpace(s[f]) || s[f] == '>' || strings.HasPrefix(strings.Slice(s, f, s.Len()), "/>")) {
+		return option.Some[HtmlEnd]{Value: TagBlock}
 	}
 	let mut n = openTag(s)
 	if n == 0 {
 		n = closeTag(s)
 	}
-	if n > 0 && isBlank(strings.Slice(s, n, len(s))) {
-		return Some[HtmlEnd]{Value: LoneTag}
+	if n > 0 && isBlank(strings.Slice(s, n, s.Len())) {
+		return option.Some[HtmlEnd]{Value: LoneTag}
 	}
-	None
+	option.None
 }
 
 let blockTags = []string{"address", "article", "aside", "base", "basefont", "blockquote", "body", "caption", "center", "col", "colgroup", "dd", "details", "dialog", "dir", "div", "dl", "dt", "fieldset", "figcaption", "figure", "footer", "form", "frame", "frameset", "h1", "h2", "h3", "h4", "h5", "h6", "head", "header", "hr", "html", "iframe", "legend", "li", "link", "main", "menu", "menuitem", "nav", "noframes", "ol", "optgroup", "option", "p", "param", "search", "section", "summary", "table", "tbody", "td", "tfoot", "th", "thead", "title", "tr", "track", "ul"}
@@ -219,7 +221,7 @@ func asciiAlnum(c byte) bool { asciiLetter(c) || asciiDigit(c) }
 law EscapedPunctuationIsText(s string) {
 	let mut src = strings.NewBuilder()
 	let mut want = strings.NewBuilder()
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		let c = s[i]
 		// ASCII punctuation is every printable byte that is not a
 		// letter, a digit or a space.
@@ -255,7 +257,7 @@ law DefinitionsAnywhere(s string, d string) {
 // letters is the ASCII letters and digits of s.
 func letters(s string) string {
 	let mut b = strings.NewBuilder()
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		if asciiAlnum(s[i]) {
 			b.WriteByte(s[i])
 		}
@@ -287,16 +289,16 @@ law TightListsHaveNoParagraphs(words []string) {
 			loose.WriteString("<li>\n<p>" + l + "</p>\n</li>\n")
 		}
 	}
-	if len(items) == 0 {
+	if items.Len() == 0 {
 		return true
 	}
-	let one = len(items) == 1
+	let one = items.Len() == 1
 	md(strings.Join(items, "\n")) == "<ul>\n"+tight.String()+"</ul>\n" && md(strings.Join(items, "\n\n")) == "<ul>\n"+(if one { tight.String() } else { loose.String() })+"</ul>\n"
 }
 
 func skipSpace(s string, from int) int {
 	let mut i = from
-	for i < len(s) && isSpace(s[i]) {
+	for i < s.Len() && isSpace(s[i]) {
 		i += 1
 	}
 	i
@@ -305,11 +307,11 @@ func skipSpace(s string, from int) int {
 // tagName is the end of a tag name at i (a letter, then letters, digits
 // and hyphens), or i.
 func tagName(s string, i int) int {
-	if i >= len(s) || !asciiLetter(s[i]) {
+	if i >= s.Len() || !asciiLetter(s[i]) {
 		return i
 	}
 	let mut j = i + 1
-	for j < len(s) && (asciiAlnum(s[j]) || s[j] == '-') {
+	for j < s.Len() && (asciiAlnum(s[j]) || s[j] == '-') {
 		j += 1
 	}
 	j
@@ -321,19 +323,19 @@ func attrNameByte(c byte) bool { asciiAlnum(c) || c == '_' || c == ':' || c == '
 
 // attrValue is the end of an attribute value at i, or -1.
 func attrValue(s string, i int) int {
-	if i >= len(s) {
+	if i >= s.Len() {
 		return -1
 	}
 	let q = s[i]
 	if q == '"' || q == '\'' {
 		let mut j = i + 1
-		for j < len(s) && s[j] != q {
+		for j < s.Len() && s[j] != q {
 			j += 1
 		}
-		return if j < len(s) { j + 1 } else { -1 }
+		return if j < s.Len() { j + 1 } else { -1 }
 	}
 	let mut j = i
-	for j < len(s) && s[j] > ' ' && s[j] != '"' && s[j] != '\'' && s[j] != '=' && s[j] != '<' && s[j] != '>' && s[j] != '`' {
+	for j < s.Len() && s[j] > ' ' && s[j] != '"' && s[j] != '\'' && s[j] != '=' && s[j] != '<' && s[j] != '>' && s[j] != '`' {
 		j += 1
 	}
 	if j == i { -1 } else { j }
@@ -341,7 +343,7 @@ func attrValue(s string, i int) int {
 
 // openTag is the length of the open tag that s starts with, or 0.
 func openTag(s string) int {
-	if len(s) < 2 || s[0] != '<' {
+	if s.Len() < 2 || s[0] != '<' {
 		return 0
 	}
 	let mut i = tagName(s, 1)
@@ -350,15 +352,15 @@ func openTag(s string) int {
 	}
 	for {
 		let j = skipSpace(s, i)
-		if j == i || j >= len(s) || !attrNameStart(s[j]) {
+		if j == i || j >= s.Len() || !attrNameStart(s[j]) {
 			break
 		}
 		let mut k = j + 1
-		for k < len(s) && attrNameByte(s[k]) {
+		for k < s.Len() && attrNameByte(s[k]) {
 			k += 1
 		}
 		let m = skipSpace(s, k)
-		if m < len(s) && s[m] == '=' {
+		if m < s.Len() && s[m] == '=' {
 			let v = attrValue(s, skipSpace(s, m+1))
 			if v < 0 {
 				return 0
@@ -369,15 +371,15 @@ func openTag(s string) int {
 		}
 	}
 	i = skipSpace(s, i)
-	if i < len(s) && s[i] == '/' {
+	if i < s.Len() && s[i] == '/' {
 		i += 1
 	}
-	if i < len(s) && s[i] == '>' { i + 1 } else { 0 }
+	if i < s.Len() && s[i] == '>' { i + 1 } else { 0 }
 }
 
 // closeTag is the length of the closing tag that s starts with, or 0.
 func closeTag(s string) int {
-	if len(s) < 3 || s[0] != '<' || s[1] != '/' {
+	if s.Len() < 3 || s[0] != '<' || s[1] != '/' {
 		return 0
 	}
 	let i = tagName(s, 2)
@@ -385,22 +387,22 @@ func closeTag(s string) int {
 		return 0
 	}
 	let j = skipSpace(s, i)
-	if j < len(s) && s[j] == '>' { j + 1 } else { 0 }
+	if j < s.Len() && s[j] == '>' { j + 1 } else { 0 }
 }
 
 // until is the end of the first sep in s at or after i, or 0.
 func until(s string, i int, sep string) int {
-	if i > len(s) {
+	if i > s.Len() {
 		return 0
 	}
-	let j = strings.Index(strings.Slice(s, i, len(s)), sep)
-	if j < 0 { 0 } else { i + j + len(sep) }
+	let j = strings.Index(strings.Slice(s, i, s.Len()), sep)
+	if j < 0 { 0 } else { i + j + sep.Len() }
 }
 
 // HtmlTag is the length of the inline raw HTML that s starts with, or 0:
 // a tag, a comment, an instruction, a declaration or a CDATA section.
 func HtmlTag(s string) int {
-	if len(s) < 2 || s[0] != '<' {
+	if s.Len() < 2 || s[0] != '<' {
 		return 0
 	}
 	let c = s[1]
@@ -423,7 +425,7 @@ func HtmlTag(s string) int {
 		if strings.HasPrefix(s, "<![CDATA[") {
 			return until(s, 9, "]]>")
 		}
-		if len(s) > 2 && asciiLetter(s[2]) {
+		if s.Len() > 2 && asciiLetter(s[2]) {
 			return until(s, 3, ">")
 		}
 		return 0

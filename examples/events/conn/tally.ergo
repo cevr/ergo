@@ -41,7 +41,7 @@ func Of(es []Event) Tally {
 // AddCountsEach: every event counts once, in its own kind.
 law AddCountsEach(es []Event) {
 	let t = Of(es)
-	t.Opened+t.Sent+t.Closed+t.Failed == len(es)
+	t.Opened+t.Sent+t.Closed+t.Failed == es.Len()
 }
 
 // AddIsOrderFree: a tally does not depend on the order of the events.

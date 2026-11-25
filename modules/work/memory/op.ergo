@@ -8,6 +8,7 @@ import github.com/cevr/ergo/modules/work/classes
 import github.com/cevr/ergo/modules/work/work
 import json
 import maps
+import option
 import slices
 import strings
 import time
@@ -86,7 +87,7 @@ law RemovingIsIdempotent(name int) {
 	case _:
 		return false
 	}
-	let _ = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: some(a.Id), Archive: false, Dry: false}) catch {
+	let _ = w.tool.Gc(work.GcOptions{Older: option.None, Idle: option.None, Id: some(a.Id), Archive: false, Dry: false}) catch {
 	case _:
 		return false
 	}
@@ -98,11 +99,11 @@ law RemovingIsIdempotent(name int) {
 	case _:
 		return false
 	}
-	len(first) == 1 && first[0].Id == a.Id && !first[0].Already && second == again && third == again && len(listed) == 1 && len(purged) == 0
+	first.Len() == 1 && first[0].Id == a.Id && !first[0].Already && second == again && third == again && listed.Len() == 1 && purged.Len() == 0
 }
 
 // expecting are rm's options with the expected id and -abandon.
-func expecting(id Option[string]) work.RmOptions { work.RmOptions{Abandon: true, Expect: id, Tree: false} }
+func expecting(id option.Option[string]) work.RmOptions { work.RmOptions{Abandon: true, Expect: id, Tree: false} }
 
 // RemovingSparesTheReplacement: after the workspace at a name was removed
 // and purged (the name is taken until gc) and a new one took the name,
@@ -113,11 +114,11 @@ law RemovingSparesTheReplacement() {
 	case _:
 		return false
 	}
-	let _ = w.tool.Rm("a", expecting(None)) catch {
+	let _ = w.tool.Rm("a", expecting(option.None)) catch {
 	case _:
 		return false
 	}
-	let _ = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false, Dry: false}) catch {
+	let _ = w.tool.Gc(work.GcOptions{Older: option.None, Idle: option.None, Id: option.None, Archive: false, Dry: false}) catch {
 	case _:
 		return false
 	}
@@ -153,7 +154,7 @@ law ReservingWithATokenTwiceIsOnce(token string, again int) {
 	case _:
 		return false
 	}
-	second.Id == first.Id && second.Path == first.Path && second.Name == "a" && len(after) == 1
+	second.Id == first.Id && second.Path == first.Path && second.Name == "a" && after.Len() == 1
 }
 
 // PurgingTouchesOneEntry: gc -id purges that entry only: its record goes
@@ -168,11 +169,11 @@ law PurgingTouchesOneEntry() {
 	case _:
 		return false
 	}
-	let _ = w.tool.Rm("a", expecting(None)) catch {
+	let _ = w.tool.Rm("a", expecting(option.None)) catch {
 	case _:
 		return false
 	}
-	let gone = w.tool.Rm("b", expecting(None)) catch {
+	let gone = w.tool.Rm("b", expecting(option.None)) catch {
 	case _:
 		return false
 	}
@@ -180,7 +181,7 @@ law PurgingTouchesOneEntry() {
 	case _:
 		return false
 	}
-	let purged = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: some(a.Id), Archive: false, Dry: false}) catch {
+	let purged = w.tool.Gc(work.GcOptions{Older: option.None, Idle: option.None, Id: some(a.Id), Archive: false, Dry: false}) catch {
 	case _:
 		return false
 	}
@@ -219,12 +220,12 @@ law ClaimReadsTheParentAgain(replaced bool) {
 	case _:
 		return false
 	}
-	let _ = w.tool.Rm("x", expecting(None)) catch {
+	let _ = w.tool.Rm("x", expecting(option.None)) catch {
 	case _:
 		return false
 	}
 	if replaced {
-		let _ = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false, Dry: false}) catch {
+		let _ = w.tool.Gc(work.GcOptions{Older: option.None, Idle: option.None, Id: option.None, Archive: false, Dry: false}) catch {
 		case _:
 			return false
 		}
@@ -290,7 +291,7 @@ law ParityWithLaneRift(verbs []Verb) {
 				pushed = false
 			}
 			let mut handed = true
-			let _ = w.tool.Ready(work.ReadyOptions{Name: Some[string]{Value: "work"}, Request: None}) catch {
+			let _ = w.tool.Ready(work.ReadyOptions{Name: option.Some[string]{Value: "work"}, Request: option.None}) catch {
 			case _:
 				handed = false
 				work.Handed{Name: "", Branch: "", Commit: "", Snapshot: "", Parent: ""}
@@ -308,7 +309,7 @@ law ParityWithLaneRift(verbs []Verb) {
 				""
 			}
 			let mut synced = true
-			let _ = w.tool.Sync(work.SyncOptions{Name: Some[string]{Value: "work"}}) catch {
+			let _ = w.tool.Sync(work.SyncOptions{Name: option.Some[string]{Value: "work"}}) catch {
 			case _:
 				synced = false
 				work.Synced{Commit: "", Deps: work.NoDeps}
@@ -408,7 +409,7 @@ func worldOn(r work.Registry, sharing bool, tree Map[string, string], config str
 }
 
 // fresh are new's options with only the copy flag.
-func fresh(copy bool) work.NewOptions { work.NewOptions{Copy: copy, From: None, Branch: None, On: None, Token: None} }
+func fresh(copy bool) work.NewOptions { work.NewOptions{Copy: copy, From: option.None, Branch: option.None, On: option.None, Token: option.None} }
 
 // ToolAgreesWithTheReference: after every step, List names the records
 // the reference holds, in its order, states and parents; every live
@@ -441,65 +442,65 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 			}
 			if !holds(want, name) {
 				let e = Expected{Name: name, State: "active", Parent: theBase, Kept: true, Sure: true, Since: at, Path: work.Home(theBase, "") + "/" + work.FolderOf(name), Cloned: false, Until: 0, Staged: 0}
-				want = freed(want, name, if sharing || o.Copy { Some[Expected]{Value: e} } else { None })
+				want = freed(want, name, if sharing || o.Copy { option.Some[Expected]{Value: e} } else { option.None })
 			}
 		case OnOp as o:
 			let name = pick(o.Name)
 			let on = pick(o.On)
-			let made = (w.tool.New(name, work.NewOptions{Copy: true, From: None, Branch: None, On: Some[string]{Value: on}, Token: None}) catch {
+			let made = (w.tool.New(name, work.NewOptions{Copy: true, From: option.None, Branch: option.None, On: option.Some[string]{Value: on}, Token: option.None}) catch {
 			case _:
 				nothing()
 			}).Path
 			match find(want, on) {
-			case Some[Expected] as parent:
+			case option.Some[Expected] as parent:
 				let can = !holds(want, name) && parent.Value.State == "active"
 				if made != "" && !can {
 					return false
 				}
 				if can {
 					let e = Expected{Name: name, State: "active", Parent: parent.Value.Path, Kept: false, Sure: false, Since: at, Path: made, Cloned: false, Until: 0, Staged: 0}
-					want = freed(want, name, if made != "" { Some[Expected]{Value: e} } else { None })
+					want = freed(want, name, if made != "" { option.Some[Expected]{Value: e} } else { option.None })
 				}
-			case None:
+			case option.None:
 				if made != "" {
 					return false
 				}
 			}
 		case RmOp as o:
 			let name = pick(o.Name)
-			let out = w.tool.Rm(name, work.RmOptions{Abandon: o.Abandon, Expect: None, Tree: false}) catch {
+			let out = w.tool.Rm(name, work.RmOptions{Abandon: o.Abandon, Expect: option.None, Tree: false}) catch {
 			case _:
 				[]work.Removed{}
 			}
-			want = removed(want, name, o.Abandon, at, len(out) == 1 && out[0].Name == name, if len(out) == 1 { out[0].Id } else { "" })
+			want = removed(want, name, o.Abandon, at, out.Len() == 1 && out[0].Name == name, if out.Len() == 1 { out[0].Id } else { "" })
 		case EditOp as o:
 			let name = pick(o.Name)
 			match find(want, name) {
-			case Some[Expected] as e:
+			case option.Some[Expected] as e:
 				if e.Value.State == "active" && Write(w.trees, e.Value.Path, "edit.ergo", "// edit \(at)\n") {
 					want = replaced(want, Expected{..e.Value, Kept: false, Sure: true})
 				}
-			case None:
+			case option.None:
 			}
 		case LandOp as o:
 			let name = pick(o.Name)
 			match find(want, name) {
-			case Some[Expected] as e:
+			case option.Some[Expected] as e:
 				if e.Value.State == "active" {
 					commits = commits + 1
 					let landed = Commit(w.vcs, e.Value.Path, "c\(commits)") && Land(w.vcs, e.Value.Path, e.Value.Parent)
 					want = replaced(want, Expected{..e.Value, Kept: landed, Sure: landed})
 				}
-			case None:
+			case option.None:
 			}
 		case ReadyOp as o:
 			let name = pick(o.Name)
-			let handed = w.tool.Ready(work.ReadyOptions{Name: Some[string]{Value: name}, Request: None}) catch {
+			let handed = w.tool.Ready(work.ReadyOptions{Name: option.Some[string]{Value: name}, Request: option.None}) catch {
 			case _:
 				work.Handed{Name: "", Branch: "", Commit: "", Snapshot: "", Parent: ""}
 			}
 			match find(want, name) {
-			case Some[Expected] as e:
+			case option.Some[Expected] as e:
 				if e.Value.Cloned && e.Value.State == "active" {
 					// A clone doctor -repair activated: the reference does not
 					// decide its ready; one that took holds its snapshot.
@@ -516,14 +517,14 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 				} else if handed.Name != "" {
 					return false
 				}
-			case None:
+			case option.None:
 				if handed.Name != "" {
 					return false
 				}
 			}
 		case SyncOp as o:
 			let name = pick(o.Name)
-			let theirs = (w.tool.Sync(work.SyncOptions{Name: Some[string]{Value: name}}) catch {
+			let theirs = (w.tool.Sync(work.SyncOptions{Name: option.Some[string]{Value: name}}) catch {
 			case _:
 				work.Synced{Commit: "", Deps: work.NoDeps}
 			}).Commit
@@ -532,9 +533,9 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 					return false
 				}
 				match find(want, name) {
-				case Some[Expected] as e:
+				case option.Some[Expected] as e:
 					want = replaced(want, Expected{..e.Value, Sure: false, Since: at})
-				case None:
+				case option.None:
 					return false
 				}
 			}
@@ -584,17 +585,17 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 			// of an id no record holds when name's is not a reservation.
 			let name = pick(o.Name)
 			let creating = match find(want, name) {
-			case Some[Expected] as e:
+			case option.Some[Expected] as e:
 				e.Value.State == "creating"
-			case None:
+			case option.None:
 				false
 			}
-			let out = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: some(if creating { crashId(name) } else { "none" }), Archive: false, Dry: false}) catch {
+			let out = w.tool.Gc(work.GcOptions{Older: option.None, Idle: option.None, Id: some(if creating { crashId(name) } else { "none" }), Archive: false, Dry: false}) catch {
 			case _:
 				return false
 			}
 			match find(want, name) {
-			case Some[Expected] as e:
+			case option.Some[Expected] as e:
 				if e.Value.State == "creating" {
 					let wanted = if e.Value.Cloned { []string{} } else { []string{name} }
 					if out.Purged != wanted {
@@ -605,12 +606,12 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 						gone = gone.Append(e.Value.Path)
 					}
 				}
-			case None:
+			case option.None:
 			}
 		case RepairOp:
 			// doctor -repair activates each reservation over a whole clone
 			// whose maker is gone, and names it; the rest stay as they are.
-			let report = w.tool.Doctor(work.DoctorOptions{Rift: false, Registry: None, Unguard: false, Fix: false, Here: false, Repair: true}) catch {
+			let report = w.tool.Doctor(work.DoctorOptions{Rift: false, Registry: option.None, Unguard: false, Fix: false, Here: false, Repair: true}) catch {
 			case _:
 				return false
 			}
@@ -625,14 +626,14 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 					next = next.Append(e)
 				}
 			}
-			if len(slices.Filter(report.Notes, func(n string) bool { strings.HasPrefix(n, "activated ") })) != len(slices.Filter(want, func(e Expected) bool { e.State == "creating" && e.Cloned })) {
+			if slices.Filter(report.Notes, func(n string) bool { strings.HasPrefix(n, "activated ") }).Len() != slices.Filter(want, func(e Expected) bool { e.State == "creating" && e.Cloned }).Len() {
 				return false
 			}
 			want = next
 		case GcOp as o:
 			let older = small(o.Older, 7200)
-			let idle = if o.Idle > 0 { Some[string]{Value: "\(small(o.Idle, 7200))s"} } else { None }
-			let out = w.tool.Gc(work.GcOptions{Older: Some[string]{Value: "\(older)s"}, Idle: idle, Id: None, Archive: false, Dry: false}) catch {
+			let idle = if o.Idle > 0 { option.Some[string]{Value: "\(small(o.Idle, 7200))s"} } else { option.None }
+			let out = w.tool.Gc(work.GcOptions{Older: option.Some[string]{Value: "\(older)s"}, Idle: idle, Id: option.None, Archive: false, Dry: false}) catch {
 			case _:
 				work.Collected{Purged: []string{}, Idle: []work.Idle{}, Preview: json.Absent}
 			}
@@ -649,11 +650,11 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 					let i = slices.IndexFunc(out.Idle, func(i work.Idle) bool { i.Name == name && i.Removed })
 					want = removed(want, name, false, at, i >= 0, if i >= 0 { out.Idle[i].Id } else { "" })
 					match find(want, name) {
-					case Some[Expected] as e:
+					case option.Some[Expected] as e:
 						if e.Value.State == "trashed" && e.Value.Since == at {
 							want = replaced(want, Expected{..e.Value, Until: at + int64(work.IdleTrash)})
 						}
-					case None:
+					case option.None:
 					}
 				}
 			}
@@ -684,21 +685,21 @@ law UseKeepsAWorkspace(sync bool) {
 	}
 	w.clock.Advance(time.Times(1s, 7200))
 	if sync {
-		let _ = w.tool.Sync(work.SyncOptions{Name: Some[string]{Value: "a"}}) catch {
+		let _ = w.tool.Sync(work.SyncOptions{Name: option.Some[string]{Value: "a"}}) catch {
 		case _:
 			return false
 		}
 	} else {
-		let _ = w.tool.Ready(work.ReadyOptions{Name: Some[string]{Value: "a"}, Request: None}) catch {
+		let _ = w.tool.Ready(work.ReadyOptions{Name: option.Some[string]{Value: "a"}, Request: option.None}) catch {
 		case _:
 			return false
 		}
 	}
-	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: false, Dry: false}) catch {
+	let out = w.tool.Gc(work.GcOptions{Older: option.None, Idle: option.Some[string]{Value: "1h"}, Id: option.None, Archive: false, Dry: false}) catch {
 	case _:
 		return false
 	}
-	len(out.Idle) == 1 && out.Idle[0].Name == "b" && out.Idle[0].Removed
+	out.Idle.Len() == 1 && out.Idle[0].Name == "b" && out.Idle[0].Removed
 }
 
 // ArchiveKeepsTheWork: gc -idle -archive removes an idle workspace whose
@@ -713,7 +714,7 @@ law ArchiveKeepsTheWork(text string, archive bool, side bool, stash bool) {
 	case _:
 		return false
 	}
-	let b = w.tool.New("b", work.NewOptions{Copy: false, From: None, Branch: None, On: Some[string]{Value: "a"}, Token: None}) catch {
+	let b = w.tool.New("b", work.NewOptions{Copy: false, From: option.None, Branch: option.None, On: option.Some[string]{Value: "a"}, Token: option.None}) catch {
 	case _:
 		return false
 	}
@@ -725,13 +726,13 @@ law ArchiveKeepsTheWork(text string, archive bool, side bool, stash bool) {
 	let _ = Write(w.trees, b.Path, "draft.txt", text)
 	let files = Working(Files(w.trees, b.Path))
 	w.clock.Advance(time.Times(1s, 7200))
-	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: archive, Dry: false}) catch {
+	let out = w.tool.Gc(work.GcOptions{Older: option.None, Idle: option.Some[string]{Value: "1h"}, Id: option.None, Archive: archive, Dry: false}) catch {
 	case _:
 		return false
 	}
 	let gone = !w.trees.Has(b.Path)
 	if !archive {
-		return !gone && len(out.Idle) == 2 && out.Idle[0].Name == "b" && out.Idle[0].Why == "NotHeld" && out.Idle[0].Archived == ""
+		return !gone && out.Idle.Len() == 2 && out.Idle[0].Name == "b" && out.Idle[0].Why == "NotHeld" && out.Idle[0].Archived == ""
 	}
 	let ref = work.ArchiveRef("b", b.Id)
 	let commit = w.vcs.Resolve(theBase, ref) catch {
@@ -770,11 +771,11 @@ law IdleKeepsAStaleBranch(text string, archive bool, onDefault bool) {
 		return false
 	}
 	w.clock.Advance(time.Times(1s, 7200))
-	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: archive, Dry: false}) catch {
+	let out = w.tool.Gc(work.GcOptions{Older: option.None, Idle: option.Some[string]{Value: "1h"}, Id: option.None, Archive: archive, Dry: false}) catch {
 	case _:
 		return false
 	}
-	if len(out.Idle) != 1 {
+	if out.Idle.Len() != 1 {
 		return false
 	}
 	let gone = !w.trees.Has(a.Path)
@@ -785,7 +786,7 @@ law IdleKeepsAStaleBranch(text string, archive bool, onDefault bool) {
 		return !gone && out.Idle[0].Why == "NotHeld"
 	}
 	w.clock.Advance(time.Times(1s, 2*int(work.IdleTrash)))
-	let purged = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false, Dry: false}) catch {
+	let purged = w.tool.Gc(work.GcOptions{Older: option.None, Idle: option.None, Id: option.None, Archive: false, Dry: false}) catch {
 	case _:
 		return false
 	}
@@ -793,7 +794,7 @@ law IdleKeepsAStaleBranch(text string, archive bool, onDefault bool) {
 	case _:
 		""
 	}
-	gone && out.Idle[0].Removed && len(purged.Purged) == 1 && kept == c
+	gone && out.Idle[0].Removed && purged.Purged.Len() == 1 && kept == c
 }
 
 // RmKeepsEveryBranch: rm of a clean workspace whose head its parent
@@ -823,10 +824,10 @@ law RmKeepsEveryBranch(kind int, text string) {
 	}
 	let mut refused = false
 	let mut named = k == 2
-	let _ = w.tool.Rm("a", work.RmOptions{Abandon: false, Expect: None, Tree: false}) catch {
+	let _ = w.tool.Rm("a", work.RmOptions{Abandon: false, Expect: option.None, Tree: false}) catch {
 	case work.NotHeld as e:
 		refused = true
-		let one = len(e.Unheld) == 1 && strings.Contains(e.Why, e.Unheld[0].Ref+" at "+e.Unheld[0].Commit)
+		let one = e.Unheld.Len() == 1 && strings.Contains(e.Why, e.Unheld[0].Ref+" at "+e.Unheld[0].Commit)
 		named = one && if k == 1 {
 			strings.HasPrefix(e.Unheld[0].Ref, "refs/stash/")
 		} else {
@@ -860,7 +861,7 @@ law PinKeepsAWorkspace(unpin bool) {
 		}
 	}
 	w.clock.Advance(time.Times(1s, 7200))
-	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: false, Dry: false}) catch {
+	let out = w.tool.Gc(work.GcOptions{Older: option.None, Idle: option.Some[string]{Value: "1h"}, Id: option.None, Archive: false, Dry: false}) catch {
 	case _:
 		return false
 	}
@@ -880,12 +881,12 @@ law InUseKeepsAWorkspace(why string) {
 	}
 	w.runner.Use(a.Path, why)
 	w.clock.Advance(time.Times(1s, 7200))
-	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: false, Dry: false}) catch {
+	let out = w.tool.Gc(work.GcOptions{Older: option.None, Idle: option.Some[string]{Value: "1h"}, Id: option.None, Archive: false, Dry: false}) catch {
 	case _:
 		return false
 	}
 	let used = strings.TrimSpace(why)
-	len(out.Idle) == 1 && out.Idle[0].Removed == (used == "") && (used == "" || (out.Idle[0].Why == "InUse" && out.Idle[0].Detail == used))
+	out.Idle.Len() == 1 && out.Idle[0].Removed == (used == "") && (used == "" || (out.Idle[0].Why == "InUse" && out.Idle[0].Detail == used))
 }
 
 // IdleTrashWaitsADay: the trash of a workspace gc -idle removed is not
@@ -898,17 +899,17 @@ law IdleTrashWaitsADay(wait int) {
 		return false
 	}
 	w.clock.Advance(time.Times(1s, 7200))
-	let first = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: false, Dry: false}) catch {
+	let first = w.tool.Gc(work.GcOptions{Older: option.None, Idle: option.Some[string]{Value: "1h"}, Id: option.None, Archive: false, Dry: false}) catch {
 	case _:
 		return false
 	}
 	let s = small(wait, 2*work.IdleTrash)
 	w.clock.Advance(time.Times(1s, s))
-	let later = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false, Dry: false}) catch {
+	let later = w.tool.Gc(work.GcOptions{Older: option.None, Idle: option.None, Id: option.None, Archive: false, Dry: false}) catch {
 	case _:
 		return false
 	}
-	len(first.Idle) == 1 && first.Idle[0].Removed && len(first.Purged) == 0 && (len(later.Purged) == 1) == (s >= work.IdleTrash)
+	first.Idle.Len() == 1 && first.Idle[0].Removed && first.Purged.Len() == 0 && (later.Purged.Len() == 1) == (s >= work.IdleTrash)
 }
 
 // NoTrashDeletesForGood: in a base whose work.toml says trash = false,
@@ -931,7 +932,7 @@ law NoTrashDeletesForGood(viaGc bool, unsaved bool) {
 	}
 	let a = made[0]
 	let b = made[1]
-	let _ = w.tool.Rm("b", work.RmOptions{Abandon: false, Expect: Some[string]{Value: b.Id}, Tree: false}) catch {
+	let _ = w.tool.Rm("b", work.RmOptions{Abandon: false, Expect: option.Some[string]{Value: b.Id}, Tree: false}) catch {
 	case _:
 		return false
 	}
@@ -946,7 +947,7 @@ law NoTrashDeletesForGood(viaGc bool, unsaved bool) {
 	let mut trash = "unread"
 	if viaGc {
 		w.clock.Advance(time.Times(1s, 7200))
-		let out = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: false, Dry: false}) catch {
+		let out = w.tool.Gc(work.GcOptions{Older: option.None, Idle: option.Some[string]{Value: "1h"}, Id: option.None, Archive: false, Dry: false}) catch {
 		case _:
 			return false
 		}
@@ -957,13 +958,13 @@ law NoTrashDeletesForGood(viaGc bool, unsaved bool) {
 		removed = out.Idle[i].Removed
 		trash = ""
 	} else {
-		let out = w.tool.Rm("a", work.RmOptions{Abandon: false, Expect: Some[string]{Value: a.Id}, Tree: false}) catch {
+		let out = w.tool.Rm("a", work.RmOptions{Abandon: false, Expect: option.Some[string]{Value: a.Id}, Tree: false}) catch {
 		case work.NotHeld:
 			[]work.Removed{}
 		case _:
 			return false
 		}
-		removed = len(out) == 1
+		removed = out.Len() == 1
 		if removed {
 			trash = out[0].Trash
 		}
@@ -1023,22 +1024,22 @@ law TheHostSettingDecidesTrash(toml int, local int) {
 		(true, "default")
 	}
 	let bad = l == 4
-	let report = w.tool.Doctor(work.DoctorOptions{Rift: false, Registry: None, Unguard: false, Fix: false, Here: false, Repair: false}) catch {
+	let report = w.tool.Doctor(work.DoctorOptions{Rift: false, Registry: option.None, Unguard: false, Fix: false, Here: false, Repair: false}) catch {
 	case work.BadConfig:
 		return bad && removedBadly(w, a.Id)
 	case _:
 		return false
 	}
-	let out = w.tool.Rm("a", work.RmOptions{Abandon: false, Expect: Some[string]{Value: a.Id}, Tree: false}) catch {
+	let out = w.tool.Rm("a", work.RmOptions{Abandon: false, Expect: option.Some[string]{Value: a.Id}, Tree: false}) catch {
 	case _:
 		return false
 	}
-	!bad && slices.Contains(report.Notes, "trash: \(want) (\(from))") && len(out) == 1 && (out[0].Trash != "") == want && !w.trees.Has(a.Path)
+	!bad && slices.Contains(report.Notes, "trash: \(want) (\(from))") && out.Len() == 1 && (out[0].Trash != "") == want && !w.trees.Has(a.Path)
 }
 
 // removedBadly reports whether rm of a fails BadConfig and leaves it.
 func removedBadly(w World, id string) bool {
-	let _ = w.tool.Rm("a", work.RmOptions{Abandon: false, Expect: Some[string]{Value: id}, Tree: false}) catch {
+	let _ = w.tool.Rm("a", work.RmOptions{Abandon: false, Expect: option.Some[string]{Value: id}, Tree: false}) catch {
 	case work.BadConfig:
 		return w.trees.Has(work.Home(theBase, "") + "/a")
 	case _:
@@ -1056,7 +1057,7 @@ law StackRecordsItsParent(tree Map[string, string]) {
 	case _:
 		return false
 	}
-	let _ = w.tool.New("b", work.NewOptions{Copy: false, From: None, Branch: None, On: Some[string]{Value: "a"}, Token: None}) catch {
+	let _ = w.tool.New("b", work.NewOptions{Copy: false, From: option.None, Branch: option.None, On: option.Some[string]{Value: "a"}, Token: option.None}) catch {
 	case _:
 		return false
 	}
@@ -1078,7 +1079,7 @@ law StackRecordsItsParent(tree Map[string, string]) {
 // and rm takes it only when its work is held or abandoned (CrashOp in
 // the model).
 law MadeCloneOutlivesItsMaker(text string) {
-	let w = try worldWith(true, Map[string, string]{"bun.lock": "lock \(len(text))\n"}, "[deps]\nlock = \"bun.lock\"\ninstall = \"bun install\"\n", "")
+	let w = try worldWith(true, Map[string, string]{"bun.lock": "lock \(text.Len())\n"}, "[deps]\nlock = \"bun.lock\"\ninstall = \"bun install\"\n", "")
 	let maker = Sharing(w.lock, 2)
 	let t = toolOf(w, maker, []work.Cloner{w.trees})
 	let reserved = t.Reserve("a", fresh(false)) catch {
@@ -1096,7 +1097,7 @@ law MadeCloneOutlivesItsMaker(text string) {
 	}
 	Die(maker)
 	let _ = Write(w.trees, made.Path, "draft.txt", text)
-	let _ = toolOf(w, Sharing(w.lock, 99), []work.Cloner{w.trees}).Gc(work.GcOptions{Older: Some[string]{Value: "0s"}, Idle: None, Id: None, Archive: false, Dry: false}) catch {
+	let _ = toolOf(w, Sharing(w.lock, 99), []work.Cloner{w.trees}).Gc(work.GcOptions{Older: option.Some[string]{Value: "0s"}, Idle: option.None, Id: option.None, Archive: false, Dry: false}) catch {
 	case _:
 		return false
 	}
@@ -1104,7 +1105,7 @@ law MadeCloneOutlivesItsMaker(text string) {
 	case work.NoBase, work.Unkept:
 		return false
 	}
-	let kept = Files(w.trees, made.Path).Get("draft.txt") == Some[string]{Value: text}
+	let kept = Files(w.trees, made.Path).Get("draft.txt") == option.Some[string]{Value: text}
 	kept && slices.IndexFunc(all, func(r work.Workspace) bool { r.Name == "a" && r.Id == made.Id && work.StateName(r.State) == "active" }) >= 0 && w.lock.Holds() == 0
 }
 
@@ -1144,16 +1145,16 @@ law LegacyMarkerDoesNotCertifyCheckout(text string) {
 			return false
 		}
 		let before = Files(w.trees, path)
-		let o = work.DoctorOptions{Rift: false, Registry: None, Unguard: false, Fix: false, Here: false, Repair: false}
+		let o = work.DoctorOptions{Rift: false, Registry: option.None, Unguard: false, Fix: false, Here: false, Repair: false}
 		let plain = try t.Doctor(o)
-		let _ = try t.Gc(work.GcOptions{Older: None, Idle: None, Id: some(id), Archive: false, Dry: false})
+		let _ = try t.Gc(work.GcOptions{Older: option.None, Idle: option.None, Id: some(id), Archive: false, Dry: false})
 		let afterGc = try records(t)
 		let repaired = try t.Doctor(work.DoctorOptions{..o, Repair: true})
 		let afterRepair = try records(t)
 		let expected = if complete { work.Active } else { state }
 		let reason = if cut == 2 { "push guard" } else { "expected branch" }
 		let namesMismatch = func(note string) bool { strings.Contains(note, path) && strings.Contains(note, reason) && strings.Contains(note, "preserve") }
-		if len(afterGc) != 1 || len(afterRepair) != 1 || afterGc[0].State != expected || afterRepair[0].State != expected || Files(w.trees, path) != before || w.lock.Holds() != 0 {
+		if afterGc.Len() != 1 || afterRepair.Len() != 1 || afterGc[0].State != expected || afterRepair[0].State != expected || Files(w.trees, path) != before || w.lock.Holds() != 0 {
 			return false
 		}
 		if !complete && (slices.IndexFunc(plain.Notes, namesMismatch) < 0 || slices.IndexFunc(repaired.Notes, namesMismatch) < 0) {
@@ -1197,7 +1198,7 @@ law ActivatedCloneIsRecordedAsMade(lock string) {
 	case _:
 		return false
 	}
-	let _ = toolOf(w, Sharing(w.lock, 99), []work.Cloner{w.trees}).Gc(work.GcOptions{Older: Some[string]{Value: "0s"}, Idle: None, Id: None, Archive: false, Dry: false}) catch {
+	let _ = toolOf(w, Sharing(w.lock, 99), []work.Cloner{w.trees}).Gc(work.GcOptions{Older: option.Some[string]{Value: "0s"}, Idle: option.None, Id: option.None, Archive: false, Dry: false}) catch {
 	case _:
 		return false
 	}
@@ -1207,8 +1208,8 @@ law ActivatedCloneIsRecordedAsMade(lock string) {
 	}
 	let a = slices.IndexFunc(all, func(r work.Workspace) bool { r.Name == "a" && work.StateName(r.State) == "active" })
 	let b = slices.IndexFunc(all, func(r work.Workspace) bool { r.Name == "b" })
-	let runs = len(w.runner.Ran())
-	let deps = w.tool.Deps(work.DepsOptions{Name: Some[string]{Value: "a"}}) catch {
+	let runs = w.runner.Ran().Len()
+	let deps = w.tool.Deps(work.DepsOptions{Name: option.Some[string]{Value: "a"}}) catch {
 	case _:
 		return false
 	}
@@ -1218,7 +1219,7 @@ law ActivatedCloneIsRecordedAsMade(lock string) {
 	case work.Installed, work.NoDeps:
 		false
 	}
-	a >= 0 && b >= 0 && all[a].Cloner != "" && all[a].Cloner == all[b].Cloner && unchanged && len(w.runner.Ran()) == runs
+	a >= 0 && b >= 0 && all[a].Cloner != "" && all[a].Cloner == all[b].Cloner && unchanged && w.runner.Ran().Len() == runs
 }
 
 // nothing is the answer of a new that failed.
@@ -1228,7 +1229,7 @@ func nothing() work.Created { work.Created{Name: "", Id: "", Path: "", Branch: "
 // packages and ignored build output: a clone copies everything.
 func carries(w World, path string) bool {
 	let files = Files(w.trees, path)
-	files.Get("node_modules/left-pad/index.js") != None && files.Get("node_modules/.bin/left-pad") != None && files.Get("dist/out.js") != None
+	files.Get("node_modules/left-pad/index.js") != option.None && files.Get("node_modules/.bin/left-pad") != option.None && files.Get("dist/out.js") != option.None
 }
 
 // handedHeld reports whether the parent's branch holds the workspace's
@@ -1276,7 +1277,7 @@ func agrees(w World, want []Expected, gone []string) bool {
 	let wanted = slices.Filter(want, func(e Expected) bool { !strings.HasSuffix(e.Name, "~") })
 	let freedGot = freedOf(all)
 	let freedWant = freedIn(want)
-	if len(got) != len(wanted) || freedGot != freedWant || len(all) != len(want) {
+	if got.Len() != wanted.Len() || freedGot != freedWant || all.Len() != want.Len() {
 		return false
 	}
 	for i, g in got {
@@ -1289,7 +1290,7 @@ func agrees(w World, want []Expected, gone []string) bool {
 			return false
 		}
 		// No command deletes a folder that holds unsaved work.
-		if e.Cloned && e.State != "trashed" && Files(w.trees, g.Path).Get("draft.txt") == None {
+		if e.Cloned && e.State != "trashed" && Files(w.trees, g.Path).Get("draft.txt") == option.None {
 			return false
 		}
 		if e.State != "trashed" && g.Path != e.Path {
@@ -1373,7 +1374,7 @@ func placeCrash(w World, name string, path string) bool {
 // decides.
 func removed(want []Expected, name string, abandon bool, at int64, trashed bool, id string) []Expected {
 	match find(want, name) {
-	case Some[Expected] as e:
+	case option.Some[Expected] as e:
 		if slices.IndexFunc(want, func(c Expected) bool { c.Parent == e.Value.Path && c.State != "trashed" }) >= 0 {
 			return want
 		}
@@ -1385,7 +1386,7 @@ func removed(want []Expected, name string, abandon bool, at int64, trashed bool,
 			return replaced(want, Expected{..e.Value, State: "trashed", Since: at, Path: work.TrashOf(e.Value.Path, at, id)})
 		}
 		want
-	case None:
+	case option.None:
 		want
 	}
 }
@@ -1394,8 +1395,8 @@ func removed(want []Expected, name string, abandon bool, at int64, trashed bool,
 // no new, ready or sync touched for idle seconds, the last made first.
 func idled(want []Expected, idle int64, at int64) []string {
 	let mut out = []string{}
-	for i in 0..len(want) {
-		let e = want[len(want)-1-i]
+	for i in 0..want.Len() {
+		let e = want[want.Len()-1-i]
 		if e.State == "active" && at-e.Since >= idle {
 			out = out.Append(e.Name)
 		}
@@ -1427,14 +1428,14 @@ func parentLive(want []Expected, e Expected) bool {
 	e.Parent == theBase || slices.IndexFunc(want, func(p Expected) bool { p.Path == e.Parent && p.State != "trashed" }) >= 0
 }
 
-func named(want []Expected, name string) bool { find(want, name) != None }
+func named(want []Expected, name string) bool { find(want, name) != option.None }
 
 // holds reports whether a record of name that is not trashed holds it.
 func holds(want []Expected, name string) bool {
 	match find(want, name) {
-	case Some[Expected] as e:
+	case option.Some[Expected] as e:
 		e.Value.State != "trashed"
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -1442,7 +1443,7 @@ func holds(want []Expected, name string) bool {
 // freed is the reference after a new of name reserved it: a trashed
 // record of name is renamed name~ (work.TrashedName) to the end, and the
 // new record made, when it was, comes after it.
-func freed(want []Expected, name string, made Option[Expected]) []Expected {
+func freed(want []Expected, name string, made option.Option[Expected]) []Expected {
 	let mut out = []Expected{}
 	let mut tail = []Expected{}
 	for x in want {
@@ -1453,20 +1454,20 @@ func freed(want []Expected, name string, made Option[Expected]) []Expected {
 		}
 	}
 	match made {
-	case Some[Expected] as e:
+	case option.Some[Expected] as e:
 		tail = tail.Append(e.Value)
-	case None:
+	case option.None:
 	}
 	slices.Concat(out, tail)
 }
 
-func find(want []Expected, name string) Option[Expected] {
+func find(want []Expected, name string) option.Option[Expected] {
 	for e in want {
 		if e.Name == name {
-			return Some[Expected]{Value: e}
+			return option.Some[Expected]{Value: e}
 		}
 	}
-	None
+	option.None
 }
 
 func replaced(want []Expected, e Expected) []Expected {
@@ -1502,7 +1503,7 @@ law RmThenNewTakesTheName(name int) {
 	case _:
 		return false
 	}
-	let _ = w.tool.Rm(n, work.RmOptions{Abandon: false, Expect: None, Tree: false}) catch {
+	let _ = w.tool.Rm(n, work.RmOptions{Abandon: false, Expect: option.None, Tree: false}) catch {
 	case _:
 		return false
 	}
@@ -1515,7 +1516,7 @@ law RmThenNewTakesTheName(name int) {
 		return false
 	}
 	let trash = slices.IndexFunc(listed, func(r work.Workspace) bool { r.Name == work.TrashedName(n, first.Id) && r.Id == first.Id && work.StateName(r.State) == "trashed" }) >= 0
-	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false, Dry: false}) catch {
+	let out = w.tool.Gc(work.GcOptions{Older: option.None, Idle: option.None, Id: option.None, Archive: false, Dry: false}) catch {
 	case _:
 		return false
 	}
@@ -1523,7 +1524,7 @@ law RmThenNewTakesTheName(name int) {
 	case _:
 		return false
 	}
-	second.Id != first.Id && trash && out.Purged == []string{work.TrashedName(n, first.Id)} && len(after) == 1 && after[0].Id == second.Id
+	second.Id != first.Id && trash && out.Purged == []string{work.TrashedName(n, first.Id)} && after.Len() == 1 && after[0].Id == second.Id
 }
 
 // freedOf is each trashed record of the Tool's whose name a new took
@@ -1562,11 +1563,11 @@ law RemovedAgainInOneSecond(name int, times int) {
 		case _:
 			return false
 		}
-		let out = w.tool.Rm(n, work.RmOptions{Abandon: false, Expect: None, Tree: false}) catch {
+		let out = w.tool.Rm(n, work.RmOptions{Abandon: false, Expect: option.None, Tree: false}) catch {
 		case _:
 			return false
 		}
-		if len(out) != 1 || out[0].Id != made.Id || out[0].Already {
+		if out.Len() != 1 || out[0].Id != made.Id || out[0].Already {
 			return false
 		}
 		ids = ids.Append(made.Id)
@@ -1582,7 +1583,7 @@ law RemovedAgainInOneSecond(name int, times int) {
 		}
 		trashes = trashes.Append(r.Path)
 	}
-	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false, Dry: false}) catch {
+	let out = w.tool.Gc(work.GcOptions{Older: option.None, Idle: option.None, Id: option.None, Archive: false, Dry: false}) catch {
 	case _:
 		return false
 	}
@@ -1590,7 +1591,7 @@ law RemovedAgainInOneSecond(name int, times int) {
 	case _:
 		return false
 	}
-	len(listed) == k && len(trashes) == k && len(out.Purged) == k && len(after) == 0
+	listed.Len() == k && trashes.Len() == k && out.Purged.Len() == k && after.Len() == 0
 }
 
 // CloneLeavesTheRiftMarker: new of a base that holds Rift's marker
@@ -1606,7 +1607,7 @@ law CloneLeavesTheRiftMarker(id string, on bool) {
 		return false
 	}
 	let made = if on {
-		(w.tool.New("b", work.NewOptions{Copy: false, From: None, Branch: None, On: Some[string]{Value: "a"}, Token: None}) catch {
+		(w.tool.New("b", work.NewOptions{Copy: false, From: option.None, Branch: option.None, On: option.Some[string]{Value: "a"}, Token: option.None}) catch {
 		case _:
 			return false
 		}).Path
@@ -1614,7 +1615,7 @@ law CloneLeavesTheRiftMarker(id string, on bool) {
 		a.Path
 	}
 	let files = Files(w.trees, made)
-	files.Get(work.RiftMarker) == None && files.Get("kept.txt") == Some[string]{Value: id} && Files(w.trees, theBase).Get(work.RiftMarker) != None
+	files.Get(work.RiftMarker) == option.None && files.Get("kept.txt") == option.Some[string]{Value: id} && Files(w.trees, theBase).Get(work.RiftMarker) != option.None
 }
 
 // BasesAreTheLiveOnes: of the bases init registered, bases lists those
@@ -1648,7 +1649,7 @@ law BasesAreTheLiveOnes(live []bool, forget int) {
 	case _:
 		return false
 	}
-	let k = small(forget, len(lines))
+	let k = small(forget, lines.Len())
 	let left = w.tool.ForgetBase(lines[k]) catch {
 	case _:
 		return false
@@ -1669,7 +1670,7 @@ law BasesAreTheLiveOnes(live []bool, forget int) {
 	case _:
 		return false
 	}
-	let kept = if len(liveLeft) == 0 { "" } else { strings.Join(liveLeft, "\n") + "\n" }
+	let kept = if liveLeft.Len() == 0 { "" } else { strings.Join(liveLeft, "\n") + "\n" }
 	listed == want && left == wantLeft && pruned == slices.Filter(gone, func(b string) bool { b != lines[k] }) && after == liveLeft && file == kept
 }
 
@@ -1689,29 +1690,29 @@ law AdoptLeavesPushesToTheOwner(own bool) {
 	let mine = if own { "https://example.invalid/fork.git" } else { Guard }
 	let _ = Write(w.trees, "/w/old", ".git/config/remote.origin.pushurl", mine)
 	let before = Files(w.trees, "/w/fresh")
-	let _ = w.tool.Adopt("/w/fresh", work.AdoptOptions{Name: None}) catch {
+	let _ = w.tool.Adopt("/w/fresh", work.AdoptOptions{Name: option.None}) catch {
 	case _:
 		return false
 	}
-	let _ = w.tool.Adopt("/w/old", work.AdoptOptions{Name: None}) catch {
+	let _ = w.tool.Adopt("/w/old", work.AdoptOptions{Name: option.None}) catch {
 	case _:
 		return false
 	}
-	let o = work.DoctorOptions{Rift: false, Registry: None, Unguard: false, Fix: false, Here: false, Repair: false}
+	let o = work.DoctorOptions{Rift: false, Registry: option.None, Unguard: false, Fix: false, Here: false, Repair: false}
 	let noted = w.tool.Doctor(o) catch {
 	case _:
 		return false
 	}
 	let note = slices.Contains(noted.Notes, "1 adopted workspaces carry the push guard an older adopt wrote: run work doctor -unguard")
-	let still = Files(w.trees, "/w/old").Get(".git/config/remote.origin.pushurl") == Some[string]{Value: mine}
+	let still = Files(w.trees, "/w/old").Get(".git/config/remote.origin.pushurl") == option.Some[string]{Value: mine}
 	let fixed = w.tool.Doctor(work.DoctorOptions{..o, Unguard: true}) catch {
 	case _:
 		return false
 	}
 	let left = Files(w.trees, "/w/old").Get(".git/config/remote.origin.pushurl")
-	let newKept = Files(w.trees, made.Path).Get(".git/config/remote.origin.pushurl") == Some[string]{Value: Guard}
+	let newKept = Files(w.trees, made.Path).Get(".git/config/remote.origin.pushurl") == option.Some[string]{Value: Guard}
 	let fixedNote = slices.Contains(fixed.Notes, "dropped the push guard of 1 adopted workspaces")
-	Files(w.trees, "/w/fresh") == before && still && newKept && note == !own && fixedNote == !own && left == (if own { Some[string]{Value: mine} } else { None })
+	Files(w.trees, "/w/fresh") == before && still && newKept && note == !own && fixedNote == !own && left == (if own { option.Some[string]{Value: mine} } else { option.None })
 }
 
 // ledgerPath and ledgerLine are the mutant ledger of the merge laws and
@@ -1788,7 +1789,7 @@ law NewWorkspaceMergesByClass(rows int, mine int, theirs int, adopt bool) {
 		if !attributed(w, root) {
 			return false
 		}
-		let _ = w.tool.Adopt(root, work.AdoptOptions{Name: None}) catch {
+		let _ = w.tool.Adopt(root, work.AdoptOptions{Name: option.None}) catch {
 		case _:
 			return false
 		}
@@ -1809,7 +1810,7 @@ law NewWorkspaceMergesByClass(rows int, mine int, theirs int, adopt bool) {
 		if before != "conflicted" {
 			return false
 		}
-		let _ = w.tool.Doctor(work.DoctorOptions{Rift: false, Registry: None, Unguard: false, Fix: true, Here: false, Repair: false}) catch {
+		let _ = w.tool.Doctor(work.DoctorOptions{Rift: false, Registry: option.None, Unguard: false, Fix: true, Here: false, Repair: false}) catch {
 		case _:
 			return false
 		}
@@ -1823,7 +1824,7 @@ law NewWorkspaceMergesByClass(rows int, mine int, theirs int, adopt bool) {
 		return false
 	}
 	let files = Files(w.trees, root)
-	len(want.Conflicts) == 0 && files.Get(ledgerPath) == Some[string]{Value: want.Text} && files.Get(".git/config/rerere.enabled") == None
+	want.Conflicts.Len() == 0 && files.Get(ledgerPath) == option.Some[string]{Value: want.Text} && files.Get(".git/config/rerere.enabled") == option.None
 }
 
 // RegisterDriversLeavesRerere: registering the merge drivers in a
@@ -1850,7 +1851,7 @@ law RegisterDriversLeavesRerere(set int) {
 		return false
 	}
 	let files = Files(w.trees, copy)
-	let drivers = slices.IndexFunc(work.DriverSettings(), func(kv []string) bool { files.Get(".git/config/"+kv[0]) != Some[string]{Value: kv[1]} }) < 0
+	let drivers = slices.IndexFunc(work.DriverSettings(), func(kv []string) bool { files.Get(".git/config/"+kv[0]) != option.Some[string]{Value: kv[1]} }) < 0
 	let after = Setting(w.vcs, copy, "rerere.enabled") catch {
 	case _:
 		return false
@@ -1900,7 +1901,7 @@ law DoctorNamesAStrayStaging(repair bool, tomb bool) {
 		return false
 	}
 	let other = toolOf(w, Sharing(w.lock, 3), []work.Cloner{w.trees})
-	let report = other.Doctor(work.DoctorOptions{Rift: false, Registry: None, Unguard: false, Fix: false, Here: false, Repair: repair}) catch {
+	let report = other.Doctor(work.DoctorOptions{Rift: false, Registry: option.None, Unguard: false, Fix: false, Here: false, Repair: repair}) catch {
 	case _:
 		return false
 	}
@@ -1929,7 +1930,7 @@ law DoctorPassesAGoneFolder(repair bool) {
 	case _:
 		return false
 	}
-	let adopted = w.tool.Adopt(gone, work.AdoptOptions{Name: None}) catch {
+	let adopted = w.tool.Adopt(gone, work.AdoptOptions{Name: option.None}) catch {
 	case _:
 		return false
 	}
@@ -1941,7 +1942,7 @@ law DoctorPassesAGoneFolder(repair bool) {
 	case _:
 		return false
 	}
-	let report = w.tool.Doctor(work.DoctorOptions{Rift: false, Registry: None, Unguard: false, Fix: false, Here: false, Repair: repair}) catch {
+	let report = w.tool.Doctor(work.DoctorOptions{Rift: false, Registry: option.None, Unguard: false, Fix: false, Here: false, Repair: repair}) catch {
 	case _:
 		return false
 	}
@@ -1953,7 +1954,7 @@ law DoctorPassesAGoneFolder(repair bool) {
 	let mine = func(all []work.Workspace) []work.Workspace { slices.Filter(all, func(x work.Workspace) bool { x.Name == adopted.Name }) }
 	let activated = slices.Contains(report.Notes, "activated cre: its clone is whole and its maker is gone")
 	let cre = slices.Filter(after, func(x work.Workspace) bool { x.Name == "cre" })
-	named && mine(after) == mine(before) && activated == repair && len(cre) == 1 && (cre[0].State == work.Active) == repair
+	named && mine(after) == mine(before) && activated == repair && cre.Len() == 1 && (cre[0].State == work.Active) == repair
 }
 
 // DoctorHereRepairsOnlyItsOwn: of two reservations over whole clones
@@ -1976,7 +1977,7 @@ law DoctorHereRepairsOnlyItsOwn(at int) {
 	let k = small(at, 3)
 	let here = if k < 2 { home + "/" + work.FolderOf(names[k]) + "/sub" } else { theBase }
 	let t = work.NewTool(theBase, home, "/data", w.p, here)
-	let report = t.Doctor(work.DoctorOptions{Rift: false, Registry: None, Unguard: false, Fix: false, Here: true, Repair: true}) catch {
+	let report = t.Doctor(work.DoctorOptions{Rift: false, Registry: option.None, Unguard: false, Fix: false, Here: true, Repair: true}) catch {
 	case _:
 		return false
 	}
@@ -2009,7 +2010,7 @@ law RmDropsAGoneFolder(present bool) {
 	case _:
 		return false
 	}
-	let adopted = w.tool.Adopt(gone, work.AdoptOptions{Name: None}) catch {
+	let adopted = w.tool.Adopt(gone, work.AdoptOptions{Name: option.None}) catch {
 	case _:
 		return false
 	}
@@ -2023,7 +2024,7 @@ law RmDropsAGoneFolder(present bool) {
 	case _:
 		return false
 	}
-	let removed = w.tool.Rm(adopted.Name, expecting(Some[string]{Value: adopted.Id})) catch {
+	let removed = w.tool.Rm(adopted.Name, expecting(option.Some[string]{Value: adopted.Id})) catch {
 	case work.HookFailed:
 		[]work.Removed{}
 	case _:
@@ -2039,9 +2040,9 @@ law RmDropsAGoneFolder(present bool) {
 	let others = func(all []work.Workspace) []work.Workspace { slices.Filter(all, func(x work.Workspace) bool { x.Name != adopted.Name }) }
 	let still = slices.IndexFunc(after, func(x work.Workspace) bool { x.Name == adopted.Name && x.State != work.Trashed }) >= 0
 	if present {
-		return len(removed) == 0 && pre && !post && after == before
+		return removed.Len() == 0 && pre && !post && after == before
 	}
-	len(removed) == 1 && removed[0].Id == adopted.Id && !pre && post && !still && others(after) == others(before) && keep.Name == "keep"
+	removed.Len() == 1 && removed[0].Id == adopted.Id && !pre && post && !still && others(after) == others(before) && keep.Name == "keep"
 }
 
 // DoctorHereNamesAnOldRerere: doctor -here, with or without -fix, names
@@ -2055,7 +2056,7 @@ law DoctorHereNamesAnOldRerere(set int, fix bool) {
 	case _:
 		return false
 	}
-	let _ = w.tool.Adopt(copy, work.AdoptOptions{Name: None}) catch {
+	let _ = w.tool.Adopt(copy, work.AdoptOptions{Name: option.None}) catch {
 	case _:
 		return false
 	}
@@ -2067,7 +2068,7 @@ law DoctorHereNamesAnOldRerere(set int, fix bool) {
 		}
 	}
 	let t = work.NewTool(theBase, work.Home(theBase, ""), "/data", w.p, copy)
-	let report = t.Doctor(work.DoctorOptions{Rift: false, Registry: None, Unguard: false, Fix: fix, Here: true, Repair: false}) catch {
+	let report = t.Doctor(work.DoctorOptions{Rift: false, Registry: option.None, Unguard: false, Fix: fix, Here: true, Repair: false}) catch {
 	case _:
 		return false
 	}
@@ -2099,7 +2100,7 @@ law DoctorHereFixesOnlyItsCheckout(fix bool, at int) {
 		if !attributed(w, c) {
 			return false
 		}
-		let _ = w.tool.Adopt(c, work.AdoptOptions{Name: None}) catch {
+		let _ = w.tool.Adopt(c, work.AdoptOptions{Name: option.None}) catch {
 		case _:
 			return false
 		}
@@ -2107,7 +2108,7 @@ law DoctorHereFixesOnlyItsCheckout(fix bool, at int) {
 	let k = small(at, 4)
 	let here = []string{copies[0] + "/a", copies[1], theBase + "/a", "/elsewhere"}[k]
 	let t = work.NewTool(theBase, work.Home(theBase, ""), "/data", w.p, here)
-	let report = t.Doctor(work.DoctorOptions{Rift: false, Registry: None, Unguard: false, Fix: fix, Here: true, Repair: false}) catch {
+	let report = t.Doctor(work.DoctorOptions{Rift: false, Registry: option.None, Unguard: false, Fix: fix, Here: true, Repair: false}) catch {
 	case _:
 		return false
 	}
@@ -2168,11 +2169,11 @@ law DoctorSeesAnUnregisteredDriver(fix bool, gone bool) {
 			return false
 		}
 	}
-	let _ = w.tool.Adopt(copy, work.AdoptOptions{Name: None}) catch {
+	let _ = w.tool.Adopt(copy, work.AdoptOptions{Name: option.None}) catch {
 	case _:
 		return false
 	}
-	let o = work.DoctorOptions{Rift: false, Registry: None, Unguard: false, Fix: fix, Here: false, Repair: false}
+	let o = work.DoctorOptions{Rift: false, Registry: option.None, Unguard: false, Fix: fix, Here: false, Repair: false}
 	let first = w.tool.Doctor(o) catch {
 	case _:
 		return false

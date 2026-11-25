@@ -34,7 +34,7 @@ func count(arg string, name string, least int) int fails os.Exit {
 
 // Parse is the job of args.
 func Parse(args []string) Job fails os.Exit {
-	if len(args) != 7 {
+	if args.Len() != 7 {
 		return os.Exit{Code: 2, Message: Usage}
 	}
 	Job{Width: try count(args[0], "W", 1), Height: try count(args[1], "H", 1), Samples: try count(args[2], "SPP", 1), Seed: uint64(try count(args[3], "SEED", 0)), Objects: try count(args[4], "OBJECTS", 0), Workers: try count(args[5], "WORKERS", 1), Tile: try count(args[6], "TILE", 1)}
@@ -43,7 +43,7 @@ func Parse(args []string) Job fails os.Exit {
 // PPM is the binary PPM of a w×h image of bytes, red, green and blue.
 func PPM(w int, h int, pixels []uint8) string {
 	let mut b = strings.NewBuilder()
-	b.Grow(len(pixels) + 32)
+	b.Grow(pixels.Len() + 32)
 	b.WriteString("P6\n\(w) \(h)\n255\n")
 	for p in pixels {
 		b.WriteByte(p)
@@ -57,7 +57,7 @@ func Run(j Job) string {
 	PPM(j.Width, j.Height, render.Render(sc, j.Width, j.Height, j.Samples, j.Seed, j.Workers, j.Tile))
 }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	let host = os.NewHost()
 	let j = try Parse(host.Args())
 	let out = Run(j)

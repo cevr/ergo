@@ -1,6 +1,7 @@
 import github.com/cevr/ergo/modules/orchestrate/orchestrate
 import hex
 import json
+import option
 import sha256
 import sql
 import strconv
@@ -10,7 +11,7 @@ let CurrentSchemaVersion = 1
 
 func initSchema() fails orchestrate.StoreFailed needs sql.Tx {
 	let uvRows = try queryTx("PRAGMA user_version", []sql.Value{})
-	if len(uvRows) > 0 {
+	if uvRows.Len() > 0 {
 		let uv = try intAt(uvRows[0], 0, "user_version")
 		if uv > CurrentSchemaVersion {
 			return orchestrate.StoreFailed{Reason: "incompatible sqlite user_version \(uv) > \(CurrentSchemaVersion)"}
@@ -21,7 +22,7 @@ func initSchema() fails orchestrate.StoreFailed needs sql.Tx {
 		[]sql.Value{},
 	)
 	let metaRows = try queryTx("SELECT schema_version FROM schema_meta WHERE id = 1", []sql.Value{})
-	if len(metaRows) > 0 {
+	if metaRows.Len() > 0 {
 		let ver = try intAt(metaRows[0], 0, "schema_version")
 		if ver != CurrentSchemaVersion {
 			return orchestrate.StoreFailed{Reason: "incompatible schema_version \(ver) != \(CurrentSchemaVersion)"}
@@ -91,17 +92,17 @@ func queryTx(stmt string, args []sql.Value) []sql.Row fails orchestrate.StoreFai
 	}
 }
 
-func optTextVal(v Option[string]) sql.Value {
+func optTextVal(v option.Option[string]) sql.Value {
 	match v {
-	case Some[string] as s:
+	case option.Some[string] as s:
 		sql.Text{S: s.Value}
-	case None:
+	case option.None:
 		sql.Null
 	}
 }
 
 func textAt(row sql.Row, index int, col string) string fails orchestrate.StoreFailed {
-	if index < 0 || index >= len(row.Values) {
+	if index < 0 || index >= row.Values.Len() {
 		return orchestrate.StoreFailed{Reason: "missing column " + col}
 	}
 	match row.Values[index] {
@@ -112,22 +113,22 @@ func textAt(row sql.Row, index int, col string) string fails orchestrate.StoreFa
 	}
 }
 
-func optTextAt(row sql.Row, index int, col string) Option[string] fails orchestrate.StoreFailed {
-	if index < 0 || index >= len(row.Values) {
+func optTextAt(row sql.Row, index int, col string) option.Option[string] fails orchestrate.StoreFailed {
+	if index < 0 || index >= row.Values.Len() {
 		return orchestrate.StoreFailed{Reason: "missing column " + col}
 	}
 	match row.Values[index] {
 	case sql.Null:
-		None
+		option.None
 	case sql.Text as t:
-		Some[string]{Value: t.S}
+		option.Some[string]{Value: t.S}
 	case _:
 		orchestrate.StoreFailed{Reason: "expected nullable TEXT for " + col}
 	}
 }
 
 func intAt(row sql.Row, index int, col string) int fails orchestrate.StoreFailed {
-	if index < 0 || index >= len(row.Values) {
+	if index < 0 || index >= row.Values.Len() {
 		return orchestrate.StoreFailed{Reason: "missing column " + col}
 	}
 	match row.Values[index] {

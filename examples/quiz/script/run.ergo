@@ -3,6 +3,7 @@
 
 import io
 import machines
+import option
 import quiz/quiz
 import strconv
 import strings
@@ -12,24 +13,24 @@ type BadLine { Text string }
 
 // Parse reads one line: a choice number, `back`, `pick N` or `restart`.
 // A blank line or a line that starts with # is None.
-func Parse(line string) Option[quiz.Signal] fails BadLine {
+func Parse(line string) option.Option[quiz.Signal] fails BadLine {
 	let text = strings.TrimSpace(line)
 	let words = strings.Fields(text)
-	if len(words) == 0 || strings.HasPrefix(text, "#") {
-		return None
+	if words.Len() == 0 || strings.HasPrefix(text, "#") {
+		return option.None
 	}
-	if len(words) == 1 {
+	if words.Len() == 1 {
 		match words[0] {
 		case "back":
-			return Some[quiz.Signal]{Value: quiz.Back}
+			return option.Some[quiz.Signal]{Value: quiz.Back}
 		case "restart":
-			return Some[quiz.Signal]{Value: quiz.Restart}
+			return option.Some[quiz.Signal]{Value: quiz.Restart}
 		case _:
-			return Some[quiz.Signal]{Value: quiz.Choose{Choice: try intOf(text, words[0])}}
+			return option.Some[quiz.Signal]{Value: quiz.Choose{Choice: try intOf(text, words[0])}}
 		}
 	}
-	if len(words) == 2 && words[0] == "pick" {
-		return Some[quiz.Signal]{Value: quiz.Pick{Item: try intOf(text, words[1])}}
+	if words.Len() == 2 && words[0] == "pick" {
+		return option.Some[quiz.Signal]{Value: quiz.Pick{Item: try intOf(text, words[1])}}
 	}
 	BadLine{Text: text}
 }
@@ -47,7 +48,7 @@ func intOf(text string, word string) int fails BadLine {
 // set of quiz.Sets to play, the machine's input. It shows each state on
 // Console and returns the exit status: 0 when an item was picked, 1 when
 // the set could not open, 2 when the input ended first.
-func Run() Status needs Console | io.Stdin | quiz.Sets {
+func Run() Status needs io.Console | io.Stdin | quiz.Sets {
 	let mut started = false
 	let mut q quiz.Quiz = quiz.Begin(quiz.Plants())
 	let mut i = 0
@@ -55,13 +56,13 @@ func Run() Status needs Console | io.Stdin | quiz.Sets {
 		i = i + 1
 		if !started {
 			let words = strings.Fields(line)
-			if len(words) != 2 || words[0] != "set" {
-				Console.Println("? line 1: the first line is set NAME")
+			if words.Len() != 2 || words[0] != "set" {
+				io.Console.Println("? line 1: the first line is set NAME")
 				return 1
 			}
 			let set = quiz.Sets.Set(words[1]) catch {
 			case quiz.NoSuchSet as n:
-				Console.Println("? no set \(n.Name)")
+				io.Console.Println("? no set \(n.Name)")
 				return 1
 			}
 			q = machines.Start(quiz.Picker{}, set).Initial
@@ -71,34 +72,34 @@ func Run() Status needs Console | io.Stdin | quiz.Sets {
 		}
 		let parsed = Parse(line) catch {
 		case BadLine as b:
-			Console.Println("? line \(i): cannot read \(b.Text)")
+			io.Console.Println("? line \(i): cannot read \(b.Text)")
 			continue
 		}
 		let s = match parsed {
-		case Some[quiz.Signal] as v:
+		case option.Some[quiz.Signal] as v:
 			v.Value
-		case None:
+		case option.None:
 			continue
 		}
 		let d = turn(q, s)
 		match d {
-		case Done[quiz.Picked] as done:
-			Console.Println("picked \(done.Output.Name) (\(strings.Join(done.Output.Answers, ", ")))")
+		case machines.Done[quiz.Picked] as done:
+			io.Console.Println("picked \(done.Output.Name) (\(strings.Join(done.Output.Answers, ", ")))")
 			return 0
-		case Enter[quiz.Quiz] as e:
+		case machines.Enter[quiz.Quiz] as e:
 			Show(e.Next)
-		case Stay[quiz.Quiz]:
-		case Emit[quiz.Quiz, quiz.Picked], Tell[quiz.Quiz, quiz.Picked]:
-		case Ignore:
-		case Reject:
+		case machines.Stay[quiz.Quiz]:
+		case machines.Emit[quiz.Quiz, quiz.Picked], machines.Tell[quiz.Quiz, quiz.Picked]:
+		case machines.Ignore:
+		case machines.Reject:
 		}
 		q = machines.Next(q, d)
 	}
 	if !started {
-		Console.Println("? the script names no set")
+		io.Console.Println("? the script names no set")
 		return 1
 	}
-	Console.Println("input ended with no pick")
+	io.Console.Println("input ended with no pick")
 	2
 }
 
@@ -106,45 +107,45 @@ func Run() Status needs Console | io.Stdin | quiz.Sets {
 type Status int where 0 <= it && it <= 2
 
 // turn is the decision of s on q. A refusal is told by name and is Reject.
-func turn(q quiz.Quiz, s quiz.Signal) Decision[quiz.Quiz, quiz.Picked] needs Console {
+func turn(q quiz.Quiz, s quiz.Signal) machines.Decision[quiz.Quiz, quiz.Picked] needs io.Console {
 	quiz.Step(q, s) catch {
 	case quiz.NoSuchChoice as n:
-		Console.Println("? no choice \(n.Choice): choose 1 to \(n.Count)")
-		Reject
+		io.Console.Println("? no choice \(n.Choice): choose 1 to \(n.Count)")
+		machines.Reject
 	case quiz.NoMatch as m:
-		Console.Println("? \"\(m.Label)\" fits nothing that is left")
-		Reject
+		io.Console.Println("? \"\(m.Label)\" fits nothing that is left")
+		machines.Reject
 	case quiz.NothingToUndo:
-		Console.Println("? nothing to go back to")
-		Reject
+		io.Console.Println("? nothing to go back to")
+		machines.Reject
 	case quiz.NoQuestion:
-		Console.Println("? no question is asked: pick a result")
-		Reject
+		io.Console.Println("? no question is asked: pick a result")
+		machines.Reject
 	case quiz.NotShowing:
-		Console.Println("? answer the question first")
-		Reject
+		io.Console.Println("? answer the question first")
+		machines.Reject
 	case quiz.NoSuchItem as n:
-		Console.Println("? no result \(n.Item): pick 1 to \(n.Count)")
-		Reject
+		io.Console.Println("? no result \(n.Item): pick 1 to \(n.Count)")
+		machines.Reject
 	}
 }
 
 // Show prints the question that q asks, with each choice and how many
 // items it keeps, or the results.
-func Show(q quiz.Quiz) needs Console {
+func Show(q quiz.Quiz) needs io.Console {
 	let set = quiz.SetOf(q)
 	let left = quiz.LeftOf(q)
 	match quiz.Settle(q) {
 	case quiz.Asking as a:
 		let question = set.Questions[a.Question]
-		Console.Println("\(question.Text) (\(len(left)) left)")
+		io.Console.Println("\(question.Text) (\(left.Len()) left)")
 		for k, c in question.Choices {
-			Console.Println("  \(k + 1). \(c.Label) [\(quiz.Kept(c, left))]")
+			io.Console.Println("  \(k + 1). \(c.Label) [\(quiz.Kept(c, left))]")
 		}
 	case quiz.Showing:
-		Console.Println("results:")
+		io.Console.Println("results:")
 		for k, it in left {
-			Console.Println("  \(k + 1). \(it.Name)")
+			io.Console.Println("  \(k + 1). \(it.Name)")
 		}
 	}
 }

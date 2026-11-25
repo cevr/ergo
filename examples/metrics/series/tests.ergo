@@ -1,11 +1,12 @@
 // The series' tests: examples. The laws run under ergo test.
 
+import option
 import slices
 import time
 
 test ParseReadsSamples {
 	let s = try Parse("# t value\n1000 2.5\n\n1500 -1\n")
-	assert len(s) == 2 && s[0] == Sample{At: 1000, Value: 2.5} && s[1] == Sample{At: 1500, Value: -1}
+	assert s.Len() == 2 && s[0] == Sample{At: 1000, Value: 2.5} && s[1] == Sample{At: 1500, Value: -1}
 }
 
 // parseFailure names the failure of Parse(text), or "".
@@ -37,7 +38,7 @@ test StampReadsTheClock {
 test TumblingBuckets {
 	let s = []Sample{Sample{At: 0, Value: 1}, Sample{At: 999, Value: 3}, Sample{At: 1000, Value: 5}, Sample{At: 3500, Value: 7}}
 	let b = try Tumbling(s, 1000)
-	assert len(b) == 3
+	assert b.Len() == 3
 	assert b[0] == Bucket{Start: 0, Count: 2, Sum: 4, Min: 1, Max: 3, Values: []float64{1, 3}}
 	assert b[1].Start == 1000 && b[2].Start == 3000 && b[2].Sum == 7
 	assert StartOf(-1, 1000) == -1000 && StartOf(-1000, 1000) == -1000
@@ -49,12 +50,12 @@ test SlidingDropsOld {
 	w.Add(Sample{At: 500, Value: 2})
 	assert w.Sum() == 3 && w.Count() == 2
 	w.Add(Sample{At: 1000, Value: 4})
-	assert w.Sum() == 6 && w.Count() == 2 && w.Mean() == Some{3.0}
+	assert w.Sum() == 6 && w.Count() == 2 && w.Mean() == option.Some{3.0}
 }
 
 test PercentileByNearestRank {
 	let v = []float64{15, 20, 35, 40, 50}
-	assert Percentile(v, 30) == Some{20.0} && Percentile(v, 40) == Some{20.0} && Percentile(v, 50) == Some{35.0}
-	assert Percentile(v, 100) == Some{50.0} && Percentile(v, 0) == Some{15.0} && Percentile([]float64{}, 50) == None
+	assert Percentile(v, 30) == option.Some{20.0} && Percentile(v, 40) == option.Some{20.0} && Percentile(v, 50) == option.Some{35.0}
+	assert Percentile(v, 100) == option.Some{50.0} && Percentile(v, 0) == option.Some{15.0} && Percentile([]float64{}, 50) == option.None
 	assert slices.Equal(v, []float64{15, 20, 35, 40, 50})
 }

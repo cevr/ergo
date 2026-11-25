@@ -1,4 +1,5 @@
 import actor
+import core
 import gen
 import permitwizard/desk
 import permitwizard/screen
@@ -18,8 +19,8 @@ func noIgnoredEntries(entries []desk.Entry) bool {
 
 func exploreWizard(steps int) ui.Finding needs gen.Draws {
 	let clock = time.NewManual(0)
-	with context { Scheduler: clock } {
-		let clerk = actor.StartMachine(desk.Inspector{}, 16, func(o Never) { let _ = o })
+	with context { time.Scheduler: clock } {
+		let clerk = actor.StartMachine(desk.Inspector{}, 16, func(o core.Never) { let _ = o })
 		let mut h = ui.NewTestHost(clerk, screen.Screen, clock, 64) catch {
 		case ui.BadPatch as bp:
 			clerk.Stop()
@@ -28,7 +29,7 @@ func exploreWizard(steps int) ui.Finding needs gen.Draws {
 		let mut props = ui.DefaultsWith[desk.Desk, desk.Signal](2s)
 		props = props.Append(temporal.Always[ui.ExploreSnapshot[desk.Desk, desk.Signal]](
 			temporal.Named[ui.ExploreSnapshot[desk.Desk, desk.Signal]]("log-within-limit", func(s ui.ExploreSnapshot[desk.Desk, desk.Signal]) bool {
-				len(s.State.Log) <= desk.LogLimit && s.State.Next >= len(s.State.Log)
+				s.State.Log.Len() <= desk.LogLimit && s.State.Next >= s.State.Log.Len()
 			}),
 		))
 		props = props.Append(temporal.Always[ui.ExploreSnapshot[desk.Desk, desk.Signal]](

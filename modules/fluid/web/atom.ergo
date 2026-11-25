@@ -8,6 +8,7 @@
 import ergo.dev/fluid/look
 import ergo.dev/fluid/token
 import html
+import option
 import slices
 import strings
 
@@ -87,7 +88,7 @@ func Class(a Atom) string { "f" + base36(fnv(key(a))) }
 
 func fnv(s string) int {
 	let mut h = 2166136261
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		h = h ^ int(s[i])
 		h = (h * 16777619) % 4294967296
 	}
@@ -106,8 +107,8 @@ func base36(n int) string {
 		v = v / 36
 	}
 	let mut b = strings.NewBuilder()
-	for i in 0..len(out) {
-		b.WriteByte(out[len(out)-1-i])
+	for i in 0..out.Len() {
+		b.WriteByte(out[out.Len()-1-i])
 	}
 	b.String()
 }
@@ -154,7 +155,7 @@ func inRank(atoms []Atom) []Atom {
 	})
 	let mut out = []Atom{}
 	for a in sorted {
-		if len(out) == 0 || key(out[len(out)-1]) != key(a) {
+		if out.Len() == 0 || key(out[out.Len()-1]) != key(a) {
 			out = out.Append(a)
 		}
 	}
@@ -227,7 +228,7 @@ func Long() Names { Names{of: Map[string, string]{}} }
 func NamesOf(looks []look.Look) Names {
 	let mut of = Map[string, string]{}
 	let all = Union(looks)
-	for i in 0..len(all) {
+	for i in 0..all.Len() {
 		of[key(all[i])] = shortName(i)
 	}
 	Names{of: of}
@@ -250,9 +251,9 @@ func shortName(i int) string {
 // nameOf is an atom's class under names n.
 func nameOf(n Names, a Atom) string {
 	match n.of.Get(key(a)) {
-	case Some as s:
+	case option.Some as s:
 		s.Value
-	case None:
+	case option.None:
 		Class(a)
 	}
 }
@@ -295,9 +296,9 @@ law NamesAreDistinct(a []look.Decl, b []look.Decl, group bool) {
 	for x in Union(looks) {
 		let c = nameOf(n, x)
 		match seen.Get(c) {
-		case Some as k:
+		case option.Some as k:
 			ok = ok && k.Value == key(x)
-		case None:
+		case option.None:
 		}
 		seen[c] = key(x)
 	}
@@ -333,9 +334,9 @@ func rulesOf(sheet string) string {
 	if at < 0 {
 		return sheet
 	}
-	let rest = strings.Slice(sheet, at, len(sheet))
+	let rest = strings.Slice(sheet, at, sheet.Len())
 	let end = strings.Index(rest, "}")
-	strings.Slice(rest, end+1, len(rest))
+	strings.Slice(rest, end+1, rest.Len())
 }
 
 // SheetCoversEveryLook: every class a look's box prints has its rule in the sheet built from
@@ -374,13 +375,13 @@ func namesTokens(sheet string) bool {
 		if at < 0 {
 			return true
 		}
-		let from = strings.Slice(rest, at+4, len(rest))
+		let from = strings.Slice(rest, at+4, rest.Len())
 		let end = strings.Index(from, ")")
 		let name = strings.Slice(from, 0, end)
 		if !strings.Contains(sheet, name+":") {
 			return false
 		}
-		rest = strings.Slice(from, end, len(from))
+		rest = strings.Slice(from, end, from.Len())
 	}
 }
 
@@ -392,7 +393,7 @@ law OneAtomPerKey(a []look.Decl, b []look.Decl, c []look.Decl, group bool) {
 	let mut ok = true
 	for x in Atoms(l) {
 		let k = condKey(x.Cond) + "|" + look.Key(x.Decl)
-		ok = ok && seen.Get(k) == None
+		ok = ok && seen.Get(k) == option.None
 		seen[k] = true
 	}
 	ok
@@ -417,15 +418,15 @@ law SheetOrderIsRankOrder(a []look.Decl, b []look.Decl, group bool) {
 	let sheet = Sheet(token.Default, []look.Look{lookOf(a, b, group, b), lookOf(b, a, !group, a)})
 	let mut ok = true
 	let mut at = 0
-	for i in 0..len(atoms) {
+	for i in 0..atoms.Len() {
 		if i > 0 {
 			ok = ok && rank(atoms[i-1].Cond) <= rank(atoms[i].Cond)
 		}
 		let rule = Rule(atoms[i])
-		let found = strings.Index(strings.Slice(sheet, at, len(sheet)), rule)
+		let found = strings.Index(strings.Slice(sheet, at, sheet.Len()), rule)
 		ok = ok && found >= 0
 		if found >= 0 {
-			at = at + found + len(rule)
+			at = at + found + rule.Len()
 		}
 	}
 	ok
@@ -446,10 +447,10 @@ law SheetIsOneRulePerDistinctDecl(a []look.Decl, b []look.Decl, group bool) {
 	for x in Union(looks) {
 		let r = Rule(x)
 		if strings.Contains(rules, r) {
-			printed = printed + len(r)
+			printed = printed + r.Len()
 		}
 	}
-	len(Union(looks)) == len(keys(all)) && printed == len(rules)
+	Union(looks).Len() == keys(all).Len() && printed == rules.Len()
 }
 
 // SheetGrowsSlowerThanDeclarations: with the module's components in package order, doubling
@@ -457,10 +458,10 @@ law SheetIsOneRulePerDistinctDecl(a []look.Decl, b []look.Decl, group bool) {
 // class per look would print. Both sides are counted here; nothing is pinned.
 law SheetGrowsSlowerThanDeclarations() {
 	let cs = Components()
-	let n = len(cs) / 2
+	let n = cs.Len() / 2
 	let mut half = []look.Look{}
 	let mut all = []look.Look{}
-	for i in 0..len(cs) {
+	for i in 0..cs.Len() {
 		for l in cs[i] {
 			if i < n {
 				half = half.Append(l)
@@ -468,8 +469,8 @@ law SheetGrowsSlowerThanDeclarations() {
 			all = all.Append(l)
 		}
 	}
-	let rn = len(Union(half))
-	let r2 = len(Union(all))
+	let rn = Union(half).Len()
+	let r2 = Union(all).Len()
 	let dn = declarations(half)
 	let d2 = declarations(all)
 	rn > 0 && dn > 0 && r2*dn < d2*rn
@@ -480,7 +481,7 @@ law SheetGrowsSlowerThanDeclarations() {
 func declarations(looks []look.Look) int {
 	let mut n = 0
 	for l in looks {
-		n = n + len(Atoms(l))
+		n = n + Atoms(l).Len()
 	}
 	n
 }

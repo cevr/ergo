@@ -2,6 +2,7 @@ import jobsweb/job
 import jobsweb/jobs
 import machines
 import maps
+import option
 import slices
 import strings
 import testing
@@ -49,16 +50,16 @@ func jwStoryStep(st jwStory, a jwAct) (jwStory, jwRes) {
 		(jwStory{runs: next, last: id}, JWSubmitted{ID: id})
 	case JWCancel as x:
 		let r = match st.runs.Get(x.ID) {
-		case Some[job.Run] as s:
+		case option.Some[job.Run] as s:
 			s.Value
-		case None:
+		case option.None:
 			return (st, JWNoSuch{ID: x.ID})
 		}
 		let d = job.Step(r, job.Cancel)
 		match d {
-		case Reject:
+		case machines.Reject:
 			(st, JWAlreadyDone{ID: x.ID})
-		case Emit[job.Run, jobs.State], Tell[job.Run, jobs.State], Enter[job.Run], Stay[job.Run], Ignore, Done[jobs.State]:
+		case machines.Emit[job.Run, jobs.State], machines.Tell[job.Run, jobs.State], machines.Enter[job.Run], machines.Stay[job.Run], machines.Ignore, machines.Done[jobs.State]:
 			let mut next = st.runs
 			next[x.ID] = machines.Next(r, d)
 			(jwStory{runs: next, last: st.last}, JWCancelled)
@@ -69,9 +70,9 @@ func jwStoryStep(st jwStory, a jwAct) (jwStory, jwRes) {
 			let mut next = rs
 			for id in maps.Keys(rs) {
 				match rs.Get(id) {
-				case Some[job.Run] as s:
+				case option.Some[job.Run] as s:
 					next[id] = machines.Next(s.Value, job.Step(s.Value, job.Tick))
-				case None:
+				case option.None:
 				}
 			}
 			rs = next
@@ -79,18 +80,18 @@ func jwStoryStep(st jwStory, a jwAct) (jwStory, jwRes) {
 		(jwStory{runs: rs, last: st.last}, JWWorked)
 	case JWStatus as x:
 		match st.runs.Get(x.ID) {
-		case Some[job.Run] as s:
+		case option.Some[job.Run] as s:
 			(st, JWStatusVal{Found: true, Name: s.Value.Spec.Name})
-		case None:
+		case option.None:
 			(st, JWStatusVal{Found: false, Name: ""})
 		}
 	case JWList:
 		let mut out = []jobs.Job{}
 		for id in slices.Sorted(maps.Keys(st.runs)) {
 			match st.runs.Get(id) {
-			case Some[job.Run] as s:
+			case option.Some[job.Run] as s:
 				out = out.Append(job.View(id, s.Value))
-			case None:
+			case option.None:
 			}
 		}
 		(st, JWListVal{Summary: summarizeJW(out)})
@@ -118,9 +119,9 @@ func runJWAct(m Memory, a jwAct) jwRes {
 		JWWorked
 	case JWStatus as x:
 		match m.Status(x.ID) {
-		case Some[jobs.Job] as j:
+		case option.Some[jobs.Job] as j:
 			JWStatusVal{Found: true, Name: j.Value.Name}
-		case None:
+		case option.None:
 			JWStatusVal{Found: false, Name: ""}
 		}
 	case JWList:

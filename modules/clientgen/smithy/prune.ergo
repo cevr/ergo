@@ -4,6 +4,7 @@
 // holds only what its own drivers use).
 
 import json
+import option
 
 // Prune is m with only the operations keep names and the shapes they
 // reach: input, output and errors, member targets, list and map members,
@@ -21,7 +22,7 @@ import json
 // Unsupported shape's text, which keeps what it held.
 func Prune(m Model, keep []string, drop []string) Model fails Unknown {
 	let cut = try pruned(m, keep)
-	if len(drop) == 0 {
+	if drop.Len() == 0 {
 		return cut
 	}
 	let mut out = []Shape{}
@@ -126,13 +127,13 @@ func pruned(m Model, keep []string) Model fails Unknown {
 	let index = indexOf(m)
 	for k in keep {
 		match index.Get(k) {
-		case Some[int] as i:
+		case option.Some[int] as i:
 			match m.Shapes[i.Value].Kind {
 			case Operation:
 			case Simple, Enum, IntEnum, List, Mapping, Structure, Union, Service, Resource, Unsupported:
 				return Unknown{Id: k}
 			}
-		case None:
+		case option.None:
 			return Unknown{Id: k}
 		}
 	}
@@ -150,7 +151,7 @@ func pruned(m Model, keep []string) Model fails Unknown {
 					kept = kept.Append(op)
 				}
 			}
-			if len(kept) > 0 {
+			if kept.Len() > 0 {
 				services[s.Id] = kept
 				roots = roots.Concat(v.Errors)
 			}
@@ -163,9 +164,9 @@ func pruned(m Model, keep []string) Model fails Unknown {
 		match s.Kind {
 		case Service as v:
 			match services.Get(s.Id) {
-			case Some[[]string] as kept:
+			case option.Some[[]string] as kept:
 				out = out.Append(Shape{Id: s.Id, Kind: Service{Version: v.Version, Operations: kept.Value, Resources: []string{}, Errors: v.Errors, Rename: v.Rename}, Traits: s.Traits, Keys: s.Keys})
-			case None:
+			case option.None:
 			}
 		case Simple, Enum, IntEnum, List, Mapping, Structure, Union, Operation, Resource, Unsupported:
 			if isIn(reached, s.Id) {
@@ -191,15 +192,15 @@ func opsUnder(m Model, index Map[string, int], ops []string, resources []string)
 	let mut out = ops
 	let mut seen = Map[string, bool]{}
 	let mut work = resources
-	for len(work) > 0 {
-		let r = work[len(work)-1]
-		work = work[:len(work)-1]
+	for work.Len() > 0 {
+		let r = work[work.Len()-1]
+		work = work[:work.Len()-1]
 		if isIn(seen, r) {
 			continue
 		}
 		seen[r] = true
 		match index.Get(r) {
-		case Some[int] as i:
+		case option.Some[int] as i:
 			match m.Shapes[i.Value].Kind {
 			case Resource as v:
 				for l in v.Lifecycle {
@@ -209,7 +210,7 @@ func opsUnder(m Model, index Map[string, int], ops []string, resources []string)
 				work = work.Concat(v.Resources)
 			case Simple, Enum, IntEnum, List, Mapping, Structure, Union, Operation, Service, Unsupported:
 			}
-		case None:
+		case option.None:
 		}
 	}
 	out
@@ -221,17 +222,17 @@ func opsUnder(m Model, index Map[string, int], ops []string, resources []string)
 func reach(m Model, index Map[string, int], roots []string) Map[string, bool] {
 	let mut seen = Map[string, bool]{}
 	let mut work = roots
-	for len(work) > 0 {
-		let id = work[len(work)-1]
-		work = work[:len(work)-1]
+	for work.Len() > 0 {
+		let id = work[work.Len()-1]
+		work = work[:work.Len()-1]
 		if isIn(seen, id) {
 			continue
 		}
 		seen[id] = true
 		match index.Get(id) {
-		case Some[int] as i:
+		case option.Some[int] as i:
 			work = work.Concat(refsOf(m.Shapes[i.Value].Kind))
-		case None:
+		case option.None:
 		}
 	}
 	seen
@@ -244,14 +245,14 @@ func refsOf(k Kind) []string {
 	case Operation as o:
 		let mut out = o.Errors
 		match o.Input {
-		case Some[string] as t:
+		case option.Some[string] as t:
 			out = out.Append(t.Value)
-		case None:
+		case option.None:
 		}
 		match o.Output {
-		case Some[string] as t:
+		case option.Some[string] as t:
 			out = out.Append(t.Value)
-		case None:
+		case option.None:
 		}
 		out
 	case Simple, Enum, IntEnum, List, Mapping, Structure, Union, Service, Resource, Unsupported:
@@ -301,14 +302,14 @@ func named(k Kind) []string {
 	case Operation as o:
 		let mut out = []string{}
 		match o.Input {
-		case Some[string] as t:
+		case option.Some[string] as t:
 			out = out.Append(t.Value)
-		case None:
+		case option.None:
 		}
 		match o.Output {
-		case Some[string] as t:
+		case option.Some[string] as t:
 			out = out.Append(t.Value)
-		case None:
+		case option.None:
 		}
 		out.Concat(o.Errors)
 	case Structure as s:
@@ -356,7 +357,7 @@ law PruneKeepsClosure(kinds []int, refs []int, keepBits []int, dropDocs bool, dr
 	for s in m.Shapes {
 		match s.Kind {
 		case Operation:
-			if k < len(keepBits) && keepBits[k]%2 != 0 {
+			if k < keepBits.Len() && keepBits[k]%2 != 0 {
 				keep = keep.Append(s.Id)
 			}
 			k = k + 1
@@ -378,7 +379,7 @@ law PruneKeepsClosure(kinds []int, refs []int, keepBits []int, dropDocs bool, dr
 			return false
 		}
 	}
-	if len(keep) > 0 {
+	if keep.Len() > 0 {
 		allowed["t#E0"] = true
 	}
 	for s in p.Shapes {
@@ -405,7 +406,7 @@ law PruneKeepsClosure(kinds []int, refs []int, keepBits []int, dropDocs bool, dr
 	for s in p.Shapes {
 		match s.Kind {
 		case Service as v:
-			if len(keep) == 0 || v.Operations != keep {
+			if keep.Len() == 0 || v.Operations != keep {
 				return false
 			}
 		case Simple, Enum, IntEnum, List, Mapping, Structure, Union, Operation, Resource, Unsupported:
@@ -423,7 +424,7 @@ law PruneKeepsClosure(kinds []int, refs []int, keepBits []int, dropDocs bool, dr
 // operation with that error. With noisy, shapes also carry a known and a
 // refused trait and an unread key.
 func drawnModel(kinds []int, refs []int, noisy bool) Model {
-	let n = if len(kinds) > 12 { 12 } else { len(kinds) }
+	let n = if kinds.Len() > 12 { 12 } else { kinds.Len() }
 	let mut shapes = []Shape{}
 	let mut ops = []string{}
 	for i in 0..n {
@@ -440,7 +441,7 @@ func drawnModel(kinds []int, refs []int, noisy bool) Model {
 		} else if c == 4 {
 			kind = Union{Members: []Member{Member{Name: "x", Target: refAt(refs, i*3+0, n), Traits: mt}}}
 		} else if c == 5 {
-			kind = Operation{Input: Some[string]{Value: refAt(refs, i*3+0, n)}, Output: Some[string]{Value: refAt(refs, i*3+1, n)}, Errors: []string{refAt(refs, i*3+2, n)}}
+			kind = Operation{Input: option.Some[string]{Value: refAt(refs, i*3+0, n)}, Output: option.Some[string]{Value: refAt(refs, i*3+1, n)}, Errors: []string{refAt(refs, i*3+2, n)}}
 			ops = ops.Append(id)
 		}
 		let mut traits = []Trait{}
@@ -459,9 +460,9 @@ func drawnModel(kinds []int, refs []int, noisy bool) Model {
 // isIn is whether m holds k.
 func isIn(m Map[string, bool], k string) bool {
 	match m.Get(k) {
-	case Some[bool]:
+	case option.Some[bool]:
 		true
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -469,6 +470,6 @@ func isIn(m Map[string, bool], k string) bool {
 // refAt is the k-th drawn reference: the shape t#S<r mod n> for refs' k-th
 // entry (cycled), or t#S0 when nothing is drawn.
 func refAt(refs []int, k int, n int) string {
-	let r = if len(refs) == 0 { 0 } else { refs[k%len(refs)] }
+	let r = if refs.Len() == 0 { 0 } else { refs[k%refs.Len()] }
 	"t#S\(((r % n) + n) % n)"
 }

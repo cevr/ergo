@@ -51,7 +51,7 @@ func Scan(text fs.Text, from int, end int) Part {
 		// lowering's bounds facts: no cut ends past p+136), so none is
 		// checked again. It is written with len on the right: p+FastMargin
 		// could wrap past the largest int, len(text)-FastMargin cannot.
-		if 0 <= p && p <= len(text)-FastMargin {
+		if 0 <= p && p <= text.Len()-FastMargin {
 			// The station: the first word, and the second only when the
 			// first holds no ';' (most names are under 8 bytes).
 			w0 = Word(text[p : p+8])
@@ -116,7 +116,7 @@ func Scan(text fs.Text, from int, end int) Part {
 				break
 			}
 			if slots[h].Len == 0 {
-				if len(used) == MaxStations {
+				if used.Len() == MaxStations {
 					Validate(text, next, end) catch {
 					case Malformed as m:
 						return Broken{Fault: m}

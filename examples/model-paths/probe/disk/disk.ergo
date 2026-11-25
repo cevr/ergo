@@ -39,7 +39,7 @@ func Read(s opened) int fails session.Fault {
 	case workflow.Failed as f:
 		return session.Fault{Reason: f.Reason}
 	}
-	len(loaded.Events)
+	loaded.Events.Len()
 }
 
 func Apply(s opened, n int) fails session.Fault | session.Rejected {

@@ -8,6 +8,7 @@
 import fs
 import fstest
 import io
+import option
 import os
 import taskscli/cli
 import taskscli/file
@@ -17,9 +18,9 @@ import taskscli/tasks
 // directory.
 func path() string needs os.Process {
 	match os.Process.Getenv("TASKS_FILE") {
-	case Some[string] as p:
+	case option.Some[string] as p:
 		p.Value
-	case None:
+	case option.None:
 		"tasks.txt"
 	}
 }
@@ -31,7 +32,7 @@ func run(path string, args []string, files fs.Files, writes fs.Writes) fails os.
 	}
 }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	let host = fs.NewHost()
 	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stdin: io.NewStdin() } {
 		try run(path(), os.Process.Args(), host, host)

@@ -1,6 +1,7 @@
 import jsonv/json
 import stdjson json
 import math
+import option
 import slices
 import strconv
 import strings
@@ -17,7 +18,7 @@ type Invalid { Violations []Violation }
 // it does not.
 func Check(s Schema, v stdjson.Value) fails Invalid {
 	let found = Validate(s, v)
-	if len(found) > 0 {
+	if found.Len() > 0 {
 		return Invalid{Violations: found}
 	}
 }
@@ -34,7 +35,7 @@ func Validate(s Schema, v stdjson.Value) []Violation {
 // InferredAccepts: the schema inferred from a value accepts that value.
 law InferredAccepts(v json.Tree) {
 	let w = try json.Lawful(v)
-	len(Validate(Infer(w), w)) == 0
+	Validate(Infer(w), w).Len() == 0
 }
 
 // OtherKindsAreRejected: the schema inferred from a value rejects a value
@@ -46,7 +47,7 @@ law OtherKindsAreRejected(a json.Tree, b json.Tree) {
 		return true
 	}
 	let found = Validate(Infer(x), y)
-	len(found) == 1 && PathOf(found[0]) == "$"
+	found.Len() == 1 && PathOf(found[0]) == "$"
 }
 
 // PathsAreRooted: every violation names a path from $.
@@ -81,7 +82,7 @@ func validate(w mut report, s Schema, v stdjson.Value, path string) {
 	case IsString as str:
 		match v {
 		case stdjson.Str as t:
-			if len(str.Enum) > 0 && !has(str.Enum, t.Value) {
+			if str.Enum.Len() > 0 && !has(str.Enum, t.Value) {
 				add(w, NotInEnum{Path: path, Text: t.Value})
 			}
 			let n = utf8.RuneCount(t.Value)
@@ -99,18 +100,18 @@ func validate(w mut report, s Schema, v stdjson.Value, path string) {
 			}
 			let f = valueOf(json.Spelling(n))
 			match num.Min {
-			case Some[float64] as min:
+			case option.Some[float64] as min:
 				if f < min.Value {
 					add(w, BelowMinimum{Path: path, Min: min.Value, Got: json.Spelling(n)})
 				}
-			case None:
+			case option.None:
 			}
 			match num.Max {
-			case Some[float64] as max:
+			case option.Some[float64] as max:
 				if f > max.Value {
 					add(w, AboveMaximum{Path: path, Max: max.Value, Got: json.Spelling(n)})
 				}
-			case None:
+			case option.None:
 			}
 		case _:
 			add(w, WrongKind{Path: path, Want: if num.Integer { "integer" } else { "number" }, Got: json.Kind(v)})
@@ -118,8 +119,8 @@ func validate(w mut report, s Schema, v stdjson.Value, path string) {
 	case IsArray as arr:
 		match v {
 		case stdjson.Array as a:
-			if len(a.Items) < arr.MinItems {
-				add(w, TooFewItems{Path: path, Min: arr.MinItems, Got: len(a.Items)})
+			if a.Items.Len() < arr.MinItems {
+				add(w, TooFewItems{Path: path, Min: arr.MinItems, Got: a.Items.Len()})
 			}
 			for i, item in a.Items {
 				validate(w, arr.Items, item, "\(path)[\(i)]")
@@ -132,9 +133,9 @@ func validate(w mut report, s Schema, v stdjson.Value, path string) {
 		case stdjson.Object as o:
 			for p in obj.Props {
 				match json.Get(o, p.Name) {
-				case Some[stdjson.Value] as m:
+				case option.Some[stdjson.Value] as m:
 					validate(w, p.S, m.Value, Member(path, p.Name))
-				case None:
+				case option.None:
 				}
 			}
 			if obj.Closed {
@@ -148,8 +149,8 @@ func validate(w mut report, s Schema, v stdjson.Value, path string) {
 			}
 			for r in obj.Required {
 				match json.Get(o, r) {
-				case Some[stdjson.Value]:
-				case None:
+				case option.Some[stdjson.Value]:
+				case option.None:
 					add(w, MissingMember{Path: path, Name: r})
 				}
 			}
@@ -172,7 +173,7 @@ func isWord(name string) bool {
 	if name == "" {
 		return false
 	}
-	for i in 0..len(name) {
+	for i in 0..name.Len() {
 		let c = name[i]
 		let letter = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'
 		if !letter && (i == 0 || c < '0' || c > '9') {

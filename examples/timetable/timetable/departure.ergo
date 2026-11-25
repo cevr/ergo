@@ -74,7 +74,7 @@ func Departures(l Route, services []Service, at string, day civil.Date) []Depart
 // instant.
 func insert(out []Departure, d Departure) []Departure {
 	let mut xs = out.Append(d)
-	let mut i = len(xs) - 1
+	let mut i = xs.Len() - 1
 	for i > 0 && time.Before(d.At.At, xs[i-1].At.At) {
 		xs[i] = xs[i-1]
 		xs[i-1] = d
@@ -120,7 +120,7 @@ law CallsKeepTheRunningTimes(i int64, n int64, k int64) {
 			return false
 		}
 	}
-	len(calls) == len(l.Stations)
+	calls.Len() == l.Stations.Len()
 }
 
 // DeparturesAreOnTheDay: every departure listed for a stop and a day is on
@@ -128,7 +128,7 @@ law CallsKeepTheRunningTimes(i int64, n int64, k int64) {
 law DeparturesAreOnTheDay(i int64, n int64, k int64, j int64) {
 	let l = lawLine(i)
 	let services = []Service{lawService(k), lawService(k/7 + 1)}
-	let stop = l.Stations[int(within(j, 0, int64(len(l.Stations)-1)))]
+	let stop = l.Stations[int(within(j, 0, int64(l.Stations.Len()-1)))]
 	let day = try lawDay(n)
 	let all = Departures(l, services, stop.Name, day) catch {
 	case UnknownStop:
@@ -151,7 +151,7 @@ law EveryCallIsListed(i int64, n int64, k int64, j int64) {
 	if !RunsOn(s, d) {
 		return true
 	}
-	let x = if j%2 == 0 { len(l.Stations) - 1 } else { int(within(j, 0, int64(len(l.Stations)-1))) }
+	let x = if j%2 == 0 { l.Stations.Len() - 1 } else { int(within(j, 0, int64(l.Stations.Len()-1))) }
 	let stop = l.Stations[x]
 	let at = Calls(l, s, d)[x]
 	let day = tz.Civil(stop.Zone, at).Date

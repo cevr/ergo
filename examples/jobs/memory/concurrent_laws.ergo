@@ -1,5 +1,6 @@
 import jobsapp/jobs
 import maps
+import option
 import slices
 import strings
 import testing
@@ -34,18 +35,18 @@ func jobsStoryStep(s Shelf, a jobsAct) (Shelf, jobsRes) {
 		(Shelf{Jobs: next, Last: j.Id}, JobsAdded{Id: j.Id, Name: j.Name})
 	case JobsGet as x:
 		match s.Jobs.Get(x.Id) {
-		case Some[jobs.Job] as j:
+		case option.Some[jobs.Job] as j:
 			(s, JobsGot{Id: j.Value.Id, Name: j.Value.Name})
-		case None:
+		case option.None:
 			(s, JobsMissing{Id: x.Id})
 		}
 	case JobsAll:
 		let mut all = []jobs.Job{}
 		for id in slices.Sorted(maps.Keys(s.Jobs)) {
 			match s.Jobs.Get(id) {
-			case Some[jobs.Job] as j:
+			case option.Some[jobs.Job] as j:
 				all = all.Append(j.Value)
-			case None:
+			case option.None:
 			}
 		}
 		(s, JobsList{Summary: summarizeJobs(all)})

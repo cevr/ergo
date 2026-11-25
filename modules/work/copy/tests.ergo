@@ -4,13 +4,14 @@
 
 import exec
 import fs
+import fstest
 import os
 import strings
 
 import github.com/cevr/ergo/modules/work/system
 import github.com/cevr/ergo/modules/work/work
 
-let onHost = context needs TestAmbient {
+let onHost = context needs fstest.TestAmbient {
 	work.Cloner:         New(system.TestTrees()),
 	fs.Files, fs.Writes: fs.NewTestHost(),
 	exec.Runner:         system.TestRunner(),

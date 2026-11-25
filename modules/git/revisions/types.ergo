@@ -52,12 +52,12 @@ type RangeSpec {
 }
 
 func sameOIDSet(a []oid.OID, b []oid.OID) bool {
-	if len(a) != len(b) {
+	if a.Len() != b.Len() {
 		return false
 	}
 	let sa = slices.SortFunc(a, oid.Compare)
 	let sb = slices.SortFunc(b, oid.Compare)
-	for i in 0..len(sa) {
+	for i in 0..sa.Len() {
 		if !oid.Equal(sa[i], sb[i]) {
 			return false
 		}
@@ -110,7 +110,7 @@ type CommitDAG {
 	// ancestor of another merge base (maximal antichain).
 	law MergeBaseIsCommonAncestor() {
 		let all = AllCommits()
-		let limit = if len(all) > 8 { 8 } else { len(all) }
+		let limit = if all.Len() > 8 { 8 } else { all.Len() }
 		for i in 0..limit {
 			for j in i..limit {
 				let a = all[i]
@@ -132,8 +132,8 @@ type CommitDAG {
 						return false
 					}
 				}
-				for x in 0..len(bases) {
-					for y in 0..len(bases) {
+				for x in 0..bases.Len() {
+					for y in 0..bases.Len() {
 						if x != y {
 							let dom = IsAncestor(bases[x], bases[y]) catch {
 							case NotFound, NotACommit, StoreError:
@@ -154,7 +154,7 @@ type CommitDAG {
 	// the exact same set of best merge bases.
 	law MergeBaseSymmetric() {
 		let all = AllCommits()
-		let limit = if len(all) > 8 { 8 } else { len(all) }
+		let limit = if all.Len() > 8 { 8 } else { all.Len() }
 		for i in 0..limit {
 			for j in i..limit {
 				let ab = MergeBases(all[i], all[j]) catch {

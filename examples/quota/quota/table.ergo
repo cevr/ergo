@@ -8,6 +8,7 @@
 // Table is the pure quota table, and Store the contract a store keeps;
 // the stores live in the packages memory and file.
 
+import option
 import slices
 
 // Pool is the volume that space from outside the volumes comes from and
@@ -64,9 +65,9 @@ func Empty() Table {
 // Open is b with the volume id, at zero, which may go down to floor.
 func Open(b Table, id string, floor int64) Table fails VolumeExists | BadFloor {
 	match b.floors.Get(id) {
-	case Some[int64]:
+	case option.Some[int64]:
 		return VolumeExists{ID: id}
-	case None:
+	case option.None:
 	}
 	if floor > 0 {
 		return BadFloor{ID: id, Floor: floor}
@@ -81,9 +82,9 @@ func Open(b Table, id string, floor int64) Table fails VolumeExists | BadFloor {
 // SizeOf is the size of id in b.
 func SizeOf(b Table, id string) int64 fails UnknownVolume {
 	match b.sizes.Get(id) {
-	case Some[int64] as v:
+	case option.Some[int64] as v:
 		v.Value
-	case None:
+	case option.None:
 		UnknownVolume{ID: id}
 	}
 }
@@ -91,9 +92,9 @@ func SizeOf(b Table, id string) int64 fails UnknownVolume {
 // floor is the lowest size id may have in b.
 func floor(b Table, id string) int64 fails UnknownVolume {
 	match b.floors.Get(id) {
-	case Some[int64] as v:
+	case option.Some[int64] as v:
 		v.Value
-	case None:
+	case option.None:
 		UnknownVolume{ID: id}
 	}
 }
@@ -109,12 +110,12 @@ func Same(r Record, t Move) bool {
 // volumes, and the floor of From.
 func Apply(b Table, t Move) (Table, Record) fails KeyReused | BadSize | SameVolume | UnknownVolume | NoSpace {
 	match b.records.Get(t.Key) {
-	case Some[Record] as r:
+	case option.Some[Record] as r:
 		if Same(r.Value, t) {
 			return (b, r.Value)
 		}
 		return KeyReused{Key: t.Key, Was: r.Value}
-	case None:
+	case option.None:
 	}
 	if t.Size <= 0 {
 		return BadSize{Size: t.Size}

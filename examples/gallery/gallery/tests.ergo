@@ -3,10 +3,13 @@
 // (testdata/mutants.json); the other nine stories are restated by the laws
 // and the tour (conformance/upstream maps each).
 
+import machines
+import option
+
 test AStaleAnswerForAnotherIdIsIgnored {
 	// update: a stale painting response for another id is ignored. The
 	// decision is Ignore, not a Stay on the same site (mutant
 	// fk9-stale-answer-stays).
-	let s = Site{..Blank, Route: Some[Route]{Value: Painting{ID: 2}}, Painting: LoadingPainting{ID: 2}}
-	assert Step(s, PaintingLoaded{ID: 1}) == Ignore
+	let s = Site{..Blank, Route: option.Some[Route]{Value: Painting{ID: 2}}, Painting: LoadingPainting{ID: 2}}
+	assert Step(s, PaintingLoaded{ID: 1}) == machines.Ignore
 }

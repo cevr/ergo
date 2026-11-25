@@ -14,6 +14,7 @@ import cborpack/cbor
 import cborpack/registry
 import go testing
 import hex
+import io
 import json
 import os
 import strconv
@@ -26,7 +27,7 @@ type Command = Hex{N int} | Receipt{N int}
 
 // Parse is the command of args.
 func Parse(args []string) Command fails os.Exit {
-	if len(args) != 2 {
+	if args.Len() != 2 {
 		return os.Exit{Code: 2, Message: Usage}
 	}
 	let n = strconv.Atoi(args[1]) catch {
@@ -53,15 +54,15 @@ func allocs(f own func()) int needs go.Foreign {
 	int(testing.AllocsPerRun(50, f))
 }
 
-func main() fails os.Exit needs Console | Ambient | go.Foreign {
+func main() fails os.Exit needs io.Console | os.Ambient | go.Foreign {
 	match try Parse(os.NewHost().Args()) {
 	case Hex as h:
-		Console.Println(hex.Encode(cbor.Encode(registry.Sample(h.N))))
+		io.Console.Println(hex.Encode(cbor.Encode(registry.Sample(h.N))))
 	case Receipt as r:
 		let idx = registry.Sample(r.N)
 		let c = allocs(func() { let _ = cborText(idx) })
 		let j = allocs(func() { let _ = jsonText(idx) })
-		Console.Println("cbor \(len(cborText(idx))) bytes, \(c) allocations per encode")
-		Console.Println("json \(len(jsonText(idx))) bytes, \(j) allocations per encode")
+		io.Console.Println("cbor \(cborText(idx).Len()) bytes, \(c) allocations per encode")
+		io.Console.Println("json \(jsonText(idx).Len()) bytes, \(j) allocations per encode")
 	}
 }

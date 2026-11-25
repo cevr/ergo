@@ -85,7 +85,7 @@ func run(args []string, files fs.Files, writes fs.Writes) fails os.Exit needs io
 // serve answers command, or each line of standard input when command is
 // empty, from the Store in the context.
 func serve(command []string) fails os.Exit needs kv.Store | io.Stdout | io.Stdin | pace.Pacing {
-	if len(command) == 0 {
+	if command.Len() == 0 {
 		kv.Session() catch {
 		case kv.Broken as b:
 			return broken(b)
@@ -102,7 +102,7 @@ func serve(command []string) fails os.Exit needs kv.Store | io.Stdout | io.Stdin
 // with it: return broken(b).
 func broken(b kv.Broken) os.Exit { os.Exit{Code: 1, Message: "kvstore: the store is broken: " + b.Reason} }
 
-func main() fails os.Exit needs Ambient | go.Foreign {
+func main() fails os.Exit needs os.Ambient | go.Foreign {
 	let host = fs.NewHost()
 	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stdin: io.NewStdin() } {
 		let args = os.Process.Args()

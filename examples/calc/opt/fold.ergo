@@ -5,6 +5,7 @@
 import calc/ast
 import calc/eval
 import calc/typing
+import option
 
 // Optimizer rewrites an expression. A rewrite of a well-typed expression
 // has its type and its meaning: the same value, or the same kind of
@@ -59,7 +60,7 @@ func Optimize(_ Keep, e ast.Expr) ast.Expr { e }
 // Consts is what the folder knows of the variables in scope, innermost
 // first: the literal a let bound, or None for a let of a value it does
 // not know, which hides an outer one of the name.
-type Consts = Nothing | Known{Name string, Lit Option[ast.Expr], Outer Consts}
+type Consts = Nothing | Known{Name string, Lit option.Option[ast.Expr], Outer Consts}
 
 type Nothing {}
 
@@ -98,9 +99,9 @@ func fold(e ast.Expr, k Consts) ast.Expr {
 		e
 	case ast.Var as v:
 		match known(k, v.Name) {
-		case Some as lit:
+		case option.Some as lit:
 			lit.Value
-		case None:
+		case option.None:
 			e
 		}
 	case ast.Neg as n:
@@ -136,9 +137,9 @@ func fold(e ast.Expr, k Consts) ast.Expr {
 	case ast.Let as l:
 		let v = fold(l.Val, k)
 		if ast.IsLiteral(v) {
-			return fold(l.Body, Known{Name: l.Name, Lit: Some{Value: v}, Outer: k})
+			return fold(l.Body, Known{Name: l.Name, Lit: option.Some{Value: v}, Outer: k})
 		}
-		ast.Let{Name: l.Name, Val: v, Body: fold(l.Body, Known{Name: l.Name, Lit: None, Outer: k})}
+		ast.Let{Name: l.Name, Val: v, Body: fold(l.Body, Known{Name: l.Name, Lit: option.None, Outer: k})}
 	}
 }
 
@@ -165,7 +166,7 @@ func foldBin(op ast.Op, l ast.Expr, r ast.Expr) ast.Expr {
 func constant(op ast.Op, l ast.Expr, r ast.Expr) ast.Expr {
 	let keep = ast.Bin{Op: op, L: l, R: r}
 	match (valueOf(l), valueOf(r)) {
-	case (Some[eval.Value] as a, Some[eval.Value] as b):
+	case (option.Some[eval.Value] as a, option.Some[eval.Value] as b):
 		let v = eval.Apply(op, a.Value, b.Value) catch {
 		case eval.DivByZero, eval.Stuck:
 			return keep
@@ -177,14 +178,14 @@ func constant(op ast.Op, l ast.Expr, r ast.Expr) ast.Expr {
 }
 
 // valueOf is the value of a literal.
-func valueOf(e ast.Expr) Option[eval.Value] {
+func valueOf(e ast.Expr) option.Option[eval.Value] {
 	match e {
 	case ast.Num as n:
-		Some{Value: eval.IntV{N: n.V}}
+		option.Some{Value: eval.IntV{N: n.V}}
 	case ast.BoolLit as b:
-		Some{Value: eval.BoolV{B: b.V}}
+		option.Some{Value: eval.BoolV{B: b.V}}
 	case ast.Var, ast.Neg, ast.Not, ast.Bin, ast.If, ast.Let:
-		None
+		option.None
 	}
 }
 
@@ -199,12 +200,12 @@ func literal(v eval.Value) ast.Expr {
 }
 
 // known is the literal the innermost let of name bound, if k knows it.
-func known(k Consts, name string) Option[ast.Expr] {
+func known(k Consts, name string) option.Option[ast.Expr] {
 	let mut at = k
 	for {
 		match at {
 		case Nothing:
-			return None
+			return option.None
 		case Known as c:
 			if c.Name == name {
 				return c.Lit

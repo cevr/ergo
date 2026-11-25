@@ -3,6 +3,7 @@
 // derived codec writes.
 
 import catalog/catalog
+import stdcodec codec
 import xml
 
 // Feed publishes and reads a catalog as XML.
@@ -21,11 +22,11 @@ func Read(_ Feed, text string) catalog.Catalog fails catalog.Unreadable {
 	xml.Decode(codec(), text) catch {
 	case xml.Malformed as m:
 		return catalog.Unreadable{Line: m.Line, Column: m.Column, Path: "", Reason: m.Reason}
-	case WireWrongKind as w:
+	case stdcodec.WireWrongKind as w:
 		return catalog.Unreadable{Line: 0, Column: 0, Path: w.Path, Reason: "expected " + w.Want}
-	case WireMissingField as f:
+	case stdcodec.WireMissingField as f:
 		return catalog.Unreadable{Line: 0, Column: 0, Path: f.Path, Reason: "no field " + f.Field}
-	case WireUnknownTag as u:
+	case stdcodec.WireUnknownTag as u:
 		return catalog.Unreadable{Line: 0, Column: 0, Path: u.Path, Reason: "no variant " + u.Tag}
 	}
 }

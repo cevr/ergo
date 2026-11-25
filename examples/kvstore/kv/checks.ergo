@@ -7,19 +7,20 @@
 // Store is not generic (types.md, Laws 7); letting a test run a named law
 // against a bound provider would remove the copies.
 
+import option
 import slices
 
 // GetAfterPutHolds checks the law GetAfterPut.
 func GetAfterPutHolds(key string, value string) bool fails Broken needs Store {
 	try Store.Put(key, value)
-	try Lookup(key) == Some[string]{Value: value}
+	try Lookup(key) == option.Some[string]{Value: value}
 }
 
 // PutOverwritesHolds checks the law PutOverwrites.
 func PutOverwritesHolds(key string, first string, second string) bool fails Broken needs Store {
 	try Store.Put(key, first)
 	try Store.Put(key, second)
-	try Lookup(key) == Some[string]{Value: second}
+	try Lookup(key) == option.Some[string]{Value: second}
 }
 
 // DeleteRemovesHolds checks the law DeleteRemoves.
@@ -50,7 +51,7 @@ func PutKeepsOthersHolds(key string, other string, a string, b string) bool fail
 	}
 	try Store.Put(other, a)
 	try Store.Put(key, b)
-	try Lookup(other) == Some[string]{Value: a}
+	try Lookup(other) == option.Some[string]{Value: a}
 }
 
 // KeysAreSortedAndDistinctHolds checks the law KeysAreSortedAndDistinct.
@@ -88,9 +89,9 @@ func CompactKeepsContentsHolds(puts []string, drops []int) bool fails Broken nee
 // generated number names a put key in every case; with no keys, it is a
 // key that was never put.
 func Pick(keys []string, n int) string {
-	if len(keys) == 0 {
+	if keys.Len() == 0 {
 		return "never put"
 	}
 	let m = if n < 0 { -(n + 1) } else { n }
-	keys[m%len(keys)]
+	keys[m%keys.Len()]
 }

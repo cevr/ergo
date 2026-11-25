@@ -5,6 +5,7 @@
 // the grammar.
 
 import json
+import option
 
 // Kind is the name of v's kind, as a schema writes it: null, boolean,
 // number, string, array or object.
@@ -27,11 +28,11 @@ func Kind(v json.Value) string {
 
 // Get is the value of the last member of o named key, as a decode into a
 // record takes the last of a repeated key.
-func Get(o json.Object, key string) Option[json.Value] {
-	let mut found Option[json.Value] = None
+func Get(o json.Object, key string) option.Option[json.Value] {
+	let mut found option.Option[json.Value] = option.None
 	for m in o.Members {
 		if m.Key == key {
-			found = Some[json.Value]{Value: m.Value}
+			found = option.Some[json.Value]{Value: m.Value}
 		}
 	}
 	found

@@ -112,7 +112,7 @@ func Build(t token.Toks) Built {
 			continue
 		}
 		if k == token.Open {
-			if open < len(marks) {
+			if open < marks.Len() {
 				marks[open] = dense.Mark(stack)
 				opens[open] = i
 			} else {

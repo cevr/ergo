@@ -5,8 +5,8 @@
       "name": "catalog-draft-not-retirable",
       "origin": "wf10 REF XML",
       "file": "examples/catalog/catalog/catalog.ergo",
-      "from": "\tcase (Draft, Retire), (Listed, Retire), (SoldOut, Retire):\n\t\tEnter[Status]{Next: Retired}\n",
-      "to": "\tcase (Listed, Retire), (SoldOut, Retire):\n\t\tEnter[Status]{Next: Retired}\n\tcase (Draft, Retire):\n\t\tReject\n",
+      "from": "\tcase (Draft, Retire), (Listed, Retire), (SoldOut, Retire):\n\t\tmachines.Enter[Status]{Next: Retired}\n",
+      "to": "\tcase (Listed, Retire), (SoldOut, Retire):\n\t\tmachines.Enter[Status]{Next: Retired}\n\tcase (Draft, Retire):\n\t\tmachines.Reject\n",
       "rule": "Listing.AlwaysRetirable: every listing the shop can reach, a draft too, can be retired.",
       "anchor": {
         "tests": [

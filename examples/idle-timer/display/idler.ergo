@@ -18,10 +18,10 @@ type Run { Last Display, Told []Event }
 // timers: the run sleeps hours of the display's time in no wall time.
 func run(trace []machines.Timed[Signal], end duration) Run {
 	let c = testing.NewVirtualClock(0)
-	with context { Scheduler: c, time.Clock: c } { timed(trace, end) }
+	with context { time.Scheduler: c, time.Clock: c } { timed(trace, end) }
 }
 
-func timed(trace []machines.Timed[Signal], end duration) Run needs time.Clock | Scheduler {
+func timed(trace []machines.Timed[Signal], end duration) Run needs time.Clock | time.Scheduler {
 	let m = machines.Start(Idler{}, Standard())
 	let o = machines.RunTimed(m, trace, end) catch {
 	case machines.Rejected:
@@ -64,19 +64,19 @@ func Count(es []Event, word string) int {
 
 // endsTold is whether the decision d ends no session in silence: a move
 // to Suspended is an Emit, which tells its event.
-func endsTold(d Decision[Display, Event]) bool {
+func endsTold(d machines.Decision[Display, Event]) bool {
 	match d {
-	case Emit[Display, Event], Tell[Display, Event]:
+	case machines.Emit[Display, Event], machines.Tell[Display, Event]:
 		true
-	case Enter[Display] as e:
+	case machines.Enter[Display] as e:
 		Name(e.Next) != "suspended"
-	case Stay[Display] as st:
+	case machines.Stay[Display] as st:
 		Name(st.Next) != "suspended"
-	case Ignore:
+	case machines.Ignore:
 		true
-	case Reject:
+	case machines.Reject:
 		true
-	case Done[Event]:
+	case machines.Done[Event]:
 		false
 	}
 }

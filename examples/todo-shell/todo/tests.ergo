@@ -36,8 +36,8 @@ func countIn(l List, at int) int {
 }
 
 test OutOfRangeIsNoSuchItem(texts []string, at int) {
-	if at >= 1 && at <= len(texts) {
+	if at >= 1 && at <= texts.Len() {
 		return
 	}
-	assert countIn(Of(texts), at) == len(texts)
+	assert countIn(Of(texts), at) == texts.Len()
 }

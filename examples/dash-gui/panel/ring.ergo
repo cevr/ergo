@@ -16,7 +16,7 @@ func NewRing[T](cap int) Ring[T] {
 
 // Push is r with v as its newest value; past Cap the oldest is dropped.
 func Push[T](r Ring[T], v T) Ring[T] {
-	if len(r.items) < r.cap {
+	if r.items.Len() < r.cap {
 		return Ring[T]{items: r.items.Append(v), head: r.head, cap: r.cap}
 	}
 	let mut items = r.items
@@ -25,13 +25,13 @@ func Push[T](r Ring[T], v T) Ring[T] {
 }
 
 // Len is how many values r holds.
-func Len[T](r Ring[T]) int { len(r.items) }
+func Len[T](r Ring[T]) int { r.items.Len() }
 
 // Items is r's values, oldest first.
 func Items[T](r Ring[T]) []T {
-	let mut out = slices.WithCapacity[T](len(r.items))
-	for i in 0..len(r.items) {
-		out = out.Append(r.items[(r.head+i)%len(r.items)])
+	let mut out = slices.WithCapacity[T](r.items.Len())
+	for i in 0..r.items.Len() {
+		out = out.Append(r.items[(r.head+i)%r.items.Len()])
 	}
 	out
 }
@@ -40,8 +40,8 @@ func Items[T](r Ring[T]) []T {
 // first.
 func Last[T](r Ring[T], n int) []T {
 	let all = Items(r)
-	let from = if n < len(all) { len(all) - n } else { 0 }
-	slices.Slice(all, from, len(all))
+	let from = if n < all.Len() { all.Len() - n } else { 0 }
+	slices.Slice(all, from, all.Len())
 }
 
 // RingKeepsLastN: a ring of capacity n holds the last n values pushed,
@@ -52,6 +52,6 @@ law RingKeepsLastN(cap int, xs []int) {
 	for x in xs {
 		r = Push(r, x)
 	}
-	let from = if len(xs) > n { len(xs) - n } else { 0 }
-	Items(r) == slices.Slice(xs, from, len(xs))
+	let from = if xs.Len() > n { xs.Len() - n } else { 0 }
+	Items(r) == slices.Slice(xs, from, xs.Len())
 }

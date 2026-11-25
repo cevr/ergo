@@ -8,6 +8,7 @@
 import exec
 import filepath
 import json
+import option
 import slices
 import strings
 
@@ -22,7 +23,7 @@ type RiftUnread { Registry string, Why string }
 // RiftOptions name Rift's registry (-registry; Rift's own when absent:
 // $XDG_DATA_HOME/rift/rift.sqlite, or on macOS ~/Library/Application
 // Support/rift/rift.sqlite).
-type RiftOptions { Registry Option[string] }
+type RiftOptions { Registry option.Option[string] }
 
 // RiftSkip is a Rift copy adopt-rift left, and why.
 type RiftSkip { Path string, Why string }
@@ -37,9 +38,9 @@ type RiftAdopted { Adopted []Workspace, Skipped []RiftSkip }
 // where Rift keeps it on macOS (~/Library/Application Support/rift).
 func RiftRegistry(t Tool, o RiftOptions) string {
 	match o.Registry {
-	case Some[string] as r:
+	case option.Some[string] as r:
 		return r.Value
-	case None:
+	case option.None:
 	}
 	let own = filepath.Join([]string{filepath.Dir(t.data), "rift", "rift.sqlite"})
 	let suffix = "/.local/share/work"
@@ -93,7 +94,7 @@ func RiftBelow(rows []RiftCopy, base string) []RiftCopy {
 	let mut out = []RiftCopy{}
 	for r in rows {
 		if r.Path == base && r.Parent == "" {
-			out = slices.Concat(out, madeFrom(rows, r.Id, len(rows)))
+			out = slices.Concat(out, madeFrom(rows, r.Id, rows.Len()))
 		}
 	}
 	out
@@ -119,7 +120,7 @@ func madeFrom(rows []RiftCopy, id string, depth int) []RiftCopy {
 let RiftMarker = ".rift"
 
 // livePath is the live workspace at path.
-func livePath(all []Workspace, path string) Option[Workspace] {
+func livePath(all []Workspace, path string) option.Option[Workspace] {
 	for w in all {
 		match w.State {
 		case Trashed:
@@ -127,10 +128,10 @@ func livePath(all []Workspace, path string) Option[Workspace] {
 		case Creating, Active, Landing, Landed, Abandoned:
 		}
 		if w.Path == path {
-			return Some[Workspace]{Value: w}
+			return option.Some[Workspace]{Value: w}
 		}
 	}
-	None
+	option.None
 }
 
 // AdoptRift registers each Rift copy of the base as a workspace, as
@@ -160,9 +161,9 @@ func AdoptRift(t Tool, o RiftOptions) RiftAdopted fails NoBase | RiftUnread | Un
 	let mut skipped = []RiftSkip{}
 	for c in RiftBelow(rows, t.base) {
 		let parent = match paths.Get(c.Parent) {
-		case Some[string] as p:
+		case option.Some[string] as p:
 			p.Value
-		case None:
+		case option.None:
 			t.base
 		}
 		let all = try t.registry.All()
@@ -181,10 +182,10 @@ func AdoptRift(t Tool, o RiftOptions) RiftAdopted fails NoBase | RiftUnread | Un
 
 // riftLeft is why adopt-rift leaves the copy c, or "" when it adopts it.
 func riftLeft(t Tool, all []Workspace, c RiftCopy, parent string) string {
-	if livePath(all, c.Path) != None {
+	if livePath(all, c.Path) != option.None {
 		return "a workspace already"
 	}
-	if parent != t.base && livePath(all, parent) == None {
+	if parent != t.base && livePath(all, parent) == option.None {
 		return "its parent \(parent) is no workspace"
 	}
 	if !t.copier.Has(c.Path) {
@@ -217,7 +218,7 @@ func RiftLeft(t Tool, o RiftOptions) []string fails RiftUnread | Unkept {
 	let all = try t.registry.All()
 	let mut out = []string{}
 	for c in RiftBelow(rows, t.base) {
-		if livePath(all, c.Path) == None {
+		if livePath(all, c.Path) == option.None {
 			out = out.Append(c.Path)
 		}
 	}

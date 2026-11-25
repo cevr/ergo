@@ -1,6 +1,8 @@
 import exec
 import filepath
 import fs
+import fstest
+import option
 import os
 import sha1dc
 import sha256
@@ -11,7 +13,7 @@ import github.com/cevr/ergo/modules/git/oid
 import github.com/cevr/ergo/modules/git/oracle
 import github.com/cevr/ergo/modules/git/root
 
-let onOracle = context needs TestAmbient {
+let onOracle = context needs fstest.TestAmbient {
 	exec.Runner: exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
 	fs.Files:    fs.NewTestHost(),
 	fs.Writes:   fs.NewTestHost(),
@@ -65,9 +67,9 @@ func encodeV2IndexWithExtension(format oid.Format, entries []Entry, extSig strin
 	let sorted = slices.SortFunc(entries, compareEntries)
 	let mut buf = "DIRC".Bytes()
 	buf = appendU32BE(buf, uint32(2))
-	buf = appendU32BE(buf, uint32(len(sorted)))
+	buf = appendU32BE(buf, uint32(sorted.Len()))
 	for e in sorted {
-		let startLen = len(buf)
+		let startLen = buf.Len()
 		for _ in 0..6 {
 			buf = appendU32BE(buf, uint32(0))
 		}
@@ -77,11 +79,11 @@ func encodeV2IndexWithExtension(format oid.Format, entries []Entry, extSig strin
 		buf = appendU32BE(buf, e.FileSize)
 		buf = appendBytes(buf, e.OID.Raw)
 		let nameBytes = e.Path.Bytes()
-		let nameLen = if len(nameBytes) < 0x0fff { uint16(len(nameBytes)) } else { uint16(0x0fff) }
+		let nameLen = if nameBytes.Len() < 0x0fff { uint16(nameBytes.Len()) } else { uint16(0x0fff) }
 		let flags = (uint16(e.Stage&3) << uint16(12)) | nameLen
 		buf = appendU16BE(buf, flags)
 		buf = appendBytes(buf, nameBytes)
-		let unpadded = len(buf) - startLen
+		let unpadded = buf.Len() - startLen
 		let pad = 8 - (unpadded % 8)
 		for _ in 0..pad {
 			buf = buf.Append(byte(0))
@@ -89,7 +91,7 @@ func encodeV2IndexWithExtension(format oid.Format, entries []Entry, extSig strin
 	}
 	if extSig != "" {
 		buf = appendBytes(buf, extSig.Bytes())
-		buf = appendU32BE(buf, uint32(len(extPayload)))
+		buf = appendU32BE(buf, uint32(extPayload.Len()))
 		buf = appendBytes(buf, extPayload)
 	}
 	signIndex(format, buf)
@@ -124,7 +126,7 @@ func makeSeededParsedIndex(format oid.Format) Index {
 	let raw = encodeV2IndexWithExtension(format, makeSeededEntries(format), "", []byte{})
 	Parse(format, raw) catch {
 	case BadMagic, UnsupportedVersion, Truncated, ChecksumMismatch, CorruptEntry, BadPathCompression, UnsupportedMandatoryExtension, DuplicateStage, UnsortedEntries:
-		Index{format: format, version: 2, entries: []Entry{}, extensions: []Extension{}, splitLink: None, checksum: oid.Zero(format)}
+		Index{format: format, version: 2, entries: []Entry{}, extensions: []Extension{}, splitLink: option.None, checksum: oid.Zero(format)}
 	}
 }
 
@@ -178,7 +180,7 @@ func parseLsFilesSZ(raw string) []LsStageRecord {
 		return []LsStageRecord{}
 	}
 	let parts = strings.Split(raw, "\x00")
-	let limit = if strings.HasSuffix(raw, "\x00") { len(parts) - 1 } else { len(parts) }
+	let limit = if strings.HasSuffix(raw, "\x00") { parts.Len() - 1 } else { parts.Len() }
 	let mut out = []LsStageRecord{}
 	for i in 0..limit {
 		let rec = parts[i]
@@ -187,7 +189,7 @@ func parseLsFilesSZ(raw string) []LsStageRecord {
 			continue
 		}
 		let meta = strings.Fields(rec[:tab])
-		if len(meta) != 3 {
+		if meta.Len() != 3 {
 			continue
 		}
 		let st = strconv.Atoi(meta[2]) catch {
@@ -211,17 +213,17 @@ func assertMatchesLsFilesSZ(repoDir string, idx Index, pathEnv Map[string, strin
 	}
 	let want = parseLsFilesSZ(out)
 	let got = idx.Entries()
-	if len(got) != len(want) {
+	if got.Len() != want.Len() {
 		return false
 	}
-	for i in 0..len(want) {
+	for i in 0..want.Len() {
 		if got[i].Mode != want[i].Mode || oid.Hex(got[i].OID) != want[i].OID || got[i].Stage != want[i].Stage || got[i].Path != want[i].Path {
 			return false
 		}
 		match idx.Lookup(want[i].Path, want[i].Stage) {
-		case None:
+		case option.None:
 			return false
-		case Some[Entry] as found:
+		case option.Some[Entry] as found:
 			if !oid.Equal(found.Value.OID, got[i].OID) || found.Value.Mode != got[i].Mode {
 				return false
 			}
@@ -285,27 +287,27 @@ test VersionsAndModesMatchGitLsFiles {
 			assert try assertMatchesLsFilesSZ(repoDir, idxV2, pathEnv)
 
 			let stages = idxV2.LookupAllStages("conflict.txt")
-			assert len(stages) == 3
+			assert stages.Len() == 3
 			assert stages[0].Stage == 1 && oid.Hex(stages[0].OID) == h1
 			assert stages[1].Stage == 2 && oid.Hex(stages[1].OID) == h4
 			assert stages[2].Stage == 3 && oid.Hex(stages[2].OID) == h5
 
 			match idxV2.Lookup("bin/run.sh", 0) {
-			case Some[Entry] as e:
+			case option.Some[Entry] as e:
 				assert e.Value.Mode == ModeExecutable
-			case None:
+			case option.None:
 				assert false
 			}
 			match idxV2.Lookup("link.txt", 0) {
-			case Some[Entry] as e:
+			case option.Some[Entry] as e:
 				assert e.Value.Mode == ModeSymlink
-			case None:
+			case option.None:
 				assert false
 			}
 			match idxV2.Lookup("submod", 0) {
-			case Some[Entry] as e:
+			case option.Some[Entry] as e:
 				assert e.Value.Mode == ModeGitlink
-			case None:
+			case option.None:
 				assert false
 			}
 
@@ -319,15 +321,15 @@ test VersionsAndModesMatchGitLsFiles {
 			assert Version(idxV3) == 3
 			assert try assertMatchesLsFilesSZ(repoDir, idxV3, pathEnv)
 			match idxV3.Lookup("a.txt", 0) {
-			case Some[Entry] as e:
+			case option.Some[Entry] as e:
 				assert e.Value.Extended && e.Value.SkipWorktree && !e.Value.IntentToAdd
-			case None:
+			case option.None:
 				assert false
 			}
 			match idxV3.Lookup("intent.txt", 0) {
-			case Some[Entry] as e:
+			case option.Some[Entry] as e:
 				assert e.Value.Extended && e.Value.IntentToAdd && !e.Value.SkipWorktree
-			case None:
+			case option.None:
 				assert false
 			}
 
@@ -336,9 +338,9 @@ test VersionsAndModesMatchGitLsFiles {
 			let idxV4 = try Open(oidFmt, idxPath)
 			assert Version(idxV4) == 4
 			assert try assertMatchesLsFilesSZ(repoDir, idxV4, pathEnv)
-			assert idxV4.Lookup(longDir+"/first.txt", 0) != None
-			assert idxV4.Lookup(longDir+"/second.txt", 0) != None
-			assert idxV4.Lookup("z.txt", 0) != None
+			assert idxV4.Lookup(longDir+"/first.txt", 0) != option.None
+			assert idxV4.Lookup(longDir+"/second.txt", 0) != option.None
+			assert idxV4.Lookup("z.txt", 0) != option.None
 		}
 	}
 }
@@ -372,8 +374,8 @@ test SplitAndSparseIndexMatchGitLsFiles {
 		let splitIdx = try Open(oid.Sha1, filepath.Join([]string{splitLayout.GitDir, "index"}))
 		assert HasExtension(splitIdx, "link")
 		assert try assertMatchesLsFilesSZ(splitDir, splitIdx, pathEnv)
-		assert splitIdx.Lookup("f5.txt", 0) == None
-		assert splitIdx.Lookup("f9.txt", 0) != None
+		assert splitIdx.Lookup("f5.txt", 0) == option.None
+		assert splitIdx.Lookup("f9.txt", 0) != option.None
 
 		let sparseDir = try oracle.InitRepo(filepath.Join([]string{cwd, "sparse-repo"}), oracle.RepoSpec{Format: oracle.Sha1, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, int64(1700000200))
 		try fs.Writes.MkdirAll(filepath.Join([]string{sparseDir, "keep"}))
@@ -395,15 +397,15 @@ test SplitAndSparseIndexMatchGitLsFiles {
 		assert strings.Contains(lsVOut, "S skip/b.txt\x00")
 		assert strings.Contains(lsVOut, "H keep/a.txt\x00")
 		match sparseIdx.Lookup("skip/b.txt", 0) {
-		case Some[Entry] as e:
+		case option.Some[Entry] as e:
 			assert e.Value.SkipWorktree
-		case None:
+		case option.None:
 			assert false
 		}
 		match sparseIdx.Lookup("keep/a.txt", 0) {
-		case Some[Entry] as e:
+		case option.Some[Entry] as e:
 			assert !e.Value.SkipWorktree
-		case None:
+		case option.None:
 			assert false
 		}
 
@@ -412,9 +414,9 @@ test SplitAndSparseIndexMatchGitLsFiles {
 		let sdirIdx = try Open(oid.Sha1, filepath.Join([]string{sparseLayout.GitDir, "index"}))
 		assert HasExtension(sdirIdx, "sdir")
 		match sdirIdx.Lookup("skip/", 0) {
-		case Some[Entry] as e:
+		case option.Some[Entry] as e:
 			assert e.Value.Mode == ModeSparseDir && e.Value.SkipWorktree
-		case None:
+		case option.None:
 			assert false
 		}
 	}
@@ -429,7 +431,7 @@ test ExtensionsAndCorruptionMatrix {
 	let optRaw = encodeV2IndexWithExtension(oid.Sha1, entries, "ZZZZ", "optional-payload".Bytes())
 	let optIdx = try Parse(oid.Sha1, optRaw)
 	assert HasExtension(optIdx, "ZZZZ")
-	assert len(optIdx.Entries()) == 4
+	assert optIdx.Entries().Len() == 4
 
 	let mandRaw = encodeV2IndexWithExtension(oid.Sha1, entries, "zzzz", "mandatory-payload".Bytes())
 	let mut sawMand = false
@@ -456,7 +458,7 @@ test ExtensionsAndCorruptionMatrix {
 	}
 	assert sawBadMagic
 
-	let mut badVerBody = appendBytes([]byte{}, optRaw[:len(optRaw)-20])
+	let mut badVerBody = appendBytes([]byte{}, optRaw[:optRaw.Len()-20])
 	badVerBody[7] = byte(5)
 	let badVerRaw = signIndex(oid.Sha1, badVerBody)
 	let mut sawBadVer = false
@@ -482,7 +484,7 @@ test ExtensionsAndCorruptionMatrix {
 	assert sawTrunc
 
 	let mut flipped = appendBytes([]byte{}, optRaw)
-	flipped[len(flipped)-1] = flipped[len(flipped)-1] ^ byte(1)
+	flipped[flipped.Len()-1] = flipped[flipped.Len()-1] ^ byte(1)
 	let mut sawSum = false
 	let _ = Parse(oid.Sha1, flipped) catch {
 	case ChecksumMismatch:

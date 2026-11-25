@@ -2,6 +2,7 @@
 // laws run under ergo test. Create and Apply need a Store; their tests are
 // in package memory, which provides one.
 
+import option
 import slices
 
 test ValidateNamesTheField {
@@ -40,5 +41,5 @@ test TheLifecycleTable {
 }
 
 test EventNamesRoundTrip(e Event) {
-	assert EventNamed(EventName(e)) == Some[Event]{Value: e}
+	assert EventNamed(EventName(e)) == option.Some[Event]{Value: e}
 }

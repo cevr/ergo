@@ -10,7 +10,7 @@ import time
 // waits for a host timer. The jitter is a quarter of the sleep on every
 // third sleep, as a frame that runs late does, so the fixed-step loop has
 // time left over to carry.
-type Clock { m time.Manual, start time.Time } implements time.Clock, Scheduler
+type Clock { m time.Manual, start time.Time } implements time.Clock, time.Scheduler
 
 // NewClock is a Clock at sec Unix seconds.
 func NewClock(sec int64) Clock {
@@ -27,7 +27,7 @@ func Sleep(c Clock, d duration) {
 
 // Alarms is c's time as the runtime's waits use it: the Manual's, with
 // no jitter.
-func Alarms(c Clock) AlarmClock { c.m.Alarms() }
+func Alarms(c Clock) time.AlarmClock { c.m.Alarms() }
 
 // Now is c's time.
 func Now(c Clock) time.Time { c.m.Now() }

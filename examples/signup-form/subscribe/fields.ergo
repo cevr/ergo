@@ -6,11 +6,12 @@
 // package declares the contract it needs, Subscribers, with its laws; the
 // provider lives in memory.
 
+import core
 import strings
 
 // Name is a valid name: at least two bytes. The where derives ParseName,
 // which fails Unsatisfied for a shorter text.
-type Name string where len(it) >= 2
+type Name string where it.Len() >= 2
 
 // Email is a valid email address: the pattern
 // ^[^\s@]+@[^\s@]+\.[^\s@]+$, a local part, an @, and a domain with a dot
@@ -30,12 +31,12 @@ law EmailIsThePattern(local string, host string, top string, cut int, space int)
 	let t = clean(top, "c")
 	let text = a + "@" + h + "." + t
 	let e = ParseEmail(text) catch {
-	case Unsatisfied:
+	case core.Unsatisfied:
 		return false
 	}
-	let at = ((cut % len(text)) + len(text)) % len(text)
+	let at = ((cut % text.Len()) + text.Len()) % text.Len()
 	let spaces = []string{" ", "\t", "\u00a0", "\u2003"}
-	let sp = spaces[((space%len(spaces))+len(spaces))%len(spaces)]
+	let sp = spaces[((space%spaces.Len())+spaces.Len())%spaces.Len()]
 	malformed(text[:at]+sp+text[at:]) && malformed(text+"@x.y") && malformed(a+"@"+h+t) && malformed(a+"@."+h+t) && string(e) == text
 }
 
@@ -69,7 +70,7 @@ func NameField(text string) Field[Name, TooShort] {
 		return Field[Name, TooShort]{Text: text, Verdict: Unchecked}
 	}
 	let n = ParseName(text) catch {
-	case Unsatisfied:
+	case core.Unsatisfied:
 		return Field[Name, TooShort]{Text: text, Verdict: Invalid[TooShort]{Why: TooShort}}
 	}
 	Field[Name, TooShort]{Text: text, Verdict: Valid[Name]{Value: n}}
@@ -82,7 +83,7 @@ func EmailField(text string) Field[Email, EmailWhy] {
 		return Field[Email, EmailWhy]{Text: text, Verdict: Invalid[EmailWhy]{Why: Required}}
 	}
 	let e = ParseEmail(text) catch {
-	case Unsatisfied:
+	case core.Unsatisfied:
 		return Field[Email, EmailWhy]{Text: text, Verdict: Invalid[EmailWhy]{Why: Malformed}}
 	}
 	Field[Email, EmailWhy]{Text: text, Verdict: Checking[Email]{Value: e}}

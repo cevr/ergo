@@ -16,9 +16,9 @@ let scriptLimits = []int{4, 56, 60, 556}
 // ScriptBody is the body of request i: an Effect RPC Request envelope of
 // SearchDomains, as a client sends it.
 func ScriptBody(i int) string {
-	let label = scriptLabels[i%len(scriptLabels)]
+	let label = scriptLabels[i%scriptLabels.Len()]
 	let offset = (i * 61) % 556
-	let limit = scriptLimits[i%len(scriptLimits)]
+	let limit = scriptLimits[i%scriptLimits.Len()]
 	"{\"_tag\":\"Request\",\"id\":\(i),\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"\(label)\",\"offset\":\(offset),\"limit\":\(limit)},\"traceId\":\"00000000000000000000000000000001\",\"spanId\":\"0000000000000001\",\"sampled\":true,\"headers\":[]}"
 }
 

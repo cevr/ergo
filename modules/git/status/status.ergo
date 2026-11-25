@@ -1,5 +1,6 @@
 import filepath
 import fs
+import option
 import slices
 import strconv
 import strings
@@ -11,12 +12,12 @@ import github.com/cevr/ergo/modules/git/refs
 import github.com/cevr/ergo/modules/git/root
 import github.com/cevr/ergo/modules/git/tree
 
-func resolveHeadTree(format oid.Format, layout root.Layout, disk pack.DiskODB, host fs.Host, maxBytes int) Option[oid.OID] fails StatusError {
+func resolveHeadTree(format oid.Format, layout root.Layout, disk pack.DiskODB, host fs.Host, maxBytes int) option.Option[oid.OID] fails StatusError {
 	let refStore = refs.FromLayout(layout)
 	let resolved = with context { fs.Files: host } {
 		refStore.Resolve("HEAD") catch {
 		case refs.NotFound:
-			return None
+			return option.None
 		case refs.InvalidRefName as e:
 			return StatusError{Op: "resolve-head", Detail: "invalid ref: " + e.Name}
 		case refs.CyclicSymref:
@@ -55,21 +56,21 @@ func resolveHeadTree(format oid.Format, layout root.Layout, disk pack.DiskODB, h
 			return StatusError{Op: "peel-head", Detail: e.Detail}
 		}
 	}
-	Some[oid.OID]{Value: treeOid}
+	option.Some[oid.OID]{Value: treeOid}
 }
 
-func openRepoIndex(format oid.Format, gitDir string, host fs.Host) Option[index.Index] fails StatusError {
+func openRepoIndex(format oid.Format, gitDir string, host fs.Host) option.Option[index.Index] fails StatusError {
 	let idxPath = filepath.Join([]string{gitDir, "index"})
 	let info = fs.Lstat(host, idxPath) catch {
 	case fs.NotFound:
-		return None
+		return option.None
 	case fs.Denied as e:
 		return StatusError{Op: "stat-index", Detail: e.Path}
 	case fs.Failed as e:
 		return StatusError{Op: "stat-index", Detail: e.Reason}
 	}
 	if info.Dir {
-		return None
+		return option.None
 	}
 	let idx = with context { fs.Files: host } {
 		index.Open(format, idxPath) catch {
@@ -95,10 +96,10 @@ func openRepoIndex(format oid.Format, gitDir string, host fs.Host) Option[index.
 			return StatusError{Op: "open-index", Detail: e.Detail}
 		}
 	}
-	Some[index.Index]{Value: idx}
+	option.Some[index.Index]{Value: idx}
 }
 
-func diffStagedWithUnbornSupport(format oid.Format, headTree Option[oid.OID], idx index.Index, diffOpts diff.DiffOptions) []diff.Change fails StatusError needs pack.ObjectStore {
+func diffStagedWithUnbornSupport(format oid.Format, headTree option.Option[oid.OID], idx index.Index, diffOpts diff.DiffOptions) []diff.Change fails StatusError needs pack.ObjectStore {
 	let effectiveHead = headTree
 	diff.DiffTreeToIndex(format, effectiveHead, idx, diffOpts) catch {
 	case diff.TreeError as e:
@@ -116,7 +117,7 @@ func addTrackedAncestors(trackedDirs Map[string, bool], relPath string) Map[stri
 	let mut dirs = trackedDirs
 	let parts = strings.Split(relPath, "/")
 	let mut cur = ""
-	for i in 0..len(parts)-1 {
+	for i in 0..parts.Len()-1 {
 		cur = if i == 0 { parts[i] } else { cur + "/" + parts[i] }
 		dirs[cur] = true
 	}
@@ -128,9 +129,9 @@ func addTrackedAncestors(trackedDirs Map[string, bool], relPath string) Map[stri
 // matching `git status --porcelain=v1 -z` and `--porcelain=v2 -z`.
 func Status(layout root.Layout, opts StatusOptions, host fs.Host) []Entry fails BareRepository | StatusError {
 	let workTree = match layout.WorkTree {
-	case None:
+	case option.None:
 		return BareRepository{GitDir: layout.GitDir}
-	case Some[string] as wt:
+	case option.Some[string] as wt:
 		wt.Value
 	}
 	let format = if layout.ObjectFormat == "sha256" { oid.Sha256 } else { oid.Sha1 }
@@ -154,7 +155,7 @@ func Status(layout root.Layout, opts StatusOptions, host fs.Host) []Entry fails 
 	let mut entries = []Entry{}
 
 	match idxOpt {
-	case Some[index.Index] as idxWrap:
+	case option.Some[index.Index] as idxWrap:
 		let idx = idxWrap.Value
 		let mut conflictMap = Map[string, []int]{}
 		let mut indexModes = Map[string, tree.Mode]{}
@@ -166,17 +167,17 @@ func Status(layout root.Layout, opts StatusOptions, host fs.Host) []Entry fails 
 			if e.Stage > 0 {
 				conflictPaths[e.Path] = true
 				let prev = match conflictMap.Get(e.Path) {
-				case Some[[]int] as stages:
+				case option.Some[[]int] as stages:
 					stages.Value
-				case None:
+				case option.None:
 					[]int{}
 				}
 				conflictMap[e.Path] = prev.Append(e.Stage)
 			} else {
 				match indexModeToTreeMode(e.Mode) {
-				case Some[tree.Mode] as tm:
+				case option.Some[tree.Mode] as tm:
 					indexModes[e.Path] = tm.Value
-				case None:
+				case option.None:
 				}
 				indexOids[e.Path] = e.OID
 			}
@@ -198,15 +199,15 @@ func Status(layout root.Layout, opts StatusOptions, host fs.Host) []Entry fails 
 			let (cx, cy) = conflictCodes(h1, h2, h3)
 			entries = entries.Append(Entry{
 				Path:        cPath,
-				OrigPath:    None,
+				OrigPath:    option.None,
 				IndexCode:   cx,
 				WorkCode:    cy,
 				RenameScore: 0,
-				ModeHead:    None,
-				ModeIndex:   None,
-				ModeWork:    None,
-				OIDHead:     None,
-				OIDIndex:    None,
+				ModeHead:    option.None,
+				ModeIndex:   option.None,
+				ModeWork:    option.None,
+				OIDHead:     option.None,
+				OIDIndex:    option.None,
 			})
 		}
 
@@ -224,7 +225,7 @@ func Status(layout root.Layout, opts StatusOptions, host fs.Host) []Entry fails 
 
 		for ch in staged {
 			let p = diff.ChangePath(ch)
-			if conflictPaths.Get(p) != None {
+			if conflictPaths.Get(p) != option.None {
 				continue
 			}
 			let idxCode = diff.StatusLetter(ch.Status)
@@ -237,17 +238,17 @@ func Status(layout root.Layout, opts StatusOptions, host fs.Host) []Entry fails 
 			let mut workCode = " "
 			let mut modeWork = ch.NewMode
 			match wtDiffs.Get(p) {
-			case Some[WorktreeChange] as wc:
+			case option.Some[WorktreeChange] as wc:
 				workCode = wc.Value.WorkCode
 				modeWork = wc.Value.ModeWork
 				wtConsumed[p] = true
-			case None:
+			case option.None:
 			}
-			let origP Option[string] = match ch.Status {
+			let origP option.Option[string] = match ch.Status {
 			case diff.Renamed:
 				ch.OldPath
 			case diff.Added, diff.Deleted, diff.Modified, diff.TypeChanged:
-				None
+				option.None
 			}
 			entries = entries.Append(Entry{
 				Path:        p,
@@ -264,14 +265,14 @@ func Status(layout root.Layout, opts StatusOptions, host fs.Host) []Entry fails 
 		}
 
 		for p, wc in wtDiffs {
-			if conflictPaths.Get(p) != None || wtConsumed.Get(p) != None {
+			if conflictPaths.Get(p) != option.None || wtConsumed.Get(p) != option.None {
 				continue
 			}
 			let mIdx = indexModes.Get(p)
 			let oIdx = indexOids.Get(p)
 			entries = entries.Append(Entry{
 				Path:        p,
-				OrigPath:    None,
+				OrigPath:    option.None,
 				IndexCode:   " ",
 				WorkCode:    wc.WorkCode,
 				RenameScore: 0,
@@ -282,9 +283,9 @@ func Status(layout root.Layout, opts StatusOptions, host fs.Host) []Entry fails 
 				OIDIndex:    oIdx,
 			})
 		}
-	case None:
+	case option.None:
 		match headTree {
-		case Some[oid.OID] as ht:
+		case option.Some[oid.OID] as ht:
 			let walked = with context { pack.ObjectStore: disk } {
 				tree.WalkTree(format, ht.Value, 64, opts.MaxBytes) catch {
 				case tree.CorruptTree, tree.InvalidEntryName, tree.UnsortedTree, tree.DuplicateEntry, tree.WrongKind, tree.DepthExceeded, tree.MissingObject, tree.StoreError:
@@ -294,18 +295,18 @@ func Status(layout root.Layout, opts StatusOptions, host fs.Host) []Entry fails 
 			for w in walked {
 				entries = entries.Append(Entry{
 					Path:        w.Path,
-					OrigPath:    None,
+					OrigPath:    option.None,
 					IndexCode:   "D",
 					WorkCode:    " ",
 					RenameScore: 0,
-					ModeHead:    Some[tree.Mode]{Value: w.Mode},
-					ModeIndex:   None,
-					ModeWork:    None,
-					OIDHead:     Some[oid.OID]{Value: w.OID},
-					OIDIndex:    None,
+					ModeHead:    option.Some[tree.Mode]{Value: w.Mode},
+					ModeIndex:   option.None,
+					ModeWork:    option.None,
+					OIDHead:     option.Some[oid.OID]{Value: w.OID},
+					OIDIndex:    option.None,
 				})
 			}
-		case None:
+		case option.None:
 		}
 	}
 
@@ -349,29 +350,29 @@ func FormatPorcelainV1Z(entries []Entry) string {
 	let mut out = []string{}
 	for e in entries {
 		match e.OrigPath {
-		case Some[string] as orig:
+		case option.Some[string] as orig:
 			out = out.Append(e.IndexCode + e.WorkCode + " " + e.Path + "\x00" + orig.Value + "\x00")
-		case None:
+		case option.None:
 			out = out.Append(e.IndexCode + e.WorkCode + " " + e.Path + "\x00")
 		}
 	}
 	strings.Join(out, "")
 }
 
-func formatOptMode(m Option[tree.Mode]) string {
+func formatOptMode(m option.Option[tree.Mode]) string {
 	match m {
-	case None:
+	case option.None:
 		"000000"
-	case Some[tree.Mode] as v:
+	case option.Some[tree.Mode] as v:
 		tree.ModeOctal(v.Value)
 	}
 }
 
-func formatOptOID(id Option[oid.OID], format oid.Format) string {
+func formatOptOID(id option.Option[oid.OID], format oid.Format) string {
 	match id {
-	case None:
+	case option.None:
 		oid.Hex(oid.Zero(format))
-	case Some[oid.OID] as v:
+	case option.Some[oid.OID] as v:
 		oid.Hex(v.Value)
 	}
 }
@@ -394,9 +395,9 @@ func FormatPorcelainV2Z(format oid.Format, entries []Entry) string {
 			let hH = formatOptOID(e.OIDHead, format)
 			let hI = formatOptOID(e.OIDIndex, format)
 			match e.OrigPath {
-			case Some[string] as orig:
+			case option.Some[string] as orig:
 				out = out.Append("2 " + xy + " N... " + mH + " " + mI + " " + mW + " " + hH + " " + hI + " R" + strconv.Itoa(e.RenameScore) + " " + e.Path + "\x00" + orig.Value + "\x00")
-			case None:
+			case option.None:
 				out = out.Append("1 " + xy + " N... " + mH + " " + mI + " " + mW + " " + hH + " " + hI + " " + e.Path + "\x00")
 			}
 		}
@@ -427,15 +428,15 @@ func Query(r RepoStatus, opts StatusOptions) []Entry fails StatusError {
 
 // IsClean implements StatusReader.IsClean on RepoStatus.
 func IsClean(r RepoStatus) bool fails StatusError {
-	len(try r.Query(DefaultOptions())) == 0
+	(try r.Query(DefaultOptions())).Len() == 0
 }
 
 // IsIgnored implements StatusReader.IsIgnored on RepoStatus.
 func IsIgnored(r RepoStatus, relPath string, isDir bool) bool {
 	match r.layout.WorkTree {
-	case None:
+	case option.None:
 		false
-	case Some[string] as wt:
+	case option.Some[string] as wt:
 		let rules = collectAllRulesForPath(r.host, r.layout.GitDir, r.layout.CommonDir, wt.Value, relPath)
 		MatchIgnored(rules, relPath, isDir)
 	}
@@ -459,15 +460,15 @@ func NewMemoryStatus(entries []Entry, rules []IgnoreRule) MemoryStatus {
 			}
 			filtered = filtered.Append(Entry{
 				Path:        e.Path,
-				OrigPath:    None,
+				OrigPath:    option.None,
 				IndexCode:   "!",
 				WorkCode:    "!",
 				RenameScore: 0,
-				ModeHead:    None,
-				ModeIndex:   None,
-				ModeWork:    None,
-				OIDHead:     None,
-				OIDIndex:    None,
+				ModeHead:    option.None,
+				ModeIndex:   option.None,
+				ModeWork:    option.None,
+				OIDHead:     option.None,
+				OIDIndex:    option.None,
 			})
 		} else {
 			filtered = filtered.Append(e)
@@ -490,7 +491,7 @@ func Query(m MemoryStatus, opts StatusOptions) []Entry fails StatusError {
 
 // IsClean implements StatusReader.IsClean on MemoryStatus.
 func IsClean(m MemoryStatus) bool fails StatusError {
-	len(try m.Query(DefaultOptions())) == 0
+	(try m.Query(DefaultOptions())).Len() == 0
 }
 
 // IsIgnored implements StatusReader.IsIgnored on MemoryStatus.

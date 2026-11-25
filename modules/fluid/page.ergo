@@ -3,6 +3,8 @@
 // and the pixel harness name pages by these slugs; a component with no
 // slug does not compile (the matches below are exhaustive).
 
+import option
+
 type Accordion {}
 type AskUserQuestions {}
 type Badge {}
@@ -188,34 +190,34 @@ func FoundationSlug(f Foundation) string {
 }
 
 // ParseComponent is the component whose slug is s, if one has it.
-func ParseComponent(s string) Option[Component] {
+func ParseComponent(s string) option.Option[Component] {
 	for c in Components() {
 		if Slug(c) == s {
-			return Some[Component]{Value: c}
+			return option.Some[Component]{Value: c}
 		}
 	}
-	None
+	option.None
 }
 
 // ParseFoundation is the foundation page whose slug is s, if one has it.
-func ParseFoundation(s string) Option[Foundation] {
+func ParseFoundation(s string) option.Option[Foundation] {
 	for f in Foundations() {
 		if FoundationSlug(f) == s {
-			return Some[Foundation]{Value: f}
+			return option.Some[Foundation]{Value: f}
 		}
 	}
-	None
+	option.None
 }
 
 // SlugParses: every component's slug parses back to it, so no two share a
 // slug and the list holds every component.
 law SlugParses(c Component) {
-	ParseComponent(Slug(c)) == Some[Component]{Value: c}
+	ParseComponent(Slug(c)) == option.Some[Component]{Value: c}
 }
 
 // FoundationSlugParses: the same for the foundation pages.
 law FoundationSlugParses(f Foundation) {
-	ParseFoundation(FoundationSlug(f)) == Some[Foundation]{Value: f}
+	ParseFoundation(FoundationSlug(f)) == option.Some[Foundation]{Value: f}
 }
 
 // ListedOnce: the list names each component once, so a page per entry

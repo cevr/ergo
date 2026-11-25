@@ -49,11 +49,11 @@ func finish(o app.Outcome) fails os.Exit needs io.Stdout {
 
 // run is jsonparse on args.
 func run(args []string) fails os.Exit needs io.Stdout | app.Documents {
-	if len(args) == 0 {
+	if args.Len() == 0 {
 		return usage()
 	}
-	if len(args) >= 2 && args[1] == "-flat" {
-		match (args[0], len(args)) {
+	if args.Len() >= 2 && args[1] == "-flat" {
+		match (args[0], args.Len()) {
 		case ("fmt", 3):
 			try finish(app.FlatFmt(args[2]))
 		case ("min", 3):
@@ -67,7 +67,7 @@ func run(args []string) fails os.Exit needs io.Stdout | app.Documents {
 		}
 		return
 	}
-	match (args[0], len(args)) {
+	match (args[0], args.Len()) {
 	case ("fmt", 2):
 		try finish(app.Fmt(args[1]))
 	case ("min", 2):
@@ -87,7 +87,7 @@ func run(args []string) fails os.Exit needs io.Stdout | app.Documents {
 	}
 }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	let host = os.NewHost()
 	with context { io.Stdout: io.NewHost(), app.Documents: files.New(fs.NewHost()) } {
 		try run(host.Args())

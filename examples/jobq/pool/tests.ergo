@@ -4,13 +4,15 @@
 
 import jobq/jobs
 import jobq/sched
+import option
 import queue
 import testing
+import time
 
 // pooled is the reports of a pool run of sched.Load(ns) under
 // sched.Shape(c) on the script.
 func pooled(c int, ns []int) []Report fails queue.Closed {
-	with context { jobs.Worker: jobs.Script, Scheduler: testing.NewVirtualClock(0) } { try Run(sched.Shape(c), sched.Load(ns)) }
+	with context { jobs.Worker: jobs.Script, time.Scheduler: testing.NewVirtualClock(0) } { try Run(sched.Shape(c), sched.Load(ns)) }
 }
 
 // kind is the outcome o without its time.
@@ -26,8 +28,8 @@ func kind(o jobs.Outcome) string {
 test ThreeJobsTwoWorkers {
 	let c = sched.Config{Workers: 2, Policy: jobs.Policy{Attempts: 3, Base: 100ms, Max: 1s}, Burst: 2, Every: 100ms}
 	let js = []jobs.Job{jobs.Job{ID: 1, Name: "a", Takes: 300ms, Flaky: 0, Fatal: false}, jobs.Job{ID: 2, Name: "b", Takes: 50ms, Flaky: 1, Fatal: false}, jobs.Job{ID: 3, Name: "c", Takes: 50ms, Flaky: 5, Fatal: false}}
-	let rs = try with context { jobs.Worker: jobs.Script, Scheduler: testing.NewVirtualClock(0) } { Run(c, js) }
-	assert len(rs) == 3
+	let rs = try with context { jobs.Worker: jobs.Script, time.Scheduler: testing.NewVirtualClock(0) } { Run(c, js) }
+	assert rs.Len() == 3
 	assert kind(rs[0].Out) == "done after 1"
 	assert kind(rs[1].Out) == "done after 2"
 	assert kind(rs[2].Out) == "gave up after 3: try 3 of c timed out; no tries left"
@@ -41,8 +43,8 @@ test ThreeJobsTwoWorkers {
 test TwoWorkersDrainTheQueue {
 	let c = sched.Config{Workers: 2, Policy: jobs.Policy{Attempts: 1, Base: 0s, Max: 0s}, Burst: 2, Every: 0s}
 	let js = []jobs.Job{jobs.Job{ID: 1, Name: "a", Takes: 0s, Flaky: 0, Fatal: false}, jobs.Job{ID: 2, Name: "b", Takes: 0s, Flaky: 0, Fatal: false}}
-	let rs = try with context { jobs.Worker: jobs.Script, Scheduler: testing.NewVirtualClock(0) } { Run(c, js) }
-	assert len(rs) == 2
+	let rs = try with context { jobs.Worker: jobs.Script, time.Scheduler: testing.NewVirtualClock(0) } { Run(c, js) }
+	assert rs.Len() == 2
 	for i, r in rs {
 		assert r.ID == i+1
 		assert kind(r.Out) == "done after 1"
@@ -52,7 +54,7 @@ test TwoWorkersDrainTheQueue {
 
 test NoJobLostHolds(c int, ns []int) {
 	let rs = try pooled(c, ns)
-	assert len(rs) == len(ns)
+	assert rs.Len() == ns.Len()
 	for i, r in rs {
 		assert r.ID == i+1
 		assert r.Worker >= 1 && r.Worker <= sched.Shape(c).Workers
@@ -73,6 +75,6 @@ test AgreesWithTheVirtualRun(c int, ns []int) {
 		}
 	}
 	for r in rs {
-		assert want.Get(r.ID) == Some[string]{Value: kind(r.Out)}
+		assert want.Get(r.ID) == option.Some[string]{Value: kind(r.Out)}
 	}
 }

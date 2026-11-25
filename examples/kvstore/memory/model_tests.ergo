@@ -1,6 +1,7 @@
 import gen
 import kvstore/kv
 import maps
+import option
 import slices
 import strings
 import sync
@@ -39,11 +40,11 @@ func offerKVAct(m Map[string, string]) kvAct needs gen.Draws {
 		return kvPut{Key: gen.OneOf(pool), Value: gen.OneOf(kvValues())}
 	}
 	if op <= 5 {
-		let k = if len(live) > 0 && gen.Bool() { gen.OneOf(live) } else { gen.OneOf(pool) }
+		let k = if live.Len() > 0 && gen.Bool() { gen.OneOf(live) } else { gen.OneOf(pool) }
 		return kvGet{Key: k}
 	}
 	if op <= 8 {
-		let k = if len(live) > 0 && gen.Bool() { gen.OneOf(live) } else { gen.OneOf(pool) }
+		let k = if live.Len() > 0 && gen.Bool() { gen.OneOf(live) } else { gen.OneOf(pool) }
 		return kvDel{Key: k}
 	}
 	kvCompact
@@ -54,23 +55,23 @@ func stepKVModel(m Map[string, string], a kvAct) (Map[string, string], kvObs) {
 	case kvPut as p:
 		let next = m.Put(p.Key, p.Value)
 		let ks = sortedKeys(next)
-		(next, kvObs{Kind: "put", Key: p.Key, Found: true, Value: p.Value, Count: len(ks), KeysJoined: strings.Join(ks, ","), Sorted: kv.Sorted(ks)})
+		(next, kvObs{Kind: "put", Key: p.Key, Found: true, Value: p.Value, Count: ks.Len(), KeysJoined: strings.Join(ks, ","), Sorted: kv.Sorted(ks)})
 	case kvGet as g:
 		let ks = sortedKeys(m)
 		match m.Get(g.Key) {
-		case Some[string] as v:
-			(m, kvObs{Kind: "get", Key: g.Key, Found: true, Value: v.Value, Count: len(ks), KeysJoined: strings.Join(ks, ","), Sorted: kv.Sorted(ks)})
-		case None:
-			(m, kvObs{Kind: "get", Key: g.Key, Found: false, Value: "", Count: len(ks), KeysJoined: strings.Join(ks, ","), Sorted: kv.Sorted(ks)})
+		case option.Some[string] as v:
+			(m, kvObs{Kind: "get", Key: g.Key, Found: true, Value: v.Value, Count: ks.Len(), KeysJoined: strings.Join(ks, ","), Sorted: kv.Sorted(ks)})
+		case option.None:
+			(m, kvObs{Kind: "get", Key: g.Key, Found: false, Value: "", Count: ks.Len(), KeysJoined: strings.Join(ks, ","), Sorted: kv.Sorted(ks)})
 		}
 	case kvDel as d:
-		let existed = m.Get(d.Key) != None
+		let existed = m.Get(d.Key) != option.None
 		let next = if existed { m.Delete(d.Key) } else { m }
 		let ks = sortedKeys(next)
-		(next, kvObs{Kind: "del", Key: d.Key, Found: existed, Value: "", Count: len(ks), KeysJoined: strings.Join(ks, ","), Sorted: kv.Sorted(ks)})
+		(next, kvObs{Kind: "del", Key: d.Key, Found: existed, Value: "", Count: ks.Len(), KeysJoined: strings.Join(ks, ","), Sorted: kv.Sorted(ks)})
 	case kvCompact:
 		let ks = sortedKeys(m)
-		(m, kvObs{Kind: "compact", Key: "", Found: true, Value: "", Count: len(ks), KeysJoined: strings.Join(ks, ","), Sorted: kv.Sorted(ks)})
+		(m, kvObs{Kind: "compact", Key: "", Found: true, Value: "", Count: ks.Len(), KeysJoined: strings.Join(ks, ","), Sorted: kv.Sorted(ks)})
 	}
 }
 
@@ -88,7 +89,7 @@ func kvStage(tbl Table) testing.Stage[kvAct, kvObs] {
 			case kv.Broken as b:
 				return testing.Refused{Why: b.Reason}
 			}
-			kvObs{Kind: "put", Key: p.Key, Found: true, Value: p.Value, Count: len(ks), KeysJoined: strings.Join(ks, ","), Sorted: kv.Sorted(ks)}
+			kvObs{Kind: "put", Key: p.Key, Found: true, Value: p.Value, Count: ks.Len(), KeysJoined: strings.Join(ks, ","), Sorted: kv.Sorted(ks)}
 		case kvGet as g:
 			let mut found = true
 			let val = tbl.Get(g.Key) catch {
@@ -102,7 +103,7 @@ func kvStage(tbl Table) testing.Stage[kvAct, kvObs] {
 			case kv.Broken as b:
 				return testing.Refused{Why: b.Reason}
 			}
-			kvObs{Kind: "get", Key: g.Key, Found: found, Value: val, Count: len(ks), KeysJoined: strings.Join(ks, ","), Sorted: kv.Sorted(ks)}
+			kvObs{Kind: "get", Key: g.Key, Found: found, Value: val, Count: ks.Len(), KeysJoined: strings.Join(ks, ","), Sorted: kv.Sorted(ks)}
 		case kvDel as d:
 			let mut existed = true
 			tbl.Delete(d.Key) catch {
@@ -115,7 +116,7 @@ func kvStage(tbl Table) testing.Stage[kvAct, kvObs] {
 			case kv.Broken as b:
 				return testing.Refused{Why: b.Reason}
 			}
-			kvObs{Kind: "del", Key: d.Key, Found: existed, Value: "", Count: len(ks), KeysJoined: strings.Join(ks, ","), Sorted: kv.Sorted(ks)}
+			kvObs{Kind: "del", Key: d.Key, Found: existed, Value: "", Count: ks.Len(), KeysJoined: strings.Join(ks, ","), Sorted: kv.Sorted(ks)}
 		case kvCompact:
 			tbl.Compact() catch {
 			case kv.Broken as b:
@@ -125,7 +126,7 @@ func kvStage(tbl Table) testing.Stage[kvAct, kvObs] {
 			case kv.Broken as b:
 				return testing.Refused{Why: b.Reason}
 			}
-			kvObs{Kind: "compact", Key: "", Found: true, Value: "", Count: len(ks), KeysJoined: strings.Join(ks, ","), Sorted: kv.Sorted(ks)}
+			kvObs{Kind: "compact", Key: "", Found: true, Value: "", Count: ks.Len(), KeysJoined: strings.Join(ks, ","), Sorted: kv.Sorted(ks)}
 		}
 		last.Set(obs)
 	})

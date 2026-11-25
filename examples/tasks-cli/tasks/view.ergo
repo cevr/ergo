@@ -43,7 +43,7 @@ law ViewShowsWhatMatches(tasks []Task, which Which, min Priority) {
 		}
 		matching = matching + want
 	}
-	len(shown) == matching
+	shown.Len() == matching
 }
 
 // matches is the rule of a listing, written apart from Shows so the law

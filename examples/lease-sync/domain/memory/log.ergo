@@ -3,6 +3,7 @@
 // process: the sync authority keeps its log here.
 
 import lease-sync/domain
+import option
 import sync
 
 // Log is the memory log of events E. Its values are copies of one log:
@@ -48,15 +49,15 @@ type Outcome = Kept{Receipt domain.Receipt} | Resent{Receipt domain.Receipt} | S
 func Admit[E comparable](b Book[E], stream string, expected int, id domain.CommandID, events []E) (Outcome, Book[E]) {
 	let records = RecordsOf(b, stream)
 	match b.Receipts.Get(id) {
-	case Some[domain.Receipt] as seen:
+	case option.Some[domain.Receipt] as seen:
 		let r = seen.Value
 		if r.Stream == stream && RecordsOf(b, r.Stream)[r.Position-1].Events == events {
 			return (Resent{Receipt: r}, b)
 		}
 		return (Taken, b)
-	case None:
+	case option.None:
 	}
-	let at = len(records)
+	let at = records.Len()
 	if expected != at {
 		return (Stale{Actual: at}, b)
 	}
@@ -69,9 +70,9 @@ func Admit[E comparable](b Book[E], stream string, expected int, id domain.Comma
 // hold.
 func RecordsOf[E](b Book[E], stream string) []domain.Recorded[E] {
 	match b.Streams.Get(stream) {
-	case Some[[]domain.Recorded[E]] as s:
+	case option.Some[[]domain.Recorded[E]] as s:
 		s.Value
-	case None:
+	case option.None:
 		[]domain.Recorded[E]{}
 	}
 }
@@ -91,4 +92,4 @@ func After[E](b Book[E], stream string, from int) []domain.Recorded[E] {
 }
 
 // Seen is the receipt of id, if the log kept it.
-func Seen[E comparable](l Log[E], id domain.CommandID) Option[domain.Receipt] { l.book.Get().Receipts.Get(id) }
+func Seen[E comparable](l Log[E], id domain.CommandID) option.Option[domain.Receipt] { l.book.Get().Receipts.Get(id) }

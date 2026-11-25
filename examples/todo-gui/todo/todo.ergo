@@ -27,14 +27,14 @@ let Empty = List{Items: []Item{}, Next: 1, Left: 0, Show: All}
 
 // Step is the list's transition. A signal that names no item, and a blank
 // Add, change nothing.
-func Step(l List, op Op) Decision[List, List] {
+func Step(l List, op Op) machines.Decision[List, List] {
 	match op {
 	case Add as a:
 		let text = strings.TrimSpace(a.Text)
 		if text == "" {
-			return Ignore
+			return machines.Ignore
 		}
-		Enter[List]{Next: List{Items: l.Items.Append(Item{Id: l.Next, Text: text, Done: false}), Next: l.Next + 1, Left: l.Left + 1, Show: l.Show}}
+		machines.Enter[List]{Next: List{Items: l.Items.Append(Item{Id: l.Next, Text: text, Done: false}), Next: l.Next + 1, Left: l.Left + 1, Show: l.Show}}
 	case Flip as f:
 		let mut items = []Item{}
 		let mut left = l.Left
@@ -49,9 +49,9 @@ func Step(l List, op Op) Decision[List, List] {
 			}
 		}
 		if !found {
-			return Ignore
+			return machines.Ignore
 		}
-		Enter[List]{Next: List{Items: items, Next: l.Next, Left: left, Show: l.Show}}
+		machines.Enter[List]{Next: List{Items: items, Next: l.Next, Left: left, Show: l.Show}}
 	case Remove as r:
 		let mut items = []Item{}
 		let mut left = l.Left
@@ -67,9 +67,9 @@ func Step(l List, op Op) Decision[List, List] {
 			}
 		}
 		if !found {
-			return Ignore
+			return machines.Ignore
 		}
-		Enter[List]{Next: List{Items: items, Next: l.Next, Left: left, Show: l.Show}}
+		machines.Enter[List]{Next: List{Items: items, Next: l.Next, Left: left, Show: l.Show}}
 	case ClearDone:
 		let mut items = []Item{}
 		for it in l.Items {
@@ -77,9 +77,9 @@ func Step(l List, op Op) Decision[List, List] {
 				items = items.Append(it)
 			}
 		}
-		Enter[List]{Next: List{Items: items, Next: l.Next, Left: l.Left, Show: l.Show}}
+		machines.Enter[List]{Next: List{Items: items, Next: l.Next, Left: l.Left, Show: l.Show}}
 	case ShowOnly as s:
-		Enter[List]{Next: List{Items: l.Items, Next: l.Next, Left: l.Left, Show: s.Show}}
+		machines.Enter[List]{Next: List{Items: l.Items, Next: l.Next, Left: l.Left, Show: s.Show}}
 	}
 }
 
@@ -121,7 +121,7 @@ type Todo machine[List, Op] {
 	law BlankAddsNothing(seed int, spaces int) {
 		let l = built(seed)
 		let blank = strings.Repeat(" ", below(spaces, 4))
-		len(after(l, Add{Text: blank}).Items) == len(l.Items)
+		after(l, Add{Text: blank}).Items.Len() == l.Items.Len()
 	},
 }
 
@@ -171,7 +171,7 @@ func open(items []Item) int {
 
 // sameItems is whether a and b hold the same items in the same order.
 func sameItems(a []Item, b []Item) bool {
-	if len(a) != len(b) {
+	if a.Len() != b.Len() {
 		return false
 	}
 	for i, it in a {
@@ -220,5 +220,5 @@ func Summary(l List) string {
 	for it in l.Items {
 		parts = parts.Append(if it.Done { "[x] " + it.Text } else { "[ ] " + it.Text })
 	}
-	"\(len(l.Items)) items, \(l.Left) left, \(FilterName(l.Show)): " + strings.Join(parts, "; ")
+	"\(l.Items.Len()) items, \(l.Left) left, \(FilterName(l.Show)): " + strings.Join(parts, "; ")
 }

@@ -1,11 +1,13 @@
+import core
+import io
 import sync
 
 type View {
-	..Closer,
+	..core.Closer,
 	Reads() int,
 }
 
-type ticket { releases sync.Ref[int] } implements Closer
+type ticket { releases sync.Ref[int] } implements core.Closer
 
 func Close(t ticket) { t.releases.Set(t.releases.Get() + 1) }
 
@@ -26,12 +28,12 @@ func named(releases sync.Ref[int]) View {
 	return w
 }
 
-func main() needs Console {
+func main() needs io.Console {
 	let releases = sync.NewRef(0)
 	let v = direct(releases)
-	Console.Println("\(v.Reads()) releases before caller closed")
+	io.Console.Println("\(v.Reads()) releases before caller closed")
 	v.Close()
-	Console.Println("\(releases.Get()) releases after caller closed")
+	io.Console.Println("\(releases.Get()) releases after caller closed")
 }
 
 test DirectReturnStaysOpen {

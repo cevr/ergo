@@ -6,14 +6,15 @@
 // of every violation. It is pure.
 
 import jsonv/json
+import option
 import slices
 import stdjson json
 
 // Schema is what a value must be.
-type Schema = Anything{} | IsNull{} | IsBool{} | IsString{Enum []string, MinLength int} | IsNumber{Integer bool, Min Option[float64], Max Option[float64]} | IsArray{Items Schema, MinItems int} | IsObject{Props []Prop, Required []string, Closed bool}
+type Schema = Anything{} | IsNull{} | IsBool{} | IsString{Enum []string, MinLength int} | IsNumber{Integer bool, Min option.Option[float64], Max option.Option[float64]} | IsArray{Items Schema, MinItems int} | IsObject{Props []Prop, Required []string, Closed bool}
 
 // AnythingAcceptsAll: Anything has no violation.
-law AnythingAcceptsAll(v json.Tree) { len(Validate(Anything, try json.Lawful(v))) == 0 }
+law AnythingAcceptsAll(v json.Tree) { Validate(Anything, try json.Lawful(v)).Len() == 0 }
 
 // Prop is one named property of an object schema.
 type Prop { Name string, S Schema }
@@ -28,11 +29,11 @@ func Infer(v stdjson.Value) Schema {
 	case stdjson.Boolean:
 		IsBool
 	case stdjson.Num as n:
-		IsNumber{Integer: isInteger(json.Spelling(n)), Min: None, Max: None}
+		IsNumber{Integer: isInteger(json.Spelling(n)), Min: option.None, Max: option.None}
 	case stdjson.Str:
 		IsString{Enum: []string{}, MinLength: 0}
 	case stdjson.Array as a:
-		if len(a.Items) == 0 {
+		if a.Items.Len() == 0 {
 			return IsArray{Items: Anything, MinItems: 0}
 		}
 		let mut items = Infer(a.Items[0])
@@ -73,7 +74,7 @@ func Join(a Schema, b Schema) Schema {
 	case (IsBool, IsBool):
 		a
 	case (IsString as x, IsString as y):
-		let enum = if len(x.Enum) == 0 || len(y.Enum) == 0 { []string{} } else { union(x.Enum, y.Enum) }
+		let enum = if x.Enum.Len() == 0 || y.Enum.Len() == 0 { []string{} } else { union(x.Enum, y.Enum) }
 		IsString{Enum: enum, MinLength: if x.MinLength < y.MinLength { x.MinLength } else { y.MinLength }}
 	case (IsNumber as x, IsNumber as y):
 		IsNumber{Integer: x.Integer && y.Integer, Min: lower(x.Min, y.Min), Max: upper(x.Max, y.Max)}
@@ -107,26 +108,26 @@ law JoinAcceptsBoth(a json.Tree, b json.Tree) {
 	let x = try json.Lawful(a)
 	let y = try json.Lawful(b)
 	let s = Join(Infer(x), Infer(y))
-	len(Validate(s, x)) == 0 && len(Validate(s, y)) == 0
+	Validate(s, x).Len() == 0 && Validate(s, y).Len() == 0
 }
 
 // lower is the lower of two minimums, None when either has none.
-func lower(a Option[float64], b Option[float64]) Option[float64] {
+func lower(a option.Option[float64], b option.Option[float64]) option.Option[float64] {
 	match (a, b) {
-	case (Some[float64] as x, Some[float64] as y):
+	case (option.Some[float64] as x, option.Some[float64] as y):
 		if x.Value < y.Value { x } else { y }
 	case _:
-		None
+		option.None
 	}
 }
 
 // upper is the higher of two maximums, None when either has none.
-func upper(a Option[float64], b Option[float64]) Option[float64] {
+func upper(a option.Option[float64], b option.Option[float64]) option.Option[float64] {
 	match (a, b) {
-	case (Some[float64] as x, Some[float64] as y):
+	case (option.Some[float64] as x, option.Some[float64] as y):
 		if x.Value > y.Value { x } else { y }
 	case _:
-		None
+		option.None
 	}
 }
 

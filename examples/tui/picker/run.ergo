@@ -1,11 +1,12 @@
 import machines
+import option
 import tui/keys
 import slices
 
 // Outcome is a run of the picker over keys: each mode it showed, the
 // first one included, how many keys it rejected, and the choice, or None
 // when the keys ran out first.
-type Outcome { Frames []Mode, Rejected int, Choice Option[Choice] }
+type Outcome { Frames []Mode, Rejected int, Choice option.Option[Choice] }
 
 // Run steps m by each key until the picker is Done. A new mode is a
 // frame; a rejected key is counted. machines.Run would give only the
@@ -17,17 +18,17 @@ func Run(m Mode, ks []keys.Key) Outcome {
 	for k in ks {
 		let d = Step(now, k)
 		match d {
-		case Enter[Mode], Stay[Mode], Emit[Mode, Choice], Tell[Mode, Choice]:
+		case machines.Enter[Mode], machines.Stay[Mode], machines.Emit[Mode, Choice], machines.Tell[Mode, Choice]:
 			now = machines.Next(now, d)
 			frames = frames.Append(now)
-		case Ignore:
-		case Reject:
+		case machines.Ignore:
+		case machines.Reject:
 			rejected = rejected + 1
-		case Done[Choice] as e:
-			return Outcome{Frames: frames, Rejected: rejected, Choice: Some[Choice]{Value: e.Output}}
+		case machines.Done[Choice] as e:
+			return Outcome{Frames: frames, Rejected: rejected, Choice: option.Some[Choice]{Value: e.Output}}
 		}
 	}
-	Outcome{Frames: frames, Rejected: rejected, Choice: None}
+	Outcome{Frames: frames, Rejected: rejected, Choice: option.None}
 }
 
 // CursorStaysOnTheList: after any keys, the cursor is on a visible item,
@@ -47,7 +48,7 @@ let narrow = []keys.Key{keys.Down, keys.Down, keys.Down, keys.Char{Text: "/"}, k
 func cursorStays(items []string, ks []keys.Key) bool {
 	for m in Run(Start(items), ks).Frames {
 		let v = ViewOf(m)
-		let n = len(Visible(v))
+		let n = Visible(v).Len()
 		if v.Cursor < 0 || (n == 0 && v.Cursor != 0) || (n > 0 && v.Cursor >= n) {
 			return false
 		}
@@ -56,4 +57,4 @@ func cursorStays(items []string, ks []keys.Key) bool {
 }
 
 // Last is the last mode of o.
-func Last(o Outcome) Mode { o.Frames[len(o.Frames)-1] }
+func Last(o Outcome) Mode { o.Frames[o.Frames.Len()-1] }

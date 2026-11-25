@@ -1,6 +1,7 @@
 // The graph's tests: examples at string nodes. The laws, at int nodes, run
 // under ergo test.
 
+import option
 import strings
 
 func e(from string, to string) Edge[string] { Edge[string]{From: from, To: to} }
@@ -32,15 +33,15 @@ test CycleNamesItsPath {
 test PathIsShortest {
 	let g = Of([]string{}, []Edge[string]{e("a", "b"), e("b", "c"), e("c", "d"), e("a", "c")})
 	match g.Path("a", "d") {
-	case Some[[]string] as p:
+	case option.Some[[]string] as p:
 		assert strings.Join(p.Value, " ") == "a c d"
-	case None:
+	case option.None:
 		assert false
 	}
 	match g.Path("d", "a") {
-	case Some[[]string]:
+	case option.Some[[]string]:
 		assert false
-	case None:
+	case option.None:
 	}
 }
 
@@ -52,7 +53,7 @@ test BackEdgeIsACycle(a int, b int) {
 	let g = Of([]int{}, []Edge[int]{Edge[int]{From: a, To: b}, Edge[int]{From: b, To: a}})
 	let _ = Order(g) catch {
 	case Cycle[int] as c:
-		assert len(c.Path) == 3 && IsClosedWalk(g, c.Path)
+		assert c.Path.Len() == 3 && IsClosedWalk(g, c.Path)
 		return
 	}
 	assert false

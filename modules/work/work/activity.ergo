@@ -46,7 +46,7 @@ func Stamp(sec int64) string {
 
 func pad(n int, width int) string {
 	let mut s = strconv.Itoa(n)
-	for len(s) < width {
+	for s.Len() < width {
 		s = "0" + s
 	}
 	s

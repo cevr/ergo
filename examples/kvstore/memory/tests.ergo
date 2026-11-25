@@ -64,5 +64,5 @@ test SessionPacesEachRequest(lines []string) {
 	with context { kv.Store: NewTable(), io.Stdin: io.NewInput(input), io.Stdout: io.NewRecorder(), pace.Pacing: c } {
 		try kv.Session()
 	}
-	assert c.Edges() == int64(len(lines))
+	assert c.Edges() == int64(lines.Len())
 }

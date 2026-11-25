@@ -50,9 +50,9 @@ type BadLabel { Line int, Reason string }
 func ParseExpected(text string) []Labelled fails BadLabel {
 	let mut out = []Labelled{}
 	let rows = strings.Split(text, "\n")
-	for i in 0..len(rows) {
+	for i in 0..rows.Len() {
 		let fs = strings.Split(rows[i], "\t")
-		if len(fs) >= 3 {
+		if fs.Len() >= 3 {
 			let n = strconv.Atoi(fs[1]) catch {
 			case strconv.Malformed, strconv.OutOfRange:
 				return BadLabel{Line: i + 1, Reason: "\(strconv.Quote(fs[1])) is not a line number"}
@@ -92,14 +92,14 @@ func onComment(k tn1.LineKind) bool {
 
 // Score runs n on each record and counts against want.
 func Score(n tn1.Net, records []tn1.Named, want []Labelled) Result fails tn1.BadFile {
-	let mut r = Result{Files: len(records), Lines: 0, Flagged: 0, Missed: 0, False: 0, OnCode: 0, Recall: 0, Precision: 0, Notes: []string{}}
+	let mut r = Result{Files: records.Len(), Lines: 0, Flagged: 0, Missed: 0, False: 0, OnCode: 0, Recall: 0, Precision: 0, Notes: []string{}}
 	for rec in records {
 		let name = strings.TrimSuffix(rec.Name, ".record")
 		let features = tn1.ParseRecord(rec.Text) catch {
 		case tn1.Malformed as m:
 			return tn1.BadFile{Name: rec.Name, Line: m.Line, Reason: m.Reason}
 		}
-		r.Lines += len(features.Lines)
+		r.Lines += features.Lines.Len()
 		let got = tn1.Run(n, features)
 		for f in got {
 			if labelled(want, name, f.Line) {
@@ -117,7 +117,7 @@ func Score(n tn1.Net, records []tn1.Named, want []Labelled) Result fails tn1.Bad
 			if w.Record == name && !found(got, w.Line) {
 				r.Missed += 1
 				let mut text = ""
-				if w.Line >= 1 && w.Line <= len(features.Lines) {
+				if w.Line >= 1 && w.Line <= features.Lines.Len() {
 					text = features.Lines[w.Line-1].CommentText
 				}
 				r.Notes = r.Notes.Append("  missed \(name):\(w.Line): \(text)")

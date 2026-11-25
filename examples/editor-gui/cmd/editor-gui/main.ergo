@@ -19,6 +19,7 @@ import ergo.local/prototype/examples/editorgui/script
 import flag
 import fs
 import io
+import option
 import os
 import rand
 import slices
@@ -39,10 +40,10 @@ let sceneSet = flag.Set{Name: "editor-gui scene", Usage: "", Flags: []flag.Flag{
 // run is editor-gui on args; a window's saves go to store, and its
 // copies and pastes to clip.
 func run(args []string, store edit.Store, clip ui.Clipboard) fails os.Exit needs edit.Store | ui.Clipboard | io.Stdout | io.Stdin {
-	if len(args) == 0 {
+	if args.Len() == 0 {
 		return os.Exit{Code: 2, Message: Usage}
 	}
-	let rest = slices.Slice(args, 1, len(args))
+	let rest = slices.Slice(args, 1, args.Len())
 	match args[0] {
 	case "gen":
 		let v = flag.Parse(genSet, rest) catch {
@@ -54,7 +55,7 @@ func run(args []string, store edit.Store, clip ui.Clipboard) fails os.Exit needs
 		if n < 0 {
 			return os.Exit{Code: 2, Message: "editor-gui: -n must not be negative\n" + Usage}
 		}
-		with context { Random: rand.Seeded(uint64(seedFlag.Get(v))) } {
+		with context { rand.Random: rand.Seeded(uint64(seedFlag.Get(v))) } {
 			io.Stdout.Print(edit.Generate(n))
 		}
 	case "edit":
@@ -73,7 +74,7 @@ func run(args []string, store edit.Store, clip ui.Clipboard) fails os.Exit needs
 		}
 		let (name, text) = try open(v)
 		let clock = time.NewManual(0)
-		with context { Scheduler: clock } {
+		with context { time.Scheduler: clock } {
 			script.Scene(text, name, store, clip, io.Stdin.Lines(), clock) catch {
 			case ui.BadPatch as b:
 				return os.Exit{Code: 1, Message: "editor-gui: the view's patch did not apply: " + b.Why}
@@ -89,9 +90,9 @@ func run(args []string, store edit.Store, clip ui.Clipboard) fails os.Exit needs
 // open is the name v names and its document's text.
 func open(v flag.Values) (string, string) fails os.Exit needs edit.Store {
 	let name = match fileArg.Get(v) {
-	case Some[string] as a:
+	case option.Some[string] as a:
 		a.Value
-	case None:
+	case option.None:
 		return os.Exit{Code: 2, Message: Usage}
 	}
 	let text = edit.OpenDoc(name) catch {
@@ -103,7 +104,7 @@ func open(v flag.Values) (string, string) fails os.Exit needs edit.Store {
 	(name, text)
 }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	let store = files.New(fs.NewHost())
 	let clip = ui.NewMemoryClipboard()
 	with context { edit.Store: store, ui.Clipboard: clip, io.Stdout: io.NewHost(), io.Stdin: io.NewStdin() } {
