@@ -1,0 +1,270 @@
+import exec
+import filepath
+import fs
+import fstest
+import option
+import os
+import strings
+import github.com/cevr/ergo/modules/git/locks
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/oracle
+import github.com/cevr/ergo/modules/git/root
+import github.com/cevr/ergo/modules/git/wref
+
+let onDefaultTransport = context {
+	LocalTransport: NewDefaultLocalTransport(),
+}
+
+type hostBox {
+	Get() fs.Host,
+
+	// HostReadable: test host can list its root directory.
+	law HostReadable() {
+		let h = Get()
+		let _ = fs.ReadDir(h, ".") catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return false
+		}
+		true
+	},
+}
+
+type hostWrap { host fs.Host } implements hostBox
+
+func Get(w hostWrap) fs.Host { w.host }
+
+let onOracleWithHost = context needs fstest.TestAmbient {
+	exec.Runner:   exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
+	fs.Files:      fs.NewTestHost(),
+	fs.Writes:     fs.NewTestHost(),
+	os.Process:    os.NewTestHost(),
+	locks.LockOps: wref.NewFSLockOps(fs.NewTestHost()),
+	hostBox:       hostWrap{host: fs.NewTestHost()},
+}
+
+type testFail {
+	reason string,
+}
+
+func runGitOk(dir string, args []string, pathEnv Map[string, string], step int) string fails testFail | exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	let cmd = oracle.GitCommand(dir, args, pathEnv, oracle.StepEpoch(step))
+	let res = try exec.Runner.Run(cmd)
+	if res.Status != 0 {
+		return testFail{reason: "git failed: " + res.Stderr}
+	}
+	res.Stdout
+}
+
+func check(cond bool, msg string) fails testFail {
+	if !cond {
+		return testFail{reason: msg}
+	}
+}
+
+func verifyLocalFetchAndPushForFormat(cwd string, oFmt oracle.OidFormat, fmt oid.Format, pathEnv Map[string, string], host fs.Host) fails testFail | InvalidRefspec | HashFormatMismatch | NonFastForward | LeaseMismatch | ReceiveCurrentBranch | MissingRef | MissingObject | DanglingObject | TransferFailed | WireFailed | RefUpdateFailed | IOFailed | oid.BadHex | oid.WrongLength | root.NotARepository | root.BadGitDirFile | root.BadCommonDir | root.UnsupportedVersion | root.UnsupportedExtension | root.UntrustedPath | root.PathEscape | root.AlternateCycle | root.AlternateDepthExceeded | root.ConfigSyntax | root.ConfigBadValue | root.IncludeCycle | root.IncludeDepthExceeded | root.IncludeRefused | oracle.Missing | oracle.Corrupt | oracle.Ambiguous | oracle.InvalidRef | oracle.Conflict | oracle.CommandFailed | exec.NotFound | exec.Denied | exec.Failed | fs.NotFound | fs.Denied | fs.Failed needs exec.Runner | fs.Files | fs.Writes | locks.LockOps {
+	let label = oracle.FormatName(oFmt)
+	let srcDir = try oracle.InitRepo(filepath.Join([]string{cwd, "src-" + label}), oracle.RepoSpec{Format: oFmt, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, oracle.BaseEpoch)
+	let dstBareDir = try oracle.InitRepo(filepath.Join([]string{cwd, "dst-bare-" + label}), oracle.RepoSpec{Format: oFmt, Layout: oracle.Bare, DefaultBranch: "main"}, pathEnv, oracle.BaseEpoch)
+	let dstWorkDir = try oracle.InitRepo(filepath.Join([]string{cwd, "dst-work-" + label}), oracle.RepoSpec{Format: oFmt, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, oracle.BaseEpoch)
+
+	try fs.Writes.WriteFile(filepath.Join([]string{srcDir, "file.txt"}), "rev1-"+label+"\n")
+	let _ = try runGitOk(srcDir, []string{"add", "."}, pathEnv, 1)
+	let _ = try runGitOk(srcDir, []string{"commit", "-q", "-m", "c1"}, pathEnv, 2)
+	let c1Hex = strings.TrimSpace(try runGitOk(srcDir, []string{"rev-parse", "HEAD"}, pathEnv, 2))
+	let c1Id = try oid.ParseHex(fmt, c1Hex)
+
+	let _ = try runGitOk(srcDir, []string{"tag", "-a", "v1", "-m", "tag v1"}, pathEnv, 3)
+	let v1Hex = strings.TrimSpace(try runGitOk(srcDir, []string{"rev-parse", "refs/tags/v1"}, pathEnv, 3))
+
+	let srcLayout = try root.Discover(srcDir, root.DiscoverOptions{CeilingDirs: []string{cwd}, Trust: root.ConfinedTrust(cwd)})
+	let dstBareLayout = try root.Discover(dstBareDir, root.DiscoverOptions{CeilingDirs: []string{cwd}, Trust: root.ConfinedTrust(cwd)})
+	let dstWorkLayout = try root.Discover(dstWorkDir, root.DiscoverOptions{CeilingDirs: []string{cwd}, Trust: root.ConfinedTrust(cwd)})
+
+	let fetch1 = try Fetch(srcLayout, dstWorkLayout, []string{"refs/heads/*:refs/remotes/origin/*", "refs/tags/*:refs/tags/*"}, DefaultFetchOptions(), host)
+	try check(fetch1.ObjectsTransferred >= 4, "first fetch should transfer blob, tree, commit, tag")
+	let gotOriginMain1 = strings.TrimSpace(try runGitOk(dstWorkDir, []string{"rev-parse", "refs/remotes/origin/main"}, pathEnv, 4))
+	let gotTag1 = strings.TrimSpace(try runGitOk(dstWorkDir, []string{"rev-parse", "refs/tags/v1"}, pathEnv, 4))
+	try check(gotOriginMain1 == c1Hex && gotTag1 == v1Hex, "first fetch refs mismatch")
+	let _ = try runGitOk(dstWorkDir, []string{"fsck", "--strict", "--full"}, pathEnv, 5)
+
+	try fs.Writes.WriteFile(filepath.Join([]string{srcDir, "file2.txt"}), "rev2-"+label+"\n")
+	let _ = try runGitOk(srcDir, []string{"add", "."}, pathEnv, 6)
+	let _ = try runGitOk(srcDir, []string{"commit", "-q", "-m", "c2"}, pathEnv, 7)
+	let c2Hex = strings.TrimSpace(try runGitOk(srcDir, []string{"rev-parse", "HEAD"}, pathEnv, 7))
+	let c2Id = try oid.ParseHex(fmt, c2Hex)
+
+	let fetch2 = try Fetch(srcLayout, dstWorkLayout, []string{"refs/heads/*:refs/remotes/origin/*"}, DefaultFetchOptions(), host)
+	try check(fetch2.ObjectsTransferred == 3, "incremental fetch should send only new commit, tree, and blob")
+	let gotOriginMain2 = strings.TrimSpace(try runGitOk(dstWorkDir, []string{"rev-parse", "refs/remotes/origin/main"}, pathEnv, 8))
+	try check(gotOriginMain2 == c2Hex, "incremental fetch ref mismatch")
+	let _ = try runGitOk(dstWorkDir, []string{"fsck", "--strict", "--full"}, pathEnv, 9)
+
+	let _ = try runGitOk(srcDir, []string{"checkout", "-q", "-b", "div", c1Hex}, pathEnv, 10)
+	try fs.Writes.WriteFile(filepath.Join([]string{srcDir, "div.txt"}), "diverged\n")
+	let _ = try runGitOk(srcDir, []string{"add", "."}, pathEnv, 11)
+	let _ = try runGitOk(srcDir, []string{"commit", "-q", "-m", "div"}, pathEnv, 12)
+	let divHex = strings.TrimSpace(try runGitOk(srcDir, []string{"rev-parse", "HEAD"}, pathEnv, 12))
+	let _ = try runGitOk(srcDir, []string{"checkout", "-q", "main"}, pathEnv, 13)
+
+	let mut sawFetchNonFF = false
+	let _ = Fetch(srcLayout, dstWorkLayout, []string{"refs/heads/div:refs/remotes/origin/main"}, DefaultFetchOptions(), host) catch {
+	case NonFastForward:
+		sawFetchNonFF = true
+		TransferResult{ObjectsTransferred: 0, PackChecksum: option.None, Updates: []PlannedRefUpdate{}}
+	case InvalidRefspec, HashFormatMismatch, LeaseMismatch, ReceiveCurrentBranch, MissingRef, MissingObject, DanglingObject, TransferFailed, RefUpdateFailed, IOFailed:
+		return testFail{reason: "expected NonFastForward on non-FF fetch"}
+	}
+	try check(sawFetchNonFF, "non-FF fetch without + must fail NonFastForward")
+	let afterRefusedFetch = strings.TrimSpace(try runGitOk(dstWorkDir, []string{"rev-parse", "refs/remotes/origin/main"}, pathEnv, 14))
+	try check(afterRefusedFetch == c2Hex, "refused non-FF fetch must not mutate ref")
+
+	let _ = try Fetch(srcLayout, dstWorkLayout, []string{"+refs/heads/div:refs/remotes/origin/main"}, DefaultFetchOptions(), host)
+	let afterForceFetch = strings.TrimSpace(try runGitOk(dstWorkDir, []string{"rev-parse", "refs/remotes/origin/main"}, pathEnv, 15))
+	try check(afterForceFetch == divHex, "force + fetch should update ref")
+
+	let push1 = try Push(srcLayout, dstBareLayout, []string{"refs/heads/main:refs/heads/main", "refs/heads/div:refs/heads/old"}, DefaultPushOptions(), host)
+	try check(push1.ObjectsTransferred >= 6, "initial push should transfer objects")
+	let bareMain1 = strings.TrimSpace(try runGitOk(dstBareDir, []string{"rev-parse", "refs/heads/main"}, pathEnv, 16))
+	try check(bareMain1 == c2Hex, "bare push main mismatch")
+	let _ = try runGitOk(dstBareDir, []string{"fsck", "--strict", "--full"}, pathEnv, 17)
+
+	let mut sawPushNonFF = false
+	let _ = Push(srcLayout, dstBareLayout, []string{"refs/heads/div:refs/heads/main"}, DefaultPushOptions(), host) catch {
+	case NonFastForward:
+		sawPushNonFF = true
+		TransferResult{ObjectsTransferred: 0, PackChecksum: option.None, Updates: []PlannedRefUpdate{}}
+	case InvalidRefspec, HashFormatMismatch, LeaseMismatch, ReceiveCurrentBranch, MissingRef, MissingObject, DanglingObject, TransferFailed, RefUpdateFailed, IOFailed:
+		return testFail{reason: "expected NonFastForward on non-FF push"}
+	}
+	try check(sawPushNonFF, "non-FF push without force must fail NonFastForward")
+	let bareMainAfterNonFF = strings.TrimSpace(try runGitOk(dstBareDir, []string{"rev-parse", "refs/heads/main"}, pathEnv, 18))
+	try check(bareMainAfterNonFF == c2Hex, "refused non-FF push must leave destination ref untouched")
+
+	let mut staleLease = Map[string, option.Option[oid.OID]]{}
+	staleLease["refs/heads/main"] = option.Some[oid.OID]{Value: c1Id}
+	let mut sawLeaseMismatch = false
+	let _ = Push(srcLayout, dstBareLayout, []string{"+refs/heads/div:refs/heads/main"}, PushOptions{..DefaultPushOptions(), ExpectedOldOIDs: staleLease}, host) catch {
+	case LeaseMismatch:
+		sawLeaseMismatch = true
+		TransferResult{ObjectsTransferred: 0, PackChecksum: option.None, Updates: []PlannedRefUpdate{}}
+	case InvalidRefspec, HashFormatMismatch, NonFastForward, ReceiveCurrentBranch, MissingRef, MissingObject, DanglingObject, TransferFailed, RefUpdateFailed, IOFailed:
+		return testFail{reason: "expected LeaseMismatch on stale force-with-lease"}
+	}
+	try check(sawLeaseMismatch, "stale force-with-lease must fail LeaseMismatch")
+
+	let mut goodLease = Map[string, option.Option[oid.OID]]{}
+	goodLease["refs/heads/main"] = option.Some[oid.OID]{Value: c2Id}
+	let _ = try Push(srcLayout, dstBareLayout, []string{"+refs/heads/div:refs/heads/main"}, PushOptions{..DefaultPushOptions(), ExpectedOldOIDs: goodLease}, host)
+	let bareMainAfterLease = strings.TrimSpace(try runGitOk(dstBareDir, []string{"rev-parse", "refs/heads/main"}, pathEnv, 19))
+	try check(bareMainAfterLease == divHex, "matching force-with-lease push should succeed")
+
+	let _ = try Push(srcLayout, dstBareLayout, []string{":refs/heads/old"}, DefaultPushOptions(), host)
+	let showRefsAfterDel = try runGitOk(dstBareDir, []string{"show-ref"}, pathEnv, 20)
+	try check(!strings.Contains(showRefsAfterDel, "refs/heads/old"), "delete refspec :refs/heads/old must delete ref")
+	let _ = try runGitOk(dstBareDir, []string{"fsck", "--strict", "--full"}, pathEnv, 21)
+
+	try fs.Writes.WriteFile(filepath.Join([]string{dstWorkDir, "w.txt"}), "work\n")
+	let _ = try runGitOk(dstWorkDir, []string{"add", "."}, pathEnv, 22)
+	let _ = try runGitOk(dstWorkDir, []string{"commit", "-q", "-m", "work commit"}, pathEnv, 23)
+	let mut sawCurBranch = false
+	let _ = Push(srcLayout, dstWorkLayout, []string{"+refs/heads/main:refs/heads/main"}, DefaultPushOptions(), host) catch {
+	case ReceiveCurrentBranch as e:
+		sawCurBranch = e.Ref == "refs/heads/main"
+		TransferResult{ObjectsTransferred: 0, PackChecksum: option.None, Updates: []PlannedRefUpdate{}}
+	case InvalidRefspec, HashFormatMismatch, NonFastForward, LeaseMismatch, MissingRef, MissingObject, DanglingObject, TransferFailed, RefUpdateFailed, IOFailed:
+		return testFail{reason: "expected ReceiveCurrentBranch pushing to non-bare checked-out branch"}
+	}
+	try check(sawCurBranch, "push to non-bare checked-out branch must fail ReceiveCurrentBranch")
+
+	let wireDstDir = try oracle.InitRepo(filepath.Join([]string{cwd, "dst-wire-" + label}), oracle.RepoSpec{Format: oFmt, Layout: oracle.Bare, DefaultBranch: "main"}, pathEnv, oracle.BaseEpoch)
+	let wireDstLayout = try root.Discover(wireDstDir, root.DiscoverOptions{CeilingDirs: []string{cwd}, Trust: root.ConfinedTrust(cwd)})
+	let wireRes = try FetchOverWireV2(srcDir, wireDstLayout, []string{"refs/heads/*:refs/heads/*", "refs/tags/*:refs/tags/*"}, DefaultFetchOptions(), pathEnv, host)
+	try check(wireRes.ObjectsTransferred >= 6, "wire v2 fetch should publish received pack objects")
+	let wireMain = strings.TrimSpace(try runGitOk(wireDstDir, []string{"rev-parse", "refs/heads/main"}, pathEnv, 24))
+	let wireTag = strings.TrimSpace(try runGitOk(wireDstDir, []string{"rev-parse", "refs/tags/v1"}, pathEnv, 24))
+	try check(wireMain == c2Hex && wireTag == v1Hex, "wire v2 fetch refs mismatch")
+	let _ = try runGitOk(wireDstDir, []string{"fsck", "--strict", "--full"}, pathEnv, 25)
+}
+
+// LocalFetchPushAndWireV2MatchGit: exercises pure-Ergo Fetch, incremental
+// Fetch, Push, non-FF refusal, force-with-lease CAS, delete refspecs,
+// non-bare checked-out branch refusal, and FetchOverWireV2 against live C Git
+// (`rev-parse`, `show-ref`, `fsck --strict --full`) across SHA-1 and SHA-256.
+test LocalFetchPushAndWireV2MatchGit {
+	with onOracleWithHost {
+		let pathEnv = exec.PathOf(os.Process.Environ())
+		let cwd = try os.Process.Getwd()
+		let host = hostBox.Get()
+		try verifyLocalFetchAndPushForFormat(cwd, oracle.Sha1, oid.Sha1, pathEnv, host)
+		try verifyLocalFetchAndPushForFormat(cwd, oracle.Sha256, oid.Sha256, pathEnv, host)
+	}
+}
+
+// RejectsHashFormatMismatchAndMalformedRefspecs: proves Fetch, Push, and
+// FetchOverWireV2 refuse SHA-1 <-> SHA-256 transfers with HashFormatMismatch
+// and ParseRefspec refuses malformed/multi-wildcard refspecs.
+test RejectsHashFormatMismatchAndMalformedRefspecs {
+	with onOracleWithHost {
+		let pathEnv = exec.PathOf(os.Process.Environ())
+		let cwd = try os.Process.Getwd()
+		let host = hostBox.Get()
+
+		let sha1Dir = try oracle.InitRepo(filepath.Join([]string{cwd, "fmt-sha1"}), oracle.RepoSpec{Format: oracle.Sha1, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, oracle.BaseEpoch)
+		let sha256Dir = try oracle.InitRepo(filepath.Join([]string{cwd, "fmt-sha256"}), oracle.RepoSpec{Format: oracle.Sha256, Layout: oracle.Bare, DefaultBranch: "main"}, pathEnv, oracle.BaseEpoch)
+		try fs.Writes.WriteFile(filepath.Join([]string{sha1Dir, "x.txt"}), "x\n")
+		let _ = try runGitOk(sha1Dir, []string{"add", "."}, pathEnv, 1)
+		let _ = try runGitOk(sha1Dir, []string{"commit", "-q", "-m", "x"}, pathEnv, 2)
+
+		let sha1Layout = try root.Discover(sha1Dir, root.DiscoverOptions{CeilingDirs: []string{cwd}, Trust: root.ConfinedTrust(cwd)})
+		let sha256Layout = try root.Discover(sha256Dir, root.DiscoverOptions{CeilingDirs: []string{cwd}, Trust: root.ConfinedTrust(cwd)})
+
+		let mut sawPushMismatch = false
+		let _ = Push(sha1Layout, sha256Layout, []string{"refs/heads/main:refs/heads/main"}, DefaultPushOptions(), host) catch {
+		case HashFormatMismatch:
+			sawPushMismatch = true
+			TransferResult{ObjectsTransferred: 0, PackChecksum: option.None, Updates: []PlannedRefUpdate{}}
+		case InvalidRefspec, NonFastForward, LeaseMismatch, ReceiveCurrentBranch, MissingRef, MissingObject, DanglingObject, TransferFailed, RefUpdateFailed, IOFailed:
+			TransferResult{ObjectsTransferred: 0, PackChecksum: option.None, Updates: []PlannedRefUpdate{}}
+		}
+		assert sawPushMismatch
+
+		let mut sawFetchMismatch = false
+		let _ = Fetch(sha1Layout, sha256Layout, []string{"refs/heads/main:refs/heads/main"}, DefaultFetchOptions(), host) catch {
+		case HashFormatMismatch:
+			sawFetchMismatch = true
+			TransferResult{ObjectsTransferred: 0, PackChecksum: option.None, Updates: []PlannedRefUpdate{}}
+		case InvalidRefspec, NonFastForward, LeaseMismatch, ReceiveCurrentBranch, MissingRef, MissingObject, DanglingObject, TransferFailed, RefUpdateFailed, IOFailed:
+			TransferResult{ObjectsTransferred: 0, PackChecksum: option.None, Updates: []PlannedRefUpdate{}}
+		}
+		assert sawFetchMismatch
+
+		let mut sawWireMismatch = false
+		let _ = FetchOverWireV2(sha1Dir, sha256Layout, []string{"refs/heads/main:refs/heads/main"}, DefaultFetchOptions(), pathEnv, host) catch {
+		case HashFormatMismatch:
+			sawWireMismatch = true
+			TransferResult{ObjectsTransferred: 0, PackChecksum: option.None, Updates: []PlannedRefUpdate{}}
+		case InvalidRefspec, NonFastForward, LeaseMismatch, ReceiveCurrentBranch, MissingRef, MissingObject, DanglingObject, TransferFailed, WireFailed, RefUpdateFailed, IOFailed:
+			TransferResult{ObjectsTransferred: 0, PackChecksum: option.None, Updates: []PlannedRefUpdate{}}
+		}
+		assert sawWireMismatch
+	}
+
+	let badSpecs = []string{
+		"",
+		"+",
+		":",
+		"refs/heads/*/*:refs/remotes/*/*",
+		"refs/heads/*:refs/remotes/origin/main",
+		"refs/heads/a:refs/heads/b:refs/heads/c",
+		"refs/heads/../evil:refs/heads/evil",
+	}
+	for bad in badSpecs {
+		let mut sawBad = false
+		let _ = ParseRefspec(bad) catch {
+		case InvalidRefspec:
+			sawBad = true
+			Refspec{Force: false, Src: "", Dst: "", Wildcard: false, IsDelete: false}
+		}
+		assert sawBad
+	}
+}

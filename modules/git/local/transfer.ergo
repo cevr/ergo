@@ -1,0 +1,135 @@
+import option
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/pack
+import github.com/cevr/ergo/modules/git/tree
+import github.com/cevr/ergo/modules/git/wpack
+
+func readObjectChecked(id oid.OID, maxBytes int) pack.Object fails MissingObject | TransferFailed needs pack.ObjectStore {
+	pack.ObjectStore.Read(id, maxBytes) catch {
+	case pack.Missing as e:
+		return MissingObject{OID: e.OID}
+	case pack.Corrupt as e:
+		return TransferFailed{Detail: e.Why}
+	case pack.MismatchedPair as e:
+		return TransferFailed{Detail: "mismatched pack pair: " + e.PackPath}
+	case pack.Collision as e:
+		return TransferFailed{Detail: "sha1 collision: " + e.Digest}
+	case pack.LimitExceeded:
+		return TransferFailed{Detail: "object exceeds byte limit"}
+	case pack.DepthExceeded:
+		return TransferFailed{Detail: "delta chain depth exceeded"}
+	case pack.IOFailed as e:
+		return TransferFailed{Detail: e.Op + ": " + e.Detail}
+	}
+}
+
+func childOIDsOfObject(format oid.Format, obj pack.Object) []oid.OID fails TransferFailed {
+	match obj.Kind {
+	case oid.Blob:
+		[]oid.OID{}
+	case oid.Commit:
+		let parsed = tree.ParseCommit(format, obj.Data) catch {
+		case tree.CorruptCommit as e:
+			return TransferFailed{Detail: e.Reason}
+		case tree.CorruptSignature as e:
+			return TransferFailed{Detail: e.Reason}
+		}
+		let mut out = []oid.OID{parsed.Tree}
+		for p in parsed.Parents {
+			out = out.Append(p)
+		}
+		out
+	case oid.Tree:
+		let entries = tree.ParseTree(format, obj.Data) catch {
+		case tree.CorruptTree as e:
+			return TransferFailed{Detail: e.Reason}
+		case tree.InvalidEntryName as e:
+			return TransferFailed{Detail: e.Reason}
+		case tree.UnsortedTree:
+			return TransferFailed{Detail: "unsorted tree"}
+		case tree.DuplicateEntry as e:
+			return TransferFailed{Detail: "duplicate tree entry: " + e.Name}
+		}
+		let mut out = []oid.OID{}
+		for e in entries {
+			if !tree.IsGitlink(e.Mode) {
+				out = out.Append(e.OID)
+			}
+		}
+		out
+	case oid.Tag:
+		let parsed = tree.ParseTag(format, obj.Data) catch {
+		case tree.CorruptTag as e:
+			return TransferFailed{Detail: e.Reason}
+		case tree.CorruptSignature as e:
+			return TransferFailed{Detail: e.Reason}
+		}
+		[]oid.OID{parsed.Target}
+	}
+}
+
+func markReachableSet(format oid.Format, roots []oid.OID, maxBytes int) Map[string, bool] fails TransferFailed needs pack.ObjectStore {
+	let mut seen = Map[string, bool]{}
+	let mut queue = []oid.OID{}
+	for r in roots {
+		let h = oid.Hex(r)
+		if seen.Get(h) == option.None && pack.ObjectStore.Contains(r) {
+			seen[h] = true
+			queue = queue.Append(r)
+		}
+	}
+	let mut head = 0
+	for head < queue.Len() {
+		let cur = queue[head]
+		head = head + 1
+		let obj = readObjectChecked(cur, maxBytes) catch {
+		case MissingObject:
+			continue
+		case TransferFailed as e:
+			return e
+		}
+		let children = try childOIDsOfObject(format, obj)
+		for child in children {
+			let ch = oid.Hex(child)
+			if seen.Get(ch) == option.None && pack.ObjectStore.Contains(child) {
+				seen[ch] = true
+				queue = queue.Append(child)
+			}
+		}
+	}
+	seen
+}
+
+// CollectMissingClosure walks the commit/tree/blob/annotated-tag DAG from
+// wants while pruning everything already reachable from haves, returning the
+// minimal set of PackObjects needed by the destination repository.
+func CollectMissingClosure(format oid.Format, wants []oid.OID, haves []oid.OID, maxBytes int) []wpack.PackObject fails MissingObject | TransferFailed needs pack.ObjectStore {
+	let haveSet = try markReachableSet(format, haves, maxBytes)
+	let mut seen = Map[string, bool]{}
+	let mut queue = []oid.OID{}
+	for w in wants {
+		let h = oid.Hex(w)
+		if haveSet.Get(h) == option.None && seen.Get(h) == option.None {
+			seen[h] = true
+			queue = queue.Append(w)
+		}
+	}
+
+	let mut out = []wpack.PackObject{}
+	let mut head = 0
+	for head < queue.Len() {
+		let cur = queue[head]
+		head = head + 1
+		let obj = try readObjectChecked(cur, maxBytes)
+		out = out.Append(wpack.AutoDeltaObj(obj.Kind, obj.Data))
+		let children = try childOIDsOfObject(format, obj)
+		for child in children {
+			let ch = oid.Hex(child)
+			if haveSet.Get(ch) == option.None && seen.Get(ch) == option.None {
+				seen[ch] = true
+				queue = queue.Append(child)
+			}
+		}
+	}
+	out
+}

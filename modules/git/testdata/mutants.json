@@ -1328,6 +1328,70 @@
       "killers": [
         "modules/git/wire:UploadPackV2AndReceivePackMatchGit"
       ]
+    },
+    {
+      "name": "git-local-allow-non-ff-push",
+      "origin": "STD-GIT G-LOCAL",
+      "file": "modules/git/local/local.ergo",
+      "from": "\t\t\t\tif !force && !isAncestor {\n\t\t\t\t\treturn NonFastForward{Ref: dstRef, OldOID: oldVal, NewOID: newVal}\n\t\t\t\t}",
+      "to": "\t\t\t\tif false && !force && !isAncestor {\n\t\t\t\t\treturn NonFastForward{Ref: dstRef, OldOID: oldVal, NewOID: newVal}\n\t\t\t\t}",
+      "rule": "Local Fetch and Push refuse non-fast-forward updates with NonFastForward unless forced via '+' or Force: true.",
+      "anchor": {
+        "tests": [
+          "modules/git/local:LocalFetchPushAndWireV2MatchGit"
+        ]
+      },
+      "killers": [
+        "modules/git/local:LocalFetchPushAndWireV2MatchGit"
+      ]
+    },
+    {
+      "name": "git-local-ignore-lease-mismatch",
+      "origin": "STD-GIT G-LOCAL",
+      "file": "modules/git/local/local.ergo",
+      "from": "\t\tif !optOIDEqual(exp.Value, oldOID) {\n\t\t\treturn LeaseMismatch{Ref: dstRef, Expected: exp.Value, Actual: oldOID}\n\t\t}",
+      "to": "\t\tif false && !optOIDEqual(exp.Value, oldOID) {\n\t\t\treturn LeaseMismatch{Ref: dstRef, Expected: exp.Value, Actual: oldOID}\n\t\t}",
+      "rule": "Force-with-lease push refuses any ref whose current destination OID does not match ExpectedOldOIDs with LeaseMismatch.",
+      "anchor": {
+        "tests": [
+          "modules/git/local:LocalFetchPushAndWireV2MatchGit"
+        ]
+      },
+      "killers": [
+        "modules/git/local:LocalFetchPushAndWireV2MatchGit"
+      ]
+    },
+    {
+      "name": "git-local-allow-hash-format-mismatch",
+      "origin": "STD-GIT G-LOCAL",
+      "file": "modules/git/local/local.ergo",
+      "from": "\tif srcLayout.ObjectFormat != dstLayout.ObjectFormat {\n\t\treturn HashFormatMismatch{SrcFormat: srcLayout.ObjectFormat, DstFormat: dstLayout.ObjectFormat}\n\t}",
+      "to": "\tif false && srcLayout.ObjectFormat != dstLayout.ObjectFormat {\n\t\treturn HashFormatMismatch{SrcFormat: srcLayout.ObjectFormat, DstFormat: dstLayout.ObjectFormat}\n\t}",
+      "rule": "Fetch and Push reject transfers between SHA-1 and SHA-256 repositories with HashFormatMismatch.",
+      "anchor": {
+        "tests": [
+          "modules/git/local:RejectsHashFormatMismatchAndMalformedRefspecs"
+        ]
+      },
+      "killers": [
+        "modules/git/local:RejectsHashFormatMismatchAndMalformedRefspecs"
+      ]
+    },
+    {
+      "name": "git-local-allow-checked-out-branch-push",
+      "origin": "STD-GIT G-LOCAL",
+      "file": "modules/git/local/local.ergo",
+      "from": "\t\tif !allowUpdateCurrent && cur.Value == dstRef {\n\t\t\treturn ReceiveCurrentBranch{Ref: dstRef}\n\t\t}",
+      "to": "\t\tif false && !allowUpdateCurrent && cur.Value == dstRef {\n\t\t\treturn ReceiveCurrentBranch{Ref: dstRef}\n\t\t}",
+      "rule": "Push refuses updating the currently checked-out branch of a non-bare destination repository with ReceiveCurrentBranch unless AllowUpdateCurrent is true.",
+      "anchor": {
+        "tests": [
+          "modules/git/local:LocalFetchPushAndWireV2MatchGit"
+        ]
+      },
+      "killers": [
+        "modules/git/local:LocalFetchPushAndWireV2MatchGit"
+      ]
     }
   ]
 }

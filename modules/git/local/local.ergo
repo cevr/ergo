@@ -1,0 +1,581 @@
+import exec
+import fs
+import option
+import slices
+import github.com/cevr/ergo/modules/git/delta
+import github.com/cevr/ergo/modules/git/locks
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/pack
+import github.com/cevr/ergo/modules/git/refs
+import github.com/cevr/ergo/modules/git/revisions
+import github.com/cevr/ergo/modules/git/root
+import github.com/cevr/ergo/modules/git/wire
+import github.com/cevr/ergo/modules/git/wpack
+import github.com/cevr/ergo/modules/git/wref
+
+func formatOfLayout(layout root.Layout) oid.Format {
+	if layout.ObjectFormat == "sha256" { oid.Sha256 } else { oid.Sha1 }
+}
+
+func checkSameHashFormat(srcLayout root.Layout, dstLayout root.Layout) fails HashFormatMismatch {
+	if srcLayout.ObjectFormat != dstLayout.ObjectFormat {
+		return HashFormatMismatch{SrcFormat: srcLayout.ObjectFormat, DstFormat: dstLayout.ObjectFormat}
+	}
+}
+
+func optOIDEqual(a option.Option[oid.OID], b option.Option[oid.OID]) bool {
+	match a {
+	case option.None:
+		match b {
+		case option.None:
+			true
+		case option.Some[oid.OID]:
+			false
+		}
+	case option.Some[oid.OID] as av:
+		match b {
+		case option.None:
+			false
+		case option.Some[oid.OID] as bv:
+			oid.Equal(av.Value, bv.Value)
+		}
+	}
+}
+
+// CheckPushPolicy validates force-with-lease CAS expectations, non-bare
+// checked-out branch refusal (`receive.denyCurrentBranch=refuse`), and
+// fast-forward enforcement for one planned ref update.
+func CheckPushPolicy(dstRef string, oldOID option.Option[oid.OID], newOID option.Option[oid.OID], force bool, isAncestor bool, expectedMap Map[string, option.Option[oid.OID]], checkedOutBranch option.Option[string], allowUpdateCurrent bool) fails NonFastForward | LeaseMismatch | ReceiveCurrentBranch {
+	match expectedMap.Get(dstRef) {
+	case option.Some[option.Option[oid.OID]] as exp:
+		if !optOIDEqual(exp.Value, oldOID) {
+			return LeaseMismatch{Ref: dstRef, Expected: exp.Value, Actual: oldOID}
+		}
+	case option.None:
+	}
+
+	match checkedOutBranch {
+	case option.Some[string] as cur:
+		if !allowUpdateCurrent && cur.Value == dstRef {
+			return ReceiveCurrentBranch{Ref: dstRef}
+		}
+	case option.None:
+	}
+
+	match oldOID {
+	case option.None:
+	case option.Some[oid.OID] as ov:
+		match newOID {
+		case option.None:
+		case option.Some[oid.OID] as nv:
+			let oldVal = ov.Value
+			let newVal = nv.Value
+			if !oid.Equal(oldVal, newVal) {
+				if !force && !isAncestor {
+					return NonFastForward{Ref: dstRef, OldOID: oldVal, NewOID: newVal}
+				}
+			}
+		}
+	}
+}
+
+func openDiskODB(layout root.Layout, host fs.Host) pack.DiskODB fails IOFailed {
+	let odb = with context { fs.Files: host } {
+		pack.FromLayout(layout) catch {
+		case pack.Corrupt as e:
+			return IOFailed{Op: "open-odb", Detail: e.Why}
+		case pack.MismatchedPair as e:
+			return IOFailed{Op: "open-odb", Detail: "mismatched pack pair: " + e.PackPath}
+		case pack.IOFailed as e:
+			return IOFailed{Op: e.Op, Detail: e.Detail}
+		}
+	}
+	pack.NewDiskODB(odb, host)
+}
+
+func readRefMap(store refs.Store, host fs.Host) Map[string, oid.OID] fails IOFailed {
+	let listed = with context { fs.Files: host } {
+		store.ListRefs("") catch {
+		case refs.InvalidRefName as e:
+			return IOFailed{Op: "list-refs", Detail: e.Name}
+		case refs.CorruptRef as e:
+			return IOFailed{Op: "list-refs", Detail: e.Why}
+		case refs.PathEscape as e:
+			return IOFailed{Op: "list-refs", Detail: e.Name}
+		case refs.IOFailed as e:
+			return IOFailed{Op: e.Op, Detail: e.Detail}
+		}
+	}
+	let mut out = Map[string, oid.OID]{}
+	for r in listed {
+		match r.Target {
+		case refs.Direct as d:
+			out[r.Name] = d.OID
+		case refs.Symbolic:
+			let resolved = with context { fs.Files: host } {
+				store.Resolve(r.Name) catch {
+				case refs.NotFound, refs.InvalidRefName, refs.CyclicSymref, refs.CorruptRef, refs.PathEscape, refs.IOFailed:
+					refs.Resolved{Name: r.Name, Chain: []string{}, OID: oid.Zero(store.Format), Peeled: option.None}
+				}
+			}
+			if !oid.IsZero(resolved.OID) {
+				out[r.Name] = resolved.OID
+			}
+		}
+	}
+	let headOpt = with context { fs.Files: host } {
+		store.Resolve("HEAD") catch {
+		case refs.NotFound, refs.InvalidRefName, refs.CyclicSymref, refs.CorruptRef, refs.PathEscape, refs.IOFailed:
+			refs.Resolved{Name: "HEAD", Chain: []string{}, OID: oid.Zero(store.Format), Peeled: option.None}
+		}
+	}
+	if !oid.IsZero(headOpt.OID) {
+		out["HEAD"] = headOpt.OID
+	}
+	out
+}
+
+func readCheckedOutBranch(layout root.Layout, store refs.Store, host fs.Host) option.Option[string] {
+	if layout.IsBare {
+		return option.None
+	}
+	let headRef = with context { fs.Files: host } {
+		store.ReadRef("HEAD") catch {
+		case refs.NotFound, refs.InvalidRefName, refs.CorruptRef, refs.PathEscape, refs.IOFailed:
+			return option.None
+		}
+	}
+	match headRef.Target {
+	case refs.Symbolic as s:
+		option.Some[string]{Value: s.Target}
+	case refs.Direct:
+		option.None
+	}
+}
+
+func checkIsFastForwardInDAG(dag revisions.StoreDAG, oldOID oid.OID, newOID oid.OID) bool fails TransferFailed {
+	if oid.Equal(oldOID, newOID) {
+		return true
+	}
+	with context { revisions.CommitDAG: dag } {
+		revisions.IsAncestor(oldOID, newOID) catch {
+		case revisions.NotFound, revisions.NotACommit:
+			false
+		case revisions.StoreError as e:
+			return TransferFailed{Detail: e.Detail}
+		}
+	}
+}
+
+func parseAllRefspecs(rawSpecs []string) []Refspec fails InvalidRefspec {
+	let mut out = slices.WithCapacity[Refspec](rawSpecs.Len())
+	for s in rawSpecs {
+		out = out.Append(try ParseRefspec(s))
+	}
+	out
+}
+
+func commitRefUpdates(dstStore refs.Store, dstDisk pack.DiskODB, updates []PlannedRefUpdate, reflog option.Option[wref.ReflogSpec], mode locks.Durability, host fs.Host) fails RefUpdateFailed | MissingObject | IOFailed needs locks.LockOps {
+	let mut batchOps = []wref.BatchOp{}
+	for u in updates {
+		if u.Delete {
+			match u.OldOID {
+			case option.None:
+			case option.Some[oid.OID] as oldId:
+				batchOps = batchOps.Append(wref.BatchOp{
+					RefName: u.DstRef,
+					Kind:    wref.DeleteDirect{Expected: oldId.Value},
+					Log:     reflog,
+				})
+			}
+		} else {
+			match u.NewOID {
+			case option.None:
+			case option.Some[oid.OID] as newId:
+				if optOIDEqual(u.OldOID, u.NewOID) {
+					continue
+				}
+				batchOps = batchOps.Append(wref.BatchOp{
+					RefName: u.DstRef,
+					Kind:    wref.SetDirect{NewOID: newId.Value, Expected: u.OldOID},
+					Log:     reflog,
+				})
+			}
+		}
+	}
+	if batchOps.Len() == 0 {
+		return
+	}
+	with context { pack.ObjectStore: dstDisk, fs.Files: host, fs.Writes: host } {
+		let mut prepared = wref.PrepareBatch(dstStore, batchOps, mode) catch {
+		case wref.InvalidRefName as e:
+			return RefUpdateFailed{Detail: "invalid ref: " + e.Name}
+		case wref.PathEscape as e:
+			return RefUpdateFailed{Detail: "ref path escape: " + e.Name}
+		case wref.StaleExpected as e:
+			return RefUpdateFailed{Detail: "stale expected for " + e.Ref}
+		case wref.ObjectMissing as e:
+			return MissingObject{OID: e.OID}
+		case wref.DirectoryFileConflict as e:
+			return RefUpdateFailed{Detail: "D/F conflict: " + e.Conflicting}
+		case wref.LockHeld as e:
+			return RefUpdateFailed{Detail: "lock held: " + e.Path}
+		case wref.LockFailed as e:
+			return RefUpdateFailed{Detail: e.Detail}
+		case wref.IOFailed as e:
+			return IOFailed{Op: e.Op, Detail: e.Detail}
+		}
+		prepared.CommitBatch() catch {
+		case wref.LockHeld as e:
+			return RefUpdateFailed{Detail: "lock held: " + e.Path}
+		case wref.LockFailed as e:
+			return RefUpdateFailed{Detail: e.Detail}
+		case wref.IOFailed as e:
+			return IOFailed{Op: e.Op, Detail: e.Detail}
+		}
+	}
+}
+
+func publishPackObjects(format oid.Format, dstLayout root.Layout, objects []wpack.PackObject, host fs.Host) option.Option[oid.OID] fails DanglingObject | TransferFailed | IOFailed {
+	if objects.Len() == 0 {
+		return option.None
+	}
+	with context { fs.Files: host, fs.Writes: host } {
+		let (_, published) = wpack.PublishQuarantinedPack(format, dstLayout.ObjectsDir, dstLayout.Alternates, objects, wpack.FaultNone) catch {
+		case wpack.Collision as e:
+			return TransferFailed{Detail: "sha1 collision: " + e.Digest}
+		case wpack.DanglingObject as e:
+			return DanglingObject{From: e.From, Missing: e.Missing}
+		case wpack.CorruptObject as e:
+			return TransferFailed{Detail: e.Reason}
+		case wpack.InvalidPack as e:
+			return TransferFailed{Detail: e.Reason}
+		case wpack.FaultInjected as e:
+			return TransferFailed{Detail: e.Stage}
+		case wpack.IOFailed as e:
+			return IOFailed{Op: e.Op, Detail: e.Detail}
+		}
+		option.Some[oid.OID]{Value: published.PackChecksum}
+	}
+}
+
+// Fetch performs a pure-Ergo local fetch from srcLayout into dstLayout for
+// refspecStrings, validating matching hash formats, enforcing fast-forward
+// safety unless forced, transferring only the minimal missing object closure
+// via quarantined pack publication, and atomically updating destination refs.
+func Fetch(srcLayout root.Layout, dstLayout root.Layout, refspecStrings []string, opts FetchOptions, host fs.Host) TransferResult fails InvalidRefspec | HashFormatMismatch | NonFastForward | LeaseMismatch | ReceiveCurrentBranch | MissingRef | MissingObject | DanglingObject | TransferFailed | RefUpdateFailed | IOFailed needs locks.LockOps {
+	try checkSameHashFormat(srcLayout, dstLayout)
+	let format = formatOfLayout(srcLayout)
+	let specs = try parseAllRefspecs(refspecStrings)
+
+	let srcRefStore = refs.FromLayout(srcLayout)
+	let dstRefStore = refs.FromLayout(dstLayout)
+	let srcRefs = try readRefMap(srcRefStore, host)
+	let dstRefs = try readRefMap(dstRefStore, host)
+	let updates = try ExpandRefspecs(specs, srcRefs, dstRefs, opts.Force, false)
+
+	let srcDAG = revisions.OpenStoreDAG(srcLayout, host, false)
+	for u in updates {
+		let mut isAnc = true
+		match u.OldOID {
+		case option.Some[oid.OID] as ov:
+			match u.NewOID {
+			case option.Some[oid.OID] as nv:
+				isAnc = try checkIsFastForwardInDAG(srcDAG, ov.Value, nv.Value)
+			case option.None:
+			}
+		case option.None:
+		}
+		try CheckPushPolicy(u.DstRef, u.OldOID, u.NewOID, u.Force, isAnc, Map[string, option.Option[oid.OID]]{}, option.None, true)
+	}
+
+	let srcDisk = try openDiskODB(srcLayout, host)
+	let mut wants = []oid.OID{}
+	for u in updates {
+		match u.NewOID {
+		case option.Some[oid.OID] as nv:
+			wants = wants.Append(nv.Value)
+		case option.None:
+		}
+	}
+	let mut haves = []oid.OID{}
+	for _, dstId in dstRefs {
+		haves = haves.Append(dstId)
+	}
+	let objects = with context { pack.ObjectStore: srcDisk } {
+		try CollectMissingClosure(format, wants, haves, opts.MaxBytes)
+	}
+
+	let packSum = try publishPackObjects(format, dstLayout, objects, host)
+	let dstDisk = try openDiskODB(dstLayout, host)
+	try commitRefUpdates(dstRefStore, dstDisk, updates, opts.Reflog, opts.Durability, host)
+
+	TransferResult{
+		ObjectsTransferred: objects.Len(),
+		PackChecksum:       packSum,
+		Updates:            updates,
+	}
+}
+
+// Push performs a pure-Ergo local push from srcLayout into dstLayout for
+// refspecStrings, enforcing matching hash formats, force-with-lease CAS checks,
+// non-bare checked-out branch refusal, fast-forward safety, quarantined pack
+// publication, and atomic ref batch commits.
+func Push(srcLayout root.Layout, dstLayout root.Layout, refspecStrings []string, opts PushOptions, host fs.Host) TransferResult fails InvalidRefspec | HashFormatMismatch | NonFastForward | LeaseMismatch | ReceiveCurrentBranch | MissingRef | MissingObject | DanglingObject | TransferFailed | RefUpdateFailed | IOFailed needs locks.LockOps {
+	try checkSameHashFormat(srcLayout, dstLayout)
+	let format = formatOfLayout(srcLayout)
+	let specs = try parseAllRefspecs(refspecStrings)
+
+	let srcRefStore = refs.FromLayout(srcLayout)
+	let dstRefStore = refs.FromLayout(dstLayout)
+	let srcRefs = try readRefMap(srcRefStore, host)
+	let dstRefs = try readRefMap(dstRefStore, host)
+	let updates = try ExpandRefspecs(specs, srcRefs, dstRefs, opts.Force, true)
+	let checkedOut = readCheckedOutBranch(dstLayout, dstRefStore, host)
+
+	let srcDAG = revisions.OpenStoreDAG(srcLayout, host, false)
+	for u in updates {
+		let mut isAnc = true
+		match u.OldOID {
+		case option.Some[oid.OID] as ov:
+			match u.NewOID {
+			case option.Some[oid.OID] as nv:
+				isAnc = try checkIsFastForwardInDAG(srcDAG, ov.Value, nv.Value)
+			case option.None:
+			}
+		case option.None:
+		}
+		try CheckPushPolicy(u.DstRef, u.OldOID, u.NewOID, u.Force, isAnc, opts.ExpectedOldOIDs, checkedOut, opts.AllowUpdateCurrent)
+	}
+
+	let srcDisk = try openDiskODB(srcLayout, host)
+	let mut wants = []oid.OID{}
+	for u in updates {
+		if !u.Delete {
+			match u.NewOID {
+			case option.Some[oid.OID] as nv:
+				wants = wants.Append(nv.Value)
+			case option.None:
+			}
+		}
+	}
+	let mut haves = []oid.OID{}
+	for _, dstId in dstRefs {
+		haves = haves.Append(dstId)
+	}
+	let objects = with context { pack.ObjectStore: srcDisk } {
+		try CollectMissingClosure(format, wants, haves, opts.MaxBytes)
+	}
+
+	let packSum = try publishPackObjects(format, dstLayout, objects, host)
+	let dstDisk = try openDiskODB(dstLayout, host)
+	try commitRefUpdates(dstRefStore, dstDisk, updates, opts.Reflog, opts.Durability, host)
+
+	TransferResult{
+		ObjectsTransferred: objects.Len(),
+		PackChecksum:       packSum,
+		Updates:            updates,
+	}
+}
+
+func runUploadPackV2(repoDir string, args []string, stdin string, pathEnv Map[string, string]) []byte fails WireFailed needs exec.Runner {
+	let mut env = exec.PathOf(pathEnv)
+	env["GIT_PROTOCOL"] = "version=2"
+	env["GIT_CONFIG_NOSYSTEM"] = "1"
+	env["GIT_CONFIG_GLOBAL"] = "/dev/null"
+	env["GIT_TERMINAL_PROMPT"] = "0"
+	env["LC_ALL"] = "C"
+	let cmd = exec.Command{
+		Name:  "git",
+		Args:  args,
+		Env:   env,
+		Dir:   repoDir,
+		Stdin: stdin,
+		Grace: 0s,
+	}
+	let res = exec.Runner.Run(cmd) catch {
+	case exec.NotFound as e:
+		return WireFailed{Detail: "git not found: " + e.Name}
+	case exec.Denied as e:
+		return WireFailed{Detail: "git denied: " + e.Name}
+	case exec.Failed as e:
+		return WireFailed{Detail: e.Reason}
+	}
+	if res.Status != 0 {
+		return WireFailed{Detail: "git upload-pack failed: " + res.Stderr}
+	}
+	res.Stdout.Bytes()
+}
+
+// FetchOverWireV2 fetches from srcRepoDir into dstLayout over Git wire
+// protocol v2 (`git upload-pack --stateless-rpc`) using modules/git/wire for
+// capability discovery, `ls-refs`, and sideband-64k `fetch`, publishing the
+// verified pack via quarantine and committing destination refs atomically.
+func FetchOverWireV2(srcRepoDir string, dstLayout root.Layout, refspecStrings []string, opts FetchOptions, pathEnv Map[string, string], host fs.Host) TransferResult fails InvalidRefspec | HashFormatMismatch | NonFastForward | LeaseMismatch | ReceiveCurrentBranch | MissingRef | MissingObject | DanglingObject | TransferFailed | WireFailed | RefUpdateFailed | IOFailed needs exec.Runner | locks.LockOps {
+	let format = formatOfLayout(dstLayout)
+	let specs = try parseAllRefspecs(refspecStrings)
+
+	let advRaw = try runUploadPackV2(srcRepoDir, []string{"upload-pack", "--stateless-rpc", "--advertise-refs", srcRepoDir}, "", pathEnv)
+	let advPkts = wire.DecodePkts(advRaw) catch {
+	case wire.InvalidPktLine as e:
+		return WireFailed{Detail: e.Reason}
+	case wire.UnexpectedEOF:
+		return WireFailed{Detail: "truncated upload-pack advertisement"}
+	}
+	let caps = wire.ParseServerCaps(advPkts) catch {
+	case wire.ProtocolError as e:
+		return WireFailed{Detail: e.Reason}
+	}
+	let srcFormat = match caps.ObjectFormat {
+	case option.Some[string] as f:
+		f.Value
+	case option.None:
+		"sha1"
+	}
+	if srcFormat != dstLayout.ObjectFormat {
+		return HashFormatMismatch{SrcFormat: srcFormat, DstFormat: dstLayout.ObjectFormat}
+	}
+
+	let lsReq = wire.EncodeLsRefsRequest(wire.LsRefsRequest{
+		Agent:        "ergo-git-local/1",
+		ObjectFormat: srcFormat,
+		Peel:         true,
+		Symrefs:      true,
+		Unborn:       false,
+		RefPrefixes:  []string{},
+	}) catch {
+	case wire.PacketTooLarge:
+		return WireFailed{Detail: "ls-refs request too large"}
+	}
+	let lsRaw = try runUploadPackV2(srcRepoDir, []string{"upload-pack", "--stateless-rpc", srcRepoDir}, lsReq.Text(), pathEnv)
+	let lsPkts = wire.DecodePkts(lsRaw) catch {
+	case wire.InvalidPktLine as e:
+		return WireFailed{Detail: e.Reason}
+	case wire.UnexpectedEOF:
+		return WireFailed{Detail: "truncated ls-refs response"}
+	}
+	let refEntries = wire.ParseLsRefsResponse(format, lsPkts) catch {
+	case wire.ProtocolError as e:
+		return WireFailed{Detail: e.Reason}
+	}
+	let mut srcRefs = Map[string, oid.OID]{}
+	for entry in refEntries {
+		srcRefs[entry.Name] = entry.OID
+	}
+
+	let dstRefStore = refs.FromLayout(dstLayout)
+	let dstRefs = try readRefMap(dstRefStore, host)
+	let updates = try ExpandRefspecs(specs, srcRefs, dstRefs, opts.Force, false)
+
+	let dstDiskBefore = try openDiskODB(dstLayout, host)
+	let mut wants = []oid.OID{}
+	let mut seenWants = Map[string, bool]{}
+	for u in updates {
+		match u.NewOID {
+		case option.Some[oid.OID] as nv:
+			let h = oid.Hex(nv.Value)
+			if seenWants.Get(h) == option.None && !dstDiskBefore.Contains(nv.Value) {
+				seenWants[h] = true
+				wants = wants.Append(nv.Value)
+			}
+		case option.None:
+		}
+	}
+	let mut haves = []oid.OID{}
+	for _, dstId in dstRefs {
+		haves = haves.Append(dstId)
+	}
+
+	let mut objects = []wpack.PackObject{}
+	if wants.Len() > 0 {
+		let fetchReq = wire.EncodeFetchRequest(wire.FetchRequest{
+			Agent:        "ergo-git-local/1",
+			ObjectFormat: srcFormat,
+			OfsDelta:     true,
+			ThinPack:     false,
+			NoProgress:   false,
+			IncludeTag:   false,
+			Wants:        wants,
+			Haves:        haves,
+			Done:         true,
+		}) catch {
+		case wire.PacketTooLarge:
+			return WireFailed{Detail: "fetch request too large"}
+		}
+		let fetchRaw = try runUploadPackV2(srcRepoDir, []string{"upload-pack", "--stateless-rpc", srcRepoDir}, fetchReq.Text(), pathEnv)
+		let fetchPkts = wire.DecodePkts(fetchRaw) catch {
+		case wire.InvalidPktLine as e:
+			return WireFailed{Detail: e.Reason}
+		case wire.UnexpectedEOF:
+			return WireFailed{Detail: "truncated fetch response"}
+		}
+		let fetchResp = wire.ParseFetchResponse(format, fetchPkts) catch {
+		case wire.ProtocolError as e:
+			return WireFailed{Detail: e.Reason}
+		case wire.InvalidSidebandChannel:
+			return WireFailed{Detail: "invalid sideband channel in fetch response"}
+		case wire.RemoteError as e:
+			return WireFailed{Detail: "remote error: " + e.Message}
+		}
+		if !fetchResp.HasPackfile {
+			return WireFailed{Detail: "upload-pack fetch response missing packfile section"}
+		}
+		let materialized = with context { delta.BaseSource: delta.EmptyBases } {
+			delta.MaterializePack(fetchResp.PackData, format, delta.DefaultLimits()) catch {
+			case delta.Truncated, delta.CorruptDelta, delta.BaseSizeMismatch, delta.TargetSizeMismatch, delta.LimitExceeded, delta.BadOfsDistance, delta.BadPackHeader, delta.DepthExceeded, delta.MissingBase, delta.ZlibFailed:
+				return TransferFailed{Detail: "failed to materialize wire packfile"}
+			}
+		}
+		for po in materialized {
+			objects = objects.Append(wpack.AutoDeltaObj(po.Kind, po.Data))
+		}
+	}
+
+	let packSum = try publishPackObjects(format, dstLayout, objects, host)
+	let dstDAG = revisions.OpenStoreDAG(dstLayout, host, false)
+	for u in updates {
+		let mut isAnc = true
+		match u.OldOID {
+		case option.Some[oid.OID] as ov:
+			match u.NewOID {
+			case option.Some[oid.OID] as nv:
+				isAnc = try checkIsFastForwardInDAG(dstDAG, ov.Value, nv.Value)
+			case option.None:
+			}
+		case option.None:
+		}
+		try CheckPushPolicy(u.DstRef, u.OldOID, u.NewOID, u.Force, isAnc, Map[string, option.Option[oid.OID]]{}, option.None, true)
+	}
+
+	let dstDisk = try openDiskODB(dstLayout, host)
+	try commitRefUpdates(dstRefStore, dstDisk, updates, opts.Reflog, opts.Durability, host)
+
+	TransferResult{
+		ObjectsTransferred: objects.Len(),
+		PackChecksum:       packSum,
+		Updates:            updates,
+	}
+}
+
+// DefaultLocalTransport is the standard pure-Ergo provider of LocalTransport.
+type DefaultLocalTransport {} implements LocalTransport
+
+// NewDefaultLocalTransport returns a DefaultLocalTransport provider.
+func NewDefaultLocalTransport() DefaultLocalTransport {
+	DefaultLocalTransport
+}
+
+// ParseSpec implements LocalTransport.ParseSpec on DefaultLocalTransport.
+func ParseSpec(_ DefaultLocalTransport, spec string) Refspec fails InvalidRefspec {
+	try ParseRefspec(spec)
+}
+
+// FormatSpec implements LocalTransport.FormatSpec on DefaultLocalTransport.
+func FormatSpec(_ DefaultLocalTransport, rs Refspec) string {
+	FormatRefspec(rs)
+}
+
+// CheckPolicy implements LocalTransport.CheckPolicy on DefaultLocalTransport.
+func CheckPolicy(_ DefaultLocalTransport, dstRef string, oldOID option.Option[oid.OID], newOID option.Option[oid.OID], force bool, isAncestor bool, expectedMap Map[string, option.Option[oid.OID]], checkedOutBranch option.Option[string], allowUpdateCurrent bool) fails NonFastForward | LeaseMismatch | ReceiveCurrentBranch {
+	try CheckPushPolicy(dstRef, oldOID, newOID, force, isAncestor, expectedMap, checkedOutBranch, allowUpdateCurrent)
+}
