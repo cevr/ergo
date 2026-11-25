@@ -163,12 +163,6 @@ func tryS3Del(r s3.DeleteObjectRequest) bool needs s3.S3 {
 // Memory store untouched on write faults.
 law AwsS3FaultsFailClosed() {
 	let cfg = gen.Config{Seed: uint64(1), Cases: 64, Shrinks: 0, MaxDraws: 1024, MaxRejected: 10}
-	let sawPutOk = sync.NewRef(false)
-	let sawPutFault = sync.NewRef(false)
-	let sawReadOk = sync.NewRef(false)
-	let sawReadFault = sync.NewRef(false)
-	let sawDelOk = sync.NewRef(false)
-	let sawDelFault = sync.NewRef(false)
 	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
 		let inner = NewMemory()
 		let _ = inner.PutObject(s3.PutObjectRequest{..s3.NewPutObjectRequest("bk", "existing"), Body: "v1"}) catch {
@@ -176,12 +170,13 @@ law AwsS3FaultsFailClosed() {
 			return false
 		}
 		let faulty = testing.Faulty[s3.S3](inner)
+		let mut readFault = false
 		let putBefore = len(faulty.PutObject.Faults())
 		let putOk = with context { s3.S3: faulty } {
 			tryS3Put(s3.PutObjectRequest{..s3.NewPutObjectRequest("bk", "fresh"), Body: "v2"})
 		}
 		if len(faulty.PutObject.Faults()) > putBefore {
-			sawPutFault.Set(true)
+			sometimes !putOk
 			if putOk {
 				return false
 			}
@@ -200,14 +195,14 @@ law AwsS3FaultsFailClosed() {
 			if !putOk {
 				return false
 			}
-			sawPutOk.Set(true)
+			sometimes putOk
 		}
 		let headBefore = len(faulty.HeadObject.Faults())
 		let headOk = with context { s3.S3: faulty } {
 			tryS3Head(s3.NewHeadObjectRequest("bk", "existing"))
 		}
 		if len(faulty.HeadObject.Faults()) > headBefore {
-			sawReadFault.Set(true)
+			readFault = true
 			if headOk {
 				return false
 			}
@@ -215,26 +210,27 @@ law AwsS3FaultsFailClosed() {
 			if !headOk {
 				return false
 			}
-			sawReadOk.Set(true)
+			sometimes headOk
 		}
 		let getBefore = len(faulty.GetObject.Faults())
 		let getOk = with context { s3.S3: faulty } {
 			tryS3Get(s3.NewGetObjectRequest("bk", "existing"), "v1")
 		}
 		if len(faulty.GetObject.Faults()) > getBefore {
-			sawReadFault.Set(true)
+			readFault = true
 			if getOk {
 				return false
 			}
 		} else if !getOk {
 			return false
 		}
+		sometimes readFault
 		let delBefore = len(faulty.DeleteObject.Faults())
 		let delOk = with context { s3.S3: faulty } {
 			tryS3Del(s3.NewDeleteObjectRequest("bk", "existing"))
 		}
 		if len(faulty.DeleteObject.Faults()) > delBefore {
-			sawDelFault.Set(true)
+			sometimes !delOk
 			if delOk {
 				return false
 			}
@@ -247,7 +243,7 @@ law AwsS3FaultsFailClosed() {
 		if !delOk {
 			return false
 		}
-		sawDelOk.Set(true)
+		sometimes delOk
 		let _ = inner.HeadObject(s3.NewHeadObjectRequest("bk", "existing")) catch {
 		case s3.NotFound:
 			return true
@@ -258,7 +254,7 @@ law AwsS3FaultsFailClosed() {
 	})
 	match outcome {
 	case gen.Held:
-		sawPutOk.Get() && sawPutFault.Get() && sawReadOk.Get() && sawReadFault.Get() && sawDelOk.Get() && sawDelFault.Get()
+		true
 	case gen.Refuted, gen.GaveUp:
 		false
 	}

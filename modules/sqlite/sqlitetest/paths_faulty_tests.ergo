@@ -269,10 +269,6 @@ type SqliteWALPaths {
 	// propagate cleanly through WriteTransaction without partial commits.
 	law FaultyDBWriteTransactionFailClosed() {
 		let cfg = gen.Config{Seed: uint64(1), Cases: 64, Shrinks: 0, MaxDraws: 1024, MaxRejected: 10}
-		let sawTxOk = sync.NewRef(false)
-		let sawBeginFault = sync.NewRef(false)
-		let sawQueryOk = sync.NewRef(false)
-		let sawQueryFault = sync.NewRef(false)
 		let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
 			let inner = OpenFaultyMemDB() catch {
 			case sqPathOpenErr:
@@ -283,7 +279,7 @@ type SqliteWALPaths {
 			let txOk = with context { sql.DB: faulty } { tryWriteItem() }
 			let beginFaulted = len(faulty.Begin.Faults()) > beginBefore
 			if beginFaulted {
-				sawBeginFault.Set(true)
+				sometimes !txOk
 				let count = CountFaultyMemItems() catch {
 				case sqPathDriveErr:
 					CloseFaultyMemDB()
@@ -298,24 +294,24 @@ type SqliteWALPaths {
 					CloseFaultyMemDB()
 					return false
 				}
-				sawTxOk.Set(true)
+				sometimes txOk
 			}
 			let qBefore = len(faulty.Query.Faults())
 			let qOk = with context { sql.DB: faulty } { tryQueryItem() }
 			CloseFaultyMemDB()
 			if len(faulty.Query.Faults()) > qBefore {
-				sawQueryFault.Set(true)
+				sometimes !qOk
 				return !qOk
 			}
 			if !qOk {
 				return false
 			}
-			sawQueryOk.Set(true)
+			sometimes qOk
 			true
 		})
 		match outcome {
 		case gen.Held:
-			sawTxOk.Get() && sawBeginFault.Get() && sawQueryOk.Get() && sawQueryFault.Get()
+			true
 		case gen.Refuted, gen.GaveUp:
 			false
 		}

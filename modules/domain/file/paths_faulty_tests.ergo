@@ -216,8 +216,6 @@ func tryFileAppend(l Log[int]) int {
 // during Append fail with domain.Unkept without advancing in-memory state.
 law FileLogWriteFaultsPreserveState() {
 	let cfg = gen.Config{Seed: uint64(1), Cases: 36, Shrinks: 0, MaxDraws: 512, MaxRejected: 10}
-	let sawSuccess = sync.NewRef(false)
-	let sawFault = sync.NewRef(false)
 	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
 		let disk = fstest.NewMemory()
 		let faultyWrites = testing.Faulty[fs.Writes](disk)
@@ -231,7 +229,7 @@ law FileLogWriteFaultsPreserveState() {
 			return false
 		}
 		if len(faultyWrites.AppendFile.Faults()) > before {
-			sawFault.Set(true)
+			sometimes res == 1
 			if res != 1 {
 				return false
 			}
@@ -240,7 +238,7 @@ law FileLogWriteFaultsPreserveState() {
 		if res != 0 {
 			return false
 		}
-		sawSuccess.Set(true)
+		sometimes res == 0
 		let reopened = Open[int](disk, disk, "log", Decimal) catch {
 		case domain.Unkept:
 			return false
@@ -249,7 +247,7 @@ law FileLogWriteFaultsPreserveState() {
 	})
 	match outcome {
 	case gen.Held:
-		sawSuccess.Get() && sawFault.Get()
+		true
 	case gen.Refuted, gen.GaveUp:
 		false
 	}

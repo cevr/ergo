@@ -1,6 +1,5 @@
 import gen
 import github.com/cevr/ergo/modules/orchestrate/orchestrate
-import sync
 import testing
 
 func innerUnchanged(inner Store, wantSnap orchestrate.State, wantEvents []orchestrate.StoredEvent) bool {
@@ -20,14 +19,13 @@ func innerUnchanged(inner Store, wantSnap orchestrate.State, wantEvents []orches
 // store snapshot and event log completely untouched whenever Execute faults,
 // and exercises both fault-free and injected-fault paths across writes and reads.
 law ServiceHandlesFaultyStoreCleanly() {
-	let sawSuccess = sync.NewRef(false)
-	let sawWriteFault = sync.NewRef(false)
-	let sawReadFault = sync.NewRef(false)
 	let cfg = gen.Config{Seed: uint64(1), Cases: 45, Shrinks: 100, MaxDraws: 2048, MaxRejected: 50}
 	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
 		let inner = New()
 		let faulty = testing.Faulty[orchestrate.Store](inner)
 		let svc = orchestrate.NewService(faulty)
+		let mut writeFault = false
+		let mut readFault = false
 
 		let snap0 = inner.Snapshot() catch {
 		case orchestrate.StoreFailed:
@@ -53,13 +51,13 @@ law ServiceHandlesFaultyStoreCleanly() {
 			orchestrate.Unit{ID: "", Title: "", Area: "", Status: orchestrate.UnitOpen, Owner: None, Lane: None, Harness: None, Round: 0, HeadSHA: None, Summary: None, RequestPath: None, FindingsPath: None, CreatedAt: "", UpdatedAt: ""}
 		}
 		if len(faulty.Execute.Faults()) > execFaults0 {
-			sawWriteFault.Set(true)
+			writeFault = true
 			if !openFailed || !innerUnchanged(inner, snap0, evs0) {
 				gen.Draws.Show("write-fault", "UnitOpen Execute fault mutated inner store")
 				return false
 			}
 		} else if len(faulty.Unit.Faults()) > unitFaults0 {
-			sawReadFault.Set(true)
+			readFault = true
 			if !openFailed {
 				gen.Draws.Show("read-fault", "UnitOpen follow-up Unit fault did not fail")
 				return false
@@ -81,7 +79,7 @@ law ServiceHandlesFaultyStoreCleanly() {
 				gen.Draws.Show("events-cursor", "Events(fromSeq) was not strictly exclusive")
 				return false
 			}
-			sawSuccess.Set(true)
+			sometimes opened.ID == "u-fault-1"
 		}
 
 		let snap1 = inner.Snapshot() catch {
@@ -107,7 +105,7 @@ law ServiceHandlesFaultyStoreCleanly() {
 			orchestrate.Commitment{ID: "", Title: "", Kind: "", Status: orchestrate.CommitOpen, Owner: None, Lane: None, LandedSHA: None, DecisionNote: None, CreatedAt: "", UpdatedAt: ""}
 		}
 		if len(faulty.Execute.Faults()) > execFaults1 {
-			sawWriteFault.Set(true)
+			writeFault = true
 			if !commitFailed || !innerUnchanged(inner, snap1, evs1) {
 				gen.Draws.Show("commit-fault", "CommitmentAdd Execute fault mutated inner store")
 				return false
@@ -124,7 +122,7 @@ law ServiceHandlesFaultyStoreCleanly() {
 			return false
 		}
 		if len(faulty.ListUnits.Faults()) > listFaults0 {
-			sawReadFault.Set(true)
+			readFault = true
 			if !listStoreFailed {
 				gen.Draws.Show("list-fault", "ListUnits StoreFailed did not propagate")
 				return false
@@ -141,7 +139,7 @@ law ServiceHandlesFaultyStoreCleanly() {
 			[]orchestrate.Question{}
 		}
 		if len(faulty.ListQuestions.Faults()) > qFaults0 {
-			sawReadFault.Set(true)
+			readFault = true
 			if !qStoreFailed {
 				gen.Draws.Show("qlist-fault", "ListQuestions StoreFailed did not propagate")
 				return false
@@ -150,11 +148,10 @@ law ServiceHandlesFaultyStoreCleanly() {
 			return false
 		}
 
+		sometimes writeFault
+		sometimes readFault
 		true
 	})
 	assert gen.Report(outcome) == ""
-	assert sawSuccess.Get()
-	assert sawWriteFault.Get()
-	assert sawReadFault.Get()
 	true
 }

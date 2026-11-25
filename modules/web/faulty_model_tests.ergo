@@ -70,8 +70,6 @@ func readViaWebStore(id int) Option[string] fails webStoreDown needs webStore {
 // reply on GET, empty body on HEAD, and never run on 404 or 405 requests.
 law WebLoaderFaultsMapToDeclaredStatus() {
 	let cfg = gen.Config{Seed: uint64(1), Cases: 32, Shrinks: 0, MaxDraws: 512, MaxRejected: 10}
-	let saw200 = sync.NewRef(false)
-	let saw503 = sync.NewRef(false)
 	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
 		let inner = newMemWebStore()
 		inner.Put(1, "hello") catch {
@@ -79,6 +77,7 @@ law WebLoaderFaultsMapToDeclaredStatus() {
 			return false
 		}
 		let faulty = testing.Faulty[webStore](inner)
+		let mut hit503 = false
 		let site = siteWithLoader(func(r lawRoute) string fails webLoadErr {
 			match r {
 			case lawHome:
@@ -99,18 +98,16 @@ law WebLoaderFaultsMapToDeclaredStatus() {
 		let before404 = len(faulty.Get.Faults())
 		let r404 = Fetch(site, Request("GET", "/no-such-route"))
 		let r405 = Fetch(site, Request("POST", "/item/1"))
-		if r404.Status != 404 || r405.Status != 405 || len(faulty.Get.Faults()) != before404 {
-			return false
-		}
+		always r404.Status == 404 && r405.Status == 405 && len(faulty.Get.Faults()) == before404
 		let beforeGet = len(faulty.Get.Faults())
 		let rGet = Fetch(site, Request("GET", "/item/1"))
 		if len(faulty.Get.Faults()) > beforeGet {
-			saw503.Set(true)
+			hit503 = true
 			if rGet.Status != 503 || rGet.Body == "" {
 				return false
 			}
 		} else {
-			saw200.Set(true)
+			sometimes rGet.Status == 200
 			if rGet.Status != 200 || rGet.Body != html.Render(html.P([]html.Child{html.Text("hello")})) {
 				return false
 			}
@@ -118,17 +115,39 @@ law WebLoaderFaultsMapToDeclaredStatus() {
 		let beforeHead = len(faulty.Get.Faults())
 		let rHead = Fetch(site, Request("HEAD", "/item/1"))
 		if len(faulty.Get.Faults()) > beforeHead {
-			saw503.Set(true)
+			hit503 = true
+			sometimes hit503
 			return rHead.Status == 503 && rHead.Body == ""
 		}
+		sometimes hit503
 		rHead.Status == 200 && rHead.Body == ""
 	})
 	match outcome {
 	case gen.Held:
-		saw200.Get() && saw503.Get()
+		true
 	case gen.Refuted, gen.GaveUp:
 		false
 	}
+}
+
+// WebRouterSometimesMatchesItem proves positive item routes resolve to HTTP 200
+// while non-positive IDs cleanly map to HTTP 410.
+law WebRouterSometimesMatchesItem sometimes(n int) {
+	let site = siteWithLoader(func(r lawRoute) string fails webLoadErr {
+		match r {
+		case lawHome:
+			"home"
+		case lawItem as i:
+			if i.N > 0 {
+				"item-" + strconv.Itoa(i.N)
+			} else {
+				webLoadErr{Code: 410, Detail: "gone"}
+			}
+		}
+	})
+	let res = Fetch(site, Request("GET", "/item/"+strconv.Itoa(n)))
+	always res.Status == 200 || res.Status == 410 || res.Status == 404
+	res.Status == 200
 }
 
 type webModelState {

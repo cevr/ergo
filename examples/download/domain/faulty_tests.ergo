@@ -28,12 +28,6 @@ func Save(d countingDownloader, url string, path string) fails Denied | Failed {
 // Run and Store map every injected Denied and Failed fault cleanly without
 // invoking the wrapped inner provider, while returning success when un-faulted.
 law WorkflowsHandleFaultyDownloader() {
-	let sawReadOk = sync.NewRef(false)
-	let sawReadDenied = sync.NewRef(false)
-	let sawReadFailed = sync.NewRef(false)
-	let sawSaveOk = sync.NewRef(false)
-	let sawSaveDenied = sync.NewRef(false)
-	let sawSaveFailed = sync.NewRef(false)
 	let cfg = gen.Config{Seed: uint64(1), Cases: 45, Shrinks: 100, MaxDraws: 1024, MaxRejected: 50}
 	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
 		let inner = countingDownloader{reads: sync.NewRef(0), saves: sync.NewRef(0)}
@@ -47,18 +41,18 @@ law WorkflowsHandleFaultyDownloader() {
 					return false
 				}
 				if readFaults[0].Failure == "Denied" {
-					sawReadDenied.Set(true)
+					sometimes strings.HasPrefix(body, "refused origin ")
 					if !strings.HasPrefix(body, "refused origin ") {
 						return false
 					}
 				} else {
-					sawReadFailed.Set(true)
+					sometimes strings.HasPrefix(body, "download failed: ")
 					if !strings.HasPrefix(body, "download failed: ") {
 						return false
 					}
 				}
 			} else {
-				sawReadOk.Set(true)
+				sometimes body == "body:https://example.com/data"
 				if inner.reads.Get() != 1 || body != "body:https://example.com/data" {
 					return false
 				}
@@ -72,18 +66,18 @@ law WorkflowsHandleFaultyDownloader() {
 					return false
 				}
 				if saveFaults[0].Failure == "Denied" {
-					sawSaveDenied.Set(true)
+					sometimes strings.HasPrefix(saved, "refused origin ")
 					if !strings.HasPrefix(saved, "refused origin ") {
 						return false
 					}
 				} else {
-					sawSaveFailed.Set(true)
+					sometimes strings.HasPrefix(saved, "download failed: ")
 					if !strings.HasPrefix(saved, "download failed: ") {
 						return false
 					}
 				}
 			} else {
-				sawSaveOk.Set(true)
+				sometimes saved == "saved /tmp/out.bin"
 				if inner.saves.Get() != 1 || saved != "saved /tmp/out.bin" {
 					return false
 				}
@@ -92,11 +86,5 @@ law WorkflowsHandleFaultyDownloader() {
 		}
 	})
 	assert gen.Report(outcome) == ""
-	assert sawReadOk.Get()
-	assert sawReadDenied.Get()
-	assert sawReadFailed.Get()
-	assert sawSaveOk.Get()
-	assert sawSaveDenied.Get()
-	assert sawSaveFailed.Get()
 	true
 }

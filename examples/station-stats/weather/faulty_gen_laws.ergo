@@ -1,7 +1,6 @@
 import fs
 import gen
 import strings
-import sync
 import testing
 
 type stubWeatherReadings {
@@ -33,8 +32,6 @@ func summarizeFromReadings(path string, workers int) Option[[]Station] needs Rea
 // injected Unreadable faults surface cleanly while clean reads summarize accurately.
 law OpenReadingsFaultsPropagate() {
 	let cfg = gen.Config{Seed: uint64(1), Cases: 48, Shrinks: 0, MaxDraws: 1024, MaxRejected: 10}
-	let sawSuccess = sync.NewRef(false)
-	let sawFault = sync.NewRef(false)
 	let base = stubWeatherReadings{Text: "Hamburg;12.0\nBulawayo;8.9\nHamburg;14.0\n"}
 	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
 		let faulty = testing.Faulty[Readings](base)
@@ -42,12 +39,12 @@ law OpenReadingsFaultsPropagate() {
 		let res = with context { Readings: faulty } { summarizeFromReadings("sample.txt", 2) }
 		let faulted = len(faulty.Open.Faults()) > f0
 		if faulted {
-			sawFault.Set(true)
+			sometimes res == None
 			return res == None
 		}
 		match res {
 		case Some[[]Station] as st:
-			sawSuccess.Set(true)
+			sometimes len(st.Value) == 2
 			len(st.Value) == 2 && st.Value[0].Name == "Bulawayo" && st.Value[1].Name == "Hamburg" && st.Value[1].Stats.Count == 2
 		case None:
 			false
@@ -55,10 +52,18 @@ law OpenReadingsFaultsPropagate() {
 	})
 	match outcome {
 	case gen.Held:
-		sawSuccess.Get() && sawFault.Get()
+		true
 	case gen.Refuted, gen.GaveUp:
 		false
 	}
+}
+
+// TenthsSometimesFormatsNegative proves Tenths reaches negative formatted
+// temperatures while preserving non-empty output for every input.
+law TenthsSometimesFormatsNegative sometimes(tenths int) {
+	let text = Tenths(tenths)
+	always len(text) > 0
+	strings.HasPrefix(text, "-")
 }
 
 // ParallelSummarizeMatchesSequentialWorkers proves Summarize produces identical

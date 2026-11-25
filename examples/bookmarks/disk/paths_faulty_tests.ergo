@@ -3,7 +3,6 @@ import explore
 import fs
 import fstest
 import gen
-import sync
 import testing
 
 type bmState {
@@ -225,8 +224,6 @@ func tryDiskWrite(marks []shelf.Bookmark) bool needs fs.Writes {
 // while preserving previously saved bookmarks on disk.
 law BookmarksDiskWriteFaultsFailClosed() {
 	let cfg = gen.Config{Seed: uint64(1), Cases: 64, Shrinks: 0, MaxDraws: 1024, MaxRejected: 10}
-	let sawSuccess = sync.NewRef(false)
-	let sawFault = sync.NewRef(false)
 	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
 		let disk = fstest.NewMemory()
 		let initial = []shelf.Bookmark{shelf.Bookmark{URL: "https://seed.example", Title: "Seed", Tags: []string{"base"}}}
@@ -245,18 +242,18 @@ law BookmarksDiskWriteFaultsFailClosed() {
 			return false
 		}
 		if faulted {
-			sawFault.Set(true)
+			sometimes !wrote
 			return !wrote && len(onDisk) == 1 && onDisk[0].URL == "https://seed.example"
 		}
 		if !wrote {
 			return false
 		}
-		sawSuccess.Set(true)
+		sometimes wrote
 		len(onDisk) == 2 && onDisk[1].URL == "https://next.example"
 	})
 	match outcome {
 	case gen.Held:
-		sawSuccess.Get() && sawFault.Get()
+		true
 	case gen.Refuted, gen.GaveUp:
 		false
 	}

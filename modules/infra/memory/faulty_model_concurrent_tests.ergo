@@ -1,6 +1,5 @@
 import gen
 import github.com/cevr/ergo/modules/infra
-import sync
 import temporal
 import testing
 
@@ -64,9 +63,6 @@ func applyDirsWithFaulty(w World, drv infra.Driver[DirProps, Dir], st infra.Stat
 // post-recovery convergence hold across every faulted apply.
 law InfraDriverAndStateFaultsPreserveInvariants() {
 	let cfg = gen.Config{Seed: uint64(1), Cases: 48, Shrinks: 0, MaxDraws: 512, MaxRejected: 10}
-	let sawClean = sync.NewRef(false)
-	let sawDriverFault = sync.NewRef(false)
-	let sawStateFault = sync.NewRef(false)
 	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
 		let w = newWorld()
 		let faultyDrv = testing.Faulty[infra.Driver[DirProps, Dir]](DirsIn(w.cloud))
@@ -75,18 +71,12 @@ law InfraDriverAndStateFaultsPreserveInvariants() {
 		let drvApplyBefore = len(faultyDrv.Apply.Faults())
 		let stPutBefore = len(faultyState.Put.Faults())
 		let ran = applyDirsWithFaulty(w, faultyDrv, faultyState, "r1", want)
-		if !noOrphan(w) || !liveIsTrue(w) {
-			return false
-		}
-		if len(faultyDrv.Apply.Faults()) > drvApplyBefore {
-			sawDriverFault.Set(true)
-		}
-		if len(faultyState.Put.Faults()) > stPutBefore {
-			sawStateFault.Set(true)
-		}
+		always noOrphan(w) && liveIsTrue(w)
+		sometimes len(faultyDrv.Apply.Faults()) > drvApplyBefore
+		sometimes len(faultyState.Put.Faults()) > stPutBefore
 		match ran {
 		case Finished:
-			sawClean.Set(true)
+			sometimes converged(w, want)
 			if !converged(w, want) {
 				return false
 			}
@@ -113,7 +103,7 @@ law InfraDriverAndStateFaultsPreserveInvariants() {
 	})
 	match outcome {
 	case gen.Held:
-		sawClean.Get() && sawDriverFault.Get() && sawStateFault.Get()
+		true
 	case gen.Refuted, gen.GaveUp:
 		false
 	}

@@ -81,8 +81,6 @@ func runJobsOnGate(js []jobs.Job) bool needs jobs.Gate {
 // leak capacity held by earlier jobs.
 law AdmitGateWaitFaultsReturnCapacity() {
 	let cfg = gen.Config{Seed: uint64(1), Cases: 36, Shrinks: 0, MaxDraws: 512, MaxRejected: 10}
-	let sawSuccess = sync.NewRef(false)
-	let sawFault = sync.NewRef(false)
 	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
 		let inner = New(4)
 		let faulty = testing.Faulty[jobs.Gate](inner)
@@ -96,22 +94,20 @@ law AdmitGateWaitFaultsReturnCapacity() {
 		if allFree {
 			inner.Give(4)
 		}
-		if !allFree {
-			return false
-		}
+		always allFree
 		if len(faulty.Wait.Faults()) > waitBefore {
-			sawFault.Set(true)
+			sometimes !ok
 			return !ok
 		}
 		if !ok {
 			return false
 		}
-		sawSuccess.Set(true)
+		sometimes ok
 		true
 	})
 	match outcome {
 	case gen.Held:
-		sawSuccess.Get() && sawFault.Get()
+		true
 	case gen.Refuted, gen.GaveUp:
 		false
 	}

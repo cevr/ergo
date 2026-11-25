@@ -194,8 +194,6 @@ func OpenSession(_ memDomPaths, start domPathState) domPathSession fails domPath
 // clean and a recovered host agrees with the log.
 law SourcedLogFaultsRecoverCleanly() {
 	let cfg = gen.Config{Seed: uint64(1), Cases: 32, Shrinks: 0, MaxDraws: 512, MaxRejected: 10}
-	let sawClean = sync.NewRef(false)
-	let sawFault = sync.NewRef(false)
 	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
 		with context { Scheduler: time.NewManual(0) } {
 			let inner = New[Event]()
@@ -218,7 +216,7 @@ law SourcedLogFaultsRecoverCleanly() {
 				domain.Receipt{ID: env.ID, Stream: "", Position: 0}
 			}
 			if len(faulty.Append.Faults()) > faultsBefore {
-				sawFault.Set(true)
+				sometimes stopped
 				if !stopped {
 					return false
 				}
@@ -240,7 +238,7 @@ law SourcedLogFaultsRecoverCleanly() {
 			if stopped {
 				return false
 			}
-			sawClean.Set(true)
+			sometimes !stopped
 			let ok = a.State().State.Total == 5 && len(inner.Read("tally", 0)) == 1
 			a.Stop() catch {
 			case _:
@@ -250,7 +248,7 @@ law SourcedLogFaultsRecoverCleanly() {
 	})
 	match outcome {
 	case gen.Held:
-		sawClean.Get() && sawFault.Get()
+		true
 	case gen.Refuted, gen.GaveUp:
 		false
 	}
