@@ -1,0 +1,221 @@
+import filepath
+import go os
+import go syscall
+import strings
+
+// HostLockOps implements LockOps on real POSIX filesystems using
+// O_CREAT|O_EXCL exclusive lock creation, fsync(file), os.Root-confined atomic
+// rename/remove/read, and fsync(parentDir). All paths are resolved relative to
+// root (or verified inside root when absolute).
+type HostLockOps {
+	root string,
+} implements LockOps
+
+// NewHostLockOps returns a HostLockOps confined to absolute rootDir.
+func NewHostLockOps(rootDir string) HostLockOps fails PathInvalid {
+	if rootDir == "" || !filepath.IsAbs(rootDir) {
+		return PathInvalid{Path: rootDir, Reason: "host lock root must be an absolute path"}
+	}
+	HostLockOps{root: filepath.Clean(rootDir)}
+}
+
+func resolveHostPath(h HostLockOps, p string) string fails PathInvalid {
+	let abs = filepath.AbsFrom(h.root, p)
+	if h.root != "/" && abs != h.root && !strings.HasPrefix(abs, h.root+"/") {
+		return PathInvalid{Path: p, Reason: "path escapes host lock root"}
+	}
+	abs
+}
+
+// CreateExclusive creates lockPath exclusively with POSIX O_CREAT|O_EXCL|O_WRONLY.
+func CreateExclusive(h HostLockOps, lockPath string) fails LockHeld | PathInvalid needs go.Foreign {
+	let abs = try resolveHostPath(h, lockPath)
+	let flags = syscall.O_CREAT | syscall.O_EXCL | syscall.O_WRONLY
+	let fd = syscall.Open(abs, flags, uint32(438)) catch {
+	case go.Error as e:
+		if os.IsExist(e) || strings.Contains(e.Text, "file exists") {
+			return LockHeld{Path: lockPath}
+		}
+		return PathInvalid{Path: lockPath, Reason: e.Text}
+	}
+	syscall.Close(fd) catch {
+	case go.Error:
+	}
+}
+
+// WriteLock writes data to the already-created lockPath, replacing its staged contents.
+func WriteLock(h HostLockOps, lockPath string, data string) fails NotHeld | PathInvalid needs go.Foreign {
+	let abs = try resolveHostPath(h, lockPath)
+	let flags = syscall.O_WRONLY | syscall.O_TRUNC
+	let fd = syscall.Open(abs, flags, uint32(438)) catch {
+	case go.Error:
+		return NotHeld{Path: lockPath}
+	}
+	let raw = data.Bytes()
+	let mut written = 0
+	for written < len(raw) {
+		let n = syscall.Write(fd, raw[written:]) catch {
+		case go.Error as e:
+			syscall.Close(fd) catch {
+			case go.Error:
+			}
+			return PathInvalid{Path: lockPath, Reason: e.Text}
+		}
+		if n <= 0 {
+			syscall.Close(fd) catch {
+			case go.Error:
+			}
+			return PathInvalid{Path: lockPath, Reason: "short write"}
+		}
+		written = written + n
+	}
+	syscall.Close(fd) catch {
+	case go.Error as e:
+		return PathInvalid{Path: lockPath, Reason: e.Text}
+	}
+}
+
+// SyncFile opens lockPath and flushes file data and metadata to disk with fsync.
+func SyncFile(h HostLockOps, lockPath string) fails SyncFailed needs go.Foreign {
+	let abs = resolveHostPath(h, lockPath) catch {
+	case PathInvalid as e:
+		return SyncFailed{Path: lockPath, Reason: e.Reason}
+	}
+	let fd = syscall.Open(abs, syscall.O_RDONLY, uint32(0)) catch {
+	case go.Error as e:
+		return SyncFailed{Path: lockPath, Reason: e.Text}
+	}
+	syscall.Fsync(fd) catch {
+	case go.Error as e:
+		syscall.Close(fd) catch {
+		case go.Error:
+		}
+		return SyncFailed{Path: lockPath, Reason: e.Text}
+	}
+	syscall.Close(fd) catch {
+	case go.Error as e:
+		return SyncFailed{Path: lockPath, Reason: e.Text}
+	}
+}
+
+// RenamePublish atomically renames lockPath onto targetPath inside their shared
+// parent directory using Go's root-confined os.OpenRoot.
+func RenamePublish(h HostLockOps, lockPath string, targetPath string) fails PublishFailed needs go.Foreign {
+	let absLock = resolveHostPath(h, lockPath) catch {
+	case PathInvalid as e:
+		return PublishFailed{Path: targetPath, Reason: e.Reason}
+	}
+	let absTarget = resolveHostPath(h, targetPath) catch {
+	case PathInvalid as e:
+		return PublishFailed{Path: targetPath, Reason: e.Reason}
+	}
+	let dir = filepath.Dir(absTarget)
+	let r = os.OpenRoot(dir) catch {
+	case go.Error as e:
+		return PublishFailed{Path: targetPath, Reason: e.Text}
+	}
+	r.Rename(filepath.Base(absLock), filepath.Base(absTarget)) catch {
+	case go.Error as e:
+		r.Close() catch {
+		case go.Error:
+		}
+		return PublishFailed{Path: targetPath, Reason: e.Text}
+	}
+	r.Close() catch {
+	case go.Error:
+	}
+}
+
+// RemoveLock unlinks lockPath inside its parent directory using os.OpenRoot.
+func RemoveLock(h HostLockOps, lockPath string) fails NotHeld needs go.Foreign {
+	let absLock = resolveHostPath(h, lockPath) catch {
+	case PathInvalid:
+		return NotHeld{Path: lockPath}
+	}
+	let dir = filepath.Dir(absLock)
+	let r = os.OpenRoot(dir) catch {
+	case go.Error:
+		return NotHeld{Path: lockPath}
+	}
+	r.Remove(filepath.Base(absLock)) catch {
+	case go.Error:
+		r.Close() catch {
+		case go.Error:
+		}
+		return NotHeld{Path: lockPath}
+	}
+	r.Close() catch {
+	case go.Error:
+	}
+}
+
+// SyncDir flushes directory metadata for dirPath via fsync(dirfd).
+func SyncDir(h HostLockOps, dirPath string) fails DirSyncUncertain needs go.Foreign {
+	let absDir = resolveHostPath(h, dirPath) catch {
+	case PathInvalid as e:
+		return DirSyncUncertain{Path: dirPath, Reason: e.Reason}
+	}
+	let fd = syscall.Open(absDir, syscall.O_RDONLY, uint32(0)) catch {
+	case go.Error as e:
+		return DirSyncUncertain{Path: dirPath, Reason: e.Text}
+	}
+	syscall.Fsync(fd) catch {
+	case go.Error as e:
+		syscall.Close(fd) catch {
+		case go.Error:
+		}
+		return DirSyncUncertain{Path: dirPath, Reason: e.Text}
+	}
+	syscall.Close(fd) catch {
+	case go.Error as e:
+		return DirSyncUncertain{Path: dirPath, Reason: e.Text}
+	}
+}
+
+// ReadTarget reads the committed bytes of targetPath if it exists.
+func ReadTarget(h HostLockOps, targetPath string) Option[string] needs go.Foreign {
+	let absTarget = resolveHostPath(h, targetPath) catch {
+	case PathInvalid:
+		return None
+	}
+	let dir = filepath.Dir(absTarget)
+	let r = os.OpenRoot(dir) catch {
+	case go.Error:
+		return None
+	}
+	let data = r.ReadFile(filepath.Base(absTarget)) catch {
+	case go.Error:
+		r.Close() catch {
+		case go.Error:
+		}
+		return None
+	}
+	r.Close() catch {
+	case go.Error:
+	}
+	Some[string]{Value: data.Text()}
+}
+
+// LockExists reports whether lockPath currently exists on disk.
+func LockExists(h HostLockOps, lockPath string) bool needs go.Foreign {
+	let absLock = resolveHostPath(h, lockPath) catch {
+	case PathInvalid:
+		return false
+	}
+	let dir = filepath.Dir(absLock)
+	let r = os.OpenRoot(dir) catch {
+	case go.Error:
+		return false
+	}
+	let _ = r.Lstat(filepath.Base(absLock)) catch {
+	case go.Error:
+		r.Close() catch {
+		case go.Error:
+		}
+		return false
+	}
+	r.Close() catch {
+	case go.Error:
+	}
+	true
+}
