@@ -1,0 +1,157 @@
+import option
+import time
+import trace
+
+// ObservedModel wraps a Model to accumulate llm.calls, llm.ms, llm.tokens_in,
+// llm.tokens_out, and llm.errors onto the active wide-event span using
+// explicit clock. Outside an active span it delegates directly with no
+// instrumentation overhead.
+type ObservedModel {
+	Inner Model,
+	Clock time.Clock,
+} implements Model
+
+// Observed wraps inner with automatic wide-event LLM call, token, timing, and
+// error instrumentation using explicit clock.
+func Observed(inner Model, clock time.Clock) ObservedModel {
+	ObservedModel{Inner: inner, Clock: clock}
+}
+
+func recordLLMSuccess(clock time.Clock, start time.Time, usage Usage) {
+	trace.Count("llm.calls", 1)
+	trace.AddTiming("llm.ms", clock.Now().Sub(start))
+	trace.Count("llm.tokens_in", usage.Input)
+	trace.Count("llm.tokens_out", usage.Output)
+}
+
+func recordLLMError(clock time.Clock, start time.Time) {
+	trace.Count("llm.calls", 1)
+	trace.AddTiming("llm.ms", clock.Now().Sub(start))
+	trace.Count("llm.errors", 1)
+}
+
+// Generate forwards r to m.Inner.Generate and records llm.calls, llm.ms,
+// llm.tokens_in, llm.tokens_out, and llm.errors inside an active span.
+func Generate(m ObservedModel, r Request) Turn fails RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | InvalidRequest | InvalidResponse | UnsupportedSchema {
+	if !trace.Active() {
+		return try m.Inner.Generate(r)
+	}
+	let start = m.Clock.Now()
+	let turn = m.Inner.Generate(r) catch {
+	case f:
+		recordLLMError(m.Clock, start)
+		return try Raise(f)
+	}
+	recordLLMSuccess(m.Clock, start, turn.Usage)
+	turn
+}
+
+// Stream forwards r to m.Inner.Stream and records llm.calls, llm.ms,
+// llm.tokens_in, llm.tokens_out, and llm.errors inside an active span.
+func Stream(m ObservedModel, r Request, put func(d Delta) fails SinkFailed) Turn fails RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | InvalidRequest | InvalidResponse | UnsupportedSchema | SinkFailed {
+	if !trace.Active() {
+		return try m.Inner.Stream(r, put)
+	}
+	let start = m.Clock.Now()
+	let turn = m.Inner.Stream(r, put) catch {
+	case SinkFailed as sf:
+		recordLLMError(m.Clock, start)
+		return sf
+	case f:
+		recordLLMError(m.Clock, start)
+		return try Raise(f)
+	}
+	recordLLMSuccess(m.Clock, start, turn.Usage)
+	turn
+}
+
+// StreamEach forwards r to m.Inner.StreamEach and records llm.calls, llm.ms,
+// llm.tokens_in, llm.tokens_out, and llm.errors inside an active span.
+func StreamEach(m ObservedModel, r Request, put func(d Delta)) Turn fails RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | InvalidRequest | InvalidResponse | UnsupportedSchema {
+	if !trace.Active() {
+		return try m.Inner.StreamEach(r, put)
+	}
+	let start = m.Clock.Now()
+	let turn = m.Inner.StreamEach(r, put) catch {
+	case f:
+		recordLLMError(m.Clock, start)
+		return try Raise(f)
+	}
+	recordLLMSuccess(m.Clock, start, turn.Usage)
+	turn
+}
+
+type observedStubModel {
+	clk       time.Manual,
+	usage     Usage,
+	failCall  bool,
+} implements Model
+
+func Generate(s observedStubModel, _ Request) Turn fails RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | InvalidRequest | InvalidResponse | UnsupportedSchema {
+	s.clk.Advance(12ms)
+	if s.failCall {
+		return RateLimited{After: option.Some[int]{Value: 100}}
+	}
+	Turn{Text: "answer", Calls: []Call{}, Stop: Ended, Usage: s.usage}
+}
+
+func Stream(s observedStubModel, r Request, put func(d Delta) fails SinkFailed) Turn fails RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | InvalidRequest | InvalidResponse | UnsupportedSchema | SinkFailed {
+	let t = try s.Generate(r)
+	try put(Text{Text: t.Text})
+	t
+}
+
+func StreamEach(s observedStubModel, r Request, put func(d Delta)) Turn fails RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | InvalidRequest | InvalidResponse | UnsupportedSchema {
+	let t = try s.Generate(r)
+	put(Text{Text: t.Text})
+	t
+}
+
+// ObservedModelAccumulatesCallsTokensAndErrors: ObservedModel accumulates
+// llm.calls, llm.ms, llm.tokens_in, llm.tokens_out, and llm.errors onto an
+// enclosing wide event while remaining a transparent pass-through outside
+// spans.
+law ObservedModelAccumulatesCallsTokensAndErrors(inRaw int, outRaw int, failCall bool) {
+	let tin = ((inRaw % 500) + 500) % 500
+	let tout = ((outRaw % 500) + 500) % 500
+	let clk = time.NewManual(0)
+	let usage = Usage{Input: tin, Output: tout, CacheRead: 0, CacheWrite: 0}
+	let okModel = Observed(observedStubModel{clk: clk, usage: usage, failCall: false}, clk)
+	let callModel = Observed(observedStubModel{clk: clk, usage: usage, failCall: failCall}, clk)
+	let req = Request{System: "sys", Messages: []Message{User{Text: "hi"}}, Tools: []ToolSpec{}, Choice: Auto, Format: Prose, MaxTokens: 0}
+	let outTurn = okModel.Generate(req) catch {
+	case _:
+		return false
+	}
+	always outTurn.Text == "answer" && outTurn.Usage == usage
+	let (_, events) = trace.CaptureWithClock(clk, func() bool needs trace.Sink | time.Clock {
+		trace.WithSpan("llm.work", func() bool needs trace.Sink | time.Clock {
+			let t1 = okModel.Generate(req) catch {
+			case _:
+				return false
+			}
+			if t1.Usage != usage {
+				return false
+			}
+			let mut sawRateLimited = false
+			let _ = callModel.StreamEach(req, func(_ Delta) {}) catch {
+			case RateLimited:
+				sawRateLimited = true
+				Turn{Text: "", Calls: []Call{}, Stop: Ended, Usage: Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
+			case _:
+				return false
+			}
+			if failCall { sawRateLimited } else { !sawRateLimited }
+		})
+	})
+	sometimes failCall
+	sometimes !failCall
+	always events.Len() == 1
+	let ev = events[0]
+	always trace.CounterValue(ev, "llm.calls") == 2
+	always trace.TimingDuration(ev, "llm.ms") == 24ms
+	always trace.CounterValue(ev, "llm.tokens_in") == (if failCall { tin } else { tin + tin })
+	always trace.CounterValue(ev, "llm.tokens_out") == (if failCall { tout } else { tout + tout })
+	always trace.CounterValue(ev, "llm.errors") == (if failCall { 1 } else { 0 })
+	true
+}

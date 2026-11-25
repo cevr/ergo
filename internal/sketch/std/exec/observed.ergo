@@ -1,0 +1,152 @@
+import time
+import trace
+
+// ObservedRunner wraps a Runner to accumulate exec.calls, exec.ms, and
+// exec.errors (on failure or non-zero exit status) onto the active wide-event
+// span using explicit clock. Outside an active span it delegates directly with
+// no instrumentation overhead.
+type ObservedRunner {
+	Inner Runner,
+	Clock time.Clock,
+} implements Runner
+
+// Observed wraps inner with automatic wide-event command execution counter,
+// timing, and error instrumentation using explicit clock.
+func Observed(inner Runner, clock time.Clock) ObservedRunner {
+	ObservedRunner{Inner: inner, Clock: clock}
+}
+
+// Env returns r.Inner.Env unchanged.
+func Env(r ObservedRunner) Map[string, string] {
+	r.Inner.Env()
+}
+
+// Run executes c through r.Inner.Run and records exec.calls, exec.ms, and
+// exec.errors (on launch failure or non-zero exit status) inside a span.
+func Run(r ObservedRunner, c Command) Result fails NotFound | Denied | Failed {
+	if !trace.Active() {
+		return try r.Inner.Run(c)
+	}
+	let start = r.Clock.Now()
+	let res = r.Inner.Run(c) catch {
+	case NotFound as e:
+		trace.Count("exec.calls", 1)
+		trace.AddTiming("exec.ms", r.Clock.Now().Sub(start))
+		trace.Count("exec.errors", 1)
+		return e
+	case Denied as e:
+		trace.Count("exec.calls", 1)
+		trace.AddTiming("exec.ms", r.Clock.Now().Sub(start))
+		trace.Count("exec.errors", 1)
+		return e
+	case Failed as e:
+		trace.Count("exec.calls", 1)
+		trace.AddTiming("exec.ms", r.Clock.Now().Sub(start))
+		trace.Count("exec.errors", 1)
+		return e
+	}
+	trace.Count("exec.calls", 1)
+	trace.AddTiming("exec.ms", r.Clock.Now().Sub(start))
+	if res.Status != 0 {
+		trace.Count("exec.errors", 1)
+	}
+	res
+}
+
+// Start launches c through r.Inner.Start and records exec.calls, exec.ms, and
+// exec.errors on launch failure inside a span.
+func Start(r ObservedRunner, c Command, s Streams) Running fails NotFound | Denied | Failed {
+	if !trace.Active() {
+		return try r.Inner.Start(c, s)
+	}
+	let start = r.Clock.Now()
+	let running = r.Inner.Start(c, s) catch {
+	case NotFound as e:
+		trace.Count("exec.calls", 1)
+		trace.AddTiming("exec.ms", r.Clock.Now().Sub(start))
+		trace.Count("exec.errors", 1)
+		return e
+	case Denied as e:
+		trace.Count("exec.calls", 1)
+		trace.AddTiming("exec.ms", r.Clock.Now().Sub(start))
+		trace.Count("exec.errors", 1)
+		return e
+	case Failed as e:
+		trace.Count("exec.calls", 1)
+		trace.AddTiming("exec.ms", r.Clock.Now().Sub(start))
+		trace.Count("exec.errors", 1)
+		return e
+	}
+	trace.Count("exec.calls", 1)
+	trace.AddTiming("exec.ms", r.Clock.Now().Sub(start))
+	running
+}
+
+type observedStubRunner {
+	inner Script,
+	clk   time.Manual,
+} implements Runner
+
+func Env(r observedStubRunner) Map[string, string] { r.inner.Env() }
+
+func Run(r observedStubRunner, c Command) Result fails NotFound | Denied | Failed {
+	r.clk.Advance(5ms)
+	try r.inner.Run(c)
+}
+
+func Start(r observedStubRunner, c Command, s Streams) Running fails NotFound | Denied | Failed {
+	r.clk.Advance(5ms)
+	try r.inner.Start(c, s)
+}
+
+// ObservedRunnerAccumulatesCallsTimingsAndErrors: ObservedRunner accumulates
+// exec.calls, exec.ms, and exec.errors (on launch failure or non-zero exit
+// status) onto an enclosing wide event while remaining transparent outside
+// spans.
+law ObservedRunnerAccumulatesCallsTimingsAndErrors(codeRaw int, missing bool) {
+	let exitCode = ((codeRaw % 3) + 3) % 3
+	let clk = time.NewManual(0)
+	let okCmd = New("echo", []string{"ok"})
+	let runCmd = New("tool", []string{"--check"})
+	let mut results = Map[string, Result]{}
+	results[Key(okCmd)] = Result{Status: 0, Stdout: "ok", Stderr: ""}
+	if !missing {
+		results[Key(runCmd)] = Result{Status: exitCode, Stdout: "", Stderr: ""}
+	}
+	let runner = Observed(observedStubRunner{inner: Script{Results: results}, clk: clk}, clk)
+	let outside = runner.Run(okCmd) catch {
+	case NotFound, Denied, Failed:
+		return false
+	}
+	always outside.Status == 0 && outside.Stdout == "ok"
+	let (_, events) = trace.CaptureWithClock(clk, func() bool needs trace.Sink | time.Clock {
+		trace.WithSpan("exec.work", func() bool needs trace.Sink | time.Clock {
+			let r1 = runner.Run(okCmd) catch {
+			case NotFound, Denied, Failed:
+				return false
+			}
+			if r1.Status != 0 {
+				return false
+			}
+			let mut sawMissing = false
+			let r2 = runner.Run(runCmd) catch {
+			case NotFound:
+				sawMissing = true
+				Result{Status: 0, Stdout: "", Stderr: ""}
+			case Denied, Failed:
+				return false
+			}
+			if missing { sawMissing } else { r2.Status == exitCode }
+		})
+	})
+	let wantErrors = if missing || exitCode != 0 { 1 } else { 0 }
+	sometimes missing
+	sometimes !missing && exitCode == 0
+	sometimes !missing && exitCode != 0
+	always events.Len() == 1
+	let ev = events[0]
+	always trace.CounterValue(ev, "exec.calls") == 2
+	always trace.TimingDuration(ev, "exec.ms") == 10ms
+	always trace.CounterValue(ev, "exec.errors") == wantErrors
+	true
+}

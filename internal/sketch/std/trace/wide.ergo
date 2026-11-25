@@ -535,6 +535,32 @@ func WithIncomingSpan[T, E, R](name string, service ServiceMeta, parent TraceCon
 	try runSpan(name, service, option.Some[TraceContext]{Value: parent}, option.Some[IDGenerator]{Value: gen}, parent.Sampled, fn)
 }
 
+// WithServiceSpan runs fn inside a named wide-event span for service,
+// continuing from incoming when present or starting a fresh root trace
+// otherwise, emitting exactly one canonical WideEvent to Sink on exit.
+func WithServiceSpan[T, E, R](name string, service ServiceMeta, incoming option.Option[TraceContext], fn func() T fails E needs R) T fails E needs Sink | time.Clock | R {
+	let sampled = match incoming {
+	case option.Some[TraceContext] as p:
+		p.Value.Sampled
+	case option.None:
+		true
+	}
+	try runSpan(name, service, incoming, option.None, sampled, fn)
+}
+
+// WithServiceSpanGen runs fn inside a named wide-event span for service using
+// explicit IDGenerator gen, continuing from incoming when present or starting
+// a fresh root trace otherwise.
+func WithServiceSpanGen[T, E, R](name string, service ServiceMeta, incoming option.Option[TraceContext], gen IDGenerator, fn func() T fails E needs R) T fails E needs Sink | time.Clock | R {
+	let sampled = match incoming {
+	case option.Some[TraceContext] as p:
+		p.Value.Sampled
+	case option.None:
+		true
+	}
+	try runSpan(name, service, incoming, option.Some[IDGenerator]{Value: gen}, sampled, fn)
+}
+
 // Capture runs fn with a fresh in-memory Recorder and deterministic manual
 // clock bound in context, returning fn's result and all emitted WideEvents.
 func Capture[T, E, R](fn func() T fails E needs Sink | time.Clock | R) (T, []WideEvent) fails E needs R {

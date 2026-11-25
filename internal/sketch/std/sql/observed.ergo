@@ -1,0 +1,374 @@
+import time
+import trace
+
+// ObservedDB wraps a DB to accumulate db.queries, db.ms, and db.errors onto
+// the active wide-event span using explicit clock. Transactions opened via
+// Begin return an ObservedConn so transactional Exec and Query statements are
+// instrumented automatically.
+type ObservedDB {
+	Inner DB,
+	Clock time.Clock,
+} implements DB
+
+// ObservedConn wraps a transactional Conn to accumulate db.queries, db.ms, and
+// db.errors onto the active wide-event span using explicit clock.
+type ObservedConn {
+	Inner Conn,
+	Clock time.Clock,
+} implements Conn
+
+// Observed wraps inner with automatic wide-event database query and error
+// instrumentation using explicit clock.
+func Observed(inner DB, clock time.Clock) ObservedDB {
+	ObservedDB{Inner: inner, Clock: clock}
+}
+
+// ObservedConnection wraps conn with automatic wide-event database query and
+// error instrumentation using explicit clock.
+func ObservedConnection(conn Conn, clock time.Clock) ObservedConn {
+	ObservedConn{Inner: conn, Clock: clock}
+}
+
+func recordDBQuery(clock time.Clock, start time.Time, failed bool) {
+	trace.Count("db.queries", 1)
+	trace.AddTiming("db.ms", clock.Now().Sub(start))
+	if failed {
+		trace.Count("db.errors", 1)
+	}
+}
+
+// Exec runs stmt through d.Inner.Exec and records db.queries, db.ms, and
+// db.errors when inside an active wide-event span.
+func Exec(d ObservedDB, stmt string, args []Value) Result fails Unique | Serialization | Deadlock | Timeout | Closed | Other {
+	if !trace.Active() {
+		return try d.Inner.Exec(stmt, args)
+	}
+	let start = d.Clock.Now()
+	let res = d.Inner.Exec(stmt, args) catch {
+	case Unique as e:
+		recordDBQuery(d.Clock, start, true)
+		return e
+	case Serialization as e:
+		recordDBQuery(d.Clock, start, true)
+		return e
+	case Deadlock as e:
+		recordDBQuery(d.Clock, start, true)
+		return e
+	case Timeout as e:
+		recordDBQuery(d.Clock, start, true)
+		return e
+	case Closed as e:
+		recordDBQuery(d.Clock, start, true)
+		return e
+	case Other as e:
+		recordDBQuery(d.Clock, start, true)
+		return e
+	}
+	recordDBQuery(d.Clock, start, false)
+	res
+}
+
+// Query runs stmt through d.Inner.Query and records db.queries, db.ms, and
+// db.errors when inside an active wide-event span.
+func Query(d ObservedDB, stmt string, args []Value) []Row fails Unique | Serialization | Deadlock | Timeout | Closed | Other {
+	if !trace.Active() {
+		return try d.Inner.Query(stmt, args)
+	}
+	let start = d.Clock.Now()
+	let rows = d.Inner.Query(stmt, args) catch {
+	case Unique as e:
+		recordDBQuery(d.Clock, start, true)
+		return e
+	case Serialization as e:
+		recordDBQuery(d.Clock, start, true)
+		return e
+	case Deadlock as e:
+		recordDBQuery(d.Clock, start, true)
+		return e
+	case Timeout as e:
+		recordDBQuery(d.Clock, start, true)
+		return e
+	case Closed as e:
+		recordDBQuery(d.Clock, start, true)
+		return e
+	case Other as e:
+		recordDBQuery(d.Clock, start, true)
+		return e
+	}
+	recordDBQuery(d.Clock, start, false)
+	rows
+}
+
+// Begin opens a transaction on d.Inner and wraps the returned Conn in an
+// ObservedConn sharing d.Clock.
+func Begin(d ObservedDB) Conn fails Serialization | Deadlock | Timeout | Closed | Other {
+	let conn = d.Inner.Begin() catch {
+	case Serialization as e:
+		if trace.Active() {
+			trace.Count("db.errors", 1)
+		}
+		return e
+	case Deadlock as e:
+		if trace.Active() {
+			trace.Count("db.errors", 1)
+		}
+		return e
+	case Timeout as e:
+		if trace.Active() {
+			trace.Count("db.errors", 1)
+		}
+		return e
+	case Closed as e:
+		if trace.Active() {
+			trace.Count("db.errors", 1)
+		}
+		return e
+	case Other as e:
+		if trace.Active() {
+			trace.Count("db.errors", 1)
+		}
+		return e
+	}
+	ObservedConn{Inner: conn, Clock: d.Clock}
+}
+
+// Exec runs stmt through c.Inner.Exec and records db.queries, db.ms, and
+// db.errors when inside an active wide-event span.
+func Exec(c ObservedConn, stmt string, args []Value) Result fails Unique | Serialization | Deadlock | Timeout | Closed | Other {
+	if !trace.Active() {
+		return try c.Inner.Exec(stmt, args)
+	}
+	let start = c.Clock.Now()
+	let res = c.Inner.Exec(stmt, args) catch {
+	case Unique as e:
+		recordDBQuery(c.Clock, start, true)
+		return e
+	case Serialization as e:
+		recordDBQuery(c.Clock, start, true)
+		return e
+	case Deadlock as e:
+		recordDBQuery(c.Clock, start, true)
+		return e
+	case Timeout as e:
+		recordDBQuery(c.Clock, start, true)
+		return e
+	case Closed as e:
+		recordDBQuery(c.Clock, start, true)
+		return e
+	case Other as e:
+		recordDBQuery(c.Clock, start, true)
+		return e
+	}
+	recordDBQuery(c.Clock, start, false)
+	res
+}
+
+// Query runs stmt through c.Inner.Query and records db.queries, db.ms, and
+// db.errors when inside an active wide-event span.
+func Query(c ObservedConn, stmt string, args []Value) []Row fails Unique | Serialization | Deadlock | Timeout | Closed | Other {
+	if !trace.Active() {
+		return try c.Inner.Query(stmt, args)
+	}
+	let start = c.Clock.Now()
+	let rows = c.Inner.Query(stmt, args) catch {
+	case Unique as e:
+		recordDBQuery(c.Clock, start, true)
+		return e
+	case Serialization as e:
+		recordDBQuery(c.Clock, start, true)
+		return e
+	case Deadlock as e:
+		recordDBQuery(c.Clock, start, true)
+		return e
+	case Timeout as e:
+		recordDBQuery(c.Clock, start, true)
+		return e
+	case Closed as e:
+		recordDBQuery(c.Clock, start, true)
+		return e
+	case Other as e:
+		recordDBQuery(c.Clock, start, true)
+		return e
+	}
+	recordDBQuery(c.Clock, start, false)
+	rows
+}
+
+// Commit commits c.Inner and records db.errors on failure inside a span.
+func Commit(c ObservedConn) fails Unique | Serialization | Deadlock | Timeout | Closed | Other {
+	c.Inner.Commit() catch {
+	case Unique as e:
+		if trace.Active() {
+			trace.Count("db.errors", 1)
+		}
+		return e
+	case Serialization as e:
+		if trace.Active() {
+			trace.Count("db.errors", 1)
+		}
+		return e
+	case Deadlock as e:
+		if trace.Active() {
+			trace.Count("db.errors", 1)
+		}
+		return e
+	case Timeout as e:
+		if trace.Active() {
+			trace.Count("db.errors", 1)
+		}
+		return e
+	case Closed as e:
+		if trace.Active() {
+			trace.Count("db.errors", 1)
+		}
+		return e
+	case Other as e:
+		if trace.Active() {
+			trace.Count("db.errors", 1)
+		}
+		return e
+	}
+}
+
+// Rollback delegates to c.Inner.Rollback.
+func Rollback(c ObservedConn) { c.Inner.Rollback() }
+
+// Savepoint delegates to c.Inner.Savepoint and records db.errors on failure.
+func Savepoint(c ObservedConn, name string) fails Timeout | Closed | Other {
+	c.Inner.Savepoint(name) catch {
+	case Timeout as e:
+		if trace.Active() {
+			trace.Count("db.errors", 1)
+		}
+		return e
+	case Closed as e:
+		if trace.Active() {
+			trace.Count("db.errors", 1)
+		}
+		return e
+	case Other as e:
+		if trace.Active() {
+			trace.Count("db.errors", 1)
+		}
+		return e
+	}
+}
+
+// Release delegates to c.Inner.Release and records db.errors on failure.
+func Release(c ObservedConn, name string) fails Timeout | Closed | Other {
+	c.Inner.Release(name) catch {
+	case Timeout as e:
+		if trace.Active() {
+			trace.Count("db.errors", 1)
+		}
+		return e
+	case Closed as e:
+		if trace.Active() {
+			trace.Count("db.errors", 1)
+		}
+		return e
+	case Other as e:
+		if trace.Active() {
+			trace.Count("db.errors", 1)
+		}
+		return e
+	}
+}
+
+// RollbackTo delegates to c.Inner.RollbackTo and records db.errors on failure.
+func RollbackTo(c ObservedConn, name string) fails Timeout | Closed | Other {
+	c.Inner.RollbackTo(name) catch {
+	case Timeout as e:
+		if trace.Active() {
+			trace.Count("db.errors", 1)
+		}
+		return e
+	case Closed as e:
+		if trace.Active() {
+			trace.Count("db.errors", 1)
+		}
+		return e
+	case Other as e:
+		if trace.Active() {
+			trace.Count("db.errors", 1)
+		}
+		return e
+	}
+}
+
+type observedStubDB {
+	clk       time.Manual,
+	failQuery bool,
+} implements DB, Conn
+
+func Exec(s observedStubDB, _ string, _ []Value) Result fails Unique | Serialization | Deadlock | Timeout | Closed | Other {
+	s.clk.Advance(4ms)
+	Result{Affected: 1}
+}
+
+func Query(s observedStubDB, _ string, _ []Value) []Row fails Unique | Serialization | Deadlock | Timeout | Closed | Other {
+	s.clk.Advance(6ms)
+	if s.failQuery {
+		return Timeout{Message: "query timed out"}
+	}
+	[]Row{Row{Columns: []string{"id"}, Values: []Value{Int{N: int64(1)}}}}
+}
+
+func Begin(s observedStubDB) Conn fails Serialization | Deadlock | Timeout | Closed | Other { s }
+
+func Commit(_ observedStubDB) fails Unique | Serialization | Deadlock | Timeout | Closed | Other {}
+
+func Rollback(_ observedStubDB) {}
+
+func Savepoint(_ observedStubDB, _ string) fails Timeout | Closed | Other {}
+
+func Release(_ observedStubDB, _ string) fails Timeout | Closed | Other {}
+
+func RollbackTo(_ observedStubDB, _ string) fails Timeout | Closed | Other {}
+
+// ObservedDBAccumulatesQueriesTimingsAndErrors: ObservedDB accumulates
+// db.queries, db.ms, and db.errors across direct statements and transactions
+// inside an active span while staying a transparent pass-through outside spans.
+law ObservedDBAccumulatesQueriesTimingsAndErrors(stmt string, failQuery bool) {
+	let q = if stmt == "" { "SELECT 1" } else { stmt }
+	let clk = time.NewManual(0)
+	let db = Observed(observedStubDB{clk: clk, failQuery: failQuery}, clk)
+	let outRes = db.Exec(q, []Value{}) catch {
+	case Unique, Serialization, Deadlock, Timeout, Closed, Other:
+		return false
+	}
+	always outRes.Affected == int64(1)
+	let (_, events) = trace.CaptureWithClock(clk, func() bool needs trace.Sink | time.Clock {
+		trace.WithSpan("sql.work", func() bool needs trace.Sink | time.Clock {
+			with context { DB: db } {
+				let txOk = Transaction() {
+					let _ = try Tx.Exec(q, []Value{})
+					true
+				} catch {
+				case Unique, Serialization, Deadlock, Timeout, Closed, Other:
+					false
+				}
+				if !txOk {
+					return false
+				}
+				let mut sawTimeout = false
+				let rows = DB.Query(q, []Value{}) catch {
+				case Timeout:
+					sawTimeout = true
+					[]Row{}
+				case Unique, Serialization, Deadlock, Closed, Other:
+					return false
+				}
+				if failQuery { sawTimeout } else { rows.Len() == 1 }
+			}
+		})
+	})
+	sometimes failQuery
+	sometimes !failQuery
+	always events.Len() == 1
+	let ev = events[0]
+	always trace.CounterValue(ev, "db.queries") == 2
+	always trace.TimingDuration(ev, "db.ms") == 10ms
+	always trace.CounterValue(ev, "db.errors") == (if failQuery { 1 } else { 0 })
+	true
+}
