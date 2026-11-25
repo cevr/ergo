@@ -1,0 +1,217 @@
+// Act is an action in the scheduled-post model.
+type Act = BeginFire{} | PostFire{} | Advance{} | Crash{} | Cancel{} | LoseAccess{} | RestoreAccess{}
+
+// World is the state of one repeating schedule with two planned firings.
+// State: 0 pending, 1 done, 2 canceled.
+// Phase: 0 idle, 1 firing started, 2 post landed awaiting advance.
+type World {
+	State               int,
+	Next                int,
+	Left                int,
+	Phase               int,
+	HasAccess           bool,
+	AccessChanges       int,
+	Crashes             int,
+	KeyUsed             []bool,
+	Posts               []int,
+	Canceled            bool,
+	PostedAfterCancel   bool,
+	PostedWithoutAccess bool,
+	CrashRecovered      bool,
+	LostAccessCancel    bool,
+	CancelBlockedPost   bool,
+}
+
+// MaxFirings is the number of planned firings in scope.
+let MaxFirings = 2
+
+// MaxCrashes bounds crashes between post and advance in scope.
+let MaxCrashes = 2
+
+// MaxAccessChanges bounds maker access changes in scope.
+let MaxAccessChanges = 2
+
+let noMutant = 0
+let noIdempotencyKeyMutant = 1
+let postAfterCancelMutant = 2
+let noAccessCheckMutant = 3
+
+func first() World {
+	World{
+		State:               0,
+		Next:                0,
+		Left:                MaxFirings,
+		Phase:               0,
+		HasAccess:           true,
+		AccessChanges:       0,
+		Crashes:             0,
+		KeyUsed:             []bool{false, false},
+		Posts:               []int{0, 0},
+		Canceled:            false,
+		PostedAfterCancel:   false,
+		PostedWithoutAccess: false,
+		CrashRecovered:      false,
+		LostAccessCancel:    false,
+		CancelBlockedPost:   false,
+	}
+}
+
+func step(s World, act Act, mutant int) Decision[World, string] {
+	let mut w = s
+	match act {
+	case BeginFire:
+		if w.State != 0 || w.Phase != 0 || w.Left <= 0 {
+			return Ignore
+		}
+		w.Phase = 1
+		return Enter{w}
+	case PostFire:
+		if w.Phase != 1 {
+			return Ignore
+		}
+		if w.State != 0 && mutant != postAfterCancelMutant {
+			w.Phase = 0
+			w.CancelBlockedPost = true
+			return Enter{w}
+		}
+		let mut accessOk = w.HasAccess
+		if mutant == noAccessCheckMutant {
+			accessOk = true
+		}
+		if !accessOk {
+			w.State = 2
+			w.Canceled = true
+			w.Phase = 0
+			w.LostAccessCancel = true
+			return Enter{w}
+		}
+		let i = w.Next
+		if w.KeyUsed[i] && mutant != noIdempotencyKeyMutant {
+			w.CrashRecovered = true
+			w.Phase = 2
+			return Enter{w}
+		}
+		w.KeyUsed[i] = true
+		w.Posts[i] = w.Posts[i] + 1
+		if !w.HasAccess {
+			w.PostedWithoutAccess = true
+		}
+		if w.Canceled {
+			w.PostedAfterCancel = true
+		}
+		w.Phase = 2
+		return Enter{w}
+	case Advance:
+		if w.Phase != 2 || w.State != 0 {
+			return Ignore
+		}
+		w.Next = w.Next + 1
+		w.Left = w.Left - 1
+		w.Phase = 0
+		if w.Left == 0 {
+			w.State = 1
+		}
+		return Enter{w}
+	case Crash:
+		if w.Phase == 0 || w.Crashes >= MaxCrashes {
+			return Ignore
+		}
+		w.Phase = 0
+		w.Crashes = w.Crashes + 1
+		return Enter{w}
+	case Cancel:
+		if w.State != 0 {
+			return Ignore
+		}
+		w.State = 2
+		w.Canceled = true
+		if w.Phase == 2 {
+			w.Phase = 0
+		}
+		return Enter{w}
+	case LoseAccess:
+		if !w.HasAccess || w.AccessChanges >= MaxAccessChanges {
+			return Ignore
+		}
+		w.HasAccess = false
+		w.AccessChanges = w.AccessChanges + 1
+		return Enter{w}
+	case RestoreAccess:
+		if w.HasAccess || w.AccessChanges >= MaxAccessChanges {
+			return Ignore
+		}
+		w.HasAccess = true
+		w.AccessChanges = w.AccessChanges + 1
+		return Enter{w}
+	}
+}
+
+func eachFiringPostsOnce(w World) bool {
+	for n in w.Posts {
+		if n > 1 {
+			return false
+		}
+	}
+	true
+}
+
+func noPostAfterCancel(w World) bool { !w.PostedAfterCancel }
+
+func noPostWithoutAccess(w World) bool { !w.PostedWithoutAccess }
+
+func canceledStaysCanceled(w World) bool { !(w.Canceled && w.State != 2) }
+
+func postedTwice(w World) bool        { !eachFiringPostsOnce(w) }
+func postedCanceled(w World) bool     { !noPostAfterCancel(w) }
+func postedUnauthorized(w World) bool { !noPostWithoutAccess(w) }
+
+func completesAllFirings(w World) bool    { w.State == 1 && w.Posts[0] == 1 && w.Posts[1] == 1 }
+func recoversFromCrash(w World) bool      { w.CrashRecovered && w.State == 1 }
+func cancelsOnLostAccess(w World) bool    { w.LostAccessCancel && w.State == 2 }
+func refusesPostAfterCancel(w World) bool { w.CancelBlockedPost && w.State == 2 }
+
+func design(s World, a Act) Decision[World, string]           { return step(s, a, noMutant) }
+func noIdempotencyKey(s World, a Act) Decision[World, string] { return step(s, a, noIdempotencyKeyMutant) }
+func postAfterCancel(s World, a Act) Decision[World, string]  { return step(s, a, postAfterCancelMutant) }
+func noAccessCheck(s World, a Act) Decision[World, string]    { return step(s, a, noAccessCheckMutant) }
+
+// Design is the scheduled-post model: each firing posts at most once even
+// across crashes between post and advance, no post lands after cancellation,
+// no post lands when the maker lost access, and cancellation is final.
+type Design machine[World, Act] {
+	initial: first(),
+	step:    design,
+
+	law EachFiringPostsOnce always eachFiringPostsOnce,
+	law NoPostAfterCancel always noPostAfterCancel,
+	law NoPostWithoutAccess always noPostWithoutAccess,
+	law CanceledStaysCanceled always canceledStaysCanceled,
+
+	law CompletesAllFirings sometimes completesAllFirings,
+	law RecoversFromCrash sometimes recoversFromCrash,
+	law CancelsOnLostAccess sometimes cancelsOnLostAccess,
+	law RefusesPostAfterCancel sometimes refusesPostAfterCancel,
+}
+
+// NoIdempotencyKey omits the per-firing idempotency key, so a crash between
+// post and advance causes the retry to post the same firing twice.
+type NoIdempotencyKey machine[World, Act] {
+	initial: first(),
+	step:    noIdempotencyKey,
+	law Breaks sometimes postedTwice,
+}
+
+// PostAfterCancel trusts the firing's pre-check snapshot instead of checking
+// cancellation inside the post write.
+type PostAfterCancel machine[World, Act] {
+	initial: first(),
+	step:    postAfterCancel,
+	law Breaks sometimes postedCanceled,
+}
+
+// NoAccessCheck skips checking the maker's current grants at firing time.
+type NoAccessCheck machine[World, Act] {
+	initial: first(),
+	step:    noAccessCheck,
+	law Breaks sometimes postedUnauthorized,
+}

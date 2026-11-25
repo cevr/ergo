@@ -1,0 +1,350 @@
+// BoardID identifies a board with the stated encoding "brd_<n>".
+type BoardID = string
+
+// MessageID identifies a message with the stated encoding "msg_<n>".
+type MessageID = string
+
+// GrantID identifies a grant with the stated encoding "g<n>".
+type GrantID = string
+
+// PrincipalID identifies a principal ("google:<sub>" or "svc:<name>").
+type PrincipalID = string
+
+// ActorID identifies an actor ("<principal>" or "<principal>+<profile>").
+type ActorID = string
+
+// Cursor is a monotonic per-board event position (0 before the first event).
+type Cursor = int
+
+// Timestamp is an instant in Unix milliseconds.
+type Timestamp = int
+
+// EncodeCursor formats a board cursor in its stated wire encoding.
+func EncodeCursor(board string, seq Cursor) string { "cur:\(board):\(seq)" }
+
+// DefaultBoard is the name of the workspace's initial board.
+let DefaultBoard = "general"
+
+// MaxMessageLen is the maximum length of a message's text in bytes.
+let MaxMessageLen = 10000
+
+// IdempotencyWindowMs is the 24-hour idempotency key retention window.
+let IdempotencyWindowMs = 86400000
+
+// PrincipalKind distinguishes people from automated services.
+type PrincipalKind = Person{} | Service{}
+
+// Role distinguishes workspace administrators from ordinary members.
+type Role = Member{} | Admin{}
+
+// PrincipalState distinguishes active principals from offboarded ones.
+type PrincipalState = Active{} | Offboarded{}
+
+// Principal is a credential-holding person or service.
+type Principal {
+	ID     PrincipalID,
+	Kind   PrincipalKind,
+	Handle string,
+	Email  string,
+	Name   string,
+	Role   Role,
+	State  PrincipalState,
+}
+
+// Profile is an agent profile acting under a principal.
+type Profile {
+	Principal   PrincipalID,
+	Name        string,
+	Avatar      string,
+	FirstSeenAt Timestamp,
+	LastSeenAt  Timestamp,
+}
+
+// Caller is the authenticated actor issuing a command, with optional narrowing.
+type Caller {
+	Principal       PrincipalID,
+	Profile         string,
+	Role            Role,
+	Kind            PrincipalKind,
+	Email           string,
+	Narrowed        bool,
+	NarrowedCan     Map[string, []Permission],
+	NarrowedProfile string,
+	NarrowedBoards  []string,
+}
+
+// ActorOf returns the canonical actor identifier for caller c.
+func ActorOf(c Caller) ActorID {
+	if c.Profile == "" {
+		return c.Principal
+	}
+	"\(c.Principal)+\(c.Profile)"
+}
+
+// Permission is one action a grant may allow in a channel.
+type Permission = PermRead{} | PermPost{} | PermReact{} | PermLabel{} | PermSync{} | PermManage{}
+
+// AllPermissions is the full set of channel permissions.
+func AllPermissions() []Permission {
+	[]Permission{PermRead, PermPost, PermReact, PermLabel, PermSync, PermManage}
+}
+
+// DefaultPeoplePermissions is the default permission set granted to all-people.
+func DefaultPeoplePermissions() []Permission {
+	[]Permission{PermRead, PermPost, PermReact, PermLabel}
+}
+
+// PrincipalMatch selects the callers a grant applies to.
+type PrincipalMatch = MatchEmail{Email string} | MatchService{ID PrincipalID} | MatchAllPeople{} | MatchAllServices{} | MatchEveryone{}
+
+// GrantRule pairs a channel pattern with either allowed permissions or an explicit deny.
+type GrantRule {
+	Pattern string,
+	Allow   []Permission,
+	Deny    bool,
+}
+
+// Grant records who holds which permissions on which channel patterns.
+type Grant {
+	ID         GrantID,
+	Principals []PrincipalMatch,
+	Rules      []GrantRule,
+	CreatedBy  ActorID,
+	CreatedAt  Timestamp,
+	Revision   int,
+}
+
+// BoardRecord is the projected metadata of one board.
+type BoardRecord {
+	ID        BoardID,
+	Name      string,
+	CreatedAt Timestamp,
+	CreatedBy ActorID,
+	Archived  bool,
+	Head      Cursor,
+}
+
+// Channel is a path on a board where threads are posted.
+type Channel {
+	Board     string,
+	Path      string,
+	CreatedAt Timestamp,
+	CreatedBy ActorID,
+	Private   bool,
+}
+
+// Message is a root message or reply on a channel.
+type Message {
+	ID         MessageID,
+	Board      string,
+	Channel    string,
+	Text       string,
+	Re         MessageID,
+	ReplyTo    MessageID,
+	By         ActorID,
+	Principal  PrincipalID,
+	Profile    string,
+	Labels     Map[string, string],
+	Reactions  Map[string, []ActorID],
+	Mentions   []ActorID,
+	Unresolved []string,
+	From       string,
+	NoSync     bool,
+	Revision   int,
+	CreatedAt  Timestamp,
+	EditedAt   Timestamp,
+	Deleted    bool,
+}
+
+// AskState is the lifecycle state of a question.
+type AskState = AskOpen{} | AskAnswered{} | AskWithdrawn{} | AskExpired{}
+
+// AskRecord tracks a question message and its single answer.
+type AskRecord {
+	ID             MessageID,
+	Board          string,
+	Channel        string,
+	Root           MessageID,
+	Asker          ActorID,
+	AskerPrincipal PrincipalID,
+	To             []ActorID,
+	OnlyFromAsked  bool,
+	State          AskState,
+	Answer         MessageID,
+	ExpiresAt      Timestamp,
+	CreatedAt      Timestamp,
+}
+
+// TrustSet lists the actors whose task instructions a subject trusts.
+type TrustSet {
+	Subject   ActorID,
+	TakesFrom []ActorID,
+}
+
+// IdempotencyKey scopes an idempotency key to one actor.
+type IdempotencyKey {
+	Actor ActorID,
+	Key   string,
+}
+
+// IdempotencyEntry records the payload digest and first result for a key.
+type IdempotencyEntry {
+	Digest          string,
+	ResultMessageID MessageID,
+	ResultCursor    Cursor,
+	RecordedAt      Timestamp,
+}
+
+// Refusal is a typed domain rejection produced by Decide.
+type Refusal =
+	| Unauthenticated{}
+	| Forbidden{Permission string, Channel string}
+	| NotFound{What string}
+	| Invalid{Field string, Why string}
+	| Gone{}
+	| TooLarge{Limit int}
+	| SecretDetected{Kind string, At int}
+	| IdempotencyConflict{}
+	| NewerMessage{}
+	| RevisionConflict{}
+	| LabelConflict{}
+	| NotAuthor{}
+	| NotAsker{}
+	| ReservedLabel{Use string}
+	| AskClosed{}
+	| ChannelExists{}
+	| ChannelGranted{}
+	| BoardNameTaken{}
+	| BoardNotFound{}
+	| BoardArchived{}
+
+// EventPayload is the domain fact recorded by one event in a board's log.
+type EventPayload =
+	| BoardCreated{Board BoardRecord}
+	| BoardRenamed{Board string, NewName string}
+	| BoardArchivedEvent{Board string}
+	| ChannelCreated{Channel Channel}
+	| MessagePosted{Message Message, IdemKey string, IdemDigest string}
+	| MessageEdited{Board string, ID MessageID, Text string, Mentions []ActorID, Unresolved []string, Revision int}
+	| MessageDeleted{Board string, ID MessageID, Revision int}
+	| ReactionChanged{Board string, ID MessageID, Emoji string, Actor ActorID, Added bool}
+	| LabelsChanged{Board string, ID MessageID, Set Map[string, string], Unset []string}
+	| PrincipalRegistered{Principal Principal}
+	| PrincipalGone{ID PrincipalID}
+	| ProfileSeen{Profile Profile}
+	| GrantCreated{Board string, Grant Grant}
+	| GrantUpdated{Board string, Grant Grant}
+	| GrantRevoked{Board string, ID GrantID}
+	| AskOpened{Ask AskRecord}
+	| AskAnsweredEvent{Board string, ID MessageID, Answer MessageID}
+	| AskWithdrawnEvent{Board string, ID MessageID}
+	| AskExpiredEvent{Board string, ID MessageID}
+	| TrustUpdated{Trust TrustSet}
+
+// Event is one ordered entry in a board's event log.
+type Event {
+	Seq     Cursor,
+	Board   string,
+	At      Timestamp,
+	Actor   ActorID,
+	Payload EventPayload,
+}
+
+// Command is one requested domain change passed to Decide.
+type Command =
+	| CreateBoard{Caller Caller, Name string}
+	| RenameBoard{Caller Caller, Board string, NewName string}
+	| ArchiveBoard{Caller Caller, Board string}
+	| CreateChannel{Caller Caller, Board string, Path string, Private bool}
+	| PostMessage{Caller Caller, Board string, Channel string, Text string, Labels Map[string, string], NoSync bool, From string, IdempotencyKey string}
+	| ReplyMessage{Caller Caller, Board string, Re MessageID, Text string, After MessageID, Labels Map[string, string], NoSync bool, From string, IdempotencyKey string}
+	| EditMessage{Caller Caller, Board string, ID MessageID, Text string, IfRevision int}
+	| DeleteMessage{Caller Caller, Board string, ID MessageID, IfRevision int}
+	| ReactMessage{Caller Caller, Board string, ID MessageID, Emoji string, Remove bool}
+	| LabelMessage{Caller Caller, Board string, ID MessageID, Set Map[string, string], Unset []string, If Map[string, string], IfUnset []string}
+	| RegisterPrincipal{Caller Caller, Principal Principal}
+	| MarkPrincipalGone{Caller Caller, Principal PrincipalID}
+	| CreateGrant{Caller Caller, Board string, Grant Grant}
+	| UpdateGrant{Caller Caller, Board string, Grant Grant}
+	| RevokeGrant{Caller Caller, Board string, ID GrantID}
+	| OpenAsk{Caller Caller, Board string, Channel string, Thread MessageID, Text string, To []ActorID, OnlyFromAsked bool, ExpiresAt Timestamp, IdempotencyKey string}
+	| WithdrawAsk{Caller Caller, Board string, ID MessageID}
+	| ExpireAsk{Board string, ID MessageID}
+	| UpdateTrust{Caller Caller, Subject ActorID, TakesFrom []ActorID}
+
+// State is the pure projected state folded from the event log.
+type State {
+	Boards         Map[string, BoardRecord],
+	Channels       Map[string, Channel],
+	Messages       Map[MessageID, Message],
+	ThreadLast     Map[MessageID, MessageID],
+	Principals     Map[PrincipalID, Principal],
+	Profiles       Map[ActorID, Profile],
+	Grants         Map[string, []Grant],
+	Asks           Map[MessageID, AskRecord],
+	Trusts         Map[ActorID, TrustSet],
+	Idempotency    Map[IdempotencyKey, IdempotencyEntry],
+	NextBoardNum   int,
+	NextMessageNum int,
+	NextGrantNum   int,
+	Head           Map[string, Cursor],
+}
+
+// InitialState constructs a fresh workspace with the default general board and
+// its two starter grants (all-people default access and named admin access).
+func InitialState(admins []Principal, now Timestamp) State {
+	let mut principals = Map[PrincipalID, Principal]{}
+	let mut adminMatches = []PrincipalMatch{}
+	for a in admins {
+		principals = principals.Put(a.ID, a)
+		if a.Kind == Person && a.Email != "" {
+			adminMatches = adminMatches.Append(MatchEmail{Email: a.Email})
+		}
+	}
+	let g1 = Grant{
+		ID:         "g1",
+		Principals: []PrincipalMatch{MatchAllPeople},
+		Rules:      []GrantRule{GrantRule{Pattern: "*", Allow: DefaultPeoplePermissions(), Deny: false}},
+		CreatedBy:  "system",
+		CreatedAt:  now,
+		Revision:   1,
+	}
+	let mut initGrants = []Grant{g1}
+	let mut nextGrant = 2
+	if len(adminMatches) > 0 {
+		let g2 = Grant{
+			ID:         "g2",
+			Principals: adminMatches,
+			Rules:      []GrantRule{GrantRule{Pattern: "*", Allow: AllPermissions(), Deny: false}},
+			CreatedBy:  "system",
+			CreatedAt:  now,
+			Revision:   1,
+		}
+		initGrants = initGrants.Append(g2)
+		nextGrant = 3
+	}
+	let gen = BoardRecord{
+		ID:        "brd_1",
+		Name:      DefaultBoard,
+		CreatedAt: now,
+		CreatedBy: "system",
+		Archived:  false,
+		Head:      0,
+	}
+	State{
+		Boards:         Map[string, BoardRecord]{}.Put(DefaultBoard, gen),
+		Channels:       Map[string, Channel]{},
+		Messages:       Map[MessageID, Message]{},
+		ThreadLast:     Map[MessageID, MessageID]{},
+		Principals:     principals,
+		Profiles:       Map[ActorID, Profile]{},
+		Grants:         Map[string, []Grant]{}.Put(DefaultBoard, initGrants),
+		Asks:           Map[MessageID, AskRecord]{},
+		Trusts:         Map[ActorID, TrustSet]{},
+		Idempotency:    Map[IdempotencyKey, IdempotencyEntry]{},
+		NextBoardNum:   2,
+		NextMessageNum: 1,
+		NextGrantNum:   nextGrant,
+		Head:           Map[string, Cursor]{}.Put(DefaultBoard, 0),
+	}
+}

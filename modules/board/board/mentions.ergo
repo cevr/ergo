@@ -1,0 +1,122 @@
+import slices
+import strings
+
+func isHandleChar(b byte) bool {
+	(b >= 97 && b <= 122) || (b >= 65 && b <= 90) || (b >= 48 && b <= 57) || b == 95 || b == 45 || b == 46 || b == 47
+}
+
+func isWordChar(b byte) bool {
+	(b >= 97 && b <= 122) || (b >= 65 && b <= 90) || (b >= 48 && b <= 57) || b == 95
+}
+
+func trimHandleEnd(s string) string {
+	let mut end = len(strings.Bytes(s))
+	let bs = strings.Bytes(s)
+	for end > 0 {
+		let b = bs[end-1]
+		if b == 46 || b == 47 {
+			end = end - 1
+		} else {
+			break
+		}
+	}
+	strings.Slice(s, 0, end)
+}
+
+// SettleMentions extracts @handle mentions outside inline and fenced code,
+// matching each handle case-insensitively against visibleActors. Resolved
+// actors and unresolved handles are returned deduplicated in order of
+// appearance.
+func SettleMentions(text string, visibleActors Map[string, ActorID]) ([]ActorID, []string) {
+	let mut lowerMap = Map[string, ActorID]{}
+	let mut ambiguous = Map[string, bool]{}
+	for h, id in visibleActors {
+		let k = strings.ToLower(h)
+		match lowerMap.Get(k) {
+		case Some[ActorID] as prev:
+			if prev.Value != id {
+				ambiguous = ambiguous.Put(k, true)
+			}
+		case None:
+			lowerMap = lowerMap.Put(k, id)
+		}
+	}
+	let bs = strings.Bytes(text)
+	let n = len(bs)
+	let mut i = 0
+	let mut inFence = false
+	let mut inInline = false
+	let mut mentioned = []ActorID{}
+	let mut unresolved = []string{}
+	for i < n {
+		if !inInline && i+2 < n && bs[i] == 96 && bs[i+1] == 96 && bs[i+2] == 96 {
+			inFence = !inFence
+			i = i + 3
+			continue
+		}
+		if !inFence && bs[i] == 96 {
+			inInline = !inInline
+			i = i + 1
+			continue
+		}
+		if !inFence && !inInline && bs[i] == 64 {
+			let prevOk = i == 0 || !isWordChar(bs[i-1])
+			if prevOk && i+1 < n && isHandleChar(bs[i+1]) {
+				let start = i + 1
+				let mut j = start
+				for j < n && isHandleChar(bs[j]) {
+					j = j + 1
+				}
+				let raw = trimHandleEnd(strings.Slice(text, start, j))
+				if len(strings.Bytes(raw)) > 0 {
+					let key = strings.ToLower(raw)
+					let isAmb = match ambiguous.Get(key) {
+					case Some[bool] as b:
+						b.Value
+					case None:
+						false
+					}
+					if !isAmb {
+						match lowerMap.Get(key) {
+						case Some[ActorID] as a:
+							if !slices.Contains(mentioned, a.Value) {
+								mentioned = mentioned.Append(a.Value)
+							}
+						case None:
+							if !slices.Contains(unresolved, raw) {
+								unresolved = unresolved.Append(raw)
+							}
+						}
+					} else {
+						if !slices.Contains(unresolved, raw) {
+							unresolved = unresolved.Append(raw)
+						}
+					}
+				}
+				i = j
+				continue
+			}
+		}
+		i = i + 1
+	}
+	(mentioned, unresolved)
+}
+
+// MentionsInsideCodeIgnored verifies that @handles inside inline or fenced
+// code spans never produce mentions or unresolved entries.
+law MentionsInsideCodeIgnored(tag int) {
+	let vis = Map[string, ActorID]{}.Put("alice", "google:alice").Put("bob/fx", "google:bob+fx")
+	let msg = "see `@alice` and ```\n@bob/fx @ghost\(tag)\n``` and email user@alice.example"
+	let (mentioned, unresolved) = SettleMentions(msg, vis)
+	len(mentioned) == 0 && len(unresolved) == 0
+}
+
+// MentionsSettleVisibleAndUnresolved verifies deduplication, case-insensitive
+// matching against visible actors, and unresolved reporting for unknown handles.
+law MentionsSettleVisibleAndUnresolved(seed int) {
+	let vis = Map[string, ActorID]{}.Put("alice", "google:alice").Put("bob/fx", "google:bob+fx")
+	let unknown = "ghost\(((seed % 7) + 7) % 7)"
+	let text = "hi @Alice and @alice, cc @bob/fx and @\(unknown)!"
+	let (mentioned, unresolved) = SettleMentions(text, vis)
+	mentioned == []ActorID{"google:alice", "google:bob+fx"} && unresolved == []string{unknown}
+}

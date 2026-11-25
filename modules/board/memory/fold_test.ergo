@@ -1,0 +1,175 @@
+import github.com/cevr/ergo/modules/board/board
+
+func testAdmins() []board.Principal {
+	[]board.Principal{
+		board.Principal{ID: "google:admin", Kind: board.Person, Handle: "admin", Email: "admin@example.com", Name: "Admin", Role: board.Admin, State: board.Active},
+		board.Principal{ID: "google:alice", Kind: board.Person, Handle: "alice", Email: "alice@example.com", Name: "Alice", Role: board.Member, State: board.Active},
+		board.Principal{ID: "google:bob", Kind: board.Person, Handle: "bob", Email: "bob@example.com", Name: "Bob", Role: board.Member, State: board.Active},
+	}
+}
+
+func adminCaller() board.Caller {
+	board.Caller{Principal: "google:admin", Profile: "", Role: board.Admin, Kind: board.Person, Email: "admin@example.com", Narrowed: false, NarrowedCan: Map[string, []board.Permission]{}, NarrowedProfile: "", NarrowedBoards: []string{}}
+}
+
+func aliceCaller() board.Caller {
+	board.Caller{Principal: "google:alice", Profile: "", Role: board.Member, Kind: board.Person, Email: "alice@example.com", Narrowed: false, NarrowedCan: Map[string, []board.Permission]{}, NarrowedProfile: "", NarrowedBoards: []string{}}
+}
+
+func aliceAgentCaller() board.Caller {
+	board.Caller{Principal: "google:alice", Profile: "fx", Role: board.Member, Kind: board.Person, Email: "alice@example.com", Narrowed: false, NarrowedCan: Map[string, []board.Permission]{}, NarrowedProfile: "", NarrowedBoards: []string{}}
+}
+
+func bobCaller() board.Caller {
+	board.Caller{Principal: "google:bob", Profile: "", Role: board.Member, Kind: board.Person, Email: "bob@example.com", Narrowed: false, NarrowedCan: Map[string, []board.Permission]{}, NarrowedProfile: "", NarrowedBoards: []string{}}
+}
+
+func generatedCommand(op int, step int) board.Command {
+	let k = ((op % 13) + 13) % 13
+	let key = "k\(((op/13)%3 + 3) % 3)"
+	let targetMsg = "msg_\(((op/39)%3+3)%3 + 1)"
+	match k {
+	case 0:
+		board.PostMessage{Caller: aliceCaller(), Board: board.DefaultBoard, Channel: "dev", Text: "hello @bob step \(step)", Labels: Map[string, string]{}, NoSync: false, From: "", IdempotencyKey: key}
+	case 1:
+		board.PostMessage{Caller: aliceAgentCaller(), Board: board.DefaultBoard, Channel: "dev", Text: "agent note \(step)", Labels: Map[string, string]{}.Put("env", "dev"), NoSync: false, From: "", IdempotencyKey: ""}
+	case 2:
+		board.ReplyMessage{Caller: bobCaller(), Board: board.DefaultBoard, Re: targetMsg, Text: "reply \(step)", After: "", Labels: Map[string, string]{}, NoSync: false, From: "", IdempotencyKey: ""}
+	case 3:
+		board.EditMessage{Caller: aliceCaller(), Board: board.DefaultBoard, ID: targetMsg, Text: "edited \(step)", IfRevision: 0}
+	case 4:
+		board.ReactMessage{Caller: bobCaller(), Board: board.DefaultBoard, ID: targetMsg, Emoji: "thumbsup", Remove: step%2 == 1}
+	case 5:
+		board.LabelMessage{Caller: aliceCaller(), Board: board.DefaultBoard, ID: targetMsg, Set: Map[string, string]{}.Put("status", "open"), Unset: []string{}, If: Map[string, string]{}, IfUnset: []string{}}
+	case 6:
+		board.LabelMessage{Caller: bobCaller(), Board: board.DefaultBoard, ID: targetMsg, Set: Map[string, string]{}.Put("status", "closed"), Unset: []string{}, If: Map[string, string]{}.Put("status", "open"), IfUnset: []string{}}
+	case 7:
+		board.OpenAsk{Caller: aliceCaller(), Board: board.DefaultBoard, Channel: "dev", Thread: "", Text: "question \(step)?", To: []board.ActorID{"google:bob"}, OnlyFromAsked: true, ExpiresAt: 0, IdempotencyKey: ""}
+	case 8:
+		board.WithdrawAsk{Caller: aliceCaller(), Board: board.DefaultBoard, ID: targetMsg}
+	case 9:
+		board.ExpireAsk{Board: board.DefaultBoard, ID: targetMsg}
+	case 10:
+		board.DeleteMessage{Caller: adminCaller(), Board: board.DefaultBoard, ID: targetMsg, IfRevision: 0}
+	case 11:
+		board.CreateChannel{Caller: adminCaller(), Board: board.DefaultBoard, Path: "priv-\(((op/13)%3 + 3) % 3)", Private: true}
+	case _:
+		board.UpdateTrust{Caller: aliceCaller(), Subject: "google:alice+fx", TakesFrom: []board.ActorID{"google:alice", "google:bob"}}
+	}
+}
+
+func runFoldAgreement(ops []int) bool {
+	let admins = testAdmins()
+	let initial = board.InitialState(admins, 100)
+	let store = NewWithAdmins(admins, 100)
+	for i, op in ops {
+		if i >= 24 {
+			break
+		}
+		let cmd = generatedCommand(op, i)
+		let _ = board.Execute(store, cmd, 200+i) catch {
+		case _:
+			([]board.Event{}, 0)
+		}
+		let snap = store.Snapshot() catch {
+		case _:
+			return false
+		}
+		let evts = store.ReadEvents(board.DefaultBoard, 0) catch {
+		case _:
+			return false
+		}
+		let folded = board.Fold(initial, evts)
+		if snap != folded {
+			return false
+		}
+	}
+	true
+}
+
+// BoardAgreesWithFold checks that for any generated command sequence the
+// memory store's Snapshot equals board.Fold over its event log after every
+// command.
+law BoardAgreesWithFold(ops []int) { runFoldAgreement(ops) }
+
+test TestBoardAgreesWithFold {
+	assert runFoldAgreement([]int{0, 1, 2, 0, 3, 4, 5, 6, 7, 2, 8, 9, 10, 11, 12, 0, 5, 6, 4, 7, 8})
+	let admins = testAdmins()
+	let initial = board.InitialState(admins, 100)
+	let store = NewWithAdmins(admins, 100)
+	let (e1, _) = try board.Execute(store, board.PostMessage{
+		Caller:         aliceCaller(),
+		Board:          board.DefaultBoard,
+		Channel:        "dev",
+		Text:           "initial post @bob",
+		Labels:         Map[string, string]{},
+		NoSync:         false,
+		From:           "",
+		IdempotencyKey: "req-1",
+	}, 1000)
+	assert len(e1) == 2
+	let (e2, _) = try board.Execute(store, board.PostMessage{
+		Caller:         aliceCaller(),
+		Board:          board.DefaultBoard,
+		Channel:        "dev",
+		Text:           "initial post @bob",
+		Labels:         Map[string, string]{},
+		NoSync:         false,
+		From:           "",
+		IdempotencyKey: "req-1",
+	}, 1001)
+	assert len(e2) == 0
+	let mut secretRefused = false
+	let _ = board.Execute(store, board.PostMessage{
+		Caller:         aliceCaller(),
+		Board:          board.DefaultBoard,
+		Channel:        "dev",
+		Text:           "token \("ghp_")AbCdEfGhIjKlMnOpQrStUvWxYz0123456789",
+		Labels:         Map[string, string]{},
+		NoSync:         false,
+		From:           "",
+		IdempotencyKey: "",
+	}, 1002) catch {
+	case board.SecretDetected:
+		secretRefused = true
+		([]board.Event{}, 0)
+	case _:
+		([]board.Event{}, 0)
+	}
+	assert secretRefused
+	let (e3, _) = try board.Execute(store, board.PostMessage{
+		Caller:         aliceCaller(),
+		Board:          board.DefaultBoard,
+		Channel:        "dev",
+		Text:           "from slack \("ghp_")AbCdEfGhIjKlMnOpQrStUvWxYz0123456789",
+		Labels:         Map[string, string]{},
+		NoSync:         false,
+		From:           "slack",
+		IdempotencyKey: "",
+	}, 1003)
+	assert len(e3) == 1
+	let (e4, _) = try board.Execute(store, board.ReactMessage{
+		Caller: bobCaller(),
+		Board:  board.DefaultBoard,
+		ID:     "msg_1",
+		Emoji:  "rocket",
+		Remove: false,
+	}, 1004)
+	assert len(e4) == 1
+	let snap = try store.Snapshot()
+	let evts = try store.ReadEvents(board.DefaultBoard, 0)
+	assert snap == board.Fold(initial, evts)
+	match snap.Messages.Get("msg_1") {
+	case Some[board.Message] as m:
+		assert m.Value.Reactions.Get("rocket") == Some[[]board.ActorID]{Value: []board.ActorID{"google:bob"}}
+	case None:
+		assert false
+	}
+	match snap.Messages.Get("msg_2") {
+	case Some[board.Message] as m:
+		assert m.Value.Text == "from slack [removed: github]"
+		assert m.Value.Labels.Get("board.redacted") == Some[string]{Value: "github"}
+	case None:
+		assert false
+	}
+}

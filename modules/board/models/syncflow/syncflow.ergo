@@ -1,0 +1,274 @@
+// The package syncflow is the design model of sync delivery between one
+// board thread and one platform thread (spec.md, Sync link; machines.md,
+// M4): no echo, each platform message imported at most once, each board
+// message copied to the platform at most once, retries, and a failed
+// delivery that does not block the next message.
+//
+// Scope: two messages written on the board (B0, B1), two written on the
+// platform by its users (P0, P1), at most MaxTries delivery attempts a
+// message (the design's limit is 5; 2 here).
+//
+// Outbound, per board message. Out: 0 pending, 1 ambiguous (the platform
+// accepted the post but the answer was lost, so the board has no record),
+// 2 recorded, 3 failed for good. Copies counts the platform's copies.
+//   - Try{B, Lost}: post. Every post carries the board message's id as the
+//     platform's own metadata (the marker). Lost: the answer is lost.
+//   - TryFail{B}: an attempt the platform refused or never got.
+//   - From the ambiguous state, a retry first looks the marker up on the
+//     platform (Reconcile) and records the copy it finds; it never posts
+//     blind.
+//
+// Inbound. The platform sends a webhook for every message in the thread,
+// the board's own copies included, any number of times and in any order:
+//   - Hook{P}: a user's message. Imported once, keyed by the platform's
+//     message id; a second delivery of it is a no-op.
+//   - HookOwn{B}: the board's own copy. Recognized by its marker, with or
+//     without the board's record of the post (the webhook can arrive
+//     before the post's answer), and never imported.
+//   - Back{P}: an attempt to deliver an imported message to the platform
+//     it came from. The design never does.
+type BMsg = B0{} | B1{}
+type PMsg = P0{} | P1{}
+
+type Act = Try{B BMsg, Lost bool} | TryFail{B BMsg} | Reconcile{B BMsg} | UserPost{P PMsg} | Hook{P PMsg} | HookOwn{B BMsg} | Back{P PMsg}
+
+type World {
+	Out      []int,
+	Copies   []int,
+	Tries    []int,
+	Echo     []int,
+	Exists   []bool,
+	Imported []int,
+	Returned []int,
+}
+
+let MaxTries = 2
+
+let NoMutant = 0
+let BlindRetryMutant = 1
+let MapOnlyMutant = 2
+let NoDedupeMutant = 3
+let DeliverImportedMutant = 4
+let FailureBlocksMutant = 5
+
+func bi(b BMsg) int {
+	match b {
+	case B0:
+		return 0
+	case B1:
+		return 1
+	}
+}
+
+func pi(p PMsg) int {
+	match p {
+	case P0:
+		return 0
+	case P1:
+		return 1
+	}
+}
+
+func first() World {
+	World{
+		Out:      []int{0, 0},
+		Copies:   []int{0, 0},
+		Tries:    []int{0, 0},
+		Echo:     []int{0, 0},
+		Exists:   []bool{false, false},
+		Imported: []int{0, 0},
+		Returned: []int{0, 0},
+	}
+}
+
+func blocked(w World, b int, mutant int) bool {
+	mutant == FailureBlocksMutant && b == 1 && w.Out[0] != 2
+}
+
+func step(s World, act Act, mutant int) Decision[World, string] {
+	let mut w = s
+	match act {
+	case Try as a:
+		let b = bi(a.B)
+		if blocked(w, b, mutant) {
+			return Ignore
+		}
+		let mut can = w.Out[b] == 0
+		if mutant == BlindRetryMutant {
+			can = w.Out[b] == 0 || w.Out[b] == 1
+		}
+		if !can || w.Tries[b] >= MaxTries {
+			return Ignore
+		}
+		w.Tries[b] = w.Tries[b] + 1
+		w.Copies[b] = w.Copies[b] + 1
+		if a.Lost {
+			w.Out[b] = 1
+		} else {
+			w.Out[b] = 2
+		}
+		return Enter{w}
+	case TryFail as a:
+		let b = bi(a.B)
+		if blocked(w, b, mutant) || w.Out[b] != 0 {
+			return Ignore
+		}
+		w.Tries[b] = w.Tries[b] + 1
+		if w.Tries[b] >= MaxTries {
+			w.Out[b] = 3
+		}
+		return Enter{w}
+	case Reconcile as a:
+		let b = bi(a.B)
+		if w.Out[b] != 1 || mutant == BlindRetryMutant {
+			return Ignore
+		}
+		w.Out[b] = 2
+		return Enter{w}
+	case UserPost as a:
+		let p = pi(a.P)
+		if w.Exists[p] {
+			return Ignore
+		}
+		w.Exists[p] = true
+		return Enter{w}
+	case Hook as a:
+		let p = pi(a.P)
+		if !w.Exists[p] {
+			return Ignore
+		}
+		if w.Imported[p] == 0 {
+			w.Imported[p] = 1
+			return Enter{w}
+		}
+		if mutant == NoDedupeMutant && w.Imported[p] < 2 {
+			w.Imported[p] = 2
+			return Enter{w}
+		}
+		return Ignore
+	case HookOwn as a:
+		let b = bi(a.B)
+		if w.Copies[b] == 0 {
+			return Ignore
+		}
+		if mutant == MapOnlyMutant && w.Out[b] != 2 && w.Echo[b] == 0 {
+			w.Echo[b] = 1
+			return Enter{w}
+		}
+		return Ignore
+	case Back as a:
+		let p = pi(a.P)
+		if mutant == DeliverImportedMutant && w.Imported[p] > 0 && w.Returned[p] == 0 {
+			w.Returned[p] = 1
+			return Enter{w}
+		}
+		return Ignore
+	}
+}
+
+func noEcho(w World) bool {
+	for n in w.Echo {
+		if n > 0 {
+			return false
+		}
+	}
+	for n in w.Returned {
+		if n > 0 {
+			return false
+		}
+	}
+	true
+}
+
+func importedOnce(w World) bool {
+	for n in w.Imported {
+		if n > 1 {
+			return false
+		}
+	}
+	true
+}
+
+func oneCopy(w World) bool {
+	for n in w.Copies {
+		if n > 1 {
+			return false
+		}
+	}
+	true
+}
+
+func recordedHasCopy(w World) bool {
+	for b, o in w.Out {
+		if o == 2 && w.Copies[b] != 1 {
+			return false
+		}
+		if o == 3 && w.Copies[b] != 0 {
+			return false
+		}
+	}
+	true
+}
+
+func echoed(w World) bool        { !noEcho(w) }
+func importedTwice(w World) bool { !importedOnce(w) }
+func twoCopies(w World) bool     { !oneCopy(w) }
+
+func allSynced(w World) bool {
+	w.Out[0] == 2 && w.Out[1] == 2 && w.Imported[0] == 1 && w.Imported[1] == 1
+}
+func failedDoesNotBlock(w World) bool { w.Out[0] == 3 && w.Out[1] == 2 }
+func reconciled(w World) bool         { w.Out[0] == 2 && w.Tries[0] == 1 && w.Copies[0] == 1 && w.Out[1] == 1 }
+
+func design(s World, a Act) Decision[World, string]          { return step(s, a, NoMutant) }
+func blindRetry(s World, a Act) Decision[World, string]      { return step(s, a, BlindRetryMutant) }
+func mapOnly(s World, a Act) Decision[World, string]         { return step(s, a, MapOnlyMutant) }
+func noDedupe(s World, a Act) Decision[World, string]        { return step(s, a, NoDedupeMutant) }
+func deliverImported(s World, a Act) Decision[World, string] { return step(s, a, DeliverImportedMutant) }
+func failureBlocks(s World, a Act) Decision[World, string]   { return step(s, a, FailureBlocksMutant) }
+
+type Design machine[World, Act] {
+	initial: first(),
+	step:    design,
+
+	law NoEcho always noEcho,
+	law ImportedOnce always importedOnce,
+	law OneCopy always oneCopy,
+	law RecordedHasCopy always recordedHasCopy,
+
+	law AllSynced sometimes allSynced,
+	law FailedDoesNotBlock sometimes failedDoesNotBlock,
+	law Reconciles sometimes reconciled,
+}
+
+type BlindRetry machine[World, Act] {
+	initial: first(),
+	step:    blindRetry,
+	law Breaks sometimes twoCopies,
+}
+
+type MapOnly machine[World, Act] {
+	initial: first(),
+	step:    mapOnly,
+	law Breaks sometimes echoed,
+}
+
+type NoDedupe machine[World, Act] {
+	initial: first(),
+	step:    noDedupe,
+	law Breaks sometimes importedTwice,
+}
+
+type DeliverImported machine[World, Act] {
+	initial: first(),
+	step:    deliverImported,
+	law Breaks sometimes echoed,
+}
+
+func neverPastAFailure(w World) bool { !failedDoesNotBlock(w) }
+
+type FailureBlocks machine[World, Act] {
+	initial: first(),
+	step:    failureBlocks,
+	law Breaks always neverPastAFailure,
+}

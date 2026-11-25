@@ -1,0 +1,379 @@
+import strings
+
+// StalePosition reports that Commit's expected cursor did not match the board's
+// current head cursor.
+type StalePosition {
+	Board    string,
+	Expected Cursor,
+	Actual   Cursor,
+}
+
+// StoreFailed reports an operational storage failure (crash, unavailable).
+type StoreFailed {
+	Reason string,
+}
+
+// SearchQuery describes a caller-scoped full-text search over a board.
+type SearchQuery {
+	Board   string,
+	Channel string,
+	Query   string,
+	Caller  Caller,
+	Limit   int,
+}
+
+// SearchHit is one readable message matching a SearchQuery.
+type SearchHit {
+	Message Message,
+	Snippet string,
+}
+
+// MatchesSearchQuery reports whether message m matches every whitespace-separated
+// word of query (case-insensitively), belongs to the requested board/channel,
+// is not deleted, and is readable by caller under grants.
+func MatchesSearchQuery(grants []Grant, m Message, q SearchQuery) bool {
+	if m.Deleted || m.Board != ResolveBoard(q.Board) {
+		return false
+	}
+	if q.Channel != "" && m.Channel != q.Channel {
+		return false
+	}
+	if !Can(grants, q.Caller, m.Channel, PermRead) {
+		return false
+	}
+	let words = strings.Fields(strings.ToLower(q.Query))
+	if len(words) == 0 {
+		return false
+	}
+	let lower = strings.ToLower(m.Text)
+	for w in words {
+		if !strings.Contains(lower, w) {
+			return false
+		}
+	}
+	true
+}
+
+func defaultLawAdmin() Caller {
+	Caller{
+		Principal:       "google:admin",
+		Profile:         "",
+		Role:            Admin,
+		Kind:            Person,
+		Email:           "admin@example.com",
+		Narrowed:        false,
+		NarrowedCan:     Map[string, []Permission]{},
+		NarrowedProfile: "",
+		NarrowedBoards:  []string{},
+	}
+}
+
+func defaultLawMember() Caller {
+	Caller{
+		Principal:       "google:member",
+		Profile:         "",
+		Role:            Member,
+		Kind:            Person,
+		Email:           "member@example.com",
+		Narrowed:        false,
+		NarrowedCan:     Map[string, []Permission]{},
+		NarrowedProfile: "",
+		NarrowedBoards:  []string{},
+	}
+}
+
+func denseEvents(evts []Event) bool {
+	for i, e in evts {
+		if e.Seq != i+1 {
+			return false
+		}
+	}
+	true
+}
+
+func samplePostEvents(s State, text string, now Timestamp) []Event {
+	let evts = Decide(s, PostMessage{
+		Caller:         defaultLawAdmin(),
+		Board:          DefaultBoard,
+		Channel:        "dev",
+		Text:           text,
+		Labels:         Map[string, string]{},
+		NoSync:         false,
+		From:           "",
+		IdempotencyKey: "",
+	}, now) catch {
+	case _:
+		[]Event{}
+	}
+	evts
+}
+
+// Store is the provider-neutral storage contract for the board. It speaks
+// exclusively in board domain terms (conditional event append with atomic
+// projection updates, cursor reads, snapshot fold, and visibility-checked
+// search) so memory, SQLite, and document-store providers satisfy identical
+// laws without leaking storage-engine primitives.
+type Store {
+	// Commit atomically verifies that board's head cursor equals expected,
+	// assigns sequential cursors starting at expected+1, appends events to the
+	// board log, and applies them to the store's projections. On StalePosition
+	// or StoreFailed nothing changes.
+	Commit(board string, expected Cursor, events []Event) Cursor fails StalePosition | StoreFailed,
+
+	// ReadEvents returns all committed events for board with Seq > after, in
+	// ascending cursor order.
+	ReadEvents(board string, after Cursor) []Event fails StoreFailed,
+
+	// Snapshot returns the store's current projected domain State.
+	Snapshot() State fails StoreFailed,
+
+	// Search returns readable, non-deleted messages matching q.
+	Search(q SearchQuery) []SearchHit fails StoreFailed,
+
+	// AppendAddsOne verifies that Commit at the current head advances the head
+	// by len(events) and ReadEvents after the prior cursor returns those events.
+	law AppendAddsOne(tag int) {
+		let snap = Snapshot() catch {
+		case StoreFailed:
+			return true
+		}
+		let before = boardHead(snap, DefaultBoard)
+		let evts = samplePostEvents(snap, "hello-\(tag)", 1000)
+		if len(evts) == 0 {
+			return false
+		}
+		let head = Commit(DefaultBoard, before, evts) catch {
+		case StalePosition:
+			return false
+		case StoreFailed:
+			return true
+		}
+		let after = ReadEvents(DefaultBoard, before) catch {
+		case StoreFailed:
+			return true
+		}
+		head == before+len(evts) && len(after) == len(evts) && after[len(after)-1].Seq == head
+	},
+
+	// PositionsAreDense verifies that committed events carry contiguous
+	// positions 1..N with no gaps.
+	law PositionsAreDense(n int) {
+		let count = ((n%4)+4)%4 + 1
+		for i in 0..count {
+			let snap = Snapshot() catch {
+			case StoreFailed:
+				return true
+			}
+			let evts = samplePostEvents(snap, "dense-\(i)", 1000+i)
+			Commit(DefaultBoard, boardHead(snap, DefaultBoard), evts) catch {
+			case StalePosition:
+				return false
+			case StoreFailed:
+				return true
+			}
+		}
+		let all = ReadEvents(DefaultBoard, 0) catch {
+		case StoreFailed:
+			return true
+		}
+		denseEvents(all) && len(all) >= count
+	},
+
+	// ReadAfterIsTheSuffix verifies that ReadEvents(board, after) is the exact
+	// suffix of ReadEvents(board, 0) with Seq > after.
+	law ReadAfterIsTheSuffix(cut int) {
+		for i in 0..3 {
+			let snap = Snapshot() catch {
+			case StoreFailed:
+				return true
+			}
+			let evts = samplePostEvents(snap, "suffix-\(i)", 2000+i)
+			Commit(DefaultBoard, boardHead(snap, DefaultBoard), evts) catch {
+			case StalePosition:
+				return false
+			case StoreFailed:
+				return true
+			}
+		}
+		let all = ReadEvents(DefaultBoard, 0) catch {
+		case StoreFailed:
+			return true
+		}
+		let after = if len(all) == 0 { 0 } else { ((cut % (len(all) + 1)) + (len(all) + 1)) % (len(all) + 1) }
+		let got = ReadEvents(DefaultBoard, after) catch {
+		case StoreFailed:
+			return true
+		}
+		let mut want = []Event{}
+		for e in all {
+			if e.Seq > after {
+				want = want.Append(e)
+			}
+		}
+		got == want
+	},
+
+	// StalePositionChangesNothing verifies that a Commit with a mismatched
+	// expected cursor fails StalePosition and leaves log and snapshot untouched.
+	law StalePositionChangesNothing(off int) {
+		let snap0 = Snapshot() catch {
+		case StoreFailed:
+			return true
+		}
+		let seedEvts = samplePostEvents(snap0, "seed", 3000)
+		Commit(DefaultBoard, boardHead(snap0, DefaultBoard), seedEvts) catch {
+		case StalePosition:
+			return false
+		case StoreFailed:
+			return true
+		}
+		let snapBefore = Snapshot() catch {
+		case StoreFailed:
+			return true
+		}
+		let logBefore = ReadEvents(DefaultBoard, 0) catch {
+		case StoreFailed:
+			return true
+		}
+		let actual = boardHead(snapBefore, DefaultBoard)
+		let stale = if off%2 == 0 { actual + 1 } else { actual - 1 }
+		let extra = samplePostEvents(snapBefore, "should-not-land", 3001)
+		let mut failedStale = false
+		let _ = Commit(DefaultBoard, stale, extra) catch {
+		case StalePosition as sp:
+			failedStale = sp.Board == DefaultBoard && sp.Expected == stale && sp.Actual == actual
+			-1
+		case StoreFailed:
+			return true
+		}
+		let snapAfter = Snapshot() catch {
+		case StoreFailed:
+			return true
+		}
+		let logAfter = ReadEvents(DefaultBoard, 0) catch {
+		case StoreFailed:
+			return true
+		}
+		failedStale && snapAfter == snapBefore && logAfter == logBefore
+	},
+
+	// SnapshotAgreesWithFold verifies atomicity between the event log and the
+	// store's projected state.
+	law SnapshotAgreesWithFold(n int) {
+		let snapStart = Snapshot() catch {
+		case StoreFailed:
+			return true
+		}
+		let baseEvents = ReadEvents(DefaultBoard, 0) catch {
+		case StoreFailed:
+			return true
+		}
+		let count = ((n%3)+3)%3 + 1
+		for i in 0..count {
+			let snap = Snapshot() catch {
+			case StoreFailed:
+				return true
+			}
+			let evts = samplePostEvents(snap, "fold-\(i)", 4000+i)
+			Commit(DefaultBoard, boardHead(snap, DefaultBoard), evts) catch {
+			case StalePosition:
+				return false
+			case StoreFailed:
+				return true
+			}
+		}
+		let all = ReadEvents(DefaultBoard, 0) catch {
+		case StoreFailed:
+			return true
+		}
+		let mut added = []Event{}
+		for e in all {
+			if e.Seq > len(baseEvents) {
+				added = added.Append(e)
+			}
+		}
+		let snapEnd = Snapshot() catch {
+		case StoreFailed:
+			return true
+		}
+		snapEnd == Fold(snapStart, added)
+	},
+
+	// SearchRespectsVisibilityAndMatches verifies that Search finds readable
+	// matching messages and never exposes messages from private channels to
+	// callers without read access.
+	law SearchRespectsVisibilityAndMatches(tag int) {
+		let admin = defaultLawAdmin()
+		let member = defaultLawMember()
+		let snap0 = Snapshot() catch {
+		case StoreFailed:
+			return true
+		}
+		let chEvts = Decide(snap0, CreateChannel{Caller: admin, Board: DefaultBoard, Path: "secret-\(((tag % 50) + 50) % 50)", Private: true}, 5000) catch {
+		case _:
+			[]Event{}
+		}
+		if len(chEvts) > 0 {
+			Commit(DefaultBoard, boardHead(snap0, DefaultBoard), chEvts) catch {
+			case StalePosition, StoreFailed:
+				return true
+			}
+		}
+		let chName = "secret-\(((tag % 50) + 50) % 50)"
+		let snap1 = Snapshot() catch {
+		case StoreFailed:
+			return true
+		}
+		let privEvts = Decide(snap1, PostMessage{Caller: admin, Board: DefaultBoard, Channel: chName, Text: "needle-private-\(tag)", Labels: Map[string, string]{}, NoSync: false, From: "", IdempotencyKey: ""}, 5001) catch {
+		case _:
+			return false
+		}
+		Commit(DefaultBoard, boardHead(snap1, DefaultBoard), privEvts) catch {
+		case StalePosition:
+			return false
+		case StoreFailed:
+			return true
+		}
+		let snap2 = Snapshot() catch {
+		case StoreFailed:
+			return true
+		}
+		let pubEvts = Decide(snap2, PostMessage{Caller: admin, Board: DefaultBoard, Channel: "dev", Text: "needle-public-\(tag)", Labels: Map[string, string]{}, NoSync: false, From: "", IdempotencyKey: ""}, 5002) catch {
+		case _:
+			return false
+		}
+		Commit(DefaultBoard, boardHead(snap2, DefaultBoard), pubEvts) catch {
+		case StalePosition:
+			return false
+		case StoreFailed:
+			return true
+		}
+		let memberHits = Search(SearchQuery{Board: DefaultBoard, Channel: "", Query: "needle-private-\(tag)", Caller: member, Limit: 20}) catch {
+		case StoreFailed:
+			return true
+		}
+		let adminHits = Search(SearchQuery{Board: DefaultBoard, Channel: "", Query: "needle-private-\(tag)", Caller: admin, Limit: 20}) catch {
+		case StoreFailed:
+			return true
+		}
+		let pubHits = Search(SearchQuery{Board: DefaultBoard, Channel: "", Query: "needle-public-\(tag)", Caller: member, Limit: 20}) catch {
+		case StoreFailed:
+			return true
+		}
+		len(memberHits) == 0 && len(adminHits) >= 1 && len(pubHits) >= 1
+	},
+}
+
+// Execute runs Decide against store.Snapshot() and atomically commits any
+// resulting events at the board's expected head cursor.
+func Execute(store Store, cmd Command, now Timestamp) ([]Event, Cursor) fails Refusal | StalePosition | StoreFailed {
+	let snap = try store.Snapshot()
+	let b = BoardOfCommand(cmd)
+	let expected = boardHead(snap, b)
+	let events = try Decide(snap, cmd, now)
+	if len(events) == 0 {
+		return (events, expected)
+	}
+	let head = try store.Commit(b, expected, events)
+	(events, head)
+}

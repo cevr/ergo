@@ -1,0 +1,1300 @@
+import maps
+import sha256
+import slices
+import strings
+
+// ChannelKey returns the canonical map key for a channel on a board.
+func ChannelKey(board string, path string) string { "\(board):\(path)" }
+
+// ResolveBoard normalizes an empty board name to DefaultBoard.
+func ResolveBoard(board string) string {
+	if board == "" {
+		return DefaultBoard
+	}
+	board
+}
+
+// ValidLabelKey reports whether k is 1 to 64 bytes of lowercase letters,
+// digits, underscores, dots, or hyphens starting with a letter or digit.
+func ValidLabelKey(k string) bool {
+	let bs = strings.Bytes(k)
+	if len(bs) < 1 || len(bs) > 64 {
+		return false
+	}
+	let first = bs[0]
+	if !((first >= 97 && first <= 122) || (first >= 48 && first <= 57)) {
+		return false
+	}
+	for b in bs {
+		let ok = (b >= 97 && b <= 122) || (b >= 48 && b <= 57) || b == 95 || b == 46 || b == 45
+		if !ok {
+			return false
+		}
+	}
+	true
+}
+
+// ValidLabelValue reports whether v is at most 256 bytes and holds no ASCII
+// control characters.
+func ValidLabelValue(v string) bool {
+	let bs = strings.Bytes(v)
+	if len(bs) > 256 {
+		return false
+	}
+	for b in bs {
+		if b < 32 || b == 127 {
+			return false
+		}
+	}
+	true
+}
+
+// ReservedLabelUse returns the owning operation name when k is a board.*
+// reserved label key, or None otherwise.
+func ReservedLabelUse(k string) Option[string] {
+	if !strings.HasPrefix(k, "board.") {
+		return None
+	}
+	if strings.HasPrefix(k, "board.task") || k == "board.held" {
+		return Some[string]{Value: "tasks"}
+	}
+	if strings.HasPrefix(k, "board.ask") {
+		return Some[string]{Value: "ask"}
+	}
+	Some[string]{Value: "board"}
+}
+
+func boardGrants(s State, board string) []Grant {
+	match s.Grants.Get(board) {
+	case Some[[]Grant] as gs:
+		gs.Value
+	case None:
+		[]Grant{}
+	}
+}
+
+func boardHead(s State, board string) Cursor {
+	match s.Head.Get(board) {
+	case Some[Cursor] as c:
+		c.Value
+	case None:
+		0
+	}
+}
+
+func isGone(s State, id PrincipalID) bool {
+	match s.Principals.Get(id) {
+	case Some[Principal] as p:
+		p.Value.State == Offboarded
+	case None:
+		false
+	}
+}
+
+func requireActiveCaller(s State, c Caller) fails Refusal {
+	if c.Principal == "" {
+		return Unauthenticated
+	}
+	if isGone(s, c.Principal) {
+		return Gone
+	}
+}
+
+func requireBoard(s State, c Caller, board string) BoardRecord fails Refusal {
+	let name = ResolveBoard(board)
+	if c.Narrowed && len(c.NarrowedBoards) > 0 && !slices.Contains(c.NarrowedBoards, name) {
+		return BoardNotFound
+	}
+	match s.Boards.Get(name) {
+	case Some[BoardRecord] as b:
+		if b.Value.Archived {
+			return BoardArchived
+		}
+		b.Value
+	case None:
+		BoardNotFound
+	}
+}
+
+func requirePerm(s State, board string, c Caller, channel string, perm Permission) fails Refusal {
+	let gs = boardGrants(s, board)
+	if !Can(gs, c, channel, perm) {
+		if !Can(gs, c, channel, PermRead) {
+			return NotFound{What: channel}
+		}
+		return Forbidden{Permission: PermissionName(perm), Channel: channel}
+	}
+}
+
+func checkLabelsWritable(labels Map[string, string]) fails Refusal {
+	for k in slices.Sorted(maps.Keys(labels)) {
+		if !ValidLabelKey(k) {
+			return Invalid{Field: "labels", Why: "invalid label key"}
+		}
+		match ReservedLabelUse(k) {
+		case Some[string] as use:
+			return ReservedLabel{Use: use.Value}
+		case None:
+		}
+		let v = match labels.Get(k) {
+		case Some[string] as val:
+			val.Value
+		case None:
+			""
+		}
+		if !ValidLabelValue(v) {
+			return Invalid{Field: "labels", Why: "invalid label value"}
+		}
+		match ScanSecret(v) {
+		case Some[SecretHit] as h:
+			return SecretDetected{Kind: h.Value.Kind, At: h.Value.At}
+		case None:
+		}
+	}
+}
+
+func encodeLabelsCanonical(labels Map[string, string]) string {
+	let mut out = ""
+	for k in slices.Sorted(maps.Keys(labels)) {
+		let v = match labels.Get(k) {
+		case Some[string] as val:
+			val.Value
+		case None:
+			""
+		}
+		out = "\(out)\(k)=\(v);"
+	}
+	out
+}
+
+// CommandDigest returns the SHA-256 payload digest used for idempotency checks.
+func CommandDigest(cmd Command) string {
+	match cmd {
+	case PostMessage as c:
+		sha256.Sum("post|\(ResolveBoard(c.Board))|\(c.Channel)|\(c.Text)|\(encodeLabelsCanonical(c.Labels))|\(c.NoSync)|\(c.From)")
+	case ReplyMessage as c:
+		sha256.Sum("reply|\(ResolveBoard(c.Board))|\(c.Re)|\(c.After)|\(c.Text)|\(encodeLabelsCanonical(c.Labels))|\(c.NoSync)|\(c.From)")
+	case OpenAsk as c:
+		let mut tos = ""
+		for t in c.To {
+			tos = "\(tos)\(t),"
+		}
+		sha256.Sum("ask|\(ResolveBoard(c.Board))|\(c.Channel)|\(c.Thread)|\(c.Text)|\(tos)|\(c.OnlyFromAsked)|\(c.ExpiresAt)")
+	case _:
+		sha256.Sum("other")
+	}
+}
+
+// LookupIdempotency returns a still-valid idempotency record for (actor, key)
+// at now, if one exists within the 24-hour window.
+func LookupIdempotency(s State, actor ActorID, key string, now Timestamp) Option[IdempotencyEntry] {
+	if key == "" {
+		return None
+	}
+	match s.Idempotency.Get(IdempotencyKey{Actor: actor, Key: key}) {
+	case Some[IdempotencyEntry] as e:
+		if now-e.Value.RecordedAt < IdempotencyWindowMs {
+			return Some[IdempotencyEntry]{Value: e.Value}
+		}
+		None
+	case None:
+		None
+	}
+}
+
+func checkIdempotency(s State, actor ActorID, key string, digest string, now Timestamp) bool fails Refusal {
+	match LookupIdempotency(s, actor, key, now) {
+	case Some[IdempotencyEntry] as e:
+		if e.Value.Digest != digest {
+			return IdempotencyConflict
+		}
+		true
+	case None:
+		false
+	}
+}
+
+// VisibleActorHandles builds the handle-to-actor map of actors visible to
+// caller c on board (active principals and profiles seen in readable channels).
+func VisibleActorHandles(s State, board string, c Caller) Map[string, ActorID] {
+	let gs = boardGrants(s, board)
+	let mut out = Map[string, ActorID]{}
+	for _, p in s.Principals {
+		if p.State == Active && p.Handle != "" {
+			out = out.Put(p.Handle, p.ID)
+		}
+	}
+	for _, m in s.Messages {
+		if m.Board != board || m.Deleted {
+			continue
+		}
+		if !Can(gs, c, m.Channel, PermRead) {
+			continue
+		}
+		match s.Principals.Get(m.Principal) {
+		case Some[Principal] as p:
+			if p.Value.Handle != "" {
+				out = out.Put(p.Value.Handle, p.Value.ID)
+				if m.Profile != "" {
+					out = out.Put("\(p.Value.Handle)/\(m.Profile)", m.By)
+				}
+			}
+		case None:
+		}
+	}
+	out
+}
+
+func scanOrRedact(text string, from string) (string, []string) fails Refusal {
+	if len(strings.Bytes(text)) > MaxMessageLen {
+		return TooLarge{Limit: MaxMessageLen}
+	}
+	if from == "" {
+		match ScanSecret(text) {
+		case Some[SecretHit] as h:
+			return SecretDetected{Kind: h.Value.Kind, At: h.Value.At}
+		case None:
+		}
+		return (text, []string{})
+	}
+	RedactSecrets(text)
+}
+
+func maybeProfileEvent(s State, c Caller, board string, now Timestamp) Option[Event] {
+	if c.Profile == "" {
+		return None
+	}
+	let actor = ActorOf(c)
+	match s.Profiles.Get(actor) {
+	case Some[Profile]:
+		None
+	case None:
+		Some[Event]{Value: Event{
+			Seq:     0,
+			Board:   board,
+			At:      now,
+			Actor:   actor,
+			Payload: ProfileSeen{Profile: Profile{Principal: c.Principal, Name: c.Profile, Avatar: "", FirstSeenAt: now, LastSeenAt: now}},
+		}}
+	}
+}
+
+func isAuthor(c Caller, m Message) bool {
+	if c.Profile != "" {
+		return ActorOf(c) == m.By
+	}
+	c.Principal == m.Principal
+}
+
+func actorPrincipal(a ActorID) PrincipalID {
+	let idx = strings.Index(a, "+")
+	if idx < 0 {
+		return a
+	}
+	strings.Slice(a, 0, idx)
+}
+
+func qualifiesToAnswer(ask AskRecord, c Caller) bool {
+	let actor = ActorOf(c)
+	if actor == ask.Asker {
+		return false
+	}
+	if !ask.OnlyFromAsked || len(ask.To) == 0 {
+		return true
+	}
+	for target in ask.To {
+		if target == actor {
+			return true
+		}
+		if c.Profile == "" && c.Principal == actorPrincipal(target) {
+			return true
+		}
+	}
+	false
+}
+
+func findOpenAskForReply(s State, board string, root MessageID, replyTo MessageID) Option[AskRecord] {
+	match s.Asks.Get(replyTo) {
+	case Some[AskRecord] as a:
+		if a.Value.Board == board && a.Value.State == AskOpen {
+			return Some[AskRecord]{Value: a.Value}
+		}
+	case None:
+	}
+	match s.Asks.Get(root) {
+	case Some[AskRecord] as a:
+		if a.Value.Board == board && a.Value.State == AskOpen {
+			return Some[AskRecord]{Value: a.Value}
+		}
+	case None:
+	}
+	None
+}
+
+func grantCoversChannel(gs []Grant, path string) bool {
+	for g in gs {
+		for r in g.Rules {
+			if r.Pattern != "*" && PatternSpecificity(r.Pattern, path) >= 0 {
+				return true
+			}
+		}
+	}
+	false
+}
+
+func channelOrChildExists(s State, board string, path string) bool {
+	let prefix = "\(path)/"
+	for _, ch in s.Channels {
+		if ch.Board == board && (ch.Path == path || strings.HasPrefix(ch.Path, prefix)) {
+			return true
+		}
+	}
+	false
+}
+
+func validateGrantRules(s State, board string, c Caller, g Grant) fails Refusal {
+	if !CanModifyAdminSettings(c) {
+		return Forbidden{Permission: "manage", Channel: "*"}
+	}
+	let gs = boardGrants(s, board)
+	for r in g.Rules {
+		if !ValidPattern(r.Pattern) {
+			return Invalid{Field: "pattern", Why: "invalid channel pattern"}
+		}
+		let sample = if r.Pattern == "*" {
+			"general"
+		} else if strings.HasSuffix(r.Pattern, "/") {
+			strings.TrimSuffix(r.Pattern, "/")
+		} else {
+			r.Pattern
+		}
+		if !Can(gs, c, sample, PermManage) {
+			return Forbidden{Permission: "manage", Channel: r.Pattern}
+		}
+		if r.Pattern == "*" && c.Role != Admin {
+			return Forbidden{Permission: "manage", Channel: "*"}
+		}
+		if !r.Deny {
+			let mine = EffectivePermissions(gs, c, sample)
+			for p in r.Allow {
+				if !slices.Contains(mine, p) {
+					return Forbidden{Permission: PermissionName(p), Channel: r.Pattern}
+				}
+			}
+		}
+	}
+}
+
+// BoardOfCommand returns the board name targeted by cmd.
+func BoardOfCommand(cmd Command) string {
+	match cmd {
+	case CreateBoard as c:
+		ResolveBoard(c.Name)
+	case RenameBoard as c:
+		ResolveBoard(c.Board)
+	case ArchiveBoard as c:
+		ResolveBoard(c.Board)
+	case CreateChannel as c:
+		ResolveBoard(c.Board)
+	case PostMessage as c:
+		ResolveBoard(c.Board)
+	case ReplyMessage as c:
+		ResolveBoard(c.Board)
+	case EditMessage as c:
+		ResolveBoard(c.Board)
+	case DeleteMessage as c:
+		ResolveBoard(c.Board)
+	case ReactMessage as c:
+		ResolveBoard(c.Board)
+	case LabelMessage as c:
+		ResolveBoard(c.Board)
+	case RegisterPrincipal:
+		DefaultBoard
+	case MarkPrincipalGone:
+		DefaultBoard
+	case CreateGrant as c:
+		ResolveBoard(c.Board)
+	case UpdateGrant as c:
+		ResolveBoard(c.Board)
+	case RevokeGrant as c:
+		ResolveBoard(c.Board)
+	case OpenAsk as c:
+		ResolveBoard(c.Board)
+	case WithdrawAsk as c:
+		ResolveBoard(c.Board)
+	case ExpireAsk as c:
+		ResolveBoard(c.Board)
+	case UpdateTrust:
+		DefaultBoard
+	}
+}
+
+// Decide validates cmd against state s at timestamp now and returns the domain
+// events to commit (empty on an idempotent replay) or a typed Refusal.
+func Decide(s State, cmd Command, now Timestamp) []Event fails Refusal {
+	match cmd {
+	case CreateBoard as c:
+		try requireActiveCaller(s, c.Caller)
+		if !CanModifyAdminSettings(c.Caller) || c.Caller.Role != Admin {
+			return Forbidden{Permission: "manage", Channel: "*"}
+		}
+		if !ValidBoardName(c.Name) {
+			return Invalid{Field: "name", Why: "invalid board name"}
+		}
+		match s.Boards.Get(c.Name) {
+		case Some[BoardRecord]:
+			return BoardNameTaken
+		case None:
+		}
+		let rec = BoardRecord{
+			ID:        "brd_\(s.NextBoardNum)",
+			Name:      c.Name,
+			CreatedAt: now,
+			CreatedBy: ActorOf(c.Caller),
+			Archived:  false,
+			Head:      0,
+		}
+		[]Event{Event{Seq: 0, Board: c.Name, At: now, Actor: ActorOf(c.Caller), Payload: BoardCreated{Board: rec}}}
+
+	case RenameBoard as c:
+		try requireActiveCaller(s, c.Caller)
+		if !CanModifyAdminSettings(c.Caller) || c.Caller.Role != Admin {
+			return Forbidden{Permission: "manage", Channel: "*"}
+		}
+		let b = try requireBoard(s, c.Caller, c.Board)
+		if b.Name == DefaultBoard {
+			return Invalid{Field: "board", Why: "general cannot be renamed"}
+		}
+		if !ValidBoardName(c.NewName) {
+			return Invalid{Field: "newName", Why: "invalid board name"}
+		}
+		match s.Boards.Get(c.NewName) {
+		case Some[BoardRecord]:
+			return BoardNameTaken
+		case None:
+		}
+		[]Event{Event{Seq: 0, Board: b.Name, At: now, Actor: ActorOf(c.Caller), Payload: BoardRenamed{Board: b.Name, NewName: c.NewName}}}
+
+	case ArchiveBoard as c:
+		try requireActiveCaller(s, c.Caller)
+		if !CanModifyAdminSettings(c.Caller) || c.Caller.Role != Admin {
+			return Forbidden{Permission: "manage", Channel: "*"}
+		}
+		let b = try requireBoard(s, c.Caller, c.Board)
+		if b.Name == DefaultBoard {
+			return Invalid{Field: "board", Why: "general cannot be archived"}
+		}
+		[]Event{Event{Seq: 0, Board: b.Name, At: now, Actor: ActorOf(c.Caller), Payload: BoardArchivedEvent{Board: b.Name}}}
+
+	case CreateChannel as c:
+		try requireActiveCaller(s, c.Caller)
+		let b = try requireBoard(s, c.Caller, c.Board)
+		if !ValidChannelPath(c.Path) {
+			return Invalid{Field: "path", Why: "invalid channel path"}
+		}
+		if channelOrChildExists(s, b.Name, c.Path) {
+			return ChannelExists
+		}
+		let actor = ActorOf(c.Caller)
+		if !c.Private {
+			try requirePerm(s, b.Name, c.Caller, c.Path, PermPost)
+			let ch = Channel{Board: b.Name, Path: c.Path, CreatedAt: now, CreatedBy: actor, Private: false}
+			return []Event{Event{Seq: 0, Board: b.Name, At: now, Actor: actor, Payload: ChannelCreated{Channel: ch}}}
+		}
+		if !CanModifyAdminSettings(c.Caller) || c.Caller.Role != Admin {
+			return Forbidden{Permission: "manage", Channel: "*"}
+		}
+		let gs = boardGrants(s, b.Name)
+		if grantCoversChannel(gs, c.Path) {
+			return ChannelGranted
+		}
+		let callerMatch = if c.Caller.Kind == Service {
+			MatchService{ID: c.Caller.Principal}
+		} else {
+			MatchEmail{Email: c.Caller.Email}
+		}
+		let gAllow = Grant{
+			ID:         "g\(s.NextGrantNum)",
+			Principals: []PrincipalMatch{callerMatch},
+			Rules:      []GrantRule{GrantRule{Pattern: c.Path, Allow: AllPermissions(), Deny: false}},
+			CreatedBy:  actor,
+			CreatedAt:  now,
+			Revision:   1,
+		}
+		let gClose = Grant{
+			ID:         "g\(s.NextGrantNum + 1)",
+			Principals: []PrincipalMatch{MatchEveryone},
+			Rules:      []GrantRule{GrantRule{Pattern: c.Path, Allow: []Permission{}, Deny: true}},
+			CreatedBy:  actor,
+			CreatedAt:  now,
+			Revision:   1,
+		}
+		let ch = Channel{Board: b.Name, Path: c.Path, CreatedAt: now, CreatedBy: actor, Private: true}
+		[]Event{
+			Event{Seq: 0, Board: b.Name, At: now, Actor: actor, Payload: GrantCreated{Board: b.Name, Grant: gAllow}},
+			Event{Seq: 0, Board: b.Name, At: now, Actor: actor, Payload: GrantCreated{Board: b.Name, Grant: gClose}},
+			Event{Seq: 0, Board: b.Name, At: now, Actor: actor, Payload: ChannelCreated{Channel: ch}},
+		}
+
+	case PostMessage as c:
+		try requireActiveCaller(s, c.Caller)
+		let b = try requireBoard(s, c.Caller, c.Board)
+		if !ValidChannelPath(c.Channel) {
+			return Invalid{Field: "channel", Why: "invalid channel path"}
+		}
+		try requirePerm(s, b.Name, c.Caller, c.Channel, PermPost)
+		if strings.TrimSpace(c.Text) == "" {
+			return Invalid{Field: "text", Why: "message text is empty"}
+		}
+		let actor = ActorOf(c.Caller)
+		let digest = CommandDigest(cmd)
+		if try checkIdempotency(s, actor, c.IdempotencyKey, digest, now) {
+			return []Event{}
+		}
+		try checkLabelsWritable(c.Labels)
+		let (cleanText, redactedKinds) = try scanOrRedact(c.Text, c.From)
+		let mut labels = c.Labels
+		if len(redactedKinds) > 0 {
+			labels = labels.Put("board.redacted", redactedKinds[0])
+		}
+		let vis = VisibleActorHandles(s, b.Name, c.Caller)
+		let (mentioned, unresolved) = SettleMentions(cleanText, vis)
+		let mut events = []Event{}
+		match maybeProfileEvent(s, c.Caller, b.Name, now) {
+		case Some[Event] as pe:
+			events = events.Append(pe.Value)
+		case None:
+		}
+		let chKey = ChannelKey(b.Name, c.Channel)
+		match s.Channels.Get(chKey) {
+		case Some[Channel]:
+		case None:
+			let ch = Channel{Board: b.Name, Path: c.Channel, CreatedAt: now, CreatedBy: actor, Private: false}
+			events = events.Append(Event{Seq: 0, Board: b.Name, At: now, Actor: actor, Payload: ChannelCreated{Channel: ch}})
+		}
+		let msg = Message{
+			ID:         "msg_\(s.NextMessageNum)",
+			Board:      b.Name,
+			Channel:    c.Channel,
+			Text:       cleanText,
+			Re:         "",
+			ReplyTo:    "",
+			By:         actor,
+			Principal:  c.Caller.Principal,
+			Profile:    c.Caller.Profile,
+			Labels:     labels,
+			Reactions:  Map[string, []ActorID]{},
+			Mentions:   mentioned,
+			Unresolved: unresolved,
+			From:       c.From,
+			NoSync:     c.NoSync,
+			Revision:   1,
+			CreatedAt:  now,
+			EditedAt:   0,
+			Deleted:    false,
+		}
+		events = events.Append(Event{Seq: 0, Board: b.Name, At: now, Actor: actor, Payload: MessagePosted{Message: msg, IdemKey: c.IdempotencyKey, IdemDigest: digest}})
+		events
+
+	case ReplyMessage as c:
+		try requireActiveCaller(s, c.Caller)
+		let b = try requireBoard(s, c.Caller, c.Board)
+		let target = match s.Messages.Get(c.Re) {
+		case Some[Message] as m:
+			if m.Value.Board != b.Name {
+				return NotFound{What: c.Re}
+			}
+			m.Value
+		case None:
+			return NotFound{What: c.Re}
+		}
+		try requirePerm(s, b.Name, c.Caller, target.Channel, PermRead)
+		try requirePerm(s, b.Name, c.Caller, target.Channel, PermPost)
+		if strings.TrimSpace(c.Text) == "" {
+			return Invalid{Field: "text", Why: "reply text is empty"}
+		}
+		let actor = ActorOf(c.Caller)
+		let digest = CommandDigest(cmd)
+		if try checkIdempotency(s, actor, c.IdempotencyKey, digest, now) {
+			return []Event{}
+		}
+		let rootID = if target.Re != "" { target.Re } else { target.ID }
+		if c.After != "" {
+			let lastID = match s.ThreadLast.Get(rootID) {
+			case Some[MessageID] as last:
+				last.Value
+			case None:
+				rootID
+			}
+			if lastID != c.After {
+				return NewerMessage
+			}
+		}
+		try checkLabelsWritable(c.Labels)
+		let (cleanText, redactedKinds) = try scanOrRedact(c.Text, c.From)
+		let mut labels = c.Labels
+		if len(redactedKinds) > 0 {
+			labels = labels.Put("board.redacted", redactedKinds[0])
+		}
+		let vis = VisibleActorHandles(s, b.Name, c.Caller)
+		let (mentioned, unresolved) = SettleMentions(cleanText, vis)
+		let rootNoSync = match s.Messages.Get(rootID) {
+		case Some[Message] as rm:
+			rm.Value.NoSync
+		case None:
+			false
+		}
+		let mut events = []Event{}
+		match maybeProfileEvent(s, c.Caller, b.Name, now) {
+		case Some[Event] as pe:
+			events = events.Append(pe.Value)
+		case None:
+		}
+		let msgID = "msg_\(s.NextMessageNum)"
+		let msg = Message{
+			ID:         msgID,
+			Board:      b.Name,
+			Channel:    target.Channel,
+			Text:       cleanText,
+			Re:         rootID,
+			ReplyTo:    if target.ID != rootID { target.ID } else { "" },
+			By:         actor,
+			Principal:  c.Caller.Principal,
+			Profile:    c.Caller.Profile,
+			Labels:     labels,
+			Reactions:  Map[string, []ActorID]{},
+			Mentions:   mentioned,
+			Unresolved: unresolved,
+			From:       c.From,
+			NoSync:     c.NoSync || rootNoSync,
+			Revision:   1,
+			CreatedAt:  now,
+			EditedAt:   0,
+			Deleted:    false,
+		}
+		events = events.Append(Event{Seq: 0, Board: b.Name, At: now, Actor: actor, Payload: MessagePosted{Message: msg, IdemKey: c.IdempotencyKey, IdemDigest: digest}})
+		match findOpenAskForReply(s, b.Name, rootID, target.ID) {
+		case Some[AskRecord] as a:
+			if qualifiesToAnswer(a.Value, c.Caller) {
+				events = events.Append(Event{Seq: 0, Board: b.Name, At: now, Actor: actor, Payload: AskAnsweredEvent{Board: b.Name, ID: a.Value.ID, Answer: msgID}})
+			}
+		case None:
+		}
+		events
+
+	case EditMessage as c:
+		try requireActiveCaller(s, c.Caller)
+		let b = try requireBoard(s, c.Caller, c.Board)
+		let target = match s.Messages.Get(c.ID) {
+		case Some[Message] as m:
+			if m.Value.Board != b.Name {
+				return NotFound{What: c.ID}
+			}
+			m.Value
+		case None:
+			return NotFound{What: c.ID}
+		}
+		try requirePerm(s, b.Name, c.Caller, target.Channel, PermRead)
+		if target.Deleted {
+			return NotFound{What: c.ID}
+		}
+		if !isAuthor(c.Caller, target) {
+			return NotAuthor
+		}
+		if c.IfRevision > 0 && target.Revision != c.IfRevision {
+			return RevisionConflict
+		}
+		if strings.TrimSpace(c.Text) == "" {
+			return Invalid{Field: "text", Why: "message text is empty"}
+		}
+		let (cleanText, _) = try scanOrRedact(c.Text, "")
+		let vis = VisibleActorHandles(s, b.Name, c.Caller)
+		let (mentioned, unresolved) = SettleMentions(cleanText, vis)
+		[]Event{Event{
+			Seq:     0,
+			Board:   b.Name,
+			At:      now,
+			Actor:   ActorOf(c.Caller),
+			Payload: MessageEdited{Board: b.Name, ID: target.ID, Text: cleanText, Mentions: mentioned, Unresolved: unresolved, Revision: target.Revision + 1},
+		}}
+
+	case DeleteMessage as c:
+		try requireActiveCaller(s, c.Caller)
+		let b = try requireBoard(s, c.Caller, c.Board)
+		let target = match s.Messages.Get(c.ID) {
+		case Some[Message] as m:
+			if m.Value.Board != b.Name {
+				return NotFound{What: c.ID}
+			}
+			m.Value
+		case None:
+			return NotFound{What: c.ID}
+		}
+		try requirePerm(s, b.Name, c.Caller, target.Channel, PermRead)
+		if target.Deleted {
+			return NotFound{What: c.ID}
+		}
+		let adminDelete = c.Caller.Role == Admin && Can(boardGrants(s, b.Name), c.Caller, target.Channel, PermManage)
+		if !isAuthor(c.Caller, target) && !adminDelete {
+			return NotAuthor
+		}
+		if c.IfRevision > 0 && target.Revision != c.IfRevision {
+			return RevisionConflict
+		}
+		[]Event{Event{
+			Seq:     0,
+			Board:   b.Name,
+			At:      now,
+			Actor:   ActorOf(c.Caller),
+			Payload: MessageDeleted{Board: b.Name, ID: target.ID, Revision: target.Revision + 1},
+		}}
+
+	case ReactMessage as c:
+		try requireActiveCaller(s, c.Caller)
+		let b = try requireBoard(s, c.Caller, c.Board)
+		let target = match s.Messages.Get(c.ID) {
+		case Some[Message] as m:
+			if m.Value.Board != b.Name {
+				return NotFound{What: c.ID}
+			}
+			m.Value
+		case None:
+			return NotFound{What: c.ID}
+		}
+		try requirePerm(s, b.Name, c.Caller, target.Channel, PermRead)
+		try requirePerm(s, b.Name, c.Caller, target.Channel, PermReact)
+		if target.Deleted {
+			return NotFound{What: c.ID}
+		}
+		if strings.TrimSpace(c.Emoji) == "" {
+			return Invalid{Field: "emoji", Why: "emoji is empty"}
+		}
+		[]Event{Event{
+			Seq:     0,
+			Board:   b.Name,
+			At:      now,
+			Actor:   ActorOf(c.Caller),
+			Payload: ReactionChanged{Board: b.Name, ID: target.ID, Emoji: c.Emoji, Actor: ActorOf(c.Caller), Added: !c.Remove},
+		}}
+
+	case LabelMessage as c:
+		try requireActiveCaller(s, c.Caller)
+		let b = try requireBoard(s, c.Caller, c.Board)
+		let target = match s.Messages.Get(c.ID) {
+		case Some[Message] as m:
+			if m.Value.Board != b.Name {
+				return NotFound{What: c.ID}
+			}
+			m.Value
+		case None:
+			return NotFound{What: c.ID}
+		}
+		try requirePerm(s, b.Name, c.Caller, target.Channel, PermRead)
+		try requirePerm(s, b.Name, c.Caller, target.Channel, PermLabel)
+		if target.Deleted {
+			return NotFound{What: c.ID}
+		}
+		try checkLabelsWritable(c.Set)
+		for k in c.Unset {
+			match ReservedLabelUse(k) {
+			case Some[string] as use:
+				return ReservedLabel{Use: use.Value}
+			case None:
+			}
+		}
+		for k in slices.Sorted(maps.Keys(c.If)) {
+			let want = match c.If.Get(k) {
+			case Some[string] as v:
+				v.Value
+			case None:
+				""
+			}
+			match target.Labels.Get(k) {
+			case Some[string] as got:
+				if got.Value != want {
+					return LabelConflict
+				}
+			case None:
+				return LabelConflict
+			}
+		}
+		for k in c.IfUnset {
+			match target.Labels.Get(k) {
+			case Some[string]:
+				return LabelConflict
+			case None:
+			}
+		}
+		[]Event{Event{
+			Seq:     0,
+			Board:   b.Name,
+			At:      now,
+			Actor:   ActorOf(c.Caller),
+			Payload: LabelsChanged{Board: b.Name, ID: target.ID, Set: c.Set, Unset: c.Unset},
+		}}
+
+	case RegisterPrincipal as c:
+		try requireActiveCaller(s, c.Caller)
+		if !CanModifyAdminSettings(c.Caller) || c.Caller.Role != Admin {
+			return Forbidden{Permission: "manage", Channel: "*"}
+		}
+		if c.Principal.ID == "" || c.Principal.Handle == "" {
+			return Invalid{Field: "principal", Why: "id and handle are required"}
+		}
+		[]Event{Event{Seq: 0, Board: DefaultBoard, At: now, Actor: ActorOf(c.Caller), Payload: PrincipalRegistered{Principal: c.Principal}}}
+
+	case MarkPrincipalGone as c:
+		try requireActiveCaller(s, c.Caller)
+		if !CanModifyAdminSettings(c.Caller) || c.Caller.Role != Admin {
+			return Forbidden{Permission: "manage", Channel: "*"}
+		}
+		match s.Principals.Get(c.Principal) {
+		case Some[Principal]:
+		case None:
+			return NotFound{What: c.Principal}
+		}
+		[]Event{Event{Seq: 0, Board: DefaultBoard, At: now, Actor: ActorOf(c.Caller), Payload: PrincipalGone{ID: c.Principal}}}
+
+	case CreateGrant as c:
+		try requireActiveCaller(s, c.Caller)
+		let b = try requireBoard(s, c.Caller, c.Board)
+		try validateGrantRules(s, b.Name, c.Caller, c.Grant)
+		let g = Grant{
+			..c.Grant,
+			ID:        "g\(s.NextGrantNum)",
+			CreatedBy: ActorOf(c.Caller),
+			CreatedAt: now,
+			Revision:  1,
+		}
+		[]Event{Event{Seq: 0, Board: b.Name, At: now, Actor: ActorOf(c.Caller), Payload: GrantCreated{Board: b.Name, Grant: g}}}
+
+	case UpdateGrant as c:
+		try requireActiveCaller(s, c.Caller)
+		let b = try requireBoard(s, c.Caller, c.Board)
+		try validateGrantRules(s, b.Name, c.Caller, c.Grant)
+		let gs = boardGrants(s, b.Name)
+		let mut found = false
+		let mut prevRev = 0
+		for existing in gs {
+			if existing.ID == c.Grant.ID {
+				found = true
+				prevRev = existing.Revision
+			}
+		}
+		if !found {
+			return NotFound{What: c.Grant.ID}
+		}
+		let g = Grant{..c.Grant, Revision: prevRev + 1}
+		[]Event{Event{Seq: 0, Board: b.Name, At: now, Actor: ActorOf(c.Caller), Payload: GrantUpdated{Board: b.Name, Grant: g}}}
+
+	case RevokeGrant as c:
+		try requireActiveCaller(s, c.Caller)
+		let b = try requireBoard(s, c.Caller, c.Board)
+		if !CanModifyAdminSettings(c.Caller) {
+			return Forbidden{Permission: "manage", Channel: "*"}
+		}
+		let gs = boardGrants(s, b.Name)
+		let mut found = false
+		for existing in gs {
+			if existing.ID == c.ID {
+				try validateGrantRules(s, b.Name, c.Caller, existing)
+				found = true
+			}
+		}
+		if !found {
+			return NotFound{What: c.ID}
+		}
+		[]Event{Event{Seq: 0, Board: b.Name, At: now, Actor: ActorOf(c.Caller), Payload: GrantRevoked{Board: b.Name, ID: c.ID}}}
+
+	case OpenAsk as c:
+		try requireActiveCaller(s, c.Caller)
+		let b = try requireBoard(s, c.Caller, c.Board)
+		let actor = ActorOf(c.Caller)
+		let digest = CommandDigest(cmd)
+		if try checkIdempotency(s, actor, c.IdempotencyKey, digest, now) {
+			return []Event{}
+		}
+		if strings.TrimSpace(c.Text) == "" {
+			return Invalid{Field: "text", Why: "question text is empty"}
+		}
+		let (cleanText, _) = try scanOrRedact(c.Text, "")
+		let mut channel = c.Channel
+		let mut rootID = ""
+		let mut replyTo = ""
+		if c.Thread != "" {
+			let tmsg = match s.Messages.Get(c.Thread) {
+			case Some[Message] as m:
+				if m.Value.Board != b.Name {
+					return NotFound{What: c.Thread}
+				}
+				m.Value
+			case None:
+				return NotFound{What: c.Thread}
+			}
+			channel = tmsg.Channel
+			rootID = if tmsg.Re != "" { tmsg.Re } else { tmsg.ID }
+			replyTo = if tmsg.ID != rootID { tmsg.ID } else { "" }
+			try requirePerm(s, b.Name, c.Caller, channel, PermRead)
+			try requirePerm(s, b.Name, c.Caller, channel, PermPost)
+		} else {
+			if !ValidChannelPath(channel) {
+				return Invalid{Field: "channel", Why: "invalid channel path"}
+			}
+			try requirePerm(s, b.Name, c.Caller, channel, PermPost)
+		}
+		let vis = VisibleActorHandles(s, b.Name, c.Caller)
+		let (settled, unresolved) = SettleMentions(cleanText, vis)
+		let mut mentioned = settled
+		for t in c.To {
+			if !slices.Contains(mentioned, t) {
+				mentioned = mentioned.Append(t)
+			}
+		}
+		let mut events = []Event{}
+		match maybeProfileEvent(s, c.Caller, b.Name, now) {
+		case Some[Event] as pe:
+			events = events.Append(pe.Value)
+		case None:
+		}
+		if c.Thread == "" {
+			let chKey = ChannelKey(b.Name, channel)
+			match s.Channels.Get(chKey) {
+			case Some[Channel]:
+			case None:
+				let ch = Channel{Board: b.Name, Path: channel, CreatedAt: now, CreatedBy: actor, Private: false}
+				events = events.Append(Event{Seq: 0, Board: b.Name, At: now, Actor: actor, Payload: ChannelCreated{Channel: ch}})
+			}
+		}
+		let msgID = "msg_\(s.NextMessageNum)"
+		let labels = Map[string, string]{}.Put("board.kind", "question").Put("board.ask", "open")
+		let msg = Message{
+			ID:         msgID,
+			Board:      b.Name,
+			Channel:    channel,
+			Text:       cleanText,
+			Re:         rootID,
+			ReplyTo:    replyTo,
+			By:         actor,
+			Principal:  c.Caller.Principal,
+			Profile:    c.Caller.Profile,
+			Labels:     labels,
+			Reactions:  Map[string, []ActorID]{},
+			Mentions:   mentioned,
+			Unresolved: unresolved,
+			From:       "",
+			NoSync:     false,
+			Revision:   1,
+			CreatedAt:  now,
+			EditedAt:   0,
+			Deleted:    false,
+		}
+		let ask = AskRecord{
+			ID:             msgID,
+			Board:          b.Name,
+			Channel:        channel,
+			Root:           if rootID != "" { rootID } else { msgID },
+			Asker:          actor,
+			AskerPrincipal: c.Caller.Principal,
+			To:             c.To,
+			OnlyFromAsked:  c.OnlyFromAsked,
+			State:          AskOpen,
+			Answer:         "",
+			ExpiresAt:      c.ExpiresAt,
+			CreatedAt:      now,
+		}
+		events = events.Append(Event{Seq: 0, Board: b.Name, At: now, Actor: actor, Payload: MessagePosted{Message: msg, IdemKey: c.IdempotencyKey, IdemDigest: digest}})
+		events = events.Append(Event{Seq: 0, Board: b.Name, At: now, Actor: actor, Payload: AskOpened{Ask: ask}})
+		events
+
+	case WithdrawAsk as c:
+		try requireActiveCaller(s, c.Caller)
+		let b = try requireBoard(s, c.Caller, c.Board)
+		let ask = match s.Asks.Get(c.ID) {
+		case Some[AskRecord] as a:
+			if a.Value.Board != b.Name {
+				return NotFound{What: c.ID}
+			}
+			a.Value
+		case None:
+			return NotFound{What: c.ID}
+		}
+		try requirePerm(s, b.Name, c.Caller, ask.Channel, PermRead)
+		let canWithdraw = ActorOf(c.Caller) == ask.Asker || (c.Caller.Profile == "" && c.Caller.Principal == ask.AskerPrincipal)
+		if !canWithdraw {
+			return NotAsker
+		}
+		if ask.State != AskOpen {
+			return AskClosed
+		}
+		[]Event{Event{Seq: 0, Board: b.Name, At: now, Actor: ActorOf(c.Caller), Payload: AskWithdrawnEvent{Board: b.Name, ID: ask.ID}}}
+
+	case ExpireAsk as c:
+		let bName = ResolveBoard(c.Board)
+		let ask = match s.Asks.Get(c.ID) {
+		case Some[AskRecord] as a:
+			if a.Value.Board != bName {
+				return NotFound{What: c.ID}
+			}
+			a.Value
+		case None:
+			return NotFound{What: c.ID}
+		}
+		if ask.State != AskOpen {
+			return AskClosed
+		}
+		[]Event{Event{Seq: 0, Board: bName, At: now, Actor: "system", Payload: AskExpiredEvent{Board: bName, ID: ask.ID}}}
+
+	case UpdateTrust as c:
+		try requireActiveCaller(s, c.Caller)
+		if !CanModifyAdminSettings(c.Caller) {
+			return Forbidden{Permission: "trust", Channel: "*"}
+		}
+		if actorPrincipal(c.Subject) != c.Caller.Principal {
+			return Forbidden{Permission: "trust", Channel: "*"}
+		}
+		[]Event{Event{Seq: 0, Board: DefaultBoard, At: now, Actor: ActorOf(c.Caller), Payload: TrustUpdated{Trust: TrustSet{Subject: c.Subject, TakesFrom: c.TakesFrom}}}}
+	}
+}
+
+func updateReaction(cur Map[string, []ActorID], emoji string, actor ActorID, added bool) Map[string, []ActorID] {
+	let existing = match cur.Get(emoji) {
+	case Some[[]ActorID] as xs:
+		xs.Value
+	case None:
+		[]ActorID{}
+	}
+	if added {
+		if slices.Contains(existing, actor) {
+			return cur
+		}
+		return cur.Put(emoji, existing.Append(actor))
+	}
+	let mut kept = []ActorID{}
+	for a in existing {
+		if a != actor {
+			kept = kept.Append(a)
+		}
+	}
+	if len(kept) == 0 {
+		return cur.Delete(emoji)
+	}
+	cur.Put(emoji, kept)
+}
+
+func applyLabels(cur Map[string, string], set Map[string, string], unset []string) Map[string, string] {
+	let mut out = cur
+	for k in unset {
+		out = out.Delete(k)
+	}
+	for k in slices.Sorted(maps.Keys(set)) {
+		match set.Get(k) {
+		case Some[string] as v:
+			out = out.Put(k, v.Value)
+		case None:
+		}
+	}
+	out
+}
+
+// Apply folds one committed event onto state s, returning the next state.
+func Apply(s State, e Event) State {
+	let mut next = s
+	if e.Board != "" && e.Seq > boardHead(next, e.Board) {
+		next = State{..next, Head: next.Head.Put(e.Board, e.Seq)}
+		match next.Boards.Get(e.Board) {
+		case Some[BoardRecord] as b:
+			next = State{..next, Boards: next.Boards.Put(e.Board, BoardRecord{..b.Value, Head: e.Seq})}
+		case None:
+		}
+	}
+	match e.Payload {
+	case BoardCreated as p:
+		let g1 = Grant{
+			ID:         "g1",
+			Principals: []PrincipalMatch{MatchAllPeople},
+			Rules:      []GrantRule{GrantRule{Pattern: "*", Allow: DefaultPeoplePermissions(), Deny: false}},
+			CreatedBy:  e.Actor,
+			CreatedAt:  e.At,
+			Revision:   1,
+		}
+		let rec = BoardRecord{..p.Board, Head: e.Seq}
+		State{
+			..next,
+			Boards:       next.Boards.Put(rec.Name, rec),
+			Grants:       next.Grants.Put(rec.Name, []Grant{g1}),
+			NextBoardNum: next.NextBoardNum + 1,
+		}
+	case BoardRenamed as p:
+		match next.Boards.Get(p.Board) {
+		case Some[BoardRecord] as b:
+			let renamed = BoardRecord{..b.Value, Name: p.NewName}
+			let boards = next.Boards.Delete(p.Board).Put(p.NewName, renamed)
+			let gs = boardGrants(next, p.Board)
+			let grants = next.Grants.Delete(p.Board).Put(p.NewName, gs)
+			State{..next, Boards: boards, Grants: grants}
+		case None:
+			next
+		}
+	case BoardArchivedEvent as p:
+		match next.Boards.Get(p.Board) {
+		case Some[BoardRecord] as b:
+			State{..next, Boards: next.Boards.Put(p.Board, BoardRecord{..b.Value, Archived: true})}
+		case None:
+			next
+		}
+	case ChannelCreated as p:
+		let key = ChannelKey(p.Channel.Board, p.Channel.Path)
+		State{..next, Channels: next.Channels.Put(key, p.Channel)}
+	case MessagePosted as p:
+		let m = p.Message
+		let root = if m.Re != "" { m.Re } else { m.ID }
+		let mut idem = next.Idempotency
+		if p.IdemKey != "" {
+			idem = idem.Put(IdempotencyKey{Actor: m.By, Key: p.IdemKey}, IdempotencyEntry{
+				Digest:          p.IdemDigest,
+				ResultMessageID: m.ID,
+				ResultCursor:    e.Seq,
+				RecordedAt:      e.At,
+			})
+		}
+		State{
+			..next,
+			Messages:       next.Messages.Put(m.ID, m),
+			ThreadLast:     next.ThreadLast.Put(root, m.ID),
+			Idempotency:    idem,
+			NextMessageNum: next.NextMessageNum + 1,
+		}
+	case MessageEdited as p:
+		match next.Messages.Get(p.ID) {
+		case Some[Message] as m:
+			let updated = Message{
+				..m.Value,
+				Text:       p.Text,
+				Mentions:   p.Mentions,
+				Unresolved: p.Unresolved,
+				Revision:   p.Revision,
+				EditedAt:   e.At,
+			}
+			State{..next, Messages: next.Messages.Put(p.ID, updated)}
+		case None:
+			next
+		}
+	case MessageDeleted as p:
+		match next.Messages.Get(p.ID) {
+		case Some[Message] as m:
+			let tomb = Message{
+				..m.Value,
+				Text:       "",
+				Labels:     Map[string, string]{},
+				Reactions:  Map[string, []ActorID]{},
+				Mentions:   []ActorID{},
+				Unresolved: []string{},
+				Revision:   p.Revision,
+				Deleted:    true,
+			}
+			State{..next, Messages: next.Messages.Put(p.ID, tomb)}
+		case None:
+			next
+		}
+	case ReactionChanged as p:
+		match next.Messages.Get(p.ID) {
+		case Some[Message] as m:
+			let updated = Message{..m.Value, Reactions: updateReaction(m.Value.Reactions, p.Emoji, p.Actor, p.Added)}
+			State{..next, Messages: next.Messages.Put(p.ID, updated)}
+		case None:
+			next
+		}
+	case LabelsChanged as p:
+		match next.Messages.Get(p.ID) {
+		case Some[Message] as m:
+			let updated = Message{..m.Value, Labels: applyLabels(m.Value.Labels, p.Set, p.Unset)}
+			State{..next, Messages: next.Messages.Put(p.ID, updated)}
+		case None:
+			next
+		}
+	case PrincipalRegistered as p:
+		State{..next, Principals: next.Principals.Put(p.Principal.ID, p.Principal)}
+	case PrincipalGone as p:
+		match next.Principals.Get(p.ID) {
+		case Some[Principal] as pr:
+			State{..next, Principals: next.Principals.Put(p.ID, Principal{..pr.Value, State: Offboarded})}
+		case None:
+			next
+		}
+	case ProfileSeen as p:
+		let actor = "\(p.Profile.Principal)+\(p.Profile.Name)"
+		State{..next, Profiles: next.Profiles.Put(actor, p.Profile)}
+	case GrantCreated as p:
+		let gs = boardGrants(next, p.Board).Append(p.Grant)
+		State{..next, Grants: next.Grants.Put(p.Board, gs), NextGrantNum: next.NextGrantNum + 1}
+	case GrantUpdated as p:
+		let mut out = []Grant{}
+		for g in boardGrants(next, p.Board) {
+			out = out.Append(if g.ID == p.Grant.ID { p.Grant } else { g })
+		}
+		State{..next, Grants: next.Grants.Put(p.Board, out)}
+	case GrantRevoked as p:
+		let mut out = []Grant{}
+		for g in boardGrants(next, p.Board) {
+			if g.ID != p.ID {
+				out = out.Append(g)
+			}
+		}
+		State{..next, Grants: next.Grants.Put(p.Board, out)}
+	case AskOpened as p:
+		State{..next, Asks: next.Asks.Put(p.Ask.ID, p.Ask)}
+	case AskAnsweredEvent as p:
+		let mut st = next
+		match st.Asks.Get(p.ID) {
+		case Some[AskRecord] as a:
+			st = State{..st, Asks: st.Asks.Put(p.ID, AskRecord{..a.Value, State: AskAnswered, Answer: p.Answer})}
+		case None:
+		}
+		match st.Messages.Get(p.ID) {
+		case Some[Message] as m:
+			let ls = m.Value.Labels.Put("board.ask", "answered").Put("board.ask.answer", p.Answer)
+			st = State{..st, Messages: st.Messages.Put(p.ID, Message{..m.Value, Labels: ls})}
+		case None:
+		}
+		st
+	case AskWithdrawnEvent as p:
+		let mut st = next
+		match st.Asks.Get(p.ID) {
+		case Some[AskRecord] as a:
+			st = State{..st, Asks: st.Asks.Put(p.ID, AskRecord{..a.Value, State: AskWithdrawn})}
+		case None:
+		}
+		match st.Messages.Get(p.ID) {
+		case Some[Message] as m:
+			let ls = m.Value.Labels.Put("board.ask", "withdrawn")
+			st = State{..st, Messages: st.Messages.Put(p.ID, Message{..m.Value, Labels: ls})}
+		case None:
+		}
+		st
+	case AskExpiredEvent as p:
+		let mut st = next
+		match st.Asks.Get(p.ID) {
+		case Some[AskRecord] as a:
+			st = State{..st, Asks: st.Asks.Put(p.ID, AskRecord{..a.Value, State: AskExpired})}
+		case None:
+		}
+		match st.Messages.Get(p.ID) {
+		case Some[Message] as m:
+			let ls = m.Value.Labels.Put("board.ask", "expired")
+			st = State{..st, Messages: st.Messages.Put(p.ID, Message{..m.Value, Labels: ls})}
+		case None:
+		}
+		st
+	case TrustUpdated as p:
+		State{..next, Trusts: next.Trusts.Put(p.Trust.Subject, p.Trust)}
+	}
+}
+
+// Fold applies a sequence of committed events onto state s in order.
+func Fold(s State, events []Event) State {
+	let mut cur = s
+	for e in events {
+		cur = Apply(cur, e)
+	}
+	cur
+}
