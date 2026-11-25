@@ -1,0 +1,543 @@
+import explore
+import filepath
+import go os
+import go os/exec
+import strings
+import sync
+import testing
+import github.com/cevr/ergo/modules/git/oracle
+
+let onMemory = context {
+	LockOps: NewMemory(Map[string, string]{}),
+}
+
+type pathCmd =
+	| CmdAcquireDurable{}
+	| CmdAcquireAtomic{}
+	| CmdWrite{}
+	| CmdSync{}
+	| CmdCommit{}
+	| CmdAbort{}
+
+type modelState {
+	Phase     LockPhase,
+	Mode      Durability,
+	Committed string,
+	Staged    string,
+	LockAlive bool,
+}
+
+type pathOpenErr { Why string }
+
+type pathDriveErr { Why string }
+
+type lockSession {
+	mem    MemoryLockOps,
+	lock   sync.Ref[Option[LockFile]],
+	staged sync.Ref[string],
+	mode   sync.Ref[Durability],
+} implements explore.PathSession[pathCmd, explore.Observed[modelState, LockPhase, Never], pathDriveErr]
+
+func pathTarget() string { "refs/heads/main" }
+
+func stateOf(s lockSession) modelState {
+	let lOpt = s.lock.Get()
+	let phase = match lOpt {
+	case Some[LockFile] as l:
+		Phase(l.Value)
+	case None:
+		PhaseIdle
+	}
+	let committed = match s.mem.ReadTarget(pathTarget()) {
+	case Some[string] as v:
+		v.Value
+	case None:
+		""
+	}
+	modelState{
+		Phase:     phase,
+		Mode:      s.mode.Get(),
+		Committed: committed,
+		Staged:    s.staged.Get(),
+		LockAlive: s.mem.LockExists(LockPathOf(pathTarget())),
+	}
+}
+
+func rejectObs(s lockSession) explore.Observed[modelState, LockPhase, Never] {
+	explore.StepResult[modelState, LockPhase, Never]{Step: explore.StepObs[modelState, LockPhase, Never]{
+		Kind:     explore.DisReject,
+		State:    Some[modelState]{Value: stateOf(s)},
+		Outputs:  []LockPhase{},
+		Error:    None,
+		Terminal: false,
+	}}
+}
+
+func emitObs(v modelState) explore.Observed[modelState, LockPhase, Never] {
+	explore.StepResult[modelState, LockPhase, Never]{Step: explore.StepObs[modelState, LockPhase, Never]{
+		Kind:     explore.DisEmit,
+		State:    Some[modelState]{Value: v},
+		Outputs:  []LockPhase{v.Phase},
+		Error:    None,
+		Terminal: false,
+	}}
+}
+
+func Read(s lockSession) explore.Observed[modelState, LockPhase, Never] fails pathDriveErr {
+	explore.InitialRead[modelState]{State: stateOf(s)}
+}
+
+func Apply(s lockSession, c pathCmd) explore.Observed[modelState, LockPhase, Never] fails pathDriveErr {
+	with context { LockOps: s.mem } {
+		match c {
+		case CmdAcquireDurable:
+			if s.lock.Get() != None {
+				return rejectObs(s)
+			}
+			let l = Acquire(pathTarget(), Durable) catch {
+			case LockHeld, PathInvalid:
+				return rejectObs(s)
+			}
+			s.lock.Set(Some[LockFile]{Value: l})
+			s.mode.Set(Durable)
+			s.staged.Set("")
+			emitObs(stateOf(s))
+		case CmdAcquireAtomic:
+			if s.lock.Get() != None {
+				return rejectObs(s)
+			}
+			let l = Acquire(pathTarget(), Atomic) catch {
+			case LockHeld, PathInvalid:
+				return rejectObs(s)
+			}
+			s.lock.Set(Some[LockFile]{Value: l})
+			s.mode.Set(Atomic)
+			s.staged.Set("")
+			emitObs(stateOf(s))
+		case CmdWrite:
+			match s.lock.Get() {
+			case None:
+				rejectObs(s)
+			case Some[LockFile] as cur:
+				let mut l = cur.Value
+				l.Write("new-oid") catch {
+				case NotHeld, AlreadyPublished, PathInvalid:
+					return rejectObs(s)
+				}
+				s.lock.Set(Some[LockFile]{Value: l})
+				s.staged.Set("new-oid")
+				emitObs(stateOf(s))
+			}
+		case CmdSync:
+			match s.lock.Get() {
+			case None:
+				rejectObs(s)
+			case Some[LockFile] as cur:
+				let mut l = cur.Value
+				l.Sync() catch {
+				case NotHeld, AlreadyPublished, SyncFailed:
+					return rejectObs(s)
+				}
+				s.lock.Set(Some[LockFile]{Value: l})
+				emitObs(stateOf(s))
+			}
+		case CmdCommit:
+			match s.lock.Get() {
+			case None:
+				rejectObs(s)
+			case Some[LockFile] as cur:
+				let mut l = cur.Value
+				l.Commit() catch {
+				case NotHeld, AlreadyPublished, SyncFailed, PublishFailed, DirSyncUncertain:
+					return rejectObs(s)
+				}
+				s.lock.Set(Some[LockFile]{Value: l})
+				s.staged.Set("")
+				emitObs(stateOf(s))
+			}
+		case CmdAbort:
+			match s.lock.Get() {
+			case None:
+				rejectObs(s)
+			case Some[LockFile] as cur:
+				if !IsOwned(cur.Value) {
+					return rejectObs(s)
+				}
+				let mut l = cur.Value
+				l.Abort()
+				s.lock.Set(Some[LockFile]{Value: l})
+				s.staged.Set("")
+				emitObs(stateOf(s))
+			}
+		}
+	}
+}
+
+func Close(_ lockSession) {}
+
+func lockPathModel() explore.PathModel[modelState, pathCmd, modelState, LockPhase, Never] {
+	explore.PathModelOfMachine[modelState, pathCmd, LockPhase](
+		[]modelState{modelState{Phase: PhaseIdle, Mode: Durable, Committed: "old-oid", Staged: "", LockAlive: false}},
+		[]pathCmd{CmdAcquireDurable, CmdAcquireAtomic, CmdWrite, CmdSync, CmdCommit, CmdAbort},
+		func(s modelState, c pathCmd) Decision[modelState, LockPhase] {
+			match (s.Phase, c) {
+			case (PhaseIdle, CmdAcquireDurable):
+				Emit[modelState, LockPhase]{
+					Next:   modelState{Phase: PhaseHeld, Mode: Durable, Committed: s.Committed, Staged: "", LockAlive: true},
+					Output: PhaseHeld,
+				}
+			case (PhaseIdle, CmdAcquireAtomic):
+				Emit[modelState, LockPhase]{
+					Next:   modelState{Phase: PhaseHeld, Mode: Atomic, Committed: s.Committed, Staged: "", LockAlive: true},
+					Output: PhaseHeld,
+				}
+			case (PhaseHeld, CmdWrite), (PhaseWritten, CmdWrite):
+				Emit[modelState, LockPhase]{
+					Next:   modelState{Phase: PhaseWritten, Mode: s.Mode, Committed: s.Committed, Staged: "new-oid", LockAlive: true},
+					Output: PhaseWritten,
+				}
+			case (PhaseWritten, CmdSync), (PhaseSynced, CmdSync):
+				Emit[modelState, LockPhase]{
+					Next:   modelState{Phase: PhaseSynced, Mode: s.Mode, Committed: s.Committed, Staged: s.Staged, LockAlive: true},
+					Output: PhaseSynced,
+				}
+			case (PhaseWritten, CmdCommit), (PhaseSynced, CmdCommit):
+				let nextPhase = match s.Mode {
+				case Durable:
+					PhaseDurable
+				case Atomic:
+					PhasePublished
+				}
+				Emit[modelState, LockPhase]{
+					Next:   modelState{Phase: nextPhase, Mode: s.Mode, Committed: s.Staged, Staged: "", LockAlive: false},
+					Output: nextPhase,
+				}
+			case (PhaseHeld, CmdAbort), (PhaseWritten, CmdAbort), (PhaseSynced, CmdAbort):
+				Emit[modelState, LockPhase]{
+					Next:   modelState{Phase: PhaseAborted, Mode: s.Mode, Committed: s.Committed, Staged: "", LockAlive: false},
+					Output: PhaseAborted,
+				}
+			case _:
+				Reject
+			}
+		},
+	)
+}
+
+// LockProtocolPathsAgree: exhaustive ToDepth{3} path exploration via
+// explore.CheckPathsWithSink + testing.ActiveEvidenceSink() holds MemoryLockOps
+// and LockFile to the LockProtocol model across every reachable sequence.
+test LockProtocolPathsAgree {
+	let res = explore.CheckPathsWithSink(
+		lockPathModel(),
+		explore.ToDepth{Depth: 3},
+		explore.PathBounds{MaxStates: 128, MaxEdges: 512, MaxPaths: 512, MaxSteps: 2048, MaxWork: 16384, MaxBytes: 131072},
+		func(start modelState) explore.PathSession[pathCmd, explore.Observed[modelState, LockPhase, Never], pathDriveErr] fails pathOpenErr {
+			let m = NewMemory(Map[string, string]{}.Put(pathTarget(), start.Committed))
+			let noLock Option[LockFile] = None
+			lockSession{
+				mem:    m,
+				lock:   sync.NewRef(noLock),
+				staged: sync.NewRef(""),
+				mode:   sync.NewRef(start.Mode),
+			}
+		},
+		testing.ActiveEvidenceSink(),
+	)
+	assert res.Verdict == explore.CampaignPassed
+}
+
+func hasSyncBeforeRename(evs []OpEvent) bool {
+	let mut syncIdx = -1
+	let mut renameIdx = -1
+	for i, e in evs {
+		match e {
+		case OpSyncFile:
+			if syncIdx < 0 {
+				syncIdx = i
+			}
+		case OpRename:
+			if renameIdx < 0 {
+				renameIdx = i
+			}
+		case _:
+		}
+	}
+	syncIdx >= 0 && renameIdx >= 0 && syncIdx < renameIdx
+}
+
+func hasDirSyncAfterRename(evs []OpEvent) bool {
+	let mut renameIdx = -1
+	let mut dirSyncIdx = -1
+	for i, e in evs {
+		match e {
+		case OpRename:
+			if renameIdx < 0 {
+				renameIdx = i
+			}
+		case OpSyncDir:
+			dirSyncIdx = i
+		case _:
+		}
+	}
+	renameIdx >= 0 && dirSyncIdx > renameIdx
+}
+
+// CrashAtEveryEdgePreservesInvariant: injects a failure at every single edge
+// (CreateExclusive, WriteLock, SyncFile, RenamePublish, SyncDir), verifies
+// durable event ordering (Create -> Write -> SyncFile -> Rename -> SyncDir),
+// confirms DirSyncUncertain is never swallowed, and verifies a losing rival
+// never unlinks the winner's `.lock` file.
+test CrashAtEveryEdgePreservesInvariant {
+	let target = "refs/heads/main"
+	let lockPath = LockPathOf(target)
+	let init = Map[string, string]{}.Put(target, "old-oid\n")
+
+	let memOk = NewMemory(init)
+	with context { LockOps: memOk } {
+		try CommitBytes(target, "new-oid\n", Durable)
+	}
+	assert memOk.ReadTarget(target) == Some[string]{Value: "new-oid\n"}
+	assert !memOk.LockExists(lockPath)
+	let okEvents = Events(memOk)
+	assert hasSyncBeforeRename(okEvents)
+	assert hasDirSyncAfterRename(okEvents)
+
+	let memCreate = NewMemoryWithFault(init, EdgeCreate)
+	let mut sawCreateErr = false
+	with context { LockOps: memCreate } {
+		CommitBytes(target, "new-oid\n", Durable) catch {
+		case PathInvalid:
+			sawCreateErr = true
+		case LockHeld, NotHeld, AlreadyPublished, SyncFailed, PublishFailed, DirSyncUncertain:
+			assert false
+		}
+	}
+	assert sawCreateErr
+	assert memCreate.ReadTarget(target) == Some[string]{Value: "old-oid\n"}
+	assert !memCreate.LockExists(lockPath)
+
+	let memWrite = NewMemoryWithFault(init, EdgeWrite)
+	let mut sawWriteErr = false
+	with context { LockOps: memWrite } {
+		CommitBytes(target, "new-oid\n", Durable) catch {
+		case PathInvalid:
+			sawWriteErr = true
+		case LockHeld, NotHeld, AlreadyPublished, SyncFailed, PublishFailed, DirSyncUncertain:
+			assert false
+		}
+	}
+	assert sawWriteErr
+	assert memWrite.ReadTarget(target) == Some[string]{Value: "old-oid\n"}
+	assert !memWrite.LockExists(lockPath)
+
+	let memSync = NewMemoryWithFault(init, EdgeSyncFile)
+	let mut sawSyncErr = false
+	with context { LockOps: memSync } {
+		CommitBytes(target, "new-oid\n", Durable) catch {
+		case SyncFailed:
+			sawSyncErr = true
+		case LockHeld, NotHeld, AlreadyPublished, PublishFailed, DirSyncUncertain, PathInvalid:
+			assert false
+		}
+	}
+	assert sawSyncErr
+	assert memSync.ReadTarget(target) == Some[string]{Value: "old-oid\n"}
+	assert !memSync.LockExists(lockPath)
+
+	let memRename = NewMemoryWithFault(init, EdgeRename)
+	let mut sawRenameErr = false
+	with context { LockOps: memRename } {
+		CommitBytes(target, "new-oid\n", Durable) catch {
+		case PublishFailed:
+			sawRenameErr = true
+		case LockHeld, NotHeld, AlreadyPublished, SyncFailed, DirSyncUncertain, PathInvalid:
+			assert false
+		}
+	}
+	assert sawRenameErr
+	assert memRename.ReadTarget(target) == Some[string]{Value: "old-oid\n"}
+	assert !memRename.LockExists(lockPath)
+
+	let memDirSync = NewMemoryWithFault(init, EdgeSyncDir)
+	let mut sawUncertain = false
+	with context { LockOps: memDirSync } {
+		CommitBytes(target, "new-oid\n", Durable) catch {
+		case DirSyncUncertain:
+			sawUncertain = true
+		case LockHeld, NotHeld, AlreadyPublished, SyncFailed, PublishFailed, PathInvalid:
+			assert false
+		}
+	}
+	assert sawUncertain
+	assert memDirSync.ReadTarget(target) == Some[string]{Value: "new-oid\n"}
+	assert !memDirSync.LockExists(lockPath)
+
+	let memRival = NewMemory(init)
+	with context { LockOps: memRival } {
+		let mut winner = try Acquire(target, Durable)
+		try winner.Write("winner-oid\n")
+		let mut loserBlocked = false
+		let _ = Acquire(target, Durable) catch {
+		case LockHeld:
+			loserBlocked = true
+			winner
+		case PathInvalid:
+			assert false
+			winner
+		}
+		assert loserBlocked
+		assert memRival.LockExists(lockPath)
+		try winner.Commit()
+	}
+	assert memRival.ReadTarget(target) == Some[string]{Value: "winner-oid\n"}
+	assert !memRival.LockExists(lockPath)
+}
+
+func hermeticGitEnvSlice() []string needs go.Foreign {
+	let pathVal = os.ExpandEnv("$PATH")
+	let envMap = oracle.HermeticEnv(Map[string, string]{}.Put("PATH", pathVal), int64(1700000000))
+	let mut out = []string{}
+	for k, v in envMap {
+		out = out.Append(k + "=" + v)
+	}
+	out
+}
+
+func runHostGit(dir string, args []string, envSlice []string) (bool, string) needs go.Foreign {
+	let fullArgs = []string{"-i"}.Concat(envSlice).Concat([]string{"git", "-C", dir}).Concat(args)
+	let cmdOpt = exec.Command("env", fullArgs)
+	match cmdOpt {
+	case None:
+		(false, "")
+	case Some[go.Ref[exec.Cmd]] as c:
+		let out = c.Value.Output() catch {
+		case go.Error:
+			return (false, "")
+		}
+		(true, strings.TrimSpace(out.Text()))
+	}
+}
+
+func cleanupTempDir(dir string) needs go.Foreign {
+	let parent = filepath.Dir(dir)
+	let r = os.OpenRoot(parent) catch {
+	case go.Error:
+		return
+	}
+	r.RemoveAll(filepath.Base(dir)) catch {
+	case go.Error:
+	}
+	r.Close() catch {
+	case go.Error:
+	}
+}
+
+// RivalLockSuite runs real-disk HostLockOps interop against C Git under the
+// native law harness (which supplies go.Foreign to provider implementations).
+type RivalLockSuite {
+	RunInterop() bool,
+
+	// RivalCGitLockInterop: exercises HostLockOps on real disk against real C Git:
+	// (1) Ergo holds refs/heads/main.lock -> rival Acquire and C `git update-ref`
+	//     both fail while leaving Ergo's `.lock` intact;
+	// (2) Ergo Durable Commit publishes a new commit OID -> `.lock` is gone and
+	//     C `git rev-parse refs/heads/main` reads the new OID;
+	// (3) Ergo acquires lock, stages garbage, then Aborts -> `.lock` is gone and
+	//     C `git rev-parse refs/heads/main` still reads the committed OID.
+	law RivalCGitLockInterop() {
+		RunInterop()
+	},
+}
+
+type HostRivalLockSuite {} implements RivalLockSuite
+
+func RunInterop(_ HostRivalLockSuite) bool needs go.Foreign {
+	let tmpDir = os.MkdirTemp("", "ergo-git-locks-rival-") catch {
+	case go.Error:
+		return false
+	}
+	let envSlice = hermeticGitEnvSlice()
+	let (ok0, _) = runHostGit(tmpDir, []string{"init", "-q", "--template=", "--object-format=sha1", "-b", "main", "."}, envSlice)
+	if !ok0 {
+		cleanupTempDir(tmpDir)
+		return false
+	}
+	let (ok1, _) = runHostGit(tmpDir, []string{"commit", "-q", "--allow-empty", "-m", "first"}, envSlice)
+	let (ok2, oid1) = runHostGit(tmpDir, []string{"rev-parse", "--verify", "refs/heads/main"}, envSlice)
+	let (ok3, _) = runHostGit(tmpDir, []string{"commit", "-q", "--allow-empty", "-m", "second"}, envSlice)
+	let (ok4, oid2) = runHostGit(tmpDir, []string{"rev-parse", "--verify", "refs/heads/main"}, envSlice)
+	let (ok5, _) = runHostGit(tmpDir, []string{"update-ref", "refs/heads/main", oid1}, envSlice)
+	if !ok1 || !ok2 || !ok3 || !ok4 || !ok5 || oid1 == oid2 {
+		cleanupTempDir(tmpDir)
+		return false
+	}
+
+	let refPath = filepath.Join([]string{tmpDir, ".git", "refs", "heads", "main"})
+	let refLockPath = LockPathOf(refPath)
+	let host = NewHostLockOps(tmpDir) catch {
+	case PathInvalid:
+		cleanupTempDir(tmpDir)
+		return false
+	}
+
+	let step1Ok = with context { LockOps: host } {
+		let mut held = Acquire(refPath, Durable) catch {
+		case _:
+			return false
+		}
+		if !host.LockExists(refLockPath) {
+			return false
+		}
+		let mut secondFailed = false
+		let _ = Acquire(refPath, Durable) catch {
+		case LockHeld:
+			secondFailed = true
+			held
+		case PathInvalid:
+			return false
+		}
+		if !secondFailed || !host.LockExists(refLockPath) {
+			return false
+		}
+		let (rivalOk, _) = runHostGit(tmpDir, []string{"update-ref", "refs/heads/main", oid2}, envSlice)
+		if rivalOk || !host.LockExists(refLockPath) {
+			return false
+		}
+		held.Write(oid2 + "\n") catch {
+		case _:
+			return false
+		}
+		held.Commit() catch {
+		case _:
+			return false
+		}
+		!host.LockExists(refLockPath)
+	}
+	if !step1Ok {
+		cleanupTempDir(tmpDir)
+		return false
+	}
+
+	let (ok6, afterCommit) = runHostGit(tmpDir, []string{"rev-parse", "--verify", "refs/heads/main"}, envSlice)
+	if !ok6 || afterCommit != oid2 {
+		cleanupTempDir(tmpDir)
+		return false
+	}
+
+	let step2Ok = with context { LockOps: host } {
+		let mut doomed = Acquire(refPath, Durable) catch {
+		case _:
+			return false
+		}
+		doomed.Write("not-a-valid-oid-garbage\n") catch {
+		case _:
+			return false
+		}
+		doomed.Abort()
+		!host.LockExists(refLockPath)
+	}
+	let (ok7, afterAbort) = runHostGit(tmpDir, []string{"rev-parse", "--verify", "refs/heads/main"}, envSlice)
+	cleanupTempDir(tmpDir)
+	step2Ok && ok7 && afterAbort == oid2
+}

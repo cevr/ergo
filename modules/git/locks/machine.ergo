@@ -1,0 +1,225 @@
+// InitialLockState returns the starting Idle state with initial committed bytes.
+func InitialLockState(committed string) LockState {
+	LockState{
+		Phase:     PhaseIdle,
+		Mode:      Durable,
+		HasBytes:  false,
+		Committed: committed,
+		Staged:    "",
+	}
+}
+
+func isTerminalPhase(p LockPhase) bool {
+	match p {
+	case PhasePublished, PhaseDurable, PhaseAborted, PhaseUncertain:
+		true
+	case PhaseIdle, PhaseHeld, PhaseWritten, PhaseSynced:
+		false
+	}
+}
+
+// ProtocolStep is the pure transition function of LockProtocol enforcing
+// exclusive ownership, sync-before-publish in Durable mode, uncertain-dirsync
+// visibility, and terminal-state finality.
+func ProtocolStep(s LockState, e LockEvent) Decision[LockState, LockPhase] {
+	match (s.Phase, e) {
+	case (PhaseIdle, EvAcquire as acq):
+		Emit[LockState, LockPhase]{
+			Next: LockState{
+				Phase:     PhaseHeld,
+				Mode:      acq.Mode,
+				HasBytes:  false,
+				Committed: s.Committed,
+				Staged:    "",
+			},
+			Output: PhaseHeld,
+		}
+	case (PhaseHeld, EvAcquire), (PhaseWritten, EvAcquire), (PhaseSynced, EvAcquire):
+		Reject
+	case (PhaseHeld, EvWrite as w), (PhaseWritten, EvWrite as w):
+		Emit[LockState, LockPhase]{
+			Next: LockState{
+				Phase:     PhaseWritten,
+				Mode:      s.Mode,
+				HasBytes:  true,
+				Committed: s.Committed,
+				Staged:    w.Payload,
+			},
+			Output: PhaseWritten,
+		}
+	case (PhaseWritten, EvSync):
+		Emit[LockState, LockPhase]{
+			Next: LockState{
+				Phase:     PhaseSynced,
+				Mode:      s.Mode,
+				HasBytes:  s.HasBytes,
+				Committed: s.Committed,
+				Staged:    s.Staged,
+			},
+			Output: PhaseSynced,
+		}
+	case (PhaseSynced, EvSync):
+		Emit[LockState, LockPhase]{
+			Next:   s,
+			Output: PhaseSynced,
+		}
+	case (PhaseWritten, EvPublish):
+		match s.Mode {
+		case Atomic:
+			Emit[LockState, LockPhase]{
+				Next: LockState{
+					Phase:     PhasePublished,
+					Mode:      s.Mode,
+					HasBytes:  false,
+					Committed: s.Staged,
+					Staged:    "",
+				},
+				Output: PhasePublished,
+			}
+		case Durable:
+			Reject
+		}
+	case (PhaseSynced, EvPublish):
+		Emit[LockState, LockPhase]{
+			Next: LockState{
+				Phase:     PhasePublished,
+				Mode:      s.Mode,
+				HasBytes:  false,
+				Committed: s.Staged,
+				Staged:    "",
+			},
+			Output: PhasePublished,
+		}
+	case (PhasePublished, EvDirSync):
+		Emit[LockState, LockPhase]{
+			Next: LockState{
+				Phase:     PhaseDurable,
+				Mode:      s.Mode,
+				HasBytes:  false,
+				Committed: s.Committed,
+				Staged:    "",
+			},
+			Output: PhaseDurable,
+		}
+	case (PhasePublished, EvDirSyncFail):
+		Emit[LockState, LockPhase]{
+			Next: LockState{
+				Phase:     PhaseUncertain,
+				Mode:      s.Mode,
+				HasBytes:  false,
+				Committed: s.Committed,
+				Staged:    "",
+			},
+			Output: PhaseUncertain,
+		}
+	case (PhaseHeld, EvAbort), (PhaseWritten, EvAbort), (PhaseSynced, EvAbort):
+		Emit[LockState, LockPhase]{
+			Next: LockState{
+				Phase:     PhaseAborted,
+				Mode:      s.Mode,
+				HasBytes:  false,
+				Committed: s.Committed,
+				Staged:    "",
+			},
+			Output: PhaseAborted,
+		}
+	case _:
+		Reject
+	}
+}
+
+// LockProtocol is the declared Ergo machine for the Git `.lock` lifecycle:
+// Idle -> Held -> Written -> Synced -> Published -> Durable (or Aborted / Uncertain).
+type LockProtocol machine[LockState, LockEvent] {
+	initial: InitialLockState,
+	step:    ProtocolStep,
+}
+
+func isRejected(d Decision[LockState, LockPhase]) bool {
+	match d {
+	case Reject:
+		true
+	case _:
+		false
+	}
+}
+
+func stepNext(s LockState, e LockEvent) (LockState, bool) {
+	match ProtocolStep(s, e) {
+	case Emit[LockState, LockPhase] as em:
+		(em.Next, true)
+	case Enter[LockState] as en:
+		(en.Next, true)
+	case Stay[LockState] as st:
+		(st.Next, true)
+	case _:
+		(s, false)
+	}
+}
+
+// NoPublishBeforeSync: in Durable mode, EvPublish from PhaseWritten is
+// rejected until EvSync enters PhaseSynced, after which EvPublish succeeds.
+law NoPublishBeforeSync(payload string) {
+	let s0 = InitialLockState("old")
+	let (s1, ok1) = stepNext(s0, EvAcquire{Mode: Durable})
+	let (s2, ok2) = stepNext(s1, EvWrite{Payload: payload})
+	let premature = isRejected(ProtocolStep(s2, EvPublish))
+	let (s3, ok3) = stepNext(s2, EvSync)
+	let (s4, ok4) = stepNext(s3, EvPublish)
+	ok1 && ok2 && premature && ok3 && ok4 && s4.Phase == PhasePublished && s4.Committed == payload
+}
+
+// AbortCannotPublish: once PhaseAborted is entered, EvPublish and EvWrite are
+// rejected and Committed retains the previous committed bytes.
+law AbortCannotPublish(mode Durability, payload string) {
+	let s0 = InitialLockState("old")
+	let (s1, ok1) = stepNext(s0, EvAcquire{Mode: mode})
+	let (s2, ok2) = stepNext(s1, EvWrite{Payload: payload})
+	let (s3, ok3) = stepNext(s2, EvAbort)
+		ok1 && ok2 && ok3 &&
+		s3.Phase == PhaseAborted &&
+		s3.Committed == "old" &&
+		isRejected(ProtocolStep(s3, EvPublish)) &&
+		isRejected(ProtocolStep(s3, EvWrite{Payload: "x"})) &&
+		isRejected(ProtocolStep(s3, EvSync))
+}
+
+// PublishedAndAbortedAreTerminal: once a lock reaches PhaseDurable,
+// PhaseAborted, or PhaseUncertain, no write, sync, publish, or abort can occur.
+law PublishedAndAbortedAreTerminal(payload string) {
+	let s0 = InitialLockState("old")
+	let (s1, _) = stepNext(s0, EvAcquire{Mode: Durable})
+	let (s2, _) = stepNext(s1, EvWrite{Payload: payload})
+	let (s3, _) = stepNext(s2, EvSync)
+	let (sPub, _) = stepNext(s3, EvPublish)
+	let (sDur, okDur) = stepNext(sPub, EvDirSync)
+	let (sUnc, okUnc) = stepNext(sPub, EvDirSyncFail)
+	let (sAbt, okAbt) = stepNext(s2, EvAbort)
+	let events = []LockEvent{
+		EvWrite{Payload: "more"},
+		EvSync,
+		EvPublish,
+		EvAbort,
+	}
+	let mut allBlocked = true
+	for st in []LockState{sDur, sUnc, sAbt} {
+		for ev in events {
+			if !isRejected(ProtocolStep(st, ev)) {
+				allBlocked = false
+			}
+		}
+	}
+	okDur && okUnc && okAbt && allBlocked && isTerminalPhase(sDur.Phase) && isTerminalPhase(sUnc.Phase) && isTerminalPhase(sAbt.Phase)
+}
+
+// NoSecondOwner: EvAcquire is rejected in PhaseHeld, PhaseWritten, and PhaseSynced.
+law NoSecondOwner(mode Durability, payload string) {
+	let s0 = InitialLockState("old")
+	let (s1, ok1) = stepNext(s0, EvAcquire{Mode: mode})
+	let (s2, ok2) = stepNext(s1, EvWrite{Payload: payload})
+	let (s3, ok3) = stepNext(s2, EvSync)
+		ok1 && ok2 && ok3 &&
+		isRejected(ProtocolStep(s1, EvAcquire{Mode: mode})) &&
+		isRejected(ProtocolStep(s2, EvAcquire{Mode: mode})) &&
+		isRejected(ProtocolStep(s3, EvAcquire{Mode: mode}))
+}

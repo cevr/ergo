@@ -1,0 +1,116 @@
+// Package locks implements Git's `<target>.lock` exclusive-create, fsync, and
+// atomic rename publication protocol (STD-GIT: G-LOCKS), modeled as a closed
+// Ergo state machine with an injectable memory provider and a real POSIX disk
+// provider using O_CREAT|O_EXCL, fsync(file), root-confined rename, and
+// fsync(parentDir).
+
+// Durability selects the persistence guarantee enforced on Commit.
+// Atomic requires complete staged bytes before rename; Durable requires
+// SyncFile before RenamePublish AND SyncDir after RenamePublish.
+type Durability = Atomic{} | Durable{}
+
+// Error is the closed failure union for lock acquisition, staging, sync,
+// publication, and directory durability.
+type Error =
+	| LockHeld{Path string}
+	| NotHeld{Path string}
+	| AlreadyPublished{Path string}
+	| SyncFailed{Path string, Reason string}
+	| PublishFailed{Path string, Reason string}
+	| DirSyncUncertain{Path string, Reason string}
+	| PathInvalid{Path string, Reason string}
+
+// LockPhase is the lifecycle state of a single lock acquisition attempt.
+type LockPhase =
+	| PhaseIdle{}
+	| PhaseHeld{}
+	| PhaseWritten{}
+	| PhaseSynced{}
+	| PhasePublished{}
+	| PhaseDurable{}
+	| PhaseAborted{}
+	| PhaseUncertain{}
+
+// LockState is the pure model state of the LockProtocol machine.
+type LockState {
+	Phase     LockPhase,
+	Mode      Durability,
+	HasBytes  bool,
+	Committed string,
+	Staged    string,
+}
+
+// LockEvent is the closed event alphabet driving the LockProtocol machine.
+type LockEvent =
+	| EvAcquire{Mode Durability}
+	| EvWrite{Payload string}
+	| EvSync{}
+	| EvPublish{}
+	| EvDirSync{}
+	| EvDirSyncFail{}
+	| EvAbort{}
+
+// FaultEdge selects a single transition edge at which MemoryLockOps injects
+// a crash/failure.
+type FaultEdge =
+	| EdgeNone{}
+	| EdgeCreate{}
+	| EdgeWrite{}
+	| EdgeSyncFile{}
+	| EdgeRename{}
+	| EdgeSyncDir{}
+
+// OpEvent records one physical storage step executed by a LockOps provider in
+// exact chronological order.
+type OpEvent =
+	| OpCreate{}
+	| OpWrite{}
+	| OpSyncFile{}
+	| OpRename{}
+	| OpRemove{}
+	| OpSyncDir{}
+
+// LockOps is the storage capability seam for Git `.lock` files. MemoryLockOps
+// implements it in memory with fault injection and event logging; HostLockOps
+// implements it on disk with POSIX O_CREAT|O_EXCL, fsync, and root-confined
+// atomic rename.
+type LockOps {
+	CreateExclusive(lockPath string) fails LockHeld | PathInvalid,
+	WriteLock(lockPath string, data string) fails NotHeld | PathInvalid,
+	SyncFile(lockPath string) fails SyncFailed,
+	RenamePublish(lockPath string, targetPath string) fails PublishFailed,
+	RemoveLock(lockPath string) fails NotHeld,
+	SyncDir(dirPath string) fails DirSyncUncertain,
+	ReadTarget(targetPath string) Option[string],
+	LockExists(lockPath string) bool,
+
+	// CreateExclusiveRejectsSecondOwner: a second exclusive create on a held
+	// lock fails with LockHeld and leaves the existing lock present until the
+	// owner removes it.
+	law CreateExclusiveRejectsSecondOwner() {
+		let p = "law-excl-probe.lock"
+		RemoveLock(p) catch {
+		case NotHeld:
+		}
+		let mut created = true
+		CreateExclusive(p) catch {
+		case LockHeld, PathInvalid:
+			created = false
+		}
+		if !created {
+			return false
+		}
+		let mut secondRejected = false
+		CreateExclusive(p) catch {
+		case LockHeld:
+			secondRejected = true
+		case PathInvalid:
+			secondRejected = false
+		}
+		let stillThere = LockExists(p)
+		RemoveLock(p) catch {
+		case NotHeld:
+		}
+		secondRejected && stillThere
+	},
+}

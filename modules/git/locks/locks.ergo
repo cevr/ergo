@@ -1,0 +1,167 @@
+import filepath
+import strings
+
+// LockPathOf returns the canonical Git lockfile path `<targetPath>.lock`.
+func LockPathOf(targetPath string) string {
+	targetPath + ".lock"
+}
+
+// LockFile is an owned handle to an active `<target>.lock` file. Private
+// ownership fields prevent callers from forging ownership or unlinking a lock
+// held by another owner.
+type LockFile {
+	TargetPath string,
+	LockPath   string,
+	Mode       Durability,
+	owned      bool,
+	phase      LockPhase,
+}
+
+// Phase returns the current LockPhase of l.
+func Phase(l LockFile) LockPhase {
+	l.phase
+}
+
+// IsOwned reports whether l currently owns its `<target>.lock` file on disk.
+func IsOwned(l LockFile) bool {
+	l.owned
+}
+
+// Acquire exclusively creates `<targetPath>.lock`. On LockHeld, Acquire never
+// unlinks the existing lock owned by another caller.
+func Acquire(targetPath string, mode Durability) LockFile fails LockHeld | PathInvalid needs LockOps {
+	if targetPath == "" || strings.HasSuffix(targetPath, "/") || strings.HasSuffix(targetPath, ".lock") {
+		return PathInvalid{Path: targetPath, Reason: "invalid lock target path"}
+	}
+	let lockPath = LockPathOf(targetPath)
+	LockOps.CreateExclusive(lockPath) catch {
+	case LockHeld as e:
+		return e
+	case PathInvalid as e:
+		return e
+	}
+	LockFile{
+		TargetPath: targetPath,
+		LockPath:   lockPath,
+		Mode:       mode,
+		owned:      true,
+		phase:      PhaseHeld,
+	}
+}
+
+// Write stages the complete target payload into the held lock file.
+func Write(l mut LockFile, data string) fails NotHeld | AlreadyPublished | PathInvalid needs LockOps {
+	match l.phase {
+	case PhasePublished, PhaseDurable, PhaseUncertain:
+		return AlreadyPublished{Path: l.TargetPath}
+	case PhaseHeld, PhaseWritten:
+		if !l.owned {
+			return NotHeld{Path: l.LockPath}
+		}
+	case PhaseIdle, PhaseSynced, PhaseAborted:
+		return NotHeld{Path: l.LockPath}
+	}
+	try LockOps.WriteLock(l.LockPath, data)
+	l.phase = PhaseWritten
+}
+
+// Sync explicitly fsyncs the staged lock file before Commit.
+func Sync(l mut LockFile) fails NotHeld | AlreadyPublished | SyncFailed needs LockOps {
+	match l.phase {
+	case PhasePublished, PhaseDurable, PhaseUncertain:
+		return AlreadyPublished{Path: l.TargetPath}
+	case PhaseWritten, PhaseSynced:
+		if !l.owned {
+			return NotHeld{Path: l.LockPath}
+		}
+	case PhaseIdle, PhaseHeld, PhaseAborted:
+		return NotHeld{Path: l.LockPath}
+	}
+	try LockOps.SyncFile(l.LockPath)
+	l.phase = PhaseSynced
+}
+
+// Commit publishes the staged lock file atomically to TargetPath. In Durable
+// mode, Commit ensures SyncFile completes before RenamePublish and runs
+// SyncDir on the parent directory afterward; if SyncDir fails after rename,
+// l enters PhaseUncertain and returns DirSyncUncertain without attempting
+// rollback.
+func Commit(l mut LockFile) fails NotHeld | AlreadyPublished | SyncFailed | PublishFailed | DirSyncUncertain needs LockOps {
+	match l.phase {
+	case PhasePublished, PhaseDurable, PhaseUncertain:
+		return AlreadyPublished{Path: l.TargetPath}
+	case PhaseWritten, PhaseSynced:
+		if !l.owned {
+			return NotHeld{Path: l.LockPath}
+		}
+	case PhaseIdle, PhaseHeld, PhaseAborted:
+		return NotHeld{Path: l.LockPath}
+	}
+	match l.Mode {
+	case Durable:
+		if l.phase != PhaseSynced {
+			try LockOps.SyncFile(l.LockPath)
+			l.phase = PhaseSynced
+		}
+	case Atomic:
+	}
+	try LockOps.RenamePublish(l.LockPath, l.TargetPath)
+	l.owned = false
+	l.phase = PhasePublished
+	match l.Mode {
+	case Durable:
+		LockOps.SyncDir(filepath.Dir(l.TargetPath)) catch {
+		case DirSyncUncertain as e:
+			l.phase = PhaseUncertain
+			return e
+		}
+		l.phase = PhaseDurable
+	case Atomic:
+	}
+}
+
+// Abort releases an owned, unpublished lock file by unlinking it. If l is not
+// owned (already published, aborted, or never acquired), Abort does nothing.
+func Abort(l mut LockFile) needs LockOps {
+	if !l.owned {
+		return
+	}
+	LockOps.RemoveLock(l.LockPath) catch {
+	case NotHeld:
+	}
+	l.owned = false
+	l.phase = PhaseAborted
+}
+
+// CommitBytes runs Acquire -> Write -> Commit for a single payload, aborting
+// and unlinking the owned lock on any pre-rename failure while leaving
+// post-rename DirSyncUncertain visible to the caller.
+func CommitBytes(targetPath string, data string, mode Durability) fails LockHeld | NotHeld | AlreadyPublished | SyncFailed | PublishFailed | DirSyncUncertain | PathInvalid needs LockOps {
+	let mut lock = try Acquire(targetPath, mode)
+	lock.Write(data) catch {
+	case NotHeld as e:
+		lock.Abort()
+		return e
+	case AlreadyPublished as e:
+		lock.Abort()
+		return e
+	case PathInvalid as e:
+		lock.Abort()
+		return e
+	}
+	lock.Commit() catch {
+	case NotHeld as e:
+		lock.Abort()
+		return e
+	case AlreadyPublished as e:
+		return e
+	case SyncFailed as e:
+		lock.Abort()
+		return e
+	case PublishFailed as e:
+		lock.Abort()
+		return e
+	case DirSyncUncertain as e:
+		return e
+	}
+}

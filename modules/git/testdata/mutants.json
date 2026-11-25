@@ -66,6 +66,70 @@
       ]
     },
     {
+      "name": "git-locks-publishes-before-sync",
+      "origin": "STD-GIT G-LOCKS",
+      "file": "modules/git/locks/locks.ergo",
+      "from": "\t\tif l.phase != PhaseSynced {\n\t\t\ttry LockOps.SyncFile(l.LockPath)\n\t\t\tl.phase = PhaseSynced\n\t\t}",
+      "to": "\t\tif false && l.phase != PhaseSynced {\n\t\t\ttry LockOps.SyncFile(l.LockPath)\n\t\t\tl.phase = PhaseSynced\n\t\t}",
+      "rule": "In Durable mode, Commit calls SyncFile before RenamePublish (NoPublishBeforeSync).",
+      "anchor": {
+        "tests": [
+          "modules/git/locks:CrashAtEveryEdgePreservesInvariant"
+        ]
+      },
+      "killers": [
+        "modules/git/locks:CrashAtEveryEdgePreservesInvariant"
+      ]
+    },
+    {
+      "name": "git-locks-unlinks-unowned-lock",
+      "origin": "STD-GIT G-LOCKS",
+      "file": "modules/git/locks/locks.ergo",
+      "from": "\tLockOps.CreateExclusive(lockPath) catch {\n\tcase LockHeld as e:\n\t\treturn e",
+      "to": "\tLockOps.CreateExclusive(lockPath) catch {\n\tcase LockHeld as e:\n\t\tLockOps.RemoveLock(lockPath) catch {\n\t\tcase NotHeld:\n\t\t}\n\t\treturn e",
+      "rule": "When Acquire fails with LockHeld, the loser never unlinks the winner's lock file.",
+      "anchor": {
+        "tests": [
+          "modules/git/locks:CrashAtEveryEdgePreservesInvariant"
+        ]
+      },
+      "killers": [
+        "modules/git/locks:CrashAtEveryEdgePreservesInvariant"
+      ]
+    },
+    {
+      "name": "git-locks-swallows-dirsync-error",
+      "origin": "STD-GIT G-LOCKS",
+      "file": "modules/git/locks/locks.ergo",
+      "from": "\t\tLockOps.SyncDir(filepath.Dir(l.TargetPath)) catch {\n\t\tcase DirSyncUncertain as e:\n\t\t\tl.phase = PhaseUncertain\n\t\t\treturn e\n\t\t}",
+      "to": "\t\tLockOps.SyncDir(filepath.Dir(l.TargetPath)) catch {\n\t\tcase DirSyncUncertain:\n\t\t}",
+      "rule": "When SyncDir fails after RenamePublish in Durable mode, Commit surfaces DirSyncUncertain instead of reporting success.",
+      "anchor": {
+        "tests": [
+          "modules/git/locks:CrashAtEveryEdgePreservesInvariant"
+        ]
+      },
+      "killers": [
+        "modules/git/locks:CrashAtEveryEdgePreservesInvariant"
+      ]
+    },
+    {
+      "name": "git-locks-allows-overwrite-acquire",
+      "origin": "STD-GIT G-LOCKS",
+      "file": "modules/git/locks/host.ergo",
+      "from": "\tlet flags = syscall.O_CREAT | syscall.O_EXCL | syscall.O_WRONLY",
+      "to": "\tlet flags = syscall.O_CREAT | syscall.O_TRUNC | syscall.O_WRONLY",
+      "rule": "HostLockOps.CreateExclusive uses O_CREAT|O_EXCL rather than truncating create so rival holders cannot overwrite a live lock.",
+      "anchor": {
+        "tests": [
+          "modules/git/locks:law:RivalLockSuite.RivalCGitLockInterop"
+        ]
+      },
+      "killers": [
+        "modules/git/locks:law:RivalLockSuite.RivalCGitLockInterop"
+      ]
+    },
+    {
       "name": "git-root-reverses-config-scope",
       "origin": "STD-GIT G-ROOT",
       "file": "modules/git/root/config.ergo",
