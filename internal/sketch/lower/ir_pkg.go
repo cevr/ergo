@@ -1047,7 +1047,7 @@ func (h irHidden) readingPackage() *irExpr {
 	if h.c.Func == nil || h.c.Func.Pkg == nil {
 		irNo("std call with hidden arguments: a context read without its package")
 	}
-	return &irExpr{K: "const", Pos: h.p, T: "string", V: contextNamespace(h.c.Func.Pkg)}
+	return &irExpr{K: "conv", Pos: h.p, T: h.b.spelling(h.b.l.rt() + ".ContextPackage"), X: &irExpr{K: "const", Pos: h.p, T: "string", V: contextNamespace(h.c.Func.Pkg)}}
 }
 
 // callSite: rt.Site is a defined string type, so Site("…") is a
