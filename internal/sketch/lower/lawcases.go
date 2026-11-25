@@ -290,6 +290,7 @@ func (l *lowerer) listedRun(b *strings.Builder, label string, site syntax.Node, 
 	}
 	b.WriteString(ind + "\t" + ok1 + " = " + run + "(" + taskOf(env) + ", " + strconv.Quote(label) + ", " + at + ", " + describe + ", func() error { " + body + " })\n")
 	if law {
+		b.WriteString(ind + "\t" + l.helper("ApplyEvidence") + "(" + rec + ", " + l.helper("LastEvidence") + ")\n")
 		// The receipt's counterexample is the refuted case's text.
 		cex := strconv.Quote("()")
 		if len(vals) > 0 {
@@ -302,19 +303,26 @@ func (l *lowerer) listedRun(b *strings.Builder, label string, site syntax.Node, 
 		ind = ind[:len(ind)-1]
 		b.WriteString(ind + "}\n")
 	}
-	b.WriteString("\t\tif " + ok1 + " {\n\t\t\t" + fmtPkg + ".Println(" + strconv.Quote("ok "+label+" ("+provedText(cases)+")") + ")\n")
-	b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n")
-	if replay != "" {
-		b.WriteString("\t\t\t" + replay + "\n")
-	}
-	b.WriteString("\t\t}\n")
 	if law {
 		n := "1"
 		if len(vals) > 0 {
 			n = k
 		}
-		b.WriteString("\t\t" + rec + ".cases, " + rec + ".proved = " + n + ", " + ok1 + "\n")
+		b.WriteString("\t\t" + rec + ".cases = " + n + "\n")
+		b.WriteString("\t\tif " + ok1 + " {\n\t\t\t" + l.helper("FinishListedLaw") + "(" + strconv.Quote(label) + ", " + strconv.Itoa(cases) + ", " + rec + ")\n")
+		b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n")
+		if replay != "" {
+			b.WriteString("\t\t\t" + replay + "\n")
+		}
+		b.WriteString("\t\t}\n")
 		b.WriteString("\t\t" + l.helper("Record") + "(" + strconv.Quote(label) + ", " + rec + ", \"\")\n")
+	} else {
+		b.WriteString("\t\tif " + ok1 + " {\n\t\t\t" + fmtPkg + ".Println(" + strconv.Quote("ok "+label+" ("+provedText(cases)+")") + ")\n")
+		b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n")
+		if replay != "" {
+			b.WriteString("\t\t\t" + replay + "\n")
+		}
+		b.WriteString("\t\t}\n")
 	}
 	b.WriteString("\t}\n")
 	return true

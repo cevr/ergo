@@ -99,6 +99,106 @@ func registerNativesmore(t nativeTables) {
 		in.firing = false
 		return unit{}, in.charge(fr, at, 1)
 	}
+	t.reads["testing.recordCaseEvidence"] = "int64 int64 int64 string string bool bool string"
+	natives["testing.recordCaseEvidence"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		in.recordCaseEv(
+			args[0].(int64),
+			args[1].(int64),
+			args[2].(int64),
+			args[3].(string),
+			args[4].(string),
+			args[5].(bool),
+			args[6].(bool),
+			args[7].(string),
+		)
+		return unit{}, in.charge(fr, at, 1)
+	}
+}
+
+type evalCaseEvidence struct {
+	active     bool
+	tested     int64
+	matched    int64
+	planned    int64
+	scope      string
+	summary    string
+	complete   bool
+	refuted    bool
+	incomplete bool
+	reason     string
+}
+
+func (in *interp) resetCaseEv() { in.caseEv = evalCaseEvidence{} }
+
+func (in *interp) recordCaseEv(tested, matched, planned int64, scope, summary string, complete, refuted bool, reason string) {
+	incomplete := !complete && !refuted
+	if !in.caseEv.active {
+		in.caseEv = evalCaseEvidence{
+			active:     true,
+			tested:     tested,
+			matched:    matched,
+			planned:    planned,
+			scope:      scope,
+			summary:    summary,
+			complete:   complete,
+			refuted:    refuted,
+			incomplete: incomplete,
+			reason:     reason,
+		}
+		return
+	}
+	in.caseEv.tested += tested
+	in.caseEv.matched += matched
+	in.caseEv.planned += planned
+	if in.caseEv.scope == "" {
+		in.caseEv.scope = scope
+	} else if scope != "" && scope != in.caseEv.scope {
+		in.caseEv.scope += "; " + scope
+	}
+	if in.caseEv.summary == "" {
+		in.caseEv.summary = summary
+	} else if summary != "" {
+		in.caseEv.summary += "; " + summary
+	}
+	if refuted {
+		in.caseEv.refuted = true
+		in.caseEv.complete = false
+		if in.caseEv.reason == "" {
+			in.caseEv.reason = reason
+		}
+	} else if incomplete {
+		in.caseEv.incomplete = true
+		in.caseEv.complete = false
+		if in.caseEv.reason == "" {
+			in.caseEv.reason = reason
+		}
+	}
+}
+
+func (in *interp) applyCaseEv(out *Result, law bool) bool {
+	ev := in.caseEv
+	in.caseEv = evalCaseEvidence{}
+	if !ev.active {
+		return true
+	}
+	if !ev.complete {
+		why := ev.reason
+		if why == "" {
+			why = "bounded campaign hit a hard cap"
+		}
+		out.Status = Refuted
+		out.Reason = "incomplete bounded campaign: " + why
+		out.Message = "incomplete bounded campaign: " + why
+		out.Evidence = ""
+		return false
+	}
+	if law && out.Status == Passed {
+		out.Evidence = "tested"
+		if ev.summary != "" {
+			out.Reason = ev.summary
+		}
+	}
+	return true
 }
 
 // clearedCell is the value of an arena cell takeValue emptied: no live

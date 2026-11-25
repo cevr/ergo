@@ -1,0 +1,102 @@
+import testing
+
+func pathScopeLabel(scope PathScope, promise CoveragePromise) string {
+	let base = match scope {
+	case All:
+		"all acyclic"
+	case ToDepth as d:
+		"depth <= \(d.Depth)"
+	}
+	match promise {
+	case ExhaustiveScope:
+		base
+	case SelectedSubset as sel:
+		let kind = match sel.Strategy {
+		case SelectedShortest:
+			"shortest"
+		case SelectedSimple:
+			"simple"
+		case SelectedEdges:
+			"edges"
+		}
+		"selected(\(kind)); \(base)"
+	}
+}
+
+func pathStopReason(stop PathStop) string {
+	match stop {
+	case PathComplete:
+		""
+	case PathOverStates:
+		"state cap reached"
+	case PathOverEdges:
+		"edge cap reached"
+	case PathOverPaths:
+		"path cap reached"
+	case PathOverSteps:
+		"step cap reached"
+	case PathOverWork:
+		"work cap reached"
+	case PathOverBytes:
+		"byte cap reached"
+	case CycleRequiresDepth:
+		"reachable cycle requires ToDepth"
+	case EmptyStarts:
+		"empty start set"
+	case BadBounds as bb:
+		bb.Reason
+	case PathUnkeyable as uk:
+		uk.Reason
+	}
+}
+
+// CaseEvidenceOf converts a CheckResult into a general testing.CaseEvidence
+// record carrying tested/matched/planned counts, scope, summary, and
+// completeness status.
+func CaseEvidenceOf[S, E, V, O, Err, OpenErr, DriveErr](
+	res CheckResult[S, E, V, O, Err, OpenErr, DriveErr],
+) testing.CaseEvidence {
+	let cov = BuildCoverageReport("", res, []DeclaredTarget{})
+	let scope = pathScopeLabel(res.Scope, res.Promise)
+	let summary = "\(cov.PathsCompleted) paths, \(cov.DistinctMatched)/\(cov.EdgesInScope) transitions matched, \(cov.MatchedSteps) matched steps; \(scope)"
+	let status testing.CaseStatus = match res.Verdict {
+	case CampaignPassed:
+		testing.EvidenceComplete
+	case CampaignIncomplete as inc:
+		let why = pathStopReason(inc.Stop)
+		let msg = if why != "" { why } else { "preflight incomplete" }
+		testing.EvidenceIncomplete{Reason: msg}
+	case CampaignRefuted:
+		testing.EvidenceRefuted{Reason: "path mismatch observed"}
+	}
+	testing.CaseEvidence{
+		Tested:  cov.PathsCompleted,
+		Matched: cov.MatchedSteps,
+		Planned: cov.Planned,
+		Scope:   scope,
+		Summary: summary,
+		Status:  status,
+	}
+}
+
+// SubmitEvidence submits CaseEvidenceOf(res) to sink and returns res unchanged.
+func SubmitEvidence[S, E, V, O, Err, OpenErr, DriveErr](
+	res CheckResult[S, E, V, O, Err, OpenErr, DriveErr],
+	sink testing.CaseEvidenceSink,
+) CheckResult[S, E, V, O, Err, OpenErr, DriveErr] {
+	sink.Submit(CaseEvidenceOf(res))
+	res
+}
+
+// CheckPathsWithSink runs CheckPaths and submits its structured bounded-test
+// evidence to sink. Ordinary callers that need no evidence sink call CheckPaths directly.
+func CheckPathsWithSink[S, E wire, V, O, Err comparable, OpenErr, DriveErr](
+	model PathModel[S, E, V, O, Err],
+	scope PathScope,
+	bounds PathBounds,
+	open own func(start S) PathSession[E, Observed[V, O, Err], DriveErr] fails OpenErr,
+	sink testing.CaseEvidenceSink,
+) CheckResult[S, E, V, O, Err, OpenErr, DriveErr] needs wired[S] | wired[E] {
+	let res = CheckPaths(model, scope, bounds, open)
+	SubmitEvidence(res, sink)
+}

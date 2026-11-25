@@ -87,6 +87,9 @@ type interp struct {
 	// goBodies runs a module's own Go bodies in a licence run (LAWFFI
 	// LF2m; gobodies.go), nil elsewhere.
 	goBodies GoBodies
+	// caseEv records structured bounded-test evidence submitted during the
+	// active evaluated test/law case (std testing.RecordCaseEvidence).
+	caseEv evalCaseEvidence
 	// pairs are the by-name codec pairs every package's check recorded
 	// (codecwalk.go), built at the first codec call.
 	pairs map[*check.TypeName]*check.WirePair

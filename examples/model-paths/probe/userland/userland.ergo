@@ -1,0 +1,19 @@
+// Package userland exercises the general testing.CaseEvidence channel with zero
+// explore imports, proving runner independence from explore.
+import testing
+
+law UserlandBoundedEvidence() {
+	testing.RecordCaseEvidence(testing.CaseEvidence{
+		Tested:  3,
+		Matched: 3,
+		Planned: 3,
+		Scope:   "userland depth <= 2",
+		Summary: "3 userland cases matched; depth <= 2",
+		Status:  testing.EvidenceComplete,
+	})
+	true
+}
+
+law UserlandFiniteProof() {
+	2*3 == 6
+}
