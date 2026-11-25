@@ -1,0 +1,18 @@
+func PortGenericIdentity[T](x T) T {
+	let y = x
+	y
+}
+
+func PortGenericFirst[A, B](a A, b B) A {
+	let x = a
+	x
+}
+
+func PortGenericSecond[A, B](a A, b B) B {
+	let y = b
+	y
+}
+
+func PortGenericUseInt(n int) int { PortGenericIdentity(n) }
+
+func PortGenericUseString(s string) string { PortGenericIdentity(s) }

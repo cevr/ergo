@@ -110,6 +110,9 @@ func statementsWithMode(st mut fnb, body dense.ID[syntax.Node], list syntax.List
 	if st.frame.env >= 0 {
 		p.taken = p.taken.Append("env")
 	}
+	for binder in st.generic.Binders {
+		p.taken = p.taken.Append(binder.Name)
+	}
 	for name in names {
 		match dense.Unpack(name) {
 		case Some{Value: at}:

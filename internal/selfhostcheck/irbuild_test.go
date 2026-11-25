@@ -956,6 +956,130 @@ law EarlyReturn(n int) {
 	}
 }
 
+func TestIRGenericHeaderAndOrder(t *testing.T) {
+	needsBuild(t)
+	ctx, cancel := testwait.Context(t, context.Background())
+	defer cancel()
+	bin := filepath.Join(t.TempDir(), "irdump")
+	if o, err := runCompiler(t, ctx, ergoCLI(t, ctx), "build", "-o", bin, "./cmd/irdump"); err != nil {
+		t.Fatalf("ergo build ./cmd/irdump: %v\n%s", err, o)
+	}
+	const src = `func main() {
+	let _ = UseInt(1)
+	let _ = UseString("a")
+	let _ = First(1, "a")
+	let _ = Second(1, "a")
+}
+
+func Identity[T](x T) T {
+	let y = x
+	y
+}
+
+func First[A, B](a A, b B) A {
+	let x = a
+	x
+}
+
+func Second[A, B](a A, b B) B {
+	let y = b
+	y
+}
+
+func UseInt(n int) int { Identity(n) }
+
+func UseString(s string) string { Identity(s) }
+
+type Boxed { Read() int }
+
+func ReadOne[T Boxed](x T) int { 1 }
+`
+	dir := t.TempDir()
+	file := filepath.Join(dir, "main.ergo")
+	if err := os.WriteFile(file, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	u, err := irspike.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, ext := goKinds(u.Package)
+	_, foreign := goTypes(u.Package)
+	pkgPath := importPath(dir, u.Package)
+	tmp := t.TempDir()
+	ef, ff := filepath.Join(tmp, "ext"), filepath.Join(tmp, "foreign")
+	writeLines(t, ef, ext)
+	writeLines(t, ff, foreign)
+	manifest := filepath.Join(tmp, "manifest")
+	writeLines(t, manifest, []string{strings.Join([]string{pkgPath, ef, ff, file}, " ")})
+	roots := filepath.Join(tmp, "roots")
+	writeLines(t, roots, []string{pkgPath})
+
+	paths := irPathIDs{}
+	goIdx := irGoIndex{}
+	if err := indexGoIR(t, paths, goIdx, irGoProgram{u: u, tests: false, dir: dir, module: dir, reach: ownFuncs(u, map[string]bool{})}); err != nil {
+		t.Fatal(err)
+	}
+
+	emitted := map[string]struct {
+		key  irKey
+		data []byte
+	}{}
+	var files, stops []string
+	for _, l := range runDump(t, ctx, bin, "-std", stdDir(), "-roots", roots, "-corpus", manifest) {
+		kind, rest, _ := strings.Cut(l, " ")
+		switch kind {
+		case "@pkg":
+			files = nil
+		case "P":
+			_, path, _ := strings.Cut(rest, " ")
+			files = append(files, path)
+		case "S":
+			stops = append(stops, l)
+		case "F":
+			f := strings.SplitN(rest, " ", 3)
+			var fn irFunc
+			if err := json.Unmarshal([]byte(f[2]), &fn); err != nil {
+				t.Fatalf("unmarshal IR: %v", err)
+			}
+			if err := irMapFiles(&fn, files, paths); err != nil {
+				t.Fatal(err)
+			}
+			got, err := json.Marshal(&fn)
+			if err != nil {
+				t.Fatal(err)
+			}
+			emitted[fn.Name] = struct {
+				key  irKey
+				data []byte
+			}{irKey{fn.Pos[0], fn.Pos[1], fn.Pos[2]}, got}
+		}
+	}
+
+	for _, want := range []string{"Identity", "First", "Second"} {
+		got, ok := emitted[want]
+		if !ok {
+			t.Fatalf("generic build did not emit %s (stops: %v)", want, stops)
+		}
+		res := goIdx.compare(got.key, irWitnessSite{file, "0", want}, got.data, false, nil)
+		if res.match < 0 {
+			t.Fatalf("generic %s differed from Go (%s)\nergo: %s\n  go: %v", want, res.cause, got.data, res.wants)
+		}
+	}
+	if _, ok := emitted["ReadOne"]; ok {
+		t.Fatal("constrained operation generic ReadOne must not emit a witness-less body")
+	}
+	foundStop := false
+	for _, s := range stops {
+		if strings.HasSuffix(s, " generic: constrained type parameter") {
+			foundStop = true
+		}
+	}
+	if !foundStop {
+		t.Fatalf("expected honest constrained type parameter stop for ReadOne, got stops: %v", stops)
+	}
+}
+
 // TestIRAgreementTestOnlyOracle kills lower-agree-replace-production-oracle:
 // a test build fills a genuine production hole, not a disagreement.
 func TestIRAgreementTestOnlyOracle(t *testing.T) {
@@ -1043,12 +1167,22 @@ func goIRFuncs(t *testing.T, paths irPathIDs, importFixture []string) (irGoIndex
 		}
 		programs = append(programs, irGoProgram{u: u, tests: true, dir: dir, module: moduleRoot(dir), reach: ownFuncs(u, covered)})
 	}
-	// Every std body, reached by a program that calls none (the IR
-	// census's std domain).
+	// Every std body (including the prelude's own Ergo-bodied functions),
+	// reached by a program that calls none (the IR census's std domain).
 	funcs, err := irspike.StdFuncs()
 	if err != nil {
 		t.Fatal(err)
 	}
+	var preludeFuncs []*check.Func
+	for _, f := range check.PreludePackage().Funcs {
+		if f.Decl != nil && f.Decl.Body != nil {
+			preludeFuncs = append(preludeFuncs, f)
+		}
+	}
+	sort.SliceStable(preludeFuncs, func(i, j int) bool {
+		return preludeFuncs[i].Name < preludeFuncs[j].Name
+	})
+	funcs = append(funcs, preludeFuncs...)
 	a := sketchfront.Check("func main() {}\n")
 	su, err := sketchfront.IRSpikeUnit(a, filepath.Join(t.TempDir(), "std.ergo"))
 	if err != nil {

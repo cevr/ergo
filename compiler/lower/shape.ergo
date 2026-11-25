@@ -20,6 +20,10 @@ func shapeWithin(st fnb, t dense.ID[store.TKey], trail shapeTrail) string {
 	if basic != "" {
 		return basic
 	}
+	let tp = typeParamGo(st, t)
+	if tp != "" {
+		return tp
+	}
 	let kind = store.KindOfType(st.s, t)
 	if kind == store.KSlice {
 		let elem = shapeWithin(st, store.OperandsOf(st.s, t)[0], trail)
