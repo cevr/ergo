@@ -1,4 +1,5 @@
 import adventure/world
+import option
 import strings
 
 // Intro is the first line of a game.
@@ -15,22 +16,22 @@ let HelpText = []string{
 func Describe(g Game) []string {
 	let mut lines = []string{}
 	match world.RoomOf(g.World, g.At) {
-	case Some[world.Room] as r:
+	case option.Some[world.Room] as r:
 		lines = lines.Append("== " + r.Value.Name + " ==")
 		lines = lines.Append(r.Value.Text)
-	case None:
+	case option.None:
 		lines = lines.Append("== " + g.At + " ==")
 	}
 	let items = ItemsAt(g, g.At)
-	if len(items) > 0 {
+	if items.Len() > 0 {
 		lines = lines.Append("You see: " + strings.Join(items, ", ") + ".")
 	}
 	let mut ways = []string{}
 	for d in world.Dirs {
 		match world.ExitOf(g.World, g.At, d) {
-		case Some[world.Exit]:
+		case option.Some[world.Exit]:
 			ways = ways.Append(world.DirName(d))
-		case None:
+		case option.None:
 		}
 	}
 	lines.Append("Exits: " + strings.Join(ways, ", ") + ".")
@@ -39,7 +40,7 @@ func Describe(g Game) []string {
 // Carrying is the answer to inventory.
 func Carrying(g Game) string {
 	let items = ItemsAt(g, world.Carried)
-	if len(items) == 0 {
+	if items.Len() == 0 {
 		return "You carry nothing."
 	}
 	"You carry: " + strings.Join(items, ", ") + "."
@@ -63,7 +64,7 @@ func Failure(r Refusal) string {
 	case Unknown as u:
 		"I do not know the word \"\(u.Word)\"."
 	case Missing as m:
-		strings.ToUpper(strings.Slice(m.Verb, 0, 1)) + strings.Slice(m.Verb, 1, len(m.Verb)) + " what?"
+		strings.ToUpper(strings.Slice(m.Verb, 0, 1)) + strings.Slice(m.Verb, 1, m.Verb.Len()) + " what?"
 	case NoWay as n:
 		"\"\(n.Word)\" is not a direction."
 	case NoExit as n:

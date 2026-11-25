@@ -3,10 +3,13 @@
 // each tool call the work of Running's, and a retry's wait the timer of
 // Waiting's. So a recorded run of signals replays as a fold (Replay).
 
+import core
 import exec
 import journal
 import machines
+import option
 import strings
+import time
 
 // Limits bound a turn: at most MaxSteps asks of the model follow one
 // message of the person, and at most MaxRetries retries follow one
@@ -39,44 +42,44 @@ func Start(l Limits) State {
 // Step is the loop's transition. The match names every phase with every
 // signal it takes; a signal a phase does not take is ignored (the
 // runner drops the work and timer signals of an ended entry anyway).
-func Step(s State, e Signal) Decision[State, Never] {
+func Step(s State, e Signal) machines.Decision[State, core.Never] {
 	match (s.Phase, e) {
 	case (Ended, _):
-		Ignore
+		machines.Ignore
 	case (_, Quit):
-		Enter[State]{Next: State{..closeTurn(s, "the session ended"), Phase: Ended}}
+		machines.Enter[State]{Next: State{..closeTurn(s, "the session ended"), Phase: Ended}}
 	case (Idle, Submit as m):
 		if strings.TrimSpace(m.Text) == "" {
-			return Ignore
+			return machines.Ignore
 		}
-		Enter[State]{Next: State{..s, Log: s.Log.Append(User{Text: m.Text}), Phase: Asking{Draft: "", Try: 0}, Steps: 1}}
+		machines.Enter[State]{Next: State{..s, Log: s.Log.Append(User{Text: m.Text}), Phase: Asking{Draft: "", Try: 0}, Steps: 1}}
 	case (Asking as a, Delta as d):
-		Stay[State]{Next: State{..s, Phase: Asking{..a, Draft: a.Draft + d.Text}}}
+		machines.Stay[State]{Next: State{..s, Phase: Asking{..a, Draft: a.Draft + d.Text}}}
 	case (Asking, Replied as r):
 		let log = s.Log.Append(Reply{Text: r.Text, Calls: CallsOf(r.Uses)})
-		if len(r.Uses) == 0 {
-			return Enter[State]{Next: State{..s, Log: log, Phase: Idle}}
+		if r.Uses.Len() == 0 {
+			return machines.Enter[State]{Next: State{..s, Log: log, Phase: Idle}}
 		}
 		next(State{..s, Log: log}, r.Uses)
 	case (Asking as a, ModelFailed as f):
 		failed(s, a, f.Failure)
 	case (Waiting as w, Retry):
-		Enter[State]{Next: State{..s, Phase: Asking{Draft: "", Try: w.Try}}}
+		machines.Enter[State]{Next: State{..s, Phase: Asking{Draft: "", Try: w.Try}}}
 	case (Approving as p, Approve):
-		Enter[State]{Next: State{..s, Phase: Running{Next: p.Next, Call: p.Call, Rest: p.Rest}}}
+		machines.Enter[State]{Next: State{..s, Phase: Running{Next: p.Next, Call: p.Call, Rest: p.Rest}}}
 	case (Approving as p, Decline):
 		let why ToolFailure = Declined
 		next(State{..s, Log: s.Log.Append(Result{Id: p.Call.Id, Text: Told(why), Ok: false})}, p.Rest)
 	case (Running as r, ToolDone as d):
 		next(State{..s, Log: s.Log.Append(Result{Id: r.Call.Id, Text: Text(d.Outcome), Ok: Fine(d.Outcome)})}, r.Rest)
 	case (Idle, Interrupt), (Idle, Resumed):
-		Ignore
+		machines.Ignore
 	case (_, Interrupt):
-		Enter[State]{Next: State{..closeTurn(s, "interrupted"), Phase: Idle}}
+		machines.Enter[State]{Next: State{..closeTurn(s, "interrupted"), Phase: Idle}}
 	case (_, Resumed):
-		Enter[State]{Next: State{..closeTurn(s, "the session was cut here; resumed"), Phase: Idle}}
+		machines.Enter[State]{Next: State{..closeTurn(s, "the session was cut here; resumed"), Phase: Idle}}
 	case (Idle, _), (Asking, _), (Waiting, _), (Approving, _), (Running, _):
-		Ignore
+		machines.Ignore
 	}
 }
 
@@ -84,18 +87,18 @@ func Step(s State, e Signal) Decision[State, Never] {
 // failure the model may recover from is retried after its wait, while
 // retries are left; after it, the reply is kept as far as it came, and
 // the turn ends: the model is never asked again for a reply it began.
-func failed(s State, a Asking, f ModelFailure) Decision[State, Never] {
+func failed(s State, a Asking, f ModelFailure) machines.Decision[State, core.Never] {
 	if a.Draft != "" {
-		return Enter[State]{Next: State{..s, Log: s.Log.Append(Cut{Text: a.Draft}).Append(Note{Text: Explain(f)}), Phase: Idle}}
+		return machines.Enter[State]{Next: State{..s, Log: s.Log.Append(Cut{Text: a.Draft}).Append(Note{Text: Explain(f)}), Phase: Idle}}
 	}
 	match Class(f) {
 	case RetryAfter as r:
 		if a.Try < s.Limits.MaxRetries {
-			return Enter[State]{Next: State{..s, Log: s.Log.Append(Failed{Say: Explain(f) + "; retrying in \(Wait(r.Ms))"}), Phase: Waiting{Try: a.Try + 1, Ms: r.Ms}}}
+			return machines.Enter[State]{Next: State{..s, Log: s.Log.Append(Failed{Say: Explain(f) + "; retrying in \(Wait(r.Ms))"}), Phase: Waiting{Try: a.Try + 1, Ms: r.Ms}}}
 		}
-		Enter[State]{Next: State{..s, Log: s.Log.Append(Failed{Say: Explain(f) + "; no retries left"}), Phase: Idle}}
+		machines.Enter[State]{Next: State{..s, Log: s.Log.Append(Failed{Say: Explain(f) + "; no retries left"}), Phase: Idle}}
 	case GiveUp:
-		Enter[State]{Next: State{..s, Log: s.Log.Append(Failed{Say: Explain(f)}), Phase: Idle}}
+		machines.Enter[State]{Next: State{..s, Log: s.Log.Append(Failed{Say: Explain(f)}), Phase: Idle}}
 	}
 }
 
@@ -104,7 +107,7 @@ func failed(s State, a Asking, f ModelFailure) Decision[State, Never] {
 // is taken; an allowed call is run, and one the gate asks about waits
 // for the person. With no call left, the model is asked again, unless
 // the turn has used its steps.
-func next(s State, uses []Use) Decision[State, Never] {
+func next(s State, uses []Use) machines.Decision[State, core.Never] {
 	let mut log = s.Log
 	for i, u in uses {
 		match u {
@@ -113,9 +116,9 @@ func next(s State, uses []Use) Decision[State, Never] {
 		case Usable as ok:
 			match Gate(ok.Request) {
 			case Allow:
-				return Enter[State]{Next: State{..s, Log: log, Phase: Running{Next: ok.Request, Call: ok.Call, Rest: uses[i+1:]}}}
+				return machines.Enter[State]{Next: State{..s, Log: log, Phase: Running{Next: ok.Request, Call: ok.Call, Rest: uses[i+1:]}}}
 			case Ask:
-				return Enter[State]{Next: State{..s, Log: log, Phase: Approving{Next: ok.Request, Call: ok.Call, Rest: uses[i+1:]}}}
+				return machines.Enter[State]{Next: State{..s, Log: log, Phase: Approving{Next: ok.Request, Call: ok.Call, Rest: uses[i+1:]}}}
 			case Deny:
 				let why ToolFailure = Declined
 				log = log.Append(Result{Id: ok.Call.Id, Text: Told(why), Ok: false})
@@ -123,9 +126,9 @@ func next(s State, uses []Use) Decision[State, Never] {
 		}
 	}
 	if s.Steps >= s.Limits.MaxSteps {
-		return Enter[State]{Next: State{..s, Log: log.Append(Note{Text: "stopped after \(s.Steps) steps"}), Phase: Idle}}
+		return machines.Enter[State]{Next: State{..s, Log: log.Append(Note{Text: "stopped after \(s.Steps) steps"}), Phase: Idle}}
 	}
-	Enter[State]{Next: State{..s, Log: log, Phase: Asking{Draft: "", Try: 0}, Steps: s.Steps + 1}}
+	machines.Enter[State]{Next: State{..s, Log: log, Phase: Asking{Draft: "", Try: 0}, Steps: s.Steps + 1}}
 }
 
 // closeTurn is s with its turn closed: a draft kept as cut, each call that
@@ -160,9 +163,9 @@ func closeTurn(s State, why string) State {
 func Pending(p Phase) int {
 	match p {
 	case Approving as a:
-		1 + len(a.Rest)
+		1 + a.Rest.Len()
 	case Running as r:
-		1 + len(r.Rest)
+		1 + r.Rest.Len()
 	case Idle, Asking, Waiting, Ended:
 		0
 	}
@@ -175,11 +178,11 @@ func PromptOf(s State) Prompt { Prompt{Log: s.Log, Tools: Schemas()} }
 // delta and then the reply or the failure; Running runs its call. The
 // runner interrupts the work when its entry ends, and drops what it
 // sends after.
-func ask(s State) Option[machines.Work[Signal, Model | Tools | exec.Runner | Scheduler]] {
+func ask(s State) option.Option[machines.Work[Signal, Model | Tools | exec.Runner | time.Scheduler]] {
 	match s.Phase {
 	case Asking:
 		let p = PromptOf(s)
-		Some{machines.Work[Signal, Model | Tools | exec.Runner | Scheduler]{Start: func(send entry func(e Signal)) needs Model | Tools | exec.Runner | Scheduler {
+		option.Some{machines.Work[Signal, Model | Tools | exec.Runner | time.Scheduler]{Start: func(send entry func(e Signal)) needs Model | Tools | exec.Runner | time.Scheduler {
 			let t = Model.Stream(p, func(d Delta) fails SinkFailed { send(d) }) catch {
 			case SinkFailed:
 				return
@@ -192,19 +195,19 @@ func ask(s State) Option[machines.Work[Signal, Model | Tools | exec.Runner | Sch
 		}}}
 	case Running as r:
 		let req = r.Next
-		Some{machines.Work[Signal, Model | Tools | exec.Runner | Scheduler]{Start: func(send entry func(e Signal)) needs Model | Tools | exec.Runner | Scheduler { send(ToolDone{Outcome: Run(req)}) }}}
+		option.Some{machines.Work[Signal, Model | Tools | exec.Runner | time.Scheduler]{Start: func(send entry func(e Signal)) needs Model | Tools | exec.Runner | time.Scheduler { send(ToolDone{Outcome: Run(req)}) }}}
 	case Idle, Waiting, Approving, Ended:
-		None
+		option.None
 	}
 }
 
 // timer is Waiting's: after its wait, Retry.
-func timer(s State) Option[Timeout[Signal]] {
+func timer(s State) option.Option[machines.Timeout[Signal]] {
 	match s.Phase {
 	case Waiting as w:
-		Some{Timeout[Signal]{In: Wait(w.Ms), Signal: Retry}}
+		option.Some{machines.Timeout[Signal]{In: Wait(w.Ms), Signal: Retry}}
 	case Idle, Asking, Approving, Running, Ended:
-		None
+		option.None
 	}
 }
 
@@ -265,11 +268,11 @@ type Agent machine[State, Signal] {
 			case Idle, Ended:
 			case Asking, Waiting, Approving, Running:
 				match Step(s, Interrupt) {
-				case Enter[State] as en:
+				case machines.Enter[State] as en:
 					if !idle(en.Next) || !wellFormed(en.Next) {
 						return false
 					}
-				case Stay[State], Ignore, Reject:
+				case machines.Stay[State], machines.Ignore, machines.Reject:
 					return false
 				}
 			}
@@ -345,11 +348,11 @@ func Recover(l Limits, signals []Signal) []Signal fails journal.Diverged {
 	let mut s = Start(l)
 	for i, e in signals {
 		match Step(s, e) {
-		case Enter[State] as en:
+		case machines.Enter[State] as en:
 			s = en.Next
-		case Stay[State] as st:
+		case machines.Stay[State] as st:
 			s = st.Next
-		case Ignore, Reject:
+		case machines.Ignore, machines.Reject:
 			return journal.Diverged{At: i}
 		}
 	}
@@ -367,7 +370,7 @@ func Recover(l Limits, signals []Signal) []Signal fails journal.Diverged {
 // at all), with a well-formed transcript.
 law ResumeRunsNothingTwice(l Limits, uses []Use, done []Outcome, signals []Signal, k int) {
 	let kept = committed(l, steered(uses, done, signals))
-	let cut = kept[0 : ((k%(len(kept)+1))+len(kept)+1)%(len(kept)+1)]
+	let cut = kept[0 : ((k%(kept.Len()+1))+kept.Len()+1)%(kept.Len()+1)]
 	let more = Recover(l, cut) catch {
 	case journal.Diverged:
 		return false
@@ -386,13 +389,13 @@ func committed(l Limits, run []Signal) []Signal {
 	let mut out = []Signal{}
 	for e in run {
 		match Step(s, e) {
-		case Enter[State] as en:
+		case machines.Enter[State] as en:
 			s = en.Next
 			out = out.Append(e)
-		case Stay[State] as st:
+		case machines.Stay[State] as st:
 			s = st.Next
 			out = out.Append(e)
-		case Ignore, Reject:
+		case machines.Ignore, machines.Reject:
 		}
 	}
 	out

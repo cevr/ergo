@@ -20,9 +20,11 @@ import actor
 import canvasscenes/app
 import canvasscenes/flow
 import canvasscenes/screen
+import core
 import io
 import machines
 import math
+import option
 import strconv
 import strings
 import time
@@ -32,16 +34,16 @@ import ui
 type Bad { Why string }
 
 // Site is the running program.
-type Site = actor.Actor[app.Program, app.Signal, Decision[app.Program, Never]]
+type Site = actor.Actor[app.Program, app.Signal, machines.Decision[app.Program, core.Never]]
 
 // Host is the program on the test host.
-type Host = ui.TestHost[app.Program, app.Signal, Decision[app.Program, Never]]
+type Host = ui.TestHost[app.Program, app.Signal, machines.Decision[app.Program, core.Never]]
 
 // Run plays the script on standard input over clock and prints what the
 // screen shows; with stats, the work of each line too; with last, only the
 // last screen, once the script has run. It returns the
 // exit status: 0, or 1 for a line it cannot read or a screen that fails.
-func Run(clock time.Manual, stats bool, last bool) int needs Console | io.Stdin | Scheduler {
+func Run(clock time.Manual, stats bool, last bool) int needs io.Console | io.Stdin | time.Scheduler {
 	let mut lines = []string{}
 	for raw in io.Stdin.Lines() {
 		lines = lines.Append(raw)
@@ -54,48 +56,48 @@ func Run(clock time.Manual, stats bool, last bool) int needs Console | io.Stdin 
 			continue
 		}
 		let words = strings.Fields(line)
-		if words[0] == "seed" && len(words) == 2 {
+		if words[0] == "seed" && words.Len() == 2 {
 			n = strconv.Atoi(words[1]) catch {
 			case strconv.Malformed, strconv.OutOfRange:
-				Console.Println("? line \(i + 1): a seed is a whole number")
+				io.Console.Println("? line \(i + 1): a seed is a whole number")
 				return 1
 			}
 			first = i + 1
 		}
 		break
 	}
-	let site = actor.StartMachine(machines.Start(app.Shown{}, uint64(n)), 16, func(o Never) {})
+	let site = actor.StartMachine(machines.Start(app.Shown{}, uint64(n)), 16, func(o core.Never) {})
 	let status = played(site, lines, first, n, clock, stats, last) catch {
 	case actor.Stopped:
-		Console.Println("? the program stopped")
+		io.Console.Println("? the program stopped")
 		1
 	case ui.BadPatch as p:
-		Console.Println("? a patch is refused: \(p.Why)")
+		io.Console.Println("? a patch is refused: \(p.Why)")
 		1
 	}
 	site.Stop()
 	status
 }
 
-func played(site Site, lines []string, first int, n int, clock time.Manual, stats bool, last bool) int fails actor.Stopped | ui.BadPatch needs Console | Scheduler {
+func played(site Site, lines []string, first int, n int, clock time.Manual, stats bool, last bool) int fails actor.Stopped | ui.BadPatch needs io.Console | time.Scheduler {
 	let mut h = try ui.NewTestHost(site, screen.Screen, clock, 16)
 	try ui.Settle(&h)
 	let mut shown = []string{}
-	Console.Println("> seed \(n)")
+	io.Console.Println("> seed \(n)")
 	if !last {
 		shown = show(shown, View(&h))
 	}
-	for i in first..len(lines) {
+	for i in first..lines.Len() {
 		let line = strings.TrimSpace(lines[i])
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
 		if !last {
-			Console.Println("> " + line)
+			io.Console.Println("> " + line)
 		}
 		let acts = actsOf(line) catch {
 		case Bad as b:
-			Console.Println("? line \(i + 1): \(b.Why)")
+			io.Console.Println("? line \(i + 1): \(b.Why)")
 			return 1
 		}
 		let mut missing = ""
@@ -129,19 +131,19 @@ func played(site Site, lines []string, first int, n int, clock time.Manual, stat
 			}
 		}
 		if missing != "" {
-			Console.Println("  ? " + missing)
+			io.Console.Println("  ? " + missing)
 		}
 		if !last {
 			shown = show(shown, View(&h))
 		}
 		if stats {
-			Console.Println("  stats: \(ui.CountsLine(counts)); \(h.Frames() - framesBefore) frames")
+			io.Console.Println("  stats: \(ui.CountsLine(counts)); \(h.Frames() - framesBefore) frames")
 		}
 	}
 	if last {
 		let _ = show([]string{}, View(&h))
 	}
-	Console.Println("> stop")
+	io.Console.Println("> stop")
 	0
 }
 
@@ -215,7 +217,7 @@ func frames(period float64, k int) []Step fails Bad {
 
 // pointer is a pointer event of phase at (x, y), over no zone.
 func pointer(phase ui.Phase, x float64, y float64) ui.PointerEvent {
-	ui.PointerEvent{Pointer: ui.MousePointer, Phase: phase, X: x, Y: y, Zone: None}
+	ui.PointerEvent{Pointer: ui.MousePointer, Phase: phase, X: x, Y: y, Zone: option.None}
 }
 
 // pressAt presses the Area label at (x, y) and lets go there.
@@ -229,7 +231,7 @@ func along(v float64, lo float64, hi float64) float64 { (v - lo) / (hi - lo) * s
 // actsOf is a line's steps.
 func actsOf(line string) []Step fails Bad {
 	let words = strings.Fields(line)
-	let want = func(k int) bool { len(words) == k }
+	let want = func(k int) bool { words.Len() == k }
 	match words[0] {
 	case "frame":
 		if want(2) {
@@ -274,7 +276,7 @@ func actsOf(line string) []Step fails Bad {
 // show prints the lines of now whose part (the words before the first
 // ": ") was absent from shown or read otherwise, and names the parts of
 // shown that are gone; it is now.
-func show(shown []string, now []string) []string needs Console {
+func show(shown []string, now []string) []string needs io.Console {
 	for l in now {
 		let mut same = false
 		for s in shown {
@@ -283,7 +285,7 @@ func show(shown []string, now []string) []string needs Console {
 			}
 		}
 		if !same {
-			Console.Println("  " + l)
+			io.Console.Println("  " + l)
 		}
 	}
 	for s in shown {
@@ -295,7 +297,7 @@ func show(shown []string, now []string) []string needs Console {
 			}
 		}
 		if !kept {
-			Console.Println("  \(part): gone")
+			io.Console.Println("  \(part): gone")
 		}
 	}
 	now
@@ -323,7 +325,7 @@ func View(h mut Host) []string {
 		s = walk(x, s, false)
 	}
 	let mut out = []string{"page: " + strings.Join(s.Page, " | "), "controls: " + strings.Join(s.Buttons, ", ") + "; " + strings.Join(s.Texts, ", ")}
-	if len(s.Sliders) > 0 {
+	if s.Sliders.Len() > 0 {
 		out = out.Append("sliders: " + strings.Join(s.Sliders, ", "))
 	}
 	out = out.Append("frames: " + if s.Frames { "wanted" } else { "none" })
@@ -445,14 +447,14 @@ func Canvas(size string, ops []ui.PaintOp) []string {
 			let r = (b.X1 - b.X0) / 2.0
 			let cx = (b.X0 + b.X1) / 2.0
 			let cy = (b.Y0 + b.Y1) / 2.0
-			if len(f.Path.Segs) == 6 && r < 30.0 {
+			if f.Path.Segs.Len() == 6 && r < 30.0 {
 				ndots = ndots + 1
 				sx = sx + cx
 				sy = sy + cy
 				if ndots <= 6 {
 					dots = dots.Append("dot \(ndots): at (\(whole(cx)), \(whole(cy))), radius \(whole(r)), \(colour(f.Color))")
 				}
-			} else if len(f.Path.Segs) == 6 && whole(r) == "130" {
+			} else if f.Path.Segs.Len() == 6 && whole(r) == "130" {
 				ring = "(\(whole(cx)), \(whole(cy)))"
 			}
 		case ui.StrokeOp as st:

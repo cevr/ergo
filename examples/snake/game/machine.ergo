@@ -1,3 +1,4 @@
+import option
 import rand
 import machines
 
@@ -23,7 +24,7 @@ law StaysOnTheBoard(seed int) {
 // replay is the modes of a game of 300 signals drawn from Random seeded
 // with seed, on a board of 5 by 4 cells: the mode after each signal.
 func replay(seed int) []Mode {
-	with context { Random: rand.Seeded(uint64(seed)) } {
+	with context { rand.Random: rand.Seeded(uint64(seed)) } {
 		let signals = signals(300)
 		Play(Title{Width: 5, Height: 4}, signals)
 	}
@@ -31,10 +32,10 @@ func replay(seed int) []Mode {
 
 // signals is n signals drawn from Random: ticks four times in ten, each
 // turn once in ten, a pause once in ten and a begin once in ten.
-func signals(n int) []Signal needs Random {
+func signals(n int) []Signal needs rand.Random {
 	let mut out = []Signal{}
 	for _ in 0..n {
-		let s = match Random.IntN(10) {
+		let s = match rand.Random.IntN(10) {
 		case 4:
 			Turn{To: Up}
 		case 5:
@@ -56,7 +57,7 @@ func signals(n int) []Signal needs Random {
 }
 
 // Play is the mode after each of signals, from m.
-func Play(m Mode, signals []Signal) []Mode needs Random {
+func Play(m Mode, signals []Signal) []Mode needs rand.Random {
 	let mut out = []Mode{}
 	let mut at = m
 	for s in signals {
@@ -103,10 +104,10 @@ law FoodIsNeverOnTheSnake(seed int) {
 // keeps its length and score.
 law GrowsOnlyByEating(seed int) {
 	let modes = replay(seed)
-	for i in 1..len(modes) {
+	for i in 1..modes.Len() {
 		match (modes[i-1], modes[i]) {
 		case (Playing as a, Playing as b):
-			let grew = len(b.W.Body) - len(a.W.Body)
+			let grew = b.W.Body.Len() - a.W.Body.Len()
 			let scored = b.W.Score - a.W.Score
 			if grew != scored || grew < 0 || grew > 1 {
 				return false
@@ -137,35 +138,35 @@ law NeverIntoTheNeck(seed int) {
 law OverIsFinal(seed int, score int) {
 	let w = World{Width: 5, Height: 4, Body: []Point{Point{X: 0, Y: 0}}, Heading: Left, Moved: Left, Food: Point{X: 4, Y: 3}, Score: score}
 	let over = Over{W: w, Why: Wall}
-	with context { Random: rand.Seeded(uint64(seed)) } {
+	with context { rand.Random: rand.Seeded(uint64(seed)) } {
 		for s in []Signal{Begin, Tick, Turn{To: Up}, Pause} {
 			if Word(Step(over, s)) != "ignore" {
 				return false
 			}
 		}
 		match Step(over, Quit) {
-		case Done[int] as d:
+		case machines.Done[int] as d:
 			d.Output == score
-		case Enter[Mode], Stay[Mode], Emit[Mode, int], Tell[Mode, int], Ignore, Reject:
+		case machines.Enter[Mode], machines.Stay[Mode], machines.Emit[Mode, int], machines.Tell[Mode, int], machines.Ignore, machines.Reject:
 			false
 		}
 	}
 }
 
 // Word names a decision.
-func Word(d Decision[Mode, int]) string {
+func Word(d machines.Decision[Mode, int]) string {
 	match d {
-	case Enter[Mode]:
+	case machines.Enter[Mode]:
 		"enter"
-	case Stay[Mode]:
+	case machines.Stay[Mode]:
 		"stay"
-	case Emit[Mode, int], Tell[Mode, int]:
+	case machines.Emit[Mode, int], machines.Tell[Mode, int]:
 		"emit"
-	case Ignore:
+	case machines.Ignore:
 		"ignore"
-	case Reject:
+	case machines.Reject:
 		"reject"
-	case Done[int]:
+	case machines.Done[int]:
 		"done"
 	}
 }
@@ -195,13 +196,13 @@ type Snake machine[Mode, Signal] {
 // Start is the world at the start of a game on a board of w by h cells:
 // a snake of three cells in the middle row, heading right, and food
 // drawn from Random.
-func Start(w int, h int) World needs Random {
+func Start(w int, h int) World needs rand.Random {
 	let y = h / 2
 	let body = []Point{Point{X: 2, Y: y}, Point{X: 1, Y: y}, Point{X: 0, Y: y}}
 	let food = match PlaceFood(w, h, body) {
-	case Some[Point] as p:
+	case option.Some[Point] as p:
 		p.Value
-	case None:
+	case option.None:
 		Point{X: w - 1, Y: 0}
 	}
 	World{Width: w, Height: h, Body: body, Heading: Right, Moved: Right, Food: food, Score: 0}
@@ -210,36 +211,36 @@ func Start(w int, h int) World needs Random {
 // Step is the machine's transition. Quit is Done with the score in every
 // mode. A turn back the way the snake last moved is Reject; a turn the
 // way it already heads is Ignore. Over ignores everything but Quit.
-func Step(m Mode, s Signal) Decision[Mode, int] needs Random {
+func Step(m Mode, s Signal) machines.Decision[Mode, int] needs rand.Random {
 	match (m, s) {
 	case (_, Quit):
-		Done[int]{Output: ScoreOf(m)}
+		machines.Done[int]{Output: ScoreOf(m)}
 	case (Title as t, Begin):
-		Enter[Mode]{Next: Playing{W: Start(t.Width, t.Height)}}
+		machines.Enter[Mode]{Next: Playing{W: Start(t.Width, t.Height)}}
 	case (Title, _):
-		Ignore
+		machines.Ignore
 	case (Playing as p, Tick):
-		Enter[Mode]{Next: Advance(p.W)}
+		machines.Enter[Mode]{Next: Advance(p.W)}
 	case (Playing as p, Turn as t):
 		if Opposite(t.To, p.W.Moved) {
-			return Reject
+			return machines.Reject
 		}
 		if t.To == p.W.Heading {
-			return Ignore
+			return machines.Ignore
 		}
-		Enter[Mode]{Next: Playing{W: World{..p.W, Heading: t.To}}}
+		machines.Enter[Mode]{Next: Playing{W: World{..p.W, Heading: t.To}}}
 	case (Playing as p, Pause):
-		Enter[Mode]{Next: Paused{W: p.W}}
+		machines.Enter[Mode]{Next: Paused{W: p.W}}
 	case (Playing, Begin):
-		Ignore
+		machines.Ignore
 	case (Paused as p, Pause):
-		Enter[Mode]{Next: Playing{W: p.W}}
+		machines.Enter[Mode]{Next: Playing{W: p.W}}
 	case (Paused, Turn):
-		Reject
+		machines.Reject
 	case (Paused, _):
-		Ignore
+		machines.Ignore
 	case (Over, _):
-		Ignore
+		machines.Ignore
 	}
 }
 
@@ -248,7 +249,7 @@ func Step(m Mode, s Signal) Decision[Mode, int] needs Random {
 // tail, which moves away) is Over by Bitten. Onto the food the snake
 // grows by one, scores one, and new food is drawn; with no free cell left
 // the game is Over by Filled.
-func Advance(w World) Mode needs Random {
+func Advance(w World) Mode needs rand.Random {
 	let head = Toward(w.Body[0], w.Heading)
 	if !Inside(head, w.Width, w.Height) {
 		return Over{W: w, Why: Wall}
@@ -263,9 +264,9 @@ func Advance(w World) Mode needs Random {
 		return Playing{W: next}
 	}
 	match PlaceFood(w.Width, w.Height, body) {
-	case Some[Point] as p:
+	case option.Some[Point] as p:
 		Playing{W: World{..next, Food: p.Value}}
-	case None:
+	case option.None:
 		Over{W: next, Why: Filled}
 	}
 }

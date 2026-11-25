@@ -2,6 +2,8 @@
 // every control asks the host to replace the address, and the table
 // follows the address it is told. Rows is the table's rows for a query.
 
+import machines
+import option
 import querytable/dino
 import querytable/query
 import slices
@@ -10,7 +12,7 @@ import strings
 // Signal is what the table reads: the address changed (the host replaced
 // it, or the user typed one), the search typed, a column header clicked,
 // and a filter chosen (None for all).
-type Signal = Navigated{Path string} | Searched{Text string} | Clicked{Column query.Column} | ChoseDiet{Diet Option[dino.Diet]} | ChosePeriod{Period Option[dino.Period]}
+type Signal = Navigated{Path string} | Searched{Text string} | Clicked{Column query.Column} | ChoseDiet{Diet option.Option[dino.Diet]} | ChosePeriod{Period option.Option[dino.Period]}
 
 // UrlIsAFunctionOfTheControls: a control changes nothing itself and asks
 // for the address of the controls with that one changed, from the table
@@ -80,12 +82,12 @@ func Step(r query.Route, sig Signal) Action {
 	}
 }
 
-func decide(r query.Route, sig Signal) Decision[query.Route, Replace] {
+func decide(r query.Route, sig Signal) machines.Decision[query.Route, Replace] {
 	match Step(r, sig) {
 	case AddressChanged as a:
-		Enter[query.Route]{Next: a.Next}
+		machines.Enter[query.Route]{Next: a.Next}
 	case Replace as request:
-		Emit[query.Route, Replace]{Next: r, Output: request}
+		machines.Emit[query.Route, Replace]{Next: r, Output: request}
 	}
 }
 
@@ -102,18 +104,18 @@ func Matches(q query.Query, d dino.Dinosaur) bool {
 		return false
 	}
 	match q.Diet {
-	case Some[dino.Diet] as w:
+	case option.Some[dino.Diet] as w:
 		if d.Diet != w.Value {
 			return false
 		}
-	case None:
+	case option.None:
 	}
 	match q.Period {
-	case Some[dino.Period] as p:
+	case option.Some[dino.Period] as p:
 		if d.Period != p.Value {
 			return false
 		}
-	case None:
+	case option.None:
 	}
 	true
 }
@@ -155,7 +157,7 @@ func Rows(q query.Query) []dino.Dinosaur {
 law RowsAreTheMatches(drawn query.Query, part int) {
 	// The search is a part of a listed name, or none, so rows show.
 	let parts = []string{"", "", "saurus", "RAPTOR", "o", "x"}
-	let q = query.Query{..drawn, Search: parts[((part%len(parts))+len(parts))%len(parts)]}
+	let q = query.Query{..drawn, Search: parts[((part%parts.Len())+parts.Len())%parts.Len()]}
 	let rows = Rows(q)
 	let mut want = 0
 	for d in dino.All {
@@ -163,7 +165,7 @@ law RowsAreTheMatches(drawn query.Query, part int) {
 			want = want + 1
 		}
 	}
-	if len(rows) != want {
+	if rows.Len() != want {
 		return false
 	}
 	for i, d in rows {

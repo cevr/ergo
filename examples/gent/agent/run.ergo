@@ -2,11 +2,13 @@
 // keeps, and replayed, as a fold of those signals.
 
 import actor
+import core
 import exec
 import journal
 import machines
 import journal/memory
 import strings
+import time
 
 // Recorded is a run as data: the limits it started under and the signals
 // it committed, in order.
@@ -25,14 +27,14 @@ func Replay(r Recorded) State {
 
 // Session is a live session: the agent's actor and the journal of the
 // signals it committed.
-type Session { Agent actor.Actor[State, Signal, Decision[State, Never]], Journal journal.Journal[State, Signal], Limits Limits }
+type Session { Agent actor.Actor[State, Signal, machines.Decision[State, core.Never]], Journal journal.Journal[State, Signal], Limits Limits }
 
 // Open starts a live session under l. The actor's work asks the Model
 // and runs the Tools and the shell (exec.Runner) in the context; its
 // timer waits on the Scheduler.
-func Open(l Limits) Session needs Model | Tools | exec.Runner | Scheduler {
+func Open(l Limits) Session needs Model | Tools | exec.Runner | time.Scheduler {
 	let j = memory.New[State, Signal]()
-	let a = journal.StartNew(machines.Start(Agent{}, l), j, 0, 16, func(n Never) {})
+	let a = journal.StartNew(machines.Start(Agent{}, l), j, 0, 16, func(n core.Never) {})
 	Session{Agent: a, Journal: j, Limits: l}
 }
 
@@ -41,9 +43,9 @@ func Open(l Limits) Session needs Model | Tools | exec.Runner | Scheduler {
 // first, so the session starts in a state that runs no work. It fails
 // Diverged when a signal of j does not fit the step (a file of another
 // version of the loop), and Failed when j cannot be read or written.
-func Resume(l Limits, j journal.Journal[State, Signal]) Session fails journal.Failed | journal.Diverged needs Model | Tools | exec.Runner | Scheduler {
+func Resume(l Limits, j journal.Journal[State, Signal]) Session fails journal.Failed | journal.Diverged needs Model | Tools | exec.Runner | time.Scheduler {
 	let log = try j.Load()
-	let mut kept = len(log.Signals)
+	let mut kept = log.Signals.Len()
 	for e in try Recover(l, log.Signals) {
 		j.Append(e, kept) catch {
 		case journal.Stale as s:
@@ -53,7 +55,7 @@ func Resume(l Limits, j journal.Journal[State, Signal]) Session fails journal.Fa
 		}
 		kept = kept + 1
 	}
-	let a = try journal.Start(machines.Start(Agent{}, l), j, 0, 16, func(n Never) {})
+	let a = try journal.Start(machines.Start(Agent{}, l), j, 0, 16, func(n core.Never) {})
 	Session{Agent: a, Journal: j, Limits: l}
 }
 
@@ -108,7 +110,7 @@ func approving(s State) bool {
 // each is approved when allow says so up front (--allow-shell) and
 // declined otherwise: the machine still asks, and the record holds the
 // answer.
-func Headless(s Session, texts []string, allow bool) (State, Recorded) needs Model | Tools | exec.Runner | Scheduler {
+func Headless(s Session, texts []string, allow bool) (State, Recorded) needs Model | Tools | exec.Runner | time.Scheduler {
 	let answer Signal = if allow { Approve } else { Decline }
 	for text in texts {
 		if strings.TrimSpace(text) != "" {

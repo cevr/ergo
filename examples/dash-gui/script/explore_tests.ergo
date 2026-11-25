@@ -13,14 +13,14 @@ func exploreProperties() []temporal.Formula[ui.ExploreSnapshot[screen.Dash, scre
 	let mut props = []temporal.Formula[ui.ExploreSnapshot[screen.Dash, screen.Signal]]{}
 	let base = ui.DefaultsWith[screen.Dash, screen.Signal](2s)
 	for i in 0..3 {
-		if i < len(base) {
+		if i < base.Len() {
 			props = props.Append(base[i])
 		}
 	}
 	props = props.Append(temporal.Always[ui.ExploreSnapshot[screen.Dash, screen.Signal]](
 		temporal.Named[ui.ExploreSnapshot[screen.Dash, screen.Signal]]("panel-counts-aligned", func(s ui.ExploreSnapshot[screen.Dash, screen.Signal]) bool {
 			let b = s.State.Board
-			b.Frame >= 0 && len(b.Panels) > 0 && len(b.Panels) == len(b.Policies) && len(b.Panels) == len(b.Dropped)
+			b.Frame >= 0 && b.Panels.Len() > 0 && b.Panels.Len() == b.Policies.Len() && b.Panels.Len() == b.Dropped.Len()
 		}),
 	))
 	props = props.Append(temporal.Always[ui.ExploreSnapshot[screen.Dash, screen.Signal]](
@@ -39,7 +39,7 @@ func exploreProperties() []temporal.Formula[ui.ExploreSnapshot[screen.Dash, scre
 func exploreOnce(steps int) ui.Finding needs gen.Draws {
 	let clock = time.NewManual(0)
 	let bank = synth.Bank{Seed: 1}
-	with context { Scheduler: clock, feed.Sensors: bank } {
+	with context { time.Scheduler: clock, feed.Sensors: bank } {
 		let a = actor.StartMachine(machines.Start(screen.App{}, feed.NewBoard()), 8, func(_ []feed.Notice) {})
 		let mut h = ui.NewTestHost(a, screen.View, clock, 4) catch {
 		case ui.BadPatch as bp:

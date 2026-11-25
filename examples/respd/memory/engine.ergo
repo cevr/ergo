@@ -7,12 +7,14 @@
 // value and compared with the now each operation is given: there is no
 // timer per key, and an expired key is dropped when it is next written.
 
+import machines
+import option
 import respd/store
 import sync
 import time
 
 // Entry is what a key holds: its value and its expiry, if any.
-type Entry { Value string, Until Option[time.Time] }
+type Entry { Value string, Until option.Option[time.Time] }
 
 // Shards is how many shards an Engine splits its keys into.
 let Shards = 16
@@ -33,49 +35,49 @@ func NewEngine() Engine {
 // shard is the shard of key: FNV-1a of its bytes.
 func shard(e Engine, key string) sync.Ref[Map[string, Entry]] {
 	let mut h = uint32(2166136261)
-	for i in 0..len(key) {
+	for i in 0..key.Len() {
 		h = (h ^ uint32(key[i])) * 16777619
 	}
-	e.shards[int(h%uint32(len(e.shards)))]
+	e.shards[int(h%uint32(e.shards.Len()))]
 }
 
 // live is whether entry holds its value at now.
 func live(entry Entry, now time.Time) bool {
 	match entry.Until {
-	case Some[time.Time] as u:
+	case option.Some[time.Time] as u:
 		now.Before(u.Value)
-	case None:
+	case option.None:
 		true
 	}
 }
 
 // find is the live entry of key in m at now.
-func find(m Map[string, Entry], key string, now time.Time) Option[Entry] {
+func find(m Map[string, Entry], key string, now time.Time) option.Option[Entry] {
 	match m.Get(key) {
-	case Some[Entry] as found:
+	case option.Some[Entry] as found:
 		if live(found.Value, now) {
 			return found
 		}
-		None
-	case None:
-		None
+		option.None
+	case option.None:
+		option.None
 	}
 }
 
 // Get is the value key holds at now.
 func Get(e Engine, key string, now time.Time) string fails store.Missing {
 	match find(shard(e, key).Get(), key, now) {
-	case Some[Entry] as found:
+	case option.Some[Entry] as found:
 		found.Value.Value
-	case None:
+	case option.None:
 		store.Missing{Key: key}
 	}
 }
 
 // Set makes key hold value until until, under the condition when.
-func Set(e Engine, key string, value string, when store.When, until Option[time.Time], now time.Time) fails store.Kept {
+func Set(e Engine, key string, value string, when store.When, until option.Option[time.Time], now time.Time) fails store.Kept {
 	let set = sync.Modify(shard(e, key)) func(m Map[string, Entry]) (bool, Map[string, Entry]) {
-		let present = find(m, key, now) != None
+		let present = find(m, key, now) != option.None
 		let allowed = match when {
 		case store.Always:
 			true
@@ -97,7 +99,7 @@ func Set(e Engine, key string, value string, when store.When, until Option[time.
 // Del removes key.
 func Del(e Engine, key string, now time.Time) fails store.Missing {
 	let found = sync.Modify(shard(e, key)) func(m Map[string, Entry]) (bool, Map[string, Entry]) {
-		let present = find(m, key, now) != None
+		let present = find(m, key, now) != option.None
 		(present, m.Delete(key))
 	}
 	if !found {
@@ -106,16 +108,16 @@ func Del(e Engine, key string, now time.Time) fails store.Missing {
 }
 
 // Expire gives key the expiry in until; a time now or past removes it.
-func Expire(e Engine, key string, until Option[time.Time], now time.Time) fails store.Missing {
+func Expire(e Engine, key string, until option.Option[time.Time], now time.Time) fails store.Missing {
 	let found = sync.Modify(shard(e, key)) func(m Map[string, Entry]) (bool, Map[string, Entry]) {
 		match find(m, key, now) {
-		case Some[Entry] as f:
+		case option.Some[Entry] as f:
 			let next = Entry{Value: f.Value.Value, Until: until}
 			if !live(next, now) {
 				return (true, m.Delete(key))
 			}
 			(true, m.Put(key, next))
-		case None:
+		case option.None:
 			(false, m.Delete(key))
 		}
 	}
@@ -127,14 +129,14 @@ func Expire(e Engine, key string, until Option[time.Time], now time.Time) fails 
 // TTL is the expiry of key at now.
 func TTL(e Engine, key string, now time.Time) store.Expiry fails store.Missing {
 	match find(shard(e, key).Get(), key, now) {
-	case Some[Entry] as found:
+	case option.Some[Entry] as found:
 		match found.Value.Until {
-		case Some[time.Time] as u:
+		case option.Some[time.Time] as u:
 			store.Until{At: u.Value}
-		case None:
+		case option.None:
 			store.Forever
 		}
-	case None:
+	case option.None:
 		store.Missing{Key: key}
 	}
 }
@@ -147,19 +149,19 @@ func Incr(e Engine, key string, by int64, now time.Time) int64 fails store.NotIn
 	let r = sync.Modify(shard(e, key)) func(m Map[string, Entry]) (Counted, Map[string, Entry]) {
 		let old = find(m, key, now)
 		let (start, until) = match old {
-		case Some[Entry] as f:
+		case option.Some[Entry] as f:
 			(store.Decimal(f.Value.Value), f.Value.Until)
-		case None:
-			(Some[int64]{Value: 0}, None)
+		case option.None:
+			(option.Some[int64]{Value: 0}, option.None)
 		}
 		match start {
-		case None:
+		case option.None:
 			(Text, m)
-		case Some[int64] as n:
+		case option.Some[int64] as n:
 			match store.Sum(n.Value, by) {
-			case None:
+			case option.None:
 				(Over, m)
-			case Some[int64] as s:
+			case option.Some[int64] as s:
 				(Total{N: s.Value}, m.Put(key, Entry{Value: "\(s.Value)", Until: until}))
 			}
 		}
@@ -179,25 +181,25 @@ func Incr(e Engine, key string, by int64, now time.Time) int64 fails store.NotIn
 func ask(e Engine, name string, a store.Ask) store.Answer {
 	sync.Modify(e.leases) func(m Map[string, store.Slot]) (store.Answer, Map[string, store.Slot]) {
 		let s = match m.Get(name) {
-		case Some[store.Slot] as found:
+		case option.Some[store.Slot] as found:
 			found.Value
-		case None:
+		case option.None:
 			store.Free{Last: 0}
 		}
 		match store.Step(s, a) {
-		case Emit[store.Slot, store.Answer] as d:
+		case machines.Emit[store.Slot, store.Answer] as d:
 			(d.Output, m.Put(name, d.Next))
-		case Tell[store.Slot, store.Answer] as d:
+		case machines.Tell[store.Slot, store.Answer] as d:
 			(d.Output, m.Put(name, d.Next))
-		case Enter[store.Slot] as d:
+		case machines.Enter[store.Slot] as d:
 			(store.Gone, m.Put(name, d.Next))
-		case Stay[store.Slot] as d:
+		case machines.Stay[store.Slot] as d:
 			(store.Gone, m.Put(name, d.Next))
-		case Done[store.Answer] as d:
+		case machines.Done[store.Answer] as d:
 			(d.Output, m)
-		case Ignore:
+		case machines.Ignore:
 			(store.Gone, m)
-		case Reject:
+		case machines.Reject:
 			(store.Gone, m)
 		}
 	}

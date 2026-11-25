@@ -4,6 +4,7 @@
 // applyStateTransitions), so every system of one tick reads the state the
 // last tick committed.
 
+import core
 import machines
 
 // Dir is a way the player can face.
@@ -15,12 +16,12 @@ type Turn = Turned{To Dir} | Steady{}
 
 // Face is the facing's step. A turn to the way it faces already is
 // ignored, as ritmo's setIfChanged queues nothing.
-func Face(d Dir, t Turn) Decision[Dir, Never] {
+func Face(d Dir, t Turn) machines.Decision[Dir, core.Never] {
 	match t {
 	case Steady:
-		Ignore
+		machines.Ignore
 	case Turned as n:
-		if n.To == d { Ignore } else { Enter[Dir]{Next: n.To} }
+		if n.To == d { machines.Ignore } else { machines.Enter[Dir]{Next: n.To} }
 	}
 }
 
@@ -50,14 +51,14 @@ type Gait = Standing{} | Walking{}
 type Stride = Moving{} | Stopped{}
 
 // Walk is the gait's step: moving walks, stopping stands.
-func Walk(g Gait, s Stride) Decision[Gait, Never] {
+func Walk(g Gait, s Stride) machines.Decision[Gait, core.Never] {
 	match (g, s) {
 	case (Standing, Moving):
-		Enter[Gait]{Next: Walking}
+		machines.Enter[Gait]{Next: Walking}
 	case (Walking, Stopped):
-		Enter[Gait]{Next: Standing}
+		machines.Enter[Gait]{Next: Standing}
 	case (Standing, Stopped), (Walking, Moving):
-		Ignore
+		machines.Ignore
 	}
 }
 

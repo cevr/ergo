@@ -5,6 +5,7 @@
 // holds, so a test runs it over a fstest.Memory.
 
 import maps
+import option
 import slices
 import strconv
 import strings
@@ -44,7 +45,7 @@ law OneLine(key string, value string) { !strings.Contains(Encode(Set{Key: key, V
 func Decode(at int, line string) Record fails Corrupt {
 	let fields = strings.Split(line, "\t")
 	let bad = Corrupt{Line: at, Text: line}
-	match (fields[0], len(fields)) {
+	match (fields[0], fields.Len()) {
 	case ("put", 3):
 		Set{Key: try unquote(fields[1], bad), Value: try unquote(fields[2], bad)}
 	case ("del", 2):
@@ -85,9 +86,9 @@ func Compacted(entries Map[string, string]) string {
 	let mut out = ""
 	for k in slices.Sorted(maps.Keys(entries)) {
 		match entries.Get(k) {
-		case Some[string] as v:
+		case option.Some[string] as v:
 			out = out + Encode(Set{Key: k, Value: v.Value}) + "\n"
-		case None:
+		case option.None:
 		}
 	}
 	out

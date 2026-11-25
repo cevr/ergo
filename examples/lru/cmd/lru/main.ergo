@@ -12,6 +12,7 @@ import cache
 import own lru/cache
 import lru/registry
 import lru/memory
+import option
 import os
 import queue
 import strconv
@@ -31,10 +32,10 @@ type Command = Lookup{Capacity int} | Bench{Ops int}
 
 // Parse is the command of args, or os.Exit with the usage.
 func Parse(args []string) Command fails os.Exit {
-	if len(args) == 0 {
+	if args.Len() == 0 {
 		return Lookup{Capacity: 2}
 	}
-	match (args[0], len(args)) {
+	match (args[0], args.Len()) {
 	case ("lookup", 1):
 		Lookup{Capacity: 2}
 	case ("lookup", 2):
@@ -60,7 +61,7 @@ func count(text string) int fails os.Exit {
 
 // LookupAll looks each name of text up through std's cache of capacity
 // entries, and prints the counts at the end.
-func LookupAll(text string, capacity int, table memory.Table) fails os.Exit needs Console | time.Clock {
+func LookupAll(text string, capacity int, table memory.Table) fails os.Exit needs io.Console | time.Clock {
 	let m = cache.New[string, int](cache.Config{Capacity: capacity, Life: 0s, Idle: 0s}) catch {
 	case cache.BadConfig as b:
 		return os.Exit{Code: 2, Message: "lru: \(b.Reason)"}
@@ -74,15 +75,15 @@ func LookupAll(text string, capacity int, table memory.Table) fails os.Exit need
 			let hits = cache.StatsOf(m).Hits
 			let port = registry.Lookup(m, name) catch {
 			case registry.Unknown as u:
-				Console.Println("\(u.Name) is not in the registry")
+				io.Console.Println("\(u.Name) is not in the registry")
 				continue
 			}
 			let from = if cache.StatsOf(m).Hits > hits { "cache" } else { "registry" }
-			Console.Println("\(registry.Line(name, port)) (\(from))")
+			io.Console.Println("\(registry.Line(name, port)) (\(from))")
 		}
 	}
 	let c = cache.StatsOf(m)
-	Console.Println("hits \(c.Hits), misses \(c.Misses), held \(c.Size), lookups \(table.Lookups())")
+	io.Console.Println("hits \(c.Hits), misses \(c.Misses), held \(c.Size), lookups \(table.Lookups())")
 }
 
 // Churn runs ops Get-or-Put operations on a cache of 1024 entries over
@@ -100,16 +101,16 @@ func Churn(ops int) int {
 		x = (x*1103515245 + 12345) % 2147483648
 		let k = (x / 65536) % 4096
 		match c.Get(k) {
-		case Some[int] as v:
+		case option.Some[int] as v:
 			sum += v.Value
-		case None:
+		case option.None:
 			let _ = c.Put(k, i)
 		}
 	}
 	sum
 }
 
-func main() fails os.Exit needs Console | Ambient {
+func main() fails os.Exit needs io.Console | os.Ambient {
 	with context { os.Process: os.NewHost(), io.Stdin: io.NewStdin(), time.Clock: time.NewHost() } {
 		match try Parse(os.Process.Args()) {
 		case Lookup as q:
@@ -123,7 +124,7 @@ func main() fails os.Exit needs Console | Ambient {
 			}
 			try LookupAll(text, q.Capacity, table)
 		case Bench as b:
-			Console.Println("\(b.Ops) ops, sum \(Churn(b.Ops))")
+			io.Console.Println("\(b.Ops) ops, sum \(Churn(b.Ops))")
 		}
 	}
 }
@@ -155,7 +156,7 @@ test BenchIsDeterministic {
 test LookupAllCountsHits {
 	let out = io.NewRecorder()
 	let table = try memory.Parse(Ports)
-	with context { Console: out, time.Clock: time.NewManual(0) } {
+	with context { io.Console: out, time.Clock: time.NewManual(0) } {
 		try LookupAll("web\ndns\nweb\nftp\n", 1, table)
 	}
 	assert out.Text() == "web :8080 (registry)\ndns :53 (registry)\nweb :8080 (registry)\nftp is not in the registry\nhits 0, misses 4, held 1, lookups 4\n"

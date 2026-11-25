@@ -1,5 +1,6 @@
 // Package files is the program's file tree, which the Files routes walk.
 
+import option
 import strconv
 
 // Entry is a file, with its size in bytes, or a directory of entries.
@@ -30,25 +31,25 @@ func Name(e Entry) string {
 // Find is the entry at path under entries: each segment but the last
 // names a directory to go into, and the last names the entry. None when a
 // segment names nothing, or a file where a directory is needed.
-func Find(entries []Entry, path []string) Option[Entry] {
-	if len(path) == 0 {
-		return None
+func Find(entries []Entry, path []string) option.Option[Entry] {
+	if path.Len() == 0 {
+		return option.None
 	}
 	for e in entries {
 		if Name(e) != path[0] {
 			continue
 		}
-		if len(path) == 1 {
-			return Some[Entry]{Value: e}
+		if path.Len() == 1 {
+			return option.Some[Entry]{Value: e}
 		}
 		match e {
 		case Dir as d:
 			return Find(d.Entries, path[1:])
 		case File:
-			return None
+			return option.None
 		}
 	}
-	None
+	option.None
 }
 
 // Size is a size as the page shows it: bytes under a kilobyte, else

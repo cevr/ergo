@@ -2,6 +2,7 @@
 // program could be at, and whose signals are the bytes of the text and
 // its end.
 
+import machines
 import regex/engine
 import regex/syntax
 import slices
@@ -28,16 +29,16 @@ func Finish(p Program, at []int) bool { accepts(p, at) }
 
 func simulationStart(p Program) Scan { Start(p) }
 
-func decideScan(s Scan, sig Signal) Decision[Scan, bool] {
+func decideScan(s Scan, sig Signal) machines.Decision[Scan, bool] {
 	match (s, sig) {
 	case (Live as l, Read as r):
 		let at = Step(l.P, l.At, r)
-		if len(at) == 0 {
-			return Done[bool]{Output: false}
+		if at.Len() == 0 {
+			return machines.Done[bool]{Output: false}
 		}
-		Enter[Scan]{Next: Live{P: l.P, At: at}}
+		machines.Enter[Scan]{Next: Live{P: l.P, At: at}}
 	case (Live as l, End):
-		Done[bool]{Output: Finish(l.P, l.At)}
+		machines.Done[bool]{Output: Finish(l.P, l.At)}
 	}
 }
 
@@ -89,7 +90,7 @@ type visit { members []int, marked []bool }
 // closure is the set of instructions that the instructions of from reach
 // through Split, each once, keeping only the ones that read or Accept.
 func closure(p Program, from []int) []int {
-	let mut v = visit{members: []int{}, marked: slices.Repeat([]bool{false}, len(p.insts))}
+	let mut v = visit{members: []int{}, marked: slices.Repeat([]bool{false}, p.insts.Len())}
 	for pc in from {
 		v.include(p, pc)
 	}
@@ -150,11 +151,11 @@ func Matches(c Compiled, text string) bool {
 // byte can bring back an empty frontier, so stop at the byte that killed it.
 func scanText(p Program, text string) (bool, int) {
 	let mut at = Start(p).At
-	for i in 0..len(text) {
+	for i in 0..text.Len() {
 		at = Step(p, at, Read{C: text[i]})
-		if len(at) == 0 {
+		if at.Len() == 0 {
 			return (false, i + 1)
 		}
 	}
-	(Finish(p, at), len(text))
+	(Finish(p, at), text.Len())
 }

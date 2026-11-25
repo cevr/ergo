@@ -4,7 +4,7 @@ import github.com/cevr/ergo/modules/git/oid
 // DecodeSizeVarint decodes a little-endian 7-bit Git delta size varint starting
 // at start, returning (size, nextOffset).
 func DecodeSizeVarint(src []byte, start int) (int, int) fails Truncated | CorruptDelta {
-	let n = len(src)
+	let n = src.Len()
 	if start < 0 || start >= n {
 		return Truncated{Offset: n}
 	}
@@ -67,8 +67,8 @@ func Apply(base []byte, delta []byte, maxTargetBytes int) []byte fails Truncated
 		return LimitExceeded{Limit: maxTargetBytes, Needed: 0}
 	}
 	let (baseSize, targetSize, start) = try ParseDeltaHeader(delta)
-	if baseSize != len(base) {
-		return BaseSizeMismatch{Expected: baseSize, Got: len(base)}
+	if baseSize != base.Len() {
+		return BaseSizeMismatch{Expected: baseSize, Got: base.Len()}
 	}
 	if targetSize > maxTargetBytes {
 		return LimitExceeded{Limit: maxTargetBytes, Needed: targetSize}
@@ -76,8 +76,8 @@ func Apply(base []byte, delta []byte, maxTargetBytes int) []byte fails Truncated
 	let initCap = if targetSize > 65536 { 65536 } else { targetSize }
 	let mut out = slices.WithCapacity[byte](initCap)
 	let mut pos = start
-	let dlen = len(delta)
-	let blen = len(base)
+	let dlen = delta.Len()
+	let blen = base.Len()
 	for pos < dlen {
 		let cmdPos = pos
 		let cmd = delta[pos]
@@ -140,8 +140,8 @@ func Apply(base []byte, delta []byte, maxTargetBytes int) []byte fails Truncated
 			if copyOff < 0 || copyOff+copySize > blen {
 				return CorruptDelta{Offset: cmdPos, Reason: "copy exceeds base bounds"}
 			}
-			if len(out)+copySize > targetSize {
-				return TargetSizeMismatch{Expected: targetSize, Got: len(out) + copySize}
+			if out.Len()+copySize > targetSize {
+				return TargetSizeMismatch{Expected: targetSize, Got: out.Len() + copySize}
 			}
 			out = slices.AppendAll(out, base[copyOff:copyOff+copySize])
 		} else if cmd != byte(0) {
@@ -149,8 +149,8 @@ func Apply(base []byte, delta []byte, maxTargetBytes int) []byte fails Truncated
 			if pos+litLen > dlen {
 				return Truncated{Offset: dlen}
 			}
-			if len(out)+litLen > targetSize {
-				return TargetSizeMismatch{Expected: targetSize, Got: len(out) + litLen}
+			if out.Len()+litLen > targetSize {
+				return TargetSizeMismatch{Expected: targetSize, Got: out.Len() + litLen}
 			}
 			out = slices.AppendAll(out, delta[pos:pos+litLen])
 			pos = pos + litLen
@@ -158,8 +158,8 @@ func Apply(base []byte, delta []byte, maxTargetBytes int) []byte fails Truncated
 			return CorruptDelta{Offset: cmdPos, Reason: "reserved delta opcode 0x00"}
 		}
 	}
-	if len(out) != targetSize {
-		return TargetSizeMismatch{Expected: targetSize, Got: len(out)}
+	if out.Len() != targetSize {
+		return TargetSizeMismatch{Expected: targetSize, Got: out.Len()}
 	}
 	out
 }
@@ -169,9 +169,9 @@ func Apply(base []byte, delta []byte, maxTargetBytes int) []byte fails Truncated
 // each).
 func EncodeLiteralDelta(baseLen int, target []byte) []byte {
 	let mut out = EncodeSizeVarint(baseLen)
-	out = slices.AppendAll(out, EncodeSizeVarint(len(target)))
+	out = slices.AppendAll(out, EncodeSizeVarint(target.Len()))
 	let mut pos = 0
-	let n = len(target)
+	let n = target.Len()
 	for pos < n {
 		let rem = n - pos
 		let chunk = if rem > 127 { 127 } else { rem }
@@ -185,7 +185,7 @@ func EncodeLiteralDelta(baseLen int, target []byte) []byte {
 // ParsePackEntryHeader decodes the type-and-size varint header of a Git
 // packfile entry starting at start.
 func ParsePackEntryHeader(src []byte, start int) PackEntryHeader fails Truncated | BadPackHeader {
-	let n = len(src)
+	let n = src.Len()
 	if start < 0 || start >= n {
 		return Truncated{Offset: n}
 	}
@@ -234,7 +234,7 @@ func ParsePackEntryHeader(src []byte, start int) PackEntryHeader fails Truncated
 // ParseOfsDistance decodes a Git OFS_DELTA biased negative-distance varint
 // starting at start for an entry at entryOffset, returning (distance, nextPos).
 func ParseOfsDistance(src []byte, start int, entryOffset int) (uint64, int) fails Truncated | BadOfsDistance {
-	let n = len(src)
+	let n = src.Len()
 	if start < 0 || start >= n {
 		return Truncated{Offset: n}
 	}
@@ -269,8 +269,8 @@ func EncodeOfsDistance(dist uint64) []byte {
 		rev = rev.Append(byte(0x80) | byte(rem&uint64(0x7f)))
 		rem = rem >> uint64(7)
 	}
-	let mut out = slices.WithCapacity[byte](len(rev))
-	let mut i = len(rev) - 1
+	let mut out = slices.WithCapacity[byte](rev.Len())
+	let mut i = rev.Len() - 1
 	for i >= 0 {
 		out = out.Append(rev[i])
 		i = i - 1

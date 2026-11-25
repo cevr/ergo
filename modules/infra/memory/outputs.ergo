@@ -5,6 +5,7 @@ import config
 import fs
 import fstest
 import github.com/cevr/ergo/modules/infra
+import option
 
 // Sample is a stack's outputs: the kinds of field a program reads.
 type Sample { URL string, Port int, Dirs []string, Ready bool }
@@ -13,17 +14,17 @@ type Sample { URL string, Port int, Dirs []string, Ready bool }
 let Path = "state/outputs.json"
 
 // readBack is the outputs at Path in disk, as std config reads them.
-func readBack(disk fstest.Memory) Option[Sample] {
+func readBack(disk fstest.Memory) option.Option[Sample] {
 	let text = disk.ReadFile(Path) catch {
 	case fs.NotFound, fs.Denied, fs.Failed:
-		return None
+		return option.None
 	}
 	with context { config.Config: config.NewMemory(Map[string, string]{}, Map[string, string]{Path: text}) } {
 		let o = config.Load[Sample](infra.OutputsSpec(Path)) catch {
 		case _:
-			return None
+			return option.None
 		}
-		Some[Sample]{Value: o}
+		option.Some[Sample]{Value: o}
 	}
 }
 
@@ -49,7 +50,7 @@ law OutputsRoundTrip(port int, dirs []int, ready bool) {
 	case infra.Unwritten:
 		return false
 	}
-	readBack(disk) == (Some[Sample]{Value: o})
+	readBack(disk) == (option.Some[Sample]{Value: o})
 }
 
 // placed is the stack of want, and its outputs: the home directory and
@@ -63,7 +64,7 @@ func placed(want Want) Sample fails infra.Failed needs infra.Kind[DirProps, Dir]
 		}
 	}
 	let home = if want.Of[0] != 0 { dirProps(0, want.Of[0]).Path } else { "/srv" }
-	Sample{URL: "file://" + home, Port: len(dirs), Dirs: dirs, Ready: true}
+	Sample{URL: "file://" + home, Port: dirs.Len(), Dirs: dirs, Ready: true}
 }
 
 // deploys applies the stack of want on w as runner r1 through
@@ -83,7 +84,7 @@ func deploys(w World, want Want, disk fstest.Memory) bool {
 }
 
 // outputsOf is the outputs the stack of want gives.
-func outputsOf(want Want) Option[Sample] {
+func outputsOf(want Want) option.Option[Sample] {
 	let w = newWorld()
 	let r = infra.NewPass(infra.Planning)
 	let dirs = infra.Engine[DirProps, Dir]{Kind: "dir", Driver: DirsIn(w.cloud), State: w.dirs, Pass: r}
@@ -91,31 +92,31 @@ func outputsOf(want Want) Option[Sample] {
 	with context { infra.Kind[DirProps, Dir]: dirs, infra.Kind[FileProps, File]: files } {
 		let o = placed(want) catch {
 		case infra.Failed:
-			return None
+			return option.None
 		}
-		Some[Sample]{Value: o}
+		option.Some[Sample]{Value: o}
 	}
 }
 
 // writtenOf is the text WriteOutputs writes for the outputs of the stack of
 // want, on a disk of its own.
-func writtenOf(want Want) Option[string] {
+func writtenOf(want Want) option.Option[string] {
 	let o = match outputsOf(want) {
-	case Some[Sample] as x:
+	case option.Some[Sample] as x:
 		x.Value
-	case None:
-		return None
+	case option.None:
+		return option.None
 	}
 	let disk = newDisk()
 	infra.WriteOutputs(disk, Path, o) catch {
 	case infra.Unwritten:
-		return None
+		return option.None
 	}
 	let text = disk.ReadFile(Path) catch {
 	case fs.NotFound, fs.Denied, fs.Failed:
-		return None
+		return option.None
 	}
-	Some[string]{Value: text}
+	option.Some[string]{Value: text}
 }
 
 // OutputsAfterTheApply: a first apply ends and writes its outputs; a
@@ -143,5 +144,5 @@ law OutputsAfterTheApply(first int, drop int, crash int) {
 	case fs.NotFound, fs.Denied, fs.Failed:
 		return false
 	}
-	Some[string]{Value: text} == writtenOf(if ended { two } else { one })
+	option.Some[string]{Value: text} == writtenOf(if ended { two } else { one })
 }

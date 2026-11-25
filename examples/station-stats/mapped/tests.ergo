@@ -5,7 +5,8 @@
 // it.
 
 import fs
+import fstest
 import station-stats/weather
 
 // onTestHost binds the readings to Files over the test's folder.
-let onTestHost = context needs TestAmbient { weather.Readings: New(fs.NewTestHost()) }
+let onTestHost = context needs fstest.TestAmbient { weather.Readings: New(fs.NewTestHost()) }

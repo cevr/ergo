@@ -1,19 +1,20 @@
 import cmp
+import option
 import slices
 
 // UnitByID looks up one unit in State by ID.
-func UnitByID(state State, id string) Option[Unit] {
+func UnitByID(state State, id string) option.Option[Unit] {
 	state.Units.Get(id)
 }
 
 // ListUnits returns units filtered by optional status, sorted deterministically by ID.
-func ListUnits(state State, status Option[UnitStatus]) []Unit {
+func ListUnits(state State, status option.Option[UnitStatus]) []Unit {
 	let mut out = []Unit{}
 	for _, u in state.Units {
 		let keep = match status {
-		case Some[UnitStatus] as want:
+		case option.Some[UnitStatus] as want:
 			u.Status == want.Value
-		case None:
+		case option.None:
 			true
 		}
 		if keep {
@@ -24,46 +25,46 @@ func ListUnits(state State, status Option[UnitStatus]) []Unit {
 }
 
 // ReceiptsOf returns receipts for unitID, optionally filtered by round, in recorded order.
-func ReceiptsOf(state State, unitID string, round Option[int]) []Receipt {
+func ReceiptsOf(state State, unitID string, round option.Option[int]) []Receipt {
 	let mut out = []Receipt{}
 	for id in state.ReceiptOrder {
 		match state.Receipts.Get(id) {
-		case Some[Receipt] as r:
+		case option.Some[Receipt] as r:
 			let sameUnit = r.Value.UnitID == unitID
 			let sameRound = match round {
-			case Some[int] as want:
+			case option.Some[int] as want:
 				r.Value.Round == want.Value
-			case None:
+			case option.None:
 				true
 			}
 			if sameUnit && sameRound {
 				out = out.Append(r.Value)
 			}
-		case None:
+		case option.None:
 		}
 	}
 	out
 }
 
 // CommitmentByID looks up one commitment in State by ID.
-func CommitmentByID(state State, id string) Option[Commitment] {
+func CommitmentByID(state State, id string) option.Option[Commitment] {
 	state.Commitments.Get(id)
 }
 
 // ListCommitments returns commitments filtered by optional status and owner, sorted deterministically by ID.
-func ListCommitments(state State, status Option[CommitmentStatus], owner Option[string]) []Commitment {
+func ListCommitments(state State, status option.Option[CommitmentStatus], owner option.Option[string]) []Commitment {
 	let mut out = []Commitment{}
 	for _, c in state.Commitments {
 		let statusMatch = match status {
-		case Some[CommitmentStatus] as want:
+		case option.Some[CommitmentStatus] as want:
 			c.Status == want.Value
-		case None:
+		case option.None:
 			true
 		}
 		let ownerMatch = match owner {
-		case Some[string] as want:
-			c.Owner == Some[string]{Value: want.Value}
-		case None:
+		case option.Some[string] as want:
+			c.Owner == option.Some[string]{Value: want.Value}
+		case option.None:
 			true
 		}
 		if statusMatch && ownerMatch {
@@ -74,13 +75,13 @@ func ListCommitments(state State, status Option[CommitmentStatus], owner Option[
 }
 
 // ListQueue returns queue items filtered by optional status, ordered by ascending priority then ascending key.
-func ListQueue(state State, status Option[string]) []QueueItem {
+func ListQueue(state State, status option.Option[string]) []QueueItem {
 	let mut out = []QueueItem{}
 	for _, item in state.Queue {
 		let keep = match status {
-		case Some[string] as want:
+		case option.Some[string] as want:
 			item.Status == want.Value
-		case None:
+		case option.None:
 			true
 		}
 		if keep {
@@ -99,7 +100,7 @@ func ListQueue(state State, status Option[string]) []QueueItem {
 law ListQueueOrdersByPriorityThenKey(priorities []int) {
 	let mut s = EmptyState()
 	for i, p in priorities {
-		let key = "k-\(len(priorities) - i)-\(i)"
+		let key = "k-\(priorities.Len() - i)-\(i)"
 		let evs = Decide(s, Envelope{
 			ID:      CommandID("lq-\(i)"),
 			Actor:   "root",
@@ -118,11 +119,11 @@ law ListQueueOrdersByPriorityThenKey(priorities []int) {
 		}
 		s = ApplyAll(s, evs)
 	}
-	let items = ListQueue(s, None)
-	if len(items) != len(priorities) {
+	let items = ListQueue(s, option.None)
+	if items.Len() != priorities.Len() {
 		return false
 	}
-	for i in 1..len(items) {
+	for i in 1..items.Len() {
 		let prev = items[i-1]
 		let cur = items[i]
 		if prev.Priority > cur.Priority {
@@ -136,7 +137,7 @@ law ListQueueOrdersByPriorityThenKey(priorities []int) {
 }
 
 // QuestionByID looks up one async question in State by monotonic ID.
-func QuestionByID(state State, id int) Option[Question] {
+func QuestionByID(state State, id int) option.Option[Question] {
 	state.Questions.Get(id)
 }
 

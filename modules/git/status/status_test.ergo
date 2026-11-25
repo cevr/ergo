@@ -2,6 +2,7 @@ import exec
 import filepath
 import fs
 import fstest
+import option
 import os
 import strings
 import github.com/cevr/ergo/modules/git/index
@@ -16,8 +17,8 @@ let onMemoryClean = context {
 let onMemoryMixed = context {
 	StatusReader: NewMemoryStatus(
 		[]Entry{
-			Entry{Path: "dirty.txt", OrigPath: None, IndexCode: " ", WorkCode: "M", RenameScore: 0, ModeHead: None, ModeIndex: None, ModeWork: None, OIDHead: None, OIDIndex: None},
-			Entry{Path: "app.log", OrigPath: None, IndexCode: "!", WorkCode: "!", RenameScore: 0, ModeHead: None, ModeIndex: None, ModeWork: None, OIDHead: None, OIDIndex: None},
+			Entry{Path: "dirty.txt", OrigPath: option.None, IndexCode: " ", WorkCode: "M", RenameScore: 0, ModeHead: option.None, ModeIndex: option.None, ModeWork: option.None, OIDHead: option.None, OIDIndex: option.None},
+			Entry{Path: "app.log", OrigPath: option.None, IndexCode: "!", WorkCode: "!", RenameScore: 0, ModeHead: option.None, ModeIndex: option.None, ModeWork: option.None, OIDHead: option.None, OIDIndex: option.None},
 		},
 		ParseGitignore("", "*.log\n!keep.log\n"),
 	),
@@ -60,7 +61,7 @@ func verifyPorcelainMatchesGit(repoDir string, layout root.Layout, opts StatusOp
 	}
 }
 
-let onRepoStatusSha1 = context fails testFail | root.NotARepository | root.BadGitDirFile | root.BadCommonDir | root.UnsupportedVersion | root.UnsupportedExtension | root.UntrustedPath | root.PathEscape | root.AlternateCycle | root.AlternateDepthExceeded | root.ConfigSyntax | root.ConfigBadValue | root.IncludeCycle | root.IncludeDepthExceeded | root.IncludeRefused | oracle.Missing | oracle.Corrupt | oracle.Ambiguous | oracle.InvalidRef | oracle.Conflict | oracle.CommandFailed | exec.NotFound | exec.Denied | exec.Failed | fs.NotFound | fs.Denied | fs.Failed needs TestAmbient {
+let onRepoStatusSha1 = context fails testFail | root.NotARepository | root.BadGitDirFile | root.BadCommonDir | root.UnsupportedVersion | root.UnsupportedExtension | root.UntrustedPath | root.PathEscape | root.AlternateCycle | root.AlternateDepthExceeded | root.ConfigSyntax | root.ConfigBadValue | root.IncludeCycle | root.IncludeDepthExceeded | root.IncludeRefused | oracle.Missing | oracle.Corrupt | oracle.Ambiguous | oracle.InvalidRef | oracle.Conflict | oracle.CommandFailed | exec.NotFound | exec.Denied | exec.Failed | fs.NotFound | fs.Denied | fs.Failed needs fstest.TestAmbient {
 	StatusReader: try makeLawRepoStatus(fstest.TestFolder(), fs.NewTestHost(), exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())), exec.PathOf(os.NewTestHost().Environ())),
 }
 
@@ -147,9 +148,9 @@ func verifyFormatStatus(cwd string, oFmt oracle.OidFormat, fmt oid.Format, pathE
 
 	let idx = try index.Open(fmt, filepath.Join([]string{layout.GitDir, "index"}))
 	let keepEntry = match idx.Lookup("keep.txt", 0) {
-	case Some[index.Entry] as e:
+	case option.Some[index.Entry] as e:
 		e.Value
-	case None:
+	case option.None:
 		return testFail{reason: "keep.txt missing from index"}
 	}
 	let racyTime = StatTime{Sec: keepEntry.MTimeSec, Nsec: keepEntry.MTimeNsec}
@@ -159,16 +160,16 @@ func verifyFormatStatus(cwd string, oFmt oracle.OidFormat, fmt oid.Format, pathE
 		IsSymlink: false,
 		Mode:      keepEntry.Mode,
 		Size:      int(keepEntry.FileSize),
-		MTime:     Some[StatTime]{Value: racyTime},
+		MTime:     option.Some[StatTime]{Value: racyTime},
 		Content:   "diff len 11\n".Bytes(),
 	}
-	let racyChange = try CheckEntryAgainstSnap(fmt, keepEntry, racySnap, Some[StatTime]{Value: racyTime}, IgnoreSubmodulesNone)
+	let racyChange = try CheckEntryAgainstSnap(fmt, keepEntry, racySnap, option.Some[StatTime]{Value: racyTime}, IgnoreSubmodulesNone)
 	match racyChange {
-	case Some[WorktreeChange] as wc:
+	case option.Some[WorktreeChange] as wc:
 		if wc.Value.WorkCode != "M" {
 			return testFail{reason: "racy-git same-timestamp edit expected M, got " + wc.Value.WorkCode}
 		}
-	case None:
+	case option.None:
 		return testFail{reason: "racy-git same-timestamp edit was falsely treated as clean"}
 	}
 
@@ -201,7 +202,7 @@ func Get(b testHostBox) fs.Host {
 	b.host
 }
 
-let onOracleWithHost = context needs TestAmbient {
+let onOracleWithHost = context needs fstest.TestAmbient {
 	exec.Runner:     exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
 	fs.Files:        fs.NewTestHost(),
 	fs.Writes:       fs.NewTestHost(),

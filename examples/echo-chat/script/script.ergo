@@ -27,20 +27,23 @@
 // every run.
 
 import actor
+import core
 import echochat/memory
 import echochat/screen
 import echochat/talk
 import io
+import machines
+import option
 import strconv
 import strings
 import time
 import ui
 
 // Chat is the running chat.
-type Chat = actor.Actor[talk.Session, talk.Signal, Decision[talk.Session, Never]]
+type Chat = actor.Actor[talk.Session, talk.Signal, machines.Decision[talk.Session, core.Never]]
 
 // Host is the chat's test host.
-type Host = ui.TestHost[talk.Session, talk.Signal, Decision[talk.Session, Never]]
+type Host = ui.TestHost[talk.Session, talk.Signal, machines.Decision[talk.Session, core.Never]]
 
 // Bad is a script line the host cannot read.
 type Bad { Why string }
@@ -54,25 +57,25 @@ let Height = ui.Length(600.0)
 // screen that fails. echo is the in-process server, held (memory.Hold),
 // that the entry binds as the chat's talk.Channel; the script plays the
 // server's acts on it.
-func Run(echo memory.Echo, clock time.Manual) int needs Console | io.Stdin | Scheduler | time.Clock | talk.Channel {
-	let chat = actor.StartMachine(talk.Chat{}, 16, func(n Never) {})
+func Run(echo memory.Echo, clock time.Manual) int needs io.Console | io.Stdin | time.Scheduler | time.Clock | talk.Channel {
+	let chat = actor.StartMachine(talk.Chat{}, 16, func(n core.Never) {})
 	let status = play(chat, echo, clock) catch {
 	case actor.Stopped:
-		Console.Println("? the chat stopped")
+		io.Console.Println("? the chat stopped")
 		1
 	case ui.BadPatch as p:
-		Console.Println("? a patch is refused: \(p.Why)")
+		io.Console.Println("? a patch is refused: \(p.Why)")
 		1
 	}
 	chat.Stop()
 	status
 }
 
-func play(chat Chat, echo memory.Echo, clock time.Manual) int fails actor.Stopped | ui.BadPatch needs Console | io.Stdin | Scheduler | time.Clock | talk.Channel {
+func play(chat Chat, echo memory.Echo, clock time.Manual) int fails actor.Stopped | ui.BadPatch needs io.Console | io.Stdin | time.Scheduler | time.Clock | talk.Channel {
 	let mut h = try ui.NewTestHost(chat, screen.Screen, clock, 16)
 	let mut quiet = false
 	let mut scrolled = false
-	Console.Println(Shown(&h))
+	io.Console.Println(Shown(&h))
 	let mut n = 0
 	for raw in io.Stdin.Lines() {
 		n = n + 1
@@ -80,10 +83,10 @@ func play(chat Chat, echo memory.Echo, clock time.Manual) int fails actor.Stoppe
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		Console.Println("> " + line)
+		io.Console.Println("> " + line)
 		let shows = act(&h, chat, echo, clock, line, raw) catch {
 		case Bad as b:
-			Console.Println("? line \(n): \(b.Why)")
+			io.Console.Println("? line \(n): \(b.Why)")
 			return 1
 		case actor.Stopped as s:
 			return s
@@ -91,35 +94,35 @@ func play(chat Chat, echo memory.Echo, clock time.Manual) int fails actor.Stoppe
 			return p
 		}
 		match ui.Find(&h, screen.ListLabel) {
-		case Some[ui.Id[talk.Signal]] as list:
+		case option.Some[ui.Id[talk.Signal]] as list:
 			if !scrolled {
 				try ui.ScrollTo(&h, list.Value, 0.0, Height)
 				scrolled = true
 			}
-		case None:
+		case option.None:
 			scrolled = false
 		}
 		if line == "quiet" {
 			quiet = true
 		}
 		if shows && !quiet {
-			Console.Println(Shown(&h))
+			io.Console.Println(Shown(&h))
 		}
 	}
-	Console.Println("> stop")
-	Console.Println("  lines held: \(memory.Held(echo)); dialed: \(memory.Dialed(echo))")
+	io.Console.Println("> stop")
+	io.Console.Println("  lines held: \(memory.Held(echo)); dialed: \(memory.Dialed(echo))")
 	0
 }
 
 // act does a script line and settles; it says whether the line acts, so
 // the screen shows after it.
-func act(h mut Host, chat Chat, echo memory.Echo, clock time.Manual, line string, raw string) bool fails Bad | actor.Stopped | ui.BadPatch needs Console | Scheduler | time.Clock | talk.Channel {
+func act(h mut Host, chat Chat, echo memory.Echo, clock time.Manual, line string, raw string) bool fails Bad | actor.Stopped | ui.BadPatch needs io.Console | time.Scheduler | time.Clock | talk.Channel {
 	let w = strings.Fields(line)
 	// The rest is the raw line after the word and one space, spaces and all.
-	let rest = strings.TrimPrefix(raw[strings.Index(raw, w[0])+len(w[0]):], " ")
+	let rest = strings.TrimPrefix(raw[strings.Index(raw, w[0])+w[0].Len():], " ")
 	match w[0] {
 	case "connect":
-		let label = if ui.Find(h, screen.TryAgainLabel) == None { screen.ConnectLabel } else { screen.TryAgainLabel }
+		let label = if ui.Find(h, screen.TryAgainLabel) == option.None { screen.ConnectLabel } else { screen.TryAgainLabel }
 		try on(h, ui.ClickOn{At: button(label)})
 	case "type":
 		try on(h, ui.FillIn{At: ui.WithPlaceholder{Text: screen.FieldLabel}, Text: rest})
@@ -132,19 +135,19 @@ func act(h mut Host, chat Chat, echo memory.Echo, clock time.Manual, line string
 	case "push":
 		memory.Push(echo, rest) catch {
 		case talk.Unavailable:
-			Console.Println("  (no line open)")
+			io.Console.Println("  (no line open)")
 		}
 		try ui.Settle(h)
 	case "hangup":
 		memory.Hangup(echo) catch {
 		case talk.Unavailable:
-			Console.Println("  (no line open)")
+			io.Console.Println("  (no line open)")
 		}
 		try ui.Settle(h)
 	case "break":
 		memory.Break(echo, rest) catch {
 		case talk.Unavailable:
-			Console.Println("  (no line open)")
+			io.Console.Println("  (no line open)")
 		}
 		try ui.Settle(h)
 	case "refuse":
@@ -160,10 +163,10 @@ func act(h mut Host, chat Chat, echo memory.Echo, clock time.Manual, line string
 		}
 		try on(h, ui.AdvanceBy{By: time.Times(1ms, ms)})
 	case "held":
-		Console.Println("  lines held: \(memory.Held(echo)); dialed: \(memory.Dialed(echo))")
+		io.Console.Println("  lines held: \(memory.Held(echo)); dialed: \(memory.Dialed(echo))")
 		return false
 	case "stats":
-		Console.Println("  stats: \(ui.CountsLine(ui.Counts(h)))")
+		io.Console.Println("  stats: \(ui.CountsLine(ui.Counts(h)))")
 		return false
 	case "quiet":
 		return false
@@ -175,12 +178,12 @@ func act(h mut Host, chat Chat, echo memory.Echo, clock time.Manual, line string
 
 // on plays a and settles. A locator that finds no node, or more than one,
 // does nothing and says so.
-func on(h mut Host, a ui.Act) fails actor.Stopped | ui.BadPatch needs Console {
+func on(h mut Host, a ui.Act) fails actor.Stopped | ui.BadPatch needs io.Console {
 	ui.Play(h, []ui.Act{a, ui.SettleAll}) catch {
 	case ui.NoNode as no:
-		Console.Println("  ? no node: \(no.Label)")
+		io.Console.Println("  ? no node: \(no.Label)")
 	case ui.Ambiguous as m:
-		Console.Println("  ? \(m.Count) nodes: \(m.At)")
+		io.Console.Println("  ? \(m.Count) nodes: \(m.At)")
 	case ui.Mismatch:
 	case actor.Stopped as s:
 		return s
@@ -192,7 +195,7 @@ func on(h mut Host, a ui.Act) fails actor.Stopped | ui.BadPatch needs Console {
 // send sends the outbox, first text first, and answers the chat for each:
 // Sent at the clock's time, or Unsent when no line is open. Each echo
 // comes after its send.
-func send(h mut Host, chat Chat, echo memory.Echo, clock time.Manual) fails actor.Stopped | ui.BadPatch needs Scheduler | talk.Channel {
+func send(h mut Host, chat Chat, echo memory.Echo, clock time.Manual) fails actor.Stopped | ui.BadPatch needs time.Scheduler | talk.Channel {
 	for text in talk.Outbox(chat.State()) {
 		memory.Send(echo, text) catch {
 		case talk.Unavailable:

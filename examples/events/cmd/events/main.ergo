@@ -10,6 +10,7 @@
 // This binary is the only place that chooses the providers: the host's
 // standard input.
 
+import codec
 import events/conn
 import io
 import json
@@ -31,16 +32,16 @@ type Gen { N int }
 
 // Parse is the mode args ask for.
 func Parse(args []string) Mode fails os.Exit {
-	if len(args) == 1 && args[0] == "stream" {
+	if args.Len() == 1 && args[0] == "stream" {
 		return Stream
 	}
-	if len(args) == 1 && args[0] == "lines" {
+	if args.Len() == 1 && args[0] == "lines" {
 		return Lines
 	}
-	if len(args) == 1 && args[0] == "whole" {
+	if args.Len() == 1 && args[0] == "whole" {
 		return Whole
 	}
-	if len(args) == 2 && args[0] == "gen" {
+	if args.Len() == 2 && args[0] == "gen" {
 		let n = strconv.Atoi(args[1]) catch {
 		case strconv.Malformed, strconv.OutOfRange:
 			return os.Exit{Code: 2, Message: "events: N must be a count\n\(Usage)"}
@@ -54,7 +55,7 @@ func Parse(args []string) Mode fails os.Exit {
 
 // Tally reads the log from in as m says.
 func Tally(m Mode, stdin io.In) conn.Tally fails os.Exit {
-	let read = func() conn.Tally fails json.Malformed | io.ReadFailed | WireWrongKind | WireMissingField | WireUnknownTag {
+	let read = func() conn.Tally fails json.Malformed | io.ReadFailed | codec.WireWrongKind | codec.WireMissingField | codec.WireUnknownTag {
 		match m {
 		case Stream:
 			conn.Count(json.NewElements[conn.Event](json.NewStream(stdin, 0, 0)))
@@ -70,11 +71,11 @@ func Tally(m Mode, stdin io.In) conn.Tally fails os.Exit {
 		return os.Exit{Code: 1, Message: "events: not JSON at byte \(b.Offset): \(b.Reason)"}
 	case io.ReadFailed as f:
 		return os.Exit{Code: 1, Message: "events: reading standard input: \(f.Reason)"}
-	case WireWrongKind as w:
+	case codec.WireWrongKind as w:
 		return os.Exit{Code: 1, Message: "events: \(place(w.Path)): want \(w.Want)"}
-	case WireMissingField as w:
+	case codec.WireMissingField as w:
 		return os.Exit{Code: 1, Message: "events: \(place(w.Path)): no \(w.Field)"}
-	case WireUnknownTag as w:
+	case codec.WireUnknownTag as w:
 		return os.Exit{Code: 1, Message: "events: \(place(w.Path)): no event kind \(w.Tag)"}
 	}
 }
@@ -92,7 +93,7 @@ func place(path string) string {
 	"an event's " + path
 }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	let host = os.NewHost()
 	let m = try Parse(host.Args())
 	match m {

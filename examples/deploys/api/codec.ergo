@@ -1,3 +1,4 @@
+import codec
 import json
 import deploys/deploys
 
@@ -53,9 +54,9 @@ func DraftOf(text string) deploys.Draft fails json.Malformed | BadBody {
 	json.Decode(draftCodec(), text) catch {
 	case json.Malformed as m:
 		return m
-	case WireMissingField as m:
+	case codec.WireMissingField as m:
 		return BadBody{Field: if m.Path == "" { m.Field } else { m.Path + "." + m.Field }, Reason: "is missing"}
-	case WireWrongKind as w:
+	case codec.WireWrongKind as w:
 		return BadBody{Field: if w.Path == "" { "body" } else { w.Path }, Reason: "is not " + w.Want}
 	}
 }

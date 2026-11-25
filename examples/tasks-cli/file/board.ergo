@@ -50,7 +50,7 @@ func save(b Board, items []tasks.Task) fails tasks.Broken {
 // Create adds an open item of title and p, with the next ID.
 func Create(b Board, title string, p tasks.Priority) tasks.Task fails tasks.Broken {
 	let all = try b.items()
-	let t = tasks.Task{ID: len(all) + 1, Title: title, Priority: p, State: tasks.Open}
+	let t = tasks.Task{ID: all.Len() + 1, Title: title, Priority: p, State: tasks.Open}
 	try b.save(all.Append(t))
 	t
 }
@@ -58,7 +58,7 @@ func Create(b Board, title string, p tasks.Priority) tasks.Task fails tasks.Brok
 // Close closes the open item id.
 func Close(b Board, id int) tasks.Task fails tasks.NotFound | tasks.AlreadyClosed | tasks.Broken {
 	let mut all = try b.items()
-	if id < 1 || id > len(all) {
+	if id < 1 || id > all.Len() {
 		return tasks.NotFound{ID: id}
 	}
 	let t = all[id-1]

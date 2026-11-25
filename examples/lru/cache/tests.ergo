@@ -1,5 +1,6 @@
 // The cache's tests: examples (the laws run in laws.ergo and model.ergo).
 
+import option
 import slices
 
 // refused is the capacity that New(n) refuses, or -1 when it makes a cache.
@@ -17,11 +18,11 @@ test NewRefusesNoRoom {
 
 test EvictsInRecencyOrder {
 	let mut c = try New[string, int](2)
-	assert c.Put("a", 1) == None
-	assert c.Put("b", 2) == None
-	assert c.Get("a") == Some{1}
-	assert c.Put("c", 3) == Some{Entry[string, int]{Key: "b", Value: 2}}
-	assert c.Peek("b") == None && c.Len() == 2
+	assert c.Put("a", 1) == option.None
+	assert c.Put("b", 2) == option.None
+	assert c.Get("a") == option.Some{1}
+	assert c.Put("c", 3) == option.Some{Entry[string, int]{Key: "b", Value: 2}}
+	assert c.Peek("b") == option.None && c.Len() == 2
 	let keys = slices.Transform(c.Entries(), func(e Entry[string, int]) string { e.Key })
 	assert keys == []string{"c", "a"}
 }
@@ -30,16 +31,16 @@ test PutOverwritesWithoutEvicting {
 	let mut c = try New[string, int](2)
 	let _ = c.Put("a", 1)
 	let _ = c.Put("b", 2)
-	assert c.Put("a", 10) == None
-	assert c.Peek("a") == Some{10} && c.Len() == 2
+	assert c.Put("a", 10) == option.None
+	assert c.Peek("a") == option.Some{10} && c.Len() == 2
 }
 
 test PeekKeepsRecency {
 	let mut c = try New[int, int](2)
 	let _ = c.Put(1, 1)
 	let _ = c.Put(2, 2)
-	assert c.Peek(1) == Some{1}
-	assert c.Put(3, 3) == Some{Entry[int, int]{Key: 1, Value: 1}}
+	assert c.Peek(1) == option.Some{1}
+	assert c.Put(3, 3) == option.Some{Entry[int, int]{Key: 1, Value: 1}}
 }
 
 test RemoveFreesASlot {
@@ -47,14 +48,14 @@ test RemoveFreesASlot {
 	let _ = c.Put(1, "one")
 	let _ = c.Put(2, "two")
 	assert c.Remove(1) && !c.Remove(1)
-	assert c.Put(3, "three") == None
-	assert c.Len() == 2 && c.Peek(2) == Some{"two"}
+	assert c.Put(3, "three") == option.None
+	assert c.Len() == 2 && c.Peek(2) == option.Some{"two"}
 }
 
 test SortedIsKeyOrder {
 	let mut c = try New[string, int](3)
 	for k in []string{"pear", "apple", "fig", "kiwi"} {
-		let _ = c.Put(k, len(k))
+		let _ = c.Put(k, k.Len())
 	}
 	let keys = slices.Transform(c.Sorted(), func(e Entry[string, int]) string { e.Key })
 	assert keys == []string{"apple", "fig", "kiwi"}

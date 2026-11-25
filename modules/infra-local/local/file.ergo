@@ -4,6 +4,7 @@ import github.com/cevr/ergo/modules/infra
 import fs
 import json
 import fstest
+import option
 import strings
 
 // FileProps asks for a file Name in the folder Dir (a relative path below
@@ -30,7 +31,7 @@ func NewFiles() Files {
 }
 
 func Attrs(f Files, id string, p FileProps) File {
-	File{Path: f.base + "/" + p.Dir + "/" + p.Name, Size: len(p.Text)}
+	File{Path: f.base + "/" + p.Dir + "/" + p.Name, Size: p.Text.Len()}
 }
 
 // Apply writes the file whole, every time: a file whose text changed gets
@@ -56,34 +57,34 @@ func Apply(f Files, id string, p FileProps) File fails infra.Failed {
 		return infra.Failed{ID: id, Reason: e.Reason}
 	}
 	try put(f.ledger, "file", id, []string{path})
-	File{Path: path, Size: len(p.Text)}
+	File{Path: path, Size: p.Text.Len()}
 }
 
-func Read(f Files, id string) Option[File] fails infra.Failed {
+func Read(f Files, id string) option.Option[File] fails infra.Failed {
 	let path = match try get(f.ledger, "file", id) {
-	case None:
-		return None
-	case Some[[]string] as entry:
+	case option.None:
+		return option.None
+	case option.Some[[]string] as entry:
 		try onePath(id, entry.Value)
 	}
 	let info = f.files.Stat(path) catch {
 	case fs.NotFound:
-		return None
+		return option.None
 	case fs.Denied as e:
 		return infra.Failed{ID: id, Reason: "cannot read \(e.Path)"}
 	case fs.Failed as e:
 		return infra.Failed{ID: id, Reason: e.Reason}
 	}
 	if info.Dir {
-		return None
+		return option.None
 	}
-	Some[File]{Value: File{Path: path, Size: info.Size}}
+	option.Some[File]{Value: File{Path: path, Size: info.Size}}
 }
 
 func Delete(f Files, id string) fails infra.Failed {
 	match try get(f.ledger, "file", id) {
-	case None:
-	case Some[[]string] as entry:
+	case option.None:
+	case option.Some[[]string] as entry:
 		try remove(f.writes, id, try onePath(id, entry.Value))
 		try drop(f.ledger, "file", id)
 	}
@@ -104,11 +105,11 @@ law ChangedFileHoldsTheNewText(first string, second string) {
 // writes, the props kept as JSON.
 func FileRowsOn(files fs.Files, writes fs.Writes, root string) Rows[FileProps] {
 	let codec = json.Codec[FileProps]{MaxBytes: 0, MaxDepth: 0}
-	RowsOn[FileProps](files, writes, root, func(p FileProps) string { json.Encode(codec, p) }, func(text string) Option[FileProps] {
+	RowsOn[FileProps](files, writes, root, func(p FileProps) string { json.Encode(codec, p) }, func(text string) option.Option[FileProps] {
 		let p = json.Decode(codec, text) catch {
 		case _:
-			return None
+			return option.None
 		}
-		Some[FileProps]{Value: p}
+		option.Some[FileProps]{Value: p}
 	})
 }

@@ -6,6 +6,7 @@
 // the stage it runs, and its timer is Timer's.
 
 import machines
+import option
 import testing
 import time
 
@@ -32,7 +33,7 @@ law GivesUpAfterAttempts(gaps []int) {
 	let mut trace = []machines.Timed[Signal]{}
 	let mut at = 0s
 	for n in 1..(Standard.Attempts + 1) {
-		let gap = 1ms + (if n-1 < len(gaps) { ms(gaps[n-1]) } else { 0s })
+		let gap = 1ms + (if n-1 < gaps.Len() { ms(gaps[n-1]) } else { 0s })
 		trace = trace.Append(machines.Timed[Signal]{At: at + gap, Signal: Failed})
 		at = at + gap + Delay(Standard, n)
 	}
@@ -41,30 +42,30 @@ law GivesUpAfterAttempts(gaps []int) {
 	for n in 2..(Standard.Attempts + 1) {
 		want = want.Append(Again{Try: n})
 	}
-	t.Orders == want && t.Last == Some[Order]{Value: GiveUp{Tries: Standard.Attempts}}
+	t.Orders == want && t.Last == option.Some[Order]{Value: GiveUp{Tries: Standard.Attempts}}
 }
 
 // Told is the end of a timed run of the saga: the orders it gave, the
 // last order of a run that gave up (None for one that did not), and
 // where it is.
-type Told { Orders []Order, Last Option[Order], At Attempt }
+type Told { Orders []Order, Last option.Option[Order], At Attempt }
 
 // timed runs the saga over trace until end, on a fresh virtual clock.
 func timed(trace []machines.Timed[Signal], end duration) Told {
 	let c = testing.NewVirtualClock(0)
-	with context { Scheduler: c, time.Clock: c } { run(trace, end) }
+	with context { time.Scheduler: c, time.Clock: c } { run(trace, end) }
 }
 
-func run(trace []machines.Timed[Signal], end duration) Told needs time.Clock | Scheduler {
+func run(trace []machines.Timed[Signal], end duration) Told needs time.Clock | time.Scheduler {
 	let o = machines.RunTimed(Saga{}, trace, end) catch {
 	case machines.Rejected:
-		return Told{Orders: []Order{}, Last: None, At: First(Standard)}
+		return Told{Orders: []Order{}, Last: option.None, At: First(Standard)}
 	}
 	match o {
 	case machines.Running[Attempt, Order] as r:
-		Told{Orders: r.Emitted, Last: None, At: r.State}
+		Told{Orders: r.Emitted, Last: option.None, At: r.State}
 	case machines.Finished[Attempt, Order] as f:
-		Told{Orders: f.Emitted, Last: Some[Order]{Value: f.Output}, At: f.State}
+		Told{Orders: f.Emitted, Last: option.Some[Order]{Value: f.Output}, At: f.State}
 	}
 }
 
@@ -77,7 +78,7 @@ law WaitsItsBackoff(early int) {
 	let wait = Delay(Standard, 1)
 	let before = timed(fail, wait-1ms-ms(early))
 	let after = timed(fail, wait)
-	len(before.Orders) == 0 && after.Orders == []Order{Again{Try: 2}}
+	before.Orders.Len() == 0 && after.Orders == []Order{Again{Try: 2}}
 }
 
 // Order is what the saga tells the stage's owner: try again (Again, the
@@ -110,43 +111,43 @@ func OnFailed(a Attempt) FailedOutcome {
 	}
 }
 
-func OnDue(a Attempt) Option[Trying] {
+func OnDue(a Attempt) option.Option[Trying] {
 	match a {
 	case Backoff as b:
-		Some[Trying]{Value: Trying{P: b.P, Try: b.Try + 1}}
+		option.Some[Trying]{Value: Trying{P: b.P, Try: b.Try + 1}}
 	case Trying:
-		None
+		option.None
 	}
 }
 
-func Step(a Attempt, s Signal) Decision[Attempt, Order] {
+func Step(a Attempt, s Signal) machines.Decision[Attempt, Order] {
 	match s {
 	case Failed:
 		match OnFailed(a) {
 		case Exhausted as e:
-			Done[Order]{Output: e.Order}
+			machines.Done[Order]{Output: e.Order}
 		case Wait as w:
-			Enter[Attempt]{Next: w.Next}
+			machines.Enter[Attempt]{Next: w.Next}
 		case AlreadyWaiting:
-			Ignore
+			machines.Ignore
 		}
 	case Due:
 		match a {
 		case Backoff as b:
-			Emit[Attempt, Order]{Next: Trying{P: b.P, Try: b.Try + 1}, Output: Again{Try: b.Try + 1}}
+			machines.Emit[Attempt, Order]{Next: Trying{P: b.P, Try: b.Try + 1}, Output: Again{Try: b.Try + 1}}
 		case Trying:
-			Ignore
+			machines.Ignore
 		}
 	}
 }
 
 // Timer is the timer of a waiting attempt: Due after its delay.
-func Timer(a Attempt) Option[Timeout[Signal]] {
+func Timer(a Attempt) option.Option[machines.Timeout[Signal]] {
 	match a {
 	case Backoff as b:
-		Some[Timeout[Signal]]{Value: Timeout[Signal]{In: Delay(b.P, b.Try), Signal: Due}}
+		option.Some[machines.Timeout[Signal]]{Value: machines.Timeout[Signal]{In: Delay(b.P, b.Try), Signal: Due}}
 	case Trying:
-		None
+		option.None
 	}
 }
 

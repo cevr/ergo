@@ -24,7 +24,7 @@ let set = flag.Set{Name: "scoped-engine", Usage: "", Flags: []flag.Flag{statsFla
 
 let usage = "usage: scoped-engine [-stats] < script"
 
-func main() fails os.Exit needs Console | Ambient {
+func main() fails os.Exit needs io.Console | os.Ambient {
 	let v = with context { os.Process: os.NewHost() } {
 		flag.Parse(set, os.Process.Args()) catch {
 		case err:
@@ -36,7 +36,7 @@ func main() fails os.Exit needs Console | Ambient {
 	}
 	let clock = time.NewManual(0)
 	let pool = memory.OnClock(clock, script.BootTakes())
-	let status = with context { io.Stdin: io.NewStdin(), Scheduler: clock, engine.Engines: pool } { script.Run(clock, pool, statsFlag.Get(v)) }
+	let status = with context { io.Stdin: io.NewStdin(), time.Scheduler: clock, engine.Engines: pool } { script.Run(clock, pool, statsFlag.Get(v)) }
 	if status != 0 {
 		return os.Exit{Code: 1, Message: "scoped-engine: the script did not run"}
 	}

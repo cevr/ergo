@@ -16,6 +16,7 @@
 import actor
 import arena
 import ergo.local/prototype/examples/cells/grid
+import option
 import queue
 import strings
 import time
@@ -39,7 +40,7 @@ type Host[S, E, D, F] {
 	written   int,
 	spots     []spot[E],
 	drawn     Map[ui.Id[E], drawnAt],
-	focus     Option[ui.Id[E]],
+	focus     option.Option[ui.Id[E]],
 	scrolled  Map[ui.Id[E], int],
 	extents   Map[ui.Id[E], int],
 	viewports Map[ui.Id[E], ui.Viewport],
@@ -86,7 +87,7 @@ func New[E comparable, S, D, F, R](a actor.Actor[S, E, D, F], cols int, rows int
 		written:   0,
 		spots:     []spot[E]{},
 		drawn:     Map[ui.Id[E], drawnAt]{},
-		focus:     None,
+		focus:     option.None,
 		scrolled:  Map[ui.Id[E], int]{},
 		extents:   Map[ui.Id[E], int]{},
 		viewports: Map[ui.Id[E], ui.Viewport]{},
@@ -126,9 +127,9 @@ func apply[E comparable, S, D, F](h mut Host[S, E, D, F], op ui.Op[E]) {
 		dropNode(h, x.Id)
 	case ui.Set[E] as x:
 		match h.nodes.Get(x.Id) {
-		case Some[held[E]] as n:
+		case option.Some[held[E]] as n:
 			h.nodes[x.Id] = held[E]{node: x.Node, kids: n.Value.kids}
-		case None:
+		case option.None:
 		}
 	case ui.Define:
 		// A look's definition: this host draws no looks.
@@ -142,7 +143,7 @@ func report[E comparable, S, D, F](h mut Host[S, E, D, F]) fails actor.Stopped |
 		match s.node {
 		case ui.RowsNode:
 			let v = ui.Viewport{Offset: ui.Length(float64(float32(scrolledBy(h, s.id)) * CellH)), Height: ui.Length(float64(s.box.H))}
-			if h.viewports.Get(s.id) != (Some{Value: v}) {
+			if h.viewports.Get(s.id) != (option.Some{Value: v}) {
 				h.viewports[s.id] = v
 				try step(h, ui.Scrolled[E]{Id: s.id, Offset: v.Offset, Height: v.Height})
 				return
@@ -153,13 +154,13 @@ func report[E comparable, S, D, F](h mut Host[S, E, D, F]) fails actor.Stopped |
 }
 
 // place puts id among parent's children, in front of before or last.
-func place[S, E, D, F](h mut Host[S, E, D, F], id own ui.Id[E], parent ui.Id[E], before Option[ui.Id[E]]) {
+func place[S, E, D, F](h mut Host[S, E, D, F], id own ui.Id[E], parent ui.Id[E], before option.Option[ui.Id[E]]) {
 	match h.nodes.Get(parent) {
-	case Some[held[E]] as p:
+	case option.Some[held[E]] as p:
 		let mut kids = []ui.Id[E]{}
 		let mut done = false
 		for k in p.Value.kids {
-			if !done && before == (Some{Value: k}) {
+			if !done && before == (option.Some{Value: k}) {
 				kids = kids.Append(id)
 				done = true
 			}
@@ -171,14 +172,14 @@ func place[S, E, D, F](h mut Host[S, E, D, F], id own ui.Id[E], parent ui.Id[E],
 			kids = kids.Append(id)
 		}
 		h.nodes[parent] = held[E]{node: p.Value.node, kids: kids}
-	case None:
+	case option.None:
 	}
 }
 
 // unplace takes id out of parent's children.
 func unplace[S, E, D, F](h mut Host[S, E, D, F], parent ui.Id[E], id ui.Id[E]) {
 	match h.nodes.Get(parent) {
-	case Some[held[E]] as p:
+	case option.Some[held[E]] as p:
 		let mut kids = []ui.Id[E]{}
 		for k in p.Value.kids {
 			if k != id {
@@ -186,7 +187,7 @@ func unplace[S, E, D, F](h mut Host[S, E, D, F], parent ui.Id[E], id ui.Id[E]) {
 			}
 		}
 		h.nodes[parent] = held[E]{node: p.Value.node, kids: kids}
-	case None:
+	case option.None:
 	}
 }
 
@@ -204,26 +205,26 @@ func dropNode[S, E, D, F](h mut Host[S, E, D, F], id own ui.Id[E]) {
 
 func forget[S, E, D, F](h mut Host[S, E, D, F], id own ui.Id[E]) {
 	match h.nodes.Get(id) {
-	case Some[held[E]] as n:
+	case option.Some[held[E]] as n:
 		for k in n.Value.kids {
 			forget[S, E, D, F](h, k)
 		}
-	case None:
+	case option.None:
 	}
 	h.nodes = h.nodes.Delete(id)
 	h.scrolled = h.scrolled.Delete(id)
 	h.viewports = h.viewports.Delete(id)
-	if h.focus == (Some{Value: id}) {
-		h.focus = None
+	if h.focus == (option.Some{Value: id}) {
+		h.focus = option.None
 	}
 }
 
 // kidsOf is id's children in the host's tree.
 func kidsOf[S, E, D, F](h mut Host[S, E, D, F], id ui.Id[E]) []ui.Id[E] {
 	match h.nodes.Get(id) {
-	case Some[held[E]] as n:
+	case option.Some[held[E]] as n:
 		n.Value.kids
-	case None:
+	case option.None:
 		[]ui.Id[E]{}
 	}
 }
@@ -232,13 +233,13 @@ func kidsOf[S, E, D, F](h mut Host[S, E, D, F], id ui.Id[E]) []ui.Id[E] {
 func holdsText[S, E, D, F](h mut Host[S, E, D, F], id ui.Id[E]) bool {
 	for k in kidsOf(h, id) {
 		match h.nodes.Get(k) {
-		case Some[held[E]] as n:
+		case option.Some[held[E]] as n:
 			match n.Value.node {
 			case ui.TextNode:
 				return true
 			case _:
 			}
-		case None:
+		case option.None:
 		}
 		if holdsText[S, E, D, F](h, k) {
 			return true
@@ -250,7 +251,7 @@ func holdsText[S, E, D, F](h mut Host[S, E, D, F], id ui.Id[E]) bool {
 // step steps the session with ev and shows its patch.
 func step[E comparable, S, D, F](h mut Host[S, E, D, F], ev ui.Event[E]) fails actor.Stopped | ui.BadPatch {
 	let ops = try ui.Step(&h.session, ev)
-	if len(ops) > 0 {
+	if ops.Len() > 0 {
 		try show(h, ops)
 	}
 }
@@ -303,12 +304,12 @@ func draw[S, E, D, F](h mut Host[S, E, D, F]) {
 // changes one digit of one Text writes one cell, on any generated view.
 law PatchWritesItsChange(seed int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		writesTheChange(seed)
 	}
 }
 
-func writesTheChange(seed int) bool needs Scheduler {
+func writesTheChange(seed int) bool needs time.Scheduler {
 	let a = actor.StartMachine(SampleMachine(seed), 4, func(o int) {})
 	let mut h = New(a, 140, 40, 4, SampleView) catch {
 	case ui.BadPatch:
@@ -339,7 +340,7 @@ func roomForLists[S, E, D, F](h mut Host[S, E, D, F], t mut layout.Tree, ids Map
 		match n.node {
 		case ui.RowsNode as x:
 			match ids.Get(k) {
-			case Some[layout.Id] as l:
+			case option.Some[layout.Id] as l:
 				let b = boxOf(t, l.Value)
 				if b.H <= 0 {
 					let mut s = styleOf(n.node, false)
@@ -350,7 +351,7 @@ func roomForLists[S, E, D, F](h mut Host[S, E, D, F], t mut layout.Tree, ids Map
 					}
 					changed = true
 				}
-			case None:
+			case option.None:
 			}
 		case _:
 		}
@@ -363,27 +364,27 @@ func roomForLists[S, E, D, F](h mut Host[S, E, D, F], t mut layout.Tree, ids Map
 func build[S, E, D, F](h mut Host[S, E, D, F], t mut layout.Tree, id ui.Id[E], into layout.Id, ids own Map[ui.Id[E], layout.Id]) Map[ui.Id[E], layout.Id] {
 	let mut out = ids
 	let list = match h.nodes.Get(id) {
-	case Some[held[E]] as p:
+	case option.Some[held[E]] as p:
 		match p.Value.node {
 		case ui.RowsNode as x:
-			Some{Value: x}
+			option.Some{Value: x}
 		case _:
-			None
+			option.None
 		}
-	case None:
-		None
+	case option.None:
+		option.None
 	}
 	for i, k in kidsOf(h, id) {
 		match h.nodes.Get(k) {
-		case Some[held[E]] as n:
+		case option.Some[held[E]] as n:
 			let mut st = styleOf(n.Value.node, holdsText(h, k))
 			match list {
-			case Some[ui.RowsNode] as l:
+			case option.Some[ui.RowsNode] as l:
 				let rh = dips(l.Value.RowHeight)
 				st.Position = layout.Absolute{Left: 0, Top: float32(l.Value.First+i) * rh}
 				st.Width = layout.Percent{Value: 100}
 				st.Height = layout.Px{Value: rh}
-			case None:
+			case option.None:
 			}
 			let node = layout.Add(t, st)
 			layout.Append(t, into, node) catch {
@@ -396,7 +397,7 @@ func build[S, E, D, F](h mut Host[S, E, D, F], t mut layout.Tree, id ui.Id[E], i
 				out = build[S, E, D, F](h, t, k, node, out)
 			case layout.Text:
 			}
-		case None:
+		case option.None:
 		}
 	}
 	out
@@ -436,15 +437,15 @@ func named(g mut grid.Grid, name string, c int, r int, d drawnAt, pen grid.Pen) 
 // cells clip.
 func drawNode[S, E, D, F](h mut Host[S, E, D, F], g mut grid.Grid, t mut layout.Tree, ids Map[ui.Id[E], layout.Id], id own ui.Id[E], dy int, clip Rect) {
 	let n = match h.nodes.Get(id) {
-	case Some[held[E]] as x:
+	case option.Some[held[E]] as x:
 		x.Value.node
-	case None:
+	case option.None:
 		return
 	}
 	let laid = match ids.Get(id) {
-	case Some[layout.Id] as l:
+	case option.Some[layout.Id] as l:
 		boxOf(t, l.Value)
-	case None:
+	case option.None:
 		return
 	}
 	let b = layout.Box{X: laid.X, Y: laid.Y - float32(dy)*CellH, W: laid.W, H: laid.H}
@@ -463,13 +464,13 @@ func drawNode[S, E, D, F](h mut Host[S, E, D, F], g mut grid.Grid, t mut layout.
 		let mut reach = 0
 		for k in kidsOf(h, id) {
 			match ids.Get(k) {
-			case Some[layout.Id] as l:
+			case option.Some[layout.Id] as l:
 				let kb = Span(boxOf(t, l.Value))
 				let r = kb.R + kb.H - Span(laid).R
 				if r > reach {
 					reach = r
 				}
-			case None:
+			case option.None:
 			}
 		}
 		h.extents[id] = reach
@@ -543,9 +544,9 @@ func drawNode[S, E, D, F](h mut Host[S, E, D, F], g mut grid.Grid, t mut layout.
 		// what the readout reads now, in the reserve's box; its reserve
 		// before the first reading
 		let reading = match ui.ReadingIn(&h.session, x.Readout) {
-		case Some[string] as r:
+		case option.Some[string] as r:
 			r.Value
-		case None:
+		case option.None:
 			x.Reserve
 		}
 		d = named(g, reading, at.C, at.R, d, pen)
@@ -566,7 +567,7 @@ func drawNode[S, E, D, F](h mut Host[S, E, D, F], g mut grid.Grid, t mut layout.
 			d = named(g, x.Access.Name, at.C+cellsOf(pre), mid, d, spen)
 		}
 	}
-	if h.focus == (Some{Value: id}) {
+	if h.focus == (option.Some{Value: id}) {
 		inverse(g, vis)
 	}
 	h.drawn[id] = d
@@ -592,9 +593,9 @@ func inverse(g mut grid.Grid, vis Rect) {
 // scrolledBy is how many rows id's Scroll is scrolled.
 func scrolledBy[S, E, D, F](h mut Host[S, E, D, F], id ui.Id[E]) int {
 	match h.scrolled.Get(id) {
-	case Some[int] as v:
+	case option.Some[int] as v:
 		v.Value
-	case None:
+	case option.None:
 		0
 	}
 }
@@ -602,11 +603,11 @@ func scrolledBy[S, E, D, F](h mut Host[S, E, D, F], id ui.Id[E]) int {
 // HitAt is the node on top at column c, row r: the last drawn spot whose
 // Span holds the cell, inside the cells its Scrolls leave visible;
 // Scrolls and lists left out.
-func HitAt[S, E, D, F](h mut Host[S, E, D, F], c int, r int) Option[ui.Id[E]] {
-	let mut hit Option[ui.Id[E]] = None
+func HitAt[S, E, D, F](h mut Host[S, E, D, F], c int, r int) option.Option[ui.Id[E]] {
+	let mut hit option.Option[ui.Id[E]] = option.None
 	for s in h.spots {
 		if targeted(s.node) && holds(Span(s.box), c, r) && holds(s.clip, c, r) {
-			hit = Some{Value: s.id}
+			hit = option.Some{Value: s.id}
 		}
 	}
 	hit
@@ -618,12 +619,12 @@ func HitAt[S, E, D, F](h mut Host[S, E, D, F], c int, r int) Option[ui.Id[E]] {
 // zone's cell reaches its Area with that zone under the pointer.
 law HitMatchesDraw(seed int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		hitsWhereDrawn(seed)
 	}
 }
 
-func hitsWhereDrawn(seed int) bool needs Scheduler {
+func hitsWhereDrawn(seed int) bool needs time.Scheduler {
 	let a = actor.StartMachine(SampleMachine(seed), 4, func(o int) {})
 	let mut h = New(a, 140, 40, 4, SampleView) catch {
 	case ui.BadPatch:
@@ -633,12 +634,12 @@ func hitsWhereDrawn(seed int) bool needs Scheduler {
 		for s in h.spots {
 			if focusable(s.node) {
 				match CellOf(&h, s.id) {
-				case Some[(int, int)] as at:
+				case option.Some[(int, int)] as at:
 					let (c, r) = at.Value
-					if HitAt(&h, c, r) != (Some{Value: s.id}) {
+					if HitAt(&h, c, r) != (option.Some{Value: s.id}) {
 						return false
 					}
-				case None:
+				case option.None:
 				}
 			}
 		}
@@ -648,7 +649,7 @@ func hitsWhereDrawn(seed int) bool needs Scheduler {
 		// unless the node is disabled
 		for z in sendersIn(h.spots) {
 			match CellOf(&h, z) {
-			case Some[(int, int)] as at:
+			case option.Some[(int, int)] as at:
 				let (c, r) = at.Value
 				let taps = StateOf(&h).Taps
 				let sends = !ui.AccessOf(&h.mirror, z).Disabled
@@ -663,7 +664,7 @@ func hitsWhereDrawn(seed int) bool needs Scheduler {
 				if StateOf(&h).Taps != if sends { taps + 1 } else { taps } {
 					return false
 				}
-			case None:
+			case option.None:
 			}
 		}
 		if round < 2 {
@@ -691,13 +692,13 @@ func sendersIn[E](spots []spot[E]) []ui.Id[E] {
 }
 
 // spotOf is id's spot, when it takes input.
-func spotOf[S, E, D, F](h mut Host[S, E, D, F], id ui.Id[E]) Option[spot[E]] {
+func spotOf[S, E, D, F](h mut Host[S, E, D, F], id ui.Id[E]) option.Option[spot[E]] {
 	for s in h.spots {
 		if s.id == id {
-			return Some{Value: s}
+			return option.Some{Value: s}
 		}
 	}
-	None
+	option.None
 }
 
 // Screen is what the host shows, as the patches built it.

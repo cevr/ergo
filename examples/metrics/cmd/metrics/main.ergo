@@ -15,6 +15,7 @@ import civil
 import io
 import metrics/alert
 import metrics/series
+import option
 import os
 import strconv
 import strings
@@ -34,7 +35,7 @@ type Command = Report{Width int64} | Calendar{Unit civil.Unit} | Alert{Threshold
 
 // Parse is the command of args.
 func Parse(args []string) Command fails os.Exit {
-	if len(args) != 2 {
+	if args.Len() != 2 {
 		return os.Exit{Code: 2, Message: Usage}
 	}
 	match args[0] {
@@ -76,7 +77,7 @@ func ReportLines(samples []series.Sample, width int64) []string fails series.Bad
 		let p50 = series.Percentile(b.Values, 50)
 		let p95 = series.Percentile(b.Values, 95)
 		match (p50, p95) {
-		case (Some[float64] as m, Some[float64] as h):
+		case (option.Some[float64] as m, option.Some[float64] as h):
 			out = out.Append("\(b.Start) count \(b.Count) sum \(Num(b.Sum)) min \(Num(b.Min)) max \(Num(b.Max)) p50 \(Num(m.Value)) p95 \(Num(h.Value))")
 		case (_, _):
 		}
@@ -89,11 +90,11 @@ func ReportLines(samples []series.Sample, width int64) []string fails series.Bad
 func CalendarLines(samples []series.Sample, u civil.Unit) []string {
 	let mut out = []string{}
 	match series.Days(samples) {
-	case Some[civil.Span] as s:
+	case option.Some[civil.Span] as s:
 		for p in series.Calendar(samples, s.Value, u) {
 			out = out.Append("\(civil.Text(civil.From(p.Span))) \(civil.Text(civil.To(p.Span))) count \(p.Count) sum \(Num(p.Sum))")
 		}
-	case None:
+	case option.None:
 	}
 	out
 }
@@ -109,9 +110,9 @@ func Checks(samples []series.Sample, threshold float64) []alert.Signal {
 	for s in samples {
 		w.Add(s)
 		let mean = match w.Mean() {
-		case Some[float64] as m:
+		case option.Some[float64] as m:
 			m.Value
-		case None:
+		case option.None:
 			0.0
 		}
 		if mean > threshold {
@@ -146,7 +147,7 @@ func AlertLines(samples []series.Sample, threshold float64) []string {
 }
 
 // main does what the arguments ask, on the host's arguments and input.
-func main() fails os.Exit needs Console | Ambient {
+func main() fails os.Exit needs io.Console | os.Ambient {
 	with context { os.Process: os.NewHost(), io.Stdin: io.NewStdin() } {
 		let cmd = try Parse(os.Process.Args())
 		let text = io.Stdin.ReadAll() catch {
@@ -171,7 +172,7 @@ func main() fails os.Exit needs Console | Ambient {
 			AlertLines(samples, a.Threshold)
 		}
 		for l in lines {
-			Console.Println(l)
+			io.Console.Println(l)
 		}
 	}
 }
@@ -198,6 +199,6 @@ test VirtualClockFeed {
 		}
 	}
 	let lines = AlertLines(samples, 5)
-	let last = lines[len(lines)-1]
+	let last = lines[lines.Len()-1]
 	assert strings.HasPrefix(last, "alerts 2, muted ") && last != "alerts 2, muted 0"
 }

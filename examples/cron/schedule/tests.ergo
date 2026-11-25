@@ -3,6 +3,7 @@
 // cron's laws hold Next to a brute-force walk.
 
 import cron
+import option
 import strings
 import testing
 import time
@@ -24,9 +25,9 @@ func next(expr string, after string, z tz.Zone) string {
 		return "bad time"
 	}
 	match cron.Next(e, z, t) {
-	case Some[time.Time] as n:
+	case option.Some[time.Time] as n:
 		Text(n.Value, z)
-	case None:
+	case option.None:
 		"never"
 	}
 }
@@ -52,7 +53,7 @@ test NextFiringsAcrossClockChanges {
 
 test ATableHasJobsCommentsAndBlanks {
 	let jobs = try ParseTable("# nightly\n0 3 * * * backup the disk\n\n@hourly  rotate logs\n")
-	assert len(jobs) == 2 && jobs[0].Name == "backup the disk" && jobs[1].Name == "rotate logs"
+	assert jobs.Len() == 2 && jobs[0].Name == "backup the disk" && jobs[1].Name == "rotate logs"
 	assert cron.Format(jobs[1].When) == "0 * * * *"
 }
 
@@ -81,7 +82,7 @@ test RunFiresOnTimeOnAVirtualClock {
 	let jobs = []Job{Job{Name: "a", When: try cron.Parse("*/20 * * * *")}, Job{Name: "b", When: try cron.Parse("30,40 12 * * *")}}
 	let clock = testing.NewVirtualClock(time.UnixSeconds(start))
 	let mut log = []string{}
-	with context { time.Clock: clock, Scheduler: clock } {
+	with context { time.Clock: clock, time.Scheduler: clock } {
 		Run(jobs, utc, time.Add(start, 1h), func(f Firing) {
 			log = log.Append(f.Job + " " + Text(f.Due, utc) + " woke " + Text(f.Woke, utc))
 		})

@@ -1,4 +1,6 @@
+import core
 import machines
+import option
 
 // Status is where a deploy is in its lifecycle.
 type Status = Pending{} | Approved{} | Live{} | Cancelled{}
@@ -7,11 +9,11 @@ type Status = Pending{} | Approved{} | Live{} | Cancelled{}
 // lifecycle only moves forward (Pending, Approved, then Live or Cancelled).
 law NoWayBack(s Status, e Event) {
 	match Step(s, e) {
-	case Enter[Status] as n:
+	case machines.Enter[Status] as n:
 		Rank(n.Next) > Rank(s)
-	case Stay[Status] as n:
+	case machines.Stay[Status] as n:
 		Rank(n.Next) == Rank(s)
-	case Ignore, Reject:
+	case machines.Ignore, machines.Reject:
 		true
 	}
 }
@@ -31,9 +33,9 @@ func Rank(s Status) int {
 // LiveWasApproved: only an approved deploy is live.
 law LiveWasApproved(s Status) {
 	match Step(s, Release) {
-	case Enter[Status]:
+	case machines.Enter[Status]:
 		Name(s) == "approved"
-	case Stay[Status], Ignore, Reject:
+	case machines.Stay[Status], machines.Ignore, machines.Reject:
 		true
 	}
 }
@@ -58,22 +60,22 @@ type Conflict { ID string, Status string, Event string }
 // ignored; a live or a cancelled deploy takes no event. The match names every pair, so a new
 // status or event stops the build until its row is written. A deploy
 // gives no output and never ends: its output is Never.
-func Step(s Status, e Event) Decision[Status, Never] {
+func Step(s Status, e Event) machines.Decision[Status, core.Never] {
 	match (s, e) {
 	case (Pending, Approve):
-		Enter[Status]{Next: Approved}
+		machines.Enter[Status]{Next: Approved}
 	case (Pending, Cancel):
-		Enter[Status]{Next: Cancelled}
+		machines.Enter[Status]{Next: Cancelled}
 	case (Pending, Release):
-		Reject
+		machines.Reject
 	case (Approved, Approve):
-		Ignore
+		machines.Ignore
 	case (Approved, Release):
-		Enter[Status]{Next: Live}
+		machines.Enter[Status]{Next: Live}
 	case (Approved, Cancel):
-		Enter[Status]{Next: Cancelled}
+		machines.Enter[Status]{Next: Cancelled}
 	case (Live | Cancelled, Approve | Release | Cancel):
-		Reject
+		machines.Reject
 	}
 }
 
@@ -133,16 +135,16 @@ func EventName(e Event) string {
 }
 
 // EventNamed is the event of an external name.
-func EventNamed(name string) Option[Event] {
+func EventNamed(name string) option.Option[Event] {
 	match name {
 	case "approve":
-		Some[Event]{Value: Approve}
+		option.Some[Event]{Value: Approve}
 	case "release":
-		Some[Event]{Value: Release}
+		option.Some[Event]{Value: Release}
 	case "cancel":
-		Some[Event]{Value: Cancel}
+		option.Some[Event]{Value: Cancel}
 	case _:
-		None
+		option.None
 	}
 }
 
@@ -162,9 +164,9 @@ law FinalTakesNoEvent(s Status, e Event) {
 		return true
 	}
 	match Step(s, e) {
-	case Reject:
+	case machines.Reject:
 		true
-	case Enter[Status], Stay[Status], Ignore:
+	case machines.Enter[Status], machines.Stay[Status], machines.Ignore:
 		false
 	}
 }

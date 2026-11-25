@@ -15,7 +15,7 @@ func exploreProperties() []temporal.Formula[ui.ExploreSnapshot[screen.Window, sc
 		temporal.Named[ui.ExploreSnapshot[screen.Window, screen.Signal]]("caret-and-counters-valid", func(s ui.ExploreSnapshot[screen.Window, screen.Signal]) bool {
 			let d = edit.DocOf(s.State.Ed)
 			let n = piece.Len(d.Buf)
-			d.Caret >= 0 && d.Caret <= n && s.State.Saves >= 0 && s.State.Clips >= 0 && len(s.Offers) > 0
+			d.Caret >= 0 && d.Caret <= n && s.State.Saves >= 0 && s.State.Clips >= 0 && s.Offers.Len() > 0
 		}),
 	))
 	props
@@ -25,7 +25,7 @@ func exploreOnce(steps int) ui.Finding needs gen.Draws {
 	let clock = time.NewManual(0)
 	let store = memory.NewShelf()
 	let clip = ui.NewMemoryClipboard()
-	with context { Scheduler: clock } {
+	with context { time.Scheduler: clock } {
 		let a = actor.StartMachine(machines.Start(screen.App{}, screen.Opening{Text: "hello\nworld\n", Name: "notes.txt"}), 8, func(_ screen.Note) {})
 		let mut h = ui.NewTestHost(a, screen.Viewer(store, clip), clock, 4) catch {
 		case ui.BadPatch as bp:

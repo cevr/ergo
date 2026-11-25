@@ -2,6 +2,7 @@
 // known by its name, as a test rig or a simulator knows it.
 
 import forge/forge
+import option
 
 // Ores is a forge.Assayer over a table from an ore's name to its value
 // in units. NewOres builds one.
@@ -28,9 +29,9 @@ func Standard() Ores { NewOres(Map[string, int]{"tin": 5, "copper": 10, "iron": 
 // ore.
 func Value(c Ores, ore string) int fails forge.Slag {
 	match c.values.Get(ore) {
-	case Some[int] as v:
+	case option.Some[int] as v:
 		v.Value
-	case None:
+	case option.None:
 		forge.Slag{Name: ore}
 	}
 }

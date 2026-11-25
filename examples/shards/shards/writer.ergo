@@ -1,4 +1,5 @@
 import machines
+import option
 
 // A write (machine Writer) is one share's write: a child of the write runner,
 // one per share. Its work asks the target; its timer gives up after
@@ -16,10 +17,10 @@ func WriteWait() duration { 30s }
 type Writer machine[Storing, WriteSignal] { initial: sending, step: writeStep, after: writeTimer, work: writeWork }
 
 // writeWork asks the target. Refused is a signal, so it needs no map.
-func writeWork(s Storing) Option[machines.Work[WriteSignal, Targets]] {
+func writeWork(s Storing) option.Option[machines.Work[WriteSignal, Targets]] {
 	match s {
 	case Sending as a:
-		Some{machines.Attempt(func() Ref fails Refused needs Targets { try Targets.Write(a.Share) }, func(r Ref) WriteSignal { Acked{R: r} }, func(failure) {
+		option.Some{machines.Attempt(func() Ref fails Refused needs Targets { try Targets.Write(a.Share) }, func(r Ref) WriteSignal { Acked{R: r} }, func(failure) {
 			let refused WriteSignal = failure
 			refused
 		})}

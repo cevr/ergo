@@ -3,6 +3,7 @@
 // status; then the paint list: each shape that the screen shows, in paint
 // order, in screen units.
 
+import option
 import strings
 
 // Screen is the size of the window, in screen units.
@@ -29,7 +30,7 @@ func Paint(v View, p Placed) string {
 	match p.Shape {
 	case Stroke as k:
 		let b = BoxOf(k)
-		head + "stroke n=\(len(k.Points)) " + pair(ScreenOf(v, k.Points[0])) + ".." + pair(ScreenOf(v, k.Points[len(k.Points)-1])) + " box=" + pair(ScreenOf(v, b.Lo)) + ".." + pair(ScreenOf(v, b.Hi))
+		head + "stroke n=\(k.Points.Len()) " + pair(ScreenOf(v, k.Points[0])) + ".." + pair(ScreenOf(v, k.Points[k.Points.Len()-1])) + " box=" + pair(ScreenOf(v, b.Lo)) + ".." + pair(ScreenOf(v, b.Hi))
 	case Rect as r:
 		head + "rect " + pair(ScreenOf(v, r.At)) + " \(r.W * v.Zoom / 100)x\(r.H * v.Zoom / 100)"
 	case Ellipse as e:
@@ -48,12 +49,12 @@ func Status(s State) string {
 	for id in c.Selected {
 		ids = ids.Append("\(id)")
 	}
-	let base = " tool=" + ToolName(c.Tool) + " layer=\(c.Layer) zoom=\(c.View.Zoom) pan=" + pair(c.View.Pan) + " shapes=\(len(c.Pic.Shapes)) selected=[" + strings.Join(ids, ",") + "]"
+	let base = " tool=" + ToolName(c.Tool) + " layer=\(c.Layer) zoom=\(c.View.Zoom) pan=" + pair(c.View.Pan) + " shapes=\(c.Pic.Shapes.Len()) selected=[" + strings.Join(ids, ",") + "]"
 	match s {
 	case Idle:
 		"idle" + base
 	case Drawing as d:
-		"drawing" + base + " points=\(len(d.Points))"
+		"drawing" + base + " points=\(d.Points.Len())"
 	case Dragging as g:
 		"dragging" + base + " moved=" + pair(g.Moved)
 	case Selecting as l:
@@ -79,11 +80,11 @@ func ToolName(k Kind) string {
 }
 
 // ToolNamed is the tool of a script's name.
-func ToolNamed(name string) Option[Kind] {
+func ToolNamed(name string) option.Option[Kind] {
 	for k in []Kind{PenTool, RectTool, EllipseTool, LineTool, SelectTool} {
 		if ToolName(k) == name {
-			return Some[Kind]{Value: k}
+			return option.Some[Kind]{Value: k}
 		}
 	}
-	None
+	option.None
 }

@@ -2,6 +2,7 @@
 // the report.
 
 import fs
+import option
 import slices
 import strings
 import tasks
@@ -37,17 +38,17 @@ type Chunk { From int, To int }
 func Split(text fs.Text, workers int) []Chunk {
 	let mut starts = []int{0}
 	for i in 1..workers {
-		let mut at = hi(len(text)*i/workers, starts[len(starts)-1])
-		for at < len(text) && at > 0 && text[at-1] != '\n' {
+		let mut at = hi(text.Len()*i/workers, starts[starts.Len()-1])
+		for at < text.Len() && at > 0 && text[at-1] != '\n' {
 			at += 1
 		}
-		if at > starts[len(starts)-1] && at < len(text) {
+		if at > starts[starts.Len()-1] && at < text.Len() {
 			starts = starts.Append(at)
 		}
 	}
-	starts = starts.Append(len(text))
+	starts = starts.Append(text.Len())
 	let mut chunks = []Chunk{}
-	for i in 0..len(starts)-1 {
+	for i in 0..starts.Len()-1 {
 		chunks = chunks.Append(Chunk{From: starts[i], To: starts[i+1]})
 	}
 	chunks
@@ -84,9 +85,9 @@ func Summarize(text fs.Text, workers int) []Station fails Malformed | TooManySta
 				let s = c.Slots[h]
 				let name = fs.Clone(text[s.Start : s.Start+s.Len])
 				let had = match total.Get(name) {
-				case Some[Stats] as v:
+				case option.Some[Stats] as v:
 					v.Value
-				case None:
+				case option.None:
 					Empty()
 				}
 				total[name] = Merge(had, StatsOf(s))
@@ -94,7 +95,7 @@ func Summarize(text fs.Text, workers int) []Station fails Malformed | TooManySta
 		case Broken, Crowded:
 		}
 	}
-	if len(total) > MaxStations {
+	if total.Len() > MaxStations {
 		return TooManyStations
 	}
 	let mut out = []Station{}

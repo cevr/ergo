@@ -1,6 +1,7 @@
 import github.com/cevr/ergo/modules/board/board
 import json
 import maps
+import option
 import slices
 import sql
 import strconv
@@ -89,7 +90,7 @@ func seedInitialStateTx(init board.State) fails board.StoreFailed needs sql.Tx {
 	)
 	for name in slices.Sorted(maps.Keys(init.Boards)) {
 		match init.Boards.Get(name) {
-		case Some[board.BoardRecord] as br:
+		case option.Some[board.BoardRecord] as br:
 			let b = br.Value
 			try execTx(
 				"INSERT INTO boards(name, id, created_at, created_by, archived, head) VALUES (?, ?, ?, ?, ?, ?)",
@@ -102,31 +103,31 @@ func seedInitialStateTx(init board.State) fails board.StoreFailed needs sql.Tx {
 					sql.Int{N: int64(b.Head)},
 				},
 			)
-		case None:
+		case option.None:
 		}
 	}
 	let prinCodec = json.Codec[board.Principal]{MaxBytes: 0, MaxDepth: 0}
 	for id in slices.Sorted(maps.Keys(init.Principals)) {
 		match init.Principals.Get(id) {
-		case Some[board.Principal] as pr:
+		case option.Some[board.Principal] as pr:
 			try execTx(
 				"INSERT INTO principals(id, data_json) VALUES (?, ?)",
 				[]sql.Value{sql.Text{S: id}, sql.Text{S: json.Encode(prinCodec, pr.Value)}},
 			)
-		case None:
+		case option.None:
 		}
 	}
 	let grantCodec = json.Codec[board.Grant]{MaxBytes: 0, MaxDepth: 0}
 	for bName in slices.Sorted(maps.Keys(init.Grants)) {
 		match init.Grants.Get(bName) {
-		case Some[[]board.Grant] as gs:
+		case option.Some[[]board.Grant] as gs:
 			for i, g in gs.Value {
 				try execTx(
 					"INSERT INTO grants(board, id, ord, data_json) VALUES (?, ?, ?, ?)",
 					[]sql.Value{sql.Text{S: bName}, sql.Text{S: g.ID}, sql.Int{N: int64(i + 1)}, sql.Text{S: json.Encode(grantCodec, g)}},
 				)
 			}
-		case None:
+		case option.None:
 		}
 	}
 }
@@ -144,7 +145,7 @@ func checkSchemaVersion(raw string) fails board.StoreFailed {
 func ensureSchemaTx(admins []board.Principal, now board.Timestamp) fails board.StoreFailed needs sql.Tx {
 	try execTx("CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)", []sql.Value{})
 	let rows = try queryTx("SELECT value FROM schema_meta WHERE key = 'schema_version'", []sql.Value{})
-	if len(rows) > 0 {
+	if rows.Len() > 0 {
 		let raw = try rowText(rows[0], 0)
 		try checkSchemaVersion(raw)
 		return

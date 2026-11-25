@@ -4,6 +4,7 @@
 // call. Write builds the json.Value back, so Read(Write(m)) == m.
 
 import json
+import option
 
 let valueCodec = json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}
 
@@ -102,9 +103,9 @@ func shapeOf(id string, v json.Value) Shape fails NotSmithy {
 
 func kindOf(t string, o json.Object, path string) Kind fails NotSmithy {
 	match scalarOf(t) {
-	case Some[Scalar] as s:
+	case option.Some[Scalar] as s:
 		return Simple{Of: s.Value}
-	case None:
+	case option.None:
 	}
 	if t == "enum" {
 		return Enum{Members: try membersIn(o, path)}
@@ -130,33 +131,33 @@ func kindOf(t string, o json.Object, path string) Kind fails NotSmithy {
 	if t == "service" {
 		let mut version = ""
 		match get(o, "version") {
-		case Some[json.Value] as v:
+		case option.Some[json.Value] as v:
 			version = try str(v.Value, path+"/version")
-		case None:
+		case option.None:
 		}
 		let mut rename json.Value = json.Object{Members: []json.Member{}}
 		match get(o, "rename") {
-		case Some[json.Value] as r:
+		case option.Some[json.Value] as r:
 			rename = r.Value
-		case None:
+		case option.None:
 		}
 		return Service{Version: version, Operations: try targetsAt(o, "operations", path), Resources: try targetsAt(o, "resources", path), Errors: try targetsAt(o, "errors", path), Rename: rename}
 	}
 	if t == "resource" {
 		let mut ids = []Ref{}
 		match get(o, "identifiers") {
-		case Some[json.Value] as v:
+		case option.Some[json.Value] as v:
 			for m in (try object(v.Value, path+"/identifiers")).Members {
 				ids = ids.Append(Ref{Role: m.Key, Target: try targetOf(m.Value, path+"/identifiers/"+m.Key)})
 			}
-		case None:
+		case option.None:
 		}
 		let mut life = []Ref{}
 		for role in []string{"create", "put", "read", "update", "delete", "list"} {
 			match try targetAt(o, role, path) {
-			case Some[string] as s:
+			case option.Some[string] as s:
 				life = life.Append(Ref{Role: role, Target: s.Value})
-			case None:
+			case option.None:
 			}
 		}
 		return Resource{Identifiers: ids, Lifecycle: life, Operations: try targetsAt(o, "operations", path), CollectionOperations: try targetsAt(o, "collectionOperations", path), Resources: try targetsAt(o, "resources", path)}
@@ -165,7 +166,7 @@ func kindOf(t string, o json.Object, path string) Kind fails NotSmithy {
 	Unsupported{Type: t, Text: whole}
 }
 
-func scalarOf(t string) Option[Scalar] {
+func scalarOf(t string) option.Option[Scalar] {
 	let mut s Scalar = BlobType
 	if t == "blob" {
 		s = BlobType
@@ -194,9 +195,9 @@ func scalarOf(t string) Option[Scalar] {
 	} else if t == "document" {
 		s = DocumentType
 	} else {
-		return None
+		return option.None
 	}
-	Some[Scalar]{Value: s}
+	option.Some[Scalar]{Value: s}
 }
 
 func scalarName(s Scalar) string {
@@ -233,11 +234,11 @@ func scalarName(s Scalar) string {
 func membersIn(o json.Object, path string) []Member fails NotSmithy {
 	let mut out = []Member{}
 	match get(o, "members") {
-	case Some[json.Value] as v:
+	case option.Some[json.Value] as v:
 		for m in (try object(v.Value, path+"/members")).Members {
 			out = out.Append(try memberOf(m.Key, m.Value, path+"/members/"+m.Key))
 		}
-	case None:
+	case option.None:
 	}
 	out
 }
@@ -278,19 +279,19 @@ func targetOf(v json.Value, path string) string fails NotSmithy {
 	try str(try field(o, "target", path), path+"/target")
 }
 
-func targetAt(o json.Object, key string, path string) Option[string] fails NotSmithy {
+func targetAt(o json.Object, key string, path string) option.Option[string] fails NotSmithy {
 	match get(o, key) {
-	case Some[json.Value] as v:
-		Some[string]{Value: try targetOf(v.Value, path+"/"+key)}
-	case None:
-		None
+	case option.Some[json.Value] as v:
+		option.Some[string]{Value: try targetOf(v.Value, path+"/"+key)}
+	case option.None:
+		option.None
 	}
 }
 
 func targetsAt(o json.Object, key string, path string) []string fails NotSmithy {
 	let mut out = []string{}
 	match get(o, key) {
-	case Some[json.Value] as v:
+	case option.Some[json.Value] as v:
 		match v.Value {
 		case json.Array as a:
 			for i, x in a.Items {
@@ -299,25 +300,25 @@ func targetsAt(o json.Object, key string, path string) []string fails NotSmithy 
 		case json.Null, json.Boolean, json.Num, json.Str, json.Object:
 			return NotSmithy{Path: path + "/" + key, Reason: "not a list of targets"}
 		}
-	case None:
+	case option.None:
 	}
 	out
 }
 
-func get(o json.Object, key string) Option[json.Value] {
+func get(o json.Object, key string) option.Option[json.Value] {
 	for m in o.Members {
 		if m.Key == key {
-			return Some[json.Value]{Value: m.Value}
+			return option.Some[json.Value]{Value: m.Value}
 		}
 	}
-	None
+	option.None
 }
 
 func field(o json.Object, key string, path string) json.Value fails NotSmithy {
 	match get(o, key) {
-	case Some[json.Value] as v:
+	case option.Some[json.Value] as v:
 		v.Value
-	case None:
+	case option.None:
 		NotSmithy{Path: path + "/" + key, Reason: "missing"}
 	}
 }
@@ -353,9 +354,9 @@ law EveryTraitReadOrRefused(picks []int, shapes int) {
 	for i in 0..n {
 		let mut ids = []string{}
 		for _ in 0..3 {
-			let p = if len(picks) == 0 { i } else { picks[at%len(picks)] }
+			let p = if picks.Len() == 0 { i } else { picks[at%picks.Len()] }
 			at = at + 1
-			let id = pool[((p%len(pool))+len(pool))%len(pool)]
+			let id = pool[((p%pool.Len())+pool.Len())%pool.Len()]
 			if !has(ids, id) {
 				ids = ids.Append(id)
 			}
@@ -447,14 +448,14 @@ func shapeValue(s Shape) json.Value {
 	case Operation as k:
 		ms = ms.Append(json.Member{Key: "type", Value: jstr("operation")})
 		match k.Input {
-		case Some[string] as t:
+		case option.Some[string] as t:
 			ms = ms.Append(json.Member{Key: "input", Value: target(t.Value)})
-		case None:
+		case option.None:
 		}
 		match k.Output {
-		case Some[string] as t:
+		case option.Some[string] as t:
 			ms = ms.Append(json.Member{Key: "output", Value: target(t.Value)})
-		case None:
+		case option.None:
 		}
 		ms = ms.Append(json.Member{Key: "errors", Value: targets(k.Errors)})
 	case Service as k:

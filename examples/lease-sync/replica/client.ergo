@@ -1,5 +1,7 @@
 import lease-sync/domain
 import lease-sync/lease
+import machines
+import option
 import slices
 import time
 
@@ -89,7 +91,7 @@ func Peek[S, C, F](st State[S, C, F]) Inner[S] {
 // Step is the replica's pure step for the source src. A program declares
 // its machine with a step that calls it (a generic function cannot start a
 // machine from a record of functions yet).
-func Step[S wire, C, E, F, R](src Source[S, C, E, R], st State[S, C, F], sig Signal[S, C, E, F]) Decision[State[S, C, F], None] {
+func Step[S wire, C, E, F, R](src Source[S, C, E, R], st State[S, C, F], sig Signal[S, C, E, F]) machines.Decision[State[S, C, F], option.None] {
 	match sig {
 	case Hello as h:
 		if st.id != ClientID("") {
@@ -97,21 +99,21 @@ func Step[S wire, C, E, F, R](src Source[S, C, E, R], st State[S, C, F], sig Sig
 		}
 		stay(State[S, C, F]{..st, id: h.ID, by: h.By, now: h.At})
 	case Submit[C] as s:
-		if st.id == ClientID("") || len(st.Pending) >= Outbox {
-			return Reject
+		if st.id == ClientID("") || st.Pending.Len() >= Outbox {
+			return machines.Reject
 		}
 		let env = domain.Envelope[C]{ID: IDOf(st.id, st.next), By: st.by, At: st.now, Command: s.Cmd}
 		stay(settle(src, State[S, C, F]{..st, Pending: st.Pending.Append(env), next: st.next + 1}))
 	case Pulled[S, E, F] as p:
 		match p.Frame {
 		case Delta[E, F] as d:
-			if d.From > st.cursor || st.cursor >= d.From+len(d.Records) {
-				return Ignore
+			if d.From > st.cursor || st.cursor >= d.From+d.Records.Len() {
+				return machines.Ignore
 			}
 			stay(settle(src, delta(src, State[S, C, F]{..st, now: p.At}, d)))
 		case Snapshot[S, F] as s:
 			if s.At <= st.cursor {
-				return Ignore
+				return machines.Ignore
 			}
 			let mut refused = st.Refused
 			for t in s.Refused {
@@ -135,8 +137,8 @@ func Step[S wire, C, E, F, R](src Source[S, C, E, R], st State[S, C, F], sig Sig
 				kept = kept.Append(r)
 			}
 		}
-		if len(kept) == len(st.Refused) {
-			return Ignore
+		if kept.Len() == st.Refused.Len() {
+			return machines.Ignore
 		}
 		stay(State[S, C, F]{..st, Refused: kept})
 	case DropCache:
@@ -144,7 +146,7 @@ func Step[S wire, C, E, F, R](src Source[S, C, E, R], st State[S, C, F], sig Sig
 	}
 }
 
-func stay[S, C, F](st own State[S, C, F]) Decision[State[S, C, F], None] { Stay[State[S, C, F]]{Next: st} }
+func stay[S, C, F](st own State[S, C, F]) machines.Decision[State[S, C, F], option.None] { machines.Stay[State[S, C, F]]{Next: st} }
 
 // delta is st after the records of d past its cursor: each Did event
 // moves the base, each Refused of a pending command of the client joins
@@ -258,10 +260,10 @@ func lastSeq(b book, upto int, origin ClientID) int {
 // origin's next is not taken; else decide on the state, and the record is
 // the events or the refusal.
 func decided(b book, origin ClientID, m domain.Envelope[lease.Cmd]) book {
-	if SeqOf(m.ID, origin) != lastSeq(b, len(b.Records), origin)+1 {
+	if SeqOf(m.ID, origin) != lastSeq(b, b.Records.Len(), origin)+1 {
 		return b
 	}
-	let at = len(b.Records) + 1
+	let at = b.Records.Len() + 1
 	let events = lease.Decide(b.State, m) catch {
 	case lease.Refusal as why:
 		let refused = []Fact[lease.Event, lease.Refusal]{Refused[lease.Refusal]{Why: why}}
@@ -326,7 +328,7 @@ func snapshotOf(b book, by ClientID, from int) Frame[lease.Pool, lease.Event, le
 			}
 		}
 	}
-	Snapshot[lease.Pool, lease.Refusal]{At: len(b.Records), State: b.State, LastSeq: lastSeq(b, len(b.Records), by), Refused: told}
+	Snapshot[lease.Pool, lease.Refusal]{At: b.Records.Len(), State: b.State, LastSeq: lastSeq(b, b.Records.Len(), by), Refused: told}
 }
 
 // deltaOf is the records of b after from.
@@ -354,7 +356,7 @@ type move {
 
 func after(st State[lease.Pool, lease.Cmd, lease.Refusal], sig Signal[lease.Pool, lease.Cmd, lease.Event, lease.Refusal]) State[lease.Pool, lease.Cmd, lease.Refusal] {
 	match Step(leases, st, sig) {
-	case Stay[State[lease.Pool, lease.Cmd, lease.Refusal]] as s:
+	case machines.Stay[State[lease.Pool, lease.Cmd, lease.Refusal]] as s:
 		s.Next
 	case _:
 		st
@@ -377,8 +379,8 @@ func drive(ops []int) []move {
 		let x = ((op/8)%97 + 97) % 97
 		let name = "n\(x % 3)"
 		if k == 2 {
-			if len(st.Pending) > 0 {
-				b = decided(b, a, st.Pending[x%len(st.Pending)])
+			if st.Pending.Len() > 0 {
+				b = decided(b, a, st.Pending[x%st.Pending.Len()])
 			}
 			continue
 		}
@@ -393,12 +395,12 @@ func drive(ops []int) []move {
 		} else if k == 1 {
 			Submit[lease.Cmd]{Cmd: lease.Give{Name: name}}
 		} else if k == 4 {
-			Pulled[lease.Pool, lease.Event, lease.Refusal]{Frame: deltaOf(b, x%(len(b.Records)+1)), At: at}
+			Pulled[lease.Pool, lease.Event, lease.Refusal]{Frame: deltaOf(b, x%(b.Records.Len()+1)), At: at}
 		} else if k == 5 {
 			Pulled[lease.Pool, lease.Event, lease.Refusal]{Frame: snapshotOf(b, a, Peek(st).Cursor), At: at}
 		} else if k == 6 {
 			DropCache
-		} else if x%2 == 1 && len(st.Refused) > 0 {
+		} else if x%2 == 1 && st.Refused.Len() > 0 {
 			Dismiss{ID: st.Refused[0].Envelope.ID}
 		} else if x%3 == 0 {
 			Link{Conn: Offline{Attempt: x}, At: at}
@@ -406,8 +408,8 @@ func drive(ops []int) []move {
 			Link{Conn: Live, At: at}
 		}
 		let next = after(st, sig)
-		if len(next.Pending) > 0 && Peek(next).Next > Peek(st).Next {
-			issued = issued.Append(next.Pending[len(next.Pending)-1])
+		if next.Pending.Len() > 0 && Peek(next).Next > Peek(st).Next {
+			issued = issued.Append(next.Pending[next.Pending.Len()-1])
 		}
 		match sig {
 		case Dismiss as d:

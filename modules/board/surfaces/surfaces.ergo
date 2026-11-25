@@ -6,6 +6,7 @@ import github.com/cevr/ergo/modules/board/board/boardmcp
 import github.com/cevr/ergo/modules/board/board/boardrpc
 import github.com/cevr/ergo/modules/board/memory
 import json
+import option
 import rpc
 import strings
 import testing
@@ -114,37 +115,37 @@ type surfaceStep {
 func baseSurfaceScript() []surfaceStep {
 	let fakeSecret = synthToken("ghp"+"_", "abcdefghijklmnopqrstuvwxyz0123456789")
 	[]surfaceStep{
-		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.WhoamiRequest{Input: board.WhoamiInput{Board: None}}},
-		surfaceStep{caller: surfaceUnauthCaller(), req: boardapi.WhoamiRequest{Input: board.WhoamiInput{Board: None}}},
+		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.WhoamiRequest{Input: board.WhoamiInput{Board: option.None}}},
+		surfaceStep{caller: surfaceUnauthCaller(), req: boardapi.WhoamiRequest{Input: board.WhoamiInput{Board: option.None}}},
 		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.BoardsRequest},
-		surfaceStep{caller: surfaceAdminCaller(), req: boardapi.ChannelCreateRequest{Input: board.ChannelCreateInput{Board: None, Path: "priv", Private: true}}},
-		surfaceStep{caller: surfaceAdminCaller(), req: boardapi.PostRequest{Input: board.PostInput{Board: None, Channel: "priv", Text: "classified secret note", Labels: []string{}, NoSync: false, IdempotencyKey: None}}},
-		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.ReadRequest{Input: board.ReadInput{Board: None, Channel: Some[string]{Value: "priv"}, ID: None, By: None, Mentions: None, Label: []string{}, Text: None, After: None, Limit: None}}},
-		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.PostRequest{Input: board.PostInput{Board: None, Channel: "dev", Text: "hello @bob ship alpha", Labels: []string{"env=prod"}, NoSync: false, IdempotencyKey: Some[string]{Value: "k-1"}}}},
-		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.PostRequest{Input: board.PostInput{Board: None, Channel: "dev", Text: "different payload", Labels: []string{}, NoSync: false, IdempotencyKey: Some[string]{Value: "k-1"}}}},
-		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.PostRequest{Input: board.PostInput{Board: None, Channel: "dev", Text: "leak \(fakeSecret)", Labels: []string{}, NoSync: false, IdempotencyKey: None}}},
-		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.ThreadReplyRequest{Input: board.ReplyInput{Board: None, ID: "msg_2", Text: "reply alpha", After: Some[string]{Value: "msg_2"}, Labels: []string{}, NoSync: false, IdempotencyKey: None}}},
-		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.EditRequest{Input: board.EditInput{Board: None, ID: "msg_2", Text: "edited alpha @bob", IfRevision: Some[int]{Value: 1}}}},
-		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.ReactRequest{Input: board.ReactInput{Board: None, ID: "msg_2", Emoji: "rocket", Remove: false}}},
-		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.LabelRequest{Input: board.LabelInput{Board: None, ID: "msg_2", Set: []string{"stage=ok"}, Unset: []string{}, If: []string{"env=prod"}, IfUnset: []string{}}}},
-		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.SearchRequest{Input: board.SearchInput{Board: None, Query: "alpha", Channel: None, Limit: Some[int]{Value: 10}}}},
-		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.AskRequest{Input: board.AskInput{Board: None, Channel: Some[string]{Value: "dev"}, Thread: None, Text: "ship now?", To: []board.ActorID{"google:bob"}, OnlyFromAsked: true, ExpiresInMs: None, NoSync: false, IdempotencyKey: None}}},
-		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.AskWithdrawRequest{Input: board.AskWithdrawInput{Board: None, ID: "msg_4"}}},
+		surfaceStep{caller: surfaceAdminCaller(), req: boardapi.ChannelCreateRequest{Input: board.ChannelCreateInput{Board: option.None, Path: "priv", Private: true}}},
+		surfaceStep{caller: surfaceAdminCaller(), req: boardapi.PostRequest{Input: board.PostInput{Board: option.None, Channel: "priv", Text: "classified secret note", Labels: []string{}, NoSync: false, IdempotencyKey: option.None}}},
+		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.ReadRequest{Input: board.ReadInput{Board: option.None, Channel: option.Some[string]{Value: "priv"}, ID: option.None, By: option.None, Mentions: option.None, Label: []string{}, Text: option.None, After: option.None, Limit: option.None}}},
+		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.PostRequest{Input: board.PostInput{Board: option.None, Channel: "dev", Text: "hello @bob ship alpha", Labels: []string{"env=prod"}, NoSync: false, IdempotencyKey: option.Some[string]{Value: "k-1"}}}},
+		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.PostRequest{Input: board.PostInput{Board: option.None, Channel: "dev", Text: "different payload", Labels: []string{}, NoSync: false, IdempotencyKey: option.Some[string]{Value: "k-1"}}}},
+		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.PostRequest{Input: board.PostInput{Board: option.None, Channel: "dev", Text: "leak \(fakeSecret)", Labels: []string{}, NoSync: false, IdempotencyKey: option.None}}},
+		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.ThreadReplyRequest{Input: board.ReplyInput{Board: option.None, ID: "msg_2", Text: "reply alpha", After: option.Some[string]{Value: "msg_2"}, Labels: []string{}, NoSync: false, IdempotencyKey: option.None}}},
+		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.EditRequest{Input: board.EditInput{Board: option.None, ID: "msg_2", Text: "edited alpha @bob", IfRevision: option.Some[int]{Value: 1}}}},
+		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.ReactRequest{Input: board.ReactInput{Board: option.None, ID: "msg_2", Emoji: "rocket", Remove: false}}},
+		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.LabelRequest{Input: board.LabelInput{Board: option.None, ID: "msg_2", Set: []string{"stage=ok"}, Unset: []string{}, If: []string{"env=prod"}, IfUnset: []string{}}}},
+		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.SearchRequest{Input: board.SearchInput{Board: option.None, Query: "alpha", Channel: option.None, Limit: option.Some[int]{Value: 10}}}},
+		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.AskRequest{Input: board.AskInput{Board: option.None, Channel: option.Some[string]{Value: "dev"}, Thread: option.None, Text: "ship now?", To: []board.ActorID{"google:bob"}, OnlyFromAsked: true, ExpiresInMs: option.None, NoSync: false, IdempotencyKey: option.None}}},
+		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.AskWithdrawRequest{Input: board.AskWithdrawInput{Board: option.None, ID: "msg_4"}}},
 		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.TasksPlanRequest{Input: board.TasksPlanInput{
-			Board:   None,
+			Board:   option.None,
 			Channel: "dev",
 			Tasks:   []board.PlanTaskSpec{
 				board.PlanTaskSpec{Key: "a", Text: "build alpha", Labels: Map[string, string]{}, Needs: []string{}, For: "", NoSync: false},
 				board.PlanTaskSpec{Key: "b", Text: "deploy alpha", Labels: Map[string, string]{}, Needs: []string{"a"}, For: "", NoSync: false},
 			},
-			IdempotencyKey: Some[string]{Value: "p-1"},
+			IdempotencyKey: option.Some[string]{Value: "p-1"},
 		}}},
-		surfaceStep{caller: surfaceBobAgentCaller(), req: boardapi.TasksClaimRequest{Input: board.TasksClaimInput{Board: None, ID: Some[string]{Value: "msg_5"}, Ready: None, Label: []string{}, LeaseMs: Some[int]{Value: 60000}}}},
-		surfaceStep{caller: surfaceAliceAgentCaller(), req: boardapi.TasksClaimRequest{Input: board.TasksClaimInput{Board: None, ID: Some[string]{Value: "msg_5"}, Ready: None, Label: []string{}, LeaseMs: Some[int]{Value: 60000}}}},
-		surfaceStep{caller: surfaceAliceAgentCaller(), req: boardapi.TasksCompleteRequest{Input: board.TasksCompleteInput{Board: None, ID: "msg_5", Token: 99, Result: Some[string]{Value: "stale"}}}},
-		surfaceStep{caller: surfaceAliceAgentCaller(), req: boardapi.TasksCompleteRequest{Input: board.TasksCompleteInput{Board: None, ID: "msg_5", Token: 1, Result: Some[string]{Value: "built"}}}},
+		surfaceStep{caller: surfaceBobAgentCaller(), req: boardapi.TasksClaimRequest{Input: board.TasksClaimInput{Board: option.None, ID: option.Some[string]{Value: "msg_5"}, Ready: option.None, Label: []string{}, LeaseMs: option.Some[int]{Value: 60000}}}},
+		surfaceStep{caller: surfaceAliceAgentCaller(), req: boardapi.TasksClaimRequest{Input: board.TasksClaimInput{Board: option.None, ID: option.Some[string]{Value: "msg_5"}, Ready: option.None, Label: []string{}, LeaseMs: option.Some[int]{Value: 60000}}}},
+		surfaceStep{caller: surfaceAliceAgentCaller(), req: boardapi.TasksCompleteRequest{Input: board.TasksCompleteInput{Board: option.None, ID: "msg_5", Token: 99, Result: option.Some[string]{Value: "stale"}}}},
+		surfaceStep{caller: surfaceAliceAgentCaller(), req: boardapi.TasksCompleteRequest{Input: board.TasksCompleteInput{Board: option.None, ID: "msg_5", Token: 1, Result: option.Some[string]{Value: "built"}}}},
 		surfaceStep{caller: surfaceAliceAgentCaller(), req: boardapi.BoardCreateRequest{Input: board.BoardCreateInput{Name: "blocked-by-profile"}}},
-		surfaceStep{caller: surfaceAdminCaller(), req: boardapi.GrantExplainRequest{Input: board.GrantExplainInput{Board: None, Channel: "dev", Principal: None}}},
+		surfaceStep{caller: surfaceAdminCaller(), req: boardapi.GrantExplainRequest{Input: board.GrantExplainInput{Board: option.None, Channel: "dev", Principal: option.None}}},
 	}
 }
 
@@ -152,17 +153,17 @@ func generatedSurfaceStep(k int, idx int) surfaceStep {
 	let n = if k < 0 { -k } else { k }
 	match n % 6 {
 	case 0:
-		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.PostRequest{Input: board.PostInput{Board: None, Channel: "dev", Text: "gen-\(idx)", Labels: []string{}, NoSync: false, IdempotencyKey: None}}}
+		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.PostRequest{Input: board.PostInput{Board: option.None, Channel: "dev", Text: "gen-\(idx)", Labels: []string{}, NoSync: false, IdempotencyKey: option.None}}}
 	case 1:
-		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.ReadRequest{Input: board.ReadInput{Board: None, Channel: Some[string]{Value: "dev"}, ID: None, By: None, Mentions: None, Label: []string{}, Text: None, After: None, Limit: Some[int]{Value: 10}}}}
+		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.ReadRequest{Input: board.ReadInput{Board: option.None, Channel: option.Some[string]{Value: "dev"}, ID: option.None, By: option.None, Mentions: option.None, Label: []string{}, Text: option.None, After: option.None, Limit: option.Some[int]{Value: 10}}}}
 	case 2:
-		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.TasksListRequest{Input: board.TasksListInput{Board: None, Channel: None, State: Some[string]{Value: "all"}, Label: []string{}, By: None, For: None, Limit: Some[int]{Value: 20}}}}
+		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.TasksListRequest{Input: board.TasksListInput{Board: option.None, Channel: option.None, State: option.Some[string]{Value: "all"}, Label: []string{}, By: option.None, For: option.None, Limit: option.Some[int]{Value: 20}}}}
 	case 3:
-		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.ChannelsRequest{Input: board.ChannelsInput{Board: None, Prefix: None}}}
+		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.ChannelsRequest{Input: board.ChannelsInput{Board: option.None, Prefix: option.None}}}
 	case 4:
-		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.ActorsRequest{Input: board.ActorsInput{Query: Some[string]{Value: "al"}}}}
+		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.ActorsRequest{Input: board.ActorsInput{Query: option.Some[string]{Value: "al"}}}}
 	case _:
-		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.ReadRequest{Input: board.ReadInput{Board: None, Channel: None, ID: Some[string]{Value: "msg_9999"}, By: None, Mentions: None, Label: []string{}, Text: None, After: None, Limit: None}}}
+		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.ReadRequest{Input: board.ReadInput{Board: option.None, Channel: option.None, ID: option.Some[string]{Value: "msg_9999"}, By: option.None, Mentions: option.None, Label: []string{}, Text: option.None, After: option.None, Limit: option.None}}}
 	}
 }
 
@@ -202,7 +203,7 @@ func playScriptOn(kind surfaceKind, script []surfaceStep) ([]string, board.State
 // failure reasons and leaves identical store state.
 law SurfacesAgree(acts []int) {
 	let mut script = baseSurfaceScript()
-	let limit = if len(acts) < 4 { len(acts) } else { 4 }
+	let limit = if acts.Len() < 4 { acts.Len() } else { 4 }
 	for i in 0..limit {
 		script = script.Append(generatedSurfaceStep(acts[i], i))
 	}
@@ -241,23 +242,23 @@ func drawBoardAct() boardExploreAct needs gen.Draws {
 func stepOfBoardAct(a boardExploreAct) surfaceStep {
 	match a.Kind {
 	case 0:
-		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.PostRequest{Input: board.PostInput{Board: None, Channel: "dev", Text: a.Body, Labels: []string{"env=prod"}, NoSync: false, IdempotencyKey: Some[string]{Value: a.Key}}}}
+		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.PostRequest{Input: board.PostInput{Board: option.None, Channel: "dev", Text: a.Body, Labels: []string{"env=prod"}, NoSync: false, IdempotencyKey: option.Some[string]{Value: a.Key}}}}
 	case 1:
-		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.PostRequest{Input: board.PostInput{Board: None, Channel: "dev", Text: "plain note", Labels: []string{}, NoSync: false, IdempotencyKey: None}}}
+		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.PostRequest{Input: board.PostInput{Board: option.None, Channel: "dev", Text: "plain note", Labels: []string{}, NoSync: false, IdempotencyKey: option.None}}}
 	case 2:
-		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.ReadRequest{Input: board.ReadInput{Board: None, Channel: Some[string]{Value: "dev"}, ID: None, By: None, Mentions: None, Label: []string{}, Text: None, After: None, Limit: Some[int]{Value: 10}}}}
+		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.ReadRequest{Input: board.ReadInput{Board: option.None, Channel: option.Some[string]{Value: "dev"}, ID: option.None, By: option.None, Mentions: option.None, Label: []string{}, Text: option.None, After: option.None, Limit: option.Some[int]{Value: 10}}}}
 	case 3:
-		surfaceStep{caller: surfaceAdminCaller(), req: boardapi.ChannelCreateRequest{Input: board.ChannelCreateInput{Board: None, Path: "priv", Private: true}}}
+		surfaceStep{caller: surfaceAdminCaller(), req: boardapi.ChannelCreateRequest{Input: board.ChannelCreateInput{Board: option.None, Path: "priv", Private: true}}}
 	case 4:
-		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.ReadRequest{Input: board.ReadInput{Board: None, Channel: Some[string]{Value: "priv"}, ID: None, By: None, Mentions: None, Label: []string{}, Text: None, After: None, Limit: None}}}
+		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.ReadRequest{Input: board.ReadInput{Board: option.None, Channel: option.Some[string]{Value: "priv"}, ID: option.None, By: option.None, Mentions: option.None, Label: []string{}, Text: option.None, After: option.None, Limit: option.None}}}
 	case 5:
-		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.TasksCreateRequest{Input: board.TasksCreateInput{Board: None, Channel: Some[string]{Value: "dev"}, ID: None, Text: Some[string]{Value: "work item"}, Labels: []string{}, Needs: []board.MessageID{}, For: None, Claim: false, LeaseMs: None, NoSync: false, IdempotencyKey: None}}}
+		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.TasksCreateRequest{Input: board.TasksCreateInput{Board: option.None, Channel: option.Some[string]{Value: "dev"}, ID: option.None, Text: option.Some[string]{Value: "work item"}, Labels: []string{}, Needs: []board.MessageID{}, For: option.None, Claim: false, LeaseMs: option.None, NoSync: false, IdempotencyKey: option.None}}}
 	case 6:
-		surfaceStep{caller: surfaceAliceAgentCaller(), req: boardapi.TasksClaimRequest{Input: board.TasksClaimInput{Board: None, ID: None, Ready: Some[string]{Value: "dev"}, Label: []string{}, LeaseMs: Some[int]{Value: 60000}}}}
+		surfaceStep{caller: surfaceAliceAgentCaller(), req: boardapi.TasksClaimRequest{Input: board.TasksClaimInput{Board: option.None, ID: option.None, Ready: option.Some[string]{Value: "dev"}, Label: []string{}, LeaseMs: option.Some[int]{Value: 60000}}}}
 	case 7:
-		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.SearchRequest{Input: board.SearchInput{Board: None, Query: "hello", Channel: None, Limit: Some[int]{Value: 10}}}}
+		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.SearchRequest{Input: board.SearchInput{Board: option.None, Query: "hello", Channel: option.None, Limit: option.Some[int]{Value: 10}}}}
 	case 8:
-		surfaceStep{caller: surfaceUnauthCaller(), req: boardapi.WhoamiRequest{Input: board.WhoamiInput{Board: None}}}
+		surfaceStep{caller: surfaceUnauthCaller(), req: boardapi.WhoamiRequest{Input: board.WhoamiInput{Board: option.None}}}
 	case _:
 		surfaceStep{caller: surfaceAliceCaller(), req: boardapi.BoardsRequest}
 	}
@@ -268,7 +269,7 @@ func snapDigest(store memory.Store) string {
 	case board.StoreFailed:
 		return "store-failed"
 	}
-	"\(snap.NextBoardNum):\(snap.NextMessageNum):\(len(snap.Boards)):\(len(snap.Channels)):\(len(snap.Messages)):\(len(snap.Tasks)):\(len(snap.Idempotency))"
+	"\(snap.NextBoardNum):\(snap.NextMessageNum):\(snap.Boards.Len()):\(snap.Channels.Len()):\(snap.Messages.Len()):\(snap.Tasks.Len()):\(snap.Idempotency.Len())"
 }
 
 // SurfacesExploreMatchesFold: over drawn stateful sequences of board.Api calls
@@ -367,21 +368,21 @@ law SurfacesExploreMatchesFold(seed int) {
 }
 
 test TestMcpToolDescriptionsEndWithDataSentence {
-	assert len(boardmcp.Names) >= 35
-	assert len(CheckToolDescriptions(boardmcp.Names, boardmcp.Description)) == 0
+	assert boardmcp.Names.Len() >= 35
+	assert CheckToolDescriptions(boardmcp.Names, boardmcp.Description).Len() == 0
 	let bad = CheckToolDescriptions([]string{"broken"}, func(_ string) string { "no notice here" })
-	assert len(bad) == 1
+	assert bad.Len() == 1
 }
 
 test TestMcpToolsNeverAcceptAsOrProfile {
 	for name in boardmcp.Names {
-		assert len(CheckSchemaForbidsAsAndProfile(name, boardmcp.Input(name))) == 0
+		assert CheckSchemaForbidsAsAndProfile(name, boardmcp.Input(name)).Len() == 0
 	}
 	let badSchema = json.Decode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, "{\"type\":\"object\",\"properties\":{\"profile\":{\"type\":\"string\"},\"as\":{\"type\":\"string\"}}}") catch {
 	case _:
 		json.Null
 	}
-	assert len(CheckSchemaForbidsAsAndProfile("bad-tool", badSchema)) == 2
+	assert CheckSchemaForbidsAsAndProfile("bad-tool", badSchema).Len() == 2
 }
 
 test TestCliPolicyCodes {
@@ -419,43 +420,43 @@ test TestClaimResultTrustedBoundary {
 	let clock = time.NewManual(1000)
 	let h = board.NewHandler(store, surfaceAliceCaller(), clock)
 	let created = board.TasksCreate(h, board.TasksCreateInput{
-		Board:          None,
-		Channel:        Some[string]{Value: "dev"},
-		ID:             None,
-		Text:           Some[string]{Value: "run checks"},
+		Board:          option.None,
+		Channel:        option.Some[string]{Value: "dev"},
+		ID:             option.None,
+		Text:           option.Some[string]{Value: "run checks"},
 		Labels:         []string{},
 		Needs:          []board.MessageID{},
-		For:            None,
+		For:            option.None,
 		Claim:          false,
-		LeaseMs:        None,
+		LeaseMs:        option.None,
 		NoSync:         false,
-		IdempotencyKey: None,
+		IdempotencyKey: option.None,
 	}) catch {
 	case _:
 		assert false
 		board.TaskCreateReply{ID: "", State: "", Token: 0, LeaseUntil: 0}
 	}
 	let listed = board.TasksList(h, board.TasksListInput{
-		Board:   None,
-		Channel: None,
-		State:   Some[string]{Value: "all"},
+		Board:   option.None,
+		Channel: option.None,
+		State:   option.Some[string]{Value: "all"},
 		Label:   []string{},
-		By:      None,
-		For:     None,
-		Limit:   None,
+		By:      option.None,
+		For:     option.None,
+		Limit:   option.None,
 	}) catch {
 	case _:
 		assert false
 		board.TasksListReply{Board: "", Cursor: 0, Tasks: []board.TaskView{}}
 	}
-	assert len(listed.Tasks) == 1 && !listed.Tasks[0].Trusted
+	assert listed.Tasks.Len() == 1 && !listed.Tasks[0].Trusted
 	let agent = board.NewHandler(store, surfaceAliceAgentCaller(), clock)
 	let claimed = board.TasksClaim(agent, board.TasksClaimInput{
-		Board:   None,
-		ID:      Some[string]{Value: created.ID},
-		Ready:   None,
+		Board:   option.None,
+		ID:      option.Some[string]{Value: created.ID},
+		Ready:   option.None,
 		Label:   []string{},
-		LeaseMs: Some[int]{Value: 60000},
+		LeaseMs: option.Some[int]{Value: 60000},
 	}) catch {
 	case _:
 		assert false
@@ -474,24 +475,24 @@ test TestReadRefusesPrivateChannel {
 	let store = memory.NewWithAdmins(surfaceAdmins(), 100)
 	let clock = time.NewManual(1000)
 	let admin = board.NewHandler(store, surfaceAdminCaller(), clock)
-	let _ = board.ChannelCreate(admin, board.ChannelCreateInput{Board: None, Path: "priv", Private: true}) catch {
+	let _ = board.ChannelCreate(admin, board.ChannelCreateInput{Board: option.None, Path: "priv", Private: true}) catch {
 	case _:
 		assert false
 		board.ChannelCreatedReply{Board: "", Path: "", Private: false}
 	}
-	let _ = board.Post(admin, board.PostInput{Board: None, Channel: "priv", Text: "classified", Labels: []string{}, NoSync: false, IdempotencyKey: None}) catch {
+	let _ = board.Post(admin, board.PostInput{Board: option.None, Channel: "priv", Text: "classified", Labels: []string{}, NoSync: false, IdempotencyKey: option.None}) catch {
 	case _:
 		assert false
 		board.PostReply{ID: "", Board: "", Cursor: 0, Mentioned: []board.ActorID{}, Unresolved: []string{}}
 	}
 	let alice = board.NewHandler(store, surfaceAliceCaller(), clock)
 	let mut denied = false
-	let _ = board.Read(alice, board.ReadInput{Board: None, Channel: Some[string]{Value: "priv"}, ID: None, By: None, Mentions: None, Label: []string{}, Text: None, After: None, Limit: None}) catch {
+	let _ = board.Read(alice, board.ReadInput{Board: option.None, Channel: option.Some[string]{Value: "priv"}, ID: option.None, By: option.None, Mentions: option.None, Label: []string{}, Text: option.None, After: option.None, Limit: option.None}) catch {
 	case board.NotFound:
 		denied = true
-		board.ReadReply{Kind: "", Board: "", Cursor: 0, Threads: []board.ThreadSummary{}, Message: None, Replies: []board.MessageView{}, Task: None, Ask: None}
+		board.ReadReply{Kind: "", Board: "", Cursor: 0, Threads: []board.ThreadSummary{}, Message: option.None, Replies: []board.MessageView{}, Task: option.None, Ask: option.None}
 	case _:
-		board.ReadReply{Kind: "", Board: "", Cursor: 0, Threads: []board.ThreadSummary{}, Message: None, Replies: []board.MessageView{}, Task: None, Ask: None}
+		board.ReadReply{Kind: "", Board: "", Cursor: 0, Threads: []board.ThreadSummary{}, Message: option.None, Replies: []board.MessageView{}, Task: option.None, Ask: option.None}
 	}
 	assert denied
 }

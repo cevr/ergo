@@ -7,6 +7,8 @@
 // story says otherwise; the window then holds rows 0 to 18, so a cold
 // query loads {0,4} and then {4,56}.
 
+import machines
+import option
 import strings
 import time
 import domain-search/domains
@@ -16,15 +18,15 @@ import domain-search/search/route
 func page() Sim { open("/", domains.Catalog, 15) }
 
 func fetched(m Sim, i int, label string, offset int, limit int) bool {
-	i < len(m.Fetches) && m.Fetches[i].Label == label && m.Fetches[i].Offset == offset && m.Fetches[i].Limit == limit
+	i < m.Fetches.Len() && m.Fetches[i].Label == label && m.Fetches[i].Offset == offset && m.Fetches[i].Limit == limit
 }
 
 // effectsOf is what the machine tells for sig from m's state.
 func effectsOf(m Sim, sig Signal) []Effect {
 	match with context { time.Clock: m.Clock } { Step(m.S, sig) } {
-	case Emit[Search, []Effect] as e:
+	case machines.Emit[Search, []Effect] as e:
 		e.Output
-	case Enter[Search], Stay[Search], Tell[Search, []Effect], Ignore, Reject, Done[[]Effect]:
+	case machines.Enter[Search], machines.Stay[Search], machines.Tell[Search, []Effect], machines.Ignore, machines.Reject, machines.Done[[]Effect]:
 		[]Effect{}
 	}
 }
@@ -43,11 +45,11 @@ func shows(m Sim, label string) bool {
 test TypingSyncsTheUrlBeforeTheRequest {
 	let typed = Feed(page(), Typed{Text: "acme"})
 	assert typed.URL == "/?q=acme"
-	assert len(typed.Fetches) == 0
+	assert typed.Fetches.Len() == 0
 	let waited = Wait(typed, 149)
-	assert len(waited.Fetches) == 0
+	assert waited.Fetches.Len() == 0
 	let fired = Wait(waited, 1)
-	assert fetched(fired, 0, "acme", 0, 4) && len(fired.Fetches) == 1
+	assert fetched(fired, 0, "acme", 0, 4) && fired.Fetches.Len() == 1
 }
 
 // application: searches the normalized label for $query.
@@ -63,7 +65,7 @@ test SearchesTheNormalizedLabel {
 test RejectsAnInvalidQueryWithoutLookups {
 	for q in []string{"b@d", "-acme", "acme-", "foo_bar", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"} {
 		let m = Wait(Feed(page(), Typed{Text: q}), 10000)
-		assert len(m.Fetches) == 0
+		assert m.Fetches.Len() == 0
 		match m.S.Phase {
 		case Invalid as i:
 			assert i.Query == q
@@ -77,7 +79,7 @@ test RejectsAnInvalidQueryWithoutLookups {
 test AnUnchangedInputKeepsItsRequest {
 	let m = Wait(Feed(page(), Typed{Text: "acme"}), 150)
 	let again = Feed(m, Typed{Text: "acme"})
-	assert len(again.Flying) == 1 && len(again.Orphans) == 0 && len(effectsOf(m, Typed{Text: "acme"})) == 0
+	assert again.Flying.Len() == 1 && again.Orphans.Len() == 0 && effectsOf(m, Typed{Text: "acme"}).Len() == 0
 	assert fetched(Answer(again, 0, true), 1, "acme", 4, 56)
 }
 
@@ -88,11 +90,11 @@ test ACanceledQueryCannotRestoreOldResults {
 	let loading = Wait(Feed(page(), Typed{Text: "acme"}), 150)
 	for sig in []Signal{Typed{Text: "beta"}, Cleared, Navigated{URL: "/"}} {
 		let cut = Feed(loading, sig)
-		assert len(cut.Orphans) == 1 && len(cut.Flying) == 0
+		assert cut.Orphans.Len() == 1 && cut.Flying.Len() == 0
 		let late = Answer(cut, 0, true)
-		assert len(late.S.Pages) == 0 && late.S.Checked == 0
-		assert len(late.Fetches) == 1
-		assert len(late.Broken) == 0
+		assert late.S.Pages.Len() == 0 && late.S.Checked == 0
+		assert late.Fetches.Len() == 1
+		assert late.Broken.Len() == 0
 		// The cut load is gone: the label typed again is fetched again
 		// (the model's KeepPending would wait on it for ever).
 		let back = Wait(Feed(cut, Typed{Text: "acme"}), 150)
@@ -109,7 +111,7 @@ test AnOldAnswerOfTheSameLabelIsDropped {
 	assert versionOf(ListingsAt(newer.S, 0)) == 2
 	let old = newer.Orphans[0]
 	let late = Feed(Sim{..newer, Orphans: []Key{}}, Loaded{Key: old, Listings: Serve(newer.S.Catalog, old, 0, 0)})
-	assert versionOf(ListingsAt(late.S, 0)) == 2 && len(late.Broken) == 0
+	assert versionOf(ListingsAt(late.S, 0)) == 2 && late.Broken.Len() == 0
 }
 
 // application: a planning Clock from the previous route cannot start
@@ -117,15 +119,15 @@ test AnOldAnswerOfTheSameLabelIsDropped {
 // and a Quiet outside Debouncing is ignored.
 test AnOldDebounceCannotStartLookups {
 	let m = Wait(Feed(Feed(page(), Typed{Text: "acme"}), Cleared), 10000)
-	assert len(m.Fetches) == 0
+	assert m.Fetches.Len() == 0
 	let quiet = Feed(m, Quiet)
-	assert len(quiet.Fetches) == 0 && quiet.S == m.S
+	assert quiet.Fetches.Len() == 0 && quiet.S == m.S
 }
 
 // application: leaving search cancels its pending Query key.
 test LeavingSearchCancelsItsLoad {
 	let m = Feed(Wait(Feed(page(), Typed{Text: "acme"}), 150), Navigated{URL: "/"})
-	assert len(m.Flying) == 0 && len(m.Orphans) == 1 && m.Orphans[0].Label == "acme"
+	assert m.Flying.Len() == 0 && m.Orphans.Len() == 1 && m.Orphans[0].Label == "acme"
 	assert m.S.Phase == Landing
 }
 
@@ -144,7 +146,7 @@ test BackspacingToEmptyScrollsToTheTop {
 	let m = Settle(Type(page(), "ab", 200))
 	let a = Feed(m, Typed{Text: "a"})
 	let effects = effectsOf(a, Typed{Text: ""})
-	assert len(effects) == 2
+	assert effects.Len() == 2
 	match effects[0] {
 	case Replace as r:
 		assert r.URL == "/"
@@ -164,7 +166,7 @@ test UnrelatedUrlChangesDoNotRestart {
 	let same = Feed(m, Navigated{URL: "/?q=acme#results"})
 	assert same.S == m.S
 	let tld = Feed(m, Navigated{URL: "/?q=acme&tld=com"})
-	assert len(tld.Fetches) == 2 && tld.S.Checked == 60 && shows(tld, "acme")
+	assert tld.Fetches.Len() == 2 && tld.S.Checked == 60 && shows(tld, "acme")
 }
 
 // application: cart additions are unique and removals are idempotent; the
@@ -172,29 +174,29 @@ test UnrelatedUrlChangesDoNotRestart {
 test CartAdditionsAreUniqueAndRemovalsIdempotent {
 	let d = domains.Available{Name: "acme.com", TLD: "com", Price: 9.99, RenewalPrice: 12.99, Years: 1, IsPremium: false}
 	let twice = Feed(Feed(page(), Added{Domain: d}), Added{Domain: d})
-	assert len(twice.S.Cart) == 1
+	assert twice.S.Cart.Len() == 1
 	let other = Settle(Feed(twice, Typed{Text: "beta"}))
-	assert len(other.S.Cart) == 1
+	assert other.S.Cart.Len() == 1
 	let removed = Feed(Feed(other, Removed{Name: "acme.com"}), Removed{Name: "acme.com"})
-	assert len(removed.S.Cart) == 0
+	assert removed.S.Cart.Len() == 0
 }
 
 // application: clearing a scrolled search discards its virtual viewport
 // before another search.
 test ClearingDiscardsTheViewport {
 	let scrolled = Settle(Feed(Settle(Feed(page(), Typed{Text: "acme"})), Scrolled{Top: 270 * RowHeight()}))
-	assert len(scrolled.Fetches) == 3
+	assert scrolled.Fetches.Len() == 3
 	let next = Settle(Feed(Feed(scrolled, Cleared), Typed{Text: "beta"}))
-	assert len(next.Fetches) == 5 && fetched(next, 3, "beta", 0, 4) && fetched(next, 4, "beta", 4, 56)
+	assert next.Fetches.Len() == 5 && fetched(next, 3, "beta", 0, 4) && fetched(next, 4, "beta", 4, 56)
 }
 
 // cached: a normalized fresh label restores after another label fails.
 test AFreshLabelRestoresAfterAnotherFails {
 	let acme = Settle(Feed(page(), Typed{Text: "acme"}))
 	let failed = Answer(Wait(Feed(acme, Typed{Text: "beta"}), 150), 0, false)
-	assert len(failed.S.Pages) == 0
+	assert failed.S.Pages.Len() == 0
 	let back = Wait(Feed(failed, Typed{Text: "ACME.com"}), 150)
-	assert len(back.Fetches) == 3 && back.S.Checked == 60 && shows(back, "acme")
+	assert back.Fetches.Len() == 3 && back.S.Checked == 60 && shows(back, "acme")
 }
 
 // cached: fresh results expire one minute after completion even after
@@ -203,11 +205,11 @@ test FreshResultsExpireAfterAMinuteEvenAfterReuse {
 	let acme = Settle(Feed(page(), Typed{Text: "acme"}))
 	let away = Settle(Feed(Wait(acme, 40000), Typed{Text: "beta"}))
 	let reused = Settle(Feed(away, Typed{Text: "acme"}))
-	assert len(reused.Fetches) == len(away.Fetches)
+	assert reused.Fetches.Len() == away.Fetches.Len()
 	let later = Wait(Feed(Wait(reused, 21000), Typed{Text: "beta"}), 150)
 	let expired = Wait(Feed(later, Typed{Text: "acme"}), 150)
-	assert fetched(expired, len(expired.Fetches)-1, "acme", 0, 4)
-	assert len(expired.Broken) == 0
+	assert fetched(expired, expired.Fetches.Len()-1, "acme", 0, 4)
+	assert expired.Broken.Len() == 0
 }
 
 // cached: a failed stale refresh retains checked results and retry
@@ -220,7 +222,7 @@ test AFailedStaleRefreshRetriesToTheNewQuote {
 	let stale = Wait(Feed(Settle(Feed(Wait(acme, 61000), Typed{Text: "beta"})), Typed{Text: "acme"}), 150)
 	assert fetched(stale, 4, "acme", 0, 4)
 	let failed = Answer(stale, 0, false)
-	assert len(failed.S.Pages) == 0 && failed.S.Failed != None
+	assert failed.S.Pages.Len() == 0 && failed.S.Failed != option.None
 	let retried = Settle(Feed(Sim{..failed, Version: 1}, Retry))
 	assert retried.S.Checked == 60 && versionOf(ListingsAt(retried.S, 0)) == 2
 }
@@ -229,9 +231,9 @@ test AFailedStaleRefreshRetriesToTheNewQuote {
 // candidate range without fetching.
 test BackspacingToAFreshQueryFetchesNothing {
 	let m = Settle(Type(page(), "acme", 200))
-	let n = len(m.Fetches)
+	let n = m.Fetches.Len()
 	let back = Settle(Feed(Settle(Feed(m, Typed{Text: "acm"})), Typed{Text: "acme"}))
-	assert len(back.Fetches) == n+2 && back.Fetches[n].Label == "acm" && back.S.Checked == 60 && shows(back, "acme")
+	assert back.Fetches.Len() == n+2 && back.Fetches[n].Label == "acm" && back.S.Checked == 60 && shows(back, "acme")
 }
 
 // cached: label, offset, and limit isolate candidate ranges.
@@ -239,7 +241,7 @@ test LabelOffsetAndLimitIsolateRanges {
 	let m = Settle(Feed(Settle(Feed(page(), Typed{Text: "acme"})), Typed{Text: "beta"}))
 	assert fetched(m, 2, "beta", 0, 4) && fetched(m, 3, "beta", 4, 56)
 	let back = Settle(Feed(m, Typed{Text: "acme"}))
-	assert len(back.Fetches) == 4 && back.S.Checked == 60
+	assert back.Fetches.Len() == 4 && back.S.Checked == 60
 	for k in 0..2 {
 		for l in ListingsAt(back.S, k) {
 			assert strings.HasPrefix(nameOf(l), "acme.")
@@ -254,18 +256,18 @@ test GlobalCriteriaReuseAFreshCatalog {
 	let failed = Answer(Feed(acme, Scrolled{Top: 100 * RowHeight()}), 0, false)
 	assert fetched(failed, 2, "acme", 60, 60) && failed.S.Ranges[2] == plan.Failed
 	let whole = Settle(Feed(failed, Ordered{Order: route.PriceAscending}))
-	assert fetched(whole, 3, "acme", 0, 556) && whole.S.Failed == None && whole.S.Ranges[2] == plan.Loaded
+	assert fetched(whole, 3, "acme", 0, 556) && whole.S.Failed == option.None && whole.S.Ranges[2] == plan.Loaded
 	let reused = Settle(Wait(Feed(Settle(Feed(whole, Typed{Text: "beta"})), Typed{Text: "acme"}), 150))
-	assert reused.S.Checked == 556 && !fetched(reused, len(reused.Fetches)-1, "acme", 0, 556)
+	assert reused.S.Checked == 556 && !fetched(reused, reused.Fetches.Len()-1, "acme", 0, 556)
 }
 
 // progressive: shows Top Results before the rest of the first page and
 // ignores a duplicate planning Clock while pending.
 test TopResultsComeFirst {
 	let m = Wait(Feed(page(), Typed{Text: "acme"}), 150)
-	assert len(m.Fetches) == 1 && fetched(m, 0, "acme", 0, 4)
+	assert m.Fetches.Len() == 1 && fetched(m, 0, "acme", 0, 4)
 	let dup = Feed(m, Quiet)
-	assert len(dup.Fetches) == 1 && dup.S == m.S
+	assert dup.Fetches.Len() == 1 && dup.S == m.S
 	let top = Answer(dup, 0, true)
 	assert top.S.Checked == 4 && fetched(top, 1, "acme", 4, 56)
 }
@@ -274,9 +276,9 @@ test TopResultsComeFirst {
 // completes.
 test LoadsTheLatestViewportAfterTheCurrentPage {
 	let m = Feed(Feed(Wait(Feed(page(), Typed{Text: "acme"}), 150), Scrolled{Top: 100 * RowHeight()}), Scrolled{Top: 200 * RowHeight()})
-	assert len(m.Fetches) == 1
+	assert m.Fetches.Len() == 1
 	let next = Answer(m, 0, true)
-	assert fetched(next, 1, "acme", 180, 60) && len(next.Fetches) == 2
+	assert fetched(next, 1, "acme", 180, 60) && next.Fetches.Len() == 2
 }
 
 // progressive: a later failure preserves checked domain results, retries
@@ -286,7 +288,7 @@ test ALaterFailureKeepsTheCheckedResults {
 	let failed = Answer(Feed(acme, Scrolled{Top: 100 * RowHeight()}), 0, false)
 	assert failed.S.Checked == 60
 	let retried = Feed(failed, Retry)
-	assert len(retried.Fetches) == 4 && fetched(retried, 3, "acme", 60, 60) && retried.S.Checked == 60
+	assert retried.Fetches.Len() == 4 && fetched(retried, 3, "acme", 60, 60) && retried.S.Checked == 60
 	let sorted = Feed(Answer(retried, 0, false), Ordered{Order: route.PriceDescending})
 	assert fetched(sorted, 4, "acme", 0, 556)
 }
@@ -302,7 +304,7 @@ test CriteriaReplaceTheFailedPageWithTheCatalog {
 		for m in []Sim{during, after} {
 			assert fetched(m, 3, "acme", 0, 556)
 			let whole = Answer(m, 0, true)
-			assert whole.S.Checked == 556 && whole.S.Failed == None
+			assert whole.S.Checked == 556 && whole.S.Failed == option.None
 		}
 	}
 }
@@ -313,7 +315,7 @@ test AFailedCatalogWaitsForRetry {
 	let failed = Answer(Feed(Settle(Feed(page(), Typed{Text: "acme"})), Ordered{Order: route.PriceAscending}), 0, false)
 	assert failed.S.Whole == plan.Failed
 	let waited = Feed(Wait(failed, 120000), Scrolled{Top: 500})
-	assert len(waited.Fetches) == 3
+	assert waited.Fetches.Len() == 3
 	let retried = Feed(waited, Retry)
 	assert fetched(retried, 3, "acme", 0, 556)
 }
@@ -327,23 +329,23 @@ test NameOrdersSortAtOnceAndRetryTheVisibleRange {
 		let first = At(sorted.S.Index, 0)
 		match o {
 		case route.Length:
-			assert len(domains.Catalog[first]) == 2
+			assert domains.Catalog[first].Len() == 2
 		case route.Alphabetical, route.Relevance, route.PriceAscending, route.PriceDescending:
 			assert domains.Catalog[first] <= domains.Catalog[At(sorted.S.Index, 1)]
 		}
 		let failed = Answer(Answer(sorted, 0, true), 0, false)
 		let k = failed.Fetches[1]
 		let retried = Feed(failed, Retry)
-		assert len(retried.Fetches) == 3 && retried.Fetches[2].Offset == k.Offset && retried.Fetches[2].Limit == k.Limit
+		assert retried.Fetches.Len() == 3 && retried.Fetches[2].Offset == k.Offset && retried.Fetches[2].Limit == k.Limit
 	}
 }
 
 // ListingsAt is the listings shown for range k.
 func ListingsAt(s Search, k int) []domains.Listing {
 	match s.Pages.Get(k) {
-	case Some[[]domains.Listing] as p:
+	case option.Some[[]domains.Listing] as p:
 		p.Value
-	case None:
+	case option.None:
 		[]domains.Listing{}
 	}
 }

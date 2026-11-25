@@ -1,11 +1,13 @@
 import exec
 import filepath
 import fs
+import fstest
+import option
 import os
 import strings
 import github.com/cevr/ergo/modules/git/oracle
 
-let onOracle = context needs TestAmbient {
+let onOracle = context needs fstest.TestAmbient {
 	exec.Runner: exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
 	fs.Files:    fs.NewTestHost(),
 	fs.Writes:   fs.NewTestHost(),
@@ -36,7 +38,7 @@ func parseCheckAttrZ(raw string) Map[string, AttrState] {
 	let fields = strings.Split(raw, "\x00")
 	let mut out = Map[string, AttrState]{}
 	let mut i = 0
-	for i+2 < len(fields) {
+	for i+2 < fields.Len() {
 		let name = fields[i+1]
 		let val = fields[i+2]
 		if val == "set" {
@@ -52,14 +54,14 @@ func parseCheckAttrZ(raw string) Map[string, AttrState] {
 }
 
 func mapsEqual(a Map[string, AttrState], b Map[string, AttrState]) bool {
-	if len(a) != len(b) {
+	if a.Len() != b.Len() {
 		return false
 	}
 	for k, av in a {
 		match b.Get(k) {
-		case None:
+		case option.None:
 			return false
-		case Some[AttrState] as bv:
+		case option.Some[AttrState] as bv:
 			if !StateEqual(av, bv.Value) {
 				return false
 			}

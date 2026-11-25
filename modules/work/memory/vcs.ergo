@@ -1,6 +1,7 @@
 import github.com/cevr/ergo/modules/work/classes
 import github.com/cevr/ergo/modules/work/work
 import maps
+import option
 import slices
 import strconv
 import strings
@@ -94,7 +95,7 @@ law SnapshotIsTheFiles(files Map[string, string], changed string, added string) 
 		return false
 	}
 	let want = Working(Files(v.trees, "r"))
-	edited && got == want && got.Get("a.txt") == Some[string]{Value: changed} && got.Get("new/untracked.txt") == Some[string]{Value: added} && got.Get("out/build") == None
+	edited && got == want && got.Get("a.txt") == option.Some[string]{Value: changed} && got.Get("new/untracked.txt") == option.Some[string]{Value: added} && got.Get("out/build") == option.None
 }
 
 // tracked is files without the paths the law writes itself, with a
@@ -115,9 +116,9 @@ func Listed(v Vcs, root string) []string fails work.VcsFailed { slices.Sorted(ma
 func Read(v Vcs, root string, tree string) Map[string, string] fails work.VcsFailed {
 	let _ = try checkout(v, root)
 	match v.store.Get().trees.Get(tree) {
-	case Some[Map[string, string]] as t:
+	case option.Some[Map[string, string]] as t:
 		t.Value
-	case None:
+	case option.None:
 		work.VcsFailed{Reason: "\(root): no tree \(tree)"}
 	}
 }
@@ -125,7 +126,7 @@ func Read(v Vcs, root string, tree string) Map[string, string] fails work.VcsFai
 func Keep(v Vcs, root string, tree string) string fails work.VcsFailed {
 	let head = try Head(v, root)
 	let s = v.store.Get()
-	if s.trees.Get(tree) == None {
+	if s.trees.Get(tree) == option.None {
 		return work.VcsFailed{Reason: "\(root): no tree \(tree)"}
 	}
 	committed(v, "k", Node{Tree: tree, Parents: []string{head}})
@@ -154,14 +155,14 @@ func Resolve(v Vcs, root string, rev string) string fails work.NoRevision | work
 	if rev == "HEAD" {
 		return try Head(v, root)
 	}
-	if v.store.Get().commits.Get(rev) != None {
+	if v.store.Get().commits.Get(rev) != option.None {
 		return rev
 	}
 	for prefix in []string{".git/refs/heads/", ".git/refs/tags/", ".git/"} {
 		match files.Get(prefix + rev) {
-		case Some[string] as found:
+		case option.Some[string] as found:
 			return found.Value
-		case None:
+		case option.None:
 		}
 	}
 	work.NoRevision{Rev: rev}
@@ -174,7 +175,7 @@ func Contains(v Vcs, root string, commit string, ancestor string) bool fails wor
 
 func Start(v Vcs, root string, branch string, commit string) fails work.VcsFailed {
 	let files = try checkout(v, root)
-	if files.Get(".git/HEAD") == (Some[string]{Value: commit}) {
+	if files.Get(".git/HEAD") == (option.Some[string]{Value: commit}) {
 		// At the head: two ref writes, the index as it is.
 		let _ = Write(v.trees, root, ".git/branch", branch) && Write(v.trees, root, ".git/refs/heads/"+branch, commit)
 		return
@@ -188,7 +189,7 @@ func Start(v Vcs, root string, branch string, commit string) fails work.VcsFaile
 	} else {
 		if !same(working, index) {
 			for path, text in working {
-				if index.Get(path) != (Some[string]{Value: text}) {
+				if index.Get(path) != (option.Some[string]{Value: text}) {
 					return work.VcsFailed{Reason: "\(root): \(path) has a change a switch to \(commit) would lose"}
 				}
 			}
@@ -206,16 +207,16 @@ func GuardPushes(v Vcs, root string) fails work.VcsFailed {
 	let _ = Write(v.trees, root, ".git/config/remote.origin.pushurl", Guard)
 }
 
-func PushesGuarded(v Vcs, root string) bool fails work.VcsFailed { len(try Guarded(v, root)) == 1 }
+func PushesGuarded(v Vcs, root string) bool fails work.VcsFailed { (try Guarded(v, root)).Len() == 1 }
 
 // Guarded is origin when its push URL is Guard.
 func Guarded(v Vcs, root string) []string fails work.VcsFailed {
-	if (try checkout(v, root)).Get(".git/config/remote.origin.pushurl") == (Some[string]{Value: Guard}) { []string{"origin"} } else { []string{} }
+	if (try checkout(v, root)).Get(".git/config/remote.origin.pushurl") == (option.Some[string]{Value: Guard}) { []string{"origin"} } else { []string{} }
 }
 
 // Unguard drops origin's push URL when it is Guard.
 func Unguard(v Vcs, root string) fails work.VcsFailed {
-	if len(try Guarded(v, root)) > 0 {
+	if (try Guarded(v, root)).Len() > 0 {
 		let _ = Unlink(v.trees, root, ".git/config/remote.origin.pushurl")
 	}
 }
@@ -234,7 +235,7 @@ func Locals(v Vcs, root string) []work.Local fails work.VcsFailed {
 }
 
 func Tracked(v Vcs, root string, path string) bool fails work.VcsFailed {
-	(try checkout(v, root)).Get(".git/index/"+path) != None
+	(try checkout(v, root)).Get(".git/index/"+path) != option.None
 }
 
 // Exclude adds the line to .git/info/exclude, once.
@@ -313,7 +314,7 @@ func Push(v Vcs, root string, parent string, refs []work.Pushed) fails work.NotF
 	let s = v.store.Get()
 	let mut writes = Map[string, string]{}
 	for p in refs {
-		let value = if s.commits.Get(p.From) != None { p.From } else { try Ref(v, root, p.From) }
+		let value = if s.commits.Get(p.From) != option.None { p.From } else { try Ref(v, root, p.From) }
 		if value == "" {
 			return work.VcsFailed{Reason: "\(root): no ref \(p.From)"}
 		}
@@ -379,7 +380,7 @@ func drivers(files Map[string, string]) Driven {
 	for l in lines {
 		let command = strings.Fields(maps.GetOr(files, ".git/config/merge.\(l.Driver).driver", ""))
 		let at = slices.Index(command, "%P")
-		if slices.Contains(command, "merge-file") && at >= 0 && at+1 < len(command) {
+		if slices.Contains(command, "merge-file") && at >= 0 && at+1 < command.Len() {
 			classOf[l.Driver] = command[at+1]
 		}
 	}
@@ -390,7 +391,7 @@ func drivers(files Map[string, string]) Driven {
 // that takes path names the driver (as Git reads attributes), and a
 // driver with no configuration, or one that is not merge-file, is none
 // (Git's line merge).
-func drivenClass(d Driven, path string) Option[classes.Class] {
+func drivenClass(d Driven, path string) option.Option[classes.Class] {
 	let mut driver = ""
 	for l in d.lines {
 		if work.Matches(l.Pattern, path) {
@@ -398,10 +399,10 @@ func drivenClass(d Driven, path string) Option[classes.Class] {
 		}
 	}
 	match d.classOf.Get(driver) {
-	case Some[string] as c:
+	case option.Some[string] as c:
 		classes.ClassNamed(c.Value)
-	case None:
-		None
+	case option.None:
+		option.None
 	}
 }
 
@@ -433,27 +434,27 @@ func threeWay(base Map[string, string], ours Map[string, string], theirs Map[str
 			o
 		} else {
 			match (b, o, t, drivenClass(d, p)) {
-			case (Some[string] as bb, Some[string] as oo, Some[string] as tt, Some[classes.Class] as c):
+			case (option.Some[string] as bb, option.Some[string] as oo, option.Some[string] as tt, option.Some[classes.Class] as c):
 				let merged = classes.Merge(c.Value, bb.Value, oo.Value, tt.Value) catch {
 				case classes.Unreadable:
 					classes.Merged{Text: oo.Value, Conflicts: []string{"unreadable"}, Regenerate: false}
 				}
-				if len(merged.Conflicts) > 0 {
+				if merged.Conflicts.Len() > 0 {
 					conflicts = conflicts.Append(p)
 				}
-				Some[string]{Value: merged.Text}
+				option.Some[string]{Value: merged.Text}
 			case _:
 				conflicts = conflicts.Append(p)
 				o
 			}
 		}
 		match pick {
-		case Some[string] as text:
+		case option.Some[string] as text:
 			out[p] = text.Value
-		case None:
+		case option.None:
 		}
 	}
-	if len(conflicts) > 0 {
+	if conflicts.Len() > 0 {
 		return work.Conflicted{Files: conflicts}
 	}
 	out
@@ -476,7 +477,7 @@ func mergeBase(s Store, ours string, theirs string) string {
 func ancestors(s Store, commit string) []string {
 	let mut out = []string{commit}
 	match s.commits.Get(commit) {
-	case Some[Node] as found:
+	case option.Some[Node] as found:
 		for p in found.Value.Parents {
 			for a in ancestors(s, p) {
 				if !slices.Contains(out, a) {
@@ -484,18 +485,18 @@ func ancestors(s Store, commit string) []string {
 				}
 			}
 		}
-	case None:
+	case option.None:
 	}
 	out
 }
 
 // same reports whether two file maps are equal.
 func same(a Map[string, string], b Map[string, string]) bool {
-	if len(a) != len(b) {
+	if a.Len() != b.Len() {
 		return false
 	}
 	for k, x in a {
-		if b.Get(k) != (Some[string]{Value: x}) {
+		if b.Get(k) != (option.Some[string]{Value: x}) {
 			return false
 		}
 	}
@@ -508,19 +509,19 @@ func reaches(s Store, commit string, ancestor string) bool {
 		return true
 	}
 	match s.commits.Get(commit) {
-	case Some[Node] as found:
+	case option.Some[Node] as found:
 		for p in found.Value.Parents {
 			if reaches(s, p, ancestor) {
 				return true
 			}
 		}
 		false
-	case None:
+	case option.None:
 		false
 	}
 }
 
-func known(s Store, id string) bool { s.commits.Get(id) != None || s.trees.Get(id) != None }
+func known(s Store, id string) bool { s.commits.Get(id) != option.None || s.trees.Get(id) != option.None }
 
 // treeOf is the files of commit's tree ("" is the empty tree).
 func treeOf(v Vcs, root string, commit string) Map[string, string] fails work.VcsFailed {
@@ -529,9 +530,9 @@ func treeOf(v Vcs, root string, commit string) Map[string, string] fails work.Vc
 	}
 	let s = v.store.Get()
 	match s.commits.Get(commit) {
-	case Some[Node] as found:
+	case option.Some[Node] as found:
 		maps.GetOr(s.trees, found.Value.Tree, Map[string, string]{})
-	case None:
+	case option.None:
 		work.VcsFailed{Reason: "\(root): no commit \(commit)"}
 	}
 }
@@ -542,19 +543,19 @@ func treeOf(v Vcs, root string, commit string) Map[string, string] fails work.Vc
 func checkOut(v Vcs, root string, files Map[string, string], index Map[string, string]) fails work.VcsFailed {
 	let have = try checkout(v, root)
 	for path, _ in have {
-		if strings.HasPrefix(path, ".git/index/") && index.Get(strings.TrimPrefix(path, ".git/index/")) == None {
+		if strings.HasPrefix(path, ".git/index/") && index.Get(strings.TrimPrefix(path, ".git/index/")) == option.None {
 			let _ = Unlink(v.trees, root, path)
-		} else if !strings.HasPrefix(path, ".git/") && !ignored(have, path) && files.Get(path) == None {
+		} else if !strings.HasPrefix(path, ".git/") && !ignored(have, path) && files.Get(path) == option.None {
 			let _ = Unlink(v.trees, root, path)
 		}
 	}
 	for path, text in files {
-		if have.Get(path) != (Some[string]{Value: text}) {
+		if have.Get(path) != (option.Some[string]{Value: text}) {
 			let _ = Write(v.trees, root, path, text)
 		}
 	}
 	for path, text in index {
-		if have.Get(".git/index/"+path) != (Some[string]{Value: text}) {
+		if have.Get(".git/index/"+path) != (option.Some[string]{Value: text}) {
 			let _ = Write(v.trees, root, ".git/index/"+path, text)
 		}
 	}
@@ -582,9 +583,9 @@ let notesFolder = ".git/notes/work/"
 func TreeOf(v Vcs, root string, commit string) string fails work.NoRevision | work.VcsFailed {
 	let _ = try checkout(v, root)
 	match v.store.Get().commits.Get(commit) {
-	case Some[Node] as n:
+	case option.Some[Node] as n:
 		n.Value.Tree
-	case None:
+	case option.None:
 		work.NoRevision{Rev: commit}
 	}
 }
@@ -593,7 +594,7 @@ func Note(v Vcs, root string, commit string) string fails work.VcsFailed { maps.
 
 func SetNote(v Vcs, root string, commit string, text string) fails work.VcsFailed {
 	let _ = try checkout(v, root)
-	if v.store.Get().commits.Get(commit) == None {
+	if v.store.Get().commits.Get(commit) == option.None {
 		return work.VcsFailed{Reason: "\(root): no commit \(commit)"}
 	}
 	let _ = Write(v.trees, root, notesFolder+commit, text)
@@ -627,9 +628,9 @@ func stored(v Vcs, files Map[string, string]) string {
 	}
 	let s = v.store.Get()
 	match s.keys.Get(key) {
-	case Some[string] as id:
+	case option.Some[string] as id:
 		id.Value
-	case None:
+	case option.None:
 		let id = "t\(s.next)"
 		let mut trees = s.trees
 		trees[id] = files
@@ -647,7 +648,7 @@ func committed(v Vcs, prefix string, c Node) string {
 	let mut commits = s.commits
 	commits[id] = c
 	let mut times = s.times
-	times[id] = int64(len(s.commits) + 1)
+	times[id] = int64(s.commits.Len() + 1)
 	v.store.Set(Store{..s, commits: commits, next: s.next + 1, times: times})
 	id
 }
@@ -694,7 +695,7 @@ func checkout(v Vcs, root string) Map[string, string] fails work.VcsFailed {
 		return work.VcsFailed{Reason: "\(root): no checkout"}
 	}
 	let files = Files(v.trees, root)
-	if files.Get(".git/branch") == None {
+	if files.Get(".git/branch") == option.None {
 		return work.VcsFailed{Reason: "\(root): not a git checkout"}
 	}
 	files
@@ -702,9 +703,9 @@ func checkout(v Vcs, root string) Map[string, string] fails work.VcsFailed {
 
 func at(v Vcs, root string, path string) string fails work.VcsFailed {
 	match (try checkout(v, root)).Get(path) {
-	case Some[string] as s:
+	case option.Some[string] as s:
 		s.Value
-	case None:
+	case option.None:
 		work.VcsFailed{Reason: "\(root): no \(path)"}
 	}
 }
@@ -731,9 +732,9 @@ func Commit(v Vcs, root string, commit string) bool {
 	}
 	let working = Working(files)
 	let parents = match files.Get(".git/HEAD") {
-	case Some[string] as head:
+	case option.Some[string] as head:
 		[]string{head.Value}
-	case None:
+	case option.None:
 		[]string{}
 	}
 	let tree = stored(v, working)
@@ -741,7 +742,7 @@ func Commit(v Vcs, root string, commit string) bool {
 	let mut commits = s.commits
 	commits[commit] = Node{Tree: tree, Parents: parents}
 	let mut times = s.times
-	times[commit] = int64(len(s.commits) + 1)
+	times[commit] = int64(s.commits.Len() + 1)
 	v.store.Set(Store{..s, commits: commits, times: times})
 	checkOut(v, root, working, working) catch {
 	case work.VcsFailed:
@@ -760,7 +761,7 @@ func Commit(v Vcs, root string, commit string) bool {
 func Land(v Vcs, root string, parent string) bool {
 	let files = Files(v.trees, root)
 	match (files.Get(".git/HEAD"), files.Get(".git/branch")) {
-	case (Some[string] as head, Some[string] as branch):
+	case (option.Some[string] as head, option.Some[string] as branch):
 		branch.Value != "" && Write(v.trees, parent, ".git/refs/heads/landed/"+branch.Value, head.Value)
 	case _:
 		false
@@ -815,7 +816,7 @@ func Default(v Vcs, parent string) work.Located fails work.VcsFailed {
 	let files = try checkout(v, parent)
 	let mut ref = ""
 	for name in []string{maps.GetOr(files, OriginHead, ""), maps.GetOr(files, ".git/branch", "")} {
-		if ref == "" && name != "" && files.Get(".git/refs/heads/"+name) != None {
+		if ref == "" && name != "" && files.Get(".git/refs/heads/"+name) != option.None {
 			ref = "refs/heads/" + name
 		}
 	}
@@ -829,7 +830,7 @@ func Counts(v Vcs, root string, objects string, base string, head string) work.A
 	try commitIn(s, root, head)
 	let ours = ancestors(s, head)
 	let theirs = ancestors(s, base)
-	work.Apart{Ahead: len(only(s, ours, theirs)), Behind: len(only(s, theirs, ours))}
+	work.Apart{Ahead: only(s, ours, theirs).Len(), Behind: only(s, theirs, ours).Len()}
 }
 
 func Unpicked(v Vcs, root string, objects string, base string, head string) int fails work.VcsFailed {
@@ -843,12 +844,12 @@ func Unpicked(v Vcs, root string, objects string, base string, head string) int 
 	for c in only(s, theirs, ours) {
 		landed[patchOf(s, c)] = true
 	}
-	len(slices.Filter(only(s, ours, theirs), func(c string) bool { landed.Get(patchOf(s, c)) == None }))
+	slices.Filter(only(s, ours, theirs), func(c string) bool { landed.Get(patchOf(s, c)) == option.None }).Len()
 }
 
 // commitIn fails unless the store has commit.
 func commitIn(s Store, root string, commit string) fails work.VcsFailed {
-	if s.commits.Get(commit) == None {
+	if s.commits.Get(commit) == option.None {
 		return work.VcsFailed{Reason: "\(root): no commit \(commit)"}
 	}
 }
@@ -857,9 +858,9 @@ func commitIn(s Store, root string, commit string) fails work.VcsFailed {
 func only(s Store, a []string, b []string) []string {
 	slices.Filter(a, func(c string) bool {
 		let merge = match s.commits.Get(c) {
-		case Some[Node] as n:
-			len(n.Value.Parents) > 1
-		case None:
+		case option.Some[Node] as n:
+			n.Value.Parents.Len() > 1
+		case option.None:
 			false
 		}
 		!merge && !slices.Contains(b, c)
@@ -871,15 +872,15 @@ func only(s Store, a []string, b []string) []string {
 // "absent" for a path one side lacks), as Git's patch id compares.
 func patchOf(s Store, commit string) string {
 	match s.commits.Get(commit) {
-	case Some[Node] as n:
+	case option.Some[Node] as n:
 		let after = maps.GetOr(s.trees, n.Value.Tree, Map[string, string]{})
-		let before = if len(n.Value.Parents) == 0 {
+		let before = if n.Value.Parents.Len() == 0 {
 			Map[string, string]{}
 		} else {
 			match s.commits.Get(n.Value.Parents[0]) {
-			case Some[Node] as p:
+			case option.Some[Node] as p:
 				maps.GetOr(s.trees, p.Value.Tree, Map[string, string]{})
-			case None:
+			case option.None:
 				Map[string, string]{}
 			}
 		}
@@ -899,16 +900,16 @@ func patchOf(s Store, commit string) string {
 			}
 		}
 		key
-	case None:
+	case option.None:
 		commit
 	}
 }
 
 func textOr(files Map[string, string], path string) string {
 	match files.Get(path) {
-	case Some[string] as f:
+	case option.Some[string] as f:
 		strconv.Quote(f.Value)
-	case None:
+	case option.None:
 		"absent"
 	}
 }

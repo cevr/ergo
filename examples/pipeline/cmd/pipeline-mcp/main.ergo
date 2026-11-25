@@ -15,9 +15,10 @@ import os
 import runners pipeline/memory
 import pipeline/pipeline
 import pipeline/pipeline/pipelinemcp
+import time
 
-func main() fails os.Exit needs Ambient {
-	with context { Scheduler: NewLiveScheduler(), pipeline.Runner: runners.New(Map[int, int]{}) } {
+func main() fails os.Exit needs os.Ambient {
+	with context { time.Scheduler: time.NewLiveScheduler(), pipeline.Runner: runners.New(Map[int, int]{}) } {
 		let m = pipeline.Open(memory.New[pipeline.Entry]()) catch {
 		case domain.Conflict, domain.Reused:
 			return os.Exit{Code: 1, Message: "pipeline-mcp: the log refused a record"}

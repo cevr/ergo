@@ -12,6 +12,7 @@ import github.com/cevr/ergo/modules/work/classes
 import hex
 import json
 import maps
+import option
 import sha256
 import slices
 import strings
@@ -108,7 +109,7 @@ func Fingerprint(key string, text string) string {
 // nameOf is the last name of a key (p.T.M is M).
 func nameOf(key string) string {
 	let at = strings.LastIndex(key, ".")
-	if at < 0 { key } else { strings.Slice(key, at+1, len(key)) }
+	if at < 0 { key } else { strings.Slice(key, at+1, key.Len()) }
 }
 
 // kindOfChange is a seam Change's kind as a record's.
@@ -130,27 +131,27 @@ func kindOfChange(kind string) string {
 // Some), else every unit whose fingerprint differs, so a layout edit is
 // none. Then each removed unit and each added one of equal fingerprints
 // are one Renamed change, From the old key.
-func UnitChanges(file string, before []Unit, after []Unit, indexed Option[[]Change]) []RecordChange {
+func UnitChanges(file string, before []Unit, after []Unit, indexed option.Option[[]Change]) []RecordChange {
 	let was = fingerprints(before)
 	let now = fingerprints(after)
 	let mut raw = []RecordChange{}
 	match indexed {
-	case Some[[]Change] as cs:
+	case option.Some[[]Change] as cs:
 		for c in cs.Value {
 			raw = raw.Append(change(c.Key, file, kindOfChange(c.Kind), maps.GetOr(was, c.Key, ""), maps.GetOr(now, c.Key, "")))
 		}
-	case None:
+	case option.None:
 		for u in before {
-			if now.Get(u.Key) == None {
+			if now.Get(u.Key) == option.None {
 				raw = raw.Append(change(u.Key, file, "Removed", maps.GetOr(was, u.Key, ""), ""))
 			}
 		}
 		for u in after {
 			let print = maps.GetOr(now, u.Key, "")
 			match was.Get(u.Key) {
-			case None:
+			case option.None:
 				raw = raw.Append(change(u.Key, file, "Added", "", print))
-			case Some[string] as old:
+			case option.Some[string] as old:
 				if old.Value != print {
 					raw = raw.Append(change(u.Key, file, "BodyChanged", old.Value, print))
 				}
@@ -178,7 +179,7 @@ func pairRenames(changes []RecordChange) []RecordChange {
 			continue
 		}
 		for j, a in changes {
-			if a.Kind == "Added" && taken.Get(j) == None && a.File == r.File && a.After == r.Before {
+			if a.Kind == "Added" && taken.Get(j) == option.None && a.File == r.File && a.After == r.Before {
 				taken[j] = true
 				taken[i] = true
 				from[j] = r.Unit
@@ -189,10 +190,10 @@ func pairRenames(changes []RecordChange) []RecordChange {
 	let mut out = []RecordChange{}
 	for i, c in changes {
 		match from.Get(i) {
-		case Some[string] as f:
+		case option.Some[string] as f:
 			out = out.Append(RecordChange{..c, Kind: "Renamed", From: f.Value, Before: c.After})
-		case None:
-			if taken.Get(i) == None {
+		case option.None:
+			if taken.Get(i) == option.None {
 				out = out.Append(c)
 			}
 		}
@@ -207,20 +208,20 @@ func pairRenames(changes []RecordChange) []RecordChange {
 law RecordIsTheDiff(drawn Map[int, int], edits []classes.Edit, layout bool) {
 	let units = scripted(drawn, []classes.Edit{})
 	let after = scripted(drawn, edits)
-	let got = UnitChanges("f", unitsOf(units, false), unitsOf(after, layout), None)
+	let got = UnitChanges("f", unitsOf(units, false), unitsOf(after, layout), option.None)
 	let mut want = Map[string, string]{}
 	for k, v in units {
 		match after.Get(k) {
-		case None:
+		case option.None:
 			want["u\(k)"] = "Removed"
-		case Some[int] as w:
+		case option.Some[int] as w:
 			if w.Value != v {
 				want["u\(k)"] = "BodyChanged"
 			}
 		}
 	}
 	for k, _ in after {
-		if units.Get(k) == None {
+		if units.Get(k) == option.None {
 			want["u\(k)"] = "Added"
 		}
 	}
@@ -275,10 +276,10 @@ func unitsOf(units Map[int, int], layout bool) []Unit {
 // Renamed change from its old key to its new one, and nothing else.
 law RenameIsOneChange(units Map[int, int], which int, to int) {
 	let keys = slices.Sorted(maps.Keys(units))
-	if len(keys) == 0 {
+	if keys.Len() == 0 {
 		return true
 	}
-	let old = keys[((which%len(keys))+len(keys))%len(keys)]
+	let old = keys[((which%keys.Len())+keys.Len())%keys.Len()]
 	let fresh = 1000000 + ((to%1000)+1000)%1000
 	let value = maps.GetOr(units, old, 0)
 	// Another unit of the old one's value would make the rename
@@ -295,8 +296,8 @@ law RenameIsOneChange(units Map[int, int], which int, to int) {
 		}
 	}
 	after[fresh] = value
-	let got = UnitChanges("f", unitsOf(units, false), unitsOf(after, false), None)
-	len(got) == 1 && got[0].Kind == "Renamed" && got[0].From == "u\(old)" && got[0].Unit == "u\(fresh)"
+	let got = UnitChanges("f", unitsOf(units, false), unitsOf(after, false), option.None)
+	got.Len() == 1 && got[0].Kind == "Renamed" && got[0].From == "u\(old)" && got[0].Unit == "u\(fresh)"
 }
 
 // RowsChanges is the change set of a rows file (a mutant ledger) by row
@@ -305,11 +306,11 @@ law RenameIsOneChange(units Map[int, int], which int, to int) {
 func RowsChanges(file string, before string, after string) []RecordChange {
 	let b = classes.KeyedRows(before) catch {
 	case classes.Unreadable:
-		return fileChange(file, Some[string]{Value: before}, Some[string]{Value: after})
+		return fileChange(file, option.Some[string]{Value: before}, option.Some[string]{Value: after})
 	}
 	let a = classes.KeyedRows(after) catch {
 	case classes.Unreadable:
-		return fileChange(file, Some[string]{Value: before}, Some[string]{Value: after})
+		return fileChange(file, option.Some[string]{Value: before}, option.Some[string]{Value: after})
 	}
 	keyedChanges(file, "row:", b, a)
 }
@@ -319,7 +320,7 @@ func RowsChanges(file string, before string, after string) []RecordChange {
 func keyedChanges(file string, prefix string, before Map[string, string], after Map[string, string]) []RecordChange {
 	let mut keys = slices.Sorted(maps.Keys(before))
 	for k in slices.Sorted(maps.Keys(after)) {
-		if before.Get(k) == None {
+		if before.Get(k) == option.None {
 			keys = keys.Append(k)
 		}
 	}
@@ -330,17 +331,17 @@ func keyedChanges(file string, prefix string, before Map[string, string], after 
 		if printOf(k, b) == printOf(k, a) {
 			continue
 		}
-		let kind = if b == None { "Added" } else if a == None { "Removed" } else { "BodyChanged" }
+		let kind = if b == option.None { "Added" } else if a == option.None { "Removed" } else { "BodyChanged" }
 		out = out.Append(change(prefix+k, file, kind, printOf(k, b), printOf(k, a)))
 	}
 	out
 }
 
-func printOf(key string, text Option[string]) string {
+func printOf(key string, text option.Option[string]) string {
 	match text {
-	case Some[string] as t:
+	case option.Some[string] as t:
 		Fingerprint(key, t.Value)
-	case None:
+	case option.None:
 		""
 	}
 }
@@ -366,7 +367,7 @@ func Sections(text string) Map[string, string] {
 		}
 		out = section(out, at, body)
 		body = []string{}
-		let keep = if depth-1 < len(path) { depth - 1 } else { len(path) }
+		let keep = if depth-1 < path.Len() { depth - 1 } else { path.Len() }
 		path = slices.Clone(path[0:keep]).Append(strings.TrimSpace(strings.TrimLeft(line, "#")))
 		at = strings.Join(path, " > ")
 	}
@@ -383,7 +384,7 @@ func section(into Map[string, string], key string, lines []string) Map[string, s
 	let mut m = into
 	let mut k = key
 	let mut n = 1
-	for m.Get(k) != None {
+	for m.Get(k) != option.None {
 		n = n + 1
 		k = "\(key) #\(n)"
 	}
@@ -395,19 +396,19 @@ func section(into Map[string, string], key string, lines []string) Map[string, s
 // for any other line.
 func headingDepth(line string) int {
 	let mut n = 0
-	for n < len(line) && n < 7 && line[n] == '#' {
+	for n < line.Len() && n < 7 && line[n] == '#' {
 		n = n + 1
 	}
-	if n == 0 || n > 6 || n >= len(line) || line[n] != ' ' { 0 } else { n }
+	if n == 0 || n > 6 || n >= line.Len() || line[n] != ' ' { 0 } else { n }
 }
 
 // fileChange is one change of a whole file keyed by its path: a file no
 // language reads (an .ergo file until its plugin, SEMWS M2E).
-func fileChange(file string, before Option[string], after Option[string]) []RecordChange {
+func fileChange(file string, before option.Option[string], after option.Option[string]) []RecordChange {
 	if before == after {
 		return []RecordChange{}
 	}
-	let kind = if before == None { "Added" } else if after == None { "Removed" } else { "BodyChanged" }
+	let kind = if before == option.None { "Added" } else if after == option.None { "Removed" } else { "BodyChanged" }
 	[]RecordChange{change(file, file, kind, printOf(file, before), printOf(file, after))}
 }
 
@@ -424,7 +425,7 @@ func ChangeSet(t Tool, c Config, base Map[string, string], tip Map[string, strin
 		}
 	}
 	for p in slices.Sorted(maps.Keys(tip)) {
-		if base.Get(p) == None {
+		if base.Get(p) == option.None {
 			changed = changed.Append(p)
 		}
 	}
@@ -434,9 +435,9 @@ func ChangeSet(t Tool, c Config, base Map[string, string], tip Map[string, strin
 	for p in changed {
 		let b = base.Get(p)
 		let a = tip.Get(p)
-		if kindOf(ClassOf(c.Classes, p)) == "rows" && b != None && a != None {
+		if kindOf(ClassOf(c.Classes, p)) == "rows" && b != option.None && a != option.None {
 			out = slices.Concat(out, RowsChanges(p, textOf(b), textOf(a)))
-		} else if byLanguage.Get(p) != None {
+		} else if byLanguage.Get(p) != option.None {
 			out = slices.Concat(out, maps.GetOr(byLanguage, p, []RecordChange{}))
 		} else if strings.HasSuffix(p, ".md") {
 			out = slices.Concat(out, keyedChanges(p, p+"#", Sections(textOf(b)), Sections(textOf(a))))
@@ -453,7 +454,7 @@ func ChangeSet(t Tool, c Config, base Map[string, string], tip Map[string, strin
 // cannot read is absent.
 func languageChanges(t Tool, c Config, paths []string, base Map[string, string], tip Map[string, string]) Map[string, []RecordChange] {
 	let mut out = Map[string, []RecordChange]{}
-	if len(c.Languages) == 0 || !trusted(t, c) {
+	if c.Languages.Len() == 0 || !trusted(t, c) {
 		return out
 	}
 	for l in c.Languages {
@@ -464,24 +465,24 @@ func languageChanges(t Tool, c Config, paths []string, base Map[string, string],
 				continue
 			}
 			match LanguageOf(c, p) {
-			case Some[LanguageLine] as of:
+			case option.Some[LanguageLine] as of:
 				if of.Value.Name != l.Name {
 					continue
 				}
-			case None:
+			case option.None:
 				continue
 			}
 			mine = mine.Append(p)
-			for side in []Option[string]{base.Get(p), tip.Get(p)} {
+			for side in []option.Option[string]{base.Get(p), tip.Get(p)} {
 				match side {
-				case Some[string] as text:
+				case option.Some[string] as text:
 					asks = asks.Append(UnitsOf{File: p, Text: text.Value})
-				case None:
+				case option.None:
 				}
 			}
 			asks = asks.Append(ChangesOf{Base: sideOf(p, base.Get(p)), Head: sideOf(p, tip.Get(p))})
 		}
-		if len(mine) == 0 {
+		if mine.Len() == 0 {
 			continue
 		}
 		let plugin = Knowing(PluginOf(t.runner, l.Command, t.base), asks)
@@ -497,28 +498,28 @@ func languageChanges(t Tool, c Config, paths []string, base Map[string, string],
 }
 
 // sideOf is the snapshot of one file alone (none when text is None).
-func sideOf(file string, text Option[string]) Snapshot { Snapshot{Root: "", Layer: []FileEdit{FileEdit{Path: file, Text: text}}} }
+func sideOf(file string, text option.Option[string]) Snapshot { Snapshot{Root: "", Layer: []FileEdit{FileEdit{Path: file, Text: text}}} }
 
 // FileChanges is the change set of one file by a language's Splitter s
 // and Indexer i (UnitChanges): an absent side has no units, and an
 // Indexer that does not give changes leaves them to the units' texts.
-func FileChanges(s Splitter, i Indexer, file string, before Option[string], after Option[string]) []RecordChange fails Unreadable | Unanswered {
+func FileChanges(s Splitter, i Indexer, file string, before option.Option[string], after option.Option[string]) []RecordChange fails Unreadable | Unanswered {
 	let b = try unitsOfSide(s, file, before)
 	let a = try unitsOfSide(s, file, after)
 	let indexed = i.Changes(sideOf(file, before), sideOf(file, after)) catch {
 	case NotProvided:
-		return UnitChanges(file, b, a, None)
+		return UnitChanges(file, b, a, option.None)
 	case Unanswered as u:
 		return u
 	}
-	UnitChanges(file, b, a, Some[[]Change]{Value: indexed})
+	UnitChanges(file, b, a, option.Some[[]Change]{Value: indexed})
 }
 
-func unitsOfSide(s Splitter, file string, text Option[string]) []Unit fails Unreadable | Unanswered {
+func unitsOfSide(s Splitter, file string, text option.Option[string]) []Unit fails Unreadable | Unanswered {
 	match text {
-	case Some[string] as x:
+	case option.Some[string] as x:
 		try s.Units(file, x.Value)
-	case None:
+	case option.None:
 		[]Unit{}
 	}
 }
@@ -543,7 +544,7 @@ func UnlandedOn(tip string, head string, lanes []OnTip, holds func(commit string
 // and the walk from the base's head does not reach it.
 law OnIsTheUnlandedAncestry(parents Map[int, []int], lanes Map[int, int], tip int, head int) {
 	let graph = dagOf(parents)
-	let n = len(graph)
+	let n = graph.Len()
 	let at = func(i int) int { ((i % n) + n) % n }
 	let mut drawn = []OnTip{}
 	for name in slices.Sorted(maps.Keys(lanes)) {
@@ -560,7 +561,7 @@ law OnIsTheUnlandedAncestry(parents Map[int, []int], lanes Map[int, int], tip in
 	let mut want = []OnTip{}
 	for l in drawn {
 		let c = strings.TrimPrefix(l.Tip, "c")
-		if l.Tip != "c\(at(tip))" && fromTip.Get(c) != None && fromHead.Get(c) == None {
+		if l.Tip != "c\(at(tip))" && fromTip.Get(c) != option.None && fromHead.Get(c) == option.None {
 			want = want.Append(l)
 		}
 	}
@@ -570,7 +571,7 @@ law OnIsTheUnlandedAncestry(parents Map[int, []int], lanes Map[int, int], tip in
 // dagOf is a graph of at least one commit, "0" to "n-1", whose parents
 // are the drawn ones taken below each commit.
 func dagOf(parents Map[int, []int]) Map[string, []string] {
-	let n = len(parents) + 1
+	let n = parents.Len() + 1
 	let mut out = Map[string, []string]{}
 	for i in 0..n {
 		let mut ps = []string{}
@@ -590,9 +591,9 @@ func walk(graph Map[string, []string], start int) Map[string, bool] {
 	let mut seen = Map[string, bool]{"\(start)": true}
 	let mut queue = []string{"\(start)"}
 	let mut i = 0
-	for i < len(queue) {
+	for i < queue.Len() {
 		for p in maps.GetOr(graph, queue[i], []string{}) {
-			if seen.Get(p) == None {
+			if seen.Get(p) == option.None {
 				seen[p] = true
 				queue = queue.Append(p)
 			}
@@ -637,12 +638,12 @@ let RecordFence = "```work-record"
 
 // blockOf is the work-record block of a request's text, None when it has
 // none.
-func blockOf(path string, text string) Option[RecordBlock] fails BadRequest {
+func blockOf(path string, text string) option.Option[RecordBlock] fails BadRequest {
 	let at = strings.Index(text, RecordFence+"\n")
 	if at < 0 {
-		return None
+		return option.None
 	}
-	let rest = strings.Slice(text, at+len(RecordFence)+1, len(text))
+	let rest = strings.Slice(text, at+RecordFence.Len()+1, text.Len())
 	let end = strings.Index(rest, "\n```")
 	if end < 0 {
 		return BadRequest{Path: path, Why: "its work-record block has no end"}
@@ -651,7 +652,7 @@ func blockOf(path string, text string) Option[RecordBlock] fails BadRequest {
 	case _:
 		return BadRequest{Path: path, Why: "its work-record block is not a record block"}
 	}
-	Some[RecordBlock]{Value: b}
+	option.Some[RecordBlock]{Value: b}
 }
 
 // Recorded is the record of a tip: its unit, branch, base and On, and the
@@ -659,19 +660,19 @@ func blockOf(path string, text string) Option[RecordBlock] fails BadRequest {
 // its block's intent, decisions, owed and notes, and each stated change's
 // why and tests; a request with no block gives its first line as the
 // intent. A change no request names has no why.
-func Recorded(unit string, branch string, tip string, base string, on []OnTip, changes []RecordChange, request Option[RequestText]) LaneRecord fails BadRequest {
+func Recorded(unit string, branch string, tip string, base string, on []OnTip, changes []RecordChange, request option.Option[RequestText]) LaneRecord fails BadRequest {
 	let mut r = LaneRecord{V: RecordVersion, Unit: unit, Branch: branch, Tip: tip, Base: base, On: on, Intent: "", Request: RequestRef{Path: "", Sha256: ""}, Decisions: []string{}, Changes: changes, Owed: []string{}, ForIntegrator: []string{}}
 	let req = match request {
-	case Some[RequestText] as q:
+	case option.Some[RequestText] as q:
 		q.Value
-	case None:
+	case option.None:
 		return r
 	}
 	r = LaneRecord{..r, Request: RequestRef{Path: req.Path, Sha256: hex.Encode(sha256.Sum(req.Text))}, Intent: strings.TrimSpace(strings.TrimLeft(strings.Split(strings.TrimSpace(req.Text), "\n")[0], "#"))}
 	let block = match try blockOf(req.Path, req.Text) {
-	case Some[RecordBlock] as b:
+	case option.Some[RecordBlock] as b:
 		b.Value
-	case None:
+	case option.None:
 		return r
 	}
 	let stated = optional(block.Changes, []StatedChange{})
@@ -698,16 +699,16 @@ law RequestWithoutABlockIsItsFirstLine(first string, rest string, units Map[int,
 	}
 	let body = strings.ReplaceAll(rest, "```", "'''")
 	let text = "# " + line + "\n\n" + body
-	let changes = UnitChanges("f", []Unit{}, unitsOf(units, false), None)
-	let r = Recorded("u", "b", "t", "s", []OnTip{}, changes, Some[RequestText]{Value: RequestText{Path: "r.md", Text: text}}) catch {
+	let changes = UnitChanges("f", []Unit{}, unitsOf(units, false), option.None)
+	let r = Recorded("u", "b", "t", "s", []OnTip{}, changes, option.Some[RequestText]{Value: RequestText{Path: "r.md", Text: text}}) catch {
 	case BadRequest:
 		return false
 	}
 	let mut plain = true
 	for c in r.Changes {
-		plain = plain && c.Why == "" && len(c.Tests) == 0
+		plain = plain && c.Why == "" && c.Tests.Len() == 0
 	}
-	r.Intent == line && plain && len(r.Changes) == len(changes) && r.Request.Sha256 == hex.Encode(sha256.Sum(text))
+	r.Intent == line && plain && r.Changes.Len() == changes.Len() && r.Request.Sha256 == hex.Encode(sha256.Sum(text))
 }
 
 // RequestText is a request file: its path as given and its text.
@@ -716,12 +717,12 @@ type RequestText { Path string, Text string }
 // requestOf is the request ready -request names, read from the working
 // folder; None for no -request. It is read before the push, so a request
 // that cannot be read hands nothing back.
-func requestOf(t Tool, path Option[string]) Option[RequestText] fails BadRequest {
+func requestOf(t Tool, path option.Option[string]) option.Option[RequestText] fails BadRequest {
 	let p = match path {
-	case Some[string] as given:
+	case option.Some[string] as given:
 		given.Value
-	case None:
-		return None
+	case option.None:
+		return option.None
 	}
 	let full = if filepath.IsAbs(p) { p } else { filepath.Join([]string{t.here, p}) }
 	let text = t.files.ReadFile(full) catch {
@@ -734,14 +735,14 @@ func requestOf(t Tool, path Option[string]) Option[RequestText] fails BadRequest
 	}
 	let req = RequestText{Path: p, Text: text}
 	let _ = try blockOf(p, text)
-	Some[RequestText]{Value: req}
+	option.Some[RequestText]{Value: req}
 }
 
 // recordOf is the record of the tip ready handed back for w: the change
 // set from the tree of w's base commit (none when it has none) to the
 // tip's, by work.toml's classes and languages (none when it does not
 // read), and On from the other active workspaces' branches in the parent.
-func recordOf(t Tool, w Workspace, branch string, tip string, request Option[RequestText]) LaneRecord fails VcsFailed | BadRequest | Unkept {
+func recordOf(t Tool, w Workspace, branch string, tip string, request option.Option[RequestText]) LaneRecord fails VcsFailed | BadRequest | Unkept {
 	let c = config(t) catch {
 	case BadConfig:
 		EmptyConfig()
@@ -800,7 +801,7 @@ func recordOf(t Tool, w Workspace, branch string, tip string, request Option[Req
 func Record(t Tool, tip string) LaneRecord fails NoBase | NoRevision | NoRecord | BadRecord | Unkept | VcsFailed {
 	try initialized(t)
 	let mut roots = []string{}
-	let here = chosen(t, None) catch {
+	let here = chosen(t, option.None) catch {
 	case NotHere, NoWorkspace, Unkept:
 		Workspace{Name: "", Id: "", Path: "", Parent: "", Branch: "", Cloner: "", State: Active, Since: 0, Base: "", Latest: "", Deps: "", Token: "", Moving: "", Pinned: false, Until: 0}
 	}

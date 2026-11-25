@@ -3,6 +3,7 @@
 // clock, so the studio's exit action holds the site for no wait.
 
 import gallery/gallery
+import option
 import sync
 
 // Drafts is the drafts saved, oldest first. Its field is a shared handle,
@@ -18,12 +19,12 @@ func Save(d Drafts, draft string) {
 }
 
 // Last is the draft last saved, or None before any save.
-func Last(d Drafts) Option[string] {
+func Last(d Drafts) option.Option[string] {
 	let v = d.saved.Get()
-	if len(v) == 0 {
-		return None
+	if v.Len() == 0 {
+		return option.None
 	}
-	Some[string]{Value: v[len(v)-1]}
+	option.Some[string]{Value: v[v.Len()-1]}
 }
 
 // All is every draft saved, oldest first.

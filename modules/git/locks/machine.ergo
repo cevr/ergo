@@ -1,3 +1,5 @@
+import machines
+
 // InitialLockState returns the starting Idle state with initial committed bytes.
 func InitialLockState(committed string) LockState {
 	LockState{
@@ -21,10 +23,10 @@ func isTerminalPhase(p LockPhase) bool {
 // ProtocolStep is the pure transition function of LockProtocol enforcing
 // exclusive ownership, sync-before-publish in Durable mode, uncertain-dirsync
 // visibility, and terminal-state finality.
-func ProtocolStep(s LockState, e LockEvent) Decision[LockState, LockPhase] {
+func ProtocolStep(s LockState, e LockEvent) machines.Decision[LockState, LockPhase] {
 	match (s.Phase, e) {
 	case (PhaseIdle, EvAcquire as acq):
-		Emit[LockState, LockPhase]{
+		machines.Emit[LockState, LockPhase]{
 			Next: LockState{
 				Phase:     PhaseHeld,
 				Mode:      acq.Mode,
@@ -35,9 +37,9 @@ func ProtocolStep(s LockState, e LockEvent) Decision[LockState, LockPhase] {
 			Output: PhaseHeld,
 		}
 	case (PhaseHeld, EvAcquire), (PhaseWritten, EvAcquire), (PhaseSynced, EvAcquire):
-		Reject
+		machines.Reject
 	case (PhaseHeld, EvWrite as w), (PhaseWritten, EvWrite as w):
-		Emit[LockState, LockPhase]{
+		machines.Emit[LockState, LockPhase]{
 			Next: LockState{
 				Phase:     PhaseWritten,
 				Mode:      s.Mode,
@@ -48,7 +50,7 @@ func ProtocolStep(s LockState, e LockEvent) Decision[LockState, LockPhase] {
 			Output: PhaseWritten,
 		}
 	case (PhaseWritten, EvSync):
-		Emit[LockState, LockPhase]{
+		machines.Emit[LockState, LockPhase]{
 			Next: LockState{
 				Phase:     PhaseSynced,
 				Mode:      s.Mode,
@@ -59,14 +61,14 @@ func ProtocolStep(s LockState, e LockEvent) Decision[LockState, LockPhase] {
 			Output: PhaseSynced,
 		}
 	case (PhaseSynced, EvSync):
-		Emit[LockState, LockPhase]{
+		machines.Emit[LockState, LockPhase]{
 			Next:   s,
 			Output: PhaseSynced,
 		}
 	case (PhaseWritten, EvPublish):
 		match s.Mode {
 		case Atomic:
-			Emit[LockState, LockPhase]{
+			machines.Emit[LockState, LockPhase]{
 				Next: LockState{
 					Phase:     PhasePublished,
 					Mode:      s.Mode,
@@ -77,10 +79,10 @@ func ProtocolStep(s LockState, e LockEvent) Decision[LockState, LockPhase] {
 				Output: PhasePublished,
 			}
 		case Durable:
-			Reject
+			machines.Reject
 		}
 	case (PhaseSynced, EvPublish):
-		Emit[LockState, LockPhase]{
+		machines.Emit[LockState, LockPhase]{
 			Next: LockState{
 				Phase:     PhasePublished,
 				Mode:      s.Mode,
@@ -91,7 +93,7 @@ func ProtocolStep(s LockState, e LockEvent) Decision[LockState, LockPhase] {
 			Output: PhasePublished,
 		}
 	case (PhasePublished, EvDirSync):
-		Emit[LockState, LockPhase]{
+		machines.Emit[LockState, LockPhase]{
 			Next: LockState{
 				Phase:     PhaseDurable,
 				Mode:      s.Mode,
@@ -102,7 +104,7 @@ func ProtocolStep(s LockState, e LockEvent) Decision[LockState, LockPhase] {
 			Output: PhaseDurable,
 		}
 	case (PhasePublished, EvDirSyncFail):
-		Emit[LockState, LockPhase]{
+		machines.Emit[LockState, LockPhase]{
 			Next: LockState{
 				Phase:     PhaseUncertain,
 				Mode:      s.Mode,
@@ -113,7 +115,7 @@ func ProtocolStep(s LockState, e LockEvent) Decision[LockState, LockPhase] {
 			Output: PhaseUncertain,
 		}
 	case (PhaseHeld, EvAbort), (PhaseWritten, EvAbort), (PhaseSynced, EvAbort):
-		Emit[LockState, LockPhase]{
+		machines.Emit[LockState, LockPhase]{
 			Next: LockState{
 				Phase:     PhaseAborted,
 				Mode:      s.Mode,
@@ -124,7 +126,7 @@ func ProtocolStep(s LockState, e LockEvent) Decision[LockState, LockPhase] {
 			Output: PhaseAborted,
 		}
 	case _:
-		Reject
+		machines.Reject
 	}
 }
 
@@ -135,9 +137,9 @@ type LockProtocol machine[LockState, LockEvent] {
 	step:    ProtocolStep,
 }
 
-func isRejected(d Decision[LockState, LockPhase]) bool {
+func isRejected(d machines.Decision[LockState, LockPhase]) bool {
 	match d {
-	case Reject:
+	case machines.Reject:
 		true
 	case _:
 		false
@@ -146,11 +148,11 @@ func isRejected(d Decision[LockState, LockPhase]) bool {
 
 func stepNext(s LockState, e LockEvent) (LockState, bool) {
 	match ProtocolStep(s, e) {
-	case Emit[LockState, LockPhase] as em:
+	case machines.Emit[LockState, LockPhase] as em:
 		(em.Next, true)
-	case Enter[LockState] as en:
+	case machines.Enter[LockState] as en:
 		(en.Next, true)
-	case Stay[LockState] as st:
+	case machines.Stay[LockState] as st:
 		(st.Next, true)
 	case _:
 		(s, false)

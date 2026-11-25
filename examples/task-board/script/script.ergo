@@ -25,6 +25,9 @@
 // A blank line or one that starts with # is skipped.
 
 import actor
+import core
+import machines
+import option
 import taskboard/board
 import taskboard/drag
 import taskboard/kanban
@@ -43,28 +46,28 @@ import ui
 // pointer is, what the live region last said, and what the pass of the
 // last line's own input did (not the pass Settle ends with).
 type Host {
-	view  ui.TestHost[kanban.Board, kanban.Signal, Decision[kanban.Board, []kanban.Command]],
-	app   actor.Actor[kanban.Board, kanban.Signal, Decision[kanban.Board, []kanban.Command]],
+	view  ui.TestHost[kanban.Board, kanban.Signal, machines.Decision[kanban.Board, []kanban.Command]],
+	app   actor.Actor[kanban.Board, kanban.Signal, machines.Decision[kanban.Board, []kanban.Command]],
 	asked queue.Queue[[]kanban.Command],
 	Made  int,
 	X     float64,
 	Y     float64,
 	said  string,
 	acted ui.Stats,
-} implements Closer
+} implements core.Closer
 
 // Unread is a line the host cannot read or play.
 type Unread { Why string }
 
-func noTimer(b kanban.Board) Option[Timeout[kanban.Signal]] { None }
+func noTimer(b kanban.Board) option.Option[machines.Timeout[kanban.Signal]] { option.None }
 
-func noWork(b kanban.Board) Option[func(send func(s kanban.Signal))] { None }
+func noWork(b kanban.Board) option.Option[func(send func(s kanban.Signal))] { option.None }
 
 // Open starts the program on columns on a test host on clock. The actor's
 // output goes to a queue the host answers from (Answer).
-func Open(columns []board.Column, clock time.Manual) Host fails Unread needs Scheduler {
+func Open(columns []board.Column, clock time.Manual) Host fails Unread needs time.Scheduler {
 	let asked = queue.New[[]kanban.Command](256)
-	let m = Machine[kanban.Board, kanban.Signal, []kanban.Command]{Initial: kanban.Start(columns), Step: kanban.Step, After: noTimer, Work: noWork, Exit: func(s kanban.Board) Option[func()] { None }}
+	let m = machines.Machine[kanban.Board, kanban.Signal, []kanban.Command]{Initial: kanban.Start(columns), Step: kanban.Step, After: noTimer, Work: noWork, Exit: func(s kanban.Board) option.Option[func()] { option.None }}
 	let app = actor.StartMachine(m, 16, func(o []kanban.Command) {
 		asked.Push(o) catch {
 		case queue.Closed:
@@ -89,21 +92,21 @@ func Board(h mut Host) kanban.Board { ui.StateOf(&h.view) }
 // board when nothing is saved), reads the script from io.Stdin and plays
 // it, printing each line as `> LINE` and what it did, and the board at the
 // end. It returns the exit status: 0, or 1 at a line it cannot read.
-func Run(clock time.Manual) int needs Console | io.Stdin | board.Store | Scheduler {
+func Run(clock time.Manual) int needs io.Console | io.Stdin | board.Store | time.Scheduler {
 	let start = board.Store.Load() catch {
 	case board.Broken as b:
-		Console.Println("? the saved board cannot be read (\(b.Why)); starting from the default board")
-		None
+		io.Console.Println("? the saved board cannot be read (\(b.Why)); starting from the default board")
+		option.None
 	}
 	let columns = match start {
-	case Some[[]board.Column] as s:
+	case option.Some[[]board.Column] as s:
 		s.Value
-	case None:
+	case option.None:
 		board.Defaults
 	}
 	let mut h = Open(columns, clock) catch {
 	case Unread as u:
-		Console.Println("? \(u.Why)")
+		io.Console.Println("? \(u.Why)")
 		return 1
 	}
 	let mut n = 0
@@ -115,18 +118,18 @@ func Run(clock time.Manual) int needs Console | io.Stdin | board.Store | Schedul
 		}
 		let out = Play(&h, line, raw) catch {
 		case Unread as u:
-			Console.Println("? line \(n): \(u.Why)")
+			io.Console.Println("? line \(n): \(u.Why)")
 			Close(&h)
 			return 1
 		}
-		Console.Println("> " + line)
+		io.Console.Println("> " + line)
 		for l in out {
-			Console.Println("  " + l)
+			io.Console.Println("  " + l)
 		}
 	}
-	Console.Println("> end")
+	io.Console.Println("> end")
 	for l in Show(&h) {
-		Console.Println("  " + l)
+		io.Console.Println("  " + l)
 	}
 	Close(&h)
 	0
@@ -138,7 +141,7 @@ func Run(clock time.Manual) int needs Console | io.Stdin | board.Store | Schedul
 func Play(h mut Host, line string, raw string) []string fails Unread needs board.Store {
 	let before = Board(h)
 	let w = strings.Fields(line)
-	let rest = strings.TrimPrefix(raw[strings.Index(raw, w[0])+len(w[0]):], " ")
+	let rest = strings.TrimPrefix(raw[strings.Index(raw, w[0])+w[0].Len():], " ")
 	let mut out = []string{}
 	if w[0] == "show" {
 		return Show(h)
@@ -193,11 +196,11 @@ func act(h mut Host, b kanban.Board, w []string, rest string) fails Unread | act
 	case "escape":
 		try key(h, "Escape", false)
 	case "lift":
-		if len(w) != 2 {
+		if w.Len() != 2 {
 			return Unread{Why: "lift is lift CARD"}
 		}
 		let title = board.Title(b.Columns, w[1])
-		if board.Where(b.Columns, w[1]) == None {
+		if board.Where(b.Columns, w[1]) == option.None {
 			return Unread{Why: "the board has no card \(w[1])"}
 		}
 		try tap(h, title, 0)
@@ -216,7 +219,7 @@ func act(h mut Host, b kanban.Board, w []string, rest string) fails Unread | act
 	case "drop":
 		try key(h, " ", false)
 	case "add":
-		if len(w) != 2 {
+		if w.Len() != 2 {
 			return Unread{Why: "add is add COLUMN"}
 		}
 		// Each column without the form open shows one add button, in
@@ -228,7 +231,7 @@ func act(h mut Host, b kanban.Board, w []string, rest string) fails Unread | act
 			if c.ID == w[1] {
 				k = seen
 			}
-			if b.Adding != (Some{Value: c.ID}) {
+			if b.Adding != (option.Some{Value: c.ID}) {
 				seen = seen + 1
 			}
 		}
@@ -238,7 +241,7 @@ func act(h mut Host, b kanban.Board, w []string, rest string) fails Unread | act
 		try tap(h, screen.AddLabel, k)
 	case "type":
 		let ids = ui.Locate(&h.view, ui.WithPlaceholder{Text: screen.TitleLabel})
-		if len(ids) == 0 {
+		if ids.Len() == 0 {
 			return Unread{Why: "the form is shut"}
 		}
 		try ui.TypeText(&h.view, ids[0], rest)
@@ -265,22 +268,22 @@ let Top = 60.0
 // aim is where the line points: a card's middle or a half of it, a
 // column below its cards, off the columns, or the point X Y.
 func aim(b kanban.Board, w []string) (float64, float64) fails Unread {
-	if len(w) == 3 && w[2] != "upper" && w[2] != "lower" {
+	if w.Len() == 3 && w[2] != "upper" && w[2] != "lower" {
 		return (float64(try num(w[1])), float64(try num(w[2])))
 	}
-	if len(w) < 2 || len(w) > 3 {
+	if w.Len() < 2 || w.Len() > 3 {
 		return Unread{Why: "\(w[0]) is \(w[0]) CARD, \(w[0]) X Y, or move COLUMN, move CARD upper|lower, move off"}
 	}
 	if w[1] == "off" {
-		return (Column*float64(len(b.Columns)) + 50.0, 100.0)
+		return (Column*float64(b.Columns.Len()) + 50.0, 100.0)
 	}
 	for c, col in b.Columns {
-		if col.ID == w[1] && len(w) == 2 {
+		if col.ID == w[1] && w.Len() == 2 {
 			return (Column*float64(c) + 100.0, 950.0)
 		}
 		for i, card in col.Cards {
 			if card.ID == w[1] {
-				let dy = if len(w) == 3 && w[2] == "upper" { 10.0 } else if len(w) == 3 { 30.0 } else { 20.0 }
+				let dy = if w.Len() == 3 && w[2] == "upper" { 10.0 } else if w.Len() == 3 { 30.0 } else { 20.0 }
 				return (Column*float64(c) + 100.0, Top + Pitch*float64(i) + dy)
 			}
 		}
@@ -297,18 +300,18 @@ func pointAt(h mut Host, b kanban.Board, x float64, y float64, phase ui.Phase) f
 	h.X = x
 	h.Y = y
 	let areas = ui.Locate(&h.view, ui.WithLabel{Label: screen.Label})
-	if len(areas) == 0 {
+	if areas.Len() == 0 {
 		return Unread{Why: "the screen has no board"}
 	}
-	let p = ui.PointerEvent{Pointer: ui.MousePointer, Phase: phase, X: x, Y: y, Zone: None}
+	let p = ui.PointerEvent{Pointer: ui.MousePointer, Phase: phase, X: x, Y: y, Zone: option.None}
 	match Box(b, x, y) {
-	case Some[Hit] as hit:
+	case option.Some[Hit] as hit:
 		let zones = ui.Locate(&h.view, ui.WithZone{Key: ui.ByText(hit.Value.Key)})
-		if len(zones) == 0 {
+		if zones.Len() == 0 {
 			return Unread{Why: "the screen has no zone \(hit.Value.Key)"}
 		}
 		try ui.PointOver(&h.view, areas[0], zones[0], hit.Value.Box, p)
-	case None:
+	case option.None:
 		try ui.PointAt(&h.view, areas[0], p)
 	}
 }
@@ -318,24 +321,24 @@ func pointAt(h mut Host, b kanban.Board, x float64, y float64, phase ui.Phase) f
 type Hit { Key string, Box ui.Rect }
 
 // Box is the host's hit test of its layout at x, y.
-func Box(b kanban.Board, x float64, y float64) Option[Hit] {
+func Box(b kanban.Board, x float64, y float64) option.Option[Hit] {
 	if x < 0.0 || y < 0.0 || y >= 1000.0 {
-		return None
+		return option.None
 	}
 	let c = int(x / Column)
-	if c >= len(b.Columns) || x-Column*float64(c) >= Column-20.0 {
-		return None
+	if c >= b.Columns.Len() || x-Column*float64(c) >= Column-20.0 {
+		return option.None
 	}
 	let col = b.Columns[c]
 	let left = Column * float64(c)
 	if y >= Top {
 		let i = int((y - Top) / Pitch)
 		let inside = x-left >= 10.0 && x-left < Column-30.0
-		if inside && i < len(col.Cards) && y-Top-Pitch*float64(i) < Card {
-			return Some{Value: Hit{Key: col.Cards[i].ID, Box: ui.Rect{X: ui.Length(left + 10.0), Y: ui.Length(Top + Pitch*float64(i)), W: ui.Length(Column - 40.0), H: ui.Length(Card)}}}
+		if inside && i < col.Cards.Len() && y-Top-Pitch*float64(i) < Card {
+			return option.Some{Value: Hit{Key: col.Cards[i].ID, Box: ui.Rect{X: ui.Length(left + 10.0), Y: ui.Length(Top + Pitch*float64(i)), W: ui.Length(Column - 40.0), H: ui.Length(Card)}}}
 		}
 	}
-	Some{Value: Hit{Key: col.ID, Box: ui.Rect{X: ui.Length(left), Y: ui.Length(0.0), W: ui.Length(Column - 20.0), H: ui.Length(1000.0)}}}
+	option.Some{Value: Hit{Key: col.ID, Box: ui.Rect{X: ui.Length(left), Y: ui.Length(0.0), W: ui.Length(Column - 20.0), H: ui.Length(1000.0)}}}
 }
 
 func key(h mut Host, name string, shift bool) fails actor.Stopped | ui.BadPatch {
@@ -345,7 +348,7 @@ func key(h mut Host, name string, shift bool) fails actor.Stopped | ui.BadPatch 
 // tap presses the k'th button named name.
 func tap(h mut Host, name string, k int) fails Unread | actor.Stopped | ui.BadPatch {
 	let ids = ui.Locate(&h.view, ui.WithRole{Role: ui.Button, Name: name})
-	if k >= len(ids) {
+	if k >= ids.Len() {
 		return Unread{Why: "the screen has no button \(name)"}
 	}
 	try ui.Tap(&h.view, ids[k])
@@ -361,7 +364,7 @@ func answer(h mut Host) []string fails Unread needs board.Store {
 		// what they asked is in the queue after it.
 		let at = Board(h)
 		match h.asked.Poll() {
-		case Some[[]kanban.Command] as asked:
+		case option.Some[[]kanban.Command] as asked:
 			for c in asked.Value {
 				let (line, sig) = reply(h, at, c)
 				out = out.Append("asks: " + line)
@@ -370,7 +373,7 @@ func answer(h mut Host) []string fails Unread needs board.Store {
 					return Unread{Why: "the program stopped"}
 				}
 			}
-		case None:
+		case option.None:
 			ui.Settle(&h.view) catch {
 			case actor.Stopped:
 				return Unread{Why: "the program stopped"}
@@ -421,9 +424,9 @@ func Phase(s drag.State) string {
 		"pressed \(p.Item)"
 	case drag.Dragging as g:
 		let over = match g.Target {
-		case Some[drag.Target] as t:
+		case option.Some[drag.Target] as t:
 			"over \(t.Value.Container) \(t.Value.Index)"
-		case None:
+		case option.None:
 			"over nothing"
 		}
 		"dragging \(g.Item) \(over)"
@@ -435,9 +438,9 @@ func Phase(s drag.State) string {
 // Form is how the form shows.
 func Form(b kanban.Board) string {
 	match b.Adding {
-	case Some[string] as c:
+	case option.Some[string] as c:
 		"open on \(c.Value), title \"\(b.Title)\""
-	case None:
+	case option.None:
 		"shut"
 	}
 }
@@ -446,7 +449,7 @@ func Form(b kanban.Board) string {
 // has none.
 func Live(h mut Host) string {
 	let ids = ui.Locate(&h.view, ui.WithRole{Role: ui.Status, Name: ""})
-	if len(ids) == 0 {
+	if ids.Len() == 0 {
 		return ""
 	}
 	ui.AccessAt(&h.view, ids[0]).Name
@@ -477,9 +480,9 @@ func columns(s ui.Shape[kanban.Signal]) []string {
 			case _:
 			}
 		}
-		let name = if len(texts) > 0 { texts[0] } else { "?" }
-		let count = if len(texts) > 1 { texts[1] } else { "?" }
-		let list = if len(cards) == 0 { "" } else { " " + strings.Join(cards, " ") }
+		let name = if texts.Len() > 0 { texts[0] } else { "?" }
+		let count = if texts.Len() > 1 { texts[1] } else { "?" }
+		let list = if cards.Len() == 0 { "" } else { " " + strings.Join(cards, " ") }
 		[]string{"\(name) (\(count)):" + list}
 	case _:
 		let mut out = []string{}
@@ -515,7 +518,7 @@ func keyName(k ui.Key) string {
 law PointerDropLandsWhereShown(card int where 1 <= card && card <= 17, to int where 0 <= to && to <= 2, spot int where 0 <= spot && spot <= 6, lower bool) {
 	let shelf = memory.NewShelf()
 	let m = time.NewManual(0)
-	with context { board.Store: shelf, Scheduler: m } {
+	with context { board.Store: shelf, time.Scheduler: m } {
 		lands(card, to, spot, lower, shelf, m)
 	}
 }
@@ -527,12 +530,12 @@ law PointerDropLandsWhereShown(card int where 1 <= card && card <= 17, to int wh
 // move's own pass (Host.acted), not of the pass Settle ends with.
 law AMoveRunsNoCard(card int where 1 <= card && card <= 17, a int where 0 <= a && a <= 2, b int where 0 <= b && b <= 2) {
 	let m = time.NewManual(0)
-	with context { board.Store: memory.NewShelf(), Scheduler: m } {
+	with context { board.Store: memory.NewShelf(), time.Scheduler: m } {
 		movesRunNoCard("card-\(card)", board.Defaults[a].ID, board.Defaults[b].ID, m)
 	}
 }
 
-func movesRunNoCard(item string, a string, b string, m time.Manual) bool needs board.Store | Scheduler {
+func movesRunNoCard(item string, a string, b string, m time.Manual) bool needs board.Store | time.Scheduler {
 	let mut h = Open(board.Defaults, m) catch {
 	case Unread:
 		return false
@@ -550,12 +553,12 @@ func movesRunNoCard(item string, a string, b string, m time.Manual) bool needs b
 	ok && s.Skipped == 17
 }
 
-func lands(card int, to int, spot int, lower bool, shelf memory.Shelf, m time.Manual) bool needs board.Store | Scheduler {
+func lands(card int, to int, spot int, lower bool, shelf memory.Shelf, m time.Manual) bool needs board.Store | time.Scheduler {
 	let item = "card-\(card)"
 	let from = match board.Where(board.Defaults, item) {
-	case Some[board.Spot] as s:
+	case option.Some[board.Spot] as s:
 		s.Value
-	case None:
+	case option.None:
 		return false
 	}
 	let col = board.Defaults[to]
@@ -563,7 +566,7 @@ func lands(card int, to int, spot int, lower bool, shelf memory.Shelf, m time.Ma
 	let mut target = col.ID
 	let mut index = 0
 	for x in col.Cards {
-		if spot < len(col.Cards) && x.ID == col.Cards[spot].ID {
+		if spot < col.Cards.Len() && x.ID == col.Cards[spot].ID {
 			target = x.ID + if lower { " lower" } else { " upper" }
 			if x.ID != item && lower {
 				index = index + 1
@@ -611,7 +614,7 @@ func lines(columns []board.Column) []string {
 		for x in c.Cards {
 			ids = ids + " " + x.ID
 		}
-		out = out.Append("\(c.Name) (\(len(c.Cards))):" + ids)
+		out = out.Append("\(c.Name) (\(c.Cards.Len())):" + ids)
 	}
 	out
 }

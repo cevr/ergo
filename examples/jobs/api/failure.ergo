@@ -1,6 +1,7 @@
 import http
 import jobsapp/jobs
 import json
+import option
 
 // A row can name failures from several packages. A declared union cannot:
 // its variants belong to its own package. This private carrier lets the law
@@ -30,5 +31,5 @@ law FailuresCoverContract(f contractFailure) {
 	case _:
 		return false
 	}
-	http.StatusOf(Failures, tag) != None
+	http.StatusOf(Failures, tag) != option.None
 }

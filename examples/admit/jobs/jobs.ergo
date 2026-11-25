@@ -4,6 +4,7 @@
 // payloads (Checker) are contracts with laws; a provider package supplies
 // each, and cmd/admit chooses them.
 
+import option
 import strconv
 import strings
 
@@ -24,10 +25,10 @@ func Parse(text string) []Job fails BadLine {
 	let mut out = []Job{}
 	for n, l in strings.Split(text, "\n") {
 		let f = strings.Fields(l)
-		if len(f) == 0 {
+		if f.Len() == 0 {
 			continue
 		}
-		if len(f) != 3 {
+		if f.Len() != 3 {
 			return BadLine{Line: n + 1, Text: l}
 		}
 		let w = strconv.Atoi(f[1]) catch {
@@ -44,31 +45,31 @@ func Parse(text string) []Job fails BadLine {
 
 // Problem is what is wrong with a payload, or None for a list of numbers
 // of at least 0. It is the reference every Checker agrees with.
-func Problem(payload string) Option[string] {
+func Problem(payload string) option.Option[string] {
 	for f in strings.Split(payload, ",") {
 		let v = strconv.Atoi(f) catch {
 		case strconv.Malformed:
-			return Some[string]{Value: "\"\(f)\" is not a number"}
+			return option.Some[string]{Value: "\"\(f)\" is not a number"}
 		case strconv.OutOfRange:
-			return Some[string]{Value: "\(f) is too large"}
+			return option.Some[string]{Value: "\(f) is too large"}
 		}
 		if v < 0 {
-			return Some[string]{Value: "\(f) is negative"}
+			return option.Some[string]{Value: "\(f) is negative"}
 		}
 	}
-	None
+	option.None
 }
 
 // FirstBad is the first job, in order, whose payload has a problem.
-func FirstBad(jobs []Job) Option[BadPayload] {
+func FirstBad(jobs []Job) option.Option[BadPayload] {
 	for j in jobs {
 		match Problem(j.Payload) {
-		case Some[string] as p:
-			return Some[BadPayload]{Value: BadPayload{Name: j.Name, Reason: p.Value}}
-		case None:
+		case option.Some[string] as p:
+			return option.Some[BadPayload]{Value: BadPayload{Name: j.Name, Reason: p.Value}}
+		case option.None:
 		}
 	}
-	None
+	option.None
 }
 
 // Checker checks the payloads of a list of jobs.
@@ -91,7 +92,7 @@ func NamesFirstBad(payloads []string) bool needs Checker {
 	let want = FirstBad(jobs)
 	Checker.Check(jobs) catch {
 	case BadPayload as b:
-		return want == Some[BadPayload]{Value: b}
+		return want == option.Some[BadPayload]{Value: b}
 	}
-	want == None
+	want == option.None
 }

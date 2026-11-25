@@ -5,6 +5,7 @@
 // log of transitions, newest first. The machine's graph is not drawn: it
 // is `ergo inspect machine ./permit` (README, The graph).
 
+import option
 import permitwizard/desk
 import permitwizard/permit
 import ui
@@ -141,9 +142,9 @@ func step(f mut ui.Frame[desk.Signal], s permit.Stage, typed string) {
 func code(f mut ui.Frame[desk.Signal], typed string) {
 	ui.Input(f, typed, CodePlaceholder, func(t string) desk.Signal { desk.Typed{Text: t} })
 	let applied permit.Signal = match permit.ParseCode(typed) {
-	case Some[permit.Allowance] as a:
+	case option.Some[permit.Allowance] as a:
 		permit.Applied{Allowance: a.Value}
-	case None:
+	case option.None:
 		permit.Unknown
 	}
 	button(f, ApplyLabel, applied)
@@ -153,7 +154,7 @@ func code(f mut ui.Frame[desk.Signal], typed string) {
 func inspector(f mut ui.Frame[desk.Signal], d desk.Desk) {
 	heading(f, InspectorTitle, 2)
 	ui.Text(f, "Stage: \(desk.StageName(d.Stage))")
-	ui.Semantic(f, named(ui.List, LogName, None), None, ui.Plain()) {
+	ui.Semantic(f, named(ui.List, LogName, option.None), option.None, ui.Plain()) {
 		ui.Each(f, d.Log, func(e desk.Entry) ui.Key { ui.ByInt(e.ID) }) func(e desk.Entry) {
 			ui.Same(f, ui.ByInt(e.ID)) {
 				ui.Text(f, "\(e.ID): \(e.Summary)")
@@ -163,7 +164,7 @@ func inspector(f mut ui.Frame[desk.Signal], d desk.Desk) {
 }
 
 func heading(f mut ui.Frame[desk.Signal], text string, level int) {
-	ui.Semantic(f, named(ui.Heading, text, Some{Value: level}), None, ui.Plain()) {
+	ui.Semantic(f, named(ui.Heading, text, option.Some{Value: level}), option.None, ui.Plain()) {
 		ui.Text(f, text)
 	}
 }
@@ -175,6 +176,6 @@ func button(f mut ui.Frame[desk.Signal], label string, on permit.Signal) {
 }
 
 // named is the access of a container with a role and a name.
-func named(role ui.Role, name string, level Option[int]) ui.Access {
-	ui.Access{Role: role, Name: name, Disabled: false, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: level, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: ui.NoKey, Rels: []ui.Rel{}}
+func named(role ui.Role, name string, level option.Option[int]) ui.Access {
+	ui.Access{Role: role, Name: name, Disabled: false, Description: "", Checked: option.None, Value: option.None, Selected: option.None, Expanded: option.None, Pressed: option.None, Invalid: false, Busy: false, HasPopup: false, Level: level, Mixed: false, Current: option.None, Modal: false, MultiSelectable: false, Range: option.None, Key: ui.NoKey, Rels: []ui.Rel{}}
 }

@@ -4,6 +4,7 @@
 // path-limited log (G-GRAPH).
 
 import github.com/cevr/ergo/modules/git/oid
+import option
 
 // Error is the closed failure union for commit-graph parsing, split-chain
 // loading, and path-limited log queries.
@@ -79,8 +80,8 @@ type Chain {
 // carrying laws held identically by Chain and MemoryGraph.
 type GraphReader {
 	CommitCount() int,
-	At(i int) Option[CommitInfo],
-	Lookup(id oid.OID) Option[CommitInfo],
+	At(i int) option.Option[CommitInfo],
+	Lookup(id oid.OID) option.Option[CommitInfo],
 
 	// LookupFindsAllCommits: every commit at 0..CommitCount() is found by
 	// Lookup with identical OID, TreeOID, Generation, CommitTime, and parent count.
@@ -88,18 +89,18 @@ type GraphReader {
 		let n = CommitCount()
 		for i in 0..n {
 			match At(i) {
-			case None:
+			case option.None:
 				return false
-			case Some[CommitInfo] as c:
+			case option.Some[CommitInfo] as c:
 				match Lookup(c.Value.OID) {
-				case None:
+				case option.None:
 					return false
-				case Some[CommitInfo] as got:
+				case option.Some[CommitInfo] as got:
 					if !oid.Equal(got.Value.OID, c.Value.OID) ||
 						!oid.Equal(got.Value.TreeOID, c.Value.TreeOID) ||
 						got.Value.Generation != c.Value.Generation ||
 						got.Value.CommitTime != c.Value.CommitTime ||
-						len(got.Value.Parents) != len(c.Value.Parents) {
+						got.Value.Parents.Len() != c.Value.Parents.Len() {
 						return false
 					}
 				}
@@ -115,16 +116,16 @@ type GraphReader {
 		let maxGen = uint32(0x3fffffff)
 		for i in 0..n {
 			match At(i) {
-			case None:
+			case option.None:
 				return false
-			case Some[CommitInfo] as c:
+			case option.Some[CommitInfo] as c:
 				if c.Value.Generation == uint32(0) || c.Value.Generation >= maxGen {
 					continue
 				}
 				for p in c.Value.Parents {
 					match Lookup(p) {
-					case None:
-					case Some[CommitInfo] as pc:
+					case option.None:
+					case option.Some[CommitInfo] as pc:
 						if pc.Value.Generation > uint32(0) && pc.Value.Generation >= c.Value.Generation {
 							return false
 						}
@@ -139,27 +140,27 @@ type GraphReader {
 	law MissingCommitReturnsNone() {
 		let n = CommitCount()
 		if n == 0 {
-			return Lookup(oid.Zero(oid.Sha1)) == None && Lookup(oid.Zero(oid.Sha256)) == None
+			return Lookup(oid.Zero(oid.Sha1)) == option.None && Lookup(oid.Zero(oid.Sha256)) == option.None
 		}
 		match At(0) {
-		case None:
+		case option.None:
 			false
-		case Some[CommitInfo] as first:
+		case option.Some[CommitInfo] as first:
 			let probe = oid.Zero(first.Value.OID.Format)
 			let mut exists = false
 			for i in 0..n {
 				match At(i) {
-				case Some[CommitInfo] as c:
+				case option.Some[CommitInfo] as c:
 					if oid.Equal(c.Value.OID, probe) {
 						exists = true
 					}
-				case None:
+				case option.None:
 				}
 			}
 			if exists {
 				true
 			} else {
-				Lookup(probe) == None
+				Lookup(probe) == option.None
 			}
 		}
 	},

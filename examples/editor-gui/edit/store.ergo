@@ -57,8 +57,8 @@ func OpenDoc(name string) string fails Unreadable | NotText needs Store {
 // valid rune, or -1 when the text is UTF-8.
 func FirstInvalid(text string) int {
 	let mut at = 0
-	for at < len(text) {
-		let r = utf8.DecodeRuneInString(strings.Slice(text, at, len(text)))
+	for at < text.Len() {
+		let r = utf8.DecodeRuneInString(strings.Slice(text, at, text.Len()))
 		if r.Rune == '\uFFFD' && r.Size == 1 {
 			return at
 		}

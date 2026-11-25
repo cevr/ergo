@@ -3,6 +3,7 @@
 // recursive tree walking, and path lookup (G-TREE).
 
 import github.com/cevr/ergo/modules/git/oid
+import option
 
 // Error is the closed failure union for tree, commit, tag, signature parsing,
 // peeling, and recursive tree walking.
@@ -61,7 +62,7 @@ type Tag {
 	Target     oid.OID,
 	TargetKind oid.Kind,
 	Name       string,
-	Tagger     Option[Signature],
+	Tagger     option.Option[Signature],
 	Message    string,
 }
 
@@ -72,7 +73,7 @@ type WalkEntry {
 	Mode Mode,
 	Kind oid.Kind,
 	OID  oid.OID,
-	Size Option[int],
+	Size option.Option[int],
 }
 
 // ModeOctal returns the canonical 6-digit octal string for m (`040000`,
@@ -147,7 +148,7 @@ type TreeWalker {
 	StoreBlob(data []byte) oid.OID fails StoreError,
 	StoreTree(entries []Entry) oid.OID fails InvalidEntryName | DuplicateEntry | StoreError,
 	Walk(rootTree oid.OID, maxDepth int, maxBytes int) []WalkEntry fails CorruptTree | InvalidEntryName | UnsortedTree | DuplicateEntry | WrongKind | DepthExceeded | MissingObject | StoreError,
-	Lookup(rootTree oid.OID, relPath string, maxBytes int) Option[Entry] fails CorruptTree | InvalidEntryName | UnsortedTree | DuplicateEntry | WrongKind | DepthExceeded | MissingObject | StoreError,
+	Lookup(rootTree oid.OID, relPath string, maxBytes int) option.Option[Entry] fails CorruptTree | InvalidEntryName | UnsortedTree | DuplicateEntry | WrongKind | DepthExceeded | MissingObject | StoreError,
 
 	// WalkOrderMatchesCanonicalSort: recursively walking a nested tree with
 	// Git's tricky directory-vs-file boundary names yields entries in strict
@@ -181,7 +182,7 @@ type TreeWalker {
 		case CorruptTree, InvalidEntryName, UnsortedTree, DuplicateEntry, WrongKind, DepthExceeded, MissingObject, StoreError:
 			return false
 		}
-		if len(walked) != 5 {
+		if walked.Len() != 5 {
 			return false
 		}
 			walked[0].Path == "a-file" &&
@@ -222,9 +223,9 @@ type TreeWalker {
 				return false
 			}
 			match found {
-			case None:
+			case option.None:
 				return false
-			case Some[Entry] as e:
+			case option.Some[Entry] as e:
 				if !oid.Equal(e.Value.OID, w.OID) || ModeOctal(e.Value.Mode) != ModeOctal(w.Mode) {
 					return false
 				}
@@ -234,6 +235,6 @@ type TreeWalker {
 		case CorruptTree, InvalidEntryName, UnsortedTree, DuplicateEntry, WrongKind, DepthExceeded, MissingObject, StoreError:
 			return false
 		}
-		absent == None
+		absent == option.None
 	},
 }

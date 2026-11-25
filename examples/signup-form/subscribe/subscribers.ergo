@@ -1,3 +1,4 @@
+import core
 import strings
 
 // Subscription is what a submit sends: the name typed (possibly empty), the
@@ -24,13 +25,13 @@ let Probes = []string{"test@example.com", "Demo@Email.com", "new@example.org", "
 
 // TakenIgnoresCase is the law TakenIgnoresCase as a function.
 func TakenIgnoresCase(n int) bool needs Subscribers {
-	let text = Probes[((n%len(Probes))+len(Probes))%len(Probes)]
+	let text = Probes[((n%Probes.Len())+Probes.Len())%Probes.Len()]
 	let a = ParseEmail(text) catch {
-	case Unsatisfied:
+	case core.Unsatisfied:
 		return false
 	}
 	let b = ParseEmail(strings.ToUpper(text)) catch {
-	case Unsatisfied:
+	case core.Unsatisfied:
 		return false
 	}
 	Subscribers.Taken(a) == Subscribers.Taken(b)

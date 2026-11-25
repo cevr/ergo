@@ -2,6 +2,7 @@
 // laws.
 
 import machines
+import option
 import rand
 import strings
 
@@ -20,7 +21,7 @@ func row(y int, xs []int) []Point {
 }
 
 test ATickMovesTheHead {
-	with context { Random: rand.Seeded(1) } {
+	with context { rand.Random: rand.Seeded(1) } {
 		match Advance(world(row(1, []int{2, 1, 0}), Right, Point{X: 5, Y: 3})) {
 		case Playing as p:
 			assert Key(Playing{W: p.W}) == "playing 0 food 5,3 body 3,1 2,1 1,1 RR"
@@ -79,10 +80,10 @@ func causeName(c Cause) string {
 }
 
 test EatingGrowsAndScores {
-	with context { Random: rand.Seeded(1) } {
+	with context { rand.Random: rand.Seeded(1) } {
 		match Advance(world(row(1, []int{2, 1, 0}), Right, Point{X: 3, Y: 1})) {
 		case Playing as p:
-			assert len(p.W.Body) == 4 && p.W.Score == 1 && !Holds(p.W.Body, p.W.Food)
+			assert p.W.Body.Len() == 4 && p.W.Score == 1 && !Holds(p.W.Body, p.W.Food)
 		case Title, Paused, Over:
 			assert false
 		}
@@ -91,7 +92,7 @@ test EatingGrowsAndScores {
 
 // causeOf is the cause of the end of the tick of w, or "playing".
 func causeOf(w World) string {
-	with context { Random: rand.Seeded(1) } {
+	with context { rand.Random: rand.Seeded(1) } {
 		match Advance(w) {
 		case Over as o:
 			causeName(o.Why)
@@ -117,7 +118,7 @@ test FillingTheBoardWins {
 }
 
 test TwoTurnsCannotReverse {
-	with context { Random: rand.Seeded(3) } {
+	with context { rand.Random: rand.Seeded(3) } {
 		let start Mode = Playing{W: world(row(1, []int{2, 1, 0}), Right, Point{X: 5, Y: 3})}
 		let up = machines.Next(start, Step(start, Turn{To: Up}))
 		assert Word(Step(up, Turn{To: Left})) == "reject"
@@ -127,7 +128,7 @@ test TwoTurnsCannotReverse {
 }
 
 test PauseHoldsTheGame {
-	with context { Random: rand.Seeded(3) } {
+	with context { rand.Random: rand.Seeded(3) } {
 		let start Mode = Playing{W: world(row(1, []int{2, 1, 0}), Right, Point{X: 5, Y: 3})}
 		let paused = machines.Next(start, Step(start, Pause))
 		assert Word(Step(paused, Tick)) == "ignore" && Word(Step(paused, Turn{To: Up})) == "reject"
@@ -153,6 +154,6 @@ test ReplaysReachTheWallAndEat {
 			}
 		}
 	}
-	let yes = Some[bool]{Value: true}
+	let yes = option.Some[bool]{Value: true}
 	assert ends.Get("wall") == yes && best >= 2
 }

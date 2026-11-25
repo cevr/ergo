@@ -3,6 +3,7 @@
 // source of the CSV text is a contract, Source, that a binary binds.
 
 import csv
+import option
 import strconv
 import strings
 
@@ -36,14 +37,14 @@ func Load(text string) []Reading fails csv.ParseError | MissingColumn | BadNumbe
 		case csv.Malformed as m:
 			return m.Error
 		case csv.Parsed as p:
-			if len(at) == 0 {
+			if at.Len() == 0 {
 				at = try header(p.Fields)
 				continue
 			}
 			out = out.Append(try reading(p, at))
 		}
 	}
-	if len(at) == 0 {
+	if at.Len() == 0 {
 		return MissingColumn{Name: columns[0]}
 	}
 	out
@@ -124,15 +125,15 @@ func ParseHundredths(text string) int64 fails NotFixed {
 	let mut whole = text
 	let mut frac = ""
 	match cut {
-	case Some[strings.Halves] as h:
+	case option.Some[strings.Halves] as h:
 		whole = h.Value.Before
 		frac = h.Value.After
-		if len(frac) == 0 || len(frac) > 2 {
+		if frac.Len() == 0 || frac.Len() > 2 {
 			return NotFixed
 		}
-	case None:
+	case option.None:
 	}
-	if len(whole) == 0 || len(whole) > 15 || !digits(whole) || !digits(frac) {
+	if whole.Len() == 0 || whole.Len() > 15 || !digits(whole) || !digits(frac) {
 		return NotFixed
 	}
 	let u = strconv.ParseInt(whole, 10, 64) catch {
@@ -144,7 +145,7 @@ func ParseHundredths(text string) int64 fails NotFixed {
 	let mut f = int64(0)
 	for i in 0..2 {
 		f = f * 10
-		if i < len(frac) {
+		if i < frac.Len() {
 			f = f + int64(frac[i]-'0')
 		}
 	}
@@ -160,7 +161,7 @@ law FixedRoundTrip(hundredths int64) {
 
 // digits reports whether s is decimal digits only.
 func digits(s string) bool {
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		if s[i] < '0' || s[i] > '9' {
 			return false
 		}

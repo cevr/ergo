@@ -5,6 +5,7 @@
 // next dial, or leave the next dial unanswered, and it counts the lines dialed and the lines still held.
 
 import echochat/talk
+import option
 import queue
 import sync
 
@@ -18,11 +19,11 @@ type OpenLine { ID int, Frames queue.Queue[Frame] }
 // Echo is the server and its one open line. Its fields are shared
 // handles, so every copy of an Echo is the same server: NewEcho makes
 // one.
-type Echo { open sync.Ref[Option[OpenLine]], dialed sync.Ref[int], out sync.Ref[int], refuse sync.Ref[Option[string]], hold sync.Ref[bool], pending sync.Ref[[]Frame], stall sync.Ref[bool] } implements talk.Channel
+type Echo { open sync.Ref[option.Option[OpenLine]], dialed sync.Ref[int], out sync.Ref[int], refuse sync.Ref[option.Option[string]], hold sync.Ref[bool], pending sync.Ref[[]Frame], stall sync.Ref[bool] } implements talk.Channel
 
 // NewEcho is a server with no line, which takes the next dial.
 func NewEcho() Echo {
-	Echo{open: sync.NewRef[Option[OpenLine]](None), dialed: sync.NewRef[int](0), out: sync.NewRef[int](0), refuse: sync.NewRef[Option[string]](None), hold: sync.NewRef[bool](false), pending: sync.NewRef[[]Frame]([]Frame{}), stall: sync.NewRef[bool](false)}
+	Echo{open: sync.NewRef[option.Option[OpenLine]](option.None), dialed: sync.NewRef[int](0), out: sync.NewRef[int](0), refuse: sync.NewRef[option.Option[string]](option.None), hold: sync.NewRef[bool](false), pending: sync.NewRef[[]Frame]([]Frame{}), stall: sync.NewRef[bool](false)}
 }
 
 // Dial opens a line, the server's only one, unless a refusal is pending,
@@ -39,15 +40,15 @@ func Dial(e Echo) talk.Line fails talk.Refused {
 		return talk.Refused{Why: "stalled"}
 	}
 	match e.refuse.Get() {
-	case Some[string] as r:
-		e.refuse.Set(None)
+	case option.Some[string] as r:
+		e.refuse.Set(option.None)
 		return talk.Refused{Why: r.Value}
-	case None:
+	case option.None:
 	}
 	let id = e.dialed.Get() + 1
 	e.dialed.Set(id)
 	let frames = queue.New[Frame](64)
-	e.open.Set(Some[OpenLine]{Value: OpenLine{ID: id, Frames: frames}})
+	e.open.Set(option.Some[OpenLine]{Value: OpenLine{ID: id, Frames: frames}})
 	e.out.Set(e.out.Get() + 1)
 	talk.NewLine(id, func() string fails talk.Hangup | talk.Broke {
 		let f = frames.Pop() catch {
@@ -65,11 +66,11 @@ func Dial(e Echo) talk.Line fails talk.Refused {
 	}, func() {
 		e.out.Set(e.out.Get() - 1)
 		match e.open.Get() {
-		case Some[OpenLine] as w:
+		case option.Some[OpenLine] as w:
 			if w.Value.ID == id {
-				e.open.Set(None)
+				e.open.Set(option.None)
 			}
-		case None:
+		case option.None:
 		}
 		frames.End()
 	})
@@ -81,10 +82,10 @@ func Dial(e Echo) talk.Line fails talk.Refused {
 func Send(e Echo, text string) fails talk.Unavailable {
 	if e.hold.Get() {
 		match e.open.Get() {
-		case Some[OpenLine]:
+		case option.Some[OpenLine]:
 			e.pending.Set(e.pending.Get().Append(Text{Value: text}))
 			return
-		case None:
+		case option.None:
 			return talk.Unavailable
 		}
 	}
@@ -110,17 +111,17 @@ func Flush(e Echo) {
 
 // Vanish drops the open line on the server's side without a word: the
 // line waits on, and a send on it fails Unavailable.
-func Vanish(e Echo) { e.open.Set(None) }
+func Vanish(e Echo) { e.open.Set(option.None) }
 
 // put puts f on the open line.
 func put(e Echo, f Frame) fails talk.Unavailable {
 	match e.open.Get() {
-	case Some[OpenLine] as w:
+	case option.Some[OpenLine] as w:
 		w.Value.Frames.Push(f) catch {
 		case queue.Closed:
 			return talk.Unavailable
 		}
-	case None:
+	case option.None:
 		talk.Unavailable
 	}
 }
@@ -139,7 +140,7 @@ func Break(e Echo, why string) fails talk.Unavailable { try put(e, Fault{Why: wh
 func Stall(e Echo) { e.stall.Set(true) }
 
 // Refuse makes the next dial fail with why.
-func Refuse(e Echo, why string) { e.refuse.Set(Some[string]{Value: why}) }
+func Refuse(e Echo, why string) { e.refuse.Set(option.Some[string]{Value: why}) }
 
 // Held is how many lines are open and not yet released.
 func Held(e Echo) int { e.out.Get() }

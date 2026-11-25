@@ -176,10 +176,10 @@ func ParseRecord(text string) Features fails Malformed {
 	let rows = strings.Split(text, "\n")
 	let mut version = 0
 	let mut header = ""
-	if len(rows) > 0 && strings.HasPrefix(rows[0], RecordHeader) {
+	if rows.Len() > 0 && strings.HasPrefix(rows[0], RecordHeader) {
 		version = 2
 		header = RecordHeader
-	} else if len(rows) > 0 && strings.HasPrefix(rows[0], RecordHeader3) {
+	} else if rows.Len() > 0 && strings.HasPrefix(rows[0], RecordHeader3) {
 		version = 3
 		header = RecordHeader3
 	} else {
@@ -189,7 +189,7 @@ func ParseRecord(text string) Features fails Malformed {
 	let mut nodes = []Node{}
 	let mut packages = []PackageItem{}
 	let mut files = []FileItem{}
-	for i in 1..len(rows) {
+	for i in 1..rows.Len() {
 		let row = rows[i]
 		if row == "" {
 			continue
@@ -199,12 +199,12 @@ func ParseRecord(text string) Features fails Malformed {
 		} else if strings.HasPrefix(row, "N ") {
 			nodes = nodes.Append(try parseNode(row, i+1, version))
 		} else if version == 3 && strings.HasPrefix(row, "P ") {
-			if len(packages) > 0 || len(files) > 0 || len(lines) > 0 || len(nodes) > 0 {
+			if packages.Len() > 0 || files.Len() > 0 || lines.Len() > 0 || nodes.Len() > 0 {
 				return Malformed{Line: i + 1, Reason: "a P item comes once, first"}
 			}
 			packages = packages.Append(try parsePackage(row, i+1))
 		} else if version == 3 && strings.HasPrefix(row, "F ") {
-			if len(files) > 0 || len(lines) > 0 || len(nodes) > 0 {
+			if files.Len() > 0 || lines.Len() > 0 || nodes.Len() > 0 {
 				return Malformed{Line: i + 1, Reason: "an F item comes once, before the L and N items"}
 			}
 			files = files.Append(try parseFile(row, i+1))
@@ -216,7 +216,7 @@ func ParseRecord(text string) Features fails Malformed {
 	}
 	Features{
 		Version:  version,
-		Language: strings.Slice(rows[0], len(header), len(rows[0])),
+		Language: strings.Slice(rows[0], header.Len(), rows[0].Len()),
 		Lines:    lines,
 		Nodes:    nodes,
 		Packages: packages,
@@ -227,7 +227,7 @@ func ParseRecord(text string) Features fails Malformed {
 // fields is row's fields after its item letter, want of them.
 func fields(row string, want int, item string, at int) []string fails Malformed {
 	let fs = strings.Split(row, " ")
-	if len(fs) != want+1 {
+	if fs.Len() != want+1 {
 		return Malformed{Line: at, Reason: "\(item) item has \(want) fields"}
 	}
 	fs
@@ -279,7 +279,7 @@ func share(s string, at int) int fails Malformed {
 // parseLine reads an L item; at is its line in the record.
 func parseLine(row string, at int) Line fails Malformed {
 	let fs = strings.SplitN(row, " ", 7)
-	if len(fs) != 7 {
+	if fs.Len() != 7 {
 		return Malformed{Line: at, Reason: "an L item has six fields and the comment text"}
 	}
 	Line{
@@ -295,10 +295,10 @@ func parseLine(row string, at int) Line fails Malformed {
 // parseNode reads an N item; at is its line in the record.
 func parseNode(row string, at int, version int) Node fails Malformed {
 	let fs = strings.Split(row, " ")
-	if version == 2 && len(fs) != 12 {
+	if version == 2 && fs.Len() != 12 {
 		return Malformed{Line: at, Reason: "an N item has eleven fields"}
 	}
-	if version == 3 && len(fs) != 15 {
+	if version == 3 && fs.Len() != 15 {
 		return Malformed{Line: at, Reason: "an N item has fourteen fields"}
 	}
 	let mut callersIn = 0
@@ -398,11 +398,11 @@ func count(s string, at int) int fails Malformed {
 
 // hex64 is 1 to 16 hexadecimal digits, lower case.
 func hex64(s string, at int) uint64 fails Malformed {
-	if len(s) == 0 || len(s) > 16 {
+	if s.Len() == 0 || s.Len() > 16 {
 		return Malformed{Line: at, Reason: "\(strconv.Quote(s)) is not 1 to 16 hexadecimal digits"}
 	}
 	let mut v = uint64(0)
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		let c = s[i]
 		let mut d = uint64(0)
 		if c >= '0' && c <= '9' {

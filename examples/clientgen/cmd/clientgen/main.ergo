@@ -24,6 +24,7 @@ import fstest
 import hex
 import io
 import json
+import option
 import os
 import sha256
 import strings
@@ -52,7 +53,7 @@ let providers = Map[string, emit.Provider]{
 }
 
 func run(args []string) fails os.Exit needs io.Stdout | fs.Files | fs.Writes {
-	if len(args) == 0 {
+	if args.Len() == 0 {
 		return os.Exit{Code: 2, Message: usage}
 	}
 	if args[0] == "slice" {
@@ -79,7 +80,7 @@ func readModel(path string) (smithy.Model, string) fails os.Exit needs fs.Files 
 }
 
 func slice(args []string) fails os.Exit needs io.Stdout | fs.Files | fs.Writes {
-	if len(args) < 5 {
+	if args.Len() < 5 {
 		return os.Exit{Code: 2, Message: usage}
 	}
 	let mut drop = []string{}
@@ -102,19 +103,19 @@ func slice(args []string) fails os.Exit needs io.Stdout | fs.Files | fs.Writes {
 	case _:
 		return os.Exit{Code: 1, Message: "clientgen: cannot write \(args[1])"}
 	}
-	io.Stdout.Println("\(args[1]): \(len(cut.Shapes)) of \(len(m.Shapes)) shapes")
+	io.Stdout.Println("\(args[1]): \(cut.Shapes.Len()) of \(m.Shapes.Len()) shapes")
 }
 
 func write(args []string) fails os.Exit needs io.Stdout | fs.Files | fs.Writes {
-	let check = len(args) > 0 && args[0] == "--check"
+	let check = args.Len() > 0 && args[0] == "--check"
 	let rest = if check { args[1:] } else { args }
-	if len(rest) != 3 {
+	if rest.Len() != 3 {
 		return os.Exit{Code: 2, Message: usage}
 	}
 	let p = match providers.Get(rest[0]) {
-	case Some as v:
+	case option.Some as v:
 		v.Value
-	case None:
+	case option.None:
 		return os.Exit{Code: 2, Message: "clientgen: no provider \(rest[0]); this binary writes s3"}
 	}
 	let (m, _) = try readModel(rest[1])
@@ -141,10 +142,10 @@ func write(args []string) fails os.Exit needs io.Stdout | fs.Files | fs.Writes {
 		}
 	}
 	let verb = if check { "matches" } else { "wrote" }
-	io.Stdout.Println("\(dir): \(verb) \(len(files)) files")
+	io.Stdout.Println("\(dir): \(verb) \(files.Len()) files")
 }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), fs.Writes: fs.NewHost(), io.Stdout: io.NewHost() } {
 		try run(os.Process.Args())
 	}

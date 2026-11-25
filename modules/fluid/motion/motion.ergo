@@ -310,7 +310,7 @@ law SheetCurveMatchesSpring(b int, k int) {
 		ys = ys.Append(y)
 	}
 	let p = float64(pick(k, 1001)) / 1000.0
-	let n = len(ys) - 1
+	let n = ys.Len() - 1
 	let at = if p >= 1.0 { float64(n - 1) } else { math.Floor(p * float64(n)) }
 	let i = int(at)
 	let f = p*float64(n) - at

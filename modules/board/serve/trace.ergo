@@ -47,10 +47,10 @@ func EventLogTrace(r TraceRecorder) string { joinLines(r.buf.Get().EventLogLines
 func BoardTreeTrace(r TraceRecorder) string { joinLines(r.buf.Get().BoardTreeLines) }
 
 // EventLogLineCount returns the number of recorded eventlog conformance lines.
-func EventLogLineCount(r TraceRecorder) int { len(r.buf.Get().EventLogLines) }
+func EventLogLineCount(r TraceRecorder) int { r.buf.Get().EventLogLines.Len() }
 
 func joinLines(lines []string) string {
-	if len(lines) == 0 {
+	if lines.Len() == 0 {
 		return ""
 	}
 	strings.Join(lines, "\n") + "\n"

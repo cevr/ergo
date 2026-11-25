@@ -65,7 +65,7 @@ law LineCellsFollowTheLine(from Point, n int, down bool) {
 	let dy = if down { span } else { -span }
 	let b = Point{X: a.X + span, Y: a.Y + dy}
 	let columns = (b.X-a.X)/Cell + 3
-	len(Reach(Line{From: a, To: b})) <= 3*columns
+	Reach(Line{From: a, To: b}).Len() <= 3*columns
 }
 
 // Placed is a shape in a drawing: its id, which also orders shapes of one
@@ -113,7 +113,7 @@ func Overlaps(a Box, b Box) bool { a.Lo.X <= b.Hi.X && b.Lo.X <= a.Hi.X && a.Lo.
 func Shift(s Shape, d Point) Shape {
 	match s {
 	case Stroke as k:
-		let mut out = slices.WithCapacity[Point](len(k.Points))
+		let mut out = slices.WithCapacity[Point](k.Points.Len())
 		for p in k.Points {
 			out = out.Append(add(p, d))
 		}
@@ -159,10 +159,10 @@ let Tolerance = 4
 func Hits(s Shape, p Point) bool {
 	match s {
 	case Stroke as k:
-		if len(k.Points) == 1 {
+		if k.Points.Len() == 1 {
 			return near(k.Points[0], k.Points[0], p)
 		}
-		for i in 1..len(k.Points) {
+		for i in 1..k.Points.Len() {
 			if near(k.Points[i-1], k.Points[i], p) {
 				return true
 			}

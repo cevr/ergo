@@ -7,7 +7,7 @@ import github.com/cevr/ergo/modules/git/oid
 func CompareEntryNames(aName string, aIsTree bool, bName string, bIsTree bool) int {
 	let ab = aName.Bytes()
 	let bb = bName.Bytes()
-	let n = if len(ab) < len(bb) { len(ab) } else { len(bb) }
+	let n = if ab.Len() < bb.Len() { ab.Len() } else { bb.Len() }
 	for i in 0..n {
 		if ab[i] < bb[i] {
 			return -1
@@ -16,8 +16,8 @@ func CompareEntryNames(aName string, aIsTree bool, bName string, bIsTree bool) i
 			return 1
 		}
 	}
-	let ca = if n < len(ab) { int(ab[n]) } else if aIsTree { 47 } else { 0 }
-	let cb = if n < len(bb) { int(bb[n]) } else if bIsTree { 47 } else { 0 }
+	let ca = if n < ab.Len() { int(ab[n]) } else if aIsTree { 47 } else { 0 }
+	let cb = if n < bb.Len() { int(bb[n]) } else if bIsTree { 47 } else { 0 }
 	if ca < cb {
 		return -1
 	}
@@ -70,7 +70,7 @@ func parseRawMode(s string) Mode fails CorruptTree {
 // truncated OIDs, duplicates, and out-of-order entries.
 func ParseTree(format oid.Format, raw []byte) []Entry fails CorruptTree | InvalidEntryName | UnsortedTree | DuplicateEntry {
 	let hashLen = oid.ByteLen(format)
-	let total = len(raw)
+	let total = raw.Len()
 	let mut pos = 0
 	let mut entries = []Entry{}
 	for pos < total {
@@ -101,8 +101,8 @@ func ParseTree(format oid.Format, raw []byte) []Entry fails CorruptTree | Invali
 		case oid.WrongLength:
 			return CorruptTree{Reason: "wrong OID length in tree entry"}
 		}
-		if len(entries) > 0 {
-			let prev = entries[len(entries)-1]
+		if entries.Len() > 0 {
+			let prev = entries[entries.Len()-1]
 			if prev.Name == name {
 				return DuplicateEntry{Name: name}
 			}
@@ -120,7 +120,7 @@ func ParseTree(format oid.Format, raw []byte) []Entry fails CorruptTree | Invali
 // binary tree object bytes (emitting "40000" without leading zero for trees).
 func EncodeTree(format oid.Format, entries []Entry) []byte fails InvalidEntryName | DuplicateEntry {
 	let hashLen = oid.ByteLen(format)
-	let mut copy = slices.WithCapacity[Entry](len(entries))
+	let mut copy = slices.WithCapacity[Entry](entries.Len())
 	for e in entries {
 		try ValidateEntryName(e.Name)
 		copy = copy.Append(e)
@@ -128,7 +128,7 @@ func EncodeTree(format oid.Format, entries []Entry) []byte fails InvalidEntryNam
 	let sorted = slices.SortFunc(copy, func(a Entry, b Entry) int {
 		CompareEntryNames(a.Name, IsTree(a.Mode), b.Name, IsTree(b.Mode))
 	})
-	for i in 1..len(sorted) {
+	for i in 1..sorted.Len() {
 		if sorted[i-1].Name == sorted[i].Name {
 			return DuplicateEntry{Name: sorted[i].Name}
 		}
@@ -138,7 +138,7 @@ func EncodeTree(format oid.Format, entries []Entry) []byte fails InvalidEntryNam
 		let prefix = (ModeWire(e.Mode) + " " + e.Name).Bytes()
 		out = slices.AppendAll(out, prefix)
 		out = out.Append(byte(0))
-		if len(e.OID.Raw) == hashLen {
+		if e.OID.Raw.Len() == hashLen {
 			out = slices.AppendAll(out, e.OID.Raw)
 		} else {
 			out = slices.AppendAll(out, oid.Zero(format).Raw)

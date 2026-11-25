@@ -10,6 +10,7 @@
 // strconv.UnquoteInvertsQuote, validated in std's ledger, replaces the
 // decode by the value itself (ergo inspect rewrites lists the site).
 
+import option
 import strconv
 import sync
 
@@ -17,13 +18,13 @@ import sync
 // line written under key.
 type Backing {
 	Write(key string, line string),
-	Read(key string) Option[string],
+	Read(key string) option.Option[string],
 
 	// ReadsTheLastWrite: a line written under a key is the line that key
 	// reads.
 	law ReadsTheLastWrite(key string, line string) {
 		Write(key, line)
-		Read(key) == Some[string]{Value: line}
+		Read(key) == option.Some[string]{Value: line}
 	},
 }
 
@@ -51,23 +52,23 @@ func Set(c Cache, key string, value string) fails strconv.Malformed needs Backin
 }
 
 // Get is the value of key, from the cache alone.
-func Get(c Cache, key string) Option[string] { c.values.Get().Get(key) }
+func Get(c Cache, key string) option.Option[string] { c.values.Get().Get(key) }
 
 // Load is the value of key, read from the Backing into the cache when the
 // cache holds none.
-func Load(c Cache, key string) Option[string] fails strconv.Malformed needs Backing {
+func Load(c Cache, key string) option.Option[string] fails strconv.Malformed needs Backing {
 	match Get(c, key) {
-	case Some[string] as v:
+	case option.Some[string] as v:
 		return v
-	case None:
+	case option.None:
 	}
 	match Backing.Read(key) {
-	case Some[string] as line:
+	case option.Some[string] as line:
 		let value = try Decode(line.Value)
 		c.values.Update() func(values Map[string, string]) Map[string, string] { values.Put(key, value) }
-		Some[string]{Value: value}
-	case None:
-		None
+		option.Some[string]{Value: value}
+	case option.None:
+		option.None
 	}
 }
 

@@ -30,7 +30,7 @@ law TextSurvivesRendering(words []string) {
 func stripTags(html string) string {
 	let mut out = strings.NewBuilder()
 	let mut inTag = false
-	for i in 0..len(html) {
+	for i in 0..html.Len() {
 		let c = html[i]
 		if c == '<' {
 			inTag = true
@@ -95,7 +95,7 @@ func Href(raw string) Url {
 	}
 	if strings.HasPrefix(l, "data:") {
 		for img in []string{"image/png", "image/gif", "image/jpeg", "image/webp"} {
-			if strings.HasPrefix(strings.Slice(l, 5, len(l)), img) {
+			if strings.HasPrefix(strings.Slice(l, 5, l.Len()), img) {
 				return Url{href: raw}
 			}
 		}
@@ -111,7 +111,7 @@ func Href(raw string) Url {
 law HrefIsSafe(raw string, scheme int) {
 	let schemes = []string{"javascript:", "JAVASCRIPT:", "data:", "http:", "vbscript:", "", "File:", "data:image/png", "data:image/svg", "data:text/html,"}
 	let pick = if scheme < 0 { -(scheme + 1) } else { scheme }
-	safeScheme(HrefOf(Href(schemes[pick%len(schemes)]+raw))) && safeScheme(HrefOf(Href(raw)))
+	safeScheme(HrefOf(Href(schemes[pick%schemes.Len()]+raw))) && safeScheme(HrefOf(Href(raw)))
 }
 
 // safeScheme reports whether href runs no script and loads no data other
@@ -139,7 +139,7 @@ func lit(w mut writer, s string) {
 		return
 	}
 	w.out.WriteString(s)
-	w.nl = s[len(s)-1] == '\n'
+	w.nl = s[s.Len()-1] == '\n'
 }
 
 // cr ends the line unless it is ended.
@@ -256,7 +256,7 @@ func TextOf(n Node) string {
 // stands for itself in text and in an attribute value.
 func Escape(s string) string {
 	let mut plain = true
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		let c = s[i]
 		if c == '&' || c == '<' || c == '>' || c == '"' {
 			plain = false
@@ -267,7 +267,7 @@ func Escape(s string) string {
 		return s
 	}
 	let mut b = strings.NewBuilder()
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		let c = s[i]
 		if c == '&' {
 			b.WriteString("&amp;")

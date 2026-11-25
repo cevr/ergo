@@ -5,6 +5,7 @@
 // effect, as a crash would.
 
 import github.com/cevr/ergo/modules/infra
+import option
 import sync
 
 // Fuse makes the n-th next call through it fail (Arm): before its effect,
@@ -77,7 +78,7 @@ func NewCloud(fuse Fuse) Cloud {
 }
 
 // Objects is the number of objects in c.
-func Objects(c Cloud) int { len(c.dirs.Get()) + len(c.files.Get()) }
+func Objects(c Cloud) int { c.dirs.Get().Len() + c.files.Get().Len() }
 
 // DirIDs and FileIDs are the ids of c's objects of each kind.
 func DirIDs(c Cloud) []string {
@@ -113,7 +114,7 @@ func Apply(d Dirs, id string, p DirProps) Dir fails infra.Failed {
 	dir
 }
 
-func Read(d Dirs, id string) Option[Dir] fails infra.Failed { d.cloud.dirs.Get().Get(id) }
+func Read(d Dirs, id string) option.Option[Dir] fails infra.Failed { d.cloud.dirs.Get().Get(id) }
 
 func Delete(d Dirs, id string) fails infra.Failed {
 	try through(d.cloud.fuse, id, func() { d.cloud.dirs.Update(func(m Map[string, Dir]) Map[string, Dir] { m.Delete(id) }) })
@@ -128,7 +129,7 @@ func NewFiles() Files { Files{cloud: NewCloud(NewFuse())} }
 // FilesIn is the driver of files in c.
 func FilesIn(c Cloud) Files { Files{cloud: c} }
 
-func Attrs(f Files, id string, p FileProps) File { File{Path: p.Dir + "/" + p.Name, Size: len(p.Text)} }
+func Attrs(f Files, id string, p FileProps) File { File{Path: p.Dir + "/" + p.Name, Size: p.Text.Len()} }
 
 func Apply(f Files, id string, p FileProps) File fails infra.Failed {
 	let file = f.Attrs(id, p)
@@ -136,7 +137,7 @@ func Apply(f Files, id string, p FileProps) File fails infra.Failed {
 	file
 }
 
-func Read(f Files, id string) Option[File] fails infra.Failed { f.cloud.files.Get().Get(id) }
+func Read(f Files, id string) option.Option[File] fails infra.Failed { f.cloud.files.Get().Get(id) }
 
 func Delete(f Files, id string) fails infra.Failed {
 	try through(f.cloud.fuse, id, func() { f.cloud.files.Update(func(m Map[string, File]) Map[string, File] { m.Delete(id) }) })

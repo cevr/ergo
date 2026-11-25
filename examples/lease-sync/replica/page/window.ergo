@@ -8,6 +8,8 @@
 // page and in the live tail, and a pending row comes back confirmed with
 // the ID it had while pending. Each row is shown once.
 
+import cmp
+import option
 import slices
 
 // Row is one row of the list: its key (the order of the list and the
@@ -20,7 +22,7 @@ type Row[K, T] { Key K, ID string, Value T }
 // inside a part of the list that is not loaded.
 law LiveRowStaysAfterLoadedEnd(ops []int) {
 	for s in trace(ops) {
-		let r = Row[int, string]{Key: len(s.List), ID: "live", Value: "live"}
+		let r = Row[int, string]{Key: s.List.Len(), ID: "live", Value: "live"}
 		let before = loaded(Rows(s.W))
 		let after = loaded(Rows(Tail(s.W, r)))
 		if Ended(s.W) && after != before.Append("live") {
@@ -37,7 +39,7 @@ law LiveRowStaysAfterLoadedEnd(ops []int) {
 // the read with a key above After and below Before, in key order. None is
 // no bound: a page with After None starts at the first row of the list,
 // and a page with Before None reaches its last row.
-type Page[K, T] { Rows []Row[K, T], After Option[K], Before Option[K] }
+type Page[K, T] { Rows []Row[K, T], After option.Option[K], Before option.Option[K] }
 
 // Pending is a row of one of the client's commands that the authority has
 // not confirmed: it has no key yet. Its ID is the ID that its row has
@@ -70,7 +72,7 @@ type Window[K, T] {
 // outbox rows that no row confirms.
 law WindowIsTheListsWindow(ops []int) {
 	let states = trace(ops)
-	for i in 0..len(states) {
+	for i in 0..states.Len() {
 		if !isWindowOf(states[i]) {
 			return false
 		}
@@ -83,7 +85,7 @@ law WindowIsTheListsWindow(ops []int) {
 			}
 		}
 	}
-	let d = drain(states[len(states)-1])
+	let d = drain(states[states.Len()-1])
 	isWindowOf(d) && Started(d.W) && Ended(d.W) && loaded(Rows(d.W)) == ids(d.List)
 }
 
@@ -108,37 +110,37 @@ func start() sim {
 
 // readAfter is the read model's page of at most n rows after the cursor,
 // of the rows it has caught up to.
-func readAfter(list []Row[int, string], after Option[int], n int) Page[int, string] {
+func readAfter(list []Row[int, string], after option.Option[int], n int) Page[int, string] {
 	let mut rows = []Row[int, string]{}
 	for r in list {
-		if atMost(after, r.Key) && after != (Some{Value: r.Key}) {
-			if len(rows) == n {
-				return Page[int, string]{Rows: rows, After: after, Before: Some{Value: r.Key}}
+		if atMost(after, r.Key) && after != (option.Some{Value: r.Key}) {
+			if rows.Len() == n {
+				return Page[int, string]{Rows: rows, After: after, Before: option.Some{Value: r.Key}}
 			}
 			rows = rows.Append(r)
 		}
 	}
-	Page[int, string]{Rows: rows, After: after, Before: None}
+	Page[int, string]{Rows: rows, After: after, Before: option.None}
 }
 
 // readBefore is the read model's page of at most n rows before the cursor.
-func readBefore(list []Row[int, string], before Option[int], n int) Page[int, string] {
+func readBefore(list []Row[int, string], before option.Option[int], n int) Page[int, string] {
 	let mut below = []Row[int, string]{}
 	for r in list {
-		if atLeast(before, r.Key) && before != (Some{Value: r.Key}) {
+		if atLeast(before, r.Key) && before != (option.Some{Value: r.Key}) {
 			below = below.Append(r)
 		}
 	}
-	if len(below) <= n {
-		return Page[int, string]{Rows: below, After: None, Before: before}
+	if below.Len() <= n {
+		return Page[int, string]{Rows: below, After: option.None, Before: before}
 	}
-	Page[int, string]{Rows: below[len(below)-n:], After: Some{Value: below[len(below)-n-1].Key}, Before: before}
+	Page[int, string]{Rows: below[below.Len()-n:], After: option.Some{Value: below[below.Len()-n-1].Key}, Before: before}
 }
 
 func confirmed(list []Row[int, string], id string) bool { holds(list, id) }
 
 func live(s sim, id string, value string) sim {
-	let r = Row[int, string]{Key: len(s.List), ID: id, Value: value}
+	let r = Row[int, string]{Key: s.List.Len(), ID: id, Value: value}
 	sim{..s, List: s.List.Append(r), W: Tail(s.W, r)}
 }
 
@@ -157,10 +159,10 @@ func step(s sim, op int) sim {
 		return sim{..s, Flight: s.Flight.Append(readBefore(s.List[:s.Readable], Prev(s.W), 1+x%3))}
 	}
 	if k == 2 || k == 3 {
-		if len(s.Flight) == 0 {
+		if s.Flight.Len() == 0 {
 			return s
 		}
-		let i = x % len(s.Flight)
+		let i = x % s.Flight.Len()
 		let rest = slices.Concat(s.Flight[:i], s.Flight[i+1:])
 		if k == 3 {
 			return sim{..s, Flight: rest, W: Fail(s.W)}
@@ -168,28 +170,28 @@ func step(s sim, op int) sim {
 		return sim{..s, Flight: rest, W: Extend(s.W, s.Flight[i])}
 	}
 	if k == 4 {
-		return live(s, "r\(len(s.List))", "v\(len(s.List))")
+		return live(s, "r\(s.List.Len())", "v\(s.List.Len())")
 	}
 	if k == 5 {
 		let outbox = s.Outbox.Append(Pending[string]{ID: "p\(s.Made)", Value: "mine \(s.Made)"})
 		return sim{..s, Outbox: outbox, Made: s.Made + 1, W: Local(s.W, outbox)}
 	}
 	if k == 6 {
-		if len(s.Outbox) == 0 {
+		if s.Outbox.Len() == 0 {
 			return s
 		}
-		let p = s.Outbox[x%len(s.Outbox)]
+		let p = s.Outbox[x%s.Outbox.Len()]
 		if confirmed(s.List, p.ID) {
 			return s
 		}
 		return live(s, p.ID, p.Value)
 	}
 	if x%2 == 0 {
-		return sim{..s, Readable: len(s.List)}
+		return sim{..s, Readable: s.List.Len()}
 	}
 	let mut outbox = []Pending[string]{}
-	for i in 0..len(s.Outbox) {
-		if !confirmed(s.List, s.Outbox[i].ID) && i != x%(len(s.Outbox)+1) {
+	for i in 0..s.Outbox.Len() {
+		if !confirmed(s.List, s.Outbox[i].ID) && i != x%(s.Outbox.Len()+1) {
 			outbox = outbox.Append(s.Outbox[i])
 		}
 	}
@@ -211,8 +213,8 @@ func trace(ops []int) []sim {
 // ends and before it until it starts. The bound is one page a row and one
 // more each way.
 func drain(s sim) sim {
-	let mut t = sim{..s, Readable: len(s.List), Flight: []Page[int, string]{}}
-	for _ in 0..len(t.List)+1 {
+	let mut t = sim{..s, Readable: s.List.Len(), Flight: []Page[int, string]{}}
+	for _ in 0..t.List.Len()+1 {
 		if !Ended(t.W) {
 			t = sim{..t, W: Extend(t.W, readAfter(t.List, Next(t.W), 1))}
 		}
@@ -277,22 +279,22 @@ func isWindowOf(s sim) bool {
 	if pending(items) != shown(s, rows) {
 		return false
 	}
-	if len(rows) == 0 {
-		return !Ended(s.W) || len(all) == 0
+	if rows.Len() == 0 {
+		return !Ended(s.W) || all.Len() == 0
 	}
 	let mut first = -1
-	for i in 0..len(all) {
+	for i in 0..all.Len() {
 		if all[i] == rows[0] {
 			first = i
 		}
 	}
-	if first < 0 || first+len(rows) > len(all) || all[first:first+len(rows)] != rows {
+	if first < 0 || first+rows.Len() > all.Len() || all[first:first+rows.Len()] != rows {
 		return false
 	}
 	if Started(s.W) && first != 0 {
 		return false
 	}
-	!Ended(s.W) || first+len(rows) == len(all)
+	!Ended(s.W) || first+rows.Len() == all.Len()
 }
 
 // Empty is a window that has read nothing.
@@ -302,20 +304,20 @@ func Empty[K, T]() Window[K, T] {
 
 // Next is the cursor of the next page after the window: the key of its
 // last row, or None for a window with no rows (a read from the start).
-func Next[K, T](w Window[K, T]) Option[K] {
-	if len(w.rows) == 0 {
-		return None
+func Next[K, T](w Window[K, T]) option.Option[K] {
+	if w.rows.Len() == 0 {
+		return option.None
 	}
-	Some{Value: w.rows[len(w.rows)-1].Key}
+	option.Some{Value: w.rows[w.rows.Len()-1].Key}
 }
 
 // Prev is the cursor of the next page before the window: the key of its
 // first row, or None for a window with no rows (a read of the last rows).
-func Prev[K, T](w Window[K, T]) Option[K] {
-	if len(w.rows) == 0 {
-		return None
+func Prev[K, T](w Window[K, T]) option.Option[K] {
+	if w.rows.Len() == 0 {
+		return option.None
 	}
-	Some{Value: w.rows[0].Key}
+	option.Some{Value: w.rows[0].Key}
 }
 
 // Started is true when the window holds the list's first row: there is
@@ -346,25 +348,25 @@ law FailedPageChangesNothing(ops []int) {
 // takes any page that touches the window, a late one too: the rows the
 // window already holds are not added again. A page that does not touch it
 // would leave a gap, and it changes nothing.
-func Extend[K ordered, T](w Window[K, T], p Page[K, T]) Window[K, T] { merge(w, p) }
+func Extend[K cmp.Ordered, T](w Window[K, T], p Page[K, T]) Window[K, T] { merge(w, p) }
 
 // ExtendBack adds a page read before the window; see Extend.
-func ExtendBack[K ordered, T](w Window[K, T], p Page[K, T]) Window[K, T] { merge(w, p) }
+func ExtendBack[K cmp.Ordered, T](w Window[K, T], p Page[K, T]) Window[K, T] { merge(w, p) }
 
 // merge adds p when its range and the window's rows meet: p holds every
 // row between its bounds, and the window every row between its first and
 // last, so the union has no gap exactly when After is at most the last
 // key and Before at least the first.
-func merge[K ordered, T](w own Window[K, T], p Page[K, T]) Window[K, T] {
-	if len(w.rows) > 0 && !(atMost(p.After, w.rows[len(w.rows)-1].Key) && atLeast(p.Before, w.rows[0].Key)) {
+func merge[K cmp.Ordered, T](w own Window[K, T], p Page[K, T]) Window[K, T] {
+	if w.rows.Len() > 0 && !(atMost(p.After, w.rows[w.rows.Len()-1].Key) && atLeast(p.Before, w.rows[0].Key)) {
 		return w
 	}
 	let mut rows = w.rows
 	for r in p.Rows {
 		rows = insert(rows, r)
 	}
-	let start = w.start || p.After == None
-	let end = w.end || p.Before == None
+	let start = w.start || p.After == option.None
+	let end = w.end || p.Before == option.None
 	if !end {
 		return Window[K, T]{..w, rows: rows, start: start, failed: false}
 	}
@@ -374,27 +376,27 @@ func merge[K ordered, T](w own Window[K, T], p Page[K, T]) Window[K, T] {
 	Window[K, T]{..w, rows: rows, held: []Row[K, T]{}, start: start, end: true, failed: false}
 }
 
-func atMost[K ordered](b Option[K], k K) bool {
+func atMost[K cmp.Ordered](b option.Option[K], k K) bool {
 	match b {
-	case Some[K] as s:
+	case option.Some[K] as s:
 		s.Value <= k
-	case None:
+	case option.None:
 		true
 	}
 }
 
-func atLeast[K ordered](b Option[K], k K) bool {
+func atLeast[K cmp.Ordered](b option.Option[K], k K) bool {
 	match b {
-	case Some[K] as s:
+	case option.Some[K] as s:
 		s.Value >= k
-	case None:
+	case option.None:
 		true
 	}
 }
 
 // insert puts r into rows in key order, unless rows already hold its ID
 // or its key.
-func insert[K ordered, T](rows own []Row[K, T], r own Row[K, T]) []Row[K, T] {
+func insert[K cmp.Ordered, T](rows own []Row[K, T], r own Row[K, T]) []Row[K, T] {
 	let mut out = []Row[K, T]{}
 	let mut put = false
 	for x in rows {
@@ -419,7 +421,7 @@ func Fail[K, T](w Window[K, T]) Window[K, T] { Window[K, T]{..w, failed: true} }
 // Tail adds a row that arrived live from the source. A window that holds
 // the list's last row shows it; any other window holds it until a page
 // reaches the end.
-func Tail[K ordered, T](w Window[K, T], r Row[K, T]) Window[K, T] {
+func Tail[K cmp.Ordered, T](w Window[K, T], r Row[K, T]) Window[K, T] {
 	if w.end {
 		return Window[K, T]{..w, rows: insert(w.rows, r)}
 	}
@@ -438,7 +440,7 @@ law ConfirmedLocalRowIsNotTwice(ops []int) {
 			if confirmed(s.List, p.ID) {
 				continue
 			}
-			let w = Tail(s.W, Row[int, string]{Key: len(s.List), ID: p.ID, Value: p.Value})
+			let w = Tail(s.W, Row[int, string]{Key: s.List.Len(), ID: p.ID, Value: p.Value})
 			let mut n = 0
 			for it in Rows(w) {
 				if it.ID == p.ID {

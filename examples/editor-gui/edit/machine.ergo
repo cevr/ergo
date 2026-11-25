@@ -1,6 +1,7 @@
 // The Editor as a machine, and its laws.
 
 import ergo.local/prototype/examples/editorgui/piece
+import machines
 import strings
 
 // Editor is the editor as a machine, started on a text.
@@ -82,7 +83,7 @@ type Editor machine[State, Signal] {
 		if query == "" || !strings.Contains(text, query) {
 			return d.Caret == 0
 		}
-		strings.HasPrefix(strings.Slice(text, d.Caret, len(text)), query)
+		strings.HasPrefix(strings.Slice(text, d.Caret, text.Len()), query)
 	},
 
 	// UndoRedoRoundTrips: after any signals and every change redone,
@@ -91,21 +92,21 @@ type Editor machine[State, Signal] {
 	// left it.
 	law UndoRedoRoundTrips(text string, signals []Signal) {
 		let mut done = DocOf(Run(Open(text), signals))
-		for len(done.Redo) > 0 {
+		for done.Redo.Len() > 0 {
 			done = Redone(done)
 		}
 		let mut d = done
-		for len(d.Undo) > 0 {
+		for d.Undo.Len() > 0 {
 			d = Undone(d)
 		}
-		if Text(d) != text || len(d.Redo) != len(done.Undo) {
+		if Text(d) != text || d.Redo.Len() != done.Undo.Len() {
 			return false
 		}
-		for len(d.Redo) > 0 {
+		for d.Redo.Len() > 0 {
 			d = Redone(d)
 		}
-		let caret = if len(done.Undo) > 0 { done.Undo[len(done.Undo)-1].After } else { d.Caret }
-		Text(d) == Text(done) && d.Caret == caret && len(d.Undo) == len(done.Undo)
+		let caret = if done.Undo.Len() > 0 { done.Undo[done.Undo.Len()-1].After } else { d.Caret }
+		Text(d) == Text(done) && d.Caret == caret && d.Undo.Len() == done.Undo.Len()
 	},
 
 	// ReplaceIsReplaceAll: replacing a query's matches gives the text
@@ -124,10 +125,10 @@ type Editor machine[State, Signal] {
 		let s = After(After(Open(text), Find), Type{Text: query})
 		let r = Step(s, Replace{With: by})
 		match r {
-		case Enter[State] as e:
+		case machines.Enter[State] as e:
 			let d = DocOf(e.Next)
-			Text(d) == strings.ReplaceAll(text, query, by) && len(d.Undo) == 1
-		case Stay[State], Emit[State, Output], Tell[State, Output], Ignore, Reject, Done[Output]:
+			Text(d) == strings.ReplaceAll(text, query, by) && d.Undo.Len() == 1
+		case machines.Stay[State], machines.Emit[State, Output], machines.Tell[State, Output], machines.Ignore, machines.Reject, machines.Done[Output]:
 			!strings.Contains(text, query)
 		}
 	},
@@ -145,13 +146,13 @@ func Run(s State, signals []Signal) State {
 // After is the state after sig: a rejected signal leaves it as it was.
 func After(s State, sig Signal) State {
 	match Step(s, sig) {
-	case Enter[State] as e:
+	case machines.Enter[State] as e:
 		e.Next
-	case Stay[State] as t:
+	case machines.Stay[State] as t:
 		t.Next
-	case Emit[State, Output] as m:
+	case machines.Emit[State, Output] as m:
 		m.Next
-	case Ignore, Tell[State, Output], Reject, Done[Output]:
+	case machines.Ignore, machines.Tell[State, Output], machines.Reject, machines.Done[Output]:
 		s
 	}
 }

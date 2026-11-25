@@ -1,12 +1,13 @@
 // Package domain states the download contracts. Connections are owned
 // resources; a fetch only lends one while it reads.
+import core
 import machines
 
 type Offline { ID int }
 type ReadFailed { Reason string }
 
 type Conn {
-	..Closer,
+	..core.Closer,
 	Number() int,
 	Read() string fails ReadFailed,
 
@@ -39,7 +40,7 @@ type Fetcher {
 // A limiter is a resource shared by structured lends, not a global
 // registry. Its owner outlives all the workers that borrow it.
 type Limiter {
-	..Closer,
+	..core.Closer,
 	Admit() bool,
 	Remaining() int,
 
@@ -53,16 +54,16 @@ type Limiter {
 type State = Queued{ID int} | Fetching{ID int} | Done{ID int, Body string} | Failed{ID int, Reason string}
 type Signal = Start{} | Loaded{Body string} | Rejected{Reason string}
 
-func Step(s State, sig Signal) Decision[State, int] {
+func Step(s State, sig Signal) machines.Decision[State, int] {
 	match (s, sig) {
 	case (Queued as q, Start):
-		Enter[State]{Next: Fetching{ID: q.ID}}
+		machines.Enter[State]{Next: Fetching{ID: q.ID}}
 	case (Fetching as f, Loaded as l):
-		Enter[State]{Next: Done{ID: f.ID, Body: l.Body}}
+		machines.Enter[State]{Next: Done{ID: f.ID, Body: l.Body}}
 	case (Fetching as f, Rejected as r):
-		Enter[State]{Next: Failed{ID: f.ID, Reason: r.Reason}}
+		machines.Enter[State]{Next: Failed{ID: f.ID, Reason: r.Reason}}
 	case (Queued, Loaded), (Queued, Rejected), (Fetching, Start), (Done, _), (Failed, _):
-		Reject
+		machines.Reject
 	}
 }
 

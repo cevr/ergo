@@ -1,5 +1,6 @@
 import filepath
 import fs
+import option
 import slices
 import strings
 import sync
@@ -29,7 +30,7 @@ func allObjectDirs(odb ODB) []string {
 // that its trailing pack checksum matches packidx.PackChecksum(idx).
 func ValidatePackPair(format oid.Format, idxPath string, idx packidx.Index, packPath string, packRaw []byte) PackPair fails Corrupt | MismatchedPair {
 	let hashLen = oid.ByteLen(format)
-	if len(packRaw) < 12+hashLen {
+	if packRaw.Len() < 12+hashLen {
 		return Corrupt{OID: oid.Zero(format), Why: "packfile truncated before header and trailer"}
 	}
 	if packRaw[0] != byte('P') || packRaw[1] != byte('A') || packRaw[2] != byte('C') || packRaw[3] != byte('K') {
@@ -38,7 +39,7 @@ func ValidatePackPair(format oid.Format, idxPath string, idx packidx.Index, pack
 	if readU32BE(packRaw, 4) != uint32(2) {
 		return Corrupt{OID: oid.Zero(format), Why: "unsupported pack version"}
 	}
-	let packSum = oid.FromBytes(format, packRaw[len(packRaw)-hashLen:]) catch {
+	let packSum = oid.FromBytes(format, packRaw[packRaw.Len()-hashLen:]) catch {
 	case oid.WrongLength:
 		return Corrupt{OID: oid.Zero(format), Why: "invalid pack trailing checksum length"}
 	}
@@ -169,14 +170,14 @@ func FromLayout(layout root.Layout) ODB fails Corrupt | MismatchedPair | IOFaile
 // PackCount returns the number of validated pack/index pairs currently cached
 // in odb.
 func PackCount(odb ODB) int {
-	len(odb.catalog.Get().packs)
+	odb.catalog.Get().packs.Len()
 }
 
-func readLooseSingleDir(format oid.Format, dir string, id oid.OID, maxBytes int) Option[Object] fails Corrupt | Collision | LimitExceeded | IOFailed needs fs.Files {
+func readLooseSingleDir(format oid.Format, dir string, id oid.OID, maxBytes int) option.Option[Object] fails Corrupt | Collision | LimitExceeded | IOFailed needs fs.Files {
 	let ls = loose.NewStore(format, dir, []string{})
 	let obj = loose.ReadObject(ls, id, maxBytes) catch {
 	case loose.Missing:
-		return None
+		return option.None
 	case loose.Corrupt as e:
 		return Corrupt{OID: e.OID, Why: e.Why}
 	case loose.Collision as e:
@@ -186,7 +187,7 @@ func readLooseSingleDir(format oid.Format, dir string, id oid.OID, maxBytes int)
 	case loose.IOFailed as e:
 		return IOFailed{Op: e.Op, Detail: e.Detail}
 	}
-	Some[Object]{Value: Object{Kind: obj.Kind, OID: obj.OID, Size: obj.Size, Data: obj.Data}}
+	option.Some[Object]{Value: Object{Kind: obj.Kind, OID: obj.OID, Size: obj.Size, Data: obj.Data}}
 }
 
 func inflatePackedStream(reqOid oid.OID, src []byte, maxBytes int) zlib.Inflated fails Corrupt | LimitExceeded {
@@ -208,20 +209,20 @@ func verifyPackedOID(reqOid oid.OID, kind oid.Kind, data []byte) fails Corrupt |
 	}
 }
 
-func lookupInCatalog(packs []PackPair, id oid.OID) Option[(PackPair, uint64)] {
+func lookupInCatalog(packs []PackPair, id oid.OID) option.Option[(PackPair, uint64)] {
 	for p in packs {
 		match p.Index.Lookup(id) {
-		case Some[packidx.Entry] as e:
-			return Some[(PackPair, uint64)]{Value: (p, e.Value.Offset)}
-		case None:
+		case option.Some[packidx.Entry] as e:
+			return option.Some[(PackPair, uint64)]{Value: (p, e.Value.Offset)}
+		case option.None:
 		}
 	}
-	None
+	option.None
 }
 
 func materializeAtOffset(odb ODB, packs []PackPair, p PackPair, offset uint64, reqOid oid.OID, maxBytes int, depth int) delta.Materialized fails Corrupt | Collision | LimitExceeded | DepthExceeded | IOFailed needs fs.Files {
 	let hashLen = oid.ByteLen(odb.Format)
-	let dataEnd = len(p.PackData) - hashLen
+	let dataEnd = p.PackData.Len() - hashLen
 	if offset < uint64(12) || offset >= uint64(dataEnd) {
 		return Corrupt{OID: reqOid, Why: "pack entry offset out of bounds"}
 	}
@@ -239,7 +240,7 @@ func materializeAtOffset(odb ODB, packs []PackPair, p PackPair, offset uint64, r
 			return LimitExceeded{MaxBytes: maxBytes}
 		}
 		let inf = try inflatePackedStream(reqOid, p.PackData[pos:dataEnd], maxBytes)
-		if len(inf.Data) != hdr.Size {
+		if inf.Data.Len() != hdr.Size {
 			return Corrupt{OID: reqOid, Why: "inflated packed base size mismatch"}
 		}
 		delta.Materialized{Kind: b.Kind, Data: inf.Data}
@@ -252,7 +253,7 @@ func materializeAtOffset(odb ODB, packs []PackPair, p PackPair, offset uint64, r
 			return Corrupt{OID: reqOid, Why: "invalid OFS_DELTA base offset"}
 		}
 		let inf = try inflatePackedStream(reqOid, p.PackData[nextPos:dataEnd], maxBytes)
-		if len(inf.Data) != hdr.Size {
+		if inf.Data.Len() != hdr.Size {
 			return Corrupt{OID: reqOid, Why: "inflated OFS_DELTA size mismatch"}
 		}
 		let baseOff = uint64(off) - dist
@@ -276,7 +277,7 @@ func materializeAtOffset(odb ODB, packs []PackPair, p PackPair, offset uint64, r
 			return Corrupt{OID: reqOid, Why: "invalid REF_DELTA base OID length"}
 		}
 		let inf = try inflatePackedStream(reqOid, p.PackData[pos+hashLen:dataEnd], maxBytes)
-		if len(inf.Data) != hdr.Size {
+		if inf.Data.Len() != hdr.Size {
 			return Corrupt{OID: reqOid, Why: "inflated REF_DELTA size mismatch"}
 		}
 		let baseMat = try resolveRefBase(odb, packs, baseOid, reqOid, maxBytes, depth+1)
@@ -293,21 +294,21 @@ func materializeAtOffset(odb ODB, packs []PackPair, p PackPair, offset uint64, r
 func resolveRefBase(odb ODB, packs []PackPair, baseOid oid.OID, reqOid oid.OID, maxBytes int, depth int) delta.Materialized fails Corrupt | Collision | LimitExceeded | DepthExceeded | IOFailed needs fs.Files {
 	let dirs = allObjectDirs(odb)
 	match try readLooseSingleDir(odb.Format, dirs[0], baseOid, maxBytes) {
-	case Some[Object] as obj:
+	case option.Some[Object] as obj:
 		return delta.Materialized{Kind: obj.Value.Kind, Data: obj.Value.Data}
-	case None:
+	case option.None:
 	}
 	match lookupInCatalog(packs, baseOid) {
-	case Some[(PackPair, uint64)] as loc:
+	case option.Some[(PackPair, uint64)] as loc:
 		let (bp, boff) = loc.Value
 		return try materializeAtOffset(odb, packs, bp, boff, baseOid, maxBytes, depth)
-	case None:
+	case option.None:
 	}
-	for i in 1..len(dirs) {
+	for i in 1..dirs.Len() {
 		match try readLooseSingleDir(odb.Format, dirs[i], baseOid, maxBytes) {
-		case Some[Object] as obj:
+		case option.Some[Object] as obj:
 			return delta.Materialized{Kind: obj.Value.Kind, Data: obj.Value.Data}
-		case None:
+		case option.None:
 		}
 	}
 	return Corrupt{OID: reqOid, Why: "missing REF_DELTA base " + oid.Hex(baseOid)}
@@ -315,7 +316,7 @@ func resolveRefBase(odb ODB, packs []PackPair, baseOid oid.OID, reqOid oid.OID, 
 
 func statAtOffset(odb ODB, packs []PackPair, p PackPair, offset uint64, reqOid oid.OID, maxBytes int, depth int) Header fails Corrupt | Collision | LimitExceeded | DepthExceeded | IOFailed needs fs.Files {
 	let hashLen = oid.ByteLen(odb.Format)
-	let dataEnd = len(p.PackData) - hashLen
+	let dataEnd = p.PackData.Len() - hashLen
 	if offset < uint64(12) || offset >= uint64(dataEnd) {
 		return Corrupt{OID: reqOid, Why: "pack entry offset out of bounds"}
 	}
@@ -379,21 +380,21 @@ func statAtOffset(odb ODB, packs []PackPair, p PackPair, offset uint64, reqOid o
 func statRefBase(odb ODB, packs []PackPair, baseOid oid.OID, reqOid oid.OID, maxBytes int, depth int) Header fails Corrupt | Collision | LimitExceeded | DepthExceeded | IOFailed needs fs.Files {
 	let dirs = allObjectDirs(odb)
 	match try readLooseSingleDir(odb.Format, dirs[0], baseOid, maxBytes) {
-	case Some[Object] as obj:
+	case option.Some[Object] as obj:
 		return Header{Kind: obj.Value.Kind, Size: obj.Value.Size}
-	case None:
+	case option.None:
 	}
 	match lookupInCatalog(packs, baseOid) {
-	case Some[(PackPair, uint64)] as loc:
+	case option.Some[(PackPair, uint64)] as loc:
 		let (bp, boff) = loc.Value
 		return try statAtOffset(odb, packs, bp, boff, baseOid, maxBytes, depth)
-	case None:
+	case option.None:
 	}
-	for i in 1..len(dirs) {
+	for i in 1..dirs.Len() {
 		match try readLooseSingleDir(odb.Format, dirs[i], baseOid, maxBytes) {
-		case Some[Object] as obj:
+		case option.Some[Object] as obj:
 			return Header{Kind: obj.Value.Kind, Size: obj.Value.Size}
-		case None:
+		case option.None:
 		}
 	}
 	return Corrupt{OID: reqOid, Why: "missing REF_DELTA base " + oid.Hex(baseOid)}
@@ -405,18 +406,18 @@ func readFromPack(odb ODB, packs []PackPair, p PackPair, offset uint64, id oid.O
 	Object{
 		Kind: mat.Kind,
 		OID:  id,
-		Size: len(mat.Data),
+		Size: mat.Data.Len(),
 		Data: mat.Data,
 	}
 }
 
-func findPackByPath(packs []PackPair, cleanPath string) Option[PackPair] {
+func findPackByPath(packs []PackPair, cleanPath string) option.Option[PackPair] {
 	for p in packs {
 		if filepath.Clean(p.PackPath) == cleanPath {
-			return Some[PackPair]{Value: p}
+			return option.Some[PackPair]{Value: p}
 		}
 	}
-	None
+	option.None
 }
 
 // ReadPackOffset materializes and verifies the object id at the exact byte
@@ -426,16 +427,16 @@ func ReadPackOffset(odb ODB, packFilePath string, offset uint64, id oid.OID, max
 	let cleanPath = filepath.Clean(packFilePath)
 	let cachedPacks = odb.catalog.Get().packs
 	match findPackByPath(cachedPacks, cleanPath) {
-	case Some[PackPair] as p:
+	case option.Some[PackPair] as p:
 		return try readFromPack(odb, cachedPacks, p.Value, offset, id, maxBytes)
-	case None:
+	case option.None:
 	}
 	try refreshOnMiss(odb)
 	let freshPacks = odb.catalog.Get().packs
 	match findPackByPath(freshPacks, cleanPath) {
-	case Some[PackPair] as p:
+	case option.Some[PackPair] as p:
 		return try readFromPack(odb, freshPacks, p.Value, offset, id, maxBytes)
-	case None:
+	case option.None:
 		return Missing{OID: id}
 	}
 }
@@ -447,34 +448,34 @@ func ReadPackOffset(odb ODB, packFilePath string, offset uint64, id oid.OID, max
 func ReadObject(odb ODB, id oid.OID, maxBytes int) Object fails Missing | Corrupt | MismatchedPair | Collision | LimitExceeded | DepthExceeded | IOFailed needs fs.Files {
 	let dirs = allObjectDirs(odb)
 	match try readLooseSingleDir(odb.Format, dirs[0], id, maxBytes) {
-	case Some[Object] as obj:
+	case option.Some[Object] as obj:
 		return obj.Value
-	case None:
+	case option.None:
 	}
 
 	let cachedPacks = odb.catalog.Get().packs
 	match lookupInCatalog(cachedPacks, id) {
-	case Some[(PackPair, uint64)] as loc:
+	case option.Some[(PackPair, uint64)] as loc:
 		let (p, off) = loc.Value
 		return try readFromPack(odb, cachedPacks, p, off, id, maxBytes)
-	case None:
+	case option.None:
 	}
 
-	for i in 1..len(dirs) {
+	for i in 1..dirs.Len() {
 		match try readLooseSingleDir(odb.Format, dirs[i], id, maxBytes) {
-		case Some[Object] as obj:
+		case option.Some[Object] as obj:
 			return obj.Value
-		case None:
+		case option.None:
 		}
 	}
 
 	try refreshOnMiss(odb)
 	let freshPacks = odb.catalog.Get().packs
 	match lookupInCatalog(freshPacks, id) {
-	case Some[(PackPair, uint64)] as loc:
+	case option.Some[(PackPair, uint64)] as loc:
 		let (p, off) = loc.Value
 		return try readFromPack(odb, freshPacks, p, off, id, maxBytes)
-	case None:
+	case option.None:
 		return Missing{OID: id}
 	}
 }
@@ -484,34 +485,34 @@ func ReadObject(odb ODB, id oid.OID, maxBytes int) Object fails Missing | Corrup
 func StatObject(odb ODB, id oid.OID, maxBytes int) Header fails Missing | Corrupt | MismatchedPair | Collision | LimitExceeded | DepthExceeded | IOFailed needs fs.Files {
 	let dirs = allObjectDirs(odb)
 	match try readLooseSingleDir(odb.Format, dirs[0], id, maxBytes) {
-	case Some[Object] as obj:
+	case option.Some[Object] as obj:
 		return Header{Kind: obj.Value.Kind, Size: obj.Value.Size}
-	case None:
+	case option.None:
 	}
 
 	let cachedPacks = odb.catalog.Get().packs
 	match lookupInCatalog(cachedPacks, id) {
-	case Some[(PackPair, uint64)] as loc:
+	case option.Some[(PackPair, uint64)] as loc:
 		let (p, off) = loc.Value
 		return try statAtOffset(odb, cachedPacks, p, off, id, maxBytes, 0)
-	case None:
+	case option.None:
 	}
 
-	for i in 1..len(dirs) {
+	for i in 1..dirs.Len() {
 		match try readLooseSingleDir(odb.Format, dirs[i], id, maxBytes) {
-		case Some[Object] as obj:
+		case option.Some[Object] as obj:
 			return Header{Kind: obj.Value.Kind, Size: obj.Value.Size}
-		case None:
+		case option.None:
 		}
 	}
 
 	try refreshOnMiss(odb)
 	let freshPacks = odb.catalog.Get().packs
 	match lookupInCatalog(freshPacks, id) {
-	case Some[(PackPair, uint64)] as loc:
+	case option.Some[(PackPair, uint64)] as loc:
 		let (p, off) = loc.Value
 		return try statAtOffset(odb, freshPacks, p, off, id, maxBytes, 0)
-	case None:
+	case option.None:
 		return Missing{OID: id}
 	}
 }
@@ -523,10 +524,10 @@ func ContainsObject(odb ODB, id oid.OID) bool needs fs.Files {
 	if loose.ContainsObject(loose.NewStore(odb.Format, dirs[0], []string{}), id) {
 		return true
 	}
-	if lookupInCatalog(odb.catalog.Get().packs, id) != None {
+	if lookupInCatalog(odb.catalog.Get().packs, id) != option.None {
 		return true
 	}
-	for i in 1..len(dirs) {
+	for i in 1..dirs.Len() {
 		if loose.ContainsObject(loose.NewStore(odb.Format, dirs[i], []string{}), id) {
 			return true
 		}
@@ -535,7 +536,7 @@ func ContainsObject(odb ODB, id oid.OID) bool needs fs.Files {
 	case Corrupt, MismatchedPair, IOFailed:
 		return false
 	}
-	lookupInCatalog(odb.catalog.Get().packs, id) != None
+	lookupInCatalog(odb.catalog.Get().packs, id) != option.None
 }
 
 // InstallObject atomically writes a new loose object into odb.ObjectsDir and
@@ -552,9 +553,9 @@ func InstallObject(odb ODB, kind oid.Kind, data []byte) oid.OID fails Collision 
 
 func dedupSortedOIDs(items []oid.OID) []oid.OID {
 	let sorted = slices.SortFunc(items, oid.Compare)
-	let mut out = slices.WithCapacity[oid.OID](len(sorted))
+	let mut out = slices.WithCapacity[oid.OID](sorted.Len())
 	for id in sorted {
-		if len(out) == 0 || !oid.Equal(out[len(out)-1], id) {
+		if out.Len() == 0 || !oid.Equal(out[out.Len()-1], id) {
 			out = out.Append(id)
 		}
 	}
@@ -581,9 +582,9 @@ func ListObjects(odb ODB) []oid.OID fails Corrupt | MismatchedPair | IOFailed ne
 		let n = p.Index.Count()
 		for i in 0..n {
 			match p.Index.At(i) {
-			case Some[packidx.Entry] as e:
+			case option.Some[packidx.Entry] as e:
 				all = all.Append(e.Value.OID)
-			case None:
+			case option.None:
 			}
 		}
 	}
@@ -617,7 +618,7 @@ func collectPrefixMatches(odb ODB, packs []PackPair, hexPrefix string) []oid.OID
 // once if no cached matches are found.
 func FindPrefix(odb ODB, hexPrefix string) []oid.OID fails Corrupt | MismatchedPair | IOFailed needs fs.Files {
 	let initial = try collectPrefixMatches(odb, odb.catalog.Get().packs, hexPrefix)
-	if len(initial) > 0 {
+	if initial.Len() > 0 {
 		return initial
 	}
 	try refreshOnMiss(odb)

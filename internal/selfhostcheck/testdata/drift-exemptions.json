@@ -1,4 +1,25 @@
 {
   "about": "Documented Go-only compiler files exempt from the Go<->Ergo dual-compiler drift gate (scripts/compiler-drift). Every entry requires an existing checkout-relative file, a non-empty reason, and an owner.",
-  "exemptions": []
+  "exemptions": [
+    {
+      "file": "internal/sketch/lower/foreignkey.go",
+      "reason": "Go-host-only foreign-key closure computation using go/build, go/parser, and go/types over embedded runtime/v1 and local Go modules; no self-hosted Ergo mirror in compiler/lower.",
+      "owner": "PERF-GOCLOSURE-1"
+    },
+    {
+      "file": "internal/sketch/lower/foreignkey_cache.go",
+      "reason": "Go-host-only persistent content-hashed disk cache for Go foreign-key closures under build cache root; no self-hosted Ergo mirror in compiler/lower.",
+      "owner": "PERF-GOCLOSURE-1"
+    },
+    {
+      "file": "internal/sketch/lower/goclosure.go",
+      "reason": "Go-host-only go/ast + go/types transitive Go call-graph closure walker for extern go law-ledger pinning; no self-hosted Ergo mirror in compiler/lower.",
+      "owner": "PERF-GOCLOSURE-1"
+    },
+    {
+      "file": "internal/sketch/lower/gostd.go",
+      "reason": "Go-host-only GOROOT standard-library type loader for goclosure; depends directly on Go's go/build, go/parser, and go/types; no self-hosted Ergo mirror in compiler/lower.",
+      "owner": "PERF-GOCLOSURE-1"
+    }
+  ]
 }

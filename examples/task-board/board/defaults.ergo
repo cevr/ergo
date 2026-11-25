@@ -1,5 +1,6 @@
 // The board a first run starts with: the chores of an observatory.
 
+import option
 import taskboard/sortkey
 
 // Defaults is the board with nothing saved.
@@ -37,8 +38,8 @@ law SortKeysStrictlyIncrease(moves []int) {
 	for m in moves {
 		let from = pick(m, 3)
 		let col = board[from].Cards
-		if len(col) > 0 {
-			board = Reorder(board, col[pick(m/3, len(col))].ID, board[from].ID, board[pick(m/100, 3)].ID, pick(m/300, 8))
+		if col.Len() > 0 {
+			board = Reorder(board, col[pick(m/3, col.Len())].ID, board[from].ID, board[pick(m/100, 3)].ID, pick(m/300, 8))
 		}
 	}
 	for c in board {
@@ -55,7 +56,7 @@ law SortKeysStrictlyIncrease(moves []int) {
 // and keys in order.
 func keyed(id string, name string, titles []string, first int) Column {
 	let mut cards = []Card{}
-	let mut key = sortkey.Between(None, None)
+	let mut key = sortkey.Between(option.None, option.None)
 	for i, t in titles {
 		cards = cards.Append(Card{ID: "card-\(first + i)", Title: t, Description: "", Key: key})
 		key = sortkey.After(key)

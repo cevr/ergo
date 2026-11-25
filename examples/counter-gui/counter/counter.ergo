@@ -17,19 +17,19 @@ let Zero = Count{Value: 0, By: 1}
 
 // Step is the counter's transition. Dec stops at zero: a count is never
 // negative. A step outside 1 to 100 is refused and changes nothing.
-func Step(c Count, op Op) Decision[Count, Count] {
+func Step(c Count, op Op) machines.Decision[Count, Count] {
 	match op {
 	case Inc:
-		Enter[Count]{Next: Count{Value: c.Value + c.By, By: c.By}}
+		machines.Enter[Count]{Next: Count{Value: c.Value + c.By, By: c.By}}
 	case Dec:
-		Enter[Count]{Next: Count{Value: if c.Value > c.By { c.Value - c.By } else { 0 }, By: c.By}}
+		machines.Enter[Count]{Next: Count{Value: if c.Value > c.By { c.Value - c.By } else { 0 }, By: c.By}}
 	case Reset:
-		Enter[Count]{Next: Count{Value: 0, By: c.By}}
+		machines.Enter[Count]{Next: Count{Value: 0, By: c.By}}
 	case StepBy as s:
 		if s.By < 1 || s.By > 100 {
-			return Ignore
+			return machines.Ignore
 		}
-		Enter[Count]{Next: Count{Value: c.Value, By: s.By}}
+		machines.Enter[Count]{Next: Count{Value: c.Value, By: s.By}}
 	}
 }
 

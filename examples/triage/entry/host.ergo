@@ -6,12 +6,14 @@
 // spelling the log first wrote. The package's test build runs Hashing's
 // laws against it.
 
+import maps
+import option
 import strings
 
-type HostCase {} implements Hashing[string]
+type HostCase {} implements maps.Hashing[string]
 
 // Hash is the hash of the host's lower-case form.
-func Hash(_ HostCase, host string) uint64 { hash(strings.ToLower(host)) }
+func Hash(_ HostCase, host string) uint64 { maps.Hash(strings.ToLower(host)) }
 
 // Equal reports whether a and b are one host.
 func Equal(_ HostCase, a string, b string) bool { strings.ToLower(a) == strings.ToLower(b) }
@@ -22,9 +24,9 @@ func Counts(entries []Entry) Map[string, int, HostCase] {
 	let mut out = Map[string, int, HostCase]{}
 	for e in entries {
 		let n = match out.Get(e.Host) {
-		case Some[int] as c:
+		case option.Some[int] as c:
 			c.Value + 1
-		case None:
+		case option.None:
 			1
 		}
 		out[e.Host] = n

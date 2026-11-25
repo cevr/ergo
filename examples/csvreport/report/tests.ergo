@@ -6,13 +6,13 @@ let file = "Site,Device,Hours,Kw,Note\nnorth,hub,3,2.50,\nsouth,hub,1,2.5,\"late
 
 test LoadsAnyColumnOrder {
 	let readings = try Load("kw,hours,device,site\n1.05,2,hub,east\n")
-	assert len(readings) == 1 && readings[0] == Reading{Site: "east", Device: "hub", Hours: 2, Kw: 105}
+	assert readings.Len() == 1 && readings[0] == Reading{Site: "east", Device: "hub", Hours: 2, Kw: 105}
 }
 
 test TablesGroupAndTotal {
 	let readings = try Load(file)
 	let lines = Table(readings, BySite)
-	assert len(lines) == 4
+	assert lines.Len() == 4
 	assert lines[0] == "site   readings    hours        energy"
 	assert lines[1] == "north         2        5         15.50"
 	assert lines[2] == "south         1        1          2.50"
@@ -75,5 +75,5 @@ test GroupsMerge(hours []int) {
 	for g in groups {
 		energy += g.Energy
 	}
-	assert energy == Total(readings).Energy && len(groups) == (if len(hours) == 0 { 0 } else if len(hours) == 1 { 1 } else { 2 })
+	assert energy == Total(readings).Energy && groups.Len() == (if hours.Len() == 0 { 0 } else if hours.Len() == 1 { 1 } else { 2 })
 }

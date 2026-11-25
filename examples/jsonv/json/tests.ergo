@@ -5,6 +5,7 @@
 // depth limit and the place a failure names.
 
 import json
+import option
 import strings
 
 // failure is the text and position of the failure of Parse(text), or
@@ -48,9 +49,9 @@ test LastKeyWins {
 	match v {
 	case json.Object as o:
 		match Get(o, "a") {
-		case Some[json.Value] as found:
+		case option.Some[json.Value] as found:
 			assert Compact(found.Value) == "2"
-		case None:
+		case option.None:
 			assert false
 		}
 	case _:
@@ -75,7 +76,7 @@ test DepthIsLimited {
 // object fails, and never past its end.
 test PrefixesFail(t Tree) {
 	let text = Compact(json.Array{Items: []json.Value{try Lawful(t)}})
-	for n in 0..len(text) {
+	for n in 0..text.Len() {
 		let prefix = strings.Slice(text, 0, n)
 		let _ = Parse(prefix) catch {
 		case json.Malformed as err:

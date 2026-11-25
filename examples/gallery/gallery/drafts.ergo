@@ -1,3 +1,5 @@
+import option
+
 // Drafts is where the studio keeps the drafts it saves: the site saves
 // its draft when it leaves the studio (the studio's exit action), and
 // reads the last one back when it enters it (the studio's work). The site
@@ -7,7 +9,7 @@ type Drafts {
 	// Save keeps draft as the draft last saved.
 	Save(draft string),
 	// Last is the draft last saved, or None before any save.
-	Last() Option[string],
+	Last() option.Option[string],
 
 	// LastIsTheLatestSave: after any saves, Last is the last draft saved;
 	// a save of a draft equal to an earlier one still counts as the last.
@@ -16,9 +18,9 @@ type Drafts {
 		for d in drafts {
 			Save(d)
 		}
-		if len(drafts) == 0 {
+		if drafts.Len() == 0 {
 			return Last() == before
 		}
-		Last() == Some[string]{Value: drafts[len(drafts)-1]}
+		Last() == option.Some[string]{Value: drafts[drafts.Len()-1]}
 	},
 }

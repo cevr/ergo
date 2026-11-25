@@ -1,4 +1,5 @@
 import github.com/cevr/ergo/modules/orchestrate/orchestrate
+import option
 import sql
 
 func applyEventSQL(ev orchestrate.Event, seq int) fails orchestrate.StoreFailed needs sql.Tx {
@@ -210,7 +211,7 @@ func applyEventSQL(ev orchestrate.Event, seq int) fails orchestrate.StoreFailed 
 
 func loadStateTx() orchestrate.State fails orchestrate.StoreFailed needs sql.Tx {
 	let mut units = Map[string, orchestrate.Unit]{}
-	for u in try queryUnitsTx(None) {
+	for u in try queryUnitsTx(option.None) {
 		units = units.Put(u.ID, u)
 	}
 	let mut receipts = Map[string, orchestrate.Receipt]{}
@@ -225,11 +226,11 @@ func loadStateTx() orchestrate.State fails orchestrate.StoreFailed needs sql.Tx 
 		receiptOrder = receiptOrder.Append(r.ID)
 	}
 	let mut commitments = Map[string, orchestrate.Commitment]{}
-	for c in try queryCommitmentsTx(None, None) {
+	for c in try queryCommitmentsTx(option.None, option.None) {
 		commitments = commitments.Put(c.ID, c)
 	}
 	let mut queue = Map[string, orchestrate.QueueItem]{}
-	for item in try queryQueueTx(None) {
+	for item in try queryQueueTx(option.None) {
 		queue = queue.Put(item.Key, item)
 	}
 	let mut questions = Map[int, orchestrate.Question]{}
@@ -253,7 +254,7 @@ func loadStateTx() orchestrate.State fails orchestrate.StoreFailed needs sql.Tx 
 	}
 	let mut nextQID = 1
 	let metaRows = try queryTx("SELECT next_question_id FROM schema_meta WHERE id = 1", []sql.Value{})
-	if len(metaRows) > 0 {
+	if metaRows.Len() > 0 {
 		nextQID = try intAt(metaRows[0], 0, "next_question_id")
 	}
 	orchestrate.State{
@@ -283,25 +284,25 @@ func queryEventsTx(fromSeq int) []orchestrate.StoredEvent fails orchestrate.Stor
 	out
 }
 
-func queryUnitTx(id string) Option[orchestrate.Unit] fails orchestrate.StoreFailed needs sql.Tx {
+func queryUnitTx(id string) option.Option[orchestrate.Unit] fails orchestrate.StoreFailed needs sql.Tx {
 	let rows = try queryTx(
 		"SELECT id, title, area, status, owner, lane, harness, round, head_sha, summary, request_path, findings_path, created_at, updated_at FROM units WHERE id = ?",
 		[]sql.Value{sql.Text{S: id}},
 	)
-	if len(rows) == 0 {
-		return None
+	if rows.Len() == 0 {
+		return option.None
 	}
-	Some[orchestrate.Unit]{Value: try scanUnit(rows[0])}
+	option.Some[orchestrate.Unit]{Value: try scanUnit(rows[0])}
 }
 
-func queryUnitsTx(status Option[orchestrate.UnitStatus]) []orchestrate.Unit fails orchestrate.StoreFailed needs sql.Tx {
+func queryUnitsTx(status option.Option[orchestrate.UnitStatus]) []orchestrate.Unit fails orchestrate.StoreFailed needs sql.Tx {
 	let rows = match status {
-	case Some[orchestrate.UnitStatus] as st:
+	case option.Some[orchestrate.UnitStatus] as st:
 		try queryTx(
 			"SELECT id, title, area, status, owner, lane, harness, round, head_sha, summary, request_path, findings_path, created_at, updated_at FROM units WHERE status = ? ORDER BY id ASC",
 			[]sql.Value{sql.Text{S: orchestrate.UnitStatusName(st.Value)}},
 		)
-	case None:
+	case option.None:
 		try queryTx(
 			"SELECT id, title, area, status, owner, lane, harness, round, head_sha, summary, request_path, findings_path, created_at, updated_at FROM units ORDER BY id ASC",
 			[]sql.Value{},
@@ -314,14 +315,14 @@ func queryUnitsTx(status Option[orchestrate.UnitStatus]) []orchestrate.Unit fail
 	out
 }
 
-func queryReceiptsTx(unitID string, round Option[int]) []orchestrate.Receipt fails orchestrate.StoreFailed needs sql.Tx {
+func queryReceiptsTx(unitID string, round option.Option[int]) []orchestrate.Receipt fails orchestrate.StoreFailed needs sql.Tx {
 	let rows = match round {
-	case Some[int] as r:
+	case option.Some[int] as r:
 		try queryTx(
 			"SELECT id, unit_id, round, kind, command, commit_sha, exit_code, summary_metrics, log_path, log_sha256, recorded_at, recorded_by FROM receipts WHERE unit_id = ? AND round = ? ORDER BY seq_order ASC",
 			[]sql.Value{sql.Text{S: unitID}, sql.Int{N: int64(r.Value)}},
 		)
-	case None:
+	case option.None:
 		try queryTx(
 			"SELECT id, unit_id, round, kind, command, commit_sha, exit_code, summary_metrics, log_path, log_sha256, recorded_at, recorded_by FROM receipts WHERE unit_id = ? ORDER BY seq_order ASC",
 			[]sql.Value{sql.Text{S: unitID}},
@@ -334,35 +335,35 @@ func queryReceiptsTx(unitID string, round Option[int]) []orchestrate.Receipt fai
 	out
 }
 
-func queryCommitmentTx(id string) Option[orchestrate.Commitment] fails orchestrate.StoreFailed needs sql.Tx {
+func queryCommitmentTx(id string) option.Option[orchestrate.Commitment] fails orchestrate.StoreFailed needs sql.Tx {
 	let rows = try queryTx(
 		"SELECT id, title, kind, status, owner, lane, landed_sha, decision_note, created_at, updated_at FROM commitments WHERE id = ?",
 		[]sql.Value{sql.Text{S: id}},
 	)
-	if len(rows) == 0 {
-		return None
+	if rows.Len() == 0 {
+		return option.None
 	}
-	Some[orchestrate.Commitment]{Value: try scanCommitment(rows[0])}
+	option.Some[orchestrate.Commitment]{Value: try scanCommitment(rows[0])}
 }
 
-func queryCommitmentsTx(status Option[orchestrate.CommitmentStatus], owner Option[string]) []orchestrate.Commitment fails orchestrate.StoreFailed needs sql.Tx {
+func queryCommitmentsTx(status option.Option[orchestrate.CommitmentStatus], owner option.Option[string]) []orchestrate.Commitment fails orchestrate.StoreFailed needs sql.Tx {
 	let rows = match (status, owner) {
-	case (Some[orchestrate.CommitmentStatus] as st, Some[string] as ow):
+	case (option.Some[orchestrate.CommitmentStatus] as st, option.Some[string] as ow):
 		try queryTx(
 			"SELECT id, title, kind, status, owner, lane, landed_sha, decision_note, created_at, updated_at FROM commitments WHERE status = ? AND owner = ? ORDER BY id ASC",
 			[]sql.Value{sql.Text{S: orchestrate.CommitmentStatusName(st.Value)}, sql.Text{S: ow.Value}},
 		)
-	case (Some[orchestrate.CommitmentStatus] as st, None):
+	case (option.Some[orchestrate.CommitmentStatus] as st, option.None):
 		try queryTx(
 			"SELECT id, title, kind, status, owner, lane, landed_sha, decision_note, created_at, updated_at FROM commitments WHERE status = ? ORDER BY id ASC",
 			[]sql.Value{sql.Text{S: orchestrate.CommitmentStatusName(st.Value)}},
 		)
-	case (None, Some[string] as ow):
+	case (option.None, option.Some[string] as ow):
 		try queryTx(
 			"SELECT id, title, kind, status, owner, lane, landed_sha, decision_note, created_at, updated_at FROM commitments WHERE owner = ? ORDER BY id ASC",
 			[]sql.Value{sql.Text{S: ow.Value}},
 		)
-	case (None, None):
+	case (option.None, option.None):
 		try queryTx(
 			"SELECT id, title, kind, status, owner, lane, landed_sha, decision_note, created_at, updated_at FROM commitments ORDER BY id ASC",
 			[]sql.Value{},
@@ -375,14 +376,14 @@ func queryCommitmentsTx(status Option[orchestrate.CommitmentStatus], owner Optio
 	out
 }
 
-func queryQueueTx(status Option[string]) []orchestrate.QueueItem fails orchestrate.StoreFailed needs sql.Tx {
+func queryQueueTx(status option.Option[string]) []orchestrate.QueueItem fails orchestrate.StoreFailed needs sql.Tx {
 	let rows = match status {
-	case Some[string] as st:
+	case option.Some[string] as st:
 		try queryTx(
 			"SELECT key, priority, title, body, status, tags_json, updated_at FROM queue WHERE status = ? ORDER BY priority ASC, key ASC",
 			[]sql.Value{sql.Text{S: st.Value}},
 		)
-	case None:
+	case option.None:
 		try queryTx(
 			"SELECT key, priority, title, body, status, tags_json, updated_at FROM queue ORDER BY priority ASC, key ASC",
 			[]sql.Value{},
@@ -395,15 +396,15 @@ func queryQueueTx(status Option[string]) []orchestrate.QueueItem fails orchestra
 	out
 }
 
-func queryQuestionTx(id int) Option[orchestrate.Question] fails orchestrate.StoreFailed needs sql.Tx {
+func queryQuestionTx(id int) option.Option[orchestrate.Question] fails orchestrate.StoreFailed needs sql.Tx {
 	let rows = try queryTx(
 		"SELECT id, prompt, assumption, concrete_action, status, answer, asked_by, asked_at, answered_by, answered_at FROM questions WHERE id = ?",
 		[]sql.Value{sql.Int{N: int64(id)}},
 	)
-	if len(rows) == 0 {
-		return None
+	if rows.Len() == 0 {
+		return option.None
 	}
-	Some[orchestrate.Question]{Value: try scanQuestion(rows[0])}
+	option.Some[orchestrate.Question]{Value: try scanQuestion(rows[0])}
 }
 
 func queryQuestionsTx(openOnly bool) []orchestrate.Question fails orchestrate.StoreFailed needs sql.Tx {
@@ -428,9 +429,9 @@ func queryQuestionsTx(openOnly bool) []orchestrate.Question fails orchestrate.St
 func scanUnit(row sql.Row) orchestrate.Unit fails orchestrate.StoreFailed {
 	let statusText = try textAt(row, 3, "status")
 	let status = match orchestrate.ParseUnitStatus(statusText) {
-	case Some[orchestrate.UnitStatus] as st:
+	case option.Some[orchestrate.UnitStatus] as st:
 		st.Value
-	case None:
+	case option.None:
 		return orchestrate.StoreFailed{Reason: "invalid stored unit status: " + statusText}
 	}
 	orchestrate.Unit{
@@ -471,9 +472,9 @@ func scanReceipt(row sql.Row) orchestrate.Receipt fails orchestrate.StoreFailed 
 func scanCommitment(row sql.Row) orchestrate.Commitment fails orchestrate.StoreFailed {
 	let statusText = try textAt(row, 3, "status")
 	let status = match orchestrate.ParseCommitmentStatus(statusText) {
-	case Some[orchestrate.CommitmentStatus] as st:
+	case option.Some[orchestrate.CommitmentStatus] as st:
 		st.Value
-	case None:
+	case option.None:
 		return orchestrate.StoreFailed{Reason: "invalid stored commitment status: " + statusText}
 	}
 	orchestrate.Commitment{
@@ -505,9 +506,9 @@ func scanQueueItem(row sql.Row) orchestrate.QueueItem fails orchestrate.StoreFai
 func scanQuestion(row sql.Row) orchestrate.Question fails orchestrate.StoreFailed {
 	let statusText = try textAt(row, 4, "status")
 	let status = match orchestrate.ParseQuestionStatus(statusText) {
-	case Some[orchestrate.QuestionStatus] as st:
+	case option.Some[orchestrate.QuestionStatus] as st:
 		st.Value
-	case None:
+	case option.None:
 		return orchestrate.StoreFailed{Reason: "invalid stored question status: " + statusText}
 	}
 	orchestrate.Question{
@@ -527,9 +528,9 @@ func scanQuestion(row sql.Row) orchestrate.Question fails orchestrate.StoreFaile
 func scanQuestionWithCmd(row sql.Row) orchestrate.Question fails orchestrate.StoreFailed {
 	let statusText = try textAt(row, 5, "status")
 	let status = match orchestrate.ParseQuestionStatus(statusText) {
-	case Some[orchestrate.QuestionStatus] as st:
+	case option.Some[orchestrate.QuestionStatus] as st:
 		st.Value
-	case None:
+	case option.None:
 		return orchestrate.StoreFailed{Reason: "invalid stored question status: " + statusText}
 	}
 	orchestrate.Question{

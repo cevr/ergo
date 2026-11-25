@@ -1,4 +1,5 @@
 import github.com/cevr/ergo/modules/orchestrate/orchestrate
+import option
 import sync
 
 type book {
@@ -33,15 +34,15 @@ func Execute(s Store, env orchestrate.Envelope) orchestrate.ExecuteResult fails 
 		case orchestrate.InvalidInput as e:
 			return (execRefused{Err: e}, b)
 		}
-		if len(events) == 0 {
-			return (execOK{Result: orchestrate.ExecuteResult{Seq: len(b.log), Events: []orchestrate.Event{}, Duplicate: true}}, b)
+		if events.Len() == 0 {
+			return (execOK{Result: orchestrate.ExecuteResult{Seq: b.log.Len(), Events: []orchestrate.Event{}, Duplicate: true}}, b)
 		}
 		let mut nextLog = b.log
 		for ev in events {
-			nextLog = nextLog.Append(orchestrate.StoredEvent{Seq: len(nextLog) + 1, Event: ev})
+			nextLog = nextLog.Append(orchestrate.StoredEvent{Seq: nextLog.Len() + 1, Event: ev})
 		}
 		let nextState = orchestrate.ApplyAll(b.state, events)
-		(execOK{Result: orchestrate.ExecuteResult{Seq: len(nextLog), Events: events, Duplicate: false}}, book{state: nextState, log: nextLog})
+		(execOK{Result: orchestrate.ExecuteResult{Seq: nextLog.Len(), Events: events, Duplicate: false}}, book{state: nextState, log: nextLog})
 	})
 	match outcome {
 	case execOK as ok:
@@ -81,37 +82,37 @@ func Events(s Store, fromSeq int) []orchestrate.StoredEvent fails orchestrate.St
 }
 
 // Unit looks up one unit by ID.
-func Unit(s Store, id string) Option[orchestrate.Unit] fails orchestrate.StoreFailed {
+func Unit(s Store, id string) option.Option[orchestrate.Unit] fails orchestrate.StoreFailed {
 	orchestrate.UnitByID(s.cell.Get().state, id)
 }
 
 // ListUnits returns units filtered by optional status, sorted by ID.
-func ListUnits(s Store, status Option[orchestrate.UnitStatus]) []orchestrate.Unit fails orchestrate.StoreFailed {
+func ListUnits(s Store, status option.Option[orchestrate.UnitStatus]) []orchestrate.Unit fails orchestrate.StoreFailed {
 	orchestrate.ListUnits(s.cell.Get().state, status)
 }
 
 // Receipts returns receipts for unitID, optionally filtered by round.
-func Receipts(s Store, unitID string, round Option[int]) []orchestrate.Receipt fails orchestrate.StoreFailed {
+func Receipts(s Store, unitID string, round option.Option[int]) []orchestrate.Receipt fails orchestrate.StoreFailed {
 	orchestrate.ReceiptsOf(s.cell.Get().state, unitID, round)
 }
 
 // Commitment looks up one commitment by ID.
-func Commitment(s Store, id string) Option[orchestrate.Commitment] fails orchestrate.StoreFailed {
+func Commitment(s Store, id string) option.Option[orchestrate.Commitment] fails orchestrate.StoreFailed {
 	orchestrate.CommitmentByID(s.cell.Get().state, id)
 }
 
 // ListCommitments returns commitments filtered by optional status and owner.
-func ListCommitments(s Store, status Option[orchestrate.CommitmentStatus], owner Option[string]) []orchestrate.Commitment fails orchestrate.StoreFailed {
+func ListCommitments(s Store, status option.Option[orchestrate.CommitmentStatus], owner option.Option[string]) []orchestrate.Commitment fails orchestrate.StoreFailed {
 	orchestrate.ListCommitments(s.cell.Get().state, status, owner)
 }
 
 // ListQueue returns queue items filtered by optional status, ordered by priority then key.
-func ListQueue(s Store, status Option[string]) []orchestrate.QueueItem fails orchestrate.StoreFailed {
+func ListQueue(s Store, status option.Option[string]) []orchestrate.QueueItem fails orchestrate.StoreFailed {
 	orchestrate.ListQueue(s.cell.Get().state, status)
 }
 
 // Question looks up one async question by monotonic ID.
-func Question(s Store, id int) Option[orchestrate.Question] fails orchestrate.StoreFailed {
+func Question(s Store, id int) option.Option[orchestrate.Question] fails orchestrate.StoreFailed {
 	orchestrate.QuestionByID(s.cell.Get().state, id)
 }
 
@@ -144,7 +145,7 @@ law ModelSequenceAcrossAllGroups(tag int, priority int) {
 	case _:
 		return false
 	}
-	let _ = svc.UnitHandBack(orchestrate.UnitHandBackInput{CommandID: orchestrate.CommandID("m4-\(tag)"), Actor: "w1", At: "2026-11-24T12:03:00Z", ID: uid, Owner: "w1", HeadSHA: "1234", Summary: "ready", RequestPath: Some[string]{Value: "/r1.md"}, FindingsPath: None}) catch {
+	let _ = svc.UnitHandBack(orchestrate.UnitHandBackInput{CommandID: orchestrate.CommandID("m4-\(tag)"), Actor: "w1", At: "2026-11-24T12:03:00Z", ID: uid, Owner: "w1", HeadSHA: "1234", Summary: "ready", RequestPath: option.Some[string]{Value: "/r1.md"}, FindingsPath: option.None}) catch {
 	case _:
 		return false
 	}
@@ -160,7 +161,7 @@ law ModelSequenceAcrossAllGroups(tag int, priority int) {
 	case _:
 		return false
 	}
-	let askIn = orchestrate.QuestionAskInput{CommandID: orchestrate.CommandID("m8-\(tag)"), Actor: "w1", At: "2026-11-24T12:07:00Z", ID: None, Prompt: "Proceed?", Assumption: "yes", ConcreteAction: "reply"}
+	let askIn = orchestrate.QuestionAskInput{CommandID: orchestrate.CommandID("m8-\(tag)"), Actor: "w1", At: "2026-11-24T12:07:00Z", ID: option.None, Prompt: "Proceed?", Assumption: "yes", ConcreteAction: "reply"}
 	let qFirst = svc.QuestionAsk(askIn) catch {
 	case _:
 		return false

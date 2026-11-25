@@ -1,6 +1,8 @@
 // Package vm is a bytecode stack machine: its instruction set, the
 // encoding of a program as bytecode, and the dispatch loop that runs it.
 
+import option
+
 // Instr is one instruction. A target is an instruction index.
 type Instr =
 	| Push{N int}
@@ -56,18 +58,18 @@ func countdown(n int) []Instr {
 }
 
 // Target is the instruction index that i jumps or calls to, if any.
-func Target(i Instr) Option[int] {
+func Target(i Instr) option.Option[int] {
 	match i {
 	case Jump as j:
-		Some{j.To}
+		option.Some{j.To}
 	case JumpIf as j:
-		Some{j.To}
+		option.Some{j.To}
 	case JumpIfNot as j:
-		Some{j.To}
+		option.Some{j.To}
 	case Call as c:
-		Some{c.To}
+		option.Some{c.To}
 	case Push, Pop, Dup, Swap, Over, Add, Sub, Mul, Div, Mod, Less, Same, Not, Ret, Print, Halt:
-		None
+		option.None
 	}
 }
 

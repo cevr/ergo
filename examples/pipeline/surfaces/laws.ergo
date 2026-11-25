@@ -20,6 +20,7 @@ import pipeline/board
 import pipeline/run
 import pipeline/screen
 import pipeline/view
+import scope
 import strings
 import time
 import ui
@@ -83,7 +84,7 @@ func onModel(rs []Request, m pipeline.Model) []string {
 // form and asked by its button, on ui.TestHost over m, read once the
 // screen settled. The reply of a command is the screen's notice, a board
 // is what a refresh loads, a run what "show" loads.
-func onScreen(rs []Request, m pipeline.Model, clock time.Manual) []string needs Scheduler {
+func onScreen(rs []Request, m pipeline.Model, clock time.Manual) []string needs time.Scheduler {
 	with context { pipeline.Pipeline: m } {
 		let a = actor.StartMachine(screen.Life{}, 8, func(r screen.Reply) {})
 		let mut h = ui.NewTestHost(a, view.View, clock, 8) catch {
@@ -197,7 +198,7 @@ func answers(s Surface, rs []Request, failing int) []string fails domain.Conflic
 	let mut table = Map[int, int]{}
 	table[0] = ((failing % 3) + 3) % 3
 	let clock = time.NewManual(0)
-	with context { Scheduler: clock, pipeline.Runner: runners.New(table) } {
+	with context { time.Scheduler: clock, pipeline.Runner: runners.New(table) } {
 		let m = try pipeline.Open(memory.New[pipeline.Entry]())
 		match s {
 		case ThroughModel:
@@ -240,7 +241,7 @@ func through(t Transport, r Request) pipelineapi.Outcome fails rpc.Transport nee
 
 // carried is r carried by w to the hub's Call on the Pipeline in force.
 func carried[F](w api.Transport[Request, pipelineapi.Outcome, F], r Request) pipelineapi.Outcome fails F needs pipeline.Pipeline {
-	let held = InForce[pipeline.Pipeline]()
+	let held = scope.InForce[pipeline.Pipeline]()
 	try w.Carry(r, func(c Request) pipelineapi.Outcome {
 		with held { pipelineapi.Call(c) }
 	})
@@ -251,7 +252,7 @@ func carried[F](w api.Transport[Request, pipelineapi.Outcome, F], r Request) pip
 // RPC wire): a command sent twice is taken once. A failure of delivery
 // refutes the law rather than appearing as a rejection by Pipeline.
 law TransportsTakeEachCommandOnce(c pipeline.SubmitRun, t Transport) {
-	with context { Scheduler: time.NewManual(0), pipeline.Runner: runners.NewFlaky() } {
+	with context { time.Scheduler: time.NewManual(0), pipeline.Runner: runners.NewFlaky() } {
 		let m = pipeline.Open(memory.New[pipeline.Entry]()) catch {
 		case domain.Conflict, domain.Reused, domain.Unkept:
 			return false

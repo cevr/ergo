@@ -1,4 +1,5 @@
 import hex
+import option
 import sha1dc
 import sha256
 import slices
@@ -40,13 +41,13 @@ type chunkSpan {
 	end   int,
 }
 
-func findChunk(chunks []chunkSpan, id string) Option[chunkSpan] {
+func findChunk(chunks []chunkSpan, id string) option.Option[chunkSpan] {
 	for c in chunks {
 		if c.id == id {
-			return Some[chunkSpan]{Value: c}
+			return option.Some[chunkSpan]{Value: c}
 		}
 	}
-	None
+	option.None
 }
 
 func decodeParents(p1 uint32, p2 uint32, edgeChunk []byte) []uint32 fails CorruptChunk {
@@ -62,7 +63,7 @@ func decodeParents(p1 uint32, p2 uint32, edgeChunk []byte) []uint32 fails Corrup
 	if (p2 & extraMask) == uint32(0) {
 		return out.Append(p2)
 	}
-	let edgeCount = len(edgeChunk) / 4
+	let edgeCount = edgeChunk.Len() / 4
 	let mut idx = int(p2 & uint32(0x7fffffff))
 	for {
 		if idx < 0 || idx >= edgeCount {
@@ -83,8 +84,8 @@ func decodeParents(p1 uint32, p2 uint32, edgeChunk []byte) []uint32 fails Corrup
 // BIDX/BDAT changed-path Bloom filter chunks.
 func Parse(format oid.Format, raw []byte) Graph fails Truncated | BadMagic | UnsupportedVersion | WrongFormat | CorruptChunk | MissingChunk | ChecksumMismatch {
 	let hashLen = oid.ByteLen(format)
-	if len(raw) < 8+12+hashLen {
-		return Truncated{Expected: 8 + 12 + hashLen, Got: len(raw)}
+	if raw.Len() < 8+12+hashLen {
+		return Truncated{Expected: 8 + 12 + hashLen, Got: raw.Len()}
 	}
 	if raw[0] != byte('C') || raw[1] != byte('G') || raw[2] != byte('P') || raw[3] != byte('H') {
 		return BadMagic{Reason: "missing CGPH commit-graph magic"}
@@ -104,9 +105,9 @@ func Parse(format oid.Format, raw []byte) Graph fails Truncated | BadMagic | Uns
 	let chunkCount = int(raw[6])
 	let baseCount = int(raw[7])
 	let tableEnd = 8 + (chunkCount+1)*12
-	let bodyEnd = len(raw) - hashLen
+	let bodyEnd = raw.Len() - hashLen
 	if tableEnd > bodyEnd {
-		return Truncated{Expected: tableEnd + hashLen, Got: len(raw)}
+		return Truncated{Expected: tableEnd + hashLen, Got: raw.Len()}
 	}
 
 	let wantSum = raw[bodyEnd:]
@@ -149,9 +150,9 @@ func Parse(format oid.Format, raw []byte) Graph fails Truncated | BadMagic | Uns
 	}
 
 	let oidfSpan = match findChunk(chunks, "OIDF") {
-	case Some[chunkSpan] as s:
+	case option.Some[chunkSpan] as s:
 		s.Value
-	case None:
+	case option.None:
 		return MissingChunk{ChunkID: "OIDF"}
 	}
 	if oidfSpan.end-oidfSpan.start != 1024 {
@@ -170,9 +171,9 @@ func Parse(format oid.Format, raw []byte) Graph fails Truncated | BadMagic | Uns
 	let n = int(fanout[255])
 
 	let oidlSpan = match findChunk(chunks, "OIDL") {
-	case Some[chunkSpan] as s:
+	case option.Some[chunkSpan] as s:
 		s.Value
-	case None:
+	case option.None:
 		return MissingChunk{ChunkID: "OIDL"}
 	}
 	if oidlSpan.end-oidlSpan.start != n*hashLen {
@@ -180,9 +181,9 @@ func Parse(format oid.Format, raw []byte) Graph fails Truncated | BadMagic | Uns
 	}
 
 	let cdatSpan = match findChunk(chunks, "CDAT") {
-	case Some[chunkSpan] as s:
+	case option.Some[chunkSpan] as s:
 		s.Value
-	case None:
+	case option.None:
 		return MissingChunk{ChunkID: "CDAT"}
 	}
 	let cdatStride = hashLen + 16
@@ -191,18 +192,18 @@ func Parse(format oid.Format, raw []byte) Graph fails Truncated | BadMagic | Uns
 	}
 
 	let edgeBytes = match findChunk(chunks, "EDGE") {
-	case Some[chunkSpan] as s:
+	case option.Some[chunkSpan] as s:
 		raw[s.Value.start:s.Value.end]
-	case None:
+	case option.None:
 		[]byte{}
 	}
 
 	let mut baseHashes = slices.WithCapacity[oid.OID](baseCount)
 	if baseCount > 0 {
 		let baseSpan = match findChunk(chunks, "BASE") {
-		case Some[chunkSpan] as s:
+		case option.Some[chunkSpan] as s:
 			s.Value
-		case None:
+		case option.None:
 			return MissingChunk{ChunkID: "BASE"}
 		}
 		if baseSpan.end-baseSpan.start != baseCount*hashLen {
@@ -221,21 +222,21 @@ func Parse(format oid.Format, raw []byte) Graph fails Truncated | BadMagic | Uns
 	let mut hasGdat = false
 	let mut gdatBytes = []byte{}
 	match findChunk(chunks, "GDAT") {
-	case Some[chunkSpan] as s:
+	case option.Some[chunkSpan] as s:
 		if s.Value.end-s.Value.start != n*4 {
 			return CorruptChunk{ChunkID: "GDAT", Reason: "GDAT chunk length mismatch"}
 		}
 		hasGdat = true
 		gdatBytes = raw[s.Value.start:s.Value.end]
-	case None:
+	case option.None:
 	}
 	let gdovBytes = match findChunk(chunks, "GDOV") {
-	case Some[chunkSpan] as s:
+	case option.Some[chunkSpan] as s:
 		if (s.Value.end-s.Value.start)%8 != 0 {
 			return CorruptChunk{ChunkID: "GDOV", Reason: "GDOV chunk length not multiple of 8"}
 		}
 		raw[s.Value.start:s.Value.end]
-	case None:
+	case option.None:
 		[]byte{}
 	}
 
@@ -244,9 +245,9 @@ func Parse(format oid.Format, raw []byte) Graph fails Truncated | BadMagic | Uns
 	let mut bidxBytes = []byte{}
 	let mut bdatData = []byte{}
 	match findChunk(chunks, "BIDX") {
-	case Some[chunkSpan] as bi:
+	case option.Some[chunkSpan] as bi:
 		match findChunk(chunks, "BDAT") {
-		case Some[chunkSpan] as bd:
+		case option.Some[chunkSpan] as bd:
 			if bi.Value.end-bi.Value.start != n*4 {
 				return CorruptChunk{ChunkID: "BIDX", Reason: "BIDX chunk length mismatch"}
 			}
@@ -261,9 +262,9 @@ func Parse(format oid.Format, raw []byte) Graph fails Truncated | BadMagic | Uns
 			}
 			bidxBytes = raw[bi.Value.start:bi.Value.end]
 			bdatData = raw[bd.Value.start+12 : bd.Value.end]
-		case None:
+		case option.None:
 		}
-	case None:
+	case option.None:
 	}
 
 	let mut commits = slices.WithCapacity[rawCommit](n)
@@ -296,7 +297,7 @@ func Parse(format oid.Format, raw []byte) Graph fails Truncated | BadMagic | Uns
 				corrDate = ctime + uint64(gVal)
 			} else {
 				let ovIdx = int(gVal & uint32(0x7fffffff))
-				if ovIdx*8+8 > len(gdovBytes) {
+				if ovIdx*8+8 > gdovBytes.Len() {
 					return CorruptChunk{ChunkID: "GDOV", Reason: "GDOV overflow index out of bounds"}
 				}
 				corrDate = ctime + readU64BE(gdovBytes, ovIdx*8)
@@ -307,7 +308,7 @@ func Parse(format oid.Format, raw []byte) Graph fails Truncated | BadMagic | Uns
 		if hasBloom {
 			let bStart = if i == 0 { 0 } else { int(readU32BE(bidxBytes, (i-1)*4)) }
 			let bEnd = int(readU32BE(bidxBytes, i*4))
-			if bStart < 0 || bEnd < bStart || bEnd > len(bdatData) {
+			if bStart < 0 || bEnd < bStart || bEnd > bdatData.Len() {
 				return CorruptChunk{ChunkID: "BIDX", Reason: "BIDX filter range out of BDAT bounds"}
 			}
 			bloomSlice = bdatData[bStart:bEnd]

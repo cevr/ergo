@@ -1,3 +1,5 @@
+import machines
+
 // Act is an action in the scheduled-post model.
 type Act = BeginFire{} | PostFire{} | Advance{} | Crash{} | Cancel{} | LoseAccess{} | RestoreAccess{}
 
@@ -56,23 +58,23 @@ func first() World {
 	}
 }
 
-func step(s World, act Act, mutant int) Decision[World, string] {
+func step(s World, act Act, mutant int) machines.Decision[World, string] {
 	let mut w = s
 	match act {
 	case BeginFire:
 		if w.State != 0 || w.Phase != 0 || w.Left <= 0 {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Phase = 1
-		return Enter{w}
+		return machines.Enter{w}
 	case PostFire:
 		if w.Phase != 1 {
-			return Ignore
+			return machines.Ignore
 		}
 		if w.State != 0 && mutant != postAfterCancelMutant {
 			w.Phase = 0
 			w.CancelBlockedPost = true
-			return Enter{w}
+			return machines.Enter{w}
 		}
 		let mut accessOk = w.HasAccess
 		if mutant == noAccessCheckMutant {
@@ -83,13 +85,13 @@ func step(s World, act Act, mutant int) Decision[World, string] {
 			w.Canceled = true
 			w.Phase = 0
 			w.LostAccessCancel = true
-			return Enter{w}
+			return machines.Enter{w}
 		}
 		let i = w.Next
 		if w.KeyUsed[i] && mutant != noIdempotencyKeyMutant {
 			w.CrashRecovered = true
 			w.Phase = 2
-			return Enter{w}
+			return machines.Enter{w}
 		}
 		w.KeyUsed[i] = true
 		w.Posts[i] = w.Posts[i] + 1
@@ -100,10 +102,10 @@ func step(s World, act Act, mutant int) Decision[World, string] {
 			w.PostedAfterCancel = true
 		}
 		w.Phase = 2
-		return Enter{w}
+		return machines.Enter{w}
 	case Advance:
 		if w.Phase != 2 || w.State != 0 {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Next = w.Next + 1
 		w.Left = w.Left - 1
@@ -111,38 +113,38 @@ func step(s World, act Act, mutant int) Decision[World, string] {
 		if w.Left == 0 {
 			w.State = 1
 		}
-		return Enter{w}
+		return machines.Enter{w}
 	case Crash:
 		if w.Phase == 0 || w.Crashes >= MaxCrashes {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Phase = 0
 		w.Crashes = w.Crashes + 1
-		return Enter{w}
+		return machines.Enter{w}
 	case Cancel:
 		if w.State != 0 {
-			return Ignore
+			return machines.Ignore
 		}
 		w.State = 2
 		w.Canceled = true
 		if w.Phase == 2 {
 			w.Phase = 0
 		}
-		return Enter{w}
+		return machines.Enter{w}
 	case LoseAccess:
 		if !w.HasAccess || w.AccessChanges >= MaxAccessChanges {
-			return Ignore
+			return machines.Ignore
 		}
 		w.HasAccess = false
 		w.AccessChanges = w.AccessChanges + 1
-		return Enter{w}
+		return machines.Enter{w}
 	case RestoreAccess:
 		if w.HasAccess || w.AccessChanges >= MaxAccessChanges {
-			return Ignore
+			return machines.Ignore
 		}
 		w.HasAccess = true
 		w.AccessChanges = w.AccessChanges + 1
-		return Enter{w}
+		return machines.Enter{w}
 	}
 }
 
@@ -170,10 +172,10 @@ func recoversFromCrash(w World) bool      { w.CrashRecovered && w.State == 1 }
 func cancelsOnLostAccess(w World) bool    { w.LostAccessCancel && w.State == 2 }
 func refusesPostAfterCancel(w World) bool { w.CancelBlockedPost && w.State == 2 }
 
-func design(s World, a Act) Decision[World, string]           { return step(s, a, noMutant) }
-func noIdempotencyKey(s World, a Act) Decision[World, string] { return step(s, a, noIdempotencyKeyMutant) }
-func postAfterCancel(s World, a Act) Decision[World, string]  { return step(s, a, postAfterCancelMutant) }
-func noAccessCheck(s World, a Act) Decision[World, string]    { return step(s, a, noAccessCheckMutant) }
+func design(s World, a Act) machines.Decision[World, string]           { return step(s, a, noMutant) }
+func noIdempotencyKey(s World, a Act) machines.Decision[World, string] { return step(s, a, noIdempotencyKeyMutant) }
+func postAfterCancel(s World, a Act) machines.Decision[World, string]  { return step(s, a, postAfterCancelMutant) }
+func noAccessCheck(s World, a Act) machines.Decision[World, string]    { return step(s, a, noAccessCheckMutant) }
 
 // Design is the scheduled-post model: each firing posts at most once even
 // across crashes between post and advance, no post lands after cancellation,

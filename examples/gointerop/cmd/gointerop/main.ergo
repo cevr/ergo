@@ -18,6 +18,7 @@ import gointerop/index
 import gointerop/sha256
 import gointerop/stats
 import io
+import option
 import os
 import slices
 
@@ -29,11 +30,11 @@ type Command = Sum{Files []string} | Check{List string} | Stats{} | Find{Keys []
 
 // Parse is the command of args.
 func Parse(args []string) Command fails os.Exit {
-	if len(args) == 0 {
+	if args.Len() == 0 {
 		return os.Exit{Code: 2, Message: Usage}
 	}
-	let rest = slices.Slice(args, 1, len(args))
-	match (args[0], len(rest)) {
+	let rest = slices.Slice(args, 1, args.Len())
+	match (args[0], rest.Len()) {
 	case ("sum", _):
 		Sum{Files: rest}
 	case ("check", 1):
@@ -48,40 +49,40 @@ func Parse(args []string) Command fails os.Exit {
 }
 
 // textOf is the text of a file, or None when it cannot be read.
-func textOf(name string) Option[string] needs fs.Files | io.Stdin {
+func textOf(name string) option.Option[string] needs fs.Files | io.Stdin {
 	if name == "-" {
 		let text = io.Stdin.ReadAll() catch {
 		case io.ReadFailed:
-			return None
+			return option.None
 		}
-		return Some{text}
+		return option.Some{text}
 	}
 	let text = fs.Files.ReadFile(name) catch {
 	case fs.NotFound, fs.Denied, fs.Failed:
-		return None
+		return option.None
 	}
-	Some{text}
+	option.Some{text}
 }
 
 // SumAll prints the digest line of each file.
-func SumAll(files []string) fails os.Exit needs Console | checksum.Hasher | fs.Files | io.Stdin {
-	let names = if len(files) == 0 { []string{"-"} } else { files }
+func SumAll(files []string) fails os.Exit needs io.Console | checksum.Hasher | fs.Files | io.Stdin {
+	let names = if files.Len() == 0 { []string{"-"} } else { files }
 	for name in names {
 		match textOf(name) {
-		case Some[string] as t:
-			Console.Println(checksum.Line(checksum.Entry{Digest: checksum.Hasher.Sum(t.Value), Name: name}))
-		case None:
+		case option.Some[string] as t:
+			io.Console.Println(checksum.Line(checksum.Entry{Digest: checksum.Hasher.Sum(t.Value), Name: name}))
+		case option.None:
 			return os.Exit{Code: 1, Message: "gointerop: \(name): cannot be read"}
 		}
 	}
 }
 
 // CheckAll checks each entry of the list file.
-func CheckAll(list string) fails os.Exit needs Console | checksum.Hasher | fs.Files | io.Stdin {
+func CheckAll(list string) fails os.Exit needs io.Console | checksum.Hasher | fs.Files | io.Stdin {
 	let text = match textOf(list) {
-	case Some[string] as t:
+	case option.Some[string] as t:
 		t.Value
-	case None:
+	case option.None:
 		return os.Exit{Code: 1, Message: "gointerop: \(list): cannot be read"}
 	}
 	let entries = checksum.Parse(text) catch {
@@ -91,7 +92,7 @@ func CheckAll(list string) fails os.Exit needs Console | checksum.Hasher | fs.Fi
 	let mut failed = 0
 	for e in entries {
 		let v = checksum.Check(e, textOf(e.Name))
-		Console.Println(checksum.Report(e, v))
+		io.Console.Println(checksum.Report(e, v))
 		match v {
 		case checksum.Matches:
 		case checksum.Differs, checksum.Missing:
@@ -105,7 +106,7 @@ func CheckAll(list string) fails os.Exit needs Console | checksum.Hasher | fs.Fi
 }
 
 // StatsOf prints the summary of the numbers on standard input.
-func StatsOf() fails os.Exit needs Console | io.Stdin {
+func StatsOf() fails os.Exit needs io.Console | io.Stdin {
 	let text = io.Stdin.ReadAll() catch {
 	case io.ReadFailed as r:
 		return os.Exit{Code: 1, Message: "gointerop: \(r.Reason)"}
@@ -121,13 +122,13 @@ func StatsOf() fails os.Exit needs Console | io.Stdin {
 		return os.Exit{Code: 1, Message: "gointerop: no numbers"}
 	}
 	for l in stats.Lines(s) {
-		Console.Println(l)
+		io.Console.Println(l)
 	}
 }
 
 // FindAll prints the rank of each key in the index of the numbers on
 // standard input, and whether it is one of them.
-func FindAll(keys []string) fails os.Exit needs Console | io.Stdin {
+func FindAll(keys []string) fails os.Exit needs io.Console | io.Stdin {
 	let text = io.Stdin.ReadAll() catch {
 	case io.ReadFailed as r:
 		return os.Exit{Code: 1, Message: "gointerop: \(r.Reason)"}
@@ -142,17 +143,17 @@ func FindAll(keys []string) fails os.Exit needs Console | io.Stdin {
 		case index.NotAnInt:
 			return os.Exit{Code: 2, Message: "gointerop: \(key) is not a whole number"}
 		}
-		if len(k) != 1 {
+		if k.Len() != 1 {
 			return os.Exit{Code: 2, Message: "gointerop: \(key) is not a whole number"}
 		}
 		let seen = if index.Has(ix, k[0]) { "found" } else { "absent" }
-		Console.Println("\(k[0]) rank \(index.Rank(ix, k[0])) of \(index.Size(ix)) \(seen)")
+		io.Console.Println("\(k[0]) rank \(index.Rank(ix, k[0])) of \(index.Size(ix)) \(seen)")
 	}
 }
 
 // main does what the arguments ask, on the host's arguments, input and
 // files, hashing with gointerop/sha256.
-func main() fails os.Exit needs Console | Ambient {
+func main() fails os.Exit needs io.Console | os.Ambient {
 	with context { os.Process: os.NewHost(), io.Stdin: io.NewStdin(), fs.Files: fs.NewHost(), checksum.Hasher: sha256.Hasher } {
 		match try Parse(os.Process.Args()) {
 		case Sum as s:
@@ -193,7 +194,7 @@ func world() fstest.Memory fails fs.NotFound | fs.Denied | fs.Failed {
 }
 
 // statusOf is the exit status of CheckAll(list): 0, or its os.Exit code.
-func statusOf(list string) int needs Console | checksum.Hasher | fs.Files | io.Stdin {
+func statusOf(list string) int needs io.Console | checksum.Hasher | fs.Files | io.Stdin {
 	CheckAll(list) catch {
 	case os.Exit as e:
 		return int(e.Code)
@@ -205,7 +206,7 @@ func statusOf(list string) int needs Console | checksum.Hasher | fs.Files | io.S
 func checked(list string) (string, int) fails fs.NotFound | fs.Denied | fs.Failed {
 	let out = io.NewRecorder()
 	let disk = try world()
-	with context { Console: out, fs.Files: disk, io.Stdin: io.Input{Text: ""}, checksum.Hasher: sha256.Hasher } {
+	with context { io.Console: out, fs.Files: disk, io.Stdin: io.Input{Text: ""}, checksum.Hasher: sha256.Hasher } {
 		let code = statusOf(list)
 		(out.Text(), code)
 	}

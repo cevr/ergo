@@ -9,6 +9,7 @@
 // and the host's streams.
 
 import io
+import option
 import os
 import regex/backtrack
 import regex/engine
@@ -45,14 +46,14 @@ func parseArgs(args []string) Options fails BadUsage {
 			o.UseReference = true
 		} else if flags && a == "-g" {
 			o.Groups = true
-		} else if flags && len(a) > 1 && a[0] == '-' {
+		} else if flags && a.Len() > 1 && a[0] == '-' {
 			return BadUsage{Reason: "unknown flag " + a}
 		} else {
 			rest = rest.Append(a)
 		}
 	}
-	if len(rest) != 1 {
-		return BadUsage{Reason: "want one pattern, have \(len(rest))"}
+	if rest.Len() != 1 {
+		return BadUsage{Reason: "want one pattern, have \(rest.Len())"}
 	}
 	if o.Count && o.Groups {
 		return BadUsage{Reason: "-c counts lines and -g prints groups: choose one"}
@@ -87,13 +88,13 @@ func groups(o Options, p syntax.Pattern) fails os.Exit needs io.Stdin | io.Stdou
 	let mut n = 0
 	for line in io.Stdin.Lines() {
 		match capture(o, c, p, line) {
-		case Some[syntax.Found] as f:
+		case option.Some[syntax.Found] as f:
 			n += 1
 			io.Stdout.Println(line)
 			for name in names {
 				io.Stdout.Println("\t" + name + " " + occurrences(line, f.Value.Events, name))
 			}
-		case None:
+		case option.None:
 		}
 	}
 	if n == 0 {
@@ -103,15 +104,15 @@ func groups(o Options, p syntax.Pattern) fails os.Exit needs io.Stdin | io.Stdou
 
 // capture is the match of p in line: of the whole line in Whole, the
 // leftmost in Inside, by the NFA or, with -r, the reference.
-func capture(o Options, c nfa.Capturing, p syntax.Pattern, line string) Option[syntax.Found] {
+func capture(o Options, c nfa.Capturing, p syntax.Pattern, line string) option.Option[syntax.Found] {
 	match o.Mode {
 	case engine.Whole:
 		let r = if o.UseReference { backtrack.ParseCaptures(p, line) } else { c.ParseCaptures(line) }
 		match r {
-		case Some[[]syntax.Event] as s:
-			Some{Value: syntax.Found{Start: 0, End: len(line), Events: s.Value}}
-		case None:
-			None
+		case option.Some[[]syntax.Event] as s:
+			option.Some{Value: syntax.Found{Start: 0, End: line.Len(), Events: s.Value}}
+		case option.None:
+			option.None
 		}
 	case engine.Inside:
 		if o.UseReference { backtrack.FindCaptures(p, line) } else { c.FindCaptures(line) }
@@ -138,11 +139,11 @@ func groupNames(p syntax.Pattern) []string {
 // START-END=TEXT, or "none" when the group took no part.
 func occurrences(line string, events []syntax.Event, name string) string {
 	let all = syntax.Occurrences(events, name)
-	if len(all) == 0 {
+	if all.Len() == 0 {
 		return "none"
 	}
 	let mut out = ""
-	for i in 0..len(all) {
+	for i in 0..all.Len() {
 		let o = all[i]
 		let sep = if i == 0 { "" } else { " " }
 		out = out + sep + "\(o.Start)-\(o.End)=" + line[o.Start:o.End]
@@ -179,7 +180,7 @@ func run(args []string) fails os.Exit needs io.Stdin | io.Stdout {
 	}
 }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	with context { os.Process: os.NewHost(), io.Stdin: io.NewStdin(), io.Stdout: io.NewHost() } {
 		try run(os.Process.Args())
 	}

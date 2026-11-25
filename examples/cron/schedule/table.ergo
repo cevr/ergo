@@ -18,7 +18,7 @@ func ParseTable(text string) []Job fails BadLine {
 		}
 		let words = strings.Fields(line)
 		let n = if strings.HasPrefix(line, "@") { 1 } else { 5 }
-		if len(words) <= n {
+		if words.Len() <= n {
 			return BadLine{Line: i + 1, Text: line, Reason: "no job name after the expression"}
 		}
 		let expr = strings.Join(slices.Slice(words, 0, n), " ")
@@ -34,7 +34,7 @@ func ParseTable(text string) []Job fails BadLine {
 		case cron.BadRange as r:
 			return BadLine{Line: i + 1, Text: line, Reason: "\(r.Field): range \(r.From)-\(r.To) ends before it starts"}
 		}
-		jobs = jobs.Append(Job{Name: strings.Join(slices.Slice(words, n, len(words)), " "), When: e})
+		jobs = jobs.Append(Job{Name: strings.Join(slices.Slice(words, n, words.Len()), " "), When: e})
 	}
 	jobs
 }

@@ -10,6 +10,7 @@
 // standard input and arguments.
 
 import io
+import option
 import os
 import stackvm/asm
 import stackvm/vm
@@ -35,7 +36,7 @@ type Command = Exec{} | Dis{} | Code{} | Bench{Rounds int} | Fib{Rounds int}
 
 // Parse is the command of args.
 func Parse(args []string) Command fails os.Exit {
-	match (if len(args) == 0 { "" } else { args[0] }, len(args)) {
+	match (if args.Len() == 0 { "" } else { args[0] }, args.Len()) {
 	case ("run", 1):
 		Exec
 	case ("dis", 1):
@@ -73,16 +74,16 @@ func Assembled() []vm.Instr fails os.Exit needs io.Stdin {
 
 // Execute runs program, for at most fuel instructions, and prints each value it prints, then how it
 // ended.
-func Execute(program []vm.Instr, fuel int) fails os.Exit needs Console {
+func Execute(program []vm.Instr, fuel int) fails os.Exit needs io.Console {
 	let r = vm.Run(program, fuel) catch {
 	case vm.Trap as t:
 		return os.Exit{Code: 1, Message: "stackvm: \(vm.Describe(t))"}
 	}
 	for v in r.Printed {
-		Console.Println("\(v)")
+		io.Console.Println("\(v)")
 	}
 	let left = strings.Join(Texts(r.Stack), " ")
-	Console.Println("halted after \(r.Steps) steps; stack [\(left)]")
+	io.Console.Println("halted after \(r.Steps) steps; stack [\(left)]")
 }
 
 // Texts is the decimal text of each of xs.
@@ -103,9 +104,9 @@ func BenchProgram(rounds int) []vm.Instr {
 	let mut program = []vm.Instr{vm.Push{N: rounds}}
 	for i in loop {
 		program = program.Append(vm.Retarget(i, match vm.Target(i) {
-		case Some[int] as t:
+		case option.Some[int] as t:
 			t.Value + 1
-		case None:
+		case option.None:
 			0
 		}))
 	}
@@ -125,15 +126,15 @@ func FibProgram(rounds int) []vm.Instr {
 }
 
 // main does what the arguments ask, on the host's arguments and input.
-func main() fails os.Exit needs Console | Ambient {
+func main() fails os.Exit needs io.Console | os.Ambient {
 	with context { os.Process: os.NewHost(), io.Stdin: io.NewStdin() } {
 		match try Parse(os.Process.Args()) {
 		case Exec:
 			try Execute(try Assembled(), Fuel)
 		case Dis:
-			Console.Println(strings.TrimSuffix(asm.Disassemble(try Assembled()), "\n"))
+			io.Console.Println(strings.TrimSuffix(asm.Disassemble(try Assembled()), "\n"))
 		case Code:
-			Console.Println(strings.Join(Texts(vm.Encode(try Assembled())), " "))
+			io.Console.Println(strings.Join(Texts(vm.Encode(try Assembled())), " "))
 		case Bench as b:
 			try Execute(BenchProgram(b.Rounds), Unlimited)
 		case Fib as f:
@@ -165,7 +166,7 @@ test BenchProgramSums {
 
 test ExecutePrintsTheRun {
 	let out = io.NewRecorder()
-	with context { Console: out } {
+	with context { io.Console: out } {
 		try Execute(try asm.Assemble("push 2\nprint\npush 5\n"), Fuel)
 	}
 	assert out.Text() == "2\nhalted after 3 steps; stack [5]\n"

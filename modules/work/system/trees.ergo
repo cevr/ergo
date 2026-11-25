@@ -119,10 +119,10 @@ func Between(from string, to string) string { "\(strconv.Quote(from)) -> \(strco
 // B5).
 func FirstLine(text string) string {
 	let lines = strings.Split(text, "\n")
-	if len(lines) <= 1 {
+	if lines.Len() <= 1 {
 		return text
 	}
-	"\(lines[0]) (and \(len(lines) - 1) more lines)"
+	"\(lines[0]) (and \(lines.Len() - 1) more lines)"
 }
 
 // UnsupportedSaysOneLine: a refusal cp gave for each of three files is
@@ -373,11 +373,11 @@ func SharedUsage(t Trees, who string, root string) work.Usage fails work.Unsuppo
 // line, then Total, Exclusive, Set shared and the file name.
 func parseBtrfsDu(t Trees, who string, root string, r exec.Result) work.Usage fails work.CloneFailed {
 	let lines = strings.Split(strings.TrimSpace(r.Stdout), "\n")
-	if len(lines) < 2 {
+	if lines.Len() < 2 {
 		return commandFailure(t, who, "btrfs", strconv.Quote(root), r, "filesystem du printed no usage")
 	}
 	let fields = strings.Fields(lines[1])
-	if len(fields) < 3 {
+	if fields.Len() < 3 {
 		return commandFailure(t, who, "btrfs", strconv.Quote(root), r, "invalid filesystem du table")
 	}
 	let total = try count(t, who, "btrfs", root, r, fields[0])
@@ -396,7 +396,7 @@ func CopyUsage(t Trees, who string, root string) work.Usage fails work.Unsupport
 		return commandFailure(t, who, "du", strconv.Quote(root), r, "")
 	}
 	let fields = strings.Fields(r.Stdout)
-	if len(fields) == 0 {
+	if fields.Len() == 0 {
 		return commandFailure(t, who, "du", strconv.Quote(root), r, "printed no usage")
 	}
 	let bytes = try count(t, who, "du", root, r, fields[0]) * 1024
@@ -417,12 +417,12 @@ func FreeOf(t Trees, who string, root string) int fails work.Unsupported | work.
 		return work.Unsupported{Cloner: who, Why: FirstLine(commandFailure(t, who, "df", strconv.Quote(root), r, "").Reason)}
 	}
 	let lines = strings.Split(strings.TrimSpace(r.Stdout), "\n")
-	if len(lines) < 2 {
+	if lines.Len() < 2 {
 		return work.Unsupported{Cloner: who, Why: "df printed no table"}
 	}
-	let fields = strings.Fields(lines[len(lines)-1])
-	if len(fields) < 4 {
-		return work.Unsupported{Cloner: who, Why: "df: \(lines[len(lines)-1])"}
+	let fields = strings.Fields(lines[lines.Len()-1])
+	if fields.Len() < 4 {
+		return work.Unsupported{Cloner: who, Why: "df: \(lines[lines.Len()-1])"}
 	}
 	try count(t, who, "df", root, r, fields[3]) * 1024
 }

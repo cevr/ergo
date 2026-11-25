@@ -11,9 +11,12 @@
 // apply), 2 a command line infra cannot read or an apply or destroy
 // without -yes, 3 the stage's lock is held by another.
 
+import core
 import flag
 import fs
+import io
 import json
+import option
 import os
 import strings
 
@@ -56,7 +59,7 @@ law CommandStatusKeepsNumber(raw int) {
 func keepsStatus(raw int) bool {
 	let accepted = raw == 0 || raw == 1 || raw == 2 || raw == 3
 	let status = ParseCommandStatus(raw) catch {
-	case Unsatisfied:
+	case core.Unsatisfied:
 		return !accepted
 	}
 	accepted && int(status) == raw
@@ -104,9 +107,9 @@ func Commands(holder string) []flag.Command[Order] {
 		}),
 		leaf("unlock", "unlock breaks the lock of a run that crashed, naming its holder", []flag.Flag{stage}, []flag.ArgSpec{who}, func(v flag.Values) Order fails flag.Failure {
 			let named = match who.Get(v) {
-			case Some[string] as s:
+			case option.Some[string] as s:
 				s.Value
-			case None:
+			case option.None:
 				""
 			}
 			UnlockOrder{Stage: stage.Get(v), Holder: named}
@@ -170,12 +173,12 @@ func held(name string, stage string, h Held) Output {
 
 // deploy runs d's stack at stage in pass as holder: None when it ended,
 // else the Output of its failure.
-func deploy[O wire](d Deployment[O], stage string, pass Pass, holder string) Option[Output] needs wired[O] {
+func deploy[O wire](d Deployment[O], stage string, pass Pass, holder string) option.Option[Output] needs wired[O] {
 	let b = d.Bind(stage, pass)
 	let path = d.Outputs(stage)
 	let _ = Deploy(pass, d.Lock(stage), holder, b.Engines, d.Writes, path, b.Stack) catch {
 	case Held as h:
-		return Some[Output]{Value: held(d.Name, stage, h)}
+		return option.Some[Output]{Value: held(d.Name, stage, h)}
 	case Failed as f:
 		let lock = match pass.mode {
 		case Applying:
@@ -183,11 +186,11 @@ func deploy[O wire](d Deployment[O], stage string, pass Pass, holder string) Opt
 		case Planning, Refreshing:
 			""
 		}
-		return Some[Output]{Value: refused(d.Name, "\(f.ID): \(f.Reason)"+lock, 1)}
+		return option.Some[Output]{Value: refused(d.Name, "\(f.ID): \(f.Reason)"+lock, 1)}
 	case Unwritten as u:
-		return Some[Output]{Value: refused(d.Name, "the apply ended, and its outputs were not written at \(u.Path): \(u.Reason)", 1)}
+		return option.Some[Output]{Value: refused(d.Name, "the apply ended, and its outputs were not written at \(u.Path): \(u.Reason)", 1)}
 	}
-	None
+	option.None
 }
 
 // Exec reads args as a command of d's stack, runs it, and is what to
@@ -207,22 +210,22 @@ func Exec[O wire](d Deployment[O], args []string) Output needs wired[O] {
 		}
 		let pass = NewPass(mode)
 		match deploy(d, p.Stage, pass, d.Holder) {
-		case Some[Output] as o:
+		case option.Some[Output] as o:
 			return o.Value
-		case None:
+		case option.None:
 		}
-		told(p.JSON, p.Stage, Steps(pass), "plan: "+count(len(Steps(pass))))
+		told(p.JSON, p.Stage, Steps(pass), "plan: "+count(Steps(pass).Len()))
 	case ApplyOrder as a:
 		if !a.Yes {
 			return refused(d.Name, "apply changes objects: run plan to see the changes, then apply -yes", 2)
 		}
 		let pass = NewPass(Applying)
 		match deploy(d, a.Stage, pass, a.Holder) {
-		case Some[Output] as o:
+		case option.Some[Output] as o:
 			return o.Value
-		case None:
+		case option.None:
 		}
-		told(a.JSON, a.Stage, Steps(pass), "applied: "+count(len(Steps(pass)))+"; outputs at "+d.Outputs(a.Stage))
+		told(a.JSON, a.Stage, Steps(pass), "applied: "+count(Steps(pass).Len())+"; outputs at "+d.Outputs(a.Stage))
 	case DestroyOrder as x:
 		if !x.Yes {
 			return refused(d.Name, "destroy deletes every object of stage \(x.Stage): run it with -yes", 2)
@@ -245,12 +248,12 @@ func Exec[O wire](d Deployment[O], args []string) Output needs wired[O] {
 		case fs.Failed as f:
 			return refused(d.Name, "the objects are deleted, and the outputs at \(path) could not be removed: \(f.Reason)", 1)
 		}
-		told(x.JSON, x.Stage, Steps(pass), "destroyed: "+count(len(Steps(pass))))
+		told(x.JSON, x.Stage, Steps(pass), "destroyed: "+count(Steps(pass).Len()))
 	case StateOrder as s:
 		shown(d, s)
 	case UnlockOrder as u:
 		let lock = d.Lock(u.Stage)
-		if lock.Holder() == None {
+		if lock.Holder() == option.None {
 			return refused(d.Name, "the lock of stage \(u.Stage) is free", 1)
 		}
 		lock.Break(u.Holder) catch {
@@ -277,9 +280,9 @@ func statusWord(s Status) string {
 func shown[O wire](d Deployment[O], s StateOrder) Output {
 	let b = d.Bind(s.Stage, NewPass(Planning))
 	let holder = match d.Lock(s.Stage).Holder() {
-	case Some[string] as h:
+	case option.Some[string] as h:
 		h.Value
-	case None:
+	case option.None:
 		""
 	}
 	let mut rows = []RowReport{}
@@ -295,7 +298,7 @@ func shown[O wire](d Deployment[O], s StateOrder) Output {
 	for r in rows {
 		text = text + r.Kind + "/" + r.ID + " " + r.Status + "\n"
 	}
-	if len(rows) == 0 {
+	if rows.Len() == 0 {
 		text = "no objects\n"
 	}
 	if holder == "" {
@@ -309,10 +312,10 @@ func shown[O wire](d Deployment[O], s StateOrder) Output {
 // Run is a stack's command line: it runs Exec on args (the arguments
 // after the program's name), prints its output, and fails os.Exit with
 // its status.
-func Run[O wire](d Deployment[O], args []string) fails os.Exit needs Console | wired[O] {
+func Run[O wire](d Deployment[O], args []string) fails os.Exit needs io.Console | wired[O] {
 	let o = Exec(d, args)
 	if o.Out != "" {
-		Console.Println(strings.TrimSuffix(o.Out, "\n"))
+		io.Console.Println(strings.TrimSuffix(o.Out, "\n"))
 	}
 	if o.Code != 0 {
 		let code os.Code = if o.Code == 1 { 1 } else if o.Code == 2 { 2 } else { 3 }

@@ -69,7 +69,7 @@
       "name": "board-apply-drops-reaction",
       "origin": "BOARD-2",
       "file": "modules/board/board/decide.ergo",
-      "from": "\tcase ReactionChanged as p:\n\t\tmatch next.Messages.Get(p.ID) {\n\t\tcase Some[Message] as m:\n\t\t\tlet updated = Message{..m.Value, Reactions: updateReaction(m.Value.Reactions, p.Emoji, p.Actor, p.Added)}\n\t\t\tState{..next, Messages: next.Messages.Put(p.ID, updated)}\n\t\tcase None:\n\t\t\tnext\n\t\t}\n",
+      "from": "\tcase ReactionChanged as p:\n\t\tmatch next.Messages.Get(p.ID) {\n\t\tcase option.Some[Message] as m:\n\t\t\tlet updated = Message{..m.Value, Reactions: updateReaction(m.Value.Reactions, p.Emoji, p.Actor, p.Added)}\n\t\t\tState{..next, Messages: next.Messages.Put(p.ID, updated)}\n\t\tcase option.None:\n\t\t\tnext\n\t\t}\n",
       "to": "\tcase ReactionChanged as p:\n\t\tlet _ = p\n\t\tnext\n",
       "rule": "Apply folds ReactionChanged events into the message's projected Reactions map.",
       "anchor": {
@@ -197,8 +197,8 @@
       "name": "board-task-plan-allows-oversized",
       "origin": "BOARD-3",
       "file": "modules/board/board/task.ergo",
-      "from": "\t\tif len(c.Tasks) > MaxPlanTasks {\n\t\t\treturn PlanTooLarge{Limit: MaxPlanTasks}\n\t\t}\n",
-      "to": "\t\tif false && len(c.Tasks) > MaxPlanTasks {\n\t\t\treturn PlanTooLarge{Limit: MaxPlanTasks}\n\t\t}\n",
+      "from": "\t\tif c.Tasks.Len() > MaxPlanTasks {\n\t\t\treturn PlanTooLarge{Limit: MaxPlanTasks}\n\t\t}\n",
+      "to": "\t\tif false && c.Tasks.Len() > MaxPlanTasks {\n\t\t\treturn PlanTooLarge{Limit: MaxPlanTasks}\n\t\t}\n",
       "rule": "CreatePlan refuses plans exceeding 15 tasks with PlanTooLarge.",
       "anchor": {
         "tests": [

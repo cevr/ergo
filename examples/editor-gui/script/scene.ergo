@@ -14,11 +14,13 @@
 // page's paint list.
 
 import actor
+import core
 import ergo.local/prototype/examples/editorgui/edit
 import ergo.local/prototype/examples/editorgui/piece
 import ergo.local/prototype/examples/editorgui/screen
 import io
 import machines
+import option
 import strings
 import sync
 import time
@@ -26,7 +28,7 @@ import ui
 
 // Scene opens the window on text, named name, saving through store and
 // copying and pasting through clip, and plays lines.
-func Scene(text string, name string, store edit.Store, clip ui.Clipboard, lines Seq[string], clock time.Manual) fails ui.BadPatch | actor.Stopped needs Scheduler | io.Stdout {
+func Scene(text string, name string, store edit.Store, clip ui.Clipboard, lines core.Seq[string], clock time.Manual) fails ui.BadPatch | actor.Stopped needs time.Scheduler | io.Stdout {
 	let notes = sync.NewRef[[]screen.Note]([]screen.Note{})
 	let a = actor.StartMachine(machines.Start(screen.App{}, screen.Opening{Text: text, Name: name}), 8, func(n screen.Note) {
 		notes.Update(func(old []screen.Note) []screen.Note { old.Append(n) })
@@ -87,7 +89,7 @@ func PressAt(s edit.State, row int, col int) ui.Act {
 	let (from, to) = screen.Shown(d)
 	let l = ui.LayoutText(screen.Mono, piece.Slice(d.Buf, from, to), screen.Font, screen.PageWidth)
 	let k = ui.CaretAt(screen.Mono, l, edit.PointAt(s, row, col)-from)
-	ui.PointOn{Label: "page", Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: ui.Down, X: float64(k.X), Y: float64(k.Top + k.Height/2.0), Zone: None}}
+	ui.PointOn{Label: "page", Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: ui.Down, X: float64(k.X), Y: float64(k.Top + k.Height/2.0), Zone: option.None}}
 }
 
 // Acts is the window's steps of an editor signal.

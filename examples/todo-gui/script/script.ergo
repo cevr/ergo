@@ -9,6 +9,7 @@
 //
 // A blank line and a line starting with # are skipped.
 
+import option
 import rand
 import strings
 import ui
@@ -27,9 +28,9 @@ func Parse(text string) []ui.Act fails BadLine {
 		// \r go
 		let line = strings.TrimSuffix(strings.TrimLeft(raw, " \t"), "\r")
 		let (verb, rest) = match strings.Cut(line, " ") {
-		case Some[strings.Halves] as c:
+		case option.Some[strings.Halves] as c:
 			(c.Value.Before, c.Value.After)
-		case None:
+		case option.None:
 			(line, "")
 		}
 		match verb {
@@ -37,9 +38,9 @@ func Parse(text string) []ui.Act fails BadLine {
 			out = out.Append(ui.TapOn{Label: rest})
 		case "type":
 			match strings.Cut(rest, "\t") {
-			case Some[strings.Halves] as c:
+			case option.Some[strings.Halves] as c:
 				out = out.Append(ui.TypeInto{Label: c.Value.Before, Text: c.Value.After})
-			case None:
+			case option.None:
 				return BadLine{Line: i + 1, Text: raw}
 			}
 		case "settle":
@@ -64,7 +65,7 @@ func Gen(seed uint64, n int) string {
 	for i < n {
 		let k = r.IntN(10)
 		// a mark or a removal names a word added before, most of the time
-		let w = if len(added) > 0 && r.IntN(5) > 0 { added[r.IntN(len(added))] } else { words[r.IntN(len(words))] }
+		let w = if added.Len() > 0 && r.IntN(5) > 0 { added[r.IntN(added.Len())] } else { words[r.IntN(words.Len())] }
 		if k < 3 {
 			strings.WriteString(&out, "type new item\t\(w)\ntap add\n")
 			added = added.Append(w)
@@ -77,7 +78,7 @@ func Gen(seed uint64, n int) string {
 			i = i + 1
 		} else {
 			let pick = []string{"all", "open", "done", "clear"}
-			strings.WriteString(&out, "tap \(pick[r.IntN(len(pick))])\n")
+			strings.WriteString(&out, "tap \(pick[r.IntN(pick.Len())])\n")
 			i = i + 1
 		}
 	}

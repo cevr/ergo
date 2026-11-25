@@ -22,7 +22,7 @@ func Text(s Stats) string {
 func StatsOf(v Value) Stats {
 	let mut w = walk{s: Stats{Values: 0, Depth: Depth(v), Nulls: 0, Bools: 0, Numbers: 0, Strings: 0, Arrays: 0, Objects: 0, Keys: 0}, keys: Map[string, bool]{}}
 	tally(&w, v)
-	w.s.Keys = len(w.keys)
+	w.s.Keys = w.keys.Len()
 	w.s
 }
 
@@ -69,20 +69,20 @@ func Equal(a Value, b Value) bool {
 	case (Str as x, Str as y):
 		x.S == y.S
 	case (Array as x, Array as y):
-		if len(x.Items) != len(y.Items) {
+		if x.Items.Len() != y.Items.Len() {
 			return false
 		}
-		for i in 0..len(x.Items) {
+		for i in 0..x.Items.Len() {
 			if !Equal(x.Items[i], y.Items[i]) {
 				return false
 			}
 		}
 		true
 	case (Object as x, Object as y):
-		if len(x.Members) != len(y.Members) {
+		if x.Members.Len() != y.Members.Len() {
 			return false
 		}
-		for i in 0..len(x.Members) {
+		for i in 0..x.Members.Len() {
 			if x.Members[i].Key != y.Members[i].Key || !Equal(x.Members[i].Val, y.Members[i].Val) {
 				return false
 			}

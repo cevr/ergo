@@ -1,5 +1,6 @@
 import json
 import logstat/stats
+import option
 import time
 import strconv
 import strings
@@ -19,12 +20,12 @@ func Encode(s Summary) string {
 	t.Key("bytes")
 	t.Int(int64(s.Bytes))
 	match s.Span {
-	case Some as sp:
+	case option.Some as sp:
 		t.Key("from")
 		t.String(time.Format(sp.Value.First, time.RFC3339))
 		t.Key("to")
 		t.String(time.Format(sp.Value.Last, time.RFC3339))
-	case None:
+	case option.None:
 		t.Key("from")
 		t.Null()
 		t.Key("to")
@@ -33,12 +34,12 @@ func Encode(s Summary) string {
 	t.Key("status")
 	counts(t, s.Classes)
 	t.Key("micros")
-	t.BeginObject(len(s.Latency) + 1)
+	t.BeginObject(s.Latency.Len() + 1)
 	match s.Mean {
-	case Some as m:
+	case option.Some as m:
 		t.Key("mean")
 		t.Int(int64(m.Value))
-	case None:
+	case option.None:
 	}
 	for q in s.Latency {
 		t.Key("p\(q.P)")
@@ -48,7 +49,7 @@ func Encode(s Summary) string {
 	t.Key("by")
 	t.String(s.By)
 	t.Key("top")
-	t.BeginList(len(s.Top))
+	t.BeginList(s.Top.Len())
 	for c in s.Top {
 		t.BeginObject(2)
 		t.Key("key")
@@ -64,7 +65,7 @@ func Encode(s Summary) string {
 
 // counts writes counts as a JSON object of key and count, in their order.
 func counts(t json.Text, cs []stats.Count) {
-	t.BeginObject(len(cs))
+	t.BeginObject(cs.Len())
 	for c in cs {
 		t.Key(c.Key)
 		t.Int(int64(c.N))
@@ -111,11 +112,11 @@ law QuoteIsSafe(s string) {
 // <, > or &, and no quote but the first and last that a backslash does
 // not escape.
 func safe(q string) bool {
-	if len(q) < 2 || q[0] != '"' || q[len(q)-1] != '"' {
+	if q.Len() < 2 || q[0] != '"' || q[q.Len()-1] != '"' {
 		return false
 	}
 	let mut i = 1
-	for i < len(q)-1 {
+	for i < q.Len()-1 {
 		let c = q[i]
 		if c < 32 || c == '<' || c == '>' || c == '&' || c == '"' {
 			return false
@@ -123,5 +124,5 @@ func safe(q string) bool {
 		i += if c == '\\' { 2 } else { 1 }
 	}
 	// a backslash before the last quote steps past it
-	i == len(q)-1
+	i == q.Len()-1
 }

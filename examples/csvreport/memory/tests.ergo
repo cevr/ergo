@@ -28,7 +28,7 @@ test ReadFindsTheFirstEntry {
 test ReadIsRepeatableHolds(names []string, texts []string, name string) {
 	let mut entries = []Entry{}
 	for i, n in names {
-		if i < len(texts) {
+		if i < texts.Len() {
 			entries = entries.Append(Readable{Name: n, Text: texts[i]})
 		} else {
 			entries = entries.Append(Broken{Name: n, Reason: "r"})
@@ -36,7 +36,7 @@ test ReadIsRepeatableHolds(names []string, texts []string, name string) {
 	}
 	let s = Shelf{Entries: entries}
 	assert outcome(s, name) == outcome(s, name)
-	if len(names) > 0 {
+	if names.Len() > 0 {
 		assert outcome(s, names[0]) == outcome(s, names[0])
 	}
 }

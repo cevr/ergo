@@ -1,6 +1,7 @@
 // Package memory holds Shelf, a topdown.Saves that keeps its worlds for
 // one run.
 
+import option
 import ritmo/topdown
 import sync
 
@@ -23,9 +24,9 @@ func Put(s Shelf, slot string, w topdown.World) fails topdown.Broken {
 // Get is the world last put under slot.
 func Get(s Shelf, slot string) topdown.World fails topdown.Missing | topdown.Broken {
 	match s.worlds.Get().Get(slot) {
-	case Some[topdown.World] as w:
+	case option.Some[topdown.World] as w:
 		w.Value
-	case None:
+	case option.None:
 		topdown.Missing{Slot: slot}
 	}
 }

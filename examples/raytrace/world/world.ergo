@@ -21,7 +21,7 @@ func Generate(seed uint64, n int, aspect float64) render.Scene {
 		let x = 8.0*s.Float() - 4.0
 		let z = 8.0*s.Float() - 4.0
 		let size = 0.2 + 0.5*s.Float()
-		let mat = len(mats)
+		let mat = mats.Len()
 		if s.Next()%3 == 0 {
 			let a = geom.V(x, 0.0, z)
 			let b = geom.V(x+size*(2.0*s.Float()-1.0), 2.0*size, z+size*(2.0*s.Float()-1.0))

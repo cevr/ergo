@@ -18,7 +18,7 @@ func reason(text string) string {
 
 test ReadsAScript {
 	let items = try ParseScript("# a forging\n1s ore gold\n\n2500ms ore iron  # late\n3s select A1\n1m end\n")
-	assert len(items) == 4
+	assert items.Len() == 4
 	assert ItemAt(items[1]) == 2500ms && ItemAt(items[3]) == 60s
 	match items[2] {
 	case Key as k:
@@ -56,7 +56,7 @@ func script(text string) []string fails BadLine {
 
 test ARunWorkedByHand {
 	let out = try script("1s ore gold\n2s ore button\n5s ore iron\n6s select A1\n7s select A1\n10s ore iron\n35s button\n50s end\n60s button")
-	assert len(out) == 12
+	assert out.Len() == 12
 	assert out[0] == "1s forge: took 100, credit 100"
 	assert out[1] == "2s assay: slag button"
 	assert out[2] == "5s forge: took 25, credit 125"

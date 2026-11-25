@@ -34,7 +34,7 @@ let hexDigits = "0123456789abcdef"
 func quote(b mut strings.Builder, s string) {
 	b.WriteByte('"')
 	let mut from = 0
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		let c = s[i]
 		if c >= 0x20 && c != '"' && c != '\\' && c != 0x7f {
 			continue
@@ -62,7 +62,7 @@ func quote(b mut strings.Builder, s string) {
 			b.WriteByte(hexDigits[int(c&15)])
 		}
 	}
-	b.WriteString(strings.Slice(s, from, len(s)))
+	b.WriteString(strings.Slice(s, from, s.Len()))
 	b.WriteByte('"')
 }
 
@@ -109,7 +109,7 @@ func newline(b mut strings.Builder, depth int) {
 func indent(b mut strings.Builder, v Value, depth int) {
 	match v {
 	case Array as a:
-		if len(a.Items) == 0 {
+		if a.Items.Len() == 0 {
 			b.WriteString("[]")
 			return
 		}
@@ -124,7 +124,7 @@ func indent(b mut strings.Builder, v Value, depth int) {
 		newline(b, depth)
 		b.WriteByte(']')
 	case Object as o:
-		if len(o.Members) == 0 {
+		if o.Members.Len() == 0 {
 			b.WriteString("{}")
 			return
 		}

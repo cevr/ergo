@@ -1,13 +1,14 @@
 // Package route is the program's routes and their paths: Parse reads a
 // path (with its query) into a Route, and Print writes a Route's path.
 
+import option
 import strconv
 import strings
 
 // Route is a screen of the program. People may carry a search; Person
 // names a person by number; Files names a file or a directory by its
 // path under /files; an unknown path is NotFound, which keeps the path.
-type Route = Home{} | Nested{} | People{Search Option[string]} | Person{ID int} | FilesIndex{} | Files{Path []string} | NotFound{Path string}
+type Route = Home{} | Nested{} | People{Search option.Option[string]} | Person{ID int} | FilesIndex{} | Files{Path []string} | NotFound{Path string}
 
 // UnknownPathIsNotFound: a path whose first segment no route has is
 // NotFound, and keeps the whole path, query included.
@@ -35,9 +36,9 @@ func Print(r Route) string {
 		NestedPath
 	case People as p:
 		match p.Search {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			"/people?searchText=" + Escape(s.Value)
-		case None:
+		case option.None:
 			"/people"
 		}
 	case Person as p:
@@ -69,7 +70,7 @@ let pieces = []string{"people", "files", "nested", "route", "is", "very", "3", "
 func pathOf(segs []int, query int, trailing bool) string {
 	let mut parts = []string{}
 	for k in segs {
-		parts = parts.Append(pieces[((k%len(pieces))+len(pieces))%len(pieces)])
+		parts = parts.Append(pieces[((k%pieces.Len())+pieces.Len())%pieces.Len()])
 	}
 	let tail = if trailing { "/" } else { "" }
 	let q = match ((query % 4) + 4) % 4 {
@@ -92,10 +93,10 @@ func Parse(path string) Route {
 	let mut rest = path
 	let mut query = ""
 	match strings.Cut(path, "?") {
-	case Some[strings.Halves] as h:
+	case option.Some[strings.Halves] as h:
 		rest = h.Value.Before
 		query = h.Value.After
-	case None:
+	case option.None:
 	}
 	let mut segs = []string{}
 	for s in strings.Split(rest, "/") {
@@ -103,7 +104,7 @@ func Parse(path string) Route {
 			segs = segs.Append(Unescape(s))
 		}
 	}
-	if len(segs) == 0 {
+	if segs.Len() == 0 {
 		return Home
 	}
 	if Print(Nested) == "/"+strings.Join(segs, "/") {
@@ -111,10 +112,10 @@ func Parse(path string) Route {
 	}
 	match segs[0] {
 	case "people":
-		if len(segs) == 1 {
+		if segs.Len() == 1 {
 			return People{Search: searchOf(query)}
 		}
-		if len(segs) == 2 {
+		if segs.Len() == 2 {
 			let id = strconv.Atoi(segs[1]) catch {
 			case strconv.Malformed, strconv.OutOfRange:
 				return NotFound{Path: path}
@@ -123,7 +124,7 @@ func Parse(path string) Route {
 		}
 		NotFound{Path: path}
 	case "files":
-		if len(segs) == 1 {
+		if segs.Len() == 1 {
 			return FilesIndex
 		}
 		Files{Path: segs[1:]}
@@ -141,7 +142,7 @@ law ParsePrintRoundTrips(r Route) {
 	case NotFound:
 		return true
 	case Files as f:
-		if len(f.Path) == 0 {
+		if f.Path.Len() == 0 {
 			return true
 		}
 		for s in f.Path {
@@ -156,15 +157,15 @@ law ParsePrintRoundTrips(r Route) {
 
 // searchOf is the searchText of a query: the first one, unescaped, with
 // + read as a space as a browser's form does.
-func searchOf(query string) Option[string] {
+func searchOf(query string) option.Option[string] {
 	for pair in strings.Split(query, "&") {
 		match strings.Cut(pair, "=") {
-		case Some[strings.Halves] as h:
+		case option.Some[strings.Halves] as h:
 			if h.Value.Before == "searchText" {
-				return Some[string]{Value: Unescape(strings.ReplaceAll(h.Value.After, "+", " "))}
+				return option.Some[string]{Value: Unescape(strings.ReplaceAll(h.Value.After, "+", " "))}
 			}
-		case None:
+		case option.None:
 		}
 	}
-	None
+	option.None
 }

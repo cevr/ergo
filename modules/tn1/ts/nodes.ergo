@@ -119,12 +119,12 @@ func trigrams(code []Token) []uint64 {
 	for t in code {
 		words = words.Append(shapeWord(t))
 	}
-	let mut out = slices.WithCapacity[uint64](len(code))
-	for i in 0..len(code)-2 {
+	let mut out = slices.WithCapacity[uint64](code.Len())
+	for i in 0..code.Len()-2 {
 		let mut h uint64 = 14695981039346656037
 		for k in i..i+3 {
 			let w = words[k]
-			for c in 0..len(w) {
+			for c in 0..w.Len() {
 				h = (h ^ uint64(w[c])) * 1099511628211
 			}
 			h = (h ^ uint64('/')) * 1099511628211
@@ -145,7 +145,7 @@ func vote(v mut Votes, h uint64) {
 	let mut carry = h
 	let mut j = 0
 	for carry != 0 {
-		if j == len(v.Planes) {
+		if j == v.Planes.Len() {
 			v.Planes = v.Planes.Append(0)
 		}
 		let t = v.Planes[j] & carry
@@ -160,11 +160,11 @@ func vote(v mut Votes, h uint64) {
 func addVotes(v mut Votes, o Votes) {
 	let mut carry = uint64(0)
 	let mut j = 0
-	for j < len(o.Planes) || carry != 0 {
-		if j == len(v.Planes) {
+	for j < o.Planes.Len() || carry != 0 {
+		if j == v.Planes.Len() {
 			v.Planes = v.Planes.Append(0)
 		}
-		let y = if j < len(o.Planes) { o.Planes[j] } else { uint64(0) }
+		let y = if j < o.Planes.Len() { o.Planes[j] } else { uint64(0) }
 		let x = v.Planes[j]
 		v.Planes[j] = x ^ y ^ carry
 		carry = x&y | carry&(x^y)
@@ -178,7 +178,7 @@ func addVotes(v mut Votes, o Votes) {
 // plane down.
 func majority(v Votes) uint64 {
 	let m = v.N/2 + 1
-	let mut top = len(v.Planes)
+	let mut top = v.Planes.Len()
 	for (m >> uint64(top)) != 0 {
 		top += 1
 	}
@@ -186,7 +186,7 @@ func majority(v Votes) uint64 {
 	let mut eq = ^uint64(0)
 	let mut j = top - 1
 	for j >= 0 {
-		let a = if j < len(v.Planes) { v.Planes[j] } else { uint64(0) }
+		let a = if j < v.Planes.Len() { v.Planes[j] } else { uint64(0) }
 		let mb = if (m>>uint64(j))&1 == 1 { ^uint64(0) } else { uint64(0) }
 		gt = gt | eq&a&^mb
 		eq = eq &^ (a ^ mb)
@@ -207,12 +207,12 @@ func shape(runs []uint64, from int, to int) uint64 {
 }
 
 // ShapeModel: the bit-sliced majority is the bit-by-bit vote.
-law ShapeModel(runs []uint64) { shape(runs, 0, len(runs)+2) == shapeByBit(runs, 0, len(runs)+2) }
+law ShapeModel(runs []uint64) { shape(runs, 0, runs.Len()+2) == shapeByBit(runs, 0, runs.Len()+2) }
 
 // SplitVotes: the votes of runs counted in two parts and added are the
 // votes of all of them, as the module's are its statements'.
 law SplitVotes(runs []uint64, cut int) {
-	splitShape(runs, (cut%(len(runs)+1)+len(runs)+1)%(len(runs)+1)) == shapeByBit(runs, 0, len(runs)+2)
+	splitShape(runs, (cut%(runs.Len()+1)+runs.Len()+1)%(runs.Len()+1)) == shapeByBit(runs, 0, runs.Len()+2)
 }
 
 func splitShape(runs []uint64, cut int) uint64 {
@@ -221,7 +221,7 @@ func splitShape(runs []uint64, cut int) uint64 {
 	for i in 0..cut {
 		vote(&a, runs[i])
 	}
-	for i in cut..len(runs) {
+	for i in cut..runs.Len() {
 		vote(&b, runs[i])
 	}
 	addVotes(&a, b)
@@ -311,7 +311,7 @@ type Catch { At int, Open int, Close int, Bound string }
 // last ended and the walk is linear in the file.
 func index(code []Token, at int, p int) int {
 	let mut i = at
-	for i < len(code) && code[i].From < p {
+	for i < code.Len() && code[i].From < p {
 		i += 1
 	}
 	i
@@ -366,7 +366,7 @@ func node(src string, starts []int, code []Token, cs []Catch, sh uint64, kind tn
 }
 
 func nodes(src string, starts []int, code []Token, imp Imports) []tn1.Node {
-	if len(code) == 0 {
+	if code.Len() == 0 {
 		return []tn1.Node{}
 	}
 	let runs = trigrams(code)
@@ -381,7 +381,7 @@ func nodes(src string, starts []int, code []Token, imp Imports) []tn1.Node {
 		let from = index(code, cursor, s.From)
 		let to = index(code, from, s.To)
 		cursor = to
-		for r < from && r < len(runs) {
+		for r < from && r < runs.Len() {
 			vote(&module, runs[r])
 			r += 1
 		}
@@ -396,18 +396,18 @@ func nodes(src string, starts []int, code []Token, imp Imports) []tn1.Node {
 		addVotes(&module, stmt)
 		spans = spans.Append(Span{From: from, To: to})
 	}
-	for r < len(runs) {
+	for r < runs.Len() {
 		vote(&module, runs[r])
 		r += 1
 	}
-	let mut out = slices.WithCapacity[tn1.Node](len(spans) + 1)
-	let all = catches(code, 0, len(code))
-	out = out.Append(node(src, starts, code, all, majority(module), tn1.Module, 0, len(code), ""))
+	let mut out = slices.WithCapacity[tn1.Node](spans.Len() + 1)
+	let all = catches(code, 0, code.Len())
+	out = out.Append(node(src, starts, code, all, majority(module), tn1.Module, 0, code.Len(), ""))
 	out[0].Offset = 0
-	out[0].Length = len(src)
+	out[0].Length = src.Len()
 	out[0].Line = 1
 	out[0].Column = 1
-	for k in 0..len(spans) {
+	for k in 0..spans.Len() {
 		let from = spans[k].From
 		let to = spans[k].To
 		let kind = nodeKind(code, from, to)

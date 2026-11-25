@@ -7,6 +7,7 @@
 
 import ergo.dev/fluid/a11y
 import ergo.dev/fluid/part
+import option
 import ui
 import html
 
@@ -21,12 +22,12 @@ func Draw[E](f mut ui.Frame[E], n part.Node[E]) {
 		if b.Sem.Hidden {
 			return
 		}
-		if len(b.Keys) > 0 {
+		if b.Keys.Len() > 0 {
 			let keys = b.Keys
-			ui.OnKey(f, func(k ui.KeyPress) Option[E] { Bound[E](keys, k) })
+			ui.OnKey(f, func(k ui.KeyPress) option.Option[E] { Bound[E](keys, k) })
 		}
 		if states(b.Sem) {
-			ui.Semantic(f, accessOf(b.Sem, b.Sem.Role, false), None, ui.Plain()) {
+			ui.Semantic(f, accessOf(b.Sem, b.Sem.Role, false), option.None, ui.Plain()) {
 				drawKids[E](f, b.Kids)
 			}
 		} else {
@@ -44,11 +45,11 @@ func Draw[E](f mut ui.Frame[E], n part.Node[E]) {
 			return
 		}
 		let off = disabled(p.Sem.States)
-		let on = if off { None } else { p.On }
+		let on = if off { option.None } else { p.On }
 		let enabled = match on {
-		case Some:
+		case option.Some:
 			true
-		case None:
+		case option.None:
 			false
 		}
 		let role = match p.Sem.Role {
@@ -65,14 +66,14 @@ func Draw[E](f mut ui.Frame[E], n part.Node[E]) {
 			return
 		}
 		let on = x.On
-		ui.Semantic(f, ui.Access{..accessOf(x.Sem, part.TextBox, false), Value: Some[string]{Value: x.Value}}, None, ui.Plain()) {
+		ui.Semantic(f, ui.Access{..accessOf(x.Sem, part.TextBox, false), Value: option.Some[string]{Value: x.Value}}, option.None, ui.Plain()) {
 			ui.Input(f, x.Value, x.Hint, func(text string) E { on(text) })
 		}
 	case part.Scale as s:
 		if s.Sem.Hidden {
 			return
 		}
-		ui.Semantic(f, accessOf(s.Sem, part.Slider, false), None, ui.Plain()) {}
+		ui.Semantic(f, accessOf(s.Sem, part.Slider, false), option.None, ui.Plain()) {}
 	case part.Layer as l:
 		drawKids[E](f, l.Kids)
 	case part.Keyed as k:
@@ -81,7 +82,7 @@ func Draw[E](f mut ui.Frame[E], n part.Node[E]) {
 		}
 	case part.Live as l:
 		if l.Assertive {
-			ui.Semantic(f, accessOf(part.Plain(), part.Alert, false), None, ui.Plain()) {
+			ui.Semantic(f, accessOf(part.Plain(), part.Alert, false), option.None, ui.Plain()) {
 				ui.Text(f, l.Text)
 			}
 		} else {
@@ -97,37 +98,37 @@ func Draw[E](f mut ui.Frame[E], n part.Node[E]) {
 // binding's signal (the first of that name), and a key it does not bind sends nothing.
 law PressSendsItsSignal(sends []int, keys []int) {
 	let mut row = []part.Node[int]{}
-	let mut want = []Option[int]{}
-	for i in 0..len(sends) {
+	let mut want = []option.Option[int]{}
+	for i in 0..sends.Len() {
 		let v = sends[i]
 		let none = v%3 == 0
 		let off = v%5 == 0
-		let on Option[int] = if none { None } else { Some[int]{Value: v} }
+		let on option.Option[int] = if none { option.None } else { option.Some[int]{Value: v} }
 		row = row.Append(part.Press{Sem: part.Sem{..part.Of(part.Button), Name: "p\(i)", States: if off { []part.State{part.Disabled} } else { []part.State{} }}, Skin: part.Control{Root: part.Bare(), Plate: part.Bare(), Content: part.Bare()}, On: on, Kids: []part.Node[int]{}})
-		want = want.Append(if off { None } else { on })
+		want = want.Append(if off { option.None } else { on })
 	}
 	let names = []string{"ArrowLeft", "ArrowRight", "Home", "End", "Enter"}
 	let mut bindings = []part.Binding[int]{}
-	for i in 0..len(keys) {
+	for i in 0..keys.Len() {
 		bindings = bindings.Append(part.Binding[int]{Key: names[((keys[i]%5)+5)%5], On: keys[i]})
 	}
 	let tree part.Node[int] = part.Box{Sem: part.Of(part.Toolbar), Skin: part.Bare(), Inline: false, Keys: bindings, Kids: row}
 	let mut f = frameOf(tree)
 	let ids = presses(&f, ui.Root(&f))
-	let mut ok = len(ids) == len(sends)
-	for i in 0..len(ids) {
-		ok = ok && i < len(want) && ui.Handle(&f, ui.Press[int]{Id: ids[i]}).Signal == want[i]
+	let mut ok = ids.Len() == sends.Len()
+	for i in 0..ids.Len() {
+		ok = ok && i < want.Len() && ui.Handle(&f, ui.Press[int]{Id: ids[i]}).Signal == want[i]
 	}
 	for n in names {
-		let mut first Option[int] = None
+		let mut first option.Option[int] = option.None
 		for b in bindings {
-			if b.Key == n && first == None {
-				first = Some[int]{Value: b.On}
+			if b.Key == n && first == option.None {
+				first = option.Some[int]{Value: b.On}
 			}
 		}
 		ok = ok && ui.Handle(&f, ui.KeyDown{Press: ui.KeyPress{Name: n, Mods: ui.Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}).Signal == first
 	}
-	ok && ui.Handle(&f, ui.KeyDown{Press: ui.KeyPress{Name: "x", Mods: ui.Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}).Signal == None
+	ok && ui.Handle(&f, ui.KeyDown{Press: ui.KeyPress{Name: "x", Mods: ui.Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}).Signal == option.None
 }
 
 // frameOf is a frame after one pass that draws n. (the laws' helper)
@@ -143,7 +144,7 @@ func presses(f mut ui.Frame[int], id ui.Id[int]) []ui.Id[int] {
 	let mut out = []ui.Id[int]{}
 	for k in ui.Kids(f, id) {
 		match ui.NodeOf(f, k) {
-		case Some as n:
+		case option.Some as n:
 			match n.Value {
 			case ui.SemanticNode as s:
 				match s.Access.Role {
@@ -153,7 +154,7 @@ func presses(f mut ui.Frame[int], id ui.Id[int]) []ui.Id[int] {
 				}
 			case _:
 			}
-		case None:
+		case option.None:
 		}
 		for x in presses(f, k) {
 			out = out.Append(x)
@@ -185,12 +186,12 @@ func Case(seed []int) (string, string) {
 type Gen { xs []int, at int }
 
 func draw(g mut Gen, n int) int {
-	let v = if len(g.xs) == 0 { g.at * 7919 } else { g.xs[g.at%len(g.xs)] + g.at*7919 }
+	let v = if g.xs.Len() == 0 { g.at * 7919 } else { g.xs[g.at%g.xs.Len()] + g.at*7919 }
 	g.at = g.at + 1
 	((v % n) + n) % n
 }
 
-func pick[T](g mut Gen, xs []T) T { xs[draw(g, len(xs))] }
+func pick[T](g mut Gen, xs []T) T { xs[draw(g, xs.Len())] }
 
 let words = []string{"a", "b c", "<x>", "&amp", "it's", "é", ""}
 
@@ -199,9 +200,9 @@ func carriedRoles() []part.Role {
 	let mut out = []part.Role{}
 	for r in a11y.Roles() {
 		match a11y.UIRole(r) {
-		case Some:
+		case option.Some:
 			out = out.Append(r)
-		case None:
+		case option.None:
 		}
 	}
 	out
@@ -265,12 +266,12 @@ func drawNode(g mut Gen, depth int) part.Node[int] {
 		let keys = if draw(g, 3) == 0 { []part.Binding[int]{part.Binding[int]{Key: "ArrowRight", On: 1}} } else { []part.Binding[int]{} }
 		part.Box{Sem: drawSem(g, pick(g, carriedRoles())), Skin: part.Bare(), Inline: false, Keys: keys, Kids: genKids(g, depth)}
 	case 7:
-		let on Option[int] = if draw(g, 3) == 0 { None } else { Some[int]{Value: draw(g, 4)} }
+		let on option.Option[int] = if draw(g, 3) == 0 { option.None } else { option.Some[int]{Value: draw(g, 4)} }
 		part.Press{Sem: drawSem(g, pick(g, pressRoles)), Skin: part.Control{Root: part.Bare(), Plate: part.Bare(), Content: part.Bare()}, On: on, Kids: genKids(g, depth)}
 	case 8:
-		part.Field{Sem: drawSem(g, part.Generic), Skin: part.Bare(), Name: "f", Value: pick(g, words), Hint: pick(g, words), Lines: draw(g, 3), On: func(s string) int { len(s) }}
+		part.Field{Sem: drawSem(g, part.Generic), Skin: part.Bare(), Name: "f", Value: pick(g, words), Hint: pick(g, words), Lines: draw(g, 3), On: func(s string) int { s.Len() }}
 	case 9:
-		part.Layer{Z: draw(g, 3), Modal: draw(g, 3) == 0, Dismiss: None, Kids: genKids(g, depth)}
+		part.Layer{Z: draw(g, 3), Modal: draw(g, 3) == 0, Dismiss: option.None, Kids: genKids(g, depth)}
 	case 10:
 		part.Keyed{Key: "k\(g.at)", Node: drawNode(g, depth+1)}
 	case _:
@@ -281,7 +282,7 @@ func drawNode(g mut Gen, depth int) part.Node[int] {
 // drawKids draws kids; while one branch shows a modal layer, only the branches that hold one.
 func drawKids[E](f mut ui.Frame[E], kids []part.Node[E]) {
 	let shown = part.Shown[E](kids)
-	for i in 0..len(kids) {
+	for i in 0..kids.Len() {
 		if shown[i] {
 			Draw[E](f, kids[i])
 		}
@@ -289,13 +290,13 @@ func drawKids[E](f mut ui.Frame[E], kids []part.Node[E]) {
 }
 
 // Bound is the signal bindings send for key k: the first binding of its name, if any.
-func Bound[E](bindings []part.Binding[E], k ui.KeyPress) Option[E] {
+func Bound[E](bindings []part.Binding[E], k ui.KeyPress) option.Option[E] {
 	for b in bindings {
 		if b.Key == k.Name {
-			return Some[E]{Value: b.On}
+			return option.Some[E]{Value: b.On}
 		}
 	}
-	None
+	option.None
 }
 
 // states reports whether a box states something ui can tell a reader: a role ui carries other
@@ -307,7 +308,7 @@ func states(s part.Sem) bool {
 	case _:
 		false
 	}
-	!generic || s.Name != "" || len(s.States) > 0
+	!generic || s.Name != "" || s.States.Len() > 0
 }
 
 func disabled(ss []part.State) bool {
@@ -326,13 +327,13 @@ func disabled(ss []part.State) bool {
 func accessOf(s part.Sem, role part.Role, off bool) ui.Access {
 	let mut a = ui.Access{..ui.Named(ui.Generic, s.Name), Disabled: off}
 	match a11y.UIRole(role) {
-	case Some as r:
+	case option.Some as r:
 		a.Role = r.Value
-	case None:
+	case option.None:
 	}
 	match role {
 	case part.Heading as h:
-		a.Level = Some[int]{Value: h.Level}
+		a.Level = option.Some[int]{Value: h.Level}
 	case _:
 	}
 	for st in s.States {
@@ -346,17 +347,17 @@ func accessOf(s part.Sem, role part.Role, off bool) ui.Access {
 		case part.Checked as c:
 			match c.Value {
 			case part.On:
-				a.Checked = Some[bool]{Value: true}
+				a.Checked = option.Some[bool]{Value: true}
 			case part.Off:
-				a.Checked = Some[bool]{Value: false}
+				a.Checked = option.Some[bool]{Value: false}
 			case part.Mixed:
 			}
 		case part.Selected as x:
-			a.Selected = Some[bool]{Value: x.Yes}
+			a.Selected = option.Some[bool]{Value: x.Yes}
 		case part.Expanded as x:
-			a.Expanded = Some[bool]{Value: x.Yes}
+			a.Expanded = option.Some[bool]{Value: x.Yes}
 		case part.Pressed as x:
-			a.Pressed = Some[bool]{Value: x.Yes}
+			a.Pressed = option.Some[bool]{Value: x.Yes}
 		case part.Current, part.Modal, part.MultiSelectable, part.Value:
 		}
 	}

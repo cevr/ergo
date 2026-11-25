@@ -1,4 +1,5 @@
 import ergo.dev/fluid/token
+import option
 
 // Tone is a control's emphasis: Solid (the primary action), Soft (a secondary one), Outline
 // (a tertiary one), Bare (a ghost) and Alarm (a destructive one).
@@ -42,9 +43,9 @@ func ControlLook(t Tone, d token.Density, r token.Radius, lead bool, trail bool)
 		root = root.Append(x)
 	}
 	match ink(t) {
-	case Some as i:
+	case option.Some as i:
 		root = root.Append(Ink{V: i.Value})
-	case None:
+	case option.None:
 	}
 	let mut plate = Inset(1)
 	for x in Round(Inner{R: r}) {
@@ -76,16 +77,16 @@ func ControlLook(t Tone, d token.Density, r token.Radius, lead bool, trail bool)
 }
 
 // ink is the text colour of a tone; Soft and Outline take their box's.
-func ink(t Tone) Option[token.Ref] {
+func ink(t Tone) option.Option[token.Ref] {
 	match t {
 	case Solid:
-		Some{token.OnStrong}
+		option.Some{token.OnStrong}
 	case Soft, Outline:
-		None
+		option.None
 	case Bare:
-		Some{token.Muted}
+		option.Some{token.Muted}
 	case Alarm:
-		Some{token.DangerInk}
+		option.Some{token.DangerInk}
 	}
 }
 
@@ -142,7 +143,7 @@ law LookIsTotal(t Tone, d token.Density, r token.Radius, lead bool, trail bool) 
 	let mut ok = true
 	for s in States() {
 		let root = In(c.Root, s)
-		ok = ok && Get(root, "height") != None && Get(root, "padding-left") != None && Get(root, "border-top-left-radius") != None
+		ok = ok && Get(root, "height") != option.None && Get(root, "padding-left") != option.None && Get(root, "border-top-left-radius") != option.None
 	}
 	let rest = In(c.Plate, Rest)
 	ok && !Same(In(c.Plate, Hover), rest) && !Same(In(c.Plate, Active), rest)
@@ -152,12 +153,12 @@ law LookIsTotal(t Tone, d token.Density, r token.Radius, lead bool, trail bool) 
 // whatever its tone, and no other state draws it.
 law FocusRingIsVisible(t Tone, d token.Density, r token.Radius) {
 	let c = ControlLook(t, d, r, false, false)
-	let ring = Some[Decl]{Value: Shadow{V: Ring{Px: 1, Color: token.Accent}}}
+	let ring = option.Some[Decl]{Value: Shadow{V: Ring{Px: 1, Color: token.Accent}}}
 	sameDecl(Get(In(c.Root, FocusVisible), "box-shadow"), ring) && !sameDecl(Get(In(c.Root, Rest), "box-shadow"), ring) && !sameDecl(Get(In(c.Root, Hover), "box-shadow"), ring)
 }
 
 // DisabledIsDimmed: a disabled control is drawn at half opacity, and an enabled one at full.
 law DisabledIsDimmed(t Tone, d token.Density, r token.Radius) {
 	let c = ControlLook(t, d, r, false, false)
-	sameDecl(Get(In(c.Root, Disabled), "opacity"), Some[Decl]{Value: Opacity{Pct: 50}}) && Get(In(c.Root, Rest), "opacity") == None
+	sameDecl(Get(In(c.Root, Disabled), "opacity"), option.Some[Decl]{Value: Opacity{Pct: 50}}) && Get(In(c.Root, Rest), "opacity") == option.None
 }

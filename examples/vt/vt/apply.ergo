@@ -43,8 +43,8 @@ func Apply[S Screen](s mut S, events []Event, u mut Unhandled) {
 			csi(s, c, u)
 		case Osc as o:
 			if strings.HasPrefix(o.Data, "0;") || strings.HasPrefix(o.Data, "2;") {
-				let t = o.Data[2:len(o.Data)]
-				s.SetTitle(if len(t) > TitleLimit { t[0:TitleLimit] } else { t })
+				let t = o.Data[2:o.Data.Len()]
+				s.SetTitle(if t.Len() > TitleLimit { t[0:TitleLimit] } else { t })
 			} else {
 				u.note("osc")
 			}
@@ -103,7 +103,7 @@ func escape[S Screen](s mut S, x Esc, u mut Unhandled) {
 
 // arg is parameter i of ps, or def when it is missing or 0.
 func arg(ps []int, i int, def int) int {
-	if i < len(ps) && ps[i] != 0 { ps[i] } else { def }
+	if i < ps.Len() && ps[i] != 0 { ps[i] } else { def }
 }
 
 // csi gives s the CSI sequence c.
@@ -180,15 +180,15 @@ func csi[S Screen](s mut S, c Csi, u mut Unhandled) {
 // when parameter i is followed by a colon, so that parameter and the
 // next are one group (38:2::r:g:b).
 func Sgr(pen Style, params []int, colons int, u mut Unhandled) Style {
-	if len(params) == 0 {
+	if params.Len() == 0 {
 		return Default
 	}
 	let mut st = pen
 	let mut i = 0
-	for i < len(params) {
+	for i < params.Len() {
 		// The group of parameter i: i to end-1.
 		let mut end = i + 1
-		for end < len(params) && (colons>>(end-1))&1 == 1 {
+		for end < params.Len() && (colons>>(end-1))&1 == 1 {
 			end += 1
 		}
 		let p = params[i]
@@ -214,13 +214,13 @@ func Sgr(pen Style, params []int, colons int, u mut Unhandled) Style {
 			i = end
 			continue
 		}
-		if (p == 38 || p == 48) && i+2 < len(params) && params[i+1] == 5 {
+		if (p == 38 || p == 48) && i+2 < params.Len() && params[i+1] == 5 {
 			let col = Color(params[i+2]%256 + 1)
 			st = if p == 38 { Style{Fg: col, Bg: st.Bg, Flags: st.Flags} } else { Style{Fg: st.Fg, Bg: col, Flags: st.Flags} }
 			i += 3
 			continue
 		}
-		if (p == 38 || p == 48) && i+4 < len(params) && params[i+1] == 2 {
+		if (p == 38 || p == 48) && i+4 < params.Len() && params[i+1] == 2 {
 			let col = rgb(params[i+2], params[i+3], params[i+4])
 			st = if p == 38 { Style{Fg: col, Bg: st.Bg, Flags: st.Flags} } else { Style{Fg: st.Fg, Bg: col, Flags: st.Flags} }
 			i += 5
@@ -283,11 +283,11 @@ func flag(st Style, f int, on bool) Style {
 // groupColor is the colour of a colon group 38:5:n, 38:2:r:g:b or
 // 38:2:cs:r:g:b; any other group is the default.
 func groupColor(g []int) Color {
-	if len(g) == 3 && g[1] == 5 {
+	if g.Len() == 3 && g[1] == 5 {
 		return Color(g[2]%256 + 1)
 	}
-	if len(g) >= 5 && g[1] == 2 {
-		let n = len(g)
+	if g.Len() >= 5 && g[1] == 2 {
+		let n = g.Len()
 		return rgb(g[n-3], g[n-2], g[n-1])
 	}
 	Color(0)

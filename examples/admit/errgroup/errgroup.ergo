@@ -7,6 +7,7 @@
 // the law NamesFirstBad holds on every schedule.
 
 import admit/jobs
+import option
 import tasks
 
 // Checker is a jobs.Checker that checks payloads limit at a time.
@@ -24,9 +25,9 @@ func New(limit int) Checker {
 // (jobs.Problem).
 func checkOne(j jobs.Job) bool fails jobs.BadPayload {
 	match jobs.Problem(j.Payload) {
-	case Some[string] as p:
+	case option.Some[string] as p:
 		return jobs.BadPayload{Name: j.Name, Reason: p.Value}
-	case None:
+	case option.None:
 		true
 	}
 }
@@ -42,9 +43,9 @@ func Check(c Checker, js []jobs.Job) fails jobs.BadPayload {
 	let _ = tasks.Transform(js, limit, checkOne) catch {
 	case jobs.BadPayload as b:
 		match jobs.FirstBad(js) {
-		case Some[jobs.BadPayload] as first:
+		case option.Some[jobs.BadPayload] as first:
 			return first.Value
-		case None:
+		case option.None:
 			return b
 		}
 	}

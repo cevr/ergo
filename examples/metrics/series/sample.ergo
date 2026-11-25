@@ -22,10 +22,10 @@ func Parse(text string) []Sample fails BadSample | Unordered {
 	let mut out = []Sample{}
 	for n, l in strings.Split(text, "\n") {
 		let fields = strings.Fields(l)
-		if len(fields) == 0 || strings.HasPrefix(fields[0], "#") {
+		if fields.Len() == 0 || strings.HasPrefix(fields[0], "#") {
 			continue
 		}
-		if len(fields) != 2 {
+		if fields.Len() != 2 {
 			return BadSample{Line: n + 1, Text: l}
 		}
 		let at = strconv.ParseInt(fields[0], 10, 64) catch {
@@ -36,8 +36,8 @@ func Parse(text string) []Sample fails BadSample | Unordered {
 		case strconv.Malformed, strconv.OutOfRange:
 			return BadSample{Line: n + 1, Text: l}
 		}
-		if len(out) > 0 && at < out[len(out)-1].At {
-			return Unordered{Line: n + 1, At: at, After: out[len(out)-1].At}
+		if out.Len() > 0 && at < out[out.Len()-1].At {
+			return Unordered{Line: n + 1, At: at, After: out[out.Len()-1].At}
 		}
 		out = out.Append(Sample{At: at, Value: v})
 	}

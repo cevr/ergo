@@ -5,6 +5,7 @@
 import actor
 import io
 import machines
+import option
 import queue
 import search/search
 import strconv
@@ -31,10 +32,10 @@ func Read(lines []string) Script fails BadLine {
 		let n = i + 1
 		let text = strings.TrimSpace(line)
 		let words = strings.Fields(text)
-		if len(words) == 0 || strings.HasPrefix(text, "#") {
+		if words.Len() == 0 || strings.HasPrefix(text, "#") {
 			continue
 		}
-		if len(words) < 2 || !strings.HasPrefix(words[0], "@") {
+		if words.Len() < 2 || !strings.HasPrefix(words[0], "@") {
 			return BadLine{Line: n, Why: "a line is @MS WORD"}
 		}
 		let t = try millis(n, strings.TrimPrefix(words[0], "@"))
@@ -48,7 +49,7 @@ func Read(lines []string) Script fails BadLine {
 		let s = try signalOf(n, words)
 		trace = trace.Append(machines.Timed[search.Signal]{At: t, Signal: s})
 	}
-	BadLine{Line: len(lines) + 1, Why: "the script has no @MS end line"}
+	BadLine{Line: lines.Len() + 1, Why: "the script has no @MS end line"}
 }
 
 func millis(n int, word string) duration fails BadLine {
@@ -69,7 +70,7 @@ func count(n int, word string) int fails BadLine {
 }
 
 func signalOf(n int, words []string) search.Signal fails BadLine {
-	let arg = if len(words) > 2 { words[2] } else { "" }
+	let arg = if words.Len() > 2 { words[2] } else { "" }
 	match words[1] {
 	case "key":
 		if arg == "" {
@@ -92,18 +93,18 @@ func signalOf(n int, words []string) search.Signal fails BadLine {
 // Run reads the script from io.Stdin, plays it against the search with an
 // no pins (the machine's input) on clock, and shows its timeline. It
 // returns the exit status: 0, or 1 when the script is refused.
-func Run(clock time.Manual) Status needs Console | io.Stdin | Scheduler | search.Index {
+func Run(clock time.Manual) Status needs io.Console | io.Stdin | time.Scheduler | search.Index {
 	let mut lines = []string{}
 	for line in io.Stdin.Lines() {
 		lines = lines.Append(line)
 	}
 	let s = Read(lines) catch {
 	case BadLine as b:
-		Console.Println("? line \(b.Line): \(b.Why)")
+		io.Console.Println("? line \(b.Line): \(b.Why)")
 		return 1
 	}
 	for l in Play(s, clock) {
-		Console.Println(l)
+		io.Console.Println(l)
 	}
 	0
 }
@@ -123,7 +124,7 @@ type Status int where 0 <= it && it <= 1
 // the instant it commits it, and the actor's outputs are stamped as it
 // tells them. clock must be made by the task that runs Play or an
 // ancestor, so the actor and the watcher are in its domain.
-func Play(s Script, clock time.Manual) []string needs Scheduler | search.Index {
+func Play(s Script, clock time.Manual) []string needs time.Scheduler | search.Index {
 	let start = clock.Now()
 	let since = func() duration { clock.Now().Sub(start) }
 	let states = queue.New[Event](64)
@@ -182,7 +183,7 @@ func Play(s Script, clock time.Manual) []string needs Scheduler | search.Index {
 			break
 		}
 		match d {
-		case Done[search.Output]:
+		case machines.Done[search.Output]:
 			over = true
 		case _:
 		}
@@ -213,9 +214,9 @@ func drain(q queue.Queue[Event]) []Event {
 	let mut more = true
 	for more {
 		match q.Poll() {
-		case Some[Event] as e:
+		case option.Some[Event] as e:
 			out = out.Append(e.Value)
-		case None:
+		case option.None:
 			more = false
 		}
 	}
@@ -228,8 +229,8 @@ func merge(states []Event, outputs []Event) []string {
 	let mut out = []string{}
 	let mut i = 0
 	let mut j = 0
-	for i < len(states) || j < len(outputs) {
-		if j == len(outputs) || i < len(states) && states[i].At <= outputs[j].At {
+	for i < states.Len() || j < outputs.Len() {
+		if j == outputs.Len() || i < states.Len() && states[i].At <= outputs[j].At {
 			out = out.Append("\(ms(states[i].At)) \(states[i].Line)")
 			i = i + 1
 		} else {

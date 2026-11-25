@@ -35,7 +35,7 @@ law AddCountsOne(texts []string, text string) {
 	case NoSuchItem:
 		return false
 	}
-	l.Count() == len(texts)+1 && last.Text == text && !last.Done
+	l.Count() == texts.Len()+1 && last.Text == text && !last.Done
 }
 
 // AddNote is l with an open item of text and note at the end.
@@ -54,7 +54,7 @@ func Complete(l List, at int) List fails NoSuchItem { try l.mark(at, true) }
 law CompleteIsIdempotent(texts []string, at int) {
 	let once = Of(texts).Complete(at) catch {
 	case NoSuchItem:
-		return at < 1 || at > len(texts)
+		return at < 1 || at > texts.Len()
 	}
 	let twice = once.Complete(at) catch {
 	case NoSuchItem:
@@ -107,7 +107,7 @@ func Drop(l List, at int) List fails NoSuchItem {
 law DropRemovesOne(texts []string, at int) {
 	let l = Of(texts).Drop(at) catch {
 	case NoSuchItem:
-		return at < 1 || at > len(texts)
+		return at < 1 || at > texts.Len()
 	}
 	let mut kept = []string{}
 	for i, t in texts {
@@ -120,8 +120,8 @@ law DropRemovesOne(texts []string, at int) {
 
 // At is the item at, from 1.
 func At(l List, at int) Item fails NoSuchItem {
-	if at < 1 || at > len(l.items) {
-		return NoSuchItem{At: at, Count: len(l.items)}
+	if at < 1 || at > l.items.Len() {
+		return NoSuchItem{At: at, Count: l.items.Len()}
 	}
 	l.items[at-1]
 }
@@ -136,7 +136,7 @@ func Items(l List) []Item {
 }
 
 // Count is the number of items of l.
-func Count(l List) int { len(l.items) }
+func Count(l List) int { l.items.Len() }
 
 // Open is the number of items of l that are not done.
 func Open(l List) int {
@@ -153,7 +153,7 @@ func Open(l List) int {
 law OpenAtMostCount(texts []string, at int) {
 	let l = Of(texts).Complete(at) catch {
 	case NoSuchItem:
-		return Of(texts).Open() == len(texts)
+		return Of(texts).Open() == texts.Len()
 	}
 	l.Open() == l.Count()-1 && l.Open() >= 0
 }

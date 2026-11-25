@@ -1,4 +1,5 @@
 import cron
+import option
 import time
 import tz
 
@@ -14,12 +15,12 @@ type Firing { Job string, Due time.Time, Woke time.Time }
 func Upcoming(e cron.Expr, z tz.Zone, t time.Time, n int) []time.Time {
 	let mut out = []time.Time{}
 	let mut at = t
-	for len(out) < n {
+	for out.Len() < n {
 		match cron.Next(e, z, at) {
-		case Some[time.Time] as next:
+		case option.Some[time.Time] as next:
 			out = out.Append(next.Value)
 			at = next.Value
-		case None:
+		case option.None:
 			return out
 		}
 	}
@@ -31,17 +32,17 @@ func Upcoming(e cron.Expr, z tz.Zone, t time.Time, n int) []time.Time {
 // job is due, then calls fire for each job due then, in table order. The
 // first instant it considers is the one after the clock's time when it
 // starts.
-func Run[R](jobs []Job, z tz.Zone, until time.Time, fire func(f Firing) needs R) needs time.Clock | Scheduler | R {
+func Run[R](jobs []Job, z tz.Zone, until time.Time, fire func(f Firing) needs R) needs time.Clock | time.Scheduler | R {
 	let mut cursor = time.Clock.Now()
 	for {
 		let mut due = time.Add(until, 1s)
 		for j in jobs {
 			match cron.Next(j.When, z, cursor) {
-			case Some[time.Time] as n:
+			case option.Some[time.Time] as n:
 				if time.Before(n.Value, due) {
 					due = n.Value
 				}
-			case None:
+			case option.None:
 			}
 		}
 		if time.After(due, until) {
@@ -49,11 +50,11 @@ func Run[R](jobs []Job, z tz.Zone, until time.Time, fire func(f Firing) needs R)
 		}
 		let wait = time.Sub(due, time.Clock.Now())
 		if wait > 0s {
-			Scheduler.Sleep(wait)
+			time.Scheduler.Sleep(wait)
 		}
 		let woke = MinuteOf(time.Clock.Now())
 		for j in jobs {
-			if cron.Next(j.When, z, cursor) == (Some[time.Time]{Value: due}) {
+			if cron.Next(j.When, z, cursor) == (option.Some[time.Time]{Value: due}) {
 				fire(Firing{Job: j.Name, Due: due, Woke: woke})
 			}
 		}

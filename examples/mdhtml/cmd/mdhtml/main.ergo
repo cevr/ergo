@@ -16,6 +16,7 @@ import io
 import mdhtml/html
 import mdhtml/markdown
 import mdhtml/workload
+import option
 import os
 
 let titleFlag = flag.String("title", "", "wrap the HTML in a page with this `title`")
@@ -34,9 +35,9 @@ let set = flag.Set{
 }
 
 // source is the Markdown text: the file, or standard input.
-func source(file Option[string]) string fails os.Exit needs fs.Files | io.Stdin {
+func source(file option.Option[string]) string fails os.Exit needs fs.Files | io.Stdin {
 	match file {
-	case Some as f:
+	case option.Some as f:
 		fs.Files.ReadFile(f.Value) catch {
 		case fs.NotFound as n:
 			return os.Exit{Code: 1, Message: "mdhtml: no file \(n.Path)"}
@@ -45,7 +46,7 @@ func source(file Option[string]) string fails os.Exit needs fs.Files | io.Stdin 
 		case fs.Failed as e:
 			return os.Exit{Code: 1, Message: "mdhtml: cannot read \(e.Path): \(e.Reason)"}
 		}
-	case None:
+	case option.None:
 		io.Stdin.ReadAll() catch {
 		case io.ReadFailed as r:
 			return os.Exit{Code: 1, Message: "mdhtml: cannot read standard input: \(r.Reason)"}
@@ -85,7 +86,7 @@ func run(args []string) fails os.Exit needs io.Stdout | io.Stdin | fs.Files {
 	io.Stdout.Print(if title == "" { body } else { page(title, body) })
 }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stdin: io.NewStdin(), fs.Files: fs.NewHost() } {
 		try run(os.Process.Args())
 	}

@@ -2,6 +2,7 @@
 // text and JSON it prints, the confirm prompt and the shell completions.
 
 import flag
+import option
 import strconv
 import strings
 import taskscli/tasks
@@ -126,9 +127,9 @@ func buildCompletion(v flag.Values) Cmd fails flag.Failure {
 // priority is the priority of a name the parser has checked.
 func priority(name string) tasks.Priority {
 	match tasks.PriorityNamed(name) {
-	case Some[tasks.Priority] as p:
+	case option.Some[tasks.Priority] as p:
 		p.Value
-	case None:
+	case option.None:
 		tasks.Medium
 	}
 }
@@ -136,9 +137,9 @@ func priority(name string) tasks.Priority {
 // text is the value of a required positional argument.
 func text(a flag.ArgSpec, v flag.Values) string {
 	match a.Get(v) {
-	case Some[string] as s:
+	case option.Some[string] as s:
 		s.Value
-	case None:
+	case option.None:
 		""
 	}
 }

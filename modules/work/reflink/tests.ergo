@@ -4,11 +4,12 @@
 // below reflinks a real tree.
 
 import exec
+import fstest
 import strings
 import github.com/cevr/ergo/modules/work/system
 import github.com/cevr/ergo/modules/work/work
 
-let onHost = context needs TestAmbient { work.Cloner: New(system.TestTrees()), exec.Runner: system.TestRunner() }
+let onHost = context needs fstest.TestAmbient { work.Cloner: New(system.TestTrees()), exec.Runner: system.TestRunner() }
 
 // ReflinksARealTree: on a file system with shared extents (btrfs, XFS),
 // a reflink of a planted tree is that tree, and on btrfs, whose du counts

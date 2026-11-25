@@ -37,10 +37,10 @@ type Timetable {
 	// running time from itself and each later one after the one before.
 	law StopsRunForward() {
 		let stops = Line().Stops
-		if len(stops) < 2 || stops[0].After != 0s {
+		if stops.Len() < 2 || stops[0].After != 0s {
 			return false
 		}
-		for i in 1..len(stops) {
+		for i in 1..stops.Len() {
 			if stops[i].After <= stops[i-1].After {
 				return false
 			}
@@ -53,10 +53,10 @@ type Timetable {
 	law ServicesRun() {
 		let all = Services()
 		for i, s in all {
-			if len(s.Days) == 0 {
+			if s.Days.Len() == 0 {
 				return false
 			}
-			for j in i+1..len(all) {
+			for j in i+1..all.Len() {
 				if all[j].Number == s.Number {
 					return false
 				}

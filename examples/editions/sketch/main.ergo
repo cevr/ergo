@@ -1,6 +1,8 @@
 // A program of the decided language (docs/spec/ v0) inside the prototype
 // checker's subset: rows, try, catch, a closed context and timeout.After.
 
+import io
+
 type NotFound { Name string }
 
 type Greeter {
@@ -20,15 +22,15 @@ let Live = context {
 	Greeter: Friends,
 }
 
-func greet(name string) needs Console {
+func greet(name string) needs io.Console {
 	let line = with Live { Greeter.Greet(name) } catch {
 	case NotFound:
 		"no friend named " + name
 	}
-	Console.Println(line)
+	io.Console.Println(line)
 }
 
-func main() needs Console {
+func main() needs io.Console {
 	greet("Ada")
 	greet("Bob")
 }

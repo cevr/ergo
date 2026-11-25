@@ -44,7 +44,7 @@ type Forecast {
 // one that no place has, and two that are not zips.
 let Probes = []string{"90210", "10001", "00000", "x", "902101"}
 
-func probe(n int) string { Probes[pick(n, len(Probes))] }
+func probe(n int) string { Probes[pick(n, Probes.Len())] }
 
 func pick(n int, count int) int { ((n % count) + count) % count }
 

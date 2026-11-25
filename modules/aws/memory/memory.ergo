@@ -16,13 +16,14 @@
 import github.com/cevr/ergo/modules/aws/aws
 import github.com/cevr/ergo/modules/aws/s3
 import http
+import option
 import strconv
 import strings
 import sync
 import time
 
 // Object is one stored object.
-type Object { Body string, ETag string, Meta Map[string, string], ContentType Option[string], Archived bool, Modified int64 }
+type Object { Body string, ETag string, Meta Map[string, string], ContentType option.Option[string], Archived bool, Modified int64 }
 
 // Memory is the fake: its objects by bucket and key, and its count of
 // writes.
@@ -37,60 +38,60 @@ let epoch = int64(1700000000)
 let noSuchKey = "The specified key does not exist."
 let archived = "The operation is not valid for the object's storage class"
 
-func at(bucket string, key string) string { "\(len(bucket)):\(bucket)/\(key)" }
+func at(bucket string, key string) string { "\(bucket.Len()):\(bucket)/\(key)" }
 
-func find(m Memory, bucket string, key string) Option[Object] { m.objects.Get().Get(at(bucket, key)) }
+func find(m Memory, bucket string, key string) option.Option[Object] { m.objects.Get().Get(at(bucket, key)) }
 
 func etag(body string) string {
 	let mut h uint64 = 14695981039346656037
-	for i in 0..len(body) {
+	for i in 0..body.Len() {
 		h = (h ^ uint64(body[i])) * 1099511628211
 	}
 	"\"" + strconv.AppendUint([]byte{}, h, 16).Text() + "\""
 }
 
-func storageOf(o Object) Option[s3.StorageClass] {
-	if o.Archived { Some[s3.StorageClass]{s3.StorageClassGlacier} } else { None }
+func storageOf(o Object) option.Option[s3.StorageClass] {
+	if o.Archived { option.Some[s3.StorageClass]{s3.StorageClassGlacier} } else { option.None }
 }
 
 func HeadObject(m Memory, r s3.HeadObjectRequest) s3.HeadObjectOutput fails s3.NotFound | aws.Failed | aws.Malformed | http.RequestFailed {
 	match find(m, r.Bucket, r.Key) {
-	case Some as v:
+	case option.Some as v:
 		let o = v.Value
 		s3.HeadObjectOutput{
 			..s3.NewHeadObjectOutput(),
-			LastModified:  Some[time.Time]{time.Unix(epoch+o.Modified, 0)},
-			ContentLength: Some[int]{len(o.Body)},
-			ETag:          Some[string]{o.ETag},
+			LastModified:  option.Some[time.Time]{time.Unix(epoch+o.Modified, 0)},
+			ContentLength: option.Some[int]{o.Body.Len()},
+			ETag:          option.Some[string]{o.ETag},
 			ContentType:   o.ContentType,
 			Metadata:      o.Meta,
 			StorageClass:  storageOf(o),
 		}
-	case None:
+	case option.None:
 		s3.NotFound{Status: 404, Message: ""}
 	}
 }
 
 func GetObject(m Memory, r s3.GetObjectRequest, put func(part string) fails http.SinkFailed) s3.GetObjectOutput fails s3.InvalidObjectState | s3.NoSuchKey | aws.Failed | aws.Malformed | http.RequestFailed | http.SinkFailed {
 	match find(m, r.Bucket, r.Key) {
-	case Some as v:
+	case option.Some as v:
 		let o = v.Value
 		if o.Archived {
-			return s3.InvalidObjectState{Status: 403, Message: archived, StorageClass: storageOf(o), AccessTier: None}
+			return s3.InvalidObjectState{Status: 403, Message: archived, StorageClass: storageOf(o), AccessTier: option.None}
 		}
 		if o.Body != "" {
 			try put(o.Body)
 		}
 		s3.GetObjectOutput{
 			..s3.NewGetObjectOutput(),
-			LastModified:  Some[time.Time]{time.Unix(epoch+o.Modified, 0)},
-			ContentLength: Some[int]{len(o.Body)},
-			ETag:          Some[string]{o.ETag},
+			LastModified:  option.Some[time.Time]{time.Unix(epoch+o.Modified, 0)},
+			ContentLength: option.Some[int]{o.Body.Len()},
+			ETag:          option.Some[string]{o.ETag},
 			ContentType:   o.ContentType,
 			Metadata:      o.Meta,
 			StorageClass:  storageOf(o),
 		}
-	case None:
+	case option.None:
 		s3.NoSuchKey{Status: 404, Message: noSuchKey}
 	}
 }
@@ -101,9 +102,9 @@ func PutObject(m Memory, r s3.PutObjectRequest) s3.PutObjectOutput fails s3.Encr
 		meta[strings.ToLower(k)] = v
 	}
 	let glacier = match r.StorageClass {
-	case Some as c:
+	case option.Some as c:
 		c.Value == s3.StorageClassGlacier
-	case None:
+	case option.None:
 		false
 	}
 	m.writes.Update(func(n int64) int64 { n + 1 })
@@ -115,7 +116,7 @@ func PutObject(m Memory, r s3.PutObjectRequest) s3.PutObjectOutput fails s3.Encr
 		out[k] = o
 		out
 	})
-	s3.PutObjectOutput{..s3.NewPutObjectOutput(), ETag: Some[string]{tag}}
+	s3.PutObjectOutput{..s3.NewPutObjectOutput(), ETag: option.Some[string]{tag}}
 }
 
 func DeleteObject(m Memory, r s3.DeleteObjectRequest) s3.DeleteObjectOutput fails aws.Failed | aws.Malformed | http.RequestFailed {
@@ -147,7 +148,7 @@ func roundTrips[S s3.S3](on S, key string, body string, name string, note string
 	case _:
 		return false
 	}
-	got.Get() == body && out.Metadata == Map[string, string]{strings.ToLower(meta): note} && out.ContentLength == Some[int]{len(body)}
+	got.Get() == body && out.Metadata == Map[string, string]{strings.ToLower(meta): note} && out.ContentLength == option.Some[int]{body.Len()}
 }
 
 // The contexts s3's laws run under: the fake, and the Api in front of one.

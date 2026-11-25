@@ -80,7 +80,7 @@ func Build(wide []Span) Table {
 		} else if wides == Block {
 			first = first.Append(1)
 		} else {
-			let at = len(second)
+			let at = second.Len()
 			first = first.Append(at / Block)
 			for _ in 0..Block {
 				second = second.Append(false)
@@ -100,7 +100,7 @@ func Build(wide []Span) Table {
 // Of is the columns c takes: 2 or 1.
 func Of(c rune) int {
 	let cp = int(c)
-	if cp < 0x1100 || cp/Block >= len(table.first) {
+	if cp < 0x1100 || cp/Block >= table.first.Len() {
 		return 1
 	}
 	if table.second[table.first[cp/Block]*Block+cp%Block] { 2 } else { 1 }

@@ -39,10 +39,10 @@ func Counted(of Node, min int, max int) Node {
 	case _:
 		parts = parts.Append(rest)
 	}
-	if len(parts) == 0 {
+	if parts.Len() == 0 {
 		return Empty
 	}
-	if len(parts) == 1 {
+	if parts.Len() == 1 {
 		return parts[0]
 	}
 	Cat{Parts: parts}
@@ -74,14 +74,14 @@ func Has(k Class, c byte) bool {
 
 // Literal is the pattern that matches text and nothing else.
 func Literal(text string) Node {
-	if len(text) == 0 {
+	if text.Len() == 0 {
 		return Empty
 	}
-	if len(text) == 1 {
+	if text.Len() == 1 {
 		return Lit{C: text[0]}
 	}
 	let mut parts = []Node{}
-	for i in 0..len(text) {
+	for i in 0..text.Len() {
 		parts = parts.Append(Lit{C: text[i]})
 	}
 	Cat{Parts: parts}

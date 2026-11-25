@@ -6,6 +6,7 @@
 // its binary (G-ex-c-7): package http1 reads and writes these records as
 // HTTP/1.1 text.
 
+import option
 import strings
 import deploys/deploys
 import json
@@ -52,13 +53,13 @@ type Response { Status int, Headers []Header, Body string }
 
 // HeaderOf is the value of the first header of headers named name, any
 // case.
-func HeaderOf(headers []Header, name string) Option[string] {
+func HeaderOf(headers []Header, name string) option.Option[string] {
 	for h in headers {
 		if strings.EqualFold(h.Name, name) {
-			return Some[string]{Value: h.Value}
+			return option.Some[string]{Value: h.Value}
 		}
 	}
-	None
+	option.None
 }
 
 // Reason is the reason phrase of status.

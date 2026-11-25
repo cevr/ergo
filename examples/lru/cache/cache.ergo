@@ -6,6 +6,7 @@
 
 import arena
 import cmp
+import option
 import slices
 
 // node is one entry on the recency list, in the arena; a link is the
@@ -44,8 +45,8 @@ law MostRecentKept(n int, keys []int, seed int) {
 // recent is the last distinct keys of keys, newest first, at most size.
 func recent(keys []int, size int) []int {
 	let mut out = []int{}
-	let mut i = len(keys) - 1
-	for i >= 0 && len(out) < size {
+	let mut i = keys.Len() - 1
+	for i >= 0 && out.Len() < size {
 		let mut seen = false
 		for k in out {
 			if k == keys[i] {
@@ -79,7 +80,7 @@ func Capacity[K comparable, V](c Cache[K, V]) int { c.capacity }
 law CapacityBound(n int, keys []int, seed int) {
 	for ks in [][]int{keys, keysOf(seed)} {
 		let mut c = filled(n, ks)
-		if c.Len() > c.Capacity() || len(c.Entries()) != c.Len() {
+		if c.Len() > c.Capacity() || c.Entries().Len() != c.Len() {
 			return false
 		}
 	}
@@ -122,20 +123,20 @@ func filled(n int, keys []int) Cache[int, int] {
 }
 
 // Len is the number of entries in c.
-func Len[K comparable, V](c Cache[K, V]) int { len(c.index) }
+func Len[K comparable, V](c Cache[K, V]) int { c.index.Len() }
 
 // Get is the value of k, and makes k the most recently used entry.
-func Get[K comparable, V](c mut Cache[K, V], k K) Option[V] {
+func Get[K comparable, V](c mut Cache[K, V], k K) option.Option[V] {
 	match c.index.Get(k) {
-	case Some[arena.Ref[node[K, V]]] as at:
+	case option.Some[arena.Ref[node[K, V]]] as at:
 		let n = c.nodes.Get(at.Value) catch {
 		case arena.Stale:
-			return None
+			return option.None
 		}
 		c.touch(at.Value, n.prev, n.next)
-		Some{n.value}
-	case None:
-		None
+		option.Some{n.value}
+	case option.None:
+		option.None
 	}
 }
 
@@ -146,7 +147,7 @@ law GetAfterPut(n int, keys []int, seed int, k int, v int) {
 		for key in []int{k, sizeOf(k)} {
 			let mut c = filled(n, ks)
 			let _ = c.Put(key, v)
-			if c.Get(key) != (Some{v}) {
+			if c.Get(key) != (option.Some{v}) {
 				return false
 			}
 		}
@@ -156,46 +157,46 @@ law GetAfterPut(n int, keys []int, seed int, k int, v int) {
 
 // Peek is the value of k, and changes no recency. It takes a borrow
 // because an arena read does (std arena.Get).
-func Peek[K comparable, V](c mut Cache[K, V], k K) Option[V] {
+func Peek[K comparable, V](c mut Cache[K, V], k K) option.Option[V] {
 	match c.index.Get(k) {
-	case Some[arena.Ref[node[K, V]]] as at:
+	case option.Some[arena.Ref[node[K, V]]] as at:
 		let n = c.nodes.Get(at.Value) catch {
 		case arena.Stale:
-			return None
+			return option.None
 		}
-		Some{n.value}
-	case None:
-		None
+		option.Some{n.value}
+	case option.None:
+		option.None
 	}
 }
 
 // Put sets k to v and makes k the most recently used entry. When c was
 // full and k was not in it, Put drops the least recently used entry and
 // returns it.
-func Put[K comparable, V](c mut Cache[K, V], k K, v V) Option[Entry[K, V]] {
+func Put[K comparable, V](c mut Cache[K, V], k K, v V) option.Option[Entry[K, V]] {
 	match c.index.Get(k) {
-	case Some[arena.Ref[node[K, V]]] as at:
+	case option.Some[arena.Ref[node[K, V]]] as at:
 		let n = c.nodes.Get(at.Value) catch {
 		case arena.Stale:
-			return None
+			return option.None
 		}
 		c.nodes.Update(at.Value, func(p mut node[K, V]) { p.value = v }) catch {
 		case arena.Stale:
-			return None
+			return option.None
 		}
 		c.touch(at.Value, n.prev, n.next)
-		return None
-	case None:
+		return option.None
+	case option.None:
 	}
-	let mut evicted Option[Entry[K, V]] = None
-	if len(c.index) == c.capacity {
+	let mut evicted option.Option[Entry[K, V]] = option.None
+	if c.index.Len() == c.capacity {
 		let old = c.nodes.Free(c.tail) catch {
 		case arena.Stale:
-			return None
+			return option.None
 		}
 		c.unlink(old.prev, old.next)
 		c.index = c.index.Delete(old.key)
-		evicted = Some{Entry[K, V]{Key: old.key, Value: old.value}}
+		evicted = option.Some{Entry[K, V]{Key: old.key, Value: old.value}}
 	}
 	let at = c.nodes.Put(node[K, V]{key: k, value: v, prev: arena.Null[node[K, V]](), next: c.head})
 	c.index[k] = at
@@ -206,7 +207,7 @@ func Put[K comparable, V](c mut Cache[K, V], k K, v V) Option[Entry[K, V]] {
 // Remove drops k from c, and reports whether it was there.
 func Remove[K comparable, V](c mut Cache[K, V], k K) bool {
 	match c.index.Get(k) {
-	case Some[arena.Ref[node[K, V]]] as at:
+	case option.Some[arena.Ref[node[K, V]]] as at:
 		c.index = c.index.Delete(k)
 		let n = c.nodes.Free(at.Value) catch {
 		case arena.Stale:
@@ -214,7 +215,7 @@ func Remove[K comparable, V](c mut Cache[K, V], k K) bool {
 		}
 		c.unlink(n.prev, n.next)
 		true
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -241,11 +242,11 @@ law EvictsTheLeastRecent(n int, keys []int, seed int, k int) {
 		let mut c = filled(n, ks)
 		let before = c.Entries()
 		let full = c.Len() == c.Capacity()
-		let fresh = c.Peek(k) == None
+		let fresh = c.Peek(k) == option.None
 		let ok = match c.Put(k, 0) {
-		case Some[Entry[int, int]] as out:
-			full && fresh && out.Value == before[len(before)-1]
-		case None:
+		case option.Some[Entry[int, int]] as out:
+			full && fresh && out.Value == before[before.Len()-1]
+		case option.None:
 			!full || !fresh
 		}
 		if !ok {
@@ -257,7 +258,7 @@ law EvictsTheLeastRecent(n int, keys []int, seed int, k int) {
 
 // Sorted is the entries of c in key order: a listing that does not
 // depend on recency.
-func Sorted[K ordered, V](c mut Cache[K, V]) []Entry[K, V] {
+func Sorted[K cmp.Ordered, V](c mut Cache[K, V]) []Entry[K, V] {
 	slices.SortFunc(c.Entries(), func(a Entry[K, V], b Entry[K, V]) int { cmp.Compare(a.Key, b.Key) })
 }
 

@@ -4,6 +4,7 @@
 // symref resolution, reflog parsing, and the RefReader capability with shared
 // laws across MemoryRefs and FilesStore.
 
+import option
 import strings
 import github.com/cevr/ergo/modules/git/oid
 
@@ -31,7 +32,7 @@ type Target =
 type Ref {
 	Name   string,
 	Target Target,
-	Peeled Option[oid.OID],
+	Peeled option.Option[oid.OID],
 }
 
 // Resolved is the fully dereferenced result of following a direct or symbolic
@@ -40,7 +41,7 @@ type Resolved {
 	Name   string,
 	Chain  []string,
 	OID    oid.OID,
-	Peeled Option[oid.OID],
+	Peeled option.Option[oid.OID],
 }
 
 // ReflogEntry is one parsed record from a Git reflog file.
@@ -59,20 +60,20 @@ type Store {
 	CommonDir string,
 }
 
-func sameOptOID(a Option[oid.OID], b Option[oid.OID]) bool {
+func sameOptOID(a option.Option[oid.OID], b option.Option[oid.OID]) bool {
 	match a {
-	case None:
+	case option.None:
 		match b {
-		case None:
+		case option.None:
 			true
-		case Some[oid.OID]:
+		case option.Some[oid.OID]:
 			false
 		}
-	case Some[oid.OID] as av:
+	case option.Some[oid.OID] as av:
 		match b {
-		case None:
+		case option.None:
 			false
-		case Some[oid.OID] as bv:
+		case option.Some[oid.OID] as bv:
 			oid.Equal(av.Value, bv.Value)
 		}
 	}
@@ -114,7 +115,7 @@ type RefReader {
 				case NotFound, InvalidRefName, CyclicSymref, CorruptRef, PathEscape, IOFailed:
 					return false
 				}
-				if !oid.Equal(res.OID, d.OID) || !sameOptOID(res.Peeled, r.Peeled) || len(res.Chain) != 1 || res.Chain[0] != r.Name {
+				if !oid.Equal(res.OID, d.OID) || !sameOptOID(res.Peeled, r.Peeled) || res.Chain.Len() != 1 || res.Chain[0] != r.Name {
 					return false
 				}
 			case Symbolic as s:
@@ -140,7 +141,7 @@ type RefReader {
 		case InvalidRefName, CorruptRef, PathEscape, IOFailed:
 			return false
 		}
-		for i in 1..len(all) {
+		for i in 1..all.Len() {
 			if !(all[i-1].Name < all[i].Name) {
 				return false
 			}
@@ -164,25 +165,25 @@ type RefReader {
 		let _ = ReadRef("../escape") catch {
 		case PathEscape:
 			sawEsc = true
-			Ref{Name: "", Target: Symbolic{Target: ""}, Peeled: None}
+			Ref{Name: "", Target: Symbolic{Target: ""}, Peeled: option.None}
 		case NotFound, InvalidRefName, CorruptRef, IOFailed:
-			Ref{Name: "", Target: Symbolic{Target: ""}, Peeled: None}
+			Ref{Name: "", Target: Symbolic{Target: ""}, Peeled: option.None}
 		}
 		let mut sawDotDot = false
 		let _ = ReadRef("refs/heads/" + tag + "..bad") catch {
 		case InvalidRefName, PathEscape:
 			sawDotDot = true
-			Ref{Name: "", Target: Symbolic{Target: ""}, Peeled: None}
+			Ref{Name: "", Target: Symbolic{Target: ""}, Peeled: option.None}
 		case NotFound, CorruptRef, IOFailed:
-			Ref{Name: "", Target: Symbolic{Target: ""}, Peeled: None}
+			Ref{Name: "", Target: Symbolic{Target: ""}, Peeled: option.None}
 		}
 		let mut sawLock = false
 		let _ = ReadRef("refs/heads/x.lock") catch {
 		case InvalidRefName:
 			sawLock = true
-			Ref{Name: "", Target: Symbolic{Target: ""}, Peeled: None}
+			Ref{Name: "", Target: Symbolic{Target: ""}, Peeled: option.None}
 		case NotFound, CorruptRef, PathEscape, IOFailed:
-			Ref{Name: "", Target: Symbolic{Target: ""}, Peeled: None}
+			Ref{Name: "", Target: Symbolic{Target: ""}, Peeled: option.None}
 		}
 		sawEsc && sawDotDot && sawLock
 	},

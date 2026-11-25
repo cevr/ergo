@@ -13,6 +13,7 @@
 //	quit        stop
 
 import io
+import option
 import ritmo/screen
 import ritmo/topdown
 import strconv
@@ -24,29 +25,29 @@ type Unknown { Line string }
 // Parse is the requests of one line, in order.
 func Parse(line string) []topdown.Request fails Unknown {
 	let words = strings.Fields(line)
-	if len(words) == 2 && words[0] == "save" {
+	if words.Len() == 2 && words[0] == "save" {
 		return []topdown.Request{topdown.Save{Slot: words[1]}}
 	}
-	if len(words) == 2 && words[0] == "load" {
+	if words.Len() == 2 && words[0] == "load" {
 		return []topdown.Request{topdown.Load{Slot: words[1]}}
 	}
-	if len(words) == 2 && words[0] == "rewind" {
+	if words.Len() == 2 && words[0] == "rewind" {
 		let n = strconv.Atoi(words[1]) catch {
 		case strconv.Malformed, strconv.OutOfRange:
 			return Unknown{Line: line}
 		}
 		return []topdown.Request{topdown.Rewind{Ticks: n}}
 	}
-	if len(words) == 1 && words[0] == "look" {
+	if words.Len() == 1 && words[0] == "look" {
 		return []topdown.Request{topdown.Look}
 	}
-	if len(words) != 1 {
+	if words.Len() != 1 {
 		return Unknown{Line: line}
 	}
 	let (keys, times) = match strings.Cut(words[0], "*") {
-	case None:
+	case option.None:
 		(words[0], 1)
-	case Some[strings.Halves] as h:
+	case option.Some[strings.Halves] as h:
 		let n = strconv.Atoi(h.Value.After) catch {
 		case strconv.Malformed, strconv.OutOfRange:
 			return Unknown{Line: line}

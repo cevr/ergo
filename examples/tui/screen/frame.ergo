@@ -17,7 +17,7 @@ func Frame(m picker.Mode) string {
 	let v = picker.ViewOf(m)
 	let mut out = clear + Header(m) + "\r\n"
 	let shown = picker.Visible(v)
-	if len(shown) == 0 {
+	if shown.Len() == 0 {
 		return out + "  (no match)\r\n"
 	}
 	for i, item in shown {
@@ -54,7 +54,7 @@ law OneLineIsMarked(m picker.Mode) {
 // marks checks OneLineIsMarked for the mode of m with the view v.
 func marks(m picker.Mode, v picker.View) bool {
 	let shown = picker.Visible(v)
-	let cursor = if len(shown) == 0 { 0 } else { (if v.Cursor < 0 { -(v.Cursor + 1) } else { v.Cursor }) % len(shown) }
+	let cursor = if shown.Len() == 0 { 0 } else { (if v.Cursor < 0 { -(v.Cursor + 1) } else { v.Cursor }) % shown.Len() }
 	let placed = match m {
 	case picker.Browsing:
 		picker.Browsing{View: picker.View{..v, Cursor: cursor}}
@@ -63,8 +63,8 @@ func marks(m picker.Mode, v picker.View) bool {
 	}
 	let frame = Frame(placed)
 	let lines = strings.Split(strings.TrimSuffix(frame, "\r\n"), "\r\n")
-	if len(shown) == 0 {
-		return strings.Count(frame, reverse) == 0 && len(lines) == 2
+	if shown.Len() == 0 {
+		return strings.Count(frame, reverse) == 0 && lines.Len() == 2
 	}
-	strings.Count(frame, reverse) == 1 && lines[cursor+1] == Marked(shown[cursor]) && len(lines) == len(shown)+1
+	strings.Count(frame, reverse) == 1 && lines[cursor+1] == Marked(shown[cursor]) && lines.Len() == shown.Len()+1
 }

@@ -137,7 +137,7 @@
       "name": "dt1-osc-unbounded",
       "origin": "wf10/dod/DT1",
       "file": "examples/vt/vt/stream.ergo",
-      "from": "\tif len(data) <= room {",
+      "from": "\tif data.Len() <= room {",
       "to": "\tif true {",
       "rule": "An OSC string keeps at most OscLimit bytes and counts the rest. Killed by case vt/events-tally (osc-cut 156).",
       "killers": [
@@ -247,7 +247,7 @@
       "name": "dt2-grow-every-push",
       "origin": "wf10/dod/DT2",
       "file": "examples/vt/screen/screen.ergo",
-      "from": "if ri >= len(s.flags) {",
+      "from": "if ri >= s.flags.Len() {",
       "to": "if ri >= 0 {",
       "rule": "Once the ring is full, a line feed makes no cell: the oldest page is used again (a leak there shows as a counted growth guard). Killed by law screen.ScrollbackIsBounded.",
       "killers": [
@@ -441,8 +441,28 @@
         "cmd/ergo:TestVTAgreesWithControl"
       ]
     },
-    {"name":"vk1-flush-keeps-events","origin":"wf10/dod/VK1","file":"examples/vt/vt/play.ergo","from":"\tApply(s, p.out, &u)\n\tp.Clear()\n","to":"\tApply(s, p.out, &u)\n","rule":"Flush forgets the events it gave the screen: the next piece's events are given once. Killed by the replay cases.","killers":["examples:vt"]},
-    {"name":"vk1-clear-keeps-first","origin":"wf10/dod/VK1","file":"examples/vt/vt/stream.ergo","from":"func Clear(p mut Stream) { p.out = p.out[0:0] }","to":"func Clear(p mut Stream) { if len(p.out) > 0 { p.out = p.out[0:1] } }","rule":"Clear forgets every event kept, not all but the first. Killed by the replay cases.","killers":["examples:vt"]},
+    {
+      "name": "vk1-flush-keeps-events",
+      "origin": "wf10/dod/VK1",
+      "file": "examples/vt/vt/play.ergo",
+      "from": "\tApply(s, p.out, &u)\n\tp.Clear()\n",
+      "to": "\tApply(s, p.out, &u)\n",
+      "rule": "Flush forgets the events it gave the screen: the next piece's events are given once. Killed by the replay cases.",
+      "killers": [
+        "examples:vt"
+      ]
+    },
+    {
+      "name": "vk1-clear-keeps-first",
+      "origin": "wf10/dod/VK1",
+      "file": "examples/vt/vt/stream.ergo",
+      "from": "func Clear(p mut Stream) { p.out = p.out[0:0] }",
+      "to": "func Clear(p mut Stream) { if len(p.out) > 0 { p.out = p.out[0:1] } }",
+      "rule": "Clear forgets every event kept, not all but the first. Killed by the replay cases.",
+      "killers": [
+        "examples:vt"
+      ]
+    },
     {
       "name": "pacevt2-print-run-off",
       "origin": "wf10/PACE-VT2",

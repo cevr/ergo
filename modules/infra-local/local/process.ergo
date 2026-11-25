@@ -6,6 +6,7 @@ import fs
 import json
 import fstest
 import hex
+import option
 import strconv
 import strings
 
@@ -52,8 +53,8 @@ func Apply(pr Programs, id string, p ProcessProps) Process fails infra.Failed {
 	let attrs = pr.Attrs(id, p)
 	let key = keyOf(p)
 	match try find(pr, id) {
-	case None:
-	case Some[Running] as old:
+	case option.None:
+	case option.Some[Running] as old:
 		if old.Value.Key == key && pr.spawner.Alive(old.Value.Detached) {
 			return attrs
 		}
@@ -81,23 +82,23 @@ func Apply(pr Programs, id string, p ProcessProps) Process fails infra.Failed {
 
 // Read is the program id when it still runs: the same process, by its pid
 // and start time.
-func Read(pr Programs, id string) Option[Process] fails infra.Failed {
+func Read(pr Programs, id string) option.Option[Process] fails infra.Failed {
 	match try find(pr, id) {
-	case None:
-		None
-	case Some[Running] as r:
+	case option.None:
+		option.None
+	case option.Some[Running] as r:
 		if !pr.spawner.Alive(r.Value.Detached) {
-			return None
+			return option.None
 		}
-		Some[Process]{Value: Process{URL: urlOf(r.Value.Port), Pidfile: entryPath(pr.ledger, "process", id)}}
+		option.Some[Process]{Value: Process{URL: urlOf(r.Value.Port), Pidfile: entryPath(pr.ledger, "process", id)}}
 	}
 }
 
 // Delete ends the program id's process group and removes its entry.
 func Delete(pr Programs, id string) fails infra.Failed {
 	match try find(pr, id) {
-	case None:
-	case Some[Running] as r:
+	case option.None:
+	case option.Some[Running] as r:
 		pr.spawner.Kill(r.Value.Detached, pr.grace)
 		try drop(pr.ledger, "process", id)
 	}
@@ -108,15 +109,15 @@ func Delete(pr Programs, id string) fails infra.Failed {
 type Running { Detached exec.Detached, Key string, Port int }
 
 // Find is the ledger entry of the program id, None when there is none.
-func Find(pr Programs, id string) Option[Running] fails infra.Failed { try find(pr, id) }
+func Find(pr Programs, id string) option.Option[Running] fails infra.Failed { try find(pr, id) }
 
-func find(pr Programs, id string) Option[Running] fails infra.Failed {
+func find(pr Programs, id string) option.Option[Running] fails infra.Failed {
 	match try get(pr.ledger, "process", id) {
-	case None:
-		None
-	case Some[[]string] as entry:
+	case option.None:
+		option.None
+	case option.Some[[]string] as entry:
 		let f = entry.Value
-		if len(f) != 5 {
+		if f.Len() != 5 {
 			return infra.Failed{ID: id, Reason: "the ledger's entry for \(id) is not a program"}
 		}
 		let pid = strconv.Atoi(f[0]) catch {
@@ -131,7 +132,7 @@ func find(pr Programs, id string) Option[Running] fails infra.Failed {
 		case strconv.Malformed, strconv.OutOfRange:
 			return infra.Failed{ID: id, Reason: "the ledger's port for \(id) is not a number"}
 		}
-		Some[Running]{Value: Running{Detached: exec.Detached{Pid: pid, Start: start, Name: f[2]}, Key: f[3], Port: port}}
+		option.Some[Running]{Value: Running{Detached: exec.Detached{Pid: pid, Start: start, Name: f[2]}, Key: f[3], Port: port}}
 	}
 }
 
@@ -153,9 +154,9 @@ func envOf(id string, env string) Map[string, string] fails infra.Failed {
 	let mut out = Map[string, string]{}
 	for line in exec.Split(env) {
 		match strings.Cut(line, "=") {
-		case None:
+		case option.None:
 			return infra.Failed{ID: id, Reason: "the environment line \(strconv.Quote(line)) is not KEY=VALUE"}
-		case Some[strings.Halves] as h:
+		case option.Some[strings.Halves] as h:
 			out[h.Value.Before] = h.Value.After
 		}
 	}
@@ -181,9 +182,9 @@ law DeleteEndsTheProgram(args string, port int) {
 	let pr = programs(spawner, Up)
 	try pr.Apply("api", server(args, port))
 	let running = match try pr.Find("api") {
-	case None:
+	case option.None:
 		return false
-	case Some[Running] as r:
+	case option.Some[Running] as r:
 		r.Value
 	}
 	try pr.Delete("api")
@@ -198,7 +199,7 @@ law SecondApplyKeepsTheProgram(args string, port int) {
 	let first = try pr.Find("api")
 	try pr.Apply("api", server(args, port))
 	let again = try pr.Find("api")
-	first != None && again == first
+	first != option.None && again == first
 }
 
 // ChangedProgramRestarts: an Apply of changed props ends the old program
@@ -208,14 +209,14 @@ law ChangedProgramRestarts(args string, port int) {
 	let pr = programs(spawner, Up)
 	try pr.Apply("api", server(args, port))
 	let old = match try pr.Find("api") {
-	case None:
+	case option.None:
 		return false
-	case Some[Running] as r:
+	case option.Some[Running] as r:
 		r.Value
 	}
 	let now = try pr.Apply("api", server(args, port+1))
 	let read = try pr.Read("api")
-	!spawner.Alive(old.Detached) && read == Some[Process]{Value: now}
+	!spawner.Alive(old.Detached) && read == option.Some[Process]{Value: now}
 }
 
 // UnansweredLeavesNothing: a program that does not answer its health check
@@ -226,7 +227,7 @@ law UnansweredLeavesNothing(args string, port int) {
 	pr.Apply("api", server(args, port)) catch {
 	case infra.Failed:
 		let left = try pr.Find("api")
-		return left == None && !spawner.Alive(exec.Detached{Pid: 1, Start: 1, Name: "server"})
+		return left == option.None && !spawner.Alive(exec.Detached{Pid: 1, Start: 1, Name: "server"})
 	}
 	false
 }
@@ -235,11 +236,11 @@ law UnansweredLeavesNothing(args string, port int) {
 // writes, the props kept as JSON.
 func ProcessRowsOn(files fs.Files, writes fs.Writes, root string) Rows[ProcessProps] {
 	let codec = json.Codec[ProcessProps]{MaxBytes: 0, MaxDepth: 0}
-	RowsOn[ProcessProps](files, writes, root, func(p ProcessProps) string { json.Encode(codec, p) }, func(text string) Option[ProcessProps] {
+	RowsOn[ProcessProps](files, writes, root, func(p ProcessProps) string { json.Encode(codec, p) }, func(text string) option.Option[ProcessProps] {
 		let p = json.Decode(codec, text) catch {
 		case _:
-			return None
+			return option.None
 		}
-		Some[ProcessProps]{Value: p}
+		option.Some[ProcessProps]{Value: p}
 	})
 }

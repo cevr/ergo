@@ -1,3 +1,4 @@
+import option
 import strings
 
 // Hunks is a three-way merge of lines: the merged lines, and how many
@@ -23,17 +24,17 @@ func MergeText(base string, ours string, theirs string) Hunks {
 	for {
 		// The next base line both sides kept, at or after i.
 		let mut next = i
-		for next < len(b) && (mo[next] < j || mt[next] < k) {
+		for next < b.Len() && (mo[next] < j || mt[next] < k) {
 			next = next + 1
 		}
-		if next == i && next < len(b) && mo[next] == j && mt[next] == k {
+		if next == i && next < b.Len() && mo[next] == j && mt[next] == k {
 			out = out.Append(b[i])
 			i = i + 1
 			j = j + 1
 			k = k + 1
 			continue
 		}
-		let (oe, te) = if next < len(b) { (mo[next], mt[next]) } else { (len(o), len(t)) }
+		let (oe, te) = if next < b.Len() { (mo[next], mt[next]) } else { (o.Len(), t.Len()) }
 		let bs = part(b, i, next)
 		let os = part(o, j, oe)
 		let ts = part(t, k, te)
@@ -49,7 +50,7 @@ func MergeText(base string, ours string, theirs string) Hunks {
 			out = slicesAppend(out, ts)
 			out = out.Append(">>>>>>> theirs")
 		}
-		if next >= len(b) {
+		if next >= b.Len() {
 			return Hunks{Lines: out, Clashes: clashes}
 		}
 		i = next
@@ -62,7 +63,7 @@ func MergeText(base string, ours string, theirs string) Hunks {
 func Text(h Hunks) string { strings.Join(h.Lines, "\n") }
 
 func sameLines(a []string, b []string) bool {
-	if len(a) != len(b) {
+	if a.Len() != b.Len() {
 		return false
 	}
 	for i, x in a {
@@ -98,12 +99,12 @@ func matches(a []string, b []string) []int {
 		m = m.Append(-1)
 	}
 	let mut lo = 0
-	for lo < len(a) && lo < len(b) && a[lo] == b[lo] {
+	for lo < a.Len() && lo < b.Len() && a[lo] == b[lo] {
 		m[lo] = lo
 		lo = lo + 1
 	}
-	let mut ha = len(a)
-	let mut hb = len(b)
+	let mut ha = a.Len()
+	let mut hb = b.Len()
 	for ha > lo && hb > lo && a[ha-1] == b[hb-1] {
 		ha = ha - 1
 		hb = hb - 1
@@ -174,10 +175,10 @@ func slid(m []int, side []string) []int {
 		}
 	}
 	let mut s = 0
-	for s < len(side) {
+	for s < side.Len() {
 		// The run of unpaired lines that starts at s.
 		let mut e = s
-		for e < len(side) && owner[e] < 0 {
+		for e < side.Len() && owner[e] < 0 {
 			e = e + 1
 		}
 		if s == e {
@@ -203,7 +204,7 @@ func slid(m []int, side []string) []int {
 		moved = true
 		for moved {
 			moved = false
-			for e < len(side) && owner[e] >= 0 && side[e] == side[s] {
+			for e < side.Len() && owner[e] >= 0 && side[e] == side[s] {
 				let i = owner[e]
 				out[i] = s
 				owner[s] = i
@@ -212,7 +213,7 @@ func slid(m []int, side []string) []int {
 				e = e + 1
 				moved = true
 			}
-			for e < len(side) && owner[e] < 0 {
+			for e < side.Len() && owner[e] < 0 {
 				e = e + 1
 			}
 		}
@@ -226,9 +227,9 @@ func plain(units Map[int, int]) string {
 	let mut lines = []string{}
 	for key in 0..6 {
 		match units.Get(key) {
-		case Some[int] as v:
+		case option.Some[int] as v:
 			lines = lines.Append("k\(key) \(v.Value)")
-		case None:
+		case option.None:
 		}
 	}
 	strings.Join(lines, "\n") + "\n"
@@ -248,7 +249,7 @@ law TextIsDiff3(units Map[int, int], ourEdits []Edit, theirEdits []Edit) {
 	for k in 0..6 {
 		let oc = valueAt(ours, k) != valueAt(base, k)
 		let tc = valueAt(theirs, k) != valueAt(base, k)
-		if !oc && !tc && base.Get(k) != None {
+		if !oc && !tc && base.Get(k) != option.None {
 			oRun = false
 			tRun = false
 		}
@@ -258,9 +259,9 @@ law TextIsDiff3(units Map[int, int], ourEdits []Edit, theirEdits []Edit) {
 		let side = if oc { ours } else { theirs }
 		if oc || tc {
 			match side.Get(k) {
-			case Some[int] as v:
+			case option.Some[int] as v:
 				both[k] = v.Value
-			case None:
+			case option.None:
 				both = both.Delete(k)
 			}
 		}
@@ -283,10 +284,10 @@ law OneBlockBothAddedIsOnce(n int, extra bool) {
 	}
 	base = base.Append("b")
 	base = base.Append("c")
-	let ours = slicesAppend(slicesAppend([]string{"a"}, []string{"f(", ")"}), part(base, 1, len(base)))
+	let ours = slicesAppend(slicesAppend([]string{"a"}, []string{"f(", ")"}), part(base, 1, base.Len()))
 	let mut theirs = slicesAppend([]string{}, ours)
 	if extra {
-		theirs[len(theirs)-1] = "c2"
+		theirs[theirs.Len()-1] = "c2"
 	}
 	let got = MergeText(strings.Join(base, "\n"), strings.Join(ours, "\n"), strings.Join(theirs, "\n"))
 	got.Clashes == 0 && Text(got) == strings.Join(theirs, "\n")

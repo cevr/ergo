@@ -1,4 +1,5 @@
 import deps/graph
+import option
 import semver
 import maps
 import slices
@@ -57,7 +58,7 @@ type Clash { Name string, Wants []Want }
 
 // search is the state of one Resolve: the choices made so far, and the
 // first clash it met.
-type search { steps int, clash Option[Clash] }
+type search { steps int, clash option.Option[Clash] }
 
 // Resolve chooses a version of each package the root needs, and of each
 // package those need, and so on, so that every want holds. It is a
@@ -67,15 +68,15 @@ type search { steps int, clash Option[Clash] }
 // versions in name order, and it does not depend on the order of the
 // registry.
 func Resolve(root []Requirement) Plan fails NoVersion | NoPlan | TooHard | Circular | UnknownPackage | UnknownVersion needs Index {
-	let mut s = search{steps: 0, clash: None}
+	let mut s = search{steps: 0, clash: option.None}
 	match try solve(&s, root, Map[string, semver.Version]{}) {
-	case Some[Map[string, semver.Version]] as pins:
+	case option.Some[Map[string, semver.Version]] as pins:
 		try plan(pins.Value)
-	case None:
+	case option.None:
 		match s.clash {
-		case Some[Clash] as c:
+		case option.Some[Clash] as c:
 			NoVersion{Name: c.Value.Name, Wants: c.Value.Wants}
-		case None:
+		case option.None:
 			NoPlan
 		}
 	}
@@ -83,7 +84,7 @@ func Resolve(root []Requirement) Plan fails NoVersion | NoPlan | TooHard | Circu
 
 // solve extends pins until every wanted package is pinned, or is None
 // when no extension keeps every want.
-func solve(s mut search, root []Requirement, pins Map[string, semver.Version]) Option[Map[string, semver.Version]] fails TooHard | UnknownPackage | UnknownVersion needs Index {
+func solve(s mut search, root []Requirement, pins Map[string, semver.Version]) option.Option[Map[string, semver.Version]] fails TooHard | UnknownPackage | UnknownVersion needs Index {
 	s.steps = s.steps + 1
 	if s.steps > MaxSteps {
 		return TooHard{Steps: MaxSteps}
@@ -92,53 +93,53 @@ func solve(s mut search, root []Requirement, pins Map[string, semver.Version]) O
 	let names = slices.Sorted(maps.Keys(wants))
 	for name in names {
 		match pins.Get(name) {
-		case Some[semver.Version] as v:
+		case option.Some[semver.Version] as v:
 			if !keepsAll(wantsOf(wants, name), v.Value) {
 				try note(s, name, wantsOf(wants, name))
-				return None
+				return option.None
 			}
-		case None:
+		case option.None:
 		}
 	}
 	for name in names {
 		match pins.Get(name) {
-		case Some[semver.Version]:
-		case None:
+		case option.Some[semver.Version]:
+		case option.None:
 			let ws = wantsOf(wants, name)
 			let mut kept = false
 			for v in try Index.Versions(name) {
 				if keepsAll(ws, v) {
 					kept = true
 					match try solve(s, root, pinned(pins, name, v)) {
-					case Some[Map[string, semver.Version]] as done:
+					case option.Some[Map[string, semver.Version]] as done:
 						return done
-					case None:
+					case option.None:
 					}
 				}
 			}
 			if !kept {
 				try note(s, name, ws)
 			}
-			return None
+			return option.None
 		}
 	}
-	Some[Map[string, semver.Version]]{Value: pins}
+	option.Some[Map[string, semver.Version]]{Value: pins}
 }
 
 // note keeps the clash of name and wants, when it is the first and no
 // version of name keeps every want.
 func note(s mut search, name string, wants []Want) fails UnknownPackage needs Index {
 	match s.clash {
-	case Some[Clash]:
+	case option.Some[Clash]:
 		return
-	case None:
+	case option.None:
 	}
 	for v in try Index.Versions(name) {
 		if keepsAll(wants, v) {
 			return
 		}
 	}
-	s.clash = Some[Clash]{Value: Clash{Name: name, Wants: wants}}
+	s.clash = option.Some[Clash]{Value: Clash{Name: name, Wants: wants}}
 }
 
 // pinned is pins with name at v. A Map is a value, so each step of the
@@ -159,20 +160,20 @@ func gather(root []Requirement, pins Map[string, semver.Version]) Map[string, []
 		queue = queue.Append(r.Name)
 	}
 	let mut done = []string{}
-	for len(queue) > 0 {
+	for queue.Len() > 0 {
 		let name = queue[0]
-		queue = slices.Slice(queue, 1, len(queue))
+		queue = slices.Slice(queue, 1, queue.Len())
 		if slices.Contains(done, name) {
 			continue
 		}
 		done = done.Append(name)
 		match pins.Get(name) {
-		case Some[semver.Version] as v:
+		case option.Some[semver.Version] as v:
 			for r in try Index.Needs(name, v.Value) {
 				wants[r.Name] = wantsOf(wants, r.Name).Append(Want{By: name + " " + semver.Format(v.Value), Want: r.Want})
 				queue = queue.Append(r.Name)
 			}
-		case None:
+		case option.None:
 		}
 	}
 	wants
@@ -207,9 +208,9 @@ func plan(pins Map[string, semver.Version]) Plan fails Circular | UnknownPackage
 
 func versionOf(pins Map[string, semver.Version], name string) semver.Version {
 	match pins.Get(name) {
-	case Some[semver.Version] as v:
+	case option.Some[semver.Version] as v:
 		v.Value
-	case None:
+	case option.None:
 		semver.Version{Major: 0, Minor: 0, Patch: 0, Pre: []string{}, Build: []string{}}
 	}
 }
@@ -224,30 +225,30 @@ func pinsOf(pins Map[string, semver.Version], names []string) []Pin {
 
 // Why is the shortest chain of needs from a package the project needs
 // directly to name, or None when the plan does not reach it.
-func Why(p Plan, root []Requirement, name string) Option[[]Pin] {
-	let mut best Option[[]string] = None
+func Why(p Plan, root []Requirement, name string) option.Option[[]Pin] {
+	let mut best option.Option[[]string] = option.None
 	for r in root {
 		match p.Needs.Path(r.Name, name) {
-		case Some[[]string] as path:
+		case option.Some[[]string] as path:
 			match best {
-			case Some[[]string] as b:
-				if len(path.Value) < len(b.Value) {
+			case option.Some[[]string] as b:
+				if path.Value.Len() < b.Value.Len() {
 					best = path
 				}
-			case None:
+			case option.None:
 				best = path
 			}
-		case None:
+		case option.None:
 		}
 	}
 	match best {
-	case Some[[]string] as b:
+	case option.Some[[]string] as b:
 		let mut pins = Map[string, semver.Version]{}
 		for pin in p.Pins {
 			pins[pin.Name] = pin.V
 		}
-		Some[[]Pin]{Value: pinsOf(pins, b.Value)}
-	case None:
-		None
+		option.Some[[]Pin]{Value: pinsOf(pins, b.Value)}
+	case option.None:
+		option.None
 	}
 }

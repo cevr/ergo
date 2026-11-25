@@ -1,4 +1,5 @@
 import jsonparse/json
+import option
 import strconv
 import strings
 
@@ -26,7 +27,7 @@ func Parse(src string) Tree fails json.Malformed {
 	skip(&b)
 	let root = try value(&b)
 	skip(&b)
-	if b.pos < len(b.src) {
+	if b.pos < b.src.Len() {
 		return fail(&b, b.pos, "expected the end, found "+found(&b))
 	}
 	Tree{Src: src, Nodes: b.nodes, Extras: b.extras, Pool: b.pool, Root: root}
@@ -60,12 +61,12 @@ law FailsWhereTheTreeFails(seed int, at int, c byte) {
 		let text = json.Compact(v)
 		// at's remainder, made non-negative by adding the modulus: -at
 		// overflows at the least int.
-		let r = at % (len(text) + 1)
-		let k = if r < 0 { r + len(text) + 1 } else { r }
+		let r = at % (text.Len() + 1)
+		let k = if r < 0 { r + text.Len() + 1 } else { r }
 		let mut b = strings.NewBuilder()
 		b.WriteString(strings.Slice(text, 0, k))
 		b.WriteByte(c)
-		b.WriteString(strings.Slice(text, if k < len(text) { k + 1 } else { k }, len(text)))
+		b.WriteString(strings.Slice(text, if k < text.Len() { k + 1 } else { k }, text.Len()))
 		let broken = b.String()
 		let want = json.Parse(broken) catch {
 		case json.Malformed as m:
@@ -113,14 +114,14 @@ law PointersReachTheTreesPlaces(seed int) {
 func fail(b mut builder, at int, reason string) json.Malformed { json.Locate(b.src, at, reason) }
 
 func found(b mut builder) string {
-	if b.pos >= len(b.src) {
+	if b.pos >= b.src.Len() {
 		return "the end"
 	}
 	strconv.Quote(strings.Slice(b.src, b.pos, b.pos+1))
 }
 
 func skip(b mut builder) {
-	for b.pos < len(b.src) {
+	for b.pos < b.src.Len() {
 		let c = b.src[b.pos]
 		if c != ' ' && c != '\n' && c != '\t' && c != '\r' {
 			return
@@ -132,12 +133,12 @@ func skip(b mut builder) {
 // add appends n and is its id.
 func add(b mut builder, n Node) NodeId {
 	b.nodes = b.nodes.Append(n)
-	NodeId(int32(len(b.nodes) - 1))
+	NodeId(int32(b.nodes.Len() - 1))
 }
 
 // push puts id on the stack of open children.
 func push(b mut builder, id NodeId) {
-	if b.top < len(b.stack) {
+	if b.top < b.stack.Len() {
 		b.stack[b.top] = id
 	} else {
 		b.stack = b.stack.Append(id)
@@ -148,7 +149,7 @@ func push(b mut builder, id NodeId) {
 // close copies the stack's entries from mark to extras, lowers top to
 // mark, and is where they start in extras.
 func close(b mut builder, mark int) int32 {
-	let start = len(b.extras)
+	let start = b.extras.Len()
 	for k in mark..b.top {
 		b.extras = b.extras.Append(b.stack[k])
 	}
@@ -157,7 +158,7 @@ func close(b mut builder, mark int) int32 {
 }
 
 func value(b mut builder) NodeId fails json.Malformed {
-	if b.pos >= len(b.src) {
+	if b.pos >= b.src.Len() {
 		return fail(b, b.pos, "expected a value, found the end")
 	}
 	let c = b.src[b.pos]
@@ -186,8 +187,8 @@ func value(b mut builder) NodeId fails json.Malformed {
 }
 
 func word(b mut builder, w string) fails json.Malformed {
-	for k in 0..len(w) {
-		if b.pos >= len(b.src) || b.src[b.pos] != w[k] {
+	for k in 0..w.Len() {
+		if b.pos >= b.src.Len() || b.src[b.pos] != w[k] {
 			return fail(b, b.pos, "expected \(w), found "+found(b))
 		}
 		b.pos += 1
@@ -197,11 +198,11 @@ func word(b mut builder, w string) fails json.Malformed {
 // numeral reads a number with json's machine and keeps its span.
 func numeral(b mut builder) NodeId fails json.Malformed {
 	let start = b.pos
-	let (n, broken) = json.Scan(strings.Slice(b.src, start, len(b.src)))
+	let (n, broken) = json.Scan(strings.Slice(b.src, start, b.src.Len()))
 	match broken {
-	case Some[string] as why:
+	case option.Some[string] as why:
 		fail(b, start+n, why.Value)
-	case None:
+	case option.None:
 		b.pos = start + n
 		add(b, Node{Kind: Number, A: int32(start), B: int32(n)})
 	}
@@ -212,7 +213,7 @@ func numeral(b mut builder) NodeId fails json.Malformed {
 func text(b mut builder) NodeId fails json.Malformed {
 	let start = b.pos + 1
 	let mut i = start
-	for i < len(b.src) {
+	for i < b.src.Len() {
 		let c = b.src[i]
 		if c == '"' {
 			b.pos = i + 1
@@ -226,7 +227,7 @@ func text(b mut builder) NodeId fails json.Malformed {
 	let d = try json.ReadString(b.src, b.pos)
 	b.pos = d.End
 	b.pool = b.pool.Append(d.Text)
-	add(b, Node{Kind: Pooled, A: int32(len(b.pool) - 1), B: 0})
+	add(b, Node{Kind: Pooled, A: int32(b.pool.Len() - 1), B: 0})
 }
 
 // enter opens a container: one level deeper, at most json.MaxDepth.
@@ -242,15 +243,15 @@ func enter(b mut builder) fails json.Malformed {
 func array(b mut builder) NodeId fails json.Malformed {
 	try enter(b)
 	let mark = b.top
-	if b.pos < len(b.src) && b.src[b.pos] == ']' {
+	if b.pos < b.src.Len() && b.src[b.pos] == ']' {
 		b.pos += 1
 		b.depth -= 1
-		return add(b, Node{Kind: Array, A: int32(len(b.extras)), B: 0})
+		return add(b, Node{Kind: Array, A: int32(b.extras.Len()), B: 0})
 	}
 	for {
 		push(b, try value(b))
 		skip(b)
-		if b.pos < len(b.src) {
+		if b.pos < b.src.Len() {
 			let c = b.src[b.pos]
 			if c == ',' {
 				b.pos += 1
@@ -271,25 +272,25 @@ func array(b mut builder) NodeId fails json.Malformed {
 func object(b mut builder) NodeId fails json.Malformed {
 	try enter(b)
 	let mark = b.top
-	if b.pos < len(b.src) && b.src[b.pos] == '}' {
+	if b.pos < b.src.Len() && b.src[b.pos] == '}' {
 		b.pos += 1
 		b.depth -= 1
-		return add(b, Node{Kind: Object, A: int32(len(b.extras)), B: 0})
+		return add(b, Node{Kind: Object, A: int32(b.extras.Len()), B: 0})
 	}
 	for {
-		if b.pos >= len(b.src) || b.src[b.pos] != '"' {
+		if b.pos >= b.src.Len() || b.src[b.pos] != '"' {
 			return fail(b, b.pos, "expected a string key, found "+found(b))
 		}
 		push(b, try text(b))
 		skip(b)
-		if b.pos >= len(b.src) || b.src[b.pos] != ':' {
+		if b.pos >= b.src.Len() || b.src[b.pos] != ':' {
 			return fail(b, b.pos, "expected ':', found "+found(b))
 		}
 		b.pos += 1
 		skip(b)
 		push(b, try value(b))
 		skip(b)
-		if b.pos < len(b.src) {
+		if b.pos < b.src.Len() {
 			let c = b.src[b.pos]
 			if c == ',' {
 				b.pos += 1

@@ -46,7 +46,7 @@ func Flat(cents []Point) []int32 {
 func Nearest(p Point, flat []int32) (int, int) {
 	let mut best = 0
 	let mut bestDist = 9223372036854775807
-	let k = len(flat) / Dims
+	let k = flat.Len() / Dims
 	for j in 0..k {
 		let c = flat[j*Dims : j*Dims+Dims]
 		let d0 = int(p[0]) - int(c[0])
@@ -72,7 +72,7 @@ func Nearest(p Point, flat []int32) (int, int) {
 law NearestIsTheClosest(xs []int, ys []int) {
 	let p = PointOf(xs)
 	let once = pointsOfWindows(ys)
-	if len(once) == 0 {
+	if once.Len() == 0 {
 		return true
 	}
 	let mut cents = once
@@ -83,7 +83,7 @@ law NearestIsTheClosest(xs []int, ys []int) {
 	if d != Dist(p, cents[j]) {
 		return false
 	}
-	for i in 0..len(cents) {
+	for i in 0..cents.Len() {
 		let e = Dist(p, cents[i])
 		if (i < j && e <= d) || e < d {
 			return false
@@ -96,7 +96,7 @@ law NearestIsTheClosest(xs []int, ys []int) {
 func pointsOfWindows(xs []int) []Point {
 	let mut ps = []Point{}
 	let mut i = 0
-	for i+Dims <= len(xs) {
+	for i+Dims <= xs.Len() {
 		ps = ps.Append(PointOf(xs[i:]))
 		i += 1
 	}
@@ -108,7 +108,7 @@ func pointsOfWindows(xs []int) []Point {
 func PointOf(xs []int) Point {
 	let mut p = Point{}
 	for d in 0..Dims {
-		if d < len(xs) {
+		if d < xs.Len() {
 			p[d] = int32((xs[d]%(MaxCoord+1) + MaxCoord + 1) % (MaxCoord + 1))
 		}
 	}

@@ -20,7 +20,7 @@ func Murmur3Seeded(seed uint32, data []byte, hashVersion uint32) uint32 {
 	let nConst = uint32(0xe6546b64)
 
 	let mut hash = seed
-	let total = len(data)
+	let total = data.Len()
 	let nblocks = total / 4
 	for i in 0..nblocks {
 		let off = i * 4
@@ -60,7 +60,7 @@ func Murmur3Seeded(seed uint32, data []byte, hashVersion uint32) uint32 {
 }
 
 func bloomFilterMatchesSingle(filter []byte, settings BloomSettings, key string) bool {
-	let numBits = uint32(len(filter)) * uint32(8)
+	let numBits = uint32(filter.Len()) * uint32(8)
 	let raw = key.Bytes()
 	let h0 = Murmur3Seeded(uint32(0x293ae76f), raw, settings.HashVersion)
 	let h1 = Murmur3Seeded(uint32(0x7e646e2c), raw, settings.HashVersion)
@@ -95,10 +95,10 @@ func MayTouchPath(c CommitInfo, path string) bool {
 		return true
 	}
 	let filter = c.BloomFilter
-	if len(filter) == 0 {
+	if filter.Len() == 0 {
 		return true
 	}
-	if len(filter) == 1 {
+	if filter.Len() == 1 {
 		if filter[0] == byte(0xff) {
 			return true
 		}

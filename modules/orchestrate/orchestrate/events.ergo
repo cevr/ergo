@@ -1,3 +1,5 @@
+import option
+
 // OpenUnit opens a new orchestrated work unit.
 type OpenUnit { ID string, Title string, Area string }
 
@@ -7,10 +9,10 @@ type ClaimUnit { ID string, Owner string, Lane string, Harness string }
 // AdvanceUnitRound advances a unit to the next round and optionally attaches request or findings paths.
 type AdvanceUnitRound {
 	ID           string,
-	Owner        Option[string],
+	Owner        option.Option[string],
 	Round        int,
-	RequestPath  Option[string],
-	FindingsPath Option[string],
+	RequestPath  option.Option[string],
+	FindingsPath option.Option[string],
 }
 
 // HandBackUnit hands back a claimed unit with its commit head, summary, and artifact paths.
@@ -19,15 +21,15 @@ type HandBackUnit {
 	Owner        string,
 	HeadSHA      string,
 	Summary      string,
-	RequestPath  Option[string],
-	FindingsPath Option[string],
+	RequestPath  option.Option[string],
+	FindingsPath option.Option[string],
 }
 
 // LandUnit marks a handed-back unit as landed at a commit SHA.
 type LandUnit { ID string, HeadSHA string }
 
 // CloseUnit closes a non-terminal unit with an optional summary note.
-type CloseUnit { ID string, Summary Option[string] }
+type CloseUnit { ID string, Summary option.Option[string] }
 
 // RecordReceipt records structured verification evidence pointing to an external log file and digest.
 type RecordReceipt {
@@ -70,7 +72,7 @@ type RemoveQueueItem { Key string }
 
 // AskQuestion opens an async question with a default assumption and concrete action.
 type AskQuestion {
-	ID             Option[int],
+	ID             option.Option[int],
 	Prompt         string,
 	Assumption     string,
 	ConcreteAction string,
@@ -98,8 +100,8 @@ type UnitWasClaimed { ID string, Owner string, Lane string, Harness string, Roun
 type UnitRoundAdvanced {
 	ID           string,
 	Round        int,
-	RequestPath  Option[string],
-	FindingsPath Option[string],
+	RequestPath  option.Option[string],
+	FindingsPath option.Option[string],
 	At           string,
 }
 
@@ -108,8 +110,8 @@ type UnitWasHandedBack {
 	ID           string,
 	HeadSHA      string,
 	Summary      string,
-	RequestPath  Option[string],
-	FindingsPath Option[string],
+	RequestPath  option.Option[string],
+	FindingsPath option.Option[string],
 	At           string,
 }
 
@@ -117,7 +119,7 @@ type UnitWasHandedBack {
 type UnitWasLanded { ID string, HeadSHA string, At string }
 
 // UnitWasClosed records that a unit closed without landing.
-type UnitWasClosed { ID string, Summary Option[string], At string }
+type UnitWasClosed { ID string, Summary option.Option[string], At string }
 
 // ReceiptRecorded records structured evidence pointing to an external log file and digest.
 type ReceiptRecorded { Receipt Receipt }
@@ -150,7 +152,7 @@ type QuestionAsked { CommandID CommandID, Question Question }
 type QuestionWasAnswered { ID int, Answer string, AnsweredBy string, AnsweredAt string }
 
 // QuestionWasWithdrawn records withdrawal of an open question.
-type QuestionWasWithdrawn { ID int, Answer Option[string], AnsweredBy string, AnsweredAt string }
+type QuestionWasWithdrawn { ID int, Answer option.Option[string], AnsweredBy string, AnsweredAt string }
 
 // Event is the closed union of all immutable domain events persisted by orchestrate.
 type Event = CommandAccepted | UnitOpened | UnitWasClaimed | UnitRoundAdvanced | UnitWasHandedBack | UnitWasLanded | UnitWasClosed | ReceiptRecorded | CommitmentAdded | CommitmentWasAssigned | CommitmentWasLanded | CommitmentWasDecided | CommitmentWasWithdrawn | QueueUpserted | QueueRemoved | QuestionAsked | QuestionWasAnswered | QuestionWasWithdrawn
@@ -166,37 +168,37 @@ func Apply(state State, ev Event) State {
 			Title:        e.Title,
 			Area:         e.Area,
 			Status:       UnitOpen,
-			Owner:        None,
-			Lane:         None,
-			Harness:      None,
+			Owner:        option.None,
+			Lane:         option.None,
+			Harness:      option.None,
 			Round:        0,
-			HeadSHA:      None,
-			Summary:      None,
-			RequestPath:  None,
-			FindingsPath: None,
+			HeadSHA:      option.None,
+			Summary:      option.None,
+			RequestPath:  option.None,
+			FindingsPath: option.None,
 			CreatedAt:    e.At,
 			UpdatedAt:    e.At,
 		}
 		State{..state, Units: state.Units.Put(e.ID, u)}
 	case UnitWasClaimed as e:
 		match state.Units.Get(e.ID) {
-		case Some[Unit] as cur:
+		case option.Some[Unit] as cur:
 			let next = Unit{
 				..cur.Value,
 				Status:    UnitClaimed,
-				Owner:     Some[string]{Value: e.Owner},
-				Lane:      Some[string]{Value: e.Lane},
-				Harness:   Some[string]{Value: e.Harness},
+				Owner:     option.Some[string]{Value: e.Owner},
+				Lane:      option.Some[string]{Value: e.Lane},
+				Harness:   option.Some[string]{Value: e.Harness},
 				Round:     e.Round,
 				UpdatedAt: e.At,
 			}
 			State{..state, Units: state.Units.Put(e.ID, next)}
-		case None:
+		case option.None:
 			state
 		}
 	case UnitRoundAdvanced as e:
 		match state.Units.Get(e.ID) {
-		case Some[Unit] as cur:
+		case option.Some[Unit] as cur:
 			let req = keepOption(e.RequestPath, cur.Value.RequestPath)
 			let find = keepOption(e.FindingsPath, cur.Value.FindingsPath)
 			let next = Unit{
@@ -207,43 +209,43 @@ func Apply(state State, ev Event) State {
 				UpdatedAt:    e.At,
 			}
 			State{..state, Units: state.Units.Put(e.ID, next)}
-		case None:
+		case option.None:
 			state
 		}
 	case UnitWasHandedBack as e:
 		match state.Units.Get(e.ID) {
-		case Some[Unit] as cur:
+		case option.Some[Unit] as cur:
 			let req = keepOption(e.RequestPath, cur.Value.RequestPath)
 			let find = keepOption(e.FindingsPath, cur.Value.FindingsPath)
 			let next = Unit{
 				..cur.Value,
 				Status:       UnitHandedBack,
-				HeadSHA:      Some[string]{Value: e.HeadSHA},
-				Summary:      Some[string]{Value: e.Summary},
+				HeadSHA:      option.Some[string]{Value: e.HeadSHA},
+				Summary:      option.Some[string]{Value: e.Summary},
 				RequestPath:  req,
 				FindingsPath: find,
 				UpdatedAt:    e.At,
 			}
 			State{..state, Units: state.Units.Put(e.ID, next)}
-		case None:
+		case option.None:
 			state
 		}
 	case UnitWasLanded as e:
 		match state.Units.Get(e.ID) {
-		case Some[Unit] as cur:
+		case option.Some[Unit] as cur:
 			let next = Unit{
 				..cur.Value,
 				Status:    UnitLanded,
-				HeadSHA:   Some[string]{Value: e.HeadSHA},
+				HeadSHA:   option.Some[string]{Value: e.HeadSHA},
 				UpdatedAt: e.At,
 			}
 			State{..state, Units: state.Units.Put(e.ID, next)}
-		case None:
+		case option.None:
 			state
 		}
 	case UnitWasClosed as e:
 		match state.Units.Get(e.ID) {
-		case Some[Unit] as cur:
+		case option.Some[Unit] as cur:
 			let summary = keepOption(e.Summary, cur.Value.Summary)
 			let next = Unit{
 				..cur.Value,
@@ -252,15 +254,15 @@ func Apply(state State, ev Event) State {
 				UpdatedAt: e.At,
 			}
 			State{..state, Units: state.Units.Put(e.ID, next)}
-		case None:
+		case option.None:
 			state
 		}
 	case ReceiptRecorded as e:
 		let r = e.Receipt
 		let order = match state.Receipts.Get(r.ID) {
-		case Some[Receipt]:
+		case option.Some[Receipt]:
 			state.ReceiptOrder
-		case None:
+		case option.None:
 			state.ReceiptOrder.Append(r.ID)
 		}
 		State{..state, Receipts: state.Receipts.Put(r.ID, r), ReceiptOrder: order}
@@ -270,65 +272,65 @@ func Apply(state State, ev Event) State {
 			Title:        e.Title,
 			Kind:         e.Kind,
 			Status:       CommitOpen,
-			Owner:        None,
-			Lane:         None,
-			LandedSHA:    None,
-			DecisionNote: None,
+			Owner:        option.None,
+			Lane:         option.None,
+			LandedSHA:    option.None,
+			DecisionNote: option.None,
 			CreatedAt:    e.At,
 			UpdatedAt:    e.At,
 		}
 		State{..state, Commitments: state.Commitments.Put(e.ID, c)}
 	case CommitmentWasAssigned as e:
 		match state.Commitments.Get(e.ID) {
-		case Some[Commitment] as cur:
+		case option.Some[Commitment] as cur:
 			let next = Commitment{
 				..cur.Value,
 				Status:    CommitAssigned,
-				Owner:     Some[string]{Value: e.Owner},
-				Lane:      Some[string]{Value: e.Lane},
+				Owner:     option.Some[string]{Value: e.Owner},
+				Lane:      option.Some[string]{Value: e.Lane},
 				UpdatedAt: e.At,
 			}
 			State{..state, Commitments: state.Commitments.Put(e.ID, next)}
-		case None:
+		case option.None:
 			state
 		}
 	case CommitmentWasLanded as e:
 		match state.Commitments.Get(e.ID) {
-		case Some[Commitment] as cur:
+		case option.Some[Commitment] as cur:
 			let next = Commitment{
 				..cur.Value,
 				Status:    CommitLanded,
-				LandedSHA: Some[string]{Value: e.LandedSHA},
+				LandedSHA: option.Some[string]{Value: e.LandedSHA},
 				UpdatedAt: e.At,
 			}
 			State{..state, Commitments: state.Commitments.Put(e.ID, next)}
-		case None:
+		case option.None:
 			state
 		}
 	case CommitmentWasDecided as e:
 		match state.Commitments.Get(e.ID) {
-		case Some[Commitment] as cur:
+		case option.Some[Commitment] as cur:
 			let next = Commitment{
 				..cur.Value,
 				Status:       CommitDecided,
-				DecisionNote: Some[string]{Value: e.Note},
+				DecisionNote: option.Some[string]{Value: e.Note},
 				UpdatedAt:    e.At,
 			}
 			State{..state, Commitments: state.Commitments.Put(e.ID, next)}
-		case None:
+		case option.None:
 			state
 		}
 	case CommitmentWasWithdrawn as e:
 		match state.Commitments.Get(e.ID) {
-		case Some[Commitment] as cur:
+		case option.Some[Commitment] as cur:
 			let next = Commitment{
 				..cur.Value,
 				Status:       CommitWithdrawn,
-				DecisionNote: Some[string]{Value: e.Note},
+				DecisionNote: option.Some[string]{Value: e.Note},
 				UpdatedAt:    e.At,
 			}
 			State{..state, Commitments: state.Commitments.Put(e.ID, next)}
-		case None:
+		case option.None:
 			state
 		}
 	case QueueUpserted as e:
@@ -346,40 +348,40 @@ func Apply(state State, ev Event) State {
 		}
 	case QuestionWasAnswered as e:
 		match state.Questions.Get(e.ID) {
-		case Some[Question] as cur:
+		case option.Some[Question] as cur:
 			let next = Question{
 				..cur.Value,
 				Status:     QuestionAnswered,
-				Answer:     Some[string]{Value: e.Answer},
-				AnsweredBy: Some[string]{Value: e.AnsweredBy},
-				AnsweredAt: Some[string]{Value: e.AnsweredAt},
+				Answer:     option.Some[string]{Value: e.Answer},
+				AnsweredBy: option.Some[string]{Value: e.AnsweredBy},
+				AnsweredAt: option.Some[string]{Value: e.AnsweredAt},
 			}
 			State{..state, Questions: state.Questions.Put(e.ID, next)}
-		case None:
+		case option.None:
 			state
 		}
 	case QuestionWasWithdrawn as e:
 		match state.Questions.Get(e.ID) {
-		case Some[Question] as cur:
+		case option.Some[Question] as cur:
 			let next = Question{
 				..cur.Value,
 				Status:     QuestionWithdrawn,
 				Answer:     e.Answer,
-				AnsweredBy: Some[string]{Value: e.AnsweredBy},
-				AnsweredAt: Some[string]{Value: e.AnsweredAt},
+				AnsweredBy: option.Some[string]{Value: e.AnsweredBy},
+				AnsweredAt: option.Some[string]{Value: e.AnsweredAt},
 			}
 			State{..state, Questions: state.Questions.Put(e.ID, next)}
-		case None:
+		case option.None:
 			state
 		}
 	}
 }
 
-func keepOption(next Option[string], prev Option[string]) Option[string] {
+func keepOption(next option.Option[string], prev option.Option[string]) option.Option[string] {
 	match next {
-	case Some[string]:
+	case option.Some[string]:
 		next
-	case None:
+	case option.None:
 		prev
 	}
 }
@@ -430,13 +432,13 @@ func generatedEnvelope(index int, code int) Envelope {
 	case 1:
 		ClaimUnit{ID: unitID, Owner: "owner-\(slot)", Lane: "lane-\(slot)", Harness: "agy"}
 	case 2:
-		AdvanceUnitRound{ID: unitID, Owner: Some[string]{Value: "owner-\(slot)"}, Round: 2, RequestPath: Some[string]{Value: "/tmp/r2.md"}, FindingsPath: None}
+		AdvanceUnitRound{ID: unitID, Owner: option.Some[string]{Value: "owner-\(slot)"}, Round: 2, RequestPath: option.Some[string]{Value: "/tmp/r2.md"}, FindingsPath: option.None}
 	case 3:
-		HandBackUnit{ID: unitID, Owner: "owner-\(slot)", HeadSHA: "abcdef12", Summary: "done", RequestPath: None, FindingsPath: None}
+		HandBackUnit{ID: unitID, Owner: "owner-\(slot)", HeadSHA: "abcdef12", Summary: "done", RequestPath: option.None, FindingsPath: option.None}
 	case 4:
 		LandUnit{ID: unitID, HeadSHA: "abcdef12"}
 	case 5:
-		CloseUnit{ID: unitID, Summary: Some[string]{Value: "closed"}}
+		CloseUnit{ID: unitID, Summary: option.Some[string]{Value: "closed"}}
 	case 6:
 		RecordReceipt{
 			ID:             "rec-\(index)",
@@ -463,7 +465,7 @@ func generatedEnvelope(index int, code int) Envelope {
 	case 12:
 		RemoveQueueItem{Key: queueKey}
 	case 13:
-		AskQuestion{ID: None, Prompt: "Question \(index)?", Assumption: "default", ConcreteAction: "reply yes"}
+		AskQuestion{ID: option.None, Prompt: "Question \(index)?", Assumption: "default", ConcreteAction: "reply yes"}
 	case _:
 		AnswerQuestion{ID: slot + 1, Answer: "yes", Withdraw: slot == 2}
 	}

@@ -1,6 +1,7 @@
 // Package render draws the box as text: a frame of the box with one
 // character per cell, and a line of numbers under it. It is pure.
 
+import option
 import particles/sim
 import particles/world
 import strings
@@ -25,9 +26,9 @@ func Box(w world.World) []string {
 	for p in w.Particles() {
 		let cell = p.Y*w.Width() + p.X
 		let n = match counts.Get(cell) {
-		case Some[int] as c:
+		case option.Some[int] as c:
 			c.Value
-		case None:
+		case option.None:
 			0
 		}
 		counts[cell] = n + 1
@@ -38,9 +39,9 @@ func Box(w world.World) []string {
 		let mut row = "|"
 		for x in 0..w.Width() {
 			let n = match counts.Get(y*w.Width() + x) {
-			case Some[int] as c:
+			case option.Some[int] as c:
 				c.Value
-			case None:
+			case option.None:
 				0
 			}
 			row = row + Cell(n)

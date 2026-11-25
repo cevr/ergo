@@ -4,6 +4,8 @@
 // type below is the one contract the server, the page and the client
 // read.
 
+import option
+
 // Spec is a job to run: Steps of work, and the step at which it fails,
 // FailAt, or 0 when no step fails.
 type Spec { Name string, Steps int, FailAt int }
@@ -31,7 +33,7 @@ type AlreadyDone { ID int, State State }
 type Jobs {
 	Submit(spec Spec) int fails Rejected,
 	Cancel(id int) fails NoSuchJob | AlreadyDone,
-	Status(id int) Option[Job],
+	Status(id int) option.Option[Job],
 	List() []Job,
 	Work(ticks int),
 
@@ -75,12 +77,12 @@ func small(steps int, failAt int) Spec {
 }
 
 // stateOf is job id's state, or None.
-func stateOf(id int) Option[State] needs Jobs {
+func stateOf(id int) option.Option[State] needs Jobs {
 	match Jobs.Status(id) {
-	case Some[Job] as j:
-		Some[State]{Value: j.Value.State}
-	case None:
-		None
+	case option.Some[Job] as j:
+		option.Some[State]{Value: j.Value.State}
+	case option.None:
+		option.None
 	}
 }
 
@@ -93,9 +95,9 @@ func CancelOfTerminalFails(steps int, failAt int) bool needs Jobs {
 	}
 	Jobs.Work(s.Steps + 1)
 	let ended = match stateOf(id) {
-	case Some[State] as e:
+	case option.Some[State] as e:
 		e.Value
-	case None:
+	case option.None:
 		return false
 	}
 	if !Terminal(ended) {
@@ -103,7 +105,7 @@ func CancelOfTerminalFails(steps int, failAt int) bool needs Jobs {
 	}
 	Jobs.Cancel(id) catch {
 	case AlreadyDone as a:
-		return a.State == ended && a.ID == id && stateOf(id) == Some[State]{Value: ended}
+		return a.State == ended && a.ID == id && stateOf(id) == option.Some[State]{Value: ended}
 	case NoSuchJob:
 		return false
 	}
@@ -121,9 +123,9 @@ func ProgressMonotone(steps int, failAt int, works []int) bool needs Jobs {
 	for w in works {
 		Jobs.Work(((w % 3) + 3) % 3)
 		let now = match stateOf(id) {
-		case Some[State] as s:
+		case option.Some[State] as s:
 			Rank(s.Value)
-		case None:
+		case option.None:
 			return false
 		}
 		if now < last {
@@ -136,10 +138,10 @@ func ProgressMonotone(steps int, failAt int, works []int) bool needs Jobs {
 
 // RejectsWhatCannotRun submits a spec of zero or fewer steps.
 func RejectsWhatCannotRun(steps int) bool needs Jobs {
-	let before = len(Jobs.List())
+	let before = Jobs.List().Len()
 	let _ = Jobs.Submit(Spec{Name: "none", Steps: -(((steps % 4) + 4) % 4), FailAt: 0}) catch {
 	case Rejected:
-		return len(Jobs.List()) == before
+		return Jobs.List().Len() == before
 	}
 	false
 }

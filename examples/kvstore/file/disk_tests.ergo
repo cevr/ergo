@@ -9,7 +9,7 @@ import fs
 import fstest
 import kvstore/kv
 
-let onDisk = context needs TestAmbient {
+let onDisk = context needs fstest.TestAmbient {
 	kv.Store:        NewLog(fs.NewTestHost(), fs.NewTestHost()),
 	fs.Files:        fs.NewTestHost(),
 	fstest.Confined: fstest.NewFolder(),

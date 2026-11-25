@@ -7,6 +7,7 @@
 //
 // A blank line and a line starting with # are skipped.
 
+import option
 import rand
 import strings
 import ui
@@ -23,9 +24,9 @@ func Parse(text string) []ui.Act fails BadLine {
 			continue
 		}
 		let (verb, rest) = match strings.Cut(line, " ") {
-		case Some[strings.Halves] as c:
+		case option.Some[strings.Halves] as c:
 			(c.Value.Before, c.Value.After)
-		case None:
+		case option.None:
 			(line, "")
 		}
 		match verb {
@@ -49,7 +50,7 @@ func Gen(seed uint64, n int) string {
 	let steps = []string{"tap inc", "tap inc", "tap dec", "tap reset", "tap by 1", "tap by 5", "tap by 10", "key +", "key -", "key 0", "key q", "tap nothing"}
 	let mut out = strings.NewBuilder()
 	for _ in 0..n {
-		strings.WriteString(&out, steps[r.IntN(len(steps))])
+		strings.WriteString(&out, steps[r.IntN(steps.Len())])
 		strings.WriteString(&out, "\n")
 	}
 	strings.String(out)

@@ -1,5 +1,6 @@
 import gen
 import github.com/cevr/ergo/modules/infra
+import option
 import temporal
 import testing
 
@@ -68,12 +69,12 @@ law InfraDriverAndStateFaultsPreserveInvariants() {
 		let faultyDrv = testing.Faulty[infra.Driver[DirProps, Dir]](DirsIn(w.cloud))
 		let faultyState = testing.Faulty[infra.State[DirProps]](w.dirs)
 		let want = Want{Of: []int{1, 0, 0, 0, 0, 0}}
-		let drvApplyBefore = len(faultyDrv.Apply.Faults())
-		let stPutBefore = len(faultyState.Put.Faults())
+		let drvApplyBefore = faultyDrv.Apply.Faults().Len()
+		let stPutBefore = faultyState.Put.Faults().Len()
 		let ran = applyDirsWithFaulty(w, faultyDrv, faultyState, "r1", want)
 		always noOrphan(w) && liveIsTrue(w)
-		sometimes len(faultyDrv.Apply.Faults()) > drvApplyBefore
-		sometimes len(faultyState.Put.Faults()) > stPutBefore
+		sometimes faultyDrv.Apply.Faults().Len() > drvApplyBefore
+		sometimes faultyState.Put.Faults().Len() > stPutBefore
 		match ran {
 		case Finished:
 			sometimes converged(w, want)
@@ -81,7 +82,7 @@ law InfraDriverAndStateFaultsPreserveInvariants() {
 				return false
 			}
 		case Crashed:
-			if w.lock.Holder() != (Some[string]{Value: "r1"}) {
+			if w.lock.Holder() != (option.Some[string]{Value: "r1"}) {
 				return false
 			}
 			w.lock.Break("r1") catch {
@@ -147,41 +148,41 @@ type infraLockAct =
 	| ILockBreak{Holder string}
 	| ILockHolder{}
 
-func infraLockStep(cur Option[string], act infraLockAct) (Option[string], string) {
+func infraLockStep(cur option.Option[string], act infraLockAct) (option.Option[string], string) {
 	match act {
 	case ILockAcquire as a:
 		match cur {
-		case Some[string] as h:
+		case option.Some[string] as h:
 			if h.Value == a.Holder {
 				(cur, "ok")
 			} else {
 				(cur, "held:" + h.Value)
 			}
-		case None:
-			(Some[string]{Value: a.Holder}, "ok")
+		case option.None:
+			(option.Some[string]{Value: a.Holder}, "ok")
 		}
 	case ILockRelease as a:
-		if cur == (Some[string]{Value: a.Holder}) {
-			(None, "ok")
+		if cur == (option.Some[string]{Value: a.Holder}) {
+			(option.None, "ok")
 		} else {
 			(cur, "ok")
 		}
 	case ILockBreak as a:
 		match cur {
-		case Some[string] as h:
+		case option.Some[string] as h:
 			if h.Value == a.Holder {
-				(None, "ok")
+				(option.None, "ok")
 			} else {
 				(cur, "held:" + h.Value)
 			}
-		case None:
-			(None, "ok")
+		case option.None:
+			(option.None, "ok")
 		}
 	case ILockHolder:
 		match cur {
-		case Some[string] as h:
+		case option.Some[string] as h:
 			(cur, h.Value)
-		case None:
+		case option.None:
 			(cur, "")
 		}
 	}
@@ -198,9 +199,9 @@ func infraStateStep(m Map[string, int], act infraStateAct) (Map[string, int], in
 		(m.Put(a.ID, a.Val), 0)
 	case IStateGet as a:
 		match m.Get(a.ID) {
-		case Some[int] as v:
+		case option.Some[int] as v:
 			(m, v.Value)
-		case None:
+		case option.None:
 			(m, -1)
 		}
 	case IStateRemove as a:
@@ -218,7 +219,7 @@ law InfraLockAndStateConcurrentLinearizable() {
 			[]infraLockAct{ILockAcquire{Holder: "r1"}, ILockHolder, ILockRelease{Holder: "r1"}},
 			[]infraLockAct{ILockAcquire{Holder: "r2"}, ILockBreak{Holder: "r1"}, ILockHolder},
 		}
-		testing.AgreesConcurrent[Option[string], infraLockAct, string](None, infraLockStep, lockPlans, func(act infraLockAct) string {
+		testing.AgreesConcurrent[option.Option[string], infraLockAct, string](option.None, infraLockStep, lockPlans, func(act infraLockAct) string {
 			match act {
 			case ILockAcquire as a:
 				lk.Acquire(a.Holder) catch {
@@ -237,9 +238,9 @@ law InfraLockAndStateConcurrentLinearizable() {
 				"ok"
 			case ILockHolder:
 				match lk.Holder() {
-				case Some[string] as h:
+				case option.Some[string] as h:
 					h.Value
-				case None:
+				case option.None:
 					""
 				}
 			}
@@ -264,9 +265,9 @@ law InfraLockAndStateConcurrentLinearizable() {
 				0
 			case IStateGet as a:
 				match st.Get(a.ID) {
-				case Some[infra.Row[int]] as r:
+				case option.Some[infra.Row[int]] as r:
 					r.Value.Props
-				case None:
+				case option.None:
 					-1
 				}
 			case IStateRemove as a:

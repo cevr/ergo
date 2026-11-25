@@ -30,6 +30,7 @@ import fs
 import fstest
 import github.com/cevr/ergo/modules/work/memory
 import github.com/cevr/ergo/modules/work/work
+import option
 import strconv
 import strings
 
@@ -156,7 +157,7 @@ func checkFormat(text string) bool fails work.Unkept {
 		return false
 	}
 	let fields = strings.Split(first, "\t")
-	if end < 0 || len(fields) != 3 || fields[1] == "" {
+	if end < 0 || fields.Len() != 3 || fields[1] == "" {
 		return bad(0, "incomplete format header; preserve the registry and recover it from a backup")
 	}
 	let writer = try field(0, fields[2])
@@ -189,13 +190,13 @@ func replayRows(text string, versioned bool) ([]work.Workspace, []work.Tomb) fai
 	let mut tombs = []work.Tomb{}
 	let lines = strings.Split(text, "\n")
 	for i, line in lines {
-		if i == len(lines)-1 || line == "" || (i == 0 && versioned) {
+		if i == lines.Len()-1 || line == "" || (i == 0 && versioned) {
 			continue
 		}
 		let fields = strings.Split(line, "\t")
 		match fields[0] {
 		case "tomb":
-			if len(fields) != 4 {
+			if fields.Len() != 4 {
 				return bad(i, "a tomb has 3 fields")
 			}
 			let since = strconv.ParseInt(fields[2], 10, 64) catch {
@@ -205,7 +206,7 @@ func replayRows(text string, versioned bool) ([]work.Workspace, []work.Tomb) fai
 			records = memory.Dropped(records, try field(i, fields[1]))
 			tombs = tombs.Append(work.Tomb{Id: try field(i, fields[3]), Since: since})
 		case "buried":
-			if len(fields) != 3 {
+			if fields.Len() != 3 {
 				return bad(i, "a buried id has 2 fields")
 			}
 			let since = strconv.ParseInt(fields[2], 10, 64) catch {
@@ -214,13 +215,13 @@ func replayRows(text string, versioned bool) ([]work.Workspace, []work.Tomb) fai
 			}
 			tombs = tombs.Append(work.Tomb{Id: try field(i, fields[1]), Since: since})
 		case "put":
-			if len(fields) != 8 && len(fields) != 10 && len(fields) != 12 && len(fields) != 14 && len(fields) != 16 {
+			if fields.Len() != 8 && fields.Len() != 10 && fields.Len() != 12 && fields.Len() != 14 && fields.Len() != 16 {
 				return bad(i, "a put has 7, 9, 11, 13 or 15 fields")
 			}
 			let state = match work.StateNamed(fields[6]) {
-			case Some[work.State] as s:
+			case option.Some[work.State] as s:
 				s.Value
-			case None:
+			case option.None:
 				return bad(i, "no state \(fields[6])")
 			}
 			let since = strconv.ParseInt(fields[7], 10, 64) catch {
@@ -228,16 +229,16 @@ func replayRows(text string, versioned bool) ([]work.Workspace, []work.Tomb) fai
 				return bad(i, "the time \(fields[7]) is not a number")
 			}
 			let mut w = work.Workspace{Name: try field(i, fields[1]), Path: try field(i, fields[2]), Parent: try field(i, fields[3]), Branch: try field(i, fields[4]), Cloner: try field(i, fields[5]), State: state, Since: since, Base: "", Latest: "", Id: "", Deps: "", Token: "", Moving: "", Pinned: false, Until: 0}
-			if len(fields) >= 10 {
+			if fields.Len() >= 10 {
 				w = work.Workspace{..w, Base: try field(i, fields[8]), Latest: try field(i, fields[9])}
 			}
-			if len(fields) >= 12 {
+			if fields.Len() >= 12 {
 				w = work.Workspace{..w, Id: try field(i, fields[10]), Deps: try field(i, fields[11])}
 			}
-			if len(fields) >= 14 {
+			if fields.Len() >= 14 {
 				w = work.Workspace{..w, Token: try field(i, fields[12]), Moving: try field(i, fields[13])}
 			}
-			if len(fields) == 16 {
+			if fields.Len() == 16 {
 				if fields[14] != "pinned" && fields[14] != "-" {
 					return bad(i, "the pin \(fields[14]) is not pinned or -")
 				}
@@ -249,7 +250,7 @@ func replayRows(text string, versioned bool) ([]work.Workspace, []work.Tomb) fai
 			}
 			records = memory.Kept(records, w)
 		case "drop":
-			if len(fields) != 2 {
+			if fields.Len() != 2 {
 				return bad(i, "a drop has 1 field")
 			}
 			records = memory.Dropped(records, try field(i, fields[1]))

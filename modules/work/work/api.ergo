@@ -4,6 +4,8 @@ import filepath
 import fs
 import hex
 import json
+import machines
+import option
 import sha256
 import slices
 import strconv
@@ -82,15 +84,15 @@ type Dirty { Name string }
 // base; -token is the caller's token: a second new with it answers the
 // workspace the first made, so a retry after a lost answer makes no
 // second copy.
-type NewOptions { Copy bool, From Option[string], Branch Option[string], On Option[string], Token Option[string] }
+type NewOptions { Copy bool, From option.Option[string], Branch option.Option[string], On option.Option[string], Token option.Option[string] }
 
 // ReadyOptions, SyncOptions and EnvOptions name the workspace (-name);
 // when absent it is the one the working folder is in.
-type ReadyOptions { Name Option[string], Request Option[string] }
+type ReadyOptions { Name option.Option[string], Request option.Option[string] }
 
-type SyncOptions { Name Option[string] }
+type SyncOptions { Name option.Option[string] }
 
-type EnvOptions { Name Option[string] }
+type EnvOptions { Name option.Option[string] }
 
 // Handed is what ready handed to the parent: the branch and the commit
 // the parent's branch now holds, and the snapshot tree it keeps under
@@ -106,7 +108,7 @@ func SnapshotRef(name string) string { "refs/work/snapshots/" + name }
 
 // MergeFileOptions are merge-file's flags: -path is the file's path in
 // the tree, which Git passes as %P, for the answer and the conflict.
-type MergeFileOptions { Path Option[string] }
+type MergeFileOptions { Path option.Option[string] }
 
 // BadClass is a merge class merge-file does not know.
 type BadClass { Name string, Known []string }
@@ -123,14 +125,14 @@ type FileMerged { Path string, Class string, Regenerate bool }
 
 // AdoptOptions are adopt's flags: -name names the workspace (its folder's
 // name when absent).
-type AdoptOptions { Name Option[string] }
+type AdoptOptions { Name option.Option[string] }
 
 // RmOptions are rm's flags: -abandon removes a workspace whose work is not
 // in its parent; -expect is the id the caller holds (new answered it):
 // rm removes the workspace only if it is that one, and a retry after it
 // is removed answers AlreadyRemoved; -tree removes the workspaces made on
 // it first, each a leaf when it goes.
-type RmOptions { Abandon bool, Expect Option[string], Tree bool }
+type RmOptions { Abandon bool, Expect option.Option[string], Tree bool }
 
 // Removed is one workspace rm moved to the trash (Trash is its folder
 // there), or, with Already, one that was removed before: the retry of a
@@ -159,7 +161,7 @@ type HasDescendants { Name string, Paths []string }
 // archive, in the base's repository (a parent workspace may go next).
 // -dry previews eligible paths without removing them. It does not run
 // -idle or -archive.
-type GcOptions { Older Option[string], Id Option[string], Idle Option[string], Archive bool, Dry bool }
+type GcOptions { Older option.Option[string], Id option.Option[string], Idle option.Option[string], Archive bool, Dry bool }
 
 // Collected is what gc did: the names it purged, and each idle workspace
 // -idle found, removed or not. Preview is present only for -dry.
@@ -325,7 +327,7 @@ type Api {
 		case _:
 			return false
 		}
-		let made = New(name, NewOptions{Copy: true, From: None, Branch: None, On: None, Token: None}) catch {
+		let made = New(name, NewOptions{Copy: true, From: option.None, Branch: option.None, On: option.None, Token: option.None}) catch {
 		case _:
 			return true
 		}
@@ -335,8 +337,8 @@ type Api {
 			return false
 		}
 		let mine = named(Records(all), name)
-		let listed = len(mine) == 1 && mine[0].Path == path && StateName(mine[0].State) == "active"
-		New(name, NewOptions{Copy: true, From: None, Branch: None, On: None, Token: None}) catch {
+		let listed = mine.Len() == 1 && mine[0].Path == path && StateName(mine[0].State) == "active"
+		New(name, NewOptions{Copy: true, From: option.None, Branch: option.None, On: option.None, Token: option.None}) catch {
 		case NameTaken:
 			return listed
 		case _:
@@ -514,19 +516,19 @@ func overBase(t Tool, c Config) Config fails BadConfig {
 }
 
 // live is the record of name unless it is trashed.
-func live(t Tool, name string) Option[Workspace] fails Unkept {
+func live(t Tool, name string) option.Option[Workspace] fails Unkept {
 	let all = try t.registry.All()
 	for w in all {
 		if w.Name == name {
 			match w.State {
 			case Trashed:
-				return None
+				return option.None
 			case Creating, Active, Landing, Landed, Abandoned:
-				return Some[Workspace]{Value: w}
+				return option.Some[Workspace]{Value: w}
 			}
 		}
 	}
-	None
+	option.None
 }
 
 // taken reports whether a record of any state has name.
@@ -534,7 +536,7 @@ func live(t Tool, name string) Option[Workspace] fails Unkept {
 // trashed one does not hold its name, so rm then new of a name works
 // before any gc.
 func taken(t Tool, name string) bool fails Unkept {
-	liveIn(try t.registry.All(), name) != None
+	liveIn(try t.registry.All(), name) != option.None
 }
 
 // TrashedName is the registry's name of a trashed workspace once its
@@ -568,9 +570,9 @@ func activateCreating(w Workspace, at int64) Workspace {
 
 func moved(w Workspace, e Signal, at int64) Workspace fails Busy {
 	match Step(w.State, e) {
-	case Enter[State] as n:
+	case machines.Enter[State] as n:
 		Workspace{..w, State: n.Next, Since: at}
-	case Stay[State], Emit[State, State], Tell[State, State], Done[State], Ignore, Reject:
+	case machines.Stay[State], machines.Emit[State, State], machines.Tell[State, State], machines.Done[State], machines.Ignore, machines.Reject:
 		Busy{Name: w.Name, State: StateName(w.State)}
 	}
 }
@@ -604,7 +606,7 @@ func Init(t Tool) string fails BadConfig | Unkept | fs.Denied | fs.Failed {
 		return f
 	}
 	// The user who inits a base allows its commands (work trust).
-	if len(Commands(c)) > 0 {
+	if Commands(c).Len() > 0 {
 		t.writes.WriteFile(TrustFile(t.home), Digest(c)+"\n") catch {
 		case fs.NotFound:
 			return fs.Failed{Path: TrustFile(t.home), Reason: "the workspaces folder is not there"}
@@ -686,7 +688,7 @@ func idOf(t Tool, name string, path string) string {
 	case Unkept:
 		[]Tomb{}
 	}
-	let mut n = len(all)
+	let mut n = all.Len()
 	for {
 		let id = strings.Slice(hex.Encode(sha256.Sum(t.base+"\n"+name+"\n"+path+"\n"+strconv.FormatInt(now(t), 10)+"\n"+strconv.Itoa(n))), 0, 16)
 		let used = slices.IndexFunc(all, func(w Workspace) bool { w.Id == id }) >= 0 || slices.IndexFunc(tombs, func(b Tomb) bool { b.Id == id }) >= 0
@@ -719,7 +721,7 @@ func register(t Tool) fails Unkept | fs.Denied | fs.Failed {
 // startOf is the commit a workspace's branch starts at: the parent's
 // branch when it has one (which must contain the -from revision), else
 // the -from revision, else the parent's head.
-func startOf(t Tool, parent string, branch string, from Option[string]) string fails NoRevision | Diverged | VcsFailed {
+func startOf(t Tool, parent string, branch string, from option.Option[string]) string fails NoRevision | Diverged | VcsFailed {
 	let existing = t.vcs.Resolve(parent, "refs/heads/"+branch) catch {
 	case NoRevision:
 		""
@@ -727,9 +729,9 @@ func startOf(t Tool, parent string, branch string, from Option[string]) string f
 		return e
 	}
 	let at = match from {
-	case Some[string] as rev:
+	case option.Some[string] as rev:
 		try t.vcs.Resolve(parent, rev.Value)
-	case None:
+	case option.None:
 		""
 	}
 	if existing != "" {
@@ -872,9 +874,9 @@ func Adopt(t Tool, dir string, o AdoptOptions) Workspace fails NoBase | BadName 
 	try settled(t)
 	let folder = if filepath.IsAbs(dir) { filepath.Clean(dir) } else { filepath.Join([]string{t.base, dir}) }
 	let name = match o.Name {
-	case Some[string] as n:
+	case option.Some[string] as n:
 		n.Value
-	case None:
+	case option.None:
 		filepath.Base(folder)
 	}
 	try CheckName(name)
@@ -910,9 +912,9 @@ func pinned(t Tool, name string, on bool) Workspace fails NoBase | NoWorkspace |
 		return e
 	}
 	let w = match liveIn(all, name) {
-	case Some[Workspace] as found:
+	case option.Some[Workspace] as found:
 		Workspace{..found.Value, Pinned: on}
-	case None:
+	case option.None:
 		t.lock.Release("")
 		return NoWorkspace{Name: name}
 	}
@@ -941,16 +943,16 @@ func Du(t Tool) []Space fails NoBase | Unsupported | Missing | CloneFailed | Unk
 
 // chosen is the live workspace a command names, or the one the working
 // folder is in.
-func chosen(t Tool, name Option[string]) Workspace fails NoWorkspace | NotHere | Unkept {
+func chosen(t Tool, name option.Option[string]) Workspace fails NoWorkspace | NotHere | Unkept {
 	match name {
-	case Some[string] as n:
+	case option.Some[string] as n:
 		match try live(t, n.Value) {
-		case Some[Workspace] as w:
+		case option.Some[Workspace] as w:
 			w.Value
-		case None:
+		case option.None:
 			NoWorkspace{Name: n.Value}
 		}
-	case None:
+	case option.None:
 		for w in try t.registry.All() {
 			match w.State {
 			case Trashed:
@@ -1037,18 +1039,18 @@ func Env(t Tool, o EnvOptions) string fails NoBase | NotHere | NoWorkspace | Bad
 // MergeFile merges the three files by class and writes ours.
 func MergeFile(t Tool, class string, base string, ours string, theirs string, o MergeFileOptions) FileMerged fails BadClass | BadConfig | MergeConflict | fs.NotFound | fs.Denied | fs.Failed {
 	let path = match o.Path {
-	case Some[string] as p:
+	case option.Some[string] as p:
 		p.Value
-	case None:
+	case option.None:
 		ours
 	}
 	if class == "auto" {
 		return try MergeByPath(t, try config(t), path, base, ours, theirs)
 	}
 	let c = match classes.ClassNamed(class) {
-	case Some[classes.Class] as k:
+	case option.Some[classes.Class] as k:
 		k.Value
-	case None:
+	case option.None:
 		let cfg = try config(t)
 		let mut names = []string{}
 		for l in cfg.Languages {

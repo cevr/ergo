@@ -14,12 +14,12 @@ func Links(body string) []string {
 		if at < 0 {
 			return out
 		}
-		rest = strings.Slice(rest, at+3, len(rest))
+		rest = strings.Slice(rest, at+3, rest.Len())
 		let end = strings.Index(rest, ">")
 		let tag = if end < 0 { rest } else { strings.Slice(rest, 0, end) }
 		let h = strings.Index(" "+tag, " href=\"")
 		if h >= 0 {
-			let value = strings.Slice(tag, h+6, len(tag))
+			let value = strings.Slice(tag, h+6, tag.Len())
 			let q = strings.Index(value, "\"")
 			if q >= 0 {
 				out = out.Append(unescape(strings.Slice(value, 0, q)))

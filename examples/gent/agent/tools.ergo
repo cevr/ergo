@@ -4,6 +4,7 @@
 import exec
 import json
 import strings
+import time
 
 // The failures of a tool.
 
@@ -262,7 +263,7 @@ func Gate(r Request) Verdict {
 // Run is the outcome of r on the tools in the context, its text
 // bounded. It never fails: a failure is an outcome, which the model is
 // told.
-func Run(r Request) Outcome needs Tools | exec.Runner | Scheduler {
+func Run(r Request) Outcome needs Tools | exec.Runner | time.Scheduler {
 	match r {
 	case ReadFile as f:
 		let text = Tools.Read(f.Path) catch {

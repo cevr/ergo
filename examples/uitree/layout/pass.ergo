@@ -5,6 +5,8 @@
 // docs/spec/types.md, Bindings), so a pass costs in proportion to its
 // nodes, not to their square.
 
+import option
+
 // Pass is the state of one pass: the sibling index of each parent (child
 // to slot) and the path of slots from the root to each node.
 type Pass { siblings Map[int, Map[int, int]], paths Map[int, []int] }
@@ -41,7 +43,7 @@ law UnplacedParent(n int) {
 	case At:
 		false
 	case NoParent:
-		Children(p, parent) == 0 && len(Path(p, parent+1)) == 0
+		Children(p, parent) == 0 && Path(p, parent+1).Len() == 0
 	}
 }
 
@@ -53,31 +55,31 @@ type Placed = At{Slot int, Depth int} | NoParent{}
 func Place(p mut Pass, parent int, id int) Placed {
 	let mut path = []int{}
 	match p.paths.Get(parent) {
-	case Some[[]int] as q:
+	case option.Some[[]int] as q:
 		path = q.Value
-	case None:
+	case option.None:
 		return NoParent
 	}
 	let mut sib = Map[int, int]{}
 	match p.siblings.Get(parent) {
-	case Some[Map[int, int]] as m:
+	case option.Some[Map[int, int]] as m:
 		sib = m.Value
-	case None:
+	case option.None:
 	}
-	let slot = len(sib)
+	let slot = sib.Len()
 	sib[id] = slot
 	p.siblings[parent] = sib
 	path = path.Append(slot)
 	p.paths[id] = path
-	At{Slot: slot, Depth: len(path)}
+	At{Slot: slot, Depth: path.Len()}
 }
 
 // Path is the slots from the root to node id, empty when it is not placed.
 func Path(p Pass, id int) []int {
 	match p.paths.Get(id) {
-	case Some[[]int] as q:
+	case option.Some[[]int] as q:
 		q.Value
-	case None:
+	case option.None:
 		[]int{}
 	}
 }
@@ -92,15 +94,15 @@ law PathExtends(n int) {
 		let _ = Place(&p, 2, 10+i)
 	}
 	let path = Path(p, 10+slot)
-	len(path) == 2 && path[0] == 1 && path[1] == slot
+	path.Len() == 2 && path[0] == 1 && path[1] == slot
 }
 
 // Children is the number of nodes placed under parent.
 func Children(p Pass, parent int) int {
 	match p.siblings.Get(parent) {
-	case Some[Map[int, int]] as m:
-		len(m.Value)
-	case None:
+	case option.Some[Map[int, int]] as m:
+		m.Value.Len()
+	case option.None:
 		0
 	}
 }

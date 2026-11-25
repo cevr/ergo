@@ -10,6 +10,8 @@
 // shape A, cancellation is the end of a state, and no registry of work in
 // flight exists; the due times are the rows' data.
 
+import core
+import option
 import transfers/transfer
 import machines
 import slices
@@ -18,7 +20,7 @@ import time
 // Row is one transfer: its id, its file, its transfer, its run (the
 // number of times it started sending), and the time its run arrives, once
 // the work has given it one.
-type Row { ID int, File transfer.File, Transfer transfer.Transfer, Run int, Due Option[time.Time] }
+type Row { ID int, File transfer.File, Transfer transfer.Transfer, Run int, Due option.Option[time.Time] }
 
 // Desk is the rows in the order they started, and the id the next one
 // gets. Ids are never reused.
@@ -44,33 +46,33 @@ func Initial() Desk { Desk{Rows: []Row{}, Next: 0} }
 // row's current one, or a row whose transfer does not take it changes
 // nothing. Each change of a transfer enters the desk again (its work
 // restarts); Timed stays.
-func Step(d Desk, s Signal) Decision[Desk, Never] {
+func Step(d Desk, s Signal) machines.Decision[Desk, core.Never] {
 	match s {
 	case Begin:
 		let f = transfer.FileFor(d.Next)
-		let r = Row{ID: d.Next, File: f, Transfer: transfer.Begin(f.MB), Run: 0, Due: None}
-		Enter[Desk]{Next: Desk{Rows: d.Rows.Append(r), Next: d.Next + 1}}
+		let r = Row{ID: d.Next, File: f, Transfer: transfer.Begin(f.MB), Run: 0, Due: option.None}
+		machines.Enter[Desk]{Next: Desk{Rows: d.Rows.Append(r), Next: d.Next + 1}}
 	case At as a:
 		step(d, a.ID, a.Sig)
 	case CancelEvery:
 		if slices.IndexFunc(d.Rows, sending) < 0 {
-			return Ignore
+			return machines.Ignore
 		}
 		let cancel = func(r Row) Row {
 			if sending(r) { moved(r, transfer.Cancel) } else { r }
 		}
-		Enter[Desk]{Next: Desk{Rows: slices.Transform(d.Rows, cancel), Next: d.Next}}
+		machines.Enter[Desk]{Next: Desk{Rows: slices.Transform(d.Rows, cancel), Next: d.Next}}
 	case Timed as t:
 		if !current(d, t.ID, t.Run) {
-			return Ignore
+			return machines.Ignore
 		}
 		let set = func(r Row) Row {
-			if r.ID == t.ID { Row{ID: r.ID, File: r.File, Transfer: r.Transfer, Run: r.Run, Due: Some{Value: t.Due}} } else { r }
+			if r.ID == t.ID { Row{ID: r.ID, File: r.File, Transfer: r.Transfer, Run: r.Run, Due: option.Some{Value: t.Due}} } else { r }
 		}
-		Stay[Desk]{Next: Desk{Rows: slices.Transform(d.Rows, set), Next: d.Next}}
+		machines.Stay[Desk]{Next: Desk{Rows: slices.Transform(d.Rows, set), Next: d.Next}}
 	case Arrived as a:
 		if !current(d, a.ID, a.Run) {
-			return Ignore
+			return machines.Ignore
 		}
 		step(d, a.ID, transfer.Arrived)
 	}
@@ -83,15 +85,15 @@ func current(d Desk, id int, run int) bool {
 
 // step steps s on the transfer of row id, or ignores it when the row does
 // not take it.
-func step(d Desk, id int, s transfer.Signal) Decision[Desk, Never] {
+func step(d Desk, id int, s transfer.Signal) machines.Decision[Desk, core.Never] {
 	let i = slices.IndexFunc(d.Rows, func(r Row) bool { r.ID == id })
 	if i < 0 || !machines.Can(transfer.Step, d.Rows[i].Transfer, s) {
-		return Ignore
+		return machines.Ignore
 	}
 	let set = func(r Row) Row {
 		if r.ID == id { moved(r, s) } else { r }
 	}
-	Enter[Desk]{Next: Desk{Rows: slices.Transform(d.Rows, set), Next: d.Next}}
+	machines.Enter[Desk]{Next: Desk{Rows: slices.Transform(d.Rows, set), Next: d.Next}}
 }
 
 // moved is r after s: its transfer steps; entering Sending again (a
@@ -99,7 +101,7 @@ func step(d Desk, id int, s transfer.Signal) Decision[Desk, Never] {
 func moved(r Row, s transfer.Signal) Row {
 	let next = machines.Next(r.Transfer, transfer.Step(r.Transfer, s))
 	if transfer.IsSending(next) && !transfer.IsSending(r.Transfer) {
-		return Row{ID: r.ID, File: r.File, Transfer: next, Run: r.Run + 1, Due: None}
+		return Row{ID: r.ID, File: r.File, Transfer: next, Run: r.Run + 1, Due: option.None}
 	}
 	Row{ID: r.ID, File: r.File, Transfer: next, Run: r.Run, Due: r.Due}
 }
@@ -109,39 +111,39 @@ func sending(r Row) bool { transfer.IsSending(r.Transfer) }
 // timing is the desk's work while a row sends: it gives each sending row
 // with no due time the clock's now and its whole file, then sleeps until
 // the first due time and gives that run's arrival.
-func timing(d Desk) Option[machines.Work[Signal, time.Clock | Scheduler]] {
+func timing(d Desk) option.Option[machines.Work[Signal, time.Clock | time.Scheduler]] {
 	if slices.IndexFunc(d.Rows, sending) < 0 {
-		return None
+		return option.None
 	}
-	Some{machines.Work[Signal, time.Clock | Scheduler]{Start: func(send entry func(s Signal)) needs time.Clock | Scheduler {
+	option.Some{machines.Work[Signal, time.Clock | time.Scheduler]{Start: func(send entry func(s Signal)) needs time.Clock | time.Scheduler {
 		let now = time.Clock.Now()
-		let mut first Option[due] = None
+		let mut first option.Option[due] = option.None
 		for r in d.Rows {
 			if !sending(r) {
 				continue
 			}
 			let at = match r.Due {
-			case Some[time.Time] as t:
+			case option.Some[time.Time] as t:
 				t.Value
-			case None:
+			case option.None:
 				let at = time.Add(now, transfer.Took(r.File.MB))
 				send(Timed{ID: r.ID, Run: r.Run, Due: at})
 				at
 			}
 			first = match first {
-			case Some[due] as f:
-				if time.Before(at, f.Value.At) { Some{Value: due{At: at, ID: r.ID, Run: r.Run}} } else { first }
-			case None:
-				Some{Value: due{At: at, ID: r.ID, Run: r.Run}}
+			case option.Some[due] as f:
+				if time.Before(at, f.Value.At) { option.Some{Value: due{At: at, ID: r.ID, Run: r.Run}} } else { first }
+			case option.None:
+				option.Some{Value: due{At: at, ID: r.ID, Run: r.Run}}
 			}
 		}
 		match first {
-		case Some[due] as f:
+		case option.Some[due] as f:
 			if time.Before(now, f.Value.At) {
-				Scheduler.Sleep(f.Value.At.Sub(now))
+				time.Scheduler.Sleep(f.Value.At.Sub(now))
 			}
 			send(Arrived{ID: f.Value.ID, Run: f.Value.Run})
-		case None:
+		case option.None:
 		}
 	}}}
 }

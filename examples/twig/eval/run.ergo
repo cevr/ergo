@@ -70,7 +70,7 @@ func each(m mut Machine, p resolve.Program, e resolve.Each, env int) fails Flow 
 	match over {
 	case List as l:
 		let mut i = 0
-		for i < len(m.lists[l.Id]) {
+		for i < m.lists[l.Id].Len() {
 			m.frames[env].Slots[e.Slot] = m.lists[l.Id][i]
 			i += 1
 			exec(m, p, e.Body, env) catch {
@@ -183,14 +183,14 @@ func eval(m mut Machine, p resolve.Program, n resolve.Node, env int) Value fails
 			items = items.Append(try eval(m, p, x, env))
 		}
 		m.lists = m.lists.Append(items)
-		List{Id: len(m.lists) - 1}
+		List{Id: m.lists.Len() - 1}
 	case resolve.MakeRec as r:
 		let mut vals = []Value{}
 		for x in r.Vals {
 			vals = vals.Append(try eval(m, p, x, env))
 		}
 		m.recs = m.recs.Append(Record{Keys: r.Keys, Vals: vals})
-		Rec{Id: len(m.recs) - 1}
+		Rec{Id: m.recs.Len() - 1}
 	case resolve.Closure as c:
 		Fn{Code: c.Code, Env: env}
 	}
@@ -297,8 +297,8 @@ func call(m mut Machine, p resolve.Program, f Value, args []Value, at Pos) Value
 	match f {
 	case Fn as fn:
 		let arity = p.Funcs[fn.Code].Arity
-		if len(args) != arity {
-			return RunError{At: at, Msg: p.Funcs[fn.Code].Name + " takes " + count(arity) + ", not " + count(len(args))}
+		if args.Len() != arity {
+			return RunError{At: at, Msg: p.Funcs[fn.Code].Name + " takes " + count(arity) + ", not " + count(args.Len())}
 		}
 		if m.depth >= MaxDepth {
 			return RunError{At: at, Msg: "calls nest deeper than \(MaxDepth)"}
@@ -325,8 +325,8 @@ func call(m mut Machine, p resolve.Program, f Value, args []Value, at Pos) Value
 		result
 	case Builtin as b:
 		let arity = resolve.Arity(b.Op)
-		if len(args) != arity {
-			return RunError{At: at, Msg: resolve.BuiltinName(b.Op) + " takes " + count(arity) + ", not " + count(len(args))}
+		if args.Len() != arity {
+			return RunError{At: at, Msg: resolve.BuiltinName(b.Op) + " takes " + count(arity) + ", not " + count(args.Len())}
 		}
 		try builtin(m, p, b.Op, args, at)
 	case _:
@@ -350,9 +350,9 @@ func builtin(m mut Machine, p resolve.Program, op resolve.Builtin, args []Value,
 	case resolve.Len:
 		match v {
 		case List as l:
-			Int{N: len(m.lists[l.Id])}
+			Int{N: m.lists[l.Id].Len()}
 		case Str as s:
-			Int{N: len(s.S)}
+			Int{N: s.S.Len()}
 		case _:
 			RunError{At: at, Msg: "len cannot take " + KindOf(v)}
 		}
@@ -403,13 +403,13 @@ func elem(m mut Machine, x Value, i Value, at Pos) Value fails RunError {
 	let k = try index(i, at)
 	match x {
 	case List as l:
-		if k < 0 || k >= len(m.lists[l.Id]) {
-			return RunError{At: at, Msg: "index \(k) is outside a list of \(len(m.lists[l.Id]))"}
+		if k < 0 || k >= m.lists[l.Id].Len() {
+			return RunError{At: at, Msg: "index \(k) is outside a list of \(m.lists[l.Id].Len())"}
 		}
 		m.lists[l.Id][k]
 	case Str as s:
-		if k < 0 || k >= len(s.S) {
-			return RunError{At: at, Msg: "index \(k) is outside a string of \(len(s.S))"}
+		if k < 0 || k >= s.S.Len() {
+			return RunError{At: at, Msg: "index \(k) is outside a string of \(s.S.Len())"}
 		}
 		Str{S: strings.Slice(s.S, k, k+1)}
 	case _:
@@ -422,8 +422,8 @@ func setElem(m mut Machine, x Value, i Value, v Value, at Pos) fails RunError {
 	let k = try index(i, at)
 	match x {
 	case List as l:
-		if k < 0 || k >= len(m.lists[l.Id]) {
-			return RunError{At: at, Msg: "index \(k) is outside a list of \(len(m.lists[l.Id]))"}
+		if k < 0 || k >= m.lists[l.Id].Len() {
+			return RunError{At: at, Msg: "index \(k) is outside a list of \(m.lists[l.Id].Len())"}
 		}
 		m.lists[l.Id][k] = v
 	case _:

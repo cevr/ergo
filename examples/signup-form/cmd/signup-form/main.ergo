@@ -22,10 +22,10 @@ let Subscribers = context { subscribe.Subscribers: memory.List }
 // script shows a check or a submit under way until it waits this long.
 let Delay = 300ms
 
-func main() fails os.Exit needs Console | Ambient {
+func main() fails os.Exit needs io.Console | os.Ambient {
 	let c = time.NewManual(0)
 	let slow = memory.Slow{Wait: func() { time.Sleep(c, Delay) }}
-	let status = with context { io.Stdin: io.NewStdin(), Scheduler: c, subscribe.Subscribers: slow } { script.Run(c) }
+	let status = with context { io.Stdin: io.NewStdin(), time.Scheduler: c, subscribe.Subscribers: slow } { script.Run(c) }
 	if status != 0 {
 		return os.Exit{Code: 1, Message: "signup-form: the script did not run"}
 	}

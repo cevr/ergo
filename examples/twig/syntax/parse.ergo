@@ -1,3 +1,4 @@
+import option
 import strconv
 
 // ParseError is a token where the grammar wants another.
@@ -193,46 +194,46 @@ func ifStmt(p mut parser, at Pos) Stmt fails ParseError {
 }
 
 // binOp is the infix operator that t spells.
-func binOp(t Token) Option[BinOp] {
+func binOp(t Token) option.Option[BinOp] {
 	match t.Kind {
 	case Punct:
 		match t.Text {
 		case "+":
-			Some{Value: Add}
+			option.Some{Value: Add}
 		case "-":
-			Some{Value: Sub}
+			option.Some{Value: Sub}
 		case "*":
-			Some{Value: Mul}
+			option.Some{Value: Mul}
 		case "/":
-			Some{Value: Div}
+			option.Some{Value: Div}
 		case "%":
-			Some{Value: Mod}
+			option.Some{Value: Mod}
 		case "<":
-			Some{Value: Lt}
+			option.Some{Value: Lt}
 		case "<=":
-			Some{Value: Le}
+			option.Some{Value: Le}
 		case ">":
-			Some{Value: Gt}
+			option.Some{Value: Gt}
 		case ">=":
-			Some{Value: Ge}
+			option.Some{Value: Ge}
 		case "==":
-			Some{Value: Eq}
+			option.Some{Value: Eq}
 		case "!=":
-			Some{Value: Ne}
+			option.Some{Value: Ne}
 		case _:
-			None
+			option.None
 		}
 	case Keyword:
 		match t.Text {
 		case "and":
-			Some{Value: And}
+			option.Some{Value: And}
 		case "or":
-			Some{Value: Or}
+			option.Some{Value: Or}
 		case _:
-			None
+			option.None
 		}
 	case Ident, IntTok, FloatTok, StrTok, End:
-		None
+		option.None
 	}
 }
 
@@ -261,9 +262,9 @@ func expr(p mut parser, min int) Expr fails ParseError {
 			continue
 		}
 		match binOp(t) {
-		case None:
+		case option.None:
 			return left
-		case Some as o:
+		case option.Some as o:
 			let power = Power(o.Value)
 			if power < min {
 				return left

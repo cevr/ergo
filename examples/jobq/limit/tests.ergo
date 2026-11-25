@@ -1,19 +1,21 @@
 // The limiter's tests: a burst and its refill worked by hand. The laws
 // run under ergo test.
 
+import option
+
 test ABurstThenOneEach {
 	let got = taken(2, 100ms, []duration{0s, 0s, 0s, 50ms, 100ms, 150ms, 200ms, 450ms, 450ms, 450ms})
 	// by 450ms the bucket is full again: two more
-	assert len(got) == 6
+	assert got.Len() == 6
 	assert got[0] == 0s && got[1] == 0s && got[2] == 100ms && got[3] == 200ms && got[4] == 450ms && got[5] == 450ms
 }
 
 test NextAtWaitsForTheToken {
 	let mut b = Full(1, 100ms, 0s)
 	match Take(b, 0s) {
-	case Some[Bucket] as next:
+	case option.Some[Bucket] as next:
 		b = next.Value
-	case None:
+	case option.None:
 		assert false
 	}
 	assert NextAt(b, 30ms) == 100ms

@@ -1,4 +1,5 @@
 import machines
+import option
 import strings
 
 // Lookup is the state: the zip code typed so far, and what the panel
@@ -9,7 +10,7 @@ type Lookup { Draft string, Panel Panel }
 // nothing else, and keeps the entry (Stay), so a fetch under way is not
 // restarted by typing.
 law EditOnlyChangesTheDraft(l Lookup, text string) {
-	Step(l, Edited{Text: text}) == Stay[Lookup]{Next: Lookup{..l, Draft: text}}
+	Step(l, Edited{Text: text}) == machines.Stay[Lookup]{Next: Lookup{..l, Draft: text}}
 }
 
 // Panel is what the lookup shows: nothing yet, a fetch of Zip under way,
@@ -47,7 +48,7 @@ law ReadyShowsLatestAsk(moves []int, words []int) {
 	let mut zip = ""
 	let mut shown Panel = Blank
 	for i, m in moves {
-		let w = if i < len(words) { words[i] } else { 0 }
+		let w = if i < words.Len() { words[i] } else { 0 }
 		let s = match pick(m, 4) {
 		case 0:
 			let text = draftOf(w)
@@ -94,7 +95,7 @@ let beverly = Report{Zip: "90210", Temperature: 72, Description: "Clear sky", Hu
 // not, one with spaces around it, and two with no zip.
 func draftOf(n int) string {
 	let drafts = []string{"90210", "00000", " 10001 ", "", "   "}
-	drafts[pick(n, len(drafts))]
+	drafts[pick(n, drafts.Len())]
 }
 
 // answer is the model's forecast: what a fetch of zip answers. NotFound
@@ -132,12 +133,12 @@ func panelOf(s Signal) Panel {
 // other draft enters Loading, whose entry fetches the trimmed draft. The
 // fetch's answer shows; an answer outside Loading is ignored (the runner
 // never sends one, and the step does not trust that).
-func Step(l Lookup, s Signal) Decision[Lookup, Never] {
+func Step(l Lookup, s Signal) machines.Decision[Lookup, Never] {
 	match (l.Panel, s) {
 	case (_, Edited as e):
-		Stay[Lookup]{Next: Lookup{..l, Draft: e.Text}}
+		machines.Stay[Lookup]{Next: Lookup{..l, Draft: e.Text}}
 	case (Loading, Submitted):
-		Ignore
+		machines.Ignore
 	case (_, Submitted):
 		if Empty(l.Draft) {
 			show(l, Failed{Why: NoZip})
@@ -151,25 +152,25 @@ func Step(l Lookup, s Signal) Decision[Lookup, Never] {
 	case (Loading, Unavailable as u):
 		show(l, Failed{Why: u})
 	case (_, Got), (_, NotFound), (_, Unavailable):
-		Ignore
+		machines.Ignore
 	}
 }
 
-func show(l Lookup, p Panel) Decision[Lookup, Never] { Enter[Lookup]{Next: Lookup{..l, Panel: p}} }
+func show(l Lookup, p Panel) machines.Decision[Lookup, Never] { machines.Enter[Lookup]{Next: Lookup{..l, Panel: p}} }
 
 // fetch is the work of each state: Loading fetches its zip from the
 // Forecast. The runner starts it when the entry opens and interrupts it
 // when the entry ends, and drops an answer of an ended entry, so an
 // answer only ever reaches the ask that started it.
-func fetch(l Lookup) Option[machines.Work[Signal, Forecast]] {
+func fetch(l Lookup) option.Option[machines.Work[Signal, Forecast]] {
 	match l.Panel {
 	case Loading as q:
-		Some{machines.Attempt(func() Report fails NotFound | Unavailable needs Forecast { try Forecast.Fetch(q.Zip) }, func(r Report) Signal { Got{Report: r} }, func(failure) {
+		option.Some{machines.Attempt(func() Report fails NotFound | Unavailable needs Forecast { try Forecast.Fetch(q.Zip) }, func(r Report) Signal { Got{Report: r} }, func(failure) {
 			let failed Signal = failure
 			failed
 		})}
 	case Blank, Ready, Failed:
-		None
+		option.None
 	}
 }
 

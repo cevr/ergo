@@ -43,7 +43,7 @@ func Summary(src string) string {
 }
 
 func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
-	if len(args) != 1 {
+	if args.Len() != 1 {
 		return os.Exit{Code: 2, Message: "usage: toktree FILE"}
 	}
 	let file = args[0]
@@ -58,7 +58,7 @@ func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
 	io.Stdout.Println(Summary(src))
 }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), io.Stdout: io.NewHost() } {
 		try run(os.Process.Args())
 	}

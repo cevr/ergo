@@ -47,7 +47,7 @@ func Widths(_ Cells, text string, size float32) layout.Intrinsic {
 
 // Height is the rows of text broken into lines no wider than width.
 func Height(_ Cells, text string, size float32, width float32) float32 {
-	let n = len(Lines(text, width))
+	let n = Lines(text, width).Len()
 	float32(n) * CellH
 }
 

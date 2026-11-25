@@ -1,12 +1,13 @@
 // ergo test runs the settings.Backing law here, against Lines, and the
 // cache's write-through against it.
 
+import option
 import wtcache/settings
 
 test LinesReadTheLastWrite(key string, line string) {
 	let l = NewLines()
 	Write(l, key, line)
-	assert Read(l, key) == Some[string]{Value: line}
+	assert Read(l, key) == option.Some[string]{Value: line}
 }
 
 test SetWritesThrough(key string, value string) {
@@ -14,10 +15,10 @@ test SetWritesThrough(key string, value string) {
 	let c = settings.NewCache()
 	with context { settings.Backing: l } {
 		try settings.Set(c, key, value)
-		assert settings.Get(c, key) == Some[string]{Value: value}
-		assert Read(l, key) == Some[string]{Value: settings.Encode(value)}
+		assert settings.Get(c, key) == option.Some[string]{Value: value}
+		assert Read(l, key) == option.Some[string]{Value: settings.Encode(value)}
 		let fresh = settings.NewCache()
-		assert try settings.Load(fresh, key) == Some[string]{Value: value}
+		assert try settings.Load(fresh, key) == option.Some[string]{Value: value}
 	}
 	assert Writes(l) == 1
 }

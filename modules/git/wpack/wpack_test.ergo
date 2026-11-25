@@ -2,6 +2,7 @@ import exec
 import filepath
 import fs
 import fstest
+import option
 import os
 import slices
 import strconv
@@ -14,7 +15,7 @@ import github.com/cevr/ergo/modules/git/packidx
 import github.com/cevr/ergo/modules/git/root
 import github.com/cevr/ergo/modules/git/tree
 
-let onOracle = context needs TestAmbient {
+let onOracle = context needs fstest.TestAmbient {
 	exec.Runner: exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
 	fs.Files:    fs.NewTestHost(),
 	fs.Writes:   fs.NewTestHost(),
@@ -29,7 +30,7 @@ let onMemoryPubSha256 = context {
 	PackPublisher: NewMemoryPublisher(oid.Sha256),
 }
 
-let onDiskPubSha1 = context needs TestAmbient {
+let onDiskPubSha1 = context needs fstest.TestAmbient {
 	PackPublisher: NewDiskPublisher(oid.Sha1, filepath.Join([]string{fstest.TestFolder(), "law-disk-wpack-objects"}), []string{}, fs.NewTestHost()),
 }
 
@@ -97,7 +98,7 @@ func verifyFormatAgainstGit(base string, cwd string, oFmt oracle.OidFormat, fmt 
 	let smallBlob = "hello from pure-ergo wpack\n".Bytes()
 	let bigBase = makeLargeBlob(1, 1100)
 	let bigDelta = makeLargeBlob(2, 1100)
-	try check(len(bigBase) > 70000, "bigBase must exceed 70 KiB")
+	try check(bigBase.Len() > 70000, "bigBase must exceed 70 KiB")
 
 	let smallId = oid.HashObject(fmt, oid.Blob, smallBlob) catch {
 	case oid.Collision as c:
@@ -168,7 +169,7 @@ func verifyFormatAgainstGit(base string, cwd string, oFmt oracle.OidFormat, fmt 
 	let mat = with context { delta.BaseSource: delta.EmptyBases } {
 		try delta.MaterializePack(built.PackBytes, fmt, delta.DefaultLimits())
 	}
-	try check(len(mat) == 8, "delta.MaterializePack object count mismatch")
+	try check(mat.Len() == 8, "delta.MaterializePack object count mismatch")
 
 	let verifyOut = try runGitOk(repoDir, []string{"verify-pack", "-v", published.PackPath}, "", pathEnv, 5)
 	try check(strings.Contains(verifyOut, oid.Hex(bigDeltaId)), "git verify-pack -v missing bigDeltaId")
@@ -252,7 +253,7 @@ test QuarantineCrashAndConnectivityGate {
 		case fs.NotFound, fs.Denied, fs.Failed:
 			[]string{}
 		}
-		assert len(packEntriesAfterDangling) == 0
+		assert packEntriesAfterDangling.Len() == 0
 
 		let okBlob = "crash-safe-blob-payload\n".Bytes()
 		let built = try BuildPackPair(oid.Sha1, []PackObject{BaseObj(oid.Blob, okBlob)})
@@ -312,7 +313,7 @@ test QuarantineCrashAndConnectivityGate {
 		let _ = try runGitOk(repoDir, []string{"fsck", "--strict", "--full"}, "", pathEnv, 20)
 
 		let looseIds = try PublishLooseBatch(oid.Sha1, objectsDir, []string{}, []PackObject{BaseObj(oid.Blob, okBlob)})
-		assert len(looseIds) == 1
+		assert looseIds.Len() == 1
 		let _ = try runGitOk(repoDir, []string{"fsck", "--strict", "--full"}, "", pathEnv, 21)
 	}
 }
@@ -344,14 +345,14 @@ law BuildPackPairRoundTripsWithPackidxAndDelta(a string, b string) {
 			return false
 		}
 	}
-	if len(objs) != built.Count {
+	if objs.Len() != built.Count {
 		return false
 	}
 	for po in objs {
 		match idx.Lookup(po.Oid) {
-		case None:
+		case option.None:
 			return false
-		case Some[packidx.Entry] as e:
+		case option.Some[packidx.Entry] as e:
 			if e.Value.Offset != uint64(po.Offset) {
 				return false
 			}

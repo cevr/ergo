@@ -36,7 +36,7 @@ test GeneratorCoversTheLanguage {
 			0
 		}
 	}
-	assert len(kinds) == 6
+	assert kinds.Len() == 6
 }
 
 // kindOf names the kind of e's root.

@@ -1,4 +1,5 @@
 import dense
+import option
 import vt/vt
 
 // The screen's styles are a dense.Counted[vt.Style]: each style in use
@@ -23,45 +24,45 @@ func intern(t mut dense.Counted[vt.Style], st vt.Style) dense.Opt[vt.Style] {
 // retain counts one more holder of id.
 func retain(t mut dense.Counted[vt.Style], id dense.Opt[vt.Style]) {
 	match dense.Unpack(id) {
-	case Some[dense.ID[vt.Style]] as held:
+	case option.Some[dense.ID[vt.Style]] as held:
 		t.Use(held.Value)
-	case None:
+	case option.None:
 	}
 }
 
 // release counts one holder of id less; at 0 its style leaves the set.
 func release(t mut dense.Counted[vt.Style], id dense.Opt[vt.Style]) {
 	match dense.Unpack(id) {
-	case Some[dense.ID[vt.Style]] as held:
+	case option.Some[dense.ID[vt.Style]] as held:
 		t.Release(held.Value)
-	case None:
+	case option.None:
 	}
 }
 
 // retainN counts n more holders of id: a run of cells taking id.
 func retainN(t mut dense.Counted[vt.Style], id dense.Opt[vt.Style], n int) {
 	match dense.Unpack(id) {
-	case Some[dense.ID[vt.Style]] as held:
+	case option.Some[dense.ID[vt.Style]] as held:
 		t.UseN(held.Value, n)
-	case None:
+	case option.None:
 	}
 }
 
 // releaseN counts n holders of id less: a run of cells giving id up.
 func releaseN(t mut dense.Counted[vt.Style], id dense.Opt[vt.Style], n int) {
 	match dense.Unpack(id) {
-	case Some[dense.ID[vt.Style]] as held:
+	case option.Some[dense.ID[vt.Style]] as held:
 		t.ReleaseN(held.Value, n)
-	case None:
+	case option.None:
 	}
 }
 
 // styleAt is the style of id.
 func styleAt(t dense.Counted[vt.Style], id dense.Opt[vt.Style]) vt.Style {
 	match dense.Unpack(id) {
-	case Some[dense.ID[vt.Style]] as held:
+	case option.Some[dense.ID[vt.Style]] as held:
 		dense.Member(t, held.Value)
-	case None:
+	case option.None:
 		vt.Default
 	}
 }

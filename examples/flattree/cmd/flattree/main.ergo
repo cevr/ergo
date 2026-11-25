@@ -49,7 +49,7 @@ func finish(o app.Outcome) fails os.Exit needs io.Stdout {
 
 // command is a command of words, read on side.
 func command(side app.Side, words []string) fails os.Exit needs io.Stdout | app.Documents {
-	match (words[0], len(words)) {
+	match (words[0], words.Len()) {
 	case ("stats", 2):
 		try finish(app.Stats(side, words[1]))
 	case ("path", 3):
@@ -63,20 +63,20 @@ func command(side app.Side, words []string) fails os.Exit needs io.Stdout | app.
 
 // run is flattree on args.
 func run(args []string) fails os.Exit needs io.Stdout | app.Documents {
-	if len(args) == 0 {
+	if args.Len() == 0 {
 		return usage()
 	}
 	if args[0] == "gen" {
-		if len(args) != 5 || args[1] != "-seed" || args[3] != "-n" {
+		if args.Len() != 5 || args[1] != "-seed" || args[3] != "-n" {
 			return usage()
 		}
 		let seed = try amount(args[2])
 		io.Stdout.Print(workload.Document(seed, try amount(args[4])))
 		return
 	}
-	if len(args) >= 2 && args[1] == "-tree" {
+	if args.Len() >= 2 && args[1] == "-tree" {
 		let mut words = []string{args[0]}
-		for i in 2..len(args) {
+		for i in 2..args.Len() {
 			words = words.Append(args[i])
 		}
 		return command(app.Plain, words)
@@ -84,7 +84,7 @@ func run(args []string) fails os.Exit needs io.Stdout | app.Documents {
 	command(app.Flat, args)
 }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	let host = os.NewHost()
 	with context { io.Stdout: io.NewHost(), app.Documents: files.New(fs.NewHost()) } {
 		try run(host.Args())

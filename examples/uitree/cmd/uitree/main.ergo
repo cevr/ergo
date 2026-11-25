@@ -2,13 +2,14 @@
 // (node i under node (i - 1) / 4) and prints the depth and path of the
 // last node and how many children the root has.
 
+import io
 import os
 import strconv
 import uitree/layout
 
-func main() fails os.Exit needs Console | Ambient {
+func main() fails os.Exit needs io.Console | os.Ambient {
 	let args = os.NewHost().Args()
-	if len(args) != 1 {
+	if args.Len() != 1 {
 		return os.Exit{Code: 2, Message: "usage: uitree N"}
 	}
 	let n = strconv.Atoi(args[0]) catch {
@@ -27,11 +28,11 @@ func main() fails os.Exit needs Console | Ambient {
 			return os.Exit{Code: 1, Message: "node \(id) has no parent"}
 		}
 	}
-	Console.Println("nodes \(n) deepest \(deepest)")
+	io.Console.Println("nodes \(n) deepest \(deepest)")
 	let mut path = ""
 	for slot in layout.Path(p, n) {
 		path = path + "/\(slot)"
 	}
-	Console.Println("path of \(n): \(path)")
-	Console.Println("root children \(layout.Children(p, 0))")
+	io.Console.Println("path of \(n): \(path)")
+	io.Console.Println("root children \(layout.Children(p, 0))")
 }

@@ -2,6 +2,7 @@ import exec
 import filepath
 import fs
 import fstest
+import option
 import os
 import sha1dc
 import slices
@@ -19,7 +20,7 @@ func openRepoDiskODB(fmt oid.Format, objectsDir string, host fs.Host) pack.DiskO
 	pack.NewDiskODB(odb, host)
 }
 
-let onOracleSha1 = context fails pack.Corrupt | pack.MismatchedPair | pack.IOFailed needs TestAmbient {
+let onOracleSha1 = context fails pack.Corrupt | pack.MismatchedPair | pack.IOFailed needs fstest.TestAmbient {
 	exec.Runner:      exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
 	fs.Files:         fs.NewTestHost(),
 	fs.Writes:        fs.NewTestHost(),
@@ -27,7 +28,7 @@ let onOracleSha1 = context fails pack.Corrupt | pack.MismatchedPair | pack.IOFai
 	pack.ObjectStore: try openRepoDiskODB(oid.Sha1, filepath.Join([]string{fstest.TestFolder(), "repo", ".git", "objects"}), fs.NewTestHost()),
 }
 
-let onOracleSha256 = context fails pack.Corrupt | pack.MismatchedPair | pack.IOFailed needs TestAmbient {
+let onOracleSha256 = context fails pack.Corrupt | pack.MismatchedPair | pack.IOFailed needs fstest.TestAmbient {
 	exec.Runner:      exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
 	fs.Files:         fs.NewTestHost(),
 	fs.Writes:        fs.NewTestHost(),
@@ -96,19 +97,19 @@ func verifyChainAgainstParsedCommits(c Chain, fmt oid.Format) fails testFail | t
 	}
 	for i in 0..n {
 		let info = match c.At(i) {
-		case Some[CommitInfo] as v:
+		case option.Some[CommitInfo] as v:
 			v.Value
-		case None:
+		case option.None:
 			return testFail{reason: "At returned None"}
 		}
 		let (_, parsed) = try tree.PeelToCommit(fmt, info.OID, 4, 1048576)
 		if !oid.Equal(info.TreeOID, parsed.Tree) {
 			return testFail{reason: "TreeOID mismatch for " + oid.Hex(info.OID)}
 		}
-		if len(info.Parents) != len(parsed.Parents) {
-			return testFail{reason: "parent count mismatch for " + oid.Hex(info.OID) + ": got \(len(info.Parents)), want \(len(parsed.Parents))"}
+		if info.Parents.Len() != parsed.Parents.Len() {
+			return testFail{reason: "parent count mismatch for " + oid.Hex(info.OID) + ": got \(info.Parents.Len()), want \(parsed.Parents.Len())"}
 		}
-		for pi in 0..len(parsed.Parents) {
+		for pi in 0..parsed.Parents.Len() {
 			if !oid.Equal(info.Parents[pi], parsed.Parents[pi]) {
 				return testFail{reason: "parent \(pi) OID mismatch for " + oid.Hex(info.OID)}
 			}
@@ -121,11 +122,11 @@ func verifyChainAgainstParsedCommits(c Chain, fmt oid.Format) fails testFail | t
 		}
 		for p in info.Parents {
 			match c.Lookup(p) {
-			case Some[CommitInfo] as pInfo:
+			case option.Some[CommitInfo] as pInfo:
 				if pInfo.Value.Generation >= info.Generation {
 					return testFail{reason: "parent generation not strictly less than child"}
 				}
-			case None:
+			case option.None:
 				return testFail{reason: "parent missing from graph chain"}
 			}
 		}
@@ -144,10 +145,10 @@ func verifyPathLogMatchesGit(repoDir string, c Chain, head oid.OID, queryPath st
 		}
 	}
 	let gotOids = try PathLimitedLog(c, head, queryPath, 1048576)
-	if len(gotOids) != len(want) {
-		return testFail{reason: "PathLimitedLog count mismatch for \(queryPath): got \(len(gotOids)), want \(len(want))"}
+	if gotOids.Len() != want.Len() {
+		return testFail{reason: "PathLimitedLog count mismatch for \(queryPath): got \(gotOids.Len()), want \(want.Len())"}
 	}
-	for i in 0..len(want) {
+	for i in 0..want.Len() {
 		if oid.Hex(gotOids[i]) != want[i] {
 			return testFail{reason: "PathLimitedLog commit mismatch for \(queryPath) at \(i): got \(oid.Hex(gotOids[i])), want \(want[i])"}
 		}
@@ -204,18 +205,18 @@ func verifyFormatCommitGraph(cwd string, oFmt oracle.OidFormat, fmt oid.Format, 
 
 	let mergeOid = try oid.ParseHex(fmt, mergeHex)
 	let mergeInfo = match monoChain.Lookup(mergeOid) {
-	case Some[CommitInfo] as v:
+	case option.Some[CommitInfo] as v:
 		v.Value
-	case None:
+	case option.None:
 		return testFail{reason: "octopus merge commit missing from graph"}
 	}
-	if len(mergeInfo.Parents) != 3 {
+	if mergeInfo.Parents.Len() != 3 {
 		return testFail{reason: "expected 3 parents on octopus merge via EDGE chunk"}
 	}
 
 	let head1 = try oid.ParseHex(fmt, strings.TrimSpace(try runGitOk(repoDir, []string{"rev-parse", "HEAD"}, "", pathEnv, 32)))
 	let log1 = LogCommits(monoChain, head1, 0)
-	if len(log1) != monoChain.CommitCount() {
+	if log1.Len() != monoChain.CommitCount() {
 		return testFail{reason: "LogCommits count mismatch on monolithic graph"}
 	}
 	for qp in []string{"root.txt", "dir/sub/deep.txt", "b1.txt", "b2.txt", "other.txt", "does-not-exist.txt"} {
@@ -225,11 +226,11 @@ func verifyFormatCommitGraph(cwd string, oFmt oracle.OidFormat, fmt oid.Format, 
 	let mut prunedCount = 0
 	for i in 0..monoChain.CommitCount() {
 		match monoChain.At(i) {
-		case Some[CommitInfo] as ci:
+		case option.Some[CommitInfo] as ci:
 			if !MayTouchPath(ci.Value, "b1.txt") {
 				prunedCount = prunedCount + 1
 			}
-		case None:
+		case option.None:
 		}
 	}
 	if prunedCount == 0 {
@@ -340,18 +341,18 @@ test CorruptionAndOverflowMatrix {
 	let g = try Parse(oid.Sha1, validRaw)
 	let chain = try BuildChain(oid.Sha1, []Graph{g})
 	match chain.Lookup(cid) {
-	case Some[CommitInfo] as ci:
+	case option.Some[CommitInfo] as ci:
 		assert ci.Value.CorrectedDate == ctime+bigOffset
 		assert ci.Value.Generation == uint32(1)
-	case None:
+	case option.None:
 		assert false
 	}
 
-	let mut badSum = slices.WithCapacity[byte](len(validRaw))
+	let mut badSum = slices.WithCapacity[byte](validRaw.Len())
 	for b in validRaw {
 		badSum = badSum.Append(b)
 	}
-	badSum[len(badSum)-1] = badSum[len(badSum)-1] ^ byte(1)
+	badSum[badSum.Len()-1] = badSum[badSum.Len()-1] ^ byte(1)
 	let mut sawChecksum = false
 	let _ = Parse(oid.Sha1, badSum) catch {
 	case ChecksumMismatch:
@@ -362,7 +363,7 @@ test CorruptionAndOverflowMatrix {
 	}
 	assert sawChecksum
 
-	let mut badMagic = slices.WithCapacity[byte](len(validRaw))
+	let mut badMagic = slices.WithCapacity[byte](validRaw.Len())
 	for b in validRaw {
 		badMagic = badMagic.Append(b)
 	}
@@ -377,7 +378,7 @@ test CorruptionAndOverflowMatrix {
 	}
 	assert sawMagic
 
-	let mut badVer = slices.WithCapacity[byte](len(validRaw))
+	let mut badVer = slices.WithCapacity[byte](validRaw.Len())
 	for b in validRaw {
 		badVer = badVer.Append(b)
 	}

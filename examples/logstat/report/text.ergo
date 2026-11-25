@@ -1,4 +1,5 @@
 import logstat/access
+import option
 import strings
 import time
 
@@ -23,34 +24,34 @@ func Text(s Summary) string {
 	let mut lines = []string{}
 	lines = lines.Append(row("requests", "\(s.Requests)"+if s.Bad == 0 { "" } else { " (" + BadLines(s.Bad) + ")" }))
 	match s.Span {
-	case Some as sp:
+	case option.Some as sp:
 		lines = lines.Append(row("from", time.Format(sp.Value.First, time.RFC3339)))
 		lines = lines.Append(row("to", time.Format(sp.Value.Last, time.RFC3339)))
-	case None:
+	case option.None:
 	}
 	lines = lines.Append(row("bytes", "\(s.Bytes)"))
 	let mut classes = []string{}
 	for c in s.Classes {
 		classes = classes.Append("\(c.Key) \(c.N)")
 	}
-	if len(classes) > 0 {
+	if classes.Len() > 0 {
 		lines = lines.Append(row("status", strings.Join(classes, "  ")))
 	}
 	match s.Mean {
-	case Some as m:
+	case option.Some as m:
 		let mut parts = []string{"mean " + access.Seconds(m.Value)}
 		for q in s.Latency {
 			parts = parts.Append("p\(q.P) " + access.Seconds(q.Value))
 		}
 		lines = lines.Append(row("seconds", strings.Join(parts, "  ")))
-	case None:
+	case option.None:
 	}
-	if len(s.Top) > 0 {
-		lines = lines.Append("top \(len(s.Top)) by \(s.By)")
-		let width = len("\(s.Top[0].N)")
+	if s.Top.Len() > 0 {
+		lines = lines.Append("top \(s.Top.Len()) by \(s.By)")
+		let width = "\(s.Top[0].N)".Len()
 		for c in s.Top {
 			let n = "\(c.N)"
-			lines = lines.Append("  " + strings.Repeat(" ", width-len(n)) + n + "  " + c.Key)
+			lines = lines.Append("  " + strings.Repeat(" ", width-n.Len()) + n + "  " + c.Key)
 		}
 	}
 	strings.Join(lines, "\n") + "\n"
@@ -63,5 +64,5 @@ func BadLines(n int) string {
 
 // row is a label and its value, the values lined up.
 func row(label string, value string) string {
-	label + strings.Repeat(" ", 10-len(label)) + value
+	label + strings.Repeat(" ", 10-label.Len()) + value
 }

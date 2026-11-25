@@ -10,14 +10,17 @@
 // refusals. This binary is the only place that chooses them: it binds
 // domains.Registry to the sample registry.
 
+import core
 import crc32
 import http
+import io
 import json
 import os
 import strconv
 import domain-search/domains
 import domain-search/sample
 import domain-search/server
+import time
 
 func usage() os.Exit { os.Exit{Code: 2, Message: "usage: domain-search serve [ADDR] | search LABEL [OFFSET [LIMIT]] | bench N"} }
 
@@ -40,27 +43,27 @@ func integer(text string) int fails os.Exit {
 
 // search prints the registry's answer for args, LABEL [OFFSET [LIMIT]];
 // a label, an offset or a limit the Api refuses is a line and status 1.
-func search(args []string) fails os.Exit needs Console | domains.Registry {
-	if len(args) < 1 || len(args) > 3 {
+func search(args []string) fails os.Exit needs io.Console | domains.Registry {
+	if args.Len() < 1 || args.Len() > 3 {
 		return usage()
 	}
 	let label = domains.ParseLabel(args[0]) catch {
-	case Unsatisfied:
+	case core.Unsatisfied:
 		return os.Exit{Code: 1, Message: "domain-search: \(args[0]) is not a label: a to z, 0 to 9 and inner hyphens, at most 63"}
 	}
 	let mut offset json.Optional[domains.Offset] = json.Absent
-	if len(args) > 1 {
+	if args.Len() > 1 {
 		let o = domains.ParseOffset(try integer(args[1])) catch {
-		case Unsatisfied:
-			return os.Exit{Code: 1, Message: "domain-search: the offset is 0 to \(len(domains.Catalog) - 1)"}
+		case core.Unsatisfied:
+			return os.Exit{Code: 1, Message: "domain-search: the offset is 0 to \(domains.Catalog.Len() - 1)"}
 		}
 		offset = json.Present[domains.Offset]{Value: o}
 	}
 	let mut limit json.Optional[domains.Limit] = json.Absent
-	if len(args) > 2 {
+	if args.Len() > 2 {
 		let n = domains.ParseLimit(try integer(args[2])) catch {
-		case Unsatisfied:
-			return os.Exit{Code: 1, Message: "domain-search: the limit is 1 to \(len(domains.Catalog))"}
+		case core.Unsatisfied:
+			return os.Exit{Code: 1, Message: "domain-search: the limit is 1 to \(domains.Catalog.Len())"}
 		}
 		limit = json.Present[domains.Limit]{Value: n}
 	}
@@ -69,7 +72,7 @@ func search(args []string) fails os.Exit needs Console | domains.Registry {
 		return os.Exit{Code: 1, Message: "domain-search: the registry is down"}
 	}
 	for l in listings {
-		Console.Println(line(l))
+		io.Console.Println(line(l))
 	}
 }
 
@@ -77,8 +80,8 @@ func search(args []string) fails os.Exit needs Console | domains.Registry {
 // server.Answer, in process, and prints how many bytes they answered and
 // the CRC-32 of each answer's status, headers and body. It is target
 // P11's workload: the hand Go control prints the same line.
-func bench(args []string) fails os.Exit needs Console | domains.Registry {
-	if len(args) != 1 {
+func bench(args []string) fails os.Exit needs io.Console | domains.Registry {
+	if args.Len() != 1 {
 		return usage()
 	}
 	let n = try integer(args[0])
@@ -92,27 +95,27 @@ func bench(args []string) fails os.Exit needs Console | domains.Registry {
 				crc = crc32.Update(crc, h.Name+": "+h.Value+"\n")
 			}
 			crc = crc32.Update(crc, a.Body)
-			bytes += len(a.Body)
+			bytes += a.Body.Len()
 		}
 	}
-	Console.Println("\(n) requests, \(bytes) answer bytes, crc32 \(crc)")
+	io.Console.Println("\(n) requests, \(bytes) answer bytes, crc32 \(crc)")
 }
 
-func serve(args []string) fails http.ListenFailed | http.InvalidLimits | os.Exit needs Console | Ambient | domains.Registry {
-	if len(args) > 1 {
+func serve(args []string) fails http.ListenFailed | http.InvalidLimits | os.Exit needs io.Console | os.Ambient | domains.Registry {
+	if args.Len() > 1 {
 		return usage()
 	}
-	let addr = if len(args) == 1 { args[0] } else { "127.0.0.1:0" }
+	let addr = if args.Len() == 1 { args[0] } else { "127.0.0.1:0" }
 	let l = try http.Listen(addr)
-	Console.Println("listening \(l.Addr())")
-	with context { Scheduler: NewLiveScheduler() } {
+	io.Console.Println("listening \(l.Addr())")
+	with context { time.Scheduler: time.NewLiveScheduler() } {
 		try http.Serve(l, server.Limits(), server.Answer)
 	}
 }
 
-func main() fails http.ListenFailed | http.InvalidLimits | os.Exit needs Console | Ambient {
+func main() fails http.ListenFailed | http.InvalidLimits | os.Exit needs io.Console | os.Ambient {
 	let args = os.NewHost().Args()
-	if len(args) == 0 {
+	if args.Len() == 0 {
 		return usage()
 	}
 	with context { domains.Registry: sample.Sample } {

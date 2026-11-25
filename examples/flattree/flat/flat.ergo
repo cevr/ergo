@@ -21,6 +21,7 @@
 
 import dense
 import flattree/tree
+import option
 import slices
 import strings
 
@@ -85,7 +86,7 @@ type rows {
 func empty(src string) rows {
 	// About one value per 6 bytes of a typical document, as the control
 	// sizes its columns; a column grows past it as a slice does.
-	let n = len(src)/6 + 8
+	let n = src.Len()/6 + 8
 	rows{
 		src:     src,
 		ids:     dense.NewCount[Node](),
@@ -109,9 +110,9 @@ func Size(t Tree) int { dense.Total(t.data.ids) }
 // intern is the id of text in t's keys, put there when it is new.
 func intern(t mut rows, text string) dense.ID[Key] {
 	match t.keys.ids.Get(text) {
-	case Some[dense.ID[Key]] as id:
+	case option.Some[dense.ID[Key]] as id:
 		id.Value
-	case None:
+	case option.None:
 		let id = dense.Put(&t.keys.texts, Key{Text: text})
 		t.keys.ids = t.keys.ids.Put(text, id)
 		id
@@ -119,7 +120,7 @@ func intern(t mut rows, text string) dense.ID[Key] {
 }
 
 // Lookup is the id of text when t has interned it.
-func Lookup(t Tree, text string) Option[dense.ID[Key]] { t.data.keys.ids.Get(text) }
+func Lookup(t Tree, text string) option.Option[dense.ID[Key]] { t.data.keys.ids.Get(text) }
 
 // KeyText is the text of an interned id.
 func KeyText(t Tree, id dense.ID[Key]) string { dense.At(t.data.keys.texts, id).Text }
@@ -160,7 +161,7 @@ type View =
 law ViewRoundTrips(words []string, digits int) {
 	let src = "\(if digits < 0 { -digits } else { digits })"
 	let mut t = empty(src)
-	let mut leaves = []View{Null, Bool{B: true}, Bool{B: false}, Number{At: 0, Len: len(src)}}
+	let mut leaves = []View{Null, Bool{B: true}, Bool{B: false}, Number{At: 0, Len: src.Len()}}
 	for w in words {
 		leaves = leaves.Append(Str{S: w})
 	}
@@ -199,20 +200,20 @@ func same(a View, b View) bool {
 	case (Str as x, Str as y):
 		x.S == y.S
 	case (Array as x, Array as y):
-		if len(x.Items) != len(y.Items) {
+		if x.Items.Len() != y.Items.Len() {
 			return false
 		}
-		for i in 0..len(x.Items) {
+		for i in 0..x.Items.Len() {
 			if x.Items[i] != y.Items[i] {
 				return false
 			}
 		}
 		true
 	case (Object as x, Object as y):
-		if len(x.Members) != len(y.Members) {
+		if x.Members.Len() != y.Members.Len() {
 			return false
 		}
-		for i in 0..len(x.Members) {
+		for i in 0..x.Members.Len() {
 			if x.Members[i].Key != y.Members[i].Key || x.Members[i].Value != y.Members[i].Value {
 				return false
 			}

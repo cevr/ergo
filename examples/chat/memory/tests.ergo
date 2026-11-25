@@ -21,7 +21,7 @@ let oneConn = context { server.Conn: Server{inbound: queue.New[string](1), outbo
 test LinesBeforeHangup(lines []string) {
 	// Room for every line: a Send to a full connection waits for a reader,
 	// and this test reads only after the hang-up.
-	let end, _, c = Pipe(len(lines) + 1)
+	let end, _, c = Pipe(lines.Len() + 1)
 	for l in lines {
 		c.Send(l) catch {
 		case server.Hangup:
@@ -40,7 +40,7 @@ func replay(steps []Step) Session fails queue.Closed { try Replay(steps, time.Ne
 
 // same reports whether a and b hold the same lines in order.
 func same(a []string, b []string) bool {
-	if len(a) != len(b) {
+	if a.Len() != b.Len() {
 		return false
 	}
 	for i, l in a {

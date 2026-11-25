@@ -5,13 +5,15 @@
 // resource (it has Close), so its owner's scope releases it.
 
 import chat/server
+import core
+import option
 import queue
 
 // Server is the server's end of a connection in memory.
-type Server { inbound queue.Queue[string], outbound queue.Queue[string] } implements server.Conn, Closer
+type Server { inbound queue.Queue[string], outbound queue.Queue[string] } implements server.Conn, core.Closer
 
 // Client is the client's end of the same connection.
-type Client { inbound queue.Queue[string], outbound queue.Queue[string] } implements Closer
+type Client { inbound queue.Queue[string], outbound queue.Queue[string] } implements core.Closer
 
 // Sender is the server end's sending side, its server.Peer: it shares the
 // queues, so the room may keep a copy for each member.
@@ -82,9 +84,9 @@ func Received(c Client) []string {
 	let mut out = []string{}
 	for {
 		match c.outbound.Poll() {
-		case Some[string] as l:
+		case option.Some[string] as l:
 			out = out.Append(l.Value)
-		case None:
+		case option.None:
 			return out
 		}
 	}

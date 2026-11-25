@@ -35,7 +35,7 @@ func Hash4(text string, p int) int {
 
 // insert puts position q in its chain, when its four bytes are in text.
 func insert(c mut Chain, text string, q int) {
-	if q+MinMatch <= len(text) {
+	if q+MinMatch <= text.Len() {
 		let h = Hash4(text, q)
 		c.prev[q&WindowMask] = c.head[h]
 		c.head[h] = int32(q + 1)
@@ -95,12 +95,12 @@ func longest(c mut Chain, text string, p int, end int) Match {
 // Pack is text in the block format.
 func Pack(text string) string {
 	let mut out = strings.NewBuilder()
-	out.Grow(len(text)/2 + 64)
+	out.Grow(text.Len()/2 + 64)
 	out.WriteString(Magic)
 	let mut c = NewChain()
 	let mut from = 0
-	for from < len(text) {
-		let end = lo(from+BlockMax, len(text))
+	for from < text.Len() {
+		let end = lo(from+BlockMax, text.Len())
 		writeUvarint(&out, end-from)
 		packBlock(&out, &c, text, from, end)
 		from = end

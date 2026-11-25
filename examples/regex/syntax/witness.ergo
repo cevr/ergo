@@ -1,6 +1,8 @@
 // Samples for the capture laws: trees that Check accepts, and texts that
 // a tree matches (witnesses), made from a seed.
 
+import option
+
 // labeler is a source and the number of the next group name, so the
 // groups of one tree have distinct names.
 type labeler { g source, next int }
@@ -24,11 +26,11 @@ func Clash(seed int) Clashing {
 	let base = CaptureSample(seed)
 	let mut g = seeded(seed + 7)
 	let groups = Groups(base)
-	if len(groups) == 0 {
+	if groups.Len() == 0 {
 		let pair = Alt{Left: Group{Name: "d", Of: g.leaf()}, Right: Group{Name: "d", Of: g.leaf()}}
 		return Clashing{Tree: Cat{Parts: []Node{base, pair}}, Name: "d"}
 	}
-	let name = groups[g.next(len(groups))].Name
+	let name = groups[g.next(groups.Len())].Name
 	let again = Group{Name: name, Of: g.leaf()}
 	match g.next(2) {
 	case 0:
@@ -80,7 +82,7 @@ func solid(l mut labeler, depth int) Node {
 	if Nullable(t) {
 		t = Cat{Parts: []Node{t, l.g.leaf()}}
 	}
-	if len(Outer(t)) >= 2 {
+	if Outer(t).Len() >= 2 {
 		let name = "g\(l.next)"
 		l.next += 1
 		t = Group{Name: name, Of: t}
@@ -132,56 +134,56 @@ func repeatOf(kind int, of Node, min int, max int) Node {
 // the same tree with those groups inside one group.
 type Sided { Tree Node, Names []string, Wrapped Node }
 
-func Witness(n Node, seed int) Option[string] {
+func Witness(n Node, seed int) option.Option[string] {
 	let mut g = seeded(seed + 15485863)
 	g.word(n)
 }
 
-func word(g mut source, n Node) Option[string] {
+func word(g mut source, n Node) option.Option[string] {
 	match n {
 	case Empty:
-		Some[string]{Value: ""}
+		option.Some[string]{Value: ""}
 	case Lit as l:
-		Some[string]{Value: ByteText(l.C)}
+		option.Some[string]{Value: ByteText(l.C)}
 	case Any:
-		let i = g.next(len(alphabet))
-		Some[string]{Value: alphabet[i : i+1]}
+		let i = g.next(alphabet.Len())
+		option.Some[string]{Value: alphabet[i : i+1]}
 	case Class as k:
 		classMember(g, k)
 	case Cat as c:
 		let mut out = ""
 		for p in c.Parts {
 			match g.word(p) {
-			case Some[string] as s:
+			case option.Some[string] as s:
 				out = out + s.Value
-			case None:
-				return None
+			case option.None:
+				return option.None
 			}
 		}
-		Some[string]{Value: out}
+		option.Some[string]{Value: out}
 	case Alt as a:
 		let (first, second) = if g.next(2) == 0 { (a.Left, a.Right) } else { (a.Right, a.Left) }
 		match g.word(first) {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			s
-		case None:
+		case option.None:
 			g.word(second)
 		}
 	case Star as s:
 		match g.copies(s.Of, g.next(3)) {
-		case Some[string] as w:
+		case option.Some[string] as w:
 			w
-		case None:
-			Some[string]{Value: ""}
+		case option.None:
+			option.Some[string]{Value: ""}
 		}
 	case Plus as p:
 		g.copies(p.Of, 1+g.next(3))
 	case Quest as q:
 		match g.copies(q.Of, g.next(2)) {
-		case Some[string] as w:
+		case option.Some[string] as w:
 			w
-		case None:
-			Some[string]{Value: ""}
+		case option.None:
+			option.Some[string]{Value: ""}
 		}
 	case Count as c:
 		g.word(c.As)
@@ -190,35 +192,35 @@ func word(g mut source, n Node) Option[string] {
 	}
 }
 
-func copies(g mut source, of Node, k int) Option[string] {
+func copies(g mut source, of Node, k int) option.Option[string] {
 	let mut out = ""
 	for _ in 0..k {
 		match g.word(of) {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out + s.Value
-		case None:
-			return None
+		case option.None:
+			return option.None
 		}
 	}
-	Some[string]{Value: out}
+	option.Some[string]{Value: out}
 }
 
-func classMember(g mut source, k Class) Option[string] {
-	let start = g.next(len(alphabet))
-	for d in 0..len(alphabet) {
-		let i = (start + d) % len(alphabet)
+func classMember(g mut source, k Class) option.Option[string] {
+	let start = g.next(alphabet.Len())
+	for d in 0..alphabet.Len() {
+		let i = (start + d) % alphabet.Len()
 		if k.Has(alphabet[i]) {
-			return Some[string]{Value: alphabet[i : i+1]}
+			return option.Some[string]{Value: alphabet[i : i+1]}
 		}
 	}
 	for i in 0..256 {
 		if k.Has(byte(i)) {
-			return Some[string]{Value: ByteText(byte(i))}
+			return option.Some[string]{Value: ByteText(byte(i))}
 		}
 	}
-	None
+	option.None
 }
 
 law EmptyClassHasNoWitness(seed int) {
-	Witness(Class{Spans: []Span{}, Negated: false}, seed) == None && Witness(CaptureSample(seed), seed) != None
+	Witness(Class{Spans: []Span{}, Negated: false}, seed) == option.None && Witness(CaptureSample(seed), seed) != option.None
 }

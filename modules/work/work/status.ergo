@@ -1,4 +1,5 @@
 import json
+import option
 
 // ListOptions is list's: with Status, each Active workspace's committed
 // work against its parent's default branch (LaneStatus), read by Git;
@@ -75,7 +76,7 @@ func ListWithin(t Tool, o ListOptions, bound int) []Listed fails NoBase | Unkept
 	let mut parents = Map[string, Parentage]{}
 	if o.Status {
 		for w in all {
-			if w.State == Active && parents.Get(w.Parent) == None {
+			if w.State == Active && parents.Get(w.Parent) == option.None {
 				parents[w.Parent] = parentage(t, w.Parent)
 			}
 		}
@@ -83,9 +84,9 @@ func ListWithin(t Tool, o ListOptions, bound int) []Listed fails NoBase | Unkept
 	let mut out = []Listed{}
 	for w in all {
 		let status json.Optional[LaneStatus] = match parents.Get(w.Parent) {
-		case Some[Parentage] as p:
+		case option.Some[Parentage] as p:
 			if w.State == Active { json.Present[LaneStatus]{Value: laneStatus(t, w, p.Value, bound)} } else { json.Absent }
-		case None:
+		case option.None:
 			json.Absent
 		}
 		out = out.Append(Listed{Name: w.Name, Id: w.Id, Path: w.Path, Parent: w.Parent, Branch: w.Branch, Cloner: w.Cloner, State: w.State, Since: w.Since, Base: w.Base, Latest: w.Latest, Deps: w.Deps, Token: w.Token, Moving: w.Moving, Pinned: w.Pinned, Until: w.Until, Status: status})

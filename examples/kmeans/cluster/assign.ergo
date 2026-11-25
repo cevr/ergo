@@ -22,7 +22,7 @@ func Split(n int, parts int) []Chunk {
 // AssignChunk is the Sums of the points from..to against the centroids
 // that flat holds (Flat).
 func AssignChunk(points []Point, from int, to int, flat []int32) Sums {
-	let mut s = Empty(len(flat) / Dims)
+	let mut s = Empty(flat.Len() / Dims)
 	for i in from..to {
 		let p = points[i]
 		let (j, d) = Nearest(p, flat)
@@ -35,8 +35,8 @@ func AssignChunk(points []Point, from int, to int, flat []int32) Sums {
 // workers tasks at once and merged in order.
 func Assign(points []Point, cents []Point, workers int) Sums {
 	let flat = Flat(cents)
-	let parts = tasks.Transform(Split(len(points), workers), workers, func(c Chunk) Sums { AssignChunk(points, c.From, c.To, flat) })
-	let mut total = Empty(len(cents))
+	let parts = tasks.Transform(Split(points.Len(), workers), workers, func(c Chunk) Sums { AssignChunk(points, c.From, c.To, flat) })
+	let mut total = Empty(cents.Len())
 	for part in parts {
 		total = Merge(total, part)
 	}
@@ -49,7 +49,7 @@ func Assign(points []Point, cents []Point, workers int) Sums {
 // inertia from rising: the old centroid is an integer point too.
 func Update(cents []Point, s Sums) []Point {
 	let mut next = []Point{}
-	for j in 0..len(cents) {
+	for j in 0..cents.Len() {
 		let n = s.Count[j]
 		if n == 0 {
 			next = next.Append(cents[j])
@@ -78,9 +78,9 @@ func floorDiv(a int, b int) int {
 law SplitDoesNotMatter(xs []int, ys []int, w int) {
 	let points = pointsOfWindows(xs)
 	let cents = pointsOfWindows(ys)
-	if len(cents) == 0 {
+	if cents.Len() == 0 {
 		return true
 	}
 	let workers = 1 + (w%9+9)%9
-	Assign(points, cents, workers) == AssignChunk(points, 0, len(points), Flat(cents))
+	Assign(points, cents, workers) == AssignChunk(points, 0, points.Len(), Flat(cents))
 }

@@ -2,13 +2,14 @@
 // a plain slice, newest first, with every operation a linear scan. It is
 // slow and obviously right; the Cache is fast and must agree with it.
 
+import option
 import slices
 
 // Op is one operation of a run against a cache.
 type Op = PutOp{Key int, Value int} | GetOp{Key int} | RemoveOp{Key int}
 
 // Outcome is what an operation returns.
-type Outcome = Got{Value Option[int]} | Stored{Evicted Option[Entry[int, int]]} | Removed{Was bool}
+type Outcome = Got{Value option.Option[int]} | Stored{Evicted option.Option[Entry[int, int]]} | Removed{Was bool}
 
 // Model is a cache of capacity entries, newest first.
 type Model { capacity int, entries []Entry[int, int] }
@@ -51,38 +52,38 @@ func Step(m Model, op Op) (Model, Outcome) {
 	case PutOp as p:
 		let rest = m.without(p.Key)
 		let mut out = []Entry[int, int]{Entry[int, int]{Key: p.Key, Value: p.Value}}
-		let mut evicted Option[Entry[int, int]] = None
+		let mut evicted option.Option[Entry[int, int]] = option.None
 		for i, e in rest {
 			if i+1 < m.capacity {
 				out = out.Append(e)
 			} else {
-				evicted = Some{e}
+				evicted = option.Some{e}
 			}
 		}
-		if len(rest) < len(m.entries) {
-			evicted = None
+		if rest.Len() < m.entries.Len() {
+			evicted = option.None
 		}
 		(Model{..m, entries: out}, Stored{Evicted: evicted})
 	case GetOp as g:
-		let mut found Option[int] = None
+		let mut found option.Option[int] = option.None
 		for e in m.entries {
 			if e.Key == g.Key {
-				found = Some{e.Value}
+				found = option.Some{e.Value}
 			}
 		}
 		match found {
-		case Some[int] as v:
+		case option.Some[int] as v:
 			let mut out = []Entry[int, int]{Entry[int, int]{Key: g.Key, Value: v.Value}}
 			for e in m.without(g.Key) {
 				out = out.Append(e)
 			}
 			(Model{..m, entries: out}, Got{Value: found})
-		case None:
+		case option.None:
 			(m, Got{Value: found})
 		}
 	case RemoveOp as r:
 		let rest = m.without(r.Key)
-		(Model{..m, entries: rest}, Removed{Was: len(rest) < len(m.entries)})
+		(Model{..m, entries: rest}, Removed{Was: rest.Len() < m.entries.Len()})
 	}
 }
 

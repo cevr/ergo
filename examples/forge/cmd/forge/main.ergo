@@ -7,6 +7,7 @@
 
 import flag
 import io
+import option
 import os
 import forge/drive
 import forge/memory
@@ -30,21 +31,21 @@ func Rack(stock int) []forge.Slot {
 
 // read is the options of args, None after help, or the end of the
 // program: help prints the usage, and any other failure exits 2 with it.
-func read(args []string) Option[Options] fails os.Exit needs io.Stdout {
+func read(args []string) option.Option[Options] fails os.Exit needs io.Stdout {
 	let set = Set()
 	let v = flag.Parse(set, args) catch {
 	case err:
 		try flag.Exit(err, flag.UsageText(set))
-		return None
+		return option.None
 	}
 	let o = Options{Brief: Brief.Get(v), Stock: Stock.Get(v)}
 	if o.Stock < 0 {
 		return os.Exit{Code: 2, Message: "forge: a stock of \(o.Stock) is less than none"}
 	}
-	Some[Options]{Value: o}
+	option.Some[Options]{Value: o}
 }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stdin: io.NewStdin(), forge.Assayer: memory.Standard() } { try run(os.Process.Args()) }
 }
 
@@ -52,9 +53,9 @@ func main() fails os.Exit needs Ambient {
 // over a recorder and catch its exit.
 func run(args []string) fails os.Exit needs io.Stdout | io.Stdin | forge.Assayer {
 	let o = match try read(args) {
-	case Some[Options] as s:
+	case option.Some[Options] as s:
 		s.Value
-	case None:
+	case option.None:
 		return
 	}
 	let text = io.Stdin.ReadAll() catch {

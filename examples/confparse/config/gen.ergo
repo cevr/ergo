@@ -8,30 +8,30 @@ let ports = []Port{1, 80, 443, 8080, 65535}
 let weights = []Weight{1, 2, 5, 10, 25, 50, 75, 99, 100}
 let names = []string{"a", "b", "eu-1", "us_2", "back\\up", "x y"}
 
-func Gen() Config needs Random {
+func Gen() Config needs rand.Random {
 	let mut ups = []Upstream{}
 	for n in names {
-		if Random.IntN(3) == 0 {
+		if rand.Random.IntN(3) == 0 {
 			ups = ups.Append(Upstream{
 				Name:   n,
-				Addr:   "10.0.0.\(Random.IntN(256)):\(ports[Random.IntN(len(ports))])",
-				Weight: weights[Random.IntN(len(weights))],
-				Backup: Random.IntN(2) == 0,
+				Addr:   "10.0.0.\(rand.Random.IntN(256)):\(ports[rand.Random.IntN(ports.Len())])",
+				Weight: weights[rand.Random.IntN(weights.Len())],
+				Backup: rand.Random.IntN(2) == 0,
 			})
 		}
 	}
 	let levels = []Level{Debug, Info, Warn, Error}
 	Config{
-		Name:      names[Random.IntN(len(names))],
-		Listen:    Listen{Host: hosts[Random.IntN(len(hosts))], Port: ports[Random.IntN(len(ports))]},
-		Log:       levels[Random.IntN(len(levels))],
+		Name:      names[rand.Random.IntN(names.Len())],
+		Listen:    Listen{Host: hosts[rand.Random.IntN(hosts.Len())], Port: ports[rand.Random.IntN(ports.Len())]},
+		Log:       levels[rand.Random.IntN(levels.Len())],
 		Upstreams: ups,
 	}
 }
 
 // Sample is the Valid configuration Gen builds from seed.
 func Sample(seed int) Config {
-	with context { Random: rand.Seeded(uint64(seed)) } {
+	with context { rand.Random: rand.Seeded(uint64(seed)) } {
 		Gen()
 	}
 }

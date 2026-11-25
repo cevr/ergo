@@ -6,11 +6,17 @@
       "origin": "wf10 PROPERTY-TESTING P5",
       "file": "examples/tally-board/board/board.ergo",
       "decl": "Step",
-      "from": "\t\tif len(s.Items) >= MaxItems {\n\t\t\treturn Ignore\n\t\t}\n",
-      "to": "\t\tif len(s.Items) >= MaxItems+1 {\n\t\t\treturn Ignore\n\t\t}\n",
+      "from": "\t\tif s.Items.Len() >= MaxItems {\n\t\t\treturn machines.Ignore\n\t\t}\n",
+      "to": "\t\tif s.Items.Len() >= MaxItems+1 {\n\t\t\treturn machines.Ignore\n\t\t}\n",
       "rule": "Adding items never exceeds MaxItems (law Explored: count-within-limit).",
-      "anchor": {"tests": ["examples:tally-board"]},
-      "killers": ["examples:tally-board"]
+      "anchor": {
+        "tests": [
+          "examples:tally-board"
+        ]
+      },
+      "killers": [
+        "examples:tally-board"
+      ]
     },
     {
       "name": "tally-load-never-settles",
@@ -20,8 +26,14 @@
       "from": "func syncDelay() duration { 100ms }",
       "to": "func syncDelay() duration { 10s }",
       "rule": "An async sync load settles within the default 2s virtual-time bound (law Explored: loads-settled).",
-      "anchor": {"tests": ["examples:tally-board"]},
-      "killers": ["examples:tally-board"]
+      "anchor": {
+        "tests": [
+          "examples:tally-board"
+        ]
+      },
+      "killers": [
+        "examples:tally-board"
+      ]
     },
     {
       "name": "tally-duplicate-button-name",
@@ -31,19 +43,31 @@
       "from": "func resetButtonLabel() string { \"Reset\" }",
       "to": "func resetButtonLabel() string { \"Add\" }",
       "rule": "No two buttons share one accessible name (law Explored: offers-unambiguous).",
-      "anchor": {"tests": ["examples:tally-board"]},
-      "killers": ["examples:tally-board"]
+      "anchor": {
+        "tests": [
+          "examples:tally-board"
+        ]
+      },
+      "killers": [
+        "examples:tally-board"
+      ]
     },
     {
       "name": "tally-back-after-delete-defect",
       "origin": "wf10 PROPERTY-TESTING P5",
       "file": "examples/tally-board/board/board.ergo",
       "decl": "Step",
-      "from": "\tcase RouteOpen as x:\n\t\tif !HasItem(s.Items, x.ID) {\n\t\t\treturn Enter[Board]{Next: Board{..s, Selected: None}}\n\t\t}\n",
-      "to": "\tcase RouteOpen as x:\n\t\tif false {\n\t\t\treturn Enter[Board]{Next: Board{..s, Selected: None}}\n\t\t}\n",
+      "from": "\tcase RouteOpen as x:\n\t\tif !HasItem(s.Items, x.ID) {\n\t\t\treturn machines.Enter[Board]{Next: Board{..s, Selected: option.None}}\n\t\t}\n",
+      "to": "\tcase RouteOpen as x:\n\t\tif false {\n\t\t\treturn machines.Enter[Board]{Next: Board{..s, Selected: option.None}}\n\t\t}\n",
       "rule": "Navigating back to a deleted item route clears selection instead of selecting a missing item (law Explored: selected-exists).",
-      "anchor": {"tests": ["examples:tally-board"]},
-      "killers": ["examples:tally-board"]
+      "anchor": {
+        "tests": [
+          "examples:tally-board"
+        ]
+      },
+      "killers": [
+        "examples:tally-board"
+      ]
     }
   ]
 }

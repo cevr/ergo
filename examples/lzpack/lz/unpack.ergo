@@ -9,13 +9,13 @@ type Decoder { win [65536]byte, out strings.Builder, total int, at int }
 
 func Unpack(packed string) string fails Corrupt {
 	let mut d = Decoder{win: [65536]byte{}, out: strings.NewBuilder(), total: 0, at: 0}
-	d.out.Grow(3 * len(packed))
-	let ok = len(packed) >= len(Magic) && strings.Slice(packed, 0, len(Magic)) == Magic
+	d.out.Grow(3 * packed.Len())
+	let ok = packed.Len() >= Magic.Len() && strings.Slice(packed, 0, Magic.Len()) == Magic
 	let mut b = openFrame(Opened{Ok: ok}) catch {
 	case r:
 		return Corrupt{Offset: 0, Reason: r}
 	}
-	d.at = len(Magic)
+	d.at = Magic.Len()
 	let mut end = Ended{Total: 0}
 	for {
 		let h = d.at
@@ -30,7 +30,7 @@ func Unpack(packed string) string fails Corrupt {
 		}
 		try d.block(packed, n)
 	}
-	if d.at < len(packed) {
+	if d.at < packed.Len() {
 		return Corrupt{Offset: d.at, Reason: rejectExtra(end)}
 	}
 	d.out.String()
@@ -90,11 +90,11 @@ law MalformedIsAFailure(body string, s string, k int, b int) {
 		""
 	}
 	let packed = Pack(sample(s, k))
-	let at = (k%len(packed) + len(packed)) % len(packed)
+	let at = (k%packed.Len() + packed.Len()) % packed.Len()
 	let mut changed = strings.NewBuilder()
 	changed.WriteString(strings.Slice(packed, 0, at))
 	changed.WriteByte(byte((b%256 + 256) % 256))
-	changed.WriteString(strings.Slice(packed, at+1, len(packed)))
+	changed.WriteString(strings.Slice(packed, at+1, packed.Len()))
 	let _ = Unpack(changed.String()) catch {
 	case Corrupt:
 		""
@@ -106,7 +106,7 @@ law MalformedIsAFailure(body string, s string, k int, b int) {
 	true
 }
 
-func truncated(packed string) Corrupt { Corrupt{Offset: len(packed), Reason: Truncated} }
+func truncated(packed string) Corrupt { Corrupt{Offset: packed.Len(), Reason: Truncated} }
 
 // uvarint reads a block header: at most three bytes of seven bits each,
 // low first. A third byte with its high bit set is BlockTooLong.
@@ -115,7 +115,7 @@ func uvarint(d mut Decoder, packed string) int fails Corrupt {
 	let mut v = 0
 	let mut shift = 0
 	for {
-		if d.at >= len(packed) {
+		if d.at >= packed.Len() {
 			return truncated(packed)
 		}
 		let b = int(packed[d.at])
@@ -136,7 +136,7 @@ func uvarint(d mut Decoder, packed string) int fails Corrupt {
 func ext(d mut Decoder, packed string, base int) int fails Corrupt {
 	let mut v = base
 	for {
-		if d.at >= len(packed) {
+		if d.at >= packed.Len() {
 			return truncated(packed)
 		}
 		let b = int(packed[d.at])
@@ -153,7 +153,7 @@ func block(d mut Decoder, packed string, n int) fails Corrupt {
 	let mut pos = 0
 	for pos < n {
 		let t = d.at
-		if t >= len(packed) {
+		if t >= packed.Len() {
 			return truncated(packed)
 		}
 		let tok = int(packed[t])
@@ -165,7 +165,7 @@ func block(d mut Decoder, packed string, n int) fails Corrupt {
 		if l > n-pos {
 			return Corrupt{Offset: t, Reason: Overrun}
 		}
-		if l > len(packed)-d.at {
+		if l > packed.Len()-d.at {
 			return truncated(packed)
 		}
 		d.literals(packed, l)
@@ -176,7 +176,7 @@ func block(d mut Decoder, packed string, n int) fails Corrupt {
 			}
 			return
 		}
-		if 2 > len(packed)-d.at {
+		if 2 > packed.Len()-d.at {
 			return truncated(packed)
 		}
 		let off = int(packed[d.at]) | int(packed[d.at+1])<<8

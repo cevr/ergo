@@ -3,10 +3,12 @@
 // each click.
 
 import actor
+import core
 import counterlist/rows
 import counterlist/screen
 import io
 import machines
+import option
 import strconv
 import strings
 import time
@@ -40,7 +42,7 @@ func Read(lines []string) []Line fails BadLine {
 		let n = i + 1
 		let text = strings.TrimSpace(line)
 		let words = strings.Fields(text)
-		if len(words) == 0 || strings.HasPrefix(text, "#") {
+		if words.Len() == 0 || strings.HasPrefix(text, "#") {
 			continue
 		}
 		let rest = words[1:]
@@ -52,12 +54,12 @@ func Read(lines []string) []Line fails BadLine {
 			}
 			out = out.Append(Given{Counts: counts})
 		case "add":
-			if len(rest) != 0 {
+			if rest.Len() != 0 {
 				return BadLine{Line: n, Why: "add takes no row"}
 			}
 			out = out.Append(click(button(screen.AddLabel), "add"))
 		case "inc", "dec", "remove":
-			if len(rest) != 1 {
+			if rest.Len() != 1 {
 				return BadLine{Line: n, Why: "\(words[0]) takes one row number"}
 			}
 			let key = try intOf(n, rest[0])
@@ -72,10 +74,10 @@ func Read(lines []string) []Line fails BadLine {
 			let at = ui.Within{In: ui.WithRole{Role: ui.Group, Name: rows.Name(key)}, At: button(label)}
 			out = out.Append(click(at, text))
 		case "press":
-			if len(rest) == 0 {
+			if rest.Len() == 0 {
 				return BadLine{Line: n, Why: "press takes a label"}
 			}
-			if rest[0] == "first" && len(rest) > 1 {
+			if rest[0] == "first" && rest.Len() > 1 {
 				out = out.Append(click(ui.First{At: button(strings.Join(rest[1:], " "))}, text))
 			} else {
 				out = out.Append(click(button(strings.Join(rest, " ")), text))
@@ -103,10 +105,10 @@ func button(label string) ui.Locator { ui.WithRole{Role: ui.Button, Name: label}
 func click(at ui.Locator, says string) Line { Click{Act: ui.ClickOn{At: at}, Says: says} }
 
 // Host is the list on the test host.
-type Host = ui.TestHost[rows.Rows, rows.Signal, Decision[rows.Rows, Never]]
+type Host = ui.TestHost[rows.Rows, rows.Signal, machines.Decision[rows.Rows, core.Never]]
 
 // App is the list's actor.
-type App = actor.Actor[rows.Rows, rows.Signal, Decision[rows.Rows, Never]]
+type App = actor.Actor[rows.Rows, rows.Signal, machines.Decision[rows.Rows, core.Never]]
 
 // Run reads the script from io.Stdin and plays it on the screen, on std
 // ui's test host over clock. It shows the screen first and after each
@@ -114,38 +116,38 @@ type App = actor.Actor[rows.Rows, rows.Signal, Decision[rows.Rows, Never]]
 // finds no node, or more than one, clicks nothing and says so, as a scene
 // that names no button or an ambiguous one fails. It returns the exit
 // status: 0, or 1 when the script is refused or the screen fails.
-func Run(clock time.Manual) int needs Console | io.Stdin | Scheduler {
+func Run(clock time.Manual) int needs io.Console | io.Stdin | time.Scheduler {
 	let mut lines = []string{}
 	for line in io.Stdin.Lines() {
 		lines = lines.Append(line)
 	}
 	let script = Read(lines) catch {
 	case BadLine as b:
-		Console.Println("? line \(b.Line): \(b.Why)")
+		io.Console.Println("? line \(b.Line): \(b.Why)")
 		return 1
 	}
 	play(clock, script) catch {
 	case actor.Stopped:
-		Console.Println("? the list stopped")
+		io.Console.Println("? the list stopped")
 		1
 	case ui.BadPatch as p:
-		Console.Println("? a patch is refused: \(p.Why)")
+		io.Console.Println("? a patch is refused: \(p.Why)")
 		1
 	}
 }
 
-func play(clock time.Manual, script []Line) int fails actor.Stopped | ui.BadPatch needs Console | Scheduler {
-	let mut given Option[[]int] = None
-	if len(script) > 0 {
+func play(clock time.Manual, script []Line) int fails actor.Stopped | ui.BadPatch needs io.Console | time.Scheduler {
+	let mut given option.Option[[]int] = option.None
+	if script.Len() > 0 {
 		match script[0] {
 		case Given as g:
-			given = Some{Value: g.Counts}
+			given = option.Some{Value: g.Counts}
 		case _:
 		}
 	}
 	let mut app = start(given)
 	let mut h = try ui.NewTestHost(app, screen.Screen, clock, 16)
-	Console.Println(Shown(&h))
+	io.Console.Println(Shown(&h))
 	for i, x in script {
 		match x {
 		case Given as g:
@@ -153,18 +155,18 @@ func play(clock time.Manual, script []Line) int fails actor.Stopped | ui.BadPatc
 				continue
 			}
 			app.Stop()
-			app = start(Some{Value: g.Counts})
+			app = start(option.Some{Value: g.Counts})
 			h = try ui.NewTestHost(app, screen.Screen, clock, 16)
-			Console.Println("> given \(strings.Join(slicesOf(g.Counts), " "))")
-			Console.Println(Shown(&h))
+			io.Console.Println("> given \(strings.Join(slicesOf(g.Counts), " "))")
+			io.Console.Println(Shown(&h))
 		case Click as c:
-			Console.Println("> \(c.Says)")
+			io.Console.Println("> \(c.Says)")
 			ui.Play(&h, []ui.Act{c.Act, ui.SettleAll}) catch {
 			case ui.NoNode as no:
-				Console.Println("? no node: \(no.Label)")
+				io.Console.Println("? no node: \(no.Label)")
 				continue
 			case ui.Ambiguous as a:
-				Console.Println("? \(a.Count) nodes: \(a.At)")
+				io.Console.Println("? \(a.Count) nodes: \(a.At)")
 				continue
 			case ui.Mismatch:
 				continue
@@ -175,9 +177,9 @@ func play(clock time.Manual, script []Line) int fails actor.Stopped | ui.BadPatc
 				app.Stop()
 				return p
 			}
-			Console.Println(Shown(&h))
+			io.Console.Println(Shown(&h))
 		case Stats:
-			Console.Println("> stats: \(ui.CountsLine(ui.Counts(&h)))")
+			io.Console.Println("> stats: \(ui.CountsLine(ui.Counts(&h)))")
 		}
 	}
 	app.Stop()
@@ -186,12 +188,12 @@ func play(clock time.Manual, script []Line) int fails actor.Stopped | ui.BadPatc
 
 // start starts the list's actor: from the given counts, or from the
 // machine's initial list.
-func start(given Option[[]int]) App needs Scheduler {
+func start(given option.Option[[]int]) App needs time.Scheduler {
 	match given {
-	case Some[[]int] as g:
-		actor.StartMachine(machines.Start(rows.CountersFrom{}, g.Value), 16, func(o Never) {})
-	case None:
-		actor.StartMachine(rows.Counters{}, 16, func(o Never) {})
+	case option.Some[[]int] as g:
+		actor.StartMachine(machines.Start(rows.CountersFrom{}, g.Value), 16, func(o core.Never) {})
+	case option.None:
+		actor.StartMachine(rows.Counters{}, 16, func(o core.Never) {})
 	}
 }
 

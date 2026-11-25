@@ -15,31 +15,31 @@ let binOps = []BinOp{Add, Sub, Mul, Div, Mod, Lt, Le, Gt, Ge, Eq, Ne, And, Or}
 
 let nowhere = Pos{Line: 0, Col: 0}
 
-func pick(xs []string) string needs Random { xs[Random.IntN(len(xs))] }
+func pick(xs []string) string needs rand.Random { xs[rand.Random.IntN(xs.Len())] }
 
 // GenExpr is an expression of depth at most depth.
-func GenExpr(depth int) Expr needs Random {
+func GenExpr(depth int) Expr needs rand.Random {
 	let leaf = depth <= 0
-	let n = if leaf { Random.IntN(6) } else { Random.IntN(15) }
+	let n = if leaf { rand.Random.IntN(6) } else { rand.Random.IntN(15) }
 	let d = depth - 1
 	match n {
 	case 0:
-		IntLit{N: Random.IntN(1000), At: nowhere}
+		IntLit{N: rand.Random.IntN(1000), At: nowhere}
 	case 1:
-		FloatLit{F: float64(Random.IntN(100000)) / 64.0, At: nowhere}
+		FloatLit{F: float64(rand.Random.IntN(100000)) / 64.0, At: nowhere}
 	case 2:
 		StrLit{S: pick([]string{"", "a b", "q\"\\", "line\n\ttab", "é"}), At: nowhere}
 	case 3:
-		BoolLit{B: Random.IntN(2) == 0, At: nowhere}
+		BoolLit{B: rand.Random.IntN(2) == 0, At: nowhere}
 	case 4:
 		NilLit{At: nowhere}
 	case 5:
 		Name{Id: pick(Names), At: nowhere}
 	case 6:
-		let op UnOp = if Random.IntN(2) == 0 { Neg } else { Not }
+		let op UnOp = if rand.Random.IntN(2) == 0 { Neg } else { Not }
 		Unary{Op: op, X: GenExpr(d), At: nowhere}
 	case 7, 8:
-		Binary{Op: binOps[Random.IntN(len(binOps))], L: GenExpr(d), R: GenExpr(d), At: nowhere}
+		Binary{Op: binOps[rand.Random.IntN(binOps.Len())], L: GenExpr(d), R: GenExpr(d), At: nowhere}
 	case 9:
 		Call{Fn: GenExpr(d), Args: genExprs(d), At: nowhere}
 	case 10:
@@ -52,7 +52,7 @@ func GenExpr(depth int) Expr needs Random {
 		let mut keys = []string{}
 		let mut vals = []Expr{}
 		for k in Keys {
-			if Random.IntN(2) == 0 {
+			if rand.Random.IntN(2) == 0 {
 				keys = keys.Append(k)
 				vals = vals.Append(GenExpr(d))
 			}
@@ -63,18 +63,18 @@ func GenExpr(depth int) Expr needs Random {
 	}
 }
 
-func genExprs(depth int) []Expr needs Random {
+func genExprs(depth int) []Expr needs rand.Random {
 	let mut out = []Expr{}
-	for _ in 0..Random.IntN(3) {
+	for _ in 0..rand.Random.IntN(3) {
 		out = out.Append(GenExpr(depth))
 	}
 	out
 }
 
-func genParams() []string needs Random {
+func genParams() []string needs rand.Random {
 	let mut out = []string{}
 	for n in Names {
-		if Random.IntN(3) == 0 {
+		if rand.Random.IntN(3) == 0 {
 			out = out.Append(n)
 		}
 	}
@@ -82,23 +82,23 @@ func genParams() []string needs Random {
 }
 
 // GenStmts is a list of statements of depth at most depth.
-func GenStmts(depth int) []Stmt needs Random {
+func GenStmts(depth int) []Stmt needs rand.Random {
 	let mut out = []Stmt{}
-	for _ in 0..Random.IntN(4) {
+	for _ in 0..rand.Random.IntN(4) {
 		out = out.Append(GenStmt(depth))
 	}
 	out
 }
 
 // GenStmt is a statement of depth at most depth.
-func GenStmt(depth int) Stmt needs Random {
+func GenStmt(depth int) Stmt needs rand.Random {
 	let d = depth - 1
-	let n = if depth <= 0 { 3 + Random.IntN(4) } else { Random.IntN(11) }
+	let n = if depth <= 0 { 3 + rand.Random.IntN(4) } else { rand.Random.IntN(11) }
 	match n {
 	case 0:
 		FnDecl{Name: pick(Names), Params: genParams(), Body: GenStmts(d), At: nowhere}
 	case 1:
-		let els = match Random.IntN(3) {
+		let els = match rand.Random.IntN(3) {
 		case 0:
 			[]Stmt{}
 		case 1:
@@ -112,7 +112,7 @@ func GenStmt(depth int) Stmt needs Random {
 	case 3:
 		Let{Name: pick(Names), Val: GenExpr(d), At: nowhere}
 	case 4:
-		let target = match Random.IntN(3) {
+		let target = match rand.Random.IntN(3) {
 		case 0:
 			Name{Id: pick(Names), At: nowhere}
 		case 1:
@@ -138,7 +138,7 @@ func GenStmt(depth int) Stmt needs Random {
 
 // Samples is ten programs of depth at most 4 from seed.
 func Samples(seed int) [][]Stmt {
-	with context { Random: rand.Seeded(uint64(seed)) } {
+	with context { rand.Random: rand.Seeded(uint64(seed)) } {
 		let mut out = [][]Stmt{}
 		for _ in 0..10 {
 			out = out.Append(GenStmts(4))

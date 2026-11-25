@@ -23,7 +23,7 @@ import (
 // (docs/spec/stdlib.md, v1 packages). log left it with its logging API
 // (std-spike C3): its records and levels are Ergo declarations, as time's
 // are.
-var v1Packages = []string{"cmp", "queue", "scope", "slices", "task", "trace"}
+var v1Packages = []string{"cmp", "queue", "scope", "slices", "task"}
 
 const v1Path = "ergo.local/prototype/runtime/v1"
 

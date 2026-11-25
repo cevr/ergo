@@ -2,6 +2,7 @@
 // Flaky is a pipeline.Runner whose stages fail their first tries, as a
 // flaky build does, and which counts the tries it ran.
 
+import option
 import pipeline/pipeline
 import sync
 
@@ -24,9 +25,9 @@ func NewFlaky() Flaky { Flaky{failing: Map[int, int]{}, rest: 1, ran: sync.NewRe
 func Run(f Flaky, id string, stage int, attempt int) bool fails pipeline.Offline {
 	f.ran.Update() func(n int) int { n + 1 }
 	let n = match f.failing.Get(stage) {
-	case Some[int] as v:
+	case option.Some[int] as v:
 		v.Value
-	case None:
+	case option.None:
 		f.rest
 	}
 	if n < 0 && attempt <= -n {

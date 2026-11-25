@@ -6,6 +6,7 @@
 // that come in. The address comes back from OnURL as the table's
 // Navigated.
 
+import option
 import querytable/dino
 import querytable/explorer
 import querytable/listbox
@@ -28,7 +29,7 @@ let BackLink = "← Back to Dinosaur Explorer"
 
 // Screen is the page for p.
 func Screen(f mut ui.Frame[explorer.Signal], p explorer.Page) {
-	ui.OnURL(f, func(u ui.URL) Option[explorer.Signal] { Some[explorer.Signal]{Value: explorer.OnTable{Signal: table.Navigated{Path: ui.Href(u)}}} })
+	ui.OnURL(f, func(u ui.URL) option.Option[explorer.Signal] { option.Some[explorer.Signal]{Value: explorer.OnTable{Signal: table.Navigated{Path: ui.Href(u)}}} })
 	keys(f, p)
 	ui.Column(f, ui.Plain()) {
 		ui.Text(f, "ergo")
@@ -39,7 +40,7 @@ func Screen(f mut ui.Frame[explorer.Signal], p explorer.Page) {
 		case query.NotFound as n:
 			heading(f, "404 — Page Not Found")
 			ui.Text(f, "The path \"\(n.Path)\" was not found.")
-			ui.Semantic(f, named(ui.Link, BackLink), Some[explorer.Signal]{Value: explorer.Followed{Path: query.Encode(query.Default)}}, ui.Plain()) {
+			ui.Semantic(f, named(ui.Link, BackLink), option.Some[explorer.Signal]{Value: explorer.Followed{Path: query.Encode(query.Default)}}, ui.Plain()) {
 				ui.Text(f, BackLink)
 			}
 		}
@@ -54,28 +55,28 @@ func keys(f mut ui.Frame[explorer.Signal], p explorer.Page) {
 		if !b.Open {
 			continue
 		}
-		ui.OnKey(f, func(k ui.KeyPress) Option[explorer.Signal] {
-			let sig Option[listbox.Signal] = match k.Name {
+		ui.OnKey(f, func(k ui.KeyPress) option.Option[explorer.Signal] {
+			let sig option.Option[listbox.Signal] = match k.Name {
 			case "ArrowDown":
-				Some{Value: listbox.Moved{By: 1}}
+				option.Some{Value: listbox.Moved{By: 1}}
 			case "ArrowUp":
-				Some{Value: listbox.Moved{By: -1}}
+				option.Some{Value: listbox.Moved{By: -1}}
 			case "Home":
-				Some{Value: listbox.Ended{Last: false}}
+				option.Some{Value: listbox.Ended{Last: false}}
 			case "End":
-				Some{Value: listbox.Ended{Last: true}}
+				option.Some{Value: listbox.Ended{Last: true}}
 			case "Enter", " ":
-				Some{Value: listbox.Picked{Index: b.Active}}
+				option.Some{Value: listbox.Picked{Index: b.Active}}
 			case "Escape":
-				Some{Value: listbox.Dismissed}
+				option.Some{Value: listbox.Dismissed}
 			case _:
-				None
+				option.None
 			}
 			match sig {
-			case Some[listbox.Signal] as s:
-				Some[explorer.Signal]{Value: explorer.OnList{Filter: fl, Signal: s.Value}}
-			case None:
-				None
+			case option.Some[listbox.Signal] as s:
+				option.Some[explorer.Signal]{Value: explorer.OnList{Filter: fl, Signal: s.Value}}
+			case option.None:
+				option.None
 			}
 		})
 	}
@@ -90,20 +91,20 @@ func browse(f mut ui.Frame[explorer.Signal], p explorer.Page, q query.Query) {
 		list(f, explorer.PeriodFilter, p.Period, explorer.PeriodIndex(q.Period))
 	}
 	let rows = table.Rows(q)
-	ui.Text(f, "Showing \(len(rows)) of \(len(dino.All)) dinosaurs")
-	if len(rows) == 0 {
+	ui.Text(f, "Showing \(rows.Len()) of \(dino.All.Len()) dinosaurs")
+	if rows.Len() == 0 {
 		ui.Text(f, Empty)
 		ui.Text(f, "Try broadening your search or removing filters.")
 	} else {
-		ui.Semantic(f, named(ui.Table, "Dinosaurs"), None, ui.Plain()) {
-			ui.Semantic(f, named(ui.TableRow, "Columns"), None, ui.Plain()) {
+		ui.Semantic(f, named(ui.Table, "Dinosaurs"), option.None, ui.Plain()) {
+			ui.Semantic(f, named(ui.TableRow, "Columns"), option.None, ui.Plain()) {
 				for c in query.Columns {
 					header(f, c, q.Sorting)
 				}
 			}
 			ui.Each(f, rows, func(d dino.Dinosaur) ui.Key { ui.ByText(d.Name) }) func(d dino.Dinosaur) {
 				ui.Same(f, ui.ByText(d.Name)) {
-					ui.Semantic(f, named(ui.TableRow, d.Name), None, ui.Plain()) {
+					ui.Semantic(f, named(ui.TableRow, d.Name), option.None, ui.Plain()) {
 						cell(f, d.Name)
 						cell(f, dino.PeriodName(d.Period))
 						cell(f, dino.DietName(d.Diet))
@@ -163,8 +164,8 @@ func header(f mut ui.Frame[explorer.Signal], c query.Column, s query.Sorting) {
 	case _:
 		""
 	}
-	ui.Semantic(f, named(ui.TableCell, Label(c)), None, ui.Plain()) {
-		ui.Semantic(f, named(ui.Button, said), Some[explorer.Signal]{Value: explorer.OnTable{Signal: table.Clicked{Column: c}}}, ui.Plain()) {
+	ui.Semantic(f, named(ui.TableCell, Label(c)), option.None, ui.Plain()) {
+		ui.Semantic(f, named(ui.Button, said), option.Some[explorer.Signal]{Value: explorer.OnTable{Signal: table.Clicked{Column: c}}}, ui.Plain()) {
 			ui.Text(f, Label(c))
 			ui.Text(f, mark)
 		}
@@ -172,7 +173,7 @@ func header(f mut ui.Frame[explorer.Signal], c query.Column, s query.Sorting) {
 }
 
 func cell(f mut ui.Frame[explorer.Signal], text string) {
-	ui.Semantic(f, named(ui.TableCell, text), None, ui.Plain()) {
+	ui.Semantic(f, named(ui.TableCell, text), option.None, ui.Plain()) {
 		ui.Text(f, text)
 	}
 }
@@ -193,16 +194,16 @@ func ItemLabel(fl explorer.Filter, i int) string {
 	match fl {
 	case explorer.DietFilter:
 		match explorer.DietAt(i) {
-		case Some[dino.Diet] as d:
+		case option.Some[dino.Diet] as d:
 			dino.DietName(d.Value)
-		case None:
+		case option.None:
 			"All Diets"
 		}
 	case explorer.PeriodFilter:
 		match explorer.PeriodAt(i) {
-		case Some[dino.Period] as p:
+		case option.Some[dino.Period] as p:
 			dino.PeriodName(p.Value)
-		case None:
+		case option.None:
 			"All Periods"
 		}
 	}
@@ -212,16 +213,16 @@ func ItemLabel(fl explorer.Filter, i int) string {
 // item selected, and while it is open the list of items, the selected
 // one marked and the active one known to the list.
 func list(f mut ui.Frame[explorer.Signal], fl explorer.Filter, b listbox.Box, selected int) {
-	ui.Semantic(f, named(ui.Group, ListName(fl)), None, ui.Plain()) {
-		let button = ui.Access{..named(ui.Button, ItemLabel(fl, selected)), HasPopup: true, Expanded: Some[bool]{Value: b.Open}}
-		ui.Semantic(f, button, Some[explorer.Signal]{Value: explorer.OnList{Filter: fl, Signal: listbox.Pressed{Selected: selected}}}, ui.Plain()) {
+	ui.Semantic(f, named(ui.Group, ListName(fl)), option.None, ui.Plain()) {
+		let button = ui.Access{..named(ui.Button, ItemLabel(fl, selected)), HasPopup: true, Expanded: option.Some[bool]{Value: b.Open}}
+		ui.Semantic(f, button, option.Some[explorer.Signal]{Value: explorer.OnList{Filter: fl, Signal: listbox.Pressed{Selected: selected}}}, ui.Plain()) {
 			ui.Text(f, ItemLabel(fl, selected))
 		}
 		if b.Open {
-			ui.Semantic(f, ui.Access{..named(ui.Menu, ListName(fl)), Value: Some[string]{Value: ItemLabel(fl, b.Active)}}, None, ui.Plain()) {
+			ui.Semantic(f, ui.Access{..named(ui.Menu, ListName(fl)), Value: option.Some[string]{Value: ItemLabel(fl, b.Active)}}, option.None, ui.Plain()) {
 				for i in 0..b.Count {
-					let item = ui.Access{..named(ui.MenuItem, ItemLabel(fl, i)), Selected: Some[bool]{Value: i == selected}}
-					ui.Semantic(f, item, Some[explorer.Signal]{Value: explorer.OnList{Filter: fl, Signal: listbox.Picked{Index: i}}}, ui.Plain()) {
+					let item = ui.Access{..named(ui.MenuItem, ItemLabel(fl, i)), Selected: option.Some[bool]{Value: i == selected}}
+					ui.Semantic(f, item, option.Some[explorer.Signal]{Value: explorer.OnList{Filter: fl, Signal: listbox.Picked{Index: i}}}, ui.Plain()) {
 						ui.Text(f, ItemLabel(fl, i))
 					}
 				}
@@ -240,8 +241,8 @@ func Metres(tenths int) string {
 func Kilograms(kg int) string {
 	let s = strconv.Itoa(kg)
 	let mut out = ""
-	for i in 0..len(s) {
-		if i > 0 && (len(s)-i)%3 == 0 {
+	for i in 0..s.Len() {
+		if i > 0 && (s.Len()-i)%3 == 0 {
 			out = out + ","
 		}
 		out = out + s[i:i+1]
@@ -250,12 +251,12 @@ func Kilograms(kg int) string {
 }
 
 func heading(f mut ui.Frame[explorer.Signal], text string) {
-	ui.Semantic(f, ui.Access{..named(ui.Heading, text), Level: Some[int]{Value: 1}}, None, ui.Plain()) {
+	ui.Semantic(f, ui.Access{..named(ui.Heading, text), Level: option.Some[int]{Value: 1}}, option.None, ui.Plain()) {
 		ui.Text(f, text)
 	}
 }
 
 // named is the access of a node with a role and a name.
 func named(role ui.Role, name string) ui.Access {
-	ui.Access{Role: role, Name: name, Disabled: false, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: ui.NoKey, Rels: []ui.Rel{}}
+	ui.Access{Role: role, Name: name, Disabled: false, Description: "", Checked: option.None, Value: option.None, Selected: option.None, Expanded: option.None, Pressed: option.None, Invalid: false, Busy: false, HasPopup: false, Level: option.None, Mixed: false, Current: option.None, Modal: false, MultiSelectable: false, Range: option.None, Key: ui.NoKey, Rels: []ui.Rel{}}
 }

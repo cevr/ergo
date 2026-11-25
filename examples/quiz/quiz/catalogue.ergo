@@ -4,6 +4,8 @@
 // skipped by a pure settle step, an eventless transition. It is pure: no
 // function needs a capability.
 
+import option
+
 // Item is a thing to pick, with the tags that answers test.
 type Item { Name string, Tags []string }
 
@@ -35,15 +37,15 @@ func Keeps(c Choice, it Item) bool {
 
 // ChoiceOf is the choice an answer gives in set, or None when the answer
 // names no question or choice of set.
-func ChoiceOf(set Set, a Answer) Option[Choice] {
-	if a.Question < 0 || a.Question >= len(set.Questions) {
-		return None
+func ChoiceOf(set Set, a Answer) option.Option[Choice] {
+	if a.Question < 0 || a.Question >= set.Questions.Len() {
+		return option.None
 	}
 	let q = set.Questions[a.Question]
-	if a.Choice < 0 || a.Choice >= len(q.Choices) {
-		return None
+	if a.Choice < 0 || a.Choice >= q.Choices.Len() {
+		return option.None
 	}
-	Some[Choice]{Value: q.Choices[a.Choice]}
+	option.Some[Choice]{Value: q.Choices[a.Choice]}
 }
 
 // Left is the items of set that every answer keeps, in catalogue order.
@@ -54,11 +56,11 @@ func Left(set Set, answers []Answer) []Item {
 		let mut kept = true
 		for a in answers {
 			match ChoiceOf(set, a) {
-			case Some[Choice] as c:
+			case option.Some[Choice] as c:
 				if !Keeps(c.Value, it) {
 					kept = false
 				}
-			case None:
+			case option.None:
 			}
 		}
 		if kept {
@@ -84,7 +86,7 @@ func Kept(c Choice, items []Item) int {
 func Narrows(q Question, items []Item) bool {
 	for c in q.Choices {
 		let n = Kept(c, items)
-		if n > 0 && n < len(items) {
+		if n > 0 && n < items.Len() {
 			return true
 		}
 	}

@@ -1,3 +1,4 @@
+import option
 import sql
 import strconv
 import strings
@@ -75,13 +76,13 @@ func codeText(code int) string {
 
 func constraintOf(message string) string {
 	match strings.Cut(message, "UNIQUE constraint failed: ") {
-	case Some as h:
+	case option.Some as h:
 		stripTrailingCode(h.Value.After)
-	case None:
+	case option.None:
 		match strings.Cut(message, "PRIMARY KEY constraint failed: ") {
-		case Some as h:
+		case option.Some as h:
 			stripTrailingCode(h.Value.After)
-		case None:
+		case option.None:
 			stripTrailingCode(message)
 		}
 	}
@@ -89,9 +90,9 @@ func constraintOf(message string) string {
 
 func stripTrailingCode(text string) string {
 	match strings.Cut(text, " (") {
-	case Some as h:
+	case option.Some as h:
 		strings.TrimSpace(h.Value.Before)
-	case None:
+	case option.None:
 		strings.TrimSpace(text)
 	}
 }

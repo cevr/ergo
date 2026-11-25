@@ -61,7 +61,7 @@ law GenerateParses() {
 		case cluster.Malformed:
 			return false
 		}
-		len(points) == count
+		points.Len() == count
 	})) == ""
 	true
 }

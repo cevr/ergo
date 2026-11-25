@@ -346,6 +346,15 @@ The examples runner checks every package at both seams in one run. Each check-ti
 
 A false law names the expression that returned false, including a chosen nested tail or explicit return, at both seams. Its declaration is related information: `declaration` beside `site` in check JSON, and an indented `law declared at file:line:column` line in the native report. A reachability law names its clause, since it has no false body expression.
 
+## Privacy-preserving differential verification
+
+When migrating a service, serializer, or LLM pipeline from a baseline implementation to a candidate implementation, `std/testing` provides a privacy-preserving checkpointed differential harness alongside deterministic LLM replay in `std/llm/memory`:
+
+- **Redacted structural fingerprints (`testing.DiffFingerprint`, `testing.CompareRedacted`, `testing.CompareRedactedText`, `testing.FingerprintKey`)**: compares baseline and candidate bytes and returns `option.None` when identical, or a `DiffFingerprint` carrying only `(Step, Piece, FirstDiffOffset, BaselineLen, CandidateLen, Tags)` — storing and formatting zero payload bytes so customer prompts or secrets never leak into logs or grouping keys.
+- **Deduplication and fair cohort comparison (`testing.GroupByFingerprint`, `testing.CohortCompare`, `testing.MatchesCohort`)**: buckets redacted fingerprints by canonical `FingerprintKey` (ordered by `Count` descending, then `Key` ascending) and compares before/after snapshots filtered strictly to records matching every required cohort tag (`["prompt_caching", "tools"]`, etc.).
+- **Checkpointed dual execution (`testing.CheckpointLog`, `testing.Record`, `testing.RecordText`, `testing.CompareCheckpoints`, `testing.Differential`, `testing.RunShadow`)**: runs `baseline` and `candidate` with isolated checkpoint logs, appends the encoded final `"output"` checkpoint, and stops at the earliest diverging `(Step, Piece)` so input-stage bugs are separated from output-stage bugs.
+- **Deterministic two-sided LLM inner loop (`llm/memory.ScriptedModel`, `llm/memory.NewScriptedModel`, `llm/memory.ScriptFromReplies`, `llm/memory.ForkScript`)**: replays an ordered script of `ScriptReply` (text, reasoning, tool calls, stop reason, usage), `ScriptRaw`, and `ScriptFault` steps while recording every incoming `llm.Request` (`RecordedRequests`, `CallCount`, `Remaining`) and failing closed with `llm.InvalidResponse` when exhausted. Forking a script with `ForkScript` lets both `baseline` and `candidate` execute against identical downstream model replies locally in sub-second runs without touching the network.
+
 ## Example programs
 
 Each program of `examples/` runs its tests and laws in the gate: `go run ./scripts/examples` runs `ergo test <program>/main.ergo` for every program of one folder, and `ergo test <folder>` for every package folder of a program of packages, and fails the program when a test fails ([examples/README.md](../examples/README.md)).

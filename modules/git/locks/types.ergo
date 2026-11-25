@@ -4,6 +4,8 @@
 // provider using O_CREAT|O_EXCL, fsync(file), root-confined rename, and
 // fsync(parentDir).
 
+import option
+
 // Durability selects the persistence guarantee enforced on Commit.
 // Atomic requires complete staged bytes before rename; Durable requires
 // SyncFile before RenamePublish AND SyncDir after RenamePublish.
@@ -81,7 +83,7 @@ type LockOps {
 	RenamePublish(lockPath string, targetPath string) fails PublishFailed,
 	RemoveLock(lockPath string) fails NotHeld,
 	SyncDir(dirPath string) fails DirSyncUncertain,
-	ReadTarget(targetPath string) Option[string],
+	ReadTarget(targetPath string) option.Option[string],
 	LockExists(lockPath string) bool,
 
 	// CreateExclusiveRejectsSecondOwner: a second exclusive create on a held

@@ -44,7 +44,10 @@ func evaluatedTestRun(opts fileOptions, l loaded, stdout, stderr io.Writer, keep
 		return true, err
 	}
 	if len(answer.RefutedTapes) > 0 || len(answer.PassedStored) > 0 {
-		if _, _, rerr := updateCasesStore(opts.file, l.analysis.Root().Package, answer.RefutedTapes, answer.PassedStored, false); rerr != nil {
+		ledgerWriteMu.Lock()
+		_, _, rerr := updateCasesStore(opts.file, l.analysis.Root().Package, answer.RefutedTapes, answer.PassedStored, false)
+		ledgerWriteMu.Unlock()
+		if rerr != nil {
 			fmt.Fprintf(stderr, "ergo.cases: %v\n", rerr)
 		}
 	}
@@ -52,7 +55,7 @@ func evaluatedTestRun(opts fileOptions, l loaded, stdout, stderr io.Writer, keep
 		_, _ = io.WriteString(stderr, answer.Stderr)
 		return true, exitStatusError{code: answer.Exit, handled: true}
 	}
-	if err := writeLedger(opts, l); err != nil {
+	if err := writeLedgerIO(opts, l, stdout, stderr); err != nil {
 		return true, err
 	}
 	// A passing answer is kept as the warm answer, as a native pass is.
@@ -61,6 +64,8 @@ func evaluatedTestRun(opts fileOptions, l loaded, stdout, stderr io.Writer, keep
 	var result testResult
 	result.stdout.WriteString(answer.Stdout)
 	result.obligations = nativeObligations(l.analysis.Root().Package, opts)
-	keep(result.encode())
+	if keep != nil {
+		keep(result.encode())
+	}
 	return true, nil
 }

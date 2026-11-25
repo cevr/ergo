@@ -1,6 +1,7 @@
 // The crossing's tests: a worked cycle. `ergo test` runs the laws.
 
 import machines
+import option
 
 // play is the colours after each cue from Start(), joined by spaces.
 func play(cues []Cue) string {
@@ -21,7 +22,7 @@ test ButtonEndsGreenAtMinGreen {
 	let mut l = machines.Next(Start(), Step(Start(), Tick{At: 31s}))
 	assert Colour(l) == "green" && SinceOf(l) == 30s
 	l = machines.Next(l, Step(l, Button{At: 35s}))
-	assert Deadline(l) == Some[duration]{Value: 50s}
+	assert Deadline(l) == option.Some[duration]{Value: 50s}
 	l = machines.Next(l, Step(l, Tick{At: 49s}))
 	assert Colour(l) == "green"
 	l = machines.Next(l, Step(l, Tick{At: 57s}))

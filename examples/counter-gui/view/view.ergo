@@ -3,6 +3,7 @@
 // host shows it (ui.TestHost here, the MyGo window in hosts/mygo).
 
 import ergo.local/prototype/examples/countergui/counter
+import option
 import ui
 
 // Steps are the steps the screen offers.
@@ -34,16 +35,16 @@ func View(f mut ui.Frame[counter.Op], c counter.Count) {
 				ui.Check(f, "by \(by)", c.By == by, counter.StepBy{By: by})
 			}
 		}
-		ui.OnKey(f, func(k ui.KeyPress) Option[counter.Op] {
+		ui.OnKey(f, func(k ui.KeyPress) option.Option[counter.Op] {
 			match k.Name {
 			case "+":
-				Some{Value: counter.Inc}
+				option.Some{Value: counter.Inc}
 			case "-":
-				Some{Value: counter.Dec}
+				option.Some{Value: counter.Dec}
 			case "0":
-				Some{Value: counter.Reset}
+				option.Some{Value: counter.Reset}
 			case _:
-				None
+				option.None
 			}
 		})
 	}

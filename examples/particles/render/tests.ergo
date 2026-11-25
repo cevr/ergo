@@ -17,15 +17,15 @@ test BlankBox {
 test EveryParticleIsDrawn {
 	let count = gen.Named("count", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(0, 29) })
 	let s0 = gen.Below(uint64(0))
-	let w = with context { Random: rand.Seeded(s0) } { world.Spawn(10, 4, count, 0) } catch {
+	let w = with context { rand.Random: rand.Seeded(s0) } { world.Spawn(10, 4, count, 0) } catch {
 	case world.BadSize, world.BadLoss, world.TooMany:
 		world.Blank()
 	}
 	let lines = Box(w)
-	assert len(lines) == w.Height()+2
+	assert lines.Len() == w.Height()+2
 	let mut drawn = 0
 	for line in lines {
-		assert len(line) == w.Width()+2
+		assert line.Len() == w.Width()+2
 		drawn = drawn + strings.Count(line, "o")
 		for k in 2..10 {
 			drawn = drawn + k*strings.Count(line, "\(k)")

@@ -1,3 +1,6 @@
+import machines
+import option
+
 // Screen is the screen a session shows. Home has its own, shorter wait.
 type Screen = Home{} | Menu{} | Form{}
 
@@ -56,18 +59,18 @@ func Seconds(d duration) int { int((int64(d) + 999999999) / 1000000000) }
 // entry opens and drops when the entry ends. Its wait is computed from
 // the state: a session on the home screen waits less than one on another
 // screen, and the assist mode waits longer.
-func Timer(k Display) Option[Timeout[Signal]] {
+func Timer(k Display) option.Option[machines.Timeout[Signal]] {
 	match k {
 	case Suspended:
-		None
+		option.None
 	case Waiting as w:
-		Some[Timeout[Signal]]{Value: Timeout[Signal]{In: WaitFor(w.P, w.S), Signal: Idle}}
+		option.Some[machines.Timeout[Signal]]{Value: machines.Timeout[Signal]{In: WaitFor(w.P, w.S), Signal: Idle}}
 	case Prompt as p:
-		Some[Timeout[Signal]]{Value: Timeout[Signal]{In: p.P.PromptFor, Signal: Expired}}
+		option.Some[machines.Timeout[Signal]]{Value: machines.Timeout[Signal]{In: p.P.PromptFor, Signal: Expired}}
 	case Tapping as t:
-		Some[Timeout[Signal]]{Value: Timeout[Signal]{In: t.P.TapWindow, Signal: WindowClosed}}
+		option.Some[machines.Timeout[Signal]]{Value: machines.Timeout[Signal]{In: t.P.TapWindow, Signal: WindowClosed}}
 	case Admin as a:
-		Some[Timeout[Signal]]{Value: Timeout[Signal]{In: a.P.AdminFor, Signal: AdminIdle}}
+		option.Some[machines.Timeout[Signal]]{Value: machines.Timeout[Signal]{In: a.P.AdminFor, Signal: AdminIdle}}
 	}
 }
 
@@ -75,7 +78,7 @@ func Timer(k Display) Option[Timeout[Signal]] {
 // restarts its timer; a Tick in Prompt only stays, so it never moves the
 // prompt's deadline; the end of a session Emits its event and moves to
 // Suspended. A signal that means nothing in a state is Ignore.
-func Step(k Display, s Signal) Decision[Display, Event] {
+func Step(k Display, s Signal) machines.Decision[Display, Event] {
 	match k {
 	case Suspended as z:
 		suspended(z, s)
@@ -90,11 +93,11 @@ func Step(k Display, s Signal) Decision[Display, Event] {
 	}
 }
 
-func enter(k Display) Decision[Display, Event] { Enter[Display]{Next: k} }
+func enter(k Display) machines.Decision[Display, Event] { machines.Enter[Display]{Next: k} }
 
-func emit(k Display, e Event) Decision[Display, Event] { Emit[Display, Event]{Next: k, Output: e} }
+func emit(k Display, e Event) machines.Decision[Display, Event] { machines.Emit[Display, Event]{Next: k, Output: e} }
 
-func suspended(z Suspended, s Signal) Decision[Display, Event] {
+func suspended(z Suspended, s Signal) machines.Decision[Display, Event] {
 	let home = Session{Screen: Home, Assist: false}
 	match s {
 	case Touch:
@@ -104,25 +107,25 @@ func suspended(z Suspended, s Signal) Decision[Display, Event] {
 	case Assist as a:
 		emit(Waiting{P: z.P, S: Session{Screen: Home, Assist: a.On}}, Began)
 	case CornerTap:
-		Ignore
+		machines.Ignore
 	case Tick:
-		Ignore
+		machines.Ignore
 	case Finish:
-		Ignore
+		machines.Ignore
 	case Leave:
-		Ignore
+		machines.Ignore
 	case Idle:
-		Ignore
+		machines.Ignore
 	case Expired:
-		Ignore
+		machines.Ignore
 	case WindowClosed:
-		Ignore
+		machines.Ignore
 	case AdminIdle:
-		Ignore
+		machines.Ignore
 	}
 }
 
-func waiting(w Waiting, s Signal) Decision[Display, Event] {
+func waiting(w Waiting, s Signal) machines.Decision[Display, Event] {
 	match s {
 	case Touch:
 		enter(w)
@@ -133,25 +136,25 @@ func waiting(w Waiting, s Signal) Decision[Display, Event] {
 	case CornerTap:
 		enter(Tapping{P: w.P, S: w.S, Taps: 1})
 	case Tick:
-		Ignore
+		machines.Ignore
 	case Finish:
 		emit(Suspended{P: w.P}, Ended)
 	case Leave:
-		Ignore
+		machines.Ignore
 	case Idle:
 		enter(Prompt{P: w.P, S: w.S, Left: Seconds(w.P.PromptFor)})
 	case Expired:
-		Ignore
+		machines.Ignore
 	case WindowClosed:
-		Ignore
+		machines.Ignore
 	case AdminIdle:
-		Ignore
+		machines.Ignore
 	}
 }
 
 // prompting: any activity continues the session, and only the prompt's
 // own timer abandons it.
-func prompting(p Prompt, s Signal) Decision[Display, Event] {
+func prompting(p Prompt, s Signal) machines.Decision[Display, Event] {
 	match s {
 	case Touch:
 		enter(Waiting{P: p.P, S: p.S})
@@ -162,26 +165,26 @@ func prompting(p Prompt, s Signal) Decision[Display, Event] {
 	case CornerTap:
 		enter(Waiting{P: p.P, S: p.S})
 	case Tick:
-		Stay[Display]{Next: Prompt{..p, Left: if p.Left > 0 { p.Left - 1 } else { 0 }}}
+		machines.Stay[Display]{Next: Prompt{..p, Left: if p.Left > 0 { p.Left - 1 } else { 0 }}}
 	case Finish:
 		emit(Suspended{P: p.P}, Ended)
 	case Leave:
-		Ignore
+		machines.Ignore
 	case Idle:
-		Ignore
+		machines.Ignore
 	case Expired:
 		emit(Suspended{P: p.P}, Abandoned)
 	case WindowClosed:
-		Ignore
+		machines.Ignore
 	case AdminIdle:
-		Ignore
+		machines.Ignore
 	}
 }
 
 // tapping: each corner tap within the window re-enters Tapping, which
 // restarts the window; the fifth opens the admin screen. Any other
 // activity, or the window closing, goes back to the session.
-func tapping(t Tapping, s Signal) Decision[Display, Event] {
+func tapping(t Tapping, s Signal) machines.Decision[Display, Event] {
 	match s {
 	case Touch:
 		enter(Waiting{P: t.P, S: t.S})
@@ -196,46 +199,46 @@ func tapping(t Tapping, s Signal) Decision[Display, Event] {
 			enter(Tapping{..t, Taps: t.Taps + 1})
 		}
 	case Tick:
-		Ignore
+		machines.Ignore
 	case Finish:
 		emit(Suspended{P: t.P}, Ended)
 	case Leave:
-		Ignore
+		machines.Ignore
 	case Idle:
-		Ignore
+		machines.Ignore
 	case Expired:
-		Ignore
+		machines.Ignore
 	case WindowClosed:
 		enter(Waiting{P: t.P, S: t.S})
 	case AdminIdle:
-		Ignore
+		machines.Ignore
 	}
 }
 
 // admin: a touch keeps the admin screen open; leaving it, or leaving it
 // unused, closes it and ends the session.
-func admin(a Admin, s Signal) Decision[Display, Event] {
+func admin(a Admin, s Signal) machines.Decision[Display, Event] {
 	match s {
 	case Touch:
 		enter(a)
 	case Open:
 		enter(a)
 	case Assist:
-		Ignore
+		machines.Ignore
 	case CornerTap:
-		Ignore
+		machines.Ignore
 	case Tick:
-		Ignore
+		machines.Ignore
 	case Finish:
-		Ignore
+		machines.Ignore
 	case Leave:
 		emit(Suspended{P: a.P}, AdminClosed)
 	case Idle:
-		Ignore
+		machines.Ignore
 	case Expired:
-		Ignore
+		machines.Ignore
 	case WindowClosed:
-		Ignore
+		machines.Ignore
 	case AdminIdle:
 		emit(Suspended{P: a.P}, AdminClosed)
 	}

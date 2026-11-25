@@ -1,5 +1,6 @@
 import filepath
 import fs
+import option
 import slices
 import github.com/cevr/ergo/modules/git/delta
 import github.com/cevr/ergo/modules/git/graph
@@ -49,22 +50,22 @@ func reachesInMap(edges Map[string, []oid.OID], startHex string, targetHex strin
 	seen[startHex] = true
 	let mut queue = []string{startHex}
 	let mut head = 0
-	for head < len(queue) {
+	for head < queue.Len() {
 		let cur = queue[head]
 		head = head + 1
 		match edges.Get(cur) {
-		case Some[[]oid.OID] as ps:
+		case option.Some[[]oid.OID] as ps:
 			for p in ps.Value {
 				let ph = oid.Hex(p)
 				if ph == targetHex {
 					return true
 				}
-				if seen.Get(ph) == None {
+				if seen.Get(ph) == option.None {
 					seen[ph] = true
 					queue = queue.Append(ph)
 				}
 			}
-		case None:
+		case option.None:
 		}
 	}
 	false
@@ -72,14 +73,14 @@ func reachesInMap(edges Map[string, []oid.OID], startHex string, targetHex strin
 
 func computeGen(h string, edges Map[string, []oid.OID], memo Map[string, uint32]) (uint32, Map[string, uint32]) {
 	match memo.Get(h) {
-	case Some[uint32] as g:
+	case option.Some[uint32] as g:
 		return (g.Value, memo)
-	case None:
+	case option.None:
 	}
 	let mut curMemo = memo
 	let mut maxP = uint32(0)
 	match edges.Get(h) {
-	case Some[[]oid.OID] as ps:
+	case option.Some[[]oid.OID] as ps:
 		for p in ps.Value {
 			let (pg, nextMemo) = computeGen(oid.Hex(p), edges, curMemo)
 			curMemo = nextMemo
@@ -87,7 +88,7 @@ func computeGen(h string, edges Map[string, []oid.OID], memo Map[string, uint32]
 				maxP = pg
 			}
 		}
-	case None:
+	case option.None:
 	}
 	let gen = maxP + uint32(1)
 	curMemo = curMemo.Put(h, gen)
@@ -103,11 +104,11 @@ func MemoryDAGWithNonCommits(format oid.Format, nodes []CommitNode, nonCommits M
 	let mut rawByHex = Map[string, CommitNode]{}
 	let mut ids = []oid.OID{}
 	for n in nodes {
-		if !sameFormat(format, n.OID.Format) || len(n.OID.Raw) != wantLen {
+		if !sameFormat(format, n.OID.Format) || n.OID.Raw.Len() != wantLen {
 			continue
 		}
 		let h = oid.Hex(n.OID)
-		if rawByHex.Get(h) == None {
+		if rawByHex.Get(h) == option.None {
 			rawByHex = rawByHex.Put(h, n)
 			ids = ids.Append(n.OID)
 		}
@@ -117,15 +118,15 @@ func MemoryDAGWithNonCommits(format oid.Format, nodes []CommitNode, nonCommits M
 	for id in ids {
 		let h = oid.Hex(id)
 		match rawByHex.Get(h) {
-		case Some[CommitNode] as n:
+		case option.Some[CommitNode] as n:
 			let mut cleanParents = []oid.OID{}
 			let mut seenParent = Map[string, bool]{}
 			for p in n.Value.Parents {
-				if !sameFormat(format, p.Format) || len(p.Raw) != wantLen {
+				if !sameFormat(format, p.Format) || p.Raw.Len() != wantLen {
 					continue
 				}
 				let ph = oid.Hex(p)
-				if rawByHex.Get(ph) == None || seenParent.Get(ph) != None {
+				if rawByHex.Get(ph) == option.None || seenParent.Get(ph) != option.None {
 					continue
 				}
 				if reachesInMap(acceptedEdges, ph, h) {
@@ -135,7 +136,7 @@ func MemoryDAGWithNonCommits(format oid.Format, nodes []CommitNode, nonCommits M
 				cleanParents = cleanParents.Append(p)
 			}
 			acceptedEdges = acceptedEdges.Put(h, cleanParents)
-		case None:
+		case option.None:
 		}
 	}
 
@@ -144,13 +145,13 @@ func MemoryDAGWithNonCommits(format oid.Format, nodes []CommitNode, nonCommits M
 	for id in ids {
 		let h = oid.Hex(id)
 		match rawByHex.Get(h) {
-		case Some[CommitNode] as n:
+		case option.Some[CommitNode] as n:
 			let (gen, nextMemo) = computeGen(h, acceptedEdges, genMemo)
 			genMemo = nextMemo
 			let cleanParents = match acceptedEdges.Get(h) {
-			case Some[[]oid.OID] as ps:
+			case option.Some[[]oid.OID] as ps:
 				ps.Value
-			case None:
+			case option.None:
 				[]oid.OID{}
 			}
 			byHex = byHex.Put(h, CommitNode{
@@ -160,7 +161,7 @@ func MemoryDAGWithNonCommits(format oid.Format, nodes []CommitNode, nonCommits M
 				CommitTime: n.Value.CommitTime,
 				Generation: gen,
 			})
-		case None:
+		case option.None:
 		}
 	}
 	MemoryDAG{
@@ -175,13 +176,13 @@ func MemoryDAGWithNonCommits(format oid.Format, nodes []CommitNode, nonCommits M
 func Commit(m MemoryDAG, id oid.OID) CommitNode fails NotFound | NotACommit | StoreError {
 	let h = oid.Hex(id)
 	match m.nodes.Get(h) {
-	case Some[CommitNode] as n:
+	case option.Some[CommitNode] as n:
 		n.Value
-	case None:
+	case option.None:
 		match m.nonCommits.Get(h) {
-		case Some[oid.Kind] as k:
+		case option.Some[oid.Kind] as k:
 			return NotACommit{OID: id, GotKind: oid.KindName(k.Value)}
-		case None:
+		case option.None:
 			return NotFound{Spec: h}
 		}
 	}
@@ -189,7 +190,7 @@ func Commit(m MemoryDAG, id oid.OID) CommitNode fails NotFound | NotACommit | St
 
 // AllCommits implements CommitDAG.AllCommits on MemoryDAG.
 func AllCommits(m MemoryDAG) []oid.OID {
-	let mut out = slices.WithCapacity[oid.OID](len(m.order))
+	let mut out = slices.WithCapacity[oid.OID](m.order.Len())
 	for id in m.order {
 		out = out.Append(id)
 	}
@@ -227,21 +228,21 @@ func OpenStoreDAG(layout root.Layout, host fs.Host, useGraph bool) StoreDAG {
 	NewStoreDAG(fmt, layout.ObjectsDir, layout.Alternates, useGraph, host)
 }
 
-func tryLookupCommitGraph(d StoreDAG, id oid.OID) Option[CommitNode] {
+func tryLookupCommitGraph(d StoreDAG, id oid.OID) option.Option[CommitNode] {
 	if !d.useGraph {
-		return None
+		return option.None
 	}
 	let infoDir = filepath.Join([]string{d.objectsDir, "info"})
 	with context { fs.Files: d.host } {
 		let ch = graph.OpenDir(d.format, infoDir) catch {
 		case graph.Truncated, graph.BadMagic, graph.UnsupportedVersion, graph.WrongFormat, graph.CorruptChunk, graph.MissingChunk, graph.ChecksumMismatch, graph.BadBaseChain, graph.IOFailed:
-			return None
+			return option.None
 		}
 		match ch.Lookup(id) {
-		case None:
-			return None
-		case Some[graph.CommitInfo] as info:
-			return Some[CommitNode]{Value: CommitNode{
+		case option.None:
+			return option.None
+		case option.Some[graph.CommitInfo] as info:
+			return option.Some[CommitNode]{Value: CommitNode{
 				OID:        info.Value.OID,
 				Tree:       info.Value.TreeOID,
 				Parents:    info.Value.Parents,
@@ -250,16 +251,16 @@ func tryLookupCommitGraph(d StoreDAG, id oid.OID) Option[CommitNode] {
 			}}
 		}
 	}
-	None
+	option.None
 }
 
 // Commit implements CommitDAG.Commit on StoreDAG, consulting commit-graph
 // chains when enabled and falling back to pack.ReadObject + tree.ParseCommit.
 func Commit(d StoreDAG, id oid.OID) CommitNode fails NotFound | NotACommit | StoreError {
 	match tryLookupCommitGraph(d, id) {
-	case Some[CommitNode] as node:
+	case option.Some[CommitNode] as node:
 		return node.Value
-	case None:
+	case option.None:
 	}
 
 	let obj = with context { fs.Files: d.host } {
@@ -335,8 +336,8 @@ func AllCommits(d StoreDAG) []oid.OID {
 	}
 }
 
-func loadCommitForAncestor(id oid.OID) Option[CommitNode] fails NotFound | NotACommit | StoreError needs CommitDAG {
-	Some[CommitNode]{Value: try CommitDAG.Commit(id)}
+func loadCommitForAncestor(id oid.OID) option.Option[CommitNode] fails NotFound | NotACommit | StoreError needs CommitDAG {
+	option.Some[CommitNode]{Value: try CommitDAG.Commit(id)}
 }
 
 func collectAncestors(start oid.OID, firstParentOnly bool) Map[string, CommitNode] fails NotFound | NotACommit | StoreError needs CommitDAG {
@@ -345,14 +346,14 @@ func collectAncestors(start oid.OID, firstParentOnly bool) Map[string, CommitNod
 	visited[oid.Hex(rootNode.OID)] = rootNode
 	let mut queue = []CommitNode{rootNode}
 	let mut head = 0
-	for head < len(queue) {
+	for head < queue.Len() {
 		let cur = queue[head]
 		head = head + 1
-		let limit = if firstParentOnly && len(cur.Parents) > 1 { 1 } else { len(cur.Parents) }
+		let limit = if firstParentOnly && cur.Parents.Len() > 1 { 1 } else { cur.Parents.Len() }
 		for i in 0..limit {
 			let p = cur.Parents[i]
 			let ph = oid.Hex(p)
-			if visited.Get(ph) == None {
+			if visited.Get(ph) == option.None {
 				let pNode = try CommitDAG.Commit(p)
 				visited[ph] = pNode
 				queue = queue.Append(pNode)
@@ -367,15 +368,15 @@ func collectAncestors(start oid.OID, firstParentOnly bool) Map[string, CommitNod
 // non-commit OIDs fail with NotFound or NotACommit rather than returning false.
 func IsAncestor(ancestor oid.OID, descendant oid.OID) bool fails NotFound | NotACommit | StoreError needs CommitDAG {
 	let ancNode = match try loadCommitForAncestor(ancestor) {
-	case None:
+	case option.None:
 		return false
-	case Some[CommitNode] as n:
+	case option.Some[CommitNode] as n:
 		n.Value
 	}
 	let descNode = match try loadCommitForAncestor(descendant) {
-	case None:
+	case option.None:
 		return false
-	case Some[CommitNode] as n:
+	case option.Some[CommitNode] as n:
 		n.Value
 	}
 	if oid.Equal(ancNode.OID, descNode.OID) {
@@ -389,7 +390,7 @@ func IsAncestor(ancestor oid.OID, descendant oid.OID) bool fails NotFound | NotA
 	seen[oid.Hex(descNode.OID)] = true
 	let mut queue = []CommitNode{descNode}
 	let mut head = 0
-	for head < len(queue) {
+	for head < queue.Len() {
 		let cur = queue[head]
 		head = head + 1
 		for p in cur.Parents {
@@ -397,7 +398,7 @@ func IsAncestor(ancestor oid.OID, descendant oid.OID) bool fails NotFound | NotA
 				return true
 			}
 			let ph = oid.Hex(p)
-			if seen.Get(ph) == None {
+			if seen.Get(ph) == option.None {
 				seen[ph] = true
 				let pNode = try CommitDAG.Commit(p)
 				if ancGen > uint32(0) && pNode.Generation > uint32(0) && pNode.Generation < ancGen {
@@ -426,7 +427,7 @@ func markStrictAncestors(common []CommitNode) Map[string, bool] fails NotFound |
 	for c in common {
 		for p in c.Parents {
 			let ph = oid.Hex(p)
-			if dominated.Get(ph) == None {
+			if dominated.Get(ph) == option.None {
 				dominated[ph] = true
 				let pNode = try CommitDAG.Commit(p)
 				queue = queue.Append(pNode)
@@ -434,12 +435,12 @@ func markStrictAncestors(common []CommitNode) Map[string, bool] fails NotFound |
 		}
 	}
 	let mut head = 0
-	for head < len(queue) {
+	for head < queue.Len() {
 		let cur = queue[head]
 		head = head + 1
 		for p in cur.Parents {
 			let ph = oid.Hex(p)
-			if dominated.Get(ph) == None {
+			if dominated.Get(ph) == option.None {
 				dominated[ph] = true
 				let pNode = try CommitDAG.Commit(p)
 				queue = queue.Append(pNode)
@@ -453,11 +454,11 @@ func selectBestBases(common []CommitNode, dominated Map[string, bool]) []oid.OID
 	let sortedCommon = slices.SortFunc(common, compareCommitTimeDesc)
 	let mut best = []CommitNode{}
 	for c in sortedCommon {
-		if dominated.Get(oid.Hex(c.OID)) == None {
+		if dominated.Get(oid.Hex(c.OID)) == option.None {
 			best = best.Append(c)
 		}
 	}
-	let mut out = slices.WithCapacity[oid.OID](len(best))
+	let mut out = slices.WithCapacity[oid.OID](best.Len())
 	for b in best {
 		out = out.Append(b.OID)
 	}
@@ -472,11 +473,11 @@ func MergeBases(a oid.OID, b oid.OID) []oid.OID fails NotFound | NotACommit | St
 	let ancB = try collectAncestors(b, false)
 	let mut common = []CommitNode{}
 	for k, node in ancA {
-		if ancB.Get(k) != None {
+		if ancB.Get(k) != option.None {
 			common = common.Append(node)
 		}
 	}
-	if len(common) == 0 {
+	if common.Len() == 0 {
 		return []oid.OID{}
 	}
 	let dominated = try markStrictAncestors(common)
@@ -486,19 +487,19 @@ func MergeBases(a oid.OID, b oid.OID) []oid.OID fails NotFound | NotACommit | St
 // MergeBasesMany computes all maximal (best) common ancestors shared by every
 // commit in tips.
 func MergeBasesMany(tips []oid.OID) []oid.OID fails NotFound | NotACommit | StoreError needs CommitDAG {
-	if len(tips) == 0 {
+	if tips.Len() == 0 {
 		return []oid.OID{}
 	}
-	if len(tips) == 1 {
+	if tips.Len() == 1 {
 		let _ = try CommitDAG.Commit(tips[0])
 		return []oid.OID{tips[0]}
 	}
 	let mut acc = try collectAncestors(tips[0], false)
-	for i in 1..len(tips) {
+	for i in 1..tips.Len() {
 		let curAnc = try collectAncestors(tips[i], false)
 		let mut next = Map[string, CommitNode]{}
 		for k, node in acc {
-			if curAnc.Get(k) != None {
+			if curAnc.Get(k) != option.None {
 				next[k] = node
 			}
 		}
@@ -508,7 +509,7 @@ func MergeBasesMany(tips []oid.OID) []oid.OID fails NotFound | NotACommit | Stor
 	for _, node in acc {
 		common = common.Append(node)
 	}
-	if len(common) == 0 {
+	if common.Len() == 0 {
 		return []oid.OID{}
 	}
 	let dominated = try markStrictAncestors(common)
@@ -518,18 +519,18 @@ func MergeBasesMany(tips []oid.OID) []oid.OID fails NotFound | NotACommit | Stor
 // MergeBaseOctopus computes the iterative octopus merge base across tips,
 // matching `git merge-base --octopus`.
 func MergeBaseOctopus(tips []oid.OID) []oid.OID fails NotFound | NotACommit | StoreError needs CommitDAG {
-	if len(tips) == 0 {
+	if tips.Len() == 0 {
 		return []oid.OID{}
 	}
 	let _ = try CommitDAG.Commit(tips[0])
 	let mut current = []oid.OID{tips[0]}
-	for i in 1..len(tips) {
+	for i in 1..tips.Len() {
 		let mut candidates = Map[string, CommitNode]{}
 		for b in current {
 			let stepBases = try MergeBases(b, tips[i])
 			for sb in stepBases {
 				let h = oid.Hex(sb)
-				if candidates.Get(h) == None {
+				if candidates.Get(h) == option.None {
 					candidates[h] = try CommitDAG.Commit(sb)
 				}
 			}
@@ -538,7 +539,7 @@ func MergeBaseOctopus(tips []oid.OID) []oid.OID fails NotFound | NotACommit | St
 		for _, node in candidates {
 			common = common.Append(node)
 		}
-		if len(common) == 0 {
+		if common.Len() == 0 {
 			return []oid.OID{}
 		}
 		let dominated = try markStrictAncestors(common)
@@ -549,7 +550,7 @@ func MergeBaseOctopus(tips []oid.OID) []oid.OID fails NotFound | NotACommit | St
 
 func popNewestNode(frontier []CommitNode) (CommitNode, []CommitNode) {
 	let mut best = 0
-	for i in 1..len(frontier) {
+	for i in 1..frontier.Len() {
 		let cur = frontier[i]
 		let top = frontier[best]
 		if cur.CommitTime > top.CommitTime || (cur.CommitTime == top.CommitTime && oid.Compare(cur.OID, top.OID) < 0) {
@@ -557,8 +558,8 @@ func popNewestNode(frontier []CommitNode) (CommitNode, []CommitNode) {
 		}
 	}
 	let picked = frontier[best]
-	let mut rest = slices.WithCapacity[CommitNode](len(frontier) - 1)
-	for i in 0..len(frontier) {
+	let mut rest = slices.WithCapacity[CommitNode](frontier.Len() - 1)
+	for i in 0..frontier.Len() {
 		if i != best {
 			rest = rest.Append(frontier[i])
 		}
@@ -583,25 +584,25 @@ func RevList(includes []oid.OID, excludes []oid.OID, opts RevListOptions) []oid.
 	for inc in includes {
 		let node = try CommitDAG.Commit(inc)
 		let h = oid.Hex(node.OID)
-		if excluded.Get(h) == None && queued.Get(h) == None {
+		if excluded.Get(h) == option.None && queued.Get(h) == option.None {
 			queued[h] = true
 			frontier = frontier.Append(node)
 		}
 	}
 
 	let mut out = []oid.OID{}
-	for len(frontier) > 0 {
-		if opts.MaxCount > 0 && len(out) >= opts.MaxCount {
+	for frontier.Len() > 0 {
+		if opts.MaxCount > 0 && out.Len() >= opts.MaxCount {
 			break
 		}
 		let (cur, nextFrontier) = popNewestNode(frontier)
 		frontier = nextFrontier
 		out = out.Append(cur.OID)
-		let limit = if opts.FirstParent && len(cur.Parents) > 1 { 1 } else { len(cur.Parents) }
+		let limit = if opts.FirstParent && cur.Parents.Len() > 1 { 1 } else { cur.Parents.Len() }
 		for i in 0..limit {
 			let p = cur.Parents[i]
 			let ph = oid.Hex(p)
-			if excluded.Get(ph) == None && queued.Get(ph) == None {
+			if excluded.Get(ph) == option.None && queued.Get(ph) == option.None {
 				queued[ph] = true
 				let pNode = try CommitDAG.Commit(p)
 				frontier = frontier.Append(pNode)

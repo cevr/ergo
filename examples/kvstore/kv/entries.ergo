@@ -1,3 +1,5 @@
+import option
+
 // Entry is one key and its value.
 type Entry { Key string, Value string }
 
@@ -16,9 +18,9 @@ func Snapshot() []Entry fails Broken needs Store {
 }
 
 // Lookup is the value of key in the Store, or None when it holds none.
-func Lookup(key string) Option[string] fails Broken needs Store {
-	Some[string]{Value: try Store.Get(key) catch {
+func Lookup(key string) option.Option[string] fails Broken needs Store {
+	option.Some[string]{Value: try Store.Get(key) catch {
 	case Missing:
-		return None
+		return option.None
 	}}
 }

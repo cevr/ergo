@@ -40,18 +40,18 @@ func Run[E comparable, S, D, F](h mut Host[S, E, D, F]) fails actor.Stopped | ui
 // that reads the writes shows the host's grid.
 law PatchIsOneFrame(seed int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		oneFramePerPatch(seed)
 	}
 }
 
-func oneFramePerPatch(seed int) bool needs Scheduler {
+func oneFramePerPatch(seed int) bool needs time.Scheduler {
 	let mut r = rng{s: (seed%2147483648 + 2147483648) % 2147483648}
 	let choices = []term.Key{term.Tab, term.Return, term.Char{Text: " "}, term.Char{Text: "q"}, term.Backspace, term.Up}
 	// Tab, Return press "more" first: a patch of several ops
 	let mut keys = []term.Key{term.Tab, term.Return}
 	for _ in 0..pick(&r, 12) {
-		keys = keys.Append(choices[pick(&r, len(choices))])
+		keys = keys.Append(choices[pick(&r, choices.Len())])
 	}
 	let fake = NewFake(keys, 140, 40)
 	let a = actor.StartMachine(SampleMachine(seed), 4, func(o int) {})

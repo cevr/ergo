@@ -1,6 +1,7 @@
 // The tests of the tree: its text, its scopes, and the generators that
 // the laws of the other packages draw from (Samples).
 
+import option
 import rand
 
 test PrintParenthesizesOnlyWhereNeeded {
@@ -18,10 +19,10 @@ test PrintParenthesizesOnlyWhereNeeded {
 
 test ScopesShadow {
 	let s = Bound{Name: "x", T: BoolT, Outer: Bound{Name: "y", T: IntT, Outer: Bound{Name: "x", T: IntT, Outer: Top}}}
-	assert Lookup(s, "x") == Some{Value: BoolT}
-	assert Lookup(s, "z") == None
+	assert Lookup(s, "x") == option.Some{Value: BoolT}
+	assert Lookup(s, "z") == option.None
 	let ints = NamesOf(s, IntT)
-	assert len(ints) == 1 && ints[0] == "y"
+	assert ints.Len() == 1 && ints[0] == "y"
 }
 
 test NamesAreNotKeywords {
@@ -33,7 +34,7 @@ test NamesAreNotKeywords {
 func shapes(n int, typed bool) Map[string, int] {
 	let mut seen = Map[string, int]{}
 	for seed in 1..n+1 {
-		with context { Random: rand.Seeded(uint64(seed)) } {
+		with context { rand.Random: rand.Seeded(uint64(seed)) } {
 			let e = if typed { Gen(5, AnyType(), Top) } else { GenAny(5) }
 			let name = shape(e)
 			seen[name] = count(seen, name) + 1
@@ -47,9 +48,9 @@ func shapes(n int, typed bool) Map[string, int] {
 
 func count(m Map[string, int], k string) int {
 	match m.Get(k) {
-	case Some as n:
+	case option.Some as n:
 		n.Value
-	case None:
+	case option.None:
 		0
 	}
 }

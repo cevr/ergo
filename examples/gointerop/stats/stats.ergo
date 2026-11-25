@@ -4,6 +4,7 @@
 // the pure allowlist, and these take and return float64 only.
 
 import math
+import option
 import strconv
 import strings
 
@@ -24,7 +25,7 @@ type TooLarge { Line int, Text string }
 
 // Summary is what Summarize finds. GeoMean is None when a number is not
 // positive.
-type Summary { Count int, Min float64, Max float64, Mean float64, StdDev float64, GeoMean Option[float64] }
+type Summary { Count int, Min float64, Max float64, Mean float64, StdDev float64, GeoMean option.Option[float64] }
 
 // Read is the numbers of text: whitespace-separated, each read by Go's
 // strconv.ParseFloat, whose two errors arrive as two typed failures.
@@ -47,7 +48,7 @@ func Read(text string) []float64 fails NotANumber | TooLarge {
 // Summarize is the summary of xs: the population standard deviation, by
 // Welford's update, which keeps its precision on large values.
 func Summarize(xs []float64) Summary fails Empty {
-	if len(xs) == 0 {
+	if xs.Len() == 0 {
 		return Empty
 	}
 	let mut lo = xs[0]
@@ -72,9 +73,9 @@ func Summarize(xs []float64) Summary fails Empty {
 			positive = false
 		}
 	}
-	let n = float64(len(xs))
-	let geo Option[float64] = if positive { Some{exp(logs / n)} } else { None }
-	Summary{Count: len(xs), Min: lo, Max: hi, Mean: mean, StdDev: math.Sqrt(m2 / n), GeoMean: geo}
+	let n = float64(xs.Len())
+	let geo option.Option[float64] = if positive { option.Some{exp(logs / n)} } else { option.None }
+	Summary{Count: xs.Len(), Min: lo, Max: hi, Mean: mean, StdDev: math.Sqrt(m2 / n), GeoMean: geo}
 }
 
 // MeanIsBetween: the mean lies between the least and the greatest value,
@@ -125,9 +126,9 @@ law GeoMeanAtMostMean(xs []int, extra int) {
 		return false
 	}
 	match s.GeoMean {
-	case Some[float64] as g:
+	case option.Some[float64] as g:
 		s.Min > 0 && g.Value <= s.Mean*(1+1e-9)
-	case None:
+	case option.None:
 		s.Min <= 0
 	}
 }
@@ -151,9 +152,9 @@ func Text(x float64) string {
 // Lines is the report of s.
 func Lines(s Summary) []string {
 	let geo = match s.GeoMean {
-	case Some[float64] as g:
+	case option.Some[float64] as g:
 		Text(g.Value)
-	case None:
+	case option.None:
 		"none (a number is not positive)"
 	}
 	[]string{

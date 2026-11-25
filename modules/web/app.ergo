@@ -1,5 +1,6 @@
 import html
 import http
+import option
 import slices
 import strconv
 import ui
@@ -40,9 +41,9 @@ func Fetch[R comparable, P, F, N](site Site[R, P, F, N], req http.Request) http.
 		}
 	}
 	match site.Routes.Parse(ui.URL{Path: req.Path, Query: http.EncodeQuery(req.Query), Fragment: ""}) {
-	case None:
+	case option.None:
 		answer(req.Method, 404, site.NotFound(req.Path))
-	case Some as r:
+	case option.Some as r:
 		if req.Method != "GET" && req.Method != "HEAD" {
 			return notAllowed()
 		}
@@ -102,21 +103,21 @@ func Href(_ lawMap, r lawRoute) ui.URL {
 	}
 }
 
-func Parse(_ lawMap, u ui.URL) Option[lawRoute] {
+func Parse(_ lawMap, u ui.URL) option.Option[lawRoute] {
 	let s = ui.Segments(u)
-	if len(s) == 0 {
-		return Some[lawRoute]{Value: lawHome}
+	if s.Len() == 0 {
+		return option.Some[lawRoute]{Value: lawHome}
 	}
-	if len(s) == 2 && s[0] == "item" {
+	if s.Len() == 2 && s[0] == "item" {
 		let n = strconv.Atoi(s[1]) catch {
 		case _:
-			return None
+			return option.None
 		}
 		if strconv.Itoa(n) == s[1] {
-			return Some[lawRoute]{Value: lawItem{N: n}}
+			return option.Some[lawRoute]{Value: lawItem{N: n}}
 		}
 	}
-	None
+	option.None
 }
 
 func lawLoad(r lawRoute) string fails lawGone {
@@ -169,11 +170,11 @@ law HeadIsGetWithoutBody(r lawRoute, other string, known bool) {
 // with status 404, for every method, never a soft 404.
 law UnknownPathIsNotFound(path string, pick int) {
 	let methods = []string{"GET", "POST", "PUT", "DELETE"}
-	let method = methods[((pick%len(methods))+len(methods))%len(methods)]
+	let method = methods[((pick%methods.Len())+methods.Len())%methods.Len()]
 	match lawMap.Parse(ui.URL{Path: path, Query: "", Fragment: ""}) {
-	case Some:
+	case option.Some:
 		true
-	case None:
+	case option.None:
 		let res = Fetch(lawSite(), Request(method, path))
 		res.Status == 404 && res.Body == html.Render(lawSite().NotFound(path))
 	}
@@ -183,9 +184,9 @@ law UnknownPathIsNotFound(path string, pick int) {
 // is 405 with Allow: GET, HEAD and no body, and loads nothing.
 law OtherMethodIsNotAllowed(r lawRoute, pick int) {
 	let methods = []string{"POST", "PUT", "DELETE", "PATCH"}
-	let method = methods[((pick%len(methods))+len(methods))%len(methods)]
+	let method = methods[((pick%methods.Len())+methods.Len())%methods.Len()]
 	let res = Fetch(lawSite(), Request(method, lawPath(r, "", true)))
-	res.Status == 405 && http.Header(res.Header, "Allow") == Some{"GET, HEAD"} && res.Body == ""
+	res.Status == 405 && http.Header(res.Header, "Allow") == option.Some{"GET, HEAD"} && res.Body == ""
 }
 
 // KnownPathIsLoadThenView: GET of a route's place is its page, the view
@@ -198,7 +199,7 @@ law KnownPathIsLoadThenView(r lawRoute) {
 		let reply = lawSite().Status(g)
 		return res.Status == reply.Status && res.Body == html.Render(reply.Page)
 	}
-	res.Status == 200 && res.Body == html.Render(lawSite().View(want)) && http.Header(res.Header, "Content-Type") == Some{"text/html; charset=utf-8"}
+	res.Status == 200 && res.Body == html.Render(lawSite().View(want)) && http.Header(res.Header, "Content-Type") == option.Some{"text/html; charset=utf-8"}
 }
 
 // lawSheet is the laws' site's one asset.
@@ -214,5 +215,5 @@ law AssetServedIsItsBytes(css string, pick int) {
 	let head = Fetch(site, Request("HEAD", sheet.Path))
 	let methods = []string{"POST", "PUT", "DELETE"}
 	let other = Fetch(site, Request(methods[((pick%3)+3)%3], sheet.Path))
-	get.Status == 200 && get.Body == css && http.Header(get.Header, "Content-Type") == Some{"text/css; charset=utf-8"} && head.Status == 200 && head.Body == "" && slices.Equal(head.Header, get.Header) && other.Status == 405
+	get.Status == 200 && get.Body == css && http.Header(get.Header, "Content-Type") == option.Some{"text/css; charset=utf-8"} && head.Status == 200 && head.Body == "" && slices.Equal(head.Header, get.Header) && other.Status == 405
 }

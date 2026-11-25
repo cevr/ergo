@@ -4,6 +4,8 @@
 // (the entry rule, docs/spec/types.md, Bindings); it costs the scopes it
 // walks, not the size of the table.
 
+import option
+
 // Table holds each scope's names and each scope's parent. Scope 0, the
 // root, is its own parent.
 type Table { scopes Map[int, Map[string, int]], parents Map[int, int] }
@@ -94,10 +96,10 @@ law OpenOnce(n int) {
 
 // OpenScope opens scope s inside scope parent.
 func OpenScope(t mut Table, s int, parent int) Opened {
-	if t.scopes.Get(s) != None {
+	if t.scopes.Get(s) != option.None {
 		return Taken
 	}
-	if t.scopes.Get(parent) == None {
+	if t.scopes.Get(parent) == option.None {
 		return NoScope
 	}
 	t.scopes[s] = Map[string, int]{}
@@ -109,12 +111,12 @@ func OpenScope(t mut Table, s int, parent int) Opened {
 // open.
 func Declare(t mut Table, s int, name string, value int) bool {
 	match t.scopes.Get(s) {
-	case Some[Map[string, int]] as m:
+	case option.Some[Map[string, int]] as m:
 		let mut names = m.Value
 		names[name] = value
 		t.scopes[s] = names
 		true
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -126,24 +128,24 @@ type Resolved = Bound{Value int, Out int} | Unbound{}
 // Resolve looks name up in scope s, then in each enclosing scope.
 func Resolve(t mut Table, s int, name string) Resolved {
 	let mut at = s
-	for out in 0..len(t.parents)+1 {
+	for out in 0..t.parents.Len()+1 {
 		match t.scopes.Get(at) {
-		case Some[Map[string, int]] as m:
+		case option.Some[Map[string, int]] as m:
 			match m.Value.Get(name) {
-			case Some[int] as v:
+			case option.Some[int] as v:
 				return Bound{Value: v.Value, Out: out}
-			case None:
+			case option.None:
 			}
-		case None:
+		case option.None:
 			return Unbound
 		}
 		if at == 0 {
 			return Unbound
 		}
 		match t.parents.Get(at) {
-		case Some[int] as p:
+		case option.Some[int] as p:
 			at = p.Value
-		case None:
+		case option.None:
 			return Unbound
 		}
 	}

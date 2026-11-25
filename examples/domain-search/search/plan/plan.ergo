@@ -10,6 +10,7 @@
 // counts that would need a scan (Checked, InFlight). Steps counts it.
 
 import domain-search/search/route
+import option
 
 // Range is Limit listings of the catalog from Offset.
 type Range { Offset int, Limit int }
@@ -58,9 +59,9 @@ law PlanCoversWindow(n int where 1 <= n && n <= 20000, start int where 0 <= star
 	let mut st = fresh(n, wanted, false)
 	for _ in 0..Count(n)+1 {
 		match Next(st).Next {
-		case None:
+		case option.None:
 			break
-		case Some[Range] as r:
+		case option.Some[Range] as r:
 			st = settle(st, r.Value)
 		}
 	}
@@ -169,10 +170,10 @@ law PriceOrderLoadsWhole(order int, availableOnly bool, n int where 5 <= n && n 
 		availableOnly
 	}
 	let next = Next(fresh(n, rows(n, 0, 10), whole)).Next
-	whole == expected && next == Some[Range]{Value: if whole { Range{Offset: 0, Limit: n} } else { Range{Offset: 0, Limit: 4} }}
+	whole == expected && next == option.Some[Range]{Value: if whole { Range{Offset: 0, Limit: n} } else { Range{Offset: 0, Limit: 4} }}
 }
 
-func pick[T](xs []T, n int) T { xs[((n%len(xs))+len(xs))%len(xs)] }
+func pick[T](xs []T, n int) T { xs[((n%xs.Len())+xs.Len())%xs.Len()] }
 
 // Input is what the planner reads. Size is the catalog's size; Ranges has
 // one Load per range (Count(Size)); Whole is the load of the whole
@@ -196,9 +197,9 @@ law PlanEnds(n int where 1 <= n && n <= 2000, step int where 1 <= step && step <
 		st = Input{..st, Wanted: rows(n, at, 30)}
 		for _ in 0..Count(n)+1 {
 			match Next(st).Next {
-			case None:
+			case option.None:
 				break
-			case Some[Range] as r:
+			case option.Some[Range] as r:
 				match st.Ranges[IndexOf(r.Value.Offset)] {
 				case NotLoaded:
 				case Loaded, Loading, Failed:
@@ -215,7 +216,7 @@ law PlanEnds(n int where 1 <= n && n <= 2000, step int where 1 <= step && step <
 
 // Planned is the next range to load, if any, and the steps the planner
 // took to find it.
-type Planned { Next Option[Range], Steps int }
+type Planned { Next option.Option[Range], Steps int }
 
 // Next is the range to load next: none while a load runs or once every
 // listing is loaded; the whole catalog when NeedsWhole (unless that load
@@ -224,18 +225,18 @@ type Planned { Next Option[Range], Steps int }
 // for a retry.
 func Next(st Input) Planned {
 	if st.InFlight || st.Checked >= st.Size {
-		return Planned{Next: None, Steps: 1}
+		return Planned{Next: option.None, Steps: 1}
 	}
 	match st.Whole {
 	case Loaded, Loading:
-		return Planned{Next: None, Steps: 1}
+		return Planned{Next: option.None, Steps: 1}
 	case Failed:
 		if st.NeedsWhole {
-			return Planned{Next: None, Steps: 1}
+			return Planned{Next: option.None, Steps: 1}
 		}
 	case NotLoaded:
 		if st.NeedsWhole {
-			return Planned{Next: Some[Range]{Value: Range{Offset: 0, Limit: st.Size}}, Steps: 1}
+			return Planned{Next: option.Some[Range]{Value: Range{Offset: 0, Limit: st.Size}}, Steps: 1}
 		}
 	}
 	let mut steps = 1
@@ -245,12 +246,12 @@ func Next(st Input) Planned {
 		match st.Ranges[k] {
 		case Loaded:
 		case NotLoaded:
-			return Planned{Next: Some[Range]{Value: RangeAt(st.Size, k)}, Steps: steps}
+			return Planned{Next: option.Some[Range]{Value: RangeAt(st.Size, k)}, Steps: steps}
 		case Loading, Failed:
-			return Planned{Next: None, Steps: steps}
+			return Planned{Next: option.None, Steps: steps}
 		}
 	}
-	Planned{Next: None, Steps: steps}
+	Planned{Next: option.None, Steps: steps}
 }
 
 // FirstIsFourThenFiftySix: a cold search of a catalog of more than a page
@@ -260,8 +261,8 @@ law FirstIsFourThenFiftySix(n int where 61 <= n && n <= 100000, count int where 
 	let st = fresh(n, rows(n, 0, count), false)
 	let first = Next(st).Next
 	let want = Range{Offset: 0, Limit: 4}
-	if first != (Some[Range]{Value: want}) {
+	if first != (option.Some[Range]{Value: want}) {
 		return false
 	}
-	Next(settle(st, want)).Next == Some[Range]{Value: Range{Offset: 4, Limit: 56}}
+	Next(settle(st, want)).Next == option.Some[Range]{Value: Range{Offset: 4, Limit: 56}}
 }

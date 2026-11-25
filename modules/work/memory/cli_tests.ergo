@@ -18,7 +18,7 @@ test CopyRefusedSaysTheBytes {
 		assert false
 		return
 	}
-	assert len(listed) == 0
+	assert listed.Len() == 0
 }
 
 // NotSameVolumeNamesBoth: a workspaces folder on another file system than

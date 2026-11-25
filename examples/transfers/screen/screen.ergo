@@ -5,6 +5,7 @@
 // or a line that says there is none. The view reads the desk and loads
 // nothing: the desk's work owns the transfers' time.
 
+import option
 import transfers/desk
 import transfers/transfer
 import ui
@@ -23,14 +24,14 @@ let Empty = "Nothing here yet. Start an upload."
 // Screen is the desk.
 func Screen(f mut ui.Frame[desk.Signal], d desk.Desk) {
 	ui.Column(f, ui.Plain()) {
-		ui.Semantic(f, named(ui.Heading, Title, Some{Value: 1}), None, ui.Plain()) {
+		ui.Semantic(f, named(ui.Heading, Title, option.Some{Value: 1}), option.None, ui.Plain()) {
 			ui.Text(f, Title)
 		}
 		button(f, StartLabel, "Upload a file", desk.Begin)
 		if anySending(d) {
 			button(f, CancelAllLabel, "Cancel all", desk.CancelEvery)
 		}
-		if len(d.Rows) == 0 {
+		if d.Rows.Len() == 0 {
 			ui.Text(f, Empty)
 		}
 		ui.Each(f, d.Rows, func(r desk.Row) ui.Key { ui.ByInt(r.ID) }) func(r desk.Row) {
@@ -44,7 +45,7 @@ func Screen(f mut ui.Frame[desk.Signal], d desk.Desk) {
 // row is one transfer: a group named after it with its file, its size,
 // its status and its action.
 func row(f mut ui.Frame[desk.Signal], r desk.Row) {
-	ui.Semantic(f, named(ui.Group, RowName(r.ID), None), None, ui.Plain()) {
+	ui.Semantic(f, named(ui.Group, RowName(r.ID), option.None), option.None, ui.Plain()) {
 		ui.Text(f, r.File.Name)
 		ui.Text(f, "\(r.File.MB) MB")
 		match r.Transfer {
@@ -92,6 +93,6 @@ func anySending(d desk.Desk) bool {
 }
 
 // named is the access of a container with a role and a name.
-func named(role ui.Role, name string, level Option[int]) ui.Access {
-	ui.Access{Role: role, Name: name, Disabled: false, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: level, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: ui.NoKey, Rels: []ui.Rel{}}
+func named(role ui.Role, name string, level option.Option[int]) ui.Access {
+	ui.Access{Role: role, Name: name, Disabled: false, Description: "", Checked: option.None, Value: option.None, Selected: option.None, Expanded: option.None, Pressed: option.None, Invalid: false, Busy: false, HasPopup: false, Level: level, Mixed: false, Current: option.None, Modal: false, MultiSelectable: false, Range: option.None, Key: ui.NoKey, Rels: []ui.Rel{}}
 }

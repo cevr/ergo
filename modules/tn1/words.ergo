@@ -20,8 +20,8 @@ func lowerByte(c byte) byte {
 func Words(dst []string, s string) []string {
 	let mut out = dst
 	let mut start = -1
-	for i in 0..len(s)+1 {
-		let end = i == len(s) || !letter(s[i]) || start >= 0 && s[i] <= 'Z' && s[i-1] >= 'a'
+	for i in 0..s.Len()+1 {
+		let end = i == s.Len() || !letter(s[i]) || start >= 0 && s[i] <= 'Z' && s[i-1] >= 'a'
 		if end && start >= 0 {
 			if i-start >= 3 {
 				let mut w = []byte{}
@@ -32,7 +32,7 @@ func Words(dst []string, s string) []string {
 			}
 			start = -1
 		}
-		if i < len(s) && letter(s[i]) && start < 0 {
+		if i < s.Len() && letter(s[i]) && start < 0 {
 			start = i
 		}
 	}
@@ -44,8 +44,8 @@ func Words(dst []string, s string) []string {
 func SketchOf(s string) uint64 {
 	let mut sk = uint64(0)
 	let mut start = -1
-	for i in 0..len(s)+1 {
-		let end = i == len(s) || !letter(s[i]) || start >= 0 && s[i] <= 'Z' && s[i-1] >= 'a'
+	for i in 0..s.Len()+1 {
+		let end = i == s.Len() || !letter(s[i]) || start >= 0 && s[i] <= 'Z' && s[i-1] >= 'a'
 		if end && start >= 0 {
 			if i-start >= 3 {
 				let mut h = uint32(2166136261)
@@ -56,7 +56,7 @@ func SketchOf(s string) uint64 {
 			}
 			start = -1
 		}
-		if i < len(s) && letter(s[i]) && start < 0 {
+		if i < s.Len() && letter(s[i]) && start < 0 {
 			start = i
 		}
 	}
@@ -96,7 +96,7 @@ func ContentSketchOf(s string) uint64 {
 // WordBit is a word's bit in a sketch: FNV-1a, 32 bits, modulo 64.
 func WordBit(w string) uint64 {
 	let mut h = uint32(2166136261)
-	for i in 0..len(w) {
+	for i in 0..w.Len() {
 		h = (h ^ uint32(w[i])) * 16777619
 	}
 	uint64(1) << uint64(h%64)
@@ -186,9 +186,9 @@ func EncodeRecord(f Features) string {
 	let mut b = strings.NewBuilder()
 	// A line is about 50 bytes and its comment, a node about 80: one
 	// growth for most records.
-	let mut size = 64 + 80*len(f.Nodes)
+	let mut size = 64 + 80*f.Nodes.Len()
 	for l in f.Lines {
-		size += 50 + len(l.CommentText)
+		size += 50 + l.CommentText.Len()
 	}
 	b.Grow(size)
 	if f.Version == 3 {
@@ -221,7 +221,7 @@ func EncodeRecord(f Features) string {
 	}
 	for n in f.Nodes {
 		let mut shapes = "-"
-		if len(n.Handlers) > 0 {
+		if n.Handlers.Len() > 0 {
 			let mut names = []string{}
 			for h in n.Handlers {
 				names = names.Append(shapeName(h))
