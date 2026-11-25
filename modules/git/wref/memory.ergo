@@ -1,0 +1,220 @@
+import fs
+import sync
+import github.com/cevr/ergo/modules/git/locks
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/pack
+import github.com/cevr/ergo/modules/git/refs
+
+// MemoryRefWriter implements RefWriter purely in memory over locks.MemoryLockOps
+// and pack.MemoryODB, exercising the exact compare-and-set, D/F conflict, and
+// object-existence checks.
+type MemoryRefWriter {
+	format  oid.Format,
+	odb     pack.MemoryODB,
+	lockOps locks.MemoryLockOps,
+	entries sync.Ref[Map[string, oid.OID]],
+} implements RefWriter
+
+// NewMemoryRefWriter creates an empty MemoryRefWriter for format.
+func NewMemoryRefWriter(format oid.Format) MemoryRefWriter {
+	MemoryRefWriter{
+		format:  format,
+		odb:     pack.NewMemoryODB(format),
+		lockOps: locks.NewMemory(Map[string, string]{}),
+		entries: sync.NewRef(Map[string, oid.OID]{}),
+	}
+}
+
+// ReadDirect implements RefWriter.ReadDirect on MemoryRefWriter.
+func ReadDirect(m MemoryRefWriter, refName string) Option[oid.OID] fails InvalidRefName | PathEscape | IOFailed {
+	try validateTargetRefName(refName, true)
+	m.entries.Get().Get(refName)
+}
+
+// UpdateDirect implements RefWriter.UpdateDirect on MemoryRefWriter.
+func UpdateDirect(m MemoryRefWriter, refName string, newOID oid.OID, expected Option[oid.OID]) fails InvalidRefName | PathEscape | StaleExpected | ObjectMissing | DirectoryFileConflict | LockHeld | LockFailed | IOFailed {
+	try validateTargetRefName(refName, false)
+	with context { pack.ObjectStore: m.odb } {
+		try verifyTargetExists(newOID)
+	}
+	let curMap = m.entries.Get()
+	for existingName, _ in curMap {
+		if refsConflictDF(refName, existingName) {
+			return DirectoryFileConflict{Ref: refName, Conflicting: existingName}
+		}
+	}
+	with context { locks.LockOps: m.lockOps } {
+		let mut lf = locks.Acquire(refName, locks.Durable) catch {
+		case locks.LockHeld as e:
+			return LockHeld{Path: e.Path}
+		case locks.PathInvalid as e:
+			return LockFailed{Detail: e.Reason}
+		}
+		let current = m.entries.Get().Get(refName)
+		checkExpectedOID(m.format, refName, current, expected) catch {
+		case StaleExpected as e:
+			lf.Abort()
+			return e
+		}
+		lf.Write(oid.Hex(newOID) + "\n") catch {
+		case locks.NotHeld, locks.AlreadyPublished, locks.PathInvalid:
+			lf.Abort()
+			return LockFailed{Detail: "memory lock write failed"}
+		}
+		lf.Commit() catch {
+		case locks.NotHeld, locks.AlreadyPublished, locks.SyncFailed, locks.PublishFailed, locks.DirSyncUncertain:
+			lf.Abort()
+			return LockFailed{Detail: "memory lock commit failed"}
+		}
+		m.entries.Set(m.entries.Get().Put(refName, newOID))
+	}
+}
+
+// SeedObject implements RefWriter.SeedObject on MemoryRefWriter.
+func SeedObject(m MemoryRefWriter, data []byte) oid.OID fails IOFailed {
+	m.odb.Install(oid.Blob, data) catch {
+	case pack.Collision as c:
+		return IOFailed{Op: "seed-object", Detail: c.Digest}
+	case pack.IOFailed as e:
+		return IOFailed{Op: "seed-object", Detail: e.Detail}
+	}
+}
+
+// FSLockOps implements locks.LockOps purely over fs.Host without requiring go.Foreign.
+type FSLockOps {
+	host fs.Host,
+} implements locks.LockOps
+
+// NewFSLockOps wraps host as a pure-Ergo locks.LockOps provider.
+func NewFSLockOps(host fs.Host) FSLockOps {
+	FSLockOps{host: host}
+}
+
+// CreateExclusive creates lockPath if absent, failing LockHeld if already present.
+func CreateExclusive(l FSLockOps, lockPath string) fails locks.LockHeld | locks.PathInvalid {
+	let exists = fs.Lstat(l.host, lockPath) catch {
+	case fs.NotFound:
+		fs.Info{Name: "", Size: 0, Dir: false, Perm: 0}
+	case fs.Denied as e:
+		return locks.PathInvalid{Path: lockPath, Reason: e.Path}
+	case fs.Failed as e:
+		return locks.PathInvalid{Path: lockPath, Reason: e.Reason}
+	}
+	if exists.Name != "" {
+		return locks.LockHeld{Path: lockPath}
+	}
+	fs.WriteFile(l.host, lockPath, "") catch {
+	case fs.NotFound as e:
+		return locks.PathInvalid{Path: lockPath, Reason: e.Path}
+	case fs.Denied as e:
+		return locks.PathInvalid{Path: lockPath, Reason: e.Path}
+	case fs.Failed as e:
+		return locks.PathInvalid{Path: lockPath, Reason: e.Reason}
+	}
+}
+
+// WriteLock writes staged payload bytes into lockPath.
+func WriteLock(l FSLockOps, lockPath string, data string) fails locks.NotHeld | locks.PathInvalid {
+	let _ = fs.Lstat(l.host, lockPath) catch {
+	case fs.NotFound:
+		return locks.NotHeld{Path: lockPath}
+	case fs.Denied as e:
+		return locks.PathInvalid{Path: lockPath, Reason: e.Path}
+	case fs.Failed as e:
+		return locks.PathInvalid{Path: lockPath, Reason: e.Reason}
+	}
+	fs.WriteFile(l.host, lockPath, data) catch {
+	case fs.NotFound:
+		return locks.NotHeld{Path: lockPath}
+	case fs.Denied as e:
+		return locks.PathInvalid{Path: lockPath, Reason: e.Path}
+	case fs.Failed as e:
+		return locks.PathInvalid{Path: lockPath, Reason: e.Reason}
+	}
+}
+
+// SyncFile implements locks.LockOps.SyncFile on FSLockOps.
+func SyncFile(_ FSLockOps, _ string) fails locks.SyncFailed {
+}
+
+// RenamePublish atomically renames lockPath onto targetPath via fs.Rename.
+func RenamePublish(l FSLockOps, lockPath string, targetPath string) fails locks.PublishFailed {
+	fs.Rename(l.host, lockPath, targetPath) catch {
+	case fs.NotFound as e:
+		return locks.PublishFailed{Path: targetPath, Reason: e.Path}
+	case fs.Denied as e:
+		return locks.PublishFailed{Path: targetPath, Reason: e.Path}
+	case fs.Failed as e:
+		return locks.PublishFailed{Path: targetPath, Reason: e.Reason}
+	case fs.CrossDevice as e:
+		return locks.PublishFailed{Path: targetPath, Reason: e.To}
+	}
+}
+
+// RemoveLock unlinks lockPath via fs.Remove.
+func RemoveLock(l FSLockOps, lockPath string) fails locks.NotHeld {
+	fs.Remove(l.host, lockPath) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return locks.NotHeld{Path: lockPath}
+	}
+}
+
+// SyncDir implements locks.LockOps.SyncDir on FSLockOps.
+func SyncDir(_ FSLockOps, _ string) fails locks.DirSyncUncertain {
+}
+
+// ReadTarget reads targetPath if present.
+func ReadTarget(l FSLockOps, targetPath string) Option[string] {
+	let data = fs.ReadFile(l.host, targetPath) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return None
+	}
+	Some[string]{Value: data}
+}
+
+// LockExists reports whether lockPath exists on disk.
+func LockExists(l FSLockOps, lockPath string) bool {
+	let _ = fs.Lstat(l.host, lockPath) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	true
+}
+
+// DiskRefWriter implements RefWriter over real files-backend refs, FSLockOps,
+// and pack.DiskODB.
+type DiskRefWriter {
+	store   refs.Store,
+	odb     pack.DiskODB,
+	lockOps FSLockOps,
+	host    fs.Host,
+} implements RefWriter
+
+// NewDiskRefWriter wraps store, odb, and host as a RefWriter provider.
+func NewDiskRefWriter(store refs.Store, odb pack.DiskODB, host fs.Host) DiskRefWriter {
+	DiskRefWriter{store: store, odb: odb, lockOps: NewFSLockOps(host), host: host}
+}
+
+// ReadDirect implements RefWriter.ReadDirect on DiskRefWriter.
+func ReadDirect(d DiskRefWriter, refName string) Option[oid.OID] fails InvalidRefName | PathEscape | IOFailed {
+	with context { fs.Files: d.host } {
+		try readCurrentDirectOID(d.store, refName)
+	}
+}
+
+// UpdateDirect implements RefWriter.UpdateDirect on DiskRefWriter.
+func UpdateDirect(d DiskRefWriter, refName string, newOID oid.OID, expected Option[oid.OID]) fails InvalidRefName | PathEscape | StaleExpected | ObjectMissing | DirectoryFileConflict | LockHeld | LockFailed | IOFailed {
+	with context { locks.LockOps: d.lockOps, pack.ObjectStore: d.odb, fs.Files: d.host, fs.Writes: d.host } {
+		try UpdateRef(d.store, refName, newOID, expected, None, locks.Durable)
+	}
+}
+
+// SeedObject implements RefWriter.SeedObject on DiskRefWriter.
+func SeedObject(d DiskRefWriter, data []byte) oid.OID fails IOFailed {
+	d.odb.Install(oid.Blob, data) catch {
+	case pack.Collision as c:
+		return IOFailed{Op: "seed-object", Detail: c.Digest}
+	case pack.IOFailed as e:
+		return IOFailed{Op: "seed-object", Detail: e.Detail}
+	}
+}

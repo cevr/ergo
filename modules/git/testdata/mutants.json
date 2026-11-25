@@ -1074,6 +1074,70 @@
       ]
     },
     {
+      "name": "git-windex-allow-unmerged-write-tree",
+      "origin": "STD-GIT G-WINDEX",
+      "file": "modules/git/windex/windex.ergo",
+      "from": "\t\tif e.Stage != 0 {\n\t\t\treturn UnmergedIndex{Path: e.Path}\n\t\t}",
+      "to": "\t\tif false && e.Stage != 0 {\n\t\t\treturn UnmergedIndex{Path: e.Path}\n\t\t}",
+      "rule": "WriteTree refuses any index entry with conflict stage != 0 with UnmergedIndex.",
+      "anchor": {
+        "tests": [
+          "modules/git/windex:WriteIndexAndWriteTreeMatchGit"
+        ]
+      },
+      "killers": [
+        "modules/git/windex:WriteIndexAndWriteTreeMatchGit"
+      ]
+    },
+    {
+      "name": "git-windex-skip-checksum",
+      "origin": "STD-GIT G-WINDEX",
+      "file": "modules/git/windex/windex.ergo",
+      "from": "\ttry appendIndexChecksum(format, raw)",
+      "to": "\tlet _ = format\n\tslices.AppendAll(raw, oid.Zero(format).Raw)",
+      "rule": "Encode appends the real SHA-1/SHA-256 checksum over the encoded index body.",
+      "anchor": {
+        "tests": [
+          "modules/git/windex:WriteIndexAndWriteTreeMatchGit"
+        ]
+      },
+      "killers": [
+        "modules/git/windex:law:IndexWriter.EncodeParseRoundTrips"
+      ]
+    },
+    {
+      "name": "git-wref-accept-stale-expected",
+      "origin": "STD-GIT G-WREF",
+      "file": "modules/git/wref/wref.ergo",
+      "from": "\t\tif !oid.Equal(cur.Value, want) {\n\t\t\treturn StaleExpected{",
+      "to": "\t\tif false && !oid.Equal(cur.Value, want) {\n\t\t\treturn StaleExpected{",
+      "rule": "Compare-and-set ref updates reject stale expected OIDs while holding the ref lock with StaleExpected.",
+      "anchor": {
+        "tests": [
+          "modules/git/wref:CASRefUpdatesAndReflogMatchGit"
+        ]
+      },
+      "killers": [
+        "modules/git/wref:CASRefUpdatesAndReflogMatchGit"
+      ]
+    },
+    {
+      "name": "git-wref-allow-missing-target-oid",
+      "origin": "STD-GIT G-WREF",
+      "file": "modules/git/wref/wref.ergo",
+      "from": "func verifyTargetExists(id oid.OID) fails ObjectMissing needs pack.ObjectStore {\n\tif !pack.ObjectStore.Contains(id) {\n\t\treturn ObjectMissing{OID: id}\n\t}\n}",
+      "to": "func verifyTargetExists(id oid.OID) fails ObjectMissing needs pack.ObjectStore {\n\tlet _ = id\n}",
+      "rule": "Direct ref updates verify the target OID exists in the ODB and reject unwritten OIDs with ObjectMissing.",
+      "anchor": {
+        "tests": [
+          "modules/git/wref:CASRefUpdatesAndReflogMatchGit"
+        ]
+      },
+      "killers": [
+        "modules/git/wref:CASRefUpdatesAndReflogMatchGit"
+      ]
+    },
+    {
       "name": "git-wpack-allow-dangling-object",
       "origin": "STD-GIT G-WPACK",
       "file": "modules/git/wpack/publish.ergo",

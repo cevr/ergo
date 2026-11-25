@@ -1,0 +1,306 @@
+import sha1dc
+import sha256
+import slices
+import strings
+import github.com/cevr/ergo/modules/git/index
+import github.com/cevr/ergo/modules/git/locks
+import github.com/cevr/ergo/modules/git/loose
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/tree
+
+func appendU16BE(out []byte, v uint16) []byte {
+	let mut res = out
+	res = res.Append(byte((v >> uint16(8)) & uint16(0xff)))
+	res = res.Append(byte(v & uint16(0xff)))
+	res
+}
+
+func appendU32BE(out []byte, v uint32) []byte {
+	let mut res = out
+	res = res.Append(byte((v >> uint32(24)) & uint32(0xff)))
+	res = res.Append(byte((v >> uint32(16)) & uint32(0xff)))
+	res = res.Append(byte((v >> uint32(8)) & uint32(0xff)))
+	res = res.Append(byte(v & uint32(0xff)))
+	res
+}
+
+// ValidatePath validates a Git index entry path, rejecting empty strings,
+// leading or trailing slashes, empty segments, NUL bytes, `.`, `..`, and `.git`.
+func ValidatePath(path string) fails InvalidPath {
+	if path == "" || strings.HasPrefix(path, "/") || strings.HasSuffix(path, "/") {
+		return InvalidPath{Path: path, Reason: "empty or slash-bounded index path"}
+	}
+	for b in path.Bytes() {
+		if b == byte(0) {
+			return InvalidPath{Path: path, Reason: "NUL byte in index path"}
+		}
+	}
+	for seg in strings.Split(path, "/") {
+		if seg == "" || seg == "." || seg == ".." || strings.ToLower(seg) == ".git" {
+			return InvalidPath{Path: path, Reason: "invalid segment in index path: " + seg}
+		}
+	}
+}
+
+func isValidIndexMode(m uint32) bool {
+	m == index.ModeRegular || m == index.ModeExecutable || m == index.ModeSymlink || m == index.ModeGitlink
+}
+
+func indexModeToTreeMode(path string, m uint32) tree.Mode fails InvalidMode {
+	if m == index.ModeRegular {
+		return tree.ModeRegular
+	}
+	if m == index.ModeExecutable {
+		return tree.ModeExecutable
+	}
+	if m == index.ModeSymlink {
+		return tree.ModeSymlink
+	}
+	if m == index.ModeGitlink {
+		return tree.ModeGitlink
+	}
+	return InvalidMode{Path: path, Mode: m}
+}
+
+func sortAndValidateEntries(entries []index.Entry) []index.Entry fails InvalidPath | DuplicateEntry | InvalidStage | InvalidMode {
+	let mut copy = slices.WithCapacity[index.Entry](len(entries))
+	for e in entries {
+		try ValidatePath(e.Path)
+		if e.Stage < 0 || e.Stage > 3 {
+			return InvalidStage{Path: e.Path, Stage: e.Stage}
+		}
+		if !isValidIndexMode(e.Mode) {
+			return InvalidMode{Path: e.Path, Mode: e.Mode}
+		}
+		copy = copy.Append(e)
+	}
+	let sorted = slices.SortFunc(copy, func(a index.Entry, b index.Entry) int {
+		if a.Path < b.Path {
+			-1
+		} else if a.Path > b.Path {
+			1
+		} else if a.Stage < b.Stage {
+			-1
+		} else if a.Stage > b.Stage {
+			1
+		} else {
+			0
+		}
+	})
+	for i in 1..len(sorted) {
+		if sorted[i-1].Path == sorted[i].Path && sorted[i-1].Stage == sorted[i].Stage {
+			return DuplicateEntry{Path: sorted[i].Path, Stage: sorted[i].Stage}
+		}
+	}
+	sorted
+}
+
+func appendIndexChecksum(format oid.Format, body []byte) []byte fails Collision {
+	match format {
+	case oid.Sha1:
+		let d = sha1dc.Sum(body) catch {
+		case sha1dc.CollisionDetected as c:
+			return Collision{Digest: c.Digest}
+		}
+		let mut out = body
+		for i in 0..20 {
+			out = out.Append(d[i])
+		}
+		out
+	case oid.Sha256:
+		let h = sha256.New()
+		h.Write(body.Text())
+		slices.AppendAll(body, h.Digest().Bytes())
+	}
+}
+
+// Encode serializes entries into a canonical Git binary index (v2, or v3 when
+// any entry uses extended flags such as SkipWorktree or IntentToAdd) with
+// trailing digest checksum.
+func Encode(format oid.Format, entries []index.Entry) []byte fails InvalidPath | DuplicateEntry | InvalidStage | InvalidMode | Collision {
+	let hashLen = oid.ByteLen(format)
+	let sorted = try sortAndValidateEntries(entries)
+	let mut version = uint32(2)
+	for e in sorted {
+		if e.Extended || e.SkipWorktree || e.IntentToAdd {
+			version = uint32(3)
+			break
+		}
+	}
+
+	let mut raw = "DIRC".Bytes()
+	raw = appendU32BE(raw, version)
+	raw = appendU32BE(raw, uint32(len(sorted)))
+
+	for e in sorted {
+		let entryStart = len(raw)
+		raw = appendU32BE(raw, e.CTimeSec)
+		raw = appendU32BE(raw, e.CTimeNsec)
+		raw = appendU32BE(raw, e.MTimeSec)
+		raw = appendU32BE(raw, e.MTimeNsec)
+		raw = appendU32BE(raw, e.Dev)
+		raw = appendU32BE(raw, e.Ino)
+		raw = appendU32BE(raw, e.Mode)
+		raw = appendU32BE(raw, e.UID)
+		raw = appendU32BE(raw, e.GID)
+		raw = appendU32BE(raw, e.FileSize)
+		if len(e.OID.Raw) == hashLen {
+			raw = slices.AppendAll(raw, e.OID.Raw)
+		} else {
+			raw = slices.AppendAll(raw, oid.Zero(format).Raw)
+		}
+
+		let pathBytes = e.Path.Bytes()
+		let nameLen = if len(pathBytes) < 0x0fff { uint16(len(pathBytes)) } else { uint16(0x0fff) }
+		let mut flags = (uint16(e.Stage&3) << uint16(12)) | nameLen
+		if e.AssumeValid {
+			flags = flags | uint16(0x8000)
+		}
+		let useExt = e.Extended || e.SkipWorktree || e.IntentToAdd
+		if useExt {
+			flags = flags | uint16(0x4000)
+		}
+		raw = appendU16BE(raw, flags)
+		if useExt {
+			let mut extFlags = uint16(0)
+			if e.SkipWorktree {
+				extFlags = extFlags | uint16(0x4000)
+			}
+			if e.IntentToAdd {
+				extFlags = extFlags | uint16(0x2000)
+			}
+			raw = appendU16BE(raw, extFlags)
+		}
+
+		raw = slices.AppendAll(raw, pathBytes)
+		let unpadded = len(raw) - entryStart
+		let padLen = 8 - (unpadded % 8)
+		for _ in 0..padLen {
+			raw = raw.Append(byte(0))
+		}
+	}
+
+	try appendIndexChecksum(format, raw)
+}
+
+// WriteIndex encodes entries and atomically publishes them to indexPath via
+// locks.CommitBytes so failed validation or writes never mutate the existing index.
+func WriteIndex(format oid.Format, indexPath string, entries []index.Entry, mode locks.Durability) fails InvalidPath | DuplicateEntry | InvalidStage | InvalidMode | Collision | LockFailed needs locks.LockOps {
+	let raw = try Encode(format, entries)
+	locks.CommitBytes(indexPath, raw.Text(), mode) catch {
+	case locks.LockHeld as e:
+		return LockFailed{Detail: "lock held: " + e.Path}
+	case locks.NotHeld as e:
+		return LockFailed{Detail: "lock not held: " + e.Path}
+	case locks.AlreadyPublished as e:
+		return LockFailed{Detail: "already published: " + e.Path}
+	case locks.SyncFailed as e:
+		return LockFailed{Detail: "sync failed: " + e.Reason}
+	case locks.PublishFailed as e:
+		return LockFailed{Detail: "publish failed: " + e.Reason}
+	case locks.DirSyncUncertain as e:
+		return LockFailed{Detail: "dir sync uncertain: " + e.Reason}
+	case locks.PathInvalid as e:
+		return LockFailed{Detail: "invalid path: " + e.Reason}
+	}
+}
+
+type treeItem {
+	relPath string,
+	mode    tree.Mode,
+	id      oid.OID,
+}
+
+func buildSubtreeRec(format oid.Format, items []treeItem) oid.OID fails InvalidPath | DuplicateEntry | Collision | ObjectFailed needs loose.Objects {
+	let mut direct = []tree.Entry{}
+	let mut dirOrder = []string{}
+	let mut dirGroups = Map[string, []treeItem]{}
+
+	for item in items {
+		let slash = strings.Index(item.relPath, "/")
+		if slash < 0 {
+			direct = direct.Append(tree.Entry{Mode: item.mode, Name: item.relPath, OID: item.id})
+		} else {
+			let dirName = item.relPath[:slash]
+			let rest = item.relPath[slash+1:]
+			let child = treeItem{relPath: rest, mode: item.mode, id: item.id}
+			match dirGroups.Get(dirName) {
+			case Some[[]treeItem] as prev:
+				dirGroups[dirName] = prev.Value.Append(child)
+			case None:
+				dirOrder = dirOrder.Append(dirName)
+				dirGroups[dirName] = []treeItem{child}
+			}
+		}
+	}
+
+	for dirName in dirOrder {
+		let group = match dirGroups.Get(dirName) {
+		case Some[[]treeItem] as g:
+			g.Value
+		case None:
+			[]treeItem{}
+		}
+		let subOid = try buildSubtreeRec(format, group)
+		direct = direct.Append(tree.Entry{Mode: tree.ModeTree, Name: dirName, OID: subOid})
+	}
+
+	let rawTree = tree.EncodeTree(format, direct) catch {
+	case tree.InvalidEntryName as e:
+		return InvalidPath{Path: e.Name, Reason: e.Reason}
+	case tree.DuplicateEntry as e:
+		return DuplicateEntry{Path: e.Name, Stage: 0}
+	}
+	loose.Objects.Install(oid.Tree, rawTree) catch {
+	case loose.Collision as c:
+		return Collision{Digest: c.Digest}
+	case loose.IOFailed as e:
+		return ObjectFailed{Detail: e.Op + ": " + e.Detail}
+	}
+}
+
+// WriteTree recursively encodes and installs canonical Git tree objects for
+// all stage-0 entries via loose.Objects and returns the root tree OID, matching
+// `git write-tree`. Any entry with Stage != 0 fails strictly with UnmergedIndex.
+func WriteTree(format oid.Format, entries []index.Entry) oid.OID fails InvalidPath | DuplicateEntry | InvalidStage | InvalidMode | UnmergedIndex | Collision | ObjectFailed needs loose.Objects {
+	let sorted = try sortAndValidateEntries(entries)
+	let mut items = slices.WithCapacity[treeItem](len(sorted))
+	for e in sorted {
+		if e.Stage != 0 {
+			return UnmergedIndex{Path: e.Path}
+		}
+		if e.IntentToAdd {
+			continue
+		}
+		let mode = try indexModeToTreeMode(e.Path, e.Mode)
+		items = items.Append(treeItem{relPath: e.Path, mode: mode, id: e.OID})
+	}
+	try buildSubtreeRec(format, items)
+}
+
+// BuildSnapshotTree applies updates and removals to baseEntries in memory and
+// builds the resulting canonical tree without touching any on-disk `.git/index`.
+func BuildSnapshotTree(format oid.Format, baseEntries []index.Entry, updates []index.Entry, removes []string) oid.OID fails InvalidPath | DuplicateEntry | InvalidStage | InvalidMode | UnmergedIndex | Collision | ObjectFailed needs loose.Objects {
+	let mut dropSet = Map[string, bool]{}
+	for r in removes {
+		dropSet[r] = true
+	}
+	let mut updateSet = Map[string, bool]{}
+	for u in updates {
+		updateSet[u.Path] = true
+	}
+	let mut merged = []index.Entry{}
+	for e in baseEntries {
+		if dropSet.Get(e.Path) != None || updateSet.Get(e.Path) != None {
+			continue
+		}
+		merged = merged.Append(e)
+	}
+	for u in updates {
+		if dropSet.Get(u.Path) != None {
+			continue
+		}
+		merged = merged.Append(u)
+	}
+	try WriteTree(format, merged)
+}
