@@ -169,6 +169,8 @@ type program struct {
 	platform gobind.Platform
 	// trust are the modules whose Go the root's ergo.mod trusts.
 	trust []string
+	// stdOverrides holds overlaid stdlib file texts when checked through an overlayFS.
+	stdOverrides map[string]map[string]string
 }
 
 // loader reads and checks one program.
@@ -228,13 +230,28 @@ type loader struct {
 	// noMain checks every package by its import path: no package is the
 	// program's main (CheckGoModule: Go imports each).
 	noMain bool
+	// stdImp overrides stdlib imports when fsys is an overlayFS mutating a
+	// file under internal/sketch/std/.
+	stdImp       *check.StdOverlay
+	stdOverrides map[string]map[string]string
 }
+
+// StdOverride exposes the loader's stdlib overlay importer to the checker.
+func (l *loader) StdOverride() *check.StdOverlay { return l.stdImp }
 
 // newLoader is a loader of the package folder dir, an absolute path, that
 // reads required modules from the module cache folder modCache.
 func newLoader(fsys FS, platform gobind.Platform, dir, modCache string) *loader {
+	var stdImp *check.StdOverlay
+	var stdOverrides map[string]map[string]string
+	if ov, ok := fsys.(overlayFS); ok {
+		if mods := ov.stdOverrides(); len(mods) > 0 {
+			stdImp = check.StdOverlayImporter(mods)
+			stdOverrides = mods
+		}
+	}
 	return &loader{fsys: fsys, platform: platform, experiments: goExperiments(), root: dir, modCache: modCache, pkgs: map[string]*loadedPackage{}, missing: map[string]string{},
-		state: map[*loadedPackage]int{}, texts: map[string]string{}, deps: map[string]*depModule{}}
+		state: map[*loadedPackage]int{}, texts: map[string]string{}, deps: map[string]*depModule{}, stdImp: stdImp, stdOverrides: stdOverrides}
 }
 
 // GoBindings makes the loader a check.GoImporter: the program's packages
@@ -380,7 +397,7 @@ func checkDirFull(fsys FS, dir string, platform gobind.Platform, modCache string
 		}
 	}
 	prepareStd(nil)
-	p := &program{texts: l.texts, bindings: l.bindings, dir: l.root, platform: platform}
+	p := &program{texts: l.texts, bindings: l.bindings, dir: l.root, platform: platform, stdOverrides: l.stdOverrides}
 	if found {
 		p.module, p.modRoot, p.trust = l.module, l.root, l.trust
 	}
@@ -1064,6 +1081,9 @@ func (l *loader) TrustsGo() (string, bool) {
 // Import is the loader's check.Importer: std, then the checked local
 // packages; any other path is refused with its reason.
 func (l *loader) Import(path string) (*check.Package, error) {
+	if l.stdImp != nil && isStdPath(path) {
+		return l.stdImp.Import(path)
+	}
 	if p, shipped, err := shippedImport(path); shipped {
 		return p, err
 	}

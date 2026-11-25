@@ -952,6 +952,9 @@ type stdImporter struct {
 	// sources reads a package's files; nil reads the embedded std
 	// (stdlib.Package). A test gives a library of its own.
 	sources func(path string) (map[string]string, bool)
+	// affected, when non-nil, limits local source checking to overridden std
+	// packages and their dependents, delegating unaffected packages to Std.
+	affected map[string]bool
 }
 
 // stdEntry is one std package, checked once.
@@ -977,6 +980,9 @@ func newStdImporter() *stdImporter {
 }
 
 func (s *stdImporter) Import(path string) (*Package, error) {
+	if s.affected != nil && !s.affected[path] {
+		return Std.Import(path)
+	}
 	s.mu.Lock()
 	e := s.entries[path]
 	if e == nil {
@@ -1131,6 +1137,86 @@ func (s *stdImporter) load(path string) (*Package, error) {
 		err = &ImportError{Path: path, Reason: fmt.Sprintf("%s%s", at, d), Broken: true}
 	}
 	return pkg, err
+}
+
+// StdOverlay is an opaque stdlib overlay importer constructed only by
+// StdOverlayImporter.
+type StdOverlay struct {
+	imp *stdImporter
+}
+
+// Import delegates to the overlaid std importer.
+func (o *StdOverlay) Import(path string) (*Package, error) {
+	if o == nil || o.imp == nil {
+		return Std.Import(path)
+	}
+	return o.imp.Import(path)
+}
+
+// StdOverrideProvider is implemented by loaders that carry an explicit
+// StdOverlay for in-memory stdlib mutations (e.g. ergo test --mutants).
+type StdOverrideProvider interface {
+	StdOverride() *StdOverlay
+}
+
+// StdOverlayImporter returns a StdOverlay that checks std packages in
+// overrides (and any std package that transitively imports one) from source
+// with the replacement file texts, delegating unaffected std packages to Std
+// so every unaffected std package keeps its exact identity.
+func StdOverlayImporter(overrides map[string]map[string]string) *StdOverlay {
+	if len(overrides) == 0 {
+		return nil
+	}
+	affected := map[string]bool{}
+	for path := range overrides {
+		affected[path] = true
+	}
+	all := stdlib.Packages()
+	changed := true
+	for changed {
+		changed = false
+		for _, p := range all {
+			if affected[p] {
+				continue
+			}
+			srcs, ok := stdlib.Package(p)
+			if !ok {
+				continue
+			}
+			for _, text := range srcs {
+				for dep := range affected {
+					if strings.Contains(text, "import "+dep+"\n") || strings.Contains(text, "import "+dep+" ") || strings.Contains(text, "import "+dep+"\r") {
+						affected[p] = true
+						changed = true
+						break
+					}
+				}
+				if affected[p] {
+					break
+				}
+			}
+		}
+	}
+	s := newStdImporter()
+	s.affected = affected
+	s.sources = func(path string) (map[string]string, bool) {
+		base, ok := stdlib.Package(path)
+		if !ok {
+			return nil, false
+		}
+		if ov := overrides[path]; len(ov) > 0 {
+			merged := make(map[string]string, len(base))
+			for k, v := range base {
+				merged[k] = v
+			}
+			for k, v := range ov {
+				merged[k] = v
+			}
+			return merged, true
+		}
+		return base, true
+	}
+	return &StdOverlay{imp: s}
 }
 
 // StdFixture checks files as the std package at path, as Std checks an
