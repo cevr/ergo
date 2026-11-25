@@ -1,0 +1,179 @@
+import exec
+import filepath
+import fs
+import os
+import slices
+import strconv
+import strings
+import github.com/cevr/ergo/modules/git/oracle
+
+let onOracle = context needs TestAmbient {
+	exec.Runner: exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
+	fs.Files:    fs.NewTestHost(),
+	fs.Writes:   fs.NewTestHost(),
+	os.Process:  os.NewTestHost(),
+}
+
+// DisjointPrefixSuffixEditsMergeCleanly: independent edits to the first and
+// last lines separated by unchanged context lines always merge cleanly.
+law DisjointPrefixSuffixEditsMergeCleanly(topEdit string, botEdit string) {
+	let top = strings.ReplaceAll(strings.ReplaceAll(topEdit, "\n", "_"), "\x00", "_")
+	let bot = strings.ReplaceAll(strings.ReplaceAll(botEdit, "\n", "_"), "\x00", "_")
+	let base = "head\nctx1\nctx2\nctx3\ntail\n"
+	let ours = top + "\nctx1\nctx2\nctx3\ntail\n"
+	let theirs = "head\nctx1\nctx2\nctx3\n" + bot + "\n"
+	let want = top + "\nctx1\nctx2\nctx3\n" + bot + "\n"
+	let res = MergeFiles(base.Bytes(), ours.Bytes(), theirs.Bytes(), DefaultOptions())
+	IsClean(res.Status) && res.ConflictCount == 0 && res.Content.Text() == want
+}
+
+type testFail {
+	reason string,
+}
+
+func runGitMergeFile(workDir string, base []byte, ours []byte, theirs []byte, opts MergeOptions, pathEnv Map[string, string]) (int, []byte) fails testFail | exec.NotFound | exec.Denied | exec.Failed | fs.NotFound | fs.Denied | fs.Failed needs exec.Runner | fs.Writes {
+	let basePath = filepath.Join([]string{workDir, "base.dat"})
+	let oursPath = filepath.Join([]string{workDir, "ours.dat"})
+	let theirsPath = filepath.Join([]string{workDir, "theirs.dat"})
+	try fs.Writes.WriteFile(basePath, base.Text())
+	try fs.Writes.WriteFile(oursPath, ours.Text())
+	try fs.Writes.WriteFile(theirsPath, theirs.Text())
+
+	let mut args = []string{"merge-file", "-p"}
+	match opts.Style {
+	case StyleMerge:
+	case StyleDiff3:
+		args = args.Append("--diff3")
+	case StyleZDiff3:
+		args = args.Append("--zdiff3")
+	}
+	match opts.Favor {
+	case FavorNone:
+	case FavorOurs:
+		args = args.Append("--ours")
+	case FavorTheirs:
+		args = args.Append("--theirs")
+	case FavorUnion:
+		args = args.Append("--union")
+	}
+	if opts.MarkerSize > 0 && opts.MarkerSize != 7 {
+		args = args.Append("--marker-size=" + strconv.Itoa(opts.MarkerSize))
+	}
+	args = args.Append("-L")
+	args = args.Append(opts.OursLabel)
+	args = args.Append("-L")
+	args = args.Append(opts.BaseLabel)
+	args = args.Append("-L")
+	args = args.Append(opts.TheirsLabel)
+	args = args.Append(oursPath)
+	args = args.Append(basePath)
+	args = args.Append(theirsPath)
+
+	let res = try exec.Runner.Run(oracle.GitCommand(workDir, args, pathEnv, oracle.BaseEpoch))
+	if res.Status < 0 {
+		return testFail{reason: "git merge-file fatal error: " + res.Stderr}
+	}
+	(res.Status, res.Stdout.Bytes())
+}
+
+func verifyCaseAgainstGit(name string, workDir string, base []byte, ours []byte, theirs []byte, opts MergeOptions, pathEnv Map[string, string]) fails testFail | exec.NotFound | exec.Denied | exec.Failed | fs.NotFound | fs.Denied | fs.Failed needs exec.Runner | fs.Writes {
+	let (gitRc, gitOut) = try runGitMergeFile(workDir, base, ours, theirs, opts, pathEnv)
+	let got = MergeFiles(base, ours, theirs, opts)
+	let gitClean = gitRc == 0
+	if IsClean(got.Status) != gitClean {
+		return testFail{reason: name + ": clean mismatch (git rc=\(gitRc), got conflicts=\(got.ConflictCount))"}
+	}
+	if !gitClean && got.ConflictCount != gitRc {
+		return testFail{reason: name + ": conflict count mismatch (git=\(gitRc), got=\(got.ConflictCount))"}
+	}
+	if !slices.Equal(got.Content, gitOut) {
+		return testFail{reason: name + ": output mismatch\ngot:  " + got.Content.Text() + "\nwant: " + gitOut.Text()}
+	}
+}
+
+test MergeFilesMatchesGitMergeFile {
+	with onOracle {
+		let pathEnv = exec.PathOf(os.Process.Environ())
+		let cwd = try os.Process.Getwd()
+		let workDir = filepath.Join([]string{cwd, "merge-oracle"})
+		try fs.Writes.MkdirAll(workDir)
+
+		let def = DefaultOptions()
+		let diff3Opts = MergeOptions{BaseLabel: "base", OursLabel: "ours", TheirsLabel: "theirs", MarkerSize: 7, Style: StyleDiff3, Favor: FavorNone}
+		let zdiff3Opts = MergeOptions{BaseLabel: "base", OursLabel: "ours", TheirsLabel: "theirs", MarkerSize: 7, Style: StyleZDiff3, Favor: FavorNone}
+		let oursOpts = MergeOptions{BaseLabel: "base", OursLabel: "ours", TheirsLabel: "theirs", MarkerSize: 7, Style: StyleMerge, Favor: FavorOurs}
+		let theirsOpts = MergeOptions{BaseLabel: "base", OursLabel: "ours", TheirsLabel: "theirs", MarkerSize: 7, Style: StyleMerge, Favor: FavorTheirs}
+		let unionOpts = MergeOptions{BaseLabel: "base", OursLabel: "ours", TheirsLabel: "theirs", MarkerSize: 7, Style: StyleMerge, Favor: FavorUnion}
+		let wideOpts = MergeOptions{BaseLabel: "base", OursLabel: "ours", TheirsLabel: "theirs", MarkerSize: 10, Style: StyleDiff3, Favor: FavorNone}
+
+		try verifyCaseAgainstGit(
+			"disjoint-top-bottom",
+			workDir,
+			"line1\nline2\nline3\nline4\nline5\n".Bytes(),
+			"LINE1-OURS\nline2\nline3\nline4\nline5\n".Bytes(),
+			"line1\nline2\nline3\nline4\nLINE5-THEIRS\n".Bytes(),
+			def,
+			pathEnv,
+		)
+
+		try verifyCaseAgainstGit(
+			"convergent-identical-edit",
+			workDir,
+			"a\nb\nc\n".Bytes(),
+			"a\nsame-fix\nc\n".Bytes(),
+			"a\nsame-fix\nc\n".Bytes(),
+			def,
+			pathEnv,
+		)
+
+		let ovBase = "a\nb\nc\n".Bytes()
+		let ovOurs = "a\nP\nX\nQ\nc\n".Bytes()
+		let ovTheirs = "a\nP\nY\nQ\nc\n".Bytes()
+		try verifyCaseAgainstGit("overlap-merge", workDir, ovBase, ovOurs, ovTheirs, def, pathEnv)
+		try verifyCaseAgainstGit("overlap-diff3", workDir, ovBase, ovOurs, ovTheirs, diff3Opts, pathEnv)
+		try verifyCaseAgainstGit("overlap-zdiff3", workDir, ovBase, ovOurs, ovTheirs, zdiff3Opts, pathEnv)
+		try verifyCaseAgainstGit("overlap-ours", workDir, ovBase, ovOurs, ovTheirs, oursOpts, pathEnv)
+		try verifyCaseAgainstGit("overlap-theirs", workDir, ovBase, ovOurs, ovTheirs, theirsOpts, pathEnv)
+		try verifyCaseAgainstGit("overlap-union", workDir, ovBase, ovOurs, ovTheirs, unionOpts, pathEnv)
+		try verifyCaseAgainstGit("overlap-wide-marker", workDir, ovBase, ovOurs, ovTheirs, wideOpts, pathEnv)
+
+		let adjBase = "1\n2\n3\n4\n".Bytes()
+		let adjOurs = "1\n2-ours\n3\n4\n".Bytes()
+		let adjTheirs = "1\n2\n3-theirs\n4\n".Bytes()
+		try verifyCaseAgainstGit("adjacent-consecutive-lines", workDir, adjBase, adjOurs, adjTheirs, def, pathEnv)
+		try verifyCaseAgainstGit("adjacent-consecutive-diff3", workDir, adjBase, adjOurs, adjTheirs, diff3Opts, pathEnv)
+		try verifyCaseAgainstGit("adjacent-consecutive-union", workDir, adjBase, adjOurs, adjTheirs, unionOpts, pathEnv)
+
+		let insBase = "top\nbottom\n".Bytes()
+		let insOurs = "top\ninsert-ours\nbottom\n".Bytes()
+		let insTheirs = "top\ninsert-theirs\nbottom\n".Bytes()
+		try verifyCaseAgainstGit("adjacent-same-boundary-insert", workDir, insBase, insOurs, insTheirs, def, pathEnv)
+
+		try verifyCaseAgainstGit("empty-base-add-add", workDir, []byte{}, "ours-file\n".Bytes(), "theirs-file\n".Bytes(), def, pathEnv)
+		try verifyCaseAgainstGit("delete-vs-modify", workDir, "one\ntwo\n".Bytes(), []byte{}, "one\ntwo-mod\n".Bytes(), def, pathEnv)
+		try verifyCaseAgainstGit("missing-trailing-newline", workDir, "a\nb".Bytes(), "a\nX".Bytes(), "a\nY".Bytes(), def, pathEnv)
+
+		let binBase = "bin\x00v0\nline2\n".Bytes()
+		let binOurs = "bin\x00v1-ours\nline2\n".Bytes()
+		let binTheirs = "bin\x00v2-theirs\nline2\n".Bytes()
+
+		let binOneSide = MergeFiles(binBase, binBase, binTheirs, def)
+		assert IsClean(binOneSide.Status) && slices.Equal(binOneSide.Content, binTheirs)
+
+		let binConflict = MergeFiles(binBase, binOurs, binTheirs, def)
+		let isBinConflict = match binConflict.Status {
+		case BinaryConflict:
+			true
+		case Clean, Conflicted:
+			false
+		}
+		assert isBinConflict && binConflict.ConflictCount == 1
+		let (gitBinRc, _) = try runGitMergeFile(workDir, binBase, binOurs, binTheirs, def, pathEnv)
+		assert gitBinRc > 0
+
+		let binFavorOurs = MergeFiles(binBase, binOurs, binTheirs, oursOpts)
+		assert IsClean(binFavorOurs.Status) && slices.Equal(binFavorOurs.Content, binOurs)
+		let binFavorTheirs = MergeFiles(binBase, binOurs, binTheirs, theirsOpts)
+		assert IsClean(binFavorTheirs.Status) && slices.Equal(binFavorTheirs.Content, binTheirs)
+	}
+}

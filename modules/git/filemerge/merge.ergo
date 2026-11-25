@@ -1,0 +1,437 @@
+import slices
+import strings
+import github.com/cevr/ergo/modules/git/diff
+
+type editSpan {
+	baseStart int,
+	baseEnd   int,
+	sideStart int,
+	sideEnd   int,
+}
+
+type matchPair {
+	ai int,
+	bi int,
+}
+
+func cloneIntSlice(src []int) []int {
+	let mut out = slices.WithCapacity[int](len(src))
+	for v in src {
+		out = out.Append(v)
+	}
+	out
+}
+
+func diffLines(baseLines []string, sideLines []string) []editSpan {
+	let mut pref = 0
+	let minLen = if len(baseLines) < len(sideLines) { len(baseLines) } else { len(sideLines) }
+	for pref < minLen && baseLines[pref] == sideLines[pref] {
+		pref = pref + 1
+	}
+	let mut baseEnd = len(baseLines)
+	let mut sideEnd = len(sideLines)
+	for baseEnd > pref && sideEnd > pref && baseLines[baseEnd-1] == sideLines[sideEnd-1] {
+		baseEnd = baseEnd - 1
+		sideEnd = sideEnd - 1
+	}
+	let a = baseLines[pref:baseEnd]
+	let b = sideLines[pref:sideEnd]
+	let n = len(a)
+	let m = len(b)
+	if n == 0 && m == 0 {
+		return []editSpan{}
+	}
+	if n == 0 {
+		return []editSpan{editSpan{baseStart: pref, baseEnd: pref, sideStart: pref, sideEnd: pref + m}}
+	}
+	if m == 0 {
+		return []editSpan{editSpan{baseStart: pref, baseEnd: pref + n, sideStart: pref, sideEnd: pref}}
+	}
+
+	let maxD = n + m
+	let offset = maxD
+	let vLen = 2*maxD + 1
+	let mut v = slices.WithCapacity[int](vLen)
+	for _ in 0..vLen {
+		v = v.Append(0)
+	}
+	let mut trace = [][]int{}
+	let mut bestD = maxD
+	let mut found = false
+	for d in 0..maxD+1 {
+		trace = trace.Append(cloneIntSlice(v))
+		let mut k = -d
+		for k <= d {
+			let mut x = 0
+			if k == -d || (k != d && v[offset+k-1] < v[offset+k+1]) {
+				x = v[offset+k+1]
+			} else {
+				x = v[offset+k-1] + 1
+			}
+			let mut y = x - k
+			for x < n && y < m && a[x] == b[y] {
+				x = x + 1
+				y = y + 1
+			}
+			v[offset+k] = x
+			if x >= n && y >= m {
+				bestD = d
+				found = true
+				break
+			}
+			k = k + 2
+		}
+		if found {
+			break
+		}
+	}
+
+	let mut revMatches = []matchPair{}
+	let mut x = n
+	let mut y = m
+	let mut d = bestD
+	for d > 0 {
+		let prevV = trace[d]
+		let k = x - y
+		let prevK = if k == -d || (k != d && prevV[offset+k-1] < prevV[offset+k+1]) {
+			k + 1
+		} else {
+			k - 1
+		}
+		let prevX = prevV[offset+prevK]
+		let prevY = prevX - prevK
+		let midX = if prevK == k+1 { prevX } else { prevX + 1 }
+		let midY = midX - k
+		for x > midX && y > midY {
+			x = x - 1
+			y = y - 1
+			revMatches = revMatches.Append(matchPair{ai: x, bi: y})
+		}
+		x = prevX
+		y = prevY
+		d = d - 1
+	}
+	for x > 0 && y > 0 {
+		x = x - 1
+		y = y - 1
+		revMatches = revMatches.Append(matchPair{ai: x, bi: y})
+	}
+
+	let mut spans = []editSpan{}
+	let mut curA = 0
+	let mut curB = 0
+	let mut ri = len(revMatches) - 1
+	for ri >= 0 {
+		let mp = revMatches[ri]
+		if curA < mp.ai || curB < mp.bi {
+			spans = spans.Append(editSpan{
+				baseStart: pref + curA,
+				baseEnd:   pref + mp.ai,
+				sideStart: pref + curB,
+				sideEnd:   pref + mp.bi,
+			})
+		}
+		curA = mp.ai + 1
+		curB = mp.bi + 1
+		ri = ri - 1
+	}
+	if curA < n || curB < m {
+		spans = spans.Append(editSpan{
+			baseStart: pref + curA,
+			baseEnd:   pref + n,
+			sideStart: pref + curB,
+			sideEnd:   pref + m,
+		})
+	}
+	spans
+}
+
+func editsTouch(nextStart int, curEnd int) bool {
+	nextStart <= curEnd
+}
+
+func reconstructSide(baseLines []string, sideLines []string, winStart int, winEnd int, edits []editSpan) []string {
+	let mut out = []string{}
+	let mut bPos = winStart
+	for e in edits {
+		for idx in bPos..e.baseStart {
+			out = out.Append(baseLines[idx])
+		}
+		for idx in e.sideStart..e.sideEnd {
+			out = out.Append(sideLines[idx])
+		}
+		bPos = e.baseEnd
+	}
+	for idx in bPos..winEnd {
+		out = out.Append(baseLines[idx])
+	}
+	out
+}
+
+func repeatByteStr(ch string, count int) string {
+	let n = if count <= 0 { 7 } else { count }
+	let mut parts = slices.WithCapacity[string](n)
+	for _ in 0..n {
+		parts = parts.Append(ch)
+	}
+	strings.Join(parts, "")
+}
+
+func formatMarker(ch string, size int, label string) string {
+	let bar = repeatByteStr(ch, size)
+	if label == "" {
+		bar + "\n"
+	} else {
+		bar + " " + label + "\n"
+	}
+}
+
+func appendLinesEnsuringNewline(parts []string, lines []string) []string {
+	let mut out = parts
+	for l in lines {
+		out = out.Append(l)
+	}
+	if len(lines) > 0 && !strings.HasSuffix(lines[len(lines)-1], "\n") {
+		out = out.Append("\n")
+	}
+	out
+}
+
+func isAnyBinary(base []byte, ours []byte, theirs []byte) bool {
+	diff.IsBinary(base) || diff.IsBinary(ours) || diff.IsBinary(theirs)
+}
+
+func renderConflictHunk(parts []string, baseSec []string, oursSec []string, theirsSec []string, opts MergeOptions) []string {
+	let mSize = if opts.MarkerSize <= 0 { 7 } else { opts.MarkerSize }
+	let mut out = parts
+	out = out.Append(formatMarker("<", mSize, opts.OursLabel))
+	out = appendLinesEnsuringNewline(out, oursSec)
+	match opts.Style {
+	case StyleDiff3, StyleZDiff3:
+		out = out.Append(formatMarker("|", mSize, opts.BaseLabel))
+		out = appendLinesEnsuringNewline(out, baseSec)
+	case StyleMerge:
+	}
+	out = out.Append(formatMarker("=", mSize, ""))
+	out = appendLinesEnsuringNewline(out, theirsSec)
+	out = out.Append(formatMarker(">", mSize, opts.TheirsLabel))
+	out
+}
+
+func shouldRefineConflict(style ConflictStyle) bool {
+	match style {
+	case StyleMerge, StyleZDiff3:
+		true
+	case StyleDiff3:
+		false
+	}
+}
+
+func copyBytes(src []byte) []byte {
+	let mut out = slices.WithCapacity[byte](len(src))
+	for b in src {
+		out = out.Append(b)
+	}
+	out
+}
+
+// MergeFiles performs a 3-way merge of ours and theirs against common ancestor
+// base, handling binary detection, disjoint and convergent edits, adjacent
+// edit conflicts, favor modes (ours/theirs/union), and merge/diff3/zdiff3
+// conflict marker styles.
+func MergeFiles(base []byte, ours []byte, theirs []byte, opts MergeOptions) MergeResult {
+	if isAnyBinary(base, ours, theirs) {
+		if slices.Equal(ours, theirs) || slices.Equal(theirs, base) {
+			return MergeResult{Content: copyBytes(ours), Status: Clean, ConflictCount: 0, Hunks: []Hunk{}}
+		}
+		if slices.Equal(ours, base) {
+			return MergeResult{Content: copyBytes(theirs), Status: Clean, ConflictCount: 0, Hunks: []Hunk{}}
+		}
+		match opts.Favor {
+		case FavorOurs:
+			return MergeResult{Content: copyBytes(ours), Status: Clean, ConflictCount: 0, Hunks: []Hunk{}}
+		case FavorTheirs:
+			return MergeResult{Content: copyBytes(theirs), Status: Clean, ConflictCount: 0, Hunks: []Hunk{}}
+		case FavorNone, FavorUnion:
+			return MergeResult{Content: copyBytes(ours), Status: BinaryConflict, ConflictCount: 1, Hunks: []Hunk{}}
+		}
+	}
+
+	if slices.Equal(ours, theirs) || slices.Equal(theirs, base) {
+		let lines = diff.SplitLines(ours)
+		return MergeResult{Content: copyBytes(ours), Status: Clean, ConflictCount: 0, Hunks: []Hunk{CleanHunk{Lines: lines}}}
+	}
+	if slices.Equal(ours, base) {
+		let lines = diff.SplitLines(theirs)
+		return MergeResult{Content: copyBytes(theirs), Status: Clean, ConflictCount: 0, Hunks: []Hunk{CleanHunk{Lines: lines}}}
+	}
+
+	let baseLines = diff.SplitLines(base)
+	let oursLines = diff.SplitLines(ours)
+	let theirsLines = diff.SplitLines(theirs)
+	let oursEdits = diffLines(baseLines, oursLines)
+	let theirsEdits = diffLines(baseLines, theirsLines)
+
+	let mut hunks = []Hunk{}
+	let mut rendered = []string{}
+	let mut conflicts = 0
+	let mut basePos = 0
+	let mut i = 0
+	let mut j = 0
+
+	for i < len(oursEdits) || j < len(theirsEdits) {
+		let mut winStart = 0
+		let mut winEnd = 0
+		let mut iEnd = i
+		let mut jEnd = j
+
+		if i < len(oursEdits) && (j >= len(theirsEdits) || oursEdits[i].baseStart <= theirsEdits[j].baseStart) {
+			winStart = oursEdits[i].baseStart
+			winEnd = oursEdits[i].baseEnd
+			iEnd = i + 1
+		} else {
+			winStart = theirsEdits[j].baseStart
+			winEnd = theirsEdits[j].baseEnd
+			jEnd = j + 1
+		}
+
+		let mut grew = true
+		for grew {
+			grew = false
+			for iEnd < len(oursEdits) && editsTouch(oursEdits[iEnd].baseStart, winEnd) {
+				if oursEdits[iEnd].baseEnd > winEnd {
+					winEnd = oursEdits[iEnd].baseEnd
+				}
+				iEnd = iEnd + 1
+				grew = true
+			}
+			for jEnd < len(theirsEdits) && editsTouch(theirsEdits[jEnd].baseStart, winEnd) {
+				if theirsEdits[jEnd].baseEnd > winEnd {
+					winEnd = theirsEdits[jEnd].baseEnd
+				}
+				jEnd = jEnd + 1
+				grew = true
+			}
+		}
+
+		if basePos < winStart {
+			let unchanged = baseLines[basePos:winStart]
+			hunks = hunks.Append(CleanHunk{Lines: unchanged})
+			for l in unchanged {
+				rendered = rendered.Append(l)
+			}
+		}
+
+		if j == jEnd {
+			let side = reconstructSide(baseLines, oursLines, winStart, winEnd, oursEdits[i:iEnd])
+			hunks = hunks.Append(CleanHunk{Lines: side})
+			for l in side {
+				rendered = rendered.Append(l)
+			}
+		} else if i == iEnd {
+			let side = reconstructSide(baseLines, theirsLines, winStart, winEnd, theirsEdits[j:jEnd])
+			hunks = hunks.Append(CleanHunk{Lines: side})
+			for l in side {
+				rendered = rendered.Append(l)
+			}
+		} else {
+			let baseSec = baseLines[winStart:winEnd]
+			let oursSec = reconstructSide(baseLines, oursLines, winStart, winEnd, oursEdits[i:iEnd])
+			let theirsSec = reconstructSide(baseLines, theirsLines, winStart, winEnd, theirsEdits[j:jEnd])
+			if slices.Equal(oursSec, theirsSec) {
+				hunks = hunks.Append(CleanHunk{Lines: oursSec})
+				for l in oursSec {
+					rendered = rendered.Append(l)
+				}
+			} else {
+				let mut trimPref = 0
+				let mut trimSuff = 0
+				if shouldRefineConflict(opts.Style) {
+					let minSide = if len(oursSec) < len(theirsSec) { len(oursSec) } else { len(theirsSec) }
+					for trimPref < minSide && oursSec[trimPref] == theirsSec[trimPref] {
+						trimPref = trimPref + 1
+					}
+					let remO = len(oursSec) - trimPref
+					let remT = len(theirsSec) - trimPref
+					let minRem = if remO < remT { remO } else { remT }
+					for trimSuff < minRem && oursSec[len(oursSec)-1-trimSuff] == theirsSec[len(theirsSec)-1-trimSuff] {
+						trimSuff = trimSuff + 1
+					}
+				}
+				if trimPref > 0 {
+					let pre = oursSec[:trimPref]
+					hunks = hunks.Append(CleanHunk{Lines: pre})
+					for l in pre {
+						rendered = rendered.Append(l)
+					}
+				}
+				let midO = oursSec[trimPref : len(oursSec)-trimSuff]
+				let midT = theirsSec[trimPref : len(theirsSec)-trimSuff]
+				let mut bPre = 0
+				let mut bSuff = 0
+				for bPre < trimPref && bPre < len(baseSec) && baseSec[bPre] == oursSec[bPre] {
+					bPre = bPre + 1
+				}
+				for bSuff < trimSuff && bPre+bSuff < len(baseSec) && baseSec[len(baseSec)-1-bSuff] == oursSec[len(oursSec)-1-bSuff] {
+					bSuff = bSuff + 1
+				}
+				let midB = baseSec[bPre : len(baseSec)-bSuff]
+				match opts.Favor {
+				case FavorOurs:
+					hunks = hunks.Append(CleanHunk{Lines: midO})
+					for l in midO {
+						rendered = rendered.Append(l)
+					}
+				case FavorTheirs:
+					hunks = hunks.Append(CleanHunk{Lines: midT})
+					for l in midT {
+						rendered = rendered.Append(l)
+					}
+				case FavorUnion:
+					let mut combined = slices.WithCapacity[string](len(midO) + len(midT))
+					for l in midO {
+						combined = combined.Append(l)
+						rendered = rendered.Append(l)
+					}
+					for l in midT {
+						combined = combined.Append(l)
+						rendered = rendered.Append(l)
+					}
+					hunks = hunks.Append(CleanHunk{Lines: combined})
+				case FavorNone:
+					hunks = hunks.Append(ConflictHunk{Base: midB, Ours: midO, Theirs: midT})
+					rendered = renderConflictHunk(rendered, midB, midO, midT, opts)
+					conflicts = conflicts + 1
+				}
+				if trimSuff > 0 {
+					let suf = oursSec[len(oursSec)-trimSuff:]
+					hunks = hunks.Append(CleanHunk{Lines: suf})
+					for l in suf {
+						rendered = rendered.Append(l)
+					}
+				}
+			}
+		}
+
+		basePos = winEnd
+		i = iEnd
+		j = jEnd
+	}
+
+	if basePos < len(baseLines) {
+		let tail = baseLines[basePos:]
+		hunks = hunks.Append(CleanHunk{Lines: tail})
+		for l in tail {
+			rendered = rendered.Append(l)
+		}
+	}
+
+	let finalBytes = strings.Join(rendered, "").Bytes()
+	let status MergeStatus = if conflicts > 0 { Conflicted } else { Clean }
+	MergeResult{
+		Content:       finalBytes,
+		Status:        status,
+		ConflictCount: conflicts,
+		Hunks:         hunks,
+	}
+}

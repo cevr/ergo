@@ -1,0 +1,104 @@
+// Package filemerge implements pure-Ergo 3-way file merging matching C Git's
+// `git merge-file` across ordinary text, binary files, favor-ours/theirs/union
+// modes, merge/diff3/zdiff3 conflict marker styles, and adjacent overlapping
+// edits (G-FILEMERGE).
+
+import slices
+
+// ConflictStyle selects the conflict marker format emitted for unresolved hunks.
+type ConflictStyle = StyleMerge{} | StyleDiff3{} | StyleZDiff3{}
+
+// FavorMode controls automatic conflict resolution policy.
+type FavorMode = FavorNone{} | FavorOurs{} | FavorTheirs{} | FavorUnion{}
+
+// MergeStatus classifies the overall outcome of a 3-way file merge.
+type MergeStatus = Clean{} | Conflicted{} | BinaryConflict{}
+
+// MergeOptions configures conflict markers, conflict style, and favor mode.
+type MergeOptions {
+	BaseLabel   string,
+	OursLabel   string,
+	TheirsLabel string,
+	MarkerSize  int,
+	Style       ConflictStyle,
+	Favor       FavorMode,
+}
+
+// DefaultOptions returns Git's default merge options (marker size 7,
+// StyleMerge, FavorNone).
+func DefaultOptions() MergeOptions {
+	MergeOptions{
+		BaseLabel:   "base",
+		OursLabel:   "ours",
+		TheirsLabel: "theirs",
+		MarkerSize:  7,
+		Style:       StyleMerge,
+		Favor:       FavorNone,
+	}
+}
+
+// Hunk is one structured region of a 3-way text merge result.
+type Hunk =
+	| CleanHunk{Lines []string}
+	| ConflictHunk{Base []string, Ours []string, Theirs []string}
+
+// MergeResult is the full structured and rendered result of MergeFiles.
+type MergeResult {
+	Content       []byte,
+	Status        MergeStatus,
+	ConflictCount int,
+	Hunks         []Hunk,
+}
+
+// IsClean reports whether s is Clean.
+func IsClean(s MergeStatus) bool {
+	match s {
+	case Clean:
+		true
+	case Conflicted, BinaryConflict:
+		false
+	}
+}
+
+// FileMerger is the capability seam for 3-way file merging, carrying algebraic
+// merge laws held by DefaultMerger.
+type FileMerger {
+	Merge(base []byte, ours []byte, theirs []byte, opts MergeOptions) MergeResult,
+
+	// MergeIdenticalSidesIsClean: merging identical ours and theirs always
+	// produces Clean with Content equal to that side.
+	law MergeIdenticalSidesIsClean(baseStr string, sideStr string) {
+		let base = baseStr.Bytes()
+		let side = sideStr.Bytes()
+		let res = Merge(base, side, side, DefaultOptions())
+		IsClean(res.Status) && res.ConflictCount == 0 && slices.Equal(res.Content, side)
+	},
+
+	// MergeOneSidedEditWins: when one side equals base, the other side's edit
+	// always wins cleanly with zero conflicts.
+	law MergeOneSidedEditWins(baseStr string, editStr string) {
+		let base = baseStr.Bytes()
+		let edit = editStr.Bytes()
+		let r1 = Merge(base, edit, base, DefaultOptions())
+		let r2 = Merge(base, base, edit, DefaultOptions())
+			IsClean(r1.Status) &&
+			r1.ConflictCount == 0 &&
+			slices.Equal(r1.Content, edit) &&
+			IsClean(r2.Status) &&
+			r2.ConflictCount == 0 &&
+			slices.Equal(r2.Content, edit)
+	},
+}
+
+// DefaultMerger is the standard pure-Ergo FileMerger provider.
+type DefaultMerger {} implements FileMerger
+
+// NewDefaultMerger returns a DefaultMerger.
+func NewDefaultMerger() DefaultMerger {
+	DefaultMerger
+}
+
+// Merge implements FileMerger.Merge on DefaultMerger.
+func Merge(_ DefaultMerger, base []byte, ours []byte, theirs []byte, opts MergeOptions) MergeResult {
+	MergeFiles(base, ours, theirs, opts)
+}
