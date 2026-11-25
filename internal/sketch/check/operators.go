@@ -529,6 +529,23 @@ func (c *checker) conversion(x *syntax.CallExpr, t Type) operand {
 		c.errorf(x, CodeType, "a conversion to %s takes one value", t)
 		return bad(x)
 	}
+	if innerCap := WrappingProviderOf(t); innerCap != nil {
+		op := c.valueExpr(x.Args[0], innerCap)
+		if op.invalid() {
+			return bad(x)
+		}
+		if !c.assign(&op, innerCap, "inner provider of "+t.String()) {
+			return bad(x)
+		}
+		if n, ok := t.(*Named); ok && n.Obj != nil && n.Obj.Provider != nil {
+			if nf, _, _, why := c.wrappingProviderFuncs(n.Obj.Provider.Field); why == "" && nf != nil && nf.Sig != nil {
+				for _, capT := range nf.Sig.Uses.Elems() {
+					c.charge(x, capT)
+				}
+			}
+		}
+		return operand{mode: modeValue, typ: t, expr: x}
+	}
 	if c.isLiteral(x.Args[0]) {
 		if msg := convertedLiteralOverflow(x.Args[0], t); msg != "" {
 			c.errorf(x.Args[0], CodeType, "%s", msg)

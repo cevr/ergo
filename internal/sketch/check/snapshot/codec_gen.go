@@ -874,6 +874,7 @@ func (e *encoder) enctestAuthority(v check.Codec_testAuthority) { e.uint(uint64(
 func (e *encoder) encFieldsProviderTypes(v *check.ProviderTypes) {
 	e.encPtrNamed(v.Field)
 	e.encPtrNamed(v.None)
+	e.encT15(v.Wrapping)
 }
 
 func (e *encoder) encProviderTypes(v check.ProviderTypes) { e.encFieldsProviderTypes(&v) }
@@ -7311,9 +7312,12 @@ func (e *encoder) encPtrPatternState(v *check.PatternState) {
 func (e *encoder) encFieldsProviderCalls(v *check.ProviderCalls) {
 	e.encPtrFunc(v.New)
 	e.encPtrFunc(v.Call)
+	e.encPtrFunc(v.Wrap)
+	e.encPtrFunc(v.Draw)
 	e.encT23(v.TypeArgs)
 	e.encPtrSignature(v.NewSig)
 	e.encPtrSignature(v.CallSig)
+	e.encT15(v.Wrapping)
 }
 
 func (e *encoder) encProviderCalls(v check.ProviderCalls) { e.encFieldsProviderCalls(&v) }
@@ -12538,6 +12542,7 @@ func (d *decoder) dectestAuthority() check.Codec_testAuthority {
 func (d *decoder) decFieldsProviderTypes(v *check.ProviderTypes) {
 	v.Field = d.decPtrNamed()
 	v.None = d.decPtrNamed()
+	v.Wrapping = d.decT15()
 }
 
 func (d *decoder) decProviderTypes() (v check.ProviderTypes) {
@@ -19155,9 +19160,12 @@ func (d *decoder) decPtrPatternState() *check.PatternState {
 func (d *decoder) decFieldsProviderCalls(v *check.ProviderCalls) {
 	v.New = d.decPtrFunc()
 	v.Call = d.decPtrFunc()
+	v.Wrap = d.decPtrFunc()
+	v.Draw = d.decPtrFunc()
 	v.TypeArgs = d.decT23()
 	v.NewSig = d.decPtrSignature()
 	v.CallSig = d.decPtrSignature()
+	v.Wrapping = d.decT15()
 }
 
 func (d *decoder) decProviderCalls() (v check.ProviderCalls) {

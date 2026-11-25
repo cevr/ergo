@@ -89,7 +89,13 @@ func (c *checker) resolveProviders() {
 			c.errorIn(tn.Decl, tn.Decl.DerivePos, tn.Decl.DerivePos+syntax.Pos(len("derive")), CodeType, "the Provider derive of %s: %s (patterns.md, Provider plans)", tn.Name, why)
 			continue
 		}
-		tn.Provider = &ProviderTypes{Field: field, None: none}
+		wrapping := false
+		if _, runtime := GoTypeOf(field); !runtime {
+			if _, _, _, wwhy := c.wrappingProviderFuncs(field); wwhy == "" {
+				wrapping = true
+			}
+		}
+		tn.Provider = &ProviderTypes{Field: field, None: none, Wrapping: wrapping}
 	}
 }
 
@@ -99,14 +105,60 @@ func providerName(inst *Named) string {
 	return inst.Obj.Pkg.Name + "." + inst.Obj.Name
 }
 
-// ScriptOf is S of a testing.Script[S] instance whose S the checker
-// admits (scriptWhy), and nil for any other type.
-func ScriptOf(t Type) *Named {
-	s, ok := scriptArg(t)
-	if !ok || scriptWhy(s) != "" {
+// WrappingProviderOf is S of a wrapping derived provider instance T[S] whose
+// S the checker admits, and nil for any other type.
+func WrappingProviderOf(t Type) *Named {
+	n, ok := t.(*Named)
+	if !ok || n.Orig == nil || n.Obj == nil || n.Obj.Provider == nil || !n.Obj.Provider.Wrapping || len(n.TArgs) != 1 {
+		return nil
+	}
+	s := n.TArgs[0]
+	if wrapWhy(s) != "" {
 		return nil
 	}
 	return s.(*Named)
+}
+
+// ScriptOf is S of a derived provider instance T[S] whose S the checker
+// admits (scriptWhy or wrapWhy), and nil for any other type.
+func ScriptOf(t Type) *Named {
+	s, ok := scriptArg(t)
+	if !ok {
+		return nil
+	}
+	n := t.(*Named)
+	if n.Obj.Provider.Wrapping {
+		if wrapWhy(s) != "" {
+			return nil
+		}
+		return s.(*Named)
+	}
+	if scriptWhy(s) != "" {
+		return nil
+	}
+	return s.(*Named)
+}
+
+// wrapWhy is why the type argument s makes no wrapping derived provider, or ""
+// when it makes one. Wrapping providers forward arguments directly to inner
+// without storing them, so borrows, functions and resources are admitted.
+func wrapWhy(s Type) string {
+	if _, ok := s.(*TypeParam); ok {
+		return fmt.Sprintf("%s is a type parameter; a derived provider is derived from the operations of a written capability", s)
+	}
+	n, ok := s.(*Named)
+	if !ok || n.foreign || !isCapability(s) {
+		return fmt.Sprintf("%s is not a capability; a derived provider is derived from the operations of an operation type with written type arguments", s)
+	}
+	if Sealed(n) {
+		return fmt.Sprintf("%s has an unexported operation, so a derived provider cannot implement it outside its package", s)
+	}
+	for _, m := range asInterface(s).Methods {
+		if returnsRunning(m.Sig) {
+			return fmt.Sprintf("its operation %s returns a Task, which a derived provider cannot wrap", m.Name)
+		}
+	}
+	return ""
 }
 
 // returnsRunning reports an operation whose one result is a running task,
@@ -176,6 +228,13 @@ func (c *checker) scriptWritten(inst *Named, at syntax.Node) bool {
 	if !ok {
 		return true
 	}
+	if inst.Obj.Provider.Wrapping {
+		if why := wrapWhy(s); why != "" {
+			c.errorf(at, CodeType, "%s[%s]: %s (stdlib.md, Testing 7)", providerName(inst), s, why)
+			return false
+		}
+		return true
+	}
 	if why := scriptWhy(s); why != "" {
 		c.errorf(at, CodeType, "%s[%s]: %s (stdlib.md, Testing 7)", providerName(inst), s, why)
 		return false
@@ -192,7 +251,11 @@ func (c *checker) scriptWritten(inst *Named, at syntax.Node) bool {
 // type argument.
 func (c *checker) scriptUnder(inst *Named) Type {
 	s, _ := scriptArg(inst)
-	if scriptWhy(s) != "" {
+	if inst.Obj.Provider.Wrapping {
+		if wrapWhy(s) != "" {
+			return &Struct{obj: inst.Obj}
+		}
+	} else if scriptWhy(s) != "" {
 		return &Struct{obj: inst.Obj}
 	}
 	op, none := inst.Obj.Provider.Field, inst.Obj.Provider.None
@@ -230,7 +293,12 @@ func (c *checker) scriptUnder(inst *Named) Type {
 }
 
 // scriptLit checks the literal x of the Script t: it sets no field (rule 3).
+// A wrapping derived provider requires an inner provider value via T[S](inner).
 func (c *checker) scriptLit(x *syntax.CompositeLit, t Type) bool {
+	if WrappingProviderOf(t) != nil {
+		c.errorf(x, CodeType, "a %s wraps an inner provider; write %s(inner)", t, strings.TrimSpace(c.localTypeText(t)))
+		return false
+	}
 	if len(x.Elts) == 0 && x.Base == nil {
 		return true
 	}

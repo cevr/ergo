@@ -40,6 +40,36 @@
       "to": "\t\ttry st.Do(a)\n\t\tlet (nextState, want) = m.Step(state, a)",
       "rule": "Agrees steps the pure story model before applying the act to the stage.",
       "killers": ["internal/sketch/std/testing:law:StoryStepsBeforeStage"]
+    },
+    {
+      "name": "faulty-skips-last-failure",
+      "origin": "wf10 PROPERTY-TESTING P6",
+      "file": "internal/sketch/std/testing/faulty.ergo",
+      "decl": "ChooseFault",
+      "from": "\tlet k = gen.Below(uint64(count + 1))\n",
+      "to": "\tlet k = gen.Below(uint64(count))\n",
+      "rule": "ChooseFault draws across pass-through plus all count declared failures so the last failure is never skipped (FaultyInjectsEveryDeclaredFailure).",
+      "killers": ["internal/sketch/std/testing:law:FaultyInjectsEveryDeclaredFailure"]
+    },
+    {
+      "name": "faulty-fails-after-effect",
+      "origin": "wf10 PROPERTY-TESTING P6",
+      "file": "internal/sketch/std/testing/faulty.ergo",
+      "decl": "Wrap",
+      "from": "\tcase Some[int] as idx:\n\t\tlet res = failWith(idx.Value) catch {\n",
+      "to": "\tcase Some[int] as idx:\n\t\tlet _ = inner() catch {\n\t\tcase _:\n\t\t\treturn try failWith(idx.Value)\n\t\t}\n\t\tlet res = failWith(idx.Value) catch {\n",
+      "rule": "Wrap injects the chosen failure before calling inner so an injected fault causes zero side effects on inner (FaultyNeverRunsInnerOnInjectedFault).",
+      "killers": ["internal/sketch/std/testing:law:FaultyNeverRunsInnerOnInjectedFault"]
+    },
+    {
+      "name": "faulty-zero-tape-fails",
+      "origin": "wf10 PROPERTY-TESTING P6",
+      "file": "internal/sketch/std/testing/faulty.ergo",
+      "decl": "ChooseFault",
+      "from": "\tif k == uint64(0) {\n\t\treturn None\n\t}\n",
+      "to": "\tif k == uint64(count) {\n\t\treturn None\n\t}\n",
+      "rule": "A zero draw on the tape always passes through to inner without injecting a failure (FaultyZeroTapeMatchesInner).",
+      "killers": ["internal/sketch/std/testing:law:FaultyZeroTapeMatchesInner"]
     }
   ]
 }

@@ -25,15 +25,90 @@ import (
 // ProviderCalls are the Ergo functions that make and answer one field of a
 // derived provider instance whose field type is declared in Ergo, and
 // their signatures at the field's arguments A and signature G (TypeArgs).
+// For a wrapping provider (Wrapping == true), New takes (op, faults),
+// Wrap runs an operation with inner and failWith closures, and Draw draws
+// tape values for failure payloads.
 type ProviderCalls struct {
-	New, Call       *Func
-	TypeArgs        []Type
-	NewSig, CallSig *Signature
+	New, Call, Wrap, Draw *Func
+	TypeArgs              []Type
+	NewSig, CallSig       *Signature
+	Wrapping              bool
 }
 
-// ProviderCalls is the Ergo NewF and Call of f, a field of a derived
-// provider instance, or nil when its field type is a runtime Go type.
+// ProviderCalls is the Ergo NewF and Call (or Wrap/Draw) of f, a field of a
+// derived provider instance, or nil when its field type is a runtime Go type.
 func (f *Field) ProviderCalls() *ProviderCalls { return f.provider }
+
+// ErrorRowTypes returns the concrete declared failure types of r in canonical
+// order, flattening row variables and row arguments.
+func ErrorRowTypes(r *Row) []Type {
+	var out []Type
+	var walk func(r *Row)
+	walk = func(r *Row) {
+		if r == nil {
+			return
+		}
+		for _, e := range r.Elems() {
+			switch e := e.(type) {
+			case *RowVar:
+				walk(e.Solution())
+			case *RowArg:
+				walk(e.Row)
+			default:
+				out = append(out, e)
+			}
+		}
+	}
+	walk(r)
+	return out
+}
+
+// wrappingProviderFuncs checks whether field's package declares the wrapping
+// provider trio:
+//
+//	func New<Field>[A, G](op string, faults []string) F[A, G] needs R
+//	func Wrap[A, G, T, E](r F[A, G], inner func() T fails E, failWith func(idx int) T fails E) T fails E
+//	func Draw[A, G](r F[A, G], n uint64) uint64
+func (c *checker) wrappingProviderFuncs(field *Named) (nf, wf, df *Func, why string) {
+	newName := "New" + field.Obj.Name
+	look := func(name string) *Func {
+		o, ok := field.Obj.Pkg.Scope.names[name]
+		if !ok {
+			return nil
+		}
+		f, _ := o.(*Func)
+		return f
+	}
+	nf, wf, df = look(newName), look("Wrap"), look("Draw")
+	if nf == nil || wf == nil || df == nil {
+		return nil, nil, nil, "missing wrapping provider functions"
+	}
+	ns, ws, ds := c.funcSig(nf), c.funcSig(wf), c.funcSig(df)
+	isStr := func(t Type) bool { b, ok := t.(*Basic); return ok && b.Kind == String }
+	isStrSlice := func(t Type) bool { s, ok := t.(*Slice); return ok && isStr(s.Elem) }
+	isU64 := func(t Type) bool { b, ok := t.(*Basic); return ok && b.Kind == Uint64 }
+	isInt := func(t Type) bool { b, ok := t.(*Basic); return ok && b.Kind == Int }
+	if !plainPair(ns.TParams) || len(ns.Params) != 2 || !isStr(ns.Params[0].Type) || !isStrSlice(ns.Params[1].Type) || len(ns.Results) != 1 || !ownInstance(ns.Results[0], field, ns.TParams) {
+		return nil, nil, nil, fmt.Sprintf("its field type's %s is not func %s[A, G](op string, faults []string) %s[A, G]", newName, newName, field.Obj.Name)
+	}
+	if len(ws.TParams) != 4 || ws.TParams[0].Kind != KindType || ws.TParams[1].Kind != KindType || ws.TParams[2].Kind != KindType || ws.TParams[3].Kind != KindErrors ||
+		ws.TParams[0].Constraint != nil || ws.TParams[1].Constraint != nil || ws.TParams[2].Constraint != nil ||
+		len(ws.Params) != 3 || len(ws.Results) != 1 ||
+		!ownInstance(ws.Params[0].Type, field, ws.TParams[:2]) ||
+		ws.Results[0] != Type(ws.TParams[2]) {
+		return nil, nil, nil, fmt.Sprintf("its field type's Wrap is not func Wrap[A, G, T, E](r %s[A, G], inner func() T fails E, failWith func(idx int) T fails E) T fails E", field.Obj.Name)
+	}
+	innerSig, ok1 := ws.Params[1].Type.(*Signature)
+	failSig, ok2 := ws.Params[2].Type.(*Signature)
+	if !ok1 || !ok2 || len(innerSig.Params) != 0 || len(innerSig.Results) != 1 || innerSig.Results[0] != Type(ws.TParams[2]) ||
+		len(failSig.Params) != 1 || !isInt(failSig.Params[0].Type) || len(failSig.Results) != 1 || failSig.Results[0] != Type(ws.TParams[2]) {
+		return nil, nil, nil, fmt.Sprintf("its field type's Wrap is not func Wrap[A, G, T, E](r %s[A, G], inner func() T fails E, failWith func(idx int) T fails E) T fails E", field.Obj.Name)
+	}
+	if !plainPair(ds.TParams) || len(ds.Params) != 2 || len(ds.Results) != 1 || !ownInstance(ds.Params[0].Type, field, ds.TParams) || !isU64(ds.Params[1].Type) || !isU64(ds.Results[0]) {
+		return nil, nil, nil, fmt.Sprintf("its field type's Draw is not func Draw[A, G](r %s[A, G], n uint64) uint64", field.Obj.Name)
+	}
+	return nf, wf, df, ""
+}
 
 // providerFuncs are NewF and Call of the Ergo field type field, the generic
 // declaration, or why its package declares no such pair. It resolves their
@@ -89,6 +164,18 @@ func (c *checker) providerCalls(p *ProviderTypes, fieldInst *Named) *ProviderCal
 	if _, runtime := GoTypeOf(p.Field); runtime {
 		return nil
 	}
+	if p.Wrapping {
+		nf, wf, df, why := c.wrappingProviderFuncs(p.Field)
+		if why != "" {
+			return nil
+		}
+		at := map[*TypeParam]Type{nf.Sig.TParams[0]: fieldInst.TArgs[0], nf.Sig.TParams[1]: fieldInst.TArgs[1]}
+		ns, _ := c.subst(nf.Sig, at).(*Signature)
+		if ns == nil {
+			return nil
+		}
+		return &ProviderCalls{New: nf, Wrap: wf, Draw: df, TypeArgs: fieldInst.TArgs, NewSig: ns, Wrapping: true}
+	}
 	nf, cf, why := c.providerFuncs(p.Field)
 	if why != "" {
 		return nil
@@ -115,6 +202,33 @@ func (c *checker) checkProviderFields() {
 			continue
 		}
 		if _, runtime := GoTypeOf(p.Field); runtime {
+			continue
+		}
+		isWrapCandidate := p.Wrapping
+		if !isWrapCandidate {
+			if wf, ok := p.Field.Obj.Pkg.Scope.names["Wrap"].(*Func); ok {
+				if ws := c.funcSig(wf); len(ws.Params) > 0 {
+					if rn, ok := ws.Params[0].Type.(*Named); ok && rn.Obj == p.Field.Obj {
+						isWrapCandidate = true
+					}
+				}
+			}
+		}
+		if isWrapCandidate {
+			nf, wf, df, why := c.wrappingProviderFuncs(p.Field)
+			if why == "" {
+				if !nf.Sig.Errors.Empty() {
+					why = fmt.Sprintf("its field type's %s has a failure row; a wrapping provider constructor fails nothing", nf.Name)
+				} else if !wf.Sig.Uses.Empty() {
+					why = fmt.Sprintf("its field type's %s has a capability row; Wrap answers on the caller's task", wf.Name)
+				} else if !df.Sig.Errors.Empty() || !df.Sig.Uses.Empty() {
+					why = fmt.Sprintf("its field type's %s has a row; Draw has no capability or failure of its own", df.Name)
+				}
+			}
+			if why != "" {
+				c.cur = tn.file
+				c.errorIn(tn.Decl, tn.Decl.DerivePos, tn.Decl.DerivePos+syntax.Pos(len("derive")), CodeType, "the Provider derive of %s: %s (patterns.md, Provider plans)", tn.Name, why)
+			}
 			continue
 		}
 		nf, cf, why := c.providerFuncs(p.Field)

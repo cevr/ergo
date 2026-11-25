@@ -34,6 +34,9 @@ func (l *lowerer) scriptType(n *check.Named, site syntax.Node) string {
 	var b strings.Builder
 	b.WriteString("// " + name + " is " + n.String() + ", one operation of " + check.ScriptOf(n).String() + " per field (a derived Script).\n")
 	b.WriteString("type " + name + " struct {\n")
+	if innerCap := check.WrappingProviderOf(n); innerCap != nil {
+		b.WriteString("\tinner " + tc.goType(innerCap) + "\n")
+	}
 	for _, f := range scriptFields(n, site) {
 		b.WriteString("\t" + memberName(f.Name) + " " + tc.goType(f.Type) + "\n")
 	}
@@ -237,6 +240,65 @@ func (fc *funcCtx) scriptOperations(conv check.Conversion, val string, site synt
 		answer, has := locals.alloc("f"), locals.alloc("has")
 		call := answer + "(" + strings.Join(args, ", ") + ")"
 		b.WriteString("func (" + self + " *" + name + ") " + memberName(op.Name) + "(" + strings.Join(params, ", ") + ")" + tc.resultList(result, fallible) + " {\n")
+		if pc := f.ProviderCalls(); pc != nil && pc.Wrapping {
+			errTypes := check.ErrorRowTypes(sig.Errors)
+			innerCallArgs := append([]string{task}, names...)
+			if len(errTypes) == 0 {
+				if result != nil {
+					b.WriteString("\treturn " + self + ".v.inner." + memberName(op.Name) + "(" + strings.Join(innerCallArgs, ", ") + ")\n")
+				} else {
+					b.WriteString("\t" + self + ".v.inner." + memberName(op.Name) + "(" + strings.Join(innerCallArgs, ", ") + ")\n")
+				}
+				b.WriteString("}\n\n")
+				continue
+			}
+			afc := newFuncCtx(l, locals, false)
+			afc.typeCtx = *tc
+			env := "&" + l.env() + "{" + envTask + ": " + task + "}"
+			var wrapResT check.Type = check.Typ[check.Bool]
+			if result != nil {
+				wrapResT = result
+			}
+			goWrapRes := tc.goType(wrapResT)
+			innerEnv := locals.alloc("ie")
+			innerFwdArgs := append([]string{innerEnv + "." + envTask}, names...)
+			innerFn := locals.alloc("innerFn")
+			if result != nil {
+				b.WriteString("\t" + innerFn + " := func(" + innerEnv + " *" + l.env() + ") (" + goWrapRes + ", error) {\n")
+				b.WriteString("\t\treturn " + self + ".v.inner." + memberName(op.Name) + "(" + strings.Join(innerFwdArgs, ", ") + ")\n")
+				b.WriteString("\t}\n")
+			} else {
+				b.WriteString("\t" + innerFn + " := func(" + innerEnv + " *" + l.env() + ") (bool, error) {\n")
+				b.WriteString("\t\treturn true, " + self + ".v.inner." + memberName(op.Name) + "(" + strings.Join(innerFwdArgs, ", ") + ")\n")
+				b.WriteString("\t}\n")
+			}
+			failEnv := locals.alloc("fe")
+			failIdx := locals.alloc("idx")
+			failZero := locals.alloc("zero")
+			failFn := locals.alloc("failFn")
+			b.WriteString("\t" + failFn + " := func(" + failEnv + " *" + l.env() + ", " + failIdx + " int) (" + goWrapRes + ", error) {\n")
+			b.WriteString("\t\tvar " + failZero + " " + goWrapRes + "\n")
+			b.WriteString("\t\tswitch " + failIdx + " {\n")
+			drawCall := func(n uint64) string {
+				return afc.providerCall(pc.Draw, pc, failEnv, []string{self + ".v." + memberName(op.Name), "uint64(" + strconv.FormatUint(n, 10) + ")"}, site)
+			}
+			for ei, et := range errTypes {
+				b.WriteString("\t\tcase " + strconv.Itoa(ei) + ":\n")
+				expr := afc.goFaultExpr(et, drawCall, site, 0)
+				b.WriteString("\t\t\treturn " + failZero + ", " + expr + "\n")
+			}
+			b.WriteString("\t\tdefault:\n\t\t\treturn " + failZero + ", nil\n")
+			b.WriteString("\t\t}\n\t}\n")
+			wrapCall := afc.providerWrapCall(pc, env, self+".v."+memberName(op.Name), wrapResT, sig.Errors, innerFn, failFn, site)
+			if result != nil {
+				b.WriteString("\treturn " + wrapCall + "\n")
+			} else {
+				e := locals.alloc("err")
+				b.WriteString("\t_, " + e + " := " + wrapCall + "\n\treturn " + e + "\n")
+			}
+			b.WriteString("}\n\n")
+			continue
+		}
 		if pc := f.ProviderCalls(); pc != nil {
 			// An Ergo field type: its Call records the arguments and
 			// returns the answer as an Option (check/provider.go), on the
@@ -310,4 +372,86 @@ func (fc *funcCtx) providerCall(f *check.Func, pc *check.ProviderCalls, env stri
 		head = fd.name + fc.typeArgs(f.Sig, inst.TypeArgs, site)
 	}
 	return head + "(" + strings.Join(append(lead, args...), ", ") + ")"
+}
+
+// providerWrapCall emits a call to a wrapping provider field's Wrap[A, G, T, E].
+func (fc *funcCtx) providerWrapCall(pc *check.ProviderCalls, env, fieldExpr string, resT check.Type, errRow *check.Row, innerFn, failFn string, site syntax.Node) string {
+	f := pc.Wrap
+	fd := fc.l.useFunc(f, site)
+	targs := []check.Type{pc.TypeArgs[0], pc.TypeArgs[1], resT, &check.RowArg{Row: errRow}}
+	inst := &check.Instance{Func: f, TypeArgs: targs}
+	lead := append(fd.envLead(env), fc.witnessArgs(f, inst, site)...)
+	head := fd.name + fc.typeArgs(f.Sig, targs, site)
+	args := []string{fieldExpr, innerFn, failFn}
+	return head + "(" + strings.Join(append(lead, args...), ", ") + ")"
+}
+
+// goFaultExpr emits a Go expression that constructs a value of failure type t
+// using draw(n) in the exact same draw sequence as eval's drawFaultValue.
+func (fc *funcCtx) goFaultExpr(t check.Type, draw func(uint64) string, site syntax.Node, depth int) string {
+	goT := fc.goType(t)
+	switch u := underEqual(t).(type) {
+	case *check.Basic:
+		switch u.Kind {
+		case check.Bool:
+			return goT + "(" + draw(2) + " == 1)"
+		case check.String:
+			return goT + "(([]string{\"\", \"a\", \"err\"})[" + draw(3) + "])"
+		case check.Float32, check.Float64:
+			return goT + "(" + draw(3) + ")"
+		case check.Int, check.Int8, check.Int16, check.Int32, check.Int64, check.Duration,
+			check.Uint, check.Uint8, check.Uint16, check.Uint32, check.Uint64, check.Uintptr:
+			return goT + "(" + draw(5) + ")"
+		}
+	case *check.Struct:
+		nn := t.(*check.Named)
+		td := fc.l.typeDecl(nn.Obj, site)
+		if len(u.Fields) == 0 || depth >= 3 {
+			return goT + "{}"
+		}
+		var parts []string
+		for _, fld := range u.Fields {
+			parts = append(parts, td.fieldName[fld.Name]+": "+fc.goFaultExpr(fld.Type, draw, site, depth+1))
+		}
+		return goT + "{" + strings.Join(parts, ", ") + "}"
+	case *check.Union:
+		if len(u.Variants) == 0 {
+			return "func() (z " + goT + ") { return z }()"
+		}
+		if depth >= 3 || len(u.Variants) == 1 {
+			v := fc.goFaultExpr(u.Variants[0], draw, site, depth+1)
+			return fc.wrapUnionFault(t, u, 0, v)
+		}
+		var b strings.Builder
+		b.WriteString("func() " + goT + " {\n\t\t\t\tswitch " + draw(uint64(len(u.Variants))) + " {\n")
+		for i, vt := range u.Variants {
+			v := fc.goFaultExpr(vt, draw, site, depth+1)
+			b.WriteString("\t\t\t\tcase " + strconv.Itoa(i) + ":\n\t\t\t\t\treturn " + fc.wrapUnionFault(t, u, i, v) + "\n")
+		}
+		b.WriteString("\t\t\t\tdefault:\n\t\t\t\t\tvar z " + goT + "\n\t\t\t\t\treturn z\n\t\t\t\t}\n\t\t\t}()")
+		return b.String()
+	case *check.Slice:
+		return goT + "{}"
+	case *check.Map:
+		return goT + "{}"
+	case *check.Tuple:
+		if len(u.Types) == 0 {
+			return goT + "{}"
+		}
+		var parts []string
+		for i, et := range u.Types {
+			parts = append(parts, tupleField(i)+": "+fc.goFaultExpr(et, draw, site, depth+1))
+		}
+		return goT + "{" + strings.Join(parts, ", ") + "}"
+	}
+	return "func() (z " + goT + ") { return z }()"
+}
+
+func (fc *funcCtx) wrapUnionFault(t check.Type, u *check.Union, idx int, val string) string {
+	if n, ok := t.(*check.Named); ok {
+		if fu := fc.l.flatUnionOf(n); fu != nil {
+			return fu.flatValue(&fc.typeCtx, fc.goType(t), idx, val)
+		}
+	}
+	return val
 }
