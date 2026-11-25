@@ -1,0 +1,380 @@
+import exec
+import filepath
+import fs
+import fstest
+import option
+import os
+import strings
+import github.com/cevr/ergo/modules/git/locks
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/oracle
+import github.com/cevr/ergo/modules/git/wref
+
+type testFail {
+	reason string,
+}
+
+type hostBox {
+	Host() fs.Host,
+
+	// HostReadable: test host can read current directory.
+	law HostReadable() {
+		let h = Host()
+		let _ = fs.ReadDir(h, ".") catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return false
+		}
+		true
+	},
+}
+
+type realHostBox {
+	h fs.Host,
+} implements hostBox
+
+func Host(b realHostBox) fs.Host {
+	b.h
+}
+
+let onMemoryReftable = context {
+	ReftableStore: NewMemoryReftableStore(),
+}
+
+let onDiskReftable = context {
+	ReftableStore: NewDiskReftableStore(),
+}
+
+let onOracleWithHost = context needs fstest.TestAmbient {
+	exec.Runner:   exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
+	fs.Files:      fs.NewTestHost(),
+	fs.Writes:     fs.NewTestHost(),
+	os.Process:    os.NewTestHost(),
+	locks.LockOps: wref.NewFSLockOps(fs.NewTestHost()),
+	hostBox:       realHostBox{h: fs.NewTestHost()},
+}
+
+func runGit(dir string, args []string, pathEnv Map[string, string], epoch int64) string fails testFail | exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	let r = try exec.Runner.Run(oracle.GitCommand(dir, args, pathEnv, epoch))
+	if r.Status != 0 {
+		return testFail{reason: "git " + strings.Join(args, " ") + " failed: " + r.Stderr}
+	}
+	r.Stdout
+}
+
+func checkCond(ok bool, msg string) fails testFail {
+	if !ok {
+		return testFail{reason: msg}
+	}
+}
+
+func exerciseFormatAgainstCGit(rootDir string, fmtName string, fmt oid.Format, pathEnv Map[string, string], host fs.Host) fails testFail | BadMagic | UnsupportedVersion | HashFormatMismatch | TruncatedTable | HeaderFooterMismatch | CorruptChecksum | CorruptBlock | CorruptRecord | ZlibFailed | InvalidUpdateIndex | CyclicSymref | RefNotFound | LockFailed | IOFailed | exec.NotFound | exec.Denied | exec.Failed | fs.NotFound | fs.Denied | fs.Failed needs exec.Runner | fs.Files | fs.Writes | locks.LockOps {
+	let repoDir = filepath.Join([]string{rootDir, "reftable-" + fmtName})
+	try fs.Writes.MkdirAll(repoDir)
+	let _ = try runGit(repoDir, []string{"init", "-q", "--template=", "--object-format=" + fmtName, "--ref-format=reftable", "-b", "main", "."}, pathEnv, oracle.BaseEpoch)
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "a.txt"}), "hello reftable\n")
+	let _ = try runGit(repoDir, []string{"add", "a.txt"}, pathEnv, oracle.StepEpoch(1))
+	let _ = try runGit(repoDir, []string{"commit", "-q", "-m", "initial"}, pathEnv, oracle.StepEpoch(1))
+	let c1Hex = strings.TrimSpace(try runGit(repoDir, []string{"rev-parse", "HEAD"}, pathEnv, oracle.StepEpoch(1)))
+
+	let _ = try runGit(repoDir, []string{"tag", "-a", "v1.0", "-m", "release v1.0"}, pathEnv, oracle.StepEpoch(2))
+	let tagHex = strings.TrimSpace(try runGit(repoDir, []string{"rev-parse", "refs/tags/v1.0"}, pathEnv, oracle.StepEpoch(2)))
+	let _ = try runGit(repoDir, []string{"branch", "oldbranch"}, pathEnv, oracle.StepEpoch(3))
+	let _ = try runGit(repoDir, []string{"branch", "keep"}, pathEnv, oracle.StepEpoch(3))
+	let _ = try runGit(repoDir, []string{"checkout", "-q", "-b", "feat"}, pathEnv, oracle.StepEpoch(4))
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "b.txt"}), "feature work\n")
+	let _ = try runGit(repoDir, []string{"add", "b.txt"}, pathEnv, oracle.StepEpoch(5))
+	let _ = try runGit(repoDir, []string{"commit", "-q", "-m", "feat commit"}, pathEnv, oracle.StepEpoch(5))
+	let c2Hex = strings.TrimSpace(try runGit(repoDir, []string{"rev-parse", "HEAD"}, pathEnv, oracle.StepEpoch(5)))
+	let c2 = oid.ParseHex(fmt, c2Hex) catch {
+	case oid.BadHex, oid.WrongLength:
+		return CorruptRecord{Detail: "bad c2 hex"}
+	}
+	let _ = try runGit(repoDir, []string{"checkout", "-q", "main"}, pathEnv, oracle.StepEpoch(6))
+	let _ = try runGit(repoDir, []string{"branch", "-D", "feat"}, pathEnv, oracle.StepEpoch(7))
+
+	let gitDir = filepath.Join([]string{repoDir, ".git"})
+	let tables = try ReadStack(gitDir, host)
+	try checkCond(tables.Len() >= 2, "expected multi-table C Git stack")
+	let wantVer = match fmt {
+	case oid.Sha1:
+		1
+	case oid.Sha256:
+		2
+	}
+	try checkCond(tables[0].Header.Version == wantVer, "header version mismatch")
+
+	let headRes = try ResolveRef(tables, "HEAD")
+	try checkCond(oid.Hex(headRes.OID) == c1Hex, "HEAD OID mismatch")
+	try checkCond(headRes.Name == "refs/heads/main", "HEAD resolved ref mismatch")
+	let symOut = strings.TrimSpace(try runGit(repoDir, []string{"symbolic-ref", "HEAD"}, pathEnv, oracle.StepEpoch(8)))
+	try checkCond(symOut == headRes.Name, "symbolic-ref HEAD mismatch")
+
+	let featLookup = LookupRef(tables, "refs/heads/feat")
+	match featLookup {
+	case option.None:
+	case option.Some[RefRecord]:
+		return testFail{reason: "deleted branch refs/heads/feat still visible"}
+	}
+
+	let tagRes = try ResolveRef(tables, "refs/tags/v1.0")
+	try checkCond(oid.Hex(tagRes.OID) == tagHex, "tag OID mismatch")
+	match tagRes.Peeled {
+	case option.Some[oid.OID] as p:
+		try checkCond(oid.Hex(p.Value) == c1Hex, "peeled tag OID mismatch")
+	case option.None:
+		return testFail{reason: "missing peeled OID on annotated tag"}
+	}
+
+	let showRefOut = strings.TrimSpace(try runGit(repoDir, []string{"show-ref", "--dereference"}, pathEnv, oracle.StepEpoch(8)))
+	let mut gitDirect = Map[string, string]{}
+	let mut gitPeeled = Map[string, string]{}
+	for line in strings.Split(showRefOut, "\n") {
+		let trimmed = strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		let parts = strings.Split(trimmed, " ")
+		try checkCond(parts.Len() == 2, "malformed show-ref line")
+		if strings.HasSuffix(parts[1], "^{}") {
+			let baseName = strings.TrimSuffix(parts[1], "^{}")
+			gitPeeled[baseName] = parts[0]
+		} else {
+			gitDirect[parts[1]] = parts[0]
+		}
+	}
+	let liveRefs = ListRefs(tables)
+	let mut liveNonHead = 0
+	for r in liveRefs {
+		if r.Name == "HEAD" {
+			continue
+		}
+		liveNonHead = liveNonHead + 1
+		let wantHex = match gitDirect.Get(r.Name) {
+		case option.Some[string] as v:
+			v.Value
+		case option.None:
+			""
+		}
+		match r.Value {
+		case RefDirect as d:
+			try checkCond(oid.Hex(d.OID) == wantHex, "direct ref OID mismatch for "+r.Name)
+		case RefPeeled as p:
+			try checkCond(oid.Hex(p.OID) == wantHex, "peeled ref OID mismatch for "+r.Name)
+			let wantPeeled = match gitPeeled.Get(r.Name) {
+			case option.Some[string] as v:
+				v.Value
+			case option.None:
+				""
+			}
+			try checkCond(oid.Hex(p.Peeled) == wantPeeled, "peeled target mismatch for "+r.Name)
+		case RefDelete, RefSymref:
+			return testFail{reason: "unexpected ref value kind for " + r.Name}
+		}
+	}
+	try checkCond(liveNonHead == gitDirect.Len(), "live ref count mismatch vs git show-ref")
+
+	let headLogs = ListLogs(tables, "HEAD")
+	let reflogOut = strings.TrimSpace(try runGit(repoDir, []string{"reflog", "show", "--format=%H", "HEAD"}, pathEnv, oracle.StepEpoch(8)))
+	let gitLogLines = strings.Split(reflogOut, "\n")
+	try checkCond(headLogs.Len() == gitLogLines.Len(), "HEAD reflog length mismatch")
+	for i in 0..headLogs.Len() {
+		match headLogs[i].Value {
+		case LogUpdate as u:
+			try checkCond(oid.Hex(u.NewOID) == strings.TrimSpace(gitLogLines[i]), "HEAD reflog OID mismatch")
+		case LogDelete:
+			return testFail{reason: "unexpected LogDelete in live HEAD logs"}
+		}
+	}
+
+	let compacted = try CompactStack(tables, true)
+	let compactedRaw = try WriteTable(compacted.Header, compacted.Refs, compacted.Logs)
+	let reparsed = try ReadTable(compactedRaw)
+	let reparsedLive = ListRefs([]Table{reparsed})
+	try checkCond(reparsedLive.Len() == liveRefs.Len(), "compacted ref count mismatch")
+	for r in reparsed.Refs {
+		match r.Value {
+		case RefDelete:
+			return testFail{reason: "tombstone remained after dropDeletions compaction"}
+		case RefDirect, RefPeeled, RefSymref:
+		}
+	}
+
+	let (addedName, _) = try AppendTable(gitDir, fmt, []RefRecord{
+		RefRecord{Name: "refs/heads/ergo", UpdateIndex: uint64(0), Value: RefDirect{OID: c2}},
+		RefRecord{Name: "refs/heads/keep", UpdateIndex: uint64(0), Value: RefDirect{OID: c2}},
+		RefRecord{Name: "refs/heads/oldbranch", UpdateIndex: uint64(0), Value: RefDelete},
+	}, []LogRecord{
+		LogRecord{
+			RefName:     "refs/heads/ergo",
+			UpdateIndex: uint64(0),
+			Value:       LogUpdate{
+				OldOID:   oid.Zero(fmt),
+				NewOID:   c2,
+				Name:     "Ergo Test",
+				Email:    "ergo@example.com",
+				Time:     uint64(1700001000),
+				TzOffset: 0,
+				Message:  "branch: Created by ergo reftable\n",
+			},
+		},
+	}, locks.Durable, host)
+	try checkCond(strings.HasSuffix(addedName, ".ref"), "table filename missing .ref suffix")
+
+	let ergoRev = strings.TrimSpace(try runGit(repoDir, []string{"rev-parse", "refs/heads/ergo"}, pathEnv, oracle.StepEpoch(9)))
+	try checkCond(ergoRev == c2Hex, "git rev-parse refs/heads/ergo mismatch")
+	let keepRev = strings.TrimSpace(try runGit(repoDir, []string{"rev-parse", "refs/heads/keep"}, pathEnv, oracle.StepEpoch(9)))
+	try checkCond(keepRev == c2Hex, "git rev-parse refs/heads/keep mismatch")
+	let oldCheck = try exec.Runner.Run(oracle.GitCommand(repoDir, []string{"show-ref", "--verify", "--quiet", "refs/heads/oldbranch"}, pathEnv, oracle.StepEpoch(9)))
+	try checkCond(oldCheck.Status != 0, "oldbranch should be deleted in C Git")
+	let ergoLogOut = strings.TrimSpace(try runGit(repoDir, []string{"reflog", "show", "--format=%H %gs", "refs/heads/ergo"}, pathEnv, oracle.StepEpoch(9)))
+	try checkCond(ergoLogOut == c2Hex+" branch: Created by ergo reftable", "git reflog mismatch for refs/heads/ergo")
+	let _ = try runGit(repoDir, []string{"fsck", "--strict", "--full"}, pathEnv, oracle.StepEpoch(9))
+}
+
+// ReftableMatchesCGitSha1AndSha256: verifies pure-Ergo reftable v1 (SHA-1) and
+// v2 (SHA-256) reading, log inflation, compaction, and atomic table appends
+// against live C Git (`show-ref --dereference`, `symbolic-ref`, `reflog`,
+// `rev-parse`, and `fsck --strict --full`).
+test ReftableMatchesCGitSha1AndSha256 {
+	with onOracleWithHost {
+		let host = hostBox.Host()
+		let pathEnv = exec.PathOf(os.Process.Environ())
+		let cwd = try os.Process.Getwd()
+		try exerciseFormatAgainstCGit(cwd, "sha1", oid.Sha1, pathEnv, host)
+		try exerciseFormatAgainstCGit(cwd, "sha256", oid.Sha256, pathEnv, host)
+	}
+}
+
+func emptyTable(h Header) Table {
+	Table{
+		Header: h,
+		Footer: Footer{
+			Header:      h,
+			RefIndexPos: uint64(0),
+			ObjPos:      uint64(0),
+			ObjIDLen:    0,
+			ObjIndexPos: uint64(0),
+			LogPos:      uint64(0),
+			LogIndexPos: uint64(0),
+			CRC32:       uint32(0),
+		},
+		Refs: []RefRecord{},
+		Logs: []LogRecord{},
+	}
+}
+
+// ReftableValidationVarintStackAndCompaction: proves bijective varint edge
+// cases, header/footer/CRC32/truncation validation, symref cycle rejection,
+// multi-table stack precedence, and compaction with and without tombstones.
+test ReftableValidationVarintStackAndCompaction {
+	let vals = []uint64{
+		uint64(0),
+		uint64(1),
+		uint64(127),
+		uint64(128),
+		uint64(129),
+		uint64(16511),
+		uint64(16512),
+		uint64(1000000),
+		uint64(4294967296),
+	}
+	for v in vals {
+		let enc = PutVarInt(v)
+		let (dec, consumed) = try GetVarInt(enc, 0)
+		assert dec == v && consumed == enc.Len()
+	}
+	assert PutVarInt(uint64(128)).Len() == 2
+	assert PutVarInt(uint64(128))[0] == byte(128) && PutVarInt(uint64(128))[1] == byte(0)
+
+	let id1 = try oid.HashObject(oid.Sha1, oid.Blob, "one".Bytes())
+	let id2 = try oid.HashObject(oid.Sha1, oid.Blob, "two".Bytes())
+	let h1 = Header{Version: 1, BlockSize: 4096, MinUpdateIndex: uint64(1), MaxUpdateIndex: uint64(1), Format: oid.Sha1}
+	let h2 = Header{Version: 1, BlockSize: 4096, MinUpdateIndex: uint64(2), MaxUpdateIndex: uint64(2), Format: oid.Sha1}
+	let raw1 = try WriteTable(h1, []RefRecord{
+		RefRecord{Name: "refs/heads/a", UpdateIndex: uint64(1), Value: RefDirect{OID: id1}},
+		RefRecord{Name: "refs/heads/b", UpdateIndex: uint64(1), Value: RefDirect{OID: id1}},
+	}, []LogRecord{})
+	let raw2 = try WriteTable(h2, []RefRecord{
+		RefRecord{Name: "refs/heads/a", UpdateIndex: uint64(2), Value: RefDelete},
+		RefRecord{Name: "refs/heads/b", UpdateIndex: uint64(2), Value: RefDirect{OID: id2}},
+	}, []LogRecord{})
+
+	let t1 = try ReadTable(raw1)
+	let t2 = try ReadTable(raw2)
+	match LookupRef([]Table{t1, t2}, "refs/heads/a") {
+	case option.None:
+	case option.Some[RefRecord]:
+		assert false
+	}
+	match LookupRef([]Table{t1, t2}, "refs/heads/b") {
+	case option.Some[RefRecord] as rec:
+		match rec.Value.Value {
+		case RefDirect as d:
+			assert oid.Equal(d.OID, id2)
+		case RefDelete, RefPeeled, RefSymref:
+			assert false
+		}
+	case option.None:
+		assert false
+	}
+
+	let kept = try CompactStack([]Table{t1, t2}, false)
+	assert kept.Refs.Len() == 2
+	let dropped = try CompactStack([]Table{t1, t2}, true)
+	assert dropped.Refs.Len() == 1 && dropped.Refs[0].Name == "refs/heads/b"
+
+	let mut badCRC = []byte{}
+	for b in raw1 {
+		badCRC = badCRC.Append(b)
+	}
+	badCRC[badCRC.Len()-1] = badCRC[badCRC.Len()-1] ^ byte(255)
+	let mut gotCRC = false
+	let _ = ReadTable(badCRC) catch {
+	case CorruptChecksum:
+		gotCRC = true
+		emptyTable(h1)
+	case BadMagic, UnsupportedVersion, HashFormatMismatch, TruncatedTable, HeaderFooterMismatch, CorruptBlock, CorruptRecord, ZlibFailed, InvalidUpdateIndex:
+		emptyTable(h1)
+	}
+	assert gotCRC
+
+	let mut badMagic = []byte{}
+	for b in raw1 {
+		badMagic = badMagic.Append(b)
+	}
+	badMagic[0] = byte('X')
+	let mut gotMagic = false
+	let _ = ReadTable(badMagic) catch {
+	case BadMagic:
+		gotMagic = true
+		emptyTable(h1)
+	case UnsupportedVersion, HashFormatMismatch, TruncatedTable, HeaderFooterMismatch, CorruptChecksum, CorruptBlock, CorruptRecord, ZlibFailed, InvalidUpdateIndex:
+		emptyTable(h1)
+	}
+	assert gotMagic
+
+	let mut gotTrunc = false
+	let _ = ReadTable(raw1[:10]) catch {
+	case TruncatedTable:
+		gotTrunc = true
+		emptyTable(h1)
+	case BadMagic, UnsupportedVersion, HashFormatMismatch, HeaderFooterMismatch, CorruptChecksum, CorruptBlock, CorruptRecord, ZlibFailed, InvalidUpdateIndex:
+		emptyTable(h1)
+	}
+	assert gotTrunc
+
+	let cycRaw = try WriteTable(h1, []RefRecord{
+		RefRecord{Name: "refs/heads/x", UpdateIndex: uint64(1), Value: RefSymref{Target: "refs/heads/y"}},
+		RefRecord{Name: "refs/heads/y", UpdateIndex: uint64(1), Value: RefSymref{Target: "refs/heads/x"}},
+	}, []LogRecord{})
+	let cycTbl = try ReadTable(cycRaw)
+	let mut gotCycle = false
+	let _ = ResolveRef([]Table{cycTbl}, "refs/heads/x") catch {
+	case CyclicSymref:
+		gotCycle = true
+		ResolvedRef{Name: "", Chain: []string{}, OID: id1, Peeled: option.None}
+	case RefNotFound:
+		ResolvedRef{Name: "", Chain: []string{}, OID: id1, Peeled: option.None}
+	}
+	assert gotCycle
+}

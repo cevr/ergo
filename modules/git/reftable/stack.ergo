@@ -1,0 +1,548 @@
+import crc32
+import filepath
+import fs
+import option
+import slices
+import strings
+import github.com/cevr/ergo/modules/git/locks
+import github.com/cevr/ergo/modules/git/oid
+
+func formatHexPadded(val uint64, width int) string {
+	let digits = "0123456789abcdef".Bytes()
+	let mut rev = slices.WithCapacity[byte](width)
+	let mut v = val
+	for _ in 0..width {
+		rev = rev.Append(digits[int(v&uint64(15))])
+		v = v >> uint64(4)
+	}
+	let mut out = slices.WithCapacity[byte](width)
+	for i in 0..width {
+		out = out.Append(rev[width-1-i])
+	}
+	out.Text()
+}
+
+// TableFileName returns the canonical Git reftable filename
+// `0x<min12>-0x<max12>-<crc8>.ref` for a newly serialized table.
+func TableFileName(minUpdateIndex uint64, maxUpdateIndex uint64, raw []byte) string {
+	let sum = uint64(crc32.Checksum(raw.Text()))
+	"0x" + formatHexPadded(minUpdateIndex, 12) + "-0x" + formatHexPadded(maxUpdateIndex, 12) + "-" + formatHexPadded(sum, 8) + ".ref"
+}
+
+// LookupRef searches tables from newest (highest index) to oldest for name,
+// honoring `RefDelete` tombstones so a deletion in a newer table hides any
+// older entry.
+func LookupRef(tables []Table, name string) option.Option[RefRecord] {
+	let n = tables.Len()
+	for i in 0..n {
+		let tbl = tables[n-1-i]
+		for r in tbl.Refs {
+			if r.Name == name {
+				match r.Value {
+				case RefDelete:
+					return option.None
+				case RefDirect, RefPeeled, RefSymref:
+					return option.Some[RefRecord]{Value: r}
+				}
+			}
+		}
+	}
+	option.None
+}
+
+// ListRefs merges all tables oldest-to-newest, applying deletion tombstones,
+// and returns all surviving live references sorted by Name.
+func ListRefs(tables []Table) []RefRecord {
+	let mut live = Map[string, RefRecord]{}
+	let mut deleted = Map[string, bool]{}
+	for tbl in tables {
+		for r in tbl.Refs {
+			match r.Value {
+			case RefDelete:
+				deleted[r.Name] = true
+			case RefDirect, RefPeeled, RefSymref:
+				deleted[r.Name] = false
+				live[r.Name] = r
+			}
+		}
+	}
+	let mut out = []RefRecord{}
+	for name, rec in live {
+		let isDel = match deleted.Get(name) {
+		case option.Some[bool] as d:
+			d.Value
+		case option.None:
+			false
+		}
+		if !isDel {
+			out = out.Append(rec)
+		}
+	}
+	sortRefsByName(out)
+}
+
+func logEntryKey(refName string, updateIndex uint64) string {
+	refName + "#" + formatHexPadded(updateIndex, 16)
+}
+
+// ListLogs merges reflog records across tables oldest-to-newest, applying
+// `LogDelete` tombstones and returning surviving entries for refName sorted
+// newest-first by UpdateIndex.
+func ListLogs(tables []Table, refName string) []LogRecord {
+	let mut live = Map[string, LogRecord]{}
+	let mut deleted = Map[string, bool]{}
+	for tbl in tables {
+		for l in tbl.Logs {
+			if l.RefName == refName {
+				let k = logEntryKey(l.RefName, l.UpdateIndex)
+				match l.Value {
+				case LogDelete:
+					deleted[k] = true
+				case LogUpdate:
+					deleted[k] = false
+					live[k] = l
+				}
+			}
+		}
+	}
+	let mut out = []LogRecord{}
+	for k, rec in live {
+		let isDel = match deleted.Get(k) {
+		case option.Some[bool] as d:
+			d.Value
+		case option.None:
+			false
+		}
+		if !isDel {
+			out = out.Append(rec)
+		}
+	}
+	sortLogsCanonical(out)
+}
+
+// ResolveRef resolves name across tables, following symbolic ref chains until
+// a direct or peeled OID is reached and rejecting cycles with CyclicSymref.
+func ResolveRef(tables []Table, name string) ResolvedRef fails RefNotFound | CyclicSymref {
+	let mut cur = name
+	let mut chain = []string{}
+	let mut visited = Map[string, bool]{}
+	for _ in 0..33 {
+		match visited.Get(cur) {
+		case option.Some[bool]:
+			return CyclicSymref{Ref: cur}
+		case option.None:
+		}
+		visited[cur] = true
+		chain = chain.Append(cur)
+		let found = match LookupRef(tables, cur) {
+		case option.None:
+			return RefNotFound{Ref: cur}
+		case option.Some[RefRecord] as r:
+			r.Value
+		}
+		match found.Value {
+		case RefDelete:
+			return RefNotFound{Ref: cur}
+		case RefDirect as d:
+			return ResolvedRef{
+				Name:   cur,
+				Chain:  chain,
+				OID:    d.OID,
+				Peeled: option.None,
+			}
+		case RefPeeled as p:
+			return ResolvedRef{
+				Name:   cur,
+				Chain:  chain,
+				OID:    p.OID,
+				Peeled: option.Some[oid.OID]{Value: p.Peeled},
+			}
+		case RefSymref as s:
+			cur = s.Target
+		}
+	}
+	return CyclicSymref{Ref: cur}
+}
+
+// CompactStack merges tables (ordered oldest-to-newest) into one canonical
+// Table spanning `[oldest.MinUpdateIndex, newest.MaxUpdateIndex]`, keeping the
+// latest record per ref/log key and dropping deletion tombstones when
+// dropDeletions is true.
+func CompactStack(tables []Table, dropDeletions bool) Table fails UnsupportedVersion | HashFormatMismatch | InvalidUpdateIndex | CorruptRecord {
+	if tables.Len() == 0 {
+		return InvalidUpdateIndex{Detail: "cannot compact empty reftable stack"}
+	}
+	let firstHdr = tables[0].Header
+	let mut minU = firstHdr.MinUpdateIndex
+	let mut maxU = firstHdr.MaxUpdateIndex
+	for tbl in tables {
+		if !formatEqual(tbl.Header.Format, firstHdr.Format) {
+			return HashFormatMismatch{Expected: formatName(firstHdr.Format), Got: formatName(tbl.Header.Format)}
+		}
+		if tbl.Header.MinUpdateIndex < minU {
+			minU = tbl.Header.MinUpdateIndex
+		}
+		if tbl.Header.MaxUpdateIndex > maxU {
+			maxU = tbl.Header.MaxUpdateIndex
+		}
+	}
+	let mut refMap = Map[string, RefRecord]{}
+	let mut logMap = Map[string, LogRecord]{}
+	for tbl in tables {
+		for r in tbl.Refs {
+			refMap[r.Name] = r
+		}
+		for l in tbl.Logs {
+			logMap[logEntryKey(l.RefName, l.UpdateIndex)] = l
+		}
+	}
+	let mut outRefs = []RefRecord{}
+	for _, r in refMap {
+		match r.Value {
+		case RefDelete:
+			if !dropDeletions {
+				outRefs = outRefs.Append(r)
+			}
+		case RefDirect, RefPeeled, RefSymref:
+			outRefs = outRefs.Append(r)
+		}
+	}
+	let mut outLogs = []LogRecord{}
+	for _, l in logMap {
+		match l.Value {
+		case LogDelete:
+			if !dropDeletions {
+				outLogs = outLogs.Append(l)
+			}
+		case LogUpdate:
+			outLogs = outLogs.Append(l)
+		}
+	}
+	let mergedHdr = Header{
+		Version:        firstHdr.Version,
+		BlockSize:      firstHdr.BlockSize,
+		MinUpdateIndex: minU,
+		MaxUpdateIndex: maxU,
+		Format:         firstHdr.Format,
+	}
+	let sortedRefs = sortRefsByName(outRefs)
+	let sortedLogs = sortLogsCanonical(outLogs)
+	let raw = try WriteTable(mergedHdr, sortedRefs, sortedLogs)
+	let footer = ParseFooter(raw, mergedHdr) catch {
+	case BadMagic, TruncatedTable, HeaderFooterMismatch, CorruptChecksum:
+		return CorruptRecord{Detail: "internal compaction footer error"}
+	case UnsupportedVersion as e:
+		return e
+	case HashFormatMismatch as e:
+		return e
+	case InvalidUpdateIndex as e:
+		return e
+	}
+	Table{
+		Header: mergedHdr,
+		Footer: footer,
+		Refs:   sortedRefs,
+		Logs:   sortedLogs,
+	}
+}
+
+func parseTablesList(content string) []string {
+	let lines = strings.Split(content, "\n")
+	let mut names = []string{}
+	for line in lines {
+		let trimmed = strings.TrimSpace(line)
+		if trimmed != "" {
+			names = names.Append(trimmed)
+		}
+	}
+	names
+}
+
+// ReadStack reads `<gitDir>/reftable/tables.list` and decodes every referenced
+// `.ref` table in stack order (oldest to newest).
+func ReadStack(gitDir string, host fs.Host) []Table fails BadMagic | UnsupportedVersion | HashFormatMismatch | TruncatedTable | HeaderFooterMismatch | CorruptChecksum | CorruptBlock | CorruptRecord | ZlibFailed | InvalidUpdateIndex | IOFailed {
+	let reftDir = filepath.Join([]string{gitDir, "reftable"})
+	let listPath = filepath.Join([]string{reftDir, "tables.list"})
+	let listText = with context { fs.Files: host } {
+		fs.Files.ReadFile(listPath) catch {
+		case fs.NotFound:
+			return []Table{}
+		case fs.Denied as e:
+			return IOFailed{Op: "read-tables-list", Detail: e.Path}
+		case fs.Failed as e:
+			return IOFailed{Op: "read-tables-list", Detail: e.Reason}
+		}
+	}
+	let names = parseTablesList(listText)
+	let mut tables = slices.WithCapacity[Table](names.Len())
+	for name in names {
+		let tblPath = filepath.Join([]string{reftDir, name})
+		let rawText = with context { fs.Files: host } {
+			fs.Files.ReadFile(tblPath) catch {
+			case fs.NotFound:
+				return IOFailed{Op: "read-table", Detail: "missing table: " + name}
+			case fs.Denied as e:
+				return IOFailed{Op: "read-table", Detail: e.Path}
+			case fs.Failed as e:
+				return IOFailed{Op: "read-table", Detail: e.Reason}
+			}
+		}
+		let tbl = try ReadTable(rawText.Bytes())
+		tables = tables.Append(tbl)
+	}
+	tables
+}
+
+// AppendTable writes a new binary reftable file into `<gitDir>/reftable/` and
+// atomically appends it to `tables.list` under `tables.list.lock` via
+// modules/git/locks.
+func AppendTable(gitDir string, format oid.Format, refs []RefRecord, logs []LogRecord, mode locks.Durability, host fs.Host) (string, Table) fails BadMagic | UnsupportedVersion | HashFormatMismatch | TruncatedTable | HeaderFooterMismatch | CorruptChecksum | CorruptBlock | CorruptRecord | ZlibFailed | InvalidUpdateIndex | LockFailed | IOFailed needs locks.LockOps {
+	let reftDir = filepath.Join([]string{gitDir, "reftable"})
+	let listPath = filepath.Join([]string{reftDir, "tables.list"})
+	with context { fs.Writes: host } {
+		fs.Writes.MkdirAll(reftDir) catch {
+		case fs.Denied as e:
+			return IOFailed{Op: "mkdir-reftable", Detail: e.Path}
+		case fs.Failed as e:
+			return IOFailed{Op: "mkdir-reftable", Detail: e.Reason}
+		}
+	}
+	let mut lock = locks.Acquire(listPath, mode) catch {
+	case locks.LockHeld as e:
+		return LockFailed{Detail: "tables.list lock held: " + e.Path}
+	case locks.PathInvalid as e:
+		return LockFailed{Detail: e.Reason}
+	}
+
+	let existing = ReadStack(gitDir, host) catch {
+	case BadMagic as e:
+		lock.Abort()
+		return e
+	case UnsupportedVersion as e:
+		lock.Abort()
+		return e
+	case HashFormatMismatch as e:
+		lock.Abort()
+		return e
+	case TruncatedTable as e:
+		lock.Abort()
+		return e
+	case HeaderFooterMismatch as e:
+		lock.Abort()
+		return e
+	case CorruptChecksum as e:
+		lock.Abort()
+		return e
+	case CorruptBlock as e:
+		lock.Abort()
+		return e
+	case CorruptRecord as e:
+		lock.Abort()
+		return e
+	case ZlibFailed as e:
+		lock.Abort()
+		return e
+	case InvalidUpdateIndex as e:
+		lock.Abort()
+		return e
+	case IOFailed as e:
+		lock.Abort()
+		return e
+	}
+
+	let mut nextU = uint64(1)
+	let mut ver = match format {
+	case oid.Sha1:
+		1
+	case oid.Sha256:
+		2
+	}
+	if existing.Len() > 0 {
+		let last = existing[existing.Len()-1]
+		if !formatEqual(last.Header.Format, format) {
+			lock.Abort()
+			return HashFormatMismatch{Expected: formatName(last.Header.Format), Got: formatName(format)}
+		}
+		ver = last.Header.Version
+		nextU = last.Header.MaxUpdateIndex + uint64(1)
+	}
+
+	let minU = nextU
+	let mut maxU = nextU
+	let mut normalizedRefs = slices.WithCapacity[RefRecord](refs.Len())
+	for r in refs {
+		let u = if r.UpdateIndex == uint64(0) { nextU } else { r.UpdateIndex }
+		if u < nextU {
+			lock.Abort()
+			return InvalidUpdateIndex{Detail: "ref update_index precedes stack max_update_index"}
+		}
+		if u > maxU {
+			maxU = u
+		}
+		normalizedRefs = normalizedRefs.Append(RefRecord{
+			Name:        r.Name,
+			UpdateIndex: u,
+			Value:       r.Value,
+		})
+	}
+	let mut normalizedLogs = slices.WithCapacity[LogRecord](logs.Len())
+	for l in logs {
+		let u = if l.UpdateIndex == uint64(0) { nextU } else { l.UpdateIndex }
+		if u > maxU {
+			maxU = u
+		}
+		normalizedLogs = normalizedLogs.Append(LogRecord{
+			RefName:     l.RefName,
+			UpdateIndex: u,
+			Value:       l.Value,
+		})
+	}
+
+	let hdr = Header{
+		Version:        ver,
+		BlockSize:      4096,
+		MinUpdateIndex: minU,
+		MaxUpdateIndex: maxU,
+		Format:         format,
+	}
+	let raw = WriteTable(hdr, normalizedRefs, normalizedLogs) catch {
+	case UnsupportedVersion as e:
+		lock.Abort()
+		return e
+	case HashFormatMismatch as e:
+		lock.Abort()
+		return e
+	case InvalidUpdateIndex as e:
+		lock.Abort()
+		return e
+	case CorruptRecord as e:
+		lock.Abort()
+		return e
+	}
+	let fname = TableFileName(minU, maxU, raw)
+	let tblPath = filepath.Join([]string{reftDir, fname})
+	with context { fs.Writes: host } {
+		fs.Writes.WriteFile(tblPath, raw.Text()) catch {
+		case fs.NotFound as e:
+			lock.Abort()
+			return IOFailed{Op: "write-table", Detail: e.Path}
+		case fs.Denied as e:
+			lock.Abort()
+			return IOFailed{Op: "write-table", Detail: e.Path}
+		case fs.Failed as e:
+			lock.Abort()
+			return IOFailed{Op: "write-table", Detail: e.Reason}
+		}
+	}
+
+	let oldListText = with context { fs.Files: host } {
+		fs.Files.ReadFile(listPath) catch {
+		case fs.NotFound:
+			""
+		case fs.Denied as e:
+			lock.Abort()
+			return IOFailed{Op: "read-tables-list", Detail: e.Path}
+		case fs.Failed as e:
+			lock.Abort()
+			return IOFailed{Op: "read-tables-list", Detail: e.Reason}
+		}
+	}
+	let mut names = parseTablesList(oldListText)
+	names = names.Append(fname)
+	let newListText = strings.Join(names, "\n") + "\n"
+	lock.Write(newListText) catch {
+	case locks.NotHeld as e:
+		lock.Abort()
+		return LockFailed{Detail: e.Path}
+	case locks.AlreadyPublished as e:
+		lock.Abort()
+		return LockFailed{Detail: e.Path}
+	case locks.PathInvalid as e:
+		lock.Abort()
+		return LockFailed{Detail: e.Reason}
+	}
+	lock.Commit() catch {
+	case locks.NotHeld as e:
+		lock.Abort()
+		return LockFailed{Detail: e.Path}
+	case locks.AlreadyPublished as e:
+		return LockFailed{Detail: e.Path}
+	case locks.SyncFailed as e:
+		lock.Abort()
+		return LockFailed{Detail: e.Reason}
+	case locks.PublishFailed as e:
+		lock.Abort()
+		return LockFailed{Detail: e.Reason}
+	case locks.DirSyncUncertain as e:
+		return LockFailed{Detail: e.Reason}
+	}
+
+	let parsed = try ReadTable(raw)
+	(fname, parsed)
+}
+
+// MemoryReftableStore is the pure in-memory provider of ReftableStore.
+type MemoryReftableStore {} implements ReftableStore
+
+// NewMemoryReftableStore returns a MemoryReftableStore provider.
+func NewMemoryReftableStore() MemoryReftableStore {
+	MemoryReftableStore
+}
+
+// Encode implements ReftableStore.Encode on MemoryReftableStore.
+func Encode(_ MemoryReftableStore, header Header, refs []RefRecord, logs []LogRecord) []byte fails UnsupportedVersion | HashFormatMismatch | InvalidUpdateIndex | CorruptRecord {
+	try WriteTable(header, refs, logs)
+}
+
+// Decode implements ReftableStore.Decode on MemoryReftableStore.
+func Decode(_ MemoryReftableStore, raw []byte) Table fails BadMagic | UnsupportedVersion | HashFormatMismatch | TruncatedTable | HeaderFooterMismatch | CorruptChecksum | CorruptBlock | CorruptRecord | ZlibFailed | InvalidUpdateIndex {
+	try ReadTable(raw)
+}
+
+// Lookup implements ReftableStore.Lookup on MemoryReftableStore.
+func Lookup(_ MemoryReftableStore, tables []Table, name string) option.Option[RefRecord] {
+	LookupRef(tables, name)
+}
+
+// Resolve implements ReftableStore.Resolve on MemoryReftableStore.
+func Resolve(_ MemoryReftableStore, tables []Table, name string) ResolvedRef fails RefNotFound | CyclicSymref {
+	try ResolveRef(tables, name)
+}
+
+// Compact implements ReftableStore.Compact on MemoryReftableStore.
+func Compact(_ MemoryReftableStore, tables []Table, dropDeletions bool) Table fails UnsupportedVersion | HashFormatMismatch | InvalidUpdateIndex | CorruptRecord {
+	try CompactStack(tables, dropDeletions)
+}
+
+// DiskReftableStore is the filesystem-backed provider of ReftableStore.
+type DiskReftableStore {} implements ReftableStore
+
+// NewDiskReftableStore returns a DiskReftableStore provider.
+func NewDiskReftableStore() DiskReftableStore {
+	DiskReftableStore
+}
+
+// Encode implements ReftableStore.Encode on DiskReftableStore.
+func Encode(_ DiskReftableStore, header Header, refs []RefRecord, logs []LogRecord) []byte fails UnsupportedVersion | HashFormatMismatch | InvalidUpdateIndex | CorruptRecord {
+	try WriteTable(header, refs, logs)
+}
+
+// Decode implements ReftableStore.Decode on DiskReftableStore.
+func Decode(_ DiskReftableStore, raw []byte) Table fails BadMagic | UnsupportedVersion | HashFormatMismatch | TruncatedTable | HeaderFooterMismatch | CorruptChecksum | CorruptBlock | CorruptRecord | ZlibFailed | InvalidUpdateIndex {
+	try ReadTable(raw)
+}
+
+// Lookup implements ReftableStore.Lookup on DiskReftableStore.
+func Lookup(_ DiskReftableStore, tables []Table, name string) option.Option[RefRecord] {
+	LookupRef(tables, name)
+}
+
+// Resolve implements ReftableStore.Resolve on DiskReftableStore.
+func Resolve(_ DiskReftableStore, tables []Table, name string) ResolvedRef fails RefNotFound | CyclicSymref {
+	try ResolveRef(tables, name)
+}
+
+// Compact implements ReftableStore.Compact on DiskReftableStore.
+func Compact(_ DiskReftableStore, tables []Table, dropDeletions bool) Table fails UnsupportedVersion | HashFormatMismatch | InvalidUpdateIndex | CorruptRecord {
+	try CompactStack(tables, dropDeletions)
+}

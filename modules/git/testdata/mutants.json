@@ -1410,6 +1410,70 @@
       ]
     },
     {
+      "name": "git-reftable-skip-footer-crc",
+      "origin": "STD-GIT G-REFTABLE",
+      "file": "modules/git/reftable/codec.ergo",
+      "from": "\tif actualCRC != expectedCRC {\n\t\treturn CorruptChecksum{Expected: expectedCRC, Actual: actualCRC}\n\t}",
+      "to": "\tif false && actualCRC != expectedCRC {\n\t\treturn CorruptChecksum{Expected: expectedCRC, Actual: actualCRC}\n\t}",
+      "rule": "ParseFooter verifies the trailing IEEE CRC32 checksum over the footer body and fails closed with CorruptChecksum on mismatch.",
+      "anchor": {
+        "tests": [
+          "modules/git/reftable:ReftableValidationVarintStackAndCompaction"
+        ]
+      },
+      "killers": [
+        "modules/git/reftable:ReftableValidationVarintStackAndCompaction"
+      ]
+    },
+    {
+      "name": "git-reftable-wrong-varint-continuation",
+      "origin": "STD-GIT G-REFTABLE",
+      "file": "modules/git/reftable/codec.ergo",
+      "from": "\t\tval = val + uint64(1)",
+      "to": "\t\tval = val + uint64(0)",
+      "rule": "GetVarInt implements Git's bijective MSB varint decoding where each continuation byte increments val by 1 before shifting left by 7.",
+      "anchor": {
+        "tests": [
+          "modules/git/reftable:ReftableValidationVarintStackAndCompaction"
+        ]
+      },
+      "killers": [
+        "modules/git/reftable:ReftableValidationVarintStackAndCompaction"
+      ]
+    },
+    {
+      "name": "git-reftable-ignore-deletion-tombstone",
+      "origin": "STD-GIT G-REFTABLE",
+      "file": "modules/git/reftable/stack.ergo",
+      "from": "\t\t\t\tcase RefDelete:\n\t\t\t\t\treturn option.None",
+      "to": "\t\t\t\tcase RefDelete:",
+      "rule": "LookupRef stops immediately and returns option.None when a newer table contains a RefDelete tombstone so older live entries remain hidden.",
+      "anchor": {
+        "tests": [
+          "modules/git/reftable:ReftableValidationVarintStackAndCompaction"
+        ]
+      },
+      "killers": [
+        "modules/git/reftable:ReftableValidationVarintStackAndCompaction"
+      ]
+    },
+    {
+      "name": "git-reftable-wrong-stack-precedence",
+      "origin": "STD-GIT G-REFTABLE",
+      "file": "modules/git/reftable/stack.ergo",
+      "from": "\t\tlet tbl = tables[n-1-i]",
+      "to": "\t\tlet tbl = tables[i]",
+      "rule": "LookupRef scans reftable stacks from newest to oldest so newer table entries override older ones.",
+      "anchor": {
+        "tests": [
+          "modules/git/reftable:ReftableValidationVarintStackAndCompaction"
+        ]
+      },
+      "killers": [
+        "modules/git/reftable:ReftableValidationVarintStackAndCompaction"
+      ]
+    },
+    {
       "name": "git-local-allow-non-ff-push",
       "origin": "STD-GIT G-LOCAL",
       "file": "modules/git/local/local.ergo",
