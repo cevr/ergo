@@ -1,0 +1,436 @@
+import hex
+import sha1dc
+import sha256
+import slices
+import zlib
+import github.com/cevr/ergo/modules/git/delta
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/packidx
+
+func buildCRC32Table() []uint32 {
+	let mut tbl = slices.WithCapacity[uint32](256)
+	for i in 0..256 {
+		let mut c = uint32(i)
+		for _ in 0..8 {
+			if (c & uint32(1)) != uint32(0) {
+				c = (c >> uint32(1)) ^ uint32(0xedb88320)
+			} else {
+				c = c >> uint32(1)
+			}
+		}
+		tbl = tbl.Append(c)
+	}
+	tbl
+}
+
+// CRC32IEEE computes the standard IEEE 802.3 CRC-32 checksum (reflected
+// polynomial 0xedb88320) matching Git pack index v2 entry CRCs.
+func CRC32IEEE(data []byte) uint32 {
+	let tbl = buildCRC32Table()
+	let mut crc = uint32(0xffffffff)
+	for b in data {
+		let idx = int((crc ^ uint32(b)) & uint32(0xff))
+		crc = (crc >> uint32(8)) ^ tbl[idx]
+	}
+	crc ^ uint32(0xffffffff)
+}
+
+func appendU32BE(out []byte, v uint32) []byte {
+	let mut res = out
+	res = res.Append(byte((v >> uint32(24)) & uint32(0xff)))
+	res = res.Append(byte((v >> uint32(16)) & uint32(0xff)))
+	res = res.Append(byte((v >> uint32(8)) & uint32(0xff)))
+	res = res.Append(byte(v & uint32(0xff)))
+	res
+}
+
+func appendU64BE(out []byte, v uint64) []byte {
+	let hi = appendU32BE(out, uint32((v>>uint64(32))&uint64(0xffffffff)))
+	appendU32BE(hi, uint32(v&uint64(0xffffffff)))
+}
+
+func computeDigest(format oid.Format, data []byte) ([]byte, oid.OID) fails Collision {
+	match format {
+	case oid.Sha1:
+		let d = sha1dc.Sum(data) catch {
+		case sha1dc.CollisionDetected as c:
+			return Collision{Digest: hex.Encode(c.Digest)}
+		}
+		let mut out = slices.WithCapacity[byte](20)
+		for i in 0..20 {
+			out = out.Append(d[i])
+		}
+		let id = oid.FromBytes(oid.Sha1, out) catch {
+		case oid.WrongLength:
+			oid.Zero(oid.Sha1)
+		}
+		(out, id)
+	case oid.Sha256:
+		let h = sha256.New()
+		h.Write(data.Text())
+		let out = h.Digest().Bytes()
+		let id = oid.FromBytes(oid.Sha256, out) catch {
+		case oid.WrongLength:
+			oid.Zero(oid.Sha256)
+		}
+		(out, id)
+	}
+}
+
+func packTypeOf(kind oid.Kind) int {
+	match kind {
+	case oid.Commit:
+		1
+	case oid.Tree:
+		2
+	case oid.Blob:
+		3
+	case oid.Tag:
+		4
+	}
+}
+
+func sameKind(a oid.Kind, b oid.Kind) bool {
+	packTypeOf(a) == packTypeOf(b)
+}
+
+// EncodePackEntryHeader encodes a Git packfile entry type (1..4, 6, 7) and
+// uncompressed byte size into Git's pack header varint format.
+func EncodePackEntryHeader(typeNum int, size int) []byte {
+	let mut rem = if size < 0 { uint64(0) } else { uint64(size) }
+	let mut b0 = byte((typeNum&7)<<4) | byte(rem&uint64(0x0f))
+	rem = rem >> uint64(4)
+	if rem > uint64(0) {
+		b0 = b0 | byte(0x80)
+	}
+	let mut out = []byte{b0}
+	for rem > uint64(0) {
+		let mut b = byte(rem & uint64(0x7f))
+		rem = rem >> uint64(7)
+		if rem > uint64(0) {
+			b = b | byte(0x80)
+		}
+		out = out.Append(b)
+	}
+	out
+}
+
+func emitCopyInstr(out []byte, offset int, size int) []byte {
+	let mut res = out
+	let encSize = if size == 65536 { 0 } else { size }
+	let mut cmd = byte(0x80)
+	if (offset & 0xff) != 0 {
+		cmd = cmd | byte(0x01)
+	}
+	if ((offset >> 8) & 0xff) != 0 {
+		cmd = cmd | byte(0x02)
+	}
+	if ((offset >> 16) & 0xff) != 0 {
+		cmd = cmd | byte(0x04)
+	}
+	if ((offset >> 24) & 0xff) != 0 {
+		cmd = cmd | byte(0x08)
+	}
+	if (encSize & 0xff) != 0 {
+		cmd = cmd | byte(0x10)
+	}
+	if ((encSize >> 8) & 0xff) != 0 {
+		cmd = cmd | byte(0x20)
+	}
+	if ((encSize >> 16) & 0xff) != 0 {
+		cmd = cmd | byte(0x40)
+	}
+	res = res.Append(cmd)
+	if (cmd & byte(0x01)) != byte(0) {
+		res = res.Append(byte(offset & 0xff))
+	}
+	if (cmd & byte(0x02)) != byte(0) {
+		res = res.Append(byte((offset >> 8) & 0xff))
+	}
+	if (cmd & byte(0x04)) != byte(0) {
+		res = res.Append(byte((offset >> 16) & 0xff))
+	}
+	if (cmd & byte(0x08)) != byte(0) {
+		res = res.Append(byte((offset >> 24) & 0xff))
+	}
+	if (cmd & byte(0x10)) != byte(0) {
+		res = res.Append(byte(encSize & 0xff))
+	}
+	if (cmd & byte(0x20)) != byte(0) {
+		res = res.Append(byte((encSize >> 8) & 0xff))
+	}
+	if (cmd & byte(0x40)) != byte(0) {
+		res = res.Append(byte((encSize >> 16) & 0xff))
+	}
+	res
+}
+
+func emitLiterals(out []byte, src []byte, start int, end int) []byte {
+	let mut res = out
+	let mut pos = start
+	for pos < end {
+		let rem = end - pos
+		let chunk = if rem > 127 { 127 } else { rem }
+		res = res.Append(byte(chunk))
+		res = slices.AppendAll(res, src[pos:pos+chunk])
+		pos = pos + chunk
+	}
+	res
+}
+
+func hashChunk16(buf []byte, off int) uint32 {
+	let mut h = uint32(2166136261)
+	for i in 0..16 {
+		h = (h ^ uint32(buf[off+i])) * uint32(16777619)
+	}
+	h
+}
+
+// EncodeDelta encodes a Git copy/insert delta stream transforming base into
+// target, using 16-byte anchored copy windows (up to 64 KiB per copy) and
+// literal insert chunks.
+func EncodeDelta(base []byte, target []byte) []byte {
+	let blen = len(base)
+	let tlen = len(target)
+	if blen < 16 || tlen < 16 {
+		return delta.EncodeLiteralDelta(blen, target)
+	}
+	let mut index = Map[uint32, int]{}
+	let mut bp = 0
+	for bp+16 <= blen {
+		let h = hashChunk16(base, bp)
+		if index.Get(h) == None {
+			index[h] = bp
+		}
+		bp = bp + 16
+	}
+
+	let mut out = delta.EncodeSizeVarint(blen)
+	out = slices.AppendAll(out, delta.EncodeSizeVarint(tlen))
+	let mut pos = 0
+	let mut litStart = 0
+	for pos < tlen {
+		let mut matched = false
+		if pos+16 <= tlen {
+			let h = hashChunk16(target, pos)
+			match index.Get(h) {
+			case Some[int] as bOffOpt:
+				let bOff = bOffOpt.Value
+				let mut ml = 0
+				let maxL = if blen-bOff < tlen-pos { blen - bOff } else { tlen - pos }
+				let capped = if maxL > 65536 { 65536 } else { maxL }
+				for ml < capped && base[bOff+ml] == target[pos+ml] {
+					ml = ml + 1
+				}
+				if ml >= 16 {
+					if pos > litStart {
+						out = emitLiterals(out, target, litStart, pos)
+					}
+					out = emitCopyInstr(out, bOff, ml)
+					pos = pos + ml
+					litStart = pos
+					matched = true
+				}
+			case None:
+			}
+		}
+		if !matched {
+			pos = pos + 1
+		}
+	}
+	if litStart < tlen {
+		out = emitLiterals(out, target, litStart, tlen)
+	}
+	out
+}
+
+type hashedPackObj {
+	id      oid.OID,
+	kind    oid.Kind,
+	data    []byte,
+	delta   DeltaMode,
+	origIdx int,
+}
+
+type writtenBase {
+	id     oid.OID,
+	kind   oid.Kind,
+	data   []byte,
+	offset int,
+}
+
+func dedupPackObjects(format oid.Format, objects []PackObject) ([]hashedPackObj, Map[int, string]) fails Collision {
+	let mut seen = Map[string, bool]{}
+	let mut origToHex = Map[int, string]{}
+	let mut unique = slices.WithCapacity[hashedPackObj](len(objects))
+	for i, obj in objects {
+		let id = oid.HashObject(format, obj.Kind, obj.Data) catch {
+		case oid.Collision as c:
+			return Collision{Digest: c.Digest}
+		}
+		let h = oid.Hex(id)
+		origToHex[i] = h
+		if seen.Get(h) != None {
+			continue
+		}
+		seen[h] = true
+		unique = unique.Append(hashedPackObj{
+			id:      id,
+			kind:    obj.Kind,
+			data:    obj.Data,
+			delta:   obj.Delta,
+			origIdx: i,
+		})
+	}
+	(unique, origToHex)
+}
+
+func compareIdxEntries(a packidx.Entry, b packidx.Entry) int {
+	oid.Compare(a.OID, b.OID)
+}
+
+func encodeIdxV2(format oid.Format, entries []packidx.Entry, packSumBytes []byte) ([]byte, oid.OID, []packidx.Entry) fails Collision {
+	let sorted = slices.SortFunc(entries, compareIdxEntries)
+	let mut counts = slices.WithCapacity[uint32](256)
+	for _ in 0..256 {
+		counts = counts.Append(uint32(0))
+	}
+	for e in sorted {
+		let b = int(e.OID.Raw[0])
+		counts[b] = counts[b] + uint32(1)
+	}
+	let mut idxBuf = []byte{byte(0xff), byte(0x74), byte(0x4f), byte(0x63)}
+	idxBuf = appendU32BE(idxBuf, uint32(2))
+	let mut acc = uint32(0)
+	for i in 0..256 {
+		acc = acc + counts[i]
+		idxBuf = appendU32BE(idxBuf, acc)
+	}
+	for e in sorted {
+		idxBuf = slices.AppendAll(idxBuf, e.OID.Raw)
+	}
+	for e in sorted {
+		idxBuf = appendU32BE(idxBuf, e.CRC32)
+	}
+	let mut large = []uint64{}
+	for e in sorted {
+		if e.Offset >= uint64(0x80000000) {
+			let lIdx = uint32(len(large))
+			large = large.Append(e.Offset)
+			idxBuf = appendU32BE(idxBuf, uint32(0x80000000)|lIdx)
+		} else {
+			idxBuf = appendU32BE(idxBuf, uint32(e.Offset))
+		}
+	}
+	for lo in large {
+		idxBuf = appendU64BE(idxBuf, lo)
+	}
+	idxBuf = slices.AppendAll(idxBuf, packSumBytes)
+	let (idxSumBytes, idxSumOid) = try computeDigest(format, idxBuf)
+	idxBuf = slices.AppendAll(idxBuf, idxSumBytes)
+	(idxBuf, idxSumOid, sorted)
+}
+
+// BuildPackPair deduplicates objects by canonical OID, encodes a Git Packfile
+// v2 stream (supporting base objects, OFS_DELTA, REF_DELTA, and automatic
+// OFS_DELTA selection) with exact IEEE CRC32s, and builds its matching Pack
+// Index v2 file.
+func BuildPackPair(format oid.Format, objects []PackObject) BuiltPack fails Collision {
+	let (unique, origToHex) = try dedupPackObjects(format, objects)
+	let mut packBuf = "PACK".Bytes()
+	packBuf = appendU32BE(packBuf, uint32(2))
+	packBuf = appendU32BE(packBuf, uint32(len(unique)))
+
+	let mut writtenByHex = Map[string, writtenBase]{}
+	let mut lastByKind = Map[int, writtenBase]{}
+	let mut idxEntries = slices.WithCapacity[packidx.Entry](len(unique))
+
+	for cur in unique {
+		let entryOffset = len(packBuf)
+		let mut wroteDelta = false
+
+		match cur.delta {
+		case DeltaNone:
+		case DeltaOfs as dof:
+			match origToHex.Get(dof.BaseIndex) {
+			case Some[string] as bh:
+				match writtenByHex.Get(bh.Value) {
+				case Some[writtenBase] as baseObj:
+					if sameKind(baseObj.Value.kind, cur.kind) && baseObj.Value.offset < entryOffset {
+						let dBytes = EncodeDelta(baseObj.Value.data, cur.data)
+						let dist = uint64(entryOffset - baseObj.Value.offset)
+						packBuf = slices.AppendAll(packBuf, EncodePackEntryHeader(6, len(dBytes)))
+						packBuf = slices.AppendAll(packBuf, delta.EncodeOfsDistance(dist))
+						packBuf = slices.AppendAll(packBuf, zlib.Deflate(dBytes))
+						wroteDelta = true
+					}
+				case None:
+				}
+			case None:
+			}
+		case DeltaRef as dref:
+			match writtenByHex.Get(oid.Hex(dref.BaseOID)) {
+			case Some[writtenBase] as baseObj:
+				if sameKind(baseObj.Value.kind, cur.kind) {
+					let dBytes = EncodeDelta(baseObj.Value.data, cur.data)
+					packBuf = slices.AppendAll(packBuf, EncodePackEntryHeader(7, len(dBytes)))
+					packBuf = slices.AppendAll(packBuf, baseObj.Value.id.Raw)
+					packBuf = slices.AppendAll(packBuf, zlib.Deflate(dBytes))
+					wroteDelta = true
+				}
+			case None:
+			}
+		case DeltaAuto:
+			let kNum = packTypeOf(cur.kind)
+			match lastByKind.Get(kNum) {
+			case Some[writtenBase] as baseObj:
+				if baseObj.Value.offset < entryOffset {
+					let dBytes = EncodeDelta(baseObj.Value.data, cur.data)
+					if len(dBytes) < len(cur.data) {
+						let dist = uint64(entryOffset - baseObj.Value.offset)
+						packBuf = slices.AppendAll(packBuf, EncodePackEntryHeader(6, len(dBytes)))
+						packBuf = slices.AppendAll(packBuf, delta.EncodeOfsDistance(dist))
+						packBuf = slices.AppendAll(packBuf, zlib.Deflate(dBytes))
+						wroteDelta = true
+					}
+				}
+			case None:
+			}
+		}
+
+		if !wroteDelta {
+			let typeNum = packTypeOf(cur.kind)
+			packBuf = slices.AppendAll(packBuf, EncodePackEntryHeader(typeNum, len(cur.data)))
+			packBuf = slices.AppendAll(packBuf, zlib.Deflate(cur.data))
+		}
+
+		let crc = CRC32IEEE(packBuf[entryOffset:])
+		idxEntries = idxEntries.Append(packidx.Entry{
+			OID:    cur.id,
+			Offset: uint64(entryOffset),
+			CRC32:  crc,
+		})
+		let wb = writtenBase{
+			id:     cur.id,
+			kind:   cur.kind,
+			data:   cur.data,
+			offset: entryOffset,
+		}
+		writtenByHex[oid.Hex(cur.id)] = wb
+		lastByKind[packTypeOf(cur.kind)] = wb
+	}
+
+	let (packSumBytes, packSumOid) = try computeDigest(format, packBuf)
+	packBuf = slices.AppendAll(packBuf, packSumBytes)
+	let (idxBuf, idxSumOid, sortedEntries) = try encodeIdxV2(format, idxEntries, packSumBytes)
+
+	BuiltPack{
+		Format:       format,
+		PackChecksum: packSumOid,
+		IdxChecksum:  idxSumOid,
+		PackBytes:    packBuf,
+		IdxBytes:     idxBuf,
+		Count:        len(sortedEntries),
+		Entries:      sortedEntries,
+	}
+}
