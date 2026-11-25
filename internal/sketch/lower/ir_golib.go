@@ -25,7 +25,27 @@ import (
 // spread when Go's function is variadic. A fallible call is bound by
 // hostBind, which converts its error; hostResult converts a Go result (a
 // go.Ref checked for nil, an Option, a slice or Map copied).
+// hostWriteParam returns the index into hostArgs' args slice of the slice
+// parameter written in place by a // ergo:writes Go call, or (-1, false).
+func hostWriteParam(c *check.Call, f *check.Func) (int, bool) {
+	if c == nil || f == nil || f.Decl == nil || (c.Recv == nil) != (f.Decl.Recv == nil) {
+		return -1, false
+	}
+	i, ok := check.GoWrites(f)
+	if !ok {
+		return -1, false
+	}
+	if c.Recv != nil && !c.RecvIsParam() {
+		i--
+	}
+	if i < 0 || i >= len(f.Sig.Params) {
+		return -1, false
+	}
+	return i, true
+}
+
 func (b *irBuilder) goTarget(x *syntax.CallExpr, c *check.Call, f *check.Func, p irPos) ([]*irStmt, *irExpr) {
+	b.goWritten = -1
 	argc := len(x.Args)
 	if c.RecvIsParam() {
 		argc++
@@ -47,6 +67,12 @@ func (b *irBuilder) goTarget(x *syntax.CallExpr, c *check.Call, f *check.Func, p
 		}
 	}
 	pre, recv, args := b.hostArgs(x, c, f, p) // ir_gocall.go
+	if wi, ok := hostWriteParam(c, f); ok && wi < len(args) {
+		w := b.temp("w", b.goType(f.Sig.Params[wi].Type, x), p)
+		pre = append(pre, &irStmt{K: "def", Pos: p, Local: w, X: args[wi]})
+		args[wi] = &irExpr{K: "local", Pos: p, I: w}
+		b.goWritten = w
+	}
 	if ctx {
 		task := &irExpr{K: "field", Pos: p, Name: envTask, X: &irExpr{K: "local", Pos: p, I: b.env}}
 		b.keepImport("var _ = " + b.l.taskPkg() + ".GoContext")
@@ -80,25 +106,32 @@ func (b *irBuilder) goTarget(x *syntax.CallExpr, c *check.Call, f *check.Func, p
 // then their Ergo values. ok is false for any other call.
 func (b *irBuilder) hostBound(x *syntax.CallExpr, c *check.Call, f *check.Func, p irPos) ([]*irStmt, *irExpr, bool) {
 	results := hostResults(f) // ir_tuple.go
+	_, writes := hostWriteParam(c, f)
 	conv := false
 	for _, r := range results {
 		conv = conv || b.optionResult(r) || isGoRef(r) || b.l.holdsValue(r)
 	}
-	if f.Sig.Fallible || !check.GoContext(f) && !conv {
+	if f.Sig.Fallible || !check.GoContext(f) && !conv && !writes {
 		return nil, nil, false
 	}
+	goResults := results
+	if writes && len(goResults) > 0 {
+		goResults = goResults[1:]
+	}
 	pre, call := b.goTarget(x, c, f, p)
+	written := b.goWritten
+	b.goWritten = -1
 	var ls []int
-	switch len(results) {
+	switch len(goResults) {
 	case 0:
 		pre = append(pre, &irStmt{K: "expr", Pos: p, X: call})
 	case 1:
-		l := b.temp("r", b.rawGoType(results[0], x), p)
+		l := b.temp("r", b.rawGoType(goResults[0], x), p)
 		pre = append(pre, &irStmt{K: "def", Pos: p, Local: l, X: call})
 		ls = []int{l}
 	default:
 		def := &irStmt{K: "tdef", Pos: p, X: call}
-		for _, r := range results {
+		for _, r := range goResults {
 			def.Ls = append(def.Ls, b.temp("r", b.rawGoType(r, x), p))
 		}
 		pre, ls = append(pre, def), def.Ls
@@ -106,11 +139,16 @@ func (b *irBuilder) hostBound(x *syntax.CallExpr, c *check.Call, f *check.Func, 
 	if check.GoContext(f) {
 		pre = append(pre, b.ctxPoll(x)...)
 	}
-	vals := make([]*irExpr, len(ls))
+	vals := make([]*irExpr, 0, len(results))
+	if writes && written >= 0 {
+		vals = append(vals, &irExpr{K: "local", Pos: p, I: written})
+	}
 	for i, l := range ls {
 		var vpre []*irStmt
-		vpre, vals[i] = b.hostResult(hostTargetName(f), results[i], l, -1, x, p)
+		var val *irExpr
+		vpre, val = b.hostResult(hostTargetName(f), goResults[i], l, -1, x, p)
 		pre = append(pre, vpre...)
+		vals = append(vals, val)
 	}
 	switch len(vals) {
 	case 0:
@@ -319,6 +357,11 @@ func (b *irBuilder) hostBind(call *syntax.CallExpr) (pre []*irStmt, v, e int, ok
 		return nil, -1, -1, false
 	}
 	results := hostResults(f)
+	_, writes := hostWriteParam(b.l.info.Calls[call], f)
+	goResults := results
+	if writes && len(goResults) > 0 {
+		goResults = goResults[1:]
+	}
 	var tuple *check.Tuple
 	if len(results) > 1 {
 		// (T, U, error): the value is the tuple of Go's results
@@ -331,24 +374,27 @@ func (b *irBuilder) hostBind(call *syntax.CallExpr) (pre []*irStmt, v, e int, ok
 		tuple = t
 	}
 	pre, x := b.rawCall(call) // ir_call.go → hostCall → goTarget
+	written := b.goWritten
+	b.goWritten = -1
 	p := b.pos(call, call.Pos())
 	e, v = b.temp("err", "error", p), -1
 	var rs []int
 	switch {
-	case len(results) == 0:
+	case len(goResults) == 0:
 		pre = append(pre, &irStmt{K: "def", Pos: p, Local: e, X: x})
-	case tuple != nil:
+	case len(goResults) == 1:
+		r := b.temp("r", b.rawGoType(goResults[0], call), p)
+		rs = []int{r}
+		pre = append(pre, &irStmt{K: "def2", Pos: p, Local: r, Val: &e, X: x})
+	default:
 		def := &irStmt{K: "tdef", Pos: p, X: x}
-		for _, r := range results {
+		for _, r := range goResults {
 			l := b.temp("r", b.rawGoType(r, call), p)
 			rs = append(rs, l)
 			def.Ls = append(def.Ls, l)
 		}
 		def.Ls = append(def.Ls, e)
 		pre = append(pre, def)
-	default:
-		v = b.temp("v", b.rawGoType(results[0], call), p)
-		pre = append(pre, &irStmt{K: "def2", Pos: p, Local: v, Val: &e, X: x})
 	}
 	if check.GoContext(f) {
 		pre = append(pre, b.ctxPoll(call)...)
@@ -367,27 +413,30 @@ func (b *irBuilder) hostBind(call *syntax.CallExpr) (pre []*irStmt, v, e int, ok
 		errL := &irExpr{K: "local", Pos: p, I: e}
 		pre = append(pre, &irStmt{K: "set", Pos: p, Local: e, X: &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: conv, Args: []*irExpr{errL}}})
 	}
-	if v >= 0 {
-		vpre, val := b.hostResult(hostTargetName(f), results[0], v, e, call, p)
+	vals := make([]*irExpr, 0, len(results))
+	if writes && written >= 0 {
+		vals = append(vals, &irExpr{K: "local", Pos: p, I: written})
+	}
+	for i, r := range rs {
+		vpre, val := b.hostResult(hostTargetName(f), goResults[i], r, e, call, p)
 		pre = append(pre, vpre...)
-		if val.K == "local" {
-			v = val.I
+		vals = append(vals, val)
+	}
+	switch {
+	case len(vals) == 0:
+		v = -1
+	case len(vals) == 1:
+		if vals[0].K == "local" {
+			v = vals[0].I
 		} else {
 			// A copied result (goResultCopy: a slice of Go records,
 			// hostfs.ReadDir's []Entry) is an expression; bind it, so the
 			// caller reads a local, never local 0 (the env).
 			c := b.temp("v", b.rawGoType(results[0], call), p)
-			pre = append(pre, &irStmt{K: "def", Pos: p, Local: c, X: val})
+			pre = append(pre, &irStmt{K: "def", Pos: p, Local: c, X: vals[0]})
 			v = c
 		}
-	}
-	if tuple != nil {
-		vals := make([]*irExpr, len(rs))
-		for i, r := range rs {
-			var vpre []*irStmt
-			vpre, vals[i] = b.hostResult(hostTargetName(f), results[i], r, e, call, p)
-			pre = append(pre, vpre...)
-		}
+	default:
 		v = b.temp("v", b.goType(tuple, call), p)
 		pre = append(pre, &irStmt{K: "def", Pos: p, Local: v, X: b.tupleLit(tuple, vals, call, p)}) // ir_tuple.go
 	}

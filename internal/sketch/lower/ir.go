@@ -800,6 +800,9 @@ type irBuilder struct {
 	// mergeSites counts the body's calls the merge pass replaced
 	// (ir_merge.go).
 	mergeSites int
+	// goWritten is the local holding the slice argument written in place
+	// by the current // ergo:writes Go call (ir_golib.go), or -1.
+	goWritten int
 	// seedSites counts the body's seeded slice literals (seedcap.go).
 	seedSites int
 	// foldSites counts the body's calls the fold pass replaced
