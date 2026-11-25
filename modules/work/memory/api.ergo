@@ -8,13 +8,21 @@ import github.com/cevr/ergo/modules/work/work
 import github.com/cevr/ergo/modules/work/work/workapi
 import time
 
-// overTool runs work.Api's laws on the Tool itself, over a fresh memory
-// world each case (a base committed and initialized, one sharing Cloner).
-let overTool = context { work.Api: world(true).tool }
+let overTool = context { work.Api: lawTool() }
 
-// overClient runs them through the request wire: a workapi.Client whose
-// send is Call, bound to a fresh memory world's Tool.
-let overClient = context { work.Api: clientOf(world(true).tool) }
+let overClient = context { work.Api: clientOf(lawTool()) }
+
+func lawTool() work.Tool {
+	let trees = NewCloner()
+	let vcs = VcsOver(trees)
+	let files = Map[string, string]{"main.ergo": "func main() {}\n", ".gitignore": "dist\nnode_modules\n"}
+	Repo(vcs, theBase, "main", files, "c0")
+	let _ = Write(trees, theBase, "node_modules/left-pad/index.js", "module.exports = 1\n") && Write(trees, theBase, "node_modules/.bin/left-pad", "#!/bin/sh\n") && Write(trees, theBase, "dist/out.js", "built\n")
+	let disk = fstest.NewMemory()
+	let lock = NewLock()
+	let p = work.Providers{Cloners: []work.Cloner{trees}, Copier: Beside(trees, false), Registry: NewRegistry(), Lock: lock, Hooks: Recording(lock, ""), Vcs: vcs, Files: MarkedOver(disk, trees), Writes: MarkedOver(disk, trees), Runner: NewRunner(), Clock: time.NewManual(1000)}
+	work.NewTool(theBase, work.Home(theBase, ""), "/data", p, "/")
+}
 
 // clientOf is the Client that sends each request to tool.
 func clientOf(tool work.Tool) workapi.Client {

@@ -29,7 +29,7 @@ law StatusIsTheReference(shape int) {
 	let ignoredOnly = (f/4)%2 == 1
 	let detached = (f/8)%2 == 1
 	let noDefault = (f/16)%2 == 1
-	let w = world(true)
+	let w = try world(true)
 	let made = w.tool.New("a", fresh(false)) catch {
 	case _:
 		return false
@@ -106,7 +106,7 @@ law StatusIsTheReference(shape int) {
 // PlainListIsUnchanged: a list without -status makes no Vcs call and is
 // the registry's records, none with a status.
 law PlainListIsUnchanged(count int) {
-	let w = world(true)
+	let w = try world(true)
 	for i in 0..(count%3+3)%3+1 {
 		let _ = w.tool.New("p\(i)", fresh(false)) catch {
 		case _:
@@ -131,7 +131,7 @@ law PlainListIsUnchanged(count int) {
 // most four Vcs calls and each distinct parent with two (here the base),
 // and a removed workspace with none; a removed one has no status.
 law ListStatusCostsAtMost(count int, removed int) {
-	let w = world(true)
+	let w = try world(true)
 	let n = (count%3+3)%3 + 1
 	for i in 0..n {
 		let made = w.tool.New("c\(i)", fresh(false)) catch {
@@ -162,7 +162,7 @@ law ListStatusCostsAtMost(count int, removed int) {
 // of each workspace, their Git folders too, is as it was, and no index
 // was written.
 law ListStatusWritesNothing(count int, dirty bool) {
-	let w = world(true)
+	let w = try world(true)
 	let mut paths = []string{theBase}
 	for i in 0..(count%3+3)%3+1 {
 		let made = w.tool.New("w\(i)", fresh(false)) catch {

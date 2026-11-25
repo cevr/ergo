@@ -61,13 +61,13 @@ func records(t work.Tool) []work.Workspace fails work.NoBase | work.Unkept { wor
 
 // world is a fresh World: the base committed as c0, initialized; the
 // sharing Cloner refuses every clone when sharing is false.
-func world(sharing bool) World { worldWith(sharing, Map[string, string]{}, "", "") }
+func world(sharing bool) World fails fstest.BadFixture | work.BadConfig | work.Unkept | fs.Denied | fs.Failed { try worldWith(sharing, Map[string, string]{}, "", "") }
 
 // RemovingIsIdempotent: rm -expect of a workspace's id trashes it; the
 // retry answers AlreadyRemoved, and so does a retry after gc purged it
 // (its tomb), and the retries change no record.
 law RemovingIsIdempotent(name int) {
-	let w = world(true)
+	let w = try world(true)
 	let n = pick(name)
 	let a = w.tool.New(n, fresh(false)) catch {
 	case _:
@@ -108,7 +108,7 @@ func expecting(id Option[string]) work.RmOptions { work.RmOptions{Abandon: true,
 // and purged (the name is taken until gc) and a new one took the name,
 // rm -expect of the first id answers already and leaves the new one.
 law RemovingSparesTheReplacement() {
-	let w = world(true)
+	let w = try world(true)
 	let first = w.tool.New("a", fresh(false)) catch {
 	case _:
 		return false
@@ -139,7 +139,7 @@ law ReservingWithATokenTwiceIsOnce(token string, again int) {
 	if token == "" {
 		return true
 	}
-	let w = world(true)
+	let w = try world(true)
 	let o = work.NewOptions{..fresh(false), Token: some(token)}
 	let first = w.tool.New("a", o) catch {
 	case _:
@@ -159,7 +159,7 @@ law ReservingWithATokenTwiceIsOnce(token string, again int) {
 // PurgingTouchesOneEntry: gc -id purges that entry only: its record goes
 // (its tomb stays), and every other record and tree stays.
 law PurgingTouchesOneEntry() {
-	let w = world(true)
+	let w = try world(true)
 	let a = w.tool.New("a", fresh(false)) catch {
 	case _:
 		return false
@@ -200,7 +200,7 @@ law PurgingTouchesOneEntry() {
 // x at the same folder), claims nothing: its claim under the lock is
 // NoWorkspace, and no reservation names the x it looked at (rift#56).
 law ClaimReadsTheParentAgain(replaced bool) {
-	let w = world(true)
+	let w = try world(true)
 	let x = w.tool.New("x", fresh(false)) catch {
 	case _:
 		return false
@@ -255,7 +255,7 @@ law ClaimReadsTheParentAgain(replaced bool) {
 // same files, each at its side's head after a hand-back, and agree on
 // which verbs succeed.
 law ParityWithLaneRift(verbs []Verb) {
-	let w = world(true)
+	let w = try world(true)
 	let lane = "/w/lane"
 	let start = Head(w.vcs, theBase) catch {
 	case work.VcsFailed:
@@ -374,10 +374,9 @@ func sameBranches(w World, one string, two string) bool {
 // ignored, with nested folders) and ignored build output (dist), with
 // config as its work.toml ("" for none) and hooks that fail the command
 // failing. A work.toml is allowed (work trust) at init.
-func worldWith(sharing bool, tree Map[string, string], config string, failing string) World { worldOn(NewRegistry(), sharing, tree, config, failing) }
+func worldWith(sharing bool, tree Map[string, string], config string, failing string) World fails fstest.BadFixture | work.BadConfig | work.Unkept | fs.Denied | fs.Failed { try worldOn(NewRegistry(), sharing, tree, config, failing) }
 
-// worldOn is worldWith over the registry r (empty).
-func worldOn(r work.Registry, sharing bool, tree Map[string, string], config string, failing string) World {
+func worldOn(r work.Registry, sharing bool, tree Map[string, string], config string, failing string) World fails fstest.BadFixture | work.BadConfig | work.Unkept | fs.Denied | fs.Failed {
 	let trees = NewCloner()
 	let vcs = VcsOver(trees)
 	let mut files = Map[string, string]{"main.ergo": "func main() {}\n", ".gitignore": "dist\nnode_modules\n"}
@@ -391,17 +390,8 @@ func worldOn(r work.Registry, sharing bool, tree Map[string, string], config str
 	let _ = Write(trees, theBase, "node_modules/left-pad/index.js", "module.exports = 1\n") && Write(trees, theBase, "node_modules/.bin/left-pad", "#!/bin/sh\n") && Write(trees, theBase, "dist/out.js", "built\n")
 	let cloner = if sharing { trees } else { Refusing(trees) }
 	let registry = r
-	let disk = fstest.NewMemory()
-	disk.MkdirAll(theBase) catch {
-	case fs.Denied, fs.Failed:
-		Unreachable("a folder of a memory disk")
-	}
-	if config != "" {
-		disk.WriteFile(theBase+"/"+work.ConfigFile, config) catch {
-		case fs.NotFound, fs.Denied, fs.Failed:
-			Unreachable("a file of a memory disk")
-		}
-	}
+	let cfgFiles = if config != "" { Map[string, string]{theBase + "/" + work.ConfigFile: config} } else { Map[string, string]{} }
+	let disk = fstest.MemoryOf(try fstest.NewFixture([]string{theBase}, cfgFiles))
 	let clock = time.NewManual(1000)
 	let lock = NewLock()
 	let hooks = Recording(lock, failing)
@@ -413,11 +403,7 @@ func worldOn(r work.Registry, sharing bool, tree Map[string, string], config str
 	runner.install.Set(parsed.Install)
 	let p = work.Providers{Cloners: []work.Cloner{cloner}, Copier: Beside(trees, false), Registry: registry, Lock: lock, Hooks: hooks, Vcs: vcs, Files: MarkedOver(disk, trees), Writes: MarkedOver(disk, trees), Runner: runner, Clock: clock}
 	let tool = work.NewTool(theBase, work.Home(theBase, ""), "/data", p, "/")
-	let _ = tool.Init() catch {
-	case work.BadConfig, work.Unkept, fs.Denied, fs.Failed:
-		Unreachable("init of a memory base")
-		""
-	}
+	let _ = try tool.Init()
 	World{tool: tool, trees: trees, vcs: vcs, registry: registry, clock: clock, disk: MarkedOver(disk, trees), hooks: hooks, lock: lock, runner: runner, p: p}
 }
 
@@ -431,7 +417,7 @@ func fresh(copy bool) work.NewOptions { work.NewOptions{Copy: copy, From: None, 
 // the commit it merged as the base. A second base's trash is never
 // touched.
 law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string]) {
-	let w = worldWith(sharing, tree, "", "")
+	let w = try worldWith(sharing, tree, "", "")
 	Repo(w.vcs, "/w/.work/other/.work-trash/x.1", "x", Map[string, string]{"f": "other"}, "o1")
 	let mut want = []Expected{}
 	let mut gone = []string{}
@@ -689,7 +675,7 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 // (the model property reaches a ready followed by an idle gc only now and
 // then; this law always does).
 law UseKeepsAWorkspace(sync bool) {
-	let w = world(true)
+	let w = try world(true)
 	for name in []string{"a", "b"} {
 		let _ = w.tool.New(name, fresh(false)) catch {
 		case _:
@@ -722,7 +708,7 @@ law UseKeepsAWorkspace(sync bool) {
 // b's files as they were; a branch only b had (side) and a stash entry of
 // b's are kept beside it, each at its commit. Without -archive both stay.
 law ArchiveKeepsTheWork(text string, archive bool, side bool, stash bool) {
-	let w = world(true)
+	let w = try world(true)
 	let _ = w.tool.New("a", fresh(false)) catch {
 	case _:
 		return false
@@ -773,7 +759,7 @@ law ArchiveKeepsTheWork(text string, archive bool, side bool, stash bool) {
 // branch, still there after the trash is purged. A branch on the
 // remote's default branch (its HEAD, onDefault) is held, and it goes.
 law IdleKeepsAStaleBranch(text string, archive bool, onDefault bool) {
-	let w = world(true)
+	let w = try world(true)
 	let a = w.tool.New("a", fresh(false)) catch {
 	case _:
 		return false
@@ -818,7 +804,7 @@ law IdleKeepsAStaleBranch(text string, archive bool, onDefault bool) {
 // checked out in place of the record's (kind 3, as a lane that switched
 // branches), it names both branches too.
 law RmKeepsEveryBranch(kind int, text string) {
-	let w = world(true)
+	let w = try world(true)
 	let a = w.tool.New("a", fresh(false)) catch {
 	case _:
 		return false
@@ -856,7 +842,7 @@ law RmKeepsEveryBranch(kind int, text string) {
 // PinKeepsAWorkspace: gc -idle never takes a pinned workspace (it reports
 // it Pinned) and takes it again once unpinned; another idle one goes.
 law PinKeepsAWorkspace(unpin bool) {
-	let w = world(true)
+	let w = try world(true)
 	for name in []string{"a", "b"} {
 		let _ = w.tool.New(name, fresh(false)) catch {
 		case _:
@@ -887,7 +873,7 @@ law PinKeepsAWorkspace(unpin bool) {
 // is in use (a file changed in the window, a process in it), and reports
 // why; one it says nothing of goes.
 law InUseKeepsAWorkspace(why string) {
-	let w = world(true)
+	let w = try world(true)
 	let a = w.tool.New("a", fresh(false)) catch {
 	case _:
 		return false
@@ -906,7 +892,7 @@ law InUseKeepsAWorkspace(why string) {
 // purged by that gc nor by any gc within IdleTrash seconds; after them,
 // gc purges it.
 law IdleTrashWaitsADay(wait int) {
-	let w = world(true)
+	let w = try world(true)
 	let _ = w.tool.New("a", fresh(false)) catch {
 	case _:
 		return false
@@ -934,7 +920,7 @@ law IdleTrashWaitsADay(wait int) {
 // set keeps its record and its trash folder after rm (a gc purges it
 // anyway, as any gc purges the trash).
 law NoTrashDeletesForGood(viaGc bool, unsaved bool) {
-	let w = world(true)
+	let w = try world(true)
 	let mut made = []work.Created{}
 	for name in []string{"a", "b"} {
 		let n = w.tool.New(name, fresh(false)) catch {
@@ -1003,7 +989,7 @@ law NoTrashDeletesForGood(viaGc bool, unsaved bool) {
 // says the value and its source; a setting that is no boolean fails rm
 // and doctor BadConfig, never read as either.
 law TheHostSettingDecidesTrash(toml int, local int) {
-	let w = world(true)
+	let w = try world(true)
 	let a = w.tool.New("a", fresh(false)) catch {
 	case _:
 		return false
@@ -1065,7 +1051,7 @@ func removedBadly(w World, id string) bool {
 // workspace's folder as its parent, on any tree (the model property
 // reaches a stack only now and then; this law always does).
 law StackRecordsItsParent(tree Map[string, string]) {
-	let w = worldWith(true, tree, "", "")
+	let w = try worldWith(true, tree, "", "")
 	let a = w.tool.New("a", fresh(false)) catch {
 	case _:
 		return false
@@ -1092,7 +1078,7 @@ law StackRecordsItsParent(tree Map[string, string]) {
 // and rm takes it only when its work is held or abandoned (CrashOp in
 // the model).
 law MadeCloneOutlivesItsMaker(text string) {
-	let w = worldWith(true, Map[string, string]{"bun.lock": "lock \(len(text))\n"}, "[deps]\nlock = \"bun.lock\"\ninstall = \"bun install\"\n", "")
+	let w = try worldWith(true, Map[string, string]{"bun.lock": "lock \(len(text))\n"}, "[deps]\nlock = \"bun.lock\"\ninstall = \"bun install\"\n", "")
 	let maker = Sharing(w.lock, 2)
 	let t = toolOf(w, maker, []work.Cloner{w.trees})
 	let reserved = t.Reserve("a", fresh(false)) catch {
@@ -1128,7 +1114,7 @@ law MadeCloneOutlivesItsMaker(text string) {
 law LegacyMarkerDoesNotCertifyCheckout(text string) {
 	for cut in []int{0, 1, 2, 3, 4, 5, 6} {
 		let allowPush = cut == 5
-		let w = worldWith(true, Map[string, string]{}, if allowPush { "[work]\npush = \"origin\"\n" } else { "" }, "")
+		let w = try worldWith(true, Map[string, string]{}, if allowPush { "[work]\npush = \"origin\"\n" } else { "" }, "")
 		let t = w.tool
 		let name = "legacy"
 		let id = crashId(name)
@@ -1185,7 +1171,7 @@ law LegacyMarkerDoesNotCertifyCheckout(text string) {
 // unchanged and starts nothing), as a workspace made in full beside it
 // has.
 law ActivatedCloneIsRecordedAsMade(lock string) {
-	let w = worldWith(true, Map[string, string]{}, "[deps]\nlock = \"bun.lock\"\ninstall = \"bun install\"\n", "")
+	let w = try worldWith(true, Map[string, string]{}, "[deps]\nlock = \"bun.lock\"\ninstall = \"bun install\"\n", "")
 	let maker = Sharing(w.lock, 2)
 	let t = toolOf(w, maker, []work.Cloner{w.trees})
 	let reserved = t.Reserve("a", fresh(false)) catch {
@@ -1500,7 +1486,7 @@ func replaced(want []Expected, e Expected) []Expected {
 // own .git/info/exclude; a committed one it leaves to Git.
 law InitExcludesAnUntrackedConfig(committed bool) {
 	let tree = if committed { Map[string, string]{work.ConfigFile: "[work]\n"} } else { Map[string, string]{} }
-	let w = worldWith(true, tree, "", "")
+	let w = try worldWith(true, tree, "", "")
 	let exclude = maps.GetOr(Files(w.trees, theBase), ".git/info/exclude", "")
 	strings.Contains(exclude, "/"+work.ConfigFile+"\n") != committed
 }
@@ -1510,7 +1496,7 @@ law InitExcludesAnUntrackedConfig(committed bool) {
 // the trash stays listed under TrashedName with its id, and gc purges it
 // and leaves the new one.
 law RmThenNewTakesTheName(name int) {
-	let w = world(true)
+	let w = try world(true)
 	let n = pick(name)
 	let first = w.tool.New(n, fresh(false)) catch {
 	case _:
@@ -1567,7 +1553,7 @@ func freedIn(want []Expected) []string {
 // second each trash their own folder: every rm succeeds, every trash is
 // listed with its id, and gc purges them all (the Mac's T3).
 law RemovedAgainInOneSecond(name int, times int) {
-	let w = world(true)
+	let w = try world(true)
 	let n = pick(name)
 	let k = 2 + small(times, 3)
 	let mut ids = []string{}
@@ -1611,7 +1597,7 @@ law RemovedAgainInOneSecond(name int, times int) {
 // (.rift, the copy's id) clones every other file, and no workspace holds
 // the marker, made on the base or on another workspace (WK-MARKER).
 law CloneLeavesTheRiftMarker(id string, on bool) {
-	let w = world(true)
+	let w = try world(true)
 	if !Write(w.trees, theBase, work.RiftMarker, id+"\n") || !Write(w.trees, theBase, "kept.txt", id) {
 		return false
 	}
@@ -1637,7 +1623,7 @@ law CloneLeavesTheRiftMarker(id string, on bool) {
 // or live, and nothing else (the Mac's WK-BASES: a scratch base a test
 // registered and deleted sent a caller into a missing folder).
 law BasesAreTheLiveOnes(live []bool, forget int) {
-	let w = world(true)
+	let w = try world(true)
 	let mut lines = []string{theBase}
 	let mut want = []string{theBase}
 	let mut gone = []string{}
@@ -1693,7 +1679,7 @@ law BasesAreTheLiveOnes(live []bool, forget int) {
 // and no push URL of the owner's; a workspace new made keeps its guard
 // either way.
 law AdoptLeavesPushesToTheOwner(own bool) {
-	let w = world(true)
+	let w = try world(true)
 	let made = w.tool.New("n", fresh(false)) catch {
 	case _:
 		return false
@@ -1779,7 +1765,7 @@ law NewWorkspaceMergesByClass(rows int, mine int, theirs int, adopt bool) {
 	let mut theirsTos = slices.Clone(tos)
 	theirsTos[j] = "theirs"
 	let other = ledger(names, theirsTos)
-	let w = worldWith(true, Map[string, string]{ledgerPath: base}, "", "")
+	let w = try worldWith(true, Map[string, string]{ledgerPath: base}, "", "")
 	unregistered(w, theBase)
 	if !attributed(w, theBase) || !Commit(w.vcs, theBase, "c1") {
 		return false
@@ -1845,7 +1831,7 @@ law NewWorkspaceMergesByClass(rows int, mine int, theirs int, adopt bool) {
 // rerere.enabled as it was (unset, false or true): replaying recorded
 // resolutions is the checkout owner's choice, not a driver's.
 law RegisterDriversLeavesRerere(set int) {
-	let w = world(true)
+	let w = try world(true)
 	let copy = "/w/copy"
 	w.trees.Clone(theBase, copy) catch {
 	case _:
@@ -1879,7 +1865,7 @@ law RegisterDriversLeavesRerere(set int) {
 // left whole (no delete without ownership), and nor is the tomb of a
 // rolled-back reservation whose record is still kept.
 law DoctorNamesAStrayStaging(repair bool, tomb bool) {
-	let w = world(true)
+	let w = try world(true)
 	let home = work.Home(theBase, "")
 	let t = toolOf(w, Sharing(w.lock, 2), []work.Cloner{w.trees})
 	let m = match (t.Reserve("a", fresh(false)) catch {
@@ -1928,7 +1914,7 @@ law DoctorNamesAStrayStaging(repair bool, tomb bool) {
 // commands that drop it, leaves that record as it was, and -repair still
 // activates a reservation over a whole clone whose maker is gone.
 law DoctorPassesAGoneFolder(repair bool) {
-	let w = world(true)
+	let w = try world(true)
 	let home = work.Home(theBase, "")
 	let path = home + "/" + work.FolderOf("cre")
 	w.registry.Put(work.Workspace{Name: "cre", Path: path, Parent: theBase, Branch: "", Cloner: "", State: work.Creating, Since: 1000, Base: "", Latest: "", Deps: "", Id: crashId("cre"), Token: "", Moving: "", Pinned: false, Until: 0}) catch {
@@ -1974,7 +1960,7 @@ law DoctorPassesAGoneFolder(repair bool) {
 // whose makers are gone, doctor -here -repair run inside one activates
 // that one alone; run in the base it activates neither.
 law DoctorHereRepairsOnlyItsOwn(at int) {
-	let w = world(true)
+	let w = try world(true)
 	let home = work.Home(theBase, "")
 	let names = []string{"cre0", "cre1"}
 	for n in names {
@@ -2013,7 +1999,7 @@ law DoctorHereRepairsOnlyItsOwn(at int) {
 // and leaves the other records as they were; with the folder there, the
 // same failing preremove still stops rm before anything is written.
 law RmDropsAGoneFolder(present bool) {
-	let w = worldWith(true, Map[string, string]{}, "[hooks]\npreremove = [\"test -d .\"]\npostremove = [\"true\"]\n", "test -d .")
+	let w = try worldWith(true, Map[string, string]{}, "[hooks]\npreremove = [\"test -d .\"]\npostremove = [\"true\"]\n", "test -d .")
 	let keep = w.tool.New("keep", fresh(false)) catch {
 	case _:
 		return false
@@ -2063,7 +2049,7 @@ law RmDropsAGoneFolder(present bool) {
 // wrote it) with the command that unsets it, names no other value, and
 // leaves the key as it was: work no longer owns it.
 law DoctorHereNamesAnOldRerere(set int, fix bool) {
-	let w = world(true)
+	let w = try world(true)
 	let copy = "/w/copy"
 	w.trees.Clone(theBase, copy) catch {
 	case _:
@@ -2099,7 +2085,7 @@ law DoctorHereNamesAnOldRerere(set int, fix bool) {
 // nor written. Run in the base, which init registered, it names no copy;
 // run in no checkout of the base, it says so and writes nothing.
 law DoctorHereFixesOnlyItsCheckout(fix bool, at int) {
-	let w = worldWith(true, Map[string, string]{ledgerPath: ledger([]string{"r0"}, []string{"y"})}, "", "")
+	let w = try worldWith(true, Map[string, string]{ledgerPath: ledger([]string{"r0"}, []string{"y"})}, "", "")
 	if !attributed(w, theBase) || !Commit(w.vcs, theBase, "c1") {
 		return false
 	}
@@ -2163,7 +2149,7 @@ func attributed(w World, root string) bool {
 // registered and a second doctor is quiet about it; the base, which init
 // registered, is never named.
 law DoctorSeesAnUnregisteredDriver(fix bool, gone bool) {
-	let w = worldWith(true, Map[string, string]{ledgerPath: ledger([]string{"r0"}, []string{"y"})}, "", "")
+	let w = try worldWith(true, Map[string, string]{ledgerPath: ledger([]string{"r0"}, []string{"y"})}, "", "")
 	if !attributed(w, theBase) || !Commit(w.vcs, theBase, "c1") {
 		return false
 	}

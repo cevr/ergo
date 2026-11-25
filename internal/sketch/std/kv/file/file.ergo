@@ -79,14 +79,9 @@ func Open(files fs.Files, writes fs.Writes, path string) Store fails kv.Failed {
 // Laws 10): each case opens a fresh log on its own fstest.Memory disk.
 let onMemoryDisk = context { kv.Store: openOnMemory() }
 
-// openOnMemory is the store Open gives for a log not yet on a fresh
-// memory disk, which it reads as empty: such an Open does not fail.
 func openOnMemory() Store {
 	let disk = fstest.NewMemory()
-	Open(disk, disk, "kv.log") catch {
-	case kv.Failed as f:
-		Unreachable(f.Reason)
-	}
+	Store{path: "kv.log", files: disk, writes: disk, index: memory.New()}
 }
 
 // Get is the value key holds, from the index.
@@ -97,7 +92,7 @@ func Get(s Store, key string) Option[string] fails kv.Failed { try s.index.Get(k
 // one key at once may find the other's value after a reopen: the log
 // keeps the order of the appends, the index the order of the puts.
 func Put(s Store, key string, value string) fails kv.Failed {
-	try add(s, "put\t" + strconv.Quote(key) + "\t" + strconv.Quote(value) + "\n")
+	try add(s, "put\t"+strconv.Quote(key)+"\t"+strconv.Quote(value)+"\n")
 	try s.index.Put(key, value)
 }
 
@@ -107,7 +102,7 @@ func Delete(s Store, key string) bool fails kv.Failed {
 	if try s.index.Get(key) == None {
 		return false
 	}
-	try add(s, "del\t" + strconv.Quote(key) + "\n")
+	try add(s, "del\t"+strconv.Quote(key)+"\n")
 	try s.index.Delete(key)
 }
 
@@ -185,7 +180,7 @@ func unquote(field string, bad kv.Failed) string fails kv.Failed {
 type step = putStep{Key int, Value string} | deleteStep{Key int} | compactStep{} | reopenStep{}
 
 // keyOf is the key of a step's number.
-func keyOf(n int) string { "k\(((n%4)+4)%4)" }
+func keyOf(n int) string { "k\(((n % 4) + 4) % 4)" }
 
 // entries is every entry of s, by key.
 func entries(s kv.Store) []kv.Entry fails kv.Failed {
@@ -224,7 +219,7 @@ law FileIsMemory(steps []step, torn string) {
 	if try entries(got) != try entries(want) {
 		return false
 	}
-	try disk.AppendFile("kv.log", "put\t" + strings.ReplaceAll(torn, "\n", ""))
+	try disk.AppendFile("kv.log", "put\t"+strings.ReplaceAll(torn, "\n", ""))
 	let back = try Open(disk, disk, "kv.log")
 	if try entries(back) != try entries(want) {
 		return false
@@ -240,7 +235,7 @@ law OpenRefusesABrokenLine(key string, value string, line string) {
 	let disk = fstest.NewMemory()
 	let s = try Open(disk, disk, "kv.log")
 	try s.Put(key, value)
-	try disk.AppendFile("kv.log", "x" + strings.ReplaceAll(line, "\n", "") + "\n")
+	try disk.AppendFile("kv.log", "x"+strings.ReplaceAll(line, "\n", "")+"\n")
 	let _ = Open(disk, disk, "kv.log") catch {
 	case kv.Failed:
 		return true

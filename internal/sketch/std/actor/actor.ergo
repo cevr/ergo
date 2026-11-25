@@ -544,7 +544,7 @@ law RestartIsFresh(signals []int, n int) {
 
 // crashes reports whether the step of e is an injected defect: a signal
 // whose value mod 5 is 4.
-func crashes(e int) bool { ((e % 5) + 5) % 5 == 4 }
+func crashes(e int) bool { ((e%5)+5)%5 == 4 }
 
 // crashStep is tallyStep, with a defect for each signal crashes names.
 func crashStep(s int, e int) Decision[int, int] {
@@ -707,7 +707,7 @@ func launch[S, E, O, F, R, W, G](m Machine[S, E, O, F, R, W], capacity int, sink
 // the actor's first entry binds each one its first state holds, and its
 // work fills them with new children. Every other host recover made is
 // closed when StartDurable returns, so a journal never keeps a live child.
-func StartDurable[S, E, O, F, R, W, G](m pure Machine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, recover func() Option[S] fails G needs R, save own func(prev S, next S, sig E) fails G needs R) Actor[S, E, Decision[S, O], F] fails G needs R | W | Scheduler {
+func StartDurable[S, E, O, F, R, W, G, H](m pure Machine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, recover func() Option[S] fails G needs R, save own func(prev S, next S, sig E) fails H needs R) Actor[S, E, Decision[S, O], F] fails G needs R | W | Scheduler {
 	try recovering(func() S fails G needs R { try recovered(recover, m.Initial) }, func(initial S) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
 		StartMachine(durable(m, initial, save), capacity, sink)
 	})
@@ -1008,7 +1008,7 @@ extern go ergo.local/prototype/runtime/v1.ActorOnEnd func OnEnd[S, E, D, F](a Ac
 // runs.
 law OnEndRunsOnce(n int, signals []int, drain bool) {
 	with context { Scheduler: time.NewManual(0) } {
-		endActions(((n % 4) + 4) % 4 + 1, signals, drain)
+		endActions(((n%4)+4)%4+1, signals, drain)
 	}
 }
 
@@ -1262,7 +1262,7 @@ func SendAndWait[S, E, D, F, R](a Actor[S, E, D, F], e E, pred func(s S) bool ne
 // Finished is an actor that its step ended with Done: its last state and
 // Done's output.
 type Finished[S, O] {
-	State S,
+	State  S,
 	Output O,
 }
 
@@ -1542,14 +1542,14 @@ func watchedBy[F](log Actor[[]int, int, Decision[[]int, int]], a Actor[int, int,
 // free. Its values are copies of one registry.
 type Registry[K comparable, S, E, D, F] {
 	entries sync.Ref[Map[K, registered[S, E, D, F]]],
-	next sync.Ref[int],
+	next    sync.Ref[int],
 }
 
 // registered is an actor in a registry, with the number of its Register,
 // so the end of an actor removes its own entry and never a later one.
 type registered[S, E, D, F] {
 	Actor Actor[S, E, D, F],
-	N int,
+	N     int,
 }
 
 // Taken is the failure of Register when a live actor holds the key.
@@ -1808,7 +1808,7 @@ func Select[S, T comparable](changes Seq[S], f own func(s S) T) Seq[T] {
 law SelectOncePerChange(xs []int) {
 	let mut want = []int{}
 	for x in xs {
-		if len(want) == 0 || want[len(want)-1] != x % 3 {
+		if len(want) == 0 || want[len(want)-1] != x%3 {
 			want = want.Append(x % 3)
 		}
 	}

@@ -124,6 +124,17 @@ func registerTasks(t nativeTables) {
 		}
 		return &queueV{capacity: n, closed: stdRecord(fn, "Closed", nil).t, full: stdRecord(fn, "Full", nil).t}, nil
 	}
+	t.reads["queue.NewOpen"] = "int64"
+	natives["queue.NewOpen"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		n := args[0].(int64)
+		if n < 0 {
+			return nil, fr.defect(at, "queue.NewOpen: negative capacity %d", n)
+		}
+		if ab := in.build(fr, at, 1, 4, 0); ab != nil {
+			return nil, ab
+		}
+		return &openQueueV{q: &queueV{capacity: n, full: stdRecord(fn, "Full", nil).t}}, nil
+	}
 	timeline := func(auto bool) native {
 		return func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 			if ab := in.build(fr, at, 1, 4, 0); ab != nil {
@@ -565,6 +576,19 @@ func (q *queueV) opCall(in *interp, fr *frame, at syntax.Node, name string, args
 		return &queueValues{q: q}, nil
 	}
 	ice("the queue operation %s", name)
+	return nil, nil
+}
+
+type openQueueV struct{ q *queueV }
+
+func (o *openQueueV) describe() string { return "a queue.OpenQueue" }
+
+func (o *openQueueV) opCall(in *interp, fr *frame, at syntax.Node, name string, args []Value) (Value, *abrupt) {
+	switch name {
+	case "Push", "Pop", "Offer", "Poll", "Cap", "Len":
+		return o.q.opCall(in, fr, at, name, args)
+	}
+	ice("the open queue operation %s", name)
 	return nil, nil
 }
 

@@ -408,67 +408,48 @@ law PluginFailuresAreUnanswered(names []string, bodies []string) {
 // pluginWorld is a Tool whose base holds files (committed) and whose
 // runner serves lines, for work plugin-test; config is its work.toml
 // ("" for none) and trusted whether work trust allowed it.
-func pluginWorld(lines Lines, files Map[string, string]) work.Tool { configuredWorld(lines, files, "", false) }
+func pluginWorld(lines Lines, files Map[string, string]) work.Tool fails fstest.BadFixture { try configuredWorld(lines, files, "", false) }
 
-func configuredWorld(lines Lines, files Map[string, string], config string, trusted bool) work.Tool {
-	let (tool, _) = configuredDisk(lines, files, config, trusted)
+func configuredWorld(lines Lines, files Map[string, string], config string, trusted bool) work.Tool fails fstest.BadFixture {
+	let (tool, _) = try configuredDisk(lines, files, config, trusted)
 	tool
 }
 
-// configuredDisk is configuredWorld and its disk.
-func configuredDisk(lines Lines, files Map[string, string], config string, trusted bool) (work.Tool, fstest.Memory) {
-	configuredWith(serving(lines), files, config, trusted)
+func configuredDisk(lines Lines, files Map[string, string], config string, trusted bool) (work.Tool, fstest.Memory) fails fstest.BadFixture {
+	try configuredWith(serving(lines), files, config, trusted)
 }
 
-// configuredWith is configuredDisk with the runner sv (a plugin's, or
-// any command's).
-func configuredWith(sv exec.Runner, files Map[string, string], config string, trusted bool) (work.Tool, fstest.Memory) {
-	configuredOn(sv, fstest.NewMemory(), files, config, trusted)
-}
-
-// configuredOn is configuredWith on the disk disk (one the runner sv
-// writes too).
-func configuredOn(sv exec.Runner, disk fstest.Memory, files Map[string, string], config string, trusted bool) (work.Tool, fstest.Memory) {
-	let trees = NewCloner()
-	let vcs = VcsOver(trees)
-	Repo(vcs, theBase, "main", files, "c0")
+func configuredFixture(files Map[string, string], config string, trusted bool) fstest.Fixture fails fstest.BadFixture {
 	let home = work.Home(theBase, "")
-	disk.MkdirAll(theBase) catch {
-	case fs.Denied, fs.Failed:
-		Unreachable("a folder of a memory disk")
-	}
-	disk.MkdirAll(home) catch {
-	case fs.Denied, fs.Failed:
-		Unreachable("a folder of a memory disk")
-	}
+	let mut all = Map[string, string]{}
 	for path, text in files {
-		disk.MkdirAll(filepath.Dir(theBase + "/" + path)) catch {
-		case fs.Denied, fs.Failed:
-			Unreachable("a folder of a memory disk")
-		}
-		disk.WriteFile(theBase+"/"+path, text) catch {
-		case fs.NotFound, fs.Denied, fs.Failed:
-			Unreachable("a file of a memory disk")
-		}
+		all[theBase+"/"+path] = text
 	}
 	if config != "" {
-		disk.WriteFile(theBase+"/"+work.ConfigFile, config) catch {
-		case fs.NotFound, fs.Denied, fs.Failed:
-			Unreachable("a file of a memory disk")
-		}
+		all[theBase+"/"+work.ConfigFile] = config
 		let c = work.ParseConfig(config) catch {
 		case work.BadConfig:
 			work.EmptyConfig()
 		}
 		if trusted {
-			disk.WriteFile(work.TrustFile(home), work.Digest(c)+"\n") catch {
-			case fs.NotFound, fs.Denied, fs.Failed:
-				Unreachable("a file of a memory disk")
-			}
+			all[work.TrustFile(home)] = work.Digest(c) + "\n"
 		}
 	}
+	try fstest.NewFixture([]string{theBase, home}, all)
+}
+
+func configuredTool(sv exec.Runner, disk fstest.Memory, files Map[string, string]) work.Tool {
+	let trees = NewCloner()
+	let vcs = VcsOver(trees)
+	Repo(vcs, theBase, "main", files, "c0")
+	let home = work.Home(theBase, "")
 	let p = work.Providers{Cloners: []work.Cloner{trees}, Copier: Beside(trees, false), Registry: NewRegistry(), Lock: NewLock(), Hooks: Recording(NewLock(), ""), Vcs: vcs, Files: disk, Writes: disk, Runner: sv, Clock: time.NewManual(1000)}
-	(work.NewTool(theBase, home, "/data", p, "/"), disk)
+	work.NewTool(theBase, home, "/data", p, "/")
+}
+
+func configuredWith(sv exec.Runner, files Map[string, string], config string, trusted bool) (work.Tool, fstest.Memory) fails fstest.BadFixture {
+	let disk = fstest.MemoryOf(try configuredFixture(files, config, trusted))
+	(configuredTool(sv, disk, files), disk)
 }
 
 let pluginFiles = Map[string, string]{"a.lines": "unit A(x)\n  call b\n# a note\n", "b.lines": "unit b(y)\n  error none\n", "c.txt": "not read\n"}
@@ -491,20 +472,18 @@ let linesOnly = work.PluginTestOptions{Files: Some[string]{Value: "*.lines"}, Ma
 // it ran named, and refuses a plugin that drops a byte, or that reads a
 // comment as a change, with the law's name and the file.
 test PluginTestNamesTheLaw {
-	let ok = try pluginWorld(NewLines(), pluginFiles).PluginTest("lines", linesOnly)
+	let ok = try (try pluginWorld(NewLines(), pluginFiles)).PluginTest("lines", linesOnly)
 	assert ok == work.PluginAdmitted{Command: "lines", Level: 2, Files: 2, Unreadable: 0, Laws: []string{"UnitsAreTheFile", "KeysAreUnique", "EditStaysInItsUnit", "ChangesOfSameIsEmpty", "CommentEditIsNoChange", "CheckIsPure", "EmptyLayerIsTheBase"}}
-	let dropped = refusal(pluginWorld(Lines{fault: "drops"}, pluginFiles))
+	let dropped = refusal(try pluginWorld(Lines{fault: "drops"}, pluginFiles))
 	assert dropped == work.PluginRefused{Command: "lines", Law: "UnitsAreTheFile", File: "a.lines", Why: "the units' texts join to 27 bytes, the file has 28"}
-	let comments = refusal(pluginWorld(Lines{fault: "comments"}, pluginFiles))
+	let comments = refusal(try pluginWorld(Lines{fault: "comments"}, pluginFiles))
 	assert comments == work.PluginRefused{Command: "lines", Law: "CommentEditIsNoChange", File: "a.lines", Why: "a comment added at its end is a change of A (body)"}
 }
 
-// A [language.NAME] runs its command only once work trust allowed it,
-// and reads only its files; one with no command is BadConfig.
 test LanguageRunsOnlyTrusted {
 	let config = "[language.lines]\ncommand = \"lines\"\nfiles = [\"*.lines\"]\n"
 	let none = work.PluginTestOptions{Files: None, Max: None, Seed: None}
-	let asked = configuredWorld(NewLines(), pluginFiles, config, false).PluginTest("lines", none) catch {
+	let asked = (try configuredWorld(NewLines(), pluginFiles, config, false)).PluginTest("lines", none) catch {
 	case work.Untrusted as u:
 		assert u.Commands == []string{"language.lines.command: lines"}
 		work.PluginAdmitted{Command: "", Level: 0, Files: 0, Unreadable: 0, Laws: []string{}}
@@ -512,9 +491,9 @@ test LanguageRunsOnlyTrusted {
 		work.PluginAdmitted{Command: "other", Level: 0, Files: 0, Unreadable: 0, Laws: []string{}}
 	}
 	assert asked.Command == ""
-	let ran = try configuredWorld(NewLines(), pluginFiles, config, true).PluginTest("lines", none)
+	let ran = try (try configuredWorld(NewLines(), pluginFiles, config, true)).PluginTest("lines", none)
 	assert ran.Command == "lines" && ran.Files == 2
-	let bad = configuredWorld(NewLines(), pluginFiles, "[language.x]\nfiles = [\"*\"]\n", true).PluginTest("x", none) catch {
+	let bad = (try configuredWorld(NewLines(), pluginFiles, "[language.x]\nfiles = [\"*\"]\n", true)).PluginTest("x", none) catch {
 	case work.BadConfig as b:
 		assert b.Why == "[language.x] needs a command and files"
 		work.PluginAdmitted{Command: "", Level: 0, Files: 0, Unreadable: 0, Laws: []string{}}
@@ -524,16 +503,12 @@ test LanguageRunsOnlyTrusted {
 	assert bad.Command == ""
 }
 
-// plugin-test refuses the three other faults with the law each breaks:
-// two units of one name (KeysAreUnique), a key that moves with an edit
-// before its unit (EditStaysInItsUnit), a layer that writes the files as
-// they are yet changes the diagnostics (EmptyLayerIsTheBase).
 test PluginTestRefusesEachFault {
 	let dupes = Map[string, string]{"d.lines": "unit d(x)\n  one\nunit d(y)\n  two\n"}
-	assert refusal(pluginWorld(Lines{fault: "dupes"}, dupes)) == work.PluginRefused{Command: "lines", Law: "KeysAreUnique", File: "d.lines", Why: "two units have one key"}
-	let moved = refusal(pluginWorld(Lines{fault: "positional"}, Map[string, string]{"p.lines": "unit A(x) y\n  call\nunit c\n"}))
+	assert refusal(try pluginWorld(Lines{fault: "dupes"}, dupes)) == work.PluginRefused{Command: "lines", Law: "KeysAreUnique", File: "d.lines", Why: "two units have one key"}
+	let moved = refusal(try pluginWorld(Lines{fault: "positional"}, Map[string, string]{"p.lines": "unit A(x) y\n  call\nunit c\n"}))
 	assert moved == work.PluginRefused{Command: "lines", Law: "EditStaysInItsUnit", File: "p.lines", Why: "a space added at byte 10, in unit A@0, changed another unit"}
-	assert refusal(pluginWorld(Lines{fault: "layer"}, pluginFiles)) == work.PluginRefused{Command: "lines", Law: "EmptyLayerIsTheBase", File: "", Why: "2 diagnostics, the first check had 0"}
+	assert refusal(try pluginWorld(Lines{fault: "layer"}, pluginFiles)) == work.PluginRefused{Command: "lines", Law: "EmptyLayerIsTheBase", File: "", Why: "2 diagnostics, the first check had 0"}
 }
 
 // The units merge (work.MergeUnits) against a reference written apart
@@ -843,7 +818,7 @@ law MergeByLanguageIsMergeUnits(units Map[int, int], ourEdits []classes.Edit, th
 	case work.Unreadable, work.Unanswered:
 		return false
 	}
-	let (tool, disk) = configuredDisk(NewLines(), Map[string, string]{"m/b.lines": b, "m/o.lines": o, "m/t.lines": th}, languageConfig, trusted)
+	let (tool, disk) = try configuredDisk(NewLines(), Map[string, string]{"m/b.lines": b, "m/o.lines": o, "m/t.lines": th}, languageConfig, trusted)
 	let mut conflicts = []string{}
 	let mut refused = false
 	tool.MergeFile("auto", theBase+"/m/b.lines", theBase+"/m/o.lines", theBase+"/m/t.lines", work.MergeFileOptions{Path: Some[string]{Value: "f.lines"}}) catch {
@@ -983,7 +958,7 @@ law TreeMergeStartsThePluginTwice(units Map[int, int], ourEdits []classes.Edit, 
 	let ours = unitFile(scripted(base, ourEdits))
 	let theirs = unitFile(scripted(base, theirEdits))
 	let sv = serving(NewLines())
-	let (tool, disk) = configuredWith(sv, Map[string, string]{"m/b.lines": one, "m/o.lines": ours, "m/t.lines": theirs}, languageConfig, true)
+	let (tool, disk) = try configuredWith(sv, Map[string, string]{"m/b.lines": one, "m/o.lines": ours, "m/t.lines": theirs}, languageConfig, true)
 	let c = work.ParseConfig(languageConfig) catch {
 	case work.BadConfig:
 		return false
@@ -1020,7 +995,7 @@ law FoldersAreTheirTrees(units Map[int, int], ourEdits []classes.Edit, theirEdit
 	let b = Map[string, string]{"f.lines": unitFile(base), "d/e/g.lines": unitFile(base), "d/x.txt": "a\nb\n"}
 	let o = Map[string, string]{"f.lines": unitFile(scripted(base, ourEdits)), "d/e/g.lines": unitFile(base), "d/x.txt": "a\nb\n"}
 	let th = Map[string, string]{"f.lines": unitFile(base), "d/e/g.lines": unitFile(scripted(base, theirEdits)), "d/x.txt": "a\nc\n", "d/new.txt": "n\n"}
-	let (tool, disk) = configuredWith(serving(NewLines()), Map[string, string]{}, languageConfig, true)
+	let (tool, disk) = try configuredWith(serving(NewLines()), Map[string, string]{}, languageConfig, true)
 	let put = func(side string, tree Map[string, string]) bool {
 		for path, text in tree {
 			let file = theBase + "/in/" + side + "/" + path
@@ -1071,7 +1046,7 @@ law FoldersAreTheirTrees(units Map[int, int], ourEdits []classes.Edit, theirEdit
 test DoctorNamesTheMountOfMount {
 	let list = "/dev/disk3s1s1 on / (apfs, sealed, local, read-only, journaled)\n/dev/disk5s1 on /Volumes/x (msdos, local)\n"
 	let runner = exec.Script{Results: Map[string, exec.Result]{exec.Key(exec.New("mount", []string{})): exec.Result{Status: 0, Stdout: list, Stderr: ""}}}
-	let (tool, _) = configuredWith(runner, Map[string, string]{}, "", false)
+	let (tool, _) = try configuredWith(runner, Map[string, string]{}, "", false)
 	let _ = try tool.Init()
 	let report = try tool.Doctor(work.DoctorOptions{Rift: false, Registry: None, Unguard: false, Fix: false, Here: false, Repair: false})
 	assert report.FileSystem == "apfs"

@@ -9,7 +9,7 @@ import github.com/cevr/ergo/modules/work/work/workcli
 // -copy refuses, names the bytes a copy would take and why each Cloner
 // could not, and registers nothing.
 test CopyRefusedSaysTheBytes {
-	let w = world(false)
+	let w = try world(false)
 	let o = with context { work.Api: w.tool } { workcli.Run([]string{"new", "a"}, workcli.Defaults()) }
 	assert o.Code == 1
 	assert o.Err == "CopyRefused: {\"_tag\":\"CopyRefused\",\"from\":\"/w/base\",\"bytes\":597,\"why\":\"memory: this disk has no copy-on-write clone\"}\n"
@@ -24,7 +24,7 @@ test CopyRefusedSaysTheBytes {
 // NotSameVolumeNamesBoth: a workspaces folder on another file system than
 // its base is refused with both folders, not copied.
 test NotSameVolumeNamesBoth {
-	let w = world(true)
+	let w = try world(true)
 	Mount(w.trees, "/w/.work", "other")
 	let o = with context { work.Api: w.tool } { workcli.Run([]string{"new", "a"}, workcli.Defaults()) }
 	assert o.Code == 1
@@ -35,7 +35,7 @@ test NotSameVolumeNamesBoth {
 // after init runs no hook; its answer names the commands refused and the
 // digest work trust would allow.
 test UntrustedHookSaysTheDigest {
-	let w = worldWith(true, Map[string, string]{}, "[hooks]\npostcreate = [\"a\"]\n", "")
+	let w = try worldWith(true, Map[string, string]{}, "[hooks]\npostcreate = [\"a\"]\n", "")
 	w.disk.WriteFile(theBase+"/"+work.ConfigFile, "[hooks]\npostcreate = [\"bun install\"]\n") catch {
 	case fs.NotFound, fs.Denied, fs.Failed:
 		assert false
@@ -50,7 +50,7 @@ test UntrustedHookSaysTheDigest {
 // workspace's names the id expected and the id found, and removes
 // nothing.
 test IdMismatchNamesBothIds {
-	let w = world(true)
+	let w = try world(true)
 	let _ = w.tool.New("a", fresh(false)) catch {
 	case _:
 		assert false
@@ -64,7 +64,7 @@ test IdMismatchNamesBothIds {
 // HasDescendantsNamesThePaths: rm of a workspace another is made on
 // names the other's folder.
 test HasDescendantsNamesThePaths {
-	let w = world(true)
+	let w = try world(true)
 	let _ = w.tool.New("a", fresh(false)) catch {
 	case _:
 		assert false
@@ -83,7 +83,7 @@ test HasDescendantsNamesThePaths {
 // LockedNamesTheRegistry: a mutation while another process holds the
 // registry's lock names the registry and changes nothing.
 test LockedNamesTheRegistry {
-	let w = world(true)
+	let w = try world(true)
 	let other = Sharing(w.lock, 5)
 	let _ = other.Hold("") catch {
 	case work.Unkept:
@@ -98,7 +98,7 @@ test LockedNamesTheRegistry {
 // FailedHookIsInCreated: a failed postcreate is in new's answer (the
 // hook, the command, its status and stderr), with the workspace's path.
 test FailedHookIsInCreated {
-	let w = worldWith(true, Map[string, string]{}, "[hooks]\npostcreate = [\"make\"]\n", "make")
+	let w = try worldWith(true, Map[string, string]{}, "[hooks]\npostcreate = [\"make\"]\n", "make")
 	let o = with context { work.Api: w.tool } { workcli.Run([]string{"new", "a"}, workcli.Defaults()) }
 	assert o.Code == 0
 	assert o.Out == "{\"name\":\"a\",\"id\":\"7013c0fa874ff412\",\"path\":\"/w/.work/base/a\",\"branch\":\"a\",\"deps\":{\"_tag\":\"NoDeps\"},\"hooks\":{\"_tag\":\"HookFailed\",\"hook\":\"postcreate\",\"command\":\"make\",\"status\":1,\"stderr\":\"failed\\n\"}}\n"

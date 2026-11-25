@@ -58,7 +58,7 @@ func (b *irBuilder) call(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr) {
 	if e != nil {
 		b.callFacts(x, e, stmt) // ir_rewrite_pass.go: the rewrite passes read them
 	}
-	if e != nil && (e.K == "vcall" && !b.plainCallee(x) || b.dropsErr[e] && (!stmt || b.hasValue(x) || e.UnitPair)) {
+	if e != nil && (e.K == "vcall" && !b.plainCallee(x) || b.dropsErr[e] && (!stmt || b.hasValue(x) || e.UnitPair || b.unitPair(x))) {
 		// A function value returns its (value, error) pair (ir_closure.go;
 		// a known callback's is plain, ir_kcb.go),
 		// as a fallible function does where its row is empty (dropErr): the

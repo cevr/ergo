@@ -89,9 +89,10 @@ law CandidateNeverWorseThanGit(base string, ours string, theirs string, same int
 	let g = ((gate % 4) + 4) % 4
 	let (trusted, pinned) = (g != 0, g != 1)
 	let text = "merged\n" + (if bad { "BAD\n" } else { "" }) + (if marker { "<<<<<<< ours\n" } else { "" })
-	let disk = fstest.NewMemory()
+	let files = Map[string, string]{"m/b.go": base, "m/o.go": o, "m/t.go": theirs}
+	let disk = fstest.MemoryOf(try configuredFixture(files, candidateConfig, trusted))
 	let d = NewDriver(disk, text, status, if pinned { "1.0" } else { "0.9" })
-	let (tool, _) = configuredOn(d, disk, Map[string, string]{"m/b.go": base, "m/o.go": o, "m/t.go": theirs}, candidateConfig, trusted)
+	let tool = configuredTool(d, disk, files)
 	let mut conflicted = false
 	let _ = tool.MergeFile("auto", theBase+"/m/b.go", theBase+"/m/o.go", theBase+"/m/t.go", work.MergeFileOptions{Path: Some[string]{Value: "f.go"}}) catch {
 	case work.MergeConflict:

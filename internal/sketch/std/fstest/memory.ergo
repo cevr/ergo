@@ -44,6 +44,7 @@
 
 import filepath
 import fs
+import maps
 import slices
 import strings
 import sync
@@ -78,6 +79,102 @@ func NewMemory() Memory {
 	t["."] = entry{Dir: true, Text: "", More: NoParts, Perm: fs.Perm(fs.SharedDir())}
 	t["/"] = entry{Dir: true, Text: "", More: NoParts, Perm: fs.Perm(fs.SharedDir())}
 	Memory{tree: sync.NewRef[Map[string, entry]](t), mounts: []string{}}
+}
+
+type BadFixture { Path string, Reason string }
+
+type Fixture { entries Map[string, entry] }
+
+func checkFixturePath(p string) fails BadFixture {
+	if p == "" {
+		return BadFixture{Path: p, Reason: "empty path"}
+	}
+	if isRoot(p) {
+		return BadFixture{Path: p, Reason: "root path"}
+	}
+	let c = filepath.Clean(p)
+	if c != p || isRoot(c) {
+		return BadFixture{Path: p, Reason: "path is not canonical"}
+	}
+	for seg in strings.Split(p, "/") {
+		if seg == ".." {
+			return BadFixture{Path: p, Reason: "path traverses parent"}
+		}
+	}
+}
+
+func NewFixture(dirs []string, files Map[string, string]) Fixture fails BadFixture {
+	let dirPerm = fs.Perm(fs.SharedDir())
+	let filePerm = fs.Perm(fs.Shared())
+	let mut t = Map[string, entry]{}
+	t["."] = entry{Dir: true, Text: "", More: NoParts, Perm: dirPerm}
+	t["/"] = entry{Dir: true, Text: "", More: NoParts, Perm: dirPerm}
+	let mut seenDirs = Map[string, bool]{}
+	for d in dirs {
+		try checkFixturePath(d)
+		if seenDirs.Get(d) != None {
+			return BadFixture{Path: d, Reason: "duplicate directory"}
+		}
+		seenDirs[d] = true
+		for a in ancestors(d) {
+			if t.Get(a) == None {
+				t[a] = entry{Dir: true, Text: "", More: NoParts, Perm: dirPerm}
+			}
+		}
+		t[d] = entry{Dir: true, Text: "", More: NoParts, Perm: dirPerm}
+	}
+	for p in slices.Sorted(maps.Keys(files)) {
+		try checkFixturePath(p)
+		if t.Get(p) != None {
+			return BadFixture{Path: p, Reason: "path conflicts with directory"}
+		}
+		for a in ancestors(p) {
+			match t.Get(a) {
+			case Some[entry] as e:
+				if !e.Value.Dir {
+					return BadFixture{Path: p, Reason: "ancestor is a file"}
+				}
+			case None:
+				t[a] = entry{Dir: true, Text: "", More: NoParts, Perm: dirPerm}
+			}
+		}
+		t[p] = entry{Dir: false, Text: maps.GetOr(files, p, ""), More: NoParts, Perm: filePerm}
+	}
+	Fixture{entries: t}
+}
+
+func MemoryOf(f Fixture) Memory {
+	Memory{tree: sync.NewRef[Map[string, entry]](f.entries), mounts: []string{}}
+}
+
+func fixtureRejected(dirs []string, files Map[string, string]) bool {
+	let _ = NewFixture(dirs, files) catch {
+	case BadFixture:
+		return true
+	}
+	false
+}
+
+law FixtureBuildsMemory(text string) {
+	let f = NewFixture([]string{"/a/b"}, Map[string, string]{"/a/c.txt": text, "rel/f.txt": text}) catch {
+	case BadFixture:
+		return false
+	}
+	let m = MemoryOf(f)
+	let r1 = m.ReadFile("/a/c.txt") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	let r2 = m.ReadFile("rel/f.txt") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	let st = m.Stat("/a/b") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	let bad = fixtureRejected([]string{"/a", "/a"}, Map[string, string]{}) && fixtureRejected([]string{"/a//b"}, Map[string, string]{}) && fixtureRejected([]string{"../x"}, Map[string, string]{}) && fixtureRejected([]string{"/a"}, Map[string, string]{"/a": text}) && fixtureRejected([]string{}, Map[string, string]{"/a": text, "/a/b": text}) && fixtureRejected([]string{}, Map[string, string]{"": text}) && fixtureRejected([]string{}, Map[string, string]{".": text})
+	r1 == text && r2 == text && st.Dir && bad
 }
 
 // NewVolumes is a Memory whose directories at mounts, made with their

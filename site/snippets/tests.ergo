@@ -134,8 +134,7 @@ test AShownNumberIsAtOrUnderOneAgainstItsNamedControl {
 // The guard over a tree in memory, with every ergo run it makes scripted.
 let lookup = "site/examples/checked/lookup"
 
-func tree(extra Map[string, string]) fstest.Memory {
-	let m = fstest.NewMemory()
+func tree(extra Map[string, string]) fstest.Memory fails fstest.BadFixture {
 	let mut files = Map[string, string]{}
 	files[lookup+"/lookup.ergo"] = src
 	files[lookup+"/lookup.ergo.marks.tsv"] = "line\tcol\tend\tclass\ttext\n2\t1\t12\tfailure\tfunc Lookup\n"
@@ -144,17 +143,7 @@ func tree(extra Map[string, string]) fstest.Memory {
 	for k, v in extra {
 		files[k] = v
 	}
-	for k, v in files {
-		m.MkdirAll(dirOf(k)) catch {
-		case _:
-			Unreachable("a memory tree makes every folder")
-		}
-		m.WriteFile(k, v) catch {
-		case _:
-			Unreachable("a memory tree writes every file")
-		}
-	}
-	m
+	fstest.MemoryOf(try fstest.NewFixture([]string{}, files))
 }
 
 func script(checked exec.Result, planned exec.Result) exec.Script {
@@ -175,18 +164,18 @@ func guard(files fstest.Memory, runs exec.Script) Report {
 let clean = result(0, "{\"diagnostics\":[]}")
 
 test TheGuardPassesAHeldTree {
-	let r = guard(tree(Map[string, string]{}), script(clean, result(0, "ok")))
+	let r = guard(try tree(Map[string, string]{}), script(clean, result(0, "ok")))
 	assert r.Problems == []string{}
 	assert r.Checked == 1 && r.Planned == 1 && r.Marks == 1
 }
 
 test TheGuardFailsEachBrokenHold {
-	assert has(guard(tree(Map[string, string]{}), script(result(1, "S102"), result(0, "ok"))).Problems, "ergo check exits 1")
-	assert has(guard(tree(Map[string, string]{}), script(clean, result(1, "len.ergo: want [S104@1], got []"))).Problems, "now checks")
+	assert has(guard(try tree(Map[string, string]{}), script(result(1, "S102"), result(0, "ok"))).Problems, "ergo check exits 1")
+	assert has(guard(try tree(Map[string, string]{}), script(clean, result(1, "len.ergo: want [S104@1], got []"))).Problems, "now checks")
 	let shifted = Map[string, string]{lookup + "/lookup.ergo.marks.tsv": "line\tcol\tend\tclass\ttext\n2\t2\t13\tfailure\tfunc Lookup\n"}
-	assert has(guard(tree(shifted), script(clean, result(0, "ok"))).Problems, "the file reads")
+	assert has(guard(try tree(shifted), script(clean, result(0, "ok"))).Problems, "the file reads")
 	let unlisted = Map[string, string]{"site/examples/planned/more.ergo": "x"}
-	assert has(guard(tree(unlisted), script(clean, result(0, "ok"))).Problems, "planned/more.ergo is planned and has no row")
+	assert has(guard(try tree(unlisted), script(clean, result(0, "ok"))).Problems, "planned/more.ergo is planned and has no row")
 	let untokened = Map[string, string]{lookup + "/go/lookup.go": "package hosts\n"}
-	assert has(guard(tree(untokened), script(clean, result(0, "ok"))).Problems, "has no tokens file")
+	assert has(guard(try tree(untokened), script(clean, result(0, "ok"))).Problems, "has no tokens file")
 }

@@ -59,7 +59,7 @@ func SignalNumber(code int) int {
 //
 //ergo:host
 //ergo:wait none
-func SignalWatch(q *Queue[int], kinds []int) int {
+func SignalWatch(q *OpenQueue[int], kinds []int) int {
 	ch := make(chan os.Signal, 8)
 	sigs := make([]os.Signal, 0, len(kinds))
 	for _, k := range kinds {

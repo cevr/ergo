@@ -188,7 +188,7 @@ law HooksRunInOrder(n []int) {
 	for x in n {
 		counts = counts.Append(if x < 0 { -x } else { x })
 	}
-	let w = worldWith(true, Map[string, string]{}, hookConfig(counts), "")
+	let w = try worldWith(true, Map[string, string]{}, hookConfig(counts), "")
 	let made = w.tool.New("a", fresh(false)) catch {
 	case _:
 		return false
@@ -208,7 +208,7 @@ law HooksRunInOrder(n []int) {
 // in a new, a new of a stack, an rm and a failed hook; and no step ends
 // with it held.
 law NoHookUnderTheLock(stack bool, failing bool) {
-	let w = worldWith(true, Map[string, string]{}, hookConfig([]int{1, 2, 1, 1}), if failing { "c1" } else { "" })
+	let w = try worldWith(true, Map[string, string]{}, hookConfig([]int{1, 2, 1, 1}), if failing { "c1" } else { "" })
 	let _ = w.tool.New("a", fresh(false)) catch {
 	case _:
 		return false
@@ -235,7 +235,7 @@ law NoHookUnderTheLock(stack bool, failing bool) {
 // deps say Untrusted with the digest work trust would allow; after work
 // trust it runs.
 law UnallowedConfigRunsNothing(n int) {
-	let w = worldWith(true, Map[string, string]{}, "[hooks]\npostcreate = [\"a\"]\n", "")
+	let w = try worldWith(true, Map[string, string]{}, "[hooks]\npostcreate = [\"a\"]\n", "")
 	let changed = "[deps]\nlock = \"bun.lock\"\ninstall = \"i\(n)\"\n[hooks]\npostcreate = [\"b\(n)\"]\n"
 	w.disk.WriteFile(theBase+"/"+work.ConfigFile, changed) catch {
 	case fs.NotFound, fs.Denied, fs.Failed:
@@ -293,7 +293,7 @@ law FailedPostcreateLeavesActive(before int) {
 	}
 	list = list.Append("\"bad\"")
 	list = list.Append("\"after\"")
-	let w = worldWith(true, Map[string, string]{}, "[hooks]\npostcreate = [\(strings.Join(list, ", "))]\n", "bad")
+	let w = try worldWith(true, Map[string, string]{}, "[hooks]\npostcreate = [\(strings.Join(list, ", "))]\n", "bad")
 	let made = w.tool.New("a", fresh(false)) catch {
 	case _:
 		return false
@@ -315,7 +315,7 @@ law FailedPostcreateLeavesActive(before int) {
 // when the workspace's lock file is not the one it last installed from,
 // whatever the sequence of lock texts.
 law InstallOnlyWhenTheLockDiffers(locks []string) {
-	let w = worldWith(true, Map[string, string]{}, "[deps]\nlock = \"bun.lock\"\ninstall = \"bun install\"\n", "")
+	let w = try worldWith(true, Map[string, string]{}, "[deps]\nlock = \"bun.lock\"\ninstall = \"bun install\"\n", "")
 	let made = w.tool.New("a", fresh(false)) catch {
 	case _:
 		return false

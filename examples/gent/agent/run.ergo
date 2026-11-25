@@ -32,10 +32,7 @@ type Session { Agent actor.Actor[State, Signal, Decision[State, Never]], Journal
 // timer waits on the Scheduler.
 func Open(l Limits) Session needs Model | Tools | exec.Runner | Scheduler {
 	let j = memory.New[State, Signal]()
-	let a = journal.Start(machines.Start(Agent{}, l), j, 0, 16, func(n Never) {}) catch {
-	case journal.Failed, journal.Diverged:
-		Unreachable("a new memory journal holds no signal")
-	}
+	let a = journal.StartNew(machines.Start(Agent{}, l), j, 0, 16, func(n Never) {})
 	Session{Agent: a, Journal: j, Limits: l}
 }
 

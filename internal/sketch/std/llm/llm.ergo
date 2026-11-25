@@ -108,6 +108,7 @@ type Model {
 	// Stream is Generate, with each piece of the reply given to put as it
 	// comes.
 	Stream(r Request, put func(d Delta) fails SinkFailed) Turn fails RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | InvalidRequest | InvalidResponse | UnsupportedSchema | SinkFailed,
+	StreamEach(r Request, put func(d Delta)) Turn fails RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | InvalidRequest | InvalidResponse | UnsupportedSchema,
 
 	// StreamFoldsToGenerate: Stream's turn is Generate's turn, and a
 	// stream that fails fails as Generate does. The two sides are two

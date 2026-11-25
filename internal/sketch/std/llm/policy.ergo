@@ -43,33 +43,66 @@ func Raise(f Failure) Turn fails RateLimited | Overloaded | Unauthorized | Refus
 // NewLiveScheduler(); a test binds one testing.VirtualClock to both.
 type Retry { Inner Model, Schedule schedule.Schedule, Clock time.Clock, Sleep Scheduler } implements Model
 
-// Generate is Stream with a sink that drops each delta: a failure after
-// the inner model's first delta ends it as it ends the stream, so the two
-// agree (the contract's StreamFoldsToGenerate) and no reply is paid for
-// twice once it was under way.
 func Generate(p Retry, r Request) Turn fails RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | InvalidRequest | InvalidResponse | UnsupportedSchema {
-	try p.Stream(r, func(d Delta) fails SinkFailed {}) catch {
-	case SinkFailed:
-		Unreachable("a sink that drops every delta failed")
-	}
+	try p.StreamEach(r, func(d Delta) {})
 }
 
 func Stream(p Retry, r Request, put func(d Delta) fails SinkFailed) Turn fails RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | InvalidRequest | InvalidResponse | UnsupportedSchema | SinkFailed {
-	// The schedule reads the time since the first run began only when it is
-	// timed; otherwise no ask reads the clock (schedule.UntimedIgnoresElapsed).
+	try retryStream(p, r, func(onDelta func(d Delta) fails SinkFailed) Turn fails RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | InvalidRequest | InvalidResponse | UnsupportedSchema | SinkFailed {
+		try p.Inner.Stream(r, onDelta)
+	}, put)
+}
+
+func StreamEach(p Retry, r Request, put func(d Delta)) Turn fails RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | InvalidRequest | InvalidResponse | UnsupportedSchema {
+	try retryStream(p, r, func(onDelta func(d Delta)) Turn fails RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | InvalidRequest | InvalidResponse | UnsupportedSchema {
+		try p.Inner.StreamEach(r, onDelta)
+	}, put)
+}
+
+func retryStream[E](p Retry, r Request, ask func(onDelta func(d Delta) fails E) Turn fails RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | InvalidRequest | InvalidResponse | UnsupportedSchema | E, put func(d Delta) fails E) Turn fails RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | InvalidRequest | InvalidResponse | UnsupportedSchema | E {
 	let start Option[time.Time] = if schedule.Timed(p.Schedule) { Some[time.Time]{Value: p.Clock.Now()} } else { None }
 	let mut runs = 0
 	for {
 		runs = runs + 1
 		let mut seen = false
-		let t = p.Inner.Stream(r, func(d Delta) fails SinkFailed {
+		let mut failed Option[Failure] = None
+		let t = ask(func(d Delta) fails E {
 			seen = true
 			try put(d)
 		}) catch {
-		case SinkFailed as s:
-			return s
-		case f:
-			let failure Failure = f
+		case RateLimited as x:
+			failed = Some[Failure]{Value: x}
+			Turn{Text: "", Calls: []Call{}, Stop: Ended, Usage: Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
+		case Overloaded as x:
+			failed = Some[Failure]{Value: x}
+			Turn{Text: "", Calls: []Call{}, Stop: Ended, Usage: Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
+		case Unauthorized as x:
+			failed = Some[Failure]{Value: x}
+			Turn{Text: "", Calls: []Call{}, Stop: Ended, Usage: Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
+		case Refused as x:
+			failed = Some[Failure]{Value: x}
+			Turn{Text: "", Calls: []Call{}, Stop: Ended, Usage: Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
+		case Truncated as x:
+			failed = Some[Failure]{Value: x}
+			Turn{Text: "", Calls: []Call{}, Stop: Ended, Usage: Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
+		case Transport as x:
+			failed = Some[Failure]{Value: x}
+			Turn{Text: "", Calls: []Call{}, Stop: Ended, Usage: Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
+		case InvalidRequest as x:
+			failed = Some[Failure]{Value: x}
+			Turn{Text: "", Calls: []Call{}, Stop: Ended, Usage: Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
+		case InvalidResponse as x:
+			failed = Some[Failure]{Value: x}
+			Turn{Text: "", Calls: []Call{}, Stop: Ended, Usage: Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
+		case UnsupportedSchema as x:
+			failed = Some[Failure]{Value: x}
+			Turn{Text: "", Calls: []Call{}, Stop: Ended, Usage: Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
+		case e:
+			return e
+		}
+		match failed {
+		case Some[Failure] as f:
+			let failure = f.Value
 			if seen {
 				return try Raise(failure)
 			}
@@ -80,6 +113,7 @@ func Stream(p Retry, r Request, put func(d Delta) fails SinkFailed) Turn fails R
 			case None:
 				return try Raise(failure)
 			}
+		case None:
 		}
 		return t
 	}
@@ -135,26 +169,72 @@ func after(f Failure) duration {
 // member, it fails InvalidRequest.
 type Fallback { Members []Model } implements Model
 
-// Generate is Stream with a sink that drops each delta, as Retry's is.
 func Generate(p Fallback, r Request) Turn fails RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | InvalidRequest | InvalidResponse | UnsupportedSchema {
-	try p.Stream(r, func(d Delta) fails SinkFailed {}) catch {
-	case SinkFailed:
-		Unreachable("a sink that drops every delta failed")
-	}
+	try p.StreamEach(r, func(d Delta) {})
 }
 
 func Stream(p Fallback, r Request, put func(d Delta) fails SinkFailed) Turn fails RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | InvalidRequest | InvalidResponse | UnsupportedSchema | SinkFailed {
+	try fallbackStream(p, r, func(m Model, onDelta func(d Delta) fails SinkFailed) Turn fails RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | InvalidRequest | InvalidResponse | UnsupportedSchema | SinkFailed {
+		try m.Stream(r, onDelta)
+	}, put)
+}
+
+func StreamEach(p Fallback, r Request, put func(d Delta)) Turn fails RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | InvalidRequest | InvalidResponse | UnsupportedSchema {
+	try fallbackStream(p, r, func(m Model, onDelta func(d Delta)) Turn fails RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | InvalidRequest | InvalidResponse | UnsupportedSchema {
+		try m.StreamEach(r, onDelta)
+	}, put)
+}
+
+func fallbackStream[E](p Fallback, r Request, ask func(m Model, onDelta func(d Delta) fails E) Turn fails RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | InvalidRequest | InvalidResponse | UnsupportedSchema | E, put func(d Delta) fails E) Turn fails RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | InvalidRequest | InvalidResponse | UnsupportedSchema | E {
 	let mut last Failure = InvalidRequest{Reason: "a fallback with no member"}
 	for m in p.Members {
 		let mut seen = false
-		let t = m.Stream(r, func(d Delta) fails SinkFailed {
+		let mut modelFailed = false
+		let t = ask(m, func(d Delta) fails E {
 			seen = true
 			try put(d)
 		}) catch {
-		case SinkFailed as s:
-			return s
-		case f:
-			let failure Failure = f
+		case RateLimited as x:
+			last = x
+			modelFailed = true
+			Turn{Text: "", Calls: []Call{}, Stop: Ended, Usage: Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
+		case Overloaded as x:
+			last = x
+			modelFailed = true
+			Turn{Text: "", Calls: []Call{}, Stop: Ended, Usage: Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
+		case Unauthorized as x:
+			last = x
+			modelFailed = true
+			Turn{Text: "", Calls: []Call{}, Stop: Ended, Usage: Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
+		case Refused as x:
+			last = x
+			modelFailed = true
+			Turn{Text: "", Calls: []Call{}, Stop: Ended, Usage: Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
+		case Truncated as x:
+			last = x
+			modelFailed = true
+			Turn{Text: "", Calls: []Call{}, Stop: Ended, Usage: Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
+		case Transport as x:
+			last = x
+			modelFailed = true
+			Turn{Text: "", Calls: []Call{}, Stop: Ended, Usage: Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
+		case InvalidRequest as x:
+			last = x
+			modelFailed = true
+			Turn{Text: "", Calls: []Call{}, Stop: Ended, Usage: Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
+		case InvalidResponse as x:
+			last = x
+			modelFailed = true
+			Turn{Text: "", Calls: []Call{}, Stop: Ended, Usage: Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
+		case UnsupportedSchema as x:
+			last = x
+			modelFailed = true
+			Turn{Text: "", Calls: []Call{}, Stop: Ended, Usage: Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
+		case e:
+			return e
+		}
+		if modelFailed {
+			let failure = last
 			if seen {
 				return try Raise(failure)
 			}
@@ -186,6 +266,12 @@ func Generate(m Metered, r Request) Turn fails RateLimited | Overloaded | Unauth
 
 func Stream(m Metered, r Request, put func(d Delta) fails SinkFailed) Turn fails RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | InvalidRequest | InvalidResponse | UnsupportedSchema | SinkFailed {
 	let t = try m.Inner.Stream(r, put)
+	m.used.Update(func(u Usage) Usage { add(u, t.Usage) })
+	t
+}
+
+func StreamEach(m Metered, r Request, put func(d Delta)) Turn fails RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | InvalidRequest | InvalidResponse | UnsupportedSchema {
+	let t = try m.Inner.StreamEach(r, put)
 	m.used.Update(func(u Usage) Usage { add(u, t.Usage) })
 	t
 }
