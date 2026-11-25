@@ -873,9 +873,10 @@ func builtinOf(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr) Option[aBuil
 	if isConst(st, a) {
 		return stop("builtin call on a constant (fold)")
 	}
-	let from = basicGo(st, try typeOf(st, a, "builtin operand"))
+	let at = try typeOf(st, a, "builtin operand")
+	let from = basicGo(st, at)
 	if name == "len" {
-		if from != "string" {
+		if from != "string" && !(store.KindOfType(st.s, at) == store.KSlice && shapeGo(st, at) != "") {
 			return stop("len of a non-string")
 		}
 		return Some[aBuiltin]{Value: aBuiltin{conv: false, t: "", arg: a}}

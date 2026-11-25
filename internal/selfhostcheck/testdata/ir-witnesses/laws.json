@@ -1,5 +1,7 @@
 [
   {"fixture": "port_laws.ergo", "declaration": "func PortLawDouble(", "symbol": "PortLawDouble"},
   {"fixture": "port_laws.ergo", "declaration": "law PortLawTrivial()", "symbol": "ergo__LawPortLawTrivial"},
-  {"fixture": "port_laws.ergo", "declaration": "law PortLawDoubleEven(", "symbol": "ergo__LawPortLawDoubleEven"}
+  {"fixture": "port_laws.ergo", "declaration": "law PortLawDoubleEven(", "symbol": "ergo__LawPortLawDoubleEven"},
+  {"fixture": "port_laws.ergo", "declaration": "law PortLawSliceLen(", "symbol": "ergo__LawPortLawSliceLen"},
+  {"fixture": "port_laws.ergo", "declaration": "law PortLawRecordSum(", "symbol": "ergo__LawPortLawRecordSum"}
 ]

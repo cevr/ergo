@@ -1590,6 +1590,46 @@
       "rule": "Constrained generic type parameters outside any/comparable/ordered must not emit witness-less bodies in G1.",
       "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
       "killers": ["internal/selfhostcheck:TestIRGenericHeaderAndOrder"]
+    },
+    {
+      "name": "lower-laws-shapes-restrict-to-basic",
+      "origin": "wf10/selfhost/S4-PORT LAWS-SHAPES",
+      "file": "compiler/lower/laws.ergo", "decl": "admittedLawParam",
+      "from": "shapeGo(st, t) != \"\"",
+      "to": "basicGo(st, t) != \"\"",
+      "rule": "Law and parameterized test admission uses SHAPES (slices, plain/imported records, arrays, native maps) rather than restricting parameters to basic scalars.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestIRLawBuildAndProductionControl"]
+    },
+    {
+      "name": "lower-laws-shapes-admit-unshaped-param",
+      "origin": "wf10/selfhost/S4-PORT LAWS-SHAPES",
+      "file": "compiler/lower/laws.ergo", "decl": "admittedLawParam",
+      "from": "shapeGo(st, t) != \"\"",
+      "to": "true || shapeGo(st, t) != \"\"",
+      "rule": "Law parameter admission keeps the strict SHAPES guard and rejects unshaped types like tuples rather than admitting them unconditionally.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestIRLawBuildAndProductionControl"]
+    },
+    {
+      "name": "lower-laws-shapes-drop-slice-len",
+      "origin": "wf10/selfhost/S4-PORT LAWS-SHAPES",
+      "file": "compiler/lower/lower.ergo", "decl": "builtinOf",
+      "from": "if from != \"string\" && !(store.KindOfType(st.s, at) == store.KSlice && shapeGo(st, at) != \"\") {",
+      "to": "if from != \"string\" {",
+      "rule": "builtinOf lowers len(xs) for admitted slice shapes as well as strings.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestIRLawBuildAndProductionControl"]
+    },
+    {
+      "name": "lower-laws-shapes-erase-test-param-slots",
+      "origin": "wf10/selfhost/S4-PORT LAWS-SHAPES",
+      "file": "compiler/lower/tests.ergo", "decl": "testParamFrame",
+      "from": "framePlan{env: 0, slots: n + 1, pure: false, fallible: None, pollEntry: false, op: None}",
+      "to": "framePlan{env: 0, slots: 1, pure: false, fallible: None, pollEntry: false, op: None}",
+      "rule": "A parameterized test reserves slots for env plus all n parameters before body locals.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestIRTestBuildAndProductionControl"]
     }
   ]
 }

@@ -667,6 +667,11 @@ test SkipBranch {
 	}
 	assert !done
 }
+
+test ParamSlice(xs []int, n int) {
+	let ok = len(xs)+n >= n
+	assert ok
+}
 `
 	dir := t.TempDir()
 	file := filepath.Join(dir, "main.ergo")
@@ -741,7 +746,7 @@ test SkipBranch {
 	if err := indexGoIR(t, paths, testGo, irGoProgram{u: u, tests: true, dir: dir, module: dir, reach: ownFuncs(u, map[string]bool{})}); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"ergo__TestCheck", "ergo__TestSkipBranch"} {
+	for _, want := range []string{"ergo__TestCheck", "ergo__TestSkipBranch", "ergo__TestParamSlice"} {
 		for _, fs := range prodGo {
 			for _, f := range fs {
 				if f.name == want {
@@ -765,7 +770,7 @@ test SkipBranch {
 	if bad := unexpectedStops(testStops); len(bad) != 0 {
 		t.Fatalf("test build had unexpected stops: %v", bad)
 	}
-	for _, want := range []string{"Helper", "ergo__TestCheck", "ergo__TestSkipBranch"} {
+	for _, want := range []string{"Helper", "ergo__TestCheck", "ergo__TestSkipBranch", "ergo__TestParamSlice"} {
 		got, ok := testEmitted[want]
 		if !ok {
 			t.Fatalf("test build did not emit %s (got %v)", want, testEmitted)
@@ -783,7 +788,7 @@ test SkipBranch {
 	if _, ok := prodEmitted["Helper"]; !ok {
 		t.Fatal("production build omitted ordinary Helper")
 	}
-	for _, forbidden := range []string{"ergo__TestCheck", "ergo__TestSkipBranch"} {
+	for _, forbidden := range []string{"ergo__TestCheck", "ergo__TestSkipBranch", "ergo__TestParamSlice"} {
 		if _, ok := prodEmitted[forbidden]; ok {
 			t.Fatalf("production build emitted test body %s", forbidden)
 		}
@@ -793,7 +798,7 @@ test SkipBranch {
 	if bad := unexpectedStops(nonRootStops); len(bad) != 0 {
 		t.Fatalf("non-root build had unexpected stops: %v", bad)
 	}
-	for _, forbidden := range []string{"ergo__TestCheck", "ergo__TestSkipBranch"} {
+	for _, forbidden := range []string{"ergo__TestCheck", "ergo__TestSkipBranch", "ergo__TestParamSlice"} {
 		if _, ok := nonRootEmitted[forbidden]; ok {
 			t.Fatalf("non-root build emitted test body %s", forbidden)
 		}
@@ -812,6 +817,8 @@ func TestIRLawBuildAndProductionControl(t *testing.T) {
 
 func Double(n int) int { n + n }
 
+type Pair { A int, B int }
+
 law Trivial() { true }
 
 law DoubleEven(n int) { Double(n) == n + n }
@@ -822,6 +829,16 @@ law EarlyReturn(n int) {
 	}
 	n >= 0
 }
+
+law SliceLen(xs []int) { len(xs) >= 0 }
+
+law PairCommutes(p Pair) { p.A + p.B == p.B + p.A }
+
+law SliceAndScalar(xs []int, n int) { len(xs) + n >= n }
+
+law OptionSliceLen(o Option[int]) { len([]Option[int]{o}) == 1 }
+
+law RefusedTuple(p (int, int)) { true }
 `
 	dir := t.TempDir()
 	file := filepath.Join(dir, "main.ergo")
@@ -896,7 +913,7 @@ law EarlyReturn(n int) {
 	if err := indexGoIR(t, paths, testGo, irGoProgram{u: u, tests: true, dir: dir, module: dir, reach: ownFuncs(u, map[string]bool{})}); err != nil {
 		t.Fatal(err)
 	}
-	lawNames := []string{"ergo__LawTrivial", "ergo__LawDoubleEven", "ergo__LawEarlyReturn"}
+	lawNames := []string{"ergo__LawTrivial", "ergo__LawDoubleEven", "ergo__LawEarlyReturn", "ergo__LawSliceLen", "ergo__LawPairCommutes", "ergo__LawSliceAndScalar", "ergo__LawOptionSliceLen"}
 	for _, want := range lawNames {
 		for _, fs := range prodGo {
 			for _, f := range fs {
@@ -907,19 +924,35 @@ law EarlyReturn(n int) {
 		}
 	}
 
-	unexpectedStops := func(stops []string) []string {
+	unexpectedStops := func(stops []string, allowTuple bool) []string {
 		var out []string
 		for _, s := range stops {
-			if !strings.HasSuffix(s, " main or Close") {
-				out = append(out, s)
+			if strings.HasSuffix(s, " main or Close") {
+				continue
 			}
+			if allowTuple && strings.HasSuffix(s, " law: parameter tuple") {
+				continue
+			}
+			out = append(out, s)
 		}
 		return out
 	}
 
 	testEmitted, testStops := parseDump(runDump(t, ctx, bin, "-std", stdDir(), "-roots", roots, "-tests", roots, "-corpus", manifest), paths)
-	if bad := unexpectedStops(testStops); len(bad) != 0 {
+	if bad := unexpectedStops(testStops, true); len(bad) != 0 {
 		t.Fatalf("test build had unexpected stops: %v", bad)
+	}
+	if _, ok := testEmitted["ergo__LawRefusedTuple"]; ok {
+		t.Fatal("unshaped tuple parameter law must stop honestly and not emit")
+	}
+	foundTupleStop := false
+	for _, s := range testStops {
+		if strings.HasSuffix(s, " law: parameter tuple") {
+			foundTupleStop = true
+		}
+	}
+	if !foundTupleStop {
+		t.Fatalf("expected honest tuple parameter stop for RefusedTuple, got stops: %v", testStops)
 	}
 	for _, want := range append([]string{"Double"}, lawNames...) {
 		got, ok := testEmitted[want]
@@ -933,7 +966,7 @@ law EarlyReturn(n int) {
 	}
 
 	prodEmitted, prodStops := parseDump(runDump(t, ctx, bin, "-std", stdDir(), "-roots", roots, "-corpus", manifest), paths)
-	if bad := unexpectedStops(prodStops); len(bad) != 0 {
+	if bad := unexpectedStops(prodStops, false); len(bad) != 0 {
 		t.Fatalf("production build had unexpected stops: %v", bad)
 	}
 	if _, ok := prodEmitted["Double"]; !ok {
@@ -946,7 +979,7 @@ law EarlyReturn(n int) {
 	}
 
 	nonRootEmitted, nonRootStops := parseDump(runDump(t, ctx, bin, "-std", stdDir(), "-roots", empty, "-tests", roots, "-corpus", manifest), paths)
-	if bad := unexpectedStops(nonRootStops); len(bad) != 0 {
+	if bad := unexpectedStops(nonRootStops, false); len(bad) != 0 {
 		t.Fatalf("non-root build had unexpected stops: %v", bad)
 	}
 	for _, forbidden := range lawNames {
