@@ -575,10 +575,11 @@ type CodecFields_Package struct {
 	F_testBuilds     *map[*TypeName][]*Builder
 	F_testOf         **Package
 	F_lawSelf        **checker
+	F_pendingAliases *map[string]string
 }
 
 func CodecFieldsOf_Package(v *Package) CodecFields_Package {
-	return CodecFields_Package{F_cellConvs: &v.cellConvs, F_functionClaims: &v.functionClaims, F_qualify: &v.qualify, F_module: &v.module, F_trusted: &v.trusted, F_host: &v.host, F_owners: &v.owners, F_files: &v.files, F_builtinFuncs: &v.builtinFuncs, F_testBuilds: &v.testBuilds, F_testOf: &v.testOf, F_lawSelf: &v.lawSelf}
+	return CodecFields_Package{F_cellConvs: &v.cellConvs, F_functionClaims: &v.functionClaims, F_qualify: &v.qualify, F_module: &v.module, F_trusted: &v.trusted, F_host: &v.host, F_owners: &v.owners, F_files: &v.files, F_builtinFuncs: &v.builtinFuncs, F_testBuilds: &v.testBuilds, F_testOf: &v.testOf, F_lawSelf: &v.lawSelf, F_pendingAliases: &v.pendingAliases}
 }
 
 type CodecFields_PkgName struct {
