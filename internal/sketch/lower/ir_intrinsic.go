@@ -28,22 +28,34 @@ import (
 	"ergo.local/prototype/internal/sketch/check"
 )
 
-// irIntrinsicOp is the intrinsic f's operation when the IR builds its
-// body: CollAppend, CollPut, CollGet or CollTake; else CollNone.
-func irIntrinsicOp(f *check.Func, copied bool) check.CollOp {
+type intrinsicKind uint8
+
+const (
+	intrinsicNone intrinsicKind = iota
+	intrinsicAppend
+	intrinsicPut
+	intrinsicGet
+	intrinsicTake
+)
+
+// irIntrinsicOp is the intrinsic f's kind when the IR builds its body:
+// Append, Put, Get or Take; else intrinsicNone.
+func irIntrinsicOp(f *check.Func, copied bool) intrinsicKind {
 	s := f.Sig
 	if copied || len(s.TParams) == 0 || len(s.Results) != 1 {
-		return check.CollNone // InForce has no result; a bridge no type parameter
+		return intrinsicNone // InForce has no result; a bridge no type parameter
 	}
-	switch op := check.CollOpOf(f); {
-	case op == check.CollAppend && len(s.Params) == 2, op == check.CollPut && len(s.Params) == 3:
-		return op
+	switch {
+	case singleAppendExtern(f) && len(s.Params) == 2:
+		return intrinsicAppend
+	case mapPutExtern(f):
+		return intrinsicPut
 	case preludeGet(f):
-		return check.CollGet
-	case op == check.CollTake && len(s.Params) == 2 && valueRule():
-		return op
+		return intrinsicGet
+	case mapTakeExtern(f) && valueRule():
+		return intrinsicTake
 	}
-	return check.CollNone
+	return intrinsicNone
 }
 
 // intrinsicBody builds the IR body of the prelude intrinsic fd, whose
@@ -55,7 +67,7 @@ func (st *irState) intrinsicBody(fc *funcCtx, fd *funcDecl, params []*check.Var,
 	// the caller, so irState.body's result does not derive from it.
 	std := f.Pkg.Std()
 	op := irIntrinsicOp(f, copied)
-	if op == check.CollNone || fd.method != nil || len(fc.witness) > 0 {
+	if op == intrinsicNone || fd.method != nil || len(fc.witness) > 0 {
 		if st.census != nil {
 			st.census.Funcs = append(st.census.Funcs, IRCensusFunc{Pkg: f.Pkg.Path, Name: fd.name, Std: std, Reasons: []string{"intrinsic body"}})
 		}
@@ -93,17 +105,17 @@ func (st *irState) intrinsicBody(fc *funcCtx, fd *funcDecl, params []*check.Var,
 	return true
 }
 
-// intrinsicStmts is the body of the intrinsic f, of the operation op, on
+// intrinsicStmts is the body of the intrinsic f, of the kind op, on
 // the parameters in.
-func (b *irBuilder) intrinsicStmts(f *check.Func, op check.CollOp, in []*irExpr, p irPos) []*irStmt {
+func (b *irBuilder) intrinsicStmts(f *check.Func, op intrinsicKind, in []*irExpr, p irPos) []*irStmt {
 	res := f.Sig.Results[0]
 	ret := func(x *irExpr) *irStmt { return &irStmt{K: "ret", Pos: p, X: x} }
 	switch op {
-	case check.CollAppend:
+	case intrinsicAppend:
 		return []*irStmt{ret(&irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "Append", V: b.ownTypeArgs(f), Args: in})}
-	case check.CollPut:
+	case intrinsicPut:
 		return []*irStmt{ret(&irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "Put", V: b.ownTypeArgs(f), Args: in})}
-	case check.CollGet:
+	case intrinsicGet:
 		v, okv := b.mapRead(res, in, p)
 		return []*irStmt{v, b.ifSome(okv, ret(b.intrinsicSome(res, v.Local, p)), p), ret(b.machineNone(res, p, f.Decl))}
 	}

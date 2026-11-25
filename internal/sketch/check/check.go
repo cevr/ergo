@@ -893,13 +893,13 @@ func prelude() preludeResult {
 				panic("check: the prelude does not parse: " + err.Error())
 			}
 			f.Name = name // the embedded name, which the lowering reports (Files)
-			if name == collFileName {
-				collFile = f // the language's operations (collop.go)
+			if name == builtinFileName {
+				builtinFile = f // the built-in receiver operations (builtin.ergo)
 			}
 			files = append(files, f)
 		}
-		if collFile == nil {
-			panic("check: the prelude has no " + collFileName)
+		if builtinFile == nil {
+			panic("check: the prelude has no " + builtinFileName)
 		}
 		c := newChecker(stdlib.PreludePath, nil, parent)
 		c.core = corePkg
@@ -927,7 +927,7 @@ func prelude() preludeResult {
 			scope.insert(name, o)
 		}
 		coll := map[Object]bool{}
-		for _, f := range pkg.collFuncs {
+		for _, f := range pkg.builtinFuncs {
 			coll[f] = true
 		}
 		ops := map[string]*Func{}

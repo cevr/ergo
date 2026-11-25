@@ -1117,7 +1117,7 @@ func (in *interp) callOf(fr *frame, x *syntax.CallExpr, xf *facts) (Value, *abru
 		if x.Trailing != nil && !ergoBody && (c.Func.Pkg.Host() || nativeOf(c.Func) == nil) {
 			return nil, fr.unsupported(x, "a trailing block yet")
 		}
-		if p.collection {
+		if p.collection && c.Recv != nil {
 			return in.collectionCall(fr, x, c, nil, nil)
 		}
 		// A bodiless std function that takes an owned local holds its
@@ -1324,15 +1324,48 @@ func (c *closure) callerCaps(fr *frame) *capEnv {
 	return caps
 }
 
-// preludeCollection reports the prelude's Append, Get, Delete, Put or Take,
-// which the evaluator runs as value operations, never by their Go bodies
-// (plan section 4: pure prelude collection operations).
-func preludeCollection(f *check.Func) bool {
-	switch check.CollOpOf(f) {
-	case check.CollAppend, check.CollGet, check.CollDelete, check.CollPut, check.CollTake:
-		return true
+// valueOpKind classifies a primitive slice or Map operation from its Go
+// body contract (check.BodyOf) and Ergo signature, never from a closed table.
+type valueOpKind uint8
+
+const (
+	valOpNone valueOpKind = iota
+	valOpAppend
+	valOpGet
+	valOpDelete
+	valOpPut
+	valOpTake
+)
+
+func valueOpOf(f *check.Func) valueOpKind {
+	if f == nil || f.Sig == nil {
+		return valOpNone
 	}
-	return false
+	b := check.BodyOf(f)
+	switch {
+	case b.AppendsSlice && len(f.Sig.Params) == 2 && len(f.Sig.Results) == 1:
+		return valOpAppend
+	case b.ReadsMap && len(f.Sig.Params) == 2 && len(f.Sig.Results) == 1:
+		if _, isTuple := f.Sig.Results[0].(*check.Tuple); !isTuple {
+			return valOpGet
+		}
+	case b.DeletesMap && len(f.Sig.Params) == 2 && len(f.Sig.Results) == 1:
+		return valOpDelete
+	case b.WritesMap && len(f.Sig.Params) == 3 && len(f.Sig.Results) == 1:
+		return valOpPut
+	case b.TakesMap && len(f.Sig.Params) == 2 && len(f.Sig.Results) == 1:
+		if tup, ok := f.Sig.Results[0].(*check.Tuple); ok && len(tup.Types) == 2 {
+			return valOpTake
+		}
+	}
+	return valOpNone
+}
+
+// preludeCollection reports a primitive slice or Map value operation
+// (Append, Get, Delete, Put or Take), which the evaluator runs as a value
+// operation rather than by a Go body.
+func preludeCollection(f *check.Func) bool {
+	return valueOpOf(f) != valOpNone
 }
 
 // collectionCall runs xs.Append(x), m.Get(k), m.Delete(k), m.Put(k, v) or
@@ -1366,9 +1399,10 @@ func (in *interp) collectionCall(fr *frame, x *syntax.CallExpr, c *check.Call, o
 	if own != nil {
 		tok = own.own()
 	}
+	op := valueOpOf(c.Func)
 	if in.sym != nil {
 		if _, ok := recv.(term); ok {
-			if check.CollOpOf(c.Func) != check.CollAppend {
+			if op != valOpAppend {
 				return nil, in.symStop(fr, c.Recv, recv)
 			}
 			if ab := in.charge(fr, x, 1); ab != nil {
@@ -1377,20 +1411,20 @@ func (in *interp) collectionCall(fr *frame, x *syntax.CallExpr, c *check.Call, o
 			return concatSlice(recv, args[0]), nil
 		}
 	}
-	switch check.CollOpOf(c.Func) {
-	case check.CollAppend:
+	switch op {
+	case valOpAppend:
 		return in.appendTo(fr, x, recv.(sliceV), args[0], tok)
-	case check.CollGet:
+	case valOpGet:
 		if ab := in.charge(fr, x, 1); ab != nil {
 			return nil, ab
 		}
 		v, found := recv.(mapV).b.get(args[0])
 		return in.option(fr, x, v, found)
-	case check.CollDelete:
+	case valOpDelete:
 		return in.deleteIn(fr, x, recv.(mapV), args[0], tok)
-	case check.CollPut:
+	case valOpPut:
 		return in.putIn(fr, x, recv.(mapV), args[0], args[1], tok)
-	case check.CollTake:
+	case valOpTake:
 		// k's value as an Option, and m without k (std ui's session takes
 		// a request in flight; b25's guard found it had no native).
 		if ab := in.charge(fr, x, 1); ab != nil {

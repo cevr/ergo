@@ -137,6 +137,15 @@ type Body struct {
 	// with its first operand a zero-field PROVIDER the call erases (the
 	// host Sleep of LiveScheduler).
 	BridgeTarget, BridgeProvider string
+	// AppendsSlice, ReadsMap, WritesMap and TakesMap are AST-derived facts
+	// of a reviewed primitive slice or Map Go body: single-element append
+	// (`return append(xs, x)`), comma-ok map lookup (`v, ok := m[k]`),
+	// in-place map write (`m[k] = v; return m`), and map take (comma-ok
+	// lookup + delete returning `(V, bool, map[K]V)`).
+	AppendsSlice bool
+	ReadsMap     bool
+	WritesMap    bool
+	TakesMap     bool
 	// Package is the import path of the body's package: runtime/v1 (Path)
 	// or one of its leaves (Leaves), which the lowering imports to call it.
 	Package string
@@ -825,7 +834,126 @@ func (d goDecls) body(name string) (Body, error) {
 	if err := policy(g.fn, &b); err != nil {
 		return Body{}, fmt.Errorf("runtime/v1: %s: %w", name, err)
 	}
+	classifyPrimitiveBody(g.fn, &b)
 	return b, nil
+}
+
+// classifyPrimitiveBody sets the AST-derived slice/Map primitive facts on b
+// from fn's Go body without inspecting fn's name:
+//   - AppendsSlice: func[T](xs []T, x T) []T { return append(xs, x) }
+//   - ReadsMap:     func[K, V](m map[K]V, k K) (V, bool) { v, ok := m[k]; return v, ok }
+//   - WritesMap:    func[K, V](m map[K]V, k K, v V) map[K]V { m[k] = v; return m }
+//   - TakesMap:     func[K, V](m map[K]V, k K) (V, bool, map[K]V) reading m[k] and calling delete(..., k)
+func classifyPrimitiveBody(fn *ast.FuncDecl, b *Body) {
+	if fn == nil || fn.Recv != nil || fn.Body == nil || len(b.Hidden) > 0 {
+		return
+	}
+	var params []struct {
+		name string
+		typ  ast.Expr
+	}
+	if fn.Type.Params != nil {
+		for _, fl := range fn.Type.Params.List {
+			for _, id := range fl.Names {
+				params = append(params, struct {
+					name string
+					typ  ast.Expr
+				}{id.Name, fl.Type})
+			}
+		}
+	}
+	var results []ast.Expr
+	if fn.Type.Results != nil {
+		for _, fl := range fn.Type.Results.List {
+			if len(fl.Names) == 0 {
+				results = append(results, fl.Type)
+			} else {
+				for range fl.Names {
+					results = append(results, fl.Type)
+				}
+			}
+		}
+	}
+	identName := func(x ast.Expr) string {
+		if id, ok := x.(*ast.Ident); ok {
+			return id.Name
+		}
+		return ""
+	}
+	isIndex := func(x ast.Expr, obj, key string) bool {
+		ix, ok := x.(*ast.IndexExpr)
+		return ok && identName(ix.X) == obj && identName(ix.Index) == key
+	}
+
+	// AppendsSlice: 1 type param, (xs []T, x T) []T, single `return append(xs, x)`.
+	if len(b.TypeParams) == 1 && len(params) == 2 && len(results) == 1 && len(fn.Body.List) == 1 {
+		tp := b.TypeParams[0].Name
+		if sl, ok := params[0].typ.(*ast.ArrayType); ok && sl.Len == nil && identName(sl.Elt) == tp &&
+			identName(params[1].typ) == tp {
+			if rsl, ok := results[0].(*ast.ArrayType); ok && rsl.Len == nil && identName(rsl.Elt) == tp {
+				if ret, ok := fn.Body.List[0].(*ast.ReturnStmt); ok && len(ret.Results) == 1 {
+					if call, ok := ret.Results[0].(*ast.CallExpr); ok && !call.Ellipsis.IsValid() &&
+						identName(call.Fun) == "append" && len(call.Args) == 2 &&
+						identName(call.Args[0]) == params[0].name && identName(call.Args[1]) == params[1].name {
+						b.AppendsSlice = true
+					}
+				}
+			}
+		}
+	}
+
+	// Map primitives: 2 type params [K, V], first param m map[K]V, second param k K.
+	if len(b.TypeParams) == 2 && len(params) >= 2 {
+		kp, vp := b.TypeParams[0].Name, b.TypeParams[1].Name
+		mt, ok := params[0].typ.(*ast.MapType)
+		if !ok || identName(mt.Key) != kp || identName(mt.Value) != vp || identName(params[1].typ) != kp {
+			return
+		}
+		mName, kName := params[0].name, params[1].name
+		isSameMap := func(x ast.Expr) bool {
+			rm, ok := x.(*ast.MapType)
+			return ok && identName(rm.Key) == kp && identName(rm.Value) == vp
+		}
+		switch {
+		case len(params) == 2 && len(results) == 2 && identName(results[0]) == vp && identName(results[1]) == "bool":
+			// ReadsMap: `v, ok := m[k]; return v, ok`
+			if len(fn.Body.List) == 2 {
+				as, aok := fn.Body.List[0].(*ast.AssignStmt)
+				ret, rok := fn.Body.List[1].(*ast.ReturnStmt)
+				if aok && rok && as.Tok == token.DEFINE && len(as.Lhs) == 2 && len(as.Rhs) == 1 &&
+					isIndex(as.Rhs[0], mName, kName) && len(ret.Results) == 2 &&
+					identName(ret.Results[0]) == identName(as.Lhs[0]) && identName(ret.Results[1]) == identName(as.Lhs[1]) {
+					b.ReadsMap = true
+				}
+			}
+		case len(params) == 3 && len(results) == 1 && identName(params[2].typ) == vp && isSameMap(results[0]):
+			// WritesMap: `m[k] = v; return m`
+			if len(fn.Body.List) == 2 {
+				as, aok := fn.Body.List[0].(*ast.AssignStmt)
+				ret, rok := fn.Body.List[1].(*ast.ReturnStmt)
+				if aok && rok && as.Tok == token.ASSIGN && len(as.Lhs) == 1 && len(as.Rhs) == 1 &&
+					isIndex(as.Lhs[0], mName, kName) && identName(as.Rhs[0]) == params[2].name &&
+					len(ret.Results) == 1 && identName(ret.Results[0]) == mName {
+					b.WritesMap = true
+				}
+			}
+		case len(params) == 2 && len(results) == 3 && identName(results[0]) == vp && identName(results[1]) == "bool" && isSameMap(results[2]):
+			// TakesMap: comma-ok read `m[k]` and `delete(..., k)` returning `(v, ok, rest)`.
+			hasRead, hasDelete := false, false
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				if expr, ok := n.(ast.Expr); ok && isIndex(expr, mName, kName) {
+					hasRead = true
+				}
+				if call, ok := n.(*ast.CallExpr); ok && identName(call.Fun) == "delete" && len(call.Args) == 2 && identName(call.Args[1]) == kName {
+					hasDelete = true
+				}
+				return true
+			})
+			if hasRead && hasDelete {
+				b.TakesMap = true
+			}
+		}
+	}
 }
 
 // policy reads the calling-policy directives of fn's doc comment into b

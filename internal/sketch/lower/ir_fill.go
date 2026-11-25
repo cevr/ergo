@@ -175,7 +175,7 @@ func (b *irBuilder) appendOne(x syntax.Expr, v *check.Var) (syntax.Expr, bool) {
 		return nil, false
 	}
 	c := b.l.info.Calls[call]
-	if c == nil || c.Kind != check.CallFunc || c.Func == nil || b.l.intrinsic(c.Func) == nil || !b.builtinAppend(c.Func) {
+	if c == nil || c.Kind != check.CallFunc || c.Func == nil || !b.builtinAppend(c.Func) {
 		return nil, false
 	}
 	args := call.Args

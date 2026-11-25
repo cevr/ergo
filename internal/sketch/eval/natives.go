@@ -51,10 +51,11 @@ type native func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []V
 // serve passed 8 arguments to a 9-parameter handler, send read a list
 // where the declaration had come to put a string).
 type nativeTables struct {
-	std   map[string]native
-	goLib map[string]native
-	holes map[string]bool
-	reads map[string]string
+	std     map[string]native
+	goLib   map[string]native
+	holes   map[string]bool
+	reads   map[string]string
+	runtime map[string]string
 }
 
 // loadedNatives is the only way to the tables: built by its first call,
@@ -72,7 +73,7 @@ func init() { loadedNatives = sync.OnceValue(buildNatives) }
 // ran them when each was an init (process.go wraps natives the earlier
 // files made).
 func buildNatives() nativeTables {
-	t := nativeTables{std: map[string]native{}, goLib: goNatives(), holes: map[string]bool{}, reads: goNativeReads()}
+	t := nativeTables{std: map[string]native{}, goLib: goNatives(), holes: map[string]bool{}, reads: goNativeReads(), runtime: map[string]string{}}
 	registerNatives(t)
 	registerNativesbits(t)
 	registerNativesconfig(t)
@@ -94,6 +95,7 @@ func buildNatives() nativeTables {
 	registerRunnerkids(t)
 	registerTasks(t)
 	registerCoreNatives(t)
+	registerRuntimeNatives(t)
 	return t
 }
 
@@ -572,32 +574,28 @@ func registerCoreNatives(t nativeTables) {
 // (stdlib.md, rand: Seeded(seed) is rand.NewPCG(seed, "ErgoRand")).
 const randSeedHi = 0x45_72_67_6f_52_61_6e_64
 
-// collNatives are the natives of the operations of the built-in types
-// (check.CollOpOf, PRIM-4), by operation, never by a declaration's name:
-// each runs as the std function it was before it became an operation.
-// The builder's appends run as std strings' Builder writes did before
-// PRIM-4 made them operations (b25: without them every fold that writes
-// through a Builder, std html's, was refused); TestEveryPureStdExternHasANative
-// holds each pure extern std calls to a native, wherever it is declared.
-var collNatives = sync.OnceValue(func() map[check.CollOp]string {
-	return map[check.CollOp]string{
-		check.CollTakeAt:       "slices.Take",
-		check.CollSlice:        "slices.Slice",
-		check.CollClone:        "maps.Clone",
-		check.CollSliceClone:   "slices.Clone",
-		check.CollConcat:       "slices.Concat",
-		check.CollRepeat:       "slices.Repeat",
-		check.CollSubstring:    "strings.Slice",
-		check.CollText:         "strings.builderText",
-		check.CollRuneText:     "utf8.RuneText",
-		check.CollMakeSlice:    "slices.WithCapacity",
-		check.CollBytes:        "strings.stringsBytes",
-		check.CollGrow:         "bytes.grow",
-		check.CollAppendString: "strings.builderAppend",
-		check.CollAppendBytes:  "strings.builderAppendBytes",
-		check.CollAppendFrom:   "strings.builderAppendFrom",
-	}
-})
+// registerRuntimeNatives binds runtime/v1 helper bodies to their evaluator
+// native keys, so any std declaration binding the same runtime/v1 body
+// (builtin.ergo, core, slices, maps, strings, utf8) reaches its native by
+// binding identity rather than a closed operation table.
+func registerRuntimeNatives(t nativeTables) {
+	rt := t.runtime
+	rt["SlicesTake"] = "slices.Take"
+	rt["SlicesSlice"] = "slices.Slice"
+	rt["MapsClone"] = "maps.Clone"
+	rt["SlicesClone"] = "slices.Clone"
+	rt["SlicesConcat"] = "slices.Concat"
+	rt["SlicesRepeat"] = "slices.Repeat"
+	rt["StringsSlice"] = "strings.Slice"
+	rt["StringsBuilderText"] = "strings.builderText"
+	rt["UTF8RuneText"] = "utf8.RuneText"
+	rt["WithCapacity"] = "slices.WithCapacity"
+	rt["StringsBytes"] = "strings.stringsBytes"
+	rt["StringsBuilderGrow"] = "bytes.grow"
+	rt["StringsBuilderAppend"] = "strings.builderAppend"
+	rt["StringsBuilderAppendBytes"] = "strings.builderAppendBytes"
+	rt["StringsBuilderAppendFrom"] = "strings.builderAppendFrom"
+}
 
 // nativeOf is fn's native, nil when the evaluator has none.
 func nativeOf(fn *check.Func) native {
@@ -605,7 +603,7 @@ func nativeOf(fn *check.Func) native {
 		return nil
 	}
 	t := loadedNatives()
-	if key, ok := collNatives()[check.CollOpOf(fn)]; ok {
+	if key, ok := t.runtime[check.BodyOf(fn).Runtime]; ok {
 		return t.std[key]
 	}
 	return t.std[fn.Pkg.Path+"."+fn.Name]

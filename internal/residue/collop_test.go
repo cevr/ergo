@@ -4,27 +4,17 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// collOpBinds are the functions of the lowering that may ask which
-// operation of the slice or Map type a call is (check.CollOpOf, or a
-// check.Coll* constant): each picks the operation's Go form, its binding
-// (PRIM, owner 2026-11-16: the operations belong to the language, as +
-// belongs to int, so the lowering must know which Go form stands for
-// each). The list only shrinks: a line is never added without a ruling.
-var collOpBinds = map[string]string{
-	"calls.go:funcCtx.callText":            "an operation's receiver is its body's first operand",
-	"decls.go:lowerer.intrinsic":           "the Go bodies of Append, Put, Get and Take",
-	"decls.go:intrinsicTakes":              "Take's intrinsic takes its entry in place: the intrinsic's own fact, read beside it",
-	"getmatch.go:preludeGet":               "Get's Go form is Go's comma-ok read",
-	"ir_intmap.go:irBuilder.intMapPrelude": "the int-keyed table's Go form of each Map operation",
-	"ir_pkg.go:irBuilder.builtinAppend":    "the IR writes Append as Go's builtin append",
-	"ir_pkg.go:irBuilder.stdCall":          "an operation's receiver is its body's first operand",
-}
+// collOpBinds was the shrinking allow-list of lowering functions that asked
+// check.CollOpOf. NOPRE-COLLOPS-OUT retired the closed CollOp table completely,
+// so the list is permanently empty.
+var collOpBinds = map[string]string{}
 
 // TestValueRuleReadsNoOperation is RU6's residue rule (docs/spec/types.md,
 // Bindings 2): no decision of the lowering keys on which operation of the
@@ -96,17 +86,63 @@ func TestValueRuleReadsNoOperation(t *testing.T) {
 	}
 }
 
-// asksCollOp reports a body that names check.CollOpOf or a check.Coll*
-// constant.
+// asksCollOp reports a body that names check.CollOpOf, a check.Coll*
+// constant, or any CollOp / CollOpOf identifier.
 func asksCollOp(body *ast.BlockStmt) bool {
 	asks := false
 	ast.Inspect(body, func(n ast.Node) bool {
-		if s, ok := n.(*ast.SelectorExpr); ok {
-			if id, ok := s.X.(*ast.Ident); ok && id.Name == "check" && strings.HasPrefix(s.Sel.Name, "Coll") {
+		switch x := n.(type) {
+		case *ast.SelectorExpr:
+			if id, ok := x.X.(*ast.Ident); ok && id.Name == "check" && strings.HasPrefix(x.Sel.Name, "Coll") {
+				asks = true
+			}
+		case *ast.Ident:
+			if x.Name == "CollOp" || x.Name == "CollOpOf" {
 				asks = true
 			}
 		}
 		return !asks
 	})
 	return asks
+}
+
+// TestNoCollOpTable holds NO-PRELUDE Unit 7 (COLLOPS-OUT): collop.go is
+// deleted and no non-test Go file under internal/sketch/{check,lower,eval}
+// references CollOp, CollOpOf, or collop.go.
+func TestNoCollOpTable(t *testing.T) {
+	top, err := exec.Command("git", "--no-optional-locks", "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		t.Fatalf("git rev-parse: %v", err)
+	}
+	repo := strings.TrimSpace(string(top))
+	if _, err := os.Stat(filepath.Join(repo, "internal/sketch/check/collop.go")); !os.IsNotExist(err) {
+		t.Fatalf("internal/sketch/check/collop.go must not exist (NO-PRELUDE COLLOPS-OUT)")
+	}
+	ls := exec.Command("git", "--no-optional-locks", "ls-files", "-z", "--",
+		"internal/sketch/check", "internal/sketch/lower", "internal/sketch/eval")
+	ls.Dir = repo
+	list, err := ls.Output()
+	if err != nil {
+		t.Fatalf("git ls-files: %v", err)
+	}
+	scanned := 0
+	for _, name := range strings.Split(strings.TrimSuffix(string(list), "\x00"), "\x00") {
+		if name == "" || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(repo, name))
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		scanned++
+		src := string(data)
+		for _, banned := range []string{"CollOp", "CollOpOf", "collop.go"} {
+			if strings.Contains(src, banned) {
+				t.Errorf("%s still references %q (NO-PRELUDE COLLOPS-OUT)", name, banned)
+			}
+		}
+	}
+	if scanned == 0 {
+		t.Fatal("scanned 0 Go files")
+	}
 }

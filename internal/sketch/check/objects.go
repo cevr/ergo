@@ -103,9 +103,6 @@ type Func struct {
 	// the function's name (G-ex-e-2): x.f(…) reaches the function, which
 	// gives the type no operation and lowers as a plain call.
 	opOwner *Named
-	// collOp is the operation of the built-in slice or Map type the
-	// function declares (collop.go), or CollNone.
-	collOp CollOp
 	// same holds the later package functions of the same name (196m rule
 	// 3), on the one the package scope holds; overloaded marks every
 	// function of a valid group, which is called only as x.f(…).

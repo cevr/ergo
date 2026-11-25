@@ -20,8 +20,8 @@ func (b *irBuilder) mapOp(x *syntax.CallExpr, c *check.Call, p irPos, stmt bool)
 	m, k := args[0], args[1]
 	mt := b.l.info.Types[list[0]]
 	local := func(i int) *irExpr { return &irExpr{K: "local", Pos: p, I: i} }
-	op := check.CollOpOf(c.Func)
-	if op == check.CollPut {
+	op := mapOpOf(c.Func)
+	if op == mapOpPut {
 		i := b.temp("m", b.goType(mt, x), p)
 		put := &irStmt{K: "store", Pos: p, X: &irExpr{K: "mapAt", Pos: p, X: local(i), Y: k}, Y: args[2]}
 		pre = append(pre, &irStmt{K: "def", Pos: p, Local: i, X: m}, put)
@@ -32,12 +32,12 @@ func (b *irBuilder) mapOp(x *syntax.CallExpr, c *check.Call, p irPos, stmt bool)
 	}
 	result := b.l.info.Types[x]
 	option := result
-	if op == check.CollTake {
+	if op == mapOpTake {
 		option = result.(*check.Tuple).Types[0]
 	}
 	v := b.temp("value", b.goType(optionElem(option), x), p)
 	found := b.temp("found", "bool", p)
-	if op == check.CollTake {
+	if op == mapOpTake {
 		// Both the lookup and deletion read the same operands, once.
 		mi, ki := b.temp("m", b.goType(mt, x), p), b.temp("k", b.goType(c.TypeArgs[0], x), p)
 		pre = append(pre, &irStmt{K: "def", Pos: p, Local: mi, X: m}, &irStmt{K: "def", Pos: p, Local: ki, X: k})
@@ -50,9 +50,9 @@ func (b *irBuilder) mapOp(x *syntax.CallExpr, c *check.Call, p irPos, stmt bool)
 			m = local(ri)
 		}
 	}
-	if op != check.CollTake || valueRule() {
+	if op != mapOpTake || valueRule() {
 		pre = append(pre, &irStmt{K: "mapget", Pos: p, Local: v, Val: &found, X: m, Y: k})
-		if op == check.CollTake {
+		if op == mapOpTake {
 			pre = append(pre, &irStmt{K: "expr", Pos: p, X: &irExpr{K: "builtin", Pos: p, Name: "delete", Args: []*irExpr{m, k}}})
 		}
 	}
@@ -65,7 +65,7 @@ func (b *irBuilder) mapOp(x *syntax.CallExpr, c *check.Call, p irPos, stmt bool)
 	pre = append(pre,
 		&irStmt{K: "def", Pos: p, Local: out, X: b.machineNone(option, p, x)},
 		&irStmt{K: "if", Pos: p, End: p, X: local(found), Then: []*irStmt{{K: "set", Pos: p, Local: out, X: b.variantInto(some, option, lit, x)}}})
-	if op == check.CollTake {
+	if op == mapOpTake {
 		return pre, b.tupleLit(result.(*check.Tuple), []*irExpr{local(out), m}, x, p), false
 	}
 	return pre, local(out), false

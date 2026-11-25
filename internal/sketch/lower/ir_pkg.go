@@ -350,7 +350,7 @@ func (b *irBuilder) valueSource(x *syntax.CallExpr, c *check.Call, args []syntax
 	}
 }
 
-// builtinAppend reports the slice operation Append (check.CollOpOf),
+// builtinAppend reports a single-element slice append operation (check.BodyOf),
 // which the IR writes as Go's builtin append (FLIP F3, PRIM), not as a
 // call of its runtime/v1 body (the Go reference). Go sees the builtin at
 // once, and with it a place appended back to itself. The value rule has
@@ -358,7 +358,7 @@ func (b *irBuilder) valueSource(x *syntax.CallExpr, c *check.Call, args []syntax
 // (valueSource), and the builtin takes that clipped source, so an append
 // to a place another value shares still copies.
 func (b *irBuilder) builtinAppend(f *check.Func) bool {
-	return check.CollOpOf(f) == check.CollAppend
+	return check.BodyOf(f).AppendsSlice
 }
 
 // admitMap admits a Map, Go's map[K]V: its key and its value. A Map is a
@@ -671,7 +671,7 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	switch {
 	case !ok:
 		irNo("call of a std intrinsic")
-	case c.Recv != nil && check.CollOpOf(f) == check.CollNone && (f.Decl == nil || f.Decl.Implements == nil):
+	case c.Recv != nil && !c.RecvIsParam():
 		irNo("dot call of a std function")
 	case b.fc.refSiteOf(x) != nil:
 		if b.inPlaceSite(x) {

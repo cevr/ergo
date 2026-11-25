@@ -1,7 +1,38 @@
 package check
 
-import "sync"
-import "fmt"
+import (
+	"fmt"
+	"sync"
+
+	"ergo.local/prototype/internal/sketch/syntax"
+)
+
+// builtinFileName is the name of the built-in receiver operations file in the
+// prelude package (internal/sketch/std/builtin.ergo).
+const builtinFileName = "builtin.ergo"
+
+// builtinFile is parsed once with the prelude so dot-call lookup reaches the
+// operations declared on unnamed built-in receiver types.
+var builtinFile *syntax.File
+
+// builtinRecv is the kind of unnamed built-in receiver type a declaration in
+// builtin.ergo operates on: []T, Map[K, V], string, []byte, or rune.
+type builtinRecv uint8
+
+const (
+	recvSlice builtinRecv = iota
+	recvMap
+	recvString
+	recvBytes
+	recvRune
+)
+
+// builtinKey indexes a built-in receiver operation by dot-form name and
+// receiver kind.
+type builtinKey struct {
+	name string
+	recv builtinRecv
+}
 
 // Go builtins as extern targets (OPT4b). `extern go append func Append[T](xs
 // []T, x T) []T` binds Go's builtin append, in std and in user code alike:

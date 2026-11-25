@@ -844,7 +844,7 @@ func (l *lowerer) methodReceiver(f *check.Func) (*typeDecl, bool) {
 // Map that stays live (values.go, takesMapSource). The fact belongs to
 // the intrinsic, which is Take's Go form, so it is read here, beside it.
 func intrinsicTakes(f *check.Func) bool {
-	return check.CollOpOf(f) == check.CollTake
+	return mapTakeExtern(f)
 }
 
 // intrinsic is the Go body of an extern declaration this lowering
@@ -874,21 +874,21 @@ func (l *lowerer) intrinsic(f *check.Func) func(fc *funcCtx, params []string) st
 	if bridge := l.hostBlockingIntrinsic(f); bridge != nil {
 		return bridge
 	}
-	// The operations of the slice and Map types (D-D6; check.CollOpOf,
-	// never a name): Append and Put call their runtime/v1 bodies; Get
-	// builds the program's Option, which the lowering emits in each
-	// program, so its body is written here.
+	// The primitive operations of slice and Map types (classified by their
+	// Go body contract, check.BodyOf, never a closed table): Append and Put
+	// call their runtime/v1 bodies; Get and Take wrap Go's comma-ok read
+	// into the program's Option.
 	if len(s.Params) < 2 || len(s.Params) > 3 || len(s.Results) != 1 {
 		return nil
 	}
 	switch {
-	case check.CollOpOf(f) == check.CollPut && len(s.Params) == 3 && len(s.TParams) == 2 && isMapOf(s.Params[0].Type, s.TParams[0], s.TParams[1]) && s.Params[1].Type == s.TParams[0] && s.Params[2].Type == s.TParams[1] && isMapOf(s.Results[0], s.TParams[0], s.TParams[1]):
+	case mapPutExtern(f):
 		return func(_ *funcCtx, params []string) string {
 			return "\treturn " + l.rt() + ".Put(" + params[0] + ", " + params[1] + ", " + params[2] + ")\n"
 		}
 	case len(s.Params) != 2:
 		return nil
-	case check.CollOpOf(f) == check.CollAppend && len(s.TParams) == 1 && isSliceOf(s.Params[0].Type, s.TParams[0]) && s.Params[1].Type == s.TParams[0] && isSliceOf(s.Results[0], s.TParams[0]):
+	case singleAppendExtern(f) && len(s.TParams) == 1 && isSliceOf(s.Params[0].Type, s.TParams[0]) && s.Params[1].Type == s.TParams[0] && isSliceOf(s.Results[0], s.TParams[0]):
 		return func(_ *funcCtx, params []string) string {
 			return "\treturn " + l.rt() + ".Append(" + params[0] + ", " + params[1] + ")\n"
 		}
@@ -896,11 +896,8 @@ func (l *lowerer) intrinsic(f *check.Func) func(fc *funcCtx, params []string) st
 		return func(fc *funcCtx, params []string) string {
 			return fc.optionReturn(s.Results[0], "\t", params[0]+"["+params[1]+"]", fc.site)
 		}
-	case check.CollOpOf(f) == check.CollTake && len(s.TParams) == 2 && isMapOf(s.Params[0].Type, s.TParams[0], s.TParams[1]) && s.Params[1].Type == s.TParams[0]:
-		tuple, ok := s.Results[0].(*check.Tuple)
-		if !ok || len(tuple.Types) != 2 || !isPreludeType(tuple.Types[0], "Option") || !isMapOf(tuple.Types[1], s.TParams[0], s.TParams[1]) {
-			return nil
-		}
+	case mapTakeExtern(f):
+		tuple := s.Results[0].(*check.Tuple)
 		return func(fc *funcCtx, params []string) string {
 			v, found, rest, option := fc.temp("value"), fc.temp("found"), fc.temp("rest"), fc.temp("option")
 			var take string

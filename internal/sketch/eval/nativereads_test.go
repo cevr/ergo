@@ -110,7 +110,7 @@ func stdNativeKey(f *check.Func) (string, bool) {
 	if nativeOf(f) == nil {
 		return "", false
 	}
-	if k, ok := collNatives()[check.CollOpOf(f)]; ok {
+	if k, ok := loadedNatives().runtime[check.BodyOf(f).Runtime]; ok {
 		return k, true
 	}
 	return f.Pkg.Path + "." + f.Name, true

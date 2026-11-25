@@ -2927,11 +2927,11 @@ func (c *checker) collectSelfFuncs() {
 				// signatures resolve; this is not inherent method lookup.
 				key = g
 			}
-			if g.file != nil && g.file.syntax == collFile && collFile != nil {
-				// Operations of one name on two receiver kinds,
-				// xs.Slice and s.Slice (collop.go, PRIM-4).
+			if g.file != nil && g.file.syntax == builtinFile && builtinFile != nil {
+				// Operations of one name on two built-in receiver kinds,
+				// xs.Slice and s.Slice (PRIM-4).
 				c.cur = g.file
-				if k, _, ok := c.collOwner(g); ok {
+				if k, _, ok := c.builtinOwner(g); ok {
 					key = k
 				}
 			}
@@ -2990,66 +2990,63 @@ func (c *checker) collectSelfFuncs() {
 			n.opFuncs[f.Name] = f
 		}
 	}
-	if collFile != nil {
+	if builtinFile != nil {
 		for _, f := range c.funcs {
-			if f.file == nil || f.file.syntax != collFile {
-				continue // the operations are the language's file's alone (collop.go)
+			if f.file == nil || f.file.syntax != builtinFile {
+				continue
 			}
-			// Defensive: collOwner classifies a collection receiver without reporting.
+			// Defensive: builtinOwner classifies a built-in receiver without reporting.
 			c.cur = f.file
-			if key, args, ok := c.collOwner(f); ok {
-				if c.pkg.collFuncs == nil {
-					c.pkg.collFuncs = map[collKey]*Func{}
+			if key, args, ok := c.builtinOwner(f); ok {
+				if c.pkg.builtinFuncs == nil {
+					c.pkg.builtinFuncs = map[builtinKey]*Func{}
 				}
 				f.selfArgs = args
-				f.collOp = collOps()[key] // collop.go
-				c.pkg.collFuncs[key] = f
-			} else {
-				f.collOp = collMakers()[f.Name] // collop.go
+				c.pkg.builtinFuncs[key] = f
 			}
 		}
 	}
 }
 
-// collOwner reports a prelude function x.f(…) reaches from a slice or a Map
-// (D-D6, D-D8): its first parameter is written []T or Map[K, V], with T, K
-// and V distinct type parameters of f, which the receiver's element, key
-// and value types bind. The arguments are returned in that order.
-func (c *checker) collOwner(f *Func) (collKey, []syntax.Expr, bool) {
+// builtinOwner reports a prelude function x.f(…) reaches from an unnamed
+// built-in receiver (D-D6, D-D8): its first parameter is written []T, []byte,
+// Map[K, V], string, or rune, with T, K and V distinct type parameters of f,
+// which the receiver's element, key and value types bind.
+func (c *checker) builtinOwner(f *Func) (builtinKey, []syntax.Expr, bool) {
 	d := f.Decl
 	if f.Name == "main" || d.Type == nil || d.Type.Params == nil || len(d.Type.Params.List) == 0 {
-		return collKey{}, nil, false
+		return builtinKey{}, nil, false
 	}
 	var args []syntax.Expr
-	key := collKey{name: f.Name}
+	key := builtinKey{name: f.Name}
 	switch t := d.Type.Params.List[0].Type.(type) {
 	case *syntax.ArrayType:
 		if t.Len != "" {
-			return collKey{}, nil, false // the prelude's are on slices
+			return builtinKey{}, nil, false // the prelude's are on slices
 		}
 		if id, ok := t.Elt.(*syntax.Ident); ok && id.Name == "byte" {
-			key.on = onBytes // a concrete []byte (PRIM-4)
+			key.recv = recvBytes // a concrete []byte (PRIM-4)
 			return key, nil, true
 		}
 		args = []syntax.Expr{t.Elt}
 	case *syntax.MapType:
-		args, key.on = []syntax.Expr{t.Key, t.Value}, onMap
+		args, key.recv = []syntax.Expr{t.Key, t.Value}, recvMap
 	case *syntax.Ident:
 		// The basic string and rune (PRIM-4).
 		switch t.Name {
 		case "string":
-			key.on = onString
+			key.recv = recvString
 		case "rune":
-			key.on = onRune
+			key.recv = recvRune
 		default:
-			return collKey{}, nil, false
+			return builtinKey{}, nil, false
 		}
 		return key, nil, true
 	default:
-		return collKey{}, nil, false
+		return builtinKey{}, nil, false
 	}
 	if d.TypeParams == nil || !c.selfArgsOK(d, args) {
-		return collKey{}, nil, false
+		return builtinKey{}, nil, false
 	}
 	return key, args, true
 }

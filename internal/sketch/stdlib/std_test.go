@@ -258,7 +258,7 @@ func TestEachExternHasItsGoBody(t *testing.T) {
 			t.Errorf("std package %s declares no extern", path)
 		}
 	}
-	// WithCapacity binds the language's MakeSlice now (check/collop.go,
+	// WithCapacity binds the language's MakeSlice now (builtin.ergo,
 	// PRIM-4), no std declaration.
 	for _, name := range []string{"Go", "OnExit", "New", "Queue.Push", "Queue.Pop", "Queue.End", "Task.Wait", "Task.Stop", "ContextBound", "ContextValue"} {
 		if !bound[name] {

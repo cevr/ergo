@@ -36,7 +36,7 @@ type hostViewSite struct {
 
 // viewForm is the view form of the body f's call reaches: an extern, of
 // any package, of a body whose contract names one (bodyView; the
-// language's operation s.Bytes() is an extern of StringsBytes, collop.go),
+// language's operation s.Bytes() is an extern of StringsBytes),
 // or a function whose body is one call of such an extern on its one
 // parameter, plain or as a dot call (`func Bytes(s string) []byte {
 // s.Bytes() }`, PRIM-4); else "". It reads declarations, never std

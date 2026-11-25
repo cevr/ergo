@@ -1191,7 +1191,7 @@ func (c *checker) selector(x *syntax.SelectorExpr) operand {
 		// reported at its declaration; its uses add nothing (D3).
 		return bad(x)
 	}
-	if fn := c.collFunc(base.typ, x.Sel.Name); fn != nil {
+	if fn := c.builtinFunc(base.typ, x.Sel.Name); fn != nil {
 		return c.selfCall(x, base, c.selfSig(base.typ, fn), fn, called, index)
 	}
 	if fn := c.coreClaimFunc(base.typ, x.Sel.Name); fn != nil {
@@ -1278,7 +1278,7 @@ func (c *checker) selector(x *syntax.SelectorExpr) operand {
 		c.errorf(x.Sel, CodeType, "%s", ambiguousClaimMessage(base.typ, x.Sel.Name, cands))
 		return bad(x)
 	}
-	if u := under(t); u != t && (c.collFunc(u, x.Sel.Name) != nil || c.coreClaimFunc(u, x.Sel.Name) != nil) {
+	if u := under(t); u != t && (c.builtinFunc(u, x.Sel.Name) != nil || c.coreClaimFunc(u, x.Sel.Name) != nil) {
 		// D-D8: the first parameter's type is x's type exactly.
 		// The base is a slice or a Map, unnamed, so the value reaches it by
 		// assignment (clause 2), under a name not bound here.

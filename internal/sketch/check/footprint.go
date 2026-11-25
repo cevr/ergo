@@ -1037,14 +1037,15 @@ func PureStd(f *Func) bool { return pureStd(f) }
 // and a test with SetPureCollectionsForTest.
 var pureCollections string
 
-// preludeCollection reports the slice or Map operation Append, Get,
-// Delete or Put (collop.go).
+// preludeCollection reports a primitive slice or Map operation whose Go
+// binding appends a slice element or reads, writes, or deletes a Map entry,
+// excluding bootstrap std helpers whose rewrite laws require pure builtins.
 func preludeCollection(f *Func) bool {
-	switch CollOpOf(f) {
-	case CollAppend, CollGet, CollDelete, CollPut:
-		return true
+	if f == nil || f.Pkg != nil && isBootstrapStd(f.Pkg.Path) {
+		return false
 	}
-	return false
+	b := BodyOf(f)
+	return b.AppendsSlice || b.ReadsMap || b.WritesMap || b.DeletesMap
 }
 
 // SetPureCollectionsForTest sets whether the prelude's Append, Get and
