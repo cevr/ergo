@@ -193,6 +193,22 @@
       "killers": [
         "runtime/v1[ergoexplore]:TestHandlesNamedBySource"
       ]
+    },
+    {
+      "name": "mc-min-drops-needed-pick",
+      "origin": "wf10 MODELCHECK E4",
+      "file": "runtime/explore/sched/minimize.go",
+      "from": "\t\tif !sameFailure(cand, failing) {\n\t\t\treturn false\n\t\t}\n",
+      "to": "\t\tif false && !sameFailure(cand, failing) {\n\t\t\treturn false\n\t\t}\n",
+      "rule": "Minimize accepts a reduced schedule only when replaying it reproduces the exact same failure; dropping a needed preemption must never be accepted.",
+      "killers": [
+        "runtime/explore/sched:TestMinimizedScheduleStillFails"
+      ],
+      "anchor": {
+        "tests": [
+          "runtime/explore/sched:TestMinimizedScheduleStillFails"
+        ]
+      }
     }
   ]
 }

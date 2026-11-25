@@ -258,100 +258,113 @@
       "anchor": {"tests": ["runtime/v1[ergoexplore]:TestChildrenLawsExplored"]}
     },
     {
-      "name": "x7-law-drops-child-output",
-      "origin": "wf10/explorer/x7 (the plan's harness mutant)",
-      "file": "runtime/v1/explore_laws.go",
-      "from": "\t\tif m.Source == \"child\" {\n",
-      "to": "\t\tif m.Source == \"stale\" {\n",
-      "rule": "The reader counts every child output the parent steps; one that drops them never sees NoLateChildOutput break.",
+      "name": "mc-trace-drops-stale-output",
+      "origin": "wf10 MODELCHECK E4 (X7 harness mutant, re-pointed to explore_conform.go)",
+      "file": "runtime/v1/explore_conform.go",
+      "from": "\t\tcase rt.MachineSignal:\n\t\t\tif m.Source == \"child\" {\n\t\t\t\tc.apply(childrenAct{kind: actTake, actor: a, epoch: m.Epoch})\n\t\t\t}\n",
+      "to": "\t\tcase rt.MachineSignal:\n\t\t\tif m.Source == \"stale\" {\n\t\t\t\tc.apply(childrenAct{kind: actTake, actor: a, epoch: m.Epoch})\n\t\t\t}\n",
+      "rule": "The conformance mapper translates every stepped child output to models/children.Take; dropping it misses NoLateChildOutput on stale outputs.",
       "killers": [
-        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+        "runtime/v1[ergoexplore]:TestChildrenConformReadsEvents"
       ], "anchor": {"tests": [
-        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+        "runtime/v1[ergoexplore]:TestChildrenConformReadsEvents"
+      ]}
+    },
+    {
+      "name": "mc-conform-empty-set-passes",
+      "origin": "wf10 MODELCHECK E4",
+      "file": "runtime/v1/explore_conform.go",
+      "from": "\tif len(next) == 0 {\n\t\tc.fail(firstLaw, firstReason)\n\t\treturn\n\t}\n",
+      "to": "\tif len(next) == 0 {\n\t\t_, _ = firstLaw, firstReason\n\t\treturn\n\t}\n",
+      "rule": "An empty candidate set is a models/children conformance mismatch, never a silent pass.",
+      "killers": [
+        "runtime/v1[ergoexplore]:TestChildrenConformReadsEvents"
+      ], "anchor": {"tests": [
+        "runtime/v1[ergoexplore]:TestChildrenConformReadsEvents"
       ]}
     },
     {
       "name": "x7-law-open-unchecked",
-      "origin": "wf10/explorer/x7",
-      "file": "runtime/v1/explore_laws.go",
-      "from": "\t\t\tl.breaks(\"ChildInsideEntry\", a.name+\" opened entry \"+uintText(epoch)+\" while \"+k.name+\" lives\")\n",
-      "to": "\t\t\t_ = k\n",
+      "origin": "wf10/explorer/x7 (re-pointed to explore_conform.go by MODELCHECK E4)",
+      "file": "runtime/v1/explore_conform.go",
+      "from": "\t\t\tif next.alive[c] && next.ownerEpoch[c] < act.epoch {\n\t\t\t\treturn childrenWorld{}, false, \"ChildInsideEntry\", \"actor opened entry \" + uintText(act.epoch) + \" while child \" + strconv.Itoa(c) + \" of entry \" + uintText(next.ownerEpoch[c]) + \" lives\"\n\t\t\t}\n",
+      "to": "\t\t\tif false && next.alive[c] && next.ownerEpoch[c] < act.epoch {\n\t\t\t\treturn childrenWorld{}, false, \"ChildInsideEntry\", \"actor opened entry \" + uintText(act.epoch) + \" while child \" + strconv.Itoa(c) + \" of entry \" + uintText(next.ownerEpoch[c]) + \" lives\"\n\t\t\t}\n",
       "rule": "ChildInsideEntry: the next entry opens only after the old entry's children ended.",
       "killers": [
-        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+        "runtime/v1[ergoexplore]:TestChildrenConformReadsEvents"
       ],
       "anchor": {
         "tests": [
-          "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+          "runtime/v1[ergoexplore]:TestChildrenConformReadsEvents"
         ]
       }
     },
     {
       "name": "x7-law-work-unchecked",
-      "origin": "wf10/explorer/x7",
-      "file": "runtime/v1/explore_laws.go",
-      "from": "\t\t\tif k := l.liveKid(en); k != nil {\n\t\t\t\tl.breaks(\"ChildInsideEntry\", \"the work",
-      "to": "\t\t\tif k := l.liveKid(en); false && k != nil {\n\t\t\t\tl.breaks(\"ChildInsideEntry\", \"the work",
+      "origin": "wf10/explorer/x7 (re-pointed to explore_conform.go by MODELCHECK E4)",
+      "file": "runtime/v1/explore_conform.go",
+      "from": "\t\tif k := next.liveKid(p, act.epoch); k >= 0 {\n\t\t\treturn childrenWorld{}, false, \"ChildInsideEntry\", \"work of entry \" + uintText(act.epoch) + \" ended (\" + act.detail + \") while child \" + strconv.Itoa(k) + \" lives\"\n\t\t}\n",
+      "to": "\t\tif k := next.liveKid(p, act.epoch); false && k >= 0 {\n\t\t\treturn childrenWorld{}, false, \"ChildInsideEntry\", \"work of entry \" + uintText(act.epoch) + \" ended (\" + act.detail + \") while child \" + strconv.Itoa(k) + \" lives\"\n\t\t}\n",
       "rule": "ChildInsideEntry: an entry's work is stopped only after the entry's children ended.",
       "killers": [
-        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+        "runtime/v1[ergoexplore]:TestChildrenConformReadsEvents"
       ], "anchor": {"tests": [
-        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+        "runtime/v1[ergoexplore]:TestChildrenConformReadsEvents"
       ]}
     },
     {
       "name": "x7-law-start-unchecked",
-      "origin": "wf10/explorer/x7",
-      "file": "runtime/v1/explore_laws.go",
-      "from": "\t\tif !p.live || p.open != en.epoch {\n",
-      "to": "\t\tif !p.live {\n",
+      "origin": "wf10/explorer/x7 (re-pointed to explore_conform.go by MODELCHECK E4)",
+      "file": "runtime/v1/explore_conform.go",
+      "from": "\t\tif !next.alive[p] || next.epoch[p] != act.epoch {\n",
+      "to": "\t\tif !next.alive[p] {\n",
       "rule": "ChildInsideEntry: a child starts only while the entry that starts it is open.",
       "killers": [
-        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+        "runtime/v1[ergoexplore]:TestChildrenConformReadsEvents"
       ], "anchor": {"tests": [
-        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+        "runtime/v1[ergoexplore]:TestChildrenConformReadsEvents"
       ]}
     },
     {
       "name": "x7-law-sibling-unchecked",
-      "origin": "wf10/explorer/x7",
-      "file": "runtime/v1/explore_laws.go",
-      "from": "\t\t\t\tif k := l.actors[s]; k.live {\n",
-      "to": "\t\t\t\tif k := l.actors[s]; false && k.live {\n",
+      "origin": "wf10/explorer/x7 (re-pointed to explore_conform.go by MODELCHECK E4)",
+      "file": "runtime/v1/explore_conform.go",
+      "from": "\t\t\t\t\t\tif next.alive[s] && next.ownerEpoch[s] == next.ownerEpoch[n] {\n",
+      "to": "\t\t\t\t\t\tif false && next.alive[s] && next.ownerEpoch[s] == next.ownerEpoch[n] {\n",
       "rule": "ChildrenStopFirst: the last started child stops first.",
       "killers": [
-        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+        "runtime/v1[ergoexplore]:TestChildrenConformReadsEvents"
       ], "anchor": {"tests": [
-        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+        "runtime/v1[ergoexplore]:TestChildrenConformReadsEvents"
       ]}
     },
     {
       "name": "x7-law-orphan-unchecked",
-      "origin": "wf10/explorer/x7",
-      "file": "runtime/v1/explore_laws.go",
-      "from": "\t\t\tl.breaks(\"ChildrenStopFirst\", a.name+\" ended while \"+k.name+\" lives\")\n",
-      "to": "\t\t\t_ = k\n",
+      "origin": "wf10/explorer/x7 (re-pointed to explore_conform.go by MODELCHECK E4)",
+      "file": "runtime/v1/explore_conform.go",
+      "from": "\t\tif k := next.anyLiveKid(n); k >= 0 {\n\t\t\treturn childrenWorld{}, false, \"ChildrenStopFirst\", \"actor ended while child \" + strconv.Itoa(k) + \" lives\"\n\t\t}\n",
+      "to": "\t\tif k := next.anyLiveKid(n); false && k >= 0 {\n\t\t\treturn childrenWorld{}, false, \"ChildrenStopFirst\", \"actor ended while child \" + strconv.Itoa(k) + \" lives\"\n\t\t}\n",
       "rule": "ChildrenStopFirst: no child lives after its parent ended.",
       "killers": [
-        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+        "runtime/v1[ergoexplore]:TestChildrenConformReadsEvents"
       ],
       "anchor": {
         "tests": [
-          "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+          "runtime/v1[ergoexplore]:TestChildrenConformReadsEvents"
         ]
       }
     },
     {
       "name": "x7-law-owner-lost",
-      "origin": "wf10/explorer/x7",
-      "file": "runtime/v1/explore_laws.go",
-      "from": "\t\ten, ok := l.works[x]\n\t\tif !ok {\n",
-      "to": "\t\ten, ok := l.works[x]\n\t\tif !ok || true {\n",
+      "origin": "wf10/explorer/x7 (re-pointed to explore_conform.go by MODELCHECK E4)",
+      "file": "runtime/v1/explore_conform.go",
+      "from": "\t\ten, ok := c.works[x]\n\t\tif !ok {\n",
+      "to": "\t\ten, ok := c.works[x]\n\t\tif !ok || true {\n",
       "rule": "A child is found from the task tree: the nearest ancestor that is a work names its entry.",
       "killers": [
-        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+        "runtime/v1[ergoexplore]:TestChildrenConformReadsEvents"
       ], "anchor": {"tests": [
-        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+        "runtime/v1[ergoexplore]:TestChildrenConformReadsEvents"
       ]}
     },
     {
