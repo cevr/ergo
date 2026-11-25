@@ -6,6 +6,7 @@ import strings
 let embeddedBoard = embedded[embed.FS]("board")
 let embeddedMemory = embedded[embed.FS]("memory")
 let embeddedModels = embedded[embed.FS]("models")
+let embeddedServe = embedded[embed.FS]("serve")
 let embeddedSurfaces = embedded[embed.FS]("surfaces")
 
 func isAllowedStoragePath(relPath string) bool {
@@ -21,7 +22,7 @@ func isForbiddenStorageImportLine(line string) bool {
 	if rest == "sql" || strings.HasPrefix(rest, "sql ") || strings.HasPrefix(rest, "sql\t") {
 		return true
 	}
-	strings.Contains(rest, "modules/sqlite") || rest == "sqlite"
+	strings.Contains(rest, "modules/sqlite") || strings.Contains(rest, "modules/board/sqlite") || rest == "sqlite"
 }
 
 // CheckStorageImportBoundary inspects a map of module-relative .ergo paths to
@@ -35,6 +36,9 @@ func CheckStorageImportBoundary(sources Map[string, string]) []string {
 		}
 		match sources.Get(path) {
 		case Some[string] as src:
+			if !strings.Contains(src.Value, "sql") {
+				continue
+			}
 			for line in strings.Split(src.Value, "\n") {
 				let trimmed = strings.TrimSpace(line)
 				if trimmed == "" || strings.HasPrefix(trimmed, "//") {
@@ -79,14 +83,16 @@ test TestStorageImportBoundary {
 	realSources = collectEmbeddedDir(embeddedBoard, "board", realSources)
 	realSources = collectEmbeddedDir(embeddedMemory, "memory", realSources)
 	realSources = collectEmbeddedDir(embeddedModels, "models", realSources)
+	realSources = collectEmbeddedDir(embeddedServe, "serve", realSources)
 	realSources = collectEmbeddedDir(embeddedSurfaces, "surfaces", realSources)
-	assert len(slices.Sorted(maps.Keys(realSources))) >= 18
+	assert len(slices.Sorted(maps.Keys(realSources))) >= 22
 	assert len(CheckStorageImportBoundary(realSources)) == 0
 	let mut illegal = Map[string, string]{}
 	illegal = illegal.Put("board/illegal.ergo", "import github.com/cevr/ergo/modules/sqlite/sqlite\n")
 	illegal = illegal.Put("memory/illegal.ergo", "import sql\n")
+	illegal = illegal.Put("serve/illegal.ergo", "import github.com/cevr/ergo/modules/board/sqlite\n")
 	illegal = illegal.Put("sqlite/ok.ergo", "import github.com/cevr/ergo/modules/sqlite/sqlite\nimport sql\n")
 	illegal = illegal.Put("cmd/board/main.ergo", "import github.com/cevr/ergo/modules/sqlite/sqlite\n")
 	let bad = CheckStorageImportBoundary(illegal)
-	assert len(bad) == 2
+	assert len(bad) == 3
 }

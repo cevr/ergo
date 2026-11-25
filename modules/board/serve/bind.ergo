@@ -1,0 +1,161 @@
+import net
+import strconv
+import strings
+
+// BindRefused reports that a listener address violates the loopback-or-tailnet
+// bind policy (0.0.0.0, ::, and public or LAN addresses are refused).
+type BindRefused {
+	Addr   string,
+	Reason string,
+}
+
+func splitHostPort(addr string) (string, string) fails BindRefused {
+	let trimmed = strings.TrimSpace(addr)
+	if trimmed == "" {
+		return BindRefused{Addr: addr, Reason: "bind address must not be empty"}
+	}
+	if strings.HasPrefix(trimmed, "[") {
+		let close = strings.Index(trimmed, "]")
+		if close <= 1 || close+1 >= len(trimmed) || trimmed[close+1] != byte(':') {
+			return BindRefused{Addr: addr, Reason: "bracketed IPv6 address must have form [host]:port"}
+		}
+		return (trimmed[1:close], trimmed[close+2:])
+	}
+	let colon = strings.LastIndex(trimmed, ":")
+	if colon <= 0 {
+		return BindRefused{Addr: addr, Reason: "bind address must specify host:port"}
+	}
+	let host = trimmed[0:colon]
+	let port = trimmed[colon+1:]
+	if strings.Contains(host, ":") {
+		return BindRefused{Addr: addr, Reason: "IPv6 address must be bracketed as [host]:port"}
+	}
+	(host, port)
+}
+
+func validatePort(addr string, port string) fails BindRefused {
+	if port == "" {
+		return BindRefused{Addr: addr, Reason: "bind port must not be empty"}
+	}
+	let n = strconv.ParseInt(port, 10, 64) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return BindRefused{Addr: addr, Reason: "bind port must be an integer between 0 and 65535"}
+	}
+	if n < int64(0) || n > int64(65535) {
+		return BindRefused{Addr: addr, Reason: "bind port out of range 0..65535"}
+	}
+}
+
+func parseIPv4(host string) Option[[]int] {
+	let parts = strings.Split(host, ".")
+	if len(parts) != 4 {
+		return None
+	}
+	let mut out = []int{}
+	for p in parts {
+		if len(p) == 0 || len(p) > 3 {
+			return None
+		}
+		for i in 0..len(p) {
+			if p[i] < byte('0') || p[i] > byte('9') {
+				return None
+			}
+		}
+		let v = strconv.ParseInt(p, 10, 64) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return None
+		}
+		if v < int64(0) || v > int64(255) {
+			return None
+		}
+		out = out.Append(int(v))
+	}
+	Some[[]int]{Value: out}
+}
+
+func isHexGroup(g string) bool {
+	if len(g) == 0 || len(g) > 4 {
+		return false
+	}
+	for i in 0..len(g) {
+		let c = g[i]
+		let ok = (c >= byte('0') && c <= byte('9')) || (c >= byte('a') && c <= byte('f')) || (c >= byte('A') && c <= byte('F'))
+		if !ok {
+			return false
+		}
+	}
+	true
+}
+
+func isValidIPv6(host string) bool {
+	let lower = strings.ToLower(host)
+	if strings.Contains(lower, ":::") {
+		return false
+	}
+	let pieces = strings.Split(lower, "::")
+	if len(pieces) > 2 {
+		return false
+	}
+	let mut groups = 0
+	for piece in pieces {
+		if piece == "" {
+			continue
+		}
+		for g in strings.Split(piece, ":") {
+			if !isHexGroup(g) {
+				return false
+			}
+			groups = groups + 1
+		}
+	}
+	if len(pieces) == 1 {
+		return groups == 8
+	}
+	groups <= 7
+}
+
+func isAllowedHost(host string) bool {
+	let lower = strings.ToLower(host)
+	if lower == "localhost" {
+		return true
+	}
+	if lower == "::1" || lower == "0:0:0:0:0:0:0:1" {
+		return true
+	}
+	match parseIPv4(lower) {
+	case Some[[]int] as octets:
+		let a = octets.Value[0]
+		let b = octets.Value[1]
+		if a == 127 {
+			return true
+		}
+		if a == 100 && b >= 64 && b <= 127 {
+			return true
+		}
+		return false
+	case None:
+	}
+	if strings.HasPrefix(lower, "fd7a:115c:a1e0:") && isValidIPv6(lower) {
+		return true
+	}
+	false
+}
+
+// ValidateBindAddr enforces by construction that addr binds only loopback
+// (localhost, 127.0.0.0/8, ::1) or Tailscale CGNAT/ULA addresses
+// (100.64.0.0/10, fd7a:115c:a1e0::/48), refusing wildcards and external hosts.
+func ValidateBindAddr(addr string) string fails BindRefused {
+	let (host, port) = try splitHostPort(addr)
+	try validatePort(addr, port)
+	if !isAllowedHost(host) {
+		return BindRefused{Addr: addr, Reason: "listener may bind only loopback or tailnet (100.64.0.0/10, fd7a:115c:a1e0::/48)"}
+	}
+	strings.TrimSpace(addr)
+}
+
+// ListenAllowed validates addr against ValidateBindAddr before opening a
+// listener on netw.
+func ListenAllowed(netw net.Network, addr string) net.Listener fails BindRefused | net.ListenFailed | net.Denied {
+	let checked = try ValidateBindAddr(addr)
+	try netw.Listen(checked)
+}

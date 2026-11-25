@@ -1,0 +1,342 @@
+// Package boardtree is the formal state-machine model of the board server's
+// supervision tree (machines.md M10): RestForOne from the store writer,
+// OneForOne among workers after it, and an intensity window.
+type TreeMember = MWriter{} | MWaitHub{} | MReaper{} | MWorker{}
+
+// TreeAct is an action driving the board supervision tree model.
+type TreeAct =
+	| Crash{M TreeMember}
+	| Restart{}
+	| StartWait{}
+	| BeginWrite{}
+	| FinishWrite{}
+	| AcquireLease{}
+	| ExpireLease{}
+	| ReaperSweep{}
+	| JudgeClaim{}
+	| Tick{}
+
+// TreeWorld captures member liveness, wait survival, in-flight requests,
+// write durability, lease expiry across restarts, and the intensity window.
+type TreeWorld {
+	Mutant              int,
+	Up                  []bool,
+	Now                 int,
+	Recent              []int,
+	GaveUp              bool,
+	WaitActive          bool,
+	InFlight            int,
+	LogWrites           int,
+	AckedWrites         int,
+	LeaseState          int,
+	ReaperReady         bool,
+	ReaderWithoutWriter bool,
+	WaitDroppedByWorker bool,
+	RequestHung         bool,
+	WriteLost           bool,
+	ClaimedExpired      bool,
+	WriterRestarted     bool,
+	WorkerCrashKeptWait bool,
+	SweptAfterRestart   bool,
+}
+
+let btMaxRestarts = 2
+let btPeriod = 2
+let btMaxNow = 2
+let btMaxWrites = 1
+
+let btDesign = 0
+let btOneForOneWriter = 1
+let btAllForOneWorker = 2
+let btDropInFlight = 3
+let btAckBeforeSave = 4
+let btSkipReaperSweep = 5
+
+func btIdx(m TreeMember) int {
+	match m {
+	case MWriter:
+		0
+	case MWaitHub:
+		1
+	case MReaper:
+		2
+	case MWorker:
+		3
+	}
+}
+
+func btInitial(mutant int) TreeWorld {
+	TreeWorld{
+		Mutant:              mutant,
+		Up:                  []bool{true, true, true, true},
+		Now:                 0,
+		Recent:              []int{},
+		GaveUp:              false,
+		WaitActive:          false,
+		InFlight:            0,
+		LogWrites:           0,
+		AckedWrites:         0,
+		LeaseState:          0,
+		ReaperReady:         true,
+		ReaderWithoutWriter: false,
+		WaitDroppedByWorker: false,
+		RequestHung:         false,
+		WriteLost:           false,
+		ClaimedExpired:      false,
+		WriterRestarted:     false,
+		WorkerCrashKeptWait: false,
+		SweptAfterRestart:   false,
+	}
+}
+
+func btInWindow(xs []int, now int) []int {
+	let mut out = []int{}
+	for t in xs {
+		if t > now-btPeriod && t <= now {
+			out = out.Append(t)
+		}
+	}
+	out
+}
+
+func btAnyDown(up []bool) bool {
+	for u in up {
+		if !u {
+			return true
+		}
+	}
+	false
+}
+
+func btStep(s TreeWorld, act TreeAct) Decision[TreeWorld, string] {
+	let mut w = s
+	if w.GaveUp {
+		return Ignore
+	}
+	match act {
+	case Crash as c:
+		let idx = btIdx(c.M)
+		if !w.Up[idx] {
+			return Ignore
+		}
+		if idx == 0 {
+			w.Up[0] = false
+			if w.Mutant != btOneForOneWriter {
+				w.Up[3] = false
+				w.Up[2] = false
+				w.Up[1] = false
+				w.WaitActive = false
+				w.ReaperReady = false
+			}
+			if w.InFlight == 1 {
+				if w.Mutant == btDropInFlight {
+					w.RequestHung = true
+				} else {
+					w.InFlight = 3
+				}
+			}
+			if w.AckedWrites > w.LogWrites {
+				w.WriteLost = true
+			}
+			if w.Up[1] || w.Up[2] || w.Up[3] {
+				w.ReaderWithoutWriter = true
+			}
+			return Enter{w}
+		}
+		if idx == 1 {
+			w.Up[1] = false
+			w.WaitActive = false
+			return Enter{w}
+		}
+		if idx == 2 {
+			w.Up[2] = false
+			w.ReaperReady = false
+			return Enter{w}
+		}
+		w.Up[3] = false
+		if w.InFlight == 1 {
+			if w.Mutant == btDropInFlight {
+				w.RequestHung = true
+			} else {
+				w.InFlight = 3
+			}
+		}
+		if w.Mutant == btAllForOneWorker {
+			if w.WaitActive {
+				w.WaitDroppedByWorker = true
+			}
+			w.Up[1] = false
+			w.WaitActive = false
+		} else if w.WaitActive {
+			w.WorkerCrashKeptWait = true
+		}
+		return Enter{w}
+	case Restart:
+		if !btAnyDown(w.Up) {
+			return Ignore
+		}
+		let recent = btInWindow(w.Recent, w.Now)
+		if len(recent) >= btMaxRestarts {
+			w.Up = []bool{false, false, false, false}
+			w.WaitActive = false
+			w.ReaperReady = false
+			w.GaveUp = true
+			if w.InFlight == 1 {
+				w.InFlight = 3
+			}
+			return Enter{w}
+		}
+		let writerWasDown = !w.Up[0]
+		let reaperWasDown = !w.Up[2]
+		w.Up = []bool{true, true, true, true}
+		w.Recent = recent.Append(w.Now)
+		if writerWasDown {
+			w.WriterRestarted = true
+		}
+		if reaperWasDown {
+			w.ReaperReady = w.Mutant == btSkipReaperSweep
+		}
+		return Enter{w}
+	case StartWait:
+		if w.WaitActive || !w.Up[1] {
+			return Ignore
+		}
+		if !w.Up[0] {
+			w.ReaderWithoutWriter = true
+		}
+		w.WaitActive = true
+		return Enter{w}
+	case BeginWrite:
+		if w.InFlight == 1 || w.LogWrites >= btMaxWrites || !w.Up[0] || !w.Up[3] {
+			return Ignore
+		}
+		w.InFlight = 1
+		if w.Mutant == btAckBeforeSave {
+			w.AckedWrites = w.AckedWrites + 1
+		}
+		return Enter{w}
+	case FinishWrite:
+		if w.InFlight != 1 || !w.Up[0] {
+			return Ignore
+		}
+		w.LogWrites = w.LogWrites + 1
+		if w.Mutant != btAckBeforeSave {
+			w.AckedWrites = w.AckedWrites + 1
+		}
+		w.InFlight = 2
+		return Enter{w}
+	case AcquireLease:
+		if w.LeaseState != 0 || !w.Up[0] {
+			return Ignore
+		}
+		w.LeaseState = 1
+		return Enter{w}
+	case ExpireLease:
+		if w.LeaseState != 1 {
+			return Ignore
+		}
+		if w.Up[2] {
+			w.LeaseState = 0
+		} else {
+			w.LeaseState = 2
+		}
+		return Enter{w}
+	case ReaperSweep:
+		if !w.Up[2] || !w.Up[0] || (w.ReaperReady && w.LeaseState != 2) {
+			return Ignore
+		}
+		if w.LeaseState == 2 {
+			w.LeaseState = 0
+			if !w.ReaperReady {
+				w.SweptAfterRestart = true
+			}
+		}
+		w.ReaperReady = true
+		return Enter{w}
+	case JudgeClaim:
+		if !w.Up[0] || !w.Up[2] || !w.ReaperReady || w.LeaseState == 0 {
+			return Ignore
+		}
+		if w.LeaseState == 2 {
+			w.ClaimedExpired = true
+			return Enter{w}
+		}
+		return Ignore
+	case Tick:
+		if w.Now >= btMaxNow {
+			return Ignore
+		}
+		w.Now = w.Now + 1
+		w.Recent = btInWindow(w.Recent, w.Now)
+		return Enter{w}
+	}
+}
+
+func writerBeforeReaders(w TreeWorld) bool       { !w.ReaderWithoutWriter }
+func waitsSurviveAWorker(w TreeWorld) bool       { !w.WaitDroppedByWorker }
+func asksAnsweredOrStopped(w TreeWorld) bool     { !w.RequestHung }
+func noWriteLost(w TreeWorld) bool               { !w.WriteLost && w.AckedWrites <= w.LogWrites }
+func leasesExpireAcrossRestart(w TreeWorld) bool { !w.ClaimedExpired }
+
+func breaksWriterBeforeReaders(w TreeWorld) bool       { !writerBeforeReaders(w) }
+func breaksWaitsSurviveAWorker(w TreeWorld) bool       { !waitsSurviveAWorker(w) }
+func breaksAsksAnsweredOrStopped(w TreeWorld) bool     { !asksAnsweredOrStopped(w) }
+func breaksNoWriteLost(w TreeWorld) bool               { !noWriteLost(w) }
+func breaksLeasesExpireAcrossRestart(w TreeWorld) bool { !leasesExpireAcrossRestart(w) }
+
+func sawWriterRestart(w TreeWorld) bool     { w.WriterRestarted && w.Up[0] }
+func sawWorkerKeptWait(w TreeWorld) bool    { w.WorkerCrashKeptWait }
+func sawSweptAfterRestart(w TreeWorld) bool { w.SweptAfterRestart }
+func sawGaveUp(w TreeWorld) bool            { w.GaveUp }
+
+// Design proves all five M10 supervision tree properties over the finite scope.
+type Design machine[TreeWorld, TreeAct] {
+	initial: btInitial(btDesign),
+	step:    btStep,
+
+	law WriterBeforeReaders always writerBeforeReaders,
+	law WaitsSurviveAWorker always waitsSurviveAWorker,
+	law AsksAnsweredOrStopped always asksAnsweredOrStopped,
+	law NoWriteLost always noWriteLost,
+	law LeasesExpireAcrossARestart always leasesExpireAcrossRestart,
+
+	law WriterRestartsAndRecovers sometimes sawWriterRestart,
+	law WorkerCrashKeepsWait sometimes sawWorkerKeptWait,
+	law LeaseSweptAfterRestart sometimes sawSweptAfterRestart,
+	law IntensityGivesUp sometimes sawGaveUp,
+}
+
+// OneForOneWriter refutes WriterBeforeReaders when a writer crash does not stop readers.
+type OneForOneWriter machine[TreeWorld, TreeAct] {
+	initial: btInitial(btOneForOneWriter),
+	step:    btStep,
+	law Breaks sometimes breaksWriterBeforeReaders,
+}
+
+// AllForOneWorker refutes WaitsSurviveAWorker when a worker crash tears down the wait hub.
+type AllForOneWorker machine[TreeWorld, TreeAct] {
+	initial: btInitial(btAllForOneWorker),
+	step:    btStep,
+	law Breaks sometimes breaksWaitsSurviveAWorker,
+}
+
+// DropInFlight refutes AsksAnsweredOrStopped when a crash strands an in-flight request.
+type DropInFlight machine[TreeWorld, TreeAct] {
+	initial: btInitial(btDropInFlight),
+	step:    btStep,
+	law Breaks sometimes breaksAsksAnsweredOrStopped,
+}
+
+// AckBeforeSave refutes NoWriteLost when an answer precedes the durable log write.
+type AckBeforeSave machine[TreeWorld, TreeAct] {
+	initial: btInitial(btAckBeforeSave),
+	step:    btStep,
+	law Breaks sometimes breaksNoWriteLost,
+}
+
+// SkipReaperSweep refutes LeasesExpireAcrossARestart when claims run before expiry sweep.
+type SkipReaperSweep machine[TreeWorld, TreeAct] {
+	initial: btInitial(btSkipReaperSweep),
+	step:    btStep,
+	law Breaks sometimes breaksLeasesExpireAcrossRestart,
+}

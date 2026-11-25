@@ -1,0 +1,315 @@
+import github.com/cevr/ergo/modules/board/board
+import queue
+import scope
+import sync
+
+// WriterInvariantBroken is the typed defect payload raised via `die` when the
+// writer detects that committed state diverged from the event log.
+type WriterInvariantBroken {
+	Board        string,
+	ExpectedHead board.Cursor,
+	ActualHead   board.Cursor,
+	Reason       string,
+}
+
+// WriterOutcome is the settled answer of a serialized writer request.
+type WriterOutcome =
+	| WriterCommitted{Head board.Cursor, Events []board.Event}
+	| WriterRefused{Err board.Refusal}
+	| WriterStale{Err board.StalePosition}
+	| WriterStoreErr{Err board.StoreFailed}
+	| WriterClosed{Reason string}
+
+type writerKind =
+	| CommitWork{Board string, Expected board.Cursor, Events []board.Event}
+	| ExecuteWork{Cmd board.Command, Now board.Timestamp}
+	| CrashWork{Reason string}
+
+type writerWork {
+	kind  writerKind,
+	reply queue.Queue[WriterOutcome],
+}
+
+type writerState {
+	active     bool,
+	generation int,
+	inbox      Option[queue.Queue[writerWork]],
+	committed  int,
+}
+
+// Writer serializes all board.Store mutations through one supervised actor,
+// saving to the store before acknowledging callers, verifying log/projection
+// agreement with `die`, and publishing committed heads to WaitHub.
+type Writer {
+	store      board.Store,
+	hub        WaitHub,
+	trace      Option[TraceRecorder],
+	state      sync.Ref[writerState],
+	faultLatch sync.Ref[bool],
+}
+
+// NewWriter creates a Writer backed by store and hub, ready to run under
+// supervision.
+func NewWriter(store board.Store, hub WaitHub, trace Option[TraceRecorder]) Writer {
+	Writer{
+		store: store,
+		hub:   hub,
+		trace: trace,
+		state: sync.NewRef(writerState{
+			active:     false,
+			generation: 0,
+			inbox:      None,
+			committed:  0,
+		}),
+		faultLatch: sync.NewRef(false),
+	}
+}
+
+// WriterActive reports whether w is currently running.
+func WriterActive(w Writer) bool { w.state.Get().active }
+
+// WriterGeneration returns the number of writer incarnations started.
+func WriterGeneration(w Writer) int { w.state.Get().generation }
+
+// WriterCommittedCount returns the number of commits acknowledged by w.
+func WriterCommittedCount(w Writer) int { w.state.Get().committed }
+
+// InjectInvariantFault arms a one-shot invariant breach on the next writer
+// commit so tests can observe `die` and RestForOne supervision recovery.
+func InjectInvariantFault(w Writer) { w.faultLatch.Set(true) }
+
+func headOfBoard(s board.State, boardName string) board.Cursor {
+	let b = board.ResolveBoard(boardName)
+	match s.Boards.Get(b) {
+	case Some[board.BoardRecord] as rec:
+		rec.Value.Head
+	case None:
+		0
+	}
+}
+
+func answerAllPending(inbox queue.Queue[writerWork], reason string) {
+	inbox.End()
+	for {
+		let work = inbox.Pop() catch {
+		case queue.Closed:
+			return
+		}
+		work.reply.Offer(WriterClosed{Reason: reason}) catch {
+		case queue.Full, queue.Closed:
+		}
+		work.reply.End()
+	}
+}
+
+func replyWork(q queue.Queue[WriterOutcome], out WriterOutcome) {
+	q.Offer(out) catch {
+	case queue.Full, queue.Closed:
+	}
+	q.End()
+}
+
+func replyAndClear(active sync.Ref[Option[queue.Queue[WriterOutcome]]], q queue.Queue[WriterOutcome], out WriterOutcome) {
+	active.Set(None)
+	replyWork(q, out)
+}
+
+func verifyWriterInvariant(w Writer, boardName string, expectedHead board.Cursor) fails board.StoreFailed defects {
+	let snap = try w.store.Snapshot()
+	let actual = headOfBoard(snap, boardName)
+	if actual != expectedHead {
+		die WriterInvariantBroken{Board: boardName, ExpectedHead: expectedHead, ActualHead: actual, Reason: "snapshot head diverged from committed log"}
+	}
+	let inject = sync.Modify(w.faultLatch, func(armed bool) (bool, bool) { (armed, false) })
+	if inject {
+		die WriterInvariantBroken{Board: boardName, ExpectedHead: expectedHead, ActualHead: actual, Reason: "injected writer invariant breach"}
+	}
+}
+
+func recordCommitted(w Writer, evts []board.Event) {
+	match w.trace {
+	case Some[TraceRecorder] as tr:
+		for ev in evts {
+			RecordDomainEvent(tr.Value, ev)
+		}
+	case None:
+	}
+}
+
+// RunWriter runs w's single-writer actor loop until stopped or until a broken
+// invariant triggers `die`. On every exit, any queued in-flight callers receive
+// WriterClosed so no caller hangs.
+func RunWriter(w Writer, ready sync.Latch) defects {
+	let inbox = queue.New[writerWork](64)
+	let activeReply = sync.NewRef[Option[queue.Queue[WriterOutcome]]](None)
+	w.state.Update(func(st writerState) writerState {
+		writerState{
+			active:     true,
+			generation: st.generation + 1,
+			inbox:      Some[queue.Queue[writerWork]]{Value: inbox},
+			committed:  st.committed,
+		}
+	})
+	scope.OnExit() {
+		w.state.Update(func(st writerState) writerState {
+			writerState{..st, active: false, inbox: None}
+		})
+		match activeReply.Get() {
+		case Some[queue.Queue[WriterOutcome]] as q:
+			activeReply.Set(None)
+			replyWork(q.Value, WriterClosed{Reason: "writer stopped"})
+		case None:
+		}
+		answerAllPending(inbox, "writer stopped")
+	}
+	let _ = sync.Open(ready)
+
+	for {
+		let work = inbox.Pop() catch {
+		case queue.Closed:
+			return
+		}
+		activeReply.Set(Some[queue.Queue[WriterOutcome]]{Value: work.reply})
+		match work.kind {
+		case CrashWork as cw:
+			replyAndClear(activeReply, work.reply, WriterClosed{Reason: cw.Reason})
+			die WriterInvariantBroken{Board: board.DefaultBoard, ExpectedHead: 0, ActualHead: -1, Reason: cw.Reason}
+		case CommitWork as cw:
+			let head = w.store.Commit(cw.Board, cw.Expected, cw.Events) catch {
+			case board.StalePosition as sp:
+				replyAndClear(activeReply, work.reply, WriterStale{Err: sp})
+				continue
+			case board.StoreFailed as sf:
+				replyAndClear(activeReply, work.reply, WriterStoreErr{Err: sf})
+				continue
+			}
+			verifyWriterInvariant(w, cw.Board, head) catch {
+			case board.StoreFailed as sf:
+				replyAndClear(activeReply, work.reply, WriterStoreErr{Err: sf})
+				continue
+			}
+			let committed = w.store.ReadEvents(cw.Board, cw.Expected) catch {
+			case board.StoreFailed:
+				cw.Events
+			}
+			recordCommitted(w, committed)
+			w.state.Update(func(st writerState) writerState {
+				writerState{..st, committed: st.committed + 1}
+			})
+			Publish(w.hub, cw.Board, head)
+			replyAndClear(activeReply, work.reply, WriterCommitted{Head: head, Events: committed})
+		case ExecuteWork as ew:
+			let snap = w.store.Snapshot() catch {
+			case board.StoreFailed as sf:
+				replyAndClear(activeReply, work.reply, WriterStoreErr{Err: sf})
+				continue
+			}
+			let b = board.BoardOfCommand(ew.Cmd)
+			let expected = headOfBoard(snap, b)
+			let evts = board.Decide(snap, ew.Cmd, ew.Now) catch {
+			case board.Refusal as r:
+				replyAndClear(activeReply, work.reply, WriterRefused{Err: r})
+				continue
+			}
+			if len(evts) == 0 {
+				replyAndClear(activeReply, work.reply, WriterCommitted{Head: expected, Events: []board.Event{}})
+				continue
+			}
+			let head = w.store.Commit(b, expected, evts) catch {
+			case board.StalePosition as sp:
+				replyAndClear(activeReply, work.reply, WriterStale{Err: sp})
+				continue
+			case board.StoreFailed as sf:
+				replyAndClear(activeReply, work.reply, WriterStoreErr{Err: sf})
+				continue
+			}
+			verifyWriterInvariant(w, b, head) catch {
+			case board.StoreFailed as sf:
+				replyAndClear(activeReply, work.reply, WriterStoreErr{Err: sf})
+				continue
+			}
+			let committed = w.store.ReadEvents(b, expected) catch {
+			case board.StoreFailed:
+				evts
+			}
+			recordCommitted(w, committed)
+			w.state.Update(func(st writerState) writerState {
+				writerState{..st, committed: st.committed + 1}
+			})
+			Publish(w.hub, b, head)
+			replyAndClear(activeReply, work.reply, WriterCommitted{Head: head, Events: committed})
+		}
+	}
+}
+
+func sendWork(w Writer, kind writerKind) WriterOutcome {
+	let inbox = match w.state.Get().inbox {
+	case Some[queue.Queue[writerWork]] as q:
+		q.Value
+	case None:
+		return WriterClosed{Reason: "writer is not running"}
+	}
+	let reply = queue.New[WriterOutcome](1)
+	inbox.Push(writerWork{kind: kind, reply: reply}) catch {
+	case queue.Closed:
+		return WriterClosed{Reason: "writer stopped before accepting request"}
+	}
+	reply.Pop() catch {
+	case queue.Closed:
+		WriterClosed{Reason: "writer stopped before answering"}
+	}
+}
+
+// WriterCommit submits a conditional Commit through the serialized writer actor.
+func WriterCommit(w Writer, boardName string, expected board.Cursor, events []board.Event) board.Cursor fails board.StalePosition | board.StoreFailed {
+	match sendWork(w, CommitWork{Board: boardName, Expected: expected, Events: events}) {
+	case WriterCommitted as c:
+		c.Head
+	case WriterStale as s:
+		return s.Err
+	case WriterStoreErr as e:
+		return e.Err
+	case WriterRefused:
+		return board.StoreFailed{Reason: "unexpected refusal on raw commit"}
+	case WriterClosed as cl:
+		return board.StoreFailed{Reason: cl.Reason}
+	}
+}
+
+// WriterExecute runs Decide and Commit atomically inside one turn of the
+// serialized writer actor so racing commands (such as two claimers) cannot
+// interleave between read and write.
+func WriterExecute(w Writer, cmd board.Command, now board.Timestamp) WriterOutcome {
+	sendWork(w, ExecuteWork{Cmd: cmd, Now: now})
+}
+
+// TriggerWriterCrash sends a crash command causing the active writer actor to
+// fail via `die` so supervision restarts it cleanly.
+func TriggerWriterCrash(w Writer, reason string) WriterOutcome {
+	sendWork(w, CrashWork{Reason: reason})
+}
+
+// WriterStore adapts a supervised Writer into the provider-neutral board.Store
+// interface so board.NewHandler routes every write through the writer actor.
+type WriterStore {
+	writer Writer,
+} implements board.Store
+
+// NewWriterStore returns a board.Store backed by writer.
+func NewWriterStore(writer Writer) WriterStore { WriterStore{writer: writer} }
+
+func Commit(s WriterStore, boardName string, expected board.Cursor, events []board.Event) board.Cursor fails board.StalePosition | board.StoreFailed {
+	try WriterCommit(s.writer, boardName, expected, events)
+}
+
+func ReadEvents(s WriterStore, boardName string, after board.Cursor) []board.Event fails board.StoreFailed {
+	try s.writer.store.ReadEvents(boardName, after)
+}
+
+func Snapshot(s WriterStore) board.State fails board.StoreFailed {
+	try s.writer.store.Snapshot()
+}
+
+func Search(s WriterStore, q board.SearchQuery) []board.SearchHit fails board.StoreFailed {
+	try s.writer.store.Search(q)
+}
