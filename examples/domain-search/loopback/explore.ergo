@@ -1,0 +1,228 @@
+import domain-search/domains
+import domain-search/domains/domainsapi
+import domain-search/domains/domainsrpc
+import domain-search/sample
+import domain-search/server
+import gen
+import http
+import json
+import rpc
+import sync
+import testing
+
+// TrackedRegistry wraps sample.Sample, rejecting a configured blocked label
+// with domains.Down before committing to its count of answered searches.
+type TrackedRegistry {
+	blocked   string,
+	committed sync.Ref[int],
+} implements domains.Registry
+
+// NewTrackedRegistry builds a TrackedRegistry that refuses blocked with Down
+// and counts committed successful searches.
+func NewTrackedRegistry(blocked string) TrackedRegistry {
+	TrackedRegistry{blocked: blocked, committed: sync.NewRef[int](0)}
+}
+
+// Committed returns how many valid SearchDomains calls r has committed.
+func Committed(r TrackedRegistry) int {
+	r.committed.Get()
+}
+
+// SearchDomains validates label against r.blocked before running sample.Sample
+// and commits to r.committed only after validation succeeds.
+func SearchDomains(r TrackedRegistry, label domains.Label, offset json.Optional[domains.Offset], limit json.Optional[domains.Limit]) []domains.Listing fails domains.Down {
+	if string(label) == r.blocked {
+		return domains.Down
+	}
+	let out = try sample.Sample.SearchDomains(label, offset, limit)
+	r.committed.Update(func(n int) int { n + 1 })
+	out
+}
+
+let exploreLabels = []domains.Label{"acme", "foldkit", "google", "blocked", "x9", "a-b"}
+
+func drawRegistryRequest() domainsapi.Request needs gen.Draws {
+	let label = gen.OneOf(exploreLabels)
+	let offset json.Optional[domains.Offset] = if gen.Bool() {
+		let o = domains.ParseOffset(gen.IntIn(0, 80)) catch {
+		case Unsatisfied:
+			0
+		}
+		json.Present[domains.Offset]{Value: o}
+	} else {
+		json.Absent
+	}
+	let limit json.Optional[domains.Limit] = if gen.Bool() {
+		let n = domains.ParseLimit(gen.IntIn(1, 20)) catch {
+		case Unsatisfied:
+			1
+		}
+		json.Present[domains.Limit]{Value: n}
+	} else {
+		json.Absent
+	}
+	domainsapi.SearchDomainsRequest{Label: label, Offset: offset, Limit: limit}
+}
+
+func registryFold(blocked string, s int, req domainsapi.Request) (int, domainsapi.Outcome) {
+	match req {
+	case domainsapi.SearchDomainsRequest as x:
+		if string(x.Label) == blocked {
+			return (s, domainsapi.Rejected{Failure: domainsapi.Down{E: domains.Down}})
+		}
+		let out = sample.Sample.SearchDomains(x.Label, x.Offset, x.Limit) catch {
+		case domains.Down as e:
+			return (s, domainsapi.Rejected{Failure: domainsapi.Down{E: e}})
+		}
+		(s + 1, domainsapi.Done{Reply: domainsapi.SearchDomainsReply{Value: out}})
+	}
+}
+
+type rpcExitOutcome = Success{Value []domains.Listing} | Failure{Cause json.Value}
+
+type rpcExitFrame = Exit{RequestId json.Value, Exit rpcExitOutcome} | Defect{Defect json.Value}
+
+func carryOverHttpServer(reg domains.Registry, req domainsapi.Request) domainsapi.Outcome fails testing.Refused {
+	let payload = match req {
+	case domainsapi.SearchDomainsRequest as x:
+		rpc.Encode(x)
+	}
+	let envelope = "{\"_tag\":\"Request\",\"id\":1,\"tag\":\"SearchDomains\",\"payload\":" + payload + ",\"traceId\":\"00000000000000000000000000000001\",\"spanId\":\"0000000000000001\",\"sampled\":true,\"headers\":[]}"
+	let httpReq = http.Request{
+		Method:  "POST",
+		Path:    server.Mount(),
+		RawPath: server.Mount(),
+		Query:   []http.Field{},
+		Header:  []http.Field{http.Field{Name: "Content-Type", Value: "application/json"}},
+		Body:    http.Buffered{Text: envelope},
+	}
+	let resp = with context { domains.Registry: reg, http.Streaming: http.NewRecorder() } {
+		server.Answer(httpReq)
+	}
+	if resp.Status != 200 {
+		return testing.Refused{Why: "http status \(resp.Status)"}
+	}
+	let frames = rpc.Decode[[]rpcExitFrame]("http response", resp.Body) catch {
+	case rpc.Transport as t:
+		return testing.Refused{Why: t.Reason}
+	}
+	if len(frames) != 1 {
+		return testing.Refused{Why: "unexpected frame count \(len(frames))"}
+	}
+	match frames[0] {
+	case Exit as ex:
+		match ex.Exit {
+		case Success as ok:
+			domainsapi.Done{Reply: domainsapi.SearchDomainsReply{Value: ok.Value}}
+		case Failure:
+			domainsapi.Rejected{Failure: domainsapi.Down{E: domains.Down}}
+		}
+	case Defect:
+		testing.Refused{Why: "server defect frame"}
+	}
+}
+
+// ExploreRegistryTransports: drawn SearchDomains call sequences through the
+// direct hub, generated RPC Wire, and HTTP server agree step-for-step with the
+// pure registry fold in both wire Outcome and committed server state.
+law ExploreRegistryTransports(seed int) {
+	let s = (seed%50 + 50) % 50
+	let cfg = gen.Config{Seed: uint64(s + 1), Cases: 5, Shrinks: 0, MaxDraws: 512, MaxRejected: 10}
+	let blocked = "blocked"
+	let model = testing.ApiModel[int, domainsapi.Request, domainsapi.Outcome]{
+		Start: 0,
+		Offer: func(cur int) domainsapi.Request needs gen.Draws {
+			let _ = cur
+			drawRegistryRequest()
+		},
+		Fold: func(cur int, req domainsapi.Request) (int, domainsapi.Outcome) {
+			registryFold(blocked, cur, req)
+		},
+	}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let hubReg = NewTrackedRegistry(blocked)
+		let rpcReg = NewTrackedRegistry(blocked)
+		let httpReg = NewTrackedRegistry(blocked)
+		let runners = []testing.TransportRunner[domainsapi.Request, domainsapi.Outcome, int]{
+			testing.TransportRunner[domainsapi.Request, domainsapi.Outcome, int]{
+				Name:  "hub",
+				Carry: func(c domainsapi.Request) domainsapi.Outcome fails testing.Refused {
+					with context { domains.Registry: hubReg } { domainsapi.Call(c) }
+				},
+				Snap: func() int { Committed(hubReg) },
+			},
+			testing.TransportRunner[domainsapi.Request, domainsapi.Outcome, int]{
+				Name:  "rpc",
+				Carry: func(c domainsapi.Request) domainsapi.Outcome fails testing.Refused {
+					try testing.CarryTransport(domainsrpc.Wire, c, func(r domainsapi.Request) domainsapi.Outcome {
+						with context { domains.Registry: rpcReg } { domainsapi.Call(r) }
+					})
+				},
+				Snap: func() int { Committed(rpcReg) },
+			},
+			testing.TransportRunner[domainsapi.Request, domainsapi.Outcome, int]{
+				Name:  "http-rpc",
+				Carry: func(c domainsapi.Request) domainsapi.Outcome fails testing.Refused {
+					try carryOverHttpServer(httpReg, c)
+				},
+				Snap: func() int { Committed(httpReg) },
+			},
+		}
+		testing.ExploreTransports(model, runners, 6) catch {
+		case testing.TransportDiverged[domainsapi.Request, int], testing.Refused:
+			return false
+		}
+		true
+	})
+	match outcome {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}
+
+func drawWireRegistryRequest() domainsapi.Request needs gen.Draws {
+	let label = gen.OneOf(exploreLabels)
+	let offset json.Optional[domains.Offset] = if gen.Bool() {
+		let o = domains.ParseOffset(gen.IntIn(0, 80)) catch {
+		case Unsatisfied:
+			0
+		}
+		json.Present[domains.Offset]{Value: o}
+	} else {
+		json.Absent
+	}
+	let n = domains.ParseLimit(gen.IntIn(1, 6)) catch {
+	case Unsatisfied:
+		1
+	}
+	domainsapi.SearchDomainsRequest{Label: label, Offset: offset, Limit: json.Present[domains.Limit]{Value: n}}
+}
+
+// GeneratedClientWireRoundTrips: drawn SearchDomains requests and outcomes
+// round-trip through JSON codecs, ignore unknown object members cleanly, and
+// refuse undeclared union tags.
+law GeneratedClientWireRoundTrips(seed int) {
+	let s = (seed%50 + 50) % 50
+	let cfg = gen.Config{Seed: uint64(s + 1), Cases: 3, Shrinks: 0, MaxDraws: 512, MaxRejected: 10}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let req = drawWireRegistryRequest()
+		let (_, out) = registryFold("blocked", 0, req)
+		let extra = gen.OneOf([]string{"v1", "extra", "future"})
+			testing.WireRoundTrips(req) &&
+			testing.WireRoundTrips(out) &&
+			testing.WireIgnoresUnknownField(req, "__extra_client_field", extra) &&
+			testing.WireIgnoresUnknownField(out, "__extra_server_field", extra) &&
+			testing.WireRefusesUnknownTag[domainsapi.Request]("UnknownOpRequest") &&
+			testing.WireRefusesUnknownTag[domainsapi.Outcome]("UnknownOutcomeTag")
+	})
+	let absentReq domainsapi.Request = domainsapi.SearchDomainsRequest{Label: "acme", Offset: json.Absent, Limit: json.Absent}
+	let held = match outcome {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+	held && testing.WireRoundTrips(absentReq) && testing.WireIgnoresUnknownField(absentReq, "__extra_absent", "ok")
+}

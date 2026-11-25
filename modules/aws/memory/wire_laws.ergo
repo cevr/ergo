@@ -1,0 +1,100 @@
+import gen
+import github.com/cevr/ergo/modules/aws/aws
+import github.com/cevr/ergo/modules/aws/s3
+import http
+import strings
+import sync
+
+func drawS3Key() string needs gen.Draws {
+	let seg1 = gen.OneOf([]string{"alpha", "dir", "a-b", "v1"})
+	if gen.Bool() {
+		let seg2 = gen.OneOf([]string{"item.txt", "nested/file", "doc 1"})
+		seg1 + "/" + seg2
+	} else {
+		seg1
+	}
+}
+
+func drawS3WireRequest() s3.PutObjectRequest needs gen.Draws {
+	let key = drawS3Key()
+	let body = gen.OneOf([]string{"", "hello", "line1\nline2", "payload-42"})
+	let ct = gen.OneOf([]string{"text/plain", "application/json", "application/octet-stream"})
+	let metaVal = gen.OneOf([]string{"one", "two", "note"})
+	s3.PutObjectRequest{
+		..s3.NewPutObjectRequest("wire-bucket", key),
+		Body:        body,
+		ContentType: Some[string]{ct},
+		Metadata:    Map[string, string]{"Author": metaVal},
+	}
+}
+
+func handlerWithExtras(m Memory, unknownTier string) func(http.Request) http.Response needs http.Streaming {
+	func(r http.Request) http.Response needs http.Streaming {
+		let resp = answer(m, r)
+		if resp.Status == 200 && (r.Method == "HEAD" || r.Method == "GET") {
+			let extra = resp.Header.Append(http.Field{Name: "X-Amz-Future-Unknown", Value: "ignored"}).Append(http.Field{Name: "x-amz-storage-class", Value: unknownTier})
+			return http.Response{..resp, Header: extra}
+		}
+		if resp.Status == 404 && r.Method == "GET" {
+			let body = strings.ReplaceAll(resp.Body, "</Error>", "<FutureField>ignored</FutureField></Error>")
+			return http.Response{..resp, Body: body}
+		}
+		resp
+	}
+}
+
+// S3ClientWireLaws: over drawn S3 requests, the generated client round-trips
+// greedy keys, payloads, Content-Type, and user metadata across HTTP, ignores
+// unknown response headers and XML error elements cleanly, and preserves
+// unknown x-amz-storage-class values in StorageClassOther as declared.
+law S3ClientWireLaws(seed int) {
+	let s = (seed%50 + 50) % 50
+	let cfg = gen.Config{Seed: uint64(s + 1), Cases: 20, Shrinks: 0, MaxDraws: 512, MaxRejected: 10}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let req = drawS3WireRequest()
+		let tier = gen.OneOf([]string{"FUTURE_ARCHIVE", "CUSTOM_TIER_X"})
+		let client = s3.New(http.InMemory(handlerWithExtras(NewMemory(), tier)), aws.Unsigned)
+		let putOut = client.PutObject(req) catch {
+		case _:
+			return false
+		}
+		let headOut = client.HeadObject(s3.NewHeadObjectRequest(req.Bucket, req.Key)) catch {
+		case _:
+			return false
+		}
+		let gotBody = sync.NewRef[string]("")
+		let getOut = client.GetObject(s3.NewGetObjectRequest(req.Bucket, req.Key), func(part string) fails http.SinkFailed {
+			gotBody.Update(func(acc string) string { acc + part })
+		}) catch {
+		case _:
+			return false
+		}
+		let wantClass = Some[s3.StorageClass]{s3.StorageClassOther{Value: tier}}
+		let roundTripped = headOut.ETag == putOut.ETag &&
+			headOut.ContentType == req.ContentType &&
+			headOut.ContentLength == Some[int]{len(req.Body)} &&
+			headOut.StorageClass == wantClass &&
+			getOut.ContentType == req.ContentType &&
+			getOut.StorageClass == wantClass &&
+			getOut.Metadata.Get("author") == req.Metadata.Get("Author") &&
+			gotBody.Get() == req.Body
+		if !roundTripped {
+			return false
+		}
+		let _ = client.GetObject(s3.NewGetObjectRequest(req.Bucket, "missing-"+req.Key), func(part string) fails http.SinkFailed {
+			let _ = part
+		}) catch {
+		case s3.NoSuchKey:
+			return true
+		case _:
+			return false
+		}
+		false
+	})
+	match outcome {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}

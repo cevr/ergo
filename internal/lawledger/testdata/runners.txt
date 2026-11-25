@@ -882,6 +882,7 @@ term ScriptPlaysKeys	TestTermLaws
 term ScriptResizes	TestTermLaws
 testing AgreesAndChecksTemporal	TestStdTestingModelLawsRun
 testing Allocs.EmptyCallIsZero	TestAllocsLaws
+testing ApiExploreCatchesDroppedFieldAndEarlyCommit	TestStdTestingModelLawsRun
 testing DivergenceIsFoundAndReplays	TestStdTestingModelLawsRun
 testing HeldCallWaitsForRelease	TestStdLawsRun
 testing IdleOnlyAdvance	none
@@ -895,6 +896,7 @@ testing StopAfterStopsAtD	TestStdLawsRun
 testing StoryStepsBeforeStage	TestStdTestingModelLawsRun
 testing Stage.SettleIsIdempotent	TestStdActorLawsRun
 testing Stage.ShowIsStable	TestStdActorLawsRun
+testing WireRoundTripAndUnknownFieldLaws	TestStdTestingModelLawsRun
 testing WorldSharesEachPair	TestStdLawsRun
 testing WorldsAreFresh	TestStdLawsRun
 text CellsAddOverClusters	TestStdTextWidthLaws

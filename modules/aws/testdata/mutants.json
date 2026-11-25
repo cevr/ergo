@@ -56,6 +56,14 @@
       "to": "\tlet signed = r.inner.Sign(q)\n\tr.log.Update(func(rs []http.Request) []http.Request { rs.Append(signed) })\n\tsigned\n",
       "rule": "A recording sits above the signer, so it holds no signature: RecordingSitsAboveTheSigner (here the recording keeps the signed request).",
       "anchor": {"tests": ["examples:modules/aws"]}, "killers": ["examples:modules/aws"]
+    },
+    {
+      "name": "aws-wire-unknown-storage-class-dropped", "origin": "wf10 PROPERTY-TESTING P7",
+      "file": "modules/aws/s3/s3.ergo",
+      "from": "\tStorageClassOther{Value: s}",
+      "to": "\tStorageClassStandard",
+      "rule": "An unknown x-amz-storage-class wire value is kept as StorageClassOther as declared; dropping it to StorageClassStandard fails S3ClientWireLaws.",
+      "anchor": {"tests": ["examples:modules/aws"]}, "killers": ["examples:modules/aws"]
     }
   ]
 }
