@@ -12,6 +12,9 @@
 // extern is unexported, so a program starts a
 // process only through a Host it was given or made under Ambient.
 
+import core
+import option
+import os
 import slices
 import strconv
 import strings
@@ -104,9 +107,9 @@ law WithEnvFromKeepsOwn(key string, own string, inherited string, other string) 
 	let c = New("x", []string{}).WithEnv(key, own)
 	let mut env = Map[string, string]{}
 	env[key] = inherited
-	env[key + "_"] = other
+	env[key+"_"] = other
 	let d = c.WithEnvFrom(env)
-	d.Env.Get(key) == Some[string]{Value: own} && d.Env.Get(key + "_") == Some[string]{Value: other} && len(d.Env) == 2
+	d.Env.Get(key) == option.Some[string]{Value: own} && d.Env.Get(key+"_") == option.Some[string]{Value: other} && d.Env.Len() == 2
 }
 
 // WithDir is c run in the working directory dir.
@@ -120,7 +123,7 @@ func WithStdin(c Command, text string) Command { Command{..c, Stdin: text} }
 // program holds a NUL byte (the host refuses one), so two commands have one
 // Key exactly when their names and arguments are equal.
 func Key(c Command) string {
-	let mut parts = slices.WithCapacity[string](len(c.Args) + 1)
+	let mut parts = slices.WithCapacity[string](c.Args.Len() + 1)
 	parts = parts.Append(c.Name)
 	for a in c.Args {
 		parts = parts.Append(a)
@@ -131,7 +134,7 @@ func Key(c Command) string {
 // WithEnvOverrides: a second entry of one key wins.
 law WithEnvOverrides(key string, first string, second string) {
 	let c = New("x", []string{}).WithEnv(key, first).WithEnv(key, second)
-	c.Env.Get(key) == Some[string]{Value: second}
+	c.Env.Get(key) == option.Some[string]{Value: second}
 }
 
 // WithEnvKeepsTheOriginal: WithEnv changes a copy, never the command it is
@@ -139,7 +142,7 @@ law WithEnvOverrides(key string, first string, second string) {
 law WithEnvKeepsTheOriginal(key string, first string, second string) {
 	let c = New("x", []string{}).WithEnv(key, first)
 	let d = c.WithEnv(key, second)
-	c.Env.Get(key) == Some[string]{Value: first} && d.Env.Get(key) == Some[string]{Value: second}
+	c.Env.Get(key) == option.Some[string]{Value: first} && d.Env.Get(key) == option.Some[string]{Value: second}
 }
 
 // Split is the lines of text as Lines gives them: each without its line
@@ -150,7 +153,7 @@ func Split(text string) []string {
 	}
 	let parts = strings.Split(text, "\n")
 	if strings.HasSuffix(text, "\n") {
-		return slices.Slice(parts, 0, len(parts)-1)
+		return slices.Slice(parts, 0, parts.Len()-1)
 	}
 	parts
 }
@@ -207,7 +210,7 @@ extern go ergo.local/prototype/runtime/v1/exec.ExecChunk type Chunk { Text strin
 // are TestExecStreams.
 extern go ergo.local/prototype/runtime/v1/exec.Running type Running {
 	runtimeOnly(),
-	..Closer,
+	..core.Closer,
 	// Lines gives the lines of the streams whose sink is ToCaller, each
 	// without its line feed, in the order their line feeds come, until both
 	// end; a last line with no line feed comes at its stream's end. It
@@ -215,7 +218,7 @@ extern go ergo.local/prototype/runtime/v1/exec.Running type Running {
 	// or a stop leaves the bytes read and not given for the next Lines or
 	// Chunks; after Wait it gives none.
 	// seq-exempt: Running is law-exempt (its lines come from a program, which a law cannot generate); TestRunningMatchesModel (runtime/v1/exec) holds Lines over chunks cut anywhere, a break and the bytes it leaves for Chunks, and the stop of a reader against its model, and lower TestExecStartRuns a break on the host (a follower).
-	Lines() Seq[Line],
+	Lines() core.Seq[Line],
 	// Chunks gives the bytes of the streams whose sink is ToCaller as they
 	// are read, with no wait for a line feed, each stream's in its order,
 	// then an empty Chunk at each stream's end, until both end. A full
@@ -224,7 +227,7 @@ extern go ergo.local/prototype/runtime/v1/exec.Running type Running {
 	// Chunk where it goes and keep it. A break leaves the rest for the next
 	// Chunks; after Wait it gives none.
 	// seq-exempt: Running is law-exempt (its bytes come from a program, which a law cannot generate); TestRunningMatchesModel (runtime/v1/exec) holds the bytes of each stream as they come and at the end, a break and the stop of a reader against its model, and lower TestExecStartRuns a tee on the host.
-	Chunks() Seq[Chunk],
+	Chunks() core.Seq[Chunk],
 	// Wait waits for the program's end and gives its status, 128 plus the
 	// signal's number for a program a signal ended. It drops the bytes not
 	// read yet. A stop of the caller ends the wait; the program then runs
@@ -250,9 +253,9 @@ extern go ergo.local/prototype/runtime/v1/exec.Running type Running {
 //	case timeout.Expired:
 //		p.Stop()
 //	}
-func WaitFor(p Running, d duration) int fails timeout.Expired needs Scheduler { try waitFor(p, d) }
+func WaitFor(p Running, d duration) int fails timeout.Expired needs time.Scheduler { try waitFor(p, d) }
 
-extern go ergo.local/prototype/runtime/v1/exec.ExecWaitFor func waitFor(p Running, d duration) int fails timeout.Expired needs Scheduler
+extern go ergo.local/prototype/runtime/v1/exec.ExecWaitFor func waitFor(p Running, d duration) int fails timeout.Expired needs time.Scheduler
 
 // WaitForEndedGivesStatus: a program that has ended gives the status Wait
 // gives, never Expired, whatever the deadline. A Script's Running has
@@ -265,7 +268,7 @@ law WaitForEndedGivesStatus(status int, d int64) {
 	case NotFound, Denied, Failed:
 		return false
 	}
-	with context { Scheduler: time.NewManual(0) } {
+	with context { time.Scheduler: time.NewManual(0) } {
 		let code = p.WaitFor(duration(d)) catch {
 		case timeout.Expired:
 			return false
@@ -358,7 +361,7 @@ type Runner {
 				out = out + w.Text
 			}
 		}
-		r.Stdout == out && r.Stderr == errs && r.Status == (sh.Status % 256 + 256) % 256
+		r.Stdout == out && r.Stderr == errs && r.Status == (sh.Status%256+256)%256
 	},
 
 	// NotFoundNamesTheProgram: a program that is not found is named by its
@@ -386,7 +389,7 @@ type Runner {
 		// AWKLIBPATH. Set them explicitly so the probe adds no entries.
 		let mut c = New("/usr/bin/awk", []string{probe}).WithEnv("LC_ALL", "C").WithEnv("AWKPATH", ".").WithEnv("AWKLIBPATH", ".").WithEnv("V_LINE", "one\ntwo")
 		for i, v in values {
-			c = c.WithEnv("V" + strconv.Itoa(i), strings.ReplaceAll(v, "\x00", ""))
+			c = c.WithEnv("V"+strconv.Itoa(i), strings.ReplaceAll(v, "\x00", ""))
 		}
 		let r = Run(c) catch {
 		case NotFound, Denied, Failed:
@@ -404,7 +407,7 @@ type Runner {
 	// where neither the Command nor the Runner's Env names a PATH, sh is
 	// not found.
 	law LookupUsesChildPath() {
-		if Env().Get("PATH") != None {
+		if Env().Get("PATH") != option.None {
 			return true
 		}
 		Run(New("sh", []string{"-c", "exit 0"})) catch {
@@ -429,7 +432,7 @@ let TestHostKeys = []string{"GIT_CEILING_DIRECTORIES", "HOME", "TMPDIR"}
 func envReportMatches(report string, want []string) bool {
 	let mut rest = report
 	let mut got = []string{}
-	for _ in 0..len(report) {
+	for _ in 0..report.Len() {
 		if rest == "" {
 			break
 		}
@@ -442,17 +445,17 @@ func envReportMatches(report string, want []string) bool {
 		case strconv.Malformed, strconv.OutOfRange:
 			return false
 		}
-		let valLen = strconv.Atoi(rest[space + 1:end]) catch {
+		let valLen = strconv.Atoi(rest[space+1 : end]) catch {
 		case strconv.Malformed, strconv.OutOfRange:
 			return false
 		}
-		let payload = rest[end + 1:]
-		if keyLen <= 0 || keyLen > len(payload) || valLen < 0 || valLen > len(payload) - keyLen {
+		let payload = rest[end+1:]
+		if keyLen <= 0 || keyLen > payload.Len() || valLen < 0 || valLen > payload.Len()-keyLen {
 			return false
 		}
-		let value = payload[keyLen:keyLen + valLen]
+		let value = payload[keyLen : keyLen+valLen]
 		got = got.Append(payload[:keyLen] + "=" + value)
-		rest = payload[keyLen + valLen:]
+		rest = payload[keyLen+valLen:]
 	}
 	slices.Equal(slices.Sort(got), slices.Sort(want))
 }
@@ -462,22 +465,22 @@ func envReportMatches(report string, want []string) bool {
 // of the program's two streams (StartMergedInterleavesRun). It takes
 // time len(a) times len(b).
 func Interleaves(s string, a string, b string) bool {
-	if len(s) != len(a)+len(b) {
+	if s.Len() != a.Len()+b.Len() {
 		return false
 	}
 	// ok[j] is whether s's first i+j bytes merge a's first i and b's first
 	// j, for the row i.
 	let mut ok = []bool{}
-	for j in 0..len(b)+1 {
+	for j in 0..b.Len()+1 {
 		ok = ok.Append(j == 0 || ok[j-1] && b[j-1] == s[j-1])
 	}
-	for i in 1..len(a)+1 {
+	for i in 1..a.Len()+1 {
 		ok[0] = ok[0] && a[i-1] == s[i-1]
-		for j in 1..len(b)+1 {
+		for j in 1..b.Len()+1 {
 			ok[j] = (ok[j] && a[i-1] == s[i+j-1]) || (ok[j-1] && b[j-1] == s[i+j-1])
 		}
 	}
-	ok[len(b)]
+	ok[b.Len()]
 }
 
 // InterleavesMatchesModel: Interleaves agrees with a search written apart
@@ -493,7 +496,7 @@ law InterleavesMatchesModel(a string, b string, picks []bool, t string) {
 }
 
 // upTo5 is s's first 5 bytes at most, so merged's search stays small.
-func upTo5(s string) string { if len(s) < 5 { s } else { strings.Slice(s, 0, 5) } }
+func upTo5(s string) string { if s.Len() < 5 { s } else { strings.Slice(s, 0, 5) } }
 
 // pickMerge is a and b merged, each in its order: the next byte from a
 // when picks says so (cycling) or b is used up.
@@ -501,8 +504,8 @@ func pickMerge(a string, b string, picks []bool) string {
 	let mut s = ""
 	let mut i = 0
 	let mut j = 0
-	for k in 0..len(a)+len(b) {
-		let fromA = j == len(b) || (i < len(a) && len(picks) > 0 && picks[k%len(picks)])
+	for k in 0..a.Len()+b.Len() {
+		let fromA = j == b.Len() || (i < a.Len() && picks.Len() > 0 && picks[k%picks.Len()])
 		if fromA {
 			s = s + strings.Slice(a, i, i+1)
 			i = i + 1
@@ -516,10 +519,10 @@ func pickMerge(a string, b string, picks []bool) string {
 
 // swapFirst is s with its first two bytes swapped.
 func swapFirst(s string) string {
-	if len(s) < 2 {
+	if s.Len() < 2 {
 		return s
 	}
-	strings.Slice(s, 1, 2) + strings.Slice(s, 0, 1) + strings.Slice(s, 2, len(s))
+	strings.Slice(s, 1, 2) + strings.Slice(s, 0, 1) + strings.Slice(s, 2, s.Len())
 }
 
 // merged is Interleaves' model, written apart from it: the first byte of
@@ -534,8 +537,8 @@ func merged(s string, a string, b string) bool {
 	if s == "" {
 		return false
 	}
-	let rest = strings.Slice(s, 1, len(s))
-	(s[0] == a[0] && merged(rest, strings.Slice(a, 1, len(a)), b)) || (s[0] == b[0] && merged(rest, a, strings.Slice(b, 1, len(b))))
+	let rest = strings.Slice(s, 1, s.Len())
+	(s[0] == a[0] && merged(rest, strings.Slice(a, 1, a.Len()), b)) || (s[0] == b[0] && merged(rest, a, strings.Slice(b, 1, b.Len())))
 }
 
 // Shell is a program for the Runner laws that exists on every host: sh
@@ -556,13 +559,13 @@ func ShellCommand(sh Shell) Command {
 	let mut script = ""
 	for w in sh.Writes {
 		let mut format = ""
-		for k in 0..len(w.Text) {
+		for k in 0..w.Text.Len() {
 			let b = int(w.Text[k])
-			format = format + "\\" + octal(b / 64) + octal(b / 8 % 8) + octal(b % 8)
+			format = format + "\\" + octal(b/64) + octal(b/8%8) + octal(b%8)
 		}
 		script = script + "printf '" + format + "'" + (if w.Stderr { " >&2" } else { "" }) + "\n"
 	}
-	let status = (sh.Status % 256 + 256) % 256
+	let status = (sh.Status%256 + 256) % 256
 	New("/bin/sh", []string{"-c", script + "exit " + strconv.Itoa(status)})
 }
 
@@ -658,7 +661,7 @@ func Spawn(p Processes, c Command, s Streams) Detached fails NotFound | Denied |
 // Alive reports that d names a live entry: its pid holds d's Name and d's
 // Start is that pid's.
 func Alive(p Processes, d Detached) bool {
-	d.Start == int64(d.Pid) && p.live.Get().Get(d.Pid) == Some[string]{Value: d.Name}
+	d.Start == int64(d.Pid) && p.live.Get().Get(d.Pid) == option.Some[string]{Value: d.Name}
 }
 
 // Kill removes d's entry, if it is there.
@@ -677,9 +680,9 @@ type Script { Results Map[string, Result] } implements Runner
 // Run is the Result recorded for c, or NotFound.
 func Run(s Script, c Command) Result fails NotFound | Denied | Failed {
 	match s.Results.Get(Key(c)) {
-	case Some[Result] as hit:
+	case option.Some[Result] as hit:
 		return hit.Value
-	case None:
+	case option.None:
 		return NotFound{Name: c.Name}
 	}
 }
@@ -696,9 +699,9 @@ func Start(s Script, c Command, st Streams) Running fails NotFound | Denied | Fa
 		return Failed{Name: c.Name, Reason: toItself}
 	}
 	match s.Results.Get(Key(c)) {
-	case Some[Result] as hit:
+	case option.Some[Result] as hit:
 		return Ended(hit.Value, st)
-	case None:
+	case option.None:
 		return NotFound{Name: c.Name}
 	}
 }
@@ -716,7 +719,7 @@ func Start(s Script, c Command, st Streams) Running fails NotFound | Denied | Fa
 func Ended(r Result, s Streams) Running {
 	let mut cs = []Chunk{}
 	if toCaller(s.Stdout) && toStdout(s.Stderr) {
-		return replay(whole(cs, r.Stdout + r.Stderr, false), r.Status, true)
+		return replay(whole(cs, r.Stdout+r.Stderr, false), r.Status, true)
 	}
 	if toCaller(s.Stdout) {
 		cs = whole(cs, r.Stdout, false)
@@ -792,7 +795,7 @@ type Host { root string, base Map[string, string] } implements Runner, Spawner
 // NewHost is the host's Runner. It needs Ambient: only code whose row
 // holds the authority to choose the host makes one. A program it runs
 // sees only its Command's Env; InheritEnv gives it more.
-func NewHost() Host needs Ambient { Host{root: "", base: Map[string, string]{}} }
+func NewHost() Host needs os.Ambient { Host{root: "", base: Map[string, string]{}} }
 
 // InheritEnv is h with env laid under the Env of each Command it runs,
 // starts or spawns (WithEnvFrom: a Command's own entries win). It is how
@@ -826,9 +829,9 @@ func Env(h Host) Map[string, string] {
 func PathOf(env Map[string, string]) Map[string, string] {
 	let mut out = Map[string, string]{}
 	match env.Get("PATH") {
-	case Some[string] as p:
+	case option.Some[string] as p:
 		out["PATH"] = p.Value
-	case None:
+	case option.None:
 	}
 	out
 }

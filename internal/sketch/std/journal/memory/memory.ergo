@@ -5,6 +5,7 @@
 // journal/file.
 
 import journal
+import option
 import sync
 import time
 import machines
@@ -23,7 +24,7 @@ type Journal[S, E] {
 // machines.From of every signal the journal kept, and every Ask answered
 // with a commit is in the journal.
 law RecoveryIsTheFold(ops []int, every int) {
-	with context { Scheduler: time.NewManual(0) } {
+	with context { time.Scheduler: time.NewManual(0) } {
 		let (j, arm, all) = crashing()
 		recovers(j, arm, all, ops, every)
 	}
@@ -33,28 +34,28 @@ law RecoveryIsTheFold(ops []int, every int) {
 // signal mod 5; it has no Done, so an actor ends only by a crash. Its
 // states stay in 0..1008, and an Enter's state depends on the order of
 // the signals.
-func tallyStep(s int, e int) Decision[int, int] {
+func tallyStep(s int, e int) machines.Decision[int, int] {
 	match ((e % 5) + 5) % 5 {
 	case 0:
-		Enter[int]{Next: ((s*3+e%1009)%1009 + 1009) % 1009}
+		machines.Enter[int]{Next: ((s*3+e%1009)%1009 + 1009) % 1009}
 	case 1:
-		Stay[int]{Next: (s + 1) % 1009}
+		machines.Stay[int]{Next: (s + 1) % 1009}
 	case 2:
-		Ignore
+		machines.Ignore
 	case 3:
-		Reject
+		machines.Reject
 	case _:
-		Emit[int, int]{Next: (s * 2) % 1009, Output: s}
+		machines.Emit[int, int]{Next: (s * 2) % 1009, Output: s}
 	}
 }
 
-func untimed(s int) Option[Timeout[int]] { None }
+func untimed(s int) option.Option[machines.Timeout[int]] { option.None }
 
-func unworked(s int) Option[func(send func(e int))] { None }
+func unworked(s int) option.Option[func(send func(e int))] { option.None }
 
-func unexited(s int) Option[func()] { None }
+func unexited(s int) option.Option[func()] { option.None }
 
-func tally() Machine[int, int, int] { Machine[int, int, int]{Initial: 0, Step: tallyStep, After: untimed, Work: unworked, Exit: unexited} }
+func tally() machines.Machine[int, int, int] { machines.Machine[int, int, int]{Initial: 0, Step: tallyStep, After: untimed, Work: unworked, Exit: unexited} }
 
 // fold is machines.From over the signals from tally's initial state: the
 // state a recovery must reach.
@@ -76,11 +77,11 @@ func fold(signals []int) int {
 func within(want []int, all []int) bool {
 	let mut i = 0
 	for x in all {
-		if i < len(want) && want[i] == x {
+		if i < want.Len() && want[i] == x {
 			i = i + 1
 		}
 	}
-	i == len(want)
+	i == want.Len()
 }
 
 // crashing is a memory journal whose next Append fails when armed: mode 1
@@ -117,7 +118,7 @@ func crashing() (Journal[int, int], func(mode int), func() []int) {
 // saves. After each crash a new actor recovers from j. It holds that each
 // recovered state is the fold of every signal kept, and that each Ask
 // answered with a commit is kept.
-func recovers(j journal.Journal[int, int], arm func(mode int), all func() []int, ops []int, every int) bool needs Scheduler {
+func recovers(j journal.Journal[int, int], arm func(mode int), all func() []int, ops []int, every int) bool needs time.Scheduler {
 	let n = 1 + ((every%3)+3)%3
 	let mut a = journal.Start(tally(), j, n, 4, func(o int) {}) catch {
 	case _:
@@ -137,14 +138,14 @@ func recovers(j journal.Journal[int, int], arm func(mode int), all func() []int,
 			case actor.Stopped:
 				// The save failed: a defect ended the actor.
 				crashed = true
-				Ignore
+				machines.Ignore
 			}
 			match d {
-			case Enter[int]:
+			case machines.Enter[int]:
 				want = want.Append(x)
-			case Stay[int]:
+			case machines.Stay[int]:
 				want = want.Append(x)
-			case Emit[int, int]:
+			case machines.Emit[int, int]:
 				want = want.Append(x)
 			case _:
 			}
@@ -171,12 +172,12 @@ func recovers(j journal.Journal[int, int], arm func(mode int), all func() []int,
 // one sync.Ref of the log: a slice is a value (types.md, Values 1), so a
 // captured `let mut` would give each closure a copy of its own.
 func New[S, E]() Journal[S, E] {
-	let log = sync.NewRef(journal.Log[S, E]{Snapshot: None, Signals: []E{}})
+	let log = sync.NewRef(journal.Log[S, E]{Snapshot: option.None, Signals: []E{}})
 	Journal[S, E]{
 		append: func(e E, expected int) fails journal.Stale | journal.Failed {
 			let actual = sync.Modify(log, func(l journal.Log[S, E]) (int, journal.Log[S, E]) {
-				if len(l.Signals) != expected {
-					return (len(l.Signals), l)
+				if l.Signals.Len() != expected {
+					return (l.Signals.Len(), l)
 				}
 				(expected, journal.Log[S, E]{Snapshot: l.Snapshot, Signals: l.Signals.Append(e)})
 			})
@@ -184,7 +185,7 @@ func New[S, E]() Journal[S, E] {
 				return journal.Stale{Expected: expected, Actual: actual}
 			}
 		},
-		snapshot: func(s S) { log.Set(journal.Log[S, E]{Snapshot: Some[S]{Value: s}, Signals: []E{}}) },
+		snapshot: func(s S) { log.Set(journal.Log[S, E]{Snapshot: option.Some[S]{Value: s}, Signals: []E{}}) },
 		load:     func() journal.Log[S, E] { log.Get() },
 	}
 }
@@ -206,7 +207,7 @@ law StaleAppendKeepsNothing(k int, off int) {
 			return false
 		}
 		try j.Append(n, n)
-		return len((try j.Load()).Signals) == n+1
+		return (try j.Load()).Signals.Len() == n+1
 	}
 	false
 }
@@ -214,7 +215,7 @@ law StaleAppendKeepsNothing(k int, off int) {
 // DroppedIsNotJournaled: a work's signal that its entry's end dropped is
 // not kept, so a recovery does not step it.
 law DroppedIsNotJournaled() {
-	with context { Scheduler: time.NewManual(0) } {
+	with context { time.Scheduler: time.NewManual(0) } {
 		dropped(New[int, int]())
 	}
 }
@@ -222,28 +223,28 @@ law DroppedIsNotJournaled() {
 // relay is the machine of DroppedIsNotJournaled: state 0's work sends
 // Ping (12) once gate opens; 10 Go Emits into 1; 11 Leave Enters 2; Ping
 // Stays with 100 more; 13 is ignored.
-func relayStep(s int, e int) Decision[int, int] {
+func relayStep(s int, e int) machines.Decision[int, int] {
 	match (s, e) {
 	case (0, 10):
-		Emit[int, int]{Next: 1, Output: 0}
+		machines.Emit[int, int]{Next: 1, Output: 0}
 	case (1, 11):
-		Enter[int]{Next: 2}
+		machines.Enter[int]{Next: 2}
 	case (_, 12):
-		Stay[int]{Next: s + 100}
+		machines.Stay[int]{Next: s + 100}
 	case (_, _):
-		Ignore
+		machines.Ignore
 	}
 }
 
 // relay is the machine of relayStep whose state 0's work waits for gate,
 // sends Ping and then pushes to sent. Its body is the literal, so
 // journal.Start sees its step (rows.md, Footprints 6).
-func relay(gate queue.Queue[int], sent queue.Queue[int]) Machine[int, int, int] {
-	Machine[int, int, int]{Initial: 0, Step: relayStep, After: func(s int) Option[Timeout[int]] { None }, Work: func(s int) Option[func(send func(e int))] {
+func relay(gate queue.Queue[int], sent queue.Queue[int]) machines.Machine[int, int, int] {
+	machines.Machine[int, int, int]{Initial: 0, Step: relayStep, After: func(s int) option.Option[machines.Timeout[int]] { option.None }, Work: func(s int) option.Option[func(send func(e int))] {
 		if s != 0 {
-			return None
+			return option.None
 		}
-		Some[func(send func(e int))]{Value: func(send func(e int)) {
+		option.Some[func(send func(e int))]{Value: func(send func(e int)) {
 			gate.Pop() catch {
 			case queue.Closed:
 				return
@@ -262,7 +263,7 @@ func relay(gate queue.Queue[int], sent queue.Queue[int]) Machine[int, int, int] 
 // entry 0's work has sent Ping. It holds that the actor dropped one
 // signal, that the journal kept Go and Leave only, and that a recovery
 // reaches the actor's state.
-func dropped(j journal.Journal[int, int]) bool needs Scheduler {
+func dropped(j journal.Journal[int, int]) bool needs time.Scheduler {
 	let gate = queue.New[int](1)
 	let sent = queue.New[int](1)
 	let a = journal.Start(relay(gate, sent), j, 0, 4, func(o int) {
@@ -301,7 +302,7 @@ func dropped(j journal.Journal[int, int]) bool needs Scheduler {
 	}
 	let back = b.State()
 	b.Stop()
-	drops == 1 && state == 2 && back == 2 && len(log.Signals) == 2 && log.Signals[0] == 10 && log.Signals[1] == 11
+	drops == 1 && state == 2 && back == 2 && log.Signals.Len() == 2 && log.Signals[0] == 10 && log.Signals[1] == 11
 }
 
 // Append keeps e after the expected signals kept before it, else it is

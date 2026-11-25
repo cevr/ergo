@@ -5,17 +5,18 @@ import compiler/check/types
 import compiler/ir
 import compiler/syntax
 import dense
+import option
 import strings
 
 type directOp { call dense.ID[syntax.Node], args syntax.List, member string, cap string, result string, tail dense.ID[syntax.Node] }
 
 // scheduledOp is a call whose checked plan supplies its temporary.
-func scheduledOp(st fnb, x dense.ID[syntax.Node]) Option[directOp] {
+func scheduledOp(st fnb, x dense.ID[syntax.Node]) option.Option[directOp] {
 	match st.frame.op {
-	case Some[directOp] as o:
-		if o.Value.call == x { st.frame.op } else { None }
-	case None:
-		None
+	case option.Some[directOp] as o:
+		if o.Value.call == x { st.frame.op } else { option.None }
+	case option.None:
+		option.None
 	}
 }
 
@@ -87,9 +88,9 @@ func operationIn(st fnb, tail dense.ID[syntax.Node], cap dense.ID[store.TKey]) d
 // before reading their members out of the checked local role row.
 func localRole(st fnb, cap dense.ID[store.TKey]) types.Role fails Unported {
 	let origin = match types.Nominal(st.s, cap) {
-	case Some[store.XRef] as r:
+	case option.Some[store.XRef] as r:
 		r.Value
-	case None:
+	case option.None:
 		return stop("no checked local operation type")
 	}
 	if origin.Import != 0 {
@@ -100,22 +101,22 @@ func localRole(st fnb, cap dense.ID[store.TKey]) types.Role fails Unported {
 	let p = st.k.Parsed[file]
 	let nameAt = bind.PNodeOf(st.k.Ps, file, syntax.NodeAt(p.Tree, int(decl.Node)))
 	match dense.Unpack(bind.ParentOf(st.k.Ps, nameAt)) {
-	case Some{Value: parent}:
+	case option.Some{Value: parent}:
 		let (_, row) = bind.RowOf(st.k.Ps, parent)
 		let node = syntax.NodeAt(p.Tree, row)
-		if syntax.KindOf(p.Tree, node) != syntax.KTypeDecl || dense.Unpack(syntax.TypeDeclOf(p.Tree, node).Extern) != None {
+		if syntax.KindOf(p.Tree, node) != syntax.KTypeDecl || dense.Unpack(syntax.TypeDeclOf(p.Tree, node).Extern) != option.None {
 			return stop("operation type has no local declaration body")
 		}
-	case None:
+	case option.None:
 		return stop("operation type has no local declaration body")
 	}
 	let role = match types.RoleAt(st.s, st.k.Roles, st.k.Ifaces, cap) {
-	case Some[types.Role] as r:
+	case option.Some[types.Role] as r:
 		r.Value
-	case None:
+	case option.None:
 		return stop("no checked local operation type")
 	}
-	if len(role.Params) != 0 || len(role.Includes) != 0 || role.Self != 0 {
+	if role.Params.Len() != 0 || role.Includes.Len() != 0 || role.Self != 0 {
 		return stop("operation type is not closed and direct")
 	}
 	role
@@ -127,7 +128,7 @@ func directOperation(st fnb, x dense.ID[syntax.Node], c syntax.CallExpr, cap den
 	if dense.SideOf(st.capAt, at) != required {
 		return stop("no checked operation on the required capability")
 	}
-	if dense.Unpack(c.Trailing) != None {
+	if dense.Unpack(c.Trailing) != option.None {
 		return stop("operation with trailing block")
 	}
 	let fun = unparen(st, c.Fun)
@@ -149,7 +150,7 @@ func directOperation(st fnb, x dense.ID[syntax.Node], c syntax.CallExpr, cap den
 	let role = try localRole(st, cap)
 	let mut found = false
 	for o in role.Members {
-		if o.Name == member && o.Sig == sig && len(o.Own) == 0 && !o.Mut {
+		if o.Name == member && o.Sig == sig && o.Own.Len() == 0 && !o.Mut {
 			found = true
 			break
 		}
@@ -159,7 +160,7 @@ func directOperation(st fnb, x dense.ID[syntax.Node], c syntax.CallExpr, cap den
 	}
 	let args = store.OperandsOf(st.s, sig)
 	let n = syntax.Len(c.Args)
-	if len(args) != n+3 || !emptyRow(st, args[n+1]) || !emptyRow(st, args[n+2]) {
+	if args.Len() != n+3 || !emptyRow(st, args[n+1]) || !emptyRow(st, args[n+2]) {
 		return stop("operation has an unsupported arity or row")
 	}
 	let result = basicGo(st, args[n])
@@ -186,13 +187,13 @@ func envMember(st fnb, cap dense.ID[store.TKey]) string fails Unported {
 		return stop("environment field spelling not proved")
 	}
 	let deps = match st.rootImports {
-	case Some[[]expr.Dep] as all:
+	case option.Some[[]expr.Dep] as all:
 		all.Value
-	case None:
+	case option.None:
 		return stop("complete environment name inventory unavailable")
 	}
 	for d in deps {
-		if store.Lookup(d.S, name) != None {
+		if store.Lookup(d.S, name) != option.None {
 			return stop("environment field collision")
 		}
 	}

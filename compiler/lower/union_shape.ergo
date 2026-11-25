@@ -5,6 +5,7 @@ import compiler/check/store
 import compiler/ir
 import compiler/syntax
 import dense
+import option
 import strconv
 
 type unionVariant {
@@ -12,7 +13,7 @@ type unionVariant {
 	decl  dense.ID[store.PNode],
 	name  string,
 	typ   string,
-	field Option[expr.Field],
+	field option.Option[expr.Field],
 }
 
 // The variants are indexed by the checked declaration order. The small
@@ -25,9 +26,9 @@ type unionShape {
 
 func unionGo(st fnb, t dense.ID[store.TKey]) string {
 	match unionNamed(st, t) {
-	case Some{Value: shape}:
+	case option.Some{Value: shape}:
 		shape.typ
-	case None:
+	case option.None:
 		unionInstanceGo(st, t)
 	}
 }
@@ -42,13 +43,13 @@ func unionInstanceGo(st fnb, t dense.ID[store.TKey]) string {
 	let o = store.OriginOfType(st.s, t)
 	let i = int(o.Decl)
 	let args = store.OperandsOf(st.s, t)
-	if int(o.Import) != store.ForeignBit || i >= len(st.k.Foreign) || len(args) == 0 {
+	if int(o.Import) != store.ForeignBit || i >= st.k.Foreign.Len() || args.Len() == 0 {
 		return ""
 	}
 	let f = st.k.Foreign[i]
 	let isPrelude = f.Path == "prelude" && has(st.prelude, f.Name)
 	let isOption = f.Path == "option" && f.Name == "Option"
-	if f.Qual != "-" || (!isPrelude && !isOption) || len(f.Variants) == 0 || f.Arity != len(args) {
+	if f.Qual != "-" || (!isPrelude && !isOption) || f.Variants.Len() == 0 || f.Arity != args.Len() {
 		return ""
 	}
 	let head = if isOption { pkgAlias(f.Path) + "__" + f.Name } else { f.Name }
@@ -63,48 +64,48 @@ func unionInstanceGo(st fnb, t dense.ID[store.TKey]) string {
 	name + "]"
 }
 
-func unionNamed(st fnb, t dense.ID[store.TKey]) Option[unionShape] {
+func unionNamed(st fnb, t dense.ID[store.TKey]) option.Option[unionShape] {
 	if store.KindOfType(st.s, t) != store.KNamed {
-		return None
+		return option.None
 	}
 	// VariantsOf on a local non-instance only reads the checked table.
 	let mut s = st.s
 	let vs = infer.VariantsOf(&s, st.k.Unions, t)
-	if len(vs) < 2 || len(vs) > 255 {
-		return None
+	if vs.Len() < 2 || vs.Len() > 255 {
+		return option.None
 	}
 	let name = store.TypeNameText(st.s, store.ArgOf(st.s, t))
 	let (p, parent, at) = match unionDeclParent(st, name) {
-	case Some{Value: d}:
+	case option.Some{Value: d}:
 		d
-	case None:
-		return None
+	case option.None:
+		return option.None
 	}
 	let list = match syntax.ViewOf(p.Tree, parent) {
 	case syntax.TypeDecl as td:
-		if td.Name != at || dense.Unpack(td.Extern) != None || dense.Unpack(td.TypeParams) != None || dense.Unpack(td.Where) != None || dense.Unpack(td.Derive) != None || syntax.Len(td.Implements) != 0 {
-			return None
+		if td.Name != at || dense.Unpack(td.Extern) != option.None || dense.Unpack(td.TypeParams) != option.None || dense.Unpack(td.Where) != option.None || dense.Unpack(td.Derive) != option.None || syntax.Len(td.Implements) != 0 {
+			return option.None
 		}
 		match dense.Unpack(td.Spec) {
-		case Some{Value: spec}:
+		case option.Some{Value: spec}:
 			match syntax.ViewOf(p.Tree, spec) {
 			case syntax.InterfaceType as it:
 				it.Members
 			case _:
-				return None
+				return option.None
 			}
-		case None:
-			return None
+		case option.None:
+			return option.None
 		}
 	case _:
-		return None
+		return option.None
 	}
-	if syntax.Len(list) != len(vs) {
-		return None
+	if syntax.Len(list) != vs.Len() {
+		return option.None
 	}
 	let gt = declName(st, name) catch {
 	case Unported:
-		return None
+		return option.None
 	}
 	let mut variants = []unionVariant{}
 	let mut payload = false
@@ -112,72 +113,72 @@ func unionNamed(st fnb, t dense.ID[store.TKey]) Option[unionShape] {
 		let node = syntax.Item(p.Tree, list, tag)
 		let vn = match syntax.ViewOf(p.Tree, node) {
 		case syntax.VariantSpec as variant:
-			if dense.Unpack(variant.TypeArgs) != None {
-				return None
+			if dense.Unpack(variant.TypeArgs) != option.None {
+				return option.None
 			}
 			nameText(p, variant.Name)
 		case _:
-			return None
+			return option.None
 		}
 		if store.KindOfType(st.s, v) != store.KNamed || store.TypeNameText(st.s, store.ArgOf(st.s, v)) != vn {
-			return None
+			return option.None
 		}
 		let decl = match store.Lookup(st.s, vn) {
-		case Some{Value: d}:
+		case option.Some{Value: d}:
 			store.DeclOf(st.s, d)
-		case None:
-			return None
+		case option.None:
+			return option.None
 		}
 		let vp = st.k.Parsed[int(decl.File)]
 		let id = bind.PNodeOf(st.k.Ps, int(decl.File), syntax.NodeAt(vp.Tree, int(decl.Node)))
 		let fields = match unionRecordFields(st, vn) {
-		case Some{Value: fs}:
+		case option.Some{Value: fs}:
 			fs
-		case None:
-			return None
+		case option.None:
+			return option.None
 		}
-		let mut field Option[expr.Field] = None
-		if len(fields) != 0 {
-			if payload || len(fields) != 1 || basicGo(st, fields[0].T) == "" || !ordinaryFieldName(fields[0].Name) {
-				return None
+		let mut field option.Option[expr.Field] = option.None
+		if fields.Len() != 0 {
+			if payload || fields.Len() != 1 || basicGo(st, fields[0].T) == "" || !ordinaryFieldName(fields[0].Name) {
+				return option.None
 			}
 			payload = true
-			field = Some{Value: fields[0]}
+			field = option.Some{Value: fields[0]}
 		}
 		let vt = declName(st, vn) catch {
 		case Unported:
-			return None
+			return option.None
 		}
 		variants = variants.Append(unionVariant{t: v, decl: id, name: vn, typ: vt, field: field})
 	}
-	Some{Value: unionShape{name: name, typ: gt, variants: variants}}
+	option.Some{Value: unionShape{name: name, typ: gt, variants: variants}}
 }
 
-func unionRecordFields(st fnb, name string) Option[[]expr.Field] {
+func unionRecordFields(st fnb, name string) option.Option[[]expr.Field] {
 	for r in st.k.Recs {
-		if r.Name == name && !r.Op && len(r.Params) == 0 {
-			return Some{Value: r.Fields}
+		if r.Name == name && !r.Op && r.Params.Len() == 0 {
+			return option.Some{Value: r.Fields}
 		}
 	}
-	None
+	option.None
 }
 
-func unionDeclParent(st fnb, name string) Option[(syntax.Parsed, dense.ID[syntax.Node], dense.ID[syntax.Node])] {
+func unionDeclParent(st fnb, name string) option.Option[(syntax.Parsed, dense.ID[syntax.Node], dense.ID[syntax.Node])] {
 	let d = match store.Lookup(st.s, name) {
-	case Some{Value: d}:
+	case option.Some{Value: d}:
 		store.DeclOf(st.s, d)
-	case None:
-		return None
+	case option.None:
+		return option.None
 	}
 	let f = int(d.File)
 	let p = st.k.Parsed[f]
 	let at = syntax.NodeAt(p.Tree, int(d.Node))
 	match dense.Unpack(bind.ParentOf(st.k.Ps, bind.PNodeOf(st.k.Ps, f, at))) {
-	case Some{Value: id}:
+	case option.Some{Value: id}:
 		let (_, row) = bind.RowOf(st.k.Ps, id)
-		Some{Value: (p, syntax.NodeAt(p.Tree, row), at)}
-	case None:
-		None
+		option.Some{Value: (p, syntax.NodeAt(p.Tree, row), at)}
+	case option.None:
+		option.None
 	}
 }
 
@@ -187,7 +188,7 @@ func unionDeclParent(st fnb, name string) Option[(syntax.Parsed, dense.ID[syntax
 // Reject an extern or a wire form rather than predicting a restarted
 // interface layout. The admitted scalar slots fit the register profile.
 func unionFlat(st fnb, shape unionShape) bool {
-	if st.rootImports == None || st.alias != "" {
+	if st.rootImports == option.None || st.alias != "" {
 		return false
 	}
 	for p in st.k.Parsed {
@@ -288,19 +289,19 @@ type unionInjection {
 	operand dense.Opt[syntax.Node],
 }
 
-func unionReturn(st mut fnb, p mut controlPlan, x dense.ID[syntax.Node], result dense.ID[store.TKey]) Option[unionInjection] fails Unported {
+func unionReturn(st mut fnb, p mut controlPlan, x dense.ID[syntax.Node], result dense.ID[store.TKey]) option.Option[unionInjection] fails Unported {
 	if unionGo(*st, result) == "" {
-		return None
+		return option.None
 	}
 	let v = unparen(*st, x)
 	let t = try typeOf(*st, v, "union result")
 	if t == result {
-		return None
+		return option.None
 	}
 	let shape = match unionNamed(*st, result) {
-	case Some{Value: s}:
+	case option.Some{Value: s}:
 		s
-	case None:
+	case option.None:
 		return stop("union: generic injection layout")
 	}
 	let tag = unionTagOfType(shape, t)
@@ -312,17 +313,17 @@ func unionReturn(st mut fnb, p mut controlPlan, x dense.ID[syntax.Node], result 
 	let mut j = unionInjection{typ: shape.typ, variant: variant.typ, tag: tag, at: at, field: "", operand: dense.NoID[syntax.Node]()}
 	match syntax.ViewOf(st.p.Tree, v) {
 	case syntax.Name:
-		if variant.field != None || unionTagOfName(*st, shape, v) != tag {
+		if variant.field != option.None || unionTagOfName(*st, shape, v) != tag {
 			return stop("union: result is not a bare empty variant")
 		}
 	case syntax.CompositeLit as cl:
 		let f = match variant.field {
-		case Some{Value: f}:
+		case option.Some{Value: f}:
 			f
-		case None:
+		case option.None:
 			return stop("union: explicit empty literal")
 		}
-		if dense.Unpack(cl.Base) != None || syntax.Len(cl.Elts) != 1 {
+		if dense.Unpack(cl.Base) != option.None || syntax.Len(cl.Elts) != 1 {
 			return stop("union: payload literal shape")
 		}
 		let e = syntax.Item(st.p.Tree, cl.Elts, 0)
@@ -344,16 +345,16 @@ func unionReturn(st mut fnb, p mut controlPlan, x dense.ID[syntax.Node], result 
 	case _:
 		return stop("union: injection operand")
 	}
-	Some{Value: j}
+	option.Some{Value: j}
 }
 
 func unionEmitReturn(st fnb, b mut ir.Builder, j unionInjection, at ir.Pos) uint32 fails Unported | ir.Malformed {
 	let p = pos(st, j.at)
 	let variant = match dense.Unpack(j.operand) {
-	case Some{Value: x}:
+	case option.Some{Value: x}:
 		let payload = try value(st, b, x)
 		try ir.Row(b, ir.KindCode(ir.TExpr, "lit"), p, []uint32{ir.Text(b, j.variant), ir.List(b, []uint32{payload}), ir.List(b, []uint32{ir.Text(b, j.field)})})
-	case None:
+	case option.None:
 		try ir.Row(b, ir.KindCode(ir.TExpr, "zero"), p, []uint32{ir.Text(b, j.variant)})
 	}
 	let receiver = try ir.Row(b, ir.KindCode(ir.TExpr, "zero"), p, []uint32{ir.Text(b, j.typ)})

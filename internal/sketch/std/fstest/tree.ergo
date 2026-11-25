@@ -19,6 +19,7 @@
 
 import filepath
 import fs
+import option
 import slices
 import strings
 
@@ -54,7 +55,7 @@ func NewTree(nodes []Node) Tree {
 		let names = strings.Split(p, "/")
 		let mut at = ""
 		for i, name in names {
-			if i == len(names)-1 {
+			if i == names.Len()-1 {
 				break
 			}
 			at = if at == "" { name } else { at + "/" + name }
@@ -110,7 +111,7 @@ func Stat(t Tree, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed
 	let name = filepath.Base(path)
 	match try resolve(t, path) {
 	case File as f:
-		fs.Info{Name: name, Size: len(f.Text), Dir: false, Perm: fs.Perm(fs.Shared())}
+		fs.Info{Name: name, Size: f.Text.Len(), Dir: false, Perm: fs.Perm(fs.Shared())}
 	case Dir, Link:
 		fs.Info{Name: name, Size: 0, Dir: true, Perm: fs.Perm(fs.SharedDir())}
 	}
@@ -128,7 +129,7 @@ func parentOf(k string) string {
 // lastOf is the last name of the key k.
 func lastOf(k string) string {
 	let i = strings.LastIndex(k, "/")
-	if i < 0 { k } else { strings.Slice(k, i+1, len(k)) }
+	if i < 0 { k } else { strings.Slice(k, i+1, k.Len()) }
 }
 
 // elements is a path split as os.Root splits it: the names between runs
@@ -153,8 +154,8 @@ func split(s string, joined bool) elements {
 		}
 		names = names.Append(r)
 	}
-	if joined && len(names) > 0 && names[len(names)-1] == "." {
-		names = slices.Slice(names, 0, len(names)-1)
+	if joined && names.Len() > 0 && names[names.Len()-1] == "." {
+		names = slices.Slice(names, 0, names.Len()-1)
 	}
 	elements{Names: names, Slash: strings.HasSuffix(s, "/")}
 }
@@ -193,25 +194,25 @@ func resolve(t Tree, path string) Node fails fs.NotFound | fs.Failed | fs.Escape
 	for {
 		if names[i] == ".." {
 			let mut end = i + 1
-			for end < len(names) && names[end] == ".." {
+			for end < names.Len() && names[end] == ".." {
 				end = end + 1
 			}
 			let count = end - i
 			if count > i {
 				return fs.Escapes{Path: path}
 			}
-			names = slices.Concat(slices.Slice(names, 0, i-count), slices.Slice(names, end, len(names)))
-			if len(names) == 0 {
+			names = slices.Concat(slices.Slice(names, 0, i-count), slices.Slice(names, end, names.Len()))
+			if names.Len() == 0 {
 				names = []string{"."}
 			}
 			i = 0
 			continue
 		}
-		let lastName = i == len(names)-1
+		let lastName = i == names.Len()-1
 		match t.nodes.Get(keyOf(slices.Slice(names, 0, i+1))) {
-		case None:
+		case option.None:
 			return fs.NotFound{Path: path}
-		case Some[Node] as found:
+		case option.Some[Node] as found:
 			match found.Value {
 			case Link as l:
 				links = links + 1
@@ -221,13 +222,13 @@ func resolve(t Tree, path string) Node fails fs.NotFound | fs.Failed | fs.Escape
 				if strings.HasPrefix(l.Target, "/") {
 					return fs.Escapes{Path: path}
 				}
-				let rest = slices.Slice(names, i+1, len(names))
-				let target = split(l.Target, len(rest) > 0)
+				let rest = slices.Slice(names, i+1, names.Len())
+				let target = split(l.Target, rest.Len() > 0)
 				names = slices.Concat(slices.Concat(slices.Slice(names, 0, i), target.Names), rest)
 				if lastName && target.Slash {
 					slash = true
 				}
-				if len(names) == 0 {
+				if names.Len() == 0 {
 					names = []string{"."}
 				}
 				i = 0

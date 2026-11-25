@@ -11,7 +11,9 @@
 // Schema. Here forSchema is Of over T's derived JSON codec. Go: a map
 // under a mutex, and an append-only log replayed at start.
 
+import core
 import json
+import option
 import strings
 
 // Failed is a store that could not read or keep its entries: Reason is
@@ -24,7 +26,7 @@ type Entry { Key string, Value string }
 // Store keeps one value per key. A key and a value are any text.
 type Store {
 	// Get is the value key holds, or None when it holds none.
-	Get(key string) Option[string] fails Failed,
+	Get(key string) option.Option[string] fails Failed,
 	// Put makes key hold value. Once it returns, Get(key) gives value.
 	Put(key string, value string) fails Failed,
 	// Delete makes key hold no value. It is whether key held one.
@@ -32,7 +34,7 @@ type Store {
 	// Scan is the entries whose key starts with prefix, by key in byte
 	// order, each key once. It yields the entries as they are when the
 	// Seq is run, not when Scan is called.
-	Scan(prefix string) Seq[Entry] fails Failed,
+	Scan(prefix string) core.Seq[Entry] fails Failed,
 
 	// GetAfterPut: a value put under a key is the value the key gets, and
 	// the last put of the key wins.
@@ -40,7 +42,7 @@ type Store {
 		try Put(key, first)
 		let one = try Get(key)
 		try Put(key, second)
-		one == Some[string]{Value: first} && try Get(key) == Some[string]{Value: second}
+		one == option.Some[string]{Value: first} && try Get(key) == option.Some[string]{Value: second}
 	},
 
 	// PutKeepsOthers: a put or a delete of one key changes no other key.
@@ -52,7 +54,7 @@ type Store {
 		try Put(key, b)
 		let kept = try Get(other)
 		let _ = try Delete(key)
-		kept == Some[string]{Value: a} && try Get(other) == Some[string]{Value: a}
+		kept == option.Some[string]{Value: a} && try Get(other) == option.Some[string]{Value: a}
 	},
 
 	// DeleteIsAbsent: after a delete of a key that holds a value, Get gives
@@ -60,7 +62,7 @@ type Store {
 	law DeleteIsAbsent(key string, value string) {
 		try Put(key, value)
 		let held = try Delete(key)
-		if !held || try Get(key) != None {
+		if !held || try Get(key) != option.None {
 			return false
 		}
 		let mut seen = false
@@ -80,10 +82,10 @@ type Store {
 	// of the first key, so it is often a prefix of several.
 	law ScanIsSorted(keys []string, cut int) {
 		for k in keys {
-			try Put(k, "v " + k)
+			try Put(k, "v "+k)
 		}
-		let first = if len(keys) == 0 { "" } else { keys[0] }
-		let span = len(first) + 1
+		let first = if keys.Len() == 0 { "" } else { keys[0] }
+		let span = first.Len() + 1
 		let prefix = strings.Slice(first, 0, ((cut%span)+span)%span)
 		let mut got = []Entry{}
 		let s = try Scan(prefix)
@@ -95,7 +97,7 @@ type Store {
 			if !strings.HasPrefix(e.Key, prefix) || (i > 0 && got[i-1].Key >= e.Key) {
 				return false
 			}
-			if try Get(e.Key) != (Some[string]{Value: e.Value}) {
+			if try Get(e.Key) != (option.Some[string]{Value: e.Value}) {
 				return false
 			}
 		}
@@ -123,7 +125,7 @@ type Store {
 			return true
 		}
 		for key in keys {
-			try Put(prefix + key, key)
+			try Put(prefix+key, key)
 		}
 		let mut n = 0
 		let all = try Scan(prefix)
@@ -150,12 +152,12 @@ func Of[T wire](s Store) Values[T] { Values[T]{store: s} }
 
 // Get is the value of T key holds, or None. It fails as T's JSON decode
 // fails when the text key holds is not a T's.
-func Get[T wire](v Values[T], key string) Option[T] fails Failed | json.Malformed | wired[T] needs wired[T] {
+func Get[T wire](v Values[T], key string) option.Option[T] fails Failed | json.Malformed | wired[T] needs wired[T] {
 	match try v.store.Get(key) {
-	case Some[string] as s:
-		Some[T]{Value: try json.Decode(json.Codec[T]{MaxBytes: 0, MaxDepth: 0}, s.Value)}
-	case None:
-		None
+	case option.Some[string] as s:
+		option.Some[T]{Value: try json.Decode(json.Codec[T]{MaxBytes: 0, MaxDepth: 0}, s.Value)}
+	case option.None:
+		option.None
 	}
 }
 

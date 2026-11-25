@@ -231,7 +231,7 @@ func named(name uint32, typ uint32) entry {
 }
 
 func pushEnt(p mut parser, e entry) {
-	if p.entTop < len(p.ents) {
+	if p.entTop < p.ents.Len() {
 		p.ents[p.entTop] = e
 	} else {
 		p.ents = p.ents.Append(e)
@@ -336,7 +336,7 @@ func parseParameters(p mut parser, decl bool, lit bool) uint32 {
 		needsComma(p, base, top-npend)
 		let last = p.t.stack[mark(p.t)-1]
 		let name = identText(p, last)
-		errorAt(p, nodePos(p, last), len(name), "mixed named and unnamed parameters: "+name+" has no type")
+		errorAt(p, nodePos(p, last), name.Len(), "mixed named and unnamed parameters: "+name+" has no type")
 	}
 	p.entTop = base
 	mkFieldList(&p.t, lm, someTok(open), someTok(closing))

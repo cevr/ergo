@@ -13,6 +13,7 @@
 
 import compiler/check/store
 import dense
+import option
 
 // Slot is one type parameter of a call in inference.
 type Slot { bound dense.Opt[store.TKey], row bool, joined bool }
@@ -39,9 +40,9 @@ law FramesNest(picks []int) {
 	let k = caseOf(&s, &f, picks)
 	let inner = Infer(&s, &f, NoUnions(), k.callee, []dense.ID[store.TKey]{}, k.args)
 	let kept = match Binding(f, outer, 0) {
-	case Some[dense.ID[store.TKey]] as b:
+	case option.Some[dense.ID[store.TKey]] as b:
 		b.Value == store.TBasic(&s, 3)
-	case None:
+	case option.None:
 		false
 	}
 	let unbound = isNone(Binding(f, outer, 1))
@@ -63,14 +64,14 @@ func Begin(f mut Frame, rows []bool, base int) Call {
 	let at = f.top
 	for r in rows {
 		let slot = Slot{bound: dense.NoID[store.TKey](), row: r, joined: false}
-		if f.top < len(f.slots) {
+		if f.top < f.slots.Len() {
 			f.slots[f.top] = slot
 		} else {
 			f.slots = f.slots.Append(slot)
 		}
 		f.top = f.top + 1
 	}
-	Call{at: at, n: len(rows), base: base}
+	Call{at: at, n: rows.Len(), base: base}
 }
 
 // End cuts f to c's mark: c's frame and every frame begun after it go.
@@ -82,7 +83,7 @@ func End(f mut Frame, c Call) {
 }
 
 // Binding is the type parameter i of c's binding, if any.
-func Binding(f Frame, c Call, i int) Option[dense.ID[store.TKey]] { dense.Unpack(f.slots[c.at+i].bound) }
+func Binding(f Frame, c Call, i int) option.Option[dense.ID[store.TKey]] { dense.Unpack(f.slots[c.at+i].bound) }
 
 // Bind binds parameter i of c to t (a written type argument, or the
 // unifier's binding).

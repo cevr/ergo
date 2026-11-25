@@ -7,6 +7,7 @@
 // proved, only under Cut). Deadlines in Within are inclusive: a state at time
 // at is inside a window opened at origin when time.Sub(at, origin) <= d.
 
+import option
 import strings
 import time
 
@@ -61,11 +62,11 @@ type NextFormula[S] { Inner Formula[S] }
 
 // AlwaysFormula requires Inner to hold at every state (within the inclusive
 // deadline when Within is Some).
-type AlwaysFormula[S] { Inner Formula[S], Within Option[duration] }
+type AlwaysFormula[S] { Inner Formula[S], Within option.Option[duration] }
 
 // EventuallyFormula requires Inner to hold at some state (within the inclusive
 // deadline when Within is Some).
-type EventuallyFormula[S] { Inner Formula[S], Within Option[duration] }
+type EventuallyFormula[S] { Inner Formula[S], Within option.Option[duration] }
 
 // ThenFormula captures the current state s and immediately evaluates Read(s)
 // at that same step.
@@ -96,18 +97,18 @@ func Implies[S](when Formula[S], then Formula[S]) Formula[S] { ImpliesFormula[S]
 func Next[S](f Formula[S]) Formula[S] { NextFormula[S]{Inner: f} }
 
 // Always builds an unbounded invariance formula requiring f at every step.
-func Always[S](f Formula[S]) Formula[S] { AlwaysFormula[S]{Inner: f, Within: None} }
+func Always[S](f Formula[S]) Formula[S] { AlwaysFormula[S]{Inner: f, Within: option.None} }
 
 // AlwaysWithin builds a bounded invariance formula requiring f at every step
 // whose timestamp satisfies time.Sub(at, origin) <= d from when it starts.
-func AlwaysWithin[S](f Formula[S], d duration) Formula[S] { AlwaysFormula[S]{Inner: f, Within: Some[duration]{Value: d}} }
+func AlwaysWithin[S](f Formula[S], d duration) Formula[S] { AlwaysFormula[S]{Inner: f, Within: option.Some[duration]{Value: d}} }
 
 // Eventually builds an unbounded liveness formula requiring f at some step.
-func Eventually[S](f Formula[S]) Formula[S] { EventuallyFormula[S]{Inner: f, Within: None} }
+func Eventually[S](f Formula[S]) Formula[S] { EventuallyFormula[S]{Inner: f, Within: option.None} }
 
 // EventuallyWithin builds a bounded liveness formula requiring f at some step
 // whose timestamp satisfies time.Sub(at, origin) <= d from when it starts.
-func EventuallyWithin[S](f Formula[S], d duration) Formula[S] { EventuallyFormula[S]{Inner: f, Within: Some[duration]{Value: d}} }
+func EventuallyWithin[S](f Formula[S], d duration) Formula[S] { EventuallyFormula[S]{Inner: f, Within: option.Some[duration]{Value: d}} }
 
 // Then builds a state-capturing formula that reads the current state s and
 // immediately evaluates read(s) at that same step.
@@ -133,9 +134,9 @@ type nNext[S] { inner node[S], label string }
 
 type nNeedStep[S] { inner node[S], label string }
 
-type nAlways[S] { body Formula[S], within Option[duration], origin Option[time.Time], label string }
+type nAlways[S] { body Formula[S], within option.Option[duration], origin option.Option[time.Time], label string }
 
-type nEventually[S] { body Formula[S], within Option[duration], origin Option[time.Time], label string }
+type nEventually[S] { body Formula[S], within option.Option[duration], origin option.Option[time.Time], label string }
 
 type nThen[S] { label string, read func(s S) Formula[S] }
 
@@ -194,7 +195,7 @@ func FormatVerdict(v Verdict) string {
 		let head = "violated at step \(vio.Step) (t=\(formatInstant(vio.At))):"
 		"\(head)\n\(formatTrailIndent(vio.Why, 1))"
 	case Open as o:
-		if len(o.Pending) == 0 {
+		if o.Pending.Len() == 0 {
 			"open (not proved)"
 		} else {
 			"open (not proved): \(strings.Join(o.Pending, ", "))"
@@ -215,7 +216,7 @@ func formatInstant(t time.Time) string {
 func padNano(n int64) string {
 	let raw = "\(n)"
 	let mut out = raw
-	for len(out) < 9 {
+	for out.Len() < 9 {
 		out = "0" + out
 	}
 	out
@@ -253,16 +254,16 @@ func formulaLabel[S](f Formula[S]) string {
 		"next(\(formulaLabel[S](nx.Inner)))"
 	case AlwaysFormula as al:
 		match al.Within {
-		case Some as w:
+		case option.Some as w:
 			"always[\(w.Value)](\(formulaLabel[S](al.Inner)))"
-		case None:
+		case option.None:
 			"always(\(formulaLabel[S](al.Inner)))"
 		}
 	case EventuallyFormula as ev:
 		match ev.Within {
-		case Some as w:
+		case option.Some as w:
 			"eventually[\(w.Value)](\(formulaLabel[S](ev.Inner)))"
-		case None:
+		case option.None:
 			"eventually(\(formulaLabel[S](ev.Inner)))"
 		}
 	case ThenFormula as th:
@@ -290,9 +291,9 @@ func compile[S](f Formula[S]) node[S] {
 	case NextFormula as nx:
 		nNext[S]{inner: compile[S](nx.Inner), label: "next(\(formulaLabel[S](nx.Inner)))"}
 	case AlwaysFormula as al:
-		nAlways[S]{body: al.Inner, within: al.Within, origin: None, label: formulaLabel[S](f)}
+		nAlways[S]{body: al.Inner, within: al.Within, origin: option.None, label: formulaLabel[S](f)}
 	case EventuallyFormula as ev:
-		nEventually[S]{body: ev.Inner, within: ev.Within, origin: None, label: formulaLabel[S](f)}
+		nEventually[S]{body: ev.Inner, within: ev.Within, origin: option.None, label: formulaLabel[S](f)}
 	case ThenFormula as th:
 		let lbl = if th.Label == "" { "then" } else { th.Label }
 		nThen[S]{label: lbl, read: th.Read}
@@ -389,41 +390,41 @@ func stepNode[S](n node[S], s S, at time.Time, step int) node[S] {
 		stepNode[S](ns.inner, s, at, step)
 	case nAlways as al:
 		match al.within {
-		case Some as w:
+		case option.Some as w:
 			let org = match al.origin {
-			case Some as o:
+			case option.Some as o:
 				o.Value
-			case None:
+			case option.None:
 				at
 			}
 			if !withinDeadline(at, org, w.Value) {
 				nHolds{step: step, at: at}
 			} else {
 				let cur = stepNode[S](compile[S](al.body), s, at, step)
-				let rest = nAlways[S]{body: al.body, within: al.within, origin: Some[time.Time]{Value: org}, label: al.label}
+				let rest = nAlways[S]{body: al.body, within: al.within, origin: option.Some[time.Time]{Value: org}, label: al.label}
 				combineAnd[S](cur, rest)
 			}
-		case None:
+		case option.None:
 			let cur = stepNode[S](compile[S](al.body), s, at, step)
 			combineAnd[S](cur, al)
 		}
 	case nEventually as ev:
 		match ev.within {
-		case Some as w:
+		case option.Some as w:
 			let org = match ev.origin {
-			case Some as o:
+			case option.Some as o:
 				o.Value
-			case None:
+			case option.None:
 				at
 			}
 			if !withinDeadline(at, org, w.Value) {
 				nViolated{step: step, at: at, why: Trail{Label: ev.label, Detail: "deadline passed without satisfaction", Children: []Trail{}}}
 			} else {
 				let cur = stepNode[S](compile[S](ev.body), s, at, step)
-				let rest = nEventually[S]{body: ev.body, within: ev.within, origin: Some[time.Time]{Value: org}, label: ev.label}
+				let rest = nEventually[S]{body: ev.body, within: ev.within, origin: option.Some[time.Time]{Value: org}, label: ev.label}
 				combineOr[S](cur, rest)
 			}
-		case None:
+		case option.None:
 			let cur = stepNode[S](compile[S](ev.body), s, at, step)
 			combineOr[S](cur, ev)
 		}
@@ -592,7 +593,7 @@ func refEndVal(end End, idleVal int) int {
 func evalRef[S](f Formula[S], run []Seen[S], idx int, end End) int {
 	match f {
 	case NowFormula as nf:
-		if idx >= len(run) {
+		if idx >= run.Len() {
 			refEndVal(end, -1)
 		} else if nf.P(run[idx].State) {
 			1
@@ -608,26 +609,26 @@ func evalRef[S](f Formula[S], run []Seen[S], idx int, end End) int {
 	case ImpliesFormula as im:
 		refOr(-evalRef[S](im.When, run, idx, end), evalRef[S](im.Then, run, idx, end))
 	case NextFormula as nx:
-		if idx >= len(run) || idx+1 >= len(run) {
+		if idx >= run.Len() || idx+1 >= run.Len() {
 			refEndVal(end, -1)
 		} else {
 			evalRef[S](nx.Inner, run, idx+1, end)
 		}
 	case AlwaysFormula as al:
-		if idx >= len(run) {
+		if idx >= run.Len() {
 			refEndVal(end, 1)
 		} else {
 			let mut acc = 1
 			let mut closed = false
 			let origin = run[idx].At
-			for j in idx..len(run) {
+			for j in idx..run.Len() {
 				match al.Within {
-				case Some as w:
+				case option.Some as w:
 					if time.Sub(run[j].At, origin) > w.Value {
 						closed = true
 						break
 					}
-				case None:
+				case option.None:
 				}
 				acc = refAnd(acc, evalRef[S](al.Inner, run, j, end))
 			}
@@ -637,20 +638,20 @@ func evalRef[S](f Formula[S], run []Seen[S], idx int, end End) int {
 			acc
 		}
 	case EventuallyFormula as ev:
-		if idx >= len(run) {
+		if idx >= run.Len() {
 			refEndVal(end, -1)
 		} else {
 			let mut acc = -1
 			let mut closed = false
 			let origin = run[idx].At
-			for j in idx..len(run) {
+			for j in idx..run.Len() {
 				match ev.Within {
-				case Some as w:
+				case option.Some as w:
 					if time.Sub(run[j].At, origin) > w.Value {
 						closed = true
 						break
 					}
-				case None:
+				case option.None:
 				}
 				acc = refOr(acc, evalRef[S](ev.Inner, run, j, end))
 			}
@@ -660,7 +661,7 @@ func evalRef[S](f Formula[S], run []Seen[S], idx int, end End) int {
 			acc
 		}
 	case ThenFormula as th:
-		if idx >= len(run) {
+		if idx >= run.Len() {
 			refEndVal(end, -1)
 		} else {
 			evalRef[S](th.Read(run[idx].State), run, idx, end)
@@ -694,14 +695,14 @@ func buildAtom(code int) Formula[int] {
 }
 
 func buildFormula(ops []int, pos int, depth int) (Formula[int], int) {
-	if depth >= 4 || pos >= len(ops) {
-		let c = if pos < len(ops) { ops[pos] } else { depth }
+	if depth >= 4 || pos >= ops.Len() {
+		let c = if pos < ops.Len() { ops[pos] } else { depth }
 		return (buildAtom(c), pos + 1)
 	}
 	let op = modPos(ops[pos], 11)
 	let p1 = pos + 1
 	if op == 0 {
-		let c = if p1 < len(ops) { ops[p1] } else { 0 }
+		let c = if p1 < ops.Len() { ops[p1] } else { 0 }
 		(buildAtom(c), p1 + 1)
 	} else if op == 1 {
 		let (a, p2) = buildFormula(ops, p1, depth+1)
@@ -725,19 +726,19 @@ func buildFormula(ops []int, pos int, depth int) (Formula[int], int) {
 		let (a, p2) = buildFormula(ops, p1, depth+1)
 		(Always(a), p2)
 	} else if op == 7 {
-		let d = if p1 < len(ops) { smallDuration(ops[p1]) } else { 0ns }
+		let d = if p1 < ops.Len() { smallDuration(ops[p1]) } else { 0ns }
 		let (a, p2) = buildFormula(ops, p1+1, depth+1)
 		(AlwaysWithin(a, d), p2)
 	} else if op == 8 {
 		let (a, p2) = buildFormula(ops, p1, depth+1)
 		(Eventually(a), p2)
 	} else if op == 9 {
-		let d = if p1 < len(ops) { smallDuration(ops[p1]) } else { 0ns }
+		let d = if p1 < ops.Len() { smallDuration(ops[p1]) } else { 0ns }
 		let (a, p2) = buildFormula(ops, p1+1, depth+1)
 		(EventuallyWithin(a, d), p2)
 	} else {
-		let mode = if p1 < len(ops) { modPos(ops[p1], 4) } else { 0 }
-		let d = if p1+1 < len(ops) { smallDuration(ops[p1+1]) } else { 2ms }
+		let mode = if p1 < ops.Len() { modPos(ops[p1], 4) } else { 0 }
+		let d = if p1+1 < ops.Len() { smallDuration(ops[p1+1]) } else { 2ms }
 		let f = ThenNamed("capture", func(s0 int) Formula[int] {
 			if mode == 0 {
 				Named("same", func(s int) bool { s == s0 })
@@ -754,12 +755,12 @@ func buildFormula(ops []int, pos int, depth int) (Formula[int], int) {
 }
 
 func buildTrace(states []int, gaps []int, startAt time.Time) []Seen[int] {
-	let n = if len(states) > 7 { 7 } else { len(states) }
+	let n = if states.Len() > 7 { 7 } else { states.Len() }
 	let mut out = []Seen[int]{}
 	let mut cur = startAt
 	for i in 0..n {
 		if i > 0 {
-			let g = if i < len(gaps) { modPos(gaps[i], 4) } else { 1 }
+			let g = if i < gaps.Len() { modPos(gaps[i], 4) } else { 1 }
 			cur = time.Add(cur, duration(int64(g)*int64(1000000)))
 		}
 		out = out.Append(Seen[int]{State: modPos(states[i], 4), At: cur})

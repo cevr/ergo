@@ -16,6 +16,7 @@ import json
 import jsonschema
 import llm
 import llm/memory
+import option
 import sha256
 import strings
 import sync
@@ -36,13 +37,13 @@ func Digest(r llm.Request) string { hex.Encode(sha256.Sum(strings.Join(form(r), 
 // form is the pieces of r's form: each string as its length, a colon and
 // its bytes; each variant as its letter; each list as its length first.
 func form(r llm.Request) []string {
-	let mut out = []string{"r", piece(r.System), "\(len(r.Messages));"}
+	let mut out = []string{"r", piece(r.System), "\(r.Messages.Len());"}
 	for m in r.Messages {
 		match m {
 		case llm.User as u:
 			out = out.Append("u").Append(piece(u.Text))
 		case llm.Assistant as a:
-			out = out.Append("a").Append(piece(a.Text)).Append("\(len(a.Calls));")
+			out = out.Append("a").Append(piece(a.Text)).Append("\(a.Calls.Len());")
 			for c in a.Calls {
 				out = out.Append(piece(c.Id)).Append(piece(c.Name)).Append(piece(c.Arguments))
 			}
@@ -50,7 +51,7 @@ func form(r llm.Request) []string {
 			out = out.Append(if x.Failed { "f" } else { "o" }).Append(piece(x.CallId)).Append(piece(x.Text))
 		}
 	}
-	out = out.Append("\(len(r.Tools));")
+	out = out.Append("\(r.Tools.Len());")
 	for t in r.Tools {
 		out = out.Append(piece(t.Name)).Append(piece(t.Description)).Append(piece(jsonschema.TextOf(t.Input)))
 	}
@@ -74,7 +75,7 @@ func form(r llm.Request) []string {
 }
 
 // piece is s with its length before it.
-func piece(s string) string { "\(len(s)):" + s }
+func piece(s string) string { "\(s.Len()):" + s }
 
 // Record is Inner, keeping each exchange it answers. Generate asks Inner
 // by Stream, so every exchange holds its deltas and a replayed Stream
@@ -145,47 +146,47 @@ func StreamEach(m Record, r llm.Request, put func(d llm.Delta)) llm.Turn fails l
 
 func recordStream[E](m Record, r llm.Request, ask func(onDelta func(d llm.Delta) fails E) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema | E, put func(d llm.Delta) fails E) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema | E {
 	let mut ds = []llm.Delta{}
-	let mut failed Option[llm.Failure] = None
+	let mut failed option.Option[llm.Failure] = option.None
 	let t = ask(func(d llm.Delta) fails E {
 		ds = ds.Append(d)
 		try put(d)
 	}) catch {
 	case llm.RateLimited as x:
-		failed = Some[llm.Failure]{Value: x}
+		failed = option.Some[llm.Failure]{Value: x}
 		llm.Turn{Text: "", Calls: []llm.Call{}, Stop: llm.Ended, Usage: llm.Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
 	case llm.Overloaded as x:
-		failed = Some[llm.Failure]{Value: x}
+		failed = option.Some[llm.Failure]{Value: x}
 		llm.Turn{Text: "", Calls: []llm.Call{}, Stop: llm.Ended, Usage: llm.Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
 	case llm.Unauthorized as x:
-		failed = Some[llm.Failure]{Value: x}
+		failed = option.Some[llm.Failure]{Value: x}
 		llm.Turn{Text: "", Calls: []llm.Call{}, Stop: llm.Ended, Usage: llm.Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
 	case llm.Refused as x:
-		failed = Some[llm.Failure]{Value: x}
+		failed = option.Some[llm.Failure]{Value: x}
 		llm.Turn{Text: "", Calls: []llm.Call{}, Stop: llm.Ended, Usage: llm.Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
 	case llm.Truncated as x:
-		failed = Some[llm.Failure]{Value: x}
+		failed = option.Some[llm.Failure]{Value: x}
 		llm.Turn{Text: "", Calls: []llm.Call{}, Stop: llm.Ended, Usage: llm.Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
 	case llm.Transport as x:
-		failed = Some[llm.Failure]{Value: x}
+		failed = option.Some[llm.Failure]{Value: x}
 		llm.Turn{Text: "", Calls: []llm.Call{}, Stop: llm.Ended, Usage: llm.Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
 	case llm.InvalidRequest as x:
-		failed = Some[llm.Failure]{Value: x}
+		failed = option.Some[llm.Failure]{Value: x}
 		llm.Turn{Text: "", Calls: []llm.Call{}, Stop: llm.Ended, Usage: llm.Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
 	case llm.InvalidResponse as x:
-		failed = Some[llm.Failure]{Value: x}
+		failed = option.Some[llm.Failure]{Value: x}
 		llm.Turn{Text: "", Calls: []llm.Call{}, Stop: llm.Ended, Usage: llm.Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
 	case llm.UnsupportedSchema as x:
-		failed = Some[llm.Failure]{Value: x}
+		failed = option.Some[llm.Failure]{Value: x}
 		llm.Turn{Text: "", Calls: []llm.Call{}, Stop: llm.Ended, Usage: llm.Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
 	case e:
 		return e
 	}
 	match failed {
-	case Some[llm.Failure] as f:
+	case option.Some[llm.Failure] as f:
 		let failure = f.Value
 		keep(m, Exchange{Digest: Digest(r), Deltas: ds, End: Failed{Failure: failure}})
 		return try llm.Raise(failure)
-	case None:
+	case option.None:
 	}
 	keep(m, Exchange{Digest: Digest(r), Deltas: ds, End: Answered{Turn: t}})
 	t
@@ -209,13 +210,13 @@ func NewReplay(exchanges []Exchange) Replay { Replay{Exchanges: exchanges, asked
 func Diverged(digest string) string { "recorded: no exchange left for the request " + digest }
 
 // next counts one ask of the request named digest and gives its exchange.
-func next(p Replay, digest string) Option[Exchange] {
+func next(p Replay, digest string) option.Option[Exchange] {
 	let mut k = 0
 	p.asked.Update(func(m Map[string, int]) Map[string, int] {
 		match m.Get(digest) {
-		case Some[int] as n:
+		case option.Some[int] as n:
 			k = n.Value
-		case None:
+		case option.None:
 			k = 0
 		}
 		m.Put(digest, k+1)
@@ -224,12 +225,12 @@ func next(p Replay, digest string) Option[Exchange] {
 	for x in p.Exchanges {
 		if x.Digest == digest {
 			if seen == k {
-				return Some[Exchange]{Value: x}
+				return option.Some[Exchange]{Value: x}
 			}
 			seen = seen + 1
 		}
 	}
-	None
+	option.None
 }
 
 func Generate(p Replay, r llm.Request) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema {
@@ -247,9 +248,9 @@ func StreamEach(p Replay, r llm.Request, put func(d llm.Delta)) llm.Turn fails l
 func replayStream[E](p Replay, r llm.Request, put func(d llm.Delta) fails E) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema | E {
 	let digest = Digest(r)
 	match next(p, digest) {
-	case None:
+	case option.None:
 		llm.InvalidRequest{Reason: Diverged(digest)}
-	case Some[Exchange] as x:
+	case option.Some[Exchange] as x:
 		for d in x.Value.Deltas {
 			try put(d)
 		}
@@ -290,7 +291,7 @@ func request(pick int) llm.Request {
 
 // four is the first four of picks: three requests asked four times hold
 // a request asked twice, and the asks stay within the check-time budget.
-func four(picks []int) []int { if len(picks) > 4 { picks[:4] } else { picks } }
+func four(picks []int) []int { if picks.Len() > 4 { picks[:4] } else { picks } }
 
 // ReplayIsTheRecording: Record gives what its inner model gives, and a
 // Replay of its recording answers each request as the model did, deltas
@@ -327,7 +328,7 @@ law ReplayIsTheRecording(replies []memory.Reply, drawn []int, recordBy []bool, r
 }
 
 // flag is fs[i], or false past its end.
-func flag(fs []bool, i int) bool { i < len(fs) && fs[i] }
+func flag(fs []bool, i int) bool { i < fs.Len() && fs[i] }
 
 // shown is what an ask that streamed s gives a caller by Stream, or by
 // Generate (no deltas).
@@ -375,12 +376,12 @@ law UnknownRequestDiverges(replies []memory.Reply, drawn []int) {
 	for p in picks {
 		asks = asks.Append(request(p))
 	}
-	if len(picks) > 0 {
+	if picks.Len() > 0 {
 		asks = asks.Append(request(picks[0]))
 	}
 	for k, r in asks {
 		let s = asked(replay, r, true)
-		let last = k == len(asks)-1 && len(picks) > 0
+		let last = k == asks.Len()-1 && picks.Len() > 0
 		let diverges = s.End == Failed{Failure: llm.InvalidRequest{Reason: Diverged(Digest(r))}}
 		if (k == 0 || last) != diverges {
 			return false

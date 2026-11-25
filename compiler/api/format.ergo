@@ -14,7 +14,7 @@ import strings
 func FormatSource(src string, limit int) string {
 	let text = format.Source(src, limit) catch {
 	case format.SyntaxFailure as f:
-		return "syntax \(f.Code) \(len(f.Message)):" + f.Message + " \(f.Offset) \(f.Length) \(f.Line) \(f.Column)\n"
+		return "syntax \(f.Code) \(f.Message.Len()):" + f.Message + " \(f.Offset) \(f.Length) \(f.Line) \(f.Column)\n"
 	case format.OutputLimit as o:
 		return "limit \(o.Limit)\n"
 	}
@@ -60,7 +60,7 @@ type BadCommand { At int }
 func readCommands(w string) []format.Command fails BadCommand {
 	let mut out = []format.Command{}
 	let mut at = 0
-	for at < len(w) {
+	for at < w.Len() {
 		let c = w[at]
 		match c {
 		case 's':
@@ -79,14 +79,14 @@ func readCommands(w string) []format.Command fails BadCommand {
 			out = out.Append(format.EndLine)
 			at += 1
 		case 'e':
-			if at+1 >= len(w) || w[at+1] != '0' && w[at+1] != '1' {
+			if at+1 >= w.Len() || w[at+1] != '0' && w[at+1] != '1' {
 				return BadCommand{At: at}
 			}
 			out = out.Append(format.Emit{Blank: w[at+1] == '1'})
 			at += 2
 		case 'w', 'p':
 			let (n, start) = try decimalAt(w, at+1, ':')
-			if n < 0 || n > len(w)-start {
+			if n < 0 || n > w.Len()-start {
 				return BadCommand{At: at}
 			}
 			let text = strings.Slice(w, start, start+n)
@@ -107,17 +107,17 @@ func readCommands(w string) []format.Command fails BadCommand {
 // value and the offset after stop.
 func decimalAt(w string, at int, stop byte) (int, int) fails BadCommand {
 	let mut i = at
-	let negative = i < len(w) && w[i] == '-'
+	let negative = i < w.Len() && w[i] == '-'
 	if negative {
 		i += 1
 	}
 	let digits = i
 	let mut n = 0
-	for i < len(w) && w[i] >= '0' && w[i] <= '9' {
+	for i < w.Len() && w[i] >= '0' && w[i] <= '9' {
 		n = n*10 + int(w[i]-'0')
 		i += 1
 	}
-	if i == digits || i >= len(w) || w[i] != stop {
+	if i == digits || i >= w.Len() || w[i] != stop {
 		return BadCommand{At: at}
 	}
 	(if negative { -n } else { n }, i + 1)

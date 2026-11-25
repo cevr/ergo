@@ -9,7 +9,7 @@ import strings
 // text) takes one compare.
 func escape(b mut strings.Builder, s string) {
 	let mut last = 0
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		let c = s[i]
 		if c <= '>' {
 			let r = if c == '&' {
@@ -36,8 +36,8 @@ func escape(b mut strings.Builder, s string) {
 	}
 	if last == 0 {
 		b.WriteString(s)
-	} else if last < len(s) {
-		b.WriteString(strings.Slice(s, last, len(s)))
+	} else if last < s.Len() {
+		b.WriteString(strings.Slice(s, last, s.Len()))
 	}
 }
 
@@ -47,7 +47,7 @@ func Escape(s string) string {
 		return s
 	}
 	let mut b = strings.NewBuilder()
-	b.Grow(len(s) + 8)
+	b.Grow(s.Len() + 8)
 	escape(&b, s)
 	b.String()
 }
@@ -71,8 +71,8 @@ law TextIsInert(s string, t string) {
 func unescape(s string) string {
 	let mut b = strings.NewBuilder()
 	let mut i = 0
-	for i < len(s) {
-		let rest = strings.Slice(s, i, len(s))
+	for i < s.Len() {
+		let rest = strings.Slice(s, i, s.Len())
 		if strings.HasPrefix(rest, "&amp;") {
 			b.WriteString("&")
 			i = i + 5
@@ -100,13 +100,13 @@ func unescape(s string) string {
 // value (<, >, " or '), and each & in it starts a reference unescape
 // reads. (a law's helper)
 func inert(t string) bool {
-	for i in 0..len(t) {
+	for i in 0..t.Len() {
 		let c = t[i]
 		if c == '<' || c == '>' || c == '"' || c == '\'' {
 			return false
 		}
 		if c == '&' {
-			let rest = strings.Slice(t, i, len(t))
+			let rest = strings.Slice(t, i, t.Len())
 			if !(strings.HasPrefix(rest, "&amp;") || strings.HasPrefix(rest, "&lt;") || strings.HasPrefix(rest, "&gt;") || strings.HasPrefix(rest, "&#34;") || strings.HasPrefix(rest, "&#39;")) {
 				return false
 			}
@@ -117,7 +117,7 @@ func inert(t string) bool {
 
 // plain is whether s has none of the characters Escape replaces.
 func plain(s string) bool {
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		let c = s[i]
 		if c <= '>' && (c == '&' || c == '<' || c == '>' || c == '"' || c == '\'') {
 			return false

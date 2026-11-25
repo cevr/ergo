@@ -9,6 +9,7 @@
 // (github.com/robfig/cron is the common package).
 
 import gen
+import option
 import strconv
 import strings
 
@@ -62,8 +63,8 @@ func fieldBounds() []bounds {
 // name of three letters in any case. The weekday 7 is Sunday, as 0 is.
 func Parse(text string) Expr fails FieldCount | BadValue | OutOfRange | BadStep | BadRange {
 	let words = strings.Fields(macro(strings.TrimSpace(text)))
-	if len(words) != 5 {
-		return FieldCount{Got: len(words)}
+	if words.Len() != 5 {
+		return FieldCount{Got: words.Len()}
 	}
 	let b = fieldBounds()
 	Expr{
@@ -100,7 +101,7 @@ func field(b bounds, text string) Field fails BadValue | OutOfRange | BadStep | 
 		let mut base = part
 		let mut step = 1
 		match strings.Cut(part, "/") {
-		case Some[strings.Halves] as h:
+		case option.Some[strings.Halves] as h:
 			base = h.Value.Before
 			step = strconv.Atoi(h.Value.After) catch {
 			case strconv.Malformed, strconv.OutOfRange:
@@ -109,16 +110,16 @@ func field(b bounds, text string) Field fails BadValue | OutOfRange | BadStep | 
 			if step < 1 {
 				return BadStep{Field: b.name, Text: part}
 			}
-		case None:
+		case option.None:
 		}
 		let mut from = b.min
 		let mut to = b.max
 		if base != "*" {
 			match strings.Cut(base, "-") {
-			case Some[strings.Halves] as r:
+			case option.Some[strings.Halves] as r:
 				from = try value(b, r.Value.Before)
 				to = try value(b, r.Value.After)
-			case None:
+			case option.None:
 				from = try value(b, base)
 				to = if step > 1 { b.max } else { from }
 			}
@@ -185,19 +186,19 @@ func formatField(b bounds, f Field) string {
 		}
 	}
 	if f.star {
-		if len(values) == b.max-b.min+1 {
+		if values.Len() == b.max-b.min+1 {
 			return "*"
 		}
-		if len(values) >= 2 {
+		if values.Len() >= 2 {
 			return "*/\(values[1] - values[0])"
 		}
 		return "*/\(b.max - b.min + 1)"
 	}
 	let mut parts = []string{}
 	let mut i = 0
-	for i < len(values) {
+	for i < values.Len() {
 		let mut j = i
-		for j+1 < len(values) && values[j+1] == values[j]+1 {
+		for j+1 < values.Len() && values[j+1] == values[j]+1 {
 			j = j + 1
 		}
 		parts = parts.Append(if j > i { "\(values[i])-\(values[j])" } else { "\(values[i])" })
@@ -267,7 +268,7 @@ func drawField(lo int, hi int, names []string) string needs gen.Draws {
 // as its name in upper case.
 func drawValue(lo int, hi int, names []string) string needs gen.Draws {
 	let i = gen.IntIn(0, hi-lo)
-	if i < len(names) && gen.IntIn(0, 3) == 1 {
+	if i < names.Len() && gen.IntIn(0, 3) == 1 {
 		return strings.ToUpper(names[i])
 	}
 	strconv.Itoa(lo + i)

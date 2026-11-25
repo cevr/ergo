@@ -28,12 +28,13 @@ import compiler/lower
 import compiler/syntax
 import fs
 import io
+import option
 import os
 import strings
 
 func base(path string) string {
 	let i = strings.LastIndex(path, "/")
-	if i < 0 { path } else { path[i+1 : len(path)] }
+	if i < 0 { path } else { path[i+1 : path.Len()] }
 }
 
 func read(path string) string fails os.Exit needs fs.Files {
@@ -52,12 +53,12 @@ func read(path string) string fails os.Exit needs fs.Files {
 type InputTables { Ext string, Foreign string }
 
 func unitOf(g []string) (load.Unit, InputTables) fails os.Exit needs fs.Files {
-	if len(g) < 2 {
+	if g.Len() < 2 {
 		return os.Exit{Code: 2, Message: "irdump: a package needs EXT FOREIGN FILE..."}
 	}
 	let tables = InputTables{Ext: try read(g[0]), Foreign: try read(g[1])}
 	let tab = load.TablesOf(tables.Ext, tables.Foreign)
-	let paths = g[2:len(g)]
+	let paths = g[2:g.Len()]
 	let mut files = []bind.File{}
 	for path in paths {
 		files = files.Append(bind.File{Name: base(path), Parsed: syntax.Parse(try read(path))})
@@ -88,33 +89,33 @@ func write(i int, u load.Unit, out lower.Out) string {
 func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 	let mut std = ""
 	let mut argv = argv0
-	if len(argv) > 1 && argv[0] == "-std" {
+	if argv.Len() > 1 && argv[0] == "-std" {
 		std = argv[1]
-		argv = argv[2:len(argv)]
+		argv = argv[2:argv.Len()]
 	}
 	let mut roots = []string{}
-	if len(argv) > 1 && argv[0] == "-roots" {
+	if argv.Len() > 1 && argv[0] == "-roots" {
 		roots = strings.Fields(try read(argv[1]))
-		argv = argv[2:len(argv)]
+		argv = argv[2:argv.Len()]
 	}
 	let mut tests = []string{}
-	if len(argv) > 1 && argv[0] == "-tests" {
+	if argv.Len() > 1 && argv[0] == "-tests" {
 		tests = strings.Fields(try read(argv[1]))
-		argv = argv[2:len(argv)]
+		argv = argv[2:argv.Len()]
 	}
-	let counts = len(argv) > 0 && argv[0] == "-type-counts"
+	let counts = argv.Len() > 0 && argv[0] == "-type-counts"
 	if counts {
-		argv = argv[1:len(argv)]
+		argv = argv[1:argv.Len()]
 	}
-	if len(argv) != 2 || argv[0] != "-corpus" {
+	if argv.Len() != 2 || argv[0] != "-corpus" {
 		return os.Exit{Code: 2, Message: "usage: irdump [-std DIR] [-roots FILE] [-tests FILE] [-type-counts] -corpus MANIFEST"}
 	}
 	let mut units = []load.Unit{}
 	let mut inputs = []InputTables{}
 	for line in strings.Split(try read(argv[1]), "\n") {
 		let g = strings.Fields(line)
-		if len(g) > 0 {
-			let (loaded, tables) = try unitOf(g[1:len(g)])
+		if g.Len() > 0 {
+			let (loaded, tables) = try unitOf(g[1:g.Len()])
 			let mut u = loaded
 			u.Path = g[0]
 			units = units.Append(u)
@@ -126,11 +127,11 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 	let exact = exactLoadedUnits(p)
 	let shapeUnits = shapeLoadedUnits(p, units, inputs)
 	let order = orderCalls(p, exact)
-	let mut summaries = []Option[lower.CallFacts]{}
+	let mut summaries = []option.Option[lower.CallFacts]{}
 	let mut blocks = []string{}
 	let mut typed = []int{}
 	for _ in p.Loaded {
-		summaries = summaries.Append(None)
+		summaries = summaries.Append(option.None)
 		blocks = blocks.Append("")
 		typed = typed.Append(0)
 	}
@@ -144,7 +145,7 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 		for tp in tests {
 			testMode = testMode || tp == units[ui].Path
 		}
-		let imports = if root { rootImports(p, i, available) } else { None }
+		let imports = if root { rootImports(p, i, available) } else { option.None }
 		let d = load.TypeAt(p, i)
 		if counts {
 			typed[i] = typed[i] + 1
@@ -155,7 +156,7 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 		let plan = lower.PlanGeneratedBodies(d.K, mode, root)
 		let out = lower.PackageWithPlan(d.S, d.K, d.T, units[ui].Paths, units[ui].Path, root, imports, depFacts, shapeImports(p, i, shapeUnits), plan)
 		if j < order.Ready && exactLoadedUnit(exact, p.Loaded[i].Path) == i && hasSources(p.Loaded[i]) && lower.HasCallFacts(out.CallFacts) {
-			summaries[i] = Some[lower.CallFacts]{Value: out.CallFacts}
+			summaries[i] = option.Some[lower.CallFacts]{Value: out.CallFacts}
 		}
 		blocks[i] = write(ui, units[ui], out)
 	}
@@ -164,7 +165,7 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 	}
 }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), io.Stdout: io.NewHost() } {
 		try run(os.Process.Args())
 	}

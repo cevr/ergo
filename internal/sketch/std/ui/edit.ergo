@@ -1,4 +1,6 @@
 import actor
+import machines
+import option
 import strings
 import time
 
@@ -42,8 +44,8 @@ func Selected(e Editing) (int, int) {
 // end after s.
 func InsertText(e Editing, s string) Editing {
 	let (lo, hi) = Selected(e)
-	let at = lo + len(s)
-	Editing{Text: e.Text[0:lo] + s + e.Text[hi:len(e.Text)], Caret: at, Anchor: at}
+	let at = lo + s.Len()
+	Editing{Text: e.Text[0:lo] + s + e.Text[hi:e.Text.Len()], Caret: at, Anchor: at}
 }
 
 // DeleteBack is Backspace: it deletes the selection, or else the rune
@@ -57,7 +59,7 @@ func DeleteBack(e Editing) Editing {
 		return e
 	}
 	let from = runeStart(e.Text, lo-1)
-	Editing{Text: e.Text[0:from] + e.Text[lo:len(e.Text)], Caret: from, Anchor: from}
+	Editing{Text: e.Text[0:from] + e.Text[lo:e.Text.Len()], Caret: from, Anchor: from}
 }
 
 // CaretTo puts the caret at at; extend keeps the anchor (Shift held), else
@@ -109,8 +111,8 @@ func LineUp(e Editing, extend bool) Editing {
 // line's end when it is shorter; on the last line, the text's end.
 func LineDown(e Editing, extend bool) Editing {
 	let end = lineEndAt(e.Text, e.Caret)
-	if end == len(e.Text) {
-		return CaretTo(e, len(e.Text), extend)
+	if end == e.Text.Len() {
+		return CaretTo(e, e.Text.Len(), extend)
 	}
 	let col = runesIn(e.Text[lineStartAt(e.Text, e.Caret):e.Caret])
 	let next = end + 1
@@ -118,46 +120,46 @@ func LineDown(e Editing, extend bool) Editing {
 }
 
 // SelectAll selects the whole text, the caret at its end.
-func SelectAll(e Editing) Editing { Editing{Text: e.Text, Caret: len(e.Text), Anchor: 0} }
+func SelectAll(e Editing) Editing { Editing{Text: e.Text, Caret: e.Text.Len(), Anchor: 0} }
 
 // KeyEdit is the edit a key press makes in a field of lines lines, None
 // for a key that edits nothing (Tab, Escape, a shortcut): the arrows,
 // Home, End, Backspace, Enter in a field of more than one line, and Ctrl
 // or Meta with "a"; Shift extends the selection.
-func KeyEdit(e Editing, k KeyPress, lines int) Option[Editing] {
+func KeyEdit(e Editing, k KeyPress, lines int) option.Option[Editing] {
 	let s = k.Mods.Shift
 	if (k.Mods.Ctrl || k.Mods.Meta) && k.Name == "a" {
-		return Some{Value: SelectAll(e)}
+		return option.Some{Value: SelectAll(e)}
 	}
 	if k.Mods.Ctrl || k.Mods.Meta || k.Mods.Alt {
-		return None
+		return option.None
 	}
 	match k.Name {
 	case "ArrowLeft":
-		Some{Value: Left(e, s)}
+		option.Some{Value: Left(e, s)}
 	case "ArrowRight":
-		Some{Value: Right(e, s)}
+		option.Some{Value: Right(e, s)}
 	case "ArrowUp":
-		if lines > 1 { Some{Value: LineUp(e, s)} } else { None }
+		if lines > 1 { option.Some{Value: LineUp(e, s)} } else { option.None }
 	case "ArrowDown":
-		if lines > 1 { Some{Value: LineDown(e, s)} } else { None }
+		if lines > 1 { option.Some{Value: LineDown(e, s)} } else { option.None }
 	case "Home":
-		Some{Value: LineStart(e, s)}
+		option.Some{Value: LineStart(e, s)}
 	case "End":
-		Some{Value: LineEnd(e, s)}
+		option.Some{Value: LineEnd(e, s)}
 	case "Backspace":
-		Some{Value: DeleteBack(e)}
+		option.Some{Value: DeleteBack(e)}
 	case "Enter":
-		if lines > 1 { Some{Value: InsertText(e, "\n")} } else { None }
+		if lines > 1 { option.Some{Value: InsertText(e, "\n")} } else { option.None }
 	case _:
-		None
+		option.None
 	}
 }
 
 // runeStart is i inside [0, len(s)], moved back to the start of its rune.
 func runeStart(s string, i int) int {
-	let mut at = if i < 0 { 0 } else if i > len(s) { len(s) } else { i }
-	for at > 0 && at < len(s) && s[at] >= 0x80 && s[at] < 0xC0 {
+	let mut at = if i < 0 { 0 } else if i > s.Len() { s.Len() } else { i }
+	for at > 0 && at < s.Len() && s[at] >= 0x80 && s[at] < 0xC0 {
 		at = at - 1
 	}
 	at
@@ -165,11 +167,11 @@ func runeStart(s string, i int) int {
 
 // runeEnd is the offset after the rune at i, len(s) at the end.
 func runeEnd(s string, i int) int {
-	if i >= len(s) {
-		return len(s)
+	if i >= s.Len() {
+		return s.Len()
 	}
 	let mut at = i + 1
-	for at < len(s) && s[at] >= 0x80 && s[at] < 0xC0 {
+	for at < s.Len() && s[at] >= 0x80 && s[at] < 0xC0 {
 		at = at + 1
 	}
 	at
@@ -185,7 +187,7 @@ func runesIn(s string) int {
 
 func newlinesBefore(s string, i int) int {
 	let mut n = 0
-	for at in 0..(if i > len(s) { len(s) } else { i }) {
+	for at in 0..(if i > s.Len() { s.Len() } else { i }) {
 		if s[at] == 10 {
 			n = n + 1
 		}
@@ -195,7 +197,7 @@ func newlinesBefore(s string, i int) int {
 
 // lineStartAt is the offset where the line holding i starts.
 func lineStartAt(s string, i int) int {
-	let mut at = if i > len(s) { len(s) } else { i }
+	let mut at = if i > s.Len() { s.Len() } else { i }
 	for at > 0 && s[at-1] != 10 {
 		at = at - 1
 	}
@@ -206,7 +208,7 @@ func lineStartAt(s string, i int) int {
 // len(s) on the last line.
 func lineEndAt(s string, i int) int {
 	let mut at = if i < 0 { 0 } else { i }
-	for at < len(s) && s[at] != 10 {
+	for at < s.Len() && s[at] != 10 {
 		at = at + 1
 	}
 	at
@@ -235,13 +237,13 @@ law CaretStaysInTheText(seed int, steps int) {
 	let names = []string{"ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "Backspace", "Enter", "a"}
 	for _ in 0..(steps%24+24)%24 {
 		if draw(&r, 3) == 0 {
-			let s = editPieces[draw(&r, len(editPieces))]
+			let s = editPieces[draw(&r, editPieces.Len())]
 			let (lo, _) = Selected(e)
 			let typed = InsertText(e, s)
-			if typed.Caret != lo+len(s) || typed.Text[lo:typed.Caret] != s {
+			if typed.Caret != lo+s.Len() || typed.Text[lo:typed.Caret] != s {
 				return false
 			}
-			if len(s) > 0 && !strings.Contains(s, "\n") && typedRunes(s) == 1 {
+			if s.Len() > 0 && !strings.Contains(s, "\n") && typedRunes(s) == 1 {
 				let back = DeleteBack(typed)
 				if back.Text != InsertText(e, "").Text || back.Caret != lo {
 					return false
@@ -249,11 +251,11 @@ law CaretStaysInTheText(seed int, steps int) {
 			}
 			e = typed
 		} else {
-			let k = KeyPress{Name: names[draw(&r, len(names))], Mods: Mods{Shift: draw(&r, 2) == 0, Ctrl: draw(&r, 5) == 0, Alt: false, Meta: false}}
-			match KeyEdit(e, k, 1 + draw(&r, 3)) {
-			case Some[Editing] as next:
+			let k = KeyPress{Name: names[draw(&r, names.Len())], Mods: Mods{Shift: draw(&r, 2) == 0, Ctrl: draw(&r, 5) == 0, Alt: false, Meta: false}}
+			match KeyEdit(e, k, 1+draw(&r, 3)) {
+			case option.Some[Editing] as next:
 				e = next.Value
-			case None:
+			case option.None:
 			}
 		}
 		if FitCaret(e) != e {
@@ -279,7 +281,7 @@ let editPieces = []string{"", "a", "é", "日", "\n", "ab", "x\ny"}
 func drawEditText(r mut rng) string {
 	let mut out = ""
 	for _ in 0..draw(r, 6) {
-		out = out + editPieces[draw(r, len(editPieces))]
+		out = out + editPieces[draw(r, editPieces.Len())]
 	}
 	out
 }
@@ -291,12 +293,12 @@ func drawEditText(r mut rng) string {
 // while a field of more lines keeps it.
 law CaretIsTheModels(seed int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		caretModel(seed, m)
 	}
 }
 
-func caretModel(seed int, m time.Manual) bool needs Scheduler {
+func caretModel(seed int, m time.Manual) bool needs time.Scheduler {
 	let mut r = seeded(seed)
 	let lines = 1 + draw(&r, 3)
 	let view = func(f mut Frame[int], s int) {
@@ -311,7 +313,7 @@ func caretModel(seed int, m time.Manual) bool needs Scheduler {
 	}
 	let draft = Locate(&h, WithPlaceholder{Text: "draft"})
 	let own = Locate(&h, WithPlaceholder{Text: "own"})
-	if len(draft) != 1 || len(own) != 1 {
+	if draft.Len() != 1 || own.Len() != 1 {
 		return false
 	}
 	let text = drawEditText(&r)
@@ -319,8 +321,8 @@ func caretModel(seed int, m time.Manual) bool needs Scheduler {
 	case _:
 		return false
 	}
-	let kept = OneLine(Editing{Text: text, Caret: len(text), Anchor: len(text)}, lines)
-	if fieldAt(Screen(&h), 0) != (Some{Value: kept}) {
+	let kept = OneLine(Editing{Text: text, Caret: text.Len(), Anchor: text.Len()}, lines)
+	if fieldAt(Screen(&h), 0) != (option.Some{Value: kept}) {
 		return false
 	}
 	// A one-line field holds no newline, whatever was typed into it; a
@@ -330,19 +332,19 @@ func caretModel(seed int, m time.Manual) bool needs Scheduler {
 	}
 	// An Edit moves the caret and selects: the pass shows both, and the
 	// next pass, after an event elsewhere, keeps them.
-	let moved = FitCaret(Editing{Text: kept.Text, Caret: draw(&r, len(kept.Text)+1), Anchor: draw(&r, len(kept.Text)+1)})
+	let moved = FitCaret(Editing{Text: kept.Text, Caret: draw(&r, kept.Text.Len()+1), Anchor: draw(&r, kept.Text.Len()+1)})
 	EditText(&h, draft[0], moved.Text, moved.Caret, moved.Anchor) catch {
 	case _:
 		return false
 	}
-	if fieldAt(Screen(&h), 0) != (Some{Value: moved}) {
+	if fieldAt(Screen(&h), 0) != (option.Some{Value: moved}) {
 		return false
 	}
 	EditText(&h, own[0], "fixed", 2, 1) catch {
 	case _:
 		return false
 	}
-	if fieldAt(Screen(&h), 0) != (Some{Value: moved}) || fieldAt(Screen(&h), 1) != (Some{Value: Editing{Text: "fixed", Caret: 2, Anchor: 1}}) {
+	if fieldAt(Screen(&h), 0) != (option.Some{Value: moved}) || fieldAt(Screen(&h), 1) != (option.Some{Value: Editing{Text: "fixed", Caret: 2, Anchor: 1}}) {
 		return false
 	}
 	// The program changes the own field's value: the caret goes to its end.
@@ -350,31 +352,31 @@ func caretModel(seed int, m time.Manual) bool needs Scheduler {
 	case _:
 		return false
 	}
-	fieldAt(Screen(&h), 1) == Some{Value: Editing{Text: "reset", Caret: 5, Anchor: 5}}
+	fieldAt(Screen(&h), 1) == option.Some{Value: Editing{Text: "reset", Caret: 5, Anchor: 5}}
 }
 
 // fieldAt is the editing state of the i-th node of a screen when it is an
 // Input (a law's helper).
-func fieldAt(screen []Shape[int], i int) Option[Editing] {
-	if i >= len(screen) {
-		return None
+func fieldAt(screen []Shape[int], i int) option.Option[Editing] {
+	if i >= screen.Len() {
+		return option.None
 	}
 	match screen[i].Node {
 	case InputNode as x:
-		Some{Value: EditingOf(x)}
+		option.Some{Value: EditingOf(x)}
 	case _:
-		None
+		option.None
 	}
 }
 
-func editMachine() Machine[int, int, int] {
-	Machine[int, int, int]{Initial: 0, Step: editStep, After: editTimer, Work: editWork, Exit: editExit}
+func editMachine() machines.Machine[int, int, int] {
+	machines.Machine[int, int, int]{Initial: 0, Step: editStep, After: editTimer, Work: editWork, Exit: editExit}
 }
 
-func editStep(s int, e int) Decision[int, int] { Enter[int]{Next: e} }
+func editStep(s int, e int) machines.Decision[int, int] { machines.Enter[int]{Next: e} }
 
-func editTimer(s int) Option[Timeout[int]] { None }
+func editTimer(s int) option.Option[machines.Timeout[int]] { option.None }
 
-func editWork(s int) Option[func(send func(e int))] { None }
+func editWork(s int) option.Option[func(send func(e int))] { option.None }
 
-func editExit(s int) Option[func()] { None }
+func editExit(s int) option.Option[func()] { option.None }

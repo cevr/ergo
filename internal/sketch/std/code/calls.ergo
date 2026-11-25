@@ -1,4 +1,5 @@
 import maps
+import option
 
 // Calls (SEMTOOLS SEM2): who calls whom, from the call edges of the
 // tables, one per call site, each from the declaration the call is in to
@@ -29,10 +30,10 @@ type Call {
 // most MaxDepth), a page at a time.
 type CallQuery {
 	Of        string,
-	Direction Option[string],
-	Depth     Option[int],
-	Offset    Option[int],
-	Limit     Option[int],
+	Direction option.Option[string],
+	Depth     option.Option[int],
+	Offset    option.Option[int],
+	Limit     option.Option[int],
 }
 
 // Hop is a call of an answer, with the number of steps from Of that
@@ -77,8 +78,8 @@ func inward(q CallQuery) bool { text(q.Direction) == "in" }
 
 // callPage is the page of q's window over hops.
 func callPage(t Tables, q CallQuery, hops []Hop) CallPage {
-	let (start, end, next) = window(len(hops), q.Offset, q.Limit)
-	CallPage{Revision: t.Revision, Complete: summaryOf(t).Complete, Hops: hops[start:end], Total: len(hops), Next: next}
+	let (start, end, next) = window(hops.Len(), q.Offset, q.Limit)
+	CallPage{Revision: t.Revision, Complete: summaryOf(t).Complete, Hops: hops[start:end], Total: hops.Len(), Next: next}
 }
 
 // edgesOf is every call of the tables, in table order.
@@ -99,7 +100,7 @@ func callsByStep(from Map[string, []Call], start string, depth int, inward bool)
 	let mut seen = Map[string, bool]{}
 	seen[start] = true
 	let mut frontier = []string{start}
-	for d in 1..depth + 1 {
+	for d in 1..depth+1 {
 		let mut next = []string{}
 		for h in frontier {
 			for c in maps.GetOr(from, h, []Call{}) {
@@ -128,8 +129,8 @@ func callsByRounds(edges []Call, start string, depth int, inward bool) []Hop {
 	let mut step = []int{0}
 	for round in 1..depth {
 		let mut i = 0
-		for i < len(order) {
-			if step[i] == round - 1 {
+		for i < order.Len() {
+			if step[i] == round-1 {
 				for c in edges {
 					if near(c) == order[i] && !has(order, far(c)) {
 						order = order.Append(far(c))
@@ -141,9 +142,9 @@ func callsByRounds(edges []Call, start string, depth int, inward bool) []Hop {
 		}
 	}
 	let mut out = []Hop{}
-	for d in 1..depth + 1 {
+	for d in 1..depth+1 {
 		for i, h in order {
-			if step[i] == d - 1 {
+			if step[i] == d-1 {
 				for c in edges {
 					if near(c) == h {
 						out = out.Append(Hop{Depth: d, Call: c})
@@ -162,4 +163,3 @@ func callTarget(q CallQuery, d Decl) Decl fails NotCallable {
 	}
 	d
 }
-

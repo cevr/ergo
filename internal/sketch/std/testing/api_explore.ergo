@@ -115,7 +115,7 @@ func InjectUnknownField(objJSON string, key string, val string) string {
 	}
 	let strCodec = json.Codec[string]{MaxBytes: 0, MaxDepth: 0}
 	let field = json.Encode(strCodec, key) + ":" + json.Encode(strCodec, val)
-	let inner = strings.TrimSpace(trimmed[1 : len(trimmed)-1])
+	let inner = strings.TrimSpace(trimmed[1 : trimmed.Len()-1])
 	if inner == "" {
 		return "{" + field + "}"
 	}

@@ -5,6 +5,7 @@
 // It is plain Ergo over task.Go, task.StopAfter and task.ExitOf: one
 // child task, and for a time limit one alarm on the Scheduler's clock.
 
+import option
 import queue
 import scope
 import strings
@@ -54,7 +55,7 @@ type Exit = OverTime | OverSteps | Crashed
 // is no defect, and ends the program. A is not own: a generic body cannot
 // yet release a resource value it drops (GEN9-GAP42), so a block gives
 // plain data.
-func Run[A, E, R](l Limits, f own func() A fails E needs R defects) A fails E | OverTime | OverSteps | Crashed needs R | Scheduler {
+func Run[A, E, R](l Limits, f own func() A fails E needs R defects) A fails E | OverTime | OverSteps | Crashed needs R | time.Scheduler {
 	let t = if l.Steps > 0 {
 		task.Go() {
 			task.LimitSteps(l.Steps)
@@ -92,7 +93,7 @@ type Runner {
 	// Scheduler on (an argument: an operation writes no capability row,
 	// types.md Capabilities 4). Cleaned in the report counts the exit
 	// actions of s that ran before Play returned.
-	Play(l Limits, s Script, on Scheduler) Report,
+	Play(l Limits, s Script, on time.Scheduler) Report,
 
 	// ValueOrFailurePasses: a block that ends with its value or its typed
 	// failure, under no limit, ends the process the same way, after its
@@ -118,13 +119,13 @@ type Runner {
 	law DefectIsCrashed(text string, k int) {
 		let n = small(k)
 		let r = Play(Unlimited, Script{Cleanups: n, Waits: 0ns, Steps: 0, End: Panics{Text: text}}, time.NewManual(0))
-		let nominal = with context { Scheduler: time.NewManual(0) } {
+		let nominal = with context { time.Scheduler: time.NewManual(0) } {
 			let t = task.Go() {
 				played(Script{Cleanups: 0, Waits: 0ns, Steps: 0, End: Panics{Text: text}}, queue.New[int](1))
 			}
 			match task.ExitOf(t) {
 			case task.Defected as d:
-				task.ReasonAs[ScriptedFault](d) == Some[ScriptedFault]{Value: ScriptedFault{Text: text}}
+				task.ReasonAs[ScriptedFault](d) == option.Some[ScriptedFault]{Value: ScriptedFault{Text: text}}
 			case _:
 				false
 			}
@@ -142,7 +143,7 @@ type Runner {
 		let limit = 1 + ((t%20)+20)%20
 		let n = small(k)
 		let l = Limits{..Unlimited, Time: time.Times(1ms, limit)}
-		let r = timed(func(on Scheduler) Report needs Runner { Play(l, Script{Cleanups: n, Waits: time.Times(1ms, wait), Steps: 0, End: Gives{Value: 1}}, on) })
+		let r = timed(func(on time.Scheduler) Report needs Runner { Play(l, Script{Cleanups: n, Waits: time.Times(1ms, wait), Steps: 0, End: Gives{Value: 1}}, on) })
 		let gave = agrees(r, Report{Ended: Gives{Value: 1}, Cleaned: n})
 		let over = agrees(r, Report{Ended: OverTime{Limit: l.Time}, Cleaned: n})
 		r.Cleaned == n && (if wait <= limit { gave } else { over })
@@ -174,7 +175,7 @@ type Runner {
 		let wait = if c == 3 { 5ms } else { 0ns }
 		let steps = if c == 4 { 20 } else { 0 }
 		let l = if c == 4 { Limits{..Unlimited, Steps: 2 + n + 3} } else { Limits{..Unlimited, Time: 2ms} }
-		let r = timed(func(on Scheduler) Report needs Runner { Play(l, Script{Cleanups: n, Waits: wait, Steps: steps, End: end}, on) })
+		let r = timed(func(on time.Scheduler) Report needs Runner { Play(l, Script{Cleanups: n, Waits: wait, Steps: steps, End: end}, on) })
 		r.Cleaned == n
 	},
 
@@ -192,7 +193,7 @@ type Runner {
 			let s = drawn(x)
 			x = next(x)
 			let l = drawnLimits(x)
-			let r = timed(func(on Scheduler) Report needs Runner { Play(l, s, on) })
+			let r = timed(func(on time.Scheduler) Report needs Runner { Play(l, s, on) })
 			let m = expected(l, s)
 			agree = agree && agrees(r, m)
 			want = want + m.Cleaned
@@ -230,11 +231,11 @@ type Report {
 type Local {} implements Runner
 
 // Play runs s with Run under l, on the Scheduler on.
-func Play(p Local, l Limits, s Script, on Scheduler) Report {
-	with context { Scheduler: on } { reported(l, s) }
+func Play(p Local, l Limits, s Script, on time.Scheduler) Report {
+	with context { time.Scheduler: on } { reported(l, s) }
 }
 
-func reported(l Limits, s Script) Report needs Scheduler {
+func reported(l Limits, s Script) Report needs time.Scheduler {
 	let marks = queue.New[int](s.Cleanups + 1)
 	let v = Run(l) { try played(s, marks) } catch {
 	case Fails as f:
@@ -257,7 +258,7 @@ func burn(n int, q queue.Queue[int]) {
 	burn(n-1, q)
 }
 
-func played(s Script, marks queue.Queue[int]) int fails Fails needs Scheduler defects {
+func played(s Script, marks queue.Queue[int]) int fails Fails needs time.Scheduler defects {
 	for i in 0..s.Cleanups {
 		scope.OnExit() {
 			marks.Push(i) catch {
@@ -269,7 +270,7 @@ func played(s Script, marks queue.Queue[int]) int fails Fails needs Scheduler de
 		burn(s.Steps, marks)
 	}
 	if s.Waits > 0ns {
-		Scheduler.Sleep(s.Waits)
+		time.Scheduler.Sleep(s.Waits)
 	}
 	match s.End {
 	case Gives as g:
@@ -288,10 +289,10 @@ func small(k int) int { ((k % 4) + 4) % 4 }
 // millisecond at a time until that task has played: time is the input.
 // Advance returns once every other task waits again, so each step sees
 // every sleep the last one led to.
-func timed(play own func(on Scheduler) Report needs Runner) Report needs Runner {
+func timed(play own func(on time.Scheduler) Report needs Runner) Report needs Runner {
 	let m = time.NewManual(0)
 	let played = queue.New[int](1)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		let p = task.Go() {
 			let r = play(m)
 			played.Push(1) catch {
@@ -346,10 +347,10 @@ func expected(l Limits, s Script) Report {
 }
 
 func isHexDigits(s string) bool {
-	if len(s) == 0 {
+	if s.Len() == 0 {
 		return false
 	}
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		let b = s[i]
 		let digit = b >= '0' && b <= '9'
 		let lower = b >= 'a' && b <= 'f'
@@ -379,7 +380,7 @@ func agrees(r Report, m Report) bool {
 			if idx < 0 {
 				return false
 			}
-			isHexDigits(c.Reason[idx+len(tag) : len(c.Reason)])
+			isHexDigits(c.Reason[idx+tag.Len() : c.Reason.Len()])
 		case _:
 			false
 		}

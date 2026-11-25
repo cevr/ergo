@@ -23,7 +23,7 @@ func Rows[T, F](stmt string, args []Value, parse func(r Row) T fails F) []T fail
 // the query gives more. A query that gives none is NoRows.
 func One[T, F](stmt string, args []Value, parse func(r Row) T fails F) T fails F | NoRows | Unique | Serialization | Deadlock | Timeout | Closed | Other needs DB {
 	let rows = try DB.Query(stmt, args)
-	if len(rows) == 0 {
+	if rows.Len() == 0 {
 		return NoRows{Statement: stmt}
 	}
 	try parse(rows[0])
@@ -31,7 +31,7 @@ func One[T, F](stmt string, args []Value, parse func(r Row) T fails F) T fails F
 
 // column is the value at position i of r.
 func column(r Row, i int, want string) Value fails Mismatch {
-	if i < 0 || i >= len(r.Values) {
+	if i < 0 || i >= r.Values.Len() {
 		return Mismatch{Column: i, Want: want}
 	}
 	r.Values[i]

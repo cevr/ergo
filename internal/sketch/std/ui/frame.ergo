@@ -1,5 +1,8 @@
 import arena
 import actor
+import core
+import machines
+import option
 import time
 import queue
 import scope
@@ -55,23 +58,23 @@ type Frame[E] {
 	held     Map[arena.Ref[node[E]], bool],
 	stopped  Map[int, bool],
 	parent   int,
-	each     CallSite,
+	each     core.CallSite,
 	key      Key,
 	epoch    int,
 	ops      []Op[E],
 	jobs     []Job[E],
-	keys     []func(k KeyPress) Option[E],
+	keys     []func(k KeyPress) option.Option[E],
 	nkeys    int,
-	urls     []func(u URL) Option[E],
+	urls     []func(u URL) option.Option[E],
 	nurls    int,
 	anims    []func(at duration) E,
 	nanims   int,
 	rowRuns  int,
 	skips    int,
 	written  int,
-	stops    []CallSite,
+	stops    []core.CallSite,
 	nstops   int,
-	slow     Option[slowWatch[E]],
+	slow     option.Option[slowWatch[E]],
 	// Groups (group.ergo): the arguments' memo, the kept groups by key
 	// and their entries with the free ones, the passes kept, this pass's
 	// groups (the first ngroups) and whether one is inside another, the
@@ -112,7 +115,7 @@ type Frame[E] {
 	// the pass a Tick caused runs, the passes so far (passes, above, which keepGroups also counts), and moving
 	// whether a Presence of this pass moves (H5e).
 	now    duration,
-	tickAt Option[duration],
+	tickAt option.Option[duration],
 	moving bool,
 	// focus is the node the keyboard is on (UC-FOCUS): the last one pressed
 	// or typed into, Null before any.
@@ -136,8 +139,8 @@ type Frame[E] {
 	over    []arena.Ref[node[E]],
 	crossed []E,
 	visible bool,
-	want    Option[Key],
-	wanted  Option[Key],
+	want    option.Option[Key],
+	wanted  option.Option[Key],
 	openers []opener[E],
 	roved   Map[arena.Ref[node[E]], arena.Ref[node[E]]],
 	// paint is the scratch every canvas paints into (Canvas, paint.ergo).
@@ -161,7 +164,7 @@ type Frame[E] {
 law LayersDismissFromTheTop(seed int, steps int) {
 	let mut r = seeded(seed)
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		let n = draw(&r, 4) + 1
 		let mut kinds = []int{}
 		let mut scrims = []bool{}
@@ -179,7 +182,7 @@ law LayersDismissFromTheTop(seed int, steps int) {
 		let ps = parents
 		let view = func(f mut Frame[int], s layerApp) { layerScreen(f, s, ks, ss, ds, ps) }
 		let all = (1 << n) - 1
-		let a = actor.StartMachine(Machine[layerApp, int, int]{Initial: layerApp{open: all, log: ""}, Step: layerStep, After: layerTimer, Work: layerWork, Exit: func(s layerApp) Option[func()] { None }}, 1, func(o int) {})
+		let a = actor.StartMachine(machines.Machine[layerApp, int, int]{Initial: layerApp{open: all, log: ""}, Step: layerStep, After: layerTimer, Work: layerWork, Exit: func(s layerApp) option.Option[func()] { option.None }}, 1, func(o int) {})
 		let mut h = NewTestHost(a, view, m, 4) catch {
 		case BadPatch:
 			return false
@@ -209,7 +212,7 @@ law LayersDismissFromTheTop(seed int, steps int) {
 						shown = shown.Append(i)
 					}
 				}
-				let at = shown[draw(&r, len(shown))]
+				let at = shown[draw(&r, shown.Len())]
 				let j = draw(&r, 3)
 				let label = if at < 0 { "f\(j)" } else { "l\(at)" }
 				let inside = func(l int) bool { at >= 0 && layerUnder(parents, l, at) }
@@ -217,7 +220,7 @@ law LayersDismissFromTheTop(seed int, steps int) {
 					// A key's press: no pointer, so no dismissal; a scrim
 					// stops it outside its layer.
 					let ids = Locate(&h, WithLabel{Label: label})
-					if len(ids) != 1 {
+					if ids.Len() != 1 {
 						return false
 					}
 					Activate(&h, ids[0]) catch {
@@ -250,18 +253,18 @@ law LayersDismissFromTheTop(seed int, steps int) {
 			for z in 0..4 {
 				for i in 0..n {
 					if layerShown(open, parents, i) && kinds[i] == z {
-						if k >= len(ids) {
+						if k >= ids.Len() {
 							return false
 						}
 						let held = Locate(&h, WithLabel{Label: "l\(i)"})
-						if len(held) != 1 || !isUnderId(&h, ids[k], held[0]) {
+						if held.Len() != 1 || !isUnderId(&h, ids[k], held[0]) {
 							return false
 						}
 						k = k + 1
 					}
 				}
 			}
-			if k != len(ids) {
+			if k != ids.Len() {
 				return false
 			}
 		}
@@ -275,20 +278,20 @@ type layerApp { open int, log string }
 
 // layerStep closes layer i on its dismiss signal 10+i, and logs every
 // signal. (a law's helper)
-func layerStep(s layerApp, e int) Decision[layerApp, int] {
+func layerStep(s layerApp, e int) machines.Decision[layerApp, int] {
 	let mut open = s.open
 	if e >= 10 && e < 20 {
 		open = open - (open & (1 << (e - 10)))
 	}
-	Enter[layerApp]{Next: layerApp{open: open, log: s.log + "\(e),"}}
+	machines.Enter[layerApp]{Next: layerApp{open: open, log: s.log + "\(e),"}}
 }
 
-func layerTimer(s layerApp) Option[Timeout[int]] {
-	None
+func layerTimer(s layerApp) option.Option[machines.Timeout[int]] {
+	option.None
 }
 
-func layerWork(s layerApp) Option[func(send func(e int))] {
-	None
+func layerWork(s layerApp) option.Option[func(send func(e int))] {
+	option.None
 }
 
 // layerKind is kind k of four. (a law's helper)
@@ -303,12 +306,12 @@ func layerBody(f mut Frame[int], s layerApp, i int, kinds []int, scrims []bool, 
 	if s.open&(1<<i) == 0 {
 		return
 	}
-	let d = if dismiss[i] { Some{Value: 10 + i} } else { None }
-	Layer(f, Layered[int]{Z: layerKind(kinds[i]), Anchor: Some{Value: ByInt(0)}, Place: Place{Side: SideBottom, Align: AlignStart, Gap: 0}, Scrim: scrims[i], Dismiss: d}, Plain()) {
+	let d = if dismiss[i] { option.Some{Value: 10 + i} } else { option.None }
+	Layer(f, Layered[int]{Z: layerKind(kinds[i]), Anchor: option.Some{Value: ByInt(0)}, Place: Place{Side: SideBottom, Align: AlignStart, Gap: 0}, Scrim: scrims[i], Dismiss: d}, Plain()) {
 		Pressable(f, "l\(i)", 200+i) {
 			Text(f, "x")
 		}
-		if i+1 < len(kinds) && parents[i+1] == i {
+		if i+1 < kinds.Len() && parents[i+1] == i {
 			layerBody(f, s, i+1, kinds, scrims, dismiss, parents)
 		}
 	}
@@ -319,8 +322,8 @@ func layerBody(f mut Frame[int], s layerApp, i int, kinds []int, scrims []bool, 
 // top one keyed by its index, so a layer that closes leaves the next one's
 // nodes their identity. (a law's helper)
 func layerScreen(f mut Frame[int], s layerApp, kinds []int, scrims []bool, dismiss []bool, parents []int) {
-	OnKey(f, func(k KeyPress) Option[int] {
-		if k.Name == "Escape" { Some{Value: 900} } else { None }
+	OnKey(f, func(k KeyPress) option.Option[int] {
+		if k.Name == "Escape" { option.Some{Value: 900} } else { option.None }
 	})
 	Zone(f, ByInt(0), Plain()) {
 		for j in 0..3 {
@@ -330,7 +333,7 @@ func layerScreen(f mut Frame[int], s layerApp, kinds []int, scrims []bool, dismi
 		}
 	}
 	let mut tops = []int{}
-	for i in 0..len(kinds) {
+	for i in 0..kinds.Len() {
 		if parents[i] < 0 {
 			tops = tops.Append(i)
 		}
@@ -357,7 +360,7 @@ func layerShown(open int, parents []int, i int) bool {
 // holds of, -1 for none. (a law's helper)
 func layerTop(open int, kinds []int, parents []int, pick []bool) int {
 	let mut top = -1
-	for i in 0..len(kinds) {
+	for i in 0..kinds.Len() {
 		if layerShown(open, parents, i) && pick[i] && (top < 0 || kinds[i] >= kinds[top]) {
 			top = i
 		}
@@ -395,7 +398,7 @@ func isUnderId[S, E, D, F](h mut TestHost[S, E, D, F], id Id[E], x Id[E]) bool {
 // what a pass would have written.
 law ScrollCostsNoViewPass(seed int, steps int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		let mut r = seeded(seed)
 		let n = []int{0, 1, 20, 10000}[draw(&r, 4)]
 		let rh = float64(draw(&r, 30) + 10)
@@ -405,7 +408,7 @@ law ScrollCostsNoViewPass(seed int, steps int) {
 				Text(f, "row \(i)")
 			}
 		}
-		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
+		let a = actor.StartMachine(machines.Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) option.Option[func()] { option.None }}, 1, func(o int) {})
 		let mut h = NewTestHost(a, view, m, 4) catch {
 		case BadPatch:
 			return false
@@ -470,7 +473,7 @@ law KeyedReorderKeepsRows(seed int, steps int) {
 	}
 	let mut f = NewFrame[int]()
 	let mut m = NewMirror[int](Root(&f))
-	for k in 0..len(orders) {
+	for k in 0..orders.Len() {
 		let mut want = []string{}
 		for x in orders[k] {
 			want = want.Append("row \(x)")
@@ -515,11 +518,11 @@ func reorders(seed int, steps int) [][]int {
 	let mut out = [][]int{order}
 	for _ in 0..(steps%6+6)%6+3 {
 		let mut next = []int{}
-		for x in out[len(out)-1] {
+		for x in out[out.Len()-1] {
 			next = next.Append(x)
 		}
-		for i in 0..len(next) {
-			let j = i + draw(&r, len(next)-i)
+		for i in 0..next.Len() {
+			let j = i + draw(&r, next.Len()-i)
 			let x = next[i]
 			next[i] = next[j]
 			next[j] = x
@@ -553,11 +556,11 @@ func reorderRow(f mut Frame[int], x int) {
 // is the model's.
 law PointerCrossesOnce(seed int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		let mut r = seeded(seed)
 		let n = draw(&r, 4) + 2
 		let view = func(f mut Frame[int], s string) { crossScreen(f, n) }
-		let a = actor.StartMachine(Machine[string, int, int]{Initial: "", Step: crossStep, After: crossTimer, Work: crossWork, Exit: func(at string) Option[func()] { None }}, 1, func(o int) {})
+		let a = actor.StartMachine(machines.Machine[string, int, int]{Initial: "", Step: crossStep, After: crossTimer, Work: crossWork, Exit: func(at string) option.Option[func()] { option.None }}, 1, func(o int) {})
 		let mut h = NewTestHost(a, view, m, 4) catch {
 		case BadPatch:
 			return false
@@ -572,7 +575,7 @@ law PointerCrossesOnce(seed int) {
 					return false
 				}
 			} else {
-				Play(&h, []Act{PointOn{Label: "a\(j)", Pointer: PointerEvent{Pointer: MousePointer, Phase: Moved, X: 2, Y: 2, Zone: None}}}) catch {
+				Play(&h, []Act{PointOn{Label: "a\(j)", Pointer: PointerEvent{Pointer: MousePointer, Phase: Moved, X: 2, Y: 2, Zone: option.None}}}) catch {
 				case _:
 					return false
 				}
@@ -596,16 +599,16 @@ law PointerCrossesOnce(seed int) {
 }
 
 // crossStep logs each signal. (a law's helper)
-func crossStep(s string, e int) Decision[string, int] {
-	Enter[string]{Next: s + "\(e),"}
+func crossStep(s string, e int) machines.Decision[string, int] {
+	machines.Enter[string]{Next: s + "\(e),"}
 }
 
-func crossTimer(s string) Option[Timeout[int]] {
-	None
+func crossTimer(s string) option.Option[machines.Timeout[int]] {
+	option.None
 }
 
-func crossWork(s string) Option[func(send func(e int))] {
-	None
+func crossWork(s string) option.Option[func(send func(e int))] {
+	option.None
 }
 
 // crossScreen is n Areas "a0" to "a<n-1>"; Area i gives 10i+1 on the
@@ -613,14 +616,14 @@ func crossWork(s string) Option[func(send func(e int))] {
 func crossScreen(f mut Frame[int], n int) {
 	Column(f, Plain()) {
 		for i in 0..n {
-			Area(f, "a\(i)", Plain(), func(p PointerEvent) Option[int] {
+			Area(f, "a\(i)", Plain(), func(p PointerEvent) option.Option[int] {
 				match p.Phase {
 				case PointerEnter:
-					Some{Value: 10*i + 1}
+					option.Some{Value: 10*i + 1}
 				case PointerLeave:
-					Some{Value: 10*i + 2}
+					option.Some{Value: 10*i + 2}
 				case _:
-					None
+					option.None
 				}
 			}) {
 				Text(f, "t\(i)")
@@ -642,7 +645,7 @@ func crossScreen(f mut Frame[int], n int) {
 law FocusFollowsTheRing(seed int, steps int) {
 	let mut r = seeded(seed)
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		let mut kinds = []int{}
 		let mut sizes = []int{}
 		let mut mem = []int{}
@@ -665,7 +668,7 @@ law FocusFollowsTheRing(seed int, steps int) {
 		let ks = kinds
 		let ss = sizes
 		let view = func(f mut Frame[int], s int) { ringScreen(f, s, ks, ss) }
-		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
+		let a = actor.StartMachine(machines.Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) option.Option[func()] { option.None }}, 1, func(o int) {})
 		let mut h = NewTestHost(a, view, m, 4) catch {
 		case BadPatch:
 			return false
@@ -675,10 +678,10 @@ law FocusFollowsTheRing(seed int, steps int) {
 		let mut visible = false
 		for _ in 0..(steps%16+16)%16+4 {
 			let act = draw(&r, 7)
-			if act == 6 && len(labels) == 0 {
+			if act == 6 && labels.Len() == 0 {
 				// nothing to click
 			} else if act == 6 {
-				let l = labels[draw(&r, len(labels))]
+				let l = labels[draw(&r, labels.Len())]
 				Play(&h, []Act{ClickOn{At: WithLabel{Label: l}}}) catch {
 				case _:
 					return false
@@ -710,7 +713,7 @@ law FocusFollowsTheRing(seed int, steps int) {
 						ring = ring.Append(i)
 					}
 				}
-				let n = len(ring)
+				let n = ring.Len()
 				if n == 0 {
 					fi = -1
 				} else {
@@ -744,12 +747,12 @@ law FocusFollowsTheRing(seed int, steps int) {
 				return false
 			}
 			match FocusOf(&h) {
-			case Some[Id[int]] as id:
+			case option.Some[Id[int]] as id:
 				let shown LookState = if visible { FocusVisible } else { Hover }
 				if LookStateAt(&h, id.Value) != shown {
 					return false
 				}
-			case None:
+			case option.None:
 			}
 		}
 		true
@@ -796,9 +799,9 @@ func keyIn(name string, shift bool) Act {
 // law's helper)
 func focusName[S, D, F](h mut TestHost[S, int, D, F]) string {
 	match FocusOf(h) {
-	case Some[Id[int]] as id:
+	case option.Some[Id[int]] as id:
 		AccessAt(h, id.Value).Name
-	case None:
+	case option.None:
 		""
 	}
 }
@@ -817,11 +820,11 @@ func ringName(kinds []int, i int, j int) string {
 law FocusStaysInScope(seed int, steps int) {
 	let mut r = seeded(seed)
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		let outs = draw(&r, 4) + 1
 		let ins = draw(&r, 4) + 1
 		let view = func(f mut Frame[int], s int) { scopeScreen(f, s, outs, ins) }
-		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
+		let a = actor.StartMachine(machines.Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) option.Option[func()] { option.None }}, 1, func(o int) {})
 		let mut h = NewTestHost(a, view, m, 4) catch {
 		case BadPatch:
 			return false
@@ -863,8 +866,8 @@ law FocusStaysInScope(seed int, steps int) {
 // sending 1, and "close", sending 0, the last; Escape sends 0 from
 // anywhere. (a law's helper)
 func scopeScreen(f mut Frame[int], s int, outs int, ins int) {
-	OnKey(f, func(k KeyPress) Option[int] {
-		if k.Name == "Escape" { Some{Value: 0} } else { None }
+	OnKey(f, func(k KeyPress) option.Option[int] {
+		if k.Name == "Escape" { option.Some{Value: 0} } else { option.None }
 	})
 	Column(f, Plain()) {
 		for i in 0..outs {
@@ -896,11 +899,11 @@ func scopeScreen(f mut Frame[int], s int, outs int, ins int) {
 law FocusReturnsOnEnd(seed int) {
 	let mut r = seeded(seed)
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		let outs = draw(&r, 4) + 1
 		let ins = draw(&r, 3) + 1
 		let view = func(f mut Frame[int], s int) { scopeScreen(f, s, outs, ins) }
-		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
+		let a = actor.StartMachine(machines.Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) option.Option[func()] { option.None }}, 1, func(o int) {})
 		let mut h = NewTestHost(a, view, m, 4) catch {
 		case BadPatch:
 			return false
@@ -951,7 +954,7 @@ law FocusReturnsOnEnd(seed int) {
 // no fetch in flight (settledShowsLatest).
 law CancelledFetchStops(steps int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		cancelStops(steps, m)
 	}
 }
@@ -962,27 +965,27 @@ type chosen { key int, ready int }
 
 // chosenStep: a signal of 0 or more is a new key, and the result goes back to
 // none; a negative signal is a fetch's result.
-func chosenStep(s chosen, e int) Decision[chosen, int] {
+func chosenStep(s chosen, e int) machines.Decision[chosen, int] {
 	if e >= 0 {
-		return Enter[chosen]{Next: chosen{key: e, ready: -1}}
+		return machines.Enter[chosen]{Next: chosen{key: e, ready: -1}}
 	}
-	Enter[chosen]{Next: chosen{key: s.key, ready: -1 - e}}
+	machines.Enter[chosen]{Next: chosen{key: s.key, ready: -1 - e}}
 }
 
-func chosenTimer(s chosen) Option[Timeout[int]] { None }
+func chosenTimer(s chosen) option.Option[machines.Timeout[int]] { option.None }
 
-func chosenWork(s chosen) Option[func(send func(e int))] { None }
+func chosenWork(s chosen) option.Option[func(send func(e int))] { option.None }
 
-func chosenExit(s chosen) Option[func()] { None }
+func chosenExit(s chosen) option.Option[func()] { option.None }
 
-func chosenMachine() Machine[chosen, int, int] {
-	Machine[chosen, int, int]{Initial: chosen{key: 0, ready: -1}, Step: chosenStep, After: chosenTimer, Work: chosenWork, Exit: chosenExit}
+func chosenMachine() machines.Machine[chosen, int, int] {
+	machines.Machine[chosen, int, int]{Initial: chosen{key: 0, ready: -1}, Step: chosenStep, After: chosenTimer, Work: chosenWork, Exit: chosenExit}
 }
 
 // valueOf is what the fetch of key k gives.
 func valueOf(k int) int { k*10 + 7 }
 
-func cancelStops(steps int, m time.Manual) bool needs Scheduler {
+func cancelStops(steps int, m time.Manual) bool needs time.Scheduler {
 	let started = queue.New[int](64)
 	let ended = queue.New[int](64)
 	let view = func(f mut Frame[int], s chosen) {
@@ -1023,7 +1026,7 @@ func cancelStops(steps int, m time.Manual) bool needs Scheduler {
 			return false
 		}
 		let s = StateOf(&h)
-		if ended.Poll() != (Some{Value: old}) || Fetching(&h) != 1 || s.ready != -1 {
+		if ended.Poll() != (option.Some{Value: old}) || Fetching(&h) != 1 || s.ready != -1 {
 			return false
 		}
 		let now = started.Pop() catch {
@@ -1038,7 +1041,7 @@ func cancelStops(steps int, m time.Manual) bool needs Scheduler {
 	case _:
 		return false
 	}
-	if Fetching(&h) != 1 || len(waiting) != 1 || !strings.HasSuffix(waiting[0], "; waiting on the clock: 1") {
+	if Fetching(&h) != 1 || waiting.Len() != 1 || !strings.HasSuffix(waiting[0], "; waiting on the clock: 1") {
 		return false
 	}
 	Play(&h, []Act{AdvanceBy{By: 1h}, SettleAll}) catch {
@@ -1063,12 +1066,12 @@ func cancelStops(steps int, m time.Manual) bool needs Scheduler {
 // makes it give up on a fetch the clock does not hold (FK4-g2-g1).
 law OffClockAnswerIsWaitedFor(steps int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		offClock(steps, m)
 	}
 }
 
-func offClock(steps int, m time.Manual) bool needs Scheduler {
+func offClock(steps int, m time.Manual) bool needs time.Scheduler {
 	let asks = queue.New[int](8)
 	let answers = queue.New[int](8)
 	let release = queue.New[int](8)
@@ -1161,12 +1164,12 @@ func offClock(steps int, m time.Manual) bool needs Scheduler {
 // (FK2-g2-g1).
 law VersionedNeverRunsAhead(n int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		versionedHolds(n, m)
 	}
 }
 
-func versionedHolds(n int, m time.Manual) bool needs Scheduler {
+func versionedHolds(n int, m time.Manual) bool needs time.Scheduler {
 	let landed = 1000 + (n%1000+1000)%1000
 	let a = actor.StartMachine(dialMachine(), 4, func(o int) {})
 	let view = func(f mut Frame[int], s int) {
@@ -1198,16 +1201,16 @@ func versionedHolds(n int, m time.Manual) bool needs Scheduler {
 	s == landed && SameShapes(Screen(&h), freshShape(view, s))
 }
 
-func dialStep(s int, e int) Decision[int, int] { Enter[int]{Next: e} }
+func dialStep(s int, e int) machines.Decision[int, int] { machines.Enter[int]{Next: e} }
 
-func dialTimer(s int) Option[Timeout[int]] { None }
+func dialTimer(s int) option.Option[machines.Timeout[int]] { option.None }
 
-func dialWork(s int) Option[func(send func(e int))] { None }
+func dialWork(s int) option.Option[func(send func(e int))] { option.None }
 
-func dialExit(s int) Option[func()] { None }
+func dialExit(s int) option.Option[func()] { option.None }
 
-func dialMachine() Machine[int, int, int] {
-	Machine[int, int, int]{Initial: 0, Step: dialStep, After: dialTimer, Work: dialWork, Exit: dialExit}
+func dialMachine() machines.Machine[int, int, int] {
+	machines.Machine[int, int, int]{Initial: 0, Step: dialStep, After: dialTimer, Work: dialWork, Exit: dialExit}
 }
 
 // RowsKeepTheCursor (GP1b): a long list that keeps its cursor's row in
@@ -1218,22 +1221,22 @@ func dialMachine() Machine[int, int, int] {
 // cursor moves again, and the list shows the rows that offset shows.
 law RowsKeepTheCursor(seed int, steps int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		cursorKept(seed, steps, m)
 	}
 }
 
 // cursorStep: the signal is the cursor's row.
-func cursorStep(s int, e int) Decision[int, int] { Enter[int]{Next: e} }
+func cursorStep(s int, e int) machines.Decision[int, int] { machines.Enter[int]{Next: e} }
 
-func cursorTimer(s int) Option[Timeout[int]] { None }
+func cursorTimer(s int) option.Option[machines.Timeout[int]] { option.None }
 
-func cursorWork(s int) Option[func(send func(e int))] { None }
+func cursorWork(s int) option.Option[func(send func(e int))] { option.None }
 
-func cursorExit(s int) Option[func()] { None }
+func cursorExit(s int) option.Option[func()] { option.None }
 
-func cursorMachine() Machine[int, int, int] {
-	Machine[int, int, int]{Initial: 0, Step: cursorStep, After: cursorTimer, Work: cursorWork, Exit: cursorExit}
+func cursorMachine() machines.Machine[int, int, int] {
+	machines.Machine[int, int, int]{Initial: 0, Step: cursorStep, After: cursorTimer, Work: cursorWork, Exit: cursorExit}
 }
 
 // keptOffset is the model of the offset that shows row k whole, by its
@@ -1257,19 +1260,19 @@ func keptOffset(k int, rh float64, off float64, height float64) float64 {
 	down
 }
 
-func cursorKept(seed int, steps int, m time.Manual) bool needs Scheduler {
+func cursorKept(seed int, steps int, m time.Manual) bool needs time.Scheduler {
 	let mut r = seeded(seed)
 	let sizes = []int{0, 3, 50, 1000}
-	let n = sizes[draw(&r, len(sizes))]
+	let n = sizes[draw(&r, sizes.Len())]
 	let rh = float64(draw(&r, 40) + 10)
 	let view = func(f mut Frame[int], s int) {
-		OnKey(f, func(k KeyPress) Option[int] {
+		OnKey(f, func(k KeyPress) option.Option[int] {
 			for i in 0..n+1 {
 				if k.Name == "\(i)" {
-					return Some{Value: i}
+					return option.Some{Value: i}
 				}
 			}
-			None
+			option.None
 		})
 		RowsKeeping(f, "list", n, Length(rh), s, func(i int) Key { ByInt(i) }) func(i int) {
 			Text(f, "row \(i)")
@@ -1305,7 +1308,7 @@ func cursorKept(seed int, steps int, m time.Manual) bool needs Scheduler {
 			rows = rows.Append(leaf(TextNode{Value: "row \(i)", Style: Plain()}))
 		}
 		let mut first = n
-		if len(now) > 0 {
+		if now.Len() > 0 {
 			first = now[0]
 		}
 		let want = Shape[int]{Node: RowsNode{Label: "list", Count: n, RowHeight: Length(rh), First: first, Offset: Length(off)}, Kids: rows}
@@ -1329,19 +1332,19 @@ func cursorKept(seed int, steps int, m time.Manual) bool needs Scheduler {
 // never a drag (FK12-g1).
 law CaptureKeepsThePointer(seed int, steps int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		captureFollows(seed, steps, m)
 	}
 }
 
 // pointerOnly is base plus the phase's code, and nothing on the
 // pointer's enter or leave (UG3). (a law's helper)
-func pointerOnly(base int, p PointerEvent) Option[int] {
+func pointerOnly(base int, p PointerEvent) option.Option[int] {
 	match p.Phase {
 	case PointerEnter, PointerLeave:
-		None
+		option.None
 	case _:
-		Some{Value: base + phaseCode(p.Phase)}
+		option.Some{Value: base + phaseCode(p.Phase)}
 	}
 }
 
@@ -1364,20 +1367,20 @@ func phaseCode(p Phase) int {
 	}
 }
 
-func captureFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
+func captureFollows(seed int, steps int, m time.Manual) bool needs time.Scheduler {
 	let mut r = seeded(seed)
 	let view = func(f mut Frame[int], s int) {
-		OnKey(f, func(k KeyPress) Option[int] { if k.Name == "h" { Some{Value: 99} } else { None } })
+		OnKey(f, func(k KeyPress) option.Option[int] { if k.Name == "h" { option.Some{Value: 99} } else { option.None } })
 		Pressable(f, "tap", 98) {
 			Text(f, "tap")
 		}
 		Text(f, "top")
 		if s != 99 {
-			Area(f, "a", Plain(), func(p PointerEvent) Option[int] { pointerOnly(10, p) }) {
+			Area(f, "a", Plain(), func(p PointerEvent) option.Option[int] { pointerOnly(10, p) }) {
 				Text(f, "in a")
 			}
 		}
-		Area(f, "b", Plain(), func(p PointerEvent) Option[int] { pointerOnly(20, p) }) {
+		Area(f, "b", Plain(), func(p PointerEvent) option.Option[int] { pointerOnly(20, p) }) {
 			Text(f, "in b")
 		}
 	}
@@ -1435,12 +1438,12 @@ func captureFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 			}
 			let label = if at == 10 { "a" } else if at == 20 { "b" } else { "top" }
 			let id = match Find(&h, label) {
-			case Some[Id[int]] as found:
+			case option.Some[Id[int]] as found:
 				found.Value
-			case None:
+			case option.None:
 				return false
 			}
-			PointAt(&h, id, PointerEvent{Pointer: MousePointer, Phase: phase, X: 1.0, Y: 1.0, Zone: None}) catch {
+			PointAt(&h, id, PointerEvent{Pointer: MousePointer, Phase: phase, X: 1.0, Y: 1.0, Zone: option.None}) catch {
 			case _:
 				return false
 			}
@@ -1468,7 +1471,7 @@ func captureFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 		if StateOf(&h) != state {
 			return false
 		}
-		let want = if held == 10 { Find(&h, "a") } else if held == 20 { Find(&h, "b") } else { None }
+		let want = if held == 10 { Find(&h, "a") } else if held == 20 { Find(&h, "b") } else { option.None }
 		if Captured(&h) != want {
 			return false
 		}
@@ -1485,7 +1488,7 @@ func captureFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 // and no result: the counts of a pass never depend on scheduling.
 law PostedOrderKeepsTheCounts(seed int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		postedOrder(seed, m)
 	}
 }
@@ -1493,19 +1496,19 @@ law PostedOrderKeepsTheCounts(seed int) {
 // orderStep is the law's machine: the key starts the loads (1), a Slow
 // stops them (2), and a load's result changes nothing (3). (a law's
 // helper)
-func orderStep(s int, e int) Decision[int, int] {
+func orderStep(s int, e int) machines.Decision[int, int] {
 	if e == 3 {
-		return Ignore
+		return machines.Ignore
 	}
-	Enter[int]{Next: e}
+	machines.Enter[int]{Next: e}
 }
 
-func postedOrder(seed int, m time.Manual) bool needs Scheduler {
+func postedOrder(seed int, m time.Manual) bool needs time.Scheduler {
 	let mut r = seeded(seed)
 	let n = draw(&r, 4) + 3
 	let view = func(f mut Frame[int], s int) {
 		OnSlow(f, Budget{Signals: 0, Written: 0, Committed: 0, Ops: 0, Painted: 0, Fetches: 2}, func(x Slow) int { 2 })
-		OnKey(f, func(k KeyPress) Option[int] { if s == 0 { Some{Value: 1} } else { None } })
+		OnKey(f, func(k KeyPress) option.Option[int] { if s == 0 { option.Some{Value: 1} } else { option.None } })
 		Text(f, "s\(s)")
 		if s == 1 {
 			for i in 0..n {
@@ -1514,7 +1517,7 @@ func postedOrder(seed int, m time.Manual) bool needs Scheduler {
 		}
 	}
 	let posted = queue.New[Event[int]](64)
-	let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: orderStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
+	let a = actor.StartMachine(machines.Machine[int, int, int]{Initial: 0, Step: orderStep, After: semTimer, Work: semWork, Exit: func(at int) option.Option[func()] { option.None }}, 1, func(o int) {})
 	let (s, _) = Start(a, view, func(ev Event[int]) {
 		posted.Push(ev) catch {
 		case queue.Closed:
@@ -1531,15 +1534,15 @@ func postedOrder(seed int, m time.Manual) bool needs Scheduler {
 	let mut more = true
 	for more {
 		match posted.Poll() {
-		case Some[Event[int]] as ev:
+		case option.Some[Event[int]] as ev:
 			evs = evs.Append(ev.Value)
-		case None:
+		case option.None:
 			more = false
 		}
 	}
 	// Take them in a drawn order (a shuffle), then whatever they posted.
-	for i in 0..len(evs) {
-		let j = i + draw(&r, len(evs)-i)
+	for i in 0..evs.Len() {
+		let j = i + draw(&r, evs.Len()-i)
 		let x = evs[i]
 		evs[i] = evs[j]
 		evs[j] = x
@@ -1554,12 +1557,12 @@ func postedOrder(seed int, m time.Manual) bool needs Scheduler {
 	let mut rest = true
 	for rest {
 		match posted.Poll() {
-		case Some[Event[int]] as ev:
+		case option.Some[Event[int]] as ev:
 			let _ = Step(&session, ev.Value) catch {
 			case actor.Stopped:
 				return false
 			}
-		case None:
+		case option.None:
 			rest = false
 		}
 	}
@@ -1577,7 +1580,7 @@ type Id[E] { ref arena.Ref[node[E]] }
 // its Each row, and n, how many siblings before it have the same call and
 // row. A node is kept across passes exactly when its identity returns
 // under the same parent and its kind stays.
-type ident { site CallSite, each CallSite, key Key, n int }
+type ident { site core.CallSite, each core.CallSite, key Key, n int }
 
 // kid is a node's identity among the children of one parent: owner is
 // the parent's node of the last pass. The pass's index of the last pass's
@@ -1588,7 +1591,7 @@ type ident { site CallSite, each CallSite, key Key, n int }
 type kid[E] { owner arena.Ref[node[E]], id ident }
 
 // base is ident without n.
-type base { site CallSite, each CallSite, key Key }
+type base { site core.CallSite, each core.CallSite, key Key }
 
 // slotOf is a base under one parent spec (-1 the root), for counting n.
 type slotOf { parent int, b base }
@@ -1609,19 +1612,19 @@ type node[E] {
 	kids    []arena.Ref[node[E]],
 	parked  []arena.Ref[node[E]],
 	off     bool,
-	onText  Option[func(t string) E],
-	onPoint Option[func(p PointerEvent) Option[E]],
-	onKey   Option[func(k KeyPress) Option[E]],
-	binds   Option[bound[E]],
+	onText  option.Option[func(t string) E],
+	onPoint option.Option[func(p PointerEvent) option.Option[E]],
+	onKey   option.Option[func(k KeyPress) option.Option[E]],
+	binds   option.Option[bound[E]],
 	cells   Map[ident, Cell],
 	loads   Map[ident, slot],
-	run     Option[memoRun[E]],
+	run     option.Option[memoRun[E]],
 	dirty   bool,
 	memo    arena.Ref[node[E]],
 	up      arena.Ref[node[E]],
 	// edit is the text, caret and anchor the last Type or Edit gave an
 	// Input; a pass shows them while the value is that text (edit.ergo).
-	edit Option[Editing],
+	edit option.Option[Editing],
 	// focusAs is how the node takes part in the focus (focus.ergo).
 	focusAs int,
 }
@@ -1649,13 +1652,13 @@ type spec[E] {
 	parent  int,
 	prev    arena.Ref[node[E]],
 	ref     arena.Ref[node[E]],
-	onText  Option[func(t string) E],
-	onPoint Option[func(p PointerEvent) Option[E]],
-	onKey   Option[func(k KeyPress) Option[E]],
-	binds   Option[cellAt],
+	onText  option.Option[func(t string) E],
+	onPoint option.Option[func(p PointerEvent) option.Option[E]],
+	onKey   option.Option[func(k KeyPress) option.Option[E]],
+	binds   option.Option[cellAt],
 	off     bool,
 	memo    int,
-	same    Option[memoRun[E]],
+	same    option.Option[memoRun[E]],
 	skip    bool,
 	again   bool,
 	live    bool,
@@ -1669,18 +1672,18 @@ type spec[E] {
 	focusAs int,
 }
 
-let nowhere = CallSite{File: "", Line: 0, Column: 0, Pkg: 0, Id: 0}
+let nowhere = core.CallSite{File: "", Line: 0, Column: 0, Pkg: 0, Id: 0}
 
 // Op is one change a host applies, in order. Before names the sibling the
 // node goes in front of; None puts it last. Define gives the host the
 // Looks of a new LookId, the next one, before any node names it (UG1).
-type Op[E] = Insert{Id Id[E], Parent Id[E], Before Option[Id[E]], Node Node[E]} | Move{Id Id[E], Parent Id[E], Before Option[Id[E]]} | Remove{Id Id[E]} | Set{Id Id[E], Node Node[E]} | Define{Id LookId, Looks Looks}
+type Op[E] = Insert{Id Id[E], Parent Id[E], Before option.Option[Id[E]], Node Node[E]} | Move{Id Id[E], Parent Id[E], Before option.Option[Id[E]]} | Remove{Id Id[E]} | Set{Id Id[E], Node Node[E]} | Define{Id LookId, Looks Looks}
 
 // NewFrame is a composer whose tree has only its root.
 func NewFrame[E]() Frame[E] {
 	let mut nodes = arena.New[node[E]]()
-	let root = nodes.Put(fresh[E](BoxNode{Style: Plain()}, ident{site: nowhere, each: nowhere, key: NoKey, n: 0}, None, None, None, false))
-	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, nspecs: 0, first: -1, last: -1, nroot: 0, pass: 0, pending: []pendingCounts{}, npending: 0, rootPending: false, unplaced: 0, cells: []cellSpec{}, ncells: 0, loads: []loadSpec[E]{}, nloads: 0, seen: Map[int, tally]{}, seenWide: Map[slotOf, tally]{}, seenLog: []slotOf{}, nseen: 0, index: Map[kid[E], arena.Ref[node[E]]]{}, indexed: Map[arena.Ref[node[E]], bool]{}, held: Map[arena.Ref[node[E]], bool]{}, stopped: Map[int, bool]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}, keys: []func(k KeyPress) Option[E]{}, nkeys: 0, urls: []func(u URL) Option[E]{}, nurls: 0, anims: []func(at duration) E{}, nanims: 0, rowRuns: 0, skips: 0, written: 0, stops: []CallSite{}, nstops: 0, slow: None, args: newArgs(), kept: Map[groupKey[E], int]{}, keptList: []keptGroup[E]{}, free: []int{}, nfree: 0, keptPasses: 0, nheld: 0, swept: 0, groups: []groupRec[E]{}, ngroups: 0, nested: false, group: -1, groupSeen: Map[int, tally]{}, groupWide: Map[slotOf, tally]{}, groupRuns: 0, sameSkips: 0, sames: 0, keptSames: 0, compared: 0, lowered: 0, visits: 0, now: duration(int64(0)), tickAt: None, passes: 0, moving: false, focus: arena.Null[node[E]](), down: arena.Null[node[E]](), lookList: defaultTable(), lookIds: defaultIds(), lookSent: len(defaultTable()), hover: arena.Null[node[E]](), over: []arena.Ref[node[E]]{}, crossed: []E{}, visible: false, want: None, wanted: None, openers: []opener[E]{}, roved: Map[arena.Ref[node[E]], arena.Ref[node[E]]]{}, paint: Paint{ops: []PaintOp{}, segs: []Seg{}, ends: []int{}}, readouts: []Readout{}, nreadouts: 0}
+	let root = nodes.Put(fresh[E](BoxNode{Style: Plain()}, ident{site: nowhere, each: nowhere, key: NoKey, n: 0}, option.None, option.None, option.None, false))
+	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, nspecs: 0, first: -1, last: -1, nroot: 0, pass: 0, pending: []pendingCounts{}, npending: 0, rootPending: false, unplaced: 0, cells: []cellSpec{}, ncells: 0, loads: []loadSpec[E]{}, nloads: 0, seen: Map[int, tally]{}, seenWide: Map[slotOf, tally]{}, seenLog: []slotOf{}, nseen: 0, index: Map[kid[E], arena.Ref[node[E]]]{}, indexed: Map[arena.Ref[node[E]], bool]{}, held: Map[arena.Ref[node[E]], bool]{}, stopped: Map[int, bool]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}, keys: []func(k KeyPress) option.Option[E]{}, nkeys: 0, urls: []func(u URL) option.Option[E]{}, nurls: 0, anims: []func(at duration) E{}, nanims: 0, rowRuns: 0, skips: 0, written: 0, stops: []core.CallSite{}, nstops: 0, slow: option.None, args: newArgs(), kept: Map[groupKey[E], int]{}, keptList: []keptGroup[E]{}, free: []int{}, nfree: 0, keptPasses: 0, nheld: 0, swept: 0, groups: []groupRec[E]{}, ngroups: 0, nested: false, group: -1, groupSeen: Map[int, tally]{}, groupWide: Map[slotOf, tally]{}, groupRuns: 0, sameSkips: 0, sames: 0, keptSames: 0, compared: 0, lowered: 0, visits: 0, now: duration(int64(0)), tickAt: option.None, passes: 0, moving: false, focus: arena.Null[node[E]](), down: arena.Null[node[E]](), lookList: defaultTable(), lookIds: defaultIds(), lookSent: defaultTable().Len(), hover: arena.Null[node[E]](), over: []arena.Ref[node[E]]{}, crossed: []E{}, visible: false, want: option.None, wanted: option.None, openers: []opener[E]{}, roved: Map[arena.Ref[node[E]], arena.Ref[node[E]]]{}, paint: Paint{ops: []PaintOp{}, segs: []Seg{}, ends: []int{}}, readouts: []Readout{}, nreadouts: 0}
 }
 
 // IncrementalEqualsFresh: committing the frames of a run of states in
@@ -1725,7 +1728,7 @@ law IncrementalEqualsFresh(seed int, steps int) {
 type Missing { V int }
 
 // swap writes a Text or a Check at its caller's site.
-func swap(f mut Frame[int], v int, at CallSite) {
+func swap(f mut Frame[int], v int, at core.CallSite) {
 	if v%2 == 0 {
 		Text(f, "even \(v)", at)
 	} else {
@@ -1739,7 +1742,7 @@ func render(f mut Frame[int], p prog, s []int, row int) fails Missing | Pending 
 		Text(f, "t\(s[x.slot] + row)")
 	case pInput as x:
 		let v = s[x.slot] + row
-		Input(f, "v\(v)", "type", func(t string) int { len(t) + v })
+		Input(f, "v\(v)", "type", func(t string) int { t.Len() + v })
 	case pCheck as x:
 		Check(f, "c", s[x.slot]%2 == 0, s[x.slot]+row)
 	case pSwap as x:
@@ -1843,7 +1846,7 @@ func render(f mut Frame[int], p prog, s []int, row int) fails Missing | Pending 
 // Toggle of its own, a Box with a Toggle (a cell its Same does not own),
 // and its kids.
 func sameBody(f mut Frame[int], kids []prog, s []int, row int, dig int) fails Missing | Pending {
-	OnKey(f, func(k KeyPress) Option[int] { Some{Value: dig} })
+	OnKey(f, func(k KeyPress) option.Option[int] { option.Some{Value: dig} })
 	let fl = NewFlag(f, false)
 	Toggle(f, fl, "same")
 	Box(f, Plain()) {
@@ -1915,7 +1918,7 @@ law IdempotentCommit(seed int) {
 	let s1 = genState(&r)
 	let _ = try renderPass(&f, ps, s0)
 	let _ = try renderPass(&f, ps, s1)
-	len(try renderPass(&f, ps, s1)) == 0
+	(try renderPass(&f, ps, s1)).Len() == 0
 }
 
 // KeyedMovesFewest: a permutation of one-node keyed rows shows the new
@@ -1948,7 +1951,7 @@ law KeyedMovesFewest(seed int, count int) {
 			return false
 		}
 	}
-	SameShapes(MirrorShape(&m), FrameShape(&f)) && moves == len(ys)-longestRise(ys)
+	SameShapes(MirrorShape(&m), FrameShape(&f)) && moves == ys.Len()-longestRise(ys)
 }
 
 // keyedLines is keyed rows of one node each, so two rows that swap are
@@ -2013,11 +2016,11 @@ law KeyedIdentity(seed int, count int) {
 			}
 		}
 		let after = rowIds(&f, ys)
-		if len(before) != len(xs)+1 || len(after) != len(xs)+1 || !SameShapes(MirrorShape(&m), FrameShape(&f)) {
+		if before.Len() != xs.Len()+1 || after.Len() != xs.Len()+1 || !SameShapes(MirrorShape(&m), FrameShape(&f)) {
 			return false
 		}
 		for x, ids in before {
-			if after.Get(x) != (Some{Value: ids}) {
+			if after.Get(x) != (option.Some{Value: ids}) {
 				return false
 			}
 		}
@@ -2042,17 +2045,17 @@ func keyedRows(f mut Frame[int], xs []int) {
 func rowIds(f mut Frame[int], xs []int) Map[int, (Id[int], Id[int])] {
 	let mut out = Map[int, (Id[int], Id[int])]{}
 	let col = Kids(f, Root(f))
-	if len(col) != 1 {
+	if col.Len() != 1 {
 		return out
 	}
 	let kids = Kids(f, col[0])
-	if len(kids) != 2*len(xs)+1 {
+	if kids.Len() != 2*xs.Len()+1 {
 		return out
 	}
 	for i, x in xs {
 		out[x] = (kids[2*i], kids[2*i+1])
 	}
-	out[-1] = (kids[2*len(xs)], kids[2*len(xs)])
+	out[-1] = (kids[2*xs.Len()], kids[2*xs.Len()])
 	out
 }
 
@@ -2108,7 +2111,7 @@ law GroupByKeepsAfterCheapEqual(seed int, steps int) {
 // them), and the next pass compares only those, running the group either
 // way, so a slice it shares with the program is never read. A view that
 // stops changing runs its group once more, then skips (P-ui-flow).
-func groupBy[E comparable, A](f mut Frame[E], args A, same func(a A, b A) bool, cheap func(a A, b A) bool, keep func(a A) A, body func(), at CallSite) {
+func groupBy[E comparable, A](f mut Frame[E], args A, same func(a A, b A) bool, cheap func(a A, b A) bool, keep func(a A) A, body func(), at core.CallSite) {
 	let id = groupIdent(f, at)
 	let key = groupKey[E]{owner: owner(f, f.parent), id: id}
 	let outer = f.group
@@ -2119,7 +2122,7 @@ func groupBy[E comparable, A](f mut Frame[E], args A, same func(a A, b A) bool, 
 	let mut slot = -1
 	let mut entry = -1
 	match f.kept.Get(key) {
-	case Some[int] as i:
+	case option.Some[int] as i:
 		entry = i.Value
 		slot = f.keptList[entry].slot
 		let mut deep = true
@@ -2132,7 +2135,7 @@ func groupBy[E comparable, A](f mut Frame[E], args A, same func(a A, b A) bool, 
 			deep = cheap(k.args, args)
 		}
 		argsSetBy(f.args, slot, heldOf(args, deep, keep))
-	case None:
+	case option.None:
 		slot = argsPutBy(f.args, heldOf(args, true, keep))
 	}
 	runGroup(f, id, outer, start, slot, entry, body)
@@ -2188,7 +2191,7 @@ func keptAgain[E](f mut Frame[E], g groupRec[E]) {
 // pass's, and returns its index.
 func record[E](f mut Frame[E], g groupRec[E]) int {
 	let r = f.ngroups
-	if r < len(f.groups) {
+	if r < f.groups.Len() {
 		f.groups[r] = g
 	} else {
 		f.groups = f.groups.Append(g)
@@ -2216,7 +2219,7 @@ func groupCount[E](f mut Frame[E], s mut slotOf, d int) int {
 // apart from the nodes' (identify): a node keeps the identity it has when
 // the call is no group, so cells and matching see the same nodes under
 // either lowering.
-func groupIdent[E](f mut Frame[E], at CallSite) ident {
+func groupIdent[E](f mut Frame[E], at core.CallSite) ident {
 	let mut s = slotOf{parent: f.parent, b: base{site: at, each: f.each, key: f.key}}
 	let n = groupCount(f, &s, 1)
 	ident{site: at, each: f.each, key: f.key, n: n}
@@ -2233,7 +2236,7 @@ func groupIdent[E](f mut Frame[E], at CallSite) ident {
 func writeAgain[E](f mut Frame[E], i int) bool {
 	let p = f.parent
 	let up = p >= 0 && f.specs[p].off
-	let t = len(f.keptList[i].tops)
+	let t = f.keptList[i].tops.Len()
 	// Each top must keep its disabled state.
 	if (up && !f.keptList[i].allOff) || (!up && !f.keptList[i].offSelf) {
 		return false
@@ -2245,7 +2248,7 @@ func writeAgain[E](f mut Frame[E], i int) bool {
 		// for one (see), which a list holder's rows seldom are.
 		let start = f.nspecs
 		putTops(f, i, p)
-		if f.npending < len(f.pending) {
+		if f.npending < f.pending.Len() {
 			f.pending[f.npending] = pendingCounts{parent: p, entry: i, start: start, done: false}
 		} else {
 			f.pending = f.pending.Append(pendingCounts{parent: p, entry: i, start: start, done: false})
@@ -2277,18 +2280,18 @@ func writeAgain[E](f mut Frame[E], i int) bool {
 // in place (fix 5: a spec a top cost a list holder of 800 rows most of
 // its pass). A group with no top writes no spec.
 func putTops[E](f mut Frame[E], i int, p int) {
-	if len(f.keptList[i].tops) == 0 {
+	if f.keptList[i].tops.Len() == 0 {
 		return
 	}
 	let x = f.keptList[i].tops[0]
-	let _ = putSpec(f, spec[E]{node: x.node, id: x.id, parent: p, prev: x.ref, ref: x.ref, onText: None, onPoint: None, onKey: None, binds: None, off: x.off, memo: memoOf(f, p), same: None, skip: true, again: true, live: true, first: -1, last: -1, next: -1, before: lastKid(f, p), nkids: 0, pending: false, block: i, focusAs: focusPlain})
+	let _ = putSpec(f, spec[E]{node: x.node, id: x.id, parent: p, prev: x.ref, ref: x.ref, onText: option.None, onPoint: option.None, onKey: option.None, binds: option.None, off: x.off, memo: memoOf(f, p), same: option.None, skip: true, again: true, live: true, first: -1, last: -1, next: -1, before: lastKid(f, p), nkids: 0, pending: false, block: i, focusAs: focusPlain})
 }
 
 // clearBefore is whether the few nodes written so far under p (at most
 // four, counted, not looked up) all have a row site other than each: then
 // none shares an identity's base with a top of a group whose tops share
 // row site each.
-func clearBefore[E](f mut Frame[E], p int, each CallSite) bool {
+func clearBefore[E](f mut Frame[E], p int, each core.CallSite) bool {
 	if kidsWritten(f, p) > 4 {
 		return false
 	}
@@ -2317,10 +2320,10 @@ func unsee[E](f mut Frame[E], n int) {
 
 // opsEqual is whether two patches are the same changes.
 func opsEqual(a []Op[int], b []Op[int]) bool {
-	if len(a) != len(b) {
+	if a.Len() != b.Len() {
 		return false
 	}
-	for i in 0..len(a) {
+	for i in 0..a.Len() {
 		if a[i] != b[i] {
 			return false
 		}
@@ -2341,7 +2344,7 @@ func opsEqual(a []Op[int], b []Op[int]) bool {
 type gbArgs { n int, xs []int }
 
 func gbSame(a gbArgs, b gbArgs) bool {
-	if a.n != b.n || len(a.xs) != len(b.xs) {
+	if a.n != b.n || a.xs.Len() != b.xs.Len() {
 		return false
 	}
 	for i, x in a.xs {
@@ -2407,7 +2410,7 @@ law GroupSkipsEqualArguments(seed int, steps int) {
 // writeGroup writes body's nodes as one group (the compiler's form of a
 // component call, never written by a program): the nodes of the last
 // pass's group when it is kept with arguments equal to args, else body's.
-func writeGroup[E comparable, A comparable](f mut Frame[E], args A, body func(), at CallSite) {
+func writeGroup[E comparable, A comparable](f mut Frame[E], args A, body func(), at core.CallSite) {
 	let id = groupIdent(f, at)
 	let key = groupKey[E]{owner: owner(f, f.parent), id: id}
 	let outer = f.group
@@ -2420,7 +2423,7 @@ func writeGroup[E comparable, A comparable](f mut Frame[E], args A, body func(),
 	// The kept groups are a list the map indexes: a Map whose values hold
 	// slices is copied whole when read (measured: 93% of a pass).
 	match f.kept.Get(key) {
-	case Some[int] as i:
+	case option.Some[int] as i:
 		entry = i.Value
 		slot = f.keptList[entry].slot
 		if argsSame(f.args, slot, args) && writeAgain(f, entry) {
@@ -2428,7 +2431,7 @@ func writeGroup[E comparable, A comparable](f mut Frame[E], args A, body func(),
 			return
 		}
 		argsSet(f.args, slot, args)
-	case None:
+	case option.None:
 		slot = argsPut(f.args, args)
 	}
 	runGroup(f, id, outer, start, slot, entry, body)
@@ -2501,9 +2504,9 @@ func cellShape(keys []int, rows Map[int, row]) []Shape[int] {
 	let mut kids = []Shape[int]{}
 	for k in keys {
 		let r = rowOf(rows, k)
-		kids = kids.Append(leaf(InputNode{Value: r.a, Placeholder: "a", Label: "", Description: "", Invalid: false, Hints: PlainHints, Lines: 1, Caret: len(r.a), Anchor: len(r.a)}))
+		kids = kids.Append(leaf(InputNode{Value: r.a, Placeholder: "a", Label: "", Description: "", Invalid: false, Hints: PlainHints, Lines: 1, Caret: r.a.Len(), Anchor: r.a.Len()}))
 		kids = kids.Append(leaf(TextNode{Value: r.a, Style: Plain()}))
-		kids = kids.Append(Shape[int]{Node: RowNode{Style: Plain()}, Kids: []Shape[int]{leaf(InputNode{Value: r.b, Placeholder: "b", Label: "", Description: "", Invalid: false, Hints: PlainHints, Lines: 1, Caret: len(r.b), Anchor: len(r.b)})}})
+		kids = kids.Append(Shape[int]{Node: RowNode{Style: Plain()}, Kids: []Shape[int]{leaf(InputNode{Value: r.b, Placeholder: "b", Label: "", Description: "", Invalid: false, Hints: PlainHints, Lines: 1, Caret: r.b.Len(), Anchor: r.b.Len()})}})
 		kids = kids.Append(leaf(ToggleNode{Label: "t", On: r.on}))
 		kids = kids.Append(Shape[int]{Node: PressableNode{Label: "send", On: k, Style: PressStyle()}, Kids: []Shape[int]{leaf(TextNode{Value: "send", Style: Plain()})}})
 	}
@@ -2514,9 +2517,9 @@ func cellShape(keys []int, rows Map[int, row]) []Shape[int] {
 // none.
 func rowOf(rows Map[int, row], k int) row {
 	match rows.Get(k) {
-	case Some[row] as r:
+	case option.Some[row] as r:
 		r.Value
-	case None:
+	case option.None:
 		row{a: "", b: "b\(k)", on: false}
 	}
 }
@@ -2546,23 +2549,23 @@ func cellsFollowModel(seed int, steps int, unmount bool) bool {
 	let _ = Render(&f, cellRows, keys)
 	for i in 0..(steps%24+24)%24+1 {
 		let what = draw(&r, 5)
-		if what == 0 || len(keys) == 0 {
+		if what == 0 || keys.Len() == 0 {
 			keys = pick(&r, !unmount)
 			let mut kept = Map[int, row]{}
 			for k in keys {
 				match rows.Get(k) {
-				case Some[row] as x:
+				case option.Some[row] as x:
 					kept[k] = x.Value
-				case None:
+				case option.None:
 				}
 			}
 			rows = kept
 		} else {
-			let at = draw(&r, len(keys))
+			let at = draw(&r, keys.Len())
 			let k = keys[at]
 			let old = rowOf(rows, k)
 			let mut now = old
-			let mut done = Handled[int]{Signal: None, Changed: false, Ops: []Op[int]{}}
+			let mut done = Handled[int]{Signal: option.None, Changed: false, Ops: []Op[int]{}}
 			match what {
 			case 1:
 				now.a = "s\(i % 3)"
@@ -2602,8 +2605,8 @@ law FreshMountInits(seed int, steps int) {
 	cellsFollowModel(seed, steps, true)
 }
 
-func fresh[E](n Node[E], id ident, onText Option[func(t string) E], onPoint Option[func(p PointerEvent) Option[E]], onKey Option[func(k KeyPress) Option[E]], off bool) node[E] {
-	node[E]{node: n, id: id, kids: []arena.Ref[node[E]]{}, parked: []arena.Ref[node[E]]{}, off: off, onText: onText, onPoint: onPoint, onKey: onKey, binds: None, cells: Map[ident, Cell]{}, loads: Map[ident, slot]{}, run: None, dirty: false, memo: arena.Null[node[E]](), up: arena.Null[node[E]](), edit: None, focusAs: focusPlain}
+func fresh[E](n Node[E], id ident, onText option.Option[func(t string) E], onPoint option.Option[func(p PointerEvent) option.Option[E]], onKey option.Option[func(k KeyPress) option.Option[E]], off bool) node[E] {
+	node[E]{node: n, id: id, kids: []arena.Ref[node[E]]{}, parked: []arena.Ref[node[E]]{}, off: off, onText: onText, onPoint: onPoint, onKey: onKey, binds: option.None, cells: Map[ident, Cell]{}, loads: Map[ident, slot]{}, run: option.None, dirty: false, memo: arena.Null[node[E]](), up: arena.Null[node[E]](), edit: option.None, focusAs: focusPlain}
 }
 
 // Render writes view(s) as one pass of f and commits it: f's tree then
@@ -2612,7 +2615,7 @@ func Render[E comparable, S, R](f mut Frame[E], view func(f mut Frame[E], s S) n
 	begin(f)
 	view(f, s)
 	let ops = Commit(f)
-	f.tickAt = None
+	f.tickAt = option.None
 	ops
 }
 
@@ -2630,22 +2633,22 @@ func begin[E](f mut Frame[E]) {
 	// The last pass's counts are stale by its number. A map holding many
 	// more than the last pass took (rows that went) starts again.
 	f.pass = f.pass + 1
-	if len(f.seen)+len(f.seenWide) > 2*f.nseen+64 {
+	if f.seen.Len()+f.seenWide.Len() > 2*f.nseen+64 {
 		f.seen = Map[int, tally]{}
 		f.seenWide = Map[slotOf, tally]{}
 	}
 	// A map the last pass wrote starts again empty: deleting its keys one
 	// by one, or walking a map once grown, costs its size every pass.
-	if len(f.index) > 0 {
+	if f.index.Len() > 0 {
 		f.index = Map[kid[E], arena.Ref[node[E]]]{}
 	}
-	if len(f.indexed) > 0 {
+	if f.indexed.Len() > 0 {
 		f.indexed = Map[arena.Ref[node[E]], bool]{}
 	}
-	if len(f.held) > 0 {
+	if f.held.Len() > 0 {
 		f.held = Map[arena.Ref[node[E]], bool]{}
 	}
-	if len(f.stopped) > 0 {
+	if f.stopped.Len() > 0 {
 		f.stopped = Map[int, bool]{}
 	}
 	f.nseen = 0
@@ -2658,8 +2661,8 @@ func begin[E](f mut Frame[E]) {
 	f.rowRuns = 0
 	f.written = 0
 	f.nstops = 0
-	f.slow = None
-	if len(f.groupSeen)+len(f.groupWide) > 2*f.ngroups+64 {
+	f.slow = option.None
+	if f.groupSeen.Len()+f.groupWide.Len() > 2*f.ngroups+64 {
 		f.groupSeen = Map[int, tally]{}
 		f.groupWide = Map[slotOf, tally]{}
 	}
@@ -2672,13 +2675,13 @@ func begin[E](f mut Frame[E]) {
 	f.keptSames = 0
 	f.passes = f.passes + 1
 	f.moving = false
-	f.want = None
+	f.want = option.None
 	f.nreadouts = 0
 }
 
 // identify is the identity of the next entry at site under the current
 // parent and row.
-func identify[E](f mut Frame[E], at CallSite) ident {
+func identify[E](f mut Frame[E], at core.CallSite) ident {
 	let mut s = slotOf{parent: f.parent, b: base{site: at, each: f.each, key: f.key}}
 	let n = see(f, &s)
 	ident{site: at, each: f.each, key: f.key, n: n}
@@ -2691,7 +2694,7 @@ func see[E](f mut Frame[E], s mut slotOf) int {
 	}
 	let n = count(f, s, 1)
 	let logged = slotOf{parent: s.parent, b: s.b}
-	if f.nseen < len(f.seenLog) {
+	if f.nseen < f.seenLog.Len() {
 		f.seenLog[f.nseen] = logged
 	} else {
 		f.seenLog = f.seenLog.Append(logged)
@@ -2716,14 +2719,14 @@ func count[E](f mut Frame[E], s mut slotOf, d int) int {
 }
 
 // thisPass is the count of t when the pass numbered pass took it, else 0.
-func thisPass(t Option[tally], pass int) int {
+func thisPass(t option.Option[tally], pass int) int {
 	match t {
-	case Some[tally] as x:
+	case option.Some[tally] as x:
 		if x.Value.pass == pass {
 			return x.Value.n
 		}
 		0
-	case None:
+	case option.None:
 		0
 	}
 }
@@ -2773,16 +2776,16 @@ func keyBits(k Key) int {
 // packed key, and out-of-range fields cannot be packed.
 law SlotKeyKeepsSiteIdentity(seed int) {
 	let mut r = seeded(seed)
-	let hi = CallSite{File: "", Line: 0, Column: 0, Pkg: 127, Id: 8191}
+	let hi = core.CallSite{File: "", Line: 0, Column: 0, Pkg: 127, Id: 8191}
 	let mut s = slotOf{parent: 2046, b: base{site: hi, each: hi, key: IntKey{Value: 4094}}}
 	let top = slotKey(&s)
 	if top < 0 {
 		return false
 	}
 	// Toggle the highest bit of each field to check for truncation.
-	let noPkgBit = CallSite{..hi, Pkg: 63}
-	let noIdBit = CallSite{..hi, Id: 4095}
-	for c in []CallSite{noPkgBit, noIdBit, nowhere, CallSite{..hi, Pkg: draw(&r, 126) + 1, Id: draw(&r, 8190) + 1}} {
+	let noPkgBit = core.CallSite{..hi, Pkg: 63}
+	let noIdBit = core.CallSite{..hi, Id: 4095}
+	for c in []core.CallSite{noPkgBit, noIdBit, nowhere, core.CallSite{..hi, Pkg: draw(&r, 126) + 1, Id: draw(&r, 8190) + 1}} {
 		let mut nodeSlot = slotOf{..s, b: base{..s.b, site: c}}
 		let mut rowSlot = slotOf{..s, b: base{..s.b, each: c}}
 		let node = slotKey(&nodeSlot)
@@ -2791,7 +2794,7 @@ law SlotKeyKeepsSiteIdentity(seed int) {
 			return false
 		}
 	}
-	for c in []CallSite{CallSite{..hi, Pkg: 128}, CallSite{..hi, Id: 8192}, CallSite{..hi, Pkg: 0}, CallSite{..hi, Id: 0}, CallSite{..hi, Id: -1}} {
+	for c in []core.CallSite{core.CallSite{..hi, Pkg: 128}, core.CallSite{..hi, Id: 8192}, core.CallSite{..hi, Pkg: 0}, core.CallSite{..hi, Id: 0}, core.CallSite{..hi, Id: -1}} {
 		let mut node = slotOf{..s, b: base{..s.b, site: c}}
 		let mut row = slotOf{..s, b: base{..s.b, each: c}}
 		if slotKey(&node) >= 0 || slotKey(&row) >= 0 {
@@ -2831,7 +2834,7 @@ func prior[E](f mut Frame[E], id ident) arena.Ref[node[E]] {
 		}
 	}
 	f.unplaced = f.unplaced + 1
-	if f.indexed.Get(o) == None {
+	if f.indexed.Get(o) == option.None {
 		for i in 0..kidCount(f, o) {
 			let r = kidAt(f, o, i)
 			f.index[kid[E]{owner: o, id: idOf(f, r)}] = r
@@ -2846,9 +2849,9 @@ func prior[E](f mut Frame[E], id ident) arena.Ref[node[E]] {
 		f.indexed[o] = true
 	}
 	match f.index.Get(kid[E]{owner: o, id: id}) {
-	case Some[arena.Ref[node[E]]] as r:
+	case option.Some[arena.Ref[node[E]]] as r:
 		r.Value
-	case None:
+	case option.None:
 		arena.Null[node[E]]()
 	}
 }
@@ -2862,18 +2865,18 @@ func caretIn[E](f mut Frame[E], prev arena.Ref[node[E]], n Node[E]) Node[E] {
 	case InputNode as x:
 		let mut out = x
 		out.Lines = if x.Lines < 1 { 1 } else { x.Lines }
-		out.Caret = len(x.Value)
-		out.Anchor = len(x.Value)
+		out.Caret = x.Value.Len()
+		out.Anchor = x.Value.Len()
 		if arena.Has(f.nodes, prev) {
-			let mut held Option[Editing] = None
+			let mut held option.Option[Editing] = option.None
 			change(f, prev, func(m mut node[E]) { held = m.edit })
 			match held {
-			case Some[Editing] as e:
+			case option.Some[Editing] as e:
 				if e.Value.Text == x.Value {
 					out.Caret = e.Value.Caret
 					out.Anchor = e.Value.Anchor
 				}
-			case None:
+			case option.None:
 			}
 		}
 		out
@@ -2883,14 +2886,14 @@ func caretIn[E](f mut Frame[E], prev arena.Ref[node[E]], n Node[E]) Node[E] {
 }
 
 // put writes one node under the current parent and returns its index.
-func put[E](f mut Frame[E], n Node[E], onText Option[func(t string) E], binds Option[cellAt], at CallSite) int {
+func put[E](f mut Frame[E], n Node[E], onText option.Option[func(t string) E], binds option.Option[cellAt], at core.CallSite) int {
 	let id = identify(f, at)
 	let mut prev = prior(f, id)
 	if arena.Has(f.nodes, prev) && kindAt(f, prev) != kindOf(n) {
 		prev = arena.Null[node[E]]()
 	}
 	let p = f.parent
-	let sp = spec[E]{node: caretIn(f, prev, n), id: id, parent: p, prev: prev, ref: arena.Null[node[E]](), onText: onText, onPoint: None, onKey: None, binds: binds, off: (p >= 0 && f.specs[p].off) || disables(n), memo: memoOf(f, p), same: None, skip: false, again: false, live: (p < 0 || f.specs[p].live) && arena.Has(f.nodes, prev) && !has(f.held, prev), first: -1, last: -1, next: -1, before: lastKid(f, p), nkids: 0, pending: false, block: -1, focusAs: focusPlain}
+	let sp = spec[E]{node: caretIn(f, prev, n), id: id, parent: p, prev: prev, ref: arena.Null[node[E]](), onText: onText, onPoint: option.None, onKey: option.None, binds: binds, off: (p >= 0 && f.specs[p].off) || disables(n), memo: memoOf(f, p), same: option.None, skip: false, again: false, live: (p < 0 || f.specs[p].live) && arena.Has(f.nodes, prev) && !has(f.held, prev), first: -1, last: -1, next: -1, before: lastKid(f, p), nkids: 0, pending: false, block: -1, focusAs: focusPlain}
 	putSpec(f, sp)
 }
 
@@ -2899,7 +2902,7 @@ func put[E](f mut Frame[E], n Node[E], onText Option[func(t string) E], binds Op
 func putSpec[E](f mut Frame[E], sp spec[E]) int {
 	let i = f.nspecs
 	let p = sp.parent
-	if i < len(f.specs) {
+	if i < f.specs.Len() {
 		f.specs[i] = sp
 	} else {
 		f.specs = f.specs.Append(sp)
@@ -2946,7 +2949,7 @@ func lastKid[E](f mut Frame[E], p int) int {
 // nodesOf is how many nodes sp stands for: its block's tops, else one.
 func nodesOf[E](f mut Frame[E], sp spec[E]) int {
 	if sp.block >= 0 {
-		return len(f.keptList[sp.block].tops)
+		return f.keptList[sp.block].tops.Len()
 	}
 	1
 }
@@ -2955,7 +2958,7 @@ func nodesOf[E](f mut Frame[E], sp spec[E]) int {
 // skipped, written again, its old node its own.
 func blockTop[E](f mut Frame[E], s int, k int) spec[E] {
 	let x = f.keptList[f.specs[s].block].tops[k]
-	spec[E]{node: x.node, id: x.id, parent: f.specs[s].parent, prev: x.ref, ref: x.ref, onText: x.onText, onPoint: x.onPoint, onKey: x.onKey, binds: None, off: x.off, memo: f.specs[s].memo, same: None, skip: true, again: true, live: true, first: -1, last: -1, next: -1, before: -1, nkids: 0, pending: false, block: -1, focusAs: focusPlain}
+	spec[E]{node: x.node, id: x.id, parent: f.specs[s].parent, prev: x.ref, ref: x.ref, onText: x.onText, onPoint: x.onPoint, onKey: x.onKey, binds: option.None, off: x.off, memo: f.specs[s].memo, same: option.None, skip: true, again: true, live: true, first: -1, last: -1, next: -1, before: -1, nkids: 0, pending: false, block: -1, focusAs: focusPlain}
 }
 
 // kids is the children of a spec as nodes: spec[j] is the spec of child
@@ -2970,7 +2973,7 @@ func kidNodes[E](f mut Frame[E], p int) kids {
 	let mut s = firstKid(f, p)
 	for s >= 0 {
 		if f.specs[s].block >= 0 {
-			for k in 0..len(f.keptList[f.specs[s].block].tops) {
+			for k in 0..f.keptList[f.specs[s].block].tops.Len() {
 				out.spec = out.spec.Append(s)
 				out.top = out.top.Append(k)
 			}
@@ -3022,9 +3025,9 @@ func childrenOf[E](f mut Frame[E], p int) []int {
 // open writes a node and runs body with that node as the parent. It is a
 // group (H8a): a failure that leaves body cuts the node and what body
 // wrote, and passes on.
-func open[E, F, R](f mut Frame[E], n Node[E], body func() fails F needs R, at CallSite) fails F needs R {
+func open[E, F, R](f mut Frame[E], n Node[E], body func() fails F needs R, at core.CallSite) fails F needs R {
 	let m = markOf(f)
-	f.parent = put(f, n, None, None, at)
+	f.parent = put(f, n, option.None, option.None, at)
 	body() catch {
 	case err:
 		cut(f, m)
@@ -3038,7 +3041,7 @@ func open[E, F, R](f mut Frame[E], n Node[E], body func() fails F needs R, at Ca
 // under it does nothing (Handle), and a locator reports each control
 // under it disabled; description, when not empty, is the accessible
 // description of the nodes under it that no nearer Fieldset describes.
-func Fieldset[E, F, R](f mut Frame[E], disabled bool, description string, body func() fails F needs R, at CallSite) fails F needs R {
+func Fieldset[E, F, R](f mut Frame[E], disabled bool, description string, body func() fails F needs R, at core.CallSite) fails F needs R {
 	try open(f, FieldsetNode{Disabled: disabled, Description: description}, body, at)
 }
 
@@ -3053,28 +3056,28 @@ func disables[E](n Node[E]) bool {
 }
 
 // Box is a container that stacks its children.
-func Box[E, F, R](f mut Frame[E], style Style, body func() fails F needs R, at CallSite) fails F needs R {
+func Box[E, F, R](f mut Frame[E], style Style, body func() fails F needs R, at core.CallSite) fails F needs R {
 	try open(f, BoxNode{Style: style}, body, at)
 }
 
 // Row lays its children out left to right.
-func Row[E, F, R](f mut Frame[E], style Style, body func() fails F needs R, at CallSite) fails F needs R {
+func Row[E, F, R](f mut Frame[E], style Style, body func() fails F needs R, at core.CallSite) fails F needs R {
 	try open(f, RowNode{Style: style}, body, at)
 }
 
 // Column lays its children out top to bottom.
-func Column[E, F, R](f mut Frame[E], style Style, body func() fails F needs R, at CallSite) fails F needs R {
+func Column[E, F, R](f mut Frame[E], style Style, body func() fails F needs R, at core.CallSite) fails F needs R {
 	try open(f, ColumnNode{Style: style}, body, at)
 }
 
 // Scroll shows its children in a scrolled viewport.
-func Scroll[E, F, R](f mut Frame[E], style Style, body func() fails F needs R, at CallSite) fails F needs R {
+func Scroll[E, F, R](f mut Frame[E], style Style, body func() fails F needs R, at core.CallSite) fails F needs R {
 	try open(f, ScrollNode{Style: style}, body, at)
 }
 
 // Pressable sends on when the host presses it; body is what it shows. Its
 // look is PressLook (PressableStyled gives it another).
-func Pressable[E, F, R](f mut Frame[E], label string, on E, body func() fails F needs R, at CallSite) fails F needs R {
+func Pressable[E, F, R](f mut Frame[E], label string, on E, body func() fails F needs R, at core.CallSite) fails F needs R {
 	try open(f, PressableNode{Label: label, On: on, Style: PressStyle()}, body, at)
 }
 
@@ -3082,30 +3085,30 @@ func Pressable[E, F, R](f mut Frame[E], label string, on E, body func() fails F 
 // assistive technology (NS4): its Access, as the kit's controls give it
 // (a tab's role and selected state, a heading's level). A press on it
 // sends on, when it has one and is not disabled, as a Pressable's does.
-func Semantic[E, F, R](f mut Frame[E], a Access, on Option[E], style Style, body func() fails F needs R, at CallSite) fails F needs R {
+func Semantic[E, F, R](f mut Frame[E], a Access, on option.Option[E], style Style, body func() fails F needs R, at core.CallSite) fails F needs R {
 	try open(f, SemanticNode{Access: a, On: on, Style: style}, body, at)
 }
 
 // Text shows a string.
-func Text[E](f mut Frame[E], value string, at CallSite) {
-	let _ = put(f, TextNode{Value: value, Style: Plain()}, None, None, at)
+func Text[E](f mut Frame[E], value string, at core.CallSite) {
+	let _ = put(f, TextNode{Value: value, Style: Plain()}, option.None, option.None, at)
 }
 
 // TextStyled shows a string with a Style: its layout, and its look,
 // whose Ink draws the text (look.ergo).
-func TextStyled[E](f mut Frame[E], value string, style Style, at CallSite) {
-	let _ = put(f, TextNode{Value: value, Style: style}, None, None, at)
+func TextStyled[E](f mut Frame[E], value string, style Style, at core.CallSite) {
+	let _ = put(f, TextNode{Value: value, Style: style}, option.None, option.None, at)
 }
 
 // Check shows a check box; a press sends on.
-func Check[E](f mut Frame[E], label string, checked bool, on E, at CallSite) {
-	let _ = put(f, CheckNode{Label: label, Checked: checked, On: on}, None, None, at)
+func Check[E](f mut Frame[E], label string, checked bool, on E, at core.CallSite) {
+	let _ = put(f, CheckNode{Label: label, Checked: checked, On: on}, option.None, option.None, at)
 }
 
 // Input shows a text field with value; a text the host takes in it sends
 // onText(text). The program owns the value (in its machine state).
-func Input[E](f mut Frame[E], value string, placeholder string, onText own func(t string) E, at CallSite) {
-	let _ = put(f, InputNode{Value: value, Placeholder: placeholder, Label: "", Description: "", Invalid: false, Hints: PlainHints, Lines: 1, Caret: 0, Anchor: 0}, Some{Value: onText}, None, at)
+func Input[E](f mut Frame[E], value string, placeholder string, onText own func(t string) E, at core.CallSite) {
+	let _ = put(f, InputNode{Value: value, Placeholder: placeholder, Label: "", Description: "", Invalid: false, Hints: PlainHints, Lines: 1, Caret: 0, Anchor: 0}, option.Some{Value: onText}, option.None, at)
 }
 
 // FieldLabel is what a labelled Input says of itself (FK3-g5, FK5-g3), as
@@ -3119,30 +3122,30 @@ type FieldLabel { Text string, Description string, Invalid bool }
 
 // LabelledInput is an Input that says what it is (FieldLabel): a locator
 // finds it by its label (WithLabel) and a script names it by it.
-func LabelledInput[E](f mut Frame[E], label FieldLabel, value string, placeholder string, onText own func(t string) E, at CallSite) {
-	let _ = put(f, InputNode{Value: value, Placeholder: placeholder, Label: label.Text, Description: label.Description, Invalid: label.Invalid, Hints: PlainHints, Lines: 1, Caret: 0, Anchor: 0}, Some{Value: onText}, None, at)
+func LabelledInput[E](f mut Frame[E], label FieldLabel, value string, placeholder string, onText own func(t string) E, at core.CallSite) {
+	let _ = put(f, InputNode{Value: value, Placeholder: placeholder, Label: label.Text, Description: label.Description, Invalid: label.Invalid, Hints: PlainHints, Lines: 1, Caret: 0, Anchor: 0}, option.Some{Value: onText}, option.None, at)
 }
 
 // InputLines is an Input of lines lines (OpenTUI gap 2): a box that many
 // lines high whose text holds newlines (Enter types one), and whose
 // caret moves by line (Up, Down). Its caret and selection are the
 // model's, as every Input's are (edit.ergo).
-func InputLines[E](f mut Frame[E], value string, placeholder string, lines int, onText own func(t string) E, at CallSite) {
-	let _ = put(f, InputNode{Value: value, Placeholder: placeholder, Label: "", Description: "", Invalid: false, Hints: PlainHints, Lines: lines, Caret: 0, Anchor: 0}, Some{Value: onText}, None, at)
+func InputLines[E](f mut Frame[E], value string, placeholder string, lines int, onText own func(t string) E, at core.CallSite) {
+	let _ = put(f, InputNode{Value: value, Placeholder: placeholder, Label: "", Description: "", Invalid: false, Hints: PlainHints, Lines: lines, Caret: 0, Anchor: 0}, option.Some{Value: onText}, option.None, at)
 }
 
 // HintedInput is a LabelledInput that tells a phone's keyboard what it
 // takes (Hints, MB5): an email field asks for EmailKeys, a search field
 // for ReturnSearch.
-func HintedInput[E](f mut Frame[E], label FieldLabel, hints Hints, value string, placeholder string, onText own func(t string) E, at CallSite) {
-	let _ = put(f, InputNode{Value: value, Placeholder: placeholder, Label: label.Text, Description: label.Description, Invalid: label.Invalid, Hints: hints, Lines: 1, Caret: 0, Anchor: 0}, Some{Value: onText}, None, at)
+func HintedInput[E](f mut Frame[E], label FieldLabel, hints Hints, value string, placeholder string, onText own func(t string) E, at core.CallSite) {
+	let _ = put(f, InputNode{Value: value, Placeholder: placeholder, Label: label.Text, Description: label.Description, Invalid: label.Invalid, Hints: hints, Lines: 1, Caret: 0, Anchor: 0}, option.Some{Value: onText}, option.None, at)
 }
 
 // Each writes row(x) for each x of xs. The nodes a row writes take the
 // row's key, so a row keeps its instance when xs is reordered. It is a
 // group with no node of its own (H8a): a failure that leaves a row cuts
 // every row written so far and passes on.
-func Each[E, F, R, T](f mut Frame[E], xs []T, key func(x T) Key, row func(x T) fails F needs R, at CallSite) fails F needs R {
+func Each[E, F, R, T](f mut Frame[E], xs []T, key func(x T) Key, row func(x T) fails F needs R, at core.CallSite) fails F needs R {
 	let m = markOf(f)
 	let outerEach = f.each
 	let outerKey = f.key
@@ -3179,12 +3182,12 @@ func Commit[E comparable](f mut Frame[E]) []Op[E] {
 }
 
 // nodeAt is the node r names, or None when r is stale.
-func nodeAt[E](f mut Frame[E], r arena.Ref[node[E]]) Option[node[E]] {
+func nodeAt[E](f mut Frame[E], r arena.Ref[node[E]]) option.Option[node[E]] {
 	let n = f.nodes.Get(r) catch {
 	case arena.Stale:
-		return None
+		return option.None
 	}
-	Some{Value: n}
+	option.Some{Value: n}
 }
 
 // The readers of one field of a retained node read it in place, through
@@ -3216,7 +3219,7 @@ func shows[E comparable](f mut Frame[E], r arena.Ref[node[E]], x Node[E]) bool {
 // kidCount is the number of children of the node r names.
 func kidCount[E](f mut Frame[E], r arena.Ref[node[E]]) int {
 	let mut c = 0
-	change(f, r, func(n mut node[E]) { c = len(n.kids) })
+	change(f, r, func(n mut node[E]) { c = n.kids.Len() })
 	c
 }
 
@@ -3285,12 +3288,12 @@ func reconcile[E comparable](f mut Frame[E], p int, pr arena.Ref[node[E]]) {
 	for j, _ in want {
 		let mut from = -1
 		match oldAt.Get(kidSpec(f, ks, j).prev) {
-		case Some[int] as o:
+		case option.Some[int] as o:
 			if !used[o.Value] {
 				from = o.Value
 				used[o.Value] = true
 			}
-		case None:
+		case option.None:
 		}
 		src = src.Append(from)
 	}
@@ -3311,12 +3314,12 @@ func reconcile[E comparable](f mut Frame[E], p int, pr arena.Ref[node[E]]) {
 		let mut again = false
 		if src[j] < 0 {
 			match heldAt.Get(kidSpec(f, ks, j).prev) {
-			case Some[int] as h:
+			case option.Some[int] as h:
 				if !back[h.Value] {
 					back[h.Value] = true
 					again = true
 				}
-			case None:
+			case option.None:
 			}
 		}
 		revive = revive.Append(again)
@@ -3364,11 +3367,11 @@ func reconcile[E comparable](f mut Frame[E], p int, pr arena.Ref[node[E]]) {
 		n.parked = parked
 	})
 	let parent = Id[E]{ref: pr}
-	for k in 0..len(want) {
-		let j = len(want) - 1 - k
-		let mut before Option[Id[E]] = None
-		if j+1 < len(refs) {
-			before = Some{Value: Id[E]{ref: refs[j+1]}}
+	for k in 0..want.Len() {
+		let j = want.Len() - 1 - k
+		let mut before option.Option[Id[E]] = option.None
+		if j+1 < refs.Len() {
+			before = option.Some{Value: Id[E]{ref: refs[j+1]}}
 		}
 		let sp = kidSpec(f, ks, j)
 		let id = Id[E]{ref: refs[j]}
@@ -3432,7 +3435,7 @@ func inPlace[E](f mut Frame[E], p int, pr arena.Ref[node[E]]) bool {
 			// no pass since committed that parent, or it would have kept
 			// the group anew. So the block is in place when its first and
 			// last tops are at their places.
-			let t = len(f.keptList[b].tops)
+			let t = f.keptList[b].tops.Len()
 			if i+t > n || f.keptList[b].tops[0].ref != kidAt(f, pr, i) || f.keptList[b].tops[t-1].ref != kidAt(f, pr, i+t-1) {
 				return false
 			}
@@ -3503,7 +3506,7 @@ func increasing(src []int) []bool {
 	for j, v in src {
 		if v >= 0 {
 			let mut lo = 0
-			let mut hi = len(tails)
+			let mut hi = tails.Len()
 			for lo < hi {
 				let mid = (lo + hi) / 2
 				if src[tails[mid]] < v {
@@ -3515,15 +3518,15 @@ func increasing(src []int) []bool {
 			if lo > 0 {
 				prev[j] = tails[lo-1]
 			}
-			if lo == len(tails) {
+			if lo == tails.Len() {
 				tails = tails.Append(j)
 			} else {
 				tails[lo] = j
 			}
 		}
 	}
-	if len(tails) > 0 {
-		let mut j = tails[len(tails)-1]
+	if tails.Len() > 0 {
+		let mut j = tails[tails.Len()-1]
 		for j >= 0 {
 			keep[j] = true
 			j = prev[j]
@@ -3619,10 +3622,10 @@ func Kids[E](f mut Frame[E], id Id[E]) []Id[E] {
 }
 
 // NodeOf is what id shows; None for an Id f does not hold.
-func NodeOf[E](f mut Frame[E], id Id[E]) Option[Node[E]] {
+func NodeOf[E](f mut Frame[E], id Id[E]) option.Option[Node[E]] {
 	let n = f.nodes.Get(id.ref) catch {
 	case arena.Stale:
-		return None
+		return option.None
 	}
-	Some{Value: n.node}
+	option.Some{Value: n.node}
 }

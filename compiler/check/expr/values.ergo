@@ -20,6 +20,7 @@ import compiler/check/store
 import compiler/check/types
 import compiler/syntax
 import dense
+import option
 
 // pkgLet is a let of the package: its file and its spec.
 type pkgLet { file int, spec dense.ID[syntax.Node] }
@@ -45,7 +46,7 @@ func packageLets(k Pkg) ([]pkgLet, Map[int, int]) {
 			}
 			let names = syntax.VarSpecOf(p.Tree, spec).Names
 			for j in 0..syntax.Len(names) {
-				at[dense.Index(pnode(k, f, syntax.Item(p.Tree, names, j)))] = len(out)
+				at[dense.Index(pnode(k, f, syntax.Item(p.Tree, names, j)))] = out.Len()
 			}
 			out = out.Append(pkgLet{file: f, spec: spec})
 		}
@@ -66,7 +67,7 @@ func packageLet(s mut store.Store, k Pkg, t mut Typer, i int) {
 	let res = t.res
 	t.file = t.lets[i].file
 	t.fn = -1
-	t.res = None
+	t.res = option.None
 	letSpec(s, k, t, t.lets[i].spec)
 	t.file = file
 	t.fn = fn
@@ -82,7 +83,7 @@ func ownParams(k Pkg, t Typer) []string { if t.fn >= 0 { k.Fns[t.fn].Params } el
 // expected type (want), else the type the first branch with a value gives
 // (join); valued is whether a branch gave a value, bad whether a branch's
 // value is not the join's or is not known.
-type sink { want Option[dense.ID[store.TKey]], join Option[dense.ID[store.TKey]], valued bool, bad bool }
+type sink { want option.Option[dense.ID[store.TKey]], join option.Option[dense.ID[store.TKey]], valued bool, bad bool }
 
 // tailWant is what a branch's tail is assigned to: the expected type,
 // else the join so far; Free before any; Unsure once the join is lost.
@@ -91,13 +92,13 @@ func tailWant(k sink) Want {
 		return Unsure
 	}
 	match k.want {
-	case Some[dense.ID[store.TKey]] as w:
+	case option.Some[dense.ID[store.TKey]] as w:
 		Exactly{T: w.Value}
-	case None:
+	case option.None:
 		match k.join {
-		case Some[dense.ID[store.TKey]] as j:
+		case option.Some[dense.ID[store.TKey]] as j:
 			Exactly{T: j.Value}
-		case None:
+		case option.None:
 			Free
 		}
 	}
@@ -105,22 +106,22 @@ func tailWant(k sink) Want {
 
 // branches types an if or match in value position in w. In a context the
 // typer does not read, its branches are walked and it is left untyped.
-func branches(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], w Want) Option[dense.ID[store.TKey]] {
+func branches(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], w Want) option.Option[dense.ID[store.TKey]] {
 	let mut kk = match w {
 	case Exactly as e:
-		sink{want: some(e.T), join: None, valued: false, bad: false}
+		sink{want: some(e.T), join: option.None, valued: false, bad: false}
 	case Free:
-		sink{want: None, join: None, valued: false, bad: false}
+		sink{want: option.None, join: option.None, valued: false, bad: false}
 	case Unsure:
-		sink{want: None, join: None, valued: false, bad: true}
+		sink{want: option.None, join: option.None, valued: false, bad: true}
 	}
 	yieldStmt(s, k, t, x, &kk)
 	match kk.want {
-	case Some[dense.ID[store.TKey]]:
+	case option.Some[dense.ID[store.TKey]]:
 		kk.want
-	case None:
+	case option.None:
 		if kk.bad {
-			None
+			option.None
 		} else if kk.valued {
 			kk.join
 		} else {
@@ -165,20 +166,20 @@ func yieldStmt(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], k
 		expr(s, k, t, i.Cond, Exactly{T: store.TBasic(s, bBool)})
 		yieldBlock(s, k, t, i.Body, kk)
 		match dense.Unpack(i.Else) {
-		case Some[dense.ID[syntax.Node]] as e:
+		case option.Some[dense.ID[syntax.Node]] as e:
 			if syntax.KindOf(tr, e.Value) == syntax.KIfStmt {
 				yieldStmt(s, k, t, e.Value, kk)
 			} else {
 				yieldBlock(s, k, t, e.Value, kk)
 			}
-		case None:
+		case option.None:
 			// A value if needs an else (D-C2).
 			kk.bad = true
 		}
 	} else if kd == syntax.KSwitchStmt || kd == syntax.KTypeSwitchStmt {
 		// A match's subject fixes the arguments of a generic pattern
 		// written bare; a match on a value's case values bind nothing.
-		let subj = if kd == syntax.KTypeSwitchStmt { header(s, k, t, syntax.TypeSwitchStmtOf(tr, x).Subject) } else { None }
+		let subj = if kd == syntax.KTypeSwitchStmt { header(s, k, t, syntax.TypeSwitchStmtOf(tr, x).Subject) } else { option.None }
 		let l = if kd == syntax.KSwitchStmt {
 			let ss = syntax.SwitchStmtOf(tr, x)
 			expr(s, k, t, ss.Tag, Unsure)
@@ -219,13 +220,13 @@ func yieldBlock(s mut store.Store, k Pkg, t mut Typer, b dense.ID[syntax.Node], 
 
 // header types a match's subject as walk would: an expression in a
 // context the typer does not read. It is the subject's type, if known.
-func header(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node]) Option[dense.ID[store.TKey]] {
+func header(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node]) option.Option[dense.ID[store.TKey]] {
 	let kind = syntax.KindOf(tree(k, t.file), x)
 	if kind >= syntax.KIdent && kind <= syntax.KCatchExpr && kind != syntax.KFuncLit && kind != syntax.KKeyValueExpr || kind == syntax.KTupleExpr || kind == syntax.KInterpolatedString {
 		expr(s, k, t, x, Unsure)
 	} else {
 		stmt(s, k, t, x)
-		None
+		option.None
 	}
 }
 
@@ -233,36 +234,36 @@ func header(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node]) Opti
 // goes; the first value fixes the join; a later one is the join's type, a
 // variant of the union it is, or a variant of one union with it, which
 // becomes the join (types.Join).
-func joinBranch(s mut store.Store, k Pkg, t Typer, kk mut sink, ty Option[dense.ID[store.TKey]]) {
+func joinBranch(s mut store.Store, k Pkg, t Typer, kk mut sink, ty option.Option[dense.ID[store.TKey]]) {
 	if isSome(kk.want) {
 		kk.valued = true
 		return
 	}
 	match ty {
-	case Some[dense.ID[store.TKey]] as v:
+	case option.Some[dense.ID[store.TKey]] as v:
 		match kk.join {
-		case Some[dense.ID[store.TKey]] as j:
+		case option.Some[dense.ID[store.TKey]] as j:
 			if j.Value != v.Value {
 				let e = envOf(*s, k, t)
 				if !types.Has(types.Variants(s, e, j.Value), v.Value) {
 					match types.Join(s, e, j.Value, v.Value) {
-					case Some[dense.ID[store.TKey]] as u:
+					case option.Some[dense.ID[store.TKey]] as u:
 						kk.join = u
-					case None:
+					case option.None:
 						match optionJoin(s, k, j.Value, v.Value) {
-						case Some[dense.ID[store.TKey]] as o:
+						case option.Some[dense.ID[store.TKey]] as o:
 							kk.join = o
-						case None:
+						case option.None:
 							kk.bad = true
 						}
 					}
 				}
 			}
-		case None:
+		case option.None:
 			kk.join = ty
 		}
 		kk.valued = true
-	case None:
+	case option.None:
 		kk.bad = true
 	}
 }
@@ -276,12 +277,12 @@ func optionForeign(k Pkg, name string) int {
 // joinInstance) for its Option: Some[T] and None join to Option[T], and
 // an Option[T] stands with either (the first branch's type); none for any
 // other pair.
-func optionJoin(s mut store.Store, k Pkg, cur dense.ID[store.TKey], next dense.ID[store.TKey]) Option[dense.ID[store.TKey]] {
+func optionJoin(s mut store.Store, k Pkg, cur dense.ID[store.TKey], next dense.ID[store.TKey]) option.Option[dense.ID[store.TKey]] {
 	let fo = optionForeign(k, "Option")
 	let fs = optionForeign(k, "Some")
 	let fn = optionForeign(k, "None")
 	if fo < 0 || fs < 0 || fn < 0 {
-		return None
+		return option.None
 	}
 	let none = store.TForeign(s, fn)
 	let (some1, arg) = optionArg(*s, cur, fs)
@@ -295,7 +296,7 @@ func optionJoin(s mut store.Store, k Pkg, cur dense.ID[store.TKey], next dense.I
 	if opt1 && (next == none || some2 && arg2 == oarg) {
 		return some(cur)
 	}
-	None
+	option.None
 }
 
 // optionArg is whether t is the prelude's generic type at foreign index
@@ -306,7 +307,7 @@ func optionArg(s store.Store, t dense.ID[store.TKey], f int) (bool, dense.ID[sto
 	}
 	let o = store.OriginOfType(s, t)
 	let ops = store.OperandsOf(s, t)
-	if int(o.Import) != store.ForeignBit || int(o.Decl) != f || len(ops) != 1 {
+	if int(o.Import) != store.ForeignBit || int(o.Decl) != f || ops.Len() != 1 {
 		return (false, t)
 	}
 	(true, ops[0])
@@ -336,7 +337,7 @@ func unreachableCall(k Pkg, file int, x0 dense.ID[syntax.Node]) bool {
 // catches, typed in w; each arm yields that type. A discarded catch's arms
 // discard their values; in a context the typer does not read, the arms'
 // tails are left untyped.
-func caught(s mut store.Store, k Pkg, t mut Typer, ce syntax.CatchExpr, w Want, discard bool) Option[dense.ID[store.TKey]] {
+func caught(s mut store.Store, k Pkg, t mut Typer, ce syntax.CatchExpr, w Want, discard bool) option.Option[dense.ID[store.TKey]] {
 	let tr = tree(k, t.file)
 	let xt = expr(s, k, t, ce.X, w)
 	for i in 0..syntax.Len(ce.Arms) {
@@ -346,7 +347,7 @@ func caught(s mut store.Store, k Pkg, t mut Typer, ce syntax.CatchExpr, w Want, 
 			continue
 		}
 		let ca = syntax.CatchArmOf(tr, a)
-		patterns(s, k, t, ca.Types, None)
+		patterns(s, k, t, ca.Types, option.None)
 		let read = match w {
 		case Unsure:
 			false
@@ -354,16 +355,16 @@ func caught(s mut store.Store, k Pkg, t mut Typer, ce syntax.CatchExpr, w Want, 
 			true
 		}
 		match xt {
-		case Some[dense.ID[store.TKey]] as v:
+		case option.Some[dense.ID[store.TKey]] as v:
 			if !read {
 				stmts(s, k, t, ca.Body)
 			} else if discard {
 				discarded(s, k, t, ca.Body)
 			} else {
-				let mut kk = sink{want: some(v.Value), join: None, valued: false, bad: false}
+				let mut kk = sink{want: some(v.Value), join: option.None, valued: false, bad: false}
 				yieldList(s, k, t, ca.Body, &kk)
 			}
-		case None:
+		case option.None:
 			stmts(s, k, t, ca.Body)
 		}
 	}

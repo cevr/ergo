@@ -13,6 +13,7 @@
 //
 // Prior art: Zig's tokens (a tag and a start offset into the source), Go's
 // go/token.Pos, rustc's Span and tree-sitter's byte ranges.
+import option
 import strings
 
 // Span is the bytes of a text from Start up to End, End excluded. It holds
@@ -20,10 +21,10 @@ import strings
 type Span { Start int, End int }
 
 // In reports whether sp is a piece of s: 0 <= Start <= End <= len(s).
-func In(s string, sp Span) bool { 0 <= sp.Start && sp.Start <= sp.End && sp.End <= len(s) }
+func In(s string, sp Span) bool { 0 <= sp.Start && sp.Start <= sp.End && sp.End <= s.Len() }
 
 // Whole is the span of all of s.
-func Whole(s string) Span { Span{Start: 0, End: len(s)} }
+func Whole(s string) Span { Span{Start: 0, End: s.Len()} }
 
 // Width is the number of bytes sp names.
 func Width(sp Span) int { sp.End - sp.Start }
@@ -35,14 +36,14 @@ func Cut(s string, sp Span) string { strings.Slice(s, sp.Start, sp.End) }
 
 // CutOfWholeIsTheText: the whole span is In the text and its piece is the
 // text.
-law CutOfWholeIsTheText(s string) { In(s, Whole(s)) && Cut(s, Whole(s)) == s && Width(Whole(s)) == len(s) }
+law CutOfWholeIsTheText(s string) { In(s, Whole(s)) && Cut(s, Whole(s)) == s && Width(Whole(s)) == s.Len() }
 
 // Get is the piece of s that sp names, or None when sp is not In s.
-func Get(s string, sp Span) Option[string] {
+func Get(s string, sp Span) option.Option[string] {
 	if In(s, sp) {
-		Some[string]{Value: Cut(s, sp)}
+		option.Some[string]{Value: Cut(s, sp)}
 	} else {
-		None
+		option.None
 	}
 }
 
@@ -51,9 +52,9 @@ func Get(s string, sp Span) Option[string] {
 law GetIsCut(s string, a int, b int) {
 	let sp = spanNear(s, a, b)
 	match Get(s, sp) {
-	case Some[string] as v:
-		In(s, sp) && v.Value == Cut(s, sp) && len(v.Value) == Width(sp)
-	case None:
+	case option.Some[string] as v:
+		In(s, sp) && v.Value == Cut(s, sp) && v.Value.Len() == Width(sp)
+	case option.None:
 		!In(s, sp)
 	}
 }
@@ -66,17 +67,17 @@ func near(n int, k int) int {
 }
 
 // spanNear is the span of a and b folded by near into s.
-func spanNear(s string, a int, b int) Span { Span{Start: near(len(s), a), End: near(len(s), b)} }
+func spanNear(s string, a int, b int) Span { Span{Start: near(s.Len(), a), End: near(s.Len(), b)} }
 
 // Sub is the span of the bytes from to to of the piece sp names, offsets
 // relative to sp.Start: Cut(s, Sub(…)) is Slice(Cut(s, sp), from, to). It
 // is None when sp is not In s, or when 0 <= from <= to <= Width(sp) does
 // not hold.
-func Sub(s string, sp Span, from int, to int) Option[Span] {
+func Sub(s string, sp Span, from int, to int) option.Option[Span] {
 	if !In(s, sp) || from < 0 || from > to || to > Width(sp) {
-		return None
+		return option.None
 	}
-	Some[Span]{Value: Span{Start: sp.Start + from, End: sp.Start + to}}
+	option.Some[Span]{Value: Span{Start: sp.Start + from, End: sp.Start + to}}
 }
 
 // SubThenCutIsCutThenSlice: a sub-span is In the text and reads what a
@@ -87,9 +88,9 @@ law SubThenCutIsCutThenSlice(s string, a int, b int, from int, to int) {
 	let f = near(Width(sp), from)
 	let t = near(Width(sp), to)
 	match Sub(s, sp, f, t) {
-	case Some[Span] as u:
+	case option.Some[Span] as u:
 		In(s, u.Value) && Cut(s, u.Value) == strings.Slice(Cut(s, sp), f, t)
-	case None:
+	case option.None:
 		!In(s, sp) || f < 0 || f > t || t > Width(sp)
 	}
 }
@@ -101,20 +102,20 @@ func Equal(s string, sp Span, lit string) bool { In(s, sp) && Cut(s, sp) == lit 
 // EqualAgreesWithCut: Equal is whether Get reads lit.
 law EqualAgreesWithCut(s string, a int, b int, lit string) {
 	let sp = spanNear(s, a, b)
-	Equal(s, sp, lit) == (Get(s, sp) == Some[string]{Value: lit}) && (!In(s, sp) || Equal(s, sp, Cut(s, sp)))
+	Equal(s, sp, lit) == (Get(s, sp) == option.Some[string]{Value: lit}) && (!In(s, sp) || Equal(s, sp, Cut(s, sp)))
 }
 
 // Find is the span of the first sub inside the piece sp names, or None
 // when sp is not In s or the piece has no sub.
-func Find(s string, sp Span, sub string) Option[Span] {
+func Find(s string, sp Span, sub string) option.Option[Span] {
 	if !In(s, sp) {
-		return None
+		return option.None
 	}
 	let i = strings.Index(Cut(s, sp), sub)
 	if i < 0 {
-		return None
+		return option.None
 	}
-	Some[Span]{Value: Span{Start: sp.Start + i, End: sp.Start + i + len(sub)}}
+	option.Some[Span]{Value: Span{Start: sp.Start + i, End: sp.Start + i + sub.Len()}}
 }
 
 // FindIsTheFirstInside: Find's span is In the text, inside the searched
@@ -123,11 +124,11 @@ func Find(s string, sp Span, sub string) Option[Span] {
 law FindIsTheFirstInside(s string, a int, b int, sub string) {
 	let sp = spanNear(s, a, b)
 	match Find(s, sp, sub) {
-	case Some[Span] as f:
+	case option.Some[Span] as f:
 		let u = f.Value
 		let first = if sub == "" { u.Start == sp.Start } else { !strings.Contains(strings.Slice(s, sp.Start, u.End-1), sub) }
 		In(s, u) && sp.Start <= u.Start && u.End <= sp.End && Cut(s, u) == sub && first
-	case None:
+	case option.None:
 		!In(s, sp) || !strings.Contains(Cut(s, sp), sub)
 	}
 }
@@ -142,7 +143,7 @@ func space(b byte) bool { b == 32 || (b >= 9 && b <= 13) }
 func Fields(s string) []Span {
 	let mut out = []Span{}
 	let mut start = -1
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		if space(s[i]) {
 			if start >= 0 {
 				out = out.Append(Span{Start: start, End: i})
@@ -153,7 +154,7 @@ func Fields(s string) []Span {
 		}
 	}
 	if start >= 0 {
-		out = out.Append(Span{Start: start, End: len(s)})
+		out = out.Append(Span{Start: start, End: s.Len()})
 	}
 	out
 }
@@ -164,7 +165,7 @@ law FieldsAreGoFields(raw string) {
 	let s = wordText(raw)
 	let spans = Fields(s)
 	let words = strings.Fields(s)
-	if len(spans) != len(words) {
+	if spans.Len() != words.Len() {
 		return false
 	}
 	let mut ok = true
@@ -181,8 +182,8 @@ law FieldsAreGoFields(raw string) {
 func wordText(s string) string {
 	let alphabet = "  abcab\tc"
 	let mut out = ""
-	for i in 0..len(s) {
-		let k = int(s[i]) % len(alphabet)
+	for i in 0..s.Len() {
+		let k = int(s[i]) % alphabet.Len()
 		out = out + strings.Slice(alphabet, k, k+1)
 	}
 	out
@@ -198,45 +199,45 @@ law ModelAgrees(raw string, seed int, count int) {
 	let mut x = (seed%2147483648 + 2147483648) % 2147483648
 	let spans = Fields(s)
 	let words = strings.Fields(s)
-	if len(spans) == 0 {
+	if spans.Len() == 0 {
 		return true
 	}
 	let d = match Collect(s, spans) {
-	case Some[Spans] as v:
+	case option.Some[Spans] as v:
 		v.Value
-	case None:
+	case option.None:
 		return false
 	}
 	for _ in 0..n {
 		x = (x*1103515245 + 12345) % 2147483648
-		let k = (x / 65536) % len(spans)
+		let k = (x / 65536) % spans.Len()
 		let sp = spans[k]
 		let w = words[k]
-		let from = (x / 8) % (len(w) + 1)
-		let to = from + (x/512)%(len(w)-from+1)
+		let from = (x / 8) % (w.Len() + 1)
+		let to = from + (x/512)%(w.Len()-from+1)
 		match (x / 2) % 4 {
 		case 0:
-			if Cut(s, sp) != w || Get(s, sp) != (Some[string]{Value: w}) {
+			if Cut(s, sp) != w || Get(s, sp) != (option.Some[string]{Value: w}) {
 				return false
 			}
 		case 1:
 			match Sub(s, sp, from, to) {
-			case Some[Span] as u:
+			case option.Some[Span] as u:
 				if Cut(s, u.Value) != strings.Slice(w, from, to) {
 					return false
 				}
-			case None:
+			case option.None:
 				return false
 			}
 		case 2:
 			let sub = strings.Slice(w, from, to)
 			let want = strings.Index(w, sub)
 			match Find(s, sp, sub) {
-			case Some[Span] as f:
+			case option.Some[Span] as f:
 				if f.Value.Start-sp.Start != want || Cut(s, f.Value) != sub {
 					return false
 				}
-			case None:
+			case option.None:
 				return false
 			}
 		case _:
@@ -255,23 +256,23 @@ type Spans { src string, at []Span }
 
 // Collect is the Spans of src and at, or None when a span of at is not In
 // src.
-func Collect(src string, at []Span) Option[Spans] {
+func Collect(src string, at []Span) option.Option[Spans] {
 	for sp in at {
 		if !In(src, sp) {
-			return None
+			return option.None
 		}
 	}
-	Some[Spans]{Value: Spans{src: src, at: at}}
+	option.Some[Spans]{Value: Spans{src: src, at: at}}
 }
 
 // CollectRefusesPastTheEnd: a span that ends one byte past its text is not
 // In it, so Collect gives None for it: no text of another length, longer
 // or shorter, decides it.
 law CollectRefusesPastTheEnd(s string) {
-	match Collect(s, []Span{Span{Start: 0, End: len(s) + 1}}) {
-	case Some[Spans]:
+	match Collect(s, []Span{Span{Start: 0, End: s.Len() + 1}}) {
+	case option.Some[Spans]:
 		false
-	case None:
+	case option.None:
 		true
 	}
 }
@@ -280,7 +281,7 @@ law CollectRefusesPastTheEnd(s string) {
 // In the text, and its reads are the pieces of the text.
 law CollectChecksEverySpan(s string, xs []int) {
 	let mut at = []Span{}
-	for i in 0..len(xs)/2 {
+	for i in 0..xs.Len()/2 {
 		at = at.Append(spanNear(s, xs[2*i], xs[2*i+1]))
 	}
 	let mut all = true
@@ -288,13 +289,13 @@ law CollectChecksEverySpan(s string, xs []int) {
 		all = all && In(s, sp)
 	}
 	match Collect(s, at) {
-	case Some[Spans] as d:
-		let mut ok = all && Source(d.Value) == s && Count(d.Value) == len(at)
+	case option.Some[Spans] as d:
+		let mut ok = all && Source(d.Value) == s && Count(d.Value) == at.Len()
 		for i, sp in at {
 			ok = ok && SpanAt(d.Value, i) == sp && At(d.Value, i) == Cut(s, sp)
 		}
 		ok
-	case None:
+	case option.None:
 		!all
 	}
 }
@@ -303,7 +304,7 @@ law CollectChecksEverySpan(s string, xs []int) {
 func Source(d Spans) string { d.src }
 
 // Count is the number of spans of d.
-func Count(d Spans) int { len(d.at) }
+func Count(d Spans) int { d.at.Len() }
 
 // SpanAt is the i-th span of d. An i outside 0..Count(d) is a defect, as
 // an index out of range is.

@@ -6,6 +6,7 @@
 import go net/netip
 import go net/url
 import go strconv
+import option
 import strings
 
 // limitsValid reports whether every budget of limits is positive.
@@ -30,9 +31,9 @@ func checkOrigin(origin string, limits Limits) fails InvalidClient | InvalidLimi
 		return InvalidClient{Origin: origin, Reason: e.Text}
 	}
 	let user = match u.User {
-	case Some:
+	case option.Some:
 		true
-	case None:
+	case option.None:
 		false
 	}
 	let reason = shapeRefusal(u.Scheme, u.Host, user, u.Path, u.RawQuery, u.Fragment, u.ForceQuery)
@@ -64,9 +65,9 @@ func parseOrigin(origin string) string fails InvalidClient {
 		return InvalidClient{Origin: origin, Reason: e.Text}
 	}
 	let user = match u.User {
-	case Some:
+	case option.Some:
 		true
-	case None:
+	case option.None:
 		false
 	}
 	let reason = shapeRefusal(u.Scheme, u.Host, user, u.Path, u.RawQuery, u.Fragment, u.ForceQuery)
@@ -74,9 +75,9 @@ func parseOrigin(origin string) string fails InvalidClient {
 		return InvalidClient{Origin: origin, Reason: reason}
 	}
 	match canonicalOrigin(u.Scheme, u.Hostname(), u.Port(), user, u.Opaque) {
-	case Some as c:
+	case option.Some as c:
 		c.Value
-	case None:
+	case option.None:
 		InvalidClient{Origin: origin, Reason: "the origin is not valid"}
 	}
 }
@@ -96,26 +97,26 @@ func checkNetwork(origins []string, limits Limits) []string fails InvalidClient 
 // case-insensitive host and effective port. An IPv6 host takes netip's
 // canonical form; a zone keeps its case. None when the host or port is not
 // valid.
-func canonicalOrigin(scheme string, hostname string, rawPort string, user bool, opaque string) Option[string] {
+func canonicalOrigin(scheme string, hostname string, rawPort string, user bool, opaque string) option.Option[string] {
 	if scheme != "http" && scheme != "https" || hostname == "" || user || opaque != "" {
-		return None
+		return option.None
 	}
 	let mut host = hostname
 	let mut port = rawPort
 	if strings.Contains(host, ":") {
 		let parts = match strings.Cut(host, "%") {
-		case Some as h:
+		case option.Some as h:
 			h.Value
-		case None:
+		case option.None:
 			strings.Halves{Before: host, After: ""}
 		}
 		let zoned = strings.Contains(host, "%")
 		let ip = netip.ParseAddr(parts.Before) catch {
 		case go.Error:
-			return None
+			return option.None
 		}
 		if !ip.Is6() {
-			return None
+			return option.None
 		}
 		host = ip.String()
 		if zoned {
@@ -127,7 +128,7 @@ func canonicalOrigin(scheme string, hostname string, rawPort string, user bool, 
 	if port != "" {
 		let n = strconv.ParseUint(port, 10, 16) catch {
 		case go.Error:
-			return None
+			return option.None
 		}
 		port = strconv.FormatUint(n, 10)
 	}
@@ -141,5 +142,5 @@ func canonicalOrigin(scheme string, hostname string, rawPort string, user bool, 
 		host = host + ":" + port
 	}
 	let canonical = go.New(url.URL{..go.Zero[url.URL](), Scheme: scheme, Host: host})
-	Some[string]{Value: canonical.String()}
+	option.Some[string]{Value: canonical.String()}
 }

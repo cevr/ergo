@@ -111,7 +111,7 @@ func TestFSConfinedLaws(t *testing.T) {
 		"fstest Confined.EachCaseStartsEmpty": {Statement: `EachCaseStartsEmpty(text string) {
 		let names = try ReadDir(".")
 		try WriteFile("left-by-a-case", text)
-		len(names) == 0
+		names.Len() == 0
 	}`, Check: func(t *testing.T) {
 			seen := map[string]bool{}
 			for _, text := range names[:20] {

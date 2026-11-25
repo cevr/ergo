@@ -1,4 +1,7 @@
 import arena
+import core
+import machines
+import option
 import time
 import actor
 import sync
@@ -15,7 +18,7 @@ import sync
 // of the Area around it: an event over it carries, in PointerEvent.Zone,
 // the keys of the zones from the Area down to it, its box and the
 // pointer's offset in that box.
-func Zone[E, F, R](f mut Frame[E], key Key, style Style, body func() fails F needs R, at CallSite) fails F needs R {
+func Zone[E, F, R](f mut Frame[E], key Key, style Style, body func() fails F needs R, at core.CallSite) fails F needs R {
 	try open(f, ZoneNode{Key: key, Style: style}, body, at)
 }
 
@@ -34,18 +37,18 @@ type ZoneHit { Path []Key, Box Rect, X float64, Y float64 }
 // carries none.
 law ZoneHitNamesItsPath(seed int, n int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		zoneFollows(seed, n, m)
 	}
 }
 
 // sameHit is whether two zone hits are equal, path by path.
-func sameHit(a Option[ZoneHit], b Option[ZoneHit]) bool {
+func sameHit(a option.Option[ZoneHit], b option.Option[ZoneHit]) bool {
 	match a {
-	case Some[ZoneHit] as x:
+	case option.Some[ZoneHit] as x:
 		match b {
-		case Some[ZoneHit] as y:
-			if len(x.Value.Path) != len(y.Value.Path) || x.Value.Box != y.Value.Box || x.Value.X != y.Value.X || x.Value.Y != y.Value.Y {
+		case option.Some[ZoneHit] as y:
+			if x.Value.Path.Len() != y.Value.Path.Len() || x.Value.Box != y.Value.Box || x.Value.X != y.Value.X || x.Value.Y != y.Value.Y {
 				return false
 			}
 			for i, k in x.Value.Path {
@@ -54,46 +57,46 @@ func sameHit(a Option[ZoneHit], b Option[ZoneHit]) bool {
 				}
 			}
 			true
-		case None:
+		case option.None:
 			false
 		}
-	case None:
+	case option.None:
 		match b {
-		case Some[ZoneHit]:
+		case option.Some[ZoneHit]:
 			false
-		case None:
+		case option.None:
 			true
 		}
 	}
 }
 
-func zoneStep(s int, e int) Decision[int, int] { Enter[int]{Next: e} }
+func zoneStep(s int, e int) machines.Decision[int, int] { machines.Enter[int]{Next: e} }
 
-func zoneTimer(s int) Option[Timeout[int]] { None }
+func zoneTimer(s int) option.Option[machines.Timeout[int]] { option.None }
 
-func zoneWork(s int) Option[func(send func(e int))] { None }
+func zoneWork(s int) option.Option[func(send func(e int))] { option.None }
 
-func zoneExit(s int) Option[func()] { None }
+func zoneExit(s int) option.Option[func()] { option.None }
 
-func zoneMachine() Machine[int, int, int] {
-	Machine[int, int, int]{Initial: 0, Step: zoneStep, After: zoneTimer, Work: zoneWork, Exit: zoneExit}
+func zoneMachine() machines.Machine[int, int, int] {
+	machines.Machine[int, int, int]{Initial: 0, Step: zoneStep, After: zoneTimer, Work: zoneWork, Exit: zoneExit}
 }
 
-func zoneFollows(seed int, n int, m time.Manual) bool needs Scheduler {
+func zoneFollows(seed int, n int, m time.Manual) bool needs time.Scheduler {
 	let mut r = seeded(seed)
 	let ncols = draw(&r, 3) + 1
 	let mut cards = []int{}
 	for _ in 0..ncols {
 		cards = cards.Append(draw(&r, 3) + 1)
 	}
-	let got = sync.NewRef[Option[ZoneHit]](None)
+	let got = sync.NewRef[option.Option[ZoneHit]](option.None)
 	let view = func(f mut Frame[int], s int) {
 		Pressable(f, "drop", 1) {
 			Text(f, "drop")
 		}
-		Area(f, "board", Plain(), func(p PointerEvent) Option[int] {
+		Area(f, "board", Plain(), func(p PointerEvent) option.Option[int] {
 			got.Set(p.Zone)
-			None
+			option.None
 		}) {
 			for c in 0..ncols {
 				Zone(f, ByInt(c), Plain()) {
@@ -120,9 +123,9 @@ func zoneFollows(seed int, n int, m time.Manual) bool needs Scheduler {
 		return false
 	}
 	let board = match Find(&h, "board") {
-	case Some[Id[int]] as found:
+	case option.Some[Id[int]] as found:
 		found.Value
-	case None:
+	case option.None:
 		return false
 	}
 	let gone = Locate(&h, WithZone{Key: ByText("0-0")})[0]
@@ -135,48 +138,48 @@ func zoneFollows(seed int, n int, m time.Manual) bool needs Scheduler {
 		}
 		let box = Rect{X: Length(float64(draw(&r, 50))), Y: Length(float64(draw(&r, 50))), W: 40, H: 20}
 		// A host sends a Zone of its own, which the composer replaces.
-		let p = PointerEvent{Pointer: MousePointer, Phase: Moved, X: float64(draw(&r, 100)), Y: float64(draw(&r, 100)), Zone: Some{Value: ZoneHit{Path: []Key{ByInt(-2)}, Box: box, X: 0.0, Y: 0.0}}}
+		let p = PointerEvent{Pointer: MousePointer, Phase: Moved, X: float64(draw(&r, 100)), Y: float64(draw(&r, 100)), Zone: option.Some{Value: ZoneHit{Path: []Key{ByInt(-2)}, Box: box, X: 0.0, Y: 0.0}}}
 		let c = draw(&r, ncols)
 		let k = draw(&r, cards[c])
-		let hit = Some{Value: ZoneHit{Path: []Key{}, Box: box, X: p.X - float64(box.X), Y: p.Y - float64(box.Y)}}
-		let mut want Option[ZoneHit] = None
-		let mut over Option[Id[int]] = None
+		let hit = option.Some{Value: ZoneHit{Path: []Key{}, Box: box, X: p.X - float64(box.X), Y: p.Y - float64(box.Y)}}
+		let mut want option.Option[ZoneHit] = option.None
+		let mut over option.Option[Id[int]] = option.None
 		match draw(&r, 6) {
 		case 0:
-			over = Some{Value: Locate(&h, WithZone{Key: ByInt(c)})[0]}
-			want = Some{Value: ZoneHit{..hit.Value, Path: []Key{ByInt(c)}}}
+			over = option.Some{Value: Locate(&h, WithZone{Key: ByInt(c)})[0]}
+			want = option.Some{Value: ZoneHit{..hit.Value, Path: []Key{ByInt(c)}}}
 		case 1:
 			if c == 0 && StateOf(&h) == 1 {
-				over = Some{Value: gone}
+				over = option.Some{Value: gone}
 			} else {
-				over = Some{Value: Locate(&h, WithZone{Key: ByText("\(c)-\(k)")})[0]}
-				want = Some{Value: ZoneHit{..hit.Value, Path: []Key{ByInt(c), ByText("\(c)-\(k)")}}}
+				over = option.Some{Value: Locate(&h, WithZone{Key: ByText("\(c)-\(k)")})[0]}
+				want = option.Some{Value: ZoneHit{..hit.Value, Path: []Key{ByInt(c), ByText("\(c)-\(k)")}}}
 			}
 		case 2:
-			over = Some{Value: Locate(&h, WithZone{Key: ByInt(99)})[0]}
+			over = option.Some{Value: Locate(&h, WithZone{Key: ByInt(99)})[0]}
 		case 3:
 			match Find(&h, "col \(c)") {
-			case Some[Id[int]] as found:
-				over = Some{Value: found.Value}
-			case None:
+			case option.Some[Id[int]] as found:
+				over = option.Some{Value: found.Value}
+			case option.None:
 				return false
 			}
 		case 4:
 			// Card 0-0, which the drop at the second event removes.
-			over = Some{Value: gone}
+			over = option.Some{Value: gone}
 			if StateOf(&h) != 1 {
-				want = Some{Value: ZoneHit{..hit.Value, Path: []Key{ByInt(0), ByText("0-0")}}}
+				want = option.Some{Value: ZoneHit{..hit.Value, Path: []Key{ByInt(0), ByText("0-0")}}}
 			}
 		case _:
 		}
-		got.Set(Some{Value: ZoneHit{Path: []Key{ByInt(-1)}, Box: box, X: 0.0, Y: 0.0}})
+		got.Set(option.Some{Value: ZoneHit{Path: []Key{ByInt(-1)}, Box: box, X: 0.0, Y: 0.0}})
 		match over {
-		case Some[Id[int]] as o:
+		case option.Some[Id[int]] as o:
 			PointOver(&h, board, o.Value, box, p) catch {
 			case _:
 				return false
 			}
-		case None:
+		case option.None:
 			PointAt(&h, board, p) catch {
 			case _:
 				return false
@@ -195,57 +198,57 @@ type ZoneBox[E] { Id Id[E], Box Rect }
 
 // zoneHit is the ZoneHit of over for a pointer at p in the Area area:
 // None when over names no zone f holds, or one that is not under area.
-func zoneHit[E](f mut Frame[E], area Id[E], over ZoneBox[E], p PointerEvent) Option[ZoneHit] {
+func zoneHit[E](f mut Frame[E], area Id[E], over ZoneBox[E], p PointerEvent) option.Option[ZoneHit] {
 	if !arena.Has(f.nodes, area.ref) || !arena.Has(f.nodes, over.Id.ref) {
-		return None
+		return option.None
 	}
 	match zoneKey(f, over.Id.ref) {
-	case None:
-		return None
-	case Some[Key]:
+	case option.None:
+		return option.None
+	case option.Some[Key]:
 	}
 	match zonePath(f, area.ref, over.Id.ref) {
-	case Some[[]Key] as path:
-		Some{Value: ZoneHit{Path: path.Value, Box: over.Box, X: p.X - float64(over.Box.X), Y: p.Y - float64(over.Box.Y)}}
-	case None:
-		None
+	case option.Some[[]Key] as path:
+		option.Some{Value: ZoneHit{Path: path.Value, Box: over.Box, X: p.X - float64(over.Box.X), Y: p.Y - float64(over.Box.Y)}}
+	case option.None:
+		option.None
 	}
 }
 
 // zonePath is the keys of the zones on the way from r (not counted) down
 // to target, target's last; None when target is not under r. It visits
 // r's subtree in order, so its work is at most that subtree's size.
-func zonePath[E](f mut Frame[E], r arena.Ref[node[E]], target arena.Ref[node[E]]) Option[[]Key] {
+func zonePath[E](f mut Frame[E], r arena.Ref[node[E]], target arena.Ref[node[E]]) option.Option[[]Key] {
 	for i in 0..kidCount(f, r) {
 		let k = kidAt(f, r, i)
 		let mut own = []Key{}
 		match zoneKey(f, k) {
-		case Some[Key] as key:
+		case option.Some[Key] as key:
 			own = own.Append(key.Value)
-		case None:
+		case option.None:
 		}
 		if k == target {
-			return Some{Value: own}
+			return option.Some{Value: own}
 		}
 		match zonePath[E](f, k, target) {
-		case Some[[]Key] as rest:
+		case option.Some[[]Key] as rest:
 			for x in rest.Value {
 				own = own.Append(x)
 			}
-			return Some{Value: own}
-		case None:
+			return option.Some{Value: own}
+		case option.None:
 		}
 	}
-	None
+	option.None
 }
 
 // zoneKey is the key of the zone r, None for a node that is not one.
-func zoneKey[E](f mut Frame[E], r arena.Ref[node[E]]) Option[Key] {
-	let mut out Option[Key] = None
+func zoneKey[E](f mut Frame[E], r arena.Ref[node[E]]) option.Option[Key] {
+	let mut out option.Option[Key] = option.None
 	change(f, r, func(n mut node[E]) {
 		match n.node {
 		case ZoneNode as z:
-			out = Some{Value: z.Key}
+			out = option.Some{Value: z.Key}
 		case _:
 		}
 	})
@@ -256,8 +259,8 @@ func zoneKey[E](f mut Frame[E], r arena.Ref[node[E]]) Option[Key] {
 // text once, politely (after what it is saying), as the web's aria-live
 // "polite" region does. An empty text says nothing. A pass that writes
 // the same text as the last one says nothing again.
-func Announce[E](f mut Frame[E], text string, at CallSite) {
-	let _ = put(f, LiveNode{Text: text}, None, None, at)
+func Announce[E](f mut Frame[E], text string, at core.CallSite) {
+	let _ = put(f, LiveNode{Text: text}, option.None, option.None, at)
 }
 
 // AnnounceSaysEachNewText (H5g): a view whose live region shows a drawn
@@ -271,12 +274,12 @@ func Announce[E](f mut Frame[E], text string, at CallSite) {
 // (FK11-g5; FK2-g2: Settle draws only a state the actor committed).
 law AnnounceSaysEachNewText(seed int, steps int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		announceFollows(seed, steps, m)
 	}
 }
 
-func announceFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
+func announceFollows(seed int, steps int, m time.Manual) bool needs time.Scheduler {
 	let mut r = seeded(seed)
 	let words = []string{"", "moved", "dropped", "cancelled"}
 	let mut texts = []string{}
@@ -286,13 +289,13 @@ func announceFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 	let shift = sync.NewRef(0)
 	let view = func(f mut Frame[int], s int) {
 		let shown = (s + shift.Get()) % 6
-		OnKey(f, func(k KeyPress) Option[int] {
+		OnKey(f, func(k KeyPress) option.Option[int] {
 			for i in 0..6 {
 				if k.Name == "\(i)" {
-					return Some{Value: i}
+					return option.Some{Value: i}
 				}
 			}
-			None
+			option.None
 		})
 		Text(f, "at \(s)")
 		// At text 5 there is no live region, so the next text's is new.
@@ -306,7 +309,7 @@ func announceFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 		return false
 	}
 	let mut want = []string{}
-	let mut prev Option[string] = Some{Value: texts[0]}
+	let mut prev option.Option[string] = option.Some{Value: texts[0]}
 	for _ in 0..(steps%12+12)%12+1 {
 		let s = draw(&r, 6)
 		let by = draw(&r, 3)
@@ -334,20 +337,20 @@ func announceFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 		let k = (StateOf(&h) + shift.Get()) % 6
 		// prev is the region's text, None while there is no region.
 		if k == 5 {
-			prev = None
+			prev = option.None
 		} else {
-			if prev != (Some{Value: texts[k]}) && texts[k] != "" {
+			if prev != (option.Some{Value: texts[k]}) && texts[k] != "" {
 				want = want.Append(texts[k])
 			}
-			prev = Some{Value: texts[k]}
+			prev = option.Some{Value: texts[k]}
 		}
 		let regions = if k == 5 { 0 } else { 1 }
-		if len(Locate(&h, WithRole{Role: Status, Name: texts[k]})) != regions {
+		if Locate(&h, WithRole{Role: Status, Name: texts[k]}).Len() != regions {
 			return false
 		}
 	}
 	let said = Announced(&h)
-	if len(said) != len(want) {
+	if said.Len() != want.Len() {
 		return false
 	}
 	for i, x in want {
@@ -428,21 +431,21 @@ type edgeList[E] { id Id[E], view Viewport, content Length }
 // 0); None for none. The Area's box is the list's viewport: the pointer's
 // y in the Area is its y in the viewport, as when an Area holds a list
 // whose rows are its zones.
-func edgeListIn[E](f mut Frame[E], area Id[E]) Option[edgeList[E]] {
+func edgeListIn[E](f mut Frame[E], area Id[E]) option.Option[edgeList[E]] {
 	let n = f.nodes.Get(area.ref) catch {
 	case arena.Stale:
-		return None
+		return option.None
 	}
 	match n.node {
 	case AreaNode:
 		firstList(f, area.ref)
 	case _:
-		None
+		option.None
 	}
 }
 
 // firstList is the first Rows list under r with a reported viewport.
-func firstList[E](f mut Frame[E], r arena.Ref[node[E]]) Option[edgeList[E]] {
+func firstList[E](f mut Frame[E], r arena.Ref[node[E]]) option.Option[edgeList[E]] {
 	for k in kidsOf(f, r) {
 		let n = f.nodes.Get(k) catch {
 		case arena.Stale:
@@ -452,27 +455,27 @@ func firstList[E](f mut Frame[E], r arena.Ref[node[E]]) Option[edgeList[E]] {
 		case RowsNode as x:
 			// The cell holds the viewport the host last reported.
 			match n.binds {
-			case Some[bound[E]] as d:
+			case option.Some[bound[E]] as d:
 				match cellOf(f, d.Value.owner, d.Value.id) {
-				case Some[Cell] as c:
+				case option.Some[Cell] as c:
 					match c.Value {
 					case ViewCell as v:
 						if v.Height > Length(0.0) {
-							return Some{Value: edgeList[E]{id: Id[E]{ref: k}, view: Viewport{Offset: v.Offset, Height: v.Height}, content: Length(float64(x.Count)) * x.RowHeight}}
+							return option.Some{Value: edgeList[E]{id: Id[E]{ref: k}, view: Viewport{Offset: v.Offset, Height: v.Height}, content: Length(float64(x.Count)) * x.RowHeight}}
 						}
 					case _:
 					}
-				case None:
+				case option.None:
 				}
-			case None:
+			case option.None:
 			}
 		case _:
 		}
 		match firstList[E](f, k) {
-		case Some[edgeList[E]] as l:
+		case option.Some[edgeList[E]] as l:
 			return l
-		case None:
+		case option.None:
 		}
 	}
-	None
+	option.None
 }

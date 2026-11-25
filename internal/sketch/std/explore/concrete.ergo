@@ -1,3 +1,6 @@
+import codec
+import machines
+import option
 import strings
 
 // Keyless reports that a value's wire representation cannot serve as an exact key.
@@ -9,7 +12,7 @@ type CanonicalKey { Bytes string, Hash Hash, Words int }
 
 // law-exempt: internal canonical-wire sink used only by Key and CanonKey; KeyIsEquality and EdgesKeepIdentity hold its encoding.
 type canonSink {
-	..Writer,
+	..codec.Writer,
 	sealCanon() (CanonicalKey, bool),
 }
 
@@ -38,7 +41,7 @@ func writeU64(b mut strings.Builder, x uint64) {
 
 func writeLenStr(b mut strings.Builder, tag uint8, s string) {
 	b.WriteByte(byte(tag))
-	writeU64(b, uint64(len(s)))
+	writeU64(b, uint64(s.Len()))
 	b.WriteString(s)
 }
 
@@ -91,8 +94,8 @@ func String(w mut canonWriter, s string) {
 func StringBytes(w mut canonWriter, b []byte) {
 	w.events = w.events + 1
 	w.buf.WriteByte(byte(8))
-	writeU64(&w.buf, uint64(len(b)))
-	for i in 0..len(b) {
+	writeU64(&w.buf, uint64(b.Len()))
+	for i in 0..b.Len() {
 		w.buf.WriteByte(b[i])
 	}
 	w.h.StringBytes(b)
@@ -161,7 +164,7 @@ func sealCanon(w canonWriter) (CanonicalKey, bool) {
 // unbalanced encodings. Floats are encoded by IEEE 754 bits.
 func CanonicalKeyOf[T wire](v T) CanonicalKey fails Keyless needs wired[T] {
 	let w canonSink = newCanonWriter()
-	encode(v, w)
+	codec.Encode(v, w)
 	let (ck, ok) = w.sealCanon()
 	if !ok {
 		return Keyless{Reason: "wire representation is empty or unbalanced"}
@@ -185,7 +188,7 @@ func NewKeyTable() KeyTable {
 }
 
 // KeyTableLen returns the number of distinct canonical keys in t.
-func KeyTableLen(t KeyTable) int { len(t.keys) }
+func KeyTableLen(t KeyTable) int { t.keys.Len() }
 
 // KeyTableBytes returns the retained canonical key bytes in t.
 func KeyTableBytes(t KeyTable) int { t.bytes }
@@ -208,13 +211,13 @@ func satAdd(a int, b int) int {
 func bucketOf(h Hash, mask int) int { int(h.Lo) & mask }
 
 func growKeyTable(t mut KeyTable) {
-	let n = if len(t.head) < 8 { 16 } else { len(t.head) * 2 }
+	let n = if t.head.Len() < 8 { 16 } else { t.head.Len() * 2 }
 	let mut head = []int32{}
 	for _ in 0..n {
 		head = head.Append(int32(-1))
 	}
 	let mask = n - 1
-	for id in 0..len(t.hashes) {
+	for id in 0..t.hashes.Len() {
 		let slot = bucketOf(t.hashes[id], mask)
 		t.next[id] = head[slot]
 		head[slot] = int32(id)
@@ -226,8 +229,8 @@ func growKeyTable(t mut KeyTable) {
 // returns (id, isNew, probes). Equal hashes with distinct key bytes stay distinct.
 func InternWithHash(t mut KeyTable, key string, h Hash) (int, bool, int) {
 	let mut probes = 1
-	if len(t.head) > 0 {
-		let slot = bucketOf(h, len(t.head)-1)
+	if t.head.Len() > 0 {
+		let slot = bucketOf(h, t.head.Len()-1)
 		let mut at = int(t.head[slot])
 		for at >= 0 {
 			probes = satAdd(probes, 1)
@@ -237,16 +240,16 @@ func InternWithHash(t mut KeyTable, key string, h Hash) (int, bool, int) {
 			at = int(t.next[at])
 		}
 	}
-	if (len(t.keys)+1)*4 > len(t.head)*3 {
+	if (t.keys.Len()+1)*4 > t.head.Len()*3 {
 		growKeyTable(t)
 	}
-	let id = len(t.keys)
-	let slot = bucketOf(h, len(t.head)-1)
+	let id = t.keys.Len()
+	let slot = bucketOf(h, t.head.Len()-1)
 	t.keys = t.keys.Append(key)
 	t.hashes = t.hashes.Append(h)
 	t.next = t.next.Append(t.head[slot])
 	t.head[slot] = int32(id)
-	t.bytes = satAdd(t.bytes, len(key))
+	t.bytes = satAdd(t.bytes, key.Len())
 	(id, true, probes)
 }
 
@@ -264,7 +267,7 @@ type EdgeOutcome[S, O] = Disabled{Obs O} | Continue{Next S, Obs O} | Terminal{Ob
 type Disposition = DisEnter{} | DisStay{} | DisEmit{} | DisTell{} | DisIgnore{} | DisReject{} | DisDone{}
 
 // MachineObs is the typed observation produced by ConcreteOf for a machine step.
-type MachineObs[O] { Kind Disposition, Output Option[O] }
+type MachineObs[O] { Kind Disposition, Output option.Option[O] }
 
 // ConcreteGraph describes a concrete state-and-edge graph with typed observations.
 type ConcreteGraph[S, E, O] {
@@ -275,33 +278,33 @@ type ConcreteGraph[S, E, O] {
 
 // ConcreteOf adapts a machine step function to a ConcreteGraph, keeping Ignore,
 // Reject, Stay, Enter, Emit, Tell, and Done with output distinct.
-func ConcreteOf[S, E, O](starts []S, signals []E, step own func(s S, e E) Decision[S, O]) ConcreteGraph[S, E, MachineObs[O]] {
+func ConcreteOf[S, E, O](starts []S, signals []E, step own func(s S, e E) machines.Decision[S, O]) ConcreteGraph[S, E, MachineObs[O]] {
 	ConcreteGraph[S, E, MachineObs[O]]{
 		Starts:  starts,
 		Signals: signals,
 		Step:    func(s S, e E) EdgeOutcome[S, MachineObs[O]] {
 			match step(s, e) {
-			case Enter[S] as d:
-				Continue[S, MachineObs[O]]{Next: d.Next, Obs: MachineObs[O]{Kind: DisEnter, Output: None}}
-			case Stay[S] as d:
-				Continue[S, MachineObs[O]]{Next: d.Next, Obs: MachineObs[O]{Kind: DisStay, Output: None}}
-			case Emit[S, O] as d:
-				Continue[S, MachineObs[O]]{Next: d.Next, Obs: MachineObs[O]{Kind: DisEmit, Output: Some[O]{Value: d.Output}}}
-			case Tell[S, O] as d:
-				Continue[S, MachineObs[O]]{Next: d.Next, Obs: MachineObs[O]{Kind: DisTell, Output: Some[O]{Value: d.Output}}}
-			case Ignore:
-				Continue[S, MachineObs[O]]{Next: s, Obs: MachineObs[O]{Kind: DisIgnore, Output: None}}
-			case Reject:
-				Continue[S, MachineObs[O]]{Next: s, Obs: MachineObs[O]{Kind: DisReject, Output: None}}
-			case Done[O] as d:
-				Terminal[MachineObs[O]]{Obs: MachineObs[O]{Kind: DisDone, Output: Some[O]{Value: d.Output}}}
+			case machines.Enter[S] as d:
+				Continue[S, MachineObs[O]]{Next: d.Next, Obs: MachineObs[O]{Kind: DisEnter, Output: option.None}}
+			case machines.Stay[S] as d:
+				Continue[S, MachineObs[O]]{Next: d.Next, Obs: MachineObs[O]{Kind: DisStay, Output: option.None}}
+			case machines.Emit[S, O] as d:
+				Continue[S, MachineObs[O]]{Next: d.Next, Obs: MachineObs[O]{Kind: DisEmit, Output: option.Some[O]{Value: d.Output}}}
+			case machines.Tell[S, O] as d:
+				Continue[S, MachineObs[O]]{Next: d.Next, Obs: MachineObs[O]{Kind: DisTell, Output: option.Some[O]{Value: d.Output}}}
+			case machines.Ignore:
+				Continue[S, MachineObs[O]]{Next: s, Obs: MachineObs[O]{Kind: DisIgnore, Output: option.None}}
+			case machines.Reject:
+				Continue[S, MachineObs[O]]{Next: s, Obs: MachineObs[O]{Kind: DisReject, Output: option.None}}
+			case machines.Done[O] as d:
+				Terminal[MachineObs[O]]{Obs: MachineObs[O]{Kind: DisDone, Output: option.Some[O]{Value: d.Output}}}
 			}
 		},
 	}
 }
 
 // ConcreteOfMachine adapts a Machine value and concrete signal alphabet to a ConcreteGraph.
-func ConcreteOfMachine[S, E, O](m Machine[S, E, O], signals []E) ConcreteGraph[S, E, MachineObs[O]] {
+func ConcreteOfMachine[S, E, O](m machines.Machine[S, E, O], signals []E) ConcreteGraph[S, E, MachineObs[O]] {
 	ConcreteOf([]S{m.Initial}, signals, m.Step)
 }
 
@@ -358,11 +361,11 @@ func ConcreteRunTo[O](r ConcreteResult[O], id int) Run {
 	reconstructRun(r.parent, r.sig, id)
 }
 
-func concreteFrontierState[S, E, O](g ConcreteGraph[S, E, O], parent []int32, sig []int32, kept Option[S], id int) (S, int) {
+func concreteFrontierState[S, E, O](g ConcreteGraph[S, E, O], parent []int32, sig []int32, kept option.Option[S], id int) (S, int) {
 	match kept {
-	case Some[S] as s:
+	case option.Some[S] as s:
 		(s.Value, 0)
-	case None:
+	case option.None:
 		let run = reconstructRun(parent, sig, id)
 		let mut s = g.Starts[run.Start]
 		for e in run.Signals {
@@ -373,7 +376,7 @@ func concreteFrontierState[S, E, O](g ConcreteGraph[S, E, O], parent []int32, si
 			case Disabled[O]:
 			}
 		}
-		(s, len(run.Signals))
+		(s, run.Signals.Len())
 	}
 }
 
@@ -398,7 +401,7 @@ func BuildConcrete[S wire, E wire, O](g ConcreteGraph[S, E, O], bounds ConcreteB
 	}
 
 	let mut eventTable = NewKeyTable()
-	for e in 0..len(g.Signals) {
+	for e in 0..g.Signals.Len() {
 		let ck = CanonicalKeyOf(g.Signals[e]) catch {
 		case Keyless as k:
 			return stopConcrete(Unkeyable{Reason: k.Reason}, st, roots, sigIndex, outStart, edges, parent, sig)
@@ -407,7 +410,7 @@ func BuildConcrete[S wire, E wire, O](g ConcreteGraph[S, E, O], bounds ConcreteB
 		if st.Work > bounds.MaxWork {
 			return stopConcrete(OverWork, st, roots, sigIndex, outStart, edges, parent, sig)
 		}
-		let nextBytes = satAdd(KeyTableBytes(eventTable), len(ck.Bytes))
+		let nextBytes = satAdd(KeyTableBytes(eventTable), ck.Bytes.Len())
 		let (_, fresh, probes) = InternWithHash(&eventTable, ck.Bytes, ck.Hash)
 		st.Work = satAdd(st.Work, probes)
 		st.Bytes = KeyTableBytes(eventTable)
@@ -424,10 +427,10 @@ func BuildConcrete[S wire, E wire, O](g ConcreteGraph[S, E, O], bounds ConcreteB
 
 	let mut stateTable = NewKeyTable()
 	let mut ids = []int{}
-	let mut kept = []Option[S]{}
+	let mut kept = []option.Option[S]{}
 	let mut held = 0
 
-	for i in 0..len(g.Starts) {
+	for i in 0..g.Starts.Len() {
 		let s = g.Starts[i]
 		let ck = CanonicalKeyOf(s) catch {
 		case Keyless as k:
@@ -447,7 +450,7 @@ func BuildConcrete[S wire, E wire, O](g ConcreteGraph[S, E, O], bounds ConcreteB
 			if st.Bytes > bounds.MaxBytes {
 				return stopConcrete(OverBytes, st, roots, sigIndex, outStart, edges, parent, sig)
 			}
-			if len(parent) >= bounds.MaxStates {
+			if parent.Len() >= bounds.MaxStates {
 				return stopConcrete(OverStates, st, roots, sigIndex, outStart, edges, parent, sig)
 			}
 			parent = parent.Append(int32(-1))
@@ -463,13 +466,13 @@ func BuildConcrete[S wire, E wire, O](g ConcreteGraph[S, E, O], bounds ConcreteB
 	}
 
 	let mut depth = 1
-	for len(ids) > 0 {
+	for ids.Len() > 0 {
 		let mut next = []int{}
-		let mut nextKept = []Option[S]{}
+		let mut nextKept = []option.Option[S]{}
 		let mut nextHeld = 0
-		for f in 0..len(ids) {
+		for f in 0..ids.Len() {
 			let srcID = ids[f]
-			outStart = outStart.Append(len(edges))
+			outStart = outStart.Append(edges.Len())
 			let (s, rebuildSteps) = concreteFrontierState(g, parent, sig, kept[f], srcID)
 			if rebuildSteps > 0 {
 				st.Work = satAdd(st.Work, rebuildSteps)
@@ -477,7 +480,7 @@ func BuildConcrete[S wire, E wire, O](g ConcreteGraph[S, E, O], bounds ConcreteB
 					return stopConcrete(OverWork, st, roots, sigIndex, outStart, edges, parent, sig)
 				}
 			}
-			for evID in 0..len(sigIndex) {
+			for evID in 0..sigIndex.Len() {
 				let eIdx = sigIndex[evID]
 				st.Work = satAdd(st.Work, 1)
 				if st.Work > bounds.MaxWork {
@@ -487,7 +490,7 @@ func BuildConcrete[S wire, E wire, O](g ConcreteGraph[S, E, O], bounds ConcreteB
 				case Disabled[O]:
 					st.Disabled = st.Disabled + 1
 				case Terminal[O] as term:
-					if len(edges) >= bounds.MaxEdges {
+					if edges.Len() >= bounds.MaxEdges {
 						return stopConcrete(OverEdges, st, roots, sigIndex, outStart, edges, parent, sig)
 					}
 					edges = edges.Append(ConcreteEdge[O]{Source: srcID, Signal: eIdx, EventID: evID, Target: Ended, Obs: term.Obs})
@@ -512,11 +515,11 @@ func BuildConcrete[S wire, E wire, O](g ConcreteGraph[S, E, O], bounds ConcreteB
 						if st.Bytes > bounds.MaxBytes {
 							return stopConcrete(OverBytes, st, roots, sigIndex, outStart, edges, parent, sig)
 						}
-						if len(parent) >= bounds.MaxStates {
+						if parent.Len() >= bounds.MaxStates {
 							return stopConcrete(OverStates, st, roots, sigIndex, outStart, edges, parent, sig)
 						}
 					}
-					if len(edges) >= bounds.MaxEdges {
+					if edges.Len() >= bounds.MaxEdges {
 						return stopConcrete(OverEdges, st, roots, sigIndex, outStart, edges, parent, sig)
 					}
 					edges = edges.Append(ConcreteEdge[O]{Source: srcID, Signal: eIdx, EventID: evID, Target: ToState{State: dstID}, Obs: cont.Obs})
@@ -540,6 +543,6 @@ func BuildConcrete[S wire, E wire, O](g ConcreteGraph[S, E, O], bounds ConcreteB
 		held = nextHeld
 		depth = depth + 1
 	}
-	outStart = outStart.Append(len(edges))
+	outStart = outStart.Append(edges.Len())
 	ConcreteResult[O]{Stop: ConcreteComplete, Stats: st, Roots: roots, Signals: sigIndex, OutStart: outStart, Edges: edges, parent: parent, sig: sig}
 }

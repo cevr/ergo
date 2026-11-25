@@ -9,7 +9,7 @@ import dense
 // tree has no token there.
 let NoPos = -1
 
-func last(xs []int) int { xs[len(xs)-1] }
+func last(xs []int) int { xs[xs.Len()-1] }
 
 // ---------------------------------------------------------------- tokens
 
@@ -39,7 +39,7 @@ let tokens = []string{
 // tokenText is the spelling of token kind n.
 func tokenText(n uint8) string {
 	let i = int(n)
-	if i < len(tokens) && tokens[i] != "" {
+	if i < tokens.Len() && tokens[i] != "" {
 		return tokens[i]
 	}
 	"token(?)"

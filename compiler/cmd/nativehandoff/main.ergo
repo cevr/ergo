@@ -4,6 +4,7 @@ import exec
 import fs
 import hex
 import io
+import option
 import os
 import strconv
 import strings
@@ -79,11 +80,11 @@ func toolCmd(goroot string, goos string, goarch string, tool string, args []stri
 
 func findStockRoot() string fails os.Exit needs os.Process | exec.Runner {
 	match os.Process.Getenv("GOROOT_STOCK") {
-	case Some as p:
+	case option.Some as p:
 		if p.Value != "" {
 			return p.Value
 		}
-	case None:
+	case option.None:
 	}
 	let out = strings.TrimSpace(try runCmd(exec.New("go", []string{"env", "GOROOT"}).WithEnv("GOTOOLCHAIN", "local"), "go env GOROOT"))
 	if out == "" {
@@ -94,11 +95,11 @@ func findStockRoot() string fails os.Exit needs os.Process | exec.Runner {
 
 func ensurePatchedRoot(stock string, goos string, goarch string, dir string) string fails os.Exit needs os.Process | exec.Runner {
 	match os.Process.Getenv("GOROOT_PATCHED") {
-	case Some as p:
+	case option.Some as p:
 		if p.Value != "" {
 			return p.Value
 		}
-	case None:
+	case option.None:
 	}
 	let patched = dir + "/patched-goroot"
 	let script = "set -euo pipefail; STOCK=\"$1\"; PATCHED=\"$2\"; TOOL=\"$3\"; PATCH=\"$4\"; " +
@@ -139,13 +140,13 @@ func patchWord(wire string, off int, val uint32) string {
 	b.WriteByte(byte((val >> 8) & 255))
 	b.WriteByte(byte((val >> 16) & 255))
 	b.WriteByte(byte(val >> 24))
-	wire[0:off] + b.String() + wire[off+4:len(wire)]
+	wire[0:off] + b.String() + wire[off+4:wire.Len()]
 }
 
 func flipFirstByte(s string) string {
 	let mut b = strings.NewBuilder()
 	b.WriteByte(byte(s[0] ^ byte(1)))
-	b.String() + s[1:len(s)]
+	b.String() + s[1:s.Len()]
 }
 
 func verifyRouteB(seed int, keep bool) fails os.Exit needs os.Process | exec.Runner | fs.Files | fs.Writes | io.Stdout {
@@ -154,12 +155,12 @@ func verifyRouteB(seed int, keep bool) fails os.Exit needs os.Process | exec.Run
 		return fail("specimen seed \(seed), section \(m.Section), row \(m.Row): \(m.Why)")
 	}
 	let specBytes = handoff.Encode(specImg)
-	io.Stdout.Println("EIR v\(ir.HandoffVersion) seed \(seed): \(len(specBytes)) bytes, \(handoff.Rows(specImg, ir.HOps)) op rows, \(handoff.Rows(specImg, ir.HTypes)) type rows")
+	io.Stdout.Println("EIR v\(ir.HandoffVersion) seed \(seed): \(specBytes.Len()) bytes, \(handoff.Rows(specImg, ir.HOps)) op rows, \(handoff.Rows(specImg, ir.HTypes)) type rows")
 	io.Stdout.Println("specimen sha256 \(hex.Encode(handoff.Digest(specImg)))")
 
 	let stock = try findStockRoot()
 	let envFields = strings.Fields(try runCmd(goCmd(stock, []string{"env", "GOVERSION", "GOOS", "GOARCH"}), "stock go env"))
-	if len(envFields) != 3 {
+	if envFields.Len() != 3 {
 		return fail("unexpected go env output")
 	}
 	let pin = envFields[0]
@@ -188,9 +189,9 @@ func verifyRouteB(seed int, keep bool) fails os.Exit needs os.Process | exec.Run
 	let depStockBytes = try readFile(depStockA)
 	let depPatchedBytes = try readFile(depPatchedA)
 	if depStockBytes != depPatchedBytes {
-		return fail("stock inertness violated on dep.go (\(len(depStockBytes)) vs \(len(depPatchedBytes)) bytes)")
+		return fail("stock inertness violated on dep.go (\(depStockBytes.Len()) vs \(depPatchedBytes.Len()) bytes)")
 	}
-	io.Stdout.Println("stock inertness: dep.a byte-identical (\(len(depStockBytes)) bytes) and -V=full matches")
+	io.Stdout.Println("stock inertness: dep.a byte-identical (\(depStockBytes.Len()) bytes) and -V=full matches")
 
 	let depExp = readArchiveExport(depStockBytes) catch {
 	case ArchiveBad as b:
@@ -300,13 +301,13 @@ func verifyRouteB(seed int, keep bool) fails os.Exit needs os.Process | exec.Run
 	}
 }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), fs.Writes: fs.NewHost(), io.Stdout: io.NewHost(), exec.Runner: exec.NewHost() } {
 		let mut args = os.Process.Args()
-		if len(args) > 0 && args[0] == "--" {
-			args = args[1:len(args)]
+		if args.Len() > 0 && args[0] == "--" {
+			args = args[1:args.Len()]
 		}
-		if len(args) < 1 || args[0] != "verify" {
+		if args.Len() < 1 || args[0] != "verify" {
 			return usage()
 		}
 		let mut seed = 17
@@ -314,8 +315,8 @@ func main() fails os.Exit needs Ambient {
 		let mut keep = false
 		let mut sawSeed = false
 		let mut i = 1
-		for i < len(args) {
-			if args[i] == "--seed" && i+1 < len(args) {
+		for i < args.Len() {
+			if args[i] == "--seed" && i+1 < args.Len() {
 				seed = strconv.Atoi(args[i+1]) catch {
 				case strconv.Malformed, strconv.OutOfRange:
 					return usage()

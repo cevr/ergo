@@ -8,6 +8,7 @@
 // Effect: RateLimiter's layerStoreMemory. Go control: a map under a mutex,
 // with x/time/rate's arithmetic per key.
 
+import option
 import ratelimit
 import sync
 import task
@@ -57,9 +58,9 @@ func TakeAt(l Limiter, key string, cost int, now time.Time) ratelimit.Grant fail
 	let rule = l.rule
 	let o = sync.Modify(l.keys, func(keys Map[string, entry]) (outcome, Map[string, entry]) {
 		let e = match keys.Get(key) {
-		case Some[entry] as s:
+		case option.Some[entry] as s:
 			s.Value
-		case None:
+		case option.None:
 			entry{seen: now, at: now, used: 0, log: []slot{}}
 		}
 		let late = e.seen.After(now)
@@ -130,15 +131,15 @@ func window(limit int, width duration, e entry, now time.Time, cost int) (outcom
 // oldest grants leave the window.
 func sliding(limit int, width duration, e entry, now time.Time, cost int) (outcome, entry) {
 	let mut first = 0
-	for first < len(e.log) && now.Sub(e.log[first].at) >= width {
+	for first < e.log.Len() && now.Sub(e.log[first].at) >= width {
 		first += 1
 	}
 	let mut used = 0
-	for i in first..len(e.log) {
+	for i in first..e.log.Len() {
 		used += e.log[i].cost
 	}
 	if used+cost <= limit {
-		let log = e.log.Slice(first, len(e.log)).Append(slot{at: now, cost: cost})
+		let log = e.log.Slice(first, e.log.Len()).Append(slot{at: now, cost: cost})
 		return (granted{Remaining: limit - used - cost}, entry{seen: now, at: e.at, used: 0, log: log})
 	}
 	let need = used + cost - limit
@@ -323,7 +324,7 @@ law WaitSleepsTheRetryAfter(n int) {
 		return false
 	}
 	let m = time.NewManual(0)
-	with context { time.Clock: m, Scheduler: m } {
+	with context { time.Clock: m, time.Scheduler: m } {
 		let first = ratelimit.Take(l, "k", 1) catch {
 		case ratelimit.Limited, ratelimit.BadCost:
 			return false

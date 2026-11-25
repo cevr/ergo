@@ -30,13 +30,14 @@ import compiler/syntax
 import dense
 import fs
 import io
+import option
 import os
 import slices
 import strings
 
 func base(path string) string {
 	let i = strings.LastIndex(path, "/")
-	if i < 0 { path } else { path[i+1 : len(path)] }
+	if i < 0 { path } else { path[i+1 : path.Len()] }
 }
 
 func dir(path string) string {
@@ -77,8 +78,8 @@ func replacesOf(d string) []Replace needs fs.Files {
 			continue
 		}
 		let from = strings.Fields(l[0:i])
-		let to = strings.TrimSpace(l[i+2 : len(l)])
-		if len(from) == 0 || !(strings.HasPrefix(to, ".") || strings.HasPrefix(to, "/")) {
+		let to = strings.TrimSpace(l[i+2 : l.Len()])
+		if from.Len() == 0 || !(strings.HasPrefix(to, ".") || strings.HasPrefix(to, "/")) {
 			continue
 		}
 		let target = strings.Fields(to)[0]
@@ -88,7 +89,7 @@ func replacesOf(d string) []Replace needs fs.Files {
 }
 
 // moduleOf finds the ergo.mod in d or a folder above it.
-func moduleOf(d string) Option[Module] needs fs.Files {
+func moduleOf(d string) option.Option[Module] needs fs.Files {
 	let mut at = d
 	for {
 		let text = fs.Files.ReadFile(at + "/ergo.mod") catch {
@@ -98,11 +99,11 @@ func moduleOf(d string) Option[Module] needs fs.Files {
 		for line in strings.Split(text, "\n") {
 			let l = strings.TrimSpace(line)
 			if strings.HasPrefix(l, "module ") {
-				return Some[Module]{Value: Module{Path: strings.TrimSpace(l[7:len(l)]), Dir: at, Replaces: replacesOf(at)}}
+				return option.Some[Module]{Value: Module{Path: strings.TrimSpace(l[7:l.Len()]), Dir: at, Replaces: replacesOf(at)}}
 			}
 		}
 		if at == "/" || at == "." || at == "" {
-			return None
+			return option.None
 		}
 		at = dir(at)
 	}
@@ -110,34 +111,34 @@ func moduleOf(d string) Option[Module] needs fs.Files {
 
 // folderOf is the folder of the package at import path: in the module, or
 // under std; none when neither holds it.
-func folderOf(path string, m Option[Module], std string) string {
+func folderOf(path string, m option.Option[Module], std string) string {
 	match m {
-	case Some[Module] as mod:
+	case option.Some[Module] as mod:
 		if path == mod.Value.Path {
 			return mod.Value.Dir
 		}
 		if strings.HasPrefix(path, mod.Value.Path+"/") {
-			return mod.Value.Dir + path[len(mod.Value.Path):len(path)]
+			return mod.Value.Dir + path[mod.Value.Path.Len():path.Len()]
 		}
 		for r in mod.Value.Replaces {
 			if path == r.Path {
 				return r.Dir
 			}
 			if strings.HasPrefix(path, r.Path+"/") {
-				return r.Dir + path[len(r.Path):len(path)]
+				return r.Dir + path[r.Path.Len():path.Len()]
 			}
 		}
-	case None:
+	case option.None:
 	}
 	std + "/" + path
 }
 
 // loadDir is the package in folder d, its .ergo files in name order; none
 // when d holds no .ergo file or cannot be read.
-func loadDir(path string, d string) Option[task.Package] needs fs.Files {
+func loadDir(path string, d string) option.Option[task.Package] needs fs.Files {
 	let names = fs.Files.ReadDir(d) catch {
 	case _:
-		return None
+		return option.None
 	}
 	let mut files = []bind.File{}
 	for n in names {
@@ -150,15 +151,15 @@ func loadDir(path string, d string) Option[task.Package] needs fs.Files {
 		}
 		files = files.Append(bind.File{Name: n, Parsed: syntax.Parse(src)})
 	}
-	if len(files) == 0 {
-		return None
+	if files.Len() == 0 {
+		return option.None
 	}
-	Some[task.Package]{Value: task.Package{Path: path, Files: files}}
+	option.Some[task.Package]{Value: task.Package{Path: path, Files: files}}
 }
 
 // program is the root package and, with std, every package it imports,
 // transitively, imports first in the order met; the root is last.
-func program(root task.Package, m Option[Module], std string) []task.Package needs fs.Files {
+func program(root task.Package, m option.Option[Module], std string) []task.Package needs fs.Files {
 	let mut pkgs = []task.Package{}
 	if std == "" {
 		return pkgs.Append(root)
@@ -166,7 +167,7 @@ func program(root task.Package, m Option[Module], std string) []task.Package nee
 	let mut queue = bind.Imports(root.Files)
 	let mut seen = []string{root.Path}
 	let mut i = 0
-	for i < len(queue) {
+	for i < queue.Len() {
 		let path = queue[i]
 		i = i + 1
 		if slices.Contains(seen, path) {
@@ -174,12 +175,12 @@ func program(root task.Package, m Option[Module], std string) []task.Package nee
 		}
 		seen = seen.Append(path)
 		match loadDir(path, folderOf(path, m, std)) {
-		case Some[task.Package] as p:
+		case option.Some[task.Package] as p:
 			pkgs = pkgs.Append(p.Value)
 			for q in bind.Imports(p.Value.Files) {
 				queue = queue.Append(q)
 			}
-		case None:
+		case option.None:
 		}
 	}
 	pkgs.Append(root)
@@ -187,12 +188,12 @@ func program(root task.Package, m Option[Module], std string) []task.Package nee
 
 // rootPath is the import path of the package of the files at paths: its
 // folder in its module, else main.
-func rootPath(paths []string, m Option[Module]) string {
+func rootPath(paths []string, m option.Option[Module]) string {
 	match m {
-	case Some[Module] as mod:
+	case option.Some[Module] as mod:
 		let d = dir(paths[0])
-		if d == mod.Value.Dir { mod.Value.Path } else { mod.Value.Path + d[len(mod.Value.Dir):len(d)] }
-	case None:
+		if d == mod.Value.Dir { mod.Value.Path } else { mod.Value.Path + d[mod.Value.Dir.Len():d.Len()] }
+	case option.None:
 		"main"
 	}
 }
@@ -207,13 +208,13 @@ func unused(b mut strings.Builder, paths []string, std string, threads int) fail
 		srcs = srcs.Append(src)
 		files = files.Append(bind.File{Name: base(path), Parsed: syntax.Parse(src)})
 	}
-	if len(files) == 0 {
+	if files.Len() == 0 {
 		return
 	}
 	let m = moduleOf(dir(paths[0]))
 	let pkgs = program(task.Package{Path: rootPath(paths, m), Files: files}, m, std)
 	let checked = task.Check(pkgs, threads)
-	let c = checked[len(checked)-1]
+	let c = checked[checked.Len()-1]
 	// An import no package answers (with -std: none was loaded for it).
 	let mut missing = []string{}
 	if std != "" {
@@ -241,27 +242,27 @@ func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
 	let mut threads = 1
 	let mut std = ""
 	let mut rest = args
-	for len(rest) > 1 && (rest[0] == "-threads" || rest[0] == "-std") {
+	for rest.Len() > 1 && (rest[0] == "-threads" || rest[0] == "-std") {
 		if rest[0] == "-std" {
 			std = rest[1]
 		} else {
 			threads = 0
-			for i in 0..len(rest[1]) {
+			for i in 0..rest[1].Len() {
 				threads = threads*10 + int(rest[1][i]) - 48
 			}
 			if threads < 1 {
 				return os.Exit{Code: 2, Message: "binddump: -threads takes a count of 1 or more"}
 			}
 		}
-		rest = rest[2:len(rest)]
+		rest = rest[2:rest.Len()]
 	}
-	if len(rest) > 0 && rest[0] == "-unused" {
+	if rest.Len() > 0 && rest[0] == "-unused" {
 		let mut b = strings.NewBuilder()
-		if len(rest) == 3 && rest[1] == "-batch" {
+		if rest.Len() == 3 && rest[1] == "-batch" {
 			let mut i = 0
 			for line in strings.Split(try read(rest[2]), "\n") {
 				let g = strings.Fields(line)
-				if len(g) == 0 {
+				if g.Len() == 0 {
 					continue
 				}
 				b.WriteString("@pkg \(i)\n")
@@ -269,23 +270,23 @@ func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
 				i = i + 1
 			}
 		} else {
-			try unused(&b, rest[1:len(rest)], std, threads)
+			try unused(&b, rest[1:rest.Len()], std, threads)
 		}
 		io.Stdout.Print(b.String())
 		return
 	}
-	let uses = len(rest) > 0 && rest[0] == "-uses"
-	let locals = len(rest) > 0 && rest[0] == "-locals"
-	let names = len(rest) > 0 && rest[0] == "-names"
-	let paths = if uses || locals || names { rest[1:len(rest)] } else { rest }
+	let uses = rest.Len() > 0 && rest[0] == "-uses"
+	let locals = rest.Len() > 0 && rest[0] == "-locals"
+	let names = rest.Len() > 0 && rest[0] == "-names"
+	let paths = if uses || locals || names { rest[1:rest.Len()] } else { rest }
 	let mut files = []bind.File{}
 	for path in paths {
 		files = files.Append(bind.File{Name: base(path), Parsed: syntax.Parse(try read(path))})
 	}
-	let m = if len(paths) > 0 { moduleOf(dir(paths[0])) } else { None }
-	let pkgs = program(task.Package{Path: if len(paths) > 0 { rootPath(paths, m) } else { "main" }, Files: files}, m, std)
+	let m = if paths.Len() > 0 { moduleOf(dir(paths[0])) } else { option.None }
+	let pkgs = program(task.Package{Path: if paths.Len() > 0 { rootPath(paths, m) } else { "main" }, Files: files}, m, std)
 	let checked = task.Check(pkgs, threads)
-	let c = checked[len(checked)-1]
+	let c = checked[checked.Len()-1]
 	let s = store.Of(c.Store)
 	let deps = store.ImportPaths(s)
 	let ps = c.Parents
@@ -300,9 +301,9 @@ func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
 			for i in 0..syntax.NumNodes(p.Tree) {
 				let id = syntax.NodeAt(p.Tree, i)
 				match bind.LocalName(u, bind.PNodeOf(ps, f, id)) {
-				case Some[dense.ID[dense.Str]] as n:
+				case option.Some[dense.ID[dense.Str]] as n:
 					b.WriteString("\(file.Name) \(syntax.NodePos(p, id)) \(dense.Index(n.Value)) \(store.Text(s, n.Value))\n")
-				case None:
+				case option.None:
 				}
 			}
 		}
@@ -376,7 +377,7 @@ func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
 	io.Stdout.Print(b.String())
 }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), io.Stdout: io.NewHost() } {
 		try run(os.Process.Args())
 	}

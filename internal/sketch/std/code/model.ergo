@@ -1,4 +1,5 @@
 import maps
+import option
 import slices
 import strings
 
@@ -71,7 +72,7 @@ func packageOf(file string) string {
 func declLine(text string) (string, string) {
 	for kind in []string{"func", "type"} {
 		if strings.HasPrefix(text, kind+" ") {
-			let rest = strings.Slice(text, len(kind)+1, len(text))
+			let rest = strings.Slice(text, kind.Len()+1, text.Len())
 			let name = firstWord(rest)
 			if name != "" {
 				return (kind, name)
@@ -97,7 +98,7 @@ func parsed(src Source) []mdecl {
 	let mut cur = mdecl{Name: "", Kind: "", File: src.File, Pkg: packageOf(src.File), Line: 0, Start: 0, End: 0, Lines: []mline{}, Header: true}
 	for i, text in lines {
 		let (kind, name) = declLine(text)
-		let end = if i == len(lines)-1 { at + len(text) } else { at + len(text) + 1 }
+		let end = if i == lines.Len()-1 { at + text.Len() } else { at + text.Len() + 1 }
 		if kind != "" {
 			if !cur.Header {
 				out = out.Append(cur)
@@ -120,7 +121,7 @@ func parsed(src Source) []mdecl {
 // lastElement is the last element of a package path.
 func lastElement(path string) string {
 	let at = strings.LastIndex(path, "/")
-	if at < 0 { path } else { strings.Slice(path, at+1, len(path)) }
+	if at < 0 { path } else { strings.Slice(path, at+1, path.Len()) }
 }
 
 // modelCheck is Model's Check.
@@ -143,20 +144,20 @@ func modelCheck(sources []Source) Report {
 		for d in parsed(src) {
 			let names = maps.GetOr(declared, pkg, Map[string, string]{})
 			match names.Get(d.Name) {
-			case Some[string]:
+			case option.Some[string]:
 				diags = diags.Append(Diagnostic{Code: "M4", Message: "\(d.Name) is declared twice", File: d.File, Line: d.Line, Column: 6, Fix: []Edit{}})
-			case None:
+			case option.None:
 				let mut next = names
 				next[d.Name] = d.Kind
 				if d.Kind == "type" {
 					for l in d.Lines {
 						let ws = wordsOf(beforeComment(l.Text), l.At)
-						if len(ws) >= 2 && (ws[0].Text == "field" || ws[0].Text == "op") {
+						if ws.Len() >= 2 && (ws[0].Text == "field" || ws[0].Text == "op") {
 							let key = d.Name + "." + ws[1].Text
 							match next.Get(key) {
-							case Some[string]:
+							case option.Some[string]:
 								diags = diags.Append(Diagnostic{Code: "M4", Message: "\(key) is declared twice", File: d.File, Line: l.Line, Column: ws[1].Column, Fix: []Edit{}})
-							case None:
+							case option.None:
 								next[key] = if ws[0].Text == "field" { "field" } else { "operation" }
 							}
 						}
@@ -171,8 +172,8 @@ func modelCheck(sources []Source) Report {
 	let mut byElement = Map[string, string]{}
 	for p in pkgs {
 		match byElement.Get(lastElement(p)) {
-		case Some[string]:
-		case None:
+		case option.Some[string]:
+		case option.None:
 			byElement[lastElement(p)] = p
 		}
 	}
@@ -195,15 +196,15 @@ func modelCheck(sources []Source) Report {
 				continue
 			}
 			let handle = p + "." + d.Name
-			let col = len(d.Kind) + 2
+			let col = d.Kind.Len() + 2
 			let owner = match strings.Cut(d.Name, ".") {
-			case Some[strings.Halves] as h:
+			case option.Some[strings.Halves] as h:
 				h.Value.Before
-			case None:
+			case option.None:
 				""
 			}
-			let name = if owner == "" { d.Name } else { strings.Slice(d.Name, len(owner)+1, len(d.Name)) }
-			let at = if owner == "" { col } else { col + len(owner) + 1 }
+			let name = if owner == "" { d.Name } else { strings.Slice(d.Name, owner.Len()+1, d.Name.Len()) }
+			let at = if owner == "" { col } else { col + owner.Len() + 1 }
 			pd = pd.Append(Decl{Handle: handle, Kind: d.Kind, Name: name, Package: p, Exported: exportedName(name), File: d.File, Line: d.Line, Column: at})
 			ps = ps.Append(Site{Symbol: handle, Kind: "def", Package: p, File: d.File, Line: d.Line, Column: at, In: handle})
 			if owner != "" {
@@ -222,26 +223,26 @@ func modelCheck(sources []Source) Report {
 			let mut row = ""
 			for l in d.Lines {
 				let ws = wordsOf(beforeComment(l.Text), l.At)
-				if len(ws) == 0 {
+				if ws.Len() == 0 {
 					continue
 				}
 				for w in ws {
 					code = code + " " + w.Text
 				}
 				let first = ws[0].Text
-				if d.Kind == "type" && len(ws) >= 2 && (first == "field" || first == "op") {
+				if d.Kind == "type" && ws.Len() >= 2 && (first == "field" || first == "op") {
 					let mh = handle + "." + ws[1].Text
 					let mk = if first == "field" { "field" } else { "operation" }
 					pd = pd.Append(Decl{Handle: mh, Kind: mk, Name: ws[1].Text, Package: p, Exported: exportedName(ws[1].Text), File: d.File, Line: l.Line, Column: ws[1].Column})
 					ps = ps.Append(Site{Symbol: mh, Kind: "def", Package: p, File: d.File, Line: l.Line, Column: ws[1].Column, In: handle})
 					continue
 				}
-				if d.Kind == "type" && len(ws) >= 2 && first == "provides" {
+				if d.Kind == "type" && ws.Len() >= 2 && first == "provides" {
 					let w = ws[1]
 					let (q, n, c) = match strings.Cut(w.Text, ".") {
-					case Some[strings.Halves] as h:
-						(maps.GetOr(files, h.Value.Before, maps.GetOr(byElement, h.Value.Before, "")), h.Value.After, w.Column + len(h.Value.Before) + 1)
-					case None:
+					case option.Some[strings.Halves] as h:
+						(maps.GetOr(files, h.Value.Before, maps.GetOr(byElement, h.Value.Before, "")), h.Value.After, w.Column + h.Value.Before.Len() + 1)
+					case option.None:
 						(p, w.Text, w.Column)
 					}
 					let theirs = maps.GetOr(declared, q, Map[string, string]{})
@@ -254,7 +255,7 @@ func modelCheck(sources []Source) Report {
 					binds = binds.Append(Bind{Op: q + "." + n, By: handle})
 					for key in slices.Sorted(maps.Keys(theirs)) {
 						if strings.HasPrefix(key, n+".") && maps.GetOr(theirs, key, "") == "operation" {
-							let op = strings.Slice(key, len(n)+1, len(key))
+							let op = strings.Slice(key, n.Len()+1, key.Len())
 							if maps.GetOr(names, d.Name+"."+op, "") != "func" {
 								diags = diags.Append(Diagnostic{Code: "M6", Message: "\(d.Name) provides \(n) but has no \(op)", File: d.File, Line: l.Line, Column: w.Column, Fix: []Edit{}})
 								errs = errs + 1
@@ -263,13 +264,13 @@ func modelCheck(sources []Source) Report {
 					}
 					continue
 				}
-				if first == "let" && len(ws) >= 2 {
+				if first == "let" && ws.Len() >= 2 {
 					locals = locals.Append(ws[1].Text)
 					continue
 				}
 				if first == "sig" || first == "needs" {
 					let mut rest = []string{}
-					for w in slices.Slice(ws, 1, len(ws)) {
+					for w in slices.Slice(ws, 1, ws.Len()) {
 						rest = rest.Append(w.Text)
 					}
 					if first == "sig" {
@@ -282,13 +283,13 @@ func modelCheck(sources []Source) Report {
 				for w in ws {
 					let word = w.Text
 					let column = w.Column
-					if strings.HasPrefix(word, "?") && len(word) > 1 {
-						diags = diags.Append(Diagnostic{Code: "M1", Message: "\(word) is not declared", File: d.File, Line: l.Line, Column: column, Fix: []Edit{Edit{File: d.File, Start: w.At, End: w.At + len(word), Text: strings.Slice(word, 1, len(word))}}})
+					if strings.HasPrefix(word, "?") && word.Len() > 1 {
+						diags = diags.Append(Diagnostic{Code: "M1", Message: "\(word) is not declared", File: d.File, Line: l.Line, Column: column, Fix: []Edit{Edit{File: d.File, Start: w.At, End: w.At + word.Len(), Text: strings.Slice(word, 1, word.Len())}}})
 						errs = errs + 1
 						continue
 					}
-					if strings.HasPrefix(word, "!") && len(word) > 1 {
-						diags = diags.Append(Diagnostic{Code: "M2", Message: "\(word) shouts", File: d.File, Line: l.Line, Column: column, Fix: []Edit{Edit{File: d.File, Start: l.At, End: l.At + len(l.Text), Text: "\t" + strings.Slice(word, 1, len(word))}}})
+					if strings.HasPrefix(word, "!") && word.Len() > 1 {
+						diags = diags.Append(Diagnostic{Code: "M2", Message: "\(word) shouts", File: d.File, Line: l.Line, Column: column, Fix: []Edit{Edit{File: d.File, Start: l.At, End: l.At + l.Text.Len(), Text: "\t" + strings.Slice(word, 1, word.Len())}}})
 						errs = errs + 1
 						continue
 					}
@@ -296,7 +297,7 @@ func modelCheck(sources []Source) Report {
 						continue
 					}
 					match strings.Cut(word, "{") {
-					case Some[strings.Halves] as h:
+					case option.Some[strings.Halves] as h:
 						let t = h.Value.Before
 						let f = strings.TrimSuffix(h.Value.After, "}")
 						if maps.GetOr(names, t, "") != "type" {
@@ -306,23 +307,23 @@ func modelCheck(sources []Source) Report {
 						}
 						ps = ps.Append(Site{Symbol: p + "." + t, Kind: "construct", Package: p, File: d.File, Line: l.Line, Column: column, In: handle})
 						if maps.GetOr(names, t+"."+f, "") == "field" {
-							ps = ps.Append(Site{Symbol: p + "." + t + "." + f, Kind: "write", Package: p, File: d.File, Line: l.Line, Column: column + len(t) + 1, In: handle})
+							ps = ps.Append(Site{Symbol: p + "." + t + "." + f, Kind: "write", Package: p, File: d.File, Line: l.Line, Column: column + t.Len() + 1, In: handle})
 						} else {
-							diags = diags.Append(Diagnostic{Code: "M5", Message: "\(t) has no field \(f)", File: d.File, Line: l.Line, Column: column + len(t) + 1, Fix: []Edit{}})
+							diags = diags.Append(Diagnostic{Code: "M5", Message: "\(t) has no field \(f)", File: d.File, Line: l.Line, Column: column + t.Len() + 1, Fix: []Edit{}})
 							errs = errs + 1
 						}
 						continue
-					case None:
+					case option.None:
 					}
 					match strings.Cut(word, ".") {
-					case Some[strings.Halves] as h:
+					case option.Some[strings.Halves] as h:
 						let before = h.Value.Before
 						if maps.GetOr(names, before, "") == "type" {
 							match names.Get(word) {
-							case Some[string] as k:
+							case option.Some[string] as k:
 								ps = ps.Append(Site{Symbol: p + "." + before, Kind: "typeuse", Package: p, File: d.File, Line: l.Line, Column: column, In: handle})
-								ps = ps.Append(Site{Symbol: p + "." + word, Kind: siteKindOf(k.Value), Package: p, File: d.File, Line: l.Line, Column: column + len(before) + 1, In: handle})
-							case None:
+								ps = ps.Append(Site{Symbol: p + "." + word, Kind: siteKindOf(k.Value), Package: p, File: d.File, Line: l.Line, Column: column + before.Len() + 1, In: handle})
+							case option.None:
 								diags = diags.Append(Diagnostic{Code: "M3", Message: "\(word) is not declared", File: d.File, Line: l.Line, Column: column, Fix: []Edit{}})
 								errs = errs + 1
 							}
@@ -333,17 +334,17 @@ func modelCheck(sources []Source) Report {
 							continue
 						}
 						match maps.GetOr(declared, q, Map[string, string]{}).Get(h.Value.After) {
-						case Some[string] as k:
-							ps = ps.Append(Site{Symbol: q + "." + h.Value.After, Kind: siteKindOf(k.Value), Package: p, File: d.File, Line: l.Line, Column: column + len(before) + 1, In: handle})
-						case None:
+						case option.Some[string] as k:
+							ps = ps.Append(Site{Symbol: q + "." + h.Value.After, Kind: siteKindOf(k.Value), Package: p, File: d.File, Line: l.Line, Column: column + before.Len() + 1, In: handle})
+						case option.None:
 							diags = diags.Append(Diagnostic{Code: "M3", Message: "\(word) is not declared", File: d.File, Line: l.Line, Column: column, Fix: []Edit{}})
 							errs = errs + 1
 						}
-					case None:
+					case option.None:
 						match names.Get(word) {
-						case Some[string] as k:
+						case option.Some[string] as k:
 							ps = ps.Append(Site{Symbol: p + "." + word, Kind: siteKindOf(k.Value), Package: p, File: d.File, Line: l.Line, Column: column, In: handle})
-						case None:
+						case option.None:
 						}
 					}
 				}
@@ -366,7 +367,7 @@ func modelCheck(sources []Source) Report {
 		}
 		packages = packages.Append(Package{Path: p, Complete: errs == 0, Diagnostics: errs, Decls: pd, Sites: ps, Contracts: cs, Calls: calls, Needs: []Need{}, Fails: []Failing{}, Machines: []MachineGraph{}})
 	}
-	Report{Tables: Tables{Revision: revisionOf(sources), Root: if len(pkgs) > 0 { pkgs[len(pkgs)-1] } else { "" }, Packages: packages}, Extents: extents, Diagnostics: diags, Code: revision(code), Binds: binds, Workspace: workspace}
+	Report{Tables: Tables{Revision: revisionOf(sources), Root: if pkgs.Len() > 0 { pkgs[pkgs.Len()-1] } else { "" }, Packages: packages}, Extents: extents, Diagnostics: diags, Code: revision(code), Binds: binds, Workspace: workspace}
 }
 
 // siteKindOf is the kind of a site that names a declaration of kind k.
@@ -395,9 +396,9 @@ func wordsOf(text string, at int) []mword {
 	let mut col0 = 1
 	for w in strings.Split(text, " ") {
 		let word = strings.TrimSpace(w)
-		let lead = len(w) - len(trimLeft(w))
+		let lead = w.Len() - trimLeft(w).Len()
 		let column = col0 + lead
-		col0 = col0 + len(w) + 1
+		col0 = col0 + w.Len() + 1
 		if word != "" {
 			out = out.Append(mword{Text: word, Column: column, At: at + column - 1})
 		}
@@ -421,7 +422,7 @@ func importsOf(text string) Map[string, string] {
 			return out
 		}
 		let ws = wordsOf(line, 0)
-		if len(ws) == 4 && ws[0].Text == "import" && ws[2].Text == "as" {
+		if ws.Len() == 4 && ws[0].Text == "import" && ws[2].Text == "as" {
 			out[ws[3].Text] = ws[1].Text
 		}
 	}
@@ -441,7 +442,7 @@ func modelFormat(text string) string {
 	for line in strings.Split(text, "\n") {
 		let t = trimRight(line)
 		if t == "" {
-			blank = len(out) > 0
+			blank = out.Len() > 0
 			continue
 		}
 		if blank {
@@ -451,7 +452,7 @@ func modelFormat(text string) string {
 		let (kind, _) = declLine(t)
 		out = out.Append(if kind != "" { t } else { "\t" + trimLeft(t) })
 	}
-	if len(out) == 0 { "" } else { strings.Join(out, "\n") + "\n" }
+	if out.Len() == 0 { "" } else { strings.Join(out, "\n") + "\n" }
 }
 
 // Sample is a workspace drawn from seed, for the law runs of plans and
@@ -474,7 +475,7 @@ func Sample(seed int) []Source {
 		files = files.Append(n)
 		for f in 0..n {
 			for k in 0..1+roll(seed, 20+i*7+f, 3) {
-				let mut name = pool[roll(seed, 100+i*31+f*11+k*3, len(pool))]
+				let mut name = pool[roll(seed, 100+i*31+f*11+k*3, pool.Len())]
 				if has(mine, name) {
 					name = name + "\(i)\(f)\(k)"
 				}
@@ -502,7 +503,7 @@ func Sample(seed int) []Source {
 						text = text + indent + "use \(names[i][j])  \n"
 					}
 				}
-				let theirs = names[o][roll(seed, salt+3, len(names[o]))]
+				let theirs = names[o][roll(seed, salt+3, names[o].Len())]
 				text = text + indent + "call p\(o).\(theirs)\n"
 				if roll(seed, salt+4, 5) == 0 {
 					text = text + "\tfix ?\(name)\n"
@@ -530,15 +531,15 @@ func isBlank(c string) bool { c == " " || c == "\t" }
 // trimLeft is s without its leading spaces and tabs.
 func trimLeft(s string) string {
 	let mut i = 0
-	for i < len(s) && isBlank(strings.Slice(s, i, i+1)) {
+	for i < s.Len() && isBlank(strings.Slice(s, i, i+1)) {
 		i = i + 1
 	}
-	strings.Slice(s, i, len(s))
+	strings.Slice(s, i, s.Len())
 }
 
 // trimRight is s without its trailing spaces and tabs.
 func trimRight(s string) string {
-	let mut j = len(s)
+	let mut j = s.Len()
 	for j > 0 && isBlank(strings.Slice(s, j-1, j)) {
 		j = j - 1
 	}
@@ -637,9 +638,9 @@ func Program(seed int) prog {
 	let mut owners = Map[string, string]{}
 	for id in maps.Keys(kinds) {
 		let dot = strings.Index(id, ".")
-		let rest = strings.Slice(id, dot+1, len(id))
+		let rest = strings.Slice(id, dot+1, id.Len())
 		let last = strings.LastIndex(id, ".")
-		names[id] = strings.Slice(id, last+1, len(id))
+		names[id] = strings.Slice(id, last+1, id.Len())
 		if strings.Contains(rest, ".") {
 			owners[id] = strings.Slice(id, 0, last)
 		}
@@ -699,7 +700,7 @@ func bodyOf(seed int, salt int, mine []string, k int, theirs string, other []str
 	if local {
 		lines = lines.Append([]tok{tword{Text: "let"}, tword{Text: "Tmp"}})
 	}
-	for j in 0..len(mine) {
+	for j in 0..mine.Len() {
 		if j != k && roll(seed, salt+1+j, 2) == 0 {
 			let mut line = []tok{tword{Text: "use"}, tuse{Symbol: mine[j]}}
 			if roll(seed, salt+5+j, 2) == 0 {
@@ -708,8 +709,8 @@ func bodyOf(seed int, salt int, mine []string, k int, theirs string, other []str
 			lines = lines.Append(line)
 		}
 	}
-	if len(other) > 0 {
-		let id = other[roll(seed, salt+9, len(other))]
+	if other.Len() > 0 {
+		let id = other[roll(seed, salt+9, other.Len())]
 		let mut line = []tok{tword{Text: "call"}, tqual{Prefix: theirs, Symbol: id}}
 		if roll(seed, salt+10, 3) == 0 {
 			line = line.Append(tword{Text: "// see \(theirs).\(maps.GetOr(names, id, ""))"})
@@ -736,7 +737,7 @@ func bodyOf(seed int, salt int, mine []string, k int, theirs string, other []str
 	if roll(seed, salt+17, 3) == 0 {
 		lines = lines.Append([]tok{tword{Text: "call"}, tqual{Prefix: "lib", Symbol: "dep/lib.Helper"}})
 	}
-	if len(lines) == 0 {
+	if lines.Len() == 0 {
 		lines = lines.Append([]tok{tword{Text: "keep"}})
 	}
 	lines

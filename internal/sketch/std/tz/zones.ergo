@@ -84,7 +84,7 @@ func FromTZ(zones Zones, set bool, value string, name string, data string) Zone 
 		}
 		return UTC()
 	}
-	let v = if len(value) > 0 && value[0] == ':' { value[1:] } else { value }
+	let v = if value.Len() > 0 && value[0] == ':' { value[1:] } else { value }
 	if v == "" {
 		return UTC()
 	}
@@ -96,11 +96,11 @@ func FromTZ(zones Zones, set bool, value string, name string, data string) Zone 
 // UnknownZone with that name, never UTC.
 law FromTZReadsTheName(i int64, colon bool, other bool) {
 	let names = ianaNames()
-	let name = names[int(within(i, 0, int64(len(names) - 1)))]
+	let name = names[int(within(i, 0, int64(names.Len()-1)))]
 	let value = (if colon { ":" } else { "" }) + (if other { "EST5EDT4/" } else { "" }) + name
 	let z = FromTZ(lawZones, true, value, "", "") catch {
 	case UnknownZone as u:
-		return other && u.Name == "EST5EDT4/" + name
+		return other && u.Name == "EST5EDT4/"+name
 	}
 	let empty = FromTZ(lawZones, true, if colon { ":" } else { "" }, "Asia/Tokyo", "") catch {
 	case UnknownZone:

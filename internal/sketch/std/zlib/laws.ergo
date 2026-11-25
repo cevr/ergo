@@ -11,7 +11,7 @@ law Adler32Associates(a string, b string) {
 law RoundTrips(s string) {
 	let plain = s.Bytes()
 	let rep = (s + s + s + "abcabcabcabc" + "aaaaaaaabbbbbbbb").Bytes()
-	let limit = len(rep) + 64
+	let limit = rep.Len() + 64
 	let d0 = try Inflate(DeflateLevel(plain, NoCompression), limit)
 	let d1 = try Inflate(DeflateLevel(plain, BestSpeed), limit)
 	let d6 = try Inflate(Deflate(rep), limit)
@@ -27,7 +27,7 @@ law InflatePrefixStopsAtBoundary(a string, b string, tail string) {
 	let tb = tail.Bytes()
 	let ca = Deflate(ab)
 	let cb = DeflateLevel(bb, NoCompression)
-	let mut stream = slices.WithCapacity[byte](len(ca) + len(cb) + len(tb))
+	let mut stream = slices.WithCapacity[byte](ca.Len() + cb.Len() + tb.Len())
 	for x in ca {
 		stream = stream.Append(x)
 	}
@@ -37,18 +37,18 @@ law InflatePrefixStopsAtBoundary(a string, b string, tail string) {
 	for x in tb {
 		stream = stream.Append(x)
 	}
-	let r1 = try InflatePrefix(stream, len(ab)+16)
-	let r2 = try InflatePrefix(stream[r1.Consumed:], len(bb)+16)
-	slices.Equal(r1.Data, ab) && r1.Consumed == len(ca) && slices.Equal(r2.Data, bb) && r2.Consumed == len(cb)
+	let r1 = try InflatePrefix(stream, ab.Len()+16)
+	let r2 = try InflatePrefix(stream[r1.Consumed:], bb.Len()+16)
+	slices.Equal(r1.Data, ab) && r1.Consumed == ca.Len() && slices.Equal(r2.Data, bb) && r2.Consumed == cb.Len()
 }
 
 // RejectsBadTrailer: corrupting a byte of the 4-byte Adler-32 trailer fails
 // with BadChecksum.
 law RejectsBadTrailer(s string) {
 	let mut z = Deflate(s.Bytes())
-	let last = len(z) - 1
+	let last = z.Len() - 1
 	z[last] = z[last] ^ byte(1)
-	let _ = Inflate(z, len(s)+64) catch {
+	let _ = Inflate(z, s.Len()+64) catch {
 	case BadChecksum:
 		return true
 	case BadHeader, UnsupportedDict, BadBlock, BadDistance, BadHuffman, Truncated, TrailingData, LimitExceeded:
@@ -61,8 +61,8 @@ law RejectsBadTrailer(s string) {
 // Truncated.
 law RejectsTruncated(s string) {
 	let z = Deflate(s.Bytes())
-	let cut = z[:len(z)-1]
-	let _ = Inflate(cut, len(s)+64) catch {
+	let cut = z[:z.Len()-1]
+	let _ = Inflate(cut, s.Len()+64) catch {
 	case Truncated:
 		return true
 	case BadHeader, UnsupportedDict, BadBlock, BadDistance, BadHuffman, BadChecksum, TrailingData, LimitExceeded:
@@ -75,7 +75,7 @@ law RejectsTruncated(s string) {
 // Inflate with TrailingData.
 law RejectsTrailingData(s string) {
 	let z = Deflate(s.Bytes()).Append(byte(42))
-	let _ = Inflate(z, len(s)+64) catch {
+	let _ = Inflate(z, s.Len()+64) catch {
 	case TrailingData as t:
 		return t.Extra == 1
 	case BadHeader, UnsupportedDict, BadBlock, BadDistance, BadHuffman, BadChecksum, Truncated, LimitExceeded:
@@ -89,9 +89,9 @@ law RejectsTrailingData(s string) {
 law RejectsLimitExceeded(s string) {
 	let data = (s + "x").Bytes()
 	let z = Deflate(data)
-	let _ = Inflate(z, len(data)-1) catch {
+	let _ = Inflate(z, data.Len()-1) catch {
 	case LimitExceeded as l:
-		return l.Limit == len(data)-1
+		return l.Limit == data.Len()-1
 	case BadHeader, UnsupportedDict, BadBlock, BadDistance, BadHuffman, BadChecksum, Truncated, TrailingData:
 		return false
 	}

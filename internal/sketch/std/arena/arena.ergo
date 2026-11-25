@@ -14,6 +14,8 @@
 // arena module. The lowering is a slice of slots and a free list linked
 // through the free slots, with no interface value.
 
+import option
+
 // Ref names one value of an Of[T]. Refs compare with ==: two Refs are
 // equal when they name the same value of the same slot.
 type Ref[T] { index int, gen int }
@@ -65,15 +67,15 @@ law ModelAgrees(seed int, count int) {
 	for i in 0..n {
 		x = (x*1103515245 + 12345) % 2147483648
 		let op = (x / 8) % 5
-		if op == 0 || len(refs) == 0 {
+		if op == 0 || refs.Len() == 0 {
 			let r = a.Put(i)
-			if model.Get(r) != None {
+			if model.Get(r) != option.None {
 				return false
 			}
 			model[r] = i
 			refs = refs.Append(r)
 		} else {
-			let r = refs[(x/65536)%len(refs)]
+			let r = refs[(x/65536)%refs.Len()]
 			let want = model.Get(r)
 			let mut failed = false
 			let mut got = i
@@ -108,7 +110,7 @@ law ModelAgrees(seed int, count int) {
 				}
 			}
 			match want {
-			case Some[int] as w:
+			case option.Some[int] as w:
 				if failed || (op != 2 && got != w.Value) {
 					return false
 				}
@@ -121,13 +123,13 @@ law ModelAgrees(seed int, count int) {
 					model = model.Delete(r)
 				case _:
 				}
-			case None:
+			case option.None:
 				if !failed || Has(a, r) {
 					return false
 				}
 			}
 		}
-		if Len(a) != len(model) {
+		if Len(a) != model.Len() {
 			return false
 		}
 	}
@@ -165,7 +167,7 @@ func Put[T](a mut Of[T], v T) Ref[T] {
 	let at = a.free
 	if at == -1 {
 		a.slots = grow(a.slots, slot[T]{value: stored[T]{Value: v}, gen: 1, next: none})
-		return Ref[T]{index: len(a.slots) - 1, gen: 1}
+		return Ref[T]{index: a.slots.Len() - 1, gen: 1}
 	}
 	a.free = reuse(&a.slots[at], v)
 	Ref[T]{index: at, gen: a.slots[at].gen}
@@ -192,7 +194,7 @@ func Has[T](a Of[T], r Ref[T]) bool { live(a.slots, r) }
 // free slot's generation is even and a Ref's odd or 0 (slot), so equal
 // generations mean a live slot.
 func live[T](slots []slot[T], r Ref[T]) bool {
-	r.index >= 0 && r.index < len(slots) && slots[r.index].gen == r.gen
+	r.index >= 0 && r.index < slots.Len() && slots[r.index].gen == r.gen
 }
 
 // Get is the value r names. It fails with Stale when r's value was freed.
@@ -211,7 +213,7 @@ func Get[T](a mut Of[T], r Ref[T]) T fails Stale {
 law GetAfterPut(xs []int) {
 	let (start, refs) = filled(xs)
 	let mut a = start
-	let mut ok = Len(a) == len(xs)
+	let mut ok = Len(a) == xs.Len()
 	for i, r in refs {
 		let v = a.Get(r) catch {
 		case Stale:
@@ -269,17 +271,17 @@ func Free[T](a mut Of[T], r Ref[T]) T fails Stale {
 // FreeThenStale: Free returns the value and makes its Ref stale; the
 // other Refs keep their values.
 law FreeThenStale(xs []int, k int) {
-	if len(xs) == 0 {
+	if xs.Len() == 0 {
 		return true
 	}
 	let (start, refs) = filled(xs)
 	let mut a = start
-	let i = (k%len(xs) + len(xs)) % len(xs)
+	let i = (k%xs.Len() + xs.Len()) % xs.Len()
 	let v = a.Free(refs[i]) catch {
 	case Stale:
 		return false
 	}
-	let mut ok = v == xs[i] && stale(a, refs[i]) && Len(a) == len(xs)-1
+	let mut ok = v == xs[i] && stale(a, refs[i]) && Len(a) == xs.Len()-1
 	for j, r in refs {
 		if j != i {
 			let w = a.Get(r) catch {
@@ -327,11 +329,11 @@ func stale(a Of[int], r Ref[int]) bool {
 // slot's cleared storage (generation parity: a free slot's is even, a
 // Ref's odd).
 law FreeSlotNamesNothing(xs []int, k int, v int) {
-	if len(xs) == 0 {
+	if xs.Len() == 0 {
 		return true
 	}
 	let (start, refs) = filled(xs)
-	let i = (k%len(xs) + len(xs)) % len(xs)
+	let i = (k%xs.Len() + xs.Len()) % xs.Len()
 	let mut a = start
 	let _ = a.Free(refs[i]) catch {
 	case Stale:
@@ -362,18 +364,18 @@ func Len[T](a Of[T]) int { a.live }
 
 // Cap is the number of slots a holds, in use or free: Put grows it only
 // when no slot is free.
-func Cap[T](a Of[T]) int { len(a.slots) }
+func Cap[T](a Of[T]) int { a.slots.Len() }
 
 // ReuseNeverAliases: a Put after a Free reuses the freed slot (Cap does
 // not grow), and its Ref is new: the freed Ref stays stale and names no
 // value of the new Put.
 law ReuseNeverAliases(xs []int, k int, v int) {
-	if len(xs) == 0 {
+	if xs.Len() == 0 {
 		return true
 	}
 	let (start, refs) = filled(xs)
 	let mut a = start
-	let i = (k%len(xs) + len(xs)) % len(xs)
+	let i = (k%xs.Len() + xs.Len()) % xs.Len()
 	let slots = Cap(a)
 	let _ = a.Free(refs[i]) catch {
 	case Stale:

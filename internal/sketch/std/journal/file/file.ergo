@@ -19,6 +19,7 @@ import fs
 import fstest
 import journal
 import journal/memory
+import option
 import strconv
 import strings
 import sync
@@ -51,7 +52,7 @@ func open[S, E](files fs.Files, writes fs.Writes, path string, states journal.Co
 		return journal.Failed{Reason: "\(path): \(f.Reason)"}
 	}
 	let (log, whole) = try parse(text, states, signals)
-	if whole < len(text) {
+	if whole < text.Len() {
 		try write(writes, path, strings.Slice(text, 0, whole))
 	}
 	// The functions share the log, which outlives Open: a Ref, since a let
@@ -59,7 +60,7 @@ func open[S, E](files fs.Files, writes fs.Writes, path string, states journal.Co
 	let kept = sync.NewRef(log)
 	Journal[S, E]{
 		append: func(e E, expected int) fails journal.Stale | journal.Failed {
-			let actual = len(kept.Get().Signals)
+			let actual = kept.Get().Signals.Len()
 			if actual != expected {
 				return journal.Stale{Expected: expected, Actual: actual}
 			}
@@ -77,7 +78,7 @@ func open[S, E](files fs.Files, writes fs.Writes, path string, states journal.Co
 		},
 		snapshot: func(s S) fails journal.Failed {
 			try write(writes, path, "s "+strconv.Quote(states.Encode(s))+"\n")
-			kept.Set(journal.Log[S, E]{Snapshot: Some[S]{Value: s}, Signals: []E{}})
+			kept.Set(journal.Log[S, E]{Snapshot: option.Some[S]{Value: s}, Signals: []E{}})
 		},
 		load: func() journal.Log[S, E] { kept.Get() },
 	}
@@ -110,7 +111,7 @@ func write(writes fs.Writes, path string, text string) fails journal.Failed {
 // parse reads the entries of a journal file, and the length of its whole
 // lines: a last line with no line feed is a cut append, and is not read.
 func parse[S, E](text string, states journal.Codec[S], signals journal.Codec[E]) (journal.Log[S, E], int) fails journal.Failed {
-	let mut snap Option[S] = None
+	let mut snap option.Option[S] = option.None
 	let mut kept = []E{}
 	let mut n = 0
 	let mut whole = 0
@@ -119,17 +120,17 @@ func parse[S, E](text string, states journal.Codec[S], signals journal.Codec[E])
 			break
 		}
 		n = n + 1
-		whole = whole + len(raw)
+		whole = whole + raw.Len()
 		let line = strings.TrimSuffix(raw, "\n")
-		if len(line) < 2 {
+		if line.Len() < 2 {
 			return journal.Failed{Reason: "line \(n) is not an entry"}
 		}
-		let quoted = strconv.Unquote(strings.Slice(line, 2, len(line))) catch {
+		let quoted = strconv.Unquote(strings.Slice(line, 2, line.Len())) catch {
 		case strconv.Malformed:
 			return journal.Failed{Reason: "line \(n) is not an entry"}
 		}
 		if strings.HasPrefix(line, "s ") && n == 1 {
-			snap = Some[S]{Value: try states.Decode(quoted)}
+			snap = option.Some[S]{Value: try states.Decode(quoted)}
 		} else if strings.HasPrefix(line, "e ") {
 			kept = kept.Append(try signals.Decode(quoted))
 		} else {
@@ -158,7 +159,7 @@ law FileIsMemory(ops []int, torn string) {
 	let want = memory.New[string, string]()
 	let mut got = try open(disk, disk, "j.log", texts, texts)
 	for i, op in ops {
-		let n = len((try want.Load()).Signals)
+		let n = (try want.Load()).Signals.Len()
 		let v = "v\t\"\n\(i)"
 		match ((op % 7) + 7) % 7 {
 		case 0:
@@ -181,7 +182,7 @@ law FileIsMemory(ops []int, torn string) {
 	if try back.Load() != try want.Load() {
 		return false
 	}
-	let n = len((try want.Load()).Signals)
+	let n = (try want.Load()).Signals.Len()
 	let _ = stale(want, torn, n)
 	let _ = stale(back, torn, n)
 	let again = try open(disk, disk, "j.log", texts, texts)

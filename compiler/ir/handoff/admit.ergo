@@ -28,7 +28,7 @@ func Admit(p Image, want Expect) fails WrongTarget | StaleImport {
 	if got != want.Target {
 		return WrongTarget{Got: got, Want: want.Target}
 	}
-	if Rows(p, ir.HImports) != len(want.Imports) {
+	if Rows(p, ir.HImports) != want.Imports.Len() {
 		return StaleImport{Path: ""}
 	}
 	for i, x in want.Imports {
@@ -41,7 +41,7 @@ func Admit(p Image, want Expect) fails WrongTarget | StaleImport {
 }
 
 func sameFingerprint(p Image, i int, fingerprint string) bool {
-	len(fingerprint) == 8 && u32(fingerprint, 0) == word(p, ir.HImports, i, 3) && u32(fingerprint, 4) == word(p, ir.HImports, i, 4)
+	fingerprint.Len() == 8 && u32(fingerprint, 0) == word(p, ir.HImports, i, 3) && u32(fingerprint, 4) == word(p, ir.HImports, i, 4)
 }
 
 law AdmissionChecksTargetAndImport(seed uint32) {

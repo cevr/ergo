@@ -23,6 +23,8 @@
 // both write standard output with one unbuffered write each, so their
 // lines appear in program order.
 
+import core
+import os
 import strings
 import sync
 
@@ -71,7 +73,7 @@ type Stdin {
 	// ends the program with a defect, because a Seq has no failure row:
 	// use ReadAll to handle it.
 	// seq-exempt: Stdin is law-exempt (a read of the host takes what it reads), so no law over its own operations can drive Lines twice; Input's Lines carries the stop law (InputLinesStops).
-	Lines() Seq[string],
+	Lines() core.Seq[string],
 	// IsTerminal reports whether standard input is a terminal, so a
 	// program may ask a person (std prompt) or must not.
 	IsTerminal() bool,
@@ -86,7 +88,7 @@ type hostOnly {}
 
 // NewHost is the host's provider of Stdout. It needs Ambient: only code
 // whose row holds the authority to choose the host makes one.
-func NewHost() Host needs Ambient { Host{live: hostOnly} }
+func NewHost() Host needs os.Ambient { Host{live: hostOnly} }
 
 // In is the host's Stdin provider. It is a type of its own, not Host,
 // because each stream answers IsTerminal for itself: `prog < file` has a
@@ -94,7 +96,7 @@ func NewHost() Host needs Ambient { Host{live: hostOnly} }
 type In { live hostOnly } implements Stdin, Source
 
 // NewStdin is the host's provider of Stdin. It needs Ambient.
-func NewStdin() In needs Ambient { In{live: hostOnly} }
+func NewStdin() In needs os.Ambient { In{live: hostOnly} }
 
 // Print writes text to standard output.
 func Print(_ Host, text string) { hostPrint(text) }
@@ -110,7 +112,7 @@ func ReadAll(_ In) string fails ReadFailed { try hostReadAll() }
 
 // Lines is the rest of standard input, one line at a time.
 // seq-exempt: it reads the host's standard input, which a law cannot generate or read twice; TestIOStdinRest (lower) holds a break on the host, and Input's Lines carries the stop law (InputLinesStops).
-func Lines(_ In) Seq[string] { hostLines() }
+func Lines(_ In) core.Seq[string] { hostLines() }
 
 // IsTerminal reports whether standard input is a terminal.
 func IsTerminal(_ In) bool { hostStdinIsTerminal() }
@@ -120,7 +122,7 @@ func IsTerminal(_ In) bool { hostStdinIsTerminal() }
 type Errors { live hostOnly } implements Stderr
 
 // NewErrors is the host's Stderr provider. It needs Ambient.
-func NewErrors() Errors needs Ambient { Errors{live: hostOnly} }
+func NewErrors() Errors needs os.Ambient { Errors{live: hostOnly} }
 
 // IsTerminal reports whether standard error is a terminal.
 func IsTerminal(_ Errors) bool { hostStderrIsTerminal() }
@@ -182,11 +184,11 @@ func ReadAll(input Input) string fails ReadFailed { input.Text }
 // Lines is the lines of input.Text, each without its line feed. It finds
 // each line feed with one strings.IndexByte on the rest of the text, as
 // strings.Lines does: one scan per line, not a compare per byte.
-func Lines(input Input) Seq[string] {
+func Lines(input Input) core.Seq[string] {
 	let text = input.Text
-	Seq[string](func(yield func(v string) bool) {
+	core.Seq[string](func(yield func(v string) bool) {
 		let mut rest = text
-		for _ in 0..len(text) {
+		for _ in 0..text.Len() {
 			if rest == "" {
 				return
 			}
@@ -198,7 +200,7 @@ func Lines(input Input) Seq[string] {
 			if !yield(strings.Slice(rest, 0, i)) {
 				return
 			}
-			rest = strings.Slice(rest, i+1, len(rest))
+			rest = strings.Slice(rest, i+1, rest.Len())
 		}
 	})
 }
@@ -262,4 +264,4 @@ extern go ergo.local/prototype/runtime/v1.IOIsTerminal func hostIsTerminal() boo
 extern go ergo.local/prototype/runtime/v1.IOStdinIsTerminal func hostStdinIsTerminal() bool
 extern go ergo.local/prototype/runtime/v1.IOStderrIsTerminal func hostStderrIsTerminal() bool
 extern go ergo.local/prototype/runtime/v1.IOReadAll func hostReadAll() string fails ReadFailed
-extern go ergo.local/prototype/runtime/v1.IOLines func hostLines() Seq[string]
+extern go ergo.local/prototype/runtime/v1.IOLines func hostLines() core.Seq[string]

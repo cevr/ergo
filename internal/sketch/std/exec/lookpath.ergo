@@ -5,6 +5,7 @@
 import filepath
 import fs
 import fstest
+import option
 import os
 import strings
 
@@ -34,9 +35,9 @@ func LookPath(name string) string fails NotFound | Denied needs os.Process | fs.
 		return name
 	}
 	let path = match os.Process.Getenv("PATH") {
-	case Some[string] as p:
+	case option.Some[string] as p:
 		p.Value
-	case None:
+	case option.None:
 		""
 	}
 	for dir in strings.Split(path, ":") {
@@ -58,7 +59,7 @@ func LookPath(name string) string fails NotFound | Denied needs os.Process | fs.
 // runnable reports whether a file is a program: not a directory, and one
 // execute bit set.
 // The execute bits are 0o111, 73.
-func runnable(info fs.Info) bool { !info.Dir && (info.Perm & 73) != 0 }
+func runnable(info fs.Info) bool { !info.Dir && (info.Perm&73) != 0 }
 
 // pathOnly is the Process of LookPath's laws: PATH is path, and nothing
 // else is set.
@@ -66,11 +67,11 @@ type pathOnly { path string } implements os.Process
 
 func Args(_ pathOnly) []string { []string{} }
 
-func Getenv(p pathOnly, key string) Option[string] {
+func Getenv(p pathOnly, key string) option.Option[string] {
 	if key == "PATH" {
-		return Some[string]{Value: p.path}
+		return option.Some[string]{Value: p.path}
 	}
-	None
+	option.None
 }
 
 func Environ(p pathOnly) Map[string, string] { Map[string, string]{"PATH": p.path} }
@@ -85,9 +86,9 @@ func shelf(paths []string, picks []int) fstest.Memory {
 	let mut i = 0
 	for p in paths {
 		let at = "/" + p
-		let pick = if i < len(picks) { picks[i] } else { 0 }
+		let pick = if i < picks.Len() { picks[i] } else { 0 }
 		i = i + 1
-		let mode = if pick % 2 != 0 { fs.Mode{Owner: fs.ReadWriteExecute, Group: fs.ReadExecute, Other: fs.ReadExecute} } else { fs.Shared() }
+		let mode = if pick%2 != 0 { fs.Mode{Owner: fs.ReadWriteExecute, Group: fs.ReadExecute, Other: fs.ReadExecute} } else { fs.Shared() }
 		m.MkdirAll(filepath.Dir(at)) catch {
 		case fs.Denied, fs.Failed:
 		}
@@ -117,7 +118,7 @@ law LookPathFindsTheFirst(paths []string, picks []int, dirs []string, name strin
 		case fs.NotFound, fs.Denied, fs.Failed:
 			continue
 		}
-		if !info.Dir && (info.Perm & 73) != 0 {
+		if !info.Dir && (info.Perm&73) != 0 {
 			want = candidate
 			break
 		}
@@ -144,7 +145,7 @@ law LookPathSkipsRelative(name string) {
 	case fs.Denied, fs.Failed:
 		return true
 	}
-	m.WriteFileMode("bin/" + name, "#!", fs.Mode{Owner: fs.ReadWriteExecute, Group: fs.ReadExecute, Other: fs.ReadExecute}) catch {
+	m.WriteFileMode("bin/"+name, "#!", fs.Mode{Owner: fs.ReadWriteExecute, Group: fs.ReadExecute, Other: fs.ReadExecute}) catch {
 	case fs.NotFound, fs.Denied, fs.Failed:
 		return true
 	}

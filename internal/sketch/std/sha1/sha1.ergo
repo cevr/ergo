@@ -8,4 +8,4 @@
 extern go ergo.local/prototype/runtime/v1/digest.Sha1Sum func Sum(s string) string
 
 // SumIs20Bytes: every digest is 20 bytes.
-law SumIs20Bytes(s string) { len(Sum(s)) == 20 }
+law SumIs20Bytes(s string) { Sum(s).Len() == 20 }

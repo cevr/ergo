@@ -9,7 +9,7 @@ import strings
 func minimise(c Case, disagrees func(Case) bool) Case {
 	let mut best = c
 	let mut i = 0
-	for i < len(best.Trace.Procs) {
+	for i < best.Trace.Procs.Len() {
 		let p = best.Trace.Procs[i]
 		if removable(best, p) {
 			let smaller = withoutAction(best, p)
@@ -123,7 +123,7 @@ func missesAdapter(c Case, key string) bool {
 law MinimizedSeedStillDisagrees() {
 	for seed in 17..49 {
 		let c = Draw(seed)
-		if c.Truth.Refusal != "" || len(c.Packages) < 2 {
+		if c.Truth.Refusal != "" || c.Packages.Len() < 2 {
 			continue
 		}
 		for p in c.Packages {
@@ -132,8 +132,8 @@ law MinimizedSeedStillDisagrees() {
 				let failsFixture = func(candidate Case) bool { missesAdapter(candidate, key) }
 				let small = minimise(c, failsFixture)
 				return failsFixture(c) && failsFixture(small) && traceAgrees(small, TraceRecovery) &&
-					len(small.Packages) == 1 && small.Packages[0].Name == p.Name &&
-					len(small.Trace.Procs) < len(c.Trace.Procs)
+					small.Packages.Len() == 1 && small.Packages[0].Name == p.Name &&
+					small.Trace.Procs.Len() < c.Trace.Procs.Len()
 			}
 		}
 	}

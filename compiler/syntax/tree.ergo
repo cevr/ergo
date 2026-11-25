@@ -137,7 +137,7 @@ func ExtraWords(t Tree) int { t.ne }
 // row appends a row and returns its index.
 func row(t mut Tree, kind uint8, tok uint32, a uint32, b uint32) uint32 {
 	let i = t.n
-	if i >= len(t.kind) {
+	if i >= t.kind.Len() {
 		growRows(t)
 	}
 	t.kind[i] = uint32(kind)
@@ -156,7 +156,7 @@ func row(t mut Tree, kind uint8, tok uint32, a uint32, b uint32) uint32 {
 func zeros32(n int) []uint32 { slices.Repeat([]uint32{uint32(0)}, n) }
 
 func growRows(t mut Tree) {
-	let n = len(t.kind)
+	let n = t.kind.Len()
 	t.kind = slices.AppendAll(t.kind, zeros32(n))
 	t.tok = slices.AppendAll(t.tok, zeros32(n))
 	t.a = slices.AppendAll(t.a, zeros32(n))
@@ -165,7 +165,7 @@ func growRows(t mut Tree) {
 
 // push puts w on the scratch stack.
 func pushW(t mut Tree, w uint32) {
-	if t.top >= len(t.stack) {
+	if t.top >= t.stack.Len() {
 		growStack(t)
 	}
 	t.stack[t.top] = w
@@ -174,7 +174,7 @@ func pushW(t mut Tree, w uint32) {
 
 // growStack doubles the scratch stack, out of pushW so Go inlines pushW
 // (capstone S2f).
-func growStack(t mut Tree) { t.stack = slices.AppendAll(t.stack, zeros32(len(t.stack))) }
+func growStack(t mut Tree) { t.stack = slices.AppendAll(t.stack, zeros32(t.stack.Len())) }
 
 // mark is the stack's height, where a list starts.
 func mark(t Tree) int { t.top }

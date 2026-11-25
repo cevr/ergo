@@ -36,11 +36,11 @@ func Hold(reply Reply) Held {
 func heldDeltas(reply Reply) int {
 	match reply {
 	case Says as y:
-		len(y.Deltas)
+		y.Deltas.Len()
 	case Cuts as y:
-		len(y.Deltas)
+		y.Deltas.Len()
 	case Breaks as y:
-		len(y.Deltas)
+		y.Deltas.Len()
 	case Fails:
 		1
 	}
@@ -114,7 +114,7 @@ law ReleasedArriveInOrder(texts []string) {
 	let h = Hold(Says{Deltas: heldTexts(texts), Stop: llm.Ended, Usage: none()})
 	let t = task.Go() { heardTexts(h) }
 	let mut fine = true
-	for i in 0..len(texts) {
+	for i in 0..texts.Len() {
 		fine = fine && isStep(h.Next(), Waits{At: i})
 		h.Release(1)
 		fine = fine && isStep(h.Next(), Gave{At: i})
@@ -173,7 +173,7 @@ func heardOf(m llm.Model, r llm.Request) heard {
 		return heardSink
 	case f:
 		let failure llm.Failure = f
-		return heardFailure{deltas: len(ds), text: llm.Fold(ds).Text, failure: failure}
+		return heardFailure{deltas: ds.Len(), text: llm.Fold(ds).Text, failure: failure}
 	}
-	heardTurn{deltas: len(ds), text: llm.Fold(ds).Text, turn: t.Text}
+	heardTurn{deltas: ds.Len(), text: llm.Fold(ds).Text, turn: t.Text}
 }

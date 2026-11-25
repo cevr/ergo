@@ -37,11 +37,13 @@
 // runs and a time-ordered wake per run under a mutex, a lease and an
 // epoch per run (a fencing token).
 
+import core
+import option
 import scope
 import time
 
 // RunID names a run: a payload's id gives the same run.
-type RunID string where len(it) > 0 && len(it) <= 200
+type RunID string where it.Len() > 0 && it.Len() <= 200
 
 // Cursor is a place in a run's journal: the number of events before it.
 type Cursor int where it >= 0
@@ -82,7 +84,7 @@ type Wake { Due time.Time, Rev int }
 
 // Loaded is a run's events from a cursor, the cursor after them, and its
 // wake.
-type Loaded { Events []Event, Next Cursor, Wake Option[Wake] }
+type Loaded { Events []Event, Next Cursor, Wake option.Option[Wake] }
 
 // Admission is what Admit did with a signal: kept it, at the cursor
 // before it; found its key kept already; or refused it, the run having
@@ -95,7 +97,7 @@ type Grant { Run RunID, Rev int, Epoch int, Until time.Time }
 
 // Claimed is a claim that Work lends to its block. Only this package
 // builds one, so a commit is made only inside Work.
-type Claimed { grant Grant } implements Closer
+type Claimed { grant Grant } implements core.Closer
 
 // Close does nothing: Work's end gives the claim back, from the store.
 func Close(_ Claimed) {}
@@ -119,13 +121,13 @@ type Store {
 	// Claim leases the wake due earliest at now, the least run first
 	// among equal times, whose run no live lease holds, until now plus
 	// lease, under a new epoch. A lease that ended is claimed again.
-	Claim(now time.Time, lease duration) Option[Grant] fails Failed,
+	Claim(now time.Time, lease duration) option.Option[Grant] fails Failed,
 	// Commit records, as one write or not at all, events after the run's
 	// first expected events and, when next is some, the run's next wake
 	// with a new revision; with next none the claimed wake stays for the
 	// settle. It is the cursor after the events. It fails Conflict on
 	// another cursor and Fenced when c is no longer the run's claim.
-	Commit(c Claimed, expected Cursor, events []Event, next Option[time.Time]) Cursor fails Conflict | Fenced | Failed,
+	Commit(c Claimed, expected Cursor, events []Event, next option.Option[time.Time]) Cursor fails Conflict | Fenced | Failed,
 	// Settle ends c: it retires the wake when it is still the revision c
 	// claimed (a newer one stays), and gives back the lease. It fails
 	// Fenced, and changes nothing, when c is no longer the run's claim.
@@ -135,7 +137,7 @@ type Store {
 	// that is no longer the run's claim (settled or given back already)
 	// changes nothing.
 	GiveBack(g Grant) fails Failed,
-	..Closer,
+	..core.Closer,
 
 	// CommitThenLoad: Load gives the events a commit recorded after the
 	// run's, from the start and from the commit's cursor, and the cursor
@@ -146,18 +148,18 @@ type Store {
 			return false
 		}
 		let g = match try Claim(now, 1s) {
-		case Some{Value: x}:
+		case option.Some{Value: x}:
 			x
-		case None:
+		case option.None:
 			return false
 		}
 		let c = Claimed{grant: g}
 		let events = done(texts)
-		let next = try Commit(c, 1, events, Some[time.Time]{Value: now.Add(1s)})
+		let next = try Commit(c, 1, events, option.Some[time.Time]{Value: now.Add(1s)})
 		try Settle(c)
 		let all = try Load(run, 0)
 		let tail = try Load(run, 1)
-		int(next) == 1+len(texts) && all.Next == next && tail.Next == next && all.Events == []Event{begun(now)}.Concat(events) && tail.Events == events
+		int(next) == 1+texts.Len() && all.Next == next && tail.Next == next && all.Events == []Event{begun(now)}.Concat(events) && tail.Events == events
 	},
 
 	// StaleCommitChangesNothing: a commit under a claim the run was
@@ -167,22 +169,22 @@ type Store {
 		let now = at(sec)
 		let _ = try Create(run, begun(now), now)
 		let first = match try Claim(now, 1s) {
-		case Some{Value: x}:
+		case option.Some{Value: x}:
 			x
-		case None:
+		case option.None:
 			return false
 		}
 		let second = match try Claim(now.Add(1s), 1s) {
-		case Some{Value: x}:
+		case option.Some{Value: x}:
 			x
-		case None:
+		case option.None:
 			return false
 		}
 		let before = try Load(run, 0)
 		let stale = Claimed{grant: first}
 		// A commit's cursor is at least 1 (the run's first event), so 0
 		// marks a refusal.
-		let late = try Commit(stale, 1, done([]string{text}), None) catch {
+		let late = try Commit(stale, 1, done([]string{text}), option.None) catch {
 		case Fenced:
 			0
 		case Conflict:
@@ -192,7 +194,7 @@ type Store {
 			return false
 		}
 		let c = Claimed{grant: second}
-		let behind = try Commit(c, 0, done([]string{text}), None) catch {
+		let behind = try Commit(c, 0, done([]string{text}), option.None) catch {
 		case Conflict as k:
 			if k.Actual != 1 || k.Expected != 0 {
 				return false
@@ -210,15 +212,15 @@ type Store {
 		let now = at(sec)
 		let _ = try Create(run, begun(now), now)
 		let g = match try Claim(now, 1s) {
-		case Some{Value: x}:
+		case option.Some{Value: x}:
 			x
-		case None:
+		case option.None:
 			return false
 		}
 		let before = try Load(run, 0)
 		let events = done(texts)
 		let due = now.Add(2s)
-		let wrote = try Commit(Claimed{grant: g}, 1, events, Some[time.Time]{Value: due}) catch {
+		let wrote = try Commit(Claimed{grant: g}, 1, events, option.Some[time.Time]{Value: due}) catch {
 		case Failed:
 			0
 		}
@@ -238,16 +240,16 @@ type Store {
 		let lease = time.Times(1ms, 1+((ms%1000)+1000)%1000)
 		let _ = try Create(run, begun(now), now)
 		let g = match try Claim(now, lease) {
-		case Some{Value: x}:
+		case option.Some{Value: x}:
 			x
-		case None:
+		case option.None:
 			return false
 		}
-		if g.Run != run || !g.Until.Equal(now.Add(lease)) || try Claim(now, lease) != None {
+		if g.Run != run || !g.Until.Equal(now.Add(lease)) || try Claim(now, lease) != option.None {
 			return false
 		}
-		let _ = try Commit(Claimed{grant: g}, 1, done([]string{"a"}), Some[time.Time]{Value: now})
-		try Claim(now.Add(lease).Add(-1ns), lease) == None
+		let _ = try Commit(Claimed{grant: g}, 1, done([]string{"a"}), option.Some[time.Time]{Value: now})
+		try Claim(now.Add(lease).Add(-1ns), lease) == option.None
 	},
 
 	// UnsettledClaimComesBack: a claim neither settled nor given back
@@ -258,18 +260,18 @@ type Store {
 		let lease = time.Times(1ms, 1+((ms%1000)+1000)%1000)
 		let _ = try Create(run, begun(now), now)
 		let g = match try Claim(now, lease) {
-		case Some{Value: x}:
+		case option.Some{Value: x}:
 			x
-		case None:
+		case option.None:
 			return false
 		}
-		if try Claim(now.Add(lease).Add(-1ns), lease) != None {
+		if try Claim(now.Add(lease).Add(-1ns), lease) != option.None {
 			return false
 		}
 		match try Claim(now.Add(lease), lease) {
-		case Some{Value: again}:
+		case option.Some{Value: again}:
 			again.Run == run && again.Rev == g.Rev && again.Epoch > g.Epoch
-		case None:
+		case option.None:
 			false
 		}
 	},
@@ -280,9 +282,9 @@ type Store {
 		let now = at(sec)
 		let _ = try Create(run, begun(now), now)
 		let g = match try Claim(now, 1s) {
-		case Some{Value: x}:
+		case option.Some{Value: x}:
 			x
-		case None:
+		case option.None:
 			return false
 		}
 		if signal {
@@ -293,20 +295,20 @@ type Store {
 		try Settle(Claimed{grant: g})
 		let w = (try Load(run, 0)).Wake
 		if !signal {
-			return w == None
+			return w == option.None
 		}
 		match w {
-		case Some{Value: newer}:
+		case option.Some{Value: newer}:
 			if newer.Rev <= g.Rev {
 				return false
 			}
-		case None:
+		case option.None:
 			return false
 		}
 		match try Claim(now, 1s) {
-		case Some{Value: again}:
+		case option.Some{Value: again}:
 			again.Run == run && again.Rev > g.Rev
-		case None:
+		case option.None:
 			false
 		}
 	},
@@ -318,22 +320,22 @@ type Store {
 		let now = at(sec)
 		let _ = try Create(run, begun(now), now)
 		let g = match try Claim(now, 1s) {
-		case Some{Value: x}:
+		case option.Some{Value: x}:
 			x
-		case None:
+		case option.None:
 			return false
 		}
 		try GiveBack(g)
-		let late = try Commit(Claimed{grant: g}, 1, []Event{}, None) catch {
+		let late = try Commit(Claimed{grant: g}, 1, []Event{}, option.None) catch {
 		case Fenced:
 			0
 		case Conflict:
 			return false
 		}
 		match try Claim(now, 1s) {
-		case Some{Value: again}:
+		case option.Some{Value: again}:
 			late == 0 && again.Run == run && again.Epoch > g.Epoch
-		case None:
+		case option.None:
 			false
 		}
 	},
@@ -346,9 +348,9 @@ type Store {
 		let now = at(sec)
 		let _ = try Create(run, begun(now), now)
 		let g = match try Claim(now, 1s) {
-		case Some{Value: x}:
+		case option.Some{Value: x}:
 			x
-		case None:
+		case option.None:
 			return false
 		}
 		if settled {
@@ -360,7 +362,7 @@ type Store {
 			try GiveBack(g)
 		}
 		let before = try Load(run, 0)
-		let late = try Commit(Claimed{grant: g}, 1, done([]string{"late"}), Some[time.Time]{Value: now}) catch {
+		let late = try Commit(Claimed{grant: g}, 1, done([]string{"late"}), option.Some[time.Time]{Value: now}) catch {
 		case Fenced:
 			0
 		case Conflict:
@@ -383,9 +385,9 @@ type Store {
 		let now = at(sec)
 		let _ = try Create(run, begun(now), now)
 		let g = match try Claim(now, 1s) {
-		case Some{Value: x}:
+		case option.Some{Value: x}:
 			x
-		case None:
+		case option.None:
 			return false
 		}
 		try Settle(Claimed{grant: g}) catch {
@@ -394,7 +396,7 @@ type Store {
 		}
 		let before = try Load(run, 0)
 		try GiveBack(g)
-		try Load(run, 0) == before && before.Wake == None && try Claim(now, 1s) == None
+		try Load(run, 0) == before && before.Wake == option.None && try Claim(now, 1s) == option.None
 	},
 
 	// TimeReadBackIsWritten: a time read back from the store is the time
@@ -407,27 +409,27 @@ type Store {
 		let now = m.Now()
 		let _ = try Create(run, begun(now), now)
 		let g = match try Claim(now, 1s) {
-		case Some{Value: x}:
+		case option.Some{Value: x}:
 			x
-		case None:
+		case option.None:
 			return false
 		}
 		let due = now.Add(1s)
-		let _ = try Commit(Claimed{grant: g}, 1, []Event{TimerSet{Name: "t", Due: due}}, Some[time.Time]{Value: due})
+		let _ = try Commit(Claimed{grant: g}, 1, []Event{TimerSet{Name: "t", Due: due}}, option.Some[time.Time]{Value: due})
 		let l = try Load(run, 0)
 		// The written times as Unix gives them: no monotonic reading.
 		let first = time.Unix(now.UnixSeconds(), now.Nanosecond())
 		let next = time.Unix(due.UnixSeconds(), due.Nanosecond())
-		l.Events == []Event{begun(first), TimerSet{Name: "t", Due: next}} && dueOf(l.Wake) == Some[time.Time]{Value: next} && first.Equal(now) && next.Equal(due)
+		l.Events == []Event{begun(first), TimerSet{Name: "t", Due: next}} && dueOf(l.Wake) == option.Some[time.Time]{Value: next} && first.Equal(now) && next.Equal(due)
 	},
 }
 
 // dueIs is whether w is a wake due at t.
-func dueIs(w Option[Wake], t time.Time) bool {
+func dueIs(w option.Option[Wake], t time.Time) bool {
 	match w {
-	case Some{Value: x}:
+	case option.Some{Value: x}:
 		x.Due.Equal(t)
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -474,12 +476,12 @@ func done(texts []string) []Event {
 }
 
 // dueOf is the due time of a wake.
-func dueOf(w Option[Wake]) Option[time.Time] {
+func dueOf(w option.Option[Wake]) option.Option[time.Time] {
 	match w {
-	case Some{Value: x}:
-		Some[time.Time]{Value: x.Due}
-	case None:
-		None
+	case option.Some{Value: x}:
+		option.Some[time.Time]{Value: x.Due}
+	case option.None:
+		option.None
 	}
 }
 
@@ -493,7 +495,7 @@ func dueOf(w Option[Wake]) Option[time.Time] {
 // changes nothing.
 func Work[E, R](s Store, now time.Time, lease duration, work func(c own Claimed) fails E needs R) bool fails E | Failed needs R {
 	match try s.Claim(now, lease) {
-	case Some{Value: g}:
+	case option.Some{Value: g}:
 		scope.OnExit() {
 			s.GiveBack(g) catch {
 			case Failed:
@@ -501,7 +503,7 @@ func Work[E, R](s Store, now time.Time, lease duration, work func(c own Claimed)
 		}
 		try work(Claimed{grant: g})
 		true
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -512,7 +514,7 @@ func Work[E, R](s Store, now time.Time, lease duration, work func(c own Claimed)
 func WorkDefects[E, R](s Store, now time.Time, lease duration, work func(c own Claimed) fails E needs R defects) bool fails E | Failed needs R defects {
 	let got = try s.Claim(now, lease)
 	match got {
-	case Some{Value: g}:
+	case option.Some{Value: g}:
 		scope.OnExit() {
 			s.GiveBack(g) catch {
 			case Failed:
@@ -521,7 +523,7 @@ func WorkDefects[E, R](s Store, now time.Time, lease duration, work func(c own C
 		let claimed = Claimed{grant: g}
 		try work(claimed)
 		true
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -532,7 +534,7 @@ type Op =
 	| Creating{Run RunID, First Event, Now time.Time}
 	| Admitting{Run RunID, Key string, Signal string, Value string, Now time.Time}
 	| Claiming{Now time.Time, Lease duration}
-	| Committing{Grant Grant, Expected Cursor, Events []Event, Next Option[time.Time]}
+	| Committing{Grant Grant, Expected Cursor, Events []Event, Next option.Option[time.Time]}
 	| Settling{Grant Grant}
 	| GivingBack{Grant Grant}
 
@@ -540,7 +542,7 @@ type Op =
 type Outcome =
 	| Created{New bool}
 	| Admitted{As Admission}
-	| Granted{Grant Option[Grant]}
+	| Granted{Grant option.Option[Grant]}
 	| Committed{Next Cursor}
 	| Behind{Expected Cursor, Actual Cursor}
 	| Unfenced{Run RunID}
@@ -554,7 +556,7 @@ type State { runs Map[RunID, run] }
 type run {
 	events []Event,
 	keys   Map[string, bool],
-	wake   Option[Wake],
+	wake   option.Option[Wake],
 	rev    int,
 	epoch  int,
 	held   bool,
@@ -567,7 +569,7 @@ func Empty() State { State{runs: Map[RunID, run]{}} }
 // cursorOf is the cursor of a count of events.
 func cursorOf(n int) Cursor {
 	ParseCursor(n) catch {
-	case Unsatisfied:
+	case core.Unsatisfied:
 		0
 	}
 }
@@ -575,25 +577,25 @@ func cursorOf(n int) Cursor {
 // LoadOf is Load of run from from in s.
 func LoadOf(s State, id RunID, from Cursor) Loaded {
 	match s.runs.Get(id) {
-	case Some{Value: r}:
+	case option.Some{Value: r}:
 		let mut out = []Event{}
 		for i, e in r.events {
 			if i >= int(from) {
 				out = out.Append(e)
 			}
 		}
-		Loaded{Events: out, Next: cursorOf(len(r.events)), Wake: r.wake}
-	case None:
-		Loaded{Events: []Event{}, Next: 0, Wake: None}
+		Loaded{Events: out, Next: cursorOf(r.events.Len()), Wake: r.wake}
+	case option.None:
+		Loaded{Events: []Event{}, Next: 0, Wake: option.None}
 	}
 }
 
 // ended is whether events end with Ended.
 func ended(events []Event) bool {
-	if len(events) == 0 {
+	if events.Len() == 0 {
 		return false
 	}
-	match events[len(events)-1] {
+	match events[events.Len()-1] {
 	case Ended:
 		true
 	case _:
@@ -610,23 +612,23 @@ type CommitResult = CommitOK{Next Cursor} | CommitConflict{Expected Cursor, Actu
 
 func ApplyCreate(s State, runID RunID, first Event, now time.Time) (bool, State, bool) {
 	let mut st = s
-	if st.runs.Get(runID) != None {
+	if st.runs.Get(runID) != option.None {
 		return (false, st, false)
 	}
 	let at = wall(now)
-	st.runs[runID] = run{events: []Event{wallEvent(first)}, keys: Map[string, bool]{}, wake: Some[Wake]{Value: Wake{Due: at, Rev: 1}}, rev: 1, epoch: 0, held: false, until: at}
+	st.runs[runID] = run{events: []Event{wallEvent(first)}, keys: Map[string, bool]{}, wake: option.Some[Wake]{Value: Wake{Due: at, Rev: 1}}, rev: 1, epoch: 0, held: false, until: at}
 	(true, st, true)
 }
 
 func ApplyAdmit(s State, runID RunID, key string, signal string, value string, now time.Time) (Admission, State, bool) {
 	let mut st = s
 	let r = match st.runs.Get(runID) {
-	case Some{Value: x}:
+	case option.Some{Value: x}:
 		x
-	case None:
+	case option.None:
 		return (NoSuchRun, st, false)
 	}
-	if r.keys.Get(key) != None {
+	if r.keys.Get(key) != option.None {
 		return (Duplicate, st, false)
 	}
 	if ended(r.events) {
@@ -634,72 +636,72 @@ func ApplyAdmit(s State, runID RunID, key string, signal string, value string, n
 	}
 	let at = wall(now)
 	let due = match r.wake {
-	case Some{Value: w}:
+	case option.Some{Value: w}:
 		if w.Due.Before(at) { w.Due } else { at }
-	case None:
+	case option.None:
 		at
 	}
 	let mut keys = r.keys
 	keys[key] = true
-	st.runs[runID] = run{..r, events: r.events.Append(SignalIn{Signal: signal, Value: value}), keys: keys, wake: Some[Wake]{Value: Wake{Due: due, Rev: r.rev + 1}}, rev: r.rev + 1}
-	(Kept{At: cursorOf(len(r.events))}, st, true)
+	st.runs[runID] = run{..r, events: r.events.Append(SignalIn{Signal: signal, Value: value}), keys: keys, wake: option.Some[Wake]{Value: Wake{Due: due, Rev: r.rev + 1}}, rev: r.rev + 1}
+	(Kept{At: cursorOf(r.events.Len())}, st, true)
 }
 
 type bestRun { id RunID, r run, due time.Time }
 
-func ApplyClaim(s State, now time.Time, lease duration) (Option[Grant], State, bool) {
+func ApplyClaim(s State, now time.Time, lease duration) (option.Option[Grant], State, bool) {
 	let mut st = s
 	let at = wall(now)
-	let mut found Option[bestRun] = None
+	let mut found option.Option[bestRun] = option.None
 	for id, r in st.runs {
 		match claimableDue(r, at) {
-		case Some{Value: due}:
+		case option.Some{Value: due}:
 			let take = match found {
-			case Some{Value: b}:
+			case option.Some{Value: b}:
 				due.Before(b.due) || (due == b.due && id < b.id)
-			case None:
+			case option.None:
 				true
 			}
 			if take {
-				found = Some[bestRun]{Value: bestRun{id: id, r: r, due: due}}
+				found = option.Some[bestRun]{Value: bestRun{id: id, r: r, due: due}}
 			}
-		case None:
+		case option.None:
 		}
 	}
 	match found {
-	case Some{Value: b}:
+	case option.Some{Value: b}:
 		let until = wall(at.Add(lease))
 		let g = Grant{Run: b.id, Rev: revOf(b.r.wake), Epoch: b.r.epoch + 1, Until: until}
 		st.runs[b.id] = run{..b.r, epoch: b.r.epoch + 1, held: true, until: until}
-		(Some[Grant]{Value: g}, st, true)
-	case None:
-		(None, st, false)
+		(option.Some[Grant]{Value: g}, st, true)
+	case option.None:
+		(option.None, st, false)
 	}
 }
 
-func ApplyCommit(s State, grant Grant, expected Cursor, events []Event, next Option[time.Time]) (CommitResult, State, bool) {
+func ApplyCommit(s State, grant Grant, expected Cursor, events []Event, next option.Option[time.Time]) (CommitResult, State, bool) {
 	let mut st = s
 	let r = match st.runs.Get(grant.Run) {
-	case Some{Value: x}:
+	case option.Some{Value: x}:
 		x
-	case None:
+	case option.None:
 		return (CommitFenced{Run: grant.Run}, st, false)
 	}
 	if r.epoch != grant.Epoch || !r.held {
 		return (CommitFenced{Run: grant.Run}, st, false)
 	}
-	if len(r.events) != int(expected) {
-		return (CommitConflict{Expected: expected, Actual: cursorOf(len(r.events))}, st, false)
+	if r.events.Len() != int(expected) {
+		return (CommitConflict{Expected: expected, Actual: cursorOf(r.events.Len())}, st, false)
 	}
 	let all = r.events.Concat(wallEvents(events))
 	let updated = match next {
-	case Some{Value: due}:
-		run{..r, events: all, wake: Some[Wake]{Value: Wake{Due: wall(due), Rev: r.rev + 1}}, rev: r.rev + 1}
-	case None:
+	case option.Some{Value: due}:
+		run{..r, events: all, wake: option.Some[Wake]{Value: Wake{Due: wall(due), Rev: r.rev + 1}}, rev: r.rev + 1}
+	case option.None:
 		run{..r, events: all}
 	}
 	st.runs[grant.Run] = updated
-	(CommitOK{Next: cursorOf(len(all))}, st, true)
+	(CommitOK{Next: cursorOf(all.Len())}, st, true)
 }
 
 func Apply(s State, op Op) (Outcome, State, bool) {
@@ -727,22 +729,22 @@ func Apply(s State, op Op) (Outcome, State, bool) {
 		(o, next, changed)
 	case Settling as e:
 		let r = match st.runs.Get(e.Grant.Run) {
-		case Some{Value: x}:
+		case option.Some{Value: x}:
 			x
-		case None:
+		case option.None:
 			return (Unfenced{Run: e.Grant.Run}, st, false)
 		}
 		if r.epoch != e.Grant.Epoch || !r.held {
 			return (Unfenced{Run: e.Grant.Run}, st, false)
 		}
-		let retire = r.wake != None && revOf(r.wake) == e.Grant.Rev
-		st.runs[e.Grant.Run] = run{..r, held: false, wake: if retire { None } else { r.wake }}
+		let retire = r.wake != option.None && revOf(r.wake) == e.Grant.Rev
+		st.runs[e.Grant.Run] = run{..r, held: false, wake: if retire { option.None } else { r.wake }}
 		(Done, st, true)
 	case GivingBack as b:
 		let r = match st.runs.Get(b.Grant.Run) {
-		case Some{Value: x}:
+		case option.Some{Value: x}:
 			x
-		case None:
+		case option.None:
 			return (Done, st, false)
 		}
 		if r.epoch != b.Grant.Epoch || !r.held {
@@ -754,24 +756,24 @@ func Apply(s State, op Op) (Outcome, State, bool) {
 }
 
 // claimableDue is r's wake due time when r has a wake due at now and no live lease.
-func claimableDue(r run, now time.Time) Option[time.Time] {
+func claimableDue(r run, now time.Time) option.Option[time.Time] {
 	match r.wake {
-	case Some{Value: w}:
+	case option.Some{Value: w}:
 		if !w.Due.After(now) && (!r.held || !r.until.After(now)) {
-			return Some[time.Time]{Value: w.Due}
+			return option.Some[time.Time]{Value: w.Due}
 		}
-		None
-	case None:
-		None
+		option.None
+	case option.None:
+		option.None
 	}
 }
 
 // revOf is the revision of a wake, 0 for none.
-func revOf(w Option[Wake]) int {
+func revOf(w option.Option[Wake]) int {
 	match w {
-	case Some{Value: x}:
+	case option.Some{Value: x}:
 		x.Rev
-	case None:
+	case option.None:
 		0
 	}
 }

@@ -1,3 +1,4 @@
+import stdcodec codec
 import strings
 
 // Raw is the text of one JSON value, kept as it was read and not built:
@@ -29,9 +30,9 @@ func ParseRaw(v Value) Raw { Raw{text: Encode(c[Value](), v)} }
 
 // WireRead reads the value r is at as its text (types.md, Codecs 11):
 // the cursor passes the value once and hands back the span it passed.
-func WireRead(x mut Raw, r Reader) fails WireWrongKind {
+func WireRead(x mut Raw, r Reader) fails stdcodec.WireWrongKind {
 	if r.c.Kind() == 6 {
-		return WireWrongKind{Path: r.c.Path(), Want: "a value"}
+		return stdcodec.WireWrongKind{Path: r.c.Path(), Want: "a value"}
 	}
 	x.text = r.c.SkipText()
 }
@@ -69,11 +70,11 @@ law RawReadsOneValue(x Raw) {
 	case _:
 		return true
 	}
-	let r = Reader{c: open("[7," + v.text + ",7]", 0, 0) catch {
+	let r = Reader{c: open("[7,"+v.text+",7]", 0, 0) catch {
 	case _:
 		return false
 	}}
-	let (a, y, b) = decode[(int, Raw, int)](r) catch {
+	let (a, y, b) = stdcodec.Decode[(int, Raw, int)](r) catch {
 	case _:
 		return false
 	}

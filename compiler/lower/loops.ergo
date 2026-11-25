@@ -1,5 +1,6 @@
 import compiler/syntax
 import dense
+import option
 
 // compactBound is the scalar subset of Go's countLoop/compactLoopBound.
 // The typer checks both endpoints against the element type and binds
@@ -9,7 +10,7 @@ import dense
 // scalar assignments cannot write an indexed place or collect to a slice.
 func compactBound(st fnb, r syntax.RangeStmt) dense.ID[syntax.Node] fails Unported {
 	let p = st.p
-	if dense.Unpack(r.Key) != None || syntax.KindOf(p.Tree, r.Value) != syntax.KIdent || nameText(p, r.Value) == "_" {
+	if dense.Unpack(r.Key) != option.None || syntax.KindOf(p.Tree, r.Value) != syntax.KIdent || nameText(p, r.Value) == "_" {
 		return stop("range: needs a single bound index")
 	}
 	let b = match syntax.ViewOf(p.Tree, r.X) {

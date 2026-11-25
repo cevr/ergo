@@ -60,11 +60,11 @@ law FilesAsksBeneath(steps []int, prefixed bool) {
 		rest = if i == 0 { e } else { rest + "/" + e }
 	}
 	let path = if prefixed { "/static/" + rest } else { "/" + rest }
-	let method = if len(steps)%2 == 0 { "GET" } else { "HEAD" }
+	let method = if steps.Len()%2 == 0 { "GET" } else { "HEAD" }
 	let root = filesProbe{paths: sync.NewRef[[]string]([]string{})}
 	let response = Files(root, "/static/", Request{Method: method, Path: path, RawPath: path, Query: []Field{}, Header: []Field{}, Body: Buffered{Text: ""}})
 	let asked = root.paths.Get()
-	if len(asked) > 1 || (dotdot || !prefixed) && len(asked) != 0 {
+	if asked.Len() > 1 || (dotdot || !prefixed) && asked.Len() != 0 {
 		return false
 	}
 	for p in asked {
@@ -112,7 +112,7 @@ func Stat(p filesProbe, path string) fs.Info fails fs.Escapes {
 // Files the decoded path, so "%2e%2e" is a name here, not "..").
 func fileSegment(step int) string {
 	let segments = []string{"..", ".", "", "a.txt", "sub", "out", "in", "%2e%2e", "...", "..a", "b.txt"}
-	let i = if step < 0 { -(step % len(segments)) } else { step % len(segments) }
+	let i = if step < 0 { -(step % segments.Len()) } else { step % segments.Len() }
 	segments[i]
 }
 

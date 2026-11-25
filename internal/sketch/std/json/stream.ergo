@@ -19,15 +19,17 @@
 // The state is a record in a sync.Ref, as std codec's Replay keeps its
 // place, so every copy of a Stream reads on from one place.
 
+import stdcodec codec
 import io
 import math
+import option
 import strconv
 import strings
 import sync
 import utf8
 
 // Stream is a Reader over the text of an io.Source.
-type Stream { st sync.Ref[scan] } implements Reader
+type Stream { st sync.Ref[scan] } implements stdcodec.Reader
 
 // The kinds of token the tokenizer gives, in WireKind's order for values:
 // a closing bracket (kClose), a member's key (kKey), the end of the text
@@ -219,7 +221,7 @@ func DecodeStream[T wire](c Codec[T], src io.Source) T fails Malformed | io.Read
 	let r = NewStream(src, c.MaxBytes, c.MaxDepth)
 	// A failed decode settles first: a break of the text explains the
 	// failure better than the shape failure it caused.
-	let v = decode[T](r) catch {
+	let v = stdcodec.Decode[T](r) catch {
 	case err:
 		try Settle(r)
 		return err
@@ -256,9 +258,9 @@ func overflow(s mut scan) {
 			return
 		}
 		match got {
-		case Some[string] as c:
-			k.total = k.total + len(c.Value)
-		case None:
+		case option.Some[string] as c:
+			k.total = k.total + c.Value.Len()
+		case option.None:
 			k.eof = true
 		}
 	}
@@ -300,8 +302,8 @@ func readChunk(s mut scan) {
 		return
 	}
 	match got {
-	case Some[string] as c:
-		k.total = k.total + len(c.Value)
+	case option.Some[string] as c:
+		k.total = k.total + c.Value.Len()
 		let keep = if s.mark >= 0 { s.mark } else { s.i }
 		s.buf = s.buf[keep:] + c.Value
 		k.base = k.base + keep
@@ -309,14 +311,14 @@ func readChunk(s mut scan) {
 		if s.mark >= 0 {
 			s.mark = 0
 		}
-		if len(s.buf) > k.peak {
-			k.peak = len(s.buf)
+		if s.buf.Len() > k.peak {
+			k.peak = s.buf.Len()
 		}
 		s.rare = k
 		if k.maxBytes > 0 && k.total > k.maxBytes {
 			fail(s, k.maxBytes, tooLong(k.maxBytes))
 		}
-	case None:
+	case option.None:
 		k.eof = true
 		s.rare = k
 	}
@@ -362,14 +364,14 @@ func fill(s mut scan) bool {
 // ends first. The window mostly holds them already: that test is all of
 // need, small enough to inline, and the reads are needMore's.
 func need(s mut scan, n int) bool {
-	if len(s.buf)-s.i >= n {
+	if s.buf.Len()-s.i >= n {
 		return true
 	}
 	needMore(s, n)
 }
 
 func needMore(s mut scan, n int) bool {
-	for len(s.buf)-s.i < n {
+	for s.buf.Len()-s.i < n {
 		if !fill(s) {
 			return false
 		}
@@ -384,11 +386,11 @@ func ws(s mut scan) {
 	for {
 		let b = s.buf
 		let mut j = s.i
-		for j < len(b) && space(b[j]) {
+		for j < b.Len() && space(b[j]) {
 			j = j + 1
 		}
 		s.i = j
-		if j < len(b) || !fill(s) {
+		if j < b.Len() || !fill(s) {
 			return
 		}
 	}
@@ -515,7 +517,7 @@ func value(s mut scan) tok {
 			return badTok
 		}
 		s.i = s.i + 1
-		if s.nc < len(s.ctx) {
+		if s.nc < s.ctx.Len() {
 			s.ctx[s.nc] = c == '['
 		} else {
 			s.ctx = s.ctx.Append(c == '[')
@@ -548,11 +550,11 @@ func value(s mut scan) tok {
 }
 
 func lit(s mut scan, word string, kind int) tok {
-	if !need(s, len(word)) || s.buf[s.i:s.i+len(word)] != word {
+	if !need(s, word.Len()) || s.buf[s.i:s.i+word.Len()] != word {
 		fail(s, pos(s), "an invalid literal")
 		return badTok
 	}
-	s.i = s.i + len(word)
+	s.i = s.i + word.Len()
 	tok{kind: kind, text: word, raw: true}
 }
 
@@ -562,12 +564,12 @@ func digitRun(s mut scan) int {
 	for {
 		let b = s.buf
 		let mut j = s.i
-		for j < len(b) && b[j] >= '0' && b[j] <= '9' {
+		for j < b.Len() && b[j] >= '0' && b[j] <= '9' {
 			j = j + 1
 		}
 		n = n + (j - s.i)
 		s.i = j
-		if j < len(b) || !fill(s) {
+		if j < b.Len() || !fill(s) {
 			return n
 		}
 	}
@@ -638,7 +640,7 @@ func hex4(s mut scan, j int) int {
 // when there is none.
 func plainRun(b string, j int) int {
 	let mut k = j
-	for k < len(b) && b[k] != '"' && b[k] != '\\' && b[k] >= 0x20 {
+	for k < b.Len() && b[k] != '"' && b[k] != '\\' && b[k] >= 0x20 {
 		k = k + 1
 	}
 	k
@@ -652,7 +654,7 @@ func str(s mut scan) tok {
 	s.mark = s.i
 	for {
 		s.i = plainRun(s.buf, s.i)
-		if s.i < len(s.buf) {
+		if s.i < s.buf.Len() {
 			break
 		}
 		if !fill(s) {
@@ -676,7 +678,7 @@ func str(s mut scan) tok {
 		let start = s.i
 		s.i = plainRun(s.buf, s.i)
 		b.WriteString(s.buf[start:s.i])
-		if s.i >= len(s.buf) {
+		if s.i >= s.buf.Len() {
 			if !fill(s) {
 				fail(s, pos(s), "the text ends inside a string")
 				return badTok
@@ -767,7 +769,7 @@ func peekAt(s mut scan, k int) tok {
 
 // push queues t after the tokens produced and not yet taken.
 func push(s mut scan, t tok) {
-	if s.nq < len(s.q) {
+	if s.nq < s.q.Len() {
 		s.q[s.nq] = t
 	} else {
 		s.q = s.q.Append(t)
@@ -873,7 +875,7 @@ func readString(s mut scan) string {
 // does not keep the window (a built string is its own already).
 func own(text string) string {
 	let mut b = strings.NewBuilder()
-	b.Grow(len(text))
+	b.Grow(text.Len())
 	b.WriteString(text)
 	b.String()
 }
@@ -898,12 +900,12 @@ func readInt(s mut scan) int64 {
 // 18 digits, an optional minus first, which int64 always holds; false for
 // any other text, which ParseInt then reads.
 func smallInt(text string) (int64, bool) {
-	let start = if len(text) > 0 && text[0] == '-' { 1 } else { 0 }
-	if len(text) == start || len(text)-start > 18 {
+	let start = if text.Len() > 0 && text[0] == '-' { 1 } else { 0 }
+	if text.Len() == start || text.Len()-start > 18 {
 		return (0, false)
 	}
 	let mut n int64 = 0
-	for i in start..len(text) {
+	for i in start..text.Len() {
 		let c = text[i]
 		if c < '0' || c > '9' {
 			return (0, false)
@@ -926,12 +928,12 @@ func readUint(s mut scan) uint64 {
 // parseUint is strconv.ParseUint(text, 10, 64): digits only, no sign,
 // within uint64.
 func parseUint(text string) (uint64, bool) {
-	if len(text) == 0 {
+	if text.Len() == 0 {
 		return (0, false)
 	}
 	let max uint64 = 18446744073709551615
 	let mut n uint64 = 0
-	for i in 0..len(text) {
+	for i in 0..text.Len() {
 		let c = text[i]
 		if c < '0' || c > '9' {
 			return (0, false)
@@ -978,7 +980,7 @@ func begin(s mut scan, list bool) bool {
 	}
 	advance(s)
 	let f = frame{list: list, n: 0, key: "", has: false}
-	if s.nf < len(s.frames) {
+	if s.nf < s.frames.Len() {
 		s.frames[s.nf] = f
 	} else {
 		s.frames = s.frames.Append(f)
@@ -996,15 +998,15 @@ func takeNull(s mut scan) bool {
 	true
 }
 
-func kind(s mut scan) WireKind {
+func kind(s mut scan) stdcodec.WireKind {
 	let k = peek(s).kind
-	if k == kNull { return WireNull }
-	if k == kBool { return WireBool }
-	if k == kNumber { return WireNumber }
-	if k == kString || k == kKey { return WireString }
-	if k == kList { return WireList }
-	if k == kObject { return WireObject }
-	WireEnd
+	if k == kNull { return stdcodec.WireNull }
+	if k == kBool { return stdcodec.WireBool }
+	if k == kNumber { return stdcodec.WireNumber }
+	if k == kString || k == kKey { return stdcodec.WireString }
+	if k == kList { return stdcodec.WireList }
+	if k == kObject { return stdcodec.WireObject }
+	stdcodec.WireEnd
 }
 
 func more(s mut scan) bool {
@@ -1114,32 +1116,32 @@ func tagFirst(s mut scan) {
 	}
 	let b = s.buf
 	let mut j = s.i
-	for j < len(b) && space(b[j]) {
+	for j < b.Len() && space(b[j]) {
 		j = j + 1
 	}
-	if j+6 > len(b) || b[j:j+6] != "\"_tag\"" {
+	if j+6 > b.Len() || b[j:j+6] != "\"_tag\"" {
 		return
 	}
 	j = j + 6
-	for j < len(b) && space(b[j]) {
+	for j < b.Len() && space(b[j]) {
 		j = j + 1
 	}
-	if j >= len(b) || b[j] != ':' {
+	if j >= b.Len() || b[j] != ':' {
 		return
 	}
 	j = j + 1
-	for j < len(b) && space(b[j]) {
+	for j < b.Len() && space(b[j]) {
 		j = j + 1
 	}
-	if j >= len(b) || b[j] != '"' {
+	if j >= b.Len() || b[j] != '"' {
 		return
 	}
 	let end = plainRun(b, j+1)
-	if end >= len(b) || b[end] != '"' {
+	if end >= b.Len() || b[end] != '"' {
 		return
 	}
 	push(s, tok{kind: kKey, text: "_tag", raw: true})
-	push(s, tok{kind: kString, text: b[j+1:end], raw: true})
+	push(s, tok{kind: kString, text: b[j+1 : end], raw: true})
 	s.i = end + 1
 	s.state = sAfter
 }
@@ -1192,9 +1194,9 @@ func TakeNull(r Stream) bool {
 	}
 }
 
-func Peek(r Stream) WireKind {
+func Peek(r Stream) stdcodec.WireKind {
 	for {
-		let o = sync.Modify(r.st, func(v scan) (got[WireKind], scan) {
+		let o = sync.Modify(r.st, func(v scan) (got[stdcodec.WireKind], scan) {
 			let mut s = v
 			let p = opening(&s)
 			let x = kind(&s)
@@ -1207,7 +1209,7 @@ func Peek(r Stream) WireKind {
 	}
 }
 
-func Number(r Stream) string fails WireWrongKind {
+func Number(r Stream) string fails stdcodec.WireWrongKind {
 	for {
 		let o = sync.Modify(r.st, func(v scan) (got[string], scan) {
 			let mut s = v
@@ -1216,7 +1218,7 @@ func Number(r Stream) string fails WireWrongKind {
 			(gave(&s, p, x), s)
 		})
 		if o.wrong {
-			return WireWrongKind{Path: o.path, Want: "a number"}
+			return stdcodec.WireWrongKind{Path: o.path, Want: "a number"}
 		}
 		if !o.starved {
 			return o.v
@@ -1225,7 +1227,7 @@ func Number(r Stream) string fails WireWrongKind {
 	}
 }
 
-func Bool(r Stream) bool fails WireWrongKind {
+func Bool(r Stream) bool fails stdcodec.WireWrongKind {
 	for {
 		let o = sync.Modify(r.st, func(v scan) (got[bool], scan) {
 			let mut s = v
@@ -1234,7 +1236,7 @@ func Bool(r Stream) bool fails WireWrongKind {
 			(gave(&s, p, x), s)
 		})
 		if o.wrong {
-			return WireWrongKind{Path: o.path, Want: "a boolean"}
+			return stdcodec.WireWrongKind{Path: o.path, Want: "a boolean"}
 		}
 		if !o.starved {
 			return o.v
@@ -1243,7 +1245,7 @@ func Bool(r Stream) bool fails WireWrongKind {
 	}
 }
 
-func Int(r Stream) int64 fails WireWrongKind {
+func Int(r Stream) int64 fails stdcodec.WireWrongKind {
 	for {
 		let o = sync.Modify(r.st, func(v scan) (got[int64], scan) {
 			let mut s = v
@@ -1252,7 +1254,7 @@ func Int(r Stream) int64 fails WireWrongKind {
 			(gave(&s, p, x), s)
 		})
 		if o.wrong {
-			return WireWrongKind{Path: o.path, Want: "an integer"}
+			return stdcodec.WireWrongKind{Path: o.path, Want: "an integer"}
 		}
 		if !o.starved {
 			return o.v
@@ -1261,7 +1263,7 @@ func Int(r Stream) int64 fails WireWrongKind {
 	}
 }
 
-func Uint(r Stream) uint64 fails WireWrongKind {
+func Uint(r Stream) uint64 fails stdcodec.WireWrongKind {
 	for {
 		let o = sync.Modify(r.st, func(v scan) (got[uint64], scan) {
 			let mut s = v
@@ -1270,7 +1272,7 @@ func Uint(r Stream) uint64 fails WireWrongKind {
 			(gave(&s, p, x), s)
 		})
 		if o.wrong {
-			return WireWrongKind{Path: o.path, Want: "an unsigned integer"}
+			return stdcodec.WireWrongKind{Path: o.path, Want: "an unsigned integer"}
 		}
 		if !o.starved {
 			return o.v
@@ -1279,7 +1281,7 @@ func Uint(r Stream) uint64 fails WireWrongKind {
 	}
 }
 
-func Float(r Stream) float64 fails WireWrongKind {
+func Float(r Stream) float64 fails stdcodec.WireWrongKind {
 	for {
 		let o = sync.Modify(r.st, func(v scan) (got[float64], scan) {
 			let mut s = v
@@ -1288,7 +1290,7 @@ func Float(r Stream) float64 fails WireWrongKind {
 			(gave(&s, p, x), s)
 		})
 		if o.wrong {
-			return WireWrongKind{Path: o.path, Want: "a number"}
+			return stdcodec.WireWrongKind{Path: o.path, Want: "a number"}
 		}
 		if !o.starved {
 			return o.v
@@ -1297,7 +1299,7 @@ func Float(r Stream) float64 fails WireWrongKind {
 	}
 }
 
-func String(r Stream) string fails WireWrongKind {
+func String(r Stream) string fails stdcodec.WireWrongKind {
 	for {
 		let o = sync.Modify(r.st, func(v scan) (got[string], scan) {
 			let mut s = v
@@ -1306,7 +1308,7 @@ func String(r Stream) string fails WireWrongKind {
 			(gave(&s, p, x), s)
 		})
 		if o.wrong {
-			return WireWrongKind{Path: o.path, Want: "a string"}
+			return stdcodec.WireWrongKind{Path: o.path, Want: "a string"}
 		}
 		if !o.starved {
 			return o.v
@@ -1318,9 +1320,9 @@ func String(r Stream) string fails WireWrongKind {
 // StringBytes is into with the next string's bytes added, as String reads
 // them (the prelude Reader's StringBytes, GX12). The tokenizer has made the
 // string already, so this adds its bytes.
-func StringBytes(r Stream, into []byte) []byte fails WireWrongKind { appendString(into, try r.String()) }
+func StringBytes(r Stream, into []byte) []byte fails stdcodec.WireWrongKind { appendString(into, try r.String()) }
 
-func BeginList(r Stream) fails WireWrongKind {
+func BeginList(r Stream) fails stdcodec.WireWrongKind {
 	for {
 		let o = sync.Modify(r.st, func(v scan) (got[bool], scan) {
 			let mut s = v
@@ -1329,7 +1331,7 @@ func BeginList(r Stream) fails WireWrongKind {
 			(began(&s, p, ok), s)
 		})
 		if o.wrong {
-			return WireWrongKind{Path: o.path, Want: "an array"}
+			return stdcodec.WireWrongKind{Path: o.path, Want: "an array"}
 		}
 		if !o.starved {
 			return
@@ -1338,7 +1340,7 @@ func BeginList(r Stream) fails WireWrongKind {
 	}
 }
 
-func BeginObject(r Stream) fails WireWrongKind {
+func BeginObject(r Stream) fails stdcodec.WireWrongKind {
 	for {
 		let o = sync.Modify(r.st, func(v scan) (got[bool], scan) {
 			let mut s = v
@@ -1347,7 +1349,7 @@ func BeginObject(r Stream) fails WireWrongKind {
 			(began(&s, p, ok), s)
 		})
 		if o.wrong {
-			return WireWrongKind{Path: o.path, Want: "an object"}
+			return stdcodec.WireWrongKind{Path: o.path, Want: "an object"}
 		}
 		if !o.starved {
 			return
@@ -1356,7 +1358,7 @@ func BeginObject(r Stream) fails WireWrongKind {
 	}
 }
 
-func Tag(r Stream) string fails WireMissingField {
+func Tag(r Stream) string fails stdcodec.WireMissingField {
 	for {
 		let o = sync.Modify(r.st, func(v scan) (got[string], scan) {
 			let mut s = v
@@ -1365,7 +1367,7 @@ func Tag(r Stream) string fails WireMissingField {
 			(gave(&s, p, x), s)
 		})
 		if o.wrong {
-			return WireMissingField{Path: o.path, Field: "_tag"}
+			return stdcodec.WireMissingField{Path: o.path, Field: "_tag"}
 		}
 		if !o.starved {
 			return o.v
@@ -1431,8 +1433,8 @@ func skipKeepsPlace(vs []up, cuts []int) bool {
 		r.Skip()
 	}
 	let _ = r.Int() catch {
-	case WireWrongKind as w:
-		return w.Path == "[" + strconv.Itoa(len(vs)) + "]"
+	case stdcodec.WireWrongKind as w:
+		return w.Path == "["+strconv.Itoa(vs.Len())+"]"
 	}
 	false
 }

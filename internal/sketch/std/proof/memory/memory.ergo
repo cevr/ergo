@@ -92,7 +92,7 @@ law SentCodeRedeems() {
 				return false
 			}
 			let out = r.Outbox()
-			if len(out) != 1 || out[0].Dest != dest || out[0].Purpose != "confirm" || len(out[0].Code) != 6 {
+			if out.Len() != 1 || out[0].Dest != dest || out[0].Purpose != "confirm" || out[0].Code.Len() != 6 {
 				return false
 			}
 			gen.Draws.Show("code", out[0].Code)

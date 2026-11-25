@@ -4,6 +4,7 @@
 // follow MyGo's, and CSS Flexbox's sections where MyGo cites them.
 
 import math
+import option
 
 // inf is an unknown size: the height a box is measured at, before it has
 // one.
@@ -95,9 +96,9 @@ func holdsBoxes(t mut Tree, i int) bool {
 // children align by items.
 func selfAlign(t mut Tree, c int, items Align) Align {
 	match t.nodes[c].style.Self {
-	case Some[Align] as s:
+	case option.Some[Align] as s:
 		s.Value
-	case None:
+	case option.None:
 		items
 	}
 }
@@ -291,7 +292,7 @@ type item {
 // of items popped before: the slice keeps its length, so a pop is t.top
 // moving down and never a reslice, which would copy the slice.
 func push(t mut Tree, it item) {
-	if t.top < len(t.items) {
+	if t.top < t.items.Len() {
 		t.items[t.top] = it
 	} else {
 		t.items = t.items.Append(it)

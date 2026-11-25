@@ -3,6 +3,9 @@
 // predictable. Go keeps the two apart as crypto/rand and math/rand/v2;
 // Effect has one Random, so a token drawn from it is guessable.
 
+import fstest
+import os
+
 // Secure draws bytes no one can predict: SecureHost is the operating
 // system's source (Go's crypto/rand). SeededSecure is a replayable
 // provider for tests, and is not secure.
@@ -13,7 +16,7 @@ type Secure {
 	// BytesHasLength: a draw of n bytes has n bytes.
 	law BytesHasLength(n int) {
 		let k = (n%64 + 64) % 64
-		len(Bytes(k)) == k
+		Bytes(k).Len() == k
 	},
 }
 
@@ -24,12 +27,12 @@ type SecureHost { live hostOnly } implements Secure
 // NewSecureHost is the host's Secure provider. It needs Ambient: only code
 // whose row holds the authority to choose the host makes one (docs/spec/
 // stdlib.md, Host packages).
-func NewSecureHost() SecureHost needs Ambient { SecureHost{live: hostOnly} }
+func NewSecureHost() SecureHost needs os.Ambient { SecureHost{live: hostOnly} }
 
 // testSecure tests the length of a host draw without asserting its bytes.
-func testSecure() SecureHost needs TestAmbient { SecureHost{live: hostOnly} }
+func testSecure() SecureHost needs fstest.TestAmbient { SecureHost{live: hostOnly} }
 
-let onTestSecure = context needs TestAmbient { Secure: testSecure() }
+let onTestSecure = context needs fstest.TestAmbient { Secure: testSecure() }
 
 // Bytes is n bytes of the host's secure source (Go's crypto/rand.Read).
 func Bytes(_ SecureHost, n int) string { secureBytes(n) }

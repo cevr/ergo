@@ -2,6 +2,8 @@
 // (std-spike D1). Each returns a new Map; m is a value, so the caller's is
 // unchanged.
 
+import cmp
+import option
 import slices
 
 // Merge is the keys of a and of b, with b's value where both have a key
@@ -21,13 +23,13 @@ law MergeRightWins(a Map[string, int], b Map[string, int]) {
 	let m = Merge(a, b)
 	let mut ok = true
 	for k, v in a {
-		ok = ok && m.Get(k) == (if b.Get(k) == None { Some[int]{Value: v} } else { b.Get(k) })
+		ok = ok && m.Get(k) == (if b.Get(k) == option.None { option.Some[int]{Value: v} } else { b.Get(k) })
 	}
 	for k, v in b {
-		ok = ok && m.Get(k) == Some[int]{Value: v}
+		ok = ok && m.Get(k) == option.Some[int]{Value: v}
 	}
 	for k, _ in m {
-		ok = ok && (a.Get(k) != None || b.Get(k) != None)
+		ok = ok && (a.Get(k) != option.None || b.Get(k) != option.None)
 	}
 	ok
 }
@@ -61,9 +63,9 @@ func TransformValues[K comparable, V, U, E, R](m Map[K, V], f func(v V) U fails 
 law FilterAndTransformKeepKeys(m Map[string, int]) {
 	let kept = Filter(m, func(k string, v int) bool { v%2 == 0 })
 	let doubled = TransformValues(m, func(v int) int { v * 2 })
-	let mut ok = len(doubled) == len(m)
+	let mut ok = doubled.Len() == m.Len()
 	for k, v in m {
-		ok = ok && kept.Get(k) == (if v%2 == 0 { Some[int]{Value: v} } else { None }) && doubled.Get(k) == Some[int]{Value: v * 2}
+		ok = ok && kept.Get(k) == (if v%2 == 0 { option.Some[int]{Value: v} } else { option.None }) && doubled.Get(k) == option.Some[int]{Value: v * 2}
 	}
 	ok
 }
@@ -71,14 +73,14 @@ law FilterAndTransformKeepKeys(m Map[string, int]) {
 // Entries is the keys and values of m in ascending key order (Gleam
 // dict.to_list sorted; Go's slices.Sorted(maps.Keys(m)) then a read of
 // each).
-func Entries[K ordered, V](m Map[K, V]) [](K, V) {
+func Entries[K cmp.Ordered, V](m Map[K, V]) [](K, V) {
 	let keys = slices.Sorted(Keys(m))
-	let mut out = slices.WithCapacity[(K, V)](len(keys))
+	let mut out = slices.WithCapacity[(K, V)](keys.Len())
 	for k in keys {
 		match m.Get(k) {
-		case Some[V] as v:
+		case option.Some[V] as v:
 			out = out.Append((k, v.Value))
-		case None:
+		case option.None:
 		}
 	}
 	out
@@ -88,10 +90,10 @@ func Entries[K ordered, V](m Map[K, V]) [](K, V) {
 // with its value.
 law EntriesAreSorted(m Map[string, int]) {
 	let es = Entries(m)
-	let mut ok = len(es) == len(m)
+	let mut ok = es.Len() == m.Len()
 	for i, e in es {
 		let (k, v) = e
-		ok = ok && m.Get(k) == Some[int]{Value: v}
+		ok = ok && m.Get(k) == option.Some[int]{Value: v}
 		if i > 0 {
 			let (before, _) = es[i-1]
 			ok = ok && before < k

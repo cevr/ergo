@@ -3,24 +3,26 @@
 // a line, so an agent reads a headless run without Go code. A host gives
 // the boxes (TestHost has none; the desktop host has its layout's).
 
+import codec
 import json
+import option
 import strings
 
 // TreeEntry is one node of a screen as data: its role (RoleName), its
 // accessible name, its states (StatesOf) and its box (None: the host has
 // no box for it).
-type TreeEntry { Role string, Name string, States []string, Box Option[Rect] }
+type TreeEntry { Role string, Name string, States []string, Box option.Option[Rect] }
 
 // TreeOf is the nodes of m that are not Generic, in tree order, each with
 // its box in boxes.
 func TreeOf[E](m mut Mirror[E], boxes Map[Id[E], Rect]) []TreeEntry {
 	let mut out = []TreeEntry{}
 	match entryOf(m, m.root) {
-	case Some[mirrored[E]] as r:
+	case option.Some[mirrored[E]] as r:
 		for id in childIds(m, r.Value) {
 			out = treeFrom[E](m, id, boxes, out)
 		}
-	case None:
+	case option.None:
 	}
 	out
 }
@@ -34,11 +36,11 @@ func treeFrom[E](m mut Mirror[E], id Id[E], boxes Map[Id[E], Rect], acc []TreeEn
 		out = out.Append(TreeEntry{Role: RoleName(a.Role), Name: a.Name, States: StatesOf(a), Box: boxes.Get(id)})
 	}
 	match entryOf(m, id) {
-	case Some[mirrored[E]] as e:
+	case option.Some[mirrored[E]] as e:
 		for k in childIds(m, e.Value) {
 			out = treeFrom[E](m, k, boxes, out)
 		}
-	case None:
+	case option.None:
 	}
 	out
 }
@@ -93,21 +95,21 @@ law TreeAgreesWithLocate(seed int) {
 		for x in want {
 			let role = RoleName(x.a.Role)
 			let k = match taken.Get(role) {
-			case Some[int] as n:
+			case option.Some[int] as n:
 				n.Value
-			case None:
+			case option.None:
 				0
 			}
 			taken[role] = k + 1
 			let found = LocateIn(&m, WithRole{Role: x.a.Role, Name: ""})
-			if k >= len(found) {
+			if k >= found.Len() {
 				return false
 			}
 			ids = ids.Append(found[k])
-			boxes[found[k]] = Rect{X: Length(float64(k)), Y: Length(float64(len(role))), W: 1, H: 1}
+			boxes[found[k]] = Rect{X: Length(float64(k)), Y: Length(float64(role.Len())), W: 1, H: 1}
 		}
 		let tree = TreeOf(&m, boxes)
-		if len(tree) != len(want) {
+		if tree.Len() != want.Len() {
 			return false
 		}
 		for i, e in tree {
@@ -118,22 +120,22 @@ law TreeAgreesWithLocate(seed int) {
 			// The states the model screen's access has, as ARIA names them.
 			let states = "," + strings.Join(e.States, ",") + ","
 			let checked = match a.Checked {
-			case Some[bool] as c:
+			case option.Some[bool] as c:
 				if c.Value { ",checked," } else { ",unchecked," }
-			case None:
+			case option.None:
 				""
 			}
 			let value = match a.Value {
-			case Some[string] as v:
+			case option.Some[string] as v:
 				",value=\(v.Value),"
-			case None:
+			case option.None:
 				""
 			}
 			if strings.Contains(states, ",disabled,") != a.Disabled || strings.Contains(states, ",invalid,") != a.Invalid || checked != "" && !strings.Contains(states, checked) || checked == "" && (strings.Contains(states, ",checked,") || strings.Contains(states, ",unchecked,")) || value != "" && !strings.Contains(states, value) {
 				return false
 			}
 			match (e.Box, boxes.Get(ids[i])) {
-			case (Some[Rect] as b, Some[Rect] as w):
+			case (option.Some[Rect] as b, option.Some[Rect] as w):
 				if b.Value != w.Value {
 					return false
 				}
@@ -158,28 +160,28 @@ func StatesOf(a Access) []string {
 		out = out.Append("disabled")
 	}
 	match a.Checked {
-	case Some[bool] as c:
+	case option.Some[bool] as c:
 		out = out.Append(if c.Value { "checked" } else { "unchecked" })
-	case None:
+	case option.None:
 	}
 	match a.Selected {
-	case Some[bool] as s:
+	case option.Some[bool] as s:
 		if s.Value {
 			out = out.Append("selected")
 		}
-	case None:
+	case option.None:
 	}
 	match a.Expanded {
-	case Some[bool] as x:
+	case option.Some[bool] as x:
 		out = out.Append(if x.Value { "expanded" } else { "collapsed" })
-	case None:
+	case option.None:
 	}
 	match a.Pressed {
-	case Some[bool] as p:
+	case option.Some[bool] as p:
 		if p.Value {
 			out = out.Append("pressed")
 		}
-	case None:
+	case option.None:
 	}
 	if a.Invalid {
 		out = out.Append("invalid")
@@ -191,9 +193,9 @@ func StatesOf(a Access) []string {
 		out = out.Append("modal")
 	}
 	match a.Value {
-	case Some[string] as v:
+	case option.Some[string] as v:
 		out = out.Append("value=\(v.Value)")
-	case None:
+	case option.None:
 	}
 	out
 }
@@ -203,9 +205,9 @@ func StatesOf(a Access) []string {
 func TreeLine(e TreeEntry) string {
 	let t = json.NewText()
 	let n = match e.Box {
-	case Some[Rect]:
+	case option.Some[Rect]:
 		4
-	case None:
+	case option.None:
 		3
 	}
 	t.BeginObject(n)
@@ -214,13 +216,13 @@ func TreeLine(e TreeEntry) string {
 	t.Key("name")
 	t.String(e.Name)
 	t.Key("states")
-	t.BeginList(len(e.States))
+	t.BeginList(e.States.Len())
 	for s in e.States {
 		t.String(s)
 	}
 	t.EndList()
 	match e.Box {
-	case Some[Rect] as b:
+	case option.Some[Rect] as b:
 		t.Key("box")
 		t.BeginList(4)
 		t.Float(float64(b.Value.X))
@@ -228,7 +230,7 @@ func TreeLine(e TreeEntry) string {
 		t.Float(float64(b.Value.W))
 		t.Float(float64(b.Value.H))
 		t.EndList()
-	case None:
+	case option.None:
 	}
 	t.EndObject()
 	t.Written()
@@ -248,15 +250,15 @@ func ParseActs(text string) []Act fails BadScript {
 	}
 	let mut out = []Act{}
 	r.BeginList() catch {
-	case WireWrongKind:
+	case codec.WireWrongKind:
 		return BadScript{Why: "not a list"}
 	}
 	for r.More() {
 		let act = parseAct(r) catch {
-		case WireWrongKind as w:
-			return BadScript{Why: "act \(len(out) + 1): \(w.Path) is not \(w.Want)"}
+		case codec.WireWrongKind as w:
+			return BadScript{Why: "act \(out.Len() + 1): \(w.Path) is not \(w.Want)"}
 		case BadScript as b:
-			return BadScript{Why: "act \(len(out) + 1): \(b.Why)"}
+			return BadScript{Why: "act \(out.Len() + 1): \(b.Why)"}
 		}
 		out = out.Append(act)
 	}
@@ -265,7 +267,7 @@ func ParseActs(text string) []Act fails BadScript {
 }
 
 // parseAct reads one act's object.
-func parseAct(r json.Reader) Act fails WireWrongKind | BadScript {
+func parseAct(r json.Reader) Act fails codec.WireWrongKind | BadScript {
 	try r.BeginObject()
 	if !r.More() {
 		return BadScript{Why: "an empty object"}
@@ -335,7 +337,7 @@ law ActsReadAsWritten(seed int) {
 	let n = draw(&r, 8)
 	t.BeginList(n)
 	for _ in 0..n {
-		let label = labels[draw(&r, len(labels))]
+		let label = labels[draw(&r, labels.Len())]
 		let k = draw(&r, 6)
 		t.BeginObject(1)
 		if k == 0 {
@@ -343,7 +345,7 @@ law ActsReadAsWritten(seed int) {
 			t.String(label)
 			want = want.Append(actWhole(TapOn{Label: label}))
 		} else if k == 1 {
-			let text = labels[draw(&r, len(labels))]
+			let text = labels[draw(&r, labels.Len())]
 			t.Key("type")
 			t.BeginList(2)
 			t.String(label)
@@ -381,7 +383,7 @@ law ActsReadAsWritten(seed int) {
 	case BadScript:
 		return false
 	}
-	if len(got) != len(want) {
+	if got.Len() != want.Len() {
 		return false
 	}
 	for i, a in got {

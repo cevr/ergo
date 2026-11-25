@@ -10,6 +10,7 @@ import gen
 import hex
 import json
 import math
+import option
 import sha256
 import strconv
 import strings
@@ -106,8 +107,8 @@ func scrub(s string) string {
 	for prefix in []string{"/home/", "/Users/"} {
 		let mut at = strings.Index(out, prefix)
 		for at >= 0 {
-			let mut end = at + len(prefix)
-			for end < len(out) && !strings.Contains("/ \"\n\t", out[end:end+1]) {
+			let mut end = at + prefix.Len()
+			for end < out.Len() && !strings.Contains("/ \"\n\t", out[end:end+1]) {
 				end = end + 1
 			}
 			out = out[:at] + "~" + out[end:]
@@ -125,11 +126,11 @@ func Table(r Receipt) string {
 	for c in s.Cases {
 		out = out + c.Name + " " + c.Plan.Primary.Name + ": " + said(c.Result.Primary, c.Unit) + "\n"
 		for i, w in c.Result.Secondaries {
-			let name = if i < len(c.Plan.Secondaries) { c.Plan.Secondaries[i].Name } else { "?" }
+			let name = if i < c.Plan.Secondaries.Len() { c.Plan.Secondaries[i].Name } else { "?" }
 			let text = match w {
-			case Some[Verdict] as v:
+			case option.Some[Verdict] as v:
 				said(v.Value, c.Unit)
-			case None:
+			case option.None:
 				"no word: the run ended before the primary's"
 			}
 			out = out + c.Name + " " + name + ": " + text + "\n"
@@ -189,9 +190,9 @@ func said(v Verdict, unit string) string {
 		"no worse, " + amount(x.Of, unit)
 	case Unclear as x:
 		let need = match x.Needed {
-		case Some[int] as n:
+		case option.Some[int] as n:
 			", needs " + strconv.Itoa(n.Value) + " pairs"
-		case None:
+		case option.None:
 			""
 		}
 		"unclear, " + amount(x.Of, unit) + need
@@ -253,7 +254,7 @@ func plain(x float64, width float64) string {
 
 // nonzero reports whether s has a digit other than 0.
 func nonzero(s string) bool {
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		let c = s[i : i+1]
 		if c >= "1" && c <= "9" {
 			return true
@@ -348,18 +349,18 @@ func find(doc string, id string) span fails NoBlock {
 	if at < 0 {
 		return NoBlock{Id: id}
 	}
-	let rest = doc[at+len(b):]
+	let rest = doc[at+b.Len():]
 	let close = strings.Index(rest, " -->\n")
 	if close < 0 {
 		return NoBlock{Id: id}
 	}
-	let body = at + len(b) + close + 5
+	let body = at + b.Len() + close + 5
 	let e = strings.Index(doc[body:], end(id))
 	if e < 0 {
 		return NoBlock{Id: id}
 	}
-	let mut to = body + e + len(end(id))
-	if to < len(doc) && doc[to:to+1] == "\n" {
+	let mut to = body + e + end(id).Len()
+	if to < doc.Len() && doc[to:to+1] == "\n" {
 		to = to + 1
 	}
 	span{from: at, body: body, upto: body + e, to: to, sum: rest[:close]}
@@ -524,7 +525,7 @@ func headline(v Verdict, counter string, unit string) string {
 // escape is s as XML text.
 func escape(s string) string {
 	let mut out = ""
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		let c = s[i : i+1]
 		out = out + if c == "&" { "&amp;" } else if c == "<" { "&lt;" } else if c == ">" { "&gt;" } else if c == "\"" { "&quot;" } else { c }
 	}

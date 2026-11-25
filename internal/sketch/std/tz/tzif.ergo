@@ -15,7 +15,7 @@ type BadData { Name string, Reason string }
 // program can read its own. Leap second records are skipped, as Go skips
 // them: an instant is POSIX time.
 func FromTZif(name string, data string) Zone fails BadData {
-	if len(data) < 44 || strings.Slice(data, 0, 4) != "TZif" {
+	if data.Len() < 44 || strings.Slice(data, 0, 4) != "TZif" {
 		return BadData{Name: name, Reason: "no TZif header"}
 	}
 	let version = data[4]
@@ -27,50 +27,50 @@ func FromTZif(name string, data string) Zone fails BadData {
 	let mut size = int64(4)
 	if version != 0 {
 		p = p + blockSize(n, 4) + 20
-		if p + 24 > int64(len(data)) {
+		if p+24 > int64(data.Len()) {
 			return BadData{Name: name, Reason: "truncated"}
 		}
 		n = counts(data, int(p))
 		p = p + 24
 		size = 8
 	}
-	if p + blockSize(n, size) > int64(len(data)) {
+	if p+blockSize(n, size) > int64(data.Len()) {
 		return BadData{Name: name, Reason: "truncated"}
 	}
 	let times = int(p)
-	let indices = times + int(n[3] * size)
+	let indices = times + int(n[3]*size)
 	let types = indices + int(n[3])
-	let names = types + int(n[4] * 6)
+	let names = types + int(n[4]*6)
 	let end = int(p + blockSize(n, size))
 	if n[4] == 0 {
 		return BadData{Name: name, Reason: "no offsets"}
 	}
 	let mut kinds = []Offset{}
 	for i in 0..int(n[4]) {
-		let at = types + i * 6
-		let b = int(data[at + 5])
+		let at = types + i*6
+		let b = int(data[at+5])
 		if b >= int(n[5]) {
 			return BadData{Name: name, Reason: "an abbreviation outside the table"}
 		}
 		let mut stop = names + b
-		for stop < names + int(n[5]) && data[stop] != 0 {
+		for stop < names+int(n[5]) && data[stop] != 0 {
 			stop += 1
 		}
-		kinds = kinds.Append(Offset{Seconds: int(int32(u32(data, at))), DST: data[at + 4] != 0, Abbreviation: strings.Slice(data, names + b, stop)})
+		kinds = kinds.Append(Offset{Seconds: int(int32(u32(data, at))), DST: data[at+4] != 0, Abbreviation: strings.Slice(data, names+b, stop)})
 	}
 	let mut at = []int64{}
 	let mut kind = []int{}
 	for i in 0..int(n[3]) {
-		let k = int(data[indices + i])
-		if k >= len(kinds) {
+		let k = int(data[indices+i])
+		if k >= kinds.Len() {
 			return BadData{Name: name, Reason: "a change to an offset outside the table"}
 		}
-		let t = if size == 4 { int64(int32(u32(data, times + i * 4))) } else { u64(data, times + i * 8) }
+		let t = if size == 4 { int64(int32(u32(data, times+i*4))) } else { u64(data, times+i*8) }
 		at = at.Append(t)
 		kind = kind.Append(k)
 	}
-	let rest = strings.Slice(data, end, len(data))
-	let footer = if len(rest) > 2 && rest[0] == '\n' && rest[len(rest) - 1] == '\n' { strings.Slice(rest, 1, len(rest) - 1) } else { "" }
+	let rest = strings.Slice(data, end, data.Len())
+	let footer = if rest.Len() > 2 && rest[0] == '\n' && rest[rest.Len()-1] == '\n' { strings.Slice(rest, 1, rest.Len()-1) } else { "" }
 	build(name, at, kind, kinds, parseRule(footer))
 }
 
@@ -79,10 +79,10 @@ func FromTZif(name string, data string) Zone fails BadData {
 // back as the zone.
 law FromTZifRefusesGarbage(i int64, k int64) {
 	let names = ianaNames()
-	let name = names[int(within(i, 0, int64(len(names) - 1)))]
+	let name = names[int(within(i, 0, int64(names.Len()-1)))]
 	let data = ianaZone(name)
 	let cut = strings.Slice(data, 0, int(within(k, 0, 43)))
-	let bad = "Tzif" + strings.Slice(data, 4, len(data))
+	let bad = "Tzif" + strings.Slice(data, 4, data.Len())
 	let _ = FromTZif(name, data) catch {
 	case BadData:
 		return false
@@ -113,7 +113,7 @@ func build(name string, at []int64, kind []int, kinds []Offset, r rule) Zone {
 	let mut first = 0
 	if used {
 		let mut found = false
-		if len(kind) > 0 && kinds[kind[0]].DST {
+		if kind.Len() > 0 && kinds[kind[0]].DST {
 			let mut i = kind[0] - 1
 			for i >= 0 && !found {
 				if !kinds[i].DST {
@@ -124,7 +124,7 @@ func build(name string, at []int64, kind []int, kinds []Offset, r rule) Zone {
 			}
 		}
 		let mut j = 0
-		for j < len(kinds) && !found {
+		for j < kinds.Len() && !found {
 			if !kinds[j].DST {
 				first = j
 				found = true
@@ -158,7 +158,7 @@ func build(name string, at []int64, kind []int, kinds []Offset, r rule) Zone {
 func counts(data string, i int) []int64 {
 	let mut out = []int64{}
 	for k in 0..6 {
-		out = out.Append(u32(data, i + k * 4))
+		out = out.Append(u32(data, i+k*4))
 	}
 	out
 }
@@ -166,13 +166,13 @@ func counts(data string, i int) []int64 {
 // blockSize is the bytes of a TZif data block with the counts n and
 // times of size bytes.
 func blockSize(n []int64, size int64) int64 {
-	n[3] * size + n[3] + n[4] * 6 + n[5] + n[2] * (size + 4) + n[1] + n[0]
+	n[3]*size + n[3] + n[4]*6 + n[5] + n[2]*(size+4) + n[1] + n[0]
 }
 
 // u32 is the big-endian unsigned 32-bit number at data[i].
 func u32(data string, i int) int64 {
-	int64(data[i]) << 24 | int64(data[i + 1]) << 16 | int64(data[i + 2]) << 8 | int64(data[i + 3])
+	int64(data[i])<<24 | int64(data[i+1])<<16 | int64(data[i+2])<<8 | int64(data[i+3])
 }
 
 // u64 is the big-endian 64-bit number at data[i], as an int64.
-func u64(data string, i int) int64 { u32(data, i) << 32 | u32(data, i + 4) }
+func u64(data string, i int) int64 { u32(data, i)<<32 | u32(data, i+4) }

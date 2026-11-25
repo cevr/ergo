@@ -2,7 +2,7 @@ import strings
 
 // hasAt reports whether s holds text at byte offset i.
 func hasAt(s string, i int, text string) bool {
-	i >= 0 && i <= len(s) && len(text) <= len(s)-i && strings.Slice(s, i, i+len(text)) == text
+	i >= 0 && i <= s.Len() && text.Len() <= s.Len()-i && strings.Slice(s, i, i+text.Len()) == text
 }
 
 // indexNewline is the offset of the first line break in s, or -1.
@@ -11,7 +11,7 @@ func indexNewline(s string) int { strings.IndexByte(s, '\n') }
 // trimLineEnd is s without the blanks, tabs and carriage returns that end
 // it, as strings.TrimRight(s, " \t\r") with no cutset to build.
 func trimLineEnd(s string) string {
-	let mut n = len(s)
+	let mut n = s.Len()
 	for n > 0 && (s[n-1] == ' ' || s[n-1] == '\t' || s[n-1] == '\r') {
 		n -= 1
 	}
@@ -20,7 +20,7 @@ func trimLineEnd(s string) string {
 
 // trimCR is s without the carriage returns that end it.
 func trimCR(s string) string {
-	let mut n = len(s)
+	let mut n = s.Len()
 	for n > 0 && s[n-1] == '\r' {
 		n -= 1
 	}

@@ -13,14 +13,16 @@
 // (the host's reads only its monotonic clock, as Go's time.Since does),
 // and that time moves on by what Elapsed gave (Time.Add): only the first
 // value, and the first of each chunk, reads Now.
+import core
+import option
 import time
 
 // Throttle keeps the first value of s and each later value that arrives d
 // or more after the last value it kept, and drops the others (Effect's
 // throttle with one unit per d and the enforce strategy; Rx's
 // throttleFirst). A d of zero or less keeps every value.
-func Throttle[T](s Seq[T], d duration, clock time.Clock) Seq[T] {
-	Seq[T](func(yield func(v T) bool) {
+func Throttle[T](s core.Seq[T], d duration, clock time.Clock) core.Seq[T] {
+	core.Seq[T](func(yield func(v T) bool) {
 		let mut kept = false
 		let mut last = time.NewTime(0, 0)
 		for v in s {
@@ -45,13 +47,13 @@ func Throttle[T](s Seq[T], d duration, clock time.Clock) Seq[T] {
 // first, then each that arrives the window or more after the last kept.
 law ThrottleMatchesModel(gaps []int, xs []int, w int) {
 	let m = time.NewManual(0)
-	sameInts(collect(Throttle(arrivals(m, gaps, xs), millis(window(w)), m)), throttleModel(arrivalsAt(gaps, len(xs)), xs, window(w)))
+	sameInts(collect(Throttle(arrivals(m, gaps, xs), millis(window(w)), m)), throttleModel(arrivalsAt(gaps, xs.Len()), xs, window(w)))
 }
 
 // arrivals is xs as a Seq on m: before each value it moves m on by the
 // value's gap.
-func arrivals(m time.Manual, gaps []int, xs []int) Seq[int] {
-	Seq[int](func(yield func(v int) bool) {
+func arrivals(m time.Manual, gaps []int, xs []int) core.Seq[int] {
+	core.Seq[int](func(yield func(v int) bool) {
 		for i, x in xs {
 			m.Advance(millis(gapAt(gaps, i)))
 			if !yield(x) {
@@ -96,7 +98,7 @@ law ThrottleStops(gaps []int, xs []int, w int) {
 // stops: s is a Seq that stops (stdlib.md, Std laws 5): with n the count
 // of its values, a yield that returns false at its k-th call (k from 1 to
 // n+1) is called min(k, n) times.
-func stops[T](s Seq[T]) bool {
+func stops[T](s core.Seq[T]) bool {
 	let mut n = 0
 	s(func(v T) bool {
 		n = n + 1
@@ -121,27 +123,27 @@ func stops[T](s Seq[T]) bool {
 // kept value leaves when the next one arrives or s ends, the first moment
 // a Seq can tell that d of quiet passed. A d of zero or less keeps every
 // value.
-func Debounce[T](s Seq[T], d duration, clock time.Clock) Seq[T] {
-	Seq[T](func(yield func(v T) bool) {
-		let mut pending Option[T] = None
+func Debounce[T](s core.Seq[T], d duration, clock time.Clock) core.Seq[T] {
+	core.Seq[T](func(yield func(v T) bool) {
+		let mut pending option.Option[T] = option.None
 		let mut at = time.NewTime(0, 0)
 		for v in s {
 			match pending {
-			case Some[T] as p:
+			case option.Some[T] as p:
 				let e = clock.Elapsed(at)
 				if e >= d && !yield(p.Value) {
 					return
 				}
 				at = at.Add(e)
-			case None:
+			case option.None:
 				at = clock.Now()
 			}
-			pending = Some[T]{Value: v}
+			pending = option.Some[T]{Value: v}
 		}
 		match pending {
-		case Some[T] as p:
+		case option.Some[T] as p:
 			yield(p.Value)
-		case None:
+		case option.None:
 		}
 	})
 }
@@ -150,7 +152,7 @@ func Debounce[T](s Seq[T], d duration, clock time.Clock) Seq[T] {
 // that the next arrives the window or more after, and the last.
 law DebounceMatchesModel(gaps []int, xs []int, w int) {
 	let m = time.NewManual(0)
-	sameInts(collect(Debounce(arrivals(m, gaps, xs), millis(window(w)), m)), debounceModel(arrivalsAt(gaps, len(xs)), xs, window(w)))
+	sameInts(collect(Debounce(arrivals(m, gaps, xs), millis(window(w)), m)), debounceModel(arrivalsAt(gaps, xs.Len()), xs, window(w)))
 }
 
 // debounceModel keeps each xs[i] that the next value arrives d or more
@@ -158,7 +160,7 @@ law DebounceMatchesModel(gaps []int, xs []int, w int) {
 func debounceModel(at []int, xs []int, d int) []int {
 	let mut out = []int{}
 	for i, x in xs {
-		if i == len(xs)-1 || at[i+1]-at[i] >= d {
+		if i == xs.Len()-1 || at[i+1]-at[i] >= d {
 			out = out.Append(x)
 		}
 	}
@@ -177,29 +179,29 @@ law DebounceStops(gaps []int, xs []int, w int) {
 // first value, which then starts the next chunk. The last chunk leaves
 // when s ends. No chunk is empty; an n of one or less makes each value a
 // chunk.
-func GroupedWithin[T](s Seq[T], n int, d duration, clock time.Clock) Seq[[]T] {
-	Seq[[]T](func(yield func(v []T) bool) {
+func GroupedWithin[T](s core.Seq[T], n int, d duration, clock time.Clock) core.Seq[[]T] {
+	core.Seq[[]T](func(yield func(v []T) bool) {
 		let mut chunk = []T{}
 		let mut start = time.NewTime(0, 0)
 		for v in s {
-			if len(chunk) > 0 && clock.Elapsed(start) >= d {
+			if chunk.Len() > 0 && clock.Elapsed(start) >= d {
 				if !yield(chunk) {
 					return
 				}
 				chunk = []T{}
 			}
-			if len(chunk) == 0 {
+			if chunk.Len() == 0 {
 				start = clock.Now()
 			}
 			chunk = chunk.Append(v)
-			if len(chunk) >= n {
+			if chunk.Len() >= n {
 				if !yield(chunk) {
 					return
 				}
 				chunk = []T{}
 			}
 		}
-		if len(chunk) > 0 {
+		if chunk.Len() > 0 {
 			yield(chunk)
 		}
 	})
@@ -208,7 +210,7 @@ func GroupedWithin[T](s Seq[T], n int, d duration, clock time.Clock) Seq[[]T] {
 // GroupedWithinMatchesModel: GroupedWithin's chunks are the model's.
 law GroupedWithinMatchesModel(gaps []int, xs []int, w int, k int) {
 	let m = time.NewManual(0)
-	sameChunks(collectChunks(GroupedWithin(arrivals(m, gaps, xs), size(k), millis(window(w)), m)), groupedModel(arrivalsAt(gaps, len(xs)), xs, size(k), window(w)))
+	sameChunks(collectChunks(GroupedWithin(arrivals(m, gaps, xs), size(k), millis(window(w)), m)), groupedModel(arrivalsAt(gaps, xs.Len()), xs, size(k), window(w)))
 }
 
 // size is k as a chunk size from 0 to 5.
@@ -221,27 +223,27 @@ func groupedModel(at []int, xs []int, n int, d int) [][]int {
 	let mut chunk = []int{}
 	let mut start = 0
 	for i, x in xs {
-		if len(chunk) > 0 && at[i]-start >= d {
+		if chunk.Len() > 0 && at[i]-start >= d {
 			out = out.Append(chunk)
 			chunk = []int{}
 		}
-		if len(chunk) == 0 {
+		if chunk.Len() == 0 {
 			start = at[i]
 		}
 		chunk = chunk.Append(x)
-		if len(chunk) >= n {
+		if chunk.Len() >= n {
 			out = out.Append(chunk)
 			chunk = []int{}
 		}
 	}
-	if len(chunk) > 0 {
+	if chunk.Len() > 0 {
 		out = out.Append(chunk)
 	}
 	out
 }
 
 // collectChunks is the chunks of s.
-func collectChunks(s Seq[[]int]) [][]int {
+func collectChunks(s core.Seq[[]int]) [][]int {
 	let mut out = [][]int{}
 	for c in s {
 		out = out.Append(c)
@@ -251,9 +253,9 @@ func collectChunks(s Seq[[]int]) [][]int {
 
 // sameChunks reports that a and b hold the same chunks in order.
 func sameChunks(a [][]int, b [][]int) bool {
-	let mut same = len(a) == len(b)
-	for i in 0..len(a) {
-		same = same && i < len(b) && sameInts(a[i], b[i])
+	let mut same = a.Len() == b.Len()
+	for i in 0..a.Len() {
+		same = same && i < b.Len() && sameInts(a[i], b[i])
 	}
 	same
 }
@@ -265,7 +267,7 @@ law GroupedWithinKeepsEveryValue(gaps []int, xs []int, w int, k int) {
 	let mut joined = []int{}
 	let mut empty = false
 	for c in GroupedWithin(arrivals(m, gaps, xs), size(k), millis(window(w)), m) {
-		empty = empty || len(c) == 0
+		empty = empty || c.Len() == 0
 		for x in c {
 			joined = joined.Append(x)
 		}

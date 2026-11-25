@@ -4,6 +4,7 @@
 // on.
 
 import llm
+import option
 import schedule
 import sync
 import testing
@@ -45,7 +46,7 @@ func next(s Sequence, r llm.Request, stream bool) Reply {
 		}
 		xs.Append(if stream { asking{Request: r, Generated: 0, Streamed: 1} } else { asking{Request: r, Generated: 1, Streamed: 0} })
 	})
-	if k >= len(s.Replies) {
+	if k >= s.Replies.Len() {
 		let out llm.Failure = llm.Transport{Reason: "the sequence has no reply \(k + 1)"}
 		return Fails{Failure: out}
 	}
@@ -90,7 +91,7 @@ law RetryFollowsSafety(fs []llm.Failure, n int) {
 	}
 	let s = NewSequence(replies.Append(ok("done", none())))
 	let c = testing.NewVirtualClock(0)
-	let mut stop = len(fs)
+	let mut stop = fs.Len()
 	for i, f in fs {
 		if i < stop && (llm.SafetyOf(f) == llm.Unsafe || i == budget) {
 			stop = i
@@ -99,9 +100,9 @@ law RetryFollowsSafety(fs []llm.Failure, n int) {
 	let t = llm.Retry{Inner: s, Schedule: schedule.Recurs(budget), Clock: c, Sleep: c}.Generate(plain("q")) catch {
 	case f:
 		let got llm.Failure = f
-		return stop < len(fs) && got == bare(fs[stop]) && Asks(s) == stop+1
+		return stop < fs.Len() && got == bare(fs[stop]) && Asks(s) == stop+1
 	}
-	stop == len(fs) && t.Text == "done" && Asks(s) == len(fs)+1
+	stop == fs.Len() && t.Text == "done" && Asks(s) == fs.Len()+1
 }
 
 // RetryHonoursAfter: after RateLimited with an After, llm.Retry asks
@@ -109,7 +110,7 @@ law RetryFollowsSafety(fs []llm.Failure, n int) {
 law RetryHonoursAfter(ms int) {
 	let wait = (ms%100000 + 100000) % 100000
 	let c = testing.NewVirtualClock(0)
-	let s = NewSequence([]Reply{Fails{Failure: llm.RateLimited{After: Some[int]{Value: wait}}}, ok("done", none())})
+	let s = NewSequence([]Reply{Fails{Failure: llm.RateLimited{After: option.Some[int]{Value: wait}}}, ok("done", none())})
 	let start = c.Now()
 	let t = llm.Retry{Inner: s, Schedule: schedule.Spaced(1ms), Clock: c, Sleep: c}.Generate(plain("q")) catch {
 	case _:
@@ -184,7 +185,7 @@ law FallbackIsFirstSuccess(fs []llm.Failure, succeeds bool) {
 	let t = llm.Fallback{Members: members}.Generate(plain("q")) catch {
 	case f:
 		let got llm.Failure = f
-		let want llm.Failure = if len(fs) == 0 { llm.InvalidRequest{Reason: "a fallback with no member"} } else { bare(fs[len(fs)-1]) }
+		let want llm.Failure = if fs.Len() == 0 { llm.InvalidRequest{Reason: "a fallback with no member"} } else { bare(fs[fs.Len()-1]) }
 		return !succeeds && got == want && askedOnce(seqs)
 	}
 	succeeds && t.Text == "last" && askedOnce(seqs) && Asks(last) == 1

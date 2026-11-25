@@ -67,4 +67,4 @@ law DecodeInvertsEncode(s string) {
 
 // EncodedLength: every three bytes, and a last part of one or two, are
 // four characters.
-law EncodedLength(s string) { len(Encode(StdEncoding, s)) == (len(s) + 2) / 3 * 4 }
+law EncodedLength(s string) { Encode(StdEncoding, s).Len() == (s.Len()+2)/3*4 }

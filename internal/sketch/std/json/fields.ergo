@@ -1,3 +1,6 @@
+import stdcodec codec
+import option
+
 // Optional is a record field whose key can be absent. Present writes its
 // value directly, Absent writes no key. Outside a record field Optional
 // keeps its tagged union form: an array slot or root cannot be absent.
@@ -6,22 +9,22 @@ type Absent {}
 type Present[T] { Value T }
 type Optional[T] = Absent | Present[T]
 
-law OptionalRoundTrips(v Option[int]) { optionalRoundTrips(v) }
+law OptionalRoundTrips(v option.Option[int]) { optionalRoundTrips(v) }
 
 // Option inputs give the law runner ordinary, seeded generators. The wire
 // records contain the JSON-specific alternatives, not Option wire values.
 type optionalField { Value Optional[int] }
 
-func optionalOf[T](v Option[T]) Optional[T] {
+func optionalOf[T](v option.Option[T]) Optional[T] {
 	match v {
-	case None:
+	case option.None:
 		Absent
-	case Some[T] as p:
+	case option.Some[T] as p:
 		Present{Value: p.Value}
 	}
 }
 
-func optionalRoundTrips(v Option[int]) bool {
+func optionalRoundTrips(v option.Option[int]) bool {
 	let field = optionalField{Value: optionalOf(v)}
 	let back = Decode(c[optionalField](), Encode(c[optionalField](), field)) catch {
 	case _:
@@ -29,7 +32,7 @@ func optionalRoundTrips(v Option[int]) bool {
 	}
 	back == field
 }
-func WireForm[T](x Optional[T]) WireOmittable { WireOmittable }
+func WireForm[T](x Optional[T]) stdcodec.WireOmittable { stdcodec.WireOmittable }
 
 // Nullable writes null or the value directly. A Nullable record field is
 // required: a missing key is WireMissingField, not Null. Optional[Nullable[T]]
@@ -38,20 +41,20 @@ type Null {}
 type NonNull[T] { Value T }
 type Nullable[T] = Null | NonNull[T]
 
-law NullableRoundTrips(v Option[int]) { nullableRoundTrips(v) }
+law NullableRoundTrips(v option.Option[int]) { nullableRoundTrips(v) }
 
 type nullableField { Value Nullable[int] }
 
-func nullableOf[T](v Option[T]) Nullable[T] {
+func nullableOf[T](v option.Option[T]) Nullable[T] {
 	match v {
-	case None:
+	case option.None:
 		Null
-	case Some[T] as p:
+	case option.Some[T] as p:
 		NonNull{Value: p.Value}
 	}
 }
 
-func nullableRoundTrips(v Option[int]) bool {
+func nullableRoundTrips(v option.Option[int]) bool {
 	let field = nullableField{Value: nullableOf(v)}
 	let back = Decode(c[nullableField](), Encode(c[nullableField](), field)) catch {
 	case _:
@@ -59,4 +62,4 @@ func nullableRoundTrips(v Option[int]) bool {
 	}
 	back == field
 }
-func WireForm[T](x Nullable[T]) WireNullable { WireNullable }
+func WireForm[T](x Nullable[T]) stdcodec.WireNullable { stdcodec.WireNullable }

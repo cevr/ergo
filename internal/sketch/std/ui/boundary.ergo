@@ -1,4 +1,6 @@
 import arena
+import core
+import option
 
 // Pending is the failure of a read whose data has not arrived yet (H8a,
 // stdlib.md UI 15): an error type in a fails row, as any other. A view
@@ -17,13 +19,13 @@ type Pending {}
 // sibling after the boundary keeps its identity however far body got;
 // two calls of one boundary site under one parent with one row key share
 // their counts (stdlib.md, UI 15).
-func Boundary[E, F, R](f mut Frame[E], body func() fails F needs R, at CallSite) fails F needs R {
+func Boundary[E, F, R](f mut Frame[E], body func() fails F needs R, at core.CallSite) fails F needs R {
 	let m = markOf(f)
 	f.each = at
 	body() catch {
 	case err:
 		cut(f, m)
-		if f.nstops < len(f.stops) {
+		if f.nstops < f.stops.Len() {
 			f.stops[f.nstops] = at
 		} else {
 			f.stops = f.stops.Append(at)
@@ -75,7 +77,7 @@ law BoundaryFollowsModel(seed int, steps int) {
 			for j in Jobs(&f) {
 				match j {
 				case Fetch[int] as x:
-					if used.Get(x.Epoch) != None {
+					if used.Get(x.Epoch) != option.None {
 						return false
 					}
 					used[x.Epoch] = true
@@ -96,12 +98,12 @@ law BoundaryFollowsModel(seed int, steps int) {
 				}
 			}
 			if s.key != okey {
-				if len(fetchOuter) != 1 || (outer >= 0 && Arrive(&f, outer)) {
+				if fetchOuter.Len() != 1 || (outer >= 0 && Arrive(&f, outer)) {
 					return false
 				}
 				outer = fetchOuter[0]
 				okey = s.key
-			} else if len(fetchOuter) != 0 {
+			} else if fetchOuter.Len() != 0 {
 				return false
 			}
 			if !Arrive(&f, outer) {
@@ -109,14 +111,14 @@ law BoundaryFollowsModel(seed int, steps int) {
 			}
 			let releases = (s.gone || s.fail == 6) && !deepStops(s)
 			if releases {
-				if len(fetchInner) != 0 || (inner >= 0 && Arrive(&f, inner)) {
+				if fetchInner.Len() != 0 || (inner >= 0 && Arrive(&f, inner)) {
 					return false
 				}
 				inner = -1
 				rowMade = false
 				vals = dropGroup(vals)
 			} else if inner >= 0 && (rowMade || s.fail != 0 || s.gone) {
-				if len(fetchInner) != 0 || !Arrive(&f, inner) {
+				if fetchInner.Len() != 0 || !Arrive(&f, inner) {
 					return false
 				}
 			} else if !s.gone && (s.fail == 0 || s.fail == 3 || s.fail == 4) {
@@ -124,7 +126,7 @@ law BoundaryFollowsModel(seed int, steps int) {
 				// that wrote it (with no Row node to park the load in) may
 				// fetch again (a known gap: the load waited in the group's
 				// parent); the one before is then cancelled.
-				if inner >= 0 && Arrive(&f, inner) && len(fetchInner) != 0 {
+				if inner >= 0 && Arrive(&f, inner) && fetchInner.Len() != 0 {
 					return false
 				}
 				let mut live = 0
@@ -137,7 +139,7 @@ law BoundaryFollowsModel(seed int, steps int) {
 				if live != 1 {
 					return false
 				}
-			} else if len(fetchInner) != 0 {
+			} else if fetchInner.Len() != 0 {
 				return false
 			}
 			if !deepStops(s) {
@@ -194,7 +196,7 @@ law BoundaryFollowsModel(seed int, steps int) {
 			ids = ids.Append(Kids(&f, Kids(&f, col)[next+1])[0])
 			names = names.Append("after")
 			ids = ids.Append(Kids(&f, col)[next+2])
-			let at = draw(&r, len(names))
+			let at = draw(&r, names.Len())
 			let old = draft(vals, names[at])
 			let now = "x\(i % 3)"
 			let done = Handle(&f, Type[int]{Id: ids[at], Text: now})
@@ -203,7 +205,7 @@ law BoundaryFollowsModel(seed int, steps int) {
 			}
 			vals[names[at]] = now
 			let _ = Render(&f, bview, s)
-			if len(Jobs(&f)) != 0 {
+			if Jobs(&f).Len() != 0 {
 				return false
 			}
 		}
@@ -319,15 +321,15 @@ func bview(f mut Frame[int], s bstate) {
 // holds none.
 func draft(vals Map[string, string], n string) string {
 	match vals.Get(n) {
-	case Some[string] as v:
+	case option.Some[string] as v:
 		v.Value
-	case None:
+	case option.None:
 		n
 	}
 }
 
 func input(vals Map[string, string], n string, placeholder string) Shape[int] {
-	leaf(InputNode{Value: draft(vals, n), Placeholder: placeholder, Label: "", Description: "", Invalid: false, Hints: PlainHints, Lines: 1, Caret: len(draft(vals, n)), Anchor: len(draft(vals, n))})
+	leaf(InputNode{Value: draft(vals, n), Placeholder: placeholder, Label: "", Description: "", Invalid: false, Hints: PlainHints, Lines: 1, Caret: draft(vals, n).Len(), Anchor: draft(vals, n).Len()})
 }
 
 // bshape is what bview means at s for the model drafts.
@@ -377,7 +379,7 @@ func dropGroup(vals Map[string, string]) Map[string, string] {
 // mark is where a pass stood when a group started: the lengths of the
 // pass's lists, the identity counts taken, the parent, its last child and
 // how many it had, and the row a group in an Each started in.
-type mark { ngroups int, nspecs int, ncells int, nloads int, nkeys int, nurls int, nanims int, nseen int, parent int, last int, nkids int, each CallSite, key Key }
+type mark { ngroups int, nspecs int, ncells int, nloads int, nkeys int, nurls int, nanims int, nseen int, parent int, last int, nkids int, each core.CallSite, key Key }
 
 func markOf[E](f mut Frame[E]) mark {
 	mark{ngroups: f.ngroups, nspecs: f.nspecs, ncells: f.ncells, nloads: f.nloads, nkeys: f.nkeys, nurls: f.nurls, nanims: f.nanims, nseen: f.nseen, parent: f.parent, last: lastKid(f, f.parent), nkids: kidsWritten(f, f.parent), each: f.each, key: f.key}
@@ -462,23 +464,23 @@ func cut[E](f mut Frame[E], m mark) {
 // heldBy is whether the node r names (Null for none) holds load id with
 // key.
 func heldBy[E](f mut Frame[E], r arena.Ref[node[E]], id ident, key Key) bool {
-	liveLoad(f, r, id, key) != None
+	liveLoad(f, r, id, key) != option.None
 }
 
 // liveLoad is the load id with key of the node r names (Null for none),
 // None when it holds none.
-func liveLoad[E](f mut Frame[E], r arena.Ref[node[E]], id ident, key Key) Option[slot] {
+func liveLoad[E](f mut Frame[E], r arena.Ref[node[E]], id ident, key Key) option.Option[slot] {
 	if !arena.Has(f.nodes, r) {
-		return None
+		return option.None
 	}
 	match loadAt(f, r, id) {
-	case Some[slot] as s:
+	case option.Some[slot] as s:
 		if s.Value.key == key {
-			return Some{Value: s.Value}
+			return option.Some{Value: s.Value}
 		}
-		None
-	case None:
-		None
+		option.None
+	case option.None:
+		option.None
 	}
 }
 
@@ -486,7 +488,7 @@ func liveLoad[E](f mut Frame[E], r arena.Ref[node[E]], id ident, key Key) Option
 func parkedOf[E](f mut Frame[E], r arena.Ref[node[E]]) []arena.Ref[node[E]] {
 	let mut out = []arena.Ref[node[E]]{}
 	change(f, r, func(n mut node[E]) {
-		if len(n.parked) > 0 {
+		if n.parked.Len() > 0 {
 			out = n.parked
 		}
 	})
@@ -496,7 +498,7 @@ func parkedOf[E](f mut Frame[E], r arena.Ref[node[E]]) []arena.Ref[node[E]] {
 // parkedCount is the number of parked children of the node r names.
 func parkedCount[E](f mut Frame[E], r arena.Ref[node[E]]) int {
 	let mut c = 0
-	change(f, r, func(n mut node[E]) { c = len(n.parked) })
+	change(f, r, func(n mut node[E]) { c = n.parked.Len() })
 	c
 }
 

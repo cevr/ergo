@@ -21,6 +21,7 @@
 
 import compiler/check/store
 import dense
+import option
 
 // depthLimit stops unification on a recursive type, as unify.go's
 // unifyDepthLimit does.
@@ -53,7 +54,7 @@ func NoUnions() Unions {
 // AddUnion records t, a union with no type parameters, as a union of the
 // variants vs.
 func AddUnion(u mut Unions, t dense.ID[store.TKey], vs []dense.ID[store.TKey]) {
-	dense.SideSet(&u.at, t, len(u.variants))
+	dense.SideSet(&u.at, t, u.variants.Len())
 	u.variants = u.variants.Append(vs)
 }
 
@@ -71,7 +72,7 @@ func VariantsOf(s mut store.Store, u Unions, t dense.ID[store.TKey]) []dense.ID[
 	if i >= 0 {
 		return u.variants[i]
 	}
-	if store.KindOfType(*s, t) != store.KInstance || len(store.OperandsOf(*s, t)) == 0 {
+	if store.KindOfType(*s, t) != store.KInstance || store.OperandsOf(*s, t).Len() == 0 {
 		return []dense.ID[store.TKey]{}
 	}
 	let o = store.OriginOfType(*s, t)
@@ -95,11 +96,11 @@ func sameOrigin(s store.Store, x dense.ID[store.TKey], y dense.ID[store.TKey]) b
 }
 
 // matched is whether the union rule applied and matched.
-func matched(o Option[bool]) bool {
+func matched(o option.Option[bool]) bool {
 	match o {
-	case Some[bool] as m:
+	case option.Some[bool] as m:
 		m.Value
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -107,17 +108,17 @@ func matched(o Option[bool]) bool {
 // unionMatch is unify.go's named-union rule, x a union of u's: x matches
 // y of another origin when a variant of x has y's origin and matches y
 // exactly; y of x's origin is left to the structural rules (none).
-func unionMatch(s mut store.Store, f mut Frame, u Unions, c Call, x dense.ID[store.TKey], y dense.ID[store.TKey], d int) Option[bool] {
+func unionMatch(s mut store.Store, f mut Frame, u Unions, c Call, x dense.ID[store.TKey], y dense.ID[store.TKey], d int) option.Option[bool] {
 	let vs = VariantsOf(s, u, x)
-	if len(vs) == 0 || sameOrigin(*s, x, y) {
-		return None
+	if vs.Len() == 0 || sameOrigin(*s, x, y) {
+		return option.None
 	}
 	for v in vs {
 		if sameOrigin(*s, v, y) {
-			return Some[bool]{Value: nify(s, f, u, c, v, y, exact, d)}
+			return option.Some[bool]{Value: nify(s, f, u, c, v, y, exact, d)}
 		}
 	}
-	Some[bool]{Value: false}
+	option.Some[bool]{Value: false}
 }
 
 // NoValue is the binding of a result parameter matched against a function
@@ -209,11 +210,11 @@ law InferWidensGenericVariants(picks []int) {
 }
 
 // infers is whether o is the one type argument t.
-func infers(o Option[[]dense.ID[store.TKey]], t dense.ID[store.TKey]) bool {
+func infers(o option.Option[[]dense.ID[store.TKey]], t dense.ID[store.TKey]) bool {
 	match o {
-	case Some[[]dense.ID[store.TKey]] as got:
-		len(got.Value) == 1 && got.Value[0] == t
-	case None:
+	case option.Some[[]dense.ID[store.TKey]] as got:
+		got.Value.Len() == 1 && got.Value[0] == t
+	case option.None:
 		false
 	}
 }
@@ -250,10 +251,10 @@ func nify(s mut store.Store, f mut Frame, u Unions, c Call, x0 dense.ID[store.TK
 			return false
 		}
 		match Binding(*f, c, k) {
-		case None:
+		case option.None:
 			Bind(f, c, k, y)
 			return true
-		case Some{Value: b}:
+		case option.Some{Value: b}:
 			let none = NoValue(s)
 			if b == none || y == none {
 				return b == y
@@ -272,9 +273,9 @@ func nify(s mut store.Store, f mut Frame, u Unions, c Call, x0 dense.ID[store.TK
 	// A union matches one of its variants (types.md, Unions).
 	if mode&exact == 0 {
 		match unionMatch(s, f, u, c, x, y, d) {
-		case Some[bool] as m:
+		case option.Some[bool] as m:
 			return m.Value
-		case None:
+		case option.None:
 		}
 	}
 	let kx = store.KindOfType(*s, x)
@@ -285,10 +286,10 @@ func nify(s mut store.Store, f mut Frame, u Unions, c Call, x0 dense.ID[store.TK
 		}
 		let xs = store.OperandsOf(*s, x)
 		let ys = store.OperandsOf(*s, y)
-		if len(xs) != len(ys) {
+		if xs.Len() != ys.Len() {
 			return false
 		}
-		for i in 0..len(xs) {
+		for i in 0..xs.Len() {
 			if store.KindOfType(*s, xs[i]) == store.KRow {
 				if store.KindOfType(*s, ys[i]) != store.KRow {
 					return false
@@ -318,14 +319,14 @@ func nify(s mut store.Store, f mut Frame, u Unions, c Call, x0 dense.ID[store.TK
 		}
 		let xs = store.OperandsOf(*s, x)
 		let ys = store.OperandsOf(*s, y)
-		if len(xs) != len(ys) {
+		if xs.Len() != ys.Len() {
 			return false
 		}
 		// An array's first operand is its length: equal lengths are one id.
 		// A tuple's parts keep the mode; the others' elements match
 		// exactly under assign.
 		let m = if kx == store.KTuple { mode } else { elemMode(mode) }
-		for i in 0..len(xs) {
+		for i in 0..xs.Len() {
 			if !nify(s, f, u, c, xs[i], ys[i], m, d) {
 				return false
 			}
@@ -339,7 +340,7 @@ func nify(s mut store.Store, f mut Frame, u Unions, c Call, x0 dense.ID[store.TK
 // results is the count of results a signature's result operand stands
 // for: none for the empty tuple, a tuple's length, else one.
 func results(s store.Store, r dense.ID[store.TKey]) int {
-	if store.KindOfType(s, r) == store.KTuple { len(store.OperandsOf(s, r)) } else { 1 }
+	if store.KindOfType(s, r) == store.KTuple { store.OperandsOf(s, r).Len() } else { 1 }
 }
 
 // nifySig unifies two signatures: parameters and results, then the rows by
@@ -348,10 +349,10 @@ func results(s store.Store, r dense.ID[store.TKey]) int {
 func nifySig(s mut store.Store, f mut Frame, u Unions, c Call, x dense.ID[store.TKey], y dense.ID[store.TKey], mode int, d int) bool {
 	let xs = store.OperandsOf(*s, x)
 	let ys = store.OperandsOf(*s, y)
-	if len(xs) != len(ys) {
+	if xs.Len() != ys.Len() {
 		return false
 	}
-	let n = len(xs) - 3
+	let n = xs.Len() - 3
 	for i in 0..n {
 		if !nify(s, f, u, c, xs[i], ys[i], mode, d) {
 			return false
@@ -405,13 +406,13 @@ func unifyRow(s mut store.Store, f mut Frame, c Call, p dense.ID[store.TKey], a 
 		let k = slotOf(*s, c, e)
 		if k >= 0 {
 			match Binding(*f, c, k) {
-			case None:
+			case option.None:
 				if firstFree < 0 {
 					firstFree = k
 				}
 				frees = frees + 1
 				continue
-			case Some{Value: b}:
+			case option.Some{Value: b}:
 				if store.KindOfType(*s, b) == store.KRow {
 					if f.slots[c.at+k].joined && firstJoined < 0 {
 						firstJoined = k
@@ -433,11 +434,11 @@ func unifyRow(s mut store.Store, f mut Frame, c Call, p dense.ID[store.TKey], a 
 				f.slots[c.at+k].joined = true
 			}
 		}
-	} else if firstJoined >= 0 && len(extra) > 0 {
+	} else if firstJoined >= 0 && extra.Len() > 0 {
 		match Binding(*f, c, firstJoined) {
-		case Some{Value: b}:
+		case option.Some{Value: b}:
 			Bind(f, c, firstJoined, store.TRow(s, union(*s, store.OperandsOf(*s, b), extra)))
-		case None:
+		case option.None:
 		}
 	}
 }
@@ -447,11 +448,11 @@ func union(s store.Store, a []dense.ID[store.TKey], b []dense.ID[store.TKey]) []
 	let mut out = []dense.ID[store.TKey]{}
 	let mut i = 0
 	let mut j = 0
-	for i < len(a) || j < len(b) {
-		if j >= len(b) || i < len(a) && dense.Index(a[i]) < dense.Index(b[j]) {
+	for i < a.Len() || j < b.Len() {
+		if j >= b.Len() || i < a.Len() && dense.Index(a[i]) < dense.Index(b[j]) {
 			out = out.Append(a[i])
 			i = i + 1
-		} else if i >= len(a) || dense.Index(b[j]) < dense.Index(a[i]) {
+		} else if i >= a.Len() || dense.Index(b[j]) < dense.Index(a[i]) {
 			out = out.Append(b[j])
 			j = j + 1
 		} else {
@@ -468,10 +469,10 @@ func minus(s store.Store, a []dense.ID[store.TKey], b []dense.ID[store.TKey]) []
 	let mut out = []dense.ID[store.TKey]{}
 	let mut j = 0
 	for x in a {
-		for j < len(b) && dense.Index(b[j]) < dense.Index(x) {
+		for j < b.Len() && dense.Index(b[j]) < dense.Index(x) {
 			j = j + 1
 		}
-		if j < len(b) && b[j] == x {
+		if j < b.Len() && b[j] == x {
 			continue
 		}
 		out = out.Append(x)

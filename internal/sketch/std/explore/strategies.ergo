@@ -1,4 +1,6 @@
 import gen
+import machines
+import option
 
 // SelectedStrategy names a non-exhaustive path selection strategy over a
 // concrete transition graph.
@@ -31,11 +33,11 @@ type SelectedPlan[O] {
 
 // SelectedCases returns the admitted cases of plan, or None if planning hit a
 // hard cap or validation error.
-func SelectedCases[O](plan SelectedPlan[O]) Option[[]PathCase] {
+func SelectedCases[O](plan SelectedPlan[O]) option.Option[[]PathCase] {
 	if !plan.admitted {
-		return None
+		return option.None
 	}
-	Some[[]PathCase]{Value: plan.Cases}
+	option.Some[[]PathCase]{Value: plan.Cases}
 }
 
 func stoppedSelected[O](stop PathStop, strategy SelectedStrategy, st PathStats, graph PathGraph[O]) SelectedPlan[O] {
@@ -55,7 +57,7 @@ func pushSelectedCase(cases []PathCase, c PathCase, bounds PathBounds, st mut Pa
 	if nextPaths > bounds.MaxPaths {
 		return (cases, PathOverPaths)
 	}
-	let stepLen = len(c.Edges)
+	let stepLen = c.Edges.Len()
 	let nextSteps = satAdd(st.Steps, stepLen)
 	if nextSteps > bounds.MaxSteps {
 		return (cases, PathOverSteps)
@@ -99,7 +101,7 @@ func buildCaseFromParents[O](g PathGraph[O], start int, pState []int32, pEdge []
 	}
 	let mut edges = []int{}
 	let mut sigs = []int{}
-	let mut i = len(rev) - 1
+	let mut i = rev.Len() - 1
 	for i >= 0 {
 		let eIdx = rev[i]
 		edges = edges.Append(eIdx)
@@ -110,12 +112,12 @@ func buildCaseFromParents[O](g PathGraph[O], start int, pState []int32, pEdge []
 }
 
 func selectShortestCases[O](g PathGraph[O], maxDepth int, bounds PathBounds, st mut PathStats) ([]PathCase, PathStop) {
-	let numStates = len(g.OutStart) - 1
+	let numStates = g.OutStart.Len() - 1
 	let mut out = []PathCase{}
-	if len(g.Roots) == 1 {
+	if g.Roots.Len() == 1 {
 		for u in 0..numStates {
 			let c = ShortestPrefix(g, u)
-			if maxDepth >= 0 && len(c.Edges) > maxDepth {
+			if maxDepth >= 0 && c.Edges.Len() > maxDepth {
 				continue
 			}
 			let (nextOut, stop) = pushSelectedCase(out, c, bounds, st)
@@ -129,7 +131,7 @@ func selectShortestCases[O](g PathGraph[O], maxDepth int, bounds PathBounds, st 
 		return (out, PathComplete)
 	}
 
-	for startIdx in 0..len(g.Roots) {
+	for startIdx in 0..g.Roots.Len() {
 		let root = g.Roots[startIdx]
 		let mut seen = []bool{}
 		let mut pState = []int32{}
@@ -144,7 +146,7 @@ func selectShortestCases[O](g PathGraph[O], maxDepth int, bounds PathBounds, st 
 		seen[root] = true
 		let mut queue = []int{root}
 		let mut head = 0
-		for head < len(queue) {
+		for head < queue.Len() {
 			let u = queue[head]
 			head = head + 1
 			let c = buildCaseFromParents(g, startIdx, pState, pEdge, u)
@@ -183,14 +185,14 @@ func selectShortestCases[O](g PathGraph[O], maxDepth int, bounds PathBounds, st 
 }
 
 func selectSimpleCases[O](g PathGraph[O], maxDepth int, bounds PathBounds, st mut PathStats) ([]PathCase, PathStop) {
-	let numStates = len(g.OutStart) - 1
+	let numStates = g.OutStart.Len() - 1
 	let mut out = []PathCase{}
 	let mut onPath = []bool{}
 	for _ in 0..numStates {
 		onPath = onPath.Append(false)
 	}
 
-	for startIdx in 0..len(g.Roots) {
+	for startIdx in 0..g.Roots.Len() {
 		let root = g.Roots[startIdx]
 		let (nextOut0, stop0) = pushSelectedCase(out, PathCase{Start: startIdx, Edges: []int{}, Signals: []int{}}, bounds, st)
 		match stop0 {
@@ -207,8 +209,8 @@ func selectSimpleCases[O](g PathGraph[O], maxDepth int, bounds PathBounds, st mu
 		let mut spineEdges = []int{}
 		let mut spineNext = []int{g.OutStart[root]}
 
-		for len(spineNext) > 0 {
-			let depth = len(spineEdges)
+		for spineNext.Len() > 0 {
+			let depth = spineEdges.Len()
 			let u = spineStates[depth]
 			let endEdge = g.OutStart[u+1]
 			let eIdx = spineNext[depth]
@@ -277,7 +279,7 @@ func selectSimpleCases[O](g PathGraph[O], maxDepth int, bounds PathBounds, st mu
 
 func selectEdgeCases[O](g PathGraph[O], maxDepth int, bounds PathBounds, st mut PathStats) ([]PathCase, PathStop) {
 	let mut out = []PathCase{}
-	for startIdx in 0..len(g.Roots) {
+	for startIdx in 0..g.Roots.Len() {
 		let (nextOut, stop) = pushSelectedCase(out, PathCase{Start: startIdx, Edges: []int{}, Signals: []int{}}, bounds, st)
 		match stop {
 		case PathComplete:
@@ -289,10 +291,10 @@ func selectEdgeCases[O](g PathGraph[O], maxDepth int, bounds PathBounds, st mut 
 	if maxDepth == 0 {
 		return (out, PathComplete)
 	}
-	for eIdx in 0..len(g.Edges) {
+	for eIdx in 0..g.Edges.Len() {
 		let e = g.Edges[eIdx]
 		let base = ShortestPrefix(g, e.Source)
-		if maxDepth >= 0 && len(base.Edges)+1 > maxDepth {
+		if maxDepth >= 0 && base.Edges.Len()+1 > maxDepth {
 			continue
 		}
 		let c = appendEdgeToCase(g, base, eIdx)
@@ -325,17 +327,17 @@ func SelectFromGraph[O](g PathGraph[O], strategy SelectedStrategy, scope PathSco
 		Reconstructions: 0,
 	}
 	match validatePathBounds(scope, bounds) {
-	case Some as err:
+	case option.Some as err:
 		return stoppedSelected[O](BadBounds{Reason: err.Value}, strategy, emptySt, g)
-	case None:
+	case option.None:
 	}
-	if len(g.Roots) == 0 {
+	if g.Roots.Len() == 0 {
 		return stoppedSelected[O](EmptyStarts, strategy, emptySt, g)
 	}
-	let numStates = if len(g.OutStart) > 0 { len(g.OutStart) - 1 } else { 0 }
+	let numStates = if g.OutStart.Len() > 0 { g.OutStart.Len() - 1 } else { 0 }
 	let mut st = PathStats{
 		States:          numStates,
-		Edges:           len(g.Edges),
+		Edges:           g.Edges.Len(),
 		Disabled:        0,
 		Frontier:        0,
 		Paths:           0,
@@ -395,9 +397,9 @@ func SelectPaths[S wire, E wire, O](g ConcreteGraph[S, E, O], strategy SelectedS
 		Reconstructions: 0,
 	}
 	match validatePathBounds(scope, bounds) {
-	case Some as err:
+	case option.Some as err:
 		return stoppedSelected[O](BadBounds{Reason: err.Value}, strategy, emptySt, emptyPathGraph[O]())
-	case None:
+	case option.None:
 	}
 	let maxDepth = match scope {
 	case ToDepth as d:
@@ -438,7 +440,7 @@ func SelectPaths[S wire, E wire, O](g ConcreteGraph[S, E, O], strategy SelectedS
 
 // SelectMachinePaths adapts m and signals to a ConcreteGraph and applies a
 // selected (non-exhaustive) strategy under scope and bounds.
-func SelectMachinePaths[S wire, E wire, O](m Machine[S, E, O], signals []E, strategy SelectedStrategy, scope PathScope, bounds PathBounds) SelectedPlan[MachineObs[O]] needs wired[S] | wired[E] {
+func SelectMachinePaths[S wire, E wire, O](m machines.Machine[S, E, O], signals []E, strategy SelectedStrategy, scope PathScope, bounds PathBounds) SelectedPlan[MachineObs[O]] needs wired[S] | wired[E] {
 	SelectPaths(ConcreteOfMachine(m, signals), strategy, scope, bounds)
 }
 
@@ -494,7 +496,7 @@ func spGraph(bias int, multiStart bool) ConcreteGraph[spState, spEvent, int] {
 }
 
 func spFindState(xs []spState, x spState) int {
-	for i in 0..len(xs) {
+	for i in 0..xs.Len() {
 		if xs[i] == x {
 			return i
 		}
@@ -504,16 +506,16 @@ func spFindState(xs []spState, x spState) int {
 
 func spOracleShortest(g ConcreteGraph[spState, spEvent, int]) []spOracleCase {
 	let mut out = []spOracleCase{}
-	for startIdx in 0..len(g.Starts) {
+	for startIdx in 0..g.Starts.Len() {
 		let mut states = []spState{g.Starts[startIdx]}
 		let mut sigLists = [][]int{[]int{}}
 		let mut head = 0
-		for head < len(states) {
+		for head < states.Len() {
 			let cur = states[head]
 			let prefix = sigLists[head]
 			head = head + 1
 			out = out.Append(spOracleCase{Start: startIdx, Signals: prefix})
-			for eIdx in 0..len(g.Signals) {
+			for eIdx in 0..g.Signals.Len() {
 				match g.Step(cur, g.Signals[eIdx]) {
 				case Disabled[int]:
 				case Terminal[int]:
@@ -531,7 +533,7 @@ func spOracleShortest(g ConcreteGraph[spState, spEvent, int]) []spOracleCase {
 
 func spOracleSimpleDFS(g ConcreteGraph[spState, spEvent, int], startIdx int, cur spState, visited []spState, prefix []int, acc []spOracleCase) []spOracleCase {
 	let mut out = acc
-	for eIdx in 0..len(g.Signals) {
+	for eIdx in 0..g.Signals.Len() {
 		match g.Step(cur, g.Signals[eIdx]) {
 		case Disabled[int]:
 		case Terminal[int]:
@@ -550,7 +552,7 @@ func spOracleSimpleDFS(g ConcreteGraph[spState, spEvent, int], startIdx int, cur
 
 func spOracleSimple(g ConcreteGraph[spState, spEvent, int]) []spOracleCase {
 	let mut out = []spOracleCase{}
-	for startIdx in 0..len(g.Starts) {
+	for startIdx in 0..g.Starts.Len() {
 		let s0 = g.Starts[startIdx]
 		out = out.Append(spOracleCase{Start: startIdx, Signals: []int{}})
 		out = spOracleSimpleDFS(g, startIdx, s0, []spState{s0}, []int{}, out)
@@ -563,7 +565,7 @@ func spOracleEdges(g ConcreteGraph[spState, spEvent, int]) []spOracleCase {
 	let mut starts = []int{}
 	let mut prefixes = [][]int{}
 	let mut out = []spOracleCase{}
-	for i in 0..len(g.Starts) {
+	for i in 0..g.Starts.Len() {
 		out = out.Append(spOracleCase{Start: i, Signals: []int{}})
 		if spFindState(states, g.Starts[i]) < 0 {
 			states = states.Append(g.Starts[i])
@@ -572,12 +574,12 @@ func spOracleEdges(g ConcreteGraph[spState, spEvent, int]) []spOracleCase {
 		}
 	}
 	let mut head = 0
-	for head < len(states) {
+	for head < states.Len() {
 		let cur = states[head]
 		let stIdx = starts[head]
 		let pref = prefixes[head]
 		head = head + 1
-		for eIdx in 0..len(g.Signals) {
+		for eIdx in 0..g.Signals.Len() {
 			match g.Step(cur, g.Signals[eIdx]) {
 			case Disabled[int]:
 			case Terminal[int]:
@@ -596,11 +598,11 @@ func spOracleEdges(g ConcreteGraph[spState, spEvent, int]) []spOracleCase {
 }
 
 func spCasesMatch(got []PathCase, want []spOracleCase) bool {
-	if len(got) != len(want) {
+	if got.Len() != want.Len() {
 		return false
 	}
-	for i in 0..len(got) {
-		if got[i].Start != want[i].Start || got[i].Signals != want[i].Signals || len(got[i].Edges) != len(got[i].Signals) {
+	for i in 0..got.Len() {
+		if got[i].Start != want[i].Start || got[i].Signals != want[i].Signals || got[i].Edges.Len() != got[i].Signals.Len() {
 			return false
 		}
 	}
@@ -630,7 +632,7 @@ func spSimpleHasNoRepeat(g ConcreteGraph[spState, spEvent, int], cases []PathCas
 
 func spHasSignalEnding(cases []PathCase, sigIdx int) bool {
 	for c in cases {
-		if len(c.Signals) > 0 && c.Signals[len(c.Signals)-1] == sigIdx {
+		if c.Signals.Len() > 0 && c.Signals[c.Signals.Len()-1] == sigIdx {
 			return true
 		}
 	}
@@ -659,33 +661,33 @@ law SelectedPathsKeepTheirPromise() {
 		}
 
 		let cShort1 = match SelectedCases(pShort1) {
-		case Some as x:
+		case option.Some as x:
 			x.Value
-		case None:
+		case option.None:
 			return false
 		}
 		let cShort2 = match SelectedCases(pShort2) {
-		case Some as x:
+		case option.Some as x:
 			x.Value
-		case None:
+		case option.None:
 			return false
 		}
 		let cSimple2 = match SelectedCases(pSimple2) {
-		case Some as x:
+		case option.Some as x:
 			x.Value
-		case None:
+		case option.None:
 			return false
 		}
 		let cEdges1 = match SelectedCases(pEdges1) {
-		case Some as x:
+		case option.Some as x:
 			x.Value
-		case None:
+		case option.None:
 			return false
 		}
 		let cEdges2 = match SelectedCases(pEdges2) {
-		case Some as x:
+		case option.Some as x:
 			x.Value
-		case None:
+		case option.None:
 			return false
 		}
 
@@ -709,7 +711,7 @@ law SelectedPathsKeepTheirPromise() {
 		let capEdges = SelectPaths(g1, SelectedEdges, All, PathBounds{
 			MaxStates: 64,
 			MaxEdges:  256,
-			MaxPaths:  len(cEdges1) - 1,
+			MaxPaths:  cEdges1.Len() - 1,
 			MaxSteps:  8192,
 			MaxWork:   200000,
 			MaxBytes:  1048576,
@@ -720,16 +722,16 @@ law SelectedPathsKeepTheirPromise() {
 			return false
 		}
 		match SelectedCases(capEdges) {
-		case None:
-		case Some:
+		case option.None:
+		case option.Some:
 			return false
 		}
 
 		let fromGraph = SelectFromGraph(pEdges1.Graph, SelectedEdges, All, big)
 		let cFromGraph = match SelectedCases(fromGraph) {
-		case Some as x:
+		case option.Some as x:
 			x.Value
-		case None:
+		case option.None:
 			return false
 		}
 		spCasesMatch(cFromGraph, spOracleEdges(g1))

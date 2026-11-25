@@ -65,9 +65,9 @@ func Open(files fs.Files, writes fs.Writes, path string) Store fails proof.Faile
 		let op = try opOf(path, n, strings.TrimSuffix(raw, "\n"))
 		let (_, next, _) = proof.Apply(s, op)
 		s = next
-		whole = whole + len(raw)
+		whole = whole + raw.Len()
 	}
-	if whole < len(text) {
+	if whole < text.Len() {
 		writes.WriteFile(path, strings.Slice(text, 0, whole)) catch {
 		case fs.NotFound:
 			return proof.Failed{Reason: "\(path): no such directory"}
@@ -320,7 +320,7 @@ func lineOf(op proof.Op) string {
 func opOf(path string, n int, line string) proof.Op fails proof.Failed {
 	let f = strings.Split(line, "\t")
 	let bad = proof.Failed{Reason: "\(path):\(n): not a change"}
-	match (f[0], len(f)) {
+	match (f[0], f.Len()) {
 	case ("iss", 6):
 		proof.IssueOp{ID: try unquote(f[1], bad), Digest: try digestOf(f[2], bad), Expires: try timeOf(f[3], f[4], bad), Attempts: try intOf(f[5], bad)}
 	case ("red", 5):

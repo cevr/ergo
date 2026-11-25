@@ -18,7 +18,10 @@
 import http
 import json
 import net
+import option
+import os
 import strings
+import time
 
 // Failed is a typed failure on the wire: Text is the failure's JSON, a
 // {"_tag": ...} object. A handler fails it to answer a Fail cause, and
@@ -52,7 +55,7 @@ extern go ergo.local/prototype/runtime/v1/rpc.RPCEnvelope type Envelope { Tag st
 // one task per request serve RPC as they serve any route. A program that
 // serves other routes beside RPC calls Answer from its own handler.
 // limits are http.Serve's: a body over MaxBodyBytes is refused with 413.
-func Serve[R](l net.Listener, limits http.Limits, mount string, handle own func(tag string, payload string) string fails Failed needs R) fails http.InvalidLimits needs R | Scheduler {
+func Serve[R](l net.Listener, limits http.Limits, mount string, handle own func(tag string, payload string) string fails Failed needs R) fails http.InvalidLimits needs R | time.Scheduler {
 	try http.Serve(l, limits, func(r http.Request) http.Response needs R | http.Streaming {
 		Answer(r, mount, handle)
 	})
@@ -84,9 +87,9 @@ func Answer[R](r http.Request, mount string, handle own func(tag string, payload
 		refusal(400, "rpc: \(f.Reason)")
 	case http.Buffered as b:
 		let framed = match http.Header(r.Header, "Content-Type") {
-		case Some as c:
+		case option.Some as c:
 			strings.HasPrefix(c.Value, "application/x-ndjson")
-		case None:
+		case option.None:
 			false
 		}
 		let envelopes = parse(b.Text, framed) catch {
@@ -141,7 +144,7 @@ type Conn { post func(tag string, payload string) string fails Failed | Unrepres
 
 // Dial is the server at url, the URL its mount answers (no request is
 // made until a Call).
-func Dial(url string) Conn needs Ambient {
+func Dial(url string) Conn needs os.Ambient {
 	Conn{post: func(tag string, payload string) string fails Failed | Unrepresentable | Transport { try call(url, tag, payload) }}
 }
 
@@ -160,9 +163,9 @@ func Loopback(handle own func(tag string, payload string) string fails Failed) C
 			Answer(r, "/rpc", handle)
 		}
 		let contentType = match http.Header(answer.Header, "Content-Type") {
-		case Some as c:
+		case option.Some as c:
 			c.Value
-		case None:
+		case option.None:
 			""
 		}
 		try readExit(id, answer.Status, contentType, answer.Body)

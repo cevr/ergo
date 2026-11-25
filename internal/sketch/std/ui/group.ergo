@@ -1,4 +1,6 @@
 import arena
+import core
+import option
 
 // Groups (P-ui, skipping; stdlib.md, UI 13). A component is a view
 // function the program declares, called with a frame and arguments that
@@ -68,7 +70,7 @@ type groupKey[E] { owner arena.Ref[node[E]], id ident }
 // outermost group that held this one when that group was kept, in that
 // group's gen withinGen, or -1: a group inside a group written again is
 // kept through it (keptThrough), not stamped.
-type keptGroup[E] { key groupKey[E], slot int, tops []keptTop[E], inner []int, stamp int, held bool, alone bool, each CallSite, allOff bool, offSelf bool, gen int, within int, withinGen int, sames int }
+type keptGroup[E] { key groupKey[E], slot int, tops []keptTop[E], inner []int, stamp int, held bool, alone bool, each core.CallSite, allOff bool, offSelf bool, gen int, within int, withinGen int, sames int }
 
 // pendingCounts is a kept group written again whose tops' counts the pass
 // has not taken: under parent spec parent (-1 the top), kept group entry,
@@ -77,7 +79,7 @@ type pendingCounts { parent int, entry int, start int, done bool }
 
 // keptTop is one top node of a kept group: what it shows, its identity,
 // its node and its disabled state.
-type keptTop[E] { node Node[E], id ident, ref arena.Ref[node[E]], onText Option[func(t string) E], onPoint Option[func(p PointerEvent) Option[E]], onKey Option[func(k KeyPress) Option[E]], off bool }
+type keptTop[E] { node Node[E], id ident, ref arena.Ref[node[E]], onText option.Option[func(t string) E], onPoint option.Option[func(p PointerEvent) option.Option[E]], onKey option.Option[func(k KeyPress) option.Option[E]], off bool }
 
 // groupRec is one group of a pass: its parent spec, identity and slot, the
 // specs it wrote [start, end), the enclosing group (-1 none), whether it
@@ -102,7 +104,7 @@ func takePending[E](f mut Frame[E], p int) {
 	for b in 0..f.npending {
 		if f.pending[b].parent == p && !f.pending[b].done {
 			let e = f.pending[b].entry
-			for k in 0..len(f.keptList[e].tops) {
+			for k in 0..f.keptList[e].tops.Len() {
 				let id = f.keptList[e].tops[k].id
 				let mut counted = slotOf{parent: p, b: base{site: id.site, each: id.each, key: id.key}}
 				count(f, &counted, 1)
@@ -125,7 +127,7 @@ func giveBack[E](f mut Frame[E], start int) {
 		let g = f.pending[f.npending]
 		if g.done {
 			let e = g.entry
-			for k in 0..len(f.keptList[e].tops) {
+			for k in 0..f.keptList[e].tops.Len() {
 				let id = f.keptList[e].tops[k].id
 				let mut counted = slotOf{parent: g.parent, b: base{site: id.site, each: id.each, key: id.key}}
 				count(f, &counted, -1)
@@ -159,7 +161,7 @@ func keepGroups[E](f mut Frame[E]) {
 		if g.again >= 0 {
 			// The groups inside it are kept through it: counted, not
 			// stamped (a list holder of 800 rows holds 800).
-			stamped = stamped + restamp(f, g.again, stamp) + len(f.keptList[g.again].inner)
+			stamped = stamped + restamp(f, g.again, stamp) + f.keptList[g.again].inner.Len()
 			let mut up = g.outer
 			for up >= 0 {
 				inner[up] = inner[up].Append(g.again)
@@ -186,7 +188,7 @@ func keepGroups[E](f mut Frame[E]) {
 						if c.block >= 0 {
 							c = blockTop(f, j, k)
 						}
-						if len(tops) == 0 {
+						if tops.Len() == 0 {
 							each = c.id.each
 						}
 						if c.id.n != 0 || c.id.each != each {
@@ -213,7 +215,7 @@ func keepGroups[E](f mut Frame[E]) {
 				f.keptList[at] = k
 				f.kept[key] = at
 			} else {
-				at = len(f.keptList)
+				at = f.keptList.Len()
 				f.kept[key] = at
 				f.keptList = f.keptList.Append(k)
 			}
@@ -238,14 +240,14 @@ func keepGroups[E](f mut Frame[E]) {
 	if stamped == f.nheld {
 		return
 	}
-	f.swept = len(f.keptList)
-	for i in 0..len(f.keptList) {
+	f.swept = f.keptList.Len()
+	for i in 0..f.keptList.Len() {
 		if f.keptList[i].held && f.keptList[i].stamp != stamp && !keptThrough(f, i, stamp) {
 			argsFree(f.args, f.keptList[i].slot)
 			f.kept = f.kept.Delete(f.keptList[i].key)
 			f.keptList[i].held = false
 			f.nheld = f.nheld - 1
-			if f.nfree < len(f.free) {
+			if f.nfree < f.free.Len() {
 				f.free[f.nfree] = i
 			} else {
 				f.free = f.free.Append(i)

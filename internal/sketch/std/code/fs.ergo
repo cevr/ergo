@@ -1,4 +1,6 @@
 import fs
+import fstest
+import option
 import strings
 import sync
 
@@ -41,7 +43,7 @@ type disk {
 	host  fs.Host,
 	root  string,
 	state string,
-	lock  sync.Ref[Option[fs.FileLock]],
+	lock  sync.Ref[option.Option[fs.FileLock]],
 }
 
 // HostFilesOf is the Files of the workspace in the folder root, through
@@ -54,15 +56,15 @@ func HostFilesOf(host fs.Host, root string) HostFiles {
 // HostFilesIn is the Files of the workspace in the folder root, through
 // host, with its lock and journal in the folder state.
 func HostFilesIn(host fs.Host, root string, state string) HostFiles {
-	let d = disk{host: host, root: root, state: state, lock: sync.NewRef[Option[fs.FileLock]](None)}
+	let d = disk{host: host, root: root, state: state, lock: sync.NewRef[option.Option[fs.FileLock]](option.None)}
 	HostFiles{
-		read: func(path string) string fails Missing | IOFailed { try readOn(d, path) },
-		write: func(path string, text string) fails IOFailed { try writeOn(d, path, text) },
+		read:     func(path string) string fails Missing | IOFailed { try readOn(d, path) },
+		write:    func(path string, text string) fails IOFailed { try writeOn(d, path, text) },
 		exchange: func(a string, b string) fails Missing | IOFailed { try exchangeOn(d, a, b) },
-		remove: func(path string) fails IOFailed { try removeOn(d, path) },
-		exists: func(path string) bool fails IOFailed { try existsOn(d, path) },
-		lock: func() fails Busy | IOFailed { try lockOn(d) },
-		unlock: func() fails IOFailed { try unlockOn(d) },
+		remove:   func(path string) fails IOFailed { try removeOn(d, path) },
+		exists:   func(path string) bool fails IOFailed { try existsOn(d, path) },
+		lock:     func() fails Busy | IOFailed { try lockOn(d) },
+		unlock:   func() fails IOFailed { try unlockOn(d) },
 	}
 }
 
@@ -239,9 +241,9 @@ func existsOn(h disk, path string) bool fails IOFailed {
 // lockOn is Lock on h.
 func lockOn(h disk) fails Busy | IOFailed {
 	match h.lock.Get() {
-	case Some[fs.FileLock]:
+	case option.Some[fs.FileLock]:
 		return
-	case None:
+	case option.None:
 	}
 	try folderOf(h, LockPath)
 	let got = fs.LockFile(h.host, onHost(h, LockPath), 0s) catch {
@@ -253,9 +255,9 @@ func lockOn(h disk) fails Busy | IOFailed {
 		return ioFailed(LockPath, e.Reason)
 	}
 	match got {
-	case Some[fs.FileLock] as l:
-		h.lock.Set(Some[fs.FileLock]{Value: l.Value})
-	case None:
+	case option.Some[fs.FileLock] as l:
+		h.lock.Set(option.Some[fs.FileLock]{Value: l.Value})
+	case option.None:
 		return Busy
 	}
 }
@@ -263,13 +265,13 @@ func lockOn(h disk) fails Busy | IOFailed {
 // unlockOn is Unlock on h.
 func unlockOn(h disk) fails IOFailed {
 	match h.lock.Get() {
-	case Some[fs.FileLock] as l:
+	case option.Some[fs.FileLock] as l:
 		fs.UnlockFile(h.host, l.Value)
-		h.lock.Set(None)
-	case None:
+		h.lock.Set(option.None)
+	case option.None:
 	}
 }
 
 // OnTestHost runs the Files laws on the product provider, in a folder of
 // the case's own (rows.md, Test's ambient).
-let OnTestHost = context needs TestAmbient { Files: HostFilesOf(fs.NewTestHost(), "") }
+let OnTestHost = context needs fstest.TestAmbient { Files: HostFilesOf(fs.NewTestHost(), "") }

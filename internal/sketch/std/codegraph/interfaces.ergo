@@ -1,4 +1,5 @@
 import maps
+import option
 import slices
 import strings
 import utf8
@@ -25,7 +26,7 @@ type place {
 	InScope  bool,
 }
 
-func Wide(i Interface, max int) bool { len(i.Entries) > max && i.Widest > max }
+func Wide(i Interface, max int) bool { i.Entries.Len() > max && i.Widest > max }
 
 func ObservedInterfaces(r Rows, modules []int) Interfaces {
 	let mut work = 0
@@ -56,7 +57,7 @@ func ObservedInterfaces(r Rows, modules []int) Interfaces {
 	let mut namedSeen = Map[int, bool]{}
 	let mut calls = Map[int, []int]{}
 	let mut callSeen = Map[int, bool]{}
-	let width = len(r.Nodes)
+	let width = r.Nodes.Len()
 	for k, e in r.Edges {
 		if e.Kind != "uses" || !places[e.From].Ordinary || !places[e.To].Ordinary {
 			continue
@@ -65,9 +66,9 @@ func ObservedInterfaces(r Rows, modules []int) Interfaces {
 		let b = places[e.To]
 		let (resolved, steps) = resolve(aliases, e.To)
 		work = work + steps
-		if (e.How == "call" || e.How == "read") && resolved >= 0 && callable(r.Nodes[resolved].Sub) && a.InScope && b.InScope && a.Package != b.Package && b.File >= 0 && firstSite.Get(e.To) == None {
+		if (e.How == "call" || e.How == "read") && resolved >= 0 && callable(r.Nodes[resolved].Sub) && a.InScope && b.InScope && a.Package != b.Package && b.File >= 0 && firstSite.Get(e.To) == option.None {
 			firstSite[e.To] = k
-			if entriesOf.Get(b.Package) == None {
+			if entriesOf.Get(b.Package) == option.None {
 				packages = packages.Append(b.Package)
 			}
 			entriesOf[b.Package] = maps.GetOr(entriesOf, b.Package, []int{}).Append(e.To)
@@ -77,11 +78,11 @@ func ObservedInterfaces(r Rows, modules []int) Interfaces {
 		}
 		let topSub = r.Nodes[b.Top].Sub
 		let sub = r.Nodes[e.To].Sub
-		if (topSub == "type" || topSub == "machine") && (e.How == "typeuse" || e.How == "construct" || e.How == "match" || sub == "field" || sub == "operation" || sub == "variant") && namedSeen.Get(a.Top*width+b.Top) == None {
+		if (topSub == "type" || topSub == "machine") && (e.How == "typeuse" || e.How == "construct" || e.How == "match" || sub == "field" || sub == "operation" || sub == "variant") && namedSeen.Get(a.Top*width+b.Top) == option.None {
 			namedSeen[a.Top*width+b.Top] = true
 			named[a.Top] = maps.GetOr(named, a.Top, []int{}).Append(b.Top)
 		}
-		if e.How == "call" && resolved >= 0 && r.Nodes[resolved].Sub == "func" && places[resolved].Package == a.Package && callSeen.Get(a.Top*width+resolved) == None {
+		if e.How == "call" && resolved >= 0 && r.Nodes[resolved].Sub == "func" && places[resolved].Package == a.Package && callSeen.Get(a.Top*width+resolved) == option.None {
 			callSeen[a.Top*width+resolved] = true
 			calls[a.Top] = maps.GetOr(calls, a.Top, []int{}).Append(resolved)
 		}
@@ -106,12 +107,12 @@ func ObservedInterfaces(r Rows, modules []int) Interfaces {
 			} else if local {
 				groups = maps.GetOr(named, real, []int{})
 			}
-			if len(groups) == 0 {
+			if groups.Len() == 0 {
 				groups = []int{entry}
 			}
 			for g in groups {
 				work = work + 1
-				if members.Get(g) == None {
+				if members.Get(g) == option.None {
 					keys = keys.Append(g)
 				}
 				members[g] = maps.GetOr(members, g, []int{}).Append(entry)
@@ -127,20 +128,20 @@ func ObservedInterfaces(r Rows, modules []int) Interfaces {
 		for g in slices.Sort(keys) {
 			let m = maps.GetOr(members, g, []int{})
 			grouped = grouped.Append(InterfaceGroup{Node: g, Entries: m})
-			if len(m) > widest {
-				widest = len(m)
+			if m.Len() > widest {
+				widest = m.Len()
 			}
 		}
-		if len(grouped) > widest {
-			widest = len(grouped)
+		if grouped.Len() > widest {
+			widest = grouped.Len()
 		}
 		let mut visited = Map[int, bool]{}
 		let mut backing = []int{}
-		for len(todo) > 0 {
-			let current = todo[len(todo)-1]
-			todo = todo[0 : len(todo)-1]
+		for todo.Len() > 0 {
+			let current = todo[todo.Len()-1]
+			todo = todo[0 : todo.Len()-1]
 			work = work + 1
-			if visited.Get(current) != None {
+			if visited.Get(current) != option.None {
 				continue
 			}
 			visited[current] = true
@@ -160,7 +161,7 @@ func placed(r Rows, i int, parent place, chosen Map[int, bool]) place {
 	at.Ordinary = parent.Ordinary && row.Sub != "test" && row.Sub != "law"
 	match row.Kind {
 	case "module":
-		at.InScope = chosen.Get(i) != None
+		at.InScope = chosen.Get(i) != option.None
 	case "package":
 		at.Package = i
 	case "file":
@@ -177,13 +178,13 @@ func placed(r Rows, i int, parent place, chosen Map[int, bool]) place {
 func placeOf(r Rows, i int, chosen Map[int, bool]) place {
 	let mut chain = []int{}
 	let mut n = i
-	for n >= 0 && len(chain) <= len(r.Nodes) {
+	for n >= 0 && chain.Len() <= r.Nodes.Len() {
 		chain = chain.Append(n)
 		n = r.Nodes[n].Parent
 	}
 	let mut at = place{Package: -1, File: -1, Top: -1, Ordinary: true, InScope: false}
-	for k in 0..len(chain) {
-		at = placed(r, chain[len(chain)-1-k], at, chosen)
+	for k in 0..chain.Len() {
+		at = placed(r, chain[chain.Len()-1-k], at, chosen)
 	}
 	at
 }
@@ -194,14 +195,14 @@ func resolve(aliases Map[int, int], from int) (int, int) {
 	let mut seen = Map[int, bool]{}
 	for {
 		match aliases.Get(at) {
-		case Some[int] as next:
-			if seen.Get(at) != None {
+		case option.Some[int] as next:
+			if seen.Get(at) != option.None {
 				return (-1, steps)
 			}
 			seen[at] = true
 			steps = steps + 1
 			at = next.Value
-		case None:
+		case option.None:
 			return (at, steps)
 		}
 	}
@@ -210,7 +211,7 @@ func resolve(aliases Map[int, int], from int) (int, int) {
 func callable(sub string) bool { sub == "func" || sub == "operation" }
 
 func exported(name string) bool {
-	let last = name[strings.LastIndex(name, ".")+1 : len(name)]
+	let last = name[strings.LastIndex(name, ".")+1 : name.Len()]
 	last != "" && utf8.IsUpper(utf8.DecodeRuneInString(last).Rune)
 }
 
@@ -224,5 +225,5 @@ func observedInterfacesWorkIsLinear(seed int, size int) bool {
 			lets = lets + 1
 		}
 	}
-	ObservedInterfaces(r, []int{0}).Work <= 4*lets*(len(r.Nodes)+len(r.Edges))
+	ObservedInterfaces(r, []int{0}).Work <= 4*lets*(r.Nodes.Len()+r.Edges.Len())
 }

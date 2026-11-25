@@ -3,6 +3,7 @@ import compiler/check/store
 import compiler/ir
 import compiler/syntax
 import dense
+import option
 
 type aggregate {
 	typ    string,
@@ -17,9 +18,9 @@ type aggregate {
 func aggregateLiteral(st fnb, x dense.ID[syntax.Node], cl syntax.CompositeLit) aggregate fails Unported {
 	let t = try typeOf(st, x, "CompositeLit")
 	let gt = shapeGo(st, t)
-	let checked = dense.Unpack(cl.Type) != None
+	let checked = dense.Unpack(cl.Type) != option.None
 	if store.KindOfType(st.s, t) == store.KSlice {
-		if gt == "" || !checked || dense.Unpack(cl.Base) != None {
+		if gt == "" || !checked || dense.Unpack(cl.Base) != option.None {
 			return stop("slice literal of unsupported shape")
 		}
 		let elem = store.OperandsOf(st.s, t)[0]
@@ -41,15 +42,15 @@ func aggregateLiteral(st fnb, x dense.ID[syntax.Node], cl syntax.CompositeLit) a
 		st.k.Recs[r].Fields
 	} else {
 		match importedFields(st, t) {
-		case Some{Value: fields}:
+		case option.Some{Value: fields}:
 			fields
-		case None:
+		case option.None:
 			return stop("literal of no plain record")
 		}
 	}
 	let n = syntax.Len(cl.Elts)
 	match dense.Unpack(cl.Base) {
-	case Some{Value: base}:
+	case option.Some{Value: base}:
 		// Keep the original basic-record update. For a reference-bearing
 		// base the Go value rules decide which paths to copy or transfer.
 		if plainRecord(st, t) < 0 {
@@ -62,8 +63,8 @@ func aggregateLiteral(st fnb, x dense.ID[syntax.Node], cl syntax.CompositeLit) a
 			return stop("record update of another type")
 		}
 		let _ = try paramLocal(st, base)
-	case None:
-		if n != len(fields) {
+	case option.None:
+		if n != fields.Len() {
 			return stop("record literal without every field")
 		}
 	}
@@ -77,7 +78,7 @@ func aggregateLiteral(st fnb, x dense.ID[syntax.Node], cl syntax.CompositeLit) a
 		case _:
 			(i, e)
 		}
-		if j < 0 || j >= len(fields) {
+		if j < 0 || j >= fields.Len() {
 			return stop("record key")
 		}
 		let f = fields[j]
@@ -102,9 +103,9 @@ func fieldIndex(fields []expr.Field, name string) int {
 func emitAggregate(st fnb, b mut ir.Builder, x dense.ID[syntax.Node], cl syntax.CompositeLit, at ir.Pos) uint32 fails Unported | ir.Malformed {
 	let a = try aggregateLiteral(st, x, cl)
 	let base = match dense.Unpack(cl.Base) {
-	case Some{Value: bx}:
+	case option.Some{Value: bx}:
 		try value(st, b, bx)
-	case None:
+	case option.None:
 		uint32(0)
 	}
 	let mut elems = []uint32{}
@@ -132,7 +133,7 @@ func field(st fnb, x dense.ID[syntax.Node], se syntax.SelectorExpr) string fails
 	let t = try typeOf(st, se.X, "selector operand")
 	if ordinaryRecord(st, t) < 0 {
 		match importedFields(st, t) {
-		case Some{Value: fields}:
+		case option.Some{Value: fields}:
 			// The selector's type is checked in the consumer's pool.
 			let name = nameText(st.p, se.Sel)
 			let i = fieldIndex(fields, name)
@@ -140,7 +141,7 @@ func field(st fnb, x dense.ID[syntax.Node], se syntax.SelectorExpr) string fails
 				return stop("selector that is no imported field")
 			}
 			return name
-		case None:
+		case option.None:
 		}
 		return try unionField(st, x, se)
 	}

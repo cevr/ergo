@@ -1,4 +1,7 @@
 import actor
+import machines
+import option
+import scope
 import sync
 import task
 import testing
@@ -19,18 +22,18 @@ type Session[S, E, D, F] {
 	actor    actor.Actor[S, E, D, F],
 	view     func(f mut Frame[E], s S),
 	post     func(ev Event[E]),
-	inflight Map[int, Task[bool]],
+	inflight Map[int, task.Task[bool]],
 	stale    sync.Ref[bool],
 	// shown is the actor's Version when the last pass read its state: a
 	// commit raises it, so the session draws each state once (FK2-g2).
 	shown       sync.Ref[int],
-	watch       Task[bool],
-	exit        func(a actor.Actor[S, E, D, F]) Option[CrashCause[F]],
+	watch       task.Task[bool],
+	exit        func(a actor.Actor[S, E, D, F]) option.Option[CrashCause[F]],
 	alive       func(a actor.Actor[S, E, D, F], e E) bool,
-	fresh       Option[func() actor.Actor[S, E, D, F]],
+	fresh       option.Option[func() actor.Actor[S, E, D, F]],
 	crashView   func(f mut Frame[E], c Crash[S, E, F]),
 	report      func(c Crash[S, E, F]),
-	crash       Option[Crash[S, E, F]],
+	crash       option.Option[Crash[S, E, F]],
 	run         int,
 	signals     int,
 	passSignals int,
@@ -50,7 +53,7 @@ type Session[S, E, D, F] {
 // the state it crashed in (FK13-g1).
 law SessionCrashFollowsTheEnd(n int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		crashFollows()
 	}
 }
@@ -59,22 +62,22 @@ type simulatedStepDefect { Message string, State int, Signal int }
 
 type simulatedWorkDefect { Message string, State int }
 
-func workCrashStep(s int, e int) Decision[int, int] fails Boom defects {
+func workCrashStep(s int, e int) machines.Decision[int, int] fails Boom defects {
 	if e == 1 {
 		die simulatedStepDefect{Message: "crash app: a defect, on purpose", State: s, Signal: e}
 	}
 	if e == 5 {
-		return Enter[int]{Next: -1}
+		return machines.Enter[int]{Next: -1}
 	}
-	Enter[int]{Next: s}
+	machines.Enter[int]{Next: s}
 }
 
-func workCrashWork(gate queue.Queue[int]) func(s int) Option[func(send entry func(e int)) defects] {
-	func(s int) Option[func(send entry func(e int)) defects] {
+func workCrashWork(gate queue.Queue[int]) func(s int) option.Option[func(send entry func(e int)) defects] {
+	func(s int) option.Option[func(send entry func(e int)) defects] {
 		if s != -1 {
-			return None
+			return option.None
 		}
-		Some{Value: func(send entry func(e int)) defects {
+		option.Some{Value: func(send entry func(e int)) defects {
 			let _ = gate.Pop() catch {
 			case queue.Closed:
 				return
@@ -87,21 +90,21 @@ func workCrashWork(gate queue.Queue[int]) func(s int) Option[func(send entry fun
 // keyView is the session law's view: its key presses are its signals, by
 // the key's name ("1", "5"), and it shows the state.
 func keyView(f mut Frame[int], s int) {
-	OnKey(f, func(k KeyPress) Option[int] {
+	OnKey(f, func(k KeyPress) option.Option[int] {
 		if k.Name == "1" {
-			return Some{Value: 1}
+			return option.Some{Value: 1}
 		}
 		if k.Name == "5" {
-			return Some{Value: 5}
+			return option.Some{Value: 5}
 		}
-		None
+		option.None
 	})
 	Text(f, "at \(s)")
 }
 
 // keyCrashView is its crash view: any key reloads.
 func keyCrashView(f mut Frame[int], c Crash[int, int, Boom]) {
-	OnKey(f, func(k KeyPress) Option[int] { Some{Value: 0} })
+	OnKey(f, func(k KeyPress) option.Option[int] { option.Some{Value: 0} })
 	Text(f, "crashed")
 }
 
@@ -111,27 +114,27 @@ func key(name string) Event[int] {
 
 // endedOf takes the posted events up to the Ended of run, stepping the
 // others, and is that Ended's patch.
-func endedOf(session mut Session[int, int, Decision[int, int], Boom], posted queue.Queue[Event[int]], run int) Option[[]Op[int]] {
+func endedOf(session mut Session[int, int, machines.Decision[int, int], Boom], posted queue.Queue[Event[int]], run int) option.Option[[]Op[int]] {
 	for {
 		let ev = posted.Pop() catch {
 		case queue.Closed:
-			return None
+			return option.None
 		}
 		let ops = Step(session, ev) catch {
 		case actor.Stopped:
-			return None
+			return option.None
 		}
 		match ev {
 		case Ended as x:
 			if x.Run == run {
-				return Some{Value: ops}
+				return option.Some{Value: ops}
 			}
 		case _:
 		}
 	}
 }
 
-func crashFollows() bool needs Scheduler {
+func crashFollows() bool needs time.Scheduler {
 	let gate = queue.New[int](1)
 	let posted = queue.New[Event[int]](64)
 	let reports = sync.NewRef(0)
@@ -187,24 +190,24 @@ func crashFollows() bool needs Scheduler {
 		return false
 	}
 	let shown = match endedOf(&session, posted, 2) {
-	case Some[[]Op[int]] as ops:
+	case option.Some[[]Op[int]] as ops:
 		writesText(ops.Value, "crashed") && reports.Get() == 3
-	case None:
+	case option.None:
 		false
 	}
 	let cs = reported.Get()
-	let step = Crash[int, int, Boom]{Cause: DefectCrash{Reason: "crash app: a defect, on purpose"}, State: 0, Signal: Some{Value: 1}}
-	let work = Crash[int, int, Boom]{Cause: DefectCrash{Reason: "crash app: a defect of the work, on purpose"}, State: -1, Signal: None}
-	shown && len(cs) == 3 && sameCrash(Some{Value: cs[0]}, Some{Value: step}) && sameCrash(Some{Value: cs[1]}, Some{Value: step}) && sameCrash(Some{Value: cs[2]}, Some{Value: work})
+	let step = Crash[int, int, Boom]{Cause: DefectCrash{Reason: "crash app: a defect, on purpose"}, State: 0, Signal: option.Some{Value: 1}}
+	let work = Crash[int, int, Boom]{Cause: DefectCrash{Reason: "crash app: a defect of the work, on purpose"}, State: -1, Signal: option.None}
+	shown && cs.Len() == 3 && sameCrash(option.Some{Value: cs[0]}, option.Some{Value: step}) && sameCrash(option.Some{Value: cs[1]}, option.Some{Value: step}) && sameCrash(option.Some{Value: cs[2]}, option.Some{Value: work})
 }
 
 // endsQuiet is whether the Ended of run, when the loop takes it, changes
 // nothing on the screen.
-func endsQuiet(session mut Session[int, int, Decision[int, int], Boom], posted queue.Queue[Event[int]], run int) bool {
+func endsQuiet(session mut Session[int, int, machines.Decision[int, int], Boom], posted queue.Queue[Event[int]], run int) bool {
 	match endedOf(session, posted, run) {
-	case Some[[]Op[int]] as ops:
-		len(ops.Value) == 0
-	case None:
+	case option.Some[[]Op[int]] as ops:
+		ops.Value.Len() == 0
+	case option.None:
 		false
 	}
 }
@@ -222,13 +225,13 @@ func endsQuiet(session mut Session[int, int, Decision[int, int], Boom], posted q
 // Start's session ends the loop (Step fails Stopped); StartApp's shows
 // its crash view instead.
 func Start[E comparable, S, D, F, R](a actor.Actor[S, E, D, F], view own func(f mut Frame[E], s S) needs R, post own func(ev Event[E])) (Session[S, E, D, F], []Op[E]) needs R {
-	let ctx = InForce[R]()
+	let ctx = scope.InForce[R]()
 	let shown = func(f mut Frame[E], st S) {
 		with ctx {
 			view(f, st)
 		}
 	}
-	let mut s = Session[S, E, D, F]{frame: NewFrame[E](), actor: a, view: shown, post: post, inflight: Map[int, Task[bool]]{}, stale: sync.NewRef(false), shown: sync.NewRef(-1), watch: task.Go() { true }, exit: noExit[S, E, D, F], alive: running[S, E, D, F], fresh: None, crashView: PlainCrash[S, E, F], report: noReport[S, E, F], crash: None, run: 0, signals: 0, passSignals: 0, readouts: Map[int, watched]{}}
+	let mut s = Session[S, E, D, F]{frame: NewFrame[E](), actor: a, view: shown, post: post, inflight: Map[int, task.Task[bool]]{}, stale: sync.NewRef(false), shown: sync.NewRef(-1), watch: task.Go() { true }, exit: noExit[S, E, D, F], alive: running[S, E, D, F], fresh: option.None, crashView: PlainCrash[S, E, F], report: noReport[S, E, F], crash: option.None, run: 0, signals: 0, passSignals: 0, readouts: Map[int, watched]{}}
 	watchActor(&s)
 	let ops = runPass(&s)
 	(s, ops)
@@ -247,12 +250,12 @@ func Start[E comparable, S, D, F, R](a actor.Actor[S, E, D, F], view own func(f 
 // host's heap does not grow with the commits.
 law WatcherHoldsOneState(n int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		watcherHolds(n, m)
 	}
 }
 
-func watcherHolds(n int, m time.Manual) bool needs Scheduler {
+func watcherHolds(n int, m time.Manual) bool needs time.Scheduler {
 	let commits = (n%8+8)%8 + 3
 	let gate = queue.New[int](1)
 	let a = actor.StartMachine(spinMachine(), 1, func(o int) {})
@@ -278,7 +281,7 @@ func watcherHolds(n int, m time.Manual) bool needs Scheduler {
 	held <= 1
 }
 
-func noExit[S, E, D, F](a actor.Actor[S, E, D, F]) Option[CrashCause[F]] { None }
+func noExit[S, E, D, F](a actor.Actor[S, E, D, F]) option.Option[CrashCause[F]] { option.None }
 
 func running[S, E, D, F](a actor.Actor[S, E, D, F], e E) bool { true }
 
@@ -340,10 +343,10 @@ func versioned[S, E, D, F](a actor.Actor[S, E, D, F]) (S, int) {
 func runPass[E comparable, S, D, F](s mut Session[S, E, D, F]) []Op[E] {
 	s.stale.Set(false)
 	let ops = match s.crash {
-	case Some[Crash[S, E, F]] as c:
+	case option.Some[Crash[S, E, F]] as c:
 		s.shown.Set(s.actor.Version())
 		Render(&s.frame, s.crashView, c.Value)
-	case None:
+	case option.None:
 		let (st, v) = versioned(s.actor)
 		s.shown.Set(v)
 		Render(&s.frame, s.view, st)
@@ -376,9 +379,9 @@ func finish[S, E, D, F](s mut Session[S, E, D, F], epoch int) {
 	let found, rest = s.inflight.Take(epoch)
 	s.inflight = rest
 	match found {
-	case Some[Task[bool]] as t:
+	case option.Some[task.Task[bool]] as t:
 		t.Value.Stop()
-	case None:
+	case option.None:
 	}
 }
 
@@ -415,7 +418,7 @@ func Step[E comparable, S, D, F](s mut Session[S, E, D, F], ev Event[E]) []Op[E]
 		}
 	}
 	let ops = try stepEvent(s, ev)
-	if len(first) == 0 {
+	if first.Len() == 0 {
 		return ops
 	}
 	let mut all = first
@@ -442,10 +445,10 @@ func stepEvent[E comparable, S, D, F](s mut Session[S, E, D, F], ev Event[E]) []
 			return []Op[E]{}
 		}
 		match s.exit(s.actor) {
-		case Some[CrashCause[F]] as c:
+		case option.Some[CrashCause[F]] as c:
 			// No signal of the loop's was being stepped: a timer or a work.
-			return crashed(s, crashFrom(s, c.Value, None))
-		case None:
+			return crashed(s, crashFrom(s, c.Value, option.None))
+		case option.None:
 			return []Op[E]{}
 		}
 	case Published as x:
@@ -455,7 +458,7 @@ func stepEvent[E comparable, S, D, F](s mut Session[S, E, D, F], ev Event[E]) []
 	case Tick as t:
 		let moving = s.frame.moving
 		let signals = ticked(&s.frame, t.At)
-		if len(signals) == 0 && !moving {
+		if signals.Len() == 0 && !moving {
 			return []Op[E]{}
 		}
 		for e in signals {
@@ -475,12 +478,12 @@ func stepEvent[E comparable, S, D, F](s mut Session[S, E, D, F], ev Event[E]) []
 		}
 	}
 	match done.Signal {
-	case Some[E] as e:
+	case option.Some[E] as e:
 		let _ = try signal(s, e.Value)
 		return judgedPass(s)
-	case None:
+	case option.None:
 	}
-	if done.Changed || len(crossed) > 0 {
+	if done.Changed || crossed.Len() > 0 {
 		return judgedPass(s)
 	}
 	done.Ops
@@ -492,7 +495,7 @@ func SessionRoot[S, E, D, F](s mut Session[S, E, D, F]) Id[E] { Root(&s.frame) }
 
 // SessionHovered is the node the pointer is over in s's frame (Hovered,
 // UG3).
-func SessionHovered[S, E, D, F](s mut Session[S, E, D, F]) Option[Id[E]] { Hovered(&s.frame) }
+func SessionHovered[S, E, D, F](s mut Session[S, E, D, F]) option.Option[Id[E]] { Hovered(&s.frame) }
 
 // SessionLookState is the state whose look a host paints for the node id
 // (LookStateIn, UG3).
@@ -504,7 +507,7 @@ func SessionAnimates[S, E, D, F](s mut Session[S, E, D, F]) bool { Animating(&s.
 
 // SessionFocus is the node the keyboard is on in s's frame (Focused),
 // for a host that draws the focus.
-func SessionFocus[S, E, D, F](s mut Session[S, E, D, F]) Option[Id[E]] { Focused(&s.frame) }
+func SessionFocus[S, E, D, F](s mut Session[S, E, D, F]) option.Option[Id[E]] { Focused(&s.frame) }
 
 // SessionShielded is whether a layer's scrim covers id in s's frame
 // (Shielded): the frame takes no event of id, a host's report of its
@@ -512,7 +515,7 @@ func SessionFocus[S, E, D, F](s mut Session[S, E, D, F]) Option[Id[E]] { Focused
 func SessionShielded[S, E, D, F](s mut Session[S, E, D, F], id Id[E]) bool { Shielded(&s.frame, id) }
 
 // FocusSession puts the focus of s's frame on id, or nowhere (FocusOn).
-func FocusSession[S, E, D, F](s mut Session[S, E, D, F], id Option[Id[E]]) { FocusOn(&s.frame, id) }
+func FocusSession[S, E, D, F](s mut Session[S, E, D, F], id option.Option[Id[E]]) { FocusOn(&s.frame, id) }
 
 // judgedPass is a pass an event of the loop caused (an input, a fetch's
 // result, a frame), whose Slow signals the session sends (judge). A pass
@@ -531,17 +534,17 @@ func judgedPass[E comparable, S, D, F](s mut Session[S, E, D, F]) []Op[E] {
 // nothing.
 func signal[E comparable, S, D, F](s mut Session[S, E, D, F], e E) bool fails actor.Stopped {
 	match s.crash {
-	case Some[Crash[S, E, F]]:
+	case option.Some[Crash[S, E, F]]:
 		match s.fresh {
-		case Some[func() actor.Actor[S, E, D, F]] as f:
+		case option.Some[func() actor.Actor[S, E, D, F]] as f:
 			s.actor = f.Value()
 			s.run = s.run + 1
-			s.crash = None
+			s.crash = option.None
 			watchActor(s)
-		case None:
+		case option.None:
 		}
 		return false
-	case None:
+	case option.None:
 	}
 	let mut sent = true
 	s.actor.Send(e) catch {
@@ -551,12 +554,12 @@ func signal[E comparable, S, D, F](s mut Session[S, E, D, F], e E) bool fails ac
 	// An actor that ended before e, or with it, crashed or ended: on e
 	// when e was taken, else before it.
 	if !sent || !s.alive(s.actor, e) {
-		let on Option[E] = if sent { Some{Value: e} } else { None }
+		let on option.Option[E] = if sent { option.Some{Value: e} } else { option.None }
 		match s.exit(s.actor) {
-		case Some[CrashCause[F]] as c:
+		case option.Some[CrashCause[F]] as c:
 			takeCrash(s, crashFrom(s, c.Value, on))
 			return false
-		case None:
+		case option.None:
 			return actor.Stopped
 		}
 	}
@@ -570,7 +573,7 @@ func signal[E comparable, S, D, F](s mut Session[S, E, D, F], e E) bool fails ac
 // signal does.
 func judge[E comparable, S, D, F](s mut Session[S, E, D, F]) {
 	match s.frame.slow {
-	case Some[slowWatch[E]] as w:
+	case option.Some[slowWatch[E]] as w:
 		let over = SlowsOf(SessionStats(s), w.Value.budget)
 		for x in over {
 			s.actor.Send(w.Value.on(x)) catch {
@@ -579,13 +582,13 @@ func judge[E comparable, S, D, F](s mut Session[S, E, D, F]) {
 			}
 			s.signals = s.signals + 1
 		}
-	case None:
+	case option.None:
 	}
 }
 
 // crashFrom is the crash of the session's ended actor by cause, on the
 // signal on.
-func crashFrom[S, E, D, F](s mut Session[S, E, D, F], cause CrashCause[F], on Option[E]) Crash[S, E, F] {
+func crashFrom[S, E, D, F](s mut Session[S, E, D, F], cause CrashCause[F], on option.Option[E]) Crash[S, E, F] {
 	Crash[S, E, F]{Cause: cause, State: s.actor.State(), Signal: on}
 }
 
@@ -598,19 +601,19 @@ func crashed[E comparable, S, D, F](s mut Session[S, E, D, F], c Crash[S, E, F])
 // takeCrash makes c the session's crash and reports it: each caller takes
 // a crash only while the session shows none, so a crash is reported once.
 func takeCrash[S, E, D, F](s mut Session[S, E, D, F], c Crash[S, E, F]) {
-	s.crash = Some{Value: c}
+	s.crash = option.Some{Value: c}
 	s.report(c)
 }
 
 // crashing is whether the session shows a crash.
 func crashing[S, E, D, F](s mut Session[S, E, D, F]) bool {
 	match s.crash {
-	case Some[Crash[S, E, F]]:
+	case option.Some[Crash[S, E, F]]:
 		true
-	case None:
+	case option.None:
 		false
 	}
 }
 
 // InFlight is the number of fetches started and not yet taken or stopped.
-func InFlight[S, E, D, F](s mut Session[S, E, D, F]) int { len(s.inflight) }
+func InFlight[S, E, D, F](s mut Session[S, E, D, F]) int { s.inflight.Len() }

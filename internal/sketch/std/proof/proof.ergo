@@ -22,6 +22,7 @@
 // attempts, as in mix phx.gen.auth's users_tokens and Ory Kratos.
 
 import hex
+import option
 import rand
 import sha256
 import strconv
@@ -77,7 +78,7 @@ func ParseDigest(text string) Digest fails BadDigest {
 	case hex.Malformed:
 		return BadDigest{Text: text}
 	}
-	if len(sum) != 32 {
+	if sum.Len() != 32 {
 		return BadDigest{Text: text}
 	}
 	Digest{sum: sum}
@@ -262,9 +263,9 @@ type RedeemResult = RedeemOK{} | RedeemUnknown{} | RedeemExpired{} | RedeemSpent
 func ApplyRedeem(s State, id string, d Digest, now time.Time) (RedeemResult, State, bool) {
 	let mut st = s
 	match st.proofs.Get(id) {
-	case None:
+	case option.None:
 		(RedeemUnknown, st, false)
-	case Some[pending] as found:
+	case option.Some[pending] as found:
 		let p = found.Value
 		if p.spent {
 			return (RedeemSpent, st, false)
@@ -288,7 +289,7 @@ func Apply(s State, op Op) (Outcome, State, bool) {
 	let mut st = s
 	match op {
 	case IssueOp as i:
-		if st.proofs.Get(i.ID) != None {
+		if st.proofs.Get(i.ID) != option.None {
 			return (Refused, st, false)
 		}
 		st.proofs[i.ID] = pending{digest: i.Digest, expires: i.Expires, left: i.Attempts, spent: false}
@@ -312,11 +313,11 @@ func Apply(s State, op Op) (Outcome, State, bool) {
 		(o, next, changed)
 	case ClaimOp as c:
 		match st.claims.Get(c.Key) {
-		case Some[time.Time] as until:
+		case option.Some[time.Time] as until:
 			if c.Now.Before(until.Value) {
 				return (Used, st, false)
 			}
-		case None:
+		case option.None:
 		}
 		st.claims[c.Key] = c.Until
 		(Kept, st, true)
@@ -336,7 +337,7 @@ func codeOf() string needs rand.Secure {
 		n = int(b[0])<<24 | int(b[1])<<16 | int(b[2])<<8 | int(b[3])
 	}
 	let text = strconv.Itoa(n % 1000000)
-	strings.Repeat("0", 6-len(text)) + text
+	strings.Repeat("0", 6-text.Len()) + text
 }
 
 // SendCode issues a proof for purpose, good for ttl and attempts wrong codes,
@@ -366,9 +367,9 @@ func AsWritten[T](v T) T { v }
 func VerifyCode(s Store, p totp.Params, subject string, secret string, code string) fails Wrong | Spent | Failed needs time.Clock {
 	let now = time.Clock.Now()
 	match totp.Verify(p, secret, code, now) {
-	case Some[int64] as step:
+	case option.Some[int64] as step:
 		try s.Claim("totp\t"+strconv.Quote(subject)+"\t\(step.Value)", now.Add(time.Times(totp.Period(p), totp.Window(p)*2+2)), now)
-	case None:
+	case option.None:
 		return Wrong{Left: 0}
 	}
 }

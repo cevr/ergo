@@ -10,6 +10,7 @@
 
 import strings
 import task
+import time
 
 // Op is one operation of a Script: the answer it gives and the calls it
 // got. A is the operation's arguments: the one parameter's type, a tuple
@@ -84,15 +85,15 @@ type Absent { Key string }
 // needs no answer.
 law ScriptRecordsEachCall(ks []string, n int) {
 	let s = Script[probe]{}
-	s.Has.Answer(func(k string) bool { len(k) > 0 })
+	s.Has.Answer(func(k string) bool { k.Len() > 0 })
 	with context { probe: s } {
 		for i, k in ks {
-			probe.Put(k, n + i)
+			probe.Put(k, n+i)
 			let _ = probe.Has(k)
 		}
 	}
 	let puts = s.Put.Calls()
-	let mut same = len(puts) == len(ks) && len(s.Has.Calls()) == len(ks) && len(s.Size.Calls()) == 0
+	let mut same = puts.Len() == ks.Len() && s.Has.Calls().Len() == ks.Len() && s.Size.Calls().Len() == 0
 	for i, k in ks {
 		same = same && puts[i] == (k, n + i) && s.Has.Calls()[i] == k
 	}
@@ -114,7 +115,7 @@ law ScriptAnswersByTheLastAnswer(k string, a int, b int) {
 		case Absent as e:
 			if e.Key == k { -1 } else { -2 }
 		}
-		first == a && second == b && got == -1 && len(s.Size.Calls()) == 2 && s.Size.Calls()[0] == NoArgs && s.Get.Calls()[0] == k
+		first == a && second == b && got == -1 && s.Size.Calls().Len() == 2 && s.Size.Calls()[0] == NoArgs && s.Get.Calls()[0] == k
 	}
 }
 
@@ -127,11 +128,11 @@ law HeldCallWaitsForRelease(k string, a int) {
 	s.Get.Answer(func(key string) int fails Absent { a })
 	s.Get.Hold()
 	let c = NewVirtualClock(0)
-	with context { probe: s, Scheduler: c } {
+	with context { probe: s, time.Scheduler: c } {
 		let t = task.Go() { probe.Get(k) }
-		Scheduler.Sleep(1s)
+		time.Scheduler.Sleep(1s)
 		let held = s.Get.Held()
-		let waited = len(held) == 1 && held[0] == k && len(s.Get.Calls()) == 1
+		let waited = held.Len() == 1 && held[0] == k && s.Get.Calls().Len() == 1
 		s.Get.Release(func(key string) int fails Absent { a + 1 })
 		let got = t.Wait() catch {
 		case Absent:
@@ -142,7 +143,7 @@ law HeldCallWaitsForRelease(k string, a int) {
 		case Absent:
 			a
 		}
-		waited && got == a + 1 && later == a + 2 && len(s.Get.Held()) == 0
+		waited && got == a+1 && later == a+2 && s.Get.Held().Len() == 0
 	}
 }
 
@@ -152,13 +153,13 @@ law ReleaseAnswersOldestFirst(k string, j string, a int) {
 	let s = Script[probe]{}
 	s.Get.Hold()
 	let c = NewVirtualClock(0)
-	with context { probe: s, Scheduler: c } {
+	with context { probe: s, time.Scheduler: c } {
 		let first = task.Go() { probe.Get(k) }
-		Scheduler.Sleep(1s)
+		time.Scheduler.Sleep(1s)
 		let second = task.Go() { probe.Get(j) }
-		Scheduler.Sleep(1s)
+		time.Scheduler.Sleep(1s)
 		let held = s.Get.Held()
-		let order = len(held) == 2 && held[0] == k && held[1] == j
+		let order = held.Len() == 2 && held[0] == k && held[1] == j
 		s.Get.Release(func(key string) int fails Absent { a })
 		s.Get.Release(func(key string) int fails Absent { a + 1 })
 		let one = first.Wait() catch {
@@ -174,7 +175,7 @@ law ReleaseAnswersOldestFirst(k string, j string, a int) {
 		case Absent:
 			a - 1
 		}
-		order && one == a && two == a + 1 && three == a + 2 && len(s.Get.Held()) == 0
+		order && one == a && two == a+1 && three == a+2 && s.Get.Held().Len() == 0
 	}
 }
 
@@ -188,12 +189,12 @@ law ScriptNamesTheHeldCall(k string) {
 	let s = Script[probe]{}
 	s.Get.Hold()
 	let c = NewVirtualClock(0)
-	with context { probe: s, Scheduler: c } {
+	with context { probe: s, time.Scheduler: c } {
 		let t = task.Go() { probe.Get(k) }
-		Scheduler.Sleep(1s)
+		time.Scheduler.Sleep(1s)
 		let report = Unanswered()
 		let named = strings.HasPrefix(report, "testing.Script[") && strings.HasSuffix(report, "probe]: Get has a held call that no Release answered")
-		let unread = len(s.Get.Unread()) == 1 && len(s.Get.Calls()) == 1 && len(s.Get.Unread()) == 0
+		let unread = s.Get.Unread().Len() == 1 && s.Get.Calls().Len() == 1 && s.Get.Unread().Len() == 0
 		s.Get.Release(func(key string) int fails Absent { 0 })
 		let _ = t.Wait() catch {
 		case Absent:

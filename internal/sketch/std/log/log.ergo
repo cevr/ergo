@@ -9,6 +9,8 @@
 // by that protocol, never by this package's name. The protocol's functions
 // are unexported, so they are not part of this package's surface.
 
+import option
+
 // annotation is the context value of one log annotation.
 type annotation { key string, text string }
 
@@ -27,11 +29,11 @@ func contextText(a annotation) string { a.text }
 // Annotation is the text of the innermost annotation of key in force for
 // the running task, or None. It reads the task's context, so it is
 // effectful even with an empty capability row.
-func Annotation(key string) Option[string] {
+func Annotation(key string) option.Option[string] {
 	if contextBound(key) {
-		Some[string]{Value: contextValue(key)}
+		option.Some[string]{Value: contextValue(key)}
 	} else {
-		None
+		option.None
 	}
 }
 
@@ -40,7 +42,7 @@ func Annotation(key string) Option[string] {
 law InnerAnnotationShadows(key string, outer string, inner string) {
 	with Annotate(key, outer) {
 		with Annotate(key, inner) {
-			Annotation(key) == Some[string]{Value: inner}
+			Annotation(key) == option.Some[string]{Value: inner}
 		}
 	}
 }

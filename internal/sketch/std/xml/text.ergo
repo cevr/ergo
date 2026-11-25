@@ -1,3 +1,4 @@
+import codec
 import strconv
 import strings
 import utf8
@@ -8,7 +9,7 @@ import utf8
 // calls text's functions directly, and the build joins constant bytes by
 // the law RawJoins, which ergo test proves.
 type Text {
-	..Writer,
+	..codec.Writer,
 	// Written is the text written so far.
 	mut Written() string,
 
@@ -48,10 +49,10 @@ func raw(t mut text, s string) { t.out = appendString(t.out, s) }
 
 // push opens an element named name, whose start tag was written.
 func push(t mut text, name string) {
-	if t.depth < len(t.stack) {
-		t.stack[t.depth] = element{name: name, list: false, end: len(t.out)}
+	if t.depth < t.stack.Len() {
+		t.stack[t.depth] = element{name: name, list: false, end: t.out.Len()}
 	} else {
-		t.stack = t.stack.Append(element{name: name, list: false, end: len(t.out)})
+		t.stack = t.stack.Append(element{name: name, list: false, end: t.out.Len()})
 	}
 	t.depth = t.depth + 1
 }
@@ -152,7 +153,7 @@ func Uint(t mut text, n uint64) {
 func escape(t mut text, s string, attr bool) {
 	let mut from = 0
 	let mut i = 0
-	for i < len(s) {
+	for i < s.Len() {
 		let c = s[i]
 		if c >= 0x20 && c < 0x80 && c != '&' && c != '<' && c != '>' && (c != '"' || !attr) {
 			i = i + 1
@@ -179,7 +180,7 @@ func escape(t mut text, s string, attr bool) {
 				rep = "\uFFFD"
 			}
 		} else {
-			let d = utf8.DecodeRuneInString(strings.Slice(s, i, len(s)))
+			let d = utf8.DecodeRuneInString(strings.Slice(s, i, s.Len()))
 			size = d.Size
 			if d.Size <= 1 || !charRune(d.Rune) {
 				rep = "\uFFFD"
@@ -192,7 +193,7 @@ func escape(t mut text, s string, attr bool) {
 		}
 		i = i + size
 	}
-	t.out = appendString(t.out, strings.Slice(s, from, len(s)))
+	t.out = appendString(t.out, strings.Slice(s, from, s.Len()))
 }
 
 // Float writes f's shortest spelling that reads back as f (Go's 'g', -1).
@@ -256,7 +257,7 @@ func Encode[T wire](c Codec[T], v T) string needs wired[T] {
 	let hint = strings.Hint[text, T]()
 	let t Text = text{out: strings.Borrow(hint), stack: emptyStack(), depth: 0}
 	t.open(rootOf(c.Root))
-	encode(v, t)
+	codec.Encode(v, t)
 	t.finish(hint)
 }
 

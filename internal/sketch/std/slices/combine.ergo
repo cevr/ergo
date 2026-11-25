@@ -24,7 +24,7 @@ law FlatMapIsConcatOfTransform(xs []int) {
 // has (Effect Array.zip, Gleam list.zip's strict form refuses a length
 // mismatch; Effect and Python's zip stop at the shorter, as here).
 func Zip[A, B](a []A, b []B) [](A, B) {
-	let n = if len(a) < len(b) { len(a) } else { len(b) }
+	let n = if a.Len() < b.Len() { a.Len() } else { b.Len() }
 	let mut out = WithCapacity[(A, B)](n)
 	for i in 0..n {
 		out = out.Append((a[i], b[i]))
@@ -36,8 +36,8 @@ func Zip[A, B](a []A, b []B) [](A, B) {
 // a[i] and b[i].
 law ZipLen(a []int, b []string) {
 	let z = Zip(a, b)
-	let n = if len(a) < len(b) { len(a) } else { len(b) }
-	let mut ok = len(z) == n
+	let n = if a.Len() < b.Len() { a.Len() } else { b.Len() }
+	let mut ok = z.Len() == n
 	for i, p in z {
 		let (x, y) = p
 		ok = ok && x == a[i] && y == b[i]

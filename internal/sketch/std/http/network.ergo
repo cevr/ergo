@@ -4,7 +4,9 @@
 
 import config
 import fs
+import fstest
 import net
+import os
 import task
 import time
 type OriginPolicy = AnyOrigin{} | Origins{Values []string}
@@ -94,13 +96,13 @@ extern go ergo.local/prototype/runtime/v1/http.HTTPIntoFile func IntoFile[F, R](
 // Remote is a provider of Network, live or confined to loopback.
 type Remote { origins []string, anyOrigin bool, loopback bool, limits Limits, hops int } implements Network, loopbackNetwork
 
-func NewNet(policy OriginPolicy, limits Limits, redirects RedirectPolicy) Remote fails InvalidClient | InvalidLimits needs Ambient {
+func NewNet(policy OriginPolicy, limits Limits, redirects RedirectPolicy) Remote fails InvalidClient | InvalidLimits needs os.Ambient {
 	let p = try policyOf(policy, limits, redirects)
 	Remote{origins: p.origins, anyOrigin: p.anyOrigin, loopback: false, limits: p.limits, hops: p.hops}
 }
 
 // NewTestNet can reach only literal loopback, including on redirects.
-func NewTestNet(limits Limits, redirects RedirectPolicy) Remote fails InvalidClient | InvalidLimits needs TestLoopback {
+func NewTestNet(limits Limits, redirects RedirectPolicy) Remote fails InvalidClient | InvalidLimits needs fstest.TestLoopback {
 	let p = try policyOf(AnyOrigin, limits, redirects)
 	Remote{origins: p.origins, anyOrigin: p.anyOrigin, loopback: true, limits: p.limits, hops: p.hops}
 }
@@ -122,10 +124,10 @@ func loopbackLimits() Limits {
 	Limits{MaxBodyBytes: 32768, MaxHeaderBytes: 8192, IdleTimeout: 5s, ReadHeaderTimeout: 5s, ReadBodyTimeout: 5s}
 }
 
-let onTestNetwork = context fails InvalidClient | InvalidLimits needs TestLoopback {
+let onTestNetwork = context fails InvalidClient | InvalidLimits needs fstest.TestLoopback {
 	loopbackNetwork: try NewTestNet(loopbackLimits(), Follow{MaxHops: 2}),
 	net.Network:     net.NewTestHost(),
-	Scheduler:       time.NewManual(0),
+	time.Scheduler:  time.NewManual(0),
 }
 
 func rejectsLoopbackRequest(url string, origin string) bool needs loopbackNetwork {
@@ -162,13 +164,13 @@ type redirectVerdict { denied bool } implements loopbackRedirectCheck
 
 func DeniedRedirect(v redirectVerdict) bool { v.denied }
 
-func checkRedirectOutsideLoopback() redirectVerdict fails InvalidClient | InvalidLimits needs TestLoopback {
+func checkRedirectOutsideLoopback() redirectVerdict fails InvalidClient | InvalidLimits needs fstest.TestLoopback {
 	let testNet = try NewTestNet(loopbackLimits(), Follow{MaxHops: 2})
 	let hostNet = net.NewTestHost()
 	let denied = with context {
 		loopbackNetwork: testNet,
 		net.Network:     hostNet,
-		Scheduler:       time.NewManual(0),
+		time.Scheduler:  time.NewManual(0),
 	} {
 		let outside = "http://localhost:0"
 		let l = net.Network.Listen("127.0.0.1:0") catch {
@@ -190,7 +192,7 @@ func checkRedirectOutsideLoopback() redirectVerdict fails InvalidClient | Invali
 	redirectVerdict{denied: denied}
 }
 
-let onTestRedirect = context fails InvalidClient | InvalidLimits needs TestLoopback {
+let onTestRedirect = context fails InvalidClient | InvalidLimits needs fstest.TestLoopback {
 	loopbackRedirectCheck: try checkRedirectOutsideLoopback(),
 }
 

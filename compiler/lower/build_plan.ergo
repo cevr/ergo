@@ -1,6 +1,7 @@
 import compiler/check/expr
 import compiler/syntax
 import dense
+import option
 import strings
 
 type BuildMode =
@@ -43,10 +44,10 @@ func isTestMode(mode BuildMode) bool {
 
 func HelperSpelling(base string) string {
 	let mut stem = base
-	if strings.HasPrefix(base, "ergo") && len(base) > 4 {
+	if strings.HasPrefix(base, "ergo") && base.Len() > 4 {
 		let c = base[4]
 		if c >= 'A' && c <= 'Z' {
-			stem = base[4:len(base)]
+			stem = base[4:base.Len()]
 		}
 	}
 	"ergo__" + stem
@@ -150,13 +151,13 @@ func PlanGeneratedBodies(k expr.Pkg, mode BuildMode, root bool) GeneratedBodyPla
 	GeneratedBodyPlan{Mode: mode, Root: root, Bodies: bodies}
 }
 
-func plannedGeneratedBody(plan GeneratedBodyPlan, file int, at int, decl dense.ID[syntax.Node]) Option[GeneratedBody] {
+func plannedGeneratedBody(plan GeneratedBodyPlan, file int, at int, decl dense.ID[syntax.Node]) option.Option[GeneratedBody] {
 	for body in plan.Bodies {
 		if body.File == file && body.At == at && body.Decl == decl {
-			return Some[GeneratedBody]{Value: body}
+			return option.Some[GeneratedBody]{Value: body}
 		}
 	}
-	None
+	option.None
 }
 
 test HelperSpellingMatchesGo {

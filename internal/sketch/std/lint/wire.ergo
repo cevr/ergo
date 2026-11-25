@@ -6,7 +6,9 @@
 // and the law SnapshotRoundTrips holds that a snapshot's text reads back as
 // the snapshot.
 
+import codec
 import json
+import option
 import strconv
 
 type wireSource { File string, URI json.Optional[string] "uri", Bytes int }
@@ -74,11 +76,11 @@ func DecodeSnapshot(text string) Snapshot fails SnapshotFailed {
 	let w = json.Decode(json.Codec[wireSnapshot]{MaxBytes: 0, MaxDepth: 0}, text) catch {
 	case json.Malformed as m:
 		return SnapshotFailed{Reason: "malformed at byte \(m.Offset): \(m.Reason)"}
-	case WireMissingField as m:
+	case codec.WireMissingField as m:
 		return SnapshotFailed{Reason: "missing \(at(m.Path, m.Field))"}
-	case WireWrongKind as k:
+	case codec.WireWrongKind as k:
 		return SnapshotFailed{Reason: "\(at(k.Path, "")) is not \(k.Want)"}
-	case WireUnknownTag as u:
+	case codec.WireUnknownTag as u:
 		return SnapshotFailed{Reason: "\(at(u.Path, "")) has no variant \(u.Tag)"}
 	case UnknownKind as u:
 		return SnapshotFailed{Reason: "unknown \(u.Of) \(strconv.Quote(u.Name))"}
@@ -131,7 +133,7 @@ func text(o json.Optional[string]) string {
 }
 
 func someList[T](xs []T) json.Optional[[]T] {
-	if len(xs) == 0 {
+	if xs.Len() == 0 {
 		json.Absent
 	} else {
 		json.Present{Value: xs}
@@ -155,20 +157,20 @@ func someText(s string) json.Optional[string] {
 }
 
 func entryOf(w wireEntry) ContextEntry {
-	let span Option[Span] = match w.Span {
+	let span option.Option[Span] = match w.Span {
 	case json.Absent:
-		None
+		option.None
 	case json.Present[Span] as p:
-		Some{Value: p.Value}
+		option.Some{Value: p.Value}
 	}
 	ContextEntry{Capability: w.Capability, Provider: w.Provider, Converts: flag(w.Converts), Span: span}
 }
 
 func wireOfEntry(e ContextEntry) wireEntry {
 	let span json.Optional[Span] = match e.Span {
-	case None:
+	case option.None:
 		json.Absent
-	case Some[Span] as s:
+	case option.Some[Span] as s:
 		json.Present{Value: s.Value}
 	}
 	wireEntry{Capability: e.Capability, Provider: e.Provider, Converts: someFlag(e.Converts), Span: span}
@@ -229,11 +231,11 @@ func fromWire(w wireSnapshot) Snapshot {
 	}
 	let mut calls = []Call{}
 	for c in list(w.Calls) {
-		let callee Option[string] = match c.Callee {
+		let callee option.Option[string] = match c.Callee {
 		case json.Absent:
-			None
+			option.None
 		case json.Present[string] as p:
-			Some{Value: p.Value}
+			option.Some{Value: p.Value}
 		}
 		calls = calls.Append(Call{Caller: c.Caller, Callee: callee, Kind: c.Kind, Span: c.Span, Fails: list(c.Fails)})
 	}
@@ -302,9 +304,9 @@ func toWire(s Snapshot) wireSnapshot {
 	let mut calls = []wireCall{}
 	for c in s.Calls {
 		let callee json.Optional[string] = match c.Callee {
-		case None:
+		case option.None:
 			json.Absent
-		case Some[string] as v:
+		case option.Some[string] as v:
 			json.Present{Value: v.Value}
 		}
 		calls = calls.Append(wireCall{Caller: c.Caller, Callee: callee, Kind: c.Kind, Span: c.Span, Fails: someList(c.Fails)})

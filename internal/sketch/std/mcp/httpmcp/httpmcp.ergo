@@ -9,6 +9,7 @@ import hex
 import http
 import json
 import mcp
+import option
 import rand
 import strings
 import sync
@@ -44,9 +45,9 @@ func Has(s Sessions, id string) bool {
 		return false
 	}
 	match s.active.Get().Get(id) {
-	case Some[bool] as ok:
+	case option.Some[bool] as ok:
 		ok.Value
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -58,16 +59,16 @@ func Delete(s Sessions, id string) bool {
 	}
 	sync.Modify(s.active, func(m Map[string, bool]) (bool, Map[string, bool]) {
 		match m.Get(id) {
-		case Some[bool]:
+		case option.Some[bool]:
 			(true, m.Delete(id))
-		case None:
+		case option.None:
 			(false, m)
 		}
 	})
 }
 
 // Count returns the number of currently active sessions in s.
-func Count(s Sessions) int { len(s.active.Get()) }
+func Count(s Sessions) int { s.active.Get().Len() }
 
 // SessionMode selects stateless handling or stateful Mcp-Session-Id tracking.
 type SessionMode = Stateless{} | Stateful{Store Sessions}
@@ -117,7 +118,7 @@ func Handle(e Endpoint, req http.Request) http.Response {
 // or reject the mcp.Server for req with any caller capability row R.
 func Dispatch[R](opts Options, req http.Request, resolve func(http.Request) Resolved needs R) http.Response needs R {
 	if !checkOrigin(opts.AllowedOrigins, req.Header) {
-		return textResponse(403, "origin not allowed", None, []http.Field{})
+		return textResponse(403, "origin not allowed", option.None, []http.Field{})
 	}
 	match req.Method {
 	case "DELETE":
@@ -132,33 +133,33 @@ func Dispatch[R](opts Options, req http.Request, resolve func(http.Request) Reso
 			}
 			let id = headerValue(req.Header, SessionHeader)
 			if id == "" {
-				return textResponse(400, "missing Mcp-Session-Id header", None, []http.Field{})
+				return textResponse(400, "missing Mcp-Session-Id header", option.None, []http.Field{})
 			}
 			if !Delete(st.Store, id) {
-				return textResponse(404, "unknown session", None, []http.Field{})
+				return textResponse(404, "unknown session", option.None, []http.Field{})
 			}
-			http.Response{Status: 204, Header: baseHeaders(None, []http.Field{}), Body: ""}
+			http.Response{Status: 204, Header: baseHeaders(option.None, []http.Field{}), Body: ""}
 		}
 	case "POST":
 		let (wantsJSON, wantsSSE) = parseAccept(req.Header)
 		if !wantsJSON && !wantsSSE {
-			return textResponse(406, "Accept must allow application/json or text/event-stream", None, []http.Field{})
+			return textResponse(406, "Accept must allow application/json or text/event-stream", option.None, []http.Field{})
 		}
 		if !isJSONContentType(req.Header) {
-			return textResponse(415, "Content-Type must be application/json", None, []http.Field{})
+			return textResponse(415, "Content-Type must be application/json", option.None, []http.Field{})
 		}
 		let version = headerValue(req.Header, ProtocolVersionHeader)
 		if version != "" && version != mcp.Version && version != "2025-03-26" {
-			return textResponse(400, "unsupported MCP-Protocol-Version", None, []http.Field{})
+			return textResponse(400, "unsupported MCP-Protocol-Version", option.None, []http.Field{})
 		}
 		let payload = match req.Body {
 		case http.BodyTooLarge:
-			return textResponse(413, "request body too large", None, []http.Field{})
+			return textResponse(413, "request body too large", option.None, []http.Field{})
 		case http.BodyReadFailed:
-			return textResponse(400, "failed to read request body", None, []http.Field{})
+			return textResponse(400, "failed to read request body", option.None, []http.Field{})
 		case http.Buffered as b:
-			if opts.MaxBodyBytes > 0 && len(b.Text) > opts.MaxBodyBytes {
-				return textResponse(413, "request body too large", None, []http.Field{})
+			if opts.MaxBodyBytes > 0 && b.Text.Len() > opts.MaxBodyBytes {
+				return textResponse(413, "request body too large", option.None, []http.Field{})
 			}
 			b.Text
 		}
@@ -172,51 +173,51 @@ func Dispatch[R](opts Options, req http.Request, resolve func(http.Request) Reso
 		case _:
 			let sid = match opts.Sessions {
 			case Stateless:
-				None
+				option.None
 			case Stateful as st:
 				let id = headerValue(req.Header, SessionHeader)
 				if id == "" {
-					return textResponse(400, "missing Mcp-Session-Id header", None, []http.Field{})
+					return textResponse(400, "missing Mcp-Session-Id header", option.None, []http.Field{})
 				}
 				if !Has(st.Store, id) {
-					return textResponse(404, "unknown session", None, []http.Field{})
+					return textResponse(404, "unknown session", option.None, []http.Field{})
 				}
-				Some[string]{Value: id}
+				option.Some[string]{Value: id}
 			}
 			let ans = mcp.Handle(server, payload)
 			let line = match mcp.Line(ans) {
-			case Some[string] as l:
+			case option.Some[string] as l:
 				l.Value
-			case None:
+			case option.None:
 				""
 			}
 			return jsonOrSSEResponse(400, []string{line}, false, wantsJSON, sid)
 		}
 		let isInit = isInitializeRequest(decoded)
-		let sid Option[string] = match opts.Sessions {
+		let sid option.Option[string] = match opts.Sessions {
 		case Stateless:
-			None
+			option.None
 		case Stateful as st:
 			if isInit {
-				Some[string]{Value: Create(st.Store)}
+				option.Some[string]{Value: Create(st.Store)}
 			} else {
 				let id = headerValue(req.Header, SessionHeader)
 				if id == "" {
-					return textResponse(400, "missing Mcp-Session-Id header", None, []http.Field{})
+					return textResponse(400, "missing Mcp-Session-Id header", option.None, []http.Field{})
 				}
 				if !Has(st.Store, id) {
-					return textResponse(404, "unknown session", None, []http.Field{})
+					return textResponse(404, "unknown session", option.None, []http.Field{})
 				}
-				Some[string]{Value: id}
+				option.Some[string]{Value: id}
 			}
 		}
 		match decoded {
 		case json.Array as arr:
-			if len(arr.Items) == 0 {
+			if arr.Items.Len() == 0 {
 				let line = match mcp.Line(mcp.Refused{ID: json.Null, Code: mcp.InvalidRequest, Message: "invalid request: empty batch"}) {
-				case Some[string] as l:
+				case option.Some[string] as l:
 					l.Value
-				case None:
+				case option.None:
 					""
 				}
 				return jsonOrSSEResponse(400, []string{line}, false, wantsJSON, sid)
@@ -225,21 +226,21 @@ func Dispatch[R](opts Options, req http.Request, resolve func(http.Request) Reso
 			for item in arr.Items {
 				let itemText = json.Encode(valueCodec(), item)
 				match mcp.Line(mcp.Handle(server, itemText)) {
-				case Some[string] as l:
+				case option.Some[string] as l:
 					lines = lines.Append(l.Value)
-				case None:
+				case option.None:
 				}
 			}
-			if len(lines) == 0 {
+			if lines.Len() == 0 {
 				return acceptedResponse(sid)
 			}
 			jsonOrSSEResponse(200, lines, true, wantsJSON, sid)
 		case json.Null, json.Boolean, json.Num, json.Str, json.Object:
 			let ans = mcp.Handle(server, payload)
 			match mcp.Line(ans) {
-			case None:
+			case option.None:
 				acceptedResponse(sid)
-			case Some[string] as line:
+			case option.Some[string] as line:
 				jsonOrSSEResponse(statusForAnswer(ans), []string{line.Value}, false, wantsJSON, sid)
 			}
 		}
@@ -258,21 +259,21 @@ func valueCodec() json.Codec[json.Value] { json.Codec[json.Value]{MaxBytes: 0, M
 
 func headerValue(headers []http.Field, name string) string {
 	match http.Header(headers, name) {
-	case Some[string] as v:
+	case option.Some[string] as v:
 		strings.TrimSpace(v.Value)
-	case None:
+	case option.None:
 		""
 	}
 }
 
 func checkOrigin(allowed []string, headers []http.Field) bool {
-	if len(allowed) == 0 {
+	if allowed.Len() == 0 {
 		return true
 	}
 	match http.Header(headers, "Origin") {
-	case None:
+	case option.None:
 		true
-	case Some[string] as got:
+	case option.Some[string] as got:
 		let normGot = normalizeOrigin(got.Value)
 		if normGot == "" {
 			return false
@@ -292,9 +293,9 @@ func normalizeOrigin(origin string) string {
 
 func mediaTypeOf(value string) string {
 	let head = match strings.Cut(value, ";") {
-	case Some[strings.Halves] as h:
+	case option.Some[strings.Halves] as h:
 		h.Value.Before
-	case None:
+	case option.None:
 		value
 	}
 	strings.ToLower(strings.TrimSpace(head))
@@ -302,9 +303,9 @@ func mediaTypeOf(value string) string {
 
 func isJSONContentType(headers []http.Field) bool {
 	match http.Header(headers, "Content-Type") {
-	case Some[string] as ct:
+	case option.Some[string] as ct:
 		mediaTypeOf(ct.Value) == "application/json"
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -330,19 +331,19 @@ func parseAccept(headers []http.Field) (bool, bool) {
 
 func isInitializeRequest(v json.Value) bool {
 	match mcp.Field(v, "id") {
-	case None:
+	case option.None:
 		return false
-	case Some:
+	case option.Some:
 	}
 	match mcp.Field(v, "method") {
-	case Some[json.Value] as m:
+	case option.Some[json.Value] as m:
 		match m.Value {
 		case json.Str as s:
 			s.Value == "initialize"
 		case json.Null, json.Boolean, json.Num, json.Array, json.Object:
 			false
 		}
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -356,14 +357,14 @@ func statusForAnswer(a mcp.Answer) int {
 	}
 }
 
-func baseHeaders(sid Option[string], extra []http.Field) []http.Field {
+func baseHeaders(sid option.Option[string], extra []http.Field) []http.Field {
 	let mut out = []http.Field{http.Field{Name: ProtocolVersionHeader, Value: mcp.Version}}
 	match sid {
-	case Some[string] as id:
+	case option.Some[string] as id:
 		if id.Value != "" {
 			out = out.Append(http.Field{Name: SessionHeader, Value: id.Value})
 		}
-	case None:
+	case option.None:
 	}
 	for f in extra {
 		out = out.Append(f)
@@ -371,7 +372,7 @@ func baseHeaders(sid Option[string], extra []http.Field) []http.Field {
 	out
 }
 
-func textResponse(status int, body string, sid Option[string], extra []http.Field) http.Response {
+func textResponse(status int, body string, sid option.Option[string], extra []http.Field) http.Response {
 	let mut headers = []http.Field{http.Field{Name: "Content-Type", Value: "text/plain; charset=utf-8"}}
 	for f in extra {
 		headers = headers.Append(f)
@@ -381,14 +382,14 @@ func textResponse(status int, body string, sid Option[string], extra []http.Fiel
 
 func methodNotAllowed(stateful bool) http.Response {
 	let allow = if stateful { "POST, DELETE" } else { "POST" }
-	textResponse(405, "method not allowed", None, []http.Field{http.Field{Name: "Allow", Value: allow}})
+	textResponse(405, "method not allowed", option.None, []http.Field{http.Field{Name: "Allow", Value: allow}})
 }
 
-func acceptedResponse(sid Option[string]) http.Response {
+func acceptedResponse(sid option.Option[string]) http.Response {
 	http.Response{Status: 202, Header: baseHeaders(sid, []http.Field{}), Body: ""}
 }
 
-func jsonOrSSEResponse(status int, lines []string, batch bool, wantsJSON bool, sid Option[string]) http.Response {
+func jsonOrSSEResponse(status int, lines []string, batch bool, wantsJSON bool, sid option.Option[string]) http.Response {
 	if wantsJSON {
 		let body = if batch { "[" + strings.Join(lines, ",") + "]" } else { lines[0] }
 		return http.Response{Status: status, Header: baseHeaders(sid, []http.Field{http.Field{Name: "Content-Type", Value: "application/json"}}), Body: body}

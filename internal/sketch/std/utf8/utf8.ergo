@@ -60,7 +60,7 @@ func IsUpper(r rune) bool { unicode.IsUpper(r) }
 func IsSpace(r rune) bool { unicode.IsSpace(r) }
 
 // RuneCountAtMostLen: a rune takes at least one byte.
-law RuneCountAtMostLen(s string) { RuneCount(s) <= len(s) && RuneCount(s) >= 0 }
+law RuneCountAtMostLen(s string) { RuneCount(s) <= s.Len() && RuneCount(s) >= 0 }
 
 // RuneCountOfConcat: joining two texts never adds runes; it may join a
 // split sequence into one.
@@ -78,7 +78,7 @@ law DecodeInvertsRuneText(r rune) {
 		return true
 	}
 	let d = DecodeRuneInString(RuneText(r))
-	d.Rune == r && d.Size == RuneLen(r) && d.Size == len(RuneText(r))
+	d.Rune == r && d.Size == RuneLen(r) && d.Size == RuneText(r).Len()
 }
 
 // InvalidRuneTextIsReplacement: the text of a rune that is not valid is
@@ -89,8 +89,8 @@ law InvalidRuneTextIsReplacement(r rune) { ValidRune(r) || RuneText(r) == "\uFFF
 // bytes, so a loop that moves on by Size ends.
 law DecodeMovesOn(s string) {
 	let d = DecodeRuneInString(s)
-	if len(s) == 0 {
+	if s.Len() == 0 {
 		return d.Size == 0
 	}
-	d.Size >= 1 && d.Size <= 4 && d.Size <= len(s)
+	d.Size >= 1 && d.Size <= 4 && d.Size <= s.Len()
 }

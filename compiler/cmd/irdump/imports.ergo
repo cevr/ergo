@@ -2,6 +2,7 @@ import compiler/check/expr
 import compiler/check/load
 import compiler/check/store
 import compiler/syntax
+import option
 import slices
 
 // exactLoadedUnits indexes only unambiguous loaded units. Equal paths
@@ -9,7 +10,7 @@ import slices
 func exactLoadedUnits(p load.Program) Map[string, int] {
 	let mut byPath = Map[string, int]{}
 	for i, dep in p.Loaded {
-		let at = if byPath.Get(dep.Path) == None { i } else { -1 }
+		let at = if byPath.Get(dep.Path) == option.None { i } else { -1 }
 		byPath = byPath.Put(dep.Path, at)
 	}
 	byPath
@@ -17,9 +18,9 @@ func exactLoadedUnits(p load.Program) Map[string, int] {
 
 func exactLoadedUnit(exact Map[string, int], path string) int {
 	match exact.Get(path) {
-	case Some[int] as at:
+	case option.Some[int] as at:
 		at.Value
-	case None:
+	case option.None:
 		-1
 	}
 }
@@ -32,11 +33,11 @@ func shapeLoadedUnits(p load.Program, units []load.Unit, inputs []InputTables) M
 	let mut byPath = Map[string, int]{}
 	for i, dep in p.Loaded {
 		match byPath.Get(dep.Path) {
-		case Some[int] as first:
+		case option.Some[int] as first:
 			if first.Value >= 0 && !sameShapeInputs(units, inputs, p.Units[first.Value], p.Units[i]) {
 				byPath = byPath.Put(dep.Path, -1)
 			}
-		case None:
+		case option.None:
 			byPath = byPath.Put(dep.Path, i)
 		}
 	}
@@ -62,11 +63,11 @@ func importUnits(p load.Program, units []load.Unit) Map[string, int] {
 	let mut byPath = Map[string, int]{}
 	for i, dep in p.Loaded {
 		match byPath.Get(dep.Path) {
-		case Some[int] as previous:
+		case option.Some[int] as previous:
 			if previous.Value >= 0 && !slices.Equal(units[p.Units[i]].Paths, units[p.Units[previous.Value]].Paths) {
 				byPath = byPath.Put(dep.Path, -1)
 			}
-		case None:
+		case option.None:
 			byPath = byPath.Put(dep.Path, i)
 		}
 	}
@@ -74,7 +75,7 @@ func importUnits(p load.Program, units []load.Unit) Map[string, int] {
 }
 
 func hasSources(dep expr.Dep) bool {
-	if len(dep.K.Parsed) == 0 {
+	if dep.K.Parsed.Len() == 0 {
 		return false
 	}
 	for parsed in dep.K.Parsed {
@@ -100,10 +101,10 @@ func shapeImports(p load.Program, unit int, exact Map[string, int]) Map[string, 
 		paths = paths.Append("prelude")
 	}
 	let mut i = 0
-	for i < len(paths) {
+	for i < paths.Len() {
 		let path = paths[i]
 		i = i + 1
-		if path == source.Path || deps.Get(path) != None {
+		if path == source.Path || deps.Get(path) != option.None {
 			continue
 		}
 		let at = exactLoadedUnit(exact, path)
@@ -123,10 +124,10 @@ func shapeImports(p load.Program, unit int, exact Map[string, int]) Map[string, 
 // sorted and LoadAll rejoins in input order, so neither the closure's
 // contents nor its order depend on task width. An interface without
 // sources cannot certify that the package has no private declarations.
-func rootImports(p load.Program, root int, available Map[string, int]) Option[[]expr.Dep] {
+func rootImports(p load.Program, root int, available Map[string, int]) option.Option[[]expr.Dep] {
 	let first = p.Loaded[root]
 	if !hasSources(first) {
-		return None
+		return option.None
 	}
 	let mut paths = []string{"prelude"}
 	for path in store.ImportPaths(first.S) {
@@ -135,30 +136,30 @@ func rootImports(p load.Program, root int, available Map[string, int]) Option[[]
 	let mut seen = Map[string, bool]{first.Path: true}
 	let mut deps = []expr.Dep{}
 	let mut i = 0
-	for i < len(paths) {
+	for i < paths.Len() {
 		let path = paths[i]
 		i = i + 1
-		if seen.Get(path) != None {
+		if seen.Get(path) != option.None {
 			continue
 		}
 		seen = seen.Put(path, true)
 		let at = match available.Get(path) {
-		case Some[int] as loaded:
+		case option.Some[int] as loaded:
 			loaded.Value
-		case None:
-			return None
+		case option.None:
+			return option.None
 		}
 		if at < 0 {
-			return None
+			return option.None
 		}
 		let dep = p.Loaded[at]
 		if !hasSources(dep) {
-			return None
+			return option.None
 		}
 		deps = deps.Append(dep)
 		for imported in store.ImportPaths(dep.S) {
 			paths = paths.Append(imported)
 		}
 	}
-	Some[[]expr.Dep]{Value: deps}
+	option.Some[[]expr.Dep]{Value: deps}
 }

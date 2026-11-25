@@ -7,6 +7,7 @@
 // Effect: effect/workflow's in-memory WorkflowEngine layer. Go control: a
 // map of runs under a mutex.
 
+import option
 import queue
 import scope
 import sync
@@ -48,14 +49,14 @@ func Load(s Store, run workflow.RunID, from workflow.Cursor) workflow.Loaded fai
 	sync.Modify(s.state, func(st workflow.State) (workflow.Loaded, workflow.State) { (workflow.LoadOf(st, run, from), st) })
 }
 
-func Claim(s Store, now time.Time, lease duration) Option[workflow.Grant] fails workflow.Failed {
-	sync.Modify(s.state, func(st workflow.State) (Option[workflow.Grant], workflow.State) {
+func Claim(s Store, now time.Time, lease duration) option.Option[workflow.Grant] fails workflow.Failed {
+	sync.Modify(s.state, func(st workflow.State) (option.Option[workflow.Grant], workflow.State) {
 		let (g, next, _) = workflow.ApplyClaim(st, now, lease)
 		(g, next)
 	})
 }
 
-func Commit(s Store, c workflow.Claimed, expected workflow.Cursor, events []workflow.Event, next Option[time.Time]) workflow.Cursor fails workflow.Conflict | workflow.Fenced | workflow.Failed {
+func Commit(s Store, c workflow.Claimed, expected workflow.Cursor, events []workflow.Event, next option.Option[time.Time]) workflow.Cursor fails workflow.Conflict | workflow.Fenced | workflow.Failed {
 	let res = sync.Modify(s.state, func(st workflow.State) (workflow.CommitResult, workflow.State) {
 		let (r, updated, _) = workflow.ApplyCommit(st, workflow.GrantOf(c), expected, events, next)
 		(r, updated)
@@ -103,13 +104,13 @@ type exits {
 
 type injectedClaimFault { How int }
 
-func block(e exits, c own workflow.Claimed) fails Stuck | workflow.Fenced | workflow.Failed needs Scheduler {
+func block(e exits, c own workflow.Claimed) fails Stuck | workflow.Fenced | workflow.Failed needs time.Scheduler {
 	scope.OnExit() {
 		let free = e.s.Claim(e.now, 1h) catch {
 		case workflow.Failed:
-			None
+			option.None
 		}
-		e.inside.Push(free == None) catch {
+		e.inside.Push(free == option.None) catch {
 		case queue.Closed:
 		}
 	}
@@ -120,20 +121,20 @@ func block(e exits, c own workflow.Claimed) fails Stuck | workflow.Fenced | work
 	case 1:
 		return Stuck
 	case 2:
-		Scheduler.Sleep(1h)
+		time.Scheduler.Sleep(1h)
 	case 4:
 		try e.s.Settle(c)
 	case _:
 	}
 }
 
-func defectBlock(e exits, c own workflow.Claimed) fails Stuck | workflow.Fenced | workflow.Failed needs Scheduler defects {
+func defectBlock(e exits, c own workflow.Claimed) fails Stuck | workflow.Fenced | workflow.Failed needs time.Scheduler defects {
 	scope.OnExit() {
 		let free = e.s.Claim(e.now, 1h) catch {
 		case workflow.Failed:
-			None
+			option.None
 		}
-		e.inside.Push(free == None) catch {
+		e.inside.Push(free == option.None) catch {
 		case queue.Closed:
 		}
 	}
@@ -143,7 +144,7 @@ func defectBlock(e exits, c own workflow.Claimed) fails Stuck | workflow.Fenced 
 	die injectedClaimFault{How: e.how}
 }
 
-func worked(e exits) bool fails workflow.Failed needs Scheduler {
+func worked(e exits) bool fails workflow.Failed needs time.Scheduler {
 	match e.how {
 	case 2:
 		let t = task.Go() {
@@ -164,7 +165,7 @@ func worked(e exits) bool fails workflow.Failed needs Scheduler {
 	case 3:
 		let runs = sync.NewRef(0)
 		let set = tasks.NewSet[workflow.Failed](tasks.Restart{Limit: 1})
-		tasks.Go(set, func() fails workflow.Failed needs Scheduler defects {
+		tasks.Go(set, func() fails workflow.Failed needs time.Scheduler defects {
 			runs.Update(func(n int) int { n + 1 })
 			if runs.Get() == 1 {
 				let _ = try workflow.WorkDefects(e.s, e.now, 1h, func(c own workflow.Claimed) fails Stuck | workflow.Fenced | workflow.Failed defects { try defectBlock(e, c) }) catch {
@@ -204,7 +205,7 @@ law UnsettledScopeGivesBackNow(exit int, sec int64) {
 	let run = workflow.RunID("run")
 	let _ = try s.Create(run, workflow.Started{Payload: "p", Version: "1", At: now}, now)
 	let e = exits{s: s, now: now, how: how, held: queue.New[workflow.Grant](1), inside: queue.New[bool](1)}
-	let did = with context { Scheduler: m } {
+	let did = with context { time.Scheduler: m } {
 		worked(e) catch {
 		case workflow.Failed:
 			false
@@ -225,9 +226,9 @@ law UnsettledScopeGivesBackNow(exit int, sec int64) {
 		return false
 	}
 	match try e.s.Claim(now, 1h) {
-	case Some{Value: again}:
+	case option.Some{Value: again}:
 		how != 4 && again.Epoch > first.Epoch && again.Rev == first.Rev
-	case None:
+	case option.None:
 		how == 4
 	}
 }

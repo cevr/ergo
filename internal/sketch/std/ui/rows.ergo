@@ -5,6 +5,8 @@
 // shows. A row's identity and cells are by its key, as in Each, so a row
 // keeps them while it stays in the rows written, wherever it moves.
 
+import core
+import option
 import time
 import actor
 import machines
@@ -58,7 +60,7 @@ func Visible(count int, rowHeight Length, v Viewport) (int, int) {
 // First * rowHeight, and the offset the pass used (Offset), which a host
 // scrolls to when it is not its own. The viewport is (0, 0) until a host
 // reports one.
-func Rows[E, F, R](f mut Frame[E], label string, count int, rowHeight Length, key func(i int) Key, row func(i int) fails F needs R, at CallSite) fails F needs R {
+func Rows[E, F, R](f mut Frame[E], label string, count int, rowHeight Length, key func(i int) Key, row func(i int) fails F needs R, at core.CallSite) fails F needs R {
 	try rowsKeeping(f, label, count, rowHeight, -1, key, row, at)
 }
 
@@ -72,7 +74,7 @@ func Rows[E, F, R](f mut Frame[E], label string, count int, rowHeight Length, ke
 // count (a list of 1,000 runs as few rows as one of 50).
 law RowsAreTheCutEach(seed int, steps int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		rowsFollow(seed, steps, m)
 	}
 }
@@ -83,28 +85,28 @@ type roster { items []int, next int }
 
 // rosterStep: 0 adds a row with the next key at the end; 1 drops the first
 // row, so every other row moves up one.
-func rosterStep(s roster, e int) Decision[roster, int] {
+func rosterStep(s roster, e int) machines.Decision[roster, int] {
 	if e == 0 {
-		return Enter[roster]{Next: roster{items: s.items.Append(s.next), next: s.next + 1}}
+		return machines.Enter[roster]{Next: roster{items: s.items.Append(s.next), next: s.next + 1}}
 	}
-	if len(s.items) == 0 {
-		return Enter[roster]{Next: s}
+	if s.items.Len() == 0 {
+		return machines.Enter[roster]{Next: s}
 	}
-	Enter[roster]{Next: roster{items: s.items[1:], next: s.next}}
+	machines.Enter[roster]{Next: roster{items: s.items[1:], next: s.next}}
 }
 
-func rosterTimer(s roster) Option[Timeout[int]] { None }
+func rosterTimer(s roster) option.Option[machines.Timeout[int]] { option.None }
 
-func rosterWork(s roster) Option[func(send func(e int))] { None }
+func rosterWork(s roster) option.Option[func(send func(e int))] { option.None }
 
-func rosterExit(s roster) Option[func()] { None }
+func rosterExit(s roster) option.Option[func()] { option.None }
 
-func rosterMachine(n int) Machine[roster, int, int] {
+func rosterMachine(n int) machines.Machine[roster, int, int] {
 	let mut items = []int{}
 	for k in 0..n {
 		items = items.Append(k)
 	}
-	Machine[roster, int, int]{Initial: roster{items: items, next: n}, Step: rosterStep, After: rosterTimer, Work: rosterWork, Exit: rosterExit}
+	machines.Machine[roster, int, int]{Initial: roster{items: items, next: n}, Step: rosterStep, After: rosterTimer, Work: rosterWork, Exit: rosterExit}
 }
 
 // shownRows is the model of the rows a list writes, by brute force over
@@ -123,10 +125,10 @@ func shownRows(count int, rh float64, off float64, height float64) []int {
 	out
 }
 
-func rowsFollow(seed int, steps int, m time.Manual) bool needs Scheduler {
+func rowsFollow(seed int, steps int, m time.Manual) bool needs time.Scheduler {
 	let mut r = seeded(seed)
 	let sizes = []int{0, 3, 50, 1000}
-	let n = sizes[draw(&r, len(sizes))]
+	let n = sizes[draw(&r, sizes.Len())]
 	let rh = float64(draw(&r, 40) + 10)
 	let view = func(f mut Frame[int], s roster) {
 		Pressable(f, "add", 0) {
@@ -135,7 +137,7 @@ func rowsFollow(seed int, steps int, m time.Manual) bool needs Scheduler {
 		Pressable(f, "drop", 1) {
 			Text(f, "-")
 		}
-		Rows(f, "list", len(s.items), Length(rh), func(i int) Key { ByInt(s.items[i]) }) func(i int) {
+		Rows(f, "list", s.items.Len(), Length(rh), func(i int) Key { ByInt(s.items[i]) }) func(i int) {
 			let fl = NewFlag(f, false)
 			Toggle(f, fl, "row \(s.items[i])")
 		}
@@ -150,11 +152,11 @@ func rowsFollow(seed int, steps int, m time.Manual) bool needs Scheduler {
 	let mut height = 0.0
 	let mut on = Map[int, bool]{}
 	for _ in 0..(steps%24+24)%24+1 {
-		let shown = shownRows(len(model.items), rh, off, height)
+		let shown = shownRows(model.items.Len(), rh, off, height)
 		let mut act Act = SettleAll
 		match draw(&r, 4) {
 		case 0:
-			off = float64(draw(&r, len(model.items)*int(rh)+1))
+			off = float64(draw(&r, model.items.Len()*int(rh)+1))
 			height = float64(draw(&r, 300))
 			act = ScrollOn{Label: "list", Offset: Length(off), Height: Length(height)}
 		case 1:
@@ -164,38 +166,38 @@ func rowsFollow(seed int, steps int, m time.Manual) bool needs Scheduler {
 			act = TapOn{Label: "drop"}
 			model = machines.Next(model, rosterStep(model, 1))
 		case _:
-			if len(shown) > 0 {
-				let k = model.items[shown[draw(&r, len(shown))]]
+			if shown.Len() > 0 {
+				let k = model.items[shown[draw(&r, shown.Len())]]
 				act = TapOn{Label: "row \(k)"}
-				on[k] = !(on.Get(k) == (Some{Value: true}))
+				on[k] = !(on.Get(k) == (option.Some{Value: true}))
 			}
 		}
 		Play(&h, []Act{act}) catch {
 		case _:
 			return false
 		}
-		let now = shownRows(len(model.items), rh, off, height)
+		let now = shownRows(model.items.Len(), rh, off, height)
 		let mut kept = Map[int, bool]{}
 		let mut rows = []Shape[int]{}
 		for i in now {
 			let k = model.items[i]
-			let lit = on.Get(k) == (Some{Value: true})
+			let lit = on.Get(k) == (option.Some{Value: true})
 			if lit {
 				kept[k] = true
 			}
 			rows = rows.Append(Shape[int]{Node: ToggleNode{Label: "row \(k)", On: lit}, Kids: []Shape[int]{}})
 		}
 		on = kept
-		let mut first = len(model.items)
-		if len(now) > 0 {
+		let mut first = model.items.Len()
+		if now.Len() > 0 {
 			first = now[0]
 		}
-		let want = Shape[int]{Node: RowsNode{Label: "list", Count: len(model.items), RowHeight: Length(rh), First: first, Offset: Length(off)}, Kids: rows}
+		let want = Shape[int]{Node: RowsNode{Label: "list", Count: model.items.Len(), RowHeight: Length(rh), First: first, Offset: Length(off)}, Kids: rows}
 		let screen = Screen(&h)
-		if StateOf(&h) != model || len(screen) != 3 || !SameShapes(screen[2:], []Shape[int]{want}) {
+		if StateOf(&h) != model || screen.Len() != 3 || !SameShapes(screen[2:], []Shape[int]{want}) {
 			return false
 		}
-		if RowRuns(&h) != len(now) || RowRuns(&h) > int(height/rh)+2+2*Overscan {
+		if RowRuns(&h) != now.Len() || RowRuns(&h) > int(height/rh)+2+2*Overscan {
 			return false
 		}
 	}
@@ -209,7 +211,7 @@ func rowsFollow(seed int, steps int, m time.Manual) bool needs Scheduler {
 // of the host's after it stays, as long as keep stays, so a user can
 // scroll away from the cursor; a keep outside [0, count) brings nothing.
 // While the host has reported no height, the row's top is the offset.
-func RowsKeeping[E, F, R](f mut Frame[E], label string, count int, rowHeight Length, keep int, key func(i int) Key, row func(i int) fails F needs R, at CallSite) fails F needs R {
+func RowsKeeping[E, F, R](f mut Frame[E], label string, count int, rowHeight Length, keep int, key func(i int) Key, row func(i int) fails F needs R, at core.CallSite) fails F needs R {
 	try rowsKeeping(f, label, count, rowHeight, keep, key, row, at)
 }
 
@@ -234,20 +236,20 @@ func Keep(keep int, rowHeight Length, v Viewport) Length {
 	v.Offset
 }
 
-func rowsKeeping[E, F, R](f mut Frame[E], label string, count int, rowHeight Length, keep int, key func(i int) Key, row func(i int) fails F needs R, at CallSite) fails F needs R {
+func rowsKeeping[E, F, R](f mut Frame[E], label string, count int, rowHeight Length, keep int, key func(i int) Key, row func(i int) fails F needs R, at core.CallSite) fails F needs R {
 	let m = markOf(f)
 	let (id, prev) = cellSlot(f, at)
 	let mut v = Viewport{Offset: 0, Height: 0}
 	let mut follow = -1
 	match prev {
-	case Some[Cell] as existing:
+	case option.Some[Cell] as existing:
 		match existing.Value {
 		case ViewCell as x:
 			v = Viewport{Offset: x.Offset, Height: x.Height}
 			follow = x.Follow
 		case TextCell, FlagCell, PresenceCell:
 		}
-	case None:
+	case option.None:
 	}
 	let where = storeCell(f, id, ViewCell{Offset: v.Offset, Height: v.Height, Follow: follow})
 	if keep != follow {
@@ -257,7 +259,7 @@ func rowsKeeping[E, F, R](f mut Frame[E], label string, count int, rowHeight Len
 		f.cells[f.ncells-1].cell = ViewCell{Offset: v.Offset, Height: v.Height, Follow: keep}
 	}
 	let (first, last) = Visible(count, rowHeight, v)
-	f.parent = put(f, RowsNode{Label: label, Count: count, RowHeight: rowHeight, First: first, Offset: v.Offset}, None, Some{Value: where}, at)
+	f.parent = put(f, RowsNode{Label: label, Count: count, RowHeight: rowHeight, First: first, Offset: v.Offset}, option.None, option.Some{Value: where}, at)
 	let outerEach = f.each
 	let outerKey = f.key
 	for i in first..last {

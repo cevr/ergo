@@ -8,6 +8,7 @@
 // jobs and a map of leases under a mutex.
 
 import jobs
+import option
 import sync
 import time
 
@@ -36,9 +37,9 @@ func EnqueueAt[J](q Queue[J], job J, at time.Time) int fails jobs.Failed {
 	})
 }
 
-func ReserveAt[J](q Queue[J], now time.Time) Option[jobs.Lease[J]] fails jobs.Failed {
+func ReserveAt[J](q Queue[J], now time.Time) option.Option[jobs.Lease[J]] fails jobs.Failed {
 	let p = q.policy
-	sync.Modify(q.state, func(s jobs.State[J]) (Option[jobs.Lease[J]], jobs.State[J]) {
+	sync.Modify(q.state, func(s jobs.State[J]) (option.Option[jobs.Lease[J]], jobs.State[J]) {
 		let (lease, next, _) = jobs.ApplyReserve(p, s, now)
 		(lease, next)
 	})

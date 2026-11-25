@@ -1,6 +1,8 @@
 // Splitting a slice: Chunks, Windows and GroupBy (std-spike D1). Each part
 // is a new slice: a write to a part never reaches xs, nor xs a part.
 
+import option
+
 // Chunks is xs cut into slices of n elements, in order, the last holding
 // what remains (Go's slices.Chunk collected; Effect Array.chunksOf). An n
 // under one is taken as one, as Effect's is; Go's panics.
@@ -8,8 +10,8 @@ func Chunks[T](xs []T, n int) [][]T {
 	let size = if n < 1 { 1 } else { n }
 	let mut out = [][]T{}
 	let mut i = 0
-	for i < len(xs) {
-		let j = if i+size < len(xs) { i + size } else { len(xs) }
+	for i < xs.Len() {
+		let j = if i+size < xs.Len() { i + size } else { xs.Len() }
 		out = out.Append(Clone(Slice(xs, i, j)))
 		i = j
 	}
@@ -25,7 +27,7 @@ law ChunksConcat(xs []int, k int) {
 	let mut ok = true
 	for i, c in cs {
 		joined = Concat(joined, c)
-		ok = ok && len(c) >= 1 && (i == len(cs)-1 || len(c) == n)
+		ok = ok && c.Len() >= 1 && (i == cs.Len()-1 || c.Len() == n)
 	}
 	ok && Equal(joined, xs)
 }
@@ -38,7 +40,7 @@ func Windows[T](xs []T, n int) [][]T {
 	if n < 1 {
 		return out
 	}
-	for i in 0..len(xs)-n+1 {
+	for i in 0..xs.Len()-n+1 {
 		out = out.Append(Clone(Slice(xs, i, i+n)))
 	}
 	out
@@ -48,8 +50,8 @@ func Windows[T](xs []T, n int) [][]T {
 law WindowsSlide(xs []int, k int) {
 	let n = (k%4+4)%4 + 1
 	let ws = Windows(xs, n)
-	let want = if len(xs) < n { 0 } else { len(xs) - n + 1 }
-	let mut ok = len(ws) == want
+	let want = if xs.Len() < n { 0 } else { xs.Len() - n + 1 }
+	let mut ok = ws.Len() == want
 	for i, w in ws {
 		ok = ok && Equal(w, Slice(xs, i, i+n))
 	}
@@ -68,32 +70,32 @@ func GroupBy[T, K comparable, E, R](xs []T, key func(x T) K fails E needs R) Map
 	let mut at = Map[K, int]{}
 	let mut keys = []K{}
 	let mut counts = []int{}
-	let mut ids = WithCapacity[int](len(xs))
+	let mut ids = WithCapacity[int](xs.Len())
 	for x in xs {
 		let k = try key(x)
 		match at.Get(k) {
-		case Some[int] as i:
+		case option.Some[int] as i:
 			let j = i.Value
 			counts[j] = counts[j] + 1
 			ids = ids.Append(j)
-		case None:
-			at[k] = len(keys)
-			ids = ids.Append(len(keys))
+		case option.None:
+			at[k] = keys.Len()
+			ids = ids.Append(keys.Len())
 			keys = keys.Append(k)
 			counts = counts.Append(1)
 		}
 	}
 	let mut out = Map[K, []T]{}
-	if len(xs) == 0 {
+	if xs.Len() == 0 {
 		return out
 	}
-	let mut next = WithCapacity[int](len(counts))
+	let mut next = WithCapacity[int](counts.Len())
 	let mut total = 0
 	for c in counts {
 		next = next.Append(total)
 		total = total + c
 	}
-	let mut flat = Repeat(Slice(xs, 0, 1), len(xs))
+	let mut flat = Repeat(Slice(xs, 0, 1), xs.Len())
 	for i, x in xs {
 		let j = ids[i]
 		flat[next[j]] = x
@@ -113,8 +115,8 @@ law GroupByPartitions(xs []int) {
 	let mut total = 0
 	let mut ok = true
 	for k, group in g {
-		total = total + len(group)
+		total = total + group.Len()
 		ok = ok && Equal(group, Filter(xs, func(x int) bool { key(x) == k }))
 	}
-	ok && total == len(xs)
+	ok && total == xs.Len()
 }

@@ -1,5 +1,8 @@
 import actor
 import atomic
+import core
+import machines
+import option
 import sync
 import task
 import time
@@ -66,20 +69,20 @@ func Reading(r Readout) string { r.text.Get() }
 // ReadoutText shows the text r reads, in a box the size of reserve's
 // text. The node is the same across passes while r and reserve are, so a
 // pass that writes it again changes nothing.
-func ReadoutText[E](f mut Frame[E], r Readout, reserve string, at CallSite) {
+func ReadoutText[E](f mut Frame[E], r Readout, reserve string, at core.CallSite) {
 	ReadoutStyled(f, r, reserve, Plain(), at)
 }
 
 // ReadoutStyled is ReadoutText with a Style: its layout, and its look,
 // whose Ink draws the reading (look.ergo).
-func ReadoutStyled[E](f mut Frame[E], r Readout, reserve string, style Style, at CallSite) {
-	if f.nreadouts < len(f.readouts) {
+func ReadoutStyled[E](f mut Frame[E], r Readout, reserve string, style Style, at core.CallSite) {
+	if f.nreadouts < f.readouts.Len() {
 		f.readouts[f.nreadouts] = r
 	} else {
 		f.readouts = f.readouts.Append(r)
 	}
 	f.nreadouts = f.nreadouts + 1
-	let _ = put(f, ReadoutNode{Readout: r.id, Reserve: reserve, Style: style}, None, None, at)
+	let _ = put(f, ReadoutNode{Readout: r.id, Reserve: reserve, Style: style}, option.None, option.None, at)
 }
 
 // watched is a readout a session watches and the flag of its Published.
@@ -109,20 +112,20 @@ func watchReadouts[S, E, D, F](s mut Session[S, E, D, F]) {
 // readout, so a Publish after that is either read now or posts once more.
 func taken[S, E, D, F](s mut Session[S, E, D, F], id int) {
 	match s.readouts.Get(id) {
-	case Some[watched] as w:
+	case option.Some[watched] as w:
 		w.Value.pending.Set(false)
-	case None:
+	case option.None:
 	}
 }
 
 // ReadingIn is the text the readout numbered id reads now, for a node of
 // s's tree; None for a number s never placed.
-func ReadingIn[S, E, D, F](s mut Session[S, E, D, F], id int) Option[string] {
+func ReadingIn[S, E, D, F](s mut Session[S, E, D, F], id int) option.Option[string] {
 	match s.readouts.Get(id) {
-	case Some[watched] as w:
-		Some{Value: Reading(w.Value.readout)}
-	case None:
-		None
+	case option.Some[watched] as w:
+		option.Some{Value: Reading(w.Value.readout)}
+	case option.None:
+		option.None
 	}
 }
 
@@ -135,15 +138,15 @@ func ShownIn[S, E, D, F](s mut Session[S, E, D, F], n Node[E]) Node[E] {
 		// style, through StyleOf, so the test host shows a readout's look
 		// by the one route a window paints it by.
 		let style = match StyleOf(n) {
-		case Some[Style] as st:
+		case option.Some[Style] as st:
 			st.Value
-		case None:
+		case option.None:
 			Plain()
 		}
 		match ReadingIn(s, x.Readout) {
-		case Some[string] as t:
+		case option.Some[string] as t:
 			TextNode{Value: t.Value, Style: style}
-		case None:
+		case option.None:
 			TextNode{Value: x.Reserve, Style: style}
 		}
 	case _:
@@ -224,7 +227,7 @@ func texts(shapes []Shape[int]) []string {
 // row.
 law LiveCostsNoPass(seed int, steps int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		let mut r = seeded(seed)
 		let n = draw(&r, 4) + 1
 		let rs = readoutsOf(n)
@@ -243,7 +246,7 @@ law LiveCostsNoPass(seed int, steps int) {
 		let before = Counts(&h)
 		for _ in 0..(steps%16+16)%16+1 {
 			let i = draw(&r, n)
-			let mut word = readWords[draw(&r, len(readWords))]
+			let mut word = readWords[draw(&r, readWords.Len())]
 			let was = Reading(rs[i])
 			if draw(&r, 2) == 0 {
 				Publish(rs[i], word)
@@ -261,7 +264,7 @@ law LiveCostsNoPass(seed int, steps int) {
 			}
 			// A second text before the host takes the first posts no more.
 			if woke == 1 && draw(&r, 2) == 0 {
-				word = readWords[draw(&r, len(readWords))]
+				word = readWords[draw(&r, readWords.Len())]
 				Publish(rs[i], word)
 				if Posted(&h) != 1 {
 					return false
@@ -293,19 +296,19 @@ type readState { layout int, words []int }
 
 // readStep: a signal under 100 is a layout; 100 + 10i + w sets row i's
 // text to readWords[w]. (a law's helper)
-func readStep(s readState, e int) Decision[readState, int] {
+func readStep(s readState, e int) machines.Decision[readState, int] {
 	if e < 100 {
-		return Enter[readState]{Next: readState{layout: e, words: s.words}}
+		return machines.Enter[readState]{Next: readState{layout: e, words: s.words}}
 	}
 	let i = (e - 100) / 10
 	let mut words = s.words
 	words[i] = (e - 100) % 10
-	Enter[readState]{Next: readState{layout: s.layout, words: words}}
+	machines.Enter[readState]{Next: readState{layout: s.layout, words: words}}
 }
 
-func readTimer(s readState) Option[Timeout[int]] { None }
+func readTimer(s readState) option.Option[machines.Timeout[int]] { option.None }
 
-func readWork(s readState) Option[func(send func(e int))] { None }
+func readWork(s readState) option.Option[func(send func(e int))] { option.None }
 
 // LiveEqualsRerun (LIVE): two programs show n readout rows under drawn
 // steps: one with readouts, one with the same texts in its actor's state,
@@ -315,7 +318,7 @@ func readWork(s readState) Option[func(send func(e int))] { None }
 // readout removed and written again shows its latest text.
 law LiveEqualsRerun(seed int, steps int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		let mut r = seeded(seed)
 		let n = draw(&r, 4) + 1
 		let rs = readoutsOf(n)
@@ -327,18 +330,18 @@ law LiveEqualsRerun(seed int, steps int) {
 			zero = zero.Append(0)
 		}
 		let rerun = func(f mut Frame[int], s readState) {
-			OnKey(f, func(k KeyPress) Option[int] {
+			OnKey(f, func(k KeyPress) option.Option[int] {
 				for e in 100..100+10*n {
 					if k.Name == "\(e)" {
-						return Some{Value: e}
+						return option.Some{Value: e}
 					}
 				}
-				None
+				option.None
 			})
 			readoutRows(f, s.layout, n, func(i int) { Text(f, readWords[s.words[i]]) })
 		}
 		let a = actor.StartMachine(dialMachine(), 1, func(o int) {})
-		let b = actor.StartMachine(Machine[readState, int, int]{Initial: readState{layout: 0, words: zero}, Step: readStep, After: readTimer, Work: readWork, Exit: func(at readState) Option[func()] { None }}, 1, func(o int) {})
+		let b = actor.StartMachine(machines.Machine[readState, int, int]{Initial: readState{layout: 0, words: zero}, Step: readStep, After: readTimer, Work: readWork, Exit: func(at readState) option.Option[func()] { option.None }}, 1, func(o int) {})
 		let mut ha = NewTestHost(a, live, m, 4) catch {
 		case BadPatch:
 			return false
@@ -360,7 +363,7 @@ law LiveEqualsRerun(seed int, steps int) {
 				}
 			} else {
 				let i = draw(&r, n)
-				let w = draw(&r, len(readWords))
+				let w = draw(&r, readWords.Len())
 				Publish(rs[i], readWords[w])
 				Settle(&ha) catch {
 				case _:

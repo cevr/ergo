@@ -62,12 +62,12 @@ func WarmKey(compiler string, parts []string, environ []string, experiments []st
 	if compiler == "" || strings.HasPrefix(compiler, "process:") {
 		return ""
 	}
-	let mut all = []string{WarmSchema, compiler, "\(len(parts))"}
+	let mut all = []string{WarmSchema, compiler, "\(parts.Len())"}
 	for p in parts {
 		all = all.Append(p)
 	}
 	let env = answerEnviron(environ)
-	all = all.Append("\(len(env))")
+	all = all.Append("\(env.Len())")
 	for kv in env {
 		all = all.Append(kv)
 	}
@@ -100,7 +100,7 @@ type Entry { Name string, Type int }
 func ListingDigest(entries []Entry) string {
 	let mut names = []string{}
 	for e in entries {
-		names = names.Append("\(len(e.Name)):" + e.Name + "\(e.Type)")
+		names = names.Append("\(e.Name.Len()):" + e.Name + "\(e.Type)")
 	}
 	hex.Encode(sha256.Sum(strings.Join(slices.Sort(names), "\x00")))
 }

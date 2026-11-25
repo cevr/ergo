@@ -28,13 +28,13 @@ func WireWrite(a Attribute, t mut text) {
 	if t.depth >= 2 {
 		let field = t.stack[t.depth-1]
 		let parent = t.stack[t.depth-2]
-		let tag = len(field.name) + 2
-		if field.name != "_" && !parent.list && field.end == len(t.out) && parent.end == field.end-tag {
+		let tag = field.name.Len() + 2
+		if field.name != "_" && !parent.list && field.end == t.out.Len() && parent.end == field.end-tag {
 			t.depth = t.depth - 1
 			// The record's '>' and "<name>" are as long as ` name="`, so
 			// that is written over them in place; the value and '>' follow.
 			let at = parent.end - 1
-			let n = len(field.name)
+			let n = field.name.Len()
 			t.out[at] = ' '
 			for i in 0..n {
 				t.out[at+1+i] = field.name[i]
@@ -43,7 +43,7 @@ func WireWrite(a Attribute, t mut text) {
 			t.out[at+2+n] = '"'
 			t.escape(a.Value, true)
 			t.raw("\">")
-			t.stack[t.depth-1].end = len(t.out)
+			t.stack[t.depth-1].end = t.out.Len()
 			return
 		}
 	}

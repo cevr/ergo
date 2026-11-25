@@ -5,7 +5,7 @@ let adlerNMax = 5552
 func UpdateAdler32(sum uint32, data []byte) uint32 {
 	let mut s1 = sum & uint32(65535)
 	let mut s2 = (sum >> uint32(16)) & uint32(65535)
-	let n = len(data)
+	let n = data.Len()
 	let mut i = 0
 	for i < n {
 		let mut end = i + adlerNMax

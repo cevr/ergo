@@ -4,6 +4,7 @@
 // was written with.
 
 import json
+import option
 import slices
 import strconv
 import utf8
@@ -79,9 +80,9 @@ func outcome(p Pack, namespace string, requested RequestRule, text string, loade
 		return RuleFailed{Reason: "request is for pack \(strconv.Quote(namespace)); this pack is \(strconv.Quote(p.Namespace))"}
 	}
 	let rule = match RuleNamed(p, requested.Name) {
-	case None:
+	case option.None:
 		return RuleFailed{Reason: "pack does not implement its manifest rule " + requested.Name}
-	case Some[Rule] as found:
+	case option.Some[Rule] as found:
 		found.Value
 	}
 	if rule.Version != requested.Version {
@@ -110,15 +111,15 @@ func outcome(p Pack, namespace string, requested RequestRule, text string, loade
 func validate(f Finding, sources []Source) fails RuleFailed {
 	try message(f.Message)
 	try inside(f.Span, sources, "finding \(strconv.Quote(f.Message)): ")
-	if len(f.Related) > MaxRelatedLocations {
-		return RuleFailed{Reason: "finding \(strconv.Quote(f.Message)) has \(len(f.Related)) related locations; the limit is \(MaxRelatedLocations)"}
+	if f.Related.Len() > MaxRelatedLocations {
+		return RuleFailed{Reason: "finding \(strconv.Quote(f.Message)) has \(f.Related.Len()) related locations; the limit is \(MaxRelatedLocations)"}
 	}
 	for r in f.Related {
 		try message(r.Message)
 		try inside(r.Span, sources, "related location \(strconv.Quote(r.Message)): ")
 	}
-	if len(f.Suggestions) > MaxSuggestionsPerFinding {
-		return RuleFailed{Reason: "finding \(strconv.Quote(f.Message)) has \(len(f.Suggestions)) suggestions; the limit is \(MaxSuggestionsPerFinding)"}
+	if f.Suggestions.Len() > MaxSuggestionsPerFinding {
+		return RuleFailed{Reason: "finding \(strconv.Quote(f.Message)) has \(f.Suggestions.Len()) suggestions; the limit is \(MaxSuggestionsPerFinding)"}
 	}
 	for s in f.Suggestions {
 		try suggestion(s, sources, "finding \(strconv.Quote(f.Message)): ")
@@ -126,7 +127,7 @@ func validate(f Finding, sources []Source) fails RuleFailed {
 }
 
 func message(m string) fails RuleFailed {
-	if m == "" || len(m) > MaxMessageBytes || !utf8.ValidString(m) {
+	if m == "" || m.Len() > MaxMessageBytes || !utf8.ValidString(m) {
 		return RuleFailed{Reason: "finding message must be non-empty UTF-8 of at most \(MaxMessageBytes) bytes"}
 	}
 }
@@ -162,17 +163,17 @@ func suggestion(s Suggestion, sources []Source, prefix string) fails RuleFailed 
 		return RuleFailed{Reason: prefix + "suggestion: " + f.Reason}
 	}
 	let name = strconv.Quote(s.Message)
-	if len(s.Edits) == 0 || len(s.Edits) > MaxEditsPerSuggestion {
+	if s.Edits.Len() == 0 || s.Edits.Len() > MaxEditsPerSuggestion {
 		return RuleFailed{Reason: prefix + "suggestion \(name) must have between 1 and \(MaxEditsPerSuggestion) edits"}
 	}
 	for e in s.Edits {
 		try inside(e.Span, sources, prefix+"suggestion \(name) edit: ")
-		if len(e.NewText) > MaxEditTextBytes || !utf8.ValidString(e.NewText) {
+		if e.NewText.Len() > MaxEditTextBytes || !utf8.ValidString(e.NewText) {
 			return RuleFailed{Reason: prefix + "suggestion \(name) edit text must be UTF-8 of at most \(MaxEditTextBytes) bytes"}
 		}
 	}
 	let edits = slices.SortFunc(s.Edits, func(a Edit, b Edit) int { a.Span.Offset - b.Span.Offset })
-	for i in 1..len(edits) {
+	for i in 1..edits.Len() {
 		let previous = edits[i-1].Span
 		let next = edits[i].Span
 		if previous.Offset == next.Offset || previous.Offset+previous.Length > next.Offset {

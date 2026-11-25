@@ -1,4 +1,6 @@
+import codec
 import json
+import option
 import strconv
 import strings
 import sync
@@ -22,43 +24,43 @@ import utf8
 // frame is an object or list being read: its members (a list's have the
 // key ""), the index of the next one, the index of the one read last (-1
 // before the first), its path, and the union tag it has.
-type frame { members []member, next int, cur int, path string, list bool, tag Option[string] }
+type frame { members []member, next int, cur int, path string, list bool, tag option.Option[string] }
 
 // reader reads the tree root. Its frames are in a Ref, so every copy of
 // it is one reader.
-type reader { stack sync.Ref[[]frame] } implements Reader
+type reader { stack sync.Ref[[]frame] } implements codec.Reader
 
 func newReader(root node) reader {
-	let top = frame{members: []member{member{Key: "", Value: root}}, next: 0, cur: -1, path: "", list: false, tag: None}
+	let top = frame{members: []member{member{Key: "", Value: root}}, next: 0, cur: -1, path: "", list: false, tag: option.None}
 	reader{stack: sync.NewRef[[]frame]([]frame{top})}
 }
 
 func top(r reader) frame {
 	let st = r.stack.Get()
-	st[len(st)-1]
+	st[st.Len()-1]
 }
 
 func setTop(r reader, f frame) {
 	r.stack.Update(func(st []frame) []frame {
 		let mut out = st
-		out[len(out)-1] = f
+		out[out.Len()-1] = f
 		out
 	})
 }
 
 // peekNode is the next value, which the read leaves.
-func peekNode(r reader) Option[node] {
+func peekNode(r reader) option.Option[node] {
 	let f = top(r)
-	if f.next >= len(f.members) {
-		return None
+	if f.next >= f.members.Len() {
+		return option.None
 	}
-	Some{Value: f.members[f.next].Value}
+	option.Some{Value: f.members[f.next].Value}
 }
 
 // take passes the next value and gives it: it is the one read last.
 func take(r reader) node {
 	let f = top(r)
-	if f.next >= len(f.members) {
+	if f.next >= f.members.Len() {
 		return scalar{Value: json.Null, From: FromDefault}
 	}
 	setTop(r, frame{members: f.members, next: f.next + 1, cur: f.next, path: f.path, list: f.list, tag: f.tag})
@@ -80,18 +82,18 @@ func Path(r reader) string {
 }
 
 // wrong is the failure of the value just read, which is not a want.
-func wrong(r reader, n node, want string) WireWrongKind {
-	WireWrongKind{Path: Path(r) + " (" + Describe(sourceOf(n)) + ")", Want: want}
+func wrong(r reader, n node, want string) codec.WireWrongKind {
+	codec.WireWrongKind{Path: Path(r) + " (" + Describe(sourceOf(n)) + ")", Want: want}
 }
 
 // last is the text a scalar read takes: a repeated flag's last.
 func last(t texts) string {
-	if len(t.Items) == 0 { "" } else { t.Items[len(t.Items)-1] }
+	if t.Items.Len() == 0 { "" } else { t.Items[t.Items.Len()-1] }
 }
 
 func TakeNull(r reader) bool {
 	match peekNode(r) {
-	case Some as n:
+	case option.Some as n:
 		match n.Value {
 		case scalar as s:
 			match s.Value {
@@ -104,43 +106,43 @@ func TakeNull(r reader) bool {
 		case _:
 			false
 		}
-	case None:
+	case option.None:
 		false
 	}
 }
 
-func Peek(r reader) WireKind {
+func Peek(r reader) codec.WireKind {
 	match peekNode(r) {
-	case None:
-		WireEnd
-	case Some as n:
+	case option.None:
+		codec.WireEnd
+	case option.Some as n:
 		match n.Value {
 		case texts:
-			WireString
+			codec.WireString
 		case branch:
-			WireObject
+			codec.WireObject
 		case items:
-			WireList
+			codec.WireList
 		case scalar as s:
 			match s.Value {
 			case json.Null:
-				WireNull
+				codec.WireNull
 			case json.Boolean:
-				WireBool
+				codec.WireBool
 			case json.Num:
-				WireNumber
+				codec.WireNumber
 			case json.Str:
-				WireString
+				codec.WireString
 			case json.Array:
-				WireList
+				codec.WireList
 			case json.Object:
-				WireObject
+				codec.WireObject
 			}
 		}
 	}
 }
 
-func Number(r reader) string fails WireWrongKind {
+func Number(r reader) string fails codec.WireWrongKind {
 	let n = take(r)
 	match n {
 	case scalar as s:
@@ -160,7 +162,7 @@ func Number(r reader) string fails WireWrongKind {
 	wrong(r, n, "number")
 }
 
-func Bool(r reader) bool fails WireWrongKind {
+func Bool(r reader) bool fails codec.WireWrongKind {
 	let n = take(r)
 	match n {
 	case scalar as s:
@@ -180,39 +182,39 @@ func Bool(r reader) bool fails WireWrongKind {
 }
 
 // numberText is the spelling of a number a read takes, or None.
-func numberText(n node) Option[string] {
+func numberText(n node) option.Option[string] {
 	match n {
 	case scalar as s:
 		match s.Value {
 		case json.Num as v:
-			Some{Value: v.Wire()}
+			option.Some{Value: v.Wire()}
 		case _:
-			None
+			option.None
 		}
 	case texts as t:
-		Some{Value: last(t)}
+		option.Some{Value: last(t)}
 	case _:
-		None
+		option.None
 	}
 }
 
-func Int(r reader) int64 fails WireWrongKind {
+func Int(r reader) int64 fails codec.WireWrongKind {
 	let n = take(r)
 	match numberText(n) {
-	case Some as text:
+	case option.Some as text:
 		strconv.ParseInt(text.Value, 0, 64) catch {
 		case strconv.Malformed, strconv.OutOfRange:
 			return wrong(r, n, "int")
 		}
-	case None:
+	case option.None:
 		wrong(r, n, "int")
 	}
 }
 
-func Uint(r reader) uint64 fails WireWrongKind {
+func Uint(r reader) uint64 fails codec.WireWrongKind {
 	let n = take(r)
 	match numberText(n) {
-	case Some as text:
+	case option.Some as text:
 		let v = strconv.ParseInt(text.Value, 0, 64) catch {
 		case strconv.Malformed, strconv.OutOfRange:
 			return wrong(r, n, "uint")
@@ -221,12 +223,12 @@ func Uint(r reader) uint64 fails WireWrongKind {
 			return wrong(r, n, "uint")
 		}
 		uint64(v)
-	case None:
+	case option.None:
 		wrong(r, n, "uint")
 	}
 }
 
-func Float(r reader) float64 fails WireWrongKind {
+func Float(r reader) float64 fails codec.WireWrongKind {
 	let n = take(r)
 	match n {
 	case scalar as s:
@@ -243,17 +245,17 @@ func Float(r reader) float64 fails WireWrongKind {
 	case _:
 	}
 	match numberText(n) {
-	case Some as text:
+	case option.Some as text:
 		strconv.ParseFloat(text.Value) catch {
 		case strconv.Malformed, strconv.OutOfRange:
 			return wrong(r, n, "float")
 		}
-	case None:
+	case option.None:
 		wrong(r, n, "float")
 	}
 }
 
-func String(r reader) string fails WireWrongKind {
+func String(r reader) string fails codec.WireWrongKind {
 	let n = take(r)
 	match n {
 	case scalar as s:
@@ -269,7 +271,7 @@ func String(r reader) string fails WireWrongKind {
 	wrong(r, n, "string")
 }
 
-func StringBytes(r reader, into []byte) []byte fails WireWrongKind { appendText(into, try r.String()) }
+func StringBytes(r reader, into []byte) []byte fails codec.WireWrongKind { appendText(into, try r.String()) }
 
 // ReaderStringBytesReadsString: a config reader's StringBytes adds to into
 // the bytes String reads from the same tree (GX12b).
@@ -284,14 +286,14 @@ law ReaderStringBytesReadsString(s string, pre []byte) {
 extern go append func appendText(into []byte, s string) []byte
 
 // push opens a frame for the value just read, at the path of it.
-func push(r reader, members []member, list bool, tag Option[string]) {
+func push(r reader, members []member, list bool, tag option.Option[string]) {
 	let p = Path(r)
 	r.stack.Update(func(st []frame) []frame {
 		st.Append(frame{members: members, next: 0, cur: -1, path: p, list: list, tag: tag})
 	})
 }
 
-func BeginList(r reader) fails WireWrongKind {
+func BeginList(r reader) fails codec.WireWrongKind {
 	let n = take(r)
 	match n {
 	case items as l:
@@ -299,7 +301,7 @@ func BeginList(r reader) fails WireWrongKind {
 		for x in l.Elems {
 			ms = ms.Append(member{Key: "", Value: x})
 		}
-		push(r, ms, true, None)
+		push(r, ms, true, option.None)
 	case texts as t:
 		let mut ms = []member{}
 		for item in t.Items {
@@ -309,29 +311,29 @@ func BeginList(r reader) fails WireWrongKind {
 				}
 			}
 		}
-		push(r, ms, true, None)
+		push(r, ms, true, option.None)
 	case _:
 		return wrong(r, n, "list")
 	}
 }
 
-func BeginObject(r reader) fails WireWrongKind {
+func BeginObject(r reader) fails codec.WireWrongKind {
 	let n = take(r)
 	match n {
 	case branch as b:
 		let mut ms = []member{}
-		let mut tag Option[string] = None
+		let mut tag option.Option[string] = option.None
 		for m in b.Members {
 			if m.Key == "_tag" {
 				match m.Value {
 				case scalar as s:
 					match s.Value {
 					case json.Str as name:
-						tag = Some{Value: name.Value}
+						tag = option.Some{Value: name.Value}
 					case _:
 					}
 				case texts as t:
-					tag = Some{Value: last(t)}
+					tag = option.Some{Value: last(t)}
 				case _:
 				}
 			} else {
@@ -340,35 +342,35 @@ func BeginObject(r reader) fails WireWrongKind {
 		}
 		push(r, ms, false, tag)
 	case texts as t:
-		push(r, []member{}, false, Some{Value: last(t)})
+		push(r, []member{}, false, option.Some{Value: last(t)})
 	case _:
 		return wrong(r, n, "object")
 	}
 }
 
-func Tag(r reader) string fails WireMissingField {
+func Tag(r reader) string fails codec.WireMissingField {
 	match top(r).tag {
-	case Some as t:
+	case option.Some as t:
 		t.Value
-	case None:
-		WireMissingField{Path: Path(r), Field: "_tag"}
+	case option.None:
+		codec.WireMissingField{Path: Path(r), Field: "_tag"}
 	}
 }
 
 func More(r reader) bool {
 	let f = top(r)
-	f.next < len(f.members)
+	f.next < f.members.Len()
 }
 
 func Key(r reader) string {
 	let f = top(r)
-	if f.next < len(f.members) { f.members[f.next].Key } else { "" }
+	if f.next < f.members.Len() { f.members[f.next].Key } else { "" }
 }
 
 func Skip(r reader) { let _ = take(r) }
 
 func End(r reader) {
 	r.stack.Update(func(st []frame) []frame {
-		if len(st) > 1 { st[:len(st)-1] } else { st }
+		if st.Len() > 1 { st[:st.Len()-1] } else { st }
 	})
 }

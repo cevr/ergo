@@ -7,6 +7,7 @@
 import civil
 import gen
 import hex
+import option
 import time
 import tz
 
@@ -15,7 +16,7 @@ import tz
 // tz.Compatible, so Next(e, z, s) is after s for each s, and the instants
 // it walks through are each once (laws NextIsFirstFiring, GapFiresOnce,
 // OverlapFiresOnce).
-func Next(e Expr, z tz.Zone, t time.Time) Option[time.Time] {
+func Next(e Expr, z tz.Zone, t time.Time) option.Option[time.Time] {
 	let c = tz.Civil(z, t)
 	let limit = civil.Year(c.Date) + Horizon()
 	// A minute the zone skipped before t fires after t when t is within
@@ -23,22 +24,22 @@ func Next(e Expr, z tz.Zone, t time.Time) Option[time.Time] {
 	let mut w = wallMinute(c) - gapBehind(z, t)/60 - 1
 	for {
 		match nextAt(e, w, limit) {
-		case Some[int64] as n:
+		case option.Some[int64] as n:
 			let (s, gap) = tz.CompatibleShift(z, wallOf(n.Value))
 			if time.After(s, t) {
 				if gap > 0s {
 					// A skipped minute fires a gap late, so a minute after
 					// it within the gap may fire before it.
-					return Some[time.Time]{Value: earliestWithin(e, z, t, n.Value, s, gap, limit)}
+					return option.Some[time.Time]{Value: earliestWithin(e, z, t, n.Value, s, gap, limit)}
 				}
-				return Some[time.Time]{Value: s}
+				return option.Some[time.Time]{Value: s}
 			}
 			w = n.Value
-		case None:
-			return None
+		case option.None:
+			return option.None
 		}
 	}
-	None
+	option.None
 }
 
 // instantOf is the instant tz.Compatible gives the wall minute w in z.
@@ -55,7 +56,7 @@ func earliestWithin(e Expr, z tz.Zone, t time.Time, w int64, s time.Time, gap du
 	let mut at = w
 	for at < end {
 		match nextAt(e, at, limit) {
-		case Some[int64] as n:
+		case option.Some[int64] as n:
 			at = n.Value
 			if at < end {
 				let x = instantOf(z, at)
@@ -63,7 +64,7 @@ func earliestWithin(e Expr, z tz.Zone, t time.Time, w int64, s time.Time, gap du
 					best = x
 				}
 			}
-		case None:
+		case option.None:
 			at = end
 		}
 	}
@@ -73,7 +74,7 @@ func earliestWithin(e Expr, z tz.Zone, t time.Time, w int64, s time.Time, gap du
 // Previous is the last instant before t at which e fires in z, or None
 // when e does not fire within Horizon years: the instant whose Next is at
 // or after t (law PreviousUndoesNext).
-func Previous(e Expr, z tz.Zone, t time.Time) Option[time.Time] {
+func Previous(e Expr, z tz.Zone, t time.Time) option.Option[time.Time] {
 	let c = tz.Civil(z, t)
 	let limit = civil.Year(c.Date) - Horizon()
 	// Within the second showing of an hour the zone repeats, the minutes
@@ -81,23 +82,23 @@ func Previous(e Expr, z tz.Zone, t time.Time) Option[time.Time] {
 	let mut w = wallMinute(c) + overlapBehind(z, t)/60 + 2
 	for {
 		match previousAt(e, w, limit) {
-		case Some[int64] as p:
+		case option.Some[int64] as p:
 			let s = instantOf(z, p.Value)
 			if time.Before(s, t) {
 				// Within the gap after a change, a skipped minute before
 				// this one fires a gap late, so it may fire after it.
 				let g = gapBehind(z, s)
 				if g == 0 {
-					return Some[time.Time]{Value: s}
+					return option.Some[time.Time]{Value: s}
 				}
-				return Some[time.Time]{Value: latestWithin(e, z, t, p.Value, s, g, limit)}
+				return option.Some[time.Time]{Value: latestWithin(e, z, t, p.Value, s, g, limit)}
 			}
 			w = p.Value
-		case None:
-			return None
+		case option.None:
+			return option.None
 		}
 	}
-	None
+	option.None
 }
 
 // latestWithin is the latest instant before t at which e fires from the
@@ -108,7 +109,7 @@ func latestWithin(e Expr, z tz.Zone, t time.Time, w int64, s time.Time, gap int6
 	let mut at = w
 	for at > end {
 		match previousAt(e, at, limit) {
-		case Some[int64] as p:
+		case option.Some[int64] as p:
 			at = p.Value
 			if at > end {
 				let x = instantOf(z, at)
@@ -116,7 +117,7 @@ func latestWithin(e Expr, z tz.Zone, t time.Time, w int64, s time.Time, gap int6
 					best = x
 				}
 			}
-		case None:
+		case option.None:
 			at = end
 		}
 	}
@@ -162,21 +163,21 @@ law NextIsFirstFiring() {
 		let day = time.Add(t, 24h)
 		let next = Next(e, z, t)
 		let nextNear = match next {
-		case Some[time.Time] as n:
+		case option.Some[time.Time] as n:
 			time.After(n.Value, t) && !time.After(n.Value, day)
-		case None:
+		case option.None:
 			false
 		}
 		let foundNear = match found {
-		case Some[time.Time] as f:
+		case option.Some[time.Time] as f:
 			!time.After(f.Value, day)
-		case None:
+		case option.None:
 			false
 		}
 		let after = match next {
-		case Some[time.Time] as n:
+		case option.Some[time.Time] as n:
 			time.After(n.Value, t)
-		case None:
+		case option.None:
 			true
 		}
 		after && (!nextNear || found == next) && (!foundNear || found == next)
@@ -245,21 +246,21 @@ func minuteOf(dt civil.DateTime) civil.DateTime { civil.DateTime{Date: dt.Date, 
 // firstFiring is the earliest instant after t that tz.Compatible gives a
 // wall minute e fires at, among the wall minutes from a day before t's
 // wall minute to two days after it, minute by minute.
-func firstFiring(e Expr, z tz.Zone, t time.Time) Option[time.Time] {
+func firstFiring(e Expr, z tz.Zone, t time.Time) option.Option[time.Time] {
 	let start = civil.AddDuration(minuteOf(tz.Civil(z, t)), -24h)
-	let mut best Option[time.Time] = None
+	let mut best option.Option[time.Time] = option.None
 	for k in 0..4320 {
 		let w = civil.AddDuration(start, time.Times(1m, k))
 		if Matches(e, w) {
 			let s = tz.Compatible(tz.Resolve(z, w))
 			if time.After(s, t) {
 				match best {
-				case Some[time.Time] as b:
+				case option.Some[time.Time] as b:
 					if time.Before(s, b.Value) {
-						best = Some[time.Time]{Value: s}
+						best = option.Some[time.Time]{Value: s}
 					}
-				case None:
-					best = Some[time.Time]{Value: s}
+				case option.None:
+					best = option.Some[time.Time]{Value: s}
 				}
 			}
 		}
@@ -278,15 +279,15 @@ law PreviousUndoesNext() {
 		}
 		let t = gen.Named("at", func(v time.Time) string { "\(time.UnixSeconds(v))" }, func() time.Time needs gen.Draws { drawnInstant(z) })
 		let p = match Previous(e, z, t) {
-		case Some[time.Time] as v:
+		case option.Some[time.Time] as v:
 			v.Value
-		case None:
+		case option.None:
 			return true
 		}
 		let n = match Next(e, z, p) {
-		case Some[time.Time] as v:
+		case option.Some[time.Time] as v:
 			v.Value
-		case None:
+		case option.None:
 			return false
 		}
 		time.Before(p, t) && !time.Before(n, t)
@@ -308,11 +309,11 @@ law GapFiresOnce() {
 	let a = time.Unix(1772955000, 0)
 	let b = time.Unix(1773037800, 0)
 	let three = time.Unix(1772953200, 0)
-	let once = Next(job, z, time.Unix(1772902800, 0)) == Some[time.Time]{Value: a} && Next(job, z, a) == Some[time.Time]{Value: b}
-	let within = Next(job, z, time.Unix(1772953800, 0)) == Some[time.Time]{Value: a}
+	let once = Next(job, z, time.Unix(1772902800, 0)) == option.Some[time.Time]{Value: a} && Next(job, z, a) == option.Some[time.Time]{Value: b}
+	let within = Next(job, z, time.Unix(1772953800, 0)) == option.Some[time.Time]{Value: a}
 	let pair = try Parse("15,40 2 * * *")
-	let earliest = Next(pair, try lordHowe(), time.Unix(1791040800, 0)) == Some[time.Time]{Value: time.Unix(1791042000, 0)}
-	once && within && earliest && Next(half, z, time.Unix(1772951400, 0)) == Some[time.Time]{Value: three} && Next(half, z, three) == Some[time.Time]{Value: a}
+	let earliest = Next(pair, try lordHowe(), time.Unix(1791040800, 0)) == option.Some[time.Time]{Value: time.Unix(1791042000, 0)}
+	once && within && earliest && Next(half, z, time.Unix(1772951400, 0)) == option.Some[time.Time]{Value: three} && Next(half, z, three) == option.Some[time.Time]{Value: a}
 }
 
 // OverlapFiresOnce: on 2026-11-01, when New York's clocks go back from
@@ -324,7 +325,7 @@ law OverlapFiresOnce() {
 	let e = try Parse("30 1 * * *")
 	let first = time.Unix(1793511000, 0)
 	let second = time.Unix(1793601000, 0)
-	let once = Next(e, z, time.Unix(1793462400, 0)) == Some[time.Time]{Value: first} && Next(e, z, first) == Some[time.Time]{Value: second}
-	let within = Previous(e, z, time.Unix(1793513400, 0)) == Some[time.Time]{Value: first}
-	once && within && Previous(e, z, second) == Some[time.Time]{Value: first} && Previous(e, z, time.Unix(1793514600, 0)) == Some[time.Time]{Value: first}
+	let once = Next(e, z, time.Unix(1793462400, 0)) == option.Some[time.Time]{Value: first} && Next(e, z, first) == option.Some[time.Time]{Value: second}
+	let within = Previous(e, z, time.Unix(1793513400, 0)) == option.Some[time.Time]{Value: first}
+	once && within && Previous(e, z, second) == option.Some[time.Time]{Value: first} && Previous(e, z, time.Unix(1793514600, 0)) == option.Some[time.Time]{Value: first}
 }

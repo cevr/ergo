@@ -507,25 +507,25 @@ let RunLeast = 32768
 func EachRun[T](srcs []string, workers int, least int, f own func(src string) T) []T {
 	let mut total = 0
 	for s in srcs {
-		total = total + len(s)
+		total = total + s.Len()
 	}
 	let fill = if least < 1 { total } else { total / least }
 	let runs = if fill < workers { fill } else { workers }
 	if workers >= 1 && runs < 2 {
-		let mut out = slices.WithCapacity[T](len(srcs))
+		let mut out = slices.WithCapacity[T](srcs.Len())
 		for s in srcs {
 			out = out.Append(f(s))
 		}
 		return out
 	}
-	let parts = tasks.Transform(Chunks(len(srcs), runs), workers, func(c Chunk) []T {
+	let parts = tasks.Transform(Chunks(srcs.Len(), runs), workers, func(c Chunk) []T {
 		let mut out = slices.WithCapacity[T](c.To - c.From)
 		for i in c.From..c.To {
 			out = out.Append(f(srcs[i]))
 		}
 		out
 	})
-	let mut all = slices.WithCapacity[T](len(srcs))
+	let mut all = slices.WithCapacity[T](srcs.Len())
 	for part in parts {
 		all = slices.AppendAll(all, part)
 	}
@@ -559,7 +559,7 @@ law ChunksTile(n int, workers int) {
 	let m = (n%500 + 500) % 500
 	let w = (workers%20+20)%20 + 1
 	let cs = Chunks(m, w)
-	let mut ok = len(cs) <= w
+	let mut ok = cs.Len() <= w
 	let mut at = 0
 	for c in cs {
 		ok = ok && c.From == at && c.To > c.From
@@ -576,8 +576,8 @@ law ParseAllIsEachParse(picks []int) {
 	let srcs = sourcesOf(picks)
 	let one = ParseAll(srcs, 1)
 	let many = EachRun(srcs, 8, 1, Parse)
-	let mut ok = len(one) == len(srcs) && len(many) == len(srcs)
-	for i in 0..len(srcs) {
+	let mut ok = one.Len() == srcs.Len() && many.Len() == srcs.Len()
+	for i in 0..srcs.Len() {
 		let own = Columns(Parse(srcs[i]))
 		ok = ok && slices.Equal(Columns(one[i]), own) && slices.Equal(Columns(many[i]), own) && one[i].Message == many[i].Message
 	}
@@ -612,7 +612,7 @@ let fragments = []string{
 func program(picks []int) string {
 	let mut s = ""
 	for k in picks {
-		let n = len(fragments)
+		let n = fragments.Len()
 		s = s + fragments[((k%n)+n)%n]
 	}
 	s
@@ -622,7 +622,7 @@ func program(picks []int) string {
 // source that fails, so a failed parse sits among parses that succeed.
 func sourcesOf(picks []int) []string {
 	let mut srcs = []string{}
-	let n = len(picks)
+	let n = picks.Len()
 	for k in 0..n%6+2 {
 		let mut rot = []int{}
 		for j in 0..n {
@@ -674,7 +674,7 @@ func tokLen(p mut parser) int { tend(p, p.i) - int(p.toks.start[p.i]) }
 // returns, as the Go scanner's literal).
 func lit(p mut parser, j int) string {
 	let s = p.src[tpos(p, j):tend(p, j)]
-	if uint8(p.toks.kind[j]) == String && len(s) > 0 && s[0] == '`' {
+	if uint8(p.toks.kind[j]) == String && s.Len() > 0 && s[0] == '`' {
 		return dropCR(s)
 	}
 	s
@@ -683,7 +683,7 @@ func lit(p mut parser, j int) string {
 func dropCR(s string) string {
 	let mut out = ""
 	let mut from = 0
-	for k in 0..len(s) {
+	for k in 0..s.Len() {
 		if s[k] == '\r' {
 			out = out + s[from:k]
 			from = k + 1
@@ -698,7 +698,7 @@ func isWord(p mut parser, w string) bool {
 		return false
 	}
 	let at = int(p.toks.start[p.i])
-	at+len(w) <= len(p.src) && p.src[at:at+len(w)] == w && identEnd(p.src, at) == at+len(w)
+	at+w.Len() <= p.src.Len() && p.src[at:at+w.Len()] == w && identEnd(p.src, at) == at+w.Len()
 }
 
 // wordAt reports token j an identifier spelled w.
@@ -707,12 +707,12 @@ func wordAt(p mut parser, j int, w string) bool {
 		return false
 	}
 	let at = int(p.toks.start[j])
-	at+len(w) <= len(p.src) && p.src[at:at+len(w)] == w && identEnd(p.src, at) == at+len(w)
+	at+w.Len() <= p.src.Len() && p.src[at:at+w.Len()] == w && identEnd(p.src, at) == at+w.Len()
 }
 
 // inserted reports an inserted semicolon (a newline's).
 func inserted(p mut parser, j int) bool {
-	uint8(p.toks.kind[j]) == Semicolon && !(int(p.toks.start[j]) < len(p.src) && p.src[int(p.toks.start[j])] == ';')
+	uint8(p.toks.kind[j]) == Semicolon && !(int(p.toks.start[j]) < p.src.Len() && p.src[int(p.toks.start[j])] == ';')
 }
 
 // atLineEnd reports whether the current token is an inserted semicolon.
@@ -791,7 +791,7 @@ func errorCode(p mut parser, code string, at int, length int, message string) {
 	p.lexical = false
 	p.code = code
 	p.msg = message
-	let n = len(p.src)
+	let n = p.src.Len()
 	let offset = if at > n { n } else { at }
 	let mut l = if offset+length > n { n - offset } else { length }
 	if l < 0 {
@@ -1006,7 +1006,7 @@ func groupComments(p mut parser) {
 		p.gFirst = p.gFirst.Append(c)
 		p.gLast = p.gLast.Append(c)
 		p.gOwn = p.gOwn.Append(own)
-		cur = len(p.gFirst) - 1
+		cur = p.gFirst.Len() - 1
 		curOwn = own
 		curLast = c
 		curTokens = ti
@@ -1017,7 +1017,7 @@ func groupComments(p mut parser) {
 // current token, as a word (its index+1, 0 for none): an own-line group
 // that ends on the line just above it, with no token in between.
 func leadComment(p mut parser) uint32 {
-	let ng = len(p.gFirst)
+	let ng = p.gFirst.Len()
 	if ng == 0 {
 		return uint32(0)
 	}

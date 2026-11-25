@@ -46,10 +46,10 @@ type Pacing {
 	// EdgeKeepsValues: what a program built before an Edge reads the same
 	// after it; a collection moves no value and frees nothing reachable.
 	law EdgeKeepsValues(xs []int, s string) {
-		let kept = xs.Append(len(s))
+		let kept = xs.Append(s.Len())
 		let text = s + "."
 		Edge()
-		let mut same = len(kept) == len(xs)+1 && kept[len(xs)] == len(s) && text == s+"."
+		let mut same = kept.Len() == xs.Len()+1 && kept[xs.Len()] == s.Len() && text == s+"."
 		for i, x in xs {
 			same = same && kept[i] == x
 		}
@@ -63,7 +63,7 @@ type Pacing {
 		Hold()
 		Edge()
 		Release()
-		len(kept) == len(xs)+1 && kept[len(xs)] == n
+		kept.Len() == xs.Len()+1 && kept[xs.Len()] == n
 	},
 }
 
@@ -181,7 +181,7 @@ law DefaultReachesNothing(xs []int, n int) {
 			Pacing.Edge()
 		}
 	}
-	len(kept) == len(xs)+1 && kept[len(xs)] == n
+	kept.Len() == xs.Len()+1 && kept[xs.Len()] == n
 }
 
 // Percent is Go's GOGC=n: the collector starts a cycle when the heap has

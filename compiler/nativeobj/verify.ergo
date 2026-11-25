@@ -1,3 +1,4 @@
+import option
 import strings
 
 // The metadata checks: what the decoders (decode.ergo) read back from an
@@ -32,8 +33,8 @@ func readMaps(data string) (int, [][]bool) fails Bad {
 	let n = try le(data, 0, 4)
 	let nbit = try le(data, 4, 4)
 	let per = (nbit + 7) / 8
-	if len(data) != 8+n*per {
-		return Bad{Why: "a stack map of \(len(data)) bytes for \(n) maps of \(nbit) bits"}
+	if data.Len() != 8+n*per {
+		return Bad{Why: "a stack map of \(data.Len()) bytes for \(n) maps of \(nbit) bits"}
 	}
 	let mut maps = [][]bool{}
 	for m in 0..n {
@@ -62,7 +63,7 @@ func ViewOf(d Decoded, j int) FuncView fails Bad {
 	let mut info = ""
 	let mut sp = ""
 	for a in o.Aux[j] {
-		if a.Def < 0 || a.Def >= len(o.Data) {
+		if a.Def < 0 || a.Def >= o.Data.Len() {
 			return Bad{Why: "\(o.Defs[j].Name): aux names definition \(a.Def)"}
 		}
 		let data = o.Data[a.Def]
@@ -76,14 +77,14 @@ func ViewOf(d Decoded, j int) FuncView fails Bad {
 			sp = data
 		}
 	}
-	if info == "" || len(fds) != 2 || len(pcd) != 2 || sp == "" {
+	if info == "" || fds.Len() != 2 || pcd.Len() != 2 || sp == "" {
 		return Bad{Why: "\(o.Defs[j].Name): FuncInfo, both stack maps, pcsp and both pcdata tables are not all there"}
 	}
 	let (abits, amaps) = try readMaps(fds[FuncdataArgsPointerMaps])
 	let (lbits, lmaps) = try readMaps(fds[FuncdataLocalsPointerMaps])
 	FuncView{Name: o.Defs[j].Name, Code: o.Data[j], Ins: try Disasm(o.Data[j]), Relocs: o.Relocs[j], Args: try le(info, 0, 4), Line: try le(info, 12, 4),
 		ArgMaps: amaps, ArgBits: abits, Locals: lmaps, LocBits: lbits, Sp: try table(sp), Unsafe: try table(pcd[PcdataUnsafePoint]),
-		Smi:     try table(pcd[PcdataStackMapIndex]), NPcdata: len(pcd), NFuncdat: len(fds)}
+		Smi:     try table(pcd[PcdataStackMapIndex]), NPcdata: pcd.Len(), NFuncdat: fds.Len()}
 }
 
 // symOf is the linker name the checked input gives function i: the
@@ -111,13 +112,13 @@ func defNamed(o DObj, name string) int {
 	-1
 }
 
-func relocAt(rs []DReloc, off int) Option[DReloc] {
+func relocAt(rs []DReloc, off int) option.Option[DReloc] {
 	for r in rs {
 		if r.Off == off {
-			return Some{r}
+			return option.Some{r}
 		}
 	}
-	None
+	option.None
 }
 
 // frameOf is the frame size the code sets up: the pcsp value in the body.
@@ -149,9 +150,9 @@ func goCall(v FuncView, ins Ins) bool {
 		return false
 	}
 	match relocAt(v.Relocs, ins.Pc+1) {
-	case Some as r:
+	case option.Some as r:
 		return !strings.HasPrefix(r.Value.Target, "runtime.")
-	case None:
+	case option.None:
 		return true
 	}
 }
@@ -161,9 +162,9 @@ func callTo(v FuncView, ins Ins, target string) bool {
 		return false
 	}
 	match relocAt(v.Relocs, ins.Pc+1) {
-	case Some as r:
+	case option.Some as r:
 		return r.Value.Target == target
-	case None:
+	case option.None:
 		return false
 	}
 }
@@ -182,7 +183,7 @@ func callOps(f Func) []int {
 // missing.
 func funcViews(p Package, d Decoded) []FuncView fails Bad {
 	let mut out = []FuncView{}
-	for i in 0..len(p.Funcs) {
+	for i in 0..p.Funcs.Len() {
 		let j = defNamed(d.Obj, symOf(p, i))
 		if j < 0 {
 			return Bad{Why: "no definition \(symOf(p, i))"}
@@ -225,8 +226,8 @@ func CheckFingerprints(p Package, d Decoded) []string {
 	if d.Export.Path != p.Path {
 		out = out.Append("export data names package \(d.Export.Path)")
 	}
-	if len(d.Obj.Autolib) != len(p.Imports) {
-		out = out.Append("object lists \(len(d.Obj.Autolib)) imports of \(len(p.Imports))")
+	if d.Obj.Autolib.Len() != p.Imports.Len() {
+		out = out.Append("object lists \(d.Obj.Autolib.Len()) imports of \(p.Imports.Len())")
 	} else {
 		for k, imp in p.Imports {
 			if d.Obj.Autolib[k].Path != imp.Path || d.Obj.Autolib[k].Fingerprint != imp.Fingerprint {
@@ -257,7 +258,7 @@ func CheckExports(p Package, d Decoded) []string {
 				found = true
 				if o.Code != ObjFunc || !o.HasExt || o.ABI != ABIInternal {
 					out = out.Append("\(f.Name): exported without an ABIInternal function extension")
-				} else if o.SymIdx < 0 || o.SymIdx >= len(d.Obj.Defs) || d.Obj.Defs[o.SymIdx].Name != symOf(p, i) {
+				} else if o.SymIdx < 0 || o.SymIdx >= d.Obj.Defs.Len() || d.Obj.Defs[o.SymIdx].Name != symOf(p, i) {
 					out = out.Append("\(f.Name): export index \(o.SymIdx) does not name \(symOf(p, i))")
 				}
 			}
@@ -266,8 +267,8 @@ func CheckExports(p Package, d Decoded) []string {
 			out = out.Append("\(f.Name): not exported")
 		}
 	}
-	if len(d.Export.Objs) != n {
-		out = out.Append("export data holds \(len(d.Export.Objs)) objects for \(n) exported functions")
+	if d.Export.Objs.Len() != n {
+		out = out.Append("export data holds \(d.Export.Objs.Len()) objects for \(n) exported functions")
 	}
 	let views = funcViews(p, d) catch {
 	case Bad as b:
@@ -296,8 +297,8 @@ func abiOf(p Package, f Func, v FuncView) []string {
 	if at < 0 {
 		return out.Append("\(f.Name): no frame set-up")
 	}
-	for k in 0..len(f.Params) {
-		if at+k >= len(ins) || !isMov(ins[at+k], 0x89, IntRegs[k], RSP, slotDisp(size, k)) {
+	for k in 0..f.Params.Len() {
+		if at+k >= ins.Len() || !isMov(ins[at+k], 0x89, IntRegs[k], RSP, slotDisp(size, k)) {
 			out = out.Append("\(f.Name): parameter \(k) not stored from \(IntRegs[k]) to its slot")
 		}
 	}
@@ -305,7 +306,7 @@ func abiOf(p Package, f Func, v FuncView) []string {
 	let mut m = 0
 	for q, x in ins {
 		if goCall(v, x) {
-			if m >= len(calls) {
+			if m >= calls.Len() {
 				return out.Append("\(f.Name): more calls in the code than in the input")
 			}
 			let (args, dsts, closure) = match f.Ops[calls[m]] {
@@ -321,13 +322,13 @@ func abiOf(p Package, f Func, v FuncView) []string {
 				out = out.Append("\(f.Name): closure call \(m) does not take its context in RDX and its code from 0(RDX)")
 			}
 			for k, s in args {
-				let at2 = q - pre - len(args) + k
+				let at2 = q - pre - args.Len() + k
 				if at2 < 0 || !isMov(ins[at2], 0x8B, IntRegs[k], RSP, slotDisp(size, s)) {
 					out = out.Append("\(f.Name): call \(m) argument \(k) not loaded into \(IntRegs[k])")
 				}
 			}
 			for k, s in dsts {
-				if q+1+k >= len(ins) || !isMov(ins[q+1+k], 0x89, IntRegs[k], RSP, slotDisp(size, s)) {
+				if q+1+k >= ins.Len() || !isMov(ins[q+1+k], 0x89, IntRegs[k], RSP, slotDisp(size, s)) {
 					out = out.Append("\(f.Name): call \(m) result \(k) not taken from \(IntRegs[k])")
 				}
 			}
@@ -348,23 +349,23 @@ func abiOf(p Package, f Func, v FuncView) []string {
 				}
 			}
 			for k, s in vals {
-				let at2 = q - 2 - len(vals) + k
+				let at2 = q - 2 - vals.Len() + k
 				if at2 < 0 || !isMov(ins[at2], 0x8B, IntRegs[k], RSP, slotDisp(size, s)) {
 					out = out.Append("\(f.Name): result \(k) not returned in \(IntRegs[k])")
 				}
 			}
 		}
 		if callTo(v, x, MorestackNoctxt) {
-			for k in 0..len(f.Params) {
-				let before = q - len(f.Params) + k
-				if before < 0 || !isMov(ins[before], 0x89, IntRegs[k], RSP, 8+8*k) || q+1+k >= len(ins) || !isMov(ins[q+1+k], 0x8B, IntRegs[k], RSP, 8+8*k) {
+			for k in 0..f.Params.Len() {
+				let before = q - f.Params.Len() + k
+				if before < 0 || !isMov(ins[before], 0x89, IntRegs[k], RSP, 8+8*k) || q+1+k >= ins.Len() || !isMov(ins[q+1+k], 0x8B, IntRegs[k], RSP, 8+8*k) {
 					out = out.Append("\(f.Name): parameter \(k) not spilled and reloaded around morestack at its spill word")
 				}
 			}
 		}
 	}
-	if m != len(calls) {
-		out = out.Append("\(f.Name): \(m) calls in the code for \(len(calls)) in the input")
+	if m != calls.Len() {
+		out = out.Append("\(f.Name): \(m) calls in the code for \(calls.Len()) in the input")
 	}
 	out
 }
@@ -394,8 +395,8 @@ func CheckSafePoints(p Package, d Decoded) []string {
 	for i, f in p.Funcs {
 		let v = views[i]
 		let calls = callOps(f)
-		if len(v.Locals) != len(calls)+1 || len(v.ArgMaps) != len(calls)+1 {
-			out = out.Append("\(f.Name): \(len(v.Locals)) locals and \(len(v.ArgMaps)) args maps for \(len(calls)) calls")
+		if v.Locals.Len() != calls.Len()+1 || v.ArgMaps.Len() != calls.Len()+1 {
+			out = out.Append("\(f.Name): \(v.Locals.Len()) locals and \(v.ArgMaps.Len()) args maps for \(calls.Len()) calls")
 		}
 		let mut m = 0
 		for x in v.Ins {
@@ -435,14 +436,14 @@ func CheckLiveSlots(p Package, d Decoded) []string {
 		let v = views[i]
 		let size = frameOf(v)
 		let calls = callOps(f)
-		let nargs = len(f.Params) + len(f.Results)
+		let nargs = f.Params.Len() + f.Results.Len()
 		if v.Args != 8*nargs || v.ArgBits != nargs {
 			out = out.Append("\(f.Name): args size \(v.Args) and \(v.ArgBits) arg bits for \(nargs) words")
 		}
-		if size > 0 && v.LocBits != len(f.Slots) {
-			out = out.Append("\(f.Name): \(v.LocBits) locals bits for \(len(f.Slots)) slots")
+		if size > 0 && v.LocBits != f.Slots.Len() {
+			out = out.Append("\(f.Name): \(v.LocBits) locals bits for \(f.Slots.Len()) slots")
 		}
-		if len(v.Locals) != len(calls)+1 || len(v.ArgMaps) != len(calls)+1 {
+		if v.Locals.Len() != calls.Len()+1 || v.ArgMaps.Len() != calls.Len()+1 {
 			continue
 		}
 		for k, t in f.Params {
@@ -450,19 +451,19 @@ func CheckLiveSlots(p Package, d Decoded) []string {
 				out = out.Append("\(f.Name): entry args bit \(k) wrong")
 			}
 		}
-		for m in 0..len(calls)+1 {
+		for m in 0..calls.Len()+1 {
 			let want = if m == 0 { []int{} } else { ModelAcross(p, f, calls[m-1]) }
-			for j in 0..len(f.Slots) {
+			for j in 0..f.Slots.Len() {
 				// Slot j's word is at varp-8*(nbit-b): b = nbit - (varp-off)/8.
 				let b = v.LocBits - (size-8-slotDisp(size, j))/8
-				if b < 0 || b >= len(v.Locals[m]) {
+				if b < 0 || b >= v.Locals[m].Len() {
 					out = out.Append("\(f.Name): slot \(j) has no bit")
 				} else if v.Locals[m][b] != has(want, j) {
 					out = out.Append("\(f.Name): map \(m) slot \(j) is \(v.Locals[m][b]), the model says \(has(want, j))")
 				}
 			}
 			if m > 0 {
-				for k in 0..len(v.ArgMaps[m]) {
+				for k in 0..v.ArgMaps[m].Len() {
 					if v.ArgMaps[m][k] {
 						out = out.Append("\(f.Name): map \(m) marks arg word \(k), which no code reads after entry")
 					}
@@ -505,7 +506,7 @@ func CheckBarriers(p Package, d Decoded) []string {
 				continue
 			}
 			n = n + 1
-			if q < 2 || q+4 >= len(ins) {
+			if q < 2 || q+4 >= ins.Len() {
 				out = out.Append("\(f.Name): barrier call \(n) out of place")
 				continue
 			}
@@ -513,9 +514,9 @@ func CheckBarriers(p Package, d Decoded) []string {
 			let jeq = ins[q-1]
 			let ok = cmp.Op == 0x83 && cmp.R == 7 && cmp.Rip && cmp.Imm == 0
 			let flag = match relocAt(v.Relocs, cmp.Pc+2) {
-			case Some as r:
+			case option.Some as r:
 				r.Value.Target == WriteBarrierFlag && r.Value.Type == RPcrel && r.Value.Add == -1
-			case None:
+			case option.None:
 				false
 			}
 			let store = ins[q+4]
@@ -589,22 +590,22 @@ func CheckRelocs(p Package, d Decoded) []string {
 				continue
 			}
 			match relocAt(v.Relocs, off) {
-			case Some as r:
+			case option.Some as r:
 				let t = if x.Op == 0xE8 { RCall } else { RPcrel }
 				if r.Value.Type != t || r.Value.Size != 4 {
 					out = out.Append("\(f.Name): relocation at \(off) of type \(r.Value.Type) size \(r.Value.Size)")
 				}
 				got = got.Append(r.Value.Target)
 				used = used + 1
-			case None:
+			case option.None:
 				out = out.Append("\(f.Name): no relocation at \(off)")
 			}
 		}
 		if got != want {
 			out = out.Append("\(f.Name): relocations name \(strings.Join(got, ",")), the input \(strings.Join(want, ","))")
 		}
-		if used != len(v.Relocs) {
-			out = out.Append("\(f.Name): \(len(v.Relocs) - used) relocations patch no instruction")
+		if used != v.Relocs.Len() {
+			out = out.Append("\(f.Name): \(v.Relocs.Len() - used) relocations patch no instruction")
 		}
 	}
 	let o = d.Obj
@@ -634,7 +635,7 @@ func CheckInitTask(p Package, d Decoded) []string {
 	let mut out = []string{}
 	let o = d.Obj
 	let t = defNamed(o, p.Path+"..inittask")
-	if len(p.Inits) == 0 {
+	if p.Inits.Len() == 0 {
 		if t >= 0 {
 			out = out.Append("an inittask without init functions")
 		}
@@ -647,19 +648,19 @@ func CheckInitTask(p Package, d Decoded) []string {
 		out = out.Append("export data does not announce the inittask")
 	}
 	let data = o.Data[t]
-	if o.Defs[t].Kind != SNoptrdata || len(data) != 8+8*len(p.Inits) {
-		out = out.Append("inittask is not a no-pointer data symbol of \(8 + 8*len(p.Inits)) bytes")
+	if o.Defs[t].Kind != SNoptrdata || data.Len() != 8+8*p.Inits.Len() {
+		out = out.Append("inittask is not a no-pointer data symbol of \(8 + 8*p.Inits.Len()) bytes")
 		return out
 	}
 	let nfns = LE(data, 4, 4)
-	if LE(data, 0, 4) != 0 || nfns != len(p.Inits) {
-		out = out.Append("inittask state \(LE(data, 0, 4)) with \(nfns) functions for \(len(p.Inits))")
+	if LE(data, 0, 4) != 0 || nfns != p.Inits.Len() {
+		out = out.Append("inittask state \(LE(data, 0, 4)) with \(nfns) functions for \(p.Inits.Len())")
 	}
 	let mut targets = []int{}
 	let mut orders = []string{}
 	for r in o.Relocs[t] {
 		if r.Type == RAddr {
-			if r.Off != 8+8*len(targets) || r.Size != 8 || r.Own < 0 || has(targets, r.Own) {
+			if r.Off != 8+8*targets.Len() || r.Size != 8 || r.Own < 0 || has(targets, r.Own) {
 				out = out.Append("inittask entry at \(r.Off) is not the next distinct init function")
 			}
 			targets = targets.Append(r.Own)
@@ -670,12 +671,12 @@ func CheckInitTask(p Package, d Decoded) []string {
 		}
 	}
 	for k, i in p.Inits {
-		if k >= len(targets) || o.Defs[targets[k]].Name != symOf(p, i) {
+		if k >= targets.Len() || o.Defs[targets[k]].Name != symOf(p, i) {
 			out = out.Append("inittask entry \(k) is not \(symOf(p, i))")
 		}
 	}
-	if len(targets) != len(p.Inits) {
-		out = out.Append("inittask holds \(len(targets)) entries for \(len(p.Inits)) init functions")
+	if targets.Len() != p.Inits.Len() {
+		out = out.Append("inittask holds \(targets.Len()) entries for \(p.Inits.Len()) init functions")
 	}
 	let mut wantOrders = []string{}
 	for imp in p.Imports {
@@ -723,7 +724,7 @@ law ArchiveMembers(k1 int, k2 int) {
 	case Bad:
 		return false
 	}
-	len(CheckMembers(d, SampleHeader)) == 0
+	CheckMembers(d, SampleHeader).Len() == 0
 }
 
 law FingerprintsAgree(k1 int, k2 int) {
@@ -731,7 +732,7 @@ law FingerprintsAgree(k1 int, k2 int) {
 	case Bad:
 		return false
 	}
-	len(CheckFingerprints(p, d)) == 0
+	CheckFingerprints(p, d).Len() == 0
 }
 
 law ArgsInABIRegisters(k1 int, k2 int) {
@@ -739,7 +740,7 @@ law ArgsInABIRegisters(k1 int, k2 int) {
 	case Bad:
 		return false
 	}
-	len(CheckExports(p, d)) == 0
+	CheckExports(p, d).Len() == 0
 }
 
 law SafePointsIndexed(k1 int, k2 int) {
@@ -747,7 +748,7 @@ law SafePointsIndexed(k1 int, k2 int) {
 	case Bad:
 		return false
 	}
-	len(CheckSafePoints(p, d)) == 0
+	CheckSafePoints(p, d).Len() == 0
 }
 
 law LiveSlotsMarked(k1 int, k2 int) {
@@ -755,7 +756,7 @@ law LiveSlotsMarked(k1 int, k2 int) {
 	case Bad:
 		return false
 	}
-	len(CheckLiveSlots(p, d)) == 0
+	CheckLiveSlots(p, d).Len() == 0
 }
 
 law PointerStoresBarriered(k1 int, k2 int) {
@@ -763,7 +764,7 @@ law PointerStoresBarriered(k1 int, k2 int) {
 	case Bad:
 		return false
 	}
-	len(CheckBarriers(p, d)) == 0
+	CheckBarriers(p, d).Len() == 0
 }
 
 law RelocsNameTargets(k1 int, k2 int) {
@@ -771,7 +772,7 @@ law RelocsNameTargets(k1 int, k2 int) {
 	case Bad:
 		return false
 	}
-	len(CheckRelocs(p, d)) == 0
+	CheckRelocs(p, d).Len() == 0
 }
 
 law InitTaskOnce(k1 int, k2 int) {
@@ -779,5 +780,5 @@ law InitTaskOnce(k1 int, k2 int) {
 	case Bad:
 		return false
 	}
-	len(CheckInitTask(p, d)) == 0
+	CheckInitTask(p, d).Len() == 0
 }

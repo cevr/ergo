@@ -52,7 +52,7 @@ let lutMask = uint32(255)
 
 func refillBits(r bitReader) bitReader {
 	let mut br = r
-	let n = len(br.src)
+	let n = br.src.Len()
 	for br.nbits <= 24 && br.pos < n {
 		br.bits = br.bits | (uint32(br.src[br.pos]) << uint32(br.nbits))
 		br.pos = br.pos + 1
@@ -66,7 +66,7 @@ func readBits(r bitReader, count int) (int, bitReader) fails Truncated {
 	if br.nbits < count {
 		br = refillBits(br)
 		if br.nbits < count {
-			return Truncated{Offset: len(br.src)}
+			return Truncated{Offset: br.src.Len()}
 		}
 	}
 	let mask = (uint32(1) << uint32(count)) - uint32(1)
@@ -190,7 +190,7 @@ func decodeSymbol(r bitReader, t huffTable) (int, bitReader) fails BadHuffman | 
 	if br.nbits < lutBits {
 		br = refillBits(br)
 	}
-	if br.nbits >= 1 && len(t.lut) == lutSize {
+	if br.nbits >= 1 && t.lut.Len() == lutSize {
 		let entry = t.lut[int(br.bits&lutMask)]
 		if entry != 0 {
 			let bl = entry & 15
@@ -265,22 +265,22 @@ func readDynamicTables(r bitReader) (huffTable, huffTable, bitReader) fails BadH
 	let clTable = try buildHuffman(clLens, true)
 	let total = hlit + hdist
 	let mut allLens = slices.WithCapacity[int](total)
-	for len(allLens) < total {
+	for allLens.Len() < total {
 		let (sym, nr) = try decodeSymbol(br, clTable)
 		br = nr
 		if sym < 16 {
 			allLens = allLens.Append(sym)
 		} else if sym == 16 {
-			if len(allLens) == 0 {
+			if allLens.Len() == 0 {
 				return BadHuffman{Reason: "repeat previous length with none prior"}
 			}
 			let (extra, nr2) = try readBits(br, 2)
 			br = nr2
 			let rep = 3 + extra
-			if len(allLens)+rep > total {
+			if allLens.Len()+rep > total {
 				return BadHuffman{Reason: "repeat exceeds dynamic length table"}
 			}
-			let prev = allLens[len(allLens)-1]
+			let prev = allLens[allLens.Len()-1]
 			for _ in 0..rep {
 				allLens = allLens.Append(prev)
 			}
@@ -288,7 +288,7 @@ func readDynamicTables(r bitReader) (huffTable, huffTable, bitReader) fails BadH
 			let (extra, nr2) = try readBits(br, 3)
 			br = nr2
 			let rep = 3 + extra
-			if len(allLens)+rep > total {
+			if allLens.Len()+rep > total {
 				return BadHuffman{Reason: "zero repeat exceeds dynamic length table"}
 			}
 			for _ in 0..rep {
@@ -298,7 +298,7 @@ func readDynamicTables(r bitReader) (huffTable, huffTable, bitReader) fails BadH
 			let (extra, nr2) = try readBits(br, 7)
 			br = nr2
 			let rep = 11 + extra
-			if len(allLens)+rep > total {
+			if allLens.Len()+rep > total {
 				return BadHuffman{Reason: "long zero repeat exceeds dynamic length table"}
 			}
 			for _ in 0..rep {
@@ -319,9 +319,9 @@ func readDynamicTables(r bitReader) (huffTable, huffTable, bitReader) fails BadH
 func decodeHuffmanBlock(r bitReader, litTable huffTable, distTable huffTable, out []byte, maxBytes int) ([]byte, bitReader) fails BadDistance | BadHuffman | Truncated | LimitExceeded {
 	let mut br = r
 	let mut dst = out
-	let srcLen = len(br.src)
-	let hasLitLut = len(litTable.lut) == lutSize
-	let hasDistLut = len(distTable.lut) == lutSize
+	let srcLen = br.src.Len()
+	let hasLitLut = litTable.lut.Len() == lutSize
+	let hasDistLut = distTable.lut.Len() == lutSize
 	for true {
 		let mut sym = 0
 		if br.nbits < lutBits {
@@ -350,7 +350,7 @@ func decodeHuffmanBlock(r bitReader, litTable huffTable, distTable huffTable, ou
 			br = r1
 		}
 		if sym < 256 {
-			if len(dst)+1 > maxBytes {
+			if dst.Len()+1 > maxBytes {
 				return LimitExceeded{Limit: maxBytes}
 			}
 			dst = dst.Append(byte(sym))
@@ -423,13 +423,13 @@ func decodeHuffmanBlock(r bitReader, litTable huffTable, distTable huffTable, ou
 				br.bits = br.bits >> uint32(de)
 				br.nbits = br.nbits - de
 			}
-			if dist <= 0 || dist > len(dst) {
-				return BadDistance{Distance: dist, OutputLen: len(dst)}
+			if dist <= 0 || dist > dst.Len() {
+				return BadDistance{Distance: dist, OutputLen: dst.Len()}
 			}
-			if len(dst)+length > maxBytes {
+			if dst.Len()+length > maxBytes {
 				return LimitExceeded{Limit: maxBytes}
 			}
-			let mut copyPos = len(dst) - dist
+			let mut copyPos = dst.Len() - dist
 			for _ in 0..length {
 				dst = dst.Append(dst[copyPos])
 				copyPos = copyPos + 1
@@ -448,8 +448,8 @@ func InflatePrefix(src []byte, maxBytes int) Inflated fails BadHeader | Unsuppor
 	if maxBytes < 0 {
 		return LimitExceeded{Limit: maxBytes}
 	}
-	if len(src) < 2 {
-		return Truncated{Offset: len(src)}
+	if src.Len() < 2 {
+		return Truncated{Offset: src.Len()}
 	}
 	let cmf = src[0]
 	let flg = src[1]
@@ -463,7 +463,7 @@ func InflatePrefix(src []byte, maxBytes int) Inflated fails BadHeader | Unsuppor
 		return UnsupportedDict
 	}
 	let mut br = bitReader{src: src, pos: 2, bits: uint32(0), nbits: 0}
-	let mut initCap = len(src) * 2
+	let mut initCap = src.Len() * 2
 	if initCap > maxBytes {
 		initCap = maxBytes
 	}
@@ -481,8 +481,8 @@ func InflatePrefix(src []byte, maxBytes int) Inflated fails BadHeader | Unsuppor
 		br = r2
 		if btype == 0 {
 			br = alignToByte(br)
-			if br.pos+4 > len(src) {
-				return Truncated{Offset: len(src)}
+			if br.pos+4 > src.Len() {
+				return Truncated{Offset: src.Len()}
 			}
 			let b0 = int(src[br.pos])
 			let b1 = int(src[br.pos+1])
@@ -494,11 +494,11 @@ func InflatePrefix(src []byte, maxBytes int) Inflated fails BadHeader | Unsuppor
 			if (blockLen ^ nlen) != 65535 {
 				return BadBlock{Kind: 0}
 			}
-			if len(out)+blockLen > maxBytes {
+			if out.Len()+blockLen > maxBytes {
 				return LimitExceeded{Limit: maxBytes}
 			}
-			if br.pos+blockLen > len(src) {
-				return Truncated{Offset: len(src)}
+			if br.pos+blockLen > src.Len() {
+				return Truncated{Offset: src.Len()}
 			}
 			for i in 0..blockLen {
 				out = out.Append(src[br.pos+i])
@@ -526,8 +526,8 @@ func InflatePrefix(src []byte, maxBytes int) Inflated fails BadHeader | Unsuppor
 		}
 	}
 	br = alignToByte(br)
-	if br.pos+4 > len(src) {
-		return Truncated{Offset: len(src)}
+	if br.pos+4 > src.Len() {
+		return Truncated{Offset: src.Len()}
 	}
 	let p = br.pos
 	let expected = (uint32(src[p]) << uint32(24)) | (uint32(src[p+1]) << uint32(16)) | (uint32(src[p+2]) << uint32(8)) | uint32(src[p+3])
@@ -542,8 +542,8 @@ func InflatePrefix(src []byte, maxBytes int) Inflated fails BadHeader | Unsuppor
 // enforcing maxBytes and rejecting any trailing bytes with TrailingData.
 func Inflate(src []byte, maxBytes int) []byte fails BadHeader | UnsupportedDict | BadBlock | BadDistance | BadHuffman | BadChecksum | Truncated | TrailingData | LimitExceeded {
 	let res = try InflatePrefix(src, maxBytes)
-	if res.Consumed != len(src) {
-		return TrailingData{Offset: res.Consumed, Extra: len(src) - res.Consumed}
+	if res.Consumed != src.Len() {
+		return TrailingData{Offset: res.Consumed, Extra: src.Len() - res.Consumed}
 	}
 	res.Data
 }

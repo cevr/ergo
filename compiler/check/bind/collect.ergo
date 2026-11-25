@@ -6,6 +6,7 @@
 import compiler/check/store
 import compiler/syntax
 import dense
+import option
 import slices
 import strings
 
@@ -33,10 +34,10 @@ func nodeText(p syntax.Parsed, id dense.ID[syntax.Node]) string {
 // name derives (syntax/refine.go ParseName): ParsePort for Port,
 // parsePort for port.
 func parseName(name string) string {
-	if len(name) > 0 && name[0] >= 65 && name[0] <= 90 {
+	if name.Len() > 0 && name[0] >= 65 && name[0] <= 90 {
 		return "Parse" + name
 	}
-	"parse" + strings.ToUpper(name[0:1]) + name[1:len(name)]
+	"parse" + strings.ToUpper(name[0:1]) + name[1:name.Len()]
 }
 
 // declare puts a package-level declaration named by the Name row id of
@@ -83,12 +84,12 @@ type importSpec { path string, name string, isGo bool }
 
 func importOf(p syntax.Parsed, is syntax.ImportSpec) importSpec {
 	let path = strings.TrimRight(strings.TrimLeft(nodeText(p, is.Path), "\""), "\"")
-	let last = path[strings.LastIndex(path, "/")+1 : len(path)]
+	let last = path[strings.LastIndex(path, "/")+1 : path.Len()]
 	match dense.Unpack(is.Name) {
-	case Some{Value: n}:
+	case option.Some{Value: n}:
 		let alias = text(p, n)
 		if alias == "go" { importSpec{path: path, name: last, isGo: true} } else { importSpec{path: path, name: alias, isGo: false} }
-	case None:
+	case option.None:
 		// import go PATH: the go word is its NamePos, with no name.
 		importSpec{path: path, name: last, isGo: is.NamePos >= 0 && syntax.TokKind(p, is.NamePos) == syntax.Go}
 	}
@@ -139,11 +140,11 @@ func Collect(path string, files []File) store.Store {
 				match syntax.ViewOf(p.Tree, vd.Spec) {
 				case syntax.VarSpec as vs:
 					match dense.Unpack(vs.Pattern) {
-					case Some{Value: pat}:
+					case option.Some{Value: pat}:
 						let from = store.NumDecls(s)
 						patternNames(&s, p, f, pat)
 						setPrints(&s, p, d, from)
-					case None:
+					case option.None:
 					}
 				case _:
 				}
@@ -179,10 +180,10 @@ law UsesNameTheirDeclarations(picks []int) {
 				let t = text(p, id)
 				ok = ok && text(dp, did) == t
 				let pkg = match store.Lookup(s, t) {
-				case Some[dense.ID[store.Decl]] as x:
+				case option.Some[dense.ID[store.Decl]] as x:
 					let row = store.DeclOf(s, x.Value)
 					int(row.File) == df && int(row.Node) == dense.Index(did)
-				case None:
+				case option.None:
 					false
 				}
 				ok = ok && (pkg || (df == f && dn < i))
@@ -213,10 +214,10 @@ law JoinIsThreadFree(picks []int, t int, k int) {
 			let n = PNodeOf(ps, f, id)
 			ok = ok && dense.SideOf(u1.at, n) == dense.SideOf(un.at, n) && dense.SideOf(u1.defs, n) == dense.SideOf(un.defs, n)
 			match (LocalName(u1, n), LocalName(un, n)) {
-			case (Some[dense.ID[dense.Str]] as a, Some[dense.ID[dense.Str]] as b):
+			case (option.Some[dense.ID[dense.Str]] as a, option.Some[dense.ID[dense.Str]] as b):
 				locals = locals + 1
 				ok = ok && a.Value == b.Value && store.Text(s1, a.Value) == text(p, id) && store.Text(sn, b.Value) == text(p, id)
-			case (None, None):
+			case (option.None, option.None):
 			case _:
 				ok = false
 			}
@@ -355,11 +356,11 @@ func collectDecl(s mut store.Store, p syntax.Parsed, f int, d dense.ID[syntax.No
 		declare(s, p, f, td.Name, 3)
 		// A refinement of a type with no type parameters derives its
 		// parse function, at the type's name (syntax/refine.go).
-		if dense.Unpack(td.Where) != None && dense.Unpack(td.TypeParams) == None {
+		if dense.Unpack(td.Where) != option.None && dense.Unpack(td.TypeParams) == option.None {
 			declareAs(s, p, f, td.Name, parseName(text(p, td.Name)), 1)
 		}
 		match dense.Unpack(td.Spec) {
-		case Some{Value: spec}:
+		case option.Some{Value: spec}:
 			match syntax.ViewOf(p.Tree, spec) {
 			case syntax.InterfaceType as it:
 				for i in 0..syntax.Len(it.Members) {
@@ -371,7 +372,7 @@ func collectDecl(s mut store.Store, p syntax.Parsed, f int, d dense.ID[syntax.No
 				}
 			case _:
 			}
-		case None:
+		case option.None:
 		}
 	case syntax.VarDecl as vd:
 		match syntax.ViewOf(p.Tree, vd.Spec) {
@@ -390,9 +391,9 @@ func collectDecl(s mut store.Store, p syntax.Parsed, f int, d dense.ID[syntax.No
 			// the package scope; the Go checker records no Def for it.
 			let im = importOf(p, is)
 			let at = match dense.Unpack(is.Name) {
-			case Some{Value: n}:
+			case option.Some{Value: n}:
 				if im.isGo { is.Path } else { n }
-			case None:
+			case option.None:
 				is.Path
 			}
 			let imp = if im.isGo { 0 } else { store.ImportIndex(*s, im.path) + 1 }

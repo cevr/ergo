@@ -8,6 +8,7 @@
 
 import compiler/check/bind
 import compiler/check/store
+import option
 import tasks
 import compiler/syntax
 import dense
@@ -42,7 +43,7 @@ func levels(pkgs []Package) []int {
 	let mut placed = true
 	for placed {
 		placed = false
-		for i in 0..len(pkgs) {
+		for i in 0..pkgs.Len() {
 			if level[i] >= 0 {
 				continue
 			}
@@ -86,24 +87,24 @@ func checkOne(p Package, deps []store.Frozen, threads int) Checked {
 // depsOf is the frozen interfaces of p's imports in its import list's
 // order: a package the program does not hold, or has not checked, is an
 // empty interface, so its names resolve to nothing.
-func depsOf(p Package, pkgs []Package, done []Option[Checked]) []store.Frozen {
+func depsOf(p Package, pkgs []Package, done []option.Option[Checked]) []store.Frozen {
 	let mut out = []store.Frozen{}
 	for path in bind.Imports(p.Files) {
 		let i = indexOf(pkgs, path)
 		let found = if i >= 0 {
 			match done[i] {
-			case Some{Value: c}:
-				Some{Value: c.Store}
-			case None:
-				None
+			case option.Some{Value: c}:
+				option.Some{Value: c.Store}
+			case option.None:
+				option.None
 			}
 		} else {
-			None
+			option.None
 		}
 		match found {
-		case Some{Value: f}:
+		case option.Some{Value: f}:
 			out = out.Append(f)
-		case None:
+		case option.None:
 			out = out.Append(store.Freeze(store.New(path, []string{})))
 		}
 	}
@@ -117,10 +118,10 @@ func depsOf(p Package, pkgs []Package, done []Option[Checked]) []store.Frozen {
 // interfaces for the imports of the cycle.
 func Check(pkgs []Package, threads int) []Checked {
 	let level = levels(pkgs)
-	let mut done = []Option[Checked]{}
+	let mut done = []option.Option[Checked]{}
 	let mut top = 0
-	for i in 0..len(pkgs) {
-		done = done.Append(None)
+	for i in 0..pkgs.Len() {
+		done = done.Append(option.None)
 		if level[i] > top {
 			top = level[i]
 		}
@@ -128,26 +129,26 @@ func Check(pkgs []Package, threads int) []Checked {
 	for w in 0..top+2 {
 		let wave = if w <= top { w } else { -1 }
 		let mut members = []int{}
-		for i in 0..len(pkgs) {
+		for i in 0..pkgs.Len() {
 			if level[i] == wave {
 				members = members.Append(i)
 			}
 		}
-		if len(members) == 0 {
+		if members.Len() == 0 {
 			continue
 		}
 		let frozen = done
 		let out = tasks.Transform(members, threads, func(i int) Checked { checkOne(pkgs[i], depsOf(pkgs[i], pkgs, frozen), threads) })
 		for k, i in members {
-			done[i] = Some{Value: out[k]}
+			done[i] = option.Some{Value: out[k]}
 		}
 	}
 	let mut result = []Checked{}
 	for d in done {
 		match d {
-		case Some{Value: c}:
+		case option.Some{Value: c}:
 			result = result.Append(c)
-		case None:
+		case option.None:
 		}
 	}
 	result
@@ -161,7 +162,7 @@ func Check(pkgs []Package, threads int) []Checked {
 law ImportsNameTheirDeclarations(picks []int) {
 	let pkgs = programOf(picks)
 	let checked = Check(pkgs, 1)
-	let mut ok = len(checked) == 4
+	let mut ok = checked.Len() == 4
 	let mut resolved = 0
 	for c in checked {
 		let s = store.Of(c.Store)
@@ -180,7 +181,7 @@ law ImportsNameTheirDeclarations(picks []int) {
 					ok = ok && name == text && text[0] >= 65 && text[0] <= 90
 					// The selector's X is the import's name, no local.
 					match dense.Unpack(bind.ParentOf(c.Parents, bind.PNodeOf(c.Parents, f, id))) {
-					case Some[dense.ID[store.PNode]] as up:
+					case option.Some[dense.ID[store.PNode]] as up:
 						let (_, row) = bind.RowOf(c.Parents, up.Value)
 						let sel = syntax.NodeAt(t, row)
 						ok = ok && syntax.KindOf(t, sel) == syntax.KSelectorExpr
@@ -193,7 +194,7 @@ law ImportsNameTheirDeclarations(picks []int) {
 								ok = false
 							}
 						}
-					case None:
+					case option.None:
 						ok = false
 					}
 				case _:
@@ -231,14 +232,14 @@ func programOf(picks []int) []Package {
 	}
 	let mut app = "import m/lib\n\nfunc H1() int { lib.F(1) }\n"
 	for k in picks {
-		let n = len(appFragments)
+		let n = appFragments.Len()
 		app = app + appFragments[((k%n)+n)%n]
 	}
 	let l = Package{Path: "m/lib", Files: []bind.File{file("lib.ergo", lib)}}
 	let a = Package{Path: "m/app", Files: []bind.File{file("app.ergo", app)}}
 	let t = Package{Path: "m/top", Files: []bind.File{file("top.ergo", "import m/app\nimport m/lib\n\nfunc T() int { app.H1() + lib.F(2) }\n")}}
 	let d = Package{Path: "m/side", Files: []bind.File{file("side.ergo", "import m/lib\n\nfunc S() int { lib.F(3) }\n")}}
-	let order = if len(picks) == 0 { 0 } else { ((picks[0] % 3) + 3) % 3 }
+	let order = if picks.Len() == 0 { 0 } else { ((picks[0] % 3) + 3) % 3 }
 	if order == 0 { []Package{t, a, d, l} } else if order == 1 { []Package{l, d, a, t} } else { []Package{a, t, l, d} }
 }
 
@@ -251,7 +252,7 @@ law ProgramIsThreadFree(picks []int, n int) {
 	let pkgs = programOf(picks)
 	let one = Check(pkgs, 1)
 	let many = Check(pkgs, 1+((n%8)+8)%8)
-	let mut ok = len(one) == len(many)
+	let mut ok = one.Len() == many.Len()
 	for k, c in one {
 		if !ok {
 			break

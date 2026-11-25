@@ -14,11 +14,11 @@ type ParseError { Text string, At int, Reason string }
 // time.DateOnly.
 func Text(d Date) string {
 	let c = civilFromDays(int64(d.day))
-	pair(c.year / 100) + pair(c.year % 100) + "-" + pair(c.month) + "-" + pair(c.day)
+	pair(c.year/100) + pair(c.year%100) + "-" + pair(c.month) + "-" + pair(c.day)
 }
 
 // pair is n, 0 to 99, in two digits.
-func pair(n int64) string { digitPairs[int(n) * 2:int(n) * 2 + 2] }
+func pair(n int64) string { digitPairs[int(n)*2 : int(n)*2+2] }
 
 // digitPairs is the two-digit texts 00 to 99 in a row, so Text is one
 // concatenation (one allocation) of slices of a constant.
@@ -28,8 +28,8 @@ let digitPairs = "00010203040506070809101112131415161718192021222324252627282930
 // digits and two dashes, and a day that exists. So 2027-02-30, 2027-2-28,
 // a sign and trailing text are ParseErrors, never another day.
 func ParseISODate(s string) Date fails ParseError {
-	if len(s) != 10 {
-		return ParseError{Text: s, At: if len(s) < 10 { len(s) } else { 10 }, Reason: "want 10 bytes, YYYY-MM-DD"}
+	if s.Len() != 10 {
+		return ParseError{Text: s, At: if s.Len() < 10 { s.Len() } else { 10 }, Reason: "want 10 bytes, YYYY-MM-DD"}
 	}
 	let mut n = []int64{0, 0, 0}
 	for i in 0..10 {
@@ -71,5 +71,5 @@ law TextRoundTrips(n int64) {
 	case ParseError:
 		MinDate()
 	}
-	back == d && len(s) == 10 && Text(longer) == "0001-01-01" && Text(shorter) == "0001-01-01" && s == time.Format(time.Unix(UnixDays(d)*86400, 0), time.DateOnly)
+	back == d && s.Len() == 10 && Text(longer) == "0001-01-01" && Text(shorter) == "0001-01-01" && s == time.Format(time.Unix(UnixDays(d)*86400, 0), time.DateOnly)
 }

@@ -4,6 +4,7 @@
 import json
 import jsonschema
 import llm
+import option
 
 // asked is the value the Ask laws ask for.
 type asked { Name string, Count int }
@@ -12,18 +13,18 @@ func askedCodec() json.Codec[asked] { json.Codec[asked]{MaxBytes: 0, MaxDepth: 0
 
 // askVerdict is an answer of Ask or Parse as a value: the read and "", or
 // the NoFit's reply and path, or another failure's name.
-type askVerdict { Read json.Read[asked], NoFit Option[llm.NoFit], Other string }
+type askVerdict { Read json.Read[asked], NoFit option.Option[llm.NoFit], Other string }
 
 func askOf(m Sequence, r llm.Request) askVerdict {
 	let empty = json.Read[asked]{Value: asked{Name: "", Count: 0}, Fixes: []json.Fix{}}
 	with context { llm.Model: m } {
 		let got = llm.Ask(askedCodec(), jsonschema.NewEncoded([]string{"name"}), r) catch {
 		case llm.NoFit as n:
-			return askVerdict{Read: empty, NoFit: Some{Value: n}, Other: ""}
+			return askVerdict{Read: empty, NoFit: option.Some{Value: n}, Other: ""}
 		case _:
-			return askVerdict{Read: empty, NoFit: None, Other: "failure"}
+			return askVerdict{Read: empty, NoFit: option.None, Other: "failure"}
 		}
-		askVerdict{Read: got, NoFit: None, Other: ""}
+		askVerdict{Read: got, NoFit: option.None, Other: ""}
 	}
 }
 
@@ -31,9 +32,9 @@ func parsing(text string) askVerdict {
 	let empty = json.Read[asked]{Value: asked{Name: "", Count: 0}, Fixes: []json.Fix{}}
 	let got = llm.Parse(askedCodec(), text) catch {
 	case llm.NoFit as n:
-		return askVerdict{Read: empty, NoFit: Some{Value: n}, Other: ""}
+		return askVerdict{Read: empty, NoFit: option.Some{Value: n}, Other: ""}
 	}
-	askVerdict{Read: got, NoFit: None, Other: ""}
+	askVerdict{Read: got, NoFit: option.None, Other: ""}
 }
 
 // AskIsParseOfTheReply: Ask gives Parse of the text the model says, a
@@ -50,9 +51,9 @@ law LengthStopIsNotParsed(v asked) {
 	let text = json.Encode(askedCodec(), v)
 	let m = NewSequence([]Reply{Says{Deltas: []llm.Delta{llm.Text{Text: text}}, Stop: llm.Length, Usage: none()}})
 	match askOf(m, plain("q")).NoFit {
-	case Some[llm.NoFit] as n:
+	case option.Some[llm.NoFit] as n:
 		n.Value.Reply == text && n.Value.Path == ""
-	case None:
+	case option.None:
 		false
 	}
 }

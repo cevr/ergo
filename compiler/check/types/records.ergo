@@ -1,5 +1,6 @@
 import compiler/syntax
 import dense
+import option
 import strings
 
 // Record is a record declaration of a file: a `type R[…] { fields }`, or
@@ -44,17 +45,17 @@ func Records(p syntax.Parsed, prelude bool) []Record {
 				continue
 			}
 			let params = match dense.Unpack(td.TypeParams) {
-			case Some{Value: tp}:
+			case option.Some{Value: tp}:
 				let (names, _) = bracketNames(p, tp)
 				names
-			case None:
+			case option.None:
 				[]string{}
 			}
 			match dense.Unpack(td.Spec) {
-			case Some{Value: sp}:
+			case option.Some{Value: sp}:
 				match syntax.ViewOf(p.Tree, sp) {
 				case syntax.StructType as st:
-					if prelude && nameText(p, td.Name) == "Never" && len(params) == 0 && fieldCount(p, st.Fields) == 0 {
+					if prelude && nameText(p, td.Name) == "Never" && params.Len() == 0 && fieldCount(p, st.Fields) == 0 {
 						continue
 					}
 					out = out.Append(Record{Name: nameText(p, td.Name), Params: params, Fields: st.Fields})
@@ -75,7 +76,7 @@ func Records(p syntax.Parsed, prelude bool) []Record {
 					}
 				case _:
 				}
-			case None:
+			case option.None:
 			}
 		case _:
 		}
@@ -95,14 +96,14 @@ func Defined(p syntax.Parsed) []DefinedType {
 		match syntax.ViewOf(p.Tree, d) {
 		case syntax.TypeDecl as td:
 			let params = match dense.Unpack(td.TypeParams) {
-			case Some{Value: tp}:
+			case option.Some{Value: tp}:
 				let (names, _) = bracketNames(p, tp)
 				names
-			case None:
+			case option.None:
 				[]string{}
 			}
 			match dense.Unpack(td.Spec) {
-			case Some{Value: sp}:
+			case option.Some{Value: sp}:
 				match syntax.ViewOf(p.Tree, sp) {
 				case syntax.StructType:
 				case syntax.InterfaceType:
@@ -110,7 +111,7 @@ func Defined(p syntax.Parsed) []DefinedType {
 				case _:
 					out = out.Append(DefinedType{Name: nameText(p, td.Name), Params: params, Base: sp})
 				}
-			case None:
+			case option.None:
 			}
 		case _:
 		}
@@ -132,14 +133,14 @@ func Refined(p syntax.Parsed) []RefinedType {
 		match syntax.ViewOf(p.Tree, d) {
 		case syntax.TypeDecl as td:
 			match dense.Unpack(td.Where) {
-			case Some:
+			case option.Some:
 				match dense.Unpack(td.Spec) {
-				case Some{Value: sp}:
+				case option.Some{Value: sp}:
 					let name = nameText(p, td.Name)
 					out = out.Append(RefinedType{Name: name, Parse: parseName(name), Base: sp})
-				case None:
+				case option.None:
 				}
-			case None:
+			case option.None:
 			}
 		case _:
 		}
@@ -154,12 +155,12 @@ func ParseName(name string) string { parseName(name) }
 // parseName is the name of the parse function a refinement of the type
 // name derives: ParsePort for Port, parsePort for port.
 func parseName(name string) string {
-	if len(name) == 0 {
+	if name.Len() == 0 {
 		return "parse"
 	}
 	let first = name[0:1]
 	if strings.ToUpper(first) == first && strings.ToLower(first) != first {
 		return "Parse" + name
 	}
-	"parse" + strings.ToUpper(first) + name[1:len(name)]
+	"parse" + strings.ToUpper(first) + name[1:name.Len()]
 }

@@ -37,7 +37,7 @@ import strings
 
 func base(path string) string {
 	let i = strings.LastIndex(path, "/")
-	if i < 0 { path } else { path[i+1 : len(path)] }
+	if i < 0 { path } else { path[i+1 : path.Len()] }
 }
 
 func read(path string) string fails os.Exit needs fs.Files {
@@ -54,11 +54,11 @@ func read(path string) string fails os.Exit needs fs.Files {
 // unitOf is the package of one manifest line's "EXT FOREIGN FILE..."
 // and the sources of its files.
 func unitOf(g []string) (load.Unit, []string) fails os.Exit needs fs.Files {
-	if len(g) < 2 {
+	if g.Len() < 2 {
 		return os.Exit{Code: 2, Message: "checkdump: a package needs EXT FOREIGN FILE..."}
 	}
 	let tab = load.TablesOf(try read(g[0]), try read(g[1]))
-	let paths = g[2:len(g)]
+	let paths = g[2:g.Len()]
 	let mut files = []bind.File{}
 	let mut srcs = []string{}
 	for path in paths {
@@ -109,7 +109,7 @@ func line(name string, at syntax.Position, g diag.Diag) string {
 
 func threadsOf(s string) int {
 	let mut n = 0
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		let c = int(s[i])
 		if c < 48 || c > 57 {
 			return 0
@@ -124,7 +124,7 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 	let mut std = ""
 	let mut threads = 1
 	let mut argv = argv0
-	for len(argv) > 1 && (argv[0] == "-std" || argv[0] == "-threads") {
+	for argv.Len() > 1 && (argv[0] == "-std" || argv[0] == "-threads") {
 		if argv[0] == "-std" {
 			std = argv[1]
 		} else {
@@ -133,17 +133,17 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 				return os.Exit{Code: 2, Message: "checkdump: -threads takes a count of 1 or more"}
 			}
 		}
-		argv = argv[2:len(argv)]
+		argv = argv[2:argv.Len()]
 	}
-	if len(argv) != 2 || argv[0] != "-corpus" {
+	if argv.Len() != 2 || argv[0] != "-corpus" {
 		return usage
 	}
 	let mut units = []load.Unit{}
 	let mut srcs = [][]string{}
 	for l in strings.Split(try read(argv[1]), "\n") {
 		let g = strings.Fields(l)
-		if len(g) > 0 {
-			let (u0, s) = try unitOf(g[1:len(g)])
+		if g.Len() > 0 {
+			let (u0, s) = try unitOf(g[1:g.Len()])
 			let mut u = u0
 			u.Path = g[0]
 			units = units.Append(u)
@@ -158,21 +158,21 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 	// only grows). Sizes go by package, not path: several roots share the
 	// path main, which nothing imports.
 	let mut deps = Map[string, Map[string, bool]]{}
-	let mut sizes = slices.Repeat([]int{0}, len(p.Loaded))
+	let mut sizes = slices.Repeat([]int{0}, p.Loaded.Len())
 	let mut grew = true
 	for grew {
 		grew = false
 		for i, e in p.Loaded {
 			let r = diag.Resources(e.S, e.K, deps)
-			grew = grew || len(r) != sizes[i]
-			sizes[i] = len(r)
+			grew = grew || r.Len() != sizes[i]
+			sizes[i] = r.Len()
 			if e.Path != "main" {
 				deps[e.Path] = r
 			}
 		}
 	}
 	let mut b = strings.NewBuilder()
-	for i in 0..len(p.Loaded) {
+	for i in 0..p.Loaded.Len() {
 		let at = p.Units[i]
 		let u = units[at]
 		let d = load.TypeAt(p, i)
@@ -230,7 +230,7 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 	io.Stdout.Print(b.String())
 }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), io.Stdout: io.NewHost() } {
 		try run(os.Process.Args())
 	}

@@ -7,6 +7,7 @@ import compiler/check/store
 import compiler/check/types
 import compiler/syntax
 import dense
+import option
 
 // Dep is an imported package as typing reads it: its import path, its
 // bound store (whose interface the importer's binding read, frozen) and
@@ -50,18 +51,18 @@ func foreignAt(k Pkg, path string, name string) int {
 // for the prelude, k's foreign type of the name (the prelude's types are
 // the foreign table's, as the Go side writes them). None when k can name
 // no such type.
-func imported(s mut store.Store, k Pkg, path string, name string, args []dense.ID[store.TKey]) Option[dense.ID[store.TKey]] {
+func imported(s mut store.Store, k Pkg, path string, name string, args []dense.ID[store.TKey]) option.Option[dense.ID[store.TKey]] {
 	match types.ImportRef(*s, k.Ifaces, path, name) {
-	case Some[store.XRef] as ref:
+	case option.Some[store.XRef] as ref:
 		return some(store.TInstance(s, ref.Value, args))
-	case None:
+	case option.None:
 	}
-	if len(args) > 0 {
+	if args.Len() > 0 {
 		let f = foreignAt(k, path, name)
-		return if f >= 0 { some(store.TInstance(s, store.XRef{Import: uint32(store.ForeignBit), Decl: uint32(f)}, args)) } else { None }
+		return if f >= 0 { some(store.TInstance(s, store.XRef{Import: uint32(store.ForeignBit), Decl: uint32(f)}, args)) } else { option.None }
 	}
 	let f = foreignAt(k, path, name)
-	if f >= 0 { some(store.TForeign(s, f)) } else { None }
+	if f >= 0 { some(store.TForeign(s, f)) } else { option.None }
 }
 
 // port is the type dt of the dependency d's pool as a type of s's pool:
@@ -71,33 +72,33 @@ func imported(s mut store.Store, k Pkg, path string, name string, args []dense.I
 // is none when k cannot name such a type, or dt holds a form a signature
 // of k's own cannot (a wired or row value): the member is then left
 // untyped.
-func port(s mut store.Store, k Pkg, d Dep, dt dense.ID[store.TKey]) Option[dense.ID[store.TKey]] {
-	types.Port(s, k.Ifaces, k.Foreign, d.S, d.Path, func(ref store.XRef) Option[types.DeclIdentity] { types.DepIdentity(d.K.Ifaces, ref) }, d.K.Foreign, dt)
+func port(s mut store.Store, k Pkg, d Dep, dt dense.ID[store.TKey]) option.Option[dense.ID[store.TKey]] {
+	types.Port(s, k.Ifaces, k.Foreign, d.S, d.Path, func(ref store.XRef) option.Option[types.DeclIdentity] { types.DepIdentity(d.K.Ifaces, ref) }, d.K.Foreign, dt)
 }
 
 // importedFn is the function the selector's name sel names in an import,
 // its signature ported into s's pool; none when sel names no function of
 // a package k.Deps holds, or its signature does not port.
-func importedFn(s mut store.Store, k Pkg, t mut Typer, name dense.Opt[syntax.Node]) Option[Fn] {
+func importedFn(s mut store.Store, k Pkg, t mut Typer, name dense.Opt[syntax.Node]) option.Option[Fn] {
 	let sel = match dense.Unpack(name) {
-	case Some[dense.ID[syntax.Node]] as n:
+	case option.Some[dense.ID[syntax.Node]] as n:
 		n.Value
-	case None:
-		return None
+	case option.None:
+		return option.None
 	}
-	if len(k.Deps) == 0 {
-		return None
+	if k.Deps.Len() == 0 {
+		return option.None
 	}
 	match bind.ResolutionOf(k.U, k.Ps, pnode(k, t.file, sel)) {
 	case bind.Imported as im:
 		let i = int(im.Ref.Import) - 1
 		let paths = store.ImportPaths(*s)
-		if i < 0 || i >= len(paths) {
-			return None
+		if i < 0 || i >= paths.Len() {
+			return option.None
 		}
 		let di = depOf(k, paths[i])
 		if di < 0 {
-			return None
+			return option.None
 		}
 		let d = k.Deps[di]
 		let decl = store.DeclOf(d.S, store.DeclAt(d.S, int(im.Ref.Decl)))
@@ -109,64 +110,64 @@ func importedFn(s mut store.Store, k Pkg, t mut Typer, name dense.Opt[syntax.Nod
 		} else if store.KindName(int(decl.Kind)) == "func" {
 			// A refined type's parse function (config.ParsePort).
 			match parseFn(d.K, at) {
-			case Some[Fn] as pf:
+			case option.Some[Fn] as pf:
 				pf.Value
-			case None:
-				return None
+			case option.None:
+				return option.None
 			}
 		} else {
-			return None
+			return option.None
 		}
 		match port(s, k, d, fn.Sig) {
-		case Some[dense.ID[store.TKey]] as sig:
+		case option.Some[dense.ID[store.TKey]] as sig:
 			let mut out = fn
 			out.Sig = sig.Value
 			let mut bounds = []types.SelfBound{}
 			for bound in fn.SelfBounds {
 				match dense.Unpack(bound.Op) {
-				case Some{Value: op}:
+				case option.Some{Value: op}:
 					match port(s, k, d, op) {
-					case Some{Value: rebased}:
+					case option.Some{Value: rebased}:
 						bounds = bounds.Append(types.SelfBound{..bound, Op: dense.OptOf(rebased)})
-					case None:
-						return None
+					case option.None:
+						return option.None
 					}
-				case None:
+				case option.None:
 					bounds = bounds.Append(bound)
 				}
 			}
 			out.SelfBounds = bounds
-			Some[Fn]{Value: out}
-		case None:
-			None
+			option.Some[Fn]{Value: out}
+		case option.None:
+			option.None
 		}
 	case _:
-		None
+		option.None
 	}
 }
 
 // fieldNames is the field names, in order, of the record ty instantiates:
 // of the package or of an import; none when ty is no record either knows.
-func fieldNames(s store.Store, k Pkg, ty dense.ID[store.TKey]) Option[[]string] {
+func fieldNames(s store.Store, k Pkg, ty dense.ID[store.TKey]) option.Option[[]string] {
 	let (r, _) = recordOf(s, k, ty)
 	if r >= 0 {
-		return Some{Value: namesOf(k.Recs[r].Fields)}
+		return option.Some{Value: namesOf(k.Recs[r].Fields)}
 	}
 	let kind = store.KindOfType(s, ty)
 	let f = if kind == store.KInstance && int(store.OriginOfType(s, ty).Import) == store.ForeignBit { int(store.OriginOfType(s, ty).Decl) } else { -1 }
-	if f < 0 || f >= len(k.Foreign) {
-		return None
+	if f < 0 || f >= k.Foreign.Len() {
+		return option.None
 	}
 	let di = depOf(k, k.Foreign[f].Path)
 	if di < 0 {
-		return None
+		return option.None
 	}
 	let d = k.Deps[di]
 	let dr = recOf(d.S, d.K, k.Foreign[f].Name)
 	if dr < 0 {
-		return None
+		return option.None
 	}
-	Some{Value: namesOf(d.K.Recs[dr].Fields)}
+	option.Some{Value: namesOf(d.K.Recs[dr].Fields)}
 }
 
 func namesOf(fs []Field) []string {
@@ -183,13 +184,13 @@ func namesOf(fs []Field) []string {
 func importedRec(s store.Store, k Pkg, ty dense.ID[store.TKey]) (string, string, []dense.ID[store.TKey]) {
 	let kind = store.KindOfType(s, ty)
 	let o = store.OriginOfType(s, ty)
-	if kind == store.KForeign && store.ArgOf(s, ty) < len(k.Foreign) {
+	if kind == store.KForeign && store.ArgOf(s, ty) < k.Foreign.Len() {
 		let f = k.Foreign[store.ArgOf(s, ty)]
 		(f.Path, f.Name, []dense.ID[store.TKey]{})
-	} else if kind == store.KInstance && int(o.Import) == store.ForeignBit && int(o.Decl) < len(k.Foreign) {
+	} else if kind == store.KInstance && int(o.Import) == store.ForeignBit && int(o.Decl) < k.Foreign.Len() {
 		let f = k.Foreign[int(o.Decl)]
 		(f.Path, f.Name, store.OperandsOf(s, ty))
-	} else if kind == store.KInstance && int(o.Import) > 0 && int(o.Import) <= len(k.Ifaces) {
+	} else if kind == store.KInstance && int(o.Import) > 0 && int(o.Import) <= k.Ifaces.Len() {
 		let dep = k.Ifaces[int(o.Import)-1]
 		(dep.Path, dep.Decls[int(o.Decl)].Name, store.OperandsOf(s, ty))
 	} else {
@@ -212,30 +213,30 @@ func outsideRec(s store.Store, k Pkg, ty dense.ID[store.TKey]) bool {
 // not negative) of the record type ty an import declares (importedRec)
 // ported into s's pool with ty's type arguments in place; none when no
 // package of k.Deps declares it.
-func importedField(s mut store.Store, k Pkg, ty dense.ID[store.TKey], name string, at int) Option[dense.ID[store.TKey]] {
+func importedField(s mut store.Store, k Pkg, ty dense.ID[store.TKey], name string, at int) option.Option[dense.ID[store.TKey]] {
 	let (path, rec, targs) = importedRec(*s, k, ty)
 	if rec == "" {
-		return None
+		return option.None
 	}
 	let di = depOf(k, path)
 	if di < 0 {
-		return None
+		return option.None
 	}
 	let d = k.Deps[di]
 	let r = recOf(d.S, d.K, rec)
-	if r < 0 || len(targs) != len(d.K.Recs[r].Params) {
-		return None
+	if r < 0 || targs.Len() != d.K.Recs[r].Params.Len() {
+		return option.None
 	}
 	for j, fd in d.K.Recs[r].Fields {
 		if at < 0 && fd.Name == name || j == at {
 			return match port(s, k, d, fd.T) {
-			case Some[dense.ID[store.TKey]] as p:
+			case option.Some[dense.ID[store.TKey]] as p:
 				let u = store.TSubst(s, p.Value, targs)
 				some(u)
-			case None:
-				None
+			case option.None:
+				option.None
 			}
 		}
 	}
-	None
+	option.None
 }

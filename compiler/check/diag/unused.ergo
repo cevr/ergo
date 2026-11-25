@@ -5,6 +5,7 @@ import compiler/syntax
 import dense
 import go unicode
 import go unicode/utf8
+import option
 import slices
 import strings
 
@@ -77,7 +78,7 @@ func UnusedWithImports(files []bind.File, s store.Store, u bind.Uses, ps bind.Pa
 		outside = outside.Append(names)
 	}
 	for ui in usedImports {
-		if ui.File >= 0 && ui.File < len(outside) {
+		if ui.File >= 0 && ui.File < outside.Len() {
 			outside[ui.File][ui.Name] = true
 		}
 	}
@@ -109,7 +110,7 @@ func UnusedWithImports(files []bind.File, s store.Store, u bind.Uses, ps bind.Pa
 		case Unreported:
 			continue
 		}
-		out = out.Append(Diag{File: f, Offset: syntax.NodePos(p, id), Length: len(name), Code: CodeUnused, Message: message})
+		out = out.Append(Diag{File: f, Offset: syntax.NodePos(p, id), Length: name.Len(), Code: CodeUnused, Message: message})
 	}
 	for f, file in files {
 		let ims = imports(file.Parsed)
@@ -123,11 +124,11 @@ func UnusedWithImports(files []bind.File, s store.Store, u bind.Uses, ps bind.Pa
 	Sorted(out)
 }
 
-func isSome[T](o Option[T]) bool {
+func isSome[T](o option.Option[T]) bool {
 	match o {
-	case Some[T]:
+	case option.Some[T]:
 		true
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -151,7 +152,7 @@ func binderOf(files []bind.File, ps bind.Parents, n dense.ID[store.PNode]) Binde
 	let mut from = n
 	for {
 		match dense.Unpack(bind.ParentOf(ps, from)) {
-		case Some[dense.ID[store.PNode]] as up:
+		case option.Some[dense.ID[store.PNode]] as up:
 			let (_, row) = bind.RowOf(ps, up.Value)
 			let id = syntax.NodeAt(t, row)
 			let k = syntax.KindOf(t, id)
@@ -176,7 +177,7 @@ func binderOf(files []bind.File, ps bind.Parents, n dense.ID[store.PNode]) Binde
 				return if k == syntax.KCatchArm && from == n { CatchRest } else { ArmName }
 			}
 			from = up.Value
-		case None:
+		case option.None:
 			return Unreported
 		}
 	}
@@ -190,7 +191,7 @@ func letBound(files []bind.File, ps bind.Parents, n dense.ID[store.PNode]) bool 
 	let mut from = n
 	for {
 		match dense.Unpack(bind.ParentOf(ps, from)) {
-		case Some[dense.ID[store.PNode]] as up:
+		case option.Some[dense.ID[store.PNode]] as up:
 			let (_, row) = bind.RowOf(ps, up.Value)
 			let k = syntax.KindOf(t, syntax.NodeAt(t, row))
 			if k == syntax.KVarSpec {
@@ -200,7 +201,7 @@ func letBound(files []bind.File, ps bind.Parents, n dense.ID[store.PNode]) bool 
 				return false
 			}
 			from = up.Value
-		case None:
+		case option.None:
 			return false
 		}
 	}
@@ -227,9 +228,9 @@ func Held(s store.Store, k expr.Pkg, t expr.Typer, deps Map[string, Map[string, 
 	let res = resourcesWith(s, k, infos, names, deps, true)
 	func(n dense.ID[store.PNode]) bool {
 		match expr.DefType(t, n) {
-		case Some[dense.ID[store.TKey]] as ty:
+		case option.Some[dense.ID[store.TKey]] as ty:
 			holdsAcross(s, k, res, deps, ty.Value)
-		case None:
+		case option.None:
 			false
 		}
 	}
@@ -252,7 +253,7 @@ func refusedAlias(s store.Store, ims []anImport, im anImport) bool {
 		return false
 	}
 	let sc = syntax.Scan(im.last)
-	if sc.Failed || syntax.NumToks(sc.Toks) < 1 || syntax.Kind(sc.Toks, syntax.TokAt(sc.Toks, 0)) != syntax.Ident || syntax.End(im.last, syntax.Ident, 0) != len(im.last) {
+	if sc.Failed || syntax.NumToks(sc.Toks) < 1 || syntax.Kind(sc.Toks, syntax.TokAt(sc.Toks, 0)) != syntax.Ident || syntax.End(im.last, syntax.Ident, 0) != im.last.Len() {
 		return false
 	}
 	let k = store.KindOfName(s, im.last)
@@ -291,14 +292,14 @@ func imports(p syntax.Parsed) []anImport {
 			}
 			let is = syntax.ImportSpecOf(p.Tree, spec)
 			let path = strings.TrimRight(strings.TrimLeft(textAt(p, is.Path), "\""), "\"")
-			let last = path[strings.LastIndex(path, "/")+1 : len(path)]
+			let last = path[strings.LastIndex(path, "/")+1 : path.Len()]
 			let end = syntax.NodeEnd(p, is.Path)
 			match dense.Unpack(is.Name) {
-			case Some[dense.ID[syntax.Node]] as nm:
+			case option.Some[dense.ID[syntax.Node]] as nm:
 				let alias = textAt(p, nm.Value)
 				let name = if alias == "go" { last } else { alias }
 				out = out.Append(anImport{name: name, last: last, path: path, isGo: alias == "go", alias: alias != "go", at: syntax.NodePos(p, nm.Value), end: end})
-			case None:
+			case option.None:
 				// import go PATH: the go word is its NamePos, with no name.
 				if is.NamePos >= 0 && syntax.TokKind(p, is.NamePos) == syntax.Go {
 					out = out.Append(anImport{name: last, last: last, path: path, isGo: true, alias: false, at: syntax.TokPos(p, is.NamePos), end: end})

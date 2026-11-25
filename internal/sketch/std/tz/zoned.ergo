@@ -2,6 +2,7 @@
 // arithmetic, its formats and its RFC 9557 text.
 
 import civil
+import option
 import time
 
 // Zoned is the instant At seen in the zone Zone.
@@ -49,16 +50,16 @@ func FormatZoned(z Zoned, f civil.ZonedFormat) string { civil.FormatWithZone(Wal
 func ParseZoned(f civil.ZonedFormat, s string) Zoned fails civil.ParseError | UnknownZone needs Zones {
 	let x = try civil.ParseWithZone(f, s)
 	match x.Zone {
-	case Some[string] as name:
+	case option.Some[string] as name:
 		let z = try zoneNamed(name.Value)
 		let at = match x.Offset {
-		case Some[int] as o:
+		case option.Some[int] as o:
 			let t = instant(x.Wall, o.Value)
 			if OffsetAt(z, t).Seconds != o.Value {
 				return civil.ParseError{Text: s, At: 0, Reason: "the offset is not \(name.Value)'s at that time"}
 			}
 			t
-		case None:
+		case option.None:
 			match Resolve(z, x.Wall) {
 			case Unique as u:
 				u.At
@@ -69,22 +70,22 @@ func ParseZoned(f civil.ZonedFormat, s string) Zoned fails civil.ParseError | Un
 			}
 		}
 		match x.Abbreviation {
-		case Some[string] as a:
+		case option.Some[string] as a:
 			if OffsetAt(z, at).Abbreviation != a.Value {
 				return civil.ParseError{Text: s, At: 0, Reason: "the abbreviation is not \(name.Value)'s at that time"}
 			}
-		case None:
+		case option.None:
 		}
 		Zoned{At: at, Zone: z}
-	case None:
+	case option.None:
 		match x.Offset {
-		case Some[int] as o:
+		case option.Some[int] as o:
 			let z = FixedOffset(o.Value) catch {
 			case BadOffset:
 				return civil.ParseError{Text: s, At: 0, Reason: "the offset is out of range"}
 			}
 			Zoned{At: instant(x.Wall, o.Value), Zone: z}
-		case None:
+		case option.None:
 			civil.ParseError{Text: s, At: 0, Reason: "the text names no offset and no zone; an abbreviation names no one offset"}
 		}
 	}
@@ -96,14 +97,14 @@ func ParseZoned(f civil.ZonedFormat, s string) Zoned fails civil.ParseError | Un
 func ParseInstant(f civil.ZonedFormat, s string) time.Time fails civil.ParseError {
 	let x = try civil.ParseWithZone(f, s)
 	match x.Zone {
-	case Some[string]:
+	case option.Some[string]:
 		return civil.ParseError{Text: s, At: 0, Reason: "a zone name is read by tz.ParseZoned, which checks the offset against the zone"}
-	case None:
+	case option.None:
 	}
 	match x.Offset {
-	case Some[int] as o:
+	case option.Some[int] as o:
 		instant(x.Wall, o.Value)
-	case None:
+	case option.None:
 		civil.ParseError{Text: s, At: 0, Reason: "the text has no offset"}
 	}
 }
@@ -118,8 +119,8 @@ func instant(w civil.DateTime, offset int) time.Time {
 // writes an offset zone and FixedOffset names one) or a name of the
 // context's database.
 func zoneNamed(name string) Zone fails UnknownZone needs Zones {
-	if len(name) > 0 && (name[0] == '+' || name[0] == '-') {
-		let n = len(name)
+	if name.Len() > 0 && (name[0] == '+' || name[0] == '-') {
+		let n = name.Len()
 		if n != 6 && n != 9 {
 			return UnknownZone{Name: name}
 		}
@@ -209,7 +210,7 @@ type lawZones {} implements Zones
 // Load is the zone name of std's IANA copy, or UnknownZone.
 func Load(_ lawZones, name string) Zone fails UnknownZone {
 	let data = ianaZone(name)
-	if len(data) == 0 {
+	if data.Len() == 0 {
 		return UnknownZone{Name: name}
 	}
 	FromTZif(name, data) catch {
@@ -244,7 +245,7 @@ law ParseTextChecksOffset(i int64, s int64, k int64) {
 law ZonedFormatRoundTrips(i int64, s int64, k int64) {
 	let z = anyZoned(i, s, 0, false)
 	let patterns = []string{"yyyy-MM-dd HH:mm:ssXXX", "yyyy-MM-dd'T'HH:mm:ssxx", "EEE, d MMM yyyy HH:mm:ss Z", "yyyy-MM-dd HH:mm:ss XXX VV", "yyyy-MM-dd HH:mm:ss VV", "dd/MMM/yyyy:HH:mm:ss ZZZZZ z"}
-	let text = patterns[int(within(k, 0, int64(len(patterns)-1)))]
+	let text = patterns[int(within(k, 0, int64(patterns.Len()-1)))]
 	let f = civil.ZonedPattern(text) catch {
 	case civil.BadPattern:
 		return false

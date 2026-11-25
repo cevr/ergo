@@ -21,6 +21,7 @@
 
 import graph
 import json
+import option
 import slices
 import strings
 
@@ -78,12 +79,12 @@ func Decode(text string) Rows fails BadRows {
 		return BadRows{Reason: "rows of version \(r.Version); this reader reads version 2"}
 	}
 	for i, n in r.Nodes {
-		if n.Id != i || n.Parent >= len(r.Nodes) || n.Subject >= len(r.Nodes) {
+		if n.Id != i || n.Parent >= r.Nodes.Len() || n.Subject >= r.Nodes.Len() {
 			return BadRows{Reason: "node \(i) names a node outside the rows"}
 		}
 	}
 	for e in r.Edges {
-		if e.From < 0 || e.To < 0 || e.From >= len(r.Nodes) || e.To >= len(r.Nodes) {
+		if e.From < 0 || e.To < 0 || e.From >= r.Nodes.Len() || e.To >= r.Nodes.Len() {
 			return BadRows{Reason: "an edge names a node outside the rows"}
 		}
 	}
@@ -164,7 +165,7 @@ func NameOf(r Rows, id int) string {
 // module, package, file or task by its name; in id order.
 func Find(r Rows, name string) []int {
 	let mut out = []int{}
-	for i in 0..len(r.Nodes) {
+	for i in 0..r.Nodes.Len() {
 		if NameOf(r, i) == name {
 			out = out.Append(i)
 		}
@@ -203,7 +204,7 @@ func LevelOf(r Rows, level Level, tests bool) LevelGraph {
 	for i, n in r.Nodes {
 		let top = n.Kind == "decl" && (n.Parent < 0 || r.Nodes[n.Parent].Kind != "decl")
 		if n.Kind == kind && (kind != "decl" || top) {
-			index = index.Append(len(nodes))
+			index = index.Append(nodes.Len())
 			nodes = nodes.Append(i)
 		} else {
 			index = index.Append(-1)
@@ -213,16 +214,16 @@ func LevelOf(r Rows, level Level, tests bool) LevelGraph {
 	let mut edges = []graph.Edge{}
 	for e in r.Edges {
 		let (a, b) = levelPair(r, level, e)
-		if a < 0 || b < 0 || a == b && kind != "decl" || seen.Get(a*len(r.Nodes)+b) != None {
+		if a < 0 || b < 0 || a == b && kind != "decl" || seen.Get(a*r.Nodes.Len()+b) != option.None {
 			continue
 		}
 		if kind == "package" && !tests && testOnly(r, a, b) {
 			continue
 		}
-		seen[a*len(r.Nodes)+b] = true
+		seen[a*r.Nodes.Len()+b] = true
 		edges = edges.Append(graph.Edge{From: index[a], To: index[b]})
 	}
-	LevelGraph{Graph: graph.Of(len(nodes), edges), Nodes: nodes}
+	LevelGraph{Graph: graph.Of(nodes.Len(), edges), Nodes: nodes}
 }
 
 // levelPair is the rows' nodes an edge row joins at level, or (-1, -1).
@@ -346,7 +347,7 @@ func cyclesAreImportCycles(seed int, size int) bool {
 	let r = drawnRows(seed, size)
 	let cycles = Cycles(r, Packages, true)
 	for c in cycles {
-		for i in 1..len(c.Path) {
+		for i in 1..c.Path.Len() {
 			if !imports(r, c.Path[i-1], c.Path[i]) {
 				return false
 			}
@@ -359,7 +360,7 @@ func cyclesAreImportCycles(seed int, size int) bool {
 			selfReach = selfReach || graph.Reach(lg.Graph, []int{m})[n]
 		}
 	}
-	(len(cycles) > 0) == selfReach
+	(cycles.Len() > 0) == selfReach
 }
 
 // imports reports whether a file of package a imports package b.
@@ -398,11 +399,11 @@ func dependsOf(r Rows) depends {
 	for s in steps {
 		edges = edges.Append(graph.Edge{From: s.From, To: s.To})
 	}
-	let g = graph.Of(len(r.Nodes), edges)
+	let g = graph.Of(r.Nodes.Len(), edges)
 	// Of keeps each source's edges in the order given; Edges lists them
 	// by source, so the steps are reordered the same way.
 	let mut bySource = [][]Step{}
-	for _ in 0..len(r.Nodes) {
+	for _ in 0..r.Nodes.Len() {
 		bySource = bySource.Append([]Step{})
 	}
 	for s in steps {
@@ -430,17 +431,17 @@ func stepOf(d depends, a int, b int) Step {
 // reads (a task's input) a node that leads on to b; a member leads on to
 // the declaration that holds it. None when a does not depend on b; empty
 // when a is b.
-func Why(r Rows, a int, b int) Option[[]Step] {
+func Why(r Rows, a int, b int) option.Option[[]Step] {
 	let d = dependsOf(r)
 	match graph.Path(d.Graph, a, b) {
-	case Some[[]int] as p:
+	case option.Some[[]int] as p:
 		let mut out = []Step{}
-		for i in 1..len(p.Value) {
+		for i in 1..p.Value.Len() {
 			out = out.Append(stepOf(d, p.Value[i-1], p.Value[i]))
 		}
-		Some[[]Step]{Value: out}
-	case None:
-		None
+		option.Some[[]Step]{Value: out}
+	case option.None:
+		option.None
 	}
 }
 
@@ -450,13 +451,13 @@ law WhyIsAPath(seed int, size int, x int, y int) { whyIsAPath(seed, size, x, y) 
 
 func whyIsAPath(seed int, size int, x int, y int) bool {
 	let r = drawnRows(seed, size)
-	if len(r.Nodes) == 0 {
+	if r.Nodes.Len() == 0 {
 		return true
 	}
-	let a = (x%len(r.Nodes) + len(r.Nodes)) % len(r.Nodes)
-	let b = (y%len(r.Nodes) + len(r.Nodes)) % len(r.Nodes)
+	let a = (x%r.Nodes.Len() + r.Nodes.Len()) % r.Nodes.Len()
+	let b = (y%r.Nodes.Len() + r.Nodes.Len()) % r.Nodes.Len()
 	match Why(r, a, b) {
-	case Some[[]Step] as w:
+	case option.Some[[]Step] as w:
 		let mut at = a
 		for s in w.Value {
 			if s.From != at || !isStep(r, s) {
@@ -465,7 +466,7 @@ func whyIsAPath(seed int, size int, x int, y int) bool {
 			at = s.To
 		}
 		at == b
-	case None:
+	case option.None:
 		a != b
 	}
 }
@@ -495,18 +496,18 @@ func Affected(r Rows, changed []int) []Reached {
 	let d = dependsOf(r)
 	let rev = graph.Reverse(d.Graph)
 	let mut seen = []bool{}
-	for _ in 0..len(r.Nodes) {
+	for _ in 0..r.Nodes.Len() {
 		seen = seen.Append(false)
 	}
 	let mut out = []Reached{}
 	for c in changed {
-		if c >= 0 && c < len(r.Nodes) && !seen[c] {
+		if c >= 0 && c < r.Nodes.Len() && !seen[c] {
 			seen[c] = true
 			out = out.Append(Reached{Node: c, By: Step{Kind: "", From: c, To: c}})
 		}
 	}
 	let mut head = 0
-	for head < len(out) {
+	for head < out.Len() {
 		let n = out[head].Node
 		head = head + 1
 		for m in graph.Succ(rev, n) {
@@ -526,22 +527,22 @@ law AffectedGrowsWithChanges(seed int, size int, x int, y int) { affectedGrowsWi
 
 func affectedGrowsWithChanges(seed int, size int, x int, y int) bool {
 	let r = drawnRows(seed, size)
-	if len(r.Nodes) == 0 {
+	if r.Nodes.Len() == 0 {
 		return true
 	}
-	let a = (x%len(r.Nodes) + len(r.Nodes)) % len(r.Nodes)
-	let b = (y%len(r.Nodes) + len(r.Nodes)) % len(r.Nodes)
+	let a = (x%r.Nodes.Len() + r.Nodes.Len()) % r.Nodes.Len()
+	let b = (y%r.Nodes.Len() + r.Nodes.Len()) % r.Nodes.Len()
 	let small = Affected(r, []int{a})
 	let large = Affected(r, []int{a, b})
 	let mut inLarge = Map[int, bool]{}
 	for got in large {
-		if got.By.Kind != "" && inLarge.Get(got.By.To) == None || got.By.Kind == "" && got.Node != a && got.Node != b {
+		if got.By.Kind != "" && inLarge.Get(got.By.To) == option.None || got.By.Kind == "" && got.Node != a && got.Node != b {
 			return false
 		}
 		inLarge[got.Node] = true
 	}
 	for want in small {
-		if inLarge.Get(want.Node) == None {
+		if inLarge.Get(want.Node) == option.None {
 			return false
 		}
 	}
@@ -554,16 +555,16 @@ law WhyExistsIffAffected(seed int, size int, x int) { whyExistsIffAffected(seed,
 
 func whyExistsIffAffected(seed int, size int, x int) bool {
 	let r = drawnRows(seed, size)
-	if len(r.Nodes) == 0 {
+	if r.Nodes.Len() == 0 {
 		return true
 	}
-	let c = (x%len(r.Nodes) + len(r.Nodes)) % len(r.Nodes)
+	let c = (x%r.Nodes.Len() + r.Nodes.Len()) % r.Nodes.Len()
 	let mut reached = Map[int, bool]{}
 	for a in Affected(r, []int{c}) {
 		reached[a.Node] = true
 	}
-	for n in 0..len(r.Nodes) {
-		if (Why(r, n, c) != None) != (reached.Get(n) != None) {
+	for n in 0..r.Nodes.Len() {
+		if (Why(r, n, c) != option.None) != (reached.Get(n) != option.None) {
 			return false
 		}
 	}
@@ -583,7 +584,7 @@ func Changed(old Rows, new Rows) []int {
 	}
 	let mut out = []int{}
 	for i, n in new.Nodes {
-		if n.Kind == "decl" && n.Digest != "" && before.Get("\(NameOf(new, i)) \(n.Digest)") == None {
+		if n.Kind == "decl" && n.Digest != "" && before.Get("\(NameOf(new, i)) \(n.Digest)") == option.None {
 			out = out.Append(i)
 		}
 	}
@@ -596,10 +597,10 @@ law ChangedIsTheEdit(seed int, size int, x int) { changedIsTheEdit(seed, size, x
 
 func changedIsTheEdit(seed int, size int, x int) bool {
 	let r = drawnRows(seed, size)
-	if len(Changed(r, r)) != 0 {
+	if Changed(r, r).Len() != 0 {
 		return false
 	}
-	let k = (x%len(r.Nodes) + len(r.Nodes)) % len(r.Nodes)
+	let k = (x%r.Nodes.Len() + r.Nodes.Len()) % r.Nodes.Len()
 	if r.Nodes[k].Kind != "decl" || r.Nodes[k].Digest == "" {
 		return true
 	}
@@ -623,7 +624,7 @@ type HiddenUse { From int, To int, Package int, Via int, How string }
 // imports, at the let's target.
 func Hidden(r Rows) []HiddenUse {
 	let mut imported = Map[int, bool]{}
-	let width = len(r.Nodes)
+	let width = r.Nodes.Len()
 	let mut reexport = Map[int, int]{}
 	for e in r.Edges {
 		if e.Kind == "imports" {
@@ -640,16 +641,16 @@ func Hidden(r Rows) []HiddenUse {
 		}
 		let a = packageOf(r, e.From)
 		let c = packageOf(r, e.To)
-		if a >= 0 && c >= 0 && a != c && imported.Get(a*width+c) == None {
+		if a >= 0 && c >= 0 && a != c && imported.Get(a*width+c) == option.None {
 			out = out.Append(HiddenUse{From: e.From, To: e.To, Package: c, Via: -1, How: e.How})
 		}
 		match reexport.Get(e.To) {
-		case Some[int] as t:
+		case option.Some[int] as t:
 			let d = packageOf(r, t.Value)
-			if a >= 0 && d >= 0 && a != d && imported.Get(a*width+d) == None {
+			if a >= 0 && d >= 0 && a != d && imported.Get(a*width+d) == option.None {
 				out = out.Append(HiddenUse{From: e.From, To: t.Value, Package: d, Via: e.To, How: e.How})
 			}
-		case None:
+		case option.None:
 		}
 	}
 	out
@@ -704,10 +705,10 @@ func chainsAreImports(seed int, size int, min int) bool {
 	let r = drawnRows(seed, size)
 	let atLeast = (min%4 + 4) % 4
 	for c in Chains(r, atLeast) {
-		if len(c) < atLeast {
+		if c.Len() < atLeast {
 			return false
 		}
-		for i in 1..len(c) {
+		for i in 1..c.Len() {
 			if !imports(r, c[i-1], c[i]) {
 				return false
 			}
@@ -757,13 +758,13 @@ func upIsEmptyForAnOrder(seed int, size int) bool {
 	let r = drawnRows(seed, size)
 	let lg = LevelOf(r, Packages, true)
 	match graph.Order(lg.Graph) {
-	case Some[[]int] as o:
+	case option.Some[[]int] as o:
 		let mut down = []string{}
 		for n in o.Value {
 			down = down.Append(r.Nodes[lg.Nodes[n]].Name)
 		}
-		len(Up(r, down)) == 0 && len(Up(r, slices.Reverse(down))) == len(graph.Edges(lg.Graph))
-	case None:
+		Up(r, down).Len() == 0 && Up(r, slices.Reverse(down)).Len() == graph.Edges(lg.Graph).Len()
+	case option.None:
 		true
 	}
 }
@@ -796,7 +797,7 @@ func fanCountsImports(seed int, size int) bool {
 	for f in rows {
 		let mut o = 0
 		let mut i = 0
-		for p in 0..len(r.Nodes) {
+		for p in 0..r.Nodes.Len() {
 			if r.Nodes[p].Kind == "package" && p != f.Node {
 				if imports(r, f.Node, p) {
 					o = o + 1
@@ -812,7 +813,7 @@ func fanCountsImports(seed int, size int) bool {
 		ins = ins + f.In
 		outs = outs + f.Out
 	}
-	ins == outs && ins == len(graph.Edges(LevelOf(r, Packages, true).Graph))
+	ins == outs && ins == graph.Edges(LevelOf(r, Packages, true).Graph).Len()
 }
 
 // Reduce is each package import that another import of the same package
@@ -915,12 +916,12 @@ func drawnRows(seed int, size int) Rows {
 	let mut files = []int{}
 	let mut packages = []int{}
 	for p in 0..pkgs {
-		let pid = len(nodes)
+		let pid = nodes.Len()
 		packages = packages.Append(pid)
 		nodes = nodes.Append(nodeRow(pid, "package", "", 0, "m/p\(p)"))
 		x = next(x)
 		for f in 0..(x/16)%2+1 {
-			let fid = len(nodes)
+			let fid = nodes.Len()
 			files = files.Append(fid)
 			let mut frow = nodeRow(fid, "file", "", pid, "p\(p)/f\(f).ergo")
 			x = next(x)
@@ -930,14 +931,14 @@ func drawnRows(seed int, size int) Rows {
 			for d in 0..(x/16)%3+1 {
 				x = next(x)
 				let sub = []string{"func", "test", "let"}[(x/16)%3]
-				let did = len(nodes)
+				let did = nodes.Len()
 				decls = decls.Append(did)
 				let mut row = nodeRow(did, "decl", sub, fid, "D\(d)")
 				row.Digest = "t\(x % 97)"
 				nodes = nodes.Append(row)
 				x = next(x)
 				if (x/16)%3 == 0 {
-					let mid = len(nodes)
+					let mid = nodes.Len()
 					decls = decls.Append(mid)
 					nodes = nodes.Append(nodeRow(mid, "decl", "field", did, "D\(d).M"))
 				}
@@ -954,27 +955,27 @@ func drawnRows(seed int, size int) Rows {
 		}
 	}
 	x = next(x)
-	for _ in 0..(x/16)%(2*len(decls)+1) {
+	for _ in 0..(x/16)%(2*decls.Len()+1) {
 		x = next(x)
-		let a = decls[(x/16)%len(decls)]
+		let a = decls[(x/16)%decls.Len()]
 		x = next(x)
-		let b = decls[(x/16)%len(decls)]
+		let b = decls[(x/16)%decls.Len()]
 		edges = edges.Append(edgeRow("uses", "call", a, b))
 	}
 	for d in decls {
 		if nodes[d].Sub == "test" {
-			let tid = len(nodes)
+			let tid = nodes.Len()
 			let mut task = nodeRow(tid, "task", "test", packageOf(Rows{Version: 2, Nodes: nodes, Edges: edges}, d), "test \(nodes[d].Name)")
 			task.Subject = d
 			nodes = nodes.Append(task)
 			edges = edges.Append(edgeRow("input", "", tid, d))
 			x = next(x)
-			edges = edges.Append(edgeRow("input", "", tid, decls[(x/16)%len(decls)]))
+			edges = edges.Append(edgeRow("input", "", tid, decls[(x/16)%decls.Len()]))
 		}
 		if nodes[d].Sub == "let" {
 			x = next(x)
 			if (x/16)%2 == 0 {
-				edges = edges.Append(edgeRow("reexports", "", d, decls[(x/16)%len(decls)]))
+				edges = edges.Append(edgeRow("reexports", "", d, decls[(x/16)%decls.Len()]))
 			}
 		}
 	}

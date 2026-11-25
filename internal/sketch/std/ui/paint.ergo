@@ -1,3 +1,5 @@
+import core
+import option
 import slices
 import time
 import actor
@@ -76,7 +78,7 @@ type Paint { ops []PaintOp, segs []Seg, ends []int }
 // exactly their own lists, though a frame's canvases paint into one scratch.
 law PaintMatchesList(seed int, steps int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		paintFollows(seed, steps, m)
 	}
 }
@@ -172,7 +174,7 @@ func canvasOf(shapes []Shape[int], label string) ([]PaintOp, bool) {
 	([]PaintOp{}, false)
 }
 
-func paintFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
+func paintFollows(seed int, steps int, m time.Manual) bool needs time.Scheduler {
 	let mut r = seeded(seed)
 	let prog = genPaint(&r, 2)
 	let view = func(f mut Frame[int], s int) {
@@ -205,7 +207,7 @@ func paintFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 		let want = paintModel(prog, s)
 		let (rest, okRest) = canvasOf(Screen(&h), "rest")
 		let (inner, okInner) = canvasOf(Screen(&h), "inner")
-		if !ok || shown != want || Find(&h, "board") == None || strings.Count(Screenshot(&h), "\n") != 6+3*len(want) {
+		if !ok || shown != want || Find(&h, "board") == option.None || strings.Count(Screenshot(&h), "\n") != 6+3*want.Len() {
 			return false
 		}
 		if !okRest || !okInner || rest != paintModel(prog, s+1) || inner != paintModel(prog, s+2) {
@@ -213,7 +215,7 @@ func paintFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 		}
 		let mut g = NewFrame[int]()
 		let _ = Render(&g, view, s)
-		if len(Render(&g, view, s)) != 0 {
+		if Render(&g, view, s).Len() != 0 {
 			return false
 		}
 	}
@@ -235,7 +237,7 @@ func Stroke(p mut Paint, path Path, c Color, width float64) {
 // add writes op, whose path is the segments added since the last op.
 func add(p mut Paint, op PaintOp) {
 	p.ops = p.ops.Append(op)
-	p.ends = p.ends.Append(len(p.segs))
+	p.ends = p.ends.Append(p.segs.Len())
 }
 
 // DrawImage draws the image at src (a host decodes it: the desktop host
@@ -272,12 +274,12 @@ func Clipped(p mut Paint, x float64, y float64, w float64, h float64, body func(
 // into f's scratch after what is there (an enclosing canvas's ops, when
 // this one is written inside another's draw), and the canvas's list is
 // what it added (paintList).
-func Canvas[E](f mut Frame[E], label string, width Length, height Length, draw func(p mut Paint), at CallSite) {
-	let from = len(f.paint.ops)
-	let segsFrom = len(f.paint.segs)
+func Canvas[E](f mut Frame[E], label string, width Length, height Length, draw func(p mut Paint), at core.CallSite) {
+	let from = f.paint.ops.Len()
+	let segsFrom = f.paint.segs.Len()
 	draw(&f.paint)
 	let ops = paintList(&f.paint, from, segsFrom)
-	let _ = put(f, CanvasNode{Label: label, Width: width, Height: height, Paint: ops}, None, None, at)
+	let _ = put(f, CanvasNode{Label: label, Width: width, Height: height, Paint: ops}, option.None, option.None, at)
 }
 
 // paintList is the list of p's ops from from on, each path its own
@@ -285,9 +287,9 @@ func Canvas[E](f mut Frame[E], label string, width Length, height Length, draw f
 // its own; p is cut back to from and segsFrom.
 func paintList(p mut Paint, from int, segsFrom int) []PaintOp {
 	let segs = p.segs[segsFrom:]
-	let mut out = slices.WithCapacity[PaintOp](len(p.ops) - from)
+	let mut out = slices.WithCapacity[PaintOp](p.ops.Len() - from)
 	let mut at = 0
-	for i in from..len(p.ops) {
+	for i in from..p.ops.Len() {
 		let end = p.ends[i] - segsFrom
 		match p.ops[i] {
 		case FillOp as x:
@@ -342,7 +344,7 @@ func paintLines(ops []PaintOp, indent string) []string {
 		case ImageOp as x:
 			out = out.Append(at + "image \(x.Src)\(partText(x.Part)) at \(x.X) \(x.Y) \(x.W) \(x.H)")
 		case PopPaint:
-			if len(at) >= len(indent)+2 {
+			if at.Len() >= indent.Len()+2 {
 				at = at[2:]
 			}
 			out = out.Append(at + "}")
@@ -365,7 +367,7 @@ func colorText(c Color) string { "rgba(\(c.R),\(c.G),\(c.B),\(c.A))" }
 func pathText(p Path) string {
 	let mut out = ""
 	for s in p.Segs {
-		if len(out) > 0 {
+		if out.Len() > 0 {
 			out = out + " "
 		}
 		match s {

@@ -7,6 +7,7 @@
 // No default value is ever returned: a reply that is not a T fails NoFit
 // with the reply and the place it breaks.
 
+import codec
 import json
 import jsonschema
 import strings
@@ -33,7 +34,7 @@ func Parse[T wire](c json.Codec[T], reply string) json.Read[T] fails NoFit needs
 	json.DecodeLoose(c, reply) catch {
 	case json.Malformed as m:
 		return NoFit{Reply: reply, Path: "", Reason: m.Reason}
-	case WireWrongKind as w:
+	case codec.WireWrongKind as w:
 		return NoFit{Reply: reply, Path: w.Path, Reason: "not " + w.Want}
 	case _:
 		// A generic T's row names only its wrong kind; a missing member
@@ -91,7 +92,7 @@ law FormatAgreesWithCodec(v askProbe) {
 	case _:
 		return false
 	}
-	jsonschema.Conforms(jsonschema.SchemaOf(askProbeSchema()), doc) && back.Value == v && len(back.Fixes) == 0
+	jsonschema.Conforms(jsonschema.SchemaOf(askProbeSchema()), doc) && back.Value == v && back.Fixes.Len() == 0
 }
 
 // FormatKeepsTheRequest: Format changes only the system text, which ends

@@ -169,10 +169,10 @@ func Fields(t uint8) []Field {
 // rows.
 law KeysAreQuoted(t uint8) {
 	let fs = Fields(t)
-	let mut ok = (t >= TStmt && t <= TCase) == (len(fs) > 0)
-	for i in 0..len(fs) {
+	let mut ok = (t >= TStmt && t <= TCase) == (fs.Len() > 0)
+	for i in 0..fs.Len() {
 		let x = fs[i]
-		let name = strings.Slice(x.Key, 1, len(x.Key)-2)
+		let name = strings.Slice(x.Key, 1, x.Key.Len()-2)
 		let links = x.Kind == FNode || x.Kind == FNodes
 		ok = ok && links == (x.Of != 0) && Quote(name)+":" == x.Key
 	}

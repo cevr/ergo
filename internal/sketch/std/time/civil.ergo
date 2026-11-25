@@ -5,6 +5,8 @@
 // calendar of Go's time package (Howard Hinnant's days-from-civil), in
 // Ergo with no host call.
 
+import option
+
 // Month is a month of the year.
 type Month = January{} | February{} | March{} | April{} | May{} | June{} | July{} | August{} | September{} | October{} | November{} | December{}
 
@@ -46,11 +48,11 @@ func MonthNumber(m Month) int {
 }
 
 // MonthOf is the month numbered n, or None when n is not 1 to 12.
-func MonthOf(n int) Option[Month] {
+func MonthOf(n int) option.Option[Month] {
 	if n < 1 || n > 12 {
-		return None
+		return option.None
 	}
-	Some[Month]{Value: months()[n-1]}
+	option.Some[Month]{Value: months()[n-1]}
 }
 
 // WeekdayNumber is the number of w as Go's time.Weekday: Sunday 0 to
@@ -215,9 +217,9 @@ law YearDayCounts(sec int64) {
 // None outside 1..12.
 law MonthOfInvertsNumber(n int) {
 	match MonthOf(n) {
-	case Some[Month] as m:
+	case option.Some[Month] as m:
 		MonthNumber(m.Value) == n
-	case None:
+	case option.None:
 		n < 1 || n > 12
 	}
 }

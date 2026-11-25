@@ -1,5 +1,6 @@
 import http
 import mcp
+import option
 import strings
 import sync
 
@@ -50,7 +51,7 @@ func SessionID(c Client) string { c.session.Get() }
 
 // Call posts one JSON-RPC message (or batch) to c's endpoint.
 // Notifications answered with 202 Accepted return None; JSON or SSE answers return Some.
-func Call(c Client, message string) Option[string] fails http.RequestFailed | UnexpectedStatus | BadResponse {
+func Call(c Client, message string) option.Option[string] fails http.RequestFailed | UnexpectedStatus | BadResponse {
 	let mut hdr = []http.Field{
 		http.Field{Name: "Content-Type", Value: "application/json"},
 		http.Field{Name: "Accept", Value: c.accept},
@@ -80,29 +81,29 @@ func Call(c Client, message string) Option[string] fails http.RequestFailed | Un
 		if resp.Body != "" {
 			return BadResponse{Reason: "202 Accepted must have an empty body"}
 		}
-		return None
+		return option.None
 	}
 	let ct = mediaTypeOf(headerValue(resp.Header, "Content-Type"))
 	if resp.Status == 200 || (resp.Status == 400 && (ct == "application/json" || ct == "text/event-stream")) {
 		if ct == "application/json" {
-			return Some[string]{Value: resp.Body}
+			return option.Some[string]{Value: resp.Body}
 		}
 		if ct == "text/event-stream" {
 			let events = http.ReadEvents(resp.Body) catch {
 			case http.Truncated:
 				return BadResponse{Reason: "truncated event stream"}
 			}
-			if len(events) == 0 {
+			if events.Len() == 0 {
 				return BadResponse{Reason: "empty event stream"}
 			}
-			if len(events) == 1 {
-				return Some[string]{Value: events[0].Data}
+			if events.Len() == 1 {
+				return option.Some[string]{Value: events[0].Data}
 			}
 			let mut items = []string{}
 			for e in events {
 				items = items.Append(e.Data)
 			}
-			return Some[string]{Value: "[" + strings.Join(items, ",") + "]"}
+			return option.Some[string]{Value: "[" + strings.Join(items, ",") + "]"}
 		}
 		return BadResponse{Reason: "unexpected Content-Type: " + ct}
 	}

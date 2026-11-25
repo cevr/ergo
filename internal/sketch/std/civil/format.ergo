@@ -95,13 +95,13 @@ type BadPattern { Text string, At int, Hint string }
 
 // DateFields is the date format of fields with names.
 func DateFields(fields []Field, names Names) DateFormat fails BadPattern {
-	let _ = try checkFields(fields, indexes(len(fields)), names, false, false, "")
+	let _ = try checkFields(fields, indexes(fields.Len()), names, false, false, "")
 	DateFormat{fields: fields, names: names}
 }
 
 // Fields is the date and time format of fields with names.
 func Fields(fields []Field, names Names) DateTimeFormat fails BadPattern {
-	let _ = try checkFields(fields, indexes(len(fields)), names, true, false, "")
+	let _ = try checkFields(fields, indexes(fields.Len()), names, true, false, "")
 	DateTimeFormat{fields: fields, names: names}
 }
 
@@ -191,7 +191,7 @@ func greedy(f Field) bool {
 func ends(f Field) bool {
 	match f {
 	case Literal as l:
-		len(l.Text) > 0 && !nameByte(l.Text[0])
+		l.Text.Len() > 0 && !nameByte(l.Text[0])
 	case YearNumber, MonthNumber, MonthName, DayOfMonth, DayOfYear, WeekdayName, ISOWeekYear, ISOWeekNumber, Hour24, Hour12, MinuteNumber, SecondNumber, Fraction, Meridiem, OffsetField, ZoneID, ZoneAbbreviation:
 		false
 	}
@@ -273,7 +273,7 @@ func dotFirst(f Field) bool {
 func digitFirst(f Field) bool {
 	match f {
 	case Literal as l:
-		len(l.Text) > 0 && l.Text[0] >= '0' && l.Text[0] <= '9'
+		l.Text.Len() > 0 && l.Text[0] >= '0' && l.Text[0] <= '9'
 	case Fraction as x:
 		!x.Trim
 	case YearNumber, MonthNumber, DayOfMonth, DayOfYear, ISOWeekYear, ISOWeekNumber, Hour24, Hour12, MinuteNumber, SecondNumber:
@@ -294,7 +294,7 @@ func checkFields(fields []Field, at []int, names Names, timeOK bool, zoneOK bool
 	let _ = try checkNames(names, text)
 	let mut hour12 = -1
 	let mut meridiem = false
-	for i in 0..len(fields) {
+	for i in 0..fields.Len() {
 		let f = fields[i]
 		if !timeOK && isTime(f) {
 			return BadPattern{Text: text, At: at[i], Hint: "a date format has no time of day; build a DateTimeFormat (Pattern, FromLayout or Fields)"}
@@ -313,7 +313,7 @@ func checkFields(fields []Field, at []int, names Names, timeOK bool, zoneOK bool
 		}
 		match f {
 		case Literal as l:
-			if len(l.Text) == 0 {
+			if l.Text.Len() == 0 {
 				return BadPattern{Text: text, At: at[i], Hint: "an empty literal"}
 			}
 		case YearNumber as y:
@@ -343,7 +343,7 @@ func checkFields(fields []Field, at []int, names Names, timeOK bool, zoneOK bool
 
 // checkNames holds names to the rule of Names.
 func checkNames(names Names, text string) bool fails BadPattern {
-	if len(names.Months) != 12 || len(names.MonthsShort) != 12 || len(names.Weekdays) != 7 || len(names.WeekdaysShort) != 7 {
+	if names.Months.Len() != 12 || names.MonthsShort.Len() != 12 || names.Weekdays.Len() != 7 || names.WeekdaysShort.Len() != 7 {
 		return BadPattern{Text: text, At: 0, Hint: "Names holds 12 months and 7 weekdays in each width"}
 	}
 	if !oneWay(names.Months) || !oneWay(names.MonthsShort) || !oneWay(names.Weekdays) || !oneWay(names.WeekdaysShort) || !oneWay([]string{names.AM, names.PM}) {
@@ -356,10 +356,10 @@ func checkNames(names Names, text string) bool fails BadPattern {
 // Ergo, not strings.HasPrefix, so a format built in a package initializer
 // runs at check time.
 func startsAt(s string, i int, p string) bool {
-	if i+len(p) > len(s) {
+	if i+p.Len() > s.Len() {
 		return false
 	}
-	for k in 0..len(p) {
+	for k in 0..p.Len() {
 		if s[i+k] != p[k] {
 			return false
 		}
@@ -371,12 +371,12 @@ func startsWith(s string, p string) bool { startsAt(s, 0, p) }
 
 // oneWay reports whether the names of xs read one way.
 func oneWay(xs []string) bool {
-	for i in 0..len(xs) {
+	for i in 0..xs.Len() {
 		let x = xs[i]
-		if len(x) == 0 || x[0] >= '0' && x[0] <= '9' || x[0] == ' ' {
+		if x.Len() == 0 || x[0] >= '0' && x[0] <= '9' || x[0] == ' ' {
 			return false
 		}
-		for j in 0..len(xs) {
+		for j in 0..xs.Len() {
 			if i != j && startsWith(xs[j], x) {
 				return false
 			}
@@ -414,10 +414,10 @@ law AppendIsFormat(seed int64, n int64, ns int64, m int64) {
 	let dt = anyHeld(f, n, ns)
 	let b = AppendDateTime(dt, f, AppendDate(anyDay(m), ISODate(), []byte{}))
 	let s = Text(anyDay(m)) + FormatDateTime(dt, f)
-	if len(b) != len(s) {
+	if b.Len() != s.Len() {
 		return false
 	}
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		if b[i] != s[i] {
 			return false
 		}
@@ -597,7 +597,7 @@ func read(fields []Field, names Names, s string) reading fails ParseError {
 			if !startsAt(s, i, l.Text) {
 				return ParseError{Text: s, At: i, Reason: "want \"\(l.Text)\""}
 			}
-			i = i + len(l.Text)
+			i = i + l.Text.Len()
 		case YearNumber as y:
 			let (v, j) = match y.Digits {
 			case AllDigits:
@@ -685,7 +685,7 @@ func read(fields []Field, names Names, s string) reading fails ParseError {
 			i = j
 		}
 	}
-	if i != len(s) {
+	if i != s.Len() {
 		return ParseError{Text: s, At: i, Reason: "trailing text"}
 	}
 	r
@@ -700,7 +700,7 @@ func agree(old int, v int, s string, at int, what string) int fails ParseError {
 	v
 }
 
-func isDigit(s string, i int) bool { i < len(s) && s[i] >= '0' && s[i] <= '9' }
+func isDigit(s string, i int) bool { i < s.Len() && s[i] >= '0' && s[i] <= '9' }
 
 // wantField is the failure of a field what that s does not hold at i.
 func wantField(s string, i int, what string) ParseError { ParseError{Text: s, At: i, Reason: "want the \(what)"} }
@@ -721,7 +721,7 @@ func readNumber(s string, i int, width int, pad Pad, what string) (int, int) fai
 		}
 		(v, i + width)
 	case SpacePad:
-		if i+width > len(s) {
+		if i+width > s.Len() {
 			return wantField(s, i, what)
 		}
 		let mut k = 0
@@ -763,9 +763,9 @@ func readName(s string, i int, w Width, full []string, short []string, what stri
 	case Short:
 		short
 	}
-	for k in 0..len(xs) {
+	for k in 0..xs.Len() {
 		if startsAt(s, i, xs[k]) {
-			return (k, i + len(xs[k]))
+			return (k, i + xs[k].Len())
 		}
 	}
 	ParseError{Text: s, At: i, Reason: "want the \(what)"}
@@ -776,7 +776,7 @@ func readName(s string, i int, w Width, full []string, short []string, what stri
 func fraction(s string, i int, k int, trim bool) (int, int) fails ParseError {
 	let mut j = i
 	if trim {
-		if !(i < len(s) && s[i] == '.' && isDigit(s, i+1)) {
+		if !(i < s.Len() && s[i] == '.' && isDigit(s, i+1)) {
 			return (0, i)
 		}
 		j = i + 1
@@ -800,7 +800,7 @@ func fraction(s string, i int, k int, trim bool) (int, int) fails ParseError {
 // day of the year; else by ISO week year, week and weekday. Every other
 // field read must agree with it.
 func dateOf(r reading, s string) Date fails ParseError {
-	let end = len(s)
+	let end = s.Len()
 	let d = if r.year >= 0 && r.month >= 0 && r.day >= 0 {
 		if r.month < 1 || r.month > 12 {
 			return ParseError{Text: s, At: end, Reason: "no month \(r.month)"}
@@ -837,7 +837,7 @@ func dateOf(r reading, s string) Date fails ParseError {
 
 // timeOf is the time of day r names; a field it does not hold is zero.
 func timeOf(r reading, s string) TimeOfDay fails ParseError {
-	let end = len(s)
+	let end = s.Len()
 	if r.hour12 >= 0 && (r.hour12 < 1 || r.hour12 > 12) {
 		return ParseError{Text: s, At: end, Reason: "no hour \(r.hour12) on a 12-hour clock"}
 	}
@@ -919,10 +919,10 @@ func anyFormat(seed int64) DateTimeFormat {
 	}
 	let seps = []string{"-", "/", ":", "T", ",", "|", "at", "_"}
 	let mut fields = []Field{}
-	for i in 0..len(all) {
+	for i in 0..all.Len() {
 		if i > 0 {
 			x = draw(x)
-			fields = fields.Append(Literal{Text: seps[pick(x, len(seps))]})
+			fields = fields.Append(Literal{Text: seps[pick(x, seps.Len())]})
 		}
 		fields = fields.Append(all[i])
 	}
@@ -998,7 +998,7 @@ func anyHeld(f DateTimeFormat, n int64, ns int64) DateTime {
 // lastFixed reports whether the last field of f has a fixed width.
 func lastFixed(f DateTimeFormat) bool {
 	let fields = FormatFields(f)
-	match fields[len(fields)-1] {
+	match fields[fields.Len()-1] {
 	case YearNumber as y:
 		match y.Digits {
 		case AllDigits:
@@ -1067,7 +1067,7 @@ law FormatParseRoundTrips(seed int64, n int64, ns int64) {
 law ParseIsStrict(seed int64, n int64, ns int64) {
 	let f = anyFormat(seed)
 	let s = FormatDateTime(anyHeld(f, n, ns), f)
-	refused(f, s+"x") && (!lastFixed(f) || refused(f, strings.Slice(s, 0, len(s)-1)))
+	refused(f, s+"x") && (!lastFixed(f) || refused(f, strings.Slice(s, 0, s.Len()-1)))
 }
 
 // TextIsISO: Text is FormatDate in ISODate, which reads it back.
@@ -1083,7 +1083,7 @@ law TextIsISO(n int64) {
 // PatternAgreesWithLayout: an LDML pattern and the Go layout of the same
 // fields write the same text of a date and time.
 law PatternAgreesWithLayout(seed int64, n int64, ns int64) {
-	let k = pick(draw(seed), len(ldmlPairs()))
+	let k = pick(draw(seed), ldmlPairs().Len())
 	let p = Pattern("yyyy-MM-dd " + ldmlPairs()[k]) catch {
 	case BadPattern:
 		return false

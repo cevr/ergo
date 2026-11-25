@@ -33,7 +33,7 @@ law SparseAgreesWithSet(seed int, count int) {
 			s.Clear()
 			model = Map[ID[int], bool]{}
 		}
-		if Size(s) != len(model) {
+		if Size(s) != model.Len() {
 			return false
 		}
 		for other in ids {
@@ -65,11 +65,11 @@ func filled(xs []int) (Table[int], []ID[int]) {
 // Contains reports whether id is a member.
 func Contains[K](s Sparse[K], id ID[K]) bool {
 	let i = int(id.n)
-	if i >= len(s.at) {
+	if i >= s.at.Len() {
 		return false
 	}
 	let k = int(s.at[i])
-	k < len(s.members) && s.members[k] == id
+	k < s.members.Len() && s.members[k] == id
 }
 
 // Insert makes id a member; a member stays as it is.
@@ -78,10 +78,10 @@ func Insert[K](s mut Sparse[K], id ID[K]) {
 		return
 	}
 	let i = int(id.n)
-	for len(s.at) <= i {
+	for s.at.Len() <= i {
 		s.at = s.at.Append(uint32(0))
 	}
-	s.at[i] = uint32(len(s.members))
+	s.at[i] = uint32(s.members.Len())
 	s.members = s.members.Append(id)
 }
 
@@ -91,10 +91,10 @@ func Remove[K](s mut Sparse[K], id ID[K]) {
 		return
 	}
 	let k = int(s.at[int(id.n)])
-	let last = s.members[len(s.members)-1]
+	let last = s.members[s.members.Len()-1]
 	s.members[k] = last
 	s.at[int(last.n)] = uint32(k)
-	s.members = s.members[0 : len(s.members)-1]
+	s.members = s.members[0 : s.members.Len()-1]
 }
 
 // Clear removes every member, in constant time.
@@ -104,4 +104,4 @@ func Clear[K](s mut Sparse[K]) { s.members = s.members[0:0] }
 func Members[K](s Sparse[K]) []ID[K] { s.members }
 
 // Size is the count of members.
-func Size[K](s Sparse[K]) int { len(s.members) }
+func Size[K](s Sparse[K]) int { s.members.Len() }

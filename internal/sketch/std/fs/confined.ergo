@@ -70,7 +70,7 @@ func openingDenied(folder TestDirectory, path string) bool needs TestAmbient {
 func checkOutsideOpening() openingVerdict fails NotFound | Denied | Failed | Escapes needs TestAmbient {
 	let folder = TestRootFolder()
 	let inside = try OpenTestRoot(folder, ".")
-	let empty = len(try inside.ReadDir(".")) == 0
+	let empty = (try inside.ReadDir(".")).Len() == 0
 	try Symlink(NewTestHost(), "..", "to-parent")
 	openingVerdict{denied: empty && openingDenied(folder, "..") && openingDenied(folder, "to-parent") && openingDenied(folder, TestFolder())}
 }

@@ -4,6 +4,7 @@
 // zone read here and the same bytes read by Go give one offset at every
 // instant; TestStdTzMatchesGo holds the two equal.
 
+import option
 import strings
 
 // rule is a zone's offsets after its last change: none, one offset, or a
@@ -39,7 +40,7 @@ type weekday { Month int, Week int, Weekday int }
 // parseRule is the rule the TZ string s states, or noRule when s is empty
 // or is not a TZ string, where Go's tzset ignores it the same way.
 func parseRule(s string) rule {
-	if len(s) == 0 {
+	if s.Len() == 0 {
 		return noRule
 	}
 	let stdName, a = ruleName(s, 0)
@@ -51,7 +52,7 @@ func parseRule(s string) rule {
 		return noRule
 	}
 	let std = Offset{Seconds: -stdOff, DST: false, Abbreviation: stdName}
-	if b == len(s) || s[b] == ',' {
+	if b == s.Len() || s[b] == ',' {
 		return always{Offset: std}
 	}
 	let dstName, c = ruleName(s, b)
@@ -60,7 +61,7 @@ func parseRule(s string) rule {
 	}
 	let mut dstOff = stdOff - 3600
 	let mut d = c
-	if c < len(s) && s[c] != ',' {
+	if c < s.Len() && s[c] != ',' {
 		let o, e = ruleOffset(s, c)
 		if e < 0 {
 			return noRule
@@ -69,16 +70,16 @@ func parseRule(s string) rule {
 		d = e
 	}
 	let dst = Offset{Seconds: -dstOff, DST: true, Abbreviation: dstName}
-	let rest = if d == len(s) { ",M3.2.0,M11.1.0" } else { strings.Slice(s, d, len(s)) }
+	let rest = if d == s.Len() { ",M3.2.0,M11.1.0" } else { strings.Slice(s, d, s.Len()) }
 	if rest[0] != ',' && rest[0] != ';' {
 		return noRule
 	}
 	let start, f = ruleWhen(rest, 1)
-	if f < 0 || f == len(rest) || rest[f] != ',' {
+	if f < 0 || f == rest.Len() || rest[f] != ',' {
 		return noRule
 	}
-	let end, g = ruleWhen(rest, f + 1)
-	if g != len(rest) {
+	let end, g = ruleWhen(rest, f+1)
+	if g != rest.Len() {
 		return noRule
 	}
 	seasonal{Std: std, Dst: dst, Start: start, End: end}
@@ -88,30 +89,30 @@ func parseRule(s string) rule {
 // to a digit, a comma or a sign, or a quoted <...>. It gives the name and
 // the index after it, or -1.
 func ruleName(s string, i int) (string, int) {
-	if i >= len(s) {
+	if i >= s.Len() {
 		return ("", -1)
 	}
 	if s[i] == '<' {
-		for j in i + 1..len(s) {
+		for j in i+1..s.Len() {
 			if s[j] == '>' {
-				return (strings.Slice(s, i + 1, j), j + 1)
+				return (strings.Slice(s, i+1, j), j + 1)
 			}
 		}
 		return ("", -1)
 	}
-	for j in i..len(s) {
+	for j in i..s.Len() {
 		let c = s[j]
 		if c >= '0' && c <= '9' || c == ',' || c == '-' || c == '+' {
-			if j - i < 3 {
+			if j-i < 3 {
 				return ("", -1)
 			}
 			return (strings.Slice(s, i, j), j)
 		}
 	}
-	if len(s) - i < 3 {
+	if s.Len()-i < 3 {
 		return ("", -1)
 	}
-	(strings.Slice(s, i, len(s)), len(s))
+	(strings.Slice(s, i, s.Len()), s.Len())
 }
 
 // ruleNumber reads decimal digits of s from i, at least one, whose value
@@ -119,8 +120,8 @@ func ruleName(s string, i int) (string, int) {
 func ruleNumber(s string, i int, lo int, hi int) (int, int) {
 	let mut n = 0
 	let mut j = i
-	for j < len(s) && s[j] >= '0' && s[j] <= '9' {
-		n = n * 10 + int(s[j] - '0')
+	for j < s.Len() && s[j] >= '0' && s[j] <= '9' {
+		n = n*10 + int(s[j]-'0')
 		if n > hi {
 			return (0, -1)
 		}
@@ -136,26 +137,26 @@ func ruleNumber(s string, i int, lo int, hi int) (int, int) {
 // allows. It gives the seconds, west of UTC as TZ strings count them,
 // and the index after it, or -1.
 func ruleOffset(s string, i int) (int, int) {
-	if i >= len(s) {
+	if i >= s.Len() {
 		return (0, -1)
 	}
 	let neg = s[i] == '-'
 	let at = if s[i] == '-' || s[i] == '+' { i + 1 } else { i }
-	let h, a = ruleNumber(s, at, 0, 24 * 7)
+	let h, a = ruleNumber(s, at, 0, 24*7)
 	if a < 0 {
 		return (0, -1)
 	}
 	let mut off = h * 3600
 	let mut j = a
-	if j < len(s) && s[j] == ':' {
-		let m, b = ruleNumber(s, j + 1, 0, 59)
+	if j < s.Len() && s[j] == ':' {
+		let m, b = ruleNumber(s, j+1, 0, 59)
 		if b < 0 {
 			return (0, -1)
 		}
 		off += m * 60
 		j = b
-		if j < len(s) && s[j] == ':' {
-			let sec, c = ruleNumber(s, j + 1, 0, 59)
+		if j < s.Len() && s[j] == ':' {
+			let sec, c = ruleNumber(s, j+1, 0, 59)
 			if c < 0 {
 				return (0, -1)
 			}
@@ -170,28 +171,28 @@ func ruleOffset(s string, i int) (int, int) {
 // when absent). It gives the change and the index after it, or -1.
 func ruleWhen(s string, i int) (when, int) {
 	let none = when{On: ordinal{Day: 0}, Time: 0}
-	if i >= len(s) {
+	if i >= s.Len() {
 		return (none, -1)
 	}
 	let mut on = none.On
 	let mut j = i
 	if s[i] == 'J' {
-		let n, a = ruleNumber(s, i + 1, 1, 365)
+		let n, a = ruleNumber(s, i+1, 1, 365)
 		if a < 0 {
 			return (none, -1)
 		}
 		on = julian{Day: n}
 		j = a
 	} else if s[i] == 'M' {
-		let m, a = ruleNumber(s, i + 1, 1, 12)
-		if a < 0 || a == len(s) || s[a] != '.' {
+		let m, a = ruleNumber(s, i+1, 1, 12)
+		if a < 0 || a == s.Len() || s[a] != '.' {
 			return (none, -1)
 		}
-		let w, b = ruleNumber(s, a + 1, 1, 5)
-		if b < 0 || b == len(s) || s[b] != '.' {
+		let w, b = ruleNumber(s, a+1, 1, 5)
+		if b < 0 || b == s.Len() || s[b] != '.' {
 			return (none, -1)
 		}
-		let d, c = ruleNumber(s, b + 1, 0, 6)
+		let d, c = ruleNumber(s, b+1, 0, 6)
 		if c < 0 {
 			return (none, -1)
 		}
@@ -205,10 +206,10 @@ func ruleWhen(s string, i int) (when, int) {
 		on = ordinal{Day: n}
 		j = a
 	}
-	if j == len(s) || s[j] != '/' {
+	if j == s.Len() || s[j] != '/' {
 		return (when{On: on, Time: 7200}, j)
 	}
-	let t, k = ruleOffset(s, j + 1)
+	let t, k = ruleOffset(s, j+1)
 	if k < 0 {
 		return (none, -1)
 	}
@@ -220,21 +221,21 @@ func ruleWhen(s string, i int) (when, int) {
 // standard offset and End in the daylight saving one; when End comes
 // first in the year (the southern hemisphere), the year is daylight
 // saving time outside them.
-func ruleOffsetAt(r rule, sec int64) Option[Offset] {
+func ruleOffsetAt(r rule, sec int64) option.Option[Offset] {
 	match r {
 	case noRule:
-		None
+		option.None
 	case always as a:
-		Some{a.Offset}
+		option.Some{a.Offset}
 	case seasonal as s:
 		let y, yday = yearAndDay(floorDiv(sec, 86400))
-		let ysec = yday * 86400 + (sec - floorDiv(sec, 86400) * 86400)
+		let ysec = yday*86400 + (sec - floorDiv(sec, 86400)*86400)
 		let start = ruleTime(y, s.Start, s.Std.Seconds)
 		let end = ruleTime(y, s.End, s.Dst.Seconds)
 		if end < start {
-			Some{if ysec < end || ysec >= start { s.Dst } else { s.Std }}
+			option.Some{if ysec < end || ysec >= start { s.Dst } else { s.Std }}
 		} else {
-			Some{if ysec < start || ysec >= end { s.Std } else { s.Dst }}
+			option.Some{if ysec < start || ysec >= end { s.Std } else { s.Dst }}
 		}
 	}
 }
@@ -272,31 +273,31 @@ func ruleBoundCount(r rule) int {
 func ruleTime(y int64, w when, off int) int64 {
 	let d = match w.On {
 	case julian as j:
-		int64(j.Day - 1) + (if isLeap(y) && j.Day >= 60 { int64(1) } else { int64(0) })
+		int64(j.Day-1) + (if isLeap(y) && j.Day >= 60 { int64(1) } else { int64(0) })
 	case ordinal as o:
 		int64(o.Day)
 	case weekday as k:
 		// The weekday of the month's first day, then the k.Week-th
 		// k.Weekday, the last when the month has no k.Week-th.
-		let first = floorMod(daysFromCivil(y, int64(k.Month), 1) + 4, 7)
+		let first = floorMod(daysFromCivil(y, int64(k.Month), 1)+4, 7)
 		let mut dd = int64(k.Weekday) - first
 		if dd < 0 {
 			dd += 7
 		}
 		let n = monthDays(y, int64(k.Month))
 		let mut i = 1
-		for i < k.Week && dd + 7 < n {
+		for i < k.Week && dd+7 < n {
 			dd += 7
 			i += 1
 		}
 		dd + daysFromCivil(y, int64(k.Month), 1) - daysFromCivil(y, 1, 1)
 	}
-	d * 86400 + int64(w.Time) - int64(off)
+	d*86400 + int64(w.Time) - int64(off)
 }
 
 // isLeap reports whether year y of the proleptic Gregorian calendar has
 // 366 days.
-func isLeap(y int64) bool { y % 4 == 0 && (y % 100 != 0 || y % 400 == 0) }
+func isLeap(y int64) bool { y%4 == 0 && (y%100 != 0 || y%400 == 0) }
 
 // monthDays is the number of days of month m of year y.
 func monthDays(y int64, m int64) int64 {
@@ -307,18 +308,18 @@ func monthDays(y int64, m int64) int64 {
 }
 
 // floorMod is a mod b in 0 to b-1; b > 0.
-func floorMod(a int64, b int64) int64 { a - floorDiv(a, b) * b }
+func floorMod(a int64, b int64) int64 { a - floorDiv(a, b)*b }
 
 // daysFromCivil is the day number from 1970-01-01 of y-m-d (Howard
 // Hinnant's days_from_civil), for every year.
 func daysFromCivil(y int64, m int64, d int64) int64 {
 	let yy = if m <= 2 { y - 1 } else { y }
 	let era = floorDiv(yy, 400)
-	let yoe = yy - era * 400
+	let yoe = yy - era*400
 	let mp = if m > 2 { m - 3 } else { m + 9 }
-	let doy = (153 * mp + 2) / 5 + d - 1
-	let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy
-	era * 146097 + doe - 719468
+	let doy = (153*mp+2)/5 + d - 1
+	let doe = yoe*365 + yoe/4 - yoe/100 + doy
+	era*146097 + doe - 719468
 }
 
 // yearAndDay is the year of the day number n and its day of the year from
@@ -326,11 +327,11 @@ func daysFromCivil(y int64, m int64, d int64) int64 {
 func yearAndDay(n int64) (int64, int64) {
 	let z = n + 719468
 	let era = floorDiv(z, 146097)
-	let doe = z - era * 146097
-	let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365
-	let doy = doe - (365 * yoe + yoe / 4 - yoe / 100)
-	let mp = (5 * doy + 2) / 153
+	let doe = z - era*146097
+	let yoe = (doe - doe/1460 + doe/36524 - doe/146096) / 365
+	let doy = doe - (365*yoe + yoe/4 - yoe/100)
+	let mp = (5*doy + 2) / 153
 	let m = if mp < 10 { mp + 3 } else { mp - 9 }
-	let y = yoe + era * 400 + (if m <= 2 { int64(1) } else { int64(0) })
+	let y = yoe + era*400 + (if m <= 2 { int64(1) } else { int64(0) })
 	(y, n - daysFromCivil(y, 1, 1))
 }

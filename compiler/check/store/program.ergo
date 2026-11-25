@@ -47,7 +47,7 @@ func setup(path string, noise bool) (Store, []dense.ID[TypeName]) {
 func build(s mut Store, named []dense.ID[TypeName], xs []int) []dense.ID[TKey] {
 	let mut ts = []dense.ID[TKey]{Basic(&s.pool, 0)}
 	for x in xs {
-		let n = len(ts)
+		let n = ts.Len()
 		let a = ts[at(x, 8, n)]
 		let b = ts[at(x, 64, n)]
 		let c = ts[at(x, 512, n)]
@@ -80,7 +80,7 @@ func build(s mut Store, named []dense.ID[TypeName], xs []int) []dense.ID[TKey] {
 func model(path string, xs []int, params []string) []string {
 	let mut ts = []string{"B0"}
 	for x in xs {
-		let n = len(ts)
+		let n = ts.Len()
 		let a = ts[at(x, 8, n)]
 		let b = ts[at(x, 64, n)]
 		let c = ts[at(x, 512, n)]
@@ -89,7 +89,7 @@ func model(path string, xs []int, params []string) []string {
 			"B\(at(x, 8, 3))"
 		} else if op == 1 {
 			let i = at(x, 8, 2)
-			if i < len(params) { params[i] } else { "P\(i)" }
+			if i < params.Len() { params[i] } else { "P\(i)" }
 		} else if op == 2 {
 			"S(\(a))"
 		} else if op == 3 {
@@ -99,7 +99,7 @@ func model(path string, xs []int, params []string) []string {
 		} else if op == 5 {
 			let mut set = []string{}
 			for e in slices.Sort([]string{a, b, c}) {
-				if len(set) == 0 || set[len(set)-1] != e {
+				if set.Len() == 0 || set[set.Len()-1] != e {
 					set = set.Append(e)
 				}
 			}

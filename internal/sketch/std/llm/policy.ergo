@@ -6,6 +6,7 @@
 // yielded/agent's model retries "before content arrives"). Their laws
 // run on memory.Sequence and sit beside it (llm/memory/sequence.ergo).
 
+import option
 import schedule
 import sync
 import time
@@ -41,7 +42,7 @@ func Raise(f Failure) Turn fails RateLimited | Overloaded | Unauthorized | Refus
 // gives the time the schedule reads. A stream is asked again only while
 // no delta of it reached put. A program binds time.NewHost() and
 // NewLiveScheduler(); a test binds one testing.VirtualClock to both.
-type Retry { Inner Model, Schedule schedule.Schedule, Clock time.Clock, Sleep Scheduler } implements Model
+type Retry { Inner Model, Schedule schedule.Schedule, Clock time.Clock, Sleep time.Scheduler } implements Model
 
 func Generate(p Retry, r Request) Turn fails RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | InvalidRequest | InvalidResponse | UnsupportedSchema {
 	try p.StreamEach(r, func(d Delta) {})
@@ -60,60 +61,60 @@ func StreamEach(p Retry, r Request, put func(d Delta)) Turn fails RateLimited | 
 }
 
 func retryStream[E](p Retry, r Request, ask func(onDelta func(d Delta) fails E) Turn fails RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | InvalidRequest | InvalidResponse | UnsupportedSchema | E, put func(d Delta) fails E) Turn fails RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | InvalidRequest | InvalidResponse | UnsupportedSchema | E {
-	let start Option[time.Time] = if schedule.Timed(p.Schedule) { Some[time.Time]{Value: p.Clock.Now()} } else { None }
+	let start option.Option[time.Time] = if schedule.Timed(p.Schedule) { option.Some[time.Time]{Value: p.Clock.Now()} } else { option.None }
 	let mut runs = 0
 	for {
 		runs = runs + 1
 		let mut seen = false
-		let mut failed Option[Failure] = None
+		let mut failed option.Option[Failure] = option.None
 		let t = ask(func(d Delta) fails E {
 			seen = true
 			try put(d)
 		}) catch {
 		case RateLimited as x:
-			failed = Some[Failure]{Value: x}
+			failed = option.Some[Failure]{Value: x}
 			Turn{Text: "", Calls: []Call{}, Stop: Ended, Usage: Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
 		case Overloaded as x:
-			failed = Some[Failure]{Value: x}
+			failed = option.Some[Failure]{Value: x}
 			Turn{Text: "", Calls: []Call{}, Stop: Ended, Usage: Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
 		case Unauthorized as x:
-			failed = Some[Failure]{Value: x}
+			failed = option.Some[Failure]{Value: x}
 			Turn{Text: "", Calls: []Call{}, Stop: Ended, Usage: Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
 		case Refused as x:
-			failed = Some[Failure]{Value: x}
+			failed = option.Some[Failure]{Value: x}
 			Turn{Text: "", Calls: []Call{}, Stop: Ended, Usage: Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
 		case Truncated as x:
-			failed = Some[Failure]{Value: x}
+			failed = option.Some[Failure]{Value: x}
 			Turn{Text: "", Calls: []Call{}, Stop: Ended, Usage: Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
 		case Transport as x:
-			failed = Some[Failure]{Value: x}
+			failed = option.Some[Failure]{Value: x}
 			Turn{Text: "", Calls: []Call{}, Stop: Ended, Usage: Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
 		case InvalidRequest as x:
-			failed = Some[Failure]{Value: x}
+			failed = option.Some[Failure]{Value: x}
 			Turn{Text: "", Calls: []Call{}, Stop: Ended, Usage: Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
 		case InvalidResponse as x:
-			failed = Some[Failure]{Value: x}
+			failed = option.Some[Failure]{Value: x}
 			Turn{Text: "", Calls: []Call{}, Stop: Ended, Usage: Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
 		case UnsupportedSchema as x:
-			failed = Some[Failure]{Value: x}
+			failed = option.Some[Failure]{Value: x}
 			Turn{Text: "", Calls: []Call{}, Stop: Ended, Usage: Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
 		case e:
 			return e
 		}
 		match failed {
-		case Some[Failure] as f:
+		case option.Some[Failure] as f:
 			let failure = f.Value
 			if seen {
 				return try Raise(failure)
 			}
 			match again(p, failure, runs, start) {
-			case Some[duration] as d:
+			case option.Some[duration] as d:
 				p.Sleep.Sleep(d.Value)
 				continue
-			case None:
+			case option.None:
 				return try Raise(failure)
 			}
-		case None:
+		case option.None:
 		}
 		return t
 	}
@@ -122,28 +123,28 @@ func retryStream[E](p Retry, r Request, ask func(onDelta func(d Delta) fails E) 
 // again is the wait before run runs+1 after f, or None to stop: never
 // for an Unsafe failure, and otherwise the schedule's decision, at least
 // the vendor's After.
-func again(p Retry, f Failure, runs int, start Option[time.Time]) Option[duration] {
+func again(p Retry, f Failure, runs int, start option.Option[time.Time]) option.Option[duration] {
 	match SafetyOf(f) {
 	case Unsafe:
-		None
+		option.None
 	case Safe, Unknown:
 		match schedule.Decide(p.Schedule, runs, elapsed(p, start)) {
 		case schedule.Stop:
-			None
+			option.None
 		case schedule.Continue as c:
 			let asked = after(f)
-			Some[duration]{Value: if asked > c.After { asked } else { c.After }}
+			option.Some[duration]{Value: if asked > c.After { asked } else { c.After }}
 		}
 	}
 }
 
 // elapsed is the time since start, read from p's clock, or 0 when the
 // schedule is not timed and so start was never read.
-func elapsed(p Retry, start Option[time.Time]) duration {
+func elapsed(p Retry, start option.Option[time.Time]) duration {
 	match start {
-	case Some[time.Time] as s:
+	case option.Some[time.Time] as s:
 		p.Clock.Now().Sub(s.Value)
-	case None:
+	case option.None:
 		0s
 	}
 }
@@ -153,9 +154,9 @@ func after(f Failure) duration {
 	match f {
 	case RateLimited as r:
 		match r.After {
-		case Some[int] as ms:
+		case option.Some[int] as ms:
 			if ms.Value > 0 { duration(int64(ms.Value) * 1000000) } else { 0s }
-		case None:
+		case option.None:
 			0s
 		}
 	case Overloaded, Unauthorized, Refused, Truncated, Transport, InvalidRequest, InvalidResponse, UnsupportedSchema:

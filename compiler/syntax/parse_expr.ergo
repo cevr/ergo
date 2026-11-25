@@ -1186,7 +1186,7 @@ func assigns(p mut parser, start int) bool {
 // ends.
 func trimBlank(s string) string {
 	let mut a = 0
-	let mut b = len(s)
+	let mut b = s.Len()
 	for a < b && (s[a] == ' ' || s[a] == '\t' || s[a] == '\n' || s[a] == '\r') {
 		a = a + 1
 	}

@@ -45,7 +45,7 @@ type Host {
 		case Unreadable:
 			return true
 		}
-		len(text) <= limit
+		text.Len() <= limit
 	},
 }
 
@@ -76,7 +76,7 @@ func ReadLimit(limit int) int { if limit > 0 { limit + 1 } else { 0 } }
 // Fit is data when it fits the bound: TooLarge when a positive limit is
 // exceeded.
 func Fit(data string, limit int) string fails TooLarge {
-	if limit > 0 && len(data) > limit {
+	if limit > 0 && data.Len() > limit {
 		return TooLarge{Limit: limit}
 	}
 	data
@@ -85,7 +85,7 @@ func Fit(data string, limit int) string fails TooLarge {
 // FitIsTheBound: with a positive bound, a text fits exactly when it is no
 // longer than the bound; with none, every text fits.
 law FitIsTheBound(data string, limit int) {
-	let fits = if limit > 0 { len(data) <= limit } else { true }
+	let fits = if limit > 0 { data.Len() <= limit } else { true }
 	let got = Fit(data, limit) catch {
 	case TooLarge:
 		return !fits

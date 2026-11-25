@@ -1,4 +1,5 @@
 import json
+import option
 import slices
 import strings
 
@@ -43,7 +44,7 @@ func SuccessJSON[T, V wire](route Route[T], c json.Codec[V], v V) Response needs
 // 205 (no body) among them.
 law SuccessJSONIsSuccess(pick int, items []string) {
 	let statuses = []int{200, 201, 202, 204, 205, 299}
-	let status = statuses[((pick%len(statuses))+len(statuses))%len(statuses)]
+	let status = statuses[((pick%statuses.Len())+statuses.Len())%statuses.Len()]
 	let route = Route{Value: "reply", Method: "GET", Path: "/", Status: status}
 	let c = json.Codec[[]string]{MaxBytes: 0, MaxDepth: 0}
 	let sent = with context { Streaming: NewRecorder() } { SuccessJSON(route, c, items) }
@@ -58,29 +59,29 @@ law SuccessUsesRoute(pick int, body string) {
 	let route = Route{Value: "reply", Method: "POST", Path: "/", Status: status}
 	let response = Success(route, body)
 	response.Status == status && if status == 204 || status == 205 {
-		response.Body == "" && len(response.Header) == 0
+		response.Body == "" && response.Header.Len() == 0
 	} else {
-		response.Body == body && Header(response.Header, "Content-Type") == Some{"application/json"}
+		response.Body == body && Header(response.Header, "Content-Type") == option.Some{"application/json"}
 	}
 }
 
-func parameters(pattern string, path string) Option[Map[string, string]] {
+func parameters(pattern string, path string) option.Option[Map[string, string]] {
 	// Only the route that matches splits and captures: a request tries
 	// every route, and a split per route was most of its allocations.
-	if !segmentsMatch(pattern, path) { return None }
+	if !segmentsMatch(pattern, path) { return option.None }
 	let want = strings.Split(pattern, "/")
 	let got = strings.Split(path, "/")
-	if len(want) != len(got) { return None }
+	if want.Len() != got.Len() { return option.None }
 	let mut params = Map[string, string]{}
 	for i, part in want {
-		if strings.HasPrefix(part, ":") && len(part) > 1 {
-			if got[i] == "" { return None }
+		if strings.HasPrefix(part, ":") && part.Len() > 1 {
+			if got[i] == "" { return option.None }
 			params[strings.TrimPrefix(part, ":")] = got[i]
 		} else if part != got[i] {
-			return None
+			return option.None
 		}
 	}
-	Some{params}
+	option.Some{params}
 }
 
 // segmentsMatch reports whether path matches pattern segment by segment,
@@ -96,14 +97,14 @@ func segmentsMatch(pattern string, path string) bool {
 		if (wi < 0) != (gi < 0) { return false }
 		let w = if wi < 0 { want } else { strings.Slice(want, 0, wi) }
 		let g = if gi < 0 { got } else { strings.Slice(got, 0, gi) }
-		if strings.HasPrefix(w, ":") && len(w) > 1 {
+		if strings.HasPrefix(w, ":") && w.Len() > 1 {
 			if g == "" { return false }
 		} else if w != g {
 			return false
 		}
 		if wi < 0 { return true }
-		want = strings.Slice(want, wi+1, len(want))
-		got = strings.Slice(got, gi+1, len(got))
+		want = strings.Slice(want, wi+1, want.Len())
+		got = strings.Slice(got, gi+1, got.Len())
 	}
 }
 
@@ -116,16 +117,16 @@ law MatchIsSplitMatch(pattern []int, path []int) {
 	let pick = func(xs []int) string {
 		let mut text = ""
 		for i, p in xs {
-			let part = parts[if p < 0 { -(p % len(parts)) } else { p % len(parts) }]
+			let part = parts[if p < 0 { -(p % parts.Len()) } else { p % parts.Len() }]
 			text = if i == 0 { part } else { text + "/" + part }
 		}
 		text
 	}
 	let want = strings.Split(pick(pattern), "/")
 	let got = strings.Split(pick(path), "/")
-	let mut split = len(want) == len(got)
+	let mut split = want.Len() == got.Len()
 	for i, part in want {
-		if split && strings.HasPrefix(part, ":") && len(part) > 1 {
+		if split && strings.HasPrefix(part, ":") && part.Len() > 1 {
 			split = got[i] != ""
 		} else if split {
 			split = part == got[i]
@@ -144,24 +145,24 @@ func Match[T](routes []Route[T], method string, path string) MatchResult[T] {
 	let mut allow = []string{}
 	for route in routes {
 		match parameters(route.Path, path) {
-		case Some as p:
+		case option.Some as p:
 			if route.Method == method { return Found{Route: route, Params: p.Value} }
 			if !slices.Contains(allow, route.Method) { allow = allow.Append(route.Method) }
-		case None:
+		case option.None:
 		}
 	}
 	if method == "HEAD" {
 		for route in routes {
 			if route.Method == "GET" {
 				match parameters(route.Path, path) {
-				case Some as p:
+				case option.Some as p:
 					return Found{Route: route, Params: p.Value}
-				case None:
+				case option.None:
 				}
 			}
 		}
 	}
-	if len(allow) == 0 { return NotFound }
+	if allow.Len() == 0 { return NotFound }
 	if slices.Contains(allow, "HEAD") { return MethodNotAllowed{Allow: allow} }
 	let mut withHead = []string{}
 	for m in allow {
@@ -178,7 +179,7 @@ law BuiltPathMatches(a string, b string) {
 	let route = Route{Value: "pair", Method: "GET", Path: "/:a/:b", Status: 201}
 	match Match([]Route[string]{route}, "GET", "/"+a+"/"+b) {
 	case Found as f:
-		f.Route == route && f.Params.Get("a") == Some{a} && f.Params.Get("b") == Some{b}
+		f.Route == route && f.Params.Get("a") == option.Some{a} && f.Params.Get("b") == option.Some{b}
 	case NotFound, MethodNotAllowed:
 		false
 	}
@@ -189,7 +190,7 @@ law BuiltPathMatches(a string, b string) {
 // Allow names each method once.
 law AllowIsWhatMatches(picks []int, asked int) {
 	let methods = []string{"GET", "HEAD", "POST", "PUT", "DELETE"}
-	let pick = func(i int) string { methods[if i < 0 { -(i % len(methods)) } else { i % len(methods) }] }
+	let pick = func(i int) string { methods[if i < 0 { -(i % methods.Len()) } else { i % methods.Len() }] }
 	let mut routes = []Route[int]{}
 	for i, p in picks {
 		routes = routes.Append(Route{Value: i, Method: pick(p), Path: "/r/:id", Status: 200})

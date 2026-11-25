@@ -1,3 +1,4 @@
+import core
 import fs
 import fstest
 import rand
@@ -17,10 +18,10 @@ import time
 // World is plain Ergo: a user writes the same function. Effect's
 // TestContext (TestClock, a test Random) is the prior art; Go's
 // testing/fstest.MapFS is the file system.
-func World() Context[fs.Files | fs.Writes | time.Clock | Scheduler | Random] {
+func World() core.Context[fs.Files | fs.Writes | time.Clock | time.Scheduler | rand.Random] {
 	let disk = fstest.NewMemory()
 	let clock = NewVirtualClock(0)
-	context { fs.Files: disk, fs.Writes: disk, time.Clock: clock, Scheduler: clock, Random: rand.Seeded(1) }
+	context { fs.Files: disk, fs.Writes: disk, time.Clock: clock, time.Scheduler: clock, rand.Random: rand.Seeded(1) }
 }
 
 // WorldSharesEachPair: a file written through fs.Writes reads back through
@@ -31,7 +32,7 @@ law WorldSharesEachPair(text string, n int64) {
 		try fs.Writes.WriteFile("f", text)
 		let back = try fs.Files.ReadFile("f")
 		let before = time.Clock.Now()
-		Scheduler.Sleep(d)
+		time.Scheduler.Sleep(d)
 		back == text && time.Clock.Now().Sub(before) == d
 	}
 }

@@ -33,14 +33,14 @@ func LocalURL(path string) URL {
 	if !strings.HasPrefix(path, "/") {
 		b.WriteString("/")
 	}
-	for i in 0..len(path) {
+	for i in 0..path.Len() {
 		let c = path[i]
 		if c != '\t' && c != '\n' && c != '\r' {
 			b.WriteByte(c)
 		}
 	}
 	let p = b.String()
-	if len(p) > 1 && (p[1] == '/' || p[1] == '\\') {
+	if p.Len() > 1 && (p[1] == '/' || p[1] == '\\') {
 		return URL{s: "/." + p}
 	}
 	URL{s: p}
@@ -56,7 +56,7 @@ func URLText(u URL) string { u.s }
 func Scheme(s string) string {
 	let mut b = strings.NewBuilder()
 	let mut started = false
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		let c = s[i]
 		if c == '\t' || c == '\n' || c == '\r' {
 			continue

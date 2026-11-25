@@ -18,12 +18,12 @@ func EncodeIndent[T wire](c Codec[T], v T, prefix string, indent string) string 
 // so an empty list or object stays on one line (Go's needIndent).
 func indented(text string, prefix string, indent string) string {
 	let mut out = []byte{}
-	out = out.Grow(2 * len(text))
+	out = out.Grow(2 * text.Len())
 	let mut depth = 0
 	let mut open = false
 	let mut started = false
 	let mut i = 0
-	let end = len(text)
+	let end = text.Len()
 	for i < end {
 		let c = text[i]
 		i = i + 1
@@ -144,7 +144,7 @@ law IndentIsFixpoint(v fleet, prefix int, width int) {
 // fails Malformed on it as Decode does.
 law IndentRefusesMalformed(v fleet, cut int) {
 	let text = Encode(codec(), v)
-	let short = text[:nat(cut) % len(text)]
+	let short = text[:nat(cut)%text.Len()]
 	let _ = Indent(short, "", "  ") catch {
 	case Malformed:
 		return true
@@ -156,8 +156,8 @@ law IndentRefusesMalformed(v fleet, cut int) {
 func blanks(n int) string {
 	let k = nat(n)
 	let mut s = ""
-	for i in 0..k % 4 {
-		let blank = if (k / 4 + i) % 2 == 0 { " " } else { "\t" }
+	for i in 0..k%4 {
+		let blank = if (k/4+i)%2 == 0 { " " } else { "\t" }
 		s = s + blank
 	}
 	s

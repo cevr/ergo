@@ -24,4 +24,4 @@ extern go ergo.local/prototype/runtime/v1/digest.HexDecode func Decode(s string)
 law DecodeInvertsEncode(s string) { try Decode(Encode(s)) } == { s }
 
 // EncodeDoublesLength: each byte is two digits.
-law EncodeDoublesLength(s string) { len(Encode(s)) } == { 2 * len(s) }
+law EncodeDoublesLength(s string) { Encode(s).Len() } == { 2 * s.Len() }

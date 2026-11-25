@@ -20,11 +20,11 @@ import slices
 // A failed parse has no rows, no extra words and no groups; its failure is
 // Parsed's Code, Message, Offset, Length, Line and Column.
 func Columns(p Parsed) []uint32 {
-	let ntok = len(p.kinds)
+	let ntok = p.kinds.Len()
 	let nrows = if p.Failed { 0 } else { p.Tree.n }
 	let nextra = if p.Failed { 0 } else { p.Tree.ne }
 	let ncmt = NumComments(p.cmts)
-	let ngroups = if p.Failed { 0 } else { len(p.gFirst) }
+	let ngroups = if p.Failed { 0 } else { p.gFirst.Len() }
 	let mut out = slices.WithCapacity[uint32](7 + 3*ntok + 4*nrows + nextra + 2*ncmt + 2*ngroups)
 	out = out.Append(ColumnsVersion)
 	out = out.Append(uint32(ntok))

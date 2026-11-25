@@ -1,4 +1,5 @@
 import actor
+import option
 import pace
 import scope
 import sync
@@ -20,7 +21,7 @@ import queue
 // text field's text with its caret and selection (Caret, Anchor), as a
 // host sends for each edit or move of the caret in it (OpenTUI gap 2); a
 // Type is an Edit with both at the end of the text.
-type Event[E] = Press{Id Id[E]} | Type{Id Id[E], Text string} | Edit{Id Id[E], Text string, Caret int, Anchor int} | Arrived{Epoch int, Signal E} | Point{Id Id[E], Pointer PointerEvent, Over Option[ZoneBox[E]]} | KeyDown{Press KeyPress} | Tick{At duration} | Scrolled{Id Id[E], Offset Length, Height Length} | URLChanged{URL URL} | Committed{} | Ended{Run int} | Published{Readout int}
+type Event[E] = Press{Id Id[E]} | Type{Id Id[E], Text string} | Edit{Id Id[E], Text string, Caret int, Anchor int} | Arrived{Epoch int, Signal E} | Point{Id Id[E], Pointer PointerEvent, Over option.Option[ZoneBox[E]]} | KeyDown{Press KeyPress} | Tick{At duration} | Scrolled{Id Id[E], Offset Length, Height Length} | URLChanged{URL URL} | Committed{} | Ended{Run int} | Published{Readout int}
 
 // PressGivesSignal: a press of a Pressable or a Check sends its On, and
 // a press of any other node sends the On of the nearest of those above it
@@ -45,11 +46,11 @@ law PressGivesSignal(seed int) {
 
 // sent is the signal o holds, or -1 for None (the laws' signals are not
 // negative).
-func sent(o Option[int]) int {
+func sent(o option.Option[int]) int {
 	match o {
-	case Some[int] as v:
+	case option.Some[int] as v:
 		v.Value
-	case None:
+	case option.None:
 		-1
 	}
 }
@@ -65,7 +66,7 @@ func signalsAgree(f mut Frame[int], id Id[int], off bool, ctl int) bool {
 	let pressed = sent(Handle(f, Press[int]{Id: id}).Signal)
 	let typed = sent(Handle(f, Type[int]{Id: id, Text: "abc"}).Signal)
 	match NodeOf(f, id) {
-	case Some[Node[int]] as n:
+	case option.Some[Node[int]] as n:
 		match n.Value {
 		case FieldsetNode as d:
 			under = off || d.Disabled
@@ -81,10 +82,10 @@ func signalsAgree(f mut Frame[int], id Id[int], off bool, ctl int) bool {
 			ok = pressed == -1 && typed == -1
 		case SemanticNode[int] as x:
 			match x.On {
-			case Some[int] as o:
+			case option.Some[int] as o:
 				below = if off || x.Access.Disabled { -1 } else { o.Value }
 				ok = pressed == below && typed == -1
-			case None:
+			case option.None:
 				ok = pressed == ctl && typed == -1
 			}
 		case InputNode as i:
@@ -96,7 +97,7 @@ func signalsAgree(f mut Frame[int], id Id[int], off bool, ctl int) bool {
 		case _:
 			ok = pressed == ctl && typed == -1
 		}
-	case None:
+	case option.None:
 		return false
 	}
 	for k in Kids(f, id) {
@@ -107,12 +108,12 @@ func signalsAgree(f mut Frame[int], id Id[int], off bool, ctl int) bool {
 
 law WatcherShowsWorkReplies(n int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		watchReplies(n)
 	}
 }
 
-func watchReplies(n int) bool needs Scheduler {
+func watchReplies(n int) bool needs time.Scheduler {
 	let last = (n%3+3)%3 + 1
 	let gate = queue.New[int](last)
 	let posted = queue.New[Event[int]](8)
@@ -155,16 +156,16 @@ func watchReplies(n int) bool needs Scheduler {
 // writesText is whether ops write a text node of value v.
 func writesText(ops []Op[int], v string) bool {
 	for op in ops {
-		let mut node Option[Node[int]] = None
+		let mut node option.Option[Node[int]] = option.None
 		match op {
 		case Insert[int] as x:
-			node = Some{Value: x.Node}
+			node = option.Some{Value: x.Node}
 		case Set[int] as x:
-			node = Some{Value: x.Node}
+			node = option.Some{Value: x.Node}
 		case _:
 		}
 		match node {
-		case Some[Node[int]] as x:
+		case option.Some[Node[int]] as x:
 			match x.Value {
 			case TextNode as t:
 				if t.Value == v {
@@ -172,7 +173,7 @@ func writesText(ops []Op[int], v string) bool {
 				}
 			case _:
 			}
-		case None:
+		case option.None:
 		}
 	}
 	false
@@ -240,7 +241,7 @@ func Run[E comparable, S, D, F, R](h Host[E], a actor.Actor[S, E, D, F], view ow
 	for {
 		let ev = try h.Next()
 		let ops = try Step(&session, ev)
-		if len(ops) > 0 || isPublished(ev) {
+		if ops.Len() > 0 || isPublished(ev) {
 			h.Show(ops)
 		}
 		if Animating(&session.frame) != frames {
@@ -283,7 +284,7 @@ law RunPacesEachEvent(n int) {
 	let k = (n%16 + 16) % 16
 	let c = pace.NewCounting()
 	let h = scriptedHost{left: sync.NewRef(k)}
-	with context { Scheduler: time.NewManual(0), pace.Pacing: c } {
+	with context { time.Scheduler: time.NewManual(0), pace.Pacing: c } {
 		let a = actor.StartMachine(shelfMachine(), 1, func(o int) {})
 		Run(h, a, shelfView) catch {
 		case Closed:
@@ -333,8 +334,8 @@ law RunHoldsADrag(b int, m int, t int, ends bool) {
 		}
 	}
 	let c = pace.NewCounting()
-	let h = dragHost{target: sync.NewRef[Option[Id[int]]](None), codes: sync.NewRef(codes)}
-	with context { Scheduler: time.NewManual(0), pace.Pacing: c } {
+	let h = dragHost{target: sync.NewRef[option.Option[Id[int]]](option.None), codes: sync.NewRef(codes)}
+	with context { time.Scheduler: time.NewManual(0), pace.Pacing: c } {
 		let a = actor.StartMachine(shelfMachine(), 1, func(o int) {})
 		Run(h, a, shelfView) catch {
 		case Closed:
@@ -342,51 +343,51 @@ law RunHoldsADrag(b int, m int, t int, ends bool) {
 			return false
 		}
 	}
-	c.Edges() == int64(len(codes)) && c.HeldEdges() == int64(moves+1) && c.Deferred() == 1
+	c.Edges() == int64(codes.Len()) && c.HeldEdges() == int64(moves+1) && c.Deferred() == 1
 }
 
 // dragHost is the Host of RunHoldsADrag: it plays codes (0 a Committed,
 // 1 a Down, 2 a Moved, 3 an Up, each on the first node it was shown),
 // then Closed.
-type dragHost { target sync.Ref[Option[Id[int]]], codes sync.Ref[[]int] } implements Host[int]
+type dragHost { target sync.Ref[option.Option[Id[int]]], codes sync.Ref[[]int] } implements Host[int]
 
 func Show(h dragHost, ops []Op[int]) {
-	let mut found Option[Id[int]] = None
+	let mut found option.Option[Id[int]] = option.None
 	for op in ops {
-		if found == None {
+		if found == option.None {
 			found = opId(op)
 		}
 	}
 	let first = found
-	h.target.Update(func(t Option[Id[int]]) Option[Id[int]] {
+	h.target.Update(func(t option.Option[Id[int]]) option.Option[Id[int]] {
 		match t {
-		case Some[Id[int]]:
+		case option.Some[Id[int]]:
 			t
-		case None:
+		case option.None:
 			first
 		}
 	})
 }
 
 // opId is the node an op changes; a Define changes a look, no node.
-func opId(op Op[int]) Option[Id[int]] {
+func opId(op Op[int]) option.Option[Id[int]] {
 	match op {
 	case Insert[int] as i:
-		Some{Value: i.Id}
+		option.Some{Value: i.Id}
 	case Move[int] as m:
-		Some{Value: m.Id}
+		option.Some{Value: m.Id}
 	case Remove[int] as r:
-		Some{Value: r.Id}
+		option.Some{Value: r.Id}
 	case Set[int] as s:
-		Some{Value: s.Id}
+		option.Some{Value: s.Id}
 	case Define:
-		None
+		option.None
 	}
 }
 
 func Next(h dragHost) Event[int] fails Closed {
 	let code = sync.Modify(h.codes, func(cs []int) (int, []int) {
-		if len(cs) == 0 {
+		if cs.Len() == 0 {
 			(-1, cs)
 		} else {
 			(cs[0], cs[1:])
@@ -399,12 +400,12 @@ func Next(h dragHost) Event[int] fails Closed {
 		return Committed
 	}
 	let id = match h.target.Get() {
-	case Some[Id[int]] as s:
+	case option.Some[Id[int]] as s:
 		s.Value
-	case None:
+	case option.None:
 		return Closed
 	}
-	Point{Id: id, Pointer: PointerEvent{Pointer: MousePointer, Phase: phaseOf(code), X: 0.0, Y: 0.0, Zone: None}, Over: None}
+	Point{Id: id, Pointer: PointerEvent{Pointer: MousePointer, Phase: phaseOf(code), X: 0.0, Y: 0.0, Zone: option.None}, Over: option.None}
 }
 
 // phaseOf is the pointer phase of a dragHost code.

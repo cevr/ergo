@@ -11,6 +11,7 @@ import compiler/check/bind
 import compiler/check/store
 import compiler/syntax
 import dense
+import option
 import slices
 import strings
 
@@ -106,13 +107,13 @@ func localGen(st solve, p syntax.Parsed, x dense.ID[syntax.Node]) int {
 		return -1
 	}
 	match store.Lookup(st.s, t) {
-	case Some[dense.ID[store.Decl]] as d:
+	case option.Some[dense.ID[store.Decl]] as d:
 		let row = store.DeclOf(st.s, d.Value)
 		if store.KindName(int(row.Kind)) != "type" {
 			return -1
 		}
 		dense.SideOf(st.genAt, d.Value)
-	case None:
+	case option.None:
 		-1
 	}
 }
@@ -126,7 +127,7 @@ func slotKinds(st solve, p syntax.Parsed, x dense.ID[syntax.Node]) []int {
 	if kind == syntax.KIdent {
 		let t = syntax.TokText(p, syntax.NameOf(p.Tree, x).Tok)
 		match store.Lookup(st.s, t) {
-		case Some[dense.ID[store.Decl]]:
+		case option.Some[dense.ID[store.Decl]]:
 			// A function reads a local type's kinds as solved, before the
 			// constraints (slotKinds reads declKinds), a conflict as a
 			// type.
@@ -138,18 +139,18 @@ func slotKinds(st solve, p syntax.Parsed, x dense.ID[syntax.Node]) []int {
 				return out
 			}
 			return []int{}
-		case None:
+		case option.None:
 			head = t
 		}
 	} else if kind == syntax.KSelectorExpr {
 		let se = syntax.SelectorExprOf(p.Tree, x)
 		let q = nameText(p, se.X)
 		match store.Lookup(st.s, q) {
-		case Some[dense.ID[store.Decl]] as d:
+		case option.Some[dense.ID[store.Decl]] as d:
 			if store.KindName(int(store.DeclOf(st.s, d.Value).Kind)) != "pkg" {
 				return []int{}
 			}
-		case None:
+		case option.None:
 			return []int{}
 		}
 		head = q + "." + nameText(p, se.Sel)
@@ -193,7 +194,7 @@ func linkHead(st mut solve, w walker, head dense.ID[syntax.Node], indices []dens
 	}
 	walk(st, w, head, kindType)
 	for i, a in indices {
-		if i >= len(st.gens[g].params) {
+		if i >= st.gens[g].params.Len() {
 			walk(st, w, a, kindType)
 			continue
 		}
@@ -203,7 +204,7 @@ func linkHead(st mut solve, w walker, head dense.ID[syntax.Node], indices []dens
 			let v = self(w, arg)
 			if v >= 0 {
 				union(&st.sv, v, slot)
-			} else if len(args) == 1 {
+			} else if args.Len() == 1 {
 				walk(st, w, arg, kindType)
 			}
 		}
@@ -235,13 +236,13 @@ func index(st mut solve, w walker, head dense.ID[syntax.Node], indices []dense.I
 		let raw = rawKinds(st.s, st.local, nameText(w.p, head))
 		for i, x in indices {
 			let v = self(w, x)
-			if i < len(raw) && raw[i] == KindConflict && v >= 0 {
+			if i < raw.Len() && raw[i] == KindConflict && v >= 0 {
 				observe(&st.sv, v, KindConflict)
 			}
 		}
 	}
 	for i, x in indices {
-		walk(st, w, x, if i < len(kinds) { kinds[i] } else { kindType })
+		walk(st, w, x, if i < kinds.Len() { kinds[i] } else { kindType })
 	}
 }
 
@@ -257,9 +258,9 @@ func fields(st mut solve, w walker, l dense.ID[syntax.Node]) {
 			continue
 		}
 		match dense.Unpack(syntax.FieldOf(w.p.Tree, f).Type) {
-		case Some[dense.ID[syntax.Node]] as t:
+		case option.Some[dense.ID[syntax.Node]] as t:
 			walk(st, w, t.Value, kindType)
-		case None:
+		case option.None:
 		}
 	}
 }
@@ -300,19 +301,19 @@ func walk(st mut solve, w walker, x dense.ID[syntax.Node], k int) {
 		let ft = syntax.FuncTypeOf(w.p.Tree, x)
 		fields(st, w, ft.Params)
 		match dense.Unpack(ft.Results) {
-		case Some[dense.ID[syntax.Node]] as r:
+		case option.Some[dense.ID[syntax.Node]] as r:
 			fields(st, w, r.Value)
-		case None:
+		case option.None:
 		}
 		match dense.Unpack(ft.Needs) {
-		case Some[dense.ID[syntax.Node]] as n:
+		case option.Some[dense.ID[syntax.Node]] as n:
 			if syntax.KindOf(w.p.Tree, n.Value) == syntax.KNeedsClause {
 				let names = syntax.NeedsClauseOf(w.p.Tree, n.Value).Names
 				for i in 0..syntax.Len(names) {
 					walk(st, w, syntax.Item(w.p.Tree, names, i), kindUses)
 				}
 			}
-		case None:
+		case option.None:
 		}
 	} else if kind == syntax.KErrorRow {
 		let types = syntax.ErrorRowOf(w.p.Tree, x).Types
@@ -332,9 +333,9 @@ func walk(st mut solve, w walker, x dense.ID[syntax.Node], k int) {
 				let fd = syntax.FieldOf(w.p.Tree, m)
 				if fd.Dots < 0 {
 					match dense.Unpack(fd.Type) {
-					case Some[dense.ID[syntax.Node]] as t:
+					case option.Some[dense.ID[syntax.Node]] as t:
 						walk(st, w, t.Value, kindType)
-					case None:
+					case option.None:
 					}
 				}
 			} else if mk != syntax.KLawDecl && mk != syntax.KTestDecl && mk != syntax.KVariantSpec {
@@ -367,9 +368,9 @@ func bracketNames(p syntax.Parsed, l dense.ID[syntax.Node]) ([]string, []bool) {
 			case syntax.Field as fd:
 				let mut constrained = false
 				match dense.Unpack(fd.Type) {
-				case Some[dense.ID[syntax.Node]] as t:
+				case option.Some[dense.ID[syntax.Node]] as t:
 					constrained = nameText(p, t.Value) != "error"
-				case None:
+				case option.None:
 				}
 				for n in listIDs(p, fd.Names) {
 					names = names.Append(nameText(p, n))
@@ -394,10 +395,10 @@ type Kinds { Names []string, Of [][]int, Raw [][]int, Steps int, at dense.Side[s
 // generic type name.
 func rawKinds(s store.Store, k Kinds, name string) []int {
 	match store.Lookup(s, name) {
-	case Some[dense.ID[store.Decl]] as d:
+	case option.Some[dense.ID[store.Decl]] as d:
 		let i = dense.SideOf(k.at, d.Value)
 		if i < 0 { []int{} } else { k.Raw[i] }
-	case None:
+	case option.None:
 		[]int{}
 	}
 }
@@ -409,12 +410,12 @@ func genSide(s store.Store, files []syntax.Parsed, gens []gen) dense.Side[store.
 	let mut side = dense.NewSide[store.Decl, int](-1)
 	for i, g in gens {
 		match store.Lookup(s, nameText(files[g.file], g.name)) {
-		case Some[dense.ID[store.Decl]] as d:
+		case option.Some[dense.ID[store.Decl]] as d:
 			let row = store.DeclOf(s, d.Value)
 			if int(row.File) == g.file && int(row.Node) == dense.Index(g.name) && dense.SideOf(side, d.Value) < 0 {
 				dense.SideSet(&side, d.Value, i)
 			}
-		case None:
+		case option.None:
 		}
 	}
 	side
@@ -441,24 +442,24 @@ func gensOf(files []syntax.Parsed) []gen {
 			match syntax.ViewOf(p.Tree, d) {
 			case syntax.TypeDecl as td:
 				match dense.Unpack(td.TypeParams) {
-				case Some[dense.ID[syntax.Node]] as tp:
+				case option.Some[dense.ID[syntax.Node]] as tp:
 					let (names, typed) = bracketNames(p, tp.Value)
 					let base = next
-					next = next + len(names)
+					next = next + names.Len()
 					let mut ops = false
 					match dense.Unpack(td.Spec) {
-					case Some[dense.ID[syntax.Node]] as sp:
+					case option.Some[dense.ID[syntax.Node]] as sp:
 						match syntax.ViewOf(p.Tree, sp.Value) {
 						case syntax.InterfaceType:
 							ops = true
 						case _:
 						}
-					case None:
+					case option.None:
 					}
 					let spec = match dense.Unpack(td.Spec) {
-					case Some[dense.ID[syntax.Node]] as sp:
+					case option.Some[dense.ID[syntax.Node]] as sp:
 						sp.Value
-					case None:
+					case option.None:
 						continue
 					}
 					gens = gens.Append(gen{file: f, name: td.Name, body: spec, params: names, typed: typed, ops: ops, base: base})
@@ -480,8 +481,8 @@ func gensOf(files []syntax.Parsed) []gen {
 										vtyped = vtyped.Append(typed[i])
 									}
 								}
-								next = next + len(vnames)
-								if len(vnames) > 0 {
+								next = next + vnames.Len()
+								if vnames.Len() > 0 {
 									gens = gens.Append(gen{file: f, name: vs.Name, body: vs.Fields, params: vnames, typed: vtyped, ops: false, base: vbase})
 								}
 							case _:
@@ -489,7 +490,7 @@ func gensOf(files []syntax.Parsed) []gen {
 						}
 					case _:
 					}
-				case None:
+				case option.None:
 				}
 			case _:
 			}
@@ -503,9 +504,9 @@ func gensOf(files []syntax.Parsed) []gen {
 func SolveKinds(s store.Store, files []syntax.Parsed, ext []Ext) Kinds {
 	let mut st = solve{s: s, gens: []gen{}, genAt: dense.NewSide[store.Decl, int](-1), ext: ext, sv: solver{parent: []int{}, seen: []int{}, steps: 0}, ownMap: false, fn: false, local: Kinds{Names: []string{}, Of: [][]int{}, Raw: [][]int{}, Steps: 0, at: dense.NewSide[store.Decl, int](-1)}}
 	match store.Lookup(s, "Map") {
-	case Some[dense.ID[store.Decl]] as d:
+	case option.Some[dense.ID[store.Decl]] as d:
 		st.ownMap = store.KindName(int(store.DeclOf(s, d.Value).Kind)) == "type"
-	case None:
+	case option.None:
 	}
 	// The variables: one per bracket parameter, in collect order.
 	st.gens = gensOf(files)
@@ -576,9 +577,9 @@ func mentioned(p syntax.Parsed, l dense.ID[syntax.Node]) []string {
 			match syntax.ViewOf(p.Tree, f) {
 			case syntax.Field as fd:
 				match dense.Unpack(fd.Type) {
-				case Some[dense.ID[syntax.Node]] as t:
+				case option.Some[dense.ID[syntax.Node]] as t:
 					names(p, t.Value, &out)
-				case None:
+				case option.None:
 				}
 			case _:
 			}
@@ -613,12 +614,12 @@ func names(p syntax.Parsed, x dense.ID[syntax.Node], out mut []string) {
 	case syntax.FuncType as ft:
 		fieldNames(p, ft.Params, out)
 		match dense.Unpack(ft.Results) {
-		case Some[dense.ID[syntax.Node]] as r:
+		case option.Some[dense.ID[syntax.Node]] as r:
 			fieldNames(p, r.Value, out)
-		case None:
+		case option.None:
 		}
 		match dense.Unpack(ft.Needs) {
-		case Some[dense.ID[syntax.Node]] as n:
+		case option.Some[dense.ID[syntax.Node]] as n:
 			match syntax.ViewOf(p.Tree, n.Value) {
 			case syntax.NeedsClause as nc:
 				for name in listIDs(p, nc.Names) {
@@ -626,7 +627,7 @@ func names(p syntax.Parsed, x dense.ID[syntax.Node], out mut []string) {
 				}
 			case _:
 			}
-		case None:
+		case option.None:
 		}
 	case syntax.ErrorRow as er:
 		for t in listIDs(p, er.Types) {
@@ -648,9 +649,9 @@ func fieldNames(p syntax.Parsed, l dense.ID[syntax.Node], out mut []string) {
 			match syntax.ViewOf(p.Tree, f) {
 			case syntax.Field as fd:
 				match dense.Unpack(fd.Type) {
-				case Some[dense.ID[syntax.Node]] as t:
+				case option.Some[dense.ID[syntax.Node]] as t:
 					names(p, t.Value, out)
-				case None:
+				case option.None:
 				}
 			case _:
 			}
@@ -680,10 +681,10 @@ func topDecls(p syntax.Parsed) []dense.ID[syntax.Node] {
 // receiverKinds applies the receiver rule to one function declaration.
 func receiverKinds(st mut solve, p syntax.Parsed, fd syntax.FuncDecl) {
 	let own = match dense.Unpack(fd.TypeParams) {
-	case Some[dense.ID[syntax.Node]] as tp:
+	case option.Some[dense.ID[syntax.Node]] as tp:
 		let (names, _) = bracketNames(p, tp.Value)
 		names
-	case None:
+	case option.None:
 		return
 	}
 	if nameText(p, fd.Name) == "main" {
@@ -707,9 +708,9 @@ func receiverKinds(st mut solve, p syntax.Parsed, fd syntax.FuncDecl) {
 	case _:
 	}
 	let rt0 = match dense.Unpack(first) {
-	case Some[dense.ID[syntax.Node]] as t:
+	case option.Some[dense.ID[syntax.Node]] as t:
 		unparen(p, t.Value)
-	case None:
+	case option.None:
 		return
 	}
 	let rt = match syntax.ViewOf(p.Tree, rt0) {
@@ -732,9 +733,9 @@ func receiverKinds(st mut solve, p syntax.Parsed, fd syntax.FuncDecl) {
 	case _:
 	}
 	let h = match dense.Unpack(head) {
-	case Some[dense.ID[syntax.Node]] as x:
+	case option.Some[dense.ID[syntax.Node]] as x:
 		x.Value
-	case None:
+	case option.None:
 		return
 	}
 	let g = localGen(*st, p, h)
@@ -745,7 +746,7 @@ func receiverKinds(st mut solve, p syntax.Parsed, fd syntax.FuncDecl) {
 	let mut vars = []int{}
 	for i, a in indices {
 		let t = nameText(p, unparen(p, a))
-		if t == "" || t == "_" || !contains(own, t) || i >= len(st.gens[g].params) {
+		if t == "" || t == "_" || !contains(own, t) || i >= st.gens[g].params.Len() {
 			continue
 		}
 		// A name written twice unifies its positions when the receiver's
@@ -780,9 +781,9 @@ func solveFuncs(s store.Store, files []syntax.Parsed, ext []Ext, decls Kinds) ([
 	let mut out = []FuncKinds{}
 	let mut ownMap = false
 	match store.Lookup(s, "Map") {
-	case Some[dense.ID[store.Decl]] as d:
+	case option.Some[dense.ID[store.Decl]] as d:
 		ownMap = store.KindName(int(store.DeclOf(s, d.Value).Kind)) == "type"
-	case None:
+	case option.None:
 	}
 	let mut st = solve{s: s, gens: []gen{}, genAt: dense.NewSide[store.Decl, int](-1), ext: ext, sv: solver{parent: []int{}, seen: []int{}, steps: 0}, ownMap: ownMap, fn: true, local: decls}
 	let mut setups = 0
@@ -795,14 +796,14 @@ func solveFuncs(s store.Store, files []syntax.Parsed, ext []Ext, decls Kinds) ([
 			match syntax.ViewOf(p.Tree, d) {
 			case syntax.FuncDecl as fd:
 				match dense.Unpack(fd.Recv) {
-				case Some[dense.ID[syntax.Node]]:
+				case option.Some[dense.ID[syntax.Node]]:
 					continue
-				case None:
+				case option.None:
 				}
 				let (names, typed) = match dense.Unpack(fd.TypeParams) {
-				case Some[dense.ID[syntax.Node]] as tp:
+				case option.Some[dense.ID[syntax.Node]] as tp:
 					bracketNames(p, tp.Value)
-				case None:
+				case option.None:
 					([]string{}, []bool{})
 				}
 				// A function's solve: the shared one, its variables reset.
@@ -853,12 +854,12 @@ func solveChain(n int) Kinds {
 // a find without path compression is quadratic and does not), and every
 // parameter of the chain takes the error row's kind.
 law KindSolveWorkIsNearLinear(xs []int) {
-	let n = 8 + len(xs)%24
+	let n = 8 + xs.Len()%24
 	let a = solveChain(n)
 	let b = solveChain(2 * n)
 	let mut ok = b.Steps <= 2*a.Steps+2*n
 	for ks in b.Of {
-		ok = ok && len(ks) == 1 && ks[0] == kindErrors
+		ok = ok && ks.Len() == 1 && ks[0] == kindErrors
 	}
 	ok
 }
@@ -887,12 +888,12 @@ func solveFuncsOf(n int) ([]FuncKinds, int) {
 // function: quadratic setup), and every function's parameter is an error
 // row.
 law FuncKindSetupIsShared(xs []int) {
-	let n = 4 + len(xs)%12
+	let n = 4 + xs.Len()%12
 	let (a, sa) = solveFuncsOf(n)
 	let (b, sb) = solveFuncsOf(2 * n)
-	let mut ok = sa == 1 && sb == 1 && len(a) == n && len(b) == 2*n
+	let mut ok = sa == 1 && sb == 1 && a.Len() == n && b.Len() == 2*n
 	for fk in b {
-		ok = ok && len(fk.Kinds) == 1 && fk.Kinds[0] == kindErrors
+		ok = ok && fk.Kinds.Len() == 1 && fk.Kinds[0] == kindErrors
 	}
 	ok
 }

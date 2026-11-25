@@ -15,6 +15,8 @@
 //     row, and a test binds Manual in its place.
 // Duration is the language's duration type (1500ms, 2h).
 
+import option
+
 // Time is an instant: Unix seconds, nanoseconds in 0..999,999,999, and,
 // when a clock read it, a monotonic reading in nanoseconds. Its fields are
 // unexported, so only this package builds one (S114): Unix, Parse, Add
@@ -178,9 +180,9 @@ func Sub(t Time, u Time) duration {
 	}
 	let ts = t.sec + unixToInternal
 	let us = u.sec + unixToInternal
-	let d = (ts - us) * 1000000000 + (t.nsec - u.nsec)
+	let d = (ts-us)*1000000000 + (t.nsec - u.nsec)
 	let mut dsec = d / 1000000000
-	let mut n = u.nsec + d % 1000000000
+	let mut n = u.nsec + d%1000000000
 	if n >= 1000000000 {
 		dsec = dsec + 1
 		n = n - 1000000000
@@ -361,11 +363,11 @@ func Overlaps(a Interval, b Interval) bool { Before(Max(a.start, b.start), Min(a
 
 // Intersect is the instants a and b both hold, or None when they do not
 // overlap.
-func Intersect(a Interval, b Interval) Option[Interval] {
+func Intersect(a Interval, b Interval) option.Option[Interval] {
 	if !Overlaps(a, b) {
-		return None
+		return option.None
 	}
-	Some[Interval]{Value: Interval{start: Max(a.start, b.start), end: Min(a.end, b.end)}}
+	option.Some[Interval]{Value: Interval{start: Max(a.start, b.start), end: Min(a.end, b.end)}}
 }
 
 // IntervalContainsStart: NewInterval fails exactly when end is before
@@ -397,9 +399,9 @@ law OverlapsIffIntersect(a int64, b int64, c int64, d int64) {
 		return false
 	}
 	match Intersect(p, q) {
-	case Some[Interval] as r:
+	case option.Some[Interval] as r:
 		Overlaps(p, q) && r.Value.Length() > 0ns && p.Contains(r.Value.Start()) && q.Contains(r.Value.Start())
-	case None:
+	case option.None:
 		!Overlaps(p, q)
 	}
 }

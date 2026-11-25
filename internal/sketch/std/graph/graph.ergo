@@ -19,6 +19,7 @@
 // sort that reports cycles); Elixir's :digraph_utils (components, a
 // topological sort, reachable); Bazel query's somepath and rdeps.
 
+import option
 import slices
 
 // Edge is one edge, from one node id to another.
@@ -36,14 +37,14 @@ type Graph {
 // 0..size-1 is left out.
 func Of(size int, edges []Edge) Graph {
 	let n = if size < 0 { 0 } else { size }
-	let mut counts = filled(n + 1, 0)
+	let mut counts = filled(n+1, 0)
 	for e in edges {
 		if inside(n, e) {
-			counts[e.From + 1] = counts[e.From + 1] + 1
+			counts[e.From+1] = counts[e.From+1] + 1
 		}
 	}
 	for i in 1..n+1 {
-		counts[i] = counts[i] + counts[i - 1]
+		counts[i] = counts[i] + counts[i-1]
 	}
 	let starts = counts
 	let mut next = filled(n, 0)
@@ -78,7 +79,7 @@ func Succ(g Graph, n int) []int {
 	if n < 0 || n >= g.Size {
 		return []int{}
 	}
-	g.Targets[g.Starts[n]:g.Starts[n + 1]]
+	g.Targets[g.Starts[n]:g.Starts[n+1]]
 }
 
 // Edges is every edge of g, by source, each source's in the order Of was
@@ -116,9 +117,9 @@ func Reach(g Graph, from []int) []bool {
 			stack = stack.Append(n)
 		}
 	}
-	for len(stack) > 0 {
-		let n = stack[len(stack) - 1]
-		stack = stack[0:len(stack) - 1]
+	for stack.Len() > 0 {
+		let n = stack[stack.Len()-1]
+		stack = stack[0 : stack.Len()-1]
 		for m in Succ(g, n) {
 			if !seen[m] {
 				seen[m] = true
@@ -151,31 +152,31 @@ func reachIsTheClosure(seed int, size int) bool {
 // b last, or None when a does not reach b. A path from a node to itself
 // is that node alone. Of two shortest paths it takes the one whose steps
 // come first in Succ's order.
-func Path(g Graph, a int, b int) Option[[]int] {
+func Path(g Graph, a int, b int) option.Option[[]int] {
 	if a < 0 || a >= g.Size || b < 0 || b >= g.Size {
-		return None
+		return option.None
 	}
 	if a == b {
-		return Some[[]int]{Value: []int{a}}
+		return option.Some[[]int]{Value: []int{a}}
 	}
 	let mut parent = filled(g.Size, -1)
 	parent[a] = a
 	let mut queue = []int{a}
 	let mut head = 0
-	for head < len(queue) {
+	for head < queue.Len() {
 		let n = queue[head]
 		head = head + 1
 		for m in Succ(g, n) {
 			if parent[m] < 0 {
 				parent[m] = n
 				if m == b {
-					return Some[[]int]{Value: walkBack(parent, a, b)}
+					return option.Some[[]int]{Value: walkBack(parent, a, b)}
 				}
 				queue = queue.Append(m)
 			}
 		}
 	}
-	None
+	option.None
 }
 
 // walkBack is the path from a to b that parent records, a first.
@@ -201,14 +202,14 @@ func pathIsAShortestPath(seed int, size int) bool {
 	for a in 0..g.Size {
 		for b in 0..g.Size {
 			match Path(g, a, b) {
-			case Some[[]int] as p:
-				if !(a == b || c[a][b]) || !isPath(g, p.Value) || p.Value[0] != a || p.Value[len(p.Value) - 1] != b {
+			case option.Some[[]int] as p:
+				if !(a == b || c[a][b]) || !isPath(g, p.Value) || p.Value[0] != a || p.Value[p.Value.Len()-1] != b {
 					return false
 				}
-				if a != b && len(p.Value) - 1 != d[a][b] {
+				if a != b && p.Value.Len()-1 != d[a][b] {
 					return false
 				}
-			case None:
+			case option.None:
 				if a == b || c[a][b] {
 					return false
 				}
@@ -220,12 +221,12 @@ func pathIsAShortestPath(seed int, size int) bool {
 
 // isPath reports whether each step of p is an edge of g.
 func isPath(g Graph, p []int) bool {
-	for i in 1..len(p) {
-		if !slices.Contains(Succ(g, p[i - 1]), p[i]) {
+	for i in 1..p.Len() {
+		if !slices.Contains(Succ(g, p[i-1]), p[i]) {
 			return false
 		}
 	}
-	len(p) > 0
+	p.Len() > 0
 }
 
 // Components is the strongly connected components of g: each a list of
@@ -248,11 +249,11 @@ func Components(g Graph) [][]int {
 		done[s] = true
 		let mut nodes = []int{s}
 		let mut at = []int{0}
-		for len(nodes) > 0 {
-			let top = len(nodes) - 1
+		for nodes.Len() > 0 {
+			let top = nodes.Len() - 1
 			let n = nodes[top]
 			let succ = Succ(g, n)
-			if at[top] < len(succ) {
+			if at[top] < succ.Len() {
 				let m = succ[at[top]]
 				at[top] = at[top] + 1
 				if !done[m] {
@@ -270,20 +271,20 @@ func Components(g Graph) [][]int {
 	let rev = Reverse(g)
 	let mut comp = filled(g.Size, -1)
 	let mut out = [][]int{}
-	let mut i = len(finished) - 1
+	let mut i = finished.Len() - 1
 	for i >= 0 {
 		let s = finished[i]
 		i = i - 1
 		if comp[s] >= 0 {
 			continue
 		}
-		let id = len(out)
+		let id = out.Len()
 		comp[s] = id
 		let mut members = []int{}
 		let mut stack = []int{s}
-		for len(stack) > 0 {
-			let n = stack[len(stack) - 1]
-			stack = stack[0:len(stack) - 1]
+		for stack.Len() > 0 {
+			let n = stack[stack.Len()-1]
+			stack = stack[0 : stack.Len()-1]
 			members = members.Append(n)
 			for m in Succ(rev, n) {
 				if comp[m] < 0 {
@@ -308,7 +309,7 @@ func Cycles(g Graph) []Cycle {
 	let mut out = []Cycle{}
 	for c in Components(g) {
 		let first = c[0]
-		if len(c) == 1 && !slices.Contains(Succ(g, first), first) {
+		if c.Len() == 1 && !slices.Contains(Succ(g, first), first) {
 			continue
 		}
 		out = out.Append(Cycle{Nodes: c, Path: closedPath(g, c)})
@@ -329,11 +330,11 @@ func closedPath(g Graph, c []int) []int {
 			return []int{first, first}
 		}
 		match Path(g, m, first) {
-		case Some[[]int] as p:
-			if len(best) == 0 || len(p.Value) + 1 < len(best) {
+		case option.Some[[]int] as p:
+			if best.Len() == 0 || p.Value.Len()+1 < best.Len() {
 				best = slices.Concat([]int{first}, p.Value)
 			}
-		case None:
+		case option.None:
 		}
 	}
 	best
@@ -351,7 +352,7 @@ func everyCycleIsAClosedPath(seed int, size int) bool {
 	let mut inCycle = filled(g.Size, 0)
 	for cy in Cycles(g) {
 		let p = cy.Path
-		if len(p) < 2 || p[0] != cy.Nodes[0] || p[len(p) - 1] != cy.Nodes[0] || !isPath(g, p) {
+		if p.Len() < 2 || p[0] != cy.Nodes[0] || p[p.Len()-1] != cy.Nodes[0] || !isPath(g, p) {
 			return false
 		}
 		for n in p {
@@ -379,7 +380,7 @@ func everyCycleIsAClosedPath(seed int, size int) bool {
 // Order is the ids of g in an order where every edge goes from an earlier
 // id to a later one (Kahn's: of the nodes no remaining edge enters, the
 // least id first), or None when g has a cycle.
-func Order(g Graph) Option[[]int] {
+func Order(g Graph) option.Option[[]int] {
 	let mut indeg = filled(g.Size, 0)
 	for e in Edges(g) {
 		indeg[e.To] = indeg[e.To] + 1
@@ -391,15 +392,15 @@ func Order(g Graph) Option[[]int] {
 			ready = ready.Append(n)
 		}
 	}
-	for len(ready) > 0 {
+	for ready.Len() > 0 {
 		let mut least = 0
-		for i in 1..len(ready) {
+		for i in 1..ready.Len() {
 			if ready[i] < ready[least] {
 				least = i
 			}
 		}
 		let n = ready[least]
-		ready = slices.Concat(ready[0:least], ready[least + 1:len(ready)])
+		ready = slices.Concat(ready[0:least], ready[least+1:ready.Len()])
 		out = out.Append(n)
 		for m in Succ(g, n) {
 			indeg[m] = indeg[m] - 1
@@ -408,7 +409,7 @@ func Order(g Graph) Option[[]int] {
 			}
 		}
 	}
-	if len(out) < g.Size { None } else { Some[[]int]{Value: out} }
+	if out.Len() < g.Size { option.None } else { option.Some[[]int]{Value: out} }
 }
 
 // NoCycleGivesAnOrder: Cycles is empty exactly when Order is Some, and
@@ -419,8 +420,8 @@ law NoCycleGivesAnOrder(seed int, size int) { noCycleGivesAnOrder(seed, size) }
 func noCycleGivesAnOrder(seed int, size int) bool {
 	let g = drawn(seed, size)
 	match Order(g) {
-	case Some[[]int] as o:
-		if len(Cycles(g)) != 0 || len(o.Value) != g.Size {
+	case option.Some[[]int] as o:
+		if Cycles(g).Len() != 0 || o.Value.Len() != g.Size {
 			return false
 		}
 		let mut place = filled(g.Size, -1)
@@ -436,8 +437,8 @@ func noCycleGivesAnOrder(seed int, size int) bool {
 			}
 		}
 		true
-	case None:
-		len(Cycles(g)) > 0
+	case option.None:
+		Cycles(g).Len() > 0
 	}
 }
 
@@ -447,20 +448,20 @@ func noCycleGivesAnOrder(seed int, size int) bool {
 // has no chains: a longest path is only defined without one.
 func Chains(g Graph, min int) [][]int {
 	let order = match Order(g) {
-	case Some[[]int] as o:
+	case option.Some[[]int] as o:
 		o.Value
-	case None:
+	case option.None:
 		return [][]int{}
 	}
 	// longest[n]: the nodes of a longest path from n; next[n] its second.
 	let mut longest = filled(g.Size, 1)
 	let mut next = filled(g.Size, -1)
-	let mut i = len(order) - 1
+	let mut i = order.Len() - 1
 	for i >= 0 {
 		let n = order[i]
 		i = i - 1
 		for m in Succ(g, n) {
-			if longest[m] + 1 > longest[n] || longest[m] + 1 == longest[n] && m < next[n] {
+			if longest[m]+1 > longest[n] || longest[m]+1 == longest[n] && m < next[n] {
 				longest[n] = longest[m] + 1
 				next[n] = m
 			}
@@ -493,15 +494,15 @@ law ChainIsAPath(seed int, size int, min int) { chainIsAPath(seed, size, min) }
 
 func chainIsAPath(seed int, size int, min int) bool {
 	let g = drawn(seed, size)
-	let atLeast = (min % 5 + 5) % 5
+	let atLeast = (min%5 + 5) % 5
 	let d = distances(g)
 	let rev = Reverse(g)
 	for ch in Chains(g, atLeast) {
-		if !isPath(g, ch) || len(ch) < atLeast || len(Succ(rev, ch[0])) != 0 {
+		if !isPath(g, ch) || ch.Len() < atLeast || Succ(rev, ch[0]).Len() != 0 {
 			return false
 		}
 		for b in 0..g.Size {
-			if d[ch[0]][b] >= len(ch) && d[ch[0]][b] < g.Size + 1 {
+			if d[ch[0]][b] >= ch.Len() && d[ch[0]][b] < g.Size+1 {
 				return false
 			}
 		}
@@ -519,7 +520,7 @@ func Reduce(g Graph) []Edge {
 		if e.From == e.To {
 			continue
 		}
-		let without = slices.Concat(all[0:i], all[i + 1:len(all)])
+		let without = slices.Concat(all[0:i], all[i+1:all.Len()])
 		if Reach(Of(g.Size, without), []int{e.From})[e.To] {
 			out = out.Append(e)
 		}
@@ -538,7 +539,7 @@ func reduceKeepsReach(seed int, size int) bool {
 	let reduced = Reduce(g)
 	let all = Edges(g)
 	for i, e in all {
-		let k = closure(Of(g.Size, slices.Concat(all[0:i], all[i + 1:len(all)])))
+		let k = closure(Of(g.Size, slices.Concat(all[0:i], all[i+1:all.Len()])))
 		let mut same = true
 		for a in 0..g.Size {
 			for b in 0..g.Size {
@@ -583,28 +584,28 @@ func fanSumsToEdges(seed int, size int) bool {
 	for n in 0..g.Size {
 		ins = ins + f.In[n]
 		outs = outs + f.Out[n]
-		if f.Out[n] != len(Succ(g, n)) {
+		if f.Out[n] != Succ(g, n).Len() {
 			return false
 		}
 	}
-	ins == len(Edges(g)) && outs == len(Edges(g)) && len(f.In) == g.Size
+	ins == Edges(g).Len() && outs == Edges(g).Len() && f.In.Len() == g.Size
 }
 
 // drawn is a graph of 0 to 8 nodes and up to 3 edges per node, drawn from
 // seed and size by a linear congruential generator, for the laws.
 func drawn(seed int, size int) Graph {
-	let n = (size % 9 + 9) % 9
-	let mut x = (seed % 2147483648 + 2147483648) % 2147483648
+	let n = (size%9 + 9) % 9
+	let mut x = (seed%2147483648 + 2147483648) % 2147483648
 	let mut edges = []Edge{}
 	if n == 0 {
 		return Of(0, edges)
 	}
-	x = (x * 1103515245 + 12345) % 2147483648
-	let m = (x / 16) % (3 * n + 1)
+	x = (x*1103515245 + 12345) % 2147483648
+	let m = (x / 16) % (3*n + 1)
 	for _ in 0..m {
-		x = (x * 1103515245 + 12345) % 2147483648
+		x = (x*1103515245 + 12345) % 2147483648
 		let a = (x / 16) % n
-		x = (x * 1103515245 + 12345) % 2147483648
+		x = (x*1103515245 + 12345) % 2147483648
 		let b = (x / 16) % n
 		edges = edges.Append(Edge{From: a, To: b})
 	}
@@ -655,7 +656,7 @@ func distances(g Graph) [][]int {
 	for k in 0..g.Size {
 		for a in 0..g.Size {
 			for b in 0..g.Size {
-				if d[a][k] + d[k][b] < d[a][b] {
+				if d[a][k]+d[k][b] < d[a][b] {
 					d[a][b] = d[a][k] + d[k][b]
 				}
 			}

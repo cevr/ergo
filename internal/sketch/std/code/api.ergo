@@ -1,4 +1,5 @@
 import maps
+import option
 import slices
 import strings
 
@@ -29,7 +30,7 @@ type Contract {
 // ApiQuery asks for the contracts of a package, the root package (the
 // program's own) when Package is None.
 type ApiQuery {
-	Package Option[string],
+	Package option.Option[string],
 }
 
 // ApiView is a package's contracts in name order.
@@ -47,17 +48,17 @@ type NoPackage { Package string }
 // parameter breaks a caller that passes a resource.
 type ApiChange {
 	Name                  string,
-	Old                   Option[Contract],
-	New                   Option[Contract],
+	Old                   option.Option[Contract],
+	New                   option.Option[Contract],
 	BreaksResourceCallers bool,
 }
 
 // apiOf is the view of q over t.
 func apiOf(t Tables, q ApiQuery) ApiView fails NoPackage {
 	let want = match q.Package {
-	case Some[string] as p:
+	case option.Some[string] as p:
 		p.Value
-	case None:
+	case option.None:
 		t.Root
 	}
 	for p in t.Packages {
@@ -94,7 +95,7 @@ func ApiDiff(old []Contract, new []Contract) []ApiChange {
 		}
 		let mut breaks = false
 		match (a, b) {
-		case (Some[Contract] as x, Some[Contract] as y):
+		case (option.Some[Contract] as x, option.Some[Contract] as y):
 			if y.Value.TakesSelf && !x.Value.TakesSelf {
 				breaks = true
 			}
@@ -122,17 +123,17 @@ func ApiText(fs []Contract) string {
 	let mut b = ""
 	for f in fs {
 		b = b + "\(f.Name) \(f.Signature)"
-		if len(f.TypeParameters) > 0 {
+		if f.TypeParameters.Len() > 0 {
 			b = b + " [" + strings.Join(f.TypeParameters, ", ") + "]"
 		}
-		let taken = if len(f.Takes) > 0 { strings.Join(f.Takes, ", ") } else { "nothing" }
+		let taken = if f.Takes.Len() > 0 { strings.Join(f.Takes, ", ") } else { "nothing" }
 		let origin = if f.TakesInferred { "inferred" } else { "written" }
 		b = b + "\n  takes \(taken) (\(origin))\n"
 		for n in f.Own {
 			b = b + "  own \(n) (a resource may bind it)\n"
 		}
 	}
-	if len(fs) == 0 {
+	if fs.Len() == 0 {
 		b = b + "no exported function\n"
 	}
 	b
@@ -148,17 +149,17 @@ func ApiDiffText(changes []ApiChange) string {
 		}
 		b = b + "\n"
 		match c.Old {
-		case Some[Contract] as o:
+		case option.Some[Contract] as o:
 			b = b + "- " + ApiText([]Contract{o.Value})
-		case None:
+		case option.None:
 		}
 		match c.New {
-		case Some[Contract] as n:
+		case option.Some[Contract] as n:
 			b = b + "+ " + ApiText([]Contract{n.Value})
-		case None:
+		case option.None:
 		}
 	}
-	if len(changes) == 0 {
+	if changes.Len() == 0 {
 		b = b + "no API change\n"
 	}
 	b
@@ -202,7 +203,7 @@ func contractsIn(t Tables, path string) []Contract {
 
 // ApiDiffOfItselfIsEmpty: contracts compared with themselves change
 // nothing.
-law ApiDiffOfItselfIsEmpty(seed int) { len(ApiDiff(allContracts(seed), allContracts(seed))) == 0 }
+law ApiDiffOfItselfIsEmpty(seed int) { ApiDiff(allContracts(seed), allContracts(seed)).Len() == 0 }
 
 // allContracts is every contract Generated(seed) holds.
 func allContracts(seed int) []Contract {
@@ -223,17 +224,17 @@ law ApiDiffBreaksOnANewTake(seed int, pick int, how int) { apiDiffBreaksOnANewTa
 
 func apiDiffBreaksOnANewTake(seed int, pick int, how int) bool {
 	let all = allContracts(seed)
-	if len(all) == 0 {
+	if all.Len() == 0 {
 		return true
 	}
-	let f = all[slot(pick, len(all))]
+	let f = all[slot(pick, all.Len())]
 	let (g, breaks) = match slot(how, 6) {
 	case 0:
-		(Contract{..f, Takes: f.Takes.Append("q"), TakesParameters: f.TakesParameters.Append(len(f.TakesParameters) + 7)}, true)
+		(Contract{..f, Takes: f.Takes.Append("q"), TakesParameters: f.TakesParameters.Append(f.TakesParameters.Len() + 7)}, true)
 	case 1:
 		(Contract{..f, TakesSelf: true}, !f.TakesSelf)
 	case 2:
-		(Contract{..f, Own: []string{}}, len(f.Own) > 0)
+		(Contract{..f, Own: []string{}}, f.Own.Len() > 0)
 	case 3:
 		(Contract{..f, Signature: f.Signature + " needs Clock"}, false)
 	case 4:
@@ -243,13 +244,13 @@ func apiDiffBreaksOnANewTake(seed int, pick int, how int) bool {
 	}
 	let changes = ApiDiff([]Contract{f}, []Contract{g})
 	if f == g {
-		return len(changes) == 0
+		return changes.Len() == 0
 	}
 	let removed = ApiDiff([]Contract{f}, []Contract{})
 	let added = ApiDiff([]Contract{}, []Contract{g})
-		len(changes) == 1 && changes[0] == ApiChange{Name: f.Name, Old: Some[Contract]{Value: f}, New: Some[Contract]{Value: g}, BreaksResourceCallers: breaks} &&
-		removed == []ApiChange{ApiChange{Name: f.Name, Old: Some[Contract]{Value: f}, New: None, BreaksResourceCallers: false}} &&
-		added == []ApiChange{ApiChange{Name: g.Name, Old: None, New: Some[Contract]{Value: g}, BreaksResourceCallers: false}}
+		changes.Len() == 1 && changes[0] == ApiChange{Name: f.Name, Old: option.Some[Contract]{Value: f}, New: option.Some[Contract]{Value: g}, BreaksResourceCallers: breaks} &&
+		removed == []ApiChange{ApiChange{Name: f.Name, Old: option.Some[Contract]{Value: f}, New: option.None, BreaksResourceCallers: false}} &&
+		added == []ApiChange{ApiChange{Name: g.Name, Old: option.None, New: option.Some[Contract]{Value: g}, BreaksResourceCallers: false}}
 }
 
 // ImpactIsTheChangedContracts: a plan's contract impact names each
@@ -273,7 +274,7 @@ func impactIsTheChangedContracts(seed int, pick int, word int) bool {
 		}
 	}
 	for k in slices.Sorted(maps.Keys(after)) {
-		if before.Get(k) == None {
+		if before.Get(k) == option.None {
 			want = want.Append(k)
 		}
 	}
@@ -294,16 +295,16 @@ func contractLines(sources []Source) Map[string, string] {
 			let ws = wordsOf(line, 0)
 			if strings.HasPrefix(line, "func ") || strings.HasPrefix(line, "type ") {
 				key = ""
-				if len(ws) >= 2 && strings.HasPrefix(line, "func ") && !strings.Contains(ws[1].Text, ".") && exportedName(ws[1].Text) {
+				if ws.Len() >= 2 && strings.HasPrefix(line, "func ") && !strings.Contains(ws[1].Text, ".") && exportedName(ws[1].Text) {
 					let k = packageOf(s.File) + "." + ws[1].Text
-					if out.Get(k) == None {
+					if out.Get(k) == option.None {
 						key = k
 						out[k] = ""
 					}
 				}
 				continue
 			}
-			if key != "" && len(ws) > 0 && (ws[0].Text == "sig" || ws[0].Text == "needs") {
+			if key != "" && ws.Len() > 0 && (ws[0].Text == "sig" || ws[0].Text == "needs") {
 				let mut words = []string{}
 				for w in wordsOf(beforeComment(line), 0) {
 					words = words.Append(w.Text)

@@ -18,7 +18,9 @@
 // WireWrongKind whose Path names the key and the source.
 
 import fs
+import fstest
 import maps
+import option
 import os
 import slices
 import strings
@@ -38,13 +40,13 @@ type Unreadable { Path string, Reason string }
 type Config {
 	// Lookup is the variable name: None when it is unset, Some("") when it
 	// is set to the empty string.
-	Lookup(name string) Option[string],
+	Lookup(name string) option.Option[string],
 	// Environ is every variable whose name starts with prefix, sorted by
 	// name.
 	Environ(prefix string) []Variable,
 	// ReadFile is the text of the file at path, or None when nothing is
 	// there: a configuration file is optional.
-	ReadFile(path string) Option[string] fails Unreadable,
+	ReadFile(path string) option.Option[string] fails Unreadable,
 
 	// EnvironAgreesWithLookup: Environ lists a variable exactly when
 	// Lookup finds it, with Lookup's text, in name order.
@@ -52,18 +54,18 @@ type Config {
 		let vars = Environ(name)
 		let mut sorted = true
 		for i, v in vars {
-			if !strings.HasPrefix(v.Name, name) || Lookup(v.Name) != (Some{Value: v.Text}) {
+			if !strings.HasPrefix(v.Name, name) || Lookup(v.Name) != (option.Some{Value: v.Text}) {
 				return false
 			}
 			if i > 0 && strings.Compare(vars[i-1].Name, v.Name) >= 0 {
 				sorted = false
 			}
 		}
-		let listed = len(vars) > 0 && vars[0].Name == name
+		let listed = vars.Len() > 0 && vars[0].Name == name
 		match Lookup(name) {
-		case Some:
+		case option.Some:
 			sorted && listed
-		case None:
+		case option.None:
 			sorted && !listed
 		}
 	},
@@ -102,7 +104,7 @@ law RoundTripsThroughFiles(v settings) {
 	}
 	let files = Map[string, string]{"c.json": asJSON, "c.toml": asTOML}
 	with context { Config: NewMemory(Map[string, string]{}, files) } {
-		loadSettings("c.json", JSON) == Some{Value: v} && loadSettings("c.toml", TOML) == Some{Value: v}
+		loadSettings("c.json", JSON) == option.Some{Value: v} && loadSettings("c.toml", TOML) == option.Some{Value: v}
 	}
 }
 
@@ -117,13 +119,13 @@ type volume = quiet | loud
 type settings { Name string, Port int, Ratio float64, Tags []string, Server server, Volume volume }
 
 // loadSettings is the settings Load reads from the one file at path.
-func loadSettings(path string, format Format) Option[settings] needs Config {
+func loadSettings(path string, format Format) option.Option[settings] needs Config {
 	let spec = Spec{Prefix: "", Flags: NoFlags(), Files: []File{File{Path: path, Format: format}}, Defaults: NoDefaults()}
 	let v = Load[settings](spec) catch {
 	case _:
-		return None
+		return option.None
 	}
-	Some{Value: v}
+	option.Some{Value: v}
 }
 
 // Host is the host's Config provider: its environment and its files. It
@@ -133,38 +135,38 @@ func loadSettings(path string, format Format) Option[settings] needs Config {
 // Ambient (stdlib.md, Host packages; TestStdHostProvidersHaveAuthority).
 // Its unexported fields give this package the construction authority.
 type Host {
-	lookup   func(name string) Option[string],
+	lookup   func(name string) option.Option[string],
 	environ  func(prefix string) []Variable,
-	readFile func(path string) Option[string] fails Unreadable,
+	readFile func(path string) option.Option[string] fails Unreadable,
 } implements Config
 
 // NewHost is the host's Config provider. It needs Ambient: only code whose
 // row holds the authority to choose the host makes one.
-func NewHost() Host needs Ambient {
+func NewHost() Host needs os.Ambient {
 	hostOver(os.NewHost(), fs.NewHost())
 }
 
 // hostOver keeps the host providers behind Config's operations.
 func hostOver(env os.Host, files fs.Host) Host {
 	Host{
-		lookup: func(name string) Option[string] { os.Getenv(env, name) },
-		environ: func(prefix string) []Variable { environOf(os.Environ(env), prefix) },
-		readFile: func(path string) Option[string] fails Unreadable { try readFileOn(files, path) },
+		lookup:   func(name string) option.Option[string] { os.Getenv(env, name) },
+		environ:  func(prefix string) []Variable { environOf(os.Environ(env), prefix) },
+		readFile: func(path string) option.Option[string] fails Unreadable { try readFileOn(files, path) },
 	}
 }
 
 // testHost builds Host from the providers that take the test runner's
 // authority rather than the process's Ambient.
-func testHost() Host needs TestAmbient {
+func testHost() Host needs fstest.TestAmbient {
 	hostOver(os.NewTestHost(), fs.NewTestHost())
 }
 
 // onTestHost is the context Config's laws run Host under (types.md, Laws
 // 10).
-let onTestHost = context needs TestAmbient { Config: testHost() }
+let onTestHost = context needs fstest.TestAmbient { Config: testHost() }
 
 // Lookup is the host's variable name, as os.Getenv reads it.
-func Lookup(h Host, name string) Option[string] { h.lookup(name) }
+func Lookup(h Host, name string) option.Option[string] { h.lookup(name) }
 
 // Environ is the host's variables that start with prefix, by name: the
 // variables of os.Environ, which owns the host's environment (one body
@@ -172,7 +174,7 @@ func Lookup(h Host, name string) Option[string] { h.lookup(name) }
 func Environ(h Host, prefix string) []Variable { h.environ(prefix) }
 
 // ReadFile is the host's file at path: None when nothing is there.
-func ReadFile(h Host, path string) Option[string] fails Unreadable { try h.readFile(path) }
+func ReadFile(h Host, path string) option.Option[string] fails Unreadable { try h.readFile(path) }
 
 // environOf is every variable whose name starts with prefix, ordered by name.
 func environOf(env Map[string, string], prefix string) []Variable {
@@ -190,16 +192,16 @@ func environOf(env Map[string, string], prefix string) []Variable {
 }
 
 // readFileOn is ReadFile on the host files.
-func readFileOn(files fs.Host, path string) Option[string] fails Unreadable {
+func readFileOn(files fs.Host, path string) option.Option[string] fails Unreadable {
 	let text = fs.ReadFile(files, path) catch {
 	case fs.NotFound:
-		return None
+		return option.None
 	case fs.Denied:
 		return Unreadable{Path: path, Reason: "permission denied"}
 	case fs.Failed as f:
 		return Unreadable{Path: path, Reason: f.Reason}
 	}
-	Some{Value: text}
+	option.Some{Value: text}
 }
 
 // Memory is a Config provider for tests: Env is the environment and Files
@@ -214,7 +216,7 @@ func NewMemory(env Map[string, string], files Map[string, string]) Memory {
 }
 
 // Lookup is m's variable name.
-func Lookup(m Memory, name string) Option[string] { m.Env.Get(name) }
+func Lookup(m Memory, name string) option.Option[string] { m.Env.Get(name) }
 
 // Environ is m's variables that start with prefix, by name.
 func Environ(m Memory, prefix string) []Variable {
@@ -222,4 +224,4 @@ func Environ(m Memory, prefix string) []Variable {
 }
 
 // ReadFile is m's file at path, or None.
-func ReadFile(m Memory, path string) Option[string] fails Unreadable { m.Files.Get(path) }
+func ReadFile(m Memory, path string) option.Option[string] fails Unreadable { m.Files.Get(path) }

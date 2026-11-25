@@ -1,4 +1,6 @@
 import actor
+import machines
+import option
 import strings
 import time
 
@@ -160,13 +162,13 @@ type Tooltip {}
 // slider's or spin button's value in its range); Key, the node's own key,
 // which other nodes' relations name, NoKey for none; and Rels, its
 // relations (relate.ergo).
-type Access { Role Role, Name string, Disabled bool, Description string, Checked Option[bool], Value Option[string], Selected Option[bool], Expanded Option[bool], Pressed Option[bool], Invalid bool, Busy bool, HasPopup bool, Level Option[int], Mixed bool, Current Option[string], Modal bool, MultiSelectable bool, Range Option[Range], Key Key, Rels []Rel }
+type Access { Role Role, Name string, Disabled bool, Description string, Checked option.Option[bool], Value option.Option[string], Selected option.Option[bool], Expanded option.Option[bool], Pressed option.Option[bool], Invalid bool, Busy bool, HasPopup bool, Level option.Option[int], Mixed bool, Current option.Option[string], Modal bool, MultiSelectable bool, Range option.Option[Range], Key Key, Rels []Rel }
 
 // Named is the Access of a node of role named name, with no state (FK2-g1):
 // a container's declaration, written as one call; a view sets the states
 // its control has on the copy it gets.
 func Named(role Role, name string) Access {
-	Access{Role: role, Name: name, Disabled: false, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
+	Access{Role: role, Name: name, Disabled: false, Description: "", Checked: option.None, Value: option.None, Selected: option.None, Expanded: option.None, Pressed: option.None, Invalid: false, Busy: false, HasPopup: false, Level: option.None, Mixed: false, Current: option.None, Modal: false, MultiSelectable: false, Range: option.None, Key: NoKey, Rels: []Rel{}}
 }
 
 // Locator finds nodes on a screen, as Testing Library's queries do: by
@@ -221,7 +223,7 @@ law LocatorAgreesWithAccessTree(seed int) {
 		for role in extraRoles() {
 			locs = locs.Append(WithRole{Role: role, Name: ""})
 		}
-		let w = want[draw(&r, len(want))]
+		let w = want[draw(&r, want.Len())]
 		locs = locs.Append(WithRole{Role: w.a.Role, Name: w.a.Name})
 		locs = locs.Append(WithLabel{Label: w.a.Name})
 		locs = locs.Append(WithPlaceholder{Text: w.a.Name})
@@ -236,7 +238,7 @@ law LocatorAgreesWithAccessTree(seed int) {
 				}
 			}
 			let got = LocateIn(&m, loc)
-			if len(got) != len(model) {
+			if got.Len() != model.Len() {
 				return false
 			}
 			for i, id in got {
@@ -244,13 +246,13 @@ law LocatorAgreesWithAccessTree(seed int) {
 					return false
 				}
 			}
-			if matches(&m, loc, ToHaveCount{Count: len(model)}) != true || matches(&m, loc, ToHaveCount{Count: len(model) + 1}) || matches(&m, loc, ToHaveCount{Count: len(model) - 1}) || matches(&m, loc, ToExist) != (len(model) > 0) || matches(&m, loc, ToBeAbsent) != (len(model) == 0) {
+			if matches(&m, loc, ToHaveCount{Count: model.Len()}) != true || matches(&m, loc, ToHaveCount{Count: model.Len() + 1}) || matches(&m, loc, ToHaveCount{Count: model.Len() - 1}) || matches(&m, loc, ToExist) != (model.Len() > 0) || matches(&m, loc, ToBeAbsent) != (model.Len() == 0) {
 				return false
 			}
-			if len(model) > 0 {
+			if model.Len() > 0 {
 				let x = model[0]
-				let checked = x.a.Checked == (Some{Value: true})
-				let unchecked = x.a.Checked == (Some{Value: false})
+				let checked = x.a.Checked == (option.Some{Value: true})
+				let unchecked = x.a.Checked == (option.Some{Value: false})
 				if matches(&m, loc, ToBeDisabled) != x.a.Disabled || matches(&m, loc, ToBeEnabled) == x.a.Disabled || matches(&m, loc, ToBeChecked) != checked || matches(&m, loc, ToBeUnchecked) != unchecked || matches(&m, loc, ToBeInvalid) != x.a.Invalid {
 					return false
 				}
@@ -261,11 +263,11 @@ law LocatorAgreesWithAccessTree(seed int) {
 					return false
 				}
 				match x.a.Value {
-				case Some[string] as v:
+				case option.Some[string] as v:
 					if !matches(&m, loc, ToHaveValue{Value: v.Value}) || matches(&m, loc, ToHaveValue{Value: v.Value + "!"}) {
 						return false
 					}
-				case None:
+				case option.None:
 					if matches(&m, loc, ToHaveValue{Value: ""}) {
 						return false
 					}
@@ -306,14 +308,14 @@ func accessModel(shapes []Shape[int], off bool, desc string) []seen {
 }
 
 func readAs(n Node[int], off bool, desc string) Access {
-	let base = Access{Role: Generic, Name: "", Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
+	let base = Access{Role: Generic, Name: "", Disabled: false, Description: desc, Checked: option.None, Value: option.None, Selected: option.None, Expanded: option.None, Pressed: option.None, Invalid: false, Busy: false, HasPopup: false, Level: option.None, Mixed: false, Current: option.None, Modal: false, MultiSelectable: false, Range: option.None, Key: NoKey, Rels: []Rel{}}
 	match n {
 	case PressableNode[int] as x:
-		Access{Role: Button, Name: x.Label, Disabled: off, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
+		Access{Role: Button, Name: x.Label, Disabled: off, Description: desc, Checked: option.None, Value: option.None, Selected: option.None, Expanded: option.None, Pressed: option.None, Invalid: false, Busy: false, HasPopup: false, Level: option.None, Mixed: false, Current: option.None, Modal: false, MultiSelectable: false, Range: option.None, Key: NoKey, Rels: []Rel{}}
 	case CheckNode[int] as x:
-		Access{Role: Checkbox, Name: x.Label, Disabled: off, Description: desc, Checked: Some{Value: x.Checked}, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
+		Access{Role: Checkbox, Name: x.Label, Disabled: off, Description: desc, Checked: option.Some{Value: x.Checked}, Value: option.None, Selected: option.None, Expanded: option.None, Pressed: option.None, Invalid: false, Busy: false, HasPopup: false, Level: option.None, Mixed: false, Current: option.None, Modal: false, MultiSelectable: false, Range: option.None, Key: NoKey, Rels: []Rel{}}
 	case ToggleNode as x:
-		Access{Role: Switch, Name: x.Label, Disabled: off, Description: desc, Checked: Some{Value: x.On}, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
+		Access{Role: Switch, Name: x.Label, Disabled: off, Description: desc, Checked: option.Some{Value: x.On}, Value: option.None, Selected: option.None, Expanded: option.None, Pressed: option.None, Invalid: false, Busy: false, HasPopup: false, Level: option.None, Mixed: false, Current: option.None, Modal: false, MultiSelectable: false, Range: option.None, Key: NoKey, Rels: []Rel{}}
 	case InputNode as x:
 		// A label names the field, a placeholder only an unlabelled one;
 		// its own description wins over the Fieldset's.
@@ -325,15 +327,15 @@ func readAs(n Node[int], off bool, desc string) Access {
 		if x.Description != "" {
 			d = x.Description
 		}
-		Access{Role: TextBox, Name: name, Disabled: off, Description: d, Checked: None, Value: Some{Value: x.Value}, Selected: None, Expanded: None, Pressed: None, Invalid: x.Invalid, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
+		Access{Role: TextBox, Name: name, Disabled: off, Description: d, Checked: option.None, Value: option.Some{Value: x.Value}, Selected: option.None, Expanded: option.None, Pressed: option.None, Invalid: x.Invalid, Busy: false, HasPopup: false, Level: option.None, Mixed: false, Current: option.None, Modal: false, MultiSelectable: false, Range: option.None, Key: NoKey, Rels: []Rel{}}
 	case TextNode as x:
-		Access{Role: Static, Name: x.Value, Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
+		Access{Role: Static, Name: x.Value, Disabled: false, Description: desc, Checked: option.None, Value: option.None, Selected: option.None, Expanded: option.None, Pressed: option.None, Invalid: false, Busy: false, HasPopup: false, Level: option.None, Mixed: false, Current: option.None, Modal: false, MultiSelectable: false, Range: option.None, Key: NoKey, Rels: []Rel{}}
 	case FieldsetNode:
-		Access{Role: Group, Name: "", Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
+		Access{Role: Group, Name: "", Disabled: false, Description: desc, Checked: option.None, Value: option.None, Selected: option.None, Expanded: option.None, Pressed: option.None, Invalid: false, Busy: false, HasPopup: false, Level: option.None, Mixed: false, Current: option.None, Modal: false, MultiSelectable: false, Range: option.None, Key: NoKey, Rels: []Rel{}}
 	case AreaNode as x:
-		Access{Role: Region, Name: x.Label, Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
+		Access{Role: Region, Name: x.Label, Disabled: false, Description: desc, Checked: option.None, Value: option.None, Selected: option.None, Expanded: option.None, Pressed: option.None, Invalid: false, Busy: false, HasPopup: false, Level: option.None, Mixed: false, Current: option.None, Modal: false, MultiSelectable: false, Range: option.None, Key: NoKey, Rels: []Rel{}}
 	case CanvasNode as x:
-		Access{Role: Image, Name: x.Label, Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
+		Access{Role: Image, Name: x.Label, Disabled: false, Description: desc, Checked: option.None, Value: option.None, Selected: option.None, Expanded: option.None, Pressed: option.None, Invalid: false, Busy: false, HasPopup: false, Level: option.None, Mixed: false, Current: option.None, Modal: false, MultiSelectable: false, Range: option.None, Key: NoKey, Rels: []Rel{}}
 	case SemanticNode[int] as x:
 		let mut a = x.Access
 		a.Disabled = x.Access.Disabled || off
@@ -342,7 +344,7 @@ func readAs(n Node[int], off bool, desc string) Access {
 		}
 		a
 	case RowsNode as x:
-		Access{Role: List, Name: x.Label, Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
+		Access{Role: List, Name: x.Label, Disabled: false, Description: desc, Checked: option.None, Value: option.None, Selected: option.None, Expanded: option.None, Pressed: option.None, Invalid: false, Busy: false, HasPopup: false, Level: option.None, Mixed: false, Current: option.None, Modal: false, MultiSelectable: false, Range: option.None, Key: NoKey, Rels: []Rel{}}
 	case _:
 		base
 	}
@@ -416,13 +418,13 @@ func extras(f mut Frame[int], v int) {
 	Fieldset(f, v%2 == 1, "x\(v)") {
 		let on = NewFlag(f, true)
 		Toggle(f, on, "tg\(v % 3)")
-		LabelledInput(f, extraLabel(v), "val", "ph\(v % 2)", func(t string) int { len(t) })
-		Area(f, "area\(v % 2)", Plain(), func(p PointerEvent) Option[int] { None }) {
+		LabelledInput(f, extraLabel(v), "val", "ph\(v % 2)", func(t string) int { t.Len() })
+		Area(f, "area\(v % 2)", Plain(), func(p PointerEvent) option.Option[int] { option.None }) {
 			Text(f, "in area")
 		}
 		Canvas(f, "c\(v % 4)", 4, 4) func(p mut Paint) {}
 		Rows(f, "rows", 0, 10, func(i int) Key { ByInt(i) }) func(i int) {}
-		Semantic(f, extraSem(v), None, Plain()) {
+		Semantic(f, extraSem(v), option.None, Plain()) {
 			Text(f, "in sem")
 		}
 	}
@@ -450,8 +452,8 @@ func extraRoles() []Role {
 // draws (UG2).
 func extraSem(v int) Access {
 	let roles = extraRoles()
-	let mut a = Named(roles[v%len(roles)], "sem\(v % 3)")
-	a.Selected = Some{Value: v%2 == 0}
+	let mut a = Named(roles[v%roles.Len()], "sem\(v % 3)")
+	a.Selected = option.Some{Value: v%2 == 0}
 	a.Key = ByInt(v % 3)
 	a.Rels = []Rel{Controls{To: ByInt(v % 2)}}
 	a
@@ -459,7 +461,7 @@ func extraSem(v int) Access {
 
 func extraShapes(v int) []Shape[int] {
 	let l = extraLabel(v)
-	let kids = []Shape[int]{leaf(ToggleNode{Label: "tg\(v % 3)", On: true}), leaf(InputNode{Value: "val", Placeholder: "ph\(v % 2)", Label: l.Text, Description: l.Description, Invalid: l.Invalid, Hints: PlainHints, Lines: 1, Caret: len("val"), Anchor: len("val")}), Shape[int]{Node: AreaNode{Label: "area\(v % 2)", Style: Plain()}, Kids: []Shape[int]{leaf(TextNode{Value: "in area", Style: Plain()})}}, leaf(CanvasNode{Label: "c\(v % 4)", Width: 4, Height: 4, Paint: []PaintOp{}}), leaf(RowsNode{Label: "rows", Count: 0, RowHeight: 10, First: 0, Offset: 0}), Shape[int]{Node: SemanticNode{Access: extraSem(v), On: None, Style: Plain()}, Kids: []Shape[int]{leaf(TextNode{Value: "in sem", Style: Plain()})}}}
+	let kids = []Shape[int]{leaf(ToggleNode{Label: "tg\(v % 3)", On: true}), leaf(InputNode{Value: "val", Placeholder: "ph\(v % 2)", Label: l.Text, Description: l.Description, Invalid: l.Invalid, Hints: PlainHints, Lines: 1, Caret: "val".Len(), Anchor: "val".Len()}), Shape[int]{Node: AreaNode{Label: "area\(v % 2)", Style: Plain()}, Kids: []Shape[int]{leaf(TextNode{Value: "in area", Style: Plain()})}}, leaf(CanvasNode{Label: "c\(v % 4)", Width: 4, Height: 4, Paint: []PaintOp{}}), leaf(RowsNode{Label: "rows", Count: 0, RowHeight: 10, First: 0, Offset: 0}), Shape[int]{Node: SemanticNode{Access: extraSem(v), On: option.None, Style: Plain()}, Kids: []Shape[int]{leaf(TextNode{Value: "in sem", Style: Plain()})}}}
 	[]Shape[int]{Shape[int]{Node: FieldsetNode{Disabled: v%2 == 1, Description: "x\(v)"}, Kids: kids}}
 }
 
@@ -512,7 +514,7 @@ func LocateIn[E](m mut Mirror[E], loc Locator) []Id[E] {
 	match loc {
 	case First as x:
 		let all = LocateIn[E](m, x.At)
-		if len(all) == 0 {
+		if all.Len() == 0 {
 			return all
 		}
 		return []Id[E]{all[0]}
@@ -531,9 +533,9 @@ func LocateIn[E](m mut Mirror[E], loc Locator) []Id[E] {
 	case _:
 	}
 	match entryOf(m, m.root) {
-	case Some[mirrored[E]] as r:
+	case option.Some[mirrored[E]] as r:
 		locateFrom(m, r.Value.first, loc, false, "", []Id[E]{})
-	case None:
+	case option.None:
 		[]Id[E]{}
 	}
 }
@@ -542,7 +544,7 @@ func LocateIn[E](m mut Mirror[E], loc Locator) []Id[E] {
 func under[E](m mut Mirror[E], id Id[E], outer Map[Id[E], bool]) bool {
 	let mut at = entry(m, refOf(m, id)).parent
 	for at != m.root {
-		if outer.Get(at) != None {
+		if outer.Get(at) != option.None {
 			return true
 		}
 		at = entry(m, refOf(m, at)).parent
@@ -552,12 +554,12 @@ func under[E](m mut Mirror[E], id Id[E], outer Map[Id[E], bool]) bool {
 
 // locateFrom walks the siblings from at and their subtrees, in tree
 // order, reading each node once (MirrorReads).
-func locateFrom[E](m mut Mirror[E], at Option[Id[E]], loc Locator, off bool, desc string, acc []Id[E]) []Id[E] {
+func locateFrom[E](m mut Mirror[E], at option.Option[Id[E]], loc Locator, off bool, desc string, acc []Id[E]) []Id[E] {
 	let mut out = acc
 	let mut c = at
 	for {
 		match c {
-		case Some[Id[E]] as x:
+		case option.Some[Id[E]] as x:
 			let e = entry(m, refOf(m, x.Value))
 			let h = Lower(e.node)
 			let (o, d) = HostScope(h, off, desc)
@@ -566,7 +568,7 @@ func locateFrom[E](m mut Mirror[E], at Option[Id[E]], loc Locator, off bool, des
 			}
 			out = locateFrom[E](m, e.first, loc, o, d, out)
 			c = e.next
-		case None:
+		case option.None:
 			return out
 		}
 	}
@@ -581,18 +583,18 @@ func AccessOf[E](m mut Mirror[E], id Id[E]) Access {
 	let mut at = id
 	for at != m.root {
 		match entryOf(m, at) {
-		case Some[mirrored[E]] as n:
+		case option.Some[mirrored[E]] as n:
 			path = path.Append(Lower(n.Value.node))
 			at = n.Value.parent
-		case None:
+		case option.None:
 			return Named(Generic, "")
 		}
 	}
-	if len(path) == 0 {
+	if path.Len() == 0 {
 		return Named(Generic, "")
 	}
-	for i in 0..len(path) {
-		let (o, d) = HostScope(path[len(path)-1-i], off, desc)
+	for i in 0..path.Len() {
+		let (o, d) = HostScope(path[path.Len()-1-i], off, desc)
 		off = o
 		desc = d
 	}
@@ -612,13 +614,13 @@ func fieldName(x InputNode) string {
 // included), in tree order, run together: a node's text content.
 func TextIn[E](m mut Mirror[E], id Id[E]) string {
 	match entryOf(m, id) {
-	case Some[mirrored[E]] as n:
+	case option.Some[mirrored[E]] as n:
 		let mut out = HostTextOf(Lower(n.Value.node))
 		for k in childIds(m, n.Value) {
 			out = out + TextIn[E](m, k)
 		}
 		out
-	case None:
+	case option.None:
 		""
 	}
 }
@@ -630,23 +632,23 @@ func ExpectIn[E](m mut Mirror[E], loc Locator, is Matcher) fails Mismatch {
 	let want = LocatorText(loc) + " " + matcherText(is)
 	match is {
 	case ToExist:
-		if len(ids) == 0 {
+		if ids.Len() == 0 {
 			return Mismatch{Want: want, Got: "no node"}
 		}
 		return
 	case ToBeAbsent:
-		if len(ids) != 0 {
-			return Mismatch{Want: want, Got: "\(len(ids)) nodes"}
+		if ids.Len() != 0 {
+			return Mismatch{Want: want, Got: "\(ids.Len()) nodes"}
 		}
 		return
 	case ToHaveCount as c:
-		if len(ids) != c.Count {
-			return Mismatch{Want: want, Got: "\(len(ids)) nodes"}
+		if ids.Len() != c.Count {
+			return Mismatch{Want: want, Got: "\(ids.Len()) nodes"}
 		}
 		return
 	case _:
 	}
-	if len(ids) == 0 {
+	if ids.Len() == 0 {
 		return Mismatch{Want: want, Got: "no node"}
 	}
 	let a = AccessOf(m, ids[0])
@@ -660,17 +662,17 @@ func ExpectIn[E](m mut Mirror[E], loc Locator, is Matcher) fails Mismatch {
 		ok = a.Disabled
 		got = "enabled"
 	case ToBeChecked:
-		ok = a.Checked == (Some{Value: true})
+		ok = a.Checked == (option.Some{Value: true})
 		got = "not checked"
 	case ToBeUnchecked:
-		ok = a.Checked == (Some{Value: false})
+		ok = a.Checked == (option.Some{Value: false})
 		got = "not unchecked"
 	case ToHaveValue as v:
-		ok = a.Value == (Some{Value: v.Value})
+		ok = a.Value == (option.Some{Value: v.Value})
 		match a.Value {
-		case Some[string] as x:
+		case option.Some[string] as x:
 			got = "value \"\(x.Value)\""
-		case None:
+		case option.None:
 			got = "no value"
 		}
 	case ToContainText as t:
@@ -681,13 +683,13 @@ func ExpectIn[E](m mut Mirror[E], loc Locator, is Matcher) fails Mismatch {
 		ok = a.Description == d.Text
 		got = "description \"\(a.Description)\""
 	case ToBeSelected:
-		ok = a.Selected == (Some{Value: true})
+		ok = a.Selected == (option.Some{Value: true})
 		got = "not selected"
 	case ToBeExpanded:
-		ok = a.Expanded == (Some{Value: true})
+		ok = a.Expanded == (option.Some{Value: true})
 		got = "not expanded"
 	case ToBeCollapsed:
-		ok = a.Expanded == (Some{Value: false})
+		ok = a.Expanded == (option.Some{Value: false})
 		got = "not collapsed"
 	case ToBeInvalid:
 		ok = a.Invalid
@@ -866,12 +868,12 @@ func semRoles() []Role {
 }
 
 // semMaybe is a drawn Option[bool]. (a law's helper)
-func semMaybe(r mut rng) Option[bool] {
+func semMaybe(r mut rng) option.Option[bool] {
 	let k = draw(r, 3)
 	if k == 0 {
-		return None
+		return option.None
 	}
-	Some{Value: k == 1}
+	option.Some{Value: k == 1}
 }
 
 // semDecls is n drawn declarations, named "n0" to "n<n-1>", from seed.
@@ -881,27 +883,27 @@ func semDecls(seed int, n int) []Access {
 	let roles = semRoles()
 	let mut out = []Access{}
 	for i in 0..n {
-		let mut level Option[int] = None
+		let mut level option.Option[int] = option.None
 		if draw(&r, 2) == 0 {
-			level = Some{Value: draw(&r, 6) + 1}
+			level = option.Some{Value: draw(&r, 6) + 1}
 		}
-		let mut value Option[string] = None
+		let mut value option.Option[string] = option.None
 		if draw(&r, 2) == 0 {
-			value = Some{Value: "v\(draw(&r, 9))"}
+			value = option.Some{Value: "v\(draw(&r, 9))"}
 		}
 		let mut desc = ""
 		if draw(&r, 2) == 0 {
 			desc = "d\(draw(&r, 9))"
 		}
-		let mut d = Access{Role: roles[draw(&r, len(roles))], Name: "n\(i)", Disabled: draw(&r, 4) == 0, Description: desc, Checked: semMaybe(&r), Value: value, Selected: semMaybe(&r), Expanded: semMaybe(&r), Pressed: semMaybe(&r), Invalid: draw(&r, 2) == 0, Busy: draw(&r, 2) == 0, HasPopup: draw(&r, 2) == 0, Level: level, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
+		let mut d = Access{Role: roles[draw(&r, roles.Len())], Name: "n\(i)", Disabled: draw(&r, 4) == 0, Description: desc, Checked: semMaybe(&r), Value: value, Selected: semMaybe(&r), Expanded: semMaybe(&r), Pressed: semMaybe(&r), Invalid: draw(&r, 2) == 0, Busy: draw(&r, 2) == 0, HasPopup: draw(&r, 2) == 0, Level: level, Mixed: false, Current: option.None, Modal: false, MultiSelectable: false, Range: option.None, Key: NoKey, Rels: []Rel{}}
 		d.Mixed = draw(&r, 4) == 0
 		if draw(&r, 2) == 0 {
-			d.Current = Some{Value: "page"}
+			d.Current = option.Some{Value: "page"}
 		}
 		d.Modal = draw(&r, 4) == 0
 		d.MultiSelectable = draw(&r, 4) == 0
 		if draw(&r, 2) == 0 {
-			d.Range = Some{Value: Range{Now: float64(draw(&r, 10)), Min: 0, Max: 10}}
+			d.Range = option.Some{Value: Range{Now: float64(draw(&r, 10)), Min: 0, Max: 10}}
 		}
 		if draw(&r, 2) == 0 {
 			d.Key = ByInt(i)
@@ -924,18 +926,18 @@ func semHolds[D, F](h mut TestHost[int, int, D, F], name string, is Matcher) boo
 }
 
 // semStep enters the drawn screen e. (a law's helper)
-func semStep(s int, e int) Decision[int, int] {
-	Enter[int]{Next: e}
+func semStep(s int, e int) machines.Decision[int, int] {
+	machines.Enter[int]{Next: e}
 }
 
 // semTimer is the law's timer: none. (a law's helper)
-func semTimer(s int) Option[Timeout[int]] {
-	None
+func semTimer(s int) option.Option[machines.Timeout[int]] {
+	option.None
 }
 
 // semWork is the law's work: none. (a law's helper)
-func semWork(s int) Option[func(send func(e int))] {
-	None
+func semWork(s int) option.Option[func(send func(e int))] {
+	option.None
 }
 
 // AccessIsWhatWasDeclared (NS4): over drawn declarations of every role
@@ -948,19 +950,19 @@ func semWork(s int) Option[func(send func(e int))] {
 // the same nodes) read back as declared again.
 law AccessIsWhatWasDeclared(seed int, count int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		let n = (count%6+6)%6 + 2
 		let view = func(f mut Frame[int], s int) {
 			let ds = semDecls(seed+s*7919, n)
 			Column(f, Plain()) {
 				for i, d in ds {
 					if i%2 == 0 {
-						Semantic(f, d, Some{Value: i + 1}, Plain()) {
+						Semantic(f, d, option.Some{Value: i + 1}, Plain()) {
 							Text(f, "t\(i)")
 						}
 					} else {
 						Fieldset(f, true, "fs") {
-							Semantic(f, d, Some{Value: i + 1}, Plain()) {
+							Semantic(f, d, option.Some{Value: i + 1}, Plain()) {
 								Text(f, "t\(i)")
 							}
 						}
@@ -968,7 +970,7 @@ law AccessIsWhatWasDeclared(seed int, count int) {
 				}
 			}
 		}
-		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(s int) Option[func()] { None }}, 1, func(o int) {})
+		let a = actor.StartMachine(machines.Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(s int) option.Option[func()] { option.None }}, 1, func(o int) {})
 		let mut h = NewTestHost(a, view, m, 4) catch {
 		case BadPatch:
 			return false
@@ -977,7 +979,7 @@ law AccessIsWhatWasDeclared(seed int, count int) {
 			let ds = semDecls(seed+StateOf(&h)*7919, n)
 			for i, d in ds {
 				let ids = Locate(&h, WithLabel{Label: d.Name})
-				if len(ids) != 1 {
+				if ids.Len() != 1 {
 					return false
 				}
 				let mut want = d
@@ -991,7 +993,7 @@ law AccessIsWhatWasDeclared(seed int, count int) {
 					return false
 				}
 				// The matchers of the new states read the same record.
-				if semHolds(&h, d.Name, ToBeSelected) != (want.Selected == (Some{Value: true})) || semHolds(&h, d.Name, ToBeExpanded) != (want.Expanded == (Some{Value: true})) || semHolds(&h, d.Name, ToBeCollapsed) != (want.Expanded == (Some{Value: false})) || semHolds(&h, d.Name, ToBeInvalid) != want.Invalid {
+				if semHolds(&h, d.Name, ToBeSelected) != (want.Selected == (option.Some{Value: true})) || semHolds(&h, d.Name, ToBeExpanded) != (want.Expanded == (option.Some{Value: true})) || semHolds(&h, d.Name, ToBeCollapsed) != (want.Expanded == (option.Some{Value: false})) || semHolds(&h, d.Name, ToBeInvalid) != want.Invalid {
 					return false
 				}
 			}
@@ -1031,7 +1033,7 @@ func withinLabel(j int) string {
 // presses that column's first card of that label.
 law WithinFindsUnder(seed int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		let mut r = seeded(seed)
 		let mut board = [][]int{}
 		for _ in 0..draw(&r, 4)+1 {
@@ -1041,15 +1043,15 @@ law WithinFindsUnder(seed int) {
 			}
 			board = board.Append(col)
 		}
-		let none Option[int] = None
-		let decl = func(role Role, name string, level Option[int]) Access {
-			Access{Role: role, Name: name, Disabled: false, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: level, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
+		let none option.Option[int] = option.None
+		let decl = func(role Role, name string, level option.Option[int]) Access {
+			Access{Role: role, Name: name, Disabled: false, Description: "", Checked: option.None, Value: option.None, Selected: option.None, Expanded: option.None, Pressed: option.None, Invalid: false, Busy: false, HasPopup: false, Level: level, Mixed: false, Current: option.None, Modal: false, MultiSelectable: false, Range: option.None, Key: NoKey, Rels: []Rel{}}
 		}
 		let view = func(f mut Frame[int], s int) {
 			Column(f, Plain()) {
 				for i, col in board {
-					Semantic(f, decl(Region, "col \(i)", None), none, Plain()) {
-						Semantic(f, decl(Heading, "col \(i)", Some{Value: 2}), none, Plain()) {
+					Semantic(f, decl(Region, "col \(i)", option.None), none, Plain()) {
+						Semantic(f, decl(Heading, "col \(i)", option.Some{Value: 2}), none, Plain()) {
 							Text(f, "col \(i)")
 						}
 						for j, c in col {
@@ -1069,7 +1071,7 @@ law WithinFindsUnder(seed int) {
 				}
 			}
 		}
-		let a = actor.StartMachine(Machine[int, int, int]{Initial: -1, Step: semStep, After: semTimer, Work: semWork, Exit: func(s int) Option[func()] { None }}, 1, func(o int) {})
+		let a = actor.StartMachine(machines.Machine[int, int, int]{Initial: -1, Step: semStep, After: semTimer, Work: semWork, Exit: func(s int) option.Option[func()] { option.None }}, 1, func(o int) {})
 		let mut h = NewTestHost(a, view, m, 4) catch {
 		case BadPatch:
 			return false
@@ -1077,7 +1079,7 @@ law WithinFindsUnder(seed int) {
 		for i, col in board {
 			let column = WithRole{Role: Region, Name: "col \(i)"}
 			let found = Locate(&h, Within{In: column, At: WithRole{Role: Button, Name: ""}})
-			if len(found) != len(col) {
+			if found.Len() != col.Len() {
 				return false
 			}
 			for j, c in col {
@@ -1110,6 +1112,6 @@ law WithinFindsUnder(seed int) {
 		}
 		// A column is not within itself, nor within another: none nests.
 		let regions = WithRole{Role: Region, Name: ""}
-		len(Locate(&h, Within{In: WithRole{Role: Region, Name: "col 9"}, At: WithRole{Role: Button, Name: ""}})) == 0 && len(Locate(&h, Within{In: regions, At: regions})) == 0
+		Locate(&h, Within{In: WithRole{Role: Region, Name: "col 9"}, At: WithRole{Role: Button, Name: ""}}).Len() == 0 && Locate(&h, Within{In: regions, At: regions}).Len() == 0
 	}
 }

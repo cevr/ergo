@@ -9,6 +9,9 @@
 // the call reaches a use of the slot before a write to it. The two are
 // different algorithms over the same ops; LivenessAgrees holds them equal.
 
+import machines
+import option
+
 // targets maps each label id to the index of its op.
 func targets(f Func) Map[int, int] {
 	let mut m = Map[int, int]{}
@@ -24,16 +27,16 @@ func targets(f Func) Map[int, int] {
 
 func labelAt(m Map[int, int], id int) int {
 	match m.Get(id) {
-	case Some as s:
+	case option.Some as s:
 		return s.Value
-	case None:
+	case option.None:
 		return -1
 	}
 }
 
 // Succs is the ops control may reach right after op i.
 func Succs(f Func, m Map[int, int], i int) []int {
-	let n = len(f.Ops)
+	let n = f.Ops.Len()
 	let next = if i+1 < n { []int{i + 1} } else { []int{} }
 	match f.Ops[i] {
 	case Jump as j:
@@ -77,8 +80,8 @@ func AddressTaken(f Func) []int {
 // LiveAfter is, for each op, the slots live right after it (before its
 // successors run), by backward dataflow to a fixed point.
 func LiveAfter(f Func) [][]bool {
-	let n = len(f.Ops)
-	let k = len(f.Slots)
+	let n = f.Ops.Len()
+	let k = f.Slots.Len()
 	let m = targets(f)
 	let mut liveIn = [][]bool{}
 	let mut liveOut = [][]bool{}
@@ -130,7 +133,7 @@ func LiveAcross(p Package, f Func, after [][]bool, i int) []int {
 	let defs = OpDefs(f.Ops[i])
 	let taken = AddressTaken(f)
 	let mut out = []int{}
-	for j in 0..len(f.Slots) {
+	for j in 0..f.Slots.Len() {
 		if IsPointer(p, f.Slots[j]) && ((after[i][j] && !has(defs, j)) || has(taken, j)) {
 			out = out.Append(j)
 		}
@@ -149,13 +152,13 @@ func LiveByPaths(f Func, c int, s int) bool {
 	}
 	let m = targets(f)
 	let mut seen = []bool{}
-	for _ in 0..len(f.Ops) {
+	for _ in 0..f.Ops.Len() {
 		seen = seen.Append(false)
 	}
 	let mut work = Succs(f, m, c)
-	for len(work) > 0 {
-		let p = work[len(work)-1]
-		work = work.Slice(0, len(work)-1)
+	for work.Len() > 0 {
+		let p = work[work.Len()-1]
+		work = work.Slice(0, work.Len()-1)
 		if seen[p] {
 			continue
 		}
@@ -174,7 +177,7 @@ func LiveByPaths(f Func, c int, s int) bool {
 func ModelAcross(p Package, f Func, i int) []int {
 	let taken = AddressTaken(f)
 	let mut out = []int{}
-	for j in 0..len(f.Slots) {
+	for j in 0..f.Slots.Len() {
 		if IsPointer(p, f.Slots[j]) && (LiveByPaths(f, i, j) || has(taken, j)) {
 			out = out.Append(j)
 		}
@@ -268,33 +271,33 @@ type Moves = Live{F Frame0} | Stale{} | Returned{} | MovedBack{}
 
 type MoveSig = Move{} | Scan{} | Back{}
 
-func moveStep(s Moves, sig MoveSig) Decision[Moves, string] {
+func moveStep(s Moves, sig MoveSig) machines.Decision[Moves, string] {
 	match s {
 	case Live as l:
 		let f = l.F
 		match sig {
 		case Move:
 			if f.Current >= 2 {
-				return Ignore
+				return machines.Ignore
 			}
 			let slot = if f.Marked { f.Current + 1 } else { f.Slot }
-			return Enter{Live{F: Frame0{Current: f.Current + 1, Slot: slot, Marked: f.Marked}}}
+			return machines.Enter{Live{F: Frame0{Current: f.Current + 1, Slot: slot, Marked: f.Marked}}}
 		case Scan:
 			if !(f.Marked && f.Slot == f.Current) {
-				return Enter{Stale}
+				return machines.Enter{Stale}
 			}
-			return Ignore
+			return machines.Ignore
 		case Back:
 			if f.Slot != f.Current {
-				return Enter{Stale}
+				return machines.Enter{Stale}
 			}
 			if f.Current > 0 {
-				return Enter{MovedBack}
+				return machines.Enter{MovedBack}
 			}
-			return Enter{Returned}
+			return machines.Enter{Returned}
 		}
 	case _:
-		return Ignore
+		return machines.Ignore
 	}
 }
 

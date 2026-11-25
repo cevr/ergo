@@ -6,6 +6,7 @@
 import cmp
 import compiler/syntax
 import dense
+import option
 import slices
 
 // ---------------------------------------------------------------- tree reads
@@ -36,25 +37,25 @@ func ids(p mut Printer, l syntax.List) []dense.ID[syntax.Node] {
 // some reports an optional node that is there; the is that node.
 func some(o dense.Opt[syntax.Node]) bool {
 	match dense.Unpack(o) {
-	case Some[dense.ID[syntax.Node]]:
+	case option.Some[dense.ID[syntax.Node]]:
 		true
-	case None:
+	case option.None:
 		false
 	}
 }
 
 func the(o dense.Opt[syntax.Node]) dense.ID[syntax.Node] {
 	match dense.Unpack(o) {
-	case Some[dense.ID[syntax.Node]] as s:
+	case option.Some[dense.ID[syntax.Node]] as s:
 		s.Value
-	case None:
+	case option.None:
 		Unreachable("an optional node read where the parser always sets one")
 	}
 }
 
 // starts are the first bytes of the nodes xs.
 func starts(p mut Printer, xs []dense.ID[syntax.Node]) []int {
-	let mut out = slices.WithCapacity[int](len(xs))
+	let mut out = slices.WithCapacity[int](xs.Len())
 	for x in xs {
 		out = out.Append(p.start(x))
 	}
@@ -155,7 +156,7 @@ func decl(p mut Printer, d dense.ID[syntax.Node]) {
 			// The rewrite form (types.md, Laws 14; LF6a): its Body holds the
 			// two blocks, printed as written with == between them.
 			let stmts = p.ids(syntax.BlockStmtOf(p.P.Tree, the(x.Body)).List)
-			let n = len(stmts)
+			let n = stmts.Len()
 			p.block(stmts[n-2], true)
 			p.space()
 			p.token(p.tp(x.Eq), "==")
@@ -200,7 +201,7 @@ func typeDecl(p mut Printer, d dense.ID[syntax.Node]) {
 		p.expr(the(x.Where))
 	}
 	let implements = p.ids(x.Implements)
-	if len(implements) > 0 {
+	if implements.Len() > 0 {
 		p.space()
 		p.token(p.tp(x.ImplementsPos), "implements")
 		for i, t in implements {
@@ -324,7 +325,7 @@ func assignRHS(p mut Printer, value dense.ID[syntax.Node]) {
 // and a closer on its own line follows a comma.
 func list(p mut Printer, openPos int, open string, itemStarts []int, item func(i int), closePos int, close string) {
 	p.tok(openPos, open)
-	if len(itemStarts) == 0 {
+	if itemStarts.Len() == 0 {
 		p.tok(closePos, close)
 		return
 	}
@@ -332,7 +333,7 @@ func list(p mut Printer, openPos int, open string, itemStarts []int, item func(i
 	// go/printer's exprList and parameters do.
 	let mut indented = false
 	let saved = p.ListIndented
-	for i in 0..len(itemStarts) {
+	for i in 0..itemStarts.Len() {
 		if i == 0 {
 			if p.gap(itemStarts[0], false) {
 				p.L.NoBlank = true
@@ -407,13 +408,13 @@ func fieldList(p mut Printer, l dense.ID[syntax.Node], open string, close string
 		}
 		let own = f.Own >= 0
 		if own {
-			if len(names) > 0 {
+			if names.Len() > 0 {
 				p.space()
 			}
 			p.token(p.tp(f.Own), "own")
 		}
 		if some(f.Type) {
-			if len(names) > 0 || own {
+			if names.Len() > 0 || own {
 				p.space()
 			}
 			p.typ(the(f.Type))
@@ -449,7 +450,7 @@ func signature(p mut Printer, ft dense.ID[syntax.Node]) {
 		p.space()
 		p.token(p.tp(tk.Takes), "takes")
 		let names = p.ids(tk.Names)
-		if len(names) > 0 {
+		if names.Len() > 0 {
 			p.space()
 			p.identList(names, true)
 		}
@@ -494,7 +495,7 @@ func members(p mut Printer, lbrace int, rbrace int, nodes []dense.ID[syntax.Node
 	}
 	if oneLine {
 		p.token(lbrace, "{")
-		for i in 0..len(nodes) {
+		for i in 0..nodes.Len() {
 			if i > 0 {
 				p.synth(",")
 				p.space()
@@ -503,14 +504,14 @@ func members(p mut Printer, lbrace int, rbrace int, nodes []dense.ID[syntax.Node
 			}
 			print(i, false)
 		}
-		if len(nodes) > 0 && !tight {
+		if nodes.Len() > 0 && !tight {
 			p.space()
 		}
 		p.token(rbrace, "}")
 		return
 	}
 	p.openBody(lbrace)
-	for i in 0..len(nodes) {
+	for i in 0..nodes.Len() {
 		p.bodyLine(i)
 		print(i, true)
 		p.synth(",")
@@ -558,7 +559,7 @@ func operationType(p mut Printer, t dense.ID[syntax.Node]) {
 	let mut terms = []dense.ID[syntax.Node]{}
 	for m in p.ids(x.Members) {
 		if p.kind(m) != syntax.KField && p.kind(m) != syntax.KLawDecl && p.kind(m) != syntax.KTestDecl {
-			if len(terms) == 0 {
+			if terms.Len() == 0 {
 				nodes = nodes.Append(m)
 			}
 			terms = terms.Append(m)
@@ -630,7 +631,7 @@ func lawBody(p mut Printer, b dense.ID[syntax.Node]) {
 	for s in stmts {
 		oneLine = oneLine && !forcesBreak(p.P.Tree, s)
 	}
-	if !oneLine || len(stmts) < 2 {
+	if !oneLine || stmts.Len() < 2 {
 		p.block(b, true)
 		return
 	}
@@ -707,7 +708,7 @@ func machineType(p mut Printer, t dense.ID[syntax.Node]) {
 			laws = laws.Append(m)
 		}
 	}
-	let ne = len(entries)
+	let ne = entries.Len()
 	let mut nodes = entries
 	for l in laws {
 		nodes = nodes.Append(l)
@@ -782,7 +783,7 @@ func memberLaw(p mut Printer, l dense.ID[syntax.Node]) {
 		// The rewrite form (types.md, Laws 14): its Body is synthetic, the
 		// guard (when written) then the left and right blocks.
 		let stmts = p.ids(syntax.BlockStmtOf(p.P.Tree, the(x.Body)).List)
-		let n = len(stmts)
+		let n = stmts.Len()
 		if x.When >= 0 {
 			p.token(p.tp(x.When), "when")
 			p.space()
@@ -850,7 +851,7 @@ func printContext(p mut Printer, contextPos int, prov dense.Opt[syntax.Node], fa
 // elements becomes a line break), and nothing inside it prints on several
 // lines.
 func oneLine(p mut Printer, lbrace int, rbrace int, contents []dense.ID[syntax.Node]) bool {
-	if p.ln(lbrace) != p.ln(rbrace) || len(contents) > 1 {
+	if p.ln(lbrace) != p.ln(rbrace) || contents.Len() > 1 {
 		return false
 	}
 	for x in contents {
@@ -887,7 +888,7 @@ func block(p mut Printer, b dense.ID[syntax.Node], oneLineOK bool) {
 	let rbrace = p.tp(x.Rbrace)
 	if oneLineOK && p.oneLine(lbrace, rbrace, stmts) {
 		p.token(lbrace, "{")
-		if len(stmts) == 1 {
+		if stmts.Len() == 1 {
 			p.space()
 			p.stmt(stmts[0])
 			p.space()
@@ -989,7 +990,7 @@ func stmt(p mut Printer, x dense.ID[syntax.Node]) {
 		p.token(p.tp(s.Switch), "match")
 		p.space()
 		let subjects = if p.kind(s.Subject) == syntax.KTupleExpr { p.ids(syntax.TupleExprOf(p.P.Tree, s.Subject).Elts) } else { []dense.ID[syntax.Node]{s.Subject} }
-		if len(subjects) == 1 {
+		if subjects.Len() == 1 {
 			p.expr(subjects[0])
 		} else {
 			p.synth("(")
@@ -1086,7 +1087,7 @@ func clauses(p mut Printer, lbrace int, arms []dense.ID[syntax.Node], rbrace int
 		p.L.Indent = base + 1
 		p.stmtList(p.ids(a.Body))
 	}
-	if len(arms) > 0 {
+	if arms.Len() > 0 {
 		p.newline()
 		p.flushClauseComments(rbrace)
 	}
@@ -1101,7 +1102,7 @@ func clauses(p mut Printer, lbrace int, arms []dense.ID[syntax.Node], rbrace int
 func caseHead(p mut Printer, casePos int, patterns []dense.ID[syntax.Node], colon int) {
 	p.token(casePos, "case")
 	p.space()
-	if len(patterns) == 0 {
+	if patterns.Len() == 0 {
 		p.synth("_")
 	} else {
 		p.exprList(patterns, 1)
@@ -1346,12 +1347,12 @@ func call(p mut Printer, x dense.ID[syntax.Node], depth int) {
 	p.expr1(fun, depth)
 	// The trailing function literal goes back after the `)` (grammar.md,
 	// Expressions 9).
-	let args = if c.TrailingFunc { slices.Slice(all, 0, len(all)-1) } else { all }
-	let argDepth = if len(args) > 1 { depth + 1 } else { depth }
+	let args = if c.TrailingFunc { slices.Slice(all, 0, all.Len()-1) } else { all }
+	let argDepth = if args.Len() > 1 { depth + 1 } else { depth }
 	p.list(p.tp(c.Lparen), "(", p.starts(args), func(i int) { p.expr1(args[i], argDepth) }, p.tp(c.Rparen), ")")
 	if c.TrailingFunc {
 		p.space()
-		p.expr1(all[len(all)-1], depth)
+		p.expr1(all[all.Len()-1], depth)
 	}
 	if some(c.Trailing) {
 		p.space()
@@ -1501,7 +1502,7 @@ func diffPrec(p mut Printer, x dense.ID[syntax.Node], prec int) int {
 // length.
 func walkBinary(p mut Printer, e dense.ID[syntax.Node]) Walk {
 	let i = dense.Index(e)
-	if len(p.WalkedSet) == 0 {
+	if p.WalkedSet.Len() == 0 {
 		let n = syntax.NumNodes(p.P.Tree)
 		p.Walked = slices.Repeat([]Walk{Walk{Has4: false, Has5: false, MaxProblem: 0}}, n)
 		p.WalkedSet = slices.Repeat([]bool{false}, n)

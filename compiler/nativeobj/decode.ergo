@@ -20,7 +20,7 @@ type ArMember { Name string, Data string }
 func decimal(s string) int fails Bad {
 	let mut n = 0
 	let mut digits = 0
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		let c = int(s[i])
 		if c == 32 {
 			continue
@@ -38,7 +38,7 @@ func decimal(s string) int fails Bad {
 }
 
 func trimRight(s string) string {
-	let mut n = len(s)
+	let mut n = s.Len()
 	for n > 0 && int(s[n-1]) == 32 {
 		n = n - 1
 	}
@@ -48,13 +48,13 @@ func trimRight(s string) string {
 // ReadAr reads the members of an ar archive.
 func ReadAr(data string) []ArMember fails Bad {
 	let magic = "!<arch>\n"
-	if len(data) < len(magic) || data[0:len(magic)] != magic {
+	if data.Len() < magic.Len() || data[0:magic.Len()] != magic {
 		return Bad{Why: "no ar magic"}
 	}
-	let mut at = len(magic)
+	let mut at = magic.Len()
 	let mut out = []ArMember{}
-	for at < len(data) {
-		if at+60 > len(data) {
+	for at < data.Len() {
+		if at+60 > data.Len() {
 			return Bad{Why: "member header cut at \(at)"}
 		}
 		let h = data[at : at+60]
@@ -63,7 +63,7 @@ func ReadAr(data string) []ArMember fails Bad {
 		}
 		let size = try decimal(h[48:58])
 		at = at + 60
-		if at+size > len(data) {
+		if at+size > data.Len() {
 			return Bad{Why: "member \(trimRight(h[0:16])) runs past the archive"}
 		}
 		out = out.Append(ArMember{Name: trimRight(h[0:16]), Data: data[at : at+size]})
@@ -74,7 +74,7 @@ func ReadAr(data string) []ArMember fails Bad {
 
 // firstLine is s up to and with its first line end ("" when none).
 func firstLine(s string) string {
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		if int(s[i]) == 10 {
 			return s[0 : i+1]
 		}
@@ -95,21 +95,21 @@ func SplitPkgDef(m string) PkgDefParts fails Bad {
 		return Bad{Why: "__.PKGDEF has no header line"}
 	}
 	// Header lines run up to the line that starts with "$$".
-	let mut at = len(header)
-	for at+2 <= len(m) && m[at:at+2] != "$$" {
-		let line = firstLine(m[at:len(m)])
+	let mut at = header.Len()
+	for at+2 <= m.Len() && m[at:at+2] != "$$" {
+		let line = firstLine(m[at:m.Len()])
 		if line == "" {
 			return Bad{Why: "__.PKGDEF has no export data marker"}
 		}
-		at = at + len(line)
+		at = at + line.Len()
 	}
 	let open = "$$B\nu"
-	if len(m) < at+len(open)+4 || m[at:at+len(open)] != open {
+	if m.Len() < at+open.Len()+4 || m[at:at+open.Len()] != open {
 		return Bad{Why: "__.PKGDEF has no unified export data after its header"}
 	}
-	let start = at + len(open)
-	let end = len(m) - 4
-	if m[end:len(m)] != "\n$$\n" {
+	let start = at + open.Len()
+	let end = m.Len() - 4
+	if m[end:m.Len()] != "\n$$\n" {
 		return Bad{Why: "__.PKGDEF does not end with the export data marker"}
 	}
 	PkgDefParts{Header: header, Export: m[start:end]}
@@ -122,9 +122,9 @@ type ObjParts { Header string, Object string }
 // then everything after the first "\n!\n".
 func SplitObj(m string) ObjParts fails Bad {
 	let header = firstLine(m)
-	for i in len(header)-1..len(m)-2 {
+	for i in header.Len()-1..m.Len()-2 {
 		if m[i:i+3] == "\n!\n" {
-			return ObjParts{Header: header, Object: m[i+3 : len(m)]}
+			return ObjParts{Header: header, Object: m[i+3 : m.Len()]}
 		}
 	}
 	Bad{Why: "_go_.o has no object after its header"}
@@ -180,7 +180,7 @@ func ref(er mut elemReader, sec int) int fails Bad {
 	case Short as s:
 		return short(s)
 	}
-	if k < 0 || k >= len(er.refs) || er.refs[k].Sec != sec {
+	if k < 0 || k >= er.refs.Len() || er.refs[k].Sec != sec {
 		return Bad{Why: "reference \(k) is not into section \(sec)"}
 	}
 	er.refs[k].Idx
@@ -249,11 +249,11 @@ func ReadExport(blob string) ExportInfo fails Bad {
 	}
 	let dataAt = r.At
 	let size = if total == 0 { 0 } else { elemEnd[total-1] }
-	if dataAt+size+8 != len(blob) {
-		return Bad{Why: "export data of \(len(blob)) bytes holds \(dataAt + size) and an 8-byte fingerprint"}
+	if dataAt+size+8 != blob.Len() {
+		return Bad{Why: "export data of \(blob.Len()) bytes holds \(dataAt + size) and an 8-byte fingerprint"}
 	}
 	let body = blob[0 : dataAt+size]
-	let fp = blob[dataAt+size : len(blob)]
+	let fp = blob[dataAt+size : blob.Len()]
 	let e = elems{blob: blob, secEnd: secEnd, elemEnd: elemEnd, dataAt: dataAt}
 	let mut pub = try e.open(SecMeta, 0)
 	let pkg = try pub.ref(SecPkg)
@@ -315,7 +315,7 @@ type DObj {
 }
 
 func le(data string, at int, n int) int fails Bad {
-	if at < 0 || at+n > len(data) {
+	if at < 0 || at+n > data.Len() {
 		return Bad{Why: "object field at \(at) past the end"}
 	}
 	LE(data, at, n)
@@ -329,7 +329,7 @@ func sext(x int, bits int) int {
 func strAt(data string, at int) string fails Bad {
 	let n = try le(data, at, 4)
 	let off = try le(data, at+4, 4)
-	if off+n > len(data) {
+	if off+n > data.Len() {
 		return Bad{Why: "string at \(off) of \(n) bytes past the end"}
 	}
 	data[off : off+n]
@@ -342,7 +342,7 @@ func symAt(data string, at int) DSym fails Bad {
 
 // ReadObject decodes an object file.
 func ReadObject(data string) DObj fails Bad {
-	if len(data) < HeaderSize || data[0:8] != ObjMagic {
+	if data.Len() < HeaderSize || data[0:8] != ObjMagic {
 		return Bad{Why: "no object magic"}
 	}
 	let fp = data[8:16]
@@ -351,7 +351,7 @@ func ReadObject(data string) DObj fails Bad {
 		offs = offs.Append(try le(data, 20+4*i, 4))
 	}
 	for i in 1..NBlk {
-		if offs[i] < offs[i-1] || offs[i] > len(data) {
+		if offs[i] < offs[i-1] || offs[i] > data.Len() {
 			return Bad{Why: "block \(i) offset out of order"}
 		}
 	}
@@ -382,7 +382,7 @@ func ReadObject(data string) DObj fails Bad {
 		refs = refs.Append(try symAt(data, at))
 		at = at + 21
 	}
-	let n = len(defs)
+	let n = defs.Len()
 	let mut relocs = [][]DReloc{}
 	let mut auxs = [][]DAux{}
 	let mut datas = []string{}
@@ -403,8 +403,8 @@ func ReadObject(data string) DObj fails Bad {
 				target = defs[idx].Name
 				own = idx
 			} else if pkg == PkgIdxNone {
-				if idx >= len(refs) {
-					return Bad{Why: "a relocation names reference \(idx) of \(len(refs))"}
+				if idx >= refs.Len() {
+					return Bad{Why: "a relocation names reference \(idx) of \(refs.Len())"}
 				}
 				target = refs[idx].Name
 			} else if pkg != 0 {
@@ -445,7 +445,7 @@ type Ins { Pc int, Size int, Op int, R int, B int, Mem bool, Rip bool, Disp int,
 func Disasm(code string) []Ins fails Bad {
 	let mut out = []Ins{}
 	let mut pc = 0
-	for pc < len(code) {
+	for pc < code.Len() {
 		let start = pc
 		let mut b = int(code[pc])
 		let mut rex = 0
@@ -519,7 +519,7 @@ func Decode(ar string) Decoded fails Bad {
 	for m in ms {
 		names = names.Append(m.Name)
 	}
-	if len(ms) != 2 || ms[0].Name != "__.PKGDEF" || ms[1].Name != "_go_.o" {
+	if ms.Len() != 2 || ms[0].Name != "__.PKGDEF" || ms[1].Name != "_go_.o" {
 		return Bad{Why: "members \(strings.Join(names, ",")), not __.PKGDEF then _go_.o"}
 	}
 	let pd = try SplitPkgDef(ms[0].Data)
@@ -542,7 +542,7 @@ func ReadStockExport(ar string) ExportInfo fails Bad {
 // StockHeader is the header line of a stock archive's first member.
 func StockHeader(ar string) string fails Bad {
 	let ms = try ReadAr(ar)
-	if len(ms) == 0 {
+	if ms.Len() == 0 {
 		return Bad{Why: "an empty archive"}
 	}
 	firstLine(ms[0].Data)

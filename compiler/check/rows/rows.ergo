@@ -36,6 +36,7 @@ import compiler/check/store
 import compiler/check/types
 import compiler/syntax
 import dense
+import option
 import slices
 
 // The two clauses a site exceeds.
@@ -70,7 +71,7 @@ type walker {
 	// result is the declaration's one result, none for none or several;
 	// failures is each named type an error row of the package lists (an
 	// error type: types.md, Error types 1).
-	result   Option[dense.ID[store.TKey]],
+	result   option.Option[dense.ID[store.TKey]],
 	failures []dense.ID[store.TKey],
 }
 
@@ -120,7 +121,7 @@ func Rows(s store.Store, k expr.Pkg, t expr.Typer) []diag.Diag {
 			dense.SetOf(&ks, c.Call, dense.OptOf(c.T))
 		}
 	}
-	let mut w = walker{types: ts, calls: cs, caps: ks, lits: ls, litRows: t.Lits, decs: ds, decRows: t.Decodes, file: 0, errs: []dense.ID[store.TKey]{}, uses: []dense.ID[store.TKey]{}, known: []bool{true, true}, tries: 0, sites: []site{}, lit: false, result: None, failures: errorTypes(s, k)}
+	let mut w = walker{types: ts, calls: cs, caps: ks, lits: ls, litRows: t.Lits, decs: ds, decRows: t.Decodes, file: 0, errs: []dense.ID[store.TKey]{}, uses: []dense.ID[store.TKey]{}, known: []bool{true, true}, tries: 0, sites: []site{}, lit: false, result: option.None, failures: errorTypes(s, k)}
 	let mut out = []diag.Diag{}
 	let mut seen = Map[string, bool]{}
 	for f in k.Fns {
@@ -138,9 +139,9 @@ func Rows(s store.Store, k expr.Pkg, t expr.Typer) []diag.Diag {
 			w.tries = 0
 			w.sites = []site{}
 			match dense.Unpack(syntax.TestDeclOf(p.Tree, f.Decl).Body) {
-			case Some[dense.ID[syntax.Node]] as tb:
+			case option.Some[dense.ID[syntax.Node]] as tb:
 				body(&w, s, k, tb.Value)
-			case None:
+			case option.None:
 			}
 			for d in reportTest(&w, s, k, f) {
 				let key = "\(d.File):\(d.Offset):\(d.Code):\(d.Message)"
@@ -156,15 +157,15 @@ func Rows(s store.Store, k expr.Pkg, t expr.Typer) []diag.Diag {
 		}
 		let fd = syntax.FuncDeclOf(p.Tree, f.Decl)
 		match dense.Unpack(f.Body) {
-		case Some[dense.ID[syntax.Node]] as b:
+		case option.Some[dense.ID[syntax.Node]] as b:
 			let ops = store.OperandsOf(s, f.Sig)
-			if len(ops) < 3 {
+			if ops.Len() < 3 {
 				continue
 			}
 			w.file = f.File
-			w.errs = store.OperandsOf(s, ops[len(ops)-2])
-			w.uses = store.OperandsOf(s, ops[len(ops)-1])
-			w.result = oneResult(s, ops[len(ops)-3])
+			w.errs = store.OperandsOf(s, ops[ops.Len()-2])
+			w.uses = store.OperandsOf(s, ops[ops.Len()-1])
+			w.result = oneResult(s, ops[ops.Len()-3])
 			w.known = []bool{simple(s, w.errs), simple(s, w.uses)}
 			w.tries = 0
 			w.sites = []site{}
@@ -176,17 +177,17 @@ func Rows(s store.Store, k expr.Pkg, t expr.Typer) []diag.Diag {
 					out = out.Append(d)
 				}
 			}
-		case None:
+		case option.None:
 		}
 	}
 	diag.Sorted(out)
 }
 
-func isSome[T](o Option[T]) bool {
+func isSome[T](o option.Option[T]) bool {
 	match o {
-	case Some[T]:
+	case option.Some[T]:
 		true
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -199,7 +200,7 @@ func simple(s store.Store, row []dense.ID[store.TKey]) bool {
 		if k != store.KNamed && k != store.KInstance && k != store.KForeign {
 			return false
 		}
-		if k == store.KInstance && len(store.OperandsOf(s, e)) > 0 {
+		if k == store.KInstance && store.OperandsOf(s, e).Len() > 0 {
 			return false
 		}
 	}
@@ -243,9 +244,9 @@ func tailStmt(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node]) 
 		walk(w, s, k, is.Cond)
 		body(w, s, k, is.Body)
 		match dense.Unpack(is.Else) {
-		case Some[dense.ID[syntax.Node]] as e:
+		case option.Some[dense.ID[syntax.Node]] as e:
 			if syntax.KindOf(tr, e.Value) == syntax.KBlockStmt { body(w, s, k, e.Value) } else { tailStmt(w, s, k, e.Value) }
-		case None:
+		case option.None:
 		}
 	case syntax.SwitchStmt as ss:
 		walk(w, s, k, ss.Tag)
@@ -281,7 +282,7 @@ func valueAt(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node], a
 	let tr = k.Parsed[w.file].Tree
 	let y = un(tr, x)
 	if syntax.KindOf(tr, y) == syntax.KCallExpr {
-		call(w, s, k, y, Some[dense.ID[syntax.Node]]{Value: at})
+		call(w, s, k, y, option.Some[dense.ID[syntax.Node]]{Value: at})
 	} else {
 		walk(w, s, k, x)
 		errorValue(w, s, k, x, at)
@@ -299,9 +300,9 @@ func errorValue(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node]
 		return
 	}
 	let r = match w.result {
-	case Some[dense.ID[store.TKey]] as r:
+	case option.Some[dense.ID[store.TKey]] as r:
 		r.Value
-	case None:
+	case option.None:
 		return
 	}
 	let n = bind.PNodeOf(k.Ps, w.file, un(k.Parsed[w.file].Tree, x))
@@ -309,7 +310,7 @@ func errorValue(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node]
 		return
 	}
 	match dense.Unpack(dense.Of(w.types, n)) {
-	case Some[dense.ID[store.TKey]] as ty:
+	case option.Some[dense.ID[store.TKey]] as ty:
 		let t = ty.Value
 		if t == r || !slices.Contains(w.failures, t) {
 			return
@@ -322,7 +323,7 @@ func errorValue(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node]
 			return
 		}
 		escape(w, at, []dense.ID[store.TKey]{t})
-	case None:
+	case option.None:
 	}
 }
 
@@ -339,8 +340,8 @@ func isRecord(k expr.Pkg, name string) bool {
 
 // oneResult is a signature's result when it is one type: none for no
 // result (the empty tuple) or a tuple of several.
-func oneResult(s store.Store, r dense.ID[store.TKey]) Option[dense.ID[store.TKey]] {
-	if store.KindOfType(s, r) == store.KTuple { None } else { Some[dense.ID[store.TKey]]{Value: r} }
+func oneResult(s store.Store, r dense.ID[store.TKey]) option.Option[dense.ID[store.TKey]] {
+	if store.KindOfType(s, r) == store.KTuple { option.None } else { option.Some[dense.ID[store.TKey]]{Value: r} }
 }
 
 // errorTypes is each of the package's named types that an error row of
@@ -349,10 +350,10 @@ func errorTypes(s store.Store, k expr.Pkg) []dense.ID[store.TKey] {
 	let mut out = []dense.ID[store.TKey]{}
 	for f in k.Fns {
 		let ops = store.OperandsOf(s, f.Sig)
-		if len(ops) < 3 {
+		if ops.Len() < 3 {
 			continue
 		}
-		for e in store.OperandsOf(s, ops[len(ops)-2]) {
+		for e in store.OperandsOf(s, ops[ops.Len()-2]) {
 			if store.KindOfType(s, e) == store.KNamed && !slices.Contains(out, e) {
 				out = out.Append(e)
 			}
@@ -375,7 +376,7 @@ func walk(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node]) {
 		return
 	}
 	if kind == syntax.KCallExpr {
-		let at = if w.tries > 0 { Some[dense.ID[syntax.Node]]{Value: x} } else { None }
+		let at = if w.tries > 0 { option.Some[dense.ID[syntax.Node]]{Value: x} } else { option.None }
 		call(w, s, k, x, at)
 		return
 	}
@@ -388,7 +389,7 @@ func walk(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node]) {
 		}
 		w.tries = w.tries + 1
 		if syntax.KindOf(tr, y) == syntax.KCallExpr {
-			call(w, s, k, y, Some[dense.ID[syntax.Node]]{Value: x})
+			call(w, s, k, y, option.Some[dense.ID[syntax.Node]]{Value: x})
 		} else {
 			walk(w, s, k, te.X)
 		}
@@ -409,9 +410,9 @@ func walk(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node]) {
 	}
 	if kind == syntax.KReturnStmt {
 		match dense.Unpack(syntax.ReturnStmtOf(tr, x).Result) {
-		case Some[dense.ID[syntax.Node]] as r:
+		case option.Some[dense.ID[syntax.Node]] as r:
 			valueAt(w, s, k, r.Value, r.Value)
-		case None:
+		case option.None:
 		}
 		return
 	}
@@ -453,12 +454,12 @@ func funcLit(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node]) {
 
 // rowOf is the elements of a literal's row and whether it is known: a row
 // it infers, or one with an element this pass does not read, is not.
-func rowOf(s store.Store, r Option[dense.ID[store.TKey]]) ([]dense.ID[store.TKey], bool) {
+func rowOf(s store.Store, r option.Option[dense.ID[store.TKey]]) ([]dense.ID[store.TKey], bool) {
 	match r {
-	case Some[dense.ID[store.TKey]] as row:
+	case option.Some[dense.ID[store.TKey]] as row:
 		let xs = store.OperandsOf(s, row.Value)
 		(xs, simple(s, xs))
-	case None:
+	case option.None:
 		([]dense.ID[store.TKey]{}, false)
 	}
 }
@@ -484,13 +485,13 @@ func tryCatch(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node], 
 		return
 	}
 	let row = match sigOf(w, s, k, op, syntax.CallExprOf(tr, op).Fun) {
-	case Some[dense.ID[store.TKey]] as sig:
+	case option.Some[dense.ID[store.TKey]] as sig:
 		let ops = store.OperandsOf(s, sig.Value)
-		if len(ops) < 3 {
+		if ops.Len() < 3 {
 			return
 		}
-		store.OperandsOf(s, ops[len(ops)-2])
-	case None:
+		store.OperandsOf(s, ops[ops.Len()-2])
+	case option.None:
 		return
 	}
 	for e in row {
@@ -525,7 +526,7 @@ func tryCatch(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node], 
 			rest = rest.Append(e)
 		}
 	}
-	if len(rest) > 0 {
+	if rest.Len() > 0 {
 		escape(w, x, rest)
 	}
 }
@@ -535,7 +536,7 @@ func tryCatch(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node], 
 func walkNoEscape(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node]) {
 	let tr = k.Parsed[w.file].Tree
 	if syntax.KindOf(tr, un(tr, x)) == syntax.KCallExpr {
-		call(w, s, k, un(tr, x), None)
+		call(w, s, k, un(tr, x), option.None)
 	} else {
 		walk(w, s, k, x)
 	}
@@ -543,17 +544,17 @@ func walkNoEscape(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Nod
 
 // call walks the call x: its callee and arguments, then what it charges
 // and, when esc is set, its failure escaping at esc.
-func call(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node], esc Option[dense.ID[syntax.Node]]) {
+func call(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node], esc option.Option[dense.ID[syntax.Node]]) {
 	let tr = k.Parsed[w.file].Tree
 	let c = syntax.CallExprOf(tr, x)
 	match dense.Unpack(c.Trailing) {
-	case Some[dense.ID[syntax.Node]] as b:
+	case option.Some[dense.ID[syntax.Node]] as b:
 		if isWith(k.Parsed[w.file], c.Fun) && syntax.KindOf(tr, b.Value) == syntax.KBlockStmt {
 			withBlock(w, s, k, b.Value)
 		}
 		// A go block or a block argument: not walked yet.
 		return
-	case None:
+	case option.None:
 	}
 	walk(w, s, k, c.Fun)
 	for i in 0..syntax.Len(c.Args) {
@@ -561,7 +562,7 @@ func call(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node], esc 
 		if w.tries > 0 && syntax.KindOf(tr, un(tr, a)) == syntax.KCallExpr {
 			// Under try an argument's failure escapes at the argument
 			// (handled, argValue).
-			call(w, s, k, un(tr, a), Some[dense.ID[syntax.Node]]{Value: a})
+			call(w, s, k, un(tr, a), option.Some[dense.ID[syntax.Node]]{Value: a})
 		} else {
 			walk(w, s, k, a)
 		}
@@ -569,44 +570,44 @@ func call(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node], esc 
 	let n = bind.PNodeOf(k.Ps, w.file, x)
 	if dense.In(w.caps, n) {
 		match dense.Unpack(dense.Of(w.caps, n)) {
-		case Some[dense.ID[store.TKey]] as cap:
+		case option.Some[dense.ID[store.TKey]] as cap:
 			charge(w, s, x, cap.Value)
-		case None:
+		case option.None:
 		}
 	}
 	if dense.In(w.decs, n) && dense.Of(w.decs, n) >= 0 {
 		// decode[T](r): its row is the codec's (expr.DecodeRow).
 		match esc {
-		case Some[dense.ID[syntax.Node]] as at:
+		case option.Some[dense.ID[syntax.Node]] as at:
 			let errs = w.decRows[dense.Of(w.decs, n)].Errs
 			if simple(s, errs) {
 				escape(w, at.Value, errs)
 			}
-		case None:
+		case option.None:
 		}
 		return
 	}
 	match sigOf(w, s, k, x, c.Fun) {
-	case Some[dense.ID[store.TKey]] as sig:
+	case option.Some[dense.ID[store.TKey]] as sig:
 		let ops = store.OperandsOf(s, sig.Value)
-		if len(ops) < 3 {
+		if ops.Len() < 3 {
 			return
 		}
-		let uses = store.OperandsOf(s, ops[len(ops)-1])
+		let uses = store.OperandsOf(s, ops[ops.Len()-1])
 		if simple(s, uses) {
 			for u in uses {
 				charge(w, s, x, u)
 			}
 		}
 		match esc {
-		case Some[dense.ID[syntax.Node]] as at:
-			let errs = store.OperandsOf(s, ops[len(ops)-2])
+		case option.Some[dense.ID[syntax.Node]] as at:
+			let errs = store.OperandsOf(s, ops[ops.Len()-2])
 			if simple(s, errs) {
 				escape(w, at.Value, errs)
 			}
-		case None:
+		case option.None:
 		}
-	case None:
+	case option.None:
 	}
 }
 
@@ -639,25 +640,25 @@ func withBlock(w mut walker, s store.Store, k expr.Pkg, b dense.ID[syntax.Node])
 
 // sigOf is the signature the typer gave the callee of the call x: the
 // package function it resolved, else the type of the callee expression.
-func sigOf(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node], fun dense.ID[syntax.Node]) Option[dense.ID[store.TKey]] {
+func sigOf(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node], fun dense.ID[syntax.Node]) option.Option[dense.ID[store.TKey]] {
 	let tr = k.Parsed[w.file].Tree
 	let n = bind.PNodeOf(k.Ps, w.file, x)
 	if dense.In(w.calls, n) {
 		match dense.Unpack(dense.Of(w.calls, n)) {
-		case Some[dense.ID[store.TKey]] as sig:
-			return Some[dense.ID[store.TKey]]{Value: sig.Value}
-		case None:
+		case option.Some[dense.ID[store.TKey]] as sig:
+			return option.Some[dense.ID[store.TKey]]{Value: sig.Value}
+		case option.None:
 		}
 	}
 	let f = bind.PNodeOf(k.Ps, w.file, un(tr, fun))
 	if !dense.In(w.types, f) {
-		return None
+		return option.None
 	}
 	match dense.Unpack(dense.Of(w.types, f)) {
-	case Some[dense.ID[store.TKey]] as ty:
-		if store.KindOfType(s, ty.Value) == store.KSig { Some[dense.ID[store.TKey]]{Value: ty.Value} } else { None }
-	case None:
-		None
+	case option.Some[dense.ID[store.TKey]] as ty:
+		if store.KindOfType(s, ty.Value) == store.KSig { option.Some[dense.ID[store.TKey]]{Value: ty.Value} } else { option.None }
+	case option.None:
+		option.None
 	}
 }
 
@@ -682,7 +683,7 @@ func escape(w mut walker, x dense.ID[syntax.Node], errs []dense.ID[store.TKey]) 
 			extra = extra.Append(e)
 		}
 	}
-	if len(extra) > 0 {
+	if extra.Len() > 0 {
 		w.sites = w.sites.Append(site{at: x, kind: kErrors, extra: extra, lit: w.lit, decl: w.errs})
 	}
 }

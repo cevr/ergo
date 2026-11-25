@@ -9,12 +9,13 @@ import compiler/check/store
 import compiler/check/types
 import compiler/syntax
 import dense
+import option
 import slices
 import strings
 
 // report is the diagnostics of the sites of the declaration f's body.
 func report(w mut walker, s store.Store, k expr.Pkg, f expr.Fn, fd syntax.FuncDecl) []diag.Diag {
-	if len(w.sites) == 0 {
+	if w.sites.Len() == 0 {
 		return []diag.Diag{}
 	}
 	let p = k.Parsed[f.File]
@@ -32,7 +33,7 @@ func report(w mut walker, s store.Store, k expr.Pkg, f expr.Fn, fd syntax.FuncDe
 	}
 	let mut writes = []string{"", ""}
 	for kind in 0..2 {
-		if len(missing[kind]) > 0 {
+		if missing[kind].Len() > 0 {
 			writes[kind] = "write: " + signature(s, names, p, fd, kind, missing[kind])
 		}
 	}
@@ -100,7 +101,7 @@ func reportTest(w mut walker, s store.Store, k expr.Pkg, f expr.Fn) []diag.Diag 
 					out = out.Append(diag.Diag{File: f.File, Offset: at, Length: spanLen(p, at, syntax.NodeEnd(p, st.at)), Code: "S102", Message: one})
 				}
 			}
-			if len(rest) == 0 {
+			if rest.Len() == 0 {
 				continue
 			}
 			extra = rest
@@ -121,7 +122,7 @@ func spanLen(p syntax.Parsed, at int, end int) int {
 	let mut n = if end > at { end - at } else { 0 }
 	let mut nl = -1
 	for i in at..at+n {
-		if i < len(src) && src[i] == '\n' {
+		if i < src.Len() && src[i] == '\n' {
 			nl = i - at
 			break
 		}
@@ -148,7 +149,7 @@ func spanLen(p syntax.Parsed, at int, end int) int {
 
 // rowText is a row as a message writes it, in braces (typeops.go rowText).
 func rowText(s store.Store, names types.Names, xs []dense.ID[store.TKey]) string {
-	if len(xs) == 0 {
+	if xs.Len() == 0 {
 		return "{}"
 	}
 	"{" + types.RowText(s, names, xs) + "}"
@@ -169,11 +170,11 @@ func signature(s store.Store, names types.Names, p syntax.Parsed, fd syntax.Func
 	let mut insertAt = syntax.NodeEnd(p, ft.Params)
 	let mut written = -1
 	match dense.Unpack(ft.Results) {
-	case Some[dense.ID[syntax.Node]] as r:
+	case option.Some[dense.ID[syntax.Node]] as r:
 		let fl = syntax.FieldListOf(tr, r.Value).List
 		for i in 0..syntax.Len(fl) {
 			match dense.Unpack(syntax.FieldOf(tr, syntax.Item(tr, fl, i)).Type) {
-			case Some[dense.ID[syntax.Node]] as ty:
+			case option.Some[dense.ID[syntax.Node]] as ty:
 				let e = syntax.NodeEnd(p, ty.Value)
 				if e > insertAt {
 					insertAt = e
@@ -185,20 +186,20 @@ func signature(s store.Store, names types.Names, p syntax.Parsed, fd syntax.Func
 						written = syntax.NodeEnd(p, syntax.Item(tr, er.Types, n-1))
 					}
 				}
-			case None:
+			case option.None:
 			}
 		}
-	case None:
+	case option.None:
 	}
 	if kind == kUses {
 		match dense.Unpack(ft.Needs) {
-		case Some[dense.ID[syntax.Node]] as nd:
+		case option.Some[dense.ID[syntax.Node]] as nd:
 			let nc = syntax.NeedsClauseOf(tr, nd.Value)
 			let n = syntax.Len(nc.Names)
 			if n > 0 {
 				written = syntax.NodeEnd(p, syntax.Item(tr, nc.Names, n-1))
 			}
-		case None:
+		case option.None:
 		}
 	}
 	let text = if written >= 0 { " | " + joined } else { " " + clause + " " + joined }
@@ -206,9 +207,9 @@ func signature(s store.Store, names types.Names, p syntax.Parsed, fd syntax.Func
 	let src = syntax.SourceOf(p)
 	let start = syntax.TokPos(p, fd.Func)
 	let end = match dense.Unpack(fd.Body) {
-	case Some[dense.ID[syntax.Node]] as b:
+	case option.Some[dense.ID[syntax.Node]] as b:
 		syntax.TokPos(p, syntax.BlockStmtOf(tr, b.Value).Lbrace)
-	case None:
+	case option.None:
 		at
 	}
 	strings.Join(strings.Fields(src[start:at]+text+src[at:end]), " ")
@@ -223,7 +224,7 @@ func harnessOf(s store.Store, k expr.Pkg, c dense.ID[store.TKey]) (string, strin
 		let name = store.TypeNameText(s, store.ArgOf(s, c))
 		return (name, types.Harness(k.Parsed, name))
 	}
-	if kind != store.KInstance || len(store.OperandsOf(s, c)) != 0 {
+	if kind != store.KInstance || store.OperandsOf(s, c).Len() != 0 {
 		return ("", "")
 	}
 	let o = store.OriginOfType(s, c)
@@ -231,11 +232,11 @@ func harnessOf(s store.Store, k expr.Pkg, c dense.ID[store.TKey]) (string, strin
 		let name = store.DeclText(s, int(o.Decl))
 		return (name, types.Harness(k.Parsed, name))
 	}
-	if int(o.Import) == store.ForeignBit || int(o.Import) > len(k.Ifaces) {
+	if int(o.Import) == store.ForeignBit || int(o.Import) > k.Ifaces.Len() {
 		return ("", "")
 	}
 	let ds = k.Ifaces[int(o.Import)-1].Decls
-	if int(o.Decl) >= len(ds) {
+	if int(o.Decl) >= ds.Len() {
 		return ("", "")
 	}
 	(ds[int(o.Decl)].Name, ds[int(o.Decl)].Harness)

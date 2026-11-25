@@ -6,8 +6,11 @@
 //
 // Effect: KeyValueStore.layerMemory. Go control: a map under a mutex.
 
+import codec
+import core
 import json
 import kv
+import option
 import slices
 import strings
 import sync
@@ -22,8 +25,8 @@ let emptyStore = context { kv.Store: New() }
 
 // Get is the value key holds. It reads the map inside the Ref's step, so
 // the Ref never hands the map out and a later put changes it in place.
-func Get(s Store, key string) Option[string] fails kv.Failed {
-	sync.Modify(s.entries, func(m Map[string, string]) (Option[string], Map[string, string]) { (m.Get(key), m) })
+func Get(s Store, key string) option.Option[string] fails kv.Failed {
+	sync.Modify(s.entries, func(m Map[string, string]) (option.Option[string], Map[string, string]) { (m.Get(key), m) })
 }
 
 // Put makes key hold value.
@@ -38,7 +41,7 @@ func Put(s Store, key string, value string) fails kv.Failed {
 // Delete makes key hold no value, and is whether it held one.
 func Delete(s Store, key string) bool fails kv.Failed {
 	sync.Modify(s.entries, func(m Map[string, string]) (bool, Map[string, string]) {
-		if m.Get(key) == None {
+		if m.Get(key) == option.None {
 			return (false, m)
 		}
 		(true, m.Delete(key))
@@ -49,7 +52,7 @@ func Delete(s Store, key string) bool fails kv.Failed {
 // the entries under prefix in one step of the Ref and sorts them, so it
 // yields one state of the store while other tasks change it.
 // seq-exempt: it is this provider's kv.Store.Scan, whose member law Store.ScanStops states its stop
-func Scan(s Store, prefix string) Seq[kv.Entry] fails kv.Failed {
+func Scan(s Store, prefix string) core.Seq[kv.Entry] fails kv.Failed {
 	let entries = s.entries
 	func(yield func(e kv.Entry) bool) {
 		let found = sync.Modify(entries, func(m Map[string, string]) ([]kv.Entry, Map[string, string]) { (under(m, prefix), m) })
@@ -84,14 +87,14 @@ law OfRoundTrips(key string, title string, tags []string, n int) {
 	let notes = kv.Of[note](s)
 	let x = note{Title: title, Tags: tags, N: n}
 	try notes.Put(key, x)
-	if try notes.Get(key) != (Some[note]{Value: x}) || !try notes.Delete(key) || try notes.Get(key) != None {
+	if try notes.Get(key) != (option.Some[note]{Value: x}) || !try notes.Delete(key) || try notes.Get(key) != option.None {
 		return false
 	}
 	try s.Put(key, "{")
 	let _ = notes.Get(key) catch {
 	case json.Malformed:
 		return true
-	case kv.Failed, WireMissingField, WireWrongKind:
+	case kv.Failed, codec.WireMissingField, codec.WireWrongKind:
 		return false
 	}
 	false

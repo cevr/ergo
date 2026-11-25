@@ -51,7 +51,7 @@ func Print(src string, limit int) Printed fails SyntaxFailure | OutputLimit {
 		CEnd:         []int{},
 		CText:        []string{},
 		Ci:           0,
-		L:            NewLayoutFor(len(src)),
+		L:            NewLayoutFor(src.Len()),
 		LastEnd:      NoPos,
 		LastTok:      NoPos,
 		LastEndLine:  0,

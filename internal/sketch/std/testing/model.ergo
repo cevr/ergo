@@ -1,4 +1,5 @@
 import gen
+import option
 import strings
 import sync
 import temporal
@@ -103,7 +104,7 @@ func runModel[S any, A, V comparable](m Model[S, A, V], st Stage[A, V], steps in
 			return Diverged[A, V]{Acts: played, At: step, Want: want, Got: got}
 		}
 		let at = time.Unix(int64(step), 0)
-		for i in 0..len(residuals) {
+		for i in 0..residuals.Len() {
 			let nextR = temporal.Step(residuals[i], got, at)
 			residuals[i] = nextR
 			if temporal.Decided(nextR) {
@@ -116,7 +117,7 @@ func runModel[S any, A, V comparable](m Model[S, A, V], st Stage[A, V], steps in
 		}
 		state = nextState
 	}
-	for i in 0..len(residuals) {
+	for i in 0..residuals.Len() {
 		match temporal.Stop(residuals[i], end) {
 		case temporal.Holds:
 		case temporal.Violated as v:
@@ -211,22 +212,22 @@ func probeStageStep(pm probeMachine, s int, a int) (int, int) {
 // configured answer function without Go runtime externs so derived providers
 // run identically at check time and in native test builds.
 type FuncOp[A, F] {
-	answer sync.Ref[Option[F]],
+	answer sync.Ref[option.Option[F]],
 }
 
 // NewFuncOp constructs an unset FuncOp cell.
 func NewFuncOp[A, F]() FuncOp[A, F] {
-	FuncOp[A, F]{answer: sync.NewRef[Option[F]](None)}
+	FuncOp[A, F]{answer: sync.NewRef[option.Option[F]](option.None)}
 }
 
 // Call returns the configured answer function stored in op.
-func Call[A, F](op FuncOp[A, F], a A) Option[F] {
+func Call[A, F](op FuncOp[A, F], a A) option.Option[F] {
 	let _ = a
 	op.answer.Get()
 }
 
 // Set installs f as the answer function for op.
-func Set[A, F](op FuncOp[A, F], f F) { op.answer.Set(Some[F]{Value: f}) }
+func Set[A, F](op FuncOp[A, F], f F) { op.answer.Set(option.Some[F]{Value: f}) }
 
 // FuncProvider derives a pure-Ergo provider for any operation type S whose
 // operations are wired via Set on each FuncOp field.
@@ -292,7 +293,7 @@ func bfsFindsDivergence(pm probeMachine, maxSteps int) bool {
 }
 
 func replayDivergence(pm probeMachine, d Diverged[int, int]) bool {
-	if len(d.Acts) != d.At+1 || d.Want == d.Got {
+	if d.Acts.Len() != d.At+1 || d.Want == d.Got {
 		return false
 	}
 	let st = newProbeStage(pm)
@@ -347,12 +348,12 @@ law DivergenceIsFoundAndReplays(specSeed int, bugState int, bugAct int, transien
 	let buggyPM = makeProbeMachine(specSeed, bugState, bugAct, true, transient)
 	let buggyModel = probeModelOf(buggyPM)
 	let expectedReachable = bfsFindsDivergence(buggyPM, steps)
-	let foundRef = sync.NewRef[Option[Diverged[int, int]]](None)
+	let foundRef = sync.NewRef[option.Option[Diverged[int, int]]](option.None)
 	let buggyCfg = gen.Config{Seed: uint64(modPos(specSeed, 100) + 1), Cases: 40, Shrinks: 0, MaxDraws: 512, MaxRejected: 10}
 	let _ = gen.Check(buggyCfg, func() bool fails gen.Rejected needs gen.Draws {
 		Agrees(buggyModel, newProbeStage(buggyPM), steps) catch {
 		case Diverged[int, int] as d:
-			foundRef.Set(Some[Diverged[int, int]]{Value: d})
+			foundRef.Set(option.Some[Diverged[int, int]]{Value: d})
 			return false
 		case Refused:
 			return false
@@ -360,9 +361,9 @@ law DivergenceIsFoundAndReplays(specSeed int, bugState int, bugAct int, transien
 		true
 	})
 	match foundRef.Get() {
-	case Some[Diverged[int, int]] as d:
+	case option.Some[Diverged[int, int]] as d:
 		expectedReachable && replayDivergence(buggyPM, d.Value)
-	case None:
+	case option.None:
 		!expectedReachable
 	}
 }
@@ -407,7 +408,7 @@ law StoryStepsBeforeStage(stepsRaw int) {
 		true
 	})
 	let entries = log.Get()
-	if len(entries) != steps*2 {
+	if entries.Len() != steps*2 {
 		return false
 	}
 	for i in 0..steps {
@@ -470,7 +471,7 @@ law AgreesAndChecksTemporal(stepsRaw int) {
 		case TemporalBreach[int, int] as tb:
 			match tb.Verdict {
 			case temporal.Violated:
-				alwaysHit.Set(tb.FormulaIndex == 0 && len(tb.Acts) == 2 && tb.Last == 2)
+				alwaysHit.Set(tb.FormulaIndex == 0 && tb.Acts.Len() == 2 && tb.Last == 2)
 			case temporal.Holds, temporal.Open:
 			}
 			return false
@@ -489,7 +490,7 @@ law AgreesAndChecksTemporal(stepsRaw int) {
 		case TemporalBreach[int, int] as tb:
 			match tb.Verdict {
 			case temporal.Open:
-				cutOpen.Set(tb.FormulaIndex == 0 && len(tb.Acts) == steps)
+				cutOpen.Set(tb.FormulaIndex == 0 && tb.Acts.Len() == steps)
 			case temporal.Holds, temporal.Violated:
 			}
 			return false
@@ -508,7 +509,7 @@ law AgreesAndChecksTemporal(stepsRaw int) {
 		case TemporalBreach[int, int] as tb:
 			match tb.Verdict {
 			case temporal.Violated:
-				idleViol.Set(tb.FormulaIndex == 0 && len(tb.Acts) == steps)
+				idleViol.Set(tb.FormulaIndex == 0 && tb.Acts.Len() == steps)
 			case temporal.Holds, temporal.Open:
 			}
 			return false
@@ -527,19 +528,19 @@ func counterMachineStep(s int, a int) Decision[int, int] {
 	Emit[int, int]{Next: s + a, Output: s + a}
 }
 
-func counterMachineTimer(s int) Option[Timeout[int]] {
+func counterMachineTimer(s int) option.Option[Timeout[int]] {
 	let _ = s
-	None
+	option.None
 }
 
-func counterMachineWork(s int) Option[func(send func(e int))] {
+func counterMachineWork(s int) option.Option[func(send func(e int))] {
 	let _ = s
-	None
+	option.None
 }
 
-func counterMachineExit(s int) Option[func()] {
+func counterMachineExit(s int) option.Option[func()] {
 	let _ = s
-	None
+	option.None
 }
 
 // ModelOfMatchesMachine: ModelOf adapts a pure Ergo Machine into a Model that

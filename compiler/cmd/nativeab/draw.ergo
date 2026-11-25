@@ -30,7 +30,7 @@ let Edits = []string{"cold", "none", "private", "public"}
 // export version.
 func keys(priv []int, pub []int) []string {
 	let mut out = []string{}
-	for i in 0..len(priv) {
+	for i in 0..priv.Len() {
 		let dep = if i == 0 { "-" } else { "\(pub[i-1])" }
 		out = out.Append("\(priv[i]):\(pub[i]):\(dep)")
 	}
@@ -82,7 +82,7 @@ type CacheCase { N int, Kind string, At int }
 
 func drawCacheCase(n int, kind int, at int) CacheCase {
 	let m = 1 + mod(n, 6)
-	CacheCase{N: m, Kind: Edits[mod(kind, len(Edits))], At: mod(at, m)}
+	CacheCase{N: m, Kind: Edits[mod(kind, Edits.Len())], At: mod(at, m)}
 }
 
 func cacheAgrees(c CacheCase) bool {
@@ -103,14 +103,14 @@ func stagesOf(route string) []string {
 
 // Draw is the build of seed.
 func Draw(seed int) Case {
-	with context { Random: rand.Seeded(uint64(seed)) } { draw() }
+	with context { rand.Random: rand.Seeded(uint64(seed)) } { draw() }
 }
 
-func draw() Case needs Random {
-	let n = 1 + Random.IntN(4)
+func draw() Case needs rand.Random {
+	let n = 1 + rand.Random.IntN(4)
 	let mut pkgs = []Package{}
 	for i in 0..n {
-		let r = Random.IntN(3)
+		let r = rand.Random.IntN(3)
 		let p = if r == 0 {
 			Package{Name: "p\(i)", Origin: "ergo", Route: "A"}
 		} else if r == 1 {
@@ -120,8 +120,8 @@ func draw() Case needs Random {
 		}
 		pkgs = pkgs.Append(p)
 	}
-	let kind = Edits[Random.IntN(len(Edits))]
-	let at = Random.IntN(n)
+	let kind = Edits[rand.Random.IntN(Edits.Len())]
+	let at = rand.Random.IntN(n)
 	let rebuilt = Rebuild(n, kind, at)
 	let mut gens = Map[int, int]{}
 	let mut procs = []Proc{}
@@ -129,25 +129,25 @@ func draw() Case needs Random {
 	let mut cells = Map[string, int]{}
 	let mut tree = 0
 	// the drivers: ergo (driver) at the root, go under it
-	let rootPid = 100 + Random.IntN(6)
+	let rootPid = 100 + rand.Random.IntN(6)
 	let rootGen = got(gens, rootPid) + 1
 	gens[rootPid] = rootGen
 	let root = procKey(rootPid, rootGen)
-	let ergoSelf = 1 + Random.IntN(500)
+	let ergoSelf = 1 + rand.Random.IntN(500)
 	procs = procs.Append(Proc{Pid: rootPid, Gen: rootGen, Parent: "", Tool: "driver", Pkg: "", Origin: "tool", Cached: false, Self: ergoSelf})
 	cells[cellKey("tool", "", "driver")] = ergoSelf
 	tree = tree + ergoSelf
-	let goPid = 100 + Random.IntN(6)
+	let goPid = 100 + rand.Random.IntN(6)
 	let goGen = got(gens, goPid) + 1
 	gens[goPid] = goGen
 	let goKey = procKey(goPid, goGen)
-	let goSelf = 1 + Random.IntN(500)
+	let goSelf = 1 + rand.Random.IntN(500)
 	procs = procs.Append(Proc{Pid: goPid, Gen: goGen, Parent: root, Tool: "go", Pkg: "", Origin: "tool", Cached: false, Self: goSelf})
 	cells[cellKey("tool", "", "go")] = goSelf
 	tree = tree + goSelf
 	// one compile action per package, a warm hit for each it does not compile
 	for p in pkgs {
-		let pid = 100 + Random.IntN(6)
+		let pid = 100 + rand.Random.IntN(6)
 		let gen = got(gens, pid) + 1
 		gens[pid] = gen
 		if !slices.Contains(rebuilt, p.Name) {
@@ -156,11 +156,11 @@ func draw() Case needs Random {
 			let mut self = 0
 			let mut seq = 0
 			for st in stagesOf(p.Route) {
-				let count = 1 + Random.IntN(1000)
-				let workers = if st == "parse" { 1 + Random.IntN(3) } else { 1 }
+				let count = 1 + rand.Random.IntN(1000)
+				let workers = if st == "parse" { 1 + rand.Random.IntN(3) } else { 1 }
 				let mut left = count
 				for w in 0..workers {
-					let part = if w == workers-1 { left } else { Random.IntN(left + 1) }
+					let part = if w == workers-1 { left } else { rand.Random.IntN(left + 1) }
 					left = left - part
 					spans = spans.Append(Span{Pid: pid, Gen: gen, Seq: seq, Worker: w, Stage: st, Count: part})
 					seq = seq + 1
@@ -169,7 +169,7 @@ func draw() Case needs Random {
 				cells[c] = got(cells, c) + count
 				self = self + count
 			}
-			let rest = Random.IntN(50)
+			let rest = rand.Random.IntN(50)
 			let u = cellKey(p.Origin, p.Name, "unassigned")
 			cells[u] = got(cells, u) + rest
 			self = self + rest
@@ -177,19 +177,19 @@ func draw() Case needs Random {
 			tree = tree + self
 		}
 	}
-	let linkPid = 100 + Random.IntN(6)
+	let linkPid = 100 + rand.Random.IntN(6)
 	let linkGen = got(gens, linkPid) + 1
 	gens[linkPid] = linkGen
-	let linkSelf = 1 + Random.IntN(500)
+	let linkSelf = 1 + rand.Random.IntN(500)
 	procs = procs.Append(Proc{Pid: linkPid, Gen: linkGen, Parent: goKey, Tool: "link", Pkg: "", Origin: "tool", Cached: false, Self: linkSelf})
 	cells[cellKey("tool", "", "link")] = linkSelf
 	tree = tree + linkSelf
 	// at most one broken record
 	let mut refusal = ""
 	let mut faultTarget = ""
-	let fault = Random.IntN(8)
-	if fault == 0 && len(spans) > 0 {
-		let bad = spans[Random.IntN(len(spans))]
+	let fault = rand.Random.IntN(8)
+	if fault == 0 && spans.Len() > 0 {
+		let bad = spans[rand.Random.IntN(spans.Len())]
 		spans = spans.Append(bad)
 		refusal = "duplicate"
 		faultTarget = procKey(bad.Pid, bad.Gen)
@@ -198,10 +198,10 @@ func draw() Case needs Random {
 		refusal = "incomplete"
 	} else if fault == 2 {
 		// the link's record lost: its instructions are in the tree's total only
-		procs = slices.Slice(procs, 0, len(procs)-1)
+		procs = slices.Slice(procs, 0, procs.Len()-1)
 		refusal = "tree-mismatch"
-	} else if fault == 3 && len(spans) > 0 {
-		let i = Random.IntN(len(spans))
+	} else if fault == 3 && spans.Len() > 0 {
+		let i = rand.Random.IntN(spans.Len())
 		spans[i] = Span{..spans[i], Count: spans[i].Count + 1000000}
 		refusal = "overcharged"
 		faultTarget = procKey(spans[i].Pid, spans[i].Gen)
@@ -212,8 +212,8 @@ func draw() Case needs Random {
 				warm = warm.Append(p)
 			}
 		}
-		if len(warm) > 0 {
-			let w = warm[Random.IntN(len(warm))]
+		if warm.Len() > 0 {
+			let w = warm[rand.Random.IntN(warm.Len())]
 			spans = spans.Append(Span{Pid: w.Pid, Gen: w.Gen, Seq: 0, Worker: 0, Stage: "parse", Count: 1})
 			refusal = "warm-compile"
 			faultTarget = procKey(w.Pid, w.Gen)

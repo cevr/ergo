@@ -1,4 +1,7 @@
 import actor
+import core
+import machines
+import option
 import time
 
 // Choices (a radio group; FK10-g2's list box): one value picked among
@@ -14,7 +17,7 @@ import time
 // sends on(its option); ArrowDown and ArrowRight pick the option after the
 // selected one and ArrowUp and ArrowLeft the one before, wrapping round,
 // as ARIA's radio group does; Home and End pick the first and the last.
-func Radios[E](f mut Frame[E], label string, options []string, selected string, on own func(v string) E, at CallSite) {
+func Radios[E](f mut Frame[E], label string, options []string, selected string, on own func(v string) E, at core.CallSite) {
 	choose(f, RadioGroup, label, options, selected, on, at)
 }
 
@@ -23,7 +26,7 @@ func Radios[E](f mut Frame[E], label string, options []string, selected string, 
 // picks the option after the selected one and ArrowUp the one before,
 // stopping at the ends, as ARIA's list box does; Home and End pick the
 // first and the last.
-func Select[E](f mut Frame[E], label string, options []string, selected string, on own func(v string) E, at CallSite) {
+func Select[E](f mut Frame[E], label string, options []string, selected string, on own func(v string) E, at core.CallSite) {
 	choose(f, ListBox, label, options, selected, on, at)
 }
 
@@ -31,28 +34,28 @@ func Select[E](f mut Frame[E], label string, options []string, selected string, 
 // its keys while the focus is in it (OnFocusKey, UC-FOCUS): a press on an
 // option puts it there, so of two choices on a screen the arrows move the
 // one last pressed.
-func choose[E](f mut Frame[E], group Role, label string, options []string, selected string, on own func(v string) E, at CallSite) {
+func choose[E](f mut Frame[E], group Role, label string, options []string, selected string, on own func(v string) E, at core.CallSite) {
 	let radio = group == RadioGroup
 	let mut g = Named(group, label)
-	g.Value = Some{Value: selected}
-	Semantic(f, g, None, Plain(), func() {
-		OnFocusKey(f, func(k KeyPress) Option[E] {
+	g.Value = option.Some{Value: selected}
+	Semantic(f, g, option.None, Plain(), func() {
+		OnFocusKey(f, func(k KeyPress) option.Option[E] {
 			match picked(options, selected, k.Name, radio) {
-			case Some[string] as v:
-				Some{Value: on(v.Value)}
-			case None:
-				None
+			case option.Some[string] as v:
+				option.Some{Value: on(v.Value)}
+			case option.None:
+				option.None
 			}
 		})
 		Each(f, options, func(o string) Key { ByText(o) }) func(o string) {
 			let mut a = Named(ListOption, o)
 			if radio {
 				a.Role = Radio
-				a.Checked = Some{Value: o == selected}
+				a.Checked = option.Some{Value: o == selected}
 			} else {
-				a.Selected = Some{Value: o == selected}
+				a.Selected = option.Some{Value: o == selected}
 			}
-			Semantic(f, a, Some{Value: on(o)}, Plain()) {
+			Semantic(f, a, option.Some{Value: on(o)}, Plain()) {
 				Text(f, o)
 			}
 		}
@@ -63,10 +66,10 @@ func choose[E](f mut Frame[E], group Role, label string, options []string, selec
 // None for a key that picks none or for no options. With no option
 // selected, an arrow picks the first. wrap is a radio group's: the arrows
 // go round, and Right and Left are arrows too.
-func picked(options []string, selected string, key string, wrap bool) Option[string] {
-	let n = len(options)
+func picked(options []string, selected string, key string, wrap bool) option.Option[string] {
+	let n = options.Len()
 	if n == 0 {
-		return None
+		return option.None
 	}
 	let mut at = -1
 	for i, o in options {
@@ -77,33 +80,33 @@ func picked(options []string, selected string, key string, wrap bool) Option[str
 	let next = key == "ArrowDown" || (wrap && key == "ArrowRight")
 	let back = key == "ArrowUp" || (wrap && key == "ArrowLeft")
 	if key == "Home" {
-		return Some{Value: options[0]}
+		return option.Some{Value: options[0]}
 	}
 	if key == "End" {
-		return Some{Value: options[n-1]}
+		return option.Some{Value: options[n-1]}
 	}
 	if !next && !back {
-		return None
+		return option.None
 	}
 	if at < 0 {
-		return Some{Value: options[0]}
+		return option.Some{Value: options[0]}
 	}
 	if next {
 		if at+1 < n {
-			return Some{Value: options[at+1]}
+			return option.Some{Value: options[at+1]}
 		}
 		if wrap {
-			return Some{Value: options[0]}
+			return option.Some{Value: options[0]}
 		}
-		return Some{Value: options[n-1]}
+		return option.Some{Value: options[n-1]}
 	}
 	if at > 0 {
-		return Some{Value: options[at-1]}
+		return option.Some{Value: options[at-1]}
 	}
 	if wrap {
-		return Some{Value: options[n-1]}
+		return option.Some{Value: options[n-1]}
 	}
-	Some{Value: options[0]}
+	option.Some{Value: options[0]}
 }
 
 // choiceOptions is the options "o0" to "o<n-1>". (a law's helper)
@@ -135,23 +138,23 @@ func choiceShown[S, D, F](h mut TestHost[S, int, D, F], n int, sel int, radio bo
 	let group = if radio { RadioGroup } else { ListBox }
 	let item = if radio { Radio } else { ListOption }
 	let gs = Locate(h, WithRole{Role: group, Name: "pick"})
-	if len(gs) != 1 || AccessAt(h, gs[0]).Value != (Some{Value: options[sel]}) {
+	if gs.Len() != 1 || AccessAt(h, gs[0]).Value != (option.Some{Value: options[sel]}) {
 		return false
 	}
-	if len(Locate(h, WithRole{Role: item, Name: ""})) != n {
+	if Locate(h, WithRole{Role: item, Name: ""}).Len() != n {
 		return false
 	}
 	for i, o in options {
 		let ids = Locate(h, WithRole{Role: item, Name: o})
-		if len(ids) != 1 || Locate(h, WithLabel{Label: o}) != ids {
+		if ids.Len() != 1 || Locate(h, WithLabel{Label: o}) != ids {
 			return false
 		}
 		let a = AccessAt(h, ids[0])
-		let on = Some{Value: i == sel}
-		if radio && (a.Checked != on || a.Selected != None) {
+		let on = option.Some{Value: i == sel}
+		if radio && (a.Checked != on || a.Selected != option.None) {
 			return false
 		}
-		if !radio && (a.Selected != on || a.Checked != None) {
+		if !radio && (a.Selected != on || a.Checked != option.None) {
 			return false
 		}
 	}
@@ -195,7 +198,7 @@ func choiceWalk[D, F](h mut TestHost[int, int, D, F], key string, steps int, by 
 // it.
 law ChoiceIsAnnouncedAndReachable(n int, from int, to int, radio bool) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		let k = (n%4+4)%4 + 3
 		let options = choiceOptions(k)
 		let start = (from%k + k) % k
@@ -208,7 +211,7 @@ law ChoiceIsAnnouncedAndReachable(n int, from int, to int, radio bool) {
 				Select(f, "pick", options, options[s], on)
 			}
 		}
-		let a = actor.StartMachine(Machine[int, int, int]{Initial: start, Step: semStep, After: semTimer, Work: semWork, Exit: func(s int) Option[func()] { None }}, 1, func(o int) {})
+		let a = actor.StartMachine(machines.Machine[int, int, int]{Initial: start, Step: semStep, After: semTimer, Work: semWork, Exit: func(s int) option.Option[func()] { option.None }}, 1, func(o int) {})
 		let mut h = NewTestHost(a, view, m, 4) catch {
 		case BadPatch:
 			return false
@@ -326,16 +329,16 @@ func modelPick(n int, at int, key string, wrap bool) int {
 law ChoicesTakeKeysWhenFocused(seed int, steps int) {
 	let mut r = seeded(seed)
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		let oa = namedOptions("a", draw(&r, 4)+3)
 		let ob = namedOptions("b", draw(&r, 4)+3)
 		let ra = draw(&r, 2) == 0
 		let rb = draw(&r, 2) == 0
-		let mut a = draw(&r, len(oa))
-		let mut b = draw(&r, len(ob))
+		let mut a = draw(&r, oa.Len())
+		let mut b = draw(&r, ob.Len())
 		let view = func(f mut Frame[int], s int) { twoChoices(f, s, oa, ob, ra, rb) }
 		let start = a*10 + b
-		let app = actor.StartMachine(Machine[int, int, int]{Initial: start, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
+		let app = actor.StartMachine(machines.Machine[int, int, int]{Initial: start, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) option.Option[func()] { option.None }}, 1, func(o int) {})
 		let mut h = NewTestHost(app, view, m, 4) catch {
 		case BadPatch:
 			return false
@@ -343,15 +346,15 @@ law ChoicesTakeKeysWhenFocused(seed int, steps int) {
 		// focus: 0 none, 1 the first choice, 2 the second.
 		let mut focus = 0
 		let keys = choiceKeys()
-		let mut acts = []int{3 + draw(&r, len(keys)), 1, 3 + draw(&r, len(keys))}
+		let mut acts = []int{3 + draw(&r, keys.Len()), 1, 3 + draw(&r, keys.Len())}
 		for _ in 0..(steps%8+8)%8+6 {
-			acts = acts.Append(draw(&r, 3+len(keys)))
+			acts = acts.Append(draw(&r, 3+keys.Len()))
 		}
 		for i, act in acts {
 			if act == 0 || act == 1 {
 				let opts = if act == 0 { oa } else { ob }
 				// The run's first press is on the second choice's selected option.
-				let j = if i == 1 { b } else { draw(&r, len(opts)) }
+				let j = if i == 1 { b } else { draw(&r, opts.Len()) }
 				Play(&h, []Act{ClickOn{At: WithLabel{Label: opts[j]}}}) catch {
 				case _:
 					return false
@@ -375,9 +378,9 @@ law ChoicesTakeKeysWhenFocused(seed int, steps int) {
 					return false
 				}
 				if focus == 1 {
-					a = modelPick(len(oa), a, key, ra)
+					a = modelPick(oa.Len(), a, key, ra)
 				} else if focus == 2 {
-					b = modelPick(len(ob), b, key, rb)
+					b = modelPick(ob.Len(), b, key, rb)
 				}
 			}
 			if StateOf(&h) != a*10+b {
@@ -543,7 +546,7 @@ func model(p prog, s []int, row int) outcome {
 	case pText as x:
 		done([]Shape[int]{leaf(TextNode{Value: "t\(s[x.slot] + row)", Style: Plain()})})
 	case pInput as x:
-		done([]Shape[int]{leaf(InputNode{Value: "v\(s[x.slot] + row)", Placeholder: "type", Label: "", Description: "", Invalid: false, Hints: PlainHints, Lines: 1, Caret: len("v\(s[x.slot] + row)"), Anchor: len("v\(s[x.slot] + row)")})})
+		done([]Shape[int]{leaf(InputNode{Value: "v\(s[x.slot] + row)", Placeholder: "type", Label: "", Description: "", Invalid: false, Hints: PlainHints, Lines: 1, Caret: "v\(s[x.slot] + row)".Len(), Anchor: "v\(s[x.slot] + row)".Len()})})
 	case pCheck as x:
 		done([]Shape[int]{leaf(CheckNode{Label: "c", Checked: s[x.slot]%2 == 0, On: s[x.slot] + row})})
 	case pSwap as x:
@@ -705,8 +708,8 @@ func genRoot(r mut rng) []prog {
 
 func shuffled(xs []int, r mut rng) []int {
 	let mut out = xs
-	for i in 0..len(out) {
-		let j = i + draw(r, len(out)-i)
+	for i in 0..out.Len() {
+		let j = i + draw(r, out.Len()-i)
 		let x = out[i]
 		out[i] = out[j]
 		out[j] = x

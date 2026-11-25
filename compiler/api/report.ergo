@@ -1,4 +1,5 @@
 import compiler/report
+import option
 import strings
 
 // ReportProject runs report.Project and report.Lines on what a Go host
@@ -14,13 +15,13 @@ import strings
 // then "--\n" and the lines of report.Lines naming the source as source.
 // It is "malformed\n" when the counts do not fit.
 func ReportProject(source string, text string, files []string, strs []string, nums []int) string {
-	if len(files)%2 != 0 || len(strs)%3 != 0 || len(nums) != len(strs)/3*4 {
+	if files.Len()%2 != 0 || strs.Len()%3 != 0 || nums.Len() != strs.Len()/3*4 {
 		return "malformed\n"
 	}
 	let mut held = Map[string, string]{}
 	let mut i = 0
 	for {
-		if i >= len(files) {
+		if i >= files.Len() {
 			break
 		}
 		held[files[i]] = files[i+1]
@@ -29,7 +30,7 @@ func ReportProject(source string, text string, files []string, strs []string, nu
 	let mut ds = []report.Diagnostic{}
 	let mut k = 0
 	for {
-		if k*3 >= len(strs) {
+		if k*3 >= strs.Len() {
 			break
 		}
 		let span = report.Span{Offset: nums[k*4], Length: nums[k*4+1], Line: nums[k*4+2], Column: nums[k*4+3]}
@@ -47,7 +48,7 @@ func ReportProject(source string, text string, files []string, strs []string, nu
 	b.String()
 }
 
-func field(s string) string { "\(len(s)):" + s }
+func field(s string) string { "\(s.Len()):" + s }
 
 // ReportRevision is report.Revision of source.
 func ReportRevision(source string) string { report.Revision(source) }
@@ -59,9 +60,9 @@ func ReportStatus(statuses []string) string { report.EvaluationStatus(statuses) 
 // target, or "" for Go.
 func ReportTarget(target string) string {
 	match report.UnsupportedTarget(target) {
-	case Some[report.Diagnostic] as d:
+	case option.Some[report.Diagnostic] as d:
 		d.Value.Code + " " + d.Value.Message
-	case None:
+	case option.None:
 		""
 	}
 }

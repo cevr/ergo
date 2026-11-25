@@ -2,6 +2,7 @@
 // them to `ergo lint` without starting the pack.
 
 import json
+import option
 
 // Severity is a diagnostic severity. Off is valid only in configuration:
 // it turns a rule off rather than describing a finding.
@@ -87,7 +88,7 @@ func Wire(t OptionType) string {
 
 // OptionSpec declares one rule option. Enum restricts a string or a
 // string list. A required option has no default.
-type OptionSpec { Name string, Type OptionType, Description string, Required bool, Enum []string, Default Option[json.Value] }
+type OptionSpec { Name string, Type OptionType, Description string, Required bool, Enum []string, Default option.Option[json.Value] }
 
 // RuleFailed is the failure of a rule: Reason is the runner's text for it.
 // A failed rule reports no finding, and the run is not complete.
@@ -124,7 +125,7 @@ type Rule {
 
 // RuleConfig is a preset's setting of one rule: a severity, options, or
 // both.
-type RuleConfig { Severity Option[Severity], Options Option[json.Value] }
+type RuleConfig { Severity option.Option[Severity], Options option.Option[json.Value] }
 
 // Preset is a named set of settings for the pack's own rules, by local
 // rule name, that a configuration extends.
@@ -135,13 +136,13 @@ type Preset { Name string, Description string, Rules Map[string, RuleConfig] }
 type Pack { Namespace string, Version string, Description string, FactVersions []int, Rules []Rule, Presets []Preset }
 
 // RuleNamed is the rule of p called name, if p has one.
-func RuleNamed(p Pack, name string) Option[Rule] {
+func RuleNamed(p Pack, name string) option.Option[Rule] {
 	for r in p.Rules {
 		if r.Name == name {
-			return Some{Value: r}
+			return option.Some{Value: r}
 		}
 	}
-	None
+	option.None
 }
 
 // OptionsOf reads a rule's options as T, a record of the rule's options
@@ -199,11 +200,11 @@ type wireManifest {
 	Presets         json.Optional[[]wirePreset],
 }
 
-func present[T](o Option[T]) json.Optional[T] {
+func present[T](o option.Option[T]) json.Optional[T] {
 	match o {
-	case None:
+	case option.None:
 		json.Absent
-	case Some[T] as s:
+	case option.Some[T] as s:
 		json.Present{Value: s.Value}
 	}
 }
@@ -241,7 +242,7 @@ func Manifest(p Pack, executable string) string {
 		for name, c in preset.Rules {
 			settings[name] = wireRuleConfig{Severity: present(c.Severity), Options: present(c.Options)}
 		}
-		let set json.Optional[Map[string, wireRuleConfig]] = if len(settings) == 0 { json.Absent } else { json.Present{Value: settings} }
+		let set json.Optional[Map[string, wireRuleConfig]] = if settings.Len() == 0 { json.Absent } else { json.Present{Value: settings} }
 		presets = presets.Append(wirePreset{Name: preset.Name, Description: someText(preset.Description), Rules: set})
 	}
 	let m = wireManifest{

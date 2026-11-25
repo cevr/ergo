@@ -96,7 +96,7 @@ func isIdentifier(s string) bool {
 		return false
 	}
 	let d = utf8.DecodeRuneInString(s)
-	identRune(d.Rune, true) && identRest(s, d.Size) == len(s) && keyword(s, 0, len(s)) == Ident
+	identRune(d.Rune, true) && identRest(s, d.Size) == s.Len() && keyword(s, 0, s.Len()) == Ident
 }
 
 func parseTypeDecl(p mut parser, doc uint32) uint32 {
@@ -660,7 +660,7 @@ func parseFieldDecl(p mut parser, doc uint32) uint32 {
 	}
 	if p.tk == Comma || p.tk == RBrace || p.tk == Semicolon {
 		let name = lit(p, last)
-		errorAt(p, tpos(p, last), len(name), "a member names its type: write `"+name+" Type`; Ergo has no embedding")
+		errorAt(p, tpos(p, last), name.Len(), "a member names its type: write `"+name+" Type`; Ergo has no embedding")
 	}
 	let ty = parseType(p, ctxMember)
 	let mut key = none
@@ -934,7 +934,7 @@ func isGoBuiltin(s string) bool {
 // name: the last `.` after the last `/`, or -1.
 func splitAt(target string) int {
 	let mut slash = -1
-	let mut i = len(target) - 1
+	let mut i = target.Len() - 1
 	for i >= 0 {
 		if target[i] == '/' {
 			slash = i
@@ -942,7 +942,7 @@ func splitAt(target string) int {
 		}
 		i = i - 1
 	}
-	let mut j = len(target) - 1
+	let mut j = target.Len() - 1
 	for j > slash {
 		if target[j] == '.' {
 			return j
@@ -965,7 +965,7 @@ func targetName(target string) string {
 let runtimeModule = "ergo.local/prototype/runtime"
 
 func isRuntimeTarget(path string) bool {
-	path == runtimeModule || (len(path) > len(runtimeModule) && path[:len(runtimeModule)+1] == runtimeModule+"/")
+	path == runtimeModule || (path.Len() > runtimeModule.Len() && path[:runtimeModule.Len()+1] == runtimeModule+"/")
 }
 
 // parseExternDecl parses `extern go path.F func Name [TypeParams] Sig`,

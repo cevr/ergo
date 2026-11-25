@@ -30,6 +30,7 @@ import fstest
 import jobs
 import jobs/memory
 import journal
+import option
 import schedule
 import strconv
 import strings
@@ -76,9 +77,9 @@ func Open[J](files fs.Files, writes fs.Writes, path string, p jobs.Policy, codec
 		let op = try opOf(path, n, strings.TrimSuffix(raw, "\n"), codec)
 		let (_, next, _) = jobs.Apply(policy, s, op)
 		s = next
-		whole = whole + len(raw)
+		whole = whole + raw.Len()
 	}
-	if whole < len(text) {
+	if whole < text.Len() {
 		writes.WriteFile(path, strings.Slice(text, 0, whole)) catch {
 		case fs.NotFound:
 			return jobs.Failed{Reason: "\(path): no such directory"}
@@ -134,10 +135,10 @@ func EnqueueAt[J](q Queue[J], job J, at time.Time) int fails jobs.Failed {
 	})
 }
 
-func ReserveAt[J](q Queue[J], now time.Time) Option[jobs.Lease[J]] fails jobs.Failed {
+func ReserveAt[J](q Queue[J], now time.Time) option.Option[jobs.Lease[J]] fails jobs.Failed {
 	let p = q.policy
 	let line = lineOf(jobs.Reserve{Now: now}, q.codec)
-	try apply(q, line, func(s jobs.State[J]) (Option[jobs.Lease[J]], jobs.State[J], bool) {
+	try apply(q, line, func(s jobs.State[J]) (option.Option[jobs.Lease[J]], jobs.State[J], bool) {
 		jobs.ApplyReserve(p, s, now)
 	})
 }
@@ -213,19 +214,19 @@ law FileIsMemory(steps []script, torn string) {
 				return false
 			}
 			match a {
-			case Some[jobs.Lease[string]] as l:
+			case option.Some[jobs.Lease[string]] as l:
 				tickets = tickets.Append(l.Value.Ticket)
-			case None:
+			case option.None:
 			}
 		case ackAt as a:
 			now = now.Add(time.Times(1ms, ((a.Wait%20)+20)%20))
-			let t = if len(tickets) == 0 { jobs.Ticket{ID: 0, Attempt: 0} } else { tickets[((a.Pick%len(tickets))+len(tickets))%len(tickets)] }
+			let t = if tickets.Len() == 0 { jobs.Ticket{ID: 0, Attempt: 0} } else { tickets[((a.Pick%tickets.Len())+tickets.Len())%tickets.Len()] }
 			if try acked(want, t, now) != try acked(got, t, now) {
 				return false
 			}
 		case failAt as f:
 			now = now.Add(time.Times(1ms, ((f.Wait%20)+20)%20))
-			let t = if len(tickets) == 0 { jobs.Ticket{ID: 0, Attempt: 0} } else { tickets[((f.Pick%len(tickets))+len(tickets))%len(tickets)] }
+			let t = if tickets.Len() == 0 { jobs.Ticket{ID: 0, Attempt: 0} } else { tickets[((f.Pick%tickets.Len())+tickets.Len())%tickets.Len()] }
 			if try failed(want, t, now) != try failed(got, t, now) {
 				return false
 			}
@@ -301,7 +302,7 @@ func lineOf[J](op jobs.Op[J], codec journal.Codec[J]) string {
 func opOf[J](path string, n int, line string, codec journal.Codec[J]) jobs.Op[J] fails jobs.Failed {
 	let f = strings.Split(line, "\t")
 	let bad = jobs.Failed{Reason: "\(path):\(n): not an operation"}
-	match (f[0], len(f)) {
+	match (f[0], f.Len()) {
 	case ("enq", 4):
 		let text = try unquote(f[3], bad)
 		let job = codec.Decode(text) catch {

@@ -174,7 +174,7 @@ func End(src string, kind uint8, start int) int {
 	}
 	if kind == Semicolon {
 		// An inserted semicolon covers no byte.
-		return if start < len(src) && src[start] == ';' { start + 1 } else { start }
+		return if start < src.Len() && src[start] == ';' { start + 1 } else { start }
 	}
 	if kind == Ident || (kind >= Break && kind <= Var) {
 		return identEnd(src, start)
@@ -232,7 +232,7 @@ func segmentEnd(src string, start int) int {
 // integer, or the digits, fraction and exponent of a decimal, then its
 // suffix (a duration's unit).
 func numberEnd(src string, start int) int {
-	let n = len(src)
+	let n = src.Len()
 	let mut end = start
 	if src[start] == '0' && start+1 < n && isBase(src[start+1]) {
 		end = start + 2
@@ -270,7 +270,7 @@ law StartsAdvance(src string) {
 		end = End(src, Kind(t, id), start)
 	}
 	let n = NumToks(t)
-	ok && (s.Failed || (n > 0 && Kind(t, TokAt(t, n-1)) == EOF && Start(t, TokAt(t, n-1)) == len(src)))
+	ok && (s.Failed || (n > 0 && Kind(t, TokAt(t, n-1)) == EOF && Start(t, TokAt(t, n-1)) == src.Len()))
 }
 
 // EndRescans: a token of a kind that depends on no context (an
@@ -299,7 +299,7 @@ law EndRescans(src string) {
 			let start = Start(t, id)
 			let text = src[start:End(src, k, start)]
 			let alone = Scan(text).Toks
-			ok = ok && NumToks(alone) >= 2 && Kind(alone, TokAt(alone, 0)) == k && Start(alone, TokAt(alone, 0)) == 0 && End(text, k, 0) == len(text)
+			ok = ok && NumToks(alone) >= 2 && Kind(alone, TokAt(alone, 0)) == k && Start(alone, TokAt(alone, 0)) == 0 && End(text, k, 0) == text.Len()
 		}
 	}
 	ok

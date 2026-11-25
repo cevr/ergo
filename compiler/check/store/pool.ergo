@@ -1,4 +1,5 @@
 import dense
+import option
 import slices
 import strings
 
@@ -74,11 +75,11 @@ func list(p mut Pool, prefix string, ts []dense.ID[TKey]) uint32 {
 	}
 	let text = b.String()
 	match dense.FindText(p.lists, text) {
-	case Some{Value: id}:
+	case option.Some{Value: id}:
 		uint32(dense.Index(id))
-	case None:
+	case option.None:
 		let id = dense.InternText(&p.lists, text)
-		p.starts = p.starts.Append(uint32(len(p.extra)))
+		p.starts = p.starts.Append(uint32(p.extra.Len()))
 		for t in ts {
 			p.extra = p.extra.Append(t)
 		}
@@ -98,19 +99,19 @@ func anyOpen(p Pool, ts []dense.ID[TKey]) bool {
 // composite interns a type of kind k over the operands ts.
 func composite(p mut Pool, k int, ts []dense.ID[TKey]) dense.ID[TKey] {
 	let l = list(p, "", ts)
-	intern(p, TKey{k: uint8(k), a: l, b: uint32(len(ts))}, anyOpen(*p, ts))
+	intern(p, TKey{k: uint8(k), a: l, b: uint32(ts.Len())}, anyOpen(*p, ts))
 }
 
 func sigDefects(p mut Pool, ts []dense.ID[TKey]) dense.ID[TKey] {
 	let l = list(p, "d", ts)
-	let id = intern(p, TKey{k: uint8(tSig), a: l, b: uint32(len(ts))}, anyOpen(*p, ts))
+	let id = intern(p, TKey{k: uint8(tSig), a: l, b: uint32(ts.Len())}, anyOpen(*p, ts))
 	dense.SideSet(&p.sigDefects, id, true)
 	id
 }
 
 func symbolic(p mut Pool, k int, ts []dense.ID[TKey]) dense.ID[TKey] {
 	let l = list(p, "", ts)
-	intern(p, TKey{k: uint8(k), a: l, b: uint32(len(ts))}, true)
+	intern(p, TKey{k: uint8(k), a: l, b: uint32(ts.Len())}, true)
 }
 
 // Basic is the basic type of ordinal n (int, string, …).
@@ -137,7 +138,7 @@ func Row(p mut Pool, ts []dense.ID[TKey]) dense.ID[TKey] {
 	let sorted = slices.SortFunc(ts, func(a dense.ID[TKey], b dense.ID[TKey]) int { dense.Index(a) - dense.Index(b) })
 	let mut set = []dense.ID[TKey]{}
 	for t in sorted {
-		if len(set) == 0 || set[len(set)-1] != t {
+		if set.Len() == 0 || set[set.Len()-1] != t {
 			set = set.Append(t)
 		}
 	}
@@ -149,7 +150,7 @@ func Row(p mut Pool, ts []dense.ID[TKey]) dense.ID[TKey] {
 // ruling: identity across packages is Canon's key, never this id).
 func Instance(p mut Pool, o XRef, args []dense.ID[TKey]) dense.ID[TKey] {
 	let l = list(p, "\(o.Import).\(o.Decl)", args)
-	let id = intern(p, TKey{k: uint8(tInstance), a: l, b: uint32(len(args))}, anyOpen(*p, args))
+	let id = intern(p, TKey{k: uint8(tInstance), a: l, b: uint32(args.Len())}, anyOpen(*p, args))
 	dense.SideSet(&p.origin, id, o)
 	id
 }
@@ -182,15 +183,15 @@ func Subst(p mut Pool, t dense.ID[TKey], args []dense.ID[TKey]) dense.ID[TKey] {
 }
 
 func replaceAt(p mut Pool, recv dense.ID[TKey], args []dense.ID[TKey], positions []int) dense.ID[TKey] {
-	if len(args) == 0 {
+	if args.Len() == 0 {
 		return recv
 	}
-	if len(positions) != len(args) {
+	if positions.Len() != args.Len() {
 		return Basic(p, 0)
 	}
 	let mut ts = slices.Clone(Operands(*p, recv))
 	for i, at in positions {
-		if at < 0 || at >= len(ts) {
+		if at < 0 || at >= ts.Len() {
 			return Basic(p, 0)
 		}
 		ts[at] = args[i]
@@ -200,9 +201,9 @@ func replaceAt(p mut Pool, recv dense.ID[TKey], args []dense.ID[TKey], positions
 
 func reapply(p mut Pool, recv dense.ID[TKey], op dense.ID[TKey], args []dense.ID[TKey]) dense.ID[TKey] {
 	match reapplyFunctionClaim(p, recv, op, args) {
-	case Some{Value: applied}:
+	case option.Some{Value: applied}:
 		return applied
-	case None:
+	case option.None:
 	}
 	let k = int(Key(*p, recv).k)
 	if k == tInstance && int(Key(*p, op).k) == tInstance {
@@ -226,49 +227,49 @@ func substAt(p mut Pool, t dense.ID[TKey], args []dense.ID[TKey], self dense.Opt
 	let k = Key(*p, t)
 	let kind = int(k.k)
 	if kind == tParam {
-		return if int(k.a) < len(args) { args[int(k.a)] } else { t }
+		return if int(k.a) < args.Len() { args[int(k.a)] } else { t }
 	}
 	// The operands are read one at a time: Subst writes the pool, whose
 	// keys and operands only grow, so each read after a write is the one
 	// before it, and no copy of the operands is taken.
-	let n = len(Operands(*p, t))
+	let n = Operands(*p, t).Len()
 	let mut ts = slices.WithCapacity[dense.ID[TKey]](n)
 	for i in 0..n {
 		ts = ts.Append(substAt(p, operandAt(*p, t, i), args, self, op, positions, shape))
 	}
 	if kind == tSelf {
 		return match dense.Unpack(self) {
-		case Some{Value: recv}:
-			if len(ts) == 0 {
+		case option.Some{Value: recv}:
+			if ts.Len() == 0 {
 				recv
 			} else {
 				match dense.Unpack(op) {
-				case Some{Value: role}:
+				case option.Some{Value: role}:
 					let mut outer = slices.Clone(Operands(*p, role))
 					for i, slot in positions {
-						if slot < 0 || slot >= len(outer) || i >= len(ts) {
+						if slot < 0 || slot >= outer.Len() || i >= ts.Len() {
 							return Basic(p, 0)
 						}
 						outer[slot] = ts[i]
 					}
 					if int(Key(*p, recv).k) == tSelf { symbolic(p, tSelf, outer) } else { reapply(p, recv, role, outer) }
-				case None:
-					if len(shape) == 0 {
+				case option.None:
+					if shape.Len() == 0 {
 						replaceAt(p, recv, ts, positions)
 					} else {
 						let mut slots = []dense.ID[TKey]{}
-						for i in 0..len(shape) { slots = slots.Append(Param(p, i)) }
+						for i in 0..shape.Len() { slots = slots.Append(Param(p, i)) }
 						for i, at in positions { slots[at] = ts[i] }
 						Subst(p, recv, slots)
 					}
 				}
 			}
-		case None:
+		case option.None:
 			symbolic(p, tSelf, ts)
 		}
 	}
 	if kind == tReapplied {
-		return reapply(p, ts[0], ts[1], ts[2:len(ts)])
+		return reapply(p, ts[0], ts[1], ts[2:ts.Len()])
 	}
 	if kind == tRow {
 		// A row parameter bound to a row splices its elements in (the Go
@@ -305,7 +306,7 @@ func rising(p Pool, t dense.ID[TKey]) bool {
 	}
 	let run = Operands(p, t)
 	let mut ok = true
-	for k in 1..len(run) {
+	for k in 1..run.Len() {
 		ok = ok && dense.Index(run[k-1]) < dense.Index(run[k])
 	}
 	ok

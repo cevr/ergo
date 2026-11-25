@@ -15,6 +15,7 @@
 // runtime body and no compiler rule.
 
 import io
+import option
 import os
 import strconv
 import strings
@@ -47,8 +48,8 @@ law HelpNamesEveryFlag(names []string) {
 	let mut seen Map[string, bool]
 	for name in names {
 		match seen.Get(name) {
-		case Some[bool]:
-		case None:
+		case option.Some[bool]:
+		case option.None:
 			seen[name] = true
 			flags = flags.Append(String(name, "", "u"))
 		}
@@ -185,17 +186,17 @@ func Get(f DurationFlag, v Values) duration {
 
 // Get is the positional argument of a, or None when an optional one is
 // absent.
-func Get(a ArgSpec, v Values) Option[string] {
+func Get(a ArgSpec, v Values) option.Option[string] {
 	for i, spec in v.set.Args {
 		if spec.name == a.name {
 			let s = v.args[i]
 			if s.given == 0 {
-				return None
+				return option.None
 			}
-			return Some[string]{Value: s.last.text}
+			return option.Some[string]{Value: s.last.text}
 		}
 	}
-	None
+	option.None
 }
 
 // position is the index of the flag of flags whose long name is name, or
@@ -265,7 +266,7 @@ func held(f StringFlag, v Values) int {
 		case _:
 		}
 	}
-	len(notInSet(f.name))
+	notInSet(f.name).Len()
 }
 
 func held(f IntFlag, v Values) int {
@@ -277,7 +278,7 @@ func held(f IntFlag, v Values) int {
 		case _:
 		}
 	}
-	len(notInSet(f.name))
+	notInSet(f.name).Len()
 }
 
 func held(f BoolFlag, v Values) int {
@@ -289,7 +290,7 @@ func held(f BoolFlag, v Values) int {
 		case _:
 		}
 	}
-	len(notInSet(f.name))
+	notInSet(f.name).Len()
 }
 
 func held(f DurationFlag, v Values) int {
@@ -301,7 +302,7 @@ func held(f DurationFlag, v Values) int {
 		case _:
 		}
 	}
-	len(notInSet(f.name))
+	notInSet(f.name).Len()
 }
 
 func held(f ChoiceFlag, v Values) int {
@@ -313,7 +314,7 @@ func held(f ChoiceFlag, v Values) int {
 		case _:
 		}
 	}
-	len(notInSet(f.name))
+	notInSet(f.name).Len()
 }
 
 // sameChoice reports whether x and y are one Choice handle.
@@ -328,7 +329,7 @@ func heldFlag(f Flag, v Values) int {
 	if i >= 0 && sameHandle(v.set.Flags[i], f) {
 		return i
 	}
-	len(notInSet(name))
+	notInSet(name).Len()
 }
 
 // Rest is the positional arguments that the Remaining spec took.
@@ -338,7 +339,7 @@ func Rest(v Values) []string { v.rest }
 // positional.
 law DoubleDashEndsFlags(x string) {
 	let rest = Rest(try Parse(lawSet(), []string{"--", "-" + x}))
-	len(rest) == 1 && rest[0] == "-"+x
+	rest.Len() == 1 && rest[0] == "-"+x
 }
 
 // Given is a flag the command line gave: its long name and the text of
@@ -362,7 +363,7 @@ func GivenFlags(v Values) []Given {
 	let mut out = []Given{}
 	for f in v.set.Flags {
 		let xs = stored(f, v)
-		if len(xs) > 0 {
+		if xs.Len() > 0 {
 			let mut texts = []string{}
 			for x in xs {
 				texts = texts.Append(shownValue(x))
@@ -399,9 +400,9 @@ func Render(v Values) []string {
 	out = out.Append("--")
 	for a in v.set.Args {
 		match a.Get(v) {
-		case Some[string] as found:
+		case option.Some[string] as found:
 			out = out.Append(found.Value)
-		case None:
+		case option.None:
 		}
 	}
 	for r in v.rest {
@@ -448,7 +449,7 @@ func sameReads(a Values, b Values) bool {
 // positional arguments. It reads each value with its handle's Get, not
 // through Render.
 func Equal(a Values, b Values) bool {
-	if len(a.set.Flags) != len(b.set.Flags) || len(a.set.Args) != len(b.set.Args) {
+	if a.set.Flags.Len() != b.set.Flags.Len() || a.set.Args.Len() != b.set.Args.Len() {
 		return false
 	}
 	for i, f in a.set.Flags {
@@ -475,7 +476,7 @@ law DeclaredShortAndLongAgree(text string) {
 
 // sameStrings reports whether x and y hold the same texts in order.
 func sameStrings(x []string, y []string) bool {
-	if len(x) != len(y) {
+	if x.Len() != y.Len() {
 		return false
 	}
 	for i, s in x {
@@ -490,7 +491,7 @@ func sameStrings(x []string, y []string) bool {
 func sameStored(f Flag, a Values, b Values) bool {
 	let x = stored(f, a)
 	let y = stored(f, b)
-	if len(x) != len(y) {
+	if x.Len() != y.Len() {
 		return false
 	}
 	for i, v in x {
@@ -519,20 +520,20 @@ func sameValue(f Flag, a Values, b Values) bool {
 }
 
 // sameArg reports whether two reads of a positional argument agree.
-func sameArg(x Option[string], y Option[string]) bool {
+func sameArg(x option.Option[string], y option.Option[string]) bool {
 	match x {
-	case Some[string] as p:
+	case option.Some[string] as p:
 		match y {
-		case Some[string] as q:
+		case option.Some[string] as q:
 			p.Value == q.Value
-		case None:
+		case option.None:
 			false
 		}
-	case None:
+	case option.None:
 		match y {
-		case Some[string]:
+		case option.Some[string]:
 			false
-		case None:
+		case option.None:
 			true
 		}
 	}
@@ -570,15 +571,15 @@ func nameOf(f Flag) string {
 }
 
 // find is the flag of s named name.
-func find(s Set, name string) Option[Flag] { findIn(s.Flags, name) }
+func find(s Set, name string) option.Option[Flag] { findIn(s.Flags, name) }
 
 // findIn is the flag of flags named name.
-func findIn(flags []Flag, name string) Option[Flag] {
+func findIn(flags []Flag, name string) option.Option[Flag] {
 	let i = spelled(flags, name)
 	if i < 0 {
-		return None
+		return option.None
 	}
-	Some[Flag]{Value: flags[i]}
+	option.Some[Flag]{Value: flags[i]}
 }
 
 // sameHandle reports whether a and b are one handle: the same kind, name,
@@ -788,7 +789,7 @@ func Describe(f Failure) string {
 	case Extra as e:
 		"unexpected argument: " + e.Text
 	case UnknownCommand as c:
-		let at = if len(c.Group) == 0 { "" } else { " of " + strings.Join(c.Group, " ") }
+		let at = if c.Group.Len() == 0 { "" } else { " of " + strings.Join(c.Group, " ") }
 		if c.Name == "" {
 			"missing command" + at + "; commands: " + strings.Join(c.Known, ", ")
 		} else {

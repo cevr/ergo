@@ -88,8 +88,8 @@ func storageGraph(p Image) fails Malformed {
 		if state[i] != 0 { continue }
 		state[i] = 1
 		todo = todo.Append(frame{row: i, next: 0, n: embeds(p, i)})
-		for len(todo) > 0 {
-			let top = len(todo) - 1
+		for todo.Len() > 0 {
+			let top = todo.Len() - 1
 			let f = todo[top]
 			if f.next == f.n {
 				state[f.row] = 2

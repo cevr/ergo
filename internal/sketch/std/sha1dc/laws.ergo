@@ -51,7 +51,7 @@ law DetectsBlessedCollision() {
 	let detected = Sum(data) catch {
 	case CollisionDetected as c:
 		let safeHex = hex.Encode(c.Digest)
-		let mut benign = slices.WithCapacity[byte](len(data))
+		let mut benign = slices.WithCapacity[byte](data.Len())
 		for x in data {
 			benign = benign.Append(x)
 		}

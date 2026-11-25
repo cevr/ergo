@@ -15,15 +15,18 @@
 // visited states.
 
 import go math
+import codec
 import dense
 import gen
+import machines
+import option
 
 // Graph is what a search explores: its starts, its signals, and its step
 // as an edge, None when the step ends the run (no edge).
 type Graph[S, E] {
 	Starts  []S,
 	Signals []E,
-	Step    func(s S, e E) Option[S],
+	Step    func(s S, e E) option.Option[S],
 }
 
 // Hash is the 128-bit key of a state: the hash of the events of its wire
@@ -41,7 +44,7 @@ type Hash { Hi uint64, Lo uint64 }
 // hasher moves into a cell as json's text does.
 // law-exempt: Hasher is a Writer whose reads are Sum and size, a hash; KeyIsEquality states its law over the values written (equal values, equal keys; unequal values, unequal keys).
 type Hasher {
-	..Writer,
+	..codec.Writer,
 	Sum() Hash,
 	size() int,
 }
@@ -72,10 +75,10 @@ func absorb(h mut hasher, x uint64) {
 
 // absorbText takes in a text: its length, then its bytes, eight to a word.
 func absorbText(h mut hasher, s string) {
-	absorb(h, uint64(len(s)))
+	absorb(h, uint64(s.Len()))
 	let mut w = uint64(0)
 	let mut k = 0
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		w = w | (uint64(s[i]) << uint64(8*k))
 		k = k + 1
 		if k == 8 {
@@ -120,10 +123,10 @@ func String(h mut hasher, s string) {
 // no string made of them (Writer's StringBytes, GX12).
 func StringBytes(h mut hasher, b []byte) {
 	absorb(h, uint64(8))
-	absorb(h, uint64(len(b)))
+	absorb(h, uint64(b.Len()))
 	let mut w = uint64(0)
 	let mut k = 0
-	for i in 0..len(b) {
+	for i in 0..b.Len() {
 		w = w | (uint64(b[i]) << uint64(8*k))
 		k = k + 1
 		if k == 8 {
@@ -160,7 +163,7 @@ func size(h hasher) int      { h.n }
 // KeyOf is the key of s and the count of words its wire form took.
 func KeyOf[S wire](s S) (Hash, int) needs wired[S] {
 	let h Hasher = newHasher()
-	encode(s, h)
+	codec.Encode(s, h)
 	(h.Sum(), h.size())
 }
 
@@ -250,17 +253,17 @@ func reconstructRun(parent []int32, sig []int32, i int) Run {
 		at = int(parent[at])
 	}
 	let mut sigs = []int{}
-	for j in 0..len(back) {
-		sigs = sigs.Append(back[len(back)-1-j])
+	for j in 0..back.Len() {
+		sigs = sigs.Append(back[back.Len()-1-j])
 	}
 	Run{Start: int(sig[at]), Signals: sigs}
 }
 
-func pushKept[S](kept []Option[S], held int, s S, words int) ([]Option[S], int) {
+func pushKept[S](kept []option.Option[S], held int, s S, words int) ([]option.Option[S], int) {
 	if words <= SmallWords {
-		return (kept.Append(Some[S]{Value: s}), held + 1)
+		return (kept.Append(option.Some[S]{Value: s}), held + 1)
 	}
-	(kept.Append(None), held)
+	(kept.Append(option.None), held)
 }
 
 // RunTo is the run to the node i of r.
@@ -272,9 +275,9 @@ func ReplayRun[S, E](g Graph[S, E], run Run) S {
 	let mut s = g.Starts[run.Start]
 	for e in run.Signals {
 		match g.Step(s, g.Signals[e]) {
-		case Some[S] as t:
+		case option.Some[S] as t:
 			s = t.Value
-		case None:
+		case option.None:
 		}
 	}
 	s
@@ -297,15 +300,15 @@ func Search[S wire, E](g Graph[S, E], target func(s S) bool, budget int) Result 
 	let mut sig = []int32{}
 	let mut st = Stats{States: 0, Edges: 0, Depth: 0, Checked: 0, Complete: false, Frontier: 0}
 	let mut ids = []int{}
-	let mut kept = []Option[S]{}
+	let mut kept = []option.Option[S]{}
 	let mut held = 0
-	for i in 0..len(g.Starts) {
+	for i in 0..g.Starts.Len() {
 		let s = g.Starts[i]
 		let (k, words) = KeyOf(s)
 		if !dense.AddKey(&seen, k.Hi, k.Lo) {
 			continue
 		}
-		if len(parent) == budget {
+		if parent.Len() == budget {
 			st.Checked = -1
 			return Result{Found: -1, Stats: st, parent: parent, sig: sig}
 		}
@@ -313,30 +316,30 @@ func Search[S wire, E](g Graph[S, E], target func(s S) bool, budget int) Result 
 		sig = sig.Append(int32(i))
 		st.States = st.States + 1
 		if target(s) {
-			return Result{Found: len(parent) - 1, Stats: st, parent: parent, sig: sig}
+			return Result{Found: parent.Len() - 1, Stats: st, parent: parent, sig: sig}
 		}
 		let (k2, h2) = pushKept(kept, held, s, words)
 		kept = k2
 		held = h2
 		st.Frontier = larger(st.Frontier, held)
-		ids = ids.Append(len(parent) - 1)
+		ids = ids.Append(parent.Len() - 1)
 	}
 	let mut depth = 1
-	for len(ids) > 0 {
+	for ids.Len() > 0 {
 		let mut next = []int{}
-		let mut nextKept = []Option[S]{}
+		let mut nextKept = []option.Option[S]{}
 		let mut nextHeld = 0
-		for f in 0..len(ids) {
+		for f in 0..ids.Len() {
 			let s = frontierState(g, parent, sig, kept[f], ids[f])
-			for e in 0..len(g.Signals) {
+			for e in 0..g.Signals.Len() {
 				match g.Step(s, g.Signals[e]) {
-				case None:
-				case Some[S] as stepped:
+				case option.None:
+				case option.Some[S] as stepped:
 					let t = stepped.Value
 					st.Edges = st.Edges + 1
 					let (k, words) = KeyOf(t)
 					if dense.AddKey(&seen, k.Hi, k.Lo) {
-						if len(parent) == budget {
+						if parent.Len() == budget {
 							st.Checked = depth - 1
 							return Result{Found: -1, Stats: st, parent: parent, sig: sig}
 						}
@@ -345,13 +348,13 @@ func Search[S wire, E](g Graph[S, E], target func(s S) bool, budget int) Result 
 						st.States = st.States + 1
 						st.Depth = depth
 						if target(t) {
-							return Result{Found: len(parent) - 1, Stats: st, parent: parent, sig: sig}
+							return Result{Found: parent.Len() - 1, Stats: st, parent: parent, sig: sig}
 						}
 						let (nk2, nh2) = pushKept(nextKept, nextHeld, t, words)
 						nextKept = nk2
 						nextHeld = nh2
 						st.Frontier = larger(st.Frontier, held+nextHeld)
-						next = next.Append(len(parent) - 1)
+						next = next.Append(parent.Len() - 1)
 					}
 				}
 			}
@@ -368,11 +371,11 @@ func Search[S wire, E](g Graph[S, E], target func(s S) bool, budget int) Result 
 
 // frontierState is the state of the node id: the kept one, or the one its
 // run replays to.
-func frontierState[S, E](g Graph[S, E], parent []int32, sig []int32, kept Option[S], id int) S {
+func frontierState[S, E](g Graph[S, E], parent []int32, sig []int32, kept option.Option[S], id int) S {
 	match kept {
-	case Some[S] as s:
+	case option.Some[S] as s:
 		s.Value
-	case None:
+	case option.None:
 		ReplayRun(g, reconstructRun(parent, sig, id))
 	}
 }
@@ -388,19 +391,19 @@ func PathSearch[S wire, E](g Graph[S, E], targets []func(s S) bool, budget int) 
 	let mut sig = []int32{}
 	let mut st = Stats{States: 0, Edges: 0, Depth: 0, Checked: 0, Complete: false, Frontier: 0}
 	let mut ids = []int{}
-	let mut kept = []Option[S]{}
+	let mut kept = []option.Option[S]{}
 	let mut held = 0
-	if len(targets) == 0 {
+	if targets.Len() == 0 {
 		st.Complete = true
 		return Result{Found: -1, Stats: st, parent: parent, sig: sig}
 	}
-	for i in 0..len(g.Starts) {
+	for i in 0..g.Starts.Len() {
 		let s = g.Starts[i]
 		if targets[0](s) {
 			let (k, words) = KeyOf(s)
 			if dense.AddKey(&layer, k.Hi, k.Lo) {
-				if len(parent) == budget {
-					st.States = len(parent)
+				if parent.Len() == budget {
+					st.States = parent.Len()
 					return Result{Found: -1, Stats: st, parent: parent, sig: sig}
 				}
 				parent = parent.Append(int32(-1))
@@ -409,29 +412,29 @@ func PathSearch[S wire, E](g Graph[S, E], targets []func(s S) bool, budget int) 
 				kept = k2
 				held = h2
 				st.Frontier = larger(st.Frontier, held)
-				ids = ids.Append(len(parent) - 1)
+				ids = ids.Append(parent.Len() - 1)
 			}
 		}
 	}
 	let mut d = 1
-	for d < len(targets) && len(ids) > 0 {
+	for d < targets.Len() && ids.Len() > 0 {
 		layer = dense.NewKeys()
 		let mut next = []int{}
-		let mut nextKept = []Option[S]{}
+		let mut nextKept = []option.Option[S]{}
 		let mut nextHeld = 0
-		for f in 0..len(ids) {
+		for f in 0..ids.Len() {
 			let s = frontierState(g, parent, sig, kept[f], ids[f])
-			for e in 0..len(g.Signals) {
+			for e in 0..g.Signals.Len() {
 				match g.Step(s, g.Signals[e]) {
-				case None:
-				case Some[S] as stepped:
+				case option.None:
+				case option.Some[S] as stepped:
 					let t = stepped.Value
 					st.Edges = st.Edges + 1
 					if targets[d](t) {
 						let (k, words) = KeyOf(t)
 						if dense.AddKey(&layer, k.Hi, k.Lo) {
-							if len(parent) == budget {
-								st.States = len(parent)
+							if parent.Len() == budget {
+								st.States = parent.Len()
 								return Result{Found: -1, Stats: st, parent: parent, sig: sig}
 							}
 							parent = parent.Append(int32(ids[f]))
@@ -440,7 +443,7 @@ func PathSearch[S wire, E](g Graph[S, E], targets []func(s S) bool, budget int) 
 							nextKept = nk2
 							nextHeld = nh2
 							st.Frontier = larger(st.Frontier, held+nextHeld)
-							next = next.Append(len(parent) - 1)
+							next = next.Append(parent.Len() - 1)
 						}
 					}
 				}
@@ -452,10 +455,10 @@ func PathSearch[S wire, E](g Graph[S, E], targets []func(s S) bool, budget int) 
 		st.Depth = d
 		d = d + 1
 	}
-	st.States = len(parent)
+	st.States = parent.Len()
 	st.Checked = st.Depth
 	st.Complete = true
-	let found = if len(ids) > 0 { ids[0] } else { -1 }
+	let found = if ids.Len() > 0 { ids[0] } else { -1 }
 	Result{Found: found, Stats: st, parent: parent, sig: sig}
 }
 
@@ -465,10 +468,10 @@ func PathSearch[S wire, E](g Graph[S, E], targets []func(s S) bool, budget int) 
 func Moves[S wire, E](g Graph[S, E], s S) []int needs wired[S] {
 	let (here, _) = KeyOf(s)
 	let mut out = []int{}
-	for e in 0..len(g.Signals) {
+	for e in 0..g.Signals.Len() {
 		match g.Step(s, g.Signals[e]) {
-		case None:
-		case Some[S] as t:
+		case option.None:
+		case option.Some[S] as t:
 			let (k, _) = KeyOf(t.Value)
 			if k != here {
 				out = out.Append(e)
@@ -486,38 +489,38 @@ type ceOut { Code int, At int }
 
 type ceOracleEdge { Source int, Signal int, EventID int, Target EdgeTarget, Obs MachineObs[ceOut] }
 
-func ceMachine(mod int, bonus int) Machine[ceState, ceEvent, ceOut] {
-	Machine[ceState, ceEvent, ceOut]{
+func ceMachine(mod int, bonus int) machines.Machine[ceState, ceEvent, ceOut] {
+	machines.Machine[ceState, ceEvent, ceOut]{
 		Initial: ceState{Tag: uint8(0), Val: 0},
-		Step:    func(s ceState, e ceEvent) Decision[ceState, ceOut] {
+		Step:    func(s ceState, e ceEvent) machines.Decision[ceState, ceOut] {
 			match e {
 			case ceBump as b:
 				let nextVal = (s.Val + b.Delta) % mod
 				let nextTag = if nextVal == 0 { uint8(1) } else { s.Tag }
 				let next = ceState{Tag: nextTag, Val: nextVal}
 				if b.Delta == 1 {
-					Enter[ceState]{Next: next}
+					machines.Enter[ceState]{Next: next}
 				} else {
-					Emit[ceState, ceOut]{Next: next, Output: ceOut{Code: b.Delta + bonus, At: s.Val}}
+					machines.Emit[ceState, ceOut]{Next: next, Output: ceOut{Code: b.Delta + bonus, At: s.Val}}
 				}
 			case ceProbe as p:
 				if p.Kind == uint8(0) {
-					Ignore
+					machines.Ignore
 				} else {
-					Reject
+					machines.Reject
 				}
 			case ceFinish as f:
-				Done[ceOut]{Output: ceOut{Code: f.Code, At: s.Val}}
+				machines.Done[ceOut]{Output: ceOut{Code: f.Code, At: s.Val}}
 			}
 		},
-		After: func(_ ceState) Option[Timeout[ceEvent]] { None },
-		Work:  func(_ ceState) Option[func(send func(e ceEvent))] { None },
-		Exit:  func(_ ceState) Option[func()] { None },
+		After: func(_ ceState) option.Option[machines.Timeout[ceEvent]] { option.None },
+		Work:  func(_ ceState) option.Option[func(send func(e ceEvent))] { option.None },
+		Exit:  func(_ ceState) option.Option[func()] { option.None },
 	}
 }
 
 func ceOracleFindState(xs []ceState, x ceState) int {
-	for i in 0..len(xs) {
+	for i in 0..xs.Len() {
 		if xs[i] == x {
 			return i
 		}
@@ -526,7 +529,7 @@ func ceOracleFindState(xs []ceState, x ceState) int {
 }
 
 func ceOracleFindEvent(xs []ceEvent, x ceEvent) int {
-	for i in 0..len(xs) {
+	for i in 0..xs.Len() {
 		if xs[i] == x {
 			return i
 		}
@@ -534,10 +537,10 @@ func ceOracleFindEvent(xs []ceEvent, x ceEvent) int {
 	-1
 }
 
-func ceOracleBuild(m Machine[ceState, ceEvent, ceOut], rawSignals []ceEvent) (int, []ceOracleEdge, int) {
+func ceOracleBuild(m machines.Machine[ceState, ceEvent, ceOut], rawSignals []ceEvent) (int, []ceOracleEdge, int) {
 	let mut sigs = []ceEvent{}
 	let mut sigIdx = []int{}
-	for i in 0..len(rawSignals) {
+	for i in 0..rawSignals.Len() {
 		if ceOracleFindEvent(sigs, rawSignals[i]) < 0 {
 			sigs = sigs.Append(rawSignals[i])
 			sigIdx = sigIdx.Append(i)
@@ -548,41 +551,41 @@ func ceOracleBuild(m Machine[ceState, ceEvent, ceOut], rawSignals []ceEvent) (in
 	let mut edges = []ceOracleEdge{}
 	let mut depth = 0
 	let mut d = 1
-	for len(frontier) > 0 {
+	for frontier.Len() > 0 {
 		let mut next = []int{}
 		for src in frontier {
 			let s = states[src]
-			for evID in 0..len(sigs) {
+			for evID in 0..sigs.Len() {
 				let dec = m.Step(s, sigs[evID])
 				match dec {
-				case Done[ceOut] as done:
+				case machines.Done[ceOut] as done:
 					edges = edges.Append(ceOracleEdge{
 						Source:  src,
 						Signal:  sigIdx[evID],
 						EventID: evID,
 						Target:  Ended,
-						Obs:     MachineObs[ceOut]{Kind: DisDone, Output: Some[ceOut]{Value: done.Output}},
+						Obs:     MachineObs[ceOut]{Kind: DisDone, Output: option.Some[ceOut]{Value: done.Output}},
 					})
-				case Ignore:
+				case machines.Ignore:
 					edges = edges.Append(ceOracleEdge{
 						Source:  src,
 						Signal:  sigIdx[evID],
 						EventID: evID,
 						Target:  ToState{State: src},
-						Obs:     MachineObs[ceOut]{Kind: DisIgnore, Output: None},
+						Obs:     MachineObs[ceOut]{Kind: DisIgnore, Output: option.None},
 					})
-				case Reject:
+				case machines.Reject:
 					edges = edges.Append(ceOracleEdge{
 						Source:  src,
 						Signal:  sigIdx[evID],
 						EventID: evID,
 						Target:  ToState{State: src},
-						Obs:     MachineObs[ceOut]{Kind: DisReject, Output: None},
+						Obs:     MachineObs[ceOut]{Kind: DisReject, Output: option.None},
 					})
-				case Enter[ceState] as en:
+				case machines.Enter[ceState] as en:
 					let mut dst = ceOracleFindState(states, en.Next)
 					if dst < 0 {
-						dst = len(states)
+						dst = states.Len()
 						states = states.Append(en.Next)
 						next = next.Append(dst)
 						depth = d
@@ -592,12 +595,12 @@ func ceOracleBuild(m Machine[ceState, ceEvent, ceOut], rawSignals []ceEvent) (in
 						Signal:  sigIdx[evID],
 						EventID: evID,
 						Target:  ToState{State: dst},
-						Obs:     MachineObs[ceOut]{Kind: DisEnter, Output: None},
+						Obs:     MachineObs[ceOut]{Kind: DisEnter, Output: option.None},
 					})
-				case Stay[ceState] as st:
+				case machines.Stay[ceState] as st:
 					let mut dst = ceOracleFindState(states, st.Next)
 					if dst < 0 {
-						dst = len(states)
+						dst = states.Len()
 						states = states.Append(st.Next)
 						next = next.Append(dst)
 						depth = d
@@ -607,12 +610,12 @@ func ceOracleBuild(m Machine[ceState, ceEvent, ceOut], rawSignals []ceEvent) (in
 						Signal:  sigIdx[evID],
 						EventID: evID,
 						Target:  ToState{State: dst},
-						Obs:     MachineObs[ceOut]{Kind: DisStay, Output: None},
+						Obs:     MachineObs[ceOut]{Kind: DisStay, Output: option.None},
 					})
-				case Emit[ceState, ceOut] as em:
+				case machines.Emit[ceState, ceOut] as em:
 					let mut dst = ceOracleFindState(states, em.Next)
 					if dst < 0 {
-						dst = len(states)
+						dst = states.Len()
 						states = states.Append(em.Next)
 						next = next.Append(dst)
 						depth = d
@@ -622,12 +625,12 @@ func ceOracleBuild(m Machine[ceState, ceEvent, ceOut], rawSignals []ceEvent) (in
 						Signal:  sigIdx[evID],
 						EventID: evID,
 						Target:  ToState{State: dst},
-						Obs:     MachineObs[ceOut]{Kind: DisEmit, Output: Some[ceOut]{Value: em.Output}},
+						Obs:     MachineObs[ceOut]{Kind: DisEmit, Output: option.Some[ceOut]{Value: em.Output}},
 					})
-				case Tell[ceState, ceOut] as tl:
+				case machines.Tell[ceState, ceOut] as tl:
 					let mut dst = ceOracleFindState(states, tl.Next)
 					if dst < 0 {
-						dst = len(states)
+						dst = states.Len()
 						states = states.Append(tl.Next)
 						next = next.Append(dst)
 						depth = d
@@ -637,7 +640,7 @@ func ceOracleBuild(m Machine[ceState, ceEvent, ceOut], rawSignals []ceEvent) (in
 						Signal:  sigIdx[evID],
 						EventID: evID,
 						Target:  ToState{State: dst},
-						Obs:     MachineObs[ceOut]{Kind: DisTell, Output: Some[ceOut]{Value: tl.Output}},
+						Obs:     MachineObs[ceOut]{Kind: DisTell, Output: option.Some[ceOut]{Value: tl.Output}},
 					})
 				}
 			}
@@ -645,7 +648,7 @@ func ceOracleBuild(m Machine[ceState, ceEvent, ceOut], rawSignals []ceEvent) (in
 		frontier = next
 		d = d + 1
 	}
-	(len(states), edges, depth)
+	(states.Len(), edges, depth)
 }
 
 func checkForcedCollision(val int, hashHi uint64) bool {
@@ -711,7 +714,7 @@ law EdgesKeepIdentity() {
 			return false
 		}
 		let (wantStates, wantEdges, wantDepth) = ceOracleBuild(m, signals)
-		if res.Stats.States != wantStates || res.Stats.Edges != len(wantEdges) || res.Stats.Depth != wantDepth || len(res.Edges) != len(wantEdges) || res.Roots != []int{0} {
+		if res.Stats.States != wantStates || res.Stats.Edges != wantEdges.Len() || res.Stats.Depth != wantDepth || res.Edges.Len() != wantEdges.Len() || res.Roots != []int{0} {
 			return false
 		}
 		let mut sawVisited = false
@@ -720,7 +723,7 @@ law EdgesKeepIdentity() {
 		let mut sawDone = false
 		let mut sawAlias1 = false
 		let mut sawAlias2 = false
-		for i in 0..len(wantEdges) {
+		for i in 0..wantEdges.Len() {
 			let got = res.Edges[i]
 			let want = wantEdges[i]
 			if got.Source != want.Source || got.Signal != want.Signal || got.EventID != want.EventID || got.Target != want.Target || got.Obs != want.Obs {
@@ -732,7 +735,7 @@ law EdgesKeepIdentity() {
 					sawVisited = true
 				}
 			case Ended:
-				let wantDone = Some[ceOut]{Value: ceOut{Code: finishCode, At: 0}}
+				let wantDone = option.Some[ceOut]{Value: ceOut{Code: finishCode, At: 0}}
 				if got.Obs.Kind == DisDone && got.Obs.Output == wantDone {
 					sawDone = true
 				}
@@ -767,7 +770,7 @@ law EdgesKeepIdentity() {
 		let disRes = BuildConcrete(disabledGraph, bounds)
 		let disOK = disRes.Stop == ConcreteComplete && disRes.Stats.Disabled == 1 && disRes.Stats.Edges == 1 && disRes.Stats.Work > 2
 		let tightEdges = BuildConcrete(ConcreteOfMachine(m, signals), ConcreteBounds{MaxStates: 64, MaxEdges: 1, MaxWork: 100000, MaxBytes: 65536})
-		let tightOK = tightEdges.Stop == OverEdges && len(tightEdges.Edges) == 1
+		let tightOK = tightEdges.Stop == OverEdges && tightEdges.Edges.Len() == 1
 		let reach = Always(OfMachine(m, signals), func(s ceState) bool { s.Val >= 0 }, 64)
 		let reachOK = match reach {
 		case Proved as pr:

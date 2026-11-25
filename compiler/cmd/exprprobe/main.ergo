@@ -51,19 +51,19 @@ func source(n int, rule string) string {
 }
 
 func run(args []string) fails os.Exit needs io.Stdout {
-	if len(args) != 2 {
+	if args.Len() != 2 {
 		return os.Exit{Code: 2, Message: "usage: exprprobe N gen|parse|setup|check|check-fused|check-bad-RULE"}
 	}
 	let mut n = 0
 	let w = args[0]
-	for i in 0..len(w) {
+	for i in 0..w.Len() {
 		n = n*10 + int(w[i]) - 48
 	}
 	let mode = args[1]
-	let rule = if strings.HasPrefix(mode, "check-bad-") { mode[10:len(mode)] } else { "" }
+	let rule = if strings.HasPrefix(mode, "check-bad-") { mode[10:mode.Len()] } else { "" }
 	let src = source(n, rule)
 	if mode == "gen" {
-		io.Stdout.Println("bytes=\(len(src))")
+		io.Stdout.Println("bytes=\(src.Len())")
 		return
 	}
 	let p = syntax.Parse(src)
@@ -77,18 +77,18 @@ func run(args []string) fails os.Exit needs io.Stdout {
 	let mut s = bound
 	let k = expr.Load(&s, files, u, ps, []types.Ext{}, []types.Foreign{}, []types.Iface{}, false)
 	if mode == "setup" {
-		io.Stdout.Println("fns=\(len(k.Fns))")
+		io.Stdout.Println("fns=\(k.Fns.Len())")
 		return
 	}
 	let t = if mode == "check-fused" { expr.CheckFused(&s, k) } else { expr.Check(&s, k) }
-	let bad = len(t.Diags)
+	let bad = t.Diags.Len()
 	if bad > 0 {
 		return os.Exit{Code: 1, Message: "rejected: \(bad) type errors"}
 	}
-	io.Stdout.Println("fns=\(len(k.Fns)) typed=\(expr.Typed(t))")
+	io.Stdout.Println("fns=\(k.Fns.Len()) typed=\(expr.Typed(t))")
 }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost() } {
 		try run(os.Process.Args())
 	}

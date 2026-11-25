@@ -12,7 +12,7 @@ type Member { Name string, Data string }
 
 func pad(s string, n int) string {
 	let mut out = s
-	for len(out) < n {
+	for out.Len() < n {
 		out = out + " "
 	}
 	out
@@ -24,9 +24,9 @@ func WriteAr(ms []Member) string {
 	let mut w = NewBuf()
 	w.Raw("!<arch>\n")
 	for m in ms {
-		w.Raw(pad(m.Name, 16) + pad("0", 12) + pad("0", 6) + pad("0", 6) + pad("644", 8) + pad(strconv.Itoa(len(m.Data)), 10) + "`\n")
+		w.Raw(pad(m.Name, 16) + pad("0", 12) + pad("0", 6) + pad("0", 6) + pad("644", 8) + pad(strconv.Itoa(m.Data.Len()), 10) + "`\n")
 		w.Raw(m.Data)
-		if len(m.Data)%2 == 1 {
+		if m.Data.Len()%2 == 1 {
 			w.U8(0)
 		}
 	}

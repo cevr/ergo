@@ -1,3 +1,4 @@
+import option
 import sync
 import utf8
 
@@ -83,7 +84,7 @@ law LayerStaysInViewAndTouches(seed int) {
 	let side = draw(&r, 4)
 	let align = draw(&r, 4)
 	let p = Place{Side: sideOf(side), Align: alignOf(align), Gap: dip(draw(&r, 9))}
-	let b = PlaceLayer(Some{Value: a}, w, h, view, p)
+	let b = PlaceLayer(option.Some{Value: a}, w, h, view, p)
 	if b.W != w || b.H != h || b.X < view.X || b.Y < view.Y || b.X+b.W > view.X+view.W || b.Y+b.H > view.Y+view.H {
 		return false
 	}
@@ -108,7 +109,7 @@ law LayerStaysInViewAndTouches(seed int) {
 	if want >= clo && want+csize <= chi && cgot != want {
 		return false
 	}
-	let c = PlaceLayer(None, w, h, view, p)
+	let c = PlaceLayer(option.None, w, h, view, p)
 	c.X == view.X+(view.W-w)/2 && c.Y == view.Y+(view.H-h)/2 && c.W == w && c.H == h
 }
 
@@ -141,7 +142,7 @@ func LayoutText(m Measure, text string, font Font, width Length) TextLayout {
 		for l in breakParagraph(m, text, font, width, start, end) {
 			lines = lines.Append(l)
 		}
-		if end >= len(text) {
+		if end >= text.Len() {
 			break
 		}
 		start = end + 1
@@ -158,12 +159,12 @@ func LayoutText(m Measure, text string, font Font, width Length) TextLayout {
 law LinesCoverText(seed int) {
 	let c = drawText(seed)
 	let l = LayoutText(c.m, c.text, mono, c.width)
-	if len(l.Lines) == 0 {
+	if l.Lines.Len() == 0 {
 		return false
 	}
 	let mut at = 0
 	for i, ln in l.Lines {
-		if ln.Start != at || ln.End < ln.Start || ln.End > len(c.text) {
+		if ln.Start != at || ln.End < ln.Start || ln.End > c.text.Len() {
 			return false
 		}
 		for j in ln.Start..ln.End {
@@ -180,12 +181,12 @@ law LinesCoverText(seed int) {
 				return false
 			}
 			at = ln.End
-		} else if i < len(l.Lines)-1 {
-			if ln.End >= len(c.text) || c.text[ln.End] != '\n' {
+		} else if i < l.Lines.Len()-1 {
+			if ln.End >= c.text.Len() || c.text[ln.End] != '\n' {
 				return false
 			}
 			at = ln.End + 1
-		} else if ln.End != len(c.text) {
+		} else if ln.End != c.text.Len() {
 			return false
 		}
 	}
@@ -203,7 +204,7 @@ func drawText(seed int) textCase {
 	let m = Monospace{Advance: Length(float64(draw(&r, 3) + 1)), Line: Length(float64(draw(&r, 3) + 2))}
 	let mut text = ""
 	for _ in 0..draw(&r, 14) {
-		text = text + pieces[draw(&r, len(pieces))]
+		text = text + pieces[draw(&r, pieces.Len())]
 	}
 	textCase{m: m, text: text, width: Length(float64(draw(&r, 24)))}
 }
@@ -212,7 +213,7 @@ let mono = Font{Family: "mono", Size: 12.0}
 
 // trimmed is s without trailing spaces.
 func trimmed(s string) string {
-	let mut e = len(s)
+	let mut e = s.Len()
 	for e > 0 && s[e-1] == ' ' {
 		e = e - 1
 	}
@@ -226,7 +227,7 @@ func sizeAt(s string, at int) int { utf8.RuneLen(utf8.DecodeRuneInString(s[at:])
 // len(s).
 func newlineAt(s string, from int) int {
 	let mut i = from
-	for i < len(s) && s[i] != '\n' {
+	for i < s.Len() && s[i] != '\n' {
 		i = i + 1
 	}
 	i
@@ -261,11 +262,11 @@ law HitFindsTheCaret(seed int, a int, b int) {
 			return false
 		}
 	}
-	let from = bounds[(a%len(bounds)+len(bounds))%len(bounds)]
-	let to = bounds[(b%len(bounds)+len(bounds))%len(bounds)]
+	let from = bounds[(a%bounds.Len()+bounds.Len())%bounds.Len()]
+	let to = bounds[(b%bounds.Len()+bounds.Len())%bounds.Len()]
 	let rects = SelectionRects(c.m, l, from, to)
 	for o in bounds {
-		if o < len(c.text) && c.text[o] != '\n' {
+		if o < c.text.Len() && c.text[o] != '\n' {
 			let k = CaretAt(c.m, l, o)
 			let x = k.X + c.m.Width(c.text[o:o+sizeAt(c.text, o)], mono)/2.0
 			let y = k.Top + k.Height/2.0
@@ -288,7 +289,7 @@ law HitFindsTheCaret(seed int, a int, b int) {
 func boundaryList(s string) []int {
 	let mut out = []int{0}
 	let mut o = 0
-	for o < len(s) {
+	for o < s.Len() {
 		o = o + sizeAt(s, o)
 		out = out.Append(o)
 	}
@@ -299,7 +300,7 @@ func boundaryList(s string) []int {
 // the text's length.
 func paragraphEnd(text string, start int) int {
 	let mut i = start
-	for i < len(text) && text[i] != '\n' {
+	for i < text.Len() && text[i] != '\n' {
 		i = i + 1
 	}
 	i
@@ -369,7 +370,7 @@ func runeSize(text string, at int) int {
 
 // trimSpaces is s without its trailing spaces.
 func trimSpaces(s string) string {
-	let mut e = len(s)
+	let mut e = s.Len()
 	for e > 0 && s[e-1] == ' ' {
 		e = e - 1
 	}
@@ -384,7 +385,7 @@ func lineOf(l TextLayout, offset int) int {
 			return i
 		}
 	}
-	len(l.Lines) - 1
+	l.Lines.Len() - 1
 }
 
 // CaretAt is where the caret at offset is drawn. An offset outside the
@@ -394,8 +395,8 @@ func CaretAt(m Measure, l TextLayout, offset int) Caret {
 	if o < 0 {
 		o = 0
 	}
-	if o > len(l.Text) {
-		o = len(l.Text)
+	if o > l.Text.Len() {
+		o = l.Text.Len()
 	}
 	let i = lineOf(l, o)
 	let ln = l.Lines[i]
@@ -410,8 +411,8 @@ func OffsetAt(m Measure, l TextLayout, x Length, y Length) int {
 	if l.LineHeight > 0.0 && y > 0.0 {
 		i = int(float64(y / l.LineHeight))
 	}
-	if i >= len(l.Lines) {
-		i = len(l.Lines) - 1
+	if i >= l.Lines.Len() {
+		i = l.Lines.Len() - 1
 	}
 	let ln = l.Lines[i]
 	let mut best = ln.Start

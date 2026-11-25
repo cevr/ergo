@@ -24,7 +24,7 @@ func Enabled(j JSONLines, l Level) bool { Admits(j.least, l) }
 // Write writes e as one line of JSON, in one write.
 func Write(j JSONLines, e Entry) {
 	let t = json.NewText()
-	t.BeginObject(3 + len(e.Attrs))
+	t.BeginObject(3 + e.Attrs.Len())
 	t.Key("time")
 	t.String(j.clock.Now().Format(time.RFC3339Nano))
 	t.Key("level")

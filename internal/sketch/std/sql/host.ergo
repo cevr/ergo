@@ -2,6 +2,7 @@
 // Open lists Ambient in its row, as every host constructor does, so only
 // the program's entry chooses the database; a test binds sqltest.Script.
 
+import os
 import time
 
 // Host is the host's DB: a database/sql pool, and the Dialect that reads
@@ -13,7 +14,7 @@ type Host { p pool, dialect Dialect } implements DB
 // errors read by dialect. It pings the database once, so a database that
 // cannot be reached fails here. The program links the driver: a name no
 // linked driver registered is Other.
-func Open(driver string, dsn string, dialect Dialect) Host fails Unique | Serialization | Deadlock | Timeout | Closed | Other needs Ambient {
+func Open(driver string, dsn string, dialect Dialect) Host fails Unique | Serialization | Deadlock | Timeout | Closed | Other needs os.Ambient {
 	let p = hostOpen(driver, dsn) catch {
 	case hostFailure as e:
 		try raise[pool](read(dialect, e))
@@ -167,7 +168,7 @@ func toHost(args []Value) []hostArg {
 
 // fromHost is the rows of r.
 func fromHost(r hostResult) []Row {
-	let width = len(r.Columns)
+	let width = r.Columns.Len()
 	let mut rows = []Row{}
 	if width == 0 {
 		return rows
@@ -175,7 +176,7 @@ func fromHost(r hostResult) []Row {
 	let mut values = []Value{}
 	for h in r.Cells {
 		values = values.Append(value(h))
-		if len(values) == width {
+		if values.Len() == width {
 			rows = rows.Append(Row{Columns: r.Columns, Values: values})
 			values = []Value{}
 		}
@@ -217,7 +218,7 @@ extern go ergo.local/prototype/runtime/v1/sql.SQLPool type pool {
 	hostPool(),
 }
 
-extern go ergo.local/prototype/runtime/v1/sql.SQLOpen func hostOpen(driver string, dsn string) pool fails hostFailure needs Ambient
+extern go ergo.local/prototype/runtime/v1/sql.SQLOpen func hostOpen(driver string, dsn string) pool fails hostFailure needs os.Ambient
 
 extern go ergo.local/prototype/runtime/v1/sql.SQLExec func hostExec(p pool, stmt string, args []hostArg) hostResult fails hostFailure
 

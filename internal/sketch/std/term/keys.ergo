@@ -18,6 +18,7 @@
 // key.go (Go), and Textual's _xterm_parser (Python) read the same tables;
 // each keeps the parser in the library, not the host, as this does.
 
+import option
 import strings
 import utf8
 
@@ -47,7 +48,7 @@ let pasteEnd = "\x1b[201~"
 // end of b is the Escape key. At the end of the input (end) the rest of b
 // is one key. It is 0 only for an empty b at the end.
 func Cut(b string, end bool) int {
-	if len(b) == 0 {
+	if b.Len() == 0 {
 		return if end { 0 } else { -1 }
 	}
 	let c = b[0]
@@ -58,38 +59,38 @@ func Cut(b string, end bool) int {
 		return 1
 	}
 	let n = if c >= 0xf0 && c < 0xf8 { 4 } else if c >= 0xe0 { 3 } else if c >= 0xc0 { 2 } else { 1 }
-	if n > len(b) {
-		return if end { len(b) } else { -1 }
+	if n > b.Len() {
+		return if end { b.Len() } else { -1 }
 	}
 	n
 }
 
 // cutEscape is Cut of a b that starts with ESC.
 func cutEscape(b string, end bool) int {
-	if len(b) == 1 {
+	if b.Len() == 1 {
 		return 1
 	}
 	let c = b[1]
 	if c == '[' {
 		if strings.HasPrefix(b, pasteStart) {
-			let i = strings.Index(b[len(pasteStart):], pasteEnd)
+			let i = strings.Index(b[pasteStart.Len():], pasteEnd)
 			if i >= 0 {
-				return len(pasteStart) + i + len(pasteEnd)
+				return pasteStart.Len() + i + pasteEnd.Len()
 			}
-			return if end { len(b) } else { -1 }
+			return if end { b.Len() } else { -1 }
 		}
-		for i in 2..len(b) {
+		for i in 2..b.Len() {
 			if b[i] >= 0x40 && b[i] <= 0x7e {
 				return i + 1
 			}
 		}
-		return if end { len(b) } else { -1 }
+		return if end { b.Len() } else { -1 }
 	}
 	if c == 'O' {
-		if len(b) >= 3 {
+		if b.Len() >= 3 {
 			return 3
 		}
-		return if end { len(b) } else { -1 }
+		return if end { b.Len() } else { -1 }
 	}
 	// Alt and the key after it.
 	let rest = Cut(b[1:], end)
@@ -110,7 +111,7 @@ func Feed(d mut Decoder, chunk string) []Key {
 	let b = d.pending + chunk
 	let mut keys = []Key{}
 	let mut at = 0
-	for at < len(b) {
+	for at < b.Len() {
 		let n = Cut(b[at:], false)
 		if n < 0 {
 			break
@@ -129,7 +130,7 @@ func Flush(d mut Decoder) []Key {
 	d.pending = ""
 	let mut keys = []Key{}
 	let mut at = 0
-	for at < len(b) {
+	for at < b.Len() {
 		let n = Cut(b[at:], true)
 		keys = keys.Append(Decode(b[at : at+n]))
 		at = at + n
@@ -145,11 +146,11 @@ func Flush(d mut Decoder) []Key {
 // report Wheel; a token that starts with a printable byte is a Char; any
 // other token is Other.
 func Decode(token string) Key {
-	if len(token) == 0 {
+	if token.Len() == 0 {
 		return EndOfInput
 	}
 	let c = token[0]
-	if len(token) == 1 {
+	if token.Len() == 1 {
 		return byteKey(c, token)
 	}
 	if c != 0x1b {
@@ -159,7 +160,7 @@ func Decode(token string) Key {
 	if d == '[' {
 		return csiKey(token)
 	}
-	if d == 'O' && len(token) == 3 {
+	if d == 'O' && token.Len() == 3 {
 		return ss3Key(token)
 	}
 	withAlt(Decode(token[1:]), token)
@@ -214,27 +215,27 @@ func ss3Key(token string) Key {
 
 // csiKey is the key of a CSI sequence or a paste.
 func csiKey(token string) Key {
-	if len(token) < 3 {
+	if token.Len() < 3 {
 		return Other{Bytes: token}
 	}
 	if strings.HasPrefix(token, pasteStart) {
-		let body = token[len(pasteStart):]
-		let text = if strings.HasSuffix(body, pasteEnd) { body[0 : len(body)-len(pasteEnd)] } else { body }
+		let body = token[pasteStart.Len():]
+		let text = if strings.HasSuffix(body, pasteEnd) { body[0 : body.Len()-pasteEnd.Len()] } else { body }
 		return Paste{Text: text}
 	}
-	let last = token[len(token)-1]
+	let last = token[token.Len()-1]
 	if last < 0x40 || last > 0x7e {
 		return Other{Bytes: token}
 	}
-	let params = token[2 : len(token)-1]
-	if len(params) > 0 && params[0] == '<' {
+	let params = token[2 : token.Len()-1]
+	if params.Len() > 0 && params[0] == '<' {
 		return mouseKey(params[1:], last, token)
 	}
 	let ps = numbers(params)
-	if len(ps) == 0 {
+	if ps.Len() == 0 {
 		return Other{Bytes: token}
 	}
-	let mods = keyMods(if len(ps) > 1 { ps[1] } else { 1 })
+	let mods = keyMods(if ps.Len() > 1 { ps[1] } else { 1 })
 	if last == '~' {
 		return tildeKey(ps[0], mods, token)
 	}
@@ -255,8 +256,8 @@ func numbers(params string) []int {
 	let mut n = 0
 	let mut digits = 0
 	let mut skip = false
-	for i in 0..len(params)+1 {
-		let c = if i < len(params) { params[i] } else { ';' }
+	for i in 0..params.Len()+1 {
+		let c = if i < params.Len() { params[i] } else { ';' }
 		if c == ';' {
 			out = out.Append(if digits == 0 { 1 } else { n })
 			n = 0
@@ -352,7 +353,7 @@ func kittyKey(code int, mods Mods, token string) Key {
 // modifier bits (4, 8, 16) it carries; any other report is Other.
 func mouseKey(params string, final byte, token string) Key {
 	let ps = numbers(params)
-	if len(ps) != 3 || final != 'M' {
+	if ps.Len() != 3 || final != 'M' {
 		return Other{Bytes: token}
 	}
 	let b = ps[0] - (ps[0] & 28)
@@ -369,9 +370,9 @@ func withMods(base Key, mods Mods, token string) Key {
 		return base
 	}
 	match KeyName(base) {
-	case Some[string] as n:
+	case option.Some[string] as n:
 		Chord{Mods: mods, Name: n.Value}
-	case None:
+	case option.None:
 		Other{Bytes: token}
 	}
 }
@@ -384,9 +385,9 @@ func withAlt(k Key, token string) Key {
 		Chord{Mods: Mods{Shift: c.Mods.Shift, Ctrl: c.Mods.Ctrl, Alt: true, Meta: c.Mods.Meta}, Name: c.Name}
 	case _:
 		match KeyName(k) {
-		case Some[string] as n:
+		case option.Some[string] as n:
 			Chord{Mods: Mods{Shift: false, Ctrl: false, Alt: true, Meta: false}, Name: n.Value}
-		case None:
+		case option.None:
 			Other{Bytes: token}
 		}
 	}
@@ -398,44 +399,44 @@ func withAlt(k Key, token string) Key {
 // Chord's name. Interrupt is Ctrl's "c" and EndOfInput Ctrl's "d" in a
 // Chord's name only; alone, they, Other, Paste, Wheel and Resized have no
 // name.
-func KeyName(k Key) Option[string] {
+func KeyName(k Key) option.Option[string] {
 	match k {
 	case Char as c:
-		Some{Value: c.Text}
+		option.Some{Value: c.Text}
 	case Return:
-		Some{Value: "Enter"}
+		option.Some{Value: "Enter"}
 	case Backspace:
-		Some{Value: "Backspace"}
+		option.Some{Value: "Backspace"}
 	case Tab:
-		Some{Value: "Tab"}
+		option.Some{Value: "Tab"}
 	case Escape:
-		Some{Value: "Escape"}
+		option.Some{Value: "Escape"}
 	case Up:
-		Some{Value: "ArrowUp"}
+		option.Some{Value: "ArrowUp"}
 	case Down:
-		Some{Value: "ArrowDown"}
+		option.Some{Value: "ArrowDown"}
 	case Left:
-		Some{Value: "ArrowLeft"}
+		option.Some{Value: "ArrowLeft"}
 	case Right:
-		Some{Value: "ArrowRight"}
+		option.Some{Value: "ArrowRight"}
 	case Home:
-		Some{Value: "Home"}
+		option.Some{Value: "Home"}
 	case End:
-		Some{Value: "End"}
+		option.Some{Value: "End"}
 	case Insert:
-		Some{Value: "Insert"}
+		option.Some{Value: "Insert"}
 	case Delete:
-		Some{Value: "Delete"}
+		option.Some{Value: "Delete"}
 	case PageUp:
-		Some{Value: "PageUp"}
+		option.Some{Value: "PageUp"}
 	case PageDown:
-		Some{Value: "PageDown"}
+		option.Some{Value: "PageDown"}
 	case F as f:
-		Some{Value: "F\(f.N)"}
+		option.Some{Value: "F\(f.N)"}
 	case Chord as c:
-		Some{Value: c.Name}
+		option.Some{Value: c.Name}
 	case Interrupt, EndOfInput, Other, Paste, Wheel, Resized:
-		None
+		option.None
 	}
 }
 
@@ -532,14 +533,14 @@ law DecodeIsTheTable(seed int, length int) {
 	let mut chunks = []string{}
 	let mut chunk = ""
 	for _ in 0..n {
-		let e = keyTable[draw(&r, len(keyTable))]
-		if Cut(e.bytes, false) != len(e.bytes) || Decode(e.bytes) != e.key {
+		let e = keyTable[draw(&r, keyTable.Len())]
+		if Cut(e.bytes, false) != e.bytes.Len() || Decode(e.bytes) != e.key {
 			return false
 		}
 		want = want.Append(e.key)
-		for i in 0..len(e.bytes) {
+		for i in 0..e.bytes.Len() {
 			chunk = chunk + e.bytes[i:i+1]
-			let startsLonger = e.bytes[i] == 0x1b && i+1 < len(e.bytes)
+			let startsLonger = e.bytes[i] == 0x1b && i+1 < e.bytes.Len()
 			if !startsLonger && draw(&r, 3) == 0 {
 				chunks = chunks.Append(chunk)
 				chunk = ""
@@ -573,15 +574,15 @@ law CutTakesOneKey(seed int, size int) {
 	let mut b = ""
 	let alphabet = "\x1b[O;<0123456789~uAHPMZ\x01\x7fa\xc3\xa9\xe7\x95\x8c"
 	for _ in 0..(size%12+12)%12 {
-		let i = draw(&r, len(alphabet))
+		let i = draw(&r, alphabet.Len())
 		b = b + alphabet[i:i+1]
 	}
 	let atEnd = Cut(b, true)
 	let before = Cut(b, false)
-	if len(b) == 0 {
+	if b.Len() == 0 {
 		return atEnd == 0 && before == -1
 	}
-	atEnd >= 1 && atEnd <= len(b) && (before == -1 || (before >= 1 && before <= atEnd))
+	atEnd >= 1 && atEnd <= b.Len() && (before == -1 || (before >= 1 && before <= atEnd))
 }
 
 // rng is a law's seeded generator. (a law's helper)

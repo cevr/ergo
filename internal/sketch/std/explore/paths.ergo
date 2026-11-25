@@ -1,4 +1,7 @@
+import core
 import gen
+import machines
+import option
 import sync
 
 // PathScope selects whether path planning runs to a finite command depth or
@@ -102,18 +105,18 @@ func satMul(a int, b int) int {
 	a * b
 }
 
-func validatePathBounds(scope PathScope, bounds PathBounds) Option[string] {
+func validatePathBounds(scope PathScope, bounds PathBounds) option.Option[string] {
 	if bounds.MaxStates < 0 || bounds.MaxEdges < 0 || bounds.MaxPaths < 0 || bounds.MaxSteps < 0 || bounds.MaxWork < 0 || bounds.MaxBytes < 0 {
-		return Some[string]{Value: "path bounds must be non-negative"}
+		return option.Some[string]{Value: "path bounds must be non-negative"}
 	}
 	match scope {
 	case ToDepth as d:
 		if d.Depth < 0 {
-			return Some[string]{Value: "ToDepth depth must be non-negative"}
+			return option.Some[string]{Value: "ToDepth depth must be non-negative"}
 		}
 	case All:
 	}
-	None
+	option.None
 }
 
 func emptyPathGraph[O]() PathGraph[O] {
@@ -165,12 +168,12 @@ func buildPathGraph[S wire, E wire, O](g ConcreteGraph[S, E, O], maxDepth int, b
 	let mut depthOf = []int32{}
 	let mut sig = []int32{}
 
-	if len(g.Starts) == 0 {
+	if g.Starts.Len() == 0 {
 		return (emptyPathGraph[O](), st, EmptyStarts)
 	}
 
 	let mut eventTable = NewKeyTable()
-	for e in 0..len(g.Signals) {
+	for e in 0..g.Signals.Len() {
 		let ck = CanonicalKeyOf(g.Signals[e]) catch {
 		case Keyless as k:
 			return (PathGraph[O]{Roots: roots, Signals: sigIndex, OutStart: outStart, Edges: edges, parentState: parentState, parentEdge: parentEdge, rootStart: rootStart, depthOf: depthOf}, st, PathUnkeyable{Reason: k.Reason})
@@ -179,7 +182,7 @@ func buildPathGraph[S wire, E wire, O](g ConcreteGraph[S, E, O], maxDepth int, b
 		if st.Work > bounds.MaxWork {
 			return (PathGraph[O]{Roots: roots, Signals: sigIndex, OutStart: outStart, Edges: edges, parentState: parentState, parentEdge: parentEdge, rootStart: rootStart, depthOf: depthOf}, st, PathOverWork)
 		}
-		let nextBytes = satAdd(KeyTableBytes(eventTable), len(ck.Bytes))
+		let nextBytes = satAdd(KeyTableBytes(eventTable), ck.Bytes.Len())
 		let (_, fresh, probes) = InternWithHash(&eventTable, ck.Bytes, ck.Hash)
 		st.Work = satAdd(st.Work, probes)
 		st.Bytes = KeyTableBytes(eventTable)
@@ -196,10 +199,10 @@ func buildPathGraph[S wire, E wire, O](g ConcreteGraph[S, E, O], maxDepth int, b
 
 	let mut stateTable = NewKeyTable()
 	let mut ids = []int{}
-	let mut kept = []Option[S]{}
+	let mut kept = []option.Option[S]{}
 	let mut held = 0
 
-	for i in 0..len(g.Starts) {
+	for i in 0..g.Starts.Len() {
 		let s = g.Starts[i]
 		let ck = CanonicalKeyOf(s) catch {
 		case Keyless as k:
@@ -219,7 +222,7 @@ func buildPathGraph[S wire, E wire, O](g ConcreteGraph[S, E, O], maxDepth int, b
 			if st.Bytes > bounds.MaxBytes {
 				return (PathGraph[O]{Roots: roots, Signals: sigIndex, OutStart: outStart, Edges: edges, parentState: parentState, parentEdge: parentEdge, rootStart: rootStart, depthOf: depthOf}, st, PathOverBytes)
 			}
-			if len(parentState) >= bounds.MaxStates {
+			if parentState.Len() >= bounds.MaxStates {
 				return (PathGraph[O]{Roots: roots, Signals: sigIndex, OutStart: outStart, Edges: edges, parentState: parentState, parentEdge: parentEdge, rootStart: rootStart, depthOf: depthOf}, st, PathOverStates)
 			}
 			parentState = parentState.Append(int32(-1))
@@ -237,13 +240,13 @@ func buildPathGraph[S wire, E wire, O](g ConcreteGraph[S, E, O], maxDepth int, b
 	}
 
 	let mut curDepth = 0
-	for len(ids) > 0 && (maxDepth < 0 || curDepth < maxDepth) {
+	for ids.Len() > 0 && (maxDepth < 0 || curDepth < maxDepth) {
 		let mut next = []int{}
-		let mut nextKept = []Option[S]{}
+		let mut nextKept = []option.Option[S]{}
 		let mut nextHeld = 0
-		for f in 0..len(ids) {
+		for f in 0..ids.Len() {
 			let srcID = ids[f]
-			outStart = outStart.Append(len(edges))
+			outStart = outStart.Append(edges.Len())
 			st.Expansions = st.Expansions + 1
 			let (s, rebuildSteps) = concreteFrontierState(g, parentState, sig, kept[f], srcID)
 			if rebuildSteps > 0 {
@@ -253,7 +256,7 @@ func buildPathGraph[S wire, E wire, O](g ConcreteGraph[S, E, O], maxDepth int, b
 					return (PathGraph[O]{Roots: roots, Signals: sigIndex, OutStart: outStart, Edges: edges, parentState: parentState, parentEdge: parentEdge, rootStart: rootStart, depthOf: depthOf}, st, PathOverWork)
 				}
 			}
-			for evID in 0..len(sigIndex) {
+			for evID in 0..sigIndex.Len() {
 				let eIdx = sigIndex[evID]
 				st.StepAttempts = satAdd(st.StepAttempts, 1)
 				st.Work = satAdd(st.Work, 1)
@@ -264,7 +267,7 @@ func buildPathGraph[S wire, E wire, O](g ConcreteGraph[S, E, O], maxDepth int, b
 				case Disabled[O]:
 					st.Disabled = st.Disabled + 1
 				case Terminal[O] as term:
-					if len(edges) >= bounds.MaxEdges {
+					if edges.Len() >= bounds.MaxEdges {
 						return (PathGraph[O]{Roots: roots, Signals: sigIndex, OutStart: outStart, Edges: edges, parentState: parentState, parentEdge: parentEdge, rootStart: rootStart, depthOf: depthOf}, st, PathOverEdges)
 					}
 					edges = edges.Append(ConcreteEdge[O]{Source: srcID, Signal: eIdx, EventID: evID, Target: Ended, Obs: term.Obs})
@@ -289,14 +292,14 @@ func buildPathGraph[S wire, E wire, O](g ConcreteGraph[S, E, O], maxDepth int, b
 						if st.Bytes > bounds.MaxBytes {
 							return (PathGraph[O]{Roots: roots, Signals: sigIndex, OutStart: outStart, Edges: edges, parentState: parentState, parentEdge: parentEdge, rootStart: rootStart, depthOf: depthOf}, st, PathOverBytes)
 						}
-						if len(parentState) >= bounds.MaxStates {
+						if parentState.Len() >= bounds.MaxStates {
 							return (PathGraph[O]{Roots: roots, Signals: sigIndex, OutStart: outStart, Edges: edges, parentState: parentState, parentEdge: parentEdge, rootStart: rootStart, depthOf: depthOf}, st, PathOverStates)
 						}
 					}
-					if len(edges) >= bounds.MaxEdges {
+					if edges.Len() >= bounds.MaxEdges {
 						return (PathGraph[O]{Roots: roots, Signals: sigIndex, OutStart: outStart, Edges: edges, parentState: parentState, parentEdge: parentEdge, rootStart: rootStart, depthOf: depthOf}, st, PathOverEdges)
 					}
-					let edgeID = len(edges)
+					let edgeID = edges.Len()
 					edges = edges.Append(ConcreteEdge[O]{Source: srcID, Signal: eIdx, EventID: evID, Target: ToState{State: dstID}, Obs: cont.Obs})
 					st.Edges = st.Edges + 1
 					if fresh {
@@ -320,15 +323,15 @@ func buildPathGraph[S wire, E wire, O](g ConcreteGraph[S, E, O], maxDepth int, b
 		curDepth = curDepth + 1
 	}
 
-	if len(ids) > 0 {
-		if len(sigIndex) > 0 {
-			st.Frontier = len(ids)
+	if ids.Len() > 0 {
+		if sigIndex.Len() > 0 {
+			st.Frontier = ids.Len()
 		}
-		for _ in 0..len(ids) {
-			outStart = outStart.Append(len(edges))
+		for _ in 0..ids.Len() {
+			outStart = outStart.Append(edges.Len())
 		}
 	}
-	outStart = outStart.Append(len(edges))
+	outStart = outStart.Append(edges.Len())
 
 	(PathGraph[O]{
 		Roots:       roots,
@@ -369,7 +372,7 @@ func checkAcyclicDepth[O](g PathGraph[O], numStates int, bounds PathBounds, st m
 		}
 	}
 	let mut head = 0
-	for head < len(topo) {
+	for head < topo.Len() {
 		let u = topo[head]
 		head = head + 1
 		let lo = g.OutStart[u]
@@ -389,14 +392,14 @@ func checkAcyclicDepth[O](g PathGraph[O], numStates int, bounds PathBounds, st m
 			}
 		}
 	}
-	if len(topo) < numStates {
+	if topo.Len() < numStates {
 		return (0, CycleRequiresDepth)
 	}
 	let mut height = []int{}
 	for _ in 0..numStates {
 		height = height.Append(0)
 	}
-	let mut idx = len(topo) - 1
+	let mut idx = topo.Len() - 1
 	for idx >= 0 {
 		let u = topo[idx]
 		let lo = g.OutStart[u]
@@ -444,7 +447,7 @@ func ShortestPrefix[O](g PathGraph[O], stateID int) PathCase {
 	let start = int(g.rootStart[cur])
 	let mut edges = []int{}
 	let mut sigs = []int{}
-	let mut i = len(rev) - 1
+	let mut i = rev.Len() - 1
 	for i >= 0 {
 		let eIdx = rev[i]
 		edges = edges.Append(eIdx)
@@ -473,9 +476,9 @@ func PlanPaths[S wire, E wire, O](g ConcreteGraph[S, E, O], scope PathScope, bou
 		Reconstructions: 0,
 	}
 	match validatePathBounds(scope, bounds) {
-	case Some as err:
+	case option.Some as err:
 		return stoppedPlan[O](BadBounds{Reason: err.Value}, scope, emptySt, emptyPathGraph[O]())
-	case None:
+	case option.None:
 	}
 
 	let buildDepth = match scope {
@@ -517,7 +520,7 @@ func PlanPaths[S wire, E wire, O](g ConcreteGraph[S, E, O], scope PathScope, bou
 	if st.Work > bounds.MaxWork {
 		return stoppedPlan[O](PathOverWork, scope, st, graph)
 	}
-	let paths0 = len(graph.Roots)
+	let paths0 = graph.Roots.Len()
 	if paths0 > bounds.MaxPaths {
 		return stoppedPlan[O](PathOverPaths, scope, st, graph)
 	}
@@ -598,17 +601,17 @@ func PlanPaths[S wire, E wire, O](g ConcreteGraph[S, E, O], scope PathScope, bou
 
 // PlanMachinePaths adapts m and signals to a ConcreteGraph and plans paths
 // under scope and bounds.
-func PlanMachinePaths[S wire, E wire, O](m Machine[S, E, O], signals []E, scope PathScope, bounds PathBounds) PathPlan[MachineObs[O]] needs wired[S] | wired[E] {
+func PlanMachinePaths[S wire, E wire, O](m machines.Machine[S, E, O], signals []E, scope PathScope, bounds PathBounds) PathPlan[MachineObs[O]] needs wired[S] | wired[E] {
 	PlanPaths(ConcreteOfMachine(m, signals), scope, bounds)
 }
 
 // OpenPaths returns a streaming length-ordered cursor for an admitted PathPlan,
 // or None when planning did not complete within bounds.
-func OpenPaths[O](plan PathPlan[O]) Option[PathCursor] {
+func OpenPaths[O](plan PathPlan[O]) option.Option[PathCursor] {
 	if !plan.admitted {
-		return None
+		return option.None
 	}
-	Some[PathCursor]{Value: PathCursor{
+	option.Some[PathCursor]{Value: PathCursor{
 		admitted:    true,
 		done:        false,
 		targetLen:   0,
@@ -635,31 +638,31 @@ func materializePathCase[O](plan PathPlan[O], start int, prefix []int, lastEdge 
 // CursorSpineDepth returns the number of states currently retained on c's
 // streaming DFS spine (bounded by MaxDepth + 1, never proportional to path count).
 func CursorSpineDepth(c PathCursor) int {
-	len(c.spineStates)
+	c.spineStates.Len()
 }
 
 // NextPath advances c and returns the next planned PathCase in increasing
 // length and stable start/edge order, or None when exhausted.
-func NextPath[O](plan PathPlan[O], c mut PathCursor) Option[PathCase] {
+func NextPath[O](plan PathPlan[O], c mut PathCursor) option.Option[PathCase] {
 	if !c.admitted || c.done {
-		return None
+		return option.None
 	}
 	if c.targetLen == 0 {
-		if c.curStart < len(plan.Graph.Roots) {
+		if c.curStart < plan.Graph.Roots.Len() {
 			let start = c.curStart
 			c.curStart = c.curStart + 1
-			return Some[PathCase]{Value: PathCase{Start: start, Edges: []int{}, Signals: []int{}}}
+			return option.Some[PathCase]{Value: PathCase{Start: start, Edges: []int{}, Signals: []int{}}}
 		}
 		c.targetLen = 1
 		c.curStart = 0
 		c.initialized = false
 		if c.targetLen > plan.Stats.MaxDepth {
 			c.done = true
-			return None
+			return option.None
 		}
 	}
 	for c.targetLen <= plan.Stats.MaxDepth {
-		for c.curStart < len(plan.Graph.Roots) {
+		for c.curStart < plan.Graph.Roots.Len() {
 			let rootState = plan.Graph.Roots[c.curStart]
 			if !c.initialized {
 				if planCount(plan, c.targetLen, rootState) == 0 {
@@ -671,8 +674,8 @@ func NextPath[O](plan PathPlan[O], c mut PathCursor) Option[PathCase] {
 				c.spineNext = []int{plan.Graph.OutStart[rootState]}
 				c.initialized = true
 			}
-			for len(c.spineNext) > 0 {
-				let depth = len(c.spineEdges)
+			for c.spineNext.Len() > 0 {
+				let depth = c.spineEdges.Len()
 				let u = c.spineStates[depth]
 				let endEdge = plan.Graph.OutStart[u+1]
 				let eIdx = c.spineNext[depth]
@@ -688,7 +691,7 @@ func NextPath[O](plan PathPlan[O], c mut PathCursor) Option[PathCase] {
 				let rem = c.targetLen - depth
 				let edge = plan.Graph.Edges[eIdx]
 				if rem == 1 {
-					return Some[PathCase]{Value: materializePathCase(plan, c.curStart, c.spineEdges, eIdx)}
+					return option.Some[PathCase]{Value: materializePathCase(plan, c.curStart, c.spineEdges, eIdx)}
 				}
 				match edge.Target {
 				case Ended:
@@ -708,7 +711,7 @@ func NextPath[O](plan PathPlan[O], c mut PathCursor) Option[PathCase] {
 		c.initialized = false
 	}
 	c.done = true
-	None
+	option.None
 }
 
 type pwState { Tag uint8, Val int }
@@ -719,16 +722,16 @@ type pwRefCase { Start int, Signals []int }
 
 func pwCollectCases[O](plan PathPlan[O]) ([]PathCase, bool) {
 	match OpenPaths(plan) {
-	case None:
+	case option.None:
 		([]PathCase{}, false)
-	case Some as opened:
+	case option.Some as opened:
 		let mut c = opened.Value
 		let mut out = []PathCase{}
 		for {
 			match NextPath(plan, &c) {
-			case None:
+			case option.None:
 				break
-			case Some as item:
+			case option.Some as item:
 				out = out.Append(item.Value)
 			}
 		}
@@ -739,7 +742,7 @@ func pwCollectCases[O](plan PathPlan[O]) ([]PathCase, bool) {
 func pwRefDedupSignals(sigs []pwEvent) []int {
 	let mut seen = []pwEvent{}
 	let mut idx = []int{}
-	for i in 0..len(sigs) {
+	for i in 0..sigs.Len() {
 		let mut dup = false
 		for s in seen {
 			if s == sigs[i] {
@@ -787,7 +790,7 @@ func pwRefEnumAll(g ConcreteGraph[pwState, pwEvent, int], maxDepth int) []pwRefC
 	let sigIdx = pwRefDedupSignals(g.Signals)
 	let mut out = []pwRefCase{}
 	for targetLen in 0..maxDepth+1 {
-		for start in 0..len(g.Starts) {
+		for start in 0..g.Starts.Len() {
 			out = pwRefEnumAtLen(g, sigIdx, g.Starts[start], start, targetLen, []int{}, out)
 		}
 	}
@@ -795,11 +798,11 @@ func pwRefEnumAll(g ConcreteGraph[pwState, pwEvent, int], maxDepth int) []pwRefC
 }
 
 func pwCasesEqual(got []PathCase, want []pwRefCase) bool {
-	if len(got) != len(want) {
+	if got.Len() != want.Len() {
 		return false
 	}
-	for i in 0..len(got) {
-		if got[i].Start != want[i].Start || got[i].Signals != want[i].Signals || len(got[i].Edges) != len(got[i].Signals) {
+	for i in 0..got.Len() {
+		if got[i].Start != want[i].Start || got[i].Signals != want[i].Signals || got[i].Edges.Len() != got[i].Signals.Len() {
 			return false
 		}
 	}
@@ -948,9 +951,9 @@ law WalksAgreeWithReference() {
 			}
 			let mut wantSteps = 0
 			for w in want {
-				wantSteps = wantSteps + len(w.Signals)
+				wantSteps = wantSteps + w.Signals.Len()
 			}
-			if plan.Stats.Paths != len(want) || plan.Stats.Steps != wantSteps || plan.Stats.Work <= 0 {
+			if plan.Stats.Paths != want.Len() || plan.Stats.Steps != wantSteps || plan.Stats.Work <= 0 {
 				return false
 			}
 			if d == 3 {
@@ -982,8 +985,8 @@ law WalksAgreeWithReference() {
 					return false
 				}
 				match OpenPaths(overPaths) {
-				case None:
-				case Some:
+				case option.None:
+				case option.Some:
 					return false
 				}
 				let overSteps = PlanPaths(jg, ToDepth{Depth: d}, PathBounds{
@@ -1000,8 +1003,8 @@ law WalksAgreeWithReference() {
 					return false
 				}
 				match OpenPaths(overSteps) {
-				case None:
-				case Some:
+				case option.None:
+				case option.Some:
 					return false
 				}
 			}
@@ -1014,8 +1017,8 @@ law WalksAgreeWithReference() {
 			return false
 		}
 		match OpenPaths(cycAll) {
-		case None:
-		case Some:
+		case option.None:
+		case option.Some:
 			return false
 		}
 
@@ -1038,8 +1041,8 @@ law WalksAgreeWithReference() {
 			return false
 		}
 		match OpenPaths(growAll) {
-		case None:
-		case Some:
+		case option.None:
+		case option.Some:
 			return false
 		}
 
@@ -1068,7 +1071,7 @@ law WalksAgreeWithReference() {
 			return false
 		}
 		let (eaGot, eaOpened) = pwCollectCases(eaPlan)
-		if !eaOpened || len(eaGot) != 2 || eaPlan.Stats.Steps != 0 || eaGot[0].Start != 0 || eaGot[1].Start != 1 || len(eaGot[0].Edges) != 0 || len(eaGot[1].Edges) != 0 {
+		if !eaOpened || eaGot.Len() != 2 || eaPlan.Stats.Steps != 0 || eaGot[0].Start != 0 || eaGot[1].Start != 1 || eaGot[0].Edges.Len() != 0 || eaGot[1].Edges.Len() != 0 {
 			return false
 		}
 
@@ -1084,8 +1087,8 @@ law WalksAgreeWithReference() {
 			return false
 		}
 		match OpenPaths(nsPlan) {
-		case None:
-		case Some:
+		case option.None:
+		case option.Some:
 			return false
 		}
 
@@ -1096,8 +1099,8 @@ law WalksAgreeWithReference() {
 			return false
 		}
 		match OpenPaths(negDepth) {
-		case None:
-		case Some:
+		case option.None:
+		case option.Some:
 			return false
 		}
 
@@ -1121,13 +1124,13 @@ type joinDriveErr {}
 type joinSess {
 	state  sync.Ref[joinState],
 	closes sync.Ref[int],
-} implements PathSession[joinCmd, Observed[joinState, int, Never], joinDriveErr]
+} implements PathSession[joinCmd, Observed[joinState, int, core.Never], joinDriveErr]
 
-func Read(s joinSess) Observed[joinState, int, Never] fails joinDriveErr {
+func Read(s joinSess) Observed[joinState, int, core.Never] fails joinDriveErr {
 	InitialRead[joinState]{State: s.state.Get()}
 }
 
-func Apply(s joinSess, cmd joinCmd) Observed[joinState, int, Never] fails joinDriveErr {
+func Apply(s joinSess, cmd joinCmd) Observed[joinState, int, core.Never] fails joinDriveErr {
 	let cur = s.state.Get()
 	let (next, out) = match cmd {
 	case JoinBranch as b:
@@ -1140,11 +1143,11 @@ func Apply(s joinSess, cmd joinCmd) Observed[joinState, int, Never] fails joinDr
 		(joinState{Layer: cur.Layer + 1, Slot: 0}, 40 + cur.Layer)
 	}
 	s.state.Set(next)
-	StepResult[joinState, int, Never]{Step: StepObs[joinState, int, Never]{
+	StepResult[joinState, int, core.Never]{Step: StepObs[joinState, int, core.Never]{
 		Kind:     DisEmit,
-		State:    Some[joinState]{Value: next},
+		State:    option.Some[joinState]{Value: next},
 		Outputs:  []int{out},
-		Error:    None,
+		Error:    option.None,
 		Terminal: false,
 	}}
 }
@@ -1153,7 +1156,7 @@ func Close(s joinSess) {
 	s.closes.Set(s.closes.Get() + 1)
 }
 
-func joinFamilyModel(branches int, tailCalls sync.Ref[int], totalCalls sync.Ref[int]) PathModel[joinState, joinCmd, joinState, int, Never] {
+func joinFamilyModel(branches int, tailCalls sync.Ref[int], totalCalls sync.Ref[int]) PathModel[joinState, joinCmd, joinState, int, core.Never] {
 	let signals = []joinCmd{
 		JoinBranch{Idx: 0},
 		JoinBranch{Idx: 1},
@@ -1163,11 +1166,11 @@ func joinFamilyModel(branches int, tailCalls sync.Ref[int], totalCalls sync.Ref[
 		JoinTailA,
 		JoinTailB,
 	}
-	PathModel[joinState, joinCmd, joinState, int, Never]{
-		Graph: ConcreteGraph[joinState, joinCmd, StepObs[joinState, int, Never]]{
+	PathModel[joinState, joinCmd, joinState, int, core.Never]{
+		Graph: ConcreteGraph[joinState, joinCmd, StepObs[joinState, int, core.Never]]{
 			Starts:  []joinState{joinState{Layer: 0, Slot: 0}},
 			Signals: signals,
-			Step:    func(s joinState, cmd joinCmd) EdgeOutcome[joinState, StepObs[joinState, int, Never]] {
+			Step:    func(s joinState, cmd joinCmd) EdgeOutcome[joinState, StepObs[joinState, int, core.Never]] {
 				totalCalls.Set(totalCalls.Get() + 1)
 				if s.Layer >= 2 {
 					tailCalls.Set(tailCalls.Get() + 1)
@@ -1177,51 +1180,51 @@ func joinFamilyModel(branches int, tailCalls sync.Ref[int], totalCalls sync.Ref[
 					case JoinBranch as b:
 						if b.Idx < branches {
 							let next = joinState{Layer: 1, Slot: b.Idx}
-							Continue[joinState, StepObs[joinState, int, Never]]{
+							Continue[joinState, StepObs[joinState, int, core.Never]]{
 								Next: next,
-								Obs:  StepObs[joinState, int, Never]{Kind: DisEmit, State: Some[joinState]{Value: next}, Outputs: []int{10 + b.Idx}, Error: None, Terminal: false},
+								Obs:  StepObs[joinState, int, core.Never]{Kind: DisEmit, State: option.Some[joinState]{Value: next}, Outputs: []int{10 + b.Idx}, Error: option.None, Terminal: false},
 							}
 						} else {
-							Disabled[StepObs[joinState, int, Never]]{Obs: StepObs[joinState, int, Never]{Kind: DisIgnore, State: None, Outputs: []int{}, Error: None, Terminal: false}}
+							Disabled[StepObs[joinState, int, core.Never]]{Obs: StepObs[joinState, int, core.Never]{Kind: DisIgnore, State: option.None, Outputs: []int{}, Error: option.None, Terminal: false}}
 						}
 					case _:
-						Disabled[StepObs[joinState, int, Never]]{Obs: StepObs[joinState, int, Never]{Kind: DisIgnore, State: None, Outputs: []int{}, Error: None, Terminal: false}}
+						Disabled[StepObs[joinState, int, core.Never]]{Obs: StepObs[joinState, int, core.Never]{Kind: DisIgnore, State: option.None, Outputs: []int{}, Error: option.None, Terminal: false}}
 					}
 				} else if s.Layer == 1 {
 					match cmd {
 					case JoinMerge:
 						let next = joinState{Layer: 2, Slot: 0}
-						Continue[joinState, StepObs[joinState, int, Never]]{
+						Continue[joinState, StepObs[joinState, int, core.Never]]{
 							Next: next,
-							Obs:  StepObs[joinState, int, Never]{Kind: DisEmit, State: Some[joinState]{Value: next}, Outputs: []int{20}, Error: None, Terminal: false},
+							Obs:  StepObs[joinState, int, core.Never]{Kind: DisEmit, State: option.Some[joinState]{Value: next}, Outputs: []int{20}, Error: option.None, Terminal: false},
 						}
 					case _:
-						Disabled[StepObs[joinState, int, Never]]{Obs: StepObs[joinState, int, Never]{Kind: DisIgnore, State: None, Outputs: []int{}, Error: None, Terminal: false}}
+						Disabled[StepObs[joinState, int, core.Never]]{Obs: StepObs[joinState, int, core.Never]{Kind: DisIgnore, State: option.None, Outputs: []int{}, Error: option.None, Terminal: false}}
 					}
 				} else if s.Layer < 5 {
 					match cmd {
 					case JoinTailA:
 						let next = joinState{Layer: s.Layer + 1, Slot: 0}
-						Continue[joinState, StepObs[joinState, int, Never]]{
+						Continue[joinState, StepObs[joinState, int, core.Never]]{
 							Next: next,
-							Obs:  StepObs[joinState, int, Never]{Kind: DisEmit, State: Some[joinState]{Value: next}, Outputs: []int{30 + s.Layer}, Error: None, Terminal: false},
+							Obs:  StepObs[joinState, int, core.Never]{Kind: DisEmit, State: option.Some[joinState]{Value: next}, Outputs: []int{30 + s.Layer}, Error: option.None, Terminal: false},
 						}
 					case JoinTailB:
 						let next = joinState{Layer: s.Layer + 1, Slot: 0}
-						Continue[joinState, StepObs[joinState, int, Never]]{
+						Continue[joinState, StepObs[joinState, int, core.Never]]{
 							Next: next,
-							Obs:  StepObs[joinState, int, Never]{Kind: DisEmit, State: Some[joinState]{Value: next}, Outputs: []int{40 + s.Layer}, Error: None, Terminal: false},
+							Obs:  StepObs[joinState, int, core.Never]{Kind: DisEmit, State: option.Some[joinState]{Value: next}, Outputs: []int{40 + s.Layer}, Error: option.None, Terminal: false},
 						}
 					case _:
-						Disabled[StepObs[joinState, int, Never]]{Obs: StepObs[joinState, int, Never]{Kind: DisIgnore, State: None, Outputs: []int{}, Error: None, Terminal: false}}
+						Disabled[StepObs[joinState, int, core.Never]]{Obs: StepObs[joinState, int, core.Never]{Kind: DisIgnore, State: option.None, Outputs: []int{}, Error: option.None, Terminal: false}}
 					}
 				} else {
-					Disabled[StepObs[joinState, int, Never]]{Obs: StepObs[joinState, int, Never]{Kind: DisIgnore, State: None, Outputs: []int{}, Error: None, Terminal: false}}
+					Disabled[StepObs[joinState, int, core.Never]]{Obs: StepObs[joinState, int, core.Never]{Kind: DisIgnore, State: option.None, Outputs: []int{}, Error: option.None, Terminal: false}}
 				}
 			},
 		},
 		InitialObs:     func(s joinState) joinState { s },
-		ProjectionName: None,
+		ProjectionName: option.None,
 	}
 }
 
@@ -1252,7 +1255,7 @@ law PlanningReuseDoesNotRestepJoins() {
 			return false
 		}
 		let expandedUnique = plan.Stats.States - plan.Stats.Frontier
-		let sigCount = len(plan.Graph.Signals)
+		let sigCount = plan.Graph.Signals.Len()
 		if plan.Stats.Expansions != expandedUnique {
 			return false
 		}
@@ -1278,21 +1281,21 @@ law PlanningReuseDoesNotRestepJoins() {
 		let mut streamedPaths = 0
 		let mut streamedSteps = 0
 		match openedCur {
-		case None:
+		case option.None:
 			return false
-		case Some as c0:
+		case option.Some as c0:
 			let mut cur = c0.Value
 			for {
 				match NextPath(plan, &cur) {
-				case None:
+				case option.None:
 					break
-				case Some as pc:
+				case option.Some as pc:
 					let depth = CursorSpineDepth(cur)
 					if depth > peakSpine {
 						peakSpine = depth
 					}
 					streamedPaths = streamedPaths + 1
-					streamedSteps = streamedSteps + len(pc.Value.Signals)
+					streamedSteps = streamedSteps + pc.Value.Signals.Len()
 				}
 			}
 		}
@@ -1307,7 +1310,7 @@ law PlanningReuseDoesNotRestepJoins() {
 		let res = CheckPlanPaths(
 			model,
 			plan,
-			func(start joinState) PathSession[joinCmd, Observed[joinState, int, Never], joinDriveErr] fails joinOpenErr {
+			func(start joinState) PathSession[joinCmd, Observed[joinState, int, core.Never], joinDriveErr] fails joinOpenErr {
 				opens.Set(opens.Get() + 1)
 				joinSess{state: sync.NewRef(start), closes: closes}
 			},

@@ -1,6 +1,8 @@
 // The prompt machines: each one's state, its step over term keys and its
 // frame. A step is pure; Ask draws the frames.
 
+import machines
+import option
 import strings
 import term
 import utf8
@@ -27,7 +29,7 @@ law SecretFramesHideTyping(codes []int) {
 	let mut s = startTyping(ask)
 	for code in codes {
 		match TypingStep(s, KeyOf(code)) {
-		case Stay[Typing] as st:
+		case machines.Stay[Typing] as st:
 			s = st.Next
 			if TypingFrame(s) != TypingFrame(Typing{Ask: ask, Typed: strings.Repeat("x", utf8.RuneCount(s.Typed))}) {
 				return false
@@ -52,18 +54,18 @@ law SelectStaysInRange(n int, codes []int) {
 	let mut s = startPicking(Choice{Message: "pick", Options: options})
 	for code in codes {
 		match PickingStep(s, KeyOf(code)) {
-		case Stay[Picking] as st:
+		case machines.Stay[Picking] as st:
 			s = st.Next
-		case Done[Option[int]] as d:
+		case machines.Done[option.Option[int]] as d:
 			match d.Output {
-			case Some[int] as a:
-				return a.Value >= 0 && a.Value < len(options)
-			case None:
+			case option.Some[int] as a:
+				return a.Value >= 0 && a.Value < options.Len()
+			case option.None:
 				return true
 			}
 		case _:
 		}
-		if s.At < 0 || (len(options) == 0 && s.At != 0) || (len(options) > 0 && s.At >= len(options)) {
+		if s.At < 0 || (options.Len() == 0 && s.At != 0) || (options.Len() > 0 && s.At >= options.Len()) {
 			return false
 		}
 	}
@@ -116,20 +118,20 @@ law MarkedAnswerIsSorted(n int, codes []int) {
 	let mut s = startMarking(Choice{Message: "mark", Options: options})
 	for code in codes {
 		match MarkingStep(s, KeyOf(code)) {
-		case Stay[Marking] as st:
+		case machines.Stay[Marking] as st:
 			s = st.Next
-		case Done[Option[[]int]] as d:
+		case machines.Done[option.Option[[]int]] as d:
 			match d.Output {
-			case Some[[]int] as a:
+			case option.Some[[]int] as a:
 				let mut last = -1
 				for i in a.Value {
-					if i <= last || i >= len(options) {
+					if i <= last || i >= options.Len() {
 						return false
 					}
 					last = i
 				}
 				return true
-			case None:
+			case option.None:
 				return true
 			}
 		case _:
@@ -155,23 +157,23 @@ type Asking { Ask Question }
 // TypingStep is a text prompt's step: a Char or a Paste adds its text, Backspace drops
 // the last character, Return ends with the text (or the default when
 // nothing is typed), and a cancel key ends with None.
-func TypingStep(s Typing, k term.Key) Decision[Typing, Option[string]] {
+func TypingStep(s Typing, k term.Key) machines.Decision[Typing, option.Option[string]] {
 	match k {
 	case term.Char as c:
-		Stay[Typing]{Next: Typing{Ask: s.Ask, Typed: s.Typed + c.Text}}
+		machines.Stay[Typing]{Next: Typing{Ask: s.Ask, Typed: s.Typed + c.Text}}
 	case term.Paste as p:
-		Stay[Typing]{Next: Typing{Ask: s.Ask, Typed: s.Typed + p.Text}}
+		machines.Stay[Typing]{Next: Typing{Ask: s.Ask, Typed: s.Typed + p.Text}}
 	case term.Backspace:
 		if s.Typed == "" {
-			return Ignore
+			return machines.Ignore
 		}
-		Stay[Typing]{Next: Typing{Ask: s.Ask, Typed: dropLast(s.Typed)}}
+		machines.Stay[Typing]{Next: Typing{Ask: s.Ask, Typed: dropLast(s.Typed)}}
 	case term.Return:
-		Done[Option[string]]{Output: Some[string]{Value: if s.Typed == "" { s.Ask.Default } else { s.Typed }}}
+		machines.Done[option.Option[string]]{Output: option.Some[string]{Value: if s.Typed == "" { s.Ask.Default } else { s.Typed }}}
 	case term.Escape, term.Interrupt, term.EndOfInput:
-		Done[Option[string]]{Output: None}
+		machines.Done[option.Option[string]]{Output: option.None}
 	case term.Tab, term.Up, term.Down, term.Left, term.Right, term.Home, term.End, term.Insert, term.Delete, term.PageUp, term.PageDown, term.F, term.Chord, term.Wheel, term.Resized, term.Other:
-		Ignore
+		machines.Ignore
 	}
 }
 
@@ -196,28 +198,28 @@ func startTyping(t Text) Typing { Typing{Ask: t, Typed: ""} }
 // PickingStep is a select's step: Up and Down move the cursor and stop at
 // the ends, Return ends with the option's index, and a cancel key ends
 // with None. With no options, Return is refused.
-func PickingStep(s Picking, k term.Key) Decision[Picking, Option[int]] {
-	let n = len(s.Ask.Options)
+func PickingStep(s Picking, k term.Key) machines.Decision[Picking, option.Option[int]] {
+	let n = s.Ask.Options.Len()
 	match k {
 	case term.Up:
 		if s.At == 0 {
-			return Ignore
+			return machines.Ignore
 		}
-		Stay[Picking]{Next: Picking{Ask: s.Ask, At: s.At - 1}}
+		machines.Stay[Picking]{Next: Picking{Ask: s.Ask, At: s.At - 1}}
 	case term.Down, term.Tab:
 		if s.At+1 >= n {
-			return Ignore
+			return machines.Ignore
 		}
-		Stay[Picking]{Next: Picking{Ask: s.Ask, At: s.At + 1}}
+		machines.Stay[Picking]{Next: Picking{Ask: s.Ask, At: s.At + 1}}
 	case term.Return:
 		if n == 0 {
-			return Reject
+			return machines.Reject
 		}
-		Done[Option[int]]{Output: Some[int]{Value: s.At}}
+		machines.Done[option.Option[int]]{Output: option.Some[int]{Value: s.At}}
 	case term.Escape, term.Interrupt, term.EndOfInput:
-		Done[Option[int]]{Output: None}
+		machines.Done[option.Option[int]]{Output: option.None}
 	case term.Char, term.Backspace, term.Left, term.Right, term.Paste, term.Home, term.End, term.Insert, term.Delete, term.PageUp, term.PageDown, term.F, term.Chord, term.Wheel, term.Resized, term.Other:
-		Ignore
+		machines.Ignore
 	}
 }
 
@@ -243,28 +245,28 @@ func startPicking(c Choice) Picking { Picking{Ask: c, At: 0} }
 // MarkingStep is a multi-select's step: Up and Down move the cursor as a
 // select's do, a space marks or unmarks the option under it, Return ends
 // with the marked indexes in order, and a cancel key ends with None.
-func MarkingStep(s Marking, k term.Key) Decision[Marking, Option[[]int]] {
-	let n = len(s.Ask.Options)
+func MarkingStep(s Marking, k term.Key) machines.Decision[Marking, option.Option[[]int]] {
+	let n = s.Ask.Options.Len()
 	match k {
 	case term.Up:
 		if s.At == 0 {
-			return Ignore
+			return machines.Ignore
 		}
-		Stay[Marking]{Next: Marking{Ask: s.Ask, At: s.At - 1, Marked: s.Marked}}
+		machines.Stay[Marking]{Next: Marking{Ask: s.Ask, At: s.At - 1, Marked: s.Marked}}
 	case term.Down, term.Tab:
 		if s.At+1 >= n {
-			return Ignore
+			return machines.Ignore
 		}
-		Stay[Marking]{Next: Marking{Ask: s.Ask, At: s.At + 1, Marked: s.Marked}}
+		machines.Stay[Marking]{Next: Marking{Ask: s.Ask, At: s.At + 1, Marked: s.Marked}}
 	case term.Char as c:
 		if c.Text != " " || n == 0 {
-			return Ignore
+			return machines.Ignore
 		}
 		let mut marked = []bool{}
 		for i, m in s.Marked {
 			marked = marked.Append(if i == s.At { !m } else { m })
 		}
-		Stay[Marking]{Next: Marking{Ask: s.Ask, At: s.At, Marked: marked}}
+		machines.Stay[Marking]{Next: Marking{Ask: s.Ask, At: s.At, Marked: marked}}
 	case term.Return:
 		let mut chosen = []int{}
 		for i, m in s.Marked {
@@ -272,11 +274,11 @@ func MarkingStep(s Marking, k term.Key) Decision[Marking, Option[[]int]] {
 				chosen = chosen.Append(i)
 			}
 		}
-		Done[Option[[]int]]{Output: Some[[]int]{Value: chosen}}
+		machines.Done[option.Option[[]int]]{Output: option.Some[[]int]{Value: chosen}}
 	case term.Escape, term.Interrupt, term.EndOfInput:
-		Done[Option[[]int]]{Output: None}
+		machines.Done[option.Option[[]int]]{Output: option.None}
 	case term.Backspace, term.Left, term.Right, term.Paste, term.Home, term.End, term.Insert, term.Delete, term.PageUp, term.PageDown, term.F, term.Chord, term.Wheel, term.Resized, term.Other:
-		Ignore
+		machines.Ignore
 	}
 }
 
@@ -307,22 +309,22 @@ func startMarking(c Choice) Marking {
 
 // AskingStep is a confirm's step: y or Y ends with true, n or N with
 // false, Return with the default, and a cancel key with None.
-func AskingStep(s Asking, k term.Key) Decision[Asking, Option[bool]] {
+func AskingStep(s Asking, k term.Key) machines.Decision[Asking, option.Option[bool]] {
 	match k {
 	case term.Char as c:
 		if c.Text == "y" || c.Text == "Y" {
-			return Done[Option[bool]]{Output: Some[bool]{Value: true}}
+			return machines.Done[option.Option[bool]]{Output: option.Some[bool]{Value: true}}
 		}
 		if c.Text == "n" || c.Text == "N" {
-			return Done[Option[bool]]{Output: Some[bool]{Value: false}}
+			return machines.Done[option.Option[bool]]{Output: option.Some[bool]{Value: false}}
 		}
-		Ignore
+		machines.Ignore
 	case term.Return:
-		Done[Option[bool]]{Output: Some[bool]{Value: s.Ask.Default}}
+		machines.Done[option.Option[bool]]{Output: option.Some[bool]{Value: s.Ask.Default}}
 	case term.Escape, term.Interrupt, term.EndOfInput:
-		Done[Option[bool]]{Output: None}
+		machines.Done[option.Option[bool]]{Output: option.None}
 	case term.Backspace, term.Tab, term.Up, term.Down, term.Left, term.Right, term.Paste, term.Home, term.End, term.Insert, term.Delete, term.PageUp, term.PageDown, term.F, term.Chord, term.Wheel, term.Resized, term.Other:
-		Ignore
+		machines.Ignore
 	}
 }
 
@@ -330,14 +332,14 @@ func AskingStep(s Asking, k term.Key) Decision[Asking, Option[bool]] {
 // and on a fresh text prompt its default.
 law ReturnAnswersTheDefault(yes bool, fallback string) {
 	let confirmed = match AskingStep(startAsking(Question{Message: "ok", Default: yes}), term.Return) {
-	case Done[Option[bool]] as d:
-		d.Output == Some[bool]{Value: yes}
+	case machines.Done[option.Option[bool]] as d:
+		d.Output == option.Some[bool]{Value: yes}
 	case _:
 		false
 	}
 	let typed = match TypingStep(startTyping(Text{Message: "name", Default: fallback, Masked: false}), term.Return) {
-	case Done[Option[string]] as d:
-		d.Output == Some[string]{Value: fallback}
+	case machines.Done[option.Option[string]] as d:
+		d.Output == option.Some[string]{Value: fallback}
 	case _:
 		false
 	}
@@ -361,5 +363,5 @@ func startAsking(q Question) Asking { Asking{Ask: q} }
 // dropLast is s without its last rune.
 func dropLast(s string) string {
 	let runes = strings.Split(s, "")
-	strings.Join(runes[0:len(runes)-1], "")
+	strings.Join(runes[0:runes.Len()-1], "")
 }

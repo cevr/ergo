@@ -5,6 +5,8 @@
 // the PC tables the runtime reads: SP adjustment, source line, stack-map
 // index and unsafe point, each as change points.
 
+import option
+
 // Reloc is one relocation of a function's code: Size bytes at Off are
 // patched by the linker with Sym (by name, with its ABI) plus Add, per
 // Type (RCall and RPcrel are relative to the end of the patched bytes).
@@ -46,14 +48,14 @@ func NewAsm(line int) Asm {
 func Pc(a Asm) int { a.Code.Size() }
 
 func note(t []PcVal, pc int, v int) []PcVal {
-	if len(t) > 0 && t[len(t)-1].V == v {
+	if t.Len() > 0 && t[t.Len()-1].V == v {
 		return t
 	}
-	if len(t) > 0 && t[len(t)-1].Pc == pc {
+	if t.Len() > 0 && t[t.Len()-1].Pc == pc {
 		let mut u = t
-		u[len(u)-1] = PcVal{Pc: pc, V: v}
-		if len(u) > 1 && u[len(u)-2].V == v {
-			return u.Slice(0, len(u)-1)
+		u[u.Len()-1] = PcVal{Pc: pc, V: v}
+		if u.Len() > 1 && u[u.Len()-2].V == v {
+			return u.Slice(0, u.Len()-1)
 		}
 		return u
 	}
@@ -303,9 +305,9 @@ type Undefined { Label int }
 func Finish(a mut Asm) fails Undefined {
 	for f in a.fixups {
 		match a.labels.Get(f.V) {
-		case Some as to:
+		case option.Some as to:
 			a.Code.Put32(f.Pc, to.Value-(f.Pc+4))
-		case None:
+		case option.None:
 			return Undefined{Label: f.V}
 		}
 	}
@@ -320,10 +322,10 @@ func EncodeTable(t []PcVal, size int) string {
 	for i, pv in t {
 		w.Varint(pv.V - prev)
 		prev = pv.V
-		let next = if i+1 < len(t) { t[i+1].Pc } else { size }
+		let next = if i+1 < t.Len() { t[i+1].Pc } else { size }
 		w.Uvarint(next - pv.Pc)
 	}
-	if len(t) > 0 {
+	if t.Len() > 0 {
 		w.U8(0)
 	}
 	w.Bytes()
@@ -336,7 +338,7 @@ func DecodeTable(data string) []PcVal fails Short {
 	let mut v = -1
 	let mut pc = 0
 	let mut first = true
-	for r.At < len(data) {
+	for r.At < data.Len() {
 		let d = try r.RVarint()
 		if d == 0 && !first {
 			return out
@@ -372,7 +374,7 @@ law TablesRoundTrip(vals []int, gaps []int) {
 		if x != prev {
 			t = t.Append(PcVal{Pc: pc, V: x})
 			prev = x
-			let g = if i < len(gaps) { gaps[i] } else { 1 }
+			let g = if i < gaps.Len() { gaps[i] } else { 1 }
 			pc = pc + (if g < 0 { -(g % 1000) } else { g % 1000 }) + 1
 		}
 	}
@@ -380,5 +382,5 @@ law TablesRoundTrip(vals []int, gaps []int) {
 	case Short:
 		return false
 	}
-	len(back) == len(t) && (len(t) == 0 || (back[len(back)-1].V == t[len(t)-1].V && back[len(back)-1].Pc == t[len(t)-1].Pc))
+	back.Len() == t.Len() && (t.Len() == 0 || (back[back.Len()-1].V == t[t.Len()-1].V && back[back.Len()-1].Pc == t[t.Len()-1].Pc))
 }

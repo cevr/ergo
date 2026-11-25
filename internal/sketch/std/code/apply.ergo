@@ -1,4 +1,5 @@
 import maps
+import option
 import strings
 import sync
 
@@ -160,13 +161,13 @@ func tick(d Disk) fails IOFailed {
 	}
 }
 
-func setFile(d Disk, path string, text Option[string]) {
+func setFile(d Disk, path string, text option.Option[string]) {
 	let st = d.state.Get()
 	let mut files = st.files
 	match text {
-	case Some[string] as t:
+	case option.Some[string] as t:
 		files[path] = t.Value
-	case None:
+	case option.None:
 		files = files.Delete(path)
 	}
 	d.state.Set(diskState{files: files, holder: st.holder, next: st.next})
@@ -175,16 +176,16 @@ func setFile(d Disk, path string, text Option[string]) {
 func Read(d Disk, path string) string fails Missing | IOFailed {
 	try tick(d)
 	match d.state.Get().files.Get(path) {
-	case Some[string] as t:
+	case option.Some[string] as t:
 		t.Value
-	case None:
+	case option.None:
 		Missing{Path: path}
 	}
 }
 
 func Write(d Disk, path string, text string) fails IOFailed {
 	try tick(d)
-	setFile(d, path, Some[string]{Value: text})
+	setFile(d, path, option.Some[string]{Value: text})
 }
 
 func Exchange(d Disk, a string, b string) fails Missing | IOFailed {
@@ -192,30 +193,30 @@ func Exchange(d Disk, a string, b string) fails Missing | IOFailed {
 	let files = d.state.Get().files
 	let x = try present(files, a)
 	let y = try present(files, b)
-	setFile(d, a, Some[string]{Value: y})
-	setFile(d, b, Some[string]{Value: x})
+	setFile(d, a, option.Some[string]{Value: y})
+	setFile(d, b, option.Some[string]{Value: x})
 }
 
 func present(files Map[string, string], path string) string fails Missing {
 	match files.Get(path) {
-	case Some[string] as t:
+	case option.Some[string] as t:
 		t.Value
-	case None:
+	case option.None:
 		Missing{Path: path}
 	}
 }
 
 func Remove(d Disk, path string) fails IOFailed {
 	try tick(d)
-	setFile(d, path, None)
+	setFile(d, path, option.None)
 }
 
 func Exists(d Disk, path string) bool fails IOFailed {
 	try tick(d)
 	match d.state.Get().files.Get(path) {
-	case Some[string]:
+	case option.Some[string]:
 		true
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -372,14 +373,14 @@ func applyLocked(files Files, p Planned) Receipt fails Stale | IOFailed {
 			stale = stale.Append(r.File)
 		}
 	}
-	if len(stale) > 0 {
+	if stale.Len() > 0 {
 		return Stale{ID: p.ID, Files: stale}
 	}
 	let mut wrote = []FileRead{}
 	for f in p.Files {
 		wrote = wrote.Append(FileRead{File: f.File, Revision: f.New})
 	}
-	if len(p.Files) == 0 {
+	if p.Files.Len() == 0 {
 		return Receipt{ID: p.ID, Files: wrote}
 	}
 	try files.Write(JournalPath, journalText("intent", p))
@@ -440,7 +441,7 @@ func journalEntries(text string) []journalEntry {
 	let mut out = []journalEntry{}
 	for i, line in strings.Split(text, "\n") {
 		let parts = strings.Split(line, "\t")
-		if i >= 2 && len(parts) == 3 {
+		if i >= 2 && parts.Len() == 3 {
 			out = out.Append(journalEntry{File: parts[0], Old: parts[1], New: parts[2]})
 		}
 	}
@@ -470,7 +471,7 @@ func restoreLocked(files Files) Recovered fails IOFailed {
 		try files.Remove(JournalPath)
 		return Recovered{Outcome: "forward"}
 	}
-	for _ in 0..4 * len(entries) + 4 {
+	for _ in 0..4*entries.Len()+4 {
 		let mut busy = false
 		for e in entries {
 			let temp = tempOf(e.File)
@@ -510,7 +511,7 @@ func restoreLocked(files Files) Recovered fails IOFailed {
 // seed, pick and word, or a trial whose Ok is false.
 func readyTrial(seed int, pick int, word int) Trial {
 	let t = trialOf(Sample(seed), SampleChange(pick, word))
-	Trial{Ok: t.Ok && isReady(t.Plan.Verdict) && len(t.Plan.Files) > 0, Sources: t.Sources, Store: t.Store, Plan: t.Plan}
+	Trial{Ok: t.Ok && isReady(t.Plan.Verdict) && t.Plan.Files.Len() > 0, Sources: t.Sources, Store: t.Store, Plan: t.Plan}
 }
 
 // clean is whether d's disk holds no temporary file and no journal, and
@@ -557,13 +558,13 @@ func appliedIsPlanned(seed int, pick int, word int) bool {
 		return false
 	}
 	let files = Contents(disk)
-	let mut ok = clean(disk) && r.ID == t.Plan.ID && len(r.Files) == len(t.Plan.Files)
+	let mut ok = clean(disk) && r.ID == t.Plan.ID && r.Files.Len() == t.Plan.Files.Len()
 	for i, f in t.Plan.Files {
-		ok = ok && files.Get(f.File) == Some[string]{Value: f.Text} && r.Files[i] == FileRead{File: f.File, Revision: f.New}
+		ok = ok && files.Get(f.File) == option.Some[string]{Value: f.Text} && r.Files[i] == FileRead{File: f.File, Revision: f.New}
 	}
 	for s in t.Sources {
 		if textOf(changedTexts(t.Plan), s.File) == "" {
-			ok = ok && files.Get(s.File) == Some[string]{Value: s.Text}
+			ok = ok && files.Get(s.File) == option.Some[string]{Value: s.Text}
 		}
 	}
 	ok
@@ -589,7 +590,7 @@ func staleChangesNothing(seed int, pick int, word int, which int) bool {
 		return true
 	}
 	let disk = DiskOf(t.Sources)
-	let file = t.Sources[slot(which, len(t.Sources))].File
+	let file = t.Sources[slot(which, t.Sources.Len())].File
 	let h = Faulty(disk, 0, 0, 1, file)
 	let _ = ApplierOf(h, t.Store).Apply(t.Plan.ID) catch {
 	case Stale as s:
@@ -597,7 +598,7 @@ func staleChangesNothing(seed int, pick int, word int, which int) bool {
 		let mut ok = clean(disk) && s.Files == []string{file}
 		for src in t.Sources {
 			let want = if src.File == file { OutsideText(src.Text) } else { src.Text }
-			ok = ok && files.Get(src.File) == Some[string]{Value: want}
+			ok = ok && files.Get(src.File) == option.Some[string]{Value: want}
 		}
 		return ok
 	case NoPlan:
@@ -664,7 +665,7 @@ func planOfAppliedIsEmpty(seed int, pick int, word int) bool {
 		now = now.Append(Source{File: s.File, Text: maps.GetOr(files, s.File, "")})
 	}
 	let again = trialOf(now, c)
-	again.Ok && len(again.Plan.Files) == 0
+	again.Ok && again.Plan.Files.Len() == 0
 }
 
 // ApplyIsSafe is the model models/apply run on the product: a plan that
@@ -687,25 +688,25 @@ func applyIsSafe(seed int, mode int, at int, out int) bool {
 	// The first declaration of the first two files.
 	let mut picked = []Extent{}
 	for e in report.Extents {
-		if len(picked) == 0 || (len(picked) == 1 && picked[0].File != e.File) {
+		if picked.Len() == 0 || (picked.Len() == 1 && picked[0].File != e.File) {
 			picked = picked.Append(e)
 		}
 	}
-	if len(picked) < 2 {
+	if picked.Len() < 2 {
 		return true
 	}
 	let mut steps = []Change{}
 	for e in picked {
-		let name = strings.TrimPrefix(e.Handle, packageOf(e.File) + ".")
+		let name = strings.TrimPrefix(e.Handle, packageOf(e.File)+".")
 		steps = steps.Append(Replace{Of: e.Handle, Text: "func \(name)\n\tkeep \(seed)\n"})
 	}
 	let t = trialOf(sources, Script{Steps: steps})
-	if !t.Ok || !isReady(t.Plan.Verdict) || len(t.Plan.Files) != 2 {
+	if !t.Ok || !isReady(t.Plan.Verdict) || t.Plan.Files.Len() != 2 {
 		return false
 	}
 	let disk = DiskOf(sources)
 	let outFile = t.Plan.Files[slot(out, 2)].File
-	let outAt = slot(out / 2, 32)
+	let outAt = slot(out/2, 32)
 	let n = 1 + slot(at, 32)
 	let stops = slot(mode, 2) == 0
 	let h = Faulty(disk, if stops { n } else { 0 }, if stops { 0 } else { n }, outAt, outFile)
@@ -749,7 +750,7 @@ func applyIsSafe(seed int, mode int, at int, out int) bool {
 	let mut untouched = true
 	for s in sources {
 		if textOf(changedTexts(t.Plan), s.File) == "" {
-			untouched = untouched && files.Get(s.File) == Some[string]{Value: s.Text}
+			untouched = untouched && files.Get(s.File) == option.Some[string]{Value: s.Text}
 		}
 	}
 	kept && whole && untouched && clean(disk)

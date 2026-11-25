@@ -21,6 +21,7 @@
 // the process's one reader of standard input.
 
 import fs
+import option
 import slices
 import sync
 
@@ -29,7 +30,7 @@ import sync
 type Source {
 	// Read is the next chunk of the input, a text that is not empty, or
 	// None at the end of the input. After None, every Read is None.
-	Read() Option[string] fails ReadFailed,
+	Read() option.Option[string] fails ReadFailed,
 }
 
 // DefaultChunk is the size of a chunk when a provider is asked for a
@@ -52,7 +53,7 @@ type place { at int, next int }
 func CutAt(text string, cuts []int) Memory {
 	let mut kept = []int{}
 	for c in cuts {
-		if c > 0 && c < len(text) && (len(kept) == 0 || c > kept[len(kept)-1]) {
+		if c > 0 && c < text.Len() && (kept.Len() == 0 || c > kept[kept.Len()-1]) {
 			kept = kept.Append(c)
 		}
 	}
@@ -68,26 +69,26 @@ func Chunked(text string, size int) Memory {
 
 // Read is the next chunk of m's text. Each Read is one step of the place
 // (sync.Modify), so a copy of m reads on where m stopped.
-func Read(m Memory) Option[string] fails ReadFailed {
+func Read(m Memory) option.Option[string] fails ReadFailed {
 	let text = m.text
 	let cuts = m.cuts
 	let size = m.size
-	sync.Modify(m.pos, func(p place) (Option[string], place) {
-		if p.at >= len(text) {
-			return (None, p)
+	sync.Modify(m.pos, func(p place) (option.Option[string], place) {
+		if p.at >= text.Len() {
+			return (option.None, p)
 		}
-		let mut end = len(text)
-		if size > 0 && len(text)-p.at > size {
+		let mut end = text.Len()
+		if size > 0 && text.Len()-p.at > size {
 			end = p.at + size
 		}
 		// The cuts grow and lie inside text (CutAt keeps only those), so
 		// the next one ends this chunk when it comes before end.
 		let mut next = p.next
-		if next < len(cuts) && cuts[next] < end {
+		if next < cuts.Len() && cuts[next] < end {
 			end = cuts[next]
 			next = next + 1
 		}
-		(Some[string]{Value: text[p.at:end]}, place{at: end, next: next})
+		(option.Some[string]{Value: text[p.at:end]}, place{at: end, next: next})
 	})
 }
 
@@ -110,9 +111,9 @@ func File(host fs.Host, path string, size int) Memory fails fs.NotFound | fs.Den
 // read of the host uses, so a Read goes on where a Lines or ReadAll
 // before it stopped, and it gives what the host has delivered without
 // waiting to fill a chunk.
-func Read(_ In) Option[string] fails ReadFailed {
+func Read(_ In) option.Option[string] fails ReadFailed {
 	let chunk = try hostRead(DefaultChunk)
-	if chunk == "" { None } else { Some[string]{Value: chunk} }
+	if chunk == "" { option.None } else { option.Some[string]{Value: chunk} }
 }
 
 // ChunksJoinToInput: the chunks of a Memory, read until None, are not
@@ -121,7 +122,7 @@ func Read(_ In) Option[string] fails ReadFailed {
 law ChunksJoinToInput(text string, cuts []int, size int) {
 	let mut kept = []int{}
 	for c in cuts {
-		if c > 0 && c < len(text) && (len(kept) == 0 || c > kept[len(kept)-1]) {
+		if c > 0 && c < text.Len() && (kept.Len() == 0 || c > kept[kept.Len()-1]) {
 			kept = kept.Append(c)
 		}
 	}
@@ -130,20 +131,20 @@ law ChunksJoinToInput(text string, cuts []int, size int) {
 	let m = CutAt(text, cuts)
 	for {
 		match try m.Read() {
-		case Some[string] as c:
+		case option.Some[string] as c:
 			if c.Value == "" {
 				return false
 			}
 			joined = joined + c.Value
-			ends = ends.Append(len(joined))
-		case None:
+			ends = ends.Append(joined.Len())
+		case option.None:
 			break
 		}
 	}
 	let again = try m.Read()
 	let mut want = kept
-	if len(text) > 0 {
-		want = want.Append(len(text))
+	if text.Len() > 0 {
+		want = want.Append(text.Len())
 	}
 	let n = if size < 0 { -(size % 9) + 1 } else { size%9 + 1 }
 	let mut sized = ""
@@ -151,17 +152,17 @@ law ChunksJoinToInput(text string, cuts []int, size int) {
 	let chunked = Chunked(text, n)
 	for {
 		match try chunked.Read() {
-		case Some[string] as c:
-			if c.Value == "" || len(c.Value) > n || (len(c.Value) < n && len(sized)+len(c.Value) != len(text)) {
+		case option.Some[string] as c:
+			if c.Value == "" || c.Value.Len() > n || (c.Value.Len() < n && sized.Len()+c.Value.Len() != text.Len()) {
 				return false
 			}
 			sized = sized + c.Value
 			pieces = pieces + 1
-		case None:
+		case option.None:
 			break
 		}
 	}
-	joined == text && again == None && slices.Equal(ends, want) && sized == text && pieces == (len(text)+n-1)/n
+	joined == text && again == option.None && slices.Equal(ends, want) && sized == text && pieces == (text.Len()+n-1)/n
 }
 
 // hostRead is the next chunk of standard input, at most max bytes, or ""

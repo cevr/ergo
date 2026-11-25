@@ -16,6 +16,7 @@
 // state_timeout. Go control: a for over the signals that calls the step
 // function.
 
+import option
 import time
 import testing
 // Work is the work a state's entry owns (docs/spec/runtime.md, Machines
@@ -139,18 +140,18 @@ law UntimedRunsAsRun(signals []int, gaps []int) {
 	let mut trace = []Timed[int]{}
 	let mut at = 0s
 	for i, e in signals {
-		if i < len(gaps) {
+		if i < gaps.Len() {
 			at = at + duration(int64(gaps[i]%1000))
 		}
 		trace = trace.Append(Timed[int]{At: at, Signal: e})
 	}
 	let c = testing.NewVirtualClock(0)
-	let timed = with context { Scheduler: c, time.Clock: c } { timedTally(trace, at) }
+	let timed = with context { time.Scheduler: c, time.Clock: c } { timedTally(trace, at) }
 	from(0, signals, 0, []int{}) == timed
 }
 
 // timedTally is the text of the timed run of tally over trace until end.
-func timedTally(trace []Timed[int], end duration) string needs time.Clock | Scheduler {
+func timedTally(trace []Timed[int], end duration) string needs time.Clock | time.Scheduler {
 	let o = RunTimed(tally(), trace, end) catch {
 	case Rejected as r:
 		return "rejected \(r.At)"
@@ -165,7 +166,7 @@ law StayAndTellKeepTheTimer(pokes int) {
 	let k = ((pokes % 10) + 10) % 10
 	let (stayed, quiet) = rung(1, pokes)
 	let (told, outs) = rung(3, pokes)
-	stayed == k && len(quiet) == 0 && told == k && outs == count(k)
+	stayed == k && quiet.Len() == 0 && told == k && outs == count(k)
 }
 
 // Bell is bell's state: the pokes counted, and the decision of a poke.
@@ -189,11 +190,11 @@ func bellStep(b Bell, e int) Decision[Bell, int] {
 	}
 }
 
-func bellTimer(b Bell) Option[Timeout[int]] { Some[Timeout[int]]{Value: Timeout[int]{In: 10s, Signal: 0}} }
+func bellTimer(b Bell) option.Option[Timeout[int]] { option.Some[Timeout[int]]{Value: Timeout[int]{In: 10s, Signal: 0}} }
 
-func bellWork(b Bell) Option[func(send func(e int))] { None }
+func bellWork(b Bell) option.Option[func(send func(e int))] { option.None }
 
-func bellExit(b Bell) Option[func()] { None }
+func bellExit(b Bell) option.Option[func()] { option.None }
 
 // rung is the count when bell, deciding each poke by kind, rang, and its
 // outputs, after pokes at 1s, 2s, … for the first pokes % 10 of them and
@@ -206,7 +207,7 @@ func rung(kind int, pokes int) (int, []int) {
 	trace = trace.Append(Timed[int]{At: 10s + 500ms, Signal: 1})
 	let m = Machine[Bell, int, int]{Initial: Bell{Count: 0, Kind: kind}, Step: bellStep, After: bellTimer, Work: bellWork, Exit: bellExit}
 	let c = testing.NewVirtualClock(0)
-	let o = with context { Scheduler: c, time.Clock: c } { RunTimed(m, trace, 60s) } catch {
+	let o = with context { time.Scheduler: c, time.Clock: c } { RunTimed(m, trace, 60s) } catch {
 	case Rejected:
 		return (-1, []int{})
 	}
@@ -326,7 +327,7 @@ law RunSplits(a []int, b []int) {
 	}
 	match first {
 	case Running[int, int] as r:
-		from(0, whole, 0, []int{}) == from(r.State, b, len(a), r.Emitted)
+		from(0, whole, 0, []int{}) == from(r.State, b, a.Len(), r.Emitted)
 	case Finished[int, int]:
 		true
 	}
@@ -355,11 +356,11 @@ func tallyStep(s int, e int) Decision[int, int] {
 }
 
 // untimed gives no state a timer.
-func untimed(s int) Option[Timeout[int]] { None }
+func untimed(s int) option.Option[Timeout[int]] { option.None }
 
-func unworked(s int) Option[func(send func(e int))] { None }
+func unworked(s int) option.Option[func(send func(e int))] { option.None }
 
-func unexited(s int) Option[func()] { None }
+func unexited(s int) option.Option[func()] { option.None }
 
 func tally() Machine[int, int, int] { Machine[int, int, int]{Initial: 0, Step: tallyStep, After: untimed, Work: unworked, Exit: unexited} }
 
@@ -449,15 +450,15 @@ type armed[S] {
 // would fire at once, and a state whose timer re-enters it would never
 // let time pass. A declared machine's After raises it first, naming the
 // machine and the state; a Machine built from parts raises it here.
-func arm[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], s S, now duration) Option[armed[S]] {
+func arm[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], s S, now duration) option.Option[armed[S]] {
 	match m.After(s) {
-	case Some[Timeout[E]] as t:
+	case option.Some[Timeout[E]] as t:
 		if t.Value.In <= 0s {
 			notPositive(now, t.Value.In)
 		}
-		Some[armed[S]]{Value: armed[S]{At: now + t.Value.In, State: s}}
-	case None:
-		None
+		option.Some[armed[S]]{Value: armed[S]{At: now + t.Value.In, State: s}}
+	case option.None:
+		option.None
 	}
 }
 
@@ -466,7 +467,7 @@ func arm[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], s S, now duration) Optio
 // time.Clock's reading now. A runner calls it when a timer fires (RunTimed,
 // std actor), and plain After when an entry opens, where only In is read.
 // It is the one owner of the firing mark.
-func AfterFiring[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], at S) Option[Timeout[E]] {
+func AfterFiring[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], at S) option.Option[Timeout[E]] {
 	firingOn()
 	let timer = m.After(at)
 	firingOff()
@@ -479,27 +480,27 @@ extern go ergo.local/prototype/runtime/v1.MachineTimerNotPositiveAt func notPosi
 
 // due is timer when it fires before the time limit (at or before it when
 // closed), else None.
-func due[S](timer Option[armed[S]], limit duration, closed bool) Option[armed[S]] {
+func due[S](timer option.Option[armed[S]], limit duration, closed bool) option.Option[armed[S]] {
 	match timer {
-	case Some[armed[S]] as t:
+	case option.Some[armed[S]] as t:
 		if t.Value.At < limit || closed && t.Value.At == limit {
 			return timer
 		}
-		None
-	case None:
-		None
+		option.None
+	case option.None:
+		option.None
 	}
 }
 
 // until waits on Scheduler until the time since start, by time.Clock, is
 // at least at, and gives that time: a time at or before now returns it at
 // once, since the clock does not go back.
-func until(start time.Time, at duration) duration needs time.Clock | Scheduler {
+func until(start time.Time, at duration) duration needs time.Clock | time.Scheduler {
 	let passed = time.Clock.Now().Sub(start)
 	if at <= passed {
 		return passed
 	}
-	Scheduler.Sleep(at - passed)
+	time.Scheduler.Sleep(at - passed)
 	time.Clock.Now().Sub(start)
 }
 
@@ -523,7 +524,7 @@ func until(start time.Time, at duration) duration needs time.Clock | Scheduler {
 // with Rejected's At the index of the rejected signal in trace. Under
 // testing.VirtualClock or time.Manual the run takes no wall time, and a
 // task that sleeps beside it wakes in step with its timers.
-func RunTimed[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], trace []Timed[E], end duration) Outcome[S, O] fails Rejected | F needs time.Clock | Scheduler | R {
+func RunTimed[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], trace []Timed[E], end duration) Outcome[S, O] fails Rejected | F needs time.Clock | time.Scheduler | R {
 	let start = time.Clock.Now()
 	let mut at = m.Initial
 	let mut out = []O{}
@@ -531,38 +532,38 @@ func RunTimed[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], trace []Timed[E], e
 	let mut pending = arm(m, at, now)
 	let mut i = 0
 	for {
-		let closed = i >= len(trace)
+		let closed = i >= trace.Len()
 		let mut limit = end
 		if !closed {
 			limit = trace[i].At
 		}
 		let next = due(pending, limit, closed)
 		let timer = match next {
-		case Some[armed[S]]:
+		case option.Some[armed[S]]:
 			true
-		case None:
+		case option.None:
 			false
 		}
 		if !timer && closed {
 			break
 		}
 		let ev = match next {
-		case Some[armed[S]] as t:
+		case option.Some[armed[S]] as t:
 			t.Value
-		case None:
+		case option.None:
 			armed[S]{At: trace[i].At, State: at}
 		}
 		if timer {
-			pending = None
+			pending = option.None
 		} else {
 			i = i + 1
 		}
 		now = until(start, ev.At)
 		let sig = if timer {
 			match AfterFiring(m, ev.State) {
-			case Some[Timeout[E]] as t:
+			case option.Some[Timeout[E]] as t:
 				t.Value.Signal
-			case None:
+			case option.None:
 				continue
 			}
 		} else {

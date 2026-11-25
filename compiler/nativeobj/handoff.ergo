@@ -1,5 +1,6 @@
 import compiler/ir
 import compiler/ir/handoff
+import option
 import slices
 import strings
 
@@ -17,27 +18,27 @@ type ForeignFunc {
 
 func hword(img handoff.Image, s int, i int, col int) uint32 fails Malformed {
 	match handoff.Word(img, s, i, col) {
-	case Some as w:
+	case option.Some as w:
 		w.Value
-	case None:
+	case option.None:
 		return Malformed{Why: "missing handoff word at section \(s) row \(i) col \(col)"}
 	}
 }
 
 func hname(img handoff.Image, id uint32) string fails Malformed {
 	match handoff.Name(img, id) {
-	case Some as n:
+	case option.Some as n:
 		n.Value
-	case None:
+	case option.None:
 		return Malformed{Why: "missing handoff name \(id)"}
 	}
 }
 
 func hpos(img handoff.Image, span uint32) handoff.Position fails Malformed {
 	match handoff.PositionOf(img, span) {
-	case Some as p:
+	case option.Some as p:
 		p.Value
-	case None:
+	case option.None:
 		return Malformed{Why: "missing handoff span \(span)"}
 	}
 }
@@ -59,7 +60,7 @@ func u32PairBytes(lo uint32, hi uint32) string {
 }
 
 func fpWords(fp string) (uint32, uint32) fails handoff.Malformed {
-	if len(fp) != 8 {
+	if fp.Len() != 8 {
 		return handoff.Malformed{Section: ir.HImports, Row: -1, Why: "import fingerprint must be 8 bytes"}
 	}
 	let lo = uint32(fp[0]) | uint32(fp[1])<<8 | uint32(fp[2])<<16 | uint32(fp[3])<<24
@@ -363,7 +364,7 @@ func FromHandoff(wire string, want handoff.Expect) Package fails handoff.Unknown
 			if types[ty].Kind != KInt {
 				return Refused{Why: "non-int global variable \(name) is not supported"}
 			}
-			symToGlobal[si] = len(globals)
+			symToGlobal[si] = globals.Len()
 			globals = globals.Append(Global{Name: name})
 		} else if kind == ir.HSFunc {
 			if types[ty].Kind != KFunc {
@@ -377,7 +378,7 @@ func FromHandoff(wire string, want handoff.Expect) Package fails handoff.Unknown
 				if !isInit {
 					symCallTarget[si] = pkgPath + "." + name
 				}
-				symToLocalFunc[si] = len(localFuncSyms)
+				symToLocalFunc[si] = localFuncSyms.Len()
 				localFuncSyms = localFuncSyms.Append(si)
 				localFuncNames = localFuncNames.Append(if isInit { "init" } else { name })
 				localFuncSigs = localFuncSigs.Append(types[ty])
@@ -389,10 +390,10 @@ func FromHandoff(wire string, want handoff.Expect) Package fails handoff.Unknown
 			return Refused{Why: "unsupported handoff symbol kind \(kind) for \(name)"}
 		}
 	}
-	if handoff.Rows(img, ir.HBodies) != len(localFuncSyms) {
+	if handoff.Rows(img, ir.HBodies) != localFuncSyms.Len() {
 		return Malformed{Why: "body count does not match local function count"}
 	}
-	let mut funcs = slices.WithCapacity[Func](len(localFuncSyms))
+	let mut funcs = slices.WithCapacity[Func](localFuncSyms.Len())
 	for bi, si in localFuncSyms {
 		funcs = funcs.Append(try translateBody(img, types, symToGlobal, symCallTarget, bi, si, localFuncNames[bi], localFuncSigs[bi]))
 	}
@@ -445,7 +446,7 @@ func sortUniqueStrings(xs []string) []string {
 			out = out.Append(x)
 		}
 	}
-	for i in 1..len(out) {
+	for i in 1..out.Len() {
 		let mut j = i
 		for j > 0 && out[j-1] > out[j] {
 			let tmp = out[j]
@@ -473,11 +474,11 @@ func findOrAddSig(types []TypeDef, ps []int, rs []int) ([]TypeDef, uint32) {
 		}
 	}
 	let next = types.Append(TypeDef{Kind: KFunc, Elem: 0, Params: ps, Results: rs})
-	(next, uint32(len(next)))
+	(next, uint32(next.Len()))
 }
 
 func columnMajor(rows [][]uint32, width int) []uint32 {
-	let n = len(rows)
+	let n = rows.Len()
 	let mut out = slices.WithCapacity[uint32](n * width)
 	for c in 0..width {
 		for r in 0..n {
@@ -504,7 +505,7 @@ func maxLineOf(p Package) int {
 
 func sortSyms(es []symEntry) []symEntry {
 	let mut out = es
-	for i in 1..len(out) {
+	for i in 1..out.Len() {
 		let mut j = i
 		for j > 0 && (out[j-1].imp > out[j].imp || (out[j-1].imp == out[j].imp && out[j-1].nameID > out[j].nameID)) {
 			let tmp = out[j]
@@ -547,10 +548,10 @@ func encodePackageDraft(p Package, profile string, foreign []ForeignFunc, wireNa
 		try findNameID(names, profile),
 	}}
 	let mut impOrder = []int{}
-	for i in 0..len(p.Imports) {
+	for i in 0..p.Imports.Len() {
 		impOrder = impOrder.Append(i)
 	}
-	for i in 1..len(impOrder) {
+	for i in 1..impOrder.Len() {
 		let mut j = i
 		for j > 0 && p.Imports[impOrder[j-1]].Path > p.Imports[impOrder[j]].Path {
 			let tmp = impOrder[j]
@@ -559,8 +560,8 @@ func encodePackageDraft(p Package, profile string, foreign []ForeignFunc, wireNa
 			j = j - 1
 		}
 	}
-	let mut impWireID = slices.WithCapacity[uint32](len(p.Imports))
-	for _ in 0..len(p.Imports) {
+	let mut impWireID = slices.WithCapacity[uint32](p.Imports.Len())
+	for _ in 0..p.Imports.Len() {
 		impWireID = impWireID.Append(0)
 	}
 	let mut impRows = [][]uint32{}
@@ -587,7 +588,7 @@ func encodePackageDraft(p Package, profile string, foreign []ForeignFunc, wireNa
 		try findNameID(names, p.File),
 		fileSize,
 		uint32(0),
-		uint32(len(linesCol)),
+		uint32(linesCol.Len()),
 		uint32(1), uint32(2), uint32(3), uint32(4), uint32(5), uint32(6), uint32(7), uint32(8),
 	}}
 	let mut spanRows = [][]uint32{}
@@ -596,7 +597,7 @@ func encodePackageDraft(p Package, profile string, foreign []ForeignFunc, wireNa
 		let c = if col < 1 { 1 } else if col > 9 { 9 } else { col }
 		let start = uint32(l-1)*lineStride + uint32(c-1)
 		spanRows = spanRows.Append([]uint32{uint32(1), start, start + 1})
-		uint32(len(spanRows))
+		uint32(spanRows.Len())
 	}
 	let mut allTypes = p.Types
 	let mut intTypeID = uint32(0)
@@ -607,7 +608,7 @@ func encodePackageDraft(p Package, profile string, foreign []ForeignFunc, wireNa
 	}
 	if intTypeID == uint32(0) {
 		allTypes = allTypes.Append(TypeDef{Kind: KInt, Elem: 0, Params: []int{}, Results: []int{}})
-		intTypeID = uint32(len(allTypes))
+		intTypeID = uint32(allTypes.Len())
 	}
 	let mut entries = []symEntry{}
 	for gi, g in p.Globals {
@@ -630,12 +631,12 @@ func encodePackageDraft(p Package, profile string, foreign []ForeignFunc, wireNa
 	}
 	entries = sortSyms(entries)
 	let mut symRows = [][]uint32{}
-	let mut globalSymID = slices.WithCapacity[uint32](len(p.Globals))
-	for _ in 0..len(p.Globals) {
+	let mut globalSymID = slices.WithCapacity[uint32](p.Globals.Len())
+	for _ in 0..p.Globals.Len() {
 		globalSymID = globalSymID.Append(0)
 	}
-	let mut localFuncSymID = slices.WithCapacity[uint32](len(p.Funcs))
-	for _ in 0..len(p.Funcs) {
+	let mut localFuncSymID = slices.WithCapacity[uint32](p.Funcs.Len())
+	for _ in 0..p.Funcs.Len() {
 		localFuncSymID = localFuncSymID.Append(0)
 	}
 	let mut callSymMap = Map[string, uint32]{}
@@ -655,7 +656,7 @@ func encodePackageDraft(p Package, profile string, foreign []ForeignFunc, wireNa
 	let mut operands = []uint32{}
 	let mut typeRows = [][]uint32{}
 	for t in allTypes {
-		let lo = uint32(len(operands))
+		let lo = uint32(operands.Len())
 		if t.Kind == KInt {
 			typeRows = typeRows.Append([]uint32{ir.HTBasic, ir.HBasicInt, lo, 0})
 		} else if t.Kind == KPtr {
@@ -668,7 +669,7 @@ func encodePackageDraft(p Package, profile string, foreign []ForeignFunc, wireNa
 			for rt in t.Results {
 				operands = operands.Append(uint32(rt + 1))
 			}
-			typeRows = typeRows.Append([]uint32{ir.HTSignature, uint32(len(t.Params)), lo, uint32(len(t.Params) + len(t.Results))})
+			typeRows = typeRows.Append([]uint32{ir.HTSignature, uint32(t.Params.Len()), lo, uint32(t.Params.Len() + t.Results.Len())})
 		}
 	}
 	let mut bodyRows = [][]uint32{}
@@ -679,7 +680,7 @@ func encodePackageDraft(p Package, profile string, foreign []ForeignFunc, wireNa
 			continue
 		}
 		let f = p.Funcs[e.localIdx]
-		let firstSlot = uint32(len(slotsCol))
+		let firstSlot = uint32(slotsCol.Len())
 		for s in f.Slots {
 			slotsCol = slotsCol.Append(uint32(s + 1))
 		}
@@ -693,7 +694,7 @@ func encodePackageDraft(p Package, profile string, foreign []ForeignFunc, wireNa
 				eirCount = eirCount + 1
 			}
 		}
-		let firstOp = uint32(len(opRows))
+		let firstOp = uint32(opRows.Len())
 		let mut curEir = 0
 		for k, op in f.Ops {
 			match op {
@@ -702,7 +703,7 @@ func encodePackageDraft(p Package, profile string, foreign []ForeignFunc, wireNa
 			case _:
 			}
 			let sp = addSpan(f.Lines[k], 1)
-			let lo = uint32(len(operands))
+			let lo = uint32(operands.Len())
 			let mut opcode = uint32(0)
 			match op {
 			case Const as c:
@@ -743,13 +744,13 @@ func encodePackageDraft(p Package, profile string, foreign []ForeignFunc, wireNa
 			case Call as c:
 				opcode = ir.HOCall
 				let targetID = match callSymMap.Get(c.Target) {
-				case Some as id:
+				case option.Some as id:
 					id.Value
-				case None:
-					return handoff.Malformed{Section: ir.HOps, Row: len(opRows), Why: "unknown call target \(c.Target)"}
+				case option.None:
+					return handoff.Malformed{Section: ir.HOps, Row: opRows.Len(), Why: "unknown call target \(c.Target)"}
 				}
 				operands = operands.Append(targetID)
-				operands = operands.Append(uint32(len(c.Dsts)))
+				operands = operands.Append(uint32(c.Dsts.Len()))
 				for d in c.Dsts {
 					operands = operands.Append(uint32(d + 1))
 				}
@@ -759,7 +760,7 @@ func encodePackageDraft(p Package, profile string, foreign []ForeignFunc, wireNa
 			case CallClosure as c:
 				opcode = ir.HOCallClosure
 				operands = operands.Append(uint32(c.Fn + 1))
-				operands = operands.Append(uint32(len(c.Dsts)))
+				operands = operands.Append(uint32(c.Dsts.Len()))
 				for d in c.Dsts {
 					operands = operands.Append(uint32(d + 1))
 				}
@@ -769,19 +770,19 @@ func encodePackageDraft(p Package, profile string, foreign []ForeignFunc, wireNa
 			case Jump as j:
 				opcode = ir.HOJump
 				let t = match labelTarget.Get(j.To) {
-				case Some as idx:
+				case option.Some as idx:
 					idx.Value
-				case None:
-					return handoff.Malformed{Section: ir.HOps, Row: len(opRows), Why: "unknown jump label \(j.To)"}
+				case option.None:
+					return handoff.Malformed{Section: ir.HOps, Row: opRows.Len(), Why: "unknown jump label \(j.To)"}
 				}
 				operands = operands.Append(uint32(t + 1))
 			case JumpIf as j:
 				opcode = ir.HOBranch
 				let t = match labelTarget.Get(j.To) {
-				case Some as idx:
+				case option.Some as idx:
 					idx.Value
-				case None:
-					return handoff.Malformed{Section: ir.HOps, Row: len(opRows), Why: "unknown branch label \(j.To)"}
+				case option.None:
+					return handoff.Malformed{Section: ir.HOps, Row: opRows.Len(), Why: "unknown branch label \(j.To)"}
 				}
 				operands = operands.Append(uint32(j.Cond + 1))
 				operands = operands.Append(uint32(j.A + 1))
@@ -795,12 +796,12 @@ func encodePackageDraft(p Package, profile string, foreign []ForeignFunc, wireNa
 				}
 			case Label:
 			}
-			opRows = opRows.Append([]uint32{opcode, sp, lo, uint32(len(operands)) - lo})
+			opRows = opRows.Append([]uint32{opcode, sp, lo, uint32(operands.Len()) - lo})
 			curEir = curEir + 1
 		}
-		bodyRows = bodyRows.Append([]uint32{uint32(si + 1), firstSlot, uint32(len(f.Slots)), firstOp, uint32(curEir)})
+		bodyRows = bodyRows.Append([]uint32{uint32(si + 1), firstSlot, uint32(f.Slots.Len()), firstOp, uint32(curEir)})
 	}
-	let mut initCol = slices.WithCapacity[uint32](len(p.Inits))
+	let mut initCol = slices.WithCapacity[uint32](p.Inits.Len())
 	for fi in p.Inits {
 		initCol = initCol.Append(localFuncSymID[fi])
 	}
@@ -953,7 +954,7 @@ func unsupportedSliceWire(dep Import) string fails handoff.Malformed {
 		Inits:   []int{},
 	}
 	let base = try encodePackageDraft(pkg, PinProfile, []ForeignFunc{}, []string{"Id"})
-	let nTypes = len(base.Columns[ir.HTypes]) / 4
+	let nTypes = base.Columns[ir.HTypes].Len() / 4
 	let opsStart = base.Columns[ir.HOps]
 	let mut typeOps = 0
 	for i in 0..nTypes {
@@ -968,16 +969,16 @@ func unsupportedSliceWire(dep Import) string fails handoff.Malformed {
 		newTypes = newTypes.Append(extra)
 	}
 	let oldOperands = base.Columns[ir.HOperands]
-	let mut newOperands = slices.WithCapacity[uint32](len(oldOperands) + 1)
+	let mut newOperands = slices.WithCapacity[uint32](oldOperands.Len() + 1)
 	for i in 0..typeOps {
 		newOperands = newOperands.Append(oldOperands[i])
 	}
 	newOperands = newOperands.Append(uint32(1))
-	for i in typeOps..len(oldOperands) {
+	for i in typeOps..oldOperands.Len() {
 		newOperands = newOperands.Append(oldOperands[i])
 	}
-	let nOps = len(opsStart) / 4
-	let mut newOps = slices.WithCapacity[uint32](len(opsStart))
+	let nOps = opsStart.Len() / 4
+	let mut newOps = slices.WithCapacity[uint32](opsStart.Len())
 	for c in 0..4 {
 		for r in 0..nOps {
 			let v = opsStart[c*nOps+r]
@@ -1008,14 +1009,14 @@ func unsupportedConvertWire(dep Import) string fails handoff.Malformed {
 	let base = try encodePackageDraft(pkg, PinProfile, []ForeignFunc{}, []string{"Conv"})
 	let mut cols = base.Columns
 	let mut ops = cols[ir.HOps]
-	let nOps = len(ops) / 4
+	let nOps = ops.Len() / 4
 	ops[0] = ir.HOConvert
 	ops[3*nOps] = uint32(2)
 	ops[2*nOps+1] = ops[2*nOps+1] - 1
 	let oldOperands = cols[ir.HOperands]
 	let dropAt = int(ops[2*nOps]) + 2
-	let mut newOperands = slices.WithCapacity[uint32](len(oldOperands) - 1)
-	for i in 0..len(oldOperands) {
+	let mut newOperands = slices.WithCapacity[uint32](oldOperands.Len() - 1)
+	for i in 0..oldOperands.Len() {
 		if i != dropAt {
 			newOperands = newOperands.Append(oldOperands[i])
 		}
@@ -1109,7 +1110,7 @@ law HandoffArchiveVerifies(k1 int, k2 int) {
 	case handoff.UnknownVersion, handoff.Malformed, handoff.WrongTarget, handoff.StaleImport, Refused, Malformed, Undefined:
 		return false
 	}
-	if len(Verify(pkg, SampleHeader, built.Archive)) != 0 {
+	if Verify(pkg, SampleHeader, built.Archive).Len() != 0 {
 		return false
 	}
 	let pubIdx = FuncNamed(pkg, "Publish")
@@ -1130,11 +1131,11 @@ law HandoffArchiveVerifies(k1 int, k2 int) {
 		return false
 	}
 	let combIdx = FuncNamed(pkg, "Combine")
-	if combIdx < 0 || len(pkg.Inits) != 2 {
+	if combIdx < 0 || pkg.Inits.Len() != 2 {
 		return false
 	}
-	let firstInitOps = len(pkg.Funcs[pkg.Inits[0]].Ops)
-	let secondInitOps = len(pkg.Funcs[pkg.Inits[1]].Ops)
+	let firstInitOps = pkg.Funcs[pkg.Inits[0]].Ops.Len()
+	let secondInitOps = pkg.Funcs[pkg.Inits[1]].Ops.Len()
 	firstInitOps > secondInitOps
 }
 
@@ -1160,9 +1161,9 @@ law HandoffRefusesBadAdmission(k1 int, k2 int) {
 		return false
 	}
 	let want = TinyHandoffExpect(dep)
-	let badMagic = "NOTERGO!" + bytes[8:len(bytes)]
-	let badVer = bytes[0:8] + "\x02\x00\x00\x00" + bytes[12:len(bytes)]
-	let truncated = bytes[0 : len(bytes)-1]
+	let badMagic = "NOTERGO!" + bytes[8:bytes.Len()]
+	let badVer = bytes[0:8] + "\x02\x00\x00\x00" + bytes[12:bytes.Len()]
+	let truncated = bytes[0 : bytes.Len()-1]
 	let staleFp = handoff.Expect{
 		Target:  want.Target,
 		Imports: []handoff.Import{handoff.Import{..want.Imports[0], Fingerprint: "\x01\x02\x03\x04\x05\x06\x07\x09"}},

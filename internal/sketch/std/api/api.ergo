@@ -5,6 +5,8 @@
 // generated packages of `ergo gen cli`, `mcp` and `rpc` use it, and
 // nothing here is closed to a package a user writes.
 
+import core
+import io
 import json
 import os
 import strings
@@ -25,7 +27,7 @@ func ExitOf(o Output) fails os.Exit {
 		return
 	}
 	let code os.Code = os.ParseCode(o.Code) catch {
-	case Unsatisfied:
+	case core.Unsatisfied:
 		1
 	}
 	if o.Err == "" {
@@ -35,18 +37,18 @@ func ExitOf(o Output) fails os.Exit {
 }
 
 // Exit ends a command with o: its Out on standard output, then ExitOf(o).
-func Exit(o Output) fails os.Exit needs Console {
+func Exit(o Output) fails os.Exit needs io.Console {
 	if o.Out != "" {
-		Console.Println(strings.TrimSuffix(o.Out, "\n"))
+		io.Console.Println(strings.TrimSuffix(o.Out, "\n"))
 	}
 	try ExitOf(o)
 }
 
 // ExitAs is Exit for the program named program: an os.Exit's message
 // starts "program: ", as a command line names itself on standard error.
-func ExitAs(program string, o Output) fails os.Exit needs Console {
+func ExitAs(program string, o Output) fails os.Exit needs io.Console {
 	if o.Out != "" {
-		Console.Println(strings.TrimSuffix(o.Out, "\n"))
+		io.Console.Println(strings.TrimSuffix(o.Out, "\n"))
 	}
 	ExitOf(o) catch {
 	case os.Exit as e:
@@ -110,7 +112,7 @@ law CompletionNamesEachCommand(words []string, shell Shell) {
 		if i < 0 {
 			return false
 		}
-		at = at + i + len(c.Name)
+		at = at + i + c.Name.Len()
 	}
 	!strings.Contains(text, "\nmore")
 }
@@ -132,14 +134,14 @@ law ExitKeepsTheCode(o Output) {
 // letter lower case. So RunOf is run-of, ID is id and IDCard is id-card.
 func Kebab(name string) string {
 	let mut out = ""
-	for i in 0..len(name) {
+	for i in 0..name.Len() {
 		let c = name[i]
 		let upper = c >= 'A' && c <= 'Z'
 		if upper && i > 0 {
 			let prev = name[i-1]
 			let prevLower = prev >= 'a' && prev <= 'z' || prev >= '0' && prev <= '9'
 			let prevUpper = prev >= 'A' && prev <= 'Z'
-			let nextLower = i+1 < len(name) && name[i+1] >= 'a' && name[i+1] <= 'z'
+			let nextLower = i+1 < name.Len() && name[i+1] >= 'a' && name[i+1] <= 'z'
 			if prevLower || prevUpper && nextLower {
 				out = out + "-"
 			}
@@ -153,7 +155,7 @@ func Kebab(name string) string {
 // one-letter word after another reads as an acronym: AB is ab).
 func word(w string) string {
 	let mut out = ""
-	for i in 0..len(w) {
+	for i in 0..w.Len() {
 		let c = w[i]
 		if c >= 'a' && c <= 'z' {
 			out = out + w[i:i+1]
@@ -161,7 +163,7 @@ func word(w string) string {
 			out = out + strings.ToLower(w[i:i+1])
 		}
 	}
-	for len(out) < 2 {
+	for out.Len() < 2 {
 		out = out + "x"
 	}
 	out
@@ -207,7 +209,7 @@ func Agrees[C wire, O wire, F](t Transport[C, O, F], c C, o O) bool needs wired[
 		return false
 	}
 	let calls = arrived.Get()
-	len(calls) == 1 && rpcText(calls[0]) == rpcText(c) && rpcText(got) == rpcText(o)
+	calls.Len() == 1 && rpcText(calls[0]) == rpcText(c) && rpcText(got) == rpcText(o)
 }
 
 // rpcText is v's wire JSON: two values are one when their texts are.
@@ -222,10 +224,10 @@ func Carry(t echo, c string, answer own func(c string) int) int { answer(c) }
 type dropping {} implements Transport[string, int]
 
 func Carry(t dropping, c string, answer own func(c string) int) int {
-	if len(c) == 0 {
+	if c.Len() == 0 {
 		answer(c)
 	} else {
-		answer(c[0 : len(c)-1])
+		answer(c[0 : c.Len()-1])
 	}
 }
 

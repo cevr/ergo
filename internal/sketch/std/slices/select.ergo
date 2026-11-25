@@ -2,16 +2,18 @@
 // (std-spike D1). Each takes its function's rows, as Transform does, and
 // its first failure ends the call with it.
 
+import option
+
 // FilterMap is f of each element of xs, first to last, keeping the values
 // of the Somes (Effect Array.filterMap, Gleam list.filter_map): one pass,
 // where Transform then Filter takes two and a slice between.
-func FilterMap[T, U, E, R](xs []T, f func(x T) Option[U] fails E needs R) []U fails E needs R {
+func FilterMap[T, U, E, R](xs []T, f func(x T) option.Option[U] fails E needs R) []U fails E needs R {
 	let mut out = []U{}
 	for x in xs {
 		match try f(x) {
-		case Some[U] as s:
+		case option.Some[U] as s:
 			out = out.Append(s.Value)
-		case None:
+		case option.None:
 		}
 	}
 	out
@@ -22,20 +24,20 @@ func FilterMap[T, U, E, R](xs []T, f func(x T) Option[U] fails E needs R) []U fa
 law FilterMapIsFilterThenMap(xs []int) {
 	let even = func(x int) bool { x%2 == 0 }
 	let triple = func(x int) int { x * 3 }
-	let f = func(x int) Option[int] { if even(x) { Some[int]{Value: triple(x)} } else { None } }
+	let f = func(x int) option.Option[int] { if even(x) { option.Some[int]{Value: triple(x)} } else { option.None } }
 	Equal(FilterMap(xs, f), Transform(Filter(xs, even), triple))
 }
 
 // Find is Some of the first element of xs that accept takes, or None
 // (Effect Array.findFirst, Go's slices.IndexFunc then an index). accept
 // runs on the elements up to the one found, and no further.
-func Find[T, E, R](xs []T, accept func(x T) bool fails E needs R) Option[T] fails E needs R {
+func Find[T, E, R](xs []T, accept func(x T) bool fails E needs R) option.Option[T] fails E needs R {
 	for x in xs {
 		if try accept(x) {
-			return Some[T]{Value: x}
+			return option.Some[T]{Value: x}
 		}
 	}
-	None
+	option.None
 }
 
 // Any reports whether accept takes some element of xs, stopping at the
@@ -66,8 +68,8 @@ law FindAnyAllAgree(xs []int, k int) {
 	let m = (k%5+5)%5 + 1
 	let accept = func(x int) bool { x%m == 0 }
 	let kept = Filter(xs, accept)
-	let first Option[int] = if len(kept) == 0 { None } else { Some[int]{Value: kept[0]} }
-	Find(xs, accept) == first && Any(xs, accept) == (len(kept) > 0) && All(xs, accept) == (len(kept) == len(xs))
+	let first option.Option[int] = if kept.Len() == 0 { option.None } else { option.Some[int]{Value: kept[0]} }
+	Find(xs, accept) == first && Any(xs, accept) == (kept.Len() > 0) && All(xs, accept) == (kept.Len() == xs.Len())
 }
 
 // Partition is the elements of xs that keep takes, then the rest, each in
@@ -102,7 +104,7 @@ func Dedupe[T comparable](xs []T) []T {
 	let mut seen = Map[T, bool]{}
 	let mut out = []T{}
 	for x in xs {
-		if seen.Get(x) == None {
+		if seen.Get(x) == option.None {
 			seen[x] = true
 			out = out.Append(x)
 		}

@@ -1,6 +1,8 @@
 // Verdicts (MODELCHECK E1): what a property of a graph came to.
 
 import gen
+import machines
+import option
 
 // Verdict is how a property of a graph came out: Proved, the search saw
 // the whole graph and the property holds on it; NotProved, the budget
@@ -89,23 +91,23 @@ func Path[S wire, E](g Graph[S, E], ps []func(s S) bool, budget int) Verdict nee
 // Stay, Emit and Tell go to their Next; Ignore and Reject keep the state
 // (a Reject is observable and the state stays, runtime.md, Machines 2);
 // Done ends the run, so it is no edge.
-func Of[S, E, O](starts []S, signals []E, step own func(s S, e E) Decision[S, O]) Graph[S, E] {
-	Graph[S, E]{Starts: starts, Signals: signals, Step: func(s S, e E) Option[S] {
+func Of[S, E, O](starts []S, signals []E, step own func(s S, e E) machines.Decision[S, O]) Graph[S, E] {
+	Graph[S, E]{Starts: starts, Signals: signals, Step: func(s S, e E) option.Option[S] {
 		match step(s, e) {
-		case Enter[S] as d:
-			Some[S]{Value: d.Next}
-		case Stay[S] as d:
-			Some[S]{Value: d.Next}
-		case Emit[S, O] as d:
-			Some[S]{Value: d.Next}
-		case Tell[S, O] as d:
-			Some[S]{Value: d.Next}
-		case Ignore:
-			Some[S]{Value: s}
-		case Reject:
-			Some[S]{Value: s}
-		case Done[O]:
-			None
+		case machines.Enter[S] as d:
+			option.Some[S]{Value: d.Next}
+		case machines.Stay[S] as d:
+			option.Some[S]{Value: d.Next}
+		case machines.Emit[S, O] as d:
+			option.Some[S]{Value: d.Next}
+		case machines.Tell[S, O] as d:
+			option.Some[S]{Value: d.Next}
+		case machines.Ignore:
+			option.Some[S]{Value: s}
+		case machines.Reject:
+			option.Some[S]{Value: s}
+		case machines.Done[O]:
+			option.None
 		}
 	}}
 }
@@ -171,21 +173,21 @@ law AlwaysAgreesWithReference() {
 		for e in 0..k {
 			sigs = sigs.Append(e)
 		}
-		let g = Graph[RefState, int]{Starts: ss, Signals: sigs, Step: func(s RefState, e int) Option[RefState] {
+		let g = Graph[RefState, int]{Starts: ss, Signals: sigs, Step: func(s RefState, e int) option.Option[RefState] {
 			let t = table[s.N*k+e]
-			if t < 0 { None } else { Some[RefState]{Value: refState(t)} }
+			if t < 0 { option.None } else { option.Some[RefState]{Value: refState(t)} }
 		}}
 		let r = Search(g, func(s RefState) bool { hit(s.N) }, b)
 		let st = r.Stats
 		let mut ok = r.Found == ref.Found && st.States == ref.States && st.Edges == ref.Edges && st.Depth == ref.Depth && st.Checked == ref.Checked && st.Complete == ref.Complete && st.Frontier <= ref.Small
 		if ok && r.Found >= 0 {
 			let run = RunTo(r, r.Found)
-			ok = ReplayRun(g, run).N == ref.State && len(run.Signals) == ref.Run
+			ok = ReplayRun(g, run).N == ref.State && run.Signals.Len() == ref.Run
 		}
 		let v = Always(g, func(s RefState) bool { !hit(s.N) }, b)
 		match v {
 		case Refuted as x:
-			ok && ref.Found >= 0 && len(x.Run.Signals) == ref.Run
+			ok && ref.Found >= 0 && x.Run.Signals.Len() == ref.Run
 		case Proved:
 			ok && ref.Found < 0 && ref.Complete
 		case NotProved:
@@ -229,7 +231,7 @@ func refSearch(table []int, k int, starts []int, hit func(s int) bool, budget in
 		if refHas(seen, s) {
 			continue
 		}
-		if len(seen) == budget {
+		if seen.Len() == budget {
 			out.Checked = -1
 			return out
 		}
@@ -240,14 +242,14 @@ func refSearch(table []int, k int, starts []int, hit func(s int) bool, budget in
 			out.Small = out.Small + 1
 		}
 		if hit(s) {
-			out.Found = len(seen) - 1
+			out.Found = seen.Len() - 1
 			out.State = s
 			return out
 		}
 		frontier = frontier.Append(s)
 	}
 	let mut depth = 1
-	for len(frontier) > 0 {
+	for frontier.Len() > 0 {
 		let mut next = []int{}
 		for s in frontier {
 			for e in 0..k {
@@ -259,7 +261,7 @@ func refSearch(table []int, k int, starts []int, hit func(s int) bool, budget in
 				if refHas(seen, t) {
 					continue
 				}
-				if len(seen) == budget {
+				if seen.Len() == budget {
 					out.Checked = depth - 1
 					return out
 				}
@@ -271,7 +273,7 @@ func refSearch(table []int, k int, starts []int, hit func(s int) bool, budget in
 					out.Small = out.Small + 1
 				}
 				if hit(t) {
-					out.Found = len(seen) - 1
+					out.Found = seen.Len() - 1
 					out.State = t
 					out.Run = depth
 					return out
@@ -297,7 +299,7 @@ func refHas(xs []int, x int) bool {
 }
 
 // OfMachine is the graph of m from its initial state over signals.
-func OfMachine[S, E, O](m Machine[S, E, O], signals []E) Graph[S, E] {
+func OfMachine[S, E, O](m machines.Machine[S, E, O], signals []E) Graph[S, E] {
 	Of([]S{m.Initial}, signals, m.Step)
 }
 
@@ -311,12 +313,12 @@ func OfMachine[S, E, O](m Machine[S, E, O], signals []E) Graph[S, E] {
 func Walk[S wire, E](g Graph[S, E], p func(s S) bool, seed uint64, runs int, depth int) Verdict needs wired[S] {
 	let mut st = Stats{States: 0, Edges: 0, Depth: 0, Checked: 0, Complete: false, Frontier: 0}
 	let mut x = seed
-	if len(g.Starts) == 0 {
+	if g.Starts.Len() == 0 {
 		return NotProved{Stats: st}
 	}
 	for _ in 0..runs {
 		x = x + golden
-		let start = int(splitmix(x) % uint64(len(g.Starts)))
+		let start = int(splitmix(x) % uint64(g.Starts.Len()))
 		let mut s = g.Starts[start]
 		let mut sigs = []int{}
 		st.States = st.States + 1
@@ -326,20 +328,20 @@ func Walk[S wire, E](g Graph[S, E], p func(s S) bool, seed uint64, runs int, dep
 		let mut d = 0
 		for d < depth {
 			let moves = Moves(g, s)
-			if len(moves) == 0 {
+			if moves.Len() == 0 {
 				break
 			}
 			x = x + golden
-			let e = moves[int(splitmix(x)%uint64(len(moves)))]
+			let e = moves[int(splitmix(x)%uint64(moves.Len()))]
 			match g.Step(s, g.Signals[e]) {
-			case None:
+			case option.None:
 				d = depth
-			case Some[S] as t:
+			case option.Some[S] as t:
 				s = t.Value
 				sigs = sigs.Append(e)
 				st.Edges = st.Edges + 1
 				st.States = st.States + 1
-				st.Depth = larger(st.Depth, len(sigs))
+				st.Depth = larger(st.Depth, sigs.Len())
 				if !p(s) {
 					return Refuted{Run: Run{Start: start, Signals: sigs}, Stats: st}
 				}

@@ -42,8 +42,8 @@ func NewScripted(first []string, tools []string, cut bool, rest []Reply) Scripte
 	for i, name in tools {
 		ds = ds.Append(llm.CallStart{Index: i, Id: "call-" + name, Name: name}).Append(llm.CallArgs{Index: i, Text: "{\"n\":"}).Append(llm.CallArgs{Index: i, Text: "\(i)}"}).Append(llm.CallEnd{Index: i})
 	}
-	let stop llm.Stop = if len(tools) > 0 { llm.ToolUse } else { llm.Ended }
-	let mut head Reply = Says{Deltas: ds, Stop: stop, Usage: llm.Usage{Input: len(first), Output: len(ds), CacheRead: 0, CacheWrite: 0}}
+	let stop llm.Stop = if tools.Len() > 0 { llm.ToolUse } else { llm.Ended }
+	let mut head Reply = Says{Deltas: ds, Stop: stop, Usage: llm.Usage{Input: first.Len(), Output: ds.Len(), CacheRead: 0, CacheWrite: 0}}
 	if cut {
 		head = Cuts{Deltas: ds}
 	}
@@ -82,7 +82,7 @@ func entry(s Scripted, r llm.Request) Reply {
 		case llm.User, llm.Result:
 		}
 	}
-	if n >= len(s.Replies) {
+	if n >= s.Replies.Len() {
 		let out llm.Failure = llm.InvalidResponse{Reason: "the script has no reply \(n + 1)"}
 		return Fails{Failure: out}
 	}
@@ -156,8 +156,8 @@ func broken(x Breaks) llm.Failure {
 // a call open or give two calls one id.
 func turn(x Says) llm.Turn fails llm.InvalidResponse {
 	let d = llm.Fold(x.Deltas)
-	if len(d.Open) > 0 {
-		return llm.InvalidResponse{Reason: "the reply ended with call \(len(d.Calls)) open"}
+	if d.Open.Len() > 0 {
+		return llm.InvalidResponse{Reason: "the reply ended with call \(d.Calls.Len()) open"}
 	}
 	for i, a in d.Calls {
 		for b in d.Calls[i+1:] {

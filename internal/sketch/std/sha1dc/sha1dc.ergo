@@ -191,7 +191,7 @@ func New() Hasher {
 
 // Write absorbs data into h and returns the updated Hasher.
 func Write(h Hasher, data []byte) Hasher {
-	let n = len(data)
+	let n = data.Len()
 	if n == 0 {
 		return h
 	}

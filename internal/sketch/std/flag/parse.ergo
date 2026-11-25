@@ -1,3 +1,4 @@
+import option
 import slices
 import strconv
 import strings
@@ -19,17 +20,17 @@ func Parse(s Set, args []string) Values fails Help | Unknown | NeedsValue | Inva
 		return Help{Text: UsageText(s)}
 	}
 	let none = slot{given: 0, last: noItem(), all: []item{}}
-	let mut slots = slices.WithCapacity[slot](len(s.Flags))
+	let mut slots = slices.WithCapacity[slot](s.Flags.Len())
 	for _ in s.Flags {
 		slots = slots.Append(none)
 	}
-	let mut positional = slices.WithCapacity[string](len(args))
+	let mut positional = slices.WithCapacity[string](args.Len())
 	let mut open = true
 	let mut i = 0
-	for i < len(args) {
+	for i < args.Len() {
 		let arg = args[i]
 		i += 1
-		if !open || len(arg) < 2 || !strings.HasPrefix(arg, "-") {
+		if !open || arg.Len() < 2 || !strings.HasPrefix(arg, "-") {
 			positional = positional.Append(arg)
 			continue
 		}
@@ -37,7 +38,7 @@ func Parse(s Set, args []string) Values fails Help | Unknown | NeedsValue | Inva
 			open = false
 			continue
 		}
-		let body = if strings.HasPrefix(arg, "--") { strings.Slice(arg, 2, len(arg)) } else { strings.Slice(arg, 1, len(arg)) }
+		let body = if strings.HasPrefix(arg, "--") { strings.Slice(arg, 2, arg.Len()) } else { strings.Slice(arg, 1, arg.Len()) }
 		if body == "" || strings.HasPrefix(body, "-") || strings.HasPrefix(body, "=") {
 			return Invalid{Name: "", Text: arg, Reason: "bad flag syntax"}
 		}
@@ -47,7 +48,7 @@ func Parse(s Set, args []string) Values fails Help | Unknown | NeedsValue | Inva
 		let eq = strings.Index(body, "=")
 		if eq > 0 {
 			name = strings.Slice(body, 0, eq)
-			given = strings.Slice(body, eq+1, len(body))
+			given = strings.Slice(body, eq+1, body.Len())
 			hasValue = true
 		}
 		let at = spelled(s.Flags, name)
@@ -68,7 +69,7 @@ func Parse(s Set, args []string) Values fails Help | Unknown | NeedsValue | Inva
 			}
 		} else {
 			if !hasValue {
-				if i >= len(args) {
+				if i >= args.Len() {
 					return NeedsValue{Name: name}
 				}
 				given = args[i]
@@ -87,19 +88,19 @@ func Parse(s Set, args []string) Values fails Help | Unknown | NeedsValue | Inva
 			return Missing{Name: nameOf(f)}
 		}
 	}
-	let mut named = slices.WithCapacity[slot](len(s.Args))
+	let mut named = slices.WithCapacity[slot](s.Args.Len())
 	let mut rest = []string{}
 	let mut next = 0
 	for a in s.Args {
 		match a.arity {
 		case one:
-			if next >= len(positional) {
+			if next >= positional.Len() {
 				return Missing{Name: a.name}
 			}
 			named = named.Append(slot{..none, given: 1, last: item{..none.last, text: positional[next]}})
 			next += 1
 		case optional:
-			if next < len(positional) {
+			if next < positional.Len() {
 				named = named.Append(slot{..none, given: 1, last: item{..none.last, text: positional[next]}})
 				next += 1
 			} else {
@@ -107,11 +108,11 @@ func Parse(s Set, args []string) Values fails Help | Unknown | NeedsValue | Inva
 			}
 		case many:
 			named = named.Append(none)
-			rest = slices.Slice(positional, next, len(positional))
-			next = len(positional)
+			rest = slices.Slice(positional, next, positional.Len())
+			next = positional.Len()
 		}
 	}
-	if next < len(positional) {
+	if next < positional.Len() {
 		return Extra{Text: positional[next]}
 	}
 	Values{set: s, slots: slots, args: named, rest: rest}
@@ -153,7 +154,7 @@ let lawRequired = RequiredString("r", "a required text")
 
 law AbsentIsNone() {
 	let v = try Parse(treeSet(), []string{})
-	treeText.Get(v) == None && treeNumber.Get(v) == None
+	treeText.Get(v) == option.None && treeNumber.Get(v) == option.None
 }
 
 // mayAskHelp reports whether an argument could ask for help: -h, -help,
@@ -163,7 +164,7 @@ law AbsentIsNone() {
 // may be a flag's value (HelpWinsInEveryForm).
 func mayAskHelp(args []string) bool {
 	for arg in args {
-		let body = if strings.HasPrefix(arg, "--") { strings.Slice(arg, 2, len(arg)) } else if strings.HasPrefix(arg, "-") { strings.Slice(arg, 1, len(arg)) } else { "" }
+		let body = if strings.HasPrefix(arg, "--") { strings.Slice(arg, 2, arg.Len()) } else if strings.HasPrefix(arg, "-") { strings.Slice(arg, 1, arg.Len()) } else { "" }
 		if body == "h" || body == "help" || strings.HasPrefix(body, "h=") || strings.HasPrefix(body, "help=") {
 			return true
 		}
@@ -190,16 +191,16 @@ func isSwitch(f Flag) bool {
 // global --help from every argument before it reports a parse error).
 func helpAsked(s Set, args []string) bool {
 	let mut i = 0
-	for i < len(args) {
+	for i < args.Len() {
 		let arg = args[i]
 		i += 1
 		if arg == "--" {
 			return false
 		}
-		if len(arg) < 2 || !strings.HasPrefix(arg, "-") {
+		if arg.Len() < 2 || !strings.HasPrefix(arg, "-") {
 			continue
 		}
-		let body = if strings.HasPrefix(arg, "--") { strings.Slice(arg, 2, len(arg)) } else { strings.Slice(arg, 1, len(arg)) }
+		let body = if strings.HasPrefix(arg, "--") { strings.Slice(arg, 2, arg.Len()) } else { strings.Slice(arg, 1, arg.Len()) }
 		let eq = strings.Index(body, "=")
 		let name = if eq > 0 { strings.Slice(body, 0, eq) } else { body }
 		let at = spelled(s.Flags, name)
@@ -268,32 +269,32 @@ func isRequired(f Flag) bool {
 // user input. Check before help too, so help cannot hide an ambiguous set.
 func validateFlags(flags []Flag) {
 	match doubled(flags) {
-	case Some[string] as d:
+	case option.Some[string] as d:
 		Unreachable("flag: a flag spelling is declared twice: " + d.Value)
-	case None:
+	case option.None:
 	}
 }
 
 // doubled is the first spelling (a long name or an alias) that flags
 // declare twice, or None. Each spelling is compared with those before it:
 // no map is built for the few flags of a command line (FLAG-FLOOR).
-func doubled(flags []Flag) Option[string] {
+func doubled(flags []Flag) option.Option[string] {
 	for i, f in flags {
 		let (name, alias) = spellings(f)
 		if alias != "" && alias == name {
-			return Some[string]{Value: name}
+			return option.Some[string]{Value: name}
 		}
 		for j in 0..i {
 			let (gn, ga) = spellings(flags[j])
 			if name == gn || name == ga && ga != "" {
-				return Some[string]{Value: name}
+				return option.Some[string]{Value: name}
 			}
 			if alias != "" && (alias == gn || alias == ga) {
-				return Some[string]{Value: alias}
+				return option.Some[string]{Value: alias}
 			}
 		}
 	}
-	None
+	option.None
 }
 
 // DoubledSpellingIsFound: doubled finds a spelling exactly when one is
@@ -301,7 +302,7 @@ func doubled(flags []Flag) Option[string] {
 // twice. The spellings come from a small alphabet so that they collide.
 law DoubledSpellingIsFound(picks []int) {
 	let longs = []string{"a", "b", "ab", "c"}
-	let shorts = []Option[ShortName]{None, Some[ShortName]{Value: "a"}, Some[ShortName]{Value: "b"}, Some[ShortName]{Value: "c"}}
+	let shorts = []option.Option[ShortName]{option.None, option.Some[ShortName]{Value: "a"}, option.Some[ShortName]{Value: "b"}, option.Some[ShortName]{Value: "c"}}
 	let mut flags = []Flag{}
 	let mut all = []string{}
 	for p in picks {
@@ -309,17 +310,17 @@ law DoubledSpellingIsFound(picks []int) {
 		let long = longs[k%4]
 		all = all.Append(long)
 		match shorts[(k/4)%4] {
-		case None:
+		case option.None:
 			flags = flags.Append(String(long, "", "u"))
-		case Some[ShortName] as short:
+		case option.Some[ShortName] as short:
 			flags = flags.Append(String(long, "", "u").WithAlias(short.Value))
 			all = all.Append(string(short.Value))
 		}
 	}
 	match doubled(flags) {
-	case Some[string] as d:
+	case option.Some[string] as d:
 		occurrences(all, d.Value) >= 2
-	case None:
+	case option.None:
 		for s in all {
 			if occurrences(all, s) >= 2 {
 				return false

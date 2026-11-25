@@ -23,9 +23,9 @@ let tokenNames = []string{
 // word of up to 12 letters drawn from the case.
 law KeywordTableIsTheRule(n int) {
 	let mut ok = true
-	for i in 0..len(tokenNames) {
+	for i in 0..tokenNames.Len() {
 		let w = tokenNames[i]
-		ok = ok && kwAgrees(w) && kwAgrees(w+"s") && (len(w) == 0 || kwAgrees(w[:len(w)-1]))
+		ok = ok && kwAgrees(w) && kwAgrees(w+"s") && (w.Len() == 0 || kwAgrees(w[:w.Len()-1]))
 	}
 	let letters = "abcdefghijklmnopqrstuvwxyz_0"
 	let mut m = n
@@ -202,7 +202,7 @@ func keywordRule(src string, start int, end int) uint8 {
 }
 
 // kwAgrees reports keyword and keywordRule giving one kind for word w.
-func kwAgrees(w string) bool { keyword(w, 0, len(w)) == keywordRule(w, 0, len(w)) }
+func kwAgrees(w string) bool { keyword(w, 0, w.Len()) == keywordRule(w, 0, w.Len()) }
 
 // tokenName is the spelling of kind k.
 func tokenName(k uint8) string { tokenNames[int(k)] }
@@ -369,7 +369,7 @@ func tokenHabit(k uint8) int {
 // gives "…; here `let mut count = 0`, since count is reassigned".
 func localDeclMessage(h int, shown string, name string, reassigned bool) string {
 	let mut s = shown
-	if len(s) > 48 {
+	if s.Len() > 48 {
 		let mut n = 47
 		for n > 0 && (s[n]&0xC0) == 0x80 {
 			n = n - 1

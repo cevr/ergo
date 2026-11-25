@@ -3,6 +3,7 @@ import compiler/check/store
 import compiler/ir
 import compiler/syntax
 import dense
+import option
 import strconv
 
 // A body plan is a flat source-order list. Each statement's descendants
@@ -75,14 +76,14 @@ type controlLocal { name string, typ string, at int, mutable bool }
 type controlBody { plan controlPlan, body controlSpan }
 
 func isUnit(st fnb, t dense.ID[store.TKey]) bool {
-	store.KindOfType(st.s, t) == store.KTuple && len(store.OperandsOf(st.s, t)) == 0
+	store.KindOfType(st.s, t) == store.KTuple && store.OperandsOf(st.s, t).Len() == 0
 }
 
 func controlEmpty(i int) controlSpan { controlSpan{lo: i, hi: i, terminates: false, breaks: false} }
 
 func controlRow(op controlOp, offset int, p controlPlan) controlStmt {
-	let span = controlEmpty(len(p.stmts))
-	controlStmt{op: op, offset: offset, end: -1, elseAt: -1, elseEnd: -1, x: dense.NoID[syntax.Node](), slot: 0, assign: "", round: "", first: span, second: span, readLo: len(p.reads), readHi: len(p.reads), matchLo: 0, matchHi: 0, next: len(p.stmts)}
+	let span = controlEmpty(p.stmts.Len())
+	controlStmt{op: op, offset: offset, end: -1, elseAt: -1, elseEnd: -1, x: dense.NoID[syntax.Node](), slot: 0, assign: "", round: "", first: span, second: span, readLo: p.reads.Len(), readHi: p.reads.Len(), matchLo: 0, matchHi: 0, next: p.stmts.Len()}
 }
 
 // statements prepares the whole body before Begin, including statements
@@ -116,26 +117,26 @@ func statementsWithMode(st mut fnb, body dense.ID[syntax.Node], list syntax.List
 	}
 	for name in names {
 		match dense.Unpack(name) {
-		case Some{Value: at}:
+		case option.Some{Value: at}:
 			p.taken = p.taken.Append(nameText(st.p, at))
-		case None:
+		case option.None:
 		}
 	}
 	let span = try controlList(st, &p, list, !unit, 0)
-	if p.borrowInvoked && len(p.stmts) != 1 {
+	if p.borrowInvoked && p.stmts.Len() != 1 {
 		return stop("control: borrowed invocation must be the sole statement")
 	}
 	if p.extended && p.nonScalar {
 		return stop("control: non-scalar operand")
 	}
-	if p.extended && len(p.callees) > 0 {
+	if p.extended && p.callees.Len() > 0 {
 		return stop("control: direct call decision")
 	}
 	if p.counted && p.nested {
 		return stop("range: nested frame takes counted form")
 	}
 	for i, callee in p.callees {
-		if has(p.callees[i+1:len(p.callees)], callee) {
+		if has(p.callees[i+1:p.callees.Len()], callee) {
 			return stop("call twice of one callee (merge)")
 		}
 	}
@@ -147,12 +148,12 @@ func controlList(st mut fnb, p mut controlPlan, list syntax.List, tail bool, loo
 	if count == 0 && tail {
 		return stop("empty body")
 	}
-	let mut span = controlEmpty(len(p.stmts))
+	let mut span = controlEmpty(p.stmts.Len())
 	let mut previous = -1
 	for i in 0..count {
 		let node = syntax.Item(st.p.Tree, list, i)
 		let yields = tail && i == count-1
-		let at = len(p.stmts)
+		let at = p.stmts.Len()
 		let row = try controlStatement(st, p, node, yields, loops)
 		if !yields {
 			let candidate = controlChainSlot(*st, *p, row)
@@ -167,7 +168,7 @@ func controlList(st mut fnb, p mut controlPlan, list syntax.List, tail bool, loo
 		}
 		p.stmts[at] = row
 	}
-	span.hi = len(p.stmts)
+	span.hi = p.stmts.Len()
 	span
 }
 
@@ -190,7 +191,7 @@ func controlStatement(st mut fnb, p mut controlPlan, node dense.ID[syntax.Node],
 		if tail {
 			return stop("statement form")
 		}
-		let (l, mutable) = try letOf(*st, node, p.formals+len(p.locals))
+		let (l, mutable) = try letOf(*st, node, p.formals+p.locals.Len())
 		try controlObserve(*st, p, l.value)
 		p.nonScalar = p.nonScalar || l.nonScalar
 		p.extended = p.extended || mutable || has(p.taken, l.name)
@@ -211,12 +212,12 @@ func controlStatement(st mut fnb, p mut controlPlan, node dense.ID[syntax.Node],
 		p.extended = true
 		row.offset = syntax.TokPos(parsed, r.Return)
 		match dense.Unpack(r.Result) {
-		case Some{Value: x}:
+		case option.Some{Value: x}:
 			if p.unit {
 				return stop("control: unit return with operand")
 			}
 			try controlPrepareReturn(st, p, &row, x)
-		case None:
+		case option.None:
 			if !p.unit {
 				return stop("control: bare return")
 			}
@@ -237,44 +238,44 @@ func controlStatement(st mut fnb, p mut controlPlan, node dense.ID[syntax.Node],
 	case syntax.IfStmt as iff:
 		p.extended = true
 		try controlOperand(*st, p, iff.Cond)
-		row.readHi = len(p.reads)
+		row.readHi = p.reads.Len()
 		row.op = CIf
 		row.x = dense.OptOf(iff.Cond)
 		row.end = try controlBlockEnd(parsed, iff.Body)
 		row.first = try controlBlock(st, p, iff.Body, tail, loops)
 		match dense.Unpack(iff.Else) {
-		case Some{Value: e}:
+		case option.Some{Value: e}:
 			row.elseAt = syntax.NodePos(parsed, e)
 			if syntax.KindOf(parsed.Tree, e) == syntax.KIfStmt {
-				let lo = len(p.stmts)
+				let lo = p.stmts.Len()
 				let other = try controlStatement(st, p, e, tail, loops)
 				p.stmts[lo] = other
 				row.elseEnd = if other.elseEnd < 0 { other.end } else { other.elseEnd }
-				row.second = controlSpan{lo: lo, hi: len(p.stmts), terminates: controlTerminates(other), breaks: controlBreaks(other)}
+				row.second = controlSpan{lo: lo, hi: p.stmts.Len(), terminates: controlTerminates(other), breaks: controlBreaks(other)}
 			} else {
 				row.elseEnd = try controlBlockEnd(parsed, e)
 				row.second = try controlBlock(st, p, e, tail, loops)
 			}
-		case None:
+		case option.None:
 		}
 	case syntax.TypeSwitchStmt as m:
 		let (prepared, arms) = try matchPrepare(st, p, m, row, tail, loops)
 		row = prepared
 		p.extended = true
-		row.matchLo = len(p.matches)
+		row.matchLo = p.matches.Len()
 		for arm in arms {
 			p.matches = p.matches.Append(arm)
 		}
-		row.matchHi = len(p.matches)
+		row.matchHi = p.matches.Len()
 	case syntax.ForStmt as f:
 		p.extended = true
 		p.nested = p.nested || loops > 0
 		match dense.Unpack(f.Cond) {
-		case Some{Value: c}:
+		case option.Some{Value: c}:
 			try controlOperand(*st, p, c)
-		case None:
+		case option.None:
 		}
-		row.readHi = len(p.reads)
+		row.readHi = p.reads.Len()
 		row.op = CWhile
 		row.x = f.Cond
 		row.end = try controlBlockEnd(parsed, f.Body)
@@ -285,7 +286,7 @@ func controlStatement(st mut fnb, p mut controlPlan, node dense.ID[syntax.Node],
 		p.nested = p.nested || loops > 0
 		let bound = try compactBound(*st, r)
 		try controlOperand(*st, p, bound)
-		row.readHi = len(p.reads)
+		row.readHi = p.reads.Len()
 		row.op = CRange
 		row.x = dense.OptOf(bound)
 		row.slot = try controlBind(st, p, r.Value, nameText(parsed, r.Value), "int", false)
@@ -335,9 +336,9 @@ func controlStatement(st mut fnb, p mut controlPlan, node dense.ID[syntax.Node],
 	case CWhile:
 	case CRange:
 	case _:
-		row.readHi = len(p.reads)
+		row.readHi = p.reads.Len()
 	}
-	row.next = len(p.stmts)
+	row.next = p.stmts.Len()
 	row
 }
 
@@ -376,7 +377,7 @@ func controlBind(st mut fnb, p mut controlPlan, at dense.ID[syntax.Node], base s
 			return stop("let name taken (local name_N)")
 		}
 	}
-	let slot = p.formals + len(p.locals)
+	let slot = p.formals + p.locals.Len()
 	p.taken = p.taken.Append(name)
 	p.locals = p.locals.Append(controlLocal{name: name, typ: typ, at: syntax.NodePos(st.p, at), mutable: mutable})
 	st.params = st.params.Append(bind.PNodeOf(st.k.Ps, st.file, at))
@@ -406,7 +407,7 @@ func controlTemp(st fnb, p mut controlPlan, base string, typ string, at int) int
 		suffix += 1
 		name = base + "_" + strconv.Itoa(suffix)
 	}
-	let slot = p.formals + len(p.locals)
+	let slot = p.formals + p.locals.Len()
 	p.taken = p.taken.Append(name)
 	p.locals = p.locals.Append(controlLocal{name: name, typ: typ, at: at, mutable: false})
 	slot
@@ -419,7 +420,7 @@ func controlOperand(st fnb, p mut controlPlan, x dense.ID[syntax.Node]) fails Un
 
 func controlPrepareReturn(st mut fnb, p mut controlPlan, row mut controlStmt, x dense.ID[syntax.Node]) fails Unported {
 	match try frameFailureOperands(*st, x) {
-	case Some{Value: operands}:
+	case option.Some{Value: operands}:
 		let nonScalar = p.nonScalar
 		for operand in operands {
 			try controlObserve(*st, p, operand)
@@ -428,14 +429,14 @@ func controlPrepareReturn(st mut fnb, p mut controlPlan, row mut controlStmt, x 
 		row.op = CFail
 		row.x = dense.OptOf(x)
 		return
-	case None:
+	case option.None:
 	}
 	match try unionReturn(st, p, x, p.result) {
-	case Some{Value: injection}:
+	case option.Some{Value: injection}:
 		row.op = CUnionRet
-		row.slot = len(p.injections)
+		row.slot = p.injections.Len()
 		p.injections = p.injections.Append(injection)
-	case None:
+	case option.None:
 		try controlOperand(*st, p, x)
 		row.x = dense.OptOf(x)
 		if p.inLaw {
@@ -452,11 +453,11 @@ func controlPrepareDiscard(st fnb, p mut controlPlan, row mut controlStmt, x den
 		match syntax.ViewOf(st.p.Tree, x) {
 		case syntax.CallExpr as ce:
 			match try planBorrowInvoke(st, x, ce, p.formals) {
-			case Some{Value: invoke}:
+			case option.Some{Value: invoke}:
 				row.op = CBorrowInvoke{Invoke: invoke}
 				p.borrowInvoked = true
 				return
-			case None:
+			case option.None:
 			}
 		case _:
 		}
@@ -464,13 +465,13 @@ func controlPrepareDiscard(st fnb, p mut controlPlan, row mut controlStmt, x den
 	match syntax.ViewOf(st.p.Tree, x) {
 	case syntax.CallExpr as ce:
 		match try planUnitCall(st, x, ce) {
-		case Some{Value: prepared}:
+		case option.Some{Value: prepared}:
 			for arg in prepared.args {
 				try controlOperand(st, p, arg)
 			}
 			row.op = CUnitCall{Call: prepared}
 			return
-		case None:
+		case option.None:
 		}
 	case _:
 	}
@@ -485,7 +486,7 @@ func controlPrepareSet(st fnb, p mut controlPlan, row mut controlStmt, a syntax.
 		return stop("control: assignment to non-mutable local")
 	}
 	let text = syntax.TokText(st.p, a.Tok)
-	let op = if text == "=" { "" } else { text[:len(text)-1] }
+	let op = if text == "=" { "" } else { text[:text.Len()-1] }
 	if op != "" && !isIROp(op) {
 		return stop("control: assignment operator")
 	}
@@ -509,10 +510,10 @@ func controlPrepareSet(st fnb, p mut controlPlan, row mut controlStmt, a syntax.
 // and keyed literal labels are not local reads.
 func controlObserve(st fnb, p mut controlPlan, x dense.ID[syntax.Node]) fails Unported {
 	match borrowScalarRead(st, x) {
-	case Some{Value: place}:
+	case option.Some{Value: place}:
 		p.reads = p.reads.Append(place.slot)
 		return
-	case None:
+	case option.None:
 	}
 	let parsed = st.p
 	match syntax.ViewOf(parsed.Tree, x) {
@@ -533,9 +534,9 @@ func controlObserve(st fnb, p mut controlPlan, x dense.ID[syntax.Node]) fails Un
 			}
 		}
 		match dense.Unpack(cl.Base) {
-		case Some{Value: base}:
+		case option.Some{Value: base}:
 			try controlObserve(st, p, base)
-		case None:
+		case option.None:
 		}
 	case syntax.SelectorExpr as se:
 		if matchBoundField(st, x, se) {
@@ -562,9 +563,9 @@ func controlObserve(st fnb, p mut controlPlan, x dense.ID[syntax.Node]) fails Un
 		try controlObserve(st, p, bin.Y)
 	case syntax.CallExpr as ce:
 		match try builtinOf(st, x, ce) {
-		case Some{Value: bi}:
+		case option.Some{Value: bi}:
 			try controlObserve(st, p, bi.arg)
-		case None:
+		case option.None:
 			let call = try callee(st, x, ce)
 			match syntax.ViewOf(parsed.Tree, ce.Fun) {
 			case syntax.SelectorExpr as se:
@@ -592,9 +593,9 @@ func controlChainSlot(st fnb, p controlPlan, row controlStmt) int {
 		return -1
 	}
 	let cond = match dense.Unpack(row.x) {
-	case Some{Value: x}:
+	case option.Some{Value: x}:
 		unparen(st, x)
-	case None:
+	case option.None:
 		return -1
 	}
 	match syntax.ViewOf(st.p.Tree, cond) {
@@ -636,7 +637,7 @@ func controlTerminates(row controlStmt) bool {
 	case CIf:
 		row.first.terminates && row.second.terminates
 	case CWhile:
-		dense.Unpack(row.x) == None && !row.first.breaks
+		dense.Unpack(row.x) == option.None && !row.first.breaks
 	case _:
 		false
 	}
@@ -675,7 +676,7 @@ func controlLive(p controlPlan, span controlSpan, read mut []bool) {
 func controlEmit(st fnb, b mut ir.Builder, body controlBody, end ir.Pos) []uint32 fails Unported | ir.Malformed {
 	let p = body.plan
 	let mut read = []bool{}
-	for _ in 0..p.formals+len(p.locals) {
+	for _ in 0..p.formals+p.locals.Len() {
 		read = read.Append(false)
 	}
 	controlLive(p, body.body, &read)
@@ -683,7 +684,7 @@ func controlEmit(st fnb, b mut ir.Builder, body controlBody, end ir.Pos) []uint3
 		try ir.AddLocal(b, local.name, local.typ, pos(st, local.at))
 	}
 	let mut roots = try controlEmitSpan(st, b, p, body.body, read)
-	if !p.unit && len(roots) > 0 && !body.body.terminates {
+	if !p.unit && roots.Len() > 0 && !body.body.terminates {
 		let msg = try constRow(b, end, "string", "ergo: unreachable: the function's end")
 		roots = roots.Append(try ir.Row(b, ir.KindCode(ir.TStmt, "panic"), end, []uint32{msg}))
 	}
@@ -708,9 +709,9 @@ func controlEmitSpan(st fnb, b mut ir.Builder, p controlPlan, span controlSpan, 
 		case CLawRet as lr:
 			let at = pos(st, s.offset)
 			let x = match dense.Unpack(s.x) {
-			case Some{Value: operand}:
+			case option.Some{Value: operand}:
 				try value(st, b, operand)
-			case None:
+			case option.None:
 				return ir.Malformed{At: i, Why: "law return without operand"}
 			}
 			for row in try emitLawRet(b, at, uint32(s.slot), x, lr.Site, lr.Decl) {
@@ -721,9 +722,9 @@ func controlEmitSpan(st fnb, b mut ir.Builder, p controlPlan, span controlSpan, 
 		}
 		let at = pos(st, s.offset)
 		let x = match dense.Unpack(s.x) {
-		case Some{Value: operand}:
+		case option.Some{Value: operand}:
 			try value(st, b, operand)
-		case None:
+		case option.None:
 			uint32(0)
 		}
 		let slot = uint32(s.slot)

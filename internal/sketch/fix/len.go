@@ -275,43 +275,10 @@ func isStdRoot(dir string) bool {
 	return err == nil
 }
 
-// runLenStd rewrites universe len(e) calls in the standard library under
-// stdRoot (prelude.ergo plus every stdlib package folder).
+// runLenStd rewrites universe len(e) calls in every stdlib package folder
+// under stdRoot (leaving prelude.ergo untouched, matching the other NO-PRELUDE
+// passes).
 func runLenStd(rep *LenReport, stdRoot string) error {
-	// Prelude files at stdRoot (prelude.ergo, builtin.ergo).
-	if pre := check.PreludePackage(); pre != nil && pre.Info != nil {
-		preFiles := pre.Files()
-		texts := map[string]string{}
-		paths := make([]string, 0, len(preFiles))
-		matched := true
-		for _, f := range preFiles {
-			p := filepath.Join(stdRoot, f.Name)
-			b, err := os.ReadFile(p)
-			if err != nil {
-				matched = false
-				break
-			}
-			if string(b) != stdlib.Prelude()[f.Name] {
-				matched = false
-				break
-			}
-			texts[p] = string(b)
-			paths = append(paths, p)
-		}
-		if matched && len(paths) == len(preFiles) {
-			out, rewrites, err := rewriteLenFiles(texts, paths, preFiles, pre.Info)
-			if err != nil {
-				rep.Errs = append(rep.Errs, err.Error())
-			} else if len(rewrites) > 0 {
-				rep.Rewrites = append(rep.Rewrites, rewrites...)
-				for f, text := range out {
-					if text != texts[f] {
-						rep.Files[f] = text
-					}
-				}
-			}
-		}
-	}
 	for _, pkgPath := range stdlib.Packages() {
 		dir := filepath.Join(stdRoot, filepath.FromSlash(pkgPath))
 		if genmark.Held(dir) {

@@ -1,4 +1,6 @@
 import arena
+import core
+import option
 
 // Layers (UG4): a subtree above the flow, placed against the box of the
 // node that declares its anchor's key, flipped to the other side when its
@@ -72,11 +74,11 @@ type Place { Side Side, Align Align, Gap Length }
 // placed against (None: centred in the view), where, whether a scrim
 // under it shields the rest, and the signal Escape and a press outside
 // it send (None: neither dismisses it).
-type Layered[E] { Z Z, Anchor Option[Key], Place Place, Scrim bool, Dismiss Option[E] }
+type Layered[E] { Z Z, Anchor option.Option[Key], Place Place, Scrim bool, Dismiss option.Option[E] }
 
 // Layer writes a layer above the flow: its body is laid out at its own
 // size and placed by PlaceLayer against its anchor.
-func Layer[E, F, R](f mut Frame[E], l Layered[E], style Style, body func() fails F needs R, at CallSite) fails F needs R {
+func Layer[E, F, R](f mut Frame[E], l Layered[E], style Style, body func() fails F needs R, at core.CallSite) fails F needs R {
 	try open(f, LayerNode{Z: l.Z, Anchor: l.Anchor, Place: l.Place, Scrim: l.Scrim, Dismiss: l.Dismiss, Style: style}, body, at)
 }
 
@@ -100,11 +102,11 @@ func StackOrder(zs []Z) []int {
 // room and the other has (when neither has, the side with more room,
 // then shifted into view); along the side by p.Align, then shifted into
 // view. With no anchor, the layer is centred in view.
-func PlaceLayer(anchor Option[Rect], w Length, h Length, view Rect, p Place) Rect {
+func PlaceLayer(anchor option.Option[Rect], w Length, h Length, view Rect, p Place) Rect {
 	let a = match anchor {
-	case Some[Rect] as r:
+	case option.Some[Rect] as r:
 		r.Value
-	case None:
+	case option.None:
 		return Rect{X: view.X + (view.W-w)/2, Y: view.Y + (view.H-h)/2, W: w, H: h}
 	}
 	let vertical = match p.Side {
@@ -158,18 +160,18 @@ func shift(x Length, size Length, lo Length, hi Length) Length {
 }
 
 // layerOf is r's Layered when r is a layer.
-func layerOf[E](f mut Frame[E], r arena.Ref[node[E]]) Option[LayerNode[E]] {
+func layerOf[E](f mut Frame[E], r arena.Ref[node[E]]) option.Option[LayerNode[E]] {
 	let n = match nodeAt(f, r) {
-	case Some[node[E]] as found:
+	case option.Some[node[E]] as found:
 		found.Value
-	case None:
-		return None
+	case option.None:
+		return option.None
 	}
 	match n.node {
 	case LayerNode[E] as l:
-		Some{Value: l}
+		option.Some{Value: l}
 	case _:
-		None
+		option.None
 	}
 }
 
@@ -177,9 +179,9 @@ func layerOf[E](f mut Frame[E], r arena.Ref[node[E]]) Option[LayerNode[E]] {
 func layersIn[E](f mut Frame[E], r arena.Ref[node[E]], out []arena.Ref[node[E]]) []arena.Ref[node[E]] {
 	let mut all = out
 	match layerOf(f, r) {
-	case Some[LayerNode[E]]:
+	case option.Some[LayerNode[E]]:
 		all = all.Append(r)
-	case None:
+	case option.None:
 	}
 	for k in kidsOf(f, r) {
 		all = layersIn[E](f, k, all)
@@ -193,9 +195,9 @@ func stack[E](f mut Frame[E]) []arena.Ref[node[E]] {
 	let mut zs = []Z{}
 	for l in ls {
 		match layerOf(f, l) {
-		case Some[LayerNode[E]] as x:
+		case option.Some[LayerNode[E]] as x:
 			zs = zs.Append(x.Value.Z)
-		case None:
+		case option.None:
 		}
 	}
 	let mut out = []arena.Ref[node[E]]{}
@@ -218,15 +220,15 @@ func Layers[E](f mut Frame[E]) []Id[E] {
 // scrim (!dismiss), the null ref for none.
 func topWith[E](f mut Frame[E], dismiss bool) arena.Ref[node[E]] {
 	let s = stack(f)
-	let mut i = len(s) - 1
+	let mut i = s.Len() - 1
 	for i >= 0 {
 		match layerOf(f, s[i]) {
-		case Some[LayerNode[E]] as l:
+		case option.Some[LayerNode[E]] as l:
 			let fit = if dismiss { dismissable(l.Value.Dismiss) } else { l.Value.Scrim }
 			if fit {
 				return s[i]
 			}
-		case None:
+		case option.None:
 		}
 		i = i - 1
 	}
@@ -234,11 +236,11 @@ func topWith[E](f mut Frame[E], dismiss bool) arena.Ref[node[E]] {
 }
 
 // dismissable is whether d is a signal.
-func dismissable[E](d Option[E]) bool {
+func dismissable[E](d option.Option[E]) bool {
 	match d {
-	case Some[E]:
+	case option.Some[E]:
 		true
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -249,14 +251,14 @@ func inLayer[E](f mut Frame[E], l arena.Ref[node[E]], x arena.Ref[node[E]]) bool
 		return true
 	}
 	match above(f, x) {
-	case Some[[]arena.Ref[node[E]]] as up:
+	case option.Some[[]arena.Ref[node[E]]] as up:
 		for u in up.Value {
 			if u == l {
 				return true
 			}
 		}
 		false
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -269,12 +271,12 @@ func Shielded[E](f mut Frame[E], id Id[E]) bool {
 }
 
 // dismissOf is the layer l's dismiss signal.
-func dismissOf[E](f mut Frame[E], l arena.Ref[node[E]]) Option[E] {
+func dismissOf[E](f mut Frame[E], l arena.Ref[node[E]]) option.Option[E] {
 	match layerOf(f, l) {
-	case Some[LayerNode[E]] as x:
+	case option.Some[LayerNode[E]] as x:
 		x.Value.Dismiss
-	case None:
-		None
+	case option.None:
+		option.None
 	}
 }
 
@@ -284,17 +286,17 @@ func dismissOf[E](f mut Frame[E], l arena.Ref[node[E]]) Option[E] {
 // the top dismissable layer queues its dismiss signal (sent before the
 // event's own). While a scrim is open, an event on a node outside the
 // top scrim layer does nothing else.
-func layerGate[E](f mut Frame[E], event Event[E]) Option[Handled[E]] {
+func layerGate[E](f mut Frame[E], event Event[E]) option.Option[Handled[E]] {
 	let target = match event {
 	case KeyDown as k:
 		let m = k.Press.Mods
 		if k.Press.Name == "Escape" && !m.Shift && !m.Ctrl && !m.Alt && !m.Meta {
 			let top = topWith(f, true)
 			if top != arena.Null[node[E]]() {
-				return Some{Value: Handled[E]{Signal: dismissOf(f, top), Changed: false, Ops: []Op[E]{}}}
+				return option.Some{Value: Handled[E]{Signal: dismissOf(f, top), Changed: false, Ops: []Op[E]{}}}
 			}
 		}
-		return None
+		return option.None
 	case Press[E] as p:
 		p.Id.ref
 	case Type[E] as x:
@@ -307,9 +309,9 @@ func layerGate[E](f mut Frame[E], event Event[E]) Option[Handled[E]] {
 			let top = topWith(f, true)
 			if top != arena.Null[node[E]]() && !inLayer(f, top, p.Id.ref) {
 				match dismissOf(f, top) {
-				case Some[E] as e:
+				case option.Some[E] as e:
 					f.crossed = f.crossed.Append(e.Value)
-				case None:
+				case option.None:
 				}
 			}
 		case _:
@@ -318,37 +320,37 @@ func layerGate[E](f mut Frame[E], event Event[E]) Option[Handled[E]] {
 	case Scrolled[E] as x:
 		x.Id.ref
 	case _:
-		return None
+		return option.None
 	}
 	let scrim = topWith(f, false)
 	if scrim != arena.Null[node[E]]() && !inLayer(f, scrim, target) {
-		return Some{Value: Handled[E]{Signal: None, Changed: false, Ops: []Op[E]{}}}
+		return option.Some{Value: Handled[E]{Signal: option.None, Changed: false, Ops: []Op[E]{}}}
 	}
-	None
+	option.None
 }
 
 // AnchorIn is the node a layer anchored at k is placed against in the
 // mirror m: the first node in tree order that declares k, as a zone's
 // key or a Semantic's Access.Key; None when none does.
-func AnchorIn[E](m mut Mirror[E], k Key) Option[Id[E]] {
+func AnchorIn[E](m mut Mirror[E], k Key) option.Option[Id[E]] {
 	if k == NoKey {
-		return None
+		return option.None
 	}
 	match entryOf(m, m.root) {
-	case Some[mirrored[E]] as root:
+	case option.Some[mirrored[E]] as root:
 		anchorFrom(m, root.Value.first, k)
-	case None:
-		None
+	case option.None:
+		option.None
 	}
 }
 
 // anchorFrom is the first node from at, its next siblings and their
 // subtrees, in tree order, that declares k as an anchor.
-func anchorFrom[E](m mut Mirror[E], at Option[Id[E]], k Key) Option[Id[E]] {
+func anchorFrom[E](m mut Mirror[E], at option.Option[Id[E]], k Key) option.Option[Id[E]] {
 	let mut c = at
 	for {
 		match c {
-		case Some[Id[E]] as x:
+		case option.Some[Id[E]] as x:
 			let e = entry(m, refOf(m, x.Value))
 			let own = match e.node {
 			case ZoneNode as z:
@@ -360,13 +362,13 @@ func anchorFrom[E](m mut Mirror[E], at Option[Id[E]], k Key) Option[Id[E]] {
 				return c
 			}
 			match anchorFrom[E](m, e.first, k) {
-			case Some[Id[E]] as found:
-				return Some{Value: found.Value}
-			case None:
+			case option.Some[Id[E]] as found:
+				return option.Some{Value: found.Value}
+			case option.None:
 			}
 			c = e.next
-		case None:
-			return None
+		case option.None:
+			return option.None
 		}
 	}
 }

@@ -35,6 +35,8 @@
 // become constant text. The law FastAgreesWithWriter holds that it writes
 // what the Writer operations write.
 
+import stdcodec codec
+import option
 import strings
 
 import utf8
@@ -60,7 +62,7 @@ extern go ergo.local/prototype/runtime/v1.JSONMalformed type Malformed { Offset 
 // text's code (internal/sketch/std/ergo.laws). SetCommaSets is the plain
 // law SepAfterSet rests on.
 type Text {
-	..Writer,
+	..stdcodec.Writer,
 	// Written is the text written so far.
 	mut Written() string,
 
@@ -117,20 +119,20 @@ type Text {
 law FastAgreesWithWriter(v fleet) {
 	let t Text = text{comma: false, html: false, out: []byte{}}
 	t.BeginList(3)
-	encode(v, t)
+	stdcodec.Encode(v, t)
 	t.Int(2)
-	encode(v, t)
+	stdcodec.Encode(v, t)
 	t.EndList()
 	let w = NewText()
 	w.BeginList(3)
-	encode(v, w)
+	stdcodec.Encode(v, w)
 	w.Int(2)
-	encode(v, w)
+	stdcodec.Encode(v, w)
 	w.EndList()
 	let h Text = text{comma: false, html: true, out: []byte{}}
-	encode(v, h)
+	stdcodec.Encode(v, h)
 	let g = NewHTMLText()
-	encode(v, g)
+	stdcodec.Encode(v, g)
 	t.Written() == w.Written() && h.Written() == g.Written() && Encode(codec(), v) == viaWriter(v)
 }
 
@@ -140,7 +142,7 @@ law FastAgreesWithWriter(v fleet) {
 // Writer interface.
 func viaWriter[T wire](v T) string needs wired[T] {
 	let t = NewText()
-	encode(v, t)
+	stdcodec.Encode(v, t)
 	t.Written()
 }
 
@@ -181,7 +183,7 @@ func setComma(t mut text, due bool) { t.comma = due }
 // plain reports that s is its own JSON string text: every byte is printable
 // ASCII and none of '"', '\', <, > and &, so neither escaping changes it.
 func plain(s string) bool {
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		let b = s[i]
 		// '1' (49) at each plain byte, 16 to a group: a lookup, not seven
 		// comparisons.
@@ -401,7 +403,7 @@ extern go ergo.local/prototype/runtime/v1.JSONSettle func settleText(c Cursor) f
 extern go ergo.local/prototype/runtime/v1.JSONIsNumber func isNumber(text string) bool
 
 // Reader reads a JSON text for decode[T](r).
-type Reader { c Cursor } implements Reader
+type Reader { c Cursor } implements stdcodec.Reader
 
 // Open validates text whole, as one JSON value, no longer than maxBytes
 // bytes (no limit when maxBytes <= 0) and nested no deeper than maxDepth
@@ -441,69 +443,69 @@ func Path(r Reader) string { r.c.Path() }
 
 func TakeNull(r Reader) bool { r.c.TakeNull() }
 
-func Peek(r Reader) WireKind {
+func Peek(r Reader) stdcodec.WireKind {
 	let k = r.c.Kind()
-	if k == 0 { return WireNull }
-	if k == 1 { return WireBool }
-	if k == 2 { return WireNumber }
-	if k == 3 { return WireString }
-	if k == 4 { return WireList }
-	if k == 5 { return WireObject }
-	WireEnd
+	if k == 0 { return stdcodec.WireNull }
+	if k == 1 { return stdcodec.WireBool }
+	if k == 2 { return stdcodec.WireNumber }
+	if k == 3 { return stdcodec.WireString }
+	if k == 4 { return stdcodec.WireList }
+	if k == 5 { return stdcodec.WireObject }
+	stdcodec.WireEnd
 }
 
-func Number(r Reader) string fails WireWrongKind {
+func Number(r Reader) string fails stdcodec.WireWrongKind {
 	let v = r.c.Number()
 	if r.c.Wrong() {
-		return WireWrongKind{Path: r.c.Path(), Want: "a number"}
+		return stdcodec.WireWrongKind{Path: r.c.Path(), Want: "a number"}
 	}
 	v
 }
 
-func Bool(r Reader) bool fails WireWrongKind {
+func Bool(r Reader) bool fails stdcodec.WireWrongKind {
 	let v = r.c.Bool()
 	if r.c.Wrong() {
-		return WireWrongKind{Path: r.c.Path(), Want: "a boolean"}
+		return stdcodec.WireWrongKind{Path: r.c.Path(), Want: "a boolean"}
 	}
 	v
 }
 
-func Int(r Reader) int64 fails WireWrongKind {
+func Int(r Reader) int64 fails stdcodec.WireWrongKind {
 	let v = r.c.Int()
 	if r.c.Wrong() {
-		return WireWrongKind{Path: r.c.Path(), Want: "an integer"}
+		return stdcodec.WireWrongKind{Path: r.c.Path(), Want: "an integer"}
 	}
 	v
 }
 
-func Uint(r Reader) uint64 fails WireWrongKind {
+func Uint(r Reader) uint64 fails stdcodec.WireWrongKind {
 	let v = r.c.Uint()
 	if r.c.Wrong() {
-		return WireWrongKind{Path: r.c.Path(), Want: "an unsigned integer"}
+		return stdcodec.WireWrongKind{Path: r.c.Path(), Want: "an unsigned integer"}
 	}
 	v
 }
 
-func Float(r Reader) float64 fails WireWrongKind {
+func Float(r Reader) float64 fails stdcodec.WireWrongKind {
 	let v = r.c.Float()
 	if r.c.Wrong() {
-		return WireWrongKind{Path: r.c.Path(), Want: "a number"}
+		return stdcodec.WireWrongKind{Path: r.c.Path(), Want: "a number"}
 	}
 	v
 }
 
-func String(r Reader) string fails WireWrongKind {
+func String(r Reader) string fails stdcodec.WireWrongKind {
 	let v = r.c.String()
 	if r.c.Wrong() {
-		return WireWrongKind{Path: r.c.Path(), Want: "a string"}
+		return stdcodec.WireWrongKind{Path: r.c.Path(), Want: "a string"}
 	}
 	v
 }
 
-func StringBytes(r Reader, into []byte) []byte fails WireWrongKind {
+func StringBytes(r Reader, into []byte) []byte fails stdcodec.WireWrongKind {
 	let v = r.c.StringBytes(into)
 	if r.c.Wrong() {
-		return WireWrongKind{Path: r.c.Path(), Want: "a string"}
+		return stdcodec.WireWrongKind{Path: r.c.Path(), Want: "a string"}
 	}
 	v
 }
@@ -533,23 +535,23 @@ law StringBytesReadsString(s string, pre []byte) {
 	utf8.String(got) == utf8.String(pre)+want
 }
 
-func BeginList(r Reader) fails WireWrongKind {
+func BeginList(r Reader) fails stdcodec.WireWrongKind {
 	if !r.c.BeginList() {
-		return WireWrongKind{Path: r.c.Path(), Want: "an array"}
+		return stdcodec.WireWrongKind{Path: r.c.Path(), Want: "an array"}
 	}
 }
 
-func BeginObject(r Reader) fails WireWrongKind {
+func BeginObject(r Reader) fails stdcodec.WireWrongKind {
 	if !r.c.BeginObject() {
-		return WireWrongKind{Path: r.c.Path(), Want: "an object"}
+		return stdcodec.WireWrongKind{Path: r.c.Path(), Want: "an object"}
 	}
 }
 
 // Tag is the "_tag" member of the object just begun, wherever it stands.
-func Tag(r Reader) string fails WireMissingField {
+func Tag(r Reader) string fails stdcodec.WireMissingField {
 	let v = r.c.Tag()
 	if r.c.Wrong() {
-		return WireMissingField{Path: r.c.Path(), Field: "_tag"}
+		return stdcodec.WireMissingField{Path: r.c.Path(), Field: "_tag"}
 	}
 	v
 }
@@ -576,13 +578,13 @@ law ElementsAgreeOnPieces(parts []int, cuts []int, bytes int, depth int) { eleme
 func elementsOnPieces(parts []int, cuts []int, bytes int, depth int) bool {
 	let mut text = "["
 	for p in parts {
-		let piece = pieces[nat(p)%len(pieces)]
+		let piece = pieces[nat(p)%pieces.Len()]
 		if !elementsAgree("["+piece+","+piece+"]", cuts, 0, 0) {
 			return false
 		}
 		text = text + piece
 	}
-	let maxBytes = if bytes%3 == 0 { 0 } else { nat(bytes) % (len(text) + 2) }
+	let maxBytes = if bytes%3 == 0 { 0 } else { nat(bytes) % (text.Len() + 2) }
 	elementsAgree(text, cuts, maxBytes, nat(depth)%4)
 }
 
@@ -614,18 +616,18 @@ func valuesStopAtBreak(vs []up, seps []int, cut int, cuts []int) bool {
 	let one = Codec[up]{MaxBytes: 0, MaxDepth: 0}
 	let c = Codec[[]up]{MaxBytes: 0, MaxDepth: 0}
 	let text = separated(vs, seps)
-	let k = nat(cut) % (len(text) + 1)
+	let k = nat(cut) % (text.Len() + 1)
 	let mut whole = []up{}
 	let mut start = 0
 	let mut inside = -1
-	for i in 0..len(vs) {
-		let n = len(Encode(one, vs[i]))
+	for i in 0..vs.Len() {
+		let n = Encode(one, vs[i]).Len()
 		if start+n <= k {
 			whole = whole.Append(vs[i])
 		} else if start < k {
 			inside = start
 		}
-		start = start + n + len(between[sepAt(seps, i)])
+		start = start + n + between[sepAt(seps, i)].Len()
 	}
 	let e = NewElements[up](NewSequenceStream(chunks(text[:k], cuts), 0, 0))
 	let mut got = []up{}
@@ -637,9 +639,9 @@ func valuesStopAtBreak(vs []up, seps []int, cut int, cuts []int) bool {
 			return false
 		}
 		match next {
-		case Some[up] as v:
+		case option.Some[up] as v:
 			got = got.Append(v.Value)
-		case None:
+		case option.None:
 			break
 		}
 	}
@@ -656,13 +658,13 @@ law StreamAgreesOnPieces(parts []int, cuts []int, bytes int, depth int) { agrees
 func agreesOnPieces(parts []int, cuts []int, bytes int, depth int) bool {
 	let mut text = ""
 	for p in parts {
-		let piece = pieces[nat(p)%len(pieces)]
+		let piece = pieces[nat(p)%pieces.Len()]
 		if !agrees("{\"states\":["+piece+"],\"nested\":[["+piece+"]]}", cuts, 0, 0) {
 			return false
 		}
 		text = text + piece
 	}
-	let maxBytes = if bytes%3 == 0 { 0 } else { nat(bytes) % (len(text) + 2) }
+	let maxBytes = if bytes%3 == 0 { 0 } else { nat(bytes) % (text.Len() + 2) }
 	agrees(text, cuts, maxBytes, nat(depth)%4)
 }
 
@@ -673,7 +675,7 @@ func agreesOnPieces(parts []int, cuts []int, bytes int, depth int) bool {
 func Encode[T wire](c Codec[T], v T) string needs wired[T] {
 	let hint = strings.Hint[text, T]()
 	let t Text = text{comma: false, html: false, out: strings.Borrow(hint)}
-	encode(v, t)
+	stdcodec.Encode(v, t)
 	t.finish(hint)
 }
 
@@ -695,7 +697,7 @@ law InvalidBytesEscaped() {
 law TruncatedFails(v fleet, cut int) {
 	let text = Encode(codec(), v)
 	let n = if cut < 0 { -(cut + 1) } else { cut }
-	let short = text[:n%len(text)]
+	let short = text[:n%text.Len()]
 	let _ = Decode(codec(), short) catch {
 	case Malformed:
 		return true
@@ -721,7 +723,7 @@ law StreamFindsTagAnywhere(v up, cuts []int) { tagAnywhere(v, cuts) }
 func EncodeWith[T wire, U, R](c Codec[T], v T, use func(text []byte) U needs R) U needs R | wired[T] {
 	let hint = strings.Hint[text, T]()
 	let t Text = text{comma: false, html: false, out: strings.Borrow(hint)}
-	encode(v, t)
+	stdcodec.Encode(v, t)
 	let u = use(t.bytes())
 	t.drop(hint)
 	u
@@ -733,7 +735,7 @@ func EncodeWith[T wire, U, R](c Codec[T], v T, use func(text []byte) U needs R) 
 // the shape failure it caused, is the failure (DecodeIsOpenThenDecode).
 func Decode[T wire](c Codec[T], text string) T fails Malformed | wired[T] needs wired[T] {
 	let r = Reader{c: try openChecked(text, c.MaxBytes, c.MaxDepth)}
-	let v = decode[T](r) catch {
+	let v = stdcodec.Decode[T](r) catch {
 	case err:
 		try settleText(r.c)
 		return err
@@ -752,11 +754,11 @@ func wholeValues(c Codec[[]Value], text string) string {
 	let v = Decode(c, text) catch {
 	case Malformed as m:
 		return said(m)
-	case WireWrongKind as e:
+	case stdcodec.WireWrongKind as e:
 		return "kind " + e.Path + " " + e.Want
-	case WireMissingField as e:
+	case stdcodec.WireMissingField as e:
 		return "missing " + e.Path + " " + e.Field
-	case WireUnknownTag as e:
+	case stdcodec.WireUnknownTag as e:
 		return "tag " + e.Path + " " + e.Tag
 	}
 	"ok " + Encode(c, v)
@@ -771,17 +773,17 @@ func eachValue(c Codec[[]Value], text string, cuts []int) string {
 			return said(m)
 		case io.ReadFailed:
 			return "read failed"
-		case WireWrongKind as w:
+		case stdcodec.WireWrongKind as w:
 			return "kind " + w.Path + " " + w.Want
-		case WireMissingField as w:
+		case stdcodec.WireMissingField as w:
 			return "missing " + w.Path + " " + w.Field
-		case WireUnknownTag as w:
+		case stdcodec.WireUnknownTag as w:
 			return "tag " + w.Path + " " + w.Tag
 		}
 		match next {
-		case Some[Value] as v:
+		case option.Some[Value] as v:
 			got = got.Append(v.Value)
-		case None:
+		case option.None:
 			break
 		}
 	}
@@ -792,9 +794,9 @@ func wholeUps(c Codec[[]up], text string) string {
 	let v = Decode(c, text) catch {
 	case Malformed as m:
 		return said(m)
-	case WireWrongKind as e:
+	case stdcodec.WireWrongKind as e:
 		return "kind " + e.Path + " " + e.Want
-	case WireMissingField as e:
+	case stdcodec.WireMissingField as e:
 		return "missing " + e.Path + " " + e.Field
 	}
 	"ok " + Encode(c, v)
@@ -813,15 +815,15 @@ func eachUp(c Codec[[]up], text string, cuts []int, seq bool) string {
 			return said(m)
 		case io.ReadFailed:
 			return "read failed"
-		case WireWrongKind as w:
+		case stdcodec.WireWrongKind as w:
 			return "kind " + w.Path + " " + w.Want
-		case WireMissingField as w:
+		case stdcodec.WireMissingField as w:
 			return "missing " + w.Path + " " + w.Field
 		}
 		match next {
-		case Some[up] as v:
+		case option.Some[up] as v:
 			got = got.Append(v.Value)
-		case None:
+		case option.None:
 			break
 		}
 	}
@@ -838,14 +840,14 @@ func elementsAgree(text string, cuts []int, maxBytes int, maxDepth int) bool {
 
 func elementsSpliced(d doc, space int, splice int, at int, cuts []int, depth int) bool {
 	let spaces = []string{"", " ", "\n\t", " \r\n "}
-	let sp = spaces[nat(space)%len(spaces)]
+	let sp = spaces[nat(space)%spaces.Len()]
 	let mut text = spell(d, sp)
 	if nat(space)%2 == 1 {
 		text = "[" + sp + text + sp + "," + text + "]"
 	}
 	if splice >= 0 {
-		let k = nat(at) % (len(text) + 1)
-		text = text[:k] + pieces[splice%len(pieces)] + text[k:]
+		let k = nat(at) % (text.Len() + 1)
+		text = text[:k] + pieces[splice%pieces.Len()] + text[k:]
 	}
 	elementsAgree(text, cuts, 0, nat(depth)%6)
 }
@@ -855,7 +857,7 @@ func elementsSpliced(d doc, space int, splice int, at int, cuts []int, depth int
 func separated(vs []up, seps []int) string {
 	let c = Codec[up]{MaxBytes: 0, MaxDepth: 0}
 	let mut text = ""
-	for i in 0..len(vs) {
+	for i in 0..vs.Len() {
 		text = text + Encode(c, vs[i]) + between[sepAt(seps, i)]
 	}
 	text
@@ -865,8 +867,8 @@ let between = []string{"\n", " ", "\r\n", "\n\n", "\t"}
 
 // sepAt is the index in between of the separator after value i.
 func sepAt(seps []int, i int) int {
-	let k = if i < len(seps) { nat(seps[i]) } else { i }
-	k % len(between)
+	let k = if i < seps.Len() { nat(seps[i]) } else { i }
+	k % between.Len()
 }
 
 func holdsOneWindow(v up, n int, size int) bool {
@@ -886,13 +888,13 @@ func holdsOneWindow(v up, n int, size int) bool {
 			return false
 		}
 		match next {
-		case Some[up]:
+		case option.Some[up]:
 			read = read + 1
-		case None:
+		case option.None:
 			break
 		}
 	}
-	read == count && Window(r) <= chunk+len(text)
+	read == count && Window(r) <= chunk+text.Len()
 }
 
 func c[T wire]() Codec[T] { Codec[T]{MaxBytes: 0, MaxDepth: 0} }
@@ -905,7 +907,7 @@ type state = up | down
 
 type widths { A int8, B int16, C int32, D int64, E uint8, F uint16, G uint32, H uint64, I int, J uint, K float32, L bool }
 
-type fleet { Name string, States []state, Spare Option[up], Meta Map[string, int], Sizes widths, Pairs Map[string, (string, int64)], Nested [][]float64 }
+type fleet { Name string, States []state, Spare option.Option[up], Meta Map[string, int], Sizes widths, Pairs Map[string, (string, int64)], Nested [][]float64 }
 
 func codec() Codec[fleet] { Codec[fleet]{MaxBytes: 0, MaxDepth: 0} }
 
@@ -931,11 +933,11 @@ func wholeValue(c Codec[Value], text string) string {
 	let v = Decode(c, text) catch {
 	case Malformed as m:
 		return said(m)
-	case WireWrongKind as e:
+	case stdcodec.WireWrongKind as e:
 		return "kind " + e.Path + " " + e.Want
-	case WireMissingField as e:
+	case stdcodec.WireMissingField as e:
 		return "missing " + e.Path + " " + e.Field
-	case WireUnknownTag as e:
+	case stdcodec.WireUnknownTag as e:
 		return "tag " + e.Path + " " + e.Tag
 	}
 	"ok " + Encode(c, v)
@@ -947,11 +949,11 @@ func streamValue(c Codec[Value], text string, cuts []int) string {
 		return said(m)
 	case io.ReadFailed:
 		return "read failed"
-	case WireWrongKind as e:
+	case stdcodec.WireWrongKind as e:
 		return "kind " + e.Path + " " + e.Want
-	case WireMissingField as e:
+	case stdcodec.WireMissingField as e:
 		return "missing " + e.Path + " " + e.Field
-	case WireUnknownTag as e:
+	case stdcodec.WireUnknownTag as e:
 		return "tag " + e.Path + " " + e.Tag
 	}
 	"ok " + Encode(c, v)
@@ -963,11 +965,11 @@ func wholeFleet(c Codec[fleet], text string) string {
 	let v = Decode(c, text) catch {
 	case Malformed as m:
 		return said(m)
-	case WireWrongKind as e:
+	case stdcodec.WireWrongKind as e:
 		return "kind " + e.Path + " " + e.Want
-	case WireMissingField as e:
+	case stdcodec.WireMissingField as e:
 		return "missing " + e.Path + " " + e.Field
-	case WireUnknownTag as e:
+	case stdcodec.WireUnknownTag as e:
 		return "tag " + e.Path + " " + e.Tag
 	}
 	"ok " + Encode(c, v)
@@ -979,11 +981,11 @@ func streamFleet(c Codec[fleet], text string, cuts []int) string {
 		return said(m)
 	case io.ReadFailed:
 		return "read failed"
-	case WireWrongKind as e:
+	case stdcodec.WireWrongKind as e:
 		return "kind " + e.Path + " " + e.Want
-	case WireMissingField as e:
+	case stdcodec.WireMissingField as e:
 		return "missing " + e.Path + " " + e.Field
-	case WireUnknownTag as e:
+	case stdcodec.WireUnknownTag as e:
 		return "tag " + e.Path + " " + e.Tag
 	}
 	"ok " + Encode(c, v)
@@ -1004,10 +1006,10 @@ let pieces = []string{"{\"states\":[", "{\"nested\":[[1,", "{\"name\":\"n\",\"st
 
 func agreesSpliced(d doc, space int, splice int, at int, cuts []int, depth int) bool {
 	let spaces = []string{"", " ", "\n\t", " \r\n "}
-	let mut text = spell(d, spaces[nat(space)%len(spaces)])
+	let mut text = spell(d, spaces[nat(space)%spaces.Len()])
 	if splice >= 0 {
-		let k = nat(at) % (len(text) + 1)
-		text = text[:k] + pieces[splice%len(pieces)] + text[k:]
+		let k = nat(at) % (text.Len() + 1)
+		text = text[:k] + pieces[splice%pieces.Len()] + text[k:]
 	}
 	agrees(text, cuts, 0, nat(depth)%6)
 }
@@ -1020,7 +1022,7 @@ func streamRoundTrips(v fleet, cuts []int) bool {
 
 func tagAnywhere(v up, cuts []int) bool {
 	let record = Encode(Codec[up]{MaxBytes: 0, MaxDepth: 0}, v)
-	let text = record[:len(record)-1] + ",\"_tag\":\"up\"}"
+	let text = record[:record.Len()-1] + ",\"_tag\":\"up\"}"
 	let c = Codec[state]{MaxBytes: 0, MaxDepth: 0}
 	let whole = Decode(c, text) catch {
 	case _:
@@ -1092,14 +1094,14 @@ func spell(d doc, sp string) string {
 		quoted(s.V)
 	case docArr as a:
 		let mut out = "[" + sp
-		for i in 0..len(a.Items) {
+		for i in 0..a.Items.Len() {
 			if i > 0 { out = out + sp + "," + sp }
 			out = out + spell(a.Items[i], sp)
 		}
 		out + sp + "]"
 	case docObj as o:
 		let mut out = "{" + sp
-		let n = if len(o.Keys) < len(o.Vals) { len(o.Keys) } else { len(o.Vals) }
+		let n = if o.Keys.Len() < o.Vals.Len() { o.Keys.Len() } else { o.Vals.Len() }
 		for i in 0..n {
 			if i > 0 { out = out + sp + "," + sp }
 			out = out + quoted(o.Keys[i]) + sp + ":" + sp + spell(o.Vals[i], sp)
@@ -1116,20 +1118,20 @@ func valueRoundTrips(d doc) bool {
 	Encode(c[Value](), v) == spell(d, "")
 }
 
-law NestedRoundTrips(v Option[Option[int]]) { nestedRoundTrips(v) }
+law NestedRoundTrips(v option.Option[option.Option[int]]) { nestedRoundTrips(v) }
 
 type nestedField { Value Optional[Nullable[int]] }
 
-func nestedOf(v Option[Option[int]]) Optional[Nullable[int]] {
+func nestedOf(v option.Option[option.Option[int]]) Optional[Nullable[int]] {
 	match v {
-	case None:
+	case option.None:
 		Absent
-	case Some[Option[int]] as p:
+	case option.Some[option.Option[int]] as p:
 		Present{Value: nullableOf(p.Value)}
 	}
 }
 
-func nestedRoundTrips(v Option[Option[int]]) bool {
+func nestedRoundTrips(v option.Option[option.Option[int]]) bool {
 	let field = nestedField{Value: nestedOf(v)}
 	let back = Decode(c[nestedField](), Encode(c[nestedField](), field)) catch {
 	case _:
@@ -1156,7 +1158,7 @@ law StreamAgreesWithDecode(d doc, space int, splice int, at int, cuts []int, dep
 // decode[T]: the reference Decode's one pass keeps.
 func decodeOpened[T wire](c Codec[T], text string) T fails Malformed | wired[T] needs wired[T] {
 	let r = try Open(text, c.MaxBytes, c.MaxDepth)
-	try decode[T](r)
+	try stdcodec.Decode[T](r)
 }
 
 // DecodeIsOpenThenDecode: Decode, which checks the grammar as it reads,
@@ -1168,14 +1170,14 @@ law DecodeIsOpenThenDecode(d doc, space int, splice int, at int, parts []int, de
 
 func decodesAsOpened(d doc, space int, splice int, at int, parts []int, depth int) bool {
 	let spaces = []string{"", " ", "\n\t", " \r\n "}
-	let mut text = spell(d, spaces[nat(space)%len(spaces)])
+	let mut text = spell(d, spaces[nat(space)%spaces.Len()])
 	if splice >= 0 {
-		let k = nat(at) % (len(text) + 1)
-		text = text[:k] + pieces[splice%len(pieces)] + text[k:]
+		let k = nat(at) % (text.Len() + 1)
+		text = text[:k] + pieces[splice%pieces.Len()] + text[k:]
 	}
 	let mut broken = ""
 	for p in parts {
-		let piece = pieces[nat(p)%len(pieces)]
+		let piece = pieces[nat(p)%pieces.Len()]
 		if !asOpened("{\"states\":["+piece+"],\"nested\":[["+piece+"]]}", 0) {
 			return false
 		}
@@ -1196,11 +1198,11 @@ func openedValue(c Codec[Value], text string) string {
 	let v = decodeOpened(c, text) catch {
 	case Malformed as m:
 		return said(m)
-	case WireWrongKind as e:
+	case stdcodec.WireWrongKind as e:
 		return "kind " + e.Path + " " + e.Want
-	case WireMissingField as e:
+	case stdcodec.WireMissingField as e:
 		return "missing " + e.Path + " " + e.Field
-	case WireUnknownTag as e:
+	case stdcodec.WireUnknownTag as e:
 		return "tag " + e.Path + " " + e.Tag
 	}
 	"ok " + Encode(c, v)
@@ -1210,11 +1212,11 @@ func openedFleet(c Codec[fleet], text string) string {
 	let v = decodeOpened(c, text) catch {
 	case Malformed as m:
 		return said(m)
-	case WireWrongKind as e:
+	case stdcodec.WireWrongKind as e:
 		return "kind " + e.Path + " " + e.Want
-	case WireMissingField as e:
+	case stdcodec.WireMissingField as e:
 		return "missing " + e.Path + " " + e.Field
-	case WireUnknownTag as e:
+	case stdcodec.WireUnknownTag as e:
 		return "tag " + e.Path + " " + e.Tag
 	}
 	"ok " + Encode(c, v)

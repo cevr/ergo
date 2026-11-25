@@ -1,5 +1,7 @@
+import codec
 import flag
 import json
+import option
 import strconv
 import strings
 import sync
@@ -73,7 +75,7 @@ func empty(from Source) node { branch{Members: []member{}, From: from} }
 // put is t with v at the dotted key path, t a branch; an existing value
 // at the path is replaced.
 func put(t node, path []string, v node) node {
-	if len(path) == 0 {
+	if path.Len() == 0 {
 		return v
 	}
 	match t {
@@ -118,22 +120,22 @@ func fromValue(v json.Value, from Source) node {
 }
 
 type listBuild { elems []node }
-type objectBuild { members []member, key Option[string] }
+type objectBuild { members []member, key option.Option[string] }
 type buildFrame = listBuild | objectBuild
-type buildState { frames []buildFrame, root Option[node] }
-type treeWriter { state sync.Ref[buildState], from Source } implements Writer
+type buildState { frames []buildFrame, root option.Option[node] }
+type treeWriter { state sync.Ref[buildState], from Source } implements codec.Writer
 
 func newTreeWriter(from Source) treeWriter {
-	treeWriter{state: sync.NewRef[buildState](buildState{frames: []buildFrame{}, root: None}), from: from}
+	treeWriter{state: sync.NewRef[buildState](buildState{frames: []buildFrame{}, root: option.None}), from: from}
 }
 
-func finish(w treeWriter) Option[node] { w.state.Get().root }
+func finish(w treeWriter) option.Option[node] { w.state.Get().root }
 
 func putNode(w treeWriter, v node) {
 	w.state.Update(func(st buildState) buildState {
-		let n = len(st.frames)
+		let n = st.frames.Len()
 		if n == 0 {
-			return buildState{frames: st.frames, root: Some[node]{Value: v}}
+			return buildState{frames: st.frames, root: option.Some[node]{Value: v}}
 		}
 		let mut frames = st.frames
 		match frames[n-1] {
@@ -141,9 +143,9 @@ func putNode(w treeWriter, v node) {
 			frames[n-1] = listBuild{elems: l.elems.Append(v)}
 		case objectBuild as o:
 			match o.key {
-			case Some as k:
-				frames[n-1] = objectBuild{members: o.members.Append(member{Key: k.Value, Value: v}), key: None}
-			case None:
+			case option.Some as k:
+				frames[n-1] = objectBuild{members: o.members.Append(member{Key: k.Value, Value: v}), key: option.None}
+			case option.None:
 			}
 		}
 		buildState{frames: frames, root: st.root}
@@ -183,30 +185,30 @@ func StringBytes(w treeWriter, b []byte) { putNode(w, scalar{Value: json.Str{Val
 func BeginList(w treeWriter, n int)      { pushFrame(w, listBuild{elems: []node{}}) }
 
 func EndList(w treeWriter) {
-	let done = sync.Modify(w.state, func(st buildState) (Option[node], buildState) {
-		let n = len(st.frames)
+	let done = sync.Modify(w.state, func(st buildState) (option.Option[node], buildState) {
+		let n = st.frames.Len()
 		if n == 0 {
-			return (None, st)
+			return (option.None, st)
 		}
 		match st.frames[n-1] {
 		case listBuild as l:
-			(Some[node]{Value: items{Elems: l.elems, From: w.from}}, buildState{frames: st.frames[:n-1], root: st.root})
+			(option.Some[node]{Value: items{Elems: l.elems, From: w.from}}, buildState{frames: st.frames[:n-1], root: st.root})
 		case objectBuild:
-			(None, st)
+			(option.None, st)
 		}
 	})
 	match done {
-	case Some as v:
+	case option.Some as v:
 		putNode(w, v.Value)
-	case None:
+	case option.None:
 	}
 }
 
-func BeginObject(w treeWriter, n int) { pushFrame(w, objectBuild{members: []member{}, key: None}) }
+func BeginObject(w treeWriter, n int) { pushFrame(w, objectBuild{members: []member{}, key: option.None}) }
 
 func Tag(w treeWriter, name string) {
 	w.state.Update(func(st buildState) buildState {
-		let n = len(st.frames)
+		let n = st.frames.Len()
 		if n == 0 {
 			return st
 		}
@@ -222,14 +224,14 @@ func Tag(w treeWriter, name string) {
 
 func Key(w treeWriter, k string) {
 	w.state.Update(func(st buildState) buildState {
-		let n = len(st.frames)
+		let n = st.frames.Len()
 		if n == 0 {
 			return st
 		}
 		let mut frames = st.frames
 		match frames[n-1] {
 		case objectBuild as o:
-			frames[n-1] = objectBuild{members: o.members, key: Some[string]{Value: k}}
+			frames[n-1] = objectBuild{members: o.members, key: option.Some[string]{Value: k}}
 		case listBuild:
 		}
 		buildState{frames: frames, root: st.root}
@@ -237,22 +239,22 @@ func Key(w treeWriter, k string) {
 }
 
 func EndObject(w treeWriter) {
-	let done = sync.Modify(w.state, func(st buildState) (Option[node], buildState) {
-		let n = len(st.frames)
+	let done = sync.Modify(w.state, func(st buildState) (option.Option[node], buildState) {
+		let n = st.frames.Len()
 		if n == 0 {
-			return (None, st)
+			return (option.None, st)
 		}
 		match st.frames[n-1] {
 		case objectBuild as o:
-			(Some[node]{Value: branch{Members: o.members, From: w.from}}, buildState{frames: st.frames[:n-1], root: st.root})
+			(option.Some[node]{Value: branch{Members: o.members, From: w.from}}, buildState{frames: st.frames[:n-1], root: st.root})
 		case listBuild:
-			(None, st)
+			(option.None, st)
 		}
 	})
 	match done {
-	case Some as v:
+	case option.Some as v:
 		putNode(w, v.Value)
-	case None:
+	case option.None:
 	}
 }
 

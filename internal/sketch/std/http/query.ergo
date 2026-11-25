@@ -1,5 +1,7 @@
+import codec
 import hex
 import json
+import option
 import slices
 import strconv
 import strings
@@ -69,12 +71,12 @@ func DecodeForm[T wire](body string) T fails QueryRepeated | wired[T] needs wire
 // "false"; numbers are Go's decimal spellings.
 func DecodeQuery[T wire](fields []Field) T fails QueryRepeated | wired[T] needs wired[T] {
 	let r = queryReaderOf(fields)
-	try decode[T](r) catch {
-	case WireWrongKind as w:
+	try codec.Decode[T](r) catch {
+	case codec.WireWrongKind as w:
 		match r.repeated.Get() {
-		case Some as key:
+		case option.Some as key:
 			return QueryRepeated{Key: key.Value}
-		case None:
+		case option.None:
 			return w
 		}
 	}
@@ -89,7 +91,7 @@ type queryGroup { name string, values []string }
 // 0 before the object, 1 between keys, 2 at a key's value, 3 in a key's
 // list, 4 after the object. at is the current key; item the next value of
 // the list; repeated the key a scalar read met with more than one value.
-type queryReader { groups []queryGroup, state sync.Ref[int], at sync.Ref[int], item sync.Ref[int], repeated sync.Ref[Option[string]] } implements Reader
+type queryReader { groups []queryGroup, state sync.Ref[int], at sync.Ref[int], item sync.Ref[int], repeated sync.Ref[option.Option[string]] } implements codec.Reader
 
 func queryReaderOf(fields []Field) queryReader {
 	let mut groups = []queryGroup{}
@@ -105,7 +107,7 @@ func queryReaderOf(fields []Field) queryReader {
 			groups = groups.Append(queryGroup{name: f.Name, values: []string{f.Value}})
 		}
 	}
-	queryReader{groups: groups, state: sync.NewRef[int](0), at: sync.NewRef[int](0), item: sync.NewRef[int](0), repeated: sync.NewRef[Option[string]](None)}
+	queryReader{groups: groups, state: sync.NewRef[int](0), at: sync.NewRef[int](0), item: sync.NewRef[int](0), repeated: sync.NewRef[option.Option[string]](option.None)}
 }
 
 func Path(r queryReader) string {
@@ -121,13 +123,13 @@ func Path(r queryReader) string {
 
 // value takes the next scalar value: the key's one value, or the list's
 // next. want names the kind for a WireWrongKind.
-func value(r queryReader, want string) string fails WireWrongKind {
+func value(r queryReader, want string) string fails codec.WireWrongKind {
 	let s = r.state.Get()
 	if s == 2 {
 		let g = r.groups[r.at.Get()]
-		if len(g.values) != 1 {
-			r.repeated.Set(Some{g.name})
-			return WireWrongKind{Path: g.name, Want: "one value"}
+		if g.values.Len() != 1 {
+			r.repeated.Set(option.Some{g.name})
+			return codec.WireWrongKind{Path: g.name, Want: "one value"}
 		}
 		r.state.Set(1)
 		r.at.Set(r.at.Get() + 1)
@@ -138,39 +140,39 @@ func value(r queryReader, want string) string fails WireWrongKind {
 		r.item.Set(i + 1)
 		return r.groups[r.at.Get()].values[i]
 	}
-	WireWrongKind{Path: Path(r), Want: want}
+	codec.WireWrongKind{Path: Path(r), Want: want}
 }
 
 func TakeNull(r queryReader) bool { false }
 
-func Peek(r queryReader) WireKind {
+func Peek(r queryReader) codec.WireKind {
 	let s = r.state.Get()
 	if s == 0 {
-		return WireObject
+		return codec.WireObject
 	}
 	if s == 2 {
-		return if len(r.groups[r.at.Get()].values) == 1 { WireString } else { WireList }
+		return if r.groups[r.at.Get()].values.Len() == 1 { codec.WireString } else { codec.WireList }
 	}
-	if s == 3 && r.item.Get() < len(r.groups[r.at.Get()].values) {
-		return WireString
+	if s == 3 && r.item.Get() < r.groups[r.at.Get()].values.Len() {
+		return codec.WireString
 	}
-	WireEnd
+	codec.WireEnd
 }
 
-func Number(r queryReader) string fails WireWrongKind {
+func Number(r queryReader) string fails codec.WireWrongKind {
 	let path = Path(r)
 	let v = try value(r, "a number")
 	let _ = strconv.ParseFloat(v) catch {
 	case _:
-		return WireWrongKind{Path: path, Want: "a number"}
+		return codec.WireWrongKind{Path: path, Want: "a number"}
 	}
 	v
 }
 
-func String(r queryReader) string fails WireWrongKind { try value(r, "a string") }
+func String(r queryReader) string fails codec.WireWrongKind { try value(r, "a string") }
 
 // StringBytes is into with the bytes of the string String reads (GX12).
-func StringBytes(r queryReader, into []byte) []byte fails WireWrongKind { appendText(into, try String(r)) }
+func StringBytes(r queryReader, into []byte) []byte fails codec.WireWrongKind { appendText(into, try String(r)) }
 
 // QueryStringBytesReadsString: the query reader's StringBytes adds to into
 // the bytes String reads of the same key's value (GX12b).
@@ -188,7 +190,7 @@ law QueryStringBytesReadsString(s string, pre []byte) {
 // appendText is Go's append(into, s...).
 extern go append func appendText(into []byte, s string) []byte
 
-func Bool(r queryReader) bool fails WireWrongKind {
+func Bool(r queryReader) bool fails codec.WireWrongKind {
 	let path = Path(r)
 	let v = try value(r, "a boolean")
 	if v == "true" {
@@ -197,83 +199,83 @@ func Bool(r queryReader) bool fails WireWrongKind {
 	if v == "false" {
 		return false
 	}
-	WireWrongKind{Path: path, Want: "a boolean"}
+	codec.WireWrongKind{Path: path, Want: "a boolean"}
 }
 
-func Int(r queryReader) int64 fails WireWrongKind {
+func Int(r queryReader) int64 fails codec.WireWrongKind {
 	let path = Path(r)
 	let v = try value(r, "an integer")
 	strconv.ParseInt(v, 10, 64) catch {
 	case _:
-		return WireWrongKind{Path: path, Want: "an integer"}
+		return codec.WireWrongKind{Path: path, Want: "an integer"}
 	}
 }
 
-func Uint(r queryReader) uint64 fails WireWrongKind {
+func Uint(r queryReader) uint64 fails codec.WireWrongKind {
 	let path = Path(r)
 	let v = try value(r, "an unsigned integer")
 	match parseUint(v) {
-	case Some as n:
+	case option.Some as n:
 		n.Value
-	case None:
-		WireWrongKind{Path: path, Want: "an unsigned integer"}
+	case option.None:
+		codec.WireWrongKind{Path: path, Want: "an unsigned integer"}
 	}
 }
 
 // parseUint reads decimal digits into a uint64, None for anything else
 // or a value over its range.
-func parseUint(s string) Option[uint64] {
+func parseUint(s string) option.Option[uint64] {
 	if s == "" {
-		return None
+		return option.None
 	}
 	let mut n uint64 = 0
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		let c = s[i]
 		if c < '0' || c > '9' {
-			return None
+			return option.None
 		}
 		let d = uint64(c - '0')
 		if n > (18446744073709551615-d)/10 {
-			return None
+			return option.None
 		}
 		n = n*10 + d
 	}
-	Some{n}
+	option.Some{n}
 }
 
-func Float(r queryReader) float64 fails WireWrongKind {
+func Float(r queryReader) float64 fails codec.WireWrongKind {
 	let path = Path(r)
 	let v = try value(r, "a number")
 	strconv.ParseFloat(v) catch {
 	case _:
-		return WireWrongKind{Path: path, Want: "a number"}
+		return codec.WireWrongKind{Path: path, Want: "a number"}
 	}
 }
 
-func BeginList(r queryReader) fails WireWrongKind {
+func BeginList(r queryReader) fails codec.WireWrongKind {
 	if r.state.Get() != 2 {
-		return WireWrongKind{Path: Path(r), Want: "a list"}
+		return codec.WireWrongKind{Path: Path(r), Want: "a list"}
 	}
 	r.state.Set(3)
 	r.item.Set(0)
 }
 
-func BeginObject(r queryReader) fails WireWrongKind {
+func BeginObject(r queryReader) fails codec.WireWrongKind {
 	if r.state.Get() != 0 {
-		return WireWrongKind{Path: Path(r), Want: "an object"}
+		return codec.WireWrongKind{Path: Path(r), Want: "an object"}
 	}
 	r.state.Set(1)
 }
 
 // A query has no tagged object: a union T has no query form.
-func Tag(r queryReader) string fails WireMissingField { WireMissingField{Path: Path(r), Field: "_tag"} }
+func Tag(r queryReader) string fails codec.WireMissingField { codec.WireMissingField{Path: Path(r), Field: "_tag"} }
 
 func More(r queryReader) bool {
 	let s = r.state.Get()
 	if s == 1 {
-		return r.at.Get() < len(r.groups)
+		return r.at.Get() < r.groups.Len()
 	}
-	s == 3 && r.item.Get() < len(r.groups[r.at.Get()].values)
+	s == 3 && r.item.Get() < r.groups[r.at.Get()].values.Len()
 }
 
 func Key(r queryReader) string {
@@ -306,7 +308,7 @@ type queryProbe { Load json.Optional[float64], Name string, Note json.Optional[s
 // lower case hex.
 func queryEscape(s string, plain bool, upper bool) string {
 	let mut out = ""
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		let c = s[i]
 		let unreserved = c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '.' || c == '_' || c == '~'
 		if plain && unreserved {
@@ -351,33 +353,33 @@ func queryExpected(pairs []Field) (string, queryProbe) {
 	let none = queryProbe{Load: json.Absent, Name: "", Note: json.Absent, On: json.Absent, Page: 0, Size: json.Absent, Tags: []string{}}
 	for key in []string{"load", "name", "note", "on", "page", "size"} {
 		let vs = queryValues(pairs, key)
-		if len(vs) > 1 {
+		if vs.Len() > 1 {
 			return ("repeated " + key, none)
 		}
-		if len(vs) == 1 && key != "name" && key != "note" && strings.HasSuffix(vs[0], "x") {
+		if vs.Len() == 1 && key != "name" && key != "note" && strings.HasSuffix(vs[0], "x") {
 			return ("wrong " + key, none)
 		}
 	}
 	let names = queryValues(pairs, "name")
 	let pages = queryValues(pairs, "page")
 	let tags = queryValues(pairs, "tags")
-	if len(names) == 0 {
+	if names.Len() == 0 {
 		return ("missing name", none)
 	}
-	if len(pages) == 0 {
+	if pages.Len() == 0 {
 		return ("missing page", none)
 	}
-	if len(tags) == 0 {
+	if tags.Len() == 0 {
 		return ("missing tags", none)
 	}
 	let loads = queryValues(pairs, "load")
 	let notes = queryValues(pairs, "note")
 	let ons = queryValues(pairs, "on")
 	let sizes = queryValues(pairs, "size")
-	let load json.Optional[float64] = if len(loads) == 0 { json.Absent } else { json.Present{Value: float64(queryNumber(loads[0]))} }
-	let note json.Optional[string] = if len(notes) == 0 { json.Absent } else { json.Present{Value: notes[0]} }
-	let on json.Optional[bool] = if len(ons) == 0 { json.Absent } else { json.Present{Value: ons[0] == "true"} }
-	let size json.Optional[uint64] = if len(sizes) == 0 { json.Absent } else { json.Present{Value: uint64(queryNumber(sizes[0]))} }
+	let load json.Optional[float64] = if loads.Len() == 0 { json.Absent } else { json.Present{Value: float64(queryNumber(loads[0]))} }
+	let note json.Optional[string] = if notes.Len() == 0 { json.Absent } else { json.Present{Value: notes[0]} }
+	let on json.Optional[bool] = if ons.Len() == 0 { json.Absent } else { json.Present{Value: ons[0] == "true"} }
+	let size json.Optional[uint64] = if sizes.Len() == 0 { json.Absent } else { json.Present{Value: uint64(queryNumber(sizes[0]))} }
 	("ok", queryProbe{Load: load, Name: names[0], Note: note, On: on, Page: queryNumber(pages[0]), Size: size, Tags: tags})
 }
 
@@ -396,12 +398,12 @@ law QueryDecodesByTheRule(counts []int, numbers []int, texts []string) {
 	let mut raw = ""
 	let mut i = 0
 	for j, key in keys {
-		let k = if j < len(counts) { ((counts[j] % 6) + 6) % 6 } else { 5 }
+		let k = if j < counts.Len() { ((counts[j] % 6) + 6) % 6 } else { 5 }
 		let times = if k == 0 { 0 } else if k == 1 { 2 } else if k == 2 { 3 } else { 1 }
 		for _ in 0..times {
-			let n = if len(numbers) == 0 { i } else { numbers[i%len(numbers)] }
+			let n = if numbers.Len() == 0 { i } else { numbers[i%numbers.Len()] }
 			let m = if n < 0 { -(n % 1000) } else { n % 1000 }
-			let text = if len(texts) == 0 { "" } else { texts[i%len(texts)] }
+			let text = if texts.Len() == 0 { "" } else { texts[i%texts.Len()] }
 			let typed = key == "load" || key == "on" || key == "page" || key == "size"
 			let value = if !typed { text } else if m%7 == 6 { text + "x" } else if key == "on" { if m%2 == 0 { "true" } else { "false" } } else { strconv.Itoa(1000 + 13*m) }
 			pairs = pairs.Append(Field{Name: key, Value: value})
@@ -417,11 +419,11 @@ law QueryDecodesByTheRule(counts []int, numbers []int, texts []string) {
 	let got = DecodeQuery[queryProbe](ParseQuery(raw)) catch {
 	case QueryRepeated as q:
 		return want == "repeated "+q.Key
-	case WireWrongKind as w:
+	case codec.WireWrongKind as w:
 		return want == "wrong "+w.Path
-	case WireMissingField as f:
+	case codec.WireMissingField as f:
 		return want == "missing "+f.Field
-	case WireUnknownTag:
+	case codec.WireUnknownTag:
 		return false
 	}
 	want == "ok" && got == record
@@ -434,11 +436,11 @@ func queryVerdict(fields []Field) (string, queryProbe) {
 	let got = DecodeQuery[queryProbe](fields) catch {
 	case QueryRepeated as q:
 		return ("repeated " + q.Key, none)
-	case WireWrongKind as w:
+	case codec.WireWrongKind as w:
 		return ("wrong " + w.Path, none)
-	case WireMissingField as f:
+	case codec.WireMissingField as f:
 		return ("missing " + f.Field, none)
-	case WireUnknownTag:
+	case codec.WireUnknownTag:
 		return ("tag", none)
 	}
 	("ok", got)
@@ -450,11 +452,11 @@ func formVerdict(body string) (string, queryProbe) {
 	let got = DecodeForm[queryProbe](body) catch {
 	case QueryRepeated as q:
 		return ("repeated " + q.Key, none)
-	case WireWrongKind as w:
+	case codec.WireWrongKind as w:
 		return ("wrong " + w.Path, none)
-	case WireMissingField as f:
+	case codec.WireMissingField as f:
 		return ("missing " + f.Field, none)
-	case WireUnknownTag:
+	case codec.WireUnknownTag:
 		return ("tag", none)
 	}
 	("ok", got)
@@ -468,9 +470,9 @@ law FormIsQuery(counts []int, texts []string) {
 	let keys = []string{"tags", "page", "other key", "name", "on", "size", "load", "note"}
 	let mut fields = []Field{}
 	for j, key in keys {
-		let times = if j < len(counts) { ((counts[j] % 3) + 3) % 3 } else { 1 }
+		let times = if j < counts.Len() { ((counts[j] % 3) + 3) % 3 } else { 1 }
 		for t in 0..times {
-			let text = if len(texts) == 0 { "" } else { texts[(j+t)%len(texts)] }
+			let text = if texts.Len() == 0 { "" } else { texts[(j+t)%texts.Len()] }
 			let value = if key == "on" { "true" } else if key == "page" || key == "size" || key == "load" { strconv.Itoa(10*j + t) } else { text }
 			fields = fields.Append(Field{Name: key, Value: value})
 		}

@@ -33,7 +33,7 @@ func read(file string) string fails os.Exit needs fs.Files {
 }
 
 func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
-	if len(args) == 0 {
+	if args.Len() == 0 {
 		return os.Exit{Code: 2, Message: "usage: scandump [-n] FILE..."}
 	}
 	if args[0] == "-n" {
@@ -45,7 +45,7 @@ func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
 		for file in args[1:] {
 			let src = try read(file)
 			let s = syntax.Scan(src)
-			bytes = bytes + len(src)
+			bytes = bytes + src.Len()
 			toks = toks + syntax.NumToks(s.Toks)
 			comments = comments + syntax.NumComments(s.Comments)
 			lines = lines + syntax.NumLines(syntax.LinesOf(src))
@@ -53,7 +53,7 @@ func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
 				failed = failed + 1
 			}
 		}
-		io.Stdout.Println("files=\(len(args) - 1) bytes=\(bytes) tokens=\(toks) comments=\(comments) lines=\(lines) failed=\(failed)")
+		io.Stdout.Println("files=\(args.Len() - 1) bytes=\(bytes) tokens=\(toks) comments=\(comments) lines=\(lines) failed=\(failed)")
 		return
 	}
 	let mut b = strings.NewBuilder()
@@ -63,7 +63,7 @@ func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
 	io.Stdout.Print(b.String())
 }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), io.Stdout: io.NewHost() } {
 		try run(os.Process.Args())
 	}

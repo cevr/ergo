@@ -1,4 +1,7 @@
+import core
 import gen
+import option
+import scope
 import strings
 import sync
 
@@ -12,7 +15,7 @@ type FaultEvent { Op string, Failure string }
 type FaultOp[A, G] {
 	op     string,
 	faults []string,
-	draws  Context[gen.Draws],
+	draws  core.Context[gen.Draws],
 	log    sync.Ref[[]FaultEvent],
 }
 
@@ -22,7 +25,7 @@ func NewFaultOp[A, G](op string, faults []string) FaultOp[A, G] needs gen.Draws 
 	FaultOp[A, G]{
 		op:     op,
 		faults: faults,
-		draws:  InForce[gen.Draws](),
+		draws:  scope.InForce[gen.Draws](),
 		log:    sync.NewRef[[]FaultEvent]([]FaultEvent{}),
 	}
 }
@@ -37,38 +40,38 @@ func Draw[A, G](r FaultOp[A, G], n uint64) uint64 {
 
 // ChooseFault draws whether an operation with count declared failures passes
 // through (None on draw 0) or injects failure index 0..count-1.
-func ChooseFault(count int) Option[int] needs gen.Draws {
+func ChooseFault(count int) option.Option[int] needs gen.Draws {
 	if count <= 0 {
-		return None
+		return option.None
 	}
 	let k = gen.Below(uint64(count + 1))
 	if k == uint64(0) {
-		return None
+		return option.None
 	}
-	Some[int]{Value: int(k - uint64(1))}
+	option.Some[int]{Value: int(k - uint64(1))}
 }
 
 // Wrap runs one fault-injected operation call: draws pass-through or a
 // declared failure index, returning failWith(idx) before calling inner so an
 // injected failure leaves inner untouched.
 func Wrap[A, G, T, E](r FaultOp[A, G], inner func() T fails E, failWith func(idx int) T fails E) T fails E {
-	if len(r.faults) == 0 {
+	if r.faults.Len() == 0 {
 		return try inner()
 	}
 	let picked = with r.draws {
 		gen.Draws.Begin("fault." + r.op)
-		let res = ChooseFault(len(r.faults))
+		let res = ChooseFault(r.faults.Len())
 		match res {
-		case Some[int] as idx:
+		case option.Some[int] as idx:
 			let name = r.faults[idx.Value]
 			r.log.Update(func(xs []FaultEvent) []FaultEvent { xs.Append(FaultEvent{Op: r.op, Failure: name}) })
 			gen.Draws.Show("fault."+r.op, name)
-		case None:
+		case option.None:
 		}
 		res
 	}
 	match picked {
-	case Some[int] as idx:
+	case option.Some[int] as idx:
 		let res = failWith(idx.Value) catch {
 		case err:
 			with r.draws {
@@ -80,7 +83,7 @@ func Wrap[A, G, T, E](r FaultOp[A, G], inner func() T fails E, failWith func(idx
 			gen.Draws.End()
 		}
 		res
-	case None:
+	case option.None:
 		with r.draws {
 			gen.Draws.End()
 		}
@@ -96,7 +99,7 @@ func Faults[A, G](r FaultOp[A, G]) []FaultEvent {
 // FormatFaults formats a slice of FaultEvents as a concise comma-separated
 // summary naming each operation and injected failure.
 func FormatFaults(xs []FaultEvent) string {
-	if len(xs) == 0 {
+	if xs.Len() == 0 {
 		return "no faults"
 	}
 	let mut parts = []string{}
@@ -147,9 +150,9 @@ func Count(s memFaultStore) int {
 func Get(s memFaultStore, k string) int fails faultNotFound {
 	s.gets.Update(func(n int) int { n + 1 })
 	match s.items.Get().Get(k) {
-	case Some[int] as v:
+	case option.Some[int] as v:
 		v.Value
-	case None:
+	case option.None:
 		faultNotFound{Key: k}
 	}
 }
@@ -235,7 +238,7 @@ law FaultyZeroTapeMatchesInner(k string, val int) {
 			case _:
 				return false
 			}
-			v == val && faultStore.Count() == 1 && len(f.Put.Faults()) == 0 && len(f.Get.Faults()) == 0
+			v == val && faultStore.Count() == 1 && f.Put.Faults().Len() == 0 && f.Get.Faults().Len() == 0
 		}
 	})
 	!ran.Fails && inner.puts.Get() == 1 && inner.gets.Get() == 1
@@ -272,7 +275,7 @@ law FaultyNeverRunsInnerOnInjectedFault(seed int) {
 				getFailed = true
 				0
 			}
-			if getFailed && len(f.Get.Faults()) > 0 {
+			if getFailed && f.Get.Faults().Len() > 0 {
 				sawInjected.Set(true)
 				if inner.gets.Get() != beforeGet {
 					return false

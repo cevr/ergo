@@ -9,6 +9,7 @@ import compiler/check/store
 import compiler/check/task
 import compiler/check/types
 import fs
+import option
 import strconv
 import strings
 
@@ -27,7 +28,7 @@ func TablesOf(extText string, foreignText string) Tables {
 	let mut ext = []types.Ext{}
 	for line in strings.Split(extText, "\n") {
 		let parts = strings.Fields(line)
-		if len(parts) != 2 {
+		if parts.Len() != 2 {
 			continue
 		}
 		let mut ks = []int{}
@@ -41,12 +42,12 @@ func TablesOf(extText string, foreignText string) Tables {
 	let mut pkgPath = "main"
 	for line in strings.Split(foreignText, "\n") {
 		let parts = strings.Fields(line)
-		if len(parts) == 4 && parts[0] == "@pkg" {
+		if parts.Len() == 4 && parts[0] == "@pkg" {
 			pkgName = if parts[3] == "1" { parts[1] } else { "" }
 			pkgPath = parts[2]
 			continue
 		}
-		if len(parts) != 6 {
+		if parts.Len() != 6 {
 			continue
 		}
 		let n = strconv.Atoi(parts[2]) catch {
@@ -65,7 +66,7 @@ type Unit { Tab Tables, Files []bind.File, Paths []string, Path string, Dir stri
 // UnitOf is a package of the files at paths, parsed (files), with tables
 // tab; its import path is the tables' until the caller sets it.
 func UnitOf(tab Tables, files []bind.File, paths []string) Unit {
-	Unit{Tab: tab, Files: files, Paths: paths, Path: tab.PkgPath, Dir: if len(paths) > 0 { Dir(paths[0]) } else { "." }}
+	Unit{Tab: tab, Files: files, Paths: paths, Path: tab.PkgPath, Dir: if paths.Len() > 0 { Dir(paths[0]) } else { "." }}
 }
 
 // Outside is the interfaces of the packages the units import and do not
@@ -94,11 +95,11 @@ type Program { Loaded []expr.Dep, Units []int }
 // typer's result.
 type Typed { S store.Store, K expr.Pkg, T expr.Typer }
 
-func isSome[T](o Option[T]) bool {
+func isSome[T](o option.Option[T]) bool {
 	match o {
-	case Some[T]:
+	case option.Some[T]:
 		true
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -117,7 +118,7 @@ func LoadAll(units []Unit, have0 []types.Iface, threads int) Program {
 	let mut stores = []store.Store{}
 	let mut have = have0
 	let mut done = []bool{}
-	let mut ks = []Option[expr.Pkg]{}
+	let mut ks = []option.Option[expr.Pkg]{}
 	for i, c in checked {
 		// Its importers reach it by its path; its own types are named
 		// by the path its tables give (main for a checked root).
@@ -125,12 +126,12 @@ func LoadAll(units []Unit, have0 []types.Iface, threads int) Program {
 		store.SetPath(&s, units[i].Tab.PkgPath)
 		stores = stores.Append(s)
 		done = done.Append(false)
-		ks = ks.Append(None)
+		ks = ks.Append(option.None)
 	}
 	// A pass loads the units whose imports in the program are all
 	// loaded; when none is ready (an import cycle), the first one left
 	// loads against what is done.
-	let mut left = len(units)
+	let mut left = units.Len()
 	for left > 0 {
 		let mut progress = false
 		for pass in 0..2 {
@@ -165,7 +166,7 @@ func LoadAll(units []Unit, have0 []types.Iface, threads int) Program {
 				have = have.Append(types.Interface(at, k.Parsed, k.Kinds, k.Ext, units[i].Tab.Foreign, deps))
 				done[i] = true
 				stores[i] = s
-				ks[i] = Some[expr.Pkg]{Value: k}
+				ks[i] = option.Some[expr.Pkg]{Value: k}
 				left = left - 1
 				progress = true
 			}
@@ -175,10 +176,10 @@ func LoadAll(units []Unit, have0 []types.Iface, threads int) Program {
 	let mut of = []int{}
 	for i, c in checked {
 		match ks[i] {
-		case Some[expr.Pkg] as k:
+		case option.Some[expr.Pkg] as k:
 			loaded = loaded.Append(expr.Dep{Path: c.Path, S: stores[i], K: k.Value})
 			of = of.Append(i)
-		case None:
+		case option.None:
 		}
 	}
 	Program{Loaded: loaded, Units: of}

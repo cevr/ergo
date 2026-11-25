@@ -1,3 +1,5 @@
+import core
+import option
 import slices
 import strconv
 import strings
@@ -22,7 +24,7 @@ func OptionalInt(name string, usage string) OptionalIntFlag {
 	OptionalIntFlag{base: Int(name, 0, usage)}
 }
 
-func Repeated(f StringFlag) RepeatedStringFlag     { RepeatedStringFlag{base: f} }
+func Repeated(f StringFlag) RepeatedStringFlag { RepeatedStringFlag{base: f} }
 
 law RepeatedKeepsOrder(items []string) {
 	let mut args = []string{}
@@ -77,20 +79,20 @@ func cardinality(f Flag) int {
 	}
 }
 
-func Get(f OptionalStringFlag, v Values) Option[string] {
+func Get(f OptionalStringFlag, v Values) option.Option[string] {
 	let s = v.slots[heldFlag(f, v)]
 	if s.given == 0 {
-		return None
+		return option.None
 	}
-	Some[string]{Value: s.last.text}
+	option.Some[string]{Value: s.last.text}
 }
 
-func Get(f OptionalIntFlag, v Values) Option[int] {
+func Get(f OptionalIntFlag, v Values) option.Option[int] {
 	let s = v.slots[heldFlag(f, v)]
 	if s.given == 0 {
-		return None
+		return option.None
 	}
-	Some[int]{Value: s.last.n}
+	option.Some[int]{Value: s.last.n}
 }
 
 // items is every occurrence of a repeated f in v, in input order.
@@ -98,7 +100,7 @@ func items(f Flag, v Values) []item { v.slots[heldFlag(f, v)].all }
 
 func Get(f RepeatedStringFlag, v Values) []string {
 	let xs = items(f, v)
-	let mut out = slices.WithCapacity[string](len(xs))
+	let mut out = slices.WithCapacity[string](xs.Len())
 	for x in xs {
 		out = out.Append(x.text)
 	}
@@ -107,7 +109,7 @@ func Get(f RepeatedStringFlag, v Values) []string {
 
 func Get(f RepeatedChoiceFlag, v Values) []string {
 	let xs = items(f, v)
-	let mut out = slices.WithCapacity[string](len(xs))
+	let mut out = slices.WithCapacity[string](xs.Len())
 	for x in xs {
 		out = out.Append(x.text)
 	}
@@ -116,7 +118,7 @@ func Get(f RepeatedChoiceFlag, v Values) []string {
 
 func Get(f RepeatedIntFlag, v Values) []int {
 	let xs = items(f, v)
-	let mut out = slices.WithCapacity[int](len(xs))
+	let mut out = slices.WithCapacity[int](xs.Len())
 	for x in xs {
 		out = out.Append(x.n)
 	}
@@ -131,11 +133,11 @@ law RepeatedIntsKeepOrder(ns []int) {
 	let s = Set{Name: "law", Usage: "", Flags: []Flag{counts}, Args: []ArgSpec{}}
 	let mut args = []string{}
 	for i, n in ns {
-		let spelling = if i % 2 == 0 { "-c=" } else { "--count=" }
+		let spelling = if i%2 == 0 { "-c=" } else { "--count=" }
 		args = args.Append(spelling + strconv.Itoa(n))
 	}
 	let got = counts.Get(try Parse(s, args))
-	if len(got) != len(ns) {
+	if got.Len() != ns.Len() {
 		return false
 	}
 	for i, n in ns {
@@ -148,7 +150,7 @@ law RepeatedIntsKeepOrder(ns []int) {
 
 func Get(f RepeatedBoolFlag, v Values) []bool {
 	let xs = items(f, v)
-	let mut out = slices.WithCapacity[bool](len(xs))
+	let mut out = slices.WithCapacity[bool](xs.Len())
 	for x in xs {
 		out = out.Append(x.b)
 	}
@@ -157,7 +159,7 @@ func Get(f RepeatedBoolFlag, v Values) []bool {
 
 func Get(f RepeatedDurationFlag, v Values) []duration {
 	let xs = items(f, v)
-	let mut out = slices.WithCapacity[duration](len(xs))
+	let mut out = slices.WithCapacity[duration](xs.Len())
 	for x in xs {
 		out = out.Append(x.d)
 	}
@@ -172,7 +174,7 @@ law ShortNamesMatchASCII(suffix string) {
 		let raw = strings.FromBytes([]byte{byte(i)})
 		let want = strings.Contains(ascii, raw)
 		let name = ParseShortName(raw) catch {
-		case Unsatisfied:
+		case core.Unsatisfied:
 			if want {
 				return false
 			}
@@ -182,12 +184,12 @@ law ShortNamesMatchASCII(suffix string) {
 			return false
 		}
 	}
-	rejectsShortName("") && rejectsShortName("a-" + suffix)
+	rejectsShortName("") && rejectsShortName("a-"+suffix)
 }
 
 func rejectsShortName(raw string) bool {
 	let _ = ParseShortName(raw) catch {
-	case Unsatisfied:
+	case core.Unsatisfied:
 		return true
 	}
 	false
@@ -195,7 +197,7 @@ func rejectsShortName(raw string) bool {
 
 // ShortName is one ASCII letter or digit. ParseShortName validates a
 // computed string; a literal is checked at compile time.
-type ShortName string where len(it) == 1 && matches(it, `[0-9A-Za-z]`)
+type ShortName string where it.Len() == 1 && matches(it, `[0-9A-Za-z]`)
 
 // WithAlias replaces the previous alias with a checked short name.
 func WithAlias(f StringFlag, a ShortName) StringFlag                     { StringFlag{..f, alias: string(a)} }
@@ -249,7 +251,7 @@ func stored(f Flag, v Values) []value {
 		return []value{}
 	}
 	if cardinality(f) == 2 {
-		let mut out = slices.WithCapacity[value](len(s.all))
+		let mut out = slices.WithCapacity[value](s.all.Len())
 		for x in s.all {
 			out = out.Append(valueOf(f, x))
 		}

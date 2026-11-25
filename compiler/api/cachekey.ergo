@@ -8,7 +8,7 @@ import compiler/cachekey
 // KeyFields is cachekey.Fields of names[i], values[i] pairs, or "" when
 // the two lists differ in length.
 func KeyFields(names []string, values []string) string {
-	if len(names) != len(values) {
+	if names.Len() != values.Len() {
 		return ""
 	}
 	let mut fs = []cachekey.Field{}
@@ -44,7 +44,7 @@ func KeyWarm(compiler string, parts []string, environ []string, experiments []st
 // KeyListing is cachekey.ListingDigest of names[i], types[i] entries, or
 // "" when the two lists differ in length.
 func KeyListing(names []string, types []int) string {
-	if len(names) != len(types) {
+	if names.Len() != types.Len() {
 		return ""
 	}
 	let mut es = []cachekey.Entry{}

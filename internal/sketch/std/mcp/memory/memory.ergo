@@ -2,8 +2,10 @@
 // client's messages are given at the start, and what the server sends is
 // kept for the test to read.
 
+import core
 import json
 import mcp
+import option
 import strings
 import sync
 
@@ -17,9 +19,9 @@ func New(input []string) Transport { Transport{Input: input, sent: sync.NewRef([
 let withMessages = context { mcp.Transport: New([]string{"first", "second"}) }
 
 // Messages is Input, in order.
-func Messages(t Transport) Seq[string] {
+func Messages(t Transport) core.Seq[string] {
 	let input = t.Input
-	Seq[string](func(yield func(v string) bool) {
+	core.Seq[string](func(yield func(v string) bool) {
 		for m in input {
 			if !yield(m) {
 				return
@@ -53,13 +55,13 @@ func add() mcp.Tool {
 // integer is the integer key of arguments.
 func integer(arguments json.Value, key string) int64 fails mcp.ToolError {
 	match mcp.Field(arguments, key) {
-	case Some[json.Value] as v:
+	case option.Some[json.Value] as v:
 		let n = json.Decode(json.Codec[int64]{MaxBytes: 0, MaxDepth: 0}, json.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, v.Value)) catch {
 		case _:
 			return mcp.ToolError{Message: "\(key) is not an integer"}
 		}
 		n
-	case None:
+	case option.None:
 		mcp.ToolError{Message: "\(key) is missing"}
 	}
 }
@@ -90,11 +92,11 @@ law CallAnswersOnce(kinds []int) {
 		}
 	}
 	let t = New(input)
-	if mcp.Serve(calc, t) != len(kinds) {
+	if mcp.Serve(calc, t) != kinds.Len() {
 		return false
 	}
 	let sent = t.Sent()
-	if len(sent) != len(ids) {
+	if sent.Len() != ids.Len() {
 		return false
 	}
 	for i, line in sent {
