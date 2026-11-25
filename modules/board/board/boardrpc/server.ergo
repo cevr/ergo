@@ -1,0 +1,663 @@
+import api
+import rpc
+import github.com/cevr/ergo/modules/board/board
+import github.com/cevr/ergo/modules/board/board/boardapi
+
+// Handle runs one call of board.Api on the provider the caller binds,
+// through the hub's Call: tag names the operation and payload is its
+// Request's JSON. Its value is the result's JSON; a typed failure is
+// Failed with the failure's tagged JSON. A request the contract does not
+// hold and an int the wire cannot carry are defects, which the server
+// answers as Die.
+func Handle(tag string, payload string) string fails rpc.Failed needs board.Api {
+	try handle(tag, payload, boardapi.Call)
+}
+
+func handle[R](tag string, payload string, answer func(r Request) boardapi.Outcome needs R) string fails rpc.Failed needs R {
+	let req = rpc.Decode[Request]("request", rpc.Tagged(tag+"Request", payload)) catch {
+	case rpc.Transport as t:
+		return rpc.Die[string]("RpcError", t.Reason)
+	}
+	match req {
+	case ReadRequest as r:
+		exactReadRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case SearchRequest as r:
+		exactSearchRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case EditRequest as r:
+		exactEditRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case DeleteRequest as r:
+		exactDeleteRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case AskRequest as r:
+		exactAskRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case TasksListRequest as r:
+		exactTasksListRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case TasksCreateRequest as r:
+		exactTasksCreateRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case TasksClaimRequest as r:
+		exactTasksClaimRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case TasksRenewRequest as r:
+		exactTasksRenewRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case TasksReleaseRequest as r:
+		exactTasksReleaseRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case TasksCompleteRequest as r:
+		exactTasksCompleteRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case TasksFailRequest as r:
+		exactTasksFailRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case TasksBlockRequest as r:
+		exactTasksBlockRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case _:
+	}
+	match answer(req) {
+	case boardapi.Done as done:
+		match done.Reply {
+		case boardapi.WhoamiReply as reply:
+			let v = reply.Value
+			rpc.Encode(v)
+		case boardapi.BoardsReply as reply:
+			let v = reply.Value
+			exactSliceBoardBoardSummary(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case boardapi.ChannelsReply as reply:
+			let v = reply.Value
+			exactSliceBoardChannelSummary(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case boardapi.ChannelCreateReply as reply:
+			let v = reply.Value
+			rpc.Encode(v)
+		case boardapi.ActorsReply as reply:
+			let v = reply.Value
+			rpc.Encode(v)
+		case boardapi.ReadReply as reply:
+			let v = reply.Value
+			exactBoardReadReply(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case boardapi.SearchReply as reply:
+			let v = reply.Value
+			exactBoardSearchReply(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case boardapi.PostReply as reply:
+			let v = reply.Value
+			exactBoardPostReply(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case boardapi.ThreadReplyReply as reply:
+			let v = reply.Value
+			exactBoardPostReply(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case boardapi.EditReply as reply:
+			let v = reply.Value
+			exactBoardRevisionReply(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case boardapi.DeleteReply as reply:
+			let v = reply.Value
+			exactBoardRevisionReply(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case boardapi.ReactReply as reply:
+			let v = reply.Value
+			rpc.Encode(v)
+		case boardapi.LabelReply as reply:
+			let v = reply.Value
+			rpc.Encode(v)
+		case boardapi.AskReply as reply:
+			let v = reply.Value
+			exactBoardAskReply(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case boardapi.AskWithdrawReply as reply:
+			let v = reply.Value
+			rpc.Encode(v)
+		case boardapi.TasksListReply as reply:
+			let v = reply.Value
+			exactBoardTasksListReply(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case boardapi.TasksCreateReply as reply:
+			let v = reply.Value
+			exactBoardTaskCreateReply(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case boardapi.TasksPlanReply as reply:
+			let v = reply.Value
+			exactBoardTasksPlanReply(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case boardapi.TasksClaimReply as reply:
+			let v = reply.Value
+			exactBoardTaskClaimReply(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case boardapi.TasksRenewReply as reply:
+			let v = reply.Value
+			exactBoardTaskRenewReply(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case boardapi.TasksReleaseReply as reply:
+			let v = reply.Value
+			rpc.Encode(v)
+		case boardapi.TasksCompleteReply as reply:
+			let v = reply.Value
+			rpc.Encode(v)
+		case boardapi.TasksFailReply as reply:
+			let v = reply.Value
+			rpc.Encode(v)
+		case boardapi.TasksBlockReply as reply:
+			let v = reply.Value
+			rpc.Encode(v)
+		case boardapi.TasksUnblockReply as reply:
+			let v = reply.Value
+			rpc.Encode(v)
+		case boardapi.TasksReopenReply as reply:
+			let v = reply.Value
+			rpc.Encode(v)
+		case boardapi.TasksAssignReply as reply:
+			let v = reply.Value
+			rpc.Encode(v)
+		case boardapi.TasksNeedsReply as reply:
+			let v = reply.Value
+			rpc.Encode(v)
+		case boardapi.TasksCancelReply as reply:
+			let v = reply.Value
+			rpc.Encode(v)
+		case boardapi.GrantsReply as reply:
+			let v = reply.Value
+			exactSliceBoardGrant(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case boardapi.GrantExplainReply as reply:
+			let v = reply.Value
+			rpc.Encode(v)
+		case boardapi.GrantCreateReply as reply:
+			let v = reply.Value
+			exactBoardGrant(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case boardapi.GrantRevokeReply as reply:
+			let v = reply.Value
+			rpc.Encode(v)
+		case boardapi.BoardCreateReply as reply:
+			let v = reply.Value
+			exactBoardBoardSummary(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case boardapi.BoardRenameReply as reply:
+			let v = reply.Value
+			exactBoardBoardSummary(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case boardapi.BoardArchiveReply as reply:
+			let v = reply.Value
+			exactBoardBoardSummary(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case boardapi.TrustUpdateReply as reply:
+			let v = reply.Value
+			rpc.Encode(v)
+		}
+	case boardapi.Rejected as rejected:
+		match rejected.Failure {
+		case boardapi.Unauthenticated as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("Unauthenticated", rpc.Encode(e))}
+		case boardapi.Gone as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("Gone", rpc.Encode(e))}
+		case boardapi.BoardNotFound as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("BoardNotFound", rpc.Encode(e))}
+		case boardapi.StoreFailed as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("StoreFailed", rpc.Encode(e))}
+		case boardapi.Forbidden as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("Forbidden", rpc.Encode(e))}
+		case boardapi.Invalid as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("Invalid", rpc.Encode(e))}
+		case boardapi.ChannelExists as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("ChannelExists", rpc.Encode(e))}
+		case boardapi.ChannelGranted as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("ChannelGranted", rpc.Encode(e))}
+		case boardapi.BoardArchived as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("BoardArchived", rpc.Encode(e))}
+		case boardapi.NotFound as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("NotFound", rpc.Encode(e))}
+		case boardapi.TooLarge as failure:
+			let e = failure.E
+			exactBoardTooLarge(e) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			return rpc.Failed{Text: rpc.Tagged("TooLarge", rpc.Encode(e))}
+		case boardapi.SecretDetected as failure:
+			let e = failure.E
+			exactBoardSecretDetected(e) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			return rpc.Failed{Text: rpc.Tagged("SecretDetected", rpc.Encode(e))}
+		case boardapi.IdempotencyConflict as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("IdempotencyConflict", rpc.Encode(e))}
+		case boardapi.ReservedLabel as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("ReservedLabel", rpc.Encode(e))}
+		case boardapi.NewerMessage as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("NewerMessage", rpc.Encode(e))}
+		case boardapi.NotAuthor as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("NotAuthor", rpc.Encode(e))}
+		case boardapi.RevisionConflict as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("RevisionConflict", rpc.Encode(e))}
+		case boardapi.LabelConflict as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("LabelConflict", rpc.Encode(e))}
+		case boardapi.NotAsker as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("NotAsker", rpc.Encode(e))}
+		case boardapi.AskClosed as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("AskClosed", rpc.Encode(e))}
+		case boardapi.AlreadyTask as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("AlreadyTask", rpc.Encode(e))}
+		case boardapi.InvalidNeeds as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("InvalidNeeds", rpc.Encode(e))}
+		case boardapi.TaskOwnerUntrusted as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("TaskOwnerUntrusted", rpc.Encode(e))}
+		case boardapi.PlanTooLarge as failure:
+			let e = failure.E
+			exactBoardPlanTooLarge(e) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			return rpc.Failed{Text: rpc.Tagged("PlanTooLarge", rpc.Encode(e))}
+		case boardapi.TaskClaimedRefusal as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("TaskClaimedRefusal", rpc.Encode(e))}
+		case boardapi.TaskAssignedRefusal as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("TaskAssignedRefusal", rpc.Encode(e))}
+		case boardapi.TaskWaitingRefusal as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("TaskWaitingRefusal", rpc.Encode(e))}
+		case boardapi.TaskBlockedRefusal as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("TaskBlockedRefusal", rpc.Encode(e))}
+		case boardapi.TaskFinished as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("TaskFinished", rpc.Encode(e))}
+		case boardapi.NothingReady as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("NothingReady", rpc.Encode(e))}
+		case boardapi.ClaimLost as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("ClaimLost", rpc.Encode(e))}
+		case boardapi.TaskNotOwned as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("TaskNotOwned", rpc.Encode(e))}
+		case boardapi.NotBlocked as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("NotBlocked", rpc.Encode(e))}
+		case boardapi.NotFailed as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("NotFailed", rpc.Encode(e))}
+		case boardapi.BoardNameTaken as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("BoardNameTaken", rpc.Encode(e))}
+		}
+	}
+}
+
+func carry(c Request, answer own func(c Request) boardapi.Outcome) boardapi.Outcome {
+	let client = NewClient(rpc.Loopback(func(tag string, payload string) string fails rpc.Failed {
+		try handle(tag, payload, answer)
+	}))
+	with context { board.Api: client } { boardapi.Call(c) }
+}
+
+// Wire is Effect RPC as a transport of the hub's calls.
+type Wire {} implements api.Transport[Request, boardapi.Outcome]
+
+// Carry is carry.
+func Carry(w Wire, c Request, answer own func(c Request) boardapi.Outcome) boardapi.Outcome { carry(c, answer) }
+
+// Fits reports whether r and o hold only ints the wire carries exactly
+// (an int beyond 2^53-1 is Unrepresentable, a defect on either side).
+func Fits(r Request, o boardapi.Outcome) bool {
+	match r {
+	case boardapi.ReadRequest as x:
+		exactReadRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case boardapi.SearchRequest as x:
+		exactSearchRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case boardapi.EditRequest as x:
+		exactEditRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case boardapi.DeleteRequest as x:
+		exactDeleteRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case boardapi.AskRequest as x:
+		exactAskRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case boardapi.TasksListRequest as x:
+		exactTasksListRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case boardapi.TasksCreateRequest as x:
+		exactTasksCreateRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case boardapi.TasksClaimRequest as x:
+		exactTasksClaimRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case boardapi.TasksRenewRequest as x:
+		exactTasksRenewRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case boardapi.TasksReleaseRequest as x:
+		exactTasksReleaseRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case boardapi.TasksCompleteRequest as x:
+		exactTasksCompleteRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case boardapi.TasksFailRequest as x:
+		exactTasksFailRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case boardapi.TasksBlockRequest as x:
+		exactTasksBlockRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case _:
+	}
+	match o {
+	case boardapi.Done as done:
+		match done.Reply {
+		case boardapi.WhoamiReply:
+		case boardapi.BoardsReply as reply:
+			exactSliceBoardBoardSummary(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case boardapi.ChannelsReply as reply:
+			exactSliceBoardChannelSummary(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case boardapi.ChannelCreateReply:
+		case boardapi.ActorsReply:
+		case boardapi.ReadReply as reply:
+			exactBoardReadReply(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case boardapi.SearchReply as reply:
+			exactBoardSearchReply(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case boardapi.PostReply as reply:
+			exactBoardPostReply(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case boardapi.ThreadReplyReply as reply:
+			exactBoardPostReply(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case boardapi.EditReply as reply:
+			exactBoardRevisionReply(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case boardapi.DeleteReply as reply:
+			exactBoardRevisionReply(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case boardapi.ReactReply:
+		case boardapi.LabelReply:
+		case boardapi.AskReply as reply:
+			exactBoardAskReply(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case boardapi.AskWithdrawReply:
+		case boardapi.TasksListReply as reply:
+			exactBoardTasksListReply(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case boardapi.TasksCreateReply as reply:
+			exactBoardTaskCreateReply(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case boardapi.TasksPlanReply as reply:
+			exactBoardTasksPlanReply(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case boardapi.TasksClaimReply as reply:
+			exactBoardTaskClaimReply(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case boardapi.TasksRenewReply as reply:
+			exactBoardTaskRenewReply(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case boardapi.TasksReleaseReply:
+		case boardapi.TasksCompleteReply:
+		case boardapi.TasksFailReply:
+		case boardapi.TasksBlockReply:
+		case boardapi.TasksUnblockReply:
+		case boardapi.TasksReopenReply:
+		case boardapi.TasksAssignReply:
+		case boardapi.TasksNeedsReply:
+		case boardapi.TasksCancelReply:
+		case boardapi.GrantsReply as reply:
+			exactSliceBoardGrant(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case boardapi.GrantExplainReply:
+		case boardapi.GrantCreateReply as reply:
+			exactBoardGrant(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case boardapi.GrantRevokeReply:
+		case boardapi.BoardCreateReply as reply:
+			exactBoardBoardSummary(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case boardapi.BoardRenameReply as reply:
+			exactBoardBoardSummary(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case boardapi.BoardArchiveReply as reply:
+			exactBoardBoardSummary(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case boardapi.TrustUpdateReply:
+		}
+	case boardapi.Rejected as rejected:
+		match rejected.Failure {
+		case boardapi.Unauthenticated:
+		case boardapi.Gone:
+		case boardapi.BoardNotFound:
+		case boardapi.StoreFailed:
+		case boardapi.Forbidden:
+		case boardapi.Invalid:
+		case boardapi.ChannelExists:
+		case boardapi.ChannelGranted:
+		case boardapi.BoardArchived:
+		case boardapi.NotFound:
+		case boardapi.TooLarge as failure:
+			exactBoardTooLarge(failure.E) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case boardapi.SecretDetected as failure:
+			exactBoardSecretDetected(failure.E) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case boardapi.IdempotencyConflict:
+		case boardapi.ReservedLabel:
+		case boardapi.NewerMessage:
+		case boardapi.NotAuthor:
+		case boardapi.RevisionConflict:
+		case boardapi.LabelConflict:
+		case boardapi.NotAsker:
+		case boardapi.AskClosed:
+		case boardapi.AlreadyTask:
+		case boardapi.InvalidNeeds:
+		case boardapi.TaskOwnerUntrusted:
+		case boardapi.PlanTooLarge as failure:
+			exactBoardPlanTooLarge(failure.E) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case boardapi.TaskClaimedRefusal:
+		case boardapi.TaskAssignedRefusal:
+		case boardapi.TaskWaitingRefusal:
+		case boardapi.TaskBlockedRefusal:
+		case boardapi.TaskFinished:
+		case boardapi.NothingReady:
+		case boardapi.ClaimLost:
+		case boardapi.TaskNotOwned:
+		case boardapi.NotBlocked:
+		case boardapi.NotFailed:
+		case boardapi.BoardNameTaken:
+		}
+	}
+	true
+}
+
+// Agrees: the wire carries every call and every outcome the call can
+// have unchanged, when they hold only ints it carries exactly (Fits).
+law Agrees(r Request, g boardapi.Given) {
+	let o = boardapi.OutcomeOf(r, g)
+	!Fits(r, o) || api.Agrees(Wire, r, o)
+}

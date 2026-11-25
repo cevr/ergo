@@ -1,0 +1,606 @@
+import rpc
+import github.com/cevr/ergo/modules/board/board
+import github.com/cevr/ergo/modules/board/board/boardapi
+
+// Request is one call of board.Api: the hub's Request, a variant per
+// operation whose fields are the operation's parameters, so its payload is
+// the variant's JSON. Each variant is named here too.
+type Request = boardapi.Request
+
+type WhoamiRequest = boardapi.WhoamiRequest
+
+type BoardsRequest = boardapi.BoardsRequest
+
+type ChannelsRequest = boardapi.ChannelsRequest
+
+type ChannelCreateRequest = boardapi.ChannelCreateRequest
+
+type ActorsRequest = boardapi.ActorsRequest
+
+type ReadRequest = boardapi.ReadRequest
+
+type SearchRequest = boardapi.SearchRequest
+
+type PostRequest = boardapi.PostRequest
+
+type ThreadReplyRequest = boardapi.ThreadReplyRequest
+
+type EditRequest = boardapi.EditRequest
+
+type DeleteRequest = boardapi.DeleteRequest
+
+type ReactRequest = boardapi.ReactRequest
+
+type LabelRequest = boardapi.LabelRequest
+
+type AskRequest = boardapi.AskRequest
+
+type AskWithdrawRequest = boardapi.AskWithdrawRequest
+
+type TasksListRequest = boardapi.TasksListRequest
+
+type TasksCreateRequest = boardapi.TasksCreateRequest
+
+type TasksPlanRequest = boardapi.TasksPlanRequest
+
+type TasksClaimRequest = boardapi.TasksClaimRequest
+
+type TasksRenewRequest = boardapi.TasksRenewRequest
+
+type TasksReleaseRequest = boardapi.TasksReleaseRequest
+
+type TasksCompleteRequest = boardapi.TasksCompleteRequest
+
+type TasksFailRequest = boardapi.TasksFailRequest
+
+type TasksBlockRequest = boardapi.TasksBlockRequest
+
+type TasksUnblockRequest = boardapi.TasksUnblockRequest
+
+type TasksReopenRequest = boardapi.TasksReopenRequest
+
+type TasksAssignRequest = boardapi.TasksAssignRequest
+
+type TasksNeedsRequest = boardapi.TasksNeedsRequest
+
+type TasksCancelRequest = boardapi.TasksCancelRequest
+
+type GrantsRequest = boardapi.GrantsRequest
+
+type GrantExplainRequest = boardapi.GrantExplainRequest
+
+type GrantCreateRequest = boardapi.GrantCreateRequest
+
+type GrantRevokeRequest = boardapi.GrantRevokeRequest
+
+type BoardCreateRequest = boardapi.BoardCreateRequest
+
+type BoardRenameRequest = boardapi.BoardRenameRequest
+
+type BoardArchiveRequest = boardapi.BoardArchiveRequest
+
+type TrustUpdateRequest = boardapi.TrustUpdateRequest
+
+func exactReadRequest(v ReadRequest) fails rpc.Unrepresentable {
+	exactBoardReadInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactSearchRequest(v SearchRequest) fails rpc.Unrepresentable {
+	exactBoardSearchInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactEditRequest(v EditRequest) fails rpc.Unrepresentable {
+	exactBoardEditInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactDeleteRequest(v DeleteRequest) fails rpc.Unrepresentable {
+	exactBoardDeleteInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactAskRequest(v AskRequest) fails rpc.Unrepresentable {
+	exactBoardAskInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactTasksListRequest(v TasksListRequest) fails rpc.Unrepresentable {
+	exactBoardTasksListInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactTasksCreateRequest(v TasksCreateRequest) fails rpc.Unrepresentable {
+	exactBoardTasksCreateInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactTasksClaimRequest(v TasksClaimRequest) fails rpc.Unrepresentable {
+	exactBoardTasksClaimInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactTasksRenewRequest(v TasksRenewRequest) fails rpc.Unrepresentable {
+	exactBoardTasksRenewInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactTasksReleaseRequest(v TasksReleaseRequest) fails rpc.Unrepresentable {
+	exactBoardTasksReleaseInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactTasksCompleteRequest(v TasksCompleteRequest) fails rpc.Unrepresentable {
+	exactBoardTasksCompleteInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactTasksFailRequest(v TasksFailRequest) fails rpc.Unrepresentable {
+	exactBoardTasksFailInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactTasksBlockRequest(v TasksBlockRequest) fails rpc.Unrepresentable {
+	exactBoardTasksBlockInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactBoardReadInput(v board.ReadInput) fails rpc.Unrepresentable {
+	exactOptionInt(v.After) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("after", u)
+	}
+	exactOptionInt(v.Limit) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("limit", u)
+	}
+}
+
+func exactOptionInt(v Option[int]) fails rpc.Unrepresentable {
+	match v {
+	case Some[int] as x:
+		exactInt(x.Value) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Under("value", u)
+		}
+	case None:
+	}
+}
+
+func exactInt(v int) fails rpc.Unrepresentable {
+	try rpc.Exact("", int64(v))
+}
+
+func exactBoardSearchInput(v board.SearchInput) fails rpc.Unrepresentable {
+	exactOptionInt(v.Limit) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("limit", u)
+	}
+}
+
+func exactBoardEditInput(v board.EditInput) fails rpc.Unrepresentable {
+	exactOptionInt(v.IfRevision) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("ifRevision", u)
+	}
+}
+
+func exactBoardDeleteInput(v board.DeleteInput) fails rpc.Unrepresentable {
+	exactOptionInt(v.IfRevision) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("ifRevision", u)
+	}
+}
+
+func exactBoardAskInput(v board.AskInput) fails rpc.Unrepresentable {
+	exactOptionInt(v.ExpiresInMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("expiresInMs", u)
+	}
+}
+
+func exactBoardTasksListInput(v board.TasksListInput) fails rpc.Unrepresentable {
+	exactOptionInt(v.Limit) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("limit", u)
+	}
+}
+
+func exactBoardTasksCreateInput(v board.TasksCreateInput) fails rpc.Unrepresentable {
+	exactOptionInt(v.LeaseMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("leaseMs", u)
+	}
+}
+
+func exactBoardTasksClaimInput(v board.TasksClaimInput) fails rpc.Unrepresentable {
+	exactOptionInt(v.LeaseMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("leaseMs", u)
+	}
+}
+
+func exactBoardTasksRenewInput(v board.TasksRenewInput) fails rpc.Unrepresentable {
+	exactInt(v.Token) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("token", u)
+	}
+	exactOptionInt(v.LeaseMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("leaseMs", u)
+	}
+}
+
+func exactBoardTasksReleaseInput(v board.TasksReleaseInput) fails rpc.Unrepresentable {
+	exactInt(v.Token) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("token", u)
+	}
+}
+
+func exactBoardTasksCompleteInput(v board.TasksCompleteInput) fails rpc.Unrepresentable {
+	exactInt(v.Token) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("token", u)
+	}
+}
+
+func exactBoardTasksFailInput(v board.TasksFailInput) fails rpc.Unrepresentable {
+	exactInt(v.Token) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("token", u)
+	}
+}
+
+func exactBoardTasksBlockInput(v board.TasksBlockInput) fails rpc.Unrepresentable {
+	exactOptionInt(v.Token) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("token", u)
+	}
+}
+
+func exactSliceBoardBoardSummary(v []board.BoardSummary) fails rpc.Unrepresentable {
+	for i, x in v {
+		exactBoardBoardSummary(x) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Under("\(i)", u)
+		}
+	}
+}
+
+func exactBoardBoardSummary(v board.BoardSummary) fails rpc.Unrepresentable {
+	exactInt(v.Head) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("head", u)
+	}
+}
+
+func exactSliceBoardChannelSummary(v []board.ChannelSummary) fails rpc.Unrepresentable {
+	for i, x in v {
+		exactBoardChannelSummary(x) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Under("\(i)", u)
+		}
+	}
+}
+
+func exactBoardChannelSummary(v board.ChannelSummary) fails rpc.Unrepresentable {
+	exactInt(v.Threads) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("threads", u)
+	}
+	exactInt(v.LastAt) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("lastAt", u)
+	}
+}
+
+func exactBoardReadReply(v board.ReadReply) fails rpc.Unrepresentable {
+	exactInt(v.Cursor) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("cursor", u)
+	}
+	exactSliceBoardThreadSummary(v.Threads) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("threads", u)
+	}
+	exactOptionBoardMessageView(v.Message) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("message", u)
+	}
+	exactSliceBoardMessageView(v.Replies) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("replies", u)
+	}
+	exactOptionBoardTaskView(v.Task) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("task", u)
+	}
+	exactOptionBoardAskView(v.Ask) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("ask", u)
+	}
+}
+
+func exactSliceBoardThreadSummary(v []board.ThreadSummary) fails rpc.Unrepresentable {
+	for i, x in v {
+		exactBoardThreadSummary(x) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Under("\(i)", u)
+		}
+	}
+}
+
+func exactBoardThreadSummary(v board.ThreadSummary) fails rpc.Unrepresentable {
+	exactBoardMessageView(v.Message) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("message", u)
+	}
+	exactInt(v.Replies) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("replies", u)
+	}
+	exactInt(v.LastAt) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("lastAt", u)
+	}
+}
+
+func exactBoardMessageView(v board.MessageView) fails rpc.Unrepresentable {
+	exactInt(v.Revision) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("revision", u)
+	}
+	exactInt(v.CreatedAt) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("createdAt", u)
+	}
+	exactInt(v.EditedAt) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("editedAt", u)
+	}
+}
+
+func exactOptionBoardMessageView(v Option[board.MessageView]) fails rpc.Unrepresentable {
+	match v {
+	case Some[board.MessageView] as x:
+		exactBoardMessageView(x.Value) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Under("value", u)
+		}
+	case None:
+	}
+}
+
+func exactSliceBoardMessageView(v []board.MessageView) fails rpc.Unrepresentable {
+	for i, x in v {
+		exactBoardMessageView(x) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Under("\(i)", u)
+		}
+	}
+}
+
+func exactOptionBoardTaskView(v Option[board.TaskView]) fails rpc.Unrepresentable {
+	match v {
+	case Some[board.TaskView] as x:
+		exactBoardTaskView(x.Value) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Under("value", u)
+		}
+	case None:
+	}
+}
+
+func exactBoardTaskView(v board.TaskView) fails rpc.Unrepresentable {
+	exactInt(v.Epoch) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("epoch", u)
+	}
+	exactInt(v.LeaseUntil) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("leaseUntil", u)
+	}
+	exactInt(v.CreatedAt) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("createdAt", u)
+	}
+	exactInt(v.ReadyAt) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("readyAt", u)
+	}
+}
+
+func exactOptionBoardAskView(v Option[board.AskView]) fails rpc.Unrepresentable {
+	match v {
+	case Some[board.AskView] as x:
+		exactBoardAskView(x.Value) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Under("value", u)
+		}
+	case None:
+	}
+}
+
+func exactBoardAskView(v board.AskView) fails rpc.Unrepresentable {
+	exactInt(v.ExpiresAt) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("expiresAt", u)
+	}
+}
+
+func exactBoardSearchReply(v board.SearchReply) fails rpc.Unrepresentable {
+	exactInt(v.Cursor) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("cursor", u)
+	}
+	exactSliceBoardSearchHitView(v.Hits) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("hits", u)
+	}
+}
+
+func exactSliceBoardSearchHitView(v []board.SearchHitView) fails rpc.Unrepresentable {
+	for i, x in v {
+		exactBoardSearchHitView(x) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Under("\(i)", u)
+		}
+	}
+}
+
+func exactBoardSearchHitView(v board.SearchHitView) fails rpc.Unrepresentable {
+	exactBoardMessageView(v.Message) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("message", u)
+	}
+}
+
+func exactBoardPostReply(v board.PostReply) fails rpc.Unrepresentable {
+	exactInt(v.Cursor) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("cursor", u)
+	}
+}
+
+func exactBoardTooLarge(v board.TooLarge) fails rpc.Unrepresentable {
+	exactInt(v.Limit) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("limit", u)
+	}
+}
+
+func exactBoardSecretDetected(v board.SecretDetected) fails rpc.Unrepresentable {
+	exactInt(v.At) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("at", u)
+	}
+}
+
+func exactBoardRevisionReply(v board.RevisionReply) fails rpc.Unrepresentable {
+	exactInt(v.Revision) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("revision", u)
+	}
+}
+
+func exactBoardAskReply(v board.AskReply) fails rpc.Unrepresentable {
+	exactInt(v.Cursor) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("cursor", u)
+	}
+}
+
+func exactBoardTasksListReply(v board.TasksListReply) fails rpc.Unrepresentable {
+	exactInt(v.Cursor) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("cursor", u)
+	}
+	exactSliceBoardTaskView(v.Tasks) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("tasks", u)
+	}
+}
+
+func exactSliceBoardTaskView(v []board.TaskView) fails rpc.Unrepresentable {
+	for i, x in v {
+		exactBoardTaskView(x) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Under("\(i)", u)
+		}
+	}
+}
+
+func exactBoardTaskCreateReply(v board.TaskCreateReply) fails rpc.Unrepresentable {
+	exactInt(v.Token) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("token", u)
+	}
+	exactInt(v.LeaseUntil) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("leaseUntil", u)
+	}
+}
+
+func exactBoardTasksPlanReply(v board.TasksPlanReply) fails rpc.Unrepresentable {
+	exactInt(v.Cursor) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("cursor", u)
+	}
+}
+
+func exactBoardPlanTooLarge(v board.PlanTooLarge) fails rpc.Unrepresentable {
+	exactInt(v.Limit) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("limit", u)
+	}
+}
+
+func exactBoardTaskClaimReply(v board.TaskClaimReply) fails rpc.Unrepresentable {
+	exactBoardTaskView(v.Task) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("task", u)
+	}
+	exactInt(v.Token) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("token", u)
+	}
+	exactInt(v.LeaseUntil) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("leaseUntil", u)
+	}
+}
+
+func exactBoardTaskRenewReply(v board.TaskRenewReply) fails rpc.Unrepresentable {
+	exactInt(v.LeaseUntil) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("leaseUntil", u)
+	}
+}
+
+func exactSliceBoardGrant(v []board.Grant) fails rpc.Unrepresentable {
+	for i, x in v {
+		exactBoardGrant(x) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Under("\(i)", u)
+		}
+	}
+}
+
+func exactBoardGrant(v board.Grant) fails rpc.Unrepresentable {
+	exactInt(v.CreatedAt) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("createdAt", u)
+	}
+	exactInt(v.Revision) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("revision", u)
+	}
+}

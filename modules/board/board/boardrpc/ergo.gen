@@ -1,0 +1,5 @@
+kind rpc
+generator ergo gen rpc
+subject github.com/cevr/ergo/modules/board/board.Api
+contract sha256:395ff8899d0b7e5fe5e5e3fe50d2e38f8e891dcbac963dd3aa4595b31171c2de
+digest sha256:b560b5538adc6c08b87a7252e85f93044604e980c2c835d1b7eef0938a2ae217

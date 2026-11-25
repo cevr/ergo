@@ -304,6 +304,86 @@
       "killers": [
         "modules/board:TestStorageImportBoundary"
       ]
+    },
+    {
+      "name": "board-api-skips-data-sentence-check",
+      "origin": "BOARD-5",
+      "file": "modules/board/surfaces/surfaces.ergo",
+      "from": "\t\tif !strings.HasSuffix(d, board.DataNotice) {\n",
+      "to": "\t\tif false && !strings.HasSuffix(d, board.DataNotice) {\n",
+      "rule": "CheckToolDescriptions requires every generated MCP tool description to end with the mandatory spec section 5.1 data sentence.",
+      "anchor": {
+        "tests": [
+          "modules/board/surfaces:TestMcpToolDescriptionsEndWithDataSentence"
+        ]
+      },
+      "killers": [
+        "modules/board/surfaces:TestMcpToolDescriptionsEndWithDataSentence"
+      ]
+    },
+    {
+      "name": "board-api-skips-profile-input-guard",
+      "origin": "BOARD-5",
+      "file": "modules/board/surfaces/surfaces.ergo",
+      "from": "\t\t\t\t\t\tif keyLower == \"as\" || keyLower == \"profile\" {\n",
+      "to": "\t\t\t\t\t\tif false && (keyLower == \"as\" || keyLower == \"profile\") {\n",
+      "rule": "CheckSchemaForbidsAsAndProfile catches any MCP tool schema exposing an input named as or profile.",
+      "anchor": {
+        "tests": [
+          "modules/board/surfaces:TestMcpToolsNeverAcceptAsOrProfile"
+        ]
+      },
+      "killers": [
+        "modules/board/surfaces:TestMcpToolsNeverAcceptAsOrProfile"
+      ]
+    },
+    {
+      "name": "board-api-claim-untrusted-flag",
+      "origin": "BOARD-5",
+      "file": "modules/board/board/api.ergo",
+      "from": "\t\t\tTask:       taskViewOf(after, tr.Value, true),\n",
+      "to": "\t\t\tTask:       taskViewOf(after, tr.Value, false),\n",
+      "rule": "TasksClaim marks the claimed task view trusted: true after trust-set verification while read/list views remain trusted: false.",
+      "anchor": {
+        "tests": [
+          "modules/board/surfaces:TestClaimResultTrustedBoundary"
+        ]
+      },
+      "killers": [
+        "modules/board/surfaces:TestClaimResultTrustedBoundary"
+      ]
+    },
+    {
+      "name": "board-api-unauth-wrong-exit-code",
+      "origin": "BOARD-5",
+      "file": "modules/board/surfaces/surfaces.ergo",
+      "from": "\t\t\tcase boardapi.Unauthenticated:\n\t\t\t\t3\n",
+      "to": "\t\t\tcase boardapi.Unauthenticated:\n\t\t\t\t1\n",
+      "rule": "CliPolicy maps Unauthenticated to exit status 3 per spec section 6.",
+      "anchor": {
+        "tests": [
+          "modules/board/surfaces:TestCliPolicyCodes"
+        ]
+      },
+      "killers": [
+        "modules/board/surfaces:TestCliPolicyCodes"
+      ]
+    },
+    {
+      "name": "board-api-read-leaks-private-channel",
+      "origin": "BOARD-5",
+      "file": "modules/board/board/api.ergo",
+      "from": "\tif !Can(gs, s.caller, strings.TrimSuffix(chArg, \"/\"), PermRead) {\n\t\treturn NotFound{What: chArg}\n\t}\n",
+      "to": "\tif false && !Can(gs, s.caller, strings.TrimSuffix(chArg, \"/\"), PermRead) {\n\t\treturn NotFound{What: chArg}\n\t}\n",
+      "rule": "Read refuses private channels the caller cannot read with NotFound.",
+      "anchor": {
+        "tests": [
+          "modules/board/surfaces:TestReadRefusesPrivateChannel"
+        ]
+      },
+      "killers": [
+        "modules/board/surfaces:TestReadRefusesPrivateChannel"
+      ]
     }
   ]
 }

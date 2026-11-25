@@ -1,0 +1,1921 @@
+import api
+import json
+import mcp
+import rpc
+import github.com/cevr/ergo/modules/board/board
+import github.com/cevr/ergo/modules/board/board/boardapi
+
+// Request is one call of board.Api: the hub's Request.
+type Request = boardapi.Request
+
+func valueOf(text string) json.Value {
+	json.Decode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case _:
+		json.Null
+	}
+}
+
+func textOf(v json.Value) string { json.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, v) }
+
+func untagged(v json.Value) json.Value {
+	match v {
+	case json.Object as o:
+		let mut members = []json.Member{}
+		for m in o.Members {
+			if m.Key != "_tag" {
+				members = members.Append(m)
+			}
+		}
+		json.Object{Members: members}
+	case json.Null, json.Boolean, json.Num, json.Str, json.Array:
+		v
+	}
+}
+
+// Names are the tools' names, one per operation of board.Api, in its order.
+let Names = []string{"whoami", "boards", "channels", "channel-create", "actors", "read", "search", "post", "thread-reply", "edit", "delete", "react", "label", "ask", "ask-withdraw", "tasks-list", "tasks-create", "tasks-plan", "tasks-claim", "tasks-renew", "tasks-release", "tasks-complete", "tasks-fail", "tasks-block", "tasks-unblock", "tasks-reopen", "tasks-assign", "tasks-needs", "tasks-cancel", "grants", "grant-explain", "grant-create", "grant-revoke", "board-create", "board-rename", "board-archive", "trust-update"}
+
+// Description is what the tool name does: its operation's doc comment,
+// or its signature (the hub's Doc).
+func Description(name string) string {
+	match name {
+	case "whoami":
+		boardapi.Doc(boardapi.WhoamiOp)
+	case "boards":
+		boardapi.Doc(boardapi.BoardsOp)
+	case "channels":
+		boardapi.Doc(boardapi.ChannelsOp)
+	case "channel-create":
+		boardapi.Doc(boardapi.ChannelCreateOp)
+	case "actors":
+		boardapi.Doc(boardapi.ActorsOp)
+	case "read":
+		boardapi.Doc(boardapi.ReadOp)
+	case "search":
+		boardapi.Doc(boardapi.SearchOp)
+	case "post":
+		boardapi.Doc(boardapi.PostOp)
+	case "thread-reply":
+		boardapi.Doc(boardapi.ThreadReplyOp)
+	case "edit":
+		boardapi.Doc(boardapi.EditOp)
+	case "delete":
+		boardapi.Doc(boardapi.DeleteOp)
+	case "react":
+		boardapi.Doc(boardapi.ReactOp)
+	case "label":
+		boardapi.Doc(boardapi.LabelOp)
+	case "ask":
+		boardapi.Doc(boardapi.AskOp)
+	case "ask-withdraw":
+		boardapi.Doc(boardapi.AskWithdrawOp)
+	case "tasks-list":
+		boardapi.Doc(boardapi.TasksListOp)
+	case "tasks-create":
+		boardapi.Doc(boardapi.TasksCreateOp)
+	case "tasks-plan":
+		boardapi.Doc(boardapi.TasksPlanOp)
+	case "tasks-claim":
+		boardapi.Doc(boardapi.TasksClaimOp)
+	case "tasks-renew":
+		boardapi.Doc(boardapi.TasksRenewOp)
+	case "tasks-release":
+		boardapi.Doc(boardapi.TasksReleaseOp)
+	case "tasks-complete":
+		boardapi.Doc(boardapi.TasksCompleteOp)
+	case "tasks-fail":
+		boardapi.Doc(boardapi.TasksFailOp)
+	case "tasks-block":
+		boardapi.Doc(boardapi.TasksBlockOp)
+	case "tasks-unblock":
+		boardapi.Doc(boardapi.TasksUnblockOp)
+	case "tasks-reopen":
+		boardapi.Doc(boardapi.TasksReopenOp)
+	case "tasks-assign":
+		boardapi.Doc(boardapi.TasksAssignOp)
+	case "tasks-needs":
+		boardapi.Doc(boardapi.TasksNeedsOp)
+	case "tasks-cancel":
+		boardapi.Doc(boardapi.TasksCancelOp)
+	case "grants":
+		boardapi.Doc(boardapi.GrantsOp)
+	case "grant-explain":
+		boardapi.Doc(boardapi.GrantExplainOp)
+	case "grant-create":
+		boardapi.Doc(boardapi.GrantCreateOp)
+	case "grant-revoke":
+		boardapi.Doc(boardapi.GrantRevokeOp)
+	case "board-create":
+		boardapi.Doc(boardapi.BoardCreateOp)
+	case "board-rename":
+		boardapi.Doc(boardapi.BoardRenameOp)
+	case "board-archive":
+		boardapi.Doc(boardapi.BoardArchiveOp)
+	case "trust-update":
+		boardapi.Doc(boardapi.TrustUpdateOp)
+	case _:
+		""
+	}
+}
+
+// Input is the JSON schema of the tool name's arguments (the hub's
+// Schema; an object schema with no properties for a name that is no
+// tool's).
+func Input(name string) json.Value {
+	match name {
+	case "whoami":
+		boardapi.Schema(boardapi.WhoamiOp)
+	case "boards":
+		boardapi.Schema(boardapi.BoardsOp)
+	case "channels":
+		boardapi.Schema(boardapi.ChannelsOp)
+	case "channel-create":
+		boardapi.Schema(boardapi.ChannelCreateOp)
+	case "actors":
+		boardapi.Schema(boardapi.ActorsOp)
+	case "read":
+		boardapi.Schema(boardapi.ReadOp)
+	case "search":
+		boardapi.Schema(boardapi.SearchOp)
+	case "post":
+		boardapi.Schema(boardapi.PostOp)
+	case "thread-reply":
+		boardapi.Schema(boardapi.ThreadReplyOp)
+	case "edit":
+		boardapi.Schema(boardapi.EditOp)
+	case "delete":
+		boardapi.Schema(boardapi.DeleteOp)
+	case "react":
+		boardapi.Schema(boardapi.ReactOp)
+	case "label":
+		boardapi.Schema(boardapi.LabelOp)
+	case "ask":
+		boardapi.Schema(boardapi.AskOp)
+	case "ask-withdraw":
+		boardapi.Schema(boardapi.AskWithdrawOp)
+	case "tasks-list":
+		boardapi.Schema(boardapi.TasksListOp)
+	case "tasks-create":
+		boardapi.Schema(boardapi.TasksCreateOp)
+	case "tasks-plan":
+		boardapi.Schema(boardapi.TasksPlanOp)
+	case "tasks-claim":
+		boardapi.Schema(boardapi.TasksClaimOp)
+	case "tasks-renew":
+		boardapi.Schema(boardapi.TasksRenewOp)
+	case "tasks-release":
+		boardapi.Schema(boardapi.TasksReleaseOp)
+	case "tasks-complete":
+		boardapi.Schema(boardapi.TasksCompleteOp)
+	case "tasks-fail":
+		boardapi.Schema(boardapi.TasksFailOp)
+	case "tasks-block":
+		boardapi.Schema(boardapi.TasksBlockOp)
+	case "tasks-unblock":
+		boardapi.Schema(boardapi.TasksUnblockOp)
+	case "tasks-reopen":
+		boardapi.Schema(boardapi.TasksReopenOp)
+	case "tasks-assign":
+		boardapi.Schema(boardapi.TasksAssignOp)
+	case "tasks-needs":
+		boardapi.Schema(boardapi.TasksNeedsOp)
+	case "tasks-cancel":
+		boardapi.Schema(boardapi.TasksCancelOp)
+	case "grants":
+		boardapi.Schema(boardapi.GrantsOp)
+	case "grant-explain":
+		boardapi.Schema(boardapi.GrantExplainOp)
+	case "grant-create":
+		boardapi.Schema(boardapi.GrantCreateOp)
+	case "grant-revoke":
+		boardapi.Schema(boardapi.GrantRevokeOp)
+	case "board-create":
+		boardapi.Schema(boardapi.BoardCreateOp)
+	case "board-rename":
+		boardapi.Schema(boardapi.BoardRenameOp)
+	case "board-archive":
+		boardapi.Schema(boardapi.BoardArchiveOp)
+	case "trust-update":
+		boardapi.Schema(boardapi.TrustUpdateOp)
+	case _:
+		valueOf("{\"type\":\"object\",\"properties\":{}}")
+	}
+}
+
+// Call is the Request that a call of the tool name with arguments asks
+// for: arguments that are not the tool's fail ToolError, a name that is
+// no tool's UnknownTool.
+func Call(name string, arguments json.Value) Request fails mcp.ToolError | mcp.UnknownTool {
+	let text = match name {
+	case "whoami":
+		rpc.Tagged("WhoamiRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "boards":
+		rpc.Tagged("BoardsRequest", textOf(arguments))
+	case "channels":
+		rpc.Tagged("ChannelsRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "channel-create":
+		rpc.Tagged("ChannelCreateRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "actors":
+		rpc.Tagged("ActorsRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "read":
+		rpc.Tagged("ReadRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "search":
+		rpc.Tagged("SearchRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "post":
+		rpc.Tagged("PostRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "thread-reply":
+		rpc.Tagged("ThreadReplyRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "edit":
+		rpc.Tagged("EditRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "delete":
+		rpc.Tagged("DeleteRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "react":
+		rpc.Tagged("ReactRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "label":
+		rpc.Tagged("LabelRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "ask":
+		rpc.Tagged("AskRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "ask-withdraw":
+		rpc.Tagged("AskWithdrawRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "tasks-list":
+		rpc.Tagged("TasksListRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "tasks-create":
+		rpc.Tagged("TasksCreateRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "tasks-plan":
+		rpc.Tagged("TasksPlanRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "tasks-claim":
+		rpc.Tagged("TasksClaimRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "tasks-renew":
+		rpc.Tagged("TasksRenewRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "tasks-release":
+		rpc.Tagged("TasksReleaseRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "tasks-complete":
+		rpc.Tagged("TasksCompleteRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "tasks-fail":
+		rpc.Tagged("TasksFailRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "tasks-block":
+		rpc.Tagged("TasksBlockRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "tasks-unblock":
+		rpc.Tagged("TasksUnblockRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "tasks-reopen":
+		rpc.Tagged("TasksReopenRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "tasks-assign":
+		rpc.Tagged("TasksAssignRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "tasks-needs":
+		rpc.Tagged("TasksNeedsRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "tasks-cancel":
+		rpc.Tagged("TasksCancelRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "grants":
+		rpc.Tagged("GrantsRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "grant-explain":
+		rpc.Tagged("GrantExplainRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "grant-create":
+		rpc.Tagged("GrantCreateRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "grant-revoke":
+		rpc.Tagged("GrantRevokeRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "board-create":
+		rpc.Tagged("BoardCreateRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "board-rename":
+		rpc.Tagged("BoardRenameRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "board-archive":
+		rpc.Tagged("BoardArchiveRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "trust-update":
+		rpc.Tagged("TrustUpdateRequest", "{\"input\":"+textOf(arguments)+"}")
+	case _:
+		return mcp.UnknownTool{Name: name}
+	}
+	rpc.Decode[Request]("arguments of "+name, text) catch {
+	case rpc.Transport as e:
+		return mcp.ToolError{Message: e.Reason}
+	}
+}
+
+// Arguments is the tool and the arguments that ask for r: Call reads
+// them as r again.
+func Arguments(r Request) (string, json.Value) {
+	match r {
+	case boardapi.WhoamiRequest as x:
+		("whoami", untagged(valueOf(rpc.Encode(x.Input))))
+	case boardapi.BoardsRequest:
+		("boards", json.Object{Members: []json.Member{}})
+	case boardapi.ChannelsRequest as x:
+		("channels", untagged(valueOf(rpc.Encode(x.Input))))
+	case boardapi.ChannelCreateRequest as x:
+		("channel-create", untagged(valueOf(rpc.Encode(x.Input))))
+	case boardapi.ActorsRequest as x:
+		("actors", untagged(valueOf(rpc.Encode(x.Input))))
+	case boardapi.ReadRequest as x:
+		("read", untagged(valueOf(rpc.Encode(x.Input))))
+	case boardapi.SearchRequest as x:
+		("search", untagged(valueOf(rpc.Encode(x.Input))))
+	case boardapi.PostRequest as x:
+		("post", untagged(valueOf(rpc.Encode(x.Input))))
+	case boardapi.ThreadReplyRequest as x:
+		("thread-reply", untagged(valueOf(rpc.Encode(x.Input))))
+	case boardapi.EditRequest as x:
+		("edit", untagged(valueOf(rpc.Encode(x.Input))))
+	case boardapi.DeleteRequest as x:
+		("delete", untagged(valueOf(rpc.Encode(x.Input))))
+	case boardapi.ReactRequest as x:
+		("react", untagged(valueOf(rpc.Encode(x.Input))))
+	case boardapi.LabelRequest as x:
+		("label", untagged(valueOf(rpc.Encode(x.Input))))
+	case boardapi.AskRequest as x:
+		("ask", untagged(valueOf(rpc.Encode(x.Input))))
+	case boardapi.AskWithdrawRequest as x:
+		("ask-withdraw", untagged(valueOf(rpc.Encode(x.Input))))
+	case boardapi.TasksListRequest as x:
+		("tasks-list", untagged(valueOf(rpc.Encode(x.Input))))
+	case boardapi.TasksCreateRequest as x:
+		("tasks-create", untagged(valueOf(rpc.Encode(x.Input))))
+	case boardapi.TasksPlanRequest as x:
+		("tasks-plan", untagged(valueOf(rpc.Encode(x.Input))))
+	case boardapi.TasksClaimRequest as x:
+		("tasks-claim", untagged(valueOf(rpc.Encode(x.Input))))
+	case boardapi.TasksRenewRequest as x:
+		("tasks-renew", untagged(valueOf(rpc.Encode(x.Input))))
+	case boardapi.TasksReleaseRequest as x:
+		("tasks-release", untagged(valueOf(rpc.Encode(x.Input))))
+	case boardapi.TasksCompleteRequest as x:
+		("tasks-complete", untagged(valueOf(rpc.Encode(x.Input))))
+	case boardapi.TasksFailRequest as x:
+		("tasks-fail", untagged(valueOf(rpc.Encode(x.Input))))
+	case boardapi.TasksBlockRequest as x:
+		("tasks-block", untagged(valueOf(rpc.Encode(x.Input))))
+	case boardapi.TasksUnblockRequest as x:
+		("tasks-unblock", untagged(valueOf(rpc.Encode(x.Input))))
+	case boardapi.TasksReopenRequest as x:
+		("tasks-reopen", untagged(valueOf(rpc.Encode(x.Input))))
+	case boardapi.TasksAssignRequest as x:
+		("tasks-assign", untagged(valueOf(rpc.Encode(x.Input))))
+	case boardapi.TasksNeedsRequest as x:
+		("tasks-needs", untagged(valueOf(rpc.Encode(x.Input))))
+	case boardapi.TasksCancelRequest as x:
+		("tasks-cancel", untagged(valueOf(rpc.Encode(x.Input))))
+	case boardapi.GrantsRequest as x:
+		("grants", untagged(valueOf(rpc.Encode(x.Input))))
+	case boardapi.GrantExplainRequest as x:
+		("grant-explain", untagged(valueOf(rpc.Encode(x.Input))))
+	case boardapi.GrantCreateRequest as x:
+		("grant-create", untagged(valueOf(rpc.Encode(x.Input))))
+	case boardapi.GrantRevokeRequest as x:
+		("grant-revoke", untagged(valueOf(rpc.Encode(x.Input))))
+	case boardapi.BoardCreateRequest as x:
+		("board-create", untagged(valueOf(rpc.Encode(x.Input))))
+	case boardapi.BoardRenameRequest as x:
+		("board-rename", untagged(valueOf(rpc.Encode(x.Input))))
+	case boardapi.BoardArchiveRequest as x:
+		("board-archive", untagged(valueOf(rpc.Encode(x.Input))))
+	case boardapi.TrustUpdateRequest as x:
+		("trust-update", untagged(valueOf(rpc.Encode(x.Input))))
+	}
+}
+
+// Show is the outcome o as a tool's answer: its value as JSON (null for
+// none), or its typed failure as a ToolError whose message is the
+// failure's tagged JSON.
+func Show(o boardapi.Outcome) json.Value fails mcp.ToolError {
+	match o {
+	case boardapi.Done as done:
+		match done.Reply {
+		case boardapi.WhoamiReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case boardapi.BoardsReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case boardapi.ChannelsReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case boardapi.ChannelCreateReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case boardapi.ActorsReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case boardapi.ReadReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case boardapi.SearchReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case boardapi.PostReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case boardapi.ThreadReplyReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case boardapi.EditReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case boardapi.DeleteReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case boardapi.ReactReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case boardapi.LabelReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case boardapi.AskReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case boardapi.AskWithdrawReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case boardapi.TasksListReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case boardapi.TasksCreateReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case boardapi.TasksPlanReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case boardapi.TasksClaimReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case boardapi.TasksRenewReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case boardapi.TasksReleaseReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case boardapi.TasksCompleteReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case boardapi.TasksFailReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case boardapi.TasksBlockReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case boardapi.TasksUnblockReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case boardapi.TasksReopenReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case boardapi.TasksAssignReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case boardapi.TasksNeedsReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case boardapi.TasksCancelReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case boardapi.GrantsReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case boardapi.GrantExplainReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case boardapi.GrantCreateReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case boardapi.GrantRevokeReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case boardapi.BoardCreateReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case boardapi.BoardRenameReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case boardapi.BoardArchiveReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case boardapi.TrustUpdateReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		}
+	case boardapi.Rejected as rejected:
+		match rejected.Failure {
+		case boardapi.Unauthenticated as failure:
+			return mcp.ToolError{Message: rpc.Tagged("Unauthenticated", rpc.Encode(failure.E))}
+		case boardapi.Gone as failure:
+			return mcp.ToolError{Message: rpc.Tagged("Gone", rpc.Encode(failure.E))}
+		case boardapi.BoardNotFound as failure:
+			return mcp.ToolError{Message: rpc.Tagged("BoardNotFound", rpc.Encode(failure.E))}
+		case boardapi.StoreFailed as failure:
+			return mcp.ToolError{Message: rpc.Tagged("StoreFailed", rpc.Encode(failure.E))}
+		case boardapi.Forbidden as failure:
+			return mcp.ToolError{Message: rpc.Tagged("Forbidden", rpc.Encode(failure.E))}
+		case boardapi.Invalid as failure:
+			return mcp.ToolError{Message: rpc.Tagged("Invalid", rpc.Encode(failure.E))}
+		case boardapi.ChannelExists as failure:
+			return mcp.ToolError{Message: rpc.Tagged("ChannelExists", rpc.Encode(failure.E))}
+		case boardapi.ChannelGranted as failure:
+			return mcp.ToolError{Message: rpc.Tagged("ChannelGranted", rpc.Encode(failure.E))}
+		case boardapi.BoardArchived as failure:
+			return mcp.ToolError{Message: rpc.Tagged("BoardArchived", rpc.Encode(failure.E))}
+		case boardapi.NotFound as failure:
+			return mcp.ToolError{Message: rpc.Tagged("NotFound", rpc.Encode(failure.E))}
+		case boardapi.TooLarge as failure:
+			return mcp.ToolError{Message: rpc.Tagged("TooLarge", rpc.Encode(failure.E))}
+		case boardapi.SecretDetected as failure:
+			return mcp.ToolError{Message: rpc.Tagged("SecretDetected", rpc.Encode(failure.E))}
+		case boardapi.IdempotencyConflict as failure:
+			return mcp.ToolError{Message: rpc.Tagged("IdempotencyConflict", rpc.Encode(failure.E))}
+		case boardapi.ReservedLabel as failure:
+			return mcp.ToolError{Message: rpc.Tagged("ReservedLabel", rpc.Encode(failure.E))}
+		case boardapi.NewerMessage as failure:
+			return mcp.ToolError{Message: rpc.Tagged("NewerMessage", rpc.Encode(failure.E))}
+		case boardapi.NotAuthor as failure:
+			return mcp.ToolError{Message: rpc.Tagged("NotAuthor", rpc.Encode(failure.E))}
+		case boardapi.RevisionConflict as failure:
+			return mcp.ToolError{Message: rpc.Tagged("RevisionConflict", rpc.Encode(failure.E))}
+		case boardapi.LabelConflict as failure:
+			return mcp.ToolError{Message: rpc.Tagged("LabelConflict", rpc.Encode(failure.E))}
+		case boardapi.NotAsker as failure:
+			return mcp.ToolError{Message: rpc.Tagged("NotAsker", rpc.Encode(failure.E))}
+		case boardapi.AskClosed as failure:
+			return mcp.ToolError{Message: rpc.Tagged("AskClosed", rpc.Encode(failure.E))}
+		case boardapi.AlreadyTask as failure:
+			return mcp.ToolError{Message: rpc.Tagged("AlreadyTask", rpc.Encode(failure.E))}
+		case boardapi.InvalidNeeds as failure:
+			return mcp.ToolError{Message: rpc.Tagged("InvalidNeeds", rpc.Encode(failure.E))}
+		case boardapi.TaskOwnerUntrusted as failure:
+			return mcp.ToolError{Message: rpc.Tagged("TaskOwnerUntrusted", rpc.Encode(failure.E))}
+		case boardapi.PlanTooLarge as failure:
+			return mcp.ToolError{Message: rpc.Tagged("PlanTooLarge", rpc.Encode(failure.E))}
+		case boardapi.TaskClaimedRefusal as failure:
+			return mcp.ToolError{Message: rpc.Tagged("TaskClaimedRefusal", rpc.Encode(failure.E))}
+		case boardapi.TaskAssignedRefusal as failure:
+			return mcp.ToolError{Message: rpc.Tagged("TaskAssignedRefusal", rpc.Encode(failure.E))}
+		case boardapi.TaskWaitingRefusal as failure:
+			return mcp.ToolError{Message: rpc.Tagged("TaskWaitingRefusal", rpc.Encode(failure.E))}
+		case boardapi.TaskBlockedRefusal as failure:
+			return mcp.ToolError{Message: rpc.Tagged("TaskBlockedRefusal", rpc.Encode(failure.E))}
+		case boardapi.TaskFinished as failure:
+			return mcp.ToolError{Message: rpc.Tagged("TaskFinished", rpc.Encode(failure.E))}
+		case boardapi.NothingReady as failure:
+			return mcp.ToolError{Message: rpc.Tagged("NothingReady", rpc.Encode(failure.E))}
+		case boardapi.ClaimLost as failure:
+			return mcp.ToolError{Message: rpc.Tagged("ClaimLost", rpc.Encode(failure.E))}
+		case boardapi.TaskNotOwned as failure:
+			return mcp.ToolError{Message: rpc.Tagged("TaskNotOwned", rpc.Encode(failure.E))}
+		case boardapi.NotBlocked as failure:
+			return mcp.ToolError{Message: rpc.Tagged("NotBlocked", rpc.Encode(failure.E))}
+		case boardapi.NotFailed as failure:
+			return mcp.ToolError{Message: rpc.Tagged("NotFailed", rpc.Encode(failure.E))}
+		case boardapi.BoardNameTaken as failure:
+			return mcp.ToolError{Message: rpc.Tagged("BoardNameTaken", rpc.Encode(failure.E))}
+		}
+	}
+}
+
+// Answer answers r through the hub's Call on the bound board.Api (Show).
+func Answer(r Request) json.Value fails mcp.ToolError needs board.Api {
+	try Show(boardapi.Call(r))
+}
+
+// ReadAnswer is the outcome of r that a tool's result says: its value's
+// JSON, or, when it is an error, an admitted failure's tagged JSON.
+// Invalid or missing replies fail Transport, outside the operation's own row.
+func ReadAnswer(r Request, result mcp.Called) boardapi.Outcome fails rpc.Transport {
+	if len(result.Content) != 1 {
+		return rpc.Transport{Reason: "a tool answered \(len(result.Content)) blocks, not one"}
+	}
+	let text = result.Content[0].Text
+	if !result.IsError {
+		match r {
+		case boardapi.WhoamiRequest:
+			let v = try rpc.Decode[board.WhoamiReply]("value", text)
+			boardapi.Done{Reply: boardapi.WhoamiReply{Value: v}}
+		case boardapi.BoardsRequest:
+			let v = try rpc.Decode[[]board.BoardSummary]("value", text)
+			boardapi.Done{Reply: boardapi.BoardsReply{Value: v}}
+		case boardapi.ChannelsRequest:
+			let v = try rpc.Decode[[]board.ChannelSummary]("value", text)
+			boardapi.Done{Reply: boardapi.ChannelsReply{Value: v}}
+		case boardapi.ChannelCreateRequest:
+			let v = try rpc.Decode[board.ChannelCreatedReply]("value", text)
+			boardapi.Done{Reply: boardapi.ChannelCreateReply{Value: v}}
+		case boardapi.ActorsRequest:
+			let v = try rpc.Decode[[]board.ActorSummary]("value", text)
+			boardapi.Done{Reply: boardapi.ActorsReply{Value: v}}
+		case boardapi.ReadRequest:
+			let v = try rpc.Decode[board.ReadReply]("value", text)
+			boardapi.Done{Reply: boardapi.ReadReply{Value: v}}
+		case boardapi.SearchRequest:
+			let v = try rpc.Decode[board.SearchReply]("value", text)
+			boardapi.Done{Reply: boardapi.SearchReply{Value: v}}
+		case boardapi.PostRequest:
+			let v = try rpc.Decode[board.PostReply]("value", text)
+			boardapi.Done{Reply: boardapi.PostReply{Value: v}}
+		case boardapi.ThreadReplyRequest:
+			let v = try rpc.Decode[board.PostReply]("value", text)
+			boardapi.Done{Reply: boardapi.ThreadReplyReply{Value: v}}
+		case boardapi.EditRequest:
+			let v = try rpc.Decode[board.RevisionReply]("value", text)
+			boardapi.Done{Reply: boardapi.EditReply{Value: v}}
+		case boardapi.DeleteRequest:
+			let v = try rpc.Decode[board.RevisionReply]("value", text)
+			boardapi.Done{Reply: boardapi.DeleteReply{Value: v}}
+		case boardapi.ReactRequest:
+			let v = try rpc.Decode[board.ReactReply]("value", text)
+			boardapi.Done{Reply: boardapi.ReactReply{Value: v}}
+		case boardapi.LabelRequest:
+			let v = try rpc.Decode[board.LabelReply]("value", text)
+			boardapi.Done{Reply: boardapi.LabelReply{Value: v}}
+		case boardapi.AskRequest:
+			let v = try rpc.Decode[board.AskReply]("value", text)
+			boardapi.Done{Reply: boardapi.AskReply{Value: v}}
+		case boardapi.AskWithdrawRequest:
+			let v = try rpc.Decode[board.AskStateReply]("value", text)
+			boardapi.Done{Reply: boardapi.AskWithdrawReply{Value: v}}
+		case boardapi.TasksListRequest:
+			let v = try rpc.Decode[board.TasksListReply]("value", text)
+			boardapi.Done{Reply: boardapi.TasksListReply{Value: v}}
+		case boardapi.TasksCreateRequest:
+			let v = try rpc.Decode[board.TaskCreateReply]("value", text)
+			boardapi.Done{Reply: boardapi.TasksCreateReply{Value: v}}
+		case boardapi.TasksPlanRequest:
+			let v = try rpc.Decode[board.TasksPlanReply]("value", text)
+			boardapi.Done{Reply: boardapi.TasksPlanReply{Value: v}}
+		case boardapi.TasksClaimRequest:
+			let v = try rpc.Decode[board.TaskClaimReply]("value", text)
+			boardapi.Done{Reply: boardapi.TasksClaimReply{Value: v}}
+		case boardapi.TasksRenewRequest:
+			let v = try rpc.Decode[board.TaskRenewReply]("value", text)
+			boardapi.Done{Reply: boardapi.TasksRenewReply{Value: v}}
+		case boardapi.TasksReleaseRequest:
+			let v = try rpc.Decode[board.TaskStateReply]("value", text)
+			boardapi.Done{Reply: boardapi.TasksReleaseReply{Value: v}}
+		case boardapi.TasksCompleteRequest:
+			let v = try rpc.Decode[board.TaskCompleteReply]("value", text)
+			boardapi.Done{Reply: boardapi.TasksCompleteReply{Value: v}}
+		case boardapi.TasksFailRequest:
+			let v = try rpc.Decode[board.TaskStateReply]("value", text)
+			boardapi.Done{Reply: boardapi.TasksFailReply{Value: v}}
+		case boardapi.TasksBlockRequest:
+			let v = try rpc.Decode[board.TaskStateReply]("value", text)
+			boardapi.Done{Reply: boardapi.TasksBlockReply{Value: v}}
+		case boardapi.TasksUnblockRequest:
+			let v = try rpc.Decode[board.TaskStateReply]("value", text)
+			boardapi.Done{Reply: boardapi.TasksUnblockReply{Value: v}}
+		case boardapi.TasksReopenRequest:
+			let v = try rpc.Decode[board.TaskStateReply]("value", text)
+			boardapi.Done{Reply: boardapi.TasksReopenReply{Value: v}}
+		case boardapi.TasksAssignRequest:
+			let v = try rpc.Decode[board.TaskAssignReply]("value", text)
+			boardapi.Done{Reply: boardapi.TasksAssignReply{Value: v}}
+		case boardapi.TasksNeedsRequest:
+			let v = try rpc.Decode[board.TaskNeedsReply]("value", text)
+			boardapi.Done{Reply: boardapi.TasksNeedsReply{Value: v}}
+		case boardapi.TasksCancelRequest:
+			let v = try rpc.Decode[board.TaskStateReply]("value", text)
+			boardapi.Done{Reply: boardapi.TasksCancelReply{Value: v}}
+		case boardapi.GrantsRequest:
+			let v = try rpc.Decode[[]board.Grant]("value", text)
+			boardapi.Done{Reply: boardapi.GrantsReply{Value: v}}
+		case boardapi.GrantExplainRequest:
+			let v = try rpc.Decode[board.GrantExplainReply]("value", text)
+			boardapi.Done{Reply: boardapi.GrantExplainReply{Value: v}}
+		case boardapi.GrantCreateRequest:
+			let v = try rpc.Decode[board.Grant]("value", text)
+			boardapi.Done{Reply: boardapi.GrantCreateReply{Value: v}}
+		case boardapi.GrantRevokeRequest:
+			let v = try rpc.Decode[board.GrantRevokedReply]("value", text)
+			boardapi.Done{Reply: boardapi.GrantRevokeReply{Value: v}}
+		case boardapi.BoardCreateRequest:
+			let v = try rpc.Decode[board.BoardSummary]("value", text)
+			boardapi.Done{Reply: boardapi.BoardCreateReply{Value: v}}
+		case boardapi.BoardRenameRequest:
+			let v = try rpc.Decode[board.BoardSummary]("value", text)
+			boardapi.Done{Reply: boardapi.BoardRenameReply{Value: v}}
+		case boardapi.BoardArchiveRequest:
+			let v = try rpc.Decode[board.BoardSummary]("value", text)
+			boardapi.Done{Reply: boardapi.BoardArchiveReply{Value: v}}
+		case boardapi.TrustUpdateRequest:
+			let v = try rpc.Decode[board.TrustSet]("value", text)
+			boardapi.Done{Reply: boardapi.TrustUpdateReply{Value: v}}
+		}
+	} else {
+		match r {
+		case boardapi.WhoamiRequest:
+			match rpc.TagOf(text) {
+			case "Unauthenticated":
+				let e = try rpc.Decode[board.Unauthenticated]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Unauthenticated{E: e}}
+			case "Gone":
+				let e = try rpc.Decode[board.Gone]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Gone{E: e}}
+			case "BoardNotFound":
+				let e = try rpc.Decode[board.BoardNotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardNotFound{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[board.StoreFailed]("failure", text)
+				boardapi.Rejected{Failure: boardapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool whoami answered an undeclared failure: " + text}
+			}
+		case boardapi.BoardsRequest:
+			match rpc.TagOf(text) {
+			case "Unauthenticated":
+				let e = try rpc.Decode[board.Unauthenticated]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Unauthenticated{E: e}}
+			case "Gone":
+				let e = try rpc.Decode[board.Gone]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Gone{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[board.StoreFailed]("failure", text)
+				boardapi.Rejected{Failure: boardapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool boards answered an undeclared failure: " + text}
+			}
+		case boardapi.ChannelsRequest:
+			match rpc.TagOf(text) {
+			case "Unauthenticated":
+				let e = try rpc.Decode[board.Unauthenticated]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Unauthenticated{E: e}}
+			case "Gone":
+				let e = try rpc.Decode[board.Gone]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Gone{E: e}}
+			case "BoardNotFound":
+				let e = try rpc.Decode[board.BoardNotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardNotFound{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[board.StoreFailed]("failure", text)
+				boardapi.Rejected{Failure: boardapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool channels answered an undeclared failure: " + text}
+			}
+		case boardapi.ChannelCreateRequest:
+			match rpc.TagOf(text) {
+			case "Unauthenticated":
+				let e = try rpc.Decode[board.Unauthenticated]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Unauthenticated{E: e}}
+			case "Gone":
+				let e = try rpc.Decode[board.Gone]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Gone{E: e}}
+			case "BoardNotFound":
+				let e = try rpc.Decode[board.BoardNotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardNotFound{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[board.StoreFailed]("failure", text)
+				boardapi.Rejected{Failure: boardapi.StoreFailed{E: e}}
+			case "Forbidden":
+				let e = try rpc.Decode[board.Forbidden]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Forbidden{E: e}}
+			case "Invalid":
+				let e = try rpc.Decode[board.Invalid]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Invalid{E: e}}
+			case "ChannelExists":
+				let e = try rpc.Decode[board.ChannelExists]("failure", text)
+				boardapi.Rejected{Failure: boardapi.ChannelExists{E: e}}
+			case "ChannelGranted":
+				let e = try rpc.Decode[board.ChannelGranted]("failure", text)
+				boardapi.Rejected{Failure: boardapi.ChannelGranted{E: e}}
+			case "BoardArchived":
+				let e = try rpc.Decode[board.BoardArchived]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardArchived{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool channel-create answered an undeclared failure: " + text}
+			}
+		case boardapi.ActorsRequest:
+			match rpc.TagOf(text) {
+			case "Unauthenticated":
+				let e = try rpc.Decode[board.Unauthenticated]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Unauthenticated{E: e}}
+			case "Gone":
+				let e = try rpc.Decode[board.Gone]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Gone{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[board.StoreFailed]("failure", text)
+				boardapi.Rejected{Failure: boardapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool actors answered an undeclared failure: " + text}
+			}
+		case boardapi.ReadRequest:
+			match rpc.TagOf(text) {
+			case "Unauthenticated":
+				let e = try rpc.Decode[board.Unauthenticated]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Unauthenticated{E: e}}
+			case "Gone":
+				let e = try rpc.Decode[board.Gone]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Gone{E: e}}
+			case "BoardNotFound":
+				let e = try rpc.Decode[board.BoardNotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardNotFound{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[board.StoreFailed]("failure", text)
+				boardapi.Rejected{Failure: boardapi.StoreFailed{E: e}}
+			case "Invalid":
+				let e = try rpc.Decode[board.Invalid]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Invalid{E: e}}
+			case "NotFound":
+				let e = try rpc.Decode[board.NotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.NotFound{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool read answered an undeclared failure: " + text}
+			}
+		case boardapi.SearchRequest:
+			match rpc.TagOf(text) {
+			case "Unauthenticated":
+				let e = try rpc.Decode[board.Unauthenticated]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Unauthenticated{E: e}}
+			case "Gone":
+				let e = try rpc.Decode[board.Gone]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Gone{E: e}}
+			case "BoardNotFound":
+				let e = try rpc.Decode[board.BoardNotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardNotFound{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[board.StoreFailed]("failure", text)
+				boardapi.Rejected{Failure: boardapi.StoreFailed{E: e}}
+			case "Invalid":
+				let e = try rpc.Decode[board.Invalid]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Invalid{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool search answered an undeclared failure: " + text}
+			}
+		case boardapi.PostRequest:
+			match rpc.TagOf(text) {
+			case "Unauthenticated":
+				let e = try rpc.Decode[board.Unauthenticated]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Unauthenticated{E: e}}
+			case "Gone":
+				let e = try rpc.Decode[board.Gone]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Gone{E: e}}
+			case "BoardNotFound":
+				let e = try rpc.Decode[board.BoardNotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardNotFound{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[board.StoreFailed]("failure", text)
+				boardapi.Rejected{Failure: boardapi.StoreFailed{E: e}}
+			case "Forbidden":
+				let e = try rpc.Decode[board.Forbidden]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Forbidden{E: e}}
+			case "Invalid":
+				let e = try rpc.Decode[board.Invalid]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Invalid{E: e}}
+			case "BoardArchived":
+				let e = try rpc.Decode[board.BoardArchived]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardArchived{E: e}}
+			case "NotFound":
+				let e = try rpc.Decode[board.NotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.NotFound{E: e}}
+			case "TooLarge":
+				let e = try rpc.Decode[board.TooLarge]("failure", text)
+				boardapi.Rejected{Failure: boardapi.TooLarge{E: e}}
+			case "SecretDetected":
+				let e = try rpc.Decode[board.SecretDetected]("failure", text)
+				boardapi.Rejected{Failure: boardapi.SecretDetected{E: e}}
+			case "IdempotencyConflict":
+				let e = try rpc.Decode[board.IdempotencyConflict]("failure", text)
+				boardapi.Rejected{Failure: boardapi.IdempotencyConflict{E: e}}
+			case "ReservedLabel":
+				let e = try rpc.Decode[board.ReservedLabel]("failure", text)
+				boardapi.Rejected{Failure: boardapi.ReservedLabel{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool post answered an undeclared failure: " + text}
+			}
+		case boardapi.ThreadReplyRequest:
+			match rpc.TagOf(text) {
+			case "Unauthenticated":
+				let e = try rpc.Decode[board.Unauthenticated]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Unauthenticated{E: e}}
+			case "Gone":
+				let e = try rpc.Decode[board.Gone]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Gone{E: e}}
+			case "BoardNotFound":
+				let e = try rpc.Decode[board.BoardNotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardNotFound{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[board.StoreFailed]("failure", text)
+				boardapi.Rejected{Failure: boardapi.StoreFailed{E: e}}
+			case "Forbidden":
+				let e = try rpc.Decode[board.Forbidden]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Forbidden{E: e}}
+			case "Invalid":
+				let e = try rpc.Decode[board.Invalid]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Invalid{E: e}}
+			case "BoardArchived":
+				let e = try rpc.Decode[board.BoardArchived]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardArchived{E: e}}
+			case "NotFound":
+				let e = try rpc.Decode[board.NotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.NotFound{E: e}}
+			case "TooLarge":
+				let e = try rpc.Decode[board.TooLarge]("failure", text)
+				boardapi.Rejected{Failure: boardapi.TooLarge{E: e}}
+			case "SecretDetected":
+				let e = try rpc.Decode[board.SecretDetected]("failure", text)
+				boardapi.Rejected{Failure: boardapi.SecretDetected{E: e}}
+			case "IdempotencyConflict":
+				let e = try rpc.Decode[board.IdempotencyConflict]("failure", text)
+				boardapi.Rejected{Failure: boardapi.IdempotencyConflict{E: e}}
+			case "ReservedLabel":
+				let e = try rpc.Decode[board.ReservedLabel]("failure", text)
+				boardapi.Rejected{Failure: boardapi.ReservedLabel{E: e}}
+			case "NewerMessage":
+				let e = try rpc.Decode[board.NewerMessage]("failure", text)
+				boardapi.Rejected{Failure: boardapi.NewerMessage{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool thread-reply answered an undeclared failure: " + text}
+			}
+		case boardapi.EditRequest:
+			match rpc.TagOf(text) {
+			case "Unauthenticated":
+				let e = try rpc.Decode[board.Unauthenticated]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Unauthenticated{E: e}}
+			case "Gone":
+				let e = try rpc.Decode[board.Gone]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Gone{E: e}}
+			case "BoardNotFound":
+				let e = try rpc.Decode[board.BoardNotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardNotFound{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[board.StoreFailed]("failure", text)
+				boardapi.Rejected{Failure: boardapi.StoreFailed{E: e}}
+			case "Forbidden":
+				let e = try rpc.Decode[board.Forbidden]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Forbidden{E: e}}
+			case "Invalid":
+				let e = try rpc.Decode[board.Invalid]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Invalid{E: e}}
+			case "BoardArchived":
+				let e = try rpc.Decode[board.BoardArchived]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardArchived{E: e}}
+			case "NotFound":
+				let e = try rpc.Decode[board.NotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.NotFound{E: e}}
+			case "TooLarge":
+				let e = try rpc.Decode[board.TooLarge]("failure", text)
+				boardapi.Rejected{Failure: boardapi.TooLarge{E: e}}
+			case "SecretDetected":
+				let e = try rpc.Decode[board.SecretDetected]("failure", text)
+				boardapi.Rejected{Failure: boardapi.SecretDetected{E: e}}
+			case "NotAuthor":
+				let e = try rpc.Decode[board.NotAuthor]("failure", text)
+				boardapi.Rejected{Failure: boardapi.NotAuthor{E: e}}
+			case "RevisionConflict":
+				let e = try rpc.Decode[board.RevisionConflict]("failure", text)
+				boardapi.Rejected{Failure: boardapi.RevisionConflict{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool edit answered an undeclared failure: " + text}
+			}
+		case boardapi.DeleteRequest:
+			match rpc.TagOf(text) {
+			case "Unauthenticated":
+				let e = try rpc.Decode[board.Unauthenticated]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Unauthenticated{E: e}}
+			case "Gone":
+				let e = try rpc.Decode[board.Gone]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Gone{E: e}}
+			case "BoardNotFound":
+				let e = try rpc.Decode[board.BoardNotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardNotFound{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[board.StoreFailed]("failure", text)
+				boardapi.Rejected{Failure: boardapi.StoreFailed{E: e}}
+			case "Forbidden":
+				let e = try rpc.Decode[board.Forbidden]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Forbidden{E: e}}
+			case "Invalid":
+				let e = try rpc.Decode[board.Invalid]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Invalid{E: e}}
+			case "BoardArchived":
+				let e = try rpc.Decode[board.BoardArchived]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardArchived{E: e}}
+			case "NotFound":
+				let e = try rpc.Decode[board.NotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.NotFound{E: e}}
+			case "NotAuthor":
+				let e = try rpc.Decode[board.NotAuthor]("failure", text)
+				boardapi.Rejected{Failure: boardapi.NotAuthor{E: e}}
+			case "RevisionConflict":
+				let e = try rpc.Decode[board.RevisionConflict]("failure", text)
+				boardapi.Rejected{Failure: boardapi.RevisionConflict{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool delete answered an undeclared failure: " + text}
+			}
+		case boardapi.ReactRequest:
+			match rpc.TagOf(text) {
+			case "Unauthenticated":
+				let e = try rpc.Decode[board.Unauthenticated]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Unauthenticated{E: e}}
+			case "Gone":
+				let e = try rpc.Decode[board.Gone]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Gone{E: e}}
+			case "BoardNotFound":
+				let e = try rpc.Decode[board.BoardNotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardNotFound{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[board.StoreFailed]("failure", text)
+				boardapi.Rejected{Failure: boardapi.StoreFailed{E: e}}
+			case "Forbidden":
+				let e = try rpc.Decode[board.Forbidden]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Forbidden{E: e}}
+			case "Invalid":
+				let e = try rpc.Decode[board.Invalid]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Invalid{E: e}}
+			case "BoardArchived":
+				let e = try rpc.Decode[board.BoardArchived]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardArchived{E: e}}
+			case "NotFound":
+				let e = try rpc.Decode[board.NotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.NotFound{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool react answered an undeclared failure: " + text}
+			}
+		case boardapi.LabelRequest:
+			match rpc.TagOf(text) {
+			case "Unauthenticated":
+				let e = try rpc.Decode[board.Unauthenticated]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Unauthenticated{E: e}}
+			case "Gone":
+				let e = try rpc.Decode[board.Gone]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Gone{E: e}}
+			case "BoardNotFound":
+				let e = try rpc.Decode[board.BoardNotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardNotFound{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[board.StoreFailed]("failure", text)
+				boardapi.Rejected{Failure: boardapi.StoreFailed{E: e}}
+			case "Forbidden":
+				let e = try rpc.Decode[board.Forbidden]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Forbidden{E: e}}
+			case "Invalid":
+				let e = try rpc.Decode[board.Invalid]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Invalid{E: e}}
+			case "BoardArchived":
+				let e = try rpc.Decode[board.BoardArchived]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardArchived{E: e}}
+			case "NotFound":
+				let e = try rpc.Decode[board.NotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.NotFound{E: e}}
+			case "TooLarge":
+				let e = try rpc.Decode[board.TooLarge]("failure", text)
+				boardapi.Rejected{Failure: boardapi.TooLarge{E: e}}
+			case "SecretDetected":
+				let e = try rpc.Decode[board.SecretDetected]("failure", text)
+				boardapi.Rejected{Failure: boardapi.SecretDetected{E: e}}
+			case "ReservedLabel":
+				let e = try rpc.Decode[board.ReservedLabel]("failure", text)
+				boardapi.Rejected{Failure: boardapi.ReservedLabel{E: e}}
+			case "LabelConflict":
+				let e = try rpc.Decode[board.LabelConflict]("failure", text)
+				boardapi.Rejected{Failure: boardapi.LabelConflict{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool label answered an undeclared failure: " + text}
+			}
+		case boardapi.AskRequest:
+			match rpc.TagOf(text) {
+			case "Unauthenticated":
+				let e = try rpc.Decode[board.Unauthenticated]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Unauthenticated{E: e}}
+			case "Gone":
+				let e = try rpc.Decode[board.Gone]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Gone{E: e}}
+			case "BoardNotFound":
+				let e = try rpc.Decode[board.BoardNotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardNotFound{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[board.StoreFailed]("failure", text)
+				boardapi.Rejected{Failure: boardapi.StoreFailed{E: e}}
+			case "Forbidden":
+				let e = try rpc.Decode[board.Forbidden]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Forbidden{E: e}}
+			case "Invalid":
+				let e = try rpc.Decode[board.Invalid]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Invalid{E: e}}
+			case "BoardArchived":
+				let e = try rpc.Decode[board.BoardArchived]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardArchived{E: e}}
+			case "NotFound":
+				let e = try rpc.Decode[board.NotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.NotFound{E: e}}
+			case "TooLarge":
+				let e = try rpc.Decode[board.TooLarge]("failure", text)
+				boardapi.Rejected{Failure: boardapi.TooLarge{E: e}}
+			case "SecretDetected":
+				let e = try rpc.Decode[board.SecretDetected]("failure", text)
+				boardapi.Rejected{Failure: boardapi.SecretDetected{E: e}}
+			case "IdempotencyConflict":
+				let e = try rpc.Decode[board.IdempotencyConflict]("failure", text)
+				boardapi.Rejected{Failure: boardapi.IdempotencyConflict{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool ask answered an undeclared failure: " + text}
+			}
+		case boardapi.AskWithdrawRequest:
+			match rpc.TagOf(text) {
+			case "Unauthenticated":
+				let e = try rpc.Decode[board.Unauthenticated]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Unauthenticated{E: e}}
+			case "Gone":
+				let e = try rpc.Decode[board.Gone]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Gone{E: e}}
+			case "BoardNotFound":
+				let e = try rpc.Decode[board.BoardNotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardNotFound{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[board.StoreFailed]("failure", text)
+				boardapi.Rejected{Failure: boardapi.StoreFailed{E: e}}
+			case "Forbidden":
+				let e = try rpc.Decode[board.Forbidden]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Forbidden{E: e}}
+			case "Invalid":
+				let e = try rpc.Decode[board.Invalid]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Invalid{E: e}}
+			case "BoardArchived":
+				let e = try rpc.Decode[board.BoardArchived]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardArchived{E: e}}
+			case "NotFound":
+				let e = try rpc.Decode[board.NotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.NotFound{E: e}}
+			case "NotAsker":
+				let e = try rpc.Decode[board.NotAsker]("failure", text)
+				boardapi.Rejected{Failure: boardapi.NotAsker{E: e}}
+			case "AskClosed":
+				let e = try rpc.Decode[board.AskClosed]("failure", text)
+				boardapi.Rejected{Failure: boardapi.AskClosed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool ask-withdraw answered an undeclared failure: " + text}
+			}
+		case boardapi.TasksListRequest:
+			match rpc.TagOf(text) {
+			case "Unauthenticated":
+				let e = try rpc.Decode[board.Unauthenticated]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Unauthenticated{E: e}}
+			case "Gone":
+				let e = try rpc.Decode[board.Gone]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Gone{E: e}}
+			case "BoardNotFound":
+				let e = try rpc.Decode[board.BoardNotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardNotFound{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[board.StoreFailed]("failure", text)
+				boardapi.Rejected{Failure: boardapi.StoreFailed{E: e}}
+			case "Invalid":
+				let e = try rpc.Decode[board.Invalid]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Invalid{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool tasks-list answered an undeclared failure: " + text}
+			}
+		case boardapi.TasksCreateRequest:
+			match rpc.TagOf(text) {
+			case "Unauthenticated":
+				let e = try rpc.Decode[board.Unauthenticated]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Unauthenticated{E: e}}
+			case "Gone":
+				let e = try rpc.Decode[board.Gone]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Gone{E: e}}
+			case "BoardNotFound":
+				let e = try rpc.Decode[board.BoardNotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardNotFound{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[board.StoreFailed]("failure", text)
+				boardapi.Rejected{Failure: boardapi.StoreFailed{E: e}}
+			case "Forbidden":
+				let e = try rpc.Decode[board.Forbidden]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Forbidden{E: e}}
+			case "Invalid":
+				let e = try rpc.Decode[board.Invalid]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Invalid{E: e}}
+			case "BoardArchived":
+				let e = try rpc.Decode[board.BoardArchived]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardArchived{E: e}}
+			case "NotFound":
+				let e = try rpc.Decode[board.NotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.NotFound{E: e}}
+			case "TooLarge":
+				let e = try rpc.Decode[board.TooLarge]("failure", text)
+				boardapi.Rejected{Failure: boardapi.TooLarge{E: e}}
+			case "SecretDetected":
+				let e = try rpc.Decode[board.SecretDetected]("failure", text)
+				boardapi.Rejected{Failure: boardapi.SecretDetected{E: e}}
+			case "IdempotencyConflict":
+				let e = try rpc.Decode[board.IdempotencyConflict]("failure", text)
+				boardapi.Rejected{Failure: boardapi.IdempotencyConflict{E: e}}
+			case "ReservedLabel":
+				let e = try rpc.Decode[board.ReservedLabel]("failure", text)
+				boardapi.Rejected{Failure: boardapi.ReservedLabel{E: e}}
+			case "AlreadyTask":
+				let e = try rpc.Decode[board.AlreadyTask]("failure", text)
+				boardapi.Rejected{Failure: boardapi.AlreadyTask{E: e}}
+			case "InvalidNeeds":
+				let e = try rpc.Decode[board.InvalidNeeds]("failure", text)
+				boardapi.Rejected{Failure: boardapi.InvalidNeeds{E: e}}
+			case "TaskOwnerUntrusted":
+				let e = try rpc.Decode[board.TaskOwnerUntrusted]("failure", text)
+				boardapi.Rejected{Failure: boardapi.TaskOwnerUntrusted{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool tasks-create answered an undeclared failure: " + text}
+			}
+		case boardapi.TasksPlanRequest:
+			match rpc.TagOf(text) {
+			case "Unauthenticated":
+				let e = try rpc.Decode[board.Unauthenticated]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Unauthenticated{E: e}}
+			case "Gone":
+				let e = try rpc.Decode[board.Gone]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Gone{E: e}}
+			case "BoardNotFound":
+				let e = try rpc.Decode[board.BoardNotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardNotFound{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[board.StoreFailed]("failure", text)
+				boardapi.Rejected{Failure: boardapi.StoreFailed{E: e}}
+			case "Forbidden":
+				let e = try rpc.Decode[board.Forbidden]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Forbidden{E: e}}
+			case "Invalid":
+				let e = try rpc.Decode[board.Invalid]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Invalid{E: e}}
+			case "BoardArchived":
+				let e = try rpc.Decode[board.BoardArchived]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardArchived{E: e}}
+			case "NotFound":
+				let e = try rpc.Decode[board.NotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.NotFound{E: e}}
+			case "TooLarge":
+				let e = try rpc.Decode[board.TooLarge]("failure", text)
+				boardapi.Rejected{Failure: boardapi.TooLarge{E: e}}
+			case "SecretDetected":
+				let e = try rpc.Decode[board.SecretDetected]("failure", text)
+				boardapi.Rejected{Failure: boardapi.SecretDetected{E: e}}
+			case "IdempotencyConflict":
+				let e = try rpc.Decode[board.IdempotencyConflict]("failure", text)
+				boardapi.Rejected{Failure: boardapi.IdempotencyConflict{E: e}}
+			case "ReservedLabel":
+				let e = try rpc.Decode[board.ReservedLabel]("failure", text)
+				boardapi.Rejected{Failure: boardapi.ReservedLabel{E: e}}
+			case "InvalidNeeds":
+				let e = try rpc.Decode[board.InvalidNeeds]("failure", text)
+				boardapi.Rejected{Failure: boardapi.InvalidNeeds{E: e}}
+			case "PlanTooLarge":
+				let e = try rpc.Decode[board.PlanTooLarge]("failure", text)
+				boardapi.Rejected{Failure: boardapi.PlanTooLarge{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool tasks-plan answered an undeclared failure: " + text}
+			}
+		case boardapi.TasksClaimRequest:
+			match rpc.TagOf(text) {
+			case "Unauthenticated":
+				let e = try rpc.Decode[board.Unauthenticated]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Unauthenticated{E: e}}
+			case "Gone":
+				let e = try rpc.Decode[board.Gone]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Gone{E: e}}
+			case "BoardNotFound":
+				let e = try rpc.Decode[board.BoardNotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardNotFound{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[board.StoreFailed]("failure", text)
+				boardapi.Rejected{Failure: boardapi.StoreFailed{E: e}}
+			case "Forbidden":
+				let e = try rpc.Decode[board.Forbidden]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Forbidden{E: e}}
+			case "Invalid":
+				let e = try rpc.Decode[board.Invalid]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Invalid{E: e}}
+			case "BoardArchived":
+				let e = try rpc.Decode[board.BoardArchived]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardArchived{E: e}}
+			case "NotFound":
+				let e = try rpc.Decode[board.NotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.NotFound{E: e}}
+			case "TaskOwnerUntrusted":
+				let e = try rpc.Decode[board.TaskOwnerUntrusted]("failure", text)
+				boardapi.Rejected{Failure: boardapi.TaskOwnerUntrusted{E: e}}
+			case "TaskClaimedRefusal":
+				let e = try rpc.Decode[board.TaskClaimedRefusal]("failure", text)
+				boardapi.Rejected{Failure: boardapi.TaskClaimedRefusal{E: e}}
+			case "TaskAssignedRefusal":
+				let e = try rpc.Decode[board.TaskAssignedRefusal]("failure", text)
+				boardapi.Rejected{Failure: boardapi.TaskAssignedRefusal{E: e}}
+			case "TaskWaitingRefusal":
+				let e = try rpc.Decode[board.TaskWaitingRefusal]("failure", text)
+				boardapi.Rejected{Failure: boardapi.TaskWaitingRefusal{E: e}}
+			case "TaskBlockedRefusal":
+				let e = try rpc.Decode[board.TaskBlockedRefusal]("failure", text)
+				boardapi.Rejected{Failure: boardapi.TaskBlockedRefusal{E: e}}
+			case "TaskFinished":
+				let e = try rpc.Decode[board.TaskFinished]("failure", text)
+				boardapi.Rejected{Failure: boardapi.TaskFinished{E: e}}
+			case "NothingReady":
+				let e = try rpc.Decode[board.NothingReady]("failure", text)
+				boardapi.Rejected{Failure: boardapi.NothingReady{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool tasks-claim answered an undeclared failure: " + text}
+			}
+		case boardapi.TasksRenewRequest:
+			match rpc.TagOf(text) {
+			case "Unauthenticated":
+				let e = try rpc.Decode[board.Unauthenticated]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Unauthenticated{E: e}}
+			case "Gone":
+				let e = try rpc.Decode[board.Gone]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Gone{E: e}}
+			case "BoardNotFound":
+				let e = try rpc.Decode[board.BoardNotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardNotFound{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[board.StoreFailed]("failure", text)
+				boardapi.Rejected{Failure: boardapi.StoreFailed{E: e}}
+			case "Forbidden":
+				let e = try rpc.Decode[board.Forbidden]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Forbidden{E: e}}
+			case "Invalid":
+				let e = try rpc.Decode[board.Invalid]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Invalid{E: e}}
+			case "BoardArchived":
+				let e = try rpc.Decode[board.BoardArchived]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardArchived{E: e}}
+			case "NotFound":
+				let e = try rpc.Decode[board.NotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.NotFound{E: e}}
+			case "ClaimLost":
+				let e = try rpc.Decode[board.ClaimLost]("failure", text)
+				boardapi.Rejected{Failure: boardapi.ClaimLost{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool tasks-renew answered an undeclared failure: " + text}
+			}
+		case boardapi.TasksReleaseRequest:
+			match rpc.TagOf(text) {
+			case "Unauthenticated":
+				let e = try rpc.Decode[board.Unauthenticated]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Unauthenticated{E: e}}
+			case "Gone":
+				let e = try rpc.Decode[board.Gone]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Gone{E: e}}
+			case "BoardNotFound":
+				let e = try rpc.Decode[board.BoardNotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardNotFound{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[board.StoreFailed]("failure", text)
+				boardapi.Rejected{Failure: boardapi.StoreFailed{E: e}}
+			case "Forbidden":
+				let e = try rpc.Decode[board.Forbidden]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Forbidden{E: e}}
+			case "Invalid":
+				let e = try rpc.Decode[board.Invalid]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Invalid{E: e}}
+			case "BoardArchived":
+				let e = try rpc.Decode[board.BoardArchived]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardArchived{E: e}}
+			case "NotFound":
+				let e = try rpc.Decode[board.NotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.NotFound{E: e}}
+			case "ClaimLost":
+				let e = try rpc.Decode[board.ClaimLost]("failure", text)
+				boardapi.Rejected{Failure: boardapi.ClaimLost{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool tasks-release answered an undeclared failure: " + text}
+			}
+		case boardapi.TasksCompleteRequest:
+			match rpc.TagOf(text) {
+			case "Unauthenticated":
+				let e = try rpc.Decode[board.Unauthenticated]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Unauthenticated{E: e}}
+			case "Gone":
+				let e = try rpc.Decode[board.Gone]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Gone{E: e}}
+			case "BoardNotFound":
+				let e = try rpc.Decode[board.BoardNotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardNotFound{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[board.StoreFailed]("failure", text)
+				boardapi.Rejected{Failure: boardapi.StoreFailed{E: e}}
+			case "Forbidden":
+				let e = try rpc.Decode[board.Forbidden]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Forbidden{E: e}}
+			case "Invalid":
+				let e = try rpc.Decode[board.Invalid]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Invalid{E: e}}
+			case "BoardArchived":
+				let e = try rpc.Decode[board.BoardArchived]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardArchived{E: e}}
+			case "NotFound":
+				let e = try rpc.Decode[board.NotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.NotFound{E: e}}
+			case "TooLarge":
+				let e = try rpc.Decode[board.TooLarge]("failure", text)
+				boardapi.Rejected{Failure: boardapi.TooLarge{E: e}}
+			case "SecretDetected":
+				let e = try rpc.Decode[board.SecretDetected]("failure", text)
+				boardapi.Rejected{Failure: boardapi.SecretDetected{E: e}}
+			case "ClaimLost":
+				let e = try rpc.Decode[board.ClaimLost]("failure", text)
+				boardapi.Rejected{Failure: boardapi.ClaimLost{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool tasks-complete answered an undeclared failure: " + text}
+			}
+		case boardapi.TasksFailRequest:
+			match rpc.TagOf(text) {
+			case "Unauthenticated":
+				let e = try rpc.Decode[board.Unauthenticated]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Unauthenticated{E: e}}
+			case "Gone":
+				let e = try rpc.Decode[board.Gone]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Gone{E: e}}
+			case "BoardNotFound":
+				let e = try rpc.Decode[board.BoardNotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardNotFound{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[board.StoreFailed]("failure", text)
+				boardapi.Rejected{Failure: boardapi.StoreFailed{E: e}}
+			case "Forbidden":
+				let e = try rpc.Decode[board.Forbidden]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Forbidden{E: e}}
+			case "Invalid":
+				let e = try rpc.Decode[board.Invalid]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Invalid{E: e}}
+			case "BoardArchived":
+				let e = try rpc.Decode[board.BoardArchived]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardArchived{E: e}}
+			case "NotFound":
+				let e = try rpc.Decode[board.NotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.NotFound{E: e}}
+			case "TooLarge":
+				let e = try rpc.Decode[board.TooLarge]("failure", text)
+				boardapi.Rejected{Failure: boardapi.TooLarge{E: e}}
+			case "SecretDetected":
+				let e = try rpc.Decode[board.SecretDetected]("failure", text)
+				boardapi.Rejected{Failure: boardapi.SecretDetected{E: e}}
+			case "ClaimLost":
+				let e = try rpc.Decode[board.ClaimLost]("failure", text)
+				boardapi.Rejected{Failure: boardapi.ClaimLost{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool tasks-fail answered an undeclared failure: " + text}
+			}
+		case boardapi.TasksBlockRequest:
+			match rpc.TagOf(text) {
+			case "Unauthenticated":
+				let e = try rpc.Decode[board.Unauthenticated]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Unauthenticated{E: e}}
+			case "Gone":
+				let e = try rpc.Decode[board.Gone]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Gone{E: e}}
+			case "BoardNotFound":
+				let e = try rpc.Decode[board.BoardNotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardNotFound{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[board.StoreFailed]("failure", text)
+				boardapi.Rejected{Failure: boardapi.StoreFailed{E: e}}
+			case "Forbidden":
+				let e = try rpc.Decode[board.Forbidden]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Forbidden{E: e}}
+			case "Invalid":
+				let e = try rpc.Decode[board.Invalid]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Invalid{E: e}}
+			case "BoardArchived":
+				let e = try rpc.Decode[board.BoardArchived]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardArchived{E: e}}
+			case "NotFound":
+				let e = try rpc.Decode[board.NotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.NotFound{E: e}}
+			case "TooLarge":
+				let e = try rpc.Decode[board.TooLarge]("failure", text)
+				boardapi.Rejected{Failure: boardapi.TooLarge{E: e}}
+			case "SecretDetected":
+				let e = try rpc.Decode[board.SecretDetected]("failure", text)
+				boardapi.Rejected{Failure: boardapi.SecretDetected{E: e}}
+			case "TaskFinished":
+				let e = try rpc.Decode[board.TaskFinished]("failure", text)
+				boardapi.Rejected{Failure: boardapi.TaskFinished{E: e}}
+			case "ClaimLost":
+				let e = try rpc.Decode[board.ClaimLost]("failure", text)
+				boardapi.Rejected{Failure: boardapi.ClaimLost{E: e}}
+			case "TaskNotOwned":
+				let e = try rpc.Decode[board.TaskNotOwned]("failure", text)
+				boardapi.Rejected{Failure: boardapi.TaskNotOwned{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool tasks-block answered an undeclared failure: " + text}
+			}
+		case boardapi.TasksUnblockRequest:
+			match rpc.TagOf(text) {
+			case "Unauthenticated":
+				let e = try rpc.Decode[board.Unauthenticated]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Unauthenticated{E: e}}
+			case "Gone":
+				let e = try rpc.Decode[board.Gone]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Gone{E: e}}
+			case "BoardNotFound":
+				let e = try rpc.Decode[board.BoardNotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardNotFound{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[board.StoreFailed]("failure", text)
+				boardapi.Rejected{Failure: boardapi.StoreFailed{E: e}}
+			case "Forbidden":
+				let e = try rpc.Decode[board.Forbidden]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Forbidden{E: e}}
+			case "Invalid":
+				let e = try rpc.Decode[board.Invalid]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Invalid{E: e}}
+			case "BoardArchived":
+				let e = try rpc.Decode[board.BoardArchived]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardArchived{E: e}}
+			case "NotFound":
+				let e = try rpc.Decode[board.NotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.NotFound{E: e}}
+			case "TaskNotOwned":
+				let e = try rpc.Decode[board.TaskNotOwned]("failure", text)
+				boardapi.Rejected{Failure: boardapi.TaskNotOwned{E: e}}
+			case "NotBlocked":
+				let e = try rpc.Decode[board.NotBlocked]("failure", text)
+				boardapi.Rejected{Failure: boardapi.NotBlocked{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool tasks-unblock answered an undeclared failure: " + text}
+			}
+		case boardapi.TasksReopenRequest:
+			match rpc.TagOf(text) {
+			case "Unauthenticated":
+				let e = try rpc.Decode[board.Unauthenticated]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Unauthenticated{E: e}}
+			case "Gone":
+				let e = try rpc.Decode[board.Gone]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Gone{E: e}}
+			case "BoardNotFound":
+				let e = try rpc.Decode[board.BoardNotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardNotFound{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[board.StoreFailed]("failure", text)
+				boardapi.Rejected{Failure: boardapi.StoreFailed{E: e}}
+			case "Forbidden":
+				let e = try rpc.Decode[board.Forbidden]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Forbidden{E: e}}
+			case "Invalid":
+				let e = try rpc.Decode[board.Invalid]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Invalid{E: e}}
+			case "BoardArchived":
+				let e = try rpc.Decode[board.BoardArchived]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardArchived{E: e}}
+			case "NotFound":
+				let e = try rpc.Decode[board.NotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.NotFound{E: e}}
+			case "TaskNotOwned":
+				let e = try rpc.Decode[board.TaskNotOwned]("failure", text)
+				boardapi.Rejected{Failure: boardapi.TaskNotOwned{E: e}}
+			case "NotFailed":
+				let e = try rpc.Decode[board.NotFailed]("failure", text)
+				boardapi.Rejected{Failure: boardapi.NotFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool tasks-reopen answered an undeclared failure: " + text}
+			}
+		case boardapi.TasksAssignRequest:
+			match rpc.TagOf(text) {
+			case "Unauthenticated":
+				let e = try rpc.Decode[board.Unauthenticated]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Unauthenticated{E: e}}
+			case "Gone":
+				let e = try rpc.Decode[board.Gone]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Gone{E: e}}
+			case "BoardNotFound":
+				let e = try rpc.Decode[board.BoardNotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardNotFound{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[board.StoreFailed]("failure", text)
+				boardapi.Rejected{Failure: boardapi.StoreFailed{E: e}}
+			case "Forbidden":
+				let e = try rpc.Decode[board.Forbidden]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Forbidden{E: e}}
+			case "Invalid":
+				let e = try rpc.Decode[board.Invalid]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Invalid{E: e}}
+			case "BoardArchived":
+				let e = try rpc.Decode[board.BoardArchived]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardArchived{E: e}}
+			case "NotFound":
+				let e = try rpc.Decode[board.NotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.NotFound{E: e}}
+			case "TaskFinished":
+				let e = try rpc.Decode[board.TaskFinished]("failure", text)
+				boardapi.Rejected{Failure: boardapi.TaskFinished{E: e}}
+			case "TaskNotOwned":
+				let e = try rpc.Decode[board.TaskNotOwned]("failure", text)
+				boardapi.Rejected{Failure: boardapi.TaskNotOwned{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool tasks-assign answered an undeclared failure: " + text}
+			}
+		case boardapi.TasksNeedsRequest:
+			match rpc.TagOf(text) {
+			case "Unauthenticated":
+				let e = try rpc.Decode[board.Unauthenticated]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Unauthenticated{E: e}}
+			case "Gone":
+				let e = try rpc.Decode[board.Gone]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Gone{E: e}}
+			case "BoardNotFound":
+				let e = try rpc.Decode[board.BoardNotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardNotFound{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[board.StoreFailed]("failure", text)
+				boardapi.Rejected{Failure: boardapi.StoreFailed{E: e}}
+			case "Forbidden":
+				let e = try rpc.Decode[board.Forbidden]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Forbidden{E: e}}
+			case "Invalid":
+				let e = try rpc.Decode[board.Invalid]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Invalid{E: e}}
+			case "BoardArchived":
+				let e = try rpc.Decode[board.BoardArchived]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardArchived{E: e}}
+			case "NotFound":
+				let e = try rpc.Decode[board.NotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.NotFound{E: e}}
+			case "InvalidNeeds":
+				let e = try rpc.Decode[board.InvalidNeeds]("failure", text)
+				boardapi.Rejected{Failure: boardapi.InvalidNeeds{E: e}}
+			case "TaskClaimedRefusal":
+				let e = try rpc.Decode[board.TaskClaimedRefusal]("failure", text)
+				boardapi.Rejected{Failure: boardapi.TaskClaimedRefusal{E: e}}
+			case "TaskFinished":
+				let e = try rpc.Decode[board.TaskFinished]("failure", text)
+				boardapi.Rejected{Failure: boardapi.TaskFinished{E: e}}
+			case "TaskNotOwned":
+				let e = try rpc.Decode[board.TaskNotOwned]("failure", text)
+				boardapi.Rejected{Failure: boardapi.TaskNotOwned{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool tasks-needs answered an undeclared failure: " + text}
+			}
+		case boardapi.TasksCancelRequest:
+			match rpc.TagOf(text) {
+			case "Unauthenticated":
+				let e = try rpc.Decode[board.Unauthenticated]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Unauthenticated{E: e}}
+			case "Gone":
+				let e = try rpc.Decode[board.Gone]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Gone{E: e}}
+			case "BoardNotFound":
+				let e = try rpc.Decode[board.BoardNotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardNotFound{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[board.StoreFailed]("failure", text)
+				boardapi.Rejected{Failure: boardapi.StoreFailed{E: e}}
+			case "Forbidden":
+				let e = try rpc.Decode[board.Forbidden]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Forbidden{E: e}}
+			case "Invalid":
+				let e = try rpc.Decode[board.Invalid]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Invalid{E: e}}
+			case "BoardArchived":
+				let e = try rpc.Decode[board.BoardArchived]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardArchived{E: e}}
+			case "NotFound":
+				let e = try rpc.Decode[board.NotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.NotFound{E: e}}
+			case "TooLarge":
+				let e = try rpc.Decode[board.TooLarge]("failure", text)
+				boardapi.Rejected{Failure: boardapi.TooLarge{E: e}}
+			case "SecretDetected":
+				let e = try rpc.Decode[board.SecretDetected]("failure", text)
+				boardapi.Rejected{Failure: boardapi.SecretDetected{E: e}}
+			case "TaskFinished":
+				let e = try rpc.Decode[board.TaskFinished]("failure", text)
+				boardapi.Rejected{Failure: boardapi.TaskFinished{E: e}}
+			case "TaskNotOwned":
+				let e = try rpc.Decode[board.TaskNotOwned]("failure", text)
+				boardapi.Rejected{Failure: boardapi.TaskNotOwned{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool tasks-cancel answered an undeclared failure: " + text}
+			}
+		case boardapi.GrantsRequest:
+			match rpc.TagOf(text) {
+			case "Unauthenticated":
+				let e = try rpc.Decode[board.Unauthenticated]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Unauthenticated{E: e}}
+			case "Gone":
+				let e = try rpc.Decode[board.Gone]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Gone{E: e}}
+			case "BoardNotFound":
+				let e = try rpc.Decode[board.BoardNotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardNotFound{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[board.StoreFailed]("failure", text)
+				boardapi.Rejected{Failure: boardapi.StoreFailed{E: e}}
+			case "Forbidden":
+				let e = try rpc.Decode[board.Forbidden]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Forbidden{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool grants answered an undeclared failure: " + text}
+			}
+		case boardapi.GrantExplainRequest:
+			match rpc.TagOf(text) {
+			case "Unauthenticated":
+				let e = try rpc.Decode[board.Unauthenticated]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Unauthenticated{E: e}}
+			case "Gone":
+				let e = try rpc.Decode[board.Gone]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Gone{E: e}}
+			case "BoardNotFound":
+				let e = try rpc.Decode[board.BoardNotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardNotFound{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[board.StoreFailed]("failure", text)
+				boardapi.Rejected{Failure: boardapi.StoreFailed{E: e}}
+			case "Forbidden":
+				let e = try rpc.Decode[board.Forbidden]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Forbidden{E: e}}
+			case "Invalid":
+				let e = try rpc.Decode[board.Invalid]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Invalid{E: e}}
+			case "NotFound":
+				let e = try rpc.Decode[board.NotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.NotFound{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool grant-explain answered an undeclared failure: " + text}
+			}
+		case boardapi.GrantCreateRequest:
+			match rpc.TagOf(text) {
+			case "Unauthenticated":
+				let e = try rpc.Decode[board.Unauthenticated]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Unauthenticated{E: e}}
+			case "Gone":
+				let e = try rpc.Decode[board.Gone]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Gone{E: e}}
+			case "BoardNotFound":
+				let e = try rpc.Decode[board.BoardNotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardNotFound{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[board.StoreFailed]("failure", text)
+				boardapi.Rejected{Failure: boardapi.StoreFailed{E: e}}
+			case "Forbidden":
+				let e = try rpc.Decode[board.Forbidden]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Forbidden{E: e}}
+			case "Invalid":
+				let e = try rpc.Decode[board.Invalid]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Invalid{E: e}}
+			case "BoardArchived":
+				let e = try rpc.Decode[board.BoardArchived]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardArchived{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool grant-create answered an undeclared failure: " + text}
+			}
+		case boardapi.GrantRevokeRequest:
+			match rpc.TagOf(text) {
+			case "Unauthenticated":
+				let e = try rpc.Decode[board.Unauthenticated]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Unauthenticated{E: e}}
+			case "Gone":
+				let e = try rpc.Decode[board.Gone]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Gone{E: e}}
+			case "BoardNotFound":
+				let e = try rpc.Decode[board.BoardNotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardNotFound{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[board.StoreFailed]("failure", text)
+				boardapi.Rejected{Failure: boardapi.StoreFailed{E: e}}
+			case "Forbidden":
+				let e = try rpc.Decode[board.Forbidden]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Forbidden{E: e}}
+			case "Invalid":
+				let e = try rpc.Decode[board.Invalid]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Invalid{E: e}}
+			case "BoardArchived":
+				let e = try rpc.Decode[board.BoardArchived]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardArchived{E: e}}
+			case "NotFound":
+				let e = try rpc.Decode[board.NotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.NotFound{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool grant-revoke answered an undeclared failure: " + text}
+			}
+		case boardapi.BoardCreateRequest:
+			match rpc.TagOf(text) {
+			case "Unauthenticated":
+				let e = try rpc.Decode[board.Unauthenticated]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Unauthenticated{E: e}}
+			case "Gone":
+				let e = try rpc.Decode[board.Gone]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Gone{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[board.StoreFailed]("failure", text)
+				boardapi.Rejected{Failure: boardapi.StoreFailed{E: e}}
+			case "Forbidden":
+				let e = try rpc.Decode[board.Forbidden]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Forbidden{E: e}}
+			case "Invalid":
+				let e = try rpc.Decode[board.Invalid]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Invalid{E: e}}
+			case "BoardNameTaken":
+				let e = try rpc.Decode[board.BoardNameTaken]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardNameTaken{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool board-create answered an undeclared failure: " + text}
+			}
+		case boardapi.BoardRenameRequest:
+			match rpc.TagOf(text) {
+			case "Unauthenticated":
+				let e = try rpc.Decode[board.Unauthenticated]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Unauthenticated{E: e}}
+			case "Gone":
+				let e = try rpc.Decode[board.Gone]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Gone{E: e}}
+			case "BoardNotFound":
+				let e = try rpc.Decode[board.BoardNotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardNotFound{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[board.StoreFailed]("failure", text)
+				boardapi.Rejected{Failure: boardapi.StoreFailed{E: e}}
+			case "Forbidden":
+				let e = try rpc.Decode[board.Forbidden]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Forbidden{E: e}}
+			case "Invalid":
+				let e = try rpc.Decode[board.Invalid]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Invalid{E: e}}
+			case "BoardArchived":
+				let e = try rpc.Decode[board.BoardArchived]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardArchived{E: e}}
+			case "BoardNameTaken":
+				let e = try rpc.Decode[board.BoardNameTaken]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardNameTaken{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool board-rename answered an undeclared failure: " + text}
+			}
+		case boardapi.BoardArchiveRequest:
+			match rpc.TagOf(text) {
+			case "Unauthenticated":
+				let e = try rpc.Decode[board.Unauthenticated]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Unauthenticated{E: e}}
+			case "Gone":
+				let e = try rpc.Decode[board.Gone]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Gone{E: e}}
+			case "BoardNotFound":
+				let e = try rpc.Decode[board.BoardNotFound]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardNotFound{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[board.StoreFailed]("failure", text)
+				boardapi.Rejected{Failure: boardapi.StoreFailed{E: e}}
+			case "Forbidden":
+				let e = try rpc.Decode[board.Forbidden]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Forbidden{E: e}}
+			case "Invalid":
+				let e = try rpc.Decode[board.Invalid]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Invalid{E: e}}
+			case "BoardArchived":
+				let e = try rpc.Decode[board.BoardArchived]("failure", text)
+				boardapi.Rejected{Failure: boardapi.BoardArchived{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool board-archive answered an undeclared failure: " + text}
+			}
+		case boardapi.TrustUpdateRequest:
+			match rpc.TagOf(text) {
+			case "Unauthenticated":
+				let e = try rpc.Decode[board.Unauthenticated]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Unauthenticated{E: e}}
+			case "Gone":
+				let e = try rpc.Decode[board.Gone]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Gone{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[board.StoreFailed]("failure", text)
+				boardapi.Rejected{Failure: boardapi.StoreFailed{E: e}}
+			case "Forbidden":
+				let e = try rpc.Decode[board.Forbidden]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Forbidden{E: e}}
+			case "Invalid":
+				let e = try rpc.Decode[board.Invalid]("failure", text)
+				boardapi.Rejected{Failure: boardapi.Invalid{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool trust-update answered an undeclared failure: " + text}
+			}
+		}
+	}
+}
+
+func toolOver(name string, answer own func(r Request) boardapi.Outcome) mcp.Tool {
+	mcp.Tool{Name: name, Description: Description(name), Input: Input(name), Call: func(arguments json.Value) json.Value fails mcp.ToolError {
+		let r = Call(name, arguments) catch {
+		case mcp.ToolError as e:
+			return e
+		case mcp.UnknownTool as e:
+			return mcp.ToolError{Message: "no tool is named " + e.Name}
+		}
+		try Show(answer(r))
+	}}
+}
+
+func toolsOver(answer own func(r Request) boardapi.Outcome) []mcp.Tool {
+	let mut out = []mcp.Tool{}
+	for name in Names {
+		out = out.Append(toolOver(name, answer))
+	}
+	out
+}
+
+// Tools are the tools of the board.Api in force, one per operation, in its order.
+func Tools() []mcp.Tool needs board.Api {
+	let held = InForce[board.Api]()
+	toolsOver(func(r Request) boardapi.Outcome {
+		with held { boardapi.Call(r) }
+	})
+}
+
+func carry(c Request, answer own func(c Request) boardapi.Outcome) boardapi.Outcome fails rpc.Transport {
+	let server = mcp.Server{Name: "carry", Version: "1", Tools: toolsOver(answer)}
+	let (name, arguments) = Arguments(c)
+	let message = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":" + rpc.Encode(name) + ",\"arguments\":" + textOf(arguments) + "}}"
+	match mcp.Handle(server, message) {
+	case mcp.Answered as a:
+		let result = json.Decode(json.Codec[mcp.Called]{MaxBytes: 0, MaxDepth: 0}, a.Result) catch {
+		case _:
+			return rpc.Transport{Reason: "a tool's result is not one: " + a.Result}
+		}
+		try ReadAnswer(c, result)
+	case mcp.Refused as e:
+		return rpc.Transport{Reason: "the server refused the call: " + e.Message}
+	case mcp.Silent:
+		return rpc.Transport{Reason: "the server did not answer the call"}
+	}
+}
+
+// Wire is the protocol as a transport of the hub's calls.
+type Wire {} implements api.Transport[Request, boardapi.Outcome, rpc.Transport]
+
+// Carry is carry.
+func Carry(w Wire, c Request, answer own func(c Request) boardapi.Outcome) boardapi.Outcome fails rpc.Transport { try carry(c, answer) }
+
+// Agrees: the protocol carries every call and every outcome the call
+// can have unchanged.
+law Agrees(r Request, g boardapi.Given) { api.Agrees[Request, boardapi.Outcome, rpc.Transport](Wire, r, boardapi.OutcomeOf(r, g)) }
+
+// RoundTrips reports whether Call reads what Arguments writes of r as r.
+func RoundTrips(r Request) bool {
+	let (name, arguments) = Arguments(r)
+	let back = Call(name, arguments) catch {
+	case mcp.ToolError, mcp.UnknownTool:
+		return false
+	}
+	back == r
+}
+
+// FitsSchema reports whether the arguments that ask for r fit the
+// schema their tool lists.
+func FitsSchema(r Request) bool {
+	let (name, arguments) = Arguments(r)
+	mcp.Conforms(Input(name), arguments)
+}
+
+// ArgumentsRoundTrip: Call reads what Arguments writes as the same Request.
+law ArgumentsRoundTrip(r Request) { RoundTrips(r) }
+
+// ArgumentsFitTheSchema: the arguments of every Request fit the schema
+// of their tool.
+law ArgumentsFitTheSchema(r Request) { FitsSchema(r) }

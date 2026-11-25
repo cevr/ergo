@@ -6,6 +6,7 @@ import strings
 let embeddedBoard = embedded[embed.FS]("board")
 let embeddedMemory = embedded[embed.FS]("memory")
 let embeddedModels = embedded[embed.FS]("models")
+let embeddedSurfaces = embedded[embed.FS]("surfaces")
 
 func isAllowedStoragePath(relPath string) bool {
 	strings.HasPrefix(relPath, "sqlite/") || strings.HasPrefix(relPath, "cmd/board/")
@@ -35,8 +36,15 @@ func CheckStorageImportBoundary(sources Map[string, string]) []string {
 		match sources.Get(path) {
 		case Some[string] as src:
 			for line in strings.Split(src.Value, "\n") {
+				let trimmed = strings.TrimSpace(line)
+				if trimmed == "" || strings.HasPrefix(trimmed, "//") {
+					continue
+				}
+				if !strings.HasPrefix(trimmed, "import ") {
+					break
+				}
 				if isForbiddenStorageImportLine(line) {
-					violations = violations.Append("\(path): forbidden storage import: \(strings.TrimSpace(line))")
+					violations = violations.Append("\(path): forbidden storage import: \(trimmed)")
 				}
 			}
 		case None:
@@ -71,6 +79,7 @@ test TestStorageImportBoundary {
 	realSources = collectEmbeddedDir(embeddedBoard, "board", realSources)
 	realSources = collectEmbeddedDir(embeddedMemory, "memory", realSources)
 	realSources = collectEmbeddedDir(embeddedModels, "models", realSources)
+	realSources = collectEmbeddedDir(embeddedSurfaces, "surfaces", realSources)
 	assert len(slices.Sorted(maps.Keys(realSources))) >= 18
 	assert len(CheckStorageImportBoundary(realSources)) == 0
 	let mut illegal = Map[string, string]{}

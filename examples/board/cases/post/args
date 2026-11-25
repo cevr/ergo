@@ -1,0 +1,5 @@
+--json
+post
+-channel=dev
+-text=ship release @bob
+-labels=env=prod

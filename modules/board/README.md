@@ -1,14 +1,17 @@
 # board
 
-Pure domain packages, storage providers, import-boundary guard, and formal
-design models for the message board.
+Pure domain packages, storage providers, generated API/CLI/MCP/RPC surfaces,
+cross-surface agreement tests, import-boundary guard, and formal design models
+for the message board.
 
 ## Packages
 
 | Package | Responsibility |
 | --- | --- |
 | `.` (`boundary.ergo`) | Storage-is-a-provider import-boundary guard verifying no file outside `sqlite/` and `cmd/board/` imports `sql` or `modules/sqlite` |
-| `board/` | Pure domain entities, `Decide`/`Apply`/`Fold`, grant combination rule, mention settling, secret scanner, task lifecycle/plans/prerequisites/trust enforcement, product `Ask`, `Access`, and `Task` machines, and the provider-neutral `Store` contract with its laws |
+| `board/` | Pure domain entities, `Decide`/`Apply`/`Fold`, grant combination rule, mention settling, secret scanner, task lifecycle/plans/prerequisites/trust enforcement, product `Ask`, `Access`, and `Task` machines, the provider-neutral `Store` contract, and the single `Api` operation contract + `Handler` |
+| `board/board{api,cli,mcp,rpc}` | Generated hub (`ergo gen api`), CLI (`ergo gen cli`), MCP tools (`ergo gen mcp`), and Effect RPC (`ergo gen rpc`) projections of `board.Api` with round-trip, schema, policy, and wire-agreement laws |
+| `surfaces/` | Cross-surface `SurfacesAgree` law (direct, CLI, MCP over `mcp.Handle`, RPC over `rpc.Loopback`), CLI exit-code policy (`CliPolicy`), MCP tool description §5.1 data-notice verifier, forbidden `as`/`profile` input guard, and claim trust-boundary checks |
 | `memory/` | Pure in-memory provider of `board.Store` and model-based fold agreement tests |
 | `sqlite/` | Transactional SQLite provider of `board.Store` (`BEGIN IMMEDIATE`, `schema_version` fence, FTS5 full-text search, online `VACUUM INTO` backup, crash-atomicity, concurrent-writer, and memory-agreement verification) |
 | `models/*` | Exhaustively checked design state machines (run in the gate's full tier via `full-tier`) |

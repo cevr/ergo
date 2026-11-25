@@ -1,0 +1,2024 @@
+import rpc
+import github.com/cevr/ergo/modules/board/board
+import github.com/cevr/ergo/modules/board/board/boardapi
+
+// Client is board.Api over the wire: each operation is one call to the
+// server its Conn names. <Op>Checked fails the wire's failures as typed
+// failures: rpc.Unrepresentable for an int the wire cannot carry (an
+// operation that carries one), rpc.Transport for a lost server, a refused
+// call or an answer that is not the contract's. <Op> provides the
+// operation type, whose row cannot name them, so there they are defects.
+type Client { conn rpc.Conn } implements board.Api
+
+// NewClient is the board.Api that conn serves.
+func NewClient(conn rpc.Conn) Client { Client{conn: conn} }
+
+// WhoamiChecked calls board.Api's Whoami on the server; the wire's failures are
+// typed failures.
+func WhoamiChecked(client Client, input board.WhoamiInput) board.WhoamiReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | rpc.Transport {
+	let p = boardapi.WhoamiRequest{Input: input}
+	let text = try rpc.Call(client.conn, "Whoami", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "Unauthenticated":
+			let e = try rpc.Decode[board.Unauthenticated]("failure", f.Text)
+			return e
+		case "Gone":
+			let e = try rpc.Decode[board.Gone]("failure", f.Text)
+			return e
+		case "BoardNotFound":
+			let e = try rpc.Decode[board.BoardNotFound]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[board.StoreFailed]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "Whoami failed with a failure the contract does not name: \(f.Text)"}
+		}
+	case rpc.Unrepresentable as u:
+		return rpc.Transport{Reason: "Whoami: the server refused the int \(u.Value) at \(u.Path), which the contract does not carry"}
+	}
+	let v = try rpc.Decode[board.WhoamiReply]("value", text)
+	v
+}
+
+// Whoami calls board.Api's Whoami on the server, as WhoamiChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func Whoami(client Client, input board.WhoamiInput) board.WhoamiReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed {
+	try WhoamiChecked(client, input) catch {
+	case rpc.Transport as t:
+		return rpc.Lost[board.WhoamiReply](t)
+	}
+}
+
+// BoardsChecked calls board.Api's Boards on the server; the wire's failures are
+// typed failures.
+func BoardsChecked(client Client) []board.BoardSummary fails board.Unauthenticated | board.Gone | board.StoreFailed | rpc.Unrepresentable | rpc.Transport {
+	let p = boardapi.BoardsRequest
+	let text = try rpc.Call(client.conn, "Boards", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "Unauthenticated":
+			let e = try rpc.Decode[board.Unauthenticated]("failure", f.Text)
+			return e
+		case "Gone":
+			let e = try rpc.Decode[board.Gone]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[board.StoreFailed]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "Boards failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[[]board.BoardSummary]("value", text)
+	try exactSliceBoardBoardSummary(v)
+	v
+}
+
+// Boards calls board.Api's Boards on the server, as BoardsChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func Boards(client Client) []board.BoardSummary fails board.Unauthenticated | board.Gone | board.StoreFailed {
+	try BoardsChecked(client) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[[]board.BoardSummary](u)
+	case rpc.Transport as t:
+		return rpc.Lost[[]board.BoardSummary](t)
+	}
+}
+
+// ChannelsChecked calls board.Api's Channels on the server; the wire's failures are
+// typed failures.
+func ChannelsChecked(client Client, input board.ChannelsInput) []board.ChannelSummary fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | rpc.Unrepresentable | rpc.Transport {
+	let p = boardapi.ChannelsRequest{Input: input}
+	let text = try rpc.Call(client.conn, "Channels", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "Unauthenticated":
+			let e = try rpc.Decode[board.Unauthenticated]("failure", f.Text)
+			return e
+		case "Gone":
+			let e = try rpc.Decode[board.Gone]("failure", f.Text)
+			return e
+		case "BoardNotFound":
+			let e = try rpc.Decode[board.BoardNotFound]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[board.StoreFailed]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "Channels failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[[]board.ChannelSummary]("value", text)
+	try exactSliceBoardChannelSummary(v)
+	v
+}
+
+// Channels calls board.Api's Channels on the server, as ChannelsChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func Channels(client Client, input board.ChannelsInput) []board.ChannelSummary fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed {
+	try ChannelsChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[[]board.ChannelSummary](u)
+	case rpc.Transport as t:
+		return rpc.Lost[[]board.ChannelSummary](t)
+	}
+}
+
+// ChannelCreateChecked calls board.Api's ChannelCreate on the server; the wire's failures are
+// typed failures.
+func ChannelCreateChecked(client Client, input board.ChannelCreateInput) board.ChannelCreatedReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.ChannelExists | board.ChannelGranted | board.BoardArchived | rpc.Transport {
+	let p = boardapi.ChannelCreateRequest{Input: input}
+	let text = try rpc.Call(client.conn, "ChannelCreate", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "Unauthenticated":
+			let e = try rpc.Decode[board.Unauthenticated]("failure", f.Text)
+			return e
+		case "Gone":
+			let e = try rpc.Decode[board.Gone]("failure", f.Text)
+			return e
+		case "BoardNotFound":
+			let e = try rpc.Decode[board.BoardNotFound]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[board.StoreFailed]("failure", f.Text)
+			return e
+		case "Forbidden":
+			let e = try rpc.Decode[board.Forbidden]("failure", f.Text)
+			return e
+		case "Invalid":
+			let e = try rpc.Decode[board.Invalid]("failure", f.Text)
+			return e
+		case "ChannelExists":
+			let e = try rpc.Decode[board.ChannelExists]("failure", f.Text)
+			return e
+		case "ChannelGranted":
+			let e = try rpc.Decode[board.ChannelGranted]("failure", f.Text)
+			return e
+		case "BoardArchived":
+			let e = try rpc.Decode[board.BoardArchived]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "ChannelCreate failed with a failure the contract does not name: \(f.Text)"}
+		}
+	case rpc.Unrepresentable as u:
+		return rpc.Transport{Reason: "ChannelCreate: the server refused the int \(u.Value) at \(u.Path), which the contract does not carry"}
+	}
+	let v = try rpc.Decode[board.ChannelCreatedReply]("value", text)
+	v
+}
+
+// ChannelCreate calls board.Api's ChannelCreate on the server, as ChannelCreateChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func ChannelCreate(client Client, input board.ChannelCreateInput) board.ChannelCreatedReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.ChannelExists | board.ChannelGranted | board.BoardArchived {
+	try ChannelCreateChecked(client, input) catch {
+	case rpc.Transport as t:
+		return rpc.Lost[board.ChannelCreatedReply](t)
+	}
+}
+
+// ActorsChecked calls board.Api's Actors on the server; the wire's failures are
+// typed failures.
+func ActorsChecked(client Client, input board.ActorsInput) []board.ActorSummary fails board.Unauthenticated | board.Gone | board.StoreFailed | rpc.Transport {
+	let p = boardapi.ActorsRequest{Input: input}
+	let text = try rpc.Call(client.conn, "Actors", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "Unauthenticated":
+			let e = try rpc.Decode[board.Unauthenticated]("failure", f.Text)
+			return e
+		case "Gone":
+			let e = try rpc.Decode[board.Gone]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[board.StoreFailed]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "Actors failed with a failure the contract does not name: \(f.Text)"}
+		}
+	case rpc.Unrepresentable as u:
+		return rpc.Transport{Reason: "Actors: the server refused the int \(u.Value) at \(u.Path), which the contract does not carry"}
+	}
+	let v = try rpc.Decode[[]board.ActorSummary]("value", text)
+	v
+}
+
+// Actors calls board.Api's Actors on the server, as ActorsChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func Actors(client Client, input board.ActorsInput) []board.ActorSummary fails board.Unauthenticated | board.Gone | board.StoreFailed {
+	try ActorsChecked(client, input) catch {
+	case rpc.Transport as t:
+		return rpc.Lost[[]board.ActorSummary](t)
+	}
+}
+
+// ReadChecked calls board.Api's Read on the server; the wire's failures are
+// typed failures.
+func ReadChecked(client Client, input board.ReadInput) board.ReadReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Invalid | board.NotFound | rpc.Unrepresentable | rpc.Transport {
+	let p = boardapi.ReadRequest{Input: input}
+	try exactReadRequest(p)
+	let text = try rpc.Call(client.conn, "Read", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "Unauthenticated":
+			let e = try rpc.Decode[board.Unauthenticated]("failure", f.Text)
+			return e
+		case "Gone":
+			let e = try rpc.Decode[board.Gone]("failure", f.Text)
+			return e
+		case "BoardNotFound":
+			let e = try rpc.Decode[board.BoardNotFound]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[board.StoreFailed]("failure", f.Text)
+			return e
+		case "Invalid":
+			let e = try rpc.Decode[board.Invalid]("failure", f.Text)
+			return e
+		case "NotFound":
+			let e = try rpc.Decode[board.NotFound]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "Read failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[board.ReadReply]("value", text)
+	try exactBoardReadReply(v)
+	v
+}
+
+// Read calls board.Api's Read on the server, as ReadChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func Read(client Client, input board.ReadInput) board.ReadReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Invalid | board.NotFound {
+	try ReadChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[board.ReadReply](u)
+	case rpc.Transport as t:
+		return rpc.Lost[board.ReadReply](t)
+	}
+}
+
+// SearchChecked calls board.Api's Search on the server; the wire's failures are
+// typed failures.
+func SearchChecked(client Client, input board.SearchInput) board.SearchReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Invalid | rpc.Unrepresentable | rpc.Transport {
+	let p = boardapi.SearchRequest{Input: input}
+	try exactSearchRequest(p)
+	let text = try rpc.Call(client.conn, "Search", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "Unauthenticated":
+			let e = try rpc.Decode[board.Unauthenticated]("failure", f.Text)
+			return e
+		case "Gone":
+			let e = try rpc.Decode[board.Gone]("failure", f.Text)
+			return e
+		case "BoardNotFound":
+			let e = try rpc.Decode[board.BoardNotFound]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[board.StoreFailed]("failure", f.Text)
+			return e
+		case "Invalid":
+			let e = try rpc.Decode[board.Invalid]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "Search failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[board.SearchReply]("value", text)
+	try exactBoardSearchReply(v)
+	v
+}
+
+// Search calls board.Api's Search on the server, as SearchChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func Search(client Client, input board.SearchInput) board.SearchReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Invalid {
+	try SearchChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[board.SearchReply](u)
+	case rpc.Transport as t:
+		return rpc.Lost[board.SearchReply](t)
+	}
+}
+
+// PostChecked calls board.Api's Post on the server; the wire's failures are
+// typed failures.
+func PostChecked(client Client, input board.PostInput) board.PostReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict | board.ReservedLabel | rpc.Unrepresentable | rpc.Transport {
+	let p = boardapi.PostRequest{Input: input}
+	let text = try rpc.Call(client.conn, "Post", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "Unauthenticated":
+			let e = try rpc.Decode[board.Unauthenticated]("failure", f.Text)
+			return e
+		case "Gone":
+			let e = try rpc.Decode[board.Gone]("failure", f.Text)
+			return e
+		case "BoardNotFound":
+			let e = try rpc.Decode[board.BoardNotFound]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[board.StoreFailed]("failure", f.Text)
+			return e
+		case "Forbidden":
+			let e = try rpc.Decode[board.Forbidden]("failure", f.Text)
+			return e
+		case "Invalid":
+			let e = try rpc.Decode[board.Invalid]("failure", f.Text)
+			return e
+		case "BoardArchived":
+			let e = try rpc.Decode[board.BoardArchived]("failure", f.Text)
+			return e
+		case "NotFound":
+			let e = try rpc.Decode[board.NotFound]("failure", f.Text)
+			return e
+		case "TooLarge":
+			let e = try rpc.Decode[board.TooLarge]("failure", f.Text)
+			try exactBoardTooLarge(e)
+			return e
+		case "SecretDetected":
+			let e = try rpc.Decode[board.SecretDetected]("failure", f.Text)
+			try exactBoardSecretDetected(e)
+			return e
+		case "IdempotencyConflict":
+			let e = try rpc.Decode[board.IdempotencyConflict]("failure", f.Text)
+			return e
+		case "ReservedLabel":
+			let e = try rpc.Decode[board.ReservedLabel]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "Post failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[board.PostReply]("value", text)
+	try exactBoardPostReply(v)
+	v
+}
+
+// Post calls board.Api's Post on the server, as PostChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func Post(client Client, input board.PostInput) board.PostReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict | board.ReservedLabel {
+	try PostChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[board.PostReply](u)
+	case rpc.Transport as t:
+		return rpc.Lost[board.PostReply](t)
+	}
+}
+
+// ThreadReplyChecked calls board.Api's ThreadReply on the server; the wire's failures are
+// typed failures.
+func ThreadReplyChecked(client Client, input board.ReplyInput) board.PostReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict | board.ReservedLabel | board.NewerMessage | rpc.Unrepresentable | rpc.Transport {
+	let p = boardapi.ThreadReplyRequest{Input: input}
+	let text = try rpc.Call(client.conn, "ThreadReply", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "Unauthenticated":
+			let e = try rpc.Decode[board.Unauthenticated]("failure", f.Text)
+			return e
+		case "Gone":
+			let e = try rpc.Decode[board.Gone]("failure", f.Text)
+			return e
+		case "BoardNotFound":
+			let e = try rpc.Decode[board.BoardNotFound]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[board.StoreFailed]("failure", f.Text)
+			return e
+		case "Forbidden":
+			let e = try rpc.Decode[board.Forbidden]("failure", f.Text)
+			return e
+		case "Invalid":
+			let e = try rpc.Decode[board.Invalid]("failure", f.Text)
+			return e
+		case "BoardArchived":
+			let e = try rpc.Decode[board.BoardArchived]("failure", f.Text)
+			return e
+		case "NotFound":
+			let e = try rpc.Decode[board.NotFound]("failure", f.Text)
+			return e
+		case "TooLarge":
+			let e = try rpc.Decode[board.TooLarge]("failure", f.Text)
+			try exactBoardTooLarge(e)
+			return e
+		case "SecretDetected":
+			let e = try rpc.Decode[board.SecretDetected]("failure", f.Text)
+			try exactBoardSecretDetected(e)
+			return e
+		case "IdempotencyConflict":
+			let e = try rpc.Decode[board.IdempotencyConflict]("failure", f.Text)
+			return e
+		case "ReservedLabel":
+			let e = try rpc.Decode[board.ReservedLabel]("failure", f.Text)
+			return e
+		case "NewerMessage":
+			let e = try rpc.Decode[board.NewerMessage]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "ThreadReply failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[board.PostReply]("value", text)
+	try exactBoardPostReply(v)
+	v
+}
+
+// ThreadReply calls board.Api's ThreadReply on the server, as ThreadReplyChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func ThreadReply(client Client, input board.ReplyInput) board.PostReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict | board.ReservedLabel | board.NewerMessage {
+	try ThreadReplyChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[board.PostReply](u)
+	case rpc.Transport as t:
+		return rpc.Lost[board.PostReply](t)
+	}
+}
+
+// EditChecked calls board.Api's Edit on the server; the wire's failures are
+// typed failures.
+func EditChecked(client Client, input board.EditInput) board.RevisionReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.NotAuthor | board.RevisionConflict | rpc.Unrepresentable | rpc.Transport {
+	let p = boardapi.EditRequest{Input: input}
+	try exactEditRequest(p)
+	let text = try rpc.Call(client.conn, "Edit", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "Unauthenticated":
+			let e = try rpc.Decode[board.Unauthenticated]("failure", f.Text)
+			return e
+		case "Gone":
+			let e = try rpc.Decode[board.Gone]("failure", f.Text)
+			return e
+		case "BoardNotFound":
+			let e = try rpc.Decode[board.BoardNotFound]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[board.StoreFailed]("failure", f.Text)
+			return e
+		case "Forbidden":
+			let e = try rpc.Decode[board.Forbidden]("failure", f.Text)
+			return e
+		case "Invalid":
+			let e = try rpc.Decode[board.Invalid]("failure", f.Text)
+			return e
+		case "BoardArchived":
+			let e = try rpc.Decode[board.BoardArchived]("failure", f.Text)
+			return e
+		case "NotFound":
+			let e = try rpc.Decode[board.NotFound]("failure", f.Text)
+			return e
+		case "TooLarge":
+			let e = try rpc.Decode[board.TooLarge]("failure", f.Text)
+			try exactBoardTooLarge(e)
+			return e
+		case "SecretDetected":
+			let e = try rpc.Decode[board.SecretDetected]("failure", f.Text)
+			try exactBoardSecretDetected(e)
+			return e
+		case "NotAuthor":
+			let e = try rpc.Decode[board.NotAuthor]("failure", f.Text)
+			return e
+		case "RevisionConflict":
+			let e = try rpc.Decode[board.RevisionConflict]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "Edit failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[board.RevisionReply]("value", text)
+	try exactBoardRevisionReply(v)
+	v
+}
+
+// Edit calls board.Api's Edit on the server, as EditChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func Edit(client Client, input board.EditInput) board.RevisionReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.NotAuthor | board.RevisionConflict {
+	try EditChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[board.RevisionReply](u)
+	case rpc.Transport as t:
+		return rpc.Lost[board.RevisionReply](t)
+	}
+}
+
+// DeleteChecked calls board.Api's Delete on the server; the wire's failures are
+// typed failures.
+func DeleteChecked(client Client, input board.DeleteInput) board.RevisionReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.NotAuthor | board.RevisionConflict | rpc.Unrepresentable | rpc.Transport {
+	let p = boardapi.DeleteRequest{Input: input}
+	try exactDeleteRequest(p)
+	let text = try rpc.Call(client.conn, "Delete", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "Unauthenticated":
+			let e = try rpc.Decode[board.Unauthenticated]("failure", f.Text)
+			return e
+		case "Gone":
+			let e = try rpc.Decode[board.Gone]("failure", f.Text)
+			return e
+		case "BoardNotFound":
+			let e = try rpc.Decode[board.BoardNotFound]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[board.StoreFailed]("failure", f.Text)
+			return e
+		case "Forbidden":
+			let e = try rpc.Decode[board.Forbidden]("failure", f.Text)
+			return e
+		case "Invalid":
+			let e = try rpc.Decode[board.Invalid]("failure", f.Text)
+			return e
+		case "BoardArchived":
+			let e = try rpc.Decode[board.BoardArchived]("failure", f.Text)
+			return e
+		case "NotFound":
+			let e = try rpc.Decode[board.NotFound]("failure", f.Text)
+			return e
+		case "NotAuthor":
+			let e = try rpc.Decode[board.NotAuthor]("failure", f.Text)
+			return e
+		case "RevisionConflict":
+			let e = try rpc.Decode[board.RevisionConflict]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "Delete failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[board.RevisionReply]("value", text)
+	try exactBoardRevisionReply(v)
+	v
+}
+
+// Delete calls board.Api's Delete on the server, as DeleteChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func Delete(client Client, input board.DeleteInput) board.RevisionReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.NotAuthor | board.RevisionConflict {
+	try DeleteChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[board.RevisionReply](u)
+	case rpc.Transport as t:
+		return rpc.Lost[board.RevisionReply](t)
+	}
+}
+
+// ReactChecked calls board.Api's React on the server; the wire's failures are
+// typed failures.
+func ReactChecked(client Client, input board.ReactInput) board.ReactReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | rpc.Transport {
+	let p = boardapi.ReactRequest{Input: input}
+	let text = try rpc.Call(client.conn, "React", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "Unauthenticated":
+			let e = try rpc.Decode[board.Unauthenticated]("failure", f.Text)
+			return e
+		case "Gone":
+			let e = try rpc.Decode[board.Gone]("failure", f.Text)
+			return e
+		case "BoardNotFound":
+			let e = try rpc.Decode[board.BoardNotFound]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[board.StoreFailed]("failure", f.Text)
+			return e
+		case "Forbidden":
+			let e = try rpc.Decode[board.Forbidden]("failure", f.Text)
+			return e
+		case "Invalid":
+			let e = try rpc.Decode[board.Invalid]("failure", f.Text)
+			return e
+		case "BoardArchived":
+			let e = try rpc.Decode[board.BoardArchived]("failure", f.Text)
+			return e
+		case "NotFound":
+			let e = try rpc.Decode[board.NotFound]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "React failed with a failure the contract does not name: \(f.Text)"}
+		}
+	case rpc.Unrepresentable as u:
+		return rpc.Transport{Reason: "React: the server refused the int \(u.Value) at \(u.Path), which the contract does not carry"}
+	}
+	let v = try rpc.Decode[board.ReactReply]("value", text)
+	v
+}
+
+// React calls board.Api's React on the server, as ReactChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func React(client Client, input board.ReactInput) board.ReactReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound {
+	try ReactChecked(client, input) catch {
+	case rpc.Transport as t:
+		return rpc.Lost[board.ReactReply](t)
+	}
+}
+
+// LabelChecked calls board.Api's Label on the server; the wire's failures are
+// typed failures.
+func LabelChecked(client Client, input board.LabelInput) board.LabelReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.ReservedLabel | board.LabelConflict | rpc.Unrepresentable | rpc.Transport {
+	let p = boardapi.LabelRequest{Input: input}
+	let text = try rpc.Call(client.conn, "Label", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "Unauthenticated":
+			let e = try rpc.Decode[board.Unauthenticated]("failure", f.Text)
+			return e
+		case "Gone":
+			let e = try rpc.Decode[board.Gone]("failure", f.Text)
+			return e
+		case "BoardNotFound":
+			let e = try rpc.Decode[board.BoardNotFound]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[board.StoreFailed]("failure", f.Text)
+			return e
+		case "Forbidden":
+			let e = try rpc.Decode[board.Forbidden]("failure", f.Text)
+			return e
+		case "Invalid":
+			let e = try rpc.Decode[board.Invalid]("failure", f.Text)
+			return e
+		case "BoardArchived":
+			let e = try rpc.Decode[board.BoardArchived]("failure", f.Text)
+			return e
+		case "NotFound":
+			let e = try rpc.Decode[board.NotFound]("failure", f.Text)
+			return e
+		case "TooLarge":
+			let e = try rpc.Decode[board.TooLarge]("failure", f.Text)
+			try exactBoardTooLarge(e)
+			return e
+		case "SecretDetected":
+			let e = try rpc.Decode[board.SecretDetected]("failure", f.Text)
+			try exactBoardSecretDetected(e)
+			return e
+		case "ReservedLabel":
+			let e = try rpc.Decode[board.ReservedLabel]("failure", f.Text)
+			return e
+		case "LabelConflict":
+			let e = try rpc.Decode[board.LabelConflict]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "Label failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[board.LabelReply]("value", text)
+	v
+}
+
+// Label calls board.Api's Label on the server, as LabelChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func Label(client Client, input board.LabelInput) board.LabelReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.ReservedLabel | board.LabelConflict {
+	try LabelChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[board.LabelReply](u)
+	case rpc.Transport as t:
+		return rpc.Lost[board.LabelReply](t)
+	}
+}
+
+// AskChecked calls board.Api's Ask on the server; the wire's failures are
+// typed failures.
+func AskChecked(client Client, input board.AskInput) board.AskReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict | rpc.Unrepresentable | rpc.Transport {
+	let p = boardapi.AskRequest{Input: input}
+	try exactAskRequest(p)
+	let text = try rpc.Call(client.conn, "Ask", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "Unauthenticated":
+			let e = try rpc.Decode[board.Unauthenticated]("failure", f.Text)
+			return e
+		case "Gone":
+			let e = try rpc.Decode[board.Gone]("failure", f.Text)
+			return e
+		case "BoardNotFound":
+			let e = try rpc.Decode[board.BoardNotFound]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[board.StoreFailed]("failure", f.Text)
+			return e
+		case "Forbidden":
+			let e = try rpc.Decode[board.Forbidden]("failure", f.Text)
+			return e
+		case "Invalid":
+			let e = try rpc.Decode[board.Invalid]("failure", f.Text)
+			return e
+		case "BoardArchived":
+			let e = try rpc.Decode[board.BoardArchived]("failure", f.Text)
+			return e
+		case "NotFound":
+			let e = try rpc.Decode[board.NotFound]("failure", f.Text)
+			return e
+		case "TooLarge":
+			let e = try rpc.Decode[board.TooLarge]("failure", f.Text)
+			try exactBoardTooLarge(e)
+			return e
+		case "SecretDetected":
+			let e = try rpc.Decode[board.SecretDetected]("failure", f.Text)
+			try exactBoardSecretDetected(e)
+			return e
+		case "IdempotencyConflict":
+			let e = try rpc.Decode[board.IdempotencyConflict]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "Ask failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[board.AskReply]("value", text)
+	try exactBoardAskReply(v)
+	v
+}
+
+// Ask calls board.Api's Ask on the server, as AskChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func Ask(client Client, input board.AskInput) board.AskReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict {
+	try AskChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[board.AskReply](u)
+	case rpc.Transport as t:
+		return rpc.Lost[board.AskReply](t)
+	}
+}
+
+// AskWithdrawChecked calls board.Api's AskWithdraw on the server; the wire's failures are
+// typed failures.
+func AskWithdrawChecked(client Client, input board.AskWithdrawInput) board.AskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.NotAsker | board.AskClosed | rpc.Transport {
+	let p = boardapi.AskWithdrawRequest{Input: input}
+	let text = try rpc.Call(client.conn, "AskWithdraw", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "Unauthenticated":
+			let e = try rpc.Decode[board.Unauthenticated]("failure", f.Text)
+			return e
+		case "Gone":
+			let e = try rpc.Decode[board.Gone]("failure", f.Text)
+			return e
+		case "BoardNotFound":
+			let e = try rpc.Decode[board.BoardNotFound]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[board.StoreFailed]("failure", f.Text)
+			return e
+		case "Forbidden":
+			let e = try rpc.Decode[board.Forbidden]("failure", f.Text)
+			return e
+		case "Invalid":
+			let e = try rpc.Decode[board.Invalid]("failure", f.Text)
+			return e
+		case "BoardArchived":
+			let e = try rpc.Decode[board.BoardArchived]("failure", f.Text)
+			return e
+		case "NotFound":
+			let e = try rpc.Decode[board.NotFound]("failure", f.Text)
+			return e
+		case "NotAsker":
+			let e = try rpc.Decode[board.NotAsker]("failure", f.Text)
+			return e
+		case "AskClosed":
+			let e = try rpc.Decode[board.AskClosed]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "AskWithdraw failed with a failure the contract does not name: \(f.Text)"}
+		}
+	case rpc.Unrepresentable as u:
+		return rpc.Transport{Reason: "AskWithdraw: the server refused the int \(u.Value) at \(u.Path), which the contract does not carry"}
+	}
+	let v = try rpc.Decode[board.AskStateReply]("value", text)
+	v
+}
+
+// AskWithdraw calls board.Api's AskWithdraw on the server, as AskWithdrawChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func AskWithdraw(client Client, input board.AskWithdrawInput) board.AskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.NotAsker | board.AskClosed {
+	try AskWithdrawChecked(client, input) catch {
+	case rpc.Transport as t:
+		return rpc.Lost[board.AskStateReply](t)
+	}
+}
+
+// TasksListChecked calls board.Api's TasksList on the server; the wire's failures are
+// typed failures.
+func TasksListChecked(client Client, input board.TasksListInput) board.TasksListReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Invalid | rpc.Unrepresentable | rpc.Transport {
+	let p = boardapi.TasksListRequest{Input: input}
+	try exactTasksListRequest(p)
+	let text = try rpc.Call(client.conn, "TasksList", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "Unauthenticated":
+			let e = try rpc.Decode[board.Unauthenticated]("failure", f.Text)
+			return e
+		case "Gone":
+			let e = try rpc.Decode[board.Gone]("failure", f.Text)
+			return e
+		case "BoardNotFound":
+			let e = try rpc.Decode[board.BoardNotFound]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[board.StoreFailed]("failure", f.Text)
+			return e
+		case "Invalid":
+			let e = try rpc.Decode[board.Invalid]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "TasksList failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[board.TasksListReply]("value", text)
+	try exactBoardTasksListReply(v)
+	v
+}
+
+// TasksList calls board.Api's TasksList on the server, as TasksListChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func TasksList(client Client, input board.TasksListInput) board.TasksListReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Invalid {
+	try TasksListChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[board.TasksListReply](u)
+	case rpc.Transport as t:
+		return rpc.Lost[board.TasksListReply](t)
+	}
+}
+
+// TasksCreateChecked calls board.Api's TasksCreate on the server; the wire's failures are
+// typed failures.
+func TasksCreateChecked(client Client, input board.TasksCreateInput) board.TaskCreateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict | board.ReservedLabel | board.AlreadyTask | board.InvalidNeeds | board.TaskOwnerUntrusted | rpc.Unrepresentable | rpc.Transport {
+	let p = boardapi.TasksCreateRequest{Input: input}
+	try exactTasksCreateRequest(p)
+	let text = try rpc.Call(client.conn, "TasksCreate", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "Unauthenticated":
+			let e = try rpc.Decode[board.Unauthenticated]("failure", f.Text)
+			return e
+		case "Gone":
+			let e = try rpc.Decode[board.Gone]("failure", f.Text)
+			return e
+		case "BoardNotFound":
+			let e = try rpc.Decode[board.BoardNotFound]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[board.StoreFailed]("failure", f.Text)
+			return e
+		case "Forbidden":
+			let e = try rpc.Decode[board.Forbidden]("failure", f.Text)
+			return e
+		case "Invalid":
+			let e = try rpc.Decode[board.Invalid]("failure", f.Text)
+			return e
+		case "BoardArchived":
+			let e = try rpc.Decode[board.BoardArchived]("failure", f.Text)
+			return e
+		case "NotFound":
+			let e = try rpc.Decode[board.NotFound]("failure", f.Text)
+			return e
+		case "TooLarge":
+			let e = try rpc.Decode[board.TooLarge]("failure", f.Text)
+			try exactBoardTooLarge(e)
+			return e
+		case "SecretDetected":
+			let e = try rpc.Decode[board.SecretDetected]("failure", f.Text)
+			try exactBoardSecretDetected(e)
+			return e
+		case "IdempotencyConflict":
+			let e = try rpc.Decode[board.IdempotencyConflict]("failure", f.Text)
+			return e
+		case "ReservedLabel":
+			let e = try rpc.Decode[board.ReservedLabel]("failure", f.Text)
+			return e
+		case "AlreadyTask":
+			let e = try rpc.Decode[board.AlreadyTask]("failure", f.Text)
+			return e
+		case "InvalidNeeds":
+			let e = try rpc.Decode[board.InvalidNeeds]("failure", f.Text)
+			return e
+		case "TaskOwnerUntrusted":
+			let e = try rpc.Decode[board.TaskOwnerUntrusted]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "TasksCreate failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[board.TaskCreateReply]("value", text)
+	try exactBoardTaskCreateReply(v)
+	v
+}
+
+// TasksCreate calls board.Api's TasksCreate on the server, as TasksCreateChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func TasksCreate(client Client, input board.TasksCreateInput) board.TaskCreateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict | board.ReservedLabel | board.AlreadyTask | board.InvalidNeeds | board.TaskOwnerUntrusted {
+	try TasksCreateChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[board.TaskCreateReply](u)
+	case rpc.Transport as t:
+		return rpc.Lost[board.TaskCreateReply](t)
+	}
+}
+
+// TasksPlanChecked calls board.Api's TasksPlan on the server; the wire's failures are
+// typed failures.
+func TasksPlanChecked(client Client, input board.TasksPlanInput) board.TasksPlanReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict | board.ReservedLabel | board.InvalidNeeds | board.PlanTooLarge | rpc.Unrepresentable | rpc.Transport {
+	let p = boardapi.TasksPlanRequest{Input: input}
+	let text = try rpc.Call(client.conn, "TasksPlan", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "Unauthenticated":
+			let e = try rpc.Decode[board.Unauthenticated]("failure", f.Text)
+			return e
+		case "Gone":
+			let e = try rpc.Decode[board.Gone]("failure", f.Text)
+			return e
+		case "BoardNotFound":
+			let e = try rpc.Decode[board.BoardNotFound]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[board.StoreFailed]("failure", f.Text)
+			return e
+		case "Forbidden":
+			let e = try rpc.Decode[board.Forbidden]("failure", f.Text)
+			return e
+		case "Invalid":
+			let e = try rpc.Decode[board.Invalid]("failure", f.Text)
+			return e
+		case "BoardArchived":
+			let e = try rpc.Decode[board.BoardArchived]("failure", f.Text)
+			return e
+		case "NotFound":
+			let e = try rpc.Decode[board.NotFound]("failure", f.Text)
+			return e
+		case "TooLarge":
+			let e = try rpc.Decode[board.TooLarge]("failure", f.Text)
+			try exactBoardTooLarge(e)
+			return e
+		case "SecretDetected":
+			let e = try rpc.Decode[board.SecretDetected]("failure", f.Text)
+			try exactBoardSecretDetected(e)
+			return e
+		case "IdempotencyConflict":
+			let e = try rpc.Decode[board.IdempotencyConflict]("failure", f.Text)
+			return e
+		case "ReservedLabel":
+			let e = try rpc.Decode[board.ReservedLabel]("failure", f.Text)
+			return e
+		case "InvalidNeeds":
+			let e = try rpc.Decode[board.InvalidNeeds]("failure", f.Text)
+			return e
+		case "PlanTooLarge":
+			let e = try rpc.Decode[board.PlanTooLarge]("failure", f.Text)
+			try exactBoardPlanTooLarge(e)
+			return e
+		case _:
+			return rpc.Transport{Reason: "TasksPlan failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[board.TasksPlanReply]("value", text)
+	try exactBoardTasksPlanReply(v)
+	v
+}
+
+// TasksPlan calls board.Api's TasksPlan on the server, as TasksPlanChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func TasksPlan(client Client, input board.TasksPlanInput) board.TasksPlanReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.IdempotencyConflict | board.ReservedLabel | board.InvalidNeeds | board.PlanTooLarge {
+	try TasksPlanChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[board.TasksPlanReply](u)
+	case rpc.Transport as t:
+		return rpc.Lost[board.TasksPlanReply](t)
+	}
+}
+
+// TasksClaimChecked calls board.Api's TasksClaim on the server; the wire's failures are
+// typed failures.
+func TasksClaimChecked(client Client, input board.TasksClaimInput) board.TaskClaimReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TaskOwnerUntrusted | board.TaskClaimedRefusal | board.TaskAssignedRefusal | board.TaskWaitingRefusal | board.TaskBlockedRefusal | board.TaskFinished | board.NothingReady | rpc.Unrepresentable | rpc.Transport {
+	let p = boardapi.TasksClaimRequest{Input: input}
+	try exactTasksClaimRequest(p)
+	let text = try rpc.Call(client.conn, "TasksClaim", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "Unauthenticated":
+			let e = try rpc.Decode[board.Unauthenticated]("failure", f.Text)
+			return e
+		case "Gone":
+			let e = try rpc.Decode[board.Gone]("failure", f.Text)
+			return e
+		case "BoardNotFound":
+			let e = try rpc.Decode[board.BoardNotFound]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[board.StoreFailed]("failure", f.Text)
+			return e
+		case "Forbidden":
+			let e = try rpc.Decode[board.Forbidden]("failure", f.Text)
+			return e
+		case "Invalid":
+			let e = try rpc.Decode[board.Invalid]("failure", f.Text)
+			return e
+		case "BoardArchived":
+			let e = try rpc.Decode[board.BoardArchived]("failure", f.Text)
+			return e
+		case "NotFound":
+			let e = try rpc.Decode[board.NotFound]("failure", f.Text)
+			return e
+		case "TaskOwnerUntrusted":
+			let e = try rpc.Decode[board.TaskOwnerUntrusted]("failure", f.Text)
+			return e
+		case "TaskClaimedRefusal":
+			let e = try rpc.Decode[board.TaskClaimedRefusal]("failure", f.Text)
+			return e
+		case "TaskAssignedRefusal":
+			let e = try rpc.Decode[board.TaskAssignedRefusal]("failure", f.Text)
+			return e
+		case "TaskWaitingRefusal":
+			let e = try rpc.Decode[board.TaskWaitingRefusal]("failure", f.Text)
+			return e
+		case "TaskBlockedRefusal":
+			let e = try rpc.Decode[board.TaskBlockedRefusal]("failure", f.Text)
+			return e
+		case "TaskFinished":
+			let e = try rpc.Decode[board.TaskFinished]("failure", f.Text)
+			return e
+		case "NothingReady":
+			let e = try rpc.Decode[board.NothingReady]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "TasksClaim failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[board.TaskClaimReply]("value", text)
+	try exactBoardTaskClaimReply(v)
+	v
+}
+
+// TasksClaim calls board.Api's TasksClaim on the server, as TasksClaimChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func TasksClaim(client Client, input board.TasksClaimInput) board.TaskClaimReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TaskOwnerUntrusted | board.TaskClaimedRefusal | board.TaskAssignedRefusal | board.TaskWaitingRefusal | board.TaskBlockedRefusal | board.TaskFinished | board.NothingReady {
+	try TasksClaimChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[board.TaskClaimReply](u)
+	case rpc.Transport as t:
+		return rpc.Lost[board.TaskClaimReply](t)
+	}
+}
+
+// TasksRenewChecked calls board.Api's TasksRenew on the server; the wire's failures are
+// typed failures.
+func TasksRenewChecked(client Client, input board.TasksRenewInput) board.TaskRenewReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.ClaimLost | rpc.Unrepresentable | rpc.Transport {
+	let p = boardapi.TasksRenewRequest{Input: input}
+	try exactTasksRenewRequest(p)
+	let text = try rpc.Call(client.conn, "TasksRenew", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "Unauthenticated":
+			let e = try rpc.Decode[board.Unauthenticated]("failure", f.Text)
+			return e
+		case "Gone":
+			let e = try rpc.Decode[board.Gone]("failure", f.Text)
+			return e
+		case "BoardNotFound":
+			let e = try rpc.Decode[board.BoardNotFound]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[board.StoreFailed]("failure", f.Text)
+			return e
+		case "Forbidden":
+			let e = try rpc.Decode[board.Forbidden]("failure", f.Text)
+			return e
+		case "Invalid":
+			let e = try rpc.Decode[board.Invalid]("failure", f.Text)
+			return e
+		case "BoardArchived":
+			let e = try rpc.Decode[board.BoardArchived]("failure", f.Text)
+			return e
+		case "NotFound":
+			let e = try rpc.Decode[board.NotFound]("failure", f.Text)
+			return e
+		case "ClaimLost":
+			let e = try rpc.Decode[board.ClaimLost]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "TasksRenew failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[board.TaskRenewReply]("value", text)
+	try exactBoardTaskRenewReply(v)
+	v
+}
+
+// TasksRenew calls board.Api's TasksRenew on the server, as TasksRenewChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func TasksRenew(client Client, input board.TasksRenewInput) board.TaskRenewReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.ClaimLost {
+	try TasksRenewChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[board.TaskRenewReply](u)
+	case rpc.Transport as t:
+		return rpc.Lost[board.TaskRenewReply](t)
+	}
+}
+
+// TasksReleaseChecked calls board.Api's TasksRelease on the server; the wire's failures are
+// typed failures.
+func TasksReleaseChecked(client Client, input board.TasksReleaseInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.ClaimLost | rpc.Unrepresentable | rpc.Transport {
+	let p = boardapi.TasksReleaseRequest{Input: input}
+	try exactTasksReleaseRequest(p)
+	let text = try rpc.Call(client.conn, "TasksRelease", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "Unauthenticated":
+			let e = try rpc.Decode[board.Unauthenticated]("failure", f.Text)
+			return e
+		case "Gone":
+			let e = try rpc.Decode[board.Gone]("failure", f.Text)
+			return e
+		case "BoardNotFound":
+			let e = try rpc.Decode[board.BoardNotFound]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[board.StoreFailed]("failure", f.Text)
+			return e
+		case "Forbidden":
+			let e = try rpc.Decode[board.Forbidden]("failure", f.Text)
+			return e
+		case "Invalid":
+			let e = try rpc.Decode[board.Invalid]("failure", f.Text)
+			return e
+		case "BoardArchived":
+			let e = try rpc.Decode[board.BoardArchived]("failure", f.Text)
+			return e
+		case "NotFound":
+			let e = try rpc.Decode[board.NotFound]("failure", f.Text)
+			return e
+		case "ClaimLost":
+			let e = try rpc.Decode[board.ClaimLost]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "TasksRelease failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[board.TaskStateReply]("value", text)
+	v
+}
+
+// TasksRelease calls board.Api's TasksRelease on the server, as TasksReleaseChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func TasksRelease(client Client, input board.TasksReleaseInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.ClaimLost {
+	try TasksReleaseChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[board.TaskStateReply](u)
+	case rpc.Transport as t:
+		return rpc.Lost[board.TaskStateReply](t)
+	}
+}
+
+// TasksCompleteChecked calls board.Api's TasksComplete on the server; the wire's failures are
+// typed failures.
+func TasksCompleteChecked(client Client, input board.TasksCompleteInput) board.TaskCompleteReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.ClaimLost | rpc.Unrepresentable | rpc.Transport {
+	let p = boardapi.TasksCompleteRequest{Input: input}
+	try exactTasksCompleteRequest(p)
+	let text = try rpc.Call(client.conn, "TasksComplete", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "Unauthenticated":
+			let e = try rpc.Decode[board.Unauthenticated]("failure", f.Text)
+			return e
+		case "Gone":
+			let e = try rpc.Decode[board.Gone]("failure", f.Text)
+			return e
+		case "BoardNotFound":
+			let e = try rpc.Decode[board.BoardNotFound]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[board.StoreFailed]("failure", f.Text)
+			return e
+		case "Forbidden":
+			let e = try rpc.Decode[board.Forbidden]("failure", f.Text)
+			return e
+		case "Invalid":
+			let e = try rpc.Decode[board.Invalid]("failure", f.Text)
+			return e
+		case "BoardArchived":
+			let e = try rpc.Decode[board.BoardArchived]("failure", f.Text)
+			return e
+		case "NotFound":
+			let e = try rpc.Decode[board.NotFound]("failure", f.Text)
+			return e
+		case "TooLarge":
+			let e = try rpc.Decode[board.TooLarge]("failure", f.Text)
+			try exactBoardTooLarge(e)
+			return e
+		case "SecretDetected":
+			let e = try rpc.Decode[board.SecretDetected]("failure", f.Text)
+			try exactBoardSecretDetected(e)
+			return e
+		case "ClaimLost":
+			let e = try rpc.Decode[board.ClaimLost]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "TasksComplete failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[board.TaskCompleteReply]("value", text)
+	v
+}
+
+// TasksComplete calls board.Api's TasksComplete on the server, as TasksCompleteChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func TasksComplete(client Client, input board.TasksCompleteInput) board.TaskCompleteReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.ClaimLost {
+	try TasksCompleteChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[board.TaskCompleteReply](u)
+	case rpc.Transport as t:
+		return rpc.Lost[board.TaskCompleteReply](t)
+	}
+}
+
+// TasksFailChecked calls board.Api's TasksFail on the server; the wire's failures are
+// typed failures.
+func TasksFailChecked(client Client, input board.TasksFailInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.ClaimLost | rpc.Unrepresentable | rpc.Transport {
+	let p = boardapi.TasksFailRequest{Input: input}
+	try exactTasksFailRequest(p)
+	let text = try rpc.Call(client.conn, "TasksFail", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "Unauthenticated":
+			let e = try rpc.Decode[board.Unauthenticated]("failure", f.Text)
+			return e
+		case "Gone":
+			let e = try rpc.Decode[board.Gone]("failure", f.Text)
+			return e
+		case "BoardNotFound":
+			let e = try rpc.Decode[board.BoardNotFound]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[board.StoreFailed]("failure", f.Text)
+			return e
+		case "Forbidden":
+			let e = try rpc.Decode[board.Forbidden]("failure", f.Text)
+			return e
+		case "Invalid":
+			let e = try rpc.Decode[board.Invalid]("failure", f.Text)
+			return e
+		case "BoardArchived":
+			let e = try rpc.Decode[board.BoardArchived]("failure", f.Text)
+			return e
+		case "NotFound":
+			let e = try rpc.Decode[board.NotFound]("failure", f.Text)
+			return e
+		case "TooLarge":
+			let e = try rpc.Decode[board.TooLarge]("failure", f.Text)
+			try exactBoardTooLarge(e)
+			return e
+		case "SecretDetected":
+			let e = try rpc.Decode[board.SecretDetected]("failure", f.Text)
+			try exactBoardSecretDetected(e)
+			return e
+		case "ClaimLost":
+			let e = try rpc.Decode[board.ClaimLost]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "TasksFail failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[board.TaskStateReply]("value", text)
+	v
+}
+
+// TasksFail calls board.Api's TasksFail on the server, as TasksFailChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func TasksFail(client Client, input board.TasksFailInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.ClaimLost {
+	try TasksFailChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[board.TaskStateReply](u)
+	case rpc.Transport as t:
+		return rpc.Lost[board.TaskStateReply](t)
+	}
+}
+
+// TasksBlockChecked calls board.Api's TasksBlock on the server; the wire's failures are
+// typed failures.
+func TasksBlockChecked(client Client, input board.TasksBlockInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.TaskFinished | board.ClaimLost | board.TaskNotOwned | rpc.Unrepresentable | rpc.Transport {
+	let p = boardapi.TasksBlockRequest{Input: input}
+	try exactTasksBlockRequest(p)
+	let text = try rpc.Call(client.conn, "TasksBlock", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "Unauthenticated":
+			let e = try rpc.Decode[board.Unauthenticated]("failure", f.Text)
+			return e
+		case "Gone":
+			let e = try rpc.Decode[board.Gone]("failure", f.Text)
+			return e
+		case "BoardNotFound":
+			let e = try rpc.Decode[board.BoardNotFound]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[board.StoreFailed]("failure", f.Text)
+			return e
+		case "Forbidden":
+			let e = try rpc.Decode[board.Forbidden]("failure", f.Text)
+			return e
+		case "Invalid":
+			let e = try rpc.Decode[board.Invalid]("failure", f.Text)
+			return e
+		case "BoardArchived":
+			let e = try rpc.Decode[board.BoardArchived]("failure", f.Text)
+			return e
+		case "NotFound":
+			let e = try rpc.Decode[board.NotFound]("failure", f.Text)
+			return e
+		case "TooLarge":
+			let e = try rpc.Decode[board.TooLarge]("failure", f.Text)
+			try exactBoardTooLarge(e)
+			return e
+		case "SecretDetected":
+			let e = try rpc.Decode[board.SecretDetected]("failure", f.Text)
+			try exactBoardSecretDetected(e)
+			return e
+		case "TaskFinished":
+			let e = try rpc.Decode[board.TaskFinished]("failure", f.Text)
+			return e
+		case "ClaimLost":
+			let e = try rpc.Decode[board.ClaimLost]("failure", f.Text)
+			return e
+		case "TaskNotOwned":
+			let e = try rpc.Decode[board.TaskNotOwned]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "TasksBlock failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[board.TaskStateReply]("value", text)
+	v
+}
+
+// TasksBlock calls board.Api's TasksBlock on the server, as TasksBlockChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func TasksBlock(client Client, input board.TasksBlockInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.TaskFinished | board.ClaimLost | board.TaskNotOwned {
+	try TasksBlockChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[board.TaskStateReply](u)
+	case rpc.Transport as t:
+		return rpc.Lost[board.TaskStateReply](t)
+	}
+}
+
+// TasksUnblockChecked calls board.Api's TasksUnblock on the server; the wire's failures are
+// typed failures.
+func TasksUnblockChecked(client Client, input board.TasksUnblockInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TaskNotOwned | board.NotBlocked | rpc.Transport {
+	let p = boardapi.TasksUnblockRequest{Input: input}
+	let text = try rpc.Call(client.conn, "TasksUnblock", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "Unauthenticated":
+			let e = try rpc.Decode[board.Unauthenticated]("failure", f.Text)
+			return e
+		case "Gone":
+			let e = try rpc.Decode[board.Gone]("failure", f.Text)
+			return e
+		case "BoardNotFound":
+			let e = try rpc.Decode[board.BoardNotFound]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[board.StoreFailed]("failure", f.Text)
+			return e
+		case "Forbidden":
+			let e = try rpc.Decode[board.Forbidden]("failure", f.Text)
+			return e
+		case "Invalid":
+			let e = try rpc.Decode[board.Invalid]("failure", f.Text)
+			return e
+		case "BoardArchived":
+			let e = try rpc.Decode[board.BoardArchived]("failure", f.Text)
+			return e
+		case "NotFound":
+			let e = try rpc.Decode[board.NotFound]("failure", f.Text)
+			return e
+		case "TaskNotOwned":
+			let e = try rpc.Decode[board.TaskNotOwned]("failure", f.Text)
+			return e
+		case "NotBlocked":
+			let e = try rpc.Decode[board.NotBlocked]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "TasksUnblock failed with a failure the contract does not name: \(f.Text)"}
+		}
+	case rpc.Unrepresentable as u:
+		return rpc.Transport{Reason: "TasksUnblock: the server refused the int \(u.Value) at \(u.Path), which the contract does not carry"}
+	}
+	let v = try rpc.Decode[board.TaskStateReply]("value", text)
+	v
+}
+
+// TasksUnblock calls board.Api's TasksUnblock on the server, as TasksUnblockChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func TasksUnblock(client Client, input board.TasksUnblockInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TaskNotOwned | board.NotBlocked {
+	try TasksUnblockChecked(client, input) catch {
+	case rpc.Transport as t:
+		return rpc.Lost[board.TaskStateReply](t)
+	}
+}
+
+// TasksReopenChecked calls board.Api's TasksReopen on the server; the wire's failures are
+// typed failures.
+func TasksReopenChecked(client Client, input board.TasksReopenInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TaskNotOwned | board.NotFailed | rpc.Transport {
+	let p = boardapi.TasksReopenRequest{Input: input}
+	let text = try rpc.Call(client.conn, "TasksReopen", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "Unauthenticated":
+			let e = try rpc.Decode[board.Unauthenticated]("failure", f.Text)
+			return e
+		case "Gone":
+			let e = try rpc.Decode[board.Gone]("failure", f.Text)
+			return e
+		case "BoardNotFound":
+			let e = try rpc.Decode[board.BoardNotFound]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[board.StoreFailed]("failure", f.Text)
+			return e
+		case "Forbidden":
+			let e = try rpc.Decode[board.Forbidden]("failure", f.Text)
+			return e
+		case "Invalid":
+			let e = try rpc.Decode[board.Invalid]("failure", f.Text)
+			return e
+		case "BoardArchived":
+			let e = try rpc.Decode[board.BoardArchived]("failure", f.Text)
+			return e
+		case "NotFound":
+			let e = try rpc.Decode[board.NotFound]("failure", f.Text)
+			return e
+		case "TaskNotOwned":
+			let e = try rpc.Decode[board.TaskNotOwned]("failure", f.Text)
+			return e
+		case "NotFailed":
+			let e = try rpc.Decode[board.NotFailed]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "TasksReopen failed with a failure the contract does not name: \(f.Text)"}
+		}
+	case rpc.Unrepresentable as u:
+		return rpc.Transport{Reason: "TasksReopen: the server refused the int \(u.Value) at \(u.Path), which the contract does not carry"}
+	}
+	let v = try rpc.Decode[board.TaskStateReply]("value", text)
+	v
+}
+
+// TasksReopen calls board.Api's TasksReopen on the server, as TasksReopenChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func TasksReopen(client Client, input board.TasksReopenInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TaskNotOwned | board.NotFailed {
+	try TasksReopenChecked(client, input) catch {
+	case rpc.Transport as t:
+		return rpc.Lost[board.TaskStateReply](t)
+	}
+}
+
+// TasksAssignChecked calls board.Api's TasksAssign on the server; the wire's failures are
+// typed failures.
+func TasksAssignChecked(client Client, input board.TasksAssignInput) board.TaskAssignReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TaskFinished | board.TaskNotOwned | rpc.Transport {
+	let p = boardapi.TasksAssignRequest{Input: input}
+	let text = try rpc.Call(client.conn, "TasksAssign", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "Unauthenticated":
+			let e = try rpc.Decode[board.Unauthenticated]("failure", f.Text)
+			return e
+		case "Gone":
+			let e = try rpc.Decode[board.Gone]("failure", f.Text)
+			return e
+		case "BoardNotFound":
+			let e = try rpc.Decode[board.BoardNotFound]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[board.StoreFailed]("failure", f.Text)
+			return e
+		case "Forbidden":
+			let e = try rpc.Decode[board.Forbidden]("failure", f.Text)
+			return e
+		case "Invalid":
+			let e = try rpc.Decode[board.Invalid]("failure", f.Text)
+			return e
+		case "BoardArchived":
+			let e = try rpc.Decode[board.BoardArchived]("failure", f.Text)
+			return e
+		case "NotFound":
+			let e = try rpc.Decode[board.NotFound]("failure", f.Text)
+			return e
+		case "TaskFinished":
+			let e = try rpc.Decode[board.TaskFinished]("failure", f.Text)
+			return e
+		case "TaskNotOwned":
+			let e = try rpc.Decode[board.TaskNotOwned]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "TasksAssign failed with a failure the contract does not name: \(f.Text)"}
+		}
+	case rpc.Unrepresentable as u:
+		return rpc.Transport{Reason: "TasksAssign: the server refused the int \(u.Value) at \(u.Path), which the contract does not carry"}
+	}
+	let v = try rpc.Decode[board.TaskAssignReply]("value", text)
+	v
+}
+
+// TasksAssign calls board.Api's TasksAssign on the server, as TasksAssignChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func TasksAssign(client Client, input board.TasksAssignInput) board.TaskAssignReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TaskFinished | board.TaskNotOwned {
+	try TasksAssignChecked(client, input) catch {
+	case rpc.Transport as t:
+		return rpc.Lost[board.TaskAssignReply](t)
+	}
+}
+
+// TasksNeedsChecked calls board.Api's TasksNeeds on the server; the wire's failures are
+// typed failures.
+func TasksNeedsChecked(client Client, input board.TasksNeedsInput) board.TaskNeedsReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.InvalidNeeds | board.TaskClaimedRefusal | board.TaskFinished | board.TaskNotOwned | rpc.Transport {
+	let p = boardapi.TasksNeedsRequest{Input: input}
+	let text = try rpc.Call(client.conn, "TasksNeeds", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "Unauthenticated":
+			let e = try rpc.Decode[board.Unauthenticated]("failure", f.Text)
+			return e
+		case "Gone":
+			let e = try rpc.Decode[board.Gone]("failure", f.Text)
+			return e
+		case "BoardNotFound":
+			let e = try rpc.Decode[board.BoardNotFound]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[board.StoreFailed]("failure", f.Text)
+			return e
+		case "Forbidden":
+			let e = try rpc.Decode[board.Forbidden]("failure", f.Text)
+			return e
+		case "Invalid":
+			let e = try rpc.Decode[board.Invalid]("failure", f.Text)
+			return e
+		case "BoardArchived":
+			let e = try rpc.Decode[board.BoardArchived]("failure", f.Text)
+			return e
+		case "NotFound":
+			let e = try rpc.Decode[board.NotFound]("failure", f.Text)
+			return e
+		case "InvalidNeeds":
+			let e = try rpc.Decode[board.InvalidNeeds]("failure", f.Text)
+			return e
+		case "TaskClaimedRefusal":
+			let e = try rpc.Decode[board.TaskClaimedRefusal]("failure", f.Text)
+			return e
+		case "TaskFinished":
+			let e = try rpc.Decode[board.TaskFinished]("failure", f.Text)
+			return e
+		case "TaskNotOwned":
+			let e = try rpc.Decode[board.TaskNotOwned]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "TasksNeeds failed with a failure the contract does not name: \(f.Text)"}
+		}
+	case rpc.Unrepresentable as u:
+		return rpc.Transport{Reason: "TasksNeeds: the server refused the int \(u.Value) at \(u.Path), which the contract does not carry"}
+	}
+	let v = try rpc.Decode[board.TaskNeedsReply]("value", text)
+	v
+}
+
+// TasksNeeds calls board.Api's TasksNeeds on the server, as TasksNeedsChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func TasksNeeds(client Client, input board.TasksNeedsInput) board.TaskNeedsReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.InvalidNeeds | board.TaskClaimedRefusal | board.TaskFinished | board.TaskNotOwned {
+	try TasksNeedsChecked(client, input) catch {
+	case rpc.Transport as t:
+		return rpc.Lost[board.TaskNeedsReply](t)
+	}
+}
+
+// TasksCancelChecked calls board.Api's TasksCancel on the server; the wire's failures are
+// typed failures.
+func TasksCancelChecked(client Client, input board.TasksCancelInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.TaskFinished | board.TaskNotOwned | rpc.Unrepresentable | rpc.Transport {
+	let p = boardapi.TasksCancelRequest{Input: input}
+	let text = try rpc.Call(client.conn, "TasksCancel", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "Unauthenticated":
+			let e = try rpc.Decode[board.Unauthenticated]("failure", f.Text)
+			return e
+		case "Gone":
+			let e = try rpc.Decode[board.Gone]("failure", f.Text)
+			return e
+		case "BoardNotFound":
+			let e = try rpc.Decode[board.BoardNotFound]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[board.StoreFailed]("failure", f.Text)
+			return e
+		case "Forbidden":
+			let e = try rpc.Decode[board.Forbidden]("failure", f.Text)
+			return e
+		case "Invalid":
+			let e = try rpc.Decode[board.Invalid]("failure", f.Text)
+			return e
+		case "BoardArchived":
+			let e = try rpc.Decode[board.BoardArchived]("failure", f.Text)
+			return e
+		case "NotFound":
+			let e = try rpc.Decode[board.NotFound]("failure", f.Text)
+			return e
+		case "TooLarge":
+			let e = try rpc.Decode[board.TooLarge]("failure", f.Text)
+			try exactBoardTooLarge(e)
+			return e
+		case "SecretDetected":
+			let e = try rpc.Decode[board.SecretDetected]("failure", f.Text)
+			try exactBoardSecretDetected(e)
+			return e
+		case "TaskFinished":
+			let e = try rpc.Decode[board.TaskFinished]("failure", f.Text)
+			return e
+		case "TaskNotOwned":
+			let e = try rpc.Decode[board.TaskNotOwned]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "TasksCancel failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[board.TaskStateReply]("value", text)
+	v
+}
+
+// TasksCancel calls board.Api's TasksCancel on the server, as TasksCancelChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func TasksCancel(client Client, input board.TasksCancelInput) board.TaskStateReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | board.TooLarge | board.SecretDetected | board.TaskFinished | board.TaskNotOwned {
+	try TasksCancelChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[board.TaskStateReply](u)
+	case rpc.Transport as t:
+		return rpc.Lost[board.TaskStateReply](t)
+	}
+}
+
+// GrantsChecked calls board.Api's Grants on the server; the wire's failures are
+// typed failures.
+func GrantsChecked(client Client, input board.GrantsInput) []board.Grant fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | rpc.Unrepresentable | rpc.Transport {
+	let p = boardapi.GrantsRequest{Input: input}
+	let text = try rpc.Call(client.conn, "Grants", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "Unauthenticated":
+			let e = try rpc.Decode[board.Unauthenticated]("failure", f.Text)
+			return e
+		case "Gone":
+			let e = try rpc.Decode[board.Gone]("failure", f.Text)
+			return e
+		case "BoardNotFound":
+			let e = try rpc.Decode[board.BoardNotFound]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[board.StoreFailed]("failure", f.Text)
+			return e
+		case "Forbidden":
+			let e = try rpc.Decode[board.Forbidden]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "Grants failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[[]board.Grant]("value", text)
+	try exactSliceBoardGrant(v)
+	v
+}
+
+// Grants calls board.Api's Grants on the server, as GrantsChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func Grants(client Client, input board.GrantsInput) []board.Grant fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden {
+	try GrantsChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[[]board.Grant](u)
+	case rpc.Transport as t:
+		return rpc.Lost[[]board.Grant](t)
+	}
+}
+
+// GrantExplainChecked calls board.Api's GrantExplain on the server; the wire's failures are
+// typed failures.
+func GrantExplainChecked(client Client, input board.GrantExplainInput) board.GrantExplainReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.NotFound | rpc.Transport {
+	let p = boardapi.GrantExplainRequest{Input: input}
+	let text = try rpc.Call(client.conn, "GrantExplain", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "Unauthenticated":
+			let e = try rpc.Decode[board.Unauthenticated]("failure", f.Text)
+			return e
+		case "Gone":
+			let e = try rpc.Decode[board.Gone]("failure", f.Text)
+			return e
+		case "BoardNotFound":
+			let e = try rpc.Decode[board.BoardNotFound]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[board.StoreFailed]("failure", f.Text)
+			return e
+		case "Forbidden":
+			let e = try rpc.Decode[board.Forbidden]("failure", f.Text)
+			return e
+		case "Invalid":
+			let e = try rpc.Decode[board.Invalid]("failure", f.Text)
+			return e
+		case "NotFound":
+			let e = try rpc.Decode[board.NotFound]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "GrantExplain failed with a failure the contract does not name: \(f.Text)"}
+		}
+	case rpc.Unrepresentable as u:
+		return rpc.Transport{Reason: "GrantExplain: the server refused the int \(u.Value) at \(u.Path), which the contract does not carry"}
+	}
+	let v = try rpc.Decode[board.GrantExplainReply]("value", text)
+	v
+}
+
+// GrantExplain calls board.Api's GrantExplain on the server, as GrantExplainChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func GrantExplain(client Client, input board.GrantExplainInput) board.GrantExplainReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.NotFound {
+	try GrantExplainChecked(client, input) catch {
+	case rpc.Transport as t:
+		return rpc.Lost[board.GrantExplainReply](t)
+	}
+}
+
+// GrantCreateChecked calls board.Api's GrantCreate on the server; the wire's failures are
+// typed failures.
+func GrantCreateChecked(client Client, input board.GrantCreateInput) board.Grant fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | rpc.Unrepresentable | rpc.Transport {
+	let p = boardapi.GrantCreateRequest{Input: input}
+	let text = try rpc.Call(client.conn, "GrantCreate", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "Unauthenticated":
+			let e = try rpc.Decode[board.Unauthenticated]("failure", f.Text)
+			return e
+		case "Gone":
+			let e = try rpc.Decode[board.Gone]("failure", f.Text)
+			return e
+		case "BoardNotFound":
+			let e = try rpc.Decode[board.BoardNotFound]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[board.StoreFailed]("failure", f.Text)
+			return e
+		case "Forbidden":
+			let e = try rpc.Decode[board.Forbidden]("failure", f.Text)
+			return e
+		case "Invalid":
+			let e = try rpc.Decode[board.Invalid]("failure", f.Text)
+			return e
+		case "BoardArchived":
+			let e = try rpc.Decode[board.BoardArchived]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "GrantCreate failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[board.Grant]("value", text)
+	try exactBoardGrant(v)
+	v
+}
+
+// GrantCreate calls board.Api's GrantCreate on the server, as GrantCreateChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func GrantCreate(client Client, input board.GrantCreateInput) board.Grant fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived {
+	try GrantCreateChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[board.Grant](u)
+	case rpc.Transport as t:
+		return rpc.Lost[board.Grant](t)
+	}
+}
+
+// GrantRevokeChecked calls board.Api's GrantRevoke on the server; the wire's failures are
+// typed failures.
+func GrantRevokeChecked(client Client, input board.GrantRevokeInput) board.GrantRevokedReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound | rpc.Transport {
+	let p = boardapi.GrantRevokeRequest{Input: input}
+	let text = try rpc.Call(client.conn, "GrantRevoke", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "Unauthenticated":
+			let e = try rpc.Decode[board.Unauthenticated]("failure", f.Text)
+			return e
+		case "Gone":
+			let e = try rpc.Decode[board.Gone]("failure", f.Text)
+			return e
+		case "BoardNotFound":
+			let e = try rpc.Decode[board.BoardNotFound]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[board.StoreFailed]("failure", f.Text)
+			return e
+		case "Forbidden":
+			let e = try rpc.Decode[board.Forbidden]("failure", f.Text)
+			return e
+		case "Invalid":
+			let e = try rpc.Decode[board.Invalid]("failure", f.Text)
+			return e
+		case "BoardArchived":
+			let e = try rpc.Decode[board.BoardArchived]("failure", f.Text)
+			return e
+		case "NotFound":
+			let e = try rpc.Decode[board.NotFound]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "GrantRevoke failed with a failure the contract does not name: \(f.Text)"}
+		}
+	case rpc.Unrepresentable as u:
+		return rpc.Transport{Reason: "GrantRevoke: the server refused the int \(u.Value) at \(u.Path), which the contract does not carry"}
+	}
+	let v = try rpc.Decode[board.GrantRevokedReply]("value", text)
+	v
+}
+
+// GrantRevoke calls board.Api's GrantRevoke on the server, as GrantRevokeChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func GrantRevoke(client Client, input board.GrantRevokeInput) board.GrantRevokedReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.NotFound {
+	try GrantRevokeChecked(client, input) catch {
+	case rpc.Transport as t:
+		return rpc.Lost[board.GrantRevokedReply](t)
+	}
+}
+
+// BoardCreateChecked calls board.Api's BoardCreate on the server; the wire's failures are
+// typed failures.
+func BoardCreateChecked(client Client, input board.BoardCreateInput) board.BoardSummary fails board.Unauthenticated | board.Gone | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardNameTaken | rpc.Unrepresentable | rpc.Transport {
+	let p = boardapi.BoardCreateRequest{Input: input}
+	let text = try rpc.Call(client.conn, "BoardCreate", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "Unauthenticated":
+			let e = try rpc.Decode[board.Unauthenticated]("failure", f.Text)
+			return e
+		case "Gone":
+			let e = try rpc.Decode[board.Gone]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[board.StoreFailed]("failure", f.Text)
+			return e
+		case "Forbidden":
+			let e = try rpc.Decode[board.Forbidden]("failure", f.Text)
+			return e
+		case "Invalid":
+			let e = try rpc.Decode[board.Invalid]("failure", f.Text)
+			return e
+		case "BoardNameTaken":
+			let e = try rpc.Decode[board.BoardNameTaken]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "BoardCreate failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[board.BoardSummary]("value", text)
+	try exactBoardBoardSummary(v)
+	v
+}
+
+// BoardCreate calls board.Api's BoardCreate on the server, as BoardCreateChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func BoardCreate(client Client, input board.BoardCreateInput) board.BoardSummary fails board.Unauthenticated | board.Gone | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardNameTaken {
+	try BoardCreateChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[board.BoardSummary](u)
+	case rpc.Transport as t:
+		return rpc.Lost[board.BoardSummary](t)
+	}
+}
+
+// BoardRenameChecked calls board.Api's BoardRename on the server; the wire's failures are
+// typed failures.
+func BoardRenameChecked(client Client, input board.BoardRenameInput) board.BoardSummary fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.BoardNameTaken | rpc.Unrepresentable | rpc.Transport {
+	let p = boardapi.BoardRenameRequest{Input: input}
+	let text = try rpc.Call(client.conn, "BoardRename", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "Unauthenticated":
+			let e = try rpc.Decode[board.Unauthenticated]("failure", f.Text)
+			return e
+		case "Gone":
+			let e = try rpc.Decode[board.Gone]("failure", f.Text)
+			return e
+		case "BoardNotFound":
+			let e = try rpc.Decode[board.BoardNotFound]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[board.StoreFailed]("failure", f.Text)
+			return e
+		case "Forbidden":
+			let e = try rpc.Decode[board.Forbidden]("failure", f.Text)
+			return e
+		case "Invalid":
+			let e = try rpc.Decode[board.Invalid]("failure", f.Text)
+			return e
+		case "BoardArchived":
+			let e = try rpc.Decode[board.BoardArchived]("failure", f.Text)
+			return e
+		case "BoardNameTaken":
+			let e = try rpc.Decode[board.BoardNameTaken]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "BoardRename failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[board.BoardSummary]("value", text)
+	try exactBoardBoardSummary(v)
+	v
+}
+
+// BoardRename calls board.Api's BoardRename on the server, as BoardRenameChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func BoardRename(client Client, input board.BoardRenameInput) board.BoardSummary fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | board.BoardNameTaken {
+	try BoardRenameChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[board.BoardSummary](u)
+	case rpc.Transport as t:
+		return rpc.Lost[board.BoardSummary](t)
+	}
+}
+
+// BoardArchiveChecked calls board.Api's BoardArchive on the server; the wire's failures are
+// typed failures.
+func BoardArchiveChecked(client Client, input board.BoardArchiveInput) board.BoardSummary fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived | rpc.Unrepresentable | rpc.Transport {
+	let p = boardapi.BoardArchiveRequest{Input: input}
+	let text = try rpc.Call(client.conn, "BoardArchive", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "Unauthenticated":
+			let e = try rpc.Decode[board.Unauthenticated]("failure", f.Text)
+			return e
+		case "Gone":
+			let e = try rpc.Decode[board.Gone]("failure", f.Text)
+			return e
+		case "BoardNotFound":
+			let e = try rpc.Decode[board.BoardNotFound]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[board.StoreFailed]("failure", f.Text)
+			return e
+		case "Forbidden":
+			let e = try rpc.Decode[board.Forbidden]("failure", f.Text)
+			return e
+		case "Invalid":
+			let e = try rpc.Decode[board.Invalid]("failure", f.Text)
+			return e
+		case "BoardArchived":
+			let e = try rpc.Decode[board.BoardArchived]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "BoardArchive failed with a failure the contract does not name: \(f.Text)"}
+		}
+	}
+	let v = try rpc.Decode[board.BoardSummary]("value", text)
+	try exactBoardBoardSummary(v)
+	v
+}
+
+// BoardArchive calls board.Api's BoardArchive on the server, as BoardArchiveChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func BoardArchive(client Client, input board.BoardArchiveInput) board.BoardSummary fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed | board.Forbidden | board.Invalid | board.BoardArchived {
+	try BoardArchiveChecked(client, input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[board.BoardSummary](u)
+	case rpc.Transport as t:
+		return rpc.Lost[board.BoardSummary](t)
+	}
+}
+
+// TrustUpdateChecked calls board.Api's TrustUpdate on the server; the wire's failures are
+// typed failures.
+func TrustUpdateChecked(client Client, input board.TrustUpdateInput) board.TrustSet fails board.Unauthenticated | board.Gone | board.StoreFailed | board.Forbidden | board.Invalid | rpc.Transport {
+	let p = boardapi.TrustUpdateRequest{Input: input}
+	let text = try rpc.Call(client.conn, "TrustUpdate", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "Unauthenticated":
+			let e = try rpc.Decode[board.Unauthenticated]("failure", f.Text)
+			return e
+		case "Gone":
+			let e = try rpc.Decode[board.Gone]("failure", f.Text)
+			return e
+		case "StoreFailed":
+			let e = try rpc.Decode[board.StoreFailed]("failure", f.Text)
+			return e
+		case "Forbidden":
+			let e = try rpc.Decode[board.Forbidden]("failure", f.Text)
+			return e
+		case "Invalid":
+			let e = try rpc.Decode[board.Invalid]("failure", f.Text)
+			return e
+		case _:
+			return rpc.Transport{Reason: "TrustUpdate failed with a failure the contract does not name: \(f.Text)"}
+		}
+	case rpc.Unrepresentable as u:
+		return rpc.Transport{Reason: "TrustUpdate: the server refused the int \(u.Value) at \(u.Path), which the contract does not carry"}
+	}
+	let v = try rpc.Decode[board.TrustSet]("value", text)
+	v
+}
+
+// TrustUpdate calls board.Api's TrustUpdate on the server, as TrustUpdateChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func TrustUpdate(client Client, input board.TrustUpdateInput) board.TrustSet fails board.Unauthenticated | board.Gone | board.StoreFailed | board.Forbidden | board.Invalid {
+	try TrustUpdateChecked(client, input) catch {
+	case rpc.Transport as t:
+		return rpc.Lost[board.TrustSet](t)
+	}
+}

@@ -1,0 +1,1 @@
+{"actor":"google:alice+fx","principal":"google:alice","profile":"fx","board":"general","role":"member","narrowed":false,"can":{"*":["read","post","react","label","sync"]},"trust":["google:alice","google:alice+fx"],"retention":"Messages stay until deleted by their author or an admin; events stay in the log with tombstones for deleted messages."}

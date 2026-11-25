@@ -1,0 +1,129 @@
+import api
+import filepath
+import github.com/cevr/ergo/modules/board/board
+import github.com/cevr/ergo/modules/board/board/boardcli
+import github.com/cevr/ergo/modules/board/sqlite
+import github.com/cevr/ergo/modules/board/surfaces
+import os
+import slices
+import strconv
+import strings
+import time
+
+func defaultWorkspaceAdmins() []board.Principal {
+	[]board.Principal{
+		board.Principal{ID: "google:admin", Kind: board.Person, Handle: "admin", Email: "admin@example.com", Name: "Admin", Role: board.Admin, State: board.Active},
+		board.Principal{ID: "google:alice", Kind: board.Person, Handle: "alice", Email: "alice@example.com", Name: "Alice", Role: board.Member, State: board.Active},
+		board.Principal{ID: "google:bob", Kind: board.Person, Handle: "bob", Email: "bob@example.com", Name: "Bob", Role: board.Member, State: board.Active},
+	}
+}
+
+func callerFromEnv(user string, profile string, auth string) board.Caller {
+	if auth == "none" {
+		return board.Caller{Principal: "", Profile: "", Role: board.Member, Kind: board.Person, Email: "", Narrowed: false, NarrowedCan: Map[string, []board.Permission]{}, NarrowedProfile: "", NarrowedBoards: []string{}}
+	}
+	match user {
+	case "admin":
+		board.Caller{Principal: "google:admin", Profile: profile, Role: board.Admin, Kind: board.Person, Email: "admin@example.com", Narrowed: false, NarrowedCan: Map[string, []board.Permission]{}, NarrowedProfile: "", NarrowedBoards: []string{}}
+	case "bob":
+		board.Caller{Principal: "google:bob", Profile: profile, Role: board.Member, Kind: board.Person, Email: "bob@example.com", Narrowed: false, NarrowedCan: Map[string, []board.Permission]{}, NarrowedProfile: "", NarrowedBoards: []string{}}
+	case _:
+		board.Caller{Principal: "google:alice", Profile: profile, Role: board.Member, Kind: board.Person, Email: "alice@example.com", Narrowed: false, NarrowedCan: Map[string, []board.Permission]{}, NarrowedProfile: "", NarrowedBoards: []string{}}
+	}
+}
+
+func extractSessionProfile(args []string, envProfile string) (string, []string) fails os.Exit {
+	let mut profile = envProfile
+	let mut rest = []string{}
+	let mut i = 0
+	let mut stop = false
+	for i < len(args) {
+		let a = args[i]
+		if !stop && a == "--" {
+			stop = true
+			rest = rest.Append(a)
+			i = i + 1
+			continue
+		}
+		if !stop && (a == "--as" || a == "-as") {
+			if i+1 >= len(args) {
+				return os.Exit{Code: 2, Message: "board: --as requires a profile name"}
+			}
+			profile = args[i+1]
+			i = i + 2
+			continue
+		}
+		if !stop && strings.HasPrefix(a, "--as=") {
+			profile = strings.TrimPrefix(a, "--as=")
+			i = i + 1
+			continue
+		}
+		if !stop && strings.HasPrefix(a, "-as=") {
+			profile = strings.TrimPrefix(a, "-as=")
+			i = i + 1
+			continue
+		}
+		rest = rest.Append(a)
+		i = i + 1
+	}
+	(profile, rest)
+}
+
+func jsonFirst(args []string) []string {
+	for i, a in args {
+		if a == "--" {
+			return args
+		}
+		if i > 0 && (a == "--json" || a == "-json") {
+			return slices.Concat([]string{a}, slices.Concat(args[0:i], args[i+1:]))
+		}
+	}
+	args
+}
+
+func clockOf(now Option[string]) time.Clock fails os.Exit needs Ambient {
+	match now {
+	case Some[string] as text:
+		let sec = strconv.ParseInt(text.Value, 10, 64) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return os.Exit{Code: 2, Message: "board: BOARD_NOW must be a Unix second, not \(text.Value)"}
+		}
+		time.NewManual(sec)
+	case None:
+		time.NewHost()
+	}
+}
+
+func envOr(process os.Process, key string, def string) string {
+	match process.Getenv(key) {
+	case Some[string] as v:
+		v.Value
+	case None:
+		def
+	}
+}
+
+func main() fails os.Exit needs Ambient | Console | go.Foreign {
+	let process = os.NewHost()
+	let clock = try clockOf(process.Getenv("BOARD_NOW"))
+	let envProfile = envOr(process, "BOARD_PROFILE", "")
+	let (profile, cliArgs) = try extractSessionProfile(process.Args(), envProfile)
+	let user = envOr(process, "BOARD_USER", "alice")
+	let auth = envOr(process, "BOARD_AUTH", "")
+	let caller = callerFromEnv(user, profile, auth)
+	let home = envOr(process, "HOME", ".")
+	let dbPath = envOr(process, "BOARD_DB", filepath.Join([]string{home, "board.db"}))
+	let initNow = int(clock.Now().UnixSeconds() * 1000)
+	let (store, raw) = sqlite.OpenWithAdmins(dbPath, defaultWorkspaceAdmins(), initNow) catch {
+	case board.StoreFailed as e:
+		return os.Exit{Code: 1, Message: "board: open store failed: \(e.Reason)"}
+	}
+	let handler = board.NewHandler(store, caller, clock)
+	let out = with context { board.Api: handler } {
+		boardcli.Run(jsonFirst(cliArgs), surfaces.CliPolicy())
+	}
+	sqlite.Close(raw) catch {
+	case board.StoreFailed:
+	}
+	try api.ExitAs("board", out)
+}
