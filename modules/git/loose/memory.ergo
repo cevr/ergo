@@ -1,0 +1,55 @@
+import sync
+import github.com/cevr/ergo/modules/git/oid
+
+// MemoryStore is an in-memory provider of Objects storing raw zlib-encoded
+// loose bytes keyed by lowercase hex OID so reads exercise the identical
+// DecodeAndVerify pipeline as DiskStore.
+type MemoryStore {
+	format oid.Format,
+	blobs  sync.Ref[Map[string, []byte]],
+} implements Objects
+
+// NewMemoryStore creates an empty MemoryStore for format.
+func NewMemoryStore(format oid.Format) MemoryStore {
+	MemoryStore{
+		format: format,
+		blobs:  sync.NewRef(Map[string, []byte]{}),
+	}
+}
+
+// PutRaw injects raw zlib bytes directly under id in m (for corruption and
+// representation-independence tests).
+func PutRaw(m MemoryStore, id oid.OID, raw []byte) {
+	let key = oid.Hex(id)
+	m.blobs.Set(m.blobs.Get().Put(key, raw))
+}
+
+// Read implements Objects.Read on MemoryStore.
+func Read(m MemoryStore, id oid.OID, maxBytes int) Object fails Missing | Corrupt | Collision | LimitExceeded | IOFailed {
+	let key = oid.Hex(id)
+	match m.blobs.Get().Get(key) {
+	case None:
+		return Missing{OID: id}
+	case Some[[]byte] as raw:
+		try DecodeAndVerify(id, raw.Value, maxBytes)
+	}
+}
+
+// Contains implements Objects.Contains on MemoryStore.
+func Contains(m MemoryStore, id oid.OID) bool {
+	m.blobs.Get().Get(oid.Hex(id)) != None
+}
+
+// Install implements Objects.Install on MemoryStore.
+func Install(m MemoryStore, kind oid.Kind, data []byte) oid.OID fails Collision | IOFailed {
+	let id = oid.HashObject(m.format, kind, data) catch {
+	case oid.Collision as c:
+		return Collision{OID: oid.Zero(m.format), Digest: c.Digest}
+	}
+	let key = oid.Hex(id)
+	let cur = m.blobs.Get()
+	if cur.Get(key) == None {
+		m.blobs.Set(cur.Put(key, EncodeLoose(kind, data)))
+	}
+	id
+}

@@ -1,0 +1,341 @@
+import exec
+import filepath
+import fs
+import fstest
+import hex
+import os
+import sha1dc
+import slices
+import strconv
+import strings
+import zlib
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/oracle
+import github.com/cevr/ergo/modules/git/root
+
+let onOracle = context needs TestAmbient {
+	exec.Runner: exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
+	fs.Files:    fs.NewTestHost(),
+	fs.Writes:   fs.NewTestHost(),
+	os.Process:  os.NewTestHost(),
+}
+
+let onMemorySha1 = context {
+	Objects: NewMemoryStore(oid.Sha1),
+}
+
+let onMemorySha256 = context {
+	Objects: NewMemoryStore(oid.Sha256),
+}
+
+let onDiskSha1 = context needs TestAmbient {
+	Objects: NewDiskStore(
+		NewStore(oid.Sha1, filepath.Join([]string{fstest.TestFolder(), "law-disk-sha1-odb"}), []string{}),
+		fs.NewTestHost(),
+	),
+}
+
+func runGit(dir string, args []string, pathEnv Map[string, string]) (int, string) fails exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	let res = try exec.Runner.Run(oracle.GitCommand(dir, args, pathEnv, int64(1700000000)))
+	(res.Status, res.Stdout)
+}
+
+func runGitStdin(dir string, args []string, stdin string, pathEnv Map[string, string]) (int, string) fails exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	let base = oracle.GitCommand(dir, args, pathEnv, int64(1700000000))
+	let res = try exec.Runner.Run(exec.WithStdin(base, stdin))
+	(res.Status, res.Stdout)
+}
+
+func makeBinaryBytes() []byte {
+	let mut out = slices.WithCapacity[byte](2500)
+	for i in 0..2500 {
+		out = out.Append(byte((i*41 + 7) % 256))
+	}
+	out
+}
+
+func assertMatchesCatFile(repoDir string, store Store, hexId string, pathEnv Map[string, string]) bool fails exec.NotFound | exec.Denied | exec.Failed | Missing | Corrupt | Collision | LimitExceeded | IOFailed | oid.BadHex | oid.WrongLength needs exec.Runner | fs.Files {
+	let id = try oid.ParseHex(store.Format, hexId)
+	let (stT, wantKindRaw) = try runGit(repoDir, []string{"cat-file", "-t", hexId}, pathEnv)
+	let (stS, wantSizeRaw) = try runGit(repoDir, []string{"cat-file", "-s", hexId}, pathEnv)
+	let (stP, wantData) = try runGit(repoDir, []string{"cat-file", "-p", hexId}, pathEnv)
+	if stT != 0 || stS != 0 || stP != 0 {
+		return false
+	}
+	let wantKind = strings.TrimSpace(wantKindRaw)
+	let wantSize = strconv.Atoi(strings.TrimSpace(wantSizeRaw)) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return false
+	}
+	let obj = try ReadObject(store, id, 1048576)
+	let hdr = try StatObject(store, id, 1048576)
+	let hasIt = ContainsObject(store, id)
+	if !hasIt || oid.KindName(obj.Kind) != wantKind || obj.Size != wantSize || hdr.Size != wantSize || oid.KindName(hdr.Kind) != wantKind {
+		return false
+	}
+	if wantKind == "blob" || wantKind == "commit" || wantKind == "tag" {
+		return slices.Equal(obj.Data, wantData.Bytes())
+	}
+	len(obj.Data) == wantSize
+}
+
+// ReadMatchesGitCatFile: reads real C-Git-written loose objects (blobs, trees,
+// commits, tags, empty/binary/multi-KB) across Sha1, Sha256, and Alternates
+// repositories and verifies byte-for-byte parity with `git cat-file -t/-s/-p`.
+test ReadMatchesGitCatFile {
+	with onOracle {
+		let pathEnv = exec.PathOf(os.Process.Environ())
+		let cwd = try os.Process.Getwd()
+		let base = filepath.Join([]string{cwd, "read-cat-file"})
+
+		for fmtSpec in []oracle.OidFormat{oracle.Sha1, oracle.Sha256} {
+			let label = oracle.FormatName(fmtSpec)
+			let repoDir = try oracle.InitRepo(filepath.Join([]string{base, "repo-" + label}), oracle.RepoSpec{Format: fmtSpec, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, int64(1700000000))
+			let layout = try root.Discover(repoDir, root.DiscoverOptions{CeilingDirs: []string{cwd}, Trust: root.ConfinedTrust(cwd)})
+			let store = FromLayout(layout)
+
+			let (s0, emptyHex) = try runGitStdin(repoDir, []string{"hash-object", "-w", "--stdin"}, "", pathEnv)
+			assert s0 == 0
+			let bin = makeBinaryBytes()
+			let (s1, binHex) = try runGitStdin(repoDir, []string{"hash-object", "-w", "--stdin"}, bin.Text(), pathEnv)
+			assert s1 == 0
+			let (s2, txtHex) = try runGitStdin(repoDir, []string{"hash-object", "-w", "--stdin"}, "hello loose object\r\nline2\n", pathEnv)
+			assert s2 == 0
+
+			let (s3, _) = try runGit(repoDir, []string{"update-index", "--add", "--cacheinfo", "100644," + strings.TrimSpace(txtHex) + ",hello.txt"}, pathEnv)
+			assert s3 == 0
+			let (s4, treeHex) = try runGit(repoDir, []string{"write-tree"}, pathEnv)
+			assert s4 == 0
+			let (s5, commitHex) = try runGitStdin(repoDir, []string{"commit-tree", strings.TrimSpace(treeHex)}, "loose commit message\n", pathEnv)
+			assert s5 == 0
+			let (s6, _) = try runGit(repoDir, []string{"tag", "-a", "v1", "-m", "annotated loose tag", strings.TrimSpace(commitHex)}, pathEnv)
+			assert s6 == 0
+			let (s7, tagHex) = try runGit(repoDir, []string{"rev-parse", "--verify", "refs/tags/v1"}, pathEnv)
+			assert s7 == 0
+
+			for h in []string{emptyHex, binHex, txtHex, treeHex, commitHex, tagHex} {
+				assert try assertMatchesCatFile(repoDir, store, strings.TrimSpace(h), pathEnv)
+			}
+
+			let listed = try ListObjects(store)
+			assert len(listed) == 6
+			for i in 1..len(listed) {
+				assert oid.Compare(listed[i-1], listed[i]) < 0
+			}
+		}
+
+		let altDir = try oracle.InitRepo(filepath.Join([]string{base, "alt-repo"}), oracle.RepoSpec{Format: oracle.Sha1, Layout: oracle.Alternates, DefaultBranch: "main"}, pathEnv, int64(1700000000))
+		let upstreamDir = filepath.Join([]string{base, "alt-repo", "upstream"})
+		let (sAlt, altBlobHex) = try runGitStdin(upstreamDir, []string{"hash-object", "-w", "--stdin"}, "served from alternate loose odb\n", pathEnv)
+		assert sAlt == 0
+		let altLayout = try root.Discover(altDir, root.DiscoverOptions{CeilingDirs: []string{cwd}, Trust: root.ConfinedTrust(cwd)})
+		let altStore = FromLayout(altLayout)
+		assert len(altStore.Alternates) == 1
+		assert try assertMatchesCatFile(altDir, altStore, strings.TrimSpace(altBlobHex), pathEnv)
+	}
+}
+
+// InstallVerifiedByGitFsck: installs blobs, trees, commits, and tags via
+// loose.InstallObject in both Sha1 and Sha256 repositories and verifies every
+// object with C Git's `git cat-file -p` and `git fsck --strict --full`.
+test InstallVerifiedByGitFsck {
+	with onOracle {
+		let pathEnv = exec.PathOf(os.Process.Environ())
+		let cwd = try os.Process.Getwd()
+		let base = filepath.Join([]string{cwd, "install-fsck"})
+
+		for fmtSpec in []oracle.OidFormat{oracle.Sha1, oracle.Sha256} {
+			let label = oracle.FormatName(fmtSpec)
+			let repoDir = try oracle.InitRepo(filepath.Join([]string{base, "repo-" + label}), oracle.RepoSpec{Format: fmtSpec, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, int64(1700000000))
+			let layout = try root.Discover(repoDir, root.DiscoverOptions{CeilingDirs: []string{cwd}, Trust: root.ConfinedTrust(cwd)})
+			let store = FromLayout(layout)
+
+			let blobData = "installed by pure-ergo loose store\nline2\r\n".Bytes()
+			let blobID = try InstallObject(store, oid.Blob, blobData)
+			let blobID2 = try InstallObject(store, oid.Blob, blobData)
+			assert oid.Equal(blobID, blobID2)
+
+			let mut treeData = "100644 note.txt\x00".Bytes()
+			for b in blobID.Raw {
+				treeData = treeData.Append(b)
+			}
+			let treeID = try InstallObject(store, oid.Tree, treeData)
+
+			let commitText = "tree " + oid.Hex(treeID) + "\n" +
+				"author Oracle <oracle@example.com> 1700000000 +0000\n" +
+				"committer Oracle <oracle@example.com> 1700000000 +0000\n\n" +
+				"pure ergo loose install\n"
+			let commitID = try InstallObject(store, oid.Commit, commitText.Bytes())
+
+			let tagText = "object " + oid.Hex(commitID) + "\n" +
+				"type commit\n" +
+				"tag v1.0\n" +
+				"tagger Oracle <oracle@example.com> 1700000000 +0000\n\n" +
+				"release tag\n"
+			let tagID = try InstallObject(store, oid.Tag, tagText.Bytes())
+
+			let (s1, gotBlob) = try runGit(repoDir, []string{"cat-file", "-p", oid.Hex(blobID)}, pathEnv)
+			assert s1 == 0 && gotBlob == blobData.Text()
+
+			let (s2, gotCommit) = try runGit(repoDir, []string{"cat-file", "-p", oid.Hex(commitID)}, pathEnv)
+			assert s2 == 0 && gotCommit == commitText
+
+			let (s3, gotTag) = try runGit(repoDir, []string{"cat-file", "-p", oid.Hex(tagID)}, pathEnv)
+			assert s3 == 0 && gotTag == tagText
+
+			let (sFsck, _) = try runGit(repoDir, []string{"fsck", "--strict", "--full"}, pathEnv)
+			assert sFsck == 0
+
+			let listed = try ListObjects(store)
+			assert len(listed) == 4
+		}
+	}
+}
+
+func expectCorrupt(store Store, id oid.OID, maxBytes int) bool needs fs.Files {
+	let _ = ReadObject(store, id, maxBytes) catch {
+	case Corrupt:
+		return true
+	case Missing, Collision, LimitExceeded, IOFailed:
+		return false
+	}
+	false
+}
+
+// CorruptVsMissingDistinct: verifies absent OID -> Missing, truncated zlib ->
+// Corrupt, bad Adler-32 trailer -> Corrupt, declared length mismatch -> Corrupt,
+// rehashed OID mismatch -> Corrupt, over maxBytes -> LimitExceeded, and
+// blessed SHAttered prefix collision detection.
+test CorruptVsMissingDistinct {
+	with onOracle {
+		let cwd = try os.Process.Getwd()
+		let odb = filepath.Join([]string{cwd, "corrupt-odb"})
+		let store = NewStore(oid.Sha1, odb, []string{})
+
+		let missingID = try oid.HashObject(oid.Sha1, oid.Blob, "not-stored-anywhere".Bytes())
+		let mut sawMissing = false
+		let _ = ReadObject(store, missingID, 4096) catch {
+		case Missing as m:
+			sawMissing = oid.Equal(m.OID, missingID)
+			Object{Kind: oid.Blob, OID: missingID, Size: 0, Data: []byte{}}
+		case Corrupt, Collision, LimitExceeded, IOFailed:
+			assert false
+			Object{Kind: oid.Blob, OID: missingID, Size: 0, Data: []byte{}}
+		}
+		assert sawMissing
+
+		let goodData = "valid loose payload for corruption tests".Bytes()
+		let goodID = try InstallObject(store, oid.Blob, goodData)
+		let goodPath = FanoutPath(odb, goodID)
+		let goodZlib = (try fs.Files.ReadFile(goodPath)).Bytes()
+
+		let truncID = try oid.HashObject(oid.Sha1, oid.Blob, "case-truncated".Bytes())
+		let truncPath = FanoutPath(odb, truncID)
+		try fs.Writes.MkdirAll(filepath.Dir(truncPath))
+		try fs.Writes.WriteFile(truncPath, goodZlib[:len(goodZlib)-2].Text())
+		assert expectCorrupt(store, truncID, 4096)
+
+		let badTrailerID = try oid.HashObject(oid.Sha1, oid.Blob, "case-bad-trailer".Bytes())
+		let badTrailerPath = FanoutPath(odb, badTrailerID)
+		try fs.Writes.MkdirAll(filepath.Dir(badTrailerPath))
+		let mut flipped = slices.WithCapacity[byte](len(goodZlib))
+		for b in goodZlib {
+			flipped = flipped.Append(b)
+		}
+		flipped[len(flipped)-1] = flipped[len(flipped)-1] ^ byte(1)
+		try fs.Writes.WriteFile(badTrailerPath, flipped.Text())
+		assert expectCorrupt(store, badTrailerID, 4096)
+
+		let badLenID = try oid.HashObject(oid.Sha1, oid.Blob, "case-bad-length".Bytes())
+		let badLenPath = FanoutPath(odb, badLenID)
+		try fs.Writes.MkdirAll(filepath.Dir(badLenPath))
+		try fs.Writes.WriteFile(badLenPath, zlib.Deflate("blob 99\x00short".Bytes()).Text())
+		assert expectCorrupt(store, badLenID, 4096)
+
+		let wrongHashID = try oid.HashObject(oid.Sha1, oid.Blob, "case-wrong-hash".Bytes())
+		let wrongHashPath = FanoutPath(odb, wrongHashID)
+		try fs.Writes.MkdirAll(filepath.Dir(wrongHashPath))
+		try fs.Writes.WriteFile(wrongHashPath, goodZlib.Text())
+		assert expectCorrupt(store, wrongHashID, 4096)
+
+		let mut sawLimit = false
+		let _ = ReadObject(store, goodID, 10) catch {
+		case LimitExceeded as l:
+			sawLimit = l.MaxBytes == 10
+			Object{Kind: oid.Blob, OID: goodID, Size: 0, Data: []byte{}}
+		case Missing, Corrupt, Collision, IOFailed:
+			assert false
+			Object{Kind: oid.Blob, OID: goodID, Size: 0, Data: []byte{}}
+		}
+		assert sawLimit
+
+		let shatteredHex = "255044462d312e330a25e2e3cfd30a0a0a312030206f626a0a3c3c2f57696474" +
+			"682032203020522f4865696768742033203020522f547970652034203020522f" +
+			"537562747970652035203020522f46696c7465722036203020522f436f6c6f72" +
+			"53706163652037203020522f4c656e6774682038203020522f42697473506572" +
+			"436f6d706f6e656e7420383e3e0a73747265616d0affd8fffe00245348412d31" +
+			"20697320646561642121212121852fec092339759c39b1a1c63c4c97e1fffe01" +
+			"7346dc9166b67e118f029ab621b2560ff9ca67cca8c7f85ba84c79030c2b3de2" +
+			"18f86db3a90901d5df45c14f26fedfb3dc38e96ac22fe7bd728f0e45bce046d2" +
+			"3c570feb141398bb552ef5a0a82be331fea48037b8b5d71f0e332edf93ac3500" +
+			"eb4ddc0decc1a864790c782c76215660dd309791d06bd0af3f98cda4bc4629b1"
+		let shRaw = try hex.Decode(shatteredHex)
+		let mut sawColl = false
+		let _ = sha1dc.Sum(shRaw.Bytes()) catch {
+		case sha1dc.CollisionDetected as c:
+			sawColl = hex.Encode(c.Digest) == "7117b3cb9225aaf0d8ef1a40e493957b0bf8693d"
+			[20]byte{}
+		}
+		assert sawColl
+	}
+}
+
+// RepresentationIndependent: MemoryStore and DiskStore agree identically on
+// installs, reads, misses, and corrupt objects.
+test RepresentationIndependent {
+	with onOracle {
+		let cwd = try os.Process.Getwd()
+		let diskOdb = filepath.Join([]string{cwd, "rep-indep-odb"})
+		let diskStore = NewStore(oid.Sha1, diskOdb, []string{})
+		let mem = NewMemoryStore(oid.Sha1)
+
+		let payloads = [][]byte{
+			[]byte{},
+			"representation-independent blob\n".Bytes(),
+			makeBinaryBytes(),
+		}
+		for p in payloads {
+			let dID = try InstallObject(diskStore, oid.Blob, p)
+			let mID = try mem.Install(oid.Blob, p)
+			assert oid.Equal(dID, mID)
+			let dObj = try ReadObject(diskStore, dID, 65536)
+			let mObj = try mem.Read(mID, 65536)
+			assert oid.Equal(dObj.OID, mObj.OID)
+			assert dObj.Size == mObj.Size
+			assert slices.Equal(dObj.Data, mObj.Data)
+		}
+
+		let absent = try oid.HashObject(oid.Sha1, oid.Blob, "absent-everywhere".Bytes())
+		assert !ContainsObject(diskStore, absent)
+		assert !mem.Contains(absent)
+
+		let badID = try oid.HashObject(oid.Sha1, oid.Blob, "corrupt-both".Bytes())
+		let badPath = FanoutPath(diskOdb, badID)
+		let badBytes = []byte{byte(0x78), byte(0x9c), byte(0xff)}
+		try fs.Writes.MkdirAll(filepath.Dir(badPath))
+		try fs.Writes.WriteFile(badPath, badBytes.Text())
+		PutRaw(mem, badID, badBytes)
+
+		assert expectCorrupt(diskStore, badID, 4096)
+		let mut memCorrupt = false
+		let _ = mem.Read(badID, 4096) catch {
+		case Corrupt:
+			memCorrupt = true
+			Object{Kind: oid.Blob, OID: badID, Size: 0, Data: []byte{}}
+		case Missing, Collision, LimitExceeded, IOFailed:
+			assert false
+			Object{Kind: oid.Blob, OID: badID, Size: 0, Data: []byte{}}
+		}
+		assert memCorrupt
+	}
+}
