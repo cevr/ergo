@@ -1,0 +1,830 @@
+import sync
+
+// StepObs is the full typed observation of one acknowledged step: the machine
+// disposition, ordered outputs, committed state (or named projection), typed
+// protocol error payload when rejected, and terminal status.
+type StepObs[V, O, Err] {
+	Kind     Disposition,
+	State    Option[V],
+	Outputs  []O,
+	Error    Option[Err],
+	Terminal bool,
+}
+
+// Observed distinguishes an initial session read from an acknowledged step result.
+type Observed[V, O, Err] = InitialRead{State V} | StepResult{Step StepObs[V, O, Err]}
+
+// DiffField identifies the earliest differing component of an observation.
+type DiffField =
+	| DiffInitial{}
+	| DiffDisposition{}
+	| DiffTerminal{}
+	| DiffState{}
+	| DiffOutputs{}
+	| DiffErrorTag{}
+	| DiffErrorPayload{}
+
+// PathModel pairs a ConcreteGraph emitting StepObs with an initial observation
+// projection and an optional projection name recorded in campaign evidence.
+type PathModel[S, E, V, O, Err] {
+	Graph          ConcreteGraph[S, E, StepObs[V, O, Err]],
+	InitialObs     func(s S) V,
+	ProjectionName Option[string],
+}
+
+// PathModelOfMachine adapts a Machine step function into a PathModel comparing
+// full state, disposition, ordered outputs, and terminal Done observations.
+func PathModelOfMachine[S, E, O](
+	starts []S,
+	signals []E,
+	step own func(s S, e E) Decision[S, O],
+) PathModel[S, E, S, O, Never] {
+	PathModel[S, E, S, O, Never]{
+		Graph: ConcreteGraph[S, E, StepObs[S, O, Never]]{
+			Starts:  starts,
+			Signals: signals,
+			Step:    func(s S, e E) EdgeOutcome[S, StepObs[S, O, Never]] {
+				match step(s, e) {
+				case Enter[S] as d:
+					Continue[S, StepObs[S, O, Never]]{
+						Next: d.Next,
+						Obs:  StepObs[S, O, Never]{Kind: DisEnter, State: Some[S]{Value: d.Next}, Outputs: []O{}, Error: None, Terminal: false},
+					}
+				case Stay[S] as d:
+					Continue[S, StepObs[S, O, Never]]{
+						Next: d.Next,
+						Obs:  StepObs[S, O, Never]{Kind: DisStay, State: Some[S]{Value: d.Next}, Outputs: []O{}, Error: None, Terminal: false},
+					}
+				case Emit[S, O] as d:
+					Continue[S, StepObs[S, O, Never]]{
+						Next: d.Next,
+						Obs:  StepObs[S, O, Never]{Kind: DisEmit, State: Some[S]{Value: d.Next}, Outputs: []O{d.Output}, Error: None, Terminal: false},
+					}
+				case Tell[S, O] as d:
+					Continue[S, StepObs[S, O, Never]]{
+						Next: d.Next,
+						Obs:  StepObs[S, O, Never]{Kind: DisTell, State: Some[S]{Value: d.Next}, Outputs: []O{d.Output}, Error: None, Terminal: false},
+					}
+				case Ignore:
+					Continue[S, StepObs[S, O, Never]]{
+						Next: s,
+						Obs:  StepObs[S, O, Never]{Kind: DisIgnore, State: Some[S]{Value: s}, Outputs: []O{}, Error: None, Terminal: false},
+					}
+				case Reject:
+					Continue[S, StepObs[S, O, Never]]{
+						Next: s,
+						Obs:  StepObs[S, O, Never]{Kind: DisReject, State: Some[S]{Value: s}, Outputs: []O{}, Error: None, Terminal: false},
+					}
+				case Done[O] as d:
+					Terminal[StepObs[S, O, Never]]{
+						Obs: StepObs[S, O, Never]{Kind: DisDone, State: None, Outputs: []O{d.Output}, Error: None, Terminal: true},
+					}
+				}
+			},
+		},
+		InitialObs:     func(s S) S { s },
+		ProjectionName: None,
+	}
+}
+
+// PathModelProjected builds a PathModel whose named projection is recorded in
+// campaign evidence alongside full typed step observations.
+func PathModelProjected[S, E, V, O, Err](
+	starts []S,
+	signals []E,
+	projectionName string,
+	project own func(s S) V,
+	step own func(s S, e E) EdgeOutcome[S, StepObs[V, O, Err]],
+) PathModel[S, E, V, O, Err] {
+	PathModel[S, E, V, O, Err]{
+		Graph:          ConcreteGraph[S, E, StepObs[V, O, Err]]{Starts: starts, Signals: signals, Step: step},
+		InitialObs:     project,
+		ProjectionName: Some[string]{Value: projectionName},
+	}
+}
+
+// CheckFailure describes the earliest mismatch or infrastructure failure found
+// while driving a fresh session on a concrete path.
+type CheckFailure[S, E, V, O, Err, OpenErr, DriveErr] =
+	| InitialMismatch{
+		StartIndex int,
+		Start      S,
+		Expected   V,
+		Actual     Option[V],
+		Field      DiffField,
+	}
+	| StepMismatch{
+		StartIndex int,
+		Start      S,
+		Inputs     []E,
+		Step       int,
+		EdgeID     int,
+		Expected   StepObs[V, O, Err],
+		Actual     Option[StepObs[V, O, Err]],
+		Field      DiffField,
+	}
+	| OpenFailure{
+		StartIndex int,
+		Start      S,
+		Inputs     []E,
+		Err        OpenErr,
+	}
+	| DriveFailure{
+		StartIndex int,
+		Start      S,
+		Inputs     []E,
+		Step       int,
+		Err        DriveErr,
+	}
+
+// CheckVerdict distinguishes a complete passing campaign, an early refutation
+// or infrastructure failure, and an incomplete preflight that opened no sessions.
+type CheckVerdict[S, E, V, O, Err, OpenErr, DriveErr] =
+	| CampaignPassed{}
+	| CampaignRefuted{Failure CheckFailure[S, E, V, O, Err, OpenErr, DriveErr]}
+	| CampaignIncomplete{Stop PathStop}
+
+// CheckCounts records session opens, initial reads, completed paths, and
+// checked/matched step totals for a single binding run.
+type CheckCounts {
+	Planned        int,
+	Opened         int,
+	InitialReads   int,
+	PathsCompleted int,
+	CheckedSteps   int,
+	MatchedSteps   int,
+}
+
+// CheckResult is the structured result of CheckPaths or CheckSelectedPaths for
+// one provider binding.
+type CheckResult[S, E, V, O, Err, OpenErr, DriveErr] {
+	Verdict        CheckVerdict[S, E, V, O, Err, OpenErr, DriveErr],
+	Promise        CoveragePromise,
+	Scope          PathScope,
+	ProjectionName Option[string],
+	PlanStats      PathStats,
+	Counts         CheckCounts,
+	EdgeChecked    []int,
+	EdgeMatched    []int,
+	Graph          PathGraph[StepObs[V, O, Err]],
+}
+
+// ReplayOutcome reports the result of directly replaying one concrete
+// (start, inputs) prefix via ReplayPath.
+type ReplayOutcome[S, E, V, O, Err, OpenErr, DriveErr] =
+	| ReplayMatched{Steps int}
+	| ReplayFailed{Failure CheckFailure[S, E, V, O, Err, OpenErr, DriveErr]}
+	| ReplayDisabledStep{Step int}
+	| ReplayAfterTerminal{Step int}
+
+func compareError[Err comparable](expected Option[Err], actual Option[Err]) Option[DiffField] {
+	match expected {
+	case None:
+		match actual {
+		case None:
+			None
+		case Some:
+			Some[DiffField]{Value: DiffErrorTag}
+		}
+	case Some as exp:
+		match actual {
+		case None:
+			Some[DiffField]{Value: DiffErrorTag}
+		case Some as act:
+			if exp.Value != act.Value {
+				return Some[DiffField]{Value: DiffErrorPayload}
+			}
+			None
+		}
+	}
+}
+
+func compareStepObs[V comparable, O comparable, Err comparable](expected StepObs[V, O, Err], actual StepObs[V, O, Err]) Option[DiffField] {
+	if expected.Kind != actual.Kind {
+		return Some[DiffField]{Value: DiffDisposition}
+	}
+	if expected.Terminal != actual.Terminal {
+		return Some[DiffField]{Value: DiffTerminal}
+	}
+	if expected.State != actual.State {
+		return Some[DiffField]{Value: DiffState}
+	}
+	if expected.Outputs != actual.Outputs {
+		return Some[DiffField]{Value: DiffOutputs}
+	}
+	compareError(expected.Error, actual.Error)
+}
+
+type edgeCounters {
+	checked []int,
+	matched []int,
+}
+
+func recordStepCounts(counts mut CheckCounts, ec mut edgeCounters, edgeID int, matched bool) {
+	counts.CheckedSteps = counts.CheckedSteps + 1
+	if edgeID >= 0 && edgeID < len(ec.checked) {
+		ec.checked[edgeID] = ec.checked[edgeID] + 1
+	}
+	if matched {
+		counts.MatchedSteps = counts.MatchedSteps + 1
+		if edgeID >= 0 && edgeID < len(ec.matched) {
+			ec.matched[edgeID] = ec.matched[edgeID] + 1
+		}
+	}
+}
+
+type stepDiff[V, O, Err] {
+	Field    DiffField,
+	Initial  Option[V],
+	Expected Option[StepObs[V, O, Err]],
+	Actual   Option[StepObs[V, O, Err]],
+	EdgeID   int,
+}
+
+func runSinglePath[S, E any, V, O, Err comparable, OpenErr, DriveErr](
+	startIdx int,
+	start S,
+	inputs []E,
+	expectedInitial V,
+	expectedSteps []StepObs[V, O, Err],
+	edgeIDs []int,
+	open own func(start S) PathSession[E, Observed[V, O, Err], DriveErr] fails OpenErr,
+	counts mut CheckCounts,
+	ec mut edgeCounters,
+) Option[CheckFailure[S, E, V, O, Err, OpenErr, DriveErr]] {
+	let outcome = DrivePathSession(
+		start,
+		inputs,
+		open,
+		func(obs Observed[V, O, Err]) Option[stepDiff[V, O, Err]] {
+			counts.Opened = counts.Opened + 1
+			counts.InitialReads = counts.InitialReads + 1
+			match obs {
+			case InitialRead as ir:
+				if ir.State != expectedInitial {
+					return Some[stepDiff[V, O, Err]]{Value: stepDiff[V, O, Err]{
+						Field:    DiffInitial,
+						Initial:  Some[V]{Value: ir.State},
+						Expected: None,
+						Actual:   None,
+						EdgeID:   -1,
+					}}
+				}
+				None
+			case StepResult:
+				Some[stepDiff[V, O, Err]]{Value: stepDiff[V, O, Err]{
+					Field:    DiffInitial,
+					Initial:  None,
+					Expected: None,
+					Actual:   None,
+					EdgeID:   -1,
+				}}
+			}
+		},
+		func(step int, _ E, obs Observed[V, O, Err]) Option[stepDiff[V, O, Err]] {
+			let idx = step - 1
+			let exp = expectedSteps[idx]
+			let eID = if idx < len(edgeIDs) { edgeIDs[idx] } else { -1 }
+			match obs {
+			case InitialRead:
+				recordStepCounts(counts, ec, eID, false)
+				Some[stepDiff[V, O, Err]]{Value: stepDiff[V, O, Err]{
+					Field:    DiffDisposition,
+					Initial:  None,
+					Expected: Some[StepObs[V, O, Err]]{Value: exp},
+					Actual:   None,
+					EdgeID:   eID,
+				}}
+			case StepResult as sr:
+				match compareStepObs(exp, sr.Step) {
+				case None:
+					recordStepCounts(counts, ec, eID, true)
+					None
+				case Some as field:
+					recordStepCounts(counts, ec, eID, false)
+					Some[stepDiff[V, O, Err]]{Value: stepDiff[V, O, Err]{
+						Field:    field.Value,
+						Initial:  None,
+						Expected: Some[StepObs[V, O, Err]]{Value: exp},
+						Actual:   Some[StepObs[V, O, Err]]{Value: sr.Step},
+						EdgeID:   eID,
+					}}
+				}
+			}
+		},
+	)
+	match outcome {
+	case SessionMatched:
+		counts.PathsCompleted = counts.PathsCompleted + 1
+		None
+	case SessionOpenFailed as f:
+		Some[CheckFailure[S, E, V, O, Err, OpenErr, DriveErr]]{
+			Value: OpenFailure[S, E, OpenErr]{StartIndex: startIdx, Start: start, Inputs: inputs, Err: f.Err},
+		}
+	case SessionDriveFailed as f:
+		if f.Step == 0 {
+			counts.Opened = counts.Opened + 1
+		}
+		Some[CheckFailure[S, E, V, O, Err, OpenErr, DriveErr]]{
+			Value: DriveFailure[S, E, DriveErr]{StartIndex: startIdx, Start: start, Inputs: inputs, Step: f.Step, Err: f.Err},
+		}
+	case SessionMismatch as m:
+		if m.Step == 0 {
+			Some[CheckFailure[S, E, V, O, Err, OpenErr, DriveErr]]{
+				Value: InitialMismatch[S, V]{
+					StartIndex: startIdx,
+					Start:      start,
+					Expected:   expectedInitial,
+					Actual:     m.Detail.Initial,
+					Field:      m.Detail.Field,
+				},
+			}
+		} else {
+			let mut prefix = []E{}
+			for i in 0..m.Step {
+				prefix = prefix.Append(inputs[i])
+			}
+			let exp = expectedSteps[m.Step-1]
+			Some[CheckFailure[S, E, V, O, Err, OpenErr, DriveErr]]{
+				Value: StepMismatch[S, E, V, O, Err]{
+					StartIndex: startIdx,
+					Start:      start,
+					Inputs:     prefix,
+					Step:       m.Step,
+					EdgeID:     m.Detail.EdgeID,
+					Expected:   exp,
+					Actual:     m.Detail.Actual,
+					Field:      m.Detail.Field,
+				},
+			}
+		}
+	}
+}
+
+func zeroInts(n int) []int {
+	let mut out = []int{}
+	for _ in 0..n {
+		out = out.Append(0)
+	}
+	out
+}
+
+func caseInputsAndSteps[S, E, V, O, Err](
+	model PathModel[S, E, V, O, Err],
+	graph PathGraph[StepObs[V, O, Err]],
+	c PathCase,
+) ([]E, []StepObs[V, O, Err]) {
+	let mut inputs = []E{}
+	let mut steps = []StepObs[V, O, Err]{}
+	for i in 0..len(c.Edges) {
+		let eIdx = c.Edges[i]
+		let sigIdx = c.Signals[i]
+		inputs = inputs.Append(model.Graph.Signals[sigIdx])
+		steps = steps.Append(graph.Edges[eIdx].Obs)
+	}
+	(inputs, steps)
+}
+
+// CheckPaths preflights all legal paths of model under scope and bounds before
+// opening any sessions, then streams each planned path through a fresh
+// PathSession, stopping on the first mismatch with complete release.
+func CheckPaths[S, E wire, V, O, Err comparable, OpenErr, DriveErr](
+	model PathModel[S, E, V, O, Err],
+	scope PathScope,
+	bounds PathBounds,
+	open own func(start S) PathSession[E, Observed[V, O, Err], DriveErr] fails OpenErr,
+) CheckResult[S, E, V, O, Err, OpenErr, DriveErr] needs wired[S] | wired[E] {
+	let plan = PlanPaths(model.Graph, scope, bounds)
+	let mut ec = edgeCounters{checked: zeroInts(len(plan.Graph.Edges)), matched: zeroInts(len(plan.Graph.Edges))}
+	let mut counts = CheckCounts{Planned: plan.Stats.Paths, Opened: 0, InitialReads: 0, PathsCompleted: 0, CheckedSteps: 0, MatchedSteps: 0}
+
+	let opened = OpenPaths(plan)
+	match opened {
+	case None:
+		return CheckResult[S, E, V, O, Err, OpenErr, DriveErr]{
+			Verdict:        CampaignIncomplete{Stop: plan.Stop},
+			Promise:        ExhaustiveScope,
+			Scope:          scope,
+			ProjectionName: model.ProjectionName,
+			PlanStats:      plan.Stats,
+			Counts:         counts,
+			EdgeChecked:    ec.checked,
+			EdgeMatched:    ec.matched,
+			Graph:          plan.Graph,
+		}
+	case Some as cur:
+		let mut c = cur.Value
+		for {
+			match NextPath(plan, &c) {
+			case None:
+				break
+			case Some as item:
+				let pc = item.Value
+				let start = model.Graph.Starts[pc.Start]
+				let expInit = model.InitialObs(start)
+				let (inputs, expSteps) = caseInputsAndSteps(model, plan.Graph, pc)
+				match runSinglePath(pc.Start, start, inputs, expInit, expSteps, pc.Edges, open, &counts, &ec) {
+				case None:
+				case Some as fail:
+					return CheckResult[S, E, V, O, Err, OpenErr, DriveErr]{
+						Verdict:        CampaignRefuted[S, E, V, O, Err, OpenErr, DriveErr]{Failure: fail.Value},
+						Promise:        ExhaustiveScope,
+						Scope:          scope,
+						ProjectionName: model.ProjectionName,
+						PlanStats:      plan.Stats,
+						Counts:         counts,
+						EdgeChecked:    ec.checked,
+						EdgeMatched:    ec.matched,
+						Graph:          plan.Graph,
+					}
+				}
+			}
+		}
+		CheckResult[S, E, V, O, Err, OpenErr, DriveErr]{
+			Verdict:        CampaignPassed,
+			Promise:        ExhaustiveScope,
+			Scope:          scope,
+			ProjectionName: model.ProjectionName,
+			PlanStats:      plan.Stats,
+			Counts:         counts,
+			EdgeChecked:    ec.checked,
+			EdgeMatched:    ec.matched,
+			Graph:          plan.Graph,
+		}
+	}
+}
+
+// CheckSelectedPaths preflights a selected (non-exhaustive) strategy over model
+// before opening any sessions and replays its cases through the same fresh
+// session bracket and comparator as CheckPaths.
+func CheckSelectedPaths[S, E wire, V, O, Err comparable, OpenErr, DriveErr](
+	model PathModel[S, E, V, O, Err],
+	strategy SelectedStrategy,
+	scope PathScope,
+	bounds PathBounds,
+	open own func(start S) PathSession[E, Observed[V, O, Err], DriveErr] fails OpenErr,
+) CheckResult[S, E, V, O, Err, OpenErr, DriveErr] needs wired[S] | wired[E] {
+	let plan = SelectPaths(model.Graph, strategy, scope, bounds)
+	let mut ec = edgeCounters{checked: zeroInts(len(plan.Graph.Edges)), matched: zeroInts(len(plan.Graph.Edges))}
+	let mut counts = CheckCounts{Planned: plan.Stats.Paths, Opened: 0, InitialReads: 0, PathsCompleted: 0, CheckedSteps: 0, MatchedSteps: 0}
+
+	match SelectedCases(plan) {
+	case None:
+		return CheckResult[S, E, V, O, Err, OpenErr, DriveErr]{
+			Verdict:        CampaignIncomplete{Stop: plan.Stop},
+			Promise:        plan.Promise,
+			Scope:          scope,
+			ProjectionName: model.ProjectionName,
+			PlanStats:      plan.Stats,
+			Counts:         counts,
+			EdgeChecked:    ec.checked,
+			EdgeMatched:    ec.matched,
+			Graph:          plan.Graph,
+		}
+	case Some as cs:
+		for pc in cs.Value {
+			let start = model.Graph.Starts[pc.Start]
+			let expInit = model.InitialObs(start)
+			let (inputs, expSteps) = caseInputsAndSteps(model, plan.Graph, pc)
+			match runSinglePath(pc.Start, start, inputs, expInit, expSteps, pc.Edges, open, &counts, &ec) {
+			case None:
+			case Some as fail:
+				return CheckResult[S, E, V, O, Err, OpenErr, DriveErr]{
+					Verdict:        CampaignRefuted[S, E, V, O, Err, OpenErr, DriveErr]{Failure: fail.Value},
+					Promise:        plan.Promise,
+					Scope:          scope,
+					ProjectionName: model.ProjectionName,
+					PlanStats:      plan.Stats,
+					Counts:         counts,
+					EdgeChecked:    ec.checked,
+					EdgeMatched:    ec.matched,
+					Graph:          plan.Graph,
+				}
+			}
+		}
+		CheckResult[S, E, V, O, Err, OpenErr, DriveErr]{
+			Verdict:        CampaignPassed,
+			Promise:        plan.Promise,
+			Scope:          scope,
+			ProjectionName: model.ProjectionName,
+			PlanStats:      plan.Stats,
+			Counts:         counts,
+			EdgeChecked:    ec.checked,
+			EdgeMatched:    ec.matched,
+			Graph:          plan.Graph,
+		}
+	}
+}
+
+// ReplayPath folds model directly over one concrete (start, inputs) prefix and
+// drives a single fresh PathSession through the same comparator and release
+// bracket used by CheckPaths.
+func ReplayPath[S, E any, V, O, Err comparable, OpenErr, DriveErr](
+	model PathModel[S, E, V, O, Err],
+	startIdx int,
+	start S,
+	inputs []E,
+	open own func(start S) PathSession[E, Observed[V, O, Err], DriveErr] fails OpenErr,
+) ReplayOutcome[S, E, V, O, Err, OpenErr, DriveErr] {
+	let expInit = model.InitialObs(start)
+	let mut cur = start
+	let mut ended = false
+	let mut expSteps = []StepObs[V, O, Err]{}
+	for i in 0..len(inputs) {
+		if ended {
+			return ReplayAfterTerminal{Step: i + 1}
+		}
+		match model.Graph.Step(cur, inputs[i]) {
+		case Disabled:
+			return ReplayDisabledStep{Step: i + 1}
+		case Continue as c:
+			expSteps = expSteps.Append(c.Obs)
+			cur = c.Next
+		case Terminal as t:
+			expSteps = expSteps.Append(t.Obs)
+			ended = true
+		}
+	}
+	let mut counts = CheckCounts{Planned: 1, Opened: 0, InitialReads: 0, PathsCompleted: 0, CheckedSteps: 0, MatchedSteps: 0}
+	let mut ec = edgeCounters{checked: []int{}, matched: []int{}}
+	match runSinglePath(startIdx, start, inputs, expInit, expSteps, []int{}, open, &counts, &ec) {
+	case None:
+		ReplayMatched{Steps: len(inputs)}
+	case Some as fail:
+		ReplayFailed[S, E, V, O, Err, OpenErr, DriveErr]{Failure: fail.Value}
+	}
+}
+
+type cpState { Val int, Closed bool }
+
+type cpEvent = cpAdd{N int} | cpBad{Code int} | cpNoop{} | cpFinish{}
+
+type cpErr = cpDenied{Code int} | cpOther{Why string}
+
+type cpOpenErr { Why string }
+
+type cpDriveErr { Why string }
+
+type cpBug = cpNoBug{} | cpWrongErrPayload{} | cpMaskedStep1{} | cpBadInitial{}
+
+type cpSess {
+	state    sync.Ref[cpState],
+	step     sync.Ref[int],
+	bug      cpBug,
+	opened   sync.Ref[int],
+	released sync.Ref[int],
+} implements PathSession[cpEvent, Observed[int, int, cpErr], cpDriveErr]
+
+func Read(s cpSess) Observed[int, int, cpErr] fails cpDriveErr {
+	let cur = s.state.Get()
+	match s.bug {
+	case cpBadInitial:
+		InitialRead[int]{State: cur.Val + 77}
+	case _:
+		InitialRead[int]{State: cur.Val}
+	}
+}
+
+func Apply(s cpSess, e cpEvent) Observed[int, int, cpErr] fails cpDriveErr {
+	let cur = s.state.Get()
+	let n = sync.Modify(s.step, func(k int) (int, int) { (k + 1, k + 1) })
+	match e {
+	case cpAdd as a:
+		let next = cpState{Val: cur.Val + a.N, Closed: false}
+		s.state.Set(next)
+		let mut outs = []int{next.Val}
+		match s.bug {
+		case cpMaskedStep1:
+			if n == 1 {
+				outs = []int{next.Val + 999}
+			}
+		case _:
+		}
+		StepResult[int, int, cpErr]{Step: StepObs[int, int, cpErr]{
+			Kind:     DisEmit,
+			State:    Some[int]{Value: next.Val},
+			Outputs:  outs,
+			Error:    None,
+			Terminal: false,
+		}}
+	case cpBad as b:
+		let errVal = match s.bug {
+		case cpWrongErrPayload:
+			cpDenied{Code: b.Code + 100}
+		case _:
+			cpDenied{Code: b.Code}
+		}
+		StepResult[int, int, cpErr]{Step: StepObs[int, int, cpErr]{
+			Kind:     DisReject,
+			State:    Some[int]{Value: cur.Val},
+			Outputs:  []int{},
+			Error:    Some[cpErr]{Value: errVal},
+			Terminal: false,
+		}}
+	case cpNoop:
+		StepResult[int, int, cpErr]{Step: StepObs[int, int, cpErr]{
+			Kind:     DisIgnore,
+			State:    Some[int]{Value: cur.Val},
+			Outputs:  []int{},
+			Error:    None,
+			Terminal: false,
+		}}
+	case cpFinish:
+		s.state.Set(cpState{Val: cur.Val, Closed: true})
+		StepResult[int, int, cpErr]{Step: StepObs[int, int, cpErr]{
+			Kind:     DisDone,
+			State:    None,
+			Outputs:  []int{cur.Val},
+			Error:    None,
+			Terminal: true,
+		}}
+	}
+}
+
+func Close(s cpSess) {
+	s.released.Update(func(k int) int { k + 1 })
+}
+
+func cpModel(seed uint64, signals []cpEvent) PathModel[cpState, cpEvent, int, int, cpErr] {
+	let initVal = int(seed % uint64(4))
+	PathModelProjected[cpState, cpEvent, int, int, cpErr](
+		[]cpState{cpState{Val: initVal, Closed: false}},
+		signals,
+		"val",
+		func(s cpState) int { s.Val },
+		func(s cpState, e cpEvent) EdgeOutcome[cpState, StepObs[int, int, cpErr]] {
+			match e {
+			case cpAdd as a:
+				let next = cpState{Val: s.Val + a.N, Closed: false}
+				Continue[cpState, StepObs[int, int, cpErr]]{
+					Next: next,
+					Obs:  StepObs[int, int, cpErr]{
+						Kind:     DisEmit,
+						State:    Some[int]{Value: next.Val},
+						Outputs:  []int{next.Val},
+						Error:    None,
+						Terminal: false,
+					},
+				}
+			case cpBad as b:
+				Continue[cpState, StepObs[int, int, cpErr]]{
+					Next: s,
+					Obs:  StepObs[int, int, cpErr]{
+						Kind:     DisReject,
+						State:    Some[int]{Value: s.Val},
+						Outputs:  []int{},
+						Error:    Some[cpErr]{Value: cpDenied{Code: b.Code}},
+						Terminal: false,
+					},
+				}
+			case cpNoop:
+				Continue[cpState, StepObs[int, int, cpErr]]{
+					Next: s,
+					Obs:  StepObs[int, int, cpErr]{
+						Kind:     DisIgnore,
+						State:    Some[int]{Value: s.Val},
+						Outputs:  []int{},
+						Error:    None,
+						Terminal: false,
+					},
+				}
+			case cpFinish:
+				Terminal[StepObs[int, int, cpErr]]{
+					Obs: StepObs[int, int, cpErr]{
+						Kind:     DisDone,
+						State:    None,
+						Outputs:  []int{s.Val},
+						Error:    None,
+						Terminal: true,
+					},
+				}
+			}
+		},
+	)
+}
+
+func cpOpenWith(bug cpBug, opened sync.Ref[int], released sync.Ref[int]) func(start cpState) PathSession[cpEvent, Observed[int, int, cpErr], cpDriveErr] fails cpOpenErr {
+	func(start cpState) PathSession[cpEvent, Observed[int, int, cpErr], cpDriveErr] fails cpOpenErr {
+		opened.Update(func(k int) int { k + 1 })
+		let st = sync.NewRef(start)
+		let step = sync.NewRef(0)
+		cpSess{state: st, step: step, bug: bug, opened: opened, released: released}
+	}
+}
+
+// CheckPathsObservesPrefixes checks that CheckPaths and ReplayPath agree on
+// initial reads and every acknowledged step, catch payload-changing typed
+// rejections, refuse to let a later equal state mask an earlier mismatch, stop
+// early with complete session release, open zero sessions on preflight cap, and
+// catch a bad initial read under an empty alphabet.
+law CheckPathsObservesPrefixes(seed uint64) {
+	let sigs = []cpEvent{cpAdd{N: 1}, cpBad{Code: int(seed%uint64(5)) + 1}, cpNoop, cpFinish}
+	let model = cpModel(seed, sigs)
+	let big = PathBounds{MaxStates: 64, MaxEdges: 256, MaxPaths: 256, MaxSteps: 1024, MaxWork: 200000, MaxBytes: 1048576}
+
+	let okOpen = sync.NewRef(0)
+	let okRel = sync.NewRef(0)
+	let passRes = CheckPaths(model, ToDepth{Depth: 2}, big, cpOpenWith(cpNoBug, okOpen, okRel))
+	match passRes.Verdict {
+	case CampaignPassed:
+	case _:
+		return false
+	}
+	if okOpen.Get() != passRes.Counts.Planned || okRel.Get() != okOpen.Get() || passRes.Counts.PathsCompleted != passRes.Counts.Planned {
+		return false
+	}
+
+	let capOpen = sync.NewRef(0)
+	let capRel = sync.NewRef(0)
+	let capRes = CheckPaths(model, ToDepth{Depth: 2}, PathBounds{MaxStates: 64, MaxEdges: 256, MaxPaths: 2, MaxSteps: 1024, MaxWork: 200000, MaxBytes: 1048576}, cpOpenWith(cpNoBug, capOpen, capRel))
+	match capRes.Verdict {
+	case CampaignIncomplete:
+	case _:
+		return false
+	}
+	if capOpen.Get() != 0 || capRel.Get() != 0 || capRes.Counts.Opened != 0 {
+		return false
+	}
+
+	let payOpen = sync.NewRef(0)
+	let payRel = sync.NewRef(0)
+	let payRes = CheckPaths(model, ToDepth{Depth: 2}, big, cpOpenWith(cpWrongErrPayload, payOpen, payRel))
+	let payFailOK = match payRes.Verdict {
+	case CampaignRefuted as ref:
+		match ref.Failure {
+		case StepMismatch as sm:
+			let repOpen = sync.NewRef(0)
+			let repRel = sync.NewRef(0)
+			let rep = ReplayPath(model, sm.StartIndex, sm.Start, sm.Inputs, cpOpenWith(cpWrongErrPayload, repOpen, repRel))
+			let repSame = match rep {
+			case ReplayFailed as rf:
+				match rf.Failure {
+				case StepMismatch as rsm:
+					rsm.Step == sm.Step && rsm.Field == sm.Field && rsm.Expected == sm.Expected && rsm.Actual == sm.Actual
+				case _:
+					false
+				}
+			case _:
+				false
+			}
+			sm.Field == DiffErrorPayload && sm.Step == 1 && repSame && repOpen.Get() == 1 && repRel.Get() == 1
+		case _:
+			false
+		}
+	case _:
+		false
+	}
+	if !payFailOK || payRel.Get() != payOpen.Get() || payOpen.Get() >= passRes.Counts.Planned {
+		return false
+	}
+
+	let maskOpen = sync.NewRef(0)
+	let maskRel = sync.NewRef(0)
+	let maskRes = ReplayPath(model, 0, model.Graph.Starts[0], []cpEvent{cpAdd{N: 1}, cpAdd{N: 1}}, cpOpenWith(cpMaskedStep1, maskOpen, maskRel))
+	let maskOK = match maskRes {
+	case ReplayFailed as rf:
+		match rf.Failure {
+		case StepMismatch as sm:
+			sm.Step == 1 && sm.Field == DiffOutputs && len(sm.Inputs) == 1
+		case _:
+			false
+		}
+	case _:
+		false
+	}
+	if !maskOK || maskOpen.Get() != 1 || maskRel.Get() != 1 {
+		return false
+	}
+
+	let emptyModel = cpModel(seed, []cpEvent{})
+	let eaOpen = sync.NewRef(0)
+	let eaRel = sync.NewRef(0)
+	let eaRes = CheckPaths(emptyModel, All, big, cpOpenWith(cpBadInitial, eaOpen, eaRel))
+	let eaOK = match eaRes.Verdict {
+	case CampaignRefuted as ref:
+		match ref.Failure {
+		case InitialMismatch as im:
+			match im.Actual {
+			case Some as a:
+				im.Field == DiffInitial && im.Expected != a.Value
+			case None:
+				false
+			}
+		case _:
+			false
+		}
+	case _:
+		false
+	}
+	if !eaOK || eaOpen.Get() != 1 || eaRel.Get() != 1 {
+		return false
+	}
+
+	let afterTerm = ReplayPath(model, 0, model.Graph.Starts[0], []cpEvent{cpFinish, cpNoop}, cpOpenWith(cpNoBug, sync.NewRef(0), sync.NewRef(0)))
+	match afterTerm {
+	case ReplayAfterTerminal as rt:
+		rt.Step == 2
+	case _:
+		false
+	}
+}
