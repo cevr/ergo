@@ -70,29 +70,52 @@ type mutantAnchor struct {
 }
 
 type mutantVerdict struct {
-	Name       string       `json:"name"`
-	File       string       `json:"file"`
-	Decl       string       `json:"decl,omitempty"`
-	Status     mutantStatus `json:"status"`
-	Killer     string       `json:"killer,omitempty"`
-	Runner     string       `json:"runner,omitempty"`
-	Cached     bool         `json:"cached,omitempty"`
-	Detail     string       `json:"detail,omitempty"`
-	ReachedBy  []string     `json:"reachedBy,omitempty"`
-	External   []string     `json:"externalKillers,omitempty"`
-	DurationMs int64        `json:"durationMs"`
+	Name         string       `json:"name"`
+	File         string       `json:"file"`
+	Decl         string       `json:"decl,omitempty"`
+	Status       mutantStatus `json:"status"`
+	Killer       string       `json:"killer,omitempty"`
+	Runner       string       `json:"runner,omitempty"`
+	Cached       bool         `json:"cached,omitempty"`
+	Detail       string       `json:"detail,omitempty"`
+	ReachedBy    []string     `json:"reachedBy,omitempty"`
+	External     []string     `json:"externalKillers,omitempty"`
+	DurationMs   int64        `json:"durationMs"`
+	Derived      bool         `json:"derived,omitempty"`
+	Operator     string       `json:"operator,omitempty"`
+	Line         int          `json:"line,omitempty"`
+	LawCovered   bool         `json:"lawCovered,omitempty"`
+	CoveringLaws []string     `json:"coveringLaws,omitempty"`
+}
+
+type mutantDuplicate struct {
+	HandRow   string `json:"handRow"`
+	DerivedID string `json:"derivedId"`
+	File      string `json:"file"`
+	Decl      string `json:"decl,omitempty"`
+	Operator  string `json:"operator"`
+	Line      int    `json:"line"`
 }
 
 type mutantReport struct {
-	Ledgers  []string        `json:"ledgers"`
-	Killed   int             `json:"killed"`
-	Cached   int             `json:"cached"`
-	Survived int             `json:"survived"`
-	Invalid  int             `json:"invalid"`
-	Unjudged int             `json:"unjudged"`
-	Gap      int             `json:"gap"`
-	Skipped  int             `json:"skipped"`
-	Results  []mutantVerdict `json:"results"`
+	Ledgers            []string          `json:"ledgers"`
+	Killed             int               `json:"killed"`
+	Cached             int               `json:"cached"`
+	Survived           int               `json:"survived"`
+	Invalid            int               `json:"invalid"`
+	Unjudged           int               `json:"unjudged"`
+	Gap                int               `json:"gap"`
+	Skipped            int               `json:"skipped"`
+	DerivedMode        bool              `json:"derivedMode,omitempty"`
+	DerivedGenerated   int               `json:"derivedGenerated,omitempty"`
+	DerivedKilled      int               `json:"derivedKilled,omitempty"`
+	DerivedCached      int               `json:"derivedCached,omitempty"`
+	DerivedSurvived    int               `json:"derivedSurvived,omitempty"`
+	DerivedLawSurvived int               `json:"derivedLawSurvived,omitempty"`
+	DerivedInvalid     int               `json:"derivedInvalid,omitempty"`
+	DerivedUnjudged    int               `json:"derivedUnjudged,omitempty"`
+	Duplicates         []mutantDuplicate `json:"duplicates,omitempty"`
+	Results            []mutantVerdict   `json:"results"`
 }
 
 type mutantObligation struct {
@@ -157,18 +180,19 @@ type exampleCaseTarget struct {
 }
 
 type mutantRunner struct {
-	opts     fileOptions
-	seed     uint64
-	states   int
-	platform gobind.Platform
-	store    *lawcache.Store
-	tcReady  bool
-	tc       build.Toolchain
-	tcErr    error
-	tcID     string
-	memLimit uint64
-	timeout  time.Duration
-	stderr   io.Writer
+	opts            fileOptions
+	seed            uint64
+	states          int
+	platform        gobind.Platform
+	store           *lawcache.Store
+	tcReady         bool
+	tc              build.Toolchain
+	tcErr           error
+	tcID            string
+	memLimit        uint64
+	timeout         time.Duration
+	timeoutExplicit bool
+	stderr          io.Writer
 
 	repoRoots map[string]string
 	pkgLoaded map[string]*loadedPkgInfo
@@ -244,7 +268,17 @@ func mutantsTestCommand(opts fileOptions, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if len(jobs) == 0 {
+	var derivedTargets []derivedTarget
+	if opts.derived {
+		derivedTargets, err = discoverDerivedTargets(targets)
+		if err != nil {
+			return err
+		}
+	}
+	if len(jobs) == 0 && len(derivedTargets) == 0 {
+		if opts.derived {
+			return fmt.Errorf("ergo test --mutants --derived: no .ergo packages found for %s", strings.Join(targets, " "))
+		}
 		return fmt.Errorf("ergo test --mutants: no testdata/mutants.json ledger found for %s", strings.Join(targets, " "))
 	}
 	runner, err := newMutantRunner(opts, stderr)
@@ -257,6 +291,9 @@ func mutantsTestCommand(opts fileOptions, stdout, stderr io.Writer) error {
 	for _, j := range jobs {
 		rep.Ledgers = append(rep.Ledgers, j.path)
 		runner.indexPackagesForJob(j)
+	}
+	if opts.derived {
+		runner.indexPackagesForDerivedTargets(derivedTargets)
 	}
 	for _, j := range jobs {
 		for _, row := range j.ledger.Mutants {
@@ -291,6 +328,9 @@ func mutantsTestCommand(opts fileOptions, stdout, stderr io.Writer) error {
 			}
 		}
 	}
+	if opts.derived {
+		runner.runDerivedMutants(derivedTargets, jobs, nameRe, &rep)
+	}
 	if opts.json {
 		enc := json.NewEncoder(stdout)
 		enc.SetIndent("", "  ")
@@ -300,7 +340,9 @@ func mutantsTestCommand(opts fileOptions, stdout, stderr io.Writer) error {
 	} else {
 		writeMutantReport(stdout, rep)
 	}
-	if rep.Survived > 0 || rep.Invalid > 0 || rep.Unjudged > 0 {
+	handFailed := rep.Survived > 0 || rep.Invalid > 0 || rep.Unjudged > 0
+	derivedFailed := rep.DerivedInvalid > 0 || (opts.strict && rep.DerivedLawSurvived > 0)
+	if handFailed || derivedFailed {
 		return exitStatusError{code: 1, handled: true}
 	}
 	return nil
@@ -327,31 +369,34 @@ func newMutantRunner(opts fileOptions, stderr io.Writer) (*mutantRunner, error) 
 	if err != nil {
 		return nil, err
 	}
-	timeout := 45 * time.Second
+	timeout := 15 * time.Second
+	timeoutExplicit := false
 	if raw := os.Getenv("ERGO_MUTANT_TIMEOUT"); raw != "" {
 		if d, err := time.ParseDuration(raw); err == nil && d > 0 {
 			timeout = d
+			timeoutExplicit = true
 		}
 	}
 	return &mutantRunner{
-		opts:        opts,
-		seed:        seed,
-		states:      states,
-		platform:    opts.platform,
-		store:       lawStore(),
-		memLimit:    memLimit,
-		timeout:     timeout,
-		stderr:      stderr,
-		repoRoots:   map[string]string{},
-		pkgLoaded:   map[string]*loadedPkgInfo{},
-		obsByID:     map[string]*mutantObligation{},
-		obsByPkg:    map[string][]*mutantObligation{},
-		examples:    map[string]*exampleCaseTarget{},
-		fmtCache:    map[string]formatState{},
-		chkCache:    map[string]checkState{},
-		baseCache:   map[string]baselineOutcome{},
-		baseBinDirs: map[string]string{},
-		baseBins:    map[string]string{},
+		opts:            opts,
+		seed:            seed,
+		states:          states,
+		platform:        opts.platform,
+		store:           lawStore(),
+		memLimit:        memLimit,
+		timeout:         timeout,
+		timeoutExplicit: timeoutExplicit,
+		stderr:          stderr,
+		repoRoots:       map[string]string{},
+		pkgLoaded:       map[string]*loadedPkgInfo{},
+		obsByID:         map[string]*mutantObligation{},
+		obsByPkg:        map[string][]*mutantObligation{},
+		examples:        map[string]*exampleCaseTarget{},
+		fmtCache:        map[string]formatState{},
+		chkCache:        map[string]checkState{},
+		baseCache:       map[string]baselineOutcome{},
+		baseBinDirs:     map[string]string{},
+		baseBins:        map[string]string{},
 	}, nil
 }
 
@@ -806,6 +851,7 @@ func (r *mutantRunner) judgeRow(j ledgerJob, row *mutantRow, absFile, baseRoot s
 	timedOut := false
 	ranAny := false
 
+candidateLoop:
 	for _, ob := range candidates {
 		base := r.checkBaseline(ob)
 		if !base.passed {
@@ -834,6 +880,7 @@ func (r *mutantRunner) judgeRow(j ledgerJob, row *mutantRow, absFile, baseRoot s
 			return v
 		case "timeout":
 			timedOut = true
+			break candidateLoop
 		case "passed":
 			reachedPassed = append(reachedPassed, ob.id)
 		}
@@ -1154,8 +1201,10 @@ func (r *mutantRunner) runObligationOnMutant(ob *mutantObligation, overlay sketc
 	}
 	mutDigest, extraDecls = mutatedObligationDigest(a, ob)
 	timeout := r.timeout
-	if baseDur > 0 && 10*baseDur > timeout {
-		timeout = 10 * baseDur
+	if !r.timeoutExplicit && baseDur > 0 {
+		if tight := max(5*time.Second, 6*baseDur); tight < timeout {
+			timeout = tight
+		}
 	}
 	status, kind := r.runObligationAnalysisWithRunner(ob, a, sess, timeout, false)
 	return status, kind, mutDigest, extraDecls
@@ -1267,10 +1316,7 @@ func (r *mutantRunner) runObligationNative(ob *mutantObligation, a sketchfront.A
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
-	if err := proclimit.Start(cmd, r.memLimit); err != nil {
-		return "unjudged", err.Error()
-	}
-	runErr := proclimit.Wait(ctx, cmd)
+	runErr := runBoundedChild(ctx, cmd, r.memLimit)
 	if ctx.Err() == context.DeadlineExceeded {
 		return "timeout", "timed out"
 	}
@@ -1668,6 +1714,15 @@ func writeMutantReport(w io.Writer, rep mutantReport) {
 			}
 			fmt.Fprintf(w, "killed   %-40s %s by %s%s\n", v.Name, v.File, v.Killer, mark)
 		case mutantSurvived:
+			if v.Derived && v.LawCovered {
+				fmt.Fprintf(w, "FINDING  %s %s (%s:%d): derived mutant survived [laws: %s]\n",
+					v.Decl, v.Operator, v.File, v.Line, strings.Join(v.CoveringLaws, ", "))
+				continue
+			}
+			if v.Derived {
+				fmt.Fprintf(w, "survived %-40s %s (%s line %d, no law)\n", v.Name, v.File, v.Operator, v.Line)
+				continue
+			}
 			reached := "none"
 			if len(v.ReachedBy) > 0 {
 				reached = strings.Join(v.ReachedBy, ", ")
@@ -1687,8 +1742,11 @@ func writeMutantReport(w io.Writer, rep mutantReport) {
 			fmt.Fprintf(w, "skipped  %-40s %s: %s\n", v.Name, v.File, v.Detail)
 		}
 	}
-	fmt.Fprintf(w, "mutants: %d killed (%d cached), %d survived, %d invalid, %d unjudged, %d gap, %d skipped\n",
-		rep.Killed, rep.Cached, rep.Survived, rep.Invalid, rep.Unjudged, rep.Gap, rep.Skipped)
+	if !rep.DerivedMode || len(rep.Ledgers) > 0 {
+		fmt.Fprintf(w, "mutants: %d killed (%d cached), %d survived, %d invalid, %d unjudged, %d gap, %d skipped\n",
+			rep.Killed, rep.Cached, rep.Survived, rep.Invalid, rep.Unjudged, rep.Gap, rep.Skipped)
+	}
+	writeDerivedReportExtras(w, rep)
 }
 
 func allKillerIDs(row *mutantRow) []string {

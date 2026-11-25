@@ -207,7 +207,10 @@ type fileOptions struct {
 	mutants bool
 	// fresh is test's --fresh with --mutants: bypass stored mutant verdicts.
 	fresh bool
-	file  string
+	// derived is test's --derived with --mutants: derive typed mutants from
+	// the checked .ergo AST in addition to any hand ledger rows (MN2).
+	derived bool
+	file    string
 	// more are test's targets after the first (`ergo test A B C/...`),
 	// each a file, a folder or a pattern; none for every other command.
 	more []string
@@ -419,6 +422,8 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 			opts.mutants = true
 		case "--fresh":
 			opts.fresh = true
+		case "--derived":
+			opts.derived = true
 		case "--go-trace":
 			opts.goTrace = true
 		case "--explore":
@@ -440,8 +445,8 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 	switch {
 	case len(positional) == 0 && !opts.mutants:
 		return opts, fmt.Errorf("source file required")
-	case opts.strict && command != "diagnostics" && command != "lint" && command != "check":
-		return opts, fmt.Errorf("--strict is only supported by diagnostics, lint and check")
+	case opts.strict && command != "diagnostics" && command != "lint" && command != "check" && !(command == "test" && opts.mutants && opts.derived):
+		return opts, fmt.Errorf("--strict is only supported by diagnostics, lint, check and test --mutants --derived")
 	case opts.json && command != "diagnostics" && command != "lint" && command != "run" && command != "test" && command != "inspect machine":
 		return opts, fmt.Errorf("--json is only supported by diagnostics, lint, run, test and inspect machine")
 	case opts.output != "" && command != "build":
@@ -514,6 +519,8 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("--mutants is only supported by test")
 	case opts.fresh && !opts.mutants:
 		return opts, fmt.Errorf("--fresh needs --mutants")
+	case opts.derived && !opts.mutants:
+		return opts, fmt.Errorf("--derived needs --mutants")
 	case opts.mutants && (opts.affected.on || selected || opts.receipt != "" || opts.emitted || opts.explore || searched || opts.work):
 		return opts, fmt.Errorf("--mutants selects tests itself: it takes no --affected, --law, --skip-law, --receipt, --emitted, --explore or -work")
 	case laws > 1 || skips > 1:
