@@ -1,0 +1,467 @@
+import filepath
+import fs
+import hex
+import sha1dc
+import sha256
+import slices
+import github.com/cevr/ergo/modules/git/oid
+
+func computeIndexDigest(format oid.Format, data []byte) []byte fails ChecksumMismatch {
+	match format {
+	case oid.Sha1:
+		let d = sha1dc.Sum(data) catch {
+		case sha1dc.CollisionDetected as c:
+			return ChecksumMismatch{Expected: "collision-free", Got: hex.Encode(c.Digest)}
+		}
+		let mut out = slices.WithCapacity[byte](20)
+		for i in 0..20 {
+			out = out.Append(d[i])
+		}
+		out
+	case oid.Sha256:
+		let h = sha256.New()
+		h.Write(data.Text())
+		h.Digest().Bytes()
+	}
+}
+
+func verifyIndexChecksum(format oid.Format, raw []byte) oid.OID fails Truncated | ChecksumMismatch {
+	let hashLen = oid.ByteLen(format)
+	if len(raw) < 12+hashLen {
+		return Truncated{Expected: 12 + hashLen, Got: len(raw)}
+	}
+	let bodyEnd = len(raw) - hashLen
+	let want = raw[bodyEnd:]
+	let got = try computeIndexDigest(format, raw[:bodyEnd])
+	if !slices.Equal(got, want) {
+		return ChecksumMismatch{
+			Expected: hex.Encode(want.Text()),
+			Got:      hex.Encode(got.Text()),
+		}
+	}
+	oid.FromBytes(format, want) catch {
+	case oid.WrongLength:
+		oid.Zero(format)
+	}
+}
+
+func decodeVarint(raw []byte, pos int, limit int, entryIndex int) (int, int) fails Truncated | BadPathCompression {
+	if pos >= limit {
+		return Truncated{Expected: pos + 1, Got: limit}
+	}
+	let mut b = raw[pos]
+	let mut p = pos + 1
+	let mut val = uint64(b & byte(0x7f))
+	for _ in 0..10 {
+		if (b & byte(0x80)) == byte(0) {
+			return (int(val), p)
+		}
+		if p >= limit {
+			return Truncated{Expected: p + 1, Got: limit}
+		}
+		b = raw[p]
+		p = p + 1
+		val = ((val + uint64(1)) << uint64(7)) | uint64(b&byte(0x7f))
+	}
+	return BadPathCompression{Index: entryIndex, Reason: "varint overflow"}
+}
+
+func comparePathStage(p1 string, s1 int, p2 string, s2 int) int {
+	if p1 < p2 {
+		return -1
+	}
+	if p1 > p2 {
+		return 1
+	}
+	if s1 < s2 {
+		return -1
+	}
+	if s1 > s2 {
+		return 1
+	}
+	0
+}
+
+func compareEntries(a Entry, b Entry) int {
+	comparePathStage(a.Path, a.Stage, b.Path, b.Stage)
+}
+
+func parseSplitLink(format oid.Format, payload []byte) SplitLink fails Truncated {
+	let hashLen = oid.ByteLen(format)
+	if len(payload) < hashLen {
+		return Truncated{Expected: hashLen, Got: len(payload)}
+	}
+	let baseOID = oid.FromBytes(format, payload[:hashLen]) catch {
+	case oid.WrongLength:
+		oid.Zero(format)
+	}
+	if oid.IsZero(baseOID) || len(payload) == hashLen {
+		return SplitLink{
+			BaseOID:       baseOID,
+			DeleteBitmap:  []bool{},
+			ReplaceBitmap: []bool{},
+		}
+	}
+	let (delBits, nextPos) = try decodeEWAH(payload, hashLen, len(payload))
+	let (repBits, _) = try decodeEWAH(payload, nextPos, len(payload))
+	SplitLink{
+		BaseOID:       baseOID,
+		DeleteBitmap:  delBits,
+		ReplaceBitmap: repBits,
+	}
+}
+
+func isMandatorySignature(sig string) bool {
+	let bs = sig.Bytes()
+	len(bs) == 4 && bs[0] >= byte('a') && bs[0] <= byte('z')
+}
+
+func validateEntryOrder(entries []Entry) fails DuplicateStage | UnsortedEntries {
+	for i in 1..len(entries) {
+		let cmp = comparePathStage(entries[i-1].Path, entries[i-1].Stage, entries[i].Path, entries[i].Stage)
+		if cmp == 0 {
+			return DuplicateStage{Path: entries[i].Path, Stage: entries[i].Stage}
+		}
+		if cmp > 0 {
+			return UnsortedEntries{Index: i, Path: entries[i].Path}
+		}
+	}
+}
+
+// Parse decodes and verifies a Git binary index (v2, v3, or v4) in format.
+// Preserves optional (uppercase) extensions and rejects unsupported mandatory
+// (lowercase) extensions with UnsupportedMandatoryExtension.
+func Parse(format oid.Format, raw []byte) Index fails BadMagic | UnsupportedVersion | Truncated | ChecksumMismatch | CorruptEntry | BadPathCompression | UnsupportedMandatoryExtension | DuplicateStage | UnsortedEntries {
+	let hashLen = oid.ByteLen(format)
+	if len(raw) < 12 {
+		return Truncated{Expected: 12, Got: len(raw)}
+	}
+	if raw[0] != byte('D') || raw[1] != byte('I') || raw[2] != byte('R') || raw[3] != byte('C') {
+		return BadMagic{Reason: "missing DIRC index signature"}
+	}
+	let ver = readU32BE(raw, 4)
+	if ver != uint32(2) && ver != uint32(3) && ver != uint32(4) {
+		return UnsupportedVersion{Version: ver}
+	}
+	let checksum = try verifyIndexChecksum(format, raw)
+	let bodyEnd = len(raw) - hashLen
+	let entryCount = int(readU32BE(raw, 8))
+
+	let mut entries = slices.WithCapacity[Entry](entryCount)
+	let mut pos = 12
+	let mut prevPath = ""
+	for i in 0..entryCount {
+		let entryStart = pos
+		let fixedLen = 40 + hashLen + 2
+		if pos+fixedLen > bodyEnd {
+			return Truncated{Expected: pos + fixedLen, Got: bodyEnd}
+		}
+		let ctimeSec = readU32BE(raw, pos)
+		let ctimeNsec = readU32BE(raw, pos+4)
+		let mtimeSec = readU32BE(raw, pos+8)
+		let mtimeNsec = readU32BE(raw, pos+12)
+		let dev = readU32BE(raw, pos+16)
+		let ino = readU32BE(raw, pos+20)
+		let mode = readU32BE(raw, pos+24)
+		let uid = readU32BE(raw, pos+28)
+		let gid = readU32BE(raw, pos+32)
+		let fileSize = readU32BE(raw, pos+36)
+		let id = oid.FromBytes(format, raw[pos+40:pos+40+hashLen]) catch {
+		case oid.WrongLength:
+			oid.Zero(format)
+		}
+		let flags = readU16BE(raw, pos+40+hashLen)
+		pos = pos + fixedLen
+
+		let assumeValid = (flags & uint16(0x8000)) != uint16(0)
+		let extended = (flags & uint16(0x4000)) != uint16(0)
+		let stage = int((flags >> uint16(12)) & uint16(0x3))
+		let nameLenField = int(flags & uint16(0x0fff))
+
+		let mut skipWorktree = false
+		let mut intentToAdd = false
+		if extended {
+			if ver < uint32(3) {
+				return CorruptEntry{Index: i, Why: "extended flag set in index v2"}
+			}
+			if pos+2 > bodyEnd {
+				return Truncated{Expected: pos + 2, Got: bodyEnd}
+			}
+			let extFlags = readU16BE(raw, pos)
+			pos = pos + 2
+			skipWorktree = (extFlags & uint16(0x4000)) != uint16(0)
+			intentToAdd = (extFlags & uint16(0x2000)) != uint16(0)
+		}
+
+		let mut path = ""
+		if ver == uint32(4) {
+			let (stripLen, afterVarint) = try decodeVarint(raw, pos, bodyEnd, i)
+			if stripLen < 0 || stripLen > len(prevPath) {
+				return BadPathCompression{Index: i, Reason: "strip length exceeds previous path"}
+			}
+			let mut nulPos = -1
+			for k in afterVarint..bodyEnd {
+				if raw[k] == byte(0) {
+					nulPos = k
+					break
+				}
+			}
+			if nulPos < 0 {
+				return Truncated{Expected: afterVarint + 1, Got: bodyEnd}
+			}
+			let suffix = raw[afterVarint:nulPos].Text()
+			path = prevPath[:len(prevPath)-stripLen] + suffix
+			prevPath = path
+			pos = nulPos + 1
+		} else {
+			let mut nulPos = -1
+			for k in pos..bodyEnd {
+				if raw[k] == byte(0) {
+					nulPos = k
+					break
+				}
+			}
+			if nulPos < 0 {
+				return Truncated{Expected: pos + 1, Got: bodyEnd}
+			}
+			let nameBytes = raw[pos:nulPos]
+			if nameLenField < 0x0fff && len(nameBytes) != nameLenField {
+				return CorruptEntry{Index: i, Why: "entry name length mismatch"}
+			}
+			path = nameBytes.Text()
+			let unpadded = (pos - entryStart) + len(nameBytes)
+			let padLen = 8 - (unpadded % 8)
+			let nextPos = entryStart + unpadded + padLen
+			if nextPos > bodyEnd {
+				return Truncated{Expected: nextPos, Got: bodyEnd}
+			}
+			pos = nextPos
+		}
+
+		entries = entries.Append(Entry{
+			CTimeSec:     ctimeSec,
+			CTimeNsec:    ctimeNsec,
+			MTimeSec:     mtimeSec,
+			MTimeNsec:    mtimeNsec,
+			Dev:          dev,
+			Ino:          ino,
+			Mode:         mode,
+			UID:          uid,
+			GID:          gid,
+			FileSize:     fileSize,
+			OID:          id,
+			Stage:        stage,
+			AssumeValid:  assumeValid,
+			Extended:     extended,
+			SkipWorktree: skipWorktree,
+			IntentToAdd:  intentToAdd,
+			Path:         path,
+		})
+	}
+
+	let mut extensions = []Extension{}
+	let mut splitLink Option[SplitLink] = None
+	for _ in 0..1024 {
+		if pos >= bodyEnd {
+			break
+		}
+		if pos+8 > bodyEnd {
+			return Truncated{Expected: pos + 8, Got: bodyEnd}
+		}
+		let sig = raw[pos : pos+4].Text()
+		let extLen = int(readU32BE(raw, pos+4))
+		pos = pos + 8
+		if extLen < 0 || pos+extLen > bodyEnd {
+			return Truncated{Expected: pos + extLen, Got: bodyEnd}
+		}
+		let payload = raw[pos : pos+extLen]
+		pos = pos + extLen
+
+		if isMandatorySignature(sig) {
+			if sig == "link" {
+				splitLink = Some[SplitLink]{Value: try parseSplitLink(format, payload)}
+			} else if sig == "sdir" {
+			} else {
+				return UnsupportedMandatoryExtension{Signature: sig}
+			}
+		}
+		extensions = extensions.Append(Extension{Signature: sig, Size: extLen})
+	}
+
+	if splitLink == None {
+		try validateEntryOrder(entries)
+	}
+
+	Index{
+		format:     format,
+		version:    int(ver),
+		entries:    entries,
+		extensions: extensions,
+		splitLink:  splitLink,
+		checksum:   checksum,
+	}
+}
+
+func mergeSplitIndex(base Index, split Index, link SplitLink) Index fails DuplicateStage | UnsortedEntries {
+	let mut merged = []Entry{}
+	let mut splitCursor = 0
+	for i in 0..len(base.entries) {
+		let isDeleted = i < len(link.DeleteBitmap) && link.DeleteBitmap[i]
+		let isReplaced = i < len(link.ReplaceBitmap) && link.ReplaceBitmap[i]
+		if isReplaced && splitCursor < len(split.entries) {
+			let se = split.entries[splitCursor]
+			splitCursor = splitCursor + 1
+			if !isDeleted {
+				let finalPath = if se.Path == "" { base.entries[i].Path } else { se.Path }
+				merged = merged.Append(Entry{
+					CTimeSec:     se.CTimeSec,
+					CTimeNsec:    se.CTimeNsec,
+					MTimeSec:     se.MTimeSec,
+					MTimeNsec:    se.MTimeNsec,
+					Dev:          se.Dev,
+					Ino:          se.Ino,
+					Mode:         se.Mode,
+					UID:          se.UID,
+					GID:          se.GID,
+					FileSize:     se.FileSize,
+					OID:          se.OID,
+					Stage:        se.Stage,
+					AssumeValid:  se.AssumeValid,
+					Extended:     se.Extended,
+					SkipWorktree: se.SkipWorktree,
+					IntentToAdd:  se.IntentToAdd,
+					Path:         finalPath,
+				})
+			}
+		} else if !isDeleted {
+			merged = merged.Append(base.entries[i])
+		}
+	}
+	for k in splitCursor..len(split.entries) {
+		merged = merged.Append(split.entries[k])
+	}
+	let sorted = slices.SortFunc(merged, compareEntries)
+	try validateEntryOrder(sorted)
+	Index{
+		format:     split.format,
+		version:    split.version,
+		entries:    sorted,
+		extensions: split.extensions,
+		splitLink:  split.splitLink,
+		checksum:   split.checksum,
+	}
+}
+
+// Open reads and verifies the Git index at indexPath, automatically resolving
+// and merging sibling `sharedindex.<oid>` when a split-index `link` extension
+// is present.
+func Open(format oid.Format, indexPath string) Index fails BadMagic | UnsupportedVersion | Truncated | ChecksumMismatch | CorruptEntry | BadPathCompression | UnsupportedMandatoryExtension | DuplicateStage | UnsortedEntries | IOFailed needs fs.Files {
+	let raw = fs.Files.ReadFile(indexPath) catch {
+	case fs.NotFound as e:
+		return IOFailed{Op: "read-index", Detail: e.Path}
+	case fs.Denied as e:
+		return IOFailed{Op: "read-index", Detail: e.Path}
+	case fs.Failed as e:
+		return IOFailed{Op: "read-index", Detail: e.Reason}
+	}
+	let idx = try Parse(format, raw.Bytes())
+	match idx.splitLink {
+	case None:
+		idx
+	case Some[SplitLink] as sl:
+		if oid.IsZero(sl.Value.BaseOID) {
+			try validateEntryOrder(idx.entries)
+			return idx
+		}
+		let sharedPath = filepath.Join([]string{filepath.Dir(indexPath), "sharedindex." + oid.Hex(sl.Value.BaseOID)})
+		let sharedRaw = fs.Files.ReadFile(sharedPath) catch {
+		case fs.NotFound as e:
+			return IOFailed{Op: "read-sharedindex", Detail: e.Path}
+		case fs.Denied as e:
+			return IOFailed{Op: "read-sharedindex", Detail: e.Path}
+		case fs.Failed as e:
+			return IOFailed{Op: "read-sharedindex", Detail: e.Reason}
+		}
+		let base = try Parse(format, sharedRaw.Bytes())
+		try mergeSplitIndex(base, idx, sl.Value)
+	}
+}
+
+// Version returns the decoded Git index format version (2, 3, or 4).
+func Version(idx Index) int {
+	idx.version
+}
+
+// Checksum returns the verified trailing digest of idx.
+func Checksum(idx Index) oid.OID {
+	idx.checksum
+}
+
+// Extensions returns the ordered list of extensions present in idx.
+func Extensions(idx Index) []Extension {
+	idx.extensions
+}
+
+// HasExtension reports whether idx contains an extension with 4-byte signature sig.
+func HasExtension(idx Index, sig string) bool {
+	for ext in idx.extensions {
+		if ext.Signature == sig {
+			return true
+		}
+	}
+	false
+}
+
+// Entries implements IndexReader.Entries on Index.
+func Entries(idx Index) []Entry {
+	idx.entries
+}
+
+// Lookup implements IndexReader.Lookup on Index using binary search over
+// canonical (Path, Stage) order.
+func Lookup(idx Index, path string, stage int) Option[Entry] {
+	let mut lo = 0
+	let mut hi = len(idx.entries)
+	for _ in 0..64 {
+		if lo >= hi {
+			break
+		}
+		let mid = lo + (hi-lo)/2
+		let cmp = comparePathStage(idx.entries[mid].Path, idx.entries[mid].Stage, path, stage)
+		if cmp == 0 {
+			return Some[Entry]{Value: idx.entries[mid]}
+		}
+		if cmp < 0 {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+	None
+}
+
+// LookupAllStages implements IndexReader.LookupAllStages on Index, returning
+// all stages (0..3) present for path in ascending stage order.
+func LookupAllStages(idx Index, path string) []Entry {
+	let mut lo = 0
+	let mut hi = len(idx.entries)
+	for _ in 0..64 {
+		if lo >= hi {
+			break
+		}
+		let mid = lo + (hi-lo)/2
+		if idx.entries[mid].Path < path {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+	let mut out = []Entry{}
+	for i in lo..len(idx.entries) {
+		if idx.entries[i].Path != path {
+			break
+		}
+		out = out.Append(idx.entries[i])
+	}
+	out
+}

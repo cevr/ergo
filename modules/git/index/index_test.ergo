@@ -1,0 +1,524 @@
+import exec
+import filepath
+import fs
+import os
+import sha1dc
+import sha256
+import slices
+import strconv
+import strings
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/oracle
+import github.com/cevr/ergo/modules/git/root
+
+let onOracle = context needs TestAmbient {
+	exec.Runner: exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
+	fs.Files:    fs.NewTestHost(),
+	fs.Writes:   fs.NewTestHost(),
+	os.Process:  os.NewTestHost(),
+}
+
+func appendU16BE(buf []byte, v uint16) []byte {
+	let mut out = buf
+	out = out.Append(byte((v >> uint16(8)) & uint16(0xff)))
+	out = out.Append(byte(v & uint16(0xff)))
+	out
+}
+
+func appendU32BE(buf []byte, v uint32) []byte {
+	let mut out = buf
+	out = out.Append(byte((v >> uint32(24)) & uint32(0xff)))
+	out = out.Append(byte((v >> uint32(16)) & uint32(0xff)))
+	out = out.Append(byte((v >> uint32(8)) & uint32(0xff)))
+	out = out.Append(byte(v & uint32(0xff)))
+	out
+}
+
+func appendBytes(buf []byte, src []byte) []byte {
+	let mut out = buf
+	for b in src {
+		out = out.Append(b)
+	}
+	out
+}
+
+func signIndex(format oid.Format, body []byte) []byte {
+	match format {
+	case oid.Sha1:
+		let d = sha1dc.Sum(body) catch {
+		case sha1dc.CollisionDetected:
+			[20]byte{}
+		}
+		let mut out = body
+		for i in 0..20 {
+			out = out.Append(d[i])
+		}
+		out
+	case oid.Sha256:
+		let h = sha256.New()
+		h.Write(body.Text())
+		appendBytes(body, h.Digest().Bytes())
+	}
+}
+
+func encodeV2IndexWithExtension(format oid.Format, entries []Entry, extSig string, extPayload []byte) []byte {
+	let sorted = slices.SortFunc(entries, compareEntries)
+	let mut buf = "DIRC".Bytes()
+	buf = appendU32BE(buf, uint32(2))
+	buf = appendU32BE(buf, uint32(len(sorted)))
+	for e in sorted {
+		let startLen = len(buf)
+		for _ in 0..6 {
+			buf = appendU32BE(buf, uint32(0))
+		}
+		buf = appendU32BE(buf, e.Mode)
+		buf = appendU32BE(buf, uint32(0))
+		buf = appendU32BE(buf, uint32(0))
+		buf = appendU32BE(buf, e.FileSize)
+		buf = appendBytes(buf, e.OID.Raw)
+		let nameBytes = e.Path.Bytes()
+		let nameLen = if len(nameBytes) < 0x0fff { uint16(len(nameBytes)) } else { uint16(0x0fff) }
+		let flags = (uint16(e.Stage&3) << uint16(12)) | nameLen
+		buf = appendU16BE(buf, flags)
+		buf = appendBytes(buf, nameBytes)
+		let unpadded = len(buf) - startLen
+		let pad = 8 - (unpadded % 8)
+		for _ in 0..pad {
+			buf = buf.Append(byte(0))
+		}
+	}
+	if extSig != "" {
+		buf = appendBytes(buf, extSig.Bytes())
+		buf = appendU32BE(buf, uint32(len(extPayload)))
+		buf = appendBytes(buf, extPayload)
+	}
+	signIndex(format, buf)
+}
+
+func makeSeededEntries(format oid.Format) []Entry {
+	let b1 = oid.HashObject(format, oid.Blob, "base-blob".Bytes()) catch {
+	case oid.Collision:
+		oid.Zero(format)
+	}
+	let b2 = oid.HashObject(format, oid.Blob, "ours-blob".Bytes()) catch {
+	case oid.Collision:
+		oid.Zero(format)
+	}
+	let b3 = oid.HashObject(format, oid.Blob, "theirs-blob".Bytes()) catch {
+	case oid.Collision:
+		oid.Zero(format)
+	}
+	let bNorm = oid.HashObject(format, oid.Blob, "normal-blob".Bytes()) catch {
+	case oid.Collision:
+		oid.Zero(format)
+	}
+	[]Entry{
+		Entry{CTimeSec: uint32(0), CTimeNsec: uint32(0), MTimeSec: uint32(0), MTimeNsec: uint32(0), Dev: uint32(0), Ino: uint32(0), Mode: ModeRegular, UID: uint32(0), GID: uint32(0), FileSize: uint32(9), OID: b1, Stage: 1, AssumeValid: false, Extended: false, SkipWorktree: false, IntentToAdd: false, Path: "conflict.txt"},
+		Entry{CTimeSec: uint32(0), CTimeNsec: uint32(0), MTimeSec: uint32(0), MTimeNsec: uint32(0), Dev: uint32(0), Ino: uint32(0), Mode: ModeRegular, UID: uint32(0), GID: uint32(0), FileSize: uint32(9), OID: b2, Stage: 2, AssumeValid: false, Extended: false, SkipWorktree: false, IntentToAdd: false, Path: "conflict.txt"},
+		Entry{CTimeSec: uint32(0), CTimeNsec: uint32(0), MTimeSec: uint32(0), MTimeNsec: uint32(0), Dev: uint32(0), Ino: uint32(0), Mode: ModeRegular, UID: uint32(0), GID: uint32(0), FileSize: uint32(11), OID: b3, Stage: 3, AssumeValid: false, Extended: false, SkipWorktree: false, IntentToAdd: false, Path: "conflict.txt"},
+		Entry{CTimeSec: uint32(0), CTimeNsec: uint32(0), MTimeSec: uint32(0), MTimeNsec: uint32(0), Dev: uint32(0), Ino: uint32(0), Mode: ModeExecutable, UID: uint32(0), GID: uint32(0), FileSize: uint32(11), OID: bNorm, Stage: 0, AssumeValid: false, Extended: false, SkipWorktree: false, IntentToAdd: false, Path: "run.sh"},
+	}
+}
+
+func makeSeededParsedIndex(format oid.Format) Index {
+	let raw = encodeV2IndexWithExtension(format, makeSeededEntries(format), "", []byte{})
+	Parse(format, raw) catch {
+	case BadMagic, UnsupportedVersion, Truncated, ChecksumMismatch, CorruptEntry, BadPathCompression, UnsupportedMandatoryExtension, DuplicateStage, UnsortedEntries:
+		Index{format: format, version: 2, entries: []Entry{}, extensions: []Extension{}, splitLink: None, checksum: oid.Zero(format)}
+	}
+}
+
+let onParsedSha1 = context {
+	IndexReader: makeSeededParsedIndex(oid.Sha1),
+}
+
+let onParsedSha256 = context {
+	IndexReader: makeSeededParsedIndex(oid.Sha256),
+}
+
+let onMemorySha1 = context {
+	IndexReader: NewMemoryIndex(makeSeededEntries(oid.Sha1)),
+}
+
+let onMemorySha256 = context {
+	IndexReader: NewMemoryIndex(makeSeededEntries(oid.Sha256)),
+}
+
+func runGit(dir string, args []string, pathEnv Map[string, string]) (int, string) fails exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	let res = try exec.Runner.Run(oracle.GitCommand(dir, args, pathEnv, int64(1700000000)))
+	(res.Status, res.Stdout)
+}
+
+func runGitStdin(dir string, args []string, stdin string, pathEnv Map[string, string]) (int, string) fails exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	let base = oracle.GitCommand(dir, args, pathEnv, int64(1700000000))
+	let res = try exec.Runner.Run(exec.WithStdin(base, stdin))
+	(res.Status, res.Stdout)
+}
+
+type LsStageRecord {
+	Mode  uint32,
+	OID   string,
+	Stage int,
+	Path  string,
+}
+
+func parseOctalU32(s string) uint32 {
+	let mut v = uint32(0)
+	for b in s.Bytes() {
+		if b < byte('0') || b > byte('7') {
+			return uint32(0)
+		}
+		v = (v << uint32(3)) | uint32(b-byte('0'))
+	}
+	v
+}
+
+func parseLsFilesSZ(raw string) []LsStageRecord {
+	if raw == "" {
+		return []LsStageRecord{}
+	}
+	let parts = strings.Split(raw, "\x00")
+	let limit = if strings.HasSuffix(raw, "\x00") { len(parts) - 1 } else { len(parts) }
+	let mut out = []LsStageRecord{}
+	for i in 0..limit {
+		let rec = parts[i]
+		let tab = strings.IndexByte(rec, '\t')
+		if tab <= 0 {
+			continue
+		}
+		let meta = strings.Fields(rec[:tab])
+		if len(meta) != 3 {
+			continue
+		}
+		let st = strconv.Atoi(meta[2]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			0
+		}
+		out = out.Append(LsStageRecord{
+			Mode:  parseOctalU32(meta[0]),
+			OID:   meta[1],
+			Stage: st,
+			Path:  rec[tab+1:],
+		})
+	}
+	out
+}
+
+func assertMatchesLsFilesSZ(repoDir string, idx Index, pathEnv Map[string, string]) bool fails exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	let (st, out) = try runGit(repoDir, []string{"ls-files", "-s", "-z"}, pathEnv)
+	if st != 0 {
+		return false
+	}
+	let want = parseLsFilesSZ(out)
+	let got = idx.Entries()
+	if len(got) != len(want) {
+		return false
+	}
+	for i in 0..len(want) {
+		if got[i].Mode != want[i].Mode || oid.Hex(got[i].OID) != want[i].OID || got[i].Stage != want[i].Stage || got[i].Path != want[i].Path {
+			return false
+		}
+		match idx.Lookup(want[i].Path, want[i].Stage) {
+		case None:
+			return false
+		case Some[Entry] as found:
+			if !oid.Equal(found.Value.OID, got[i].OID) || found.Value.Mode != got[i].Mode {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// VersionsAndModesMatchGitLsFiles: tests real C-Git-written index v2, v3
+// (intent-to-add & skip-worktree), and v4 (including >128-byte multi-byte
+// varint prefix stripping), all 4 file modes (100644, 100755, 120000, 160000),
+// and multi-stage merge conflicts (stages 1, 2, 3) across Sha1 and Sha256.
+test VersionsAndModesMatchGitLsFiles {
+	with onOracle {
+		let pathEnv = exec.PathOf(os.Process.Environ())
+		let cwd = try os.Process.Getwd()
+		let base = filepath.Join([]string{cwd, "index-versions"})
+
+		for fmtSpec in []oracle.OidFormat{oracle.Sha1, oracle.Sha256} {
+			let label = oracle.FormatName(fmtSpec)
+			let oidFmt = match fmtSpec {
+			case oracle.Sha1:
+				oid.Sha1
+			case oracle.Sha256:
+				oid.Sha256
+			}
+			let repoDir = try oracle.InitRepo(filepath.Join([]string{base, "repo-" + label}), oracle.RepoSpec{Format: fmtSpec, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, int64(1700000000))
+
+			let (sB1, h1Raw) = try runGitStdin(repoDir, []string{"hash-object", "-w", "--stdin"}, "regular file\n", pathEnv)
+			let (sB2, h2Raw) = try runGitStdin(repoDir, []string{"hash-object", "-w", "--stdin"}, "#!/bin/sh\necho hi\n", pathEnv)
+			let (sB3, h3Raw) = try runGitStdin(repoDir, []string{"hash-object", "-w", "--stdin"}, "target.txt", pathEnv)
+			let (sB4, h4Raw) = try runGitStdin(repoDir, []string{"hash-object", "-w", "--stdin"}, "conflict-ours\n", pathEnv)
+			let (sB5, h5Raw) = try runGitStdin(repoDir, []string{"hash-object", "-w", "--stdin"}, "conflict-theirs\n", pathEnv)
+			assert sB1 == 0 && sB2 == 0 && sB3 == 0 && sB4 == 0 && sB5 == 0
+			let h1 = strings.TrimSpace(h1Raw)
+			let h2 = strings.TrimSpace(h2Raw)
+			let h3 = strings.TrimSpace(h3Raw)
+			let h4 = strings.TrimSpace(h4Raw)
+			let h5 = strings.TrimSpace(h5Raw)
+
+			let longDir = "longdir/" + strings.Repeat("a", 135)
+			let indexInfo = "100644 " + h1 + " 0\ta.txt\n" +
+				"100755 " + h2 + " 0\tbin/run.sh\n" +
+				"120000 " + h3 + " 0\tlink.txt\n" +
+				"160000 " + h1 + " 0\tsubmod\n" +
+				"100644 " + h1 + " 1\tconflict.txt\n" +
+				"100644 " + h4 + " 2\tconflict.txt\n" +
+				"100644 " + h5 + " 3\tconflict.txt\n" +
+				"100644 " + h1 + " 0\t" + longDir + "/first.txt\n" +
+				"100644 " + h2 + " 0\t" + longDir + "/second.txt\n" +
+				"100644 " + h1 + " 0\tz.txt\n"
+
+			let (sInfo, _) = try runGitStdin(repoDir, []string{"update-index", "--index-info"}, indexInfo, pathEnv)
+			assert sInfo == 0
+
+			let layout = try root.Discover(repoDir, root.DiscoverOptions{CeilingDirs: []string{cwd}, Trust: root.ConfinedTrust(cwd)})
+			let idxPath = filepath.Join([]string{layout.GitDir, "index"})
+
+			let idxV2 = try Open(oidFmt, idxPath)
+			assert Version(idxV2) == 2
+			assert try assertMatchesLsFilesSZ(repoDir, idxV2, pathEnv)
+
+			let stages = idxV2.LookupAllStages("conflict.txt")
+			assert len(stages) == 3
+			assert stages[0].Stage == 1 && oid.Hex(stages[0].OID) == h1
+			assert stages[1].Stage == 2 && oid.Hex(stages[1].OID) == h4
+			assert stages[2].Stage == 3 && oid.Hex(stages[2].OID) == h5
+
+			match idxV2.Lookup("bin/run.sh", 0) {
+			case Some[Entry] as e:
+				assert e.Value.Mode == ModeExecutable
+			case None:
+				assert false
+			}
+			match idxV2.Lookup("link.txt", 0) {
+			case Some[Entry] as e:
+				assert e.Value.Mode == ModeSymlink
+			case None:
+				assert false
+			}
+			match idxV2.Lookup("submod", 0) {
+			case Some[Entry] as e:
+				assert e.Value.Mode == ModeGitlink
+			case None:
+				assert false
+			}
+
+			try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "intent.txt"}), "untracked intent\n")
+			let (sIta, _) = try runGit(repoDir, []string{"add", "-N", "intent.txt"}, pathEnv)
+			assert sIta == 0
+			let (sSkip, _) = try runGit(repoDir, []string{"update-index", "--skip-worktree", "a.txt"}, pathEnv)
+			assert sSkip == 0
+
+			let idxV3 = try Open(oidFmt, idxPath)
+			assert Version(idxV3) == 3
+			assert try assertMatchesLsFilesSZ(repoDir, idxV3, pathEnv)
+			match idxV3.Lookup("a.txt", 0) {
+			case Some[Entry] as e:
+				assert e.Value.Extended && e.Value.SkipWorktree && !e.Value.IntentToAdd
+			case None:
+				assert false
+			}
+			match idxV3.Lookup("intent.txt", 0) {
+			case Some[Entry] as e:
+				assert e.Value.Extended && e.Value.IntentToAdd && !e.Value.SkipWorktree
+			case None:
+				assert false
+			}
+
+			let (sV4, _) = try runGit(repoDir, []string{"update-index", "--index-version", "4"}, pathEnv)
+			assert sV4 == 0
+			let idxV4 = try Open(oidFmt, idxPath)
+			assert Version(idxV4) == 4
+			assert try assertMatchesLsFilesSZ(repoDir, idxV4, pathEnv)
+			assert idxV4.Lookup(longDir+"/first.txt", 0) != None
+			assert idxV4.Lookup(longDir+"/second.txt", 0) != None
+			assert idxV4.Lookup("z.txt", 0) != None
+		}
+	}
+}
+
+// SplitAndSparseIndexMatchGitLsFiles: exercises C Git split-index (`link`
+// extension + EWAH delete/replace bitmaps + sibling `sharedindex.<oid>`) and
+// sparse-checkout cone (`sdir`/skip-worktree), verifying full parity with
+// `git ls-files -s -z` and `git ls-files -v -z`.
+test SplitAndSparseIndexMatchGitLsFiles {
+	with onOracle {
+		let pathEnv = exec.PathOf(os.Process.Environ())
+		let cwd = try os.Process.Getwd()
+
+		let splitDir = try oracle.InitRepo(filepath.Join([]string{cwd, "split-repo"}), oracle.RepoSpec{Format: oracle.Sha1, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, int64(1700000100))
+		for i in 0..8 {
+			let rel = "f" + strconv.Itoa(i) + ".txt"
+			try fs.Writes.WriteFile(filepath.Join([]string{splitDir, rel}), "v1-"+strconv.Itoa(i)+"\n")
+		}
+		let (sAdd1, _) = try runGit(splitDir, []string{"add", "."}, pathEnv)
+		let (sCom1, _) = try runGit(splitDir, []string{"commit", "-m", "base"}, pathEnv)
+		let (sSplit, _) = try runGit(splitDir, []string{"update-index", "--split-index"}, pathEnv)
+		assert sAdd1 == 0 && sCom1 == 0 && sSplit == 0
+
+		try fs.Writes.WriteFile(filepath.Join([]string{splitDir, "f2.txt"}), "modified-f2\n")
+		try fs.Writes.WriteFile(filepath.Join([]string{splitDir, "f9.txt"}), "added-f9\n")
+		let (sAdd2, _) = try runGit(splitDir, []string{"add", "f2.txt", "f9.txt"}, pathEnv)
+		let (sRm, _) = try runGit(splitDir, []string{"rm", "-f", "f5.txt"}, pathEnv)
+		assert sAdd2 == 0 && sRm == 0
+
+		let splitLayout = try root.Discover(splitDir, root.DiscoverOptions{CeilingDirs: []string{cwd}, Trust: root.ConfinedTrust(cwd)})
+		let splitIdx = try Open(oid.Sha1, filepath.Join([]string{splitLayout.GitDir, "index"}))
+		assert HasExtension(splitIdx, "link")
+		assert try assertMatchesLsFilesSZ(splitDir, splitIdx, pathEnv)
+		assert splitIdx.Lookup("f5.txt", 0) == None
+		assert splitIdx.Lookup("f9.txt", 0) != None
+
+		let sparseDir = try oracle.InitRepo(filepath.Join([]string{cwd, "sparse-repo"}), oracle.RepoSpec{Format: oracle.Sha1, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, int64(1700000200))
+		try fs.Writes.MkdirAll(filepath.Join([]string{sparseDir, "keep"}))
+		try fs.Writes.MkdirAll(filepath.Join([]string{sparseDir, "skip"}))
+		try fs.Writes.WriteFile(filepath.Join([]string{sparseDir, "root.txt"}), "root\n")
+		try fs.Writes.WriteFile(filepath.Join([]string{sparseDir, "keep", "a.txt"}), "keep\n")
+		try fs.Writes.WriteFile(filepath.Join([]string{sparseDir, "skip", "b.txt"}), "skip\n")
+		let (sSpAdd, _) = try runGit(sparseDir, []string{"add", "."}, pathEnv)
+		let (sSpCom, _) = try runGit(sparseDir, []string{"commit", "-m", "sparse base"}, pathEnv)
+		let (sSpInit, _) = try runGit(sparseDir, []string{"sparse-checkout", "init", "--cone"}, pathEnv)
+		let (sSpSet, _) = try runGit(sparseDir, []string{"sparse-checkout", "set", "keep"}, pathEnv)
+		assert sSpAdd == 0 && sSpCom == 0 && sSpInit == 0 && sSpSet == 0
+
+		let sparseLayout = try root.Discover(sparseDir, root.DiscoverOptions{CeilingDirs: []string{cwd}, Trust: root.ConfinedTrust(cwd)})
+		let sparseIdx = try Open(oid.Sha1, filepath.Join([]string{sparseLayout.GitDir, "index"}))
+		assert try assertMatchesLsFilesSZ(sparseDir, sparseIdx, pathEnv)
+		let (sLsV, lsVOut) = try runGit(sparseDir, []string{"ls-files", "-v", "-z"}, pathEnv)
+		assert sLsV == 0
+		assert strings.Contains(lsVOut, "S skip/b.txt\x00")
+		assert strings.Contains(lsVOut, "H keep/a.txt\x00")
+		match sparseIdx.Lookup("skip/b.txt", 0) {
+		case Some[Entry] as e:
+			assert e.Value.SkipWorktree
+		case None:
+			assert false
+		}
+		match sparseIdx.Lookup("keep/a.txt", 0) {
+		case Some[Entry] as e:
+			assert !e.Value.SkipWorktree
+		case None:
+			assert false
+		}
+
+		let (sSpIdx, _) = try runGit(sparseDir, []string{"sparse-checkout", "init", "--cone", "--sparse-index"}, pathEnv)
+		assert sSpIdx == 0
+		let sdirIdx = try Open(oid.Sha1, filepath.Join([]string{sparseLayout.GitDir, "index"}))
+		assert HasExtension(sdirIdx, "sdir")
+		match sdirIdx.Lookup("skip/", 0) {
+		case Some[Entry] as e:
+			assert e.Value.Mode == ModeSparseDir && e.Value.SkipWorktree
+		case None:
+			assert false
+		}
+	}
+}
+
+// ExtensionsAndCorruptionMatrix: verifies unknown uppercase optional extensions
+// are preserved, unknown lowercase mandatory extensions fail with
+// UnsupportedMandatoryExtension, and corrupt/truncated/bad-checksum/bad-v4
+// inputs are rejected distinctly.
+test ExtensionsAndCorruptionMatrix {
+	let entries = makeSeededEntries(oid.Sha1)
+	let optRaw = encodeV2IndexWithExtension(oid.Sha1, entries, "ZZZZ", "optional-payload".Bytes())
+	let optIdx = try Parse(oid.Sha1, optRaw)
+	assert HasExtension(optIdx, "ZZZZ")
+	assert len(optIdx.Entries()) == 4
+
+	let mandRaw = encodeV2IndexWithExtension(oid.Sha1, entries, "zzzz", "mandatory-payload".Bytes())
+	let mut sawMand = false
+	let _ = Parse(oid.Sha1, mandRaw) catch {
+	case UnsupportedMandatoryExtension as u:
+		sawMand = u.Signature == "zzzz"
+		optIdx
+	case BadMagic, UnsupportedVersion, Truncated, ChecksumMismatch, CorruptEntry, BadPathCompression, DuplicateStage, UnsortedEntries:
+		assert false
+		optIdx
+	}
+	assert sawMand
+
+	let mut badMagic = appendBytes([]byte{}, optRaw)
+	badMagic[0] = byte('X')
+	let mut sawBadMagic = false
+	let _ = Parse(oid.Sha1, badMagic) catch {
+	case BadMagic:
+		sawBadMagic = true
+		optIdx
+	case UnsupportedVersion, Truncated, ChecksumMismatch, CorruptEntry, BadPathCompression, UnsupportedMandatoryExtension, DuplicateStage, UnsortedEntries:
+		assert false
+		optIdx
+	}
+	assert sawBadMagic
+
+	let mut badVerBody = appendBytes([]byte{}, optRaw[:len(optRaw)-20])
+	badVerBody[7] = byte(5)
+	let badVerRaw = signIndex(oid.Sha1, badVerBody)
+	let mut sawBadVer = false
+	let _ = Parse(oid.Sha1, badVerRaw) catch {
+	case UnsupportedVersion as u:
+		sawBadVer = u.Version == uint32(5)
+		optIdx
+	case BadMagic, Truncated, ChecksumMismatch, CorruptEntry, BadPathCompression, UnsupportedMandatoryExtension, DuplicateStage, UnsortedEntries:
+		assert false
+		optIdx
+	}
+	assert sawBadVer
+
+	let mut sawTrunc = false
+	let _ = Parse(oid.Sha1, optRaw[:10]) catch {
+	case Truncated:
+		sawTrunc = true
+		optIdx
+	case BadMagic, UnsupportedVersion, ChecksumMismatch, CorruptEntry, BadPathCompression, UnsupportedMandatoryExtension, DuplicateStage, UnsortedEntries:
+		assert false
+		optIdx
+	}
+	assert sawTrunc
+
+	let mut flipped = appendBytes([]byte{}, optRaw)
+	flipped[len(flipped)-1] = flipped[len(flipped)-1] ^ byte(1)
+	let mut sawSum = false
+	let _ = Parse(oid.Sha1, flipped) catch {
+	case ChecksumMismatch:
+		sawSum = true
+		optIdx
+	case BadMagic, UnsupportedVersion, Truncated, CorruptEntry, BadPathCompression, UnsupportedMandatoryExtension, DuplicateStage, UnsortedEntries:
+		assert false
+		optIdx
+	}
+	assert sawSum
+
+	let id0 = try oid.HashObject(oid.Sha1, oid.Blob, "v4-bad-strip".Bytes())
+	let mut badV4Body = "DIRC".Bytes()
+	badV4Body = appendU32BE(badV4Body, uint32(4))
+	badV4Body = appendU32BE(badV4Body, uint32(1))
+	for _ in 0..6 {
+		badV4Body = appendU32BE(badV4Body, uint32(0))
+	}
+	badV4Body = appendU32BE(badV4Body, ModeRegular)
+	badV4Body = appendU32BE(badV4Body, uint32(0))
+	badV4Body = appendU32BE(badV4Body, uint32(0))
+	badV4Body = appendU32BE(badV4Body, uint32(12))
+	badV4Body = appendBytes(badV4Body, id0.Raw)
+	badV4Body = appendU16BE(badV4Body, uint16(5))
+	badV4Body = badV4Body.Append(byte(5))
+	badV4Body = appendBytes(badV4Body, "a.txt".Bytes())
+	badV4Body = badV4Body.Append(byte(0))
+	let badV4Raw = signIndex(oid.Sha1, badV4Body)
+	let mut sawBadComp = false
+	let _ = Parse(oid.Sha1, badV4Raw) catch {
+	case BadPathCompression:
+		sawBadComp = true
+		optIdx
+	case BadMagic, UnsupportedVersion, Truncated, ChecksumMismatch, CorruptEntry, UnsupportedMandatoryExtension, DuplicateStage, UnsortedEntries:
+		assert false
+		optIdx
+	}
+	assert sawBadComp
+}
