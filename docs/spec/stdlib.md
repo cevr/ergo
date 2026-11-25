@@ -3156,6 +3156,10 @@ The prelude services. `testing.VirtualClock` provides `time.Clock` and `Schedule
 
 *Prior art:* everystate's `conform` (untyped JSON against TLA+ values; its exit codes 0, 20, 21 bad trace, 22 limit reached are kept, and Broken is 23); TLC's trace validation (Kuppe et al.) checks a log as a constrained behaviour of the spec; Quint's `run` replays a trace step by step.
 
+### Concrete transition graphs
+
+`explore.BuildConcrete(g, bounds)` (`std/explore/concrete.ergo`, `std/explore/search.ergo`) builds the dense concrete transition graph of a pure `ConcreteGraph[S, E, O]` using exact canonical wire keys (`CanonicalKeyOf`, `KeyTable`, `InternWithHash`, `Intern`) rather than fingerprint-only membership: the 128-bit hash locates a dense bucket and canonical wire-event bytes (with IEEE 754 float bits) decide identity. `ConcreteOf` and `ConcreteOfMachine` adapt a `Machine` so every attempted edge is recorded before deduplicating its successor, keeping cycles/joins, distinct `Ignore` vs `Reject`, payload-distinct events under one variant tag, and `Done` outputs distinct while charging `Disabled` attempts and saturating bounds (`MaxStates`, `MaxEdges`, `MaxWork`, `MaxBytes`) before extending storage. Law: `EdgesKeepIdentity` (`TestStdExploreLawsRun`).
+
 ### net
 
 `net.NewTestHost()` makes a `Host` under [`TestLoopback`](rows.md#test-loopback). Its `Listen` and `Dial` require an explicit port and a literal loopback address; they fail `net.Denied{Addr}` before touching a socket for any other address. The `Network` operation rows include `Denied` as well as `ListenFailed` or `DialFailed`.

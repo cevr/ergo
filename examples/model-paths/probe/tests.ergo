@@ -1,0 +1,7 @@
+import fs
+import modelpathsprobe/disk
+import modelpathsprobe/session
+
+let onDisk = context needs TestAmbient {
+	session.Sessions: disk.New(fs.NewTestHost()),
+}

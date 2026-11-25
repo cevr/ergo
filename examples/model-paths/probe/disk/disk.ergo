@@ -1,0 +1,70 @@
+// Package disk opens a workflow log on a supplied confined file system.
+import fs
+import modelpathsprobe/session
+import sync
+import time
+import workflow
+import workflow/file
+
+type Disk { host fs.Host } implements session.Sessions
+
+func New(host fs.Host) Disk { Disk{host: host} }
+
+type opened {
+	store    file.Store,
+	host     fs.Host,
+	dir      string,
+	released sync.Ref[[]int],
+	id       int,
+} implements session.Session
+
+func Open(d Disk, id int, released sync.Ref[[]int]) session.Session fails session.Fault {
+	let dir = "session-\(id)"
+	d.host.MkdirAllMode(dir, fs.PrivateDir()) catch {
+	case fs.Denied:
+		return session.Fault{Reason: "session directory denied"}
+	case fs.Failed as f:
+		return session.Fault{Reason: f.Reason}
+	}
+	let store = file.Open(d.host, d.host, "\(dir)/runs.log") catch {
+	case workflow.Failed as f:
+		clean(d.host, dir)
+		return session.Fault{Reason: f.Reason}
+	}
+	opened{store: store, host: d.host, dir: dir, released: released, id: id}
+}
+
+func Read(s opened) int fails session.Fault {
+	let loaded = s.store.Load("probe", 0) catch {
+	case workflow.Failed as f:
+		return session.Fault{Reason: f.Reason}
+	}
+	len(loaded.Events)
+}
+
+func Apply(s opened, n int) fails session.Fault | session.Rejected {
+	let now = time.Unix(0, 0)
+	let created = s.store.Create("probe", workflow.Started{Payload: "\(n)", Version: "1", At: now}, now) catch {
+	case workflow.Failed as f:
+		return session.Fault{Reason: f.Reason}
+	}
+	if !created {
+		return session.Rejected{At: try Read(s)}
+	}
+}
+
+func Close(s opened) {
+	clean(s.host, s.dir)
+	s.released.Update(func(ids []int) []int { ids.Append(s.id) })
+}
+
+func clean(host fs.Host, dir string) {
+	remove(host, "\(dir)/runs.log")
+	remove(host, dir)
+}
+
+func remove(host fs.Host, path string) {
+	host.Remove(path) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+	}
+}

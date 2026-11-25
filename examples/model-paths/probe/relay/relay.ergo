@@ -1,0 +1,53 @@
+// Package relay runs a tiny machine through the public actor interface.
+import actor
+import modelpathsprobe/session
+import sync
+import time
+
+type Relay {} implements session.Sessions
+
+type count { N int }
+type change { Delta int }
+
+type counter machine[count, change] {
+	initial: count{N: 0},
+	step:    step,
+}
+
+func step(s count, c change) Decision[count, Never] fails session.Rejected {
+	if c.Delta < 0 {
+		return session.Rejected{At: s.N}
+	}
+	Stay[count]{Next: count{N: s.N + c.Delta}}
+}
+
+type running {
+	a        actor.Actor[count, change, Decision[count, Never], session.Rejected],
+	released sync.Ref[[]int],
+	id       int,
+} implements session.Session
+
+func Open(_ Relay, id int, released sync.Ref[[]int]) session.Session fails session.Fault {
+	let a = with context { Scheduler: time.NewManual(0) } {
+		actor.StartMachine(counter{}, 1, func(_ Never) {})
+	}
+	running{a: a, released: released, id: id}
+}
+
+func Read(s running) int fails session.Fault { s.a.State().N }
+
+func Apply(s running, n int) fails session.Rejected | session.Fault {
+	let _ = s.a.Ask(change{Delta: n}) catch {
+	case session.Rejected as r:
+		return r
+	case actor.Stopped:
+		return session.Fault{Reason: "actor stopped before answering"}
+	}
+}
+
+func Close(s running) {
+	s.a.Stop() catch {
+	case session.Rejected:
+	}
+	s.released.Update(func(ids []int) []int { ids.Append(s.id) })
+}

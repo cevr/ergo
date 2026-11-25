@@ -76,6 +76,11 @@ func (st *irState) lawBody(fc *funcCtx, law *check.Law, name string, needsFrame 
 	l, d := fc.l, law.Decl
 	b := st.newBuilder(fc, d)
 	b.result, b.law = fc.frame.result, law
+	if law.Owner != nil {
+		if own, ok := law.Owner.Type.(*check.Named); ok {
+			b.lawOwner = own
+		}
+	}
 	defer st.finish(b, law.Pkg.Path, name, d, law.Pkg.Std(), &ok)
 	if needsFrame && !irFrame(fc) {
 		b.gate("body that needs a frame") // frameScopeLowering=off: the reference
@@ -167,14 +172,10 @@ func (b *irBuilder) lawOpCap(c *check.Call) *check.Named {
 	if c.Kind != check.CallLawOp {
 		return nil
 	}
-	if b.law == nil || b.law.Owner == nil {
+	if b.lawOwner == nil {
 		irNo("law operation call outside its law's body")
 	}
-	own, ok := b.law.Owner.Type.(*check.Named)
-	if !ok {
-		irNo("law of an operation type with no name")
-	}
-	return own
+	return b.lawOwner
 }
 
 // refutedFunc is the harness's Refuted with the law's declaration as one
