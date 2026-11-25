@@ -1,6 +1,8 @@
 package lower
 
 import (
+	"go/constant"
+
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -46,6 +48,11 @@ func (b *irBuilder) goBuiltinCall(x *syntax.CallExpr, c *check.Call, f *check.Fu
 		return pre, &irExpr{K: "builtin", Pos: p, Name: "append", Args: args}, false
 	}
 	b.valueSource(x, c, list, args) // ir_pkg.go
+	if c.ReadsClaimReceiver() && len(args) > 0 {
+		if _, borrowed := b.l.info.Types[c.Recv].(*check.Pointer); borrowed {
+			args[0] = &irExpr{K: "deref", Pos: args[0].Pos, X: args[0]}
+		}
+	}
 	for i, prm := range f.Sig.Params {
 		if _, ok := prm.Type.(*check.Pointer); ok && i < len(args) {
 			args[i] = &irExpr{K: "deref", Pos: args[i].Pos, X: args[i]}
@@ -73,6 +80,12 @@ func (b *irBuilder) goBuiltinCall(x *syntax.CallExpr, c *check.Call, f *check.Fu
 	case "len":
 		if len(args) != 1 {
 			irNo("len form")
+		}
+		if arr, ok := underEqual(b.l.info.Types[list[0]]).(*check.Array); ok {
+			if args[0].K != "local" && args[0].K != "const" && args[0].K != "zero" {
+				pre = append(pre, &irStmt{K: "discard", Pos: p, X: args[0]})
+			}
+			return pre, b.constant(b.l.info.Types[x], constant.MakeInt64(arr.Len), x, p), false
 		}
 		return pre, b.foldConst(x, &irExpr{K: "len", Pos: p, X: args[0]}), false // ir_opfold.go: a constant's len
 	case "cap", "min", "max":

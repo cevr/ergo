@@ -71,7 +71,7 @@ func TestEveryPureStdExternHasANative(t *testing.T) {
 // Go body, as planOf chooses: a built-in collection operation, Go's
 // append, or a native.
 func runsExtern(f *check.Func) bool {
-	return preludeCollection(f) || check.AppendsString(f) || check.GoBuiltin(f) == "append" || nativeOf(f) != nil || goNativeOf(f) != nil
+	return preludeCollection(f) || check.AppendsString(f) || check.GoBuiltin(f) == "append" || check.GoBuiltin(f) == "len" || nativeOf(f) != nil || goNativeOf(f) != nil
 }
 
 // stdPaths are the std package paths of the embedded sources, gostd's

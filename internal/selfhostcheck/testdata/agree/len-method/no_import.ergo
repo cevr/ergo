@@ -1,0 +1,101 @@
+type NonEmptyStr string where it.Len() > 0
+
+type SmallCount int where 1 <= it && it <= 10
+
+type Holder {
+	items []int,
+	arr   [3]int,
+}
+
+func makeArr(flag mut bool) [3]int {
+	*flag = true
+	[3]int{7, 8, 9}
+}
+
+func sumSliceDot(xs []int) int {
+	let mut acc = 0
+	let mut i = 0
+	for i < xs.Len() {
+		acc = acc + xs[i]
+		i = i + 1
+	}
+	acc
+}
+
+func sumMutSliceDot(xs0 []int) int {
+	let mut xs = xs0
+	let mut acc = 0
+	let mut i = 0
+	for i < xs.Len() {
+		acc = acc + xs[i]
+		i = i + 1
+	}
+	if acc < 0 {
+		xs = []int{}
+	}
+	acc + xs.Len() - xs.Len()
+}
+
+func sumStringDot(s string) int {
+	let mut acc = 0
+	let mut i = 0
+	for 0 <= i && i < s.Len() {
+		acc = acc + int(s[i])
+		i = i + 1
+	}
+	acc
+}
+
+func constLenCheck() int {
+	let a = [3]int{1, 2, 3}
+	let c1 = SmallCount("hello".Len())
+	let c2 = SmallCount(a.Len())
+	let s NonEmptyStr = "ergo"
+	int(c1) + int(c2) + string(s).Len()
+}
+
+test LenMethodNoImport {
+	let xs = []int{10, 20, 30}
+	let m = Map[string, int]{"a": 1, "b": 2}
+	let s = "hello"
+	let a = [4]int{1, 2, 3, 4}
+	let h = Holder{items: xs, arr: [3]int{1, 2, 3}}
+
+	assert xs.Len() == 3
+	assert xs.Len() == len(xs)
+	assert m.Len() == 2
+	assert m.Len() == len(m)
+	assert s.Len() == 5
+	assert s.Len() == len(s)
+	assert a.Len() == 4
+	assert a.Len() == len(a)
+	assert h.items.Len() == 3
+	assert h.arr.Len() == 3
+
+	let mut xsMut = []int{4, 5}
+	let px = &xsMut
+	assert (*px).Len() == 2
+
+	let mut called = false
+	assert makeArr(&called).Len() == 3
+	assert called
+
+	assert constLenCheck() == 12
+	assert sumSliceDot(xs) == 60
+	assert sumMutSliceDot(xs) == 60
+	assert sumStringDot("AB") == 131
+
+	let parsed = ParseNonEmptyStr("ok") catch {
+	case _:
+		NonEmptyStr("fallback")
+	}
+	assert string(parsed).Len() == 2
+
+	let mut rejected = false
+	let _ = ParseNonEmptyStr("") catch {
+	case _:
+		rejected = true
+		NonEmptyStr("x")
+	}
+	assert rejected
+}

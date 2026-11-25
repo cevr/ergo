@@ -1,0 +1,28 @@
+import core
+
+type Box { n int } implements core.Lengthed
+
+func Len(b Box) int {
+	b.n
+}
+
+func countAny[C core.Lengthed](c C) int {
+	c.Len()
+}
+
+func sumLengths[C core.Lengthed](a C, b C) int {
+	a.Len() + b.Len()
+}
+
+test LenMethodGenericLengthed {
+	assert countAny([]int{1, 2, 3}) == 3
+	assert countAny(Map[string, int]{"x": 1, "y": 2}) == 2
+	assert countAny("abcd") == 4
+	assert countAny([5]int{1, 2, 3, 4, 5}) == 5
+	assert countAny(Box{n: 9}) == 9
+
+	assert sumLengths([]int{1, 2}, []int{3, 4, 5}) == 5
+	assert sumLengths("ab", "cde") == 5
+	assert sumLengths([2]int{1, 2}, [2]int{3, 4}) == 4
+	assert sumLengths(Box{n: 3}, Box{n: 4}) == 7
+}

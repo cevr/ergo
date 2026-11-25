@@ -75,6 +75,9 @@ func BodyOf(f *Func) Body {
 	}
 	path, name := f.Decl.Extern.Split()
 	if !v1.Owns(path) {
+		if path == "" && (name == "len" || name == "cap") {
+			return Body{MovesOnly: true}
+		}
 		if body, ok := ModuleBody(f); ok {
 			// A module's own body: its shape and policy, call-only. Its
 			// purity is not read yet (a follow-up of NP4d): no call of it

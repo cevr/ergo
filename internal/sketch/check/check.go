@@ -192,6 +192,7 @@ type checker struct {
 	caught   *caughtCall
 	cover    tryCover // tries in operand position (cover.go)
 	pkg      *Package
+	core     *Package
 	imp      Importer
 	ownGo    *GoBindings // the Go packages of an importer that is no GoImporter
 	universe *Scope      // the universe and the prelude
@@ -841,6 +842,7 @@ func universe() *Scope {
 type preludeResult struct {
 	scope *Scope
 	pkg   *Package
+	core  *Package
 	// ops are the prelude's exported operations, which are in no scope.
 	ops   map[string]*Func
 	diags []Diagnostic
@@ -867,6 +869,10 @@ func prelude() preludeResult {
 		colPkg, err := imp.importPreludeDep("collections")
 		if err != nil {
 			panic("check: std collections does not check: " + err.Error())
+		}
+		corePkg, err := imp.importPreludeDep("core")
+		if err != nil {
+			panic("check: std core does not check: " + err.Error())
 		}
 		parent := newScope(u)
 		reexports := make([]Object, 0, 4)
@@ -896,6 +902,7 @@ func prelude() preludeResult {
 			panic("check: the prelude has no " + collFileName)
 		}
 		c := newChecker(stdlib.PreludePath, nil, parent)
+		c.core = corePkg
 		c.pkg.std = true
 		c.pkg.trusted = true // the toolchain vouches for what it ships
 		c.pkg.module = StdModule
@@ -944,7 +951,7 @@ func prelude() preludeResult {
 			}
 			scope.insert(name, o)
 		}
-		preludeOnce.r = preludeResult{scope: scope, pkg: pkg, ops: ops, diags: c.sorted()}
+		preludeOnce.r = preludeResult{scope: scope, pkg: pkg, core: corePkg, ops: ops, diags: c.sorted()}
 	})
 	return preludeOnce.r
 }
@@ -1088,6 +1095,9 @@ func installPrelude(r preludeResult) {
 			if tn, ok := o.(*TypeName); ok && tn.Pkg != nil {
 				tn.Pkg.std = true
 			}
+		}
+		if r.core != nil {
+			r.core.std = true
 		}
 		r.pkg.std = true
 		preludeOnce.r = r

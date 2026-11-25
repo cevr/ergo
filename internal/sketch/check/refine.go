@@ -195,7 +195,7 @@ func (c *checker) refinement(subject string, t Type, where syntax.Expr, what str
 	if isLen {
 		shown = "len(" + subject + ")"
 	}
-	r := &refiner{c: c, subject: subject, isLen: isLen, dom: dom, shown: shown}
+	r := &refiner{c: c, subject: subject, typ: t, isLen: isLen, dom: dom, shown: shown}
 	pat, ok := r.pattern(where, t)
 	if !ok {
 		return nil
@@ -214,6 +214,7 @@ func (c *checker) refinement(subject string, t Type, where syntax.Expr, what str
 type refiner struct {
 	c       *checker
 	subject string
+	typ     Type
 	isLen   bool
 	dom     Span
 	shown   string
@@ -321,17 +322,38 @@ func clip(lo, hi *big.Int, dom Span) spanSet {
 	return one(lo, hi)
 }
 
-// isSubject reports the subject: it, or len(it) for a length.
+// isSubject reports the subject: it, or len(it) / it.Len() for a length.
 func (r *refiner) isSubject(x syntax.Expr) bool {
 	x = unparen(x)
 	if r.isLen {
 		call, ok := x.(*syntax.CallExpr)
-		if !ok || len(call.Args) != 1 || call.Trailing != nil {
+		if !ok || call.Trailing != nil {
 			return false
 		}
-		fn, ok := call.Fun.(*syntax.Ident)
-		id, ok2 := unparen(call.Args[0]).(*syntax.Ident)
-		return ok && ok2 && fn.Name == "len" && id.Name == r.subject
+		if len(call.Args) == 1 {
+			fn, ok := call.Fun.(*syntax.Ident)
+			id, ok2 := unparen(call.Args[0]).(*syntax.Ident)
+			return ok && ok2 && fn.Name == "len" && id.Name == r.subject
+		}
+		if len(call.Args) == 0 {
+			sel, ok := unparen(call.Fun).(*syntax.SelectorExpr)
+			if !ok {
+				return false
+			}
+			id, ok2 := unparen(sel.X).(*syntax.Ident)
+			if !ok2 || id.Name != r.subject {
+				return false
+			}
+			fn := r.c.coreClaimFunc(r.typ, sel.Sel.Name)
+			if fn == nil {
+				fn = r.c.coreClaimFunc(under(r.typ), sel.Sel.Name)
+			}
+			if fn == nil {
+				fn, _ = r.c.claimLookup(r.typ, sel.Sel.Name)
+			}
+			return fn != nil && GoBuiltin(fn) == "len"
+		}
+		return false
 	}
 	id, ok := x.(*syntax.Ident)
 	return ok && id.Name == r.subject

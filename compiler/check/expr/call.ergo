@@ -329,7 +329,13 @@ func callMethodFn(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node]
 	let n = syntax.Len(c.Args)
 	t.Calls = t.Calls.Append(CallTo{Call: pnode(k, t.file, x), Callee: f, Recv: true})
 	if len(f.Params) > 0 {
-		return generic(s, k, t, x, c, fun, []dense.ID[syntax.Node]{}, f, some(xt))
+		let mut recvT = xt
+		let rb = receiverBase(*s, xt)
+		let ops = store.OperandsOf(*s, f.Sig)
+		if store.KindOfType(*s, rb) == store.KArray && len(ops) > 3 && store.KindOfType(*s, receiverBase(*s, ops[0])) == store.KSlice {
+			recvT = store.TSlice(s, store.OperandsOf(*s, rb)[0])
+		}
+		return generic(s, k, t, x, c, fun, []dense.ID[syntax.Node]{}, f, some(recvT))
 	}
 	if !dropsSite(*s, k, f.Sig, n+1) {
 		note(k, t, fun, withoutFirst(s, f.Sig))

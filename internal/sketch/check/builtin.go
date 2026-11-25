@@ -52,6 +52,12 @@ func GoBuiltin(f *Func) string {
 	return name
 }
 
+// IsLenCall reports whether c calls Go's len, either as the universe
+// builtin len(x) or through an extern go len binding such as x.Len().
+func IsLenCall(c *Call) bool {
+	return c != nil && (c.Kind == CallLen || c.Kind == CallFunc && GoBuiltin(c.Func) == "len")
+}
+
 // AppendsString reports an extern of Go's append at its second shape,
 // `(xs []byte, s string) []byte`: Go's append(xs, s...), the bytes of s
 // added at the end of xs (interop.md, Lowering 13). It is a concatenation, as
@@ -126,7 +132,27 @@ func builtinRefusal(f *Func, b string) string {
 		if !one || len(s.Params) != 2 || len(s.Results) != 1 || elem(s.Params[0].Type) != t || (s.Params[1].Type != t && elem(s.Params[1].Type) != t) || elem(s.Results[0]) != t {
 			return bad("[T](xs []T, x T) []T, or [T](xs []T, ys []T) []T")
 		}
-	case "len", "cap":
+	case "len":
+		if len(s.Params) != 1 || len(s.Results) != 1 || !isInt(s.Results[0]) {
+			return bad("[T](xs []T) int, [K comparable, V](m Map[K, V]) int, or (s string) int")
+		}
+		p0 := s.Params[0].Type
+		switch {
+		case one && elem(p0) == t:
+		case len(s.TParams) == 2 && s.TParams[0].Kind == KindType && s.TParams[1].Kind == KindType:
+			m, ok := p0.(*Map)
+			if !ok || m.Key != s.TParams[0] || m.Elem != s.TParams[1] {
+				return bad("[T](xs []T) int, [K comparable, V](m Map[K, V]) int, or (s string) int")
+			}
+		case len(s.TParams) == 0 && isString(p0):
+		case len(s.TParams) == 0:
+			if _, ok := p0.(*Array); !ok {
+				return bad("[T](xs []T) int, [K comparable, V](m Map[K, V]) int, or (s string) int")
+			}
+		default:
+			return bad("[T](xs []T) int, [K comparable, V](m Map[K, V]) int, or (s string) int")
+		}
+	case "cap":
 		if !one || len(s.Params) != 1 || len(s.Results) != 1 || elem(s.Params[0].Type) != t || !isInt(s.Results[0]) {
 			return bad("[T](xs []T) int")
 		}

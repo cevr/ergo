@@ -994,7 +994,7 @@ func compare(r refiner, x dense.ID[syntax.Node], b syntax.BinaryExpr, op0 uint8)
 	}}
 }
 
-// isSubject is whether x is the subject: it, or len(it) for a length.
+// isSubject is whether x is the subject: it, or len(it) / it.Len() for a length.
 func isSubject(r refiner, x0 dense.ID[syntax.Node]) bool {
 	let x = unparen(r.p, x0)
 	if !r.isLen {
@@ -1004,10 +1004,24 @@ func isSubject(r refiner, x0 dense.ID[syntax.Node]) bool {
 		return false
 	}
 	let c = syntax.CallExprOf(r.p.Tree, x)
-	if syntax.Len(c.Args) != 1 || isSome(c.Trailing) || !identIs(r.p, c.Fun, "len") {
+	if isSome(c.Trailing) {
 		return false
 	}
-	identIs(r.p, unparen(r.p, syntax.Item(r.p.Tree, c.Args, 0)), r.subject)
+	if syntax.Len(c.Args) == 1 {
+		if !identIs(r.p, c.Fun, "len") {
+			return false
+		}
+		return identIs(r.p, unparen(r.p, syntax.Item(r.p.Tree, c.Args, 0)), r.subject)
+	}
+	if syntax.Len(c.Args) == 0 {
+		let fun = unparen(r.p, c.Fun)
+		if syntax.KindOf(r.p.Tree, fun) != syntax.KSelectorExpr {
+			return false
+		}
+		let se = syntax.SelectorExprOf(r.p.Tree, fun)
+		return identIs(r.p, se.Sel, "Len") && identIs(r.p, unparen(r.p, se.X), r.subject)
+	}
+	false
 }
 
 // intLiteral is the value of an integer literal with optional signs.

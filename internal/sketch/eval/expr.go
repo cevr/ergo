@@ -1100,16 +1100,15 @@ func (in *interp) callOf(fr *frame, x *syntax.CallExpr, xf *facts) (Value, *abru
 			// hole, never of a hole (foldvalue.go).
 			return nil, in.symStop(fr, x.Args[0], v)
 		}
-		switch v := v.(type) {
-		case string:
-			return int64(len(v)), nil
-		case sliceV:
-			return int64(v.n), nil
-		case mapV:
-			return int64(len(v.b.m)), nil
-		}
-		ice("len of %T", v)
+		return evalLenValue(v), nil
 	case check.CallFunc:
+		if check.GoBuiltin(c.Func) == "len" {
+			target := c.Recv
+			if target == nil && len(x.Args) > 0 {
+				target = x.Args[0]
+			}
+			return in.evalLenArg(fr, target)
+		}
 		if c.Site != nil {
 			return nil, fr.unsupported(x, "a call that passes its CallSite yet")
 		}
@@ -1533,4 +1532,48 @@ func textOf(v Value, b *check.Basic) (string, bool) {
 		return strconv.FormatFloat(v, 'g', -1, 64), true
 	}
 	return "", false
+}
+
+func (in *interp) evalLenArg(fr *frame, arg syntax.Expr) (Value, *abrupt) {
+	// len reads a length, not the elements: a part it reads leaves
+	// no share behind, so its slot does not lend (MX-EVWITNESS: vt's
+	// push read len(s.flags), and the next write copied the screen).
+	var v Value
+	var ab *abrupt
+	switch a := unparen(arg).(type) {
+	case *syntax.SelectorExpr, *syntax.IndexExpr:
+		if ab = in.charge(fr, a, 1); ab == nil {
+			v, _, ab = in.peek(fr, a)
+		}
+	default:
+		v, ab = in.expr(fr, arg)
+	}
+	if ab != nil {
+		return nil, ab
+	}
+	if pv, ok := v.(*ptrV); ok {
+		v, ab = in.read(fr, pv.root.v, pv.path)
+		if ab != nil {
+			return nil, ab
+		}
+	}
+	if isTerm(v) && in.sym != nil {
+		// A template run reads the length of a list that holds a
+		// hole, never of a hole (foldvalue.go).
+		return nil, in.symStop(fr, arg, v)
+	}
+	return evalLenValue(v), nil
+}
+
+func evalLenValue(v Value) int64 {
+	switch v := v.(type) {
+	case string:
+		return int64(len(v))
+	case sliceV:
+		return int64(v.n)
+	case mapV:
+		return int64(len(v.b.m))
+	}
+	ice("len of %T", v)
+	return 0
 }
