@@ -16,12 +16,20 @@ const (
 )
 
 var (
-	initRuns int
-	stop     atomic.Int64
-	started  atomic.Int64
+	initRuns  int
+	initTrace int
+	stop      atomic.Int64
+	started   atomic.Int64
 )
 
-func init() { initRuns += dep.Inits() }
+func init() {
+	initRuns += dep.Inits()
+	initTrace = initTrace*10 + 1
+}
+
+func init() {
+	initTrace = initTrace*10 + 2
+}
 
 func Diff(a int, b int) int { return a - b + K1 }
 
@@ -59,3 +67,9 @@ func Stop() { stop.Store(1) }
 func SpinStarted() int { return int(started.Load()) }
 
 func InitRuns() int { return initRuns }
+
+func InitTrace() int { return initTrace }
+
+func step(x int) int { return x*3 + 7 }
+
+func Combine(a int, b int) int { return step(Diff(a, b)) + Twice(b) }

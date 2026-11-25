@@ -65,6 +65,7 @@ func callbackFrame(wantFile string) {
 func memoryChecks(callbackFile string) {
 	fmt.Println("diff", tiny.Diff(7, 3), tiny.Diff(-5, 11))
 	fmt.Println("twice", tiny.Twice(21), tiny.Twice(-4))
+	fmt.Println("combine", tiny.Combine(7, 3), tiny.Combine(-5, 11))
 
 	k := 10
 	fmt.Println("apply", tiny.Apply(func(x int) int {
@@ -142,11 +143,11 @@ func main() {
 	}
 	// Tiny's init increments only by the dependency's count as it was
 	// during init, so an early run yields zero and a repeated run two.
-	tinyCount, depCount := tiny.InitRuns(), dep.Inits()
-	if tinyCount != 1 || depCount != 1 {
-		fmt.Fprintf(os.Stderr, "init counts: tiny=%d dep=%d; want 1 and 1\n", tinyCount, depCount)
+	tinyCount, depCount, trace := tiny.InitRuns(), dep.Inits(), tiny.InitTrace()
+	if tinyCount != 1 || depCount != 1 || trace != 12 {
+		fmt.Fprintf(os.Stderr, "init counts: tiny=%d dep=%d trace=%d; want 1, 1, 12\n", tinyCount, depCount, trace)
 		os.Exit(1)
 	}
-	fmt.Println("init", tinyCount, depCount)
+	fmt.Println("init", tinyCount, depCount, trace)
 	fmt.Println("round trip complete")
 }
