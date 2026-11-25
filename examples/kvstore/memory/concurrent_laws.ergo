@@ -10,7 +10,7 @@ import slices
 import strings
 import testing
 
-type kvAct =
+type kvConcAct =
 	| KVPut{Key string, Value string}
 	| KVGet{Key string}
 	| KVDelete{Key string}
@@ -23,7 +23,7 @@ type kvRes =
 	| KVKeySet{Keys string}
 	| KVBroken{Reason string}
 
-func kvStoryStep(s Map[string, string], a kvAct) (Map[string, string], kvRes) {
+func kvStoryStep(s Map[string, string], a kvConcAct) (Map[string, string], kvRes) {
 	match a {
 	case KVPut as p:
 		(s.Put(p.Key, p.Value), KVOk)
@@ -46,7 +46,7 @@ func kvStoryStep(s Map[string, string], a kvAct) (Map[string, string], kvRes) {
 	}
 }
 
-func runKVAct(t Table, a kvAct) kvRes {
+func runKVAct(t Table, a kvConcAct) kvRes {
 	match a {
 	case KVPut as p:
 		t.Put(p.Key, p.Value) catch {
@@ -79,7 +79,7 @@ func runKVAct(t Table, a kvAct) kvRes {
 	}
 }
 
-func showKVAct(a kvAct) string {
+func showKVAct(a kvConcAct) string {
 	match a {
 	case KVPut as p:
 		"KVPut{Key: \"\(p.Key)\", Value: \"\(p.Value)\"}"
@@ -114,15 +114,15 @@ func showKVRes(r kvRes) string {
 // and replays deterministically via --schedule.
 test TableConcurrentLinearizable {
 	let t = NewTable()
-	let plans = [][]kvAct{
-		[]kvAct{KVPut{Key: "a", Value: "1"}, KVPut{Key: "b", Value: "2"}, KVKeys},
-		[]kvAct{KVPut{Key: "c", Value: "3"}, KVPut{Key: "d", Value: "4"}, KVKeys},
-		[]kvAct{KVPut{Key: "e", Value: "5"}, KVPut{Key: "f", Value: "6"}, KVKeys},
+	let plans = [][]kvConcAct{
+		[]kvConcAct{KVPut{Key: "a", Value: "1"}, KVPut{Key: "b", Value: "2"}, KVKeys},
+		[]kvConcAct{KVPut{Key: "c", Value: "3"}, KVPut{Key: "d", Value: "4"}, KVKeys},
+		[]kvConcAct{KVPut{Key: "e", Value: "5"}, KVPut{Key: "f", Value: "6"}, KVKeys},
 	}
-	testing.AgreesConcurrent(Map[string, string]{}, kvStoryStep, plans, func(a kvAct) kvRes {
+	testing.AgreesConcurrent(Map[string, string]{}, kvStoryStep, plans, func(a kvConcAct) kvRes {
 		runKVAct(t, a)
 	}) catch {
-	case testing.NotLinearizable[kvAct, kvRes] as nl:
+	case testing.NotLinearizable[kvConcAct, kvRes] as nl:
 		assert testing.FormatHistory(nl.History, showKVAct, showKVRes) == ""
 	}
 }
@@ -131,14 +131,14 @@ test TableConcurrentLinearizable {
 // interleavings on overlapping keys against the pure Map story.
 test TableConcurrentPutDeleteLinearizable {
 	let t = NewTable()
-	let plans = [][]kvAct{
-		[]kvAct{KVPut{Key: "k", Value: "1"}, KVDelete{Key: "k"}, KVGet{Key: "k"}},
-		[]kvAct{KVPut{Key: "k", Value: "2"}, KVGet{Key: "k"}},
+	let plans = [][]kvConcAct{
+		[]kvConcAct{KVPut{Key: "k", Value: "1"}, KVDelete{Key: "k"}, KVGet{Key: "k"}},
+		[]kvConcAct{KVPut{Key: "k", Value: "2"}, KVGet{Key: "k"}},
 	}
-	testing.AgreesConcurrent(Map[string, string]{}, kvStoryStep, plans, func(a kvAct) kvRes {
+	testing.AgreesConcurrent(Map[string, string]{}, kvStoryStep, plans, func(a kvConcAct) kvRes {
 		runKVAct(t, a)
 	}) catch {
-	case testing.NotLinearizable[kvAct, kvRes] as nl:
+	case testing.NotLinearizable[kvConcAct, kvRes] as nl:
 		assert testing.FormatHistory(nl.History, showKVAct, showKVRes) == ""
 	}
 }
@@ -147,14 +147,14 @@ test TableConcurrentPutDeleteLinearizable {
 // and values across two concurrent writer/reader tasks.
 law TableConcurrentLinearizableLaw(k1 string, k2 string, v1 string, v2 string) {
 	let t = NewTable()
-	let plans = [][]kvAct{
-		[]kvAct{KVPut{Key: k1, Value: v1}, KVGet{Key: k1}, KVKeys},
-		[]kvAct{KVPut{Key: k2, Value: v2}, KVGet{Key: k2}, KVKeys},
+	let plans = [][]kvConcAct{
+		[]kvConcAct{KVPut{Key: k1, Value: v1}, KVGet{Key: k1}, KVKeys},
+		[]kvConcAct{KVPut{Key: k2, Value: v2}, KVGet{Key: k2}, KVKeys},
 	}
-	testing.AgreesConcurrent(Map[string, string]{}, kvStoryStep, plans, func(a kvAct) kvRes {
+	testing.AgreesConcurrent(Map[string, string]{}, kvStoryStep, plans, func(a kvConcAct) kvRes {
 		runKVAct(t, a)
 	}) catch {
-	case testing.NotLinearizable[kvAct, kvRes]:
+	case testing.NotLinearizable[kvConcAct, kvRes]:
 		return false
 	}
 	true
