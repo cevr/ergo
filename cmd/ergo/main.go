@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -213,7 +214,10 @@ type fileOptions struct {
 	// pruneCases is test's --prune-cases: replay stored property tapes in
 	// ergo.cases and remove those that now pass (PROPERTY-TESTING P8).
 	pruneCases bool
-	file       string
+	// sharding holds test's --parallel, -j/--jobs, --shard, --timings and
+	// --update-timings options (TEST-SHARD-1).
+	sharding testShardOptions
+	file     string
 	// more are test's targets after the first (`ergo test A B C/...`),
 	// each a file, a folder or a pattern; none for every other command.
 	more []string
@@ -346,6 +350,45 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 			opts.skipLaw, selected, skips = value, true, skips+1
 			continue
 		}
+		if value, ok := strings.CutPrefix(args[i], "--shard="); ok {
+			sp, err := parseShardSpec(value)
+			if err != nil {
+				return opts, err
+			}
+			opts.sharding.shard = sp
+			continue
+		}
+		if value, ok := strings.CutPrefix(args[i], "--jobs="); ok {
+			n, err := parseJobsCount(value)
+			if err != nil {
+				return opts, err
+			}
+			opts.sharding.jobs, opts.sharding.jobsSet = n, true
+			continue
+		}
+		if value, ok := strings.CutPrefix(args[i], "-j="); ok {
+			n, err := parseJobsCount(value)
+			if err != nil {
+				return opts, err
+			}
+			opts.sharding.jobs, opts.sharding.jobsSet = n, true
+			continue
+		}
+		if value, ok := strings.CutPrefix(args[i], "--timings="); ok {
+			if value == "" {
+				return opts, fmt.Errorf("--timings requires a file path")
+			}
+			opts.sharding.timingsPath = value
+			continue
+		}
+		if value, ok := strings.CutPrefix(args[i], "--update-timings="); ok {
+			if value == "" {
+				return opts, fmt.Errorf("--update-timings= requires a file path")
+			}
+			opts.sharding.updateTimings = true
+			opts.sharding.updatePath = value
+			continue
+		}
 		took, err := parseExploreFlag(&opts.search, args, i)
 		if err != nil {
 			return opts, err
@@ -356,11 +399,28 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 			continue
 		}
 		switch args[i] {
-		case "--target", "-o", "--seed", "--states", "--receipt", "--law", "--skip-law", "--platform", "--eval-steps", "--eval-bytes", "--run", "--count", "-go-text", "-report":
+		case "--target", "-o", "--seed", "--states", "--receipt", "--law", "--skip-law", "--platform", "--eval-steps", "--eval-bytes", "--run", "--count", "-go-text", "-report", "-j", "--jobs", "--shard", "--timings":
 			if i+1 == len(args) {
 				return opts, fmt.Errorf("%s requires a value", args[i])
 			}
 			switch args[i] {
+			case "-j", "--jobs":
+				n, err := parseJobsCount(args[i+1])
+				if err != nil {
+					return opts, err
+				}
+				opts.sharding.jobs, opts.sharding.jobsSet = n, true
+			case "--shard":
+				sp, err := parseShardSpec(args[i+1])
+				if err != nil {
+					return opts, err
+				}
+				opts.sharding.shard = sp
+			case "--timings":
+				if args[i+1] == "" {
+					return opts, fmt.Errorf("--timings requires a file path")
+				}
+				opts.sharding.timingsPath = args[i+1]
 			case "--count":
 				count, counted = args[i+1], true
 			case "-report":
@@ -429,6 +489,10 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 			opts.derived = true
 		case "--prune-cases":
 			opts.pruneCases = true
+		case "--parallel":
+			opts.sharding.parallel = true
+		case "--update-timings":
+			opts.sharding.updateTimings = true
 		case "--go-trace":
 			opts.goTrace = true
 		case "--explore":
@@ -532,6 +596,12 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("--prune-cases is only supported by test")
 	case opts.pruneCases && (opts.affected.on || opts.explore || searched || opts.receipt != "" || opts.emitted):
 		return opts, fmt.Errorf("--prune-cases takes no --affected, --explore, --receipt or --emitted")
+	case opts.sharding.active() && command != "test":
+		return opts, fmt.Errorf("--parallel, -j/--jobs, --shard, --timings and --update-timings are only supported by test")
+	case opts.sharding.updateTimings && opts.sharding.updatePath == "" && opts.sharding.timingsPath == "":
+		return opts, fmt.Errorf("--update-timings requires --timings=FILE or --update-timings=FILE")
+	case opts.sharding.active() && (opts.mutants || opts.affected.on || opts.emitted):
+		return opts, fmt.Errorf("--parallel/--shard/--timings take no --mutants, --affected or --emitted")
 	case laws > 1 || skips > 1:
 		return opts, fmt.Errorf("--law and --skip-law each select one law: given twice, the first would be dropped")
 	case selected && (!validLaw(opts.law) || !validLaw(opts.skipLaw) || opts.law+opts.skipLaw == ""):
@@ -698,13 +768,19 @@ func loadFolder(fsys sketchfront.FS, path, target string, platform gobind.Platfo
 // envelope on stdout; run and test print one `file:line:col: error CODE:
 // message` line per finding on stderr, as diagnostics prints them.
 func refuseUnchecked(l loaded, opts fileOptions) error {
+	return refuseUncheckedIO(l, opts, os.Stdout, os.Stderr)
+}
+
+func refuseUncheckedIO(l loaded, opts fileOptions, stdout, stderr io.Writer) error {
 	if err := l.result.Qualify(producer.Current()); err != nil {
 		return err
 	}
 	if opts.json || opts.command == "build" {
-		_ = printJSON(l.result.CheckEnvelope())
+		encoder := json.NewEncoder(stdout)
+		encoder.SetIndent("", "  ")
+		_ = encoder.Encode(l.result.CheckEnvelope())
 	} else {
-		_ = l.result.Report(l.snapshot, false).WriteText(os.Stderr, l.source.String())
+		_ = l.result.Report(l.snapshot, false).WriteText(stderr, l.source.String())
 	}
 	return fmt.Errorf("check failed")
 }
