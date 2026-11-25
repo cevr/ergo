@@ -98,18 +98,18 @@ func (b *irBuilder) plainLitIR(x *syntax.FuncLit, sig *check.Signature, params [
 	inner := b.fc.innerFuncCtx()
 	inner.env = b.fc.env
 	inner.frame = newFrame(result, false, false)
-	fc, res, loops, tries, switches, label, law := b.fc, b.result, b.loops, b.tries, b.switches, b.label, b.law
+	fc, res, loops, tries, switches, label, law, memos, slotOut := b.fc, b.result, b.loops, b.tries, b.switches, b.label, b.law, b.memos, b.slotOut
 	amort, sites := b.amort, b.pollSites
 	b.amort, b.pollSites = nil, nil // a Go function of its own (ir_poll.go)
 	defer func() {
-		b.fc, b.result, b.loops, b.tries, b.switches, b.label, b.law = fc, res, loops, tries, switches, label, law
+		b.fc, b.result, b.loops, b.tries, b.switches, b.label, b.law, b.memos, b.slotOut = fc, res, loops, tries, switches, label, law, memos, slotOut
 		b.amort, b.pollSites = amort, sites
 	}()
 	lit := &irExpr{K: "func", Pos: p, T: b.plainSigType(sig, x)}
 	for i, v := range params {
 		lit.Params = append(lit.Params, b.litParam(v, ids[i], sig.Params[i].Type, x, p)) // ir_closure.go
 	}
-	b.fc, b.result, b.loops, b.tries, b.switches, b.label, b.law = inner, result, 0, 0, 0, "", nil
+	b.fc, b.result, b.loops, b.tries, b.switches, b.label, b.law, b.memos, b.slotOut = inner, result, 0, 0, 0, "", nil, nil, nil
 	lit.Body = b.bodyStmts(list) // ir_fail.go
 	e := b.pos(x.Body, end)
 	lit.End = &e

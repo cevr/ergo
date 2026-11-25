@@ -254,18 +254,19 @@ func (b *irBuilder) closureLit(x *syntax.FuncLit, site *syntax.CallExpr) *irExpr
 	if framed {
 		inner.frame.plain = !l.bodyNeedsScope(list) // the emitter's funcLitClosure
 	}
-	fc, env, res, loops, tries, switches, label, law, memos := b.fc, b.env, b.result, b.loops, b.tries, b.switches, b.label, b.law, b.memos
+	fc, env, res, loops, tries, switches, label, law, memos, slotOut := b.fc, b.env, b.result, b.loops, b.tries, b.switches, b.label, b.law, b.memos, b.slotOut
 	own, frame, with, exits, exitsFC := b.own, b.frame, b.with, b.exits, b.exitsFC
 	amort, sites := b.amort, b.pollSites
 	b.amort, b.pollSites = nil, nil // a frame of its own: its nests count apart (ir_poll.go)
 	defer func() {
-		b.fc, b.env, b.result, b.loops, b.tries, b.switches, b.label, b.law, b.memos = fc, env, res, loops, tries, switches, label, law, memos
+		b.fc, b.env, b.result, b.loops, b.tries, b.switches, b.label, b.law, b.memos, b.slotOut = fc, env, res, loops, tries, switches, label, law, memos, slotOut
 		b.own, b.frame, b.with, b.exits, b.exitsFC = own, frame, with, exits, exitsFC
 		b.amort, b.pollSites = amort, sites
 	}()
 	// The literal's body is a frame of its own: no loop of the maker's
-	// memoizes a call of it (ir_memo.go).
-	b.memos = nil
+	// memoizes a call of it (ir_memo.go), and no outer slot-variant return
+	// applies inside it (ir_slot.go).
+	b.memos, b.slotOut = nil, nil
 	envLocal := b.temp("env", b.envPointer(), p)
 	lit := &irExpr{K: "func", Pos: p, T: typ, Params: []int{envLocal}}
 	for i, v := range params {
