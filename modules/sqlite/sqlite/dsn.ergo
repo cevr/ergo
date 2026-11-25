@@ -1,0 +1,84 @@
+import strconv
+import strings
+
+// Options configures SQLite connection pragmas and transaction locking for
+// OpenWith.
+type Options {
+	BusyTimeoutMs int,
+	WAL           bool,
+	ForeignKeys   bool,
+	Synchronous   string,
+}
+
+// DefaultOptions returns the recommended concurrency and integrity settings:
+// WAL journal mode on file databases, 5000 ms busy_timeout, foreign_keys=ON,
+// and synchronous=NORMAL.
+func DefaultOptions() Options {
+	Options{
+		BusyTimeoutMs: 5000,
+		WAL:           true,
+		ForeignKeys:   true,
+		Synchronous:   "NORMAL",
+	}
+}
+
+// IsMemoryPath reports whether path opens an in-memory SQLite database.
+func IsMemoryPath(path string) bool {
+	path == ":memory:" || strings.Contains(path, "mode=memory")
+}
+
+// BuildDSN builds a modernc.org/sqlite URI DSN carrying the configured pragmas
+// and _txlock=immediate so every write transaction acquires SQLite's RESERVED
+// lock at BEGIN time instead of failing mid-transaction with SQLITE_BUSY.
+func BuildDSN(path string, opts Options) string {
+	let memory = IsMemoryPath(path)
+	let mut params = []string{}
+	if opts.BusyTimeoutMs > 0 {
+		params = params.Append("_pragma=busy_timeout(" + strconv.Itoa(opts.BusyTimeoutMs) + ")")
+	}
+	if opts.WAL && !memory {
+		params = params.Append("_pragma=journal_mode(WAL)")
+	}
+	if opts.ForeignKeys {
+		params = params.Append("_pragma=foreign_keys(1)")
+	}
+	if opts.Synchronous != "" {
+		params = params.Append("_pragma=synchronous(" + opts.Synchronous + ")")
+	}
+	params = params.Append("_txlock=immediate")
+	let query = strings.Join(params, "&")
+	if path == ":memory:" {
+		return ":memory:?" + query
+	}
+	if strings.HasPrefix(path, "file:") {
+		if strings.Contains(path, "?") {
+			return path + "&" + query
+		}
+		return path + "?" + query
+	}
+	"file:" + escapeURIPath(path) + "?" + query
+}
+
+func escapeURIPath(path string) string {
+	let a = strings.ReplaceAll(path, "%", "%25")
+	let b = strings.ReplaceAll(a, "?", "%3f")
+	strings.ReplaceAll(b, "#", "%23")
+}
+
+// DefaultFileDSNHasConcurrencyPragmas: file DSNs built with DefaultOptions
+// configure busy_timeout before journal_mode(WAL), enable foreign_keys and
+// synchronous(NORMAL), and set _txlock=immediate.
+law DefaultFileDSNHasConcurrencyPragmas(name string) {
+	let path = "/tmp/" + name + ".db"
+	let dsn = BuildDSN(path, DefaultOptions())
+	let busyAt = strings.Index(dsn, "_pragma=busy_timeout(5000)")
+	let walAt = strings.Index(dsn, "_pragma=journal_mode(WAL)")
+	busyAt >= 0 && walAt > busyAt && strings.Contains(dsn, "_pragma=foreign_keys(1)") && strings.Contains(dsn, "_pragma=synchronous(NORMAL)") && strings.Contains(dsn, "_txlock=immediate")
+}
+
+// MemoryDSNOmitsWAL: in-memory DSNs omit journal_mode(WAL) while keeping
+// busy_timeout, foreign_keys, synchronous(NORMAL), and _txlock=immediate.
+law MemoryDSNOmitsWAL() {
+	let dsn = BuildDSN(":memory:", DefaultOptions())
+	!strings.Contains(dsn, "journal_mode(WAL)") && strings.Contains(dsn, "_pragma=busy_timeout(5000)") && strings.Contains(dsn, "_pragma=foreign_keys(1)") && strings.Contains(dsn, "_pragma=synchronous(NORMAL)") && strings.Contains(dsn, "_txlock=immediate")
+}

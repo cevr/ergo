@@ -86,7 +86,7 @@ func loadModule(dir, name string) (*program, []string) {
 		file := entry.Name()
 		present[file] = true
 		switch {
-		case file == "testdata":
+		case file == "testdata" || file == "ergo.bind":
 			if !entry.IsDir() {
 				problem("%s is not a folder", file)
 			}
@@ -302,6 +302,9 @@ func moduleGoProblems(p *program, goModule string) []string {
 					path, _ := f.Decl.Extern.Split()
 					claimed[path] = true
 				}
+			}
+			for _, g := range check.GoImports(pkg) {
+				claimed[g.Path] = true
 			}
 		}
 	}

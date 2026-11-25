@@ -1,0 +1,69 @@
+{
+  "about": "module sqlite's mutants (ORCH-1); each guards WAL/busy_timeout pragmas, BEGIN IMMEDIATE write-lock serialization, or SQLite error classification into std sql.Failure.",
+  "mutants": [
+    {
+      "name": "sqlite-unique-not-classified",
+      "origin": "wf10 ORCH-1",
+      "file": "modules/sqlite/sqlite/dialect.ergo",
+      "from": "\tif code == UniqueCode || code == PrimaryKeyCode {\n\t\treturn sql.Unique{Constraint: constraintOf(message)}\n\t}",
+      "to": "\tif false && (code == UniqueCode || code == PrimaryKeyCode) {\n\t\treturn sql.Unique{Constraint: constraintOf(message)}\n\t}",
+      "rule": "SQLITE_CONSTRAINT_UNIQUE (2067) and SQLITE_CONSTRAINT_PRIMARYKEY (1555) classify as sql.Unique: sqlite.ClassifyUniqueCodes.",
+      "anchor": {
+        "tests": [
+          "examples:modules/sqlite"
+        ]
+      },
+      "killers": [
+        "examples:modules/sqlite"
+      ]
+    },
+    {
+      "name": "sqlite-wal-omitted",
+      "origin": "wf10 ORCH-1",
+      "file": "modules/sqlite/sqlite/dsn.ergo",
+      "from": "\tif opts.WAL && !memory {\n\t\tparams = params.Append(\"_pragma=journal_mode(WAL)\")\n\t}",
+      "to": "\tif false && opts.WAL && !memory {\n\t\tparams = params.Append(\"_pragma=journal_mode(WAL)\")\n\t}",
+      "rule": "File-backed SQLite databases configure journal_mode(WAL) when WAL is enabled: sqlite.DefaultFileDSNHasConcurrencyPragmas.",
+      "anchor": {
+        "tests": [
+          "examples:modules/sqlite"
+        ]
+      },
+      "killers": [
+        "examples:modules/sqlite"
+      ]
+    },
+    {
+      "name": "sqlite-busy-timeout-omitted",
+      "origin": "wf10 ORCH-1",
+      "file": "modules/sqlite/sqlite/dsn.ergo",
+      "from": "\tif opts.BusyTimeoutMs > 0 {\n\t\tparams = params.Append(\"_pragma=busy_timeout(\" + strconv.Itoa(opts.BusyTimeoutMs) + \")\")\n\t}",
+      "to": "\tif false && opts.BusyTimeoutMs > 0 {\n\t\tparams = params.Append(\"_pragma=busy_timeout(\" + strconv.Itoa(opts.BusyTimeoutMs) + \")\")\n\t}",
+      "rule": "SQLite connections configure busy_timeout before journal_mode so concurrent writers wait cleanly: sqlite.DefaultFileDSNHasConcurrencyPragmas.",
+      "anchor": {
+        "tests": [
+          "examples:modules/sqlite"
+        ]
+      },
+      "killers": [
+        "examples:modules/sqlite"
+      ]
+    },
+    {
+      "name": "sqlite-driver-begin-deferred",
+      "origin": "wf10 ORCH-1",
+      "file": "modules/sqlite/driver/driver.go",
+      "from": "func (d *DB) BeginImmediate(ctx context.Context) (int64, error) {\n\ttx, err := d.db.BeginTx(ctx, nil)",
+      "to": "func (d *DB) BeginImmediate(ctx context.Context) (int64, error) {\n\ttx, err := d.db.BeginTx(ctx, &dbsql.TxOptions{ReadOnly: true})",
+      "rule": "BeginImmediate acquires SQLite's write lock up front instead of starting a deferred transaction: driver TestBeginImmediateAcquiresLockUpFront.",
+      "anchor": {
+        "tests": [
+          "examples:modules/sqlite"
+        ]
+      },
+      "killers": [
+        "examples:modules/sqlite"
+      ]
+    }
+  ]
+}
