@@ -101,10 +101,8 @@ type exits {
 	inside queue.Queue[bool],
 }
 
-// block is the block Work lends the claim to: it puts the grant in
-// held, registers an exit action that puts in inside whether the claim
-// is still held when it runs (a claim at now finds nothing), and ends by
-// e.how. The stop waits on the Manual no one advances.
+type injectedClaimFault { How int }
+
 func block(e exits, c own workflow.Claimed) fails Stuck | workflow.Fenced | workflow.Failed needs Scheduler {
 	scope.OnExit() {
 		let free = e.s.Claim(e.now, 1h) catch {
@@ -123,18 +121,28 @@ func block(e exits, c own workflow.Claimed) fails Stuck | workflow.Fenced | work
 		return Stuck
 	case 2:
 		Scheduler.Sleep(1h)
-	case 3:
-		Unreachable("the block defects")
 	case 4:
 		try e.s.Settle(c)
 	case _:
 	}
 }
 
-// worked runs Work over block once, ending by e.how; it is false when
-// Work claimed nothing. A stop ends the task once the block holds the
-// claim; a defect is contained by a Set that restarts its member once,
-// the second run doing nothing.
+func defectBlock(e exits, c own workflow.Claimed) fails Stuck | workflow.Fenced | workflow.Failed needs Scheduler defects {
+	scope.OnExit() {
+		let free = e.s.Claim(e.now, 1h) catch {
+		case workflow.Failed:
+			None
+		}
+		e.inside.Push(free == None) catch {
+		case queue.Closed:
+		}
+	}
+	e.held.Push(workflow.GrantOf(c)) catch {
+	case queue.Closed:
+	}
+	die injectedClaimFault{How: e.how}
+}
+
 func worked(e exits) bool fails workflow.Failed needs Scheduler {
 	match e.how {
 	case 2:
@@ -144,7 +152,6 @@ func worked(e exits) bool fails workflow.Failed needs Scheduler {
 				false
 			}
 		}
-		// The block holds the claim once it put its grant in held.
 		let g = e.held.Pop() catch {
 		case queue.Closed:
 			return false
@@ -157,15 +164,15 @@ func worked(e exits) bool fails workflow.Failed needs Scheduler {
 	case 3:
 		let runs = sync.NewRef(0)
 		let set = tasks.NewSet[workflow.Failed](tasks.Restart{Limit: 1})
-		tasks.Go(set) {
+		tasks.Go(set, func() fails workflow.Failed needs Scheduler defects {
 			runs.Update(func(n int) int { n + 1 })
 			if runs.Get() == 1 {
-				let _ = try workflow.Work(e.s, e.now, 1h, func(c own workflow.Claimed) fails Stuck | workflow.Fenced | workflow.Failed { try block(e, c) }) catch {
+				let _ = try workflow.WorkDefects(e.s, e.now, 1h, func(c own workflow.Claimed) fails Stuck | workflow.Fenced | workflow.Failed defects { try defectBlock(e, c) }) catch {
 				case Stuck, workflow.Fenced:
 					false
 				}
 			}
-		} catch {
+		}) catch {
 		case tasks.Closed:
 			return false
 		}

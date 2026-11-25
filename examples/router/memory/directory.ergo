@@ -6,23 +6,28 @@ import router/script
 import strings
 import journal
 import journal/memory
+import task
 import time
 import actor
 import queue
 
+// RegistryCrashInjected is the deliberate defect payload raised by
+// InjectIfArmed when a fault-injection script drops the next check.
+type RegistryCrashInjected { Attempt int }
+
 // Directory is a route.Registry of fixed destinations: an Add to a
 // destination it does not know, a Remove of a topic with no route, and a
-// table of more than Room routes are Unknown. It can be armed to drop its
-// next check (a defect), so a script shows the router restart. Its field
-// is unexported: NewDirectory makes one, and every copy is the same
-// directory.
-type Directory { armed sync.Ref[bool] } implements route.Registry
+// table of more than Room routes are Unknown. It can be armed to cue
+// InjectIfArmed before the next check, so a script shows the router restart
+// independently of route.Unknown. Its fields are unexported: NewDirectory
+// makes one, and every copy is the same directory.
+type Directory { armed sync.Ref[bool], attempts sync.Ref[int] } implements route.Registry
 
 // Room is how many routes a table holds.
 let Room = 4
 
 // NewDirectory is a directory that is not armed.
-func NewDirectory() Directory { Directory{armed: sync.NewRef[bool](false)} }
+func NewDirectory() Directory { Directory{armed: sync.NewRef[bool](false), attempts: sync.NewRef[int](0)} }
 
 // ReplayEqualsLive: a router opened from the journal is the router that
 // stopped, and each idle entry's couriers run (Play says "??"
@@ -65,10 +70,9 @@ func commands(moves []int) []script.Command {
 	out
 }
 
-// play is what script.Play shows for cmds, with a Directory dir.
 func play(cmds []script.Command, dir Directory) []string {
 	with context { route.Registry: dir, Scheduler: time.NewManual(0) } {
-		script.Play(cmds, memory.New[route.Router, route.Signal](), func() { Arm(dir) }) catch {
+		script.PlayWith(cmds, memory.New[route.Router, route.Signal](), func() { Arm(dir) }, func() defects { InjectIfArmed(dir) }) catch {
 		case journal.Failed as f:
 			[]string{"? \(f.Reason)"}
 		}
@@ -242,18 +246,40 @@ law RecoveredCouriersCarry(moves []int) {
 	true
 }
 
-// Arm makes the next Check of d a defect: the registry drops the call.
+// Arm makes the next InjectIfArmed of d raise RegistryCrashInjected.
 func Arm(d Directory) { d.armed.Update(func(b bool) bool { true }) }
+
+// InjectIfArmed atomically consumes d's armed flag and raises
+// RegistryCrashInjected when armed.
+func InjectIfArmed(d Directory) defects {
+	let crash = sync.Modify(d.armed, func(b bool) (bool, bool) { (b, false) })
+	if crash {
+		let attempt = sync.Modify(d.attempts, func(n int) (int, int) { (n + 1, n + 1) })
+		die RegistryCrashInjected{Attempt: attempt}
+	}
+}
+
+test InjectIfArmedRaisesNominalFault {
+	let d = NewDirectory()
+	Arm(d)
+	let t = task.Go() {
+		InjectIfArmed(d)
+		true
+	}
+	let ok = match task.ExitOf(t) {
+	case task.Defected as x:
+		task.ReasonAs[RegistryCrashInjected](x) == Some[RegistryCrashInjected]{Value: RegistryCrashInjected{Attempt: 1}}
+	case _:
+		false
+	}
+	assert ok
+}
 
 // Known is whether the directory knows dest.
 func Known(dest string) bool { dest == "disk" || dest == "socket" || dest == "stdout" }
 
 // Check is the table after change, or why the registry refuses it.
 func Check(d Directory, t route.Table, change route.Change) route.Table fails route.Unknown {
-	let crash = sync.Modify(d.armed, func(b bool) (bool, bool) { (b, false) })
-	if crash {
-		Unreachable("the registry dropped the call")
-	}
 	match change {
 	case route.Add as a:
 		if !Known(a.Dest) {

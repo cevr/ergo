@@ -288,7 +288,7 @@ law DefectIsObservedOnce(n int) {
 	let t = Go() { try ended(k, n) }
 	match ExitOf(t) {
 	case Defected as d:
-		k == 0 && strings.HasPrefix(d.Reason, "unreachable at ") && strings.HasSuffix(d.Reason, ": crash \(n)")
+		k == 0 && ReasonAs[simulatedTaskCrash](d) == Some[simulatedTaskCrash]{Value: simulatedTaskCrash{N: n}} && strings.HasPrefix(d.Reason, "die at ")
 	case Failed[odd] as f:
 		k == 1 && f.Error.N == n
 	case Done[int] as v:
@@ -298,13 +298,15 @@ law DefectIsObservedOnce(n int) {
 	}
 }
 
-// odd is the typed failure DefectIsObservedOnce's block fails with.
 type odd { N int }
 
-// ended is n for k 2, the failure odd for k 1, and a defect for k 0.
-func ended(k int, n int) int fails odd {
+type simulatedTaskCrash { N int }
+
+type cleanupStimulus { Actions int }
+
+func ended(k int, n int) int fails odd defects {
 	if k == 0 {
-		Unreachable("crash \(n)")
+		die simulatedTaskCrash{N: n}
 	}
 	if k == 1 {
 		return odd{N: n}
@@ -312,9 +314,7 @@ func ended(k int, n int) int fails odd {
 	n
 }
 
-// crashed registers k exit actions, each pushing its mark, then raises a
-// defect.
-func crashed(k int, marks queue.Queue[int]) int {
+func crashed(k int, marks queue.Queue[int]) int defects {
 	for i in 0..k {
 		scope.OnExit() {
 			marks.Push(i) catch {
@@ -322,7 +322,7 @@ func crashed(k int, marks queue.Queue[int]) int {
 			}
 		}
 	}
-	Unreachable("after \(k) actions")
+	die cleanupStimulus{Actions: k}
 }
 
 // ExitOfWaitsForCleanup: the exit actions of a task that a defect ended
@@ -332,8 +332,8 @@ law ExitOfWaitsForCleanup(n int) {
 	let marks = queue.New[int](4)
 	let t = Go() { crashed(k, marks) }
 	match ExitOf(t) {
-	case Defected:
-		marks.Len() == k
+	case Defected as d:
+		marks.Len() == k && ReasonAs[cleanupStimulus](d) == Some[cleanupStimulus]{Value: cleanupStimulus{Actions: k}}
 	case _:
 		false
 	}

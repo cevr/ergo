@@ -53,11 +53,11 @@ law CrashShowsTheCrashView(seed int, steps int) {
 // Boom is the crash app's typed failure: the count when its step failed.
 type Boom { N int }
 
-// crashStep: 0 adds one; 1 is a defect of the step; 2 fails the step with
-// Boom; any other signal changes nothing.
-func crashStep(s int, e int) Decision[int, int] fails Boom {
+type simulatedCrashStep { Message string, State int, Signal int }
+
+func crashStep(s int, e int) Decision[int, int] fails Boom defects {
 	if e == 1 {
-		Unreachable("crash app: a defect, on purpose")
+		die simulatedCrashStep{Message: "crash app: a defect, on purpose", State: s, Signal: e}
 	}
 	if e == 2 {
 		return Boom{N: s}
@@ -70,12 +70,12 @@ func crashStep(s int, e int) Decision[int, int] fails Boom {
 
 func crashTimer(s int) Option[Timeout[int]] { None }
 
-func crashWork(s int) Option[func(send func(e int))] { None }
+func crashWork(s int) Option[func(send entry func(e int)) defects] { None }
 
 func crashExit(s int) Option[func()] { None }
 
-func crashMachine() Machine[int, int, int, Boom] {
-	Machine[int, int, int, Boom]{Initial: 0, Step: crashStep, After: crashTimer, Work: crashWork, Exit: crashExit}
+func crashMachine() actor.LiveMachine[int, int, int, Boom] {
+	actor.LiveMachine[int, int, int, Boom]{Initial: 0, Step: crashStep, After: crashTimer, Work: crashWork, Exit: crashExit}
 }
 
 // crashAppView shows the count, a button per signal, and a check box whose
@@ -132,7 +132,7 @@ func crashShown(seed int, steps int, m time.Manual) bool needs Scheduler {
 	let crashes = Crashes[int, int, Boom]{View: crashOwnView, Report: func(c Crash[int, int, Boom]) {
 		reports.Update(func(n int) int { n + 1 })
 	}}
-	let mut h = NewAppTestHost(crashMachine(), 1, crashAppView, crashes, m, 4) catch {
+	let mut h = NewLiveAppTestHost(crashMachine(), 1, crashAppView, crashes, m, 4) catch {
 	case BadPatch:
 		return false
 	}
@@ -182,16 +182,13 @@ func crashShown(seed int, steps int, m time.Manual) bool needs Scheduler {
 	true
 }
 
-// sameCrash is whether got is the model's crash want, whose defect's
-// Reason is the end of got's: the runtime's text starts with the
-// Unreachable's position.
 func sameCrash(got Option[Crash[int, int, Boom]], want Option[Crash[int, int, Boom]]) bool {
 	match (got, want) {
 	case (Some[Crash[int, int, Boom]] as g, Some[Crash[int, int, Boom]] as w):
 		let same = g.Value.State == w.Value.State && g.Value.Signal == w.Value.Signal
 		match (g.Value.Cause, w.Value.Cause) {
 		case (DefectCrash as x, DefectCrash as y):
-			same && strings.HasPrefix(x.Reason, "unreachable at ") && strings.HasSuffix(x.Reason, ": "+y.Reason)
+			same && strings.HasPrefix(x.Reason, "die at ") && strings.Contains(x.Reason, y.Reason)
 		case (FailureCrash[Boom] as x, FailureCrash[Boom] as y):
 			same && x.Failure == y.Failure
 		case _:
@@ -292,6 +289,25 @@ func StartApp[E comparable, S, O, F, R, W, Q](m Machine[S, E, O, F, R, W], capac
 	(app, first)
 }
 
+// StartLiveApp is StartApp for an actor.LiveMachine whose step or work may
+// raise deliberate defects (`die`).
+func StartLiveApp[E comparable, S, O, F, R, W, Q](m actor.LiveMachine[S, E, O, F, R, W], capacity int, view own func(f mut Frame[E], s S) needs Q, crashes Crashes[S, E, F], post own func(ev Event[E])) (Session[S, E, Decision[S, O], F], []Op[E]) needs R | W | Scheduler | Q {
+	let ctx = InForce[R | W | Scheduler]()
+	let fresh = func() actor.Actor[S, E, Decision[S, O], F] {
+		with ctx {
+			actor.StartLive(m, capacity, func(o O) {})
+		}
+	}
+	let (s, first) = Start(fresh(), view, post)
+	let mut app = s
+	app.exit = crashOf[S, E, O, F]
+	app.alive = aliveAfter[S, E, O, F]
+	app.fresh = Some{Value: fresh}
+	app.crashView = crashes.View
+	app.report = crashes.Report
+	(app, first)
+}
+
 // CrashOf is the crash a test host's app shows, None while its actor
 // runs.
 func CrashOf[S, E, D, F](h mut TestHost[S, E, D, F]) Option[Crash[S, E, F]] { h.session.crash }
@@ -301,6 +317,18 @@ func CrashOf[S, E, D, F](h mut TestHost[S, E, D, F]) Option[Crash[S, E, F]] { h.
 func NewAppTestHost[E comparable, S, O, F, R, W, Q](m Machine[S, E, O, F, R, W], capacity int, view own func(f mut Frame[E], s S) needs Q, crashes Crashes[S, E, F], clock time.Manual, room int) TestHost[S, E, Decision[S, O], F] fails BadPatch needs R | W | Scheduler | Q {
 	let posted = queue.New[Event[E]](room)
 	let (s, first) = StartApp(m, capacity, view, crashes, func(ev Event[E]) {
+		posted.Push(ev) catch {
+		case queue.Closed:
+		}
+	})
+	try hostOf(s, first, posted, clock)
+}
+
+// NewLiveAppTestHost is NewAppTestHost for an actor.LiveMachine whose step or
+// work may raise deliberate defects (`die`).
+func NewLiveAppTestHost[E comparable, S, O, F, R, W, Q](m actor.LiveMachine[S, E, O, F, R, W], capacity int, view own func(f mut Frame[E], s S) needs Q, crashes Crashes[S, E, F], clock time.Manual, room int) TestHost[S, E, Decision[S, O], F] fails BadPatch needs R | W | Scheduler | Q {
+	let posted = queue.New[Event[E]](room)
+	let (s, first) = StartLiveApp(m, capacity, view, crashes, func(ev Event[E]) {
 		posted.Push(ev) catch {
 		case queue.Closed:
 		}
@@ -321,7 +349,7 @@ law ReloadIsInitial(seed int, defect bool) {
 
 func reloadInitial(seed int, defect bool, m time.Manual) bool needs Scheduler {
 	let mut r = seeded(seed)
-	let mut h = NewAppTestHost(crashMachine(), 1, crashAppView, Crashes[int, int, Boom]{View: crashOwnView, Report: func(c Crash[int, int, Boom]) {}}, m, 4) catch {
+	let mut h = NewLiveAppTestHost(crashMachine(), 1, crashAppView, Crashes[int, int, Boom]{View: crashOwnView, Report: func(c Crash[int, int, Boom]) {}}, m, 4) catch {
 	case BadPatch:
 		return false
 	}
@@ -335,7 +363,7 @@ func reloadInitial(seed int, defect bool, m time.Manual) bool needs Scheduler {
 	case _:
 		return false
 	}
-	let mut fresh = NewAppTestHost(crashMachine(), 1, crashAppView, Crashes[int, int, Boom]{View: crashOwnView, Report: func(c Crash[int, int, Boom]) {}}, m, 4) catch {
+	let mut fresh = NewLiveAppTestHost(crashMachine(), 1, crashAppView, Crashes[int, int, Boom]{View: crashOwnView, Report: func(c Crash[int, int, Boom]) {}}, m, 4) catch {
 	case BadPatch:
 		return false
 	}

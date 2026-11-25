@@ -72,7 +72,7 @@ func main() fails os.Exit needs Console | Ambient {
 	}
 	let directory = memory.NewDirectory()
 	let shown = with context { route.Registry: directory, Scheduler: time.NewManual(0) } {
-		script.Play(cmds, jmemory.New[route.Router, route.Signal](), func() { memory.Arm(directory) })
+		script.PlayWith(cmds, jmemory.New[route.Router, route.Signal](), func() { memory.Arm(directory) }, func() defects { memory.InjectIfArmed(directory) })
 	} catch {
 	case journal.Failed as f:
 		return os.Exit{Code: 1, Message: "router: the journal failed: \(f.Reason)"}

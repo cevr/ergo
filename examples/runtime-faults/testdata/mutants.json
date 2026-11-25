@@ -140,7 +140,7 @@
     {
       "name": "fk13-step-calm", "origin": "wf10/fk13a",
       "file": "examples/runtime-faults/crash/crash.ergo",
-      "from": "\tUnreachable(\"This is a simulated crash!\")\n",
+      "from": "\tdie SimulatedCrash{Message: \"This is a simulated crash!\"}\n",
       "to": "\tEnter[Calm]{Next: s}\n",
       "rule": "Handling any signal defects (upstream's crash story; law CrashShowsTheCrashView, case crash).",
       "anchor": {"tests": ["examples:runtime-faults"]}, "killers": ["examples:runtime-faults"]

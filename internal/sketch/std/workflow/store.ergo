@@ -506,6 +506,26 @@ func Work[E, R](s Store, now time.Time, lease duration, work func(c own Claimed)
 	}
 }
 
+// WorkDefects is Work for a callback that may raise a deliberate defect:
+// on every exit, including a deliberate defect, the store gives back the
+// claim unless work settled it.
+func WorkDefects[E, R](s Store, now time.Time, lease duration, work func(c own Claimed) fails E needs R defects) bool fails E | Failed needs R defects {
+	let got = try s.Claim(now, lease)
+	match got {
+	case Some{Value: g}:
+		scope.OnExit() {
+			s.GiveBack(g) catch {
+			case Failed:
+			}
+		}
+		let claimed = Claimed{grant: g}
+		try work(claimed)
+		true
+	case None:
+		false
+	}
+}
+
 // Op is one operation of a store that changes it, as a value: the log of
 // workflow/file keeps them, and Apply runs them.
 type Op =
