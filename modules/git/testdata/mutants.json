@@ -752,6 +752,70 @@
       "killers": [
         "modules/git/diff:DiffTreesAndIndexMatchGit"
       ]
+    },
+    {
+      "name": "git-status-racy-timestamp-trusts-clean",
+      "origin": "STD-GIT G-STATUS",
+      "file": "modules/git/status/worktree.ergo",
+      "from": "\tisStrictlyOlder(wm, im)",
+      "to": "\tlet _ = im\n\ttrue",
+      "rule": "IsStatCacheClean never trusts equal (mtime, size) when entry mtime >= index mtime (racy-git must re-hash content).",
+      "anchor": {
+        "tests": [
+          "modules/git/status:StatusMatchesGitPorcelainAndRacyGit"
+        ]
+      },
+      "killers": [
+        "modules/git/status:StatusMatchesGitPorcelainAndRacyGit"
+      ]
+    },
+    {
+      "name": "git-status-ignore-negation-broken",
+      "origin": "STD-GIT G-STATUS",
+      "file": "modules/git/status/ignore.ergo",
+      "from": "\t\t\tif rule.Negated {\n\t\t\t\tignored = false\n\t\t\t} else {\n\t\t\t\tignored = true\n\t\t\t}",
+      "to": "\t\t\tlet _ = rule.Negated\n\t\t\tignored = true",
+      "rule": "MatchIgnored honors ! negation rules in .gitignore to re-include previously ignored paths.",
+      "anchor": {
+        "tests": [
+          "modules/git/status:StatusMatchesGitPorcelainAndRacyGit"
+        ]
+      },
+      "killers": [
+        "modules/git/status:StatusMatchesGitPorcelainAndRacyGit"
+      ]
+    },
+    {
+      "name": "git-status-skip-unborn-head",
+      "origin": "STD-GIT G-STATUS",
+      "file": "modules/git/status/status.ergo",
+      "from": "\tlet effectiveHead = headTree",
+      "to": "\tlet effectiveHead = headTree\n\tif effectiveHead == None {\n\t\treturn []diff.Change{}\n\t}",
+      "rule": "Status reports staged entries against the empty tree when HEAD is unborn (no commits yet).",
+      "anchor": {
+        "tests": [
+          "modules/git/status:StatusMatchesGitPorcelainAndRacyGit"
+        ]
+      },
+      "killers": [
+        "modules/git/status:StatusMatchesGitPorcelainAndRacyGit"
+      ]
+    },
+    {
+      "name": "git-status-hash-symlink-target-as-file",
+      "origin": "STD-GIT G-STATUS",
+      "file": "modules/git/status/worktree.ergo",
+      "from": "\tif isLink {",
+      "to": "\tif false && isLink {",
+      "rule": "Worktree status inspects symlinks via IsLink/Readlink and hashes the symlink target string rather than following the link as a regular file.",
+      "anchor": {
+        "tests": [
+          "modules/git/status:StatusMatchesGitPorcelainAndRacyGit"
+        ]
+      },
+      "killers": [
+        "modules/git/status:StatusMatchesGitPorcelainAndRacyGit"
+      ]
     }
   ]
 }
