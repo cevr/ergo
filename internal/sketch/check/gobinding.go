@@ -38,7 +38,9 @@ import (
 type GoBindings struct {
 	lookup func(path string) (string, bool)
 	pkgs   map[string]*Package
-	std    Importer // Ergo std importer for binding imports (cmp, core, option); defaults to Std
+	// program imports the Ergo packages a binding's plain imports name: the
+	// importer of the first program checker that reads the bindings.
+	program Importer
 	// Stale, when set, is why the binding of a Go import path that lookup
 	// found no longer matches the module's go.mod (IG7: the loader compares
 	// the binding's stamp with go.mod, reading files only); "" when it
@@ -66,39 +68,35 @@ type GoImporter interface {
 	GoBindings() *GoBindings
 }
 
-// goImp is a binder's importer: a binding imports Go packages and the Ergo
-// std packages its signatures name (cmp, core, option).
+// goImp is a binder's importer: a binding's `import go` names Go packages
+// (GoBindings), and its plain imports name the Ergo packages its
+// signatures spell (option.Option, core.Seq, cmp.Ordered), which the
+// program's own importer resolves, as any package's import is.
 type goImp struct{ set *GoBindings }
 
 func (g *goImp) Import(path string) (*Package, error) {
-	if path == "cmp" || path == "core" || path == "option" {
-		imp := g.set.std
-		if imp == nil {
-			imp = Std
-		}
-		return imp.Import(path)
+	if g.set.program == nil {
+		return nil, fmt.Errorf("a binding read outside a program imports Go packages only (%s)", path)
 	}
-	return nil, fmt.Errorf("a binding imports Go packages only (%s)", path)
+	return g.set.program.Import(path)
 }
 
 func (g *goImp) GoBindings() *GoBindings { return g.set }
 
-// goBindings is the program's Go packages.
+// goBindings is the program's Go packages. The first program checker that
+// reads them gives its importer to the bindings' plain imports.
 func (c *checker) goBindings() *GoBindings {
+	b := c.ownGo
 	if gi, ok := c.imp.(GoImporter); ok {
-		b := gi.GoBindings()
-		if b.std == nil && c.imp != nil {
-			b.std = c.imp
-		}
-		return b
+		b = gi.GoBindings()
+	} else if b == nil {
+		b = NewGoBindings(nil)
+		c.ownGo = b
 	}
-	if c.ownGo == nil {
-		c.ownGo = NewGoBindings(nil)
-		if c.imp != nil {
-			c.ownGo.std = c.imp
-		}
+	if _, binding := c.imp.(*goImp); b.program == nil && c.imp != nil && !binding {
+		b.program = c.imp
 	}
-	return c.ownGo
+	return b
 }
 
 // importGo resolves `import go path` to the binding of path. The path

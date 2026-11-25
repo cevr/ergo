@@ -262,13 +262,11 @@ func plainElem(t types.Type, seen map[types.Type]bool) bool {
 // package of that name would hide (Close).
 func (m *mapper) prelude(name string) { m.refs = append(m.refs, "."+name) }
 
-// std qualifies a name from Ergo std package pkg (cmp, core, option): as a
-// Render placeholder when m.q produces placeholders, or as pkg directly.
+// std spells the Ergo package pkg (cmp, core, option) through the
+// qualifier, as a package path "ergo:<pkg>" that Render imports as an Ergo
+// import rather than an import go.
 func (m *mapper) std(pkg string) string {
-	if strings.HasPrefix(m.q(types.NewPackage("x", "x")), "⟦") {
-		return "⟦ergo:" + pkg + " " + pkg + "⟧"
-	}
-	return pkg
+	return m.q(types.NewPackage("ergo:"+pkg, pkg))
 }
 
 type pos int

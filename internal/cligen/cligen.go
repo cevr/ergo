@@ -54,8 +54,13 @@ func Generate(pkg *check.Package, path, opName, apiPath string) (Files, error) {
 		return Files{}, fmt.Errorf("the cli package is written over the hub; run ergo gen api first")
 	}
 	pkgName := lastElem(path)
-	g := &gen{pkg: pkg, path: path, op: opName, imports: map[string]string{"flag": "flag", "io": "io", "json": "json", "option": "option", "prompt": "prompt", "rpc": "rpc", "slices": "slices", "strconv": "strconv", "strings": "strings", "term": "term"}}
+	g := &gen{pkg: pkg, path: path, op: opName, imports: map[string]string{"flag": "flag", "io": "io", "json": "json", "prompt": "prompt", "rpc": "rpc", "slices": "slices", "strconv": "strconv", "strings": "strings", "term": "term"}}
 	g.importOf(pkg)
+	// The templates below write option.Some and option.None: the import is
+	// the package that declares the Option the checker gives a lookup.
+	if opt := check.PreludeType("Option"); opt != nil {
+		g.importOf(opt.Obj.Pkg)
+	}
 	g.stdAPI = rpcgen.StdAPIName(g.imports)
 	g.imports["api"] = g.stdAPI
 	g.api = lastElem(apiPath)

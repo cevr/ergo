@@ -216,7 +216,7 @@ func TestNonNilResultsProperty(t *testing.T) {
 	}
 }
 
-var pointerResultRe = regexp.MustCompile(`^extern go (\S+) .*\) (go\.Ref\[S\]|Option\[go\.Ref\[S\]\]) fails go\.Error`)
+var pointerResultRe = regexp.MustCompile(`^extern go (\S+) .*\) (go\.Ref\[S\]|option\.Option\[go\.Ref\[S\]\]) fails go\.Error`)
 
 // pointerResults reads, by binding name (F, or S.M), whether each bound
 // function's (*S, error) result is go.Ref[S] (true) or Option (false).
