@@ -1,0 +1,292 @@
+// Package checkout implements pure-Ergo safe working-tree checkout with
+// fail-closed path/symlink/dirty/untracked preflight validation, mode and
+// symlink materialization, empty-directory pruning, and atomic index and HEAD
+// updates matching C Git (STD-GIT: G-CO).
+
+import option
+import slices
+import github.com/cevr/ergo/modules/git/locks
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/tree
+import github.com/cevr/ergo/modules/git/wref
+
+// Error is the closed failure union for Git working-tree checkout operations.
+type Error =
+	| BareRepository{GitDir string}
+	| UnsafePath{Path string, Reason string}
+	| SymlinkTraversal{Path string, LinkParent string}
+	| DirtyOverwrite{Path string}
+	| UntrackedOverwrite{Path string}
+	| UnmergedIndex{Path string}
+	| InvalidTarget{Target string, Reason string}
+	| MissingObject{OID oid.OID}
+	| TreeError{Detail string}
+	| IndexError{Detail string}
+	| RefError{Detail string}
+	| IOFailed{Op string, Detail string}
+
+// Options configures working-tree checkout safety checks, force override,
+// durability mode, recursion/object budgets, and optional HEAD reflog recording.
+type Options {
+	Force         bool,
+	CaseFoldCheck bool,
+	Durability    locks.Durability,
+	MaxDepth      int,
+	MaxBytes      int,
+	Reflog        option.Option[wref.ReflogSpec],
+}
+
+// DefaultOptions returns safe non-force checkout defaults (durable locks,
+// 64 tree depth limit, 16 MiB object budget, no reflog override).
+func DefaultOptions() Options {
+	Options{
+		Force:         false,
+		CaseFoldCheck: false,
+		Durability:    locks.Durable,
+		MaxDepth:      64,
+		MaxBytes:      16777216,
+		Reflog:        option.None,
+	}
+}
+
+// TreeEntry is one flat leaf entry resolved from a Git tree.
+type TreeEntry {
+	Path string,
+	Mode tree.Mode,
+	OID  oid.OID,
+}
+
+// ActionKind classifies one working-tree mutation planned by PlanCheckout.
+type ActionKind = Create{} | Update{} | Delete{}
+
+// PlanAction describes one validated working-tree file mutation.
+type PlanAction {
+	Path string,
+	Kind ActionKind,
+	Mode option.Option[tree.Mode],
+	OID  option.Option[oid.OID],
+}
+
+// Plan holds the fail-closed preflight checkout actions and canonical target entries.
+type Plan {
+	Actions       []PlanAction,
+	TargetEntries []TreeEntry,
+	Unchanged     int,
+}
+
+// Result summarizes a completed checkout operation.
+type Result {
+	TreeOID   oid.OID,
+	HeadOID   option.Option[oid.OID],
+	Branch    option.Option[string],
+	Created   int,
+	Updated   int,
+	Deleted   int,
+	Unchanged int,
+}
+
+// Checkouter is the capability seam for safe working-tree checkout, carrying
+// safety laws held identically by MemoryCheckouter and DiskCheckouter.
+type Checkouter {
+	Format() oid.Format,
+	SeedBlob(data []byte) oid.OID fails IOFailed,
+	SeedTree(entries []tree.Entry) oid.OID fails TreeError | IOFailed,
+	WriteWorktreeFile(relPath string, data []byte) fails IOFailed,
+	ReadWorktreeFile(relPath string) option.Option[[]byte] fails IOFailed,
+	ApplyTree(targetTree oid.OID, opts Options) Result fails UnsafePath | SymlinkTraversal | DirtyOverwrite | UntrackedOverwrite | UnmergedIndex | MissingObject | TreeError | IndexError | IOFailed,
+
+	// CheckoutRefusesDirtyOverwriteWithoutForce: modifying a tracked file in
+	// the working tree causes non-force checkout of a conflicting tree to fail
+	// DirtyOverwrite with zero worktree mutation, whereas Force succeeds.
+	law CheckoutRefusesDirtyOverwriteWithoutForce(payload string) {
+		let v1 = ("v1-" + payload).Bytes()
+		let v2 = ("v2-" + payload).Bytes()
+		let dirty = ("dirty-" + payload).Bytes()
+		let b1 = SeedBlob(v1) catch {
+		case IOFailed:
+			return false
+		}
+		let b2 = SeedBlob(v2) catch {
+		case IOFailed:
+			return false
+		}
+		let t1 = SeedTree([]tree.Entry{
+			tree.Entry{Mode: tree.ModeRegular, Name: "a.txt", OID: b1},
+		}) catch {
+		case TreeError, IOFailed:
+			return false
+		}
+		let t2 = SeedTree([]tree.Entry{
+			tree.Entry{Mode: tree.ModeRegular, Name: "a.txt", OID: b2},
+		}) catch {
+		case TreeError, IOFailed:
+			return false
+		}
+		let forceOpts = Options{..DefaultOptions(), Force: true}
+		let _ = ApplyTree(t1, forceOpts) catch {
+		case UnsafePath, SymlinkTraversal, DirtyOverwrite, UntrackedOverwrite, UnmergedIndex, MissingObject, TreeError, IndexError, IOFailed:
+			return false
+		}
+		WriteWorktreeFile("a.txt", dirty) catch {
+		case IOFailed:
+			return false
+		}
+		let mut sawDirty = false
+		let _ = ApplyTree(t2, DefaultOptions()) catch {
+		case DirtyOverwrite as e:
+			sawDirty = e.Path == "a.txt"
+			Result{TreeOID: t1, HeadOID: option.None, Branch: option.None, Created: 0, Updated: 0, Deleted: 0, Unchanged: 0}
+		case UnsafePath, SymlinkTraversal, UntrackedOverwrite, UnmergedIndex, MissingObject, TreeError, IndexError, IOFailed:
+			return false
+		}
+		let stillDirty = match ReadWorktreeFile("a.txt") catch {
+		case IOFailed:
+			return false
+		} {
+		case option.Some[[]byte] as got:
+			slices.Equal(got.Value, dirty)
+		case option.None:
+			false
+		}
+		always sawDirty
+		always stillDirty
+		let _ = ApplyTree(t2, forceOpts) catch {
+		case UnsafePath, SymlinkTraversal, DirtyOverwrite, UntrackedOverwrite, UnmergedIndex, MissingObject, TreeError, IndexError, IOFailed:
+			return false
+		}
+		let afterForce = match ReadWorktreeFile("a.txt") catch {
+		case IOFailed:
+			return false
+		} {
+		case option.Some[[]byte] as got:
+			slices.Equal(got.Value, v2)
+		case option.None:
+			false
+		}
+		sawDirty && stillDirty && afterForce
+	},
+
+	// CheckoutRefusesUntrackedOverwriteWithoutForce: an untracked file on disk
+	// that collides with a newly checked-out path causes non-force checkout to
+	// fail UntrackedOverwrite without mutating the file, whereas Force succeeds.
+	law CheckoutRefusesUntrackedOverwriteWithoutForce(payload string) {
+		let v1 = ("base-" + payload).Bytes()
+		let v2 = ("incoming-" + payload).Bytes()
+		let untracked = ("untracked-" + payload).Bytes()
+		let b1 = SeedBlob(v1) catch {
+		case IOFailed:
+			return false
+		}
+		let b2 = SeedBlob(v2) catch {
+		case IOFailed:
+			return false
+		}
+		let t1 = SeedTree([]tree.Entry{
+			tree.Entry{Mode: tree.ModeRegular, Name: "keep.txt", OID: b1},
+		}) catch {
+		case TreeError, IOFailed:
+			return false
+		}
+		let t2 = SeedTree([]tree.Entry{
+			tree.Entry{Mode: tree.ModeRegular, Name: "keep.txt", OID: b1},
+			tree.Entry{Mode: tree.ModeRegular, Name: "clash.txt", OID: b2},
+		}) catch {
+		case TreeError, IOFailed:
+			return false
+		}
+		let forceOpts = Options{..DefaultOptions(), Force: true}
+		let _ = ApplyTree(t1, forceOpts) catch {
+		case UnsafePath, SymlinkTraversal, DirtyOverwrite, UntrackedOverwrite, UnmergedIndex, MissingObject, TreeError, IndexError, IOFailed:
+			return false
+		}
+		WriteWorktreeFile("clash.txt", untracked) catch {
+		case IOFailed:
+			return false
+		}
+		let mut sawUntracked = false
+		let _ = ApplyTree(t2, DefaultOptions()) catch {
+		case UntrackedOverwrite as e:
+			sawUntracked = e.Path == "clash.txt"
+			Result{TreeOID: t1, HeadOID: option.None, Branch: option.None, Created: 0, Updated: 0, Deleted: 0, Unchanged: 0}
+		case UnsafePath, SymlinkTraversal, DirtyOverwrite, UnmergedIndex, MissingObject, TreeError, IndexError, IOFailed:
+			return false
+		}
+		let preserved = match ReadWorktreeFile("clash.txt") catch {
+		case IOFailed:
+			return false
+		} {
+		case option.Some[[]byte] as got:
+			slices.Equal(got.Value, untracked)
+		case option.None:
+			false
+		}
+		always sawUntracked
+		always preserved
+		let _ = ApplyTree(t2, forceOpts) catch {
+		case UnsafePath, SymlinkTraversal, DirtyOverwrite, UntrackedOverwrite, UnmergedIndex, MissingObject, TreeError, IndexError, IOFailed:
+			return false
+		}
+		let overwritten = match ReadWorktreeFile("clash.txt") catch {
+		case IOFailed:
+			return false
+		} {
+		case option.Some[[]byte] as got:
+			slices.Equal(got.Value, v2)
+		case option.None:
+			false
+		}
+		sawUntracked && preserved && overwritten
+	},
+
+	// CheckoutRejectsDotGitAndTraversalPaths: unsafe paths (.git, .GIT, ..,
+	// leading/trailing slashes, empty, NUL, and file/dir collisions) are always
+	// rejected before any checkout mutation.
+	law CheckoutRejectsDotGitAndTraversalPaths(suffix string) {
+		let bad = []string{
+			"",
+			"/etc/passwd",
+			"dir/",
+			"../escape",
+			"a/../b",
+			"a/./b",
+			".git/config",
+			".GIT/hooks/pre-commit",
+			"sub/.GiT/x",
+			"a\x00b",
+		}
+		for p in bad {
+			let mut refused = false
+			ValidatePath(p) catch {
+			case UnsafePath:
+				refused = true
+			}
+			always refused
+			if !refused {
+				return false
+			}
+		}
+		let b = SeedBlob(("ok-" + suffix).Bytes()) catch {
+		case IOFailed:
+			return false
+		}
+		let mut fdRefused = false
+		ValidateTreePaths([]TreeEntry{
+			TreeEntry{Path: "a", Mode: tree.ModeRegular, OID: b},
+			TreeEntry{Path: "a/b", Mode: tree.ModeRegular, OID: b},
+		}, false) catch {
+		case UnsafePath:
+			fdRefused = true
+		}
+		always fdRefused
+		let mut foldRefused = false
+		ValidateTreePaths([]TreeEntry{
+			TreeEntry{Path: "Foo", Mode: tree.ModeRegular, OID: b},
+			TreeEntry{Path: "foo", Mode: tree.ModeRegular, OID: b},
+		}, true) catch {
+		case UnsafePath:
+			foldRefused = true
+		}
+		always foldRefused
+		fdRefused && foldRefused
+	},
+}
