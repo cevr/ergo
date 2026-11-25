@@ -26,6 +26,8 @@ actor SelectOncePerChange	TestStdActorLawsRun
 actor SelectStops	TestStdActorLawsRun
 actor SendsStepInOrder	TestStdActorLawsRun
 actor SinkGetsEachOutput	TestStdActorLawsRun
+actor SuperviseDurableWithRecoversAndBacksOff	none
+actor SuperviseWithWindowAndBackoff	none
 actor VersionCountsCommits	TestStdActorLawsRun
 actor WatchSeesTheEnd	none
 ansi Colors.OnIsStable	TestStdAnsiLawsRun
@@ -848,6 +850,8 @@ tasks RetryFollowsDecide	TestStdScheduleLawsRun
 tasks StaleExitIgnoredAfterGroupRestart	none
 tasks StrategiesNest	none
 tasks Set.StopEndsEveryMember	none
+tasks SetRestartUsesDecide	none
+tasks SetSupervisedFollowsDecide	none
 tasks TransformEqualsLoop	TestTasksLaws
 tasks TransformKeepsOrder	TestTasksLaws
 tasks TypedFailureEndsGroup	none

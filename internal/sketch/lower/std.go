@@ -960,6 +960,14 @@ func (fc *funcCtx) adaptFunc(fv string, shape *v1.Body, sig *check.Signature, si
 		case 0:
 			body = ind + "_, _ = " + call + "\n"
 		case 1:
+			if shape.Results[0] != "error" {
+				if len(sig.Results) != 1 {
+					ice(site, "a std function parameter returns a value and the block has %d results", len(sig.Results))
+				}
+				r := fc.scope.alloc("r")
+				results, body = " "+fc.goType(sig.Results[0]), ind+r+", _ := "+call+"\n"+ind+"return "+r+"\n"
+				break
+			}
 			if len(sig.Results) != 0 {
 				ice(site, "a std function parameter returns error alone and the block a value")
 			}

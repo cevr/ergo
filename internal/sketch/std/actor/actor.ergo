@@ -12,6 +12,7 @@
 // control: a goroutine with a channel and a switch on the state.
 
 import machines
+import schedule
 import tasks
 import time
 import sync
@@ -208,7 +209,7 @@ func tallyStepForLaw(s int, e int) Decision[int, int] fails actorLawFailed {
 // (Enter 0, Stay 1, Emit 2, Ignore 3, Reject 4, Done 5, Tell 6), the
 // state after
 // a decision, the output of a decision, and the inbox's capacity.
-extern go ergo.local/prototype/runtime/v1.MachineSupervise func start[S, E, D, W, F, R, G](initial S, fresh own func() S fails G needs R, limit int, step own func(s S, e E) D fails F needs R, fire own func(at S, s S) D fails F needs R, delay own func(s S) duration, workOf own func(s S) W, hasWork own func(w W) bool, work own func(w W, send func(e E)) needs R, hasExit own func(s S) bool, leave own func(s S) needs R, kind own func(d D) int, next own func(s S, d D) S, out own func(d D) needs R, capacity int) Actor[S, E, D, F] needs R | Scheduler
+extern go ergo.local/prototype/runtime/v1.MachineSupervise func start[S, E, D, W, F, R, G, C](initial S, fresh own func() S fails G needs R, limit int, decide own func() duration needs C, step own func(s S, e E) D fails F needs R, fire own func(at S, s S) D fails F needs R, delay own func(s S) duration, workOf own func(s S) W, hasWork own func(w W) bool, work own func(w W, send func(e E)) needs R, hasExit own func(s S) bool, leave own func(s S) needs R, kind own func(d D) int, next own func(s S, d D) S, out own func(d D) needs R, capacity int) Actor[S, E, D, F] needs R | C | Scheduler
 
 // fired is the timer of the entry that opened in at, as it fires: m's
 // After under the firing mark, so a machines.Every timer's signal carries
@@ -264,7 +265,7 @@ extern go ergo.local/prototype/runtime/v1.ActorNoTimer func noTimer() duration
 // 2 and 3).
 func StartMachine[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
 	let first = m.Initial
-	launch(m, capacity, sink, func() S { first }, 0)
+	launch(m, capacity, sink, func() S { first }, 0, func() duration { -1ns })
 }
 
 // SendsStepInOrder: the actor steps a sender's signals in the order it
@@ -515,21 +516,51 @@ func stagedAgrees(acts []int, clock time.Manual) bool needs Scheduler {
 	same
 }
 
+func waitFromVerdict(v tasks.Verdict) duration {
+	match v {
+	case tasks.RestartAfter as r:
+		if r.Wait < 0ns {
+			return 0ns
+		}
+		r.Wait
+	case tasks.GiveUp:
+		-1ns
+	}
+}
+
 // Supervise is StartMachine for an actor that restarts after a defect
 // (MU7; runtime.md, Machines and actors 18), under the policy of
-// tasks.Restart: a defect of a step, a timer, a work, a child or a source
-// ends the actor's incarnation, and while fewer than policy.Limit
-// restarts were made, a new incarnation starts in m's initial state,
-// never in the last one. The crash ends the incarnation as an end does:
-// its children, timer and work stop, the Ask in the step and every queued
-// Ask get Stopped, queued Sends are dropped; Sends and Asks after it go
-// to the new incarnation, through the same Actor. Done, Stop, Drain and a
-// typed failure that ends the actor are final: no restart follows them.
-// The defect that finds the budget spent ends the actor, and Stop raises
-// it. Restarts counts the restarts. A negative Limit is a defect.
+// tasks.Restart evaluated through tasks.Decide: a defect of a step, a timer,
+// a work, a child or a source ends the actor's incarnation, and while fewer
+// than policy.Limit restarts were made, a new incarnation starts in m's
+// initial state, never in the last one. The crash ends the incarnation as
+// an end does: its children, timer and work stop, the Ask in the step and
+// every queued Ask get Stopped, queued Sends are dropped; Sends and Asks
+// after it go to the new incarnation, through the same Actor. Done, Stop,
+// Drain and a typed failure that ends the actor are final: no restart
+// follows them. The defect that finds the budget spent ends the actor, and
+// Stop raises it. Restarts counts the restarts. A negative Limit is a defect.
 func Supervise[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, policy tasks.Restart) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
 	let first = m.Initial
-	launch(m, capacity, sink, func() S { first }, policy.Limit)
+	let sup = tasks.LimitPolicy(policy.Limit)
+	let past = sync.NewRef[[]duration]([]duration{})
+	launch(m, capacity, sink, func() S { first }, policy.Limit, func() duration {
+		waitFromVerdict(tasks.NextRestart(sup, past, 0s))
+	})
+}
+
+// SuperviseWith is Supervise under a full tasks.Supervision policy
+// (Intensity sliding window and Backoff schedule evaluated through
+// tasks.Decide on time.Clock and slept on Scheduler).
+func SuperviseWith[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, policy tasks.Supervision) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler | time.Clock {
+	let first = m.Initial
+	let origin = time.Clock.Now()
+	let past = sync.NewRef[[]duration]([]duration{})
+	let active = if policy.Intensity.Max > 0 { 1 } else { 0 }
+	launch(m, capacity, sink, func() S { first }, active, func() duration needs time.Clock {
+		let now = time.Clock.Now().Sub(origin)
+		waitFromVerdict(tasks.NextRestart(policy, past, now))
+	})
 }
 
 // RestartIsFresh: under Supervise, a defect answers the Ask Stopped and
@@ -544,7 +575,7 @@ law RestartIsFresh(signals []int, n int) {
 
 // crashes reports whether the step of e is an injected defect: a signal
 // whose value mod 5 is 4.
-func crashes(e int) bool { ((e % 5) + 5) % 5 == 4 }
+func crashes(e int) bool { ((e%5)+5)%5 == 4 }
 
 // crashStep is tallyStep, with a defect for each signal crashes names.
 func crashStep(s int, e int) Decision[int, int] {
@@ -618,10 +649,8 @@ func restarted(signals []int, n int) bool needs Scheduler {
 // SuperviseDurable); 0 for an actor that never did.
 extern go ergo.local/prototype/runtime/v1.ActorRestarts func Restarts[S, E, D, F](a Actor[S, E, D, F]) int
 
-// launch is the body of StartMachine and Supervise: m as an actor whose
-// restarts (limit of them) start in fresh's state.
-func launch[S, E, O, F, R, W, G](m Machine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, fresh own func() S fails G needs R, limit int) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
-	start(m.Initial, fresh, limit, m.Step, func(at S, s S) Decision[S, O] fails F needs R {
+func launch[S, E, O, F, R, W, G, C](m Machine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, fresh own func() S fails G needs R, limit int, decide own func() duration needs C) Actor[S, E, Decision[S, O], F] needs R | W | C | Scheduler {
+	start(m.Initial, fresh, limit, decide, m.Step, func(at S, s S) Decision[S, O] fails F needs R {
 		match fired(m, at) {
 		case Some[Timeout[E]] as t:
 			try m.Step(s, t.Value.Signal)
@@ -729,9 +758,154 @@ extern go ergo.local/prototype/runtime/v1.ActorRecovering func recovering[S, A, 
 // budget counts like any other.
 func SuperviseDurable[S, E, O, F, R, W, G](m pure Machine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, policy tasks.Restart, recover own func() Option[S] fails G needs R, save own func(prev S, next S, sig E) fails G needs R) Actor[S, E, Decision[S, O], F] fails G needs R | W | Scheduler {
 	let first = m.Initial
+	let sup = tasks.LimitPolicy(policy.Limit)
+	let past = sync.NewRef[[]duration]([]duration{})
 	try recovering(func() S fails G needs R { try recovered(recover, first) }, func(initial S) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
-		launch(durable(m, initial, save), capacity, sink, func() S fails G needs R { try recovered(recover, first) }, policy.Limit)
+		launch(durable(m, initial, save), capacity, sink, func() S fails G needs R { try recovered(recover, first) }, policy.Limit, func() duration {
+			waitFromVerdict(tasks.NextRestart(sup, past, 0s))
+		})
 	})
+}
+
+// SuperviseDurableWith is SuperviseDurable under a full tasks.Supervision
+// policy (Intensity sliding window and Backoff schedule evaluated through
+// tasks.Decide on time.Clock and slept on Scheduler).
+func SuperviseDurableWith[S, E, O, F, R, W, G](m pure Machine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, policy tasks.Supervision, recover own func() Option[S] fails G needs R, save own func(prev S, next S, sig E) fails G needs R) Actor[S, E, Decision[S, O], F] fails G needs R | W | Scheduler | time.Clock {
+	let first = m.Initial
+	let active = if policy.Intensity.Max > 0 { 1 } else { 0 }
+	try recovering(func() S fails G needs R { try recovered(recover, first) }, func(initial S) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler | time.Clock {
+		let origin = time.Clock.Now()
+		let past = sync.NewRef[[]duration]([]duration{})
+		launch(durable(m, initial, save), capacity, sink, func() S fails G needs R { try recovered(recover, first) }, active, func() duration needs time.Clock {
+			let now = time.Clock.Now().Sub(origin)
+			waitFromVerdict(tasks.NextRestart(policy, past, now))
+		})
+	})
+}
+
+law SuperviseWithWindowAndBackoff(k int) {
+	let _ = k
+	let policy = tasks.Supervision{Strategy: tasks.OneForOne, Intensity: tasks.Intensity{Max: 2, Period: 10s}, Backoff: schedule.Exponential(1s, 2.0, 10s)}
+	let c1 = testing.NewVirtualClock(0)
+	let slid = with context { Scheduler: c1, time.Clock: c1 } {
+		let start = time.Clock.Now()
+		let a = SuperviseWith(crashy(), 1, func(o int) {}, policy)
+		let _ = a.Ask(6) catch {
+		case Stopped:
+			Ignore
+		}
+		let _ = a.Ask(4) catch {
+		case Stopped:
+			Ignore
+		}
+		let _ = a.Ask(1) catch {
+		case Stopped:
+			Ignore
+		}
+		let t1 = time.Clock.Now().Sub(start)
+		let s1 = a.State()
+		let _ = a.Ask(4) catch {
+		case Stopped:
+			Ignore
+		}
+		let _ = a.Ask(1) catch {
+		case Stopped:
+			Ignore
+		}
+		let t2 = time.Clock.Now().Sub(start)
+		Scheduler.Sleep(10s)
+		let _ = a.Ask(4) catch {
+		case Stopped:
+			Ignore
+		}
+		let _ = a.Ask(1) catch {
+		case Stopped:
+			Ignore
+		}
+		let t3 = time.Clock.Now().Sub(start)
+		let r = Restarts(a)
+		a.Stop()
+		s1 == 1 && t1 == 1s && t2 == 3s && t3 == 14s && r == 3
+	}
+	let c2 = testing.NewVirtualClock(0)
+	let gaveUp = with context { Scheduler: c2, time.Clock: c2 } {
+		let start = time.Clock.Now()
+		let a = SuperviseWith(crashy(), 1, func(o int) {}, policy)
+		let _ = a.Ask(4) catch {
+		case Stopped:
+			Ignore
+		}
+		let _ = a.Ask(1) catch {
+		case Stopped:
+			Ignore
+		}
+		let _ = a.Ask(4) catch {
+		case Stopped:
+			Ignore
+		}
+		let _ = a.Ask(1) catch {
+		case Stopped:
+			Ignore
+		}
+		let _ = a.Ask(4) catch {
+		case Stopped:
+			Ignore
+		}
+		match ExitOf(a) {
+		case Defected:
+			Restarts(a) == 2 && time.Clock.Now().Sub(start) == 3s
+		case _:
+			false
+		}
+	}
+	slid && gaveUp
+}
+
+law SuperviseDurableWithRecoversAndBacksOff(k int) {
+	let _ = k
+	let policy = tasks.Supervision{Strategy: tasks.OneForOne, Intensity: tasks.Intensity{Max: 2, Period: 10s}, Backoff: schedule.Exponential(1s, 2.0, 10s)}
+	let c = testing.NewVirtualClock(0)
+	let cell = sync.NewRef[Option[int]](None)
+	with context { Scheduler: c, time.Clock: c } {
+		let start = time.Clock.Now()
+		let a = SuperviseDurableWith(Machine[int, int, int]{Initial: 0, Step: crashStep, After: untimed, Work: unworked, Exit: unexited}, 1, func(o int) {}, policy, func() Option[int] { cell.Get() }, func(prev int, next int, sig int) {
+			cell.Set(Some[int]{Value: next})
+		})
+		let _ = a.Ask(6) catch {
+		case Stopped:
+			Ignore
+		}
+		let _ = a.Ask(4) catch {
+		case Stopped:
+			Ignore
+		}
+		let _ = a.Ask(1) catch {
+		case Stopped:
+			Ignore
+		}
+		let t1 = time.Clock.Now().Sub(start)
+		let s1 = a.State()
+		let _ = a.Ask(4) catch {
+		case Stopped:
+			Ignore
+		}
+		let _ = a.Ask(1) catch {
+		case Stopped:
+			Ignore
+		}
+		let t2 = time.Clock.Now().Sub(start)
+		let s2 = a.State()
+		let _ = a.Ask(4) catch {
+		case Stopped:
+			Ignore
+		}
+		match ExitOf(a) {
+		case Defected:
+			s1 == 7 && t1 == 1s && s2 == 8 && t2 == 3s && a.State() == 8 && Restarts(a) == 2 && time.Clock.Now().Sub(start) == 3s
+		case _:
+			false
+		}
+	}
 }
 
 // RestartRecovers: under SuperviseDurable, each restart starts in the
@@ -1008,7 +1182,7 @@ extern go ergo.local/prototype/runtime/v1.ActorOnEnd func OnEnd[S, E, D, F](a Ac
 // runs.
 law OnEndRunsOnce(n int, signals []int, drain bool) {
 	with context { Scheduler: time.NewManual(0) } {
-		endActions(((n % 4) + 4) % 4 + 1, signals, drain)
+		endActions(((n%4)+4)%4+1, signals, drain)
 	}
 }
 
@@ -1262,7 +1436,7 @@ func SendAndWait[S, E, D, F, R](a Actor[S, E, D, F], e E, pred func(s S) bool ne
 // Finished is an actor that its step ended with Done: its last state and
 // Done's output.
 type Finished[S, O] {
-	State S,
+	State  S,
 	Output O,
 }
 
@@ -1542,14 +1716,14 @@ func watchedBy[F](log Actor[[]int, int, Decision[[]int, int]], a Actor[int, int,
 // free. Its values are copies of one registry.
 type Registry[K comparable, S, E, D, F] {
 	entries sync.Ref[Map[K, registered[S, E, D, F]]],
-	next sync.Ref[int],
+	next    sync.Ref[int],
 }
 
 // registered is an actor in a registry, with the number of its Register,
 // so the end of an actor removes its own entry and never a later one.
 type registered[S, E, D, F] {
 	Actor Actor[S, E, D, F],
-	N int,
+	N     int,
 }
 
 // Taken is the failure of Register when a live actor holds the key.
@@ -1808,7 +1982,7 @@ func Select[S, T comparable](changes Seq[S], f own func(s S) T) Seq[T] {
 law SelectOncePerChange(xs []int) {
 	let mut want = []int{}
 	for x in xs {
-		if len(want) == 0 || want[len(want)-1] != x % 3 {
+		if len(want) == 0 || want[len(want)-1] != x%3 {
 			want = want.Append(x % 3)
 		}
 	}

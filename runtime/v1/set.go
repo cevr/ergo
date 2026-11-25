@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"ergo.local/prototype/runtime/rt"
 )
@@ -61,9 +62,10 @@ import (
 // from its specification within an intensity limit; Trio's nursery and
 // Kotlin's coroutineScope keep every child inside a lexical scope.
 type Set struct {
-	owner *rt.Task // the task that made it
-	kind  int      // setFailFast, setLogFailures or setRestart
-	limit int      // restarts per Go under setRestart
+	owner   *rt.Task                          // the task that made it
+	kind    int                               // setFailFast, setLogFailures or setRestart
+	sleeper Sleeper                           // optional scheduler for backoff sleeps under supervision
+	decide  func(*rt.Task, int) time.Duration // restart decision per member id; < 0 gives up
 
 	mu sync.Mutex
 	// spawning is set, in an explored run only, while Go holds mu across
@@ -71,6 +73,7 @@ type Set struct {
 	// for it where the scheduler sees the wait, not on mu with the baton
 	// held (X8; the same rule as an actor's adopting, X7).
 	spawning atomic.Bool
+	nextID   int
 	members  []*member // running, each at its index i
 	ended    []*member // ended, not yet joined by the owner
 	wake     chan struct{}
@@ -86,9 +89,9 @@ type Set struct {
 
 // member is one started body of a Set.
 type member struct {
-	h    *rt.Handle[struct{}]
-	i    int
-	runs int // how many times the body ran: 1 + its restarts
+	h  *rt.Handle[struct{}]
+	i  int
+	id int
 }
 
 const (
@@ -116,13 +119,38 @@ type TasksClosed struct{}
 // Error is the failure's text.
 func (TasksClosed) Error() string { return "tasks.Closed" }
 
-// TasksNewSet is the body of tasks.NewSet: s is the hidden frame of the
-// code that makes it; the lowering registers the Set as that code's owned
-// value in the step that receives it (Owning, R8). kind is the policy (FailFast 0, LogFailures 1,
-// Restart 2) and limit Restart's limit; a negative limit is a defect.
+// TasksNewSet creates a Set with a simple per-member restart limit for Go
+// callers and tests; Ergo's tasks.NewSet calls TasksNewSetPolicy with a
+// decider built over tasks.Decide.
 //
 //ergo:wait none
 func TasksNewSet(s *Scope, kind, limit int) *Set {
+	var decide func(*rt.Task, int) time.Duration
+	if kind == setRestart && limit > 0 {
+		var mu sync.Mutex
+		counts := map[int]int{}
+		decide = func(_ *rt.Task, id int) time.Duration {
+			mu.Lock()
+			defer mu.Unlock()
+			if counts[id] >= limit {
+				return -1
+			}
+			counts[id]++
+			return 0
+		}
+	}
+	return TasksNewSetPolicy(s, kind, limit, decide)
+}
+
+// TasksNewSetPolicy is the body of tasks.NewSet: s is the hidden frame of the
+// code that makes it; the lowering registers the Set as that code's owned
+// value in the step that receives it (Owning, R8). kind is the policy
+// (FailFast 0, LogFailures 1, Restart 2), limit validates Restart's limit (a
+// negative limit is a defect), and decide answers each crash of member id
+// with a non-negative delay or a negative duration to give up.
+//
+//ergo:wait none
+func TasksNewSetPolicy(s *Scope, kind, limit int, decide func(*rt.Task, int) time.Duration) *Set {
 	s = s.current()
 	if s.ended {
 		panic("tasks.NewSet: the frame that would own this set has returned (law R9)")
@@ -130,7 +158,23 @@ func TasksNewSet(s *Scope, kind, limit int) *Set {
 	if limit < 0 {
 		panic("tasks.Restart: a negative limit " + strconv.Itoa(limit))
 	}
-	return &Set{owner: s.t, kind: kind, limit: limit}
+	if kind != setRestart || limit == 0 {
+		decide = nil
+	}
+	return &Set{owner: s.t, kind: kind, decide: decide}
+}
+
+// TasksNewSupervisedSet is the body of tasks.NewSupervisedSet: a restart Set
+// whose crash decisions come from decide (tasks.Decide) and whose positive
+// backoff delays sleep on sl.
+//
+//ergo:wait none
+func TasksNewSupervisedSet(s *Scope, sl Sleeper, decide func(*rt.Task, int) time.Duration) *Set {
+	s = s.current()
+	if s.ended {
+		panic("tasks.NewSupervisedSet: the frame that would own this set has returned (law R9)")
+	}
+	return &Set{owner: s.t, kind: setRestart, sleeper: sl, decide: decide}
 }
 
 // own panics unless t is the owner task (rule 1).
@@ -170,7 +214,8 @@ func tasksGo(span Site, t *rt.Task, set *Set, prepare func(*rt.Task) *Scope, bod
 	if set.closed {
 		return TasksClosed{}
 	}
-	m := &member{i: len(set.members)}
+	m := &member{i: len(set.members), id: set.nextID}
+	set.nextID++
 	set.members = append(set.members, m)
 	holder := rt.NewScope(t)
 	// The member's task: the body, again after each defect that the policy
@@ -185,7 +230,6 @@ func tasksGo(span Site, t *rt.Task, set *Set, prepare func(*rt.Task) *Scope, bod
 				defer root.End(&err)
 			}
 			for {
-				m.runs++
 				_, err = guarded(ct, func(t *rt.Task) (struct{}, error) { return struct{}{}, body(t) })
 				if !set.restarts(ct, m, err) {
 					return struct{}{}, err
@@ -198,11 +242,28 @@ func tasksGo(span Site, t *rt.Task, set *Set, prepare func(*rt.Task) *Scope, bod
 }
 
 // restarts reports whether the exit of a member's run starts it again:
-// a defect under Restart with restarts left, in an open Set, while the
-// member is not stopped.
+// a defect under supervision while the Set is open and the member is not
+// stopped, answered by decide (tasks.Decide), sleeping any positive delay
+// on the Set's sleeper.
 func (set *Set) restarts(ct *rt.Task, m *member, exit error) bool {
-	if set.kind != setRestart || !restartable(ct, exit, m.runs, set.limit) {
+	if set.kind != setRestart || set.decide == nil || exit == nil || ct.StopRequested() || !hasDefect(exit) {
 		return false
+	}
+	set.lockMember()
+	closed := set.closed
+	set.mu.Unlock()
+	if closed {
+		return false
+	}
+	wait := set.decide(ct, m.id)
+	if wait < 0 {
+		return false
+	}
+	if wait > 0 && set.sleeper != nil {
+		set.sleeper.Sleep(ct, wait)
+		if ct.StopRequested() {
+			return false
+		}
 	}
 	set.lockMember()
 	defer set.mu.Unlock()
@@ -216,15 +277,6 @@ func (set *Set) lockMember() {
 		rt.Await(nil, func() bool { return !set.spawning.Load() })
 	}
 	set.mu.Lock()
-}
-
-// restartable is tasks.Restart's rule, for a Set's member and for a
-// supervised actor (actor.go rule 16) alike: a run on ct that ended with
-// exit runs again when exit holds a defect, ct's stop was not requested,
-// and runs (this one included) is at most limit, so a body runs at most
-// 1 + limit times. The caller adds its own "still open" check.
-func restartable(ct *rt.Task, exit error, runs, limit int) bool {
-	return exit != nil && !ct.StopRequested() && hasDefect(exit) && runs <= limit
 }
 
 // end records a member's last exit by the policy (rule 3), moves it to

@@ -195,7 +195,7 @@ func (d *durableHosts) start(t *rt.Task, sl Sleeper, initial dst) *Actor[dst, ds
 		}
 		_, _ = New[int](1).Pop(wt) // until the entry ends
 	}
-	return MachineSupervise(Site("durable"), t, sl, nil, initial, fresh, 1000,
+	return MachineSupervise(Site("durable"), t, sl, nil, initial, fresh, 1000, testRestartLimit(1000),
 		step, nil, func(dst) time.Duration { return ActorNoTimer() },
 		func(s dst) dst { return s }, func(dst) bool { return true }, work, nil, nil,
 		func(dec ddec) int { return dec.kind },

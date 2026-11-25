@@ -319,7 +319,7 @@ func runExitCase(xm xmachine, ops []xop, seen map[string]bool) (string, []string
 		}
 	}
 	fresh := func(*rt.Task) (tstate, error) { return xm.m.init, nil }
-	dr.a = MachineSupervise(Site("exit test"), task, xreleaser{}, nil, xm.m.init, fresh, xm.limit, step,
+	dr.a = MachineSupervise(Site("exit test"), task, xreleaser{}, nil, xm.m.init, fresh, xm.limit, testRestartLimit(xm.limit), step,
 		func(*rt.Task, tstate, tstate) (tdec, error) { return tdec{kind: decideIgnore}, nil },
 		delay, workOf, func(s tstate) bool { return xm.states[s.v].work }, work,
 		func(s tstate) bool { return xm.states[s.v].exit != "none" }, leave,
