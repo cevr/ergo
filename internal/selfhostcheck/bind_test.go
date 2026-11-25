@@ -144,6 +144,7 @@ func bindAgrees(t *testing.T, ctx context.Context, dump string, limit uint64, di
 // function's name, package pattern lets).
 func corpusDirs(t *testing.T) []string {
 	dirs := []string{filepath.Join(repoRoot(), "internal", "selfhostcheck", "testdata", "bind")}
+	seen := map[string]bool{dirs[0]: true}
 	for _, root := range []string{"examples", "internal/sketch/std"} {
 		err := filepath.WalkDir(filepath.Join(repoRoot(), root), func(p string, d os.DirEntry, err error) error {
 			if err != nil {
@@ -153,7 +154,8 @@ func corpusDirs(t *testing.T) []string {
 				return filepath.SkipDir
 			}
 			if !d.IsDir() && strings.HasSuffix(p, ".ergo") {
-				if dir := filepath.Dir(p); dirs[len(dirs)-1] != dir {
+				if dir := filepath.Dir(p); !seen[dir] {
+					seen[dir] = true
 					dirs = append(dirs, dir)
 				}
 			}
