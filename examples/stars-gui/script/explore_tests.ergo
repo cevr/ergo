@@ -1,0 +1,70 @@
+import actor
+import ergo.local/prototype/examples/starsgui/catalog
+import ergo.local/prototype/examples/starsgui/screen
+import gen
+import machines
+import temporal
+import time
+import ui
+
+func sampleStars() []catalog.Star {
+	[]catalog.Star{
+		catalog.Star{Name: "Sirius", Constellation: "Canis Major", Magnitude: -146, Distance: 86, Class: "A1V", Ascension: 405, Declination: -167, Planets: 0},
+		catalog.Star{Name: "Vega", Constellation: "Lyra", Magnitude: 3, Distance: 250, Class: "A0V", Ascension: 1116, Declination: 388, Planets: 0},
+		catalog.Star{Name: "Procyon", Constellation: "Canis Minor", Magnitude: 34, Distance: 115, Class: "F5IV", Ascension: 459, Declination: 52, Planets: 0},
+		catalog.Star{Name: "Altair", Constellation: "Aquila", Magnitude: 77, Distance: 167, Class: "A7V", Ascension: 1190, Declination: 89, Planets: 0},
+		catalog.Star{Name: "Rigel", Constellation: "Orion", Magnitude: 13, Distance: 8600, Class: "B8I", Ascension: 314, Declination: -82, Planets: 0},
+		catalog.Star{Name: "Deneb", Constellation: "Cygnus", Magnitude: 125, Distance: 26150, Class: "A2I", Ascension: 1241, Declination: 453, Planets: 0},
+	}
+}
+
+func exploreProperties() []temporal.Formula[ui.ExploreSnapshot[catalog.State, screen.Signal]] {
+	let mut props = ui.DefaultsWith[catalog.State, screen.Signal](2s)
+	props = props.Append(temporal.Always[ui.ExploreSnapshot[catalog.State, screen.Signal]](
+		temporal.Named[ui.ExploreSnapshot[catalog.State, screen.Signal]]("grid-bounds-valid", func(s ui.ExploreSnapshot[catalog.State, screen.Signal]) bool {
+			let g = catalog.GridOf(s.State)
+			let viewOK = len(g.View) <= len(g.Rows)
+			let cursorOK = if len(g.View) == 0 { g.Cursor == 0 && g.Top == 0 } else { g.Cursor >= 0 && g.Cursor < len(g.View) && g.Top >= 0 && g.Top < len(g.View) }
+			viewOK && cursorOK && g.Height == 4
+		}),
+	))
+	props
+}
+
+func exploreOnce(steps int) ui.Finding needs gen.Draws {
+	let clock = time.NewManual(0)
+	with context { Scheduler: clock } {
+		let a = actor.StartMachine(machines.Start(screen.App{}, screen.Opening{Rows: sampleStars(), Height: 4}), 8, func(_ catalog.Refused) {})
+		let mut h = ui.NewTestHost(a, screen.View, clock, 4) catch {
+		case ui.BadPatch as bp:
+			a.Stop()
+			return ui.Found{Script: []ui.Act{}, Step: 0, Violation: bp.Why}
+		}
+		let res = ui.Explore(&h, exploreProperties(), ui.ExploreConfig{Steps: steps, Swarm: false, AdvanceStep: 500ms, Weights: Map[string, int]{}})
+		a.Stop()
+		res
+	}
+}
+
+// Explored holds that autonomous exploration over seeds 1 to 3 finds no
+// default or table-grid invariant violation on stars-gui.
+law Explored() {
+	let mut allClean = true
+	for seed in 1..4 {
+		let cfg = gen.Config{Seed: uint64(seed), Cases: 8, Shrinks: 50, MaxDraws: 4096, MaxRejected: 100}
+		let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+			match exploreOnce(18) {
+			case ui.Clean:
+				true
+			case ui.Found:
+				false
+			}
+		})
+		match outcome {
+		case gen.Held:
+		case _:
+			allClean = false
+		}
+	}
+	allClean
+}

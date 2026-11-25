@@ -1,0 +1,79 @@
+import actor
+import echochat/memory
+import echochat/screen
+import echochat/talk
+import gen
+import sync
+import temporal
+import time
+import ui
+
+func exploreProperties(echo memory.Echo) []temporal.Formula[ui.ExploreSnapshot[talk.Session, talk.Signal]] {
+	let base = ui.DefaultsWith[talk.Session, talk.Signal](2s)
+	let mut props = []temporal.Formula[ui.ExploreSnapshot[talk.Session, talk.Signal]]{}
+	for i in 0..len(base) {
+		if i != 1 {
+			props = props.Append(base[i])
+		}
+	}
+	props = props.Append(temporal.Always[ui.ExploreSnapshot[talk.Session, talk.Signal]](
+		temporal.Named[ui.ExploreSnapshot[talk.Session, talk.Signal]]("at-most-one-line-held", func(s ui.ExploreSnapshot[talk.Session, talk.Signal]) bool {
+			let held = memory.Held(echo)
+			let okOutbox = match s.State.Link {
+			case talk.Online:
+				true
+			case talk.Offline, talk.Connecting, talk.Broken:
+				len(talk.Outbox(s.State)) == 0
+			}
+			held >= 0 && held <= 1 && okOutbox
+		}),
+	))
+	props
+}
+
+func exploreOnce(steps int) ui.Finding needs gen.Draws {
+	let clock = time.NewManual(0)
+	let echo = memory.NewEcho()
+	with context { Scheduler: clock, time.Clock: clock, talk.Channel: echo } {
+		let chat = actor.StartMachine(talk.Chat{}, 16, func(_ Never) {})
+		let mut h = ui.NewTestHost(chat, screen.Screen, clock, 16) catch {
+		case ui.BadPatch as bp:
+			chat.Stop()
+			return ui.Found{Script: []ui.Act{}, Step: 0, Violation: bp.Why}
+		}
+		let res = ui.Explore(&h, exploreProperties(echo), ui.ExploreConfig{Steps: steps, Swarm: false, AdvanceStep: 500ms, Weights: Map[string, int]{}})
+		chat.Stop()
+		if memory.Held(echo) != 0 {
+			return ui.Found{Script: []ui.Act{}, Step: steps, Violation: "line leaked after chat stop"}
+		}
+		res
+	}
+}
+
+// Explored holds that autonomous exploration over seeds 1 to 3 finds no
+// default or connection-lifecycle violation on echo-chat.
+law Explored() {
+	let firstErr = sync.NewRef("")
+	let mut allClean = true
+	for seed in 1..4 {
+		let cfg = gen.Config{Seed: uint64(seed), Cases: 10, Shrinks: 50, MaxDraws: 4096, MaxRejected: 100}
+		let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+			match exploreOnce(20) {
+			case ui.Clean:
+				true
+			case ui.Found as found:
+				if firstErr.Get() == "" {
+					firstErr.Set(found.Violation)
+				}
+				false
+			}
+		})
+		match outcome {
+		case gen.Held:
+		case _:
+			allClean = false
+		}
+	}
+	assert firstErr.Get() == ""
+	allClean
+}

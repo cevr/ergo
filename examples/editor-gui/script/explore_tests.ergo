@@ -1,0 +1,62 @@
+import actor
+import ergo.local/prototype/examples/editorgui/edit
+import ergo.local/prototype/examples/editorgui/memory
+import ergo.local/prototype/examples/editorgui/piece
+import ergo.local/prototype/examples/editorgui/screen
+import gen
+import machines
+import temporal
+import time
+import ui
+
+func exploreProperties() []temporal.Formula[ui.ExploreSnapshot[screen.Window, screen.Signal]] {
+	let mut props = ui.DefaultsWith[screen.Window, screen.Signal](2s)
+	props = props.Append(temporal.Always[ui.ExploreSnapshot[screen.Window, screen.Signal]](
+		temporal.Named[ui.ExploreSnapshot[screen.Window, screen.Signal]]("caret-and-counters-valid", func(s ui.ExploreSnapshot[screen.Window, screen.Signal]) bool {
+			let d = edit.DocOf(s.State.Ed)
+			let n = piece.Len(d.Buf)
+			d.Caret >= 0 && d.Caret <= n && s.State.Saves >= 0 && s.State.Clips >= 0 && len(s.Offers) > 0
+		}),
+	))
+	props
+}
+
+func exploreOnce(steps int) ui.Finding needs gen.Draws {
+	let clock = time.NewManual(0)
+	let store = memory.NewShelf()
+	let clip = ui.NewMemoryClipboard()
+	with context { Scheduler: clock } {
+		let a = actor.StartMachine(machines.Start(screen.App{}, screen.Opening{Text: "hello\nworld\n", Name: "notes.txt"}), 8, func(_ screen.Note) {})
+		let mut h = ui.NewTestHost(a, screen.Viewer(store, clip), clock, 4) catch {
+		case ui.BadPatch as bp:
+			a.Stop()
+			return ui.Found{Script: []ui.Act{}, Step: 0, Violation: bp.Why}
+		}
+		let res = ui.Explore(&h, exploreProperties(), ui.ExploreConfig{Steps: steps, Swarm: false, AdvanceStep: 500ms, Weights: Map[string, int]{}})
+		a.Stop()
+		res
+	}
+}
+
+// Explored holds that autonomous exploration over seeds 1 to 3 finds no
+// default or editor-caret invariant violation on editor-gui.
+law Explored() {
+	let mut allClean = true
+	for seed in 1..4 {
+		let cfg = gen.Config{Seed: uint64(seed), Cases: 8, Shrinks: 50, MaxDraws: 4096, MaxRejected: 100}
+		let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+			match exploreOnce(18) {
+			case ui.Clean:
+				true
+			case ui.Found:
+				false
+			}
+		})
+		match outcome {
+		case gen.Held:
+		case _:
+			allClean = false
+		}
+	}
+	allClean
+}

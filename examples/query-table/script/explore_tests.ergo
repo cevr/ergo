@@ -1,0 +1,100 @@
+import actor
+import gen
+import machines
+import querytable/dino
+import querytable/explorer
+import querytable/query
+import querytable/screen
+import querytable/table
+import sync
+import temporal
+import time
+import ui
+
+func exploreProperties() []temporal.Formula[ui.ExploreSnapshot[explorer.Page, explorer.Signal]] {
+	let mut props = ui.DefaultsWith[explorer.Page, explorer.Signal](2s)
+	props = props.Append(temporal.Always[ui.ExploreSnapshot[explorer.Page, explorer.Signal]](
+		temporal.Named[ui.ExploreSnapshot[explorer.Page, explorer.Signal]]("listbox-and-table-bounds-valid", func(s ui.ExploreSnapshot[explorer.Page, explorer.Signal]) bool {
+			let d = s.State.Diet
+			let p = s.State.Period
+			let dOK = d.Count > 0 && d.Active >= 0 && d.Active < d.Count
+			let pOK = p.Count > 0 && p.Active >= 0 && p.Active < p.Count
+			let rowsOK = match s.State.Route {
+			case query.Browse as b:
+				len(table.Rows(b.Query)) <= len(dino.All)
+			case query.NotFound:
+				true
+			}
+			dOK && pOK && rowsOK && len(s.Offers) > 0
+		}),
+	))
+	props
+}
+
+func exploreOnce(steps int) ui.Finding needs gen.Draws {
+	let clock = time.NewManual(0)
+	let histRef = sync.NewRef[Option[ui.MemoryHistory]](None)
+	with context { Scheduler: clock } {
+		let site = actor.StartMachine(machines.Start(explorer.Explorer{}, "/"), 16, func(cmds []explorer.Command) {
+			match histRef.Get() {
+			case Some[ui.MemoryHistory] as loc:
+				for c in cmds {
+					match c {
+					case explorer.Replace as r:
+						ui.Replace(loc.Value, ui.ParseURL(r.Path))
+					case explorer.Push as p:
+						ui.Push(loc.Value, ui.ParseURL(p.Path))
+					case explorer.Focus:
+					}
+				}
+			case None:
+			}
+		})
+		let mut h = ui.NewTestHost(site, screen.Screen, clock, 16) catch {
+		case ui.BadPatch as bp:
+			site.Stop()
+			return ui.Found{Script: []ui.Act{}, Step: 0, Violation: bp.Why}
+		}
+		ui.OpenAt(&h, "/")
+		ui.Settle(&h) catch {
+		case ui.BadPatch as bp:
+			site.Stop()
+			return ui.Found{Script: []ui.Act{}, Step: 0, Violation: bp.Why}
+		case actor.Stopped:
+			site.Stop()
+			return ui.Found{Script: []ui.Act{}, Step: 0, Violation: "actor stopped during settle"}
+		}
+		histRef.Set(Some[ui.MemoryHistory]{Value: ui.History(&h)})
+		let res = ui.Explore(&h, exploreProperties(), ui.ExploreConfig{Steps: steps, Swarm: false, AdvanceStep: 500ms, Weights: Map[string, int]{}})
+		site.Stop()
+		res
+	}
+}
+
+// Explored holds that autonomous exploration over seeds 1 to 3 finds no
+// default or listbox/route invariant violation on query-table.
+law Explored() {
+	let firstErr = sync.NewRef("")
+	let mut allClean = true
+	for seed in 1..4 {
+		let cfg = gen.Config{Seed: uint64(seed), Cases: 10, Shrinks: 50, MaxDraws: 4096, MaxRejected: 100}
+		let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+			match exploreOnce(20) {
+			case ui.Clean:
+				true
+			case ui.Found as found:
+				if firstErr.Get() == "" {
+					firstErr.Set(found.Violation)
+				}
+				false
+			}
+		})
+		match outcome {
+		case gen.Held:
+		case _:
+			allClean = false
+		}
+	}
+	assert firstErr.Get() == ""
+	allClean
+}
