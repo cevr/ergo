@@ -68,13 +68,13 @@ func Scan(src string) Scanned {
 // its columns move into the parser with no copy.
 func scanAll(src string) scanner {
 	// Room for a token per five bytes: the corpus has one per 6.8.
-	let room = len(src)/5 + 16
+	let room = src.Len()/5 + 16
 	let mut s = scanner{
 		src:    src,
 		offset: 0,
 		toks:   Toks{ids: dense.NewCount[Tok](), kind: zeros32(room), start: zeros32(room), end: zeros32(room)},
 		// Room for a comment per 64 bytes: the corpus has one per 132.
-		comments: newComments(len(src)/64 + 4),
+		comments: newComments(src.Len()/64 + 4),
 		semi:     false,
 		failed:   false,
 		message:  "",
@@ -117,15 +117,15 @@ func failTail(s mut scanner) {
 
 // growToks doubles the token columns.
 func growToks(s mut scanner) {
-	s.toks.kind = slices.AppendAll(s.toks.kind, zeros32(len(s.toks.kind)))
-	s.toks.start = slices.AppendAll(s.toks.start, zeros32(len(s.toks.start)))
-	s.toks.end = slices.AppendAll(s.toks.end, zeros32(len(s.toks.end)))
+	s.toks.kind = slices.AppendAll(s.toks.kind, zeros32(s.toks.kind.Len()))
+	s.toks.start = slices.AppendAll(s.toks.start, zeros32(s.toks.start.Len()))
+	s.toks.end = slices.AppendAll(s.toks.end, zeros32(s.toks.end.Len()))
 }
 
 // push appends a token with no change of context.
 func push(s mut scanner, kind uint8, start int, end int) {
 	let i = NumToks(s.toks)
-	if i+2 >= len(s.toks.kind) {
+	if i+2 >= s.toks.kind.Len() {
 		growToks(s)
 	}
 	s.toks.kind[i] = uint32(kind)
@@ -229,7 +229,7 @@ func insertSemi(s mut scanner, pos int) {
 // cut to the source and widened to whole code points (the Go scanner's
 // newError).
 func fail(s mut scanner, pos int, length int, message string) {
-	let n = len(s.src)
+	let n = s.src.Len()
 	let offset = if pos > n { n } else { pos }
 	let mut l = if offset+length > n { n - offset } else { length }
 	if l < 0 {
@@ -246,7 +246,7 @@ func fail(s mut scanner, pos int, length int, message string) {
 
 func run(s mut scanner) {
 	let src = s.src
-	let n = len(src)
+	let n = src.Len()
 	// The offset lives in i; s.offset holds it only across a call to a
 	// scan function, which reads it, moves it and may fail.
 	let mut i = s.offset
@@ -476,7 +476,7 @@ func identRune(r rune, first bool) bool {
 // here, small enough for Go to inline, and from the first byte of 0x80 or
 // above on in identRestWide.
 func identRest(src string, i int) int {
-	let n = len(src)
+	let n = src.Len()
 	let mut end = i
 	for end < n && classes[int(src[end])]&(clsLetter|clsDigit) != 0 {
 		end = end + 1
@@ -489,7 +489,7 @@ func identRest(src string, i int) int {
 
 // identRestWide is the end of the identifier runes from i on, any rune.
 func identRestWide(src string, i int) int {
-	let n = len(src)
+	let n = src.Len()
 	let mut end = i
 	for end < n {
 		let c = src[end]
@@ -566,7 +566,7 @@ let kwTable = "\x00\x65\x00\x51\x00\x4d\x00\x00\x00\x00\x00\x00\x45\x00\x66\x00\
 // line: they insert a semicolon at their start.
 func comment(s mut scanner, start int) {
 	let src = s.src
-	let n = len(src)
+	let n = src.Len()
 	if src[start+1] == '/' {
 		let mut end = start + strings.IndexByte(src[start:], '\n')
 		if end < start {
@@ -613,7 +613,7 @@ func pathRune(r rune) bool {
 // pathEnd is the end of the path word at start: up to a comment or a code
 // point that cannot continue it.
 func pathEnd(src string, start int) int {
-	let n = len(src)
+	let n = src.Len()
 	let mut end = start
 	for end < n {
 		let c = src[end]
@@ -642,7 +642,7 @@ func pathEnd(src string, start int) int {
 // word `go` is the keyword of a Go import.
 func pathWord(s mut scanner, start int) {
 	let src = s.src
-	let n = len(src)
+	let n = src.Len()
 	let mut end = start
 	let mut elementStart = true
 	for end < n {
@@ -720,7 +720,7 @@ func pathWord(s mut scanner, start int) {
 
 // digits is the end of the decimal digits and separators from i.
 func digits(src string, i int) int {
-	let n = len(src)
+	let n = src.Len()
 	let mut j = i
 	for j < n && (isDigit(src[j]) || src[j] == '_') {
 		j = j + 1
@@ -743,12 +743,12 @@ func digitValue(c byte) int {
 }
 
 // isDigitOf reports whether lit[i] is a digit of base.
-func isDigitOf(lit string, i int, base int) bool { i >= 0 && i < len(lit) && digitValue(lit[i]) < base }
+func isDigitOf(lit string, i int, base int) bool { i >= 0 && i < lit.Len() && digitValue(lit[i]) < base }
 
 // badSeparator reports a `_` of lit that does not stand between two
 // digits of base, or right after a base prefix (Go's rule).
 func badSeparator(lit string, base int, prefixed bool) bool {
-	for i in 0..len(lit) {
+	for i in 0..lit.Len() {
 		if lit[i] == '_' && (!(isDigitOf(lit, i-1, base) || (prefixed && i == 2)) || !isDigitOf(lit, i+1, base)) {
 			return true
 		}
@@ -770,7 +770,7 @@ func baseOf(c byte) int {
 // prefixed scans an integer with a base prefix: 0x1F, 0o600, 0b1010.
 func prefixed(s mut scanner, start int) {
 	let src = s.src
-	let n = len(src)
+	let n = src.Len()
 	let base = baseOf(src[start+1])
 	let end = identRest(src, start+2)
 	let lit = src[start:end]
@@ -779,7 +779,7 @@ func prefixed(s mut scanner, start int) {
 		return
 	}
 	let mut seen = false
-	for i in 2..len(lit) {
+	for i in 2..lit.Len() {
 		if lit[i] != '_' {
 			if digitValue(lit[i]) >= base {
 				fail(s, start, end-start, "invalid digit "+strconv.QuoteRune(utf8.DecodeRuneInString(lit[i:]).Rune)+" in the "+baseName(base)+" literal "+lit)
@@ -809,7 +809,7 @@ func isDurationUnit(u string) bool {
 // a prefixed integer to prefixed. `1..n` is 1 and the range operator.
 func numberLit(s mut scanner, start int) {
 	let src = s.src
-	let n = len(src)
+	let n = src.Len()
 	if src[start] == '0' && start+1 < n && isBase(src[start+1]) {
 		prefixed(s, start)
 		return
@@ -868,7 +868,7 @@ func raw(s mut scanner, start int) {
 // string.
 func interpreted(s mut scanner, quote int, segStart int, kind uint8) {
 	let src = s.src
-	let n = len(src)
+	let n = src.Len()
 	let mut i = segStart + 1
 	for i < n {
 		let c = src[i]
@@ -899,7 +899,7 @@ func interpreted(s mut scanner, quote int, segStart int, kind uint8) {
 
 // openInterpolation pushes an interpolation of the string quoted at quote.
 func openInterpolation(s mut scanner, quote int) {
-	if s.open < len(s.quotes) {
+	if s.open < s.quotes.Len() {
 		s.quotes[s.open] = quote
 		s.depths[s.open] = 0
 	} else {
@@ -912,7 +912,7 @@ func openInterpolation(s mut scanner, quote int) {
 // runeLit scans a rune literal: one code point, as Go unquotes it.
 func runeLit(s mut scanner, start int) {
 	let src = s.src
-	let n = len(src)
+	let n = src.Len()
 	let mut i = start + 1
 	for i < n {
 		let c = src[i]
@@ -946,7 +946,7 @@ func runeLit(s mut scanner, start int) {
 // octal digits up to 255, \u and four or \U and eight hex digits naming a
 // valid code point), then the closing quote.
 func oneRune(lit string) bool {
-	let n = len(lit)
+	let n = lit.Len()
 	if n < 3 {
 		return false
 	}
@@ -1105,7 +1105,7 @@ func opKind(c byte, c1 byte, c2 byte) uint8 {
 // with the string.
 func operator(s mut scanner, start int) {
 	let src = s.src
-	let n = len(src)
+	let n = src.Len()
 	let c = src[start]
 	if s.open > 0 {
 		if c == '(' {
@@ -1138,7 +1138,7 @@ func hexByte(c byte) string { "0x" + strconv.FormatInt(int64(c), 16) }
 // digits.
 func uPlus(r rune) string {
 	let mut h = strings.ToUpper(strconv.FormatInt(int64(r), 16))
-	for len(h) < 4 {
+	for h.Len() < 4 {
 		h = "0" + h
 	}
 	"U+" + h

@@ -21,7 +21,7 @@ func shapeOf(p Parsed, x uint32, b mut strings.Builder) {
 	let k = uint8(t.kind[i])
 	b.WriteString(strconv.Itoa(int(k)))
 	let j = int(t.tok[i])
-	if j < len(p.kinds) {
+	if j < p.kinds.Len() {
 		let tk = uint8(p.kinds[j])
 		if tk >= Ident && tk <= StringTail || tk >= Add && tk <= Define || tk == Tilde {
 			b.WriteByte(' ')

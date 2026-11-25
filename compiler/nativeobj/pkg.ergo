@@ -103,7 +103,7 @@ type Package {
 func IsPointer(p Package, t int) bool { p.Types[t].Kind != KInt }
 
 // Exported says whether a Go name is exported.
-func Exported(name string) bool { len(name) > 0 && name[0] >= byte('A') && name[0] <= byte('Z') }
+func Exported(name string) bool { name.Len() > 0 && name[0] >= byte('A') && name[0] <= byte('Z') }
 
 // SymName is the linker symbol of function or variable name of p: the
 // path, a dot, the name; an init function is "init.N", N its place in

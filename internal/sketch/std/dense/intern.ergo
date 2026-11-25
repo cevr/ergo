@@ -1,3 +1,4 @@
+import option
 import strings
 import maps
 
@@ -29,10 +30,10 @@ func NewInterner[T comparable]() Interner[T] { Interner[T]{ids: Map[T, ID[T]]{},
 // one.
 func Intern[T comparable](s mut Interner[T], v T) ID[T] {
 	match s.ids.Get(v) {
-	case Some[ID[T]] as id:
+	case option.Some[ID[T]] as id:
 		id.Value
-	case None:
-		let id = next[T](len(s.rows))
+	case option.None:
+		let id = next[T](s.rows.Len())
 		s.rows = s.rows.Append(v)
 		s.ids = s.ids.Put(v, id)
 		id
@@ -86,19 +87,19 @@ law ValueOfIntern(xs []int, probe int) {
 		values[x] = true
 		texts[word(x)] = true
 		ok = ok && Value(s, ids[i]) == x && Text(t, tids[i]) == word(x)
-		ok = ok && Lookup(s, x) == Some[ID[int]]{Value: ids[i]} && FindText(t, word(x)) == Some[ID[Str]]{Value: tids[i]}
+		ok = ok && Lookup(s, x) == option.Some[ID[int]]{Value: ids[i]} && FindText(t, word(x)) == option.Some[ID[Str]]{Value: tids[i]}
 	}
 	let absent = maps.GetOr(values, probe, false)
 	let absentText = maps.GetOr(texts, word(probe), false)
-	ok = ok && (absent || Lookup(s, probe) == None) && (absentText || FindText(t, word(probe)) == None)
-	ok && Interned(s) == len(values) && Texts(t) == len(texts)
+	ok = ok && (absent || Lookup(s, probe) == option.None) && (absentText || FindText(t, word(probe)) == option.None)
+	ok && Interned(s) == values.Len() && Texts(t) == texts.Len()
 }
 
 // Lookup is the id of v, or None when v was never interned.
-func Lookup[T comparable](s Interner[T], v T) Option[ID[T]] { s.ids.Get(v) }
+func Lookup[T comparable](s Interner[T], v T) option.Option[ID[T]] { s.ids.Get(v) }
 
 // Interned is the count of distinct values.
-func Interned[T comparable](s Interner[T]) int { len(s.rows) }
+func Interned[T comparable](s Interner[T]) int { s.rows.Len() }
 
 // Str is the row tag of interned text: an ID[Str] names a text of a
 // Strings table.
@@ -127,13 +128,13 @@ func NewStrings() Strings {
 }
 
 // Texts is the count of distinct texts.
-func Texts(s Strings) int { len(s.spans)/2 + len(s.tail) }
+func Texts(s Strings) int { s.spans.Len()/2 + s.tail.Len() }
 
 // Text is the text id names: a part of the one string, not a copy, once
 // the text is settled. An id past the end is a defect.
 func Text(s Strings, id ID[Str]) string {
 	let i = int(id.n)
-	let settled = len(s.spans) / 2
+	let settled = s.spans.Len() / 2
 	if i < settled {
 		return s.text[int(s.spans[2*i]):int(s.spans[2*i+1])]
 	}
@@ -143,32 +144,32 @@ func Text(s Strings, id ID[Str]) string {
 // fnv is the 32-bit FNV-1a hash of text.
 func fnv(text string) uint32 {
 	let mut h = uint32(2166136261)
-	for i in 0..len(text) {
+	for i in 0..text.Len() {
 		h = (h ^ uint32(text[i])) * uint32(16777619)
 	}
 	h
 }
 
 // FindText is the id of text, or None when it was never interned.
-func FindText(s Strings, text string) Option[ID[Str]] {
-	if len(s.slots) == 0 {
-		return None
+func FindText(s Strings, text string) option.Option[ID[Str]] {
+	if s.slots.Len() == 0 {
+		return option.None
 	}
-	let mask = len(s.slots) - 1
+	let mask = s.slots.Len() - 1
 	let mut at = int(fnv(text)) & mask
 	for s.slots[at] != 0 {
 		let id = ID[Str]{n: s.slots[at] - 1}
 		if Text(s, id) == text {
-			return Some[ID[Str]]{Value: id}
+			return option.Some[ID[Str]]{Value: id}
 		}
 		at = (at + 1) & mask
 	}
-	None
+	option.None
 }
 
 // place puts id in the first free slot of its text's probe sequence.
 func place(s mut Strings, id ID[Str], text string) {
-	let mask = len(s.slots) - 1
+	let mask = s.slots.Len() - 1
 	let mut at = int(fnv(text)) & mask
 	for s.slots[at] != 0 {
 		at = (at + 1) & mask
@@ -179,7 +180,7 @@ func place(s mut Strings, id ID[Str], text string) {
 
 // grow doubles the slots, at least 16, and places every id again.
 func grow(s mut Strings) {
-	let mut n = len(s.slots) * 2
+	let mut n = s.slots.Len() * 2
 	if n < 16 {
 		n = 16
 	}
@@ -197,15 +198,15 @@ func grow(s mut Strings) {
 
 // settle joins the waiting texts onto the one string.
 func settle(s mut Strings) {
-	let mut start = len(s.text)
+	let mut start = s.text.Len()
 	let mut parts = []string{s.text}
 	for t in s.tail {
 		parts = parts.Append(t)
 		// Two appends: a chained x.Append(a).Append(b) copies x (the
 		// lowering clips the receiver of the outer Append).
 		s.spans = s.spans.Append(uint32(start))
-		s.spans = s.spans.Append(uint32(start + len(t)))
-		start = start + len(t)
+		s.spans = s.spans.Append(uint32(start + t.Len()))
+		start = start + t.Len()
 	}
 	s.text = strings.Join(parts, "")
 	s.tail = []string{}
@@ -216,22 +217,22 @@ func settle(s mut Strings) {
 // a new one.
 func InternText(s mut Strings, text string) ID[Str] {
 	match FindText(*s, text) {
-	case Some[ID[Str]] as found:
+	case option.Some[ID[Str]] as found:
 		return found.Value
-	case None:
+	case option.None:
 	}
-	if len(s.text)+s.pending+len(text) >= int(limit) {
+	if s.text.Len()+s.pending+text.Len() >= int(limit) {
 		Unreachable("dense: a Strings table holds at most 4294967295 bytes")
 	}
 	let id = next[Str](Texts(*s))
 	s.tail = s.tail.Append(text)
-	s.pending = s.pending + len(text)
-	if (s.used+1)*4 > len(s.slots)*3 {
+	s.pending = s.pending + text.Len()
+	if (s.used+1)*4 > s.slots.Len()*3 {
 		grow(s)
 	} else {
 		place(s, id, text)
 	}
-	if s.pending > 0 && s.pending >= len(s.text) {
+	if s.pending > 0 && s.pending >= s.text.Len() {
 		settle(s)
 	}
 	id

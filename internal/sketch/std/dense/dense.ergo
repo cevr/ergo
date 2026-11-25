@@ -24,6 +24,8 @@
 // and Go's own compiler (cmd/compile's ssa.ID); Effect has no such module.
 // The package is Ergo source with no Go body (STD-NOPRIV).
 
+import core
+import option
 import slices
 import maps
 
@@ -56,22 +58,22 @@ func Or[K](o Opt[K], or ID[K]) ID[K] {
 }
 
 // Unpack is o as an Option, for a match.
-func Unpack[K](o Opt[K]) Option[ID[K]] {
+func Unpack[K](o Opt[K]) option.Option[ID[K]] {
 	if o.n == uint32(0) {
-		return None
+		return option.None
 	}
-	Some[ID[K]]{Value: ID[K]{n: o.n - uint32(1)}}
+	option.Some[ID[K]]{Value: ID[K]{n: o.n - uint32(1)}}
 }
 
 // OptRoundTrips: an Opt holds the id it was made of, or none.
 law OptRoundTrips(xs []int, k int) {
-	if len(xs) == 0 {
-		return Unpack(NoID[int]()) == None
+	if xs.Len() == 0 {
+		return Unpack(NoID[int]()) == option.None
 	}
 	let (_, ids) = filled(xs)
-	let id = ids[pick(k, len(ids))]
+	let id = ids[pick(k, ids.Len())]
 	let other = ids[0]
-	Unpack(OptOf(id)) == Some[ID[int]]{Value: id} && Unpack(NoID[int]()) == None && Or(OptOf(id), other) == id && Or(NoID[int](), other) == other
+	Unpack(OptOf(id)) == option.Some[ID[int]]{Value: id} && Unpack(NoID[int]()) == option.None && Or(OptOf(id), other) == id && Or(NoID[int](), other) == other
 }
 
 // Index is the position of id's row: 0 for the first row put.
@@ -94,7 +96,7 @@ type Table[T] { rows []T }
 law TableEachStops(xs []int) {
 	let (t, _) = filled(xs)
 	let s = Each(t)
-	let n = len(xs)
+	let n = xs.Len()
 	for k in 1..n+2 {
 		let mut calls = 0
 		s(func(e Entry[int]) bool {
@@ -112,7 +114,7 @@ law TableEachStops(xs []int) {
 law TableIDsStops(xs []int) {
 	let (t, _) = filled(xs)
 	let s = IDs(t)
-	let n = len(xs)
+	let n = xs.Len()
 	for k in 1..n+2 {
 		let mut calls = 0
 		s(func(id ID[int]) bool {
@@ -157,15 +159,15 @@ func WithCap[T](room Room) Table[T] {
 }
 
 // Len is the count of rows.
-func Len[T](t Table[T]) int { len(t.rows) }
+func Len[T](t Table[T]) int { t.rows.Len() }
 
 // Has reports whether id names a row of t.
-func Has[T](t Table[T], id ID[T]) bool { int(id.n) < len(t.rows) }
+func Has[T](t Table[T], id ID[T]) bool { int(id.n) < t.rows.Len() }
 
 // Put appends v and returns its id. Every id that named a row before
 // still names the same row.
 func Put[T](t mut Table[T], v T) ID[T] {
-	let n = len(t.rows)
+	let n = t.rows.Len()
 	let grows = room(t.rows) == n
 	// A table's room is at most one per id (WithCap, and the regrowth
 	// below), so a store with room left is not full: only a Put that grows
@@ -193,7 +195,7 @@ law PutThenAt(xs []int, v int) {
 	let (start, _) = filled(xs)
 	let mut t = start
 	let id = t.Put(v)
-	At(t, id) == v && Has(t, id) && Len(t) == len(xs)+1
+	At(t, id) == v && Has(t, id) && Len(t) == xs.Len()+1
 }
 
 // PutKeepsOthers: a Put changes no row an earlier id names.
@@ -231,7 +233,7 @@ law FlatRowsKeepIDs(k int, c int) {
 		let ib = b.Put(flat)
 		ok = ok && Index(ia) == i && Index(ib) == i && Len(a) == i+1 && Len(b) == i+1 && Has(a, ia) && Has(b, ib)
 	}
-	ok && len(Rows(a)) == n && len(Rows(b)) == n
+	ok && Rows(a).Len() == n && Rows(b).Len() == n
 }
 
 // At is the row id names. An id past the end is a defect.
@@ -239,11 +241,11 @@ func At[T](t Table[T], id ID[T]) T { t.rows[int(id.n)] }
 
 // Get is the row id names, or None for an id past the end: for an id
 // that came from outside, such as a decoded one.
-func Get[T](t Table[T], id ID[T]) Option[T] {
-	if int(id.n) < len(t.rows) {
-		return Some[T]{Value: t.rows[int(id.n)]}
+func Get[T](t Table[T], id ID[T]) option.Option[T] {
+	if int(id.n) < t.rows.Len() {
+		return option.Some[T]{Value: t.rows[int(id.n)]}
 	}
-	None
+	option.None
 }
 
 // GetAgreesWithHas: Get is Some exactly when Has, and then holds the row
@@ -254,9 +256,9 @@ law GetAgreesWithHas(xs []int) {
 	let mut ok = true
 	for id in ids {
 		match Get(t, id) {
-		case Some[int] as v:
+		case option.Some[int] as v:
 			ok = ok && Has(t, id) && v.Value == At(t, id)
-		case None:
+		case option.None:
 			ok = ok && !Has(t, id)
 		}
 	}
@@ -268,14 +270,14 @@ func Set[T](t mut Table[T], id ID[T], v T) { t.rows[int(id.n)] = v }
 
 // SetThenAt: At reads what Set wrote, and Set changes no other row.
 law SetThenAt(xs []int, k int, v int) {
-	if len(xs) == 0 {
+	if xs.Len() == 0 {
 		return true
 	}
 	let (start, ids) = filled(xs)
 	let mut t = start
-	let i = pick(k, len(xs))
+	let i = pick(k, xs.Len())
 	t.Set(ids[i], v)
-	let mut ok = At(t, ids[i]) == v && Len(t) == len(xs)
+	let mut ok = At(t, ids[i]) == v && Len(t) == xs.Len()
 	for j, id in ids {
 		ok = ok && (j == i || At(t, id) == xs[j])
 	}
@@ -291,9 +293,9 @@ type Entry[T] { ID ID[T], Row T }
 // Each is the rows of t with their ids, in the order they were put. It
 // reads the rows as they are when it starts; a body that changes t
 // iterates for i in 0..Len(t) with IDOf.
-func Each[T](t Table[T]) Seq[Entry[T]] {
+func Each[T](t Table[T]) core.Seq[Entry[T]] {
 	let rows = t.rows
-	Seq[Entry[T]](func(yield func(e Entry[T]) bool) {
+	core.Seq[Entry[T]](func(yield func(e Entry[T]) bool) {
 		for i, row in rows {
 			if !yield(Entry[T]{ID: ID[T]{n: uint32(i)}, Row: row}) {
 				return
@@ -303,9 +305,9 @@ func Each[T](t Table[T]) Seq[Entry[T]] {
 }
 
 // IDs is the ids of t, in the order they were put.
-func IDs[T](t Table[T]) Seq[ID[T]] {
-	let n = len(t.rows)
-	Seq[ID[T]](func(yield func(id ID[T]) bool) {
+func IDs[T](t Table[T]) core.Seq[ID[T]] {
+	let n = t.rows.Len()
+	core.Seq[ID[T]](func(yield func(id ID[T]) bool) {
 		for i in 0..n {
 			if !yield(ID[T]{n: uint32(i)}) {
 				return
@@ -321,18 +323,18 @@ law IDsAreDense(xs []int) {
 	let mut i = 0
 	let mut ok = true
 	for e in Each(t) {
-		ok = ok && i < len(xs) && e.ID == ids[i] && Index(e.ID) == i && e.Row == xs[i]
+		ok = ok && i < xs.Len() && e.ID == ids[i] && Index(e.ID) == i && e.Row == xs[i]
 		i = i + 1
 	}
 	let mut j = 0
 	for id in IDs(t) {
-		ok = ok && j < len(ids) && id == ids[j]
+		ok = ok && j < ids.Len() && id == ids[j]
 		j = j + 1
 	}
 	for k, row in Rows(t) {
 		ok = ok && row == xs[k] && IDOf(t, k) == ids[k]
 	}
-	ok && i == len(xs) && j == len(xs) && len(Rows(t)) == len(xs)
+	ok && i == xs.Len() && j == xs.Len() && Rows(t).Len() == xs.Len()
 }
 
 // Rows is the rows of t in id order: for i, row in Rows(t), with
@@ -342,7 +344,7 @@ func Rows[T](t Table[T]) []T { t.rows }
 // IDOf is the id of position i of t. A position outside 0..Len(t) is a
 // defect.
 func IDOf[T](t Table[T], i int) ID[T] {
-	if i < 0 || i >= len(t.rows) {
+	if i < 0 || i >= t.rows.Len() {
 		Unreachable("dense: IDOf of a position outside the table")
 	}
 	ID[T]{n: uint32(i)}
@@ -373,11 +375,11 @@ law NextThenOf(xs []int) {
 		ids = ids.Append(c.Next())
 		col.Push(x)
 	}
-	let mut ok = Total(c) == len(xs)
+	let mut ok = Total(c) == xs.Len()
 	for i, id in ids {
 		ok = ok && In(col, id) && Of(col, id) == xs[i] && Index(id) == i
 	}
-	if len(ids) > 0 {
+	if ids.Len() > 0 {
 		col.SetOf(ids[0], -1)
 		ok = ok && Of(col, ids[0]) == -1
 	}
@@ -426,7 +428,7 @@ func ColWithCap[K, V](n int) Col[K, V] { Col[K, V]{xs: slices.WithCapacity[V](n)
 func Push[K, V](c mut Col[K, V], v V) { c.xs = c.xs.Append(v) }
 
 // In reports whether the column holds a value for id.
-func In[K, V](c Col[K, V], id ID[K]) bool { int(id.n) < len(c.xs) }
+func In[K, V](c Col[K, V], id ID[K]) bool { int(id.n) < c.xs.Len() }
 
 // Of is the value of id. An id past the end is a defect.
 func Of[K, V](c Col[K, V], id ID[K]) V { c.xs[int(id.n)] }
@@ -448,9 +450,9 @@ law SideDefaults(xs []int, sets []int, d int) {
 	let (_, ids) = filled(xs)
 	let mut s = NewSide[int, int](d)
 	let mut model = Map[ID[int], int]{}
-	if len(ids) > 0 {
+	if ids.Len() > 0 {
 		for v in sets {
-			let id = ids[pick(v, len(ids))]
+			let id = ids[pick(v, ids.Len())]
 			s.SideSet(id, v)
 			model[id] = v
 		}
@@ -464,13 +466,13 @@ law SideDefaults(xs []int, sets []int, d int) {
 
 // SideOf is the value of id: the default for an id never set.
 func SideOf[K, V](s Side[K, V], id ID[K]) V {
-	if int(id.n) < len(s.xs) { s.xs[int(id.n)] } else { s.zero }
+	if int(id.n) < s.xs.Len() { s.xs[int(id.n)] } else { s.zero }
 }
 
 // SideSet sets the value of id.
 func SideSet[K, V](s mut Side[K, V], id ID[K], v V) {
 	let i = int(id.n)
-	for len(s.xs) <= i {
+	for s.xs.Len() <= i {
 		s.xs = s.xs.Append(s.zero)
 	}
 	s.xs[i] = v
@@ -492,7 +494,7 @@ law ListsDoNotOverlap(a []int, b []int, c []int) {
 	let ra = p.PutList(a)
 	let rb = p.PutList(b)
 	let rc = p.PutList(c)
-	slices.Equal(List(p, ra), a) && slices.Equal(List(p, rb), b) && slices.Equal(List(p, rc), c) && Items(p) == len(a)+len(b)+len(c)
+	slices.Equal(List(p, ra), a) && slices.Equal(List(p, rb), b) && slices.Equal(List(p, rc), c) && Items(p) == a.Len()+b.Len()+c.Len()
 }
 
 // PoolWithCap is an empty pool with room for n items of all its lists, as
@@ -503,15 +505,15 @@ func PoolWithCap[E](n int) Pool[E] { Pool[E]{items: slices.WithCapacity[E](n)} }
 // changes. The items go in one bulk append, and an empty list does no
 // work but give its run the pool's end.
 func PutList[E](p mut Pool[E], xs []E) Run[E] {
-	let start = len(p.items)
-	if len(xs) == 0 {
+	let start = p.items.Len()
+	if xs.Len() == 0 {
 		return Run[E]{start: uint32(start), n: uint32(0)}
 	}
-	if start+len(xs) >= int(limit) {
+	if start+xs.Len() >= int(limit) {
 		Unreachable(full)
 	}
 	p.items = slices.AppendAll(p.items, xs)
-	Run[E]{start: uint32(start), n: uint32(len(xs))}
+	Run[E]{start: uint32(start), n: uint32(xs.Len())}
 }
 
 // EmptyRunsKeepTheirPlace: an empty list's run starts at the pool's end,
@@ -521,7 +523,7 @@ law EmptyRunsKeepTheirPlace(xs []int) {
 	let before = p.PutList([]int{})
 	let _ = p.PutList(xs)
 	let after = p.PutList([]int{})
-	RunLen(before) == 0 && RunLen(after) == 0 && (before == after) == (len(xs) == 0)
+	RunLen(before) == 0 && RunLen(after) == 0 && (before == after) == (xs.Len() == 0)
 }
 
 // List is the items of r. A run of another pool that ends past this
@@ -532,14 +534,14 @@ func List[E](p Pool[E], r Run[E]) []E { p.items[int(r.start) : int(r.start)+int(
 law ListRoundTrips(xs []int) {
 	let mut p = NewPool[int]()
 	let r = p.PutList(xs)
-	slices.Equal(List(p, r), xs) && RunLen(r) == len(xs)
+	slices.Equal(List(p, r), xs) && RunLen(r) == xs.Len()
 }
 
 // RunLen is the count of items of r.
 func RunLen[E](r Run[E]) int { int(r.n) }
 
 // Items is the count of items of every list of p.
-func Items[E](p Pool[E]) int { len(p.items) }
+func Items[E](p Pool[E]) int { p.items.Len() }
 
 // Stack is a scratch stack for gathering lists: a parser pushes the
 // children of a node as it reads them, marks where a list starts, and puts
@@ -559,7 +561,7 @@ func StackWithCap[T](n int) Stack[T] { Stack[T]{items: slices.WithCapacity[T](n)
 
 // StackPush puts v on top of s.
 func StackPush[T](s mut Stack[T], v T) {
-	if s.top < len(s.items) {
+	if s.top < s.items.Len() {
 		s.items[s.top] = v
 	} else {
 		s.items = s.items.Append(v)
@@ -617,9 +619,9 @@ law CutRestores(below []int, above []int, v int) {
 	for x in above {
 		s.StackPush(x)
 	}
-	let deep = Depth(s) == len(below)+len(above) && slices.Equal(Since(s, m), above)
+	let deep = Depth(s) == below.Len()+above.Len() && slices.Equal(Since(s, m), above)
 	s.Cut(m)
-	let cut = Depth(s) == m && m == len(below) && slices.Equal(Since(s, 0), below) && len(Since(s, m)) == 0
+	let cut = Depth(s) == m && m == below.Len() && slices.Equal(Since(s, 0), below) && Since(s, m).Len() == 0
 	s.StackPush(v)
 	deep && cut && Depth(s) == m+1 && Since(s, m)[0] == v && slices.Equal(Since(s, 0)[0:m], below)
 }

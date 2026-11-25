@@ -1,4 +1,5 @@
 import maps
+import option
 import slices
 import strings
 
@@ -52,14 +53,14 @@ type Timer { State string, Signal string, At Place }
 // states whose timer, work or exit action the reading cannot decide, and
 // the computed entries (step, after, work, exit), which have no graph.
 type MachineGraph {
-	Handle  string,
-	Name    string,
-	States  []string,
-	Signals []string,
-	Initial string,
-	Arms    []Arm,
-	Timers  []Timer,
-	Work    []Place,
+	Handle   string,
+	Name     string,
+	States   []string,
+	Signals  []string,
+	Initial  string,
+	Arms     []Arm,
+	Timers   []Timer,
+	Work     []Place,
 	Exit     []Place,
 	Unsure   []string,
 	Computed []string,
@@ -104,7 +105,7 @@ func altTakes(x Alt, state string, signal string) bool {
 // takesIt is whether arm a takes the pair (state, signal): one of its
 // patterns does.
 func takesIt(a Arm, state string, signal string) bool {
-	if len(a.Alts) == 0 {
+	if a.Alts.Len() == 0 {
 		return (a.AnyState || has(a.States, state)) && (a.AnySignal || has(a.Signals, signal))
 	}
 	slices.IndexFunc(a.Alts, func(x Alt) bool { altTakes(x, state, signal) }) >= 0
@@ -113,7 +114,7 @@ func takesIt(a Arm, state string, signal string) bool {
 // partialAt is whether arm a takes the pair only maybe: each of its
 // patterns that takes it is partial.
 func partialAt(a Arm, state string, signal string) bool {
-	if len(a.Alts) == 0 {
+	if a.Alts.Len() == 0 {
 		return a.Partial
 	}
 	slices.IndexFunc(a.Alts, func(x Alt) bool { altTakes(x, state, signal) && !x.Partial }) < 0
@@ -177,7 +178,7 @@ func reachableBySteps(g MachineGraph) []Pair {
 		}
 	}
 	let mut i = 0
-	for i < len(queue) {
+	for i < queue.Len() {
 		let s = queue[i]
 		i = i + 1
 		for sg in g.Signals {
@@ -235,9 +236,9 @@ func reachableByRounds(g MachineGraph) []Pair {
 // machineTarget is the machine graph at the declaration d of a.
 func machineTarget(a string, d Decl, graphs Map[string, MachineGraph]) MachineGraph fails NotMachine {
 	match graphs.Get(d.Handle) {
-	case Some[MachineGraph] as g:
+	case option.Some[MachineGraph] as g:
 		g.Value
-	case None:
+	case option.None:
 		NotMachine{Address: a, Kind: d.Kind}
 	}
 }
@@ -287,7 +288,7 @@ func MachineText(v MachineView) string {
 		for a in p.Arms {
 			sites = sites.Append(placeText(a))
 		}
-		let arms = if len(sites) == 0 { "no arm" } else { strings.Join(sites, " or ") }
+		let arms = if sites.Len() == 0 { "no arm" } else { strings.Join(sites, " or ") }
 		b = b + "  reach (\(p.State), \(p.Signal)) by \(arms)\n"
 	}
 	b

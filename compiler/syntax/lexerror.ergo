@@ -40,7 +40,7 @@ func lexStream(src string) string {
 		starts = starts.Append(end)
 		ends = ends.Append(end)
 	}
-	let m = len(kinds)
+	let m = kinds.Len()
 	if m == 0 || kinds[m-1] != EOF {
 		return "the stream does not end with EOF"
 	}
@@ -52,8 +52,8 @@ func lexStream(src string) string {
 		if starts[i] < prev {
 			return "token \(i) starts at \(starts[i]), before the previous end \(prev)"
 		}
-		if ends[i] < starts[i] || ends[i] > len(src) {
-			return "token \(i) spans \(starts[i])..\(ends[i]) in a \(len(src))-byte source"
+		if ends[i] < starts[i] || ends[i] > src.Len() {
+			return "token \(i) spans \(starts[i])..\(ends[i]) in a \(src.Len())-byte source"
 		}
 		prev = ends[i]
 	}

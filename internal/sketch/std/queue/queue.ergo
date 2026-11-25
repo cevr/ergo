@@ -3,6 +3,9 @@
 // and the methods of its Queue; the caller's task, a hidden argument of
 // Push, Pop and Values, is docs/spec/stdlib.md's Hidden arguments.
 
+import core
+import option
+
 // Closed is the failure of Push on a closed queue and of Pop on a closed,
 // empty one. A closed queue is a normal end of the protocol, not a stop.
 extern go ergo.local/prototype/runtime/v1.Closed type Closed {}
@@ -32,12 +35,12 @@ extern go ergo.local/prototype/runtime/v1.Queue type Queue[T own] {
 	//
 	// Unbounded: it ends only when another task closes the queue, so a
 	// loop that collects it all waits for that close.
-	Values() Seq[T],
+	Values() core.Seq[T],
 	// Poll takes the value Pop would take when one is there now, and is
 	// None when there is none, open or closed. It never waits. With
 	// capacity 0 it takes the value of a waiting Push, which then
 	// succeeds.
-	Poll() Option[T],
+	Poll() option.Option[T],
 	// Offer adds v at the back now, or not at all: it never waits. It fails
 	// with Full when the queue holds its capacity, or when earlier Pushes
 	// still wait for room, and with Closed when the queue is closed. A
@@ -55,7 +58,7 @@ extern go ergo.local/prototype/runtime/v1.Queue type Queue[T own] {
 	// room keeps waiting. It fails with Closed on a closed queue; a capacity
 	// of 0 is a defect: there is never room to slide into. It takes v, as
 	// Push does.
-	Slide(v own T) Option[T] fails Closed,
+	Slide(v own T) option.Option[T] fails Closed,
 	// Cap is the capacity New gave the queue.
 	Cap() int,
 	// Len is how many values are in the queue that nothing has taken yet,
@@ -67,7 +70,7 @@ extern go ergo.local/prototype/runtime/v1.Queue type Queue[T own] {
 	// resources. It ends admission, as End does, and gives every value
 	// left, oldest first; the owner's release releases them last entered
 	// first. Only the release calls it; it never waits.
-	..Keeping[T],
+	..core.Keeping[T],
 
 	// EndIsIdempotent: a second End returns at once and never fails.
 	law EndIsIdempotent() {
@@ -129,9 +132,9 @@ law EndKeepsValues(v int) {
 // closed.
 law PollOnEmptyIsNone() {
 	let q = New[int](1)
-	let open = q.Poll() == None
+	let open = q.Poll() == option.None
 	q.End()
-	open && q.Poll() == None
+	open && q.Poll() == option.None
 }
 
 // PollTakesTheFront: Poll takes the values in the order Push added them,
@@ -141,19 +144,19 @@ law PollTakesTheFront(a int, b int) {
 	try q.Push(a)
 	try q.Push(b)
 	q.End()
-	q.Poll() == Some[int]{Value: a} && q.Poll() == Some[int]{Value: b} && q.Poll() == None
+	q.Poll() == option.Some[int]{Value: a} && q.Poll() == option.Some[int]{Value: b} && q.Poll() == option.None
 }
 
 // LenCountsUntaken: Len is the count of values pushed and not yet taken.
 law LenCountsUntaken(xs []int) {
-	let q = New[int](len(xs))
+	let q = New[int](xs.Len())
 	for x in xs {
 		try q.Push(x)
 	}
-	let full = q.Len() == len(xs)
+	let full = q.Len() == xs.Len()
 	let mut drained = true
 	for x in xs {
-		drained = drained && q.Poll() == Some[int]{Value: x}
+		drained = drained && q.Poll() == option.Some[int]{Value: x}
 	}
 	full && drained && q.Len() == 0
 }
@@ -161,7 +164,7 @@ law LenCountsUntaken(xs []int) {
 // releaseCount records a release in Seen, with no capability row: a release
 // that has no needs row can still change shared state and must run. queue
 // observes it with a queue, since sync imports task, which imports queue.
-type releaseCount { Seen Queue[int] } implements Closer
+type releaseCount { Seen Queue[int] } implements core.Closer
 
 func Close(r releaseCount) {
 	r.Seen.Push(1) catch {
@@ -209,7 +212,7 @@ extern go ergo.local/prototype/runtime/v1.OpenQueue type OpenQueue[T] {
 	runtimeOnly(),
 	Push(v T),
 	Pop() T,
-	Poll() Option[T],
+	Poll() option.Option[T],
 	Offer(v T) fails Full,
 	Cap() int,
 	Len() int,
@@ -221,7 +224,7 @@ law OpenFirstInFirstOut(a int, b int) {
 	let q = NewOpen[int](2)
 	q.Push(a)
 	q.Push(b)
-	q.Pop() == a && q.Pop() == b && q.Poll() == None && q.Len() == 0 && q.Cap() == 2
+	q.Pop() == a && q.Pop() == b && q.Poll() == option.None && q.Len() == 0 && q.Cap() == 2
 }
 
 law OpenOfferRespectsCapacity(xs []int, c int) {
@@ -232,7 +235,7 @@ law OpenOfferRespectsCapacity(xs []int, c int) {
 	for x in xs {
 		q.Offer(x) catch {
 		case Full:
-			ok = ok && len(kept) == capacity
+			ok = ok && kept.Len() == capacity
 			continue
 		}
 		kept = kept.Append(x)
@@ -240,7 +243,7 @@ law OpenOfferRespectsCapacity(xs []int, c int) {
 	for k in kept {
 		ok = ok && q.Pop() == k
 	}
-	ok && q.Len() == 0 && len(kept) <= capacity
+	ok && q.Len() == 0 && kept.Len() <= capacity
 }
 
 // SlidingKeepsTheNewest: Slide into a queue of capacity c never waits and
@@ -252,9 +255,9 @@ law SlidingKeepsTheNewest(xs []int, c int) {
 		try q.Slide(x)
 	}
 	q.End()
-	let from = if len(xs) > capacity { len(xs) - capacity } else { 0 }
-	let mut ok = q.Len() == len(xs)-from
-	for i in from..len(xs) {
+	let from = if xs.Len() > capacity { xs.Len() - capacity } else { 0 }
+	let mut ok = q.Len() == xs.Len()-from
+	for i in from..xs.Len() {
 		ok = ok && try q.Pop() == xs[i]
 	}
 	ok
@@ -271,7 +274,7 @@ law DroppingKeepsTheOldest(xs []int, c int) {
 	for x in xs {
 		q.Offer(x) catch {
 		case Full:
-			ok = ok && len(kept) == capacity
+			ok = ok && kept.Len() == capacity
 			continue
 		case Closed:
 			return false
@@ -282,5 +285,5 @@ law DroppingKeepsTheOldest(xs []int, c int) {
 	for k in kept {
 		ok = ok && try q.Pop() == k
 	}
-	ok && q.Len() == 0 && len(kept) <= capacity
+	ok && q.Len() == 0 && kept.Len() <= capacity
 }

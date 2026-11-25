@@ -12,10 +12,12 @@
 // RenderObjects are the same split: an app's widget vocabulary over a
 // small host one.
 
+import option
+
 // HostNode is one node as a host draws it: a box, a text, a text editor,
 // a scroll, a virtual list of rows or a canvas. An image is a canvas
 // paint op (ImageOp).
-type HostNode[E] = HostBox{Style Style, Dir Dir, Sem Sem[E], Mark Mark, Moves Moves, Layer Option[Layered[E]], Zone Option[Key], Default LookId} | HostText{Value string, Style Style, Readout Option[int], Reserve string} | HostEditor{Value string, Placeholder string, Label string, Description string, Invalid bool, Hints Hints, Lines int, Caret int, Anchor int} | HostScroll{Style Style} | HostRows{Label string, Count int, RowHeight Length, First int, Offset Length} | HostCanvas{Label string, Width Length, Height Length, Paint []PaintOp}
+type HostNode[E] = HostBox{Style Style, Dir Dir, Sem Sem[E], Mark Mark, Moves Moves, Layer option.Option[Layered[E]], Zone option.Option[Key], Default LookId} | HostText{Value string, Style Style, Readout option.Option[int], Reserve string} | HostEditor{Value string, Placeholder string, Label string, Description string, Invalid bool, Hints Hints, Lines int, Caret int, Anchor int} | HostScroll{Style Style} | HostRows{Label string, Count int, RowHeight Length, First int, Offset Length} | HostCanvas{Label string, Width Length, Height Length, Paint []PaintOp}
 
 // Dir is a box's direction: a Box (laid out as a column), a Column or a
 // Row. A Box and a Column lay out alike; a screenshot names each as the
@@ -38,7 +40,7 @@ type DirRow {}
 // Pointer, whether it takes pointer events as an Area; Live, whether it
 // says its name when it changes (a Live region); the signal a press sends;
 // and the Fence a Fieldset puts on the nodes under it.
-type Sem[E] { Access Access, Label Option[string], Control bool, Focus bool, Pointer bool, Live bool, On Option[E], Fence Option[Fence] }
+type Sem[E] { Access Access, Label option.Option[string], Control bool, Focus bool, Pointer bool, Live bool, On option.Option[E], Fence option.Option[Fence] }
 
 // Fence is what a Fieldset puts on the nodes under it: disabled, and its
 // description where they have none.
@@ -80,7 +82,7 @@ func LowerShapes[E](shapes []Shape[E]) []HostShape[E] {
 
 // box is a plain box: no access but Generic, no chrome, no motion.
 func box[E](style Style, dir Dir) HostBox[E] {
-	HostBox[E]{Style: style, Dir: dir, Sem: Sem[E]{Access: Named(Generic, ""), Label: None, Control: false, Focus: false, Pointer: false, Live: false, On: None, Fence: None}, Mark: NoMark, Moves: Still, Layer: None, Zone: None, Default: BareId()}
+	HostBox[E]{Style: style, Dir: dir, Sem: Sem[E]{Access: Named(Generic, ""), Label: option.None, Control: false, Focus: false, Pointer: false, Live: false, On: option.None, Fence: option.None}, Mark: NoMark, Moves: Still, Layer: option.None, Zone: option.None, Default: BareId()}
 }
 
 // Lower is n as a host draws it: one host node for one app node, which
@@ -98,27 +100,27 @@ func Lower[E](n Node[E]) HostNode[E] {
 	case PressableNode[E] as x:
 		let mut b = box[E](x.Style, DirRow)
 		b.Sem.Access = Named(Button, x.Label)
-		b.Sem.Label = Some{Value: x.Label}
+		b.Sem.Label = option.Some{Value: x.Label}
 		b.Sem.Control = true
 		b.Sem.Focus = true
-		b.Sem.On = Some{Value: x.On}
+		b.Sem.On = option.Some{Value: x.On}
 		b.Default = PressId()
 		b
 	case CheckNode[E] as x:
 		let mut b = box[E](Plain(), DirRow)
 		b.Sem.Access = Named(Checkbox, x.Label)
-		b.Sem.Access.Checked = Some{Value: x.Checked}
-		b.Sem.Label = Some{Value: x.Label}
+		b.Sem.Access.Checked = option.Some{Value: x.Checked}
+		b.Sem.Label = option.Some{Value: x.Label}
 		b.Sem.Control = true
 		b.Sem.Focus = true
-		b.Sem.On = Some{Value: x.On}
+		b.Sem.On = option.Some{Value: x.On}
 		b.Mark = CheckMark
 		b
 	case ToggleNode as x:
 		let mut b = box[E](Plain(), DirRow)
 		b.Sem.Access = Named(Switch, x.Label)
-		b.Sem.Access.Checked = Some{Value: x.On}
-		b.Sem.Label = Some{Value: x.Label}
+		b.Sem.Access.Checked = option.Some{Value: x.On}
+		b.Sem.Label = option.Some{Value: x.Label}
 		b.Sem.Control = true
 		b.Sem.Focus = true
 		b.Mark = SwitchMark
@@ -126,13 +128,13 @@ func Lower[E](n Node[E]) HostNode[E] {
 	case AreaNode as x:
 		let mut b = box[E](x.Style, DirBox)
 		b.Sem.Access = Named(Region, x.Label)
-		b.Sem.Label = Some{Value: x.Label}
+		b.Sem.Label = option.Some{Value: x.Label}
 		b.Sem.Pointer = true
 		b
 	case SemanticNode[E] as x:
 		let mut b = box[E](x.Style, DirBox)
 		b.Sem.Access = x.Access
-		b.Sem.Label = Some{Value: x.Access.Name}
+		b.Sem.Label = option.Some{Value: x.Access.Name}
 		b.Sem.Control = true
 		b.Sem.Focus = !x.Access.Disabled && sends(x.On)
 		b.Sem.On = x.On
@@ -140,11 +142,11 @@ func Lower[E](n Node[E]) HostNode[E] {
 	case FieldsetNode as x:
 		let mut b = box[E](Plain(), DirBox)
 		b.Sem.Access = Named(Group, "")
-		b.Sem.Fence = Some{Value: Fence{Disabled: x.Disabled, Description: x.Description}}
+		b.Sem.Fence = option.Some{Value: Fence{Disabled: x.Disabled, Description: x.Description}}
 		b
 	case ZoneNode as x:
 		let mut b = box[E](x.Style, DirBox)
-		b.Zone = Some{Value: x.Key}
+		b.Zone = option.Some{Value: x.Key}
 		b
 	case LiveNode as x:
 		let mut b = box[E](Plain(), DirBox)
@@ -161,12 +163,12 @@ func Lower[E](n Node[E]) HostNode[E] {
 		b
 	case LayerNode[E] as x:
 		let mut b = box[E](x.Style, DirBox)
-		b.Layer = Some{Value: Layered[E]{Z: x.Z, Anchor: x.Anchor, Place: x.Place, Scrim: x.Scrim, Dismiss: x.Dismiss}}
+		b.Layer = option.Some{Value: Layered[E]{Z: x.Z, Anchor: x.Anchor, Place: x.Place, Scrim: x.Scrim, Dismiss: x.Dismiss}}
 		b
 	case TextNode as x:
-		HostText{Value: x.Value, Style: x.Style, Readout: None, Reserve: ""}
+		HostText{Value: x.Value, Style: x.Style, Readout: option.None, Reserve: ""}
 	case ReadoutNode as x:
-		HostText{Value: "", Style: x.Style, Readout: Some{Value: x.Readout}, Reserve: x.Reserve}
+		HostText{Value: "", Style: x.Style, Readout: option.Some{Value: x.Readout}, Reserve: x.Reserve}
 	case InputNode as x:
 		HostEditor{Value: x.Value, Placeholder: x.Placeholder, Label: x.Label, Description: x.Description, Invalid: x.Invalid, Hints: x.Hints, Lines: x.Lines, Caret: x.Caret, Anchor: x.Anchor}
 	case ScrollNode as x:
@@ -184,13 +186,13 @@ func HostScope[E](h HostNode[E], off bool, desc string) (bool, string) {
 	match h {
 	case HostBox[E] as x:
 		match x.Sem.Fence {
-		case Some[Fence] as f:
+		case option.Some[Fence] as f:
 			let mut d = desc
 			if f.Value.Description != "" {
 				d = f.Value.Description
 			}
 			(off || f.Value.Disabled, d)
-		case None:
+		case option.None:
 			(off, desc)
 		}
 	case HostText, HostEditor, HostScroll, HostRows, HostCanvas:
@@ -212,8 +214,8 @@ func HostAccess[E](h HostNode[E], off bool, desc string) Access {
 		}
 	case HostText as x:
 		match x.Readout {
-		case Some[int]:
-		case None:
+		case option.Some[int]:
+		case option.None:
 			a.Role = Static
 			a.Name = x.Value
 		}
@@ -224,7 +226,7 @@ func HostAccess[E](h HostNode[E], off bool, desc string) Access {
 		if x.Description != "" {
 			a.Description = x.Description
 		}
-		a.Value = Some{Value: x.Value}
+		a.Value = option.Some{Value: x.Value}
 		a.Invalid = x.Invalid
 	case HostRows as x:
 		a.Role = List
@@ -245,7 +247,7 @@ func HostFinds[E](loc Locator, h HostNode[E], a Access) bool {
 	case WithLabel as x:
 		match h {
 		case HostBox[E] as b:
-			b.Sem.Label == (Some{Value: x.Label})
+			b.Sem.Label == (option.Some{Value: x.Label})
 		case HostEditor as e:
 			e.Label != "" && e.Label == x.Label
 		case HostRows as l:
@@ -267,7 +269,7 @@ func HostFinds[E](loc Locator, h HostNode[E], a Access) bool {
 	case WithZone as x:
 		match h {
 		case HostBox[E] as b:
-			b.Zone == (Some{Value: x.Key})
+			b.Zone == (option.Some{Value: x.Key})
 		case HostText, HostEditor, HostScroll, HostRows, HostCanvas:
 			false
 		}
@@ -284,7 +286,7 @@ func HostFinds[E](loc Locator, h HostNode[E], a Access) bool {
 func isText[E](h HostNode[E]) bool {
 	match h {
 	case HostText as x:
-		x.Readout == None
+		x.Readout == option.None
 	case HostBox[E], HostEditor, HostScroll, HostRows, HostCanvas:
 		false
 	}
@@ -296,9 +298,9 @@ func HostTextOf[E](h HostNode[E]) string {
 	match h {
 	case HostText as x:
 		match x.Readout {
-		case Some[int]:
+		case option.Some[int]:
 			""
-		case None:
+		case option.None:
 			x.Value
 		}
 	case HostBox[E], HostEditor, HostScroll, HostRows, HostCanvas:
@@ -340,9 +342,9 @@ func HostLookId[E](h HostNode[E]) LookId {
 			BareId()
 		case Still, Transiting:
 			match x.Layer {
-			case Some[Layered[E]]:
+			case option.Some[Layered[E]]:
 				BareId()
-			case None:
+			case option.None:
 				x.Style.Look
 			}
 		}
@@ -374,9 +376,9 @@ func HostShotText[E](h HostNode[E]) string {
 		boxShot(x)
 	case HostText as x:
 		match x.Readout {
-		case Some[int]:
+		case option.Some[int]:
 			"readout \"\(x.Reserve)\""
-		case None:
+		case option.None:
 			"text \"\(x.Value)\""
 		}
 	case HostEditor as x:
@@ -393,7 +395,7 @@ func HostShotText[E](h HostNode[E]) string {
 // boxShot is a box's screenshot line: what the box carries names it.
 func boxShot[E](x HostBox[E]) string {
 	match x.Sem.Fence {
-	case Some[Fence] as f:
+	case option.Some[Fence] as f:
 		let mut out = "fieldset"
 		if f.Value.Disabled {
 			out = out + " disabled"
@@ -402,12 +404,12 @@ func boxShot[E](x HostBox[E]) string {
 			out = out + " \"\(f.Value.Description)\""
 		}
 		return out
-	case None:
+	case option.None:
 	}
 	match x.Zone {
-	case Some[Key] as k:
+	case option.Some[Key] as k:
 		return "zone \(keyText(k.Value))"
-	case None:
+	case option.None:
 	}
 	if x.Sem.Live {
 		return "live \"\(x.Sem.Access.Name)\""
@@ -420,20 +422,20 @@ func boxShot[E](x HostBox[E]) string {
 	case Still:
 	}
 	match x.Layer {
-	case Some[Layered[E]] as l:
+	case option.Some[Layered[E]] as l:
 		let mut out = "layer \(zText(l.Value.Z))"
 		match l.Value.Anchor {
-		case Some[Key] as k:
+		case option.Some[Key] as k:
 			out = out + " at \(keyText(k.Value))"
-		case None:
+		case option.None:
 		}
 		if l.Value.Scrim {
 			out = out + " scrim"
 		}
 		return out
-	case None:
+	case option.None:
 	}
-	let on = x.Sem.Access.Checked == (Some{Value: true})
+	let on = x.Sem.Access.Checked == (option.Some{Value: true})
 	match x.Mark {
 	case CheckMark:
 		return if on { "[x] \"\(x.Sem.Access.Name)\"" } else { "[ ] \"\(x.Sem.Access.Name)\"" }
@@ -476,7 +478,7 @@ func editorShot(x HostEditor) string {
 	if x.Caret != x.Anchor {
 		let (lo, hi) = Selected(Editing{Text: x.Value, Caret: x.Caret, Anchor: x.Anchor})
 		out = out + " selected \(lo)..\(hi) caret \(x.Caret)"
-	} else if x.Caret != len(x.Value) {
+	} else if x.Caret != x.Value.Len() {
 		out = out + " caret \(x.Caret)"
 	}
 	out
@@ -535,7 +537,7 @@ law LowerIsInjective(seed int) {
 		for _ in 0..4 {
 			let p = drawPicks(&r)
 			let a = appNode(k, p)
-			for i in 0..len(p) {
+			for i in 0..p.Len() {
 				let mut q = []int{}
 				for j, v in p {
 					q = q.Append(if j == i { 1 - v } else { v })
@@ -566,7 +568,7 @@ func appNode(k int, p []int) Node[int] {
 	let names = []string{"a", ""}
 	let keys = []Key{NoKey, ByInt(1)}
 	let styles = []Style{Plain(), PressStyle()}
-	let ons = []Option[int]{None, Some{Value: 1}}
+	let ons = []option.Option[int]{option.None, option.Some{Value: 1}}
 	let b = func(i int) bool { p[i] == 1 }
 	match k {
 	case 0:
@@ -607,12 +609,12 @@ func appNode(k int, p []int) Node[int] {
 		let mut a = Named([]Role{Button, Checkbox}[p[0]], names[p[1]])
 		a.Disabled = b(2)
 		a.Description = []string{"d", ""}[p[3]]
-		a.Checked = []Option[bool]{None, Some{Value: true}}[p[4]]
+		a.Checked = []option.Option[bool]{option.None, option.Some{Value: true}}[p[4]]
 		SemanticNode[int]{Access: a, On: ons[p[5]], Style: styles[p[6]]}
 	case 17:
 		ReadoutNode{Readout: 1 + p[0], Reserve: []string{"r", ""}[p[1]], Style: styles[p[2]]}
 	case 18:
-		LayerNode[int]{Z: []Z{PopoverZ, ModalZ}[p[0]], Anchor: []Option[Key]{None, Some{Value: ByInt(1)}}[p[1]], Place: Place{Side: []Side{SideBottom, SideTop}[p[2]], Align: AlignStart, Gap: 0}, Scrim: b(3), Dismiss: ons[p[4]], Style: styles[p[5]]}
+		LayerNode[int]{Z: []Z{PopoverZ, ModalZ}[p[0]], Anchor: []option.Option[Key]{option.None, option.Some{Value: ByInt(1)}}[p[1]], Place: Place{Side: []Side{SideBottom, SideTop}[p[2]], Align: AlignStart, Gap: 0}, Scrim: b(3), Dismiss: ons[p[4]], Style: styles[p[5]]}
 	case _:
 		TrackNode{Key: keys[p[0]], Prop: []TrackProp{TrackX, TrackY}[p[1]], Target: float64(p[2]), Curve: []TrackCurve{TrackEase{Over: 120ms}, TrackSpring{Stiffness: 1.0, Damping: 1.0}}[p[3]], Style: styles[p[4]]}
 	}
@@ -654,17 +656,17 @@ func refAccess(n Node[int], off bool, desc string) Access {
 		a.Role = Checkbox
 		a.Name = x.Label
 		a.Disabled = off
-		a.Checked = Some{Value: x.Checked}
+		a.Checked = option.Some{Value: x.Checked}
 	case ToggleNode as x:
 		a.Role = Switch
 		a.Name = x.Label
 		a.Disabled = off
-		a.Checked = Some{Value: x.On}
+		a.Checked = option.Some{Value: x.On}
 	case InputNode as x:
 		a.Role = TextBox
 		a.Name = if x.Label != "" { x.Label } else { x.Placeholder }
 		a.Disabled = off
-		a.Value = Some{Value: x.Value}
+		a.Value = option.Some{Value: x.Value}
 		if x.Description != "" {
 			a.Description = x.Description
 		}
@@ -826,7 +828,7 @@ func refShot(n Node[int]) string {
 		if x.Caret != x.Anchor {
 			let (lo, hi) = Selected(EditingOf(x))
 			out = out + " selected \(lo)..\(hi) caret \(x.Caret)"
-		} else if x.Caret != len(x.Value) {
+		} else if x.Caret != x.Value.Len() {
 			out = out + " caret \(x.Caret)"
 		}
 		out
@@ -854,9 +856,9 @@ func refShot(n Node[int]) string {
 	case LayerNode[int] as x:
 		let mut out = "layer \(zText(x.Z))"
 		match x.Anchor {
-		case Some[Key] as k:
+		case option.Some[Key] as k:
 			out = out + " at \(keyText(k.Value))"
-		case None:
+		case option.None:
 		}
 		if x.Scrim {
 			out = out + " scrim"

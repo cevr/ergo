@@ -6,6 +6,7 @@
 
 import compiler/syntax
 import dense
+import option
 import strconv
 import strings
 
@@ -30,27 +31,27 @@ func b01(b bool) string { if b { "1" } else { "0" } }
 
 func opt(d mut dumper, depth int, o dense.Opt[syntax.Node]) {
 	match dense.Unpack(o) {
-	case Some{Value: s}:
+	case option.Some{Value: s}:
 		node(d, depth, s)
-	case None:
+	case option.None:
 		line(d, depth, "nil")
 	}
 }
 
 func optPos(d mut dumper, o dense.Opt[syntax.Node]) int {
 	match dense.Unpack(o) {
-	case Some{Value: s}:
+	case option.Some{Value: s}:
 		syntax.NodePos(d.p, s)
-	case None:
+	case option.None:
 		-1
 	}
 }
 
 func isSome(o dense.Opt[syntax.Node]) bool {
 	match dense.Unpack(o) {
-	case Some:
+	case option.Some:
 		true
-	case None:
+	case option.None:
 		false
 	}
 }

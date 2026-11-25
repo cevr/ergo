@@ -6,6 +6,7 @@
 import compiler/check/store
 import compiler/syntax
 import dense
+import option
 import strings
 
 // IfaceDecl is one declaration of a package, by its index in the store:
@@ -29,7 +30,7 @@ func EmptyIface(path string) Iface {
 	Iface{Path: path, Name: lastOf(path), Decls: []IfaceDecl{}, Types: store.New(path, []string{}), Roles: []Role{}, Claims: [][]store.ClaimLayout{}, Foreign: []Foreign{}, Refs: []RoleRef{}}
 }
 
-func lastOf(path string) string { path[strings.LastIndex(path, "/")+1 : len(path)] }
+func lastOf(path string) string { path[strings.LastIndex(path, "/")+1 : path.Len()] }
 
 // Interface is the interface of the package whose store bind.Collect
 // built from files, its kinds solved; ext, foreign and deps are what its
@@ -56,13 +57,13 @@ func Interface(s store.Store, files []syntax.Parsed, kinds Kinds, ext []Ext, for
 				}
 			}
 			match aliasTarget(s, d, files) {
-			case Some[AliasOf] as a:
+			case option.Some[AliasOf] as a:
 				alias = true
 				let env = NewEnv(s, files, a.Value.p, []string{}, kinds, ext, table, deps)
 				let t = named(&pool, env, HLocal{Decl: d, Name: name})
 				print = Text(pool, names, t)
 				key = sortKey(pool, names, t)
-			case None:
+			case option.None:
 			}
 			vs = variantDecls(s, files, d)
 			harness = Harness(files, name)
@@ -71,7 +72,7 @@ func Interface(s store.Store, files []syntax.Parsed, kinds Kinds, ext []Ext, for
 	}
 	let mut roles = []Role{}
 	let mut claims = [][]store.ClaimLayout{}
-	if len(files) > 0 {
+	if files.Len() > 0 {
 		let env = NewEnv(s, files, files[0], []string{}, kinds, ext, table, deps)
 		roles = Roles(&pool, env)
 		claims = LocalClaimLayouts(&pool, env, roles)
@@ -89,7 +90,7 @@ func Interface(s store.Store, files []syntax.Parsed, kinds Kinds, ext []Ext, for
 func variantDecls(s store.Store, files []syntax.Parsed, d dense.ID[store.Decl]) []int {
 	let mut out = []int{}
 	match unionMembers(s, files, d) {
-	case Some[UnionOf] as u:
+	case option.Some[UnionOf] as u:
 		for m in u.Value.members {
 			let name = match syntax.ViewOf(u.Value.p.Tree, m) {
 			case syntax.VariantSpec as vs:
@@ -100,36 +101,36 @@ func variantDecls(s store.Store, files []syntax.Parsed, d dense.ID[store.Decl]) 
 				return []int{}
 			}
 			match store.Lookup(s, name) {
-			case Some[dense.ID[store.Decl]] as v:
+			case option.Some[dense.ID[store.Decl]] as v:
 				out = out.Append(dense.Index(v.Value))
-			case None:
+			case option.None:
 				return []int{}
 			}
 		}
-	case None:
+	case option.None:
 	}
 	out
 }
 
 // importDep is the interface the import q of s names, and its place in
 // s's import list plus one; none when q is no Ergo import of s.
-func importDep(s store.Store, deps []Iface, q string) Option[int] {
+func importDep(s store.Store, deps []Iface, q string) option.Option[int] {
 	match store.Lookup(s, q) {
-	case Some[dense.ID[store.Decl]] as d:
+	case option.Some[dense.ID[store.Decl]] as d:
 		if store.KindName(int(store.DeclOf(s, d.Value).Kind)) != "pkg" {
-			return None
+			return option.None
 		}
 		let imp = store.ImportOf(s, d.Value)
-		if imp == 0 || imp > len(deps) { None } else { Some[int]{Value: imp} }
-	case None:
-		None
+		if imp == 0 || imp > deps.Len() { option.None } else { option.Some[int]{Value: imp} }
+	case option.None:
+		option.None
 	}
 }
 
 // declOf is the index of the exported type declaration name of dep, or
 // -1 (an XRef names no other; C0/plan.md §4).
 func declOf(dep Iface, name string) int {
-	if len(name) == 0 || name[0] < 65 || name[0] > 90 {
+	if name.Len() == 0 || name[0] < 65 || name[0] > 90 {
 		return -1
 	}
 	for i, d in dep.Decls {
@@ -145,18 +146,18 @@ func declOf(dep Iface, name string) int {
 // the type's index in its interface (deps, in that list's order). None
 // when path is no import of s, or name no exported type of it that is no
 // alias (an alias reads as its target's text, AliasEntries).
-func ImportRef(s store.Store, deps []Iface, path string, name string) Option[store.XRef] {
+func ImportRef(s store.Store, deps []Iface, path string, name string) option.Option[store.XRef] {
 	for j, p in store.ImportPaths(s) {
-		if p != path || j >= len(deps) {
+		if p != path || j >= deps.Len() {
 			continue
 		}
 		let i = declOf(deps[j], name)
 		if i < 0 || deps[j].Decls[i].Alias {
-			return None
+			return option.None
 		}
-		return Some[store.XRef]{Value: store.XRef{Import: uint32(j + 1), Decl: uint32(i)}}
+		return option.Some[store.XRef]{Value: store.XRef{Import: uint32(j + 1), Decl: uint32(i)}}
 	}
-	None
+	option.None
 }
 
 // AliasEntries is the foreign table's rows for the exported aliases of
@@ -170,7 +171,7 @@ func AliasEntries(s store.Store, deps []Iface) []Foreign {
 			continue
 		}
 		let imp = store.ImportOf(s, d)
-		if imp == 0 || imp > len(deps) {
+		if imp == 0 || imp > deps.Len() {
 			continue
 		}
 		let dep = deps[imp-1]
@@ -202,11 +203,11 @@ func ExtOf(s store.Store, deps []Iface) []Ext {
 			continue
 		}
 		let imp = store.ImportOf(s, d)
-		if imp == 0 || imp > len(deps) {
+		if imp == 0 || imp > deps.Len() {
 			continue
 		}
 		for x in deps[imp-1].Decls {
-			if x.Type && len(x.Kinds) > 0 && declOf(deps[imp-1], x.Name) >= 0 {
+			if x.Type && x.Kinds.Len() > 0 && declOf(deps[imp-1], x.Name) >= 0 {
 				out = out.Append(Ext{Head: store.DeclText(s, i) + "." + x.Name, Kinds: x.Kinds})
 			}
 		}

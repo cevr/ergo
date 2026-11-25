@@ -12,6 +12,9 @@
 // host's (H2L): they wait for it.
 
 import actor
+import core
+import machines
+import option
 import time
 
 // Motion is where a row of a Presence is: entering, present or exiting.
@@ -46,19 +49,19 @@ type presenceItem { key Key, motion int, started bool, start duration, from floa
 // does not run (its last subtree stays), and when the pass cannot keep
 // that subtree (a cell under it changed, its group stopped) it is removed
 // at once.
-func Presence[E, F, R, T](f mut Frame[E], xs []T, key func(x T) Key, dur duration, row func(x T, p Progress) fails F needs R, at CallSite) fails F needs R {
+func Presence[E, F, R, T](f mut Frame[E], xs []T, key func(x T) Key, dur duration, row func(x T, p Progress) fails F needs R, at core.CallSite) fails F needs R {
 	let (id, prev) = cellSlot(f, at)
 	let mut old = []presenceItem{}
 	let mut fresh = true
 	match prev {
-	case Some[Cell] as existing:
+	case option.Some[Cell] as existing:
 		match existing.Value {
 		case PresenceCell as p:
 			old = p.Items
 			fresh = p.Fresh
 		case TextCell, FlagCell, ViewCell:
 		}
-	case None:
+	case option.None:
 	}
 	let _ = storeCell(f, id, PresenceCell{Items: old, Fresh: fresh})
 	let cellIndex = f.ncells - 1
@@ -78,7 +81,7 @@ func Presence[E, F, R, T](f mut Frame[E], xs []T, key func(x T) Key, dur duratio
 		f.key = it.key
 		let p = Progress{Motion: motionOf(it.motion), T: step.t}
 		if step.x >= 0 {
-			f.parent = put(f, TransitionNode{Key: it.key, Motion: p.Motion, T: p.T}, None, None, at)
+			f.parent = put(f, TransitionNode{Key: it.key, Motion: p.Motion, T: p.T}, option.None, option.None, at)
 			let run = f.passes
 			keptRun(f, IntKey{Value: run}, func() fails F needs R { try row(xs[step.x], p) }, at) catch {
 			case err:
@@ -91,7 +94,7 @@ func Presence[E, F, R, T](f mut Frame[E], xs []T, key func(x T) Key, dur duratio
 			kept = kept.Append(presenceItem{..it, ran: run})
 		} else {
 			let mk = markOf(f)
-			f.parent = put(f, TransitionNode{Key: it.key, Motion: p.Motion, T: p.T}, None, None, at)
+			f.parent = put(f, TransitionNode{Key: it.key, Motion: p.Motion, T: p.T}, option.None, option.None, at)
 			if keepExit(f, IntKey{Value: it.ran}, at) {
 				f.parent = m.parent
 				kept = kept.Append(it)
@@ -122,7 +125,7 @@ type presenceStep { item presenceItem, t float64, x int }
 // each exiting row of old after the last row before it in old that the
 // list still has (or first). tick is the time of the frame that caused the
 // pass, None for a pass of another event, and now the last frame's time.
-func presencePlan(old []presenceItem, keys []Key, fresh bool, tick Option[duration], now duration, dur duration) []presenceStep {
+func presencePlan(old []presenceItem, keys []Key, fresh bool, tick option.Option[duration], now duration, dur duration) []presenceStep {
 	let mut at = Map[Key, int]{}
 	for i, k in keys {
 		if !has(at, k) {
@@ -138,18 +141,18 @@ func presencePlan(old []presenceItem, keys []Key, fresh bool, tick Option[durati
 	let mut last = -1
 	for it in old {
 		match at.Get(it.key) {
-		case Some[int] as i:
+		case option.Some[int] as i:
 			last = i.Value
-		case None:
+		case option.None:
 			let mut e = it
 			if it.motion != 2 {
 				e = presenceItem{key: it.key, motion: 2, started: false, start: now, from: progressOf(it, now, dur), ran: it.ran}
 			}
 			let mut xs = []presenceItem{}
 			match after.Get(last) {
-			case Some[[]presenceItem] as l:
+			case option.Some[[]presenceItem] as l:
 				xs = l.Value
-			case None:
+			case option.None:
 			}
 			after[last] = xs.Append(e)
 		}
@@ -157,9 +160,9 @@ func presencePlan(old []presenceItem, keys []Key, fresh bool, tick Option[durati
 	let mut out = []presenceStep{}
 	for e in exitsAt(after, -1) {
 		match stepAt(e, tick, now, dur) {
-		case Some[presenceStep] as s:
+		case option.Some[presenceStep] as s:
 			out = out.Append(s.Value)
-		case None:
+		case option.None:
 		}
 	}
 	let mut seen = Map[Key, bool]{}
@@ -170,26 +173,26 @@ func presencePlan(old []presenceItem, keys []Key, fresh bool, tick Option[durati
 		seen[k] = true
 		let mut it = presenceItem{key: k, motion: 1, started: true, start: now, from: 1.0, ran: -1}
 		match was.Get(k) {
-		case Some[presenceItem] as w:
+		case option.Some[presenceItem] as w:
 			it = w.Value
 			if w.Value.motion == 2 {
 				it = presenceItem{key: k, motion: 0, started: false, start: now, from: progressOf(w.Value, now, dur), ran: w.Value.ran}
 			}
-		case None:
+		case option.None:
 			if !fresh {
 				it = presenceItem{key: k, motion: 0, started: false, start: now, from: 0.0, ran: -1}
 			}
 		}
 		match stepAt(it, tick, now, dur) {
-		case Some[presenceStep] as s:
+		case option.Some[presenceStep] as s:
 			out = out.Append(presenceStep{item: s.Value.item, t: s.Value.t, x: i})
-		case None:
+		case option.None:
 		}
 		for e in exitsAt(after, i) {
 			match stepAt(e, tick, now, dur) {
-			case Some[presenceStep] as s:
+			case option.Some[presenceStep] as s:
 				out = out.Append(s.Value)
-			case None:
+			case option.None:
 			}
 		}
 	}
@@ -198,9 +201,9 @@ func presencePlan(old []presenceItem, keys []Key, fresh bool, tick Option[durati
 
 func exitsAt(after Map[int, []presenceItem], i int) []presenceItem {
 	match after.Get(i) {
-	case Some[[]presenceItem] as l:
+	case option.Some[[]presenceItem] as l:
 		l.Value
-	case None:
+	case option.None:
 		[]presenceItem{}
 	}
 }
@@ -210,26 +213,26 @@ func exitsAt(after Map[int, []presenceItem], i int) []presenceItem {
 // (or, in a pass of another event, at the last frame, now), an entering
 // row that reaches 1 is present, and an exiting row that
 // reaches 0 is gone (None). An exiting row's step has x -1.
-func stepAt(it presenceItem, tick Option[duration], now duration, dur duration) Option[presenceStep] {
+func stepAt(it presenceItem, tick option.Option[duration], now duration, dur duration) option.Option[presenceStep] {
 	let mut n = it
 	let mut time = now
 	match tick {
-	case Some[duration] as t:
+	case option.Some[duration] as t:
 		time = t.Value
 		if !n.started && n.motion != 1 {
 			n.started = true
 			n.start = t.Value
 		}
-	case None:
+	case option.None:
 	}
 	let p = progressOf(n, time, dur)
 	if n.motion == 0 && p >= 1.0 {
 		n = presenceItem{..n, motion: 1, from: 1.0}
 	}
 	if n.motion == 2 && p <= 0.0 {
-		return None
+		return option.None
 	}
-	Some{Value: presenceStep{item: n, t: shownProgress(n, p), x: -1}}
+	option.Some{Value: presenceStep{item: n, t: shownProgress(n, p), x: -1}}
 }
 
 // shownProgress is the T a row shows: 1 for a present row, p otherwise.
@@ -292,9 +295,9 @@ func motionOf(m int) Motion {
 
 // keptRun runs body as a Box whose run is recorded under key, so a later
 // pass can keep its subtree (keepExit), as a Same does; it never skips.
-func keptRun[E, F, R](f mut Frame[E], key Key, body func() fails F needs R, at CallSite) fails F needs R {
+func keptRun[E, F, R](f mut Frame[E], key Key, body func() fails F needs R, at core.CallSite) fails F needs R {
 	let m = markOf(f)
-	let i = put(f, BoxNode{Style: Plain()}, None, None, at)
+	let i = put(f, BoxNode{Style: Plain()}, option.None, option.None, at)
 	f.specs[i].memo = i
 	f.parent = i
 	body() catch {
@@ -302,40 +305,40 @@ func keptRun[E, F, R](f mut Frame[E], key Key, body func() fails F needs R, at C
 		cut(f, m)
 		return err
 	}
-	f.specs[i].same = Some{Value: memoRun[E]{key: key, keys: since(f.keys, m.nkeys, f.nkeys), urls: since(f.urls, m.nurls, f.nurls), anims: since(f.anims, m.nanims, f.nanims)}}
+	f.specs[i].same = option.Some{Value: memoRun[E]{key: key, keys: since(f.keys, m.nkeys, f.nkeys), urls: since(f.urls, m.nurls, f.nurls), anims: since(f.anims, m.nanims, f.nanims)}}
 	f.parent = m.parent
 }
 
 // keepExit keeps the subtree the Box at this place last wrote under key,
 // and is whether it could: false (writing nothing) when that subtree is
 // gone or a cell under it changed.
-func keepExit[E](f mut Frame[E], key Key, at CallSite) bool {
+func keepExit[E](f mut Frame[E], key Key, at core.CallSite) bool {
 	let m = markOf(f)
-	let i = put(f, BoxNode{Style: Plain()}, None, None, at)
+	let i = put(f, BoxNode{Style: Plain()}, option.None, option.None, at)
 	match skippable(f, i, key) {
-	case Some[memoRun[E]] as run:
+	case option.Some[memoRun[E]] as run:
 		f.specs[i].skip = true
 		replay(f, run.Value)
 		true
-	case None:
+	case option.None:
 		cut(f, m)
 		false
 	}
 }
 
 // presenceListStep is the law apps' step: a signal i shows list i. (a law's helper)
-func presenceListStep(s int, e int) Decision[int, int] {
-	Enter[int]{Next: e}
+func presenceListStep(s int, e int) machines.Decision[int, int] {
+	machines.Enter[int]{Next: e}
 }
 
 // presenceTimer is the law apps' timer: none. (a law's helper)
-func presenceTimer(s int) Option[Timeout[int]] {
-	None
+func presenceTimer(s int) option.Option[machines.Timeout[int]] {
+	option.None
 }
 
 // presenceWork is the law apps' work: none. (a law's helper)
-func presenceWork(s int) Option[func(send func(e int))] {
-	None
+func presenceWork(s int) option.Option[func(send func(e int))] {
+	option.None
 }
 
 // presenceLists is drawn lists of keys from 0..6, the first one fresh. (a law's helper)
@@ -354,10 +357,10 @@ func presenceLists(seed int) [][]int {
 			}
 		}
 		// a reorder: odd lists run backward
-		if len(out)%2 == 1 {
+		if out.Len()%2 == 1 {
 			let mut back = []int{}
-			for i in 0..len(xs) {
-				back = back.Append(xs[len(xs)-1-i])
+			for i in 0..xs.Len() {
+				back = back.Append(xs[xs.Len()-1-i])
 			}
 			xs = back
 		}
@@ -412,16 +415,16 @@ func presenceStripped(shapes []Shape[int]) []Shape[int] {
 // with no transition.
 law TransitionEndsAtLayout(seed int, steps int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		let lists = presenceLists(seed)
 		let view = func(f mut Frame[int], s int) {
-			OnKey(f, func(k KeyPress) Option[int] {
+			OnKey(f, func(k KeyPress) option.Option[int] {
 				for i in 0..8 {
 					if k.Name == "\(i)" {
-						return Some{Value: i}
+						return option.Some{Value: i}
 					}
 				}
-				None
+				option.None
 			})
 			Column(f, Plain()) {
 				Presence(f, lists[s], func(r int) Key { ByInt(r) }, 100ms) func(r int, p Progress) {
@@ -429,7 +432,7 @@ law TransitionEndsAtLayout(seed int, steps int) {
 				}
 			}
 		}
-		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: presenceListStep, After: presenceTimer, Work: presenceWork, Exit: func(s int) Option[func()] { None }}, 1, func(o int) {})
+		let a = actor.StartMachine(machines.Machine[int, int, int]{Initial: 0, Step: presenceListStep, After: presenceTimer, Work: presenceWork, Exit: func(s int) option.Option[func()] { option.None }}, 1, func(o int) {})
 		let mut h = NewTestHost(a, view, m, 4) catch {
 		case BadPatch:
 			return false
@@ -485,22 +488,22 @@ law TransitionEndsAtLayout(seed int, steps int) {
 // frames exactly while a row is not Present.
 law PresenceKeepsTheList(seed int, steps int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		let lists = presenceLists(seed)
 		let view = func(f mut Frame[int], s int) {
-			OnKey(f, func(k KeyPress) Option[int] {
+			OnKey(f, func(k KeyPress) option.Option[int] {
 				for i in 0..8 {
 					if k.Name == "\(i)" {
-						return Some{Value: i}
+						return option.Some{Value: i}
 					}
 				}
-				None
+				option.None
 			})
 			Presence(f, lists[s], func(r int) Key { ByInt(r) }, 50ms) func(r int, p Progress) {
 				Text(f, "row \(r)")
 			}
 		}
-		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: presenceListStep, After: presenceTimer, Work: presenceWork, Exit: func(s int) Option[func()] { None }}, 1, func(o int) {})
+		let a = actor.StartMachine(machines.Machine[int, int, int]{Initial: 0, Step: presenceListStep, After: presenceTimer, Work: presenceWork, Exit: func(s int) option.Option[func()] { option.None }}, 1, func(o int) {})
 		let mut h = NewTestHost(a, view, m, 4) catch {
 		case BadPatch:
 			return false
@@ -609,30 +612,30 @@ law PresenceKeepsTheList(seed int, steps int) {
 // row the first pass had starts Present.
 law ExitTakesItsDuration(n int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		let k = (n%10+10)%10 + 1
 		let lists = [][]int{[]int{0}, []int{0, 1}, []int{0}}
 		let view = func(f mut Frame[int], s int) {
-			OnKey(f, func(kp KeyPress) Option[int] {
+			OnKey(f, func(kp KeyPress) option.Option[int] {
 				for i in 0..3 {
 					if kp.Name == "\(i)" {
-						return Some{Value: i}
+						return option.Some{Value: i}
 					}
 				}
-				None
+				option.None
 			})
 			Presence(f, lists[s], func(r int) Key { ByInt(r) }, 100ms) func(r int, p Progress) {
 				Text(f, "row \(r)")
 			}
 		}
-		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: presenceListStep, After: presenceTimer, Work: presenceWork, Exit: func(s int) Option[func()] { None }}, 1, func(o int) {})
+		let a = actor.StartMachine(machines.Machine[int, int, int]{Initial: 0, Step: presenceListStep, After: presenceTimer, Work: presenceWork, Exit: func(s int) option.Option[func()] { option.None }}, 1, func(o int) {})
 		let mut h = NewTestHost(a, view, m, 4) catch {
 		case BadPatch:
 			return false
 		}
 		FrameEvery(&h, 10ms)
 		let first = presenceKeys(Screen(&h))
-		if len(first) != 1 || !near(first[0], rowAt(0, Present, 1.0)) {
+		if first.Len() != 1 || !near(first[0], rowAt(0, Present, 1.0)) {
 			return false
 		}
 		PressKey(&h, KeyPress{Name: "1", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch {
@@ -656,7 +659,7 @@ law ExitTakesItsDuration(n int) {
 		if k < 10 {
 			want = rowAt(1, Entering, t)
 		}
-		if len(reached) != 2 || !near(reached[1], want) {
+		if reached.Len() != 2 || !near(reached[1], want) {
 			return false
 		}
 		PressKey(&h, KeyPress{Name: "2", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch {
@@ -664,7 +667,7 @@ law ExitTakesItsDuration(n int) {
 			return false
 		}
 		let removed = presenceKeys(Screen(&h))
-		if len(removed) != 2 || !near(removed[1], rowAt(1, Exiting, t)) {
+		if removed.Len() != 2 || !near(removed[1], rowAt(1, Exiting, t)) {
 			return false
 		}
 		// The exit starts at the next frame and loses a tenth per frame.
@@ -676,14 +679,14 @@ law ExitTakesItsDuration(n int) {
 			let shown = presenceKeys(Screen(&h))
 			let left = t - float64(j-1)/10.0
 			if left <= 0.000001 {
-				if len(shown) != 1 {
+				if shown.Len() != 1 {
 					return false
 				}
-			} else if len(shown) != 2 || !near(shown[1], rowAt(1, Exiting, left)) {
+			} else if shown.Len() != 2 || !near(shown[1], rowAt(1, Exiting, left)) {
 				return false
 			}
 		}
-		len(presenceKeys(Screen(&h))) == 1 && !WantsFrames(&h)
+		presenceKeys(Screen(&h)).Len() == 1 && !WantsFrames(&h)
 	}
 }
 
@@ -700,22 +703,22 @@ func near(a (int, Motion, float64), b (int, Motion, float64)) bool {
 // settled screen costs nothing.
 law NoTickWhenRowsSettle(seed int, wait int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		let lists = presenceLists(seed)
 		let view = func(f mut Frame[int], s int) {
-			OnKey(f, func(k KeyPress) Option[int] {
+			OnKey(f, func(k KeyPress) option.Option[int] {
 				for i in 0..8 {
 					if k.Name == "\(i)" {
-						return Some{Value: i}
+						return option.Some{Value: i}
 					}
 				}
-				None
+				option.None
 			})
 			Presence(f, lists[s], func(r int) Key { ByInt(r) }, 30ms) func(r int, p Progress) {
 				Text(f, "row \(r)")
 			}
 		}
-		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: presenceListStep, After: presenceTimer, Work: presenceWork, Exit: func(s int) Option[func()] { None }}, 1, func(o int) {})
+		let a = actor.StartMachine(machines.Machine[int, int, int]{Initial: 0, Step: presenceListStep, After: presenceTimer, Work: presenceWork, Exit: func(s int) option.Option[func()] { option.None }}, 1, func(o int) {})
 		let mut h = NewTestHost(a, view, m, 4) catch {
 		case BadPatch:
 			return false

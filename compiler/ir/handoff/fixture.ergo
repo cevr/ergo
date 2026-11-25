@@ -23,7 +23,7 @@ func specimen(seed uint32) Draft {
 	let mut ends = []uint32{}
 	let mut off = uint32(0)
 	for n in names {
-		off = off + uint32(len(n))
+		off = off + uint32(n.Len())
 		ends = ends.Append(off)
 	}
 	let ty = columns(4, [][]uint32{
@@ -104,5 +104,5 @@ func recursiveSpecimen(seed uint32) Draft {
 func editWord(p Image, s int, i int, c int, v uint32) string {
 	let bytes = Encode(p)
 	let at = p.dir[s].start + (Rows(p, s)*c+i)*4
-	bytes[0:at] + le(v) + bytes[at+4:len(bytes)]
+	bytes[0:at] + le(v) + bytes[at+4:bytes.Len()]
 }

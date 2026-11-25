@@ -9,6 +9,7 @@
 // Temporal, Effect, Elixir and jiff.
 
 import civil
+import option
 import time
 
 // Offset is a zone's offset from UTC at an instant: Seconds east of UTC,
@@ -24,8 +25,8 @@ type Zone {
 	name string,
 	// at are the instants of the table's changes, in Unix seconds,
 	// ascending; kind[i] indexes the offset from at[i] on.
-	at []int64,
-	kind []int,
+	at    []int64,
+	kind  []int,
 	kinds []Offset,
 	// first is the offset before at[0], chosen as Go chooses it.
 	first int,
@@ -33,7 +34,7 @@ type Zone {
 	rule rule,
 	// least and most bound every offset of the zone, in seconds.
 	least int64,
-	most int64,
+	most  int64,
 }
 
 // UTC is Coordinated Universal Time: offset 0 at every instant.
@@ -64,8 +65,8 @@ func fixed(name string, o Offset) Zone {
 func offsetText(seconds int) string {
 	let sign = if seconds < 0 { "-" } else { "+" }
 	let s = if seconds < 0 { -seconds } else { seconds }
-	let hm = sign + two(s / 3600) + ":" + two(s % 3600 / 60)
-	if s % 60 == 0 { hm } else { hm + ":" + two(s % 60) }
+	let hm = sign + two(s/3600) + ":" + two(s%3600/60)
+	if s%60 == 0 { hm } else { hm + ":" + two(s%60) }
 }
 
 // two is n, 0 to 99, in two digits.
@@ -82,19 +83,19 @@ func OffsetAt(z Zone, t time.Time) Offset { lookup(z, time.UnixSeconds(t)) }
 // read as a calendar date and time of day.
 func Civil(z Zone, t time.Time) civil.DateTime {
 	let o = lookup(z, time.UnixSeconds(t))
-	civil.DateTimeOf(time.Unix(time.UnixSeconds(t) + int64(o.Seconds), int64(time.Nanosecond(t))))
+	civil.DateTimeOf(time.Unix(time.UnixSeconds(t)+int64(o.Seconds), int64(time.Nanosecond(t))))
 }
 
 // lookup is z's offset at the Unix second sec, as Go's Location.lookup
 // gives it: the first offset before the first change, the offset of the
 // last change at or before sec, and the rule after the last change.
 func lookup(z Zone, sec int64) Offset {
-	let n = len(z.at)
+	let n = z.at.Len()
 	if n == 0 {
 		return match ruleOffsetAt(z.rule, sec) {
-		case Some[Offset] as o:
+		case option.Some[Offset] as o:
 			o.Value
-		case None:
+		case option.None:
 			z.kinds[0]
 		}
 	}
@@ -102,11 +103,11 @@ func lookup(z Zone, sec int64) Offset {
 		return z.kinds[z.first]
 	}
 	let i = lastAtOrBefore(z.at, sec)
-	if i == n - 1 {
+	if i == n-1 {
 		match ruleOffsetAt(z.rule, sec) {
-		case Some[Offset] as o:
+		case option.Some[Offset] as o:
 			return o.Value
-		case None:
+		case option.None:
 		}
 	}
 	z.kinds[z.kind[i]]
@@ -116,9 +117,9 @@ func lookup(z Zone, sec int64) Offset {
 // xs[0] <= v.
 func lastAtOrBefore(xs []int64, v int64) int {
 	let mut lo = 0
-	let mut hi = len(xs)
-	for hi - lo > 1 {
-		let m = lo + (hi - lo) / 2
+	let mut hi = xs.Len()
+	for hi-lo > 1 {
+		let m = lo + (hi-lo)/2
 		if xs[m] <= v {
 			lo = m
 		} else {
@@ -133,7 +134,7 @@ func lastAtOrBefore(xs []int64, v int64) int {
 law OffsetShowsWall(i int64, s int64, ns int64) {
 	let z = anyZone(i)
 	let t = anyInstant(s, ns)
-	civil.Sub(Civil(z, t), civil.DateTimeOf(t)) == duration(int64(OffsetAt(z, t).Seconds) * 1000000000)
+	civil.Sub(Civil(z, t), civil.DateTimeOf(t)) == duration(int64(OffsetAt(z, t).Seconds)*1000000000)
 }
 
 // FixedOffsetIsFixed: FixedOffset fails exactly for a day or more from
@@ -159,5 +160,5 @@ law FixedOffsetIsFixed(n int64, s int64) {
 // floorDiv is a / b rounded down; b > 0.
 func floorDiv(a int64, b int64) int64 {
 	let q = a / b
-	if a % b < 0 { q - 1 } else { q }
+	if a%b < 0 { q - 1 } else { q }
 }

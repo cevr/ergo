@@ -24,13 +24,14 @@ import compiler/syntax
 import dense
 import fs
 import io
+import option
 import os
 import strconv
 import strings
 
 func base(path string) string {
 	let i = strings.LastIndex(path, "/")
-	if i < 0 { path } else { path[i+1 : len(path)] }
+	if i < 0 { path } else { path[i+1 : path.Len()] }
 }
 
 func word(k int) string {
@@ -63,13 +64,13 @@ func fieldLines(s mut store.Store, env types.Env, names types.Names, p syntax.Pa
 					continue
 				}
 				match dense.Unpack(fd.Type) {
-				case Some{Value: t}:
+				case option.Some{Value: t}:
 					let ty = types.Resolve(s, env, t)
 					let text = types.Text(*s, names, ty)
 					for j in 0..syntax.Len(fd.Names) {
 						*out = (*out).Append("\(rec).\(types.NameText(p, syntax.Item(p.Tree, fd.Names, j))) \(text)")
 					}
-				case None:
+				case option.None:
 				}
 			case _:
 			}
@@ -82,24 +83,24 @@ func run(args0 []string) fails os.Exit needs fs.Files | io.Stdout {
 	let mut std = ""
 	let mut kindsOnly = false
 	let mut args = args0
-	for len(args) > 0 && (args[0] == "-std" || args[0] == "-kinds") {
+	for args.Len() > 0 && (args[0] == "-std" || args[0] == "-kinds") {
 		if args[0] == "-kinds" {
 			kindsOnly = true
-			args = args[1:len(args)]
-		} else if len(args) > 1 {
+			args = args[1:args.Len()]
+		} else if args.Len() > 1 {
 			std = args[1]
-			args = args[2:len(args)]
+			args = args[2:args.Len()]
 		} else {
 			return os.Exit{Code: 2, Message: "typedump: -std takes a folder"}
 		}
 	}
-	if len(args) < 2 {
+	if args.Len() < 2 {
 		return os.Exit{Code: 2, Message: "usage: typedump [-std DIR] [-kinds] EXT FOREIGN FILE..."}
 	}
 	let mut ext = []types.Ext{}
 	for line in strings.Split(try read(args[0]), "\n") {
 		let parts = strings.Fields(line)
-		if len(parts) != 2 {
+		if parts.Len() != 2 {
 			continue
 		}
 		let mut ks = []int{}
@@ -115,12 +116,12 @@ func run(args0 []string) fails os.Exit needs fs.Files | io.Stdout {
 		let parts = strings.Fields(line)
 		// "@pkg NAME PATH QUALIFY": the package's name and path, and
 		// whether its types print with its name (the prelude's do not).
-		if len(parts) == 4 && parts[0] == "@pkg" {
+		if parts.Len() == 4 && parts[0] == "@pkg" {
 			pkgName = if parts[3] == "1" { parts[1] } else { "" }
 			pkgPath = parts[2]
 			continue
 		}
-		if len(parts) != 6 {
+		if parts.Len() != 6 {
 			continue
 		}
 		let n = strconv.Atoi(parts[2]) catch {
@@ -133,15 +134,15 @@ func run(args0 []string) fails os.Exit needs fs.Files | io.Stdout {
 	let mut files = []bind.File{}
 	let mut parsed = []syntax.Parsed{}
 	let mut srcs = []string{}
-	for path in args[2:len(args)] {
+	for path in args[2:args.Len()] {
 		let src = try read(path)
 		let p = syntax.Parse(src)
 		files = files.Append(bind.File{Name: base(path), Parsed: p})
 		parsed = parsed.Append(p)
 		srcs = srcs.Append(src)
 	}
-	let paths = args[2:len(args)]
-	let m = if len(paths) > 0 { load.ModuleOf(load.Dir(paths[0])) } else { None }
+	let paths = args[2:args.Len()]
+	let m = if paths.Len() > 0 { load.ModuleOf(load.Dir(paths[0])) } else { option.None }
 	let pkgs = load.Imported(bind.Imports(files), []string{pkgPath}, m, std)
 	let done = load.Interfaces(pkgs, ext, foreign, []types.Iface{})
 	let mut s = bind.Collect(pkgPath, files)
@@ -165,7 +166,7 @@ func run(args0 []string) fails os.Exit needs fs.Files | io.Stdout {
 			out = out.Append("cycle \(pos.Line):\(pos.Column) \(cy.Inst) \(cy.Arg)")
 		}
 		for fk in fks {
-			if len(fk.Kinds) == 0 {
+			if fk.Kinds.Len() == 0 {
 				continue
 			}
 			let mut ws = []string{}
@@ -239,7 +240,7 @@ func run(args0 []string) fails os.Exit needs fs.Files | io.Stdout {
 	io.Stdout.Print(b.String())
 }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), io.Stdout: io.NewHost() } {
 		try run(os.Process.Args())
 	}

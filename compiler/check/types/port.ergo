@@ -2,6 +2,7 @@
 // Both ordinary dependency signatures and role signatures use this path.
 import compiler/check/store
 import dense
+import option
 
 func portForeign(foreign []Foreign, path string, name string) int {
 	for i, f in foreign {
@@ -12,36 +13,36 @@ func portForeign(foreign []Foreign, path string, name string) int {
 	-1
 }
 
-func portNamed(s mut store.Store, deps []Iface, foreign []Foreign, path string, name string, args []dense.ID[store.TKey]) Option[dense.ID[store.TKey]] {
+func portNamed(s mut store.Store, deps []Iface, foreign []Foreign, path string, name string, args []dense.ID[store.TKey]) option.Option[dense.ID[store.TKey]] {
 	if path == store.PathOf(*s) {
 		match store.Lookup(*s, name) {
-		case Some{Value: id}:
-			return Some{Value: if len(args) == 0 { store.TNamed(s, id) } else { store.TInstance(s, store.XRef{Import: uint32(0), Decl: uint32(dense.Index(id))}, args) }}
-		case None:
+		case option.Some{Value: id}:
+			return option.Some{Value: if args.Len() == 0 { store.TNamed(s, id) } else { store.TInstance(s, store.XRef{Import: uint32(0), Decl: uint32(dense.Index(id))}, args) }}
+		case option.None:
 		}
 	}
 	match ImportRef(*s, deps, path, name) {
-	case Some{Value: ref}:
-		return Some{Value: store.TInstance(s, ref, args)}
-	case None:
+	case option.Some{Value: ref}:
+		return option.Some{Value: store.TInstance(s, ref, args)}
+	case option.None:
 	}
 	let f = portForeign(foreign, path, name)
 	if f < 0 || path == "-" {
-		return None
+		return option.None
 	}
-	Some{Value: if len(args) == 0 { store.TForeign(s, f) } else { store.TInstance(s, store.XRef{Import: uint32(store.ForeignBit), Decl: uint32(f)}, args) }}
+	option.Some{Value: if args.Len() == 0 { store.TForeign(s, f) } else { store.TInstance(s, store.XRef{Import: uint32(store.ForeignBit), Decl: uint32(f)}, args) }}
 }
 
 // Port transplants dt from a dependency's pool. A symbolic Self uses
 // the same type constructor as a local template; its receiver is read
 // separately through the operation fact.
-func Port(s mut store.Store, deps []Iface, foreign []Foreign, ds store.Store, path string, lookup func(ref store.XRef) Option[DeclIdentity], sourceForeign []Foreign, dt dense.ID[store.TKey]) Option[dense.ID[store.TKey]] {
+func Port(s mut store.Store, deps []Iface, foreign []Foreign, ds store.Store, path string, lookup func(ref store.XRef) option.Option[DeclIdentity], sourceForeign []Foreign, dt dense.ID[store.TKey]) option.Option[dense.ID[store.TKey]] {
 	let kind = store.KindOfType(ds, dt)
 	if kind == store.KBasic {
-		return Some{Value: store.TBasic(s, store.ArgOf(ds, dt))}
+		return option.Some{Value: store.TBasic(s, store.ArgOf(ds, dt))}
 	}
 	if kind == store.KParam {
-		return Some{Value: store.TParam(s, store.ArgOf(ds, dt))}
+		return option.Some{Value: store.TParam(s, store.ArgOf(ds, dt))}
 	}
 	if kind == store.KNamed {
 		return portNamed(s, deps, foreign, path, store.TypeNameText(ds, store.ArgOf(ds, dt)), []dense.ID[store.TKey]{})
@@ -49,76 +50,76 @@ func Port(s mut store.Store, deps []Iface, foreign []Foreign, ds store.Store, pa
 	if kind == store.KForeign {
 		let f = sourceForeign[store.ArgOf(ds, dt)]
 		let at = portForeign(foreign, f.Path, f.Name)
-		return if at >= 0 && f.Path != "-" { Some{Value: store.TForeign(s, at)} } else { None }
+		return if at >= 0 && f.Path != "-" { option.Some{Value: store.TForeign(s, at)} } else { option.None }
 	}
 	let mut ops = []dense.ID[store.TKey]{}
 	for o in store.OperandsOf(ds, dt) {
 		match Port(s, deps, foreign, ds, path, lookup, sourceForeign, o) {
-		case Some{Value: moved}:
+		case option.Some{Value: moved}:
 			ops = ops.Append(moved)
-		case None:
-			return None
+		case option.None:
+			return option.None
 		}
 	}
 	if kind == store.KArray {
-		return Some{Value: store.TArray(s, store.ArrayLen(ds, dt), ops[1])}
+		return option.Some{Value: store.TArray(s, store.ArrayLen(ds, dt), ops[1])}
 	}
 	if kind == store.KSlice {
-		return Some{Value: store.TSlice(s, ops[0])}
+		return option.Some{Value: store.TSlice(s, ops[0])}
 	}
 	if kind == store.KMap {
-		return Some{Value: store.TMap(s, ops[0], ops[1])}
+		return option.Some{Value: store.TMap(s, ops[0], ops[1])}
 	}
 	if kind == store.KPointer {
-		return Some{Value: store.TPointer(s, ops[0])}
+		return option.Some{Value: store.TPointer(s, ops[0])}
 	}
 	if kind == store.KTuple {
-		return Some{Value: store.TTuple(s, ops)}
+		return option.Some{Value: store.TTuple(s, ops)}
 	}
 	if kind == store.KRow {
-		return Some{Value: store.TRow(s, ops)}
+		return option.Some{Value: store.TRow(s, ops)}
 	}
 	if kind == store.KOwn {
-		return Some{Value: store.TOwn(s, ops[0])}
+		return option.Some{Value: store.TOwn(s, ops[0])}
 	}
 	if kind == store.KEntry {
-		return Some{Value: store.TEntry(s, ops[0])}
+		return option.Some{Value: store.TEntry(s, ops[0])}
 	}
 	if kind == store.KSig {
-		let n = len(ops)
-		return Some{Value: store.TSigWith(s, ops[0:n-3], ops[n-3], ops[n-2], ops[n-1], store.SigDefects(ds, dt))}
+		let n = ops.Len()
+		return option.Some{Value: store.TSigWith(s, ops[0:n-3], ops[n-3], ops[n-2], ops[n-1], store.SigDefects(ds, dt))}
 	}
 	if kind == store.KSelf {
-		return Some{Value: store.TSelf(s, ops)}
+		return option.Some{Value: store.TSelf(s, ops)}
 	}
 	if kind == store.KReapplied {
-		return Some{Value: store.TReapplied(s, ops[0], ops[1], ops[2:len(ops)])}
+		return option.Some{Value: store.TReapplied(s, ops[0], ops[1], ops[2:ops.Len()])}
 	}
 	if kind == store.KInstance {
 		let o = store.OriginOfType(ds, dt)
 		if int(o.Import) == store.ForeignBit {
 			let f = sourceForeign[int(o.Decl)]
 			let at = portForeign(foreign, f.Path, f.Name)
-			return if at >= 0 && f.Path != "-" { Some{Value: store.TInstance(s, store.XRef{Import: uint32(store.ForeignBit), Decl: uint32(at)}, ops)} } else { None }
+			return if at >= 0 && f.Path != "-" { option.Some{Value: store.TInstance(s, store.XRef{Import: uint32(store.ForeignBit), Decl: uint32(at)}, ops)} } else { option.None }
 		}
 		if o.Import == uint32(0) {
 			return portNamed(s, deps, foreign, path, store.DeclText(ds, int(o.Decl)), ops)
 		}
 		match lookup(o) {
-		case Some{Value: id}:
+		case option.Some{Value: id}:
 			return portNamed(s, deps, foreign, id.Path, id.Name, ops)
-		case None:
+		case option.None:
 		}
 	}
-	None
+	option.None
 }
 
 type DeclIdentity { Path string, Name string }
 
-func DepIdentity(deps []Iface, ref store.XRef) Option[DeclIdentity] {
+func DepIdentity(deps []Iface, ref store.XRef) option.Option[DeclIdentity] {
 	let i = int(ref.Import) - 1
-	if i >= 0 && i < len(deps) && int(ref.Decl) < len(deps[i].Decls) {
-		return Some{Value: DeclIdentity{Path: deps[i].Path, Name: deps[i].Decls[int(ref.Decl)].Name}}
+	if i >= 0 && i < deps.Len() && int(ref.Decl) < deps[i].Decls.Len() {
+		return option.Some{Value: DeclIdentity{Path: deps[i].Path, Name: deps[i].Decls[int(ref.Decl)].Name}}
 	}
-	None
+	option.None
 }

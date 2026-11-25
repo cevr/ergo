@@ -12,6 +12,7 @@ import compiler/check/task
 import compiler/check/types
 import compiler/syntax
 import fs
+import option
 import slices
 import strings
 
@@ -42,8 +43,8 @@ func replacesOf(d string) []Replace needs fs.Files {
 			continue
 		}
 		let from = strings.Fields(l[0:i])
-		let to = strings.TrimSpace(l[i+2 : len(l)])
-		if len(from) == 0 || !(strings.HasPrefix(to, ".") || strings.HasPrefix(to, "/")) {
+		let to = strings.TrimSpace(l[i+2 : l.Len()])
+		if from.Len() == 0 || !(strings.HasPrefix(to, ".") || strings.HasPrefix(to, "/")) {
 			continue
 		}
 		let target = strings.Fields(to)[0]
@@ -54,7 +55,7 @@ func replacesOf(d string) []Replace needs fs.Files {
 
 // ModuleOf is the module of the nearest ergo.mod in d or a folder above
 // it; none when there is none.
-func ModuleOf(d string) Option[Module] needs fs.Files {
+func ModuleOf(d string) option.Option[Module] needs fs.Files {
 	let mut at = d
 	for {
 		let text = fs.Files.ReadFile(at + "/ergo.mod") catch {
@@ -64,11 +65,11 @@ func ModuleOf(d string) Option[Module] needs fs.Files {
 		for line in strings.Split(text, "\n") {
 			let l = strings.TrimSpace(line)
 			if strings.HasPrefix(l, "module ") {
-				return Some[Module]{Value: Module{Path: strings.TrimSpace(l[7:len(l)]), Dir: at, Replaces: replacesOf(at)}}
+				return option.Some[Module]{Value: Module{Path: strings.TrimSpace(l[7:l.Len()]), Dir: at, Replaces: replacesOf(at)}}
 			}
 		}
 		if at == "/" || at == "." || at == "" {
-			return None
+			return option.None
 		}
 		at = Dir(at)
 	}
@@ -76,34 +77,34 @@ func ModuleOf(d string) Option[Module] needs fs.Files {
 
 // FolderOf is the folder of the package at import path: in the module m,
 // in one of its replaces, else under std.
-func FolderOf(path string, m Option[Module], std string) string {
+func FolderOf(path string, m option.Option[Module], std string) string {
 	match m {
-	case Some[Module] as mod:
+	case option.Some[Module] as mod:
 		if path == mod.Value.Path {
 			return mod.Value.Dir
 		}
 		if strings.HasPrefix(path, mod.Value.Path+"/") {
-			return mod.Value.Dir + path[len(mod.Value.Path):len(path)]
+			return mod.Value.Dir + path[mod.Value.Path.Len():path.Len()]
 		}
 		for r in mod.Value.Replaces {
 			if path == r.Path {
 				return r.Dir
 			}
 			if strings.HasPrefix(path, r.Path+"/") {
-				return r.Dir + path[len(r.Path):len(path)]
+				return r.Dir + path[r.Path.Len():path.Len()]
 			}
 		}
-	case None:
+	case option.None:
 	}
 	std + "/" + path
 }
 
 // LoadDir is the package at import path in folder d, its .ergo files in
 // the folder's order; none when d holds no .ergo file or cannot be read.
-func LoadDir(path string, d string) Option[task.Package] needs fs.Files {
+func LoadDir(path string, d string) option.Option[task.Package] needs fs.Files {
 	let names = fs.Files.ReadDir(d) catch {
 	case _:
-		return None
+		return option.None
 	}
 	let mut files = []bind.File{}
 	for n in names {
@@ -116,17 +117,17 @@ func LoadDir(path string, d string) Option[task.Package] needs fs.Files {
 		}
 		files = files.Append(bind.File{Name: n, Parsed: syntax.Parse(src)})
 	}
-	if len(files) == 0 {
-		return None
+	if files.Len() == 0 {
+		return option.None
 	}
-	Some[task.Package]{Value: task.Package{Path: path, Files: files}}
+	option.Some[task.Package]{Value: task.Package{Path: path, Files: files}}
 }
 
 // Imported is every package the import paths queue reach, transitively,
 // that the loader finds, in the order met; a path of held (the program's
 // packages already in hand) is neither loaded nor followed. None without
 // std.
-func Imported(queue0 []string, held []string, m Option[Module], std string) []task.Package needs fs.Files {
+func Imported(queue0 []string, held []string, m option.Option[Module], std string) []task.Package needs fs.Files {
 	let mut pkgs = []task.Package{}
 	if std == "" {
 		return pkgs
@@ -134,7 +135,7 @@ func Imported(queue0 []string, held []string, m Option[Module], std string) []ta
 	let mut queue = queue0
 	let mut seen = held
 	let mut i = 0
-	for i < len(queue) {
+	for i < queue.Len() {
 		let path = queue[i]
 		i = i + 1
 		if slices.Contains(seen, path) {
@@ -142,12 +143,12 @@ func Imported(queue0 []string, held []string, m Option[Module], std string) []ta
 		}
 		seen = seen.Append(path)
 		match LoadDir(path, FolderOf(path, m, std)) {
-		case Some[task.Package] as p:
+		case option.Some[task.Package] as p:
 			pkgs = pkgs.Append(p.Value)
 			for q in bind.Imports(p.Value.Files) {
 				queue = queue.Append(q)
 			}
-		case None:
+		case option.None:
 		}
 	}
 	pkgs
@@ -200,7 +201,7 @@ func Interfaces(pkgs []task.Package, ext []types.Ext, foreign []types.Foreign, h
 	for _ in pkgs {
 		did = did.Append(false)
 	}
-	let mut left = len(pkgs)
+	let mut left = pkgs.Len()
 	for left > 0 {
 		let mut progress = false
 		for pass in 0..2 {

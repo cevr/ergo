@@ -4,6 +4,7 @@
 // and the width, so a text is measured once at a width however often the
 // boxes around it lay out.
 
+import option
 import strings
 import utf8
 import arena
@@ -35,7 +36,7 @@ type Measure {
 	law AtMaxOneLinePerParagraph(text string, size int) {
 		let s = float32(size%64 + 64)
 		let one = Height("x", s, inf)
-		Height(text, s, Widths(text, s).Max) <= one*float32(len(strings.Split(text, "\n")))
+		Height(text, s, Widths(text, s).Max) <= one*float32(strings.Split(text, "\n").Len())
 	},
 }
 
@@ -151,11 +152,11 @@ let keep = 4096
 func textWidths(t mut Tree, text string, size float32) Intrinsic needs Measure {
 	let k = textKey{text: text, size: size}
 	match t.widths.Get(k) {
-	case Some[Intrinsic] as w:
+	case option.Some[Intrinsic] as w:
 		return w.Value
-	case None:
+	case option.None:
 	}
-	if len(t.widths) >= keep {
+	if t.widths.Len() >= keep {
 		t.widths = Map[textKey, Intrinsic]{}
 	}
 	let w = Measure.Widths(text, size)
@@ -168,11 +169,11 @@ func textWidths(t mut Tree, text string, size float32) Intrinsic needs Measure {
 func textHeight(t mut Tree, text string, size float32, width float32) float32 needs Measure {
 	let k = heightKey{text: text, size: size, width: width}
 	match t.heights.Get(k) {
-	case Some[float32] as h:
+	case option.Some[float32] as h:
 		return h.Value
-	case None:
+	case option.None:
 	}
-	if len(t.heights) >= keep {
+	if t.heights.Len() >= keep {
 		t.heights = Map[heightKey, float32]{}
 	}
 	let h = Measure.Height(text, size, width)

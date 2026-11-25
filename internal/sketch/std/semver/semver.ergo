@@ -6,6 +6,8 @@
 // order of Go's golang.org/x/mod/semver on full versions. It is pure Ergo
 // over the bytes of its text.
 
+import option
+
 // Version is MAJOR.MINOR.PATCH with its pre-release and build identifiers.
 // Build identifiers never change the order.
 type Version { Major int, Minor int, Patch int, Pre []string, Build []string }
@@ -42,13 +44,13 @@ let maxLength = 256
 // "+", as dot-separated identifiers of [0-9A-Za-z-], a numeric
 // pre-release identifier with no leading zero.
 func Parse(text string) Version fails Malformed {
-	if len(text) > maxLength {
+	if text.Len() > maxLength {
 		return Malformed{Text: text}
 	}
 	match full(trim(text)) {
-	case Some as v:
+	case option.Some as v:
 		v.Value
-	case None:
+	case option.None:
 		Malformed{Text: text}
 	}
 }
@@ -57,7 +59,7 @@ func Parse(text string) Version fails Malformed {
 // pre-release, without build metadata.
 func Format(v Version) string {
 	let main = "\(v.Major).\(v.Minor).\(v.Patch)"
-	if len(v.Pre) == 0 {
+	if v.Pre.Len() == 0 {
 		return main
 	}
 	main + "-" + join(v.Pre, ".")
@@ -65,8 +67,8 @@ func Format(v Version) string {
 
 // Parse reads back what Format writes.
 law ParseInvertsFormat(major int, minor int, patch int, n int, word bool) {
-	let pre = if n%3 == 0 { []string{} } else if word { []string{"rc", "\((n%7+7)%7)"} } else { []string{"\((n%100+100)%100)"} }
-	let v = Version{Major: (major%1000+1000)%1000, Minor: (minor%1000+1000)%1000, Patch: (patch%1000+1000)%1000, Pre: pre, Build: []string{}}
+	let pre = if n%3 == 0 { []string{} } else if word { []string{"rc", "\((n%7 + 7) % 7)"} } else { []string{"\((n%100 + 100) % 100)"} }
+	let v = Version{Major: (major%1000 + 1000) % 1000, Minor: (minor%1000 + 1000) % 1000, Patch: (patch%1000 + 1000) % 1000, Pre: pre, Build: []string{}}
 	let back = Parse(Format(v)) catch {
 	case Malformed:
 		return false
@@ -88,11 +90,11 @@ func Compare(a Version, b Version) int {
 	if a.Patch != b.Patch {
 		return if a.Patch < b.Patch { -1 } else { 1 }
 	}
-	if len(a.Pre) == 0 || len(b.Pre) == 0 {
-		return if len(a.Pre) == len(b.Pre) { 0 } else if len(a.Pre) == 0 { 1 } else { -1 }
+	if a.Pre.Len() == 0 || b.Pre.Len() == 0 {
+		return if a.Pre.Len() == b.Pre.Len() { 0 } else if a.Pre.Len() == 0 { 1 } else { -1 }
 	}
-	for i in 0..len(a.Pre) {
-		if i >= len(b.Pre) {
+	for i in 0..a.Pre.Len() {
+		if i >= b.Pre.Len() {
 			return 1
 		}
 		let c = compareIdent(a.Pre[i], b.Pre[i])
@@ -100,7 +102,7 @@ func Compare(a Version, b Version) int {
 			return c
 		}
 	}
-	if len(a.Pre) < len(b.Pre) { -1 } else { 0 }
+	if a.Pre.Len() < b.Pre.Len() { -1 } else { 0 }
 }
 
 // Compare is an order: it turns over when its sides swap, and two steps
@@ -137,19 +139,19 @@ func ParseRange(text string) Range fails Malformed {
 		}
 		sets = sets.Append(set)
 	}
-	if len(sets) > 1 {
+	if sets.Len() > 1 {
 		let mut kept = [][]Comparator{}
 		for set in sets {
 			if !nullSet(set) {
 				kept = kept.Append(set)
 			}
 		}
-		if len(kept) == 0 {
+		if kept.Len() == 0 {
 			return Range{Sets: [][]Comparator{sets[0]}}
 		}
-		if len(kept) > 1 {
+		if kept.Len() > 1 {
 			for set in kept {
-				if len(set) == 0 {
+				if set.Len() == 0 {
 					return Range{Sets: [][]Comparator{set}}
 				}
 			}
@@ -209,7 +211,7 @@ func Holds(c Comparator, v Version) bool {
 
 // A range of one comparator holds for a version without a pre-release
 // exactly when the comparator does.
-law OneComparatorHolds(c Comparator, v Version) { len(v.Pre) > 0 || Satisfies(Range{Sets: [][]Comparator{[]Comparator{c}}}, v) == Holds(c, v) }
+law OneComparatorHolds(c Comparator, v Version) { v.Pre.Len() > 0 || Satisfies(Range{Sets: [][]Comparator{[]Comparator{c}}}, v) == Holds(c, v) }
 
 func keeps(set []Comparator, v Version) bool {
 	for c in set {
@@ -217,11 +219,11 @@ func keeps(set []Comparator, v Version) bool {
 			return false
 		}
 	}
-	if len(v.Pre) == 0 {
+	if v.Pre.Len() == 0 {
 		return true
 	}
 	for c in set {
-		if len(c.Version.Pre) > 0 && c.Version.Major == v.Major && c.Version.Minor == v.Minor && c.Version.Patch == v.Patch {
+		if c.Version.Pre.Len() > 0 && c.Version.Major == v.Major && c.Version.Minor == v.Minor && c.Version.Patch == v.Patch {
 			return true
 		}
 	}
@@ -245,7 +247,7 @@ func opText(op Op) string {
 
 // nullSet reports whether set is node-semver's null set, <0.0.0-0 alone.
 func nullSet(set []Comparator) bool {
-	if len(set) != 1 {
+	if set.Len() != 1 {
 		return false
 	}
 	let c = set[0]
@@ -273,7 +275,7 @@ func parseSet(text string) []Comparator fails Malformed {
 		for c in fields(expanded) {
 			texts = texts.Append(if c == ">=0.0.0" { "" } else { c })
 		}
-		if len(fields(expanded)) == 0 {
+		if fields(expanded).Len() == 0 {
 			texts = texts.Append("")
 		}
 	}
@@ -316,14 +318,14 @@ func parseSet(text string) []Comparator fails Malformed {
 // version, after which = is equality.
 func comparator(t string) Comparator fails Malformed {
 	let n = opLen(t)
-	let rest = t.Slice(n, len(t))
-	if len(rest) > maxLength {
+	let rest = t.Slice(n, t.Len())
+	if rest.Len() > maxLength {
 		return Malformed{Text: t}
 	}
 	let v = match full(trim(rest)) {
-	case Some as v:
+	case option.Some as v:
 		v.Value
-	case None:
+	case option.None:
 		return Malformed{Text: t}
 	}
 	Comparator{Op: opOf(t.Slice(0, n)), Version: v}
@@ -349,60 +351,60 @@ func opOf(op string) Op {
 // then =, each if there.
 func opLen(t string) int {
 	let mut n = 0
-	if n < len(t) && (t[n] == '<' || t[n] == '>') {
+	if n < t.Len() && (t[n] == '<' || t[n] == '>') {
 		n += 1
 	}
-	if n < len(t) && t[n] == '=' {
+	if n < t.Len() && t[n] == '=' {
 		n += 1
 	}
 	n
 }
 
 // full reads FULLPLAIN: v?MAJOR.MINOR.PATCH(-PRE)?(+BUILD)?, all of s.
-func full(s string) Option[Version] {
+func full(s string) option.Option[Version] {
 	let mut i = 0
-	if i < len(s) && s[i] == 'v' {
+	if i < s.Len() && s[i] == 'v' {
 		i += 1
 	}
 	let major = readNumber(s, i)
-	if major.N < 0 || major.End >= len(s) || s[major.End] != '.' {
-		return None
+	if major.N < 0 || major.End >= s.Len() || s[major.End] != '.' {
+		return option.None
 	}
 	let minor = readNumber(s, major.End+1)
-	if minor.N < 0 || minor.End >= len(s) || s[minor.End] != '.' {
-		return None
+	if minor.N < 0 || minor.End >= s.Len() || s[minor.End] != '.' {
+		return option.None
 	}
 	let patch = readNumber(s, minor.End+1)
 	if patch.N < 0 {
-		return None
+		return option.None
 	}
 	i = patch.End
 	let mut pre = []string{}
-	if i < len(s) && s[i] == '-' {
+	if i < s.Len() && s[i] == '-' {
 		let j = identsEnd(s, i+1)
 		match idents(s.Slice(i+1, j), true) {
-		case Some as ids:
+		case option.Some as ids:
 			pre = ids.Value
-		case None:
-			return None
+		case option.None:
+			return option.None
 		}
 		i = j
 	}
 	let mut build = []string{}
-	if i < len(s) && s[i] == '+' {
+	if i < s.Len() && s[i] == '+' {
 		let j = identsEnd(s, i+1)
 		match idents(s.Slice(i+1, j), false) {
-		case Some as ids:
+		case option.Some as ids:
 			build = ids.Value
-		case None:
-			return None
+		case option.None:
+			return option.None
 		}
 		i = j
 	}
-	if i != len(s) {
-		return None
+	if i != s.Len() {
+		return option.None
 	}
-	Some[Version]{Value: Version{Major: major.N, Minor: minor.N, Patch: patch.N, Pre: pre, Build: build}}
+	option.Some[Version]{Value: Version{Major: major.N, Minor: minor.N, Patch: patch.N, Pre: pre, Build: build}}
 }
 
 // Read is a number read from a text and the offset after it.
@@ -416,23 +418,23 @@ func readNumber(s string, i int) Read {
 
 // idents splits text at dots into identifiers of [0-9A-Za-z-], none
 // empty; a pre-release's all-digit identifier has no leading zero.
-func idents(text string, pre bool) Option[[]string] {
+func idents(text string, pre bool) option.Option[[]string] {
 	let ids = splitOn(text, ".")
 	for id in ids {
 		if id == "" {
-			return None
+			return option.None
 		}
-		if pre && allDigits(id) && len(id) > 1 && id[0] == '0' {
-			return None
+		if pre && allDigits(id) && id.Len() > 1 && id[0] == '0' {
+			return option.None
 		}
 	}
-	Some[[]string]{Value: ids}
+	option.Some[[]string]{Value: ids}
 }
 
 // identsEnd is the end of the run of identifier bytes and dots from i.
 func identsEnd(s string, i int) int {
 	let mut j = i
-	for _ in i..len(s) {
+	for _ in i..s.Len() {
 		if !isIdent(s[j]) && s[j] != '.' {
 			break
 		}
@@ -443,7 +445,7 @@ func identsEnd(s string, i int) int {
 
 func digitsEnd(s string, i int) int {
 	let mut j = i
-	for _ in i..len(s) {
+	for _ in i..s.Len() {
 		if !isDigit(s[j]) {
 			break
 		}
@@ -455,14 +457,14 @@ func digitsEnd(s string, i int) int {
 // canonical is the number s spells with no leading zero, -1 when s is
 // not one, and -2 when it is past maxSafe.
 func canonical(s string) int {
-	if s == "" || len(s) > 1 && s[0] == '0' || !allDigits(s) {
+	if s == "" || s.Len() > 1 && s[0] == '0' || !allDigits(s) {
 		return -1
 	}
-	if len(s) > 16 {
+	if s.Len() > 16 {
 		return -2
 	}
 	let mut n = 0
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		n = n*10 + int(s[i]-'0')
 	}
 	if n > maxSafe { -2 } else { n }
@@ -509,9 +511,9 @@ func digitsOf(p Part) string {
 
 // partial reads all of s as XRANGEPLAIN: [v= ]* then x, x.x or x.x.x
 // with a pre-release after the third part.
-func partial(s string) Option[Partial] {
+func partial(s string) option.Option[Partial] {
 	let mut i = 0
-	for _ in 0..len(s) {
+	for _ in 0..s.Len() {
 		if s[i] != 'v' && s[i] != '=' && !isSpace(s[i]) {
 			break
 		}
@@ -520,40 +522,40 @@ func partial(s string) Option[Partial] {
 	let mut parts = []Part{}
 	for k in 0..3 {
 		if k > 0 {
-			if i >= len(s) || s[i] != '.' {
+			if i >= s.Len() || s[i] != '.' {
 				break
 			}
 			i += 1
 		}
-		if i < len(s) && (s[i] == 'x' || s[i] == 'X' || s[i] == '*') {
+		if i < s.Len() && (s[i] == 'x' || s[i] == 'X' || s[i] == '*') {
 			parts = parts.Append(X)
 			i += 1
 			continue
 		}
 		let j = digitsEnd(s, i)
 		let digits = s.Slice(i, j)
-		if digits == "" || len(digits) > 1 && digits[0] == '0' {
-			return None
+		if digits == "" || digits.Len() > 1 && digits[0] == '0' {
+			return option.None
 		}
 		parts = parts.Append(Num{N: canonical(digits), Text: digits})
 		i = j
 	}
 	let mut pre = ""
-	if len(parts) == 3 && i < len(s) && s[i] == '-' {
+	if parts.Len() == 3 && i < s.Len() && s[i] == '-' {
 		let j = identsEnd(s, i+1)
 		match idents(s.Slice(i+1, j), true) {
-		case Some:
+		case option.Some:
 			pre = s.Slice(i+1, j)
-		case None:
-			return None
+		case option.None:
+			return option.None
 		}
 		i = j
 	}
-	if i != len(s) {
-		return None
+	if i != s.Len() {
+		return option.None
 	}
 	let none = Missing
-	Some[Partial]{Value: Partial{M: parts[0], Mi: if len(parts) > 1 { parts[1] } else { none }, P: if len(parts) > 2 { parts[2] } else { none }, Pre: pre}}
+	option.Some[Partial]{Value: Partial{M: parts[0], Mi: if parts.Len() > 1 { parts[1] } else { none }, P: if parts.Len() > 2 { parts[2] } else { none }, Pre: pre}}
 }
 
 // next is n + 1 in decimal, or a text no comparator reads when n is past
@@ -568,16 +570,16 @@ func next(p Part) string {
 
 // hyphen replaces a set "A - B" by its two comparators (hyphenReplace).
 func hyphen(s string) string {
-	let mut at = len(s) - 3
-	for _ in 0..len(s) {
+	let mut at = s.Len() - 3
+	for _ in 0..s.Len() {
 		if at < 0 {
 			return s
 		}
 		if s.Slice(at, at+3) == " - " {
-			match hyphenAt(s.Slice(0, at), s.Slice(at+3, len(s))) {
-			case Some as h:
+			match hyphenAt(s.Slice(0, at), s.Slice(at+3, s.Len())) {
+			case option.Some as h:
 				return h.Value
-			case None:
+			case option.None:
 				at -= 1
 				continue
 			}
@@ -589,20 +591,20 @@ func hyphen(s string) string {
 
 // hyphenAt is the comparators of the hyphen range from - to, or None
 // when either side is not a partial version.
-func hyphenAt(from string, to string) Option[string] {
+func hyphenAt(from string, to string) option.Option[string] {
 	let f = match partial(from) {
-	case Some as f:
+	case option.Some as f:
 		f.Value
-	case None:
-		return None
+	case option.None:
+		return option.None
 	}
 	let t = match partial(to) {
-	case Some as t:
+	case option.Some as t:
 		t.Value
-	case None:
-		return None
+	case option.None:
+		return option.None
 	}
-	Some[string]{Value: trim(hyphenFrom(from, f) + " " + hyphenTo(to, t))}
+	option.Some[string]{Value: trim(hyphenFrom(from, f) + " " + hyphenTo(to, t))}
 }
 
 func hyphenFrom(raw string, f Partial) string {
@@ -639,16 +641,16 @@ func hyphenTo(raw string, t Partial) string {
 func tightOps(s string) string {
 	let mut out = ""
 	let mut i = 0
-	for _ in 0..len(s) {
-		if i >= len(s) {
+	for _ in 0..s.Len() {
+		if i >= s.Len() {
 			break
 		}
 		let c = s[i]
 		if (c == '<' || c == '>' || c == '=') && opStart(s, i) {
-			let n = opLen(s.Slice(i, len(s)))
+			let n = opLen(s.Slice(i, s.Len()))
 			out = out + s.Slice(i, i+n)
 			i += n
-			if i+1 < len(s) && isSpace(s[i]) && versionStart(s, i+1) {
+			if i+1 < s.Len() && isSpace(s[i]) && versionStart(s, i+1) {
 				i += 1
 				let end = spaceAt(s, i)
 				out = out + s.Slice(i, end)
@@ -670,18 +672,18 @@ func opStart(s string, i int) bool { i == 0 || s[i-1] != '<' && s[i-1] != '>' &&
 // then a digit, x, X or *.
 func versionStart(s string, i int) bool {
 	let mut j = i
-	for _ in i..len(s) {
+	for _ in i..s.Len() {
 		if s[j] != 'v' && s[j] != '=' {
 			break
 		}
 		j += 1
 	}
-	j < len(s) && (isDigit(s[j]) || s[j] == 'x' || s[j] == 'X' || s[j] == '*')
+	j < s.Len() && (isDigit(s[j]) || s[j] == 'x' || s[j] == 'X' || s[j] == '*')
 }
 
 func spaceAt(s string, i int) int {
 	let mut j = i
-	for _ in i..len(s) {
+	for _ in i..s.Len() {
 		if isSpace(s[j]) {
 			break
 		}
@@ -695,18 +697,18 @@ func spaceAt(s string, i int) int {
 func tightMark(s string, mark byte) string {
 	let mut out = ""
 	let mut i = 0
-	for _ in 0..len(s) {
-		if i >= len(s) {
+	for _ in 0..s.Len() {
+		if i >= s.Len() {
 			break
 		}
 		out = out + s.Slice(i, i+1)
 		if s[i] == mark {
 			i += 1
-			if mark == '~' && i < len(s) && s[i] == '>' && i+1 < len(s) && isSpace(s[i+1]) {
+			if mark == '~' && i < s.Len() && s[i] == '>' && i+1 < s.Len() && isSpace(s[i+1]) {
 				i += 2
 				continue
 			}
-			if i < len(s) && isSpace(s[i]) {
+			if i < s.Len() && isSpace(s[i]) {
 				i += 1
 			}
 			continue
@@ -718,13 +720,13 @@ func tightMark(s string, mark byte) string {
 
 // carets desugars ^ (replaceCaret).
 func carets(t string) string {
-	if len(t) == 0 || t[0] != '^' {
+	if t.Len() == 0 || t[0] != '^' {
 		return t
 	}
-	let p = match partial(t.Slice(1, len(t))) {
-	case Some as p:
+	let p = match partial(t.Slice(1, t.Len())) {
+	case option.Some as p:
 		p.Value
-	case None:
+	case option.None:
 		return t
 	}
 	let mj = digitsOf(p.M)
@@ -758,21 +760,21 @@ func tildes(t string) string {
 	for c in fields(t) {
 		out = out.Append(tilde(c))
 	}
-	if len(out) == 0 {
+	if out.Len() == 0 {
 		return ""
 	}
 	join(out, " ")
 }
 
 func tilde(t string) string {
-	if len(t) == 0 || t[0] != '~' {
+	if t.Len() == 0 || t[0] != '~' {
 		return t
 	}
-	let start = if len(t) > 1 && t[1] == '>' { 2 } else { 1 }
-	let p = match partial(t.Slice(start, len(t))) {
-	case Some as p:
+	let start = if t.Len() > 1 && t[1] == '>' { 2 } else { 1 }
+	let p = match partial(t.Slice(start, t.Len())) {
+	case option.Some as p:
 		p.Value
-	case None:
+	case option.None:
 		return t
 	}
 	let mj = digitsOf(p.M)
@@ -796,7 +798,7 @@ func xranges(t string) string {
 	for c in fields(t) {
 		out = out.Append(xrange(c))
 	}
-	if len(out) == 0 {
+	if out.Len() == 0 {
 		return ""
 	}
 	join(out, " ")
@@ -805,10 +807,10 @@ func xranges(t string) string {
 func xrange(t string) string {
 	let n = opLen(t)
 	let mut gtlt = t.Slice(0, n)
-	let p = match partial(t.Slice(n, len(t))) {
-	case Some as p:
+	let p = match partial(t.Slice(n, t.Len())) {
+	case option.Some as p:
 		p.Value
-	case None:
+	case option.None:
 		return t
 	}
 	if isX(p.M) && !isX(p.Mi) || isX(p.Mi) && !isX(p.P) {
@@ -857,7 +859,7 @@ func xrange(t string) string {
 func stars(t string) string {
 	let s = trim(t)
 	let mut k = -1
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		if k < 0 && s[i] == '*' {
 			k = i
 		}
@@ -872,38 +874,38 @@ func stars(t string) string {
 			start = p
 		}
 	}
-	s.Slice(0, start) + s.Slice(k+1, len(s))
+	s.Slice(0, start) + s.Slice(k+1, s.Len())
 }
 
 // starPrefix reports whether s is (<|>)?=?\s? before a *.
 func starPrefix(s string) bool {
 	let mut i = 0
-	if i < len(s) && (s[i] == '<' || s[i] == '>') {
+	if i < s.Len() && (s[i] == '<' || s[i] == '>') {
 		i += 1
 	}
-	if i < len(s) && s[i] == '=' {
+	if i < s.Len() && s[i] == '=' {
 		i += 1
 	}
-	if i < len(s) && isSpace(s[i]) {
+	if i < s.Len() && isSpace(s[i]) {
 		i += 1
 	}
-	i == len(s)
+	i == s.Len()
 }
 
 // dropBuilds drops each +build of s (BUILDSTRIPRE).
 func dropBuilds(s string) string {
 	let mut out = ""
 	let mut i = 0
-	for _ in 0..len(s) {
-		if i >= len(s) {
+	for _ in 0..s.Len() {
+		if i >= s.Len() {
 			break
 		}
-		if s[i] == '+' && i+1 < len(s) && isIdent(s[i+1]) {
+		if s[i] == '+' && i+1 < s.Len() && isIdent(s[i+1]) {
 			let mut j = i + 1
-			for _ in j..len(s) {
-				if j < len(s) && isIdent(s[j]) {
+			for _ in j..s.Len() {
+				if j < s.Len() && isIdent(s[j]) {
 					j += 1
-				} else if j+1 < len(s) && s[j] == '.' && isIdent(s[j+1]) {
+				} else if j+1 < s.Len() && s[j] == '.' && isIdent(s[j+1]) {
 					j += 1
 				} else {
 					break
@@ -924,8 +926,8 @@ func compareIdent(a string, b string) int {
 	if an && bn {
 		let x = trimZeros(a)
 		let y = trimZeros(b)
-		if len(x) != len(y) {
-			return if len(x) < len(y) { -1 } else { 1 }
+		if x.Len() != y.Len() {
+			return if x.Len() < y.Len() { -1 } else { 1 }
 		}
 		return bytesCompare(x, y)
 	}
@@ -940,32 +942,32 @@ func compareIdent(a string, b string) int {
 
 func trimZeros(s string) string {
 	let mut i = 0
-	for _ in 0..len(s) {
-		if i+1 >= len(s) || s[i] != '0' {
+	for _ in 0..s.Len() {
+		if i+1 >= s.Len() || s[i] != '0' {
 			break
 		}
 		i += 1
 	}
-	s.Slice(i, len(s))
+	s.Slice(i, s.Len())
 }
 
 func bytesCompare(a string, b string) int {
-	for i in 0..len(a) {
-		if i >= len(b) {
+	for i in 0..a.Len() {
+		if i >= b.Len() {
 			return 1
 		}
 		if a[i] != b[i] {
 			return if a[i] < b[i] { -1 } else { 1 }
 		}
 	}
-	if len(a) < len(b) { -1 } else { 0 }
+	if a.Len() < b.Len() { -1 } else { 0 }
 }
 
 func allDigits(s string) bool {
 	if s == "" {
 		return false
 	}
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		if !isDigit(s[i]) {
 			return false
 		}
@@ -982,14 +984,14 @@ func isIdent(c byte) bool { isDigit(c) || c >= 'a' && c <= 'z' || c >= 'A' && c 
 // trim is s without the white space at its ends.
 func trim(s string) string {
 	let mut i = 0
-	let mut j = len(s)
-	for _ in 0..len(s) {
+	let mut j = s.Len()
+	for _ in 0..s.Len() {
 		if i >= j || !isSpace(s[i]) {
 			break
 		}
 		i += 1
 	}
-	for _ in 0..len(s) {
+	for _ in 0..s.Len() {
 		if j <= i || !isSpace(s[j-1]) {
 			break
 		}
@@ -1002,7 +1004,7 @@ func trim(s string) string {
 func squeeze(s string) string {
 	let mut out = ""
 	let mut space = false
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		if isSpace(s[i]) {
 			space = true
 			continue
@@ -1020,7 +1022,7 @@ func squeeze(s string) string {
 func fields(s string) []string {
 	let mut out = []string{}
 	let mut start = -1
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		if isSpace(s[i]) {
 			if start >= 0 {
 				out = out.Append(s.Slice(start, i))
@@ -1031,7 +1033,7 @@ func fields(s string) []string {
 		}
 	}
 	if start >= 0 {
-		out = out.Append(s.Slice(start, len(s)))
+		out = out.Append(s.Slice(start, s.Len()))
 	}
 	out
 }
@@ -1041,19 +1043,19 @@ func splitOn(s string, sep string) []string {
 	let mut out = []string{}
 	let mut start = 0
 	let mut i = 0
-	for _ in 0..len(s)+1 {
-		if i+len(sep) > len(s) {
+	for _ in 0..s.Len()+1 {
+		if i+sep.Len() > s.Len() {
 			break
 		}
-		if s.Slice(i, i+len(sep)) == sep {
+		if s.Slice(i, i+sep.Len()) == sep {
 			out = out.Append(s.Slice(start, i))
-			i += len(sep)
+			i += sep.Len()
 			start = i
 			continue
 		}
 		i += 1
 	}
-	out.Append(s.Slice(start, len(s)))
+	out.Append(s.Slice(start, s.Len()))
 }
 
 func join(xs []string, sep string) string {

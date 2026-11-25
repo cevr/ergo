@@ -6,6 +6,7 @@
 // transaction, with no database and no host. Each copy of a Script is the
 // same script: its log is a sync.Ref.
 
+import option
 import sql
 import sync
 import slices
@@ -108,12 +109,12 @@ law CommitFailureEndsIt(a string, message string) {
 law RollsBackOnInterrupt(a string) {
 	let s = NewScript([]Rule{})
 	let started = queue.New[bool](1)
-	let t = with context { sql.DB: s, Scheduler: time.NewManual(0) } {
+	let t = with context { sql.DB: s, time.Scheduler: time.NewManual(0) } {
 		task.Go() {
 			sql.Transaction() {
 				let _ = try sql.Tx.Exec(a, []sql.Value{})
 				try started.Push(true)
-				Scheduler.Sleep(1h)
+				time.Scheduler.Sleep(1h)
 			} catch {
 			case _:
 			}
@@ -236,7 +237,7 @@ func intRefused(r sql.Row, i int) bool {
 func Log(s Script) []string { s.log.Get() }
 
 // keep adds line to the log and is the rule that answers it, if any.
-func keep(s Script, line string) Option[Rule] {
+func keep(s Script, line string) option.Option[Rule] {
 	s.log.Update() func(lines []string) []string { lines.Append(line) }
 	for r in s.rules {
 		let named = match r {
@@ -246,10 +247,10 @@ func keep(s Script, line string) Option[Rule] {
 			f.Statement
 		}
 		if named == line {
-			return Some[Rule]{Value: r}
+			return option.Some[Rule]{Value: r}
 		}
 	}
-	None
+	option.None
 }
 
 // refused is the failure of a statement refused with f. A failure a
@@ -291,7 +292,7 @@ func control(f sql.Failure) fails sql.Timeout | sql.Closed | sql.Other {
 // Exec keeps stmt and answers it.
 func Exec(s Script, stmt string, args []sql.Value) sql.Result fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other {
 	match keep(s, stmt) {
-	case Some[Rule] as r:
+	case option.Some[Rule] as r:
 		match r.Value {
 		case Answer as a:
 			sql.Result{Affected: a.Affected}
@@ -299,7 +300,7 @@ func Exec(s Script, stmt string, args []sql.Value) sql.Result fails sql.Unique |
 			try refused(f.With)
 			sql.Result{Affected: 0}
 		}
-	case None:
+	case option.None:
 		sql.Result{Affected: 0}
 	}
 }
@@ -307,7 +308,7 @@ func Exec(s Script, stmt string, args []sql.Value) sql.Result fails sql.Unique |
 // Query keeps stmt and answers it.
 func Query(s Script, stmt string, args []sql.Value) []sql.Row fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other {
 	match keep(s, stmt) {
-	case Some[Rule] as r:
+	case option.Some[Rule] as r:
 		match r.Value {
 		case Answer as a:
 			a.Rows
@@ -315,7 +316,7 @@ func Query(s Script, stmt string, args []sql.Value) []sql.Row fails sql.Unique |
 			try refused(f.With)
 			[]sql.Row{}
 		}
-	case None:
+	case option.None:
 		[]sql.Row{}
 	}
 }
@@ -323,13 +324,13 @@ func Query(s Script, stmt string, args []sql.Value) []sql.Row fails sql.Unique |
 // line keeps a transaction-control line and fails as its rule says.
 func line(s Script, text string) fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other {
 	match keep(s, text) {
-	case Some[Rule] as r:
+	case option.Some[Rule] as r:
 		match r.Value {
 		case Refuse as f:
 			try refused(f.With)
 		case Answer:
 		}
-	case None:
+	case option.None:
 	}
 }
 
@@ -364,13 +365,13 @@ func Rollback(s Script) {
 
 func savepointLine(s Script, text string) fails sql.Timeout | sql.Closed | sql.Other {
 	match keep(s, text) {
-	case Some[Rule] as r:
+	case option.Some[Rule] as r:
 		match r.Value {
 		case Refuse as f:
 			try control(f.With)
 		case Answer:
 		}
-	case None:
+	case option.None:
 	}
 }
 

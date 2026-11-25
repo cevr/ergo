@@ -9,6 +9,8 @@
 // protocol, never by this package's name. The protocol's functions are
 // unexported, so they are not part of this package's surface.
 
+import option
+
 // span is the context value of one named span.
 type span { name string }
 
@@ -24,11 +26,11 @@ func contextText(s span) string { s.name }
 // Current is the name of the innermost span in force for the running task,
 // or None. It reads the task's context, so it is effectful even with an
 // empty capability row.
-func Current() Option[string] {
+func Current() option.Option[string] {
 	if contextBound("span") {
-		Some[string]{Value: contextValue("span")}
+		option.Some[string]{Value: contextValue("span")}
 	} else {
-		None
+		option.None
 	}
 }
 
@@ -37,7 +39,7 @@ func Current() Option[string] {
 law InnerSpanShadows(outer string, inner string) {
 	with Span(outer) {
 		with Span(inner) {
-			Current() == Some[string]{Value: inner}
+			Current() == option.Some[string]{Value: inner}
 		}
 	}
 }

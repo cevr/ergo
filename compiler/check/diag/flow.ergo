@@ -51,6 +51,7 @@ import compiler/check/store
 import compiler/check/types
 import compiler/syntax
 import dense
+import option
 import slices
 import strings
 
@@ -93,7 +94,7 @@ type state { reached bool, slots []slot }
 // node a release of it names (its name, or the temporary's expression);
 // from is the container a for-in's lent element is lent from ("" for
 // none).
-type local { decl int, name string, lent bool, depth int, param int, ty Option[dense.ID[store.TKey]], site dense.Opt[syntax.Node], from string }
+type local { decl int, name string, lent bool, depth int, param int, ty option.Option[dense.ID[store.TKey]], site dense.Opt[syntax.Node], from string }
 
 // hand names a hand-off: where it is (an offset) and what it does; lend is
 // the call an operand is lent to (0 for none), yieldRoot marks a root
@@ -197,9 +198,9 @@ func Flow(s store.Store, k expr.Pkg, t expr.Typer, srcs []string) []Diag {
 	let mut out = []Diag{}
 	for fi, f in k.Fns {
 		match dense.Unpack(f.Body) {
-		case Some[dense.ID[syntax.Node]] as b:
+		case option.Some[dense.ID[syntax.Node]] as b:
 			let p = k.Parsed[f.File]
-			if p.Failed || f.File >= len(srcs) {
+			if p.Failed || f.File >= srcs.Len() {
 				continue
 			}
 			let decl = syntax.KindOf(p.Tree, f.Decl)
@@ -223,16 +224,16 @@ func Flow(s store.Store, k expr.Pkg, t expr.Typer, srcs []string) []Diag {
 			let mut ps = []param{}
 			for i, n in f.Names {
 				match dense.Unpack(n) {
-				case Some[dense.ID[syntax.Node]] as x:
+				case option.Some[dense.ID[syntax.Node]] as x:
 					let at = bind.PNodeOf(k.Ps, f.File, x.Value)
-					ps = ps.Append(param{decl: dense.Index(at), name: textAt(p, x.Value), t: expr.DefType(t, at), taken: decl == syntax.KFuncDecl && i < len(f.Takes) && f.Takes[i], site: dense.OptOf(x.Value)})
-				case None:
+					ps = ps.Append(param{decl: dense.Index(at), name: textAt(p, x.Value), t: expr.DefType(t, at), taken: decl == syntax.KFuncDecl && i < f.Takes.Len() && f.Takes[i], site: dense.OptOf(x.Value)})
+				case option.None:
 				}
 			}
 			frame(&w, s, k, t, b.Value, ps, textAt(p, f.Name), "", close, yields(s, f.Sig))
 			heldScan(&w, s, k, t, b.Value)
 			out = report(&w, s, k, t, f, decl, close, srcs[f.File], out)
-		case None:
+		case option.None:
 		}
 	}
 	Sorted(out)
@@ -240,17 +241,17 @@ func Flow(s store.Store, k expr.Pkg, t expr.Typer, srcs []string) []Diag {
 
 // param is a parameter of a body walked: its name's row, name and type,
 // and whether the body takes it.
-type param { decl int, name string, t Option[dense.ID[store.TKey]], taken bool, site dense.Opt[syntax.Node] }
+type param { decl int, name string, t option.Option[dense.ID[store.TKey]], taken bool, site dense.Opt[syntax.Node] }
 
 // yields is whether a body of the signature sig gives a value: its result
 // is not the empty tuple.
 func yields(s store.Store, sig dense.ID[store.TKey]) bool {
 	let ops = store.OperandsOf(s, sig)
-	if len(ops) < 3 {
+	if ops.Len() < 3 {
 		return false
 	}
-	let r = ops[len(ops)-3]
-	!(store.KindOfType(s, r) == store.KTuple && len(store.OperandsOf(s, r)) == 0)
+	let r = ops[ops.Len()-3]
+	!(store.KindOfType(s, r) == store.KTuple && store.OperandsOf(s, r).Len() == 0)
 }
 
 // report adds to out the body's diagnostics, each once, a refused hand-off
@@ -264,7 +265,7 @@ func report(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, f expr.Fn,
 			missing = missing.Append(g.take - 1)
 		}
 	}
-	let fix = if decl == syntax.KFuncDecl && !close && len(missing) > 0 { takesFix(wk.Parsed[w.file], f, missing, src) } else { "" }
+	let fix = if decl == syntax.KFuncDecl && !close && missing.Len() > 0 { takesFix(wk.Parsed[w.file], f, missing, src) } else { "" }
 	let mut seen = []fdiag{}
 	for g in w.diags {
 		let mut dup = false
@@ -321,7 +322,7 @@ func takesFix(p syntax.Parsed, f expr.Fn, missing []int, src string) string {
 	let mut row = 0
 	let mut last = -1
 	for i in ix {
-		if i == last || i < 0 || i >= len(fields) {
+		if i == last || i < 0 || i >= fields.Len() {
 			continue
 		}
 		last = i
@@ -341,29 +342,29 @@ func takesFix(p syntax.Parsed, f expr.Fn, missing []int, src string) string {
 		row = row + 1
 		if !slices.Contains(marked, fields[i]) {
 			match dense.Unpack(field.Type) {
-			case Some[dense.ID[syntax.Node]] as ty:
+			case option.Some[dense.ID[syntax.Node]] as ty:
 				marked = marked.Append(fields[i])
 				owns = owns.Append(syntax.NodePos(p, ty.Value))
-			case None:
+			case option.None:
 			}
 		}
 	}
-	if row == 0 || len(owns) == 0 {
+	if row == 0 || owns.Len() == 0 {
 		return ""
 	}
 	let start = syntax.TokPos(p, fd.Func)
 	let end = match dense.Unpack(fd.Body) {
-	case Some[dense.ID[syntax.Node]] as b:
+	case option.Some[dense.ID[syntax.Node]] as b:
 		syntax.TokPos(p, syntax.BlockStmtOf(p.Tree, b.Value).Lbrace)
-	case None:
+	case option.None:
 		return ""
 	}
 	let mut header = src[start:end]
 	if spellable {
 		let ats = slices.Sort(owns)
-		let mut k = len(ats) - 1
+		let mut k = ats.Len() - 1
 		for k >= 0 {
-			header = header[0:ats[k]-start] + "own " + header[ats[k]-start:len(header)]
+			header = header[0:ats[k]-start] + "own " + header[ats[k]-start:header.Len()]
 			k = k - 1
 		}
 	}
@@ -374,19 +375,19 @@ func takesFix(p syntax.Parsed, f expr.Fn, missing []int, src string) string {
 
 // typeOf is the type the typer gave the node x of the walked file, none
 // when it gave none.
-func typeOf(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[syntax.Node]) Option[dense.ID[store.TKey]] {
+func typeOf(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[syntax.Node]) option.Option[dense.ID[store.TKey]] {
 	let n = bind.PNodeOf(wk.Ps, w.file, x)
-	if dense.In(w.types, n) { dense.Unpack(dense.Of(w.types, n)) } else { None }
+	if dense.In(w.types, n) { dense.Unpack(dense.Of(w.types, n)) } else { option.None }
 }
 
 // tracked is whether a value of type t has an owner here: t holds a
 // resource as the package says, or a type parameter of the function
 // marked own (holds; the Go checker's mayHoldResource).
-func tracked(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, t Option[dense.ID[store.TKey]]) bool {
+func tracked(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, t option.Option[dense.ID[store.TKey]]) bool {
 	match t {
-	case Some[dense.ID[store.TKey]] as ty:
+	case option.Some[dense.ID[store.TKey]] as ty:
 		holds(ws, wk, w.res, w.own, ty.Value)
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -410,9 +411,9 @@ func paramFreeType(w mut walker, wk expr.Pkg, x dense.ID[syntax.Node]) bool {
 		return false
 	}
 	match w.infos.Get(textAt(wk.Parsed[w.file], x)) {
-	case Some{Value: info}:
-		len(info.params) == 0
-	case None:
+	case option.Some{Value: info}:
+		info.params.Len() == 0
+	case option.None:
 		false
 	}
 }
@@ -424,7 +425,7 @@ func ownNames(w mut walker, ws store.Store, wk expr.Pkg, t dense.ID[store.TKey],
 	if store.KindOfType(ws, t) == store.KParam {
 		let i = store.ArgOf(ws, t)
 		let ps = wk.Fns[w.fn].Params
-		if i < len(w.own) && w.own[i] && i < len(ps) && !slices.Contains(names, ps[i]) {
+		if i < w.own.Len() && w.own[i] && i < ps.Len() && !slices.Contains(names, ps[i]) {
 			names = names.Append(ps[i])
 		}
 		return names
@@ -438,14 +439,14 @@ func ownNames(w mut walker, ws store.Store, wk expr.Pkg, t dense.ID[store.TKey],
 // refuse reports msg at x, or, when ty holds a resource only through own
 // type parameters, what with the mark named (takes.go ownSite); take is
 // the lent parameter a hand-off refuses (reportAt).
-func refuse(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, ty Option[dense.ID[store.TKey]], x dense.ID[syntax.Node], what string, msg string, take int) {
+func refuse(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, ty option.Option[dense.ID[store.TKey]], x dense.ID[syntax.Node], what string, msg string, take int) {
 	match ty {
-	case Some{Value: t}:
+	case option.Some{Value: t}:
 		if genericOnly(w, ws, wk, t) {
 			ownSite(w, ws, wk, wt, t, x, what, take)
 			return
 		}
-	case None:
+	case option.None:
 	}
 	reportAt(w, ws, wk, wt, x, msg, take)
 }
@@ -454,7 +455,7 @@ func refuse(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, ty Option[
 // named, when t may hold a resource (takes.go ownSite).
 func ownSite(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, t dense.ID[store.TKey], x dense.ID[syntax.Node], what string, take int) {
 	let names = ownNames(w, ws, wk, t, []string{})
-	if len(names) > 0 && holds(ws, wk, w.res, w.own, t) {
+	if names.Len() > 0 && holds(ws, wk, w.res, w.own, t) {
 		reportAt(w, ws, wk, wt, x, "\(what), and \(strings.Join(names, ", ")) is marked own, so its value has one owner as a resource's has (types.md, Generics 9)", take)
 	}
 }
@@ -503,7 +504,7 @@ func slotOf(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID
 	if d < 0 {
 		return -1
 	}
-	let mut i = len(w.vars) - 1
+	let mut i = w.vars.Len() - 1
 	for i >= 0 {
 		if w.vars[i].decl == d {
 			return i
@@ -546,11 +547,11 @@ func pad(s state, n int) state {
 	if !s.reached {
 		return s
 	}
-	if len(s.slots) >= n {
+	if s.slots.Len() >= n {
 		return state{reached: true, slots: s.slots[0:n]}
 	}
 	let mut out = s.slots
-	for _ in len(s.slots)..n {
+	for _ in s.slots.Len()..n {
 		out = out.Append(none())
 	}
 	state{reached: true, slots: out}
@@ -602,7 +603,7 @@ func join(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, sa state, sb
 // same is whether two states agree on every slot's state and live loans;
 // exact also on their hand-offs, which name the diagnostics.
 func same(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, sa state, sb state, exact bool) bool {
-	if sa.reached != sb.reached || len(sa.slots) != len(sb.slots) {
+	if sa.reached != sb.reached || sa.slots.Len() != sb.slots.Len() {
 		return false
 	}
 	for i, x in sa.slots {
@@ -612,7 +613,7 @@ func same(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, sa state, sb
 		}
 		let lx = liveLoans(w, ws, wk, wt, x.loans, []loan{})
 		let ly = liveLoans(w, ws, wk, wt, y.loans, []loan{})
-		if len(lx) != len(ly) {
+		if lx.Len() != ly.Len() {
 			return false
 		}
 		for j, l in lx {
@@ -632,11 +633,11 @@ func acquire(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, l0 local)
 	if w.st.reached {
 		w.st.slots = w.st.slots.Append(slot{st: stOwned, at: -1, how: "", loans: []loan{}, taken: []string{}, takenAt: -1, paramFree: false})
 	}
-	len(w.vars) - 1
+	w.vars.Len() - 1
 }
 
 // temp acquires a temporary: the value of x, of type ty when known.
-func temp(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[syntax.Node], ty Option[dense.ID[store.TKey]]) int { acquire(w, ws, wk, wt, local{decl: -1, name: "", lent: false, depth: 0, param: 0, ty: ty, site: dense.OptOf(x), from: ""}) }
+func temp(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[syntax.Node], ty option.Option[dense.ID[store.TKey]]) int { acquire(w, ws, wk, wt, local{decl: -1, name: "", lent: false, depth: 0, param: 0, ty: ty, site: dense.OptOf(x), from: ""}) }
 
 // release refuses each value from slot first on that a path still owns
 // (or may) and that holds a value of an own type parameter, whatever
@@ -648,12 +649,12 @@ func release(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, first int
 	if !w.st.reached {
 		return
 	}
-	let mut i = len(w.st.slots) - 1
+	let mut i = w.st.slots.Len() - 1
 	for i >= first {
 		let l = w.vars[i]
 		if live(w.st.slots[i]) && !l.lent {
 			match (l.ty, dense.Unpack(l.site)) {
-			case (Some{Value: t}, Some{Value: x}):
+			case (option.Some{Value: t}, option.Some{Value: x}):
 				if !w.st.slots[i].paramFree && holdsOwnParam(w, ws, wk, t) {
 					let name = if l.decl >= 0 { l.name } else { "a value" }
 					ownSite(w, ws, wk, wt, t, x, "\(name) is dropped at the end of its scope, and a generic body does not release a value of its type parameter yet (#197 Gap 42)", 0)
@@ -670,7 +671,7 @@ func release(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, first int
 func close(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, first int) {
 	release(w, ws, wk, wt, first)
 	w.vars = w.vars[0:first]
-	if w.st.reached && len(w.st.slots) > first {
+	if w.st.reached && w.st.slots.Len() > first {
 		w.st.slots = w.st.slots[0:first]
 	}
 }
@@ -708,7 +709,7 @@ func use(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, i int, x dens
 		return
 	}
 	let s = w.st.slots[i]
-	if live(s) && len(s.taken) > 0 {
+	if live(s) && s.taken.Len() > 0 {
 		let name = w.vars[i].name
 		let p = pos(w, ws, wk, wt, s.takenAt)
 		refuse(w, ws, wk, wt, w.vars[i].ty, x, "\(name) is used whole after a field is taken at \(p)", "a field of \(name) was taken at \(p), so \(name) cannot be used whole (resources R39, Gap 38); use its other fields", 0)
@@ -717,7 +718,7 @@ func use(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, i int, x dens
 
 // sameSet is whether xs and ys hold the same names.
 func sameSet(xs []string, ys []string) bool {
-	if len(xs) != len(ys) {
+	if xs.Len() != ys.Len() {
 		return false
 	}
 	for x in xs {
@@ -786,7 +787,7 @@ func withLent(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, i int, x
 	if !w.st.reached {
 		return false
 	}
-	let mut k = len(w.lends) - 1
+	let mut k = w.lends.Len() - 1
 	for k >= 0 {
 		if w.lends[k] == i {
 			let l = w.vars[i]
@@ -825,24 +826,24 @@ func frame(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, body dense.
 	let savedTail = w.tl
 	let savedTries = w.tries
 	let outer = w.st
-	let nvars = len(w.vars)
+	let nvars = w.vars.Len()
 	w.tl = frameTail()
 	w.tries = 0
 	w.loops = []loopFrame{}
 	w.catches = [][]state{}
 	w.depth = w.depth + 1
-	w.first = len(w.vars)
+	w.first = w.vars.Len()
 	w.name = name
 	w.nested = nested
 	if !w.st.reached {
 		// A body no path reaches is still checked on its own.
 		let mut sl = []slot{}
-		for _ in 0..len(w.vars) {
+		for _ in 0..w.vars.Len() {
 			sl = sl.Append(none())
 		}
 		w.st = state{reached: true, slots: sl}
 	}
-	let scope = len(w.vars)
+	let scope = w.vars.Len()
 	for i, p in ps {
 		if tracked(w, ws, wk, wt, p.t) {
 			acquire(w, ws, wk, wt, local{decl: p.decl, name: p.name, lent: lendAll || !p.taken, depth: 0, param: if w.depth == 1 { i + 1 } else { 0 }, ty: p.t, site: p.site, from: ""})
@@ -874,7 +875,7 @@ func stmts(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, l syntax.Li
 
 // block checks a scope's statements.
 func block(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, l syntax.List, yield bool) {
-	let first = len(w.vars)
+	let first = w.vars.Len()
 	stmts(w, ws, wk, wt, l, yield)
 	close(w, ws, wk, wt, first)
 }
@@ -890,7 +891,7 @@ func blockOf(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, b dense.I
 // region evaluates x in mode at h as a statement or header whose
 // temporaries end with it.
 func region(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[syntax.Node], mode int, h hand) {
-	let first = len(w.vars)
+	let first = w.vars.Len()
 	eval(w, ws, wk, wt, x, mode, h)
 	close(w, ws, wk, wt, first)
 }
@@ -911,30 +912,30 @@ func stmt(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, s dense.ID[s
 			region(w, ws, wk, wt, x, mDiscard, noHand())
 		}
 	} else if kind == syntax.KAssignStmt {
-		let first = len(w.vars)
+		let first = w.vars.Len()
 		assign(w, ws, wk, wt, syntax.AssignStmtOf(wk.Parsed[w.file].Tree, s))
 		close(w, ws, wk, wt, first)
 	} else if kind == syntax.KReturnStmt {
-		let first = len(w.vars)
+		let first = w.vars.Len()
 		match dense.Unpack(syntax.ReturnStmtOf(wk.Parsed[w.file].Tree, s).Result) {
-		case Some[dense.ID[syntax.Node]] as r:
+		case option.Some[dense.ID[syntax.Node]] as r:
 			eval(w, ws, wk, wt, r.Value, mMove, handAt(at(w, ws, wk, wt, r.Value), "it is returned"))
-		case None:
+		case option.None:
 		}
 		release(w, ws, wk, wt, w.first)
 		w.st = unreached()
 		close(w, ws, wk, wt, first)
 	} else if kind == syntax.KDieStmt {
-		let first = len(w.vars)
+		let first = w.vars.Len()
 		eval(w, ws, wk, wt, syntax.DieStmtOf(wk.Parsed[w.file].Tree, s).X, mLend, noHand())
 		release(w, ws, wk, wt, w.first)
 		w.st = unreached()
 		close(w, ws, wk, wt, first)
 	} else if kind == syntax.KBranchStmt {
-		if len(w.loops) == 0 {
+		if w.loops.Len() == 0 {
 			return
 		}
-		let top = len(w.loops) - 1
+		let top = w.loops.Len() - 1
 		let lf = w.loops[top].first
 		release(w, ws, wk, wt, lf)
 		if w.st.reached {
@@ -951,15 +952,15 @@ func stmt(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, s dense.ID[s
 	} else if kind == syntax.KIfStmt {
 		let is = syntax.IfStmtOf(wk.Parsed[w.file].Tree, s)
 		region(w, ws, wk, wt, is.Cond, mLend, noHand())
-		let n = len(w.vars)
+		let n = w.vars.Len()
 		let saved = w.st
 		blockOf(w, ws, wk, wt, is.Body, yield)
 		let then = w.st
 		w.st = saved
 		match dense.Unpack(is.Else) {
-		case Some[dense.ID[syntax.Node]] as e:
+		case option.Some[dense.ID[syntax.Node]] as e:
 			blockOf(w, ws, wk, wt, e.Value, yield)
-		case None:
+		case option.None:
 		}
 		w.st = join(w, ws, wk, wt, then, w.st, n)
 	} else if kind == syntax.KSwitchStmt {
@@ -968,7 +969,7 @@ func stmt(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, s dense.ID[s
 		clauses(w, ws, wk, wt, ss.Clauses, yield)
 	} else if kind == syntax.KTypeSwitchStmt {
 		let ts = syntax.TypeSwitchStmtOf(wk.Parsed[w.file].Tree, s)
-		let first = len(w.vars)
+		let first = w.vars.Len()
 		eval(w, ws, wk, wt, ts.Subject, mLend, noHand())
 		patternClauses(w, ws, wk, wt, ts.Subject, ts.Clauses, yield)
 		close(w, ws, wk, wt, first)
@@ -1005,7 +1006,7 @@ func patternClauses(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, su
 	}
 	let tr = wk.Parsed[w.file].Tree
 	let subj = un(w, ws, wk, wt, subject)
-	let n = len(w.vars)
+	let n = w.vars.Len()
 	let entry = w.st
 	let mut out = unreached()
 	for i in 0..count {
@@ -1013,7 +1014,7 @@ func patternClauses(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, su
 		w.st = entry
 		if syntax.KindOf(tr, c) == syntax.KCaseClause {
 			let cc = syntax.CaseClauseOf(tr, c)
-			let first = len(w.vars)
+			let first = w.vars.Len()
 			if syntax.Len(cc.List) > 0 {
 				match syntax.ViewOf(tr, syntax.Item(tr, cc.List, 0)) {
 				case syntax.AsPattern as ap:
@@ -1027,9 +1028,9 @@ func patternClauses(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, su
 				case syntax.CompositeLit as cl:
 					if syntax.Len(cc.List) == 1 {
 						match dense.Unpack(cl.Type) {
-						case Some{Value: tx}:
+						case option.Some{Value: tx}:
 							narrow(w, ws, wk, wt, subj, tx, cl.Elts, true)
-						case None:
+						case option.None:
 						}
 					}
 				case _:
@@ -1064,11 +1065,11 @@ func narrow(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, subj dense
 		return
 	}
 	match w.vars[si].ty {
-	case Some{Value: t}:
+	case option.Some{Value: t}:
 		if !holdsOwnParam(w, ws, wk, t) {
 			return
 		}
-	case None:
+	case option.None:
 		return
 	}
 	let mut binds = []local{}
@@ -1086,7 +1087,7 @@ func narrow(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, subj dense
 		case _:
 		}
 	}
-	if len(binds) > 0 {
+	if binds.Len() > 0 {
 		move(w, ws, wk, wt, si, subj, handAt(at(w, ws, wk, wt, subj), "the match pattern moves it"))
 		for b in binds {
 			acquire(w, ws, wk, wt, b)
@@ -1101,7 +1102,7 @@ func clauses(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, l syntax.
 	if count == 0 {
 		return
 	}
-	let n = len(w.vars)
+	let n = w.vars.Len()
 	let entry = w.st
 	let mut out = unreached()
 	for i in 0..count {
@@ -1120,11 +1121,11 @@ func clauses(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, l syntax.
 // break. Each loop keeps its last fixpoint (entry, exit, diagnostics), so
 // an enclosing loop's later pass with the same entry reuses it.
 func loop(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, n dense.ID[syntax.Node], cond dense.Opt[syntax.Node], ranged bool, body dense.ID[syntax.Node], binds []local) {
-	let first = len(w.vars)
+	let first = w.vars.Len()
 	let key = dense.Index(n)
 	let mut entry = w.st
 	match w.memos.Get(key) {
-	case Some[memo] as m:
+	case option.Some[memo] as m:
 		if entry.reached {
 			entry = join(w, ws, wk, wt, entry, m.Value.entry, first)
 			if same(w, ws, wk, wt, entry, m.Value.entry, true) {
@@ -1133,18 +1134,18 @@ func loop(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, n dense.ID[s
 				return
 			}
 		}
-	case None:
+	case option.None:
 	}
 	for {
-		let mark = len(w.diags)
+		let mark = w.diags.Len()
 		w.loops = w.loops.Append(loopFrame{first: first, breaks: []state{}, cont: []state{}})
 		w.st = entry
 		let mut exits = unreached()
 		match dense.Unpack(cond) {
-		case Some[dense.ID[syntax.Node]] as c:
+		case option.Some[dense.ID[syntax.Node]] as c:
 			region(w, ws, wk, wt, c.Value, mLend, noHand())
 			exits = w.st
-		case None:
+		case option.None:
 			if ranged {
 				exits = w.st
 			}
@@ -1154,7 +1155,7 @@ func loop(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, n dense.ID[s
 		}
 		block(w, ws, wk, wt, syntax.BlockStmtOf(wk.Parsed[w.file].Tree, body).List, false)
 		close(w, ws, wk, wt, first)
-		let top = len(w.loops) - 1
+		let top = w.loops.Len() - 1
 		let lf = w.loops[top]
 		w.loops = w.loops[0:top]
 		let mut back = w.st
@@ -1168,7 +1169,7 @@ func loop(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, n dense.ID[s
 				out = join(w, ws, wk, wt, out, b, first)
 			}
 			if entry.reached {
-				w.memos[key] = memo{entry: entry, out: out, diags: []fdiag{}.Concat(w.diags[mark:len(w.diags)])}
+				w.memos[key] = memo{entry: entry, out: out, diags: []fdiag{}.Concat(w.diags[mark:w.diags.Len()])}
 			}
 			w.st = out
 			return
@@ -1191,9 +1192,9 @@ func rangeBinds(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, rs syn
 	}
 	let mut ids = []dense.ID[syntax.Node]{}
 	match dense.Unpack(rs.Key) {
-	case Some[dense.ID[syntax.Node]] as k:
+	case option.Some[dense.ID[syntax.Node]] as k:
 		ids = ids.Append(k.Value)
-	case None:
+	case option.None:
 	}
 	ids = ids.Append(rs.Value)
 	for id in ids {
@@ -1212,10 +1213,10 @@ func rangeBinds(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, rs syn
 // containerAt is whether x's type is a slice, array or map.
 func containerAt(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[syntax.Node]) bool {
 	match typeOf(w, ws, wk, wt, x) {
-	case Some{Value: t}:
+	case option.Some{Value: t}:
 		let kind = store.KindOfType(ws, t)
 		kind == store.KSlice || kind == store.KArray || kind == store.KMap
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -1232,18 +1233,18 @@ func fieldPlace(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dens
 		return false
 	}
 	match rootInfo(w, ws, wk, wt, root) {
-	case Some[typeInfo] as ti:
-		!ti.Value.op && len(ti.Value.variants) == 0
-	case None:
+	case option.Some[typeInfo] as ti:
+		!ti.Value.op && ti.Value.variants.Len() == 0
+	case option.None:
 		false
 	}
 }
 
 // rootInfo is the declaration of the type of x when it is a type of the
 // package (typeInfos).
-func rootInfo(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[syntax.Node]) Option[typeInfo] {
+func rootInfo(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[syntax.Node]) option.Option[typeInfo] {
 	match typeOf(w, ws, wk, wt, x) {
-	case Some{Value: rt}:
+	case option.Some{Value: rt}:
 		let kind = store.KindOfType(ws, rt)
 		let name = if kind == store.KNamed {
 			store.TypeNameText(ws, store.ArgOf(ws, rt))
@@ -1253,8 +1254,8 @@ func rootInfo(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.
 			""
 		}
 		w.infos.Get(name)
-	case None:
-		None
+	case option.None:
+		option.None
 	}
 }
 
@@ -1298,9 +1299,9 @@ func fieldTake(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense
 	let f = textAt(p, se.Sel)
 	let place = "\(l.name).\(f)"
 	let closes = match rootInfo(w, ws, wk, wt, root) {
-	case Some[typeInfo] as ti:
+	case option.Some[typeInfo] as ti:
 		ti.Value.closer
-	case None:
+	case option.None:
 		false
 	}
 	if !live(s) {
@@ -1347,9 +1348,9 @@ func placeMove(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense
 		let r = textAt(p, un(w, ws, wk, wt, se.X))
 		let f = textAt(p, se.Sel)
 		let tn = match typeOf(w, ws, wk, wt, un(w, ws, wk, wt, se.X)) {
-		case Some{Value: rt}:
+		case option.Some{Value: rt}:
 			text(w, ws, wk, wt, rt)
-		case None:
+		case option.None:
 			""
 		}
 		let base = if strings.Contains(tn, "[") { tn[0:strings.Index(tn, "[")] } else { tn }
@@ -1362,9 +1363,9 @@ func placeMove(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense
 func letSpec(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, spec dense.ID[syntax.Node]) {
 	let vs = syntax.VarSpecOf(wk.Parsed[w.file].Tree, spec)
 	let value = match dense.Unpack(vs.Value) {
-	case Some[dense.ID[syntax.Node]] as v:
+	case option.Some[dense.ID[syntax.Node]] as v:
 		v.Value
-	case None:
+	case option.None:
 		return
 	}
 	if isSome(dense.Unpack(vs.Pattern)) {
@@ -1373,22 +1374,22 @@ func letSpec(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, spec dens
 		return
 	}
 	let count = syntax.Len(vs.Names)
-	let first = len(w.vars)
+	let first = w.vars.Len()
 	let mode = if count == 1 && textAt(wk.Parsed[w.file], syntax.Item(wk.Parsed[w.file].Tree, vs.Names, 0)) == "_" { mDiscard } else { mMove }
 	eval(w, ws, wk, wt, value, mode, handAt(at(w, ws, wk, wt, value), "let moves it"))
 	if count > 1 {
 		match typeOf(w, ws, wk, wt, value) {
-		case Some[dense.ID[store.TKey]] as tt:
+		case option.Some[dense.ID[store.TKey]] as tt:
 			if store.KindOfType(ws, tt.Value) == store.KTuple {
 				let parts = store.OperandsOf(ws, tt.Value)
 				for i in 0..count {
 					let id = syntax.Item(wk.Parsed[w.file].Tree, vs.Names, i)
-					if textAt(wk.Parsed[w.file], id) == "_" && i < len(parts) && holds(ws, wk, w.res, []bool{}, parts[i]) {
+					if textAt(wk.Parsed[w.file], id) == "_" && i < parts.Len() && holds(ws, wk, w.res, []bool{}, parts[i]) {
 						reportAt(w, ws, wk, wt, id, "the \(text(w, ws, wk, wt, parts[i])) bound to _ is discarded, and a resource has one owner; bind it to a name, so its scope releases it, or hand it off (resources R42)", 0)
 					}
 				}
 			}
-		case None:
+		case option.None:
 		}
 	}
 	close(w, ws, wk, wt, first)
@@ -1407,7 +1408,7 @@ func letSpec(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, spec dens
 }
 
 // defType is the type of the local declared at the row d.
-func defType(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, d dense.ID[store.PNode]) Option[dense.ID[store.TKey]] { expr.DefType(wt, d) }
+func defType(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, d dense.ID[store.PNode]) option.Option[dense.ID[store.TKey]] { expr.DefType(wt, d) }
 
 // parts is the elements of x: a tuple's, or x alone.
 func parts(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[syntax.Node]) []dense.ID[syntax.Node] {
@@ -1436,7 +1437,7 @@ func assign(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, a syntax.A
 		return
 	}
 	for i, x in rhs {
-		let mode = if (i < len(lhs) && trackedAt(w, ws, wk, wt, lhs[i])) || len(lhs) > 1 { mMove } else { mLend }
+		let mode = if (i < lhs.Len() && trackedAt(w, ws, wk, wt, lhs[i])) || lhs.Len() > 1 { mMove } else { mLend }
 		eval(w, ws, wk, wt, x, mode, handAt(at(w, ws, wk, wt, x), "it is assigned"))
 	}
 	for x0 in lhs {
@@ -1488,9 +1489,9 @@ func lhsPlace(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.
 
 func lendOpt(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.Opt[syntax.Node]) {
 	match dense.Unpack(x) {
-	case Some[dense.ID[syntax.Node]] as v:
+	case option.Some[dense.ID[syntax.Node]] as v:
 		eval(w, ws, wk, wt, v.Value, mLend, noHand())
-	case None:
+	case option.None:
 	}
 }
 
@@ -1539,12 +1540,12 @@ func eval(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[s
 		let op = syntax.TokKind(wk.Parsed[w.file], be.Op)
 		if op == syntax.Land || op == syntax.Lor {
 			eval(w, ws, wk, wt, be.X, mLend, noHand())
-			let n = len(w.vars)
+			let n = w.vars.Len()
 			let skipped = w.st
 			eval(w, ws, wk, wt, be.Y, mLend, noHand())
-			w.st = join(w, ws, wk, wt, w.st, skipped, len(w.vars))
+			w.st = join(w, ws, wk, wt, w.st, skipped, w.vars.Len())
 			if w.st.reached {
-				for i in n..len(w.st.slots) {
+				for i in n..w.st.slots.Len() {
 					if w.st.slots[i].st == stOwned {
 						w.st.slots[i] = slot{st: stMaybe, at: at(w, ws, wk, wt, be.Y), how: "its operand did not run", loans: []loan{}, taken: []string{}, takenAt: -1, paramFree: false}
 					}
@@ -1654,9 +1655,9 @@ func ident(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[
 // lender is the callee name of the call lend.
 func lender(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, lend int) string {
 	match w.lenders.Get(lend) {
-	case Some[string] as n:
+	case option.Some[string] as n:
 		n.Value
-	case None:
+	case option.None:
 		""
 	}
 }
@@ -1706,19 +1707,19 @@ func letsHolding(w mut walker, s store.Store, k expr.Pkg, t expr.Typer) []int {
 // tail's.
 func produced(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[syntax.Node], mode int, h hand) {
 	let t = match typeOf(w, ws, wk, wt, x) {
-	case Some[dense.ID[store.TKey]] as v:
+	case option.Some[dense.ID[store.TKey]] as v:
 		v.Value
-	case None:
+	case option.None:
 		return
 	}
-	if !w.st.reached || !tracked(w, ws, wk, wt, Some{Value: t}) {
+	if !w.st.reached || !tracked(w, ws, wk, wt, option.Some{Value: t}) {
 		return
 	}
 	if h.yieldRoot {
 		reportAt(w, ws, wk, wt, x, "the yielded resource is rooted in this temporary, whose owner ends before its consumer; bind and yield the whole owner instead of a part (resources R43)", 0)
 	}
 	if mode == mLend {
-		temp(w, ws, wk, wt, x, Some{Value: t})
+		temp(w, ws, wk, wt, x, option.Some{Value: t})
 	} else if mode == mDiscard {
 		// A generic body may drop a value of an own T (plan 1.3): its
 		// release is its instance's.
@@ -1728,7 +1729,7 @@ func produced(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.
 		reportAt(w, ws, wk, wt, x, "the \(text(w, ws, wk, wt, t)) this produces is discarded, and a resource has one owner; bind it with let, so its scope releases it, or hand it off (resources R42)", 0)
 	} else if mode == mHold {
 		let i = w.tl.slot
-		if i >= 0 && i < len(w.st.slots) {
+		if i >= 0 && i < w.st.slots.Len() {
 			w.st.slots[i] = slot{st: stOwned, at: -1, how: "", loans: []loan{}, taken: []string{}, takenAt: -1, paramFree: false}
 		}
 	}
@@ -1768,9 +1769,9 @@ func moveParts(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense
 	} else {
 		let cl = syntax.CompositeLitOf(wk.Parsed[w.file].Tree, x)
 		match dense.Unpack(cl.Base) {
-		case Some[dense.ID[syntax.Node]] as b:
+		case option.Some[dense.ID[syntax.Node]] as b:
 			src = src.Append(b.Value)
-		case None:
+		case option.None:
 		}
 		for i in 0..syntax.Len(cl.Elts) {
 			src = src.Append(syntax.Item(wk.Parsed[w.file].Tree, cl.Elts, i))
@@ -1795,14 +1796,14 @@ func moveParts(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense
 // temporary, the tail's slot); an enclosing name keeps its owner.
 func yieldValue(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[syntax.Node], mode int, h hand, isCatch bool) {
 	let saved = w.tl
-	let mut t = tail{mode: mode, how: h.how, slot: -1, first: len(w.vars), lend: h.lend, yieldRoot: h.yieldRoot}
+	let mut t = tail{mode: mode, how: h.how, slot: -1, first: w.vars.Len(), lend: h.lend, yieldRoot: h.yieldRoot}
 	if mode == mHold {
 		t = saved
 	} else if mode == mLend && trackedAt(w, ws, wk, wt, x) && w.st.reached {
 		t.mode = mHold
 		t.slot = temp(w, ws, wk, wt, x, typeOf(w, ws, wk, wt, x))
 		w.st.slots[t.slot] = slot{st: stMoved, at: at(w, ws, wk, wt, x), how: "no arm made it", loans: []loan{}, taken: []string{}, takenAt: -1, paramFree: false}
-		t.first = len(w.vars)
+		t.first = w.vars.Len()
 		if h.yieldRoot {
 			t.first = saved.first
 		}
@@ -1827,11 +1828,11 @@ func caught(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID
 	let partial = w.tryCatch == dense.Index(x)
 	w.tryCatch = -1
 	w.catches = w.catches.Append([]state{})
-	let k = len(w.catches)
+	let k = w.catches.Len()
 	eval(w, ws, wk, wt, ce.X, mode, hand{at: h.at, how: h.how, lend: h.lend, yieldRoot: h.yieldRoot, failed: k, root: false})
 	let failing = w.catches[k-1]
 	w.catches = w.catches[0 : k-1]
-	let n = len(w.vars)
+	let n = w.vars.Len()
 	let mut fail = unreached()
 	for f in failing {
 		fail = join(w, ws, wk, wt, fail, f, n)
@@ -1855,13 +1856,13 @@ func caught(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID
 }
 
 // callee is the function call x calls, as the typer resolved it.
-func callee(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[syntax.Node]) Option[expr.CallTo] {
+func callee(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[syntax.Node]) option.Option[expr.CallTo] {
 	let n = bind.PNodeOf(wk.Ps, w.file, x)
 	if !dense.In(w.calls, n) {
-		return None
+		return option.None
 	}
 	let i = dense.Of(w.calls, n)
-	if i >= 0 { Some[expr.CallTo]{Value: wt.Calls[i]} } else { None }
+	if i >= 0 { option.Some[expr.CallTo]{Value: wt.Calls[i]} } else { option.None }
 }
 
 // calleeName is the name a call writes for its callee: f in f(…), pkg.f(…)
@@ -1897,12 +1898,12 @@ func calleeText(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, fun de
 // funcParam is the signature of the parameter i of f when it is a
 // function type the callee does not keep (no own, no escaping): a block
 // passed there runs while the call does.
-func funcParam(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, f expr.Fn, i int) Option[dense.ID[store.TKey]] {
+func funcParam(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, f expr.Fn, i int) option.Option[dense.ID[store.TKey]] {
 	let ops = store.OperandsOf(ws, f.Sig)
-	if i >= len(ops)-3 || store.KindOfType(ws, ops[i]) != store.KSig {
-		return None
+	if i >= ops.Len()-3 || store.KindOfType(ws, ops[i]) != store.KSig {
+		return option.None
 	}
-	Some[dense.ID[store.TKey]]{Value: ops[i]}
+	option.Some[dense.ID[store.TKey]]{Value: ops[i]}
 }
 
 // call evaluates a call; it reports whether x is no produced value (a
@@ -1915,9 +1916,9 @@ func call(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[s
 		return true
 	}
 	match callee(w, ws, wk, wt, x) {
-	case Some[expr.CallTo] as ct:
+	case option.Some[expr.CallTo] as ct:
 		knownCall(w, ws, wk, wt, x, c, ct.Value, h)
-	case None:
+	case option.None:
 		// An unknown callee lends its operands, and keeps no loan: what it
 		// takes is not known here.
 		if syntax.KindOf(wk.Parsed[w.file].Tree, fun) == syntax.KSelectorExpr {
@@ -1927,9 +1928,9 @@ func call(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[s
 		}
 		lendList(w, ws, wk, wt, c.Args)
 		let canFail = match typeOf(w, ws, wk, wt, fun) {
-		case Some{Value: ft}:
+		case option.Some{Value: ft}:
 			sigFails(ws, ft)
-		case None:
+		case option.None:
 			false
 		}
 		failure(w, ws, wk, wt, h, canFail)
@@ -1941,7 +1942,7 @@ func call(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[s
 // a failing call under a try leaves the frame, which releases what it
 // owns (release; the Go checker's onFailure).
 func failure(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, h hand, canFail bool) {
-	if h.failed > 0 && w.st.reached && h.failed <= len(w.catches) {
+	if h.failed > 0 && w.st.reached && h.failed <= w.catches.Len() {
 		w.catches[h.failed-1] = w.catches[h.failed-1].Append(w.st)
 	} else if h.failed == 0 && w.tries > 0 && canFail {
 		release(w, ws, wk, wt, w.first)
@@ -1954,7 +1955,7 @@ func sigFails(s store.Store, t dense.ID[store.TKey]) bool {
 		return false
 	}
 	let ops = store.OperandsOf(s, t)
-	len(ops) >= 3 && len(store.OperandsOf(s, ops[len(ops)-2])) > 0
+	ops.Len() >= 3 && store.OperandsOf(s, ops[ops.Len()-2]).Len() > 0
 }
 
 // knownCall evaluates a call of the function ct resolves: its receiver
@@ -1971,9 +1972,9 @@ func knownCall(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense
 	let off = if ct.Recv { 1 } else { 0 }
 	if ct.Recv {
 		let r = syntax.SelectorExprOf(wk.Parsed[w.file].Tree, un(w, ws, wk, wt, c.Fun)).X
-		let pname = if len(f.Pnames) > 0 { f.Pnames[0] } else { "" }
+		let pname = if f.Pnames.Len() > 0 { f.Pnames[0] } else { "" }
 		let how = if pname == "" || f.Close { "\(name) takes it" } else { "\(name) takes \(pname)" }
-		let taken = len(f.Takes) > 0 && f.Takes[0] && fieldTake(w, ws, wk, wt, un(w, ws, wk, wt, r), handAt(at(w, ws, wk, wt, r), how))
+		let taken = f.Takes.Len() > 0 && f.Takes[0] && fieldTake(w, ws, wk, wt, un(w, ws, wk, wt, r), handAt(at(w, ws, wk, wt, r), how))
 		if !taken {
 			operand(w, ws, wk, wt, r, f, 0, name, id)
 		}
@@ -1982,9 +1983,9 @@ func knownCall(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense
 		let a = syntax.Item(wk.Parsed[w.file].Tree, c.Args, i)
 		if syntax.KindOf(wk.Parsed[w.file].Tree, un(w, ws, wk, wt, a)) == syntax.KFuncLit {
 			match funcParam(w, ws, wk, wt, f, i+off) {
-			case Some[dense.ID[store.TKey]] as sig:
+			case option.Some[dense.ID[store.TKey]] as sig:
 				frame(w, ws, wk, wt, syntax.FuncLitOf(wk.Parsed[w.file].Tree, un(w, ws, wk, wt, a)).Body, []param{}, w.name, "this function literal", false, yields(ws, sig.Value))
-			case None:
+			case option.None:
 			}
 			continue
 		}
@@ -1992,13 +1993,13 @@ func knownCall(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense
 	}
 	failure(w, ws, wk, wt, h, sigFails(ws, f.Sig))
 	match dense.Unpack(c.Trailing) {
-	case Some[dense.ID[syntax.Node]] as b:
+	case option.Some[dense.ID[syntax.Node]] as b:
 		match funcParam(w, ws, wk, wt, f, syntax.Len(c.Args)+off) {
-		case Some[dense.ID[store.TKey]] as sig:
+		case option.Some[dense.ID[store.TKey]] as sig:
 			frame(w, ws, wk, wt, b.Value, []param{}, w.name, "the block passed to \(calleeText(w, ws, wk, wt, c.Fun))", false, yields(ws, sig.Value))
-		case None:
+		case option.None:
 		}
-	case None:
+	case option.None:
 	}
 	let mut rest = []int{}
 	for a in w.active {
@@ -2012,22 +2013,22 @@ func knownCall(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense
 // operand evaluates the argument a for the parameter i of f, at the call
 // id to name: a parameter f takes moves it, any other lends it.
 func operand(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, a dense.ID[syntax.Node], f expr.Fn, i int, name string, id int) {
-	if i < len(f.Takes) && f.Takes[i] {
-		let pname = if i < len(f.Pnames) { f.Pnames[i] } else { "" }
+	if i < f.Takes.Len() && f.Takes[i] {
+		let pname = if i < f.Pnames.Len() { f.Pnames[i] } else { "" }
 		let how = if pname == "" || f.Close { "\(name) takes it" } else { "\(name) takes \(pname)" }
 		eval(w, ws, wk, wt, a, mMove, handAt(at(w, ws, wk, wt, a), how))
 		return
 	}
 	match converted(w, ws, wk, wt, a, f, i) {
-	case Some[dense.ID[store.TKey]] as pt:
+	case option.Some[dense.ID[store.TKey]] as pt:
 		// R23: a resource converted to an operation type moves into the
 		// interface value, which the statement owns (R43).
 		eval(w, ws, wk, wt, a, mMove, handAt(at(w, ws, wk, wt, a), "converting it to \(text(w, ws, wk, wt, pt.Value)) moves it"))
 		if w.st.reached {
-			let _ = temp(w, ws, wk, wt, a, None)
+			let _ = temp(w, ws, wk, wt, a, option.None)
 		}
 		return
-	case None:
+	case option.None:
 	}
 	eval(w, ws, wk, wt, a, mLend, hand{at: -1, how: "", lend: id, yieldRoot: false, failed: 0, root: false})
 }
@@ -2036,20 +2037,20 @@ func operand(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, a dense.I
 // is converted to when that moves it (ownership.go converts, R23): an
 // operation type that holds a resource, a's own type one that holds a
 // resource and is no operation type.
-func converted(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, a dense.ID[syntax.Node], f expr.Fn, i int) Option[dense.ID[store.TKey]] {
+func converted(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, a dense.ID[syntax.Node], f expr.Fn, i int) option.Option[dense.ID[store.TKey]] {
 	let ops = store.OperandsOf(ws, f.Sig)
-	if i >= len(ops)-3 {
-		return None
+	if i >= ops.Len()-3 {
+		return option.None
 	}
 	let pt = ops[i]
-	if !opType(*w, ws, pt) || !tracked(w, ws, wk, wt, Some[dense.ID[store.TKey]]{Value: pt}) {
-		return None
+	if !opType(*w, ws, pt) || !tracked(w, ws, wk, wt, option.Some[dense.ID[store.TKey]]{Value: pt}) {
+		return option.None
 	}
 	match typeOf(w, ws, wk, wt, un(w, ws, wk, wt, a)) {
-	case Some[dense.ID[store.TKey]] as t:
-		if tracked(w, ws, wk, wt, Some[dense.ID[store.TKey]]{Value: t.Value}) && !opType(*w, ws, t.Value) { Some[dense.ID[store.TKey]]{Value: pt} } else { None }
-	case None:
-		None
+	case option.Some[dense.ID[store.TKey]] as t:
+		if tracked(w, ws, wk, wt, option.Some[dense.ID[store.TKey]]{Value: t.Value}) && !opType(*w, ws, t.Value) { option.Some[dense.ID[store.TKey]]{Value: pt} } else { option.None }
+	case option.None:
+		option.None
 	}
 }
 
@@ -2059,9 +2060,9 @@ func opType(w walker, ws store.Store, t dense.ID[store.TKey]) bool {
 		return false
 	}
 	match w.infos.Get(store.TypeNameText(ws, store.ArgOf(ws, t))) {
-	case Some[typeInfo] as ti:
+	case option.Some[typeInfo] as ti:
 		ti.Value.op
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -2077,9 +2078,9 @@ func opType(w walker, ws store.Store, t dense.ID[store.TKey]) bool {
 func providers(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, cl syntax.ContextLit, body dense.Opt[syntax.Node], withAt int) {
 	let p = wk.Parsed[w.file]
 	let b = match dense.Unpack(body) {
-	case Some[dense.ID[syntax.Node]] as v:
+	case option.Some[dense.ID[syntax.Node]] as v:
 		v.Value
-	case None:
+	case option.None:
 		return
 	}
 	match syntax.ViewOf(p.Tree, cl.Body) {
@@ -2088,7 +2089,7 @@ func providers(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, cl synt
 			match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, cb.Entries, i)) {
 			case syntax.ContextEntry as e:
 				match dense.Unpack(e.Value) {
-				case Some[dense.ID[syntax.Node]] as v:
+				case option.Some[dense.ID[syntax.Node]] as v:
 					let mut named = namesCap(p, b, headName(p, e.Key))
 					for j in 0..syntax.Len(e.Keys) {
 						named = named || namesCap(p, b, headName(p, syntax.Item(p.Tree, e.Keys, j)))
@@ -2117,7 +2118,7 @@ func providers(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, cl synt
 							w.lendAt = w.lendAt.Append(withAt)
 						}
 					}
-				case None:
+				case option.None:
 				}
 			case _:
 			}
@@ -2215,14 +2216,14 @@ func namesCap(p syntax.Parsed, x dense.ID[syntax.Node], key string) bool {
 // walked in this frame, its value the with's.
 func withCall(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[syntax.Node], c syntax.CallExpr, mode int, h hand) {
 	let saved = w.tl
-	let mut t = tail{mode: mode, how: h.how, slot: -1, first: len(w.vars), lend: h.lend, yieldRoot: h.yieldRoot}
+	let mut t = tail{mode: mode, how: h.how, slot: -1, first: w.vars.Len(), lend: h.lend, yieldRoot: h.yieldRoot}
 	if mode == mHold {
 		t = saved
 	} else if mode == mLend && trackedAt(w, ws, wk, wt, x) && w.st.reached {
 		t.mode = mHold
 		t.slot = temp(w, ws, wk, wt, x, typeOf(w, ws, wk, wt, x))
 		w.st.slots[t.slot] = slot{st: stMoved, at: at(w, ws, wk, wt, x), how: "no arm made it", loans: []loan{}, taken: []string{}, takenAt: -1, paramFree: false}
-		t.first = len(w.vars)
+		t.first = w.vars.Len()
 		if h.yieldRoot {
 			t.first = saved.first
 		}
@@ -2234,7 +2235,7 @@ func withCall(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.
 			eval(w, ws, wk, wt, a, mLend, noHand())
 		}
 	}
-	let lent = len(w.lends)
+	let lent = w.lends.Len()
 	for i in 0..syntax.Len(c.Args) {
 		match syntax.ViewOf(wk.Parsed[w.file].Tree, syntax.Item(wk.Parsed[w.file].Tree, c.Args, i)) {
 		case syntax.ContextLit as cl:
@@ -2243,9 +2244,9 @@ func withCall(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.
 		}
 	}
 	match dense.Unpack(c.Trailing) {
-	case Some[dense.ID[syntax.Node]] as b:
+	case option.Some[dense.ID[syntax.Node]] as b:
 		block(w, ws, wk, wt, syntax.BlockStmtOf(wk.Parsed[w.file].Tree, b.Value).List, true)
-	case None:
+	case option.None:
 	}
 	// The block ends: the withs' lends end with it.
 	w.lends = w.lends[0:lent]
@@ -2276,11 +2277,11 @@ func carriers(s store.Store, k expr.Pkg, infos Map[string, typeInfo], names []st
 	let mut c = Map[string, bool]{}
 	for name in names {
 		match infos.Get(name) {
-		case Some[typeInfo] as ti:
+		case option.Some[typeInfo] as ti:
 			if ti.Value.op {
 				c[name] = true
 			}
-		case None:
+		case option.None:
 		}
 	}
 	for r in k.Recs {
@@ -2308,7 +2309,7 @@ func carriers(s store.Store, k expr.Pkg, infos Map[string, typeInfo], names []st
 				continue
 			}
 			match infos.Get(name) {
-			case Some[typeInfo] as ti:
+			case option.Some[typeInfo] as ti:
 				for v in ti.Value.variants {
 					if v != name && holder(c, v) {
 						c[name] = true
@@ -2323,7 +2324,7 @@ func carriers(s store.Store, k expr.Pkg, infos Map[string, typeInfo], names []st
 						break
 					}
 				}
-			case None:
+			case option.None:
 			}
 		}
 	}
@@ -2347,7 +2348,7 @@ func carries(s store.Store, k expr.Pkg, c Map[string, bool], t dense.ID[store.TK
 	if kind == store.KInstance {
 		let o = store.OriginOfType(s, t)
 		let local = int(o.Import) == 0
-		if !local && int(o.Import) == store.ForeignBit && int(o.Decl) < len(k.Foreign) {
+		if !local && int(o.Import) == store.ForeignBit && int(o.Decl) < k.Foreign.Len() {
 			let f = k.Foreign[int(o.Decl)]
 			if f.Path == "prelude" && f.Name == "Context" {
 				return true
@@ -2375,9 +2376,9 @@ func carries(s store.Store, k expr.Pkg, c Map[string, bool], t dense.ID[store.TK
 // is asked only of a value with a held part.
 func carriesAt(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[syntax.Node]) bool {
 	match typeOf(w, ws, wk, wt, x) {
-	case Some[dense.ID[store.TKey]] as t:
+	case option.Some[dense.ID[store.TKey]] as t:
 		carries(ws, wk, w.carry, t.Value, false)
-	case None:
+	case option.None:
 		true
 	}
 }
@@ -2389,7 +2390,7 @@ func heldScan(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.
 	if syntax.KindOf(tr, x) == syntax.KCallExpr && isWith(w, ws, wk, wt, x) {
 		let c = syntax.CallExprOf(tr, x)
 		match dense.Unpack(c.Trailing) {
-		case Some[dense.ID[syntax.Node]] as b:
+		case option.Some[dense.ID[syntax.Node]] as b:
 			let mut scoped = false
 			for i in 0..syntax.Len(c.Args) {
 				match syntax.ViewOf(tr, syntax.Item(tr, c.Args, i)) {
@@ -2401,7 +2402,7 @@ func heldScan(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.
 			if scoped {
 				heldCheck(w, ws, wk, wt, x, b.Value)
 			}
-		case None:
+		case option.None:
 		}
 	}
 	for ch in syntax.Children(tr, x, []uint32{}) {
@@ -2427,7 +2428,7 @@ func scopedLit(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, cl synt
 			match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, cb.Entries, i)) {
 			case syntax.ContextEntry as e:
 				match dense.Unpack(e.Value) {
-				case Some[dense.ID[syntax.Node]] as v:
+				case option.Some[dense.ID[syntax.Node]] as v:
 					let mut named = namesCap(p, b, headName(p, e.Key))
 					for j in 0..syntax.Len(e.Keys) {
 						named = named || namesCap(p, b, headName(p, syntax.Item(p.Tree, e.Keys, j)))
@@ -2435,7 +2436,7 @@ func scopedLit(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, cl synt
 					if named && trackedAt(w, ws, wk, wt, v.Value) {
 						return true
 					}
-				case None:
+				case option.None:
 				}
 			case _:
 			}
@@ -2455,18 +2456,18 @@ func heldCheck(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense
 	let mut changed = true
 	for changed {
 		changed = false
-		let before = len(w.held)
+		let before = w.held.Len()
 		heldBinds(w, ws, wk, wt, b, lo, hi)
-		changed = len(w.held) != before
+		changed = w.held.Len() != before
 	}
 	let wat = pos(w, ws, wk, wt, at(w, ws, wk, wt, x))
 	if carriesAt(w, ws, wk, wt, x) {
 		match blockTail(w, ws, wk, wt, b) {
-		case Some[dense.ID[syntax.Node]] as t:
+		case option.Some[dense.ID[syntax.Node]] as t:
 			if isHeld(w, ws, wk, wt, t.Value) {
 				heldReport(w, ws, wk, wt, t.Value, wat, "it is the block's value")
 			}
-		case None:
+		case option.None:
 		}
 	}
 	heldFrame(w, ws, wk, wt, b, true, lo, hi, wat)
@@ -2480,7 +2481,7 @@ func heldBinds(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, n dense
 	if kind == syntax.KVarSpec {
 		let vs = syntax.VarSpecOf(p.Tree, n)
 		match dense.Unpack(vs.Value) {
-		case Some[dense.ID[syntax.Node]] as v:
+		case option.Some[dense.ID[syntax.Node]] as v:
 			let count = syntax.Len(vs.Names)
 			let vals = parts(w, ws, wk, wt, v.Value)
 			for i in 0..count {
@@ -2489,18 +2490,18 @@ func heldBinds(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, n dense
 				if textAt(p, id) == "_" || slices.Contains(w.held, d) {
 					continue
 				}
-				let val = if count == 1 { v.Value } else if len(vals) == count { vals[i] } else { v.Value }
+				let val = if count == 1 { v.Value } else if vals.Len() == count { vals[i] } else { v.Value }
 				let carry = match defType(w, ws, wk, wt, bind.PNodeOf(wk.Ps, w.file, id)) {
-				case Some[dense.ID[store.TKey]] as t:
+				case option.Some[dense.ID[store.TKey]] as t:
 					carries(ws, wk, w.carry, t.Value, false)
-				case None:
+				case option.None:
 					true
 				}
 				if carry && isHeld(w, ws, wk, wt, val) {
 					w.held = w.held.Append(d)
 				}
 			}
-		case None:
+		case option.None:
 		}
 	} else if kind == syntax.KAssignStmt {
 		let a = syntax.AssignStmtOf(p.Tree, n)
@@ -2508,7 +2509,7 @@ func heldBinds(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, n dense
 		let rhs = parts(w, ws, wk, wt, a.Rhs)
 		for i, l0 in lhs {
 			let l = un(w, ws, wk, wt, l0)
-			if i >= len(rhs) || syntax.KindOf(p.Tree, l) != syntax.KIdent {
+			if i >= rhs.Len() || syntax.KindOf(p.Tree, l) != syntax.KIdent {
 				continue
 			}
 			let d = declOf(w, ws, wk, wt, l)
@@ -2537,13 +2538,13 @@ func heldFrame(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, n dense
 	}
 	if kind == syntax.KReturnStmt && own {
 		match dense.Unpack(syntax.ReturnStmtOf(p.Tree, n).Result) {
-		case Some[dense.ID[syntax.Node]] as r:
+		case option.Some[dense.ID[syntax.Node]] as r:
 			for x in parts(w, ws, wk, wt, r.Value) {
 				if isHeld(w, ws, wk, wt, x) {
 					heldReport(w, ws, wk, wt, x, wat, "it is returned")
 				}
 			}
-		case None:
+		case option.None:
 		}
 	}
 	if kind == syntax.KAssignStmt {
@@ -2551,7 +2552,7 @@ func heldFrame(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, n dense
 		let lhs = parts(w, ws, wk, wt, a.Lhs)
 		let rhs = parts(w, ws, wk, wt, a.Rhs)
 		for i, l in lhs {
-			if i < len(rhs) && !assignedInside(w, ws, wk, wt, l, lo, hi) && isHeld(w, ws, wk, wt, rhs[i]) {
+			if i < rhs.Len() && !assignedInside(w, ws, wk, wt, l, lo, hi) && isHeld(w, ws, wk, wt, rhs[i]) {
 				heldReport(w, ws, wk, wt, rhs[i], wat, "it is assigned to \(textAt(p, l)), declared outside the block")
 			}
 		}
@@ -2560,7 +2561,7 @@ func heldFrame(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, n dense
 		takenHeld(w, ws, wk, wt, n, wat)
 		let c = syntax.CallExprOf(p.Tree, n)
 		match dense.Unpack(c.Trailing) {
-		case Some[dense.ID[syntax.Node]] as tb:
+		case option.Some[dense.ID[syntax.Node]] as tb:
 			if !isWith(w, ws, wk, wt, n) {
 				// The trailing block of another call is a frame of its
 				// own: its return leaves it, not the block.
@@ -2571,7 +2572,7 @@ func heldFrame(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, n dense
 				heldFrame(w, ws, wk, wt, tb.Value, false, lo, hi, wat)
 				return
 			}
-		case None:
+		case option.None:
 		}
 	}
 	for ch in syntax.Children(p.Tree, n, []uint32{}) {
@@ -2585,11 +2586,11 @@ func takenHeld(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense
 	let p = wk.Parsed[w.file]
 	let c = syntax.CallExprOf(p.Tree, x)
 	match callee(w, ws, wk, wt, x) {
-	case Some[expr.CallTo] as ct:
+	case option.Some[expr.CallTo] as ct:
 		let f = ct.Value.Callee
 		let off = if ct.Value.Recv { 1 } else { 0 }
 		let name = calleeText(w, ws, wk, wt, un(w, ws, wk, wt, c.Fun))
-		if ct.Value.Recv && len(f.Takes) > 0 && f.Takes[0] {
+		if ct.Value.Recv && f.Takes.Len() > 0 && f.Takes[0] {
 			let r = syntax.SelectorExprOf(p.Tree, un(w, ws, wk, wt, c.Fun)).X
 			if isHeld(w, ws, wk, wt, r) {
 				heldReport(w, ws, wk, wt, r, wat, "\(name) takes it")
@@ -2597,11 +2598,11 @@ func takenHeld(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense
 		}
 		for i in 0..syntax.Len(c.Args) {
 			let a = syntax.Item(p.Tree, c.Args, i)
-			if i+off < len(f.Takes) && f.Takes[i+off] && isHeld(w, ws, wk, wt, a) {
+			if i+off < f.Takes.Len() && f.Takes[i+off] && isHeld(w, ws, wk, wt, a) {
 				heldReport(w, ws, wk, wt, a, wat, "\(name) takes it")
 			}
 		}
-	case None:
+	case option.None:
 	}
 }
 
@@ -2709,22 +2710,22 @@ func isHeld(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x0 dense.I
 		let c = syntax.CallExprOf(p.Tree, x)
 		if isWith(w, ws, wk, wt, x) {
 			match dense.Unpack(c.Trailing) {
-			case Some[dense.ID[syntax.Node]] as b:
+			case option.Some[dense.ID[syntax.Node]] as b:
 				match blockTail(w, ws, wk, wt, b.Value) {
-				case Some[dense.ID[syntax.Node]] as t:
+				case option.Some[dense.ID[syntax.Node]] as t:
 					return isHeld(w, ws, wk, wt, t.Value) && carriesAt(w, ws, wk, wt, x)
-				case None:
+				case option.None:
 				}
-			case None:
+			case option.None:
 			}
 			return false
 		}
 		match callee(w, ws, wk, wt, x) {
-		case Some[expr.CallTo] as ct:
+		case option.Some[expr.CallTo] as ct:
 			if ct.Value.Recv && isHeld(w, ws, wk, wt, syntax.SelectorExprOf(p.Tree, un(w, ws, wk, wt, c.Fun)).X) && carriesAt(w, ws, wk, wt, x) {
 				return true
 			}
-		case None:
+		case option.None:
 		}
 		for i in 0..syntax.Len(c.Args) {
 			if isHeld(w, ws, wk, wt, syntax.Item(p.Tree, c.Args, i)) {
@@ -2737,9 +2738,9 @@ func isHeld(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x0 dense.I
 		let is = syntax.IfStmtOf(p.Tree, x)
 		let mut h = branchHeld(w, ws, wk, wt, is.Body)
 		match dense.Unpack(is.Else) {
-		case Some[dense.ID[syntax.Node]] as e:
+		case option.Some[dense.ID[syntax.Node]] as e:
 			h = h || branchHeld(w, ws, wk, wt, e.Value)
-		case None:
+		case option.None:
 		}
 		return h && carriesAt(w, ws, wk, wt, x)
 	}
@@ -2781,9 +2782,9 @@ func branchHeld(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, b dens
 		return isHeld(w, ws, wk, wt, b)
 	}
 	match blockTail(w, ws, wk, wt, b) {
-	case Some[dense.ID[syntax.Node]] as t:
+	case option.Some[dense.ID[syntax.Node]] as t:
 		isHeld(w, ws, wk, wt, t.Value)
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -2801,39 +2802,39 @@ func clausesHeld(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, l syn
 			continue
 		}
 		match stmtValue(w, ws, wk, wt, syntax.Item(tr, body, n-1)) {
-		case Some[dense.ID[syntax.Node]] as v:
+		case option.Some[dense.ID[syntax.Node]] as v:
 			if isHeld(w, ws, wk, wt, v.Value) {
 				return true
 			}
-		case None:
+		case option.None:
 		}
 	}
 	false
 }
 
 // blockTail is the value of the last statement of the block b.
-func blockTail(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, b dense.ID[syntax.Node]) Option[dense.ID[syntax.Node]] {
+func blockTail(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, b dense.ID[syntax.Node]) option.Option[dense.ID[syntax.Node]] {
 	let tr = wk.Parsed[w.file].Tree
 	if syntax.KindOf(tr, b) != syntax.KBlockStmt {
-		return None
+		return option.None
 	}
 	let l = syntax.BlockStmtOf(tr, b).List
 	let n = syntax.Len(l)
 	if n == 0 {
-		return None
+		return option.None
 	}
 	stmtValue(w, ws, wk, wt, syntax.Item(tr, l, n-1))
 }
 
 // stmtValue is the value a statement gives as a block's last.
-func stmtValue(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, s dense.ID[syntax.Node]) Option[dense.ID[syntax.Node]] {
+func stmtValue(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, s dense.ID[syntax.Node]) option.Option[dense.ID[syntax.Node]] {
 	let tr = wk.Parsed[w.file].Tree
 	let kind = syntax.KindOf(tr, s)
 	if kind == syntax.KExprStmt {
-		return Some[dense.ID[syntax.Node]]{Value: syntax.ExprStmtOf(tr, s).X}
+		return option.Some[dense.ID[syntax.Node]]{Value: syntax.ExprStmtOf(tr, s).X}
 	}
 	if kind == syntax.KIfStmt || kind == syntax.KSwitchStmt || kind == syntax.KTypeSwitchStmt {
-		return Some[dense.ID[syntax.Node]]{Value: s}
+		return option.Some[dense.ID[syntax.Node]]{Value: s}
 	}
-	None
+	option.None
 }

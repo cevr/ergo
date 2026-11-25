@@ -19,7 +19,7 @@ func validPath(s string) bool {
 	if s == "" {
 		return false
 	}
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		let c = int(s[i])
 		if c <= 32 || c == 127 || c == 92 {
 			return false
@@ -42,7 +42,7 @@ func targetOf(p Package, name string) int {
 
 func foreign(p Package, name string) bool {
 	for imp in p.Imports {
-		if strings.HasPrefix(name, imp.Path+".") && len(name) > len(imp.Path)+1 {
+		if strings.HasPrefix(name, imp.Path+".") && name.Len() > imp.Path.Len()+1 {
 			return true
 		}
 	}
@@ -51,8 +51,8 @@ func foreign(p Package, name string) bool {
 
 func checkSlots(f Func, slots []int) fails Malformed {
 	for s in slots {
-		if !inRange(s, len(f.Slots)) {
-			return bad("\(f.Name): slot \(s) of \(len(f.Slots))")
+		if !inRange(s, f.Slots.Len()) {
+			return bad("\(f.Name): slot \(s) of \(f.Slots.Len())")
 		}
 	}
 }
@@ -60,7 +60,7 @@ func checkSlots(f Func, slots []int) fails Malformed {
 func checkCall(p Package, f Func, dsts []int, args []int) fails Malformed {
 	try checkSlots(f, dsts)
 	try checkSlots(f, args)
-	if len(args) > len(IntRegs) || len(dsts) > len(IntRegs) {
+	if args.Len() > IntRegs.Len() || dsts.Len() > IntRegs.Len() {
 		return bad("\(f.Name): a call passes more words than ABIInternal's registers")
 	}
 }
@@ -89,23 +89,23 @@ func checkOp(p Package, f Func, op Op, labels []int) fails Malformed {
 		if kindOf(p, f, a.Dst) != KPtr {
 			return bad("\(f.Name): address into slot \(a.Dst), not a pointer")
 		}
-		if !inRange(a.Of, len(f.Slots)) {
+		if !inRange(a.Of, f.Slots.Len()) {
 			return bad("\(f.Name): address of slot \(a.Of)")
 		}
 	case GetGlobal as g:
-		if !inRange(g.Global, len(p.Globals)) {
+		if !inRange(g.Global, p.Globals.Len()) {
 			return bad("\(f.Name): global \(g.Global)")
 		}
 	case SetGlobal as g:
-		if !inRange(g.Global, len(p.Globals)) {
+		if !inRange(g.Global, p.Globals.Len()) {
 			return bad("\(f.Name): global \(g.Global)")
 		}
 	case Call as c:
 		try checkCall(p, f, c.Dsts, c.Args)
 		let t = targetOf(p, c.Target)
 		if t >= 0 {
-			if len(p.Funcs[t].Params) != len(c.Args) || len(c.Dsts) > len(p.Funcs[t].Results) {
-				return bad("\(f.Name): call of \(c.Target) with \(len(c.Args)) arguments and \(len(c.Dsts)) results")
+			if p.Funcs[t].Params.Len() != c.Args.Len() || c.Dsts.Len() > p.Funcs[t].Results.Len() {
+				return bad("\(f.Name): call of \(c.Target) with \(c.Args.Len()) arguments and \(c.Dsts.Len()) results")
 			}
 		} else if !foreign(p, c.Target) {
 			return bad("\(f.Name): call of \(c.Target), in no package this one imports")
@@ -113,7 +113,7 @@ func checkOp(p Package, f Func, op Op, labels []int) fails Malformed {
 	case CallClosure as c:
 		try checkCall(p, f, c.Dsts, c.Args)
 		let ft = p.Types[f.Slots[c.Fn]]
-		if ft.Kind != KFunc || len(ft.Params) != len(c.Args) || len(c.Dsts) > len(ft.Results) {
+		if ft.Kind != KFunc || ft.Params.Len() != c.Args.Len() || c.Dsts.Len() > ft.Results.Len() {
 			return bad("\(f.Name): closure call through slot \(c.Fn) does not match its func type")
 		}
 	case Jump as j:
@@ -128,8 +128,8 @@ func checkOp(p Package, f Func, op Op, labels []int) fails Malformed {
 			return bad("\(f.Name): condition \(j.Cond)")
 		}
 	case Return as r:
-		if len(r.Vals) != len(f.Results) {
-			return bad("\(f.Name): returns \(len(r.Vals)) of \(len(f.Results)) results")
+		if r.Vals.Len() != f.Results.Len() {
+			return bad("\(f.Name): returns \(r.Vals.Len()) of \(f.Results.Len()) results")
 		}
 	case _:
 	}
@@ -140,14 +140,14 @@ func checkFunc(p Package, f Func) fails Malformed {
 		return bad("a function has no name")
 	}
 	for t in f.Params.Concat(f.Results).Concat(f.Slots) {
-		if !inRange(t, len(p.Types)) {
-			return bad("\(f.Name): type \(t) of \(len(p.Types))")
+		if !inRange(t, p.Types.Len()) {
+			return bad("\(f.Name): type \(t) of \(p.Types.Len())")
 		}
 	}
-	if len(f.Params) > len(IntRegs) || len(f.Results) > len(IntRegs) {
+	if f.Params.Len() > IntRegs.Len() || f.Results.Len() > IntRegs.Len() {
 		return bad("\(f.Name): more parameters or results than ABIInternal's registers")
 	}
-	if len(f.Slots) < len(f.Params) {
+	if f.Slots.Len() < f.Params.Len() {
 		return bad("\(f.Name): fewer slots than parameters")
 	}
 	for k, t in f.Params {
@@ -155,19 +155,19 @@ func checkFunc(p Package, f Func) fails Malformed {
 			return bad("\(f.Name): slot \(k) is not parameter \(k)'s type")
 		}
 	}
-	if len(f.Lines) != len(f.Ops) {
-		return bad("\(f.Name): \(len(f.Lines)) lines for \(len(f.Ops)) ops")
+	if f.Lines.Len() != f.Ops.Len() {
+		return bad("\(f.Name): \(f.Lines.Len()) lines for \(f.Ops.Len()) ops")
 	}
-	if len(f.Ops) == 0 {
+	if f.Ops.Len() == 0 {
 		return bad("\(f.Name): no body")
 	}
-	match f.Ops[len(f.Ops)-1] {
+	match f.Ops[f.Ops.Len()-1] {
 	case Return:
 	case Jump:
 	case _:
 		return bad("\(f.Name): the body can run off its end")
 	}
-	let fr = FrameOf(len(f.Slots), maxArgs(f), isLeaf(f))
+	let fr = FrameOf(f.Slots.Len(), maxArgs(f), isLeaf(f))
 	if fr.Size > StackBig {
 		return bad("\(f.Name): frame of \(fr.Size) bytes")
 	}
@@ -196,17 +196,17 @@ func Check(p Package) fails Malformed {
 		if !inRange(t.Kind, 3) {
 			return bad("type \(i): kind \(t.Kind)")
 		}
-		if t.Kind == KPtr && !inRange(t.Elem, len(p.Types)) {
+		if t.Kind == KPtr && !inRange(t.Elem, p.Types.Len()) {
 			return bad("type \(i): element \(t.Elem)")
 		}
 		for u in t.Params.Concat(t.Results) {
-			if !inRange(u, len(p.Types)) {
+			if !inRange(u, p.Types.Len()) {
 				return bad("type \(i): component \(u)")
 			}
 		}
 	}
 	for i, imp in p.Imports {
-		if !validPath(imp.Path) || imp.Name == "" || len(imp.Fingerprint) != 8 {
+		if !validPath(imp.Path) || imp.Name == "" || imp.Fingerprint.Len() != 8 {
 			return bad("import \(i): path, name or 8-byte fingerprint missing")
 		}
 		for j in 0..i {
@@ -231,7 +231,7 @@ func Check(p Package) fails Malformed {
 		}
 	}
 	for k, i in p.Inits {
-		if !inRange(i, len(p.Funcs)) || p.Funcs[i].Name != "init" || len(p.Funcs[i].Params) != 0 || len(p.Funcs[i].Results) != 0 {
+		if !inRange(i, p.Funcs.Len()) || p.Funcs[i].Name != "init" || p.Funcs[i].Params.Len() != 0 || p.Funcs[i].Results.Len() != 0 {
 			return bad("init \(k): function \(i) is no init function")
 		}
 		for j in 0..k {

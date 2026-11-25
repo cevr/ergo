@@ -16,6 +16,7 @@
 // and not empty turns colour off.
 
 import io
+import option
 import os
 import strings
 
@@ -81,24 +82,24 @@ func Detect() Detected needs os.Process | io.Stdout {
 // Decide is colour for NO_COLOR's and TERM's values and whether
 // standard output is a terminal, as Detect decides; for a program that
 // reads them itself.
-func Decide(noColor Option[string], term Option[string], terminal bool) Detected {
+func Decide(noColor option.Option[string], term option.Option[string], terminal bool) Detected {
 	let off = match noColor {
-	case Some[string] as v:
+	case option.Some[string] as v:
 		v.Value != ""
-	case None:
+	case option.None:
 		false
 	}
 	let dumb = match term {
-	case Some[string] as v:
+	case option.Some[string] as v:
 		v.Value == "dumb"
-	case None:
+	case option.None:
 		false
 	}
 	Detected{on: !off && !dumb && terminal}
 }
 
-let onTerminal = context { Colors: Decide(None, None, true) }
-let onDumbTerminal = context { Colors: Decide(None, Some[string]{Value: "dumb"}, true) }
+let onTerminal = context { Colors: Decide(option.None, option.None, true) }
+let onDumbTerminal = context { Colors: Decide(option.None, option.Some[string]{Value: "dumb"}, true) }
 
 // Paint is text in style s when colour is on: s's codes (SGR), text, and
 // the reset. With colour off, or s Plain, it is text.
@@ -254,10 +255,10 @@ func Strip(s string) string {
 	}
 	let mut b = strings.NewBuilder()
 	let mut i = 0
-	for i < len(s) {
+	for i < s.Len() {
 		if s[i] != 0x1b {
 			let j = strings.IndexByte(s[i:], 0x1b)
-			let end = if j < 0 { len(s) } else { i + j }
+			let end = if j < 0 { s.Len() } else { i + j }
 			b.WriteString(s[i:end])
 			i = end
 			continue
@@ -270,27 +271,27 @@ func Strip(s string) string {
 // sequenceLen is the length of the escape sequence at the front of s,
 // which starts with ESC.
 func sequenceLen(s string) int {
-	if len(s) < 2 {
-		return len(s)
+	if s.Len() < 2 {
+		return s.Len()
 	}
 	if s[1] == '[' {
-		for i in 2..len(s) {
+		for i in 2..s.Len() {
 			if s[i] >= 0x40 && s[i] <= 0x7e {
 				return i + 1
 			}
 		}
-		return len(s)
+		return s.Len()
 	}
 	if s[1] == ']' {
-		for i in 2..len(s) {
+		for i in 2..s.Len() {
 			if s[i] == 0x07 {
 				return i + 1
 			}
-			if s[i] == 0x1b && i+1 < len(s) && s[i+1] == '\\' {
+			if s[i] == 0x1b && i+1 < s.Len() && s[i+1] == '\\' {
 				return i + 2
 			}
 		}
-		return len(s)
+		return s.Len()
 	}
 	2
 }
@@ -366,9 +367,9 @@ law StripIsTheTable() {
 // DetectIsTheEnvironment: colour is on just when NO_COLOR is unset or
 // empty, TERM is not dumb, and standard output is a terminal.
 law DetectIsTheEnvironment(noColor int, term int, terminal bool) {
-	let nc = []Option[string]{None, Some[string]{Value: ""}, Some[string]{Value: "1"}}[(noColor%3+3)%3]
-	let tm = []Option[string]{None, Some[string]{Value: "xterm-256color"}, Some[string]{Value: "dumb"}}[(term%3+3)%3]
-	let off = nc == (Some[string]{Value: "1"}) || tm == (Some[string]{Value: "dumb"}) || !terminal
+	let nc = []option.Option[string]{option.None, option.Some[string]{Value: ""}, option.Some[string]{Value: "1"}}[(noColor%3+3)%3]
+	let tm = []option.Option[string]{option.None, option.Some[string]{Value: "xterm-256color"}, option.Some[string]{Value: "dumb"}}[(term%3+3)%3]
+	let off = nc == (option.Some[string]{Value: "1"}) || tm == (option.Some[string]{Value: "dumb"}) || !terminal
 	Decide(nc, tm, terminal).On() == !off
 }
 

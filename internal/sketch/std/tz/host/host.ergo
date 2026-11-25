@@ -7,6 +7,8 @@
 // can have different rules on each; and a file of the zone directory that
 // is not a zone name (posixrules, localtime) loads when it is a TZif file.
 
+import fstest
+import os
 import tz
 import tz/iana
 
@@ -20,20 +22,20 @@ type hostOnly {}
 // New is the provider of tz.Zones over the host's zone files. It needs
 // Ambient: only code whose row holds the authority to choose the host
 // makes one (docs/spec/stdlib.md, Host packages).
-func New() Zones needs Ambient { Zones{live: hostOnly} }
+func New() Zones needs os.Ambient { Zones{live: hostOnly} }
 
 // testZones reads the host's zone database, as testLocal reads the host's
 // zone setting, only in the law harness.
-func testZones() Zones needs TestAmbient { Zones{live: hostOnly} }
+func testZones() Zones needs fstest.TestAmbient { Zones{live: hostOnly} }
 
-let onHostZones = context needs TestAmbient { tz.Zones: testZones() }
+let onHostZones = context needs fstest.TestAmbient { tz.Zones: testZones() }
 
 // Load is the zone of the host's zone file name, or UnknownZone when no
 // zone directory holds a TZif file of that name. A name with a ..
 // element, an absolute path or a backslash is UnknownZone without a read.
 func Load(_ Zones, name string) tz.Zone fails tz.UnknownZone {
 	let data = hostZone(name)
-	if len(data) == 0 {
+	if data.Len() == 0 {
 		return tz.UnknownZone{Name: name}
 	}
 	tz.FromTZif(name, data) catch {
@@ -52,7 +54,7 @@ type Local { zones tz.Zones } implements tz.Local
 // NewLocal is the provider of tz.Local over the host, loading names from
 // zones: `tz.Local: host.NewLocal(iana.New())` has the host choose the
 // name and std's copy the rules. Like New, it needs Ambient.
-func NewLocal(zones tz.Zones) Local needs Ambient { Local{zones: zones} }
+func NewLocal(zones tz.Zones) Local needs os.Ambient { Local{zones: zones} }
 
 // Zone is the host's own zone.
 func Zone(l Local) tz.Zone fails tz.UnknownZone {
@@ -71,11 +73,11 @@ func Zone(n Named) tz.Zone fails tz.UnknownZone { try n.Zones.Load(n.Name) }
 // testLocal is Local over std's copy of the database. Local reads the
 // host's TZ and zone file, so it needs the test's ambient, which only the
 // test runner provides.
-func testLocal() Local needs TestAmbient { Local{zones: iana.New()} }
+func testLocal() Local needs fstest.TestAmbient { Local{zones: iana.New()} }
 
 // onStdZones and namedUTC are the contexts tz.Local's laws run Local and
 // Named under, over std's copy of the database (types.md, Laws 10).
-let onStdZones = context needs TestAmbient { tz.Local: testLocal() }
+let onStdZones = context needs fstest.TestAmbient { tz.Local: testLocal() }
 
 let namedUTC = context { tz.Local: Named{Name: "UTC", Zones: iana.New()} }
 

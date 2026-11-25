@@ -7,6 +7,8 @@
 // name. A function's metadata (FuncInfo, PC tables, stack maps) is a set
 // of unnamed indexed definitions its text symbol names as aux symbols.
 
+import option
+
 // Package index values of a symbol reference.
 let PkgIdxNone = 2147483647
 let PkgIdxSelf = 2147483643
@@ -82,9 +84,9 @@ type objBuilder { defs []Def, refs []Ref, own Map[string, int] }
 
 func refTo(b mut objBuilder, name string, abi int) SymRef {
 	match b.own.Get(name) {
-	case Some as i:
+	case option.Some as i:
 		return SymRef{Pkg: PkgIdxSelf, Idx: i.Value}
-	case None:
+	case option.None:
 	}
 	for i, r in b.refs {
 		if r.Name == name && r.ABI == abi {
@@ -92,16 +94,16 @@ func refTo(b mut objBuilder, name string, abi int) SymRef {
 		}
 	}
 	b.refs = b.refs.Append(Ref{Name: name, ABI: abi})
-	SymRef{Pkg: PkgIdxNone, Idx: len(b.refs) - 1}
+	SymRef{Pkg: PkgIdxNone, Idx: b.refs.Len() - 1}
 }
 
 func addDef(b mut objBuilder, d Def) SymRef {
 	b.defs = b.defs.Append(d)
-	SymRef{Pkg: PkgIdxSelf, Idx: len(b.defs) - 1}
+	SymRef{Pkg: PkgIdxSelf, Idx: b.defs.Len() - 1}
 }
 
 func dataDef(kind int, align int, data string) Def {
-	Def{Name: "", ABI: 0, Kind: kind, Flag: 0, Flag2: 0, Size: len(data), Align: align, Data: data, Relocs: []ObjReloc{}, Aux: []ObjAux{}}
+	Def{Name: "", ABI: 0, Kind: kind, Flag: 0, Flag2: 0, Size: data.Len(), Align: align, Data: data, Relocs: []ObjReloc{}, Aux: []ObjAux{}}
 }
 
 // FuncInfo is the FuncInfo aux bytes of a function: Args, Locals,
@@ -178,22 +180,22 @@ func InitTask(n int) string {
 func BuildObject(p Package, lowered []Lowered, fingerprint string) Object {
 	let mut b = objBuilder{defs: []Def{}, refs: []Ref{}, own: Map[string, int]{}}
 	// Text symbols first, so a function's SymIdx is its place in p.Funcs.
-	for i in 0..len(lowered) {
+	for i in 0..lowered.Len() {
 		b.own[FuncSym(p, i)] = i
 	}
-	let nf = len(lowered)
+	let nf = lowered.Len()
 	for k, g in p.Globals {
 		b.own[SymName(p, g.Name)] = nf + k
 	}
 	let inits = p.Inits
-	let hasInit = len(inits) > 0
+	let hasInit = inits.Len() > 0
 	let task = SymName(p, ".inittask")
 	if hasInit {
-		b.own[task] = nf + len(p.Globals)
+		b.own[task] = nf + p.Globals.Len()
 	}
 	for i, lf in lowered {
 		let flag2 = if p.Funcs[i].Name == "init" { FlagPkgInit } else { 0 }
-		b.addDef(Def{Name: FuncSym(p, i), ABI: ABIInternal, Kind: SText, Flag: 0, Flag2: flag2, Size: len(lf.Code), Align: 0,
+		b.addDef(Def{Name: FuncSym(p, i), ABI: ABIInternal, Kind: SText, Flag: 0, Flag2: flag2, Size: lf.Code.Len(), Align: 0,
 			Data: lf.Code, Relocs: []ObjReloc{}, Aux: []ObjAux{}})
 	}
 	for g in p.Globals {
@@ -209,8 +211,8 @@ func BuildObject(p Package, lowered []Lowered, fingerprint string) Object {
 				rs = rs.Append(ObjReloc{Off: 0, Size: 0, Type: RInitorder, Add: 0, Sym: b.refTo(imp.Path+"..inittask", ABI0)})
 			}
 		}
-		let data = InitTask(len(inits))
-		b.addDef(Def{Name: task, ABI: ABI0, Kind: SNoptrdata, Flag: 0, Flag2: 0, Size: len(data), Align: 8, Data: data, Relocs: rs, Aux: []ObjAux{}})
+		let data = InitTask(inits.Len())
+		b.addDef(Def{Name: task, ABI: ABI0, Kind: SNoptrdata, Flag: 0, Flag2: 0, Size: data.Len(), Align: 8, Data: data, Relocs: rs, Aux: []ObjAux{}})
 	}
 	for i, lf in lowered {
 		let mut rs = []ObjReloc{}
@@ -219,15 +221,15 @@ func BuildObject(p Package, lowered []Lowered, fingerprint string) Object {
 			rs = rs.Append(ObjReloc{Off: r.Off, Size: r.Size, Type: r.Type, Add: r.Add, Sym: target})
 		}
 		let info = b.addDef(dataDef(7, 0, FuncInfo(lf)))
-		let args = b.addDef(dataDef(SRodata, 4, StackMap(lf.ArgMaps, len(p.Funcs[i].Params)+len(p.Funcs[i].Results))))
+		let args = b.addDef(dataDef(SRodata, 4, StackMap(lf.ArgMaps, p.Funcs[i].Params.Len()+p.Funcs[i].Results.Len())))
 		let locals = b.addDef(dataDef(SRodata, 4, StackMap(lf.Locals, lf.Frame.Slots)))
 		let pcsp = b.addDef(dataDef(SRodata, 1, lf.Pcsp))
 		let pcfile = b.addDef(dataDef(SRodata, 1, lf.Pcfile))
 		let pcline = b.addDef(dataDef(SRodata, 1, lf.Pcline))
 		let unsafe = b.addDef(dataDef(SRodata, 1, lf.Unsafe))
 		let smi = b.addDef(dataDef(SRodata, 1, lf.Smi))
-		let (die, dieRelocs) = SubprogramDIE(FuncSym(p, i), len(lf.Code), lf.Line, Exported(p.Funcs[i].Name), SymRef{Pkg: PkgIdxSelf, Idx: i}, len(lowered))
-		let dwarf = b.addDef(Def{Name: "", ABI: 0, Kind: SDwarfFcn, Flag: 0, Flag2: 0, Size: len(die), Align: 1, Data: die, Relocs: dieRelocs, Aux: []ObjAux{}})
+		let (die, dieRelocs) = SubprogramDIE(FuncSym(p, i), lf.Code.Len(), lf.Line, Exported(p.Funcs[i].Name), SymRef{Pkg: PkgIdxSelf, Idx: i}, lowered.Len())
+		let dwarf = b.addDef(Def{Name: "", ABI: 0, Kind: SDwarfFcn, Flag: 0, Flag2: 0, Size: die.Len(), Align: 1, Data: die, Relocs: dieRelocs, Aux: []ObjAux{}})
 		let mut d = b.defs[i]
 		d.Relocs = rs
 		d.Aux = []ObjAux{
@@ -251,20 +253,20 @@ type strtab { offs Map[string, int] }
 
 func addStr(t mut strtab, w mut Buf, s string) {
 	match t.offs.Get(s) {
-	case Some:
+	case option.Some:
 		return
-	case None:
+	case option.None:
 	}
-	t.offs[s] = len(w.b)
+	t.offs[s] = w.b.Len()
 	w.Raw(s)
 }
 
 func strRef(t strtab, w mut Buf, s string) {
-	w.U32(len(s))
+	w.U32(s.Len())
 	match t.offs.Get(s) {
-	case Some as o:
+	case option.Some as o:
 		w.U32(o.Value)
-	case None:
+	case option.None:
 		w.U32(0)
 	}
 }
@@ -343,21 +345,21 @@ func WriteObject(o Object) string {
 	let mut n = 0
 	for d in o.Defs {
 		w.U32(n)
-		n = n + len(d.Relocs)
+		n = n + d.Relocs.Len()
 	}
 	w.U32(n)
 	offs[BlkAuxIdx] = w.Size()
 	n = 0
 	for d in o.Defs {
 		w.U32(n)
-		n = n + len(d.Aux)
+		n = n + d.Aux.Len()
 	}
 	w.U32(n)
 	offs[BlkDataIdx] = w.Size()
 	n = 0
 	for d in o.Defs {
 		w.U32(n)
-		n = n + len(d.Data)
+		n = n + d.Data.Len()
 	}
 	w.U32(n)
 	offs[BlkReloc] = w.Size()
@@ -392,7 +394,7 @@ func WriteObject(o Object) string {
 // sortedRelocs orders relocations by offset, as the stock writer does.
 func sortedRelocs(rs []ObjReloc) []ObjReloc {
 	let mut out = rs
-	for i in 1..len(out) {
+	for i in 1..out.Len() {
 		let mut j = i
 		for j > 0 && out[j-1].Off > out[j].Off {
 			let x = out[j]

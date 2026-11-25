@@ -17,6 +17,7 @@ import compiler/check/store
 import compiler/check/types
 import compiler/syntax
 import dense
+import option
 import slices
 import strings
 
@@ -45,7 +46,7 @@ func OwnMarks(s store.Store, k expr.Pkg, t expr.Typer) []Diag {
 		for i, a in c.Args {
 			// A row parameter, and one whose mark the callee does not
 			// say, admits any argument.
-			if i >= len(callee.Rows) || callee.Rows[i] || i >= len(callee.Own) || callee.Own[i] || !holds(s, k, res, callerOwn, a) {
+			if i >= callee.Rows.Len() || callee.Rows[i] || i >= callee.Own.Len() || callee.Own[i] || !holds(s, k, res, callerOwn, a) {
 				continue
 			}
 			let (f, row) = bind.RowOf(k.Ps, c.Call)
@@ -88,7 +89,7 @@ func typeInfos(k expr.Pkg) (Map[string, typeInfo], []string) {
 				let mut embeds = []string{}
 				let mut op = false
 				match dense.Unpack(td.Spec) {
-				case Some[dense.ID[syntax.Node]] as sp:
+				case option.Some[dense.ID[syntax.Node]] as sp:
 					match syntax.ViewOf(p.Tree, sp.Value) {
 					case syntax.InterfaceType as it:
 						op = true
@@ -101,13 +102,13 @@ func typeInfos(k expr.Pkg) (Map[string, typeInfo], []string) {
 								// An operation type that embeds Closer
 								// (..Closer) has its Close (implementsCloser).
 								match dense.Unpack(fd.Type) {
-								case Some[dense.ID[syntax.Node]] as ft:
+								case option.Some[dense.ID[syntax.Node]] as ft:
 									if fd.Dots >= 0 {
 										let head = headName(p, ft.Value)
 										closer = closer || head == "Closer"
 										embeds = embeds.Append(head)
 									}
-								case None:
+								case option.None:
 								}
 							case syntax.LawDecl:
 							case syntax.TestDecl:
@@ -130,7 +131,7 @@ func typeInfos(k expr.Pkg) (Map[string, typeInfo], []string) {
 								match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, fl.List, j)) {
 								case syntax.Field as fd:
 									match (dense.Unpack(fd.Type), fd.Dots >= 0) {
-									case (Some[dense.ID[syntax.Node]] as ft, true):
+									case (option.Some[dense.ID[syntax.Node]] as ft, true):
 										embeds = embeds.Append(headName(p, ft.Value))
 									case _:
 										all = false
@@ -148,12 +149,12 @@ func typeInfos(k expr.Pkg) (Map[string, typeInfo], []string) {
 						}
 					case _:
 					}
-				case None:
+				case option.None:
 				}
 				let (params, own) = match dense.Unpack(td.TypeParams) {
-				case Some[dense.ID[syntax.Node]] as tp:
+				case option.Some[dense.ID[syntax.Node]] as tp:
 					(bracketNames(p, tp.Value), expr.BracketOwn(p, tp.Value))
-				case None:
+				case option.None:
 					([]string{}, []bool{})
 				}
 				out[textAt(p, td.Name)] = typeInfo{closer: closer, variants: variants, params: params, own: own, embeds: embeds, op: op}
@@ -166,7 +167,7 @@ func typeInfos(k expr.Pkg) (Map[string, typeInfo], []string) {
 	// type is one (Closer, the prelude's, is), and has Close when one has.
 	for name in spread {
 		match out.Get(name) {
-		case Some[typeInfo] as ti:
+		case option.Some[typeInfo] as ti:
 			let mut info = ti.Value
 			let mut op = true
 			for e in info.embeds {
@@ -175,9 +176,9 @@ func typeInfos(k expr.Pkg) (Map[string, typeInfo], []string) {
 					continue
 				}
 				match out.Get(e) {
-				case Some[typeInfo] as et:
+				case option.Some[typeInfo] as et:
 					op = op && et.Value.op
-				case None:
+				case option.None:
 					op = false
 				}
 			}
@@ -187,7 +188,7 @@ func typeInfos(k expr.Pkg) (Map[string, typeInfo], []string) {
 				info.embeds = []string{}
 			}
 			out[name] = info
-		case None:
+		case option.None:
 		}
 	}
 	(out, names)
@@ -200,7 +201,7 @@ func holds(s store.Store, k expr.Pkg, res Map[string, bool], own []bool, t dense
 	let kind = store.KindOfType(s, t)
 	if kind == store.KParam {
 		let i = store.ArgOf(s, t)
-		return i < len(own) && own[i]
+		return i < own.Len() && own[i]
 	}
 	if kind == store.KNamed {
 		return holder(res, store.TypeNameText(s, store.ArgOf(s, t)))
@@ -236,11 +237,11 @@ func holdsAcross(s store.Store, k expr.Pkg, res Map[string, bool], deps Map[stri
 	let (path, name, args) = expr.ImportedRec(s, k, t)
 	if name != "" {
 		match deps.Get(path) {
-		case Some[Map[string, bool]] as d:
+		case option.Some[Map[string, bool]] as d:
 			if holder(d.Value, name) {
 				return true
 			}
-		case None:
+		case option.None:
 		}
 		for a in args {
 			if holdsAcross(s, k, res, deps, a) {
@@ -263,9 +264,9 @@ func holdsAcross(s store.Store, k expr.Pkg, res Map[string, bool], deps Map[stri
 // holder is whether res says the package's type name holds a resource.
 func holder(res Map[string, bool], name string) bool {
 	match res.Get(name) {
-	case Some[bool] as h:
+	case option.Some[bool] as h:
 		h.Value
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -277,7 +278,7 @@ func holder(res Map[string, bool], name string) bool {
 // by name; another package's marked type is not read (Follow-up: a mark
 // column in the foreign facts).
 func language(k expr.Pkg, o store.XRef) bool {
-	if int(o.Import) != store.ForeignBit || int(o.Decl) >= len(k.Foreign) {
+	if int(o.Import) != store.ForeignBit || int(o.Decl) >= k.Foreign.Len() {
 		return false
 	}
 	let f = k.Foreign[int(o.Decl)]
@@ -299,11 +300,11 @@ func resourcesWith(s store.Store, k expr.Pkg, infos Map[string, typeInfo], names
 	let mut res = Map[string, bool]{}
 	for name in names {
 		match infos.Get(name) {
-		case Some[typeInfo] as ti:
+		case option.Some[typeInfo] as ti:
 			if ti.Value.closer {
 				res[name] = true
 			}
-		case None:
+		case option.None:
 		}
 	}
 	let mut changed = true
@@ -326,7 +327,7 @@ func resourcesWith(s store.Store, k expr.Pkg, infos Map[string, typeInfo], names
 				continue
 			}
 			match infos.Get(name) {
-			case Some[typeInfo] as ti:
+			case option.Some[typeInfo] as ti:
 				for v in ti.Value.variants {
 					if v != name && holder(res, v) {
 						res[name] = true
@@ -341,7 +342,7 @@ func resourcesWith(s store.Store, k expr.Pkg, infos Map[string, typeInfo], names
 						break
 					}
 				}
-			case None:
+			case option.None:
 			}
 		}
 	}
@@ -375,9 +376,9 @@ func typeMarks(s store.Store, k expr.Pkg, res Map[string, bool], p syntax.Parsed
 			dense.NoID[syntax.Node]()
 		}
 		match dense.Unpack(tps) {
-		case Some[dense.ID[syntax.Node]] as tp:
+		case option.Some[dense.ID[syntax.Node]] as tp:
 			spans = spans.Append(span{from: syntax.NodePos(p, d), to: syntax.NodeEnd(p, d), params: bracketNames(p, tp.Value), own: expr.BracketOwn(p, tp.Value), keys: bracketKeys(p, tp.Value)})
-		case None:
+		case option.None:
 		}
 	}
 	for i in 0..syntax.NumNodes(p.Tree) {
@@ -395,9 +396,9 @@ func typeMarks(s store.Store, k expr.Pkg, res Map[string, bool], p syntax.Parsed
 		}
 		let g = textAt(p, ix.X)
 		let gi = match infos.Get(g) {
-		case Some[typeInfo] as ti:
+		case option.Some[typeInfo] as ti:
 			ti.Value
-		case None:
+		case option.None:
 			continue
 		}
 		let at = syntax.NodePos(p, x)
@@ -408,7 +409,7 @@ func typeMarks(s store.Store, k expr.Pkg, res Map[string, bool], p syntax.Parsed
 			}
 		}
 		for j in 0..syntax.Len(ix.Indices) {
-			if j >= len(gi.params) || j >= len(gi.own) {
+			if j >= gi.params.Len() || j >= gi.own.Len() {
 				continue
 			}
 			let a = syntax.Item(p.Tree, ix.Indices, j)
@@ -449,7 +450,7 @@ func mapKey(s store.Store, k expr.Pkg, res Map[string, bool], p syntax.Parsed, f
 	}
 	if syntax.KindOf(p.Tree, x) == syntax.KIdent {
 		let qi = slices.Index(encl.params, text)
-		if qi >= 0 && !(qi < len(encl.keys) && encl.keys[qi]) {
+		if qi >= 0 && !(qi < encl.keys.Len() && encl.keys[qi]) {
 			return out
 		}
 	}
@@ -464,7 +465,7 @@ func synHolds(s store.Store, k expr.Pkg, res Map[string, bool], p syntax.Parsed,
 		let name = textAt(p, x)
 		let qi = slices.Index(encl.params, name)
 		if qi >= 0 {
-			return qi < len(encl.own) && encl.own[qi]
+			return qi < encl.own.Len() && encl.own[qi]
 		}
 		holder(res, name)
 	case syntax.IndexExpr as ix:
@@ -559,9 +560,9 @@ func bracketKeys(p syntax.Parsed, l dense.ID[syntax.Node]) []bool {
 			match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, fl.List, i)) {
 			case syntax.Field as fd:
 				let key = match dense.Unpack(fd.Type) {
-				case Some{Value: c}:
+				case option.Some{Value: c}:
 					syntax.KindOf(p.Tree, c) == syntax.KIdent && (textAt(p, c) == "comparable" || textAt(p, c) == "ordered")
-				case None:
+				case option.None:
 					false
 				}
 				for _ in 0..syntax.Len(fd.Names) {

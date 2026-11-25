@@ -6,6 +6,7 @@
 
 import compiler/syntax
 import dense
+import option
 
 // Harness is the H of the harness member `test H` of the operation type
 // tname that files declare, when it is the type's first and has the shape;
@@ -22,7 +23,7 @@ func Harness(files []syntax.Parsed, tname string) string {
 					continue
 				}
 				match dense.Unpack(td.Spec) {
-				case Some[dense.ID[syntax.Node]] as sp:
+				case option.Some[dense.ID[syntax.Node]] as sp:
 					if syntax.KindOf(p.Tree, sp.Value) != syntax.KInterfaceType {
 						return ""
 					}
@@ -35,7 +36,7 @@ func Harness(files []syntax.Parsed, tname string) string {
 						}
 					}
 					return ""
-				case None:
+				case option.None:
 					return ""
 				}
 			case _:
@@ -52,9 +53,9 @@ func HarnessWhy(files []syntax.Parsed, tname string, generic bool, hname string)
 		return "\(tname) is generic"
 	}
 	let (hp, fd) = match funcNamed(files, hname) {
-	case Some[harnessFunc] as h:
+	case option.Some[harnessFunc] as h:
 		(h.Value.p, h.Value.fd)
-	case None:
+	case option.None:
 		return "no function \(hname) is declared in this package"
 	}
 	if isSome(dense.Unpack(fd.TypeParams)) {
@@ -63,16 +64,16 @@ func HarnessWhy(files []syntax.Parsed, tname string, generic bool, hname string)
 	let ft = syntax.FuncTypeOf(hp.Tree, fd.Type)
 	let params = harnessFieldTypes(hp, ft.Params)
 	let (results, errs) = harnessResults(hp, ft.Results)
-	if len(params) != 2 || len(results) != 0 {
+	if params.Len() != 2 || results.Len() != 0 {
 		return "\(hname) does not take two parameters and give no result"
 	}
-	if len(harnessNeeds(hp, ft.Needs)) > 0 {
+	if harnessNeeds(hp, ft.Needs).Len() > 0 {
 		return "\(hname)'s needs row is not empty"
 	}
 	if !isRecord(files, harnessTypeName(hp, params[0]), []string{"Name", "Seed", "Site", "Source"}, []string{"string", "uint64", "string", "string"}) {
 		return "its first parameter is not a record {Name string, Seed uint64, Site string, Source string} of this package"
 	}
-	let fname = if len(errs) == 1 { harnessTypeName(hp, errs[0]) } else { "" }
+	let fname = if errs.Len() == 1 { harnessTypeName(hp, errs[0]) } else { "" }
 	if !isRecord(files, fname, []string{"Message"}, []string{"string"}) {
 		return "its failure row is not one record {Message string} of this package"
 	}
@@ -87,7 +88,7 @@ type harnessFunc { p syntax.Parsed, fd syntax.FuncDecl }
 
 // funcNamed is the package's function declaration named name, with no
 // receiver.
-func funcNamed(files []syntax.Parsed, name string) Option[harnessFunc] {
+func funcNamed(files []syntax.Parsed, name string) option.Option[harnessFunc] {
 	for p in files {
 		if p.Failed {
 			continue
@@ -96,13 +97,13 @@ func funcNamed(files []syntax.Parsed, name string) Option[harnessFunc] {
 			match syntax.ViewOf(p.Tree, d) {
 			case syntax.FuncDecl as fd:
 				if !isSome(dense.Unpack(fd.Recv)) && nameText(p, fd.Name) == name {
-					return Some{Value: harnessFunc{p: p, fd: fd}}
+					return option.Some{Value: harnessFunc{p: p, fd: fd}}
 				}
 			case _:
 			}
 		}
 	}
-	None
+	option.None
 }
 
 // fieldTypes is the type of each name of the field list l, in order: a
@@ -113,14 +114,14 @@ func harnessFieldTypes(p syntax.Parsed, l dense.ID[syntax.Node]) []dense.ID[synt
 	for i in 0..syntax.Len(fl.List) {
 		let fd = syntax.FieldOf(p.Tree, syntax.Item(p.Tree, fl.List, i))
 		match dense.Unpack(fd.Type) {
-		case Some[dense.ID[syntax.Node]] as t:
+		case option.Some[dense.ID[syntax.Node]] as t:
 			out = out.Append(t.Value)
 			for j in 0..syntax.Len(fd.Names) {
 				if j > 0 {
 					out = out.Append(t.Value)
 				}
 			}
-		case None:
+		case option.None:
 		}
 	}
 	out
@@ -132,7 +133,7 @@ func harnessResults(p syntax.Parsed, r dense.Opt[syntax.Node]) ([]dense.ID[synta
 	let mut results = []dense.ID[syntax.Node]{}
 	let mut errs = []dense.ID[syntax.Node]{}
 	match dense.Unpack(r) {
-	case Some[dense.ID[syntax.Node]] as l:
+	case option.Some[dense.ID[syntax.Node]] as l:
 		for t in harnessFieldTypes(p, l.Value) {
 			if syntax.KindOf(p.Tree, t) == syntax.KErrorRow {
 				let er = syntax.ErrorRowOf(p.Tree, t)
@@ -143,7 +144,7 @@ func harnessResults(p syntax.Parsed, r dense.Opt[syntax.Node]) ([]dense.ID[synta
 				results = results.Append(t)
 			}
 		}
-	case None:
+	case option.None:
 	}
 	(results, errs)
 }
@@ -152,12 +153,12 @@ func harnessResults(p syntax.Parsed, r dense.Opt[syntax.Node]) ([]dense.ID[synta
 func harnessNeeds(p syntax.Parsed, n dense.Opt[syntax.Node]) []dense.ID[syntax.Node] {
 	let mut out = []dense.ID[syntax.Node]{}
 	match dense.Unpack(n) {
-	case Some[dense.ID[syntax.Node]] as c:
+	case option.Some[dense.ID[syntax.Node]] as c:
 		let nc = syntax.NeedsClauseOf(p.Tree, c.Value)
 		for i in 0..syntax.Len(nc.Names) {
 			out = out.Append(syntax.Item(p.Tree, nc.Names, i))
 		}
-	case None:
+	case option.None:
 	}
 	out
 }
@@ -189,12 +190,12 @@ func isRecord(files []syntax.Parsed, name string, names []string, types []string
 					return false
 				}
 				match dense.Unpack(td.Spec) {
-				case Some[dense.ID[syntax.Node]] as sp:
+				case option.Some[dense.ID[syntax.Node]] as sp:
 					if syntax.KindOf(p.Tree, sp.Value) != syntax.KStructType {
 						return false
 					}
 					return fieldsAre(p, syntax.StructTypeOf(p.Tree, sp.Value).Fields, names, types)
-				case None:
+				case option.None:
 					return false
 				}
 			case _:
@@ -212,9 +213,9 @@ func fieldsAre(p syntax.Parsed, l dense.ID[syntax.Node], names []string, types [
 	for i in 0..syntax.Len(fl.List) {
 		let fd = syntax.FieldOf(p.Tree, syntax.Item(p.Tree, fl.List, i))
 		let t = match dense.Unpack(fd.Type) {
-		case Some[dense.ID[syntax.Node]] as ft:
+		case option.Some[dense.ID[syntax.Node]] as ft:
 			harnessTypeName(p, ft.Value)
-		case None:
+		case option.None:
 			""
 		}
 		if fd.Dots >= 0 || syntax.Len(fd.Names) == 0 {
@@ -232,7 +233,7 @@ func fieldsAre(p syntax.Parsed, l dense.ID[syntax.Node], names []string, types [
 			count = count + 1
 		}
 	}
-	count == len(names)
+	count == names.Len()
 }
 
 // bodyShape reports whether t is func() fails fname needs tname.
@@ -243,5 +244,5 @@ func bodyShape(p syntax.Parsed, t dense.ID[syntax.Node], fname string, tname str
 	let ft = syntax.FuncTypeOf(p.Tree, t)
 	let (results, errs) = harnessResults(p, ft.Results)
 	let caps = harnessNeeds(p, ft.Needs)
-	len(harnessFieldTypes(p, ft.Params)) == 0 && len(results) == 0 && len(errs) == 1 && harnessTypeName(p, errs[0]) == fname && len(caps) == 1 && harnessTypeName(p, caps[0]) == tname
+	harnessFieldTypes(p, ft.Params).Len() == 0 && results.Len() == 0 && errs.Len() == 1 && harnessTypeName(p, errs[0]) == fname && caps.Len() == 1 && harnessTypeName(p, caps[0]) == tname
 }

@@ -1,5 +1,6 @@
 import compiler/syntax
 import dense
+import option
 
 // MachineTuples is S108 for each machine declaration whose state or signal
 // type is written as a tuple (MACHINE-EXPR; the Go checker's
@@ -19,7 +20,7 @@ func MachineTuples(k []syntax.Parsed) []Diag {
 			match syntax.ViewOf(p.Tree, d) {
 			case syntax.TypeDecl as td:
 				match dense.Unpack(td.Spec) {
-				case Some[dense.ID[syntax.Node]] as sp:
+				case option.Some[dense.ID[syntax.Node]] as sp:
 					match syntax.ViewOf(p.Tree, sp.Value) {
 					case syntax.MachineType as mt:
 						let name = textAt(p, td.Name)
@@ -27,15 +28,15 @@ func MachineTuples(k []syntax.Parsed) []Diag {
 						for i, x in parts {
 							let part = if i == 0 { "state" } else { "signal" }
 							match tupleRefusal(p, x, name, part) {
-							case Some[string] as msg:
+							case option.Some[string] as msg:
 								let at = syntax.NodePos(p, x)
 								out = out.Append(Diag{File: f, Offset: at, Length: syntax.NodeEnd(p, x) - at, Code: CodeType, Message: msg.Value})
-							case None:
+							case option.None:
 							}
 						}
 					case _:
 					}
-				case None:
+				case option.None:
 				}
 			case _:
 			}
@@ -46,7 +47,7 @@ func MachineTuples(k []syntax.Parsed) []Diag {
 
 // tupleRefusal is the message for the machine's state or signal type x
 // (part) when it is written as a tuple, None else.
-func tupleRefusal(p syntax.Parsed, x dense.ID[syntax.Node], owner string, part string) Option[string] {
+func tupleRefusal(p syntax.Parsed, x dense.ID[syntax.Node], owner string, part string) option.Option[string] {
 	match syntax.ViewOf(p.Tree, x) {
 	case syntax.TupleExpr as te:
 		let letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -63,8 +64,8 @@ func tupleRefusal(p syntax.Parsed, x dense.ID[syntax.Node], owner string, part s
 			fields = fields + " " + letters[i%26:i%26+1] + " " + text
 		}
 		let upper = if part == "state" { "State" } else { "Signal" }
-		Some{"a machine's \(part) type must be a union or a record, not (\(types)); write a record, such as type \(owner)\(upper) {\(fields) } (runtime.md, Machines and actors 1)"}
+		option.Some{"a machine's \(part) type must be a union or a record, not (\(types)); write a record, such as type \(owner)\(upper) {\(fields) } (runtime.md, Machines and actors 1)"}
 	case _:
-		None
+		option.None
 	}
 }

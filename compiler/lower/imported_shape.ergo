@@ -3,6 +3,7 @@ import compiler/check/store
 import compiler/check/types
 import compiler/syntax
 import dense
+import option
 import strings
 
 type importedShape { dep expr.Dep, decl dense.ID[store.Decl] }
@@ -10,32 +11,32 @@ type importedShape { dep expr.Dep, decl dense.ID[store.Decl] }
 // Shape traversal may cross into another checked pool. Never look up a
 // type by the alias its importer wrote, or use a declaration row from
 // one pool in another.
-func importedShapeOf(st fnb, t dense.ID[store.TKey], deps Map[string, expr.Dep]) Option[importedShape] {
+func importedShapeOf(st fnb, t dense.ID[store.TKey], deps Map[string, expr.Dep]) option.Option[importedShape] {
 	let kind = store.KindOfType(st.s, t)
 	if kind != store.KForeign && kind != store.KInstance {
-		return None
+		return option.None
 	}
 	let (path, name, args) = expr.ImportedRec(st.s, st.k, t)
-	if path == "" || path == "-" || path == "prelude" || len(args) != 0 {
-		return None
+	if path == "" || path == "-" || path == "prelude" || args.Len() != 0 {
+		return option.None
 	}
 	let dep = match deps.Get(path) {
-	case Some{Value: exact}:
+	case option.Some{Value: exact}:
 		exact
-	case None:
-		return None
+	case option.None:
+		return option.None
 	}
-	if dep.Path != path || len(dep.K.Parsed) == 0 || declCount(fnb{..st, k: dep.K, s: dep.S}, name) != 1 {
-		return None
+	if dep.Path != path || dep.K.Parsed.Len() == 0 || declCount(fnb{..st, k: dep.K, s: dep.S}, name) != 1 {
+		return option.None
 	}
 	match store.Lookup(dep.S, name) {
-	case Some{Value: d}:
+	case option.Some{Value: d}:
 		if store.KindName(int(store.DeclOf(dep.S, d).Kind)) != "type" {
-			return None
+			return option.None
 		}
-		Some{Value: importedShape{dep: dep, decl: d}}
-	case None:
-		None
+		option.Some{Value: importedShape{dep: dep, decl: d}}
+	case option.None:
+		option.None
 	}
 }
 
@@ -50,7 +51,7 @@ func missingShapeStore(st fnb, t dense.ID[store.TKey]) string {
 		return ""
 	}
 	let (path, _, args) = expr.ImportedRec(st.s, st.k, t)
-	if path != "" && len(args) == 0 && st.shapeImports.Get(path) == None {
+	if path != "" && args.Len() == 0 && st.shapeImports.Get(path) == option.None {
 		return "DRIVER: no exact imported shape store for " + path
 	}
 	""
@@ -67,26 +68,26 @@ func importedOwner(st fnb, src importedShape) (fnb, dense.ID[store.TKey]) {
 
 type importedRecordType { typ string, fields []expr.Field }
 
-func importedRecord(owner fnb, t dense.ID[store.TKey]) Option[importedRecordType] {
+func importedRecord(owner fnb, t dense.ID[store.TKey]) option.Option[importedRecordType] {
 	let r = ordinaryRecord(owner, t)
 	if r >= 0 {
 		let rec = owner.k.Recs[r]
 		let typ = declName(owner, rec.Name) catch {
 		case Unported:
-			return None
+			return option.None
 		}
-		return Some{Value: importedRecordType{typ: typ, fields: rec.Fields}}
+		return option.Some{Value: importedRecordType{typ: typ, fields: rec.Fields}}
 	}
 	let name = store.TypeNameText(owner.s, store.ArgOf(owner.s, t))
 	let typ = runtimeRecordType(owner, name)
 	if typ != "" {
 		for rec in owner.k.Recs {
-			if rec.Name == name && !rec.Op && len(rec.Params) == 0 {
-				return Some{Value: importedRecordType{typ: typ, fields: rec.Fields}}
+			if rec.Name == name && !rec.Op && rec.Params.Len() == 0 {
+				return option.Some{Value: importedRecordType{typ: typ, fields: rec.Fields}}
 			}
 		}
 	}
-	None
+	option.None
 }
 
 // The Go checker validates the runtime package, exported declaration,
@@ -94,9 +95,9 @@ func importedRecord(owner fnb, t dense.ID[store.TKey]) Option[importedRecordType
 // the Ergo package prefix nor the alias spelling of that import.
 func runtimeRecordType(owner fnb, name string) string {
 	let (p, parent, at) = match unionDeclParent(owner, name) {
-	case Some{Value: decl}:
+	case option.Some{Value: decl}:
 		decl
-	case None:
+	case option.None:
 		return ""
 	}
 	let td = match syntax.ViewOf(p.Tree, parent) {
@@ -105,21 +106,21 @@ func runtimeRecordType(owner fnb, name string) string {
 	case _:
 		return ""
 	}
-	if td.Name != at || dense.Unpack(td.TypeParams) != None || dense.Unpack(td.Where) != None || dense.Unpack(td.Derive) != None || syntax.Len(td.Implements) != 0 {
+	if td.Name != at || dense.Unpack(td.TypeParams) != option.None || dense.Unpack(td.Where) != option.None || dense.Unpack(td.Derive) != option.None || syntax.Len(td.Implements) != 0 {
 		return ""
 	}
 	match dense.Unpack(td.Spec) {
-	case Some{Value: spec}:
+	case option.Some{Value: spec}:
 		if syntax.KindOf(p.Tree, spec) != syntax.KStructType {
 			return ""
 		}
-	case None:
+	case option.None:
 		return ""
 	}
 	let target = match dense.Unpack(td.Extern) {
-	case Some{Value: ext}:
+	case option.Some{Value: ext}:
 		syntax.TokText(p, syntax.BasicLitOf(p.Tree, syntax.ExternSpecOf(p.Tree, ext).Target).Tok)
-	case None:
+	case option.None:
 		return ""
 	}
 	let dot = strings.LastIndex(target, ".")
@@ -134,46 +135,46 @@ func runtimeRecordType(owner fnb, name string) string {
 // Verify and port only the fields of a declared, admitted record. The
 // checked owner type and the consumer's expression types are in different
 // pools, even when their printed spellings happen to be identical.
-func importedFields(st fnb, t dense.ID[store.TKey]) Option[[]expr.Field] {
+func importedFields(st fnb, t dense.ID[store.TKey]) option.Option[[]expr.Field] {
 	let deps = shapeDeps(st)
 	let src = match importedShapeOf(st, t, deps) {
-	case Some{Value: proof}:
+	case option.Some{Value: proof}:
 		proof
-	case None:
-		return None
+	case option.None:
+		return option.None
 	}
 	let (owner, named) = importedOwner(st, src)
 	let rec = match importedRecord(owner, named) {
-	case Some{Value: rec}:
+	case option.Some{Value: rec}:
 		rec
-	case None:
-		return None
+	case option.None:
+		return option.None
 	}
 	if recordShape(owner, named, rec.fields, rec.typ, shapeTrail{seen: []shapeVisit{}, deps: deps}) == "" {
-		return None
+		return option.None
 	}
 	let mut fields = []expr.Field{}
 	let mut local = st.s
 	for f in rec.fields {
-		match types.Port(&local, st.k.Ifaces, st.k.Foreign, owner.s, src.dep.Path, func(ref store.XRef) Option[types.DeclIdentity] { types.DepIdentity(owner.k.Ifaces, ref) }, owner.k.Foreign, f.T) {
-		case Some{Value: ft}:
+		match types.Port(&local, st.k.Ifaces, st.k.Foreign, owner.s, src.dep.Path, func(ref store.XRef) option.Option[types.DeclIdentity] { types.DepIdentity(owner.k.Ifaces, ref) }, owner.k.Foreign, f.T) {
+		case option.Some{Value: ft}:
 			fields = fields.Append(expr.Field{Name: f.Name, T: ft})
-		case None:
-			return None
+		case option.None:
+			return option.None
 		}
 	}
-	Some{Value: fields}
+	option.Some{Value: fields}
 }
 
 func importedGenericUnion(st fnb, t dense.ID[store.TKey]) bool {
-	if store.KindOfType(st.s, t) != store.KInstance || len(store.OperandsOf(st.s, t)) == 0 {
+	if store.KindOfType(st.s, t) != store.KInstance || store.OperandsOf(st.s, t).Len() == 0 {
 		return false
 	}
 	let o = store.OriginOfType(st.s, t)
 	let i = int(o.Import)
 	let d = int(o.Decl)
 	if i == store.ForeignBit {
-		return d < len(st.k.Foreign) && st.k.Foreign[d].Path != "prelude" && len(st.k.Foreign[d].Variants) != 0
+		return d < st.k.Foreign.Len() && st.k.Foreign[d].Path != "prelude" && st.k.Foreign[d].Variants.Len() != 0
 	}
-	i > 0 && i <= len(st.k.Ifaces) && d < len(st.k.Ifaces[i-1].Decls) && len(st.k.Ifaces[i-1].Decls[d].Variants) != 0
+	i > 0 && i <= st.k.Ifaces.Len() && d < st.k.Ifaces[i-1].Decls.Len() && st.k.Ifaces[i-1].Decls[d].Variants.Len() != 0
 }

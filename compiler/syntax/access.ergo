@@ -15,7 +15,7 @@ func TokKind(p Parsed, j int) uint8 { uint8(p.kinds[j]) }
 // returns).
 func TokText(p Parsed, j int) string {
 	let s = p.src[int(p.starts[j]):int(p.ends[j])]
-	if uint8(p.kinds[j]) == String && len(s) > 0 && s[0] == '`' {
+	if uint8(p.kinds[j]) == String && s.Len() > 0 && s[0] == '`' {
 		return dropCR(s)
 	}
 	s
@@ -25,7 +25,7 @@ func TokText(p Parsed, j int) string {
 // semicolon, or -1.
 func TokStartingAt(p Parsed, at int) int {
 	let mut lo = 0
-	let mut hi = len(p.starts)
+	let mut hi = p.starts.Len()
 	for lo < hi {
 		let mid = (lo + hi) / 2
 		if int(p.starts[mid]) < at {
@@ -34,7 +34,7 @@ func TokStartingAt(p Parsed, at int) int {
 			hi = mid
 		}
 	}
-	for j in lo..len(p.starts) {
+	for j in lo..p.starts.Len() {
 		if int(p.starts[j]) != at {
 			return -1
 		}
@@ -46,7 +46,7 @@ func TokStartingAt(p Parsed, at int) int {
 }
 
 // NumGroups is the number of comment groups.
-func NumGroups(p Parsed) int { len(p.gFirst) }
+func NumGroups(p Parsed) int { p.gFirst.Len() }
 
 // GroupPos, GroupEnd and GroupLen are comment group g's span and count.
 func GroupPos(p Parsed, g int) int { CommentStart(p.cmts, CommentAt(p.cmts, p.gFirst[g])) }
@@ -70,7 +70,7 @@ func TokEnd(p Parsed, j int) int { int(p.ends[j]) }
 // inserted semicolons included.
 func TokAtOrAfter(p Parsed, at int) int {
 	let mut lo = 0
-	let mut hi = len(p.starts)
+	let mut hi = p.starts.Len()
 	for lo < hi {
 		let mid = (lo + hi) / 2
 		if int(p.starts[mid]) < at {

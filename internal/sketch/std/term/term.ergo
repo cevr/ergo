@@ -16,6 +16,8 @@
 // way. Effect's Terminal service reads keys as a stream of KeyEvents.
 
 import io
+import option
+import os
 import scope
 import sync
 
@@ -107,7 +109,7 @@ law RawRestores(fail bool) {
 	let mut inside = 0
 	let got = with context { Terminal: s } {
 		Raw() {
-			inside = len(s.Modes())
+			inside = s.Modes().Len()
 			try failWhen(fail)
 		} catch {
 		case failed:
@@ -116,7 +118,7 @@ law RawRestores(fail bool) {
 			-2
 		}
 	}
-	inside == 1 && len(s.Modes()) == 0 && got == (if fail { -1 } else { 0 })
+	inside == 1 && s.Modes().Len() == 0 && got == (if fail { -1 } else { 0 })
 }
 
 // failed is the failure a law's block raises to leave by a failure.
@@ -146,7 +148,7 @@ type Host { live hostOnly } implements Terminal
 type hostOnly {}
 
 // NewHost is the host's Terminal provider. It needs Ambient.
-func NewHost() Host needs Ambient { Host{live: hostOnly} }
+func NewHost() Host needs os.Ambient { Host{live: hostOnly} }
 
 // SetMode sets m on standard input's terminal.
 func SetMode(_ Host, m Mode) fails NotTerminal {
@@ -172,9 +174,9 @@ func ReadKey(h Host) Key fails io.ReadFailed {
 		let p = try hostPeek(have)
 		if p.Resized {
 			match sizeNow(h) {
-			case Some[Window] as w:
+			case option.Some[Window] as w:
 				return Resized{Window: w.Value}
-			case None:
+			case option.None:
 			}
 		}
 		let n = Cut(p.Bytes, p.End)
@@ -182,7 +184,7 @@ func ReadKey(h Host) Key fails io.ReadFailed {
 			hostDrop(n)
 			return Decode(p.Bytes[0:n])
 		}
-		have = len(p.Bytes)
+		have = p.Bytes.Len()
 	}
 }
 
@@ -215,7 +217,7 @@ law NestedRestoresInOrder() {
 			seen = "not a terminal"
 		}
 	}
-	seen == "raw,noecho|raw" && len(s.Modes()) == 0
+	seen == "raw,noecho|raw" && s.Modes().Len() == 0
 }
 
 func names(modes []Mode) string {
@@ -242,14 +244,14 @@ func SetMode(s Script, m Mode) fails NotTerminal {
 // Restore drops the latest mode kept.
 func Restore(s Script) {
 	s.modes.Update(func(modes []Mode) []Mode {
-		if len(modes) == 0 { modes } else { modes[0 : len(modes)-1] }
+		if modes.Len() == 0 { modes } else { modes[0 : modes.Len()-1] }
 	})
 }
 
 // ReadKey is the next key of the script, or EndOfInput after the last.
 func ReadKey(s Script) Key fails io.ReadFailed {
 	let i = sync.Modify(s.at, func(i int) (int, int) { (i, i + 1) })
-	if i >= len(s.keys) {
+	if i >= s.keys.Len() {
 		return EndOfInput
 	}
 	match s.keys[i] {
@@ -271,12 +273,12 @@ extern go ergo.local/prototype/runtime/v1.TermEnterNoEcho func hostEnterNoEcho()
 extern go ergo.local/prototype/runtime/v1.TermLeave func hostLeave()
 // sizeNow is the window's size, None when there is no terminal. It takes
 // the Host its caller holds, as every reach of the host does.
-func sizeNow(_ Host) Option[Window] {
+func sizeNow(_ Host) option.Option[Window] {
 	let w = hostSize() catch {
 	case NotTerminal:
-		return None
+		return option.None
 	}
-	Some{Value: w}
+	option.Some{Value: w}
 }
 
 // peeked is what hostPeek found in standard input's buffer, not taken.

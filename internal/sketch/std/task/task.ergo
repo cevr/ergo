@@ -3,6 +3,8 @@
 // runtime/v1's Go; its hidden arguments, the caller's frame scope and the
 // call's site, are docs/spec/stdlib.md's Hidden arguments.
 
+import core
+import option
 import queue
 import scope
 import strings
@@ -54,17 +56,17 @@ type Defected { Reason string, Defect Defect }
 
 // ReasonOf looks up the deliberate defect payload of d at the exact nominal
 // type T. Foreign faults and payloads of any other type return None.
-func ReasonOf[T](d Defect) Option[T] {
+func ReasonOf[T](d Defect) option.Option[T] {
 	if defectHas[T](d) {
-		Some[T]{Value: defectAs[T](d)}
+		option.Some[T]{Value: defectAs[T](d)}
 	} else {
-		None
+		option.None
 	}
 }
 
 // ReasonAs looks up the deliberate defect payload of d at the exact nominal
 // type T. Foreign faults and payloads of any other type return None.
-func ReasonAs[T](d Defected) Option[T] { ReasonOf[T](d.Defect) }
+func ReasonAs[T](d Defected) option.Option[T] { ReasonOf[T](d.Defect) }
 
 // Stopped is a task that a stop ended which was not its waiter's: any stop
 // that did not come from the task that called ExitOf, such as a StopAfter
@@ -146,7 +148,7 @@ extern go ergo.local/prototype/runtime/v1.TaskExit func exitOf[T own, E](t Task[
 // law-exempt: a member law has no Scheduler to arm on and no clock to move; its laws bind a clock and run beside it (CancelBeforeFireNeverStops, AlarmOutlivesItsTask) or in testing, which may import both clocks (testing.StopAfterStopsAtD).
 extern go ergo.local/prototype/runtime/v1.TaskAlarm type Alarm {
 	runtimeOnly(),
-	..Closer,
+	..core.Closer,
 	// Cancel disarms the alarm and reports whether it was still armed:
 	// false once it fired, after a Cancel, and for an alarm that armed
 	// nothing (a d of zero or less).
@@ -165,7 +167,7 @@ extern go ergo.local/prototype/runtime/v1.TaskAlarm type Alarm {
 // A Wait on t that the alarm stops raises the stop in the waiter, as
 // Wait raises any interruption of its task; ExitOf is the call that sees
 // it as a value.
-extern go ergo.local/prototype/runtime/v1.TaskStopAfter func StopAfter[T own, E](t Task[T, E], d duration) Alarm needs Scheduler
+extern go ergo.local/prototype/runtime/v1.TaskStopAfter func StopAfter[T own, E](t Task[T, E], d duration) Alarm needs time.Scheduler
 
 // exitReason takes t after exitOf, on a path that gives no value (no
 // value is left in t), and is the text of the defect exitOf gave as 2,
@@ -196,7 +198,7 @@ law CancelBeforeFireNeverStops(w int, d int, c int) {
 	let m = time.NewManual(0)
 	let marks = queue.New[int](1)
 	let gate = queue.New[int](1)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		let t = Go() { try slept(0, marks, gate, time.Times(1ms, wait)) }
 		let a = try armed(t, gate, m, false, time.Times(1ms, limit))
 		m.Advance(time.Times(1ms, after))
@@ -225,9 +227,9 @@ law CancelBeforeFireNeverStops(w int, d int, c int) {
 law AlarmOutlivesItsTask(how int, d int) {
 	let limit = 1 + ((d%6)+6)%6
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		let other = Go() {
-			Scheduler.Sleep(1h)
+			time.Scheduler.Sleep(1h)
 			0
 		}
 		let t = Go() { 1 }
@@ -257,7 +259,7 @@ law AlarmOutlivesItsTask(how int, d int) {
 
 // slept is the block of the StopAfter laws: n exit actions, each pushing
 // its mark, then one value from gate, a sleep of wait, and 1.
-func slept(n int, marks queue.Queue[int], gate queue.Queue[int], wait duration) int fails queue.Closed needs Scheduler {
+func slept(n int, marks queue.Queue[int], gate queue.Queue[int], wait duration) int fails queue.Closed needs time.Scheduler {
 	for i in 0..n {
 		scope.OnExit() {
 			marks.Push(i) catch {
@@ -266,13 +268,13 @@ func slept(n int, marks queue.Queue[int], gate queue.Queue[int], wait duration) 
 		}
 	}
 	try gate.Pop()
-	Scheduler.Sleep(wait)
+	time.Scheduler.Sleep(wait)
 	1
 }
 
 // armed arms StopAfter(t, d) before t sleeps (first) or once it sleeps:
 // the two arming orders of the alarm and t's sleep on m's timeline.
-func armed(t Task[int, queue.Closed], gate queue.Queue[int], m time.Manual, first bool, d duration) Alarm fails queue.Closed needs Scheduler {
+func armed(t Task[int, queue.Closed], gate queue.Queue[int], m time.Manual, first bool, d duration) Alarm fails queue.Closed needs time.Scheduler {
 	if first {
 		let a = StopAfter(t, d)
 		try gate.Push(0)
@@ -293,7 +295,7 @@ law DefectIsObservedOnce(n int) {
 	let t = Go() { try ended(k, n) }
 	match ExitOf(t) {
 	case Defected as d:
-		k == 0 && ReasonAs[simulatedTaskCrash](d) == Some[simulatedTaskCrash]{Value: simulatedTaskCrash{N: n}} && strings.HasPrefix(d.Reason, "die at ")
+		k == 0 && ReasonAs[simulatedTaskCrash](d) == option.Some[simulatedTaskCrash]{Value: simulatedTaskCrash{N: n}} && strings.HasPrefix(d.Reason, "die at ")
 	case Failed[odd] as f:
 		k == 1 && f.Error.N == n
 	case Done[int] as v:
@@ -338,7 +340,7 @@ law ExitOfWaitsForCleanup(n int) {
 	let t = Go() { crashed(k, marks) }
 	match ExitOf(t) {
 	case Defected as d:
-		marks.Len() == k && ReasonAs[cleanupStimulus](d) == Some[cleanupStimulus]{Value: cleanupStimulus{Actions: k}}
+		marks.Len() == k && ReasonAs[cleanupStimulus](d) == option.Some[cleanupStimulus]{Value: cleanupStimulus{Actions: k}}
 	case _:
 		false
 	}
@@ -365,10 +367,10 @@ law ExitOfAnywhere(n int) {
 law StopOfWaiterStillInterrupts() {
 	let m = time.NewManual(0)
 	let returned = queue.NewOpen[bool](1)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		let waiter = Go() {
 			let sleeper = Go() {
-				Scheduler.Sleep(1h)
+				time.Scheduler.Sleep(1h)
 				0
 			}
 			let _ = ExitOf(sleeper)
@@ -377,7 +379,7 @@ law StopOfWaiterStillInterrupts() {
 		for m.Sleepers() == 0 {
 		}
 		waiter.Stop()
-		returned.Poll() == None && m.Sleepers() == 0
+		returned.Poll() == option.None && m.Sleepers() == 0
 	}
 }
 
@@ -393,9 +395,9 @@ law WaitReturnsTheBlock(n int) {
 // time.Manual that no one advances, so it waits until the Stop; a law
 // cannot hold Ambient, so it binds no host provider.
 law StopIsIdempotent() {
-	let t = with context { Scheduler: time.NewManual(0) } {
+	let t = with context { time.Scheduler: time.NewManual(0) } {
 		Go() {
-			Scheduler.Sleep(1h)
+			time.Scheduler.Sleep(1h)
 			0
 		}
 	}
@@ -415,10 +417,10 @@ law SleepAdvancesNow(n int64) {
 	let m = time.NewManual(0)
 	let d = duration(1 + (n%1099511627775+1099511627775)%1099511627775)
 	let woke = queue.New[duration](1)
-	let t = with context { Scheduler: m, time.Clock: m } {
+	let t = with context { time.Scheduler: m, time.Clock: m } {
 		Go() {
 			let before = time.Clock.Now()
-			Scheduler.Sleep(d)
+			time.Scheduler.Sleep(d)
 			try woke.Push(time.Clock.Now().Sub(before))
 		}
 	}

@@ -17,6 +17,7 @@ import compiler/check/store
 import compiler/check/types
 import compiler/syntax
 import dense
+import option
 import strconv
 import strings
 
@@ -163,8 +164,8 @@ func digits(m uint64) string {
 		v = v / 10
 	}
 	let mut out = strings.NewBuilder()
-	for i in 0..len(buf) {
-		out.WriteByte(buf[len(buf)-1-i])
+	for i in 0..buf.Len() {
+		out.WriteByte(buf[buf.Len()-1-i])
 	}
 	out.String()
 }
@@ -192,7 +193,7 @@ func Union(a []Span, b []Span) []Span {
 		all = all.Append(s)
 	}
 	// Insertion sort by Lo: the sets are small.
-	for i in 1..len(all) {
+	for i in 1..all.Len() {
 		let mut j = i
 		for j > 0 && Compare(all[j].Lo, all[j-1].Lo) < 0 {
 			let t = all[j]
@@ -203,7 +204,7 @@ func Union(a []Span, b []Span) []Span {
 	}
 	let mut out = []Span{}
 	for s in all {
-		let n = len(out)
+		let n = out.Len()
 		if n > 0 && Compare(s.Lo, Inc(out[n-1].Hi)) <= 0 {
 			if Compare(s.Hi, out[n-1].Hi) > 0 {
 				out[n-1] = Span{Lo: out[n-1].Lo, Hi: s.Hi}
@@ -271,7 +272,7 @@ law SetOpsAreBoolean(a0 int8, a1 int8, b0 int8, b1 int8, v int8) {
 // UnionIsNormal: a union's spans are sorted, disjoint and not adjacent.
 law UnionIsNormal(a0 int8, a1 int8, b0 int8, b1 int8, c int8) {
 	let u = Union(Union(one(NumOf(int64(a0)), NumOf(int64(a1))), one(NumOf(int64(b0)), NumOf(int64(b1)))), one(NumOf(int64(c)), NumOf(int64(c))))
-	for i in 1..len(u) {
+	for i in 1..u.Len() {
 		if Compare(Inc(u[i-1].Hi), u[i].Lo) >= 0 {
 			return false
 		}
@@ -282,7 +283,7 @@ law UnionIsNormal(a0 int8, a1 int8, b0 int8, b1 int8, c int8) {
 // domain is the range of a refinement's subject over the basic type of
 // ordinal ord, and whether the subject is len(it); None for a base no
 // refinement takes (the Go checker's refinementDomain).
-func domain(ord int) Option[(Span, bool)] {
+func domain(ord int) option.Option[(Span, bool)] {
 	let (lo, hi, isLen) = if ord == 3 || ord == 7 {
 		(NumOf(-9223372036854775807 - 1), NumOf(9223372036854775807), false)
 	} else if ord == 4 {
@@ -302,9 +303,9 @@ func domain(ord int) Option[(Span, bool)] {
 	} else if ord == 2 {
 		(NumOf(0), NumOf(9223372036854775807), true)
 	} else {
-		return None
+		return option.None
 	}
-	Some{Value: (Span{Lo: lo, Hi: hi}, isLen)}
+	option.Some{Value: (Span{Lo: lo, Hi: hi}, isLen)}
 }
 
 let sliceDomain = Span{Lo: At{Neg: false, Mag: 0}, Hi: At{Neg: false, Mag: 9223372036854775807}}
@@ -314,14 +315,14 @@ let sliceDomain = Span{Lo: At{Neg: false, Mag: 0}, Hi: At{Neg: false, Mag: 92233
 // where outside the fragment, an unsatisfiable one, a base no refinement
 // takes, type parameters, a base refined already), and the diagnostics
 // deciding it gave.
-type Refined { File int, Name dense.ID[syntax.Node], R Option[Refinement], Diags []diag.Diag }
+type Refined { File int, Name dense.ID[syntax.Node], R option.Option[Refinement], Diags []diag.Diag }
 
 // Refinements is the refined type declarations of the package k, in file
 // and source order, each with its refinement.
 func Refinements(s mut store.Store, k expr.Pkg) []Refined {
 	let mut out = []Refined{}
 	let mut done = []string{}
-	for f in 0..len(k.Parsed) {
+	for f in 0..k.Parsed.Len() {
 		let p = k.Parsed[f]
 		if p.Failed {
 			continue
@@ -334,17 +335,17 @@ func Refinements(s mut store.Store, k expr.Pkg) []Refined {
 			}
 			let td = syntax.TypeDeclOf(p.Tree, d)
 			match dense.Unpack(td.Where) {
-			case Some{Value: where}:
+			case option.Some{Value: where}:
 				let name = types.NameText(p, td.Name)
 				let w = whereOf{k: k, f: f, where: where, subject: "it", what: name, done: done}
 				let (r, ds) = refinementOf(s, w, td)
 				match r {
-				case Some:
+				case option.Some:
 					done = done.Append(name)
-				case None:
+				case option.None:
 				}
 				out = out.Append(Refined{File: f, Name: td.Name, R: r, Diags: ds})
-			case None:
+			case option.None:
 			}
 		}
 	}
@@ -368,22 +369,22 @@ func at(w whereOf, x dense.ID[syntax.Node], message string) diag.Diag {
 // The code of the diagnostics this package reports (internal/sketch/check/codes.go).
 let CodeType = "S108"
 
-func refuse(w whereOf, message string) (Option[Refinement], []diag.Diag) {
-	(None, []diag.Diag{at(w, w.where, message)})
+func refuse(w whereOf, message string) (option.Option[Refinement], []diag.Diag) {
+	(option.None, []diag.Diag{at(w, w.where, message)})
 }
 
 // refinementOf decides the where of the refined type declaration td.
-func refinementOf(s mut store.Store, w whereOf, td syntax.TypeDecl) (Option[Refinement], []diag.Diag) {
+func refinementOf(s mut store.Store, w whereOf, td syntax.TypeDecl) (option.Option[Refinement], []diag.Diag) {
 	match dense.Unpack(td.TypeParams) {
-	case Some:
+	case option.Some:
 		return refuse(w, "a refined type has no type parameters: refine an instance, type N Box[int] where … (types.md, Refinements 3)")
-	case None:
+	case option.None:
 	}
 	let base = match dense.Unpack(td.Spec) {
-	case Some{Value: sp}:
+	case option.Some{Value: sp}:
 		sp
-	case None:
-		return (None, []diag.Diag{})
+	case option.None:
+		return (option.None, []diag.Diag{})
 	}
 	let p = w.k.Parsed[w.f]
 	let kd = syntax.KindOf(p.Tree, base)
@@ -395,7 +396,7 @@ func refinementOf(s mut store.Store, w whereOf, td syntax.TypeDecl) (Option[Refi
 }
 
 // decide decides w's where over the type t of its subject.
-func decide(s mut store.Store, w whereOf, t dense.ID[store.TKey]) (Option[Refinement], []diag.Diag) {
+func decide(s mut store.Store, w whereOf, t dense.ID[store.TKey]) (option.Option[Refinement], []diag.Diag) {
 	let p = w.k.Parsed[w.f]
 	// A message names the package's own types unqualified, as the Go
 	// checker's do.
@@ -404,7 +405,7 @@ func decide(s mut store.Store, w whereOf, t dense.ID[store.TKey]) (Option[Refine
 	case Dom as d:
 		(d.Span, d.Len)
 	case Invalid:
-		return (None, []diag.Diag{})
+		return (option.None, []diag.Diag{})
 	case NoDomain:
 		return refuse(w, "a where refines an integer type (it) or a string or slice (len(it)); \(w.what) is over \(shown) (types.md, Refinements 3)")
 	}
@@ -413,19 +414,19 @@ func decide(s mut store.Store, w whereOf, t dense.ID[store.TKey]) (Option[Refine
 	}
 	let r = refiner{p: p, subject: w.subject, isLen: isLen, dom: dom, allowed: allowedPattern(p, w.where)}
 	match patternDiags(w, r, *s, t, shown) {
-	case Some{Value: g}:
-		return (None, []diag.Diag{g})
-	case None:
+	case option.Some{Value: g}:
+		return (option.None, []diag.Diag{g})
+	case option.None:
 	}
 	match set(r, w.where) {
 	case Holds as h:
-		if len(h.Spans) == 0 {
+		if h.Spans.Len() == 0 {
 			refuse(w, "no value of \(shown) satisfies this where (types.md, Refinements 2)")
 		} else {
-			(Some{Value: Refinement{Len: isLen, Spans: h.Spans}}, []diag.Diag{})
+			(option.Some{Value: Refinement{Len: isLen, Spans: h.Spans}}, []diag.Diag{})
 		}
 	case Outside as o:
-		(None, []diag.Diag{at(w, o.At, o.Message)})
+		(option.None, []diag.Diag{at(w, o.At, o.Message)})
 	}
 }
 
@@ -449,10 +450,10 @@ func domainOf(s mut store.Store, k expr.Pkg, t dense.ID[store.TKey], depth int) 
 			return Invalid
 		}
 		return match domain(ord) {
-		case Some{Value: v}:
+		case option.Some{Value: v}:
 			let (sp, isLen) = v
 			Dom{Span: sp, Len: isLen}
-		case None:
+		case option.None:
 			NoDomain
 		}
 	}
@@ -463,13 +464,13 @@ func domainOf(s mut store.Store, k expr.Pkg, t dense.ID[store.TKey], depth int) 
 		return NoDomain
 	}
 	let name = store.TypeNameText(*s, store.ArgOf(*s, t))
-	for g in 0..len(k.Parsed) {
+	for g in 0..k.Parsed.Len() {
 		let q = k.Parsed[g]
 		if q.Failed {
 			continue
 		}
 		for d in types.Defined(q) {
-			if d.Name == name && len(d.Params) == 0 {
+			if d.Name == name && d.Params.Len() == 0 {
 				let env = types.NewEnv(*s, k.Parsed, q, []string{}, k.Kinds, k.Ext, k.Foreign, k.Ifaces)
 				let b = types.Resolve(s, env, d.Base)
 				return domainOf(s, k, b, depth+1)
@@ -497,7 +498,7 @@ func refinedBefore(s store.Store, done []string, t dense.ID[store.TKey]) bool {
 // a second one, one on a base that is no string, or one not of the shape
 // matches(it, `…`) (the Go checker's pattern and compileWherePattern;
 // the pattern's own syntax is checked when patterns are compiled here).
-func patternDiags(w whereOf, r refiner, s store.Store, t dense.ID[store.TKey], shown string) Option[diag.Diag] {
+func patternDiags(w whereOf, r refiner, s store.Store, t dense.ID[store.TKey], shown string) option.Option[diag.Diag] {
 	let p = r.p
 	let mut seen = false
 	for x in conjuncts(p, w.where) {
@@ -505,28 +506,28 @@ func patternDiags(w whereOf, r refiner, s store.Store, t dense.ID[store.TKey], s
 			continue
 		}
 		if seen {
-			return Some{Value: at(w, x, "a where takes one pattern; join the two in one (types.md, Refinements 11)")}
+			return option.Some{Value: at(w, x, "a where takes one pattern; join the two in one (types.md, Refinements 11)")}
 		}
 		seen = true
 		if !(store.KindOfType(s, t) == store.KBasic && store.ArgOf(s, t) == 2) {
-			return Some{Value: at(w, x, "a pattern refines a string; \(shown) is not one (types.md, Refinements 11)")}
+			return option.Some{Value: at(w, x, "a pattern refines a string; \(shown) is not one (types.md, Refinements 11)")}
 		}
 		let shape = "a pattern is matches(\(w.subject), `…`): the subject and a string literal (types.md, Refinements 11)"
 		let c = syntax.CallExprOf(p.Tree, x)
 		if syntax.Len(c.Args) != 2 || isSome(c.Trailing) {
-			return Some{Value: at(w, x, shape)}
+			return option.Some{Value: at(w, x, shape)}
 		}
 		let a0 = syntax.Item(p.Tree, c.Args, 0)
 		if !identIs(p, unparen(p, a0), w.subject) {
-			return Some{Value: at(w, a0, shape)}
+			return option.Some{Value: at(w, a0, shape)}
 		}
 		let a1 = syntax.Item(p.Tree, c.Args, 1)
 		let lit = unparen(p, a1)
 		if syntax.KindOf(p.Tree, lit) != syntax.KBasicLit || syntax.TokKind(p, syntax.BasicLitOf(p.Tree, lit).Tok) != syntax.String {
-			return Some{Value: at(w, a1, shape)}
+			return option.Some{Value: at(w, a1, shape)}
 		}
 	}
-	None
+	option.None
 }
 
 // conjuncts are the operands of the top-level && chain of x.
@@ -551,7 +552,7 @@ func conjuncts(p syntax.Parsed, x0 dense.ID[syntax.Node]) []dense.ID[syntax.Node
 // is refused (the Go checker's checkRefinements, Refinements 10).
 func ParamWheres(s mut store.Store, k expr.Pkg, done []string) []diag.Diag {
 	let mut out = []diag.Diag{}
-	for f in 0..len(k.Parsed) {
+	for f in 0..k.Parsed.Len() {
 		let p = k.Parsed[f]
 		if p.Failed {
 			continue
@@ -581,7 +582,7 @@ func ParamWheres(s mut store.Store, k expr.Pkg, done []string) []diag.Diag {
 			match syntax.ViewOf(p.Tree, x) {
 			case syntax.LawDecl as l:
 				match dense.Unpack(l.Params) {
-				case Some{Value: ps}:
+				case option.Some{Value: ps}:
 					match syntax.ViewOf(p.Tree, ps) {
 					case syntax.FieldList as fl:
 						let mut fields = []dense.ID[syntax.Node]{}
@@ -594,7 +595,7 @@ func ParamWheres(s mut store.Store, k expr.Pkg, done []string) []diag.Diag {
 						}
 					case _:
 					}
-				case None:
+				case option.None:
 				}
 			case _:
 			}
@@ -607,21 +608,21 @@ func ParamWheres(s mut store.Store, k expr.Pkg, done []string) []diag.Diag {
 			match syntax.ViewOf(p.Tree, x) {
 			case syntax.Field as fd:
 				match dense.Unpack(fd.Where) {
-				case Some{Value: wh}:
+				case option.Some{Value: wh}:
 					match inLaw.Get(dense.Index(x)) {
-					case Some{Value: fields}:
+					case option.Some{Value: fields}:
 						// The names a where may relate to (Laws 15): the
 						// operations of a member law's type, then each
 						// parameter before the one it qualifies.
 						let mut before = match lawOf.Get(dense.Index(x)) {
-						case Some{Value: l}:
+						case option.Some{Value: l}:
 							match ops.Get(l) {
-							case Some{Value: ns}:
+							case option.Some{Value: ns}:
 								ns
-							case None:
+							case option.None:
 								[]string{}
 							}
-						case None:
+						case option.None:
 							[]string{}
 						}
 						for other in fields {
@@ -634,9 +635,9 @@ func ParamWheres(s mut store.Store, k expr.Pkg, done []string) []diag.Diag {
 							}
 						}
 						let tx = match dense.Unpack(fd.Type) {
-						case Some{Value: v}:
+						case option.Some{Value: v}:
 							v
-						case None:
+						case option.None:
 							continue
 						}
 						let env = types.NewEnv(*s, k.Parsed, p, []string{}, k.Kinds, k.Ext, k.Foreign, k.Ifaces)
@@ -656,11 +657,11 @@ func ParamWheres(s mut store.Store, k expr.Pkg, done []string) []diag.Diag {
 								out = out.Append(g)
 							}
 						}
-					case None:
+					case option.None:
 						let from = syntax.NodePos(p, wh)
 						out = out.Append(diag.Diag{File: f, Offset: from, Length: syntax.NodeEnd(p, wh) - from, Code: CodeType, Message: "a where on a parameter stands only in a law; declare a refined type, type N T where … (types.md, Refinements 10)"})
 					}
-				case None:
+				case option.None:
 				}
 			case _:
 			}
@@ -693,11 +694,11 @@ func opsOf(k expr.Pkg, f int, it dense.ID[syntax.Node], depth int) []string {
 			continue
 		}
 		match dense.Unpack(fd.Type) {
-		case Some{Value: tx}:
+		case option.Some{Value: tx}:
 			for name in included(k, f, tx, depth) {
 				out = out.Append(name)
 			}
-		case None:
+		case option.None:
 		}
 	}
 	out
@@ -741,7 +742,7 @@ func included(k expr.Pkg, f int, tx dense.ID[syntax.Node], depth int) []string {
 // declaredOps is whether k declares an operation type named name, and
 // its operations.
 func declaredOps(k expr.Pkg, name string, depth int) (bool, []string) {
-	for f in 0..len(k.Parsed) {
+	for f in 0..k.Parsed.Len() {
 		let p = k.Parsed[f]
 		if p.Failed {
 			continue
@@ -757,11 +758,11 @@ func declaredOps(k expr.Pkg, name string, depth int) (bool, []string) {
 				continue
 			}
 			match dense.Unpack(td.Spec) {
-			case Some{Value: sp}:
+			case option.Some{Value: sp}:
 				if syntax.KindOf(p.Tree, sp) == syntax.KInterfaceType {
 					return (true, opsOf(k, f, sp, depth+1))
 				}
-			case None:
+			case option.None:
 			}
 		}
 	}
@@ -784,10 +785,10 @@ func importPath(p syntax.Parsed, name string) string {
 		let j = syntax.TokStartingAt(p, syntax.NodePos(p, is.Path))
 		let path = strings.TrimRight(strings.TrimLeft(if j < 0 { "" } else { syntax.TokText(p, j) }, "\""), "\"")
 		let alias = match dense.Unpack(is.Name) {
-		case Some{Value: n}:
+		case option.Some{Value: n}:
 			types.NameText(p, n)
-		case None:
-			path[strings.LastIndex(path, "/")+1 : len(path)]
+		case option.None:
+			path[strings.LastIndex(path, "/")+1 : path.Len()]
 		}
 		if alias == name {
 			return path
@@ -799,7 +800,7 @@ func importPath(p syntax.Parsed, name string) string {
 // names is whether the expression x names one of among: an
 // identifier inside x's span spelled as one of them.
 func names(p syntax.Parsed, x dense.ID[syntax.Node], among []string) bool {
-	if len(among) == 0 {
+	if among.Len() == 0 {
 		return false
 	}
 	let from = syntax.NodePos(p, x)
@@ -832,9 +833,9 @@ func Diags(s mut store.Store, k expr.Pkg) []diag.Diag {
 			out = out.Append(g)
 		}
 		match r.R {
-		case Some:
+		case option.Some:
 			done = done.Append(types.NameText(k.Parsed[r.File], r.Name))
-		case None:
+		case option.None:
 		}
 	}
 	for g in ParamWheres(s, k, done) {
@@ -858,9 +859,9 @@ func unparen(p syntax.Parsed, x dense.ID[syntax.Node]) dense.ID[syntax.Node] {
 
 func isSome(o dense.Opt[syntax.Node]) bool {
 	match dense.Unpack(o) {
-	case Some:
+	case option.Some:
 		true
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -913,9 +914,9 @@ func set(r refiner, x dense.ID[syntax.Node]) Decided {
 	}
 	if isMatchesCall(r.p, x) {
 		let allowed = match dense.Unpack(r.allowed) {
-		case Some{Value: a}:
+		case option.Some{Value: a}:
 			a == x
-		case None:
+		case option.None:
 			false
 		}
 		return if allowed { Holds{Spans: []Span{r.dom}} } else { Outside{At: x, Message: "a pattern stands as a conjunct of the where, P && matches(it, `…`), not under ! or || (types.md, Refinements 11)"} }
@@ -973,9 +974,9 @@ func compare(r refiner, x dense.ID[syntax.Node], b syntax.BinaryExpr, op0 uint8)
 		return outside(r, x)
 	}
 	let v = match intLiteral(r.p, lit) {
-	case Some{Value: n}:
+	case option.Some{Value: n}:
 		n
-	case None:
+	case option.None:
 		return outside(r, lit)
 	}
 	let dom = r.dom
@@ -1025,7 +1026,7 @@ func isSubject(r refiner, x0 dense.ID[syntax.Node]) bool {
 }
 
 // intLiteral is the value of an integer literal with optional signs.
-func intLiteral(p syntax.Parsed, x0 dense.ID[syntax.Node]) Option[Num] {
+func intLiteral(p syntax.Parsed, x0 dense.ID[syntax.Node]) option.Option[Num] {
 	let mut x = unparen(p, x0)
 	let mut neg = false
 	for syntax.KindOf(p.Tree, x) == syntax.KUnaryExpr {
@@ -1040,26 +1041,26 @@ func intLiteral(p syntax.Parsed, x0 dense.ID[syntax.Node]) Option[Num] {
 		x = unparen(p, u.X)
 	}
 	if syntax.KindOf(p.Tree, x) != syntax.KBasicLit {
-		return None
+		return option.None
 	}
 	let tok = syntax.BasicLitOf(p.Tree, x).Tok
 	if syntax.TokKind(p, tok) != syntax.Int {
-		return None
+		return option.None
 	}
 	match ParseInt(syntax.TokText(p, tok)) {
-	case Some{Value: n}:
-		Some{Value: if neg { negated(n) } else { n }}
-	case None:
-		None
+	case option.Some{Value: n}:
+		option.Some{Value: if neg { negated(n) } else { n }}
+	case option.None:
+		option.None
 	}
 }
 
 // ParseInt is the value of an integer literal's text, saturating past
 // uint64; None for a legacy octal (0 then a digit) or a malformed text.
-func ParseInt(text string) Option[Num] {
+func ParseInt(text string) option.Option[Num] {
 	let mut base = uint64(10)
 	let mut i = 0
-	if len(text) >= 2 && text[0] == '0' {
+	if text.Len() >= 2 && text[0] == '0' {
 		let c = text[1]
 		if c == 'x' || c == 'X' {
 			base = 16
@@ -1071,13 +1072,13 @@ func ParseInt(text string) Option[Num] {
 			base = 2
 			i = 2
 		} else {
-			return None
+			return option.None
 		}
 	}
 	let mut mag = uint64(0)
 	let mut over = false
 	let mut seen = false
-	for i < len(text) {
+	for i < text.Len() {
 		let c = text[i]
 		i = i + 1
 		if c == '_' {
@@ -1090,10 +1091,10 @@ func ParseInt(text string) Option[Num] {
 		} else if c >= 'A' && c <= 'F' {
 			uint64(c-'A') + 10
 		} else {
-			return None
+			return option.None
 		}
 		if d >= base {
-			return None
+			return option.None
 		}
 		seen = true
 		if !over && mag > (maxMag-d)/base {
@@ -1104,18 +1105,18 @@ func ParseInt(text string) Option[Num] {
 		}
 	}
 	if !seen {
-		return None
+		return option.None
 	}
-	Some{Value: if over { Above } else { At{Neg: false, Mag: mag} }}
+	option.Some{Value: if over { Above } else { At{Neg: false, Mag: mag} }}
 }
 
 // ParseIntReadsDecimal: a decimal literal reads as its value.
 law ParseIntReadsDecimal(n int64) {
 	let m = if n < 0 { -(n + 1) } else { n }
 	match ParseInt(strconv.FormatInt(m, 10)) {
-	case Some{Value: v}:
+	case option.Some{Value: v}:
 		Compare(v, NumOf(m)) == 0
-	case None:
+	case option.None:
 		false
 	}
 }

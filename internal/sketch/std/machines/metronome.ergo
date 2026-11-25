@@ -1,6 +1,8 @@
 // The laws of machines run over tally, a machine built from parts whose
 // step reaches every Decision variant by the signal's value.
 
+import core
+import option
 import testing
 import time
 
@@ -22,7 +24,7 @@ func opened(at time.Time) Beats { Beats{Opened: at, Count: 0, Wrong: 0} }
 // pulse is the metronome's step: a beat or a nudge opens a new entry at
 // its reading, which arms the next beat; a beat counts, and counts as
 // wrong when its reading is not the entry's opening reading plus Tempo.
-func pulse(b Beats, p Pulse) Decision[Beats, Never] {
+func pulse(b Beats, p Pulse) Decision[Beats, core.Never] {
 	match p {
 	case Beat as t:
 		let wrong = if t.At.Equal(b.Opened.Add(Tempo)) { b.Wrong } else { b.Wrong + 1 }
@@ -34,7 +36,7 @@ func pulse(b Beats, p Pulse) Decision[Beats, Never] {
 
 // beat is every entry's timer: Beat at the reading it fires at, Tempo
 // after the entry opened.
-func beat(b Beats) Option[Every[Pulse]] { Some{Every[Pulse]{In: Tempo, Signal: beatAt}} }
+func beat(b Beats) option.Option[Every[Pulse]] { option.Some{Every[Pulse]{In: Tempo, Signal: beatAt}} }
 
 func beatAt(at time.Time) Pulse { Beat{At: at} }
 
@@ -50,20 +52,20 @@ type Metronome machine[Beats, Pulse] { initial: opened, step: pulse, after: beat
 // per Tempo after the last nudge.
 law EveryCarriesTheReading(gaps []int) {
 	let c = testing.NewVirtualClock(0)
-	with context { Scheduler: c, time.Clock: c } {
+	with context { time.Scheduler: c, time.Clock: c } {
 		let start = time.Clock.Now()
 		let mut trace = []Timed[Pulse]{}
 		let mut at = 0s
 		for g in gaps {
-			at = at + time.Times(1ms, ((g % 20) + 20) % 20)
+			at = at + time.Times(1ms, ((g%20)+20)%20)
 			trace = trace.Append(Timed[Pulse]{At: at, Signal: Nudge{At: start.Add(at)}})
 		}
-		let o = RunTimed(Start(Metronome{}, start), trace, at + time.Times(Tempo, 3)) catch {
+		let o = RunTimed(Start(Metronome{}, start), trace, at+time.Times(Tempo, 3)) catch {
 		case Rejected:
 			return false
 		}
 		let b = LastState(o)
-		b.Wrong == 0 && b.Count >= 3 && b.Opened.Equal(start.Add(at + time.Times(Tempo, 3)))
+		b.Wrong == 0 && b.Count >= 3 && b.Opened.Equal(start.Add(at+time.Times(Tempo, 3)))
 	}
 }
 

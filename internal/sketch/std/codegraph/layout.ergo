@@ -1,4 +1,5 @@
 import maps
+import option
 import slices
 import strings
 
@@ -41,14 +42,14 @@ func physicalLinesWorkIsLinear(seed int, size int) bool {
 			return false
 		}
 	}
-	got.Work <= len(r.Nodes)+1
+	got.Work <= r.Nodes.Len()+1
 }
 
 type Directory { Path string, Members []string, Anchor int }
 
 type DirectoryList { Directories []Directory, Work int }
 
-func WideDirectory(d Directory, max int) bool { len(d.Members) > max }
+func WideDirectory(d Directory, max int) bool { d.Members.Len() > max }
 
 func childEntry(parts []string, k int) string { parts[k] }
 
@@ -82,32 +83,32 @@ func Directories(r Rows, modules []int) DirectoryList {
 				parts = parts.Append(p)
 			}
 		}
-		for k in 0..len(parts) {
+		for k in 0..parts.Len() {
 			work = work + 1
 			let dir = if k == 0 { "." } else { strings.Join(parts[0:k], "/") }
 			let child = childEntry(parts, k)
 			let key = dir + "\n" + child
-			if seen.Get(key) == None {
+			if seen.Get(key) == option.None {
 				seen[key] = true
-				if members.Get(dir) == None {
+				if members.Get(dir) == option.None {
 					dirs = dirs.Append(dir)
 				}
 				members[dir] = maps.GetOr(members, dir, []string{}).Append(child)
 			}
-			if k == len(parts)-1 {
+			if k == parts.Len()-1 {
 				match directAnchor.Get(dir) {
-				case None:
+				case option.None:
 					directAnchor[dir] = i
-				case Some[int] as prev:
+				case option.Some[int] as prev:
 					if row.Name < r.Nodes[prev.Value].Name {
 						directAnchor[dir] = i
 					}
 				}
 			}
 			match anyAnchor.Get(dir) {
-			case None:
+			case option.None:
 				anyAnchor[dir] = i
-			case Some[int] as prev:
+			case option.Some[int] as prev:
 				if row.Name < r.Nodes[prev.Value].Name {
 					anyAnchor[dir] = i
 				}
@@ -117,9 +118,9 @@ func Directories(r Rows, modules []int) DirectoryList {
 	let mut out = []Directory{}
 	for d in slices.Sort(dirs) {
 		let anchor = match directAnchor.Get(d) {
-		case Some[int] as a:
+		case option.Some[int] as a:
 			a.Value
-		case None:
+		case option.None:
 			maps.GetOr(anyAnchor, d, -1)
 		}
 		out = out.Append(Directory{Path: d, Members: slices.Sort(maps.GetOr(members, d, []string{})), Anchor: anchor})
@@ -135,15 +136,15 @@ func directoriesWorkIsLinear(seed int, size int) bool {
 	let mut parts = 0
 	for n in r.Nodes {
 		if n.Kind == "file" {
-			parts = parts + len(strings.Split(n.Name, "/"))
+			parts = parts + strings.Split(n.Name, "/").Len()
 		}
 	}
 	for d in got.Directories {
-		if d.Anchor < 0 || r.Nodes[d.Anchor].Kind != "file" || len(d.Members) == 0 {
+		if d.Anchor < 0 || r.Nodes[d.Anchor].Kind != "file" || d.Members.Len() == 0 {
 			return false
 		}
 	}
-	got.Work <= len(r.Nodes)+parts+1
+	got.Work <= r.Nodes.Len()+parts+1
 }
 
 type ForeignFieldWrite {
@@ -158,7 +159,7 @@ type ForeignFieldWrites { Writes []ForeignFieldWrite, Work int }
 
 func isFieldWrite(how string) bool { how == "write" }
 
-func hasPrivateField(priv Map[int, int], record int) bool { priv.Get(record) != None }
+func hasPrivateField(priv Map[int, int], record int) bool { priv.Get(record) != option.None }
 
 func ForeignRecordFieldWrites(r Rows, modules []int) ForeignFieldWrites {
 	let mut work = 0
@@ -175,11 +176,11 @@ func ForeignRecordFieldWrites(r Rows, modules []int) ForeignFieldWrites {
 			at = if row.Parent < i { places[row.Parent] } else { placeOf(r, row.Parent, chosen) }
 		}
 		places = places.Append(placed(r, i, at, chosen))
-		if row.Kind == "decl" && row.Sub == "field" && row.Parent >= 0 && r.Nodes[row.Parent].Sub == "type" && !exported(row.Name) && privateField.Get(row.Parent) == None {
+		if row.Kind == "decl" && row.Sub == "field" && row.Parent >= 0 && r.Nodes[row.Parent].Sub == "type" && !exported(row.Name) && privateField.Get(row.Parent) == option.None {
 			privateField[row.Parent] = i
 		}
 	}
-	let width = len(r.Nodes)
+	let width = r.Nodes.Len()
 	let mut fields = []int{}
 	let mut callersOf = Map[int, []int]{}
 	let mut firstSite = Map[int, int]{}
@@ -201,9 +202,9 @@ func ForeignRecordFieldWrites(r Rows, modules []int) ForeignFieldWrites {
 			continue
 		}
 		let pair = e.To*width + e.From
-		if firstSite.Get(pair) == None {
+		if firstSite.Get(pair) == option.None {
 			firstSite[pair] = k
-			if callersOf.Get(e.To) == None {
+			if callersOf.Get(e.To) == option.None {
 				fields = fields.Append(e.To)
 			}
 			callersOf[e.To] = maps.GetOr(callersOf, e.To, []int{}).Append(e.From)
@@ -228,9 +229,9 @@ func foreignRecordFieldWritesWorkIsLinear(seed int, size int) bool {
 	let r = drawnRows(seed, size)
 	let got = ForeignRecordFieldWrites(r, []int{0})
 	for w in got.Writes {
-		if r.Nodes[w.Field].Sub != "field" || r.Nodes[w.Record].Sub != "type" || w.PrivateField < 0 || len(w.Callers) == 0 || len(w.Callers) != len(w.Sites) {
+		if r.Nodes[w.Field].Sub != "field" || r.Nodes[w.Record].Sub != "type" || w.PrivateField < 0 || w.Callers.Len() == 0 || w.Callers.Len() != w.Sites.Len() {
 			return false
 		}
 	}
-	got.Work <= len(r.Nodes)+len(r.Edges)+1
+	got.Work <= r.Nodes.Len()+r.Edges.Len()+1
 }

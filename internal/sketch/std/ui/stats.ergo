@@ -5,6 +5,9 @@
 // read from what the pass already holds (its specs, its patch, its jobs),
 // only when it is asked for.
 
+import core
+import machines
+import option
 import time
 import queue
 import actor
@@ -55,7 +58,7 @@ type Stats {
 // stopped group's call site once when it stopped.
 law StatsCountEveryPhase(seed int, steps int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		statsFollow(seed, steps)
 	}
 }
@@ -75,23 +78,23 @@ func haltIf(b bool) fails Halt {
 	}
 }
 
-func statsStep(s int, e int) Decision[int, int] { Enter[int]{Next: e} }
+func statsStep(s int, e int) machines.Decision[int, int] { machines.Enter[int]{Next: e} }
 
-func statsMachine() Machine[int, int, int] {
-	Machine[int, int, int]{Initial: 0, Step: statsStep, After: replyTimer, Work: replyWork(queue.New[int](1), 0), Exit: replyExit}
+func statsMachine() machines.Machine[int, int, int] {
+	machines.Machine[int, int, int]{Initial: 0, Step: statsStep, After: replyTimer, Work: replyWork(queue.New[int](1), 0), Exit: replyExit}
 }
 
 // statsView shows the app of apps[s]; the key "i" signals i.
 func statsView(apps []statsApp) func(f mut Frame[int], s int) {
 	func(f mut Frame[int], s int) {
 		let st = apps[s]
-		OnKey(f, func(k KeyPress) Option[int] {
-			for i in 0..len(apps) {
+		OnKey(f, func(k KeyPress) option.Option[int] {
+			for i in 0..apps.Len() {
 				if k.Name == "\(i)" {
-					return Some{Value: i}
+					return option.Some{Value: i}
 				}
 			}
-			None
+			option.None
 		})
 		Column(f, Plain()) {
 			for j in 0..st.texts {
@@ -133,34 +136,34 @@ func opCounts(ops []Op[int]) (int, int, int, int, int) {
 	let mut set = 0
 	let mut paint = 0
 	for op in ops {
-		let mut node Option[Node[int]] = None
+		let mut node option.Option[Node[int]] = option.None
 		match op {
 		case Insert[int] as x:
 			ins = ins + 1
-			node = Some{Value: x.Node}
+			node = option.Some{Value: x.Node}
 		case Move[int]:
 			mov = mov + 1
 		case Remove[int]:
 			rem = rem + 1
 		case Set[int] as x:
 			set = set + 1
-			node = Some{Value: x.Node}
+			node = option.Some{Value: x.Node}
 		case Define:
 		}
 		match node {
-		case Some[Node[int]] as n:
+		case option.Some[Node[int]] as n:
 			match n.Value {
 			case CanvasNode as c:
-				paint = paint + len(c.Paint)
+				paint = paint + c.Paint.Len()
 			case _:
 			}
-		case None:
+		case option.None:
 		}
 	}
 	(ins, mov, rem, set, paint)
 }
 
-func statsFollow(seed int, steps int) bool needs Scheduler {
+func statsFollow(seed int, steps int) bool needs time.Scheduler {
 	let mut r = seeded(seed)
 	let mut apps = []statsApp{statsApp{texts: 0, paints: 0, rows: 0, stops: false, key: 0, canvas: false, rev: false}}
 	let n = (steps%12+12)%12 + 1
@@ -171,20 +174,20 @@ func statsFollow(seed int, steps int) bool needs Scheduler {
 	let (s, _) = Start(a, statsView(apps), func(ev Event[int]) {})
 	let mut session = s
 	let mut prev = apps[0]
-	for i in 1..len(apps) {
+	for i in 1..apps.Len() {
 		let ops = Step(&session, KeyDown{Press: KeyPress{Name: "\(i)", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}) catch {
 		case actor.Stopped:
 			return false
 		}
 		let st = apps[i]
-		let shown = len(shownRows(st.rows, 10.0, 0.0, 0.0))
+		let shown = shownRows(st.rows, 10.0, 0.0, 0.0).Len()
 		let stopped = if st.stops { 1 } else { 0 }
 		let changed = if st.key != prev.key { 1 } else { 0 }
 		let canvas = if st.canvas { 1 } else { 0 }
 		let (ins, mov, rem, set, paint) = opCounts(ops)
 		let want = Stats{Signals: 1, Written: 6 + canvas + st.texts + shown + stopped, Rows: shown, Skipped: 0, Stopped: stopped, Committed: 6 + canvas + st.texts + shown, Inserted: ins, Moved: mov, Removed: rem, Set: set, Lowered: ins + set, Painted: paint, Fetches: changed, Cancels: changed}
 		let got = SessionStats(&session)
-		if got != want || len(StoppedAt(&session)) != stopped {
+		if got != want || StoppedAt(&session).Len() != stopped {
 			return false
 		}
 		// The paint ops are the canvas's when it is new or its paint
@@ -243,7 +246,7 @@ func PassStats[E](f mut Frame[E]) Stats {
 func painted[E](n Node[E]) int {
 	match n {
 	case CanvasNode as c:
-		len(c.Paint)
+		c.Paint.Len()
 	case _:
 		0
 	}
@@ -252,8 +255,8 @@ func painted[E](n Node[E]) int {
 // StoppedAt is the call sites of the groups the last pass of s stopped,
 // in the order they stopped: the pass's boundary outcomes (a boundary has
 // no node, so the tree cannot show them).
-func StoppedAt[S, E, D, F](s mut Session[S, E, D, F]) []CallSite {
-	let mut out = []CallSite{}
+func StoppedAt[S, E, D, F](s mut Session[S, E, D, F]) []core.CallSite {
+	let mut out = []core.CallSite{}
 	for i in 0..s.frame.nstops {
 		out = out.Append(s.frame.stops[i])
 	}
@@ -288,7 +291,7 @@ type Slow { Counter Counter, Count int, Bound int }
 // Slow counts its signal (Signals 1, UC-SIGNALS0).
 law SlowAboveTheBudget(seed int, bound int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		slowFollow(seed, (bound%5+5)%5+1)
 	}
 }
@@ -299,38 +302,38 @@ type slowLog { texts int, log []Slow, marks int }
 
 type slowSignal = MoreText{} | WasSlow{S Slow} | SlowMark{}
 
-func slowStep(s slowLog, e slowSignal) Decision[slowLog, int] {
+func slowStep(s slowLog, e slowSignal) machines.Decision[slowLog, int] {
 	match e {
 	case MoreText:
-		Enter[slowLog]{Next: slowLog{texts: s.texts + 1, log: s.log, marks: s.marks}}
+		machines.Enter[slowLog]{Next: slowLog{texts: s.texts + 1, log: s.log, marks: s.marks}}
 	case WasSlow as w:
-		Enter[slowLog]{Next: slowLog{texts: s.texts, log: s.log.Append(w.S), marks: s.marks}}
+		machines.Enter[slowLog]{Next: slowLog{texts: s.texts, log: s.log.Append(w.S), marks: s.marks}}
 	case SlowMark:
-		Enter[slowLog]{Next: slowLog{texts: s.texts, log: s.log, marks: s.marks + 1}}
+		machines.Enter[slowLog]{Next: slowLog{texts: s.texts, log: s.log, marks: s.marks + 1}}
 	}
 }
 
-func slowTimer(s slowLog) Option[Timeout[slowSignal]] { None }
+func slowTimer(s slowLog) option.Option[machines.Timeout[slowSignal]] { option.None }
 
-func slowWork(s slowLog) Option[func(send func(e slowSignal))] { None }
+func slowWork(s slowLog) option.Option[func(send func(e slowSignal))] { option.None }
 
-func slowExit(s slowLog) Option[func()] { None }
+func slowExit(s slowLog) option.Option[func()] { option.None }
 
-func slowFollow(seed int, bound int) bool needs Scheduler {
+func slowFollow(seed int, bound int) bool needs time.Scheduler {
 	let mut r = seeded(seed)
 	let view = func(f mut Frame[slowSignal], s slowLog) {
 		// Every third pass asks for nothing: an OnSlow holds for its pass.
 		if s.texts%3 != 0 {
 			OnSlow(f, Budget{Signals: 0, Written: bound, Committed: 0, Ops: 0, Painted: 0, Fetches: 0}, func(x Slow) slowSignal { WasSlow{S: x} })
 		}
-		OnKey(f, func(k KeyPress) Option[slowSignal] { Some{Value: MoreText} })
-		Text(f, "log \(len(s.log))")
+		OnKey(f, func(k KeyPress) option.Option[slowSignal] { option.Some{Value: MoreText} })
+		Text(f, "log \(s.log.Len())")
 		for j in 0..s.texts {
 			Text(f, "t\(j)")
 		}
 	}
 	let posted = queue.New[Event[slowSignal]](256)
-	let a = actor.StartMachine(Machine[slowLog, slowSignal, int]{Initial: slowLog{texts: 0, log: []Slow{}, marks: 0}, Step: slowStep, After: slowTimer, Work: slowWork, Exit: slowExit}, 1, func(o int) {})
+	let a = actor.StartMachine(machines.Machine[slowLog, slowSignal, int]{Initial: slowLog{texts: 0, log: []Slow{}, marks: 0}, Step: slowStep, After: slowTimer, Work: slowWork, Exit: slowExit}, 1, func(o int) {})
 	let (s, _) = Start(a, view, func(ev Event[slowSignal]) {
 		posted.Push(ev) catch {
 		case queue.Closed:
@@ -362,7 +365,7 @@ func slowFollow(seed int, bound int) bool needs Scheduler {
 			case actor.Stopped:
 				return false
 			}
-			if len(at.log) != len(want) {
+			if at.log.Len() != want.Len() {
 				return false
 			}
 			// The pass that shows the Slow, a Committed's, is not judged:
@@ -387,7 +390,7 @@ func slowFollow(seed int, bound int) bool needs Scheduler {
 				for op in ops {
 					match op {
 					case Set[slowSignal] as x:
-						shown = shown || x.Node == TextNode{Value: "log \(len(want))", Style: Plain()}
+						shown = shown || x.Node == TextNode{Value: "log \(want.Len())", Style: Plain()}
 					case _:
 					}
 				}
@@ -398,7 +401,7 @@ func slowFollow(seed int, bound int) bool needs Scheduler {
 		}
 	}
 	let log = a.State().log
-	if len(log) != len(want) {
+	if log.Len() != want.Len() {
 		return false
 	}
 	for i, x in want {
@@ -441,7 +444,7 @@ func CounterText(c Counter) string {
 // themselves) is not judged, so a slow warning is never judged on its own
 // account. The last OnSlow of a pass counts.
 func OnSlow[E](f mut Frame[E], b Budget, on own func(s Slow) E) {
-	f.slow = Some{Value: slowWatch[E]{budget: b, on: on}}
+	f.slow = option.Some{Value: slowWatch[E]{budget: b, on: on}}
 }
 
 // slowWatch is a pass's OnSlow.
@@ -521,9 +524,9 @@ func PassCounts[E](f mut Frame[E]) StepCounts {
 		} else {
 			c.Ran = c.Ran + 1
 			match sp.same {
-			case Some[memoRun[E]]:
+			case option.Some[memoRun[E]]:
 				c.GroupsRan = c.GroupsRan + 1
-			case None:
+			case option.None:
 			}
 		}
 	}
@@ -614,7 +617,7 @@ law CountsSumToPatch(seed int, steps int) {
 			case Define:
 			}
 		}
-		if c.Inserted != ins || c.Moved != mov || c.Removed != rem || c.Set != set || ins+mov+rem+set != len(ops) {
+		if c.Inserted != ins || c.Moved != mov || c.Removed != rem || c.Set != set || ins+mov+rem+set != ops.Len() {
 			return false
 		}
 		if c.Ran+c.Kept != Len(&f)-1 || c.Visits != Len(&f)-c.Kept-Skips(&f) || c.GroupsKept < Skips(&f) {

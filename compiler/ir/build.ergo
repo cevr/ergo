@@ -1,3 +1,4 @@
+import option
 import strconv
 
 // Builder writes an IR file's rows as the IR builder makes them (capstone
@@ -42,10 +43,10 @@ func emptyFunc() Func {
 // Text is the id of s in the file's texts, interned: 0 for "".
 func Text(b mut Builder, s string) uint32 {
 	match b.ids.Get(s) {
-	case Some[uint32] as id:
+	case option.Some[uint32] as id:
 		id.Value
-	case None:
-		let id = uint32(len(b.file.Strs))
+	case option.None:
+		let id = uint32(b.file.Strs.Len())
 		b.file.Strs = b.file.Strs.Append(s)
 		b.ids = b.ids.Put(s, id)
 		id
@@ -55,10 +56,10 @@ func Text(b mut Builder, s string) uint32 {
 // FileOf is the index of path in File.Files, added the first time.
 func FileOf(b mut Builder, path string) uint32 {
 	match b.files.Get(path) {
-	case Some[uint32] as i:
+	case option.Some[uint32] as i:
 		i.Value
-	case None:
-		let i = uint32(len(b.file.Files))
+	case option.None:
+		let i = uint32(b.file.Files.Len())
 		b.file.Files = b.file.Files.Append(path)
 		b.file.FilesNil = false
 		b.files = b.files.Put(path, i)
@@ -80,7 +81,7 @@ func Share(b mut Builder, s string) { b.file.Shared = b.file.Shared.Append(s) }
 // Begin starts a function: its rows follow, then End.
 func Begin(b mut Builder, name string, pos Pos, end Pos) fails Malformed {
 	if b.open {
-		return Malformed{At: len(b.file.Funcs), Why: "a function begun inside another"}
+		return Malformed{At: b.file.Funcs.Len(), Why: "a function begun inside another"}
 	}
 	let mut fn = emptyFunc()
 	fn.Name = Text(b, name)
@@ -94,7 +95,7 @@ func Begin(b mut Builder, name string, pos Pos, end Pos) fails Malformed {
 // AddLocal adds a local to the function begun.
 func AddLocal(b mut Builder, name string, typ string, pos Pos) fails Malformed {
 	if !b.open {
-		return Malformed{At: len(b.file.Funcs), Why: "a local outside a function"}
+		return Malformed{At: b.file.Funcs.Len(), Why: "a local outside a function"}
 	}
 	let l = Local{Name: Text(b, name), Type: Text(b, typ), Pos: pos}
 	b.fn.Locals = b.fn.Locals.Append(l)
@@ -102,7 +103,7 @@ func AddLocal(b mut Builder, name string, typ string, pos Pos) fails Malformed {
 
 // PosAt is the slot word of a position: its offset in the extra pool.
 func PosAt(b mut Builder, p Pos) uint32 {
-	let q = uint32(len(b.fn.Body.Extra))
+	let q = uint32(b.fn.Body.Extra.Len())
 	b.fn.Body.Extra = b.fn.Body.Extra.Append(p.File).Append(p.Line).Append(p.Col)
 	q
 }
@@ -110,9 +111,9 @@ func PosAt(b mut Builder, p Pos) uint32 {
 // List is the slot word of a list: the offset in the extra pool of its
 // length and its words (row ids, 0 for a nil element; text ids; int32s).
 func List(b mut Builder, words []uint32) uint32 {
-	let q = uint32(len(b.fn.Body.Extra))
-	b.fn.Body.Extra = b.fn.Body.Extra.Append(uint32(len(words)))
-	for i in 0..len(words) {
+	let q = uint32(b.fn.Body.Extra.Len())
+	b.fn.Body.Extra = b.fn.Body.Extra.Append(uint32(words.Len()))
+	for i in 0..words.Len() {
 		b.fn.Body.Extra = b.fn.Body.Extra.Append(words[i])
 	}
 	q
@@ -122,15 +123,15 @@ func List(b mut Builder, words []uint32) uint32 {
 // kind's order, and is its id. A code outside the table, or another count
 // of words than the kind's slots, is Malformed.
 func Row(b mut Builder, c uint8, at Pos, slots []uint32) uint32 fails Malformed {
-	let id = len(b.fn.Body.Kind) + 1
+	let id = b.fn.Body.Kind.Len() + 1
 	if !b.open {
 		return Malformed{At: id, Why: "a row outside a function"}
 	}
 	if c == 0 || int(c) >= NumKinds() {
 		return Malformed{At: id, Why: "kind " + strconv.Itoa(int(c))}
 	}
-	let n = len(KindOf(c).Slots)
-	if len(slots) != n {
+	let n = KindOf(c).Slots.Len()
+	if slots.Len() != n {
 		return Malformed{At: id, Why: "kind " + KindOf(c).Name + " takes " + strconv.Itoa(n) + " slots"}
 	}
 	let mut a = uint32(0)
@@ -142,7 +143,7 @@ func Row(b mut Builder, c uint8, at Pos, slots []uint32) uint32 fails Malformed 
 		w = slots[1]
 	}
 	if n > 2 {
-		w = uint32(len(b.fn.Body.Extra))
+		w = uint32(b.fn.Body.Extra.Len())
 		for j in 1..n {
 			b.fn.Body.Extra = b.fn.Body.Extra.Append(slots[j])
 		}
@@ -160,7 +161,7 @@ func Row(b mut Builder, c uint8, at Pos, slots []uint32) uint32 fails Malformed 
 // for Go's nil body.
 func End(b mut Builder, roots uint32) fails Malformed {
 	if !b.open {
-		return Malformed{At: len(b.file.Funcs), Why: "an end outside a function"}
+		return Malformed{At: b.file.Funcs.Len(), Why: "an end outside a function"}
 	}
 	b.fn.Body.Roots = roots
 	b.file.Funcs = b.file.Funcs.Append(b.fn)
@@ -171,7 +172,7 @@ func End(b mut Builder, roots uint32) fails Malformed {
 // Finish is the file built, or Malformed while a function is open.
 func Finish(b Builder) File fails Malformed {
 	if b.open {
-		return Malformed{At: len(b.file.Funcs), Why: "a function not ended"}
+		return Malformed{At: b.file.Funcs.Len(), Why: "a function not ended"}
 	}
 	b.file
 }
@@ -179,7 +180,7 @@ func Finish(b Builder) File fails Malformed {
 // KindCode is the code of the kind named name of struct type class, or 0.
 func KindCode(class uint8, name string) uint8 {
 	let mut c = uint8(0)
-	for i in 1..len(kinds) {
+	for i in 1..kinds.Len() {
 		if kinds[i].Class == class && kinds[i].Name == name {
 			c = uint8(i)
 		}

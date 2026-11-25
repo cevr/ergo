@@ -628,6 +628,9 @@ func collectGlobalFuncEdits(src, filePath string, f *syntax.File, info *check.In
 			if currentStdPkg == spec.pkg && enclosingFn == spec.target {
 				return true
 			}
+			if wouldCycleStd(currentStdPkg, spec.pkg) {
+				return true
+			}
 			start, end := int(id.Pos()), int(id.End())
 			if start < 0 || end > len(src) || start >= end || src[start:end] != id.Name {
 				return true

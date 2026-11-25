@@ -1,5 +1,6 @@
 import codec
 import http
+import option
 import strconv
 import strings
 import sync
@@ -51,7 +52,7 @@ func Href(u URL) string {
 law HrefParses(seed int) {
 	let mut r = seeded(seed)
 	let parts = []string{"", "a", "b/c", "x=1", "q=2&y", "top"}
-	let u = URL{Path: "/" + parts[draw(&r, len(parts))], Query: parts[draw(&r, len(parts))], Fragment: parts[draw(&r, len(parts))]}
+	let u = URL{Path: "/" + parts[draw(&r, parts.Len())], Query: parts[draw(&r, parts.Len())], Fragment: parts[draw(&r, parts.Len())]}
 	ParseURL(Href(u)) == u
 }
 
@@ -157,8 +158,8 @@ func Depth(h MemoryHistory) int { h.state.Get().at }
 // OnURL takes the changes of place the host reports (URLChanged): a
 // change goes to the OnURL calls in the order the pass made them, and the
 // first that gives a signal takes it, as OnKey does.
-func OnURL[E](f mut Frame[E], on own func(u URL) Option[E]) {
-	if f.nurls < len(f.urls) {
+func OnURL[E](f mut Frame[E], on own func(u URL) option.Option[E]) {
+	if f.nurls < f.urls.Len() {
 		f.urls[f.nurls] = on
 	} else {
 		f.urls = f.urls.Append(on)
@@ -168,15 +169,15 @@ func OnURL[E](f mut Frame[E], on own func(u URL) Option[E]) {
 
 // routed is the signal of a change of place: the first OnURL of the last
 // pass that gives one.
-func routed[E](f mut Frame[E], u URL) Option[E] {
+func routed[E](f mut Frame[E], u URL) option.Option[E] {
 	for i in 0..f.nurls {
 		match f.urls[i](u) {
-		case Some[E] as e:
-			return Some{Value: e.Value}
-		case None:
+		case option.Some[E] as e:
+			return option.Some{Value: e.Value}
+		case option.None:
 		}
 	}
-	None
+	option.None
 }
 
 // hexDigits are the digits of an escape, upper-case as RFC 3986 2.1 asks.
@@ -195,7 +196,7 @@ func unreserved(b byte) bool {
 // component. Unescape reads it back.
 func Escape(s string) string {
 	let mut plain = true
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		if !unreserved(s[i]) {
 			plain = false
 			break
@@ -205,7 +206,7 @@ func Escape(s string) string {
 		return s
 	}
 	let mut b = strings.NewBuilder()
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		let c = s[i]
 		if unreserved(c) {
 			b.WriteString(s[i : i+1])
@@ -226,7 +227,7 @@ func Escape(s string) string {
 law EscapeRoundTrips(s string, t string) {
 	let e = Escape(s)
 	let mut lower = ""
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		lower = lower + "%" + hex.Encode(s[i:i+1])
 	}
 	let plain = strings.ReplaceAll(t, "%", "")
@@ -237,10 +238,10 @@ law EscapeRoundTrips(s string, t string) {
 // unreserved, or a '%' with two upper-case hex digits after it.
 func escapedForm(e string) bool {
 	let mut i = 0
-	for i < len(e) {
+	for i < e.Len() {
 		let c = e[i]
 		if c == '%' {
-			if i+2 >= len(e) || !strings.Contains("0123456789ABCDEF", e[i+1:i+2]) || !strings.Contains("0123456789ABCDEF", e[i+2:i+3]) {
+			if i+2 >= e.Len() || !strings.Contains("0123456789ABCDEF", e[i+1:i+2]) || !strings.Contains("0123456789ABCDEF", e[i+2:i+3]) {
 				return false
 			}
 			i = i + 3
@@ -279,8 +280,8 @@ func Unescape(s string) string {
 	}
 	let mut out = strings.NewBuilder()
 	let mut i = 0
-	for i < len(s) {
-		if s[i] == '%' && i+2 < len(s) {
+	for i < s.Len() {
+		if s[i] == '%' && i+2 < s.Len() {
 			let hi = hexValue(s[i+1])
 			let lo = hexValue(s[i+2])
 			if hi >= 0 && lo >= 0 {
@@ -320,7 +321,7 @@ law SegmentsReadPathOf(xs []string) {
 		}
 	}
 	let got = Segments(URL{Path: path, Query: "", Fragment: ""})
-	if len(got) != len(want) || ParseURL(path).Path != path {
+	if got.Len() != want.Len() || ParseURL(path).Path != path {
 		return false
 	}
 	for i, x in want {
@@ -335,7 +336,7 @@ law SegmentsReadPathOf(xs []string) {
 // segment stays inside it: Segments reads it back, but for an empty
 // segment, which it skips. No segments is "/".
 func PathOf(segments []string) string {
-	if len(segments) == 0 {
+	if segments.Len() == 0 {
 		return "/"
 	}
 	let mut b = strings.NewBuilder()
@@ -371,7 +372,7 @@ func QueryOf[T wire](u URL) T fails http.QueryRepeated | wired[T] needs wired[T]
 // whose value has no query form fails QueryShape naming it.
 func EncodeQuery[T wire](v T) string fails QueryShape needs wired[T] {
 	let e = codec.NewEvents()
-	encode(v, e)
+	codec.Encode(v, e)
 	try queryText(codec.Recorded(e))
 }
 
@@ -383,7 +384,7 @@ func WithQuery[T wire](u URL, v T) URL fails QueryShape needs wired[T] {
 // queryText writes a record's events as a query: one object of keys,
 // each followed by a scalar or a list of scalars.
 func queryText(events []codec.Event) string fails QueryShape {
-	if len(events) == 0 {
+	if events.Len() == 0 {
 		return QueryShape{Key: ""}
 	}
 	match events[0] {
@@ -394,7 +395,7 @@ func queryText(events []codec.Event) string fails QueryShape {
 	let mut b = strings.NewBuilder()
 	let mut first = true
 	let mut i = 1
-	for i < len(events) {
+	for i < events.Len() {
 		let mut key = ""
 		match events[i] {
 		case codec.KeyEvent as k:
@@ -469,8 +470,8 @@ func uintText(n uint64) string {
 		m = m / 10
 	}
 	let mut out = strings.NewBuilder()
-	for i in 0..len(digits) {
-		out.WriteByte(digits[len(digits)-1-i])
+	for i in 0..digits.Len() {
+		out.WriteByte(digits[digits.Len()-1-i])
 	}
 	out.String()
 }

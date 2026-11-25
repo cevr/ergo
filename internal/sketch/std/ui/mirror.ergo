@@ -1,4 +1,5 @@
 import arena
+import option
 
 // Shape is a tree of Nodes as values: what a frame wrote, what a tree
 // holds, or what a host shows. Two shapes are the same screen when
@@ -30,10 +31,10 @@ func treeShapes[E](f mut Frame[E], refs []arena.Ref[node[E]]) []Shape[E] {
 	let mut out = []Shape[E]{}
 	for r in refs {
 		match nodeAt(f, r) {
-		case Some[node[E]] as found:
+		case option.Some[node[E]] as found:
 			let n = found.Value
 			out = out.Append(Shape[E]{Node: n.node, Kids: treeShapes[E](f, n.kids)})
-		case None:
+		case option.None:
 		}
 	}
 	out
@@ -41,7 +42,7 @@ func treeShapes[E](f mut Frame[E], refs []arena.Ref[node[E]]) []Shape[E] {
 
 // SameShapes is whether a and b are the same nodes in the same order.
 func SameShapes[E comparable](a []Shape[E], b []Shape[E]) bool {
-	if len(a) != len(b) {
+	if a.Len() != b.Len() {
 		return false
 	}
 	for i, x in a {
@@ -66,7 +67,7 @@ func SameShapes[E comparable](a []Shape[E], b []Shape[E]) bool {
 // host's table of looks (UG1): the defaults, then each Define's.
 type Mirror[E] { refs Map[Id[E], arena.Ref[mirrored[E]]], store arena.Of[mirrored[E]], root Id[E], reads int, looks []Looks }
 
-type mirrored[E] { node Node[E], parent Id[E], first Option[Id[E]], last Option[Id[E]], next Option[Id[E]], prev Option[Id[E]] }
+type mirrored[E] { node Node[E], parent Id[E], first option.Option[Id[E]], last option.Option[Id[E]], next option.Option[Id[E]], prev option.Option[Id[E]] }
 
 // BadPatch is the failure of an op that does not fit the mirror: an Id it
 // does not hold, an Insert of an Id it holds, a Before that is no child of
@@ -78,7 +79,7 @@ type BadPatch { Why string }
 // NewMirror is the mirror of a tree with only its root.
 func NewMirror[E](root Id[E]) Mirror[E] {
 	let mut m = Mirror[E]{refs: Map[Id[E], arena.Ref[mirrored[E]]]{}, store: arena.New[mirrored[E]](), root: root, reads: 0, looks: defaultTable()}
-	let r = arena.Put(&m.store, mirrored[E]{node: BoxNode{Style: Plain()}, parent: root, first: None, last: None, next: None, prev: None})
+	let r = arena.Put(&m.store, mirrored[E]{node: BoxNode{Style: Plain()}, parent: root, first: option.None, last: option.None, next: option.None, prev: option.None})
 	m.refs[root] = r
 	m
 }
@@ -117,7 +118,7 @@ func Apply[E](m mut Mirror[E], ops []Op[E]) fails BadPatch {
 // node, a Move by putting the node back before the sibling it had, a
 // Remove by putting its subtree's entries back in the map and its node
 // back before the sibling it had, a Set by setting the node it had.
-type undo[E] = undoInsert{id Id[E]} | undoMove{id Id[E], before Option[Id[E]]} | undoRemove{id Id[E], before Option[Id[E]], dropped []dropped[E]} | undoSet{id Id[E], node Node[E]} | undoDefine{}
+type undo[E] = undoInsert{id Id[E]} | undoMove{id Id[E], before option.Option[Id[E]]} | undoRemove{id Id[E], before option.Option[Id[E]], dropped []dropped[E]} | undoSet{id Id[E], node Node[E]} | undoDefine{}
 
 // dropped is an entry a Remove took out of the map, not yet freed.
 type dropped[E] { id Id[E], ref arena.Ref[mirrored[E]] }
@@ -132,7 +133,7 @@ func applyOp[E](m mut Mirror[E], op Op[E]) undo[E] fails BadPatch {
 		let pr = try held(m, o.Parent)
 		try checkBefore(m, o.Parent, o.Id, o.Before)
 		try checkLook(m, o.Node)
-		m.refs[o.Id] = arena.Put(&m.store, mirrored[E]{node: o.Node, parent: o.Parent, first: None, last: None, next: None, prev: None})
+		m.refs[o.Id] = arena.Put(&m.store, mirrored[E]{node: o.Node, parent: o.Parent, first: option.None, last: option.None, next: option.None, prev: option.None})
 		attachAt(m, pr, o.Id, o.Before)
 		undoInsert[E]{id: o.Id}
 	case Move[E] as o:
@@ -166,7 +167,7 @@ func applyOp[E](m mut Mirror[E], op Op[E]) undo[E] fails BadPatch {
 		edit(m, r, func(n mut mirrored[E]) { n.node = node })
 		undoSet[E]{id: o.Id, node: e.node}
 	case Define as o:
-		if o.Id.n != len(m.looks) {
+		if o.Id.n != m.looks.Len() {
 			return BadPatch{Why: "define of a look that is not the next"}
 		}
 		m.looks = m.looks.Append(o.Looks)
@@ -177,7 +178,7 @@ func applyOp[E](m mut Mirror[E], op Op[E]) undo[E] fails BadPatch {
 // checkLook fails when n names a look the mirror does not hold.
 func checkLook[E](m mut Mirror[E], n Node[E]) fails BadPatch {
 	let id = LookIdOf(n)
-	if id.n < 0 || id.n >= len(m.looks) {
+	if id.n < 0 || id.n >= m.looks.Len() {
 		return BadPatch{Why: "a node names a look the mirror does not hold"}
 	}
 }
@@ -187,12 +188,12 @@ func MirrorLooks[E](m mut Mirror[E]) []Looks { m.looks }
 
 // MirrorLookCount is how many looks the mirror holds, the defaults
 // included.
-func MirrorLookCount[E](m mut Mirror[E]) int { len(m.looks) }
+func MirrorLookCount[E](m mut Mirror[E]) int { m.looks.Len() }
 
 // rollBack takes back done, the last op first.
 func rollBack[E](m mut Mirror[E], done []undo[E]) {
-	for i in 0..len(done) {
-		match done[len(done)-1-i] {
+	for i in 0..done.Len() {
+		match done[done.Len()-1-i] {
 		case undoInsert[E] as x:
 			let r = refOf(m, x.id)
 			detach(m, refOf(m, entry(m, r).parent), r)
@@ -217,66 +218,66 @@ func rollBack[E](m mut Mirror[E], done []undo[E]) {
 			let node = x.node
 			edit(m, refOf(m, x.id), func(n mut mirrored[E]) { n.node = node })
 		case undoDefine:
-			m.looks = m.looks[:len(m.looks)-1]
+			m.looks = m.looks[:m.looks.Len()-1]
 		}
 	}
 }
 
 func holds[E](m mut Mirror[E], id Id[E]) bool {
 	match m.refs.Get(id) {
-	case Some[arena.Ref[mirrored[E]]]:
+	case option.Some[arena.Ref[mirrored[E]]]:
 		true
-	case None:
+	case option.None:
 		false
 	}
 }
 
 func held[E](m mut Mirror[E], id Id[E]) arena.Ref[mirrored[E]] fails BadPatch {
 	match m.refs.Get(id) {
-	case Some[arena.Ref[mirrored[E]]] as r:
+	case option.Some[arena.Ref[mirrored[E]]] as r:
 		r.Value
-	case None:
+	case option.None:
 		BadPatch{Why: "an op names a node the mirror does not hold"}
 	}
 }
 
 // checkBefore fails when before names no child of parent, or names id.
-func checkBefore[E](m mut Mirror[E], parent Id[E], id Id[E], before Option[Id[E]]) fails BadPatch {
+func checkBefore[E](m mut Mirror[E], parent Id[E], id Id[E], before option.Option[Id[E]]) fails BadPatch {
 	match before {
-	case Some[Id[E]] as b:
+	case option.Some[Id[E]] as b:
 		if b.Value == id {
 			return BadPatch{Why: "before names no child of the parent"}
 		}
 		match m.refs.Get(b.Value) {
-		case Some[arena.Ref[mirrored[E]]] as r:
+		case option.Some[arena.Ref[mirrored[E]]] as r:
 			if entry(m, r.Value).parent != parent {
 				return BadPatch{Why: "before names no child of the parent"}
 			}
-		case None:
+		case option.None:
 			return BadPatch{Why: "before names no child of the parent"}
 		}
-	case None:
+	case option.None:
 	}
 }
 
 // attachAt puts id, which no list holds, in front of before in pr's children,
 // or last for None.
-func attachAt[E](m mut Mirror[E], pr arena.Ref[mirrored[E]], id Id[E], before Option[Id[E]]) {
-	let mut prev Option[Id[E]] = None
+func attachAt[E](m mut Mirror[E], pr arena.Ref[mirrored[E]], id Id[E], before option.Option[Id[E]]) {
+	let mut prev option.Option[Id[E]] = option.None
 	match before {
-	case Some[Id[E]] as b:
+	case option.Some[Id[E]] as b:
 		let br = refOf(m, b.Value)
 		prev = entry(m, br).prev
-		edit(m, br, func(n mut mirrored[E]) { n.prev = Some{Value: id} })
-	case None:
+		edit(m, br, func(n mut mirrored[E]) { n.prev = option.Some{Value: id} })
+	case option.None:
 		prev = entry(m, pr).last
-		edit(m, pr, func(n mut mirrored[E]) { n.last = Some{Value: id} })
+		edit(m, pr, func(n mut mirrored[E]) { n.last = option.Some{Value: id} })
 	}
 	match prev {
-	case Some[Id[E]] as p:
-		edit(m, refOf(m, p.Value), func(n mut mirrored[E]) { n.next = Some{Value: id} })
-	case None:
-		edit(m, pr, func(n mut mirrored[E]) { n.first = Some{Value: id} })
+	case option.Some[Id[E]] as p:
+		edit(m, refOf(m, p.Value), func(n mut mirrored[E]) { n.next = option.Some{Value: id} })
+	case option.None:
+		edit(m, pr, func(n mut mirrored[E]) { n.first = option.Some{Value: id} })
 	}
 	let next = before
 	edit(m, refOf(m, id), func(n mut mirrored[E]) {
@@ -289,24 +290,24 @@ func attachAt[E](m mut Mirror[E], pr arena.Ref[mirrored[E]], id Id[E], before Op
 func detach[E](m mut Mirror[E], pr arena.Ref[mirrored[E]], r arena.Ref[mirrored[E]]) {
 	let e = entry(m, r)
 	match e.prev {
-	case Some[Id[E]] as p:
+	case option.Some[Id[E]] as p:
 		let next = e.next
 		edit(m, refOf(m, p.Value), func(n mut mirrored[E]) { n.next = next })
-	case None:
+	case option.None:
 		let next = e.next
 		edit(m, pr, func(n mut mirrored[E]) { n.first = next })
 	}
 	match e.next {
-	case Some[Id[E]] as x:
+	case option.Some[Id[E]] as x:
 		let prev = e.prev
 		edit(m, refOf(m, x.Value), func(n mut mirrored[E]) { n.prev = prev })
-	case None:
+	case option.None:
 		let prev = e.prev
 		edit(m, pr, func(n mut mirrored[E]) { n.last = prev })
 	}
 	edit(m, r, func(n mut mirrored[E]) {
-		n.prev = None
-		n.next = None
+		n.prev = option.None
+		n.next = option.None
 	})
 }
 
@@ -321,7 +322,7 @@ func edit[E](m mut Mirror[E], r arena.Ref[mirrored[E]], f func(n mut mirrored[E]
 
 // entry is a copy of the entry r names.
 func entry[E](m mut Mirror[E], r arena.Ref[mirrored[E]]) mirrored[E] {
-	let mut out = mirrored[E]{node: BoxNode{Style: Plain()}, parent: m.root, first: None, last: None, next: None, prev: None}
+	let mut out = mirrored[E]{node: BoxNode{Style: Plain()}, parent: m.root, first: option.None, last: option.None, next: option.None, prev: option.None}
 	edit(m, r, func(n mut mirrored[E]) { out = *n })
 	out
 }
@@ -329,20 +330,20 @@ func entry[E](m mut Mirror[E], r arena.Ref[mirrored[E]]) mirrored[E] {
 // refOf is the Ref of an Id a link names, or arena.Null when absent.
 func refOf[E](m mut Mirror[E], id Id[E]) arena.Ref[mirrored[E]] {
 	match m.refs.Get(id) {
-	case Some[arena.Ref[mirrored[E]]] as r:
+	case option.Some[arena.Ref[mirrored[E]]] as r:
 		r.Value
-	case None:
+	case option.None:
 		arena.Null[mirrored[E]]()
 	}
 }
 
 // entryOf is the entry id names, None for an Id m does not hold.
-func entryOf[E](m mut Mirror[E], id Id[E]) Option[mirrored[E]] {
+func entryOf[E](m mut Mirror[E], id Id[E]) option.Option[mirrored[E]] {
 	match m.refs.Get(id) {
-	case Some[arena.Ref[mirrored[E]]] as r:
-		Some{Value: entry(m, r.Value)}
-	case None:
-		None
+	case option.Some[arena.Ref[mirrored[E]]] as r:
+		option.Some{Value: entry(m, r.Value)}
+	case option.None:
+		option.None
 	}
 }
 
@@ -352,10 +353,10 @@ func childIds[E](m mut Mirror[E], e mirrored[E]) []Id[E] {
 	let mut at = e.first
 	for {
 		match at {
-		case Some[Id[E]] as c:
+		case option.Some[Id[E]] as c:
 			out = out.Append(c.Value)
 			at = entry(m, refOf(m, c.Value)).next
-		case None:
+		case option.None:
 			return out
 		}
 	}
@@ -376,9 +377,9 @@ func dropTree[E](m mut Mirror[E], id Id[E], acc []dropped[E]) []dropped[E] {
 // MirrorShape is what m shows, the children of the root.
 func MirrorShape[E](m mut Mirror[E]) []Shape[E] {
 	match entryOf(m, m.root) {
-	case Some[mirrored[E]] as r:
+	case option.Some[mirrored[E]] as r:
 		mirrorShapes(m, childIds(m, r.Value))
-	case None:
+	case option.None:
 		[]Shape[E]{}
 	}
 }
@@ -387,16 +388,16 @@ func mirrorShapes[E](m mut Mirror[E], ids []Id[E]) []Shape[E] {
 	let mut out = []Shape[E]{}
 	for id in ids {
 		match entryOf(m, id) {
-		case Some[mirrored[E]] as n:
+		case option.Some[mirrored[E]] as n:
 			out = out.Append(Shape[E]{Node: n.Value.node, Kids: mirrorShapes[E](m, childIds(m, n.Value))})
-		case None:
+		case option.None:
 		}
 	}
 	out
 }
 
 // Held is the number of nodes m holds, its root included.
-func Held[E](m mut Mirror[E]) int { len(m.refs) }
+func Held[E](m mut Mirror[E]) int { m.refs.Len() }
 
 // MirrorReads is the number of entries m has read or changed since it was
 // made: the work of its patches and its lookups, counted. An op reads a
@@ -434,7 +435,7 @@ law MirrorWorkIsLinear(n int, seed int) {
 		reads = reads.Append(MirrorReads(&m))
 		let before = MirrorReads(&m)
 		let found = LocateIn(&m, WithText{Text: "row \((seed%size + size) % size)"})
-		if len(found) != 1 || MirrorReads(&m)-before != Held(&m) {
+		if found.Len() != 1 || MirrorReads(&m)-before != Held(&m) {
 			return false
 		}
 	}
@@ -556,7 +557,7 @@ law MirrorRejectsBadPatches(a int, b int) {
 	let zrows = insertsOf(first, "row 200")
 	let freshes = insertsOf(second, "row 50")
 	let adds = insertsOf(second, "row 51")
-	if len(rows) != 1 || len(others) != 1 || len(gones) != 1 || len(zrows) != 1 || len(freshes) != 1 || len(adds) != 1 {
+	if rows.Len() != 1 || others.Len() != 1 || gones.Len() != 1 || zrows.Len() != 1 || freshes.Len() != 1 || adds.Len() != 1 {
 		return false
 	}
 	let row = rows[0]
@@ -564,7 +565,7 @@ law MirrorRejectsBadPatches(a int, b int) {
 	let fresh = freshes[0]
 	let lc = row.Parent
 	let rc = other.Parent
-	if len(insertsUnder(first, lc)) != na+1 || len(insertsUnder(first, rc)) != nb || len(insertsUnder(first, root)) != 3 {
+	if insertsUnder(first, lc).Len() != na+1 || insertsUnder(first, rc).Len() != nb || insertsUnder(first, root).Len() != 3 {
 		return false
 	}
 	let text = TextNode{Value: "x", Style: Plain()}
@@ -573,20 +574,20 @@ law MirrorRejectsBadPatches(a int, b int) {
 	// Remove of a row and of a whole column.
 	let good = []Op[int]{
 		Set[int]{Id: other.Id, Node: TextNode{Value: "changed", Style: Plain()}},
-		Move[int]{Id: other.Id, Parent: rc, Before: None},
-		Insert[int]{Id: adds[0].Id, Parent: lc, Before: Some{Value: row.Id}, Node: adds[0].Node},
+		Move[int]{Id: other.Id, Parent: rc, Before: option.None},
+		Insert[int]{Id: adds[0].Id, Parent: lc, Before: option.Some{Value: row.Id}, Node: adds[0].Node},
 		Remove[int]{Id: gones[0].Id},
 		Remove[int]{Id: zrows[0].Parent},
 	}
 	let bad = []Op[int]{
 		row,
-		Insert[int]{Id: fresh.Id, Parent: fresh.Id, Before: None, Node: text},
-		Insert[int]{Id: fresh.Id, Parent: lc, Before: Some{Value: fresh.Id}, Node: text},
-		Insert[int]{Id: fresh.Id, Parent: lc, Before: Some{Value: other.Id}, Node: text},
-		Move[int]{Id: row.Id, Parent: rc, Before: None},
-		Move[int]{Id: row.Id, Parent: lc, Before: Some{Value: row.Id}},
-		Move[int]{Id: row.Id, Parent: lc, Before: Some{Value: other.Id}},
-		Move[int]{Id: fresh.Id, Parent: lc, Before: None},
+		Insert[int]{Id: fresh.Id, Parent: fresh.Id, Before: option.None, Node: text},
+		Insert[int]{Id: fresh.Id, Parent: lc, Before: option.Some{Value: fresh.Id}, Node: text},
+		Insert[int]{Id: fresh.Id, Parent: lc, Before: option.Some{Value: other.Id}, Node: text},
+		Move[int]{Id: row.Id, Parent: rc, Before: option.None},
+		Move[int]{Id: row.Id, Parent: lc, Before: option.Some{Value: row.Id}},
+		Move[int]{Id: row.Id, Parent: lc, Before: option.Some{Value: other.Id}},
+		Move[int]{Id: fresh.Id, Parent: lc, Before: option.None},
 		Remove[int]{Id: root},
 		Remove[int]{Id: fresh.Id},
 		Remove[int]{Id: gones[0].Id},

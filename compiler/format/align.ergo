@@ -47,28 +47,28 @@ type Grid {
 // output is OutputLimit with no text. It closes l's open line.
 func Finish(l mut Layout, limit int) Rendered fails OutputLimit {
 	l.endLine()
-	let n = len(l.CellA)
+	let n = l.CellA.Len()
 	let text = l.Buf.String()
 	// Only a cell that a cell follows on its line is padded, so only its
 	// width is read: a line's last cell keeps width 0.
 	let mut c = Grid{Text: text, Width: slices.Repeat([]int{0}, n), Pad: slices.Repeat([]int{0}, n)}
-	for i in 0..len(l.LineIndent) {
+	for i in 0..l.LineIndent.Len() {
 		let a = l.LineFirst[i]
 		for k in a..a+l.LineN[i]-1 {
 			c.Width[k] = utf8.RuneCount(strings.Slice(text, l.CellA[k], l.CellB[k]))
 		}
 	}
-	c.align(l, 0, len(l.LineIndent), 0)
+	c.align(l, 0, l.LineIndent.Len(), 0)
 	// Leading empty lines are dropped: no output starts with a blank line.
 	let mut first = 0
-	for first < len(l.LineIndent) && lineLen(l, c, first) == 0 {
+	for first < l.LineIndent.Len() && lineLen(l, c, first) == 0 {
 		first += 1
 	}
 	if limit > 0 && sizeOver(l, c, first, limit) {
 		return OutputLimit{Limit: limit, Built: 0}
 	}
 	let out = build(l, c, first)
-	Rendered{Text: out, Built: len(out)}
+	Rendered{Text: out, Built: out.Len()}
 }
 
 // sizeOver reports whether the text of l's lines from first is longer
@@ -76,7 +76,7 @@ func Finish(l mut Layout, limit int) Rendered fails OutputLimit {
 // first line past the limit.
 func sizeOver(l mut Layout, c Grid, first int, limit int) bool {
 	let mut size = 0
-	for i in first..len(l.LineIndent) {
+	for i in first..l.LineIndent.Len() {
 		size += lineLen(l, c, i) + 1
 		if size > limit {
 			return true
@@ -90,12 +90,12 @@ func sizeOver(l mut Layout, c Grid, first int, limit int) bool {
 // output's size first, as go/printer's is, so the text is written once.
 func build(l mut Layout, c Grid, first int) string {
 	let mut size = 0
-	for i in first..len(l.LineIndent) {
+	for i in first..l.LineIndent.Len() {
 		size += lineLen(l, c, i) + 1
 	}
 	let mut out = strings.NewBuilder()
 	out.Grow(size)
-	for i in first..len(l.LineIndent) {
+	for i in first..l.LineIndent.Len() {
 		for _ in 0..l.LineIndent[i] {
 			out.WriteByte('\t')
 		}

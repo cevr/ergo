@@ -3,18 +3,20 @@
 // input, and each answer is a line of standard output. A program's
 // cmd/<name>/main.ergo makes it, since only main holds Ambient.
 
+import core
 import mcp
 import io
+import os
 
 // Transport is a standard input and output: the process's (New), or a
 // test's io.Input and io.Recorder.
 type Transport { input io.Stdin, out io.Stdout } implements mcp.Transport
 
 // New is the process's standard input and output.
-func New() Transport needs Ambient { Transport{input: io.NewStdin(), out: io.NewHost()} }
+func New() Transport needs os.Ambient { Transport{input: io.NewStdin(), out: io.NewHost()} }
 
 // Messages is the lines of standard input, until it ends.
-func Messages(t Transport) Seq[string] { t.input.Lines() }
+func Messages(t Transport) core.Seq[string] { t.input.Lines() }
 
 // Send writes message and a line feed to standard output.
 func Send(t Transport, message string) { t.out.Println(message) }

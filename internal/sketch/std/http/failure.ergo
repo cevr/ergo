@@ -1,15 +1,16 @@
 import json
+import option
 
 type FailureStatus { Tag string, Status int }
 
-func StatusOf(table []FailureStatus, tag string) Option[int] {
-	let mut result Option[int] = None
+func StatusOf(table []FailureStatus, tag string) option.Option[int] {
+	let mut result option.Option[int] = option.None
 	for entry in table {
 		if entry.Tag == tag {
-			if result != None || entry.Status < 400 || entry.Status > 599 {
-				return None
+			if result != option.None || entry.Status < 400 || entry.Status > 599 {
+				return option.None
 			}
-			result = Some{entry.Status}
+			result = option.Some{entry.Status}
 		}
 	}
 	result
@@ -29,9 +30,9 @@ func Failure(table []FailureStatus, body string) Response fails Malformed {
 		return Malformed{Reason: "HTTP failure body has no tag"}
 	}
 	let status = match StatusOf(table, tag) {
-	case Some as s:
+	case option.Some as s:
 		s.Value
-	case None:
+	case option.None:
 		return Malformed{Reason: "HTTP failure needs exactly one valid status: " + tag}
 	}
 	Response{Status: status, Header: []Field{Field{Name: "Content-Type", Value: "application/json"}}, Body: body}
@@ -63,5 +64,5 @@ law FailureUsesTable(pick int, tag string) {
 	case Malformed:
 		Response{Status: 0, Header: []Field{}, Body: ""}
 	}
-	response.Status == status && response.Body == body && Header(response.Header, "Content-Type") == Some{"application/json"} && badJson.Status == 0 && badObject.Status == 0 && badTag.Status == 0 && badStatus.Status == 0 && StatusOf([]FailureStatus{other}, tag) == None && StatusOf([]FailureStatus{entry, entry}, tag) == None && StatusOf([]FailureStatus{FailureStatus{Tag: tag, Status: 200}}, tag) == None && StatusOf([]FailureStatus{FailureStatus{Tag: tag, Status: 600}}, tag) == None
+	response.Status == status && response.Body == body && Header(response.Header, "Content-Type") == option.Some{"application/json"} && badJson.Status == 0 && badObject.Status == 0 && badTag.Status == 0 && badStatus.Status == 0 && StatusOf([]FailureStatus{other}, tag) == option.None && StatusOf([]FailureStatus{entry, entry}, tag) == option.None && StatusOf([]FailureStatus{FailureStatus{Tag: tag, Status: 200}}, tag) == option.None && StatusOf([]FailureStatus{FailureStatus{Tag: tag, Status: 600}}, tag) == option.None
 }

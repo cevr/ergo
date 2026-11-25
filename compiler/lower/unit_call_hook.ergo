@@ -3,41 +3,42 @@ import compiler/check/expr
 import compiler/check/store
 import compiler/syntax
 import dense
+import option
 
 // planUnitCall decides whether a checked no-result call keeps its direct
 // Go call form. None leaves the existing operand path in charge.
-func planUnitCall(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr) Option[aCall] fails Unported {
-	if dense.Unpack(ce.Trailing) != None {
-		return None
+func planUnitCall(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr) option.Option[aCall] fails Unported {
+	if dense.Unpack(ce.Trailing) != option.None {
+		return option.None
 	}
 	let result = typeOf(st, x, "CallExpr") catch {
 	case Unported:
-		return None
+		return option.None
 	}
 	if !isUnit(st, result) {
-		return None
+		return option.None
 	}
 	let p = st.p
 	if syntax.KindOf(p.Tree, ce.Fun) != syntax.KIdent {
-		return None
+		return option.None
 	}
 	let site = dense.SideOf(st.callAt, bind.PNodeOf(st.k.Ps, st.file, x))
 	if site == 0 || st.calls[site-1].Recv {
-		return None
+		return option.None
 	}
 	let target = st.calls[site-1].Callee
 	let at = bind.PNodeOf(st.k.Ps, target.File, target.Name)
 	match bind.ResolutionOf(st.k.U, st.k.Ps, bind.PNodeOf(st.k.Ps, st.file, ce.Fun)) {
 	case bind.Declared as d:
 		if d.At != at {
-			return None
+			return option.None
 		}
 	case _:
-		return None
+		return option.None
 	}
 	let i = expr.FnAt(st.k, at)
 	if i < 0 {
-		return None
+		return option.None
 	}
 	let f = st.k.Fns[i]
 	let fp = st.k.Parsed[f.File]
@@ -45,28 +46,28 @@ func planUnitCall(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr) Option[aC
 	case syntax.FuncDecl as d:
 		d
 	case _:
-		return None
+		return option.None
 	}
-	if dense.Unpack(d.Extern) != None || dense.Unpack(d.Recv) != None || dense.Unpack(d.TypeParams) != None {
-		return None
+	if dense.Unpack(d.Extern) != option.None || dense.Unpack(d.Recv) != option.None || dense.Unpack(d.TypeParams) != option.None {
+		return option.None
 	}
 	let name = nameText(fp, f.Name)
 	if name == "main" || name == "Close" || f.Close || declCount(st, name) != 1 || lawOver(st, name) {
-		return None
+		return option.None
 	}
 	let body = match dense.Unpack(d.Body) {
-	case Some{Value: body}:
+	case option.Some{Value: body}:
 		body
-	case None:
-		return None
+	case option.None:
+		return option.None
 	}
 	let n = syntax.Len(ce.Args)
 	let ops = store.OperandsOf(st.s, f.Sig)
-	if store.KindOfType(st.s, f.Sig) != store.KSig || len(ops) != n+3 || len(f.Takes) != n || len(f.Names) != n {
-		return None
+	if store.KindOfType(st.s, f.Sig) != store.KSig || ops.Len() != n+3 || f.Takes.Len() != n || f.Names.Len() != n {
+		return option.None
 	}
 	if !isUnit(st, ops[n]) || !emptyRow(st, ops[n+1]) || !emptyRow(st, ops[n+2]) || callsIn(fp, body) {
-		return None
+		return option.None
 	}
 	try noImportedRewrite(st, name)
 	let _ = try scanScalarBody(st, i, body, st.importCalls)
@@ -75,9 +76,9 @@ func planUnitCall(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr) Option[aC
 		let arg = syntax.Item(p.Tree, ce.Args, j)
 		// No evaluation prelude and no implicit operand adapters.
 		if f.Takes[j] || basicGo(st, ops[j]) == "" || callsIn(p, arg) || (try typeOf(st, arg, "call operand")) != ops[j] {
-			return None
+			return option.None
 		}
 		args = args.Append(arg)
 	}
-	Some[aCall]{Value: aCall{name: try goName(st, name, None), method: false, args: args}}
+	option.Some[aCall]{Value: aCall{name: try goName(st, name, option.None), method: false, args: args}}
 }

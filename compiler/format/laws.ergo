@@ -52,7 +52,7 @@ func BoundHolds(src string) bool {
 	case SyntaxFailure, OutputLimit:
 		return true
 	}
-	let size = len(out)
+	let size = out.Len()
 	for limit in []int{-1, size, size + 1} {
 		let got = Source(src, limit) catch {
 		case SyntaxFailure, OutputLimit:
@@ -145,14 +145,14 @@ func BoundedLayout(commands []Command, limit int) bool needs Layouter {
 	case OutputLimit:
 		return false
 	}
-	if full.Built != len(full.Text) {
+	if full.Built != full.Text.Len() {
 		return false
 	}
 	let got = Layouter.Render(commands, limit) catch {
 	case OutputLimit as o:
-		return limit > 0 && len(full.Text) > limit && o.Limit == limit
+		return limit > 0 && full.Text.Len() > limit && o.Limit == limit
 	}
-	!(limit > 0 && len(full.Text) > limit) && got.Text == full.Text
+	!(limit > 0 && full.Text.Len() > limit) && got.Text == full.Text
 }
 
 // CoalescedLayout: a Newline after a Newline changes nothing.

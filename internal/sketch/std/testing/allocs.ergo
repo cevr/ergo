@@ -13,6 +13,8 @@
 // task that allocates while it counts counts too: a law counts a step that
 // starts no task, and runs no other task meanwhile.
 
+import fstest
+
 // Allocs counts the heap allocations of a call.
 type Allocs {
 	// PerRun is the mean number of heap allocations of one call of f,
@@ -33,9 +35,9 @@ type AllocCounter { folder string } implements Allocs
 // NewAllocCounter is the counter of a test. It needs the test's ambient,
 // which only the test runner provides, to a context that states it:
 // `context needs TestAmbient { testing.Allocs: testing.NewAllocCounter() }`.
-func NewAllocCounter() AllocCounter needs TestAmbient { AllocCounter{folder: TestFolder()} }
+func NewAllocCounter() AllocCounter needs fstest.TestAmbient { AllocCounter{folder: fstest.TestFolder()} }
 
-let measured = context needs TestAmbient { Allocs: NewAllocCounter() }
+let measured = context needs fstest.TestAmbient { Allocs: NewAllocCounter() }
 
 func PerRun(c AllocCounter, runs int, f func()) int { allocsPerRun(runs, f) }
 

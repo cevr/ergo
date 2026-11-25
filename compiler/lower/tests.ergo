@@ -3,18 +3,19 @@ import compiler/check/store
 import compiler/ir
 import compiler/syntax
 import dense
+import option
 import strconv
 import strings
 
 func testFrame() framePlan {
-	framePlan{env: 0, slots: 1, pure: false, fallible: None, pollEntry: false, op: None}
+	framePlan{env: 0, slots: 1, pure: false, fallible: option.None, pollEntry: false, op: option.None}
 }
 
 func testParamFrame(n int) framePlan {
 	if n == 0 {
 		return testFrame()
 	}
-	framePlan{env: 0, slots: n + 1, pure: false, fallible: None, pollEntry: false, op: None}
+	framePlan{env: 0, slots: n + 1, pure: false, fallible: option.None, pollEntry: false, op: option.None}
 }
 
 func testFunction(st mut fnb, b mut ir.Builder, f expr.Fn, td syntax.TestDecl, planned GeneratedBody, path string) bool fails Unported | ir.Malformed {
@@ -25,18 +26,18 @@ func testFunction(st mut fnb, b mut ir.Builder, f expr.Fn, td syntax.TestDecl, p
 		return stop("test: admission clause")
 	}
 	let ops = store.OperandsOf(st.s, f.Sig)
-	if store.KindOfType(st.s, f.Sig) != store.KSig || len(ops) < 3 {
+	if store.KindOfType(st.s, f.Sig) != store.KSig || ops.Len() < 3 {
 		return stop("signature")
 	}
-	let n = len(ops) - 3
+	let n = ops.Len() - 3
 	if !emptyRow(*st, ops[n+1]) || !emptyRow(*st, ops[n+2]) {
 		return stop("test: effect or failure row")
 	}
-	if len(f.Names) != n {
+	if f.Names.Len() != n {
 		return stop("parameter names")
 	}
 	for i in 0..n {
-		if i < len(f.Takes) && f.Takes[i] {
+		if i < f.Takes.Len() && f.Takes[i] {
 			return stop("test: owned parameter")
 		}
 		if !admittedLawParam(*st, ops[i]) {
@@ -44,9 +45,9 @@ func testFunction(st mut fnb, b mut ir.Builder, f expr.Fn, td syntax.TestDecl, p
 		}
 	}
 	let body = match dense.Unpack(td.Body) {
-	case Some[dense.ID[syntax.Node]] as x:
+	case option.Some[dense.ID[syntax.Node]] as x:
 		x.Value
-	case None:
+	case option.None:
 		return stop("no body")
 	}
 	let p = st.p
@@ -64,7 +65,7 @@ func testFunction(st mut fnb, b mut ir.Builder, f expr.Fn, td syntax.TestDecl, p
 	let end = pos(*st, syntax.TokPos(p, rbrace))
 	try ir.Begin(b, planned.Symbol, fp, end)
 	let roots = try controlEmit(*st, b, prepared, end)
-	let rows = if len(roots) == 0 { uint32(0) } else { ir.List(b, roots) }
+	let rows = if roots.Len() == 0 { uint32(0) } else { ir.List(b, roots) }
 	try ir.End(b, rows)
 	true
 }
@@ -86,7 +87,7 @@ func assertShownCheck(st fnb, x dense.ID[syntax.Node]) bool {
 func assertSiteText(st fnb, offset int) string {
 	let q = syntax.PositionOf(st.lines, offset)
 	let i = strings.LastIndex(st.filePath, "/")
-	let file = if i < 0 { st.filePath } else { st.filePath[i+1 : len(st.filePath)] }
+	let file = if i < 0 { st.filePath } else { st.filePath[i+1 : st.filePath.Len()] }
 	file + ":" + strconv.Itoa(q.Line) + ":" + strconv.Itoa(q.Column)
 }
 
@@ -94,7 +95,7 @@ func assertSourceText(st fnb, x dense.ID[syntax.Node]) string fails Unported {
 	let src = syntax.SourceOf(st.p)
 	let lo = syntax.NodePos(st.p, x)
 	let hi = syntax.NodeEnd(st.p, x)
-	if lo < 0 || hi < lo || hi > len(src) {
+	if lo < 0 || hi < lo || hi > src.Len() {
 		return stop("test: assert text span")
 	}
 	src[lo:hi]

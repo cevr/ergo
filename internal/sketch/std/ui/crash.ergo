@@ -1,5 +1,8 @@
 import actor
+import machines
+import option
 import queue
+import scope
 import time
 import sync
 import strings
@@ -33,7 +36,7 @@ type CrashCause[F] = DefectCrash | FailureCrash[F]
 // its timer or its work in the same moment (the session cannot tell them
 // apart without a store per step); None when it ended with no signal of
 // the session's in flight, by its timer or its work.
-type Crash[S, E, F] { Cause CrashCause[F], State S, Signal Option[E] }
+type Crash[S, E, F] { Cause CrashCause[F], State S, Signal option.Option[E] }
 
 // CrashShowsTheCrashView (H6a): under drawn taps of an app whose step can
 // add, defect or fail with a typed failure, and of the check box, the
@@ -45,7 +48,7 @@ type Crash[S, E, F] { Cause CrashCause[F], State S, Signal Option[E] }
 // crashed on (FK13-g1).
 law CrashShowsTheCrashView(seed int, steps int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		crashShown(seed, steps, m)
 	}
 }
@@ -55,7 +58,7 @@ type Boom { N int }
 
 type simulatedCrashStep { Message string, State int, Signal int }
 
-func crashStep(s int, e int) Decision[int, int] fails Boom defects {
+func crashStep(s int, e int) machines.Decision[int, int] fails Boom defects {
 	if e == 1 {
 		die simulatedCrashStep{Message: "crash app: a defect, on purpose", State: s, Signal: e}
 	}
@@ -63,16 +66,16 @@ func crashStep(s int, e int) Decision[int, int] fails Boom defects {
 		return Boom{N: s}
 	}
 	if e == 0 {
-		return Enter[int]{Next: s + 1}
+		return machines.Enter[int]{Next: s + 1}
 	}
-	Enter[int]{Next: s}
+	machines.Enter[int]{Next: s}
 }
 
-func crashTimer(s int) Option[Timeout[int]] { None }
+func crashTimer(s int) option.Option[machines.Timeout[int]] { option.None }
 
-func crashWork(s int) Option[func(send entry func(e int)) defects] { None }
+func crashWork(s int) option.Option[func(send entry func(e int)) defects] { option.None }
 
-func crashExit(s int) Option[func()] { None }
+func crashExit(s int) option.Option[func()] { option.None }
 
 func crashMachine() actor.LiveMachine[int, int, int, Boom] {
 	actor.LiveMachine[int, int, int, Boom]{Initial: 0, Step: crashStep, After: crashTimer, Work: crashWork, Exit: crashExit}
@@ -126,7 +129,7 @@ func crashAppShapes(n int, on bool) []Shape[int] {
 	[]Shape[int]{leaf(TextNode{Value: "count \(n)", Style: Plain()}), pressShape("add", 0, "+"), pressShape("defect", 1, "!"), pressShape("fail", 2, "x"), leaf(ToggleNode{Label: "keep", On: on})}
 }
 
-func crashShown(seed int, steps int, m time.Manual) bool needs Scheduler {
+func crashShown(seed int, steps int, m time.Manual) bool needs time.Scheduler {
 	let mut r = seeded(seed)
 	let reports = sync.NewRef(0)
 	let crashes = Crashes[int, int, Boom]{View: crashOwnView, Report: func(c Crash[int, int, Boom]) {
@@ -138,27 +141,27 @@ func crashShown(seed int, steps int, m time.Manual) bool needs Scheduler {
 	}
 	let mut count = 0
 	let mut on = false
-	let mut crash Option[Crash[int, int, Boom]] = None
+	let mut crash option.Option[Crash[int, int, Boom]] = option.None
 	let mut crashed = 0
 	for _ in 0..(steps%24+24)%24+1 {
 		let pick = draw(&r, 4)
 		let mut label = "reload"
 		match crash {
-		case Some[Crash[int, int, Boom]]:
-			crash = None
+		case option.Some[Crash[int, int, Boom]]:
+			crash = option.None
 			count = 0
 			on = false
-		case None:
+		case option.None:
 			if pick == 0 {
 				label = "add"
 				count = count + 1
 			} else if pick == 1 {
 				label = "defect"
-				crash = Some{Value: Crash[int, int, Boom]{Cause: DefectCrash{Reason: "crash app: a defect, on purpose"}, State: count, Signal: Some{Value: 1}}}
+				crash = option.Some{Value: Crash[int, int, Boom]{Cause: DefectCrash{Reason: "crash app: a defect, on purpose"}, State: count, Signal: option.Some{Value: 1}}}
 				crashed = crashed + 1
 			} else if pick == 2 {
 				label = "fail"
-				crash = Some{Value: Crash[int, int, Boom]{Cause: FailureCrash[Boom]{Failure: Boom{N: count}}, State: count, Signal: Some{Value: 2}}}
+				crash = option.Some{Value: Crash[int, int, Boom]{Cause: FailureCrash[Boom]{Failure: Boom{N: count}}, State: count, Signal: option.Some{Value: 2}}}
 				crashed = crashed + 1
 			} else {
 				label = "keep"
@@ -170,9 +173,9 @@ func crashShown(seed int, steps int, m time.Manual) bool needs Scheduler {
 			return false
 		}
 		let want = match crash {
-		case Some[Crash[int, int, Boom]] as c:
+		case option.Some[Crash[int, int, Boom]] as c:
 			[]Shape[int]{leaf(TextNode{Value: crashText(c.Value), Style: Plain()}), pressShape("reload", 3, "reload")}
-		case None:
+		case option.None:
 			crashAppShapes(count, on)
 		}
 		if !SameShapes(Screen(&h), want) || reports.Get() != crashed || !sameCrash(CrashOf(&h), crash) {
@@ -182,9 +185,9 @@ func crashShown(seed int, steps int, m time.Manual) bool needs Scheduler {
 	true
 }
 
-func sameCrash(got Option[Crash[int, int, Boom]], want Option[Crash[int, int, Boom]]) bool {
+func sameCrash(got option.Option[Crash[int, int, Boom]], want option.Option[Crash[int, int, Boom]]) bool {
 	match (got, want) {
-	case (Some[Crash[int, int, Boom]] as g, Some[Crash[int, int, Boom]] as w):
+	case (option.Some[Crash[int, int, Boom]] as g, option.Some[Crash[int, int, Boom]] as w):
 		let same = g.Value.State == w.Value.State && g.Value.Signal == w.Value.Signal
 		match (g.Value.Cause, w.Value.Cause) {
 		case (DefectCrash as x, DefectCrash as y):
@@ -194,7 +197,7 @@ func sameCrash(got Option[Crash[int, int, Boom]], want Option[Crash[int, int, Bo
 		case _:
 			false
 		}
-	case (None, None):
+	case (option.None, option.None):
 		true
 	case _:
 		false
@@ -226,9 +229,9 @@ func PlainCrash[S, E, F](f mut Frame[E], c Crash[S, E, F]) {
 // and one with no signal is a timer's or a work's.
 law PlainCrashSaysWhatItKnows(reason string, e int) {
 	let mut f = NewFrame[int]()
-	let sent = Render(&f, PlainCrash[int, int, Boom], Crash[int, int, Boom]{Cause: DefectCrash{Reason: "at \(e): " + reason}, State: 0, Signal: Some{Value: e}})
+	let sent = Render(&f, PlainCrash[int, int, Boom], Crash[int, int, Boom]{Cause: DefectCrash{Reason: "at \(e): " + reason}, State: 0, Signal: option.Some{Value: e}})
 	let mut g = NewFrame[int]()
-	let none = Render(&g, PlainCrash[int, int, Boom], Crash[int, int, Boom]{Cause: FailureCrash[Boom]{Failure: Boom{N: e}}, State: 0, Signal: None})
+	let none = Render(&g, PlainCrash[int, int, Boom], Crash[int, int, Boom]{Cause: FailureCrash[Boom]{Failure: Boom{N: e}}, State: 0, Signal: option.None})
 	writesText(sent, "The program stopped: a defect ended it: at \(e): \(reason)") && writesText(sent, "signal: the last one the window sent (or a timer or work around it)") && writesText(none, "signal: none (timer or work)")
 }
 
@@ -237,9 +240,9 @@ law PlainCrashSaysWhatItKnows(reason string, e int) {
 // timer or a work, which no signal of the window's caused).
 func signalLine[S, E, F](c Crash[S, E, F]) string {
 	match c.Signal {
-	case Some[E]:
+	case option.Some[E]:
 		"signal: the last one the window sent (or a timer or work around it)"
-	case None:
+	case option.None:
 		"signal: none (timer or work)"
 	}
 }
@@ -249,32 +252,32 @@ func signalLine[S, E, F](c Crash[S, E, F]) string {
 func PlainCrashes[S, E, F]() Crashes[S, E, F] { Crashes[S, E, F]{View: PlainCrash[S, E, F], Report: noReport[S, E, F]} }
 
 // crashOf is how an ended actor crashed: None for a Done or a stop.
-func crashOf[S, E, O, F](a actor.Actor[S, E, Decision[S, O], F]) Option[CrashCause[F]] {
+func crashOf[S, E, O, F](a actor.Actor[S, E, machines.Decision[S, O], F]) option.Option[CrashCause[F]] {
 	match actor.ExitOf(a) {
 	case actor.Defected as d:
-		Some{Value: DefectCrash{Reason: d.Reason}}
+		option.Some{Value: DefectCrash{Reason: d.Reason}}
 	case actor.Failed[F] as x:
-		Some{Value: FailureCrash[F]{Failure: x.Error}}
+		option.Some{Value: FailureCrash[F]{Failure: x.Error}}
 	case _:
-		None
+		option.None
 	}
 }
 
 // keeps is a step that takes every signal and changes nothing: alive asks
 // actor.Can with it, so Can is false only when the actor has ended.
-func keeps[S, E, O](s S, e E) Decision[S, O] { Enter[S]{Next: s} }
+func keeps[S, E, O](s S, e E) machines.Decision[S, O] { machines.Enter[S]{Next: s} }
 
 // aliveAfter is whether a is still running after every signal admitted
 // before the call (actor.Can reads the state as State does).
-func aliveAfter[S, E, O, F](a actor.Actor[S, E, Decision[S, O], F], e E) bool { actor.Can(a, keeps[S, E, O], e) }
+func aliveAfter[S, E, O, F](a actor.Actor[S, E, machines.Decision[S, O], F], e E) bool { actor.Can(a, keeps[S, E, O], e) }
 
 // StartApp is Start for an app: it starts m as an actor with an inbox of
 // capacity signals, on the providers in force, and its session shows
 // crashes.View when that actor crashes, reports it with crashes.Report,
 // and starts a fresh actor from m on a signal of the crash view.
-func StartApp[E comparable, S, O, F, R, W, Q](m Machine[S, E, O, F, R, W], capacity int, view own func(f mut Frame[E], s S) needs Q, crashes Crashes[S, E, F], post own func(ev Event[E])) (Session[S, E, Decision[S, O], F], []Op[E]) needs R | W | Scheduler | Q {
-	let ctx = InForce[R | W | Scheduler]()
-	let fresh = func() actor.Actor[S, E, Decision[S, O], F] {
+func StartApp[E comparable, S, O, F, R, W, Q](m machines.Machine[S, E, O, F, R, W], capacity int, view own func(f mut Frame[E], s S) needs Q, crashes Crashes[S, E, F], post own func(ev Event[E])) (Session[S, E, machines.Decision[S, O], F], []Op[E]) needs R | W | time.Scheduler | Q {
+	let ctx = scope.InForce[R | W | time.Scheduler]()
+	let fresh = func() actor.Actor[S, E, machines.Decision[S, O], F] {
 		with ctx {
 			actor.StartMachine(m, capacity, func(o O) {})
 		}
@@ -283,7 +286,7 @@ func StartApp[E comparable, S, O, F, R, W, Q](m Machine[S, E, O, F, R, W], capac
 	let mut app = s
 	app.exit = crashOf[S, E, O, F]
 	app.alive = aliveAfter[S, E, O, F]
-	app.fresh = Some{Value: fresh}
+	app.fresh = option.Some{Value: fresh}
 	app.crashView = crashes.View
 	app.report = crashes.Report
 	(app, first)
@@ -291,9 +294,9 @@ func StartApp[E comparable, S, O, F, R, W, Q](m Machine[S, E, O, F, R, W], capac
 
 // StartLiveApp is StartApp for an actor.LiveMachine whose step or work may
 // raise deliberate defects (`die`).
-func StartLiveApp[E comparable, S, O, F, R, W, Q](m actor.LiveMachine[S, E, O, F, R, W], capacity int, view own func(f mut Frame[E], s S) needs Q, crashes Crashes[S, E, F], post own func(ev Event[E])) (Session[S, E, Decision[S, O], F], []Op[E]) needs R | W | Scheduler | Q {
-	let ctx = InForce[R | W | Scheduler]()
-	let fresh = func() actor.Actor[S, E, Decision[S, O], F] {
+func StartLiveApp[E comparable, S, O, F, R, W, Q](m actor.LiveMachine[S, E, O, F, R, W], capacity int, view own func(f mut Frame[E], s S) needs Q, crashes Crashes[S, E, F], post own func(ev Event[E])) (Session[S, E, machines.Decision[S, O], F], []Op[E]) needs R | W | time.Scheduler | Q {
+	let ctx = scope.InForce[R | W | time.Scheduler]()
+	let fresh = func() actor.Actor[S, E, machines.Decision[S, O], F] {
 		with ctx {
 			actor.StartLive(m, capacity, func(o O) {})
 		}
@@ -302,7 +305,7 @@ func StartLiveApp[E comparable, S, O, F, R, W, Q](m actor.LiveMachine[S, E, O, F
 	let mut app = s
 	app.exit = crashOf[S, E, O, F]
 	app.alive = aliveAfter[S, E, O, F]
-	app.fresh = Some{Value: fresh}
+	app.fresh = option.Some{Value: fresh}
 	app.crashView = crashes.View
 	app.report = crashes.Report
 	(app, first)
@@ -310,11 +313,11 @@ func StartLiveApp[E comparable, S, O, F, R, W, Q](m actor.LiveMachine[S, E, O, F
 
 // CrashOf is the crash a test host's app shows, None while its actor
 // runs.
-func CrashOf[S, E, D, F](h mut TestHost[S, E, D, F]) Option[Crash[S, E, F]] { h.session.crash }
+func CrashOf[S, E, D, F](h mut TestHost[S, E, D, F]) option.Option[Crash[S, E, F]] { h.session.crash }
 
 // NewAppTestHost is NewTestHost for an app (StartApp): m's actor, its
 // crash view once it crashed, and a fresh actor on a reload.
-func NewAppTestHost[E comparable, S, O, F, R, W, Q](m Machine[S, E, O, F, R, W], capacity int, view own func(f mut Frame[E], s S) needs Q, crashes Crashes[S, E, F], clock time.Manual, room int) TestHost[S, E, Decision[S, O], F] fails BadPatch needs R | W | Scheduler | Q {
+func NewAppTestHost[E comparable, S, O, F, R, W, Q](m machines.Machine[S, E, O, F, R, W], capacity int, view own func(f mut Frame[E], s S) needs Q, crashes Crashes[S, E, F], clock time.Manual, room int) TestHost[S, E, machines.Decision[S, O], F] fails BadPatch needs R | W | time.Scheduler | Q {
 	let posted = queue.New[Event[E]](room)
 	let (s, first) = StartApp(m, capacity, view, crashes, func(ev Event[E]) {
 		posted.Push(ev) catch {
@@ -326,7 +329,7 @@ func NewAppTestHost[E comparable, S, O, F, R, W, Q](m Machine[S, E, O, F, R, W],
 
 // NewLiveAppTestHost is NewAppTestHost for an actor.LiveMachine whose step or
 // work may raise deliberate defects (`die`).
-func NewLiveAppTestHost[E comparable, S, O, F, R, W, Q](m actor.LiveMachine[S, E, O, F, R, W], capacity int, view own func(f mut Frame[E], s S) needs Q, crashes Crashes[S, E, F], clock time.Manual, room int) TestHost[S, E, Decision[S, O], F] fails BadPatch needs R | W | Scheduler | Q {
+func NewLiveAppTestHost[E comparable, S, O, F, R, W, Q](m actor.LiveMachine[S, E, O, F, R, W], capacity int, view own func(f mut Frame[E], s S) needs Q, crashes Crashes[S, E, F], clock time.Manual, room int) TestHost[S, E, machines.Decision[S, O], F] fails BadPatch needs R | W | time.Scheduler | Q {
 	let posted = queue.New[Event[E]](room)
 	let (s, first) = StartLiveApp(m, capacity, view, crashes, func(ev Event[E]) {
 		posted.Push(ev) catch {
@@ -342,12 +345,12 @@ func NewLiveAppTestHost[E comparable, S, O, F, R, W, Q](m actor.LiveMachine[S, E
 // own state from its initial values.
 law ReloadIsInitial(seed int, defect bool) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		reloadInitial(seed, defect, m)
 	}
 }
 
-func reloadInitial(seed int, defect bool, m time.Manual) bool needs Scheduler {
+func reloadInitial(seed int, defect bool, m time.Manual) bool needs time.Scheduler {
 	let mut r = seeded(seed)
 	let mut h = NewLiveAppTestHost(crashMachine(), 1, crashAppView, Crashes[int, int, Boom]{View: crashOwnView, Report: func(c Crash[int, int, Boom]) {}}, m, 4) catch {
 	case BadPatch:
@@ -367,7 +370,7 @@ func reloadInitial(seed int, defect bool, m time.Manual) bool needs Scheduler {
 	case BadPatch:
 		return false
 	}
-	SameShapes(Screen(&h), Screen(&fresh)) && CrashOf(&h) == None
+	SameShapes(Screen(&h), Screen(&fresh)) && CrashOf(&h) == option.None
 }
 
 // RunApp is Run for an app (StartApp): it shows view of m's actor on h,
@@ -375,7 +378,7 @@ func reloadInitial(seed int, defect bool, m time.Manual) bool needs Scheduler {
 // closes on a crash, RunApp ends as the actor did, as its Stop does: it
 // fails with the step's failure, or raises the defect; else it fails
 // Closed, and Stopped when the actor ended with a Done or a stop.
-func RunApp[E comparable, S, O, F, R, W, Q](h Host[E], m Machine[S, E, O, F, R, W], capacity int, view own func(f mut Frame[E], s S) needs Q, crashes Crashes[S, E, F]) fails Closed | F | actor.Stopped needs R | W | Scheduler | Q {
+func RunApp[E comparable, S, O, F, R, W, Q](h Host[E], m machines.Machine[S, E, O, F, R, W], capacity int, view own func(f mut Frame[E], s S) needs Q, crashes Crashes[S, E, F]) fails Closed | F | actor.Stopped needs R | W | time.Scheduler | Q {
 	let (s, first) = StartApp(m, capacity, view, crashes, func(ev Event[E]) { h.Post(ev) })
 	let mut session = s
 	h.Show(first)
@@ -390,7 +393,7 @@ func RunApp[E comparable, S, O, F, R, W, Q](h Host[E], m Machine[S, E, O, F, R, 
 			return Closed
 		}
 		let ops = try Step(&session, ev)
-		if len(ops) > 0 {
+		if ops.Len() > 0 {
 			h.Show(ops)
 		}
 		if Animating(&session.frame) != frames {

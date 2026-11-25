@@ -79,7 +79,7 @@ let kinds = []Kind{
 }
 
 // NumKinds is the number of kind codes, the no-kind 0 included.
-func NumKinds() int { len(kinds) }
+func NumKinds() int { kinds.Len() }
 
 // KindOf is the kind whose code is c; c must be below NumKinds.
 func KindOf(c uint8) Kind { kinds[int(c)] }
@@ -96,7 +96,7 @@ func Slot(body mut Body, id int, j int, n int) uint32 fails Malformed {
 		return body.B[id-1]
 	}
 	let at = int(body.B[id-1]) + j - 1
-	if at <= 0 || at >= len(body.Extra) {
+	if at <= 0 || at >= body.Extra.Len() {
 		return Malformed{At: id, Why: "slots past the extra pool"}
 	}
 	body.Extra[at]
@@ -106,10 +106,10 @@ func Slot(body mut Body, id int, j int, n int) uint32 fails Malformed {
 // "code class name|slot,slot,...", the case's name empty.
 func Table() string {
 	let mut b = strings.NewBuilder()
-	for c in 1..len(kinds) {
+	for c in 1..kinds.Len() {
 		let x = kinds[c]
 		b.WriteString(strconv.Itoa(c) + " " + strconv.Itoa(int(x.Class)) + " " + x.Name + "|")
-		for j in 0..len(x.Slots) {
+		for j in 0..x.Slots.Len() {
 			if j > 0 {
 				b.WriteByte(',')
 			}
@@ -129,10 +129,10 @@ law SlotsAreFields(c uint8) {
 	let x = kinds[i]
 	let fs = Fields(x.Class)
 	let first = if x.Class == TCase { 1 } else { 2 }
-	let mut ok = n <= 256 && (i == 0) == (len(fs) == 0)
-	for j in 0..len(x.Slots) {
+	let mut ok = n <= 256 && (i == 0) == (fs.Len() == 0)
+	for j in 0..x.Slots.Len() {
 		let s = int(x.Slots[j])
-		ok = ok && s >= first && s < len(fs) && (j == 0 || int(x.Slots[j-1]) < s)
+		ok = ok && s >= first && s < fs.Len() && (j == 0 || int(x.Slots[j-1]) < s)
 	}
 	for o in 1..n {
 		ok = ok && (o == i || i == 0 || kinds[o].Class != x.Class || kinds[o].Name != x.Name)

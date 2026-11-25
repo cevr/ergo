@@ -14,6 +14,7 @@
 //
 // Both keep their state in a sync.Ref, so every copy is the same record.
 
+import option
 import strconv
 import sync
 import utf8
@@ -140,7 +141,7 @@ type Event = BoolEvent | IntEvent | UintEvent | FloatEvent | StringEvent | Begin
 // fields: the decode fails WireMissingField.
 law MissingFieldFails() {
 	let empty = []Event{BeginObjectEvent{N: 0}, EndObjectEvent}
-	let _ = decode[up](NewReplay(empty)) catch {
+	let _ = Decode[up](NewReplay(empty)) catch {
 	case WireMissingField:
 		return true
 	case _:
@@ -158,7 +159,7 @@ law UnknownTagFails(name string) {
 		return true
 	}
 	let evs = []Event{BeginObjectEvent{N: 0}, TagEvent{Name: name}, EndObjectEvent}
-	let _ = decode[state](NewReplay(evs)) catch {
+	let _ = Decode[state](NewReplay(evs)) catch {
 	case WireUnknownTag:
 		return true
 	case _:
@@ -179,29 +180,29 @@ func NewEvents() Events { Events{log: sync.NewRef[[]Event]([]Event{})} }
 // call, not RoundTrip's witness.
 law BasicReplay(s string, b bool, i int8, u uint8, f float64) {
 	let e = NewEvents()
-	encode(s, e)
-	encode(b, e)
-	encode(i, e)
-	encode(u, e)
-	encode(f, e)
+	Encode(s, e)
+	Encode(b, e)
+	Encode(i, e)
+	Encode(u, e)
+	Encode(f, e)
 	let r = NewReplay(Recorded(e))
-	let s2 = decode[string](r) catch {
+	let s2 = Decode[string](r) catch {
 	case _:
 		return false
 	}
-	let b2 = decode[bool](r) catch {
+	let b2 = Decode[bool](r) catch {
 	case _:
 		return false
 	}
-	let i2 = decode[int8](r) catch {
+	let i2 = Decode[int8](r) catch {
 	case _:
 		return false
 	}
-	let u2 = decode[uint8](r) catch {
+	let u2 = Decode[uint8](r) catch {
 	case _:
 		return false
 	}
-	let f2 = decode[float64](r) catch {
+	let f2 = Decode[float64](r) catch {
 	case _:
 		return false
 	}
@@ -215,26 +216,26 @@ law GenericReplay(vs []state) {
 	case _:
 		return false
 	}
-	let want Option[state] = if len(vs) > 0 { Some{Value: vs[0]} } else { None }
+	let want option.Option[state] = if vs.Len() > 0 { option.Some{Value: vs[0]} } else { option.None }
 	back == vs && first == want
 }
 
 // many is vs through Events and back as one list, so the codec of []T and
 // Option[T] runs inside a generic function, on T's witness.
-func many[T wire](vs []T) ([]T, Option[T]) fails wired[Option[T]] needs wired[T] {
+func many[T wire](vs []T) ([]T, option.Option[T]) fails wired[option.Option[T]] needs wired[T] {
 	let e = NewEvents()
-	encode(vs, e)
-	let first Option[T] = if len(vs) > 0 { Some{Value: vs[0]} } else { None }
-	encode(first, e)
+	Encode(vs, e)
+	let first option.Option[T] = if vs.Len() > 0 { option.Some{Value: vs[0]} } else { option.None }
+	Encode(first, e)
 	let r = NewReplay(Recorded(e))
-	(try decode[[]T](r), try decode[Option[T]](r))
+	(try Decode[[]T](r), try Decode[option.Option[T]](r))
 }
 
 // EncodeNests: the events of one value open and close as many times, and
 // never close more than they opened.
 law EncodeNests(v fleet) {
 	let e = NewEvents()
-	encode(v, e)
+	Encode(v, e)
 	let mut open = 0
 	let mut ok = true
 	for ev in Recorded(e) {
@@ -252,20 +253,20 @@ func Recorded(e Events) []Event { e.log.Get() }
 func record(e Events, ev Event) { e.log.Update(func(xs []Event) []Event { xs.Append(ev) }) }
 
 // The Writer's operations.
-func Null(e Events)              { record(e, NullEvent) }
-func Number(e Events, text string) { record(e, NumberEvent{Text: text}) }
-func Bool(e Events, b bool)       { record(e, BoolEvent{V: b}) }
-func Int(e Events, n int64)       { record(e, IntEvent{V: n}) }
-func Uint(e Events, n uint64)     { record(e, UintEvent{V: n}) }
-func Float(e Events, f float64)   { record(e, FloatEvent{V: f}) }
-func String(e Events, s string)   { record(e, StringEvent{V: s}) }
+func Null(e Events)                  { record(e, NullEvent) }
+func Number(e Events, text string)   { record(e, NumberEvent{Text: text}) }
+func Bool(e Events, b bool)          { record(e, BoolEvent{V: b}) }
+func Int(e Events, n int64)          { record(e, IntEvent{V: n}) }
+func Uint(e Events, n uint64)        { record(e, UintEvent{V: n}) }
+func Float(e Events, f float64)      { record(e, FloatEvent{V: f}) }
+func String(e Events, s string)      { record(e, StringEvent{V: s}) }
 func StringBytes(e Events, b []byte) { record(e, StringEvent{V: utf8.String(b)}) }
-func BeginList(e Events, n int)   { record(e, BeginListEvent{N: n}) }
-func EndList(e Events)            { record(e, EndListEvent) }
-func BeginObject(e Events, n int) { record(e, BeginObjectEvent{N: n}) }
-func Tag(e Events, name string)   { record(e, TagEvent{Name: name}) }
-func Key(e Events, k string)      { record(e, KeyEvent{K: k}) }
-func EndObject(e Events)          { record(e, EndObjectEvent) }
+func BeginList(e Events, n int)      { record(e, BeginListEvent{N: n}) }
+func EndList(e Events)               { record(e, EndListEvent) }
+func BeginObject(e Events, n int)    { record(e, BeginObjectEvent{N: n}) }
+func Tag(e Events, name string)      { record(e, TagEvent{Name: name}) }
+func Key(e Events, k string)         { record(e, KeyEvent{K: k}) }
+func EndObject(e Events)             { record(e, EndObjectEvent) }
 
 // StringBytesRecordsString: StringBytes records the String event of the
 // string its bytes spell.
@@ -273,7 +274,7 @@ law StringBytesRecordsString(b []byte) {
 	let e = NewEvents()
 	e.StringBytes(b)
 	let got = Recorded(e)
-	if len(got) != 1 {
+	if got.Len() != 1 {
 		return false
 	}
 	match got[0] {
@@ -288,8 +289,8 @@ law StringBytesRecordsString(b []byte) {
 // events encode(v) wrote. Its row is wired[T], the row of decode[T].
 func RoundTrip[T wire](v T) T fails wired[T] needs wired[T] {
 	let e = NewEvents()
-	encode(v, e)
-	decode[T](NewReplay(Recorded(e)))
+	Encode(v, e)
+	Decode[T](NewReplay(Recorded(e)))
 }
 
 // EventsReplay: what encode writes on Events, decode reads back from a
@@ -311,7 +312,7 @@ type state = up | down
 
 type widths { A int8, B int16, C int32, D int64, E uint8, F uint16, G uint32, H uint64, I int, J uint, K float32, L bool }
 
-type fleet { Name string, States []state, Spare Option[up], Meta Map[string, int], Sizes widths }
+type fleet { Name string, States []state, Spare option.Option[up], Meta Map[string, int], Sizes widths }
 
 // Replay reads back a list of events.
 type Replay { events []Event, at sync.Ref[int] } implements Reader
@@ -322,7 +323,7 @@ func NewReplay(events []Event) Replay { Replay{events: events, at: sync.NewRef[i
 // next is the next event, which the read passes; EndObject past the end.
 func next(r Replay) Event {
 	let i = r.at.Get()
-	if i >= len(r.events) {
+	if i >= r.events.Len() {
 		return EndObjectEvent
 	}
 	r.at.Set(i + 1)
@@ -332,7 +333,7 @@ func next(r Replay) Event {
 // peek is the next event, which the read leaves; EndObject past the end.
 func peek(r Replay) Event {
 	let i = r.at.Get()
-	if i >= len(r.events) { EndObjectEvent } else { r.events[i] }
+	if i >= r.events.Len() { EndObjectEvent } else { r.events[i] }
 }
 
 // depth is how an event changes the nesting: +1 opens, -1 closes.
@@ -360,13 +361,20 @@ func TakeNull(r Replay) bool {
 
 func Peek(r Replay) WireKind {
 	match peek(r) {
-	case NullEvent: WireNull
-	case BoolEvent: WireBool
-	case IntEvent, UintEvent, FloatEvent, NumberEvent: WireNumber
-	case StringEvent, TagEvent: WireString
-	case BeginListEvent: WireList
-	case BeginObjectEvent: WireObject
-	case KeyEvent, EndListEvent, EndObjectEvent: WireEnd
+	case NullEvent:
+		WireNull
+	case BoolEvent:
+		WireBool
+	case IntEvent, UintEvent, FloatEvent, NumberEvent:
+		WireNumber
+	case StringEvent, TagEvent:
+		WireString
+	case BeginListEvent:
+		WireList
+	case BeginObjectEvent:
+		WireObject
+	case KeyEvent, EndListEvent, EndObjectEvent:
+		WireEnd
 	}
 }
 
@@ -412,7 +420,10 @@ func Int(r Replay) int64 fails WireWrongKind {
 		}
 		int64(n.V)
 	case NumberEvent as n:
-		strconv.ParseInt(n.Text, 10, 64) catch { case _: return WireWrongKind{Path: Path(r), Want: "int"} }
+		strconv.ParseInt(n.Text, 10, 64) catch {
+		case _:
+			return WireWrongKind{Path: Path(r), Want: "int"}
+		}
 	case _:
 		return WireWrongKind{Path: Path(r), Want: "int"}
 	}
@@ -428,7 +439,10 @@ func Uint(r Replay) uint64 fails WireWrongKind {
 		}
 		uint64(n.V)
 	case NumberEvent as n:
-		let v = strconv.ParseInt(n.Text, 10, 64) catch { case _: return WireWrongKind{Path: Path(r), Want: "uint"} }
+		let v = strconv.ParseInt(n.Text, 10, 64) catch {
+		case _:
+			return WireWrongKind{Path: Path(r), Want: "uint"}
+		}
 		if v < 0 {
 			return WireWrongKind{Path: Path(r), Want: "uint"}
 		}
@@ -447,7 +461,10 @@ func Float(r Replay) float64 fails WireWrongKind {
 	case UintEvent as n:
 		float64(n.V)
 	case NumberEvent as n:
-		strconv.ParseFloat(n.Text) catch { case _: return WireWrongKind{Path: Path(r), Want: "float"} }
+		strconv.ParseFloat(n.Text) catch {
+		case _:
+			return WireWrongKind{Path: Path(r), Want: "float"}
+		}
 	case _:
 		return WireWrongKind{Path: Path(r), Want: "float"}
 	}

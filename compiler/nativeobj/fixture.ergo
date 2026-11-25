@@ -38,7 +38,7 @@ let TinyPath = "ergo.local/nativeobj/tiny"
 
 func fn(name string, params []int, results []int, slots []int, ops []Op, line int) Func {
 	let mut lines = []int{}
-	for i in 0..len(ops) {
+	for i in 0..ops.Len() {
 		lines = lines.Append(line + 1 + i)
 	}
 	Func{Name: name, Params: params, Results: results, Slots: slots, Ops: ops, Lines: lines, Line: line, Col: 1}

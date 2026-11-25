@@ -35,7 +35,7 @@ func WriteFrom(b mut Builder, start int, n int) { b.buf = b.buf.AppendFrom(start
 func Grow(b mut Builder, n int) { b.buf = b.buf.Grow(n) }
 
 // Len is the number of bytes written to b.
-func Len(b Builder) int { len(b.buf) }
+func Len(b Builder) int { b.buf.Len() }
 
 // String is the text written to b.
 func String(b Builder) string { b.buf.Text() }
@@ -46,12 +46,12 @@ func String(b Builder) string { b.buf.Text() }
 law BuilderConcatenates(a string, c byte, d string) {
 	let mut b = NewBuilder()
 	b.WriteString(a)
-	b.Grow(len(d))
+	b.Grow(d.Len())
 	b.WriteByte(c)
 	let mut copy = b
 	copy.WriteString(d)
 	let want = a + []byte{c}.Text()
-	b.String() == want && b.Len() == len(want) && copy.String() == want+d && copy.Len() == len(want)+len(d)
+	b.String() == want && b.Len() == want.Len() && copy.String() == want+d && copy.Len() == want.Len()+d.Len()
 }
 
 // WriteFromRepeats: WriteFrom is a loop of WriteByte that reads each byte
@@ -59,7 +59,7 @@ law BuilderConcatenates(a string, c byte, d string) {
 // a run that overlaps its own output included.
 law WriteFromRepeats(a string, start int, n int) {
 	let text = a + "x"
-	let from = if start < 0 { -(start + 1) % len(text) } else { start % len(text) }
+	let from = if start < 0 { -(start + 1) % text.Len() } else { start % text.Len() }
 	let count = if n < 0 { -(n + 1) % 300 } else { n % 300 }
 	let mut b = NewBuilder()
 	b.WriteString(text)
@@ -68,7 +68,7 @@ law WriteFromRepeats(a string, start int, n int) {
 	for k in 0..count {
 		want = want.Append(want[from+k])
 	}
-	b.String() == FromBytes(want) && b.Len() == len(text)+count
+	b.String() == FromBytes(want) && b.Len() == text.Len()+count
 }
 
 // BytesRoundTrip: Bytes and FromBytes convert both ways, WriteBytes writes
@@ -88,6 +88,6 @@ law BytesRoundTrip(s string, c byte) {
 	let mut w = NewBuilder()
 	w.WriteString(s)
 	w.WriteByte(c)
-	w.WriteString(Slice(text, 1, len(text)))
-	t == text && u == text && FromBytes(Bytes(s)) == s && b.String() == w.String() && b.Len() == len(s)+len(text)
+	w.WriteString(Slice(text, 1, text.Len()))
+	t == text && u == text && FromBytes(Bytes(s)) == s && b.String() == w.String() && b.Len() == s.Len()+text.Len()
 }

@@ -3,28 +3,29 @@ import compiler/check/store
 import compiler/ir
 import compiler/syntax
 import dense
+import option
 
 // borrowParamBase is the admitted pointee of a checked mut parameter.
 // Frame naming still decides whether the pointee can be a Go receiver.
-func borrowParamBase(st fnb, t dense.ID[store.TKey]) Option[dense.ID[store.TKey]] {
+func borrowParamBase(st fnb, t dense.ID[store.TKey]) option.Option[dense.ID[store.TKey]] {
 	if store.KindOfType(st.s, t) != store.KPointer {
-		return None
+		return option.None
 	}
 	let elem = store.OperandsOf(st.s, t)[0]
 	if basicGo(st, elem) == "" && ordinaryRecord(st, elem) < 0 && store.KindOfType(st.s, elem) != store.KSlice {
-		return None
+		return option.None
 	}
 	if shapeGo(st, elem) == "" {
-		return None
+		return option.None
 	}
-	Some[dense.ID[store.TKey]]{Value: elem}
+	option.Some[dense.ID[store.TKey]]{Value: elem}
 }
 
 func borrowParamGo(st fnb, t dense.ID[store.TKey]) string {
 	match borrowParamBase(st, t) {
-	case Some{Value: elem}:
+	case option.Some{Value: elem}:
 		"*" + shapeGo(st, elem)
-	case None:
+	case option.None:
 		""
 	}
 }
@@ -34,8 +35,8 @@ func borrowParamGo(st fnb, t dense.ID[store.TKey]) string {
 // Begin; an address or value use it cannot lower stops the function.
 func controlUnitAdmitted(st fnb, f expr.Fn, _ dense.ID[syntax.Node]) bool {
 	let ops = store.OperandsOf(st.s, f.Sig)
-	let formals = len(f.Names)
-	if formals == 0 || len(ops) != formals+3 || len(f.Takes) != formals {
+	let formals = f.Names.Len()
+	if formals == 0 || ops.Len() != formals+3 || f.Takes.Len() != formals {
 		return false
 	}
 	let mut borrowed = false
@@ -43,7 +44,7 @@ func controlUnitAdmitted(st fnb, f expr.Fn, _ dense.ID[syntax.Node]) bool {
 		if f.Takes[i] {
 			return false
 		}
-		borrowed = borrowed || borrowParamBase(st, ops[i]) != None
+		borrowed = borrowed || borrowParamBase(st, ops[i]) != option.None
 	}
 	borrowed
 }
@@ -73,7 +74,7 @@ func borrowPath(st fnb, x dense.ID[syntax.Node], formals int) int fails Unported
 		if slot < 0 || slot >= formals {
 			return stop("borrow place: root is not a formal slot")
 		}
-		if borrowParamBase(st, try typeOf(st, q, "borrow root")) == None {
+		if borrowParamBase(st, try typeOf(st, q, "borrow root")) == option.None {
 			return stop("borrow place: root is not an admitted borrow")
 		}
 		slot
@@ -83,23 +84,23 @@ func borrowPath(st fnb, x dense.ID[syntax.Node], formals int) int fails Unported
 		}
 		let t = try typeOf(st, star.X, "borrow pointer")
 		match borrowParamBase(st, t) {
-		case Some{Value: elem}:
+		case option.Some{Value: elem}:
 			if elem != (try typeOf(st, q, "borrow dereference")) {
 				return stop("borrow place: dereference type mismatch")
 			}
-		case None:
+		case option.None:
 			return stop("borrow place: dereference of a non-borrow")
 		}
 		try borrowPath(st, star.X, formals)
 	case syntax.SelectorExpr as se:
 		let t = try typeOf(st, se.X, "borrow selector operand")
 		let rec = match borrowParamBase(st, t) {
-		case Some{Value: elem}:
+		case option.Some{Value: elem}:
 			if syntax.KindOf(p.Tree, unparen(st, se.X)) != syntax.KIdent {
 				return stop("borrow place: indirect field of a computed pointer")
 			}
 			elem
-		case None:
+		case option.None:
 			t
 		}
 		let _ = try fieldOn(st, q, se, rec)
@@ -111,18 +112,18 @@ func borrowPath(st fnb, x dense.ID[syntax.Node], formals int) int fails Unported
 
 // Read only scalar endpoints: the oracle has no aggregate copy, held
 // temporary, or field-hoist decision for these paths through a pointer.
-func fixedBorrowScalar(st fnb, x dense.ID[syntax.Node]) Option[fixedBorrowField] {
-	if st.frame.env >= 0 || st.frame.fallible != None {
-		return None
+func fixedBorrowScalar(st fnb, x dense.ID[syntax.Node]) option.Option[fixedBorrowField] {
+	if st.frame.env >= 0 || st.frame.fallible != option.None {
+		return option.None
 	}
 	let place = planBorrowField(st, x, st.frame.slots) catch {
 	case Unported:
-		return None
+		return option.None
 	}
 	if basicGo(st, place.t) == "" {
-		return None
+		return option.None
 	}
-	Some[fixedBorrowField]{Value: place}
+	option.Some[fixedBorrowField]{Value: place}
 }
 
 type borrowWrite { place fixedBorrowField, at int, op string, round string }
@@ -137,7 +138,7 @@ func planBorrowWrite(st fnb, node dense.ID[syntax.Node], a syntax.AssignStmt, fo
 		return stop("borrow store: non-scalar field")
 	}
 	let text = syntax.TokText(st.p, a.Tok)
-	let op = if text == "=" { "" } else { text[:len(text)-1] }
+	let op = if text == "=" { "" } else { text[:text.Len()-1] }
 	if op != "" && !isIROp(op) {
 		return stop("borrow store: operator")
 	}

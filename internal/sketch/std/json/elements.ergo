@@ -17,7 +17,9 @@
 // still break them, so a consumer that acts on an element may act on part
 // of a text that is not JSON: the weaker guarantee of a Stream (json 7).
 
+import stdcodec codec
 import io
+import option
 import sync
 
 // Elements is the values of r as T, read one at a time.
@@ -35,16 +37,16 @@ func NewElements[T wire](r Stream) Elements[T] { Elements[T]{r: r, seq: sequence
 
 // Next is the next element, or None after the last, once the rest of
 // the text is settled.
-func Next[T wire](e Elements[T]) Option[T] fails Malformed | io.ReadFailed | WireWrongKind | wired[T] needs wired[T] {
+func Next[T wire](e Elements[T]) option.Option[T] fails Malformed | io.ReadFailed | stdcodec.WireWrongKind | wired[T] needs wired[T] {
 	let r = e.r
 	let at = e.at.Get()
 	if at == eDone {
-		return None
+		return option.None
 	}
 	if at == eStart {
 		if !e.seq {
 			r.BeginList() catch {
-			case WireWrongKind as w:
+			case stdcodec.WireWrongKind as w:
 				try Settle(r)
 				return w
 			}
@@ -54,7 +56,7 @@ func Next[T wire](e Elements[T]) Option[T] fails Malformed | io.ReadFailed | Wir
 	if !another(r, e.seq) {
 		return try e.finish(!e.seq)
 	}
-	let v = decode[T](r) catch {
+	let v = stdcodec.Decode[T](r) catch {
 	case err:
 		try Settle(r)
 		return err
@@ -64,25 +66,25 @@ func Next[T wire](e Elements[T]) Option[T] fails Malformed | io.ReadFailed | Wir
 		// in): a decode reads on past a break, so Settle tells it.
 		try Settle(r)
 	}
-	Some[T]{Value: v}
+	option.Some[T]{Value: v}
 }
 
 // another reports a value left: in a sequence, the text has another
 // value; in an array, the list has another element.
 func another(r Stream, seq bool) bool {
 	if seq {
-		return r.Peek() != WireEnd
+		return r.Peek() != stdcodec.WireEnd
 	}
 	r.More()
 }
 
 // finish closes the array when close, settles the text and gives None.
-func finish[T wire](e Elements[T], close bool) Option[T] fails Malformed | io.ReadFailed {
+func finish[T wire](e Elements[T], close bool) option.Option[T] fails Malformed | io.ReadFailed {
 	let r = e.r
 	if close {
 		r.End()
 	}
 	e.at.Set(eDone)
 	try Settle(r)
-	None
+	option.None
 }

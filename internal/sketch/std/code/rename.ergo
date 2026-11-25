@@ -1,4 +1,5 @@
 import maps
+import option
 import slices
 import strings
 
@@ -50,9 +51,9 @@ func renamed(sources []Source, base Report, r Rename, checker Checker) []Source 
 		let to = handleTo(m.Handle, r.To)
 		if to != m.Handle {
 			match all.Get(to) {
-			case Some[Decl] as x:
+			case option.Some[Decl] as x:
 				return NameTaken{Handle: m.Handle, To: r.To, By: x.Value.Handle}
-			case None:
+			case option.None:
 			}
 		}
 		moved[m.Handle] = to
@@ -62,26 +63,26 @@ func renamed(sources []Source, base Report, r Rename, checker Checker) []Source 
 	for p in base.Tables.Packages {
 		for s in p.Sites {
 			match moved.Get(s.Symbol) {
-			case Some[string]:
+			case option.Some[string]:
 				if !has(base.Workspace, s.Package) {
 					return OutsideWorkspace{Handle: s.Symbol}
 				}
 				let at = try offsetOf(sources, s.File, s.Line, s.Column)
 				let text = textOf(sources, s.File)
-				if at + len(d.Name) > len(text) || strings.Slice(text, at, at + len(d.Name)) != d.Name {
+				if at+d.Name.Len() > text.Len() || strings.Slice(text, at, at+d.Name.Len()) != d.Name {
 					return BadChange{Reason: "the site \(s.File):\(s.Line):\(s.Column) does not hold \(d.Name)"}
 				}
-				edits = edits.Append(Edit{File: s.File, Start: at, End: at + len(d.Name), Text: r.To})
+				edits = edits.Append(Edit{File: s.File, Start: at, End: at + d.Name.Len(), Text: r.To})
 				let key = "\(s.File):\(s.Line)"
 				shifts[key] = maps.GetOr(shifts, key, []int{}).Append(s.Column)
-			case None:
+			case option.None:
 			}
 		}
 	}
 	let after = try edited(sources, edits)
 	let now = try checkWith(checker, after)
-	let rows = differing(rowsOf(base, moved, r.To, shifts, len(r.To) - len(d.Name)), rowsOf(now, Map[string, string]{}, "", Map[string, []int]{}, 0))
-	if len(rows) > 0 {
+	let rows = differing(rowsOf(base, moved, r.To, shifts, r.To.Len()-d.Name.Len()), rowsOf(now, Map[string, string]{}, "", Map[string, []int]{}, 0))
+	if rows.Len() > 0 {
 		return Capture{Handle: d.Handle, To: r.To, Rows: rows}
 	}
 	after
@@ -103,7 +104,7 @@ func renameVerdict(base Report, after Report) Verdict {
 			added = added.Append(d)
 		}
 	}
-	if len(added) > 0 { Blocked{Diagnostics: added} } else { Ready{Proof: Alpha} }
+	if added.Len() > 0 { Blocked{Diagnostics: added} } else { Ready{Proof: Alpha} }
 }
 
 // declOf is the declaration at address a in report.
@@ -138,7 +139,7 @@ func scopeOf(handle string) string {
 // "#test" or "#law" a test's or a law's handle ends with.
 func handleTo(handle string, to string) string {
 	let at = strings.LastIndex(handle, "#")
-	let suffix = if at < 0 { "" } else { strings.Slice(handle, at, len(handle)) }
+	let suffix = if at < 0 { "" } else { strings.Slice(handle, at, handle.Len()) }
 	scopeOf(handle) + "." + to + suffix
 }
 
@@ -175,11 +176,11 @@ func familyOf(report Report, d Decl) []Decl {
 		}
 		for h in members {
 			match all.Get(h) {
-			case Some[Decl] as x:
+			case option.Some[Decl] as x:
 				if slices.IndexFunc(out, func(y Decl) bool { y.Handle == h }) < 0 {
 					out = out.Append(x.Value)
 				}
-			case None:
+			case option.None:
 			}
 		}
 	}
@@ -195,15 +196,15 @@ func familyOf(report Report, d Decl) []Decl {
 func providerOf(all Map[string, Decl], by string, name string) string {
 	let member = by + "." + name
 	match all.Get(member) {
-	case Some[Decl]:
+	case option.Some[Decl]:
 		return member
-	case None:
+	case option.None:
 	}
 	let top = scopeOf(by) + "." + name
 	match all.Get(top) {
-	case Some[Decl] as x:
+	case option.Some[Decl] as x:
 		if x.Value.Kind == "func" { top } else { "" }
-	case None:
+	case option.None:
 		""
 	}
 }
@@ -213,7 +214,7 @@ func offsetOf(sources []Source, file string, line int, column int) int fails Bad
 	let text = textOf(sources, file)
 	let mut at = 0
 	for _ in 1..line {
-		let nl = strings.Index(strings.Slice(text, at, len(text)), "\n")
+		let nl = strings.Index(strings.Slice(text, at, text.Len()), "\n")
 		if nl < 0 {
 			return BadChange{Reason: "\(file) has no line \(line)"}
 		}
@@ -228,8 +229,8 @@ func isName(s string) bool {
 	if s == "" || !strings.Contains(letters, strings.Slice(s, 0, 1)) {
 		return false
 	}
-	for i in 1..len(s) {
-		if !strings.Contains(letters + "0123456789_", strings.Slice(s, i, i + 1)) {
+	for i in 1..s.Len() {
+		if !strings.Contains(letters+"0123456789_", strings.Slice(s, i, i+1)) {
 			return false
 		}
 	}
@@ -243,13 +244,13 @@ func isName(s string) bool {
 func rowsOf(report Report, moved Map[string, string], to string, shifts Map[string, []int], delta int) []string {
 	let mapped = func(h string) string {
 		match moved.Get(h) {
-		case Some[string] as n:
+		case option.Some[string] as n:
 			return n.Value
-		case None:
+		case option.None:
 		}
 		for k, v in moved {
-			if strings.HasPrefix(h, k + ".") {
-				return v + strings.Slice(h, len(k), len(h))
+			if strings.HasPrefix(h, k+".") {
+				return v + strings.Slice(h, k.Len(), h.Len())
 			}
 		}
 		h
@@ -266,7 +267,7 @@ func rowsOf(report Report, moved Map[string, string], to string, shifts Map[stri
 	let mut out = []string{}
 	for p in report.Tables.Packages {
 		for d in p.Decls {
-			let renamedHere = moved.Get(d.Handle) != None
+			let renamedHere = moved.Get(d.Handle) != option.None
 			let name = if renamedHere { to } else { d.Name }
 			let exported = if renamedHere { exportedTo(d, to) } else { d.Exported }
 			out = out.Append("decl \(mapped(d.Handle)) \(d.Kind) \(name) \(d.Package) \(exported) \(d.File):\(d.Line):\(shifted(d.File, d.Line, d.Column))")
@@ -294,9 +295,9 @@ func differing(a []string, b []string) []string {
 	let mut out = []string{}
 	for x in slices.Sorted(maps.Keys(count)) {
 		let n = maps.GetOr(count, x, 0)
-		if n > 0 && len(out) < 8 {
+		if n > 0 && out.Len() < 8 {
 			out = out.Append("- " + x)
-		} else if n < 0 && len(out) < 8 {
+		} else if n < 0 && out.Len() < 8 {
 			out = out.Append("+ " + x)
 		}
 	}
@@ -384,9 +385,9 @@ func nameOf(p prog, id string) string { maps.GetOr(p.Names, id, "") }
 // headOf is the line that declares a symbol.
 func headOf(p prog, id string) string {
 	match p.Owners.Get(id) {
-	case Some[string] as o:
+	case option.Some[string] as o:
 		"func " + nameOf(p, o.Value) + "." + nameOf(p, id)
-	case None:
+	case option.None:
 		maps.GetOr(p.Kinds, id, "") + " " + nameOf(p, id)
 	}
 }
@@ -410,8 +411,8 @@ func tokText(p prog, t tok) string {
 func renameIsAlpha(seed int, pick int, to int) bool {
 	let p = Program(seed)
 	let ids = slices.Sorted(maps.Keys(p.Names))
-	let id = ids[slot(pick, len(ids))]
-	let name = RenameNames[slot(to, len(RenameNames))]
+	let id = ids[slot(pick, ids.Len())]
+	let name = RenameNames[slot(to, RenameNames.Len())]
 	let sources = render(p)
 	let (want, texts) = referenceRename(p, id, name)
 	let (got, plan) = renameOutcome(sources, Rename{Of: id, To: name})
@@ -453,7 +454,7 @@ func referenceRename(p prog, id string, to string) (string, []Source) {
 	if referenceRows(before, moved) != referenceRows(after, Map[string, string]{}) {
 		return ("capture", texts)
 	}
-	(if len(after.Diagnostics) == 0 { "alpha" } else { "blocked" }, texts)
+	(if after.Diagnostics.Len() == 0 { "alpha" } else { "blocked" }, texts)
 }
 
 // familyIn is the ids a rename of id renames in p: id, and for an
@@ -465,14 +466,14 @@ func familyIn(p prog, id string) []string {
 		ops = []string{id}
 	}
 	match p.Owners.Get(id) {
-	case Some[string] as o:
+	case option.Some[string] as o:
 		for b in p.Binds {
 			let op = b.Op + "." + nameOf(p, id)
 			if b.By == o.Value && maps.GetOr(p.Kinds, op, "") == "operation" {
 				ops = ops.Append(op)
 			}
 		}
-	case None:
+	case option.None:
 	}
 	let mut out = []string{id}
 	for op in ops {
@@ -495,9 +496,9 @@ func packageOfID(id string) string { strings.Slice(id, 0, strings.Index(id, ".")
 // handleIn is the handle of id under p's names.
 func handleIn(p prog, id string) string {
 	match p.Owners.Get(id) {
-	case Some[string] as o:
+	case option.Some[string] as o:
 		packageOfID(id) + "." + nameOf(p, o.Value) + "." + nameOf(p, id)
-	case None:
+	case option.None:
 		packageOfID(id) + "." + nameOf(p, id)
 	}
 }

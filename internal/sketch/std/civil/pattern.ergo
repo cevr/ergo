@@ -2,6 +2,7 @@
 // 2 and later, Luxon, Java, Swift) and Go's reference layout. Both give
 // the Field values of format.ergo and the same checks.
 
+import option
 
 // Pattern is the date and time format of the LDML pattern text, with
 // English names. Letters: y (year), yyyy (four digits), M MM (month), MMM
@@ -55,10 +56,10 @@ type token { letter byte, count int, at int, text string }
 func tokens(text string) []token fails BadPattern {
 	let mut out = []token{}
 	let mut i = 0
-	for i < len(text) {
+	for i < text.Len() {
 		let c = text[i]
 		if c == '\'' {
-			if i + 1 < len(text) && text[i + 1] == '\'' {
+			if i+1 < text.Len() && text[i+1] == '\'' {
 				out = out.Append(token{letter: 0, count: 0, at: i, text: "'"})
 				i = i + 2
 				continue
@@ -66,9 +67,9 @@ func tokens(text string) []token fails BadPattern {
 			let mut j = i + 1
 			let mut lit = ""
 			let mut closed = false
-			for j < len(text) && !closed {
+			for j < text.Len() && !closed {
 				if text[j] == '\'' {
-					if j + 1 < len(text) && text[j + 1] == '\'' {
+					if j+1 < text.Len() && text[j+1] == '\'' {
 						lit = lit + "'"
 						j = j + 2
 					} else {
@@ -76,26 +77,26 @@ func tokens(text string) []token fails BadPattern {
 						j = j + 1
 					}
 				} else {
-					lit = lit + text[j:j + 1]
+					lit = lit + text[j:j+1]
 					j = j + 1
 				}
 			}
 			if !closed {
 				return BadPattern{Text: text, At: i, Hint: "a quote that does not close"}
 			}
-			if len(lit) > 0 {
+			if lit.Len() > 0 {
 				out = out.Append(token{letter: 0, count: 0, at: i, text: lit})
 			}
 			i = j
 		} else if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' {
 			let mut j = i
-			for j < len(text) && text[j] == c {
+			for j < text.Len() && text[j] == c {
 				j = j + 1
 			}
 			out = out.Append(token{letter: c, count: j - i, at: i, text: ""})
 			i = j
 		} else {
-			out = out.Append(token{letter: 0, count: 0, at: i, text: text[i:i + 1]})
+			out = out.Append(token{letter: 0, count: 0, at: i, text: text[i : i+1]})
 			i = i + 1
 		}
 	}
@@ -118,13 +119,13 @@ func patternFields(text string, zoned bool) ([]Field, []int) fails BadPattern {
 	let mut litAt = 0
 	for t in ts {
 		if t.letter == 0 {
-			if len(lit) == 0 {
+			if lit.Len() == 0 {
 				litAt = t.at
 			}
 			lit = lit + t.text
 			continue
 		}
-		if len(lit) > 0 {
+		if lit.Len() > 0 {
 			fields = fields.Append(Literal{Text: lit})
 			at = at.Append(litAt)
 			lit = ""
@@ -132,7 +133,7 @@ func patternFields(text string, zoned bool) ([]Field, []int) fails BadPattern {
 		fields = fields.Append(try letterField(text, t, week, month, zoned))
 		at = at.Append(t.at)
 	}
-	if len(lit) > 0 {
+	if lit.Len() > 0 {
 		fields = fields.Append(Literal{Text: lit})
 		at = at.Append(litAt)
 	}
@@ -254,7 +255,7 @@ func letterField(text string, t token, week bool, month bool, zoned bool) Field 
 		}
 		return try zoneLetter(text, t)
 	}
-	badAt(text, t.at, "\(text[t.at:t.at + 1]) is not a pattern letter of civil; quote literal text: 'at'")
+	badAt(text, t.at, "\(text[t.at : t.at+1]) is not a pattern letter of civil; quote literal text: 'at'")
 }
 
 // zoneLetter is the field of one zone letter run of a zoned LDML pattern.
@@ -280,7 +281,7 @@ func zoneLetter(text string, t token) Field fails BadPattern {
 		return ZoneID
 	}
 	if (c == 'X' || c == 'x') && n == 1 {
-		return badAt(text, t.at, "\(text[t.at:t.at + 1]) alone drops the offset's minutes; write \(text[t.at:t.at + 1])\(text[t.at:t.at + 1]) or \(text[t.at:t.at + 1])\(text[t.at:t.at + 1])\(text[t.at:t.at + 1])")
+		return badAt(text, t.at, "\(text[t.at : t.at+1]) alone drops the offset's minutes; write \(text[t.at : t.at+1])\(text[t.at : t.at+1]) or \(text[t.at : t.at+1])\(text[t.at : t.at+1])\(text[t.at : t.at+1])")
 	}
 	badAt(text, t.at, "write XX, XXX, xx, xxx, Z or ZZZZZ for the offset, z for the abbreviation and VV for the zone's name; localized zone forms are not civil's")
 }
@@ -298,7 +299,7 @@ func layoutFields(text string, zoned bool) ([]Field, []int) fails BadPattern {
 	let mut at = []int{}
 	let mut i = 0
 	let mut litAt = 0
-	for i < len(text) {
+	for i < text.Len() {
 		let (n, f) = try layoutElement(text, i, zoned)
 		if n == 0 {
 			i = i + 1
@@ -309,21 +310,21 @@ func layoutFields(text string, zoned bool) ([]Field, []int) fails BadPattern {
 			at = at.Append(litAt)
 		}
 		match f {
-		case Some[Field] as x:
+		case option.Some[Field] as x:
 			fields = fields.Append(x.Value)
 			at = at.Append(i)
-		case None:
+		case option.None:
 		}
 		match layoutLead(text, i) {
-		case Some[Field] as x:
+		case option.Some[Field] as x:
 			fields = fields.Append(x.Value)
 			at = at.Append(i + 1)
-		case None:
+		case option.None:
 		}
 		i = i + n
 		litAt = i
 	}
-	if len(text) > litAt {
+	if text.Len() > litAt {
 		fields = fields.Append(Literal{Text: text[litAt:]})
 		at = at.Append(litAt)
 	}
@@ -332,105 +333,105 @@ func layoutFields(text string, zoned bool) ([]Field, []int) fails BadPattern {
 
 // layoutLead is the field a Go element at i writes after its own first
 // one: the fraction of ".000" or ",000", whose separator is a Literal.
-func layoutLead(text string, i int) Option[Field] {
-	if (text[i] == '.' || text[i] == ',') && i + 1 < len(text) && text[i + 1] == '0' {
+func layoutLead(text string, i int) option.Option[Field] {
+	if (text[i] == '.' || text[i] == ',') && i+1 < text.Len() && text[i+1] == '0' {
 		let mut j = i + 1
-		for j < len(text) && text[j] == '0' {
+		for j < text.Len() && text[j] == '0' {
 			j = j + 1
 		}
-		return Some[Field]{Value: Fraction{Digits: j - i - 1, Trim: false}}
+		return option.Some[Field]{Value: Fraction{Digits: j - i - 1, Trim: false}}
 	}
-	None
+	option.None
 }
 
 func has(text string, i int, s string) bool { startsAt(text, i, s) }
 
-func lowerAt(text string, i int) bool { i < len(text) && text[i] >= 'a' && text[i] <= 'z' }
+func lowerAt(text string, i int) bool { i < text.Len() && text[i] >= 'a' && text[i] <= 'z' }
 
 // layoutElement is the Go layout element at text[i]: its length (0 when
 // none starts there) and its field (for ".000", the separator's Literal;
 // layoutLead gives the fraction).
-func layoutElement(text string, i int, zoned bool) (int, Option[Field]) fails BadPattern {
+func layoutElement(text string, i int, zoned bool) (int, option.Option[Field]) fails BadPattern {
 	let c = text[i]
 	if c == 'J' && has(text, i, "Jan") {
 		if has(text, i, "January") {
-			return (7, Some[Field]{Value: MonthName{Width: Full}})
+			return (7, option.Some[Field]{Value: MonthName{Width: Full}})
 		}
-		if !lowerAt(text, i + 3) {
-			return (3, Some[Field]{Value: MonthName{Width: Short}})
+		if !lowerAt(text, i+3) {
+			return (3, option.Some[Field]{Value: MonthName{Width: Short}})
 		}
 	}
 	if c == 'M' {
 		if has(text, i, "Mon") {
 			if has(text, i, "Monday") {
-				return (6, Some[Field]{Value: WeekdayName{Width: Full}})
+				return (6, option.Some[Field]{Value: WeekdayName{Width: Full}})
 			}
-			if !lowerAt(text, i + 3) {
-				return (3, Some[Field]{Value: WeekdayName{Width: Short}})
+			if !lowerAt(text, i+3) {
+				return (3, option.Some[Field]{Value: WeekdayName{Width: Short}})
 			}
 		}
 		if has(text, i, "MST") {
 			if !zoned {
 				return badAt(text, i, "MST is a zone abbreviation, which needs a zone; build a ZonedFormat with ZonedLayout for tz.FormatZoned")
 			}
-			return (3, Some[Field]{Value: ZoneAbbreviation})
+			return (3, option.Some[Field]{Value: ZoneAbbreviation})
 		}
 	}
-	if c == '0' && i + 1 < len(text) {
-		let d = text[i + 1]
+	if c == '0' && i+1 < text.Len() {
+		let d = text[i+1]
 		if d == '1' {
-			return (2, Some[Field]{Value: MonthNumber{Pad: ZeroPad}})
+			return (2, option.Some[Field]{Value: MonthNumber{Pad: ZeroPad}})
 		}
 		if d == '2' {
-			return (2, Some[Field]{Value: DayOfMonth{Pad: ZeroPad}})
+			return (2, option.Some[Field]{Value: DayOfMonth{Pad: ZeroPad}})
 		}
 		if d == '3' {
-			return (2, Some[Field]{Value: Hour12{Pad: ZeroPad}})
+			return (2, option.Some[Field]{Value: Hour12{Pad: ZeroPad}})
 		}
 		if d == '4' {
-			return (2, Some[Field]{Value: MinuteNumber{Pad: ZeroPad}})
+			return (2, option.Some[Field]{Value: MinuteNumber{Pad: ZeroPad}})
 		}
 		if d == '5' {
-			return (2, Some[Field]{Value: SecondNumber{Pad: ZeroPad}})
+			return (2, option.Some[Field]{Value: SecondNumber{Pad: ZeroPad}})
 		}
 		if d == '6' {
 			return badAt(text, i, "06 is a two-digit year, which needs a pivot: build it with Fields and YearNumber{Digits: TwoDigits{Pivot: …}}")
 		}
 		if has(text, i, "002") {
-			return (3, Some[Field]{Value: DayOfYear{Pad: ZeroPad}})
+			return (3, option.Some[Field]{Value: DayOfYear{Pad: ZeroPad}})
 		}
 	}
 	if c == '1' {
 		if has(text, i, "15") {
-			return (2, Some[Field]{Value: Hour24{Pad: ZeroPad}})
+			return (2, option.Some[Field]{Value: Hour24{Pad: ZeroPad}})
 		}
-		return (1, Some[Field]{Value: MonthNumber{Pad: NoPad}})
+		return (1, option.Some[Field]{Value: MonthNumber{Pad: NoPad}})
 	}
 	if c == '2' {
 		if has(text, i, "2006") {
-			return (4, Some[Field]{Value: YearNumber{Digits: FourDigits}})
+			return (4, option.Some[Field]{Value: YearNumber{Digits: FourDigits}})
 		}
-		return (1, Some[Field]{Value: DayOfMonth{Pad: NoPad}})
+		return (1, option.Some[Field]{Value: DayOfMonth{Pad: NoPad}})
 	}
 	if c == '_' {
 		if has(text, i, "_2") && !has(text, i, "_2006") {
-			return (2, Some[Field]{Value: DayOfMonth{Pad: SpacePad}})
+			return (2, option.Some[Field]{Value: DayOfMonth{Pad: SpacePad}})
 		}
 		if has(text, i, "__2") {
-			return (3, Some[Field]{Value: DayOfYear{Pad: SpacePad}})
+			return (3, option.Some[Field]{Value: DayOfYear{Pad: SpacePad}})
 		}
 	}
 	if c == '3' {
-		return (1, Some[Field]{Value: Hour12{Pad: NoPad}})
+		return (1, option.Some[Field]{Value: Hour12{Pad: NoPad}})
 	}
 	if c == '4' {
-		return (1, Some[Field]{Value: MinuteNumber{Pad: NoPad}})
+		return (1, option.Some[Field]{Value: MinuteNumber{Pad: NoPad}})
 	}
 	if c == '5' {
-		return (1, Some[Field]{Value: SecondNumber{Pad: NoPad}})
+		return (1, option.Some[Field]{Value: SecondNumber{Pad: NoPad}})
 	}
 	if c == 'P' && has(text, i, "PM") {
-		return (2, Some[Field]{Value: Meridiem})
+		return (2, option.Some[Field]{Value: Meridiem})
 	}
 	if c == 'p' && has(text, i, "pm") {
 		return badAt(text, i, "pm writes am or pm; write PM, or pass Names with lower-case AM and PM to Fields")
@@ -440,32 +441,32 @@ func layoutElement(text string, i int, zoned bool) (int, Option[Field]) fails Ba
 			return badAt(text, i, "an offset needs a zone; build a ZonedFormat with ZonedLayout for tz.FormatZoned")
 		}
 		let z = c == 'Z'
-		if has(text, i + 1, "07:00:00") || has(text, i + 1, "070000") {
-			return badAt(text, i, "the offset writes its seconds when it has them; write \(text[i:i + 1])07:00 or \(text[i:i + 1])0700")
+		if has(text, i+1, "07:00:00") || has(text, i+1, "070000") {
+			return badAt(text, i, "the offset writes its seconds when it has them; write \(text[i : i+1])07:00 or \(text[i : i+1])0700")
 		}
-		if has(text, i + 1, "07:00") {
-			return (6, Some[Field]{Value: OffsetField{Colon: true, Z: z}})
+		if has(text, i+1, "07:00") {
+			return (6, option.Some[Field]{Value: OffsetField{Colon: true, Z: z}})
 		}
-		if has(text, i + 1, "0700") {
-			return (5, Some[Field]{Value: OffsetField{Colon: false, Z: z}})
+		if has(text, i+1, "0700") {
+			return (5, option.Some[Field]{Value: OffsetField{Colon: false, Z: z}})
 		}
-		return badAt(text, i, "\(text[i:i + 3]) drops the offset's minutes; write \(text[i:i + 1])07:00 or \(text[i:i + 1])0700")
+		return badAt(text, i, "\(text[i : i+3]) drops the offset's minutes; write \(text[i : i+1])07:00 or \(text[i : i+1])0700")
 	}
-	if (c == '.' || c == ',') && i + 1 < len(text) && (text[i + 1] == '0' || text[i + 1] == '9') {
-		let ch = text[i + 1]
+	if (c == '.' || c == ',') && i+1 < text.Len() && (text[i+1] == '0' || text[i+1] == '9') {
+		let ch = text[i+1]
 		let mut j = i + 1
-		for j < len(text) && text[j] == ch {
+		for j < text.Len() && text[j] == ch {
 			j = j + 1
 		}
-		if !(j < len(text) && text[j] >= '0' && text[j] <= '9') {
+		if !(j < text.Len() && text[j] >= '0' && text[j] <= '9') {
 			if ch == '0' {
-				return (j - i, Some[Field]{Value: Literal{Text: text[i:i + 1]}})
+				return (j - i, option.Some[Field]{Value: Literal{Text: text[i : i+1]}})
 			}
 			if c == ',' {
 				return badAt(text, i, ",999 is a trimmed fraction after a comma; civil trims after a dot: write .999")
 			}
-			return (j - i, Some[Field]{Value: Fraction{Digits: j - i - 1, Trim: true}})
+			return (j - i, option.Some[Field]{Value: Fraction{Digits: j - i - 1, Trim: true}})
 		}
 	}
-	(0, None)
+	(0, option.None)
 }

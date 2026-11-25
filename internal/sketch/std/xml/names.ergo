@@ -8,7 +8,7 @@ func Name(s string) bool {
 		return false
 	}
 	let mut i = 0
-	for i < len(s) {
+	for i < s.Len() {
 		let c = s[i]
 		if c < 0x80 {
 			if !(nameStartByte(c) || i > 0 && nameByte(c)) {
@@ -16,7 +16,7 @@ func Name(s string) bool {
 			}
 			i = i + 1
 		} else {
-			let d = utf8.DecodeRuneInString(strings.Slice(s, i, len(s)))
+			let d = utf8.DecodeRuneInString(strings.Slice(s, i, s.Len()))
 			if d.Size <= 1 || !(nameStartRune(d.Rune) || i > 0 && nameRune(d.Rune)) {
 				return false
 			}
@@ -52,7 +52,7 @@ func held(s string) string { strings.FromBytes(escapeHeld([]byte{}, s)) }
 func escapeHeld(out []byte, s string) []byte {
 	let mut o = out
 	let mut i = 0
-	for i < len(s) {
+	for i < s.Len() {
 		let c = s[i]
 		if c < 0x80 {
 			if c < 0x20 && c != '\t' && c != '\n' && c != '\r' {
@@ -62,7 +62,7 @@ func escapeHeld(out []byte, s string) []byte {
 			}
 			i = i + 1
 		} else {
-			let d = utf8.DecodeRuneInString(strings.Slice(s, i, len(s)))
+			let d = utf8.DecodeRuneInString(strings.Slice(s, i, s.Len()))
 			if d.Size <= 1 {
 				o = appendString(o, "\uFFFD")
 				i = i + 1

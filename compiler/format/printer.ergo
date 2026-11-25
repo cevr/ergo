@@ -101,7 +101,7 @@ func ln(p mut Printer, at int) int {
 	p.BHi = p.AHi
 	p.ALine = line
 	p.ALo = syntax.LineStart(p.Lines, line-1)
-	p.AHi = if line < syntax.NumLines(p.Lines) { syntax.LineStart(p.Lines, line) } else { len(p.Src) + 2 }
+	p.AHi = if line < syntax.NumLines(p.Lines) { syntax.LineStart(p.Lines, line) } else { p.Src.Len() + 2 }
 	line
 }
 
@@ -153,7 +153,7 @@ func emit(p mut Printer, at int) {
 func write(p mut Printer, text string) { p.L.writeToken(text) }
 
 // token prints a source token at at after the comments before it.
-func token(p mut Printer, at int, text string) { p.tokenEnd(at, text, at+len(text)) }
+func token(p mut Printer, at int, text string) { p.tokenEnd(at, text, at+text.Len()) }
 
 func tokenEnd(p mut Printer, at int, text string, end int) {
 	p.flushComments(at)
@@ -212,7 +212,7 @@ func sourceToken(p mut Printer, text string) int {
 	let mut i = p.LastTok
 	// The first comment that starts at or after i.
 	let mut lo = 0
-	let mut hi = len(p.CSlash)
+	let mut hi = p.CSlash.Len()
 	for lo < hi {
 		let mid = (lo + hi) / 2
 		if p.CSlash[mid] >= i {
@@ -222,16 +222,16 @@ func sourceToken(p mut Printer, text string) int {
 		}
 	}
 	let mut ci = lo
-	for i < len(src) {
+	for i < src.Len() {
 		let c = src[i]
 		if c == ' ' || c == '\t' || c == '\r' || c == '\n' {
 			i += 1
 			continue
 		}
-		for ci < len(p.CSlash) && p.CSlash[ci] < i {
+		for ci < p.CSlash.Len() && p.CSlash[ci] < i {
 			ci += 1
 		}
-		if ci < len(p.CSlash) && p.CSlash[ci] == i {
+		if ci < p.CSlash.Len() && p.CSlash[ci] == i {
 			i = p.CEnd[ci]
 			continue
 		}
@@ -240,8 +240,8 @@ func sourceToken(p mut Printer, text string) int {
 	if !hasAt(src, i, text) {
 		return NoPos
 	}
-	let end = i + len(text)
-	if isWordByte(text[len(text)-1]) && end < len(src) && isWordByte(src[end]) {
+	let end = i + text.Len()
+	if isWordByte(text[text.Len()-1]) && end < src.Len() && isWordByte(src[end]) {
 		return NoPos
 	}
 	i

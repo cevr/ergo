@@ -8,6 +8,7 @@
 // UntilStop turns a stop into structured cancellation: the body is
 // stopped, its exit actions run, and UntilStop fails with Stopped.
 
+import option
 import os
 import queue
 import scope
@@ -42,14 +43,14 @@ type Stops {
 	Next() Stop,
 	// Poll takes a stop already delivered, and is None when there is
 	// none. It never waits.
-	Poll() Option[Stop],
+	Poll() option.Option[Stop],
 }
 
 // Watched is the host's Stops for the kinds Watch named. Its fields give
 // this package the construction authority, so only Watch makes one.
 type Watched { q queue.OpenQueue[int], id int } implements Stops
 
-func Watch(kinds []Stop) Watched needs Ambient {
+func Watch(kinds []Stop) Watched needs os.Ambient {
 	let q = queue.NewOpen[int](8)
 	let mut codes = []int{}
 	for k in kinds {
@@ -62,7 +63,7 @@ func Unwatch(w Watched) { hostUnwatch(w.id) }
 
 func Next(w Watched) Stop { nextOf(w.q) }
 
-func Poll(w Watched) Option[Stop] { pollOf(w.q) }
+func Poll(w Watched) option.Option[Stop] { pollOf(w.q) }
 
 extern go ergo.local/prototype/runtime/v1.SignalWatch func hostWatch(q queue.OpenQueue[int], kinds []int) int
 extern go ergo.local/prototype/runtime/v1.SignalUnwatch func hostUnwatch(id int)
@@ -70,7 +71,7 @@ extern go ergo.local/prototype/runtime/v1.SignalUnwatch func hostUnwatch(id int)
 type Script { q queue.OpenQueue[int] } implements Stops
 
 func NewScript(raised []Stop) Script {
-	let s = Script{q: queue.NewOpen[int](len(raised) + 8)}
+	let s = Script{q: queue.NewOpen[int](raised.Len() + 8)}
 	for k in raised {
 		s.Raise(k)
 	}
@@ -85,7 +86,7 @@ func Raise(s Script, k Stop) {
 func Next(s Script) Stop { nextOf(s.q) }
 
 // Poll is a stop raised on s and not yet taken, if any.
-func Poll(s Script) Option[Stop] { pollOf(s.q) }
+func Poll(s Script) option.Option[Stop] { pollOf(s.q) }
 
 // RaisedInOrder: the stops raised on a Script come out of Next in the
 // order they were raised, and then Poll is None.
@@ -100,14 +101,14 @@ law RaisedInOrder(picks []int) {
 			return false
 		}
 	}
-	s.Poll() == None
+	s.Poll() == option.None
 }
 
 // PollTakesOnce: a stop Poll took is gone; a second Poll is None.
 law PollTakesOnce(pick int) {
 	let k = stopOf((pick%3+3)%3 + 1)
 	let s = NewScript([]Stop{k})
-	s.Poll() == Some[Stop]{Value: k} && s.Poll() == None
+	s.Poll() == option.Some[Stop]{Value: k} && s.Poll() == option.None
 }
 
 // UntilStop runs body until it ends or a stop comes from s, whichever is
@@ -169,7 +170,7 @@ func Next(a afterStart) Stop {
 	a.k
 }
 
-func Poll(_ afterStart) Option[Stop] { None }
+func Poll(_ afterStart) option.Option[Stop] { option.None }
 
 // StatusOf is the exit status of a program a stop of kind k ended: 128
 // plus the signal's number, as a shell reports it: 130 for Interrupt, 143
@@ -203,12 +204,12 @@ func nextOf(q queue.OpenQueue[int]) Stop {
 	stopOf(q.Pop())
 }
 
-func pollOf(q queue.OpenQueue[int]) Option[Stop] {
+func pollOf(q queue.OpenQueue[int]) option.Option[Stop] {
 	match q.Poll() {
-	case Some[int] as c:
-		Some[Stop]{Value: stopOf(c.Value)}
-	case None:
-		None
+	case option.Some[int] as c:
+		option.Some[Stop]{Value: stopOf(c.Value)}
+	case option.None:
+		option.None
 	}
 }
 

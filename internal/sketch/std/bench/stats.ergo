@@ -17,6 +17,7 @@
 import cmp
 import gen
 import math
+import option
 import slices
 import strings
 
@@ -136,7 +137,7 @@ law ExactIsExact() {
 		let pairs = gen.Named("pairs", showPairs, func() []Pair needs gen.Draws { drawnSeries(n, Exact) })
 		let mut seen = []Pair{}
 		for i, p in pairs {
-			seen = seen.Append(if moved && i == len(pairs)-1 { Pair{Base: p.Base, Head: p.Head + 1.0} } else { p })
+			seen = seen.Append(if moved && i == pairs.Len()-1 { Pair{Base: p.Base, Head: p.Head + 1.0} } else { p })
 		}
 		let e = math.Log(pairs[0].Head) - math.Log(pairs[0].Base)
 		match Decide(seen, Exact, Change{Bound: 0.5}, Level(Planned)) {
@@ -477,7 +478,7 @@ law NoWorseReadsTheInterval() {
 
 // Unclear: the pairs decide nothing yet. Needed is the pairs projected
 // for an 80% chance to decide, when a projection exists.
-type Unclear { Of Difference, Needed Option[int] }
+type Unclear { Of Difference, Needed option.Option[int] }
 
 // Underpowered: the series stopped undecided because it would need more
 // pairs than its design has (the referee's futility stop, BN2).
@@ -549,7 +550,7 @@ type SharedRunner {}
 // or above the margin; else Unclear. An interval that does not reach the
 // level decides nothing.
 func Decide(pairs []Pair, k Kind, c Claim, level float64) Verdict {
-	let n = len(pairs)
+	let n = pairs.Len()
 	if n > MaxPairs() {
 		return Refused{Why: TooManyPairs{Pairs: n}}
 	}
@@ -581,7 +582,7 @@ func exactly(pairs []Pair, d []float64, log bool, c Claim, shift float64) Verdic
 		}
 	}
 	let e = d[0]
-	let of = Difference{Pairs: len(d), Log: log, Estimate: e, Low: e, High: e, Coverage: 1.0, P: if e == 0.0 { 1.0 } else { 0.0 }, Exact: true}
+	let of = Difference{Pairs: d.Len(), Log: log, Estimate: e, Low: e, High: e, Coverage: 1.0, P: if e == 0.0 { 1.0 } else { 0.0 }, Exact: true}
 	match c {
 	case Change:
 		if e < 0.0 {
@@ -602,12 +603,12 @@ func exactly(pairs []Pair, d []float64, log bool, c Claim, shift float64) Verdic
 // judge reads the interval of d at level against claim c, whose bound or
 // margin is shift in d's scale.
 func judge(d []float64, log bool, c Claim, shift float64, level float64) Verdict {
-	let untied = untiedNull(len(d))
+	let untied = untiedNull(d.Len())
 	let hl = hodgesLehmann(d, level, untied)
 	let covered = hl.Coverage+1e-9 >= level
 	match c {
 	case Change:
-		let of = Difference{Pairs: len(d), Log: log, Estimate: hl.Center, Low: hl.Low, High: hl.High, Coverage: hl.Coverage, P: signedRankP(d, untied), Exact: false}
+		let of = Difference{Pairs: d.Len(), Log: log, Estimate: hl.Center, Low: hl.Low, High: hl.High, Coverage: hl.Coverage, P: signedRankP(d, untied), Exact: false}
 		if !covered {
 			return Unclear{Of: of, Needed: Needed(d, shift, level, 0.8)}
 		}
@@ -626,7 +627,7 @@ func judge(d []float64, log bool, c Claim, shift float64, level float64) Verdict
 		for x in d {
 			moved = moved.Append(x - shift)
 		}
-		let of = Difference{Pairs: len(d), Log: log, Estimate: hl.Center, Low: hl.Low, High: hl.High, Coverage: hl.Coverage, P: signedRankP(moved, untied), Exact: false}
+		let of = Difference{Pairs: d.Len(), Log: log, Estimate: hl.Center, Low: hl.Low, High: hl.High, Coverage: hl.Coverage, P: signedRankP(moved, untied), Exact: false}
 		if !covered {
 			return Unclear{Of: of, Needed: neededBeside(d, shift, level, 0.8)}
 		}
@@ -715,7 +716,7 @@ law MatchesEnumeration() {
 				ups = ups.Append(x > 0.0)
 			}
 		}
-		let m = len(sizes)
+		let m = sizes.Len()
 		let ranks = doubledRanks(sizes)
 		let mut t = 0
 		for k, r in ranks {
@@ -797,15 +798,15 @@ law SignedRankPMatchesReference() {
 			}
 		}
 		let null = refNull(ranks)
-		let top = len(null) - 1
+		let top = null.Len() - 1
 		let t = if t2 <= top-t2 { t2 } else { top - t2 }
 		let mut tail = 0.0
 		for k in 0..t+1 {
 			tail = tail + null[k]
 		}
 		let twice = 2.0 * tail
-		let p = if len(sizes) == 0 { 1.0 } else { if twice < 1.0 { twice } else { 1.0 } }
-		SignedRankP(d) == p && signedRankP(d, untiedNull(len(d))) == p
+		let p = if sizes.Len() == 0 { 1.0 } else { if twice < 1.0 { twice } else { 1.0 } }
+		SignedRankP(d) == p && signedRankP(d, untiedNull(d.Len())) == p
 	})) == ""
 	true
 }
@@ -821,7 +822,7 @@ func signedRankP(d []float64, untied []float64) float64 {
 			s = s.Append(signed{size: math.Abs(x), up: x > 0.0})
 		}
 	}
-	let n = len(s)
+	let n = s.Len()
 	if n == 0 {
 		return 1.0
 	}
@@ -860,7 +861,7 @@ func signedRankP(d []float64, untied []float64) float64 {
 	// size ties), which keeps each sum and its chance.
 	let t = if t2 <= top-t2 { t2 } else { top - t2 }
 	let mut tail = 0.0
-	if !tied && n == len(d) && t/g < len(untied) {
+	if !tied && n == d.Len() && t/g < untied.Len() {
 		// Untied doubled ranks are 2, 4, …, 2n: the untied table at t/2.
 		for k in 0..t/g+1 {
 			tail = tail + untied[k]
@@ -957,9 +958,9 @@ law NullMatchesReference() {
 			ranks = ranks.Append(if divide && g > 0 { r / g } else { r })
 		}
 		let want = refNull(ranks)
-		let upto = gen.Named("upto", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(0, len(want)) })
+		let upto = gen.Named("upto", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(0, want.Len()) })
 		let got = nullOf(ranks, upto)
-		let mut same = len(got) == (if upto < len(want) { upto + 1 } else { len(want) })
+		let mut same = got.Len() == (if upto < want.Len() { upto + 1 } else { want.Len() })
 		for s, x in got {
 			same = same && x == want[s]
 		}
@@ -1014,7 +1015,7 @@ type Estimate { Center float64, Low float64, High float64, Coverage float64 }
 // 1 - 2 P(T <= c). When even c = 0 is too likely (too few pairs for the
 // level), the interval is [min, max], which covers 1 - 2 P(T = 0). With
 // no differences every field is 0.
-func HodgesLehmann(d []float64, level float64) Estimate { hodgesLehmann(d, level, untiedNull(len(d))) }
+func HodgesLehmann(d []float64, level float64) Estimate { hodgesLehmann(d, level, untiedNull(d.Len())) }
 
 // HodgesLehmannMatchesReference: the interval read from the half table
 // untiedNull is the one read from the reference's whole table, at levels
@@ -1025,8 +1026,8 @@ law HodgesLehmannMatchesReference() {
 		let level = gen.Named("level", func(v float64) string { "\(v)" }, func() float64 needs gen.Draws {
 			gen.OneOf([]float64{0.0, 0.5, 0.9, 0.95, 0.9842, 0.999})
 		})
-		let want = hodgesLehmann(d, level, refNull(ranksTo(len(d))))
-		HodgesLehmann(d, level) == want && hodgesLehmann(d, level, untiedNull(len(d))) == want
+		let want = hodgesLehmann(d, level, refNull(ranksTo(d.Len())))
+		HodgesLehmann(d, level) == want && hodgesLehmann(d, level, untiedNull(d.Len())) == want
 	})) == ""
 	true
 }
@@ -1047,7 +1048,7 @@ func ranksTo(n int) []int {
 
 // hodgesLehmann is HodgesLehmann with untied, untiedNull(len(d)), given.
 func hodgesLehmann(d []float64, level float64, untied []float64) Estimate {
-	let n = len(d)
+	let n = d.Len()
 	if n == 0 {
 		return Estimate{Center: 0.0, Low: 0.0, High: 0.0, Coverage: 0.0}
 	}
@@ -1058,7 +1059,7 @@ func hodgesLehmann(d []float64, level float64, untied []float64) Estimate {
 		}
 	}
 	let w = slices.Sort(walsh)
-	let m = len(w)
+	let m = w.Len()
 	let center = if m%2 == 1 { w[m/2] } else { (w[m/2-1] + w[m/2]) / 2.0 }
 	let half = (1.0 - level) / 2.0
 	// A lower tail up to half, below one half, ends inside untied; a level
@@ -1067,7 +1068,7 @@ func hodgesLehmann(d []float64, level float64, untied []float64) Estimate {
 	let mut acc = 0.0
 	let mut c = -1
 	let mut k = 0
-	for k < len(null) && acc+null[k] <= half {
+	for k < null.Len() && acc+null[k] <= half {
 		acc = acc + null[k]
 		c = k
 		k = k + 1
@@ -1081,7 +1082,7 @@ func hodgesLehmann(d []float64, level float64, untied []float64) Estimate {
 // Median is the median of xs: the middle value, or the mean of the two
 // middle values. Of no values it is 0.
 func Median(xs []float64) float64 {
-	let n = len(xs)
+	let n = xs.Len()
 	if n == 0 {
 		return 0.0
 	}
@@ -1101,14 +1102,14 @@ func Spread(xs []float64) float64 {
 		dev = dev.Append(math.Abs(x - med))
 	}
 	let r = 1.4826 * Median(dev)
-	if r > 0.0 || len(xs) == 0 {
+	if r > 0.0 || xs.Len() == 0 {
 		return r
 	}
 	let mut sum = 0.0
 	for x in dev {
 		sum = sum + x
 	}
-	1.2533 * sum / float64(len(xs))
+	1.2533 * sum / float64(xs.Len())
 }
 
 // Needed is the pairs projected for a power chance that an interval at
@@ -1117,9 +1118,9 @@ func Spread(xs []float64) float64 {
 // the Hodges-Lehmann efficiency 0.955, and never fewer than the pairs the
 // level needs. None when nothing projects: fewer than 2 differences, or a
 // median on the boundary.
-func Needed(d []float64, shift float64, level float64, power float64) Option[int] {
-	if len(d) < 2 {
-		return None
+func Needed(d []float64, shift float64, level float64, power float64) option.Option[int] {
+	if d.Len() < 2 {
+		return option.None
 	}
 	let med = math.Abs(Median(d))
 	let far = shift - med
@@ -1128,9 +1129,9 @@ func Needed(d []float64, shift float64, level float64, power float64) Option[int
 
 // neededBeside is Needed for a NoWorseThan claim: the distance that
 // decides is the one from d's median to the margin, either way.
-func neededBeside(d []float64, shift float64, level float64, power float64) Option[int] {
-	if len(d) < 2 {
-		return None
+func neededBeside(d []float64, shift float64, level float64, power float64) option.Option[int] {
+	if d.Len() < 2 {
+		return option.None
 	}
 	project(Spread(d), math.Abs(Median(d)-shift), level, power)
 }
@@ -1138,18 +1139,18 @@ func neededBeside(d []float64, shift float64, level float64, power float64) Opti
 // project is ((z(level) + z(power)) sigma / dist)^2 / 0.955 pairs, at
 // least the pairs whose interval can reach level; None for dist 0 or a
 // count too large to run.
-func project(sigma float64, dist float64, level float64, power float64) Option[int] {
+func project(sigma float64, dist float64, level float64, power float64) option.Option[int] {
 	if !(dist > 0.0) || !finite(sigma) {
-		return None
+		return option.None
 	}
 	let z = Quantile(1.0-(1.0-level)/2.0) + Quantile(power)
 	let x = z * sigma / dist
 	let pairs = math.Ceil(x * x / 0.955)
 	if !(pairs < 1e9) {
-		return None
+		return option.None
 	}
 	let least = PairsFor(level)
-	Some[int]{Value: if int(pairs) >= least { int(pairs) } else { least }}
+	option.Some[int]{Value: if int(pairs) >= least { int(pairs) } else { least }}
 }
 
 // PairsFor is the fewest pairs whose signed-rank interval can reach
@@ -1184,7 +1185,7 @@ func Quantile(p float64) float64 {
 // rejected, in their order. The k-th smallest (from 0) is rejected when it
 // and every smaller one is at most alpha / (len(ps) - k).
 func Holm(ps []float64, alpha float64) []bool {
-	let n = len(ps)
+	let n = ps.Len()
 	let mut order = []int{}
 	for i in 0..n {
 		order = order.Append(i)
@@ -1211,7 +1212,7 @@ law HolmRejectsNoMore() {
 		let ps = gen.Named("ps", showFloats, func() []float64 needs gen.Draws {
 			gen.ListOf(1, 12, func() float64 needs gen.Draws { float64(gen.IntIn(0, 99)) / 1000.0 })
 		})
-		let n = len(ps)
+		let n = ps.Len()
 		let mut same = []float64{}
 		for _ in 0..n {
 			same = same.Append(ps[0])

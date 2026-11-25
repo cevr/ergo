@@ -12,6 +12,10 @@
 // accepts in a loop and gives each Conn to a task of its own, as Go's
 // goroutine per connection.
 
+import core
+import fstest
+import os
+
 // ListenFailed is the failure of an address that could not be bound: one
 // in use, or not of the form "host:port".
 extern go ergo.local/prototype/runtime/v1/net.NetListenFailed type ListenFailed { Addr string, Reason string }
@@ -36,7 +40,7 @@ extern go ergo.local/prototype/runtime/v1/net.NetFailed type Failed { Reason str
 // connections equal to the pipe's.
 extern go ergo.local/prototype/runtime/v1/net.Conn type Conn {
 	runtimeOnly(),
-	..Closer,
+	..core.Closer,
 	// Read gives the next bytes the peer wrote, at most 64 KiB, waiting
 	// until there is one; "" once the peer closed and every byte it wrote
 	// was read. Close of a Conn that left bytes unread resets its peer,
@@ -60,7 +64,7 @@ extern go ergo.local/prototype/runtime/v1/net.Conn type Conn {
 // listener equal to the pipe's.
 extern go ergo.local/prototype/runtime/v1/net.Listener type Listener {
 	runtimeOnly(),
-	..Closer,
+	..core.Closer,
 	// Accept gives the next connection dialed to the address, waiting until
 	// there is one.
 	Accept() Conn fails Failed,
@@ -190,7 +194,7 @@ func sends(from Conn, to Conn, data string) bool {
 		return false
 	}
 	let mut got = ""
-	for len(got) < len(data) {
+	for got.Len() < data.Len() {
 		let part = to.Read() catch {
 		case Failed:
 			return false
@@ -252,14 +256,14 @@ func denyDial(addr string) bool needs loopbackNetwork {
 
 func loopbackLawOnly(_ Host) {}
 
-let onTestHost = context needs TestLoopback { Network, loopbackNetwork: NewTestHost() }
+let onTestHost = context needs fstest.TestLoopback { Network, loopbackNetwork: NewTestHost() }
 
 // NewHost is the host's Network. It needs Ambient: only the entry, or a
 // function main gives Ambient to, reaches the host's sockets.
-func NewHost() Host needs Ambient { Host{loopback: false} }
+func NewHost() Host needs os.Ambient { Host{loopback: false} }
 
 // NewTestHost supplies TCP on the two literal loopback addresses.
-func NewTestHost() Host needs TestLoopback { Host{loopback: true} }
+func NewTestHost() Host needs fstest.TestLoopback { Host{loopback: true} }
 
 func Listen(h Host, addr string) Listener fails ListenFailed | Denied {
 	if h.loopback && !loopbackAddress(addr) { return Denied{Addr: addr} }

@@ -1,3 +1,4 @@
+import option
 import sha256
 
 // The unified export data of the pin (internal/pkgbits version 5, the
@@ -55,7 +56,7 @@ func newExportW() ExportW {
 }
 
 func reserve(x mut ExportW, sec int) int {
-	let idx = len(x.elems[sec])
+	let idx = x.elems[sec].Len()
 	let mut s = x.elems[sec]
 	s = s.Append("")
 	x.elems[sec] = s
@@ -64,7 +65,7 @@ func reserve(x mut ExportW, sec int) int {
 
 func put(x mut ExportW, sec int, idx int, e Enc) {
 	let mut h = NewBuf()
-	h.Uvarint(len(e.refs))
+	h.Uvarint(e.refs.Len())
 	for r in e.refs {
 		h.Uvarint(r.Sec)
 		h.Uvarint(r.Idx)
@@ -77,9 +78,9 @@ func put(x mut ExportW, sec int, idx int, e Enc) {
 
 func strIdx(x mut ExportW, s string) int {
 	match x.strs.Get(s) {
-	case Some as i:
+	case option.Some as i:
 		return i.Value
-	case None:
+	case option.None:
 	}
 	let i = x.reserve(SecString)
 	let mut sec = x.elems[SecString]
@@ -98,7 +99,7 @@ func Rel(e mut Enc, sec int, idx int) {
 		}
 	}
 	e.refs = e.refs.Append(RefEntry{Sec: sec, Idx: idx})
-	e.data.Uvarint(len(e.refs) - 1)
+	e.data.Uvarint(e.refs.Len() - 1)
 }
 
 func Str(e mut Enc, x mut ExportW, s string) { e.Rel(SecString, x.strIdx(s)) }
@@ -123,7 +124,7 @@ func pos(e mut Enc, line int, col int) {
 }
 
 func params(e mut Enc, x mut ExportW, ts []int) {
-	e.Len(len(ts))
+	e.Len(ts.Len())
 	for t in ts {
 		e.Bool(false)
 		e.Rel(SecPkg, 0)
@@ -160,7 +161,7 @@ func ExportBlob(p Package) (string, string) {
 	let mut pe = newEnc()
 	pe.Str(&x, p.Path)
 	pe.Str(&x, p.Name)
-	pe.Len(len(impIdx))
+	pe.Len(impIdx.Len())
 	for i in impIdx {
 		pe.Rel(SecPkg, i)
 	}
@@ -228,14 +229,14 @@ func ExportBlob(p Package) (string, string) {
 	}
 	let mut root = newEnc()
 	root.Rel(SecPkg, self)
-	root.Len(len(objs))
+	root.Len(objs.Len())
 	for o in objs {
 		root.Rel(SecObj, o)
 		root.Len(0)
 	}
 	x.put(SecMeta, pub, root)
 	let mut proot = newEnc()
-	proot.Bool(len(p.Inits) > 0)
+	proot.Bool(p.Inits.Len() > 0)
 	proot.Len(0)
 	x.put(SecMeta, priv, proot)
 	let mut w = NewBuf()
@@ -243,13 +244,13 @@ func ExportBlob(p Package) (string, string) {
 	w.U32(0)
 	let mut sum = 0
 	for s in x.elems {
-		sum = sum + len(s)
+		sum = sum + s.Len()
 		w.U32(sum)
 	}
 	sum = 0
 	for s in x.elems {
 		for el in s {
-			sum = sum + len(el)
+			sum = sum + el.Len()
 			w.U32(sum)
 		}
 	}

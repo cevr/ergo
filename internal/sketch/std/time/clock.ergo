@@ -1,3 +1,5 @@
+import os
+
 // Clock reads the current time (Effect Clock, Go time.Now). It was the
 // prelude's Clock, whose Now returned an int64 with no unit; the prelude
 // cannot name a std type, so Clock moved here with Now() Time (std-align
@@ -64,7 +66,7 @@ func NewLiveScheduler() LiveScheduler needs Ambient { NewLiveScheduler() }
 // NewHost is the host's Clock provider. It needs Ambient: only code whose
 // row holds the authority to choose the host makes one (docs/spec/
 // stdlib.md, Host packages).
-func NewHost() Host needs Ambient { Host{live: hostOnly} }
+func NewHost() Host needs os.Ambient { Host{live: hostOnly} }
 
 // testClock reads the real host clocks, without ambient process I/O.
 func testClock() Host needs TestAmbient { Host{live: hostOnly} }

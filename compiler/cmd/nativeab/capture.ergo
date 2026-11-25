@@ -18,10 +18,12 @@
 //	nativeab capture --ergo PATH --self PATH --out FILE [--label TEXT] -- BUILD-ARGS...
 //	(wrap mode: ERGO_NAB_DIR set, arguments TOOL ARGS... as -toolexec gives them)
 
+import core
 import exec
 import fs
 import io
 import maps
+import option
 import os
 import slices
 import strconv
@@ -38,7 +40,7 @@ let SpansVariable = "ERGO_NAB_SPANS"
 
 func base(path string) string {
 	let i = strings.LastIndex(path, "/")
-	if i < 0 { path } else { path[i+1 : len(path)] }
+	if i < 0 { path } else { path[i+1 : path.Len()] }
 }
 
 // Count is a counted number, or Why it is missing ("" when counted).
@@ -49,7 +51,7 @@ type Count { N int, Why string }
 func perfCount(text string) Count {
 	for line in strings.Split(text, "\n") {
 		let f = strings.Split(line, ",")
-		if len(f) >= 3 && strings.HasPrefix(f[2], "instructions") {
+		if f.Len() >= 3 && strings.HasPrefix(f[2], "instructions") {
 			let n = strconv.Atoi(f[0]) catch {
 			case strconv.Malformed, strconv.OutOfRange:
 				return Count{N: 0, Why: "perf: " + strings.ReplaceAll(f[0], " ", "_")}
@@ -61,8 +63,8 @@ func perfCount(text string) Count {
 }
 
 func flagOf(args []string, name string) string {
-	for i in 0..len(args) {
-		if args[i] == name && i+1 < len(args) {
+	for i in 0..args.Len() {
+		if args[i] == name && i+1 < args.Len() {
 			return args[i+1]
 		}
 	}
@@ -76,7 +78,7 @@ func runFailed(name string) os.Exit { os.Exit{Code: 1, Message: "nativeab: canno
 // status are passed through unchanged; a -V query (the go command's tool
 // id) is not counted.
 func wrap(dir string, id string, args []string) fails os.Exit needs exec.Runner | fs.Files | fs.Writes | io.Stdout | io.Stderr {
-	if len(args) == 0 {
+	if args.Len() == 0 {
 		return os.Exit{Code: 2, Message: "nativeab wrap: no tool"}
 	}
 	let query = slices.Contains(args, "-V=full") || slices.Contains(args, "-V")
@@ -84,7 +86,7 @@ func wrap(dir string, id string, args []string) fails os.Exit needs exec.Runner 
 	let perfOut = dir + "/" + id + ".perf"
 	let spans = dir + "/" + id + ".spans"
 	let c = if query {
-		exec.New(args[0], slices.Slice(args, 1, len(args)))
+		exec.New(args[0], slices.Slice(args, 1, args.Len()))
 	} else {
 		exec.New(Perf, slices.Concat([]string{"stat", "-e", "instructions:u", "-x,", "-o", perfOut, "--"}, args)).WithEnv(SpansVariable, spans)
 	}
@@ -99,7 +101,7 @@ func wrap(dir string, id string, args []string) fails os.Exit needs exec.Runner 
 		case fs.NotFound, fs.Denied, fs.Failed:
 			""
 		}
-		let pkg = flagOf(slices.Slice(args, 1, len(args)), "-p")
+		let pkg = flagOf(slices.Slice(args, 1, args.Len()), "-p")
 		let n = perfCount(text)
 		let rec = if n.Why == "" { "proc \(id) \(tool) \(pkg) ? \(n.N)\n" } else { "unmeasured \(id) \(tool) \(pkg) \(n.Why)\n" }
 		fs.Writes.WriteFile(dir+"/"+id+".proc", rec) catch {
@@ -109,7 +111,7 @@ func wrap(dir string, id string, args []string) fails os.Exit needs exec.Runner 
 	}
 	if r.Status != 0 {
 		let code = os.ParseCode(if r.Status > 125 { 125 } else { r.Status }) catch {
-		case Unsatisfied:
+		case core.Unsatisfied:
 			return os.Exit{Code: 1, Message: ""}
 		}
 		return os.Exit{Code: code, Message: ""}
@@ -144,7 +146,7 @@ law OriginNamesOnlyTheModule(name string) {
 func moduleOf(text string) string {
 	for line in strings.Split(text, "\n") {
 		let f = strings.Fields(line)
-		if len(f) == 2 && f[0] == "module" {
+		if f.Len() == 2 && f[0] == "module" {
 			return f[1]
 		}
 	}
@@ -171,17 +173,17 @@ func Assemble(tree string, mod string, records Map[string, string], meta []strin
 		let id = strings.Split(name, ".")[0]
 		for line in strings.Split(text, "\n") {
 			let f = strings.Fields(line)
-			if len(f) == 0 {
+			if f.Len() == 0 {
 				continue
 			}
-			if strings.HasSuffix(name, ".proc") && f[0] == "proc" && len(f) == 6 {
+			if strings.HasSuffix(name, ".proc") && f[0] == "proc" && f.Len() == 6 {
 				b.WriteString("proc \(f[1]) \(f[2]) \(f[3]) \(Origin(f[3], mod)) \(f[5])\n")
 			} else if strings.HasSuffix(name, ".proc") {
 				b.WriteString(line + "\n")
-			} else if f[0] == "span" && len(f) == 4 {
+			} else if f[0] == "span" && f.Len() == 4 {
 				b.WriteString("span \(id) \(f[1]) \(f[2]) \(f[3])\n")
 			} else if f[0] == "refused" {
-				b.WriteString("unmeasured \(id) stages \(strings.Join(slices.Slice(f, 1, len(f)), "_"))\n")
+				b.WriteString("unmeasured \(id) stages \(strings.Join(slices.Slice(f, 1, f.Len()), "_"))\n")
 			}
 		}
 	}
@@ -198,9 +200,9 @@ func exists(path string) bool needs fs.Files {
 
 func got2(m Map[string, string], k string) string {
 	match m.Get(k) {
-	case Some as v:
+	case option.Some as v:
 		v.Value
-	case None:
+	case option.None:
 		""
 	}
 }
@@ -213,7 +215,7 @@ func capture(args []string) fails os.Exit needs exec.Runner | fs.Files | fs.Writ
 		return usage()
 	}
 	let opts = slices.Slice(args, 0, dash)
-	let build = slices.Slice(args, dash+1, len(args))
+	let build = slices.Slice(args, dash+1, args.Len())
 	let ergo = flagText(opts, "--ergo", "")
 	let self = flagText(opts, "--self", "")
 	let out = flagText(opts, "--out", "")

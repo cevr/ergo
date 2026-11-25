@@ -1,4 +1,5 @@
 import gen
+import option
 import slices
 import strings
 import sync
@@ -61,7 +62,7 @@ func sortHistoryByCall[A, R](ops []HistoryOp[A, R]) []HistoryOp[A, R] {
 	for op in ops {
 		out = out.Append(op)
 	}
-	for i in 1..len(out) {
+	for i in 1..out.Len() {
 		let cur = out[i]
 		let mut j = i
 		for j > 0 && (out[j-1].CallTime > cur.CallTime || (out[j-1].CallTime == cur.CallTime && out[j-1].ReturnTime > cur.ReturnTime)) {
@@ -74,7 +75,7 @@ func sortHistoryByCall[A, R](ops []HistoryOp[A, R]) []HistoryOp[A, R] {
 }
 
 func candidateOrder[A, R](history []HistoryOp[A, R]) []int {
-	let n = len(history)
+	let n = history.Len()
 	let mut order = []int{}
 	for i in 0..n {
 		order = order.Append(i)
@@ -115,9 +116,9 @@ func searchLinearizeMask[S, A, R](
 	requiredMask uint64,
 	used uint64,
 	trace []int,
-) Option[[]int] {
+) option.Option[[]int] {
 	if (used & requiredMask) == requiredMask {
-		return Some[[]int]{Value: trace}
+		return option.Some[[]int]{Value: trace}
 	}
 	for idx in order {
 		let bit = uint64(1) << uint64(idx)
@@ -133,12 +134,12 @@ func searchLinearizeMask[S, A, R](
 			continue
 		}
 		match searchLinearizeMask[S, A, R](nextState, step, equal, history, order, predMasks, requiredMask, used|bit, trace.Append(idx)) {
-		case Some[[]int] as found:
+		case option.Some[[]int] as found:
 			return found
-		case None:
+		case option.None:
 		}
 	}
-	None
+	option.None
 }
 
 func allPredsUsed(preds []int, used []bool) bool {
@@ -160,9 +161,9 @@ func searchLinearizeSlice[S, A, R](
 	completedLeft int,
 	used []bool,
 	trace []int,
-) Option[[]int] {
+) option.Option[[]int] {
 	if completedLeft == 0 {
-		return Some[[]int]{Value: trace}
+		return option.Some[[]int]{Value: trace}
 	}
 	for idx in order {
 		if used[idx] {
@@ -180,12 +181,12 @@ func searchLinearizeSlice[S, A, R](
 		nextUsed[idx] = true
 		let nextLeft = if op.Completed { completedLeft - 1 } else { completedLeft }
 		match searchLinearizeSlice[S, A, R](nextState, step, equal, history, order, preds, nextLeft, nextUsed, trace.Append(idx)) {
-		case Some[[]int] as found:
+		case option.Some[[]int] as found:
 			return found
-		case None:
+		case option.None:
 		}
 	}
-	None
+	option.None
 }
 
 // LinearizeBy searches for a sequential linearization of history under the
@@ -199,14 +200,14 @@ func LinearizeBy[S, A, R](
 	step func(s S, a A) (S, R),
 	equal func(a R, b R) bool,
 	history []HistoryOp[A, R],
-) Option[[]int] {
-	let n = len(history)
+) option.Option[[]int] {
+	let n = history.Len()
 	if n == 0 {
-		return Some[[]int]{Value: []int{}}
+		return option.Some[[]int]{Value: []int{}}
 	}
 	for op in history {
 		if op.Completed && op.ReturnTime < op.CallTime {
-			return None
+			return option.None
 		}
 	}
 	let order = candidateOrder(history)
@@ -255,9 +256,9 @@ func LinearizableBy[S, A, R](
 	history []HistoryOp[A, R],
 ) bool {
 	match LinearizeBy(start, step, equal, history) {
-	case Some[[]int]:
+	case option.Some[[]int]:
 		true
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -268,7 +269,7 @@ func Linearize[S, A any, R comparable](
 	start S,
 	step func(s S, a A) (S, R),
 	history []HistoryOp[A, R],
-) Option[[]int] {
+) option.Option[[]int] {
 	LinearizeBy(start, step, func(a R, b R) bool { a == b }, history)
 }
 
@@ -296,7 +297,7 @@ func AgreesConcurrentBy[S, A, R, Eff](
 	run own func(a A) R needs Eff,
 ) fails NotLinearizable[A, R] needs Eff {
 	let log = sync.NewRef(historyLog[A, R]{clock: 0, ops: []HistoryOp[A, R]{}})
-	let mut running = []Task[bool]{}
+	let mut running = []task.Task[bool]{}
 	for taskID, plan in plans {
 		let tid = taskID
 		let acts = plan
@@ -310,8 +311,8 @@ func AgreesConcurrentBy[S, A, R, Eff](
 		}
 		running = running.Append(t)
 	}
-	for len(running) > 0 {
-		let last = len(running) - 1
+	for running.Len() > 0 {
+		let last = running.Len() - 1
 		let t, rest = slices.Take(running, last)
 		running = rest
 		let _ = t.Wait()
@@ -457,7 +458,7 @@ func regStep(s regPair, a regAct) (regPair, int) {
 }
 
 func witnessIsValid(start regPair, history []HistoryOp[regAct, int], order []int) bool {
-	let n = len(history)
+	let n = history.Len()
 	let mut pos = []int{}
 	for _ in 0..n {
 		pos = pos.Append(-1)
@@ -527,11 +528,11 @@ law LinearizableAcceptsSequentialAndOverlappingValidHistories(aRaw int, bRaw int
 		})
 	}
 	match Linearize(start, regStep, seqHist) {
-	case Some[[]int] as ord:
+	case option.Some[[]int] as ord:
 		if !witnessIsValid(start, seqHist, ord.Value) {
 			return false
 		}
-	case None:
+	case option.None:
 		return false
 	}
 
@@ -542,11 +543,11 @@ law LinearizableAcceptsSequentialAndOverlappingValidHistories(aRaw int, bRaw int
 		HistoryOp[regAct, int]{Task: 0, Act: RegRead{Key: 0}, Result: a, CallTime: 6, ReturnTime: 7, Completed: true},
 	}
 	match Linearize(start, regStep, overlapHist) {
-	case Some[[]int] as ord:
+	case option.Some[[]int] as ord:
 		if !witnessIsValid(start, overlapHist, ord.Value) {
 			return false
 		}
-	case None:
+	case option.None:
 		return false
 	}
 

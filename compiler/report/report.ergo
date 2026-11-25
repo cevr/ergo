@@ -9,6 +9,7 @@
 import cmp
 import hex
 import maps
+import option
 import sha256
 import slices
 import strings
@@ -38,11 +39,11 @@ type Diagnostic { Code string, File string, Message string, Span Span }
 
 // UnsupportedTarget is the EF110 diagnostic for any target but Target.
 // Every command that takes a target refuses another one with this text.
-func UnsupportedTarget(target string) Option[Diagnostic] {
+func UnsupportedTarget(target string) option.Option[Diagnostic] {
 	if target == Target {
-		return None
+		return option.None
 	}
-	Some[Diagnostic]{Value: Diagnostic{Code: "EF110", File: "", Message: "unsupported target " + target + "; the only target is " + Target, Span: NoSpan()}}
+	option.Some[Diagnostic]{Value: Diagnostic{Code: "EF110", File: "", Message: "unsupported target " + target + "; the only target is " + Target, Span: NoSpan()}}
 }
 
 // UnsupportedPlatform is the EF110 diagnostic for a platform (GOOS/GOARCH)
@@ -55,9 +56,9 @@ func UnsupportedPlatform(platform string, platforms []string) Diagnostic {
 // OnlyGoIsSupported: the refusal is exactly for targets other than Go.
 law OnlyGoIsSupported(target string) {
 	match UnsupportedTarget(target) {
-	case Some[Diagnostic] as d:
+	case option.Some[Diagnostic] as d:
 		target != Target && d.Value.Code == "EF110" && isNoSpan(d.Value.Span)
-	case None:
+	case option.None:
 		target == Target
 	}
 }
@@ -69,7 +70,7 @@ func Revision(source string) string { hex.Encode(sha256.Sum(source)) }
 // RevisionIsHex: a revision is 64 lower-case hex digits for every text.
 law RevisionIsHex(source string) {
 	let r = Revision(source)
-	len(r) == 64 && strings.TrimLeft(r, "0123456789abcdef") == ""
+	r.Len() == 64 && strings.TrimLeft(r, "0123456789abcdef") == ""
 }
 
 // statusNames are the evaluation statuses by rank, best first.
@@ -108,7 +109,7 @@ func EvaluationStatus(statuses []string) string {
 // OnlyPassesPass: a list sums up to "passed" only when every status in it
 // is "passed" and there is one.
 law OnlyPassesPass(statuses []string) {
-	let all = len(statuses) > 0 && slices.All(statuses, func(s string) bool { s == "passed" })
+	let all = statuses.Len() > 0 && slices.All(statuses, func(s string) bool { s == "passed" })
 	(EvaluationStatus(statuses) == "passed") == all
 }
 
@@ -129,7 +130,7 @@ type Index { positions []Position, valid []bool }
 
 // NewIndex is the index of text.
 func NewIndex(text string) Index {
-	let n = len(text)
+	let n = text.Len()
 	let mut positions = slices.Repeat([]Position{origin()}, n+1)
 	let mut valid = slices.Repeat([]bool{false}, n+1)
 	valid[0] = true
@@ -163,32 +164,32 @@ func NewIndex(text string) Index {
 // position is the LSP position of a byte offset. An offset between the CR
 // and LF of a CRLF, where a lexer span may end, is put at the end of the
 // line before the CR.
-func position(x Index, text string, offset int) Option[Position] {
+func position(x Index, text string, offset int) option.Option[Position] {
 	if x.valid[offset] {
-		return Some[Position]{Value: x.positions[offset]}
+		return option.Some[Position]{Value: x.positions[offset]}
 	}
-	if offset > 0 && offset < len(text) && text[offset-1] == '\r' && text[offset] == '\n' && x.valid[offset-1] {
-		return Some[Position]{Value: x.positions[offset-1]}
+	if offset > 0 && offset < text.Len() && text[offset-1] == '\r' && text[offset] == '\n' && x.valid[offset-1] {
+		return option.Some[Position]{Value: x.positions[offset-1]}
 	}
-	None
+	option.None
 }
 
 // RangeOf is the LSP range of a byte span of text (x is text's index), or
 // None when the span leaves the text or an end falls inside a UTF-8
 // sequence.
-func RangeOf(x Index, text string, span Span) Option[Range] {
-	if span.Offset < 0 || span.Length < 0 || span.Offset > len(text) || span.Length > len(text)-span.Offset {
-		return None
+func RangeOf(x Index, text string, span Span) option.Option[Range] {
+	if span.Offset < 0 || span.Length < 0 || span.Offset > text.Len() || span.Length > text.Len()-span.Offset {
+		return option.None
 	}
 	match position(x, text, span.Offset) {
-	case None:
-		None
-	case Some[Position] as start:
+	case option.None:
+		option.None
+	case option.Some[Position] as start:
 		match position(x, text, span.Offset+span.Length) {
-		case None:
-			None
-		case Some[Position] as end:
-			Some[Range]{Value: Range{Start: start.Value, End: end.Value}}
+		case option.None:
+			option.None
+		case option.Some[Position] as end:
+			option.Some[Range]{Value: Range{Start: start.Value, End: end.Value}}
 		}
 	}
 }
@@ -201,16 +202,16 @@ func before(a Position, b Position) bool {
 // the whole text's range starts at the origin.
 law RangesRunForward(text string, offset int, length int) {
 	let x = NewIndex(text)
-	let whole = match RangeOf(x, text, Span{Offset: 0, Length: len(text), Line: 1, Column: 1}) {
-	case Some[Range] as r:
+	let whole = match RangeOf(x, text, Span{Offset: 0, Length: text.Len(), Line: 1, Column: 1}) {
+	case option.Some[Range] as r:
 		r.Value.Start.Line == 0 && r.Value.Start.Character == 0
-	case None:
+	case option.None:
 		false
 	}
 	let span = match RangeOf(x, text, Span{Offset: offset, Length: length, Line: 1, Column: 1}) {
-	case Some[Range] as r:
+	case option.Some[Range] as r:
 		before(r.Value.Start, r.Value.End)
-	case None:
+	case option.None:
 		true
 	}
 	whole && span
@@ -235,7 +236,7 @@ func Project(text string, files Map[string, string], ds []Diagnostic) []Finding 
 	let mut indexes = Map[string, Index]{}
 	let mut out = []Finding{}
 	for d in ds {
-		let key = "\(len(d.Code)):" + d.Code + "\(len(d.File)):" + d.File + "\(len(d.Message)):" + d.Message + " \(d.Span.Offset) \(d.Span.Length)"
+		let key = "\(d.Code.Len()):" + d.Code + "\(d.File.Len()):" + d.File + "\(d.Message.Len()):" + d.Message + " \(d.Span.Offset) \(d.Span.Length)"
 		if maps.GetOr(seen, key, false) {
 			continue
 		}
@@ -244,17 +245,17 @@ func Project(text string, files Map[string, string], ds []Diagnostic) []Finding 
 		let mut source = text
 		if d.File != "" {
 			match files.Get(d.File) {
-			case Some[string] as t:
+			case option.Some[string] as t:
 				source = t.Value
-			case None:
+			case option.None:
 				source = ""
 				span = NoSpan() // a file the snapshot does not hold has no location here
 			}
 		}
 		let x = match indexes.Get(d.File) {
-		case Some[Index] as got:
+		case option.Some[Index] as got:
 			got.Value
-		case None:
+		case option.None:
 			let made = NewIndex(source)
 			indexes[d.File] = made
 			made
@@ -262,10 +263,10 @@ func Project(text string, files Map[string, string], ds []Diagnostic) []Finding 
 		let mut f = Finding{Code: d.Code, File: d.File, Message: d.Message, Span: d.Span, Located: false, Range: noRange()}
 		if !isNoSpan(span) {
 			match RangeOf(x, source, span) {
-			case Some[Range] as r:
+			case option.Some[Range] as r:
 				f.Located = true
 				f.Range = r.Value
-			case None:
+			case option.None:
 			}
 		}
 		out = out.Append(f)
@@ -301,7 +302,7 @@ func compareFindings(a Finding, b Finding) int {
 // place of source when it has one, and "source: no diagnostics" when there
 // is none.
 func Lines(source string, fs []Finding) string {
-	if len(fs) == 0 {
+	if fs.Len() == 0 {
 		return source + ": no diagnostics\n"
 	}
 	let mut b = strings.NewBuilder()

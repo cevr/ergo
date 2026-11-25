@@ -1,4 +1,8 @@
 import arena
+import core
+import machines
+import option
+import scope
 import time
 import actor
 
@@ -30,18 +34,18 @@ type Draft { Value string, at cellAt }
 // Flag is an on-off state, as this pass reads it.
 type Flag { On bool, at cellAt }
 
-func cellSlot[E](f mut Frame[E], at CallSite) (ident, Option[Cell]) {
+func cellSlot[E](f mut Frame[E], at core.CallSite) (ident, option.Option[Cell]) {
 	let id = identify(f, at)
 	let o = owner(f, f.parent)
 	if arena.Has(f.nodes, o) {
 		return (id, cellOf(f, o, id))
 	}
-	(id, None)
+	(id, option.None)
 }
 
 func storeCell[E](f mut Frame[E], id ident, c Cell) cellAt {
 	let cs = cellSpec{parent: f.parent, id: id, cell: c}
-	if f.ncells < len(f.cells) {
+	if f.ncells < f.cells.Len() {
 		f.cells[f.ncells] = cs
 	} else {
 		f.cells = f.cells.Append(cs)
@@ -50,33 +54,33 @@ func storeCell[E](f mut Frame[E], id ident, c Cell) cellAt {
 	cellAt{parent: f.parent, id: id}
 }
 
-func NewDraft[E](f mut Frame[E], init string, at CallSite) Draft {
+func NewDraft[E](f mut Frame[E], init string, at core.CallSite) Draft {
 	let (id, prev) = cellSlot(f, at)
 	let mut val = init
 	match prev {
-	case Some[Cell] as old:
+	case option.Some[Cell] as old:
 		match old.Value {
 		case TextCell as t:
 			val = t.Value
 		case FlagCell, ViewCell, PresenceCell:
 		}
-	case None:
+	case option.None:
 	}
 	let where = storeCell(f, id, TextCell{Value: val})
 	Draft{Value: val, at: where}
 }
 
-func NewFlag[E](f mut Frame[E], init bool, at CallSite) Flag {
+func NewFlag[E](f mut Frame[E], init bool, at core.CallSite) Flag {
 	let (id, prev) = cellSlot(f, at)
 	let mut on = init
 	match prev {
-	case Some[Cell] as old:
+	case option.Some[Cell] as old:
 		match old.Value {
 		case FlagCell as b:
 			on = b.On
 		case TextCell, ViewCell, PresenceCell:
 		}
-	case None:
+	case option.None:
 	}
 	let where = storeCell(f, id, FlagCell{On: on})
 	Flag{On: on, at: where}
@@ -84,39 +88,39 @@ func NewFlag[E](f mut Frame[E], init bool, at CallSite) Flag {
 
 // Field shows a text field over d: a text the host takes in it becomes the
 // draft's value at the next pass, and sends no signal.
-func Field[E](f mut Frame[E], d Draft, placeholder string, at CallSite) {
-	let _ = put(f, InputNode{Value: d.Value, Placeholder: placeholder, Label: "", Description: "", Invalid: false, Hints: PlainHints, Lines: 1, Caret: 0, Anchor: 0}, None, Some{Value: d.at}, at)
+func Field[E](f mut Frame[E], d Draft, placeholder string, at core.CallSite) {
+	let _ = put(f, InputNode{Value: d.Value, Placeholder: placeholder, Label: "", Description: "", Invalid: false, Hints: PlainHints, Lines: 1, Caret: 0, Anchor: 0}, option.None, option.Some{Value: d.at}, at)
 }
 
 // LabelledField is a Field that says what it is (FieldLabel), as
 // LabelledInput is an Input that does.
-func LabelledField[E](f mut Frame[E], label FieldLabel, d Draft, placeholder string, at CallSite) {
-	let _ = put(f, InputNode{Value: d.Value, Placeholder: placeholder, Label: label.Text, Description: label.Description, Invalid: label.Invalid, Hints: PlainHints, Lines: 1, Caret: 0, Anchor: 0}, None, Some{Value: d.at}, at)
+func LabelledField[E](f mut Frame[E], label FieldLabel, d Draft, placeholder string, at core.CallSite) {
+	let _ = put(f, InputNode{Value: d.Value, Placeholder: placeholder, Label: label.Text, Description: label.Description, Invalid: label.Invalid, Hints: PlainHints, Lines: 1, Caret: 0, Anchor: 0}, option.None, option.Some{Value: d.at}, at)
 }
 
 // FieldLines is a Field of lines lines, as InputLines is an Input of them
 // (OpenTUI gap 2): a multi-line draft, such as a prompt.
-func FieldLines[E](f mut Frame[E], d Draft, placeholder string, lines int, at CallSite) {
-	let _ = put(f, InputNode{Value: d.Value, Placeholder: placeholder, Label: "", Description: "", Invalid: false, Hints: PlainHints, Lines: lines, Caret: 0, Anchor: 0}, None, Some{Value: d.at}, at)
+func FieldLines[E](f mut Frame[E], d Draft, placeholder string, lines int, at core.CallSite) {
+	let _ = put(f, InputNode{Value: d.Value, Placeholder: placeholder, Label: "", Description: "", Invalid: false, Hints: PlainHints, Lines: lines, Caret: 0, Anchor: 0}, option.None, option.Some{Value: d.at}, at)
 }
 
 // HintedField is a LabelledField that tells a phone's keyboard what it
 // takes (Hints), as HintedInput does.
-func HintedField[E](f mut Frame[E], label FieldLabel, hints Hints, d Draft, placeholder string, at CallSite) {
-	let _ = put(f, InputNode{Value: d.Value, Placeholder: placeholder, Label: label.Text, Description: label.Description, Invalid: label.Invalid, Hints: hints, Lines: 1, Caret: 0, Anchor: 0}, None, Some{Value: d.at}, at)
+func HintedField[E](f mut Frame[E], label FieldLabel, hints Hints, d Draft, placeholder string, at core.CallSite) {
+	let _ = put(f, InputNode{Value: d.Value, Placeholder: placeholder, Label: label.Text, Description: label.Description, Invalid: label.Invalid, Hints: hints, Lines: 1, Caret: 0, Anchor: 0}, option.None, option.Some{Value: d.at}, at)
 }
 
 // Toggle shows a check box over fl: a press flips the flag and sends no
 // signal.
-func Toggle[E](f mut Frame[E], fl Flag, label string, at CallSite) {
-	let _ = put(f, ToggleNode{Label: label, On: fl.On}, None, Some{Value: fl.at}, at)
+func Toggle[E](f mut Frame[E], fl Flag, label string, at core.CallSite) {
+	let _ = put(f, ToggleNode{Label: label, On: fl.On}, option.None, option.Some{Value: fl.at}, at)
 }
 
 // Submit is a Pressable that also empties d when pressed: a press sends on
 // (made from d's value by the view) and the draft is "" at the next pass.
-func Submit[E, F, R](f mut Frame[E], d Draft, label string, on E, body func() fails F needs R, at CallSite) fails F needs R {
+func Submit[E, F, R](f mut Frame[E], d Draft, label string, on E, body func() fails F needs R, at core.CallSite) fails F needs R {
 	let m = markOf(f)
-	f.parent = put(f, PressableNode{Label: label, On: on, Style: PressStyle()}, None, Some{Value: d.at}, at)
+	f.parent = put(f, PressableNode{Label: label, On: on, Style: PressStyle()}, option.None, option.Some{Value: d.at}, at)
 	body() catch {
 	case err:
 		cut(f, m)
@@ -185,13 +189,13 @@ type loadSpec[E] { parent int, id ident, key Key, plan loadPlan[E] }
 
 type Job[E] = Fetch{Epoch int, Run func() E} | Cancel{Epoch int}
 
-func Load[E, R](f mut Frame[E], key Key, fetch own func() E needs R, at CallSite) needs R {
+func Load[E, R](f mut Frame[E], key Key, fetch own func() E needs R, at core.CallSite) needs R {
 	let id = identify(f, at)
 	let plan loadPlan[E] = match liveLoad(f, owner(f, f.parent), id, key) {
-	case Some[slot] as h:
+	case option.Some[slot] as h:
 		loadHeld{s: h.Value}
-	case None:
-		let ctx = InForce[R]()
+	case option.None:
+		let ctx = scope.InForce[R]()
 		loadStart[E]{run: func() E {
 			with ctx {
 				fetch()
@@ -199,7 +203,7 @@ func Load[E, R](f mut Frame[E], key Key, fetch own func() E needs R, at CallSite
 		}}
 	}
 	let ls = loadSpec[E]{parent: f.parent, id: id, key: key, plan: plan}
-	if f.nloads < len(f.loads) {
+	if f.nloads < f.loads.Len() {
 		f.loads[f.nloads] = ls
 	} else {
 		f.loads = f.loads.Append(ls)
@@ -216,7 +220,7 @@ func Load[E, R](f mut Frame[E], key Key, fetch own func() E needs R, at CallSite
 // once, on the host's task, after the pass.
 law LoadUsesTheBoundService(seed int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		loadsBound(seed, m)
 	}
 }
@@ -309,19 +313,19 @@ func boundView(f mut Frame[int], plan []boundLoad, outer []int) needs capA | cap
 }
 
 // logStep keeps each signal.
-func logStep(s []int, e int) Decision[[]int, int] { Enter[[]int]{Next: s.Append(e)} }
+func logStep(s []int, e int) machines.Decision[[]int, int] { machines.Enter[[]int]{Next: s.Append(e)} }
 
-func logTimer(s []int) Option[Timeout[int]] { None }
+func logTimer(s []int) option.Option[machines.Timeout[int]] { option.None }
 
-func logWork(s []int) Option[func(send func(e int))] { None }
+func logWork(s []int) option.Option[func(send func(e int))] { option.None }
 
-func logExit(s []int) Option[func()] { None }
+func logExit(s []int) option.Option[func()] { option.None }
 
-func logMachine() Machine[[]int, int, int] {
-	Machine[[]int, int, int]{Initial: []int{}, Step: logStep, After: logTimer, Work: logWork, Exit: logExit}
+func logMachine() machines.Machine[[]int, int, int] {
+	machines.Machine[[]int, int, int]{Initial: []int{}, Step: logStep, After: logTimer, Work: logWork, Exit: logExit}
 }
 
-func loadsBound(seed int, m time.Manual) bool needs Scheduler {
+func loadsBound(seed int, m time.Manual) bool needs time.Scheduler {
 	let mut r = seeded(seed)
 	let mut plan = []boundLoad{}
 	for _ in 0..draw(&r, 3)+1 {
@@ -353,7 +357,7 @@ func loadsBound(seed int, m time.Manual) bool needs Scheduler {
 			return false
 		}
 		let got = StateOf(&h)
-		if len(got) != len(plan) {
+		if got.Len() != plan.Len() {
 			return false
 		}
 		for g in got {
@@ -381,12 +385,12 @@ func loadsBound(seed int, m time.Manual) bool needs Scheduler {
 law LoadFollowsModel(seed int, steps int) {
 	let mut r = seeded(seed)
 	let mut f = NewFrame[int]()
-	let mut cur Option[loaded] = None
+	let mut cur option.Option[loaded] = option.None
 	let mut flight = []fetching{}
 	let mut used = Map[int, bool]{}
 	let mut ready = -1
 	for _ in 0..(steps%24+24)%24+2 {
-		if draw(&r, 2) == 0 || len(flight) == 0 {
+		if draw(&r, 2) == 0 || flight.Len() == 0 {
 			let mut w = want{at: Nowhere, key: draw(&r, 3)}
 			match draw(&r, 3) {
 			case 0:
@@ -409,35 +413,35 @@ law LoadFollowsModel(seed int, steps int) {
 			let mut wantCancel = -1
 			let mut wantFetch = false
 			match cur {
-			case Some[loaded] as c:
+			case option.Some[loaded] as c:
 				if c.Value.at != w.at || c.Value.key != w.key {
 					wantCancel = c.Value.epoch
 					wantFetch = w.at != Nowhere
 				}
-			case None:
+			case option.None:
 				wantFetch = w.at != Nowhere
 			}
 			if wantCancel >= 0 {
-				if len(cancels) != 1 || cancels[0] != wantCancel {
+				if cancels.Len() != 1 || cancels[0] != wantCancel {
 					return false
 				}
-				cur = None
+				cur = option.None
 				ready = -1
-			} else if len(cancels) != 0 {
+			} else if cancels.Len() != 0 {
 				return false
 			}
 			if wantFetch {
-				if len(fetches) != 1 || used.Get(fetches[0].Epoch) != None {
+				if fetches.Len() != 1 || used.Get(fetches[0].Epoch) != option.None {
 					return false
 				}
 				used[fetches[0].Epoch] = true
-				cur = Some{Value: loaded{at: w.at, key: w.key, epoch: fetches[0].Epoch}}
+				cur = option.Some{Value: loaded{at: w.at, key: w.key, epoch: fetches[0].Epoch}}
 				flight = flight.Append(fetching{epoch: fetches[0].Epoch, run: fetches[0].Run})
-			} else if len(fetches) != 0 {
+			} else if fetches.Len() != 0 {
 				return false
 			}
 		} else {
-			let i = draw(&r, len(flight))
+			let i = draw(&r, flight.Len())
 			let x = flight[i]
 			let mut rest = []fetching{}
 			for j, y in flight {
@@ -448,9 +452,9 @@ law LoadFollowsModel(seed int, steps int) {
 			flight = rest
 			let mut wanted = false
 			match cur {
-			case Some[loaded] as c:
+			case option.Some[loaded] as c:
 				wanted = c.Value.epoch == x.epoch
-			case None:
+			case option.None:
 			}
 			let got = sent(Handle(&f, Arrived[int]{Epoch: x.epoch, Signal: x.run()}).Signal)
 			if Arrive(&f, x.epoch) != wanted || (got != -1) != wanted {
@@ -468,9 +472,9 @@ law LoadFollowsModel(seed int, steps int) {
 		}
 	}
 	match cur {
-	case Some[loaded] as c:
+	case option.Some[loaded] as c:
 		ready == c.Value.key
-	case None:
+	case option.None:
 		ready == -1
 	}
 }
@@ -525,9 +529,9 @@ func Arrive[E](f mut Frame[E], epoch int) bool {
 
 func live[E](f mut Frame[E], r arena.Ref[node[E]], epoch int) bool {
 	let n = match nodeAt(f, r) {
-	case Some[node[E]] as found:
+	case option.Some[node[E]] as found:
 		found.Value
-	case None:
+	case option.None:
 		return false
 	}
 	for _, l in n.loads {
@@ -569,9 +573,9 @@ func settle[E](f mut Frame[E]) {
 			h.s
 		case loadStart[E] as st:
 			match liveLoad(f, o, l.id, l.key) {
-			case Some[slot] as old:
+			case option.Some[slot] as old:
 				old.Value
-			case None:
+			case option.None:
 				f.epoch = f.epoch + 1
 				let next = slot{key: l.key, epoch: f.epoch}
 				f.jobs = f.jobs.Append(Fetch{Epoch: next.epoch, Run: st.run})
@@ -584,11 +588,11 @@ func settle[E](f mut Frame[E]) {
 	f.skips = 0
 	for i in 0..f.nspecs {
 		let s = f.specs[i]
-		let mut b Option[bound[E]] = None
+		let mut b option.Option[bound[E]] = option.None
 		match s.binds {
-		case Some[cellAt] as c:
-			b = Some{Value: bound[E]{owner: made(f, c.Value.parent), id: c.Value.id}}
-		case None:
+		case option.Some[cellAt] as c:
+			b = option.Some{Value: bound[E]{owner: made(f, c.Value.parent), id: c.Value.id}}
+		case option.None:
 		}
 		if s.skip {
 			// A skipped Same keeps what its last run stored (UC-4).
@@ -600,11 +604,11 @@ func settle[E](f mut Frame[E]) {
 			change(f, s.ref, func(n mut node[E]) {
 				n.binds = b
 				match s.same {
-				case Some[memoRun[E]] as run:
-					n.run = Some{Value: run.Value}
+				case option.Some[memoRun[E]] as run:
+					n.run = option.Some{Value: run.Value}
 					n.dirty = false
 					n.up = up
-				case None:
+				case option.None:
 				}
 			})
 		}
@@ -645,29 +649,29 @@ func keep[E](f mut Frame[E], r arena.Ref[node[E]], cells Map[arena.Ref[node[E]],
 // hasState is whether the node r names holds a cell or a load.
 func hasState[E](f mut Frame[E], r arena.Ref[node[E]]) bool {
 	let mut any = false
-	change(f, r, func(n mut node[E]) { any = len(n.cells) > 0 || len(n.loads) > 0 })
+	change(f, r, func(n mut node[E]) { any = n.cells.Len() > 0 || n.loads.Len() > 0 })
 	any
 }
 
 func has[K comparable, V](m Map[K, V], k K) bool {
 	match m.Get(k) {
-	case Some[V]:
+	case option.Some[V]:
 		true
-	case None:
+	case option.None:
 		false
 	}
 }
 
 // cellOf is the cell id of the node r names, None for none.
-func cellOf[E](f mut Frame[E], r arena.Ref[node[E]], id ident) Option[Cell] {
-	let mut c Option[Cell] = None
+func cellOf[E](f mut Frame[E], r arena.Ref[node[E]], id ident) option.Option[Cell] {
+	let mut c option.Option[Cell] = option.None
 	change(f, r, func(n mut node[E]) { c = n.cells.Get(id) })
 	c
 }
 
 // loadAt is the load id of the node r names, None for none.
-func loadAt[E](f mut Frame[E], r arena.Ref[node[E]], id ident) Option[slot] {
-	let mut s Option[slot] = None
+func loadAt[E](f mut Frame[E], r arena.Ref[node[E]], id ident) option.Option[slot] {
+	let mut s option.Option[slot] = option.None
 	change(f, r, func(n mut node[E]) { s = n.loads.Get(id) })
 	s
 }
@@ -676,19 +680,19 @@ func loadAt[E](f mut Frame[E], r arena.Ref[node[E]], id ident) Option[slot] {
 // each load it held that this pass does not keep.
 func store[E](f mut Frame[E], r arena.Ref[node[E]], cells Map[arena.Ref[node[E]], Map[ident, Cell]], loads Map[arena.Ref[node[E]], Map[ident, slot]], hold bool) {
 	let n = match nodeAt(f, r) {
-	case Some[node[E]] as found:
+	case option.Some[node[E]] as found:
 		found.Value
-	case None:
+	case option.None:
 		return
 	}
 	let mut now = loadsOf(loads, r)
 	for id, l in n.loads {
 		match now.Get(id) {
-		case Some[slot] as s:
+		case option.Some[slot] as s:
 			if s.Value.epoch != l.epoch {
 				f.jobs = f.jobs.Append(Cancel{Epoch: l.epoch})
 			}
-		case None:
+		case option.None:
 			if hold {
 				now[id] = l
 			} else {
@@ -730,18 +734,18 @@ func made[E](f mut Frame[E], p int) arena.Ref[node[E]] {
 
 func mapOf[E](m Map[arena.Ref[node[E]], Map[ident, Cell]], r arena.Ref[node[E]]) Map[ident, Cell] {
 	match m.Get(r) {
-	case Some[Map[ident, Cell]] as x:
+	case option.Some[Map[ident, Cell]] as x:
 		x.Value
-	case None:
+	case option.None:
 		Map[ident, Cell]{}
 	}
 }
 
 func loadsOf[E](m Map[arena.Ref[node[E]], Map[ident, slot]], r arena.Ref[node[E]]) Map[ident, slot] {
 	match m.Get(r) {
-	case Some[Map[ident, slot]] as x:
+	case option.Some[Map[ident, slot]] as x:
 		x.Value
-	case None:
+	case option.None:
 		Map[ident, slot]{}
 	}
 }
@@ -750,7 +754,7 @@ func loadsOf[E](m Map[arena.Ref[node[E]], Map[ident, slot]], r arena.Ref[node[E]
 // whether it changed view-local state (so the view must render again),
 // and, when it did not, the changes it made to the kept tree itself,
 // which a host applies as a pass's (SCROLL-COST: a list's new offset).
-type Handled[E] { Signal Option[E], Changed bool, Ops []Op[E] }
+type Handled[E] { Signal option.Option[E], Changed bool, Ops []Op[E] }
 
 // pressTarget is the node a press on r acts on: r when it answers a press
 // (answersPress), else the nearest node above r that does, else r. A press
@@ -758,27 +762,27 @@ type Handled[E] { Signal Option[E], Changed bool, Ops []Op[E] }
 // does in a DOM and as the terminal's click does (OT, the press rule).
 func pressTarget[E](f mut Frame[E], r arena.Ref[node[E]]) arena.Ref[node[E]] {
 	match nodeAt(f, r) {
-	case Some[node[E]] as found:
+	case option.Some[node[E]] as found:
 		if answersPress(found.Value.node) {
 			return r
 		}
-	case None:
+	case option.None:
 		return r
 	}
 	match above(f, r) {
-	case Some[[]arena.Ref[node[E]]] as up:
+	case option.Some[[]arena.Ref[node[E]]] as up:
 		for u in up.Value {
 			if u != f.root {
 				match nodeAt(f, u) {
-				case Some[node[E]] as found:
+				case option.Some[node[E]] as found:
 					if answersPress(found.Value.node) {
 						return u
 					}
-				case None:
+				case option.None:
 				}
 			}
 		}
-	case None:
+	case option.None:
 	}
 	r
 }
@@ -792,9 +796,9 @@ func answersPress[E](n Node[E]) bool {
 		true
 	case SemanticNode[E] as x:
 		match x.On {
-		case Some[E]:
+		case option.Some[E]:
 			true
-		case None:
+		case option.None:
 			false
 		}
 	case BoxNode, RowNode, ColumnNode, ScrollNode, TextNode, InputNode, AreaNode, CanvasNode, RowsNode, FieldsetNode, ZoneNode, LiveNode, TransitionNode, ReadoutNode, LayerNode[E], TrackNode:
@@ -810,14 +814,14 @@ func answersPress[E](n Node[E]) bool {
 // under no control sends nothing.
 law PressReachesItsControl(seed int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		let d = (seed%4 + 4) % 4
 		let semantic = (seed/4%2+2)%2 == 1
 		let view = func(f mut Frame[int], s int) {
 			Column(f, Plain()) {
 				Text(f, "free")
 				if semantic {
-					Semantic(f, Named(Button, "outer"), Some{Value: 1}, Plain()) {
+					Semantic(f, Named(Button, "outer"), option.Some{Value: 1}, Plain()) {
 						pressDepth(f, d, "a")
 						Pressable(f, "inner", 2) {
 							pressDepth(f, d, "b")
@@ -833,7 +837,7 @@ law PressReachesItsControl(seed int) {
 				}
 			}
 		}
-		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: lastStep, After: lastTimer, Work: lastWork, Exit: func(s int) Option[func()] { None }}, 1, func(o int) {})
+		let a = actor.StartMachine(machines.Machine[int, int, int]{Initial: 0, Step: lastStep, After: lastTimer, Work: lastWork, Exit: func(s int) option.Option[func()] { option.None }}, 1, func(o int) {})
 		let mut h = NewTestHost(a, view, m, 4) catch {
 		case BadPatch:
 			return false
@@ -874,15 +878,15 @@ func pressDepth(f mut Frame[int], d int, text string) {
 // or a text on a node under a disabled Fieldset does nothing. An event
 // on a node f no longer holds (it raced a commit) does nothing.
 func Handle[E](f mut Frame[E], event Event[E]) Handled[E] {
-	let mut out = Handled[E]{Signal: None, Changed: false, Ops: []Op[E]{}}
-	if len(f.crossed) > 0 {
+	let mut out = Handled[E]{Signal: option.None, Changed: false, Ops: []Op[E]{}}
+	if f.crossed.Len() > 0 {
 		f.crossed = []E{}
 	}
 	// The layers first (UG4): Escape, a press outside, a scrim.
 	match layerGate(f, event) {
-	case Some[Handled[E]] as h:
+	case option.Some[Handled[E]] as h:
 		return h.Value
-	case None:
+	case option.None:
 	}
 	match event {
 	case Press[E] as p:
@@ -902,33 +906,33 @@ func Handle[E](f mut Frame[E], event Event[E]) Handled[E] {
 		focusTo(f, r, f.visible && f.focus == r)
 		match n.node {
 		case PressableNode[E] as x:
-			out.Signal = Some{Value: x.On}
+			out.Signal = option.Some{Value: x.On}
 			match n.binds {
-			case Some[bound[E]] as d:
+			case option.Some[bound[E]] as d:
 				out.Changed = write(f, d.Value, TextCell{Value: ""})
-			case None:
+			case option.None:
 			}
 		case CheckNode[E] as x:
-			out.Signal = Some{Value: x.On}
+			out.Signal = option.Some{Value: x.On}
 		case SemanticNode[E] as x:
 			if !x.Access.Disabled {
 				out.Signal = x.On
 			}
 		case ToggleNode as x:
 			match n.binds {
-			case Some[bound[E]] as d:
+			case option.Some[bound[E]] as d:
 				out.Changed = write(f, d.Value, FlagCell{On: !x.On})
-			case None:
+			case option.None:
 			}
 		case _:
 		}
 	case Type[E] as x:
-		return edited(f, x.Id, x.Text, len(x.Text), len(x.Text))
+		return edited(f, x.Id, x.Text, x.Text.Len(), x.Text.Len())
 	case Edit[E] as x:
 		return edited(f, x.Id, x.Text, x.Caret, x.Anchor)
 	case Arrived[E] as a:
 		if Arrive(f, a.Epoch) {
-			out.Signal = Some{Value: a.Signal}
+			out.Signal = option.Some{Value: a.Signal}
 		}
 	case Point[E] as p:
 		hovered(f, p.Id, p.Pointer)
@@ -941,11 +945,11 @@ func Handle[E](f mut Frame[E], event Event[E]) Handled[E] {
 		}
 		let mut pe = p.Pointer
 		pe.Phase = gripped(f, p.Id, p.Pointer.Phase)
-		pe.Zone = None
+		pe.Zone = option.None
 		match p.Over {
-		case Some[ZoneBox[E]] as o:
+		case option.Some[ZoneBox[E]] as o:
 			pe.Zone = zoneHit(f, p.Id, o.Value, p.Pointer)
-		case None:
+		case option.None:
 		}
 		out.Signal = pointed(f, p.Id, pe)
 	case KeyDown as k:
@@ -955,14 +959,14 @@ func Handle[E](f mut Frame[E], event Event[E]) Handled[E] {
 		// before, as a browser's does after an unprevented keydown.
 		let m = k.Press.Mods
 		match out.Signal {
-		case None:
+		case option.None:
 			if k.Press.Name == "Tab" && !m.Ctrl && !m.Alt && !m.Meta {
 				focusTo(f, nextFocus(f, m.Shift), true)
 			} else {
 				// A roving group's arrows, Home and End (UG3).
 				let _ = rove(f, k.Press)
 			}
-		case Some[E]:
+		case option.Some[E]:
 		}
 	case URLChanged as u:
 		out.Signal = routed(f, u.URL)
@@ -978,20 +982,20 @@ func Handle[E](f mut Frame[E], event Event[E]) Handled[E] {
 		match n.node {
 		case RowsNode as list:
 			match n.binds {
-			case Some[bound[E]] as d:
+			case option.Some[bound[E]] as d:
 				// A scroll keeps the row the list last brought into view
 				// (RowsKeeping), so the list does not bring it back.
 				let mut follow = -1
 				let mut was = Viewport{Offset: 0, Height: 0}
 				match cellOf(f, d.Value.owner, d.Value.id) {
-				case Some[Cell] as old:
+				case option.Some[Cell] as old:
 					match old.Value {
 					case ViewCell as v:
 						follow = v.Follow
 						was = Viewport{Offset: v.Offset, Height: v.Height}
 					case _:
 					}
-				case None:
+				case option.None:
 				}
 				let now = Viewport{Offset: x.Offset, Height: x.Height}
 				if !write(f, d.Value, ViewCell{Offset: x.Offset, Height: x.Height, Follow: follow}) {
@@ -1006,7 +1010,7 @@ func Handle[E](f mut Frame[E], event Event[E]) Handled[E] {
 				} else {
 					out.Changed = true
 				}
-			case None:
+			case option.None:
 			}
 		case _:
 		}
@@ -1024,7 +1028,7 @@ func Handle[E](f mut Frame[E], event Event[E]) Handled[E] {
 // nothing; a text sends the field's onText, or goes into its draft (only
 // a Field takes one: a Toggle's flag and a Submit's draft take none).
 func edited[E](f mut Frame[E], id Id[E], text string, caret int, anchor int) Handled[E] {
-	let mut out = Handled[E]{Signal: None, Changed: false, Ops: []Op[E]{}}
+	let mut out = Handled[E]{Signal: option.None, Changed: false, Ops: []Op[E]{}}
 	let n = f.nodes.Get(id.ref) catch {
 	case arena.Stale:
 		return out
@@ -1037,7 +1041,7 @@ func edited[E](f mut Frame[E], id Id[E], text string, caret int, anchor int) Han
 	match n.node {
 	case InputNode as x:
 		e = FitCaret(OneLine(e, x.Lines))
-		change(f, id.ref, func(m mut node[E]) { m.edit = Some{Value: e} })
+		change(f, id.ref, func(m mut node[E]) { m.edit = option.Some{Value: e} })
 		if e.Text == x.Value && (e.Caret != x.Caret || e.Anchor != x.Anchor) {
 			// The caret moved and the text stayed: a pass shows it.
 			out.Changed = true
@@ -1046,16 +1050,16 @@ func edited[E](f mut Frame[E], id Id[E], text string, caret int, anchor int) Han
 	case _:
 	}
 	match n.onText {
-	case Some[func(t string) E] as g:
-		out.Signal = Some{Value: g.Value(e.Text)}
-	case None:
+	case option.Some[func(t string) E] as g:
+		out.Signal = option.Some{Value: g.Value(e.Text)}
+	case option.None:
 	}
 	match n.node {
 	case InputNode:
 		match n.binds {
-		case Some[bound[E]] as d:
+		case option.Some[bound[E]] as d:
 			out.Changed = write(f, d.Value, TextCell{Value: e.Text})
-		case None:
+		case option.None:
 		}
 	case _:
 	}
@@ -1064,19 +1068,19 @@ func edited[E](f mut Frame[E], id Id[E], text string, caret int, anchor int) Han
 
 func write[E](f mut Frame[E], b bound[E], c Cell) bool {
 	let owner = match nodeAt(f, b.owner) {
-	case Some[node[E]] as found:
+	case option.Some[node[E]] as found:
 		found.Value
-	case None:
+	case option.None:
 		return false
 	}
 	match owner.cells.Get(b.id) {
-	case Some[Cell] as old:
+	case option.Some[Cell] as old:
 		change(f, b.owner, func(n mut node[E]) { n.cells[b.id] = c })
 		if old.Value != c {
 			touched(f, b.owner)
 		}
 		old.Value != c
-	case None:
+	case option.None:
 		false
 	}
 }

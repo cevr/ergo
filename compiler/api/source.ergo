@@ -12,12 +12,12 @@ func SourceAdmit(regular bool, limit int, content string) string {
 	case source.NegativeLimit:
 		return "fail " + source.NegativeLimitText + "\n"
 	}
-	source.Admit(source.Node{Regular: regular, Size: len(content)}) catch {
+	source.Admit(source.Node{Regular: regular, Size: content.Len()}) catch {
 	case source.NotRegular:
 		return "fail " + source.NotRegularText + "\n"
 	}
 	let cap = source.ReadLimit(limit)
-	let read = if cap > 0 && len(content) > cap { strings.Slice(content, 0, cap) } else { content }
+	let read = if cap > 0 && content.Len() > cap { strings.Slice(content, 0, cap) } else { content }
 	let text = source.Fit(read, limit) catch {
 	case source.TooLarge:
 		return "fail " + source.TooLargeText + "\n"

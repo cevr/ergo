@@ -11,7 +11,9 @@
 // waitFor, subscribe, stop); Erlang gen_statem run by its process. Go
 // control: a goroutine with a channel and a switch on the state.
 
+import core
 import machines
+import option
 import schedule
 import task
 import tasks
@@ -29,14 +31,14 @@ extern go ergo.local/prototype/runtime/v1.ActorStopped type Stopped {}
 // RejectKeepsState: an Ask that the step rejects answers Reject and keeps
 // the state.
 law RejectKeepsState(signals []int, n int) {
-	with context { Scheduler: time.NewManual(0) } {
+	with context { time.Scheduler: time.NewManual(0) } {
 		rejectKeeps(signals, n)
 	}
 }
 
 // sent is a tally actor that was sent signals; a Send after a Done fails
 // Stopped, which it ignores.
-func sent(signals []int) Actor[int, int, Decision[int, int]] needs Scheduler {
+func sent(signals []int) Actor[int, int, machines.Decision[int, int]] needs time.Scheduler {
 	let a = StartMachine(tally(), 1, func(o int) {})
 	for e in signals {
 		a.Send(e) catch {
@@ -48,7 +50,7 @@ func sent(signals []int) Actor[int, int, Decision[int, int]] needs Scheduler {
 
 // rejectKeeps: an Ask of a rejected signal answers Reject and keeps the
 // state.
-func rejectKeeps(signals []int, n int) bool needs Scheduler {
+func rejectKeeps(signals []int, n int) bool needs time.Scheduler {
 	let a = sent(signals)
 	let before = a.State()
 	let (_, done) = folded(signals)
@@ -60,7 +62,7 @@ func rejectKeeps(signals []int, n int) bool needs Scheduler {
 	let after = a.State()
 	a.Stop()
 	match d {
-	case Reject:
+	case machines.Reject:
 		after == before && !done
 	case _:
 		false
@@ -70,14 +72,14 @@ func rejectKeeps(signals []int, n int) bool needs Scheduler {
 // DoneIsFinal: after an Ask answered Done, the actor steps nothing: Send
 // fails Stopped, and State stays the state the Done saw.
 law DoneIsFinal(signals []int, e int) {
-	with context { Scheduler: time.NewManual(0) } {
+	with context { time.Scheduler: time.NewManual(0) } {
 		doneFinal(signals, e)
 	}
 }
 
 // doneFinal: after an Ask answered Done, Send fails Stopped and State is
 // the state the Done saw.
-func doneFinal(signals []int, e int) bool needs Scheduler {
+func doneFinal(signals []int, e int) bool needs time.Scheduler {
 	let a = sent(signals)
 	let before = a.State()
 	let d = a.Ask(5) catch {
@@ -87,7 +89,7 @@ func doneFinal(signals []int, e int) bool needs Scheduler {
 	}
 	let mut final = false
 	match d {
-	case Done[int] as dn:
+	case machines.Done[int] as dn:
 		final = dn.Output == before
 	case _:
 	}
@@ -137,7 +139,7 @@ extern go ergo.local/prototype/runtime/v1.Actor type Actor[S, E, D, F] {
 	//
 	// Unbounded: it ends only when the actor ends, so a loop that collects
 	// it all waits for the actor's end.
-	LatestChanges() Seq[S],
+	LatestChanges() core.Seq[S],
 	// Held is how many committed states its loops (Changes, LatestChanges)
 	// hold and have not given yet, summed: a loop that stops reading keeps
 	// it at its room, never one per commit (the counter a growth guard
@@ -185,16 +187,16 @@ extern go ergo.local/prototype/runtime/v1.Actor type Actor[S, E, D, F] {
 type actorLawFailed {}
 
 let liveActorForLaws = context {
-	Scheduler: time.NewManual(0),
-	Actor[int, int, Decision[int, int], actorLawFailed]: actorForLaw(),
+	time.Scheduler: time.NewManual(0),
+	Actor[int, int, machines.Decision[int, int], actorLawFailed]: actorForLaw(),
 }
 
-func actorForLaw() Actor[int, int, Decision[int, int], actorLawFailed] needs Scheduler {
-	let m = Machine[int, int, int, actorLawFailed]{Initial: 0, Step: tallyStepForLaw, After: untimed, Work: unworked, Exit: unexited}
+func actorForLaw() Actor[int, int, machines.Decision[int, int], actorLawFailed] needs time.Scheduler {
+	let m = machines.Machine[int, int, int, actorLawFailed]{Initial: 0, Step: tallyStepForLaw, After: untimed, Work: unworked, Exit: unexited}
 	StartMachine(m, 1, func(o int) {})
 }
 
-func tallyStepForLaw(s int, e int) Decision[int, int] fails actorLawFailed {
+func tallyStepForLaw(s int, e int) machines.Decision[int, int] fails actorLawFailed {
 	tallyStep(s, e)
 }
 
@@ -210,68 +212,68 @@ func tallyStepForLaw(s int, e int) Decision[int, int] fails actorLawFailed {
 // (Enter 0, Stay 1, Emit 2, Ignore 3, Reject 4, Done 5, Tell 6), the
 // state after
 // a decision, the output of a decision, and the inbox's capacity.
-extern go ergo.local/prototype/runtime/v1.MachineSupervise func start[S, E, D, W, F, R, G, C](initial S, fresh own func() S fails G needs R, limit int, decide own func() duration needs C, step own func(s S, e E) D fails F needs R defects, fire own func(at S, s S) D fails F needs R defects, delay own func(s S) duration, workOf own func(s S) W, hasWork own func(w W) bool, work own func(w W, send entry func(e E)) needs R defects, hasExit own func(s S) bool, leave own func(s S) needs R, kind own func(d D) int, next own func(s S, d D) S, out own func(d D) needs R, capacity int) Actor[S, E, D, F] needs R | C | Scheduler
+extern go ergo.local/prototype/runtime/v1.MachineSupervise func start[S, E, D, W, F, R, G, C](initial S, fresh own func() S fails G needs R, limit int, decide own func() duration needs C, step own func(s S, e E) D fails F needs R defects, fire own func(at S, s S) D fails F needs R defects, delay own func(s S) duration, workOf own func(s S) W, hasWork own func(w W) bool, work own func(w W, send entry func(e E)) needs R defects, hasExit own func(s S) bool, leave own func(s S) needs R, kind own func(d D) int, next own func(s S, d D) S, out own func(d D) needs R, capacity int) Actor[S, E, D, F] needs R | C | time.Scheduler
 
 // LiveMachine is a runner-only Machine whose Step and Work may raise
 // deliberate defects (`die`). Pure replay and fold functions take Machine,
 // never LiveMachine.
 type LiveMachine[S, E, O, F, R, W] {
 	Initial S,
-	Step    func(s S, e E) Decision[S, O] fails F needs R defects,
-	After   func(s S) Option[Timeout[E]],
-	Work    func(s S) Option[func(send entry func(e E)) needs W defects],
-	Exit    func(s S) Option[func() needs W],
+	Step    func(s S, e E) machines.Decision[S, O] fails F needs R defects,
+	After   func(s S) option.Option[machines.Timeout[E]],
+	Work    func(s S) option.Option[func(send entry func(e E)) needs W defects],
+	Exit    func(s S) option.Option[func() needs W],
 }
 
 // LiveWithWork converts a pure Machine into a LiveMachine with a live work
 // entry that may raise deliberate defects (`die`).
-func LiveWithWork[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], work own func(s S) Option[func(send entry func(e E)) needs W defects]) LiveMachine[S, E, O, F, R, W] {
+func LiveWithWork[S, E, O, F, R, W](m machines.Machine[S, E, O, F, R, W], work own func(s S) option.Option[func(send entry func(e E)) needs W defects]) LiveMachine[S, E, O, F, R, W] {
 	LiveMachine[S, E, O, F, R, W]{Initial: m.Initial, Step: m.Step, After: m.After, Work: work, Exit: m.Exit}
 }
 
-func liveOf[S, E, O, F, R, W](m Machine[S, E, O, F, R, W]) LiveMachine[S, E, O, F, R, W] {
+func liveOf[S, E, O, F, R, W](m machines.Machine[S, E, O, F, R, W]) LiveMachine[S, E, O, F, R, W] {
 	let work = m.Work
 	LiveMachine[S, E, O, F, R, W]{
 		Initial: m.Initial,
 		Step:    m.Step,
 		After:   m.After,
-		Work:    func(s S) Option[func(send entry func(e E)) needs W defects] {
+		Work:    func(s S) option.Option[func(send entry func(e E)) needs W defects] {
 			match work(s) {
-			case Some[func(send func(e E)) needs W] as wk:
-				Some[func(send entry func(e E)) needs W defects]{Value: func(send entry func(e E)) needs W defects { wk.Value(send) }}
-			case None:
-				None
+			case option.Some[func(send func(e E)) needs W] as wk:
+				option.Some[func(send entry func(e E)) needs W defects]{Value: func(send entry func(e E)) needs W defects { wk.Value(send) }}
+			case option.None:
+				option.None
 			}
 		},
 		Exit: m.Exit,
 	}
 }
 
-func firedLive[S, E, O, F, R, W](m LiveMachine[S, E, O, F, R, W], at S) Option[Timeout[E]] {
-	let probe = Machine[S, E, O]{
+func firedLive[S, E, O, F, R, W](m LiveMachine[S, E, O, F, R, W], at S) option.Option[machines.Timeout[E]] {
+	let probe = machines.Machine[S, E, O]{
 		Initial: m.Initial,
-		Step:    func(s S, e E) Decision[S, O] { Ignore },
+		Step:    func(s S, e E) machines.Decision[S, O] { machines.Ignore },
 		After:   m.After,
-		Work:    func(s S) Option[func(send func(e E))] { None },
-		Exit:    func(s S) Option[func()] { None },
+		Work:    func(s S) option.Option[func(send func(e E))] { option.None },
+		Exit:    func(s S) option.Option[func()] { option.None },
 	}
 	fired(probe, at)
 }
 
 func exitsLive[S, E, O, F, R, W](m LiveMachine[S, E, O, F, R, W], s S) bool {
 	match m.Exit(s) {
-	case Some[func() needs W]:
+	case option.Some[func() needs W]:
 		true
-	case None:
+	case option.None:
 		false
 	}
 }
 
 func exitOfLive[S, E, O, F, R, W](m LiveMachine[S, E, O, F, R, W], s S) needs W {
 	match m.Exit(s) {
-	case Some[func() needs W] as x:
+	case option.Some[func() needs W] as x:
 		x.Value()
-	case None:
+	case option.None:
 	}
 }
 
@@ -279,7 +281,7 @@ func exitOfLive[S, E, O, F, R, W](m LiveMachine[S, E, O, F, R, W], s S) needs W 
 // After under the firing mark, so a machines.Every timer's signal carries
 // time.Clock's reading now. The fire of start and child reads it so; the
 // delay reads only In.
-func fired[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], at S) Option[Timeout[E]] {
+func fired[S, E, O, F, R, W](m machines.Machine[S, E, O, F, R, W], at S) option.Option[machines.Timeout[E]] {
 	machines.AfterFiring(m, at)
 }
 
@@ -287,11 +289,11 @@ func fired[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], at S) Option[Timeout[E
 // runner reads it at each entry's end and enters the mask only when it
 // is true, so a machine with no exit action pays one call per entry end
 // (FK9-g1; runtime.md, Machines and actors 12a).
-func exits[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], s S) bool {
+func exits[S, E, O, F, R, W](m machines.Machine[S, E, O, F, R, W], s S) bool {
 	match m.Exit(s) {
-	case Some[func() needs W]:
+	case option.Some[func() needs W]:
 		true
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -299,11 +301,11 @@ func exits[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], s S) bool {
 // exitOf runs the exit action of the state s, which the runner calls,
 // masked, after exits(m, s) was true: m.Exit is a function of the state,
 // so it gives the same action again.
-func exitOf[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], s S) needs W {
+func exitOf[S, E, O, F, R, W](m machines.Machine[S, E, O, F, R, W], s S) needs W {
 	match m.Exit(s) {
-	case Some[func() needs W] as x:
+	case option.Some[func() needs W] as x:
 		x.Value()
-	case None:
+	case option.None:
 	}
 }
 
@@ -327,13 +329,13 @@ extern go ergo.local/prototype/runtime/v1.ActorNoTimer func noTimer() duration
 // calls it after StartMachine returned, while the caller runs on, so a
 // literal sink writes no let mut of its caller (types.md, Function values
 // 2 and 3).
-func StartMachine[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
+func StartMachine[S, E, O, F, R, W](m machines.Machine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R) Actor[S, E, machines.Decision[S, O], F] needs R | W | time.Scheduler {
 	StartLive(liveOf(m), capacity, sink)
 }
 
 // StartLive is StartMachine for a LiveMachine whose step or work may raise
 // deliberate defects (`die`).
-func StartLive[S, E, O, F, R, W](m LiveMachine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
+func StartLive[S, E, O, F, R, W](m LiveMachine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R) Actor[S, E, machines.Decision[S, O], F] needs R | W | time.Scheduler {
 	let first = m.Initial
 	launchLive(m, capacity, sink, func() S { first }, 0, func() duration { -1ns })
 }
@@ -342,36 +344,36 @@ func StartLive[S, E, O, F, R, W](m LiveMachine[S, E, O, F, R, W], capacity int, 
 // sent them: its State after them is the pure fold's, and a Send fails
 // Stopped only once a Done was stepped.
 law SendsStepInOrder(signals []int) {
-	with context { Scheduler: time.NewManual(0) } {
+	with context { time.Scheduler: time.NewManual(0) } {
 		inOrder(signals)
 	}
 }
 
 // tallyStep reaches each Decision by the signal mod 6.
-func tallyStep(s int, e int) Decision[int, int] {
+func tallyStep(s int, e int) machines.Decision[int, int] {
 	match ((e % 6) + 6) % 6 {
 	case 0:
-		Enter[int]{Next: s + e}
+		machines.Enter[int]{Next: s + e}
 	case 1:
-		Stay[int]{Next: s + 1}
+		machines.Stay[int]{Next: s + 1}
 	case 2:
-		Ignore
+		machines.Ignore
 	case 3:
-		Reject
+		machines.Reject
 	case 4:
-		Emit[int, int]{Next: s - 1, Output: s}
+		machines.Emit[int, int]{Next: s - 1, Output: s}
 	case _:
-		Done[int]{Output: s}
+		machines.Done[int]{Output: s}
 	}
 }
 
-func untimed(s int) Option[Timeout[int]] { None }
+func untimed(s int) option.Option[machines.Timeout[int]] { option.None }
 
-func unworked(s int) Option[func(send func(e int))] { None }
+func unworked(s int) option.Option[func(send func(e int))] { option.None }
 
-func unexited(s int) Option[func()] { None }
+func unexited(s int) option.Option[func()] { option.None }
 
-func tally() Machine[int, int, int] { Machine[int, int, int]{Initial: 0, Step: tallyStep, After: untimed, Work: unworked, Exit: unexited} }
+func tally() machines.Machine[int, int, int] { machines.Machine[int, int, int]{Initial: 0, Step: tallyStep, After: untimed, Work: unworked, Exit: unexited} }
 
 // folded is the state of tally after signals, as the pure step gives it,
 // up to the first Done, and whether a Done came.
@@ -380,7 +382,7 @@ func folded(signals []int) (int, bool) {
 	for e in signals {
 		let d = tallyStep(s, e)
 		match d {
-		case Done[int]:
+		case machines.Done[int]:
 			return (s, true)
 		case _:
 			s = machines.Next(s, d)
@@ -391,7 +393,7 @@ func folded(signals []int) (int, bool) {
 
 // inOrder: the State after signals is the pure fold's, and a Send fails
 // Stopped only after a Done.
-func inOrder(signals []int) bool needs Scheduler {
+func inOrder(signals []int) bool needs time.Scheduler {
 	let a = StartMachine(tally(), 1, func(o int) {})
 	let mut refused = false
 	for e in signals {
@@ -409,29 +411,29 @@ func inOrder(signals []int) bool needs Scheduler {
 // SinkGetsEachOutput: the actor gives its sink each Emit's and Tell's
 // output, in order, before it answers the Ask.
 law SinkGetsEachOutput(signals []int) {
-	with context { Scheduler: time.NewManual(0) } {
+	with context { time.Scheduler: time.NewManual(0) } {
 		heard(signals)
 	}
 }
 
 // tellStep: a signal e decides by its rest modulo 3: 0 tells s and moves
 // to s + 1, 1 emits -s and moves to s + 1, 2 stays at s + e.
-func tellStep(s int, e int) Decision[int, int] {
+func tellStep(s int, e int) machines.Decision[int, int] {
 	match ((e % 3) + 3) % 3 {
 	case 0:
-		Tell[int, int]{Next: s + 1, Output: s}
+		machines.Tell[int, int]{Next: s + 1, Output: s}
 	case 1:
-		Emit[int, int]{Next: s + 1, Output: -s}
+		machines.Emit[int, int]{Next: s + 1, Output: -s}
 	case _:
-		Stay[int]{Next: s + e}
+		machines.Stay[int]{Next: s + e}
 	}
 }
 
 // heard: a tellStep actor asked each signal gave its sink the outputs of
 // the pure step's Emits and Tells, in order.
-func heard(signals []int) bool needs Scheduler {
+func heard(signals []int) bool needs time.Scheduler {
 	let got = sync.NewRef[[]int]([]int{})
-	let a = StartMachine(Machine[int, int, int]{Initial: 0, Step: tellStep, After: untimed, Work: unworked, Exit: unexited}, 1, func(o int) {
+	let a = StartMachine(machines.Machine[int, int, int]{Initial: 0, Step: tellStep, After: untimed, Work: unworked, Exit: unexited}, 1, func(o int) {
 		got.Set(got.Get().Append(o))
 	})
 	let mut s = 0
@@ -439,9 +441,9 @@ func heard(signals []int) bool needs Scheduler {
 	for e in signals {
 		let d = tellStep(s, e)
 		match d {
-		case Emit[int, int] as em:
+		case machines.Emit[int, int] as em:
 			want = want.Append(em.Output)
-		case Tell[int, int] as tl:
+		case machines.Tell[int, int] as tl:
 			want = want.Append(tl.Output)
 		case _:
 		}
@@ -461,7 +463,7 @@ func heard(signals []int) bool needs Scheduler {
 // state the fold gives, and one show per step.
 law ActorStageAgreesWithFold(acts []int) {
 	let clock = time.NewManual(0)
-	with context { Scheduler: clock } { stagedAgrees(acts, clock) }
+	with context { time.Scheduler: clock } { stagedAgrees(acts, clock) }
 }
 
 // staged counts what was added and the ticks of its timer while open;
@@ -475,38 +477,38 @@ type stagedSignal = stagedAdd{N int} | stagedSave{} | stagedStored{} | stagedTic
 // stagedStep: an add keeps the open entry and its timer (Stay); a tick
 // re-enters it, so the timer re-arms; a save enters saving, whose work
 // sends the end.
-func stagedStep(s staged, e stagedSignal) Decision[staged, int] {
+func stagedStep(s staged, e stagedSignal) machines.Decision[staged, int] {
 	match (s, e) {
 	case (stagedOpen as o, stagedAdd as a):
-		Stay[staged]{Next: stagedOpen{N: o.N + a.N, Ticks: o.Ticks}}
+		machines.Stay[staged]{Next: stagedOpen{N: o.N + a.N, Ticks: o.Ticks}}
 	case (stagedOpen as o, stagedTick):
-		Enter[staged]{Next: stagedOpen{N: o.N, Ticks: o.Ticks + 1}}
+		machines.Enter[staged]{Next: stagedOpen{N: o.N, Ticks: o.Ticks + 1}}
 	case (stagedOpen as o, stagedSave):
-		Enter[staged]{Next: stagedSaving{N: o.N, Ticks: o.Ticks}}
+		machines.Enter[staged]{Next: stagedSaving{N: o.N, Ticks: o.Ticks}}
 	case (stagedSaving as v, stagedStored):
-		Enter[staged]{Next: stagedSaved{N: v.N, Ticks: v.Ticks}}
+		machines.Enter[staged]{Next: stagedSaved{N: v.N, Ticks: v.Ticks}}
 	case (_, _):
-		Ignore
+		machines.Ignore
 	}
 }
 
 // stagedTimer ticks an open entry each second.
-func stagedTimer(s staged) Option[Timeout[stagedSignal]] {
+func stagedTimer(s staged) option.Option[machines.Timeout[stagedSignal]] {
 	match s {
 	case stagedOpen:
-		Some[Timeout[stagedSignal]]{Value: Timeout[stagedSignal]{In: 1s, Signal: stagedTick}}
+		option.Some[machines.Timeout[stagedSignal]]{Value: machines.Timeout[stagedSignal]{In: 1s, Signal: stagedTick}}
 	case stagedSaving, stagedSaved:
-		None
+		option.None
 	}
 }
 
 // stagedWork is the save: it sends its end.
-func stagedWork(s staged) Option[machines.Work[stagedSignal, Scheduler]] {
+func stagedWork(s staged) option.Option[machines.Work[stagedSignal, time.Scheduler]] {
 	match s {
 	case stagedSaving:
-		Some[machines.Work[stagedSignal, Scheduler]]{Value: machines.Do[stagedSignal, Scheduler](func() stagedSignal { stagedStored })}
+		option.Some[machines.Work[stagedSignal, time.Scheduler]]{Value: machines.Do[stagedSignal, time.Scheduler](func() stagedSignal { stagedStored })}
 	case stagedOpen, stagedSaved:
-		None
+		option.None
 	}
 }
 
@@ -567,7 +569,7 @@ func stagedFolded(acts []int) []staged {
 // stagedAgrees plays each act, then a settle, on a stage of stagedLife
 // over clock, and compares each settled show with the fold; Play gives
 // one show per step.
-func stagedAgrees(acts []int, clock time.Manual) bool needs Scheduler {
+func stagedAgrees(acts []int, clock time.Manual) bool needs time.Scheduler {
 	let mut steps = []testing.Step[stagedSignal]{}
 	for k in acts {
 		steps = steps.Append(stagedStepOf(k)).Append(testing.Settle)
@@ -579,7 +581,7 @@ func stagedAgrees(acts []int, clock time.Manual) bool needs Scheduler {
 	}
 	a.Stop()
 	let want = stagedFolded(acts)
-	let mut same = len(shows) == len(steps)
+	let mut same = shows.Len() == steps.Len()
 	for i, s in want {
 		same = same && shows[2*i+1] == s
 	}
@@ -610,13 +612,13 @@ func waitFromVerdict(v tasks.Verdict) duration {
 // Drain and a typed failure that ends the actor are final: no restart
 // follows them. The defect that finds the budget spent ends the actor, and
 // Stop raises it. Restarts counts the restarts. A negative Limit is a defect.
-func Supervise[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, policy tasks.Restart) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
+func Supervise[S, E, O, F, R, W](m machines.Machine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, policy tasks.Restart) Actor[S, E, machines.Decision[S, O], F] needs R | W | time.Scheduler {
 	SuperviseLive(liveOf(m), capacity, sink, policy)
 }
 
 // SuperviseLive is Supervise for a LiveMachine whose step or work may raise
 // deliberate defects (`die`).
-func SuperviseLive[S, E, O, F, R, W](m LiveMachine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, policy tasks.Restart) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
+func SuperviseLive[S, E, O, F, R, W](m LiveMachine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, policy tasks.Restart) Actor[S, E, machines.Decision[S, O], F] needs R | W | time.Scheduler {
 	let first = m.Initial
 	let sup = tasks.LimitPolicy(policy.Limit)
 	let past = sync.NewRef[[]duration]([]duration{})
@@ -628,13 +630,13 @@ func SuperviseLive[S, E, O, F, R, W](m LiveMachine[S, E, O, F, R, W], capacity i
 // SuperviseWith is Supervise under a full tasks.Supervision policy
 // (Intensity sliding window and Backoff schedule evaluated through
 // tasks.Decide on time.Clock and slept on Scheduler).
-func SuperviseWith[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, policy tasks.Supervision) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler | time.Clock {
+func SuperviseWith[S, E, O, F, R, W](m machines.Machine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, policy tasks.Supervision) Actor[S, E, machines.Decision[S, O], F] needs R | W | time.Scheduler | time.Clock {
 	SuperviseLiveWith(liveOf(m), capacity, sink, policy)
 }
 
 // SuperviseLiveWith is SuperviseWith for a LiveMachine whose step or work may
 // raise deliberate defects (`die`).
-func SuperviseLiveWith[S, E, O, F, R, W](m LiveMachine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, policy tasks.Supervision) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler | time.Clock {
+func SuperviseLiveWith[S, E, O, F, R, W](m LiveMachine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, policy tasks.Supervision) Actor[S, E, machines.Decision[S, O], F] needs R | W | time.Scheduler | time.Clock {
 	let first = m.Initial
 	let origin = time.Clock.Now()
 	let past = sync.NewRef[[]duration]([]duration{})
@@ -650,7 +652,7 @@ func SuperviseLiveWith[S, E, O, F, R, W](m LiveMachine[S, E, O, F, R, W], capaci
 // budget lasts; the defect after it ends the actor (Defected); Done ends
 // it for good; Restarts counts the restarts.
 law RestartIsFresh(signals []int, n int) {
-	with context { Scheduler: time.NewManual(0) } {
+	with context { time.Scheduler: time.NewManual(0) } {
 		restarted(signals, n)
 	}
 }
@@ -659,18 +661,18 @@ type injectedStepFault { Signal int }
 
 func crashes(e int) bool { ((e%5)+5)%5 == 4 }
 
-func crashStep(s int, e int) Decision[int, int] defects {
+func crashStep(s int, e int) machines.Decision[int, int] defects {
 	if crashes(e) {
 		die injectedStepFault{Signal: e}
 	}
 	tallyStep(s, e)
 }
 
-func unworkedLive(s int) Option[func(send entry func(e int)) defects] { None }
+func unworkedLive(s int) option.Option[func(send entry func(e int)) defects] { option.None }
 
 func crashy() LiveMachine[int, int, int] { LiveMachine[int, int, int]{Initial: 0, Step: crashStep, After: untimed, Work: unworkedLive, Exit: unexited} }
 
-func supervised(a Actor[int, int, Decision[int, int]], signals []int, limit int, kept bool) bool needs Scheduler {
+func supervised(a Actor[int, int, machines.Decision[int, int]], signals []int, limit int, kept bool) bool needs time.Scheduler {
 	let mut s = 0
 	let mut restarts = 0
 	let mut ended = false
@@ -679,7 +681,7 @@ func supervised(a Actor[int, int, Decision[int, int]], signals []int, limit int,
 	for e in signals {
 		let _ = a.Ask(e) catch {
 		case Stopped:
-			Ignore
+			machines.Ignore
 		}
 		if !ended {
 			if crashes(e) {
@@ -696,7 +698,7 @@ func supervised(a Actor[int, int, Decision[int, int]], signals []int, limit int,
 			} else {
 				let d = tallyStep(s, e)
 				match d {
-				case Done[int]:
+				case machines.Done[int]:
 					ended = true
 				case _:
 					s = machines.Next(s, d)
@@ -708,7 +710,7 @@ func supervised(a Actor[int, int, Decision[int, int]], signals []int, limit int,
 	if defected {
 		match ExitOf(a) {
 		case Defected as d:
-			return same && ReasonAs[injectedStepFault](d) == Some[injectedStepFault]{Value: injectedStepFault{Signal: lastCrash}}
+			return same && ReasonAs[injectedStepFault](d) == option.Some[injectedStepFault]{Value: injectedStepFault{Signal: lastCrash}}
 		case _:
 			return false
 		}
@@ -717,7 +719,7 @@ func supervised(a Actor[int, int, Decision[int, int]], signals []int, limit int,
 	same
 }
 
-func restarted(signals []int, n int) bool needs Scheduler {
+func restarted(signals []int, n int) bool needs time.Scheduler {
 	let limit = ((n % 3) + 3) % 3
 	supervised(SuperviseLive(crashy(), 1, func(o int) {}, tasks.Restart{Limit: limit}), signals, limit, false)
 }
@@ -726,63 +728,63 @@ func restarted(signals []int, n int) bool needs Scheduler {
 // SuperviseDurable); 0 for an actor that never did.
 extern go ergo.local/prototype/runtime/v1.ActorRestarts func Restarts[S, E, D, F](a Actor[S, E, D, F]) int
 
-func launchLive[S, E, O, F, R, W, G, C](m LiveMachine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, fresh own func() S fails G needs R, limit int, decide own func() duration needs C) Actor[S, E, Decision[S, O], F] needs R | W | C | Scheduler {
-	start(m.Initial, fresh, limit, decide, m.Step, func(at S, s S) Decision[S, O] fails F needs R defects {
+func launchLive[S, E, O, F, R, W, G, C](m LiveMachine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, fresh own func() S fails G needs R, limit int, decide own func() duration needs C) Actor[S, E, machines.Decision[S, O], F] needs R | W | C | time.Scheduler {
+	start(m.Initial, fresh, limit, decide, m.Step, func(at S, s S) machines.Decision[S, O] fails F needs R defects {
 		match firedLive(m, at) {
-		case Some[Timeout[E]] as t:
+		case option.Some[machines.Timeout[E]] as t:
 			try m.Step(s, t.Value.Signal)
-		case None:
-			Ignore
+		case option.None:
+			machines.Ignore
 		}
 	}, func(s S) duration {
 		match m.After(s) {
-		case Some[Timeout[E]] as t:
+		case option.Some[machines.Timeout[E]] as t:
 			t.Value.In
-		case None:
+		case option.None:
 			noTimer()
 		}
-	}, m.Work, func(w Option[func(send entry func(e E)) needs W defects]) bool {
+	}, m.Work, func(w option.Option[func(send entry func(e E)) needs W defects]) bool {
 		match w {
-		case Some[func(send entry func(e E)) needs W defects]:
+		case option.Some[func(send entry func(e E)) needs W defects]:
 			true
-		case None:
+		case option.None:
 			false
 		}
-	}, func(w Option[func(send entry func(e E)) needs W defects], send entry func(e E)) needs W defects {
+	}, func(w option.Option[func(send entry func(e E)) needs W defects], send entry func(e E)) needs W defects {
 		match w {
-		case Some[func(send entry func(e E)) needs W defects] as wk:
+		case option.Some[func(send entry func(e E)) needs W defects] as wk:
 			wk.Value(send)
-		case None:
+		case option.None:
 		}
-	}, func(s S) bool { exitsLive(m, s) }, func(s S) needs W { exitOfLive(m, s) }, func(d Decision[S, O]) int {
+	}, func(s S) bool { exitsLive(m, s) }, func(s S) needs W { exitOfLive(m, s) }, func(d machines.Decision[S, O]) int {
 		match d {
-		case Enter[S]:
+		case machines.Enter[S]:
 			0
-		case Stay[S]:
+		case machines.Stay[S]:
 			1
-		case Emit[S, O]:
+		case machines.Emit[S, O]:
 			2
-		case Ignore:
+		case machines.Ignore:
 			3
-		case Reject:
+		case machines.Reject:
 			4
-		case Done[O]:
+		case machines.Done[O]:
 			5
-		case Tell[S, O]:
+		case machines.Tell[S, O]:
 			6
 		}
-	}, func(s S, d Decision[S, O]) S { machines.Next(s, d) }, func(d Decision[S, O]) needs R {
+	}, func(s S, d machines.Decision[S, O]) S { machines.Next(s, d) }, func(d machines.Decision[S, O]) needs R {
 		match d {
-		case Emit[S, O] as em:
+		case machines.Emit[S, O] as em:
 			sink(em.Output)
-		case Done[O] as dn:
+		case machines.Done[O] as dn:
 			sink(dn.Output)
-		case Tell[S, O] as tl:
+		case machines.Tell[S, O] as tl:
 			sink(tl.Output)
-		case Enter[S]:
-		case Stay[S]:
-		case Ignore:
-		case Reject:
+		case machines.Enter[S]:
+		case machines.Stay[S]:
+		case machines.Ignore:
+		case machines.Reject:
 		}
 	}, capacity)
 }
@@ -813,8 +815,8 @@ func launchLive[S, E, O, F, R, W, G, C](m LiveMachine[S, E, O, F, R, W], capacit
 // the actor's first entry binds each one its first state holds, and its
 // work fills them with new children. Every other host recover made is
 // closed when StartDurable returns, so a journal never keeps a live child.
-func StartDurable[S, E, O, F, R, W, G, H](m pure Machine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, recover func() Option[S] fails G needs R, save own func(prev S, next S, sig E) fails H needs R) Actor[S, E, Decision[S, O], F] fails G needs R | W | Scheduler {
-	try recovering(func() S fails G needs R { try recovered(recover, m.Initial) }, func(initial S) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
+func StartDurable[S, E, O, F, R, W, G, H](m pure machines.Machine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, recover func() option.Option[S] fails G needs R, save own func(prev S, next S, sig E) fails H needs R) Actor[S, E, machines.Decision[S, O], F] fails G needs R | W | time.Scheduler {
+	try recovering(func() S fails G needs R { try recovered(recover, m.Initial) }, func(initial S) Actor[S, E, machines.Decision[S, O], F] needs R | W | time.Scheduler {
 		StartMachine(durable(m, initial, save), capacity, sink)
 	})
 }
@@ -833,17 +835,17 @@ extern go ergo.local/prototype/runtime/v1.ActorRecovering func recovering[S, A, 
 // A failure of recover at the start fails SuperviseDurable; at a restart
 // it is a defect of the new incarnation (ActorFreshDefect), which the
 // budget counts like any other.
-func SuperviseDurable[S, E, O, F, R, W, G](m pure Machine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, policy tasks.Restart, recover own func() Option[S] fails G needs R, save own func(prev S, next S, sig E) fails G needs R) Actor[S, E, Decision[S, O], F] fails G needs R | W | Scheduler {
+func SuperviseDurable[S, E, O, F, R, W, G](m pure machines.Machine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, policy tasks.Restart, recover own func() option.Option[S] fails G needs R, save own func(prev S, next S, sig E) fails G needs R) Actor[S, E, machines.Decision[S, O], F] fails G needs R | W | time.Scheduler {
 	SuperviseDurableLive(liveOf(m), capacity, sink, policy, recover, save)
 }
 
 // SuperviseDurableLive is SuperviseDurable for a LiveMachine whose step or work
 // may raise deliberate defects (`die`).
-func SuperviseDurableLive[S, E, O, F, R, W, G](m LiveMachine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, policy tasks.Restart, recover own func() Option[S] fails G needs R, save own func(prev S, next S, sig E) fails G needs R) Actor[S, E, Decision[S, O], F] fails G needs R | W | Scheduler {
+func SuperviseDurableLive[S, E, O, F, R, W, G](m LiveMachine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, policy tasks.Restart, recover own func() option.Option[S] fails G needs R, save own func(prev S, next S, sig E) fails G needs R) Actor[S, E, machines.Decision[S, O], F] fails G needs R | W | time.Scheduler {
 	let first = m.Initial
 	let sup = tasks.LimitPolicy(policy.Limit)
 	let past = sync.NewRef[[]duration]([]duration{})
-	try recovering(func() S fails G needs R { try recovered(recover, first) }, func(initial S) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
+	try recovering(func() S fails G needs R { try recovered(recover, first) }, func(initial S) Actor[S, E, machines.Decision[S, O], F] needs R | W | time.Scheduler {
 		launchLive(durableLive(m, initial, save), capacity, sink, func() S fails G needs R { try recovered(recover, first) }, policy.Limit, func() duration {
 			waitFromVerdict(tasks.NextRestart(sup, past, 0s))
 		})
@@ -853,16 +855,16 @@ func SuperviseDurableLive[S, E, O, F, R, W, G](m LiveMachine[S, E, O, F, R, W], 
 // SuperviseDurableWith is SuperviseDurable under a full tasks.Supervision
 // policy (Intensity sliding window and Backoff schedule evaluated through
 // tasks.Decide on time.Clock and slept on Scheduler).
-func SuperviseDurableWith[S, E, O, F, R, W, G](m pure Machine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, policy tasks.Supervision, recover own func() Option[S] fails G needs R, save own func(prev S, next S, sig E) fails G needs R) Actor[S, E, Decision[S, O], F] fails G needs R | W | Scheduler | time.Clock {
+func SuperviseDurableWith[S, E, O, F, R, W, G](m pure machines.Machine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, policy tasks.Supervision, recover own func() option.Option[S] fails G needs R, save own func(prev S, next S, sig E) fails G needs R) Actor[S, E, machines.Decision[S, O], F] fails G needs R | W | time.Scheduler | time.Clock {
 	SuperviseDurableLiveWith(liveOf(m), capacity, sink, policy, recover, save)
 }
 
 // SuperviseDurableLiveWith is SuperviseDurableWith for a LiveMachine whose step
 // or work may raise deliberate defects (`die`).
-func SuperviseDurableLiveWith[S, E, O, F, R, W, G](m LiveMachine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, policy tasks.Supervision, recover own func() Option[S] fails G needs R, save own func(prev S, next S, sig E) fails G needs R) Actor[S, E, Decision[S, O], F] fails G needs R | W | Scheduler | time.Clock {
+func SuperviseDurableLiveWith[S, E, O, F, R, W, G](m LiveMachine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, policy tasks.Supervision, recover own func() option.Option[S] fails G needs R, save own func(prev S, next S, sig E) fails G needs R) Actor[S, E, machines.Decision[S, O], F] fails G needs R | W | time.Scheduler | time.Clock {
 	let first = m.Initial
 	let active = if policy.Intensity.Max > 0 { 1 } else { 0 }
-	try recovering(func() S fails G needs R { try recovered(recover, first) }, func(initial S) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler | time.Clock {
+	try recovering(func() S fails G needs R { try recovered(recover, first) }, func(initial S) Actor[S, E, machines.Decision[S, O], F] needs R | W | time.Scheduler | time.Clock {
 		let origin = time.Clock.Now()
 		let past = sync.NewRef[[]duration]([]duration{})
 		launchLive(durableLive(m, initial, save), capacity, sink, func() S fails G needs R { try recovered(recover, first) }, active, func() duration needs time.Clock {
@@ -876,40 +878,40 @@ law SuperviseWithWindowAndBackoff(k int) {
 	let _ = k
 	let policy = tasks.Supervision{Strategy: tasks.OneForOne, Intensity: tasks.Intensity{Max: 2, Period: 10s}, Backoff: schedule.Exponential(1s, 2.0, 10s)}
 	let c1 = testing.NewVirtualClock(0)
-	let slid = with context { Scheduler: c1, time.Clock: c1 } {
+	let slid = with context { time.Scheduler: c1, time.Clock: c1 } {
 		let start = time.Clock.Now()
 		let a = SuperviseLiveWith(crashy(), 1, func(o int) {}, policy)
 		let _ = a.Ask(6) catch {
 		case Stopped:
-			Ignore
+			machines.Ignore
 		}
 		let _ = a.Ask(4) catch {
 		case Stopped:
-			Ignore
+			machines.Ignore
 		}
 		let _ = a.Ask(1) catch {
 		case Stopped:
-			Ignore
+			machines.Ignore
 		}
 		let t1 = time.Clock.Now().Sub(start)
 		let s1 = a.State()
 		let _ = a.Ask(4) catch {
 		case Stopped:
-			Ignore
+			machines.Ignore
 		}
 		let _ = a.Ask(1) catch {
 		case Stopped:
-			Ignore
+			machines.Ignore
 		}
 		let t2 = time.Clock.Now().Sub(start)
-		Scheduler.Sleep(10s)
+		time.Scheduler.Sleep(10s)
 		let _ = a.Ask(4) catch {
 		case Stopped:
-			Ignore
+			machines.Ignore
 		}
 		let _ = a.Ask(1) catch {
 		case Stopped:
-			Ignore
+			machines.Ignore
 		}
 		let t3 = time.Clock.Now().Sub(start)
 		let r = Restarts(a)
@@ -917,32 +919,32 @@ law SuperviseWithWindowAndBackoff(k int) {
 		s1 == 1 && t1 == 1s && t2 == 3s && t3 == 14s && r == 3
 	}
 	let c2 = testing.NewVirtualClock(0)
-	let gaveUp = with context { Scheduler: c2, time.Clock: c2 } {
+	let gaveUp = with context { time.Scheduler: c2, time.Clock: c2 } {
 		let start = time.Clock.Now()
 		let a = SuperviseLiveWith(crashy(), 1, func(o int) {}, policy)
 		let _ = a.Ask(4) catch {
 		case Stopped:
-			Ignore
+			machines.Ignore
 		}
 		let _ = a.Ask(1) catch {
 		case Stopped:
-			Ignore
+			machines.Ignore
 		}
 		let _ = a.Ask(4) catch {
 		case Stopped:
-			Ignore
+			machines.Ignore
 		}
 		let _ = a.Ask(1) catch {
 		case Stopped:
-			Ignore
+			machines.Ignore
 		}
 		let _ = a.Ask(4) catch {
 		case Stopped:
-			Ignore
+			machines.Ignore
 		}
 		match ExitOf(a) {
 		case Defected as d:
-			Restarts(a) == 2 && time.Clock.Now().Sub(start) == 3s && ReasonAs[injectedStepFault](d) == Some[injectedStepFault]{Value: injectedStepFault{Signal: 4}}
+			Restarts(a) == 2 && time.Clock.Now().Sub(start) == 3s && ReasonAs[injectedStepFault](d) == option.Some[injectedStepFault]{Value: injectedStepFault{Signal: 4}}
 		case _:
 			false
 		}
@@ -954,43 +956,43 @@ law SuperviseDurableWithRecoversAndBacksOff(k int) {
 	let _ = k
 	let policy = tasks.Supervision{Strategy: tasks.OneForOne, Intensity: tasks.Intensity{Max: 2, Period: 10s}, Backoff: schedule.Exponential(1s, 2.0, 10s)}
 	let c = testing.NewVirtualClock(0)
-	let cell = sync.NewRef[Option[int]](None)
-	with context { Scheduler: c, time.Clock: c } {
+	let cell = sync.NewRef[option.Option[int]](option.None)
+	with context { time.Scheduler: c, time.Clock: c } {
 		let start = time.Clock.Now()
-		let a = SuperviseDurableLiveWith(crashy(), 1, func(o int) {}, policy, func() Option[int] { cell.Get() }, func(prev int, next int, sig int) {
-			cell.Set(Some[int]{Value: next})
+		let a = SuperviseDurableLiveWith(crashy(), 1, func(o int) {}, policy, func() option.Option[int] { cell.Get() }, func(prev int, next int, sig int) {
+			cell.Set(option.Some[int]{Value: next})
 		})
 		let _ = a.Ask(6) catch {
 		case Stopped:
-			Ignore
+			machines.Ignore
 		}
 		let _ = a.Ask(4) catch {
 		case Stopped:
-			Ignore
+			machines.Ignore
 		}
 		let _ = a.Ask(1) catch {
 		case Stopped:
-			Ignore
+			machines.Ignore
 		}
 		let t1 = time.Clock.Now().Sub(start)
 		let s1 = a.State()
 		let _ = a.Ask(4) catch {
 		case Stopped:
-			Ignore
+			machines.Ignore
 		}
 		let _ = a.Ask(1) catch {
 		case Stopped:
-			Ignore
+			machines.Ignore
 		}
 		let t2 = time.Clock.Now().Sub(start)
 		let s2 = a.State()
 		let _ = a.Ask(4) catch {
 		case Stopped:
-			Ignore
+			machines.Ignore
 		}
 		match ExitOf(a) {
 		case Defected as d:
-			s1 == 7 && t1 == 1s && s2 == 8 && t2 == 3s && a.State() == 8 && Restarts(a) == 2 && time.Clock.Now().Sub(start) == 3s && ReasonAs[injectedStepFault](d) == Some[injectedStepFault]{Value: injectedStepFault{Signal: 4}}
+			s1 == 7 && t1 == 1s && s2 == 8 && t2 == 3s && a.State() == 8 && Restarts(a) == 2 && time.Clock.Now().Sub(start) == 3s && ReasonAs[injectedStepFault](d) == option.Some[injectedStepFault]{Value: injectedStepFault{Signal: 4}}
 		case _:
 			false
 		}
@@ -1000,45 +1002,45 @@ law SuperviseDurableWithRecoversAndBacksOff(k int) {
 // RestartRecovers: under SuperviseDurable, each restart starts in the
 // state recover gives, the last one save kept.
 law RestartRecovers(signals []int, n int) {
-	with context { Scheduler: time.NewManual(0) } {
+	with context { time.Scheduler: time.NewManual(0) } {
 		recoveredRun(signals, n)
 	}
 }
 
-func recoveredRun(signals []int, n int) bool needs Scheduler {
+func recoveredRun(signals []int, n int) bool needs time.Scheduler {
 	let limit = ((n % 3) + 3) % 3
-	let cell = sync.NewRef[Option[int]](None)
-	let a = SuperviseDurableLive(crashy(), 1, func(o int) {}, tasks.Restart{Limit: limit}, func() Option[int] { cell.Get() }, func(prev int, next int, sig int) {
-		cell.Set(Some[int]{Value: next})
+	let cell = sync.NewRef[option.Option[int]](option.None)
+	let a = SuperviseDurableLive(crashy(), 1, func(o int) {}, tasks.Restart{Limit: limit}, func() option.Option[int] { cell.Get() }, func(prev int, next int, sig int) {
+		cell.Set(option.Some[int]{Value: next})
 	})
 	supervised(a, signals, limit, true)
 }
 
-func recovered[S, G, R](recover func() Option[S] fails G needs R, initial own S) S fails G needs R {
+func recovered[S, G, R](recover func() option.Option[S] fails G needs R, initial own S) S fails G needs R {
 	match try recover() {
-	case Some[S] as s:
+	case option.Some[S] as s:
 		s.Value
-	case None:
+	case option.None:
 		initial
 	}
 }
 
-func durable[S, E, O, F, R, W, G](m Machine[S, E, O, F, R, W], initial own S, save own func(prev S, next S, sig E) fails G needs R) Machine[S, E, O, F, R, W] {
+func durable[S, E, O, F, R, W, G](m machines.Machine[S, E, O, F, R, W], initial own S, save own func(prev S, next S, sig E) fails G needs R) machines.Machine[S, E, O, F, R, W] {
 	let step = m.Step
-	Machine[S, E, O, F, R, W]{Initial: initial, Step: func(s S, e E) Decision[S, O] fails F needs R {
+	machines.Machine[S, E, O, F, R, W]{Initial: initial, Step: func(s S, e E) machines.Decision[S, O] fails F needs R {
 		let d = try step(s, e)
 		match d {
-		case Enter[S] as en:
+		case machines.Enter[S] as en:
 			keep(save, s, en.Next, e)
-		case Stay[S] as st:
+		case machines.Stay[S] as st:
 			keep(save, s, st.Next, e)
-		case Emit[S, O] as em:
+		case machines.Emit[S, O] as em:
 			keep(save, s, em.Next, e)
-		case Tell[S, O] as tl:
+		case machines.Tell[S, O] as tl:
 			keep(save, s, tl.Next, e)
-		case Ignore:
-		case Reject:
-		case Done[O]:
+		case machines.Ignore:
+		case machines.Reject:
+		case machines.Done[O]:
 		}
 		d
 	}, After: m.After, Work: m.Work, Exit: m.Exit}
@@ -1048,20 +1050,20 @@ func durableLive[S, E, O, F, R, W, G](m LiveMachine[S, E, O, F, R, W], initial o
 	let step = m.Step
 	LiveMachine[S, E, O, F, R, W]{
 		Initial: initial,
-		Step:    func(s S, e E) Decision[S, O] fails F needs R defects {
+		Step:    func(s S, e E) machines.Decision[S, O] fails F needs R defects {
 			let d = try step(s, e)
 			match d {
-			case Enter[S] as en:
+			case machines.Enter[S] as en:
 				keep(save, s, en.Next, e)
-			case Stay[S] as st:
+			case machines.Stay[S] as st:
 				keep(save, s, st.Next, e)
-			case Emit[S, O] as em:
+			case machines.Emit[S, O] as em:
 				keep(save, s, em.Next, e)
-			case Tell[S, O] as tl:
+			case machines.Tell[S, O] as tl:
 				keep(save, s, tl.Next, e)
-			case Ignore:
-			case Reject:
-			case Done[O]:
+			case machines.Ignore:
+			case machines.Reject:
+			case machines.Done[O]:
 			}
 			d
 		},
@@ -1079,7 +1081,7 @@ extern go ergo.local/prototype/runtime/v1.ActorKeep func keep[S, E, G, R](save f
 // gets each decision with deliver, which gives a child output to the
 // parent as a signal of the entry that owns the child. host is the host
 // the child fills (ChildIn), or noHost() (Child).
-extern go ergo.local/prototype/runtime/v1.MachineChild func child[S, E, D, W, F, R, P](host Host[Actor[S, E, D, F]], initial S, step own func(s S, e E) D fails F needs R, fire own func(at S, s S) D fails F needs R, delay own func(s S) duration, workOf own func(s S) W, hasWork own func(w W) bool, work own func(w W, send func(e E)) needs R, hasExit own func(s S) bool, leave own func(s S) needs R, kind own func(d D) int, next own func(s S, d D) S, out own func(d D, deliver func(p P)) needs R, capacity int) Actor[S, E, D, F] needs R | Scheduler
+extern go ergo.local/prototype/runtime/v1.MachineChild func child[S, E, D, W, F, R, P](host Host[Actor[S, E, D, F]], initial S, step own func(s S, e E) D fails F needs R, fire own func(at S, s S) D fails F needs R, delay own func(s S) duration, workOf own func(s S) W, hasWork own func(w W) bool, work own func(w W, send func(e E)) needs R, hasExit own func(s S) bool, leave own func(s S) needs R, kind own func(d D) int, next own func(s S, d D) S, out own func(d D, deliver func(p P)) needs R, capacity int) Actor[S, E, D, F] needs R | time.Scheduler
 
 // Child runs m as an actor that the entry of the calling work owns
 // (runtime.md, Machines and actors 14), with an inbox of capacity
@@ -1098,8 +1100,8 @@ extern go ergo.local/prototype/runtime/v1.MachineChild func child[S, E, D, W, F,
 // entry's work (machines.Work's Start), or one a caller passed on to a
 // parameter written entry; no other value is one (types.md, Function
 // values).
-func Child[S, E, O, F, R, W, P](send entry func(e P), m Machine[S, E, O, F, R, W], capacity int, toParent own func(o O) P) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
-	childOf(noHost[Actor[S, E, Decision[S, O], F]](), m, capacity, toParent)
+func Child[S, E, O, F, R, W, P](send entry func(e P), m machines.Machine[S, E, O, F, R, W], capacity int, toParent own func(o O) P) Actor[S, E, machines.Decision[S, O], F] needs R | W | time.Scheduler {
+	childOf(noHost[Actor[S, E, machines.Decision[S, O], F]](), m, capacity, toParent)
 }
 
 // Hosts (mu-host; runtime.md, Machines and actors 16): a name for a child
@@ -1139,68 +1141,68 @@ extern go ergo.local/prototype/runtime/v1.ActorNoHost func noHost[A]() Host[A]
 // work owns and that is empty. Any other host is a defect, with no child
 // started: a host of an ended entry (a state that carried it into a new
 // entry), a filled host, or one that no entry owns.
-func ChildIn[S, E, O, F, R, W, P](send entry func(e P), host Host[Actor[S, E, Decision[S, O], F]], m Machine[S, E, O, F, R, W], capacity int, toParent own func(o O) P) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
+func ChildIn[S, E, O, F, R, W, P](send entry func(e P), host Host[Actor[S, E, machines.Decision[S, O], F]], m machines.Machine[S, E, O, F, R, W], capacity int, toParent own func(o O) P) Actor[S, E, machines.Decision[S, O], F] needs R | W | time.Scheduler {
 	childOf(host, m, capacity, toParent)
 }
 
 // childOf is the body of Child and ChildIn.
-func childOf[S, E, O, F, R, W, P](host Host[Actor[S, E, Decision[S, O], F]], m Machine[S, E, O, F, R, W], capacity int, toParent own func(o O) P) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
-	child(host, m.Initial, m.Step, func(at S, s S) Decision[S, O] fails F needs R {
+func childOf[S, E, O, F, R, W, P](host Host[Actor[S, E, machines.Decision[S, O], F]], m machines.Machine[S, E, O, F, R, W], capacity int, toParent own func(o O) P) Actor[S, E, machines.Decision[S, O], F] needs R | W | time.Scheduler {
+	child(host, m.Initial, m.Step, func(at S, s S) machines.Decision[S, O] fails F needs R {
 		match fired(m, at) {
-		case Some[Timeout[E]] as t:
+		case option.Some[machines.Timeout[E]] as t:
 			try m.Step(s, t.Value.Signal)
-		case None:
-			Ignore
+		case option.None:
+			machines.Ignore
 		}
 	}, func(s S) duration {
 		match m.After(s) {
-		case Some[Timeout[E]] as t:
+		case option.Some[machines.Timeout[E]] as t:
 			t.Value.In
-		case None:
+		case option.None:
 			noTimer()
 		}
-	}, m.Work, func(w Option[func(send func(e E)) needs W]) bool {
+	}, m.Work, func(w option.Option[func(send func(e E)) needs W]) bool {
 		match w {
-		case Some[func(send func(e E)) needs W]:
+		case option.Some[func(send func(e E)) needs W]:
 			true
-		case None:
+		case option.None:
 			false
 		}
-	}, func(w Option[func(send func(e E)) needs W], wsend func(e E)) needs W {
+	}, func(w option.Option[func(send func(e E)) needs W], wsend func(e E)) needs W {
 		match w {
-		case Some[func(send func(e E)) needs W] as wk:
+		case option.Some[func(send func(e E)) needs W] as wk:
 			wk.Value(wsend)
-		case None:
+		case option.None:
 		}
-	}, func(s S) bool { exits(m, s) }, func(s S) needs W { exitOf(m, s) }, func(d Decision[S, O]) int {
+	}, func(s S) bool { exits(m, s) }, func(s S) needs W { exitOf(m, s) }, func(d machines.Decision[S, O]) int {
 		match d {
-		case Enter[S]:
+		case machines.Enter[S]:
 			0
-		case Stay[S]:
+		case machines.Stay[S]:
 			1
-		case Emit[S, O]:
+		case machines.Emit[S, O]:
 			2
-		case Ignore:
+		case machines.Ignore:
 			3
-		case Reject:
+		case machines.Reject:
 			4
-		case Done[O]:
+		case machines.Done[O]:
 			5
-		case Tell[S, O]:
+		case machines.Tell[S, O]:
 			6
 		}
-	}, func(s S, d Decision[S, O]) S { machines.Next(s, d) }, func(d Decision[S, O], deliver func(p P)) needs R {
+	}, func(s S, d machines.Decision[S, O]) S { machines.Next(s, d) }, func(d machines.Decision[S, O], deliver func(p P)) needs R {
 		match d {
-		case Emit[S, O] as em:
+		case machines.Emit[S, O] as em:
 			deliver(toParent(em.Output))
-		case Done[O] as dn:
+		case machines.Done[O] as dn:
 			deliver(toParent(dn.Output))
-		case Tell[S, O] as tl:
+		case machines.Tell[S, O] as tl:
 			deliver(toParent(tl.Output))
-		case Enter[S]:
-		case Stay[S]:
-		case Ignore:
-		case Reject:
+		case machines.Enter[S]:
+		case machines.Stay[S]:
+		case machines.Ignore:
+		case machines.Reject:
 		}
 	}, capacity)
 }
@@ -1222,7 +1224,7 @@ extern go ergo.local/prototype/runtime/v1.ActorFeed func feed[S, E, D, F](a Acto
 // fails Stopped when a has ended or its Stop was requested; the source
 // then never runs. The card reader of a sign-in screen is one: each card
 // it reads is a signal, and the reader stops with the screen.
-func Feed[S, E, D, F](a Actor[S, E, D, F], source Seq[E]) fails Stopped {
+func Feed[S, E, D, F](a Actor[S, E, D, F], source core.Seq[E]) fails Stopped {
 	try feed(a, func(send func(e E)) {
 		for e in source {
 			send(e)
@@ -1233,43 +1235,43 @@ func Feed[S, E, D, F](a Actor[S, E, D, F], source Seq[E]) fails Stopped {
 // FeedStepsInOrder: the actor steps a source's values in the source's
 // order, each once.
 law FeedStepsInOrder(xs []int) {
-	with context { Scheduler: time.NewManual(0) } {
+	with context { time.Scheduler: time.NewManual(0) } {
 		fed(xs)
 	}
 }
 
 // logStep keeps every signal: the state is the list of them, in order.
-func logStep(s []int, e int) Decision[[]int, int] { Stay[[]int]{Next: s.Append(e)} }
+func logStep(s []int, e int) machines.Decision[[]int, int] { machines.Stay[[]int]{Next: s.Append(e)} }
 
-func logUntimed(s []int) Option[Timeout[int]] { None }
+func logUntimed(s []int) option.Option[machines.Timeout[int]] { option.None }
 
-func logUnworked(s []int) Option[func(send func(e int))] { None }
+func logUnworked(s []int) option.Option[func(send func(e int))] { option.None }
 
-func logUnexited(s []int) Option[func()] { None }
+func logUnexited(s []int) option.Option[func()] { option.None }
 
 // fed: a source's values are stepped in its order, each once: the state
 // the actor reaches once it has stepped as many signals is xs.
-func fed(xs []int) bool needs Scheduler {
-	let a = StartMachine(Machine[[]int, int, int]{Initial: []int{}, Step: logStep, After: logUntimed, Work: logUnworked, Exit: logUnexited}, 1, func(o int) {})
+func fed(xs []int) bool needs time.Scheduler {
+	let a = StartMachine(machines.Machine[[]int, int, int]{Initial: []int{}, Step: logStep, After: logUntimed, Work: logUnworked, Exit: logUnexited}, 1, func(o int) {})
 	Feed(a, source(xs)) catch {
 	case Stopped:
 		return false
 	}
-	let s = WaitFor(a, func(s []int) bool { len(s) >= len(xs) }) catch {
+	let s = WaitFor(a, func(s []int) bool { s.Len() >= xs.Len() }) catch {
 	case Stopped:
 		return false
 	}
 	a.Stop()
-	let mut same = len(s) == len(xs)
-	for i in 0..len(s) {
+	let mut same = s.Len() == xs.Len()
+	for i in 0..s.Len() {
 		same = same && s[i] == xs[i]
 	}
 	same
 }
 
 // source is xs as a Seq.
-func source(xs []int) Seq[int] {
-	Seq[int](func(yield func(v int) bool) {
+func source(xs []int) core.Seq[int] {
+	core.Seq[int](func(yield func(v int) bool) {
 		for x in xs {
 			if !yield(x) {
 				return
@@ -1291,14 +1293,14 @@ extern go ergo.local/prototype/runtime/v1.ActorOnEnd func OnEnd[S, E, D, F](a Ac
 // (one may be a Done); an OnEnd after the end fails Stopped and never
 // runs.
 law OnEndRunsOnce(n int, signals []int, drain bool) {
-	with context { Scheduler: time.NewManual(0) } {
+	with context { time.Scheduler: time.NewManual(0) } {
 		endActions(((n%4)+4)%4+1, signals, drain)
 	}
 }
 
 // endActions adds n actions to an actor that was sent signals, each
 // appending its number to a shared list, and ends it.
-func endActions(n int, signals []int, drain bool) bool needs Scheduler {
+func endActions(n int, signals []int, drain bool) bool needs time.Scheduler {
 	let a = sent(signals)
 	let ran = sync.NewRef[[]int]([]int{})
 	let mut added = 0
@@ -1323,11 +1325,11 @@ func endActions(n int, signals []int, drain bool) bool needs Scheduler {
 	case Stopped:
 		late = true
 	}
-	let mut inOrder = len(got) == added
-	for i in 0..len(got) {
+	let mut inOrder = got.Len() == added
+	for i in 0..got.Len() {
 		inOrder = inOrder && got[i] == i
 	}
-	inOrder && late && len(ran.Get()) == len(got)
+	inOrder && late && ran.Get().Len() == got.Len()
 }
 
 // appends is an action that appends v to ran.
@@ -1344,7 +1346,7 @@ extern go ergo.local/prototype/runtime/v1.ActorLiveState func live[S, E, D, F](a
 // signal admitted before it, as State reads it. step is a's step, pure:
 // Can runs it on the caller's task and commits nothing. A screen greys a
 // key whose signal the actor cannot take.
-func Can[S, E, O, F](a Actor[S, E, Decision[S, O], F], step func(s S, e E) Decision[S, O], e E) bool {
+func Can[S, E, O, F](a Actor[S, E, machines.Decision[S, O], F], step func(s S, e E) machines.Decision[S, O], e E) bool {
 	let s = live(a) catch {
 	case Stopped:
 		return false
@@ -1355,14 +1357,14 @@ func Can[S, E, O, F](a Actor[S, E, Decision[S, O], F], step func(s S, e E) Decis
 // CanIsTheStep: Can answers as the step would in the actor's state, takes
 // nothing, and answers false once the actor has ended.
 law CanIsTheStep(signals []int, e int) {
-	with context { Scheduler: time.NewManual(0) } {
+	with context { time.Scheduler: time.NewManual(0) } {
 		can(signals, e)
 	}
 }
 
 // can: Can is the pure step's answer in the actor's state while it runs,
 // and false once it has ended (after a Done among the signals).
-func can(signals []int, e int) bool needs Scheduler {
+func can(signals []int, e int) bool needs time.Scheduler {
 	let a = sent(signals)
 	let (_, done) = folded(signals)
 	let s = a.State()
@@ -1396,7 +1398,7 @@ type Change[S] = Changed[S] | Overflowed
 //
 // Unbounded: it ends only when the actor ends, so a loop that collects it
 // all waits for the actor's end.
-func Changes[S, E, D, F](a Actor[S, E, D, F], room int) Seq[Change[S]] {
+func Changes[S, E, D, F](a Actor[S, E, D, F], room int) core.Seq[Change[S]] {
 	changesOf(a, room, changedOf[S], overflowedOf[S])
 }
 
@@ -1405,7 +1407,7 @@ func Changes[S, E, D, F](a Actor[S, E, D, F], room int) Seq[Change[S]] {
 // dropped, then the states it kept: it holds room states, never one per
 // commit (F-GP4c-1; owner, 2026-11-15).
 law ChangesCountsWhatItDrops(room int, n int) {
-	with context { Scheduler: time.NewManual(0) } {
+	with context { time.Scheduler: time.NewManual(0) } {
 		dropped(room, n)
 	}
 }
@@ -1414,13 +1416,13 @@ law ChangesCountsWhatItDrops(room int, n int) {
 // then lags while the actor commits 1 to 10 states, reads its start, then
 // an Overflowed of the states its room dropped, then the ones it kept, in
 // order.
-func dropped(room int, n int) bool needs Scheduler {
+func dropped(room int, n int) bool needs time.Scheduler {
 	let r = (room%4+4)%4 + 1
 	let k = (n%10+10)%10 + 1
 	let a = StartMachine(tally(), 1, func(o int) {})
 	let mut got = []Change[int]{}
 	for c in Changes(a, r) {
-		if len(got) == 0 {
+		if got.Len() == 0 {
 			for _ in 0..k {
 				a.Send(1) catch {
 				case Stopped:
@@ -1434,8 +1436,8 @@ func dropped(room int, n int) bool needs Scheduler {
 	let mut kept = []int{}
 	let mut missed = 0
 	for i in 1..k+1 {
-		if len(kept) >= r {
-			missed = missed + len(kept)
+		if kept.Len() >= r {
+			missed = missed + kept.Len()
 			kept = []int{}
 		}
 		kept = kept.Append(i)
@@ -1447,10 +1449,10 @@ func dropped(room int, n int) bool needs Scheduler {
 	for s in kept {
 		want = want.Append(Changed[int]{State: s})
 	}
-	if len(got) != len(want) {
+	if got.Len() != want.Len() {
 		return false
 	}
-	for i in 0..len(got) {
+	for i in 0..got.Len() {
 		if got[i] != want[i] {
 			return false
 		}
@@ -1460,7 +1462,7 @@ func dropped(room int, n int) bool needs Scheduler {
 
 // ActorChangesStops: Changes is a Seq that stops (stdlib.md, Std laws 5).
 law ActorChangesStops(k int) {
-	with context { Scheduler: time.NewManual(0) } {
+	with context { time.Scheduler: time.NewManual(0) } {
 		changesStop(k)
 	}
 }
@@ -1468,7 +1470,7 @@ law ActorChangesStops(k int) {
 // changesStop: on a stopped actor, Changes gives one value, its last
 // state, so a yield that returns false at its k-th call (k of 1 or more)
 // is called once.
-func changesStop(k int) bool needs Scheduler {
+func changesStop(k int) bool needs time.Scheduler {
 	if k < 1 {
 		return true
 	}
@@ -1489,7 +1491,7 @@ func overflowedOf[S](n int) Change[S] { Overflowed{Missed: n} }
 
 // changesOf is the loop of Changes(a, room), built by changed and
 // overflowed.
-extern go ergo.local/prototype/runtime/v1.ActorChanges func changesOf[S, E, D, F, C](a Actor[S, E, D, F], room int, changed own func(s S) C, overflowed own func(n int) C) Seq[C]
+extern go ergo.local/prototype/runtime/v1.ActorChanges func changesOf[S, E, D, F, C](a Actor[S, E, D, F], room int, changed own func(s S) C, overflowed own func(n int) C) core.Seq[C]
 
 // waitRoom is the room of the loops of WaitFor and SendAndWait.
 func waitRoom() int { 256 }
@@ -1564,7 +1566,7 @@ type Defected { Reason string, Defect task.Defect }
 
 // ReasonAs looks up the deliberate defect payload of d at the exact nominal
 // type T. Foreign faults and payloads of any other type return None.
-func ReasonAs[T](d Defected) Option[T] { task.ReasonOf[T](d.Defect) }
+func ReasonAs[T](d Defected) option.Option[T] { task.ReasonOf[T](d.Defect) }
 
 // Failed is an actor that its step's typed failure ended, after a Send or
 // a timer: the failure, a value of the row F (owner q47; an Ask's failure
@@ -1577,24 +1579,24 @@ type Failed[F] {
 // its exit is Failed with that failure (owner q47), one value for every
 // caller.
 law FailedIsExit(n int) {
-	with context { Scheduler: time.NewManual(0) } {
+	with context { time.Scheduler: time.NewManual(0) } {
 		failedExit(n)
 	}
 }
 
-func boomStep(s int, e int) Decision[int, int] fails Boom {
+func boomStep(s int, e int) machines.Decision[int, int] fails Boom {
 	if e < 0 {
 		return Boom{At: s}
 	}
-	Enter[int]{Next: s + 1}
+	machines.Enter[int]{Next: s + 1}
 }
 
-func boom() Machine[int, int, int, Boom] { Machine[int, int, int, Boom]{Initial: 0, Step: boomStep, After: untimed, Work: unworked, Exit: unexited} }
+func boom() machines.Machine[int, int, int, Boom] { machines.Machine[int, int, int, Boom]{Initial: 0, Step: boomStep, After: untimed, Work: unworked, Exit: unexited} }
 
 // failedExit sends n mod 4 signals and then one that fails: the failure
 // ends the actor, and each ExitOf gives it as Failed, with the state the
 // step failed in.
-func failedExit(n int) bool needs Scheduler {
+func failedExit(n int) bool needs time.Scheduler {
 	let k = ((n % 4) + 4) % 4
 	let a = StartMachine(boom(), 1, func(o int) {})
 	for _ in 0..k {
@@ -1628,7 +1630,7 @@ type Exit[S, O, F] = Finished[S, O] | Halted[S] | Failed[F] | Defected
 // ExitIsShared: Drain steps every queued signal, and the exit is one
 // value: each ExitOf gives the same, the pure fold's.
 law ExitIsShared(signals []int) {
-	with context { Scheduler: time.NewManual(0) } {
+	with context { time.Scheduler: time.NewManual(0) } {
 		drainedExit(signals)
 	}
 }
@@ -1651,7 +1653,7 @@ func exitParts[F](x Exit[int, int, F]) (int, int, int) {
 // drainedExit: after the signals and a Drain, two ExitOf calls give the
 // same exit, the one the pure fold gives: Finished with the state the
 // Done saw when a Done came, else Halted with the folded state.
-func drainedExit(signals []int) bool needs Scheduler {
+func drainedExit(signals []int) bool needs time.Scheduler {
 	let a = sent(signals)
 	a.Drain()
 	let (k1, s1, o1) = exitParts(ExitOf(a))
@@ -1668,11 +1670,11 @@ func drainedExit(signals []int) bool needs Scheduler {
 // value: every caller, at any time, gets the same, and Stop and Drain
 // return the failure that Failed holds or raise the defect that Defected
 // reports. A stop of the waiting task ends the wait.
-func ExitOf[S, E, O, F](a Actor[S, E, Decision[S, O], F]) Exit[S, O, F] {
+func ExitOf[S, E, O, F](a Actor[S, E, machines.Decision[S, O], F]) Exit[S, O, F] {
 	let k = exitKind(a)
 	if k == 0 {
 		match final(a) {
-		case Done[O] as d:
+		case machines.Done[O] as d:
 			return Finished[S, O]{State: a.State(), Output: d.Output}
 		case _:
 		}
@@ -1699,7 +1701,7 @@ extern go ergo.local/prototype/runtime/v1.ActorEnded func Ended[S, E, D, F](a Ac
 // EndedIsMonotone: once Ended is true it stays true; Stop, Drain and
 // ExitOf return only after it is.
 law EndedIsMonotone(signals []int, drain bool) {
-	with context { Scheduler: time.NewManual(0) } {
+	with context { time.Scheduler: time.NewManual(0) } {
 		endedStays(signals, drain)
 	}
 }
@@ -1707,7 +1709,7 @@ law EndedIsMonotone(signals []int, drain bool) {
 // endedStays: an actor that was sent signals (one may be a Done) ends by
 // Drain or Stop; Ended before the end may be either, and after it, and at
 // every later read, is true.
-func endedStays(signals []int, drain bool) bool needs Scheduler {
+func endedStays(signals []int, drain bool) bool needs time.Scheduler {
 	let a = sent(signals)
 	let before = Ended(a)
 	if drain {
@@ -1724,22 +1726,22 @@ func endedStays(signals []int, drain bool) bool needs Scheduler {
 // stepped signals and no Done) and true once its end returned, when ExitOf
 // gives its exit at once.
 law EndedAgreesWithExit(signals []int) {
-	with context { Scheduler: time.NewManual(0) } {
+	with context { time.Scheduler: time.NewManual(0) } {
 		endedAgrees(signals)
 	}
 }
 
 // endedAgrees sends an actor that never ends by itself the signals, reads
 // Ended while it runs, then stops it.
-func endedAgrees(signals []int) bool needs Scheduler {
-	let a = StartMachine(Machine[[]int, int, int]{Initial: []int{}, Step: logStep, After: logUntimed, Work: logUnworked, Exit: logUnexited}, 1, func(o int) {})
+func endedAgrees(signals []int) bool needs time.Scheduler {
+	let a = StartMachine(machines.Machine[[]int, int, int]{Initial: []int{}, Step: logStep, After: logUntimed, Work: logUnworked, Exit: logUnexited}, 1, func(o int) {})
 	for e in signals {
 		a.Send(e) catch {
 		case Stopped:
 			return false
 		}
 	}
-	let s = WaitFor(a, func(s []int) bool { len(s) >= len(signals) }) catch {
+	let s = WaitFor(a, func(s []int) bool { s.Len() >= signals.Len() }) catch {
 	case Stopped:
 		return false
 	}
@@ -1748,7 +1750,7 @@ func endedAgrees(signals []int) bool needs Scheduler {
 	let ended = Ended(a)
 	match ExitOf(a) {
 	case Halted[[]int] as h:
-		running && ended && len(h.State) == len(s)
+		running && ended && h.State.Len() == s.Len()
 	case _:
 		false
 	}
@@ -1762,7 +1764,7 @@ func endedAgrees(signals []int) bool needs Scheduler {
 // the watcher ends, so a watcher that ended first gets nothing and holds
 // nothing. It fails Stopped when the watcher has ended or its Stop was
 // requested.
-func Watch[S, E, O, F, S2, E2, D2, F2](watcher Actor[S2, E2, D2, F2], a Actor[S, E, Decision[S, O], F], toSignal own func(x Exit[S, O, F]) E2) fails Stopped {
+func Watch[S, E, O, F, S2, E2, D2, F2](watcher Actor[S2, E2, D2, F2], a Actor[S, E, machines.Decision[S, O], F], toSignal own func(x Exit[S, O, F]) E2) fails Stopped {
 	try feed(watcher, func(send func(e E2)) {
 		send(toSignal(ExitOf(a)))
 	})
@@ -1786,7 +1788,7 @@ func exitCode[F](x Exit[int, int, F]) int {
 // WatchSeesTheEnd: a watcher gets the exit of the actor it watches as one
 // signal, whether the actor ends after the Watch or had ended before it.
 law WatchSeesTheEnd(signals []int, before bool) {
-	with context { Scheduler: time.NewManual(0) } {
+	with context { time.Scheduler: time.NewManual(0) } {
 		watched(signals, before)
 	}
 }
@@ -1794,13 +1796,13 @@ law WatchSeesTheEnd(signals []int, before bool) {
 // watched: a log actor watches a tally actor that was sent signals; the
 // tally ends (Done, or the Stop after the signals) before or after the
 // Watch, and the log's one signal is the tally's exit code.
-func watched(signals []int, before bool) bool needs Scheduler {
-	let log = StartMachine(Machine[[]int, int, int]{Initial: []int{}, Step: logStep, After: logUntimed, Work: logUnworked, Exit: logUnexited}, 1, func(o int) {})
+func watched(signals []int, before bool) bool needs time.Scheduler {
+	let log = StartMachine(machines.Machine[[]int, int, int]{Initial: []int{}, Step: logStep, After: logUntimed, Work: logUnworked, Exit: logUnexited}, 1, func(o int) {})
 	watchedBy(log, sent(signals), before)
 }
 
 // watchedBy: log watches a, which ends before or after the Watch.
-func watchedBy[F](log Actor[[]int, int, Decision[[]int, int]], a Actor[int, int, Decision[int, int], F], before bool) bool needs Scheduler {
+func watchedBy[F](log Actor[[]int, int, machines.Decision[[]int, int]], a Actor[int, int, machines.Decision[int, int], F], before bool) bool needs time.Scheduler {
 	if before {
 		a.Stop() catch {
 		case _:
@@ -1816,12 +1818,12 @@ func watchedBy[F](log Actor[[]int, int, Decision[[]int, int]], a Actor[int, int,
 		}
 	}
 	let want = exitCode(ExitOf(a))
-	let got = WaitFor(log, func(s []int) bool { len(s) >= 1 }) catch {
+	let got = WaitFor(log, func(s []int) bool { s.Len() >= 1 }) catch {
 	case Stopped:
 		return false
 	}
 	log.Stop()
-	len(got) == 1 && got[0] == want
+	got.Len() == 1 && got[0] == want
 }
 
 // Registry names live actors of one type by a typed key: no name is a
@@ -1862,9 +1864,9 @@ func Register[K comparable, S, E, D, F](r Registry[K, S, E, D, F], k K, a Actor[
 	let n = sync.Modify(r.next, func(v int) (int, int) { (v + 1, v + 1) })
 	let free = sync.Modify(r.entries, func(m Map[K, registered[S, E, D, F]]) (bool, Map[K, registered[S, E, D, F]]) {
 		match m.Get(k) {
-		case Some[registered[S, E, D, F]]:
+		case option.Some[registered[S, E, D, F]]:
 			(false, m)
-		case None:
+		case option.None:
 			(true, m.Put(k, registered[S, E, D, F]{Actor: a, N: n}))
 		}
 	})
@@ -1885,12 +1887,12 @@ func Register[K comparable, S, E, D, F](r Registry[K, S, E, D, F], k K, a Actor[
 // Register's.
 func unregistered[K comparable, S, E, D, F](m Map[K, registered[S, E, D, F]], k K, n int) Map[K, registered[S, E, D, F]] {
 	match m.Get(k) {
-	case Some[registered[S, E, D, F]] as e:
+	case option.Some[registered[S, E, D, F]] as e:
 		if e.Value.N == n {
 			return m.Delete(k)
 		}
 		m
-	case None:
+	case option.None:
 		m
 	}
 }
@@ -1898,41 +1900,41 @@ func unregistered[K comparable, S, E, D, F](m Map[K, registered[S, E, D, F]], k 
 // Lookup is the actor that k names, None when no live actor holds it (an
 // entry whose actor has ended is dropped here). It never waits, so an
 // actor's own step may look itself up.
-func Lookup[K comparable, S, E, D, F](r Registry[K, S, E, D, F], k K) Option[Actor[S, E, D, F]] {
+func Lookup[K comparable, S, E, D, F](r Registry[K, S, E, D, F], k K) option.Option[Actor[S, E, D, F]] {
 	match r.entries.Get().Get(k) {
-	case Some[registered[S, E, D, F]] as e:
+	case option.Some[registered[S, E, D, F]] as e:
 		if Ended(e.Value.Actor) {
 			let n = e.Value.N
 			r.entries.Update(func(m Map[K, registered[S, E, D, F]]) Map[K, registered[S, E, D, F]] { unregistered(m, k, n) })
-			return None
+			return option.None
 		}
-		Some[Actor[S, E, D, F]]{Value: e.Value.Actor}
-	case None:
-		None
+		option.Some[Actor[S, E, D, F]]{Value: e.Value.Actor}
+	case option.None:
+		option.None
 	}
 }
 
 // LookupFromOwnStep: an actor's own step looks up the key it is
 // registered by and finds it, without waiting.
 law LookupFromOwnStep(k int) {
-	with context { Scheduler: time.NewManual(0) } {
+	with context { time.Scheduler: time.NewManual(0) } {
 		selfLookup(k)
 	}
 }
 
 // selfLookup registers an actor whose step counts the signals it stepped
 // while Lookup of k found an actor, sends it one signal and waits for it.
-func selfLookup(k int) bool needs Scheduler {
-	let r = NewRegistry[int, int, int, Decision[int, int]]()
-	let step = func(s int, e int) Decision[int, int] {
+func selfLookup(k int) bool needs time.Scheduler {
+	let r = NewRegistry[int, int, int, machines.Decision[int, int]]()
+	let step = func(s int, e int) machines.Decision[int, int] {
 		match Lookup(r, k) {
-		case Some[Actor[int, int, Decision[int, int]]]:
-			Stay[int]{Next: s + 1}
-		case None:
-			Stay[int]{Next: s - 1}
+		case option.Some[Actor[int, int, machines.Decision[int, int]]]:
+			machines.Stay[int]{Next: s + 1}
+		case option.None:
+			machines.Stay[int]{Next: s - 1}
 		}
 	}
-	let a = StartMachine(Machine[int, int, int]{Initial: 0, Step: step, After: untimed, Work: unworked, Exit: unexited}, 1, func(o int) {})
+	let a = StartMachine(machines.Machine[int, int, int]{Initial: 0, Step: step, After: untimed, Work: unworked, Exit: unexited}, 1, func(o int) {})
 	Register(r, k, a) catch {
 	case Taken, Stopped:
 		a.Stop()
@@ -1954,15 +1956,15 @@ func selfLookup(k int) bool needs Scheduler {
 // key is taken; once it has ended (a Stop, or a Done among its signals),
 // its key names nothing and a new actor may take it.
 law RegistryDropsTheEnded(signals []int, k int) {
-	with context { Scheduler: time.NewManual(0) } {
+	with context { time.Scheduler: time.NewManual(0) } {
 		registryDrops(signals, k)
 	}
 }
 
 // registryDrops registers a tally actor that was sent signals under k,
 // stops it, and registers a second one under k.
-func registryDrops(signals []int, k int) bool needs Scheduler {
-	let r = NewRegistry[int, int, int, Decision[int, int]]()
+func registryDrops(signals []int, k int) bool needs time.Scheduler {
+	let r = NewRegistry[int, int, int, machines.Decision[int, int]]()
 	let a = StartMachine(tally(), 1, func(o int) {})
 	Register(r, k, a) catch {
 	case Taken, Stopped:
@@ -1998,21 +2000,21 @@ func registryDrops(signals []int, k int) bool needs Scheduler {
 
 // held is whether r holds an entry for k, live or not: what the end of
 // the actor removed, read without Lookup's own drop.
-func held(r Registry[int, int, int, Decision[int, int]], k int) bool {
+func held(r Registry[int, int, int, machines.Decision[int, int]], k int) bool {
 	match r.entries.Get().Get(k) {
-	case Some[registered[int, int, Decision[int, int]]]:
+	case option.Some[registered[int, int, machines.Decision[int, int]]]:
 		true
-	case None:
+	case option.None:
 		false
 	}
 }
 
 // named is whether k names an actor in r.
-func named(r Registry[int, int, int, Decision[int, int]], k int) bool {
+func named(r Registry[int, int, int, machines.Decision[int, int]], k int) bool {
 	match Lookup(r, k) {
-	case Some[Actor[int, int, Decision[int, int]]]:
+	case option.Some[Actor[int, int, machines.Decision[int, int]]]:
 		true
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -2020,11 +2022,11 @@ func named(r Registry[int, int, int, Decision[int, int]], k int) bool {
 // Latest is the decision of the last signal a stepped (a Reject and an
 // Ignore included; a dropped timer or work signal is not stepped), None
 // before the first. It does not wait.
-func Latest[S, E, D, F](a Actor[S, E, D, F]) Option[D] {
+func Latest[S, E, D, F](a Actor[S, E, D, F]) option.Option[D] {
 	if hasLatest(a) {
-		Some[D]{Value: latest(a)}
+		option.Some[D]{Value: latest(a)}
 	} else {
-		None
+		option.None
 	}
 }
 
@@ -2047,7 +2049,7 @@ func Version[S, E, D, F](a Actor[S, E, D, F]) int {
 // one per commit, so a watcher that redraws when the version moved
 // redraws once per change; Shown gives the state with its version.
 law VersionCountsCommits(signals []int) {
-	with context { Scheduler: time.NewManual(0) } {
+	with context { time.Scheduler: time.NewManual(0) } {
 		versioned(signals)
 	}
 }
@@ -2056,7 +2058,7 @@ law VersionCountsCommits(signals []int) {
 // each decision that commits (Enter, Stay, Emit; tally has no Tell, work
 // or hosts) and none for an Ignore or a Reject, starting at 1 for its
 // first state; Shown's state is the actor's State. It stops at a Done.
-func versioned(signals []int) bool needs Scheduler {
+func versioned(signals []int) bool needs time.Scheduler {
 	let a = StartMachine(tally(), 1, func(o int) {})
 	let _ = a.State()
 	let mut want = 1
@@ -2067,10 +2069,10 @@ func versioned(signals []int) bool needs Scheduler {
 			return false
 		}
 		match d {
-		case Done[int]:
+		case machines.Done[int]:
 			a.Stop()
 			return Version(a) == want
-		case Ignore, Reject:
+		case machines.Ignore, machines.Reject:
 		case _:
 			want = want + 1
 		}
@@ -2088,7 +2090,7 @@ func versioned(signals []int) bool needs Scheduler {
 // the one before it dropped: a view of one part of the state that changes
 // only when that part does. Select(a.LatestChanges(), f) gives f of the state
 // at its start first.
-func Select[S, T comparable](changes Seq[S], f own func(s S) T) Seq[T] {
+func Select[S, T comparable](changes core.Seq[S], f own func(s S) T) core.Seq[T] {
 	SelectBy(changes, f, func(x T, y T) bool { x == y })
 }
 
@@ -2097,12 +2099,12 @@ func Select[S, T comparable](changes Seq[S], f own func(s S) T) Seq[T] {
 law SelectOncePerChange(xs []int) {
 	let mut want = []int{}
 	for x in xs {
-		if len(want) == 0 || want[len(want)-1] != x%3 {
+		if want.Len() == 0 || want[want.Len()-1] != x%3 {
 			want = want.Append(x % 3)
 		}
 	}
 	let mut got = []int{}
-	for v in Select(Seq[int](func(yield func(v int) bool) {
+	for v in Select(core.Seq[int](func(yield func(v int) bool) {
 		for x in xs {
 			if !yield(x) {
 				return
@@ -2111,8 +2113,8 @@ law SelectOncePerChange(xs []int) {
 	}), func(x int) int { x % 3 }) {
 		got = got.Append(v)
 	}
-	let mut same = len(got) == len(want)
-	for i in 0..len(got) {
+	let mut same = got.Len() == want.Len()
+	for i in 0..got.Len() {
 		same = same && got[i] == want[i]
 	}
 	same
@@ -2126,7 +2128,7 @@ law SelectStops(xs []int) {
 // selectStops: s is a Seq that stops (stdlib.md, Std laws 5): with n the
 // count of its values, a yield that returns false at its k-th call (k
 // from 1 to n+1) is called min(k, n) times.
-func selectStops(s Seq[int]) bool {
+func selectStops(s core.Seq[int]) bool {
 	let mut n = 0
 	s(func(v int) bool {
 		n = n + 1
@@ -2146,12 +2148,12 @@ func selectStops(s Seq[int]) bool {
 }
 
 // SelectBy is Select with the equality same.
-func SelectBy[S, T](changes Seq[S], f own func(s S) T, same own func(x T, y T) bool) Seq[T] {
-	Seq[T](func(yield func(v T) bool) {
+func SelectBy[S, T](changes core.Seq[S], f own func(s S) T, same own func(x T, y T) bool) core.Seq[T] {
+	core.Seq[T](func(yield func(v T) bool) {
 		let mut prev = []T{}
 		for s in changes {
 			let v = f(s)
-			if len(prev) == 1 && same(prev[0], v) {
+			if prev.Len() == 1 && same(prev[0], v) {
 				continue
 			}
 			prev = []T{v}

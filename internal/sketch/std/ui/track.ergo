@@ -6,8 +6,11 @@
 // time. The curve is data: Linear and Ease over a duration, or a spring
 // of a stiffness and a damping (mass 1), solved in closed form.
 
+import core
+import machines
 import math
 import actor
+import option
 import time
 
 // TrackCurve is how a track moves to its target.
@@ -37,7 +40,7 @@ let TrackRest = 0.001
 // Track shows body under a track of key that moves prop to target
 // along curve, run by the host (TrackNode). A pass that writes another
 // target retargets it, keeping where it is and how fast it moves.
-func Track[E, F, R](f mut Frame[E], key Key, prop TrackProp, target float64, curve TrackCurve, body func() fails F needs R, at CallSite) fails F needs R {
+func Track[E, F, R](f mut Frame[E], key Key, prop TrackProp, target float64, curve TrackCurve, body func() fails F needs R, at core.CallSite) fails F needs R {
 	try open(f, TrackNode{Key: key, Prop: prop, Target: target, Curve: curve, Style: Plain()}, body, at)
 }
 
@@ -182,13 +185,13 @@ type aiming { k float64, c float64, target float64, x float64, v float64, at dur
 // aimEvent is a tap that sets target n, or a frame at a time.
 type aimEvent = aimTo{n int} | aimFrame{at duration}
 
-func aimStep(s aiming, e aimEvent) Decision[aiming, int] {
+func aimStep(s aiming, e aimEvent) machines.Decision[aiming, int] {
 	match e {
 	case aimTo as a:
-		Enter[aiming]{Next: aiming{k: s.k, c: s.c, target: aims[a.n], x: s.x, v: s.v, at: s.at}}
+		machines.Enter[aiming]{Next: aiming{k: s.k, c: s.c, target: aims[a.n], x: s.x, v: s.v, at: s.at}}
 	case aimFrame as f:
 		let (x, v) = integrate(s, float64(int64(f.at-s.at))/1000000000.0)
-		Enter[aiming]{Next: aiming{k: s.k, c: s.c, target: s.target, x: x, v: v, at: f.at}}
+		machines.Enter[aiming]{Next: aiming{k: s.k, c: s.c, target: s.target, x: x, v: v, at: f.at}}
 	}
 }
 
@@ -213,9 +216,9 @@ func integrate(s aiming, span float64) (float64, float64) {
 	(x, v)
 }
 
-func aimTimer(s aiming) Option[Timeout[aimEvent]] { None }
+func aimTimer(s aiming) option.Option[machines.Timeout[aimEvent]] { option.None }
 
-func aimWork(s aiming) Option[func(send func(e aimEvent))] { None }
+func aimWork(s aiming) option.Option[func(send func(e aimEvent))] { option.None }
 
 // aimView tracks x to the target on the host, and animates the reference.
 func aimView(f mut Frame[aimEvent], s aiming) {
@@ -237,12 +240,12 @@ func aimView(f mut Frame[aimEvent], s aiming) {
 // each retarget, within a hundredth of a DIP.
 law TrackEqualsAnimate(seed int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		let mut r = seeded(seed)
 		let k = float64(draw(&r, 361) + 40)
 		let w = math.Sqrt(k)
-		let c = 2.0 * w * zetas[draw(&r, len(zetas))]
-		let a = actor.StartMachine(Machine[aiming, aimEvent, int]{Initial: aiming{k: k, c: c, target: 0.0, x: 0.0, v: 0.0, at: 0ns}, Step: aimStep, After: aimTimer, Work: aimWork, Exit: func(at aiming) Option[func()] { None }}, 1, func(o int) {})
+		let c = 2.0 * w * zetas[draw(&r, zetas.Len())]
+		let a = actor.StartMachine(machines.Machine[aiming, aimEvent, int]{Initial: aiming{k: k, c: c, target: 0.0, x: 0.0, v: 0.0, at: 0ns}, Step: aimStep, After: aimTimer, Work: aimWork, Exit: func(at aiming) option.Option[func()] { option.None }}, 1, func(o int) {})
 		let mut h = NewTestHost(a, aimView, m, 4) catch {
 		case BadPatch:
 			return false
@@ -250,7 +253,7 @@ law TrackEqualsAnimate(seed int) {
 		for _ in 0..40 {
 			let mut acts = []Act{AdvanceBy{By: 16ms}, SettleAll}
 			if draw(&r, 4) == 0 {
-				acts = acts.Append(TapOn{Label: "aim\(draw(&r, len(aims)))"})
+				acts = acts.Append(TapOn{Label: "aim\(draw(&r, aims.Len()))"})
 				acts = acts.Append(SettleAll)
 			}
 			Play(&h, acts) catch {
@@ -259,12 +262,12 @@ law TrackEqualsAnimate(seed int) {
 			}
 			let s = StateOf(&h)
 			match TrackedValue(&h, ByText("aimed")) {
-			case Some[float64] as v:
+			case option.Some[float64] as v:
 				let d = v.Value - s.x
 				if d > 0.01 || d < -0.01 {
 					return false
 				}
-			case None:
+			case option.None:
 				return false
 			}
 		}
@@ -285,11 +288,11 @@ func stillView(f mut Frame[int], s int) {
 	}
 }
 
-func stillStep(s int, e int) Decision[int, int] { Enter[int]{Next: e} }
+func stillStep(s int, e int) machines.Decision[int, int] { machines.Enter[int]{Next: e} }
 
-func stillTimer(s int) Option[Timeout[int]] { None }
+func stillTimer(s int) option.Option[machines.Timeout[int]] { option.None }
 
-func stillWork(s int) Option[func(send func(e int))] { None }
+func stillWork(s int) option.Option[func(send func(e int))] { option.None }
 
 // TrackCostsNoPass: after the pass of a tap that retargets a track, the
 // host's frames move the track (it wants frames until it rests, and its
@@ -297,9 +300,9 @@ func stillWork(s int) Option[func(send func(e int))] { None }
 // the tap's pass.
 law TrackCostsNoPass(seed int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		let mut r = seeded(seed)
-		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: stillStep, After: stillTimer, Work: stillWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
+		let a = actor.StartMachine(machines.Machine[int, int, int]{Initial: 0, Step: stillStep, After: stillTimer, Work: stillWork, Exit: func(at int) option.Option[func()] { option.None }}, 1, func(o int) {})
 		let mut h = NewTestHost(a, stillView, m, 4) catch {
 		case BadPatch:
 			return false
@@ -347,15 +350,15 @@ func drawCurve(r mut rng) TrackCurve {
 		return TrackEase{Over: duration(int64(draw(r, 400)+1) * int64(1000000))}
 	}
 	let k = float64(draw(r, 361) + 40)
-	TrackSpring{Stiffness: k, Damping: 2.0 * math.Sqrt(k) * zetas[draw(r, len(zetas))]}
+	TrackSpring{Stiffness: k, Damping: 2.0 * math.Sqrt(k) * zetas[draw(r, zetas.Len())]}
 }
 
 // faded is the value of the track keyed "faded" (-1: none).
 func faded[S, E, D, F](h mut TestHost[S, E, D, F]) float64 {
 	match TrackedValue(h, ByText("faded")) {
-	case Some[float64] as v:
+	case option.Some[float64] as v:
 		v.Value
-	case None:
+	case option.None:
 		-1.0
 	}
 }

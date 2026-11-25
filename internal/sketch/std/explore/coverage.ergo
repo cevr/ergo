@@ -1,4 +1,6 @@
+import core
 import gen
+import option
 import strconv
 import strings
 import sync
@@ -49,7 +51,7 @@ type ScopeCompleteness =
 // a CheckResult, kept separate from human display formatting.
 type CoverageReport {
 	Binding           string,
-	ProjectionName    Option[string],
+	ProjectionName    option.Option[string],
 	Completeness      ScopeCompleteness,
 	Stop              PathStop,
 	StatesInScope     int,
@@ -132,10 +134,10 @@ func BuildCoverageReport[S, E, V, O, Err, OpenErr, DriveErr](
 	let mut distinctMatched = 0
 	let mut distinctUncovered = 0
 
-	for eIdx in 0..len(res.Graph.Edges) {
+	for eIdx in 0..res.Graph.Edges.Len() {
 		let e = res.Graph.Edges[eIdx]
-		let ch = if eIdx < len(res.EdgeChecked) { res.EdgeChecked[eIdx] } else { 0 }
-		let ma = if eIdx < len(res.EdgeMatched) { res.EdgeMatched[eIdx] } else { 0 }
+		let ch = if eIdx < res.EdgeChecked.Len() { res.EdgeChecked[eIdx] } else { 0 }
+		let ma = if eIdx < res.EdgeMatched.Len() { res.EdgeMatched[eIdx] } else { 0 }
 		let status = edgeStatusOf(ma, incomplete)
 		if ch > 0 {
 			distinctChecked = distinctChecked + 1
@@ -192,9 +194,9 @@ func BuildCoverageReport[S, E, V, O, Err, OpenErr, DriveErr](
 		limits = limits.Append("planning stopped before completion; no replay executed")
 	}
 	match res.ProjectionName {
-	case Some as p:
+	case option.Some as p:
 		limits = limits.Append("compared projection: " + p.Value)
-	case None:
+	case option.None:
 	}
 	if refuted {
 		limits = limits.Append("stopped on first failure; remaining planned paths were not run")
@@ -246,9 +248,9 @@ func FormatCoverageReport(r CoverageReport) string {
 		b.WriteString("; frontier=")
 		b.WriteString(strconv.Itoa(r.FrontierStates))
 	}
-	if len(r.Limitations) > 0 {
+	if r.Limitations.Len() > 0 {
 		b.WriteString(" [")
-		for i in 0..len(r.Limitations) {
+		for i in 0..r.Limitations.Len() {
 			if i > 0 {
 				b.WriteString("; ")
 			}
@@ -270,13 +272,13 @@ type cvDriveErr { Why string }
 type cvSess {
 	state       sync.Ref[cvState],
 	corruptBack bool,
-} implements PathSession[cvEvent, Observed[cvState, int, Never], cvDriveErr]
+} implements PathSession[cvEvent, Observed[cvState, int, core.Never], cvDriveErr]
 
-func Read(s cvSess) Observed[cvState, int, Never] fails cvDriveErr {
+func Read(s cvSess) Observed[cvState, int, core.Never] fails cvDriveErr {
 	InitialRead[cvState]{State: s.state.Get()}
 }
 
-func Apply(s cvSess, e cvEvent) Observed[cvState, int, Never] fails cvDriveErr {
+func Apply(s cvSess, e cvEvent) Observed[cvState, int, core.Never] fails cvDriveErr {
 	let cur = s.state.Get()
 	let next = match cur.Tag {
 	case 0:
@@ -297,11 +299,11 @@ func Apply(s cvSess, e cvEvent) Observed[cvState, int, Never] fails cvDriveErr {
 				cvState{Tag: uint8(0), Val: cur.Val}
 			}
 		case cvEnd:
-			return StepResult[cvState, int, Never]{Step: StepObs[cvState, int, Never]{
+			return StepResult[cvState, int, core.Never]{Step: StepObs[cvState, int, core.Never]{
 				Kind:     DisDone,
-				State:    None,
+				State:    option.None,
 				Outputs:  []int{cur.Val},
-				Error:    None,
+				Error:    option.None,
 				Terminal: true,
 			}}
 		case _:
@@ -312,11 +314,11 @@ func Apply(s cvSess, e cvEvent) Observed[cvState, int, Never] fails cvDriveErr {
 		case cvStepA:
 			cvState{Tag: uint8(1), Val: cur.Val}
 		case cvEnd:
-			return StepResult[cvState, int, Never]{Step: StepObs[cvState, int, Never]{
+			return StepResult[cvState, int, core.Never]{Step: StepObs[cvState, int, core.Never]{
 				Kind:     DisDone,
-				State:    None,
+				State:    option.None,
 				Outputs:  []int{cur.Val + 1},
-				Error:    None,
+				Error:    option.None,
 				Terminal: true,
 			}}
 		case _:
@@ -324,11 +326,11 @@ func Apply(s cvSess, e cvEvent) Observed[cvState, int, Never] fails cvDriveErr {
 		}
 	}
 	s.state.Set(next)
-	StepResult[cvState, int, Never]{Step: StepObs[cvState, int, Never]{
+	StepResult[cvState, int, core.Never]{Step: StepObs[cvState, int, core.Never]{
 		Kind:     DisEnter,
-		State:    Some[cvState]{Value: next},
+		State:    option.Some[cvState]{Value: next},
 		Outputs:  []int{},
-		Error:    None,
+		Error:    option.None,
 		Terminal: false,
 	}}
 }
@@ -337,93 +339,93 @@ func Close(s cvSess) {
 	let _ = s.state.Get()
 }
 
-func cvTwoStartModel(v int, cyclic bool) PathModel[cvState, cvEvent, cvState, int, Never] {
+func cvTwoStartModel(v int, cyclic bool) PathModel[cvState, cvEvent, cvState, int, core.Never] {
 	let starts = []cvState{cvState{Tag: uint8(0), Val: v}, cvState{Tag: uint8(2), Val: v}}
 	let sigs = []cvEvent{cvStepA, cvStepB, cvBack, cvEnd}
-	PathModel[cvState, cvEvent, cvState, int, Never]{
-		Graph: ConcreteGraph[cvState, cvEvent, StepObs[cvState, int, Never]]{
+	PathModel[cvState, cvEvent, cvState, int, core.Never]{
+		Graph: ConcreteGraph[cvState, cvEvent, StepObs[cvState, int, core.Never]]{
 			Starts:  starts,
 			Signals: sigs,
-			Step:    func(s cvState, e cvEvent) EdgeOutcome[cvState, StepObs[cvState, int, Never]] {
+			Step:    func(s cvState, e cvEvent) EdgeOutcome[cvState, StepObs[cvState, int, core.Never]] {
 				match s.Tag {
 				case 0:
 					match e {
 					case cvStepA:
 						let next = cvState{Tag: uint8(1), Val: s.Val}
-						Continue[cvState, StepObs[cvState, int, Never]]{
+						Continue[cvState, StepObs[cvState, int, core.Never]]{
 							Next: next,
-							Obs:  StepObs[cvState, int, Never]{Kind: DisEnter, State: Some[cvState]{Value: next}, Outputs: []int{}, Error: None, Terminal: false},
+							Obs:  StepObs[cvState, int, core.Never]{Kind: DisEnter, State: option.Some[cvState]{Value: next}, Outputs: []int{}, Error: option.None, Terminal: false},
 						}
 					case cvStepB:
 						let next = cvState{Tag: uint8(2), Val: s.Val}
-						Continue[cvState, StepObs[cvState, int, Never]]{
+						Continue[cvState, StepObs[cvState, int, core.Never]]{
 							Next: next,
-							Obs:  StepObs[cvState, int, Never]{Kind: DisEnter, State: Some[cvState]{Value: next}, Outputs: []int{}, Error: None, Terminal: false},
+							Obs:  StepObs[cvState, int, core.Never]{Kind: DisEnter, State: option.Some[cvState]{Value: next}, Outputs: []int{}, Error: option.None, Terminal: false},
 						}
 					case _:
-						Disabled[StepObs[cvState, int, Never]]{Obs: StepObs[cvState, int, Never]{Kind: DisIgnore, State: None, Outputs: []int{}, Error: None, Terminal: false}}
+						Disabled[StepObs[cvState, int, core.Never]]{Obs: StepObs[cvState, int, core.Never]{Kind: DisIgnore, State: option.None, Outputs: []int{}, Error: option.None, Terminal: false}}
 					}
 				case 1:
 					match e {
 					case cvBack:
 						if cyclic {
 							let next = cvState{Tag: uint8(0), Val: s.Val}
-							Continue[cvState, StepObs[cvState, int, Never]]{
+							Continue[cvState, StepObs[cvState, int, core.Never]]{
 								Next: next,
-								Obs:  StepObs[cvState, int, Never]{Kind: DisEnter, State: Some[cvState]{Value: next}, Outputs: []int{}, Error: None, Terminal: false},
+								Obs:  StepObs[cvState, int, core.Never]{Kind: DisEnter, State: option.Some[cvState]{Value: next}, Outputs: []int{}, Error: option.None, Terminal: false},
 							}
 						} else {
-							Disabled[StepObs[cvState, int, Never]]{Obs: StepObs[cvState, int, Never]{Kind: DisIgnore, State: None, Outputs: []int{}, Error: None, Terminal: false}}
+							Disabled[StepObs[cvState, int, core.Never]]{Obs: StepObs[cvState, int, core.Never]{Kind: DisIgnore, State: option.None, Outputs: []int{}, Error: option.None, Terminal: false}}
 						}
 					case cvEnd:
-						Terminal[StepObs[cvState, int, Never]]{
-							Obs: StepObs[cvState, int, Never]{Kind: DisDone, State: None, Outputs: []int{s.Val}, Error: None, Terminal: true},
+						Terminal[StepObs[cvState, int, core.Never]]{
+							Obs: StepObs[cvState, int, core.Never]{Kind: DisDone, State: option.None, Outputs: []int{s.Val}, Error: option.None, Terminal: true},
 						}
 					case _:
-						Disabled[StepObs[cvState, int, Never]]{Obs: StepObs[cvState, int, Never]{Kind: DisIgnore, State: None, Outputs: []int{}, Error: None, Terminal: false}}
+						Disabled[StepObs[cvState, int, core.Never]]{Obs: StepObs[cvState, int, core.Never]{Kind: DisIgnore, State: option.None, Outputs: []int{}, Error: option.None, Terminal: false}}
 					}
 				case _:
 					match e {
 					case cvStepA:
 						let next = cvState{Tag: uint8(1), Val: s.Val}
-						Continue[cvState, StepObs[cvState, int, Never]]{
+						Continue[cvState, StepObs[cvState, int, core.Never]]{
 							Next: next,
-							Obs:  StepObs[cvState, int, Never]{Kind: DisEnter, State: Some[cvState]{Value: next}, Outputs: []int{}, Error: None, Terminal: false},
+							Obs:  StepObs[cvState, int, core.Never]{Kind: DisEnter, State: option.Some[cvState]{Value: next}, Outputs: []int{}, Error: option.None, Terminal: false},
 						}
 					case cvEnd:
-						Terminal[StepObs[cvState, int, Never]]{
-							Obs: StepObs[cvState, int, Never]{Kind: DisDone, State: None, Outputs: []int{s.Val + 1}, Error: None, Terminal: true},
+						Terminal[StepObs[cvState, int, core.Never]]{
+							Obs: StepObs[cvState, int, core.Never]{Kind: DisDone, State: option.None, Outputs: []int{s.Val + 1}, Error: option.None, Terminal: true},
 						}
 					case _:
-						Disabled[StepObs[cvState, int, Never]]{Obs: StepObs[cvState, int, Never]{Kind: DisIgnore, State: None, Outputs: []int{}, Error: None, Terminal: false}}
+						Disabled[StepObs[cvState, int, core.Never]]{Obs: StepObs[cvState, int, core.Never]{Kind: DisIgnore, State: option.None, Outputs: []int{}, Error: option.None, Terminal: false}}
 					}
 				}
 			},
 		},
 		InitialObs:     func(s cvState) cvState { s },
-		ProjectionName: None,
+		ProjectionName: option.None,
 	}
 }
 
-func cvOpen(corruptBack bool) func(start cvState) PathSession[cvEvent, Observed[cvState, int, Never], cvDriveErr] fails cvOpenErr {
-	func(start cvState) PathSession[cvEvent, Observed[cvState, int, Never], cvDriveErr] fails cvOpenErr {
+func cvOpen(corruptBack bool) func(start cvState) PathSession[cvEvent, Observed[cvState, int, core.Never], cvDriveErr] fails cvOpenErr {
+	func(start cvState) PathSession[cvEvent, Observed[cvState, int, core.Never], cvDriveErr] fails cvOpenErr {
 		let st = sync.NewRef(start)
 		cvSess{state: st, corruptBack: corruptBack}
 	}
 }
 
 func cvCountEdgeHits[O](plan PathPlan[O]) []int {
-	let mut hits = zeroInts(len(plan.Graph.Edges))
+	let mut hits = zeroInts(plan.Graph.Edges.Len())
 	match OpenPaths(plan) {
-	case None:
+	case option.None:
 		hits
-	case Some as cur:
+	case option.Some as cur:
 		let mut c = cur.Value
 		for {
 			match NextPath(plan, &c) {
-			case None:
+			case option.None:
 				break
-			case Some as item:
+			case option.Some as item:
 				for eID in item.Value.Edges {
 					hits[eID] = hits[eID] + 1
 				}
@@ -476,7 +478,7 @@ law CoverageStatesAgreeWithReference() {
 		if fullRep.CheckedSteps != fullPlan.Stats.Steps || fullRep.MatchedSteps != fullPlan.Stats.Steps {
 			return false
 		}
-		for i in 0..len(fullRep.Edges) {
+		for i in 0..fullRep.Edges.Len() {
 			if fullRep.Edges[i].Checked != refHits[i] || fullRep.Edges[i].Matched != refHits[i] {
 				return false
 			}

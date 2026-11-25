@@ -3,25 +3,26 @@ import compiler/check/expr
 import compiler/check/store
 import compiler/syntax
 import dense
+import option
 import strings
 
 // The unit caller has just this statement. A checked fixed receiver
 // address is its only operand; target and transform decisions are made
 // before CONTROL opens the IR body.
-func planBorrowInvoke(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr, formals int) Option[borrowInvoke] fails Unported {
-	if dense.Unpack(ce.Trailing) != None || syntax.Len(ce.Args) != 0 {
-		return None
+func planBorrowInvoke(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr, formals int) option.Option[borrowInvoke] fails Unported {
+	if dense.Unpack(ce.Trailing) != option.None || syntax.Len(ce.Args) != 0 {
+		return option.None
 	}
 	let p = st.p
 	let sel = match syntax.ViewOf(p.Tree, ce.Fun) {
 	case syntax.SelectorExpr as s:
 		s
 	case _:
-		return None
+		return option.None
 	}
 	let site = dense.SideOf(st.callAt, bind.PNodeOf(st.k.Ps, st.file, x))
 	if site == 0 || !st.calls[site-1].Recv {
-		return None
+		return option.None
 	}
 	let target = st.calls[site-1].Callee
 	let i = expr.FnAt(st.k, bind.PNodeOf(st.k.Ps, target.File, target.Name))
@@ -30,7 +31,7 @@ func planBorrowInvoke(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr, forma
 	}
 	let recv = try planBorrowField(st, sel.X, formals)
 	let name = try borrowedUnitName(st, st.k.Fns[i], recv.t)
-	Some[borrowInvoke]{Value: borrowInvoke{recv: recv, recvAt: syntax.NodePos(p, sel.X), callAt: syntax.NodePos(p, x), name: name}}
+	option.Some[borrowInvoke]{Value: borrowInvoke{recv: recv, recvAt: syntax.NodePos(p, sel.X), callAt: syntax.NodePos(p, x), name: name}}
 }
 
 func borrowedUnitName(st fnb, target expr.Fn, record dense.ID[store.TKey]) string fails Unported {
@@ -45,25 +46,25 @@ func borrowedUnitName(st fnb, target expr.Fn, record dense.ID[store.TKey]) strin
 	case _:
 		return stop("borrow call: no ordinary declaration")
 	}
-	if dense.Unpack(d.Extern) != None || dense.Unpack(d.Recv) != None || dense.Unpack(d.TypeParams) != None {
+	if dense.Unpack(d.Extern) != option.None || dense.Unpack(d.Recv) != option.None || dense.Unpack(d.TypeParams) != option.None {
 		return stop("borrow call: not an ordinary receiver declaration")
 	}
 	let ops = store.OperandsOf(st.s, target.Sig)
-	if store.KindOfType(st.s, target.Sig) != store.KSig || len(ops) != 4 || len(target.Names) != 1 || len(target.Takes) != 1 || target.Takes[0] {
+	if store.KindOfType(st.s, target.Sig) != store.KSig || ops.Len() != 4 || target.Names.Len() != 1 || target.Takes.Len() != 1 || target.Takes[0] {
 		return stop("borrow call: receiver ABI")
 	}
-	if store.KindOfType(st.s, ops[1]) != store.KTuple || len(store.OperandsOf(st.s, ops[1])) != 0 || !emptyRow(st, ops[2]) || !emptyRow(st, ops[3]) {
+	if store.KindOfType(st.s, ops[1]) != store.KTuple || store.OperandsOf(st.s, ops[1]).Len() != 0 || !emptyRow(st, ops[2]) || !emptyRow(st, ops[3]) {
 		return stop("borrow call: result or row")
 	}
 	match borrowParamBase(st, ops[0]) {
-	case Some{Value: base}:
+	case option.Some{Value: base}:
 		if base != record {
 			return stop("borrow call: receiver type")
 		}
-	case None:
+	case option.None:
 		return stop("borrow call: receiver is not borrowed")
 	}
-	if !strings.Contains(try goName(st, name, Some{Value: record}), ".") {
+	if !strings.Contains(try goName(st, name, option.Some{Value: record}), ".") {
 		return stop("borrow call: does not lower as a method")
 	}
 	try borrowedUnitBody(st, target, p)
@@ -76,9 +77,9 @@ func borrowedUnitName(st fnb, target expr.Fn, record dense.ID[store.TKey]) strin
 // to discard, no table domain, and a method call does not merge.
 func borrowedUnitBody(st fnb, target expr.Fn, p syntax.Parsed) fails Unported {
 	let body = match dense.Unpack(target.Body) {
-	case Some{Value: b}:
+	case option.Some{Value: b}:
 		b
-	case None:
+	case option.None:
 		return stop("borrow call: no body")
 	}
 	let block = match syntax.ViewOf(p.Tree, body) {
@@ -98,9 +99,9 @@ func borrowedUnitBody(st fnb, target expr.Fn, p syntax.Parsed) fails Unported {
 		return stop("borrow call: expected a store")
 	}
 	let formal = match dense.Unpack(target.Names[0]) {
-	case Some{Value: at}:
+	case option.Some{Value: at}:
 		bind.PNodeOf(st.k.Ps, target.File, at)
-	case None:
+	case option.None:
 		return stop("borrow call: unnamed receiver")
 	}
 	let mut at = st
@@ -117,7 +118,7 @@ func borrowedCallRewrite(st fnb, name string) fails Unported {
 		return stop("borrow call: rewrite law")
 	}
 	match st.rootImports {
-	case Some[[]expr.Dep] as deps:
+	case option.Some[[]expr.Dep] as deps:
 		for dep in deps.Value {
 			let mut other = st
 			other.k = dep.K
@@ -125,7 +126,7 @@ func borrowedCallRewrite(st fnb, name string) fails Unported {
 				return stop("borrow call: imported rewrite law")
 			}
 		}
-	case None:
+	case option.None:
 		return stop("borrow call: rewrite scope not known")
 	}
 }

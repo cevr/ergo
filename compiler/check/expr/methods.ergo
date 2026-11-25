@@ -13,6 +13,7 @@ import compiler/check/store
 import compiler/check/types
 import compiler/syntax
 import dense
+import option
 import strings
 
 // ownerOf is the package that declares base's type, base a receiver's
@@ -30,15 +31,15 @@ func ownerOf(s store.Store, k Pkg, base dense.ID[store.TKey]) int {
 			return -1
 		}
 		if int(o.Import) == store.ForeignBit {
-			return if int(o.Decl) < len(k.Foreign) { depOf(k, k.Foreign[int(o.Decl)].Path) } else { -2 }
+			return if int(o.Decl) < k.Foreign.Len() { depOf(k, k.Foreign[int(o.Decl)].Path) } else { -2 }
 		}
 		// An Ergo import's type, generic or not: an XRef into its
 		// interface.
-		return if int(o.Import) <= len(k.Ifaces) { depOf(k, k.Ifaces[int(o.Import)-1].Path) } else { -2 }
+		return if int(o.Import) <= k.Ifaces.Len() { depOf(k, k.Ifaces[int(o.Import)-1].Path) } else { -2 }
 	}
 	if kind == store.KForeign {
 		let f = store.ArgOf(s, base)
-		return if f < len(k.Foreign) { depOf(k, k.Foreign[f].Path) } else { -2 }
+		return if f < k.Foreign.Len() { depOf(k, k.Foreign[f].Path) } else { -2 }
 	}
 	if kind == store.KSlice || kind == store.KMap || operandBasic(s, base) {
 		return depOf(k, "prelude")
@@ -62,7 +63,7 @@ func operandBasic(s store.Store, t dense.ID[store.TKey]) bool {
 // registers them from (check/collop.go, PRELUDE-ONE-SOURCE). No other
 // function is reached from a slice, a Map, a string or a rune.
 func operation(files []bind.File, f Fn) bool {
-	if f.File >= len(files) {
+	if f.File >= files.Len() {
 		return false
 	}
 	let name = files[f.File].Name
@@ -107,39 +108,39 @@ func sameHead(s store.Store, p dense.ID[store.TKey], base dense.ID[store.TKey]) 
 }
 
 func isClaimFn(k Pkg, f Fn) bool {
-	if f.File >= len(k.Parsed) {
+	if f.File >= k.Parsed.Len() {
 		return false
 	}
 	syntax.FuncDeclOf(k.Parsed[f.File].Tree, f.Decl).ImplementsPos >= 0
 }
 
 func isGoLenFn(k Pkg, f Fn) bool {
-	if f.File >= len(k.Parsed) {
+	if f.File >= k.Parsed.Len() {
 		return false
 	}
 	let p = k.Parsed[f.File]
 	let fd = syntax.FuncDeclOf(p.Tree, f.Decl)
 	match dense.Unpack(fd.Extern) {
-	case Some{Value: ex}:
+	case option.Some{Value: ex}:
 		let spec = syntax.ExternSpecOf(p.Tree, ex)
 		let src = syntax.SourceOf(p)
 		src[syntax.NodePos(p, spec.Target):syntax.NodeEnd(p, spec.Target)] == "len"
-	case None:
+	case option.None:
 		false
 	}
 }
 
-func coreClaimMethod(s mut store.Store, k Pkg, t mut Typer, base dense.ID[store.TKey], name string) Option[Fn] {
+func coreClaimMethod(s mut store.Store, k Pkg, t mut Typer, base dense.ID[store.TKey], name string) option.Option[Fn] {
 	let bk = store.KindOfType(*s, base)
 	if bk != store.KSlice && bk != store.KMap && bk != store.KArray && bk != store.KBasic {
-		return None
+		return option.None
 	}
 	if !isExportedName(name) {
-		return None
+		return option.None
 	}
 	let ci = depOf(k, "core")
 	if ci < 0 {
-		return None
+		return option.None
 	}
 	let d = k.Deps[ci]
 	let mut i = fnNamed(d.S, d.K, name)
@@ -147,28 +148,28 @@ func coreClaimMethod(s mut store.Store, k Pkg, t mut Typer, base dense.ID[store.
 		t.steps = t.steps + 1
 		let f = d.K.Fns[i]
 		let ops = store.OperandsOf(d.S, f.Sig)
-		if len(ops) > 3 && isClaimFn(d.K, f) {
+		if ops.Len() > 3 && isClaimFn(d.K, f) {
 			match port(s, k, d, f.Sig) {
-			case Some{Value: sig}:
+			case option.Some{Value: sig}:
 				let pBase = receiverBase(*s, store.OperandsOf(*s, sig)[0])
 				let arrayLen = bk == store.KArray && store.KindOfType(*s, pBase) == store.KSlice && isGoLenFn(d.K, f)
 				if sameHead(*s, pBase, base) || arrayLen {
 					let mut out = f
 					out.Sig = sig
-					return Some{Value: out}
+					return option.Some{Value: out}
 				}
-			case None:
+			case option.None:
 			}
 		}
 		i = d.K.sameName[i]
 	}
-	None
+	option.None
 }
 
 // methodOf is the function name on the type of the receiver xt, with its
 // signature in s's pool; none when the package that declares the type
 // declares no such function, or its signature does not port.
-func methodOf(s mut store.Store, k Pkg, t mut Typer, xt dense.ID[store.TKey], name string) Option[Fn] {
+func methodOf(s mut store.Store, k Pkg, t mut Typer, xt dense.ID[store.TKey], name string) option.Option[Fn] {
 	let base = receiverBase(*s, xt)
 	let owner = ownerOf(*s, k, base)
 	if owner == -2 {
@@ -185,12 +186,12 @@ func methodOf(s mut store.Store, k Pkg, t mut Typer, xt dense.ID[store.TKey], na
 			t.steps = t.steps + 1
 			let f = k.Fns[i]
 			let ops = store.OperandsOf(*s, f.Sig)
-			if len(ops) > 3 && (!unnamed || operation(k.Files, f)) && sameHead(*s, receiverBase(*s, ops[0]), base) {
-				return Some{Value: f}
+			if ops.Len() > 3 && (!unnamed || operation(k.Files, f)) && sameHead(*s, receiverBase(*s, ops[0]), base) {
+				return option.Some{Value: f}
 			}
 			i = k.sameName[i]
 		}
-		return None
+		return option.None
 	}
 	let d = k.Deps[owner]
 	let mut i = fnNamed(d.S, d.K, name)
@@ -198,15 +199,15 @@ func methodOf(s mut store.Store, k Pkg, t mut Typer, xt dense.ID[store.TKey], na
 		t.steps = t.steps + 1
 		let f = d.K.Fns[i]
 		let ops = store.OperandsOf(d.S, f.Sig)
-		if len(ops) > 3 && (!unnamed || operation(d.K.Files, f)) {
+		if ops.Len() > 3 && (!unnamed || operation(d.K.Files, f)) {
 			match port(s, k, d, f.Sig) {
-			case Some{Value: sig}:
+			case option.Some{Value: sig}:
 				if sameHead(*s, receiverBase(*s, store.OperandsOf(*s, sig)[0]), base) {
 					let mut out = f
 					out.Sig = sig
-					return Some{Value: out}
+					return option.Some{Value: out}
 				}
-			case None:
+			case option.None:
 			}
 		}
 		i = d.K.sameName[i]
@@ -214,47 +215,47 @@ func methodOf(s mut store.Store, k Pkg, t mut Typer, xt dense.ID[store.TKey], na
 	if unnamed {
 		return coreClaimMethod(s, k, t, base, name)
 	}
-	None
+	option.None
 }
 
 // opTypeAt is the type of the name x, declared at the package node at,
 // when it names an operation type of the package: a capability the
 // function needs, used as the value its operations are called on
 // (Console.Println(s)).
-func opTypeAt(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], at dense.ID[store.PNode]) Option[dense.ID[store.TKey]] {
+func opTypeAt(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], at dense.ID[store.PNode]) option.Option[dense.ID[store.TKey]] {
 	let text = types.NameText(k.Parsed[t.file], x)
 	let r = recOf(*s, k, text)
 	if r < 0 || !k.Recs[r].Op {
-		return None
+		return option.None
 	}
 	match store.Lookup(*s, text) {
-	case Some{Value: d}:
+	case option.Some{Value: d}:
 		let decl = store.DeclOf(*s, d)
 		let here = bind.PNodeOf(k.Ps, int(decl.File), syntax.NodeAt(k.Parsed[int(decl.File)].Tree, int(decl.Node)))
-		if here == at { some(store.TNamed(s, d)) } else { None }
-	case None:
-		None
+		if here == at { some(store.TNamed(s, d)) } else { option.None }
+	case option.None:
+		option.None
 	}
 }
 
 // opReceiver is the type of x when x names an operation type, of the
 // package or of an import.
-func opReceiver(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node]) Option[dense.ID[store.TKey]] {
+func opReceiver(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node]) option.Option[dense.ID[store.TKey]] {
 	let tr = k.Parsed[t.file].Tree
 	match syntax.ViewOf(tr, x) {
 	case syntax.SelectorExpr as se:
 		importedOp(s, k, t, se.Sel)
 	case _:
 		if syntax.KindOf(tr, x) != syntax.KIdent {
-			return None
+			return option.None
 		}
 		match bind.ResolutionOf(k.U, k.Ps, pnode(k, t.file, x)) {
 		case bind.Declared as d:
-			if isSome(dense.Unpack(dense.Of(t.defs, d.At))) { None } else { opTypeAt(s, k, t, x, d.At) }
+			if isSome(dense.Unpack(dense.Of(t.defs, d.At))) { option.None } else { opTypeAt(s, k, t, x, d.At) }
 		case bind.Outside:
 			preludeOp(s, k, t, x)
 		case _:
-			None
+			option.None
 		}
 	}
 }
@@ -264,26 +265,26 @@ func opReceiver(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node]) 
 // bare (Absent, IntT).
 func bare(s store.Store, k Pkg, name string) bool {
 	let r = recOf(s, k, name)
-	r >= 0 && !k.Recs[r].Op && len(k.Recs[r].Fields) == 0 && len(k.Recs[r].Params) == 0
+	r >= 0 && !k.Recs[r].Op && k.Recs[r].Fields.Len() == 0 && k.Recs[r].Params.Len() == 0
 }
 
 // bareRecord is the type of the name x, declared at the package node at,
 // when it names a record of the package with no fields: the record.
-func bareRecord(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], at dense.ID[store.PNode]) Option[dense.ID[store.TKey]] {
+func bareRecord(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], at dense.ID[store.PNode]) option.Option[dense.ID[store.TKey]] {
 	let text = types.NameText(k.Parsed[t.file], x)
 	if !bare(*s, k, text) {
-		return None
+		return option.None
 	}
 	match store.Lookup(*s, text) {
-	case Some[dense.ID[store.Decl]] as d:
+	case option.Some[dense.ID[store.Decl]] as d:
 		let decl = store.DeclOf(*s, d.Value)
 		if store.KindName(int(decl.Kind)) != "type" {
-			return None
+			return option.None
 		}
 		let here = bind.PNodeOf(k.Ps, int(decl.File), syntax.NodeAt(k.Parsed[int(decl.File)].Tree, int(decl.Node)))
-		if here == at { some(store.TNamed(s, d.Value)) } else { None }
-	case None:
-		None
+		if here == at { some(store.TNamed(s, d.Value)) } else { option.None }
+	case option.None:
+		option.None
 	}
 }
 
@@ -310,36 +311,36 @@ func namesBare(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node]) b
 // importedBare is the type of the selector name sel when it names a
 // record of an import with no fields (ast.IntT): the importer's
 // reference into the import's interface.
-func importedBare(s mut store.Store, k Pkg, t mut Typer, sel dense.ID[syntax.Node]) Option[dense.ID[store.TKey]] {
-	if len(k.Deps) == 0 {
-		return None
+func importedBare(s mut store.Store, k Pkg, t mut Typer, sel dense.ID[syntax.Node]) option.Option[dense.ID[store.TKey]] {
+	if k.Deps.Len() == 0 {
+		return option.None
 	}
 	match bind.ResolutionOf(k.U, k.Ps, pnode(k, t.file, sel)) {
 	case bind.Imported as im:
 		let i = int(im.Ref.Import) - 1
 		let paths = store.ImportPaths(*s)
-		if i < 0 || i >= len(paths) {
-			return None
+		if i < 0 || i >= paths.Len() {
+			return option.None
 		}
 		let di = depOf(k, paths[i])
 		if di < 0 {
-			return None
+			return option.None
 		}
 		let d = k.Deps[di]
 		let decl = store.DeclOf(d.S, store.DeclAt(d.S, int(im.Ref.Decl)))
 		let text = store.DeclText(d.S, int(im.Ref.Decl))
 		if store.KindName(int(decl.Kind)) != "type" || !bare(d.S, d.K, text) {
-			return None
+			return option.None
 		}
 		imported(s, k, d.Path, text, []dense.ID[store.TKey]{})
 	case _:
-		None
+		option.None
 	}
 }
 
 // preludeBare is the type of the name x when it names a record of the
 // prelude with no fields (None): the foreign type of the name.
-func preludeBare(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node]) Option[dense.ID[store.TKey]] {
+func preludeBare(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node]) option.Option[dense.ID[store.TKey]] {
 	let text = types.NameText(k.Parsed[t.file], x)
 	for path in []string{"prelude", "option"} {
 		let di = depOf(k, path)
@@ -350,57 +351,57 @@ func preludeBare(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node])
 			}
 		}
 	}
-	None
+	option.None
 }
 
 // preludeOp is the type of the name x when it names an operation type of
 // the prelude (Random): the foreign type of the name.
-func preludeOp(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node]) Option[dense.ID[store.TKey]] {
+func preludeOp(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node]) option.Option[dense.ID[store.TKey]] {
 	let di = depOf(k, "prelude")
 	if di < 0 {
-		return None
+		return option.None
 	}
 	let text = types.NameText(k.Parsed[t.file], x)
 	let r = recOf(k.Deps[di].S, k.Deps[di].K, text)
 	if r < 0 || !k.Deps[di].K.Recs[r].Op {
-		return None
+		return option.None
 	}
 	let f = foreignAt(k, "prelude", text)
-	if f >= 0 { some(store.TForeign(s, f)) } else { None }
+	if f >= 0 { some(store.TForeign(s, f)) } else { option.None }
 }
 
 // importedOp is the type of the selector name sel when it names an
 // operation type of an import (io.Stdout): the importer's reference into
 // the import's interface.
-func importedOp(s mut store.Store, k Pkg, t mut Typer, sel dense.ID[syntax.Node]) Option[dense.ID[store.TKey]] {
-	if len(k.Deps) == 0 {
-		return None
+func importedOp(s mut store.Store, k Pkg, t mut Typer, sel dense.ID[syntax.Node]) option.Option[dense.ID[store.TKey]] {
+	if k.Deps.Len() == 0 {
+		return option.None
 	}
 	match bind.ResolutionOf(k.U, k.Ps, pnode(k, t.file, sel)) {
 	case bind.Imported as im:
 		let i = int(im.Ref.Import) - 1
 		let paths = store.ImportPaths(*s)
-		if i < 0 || i >= len(paths) {
-			return None
+		if i < 0 || i >= paths.Len() {
+			return option.None
 		}
 		let di = depOf(k, paths[i])
 		if di < 0 {
-			return None
+			return option.None
 		}
 		let d = k.Deps[di]
 		let text = store.DeclText(d.S, int(im.Ref.Decl))
 		let r = recOf(d.S, d.K, text)
 		if r < 0 || !d.K.Recs[r].Op {
-			return None
+			return option.None
 		}
 		match types.ImportRef(*s, k.Ifaces, d.Path, text) {
-		case Some[store.XRef] as ref:
+		case option.Some[store.XRef] as ref:
 			some(store.TInstance(s, ref.Value, []dense.ID[store.TKey]{}))
-		case None:
-			None
+		case option.None:
+			option.None
 		}
 	case _:
-		None
+		option.None
 	}
 }
 
@@ -408,9 +409,9 @@ func importedOp(s mut store.Store, k Pkg, t mut Typer, sel dense.ID[syntax.Node]
 // others of the name follow through k.sameName), -1 when none is.
 func fnNamed(s store.Store, k Pkg, name string) int {
 	match store.FindName(s, name) {
-	case Some{Value: n}:
+	case option.Some{Value: n}:
 		dense.SideOf(k.named, n)
-	case None:
+	case option.None:
 		-1
 	}
 }
@@ -419,6 +420,6 @@ func fnNamed(s store.Store, k Pkg, name string) int {
 // of a selector that calls a function on a type.
 func withoutFirst(s mut store.Store, sig dense.ID[store.TKey]) dense.ID[store.TKey] {
 	let ops = store.OperandsOf(*s, sig)
-	let n = len(ops)
+	let n = ops.Len()
 	store.TSig(s, ops[1:n-3], ops[n-3], ops[n-2], ops[n-1])
 }

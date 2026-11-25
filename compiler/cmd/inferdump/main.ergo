@@ -28,13 +28,14 @@ import compiler/syntax
 import dense
 import fs
 import io
+import option
 import os
 import strconv
 import strings
 
 func base(path string) string {
 	let i = strings.LastIndex(path, "/")
-	if i < 0 { path } else { path[i+1 : len(path)] }
+	if i < 0 { path } else { path[i+1 : path.Len()] }
 }
 
 func bit(w string) int {
@@ -59,7 +60,7 @@ func tables(extText string, foreignText string) Tables {
 	let mut ext = []types.Ext{}
 	for line in strings.Split(extText, "\n") {
 		let parts = strings.Fields(line)
-		if len(parts) != 2 {
+		if parts.Len() != 2 {
 			continue
 		}
 		let mut ks = []int{}
@@ -73,12 +74,12 @@ func tables(extText string, foreignText string) Tables {
 	let mut pkgPath = "main"
 	for line in strings.Split(foreignText, "\n") {
 		let parts = strings.Fields(line)
-		if len(parts) == 4 && parts[0] == "@pkg" {
+		if parts.Len() == 4 && parts[0] == "@pkg" {
 			pkgName = if parts[3] == "1" { parts[1] } else { "" }
 			pkgPath = parts[2]
 			continue
 		}
-		if len(parts) != 6 {
+		if parts.Len() != 6 {
 			continue
 		}
 		let n = strconv.Atoi(parts[2]) catch {
@@ -154,7 +155,7 @@ func declOf(fns []Fn, file int, at dense.ID[syntax.Node]) int {
 
 // literal is the default type of the basic literal x, or of a numeric one
 // with a sign; none for any other expression.
-func literal(s mut store.Store, p syntax.Parsed, x dense.ID[syntax.Node]) Option[dense.ID[store.TKey]] {
+func literal(s mut store.Store, p syntax.Parsed, x dense.ID[syntax.Node]) option.Option[dense.ID[store.TKey]] {
 	match syntax.ViewOf(p.Tree, x) {
 	case syntax.UnaryExpr as u:
 		let op = syntax.TokKind(p, u.Op)
@@ -165,26 +166,26 @@ func literal(s mut store.Store, p syntax.Parsed, x dense.ID[syntax.Node]) Option
 				return literal(s, p, y)
 			}
 		}
-		None
+		option.None
 	case syntax.BasicLit as b:
 		let k = syntax.TokKind(p, b.Tok)
 		// The basic ordinals of types.BasicName: string 2, int 3, int32
 		// (rune) 6, float64 15, duration 18.
 		if k == syntax.Int {
-			Some[dense.ID[store.TKey]]{Value: store.TBasic(s, 3)}
+			option.Some[dense.ID[store.TKey]]{Value: store.TBasic(s, 3)}
 		} else if k == syntax.Float {
-			Some[dense.ID[store.TKey]]{Value: store.TBasic(s, 15)}
+			option.Some[dense.ID[store.TKey]]{Value: store.TBasic(s, 15)}
 		} else if k == syntax.String {
-			Some[dense.ID[store.TKey]]{Value: store.TBasic(s, 2)}
+			option.Some[dense.ID[store.TKey]]{Value: store.TBasic(s, 2)}
 		} else if k == syntax.Rune {
-			Some[dense.ID[store.TKey]]{Value: store.TBasic(s, 6)}
+			option.Some[dense.ID[store.TKey]]{Value: store.TBasic(s, 6)}
 		} else if k == syntax.Duration {
-			Some[dense.ID[store.TKey]]{Value: store.TBasic(s, 18)}
+			option.Some[dense.ID[store.TKey]]{Value: store.TBasic(s, 18)}
 		} else {
-			None
+			option.None
 		}
 	case _:
-		None
+		option.None
 	}
 }
 
@@ -200,17 +201,17 @@ func isCallSite(s store.Store, foreign []types.Foreign, t dense.ID[store.TKey]) 
 func run(args0 []string) fails os.Exit needs fs.Files | io.Stdout {
 	let mut std = ""
 	let mut args = args0
-	if len(args) > 1 && args[0] == "-std" {
+	if args.Len() > 1 && args[0] == "-std" {
 		std = args[1]
-		args = args[2:len(args)]
+		args = args[2:args.Len()]
 	}
-	if len(args) < 2 {
+	if args.Len() < 2 {
 		return os.Exit{Code: 2, Message: "usage: inferdump [-std DIR] EXT FOREIGN FILE..."}
 	}
 	let tab = tables(try read(args[0]), try read(args[1]))
 	let mut files = []bind.File{}
 	let mut parsed = []syntax.Parsed{}
-	for path in args[2:len(args)] {
+	for path in args[2:args.Len()] {
 		let p = syntax.Parse(try read(path))
 		files = files.Append(bind.File{Name: base(path), Parsed: p})
 		parsed = parsed.Append(p)
@@ -219,7 +220,7 @@ func run(args0 []string) fails os.Exit needs fs.Files | io.Stdout {
 	let ps = bind.BuildParents(files)
 	let (bound, u) = bind.Bind(collected, []store.Frozen{}, ps, files, 1)
 	let mut s = bound
-	let mod = if len(args) > 2 { load.ModuleOf(load.Dir(args[2])) } else { None }
+	let mod = if args.Len() > 2 { load.ModuleOf(load.Dir(args[2])) } else { option.None }
 	let pkgs = load.Imported(bind.Imports(files), []string{tab.pkgPath}, mod, std)
 	let deps = load.Deps(s, load.Interfaces(pkgs, tab.ext, tab.foreign, []types.Iface{}))
 	let ext = load.Join(tab.ext, types.ExtOf(s, deps))
@@ -244,7 +245,7 @@ func run(args0 []string) fails os.Exit needs fs.Files | io.Stdout {
 		}
 	}
 	let mut frame = infer.NewFrame()
-	let unions = if len(parsed) > 0 { types.UnionsOf(&s, types.NewEnv(s, parsed, parsed[0], []string{}, kinds, ext, table, deps)) } else { infer.NoUnions() }
+	let unions = if parsed.Len() > 0 { types.UnionsOf(&s, types.NewEnv(s, parsed, parsed[0], []string{}, kinds, ext, table, deps)) } else { infer.NoUnions() }
 	let mut b = strings.NewBuilder()
 	for fi, file in files {
 		let p = file.Parsed
@@ -281,7 +282,7 @@ func run(args0 []string) fails os.Exit needs fs.Files | io.Stdout {
 			case _:
 				-1
 			}
-			if callee < 0 || len(fns[callee].params) == 0 || len(written) > len(fns[callee].params) {
+			if callee < 0 || fns[callee].params.Len() == 0 || written.Len() > fns[callee].params.Len() {
 				continue
 			}
 			// The caller: the function declaration around the call.
@@ -289,7 +290,7 @@ func run(args0 []string) fails os.Exit needs fs.Files | io.Stdout {
 			let mut caller = -1
 			for caller < 0 {
 				match dense.Unpack(bind.ParentOf(ps, up)) {
-				case Some[dense.ID[store.PNode]] as q:
+				case option.Some[dense.ID[store.PNode]] as q:
 					up = q.Value
 					let (_, row) = bind.RowOf(ps, up)
 					let n = syntax.NodeAt(p.Tree, row)
@@ -300,7 +301,7 @@ func run(args0 []string) fails os.Exit needs fs.Files | io.Stdout {
 							break
 						}
 					}
-				case None:
+				case option.None:
 					break
 				}
 			}
@@ -310,15 +311,15 @@ func run(args0 []string) fails os.Exit needs fs.Files | io.Stdout {
 			let from = fns[caller]
 			let to = fns[callee]
 			// The callee's parameters, renamed past the caller's.
-			let m = len(from.params)
+			let m = from.params.Len()
 			let mut rename = []dense.ID[store.TKey]{}
-			for k in 0..len(to.params) {
+			for k in 0..to.params.Len() {
 				rename = rename.Append(store.TParam(&s, m+k))
 			}
 			let ops = store.OperandsOf(s, to.sig)
 			// A final CallSite parameter the call leaves out is the
 			// call's site, no argument (call.go siteless).
-			let mut np = len(ops) - 3
+			let mut np = ops.Len() - 3
 			if np > 0 && syntax.Len(call.Args) == np-1 && isCallSite(s, table, ops[np-1]) {
 				np = np - 1
 			}
@@ -328,7 +329,7 @@ func run(args0 []string) fails os.Exit needs fs.Files | io.Stdout {
 			}
 			let callerOps = store.OperandsOf(s, from.sig)
 			let mut inArgs = []infer.Arg{}
-			let mut known = syntax.Len(call.Args) == len(params)
+			let mut known = syntax.Len(call.Args) == params.Len()
 			for j in 0..syntax.Len(call.Args) {
 				if !known {
 					break
@@ -355,9 +356,9 @@ func run(args0 []string) fails os.Exit needs fs.Files | io.Stdout {
 					continue
 				}
 				match literal(&s, p, x) {
-				case Some[dense.ID[store.TKey]] as d:
+				case option.Some[dense.ID[store.TKey]] as d:
 					inArgs = inArgs.Append(infer.Literal{Default: d.Value})
-				case None:
+				case option.None:
 					known = false
 				}
 			}
@@ -370,7 +371,7 @@ func run(args0 []string) fails os.Exit needs fs.Files | io.Stdout {
 				explicit = explicit.Append(types.Resolve(&s, env, w))
 			}
 			match infer.Infer(&s, &frame, unions, infer.Callee{Params: params, Rows: to.rows, Base: m}, explicit, inArgs) {
-			case Some[[]dense.ID[store.TKey]] as targs:
+			case option.Some[[]dense.ID[store.TKey]] as targs:
 				let names = types.Names{Params: from.params, Foreign: table, Pkg: tab.pkgName, Deps: deps}
 				let none = infer.NoValue(&s)
 				let mut texts = []string{}
@@ -378,14 +379,14 @@ func run(args0 []string) fails os.Exit needs fs.Files | io.Stdout {
 					texts = texts.Append(if t == none { "no value" } else { types.Text(s, names, t) })
 				}
 				b.WriteString("\(file.Name) \(syntax.NodePos(p, fun)) \(strings.Join(texts, " ; "))\n")
-			case None:
+			case option.None:
 			}
 		}
 	}
 	io.Stdout.Print(b.String())
 }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), io.Stdout: io.NewHost() } {
 		try run(os.Process.Args())
 	}

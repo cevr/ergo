@@ -1,3 +1,4 @@
+import option
 import strings
 
 // Dirs are a program's own directories under the user's base directories
@@ -20,27 +21,27 @@ type NoHome {}
 func UserDirs(app string) Dirs fails NoHome needs Config {
 	Dirs{
 		Config: try base("XDG_CONFIG_HOME", ".config") + "/" + app,
-		Cache: try base("XDG_CACHE_HOME", ".cache") + "/" + app,
-		State: try base("XDG_STATE_HOME", ".local/state") + "/" + app,
+		Cache:  try base("XDG_CACHE_HOME", ".cache") + "/" + app,
+		State:  try base("XDG_STATE_HOME", ".local/state") + "/" + app,
 	}
 }
 
 // base is the variable name when it is an absolute path, else HOME/rel.
 func base(name string, rel string) string fails NoHome needs Config {
 	match Config.Lookup(name) {
-	case Some as v:
+	case option.Some as v:
 		if strings.HasPrefix(v.Value, "/") {
 			return strings.TrimSuffix(v.Value, "/")
 		}
-	case None:
+	case option.None:
 	}
 	match Config.Lookup("HOME") {
-	case Some as h:
+	case option.Some as h:
 		if strings.HasPrefix(h.Value, "/") {
 			return strings.TrimSuffix(h.Value, "/") + "/" + rel
 		}
 		return NoHome
-	case None:
+	case option.None:
 		return NoHome
 	}
 }

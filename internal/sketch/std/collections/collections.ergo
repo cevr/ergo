@@ -41,6 +41,7 @@ type MapFold[T own] {
 
 extern go append func appendElem[T](xs []T, x T) []T
 extern go append func appendSlice[T](xs []T, ys []T) []T
+extern go len func sliceLen[T](xs []T) int
 
 // Map returns f applied to each element of xs, in order.
 func Map[T, U, E, R](xs []T, f func(x T) U fails E needs R) []U fails E needs R implements Chainable[T] {
@@ -103,7 +104,7 @@ func FromSlice[T](xs []T) Seq[T] {
 // FromSliceStops: FromSlice stops yielding as soon as yield returns false.
 law FromSliceStops(xs []int) {
 	let s = FromSlice(xs)
-	let n = len(xs)
+	let n = sliceLen(xs)
 	let mut k = 1
 	for k <= n+1 {
 		let mut calls = 0
@@ -191,7 +192,7 @@ law SeqFoldOfMap(xs []int, init int) {
 
 // SeqMapStops: Map preserves laziness and stops invoking f once yield returns false.
 law SeqMapStops(xs []int) {
-	let n = len(xs)
+	let n = sliceLen(xs)
 	let mut k = 1
 	for k <= n+1 {
 		let mut probe = []int{}
@@ -219,7 +220,7 @@ law SeqMapStops(xs []int) {
 // SeqThenStops: Then stops pulling outer and inner sequences once yield returns false.
 law SeqThenStops(xs []int) {
 	let s = FromSlice(xs).Then(func(v int) Seq[int] { FromSlice([]int{v, v + 1}) })
-	let n = len(xs) * 2
+	let n = sliceLen(xs) * 2
 	let mut k = 1
 	for k <= n+1 {
 		let mut calls = 0

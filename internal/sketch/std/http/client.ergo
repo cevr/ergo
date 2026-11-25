@@ -6,6 +6,7 @@
 
 import config
 import fs
+import os
 import strconv
 import strings
 import sync
@@ -101,7 +102,7 @@ type Client { origin string, limits Limits, credentials []Credential } implement
 // it stays Redacted inside the Client, so a provider wrapped around the
 // Net never sees it. A credential of another origin is InvalidClient. No
 // request is made until a Send.
-func NewClient(origin string, limits Limits, credentials []Credential) Client fails InvalidClient | InvalidLimits needs Ambient {
+func NewClient(origin string, limits Limits, credentials []Credential) Client fails InvalidClient | InvalidLimits needs os.Ambient {
 	try checkOrigin(origin, limits)
 	Client{origin: origin, limits: limits, credentials: try bound(origin, credentials)}
 }
@@ -110,7 +111,7 @@ func NewClient(origin string, limits Limits, credentials []Credential) Client fa
 // first that is not: a Net has one origin, and a credential goes only to
 // its own.
 func bound(origin string, credentials []Credential) []Credential fails InvalidClient {
-	if len(credentials) == 0 {
+	if credentials.Len() == 0 {
 		return credentials
 	}
 	let own = try originOf(origin)
@@ -309,7 +310,7 @@ law InMemorySendIntoIsSend(status int, body string, long bool, explicit bool, li
 	let r = Request{Method: "GET", Path: "/", RawPath: "/", Query: []Field{}, Header: []Field{}, Body: Buffered{Text: ""}}
 	let response = h.SendInto(r, accept, func(part string) fails SinkFailed { got.Update(func(s string) string { s + part }) }) catch {
 	case StatusRefused as s:
-		let want = if len(text) > 1024 { text[0:1024] } else { text }
+		let want = if text.Len() > 1024 { text[0:1024] } else { text }
 		return !taken && s.Status == status && s.Prefix == want && got.Get() == ""
 	case RequestFailed, SinkFailed:
 		return false
@@ -336,5 +337,5 @@ func SendInto(h Handler, r Request, accept Accept, put func(part string) fails S
 
 // refusedPrefix is StatusRefused's Prefix of body: its first 1024 bytes.
 func refusedPrefix(body string) string {
-	if len(body) > 1024 { body[0:1024] } else { body }
+	if body.Len() > 1024 { body[0:1024] } else { body }
 }

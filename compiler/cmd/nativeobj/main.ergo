@@ -24,18 +24,20 @@
 
 import compiler/ir/handoff
 import compiler/nativeobj
+import embed
 import exec
 import fs
 import io
+import option
 import os
 import sha256
 import hex
 import strconv
 import strings
 
-let depGo = embedded[string]("testdata/dep/dep.go")
-let mainGo = embedded[string]("testdata/main/main.go")
-let refGo = embedded[string]("testdata/tinyref/tiny.go")
+let depGo = embed.File[string]("testdata/dep/dep.go")
+let mainGo = embed.File[string]("testdata/main/main.go")
+let refGo = embed.File[string]("testdata/tinyref/tiny.go")
 
 func fail(msg string) os.Exit { os.Exit{Code: 1, Message: "nativeobj: " + msg} }
 
@@ -233,10 +235,10 @@ func verify(stock Stock, seed int, keep bool) fails os.Exit needs exec.Runner | 
 	}
 	let tinyA = dir + "/tiny.a"
 	try write(tinyA, built.Archive)
-	io.Stdout.Println("handoff: EIR v1 \(len(eirBytes)) bytes, sha256 \(hex.Encode(sha256.Sum(eirBytes))[0:16])")
-	io.Stdout.Println("producer: tiny.a \(len(built.Archive)) bytes, sha256 \(hex.Encode(sha256.Sum(built.Archive))[0:16]), fingerprint \(hex.Encode(built.Fingerprint))")
+	io.Stdout.Println("handoff: EIR v1 \(eirBytes.Len()) bytes, sha256 \(hex.Encode(sha256.Sum(eirBytes))[0:16])")
+	io.Stdout.Println("producer: tiny.a \(built.Archive.Len()) bytes, sha256 \(hex.Encode(sha256.Sum(built.Archive))[0:16]), fingerprint \(hex.Encode(built.Fingerprint))")
 	let problems = nativeobj.Verify(p, header, built.Archive)
-	if len(problems) > 0 {
+	if problems.Len() > 0 {
 		return fail("metadata checks failed (work kept in \(dir)):\n" + strings.Join(problems, "\n"))
 	}
 	io.Stdout.Println("metadata: members, fingerprints, exports and ABI registers, safe points, live slots, barriers, relocations, inittask: all hold")
@@ -265,20 +267,20 @@ func verify(stock Stock, seed int, keep bool) fails os.Exit needs exec.Runner | 
 
 func usage() os.Exit { os.Exit{Code: 2, Message: "usage: nativeobj verify [--seed N] [--keep]"} }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), fs.Writes: fs.NewHost(), io.Stdout: io.NewHost(), exec.Runner: exec.NewHost() } {
 		let mut args = os.Process.Args()
-		if len(args) > 0 && args[0] == "--" {
-			args = args[1:len(args)]
+		if args.Len() > 0 && args[0] == "--" {
+			args = args[1:args.Len()]
 		}
-		if len(args) == 0 || args[0] != "verify" {
+		if args.Len() == 0 || args[0] != "verify" {
 			return usage()
 		}
 		let mut seed = 1
 		let mut keep = false
 		let mut i = 1
-		for i < len(args) {
-			if args[i] == "--seed" && i+1 < len(args) {
+		for i < args.Len() {
+			if args[i] == "--seed" && i+1 < args.Len() {
 				seed = strconv.Atoi(args[i+1]) catch {
 				case strconv.Malformed, strconv.OutOfRange:
 					return usage()
@@ -292,36 +294,36 @@ func main() fails os.Exit needs Ambient {
 			}
 		}
 		let root = match os.Process.Getenv("GOROOT_STOCK") {
-		case Some as path:
+		case option.Some as path:
 			path.Value
-		case None:
+		case option.None:
 			return fail("set GOROOT_STOCK to the stock Go \(nativeobj.PinGo) root")
 		}
 		if !strings.HasPrefix(root, "/") {
 			return fail("GOROOT_STOCK must be an absolute path")
 		}
 		let hostPath = match os.Process.Getenv("PATH") {
-		case Some as p:
+		case option.Some as p:
 			p.Value
-		case None:
+		case option.None:
 			"/usr/local/bin:/usr/bin:/bin"
 		}
 		let tmpDir = match os.Process.Getenv("TMPDIR") {
-		case Some as p:
+		case option.Some as p:
 			p.Value
-		case None:
+		case option.None:
 			""
 		}
 		let goCache = match os.Process.Getenv("GOCACHE") {
-		case Some as p:
+		case option.Some as p:
 			p.Value
-		case None:
+		case option.None:
 			""
 		}
 		let homeDir = match os.Process.Getenv("HOME") {
-		case Some as p:
+		case option.Some as p:
 			p.Value
-		case None:
+		case option.None:
 			""
 		}
 		verify(Stock{Root: root, Path: hostPath, TmpDir: tmpDir, GoCache: goCache, Home: homeDir}, seed, keep) catch {

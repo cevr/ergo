@@ -4,6 +4,7 @@
 // back as text (ZonedText); tz.FormatZoned and tz.ParseZoned are the
 // functions a program calls.
 
+import option
 import time
 
 // ZonedFormat is a checked format of a wall time and its zone.
@@ -50,7 +51,7 @@ func commonLogFields() []Field {
 
 // ZonedFields is the zoned format of fields with names.
 func ZonedFields(fields []Field, names Names) ZonedFormat fails BadPattern {
-	let _ = try checkFields(fields, indexes(len(fields)), names, true, true, "")
+	let _ = try checkFields(fields, indexes(fields.Len()), names, true, true, "")
 	ZonedFormat{fields: fields, names: names}
 }
 
@@ -101,7 +102,7 @@ func AppendWithZone(dt DateTime, z ZoneParts, f ZonedFormat, into []byte) []byte
 // ZonedText is what a zoned text says: its wall time, and the offset,
 // abbreviation and zone name it holds, each None when f has no such
 // field.
-type ZonedText { Wall DateTime, Offset Option[int], Abbreviation Option[string], Zone Option[string] }
+type ZonedText { Wall DateTime, Offset option.Option[int], Abbreviation option.Option[string], Zone option.Option[string] }
 
 // ParseWithZone reads the text s in f, as strict as ParseDateTime: an
 // offset is ±hh:mm or ±hhmm with :ss or ss only when not zero, +00:00 and
@@ -114,9 +115,9 @@ func ParseWithZone(f ZonedFormat, s string) ZonedText fails ParseError {
 	let t = try timeOf(r, s)
 	ZonedText{
 		Wall:         DateTime{Date: d, Time: t},
-		Offset:       if r.hasOffset { Some[int]{Value: r.offset} } else { None },
-		Abbreviation: if r.abbreviation != "" { Some[string]{Value: r.abbreviation} } else { None },
-		Zone:         if r.zone != "" { Some[string]{Value: r.zone} } else { None },
+		Offset:       if r.hasOffset { option.Some[int]{Value: r.offset} } else { option.None },
+		Abbreviation: if r.abbreviation != "" { option.Some[string]{Value: r.abbreviation} } else { option.None },
+		Zone:         if r.zone != "" { option.Some[string]{Value: r.zone} } else { option.None },
 	}
 }
 
@@ -145,10 +146,10 @@ func appendOffset(into []byte, s int, colon bool, z bool) []byte {
 // readOffset reads an offset at s[i] as appendOffset writes it, and is its
 // seconds and the index after it.
 func readOffset(s string, i int, colon bool, z bool) (int, int) fails ParseError {
-	if z && i < len(s) && s[i] == 'Z' {
+	if z && i < s.Len() && s[i] == 'Z' {
 		return (0, i + 1)
 	}
-	if i >= len(s) || s[i] != '+' && s[i] != '-' {
+	if i >= s.Len() || s[i] != '+' && s[i] != '-' {
 		return wantField(s, i, "offset")
 	}
 	let (h, j) = try readNumber(s, i+1, 2, ZeroPad, "offset")
@@ -190,7 +191,7 @@ func readOffset(s string, i int, colon bool, z bool) (int, int) fails ParseError
 // nameEnd is the index after the run of name bytes at s[i].
 func nameEnd(s string, i int) int {
 	let mut j = i
-	for j < len(s) && nameByte(s[j]) {
+	for j < s.Len() && nameByte(s[j]) {
 		j = j + 1
 	}
 	j

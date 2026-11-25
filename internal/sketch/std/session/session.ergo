@@ -23,6 +23,7 @@
 
 import hex
 import hmac
+import option
 import rand
 import sha256
 import strconv
@@ -71,7 +72,7 @@ func ParseDigest(text string) Digest fails BadDigest {
 	case hex.Malformed:
 		return BadDigest{Text: text}
 	}
-	if len(sum) != 32 {
+	if sum.Len() != 32 {
 		return BadDigest{Text: text}
 	}
 	Digest{sum: sum}
@@ -235,9 +236,9 @@ func Empty() State { State{sessions: Map[string, Record]{}, floors: Map[string, 
 // VerifyIn is the verdict on the session under d in s at now under p.
 func VerifyIn(p Policy, s State, d Digest, now time.Time) Verdict {
 	match s.sessions.Get(d.sum) {
-	case Some[Record] as r:
+	case option.Some[Record] as r:
 		Judge(p, r.Value, floorOf(s, r.Value.Subject), now)
-	case None:
+	case option.None:
 		Invalid
 	}
 }
@@ -245,22 +246,22 @@ func VerifyIn(p Policy, s State, d Digest, now time.Time) Verdict {
 // floorOf is subject's lowest live revision in s.
 func floorOf(s State, subject string) int {
 	match s.floors.Get(subject) {
-	case Some[int] as f:
+	case option.Some[int] as f:
 		f.Value
-	case None:
+	case option.None:
 		-9223372036854775807 - 1
 	}
 }
 
 // liveOf is the record of a verdict that is not Invalid.
-func liveOf(v Verdict) Option[Record] {
+func liveOf(v Verdict) option.Option[Record] {
 	match v {
 	case Valid as l:
-		Some[Record]{Value: l.Record}
+		option.Some[Record]{Value: l.Record}
 	case Renew as l:
-		Some[Record]{Value: l.Record}
+		option.Some[Record]{Value: l.Record}
 	case Invalid:
-		None
+		option.None
 	}
 }
 
@@ -270,26 +271,26 @@ func Apply(p Policy, s State, op Op) (Outcome, State, bool) {
 	let mut st = s
 	match op {
 	case EstablishOp as e:
-		if st.sessions.Get(e.Digest.sum) != None {
+		if st.sessions.Get(e.Digest.sum) != option.None {
 			return (Refused, st, false)
 		}
 		st.sessions[e.Digest.sum] = Record{Subject: e.Subject, Revision: e.Revision, Created: e.Now, Renewed: e.Now}
 		(Kept, st, true)
 	case RotateOp as r:
-		if st.sessions.Get(r.New.sum) != None {
+		if st.sessions.Get(r.New.sum) != option.None {
 			return (Refused, st, false)
 		}
 		match liveOf(VerifyIn(p, st, r.Old, r.Now)) {
-		case Some[Record] as live:
+		case option.Some[Record] as live:
 			let moved = Record{Subject: live.Value.Subject, Revision: live.Value.Revision, Created: live.Value.Created, Renewed: r.Now}
 			st.sessions = st.sessions.Delete(r.Old.sum)
 			st.sessions[r.New.sum] = moved
 			(Moved{Record: moved}, st, true)
-		case None:
+		case option.None:
 			(Refused, st, false)
 		}
 	case RevokeOp as v:
-		if st.sessions.Get(v.Digest.sum) == None {
+		if st.sessions.Get(v.Digest.sum) == option.None {
 			return (Ended{Held: false}, st, false)
 		}
 		st.sessions = st.sessions.Delete(v.Digest.sum)
@@ -307,7 +308,7 @@ func Apply(p Policy, s State, op Op) (Outcome, State, bool) {
 		for k in gone {
 			st.sessions = st.sessions.Delete(k)
 		}
-		(Ended{Held: len(gone) > 0}, st, true)
+		(Ended{Held: gone.Len() > 0}, st, true)
 	}
 }
 
@@ -401,7 +402,7 @@ func NewKeyring(current Key, older []Key, generation int) Keyring fails BadKeyri
 	}
 	let all = []Key{current}.Concat(older)
 	for i, k in all {
-		if len(k.Secret) < 32 {
+		if k.Secret.Len() < 32 {
 			return BadKeyring{Reason: "key \(strconv.Quote(k.ID)): the secret is under 32 bytes"}
 		}
 		if k.ID == "" || strings.Contains(k.ID, ".") {
@@ -442,7 +443,7 @@ func Sign(k Keyring, subject string, expires time.Time) string {
 // its expiry.
 func Open(k Keyring, token string, now time.Time) Claims fails Tampered | Expired | Retired {
 	let f = strings.Split(token, ".")
-	if len(f) != 5 {
+	if f.Len() != 5 {
 		return Tampered
 	}
 	let mut secret = ""
@@ -513,7 +514,7 @@ law SignedTamperFails(subject string, sec int64, at int, by int) {
 	if c != (Claims{Subject: subject, Expires: expires, Generation: 0}) || !expiredAt(k, token, expires) {
 		return false
 	}
-	let i = ((at % len(token)) + len(token)) % len(token)
+	let i = ((at % token.Len()) + token.Len()) % token.Len()
 	let b = 1 + ((by%255)+255)%255
 	let mut bs = strings.Bytes(token)
 	bs[i] = byte((int(bs[i]) + b) % 256)

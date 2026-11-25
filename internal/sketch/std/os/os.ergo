@@ -10,6 +10,7 @@
 // Ambient.
 
 import filepath
+import option
 
 // Ambient is the capability authorizing construction of host OS providers.
 //
@@ -40,7 +41,7 @@ extern go ergo.local/prototype/runtime/v1.NoWorkdir type NoWorkdir { Message str
 // environment and the working directory.
 type Process {
 	Args() []string,
-	Getenv(key string) Option[string],
+	Getenv(key string) option.Option[string],
 	// Environ is the whole environment, each variable by its name. It is
 	// how a program passes this process's environment to one it runs:
 	// `exec.New(name, args).WithEnvFrom(os.Process.Environ())` (std exec:
@@ -56,7 +57,7 @@ type Process {
 	law EnvironAgreesWithGetenv(key string) {
 		let env = Environ()
 		for k, v in env {
-			if Getenv(k) != (Some[string]{Value: v}) {
+			if Getenv(k) != (option.Some[string]{Value: v}) {
 				return false
 			}
 		}
@@ -114,14 +115,14 @@ func Args(h Host) []string {
 
 // Getenv is the value of the environment variable key: None when key is
 // unset, Some("") when it is set to the empty string.
-func Getenv(h Host, key string) Option[string] {
+func Getenv(h Host, key string) option.Option[string] {
 	if h.root != "" {
 		return confinedEnv(h, key)
 	}
 	if hostHasEnv(key) {
-		Some[string]{Value: hostGetenv(key)}
+		option.Some[string]{Value: hostGetenv(key)}
 	} else {
-		None
+		option.None
 	}
 }
 

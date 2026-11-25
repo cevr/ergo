@@ -2,6 +2,7 @@ import compiler/check/expr
 import compiler/check/infer
 import compiler/check/store
 import dense
+import option
 import strconv
 import strings
 
@@ -45,23 +46,23 @@ func shapeWithin(st fnb, t dense.ID[store.TKey], trail shapeTrail) string {
 		return if elem == "" { "" } else { "map[" + key + "]" + elem }
 	}
 	match importedShapeOf(st, t, trail.deps) {
-	case Some{Value: imported}:
+	case option.Some{Value: imported}:
 		let (owner, named) = importedOwner(st, imported)
 		match importedRecord(owner, named) {
-		case Some{Value: rec}:
+		case option.Some{Value: rec}:
 			return recordShape(owner, named, rec.fields, rec.typ, trail)
-		case None:
+		case option.None:
 			// UNION owns which named declarations and layouts it describes.
 			return unionGo(owner, named)
 		}
-	case None:
+	case option.None:
 	}
 	let r = ordinaryRecord(st, t)
 	if r < 0 {
 		return unionGo(st, t)
 	}
 	let rec = st.k.Recs[r]
-	if len(rec.Fields) == 0 {
+	if rec.Fields.Len() == 0 {
 		return ""
 	}
 	let gt = declName(st, rec.Name) catch {
@@ -96,15 +97,15 @@ func shapeIssue(st fnb, t dense.ID[store.TKey], trail shapeTrail) string {
 		return missing
 	}
 	match importedShapeOf(st, t, trail.deps) {
-	case Some{Value: src}:
+	case option.Some{Value: src}:
 		let (owner, named) = importedOwner(st, src)
 		match importedRecord(owner, named) {
-		case Some{Value: rec}:
+		case option.Some{Value: rec}:
 			return fieldShapeIssue(owner, rec.fields, next)
-		case None:
+		case option.None:
 			return shapeIssue(owner, named, next)
 		}
-	case None:
+	case option.None:
 	}
 	if kind == store.KNamed && shapeWithin(st, t, trail) == "" {
 		let r = ordinaryRecord(st, t)
@@ -112,7 +113,7 @@ func shapeIssue(st fnb, t dense.ID[store.TKey], trail shapeTrail) string {
 			return fieldShapeIssue(st, st.k.Recs[r].Fields, next)
 		}
 		let mut s = st.s
-		if len(infer.VariantsOf(&s, st.k.Unions, t)) > 0 {
+		if infer.VariantsOf(&s, st.k.Unions, t).Len() > 0 {
 			return "UNION: no admitted named union descriptor"
 		}
 	}
@@ -160,7 +161,7 @@ func ordinaryRecord(st fnb, t dense.ID[store.TKey]) int {
 	let name = store.TypeNameText(st.s, store.ArgOf(st.s, t))
 	for r, rec in st.k.Recs {
 		if rec.Name == name {
-			return if rec.Op || len(rec.Params) > 0 || !structDecl(st, name) { -1 } else { r }
+			return if rec.Op || rec.Params.Len() > 0 || !structDecl(st, name) { -1 } else { r }
 		}
 	}
 	-1

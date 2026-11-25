@@ -15,6 +15,7 @@
 // llm/agent). docs/spec/stdlib.md, "llm", says which idea came from where.
 
 import jsonschema
+import option
 import strings
 import sync
 
@@ -67,7 +68,7 @@ type Delta = Text{Text string} | Reasoning{Text string} | CallStart{Index int, I
 // RateLimited: the vendor asks to wait After milliseconds (None: it did
 // not say). A count, not a duration: a duration has no wire form yet
 // (gent gap G3), and a recording holds this failure.
-type RateLimited { After Option[int] }
+type RateLimited { After option.Option[int] }
 
 // Overloaded: the vendor is busy now.
 type Overloaded {}
@@ -192,7 +193,7 @@ func returnsItsFold(r Request) bool needs Model {
 func notATurn(r Request) bool needs Model {
 	match stream(r) {
 	case gotTurn as s:
-		len(Fold(s.Deltas).Open) == 0
+		Fold(s.Deltas).Open.Len() == 0
 	case gotFailure as s:
 		match s.Failure {
 		case Truncated as t:
@@ -269,7 +270,7 @@ func Fold(ds []Delta) Draft {
 		case CallArgs as a:
 			let mut k = slot(index, a.Index)
 			if k < 0 {
-				k = len(index)
+				k = index.Len()
 				index = index.Append(a.Index)
 				ids = ids.Append("")
 				names = names.Append("")
@@ -318,7 +319,7 @@ law FoldIsChunkFree(text string, cutsA []int, cutsB []int) {
 // pieces is text cut at the cuts, each taken modulo the text's length +
 // 1, in the order given: the pieces join to text.
 func pieces(text string, cuts []int) []string {
-	let n = len(text)
+	let n = text.Len()
 	let mut out = []string{}
 	let mut at = 0
 	for c in cuts {
@@ -347,17 +348,17 @@ law FoldKeepsCallsApart(a string, b string, cuts []int) {
 	let pa = pieces(a, cuts)
 	let pb = pieces(b, cuts)
 	let mut ds = []Delta{CallStart{Index: 7, Id: "a", Name: "x"}, CallStart{Index: 3, Id: "b", Name: "y"}}
-	let n = if len(pa) > len(pb) { len(pa) } else { len(pb) }
+	let n = if pa.Len() > pb.Len() { pa.Len() } else { pb.Len() }
 	for i in 0..n {
-		if i < len(pb) {
+		if i < pb.Len() {
 			ds = ds.Append(CallArgs{Index: 3, Text: pb[i]})
 		}
-		if i < len(pa) {
+		if i < pa.Len() {
 			ds = ds.Append(CallArgs{Index: 7, Text: pa[i]})
 		}
 	}
 	let d = Fold(ds.Append(CallEnd{Index: 3}).Append(CallEnd{Index: 7}))
-	d.Calls == []Call{Call{Id: "a", Name: "x", Arguments: a}, Call{Id: "b", Name: "y", Arguments: b}} && len(d.Open) == 0
+	d.Calls == []Call{Call{Id: "a", Name: "x", Arguments: a}, Call{Id: "b", Name: "y", Arguments: b}} && d.Open.Len() == 0
 }
 
 // Safety is whether a failed ask may be asked again: Safe, the vendor
@@ -404,11 +405,11 @@ func Valid(ms []Message) bool {
 	for m in ms {
 		match m {
 		case User:
-			if len(open) != 0 {
+			if open.Len() != 0 {
 				return false
 			}
 		case Assistant as a:
-			if len(open) != 0 || !distinct(a.Calls) {
+			if open.Len() != 0 || !distinct(a.Calls) {
 				return false
 			}
 			for c in a.Calls {
@@ -422,7 +423,7 @@ func Valid(ms []Message) bool {
 			open = open[:k].Concat(open[k+1:])
 		}
 	}
-	len(open) == 0
+	open.Len() == 0
 }
 
 // position is the position of s in xs, or -1.
@@ -449,7 +450,7 @@ law AnsweredCallsAreValid(text string, names []string) {
 	if !Valid(asked.Concat(results).Append(User{Text: text})) {
 		return false
 	}
-	if len(names) == 0 {
+	if names.Len() == 0 {
 		return true
 	}
 	let early = []Message{User{Text: text}, results[0], Assistant{Text: text, Calls: calls}}.Concat(results[1:])

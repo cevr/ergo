@@ -45,7 +45,7 @@ func Generated(seed int) Tables {
 	for p in out {
 		for d in p.Decls {
 			if d.Kind == "type" {
-				if (len(capabilities)+len(failures))%2 == 0 {
+				if (capabilities.Len()+failures.Len())%2 == 0 {
 					capabilities = capabilities.Append(d.Handle)
 				} else {
 					failures = failures.Append(d.Handle)
@@ -61,8 +61,8 @@ func Generated(seed int) Tables {
 		let mut sites = []Site{}
 		for j in 0..roll(seed, 500+i, 12) {
 			let salt = 1000 + i*100 + j*5
-			let h = handles[roll(seed, salt, len(handles))]
-			let kind = siteKinds[roll(seed, salt+1, len(siteKinds))]
+			let h = handles[roll(seed, salt, handles.Len())]
+			let kind = siteKinds[roll(seed, salt+1, siteKinds.Len())]
 			// Lines 30..34 and columns 1..3: some sites share a position.
 			sites = sites.Append(Site{Symbol: h, Kind: kind, Package: p.Path, File: p.Path + "/a.ergo", Line: 30 + roll(seed, salt+2, 5), Column: 1 + roll(seed, salt+3, 3), In: ""})
 		}
@@ -73,7 +73,7 @@ func Generated(seed int) Tables {
 				callers = callers.Append(d.Handle)
 			}
 		}
-		if len(callers) > 0 {
+		if callers.Len() > 0 {
 			for j in 0..roll(seed, 700+i, 9) {
 				let salt = 2000 + i*100 + j*3
 				let (brings, discharged) = charged(seed, salt+2, capabilities)
@@ -88,11 +88,11 @@ func Generated(seed int) Tables {
 				}
 				let mut bound = []Binding{}
 				for k, c in discharged {
-					if len(providers) > 0 && roll(seed, 95000+salt*7+k, 2) == 0 {
-						bound = bound.Append(Binding{Capability: c, Provider: providers[roll(seed, 97000+salt*7+k, len(providers))]})
+					if providers.Len() > 0 && roll(seed, 95000+salt*7+k, 2) == 0 {
+						bound = bound.Append(Binding{Capability: c, Provider: providers[roll(seed, 97000+salt*7+k, providers.Len())]})
 					}
 				}
-				calls = calls.Append(Call{From: callers[roll(seed, salt, len(callers))], To: handles[roll(seed, salt+1, len(handles))], File: p.Path + "/a.ergo", Line: 40 + j, Column: 2, Brings: brings, Discharged: discharged, Bound: bound, Raises: raises, Caught: caught})
+				calls = calls.Append(Call{From: callers[roll(seed, salt, callers.Len())], To: handles[roll(seed, salt+1, handles.Len())], File: p.Path + "/a.ergo", Line: 40 + j, Column: 2, Brings: brings, Discharged: discharged, Bound: bound, Raises: raises, Caught: caught})
 			}
 		}
 		filled = filled.Append(Package{Path: p.Path, Complete: p.Complete, Diagnostics: p.Diagnostics, Decls: p.Decls, Sites: sites, Contracts: contractsOf(seed, i, p.Decls), Calls: calls, Needs: needsIn(calls, callers, seed, i, capabilities), Fails: failsIn(calls, callers, seed, i, failures), Machines: machinesIn(seed, i, p)})
@@ -114,7 +114,7 @@ func roll(seed int, salt int, n int) int {
 // lastPart is the part of a dotted name after its last dot.
 func lastPart(name string) string {
 	let at = strings.LastIndex(name, ".")
-	if at < 0 { name } else { strings.Slice(name, at+1, len(name)) }
+	if at < 0 { name } else { strings.Slice(name, at+1, name.Len()) }
 }
 
 // contractsOf is a contract for each exported function of decls, drawn
@@ -141,7 +141,7 @@ func contractsOf(seed int, salt int, decls []Decl) []Contract {
 			indexes = indexes.Append(t)
 		}
 		let own = if generic && roll(seed, k+3, 2) == 0 { []string{"T"} } else { []string{} }
-		out = out.Append(Contract{Name: d.Name, Signature: sigs[roll(seed, k+6, len(sigs))], TypeParameters: if generic { []string{"T"} } else { []string{} }, Fails: "", Needs: "", Takes: names, TakesParameters: indexes, TakesSelf: self, TakesInferred: roll(seed, k+7, 2) == 0, Own: own})
+		out = out.Append(Contract{Name: d.Name, Signature: sigs[roll(seed, k+6, sigs.Len())], TypeParameters: if generic { []string{"T"} } else { []string{} }, Fails: "", Needs: "", Takes: names, TakesParameters: indexes, TakesSelf: self, TakesInferred: roll(seed, k+7, 2) == 0, Own: own})
 	}
 	out
 }
@@ -178,8 +178,8 @@ func needsIn(calls []Call, callers []string, seed int, i int, caps []string) []N
 				}
 			}
 		}
-		if len(caps) > 0 && roll(seed, 2700+i*10+j, 3) == 0 {
-			let k = caps[roll(seed, 2800+i*10+j, len(caps))]
+		if caps.Len() > 0 && roll(seed, 2700+i*10+j, 3) == 0 {
+			let k = caps[roll(seed, 2800+i*10+j, caps.Len())]
 			if !has(row, k) {
 				row = row.Append(k)
 			}
@@ -207,8 +207,8 @@ func failsIn(calls []Call, callers []string, seed int, i int, failures []string)
 				}
 			}
 		}
-		if len(failures) > 0 && roll(seed, 3700+i*10+j, 3) == 0 {
-			let k = failures[roll(seed, 3800+i*10+j, len(failures))]
+		if failures.Len() > 0 && roll(seed, 3700+i*10+j, 3) == 0 {
+			let k = failures[roll(seed, 3800+i*10+j, failures.Len())]
 			if !has(row, k) {
 				row = row.Append(k)
 			}
@@ -245,8 +245,8 @@ func machinesIn(seed int, i int, p Package) []MachineGraph {
 			let anySignal = roll(seed, r+1, 3) == 0
 			let mut edges = []Transition{}
 			for e in 0..roll(seed, r+2, 3) {
-				let kind = decisions[roll(seed, r+3+e, len(decisions))]
-				let to = if kind == "Ignore" || kind == "Reject" || kind == "Done" { "" } else if roll(seed, r+6+e, 5) == 0 { "*" } else { states[roll(seed, r+8+e, len(states))] }
+				let kind = decisions[roll(seed, r+3+e, decisions.Len())]
+				let to = if kind == "Ignore" || kind == "Reject" || kind == "Done" { "" } else if roll(seed, r+6+e, 5) == 0 { "*" } else { states[roll(seed, r+8+e, states.Len())] }
 				edges = edges.Append(Transition{Decision: kind, To: to, At: at(100 + a*10 + e)})
 			}
 			// One arm in four is a case of two tuple patterns, (A, X), (B, Y):
@@ -254,17 +254,17 @@ func machinesIn(seed int, i int, p Package) []MachineGraph {
 			let mut alts = []Alt{}
 			if !anyState && !anySignal && roll(seed, r+9, 4) == 0 {
 				for k in 0..2 {
-					alts = alts.Append(Alt{States: []string{states[roll(seed, r+4+k*20, len(states))]}, AnyState: false, Signals: []string{signals[roll(seed, r+5+k*20, len(signals))]}, AnySignal: false, Partial: roll(seed, r+7+k*20, 3) == 0})
+					alts = alts.Append(Alt{States: []string{states[roll(seed, r+4+k*20, states.Len())]}, AnyState: false, Signals: []string{signals[roll(seed, r+5+k*20, signals.Len())]}, AnySignal: false, Partial: roll(seed, r+7+k*20, 3) == 0})
 				}
 			}
 			let mut armStates = []string{}
 			let mut armSignals = []string{}
-			if len(alts) == 0 {
+			if alts.Len() == 0 {
 				if !anyState {
-					armStates = []string{states[roll(seed, r+4, len(states))]}
+					armStates = []string{states[roll(seed, r+4, states.Len())]}
 				}
 				if !anySignal {
-					armSignals = []string{signals[roll(seed, r+5, len(signals))]}
+					armSignals = []string{signals[roll(seed, r+5, signals.Len())]}
 				}
 			}
 			for x in alts {
@@ -275,7 +275,7 @@ func machinesIn(seed int, i int, p Package) []MachineGraph {
 					armSignals = armSignals.Append(x.Signals[0])
 				}
 			}
-			let partial = if len(alts) == 0 { roll(seed, r+7, 3) == 0 } else { alts[0].Partial || alts[1].Partial }
+			let partial = if alts.Len() == 0 { roll(seed, r+7, 3) == 0 } else { alts[0].Partial || alts[1].Partial }
 			arms = arms.Append(Arm{At: at(100 + a*10), States: armStates, AnyState: anyState, Signals: armSignals, AnySignal: anySignal, Partial: partial, Edges: edges, Alts: alts})
 		}
 		let mut timers = []Timer{}
@@ -288,7 +288,7 @@ func machinesIn(seed int, i int, p Package) []MachineGraph {
 			}
 			match roll(seed, salt+100+k, 5) {
 			case 0:
-				timers = timers.Append(Timer{State: s, Signal: signals[roll(seed, salt+120+k, len(signals))], At: at(200 + k)})
+				timers = timers.Append(Timer{State: s, Signal: signals[roll(seed, salt+120+k, signals.Len())], At: at(200 + k)})
 			case 1:
 				work = work.Append(Place{What: s, File: p.Path + "/m.ergo", Line: 220 + k})
 			case 2:
@@ -296,7 +296,7 @@ func machinesIn(seed int, i int, p Package) []MachineGraph {
 			case _:
 			}
 		}
-		let initial = if roll(seed, salt+3, 5) == 0 { "*" } else { states[roll(seed, salt+4, len(states))] }
+		let initial = if roll(seed, salt+3, 5) == 0 { "*" } else { states[roll(seed, salt+4, states.Len())] }
 		out = out.Append(MachineGraph{Handle: d.Handle, Name: d.Name, States: states, Signals: signals, Initial: initial, Arms: arms, Timers: timers, Work: work, Exit: exit, Unsure: unsure, Computed: []string{}})
 	}
 	out

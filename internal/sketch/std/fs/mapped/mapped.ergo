@@ -5,6 +5,7 @@
 // own (rows.md, Test's ambient).
 
 import fs
+import fstest
 
 // Maps is a file store that maps a regular file of at most a limit, and
 // tells whether a path still leads to the file it mapped. Its files are
@@ -58,32 +59,32 @@ type Host {
 // NewHost is the Maps of the host file system h.
 func NewHost(h fs.Host) Host {
 	Host{
-		readFile: func(path string) string fails fs.NotFound | fs.Denied | fs.Failed { try fs.ReadFile(h, path) },
-		readDir: func(path string) []string fails fs.NotFound | fs.Denied | fs.Failed { try fs.ReadDir(h, path) },
-		stat: func(path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { try fs.Stat(h, path) },
-		lstat: func(path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { try fs.Lstat(h, path) },
-		writeFile: func(path string, text string) fails fs.NotFound | fs.Denied | fs.Failed { try fs.WriteFile(h, path, text) },
-		mkdirAll: func(path string) fails fs.Denied | fs.Failed { try fs.MkdirAll(h, path) },
+		readFile:      func(path string) string fails fs.NotFound | fs.Denied | fs.Failed { try fs.ReadFile(h, path) },
+		readDir:       func(path string) []string fails fs.NotFound | fs.Denied | fs.Failed { try fs.ReadDir(h, path) },
+		stat:          func(path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { try fs.Stat(h, path) },
+		lstat:         func(path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { try fs.Lstat(h, path) },
+		writeFile:     func(path string, text string) fails fs.NotFound | fs.Denied | fs.Failed { try fs.WriteFile(h, path, text) },
+		mkdirAll:      func(path string) fails fs.Denied | fs.Failed { try fs.MkdirAll(h, path) },
 		writeFileMode: func(path string, text string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed { try fs.WriteFileMode(h, path, text, mode) },
-		mkdirAllMode: func(path string, mode fs.Mode) fails fs.Denied | fs.Failed { try fs.MkdirAllMode(h, path, mode) },
-		appendFile: func(path string, text string) fails fs.NotFound | fs.Denied | fs.Failed { try fs.AppendFile(h, path, text) },
-		chmod: func(path string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed { try fs.Chmod(h, path, mode) },
-		rename: func(from string, to string) fails fs.NotFound | fs.Denied | fs.Failed | fs.CrossDevice { try fs.Rename(h, from, to) },
-		remove: func(path string) fails fs.NotFound | fs.Denied | fs.Failed { try fs.Remove(h, path) },
-		mkdir: func(path string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed | fs.Exists { try fs.Mkdir(h, path, mode) },
-		mapBounded: func(path string, limit int) fs.Mapped fails fs.NotFound | fs.Denied | fs.Failed | fs.NotRegular | fs.TooLarge { try fs.MapBounded(h, path, limit) },
-		sameAs: func(m fs.Mapped, path string) bool fails fs.NotFound | fs.Denied | fs.Failed { try fs.SameAs(h, m, path) },
+		mkdirAllMode:  func(path string, mode fs.Mode) fails fs.Denied | fs.Failed { try fs.MkdirAllMode(h, path, mode) },
+		appendFile:    func(path string, text string) fails fs.NotFound | fs.Denied | fs.Failed { try fs.AppendFile(h, path, text) },
+		chmod:         func(path string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed { try fs.Chmod(h, path, mode) },
+		rename:        func(from string, to string) fails fs.NotFound | fs.Denied | fs.Failed | fs.CrossDevice { try fs.Rename(h, from, to) },
+		remove:        func(path string) fails fs.NotFound | fs.Denied | fs.Failed { try fs.Remove(h, path) },
+		mkdir:         func(path string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed | fs.Exists { try fs.Mkdir(h, path, mode) },
+		mapBounded:    func(path string, limit int) fs.Mapped fails fs.NotFound | fs.Denied | fs.Failed | fs.NotRegular | fs.TooLarge { try fs.MapBounded(h, path, limit) },
+		sameAs:        func(m fs.Mapped, path string) bool fails fs.NotFound | fs.Denied | fs.Failed { try fs.SameAs(h, m, path) },
 	}
 }
 
 // NewTestHost is the Maps of the case's folder (fs.NewTestHost).
-func NewTestHost() Host needs TestAmbient { NewHost(fs.NewTestHost()) }
+func NewTestHost() Host needs fstest.TestAmbient { NewHost(fs.NewTestHost()) }
 
 // OnTestHost runs Maps's laws on the host, in a folder of the case's own.
-let OnTestHost = context needs TestAmbient { Maps: NewTestHost() }
+let OnTestHost = context needs fstest.TestAmbient { Maps: NewTestHost() }
 
 // onTestFiles also runs the laws of the contracts Maps includes on Host.
-let onTestFiles = context needs TestAmbient { fs.Files, fs.Writes: NewTestHost() }
+let onTestFiles = context needs fstest.TestAmbient { fs.Files, fs.Writes: NewTestHost() }
 
 func ReadFile(h Host, path string) string fails fs.NotFound | fs.Denied | fs.Failed { try h.readFile(path) }
 
@@ -120,7 +121,7 @@ func boundedIsTheText(text string) bool needs Maps {
 	case fs.NotFound, fs.Denied, fs.Failed:
 		return false
 	}
-	let m = Maps.MapBounded("f", len(text)) catch {
+	let m = Maps.MapBounded("f", text.Len()) catch {
 	case fs.NotFound, fs.Denied, fs.Failed, fs.NotRegular, fs.TooLarge:
 		return false
 	}
@@ -132,22 +133,22 @@ func boundedIsTheText(text string) bool needs Maps {
 	case fs.NotFound, fs.Denied, fs.Failed:
 		false
 	}
-	let ok = same && physical && m.Size() == len(text) && fs.Clone(m.Text()) == text
+	let ok = same && physical && m.Size() == text.Len() && fs.Clone(m.Text()) == text
 	m.Close()
 	ok
 }
 
 func overLimitIsTooLarge(text string) bool needs Maps {
-	if len(text) == 0 {
+	if text.Len() == 0 {
 		return true
 	}
 	Maps.WriteFile("f", text) catch {
 	case fs.NotFound, fs.Denied, fs.Failed:
 		return false
 	}
-	let m = Maps.MapBounded("f", len(text)-1) catch {
+	let m = Maps.MapBounded("f", text.Len()-1) catch {
 	case fs.TooLarge as t:
-		return t.Size == len(text) && t.Limit == len(text)-1
+		return t.Size == text.Len() && t.Limit == text.Len()-1
 	case fs.NotFound, fs.Denied, fs.Failed, fs.NotRegular:
 		return false
 	}
@@ -175,7 +176,7 @@ func replacedIsNotSame(a string, b string) bool needs Maps {
 	case fs.NotFound, fs.Denied, fs.Failed:
 		return false
 	}
-	let m = Maps.MapBounded("f", len(a)) catch {
+	let m = Maps.MapBounded("f", a.Len()) catch {
 	case fs.NotFound, fs.Denied, fs.Failed, fs.NotRegular, fs.TooLarge:
 		return false
 	}

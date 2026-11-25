@@ -62,7 +62,7 @@ func steps(text string) [][]string {
 	for line in strings.Split(text, "\n") {
 		let l = strings.TrimSpace(line)
 		if l == "@step" {
-			if len(cur) > 0 {
+			if cur.Len() > 0 {
 				out = out.Append(cur)
 			}
 			cur = []string{}
@@ -70,14 +70,14 @@ func steps(text string) [][]string {
 			cur = cur.Append(l)
 		}
 	}
-	if len(cur) > 0 {
+	if cur.Len() > 0 {
 		out = out.Append(cur)
 	}
 	out
 }
 
 func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
-	if len(args) != 1 {
+	if args.Len() != 1 {
 		return os.Exit{Code: 2, Message: "usage: incdump MANIFEST"}
 	}
 	let mut cache = []inc.Row{}
@@ -86,7 +86,7 @@ func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
 		let mut pkgs = []task.Package{}
 		for line in step {
 			let f = strings.Fields(line)
-			if len(f) == 2 {
+			if f.Len() == 2 {
 				pkgs = pkgs.Append(loadDir(f[0], f[1]))
 			}
 		}
@@ -118,7 +118,7 @@ func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
 	io.Stdout.Print(b.String())
 }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), io.Stdout: io.NewHost() } {
 		try run(os.Process.Args())
 	}

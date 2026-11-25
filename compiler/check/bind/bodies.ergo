@@ -1,6 +1,7 @@
 import compiler/check/store
 import compiler/syntax
 import dense
+import option
 import tasks
 
 // Uses is what each identifier of the package names, by PNode
@@ -28,7 +29,7 @@ let noXRef = store.XRef{Import: uint32(0), Decl: uint32(0)}
 
 // LocalName is the name of the local row n declares, if it declares one:
 // an id of the package's names, after the join.
-func LocalName(u Uses, n dense.ID[store.PNode]) Option[dense.ID[dense.Str]] { dense.Unpack(dense.SideOf(u.names, n)) }
+func LocalName(u Uses, n dense.ID[store.PNode]) option.Option[dense.ID[dense.Str]] { dense.Unpack(dense.SideOf(u.names, n)) }
 
 // Def is what a Name row declares, beyond the store's declarations.
 type Def = NoDef{} | Local{} | Law{}
@@ -165,12 +166,12 @@ func pnode(b binder, id dense.ID[syntax.Node]) dense.ID[store.PNode] { PNodeOf(b
 // interns into its overlay only (C0/plan.md §3.2).
 func nameID(b mut binder, text string) nm {
 	match store.FindName(b.s, text) {
-	case Some{Value: n}:
+	case option.Some{Value: n}:
 		for !dense.In(b.inner, n) {
 			dense.Push(&b.inner, uint32(0))
 		}
 		nm{over: false, id: n}
-	case None:
+	case option.None:
 		let before = dense.Texts(b.body.overlay)
 		let o = dense.InternText(&b.body.overlay, text)
 		if dense.Texts(b.body.overlay) > before {
@@ -203,9 +204,9 @@ func kindOf(b binder, n nm) int {
 		return 0
 	}
 	match store.ScopeOf(b.s, n.id) {
-	case Some{Value: d}:
+	case option.Some{Value: d}:
 		int(store.DeclOf(b.s, d).Kind)
-	case None:
+	case option.None:
 		0
 	}
 }
@@ -236,13 +237,13 @@ func resolveText(b mut binder, t string) uint32 {
 		return uint32(outside)
 	}
 	match store.ScopeOf(b.s, n.id) {
-	case Some{Value: d}:
+	case option.Some{Value: d}:
 		let row = store.DeclOf(b.s, d)
 		if int(row.Kind) == 8 {
 			return uint32(outside)
 		}
 		uint32(int(b.ps.base[int(row.File)]) + int(row.Node) + 2)
-	case None:
+	case option.None:
 		uint32(outside)
 	}
 }
@@ -259,27 +260,27 @@ func selector(b mut binder, x dense.ID[syntax.Node], sel dense.ID[syntax.Node]) 
 		return
 	}
 	let imp = match store.ScopeOf(b.s, n.id) {
-	case Some{Value: d}:
+	case option.Some{Value: d}:
 		store.ImportOf(b.s, d)
-	case None:
+	case option.None:
 		0
 	}
-	if imp == 0 || imp > len(b.deps) {
+	if imp == 0 || imp > b.deps.Len() {
 		return
 	}
 	let t = text(b.p, sel)
-	if len(t) == 0 || t[0] < 65 || t[0] > 90 {
+	if t.Len() == 0 || t[0] < 65 || t[0] > 90 {
 		return
 	}
 	let dep = store.Of(b.deps[imp-1])
 	match store.FindName(dep, t) {
-	case Some{Value: dn}:
+	case option.Some{Value: dn}:
 		match store.ScopeOf(dep, dn) {
-		case Some{Value: d}:
+		case option.Some{Value: d}:
 			b.body.ext = b.body.ext.Append(extUse{at: pnode(*b, sel), ref: store.XRef{Import: uint32(imp), Decl: uint32(dense.Index(d))}})
-		case None:
+		case option.None:
 		}
-	case None:
+	case option.None:
 	}
 }
 
@@ -445,7 +446,7 @@ func Bind(s store.Store, deps []store.Frozen, ps Parents, files []File, threads 
 // bindIn is Bind with the rows cut into pieces.
 func bindIn(s store.Store, deps []store.Frozen, ps Parents, files []File, threads int, pieces int) (store.Store, Uses) {
 	let tops = topsOf(files)
-	let spans = split(len(tops), pieces)
+	let spans = split(tops.Len(), pieces)
 	let bodies = tasks.Transform(spans, threads, func(c span) Body { bodyOf(s, deps, ps, files, tops, c.from, c.to) })
 	let mut out = s
 	let u = Join(&out, bodies)
@@ -468,9 +469,9 @@ func each(b mut binder, l syntax.List) {
 // opt walks o, if present.
 func opt(b mut binder, o dense.Opt[syntax.Node]) {
 	match dense.Unpack(o) {
-	case Some{Value: x}:
+	case option.Some{Value: x}:
 		walk(b, x)
-	case None:
+	case option.None:
 	}
 }
 
@@ -486,7 +487,7 @@ func children(b mut binder, x dense.ID[syntax.Node]) {
 // their types (a parameter's type cannot name a later parameter).
 func params(b mut binder, o dense.Opt[syntax.Node]) {
 	match dense.Unpack(o) {
-	case Some{Value: x}:
+	case option.Some{Value: x}:
 		if syntax.KindOf(b.p.Tree, x) == syntax.KFieldList {
 			// A field list's children are its fields.
 			let n = dense.Index(pnode(*b, x))
@@ -507,7 +508,7 @@ func params(b mut binder, o dense.Opt[syntax.Node]) {
 		} else {
 			walk(b, x)
 		}
-	case None:
+	case option.None:
 	}
 }
 
@@ -641,14 +642,14 @@ func walk(b mut binder, x dense.ID[syntax.Node]) {
 		signature(b, d.Type)
 		opt(b, d.Implements)
 		match dense.Unpack(d.Body) {
-		case Some{Value: body}:
+		case option.Some{Value: body}:
 			// The body block's statements are in the function's scope.
 			if syntax.KindOf(b.p.Tree, body) == syntax.KBlockStmt {
 				children(b, body)
 			} else {
 				walk(b, body)
 			}
-		case None:
+		case option.None:
 		}
 		leave(b, m)
 		return
@@ -671,13 +672,13 @@ func walk(b mut binder, x dense.ID[syntax.Node]) {
 			}
 		}
 		match dense.Unpack(v.Pattern) {
-		case Some{Value: pat}:
+		case option.Some{Value: pat}:
 			if b.depth > 0 {
 				pattern(b, pat, true)
 			} else {
 				patternUses(b, pat)
 			}
-		case None:
+		case option.None:
 		}
 		return
 	}
@@ -686,9 +687,9 @@ func walk(b mut binder, x dense.ID[syntax.Node]) {
 		walk(b, e.X)
 		let m = mark(*b)
 		match dense.Unpack(e.Key) {
-		case Some{Value: key}:
+		case option.Some{Value: key}:
 			pattern(b, key, true)
-		case None:
+		case option.None:
 		}
 		pattern(b, e.Value, true)
 		walk(b, e.Body)
@@ -726,14 +727,14 @@ func walk(b mut binder, x dense.ID[syntax.Node]) {
 		opt(b, e.Type)
 		opt(b, e.Base)
 		let isMap = match dense.Unpack(e.Type) {
-		case Some{Value: t}:
+		case option.Some{Value: t}:
 			match syntax.ViewOf(b.p.Tree, t) {
 			case syntax.MapType:
 				true
 			case _:
 				false
 			}
-		case None:
+		case option.None:
 			false
 		}
 		for i in 0..syntax.Len(e.Elts) {
@@ -753,9 +754,9 @@ func walk(b mut binder, x dense.ID[syntax.Node]) {
 		params(b, d.TypeParams)
 		opt(b, d.Spec)
 		match dense.Unpack(d.Derive) {
-		case Some{Value: dv}:
+		case option.Some{Value: dv}:
 			qualifiers(b, dv)
-		case None:
+		case option.None:
 		}
 		each(b, d.Implements)
 		leave(b, m)
@@ -768,7 +769,7 @@ func walk(b mut binder, x dense.ID[syntax.Node]) {
 	case syntax.ContextEntry as e:
 		// A bare entry includes a context: the context pass's, no use.
 		let included = match (syntax.ViewOf(b.p.Tree, e.Key), dense.Unpack(e.Value)) {
-		case (syntax.Name, None):
+		case (syntax.Name, option.None):
 			true
 		case _:
 			false
@@ -790,7 +791,7 @@ func walk(b mut binder, x dense.ID[syntax.Node]) {
 				use(b, h.Name)
 			case syntax.Field as f:
 				match dense.Unpack(f.Type) {
-				case Some{Value: t}:
+				case option.Some{Value: t}:
 					match syntax.ViewOf(b.p.Tree, t) {
 					case syntax.FuncType as ft:
 						// An operation's parameters are declared, in a scope
@@ -810,7 +811,7 @@ func walk(b mut binder, x dense.ID[syntax.Node]) {
 					case _:
 						walk(b, t)
 					}
-				case None:
+				case option.None:
 				}
 			case _:
 				walk(b, mem)

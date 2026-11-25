@@ -22,10 +22,12 @@
 // Effect: KeyValueStore.layerFileSystem (a file per key). Go control: an
 // append-only log under a mutex, replayed into a map at start.
 
+import core
 import fs
 import fstest
 import kv
 import kv/memory
+import option
 import strconv
 import strings
 
@@ -67,9 +69,9 @@ func Open(files fs.Files, writes fs.Writes, path string) Store fails kv.Failed {
 		case unset as u:
 			let _ = try index.Delete(u.key)
 		}
-		whole = whole + len(raw)
+		whole = whole + raw.Len()
 	}
-	if whole < len(text) {
+	if whole < text.Len() {
 		try write(writes, path, strings.Slice(text, 0, whole))
 	}
 	Store{path: path, files: files, writes: writes, index: index}
@@ -85,7 +87,7 @@ func openOnMemory() Store {
 }
 
 // Get is the value key holds, from the index.
-func Get(s Store, key string) Option[string] fails kv.Failed { try s.index.Get(key) }
+func Get(s Store, key string) option.Option[string] fails kv.Failed { try s.index.Get(key) }
 
 // Put appends a put of key and value to the log, then makes the index
 // hold it: a put the log did not keep changes nothing. Two tasks that put
@@ -99,7 +101,7 @@ func Put(s Store, key string, value string) fails kv.Failed {
 // Delete appends a delete of key to the log when key holds a value, then
 // drops it from the index. It is whether key held one.
 func Delete(s Store, key string) bool fails kv.Failed {
-	if try s.index.Get(key) == None {
+	if try s.index.Get(key) == option.None {
 		return false
 	}
 	try add(s, "del\t"+strconv.Quote(key)+"\n")
@@ -108,7 +110,7 @@ func Delete(s Store, key string) bool fails kv.Failed {
 
 // Scan is the entries under prefix, by key, from the index.
 // seq-exempt: it is this provider's kv.Store.Scan, whose member law Store.ScanStops states its stop, and FileIsMemory runs it
-func Scan(s Store, prefix string) Seq[kv.Entry] fails kv.Failed { try s.index.Scan(prefix) }
+func Scan(s Store, prefix string) core.Seq[kv.Entry] fails kv.Failed { try s.index.Scan(prefix) }
 
 // Compact rewrites the log as one put per key, in key order: the puts
 // that a later one overwrote and the deletes go. No other task may write
@@ -151,7 +153,7 @@ func write(writes fs.Writes, path string, text string) fails kv.Failed {
 func recordOf(path string, n int, line string) record fails kv.Failed {
 	let fields = strings.Split(line, "\t")
 	let bad = kv.Failed{Reason: "\(path):\(n): not a record"}
-	match (fields[0], len(fields)) {
+	match (fields[0], fields.Len()) {
 	case ("put", 3):
 		set{key: try unquote(fields[1], bad), value: try unquote(fields[2], bad)}
 	case ("del", 2):

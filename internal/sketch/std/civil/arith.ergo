@@ -301,7 +301,7 @@ func PeriodText(p Period) string {
 // ("PT1M", a minute) or any other text fails ParseError, as does a field
 // past the range of an int; so "P1M" is one month, never a minute.
 func ParsePeriod(s string) Period fails ParseError {
-	let n = len(s)
+	let n = s.Len()
 	let mut i = 0
 	let mut negate = false
 	if i < n && (s[i] == '+' || s[i] == '-') {
@@ -335,7 +335,7 @@ func ParsePeriod(s string) Period fails ParseError {
 			if v < -922337203685477580 || v == -922337203685477580 && d > 8 {
 				return ParseError{Text: s, At: start, Reason: "out of range"}
 			}
-			v = v * 10 - d
+			v = v*10 - d
 			i += 1
 		}
 		if i == digits {
@@ -352,7 +352,7 @@ func ParsePeriod(s string) Period fails ParseError {
 			return ParseError{Text: s, At: i, Reason: "want Y, M, W, D in that order, each once"}
 		}
 		if minus == negate {
-			if v == -9223372036854775807 - 1 {
+			if v == -9223372036854775807-1 {
 				return ParseError{Text: s, At: start, Reason: "out of range"}
 			}
 			v = -v

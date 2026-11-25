@@ -1,5 +1,7 @@
 // Spans: ranges of dates, both ends included, and their calendar buckets.
 
+import core
+import option
 import slices
 
 // Span is the dates from From to To, both included, as a date picker and a
@@ -36,16 +38,16 @@ func Contains(s Span, d Date) bool { !Before(d, s.from) && !After(d, s.to) }
 func Overlaps(a Span, b Span) bool { !After(Max(a.from, b.from), Min(a.to, b.to)) }
 
 // Intersect is the dates a and b share, or None when they share none.
-func Intersect(a Span, b Span) Option[Span] {
+func Intersect(a Span, b Span) option.Option[Span] {
 	if !Overlaps(a, b) {
-		return None
+		return option.None
 	}
-	Some[Span]{Value: Span{from: Max(a.from, b.from), to: Min(a.to, b.to)}}
+	option.Some[Span]{Value: Span{from: Max(a.from, b.from), to: Min(a.to, b.to)}}
 }
 
 // Dates is each date of s, From first.
-func Dates(s Span) Seq[Date] {
-	Seq[Date](func(yield func(d Date) bool) {
+func Dates(s Span) core.Seq[Date] {
+	core.Seq[Date](func(yield func(d Date) bool) {
 		let mut d = s.from.day
 		for d <= s.to.day {
 			if !yield(Date{day: d}) {
@@ -59,8 +61,8 @@ func Dates(s Span) Seq[Date] {
 // Split is s cut at the borders of unit u: the part of s in each day,
 // week, month, quarter or year, in order. The first and last parts may be
 // partial periods; together they hold each date of s once.
-func Split(s Span, u Unit) Seq[Span] {
-	Seq[Span](func(yield func(p Span) bool) {
+func Split(s Span, u Unit) core.Seq[Span] {
+	core.Seq[Span](func(yield func(p Span) bool) {
 		let mut from = s.from
 		for !After(from, s.to) {
 			let end = Min(EndOf(from, u), s.to)
@@ -88,8 +90,8 @@ law SpanDaysCount(x int64, k int64) {
 		return Before(to, from)
 	}
 	let days = slices.Collect(Dates(s))
-	let mut ok = !Before(to, from) && len(days) == Len(s) && days[0] == From(s) && days[len(days)-1] == To(s)
-	for i in 1..len(days) {
+	let mut ok = !Before(to, from) && days.Len() == Len(s) && days[0] == From(s) && days[days.Len()-1] == To(s)
+	for i in 1..days.Len() {
 		ok = ok && DaysBetween(days[i-1], days[i]) == 1
 	}
 	ok
@@ -114,9 +116,9 @@ law SplitTiles(x int64, k int64, u int64, w int64) {
 	let s = anySpan(x, k)
 	let unit = anyUnit(u, w)
 	let parts = slices.Collect(Split(s, unit))
-	let mut ok = len(parts) > 0 && From(parts[0]) == From(s) && To(parts[len(parts)-1]) == To(s)
+	let mut ok = parts.Len() > 0 && From(parts[0]) == From(s) && To(parts[parts.Len()-1]) == To(s)
 	let mut total = 0
-	for i in 0..len(parts) {
+	for i in 0..parts.Len() {
 		let p = parts[i]
 		total = total + Len(p)
 		ok = ok && StartOf(From(p), unit) == StartOf(To(p), unit)
@@ -132,7 +134,7 @@ law SplitTiles(x int64, k int64, u int64, w int64) {
 law SpanSplitStops(x int64, k int64, u int64, w int64, stop int64) {
 	let s = anySpan(x, k)
 	let unit = anyUnit(u, w)
-	let n = len(slices.Collect(Split(s, unit)))
+	let n = slices.Collect(Split(s, unit)).Len()
 	let at = int(within(stop, 1, 30))
 	let mut calls = 0
 	Split(s, unit)(func(p Span) bool {
@@ -148,9 +150,9 @@ law SpansOverlapIffIntersect(x int64, a int64, y int64, b int64) {
 	let p = anySpan(x, a)
 	let q = anySpan(UnixDays(From(p))+within(y, -20, 20), b)
 	let agrees = match Intersect(p, q) {
-	case Some[Span] as r:
+	case option.Some[Span] as r:
 		Overlaps(p, q) && Contains(p, From(r.Value)) && Contains(q, From(r.Value)) && Contains(p, To(r.Value)) && Contains(q, To(r.Value))
-	case None:
+	case option.None:
 		!Overlaps(p, q) && !Contains(q, From(p)) && !Contains(p, From(q))
 	}
 	agrees

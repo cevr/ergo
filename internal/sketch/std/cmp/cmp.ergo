@@ -17,7 +17,7 @@ type Ordered {}
 type Number {}
 
 // Compare is -1 when a is before b, +1 when a is after b, and 0 otherwise.
-func Compare[T ordered](a T, b T) int {
+func Compare[T Ordered](a T, b T) int {
 	if a != a {
 		if b != b {
 			return 0
@@ -37,15 +37,15 @@ func Compare[T ordered](a T, b T) int {
 }
 
 // Less reports whether a is before b in Compare's order.
-func Less[T ordered](a T, b T) bool { (a != a && b == b) || a < b }
+func Less[T Ordered](a T, b T) bool { (a != a && b == b) || a < b }
 
 // Max is the larger of a and b, as Go's builtin max: for floats, a NaN
 // gives NaN and Max(-0, +0) is +0.
-extern go ergo.local/prototype/runtime/v1.CmpMax func Max[T ordered](a T, b T) T
+extern go ergo.local/prototype/runtime/v1.CmpMax func Max[T Ordered](a T, b T) T
 
 // Min is the smaller of a and b, as Go's builtin min: for floats, a NaN
 // gives NaN and Min(-0, +0) is -0.
-extern go ergo.local/prototype/runtime/v1.CmpMin func Min[T ordered](a T, b T) T
+extern go ergo.local/prototype/runtime/v1.CmpMin func Min[T Ordered](a T, b T) T
 
 // CompareIsAntisymmetric: swapping the arguments negates the result.
 law CompareIsAntisymmetric(a int, b int) { Compare(a, b) == -Compare(b, a) }
@@ -96,10 +96,10 @@ type Order[T] {
 // Natural is the order of Compare on an ordered type, as a provider:
 // slices.SortBy(xs, cmp.Natural[int]) sorts as slices.Sort does, a NaN
 // first.
-type Natural[T ordered] {} implements Order[T]
+type Natural[T Ordered] {} implements Order[T]
 
 // Compare is Natural's order: the package's Compare.
-func Compare[T ordered](_ Natural[T], a T, b T) int { Compare(a, b) }
+func Compare[T Ordered](_ Natural[T], a T, b T) int { Compare(a, b) }
 
 // Reverse is the order Of, backwards: b before a where Of puts a before b.
 type Reverse[T any, O Order[T]] { Of O } implements Order[T]

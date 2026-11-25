@@ -1,5 +1,6 @@
 import compiler/syntax
 import dense
+import option
 import strings
 
 // AsWritten is S108 for each `// ergo:aswritten` line above a function
@@ -46,9 +47,9 @@ func asWrittenLine(p syntax.Parsed, g int) bool {
 // has reports a word that holds a node.
 func has(o dense.Opt[syntax.Node]) bool {
 	match dense.Unpack(o) {
-	case Some[dense.ID[syntax.Node]]:
+	case option.Some[dense.ID[syntax.Node]]:
 		true
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -64,19 +65,19 @@ func asWrittenShape(p syntax.Parsed, fd syntax.FuncDecl) bool {
 			return false
 		}
 		match dense.Unpack(ft.Results) {
-		case Some[dense.ID[syntax.Node]] as rs:
+		case option.Some[dense.ID[syntax.Node]] as rs:
 			let param = oneField(p, ft.Params)
 			let result = oneField(p, rs.Value)
 			if param.name == "" || result.typ == "" || result.typ != param.typ {
 				return false
 			}
 			match dense.Unpack(fd.Body) {
-			case Some[dense.ID[syntax.Node]] as b:
+			case option.Some[dense.ID[syntax.Node]] as b:
 				bodyIs(p, b.Value, param.name)
-			case None:
+			case option.None:
 				false
 			}
-		case None:
+		case option.None:
 			false
 		}
 	case _:
@@ -102,7 +103,7 @@ func oneField(p syntax.Parsed, list dense.ID[syntax.Node]) fieldShape {
 				return none
 			}
 			match dense.Unpack(fd.Type) {
-			case Some[dense.ID[syntax.Node]] as t:
+			case option.Some[dense.ID[syntax.Node]] as t:
 				match syntax.ViewOf(p.Tree, t.Value) {
 				case syntax.ErrorRow:
 					return none
@@ -111,7 +112,7 @@ func oneField(p syntax.Parsed, list dense.ID[syntax.Node]) fieldShape {
 				let typ = syntax.SourceOf(p)[syntax.NodePos(p, t.Value):syntax.NodeEnd(p, t.Value)]
 				let name = if syntax.Len(fd.Names) == 1 { textAt(p, syntax.Item(p.Tree, fd.Names, 0)) } else { "" }
 				fieldShape{name: name, typ: typ}
-			case None:
+			case option.None:
 				none
 			}
 		case _:
@@ -135,9 +136,9 @@ func bodyIs(p syntax.Parsed, body dense.ID[syntax.Node], v string) bool {
 			isName(p, s.X, v)
 		case syntax.ReturnStmt as r:
 			match dense.Unpack(r.Result) {
-			case Some[dense.ID[syntax.Node]] as x:
+			case option.Some[dense.ID[syntax.Node]] as x:
 				isName(p, x.Value, v)
-			case None:
+			case option.None:
 				false
 			}
 		case _:

@@ -14,6 +14,8 @@
 // AccessKit's NodeId references, which a host resolves per update.
 
 import actor
+import machines
+import option
 import time
 
 // Rel is a relation of a node to other nodes, or the popup it opens.
@@ -32,7 +34,7 @@ type Range { Now float64, Min float64, Max float64 }
 
 // Related is a relation of a node and the node it names on a screen: None
 // when no node of the screen declares its key, and for OpensPopup.
-type Related[E] { Rel Rel, To Option[Id[E]] }
+type Related[E] { Rel Rel, To option.Option[Id[E]] }
 
 // relKey is the key a relation names, NoKey for OpensPopup.
 func relKey(r Rel) Key {
@@ -57,12 +59,12 @@ func RelationsIn[E](m mut Mirror[E], id Id[E]) []Related[E] {
 	let mut out = []Related[E]{}
 	for r in AccessOf(m, id).Rels {
 		let k = relKey(r)
-		let mut to Option[Id[E]] = None
+		let mut to option.Option[Id[E]] = option.None
 		if k != NoKey {
 			match entryOf(m, m.root) {
-			case Some[mirrored[E]] as root:
+			case option.Some[mirrored[E]] as root:
 				to = keyFrom(m, root.Value.first, k)
-			case None:
+			case option.None:
 			}
 		}
 		out = out.Append(Related[E]{Rel: r, To: to})
@@ -72,23 +74,23 @@ func RelationsIn[E](m mut Mirror[E], id Id[E]) []Related[E] {
 
 // keyFrom is the first node, in tree order, of the siblings from at and
 // their subtrees whose Access declares the key k.
-func keyFrom[E](m mut Mirror[E], at Option[Id[E]], k Key) Option[Id[E]] {
+func keyFrom[E](m mut Mirror[E], at option.Option[Id[E]], k Key) option.Option[Id[E]] {
 	let mut c = at
 	for {
 		match c {
-		case Some[Id[E]] as x:
+		case option.Some[Id[E]] as x:
 			let e = entry(m, refOf(m, x.Value))
 			if declaresKey(e.node, k) {
 				return c
 			}
 			match keyFrom[E](m, e.first, k) {
-			case Some[Id[E]] as found:
-				return Some{Value: found.Value}
-			case None:
+			case option.Some[Id[E]] as found:
+				return option.Some{Value: found.Value}
+			case option.None:
 			}
 			c = e.next
-		case None:
-			return None
+		case option.None:
+			return option.None
 		}
 	}
 }
@@ -150,7 +152,7 @@ func relScreen(f mut Frame[int], keyed []bool, rels [][]Rel, gone []bool) {
 					a.Key = ByInt(i)
 				}
 				a.Rels = rels[i]
-				Semantic(f, a, None, Plain()) {
+				Semantic(f, a, option.None, Plain()) {
 					Text(f, "t\(i)")
 				}
 			}
@@ -169,7 +171,7 @@ func relScreen(f mut Frame[int], keyed []bool, rels [][]Rel, gone []bool) {
 // node left out resolves to nothing, and the others still resolve.
 law RelationsNameHeldNodes(seed int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		let mut r = seeded(seed)
 		let n = draw(&r, 6) + 2
 		let mut keyed = []bool{}
@@ -189,7 +191,7 @@ law RelationsNameHeldNodes(seed int) {
 		let view = func(f mut Frame[int], s int) {
 			relScreen(f, keyed, rels, if s == 0 { none } else { gone })
 		}
-		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
+		let a = actor.StartMachine(machines.Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) option.Option[func()] { option.None }}, 1, func(o int) {})
 		let mut h = NewTestHost(a, view, m, 4) catch {
 		case BadPatch:
 			return false
@@ -198,12 +200,12 @@ law RelationsNameHeldNodes(seed int) {
 			let left = if s == 0 { none } else { gone }
 			for i in 0..n {
 				let ids = Locate(&h, WithLabel{Label: "r\(i)"})
-				if len(ids) != (if left[i] { 0 } else { 1 }) {
+				if ids.Len() != (if left[i] { 0 } else { 1 }) {
 					return false
 				}
-				if len(ids) == 1 {
+				if ids.Len() == 1 {
 					let got = RelationsAt(&h, ids[0])
-					if len(got) != len(rels[i]) {
+					if got.Len() != rels[i].Len() {
 						return false
 					}
 					for j, rel in rels[i] {
@@ -218,9 +220,9 @@ law RelationsNameHeldNodes(seed int) {
 						}
 						let mut named = "none"
 						match got[j].To {
-						case Some[Id[int]] as t:
+						case option.Some[Id[int]] as t:
 							named = AccessAt(&h, t.Value).Name
-						case None:
+						case option.None:
 						}
 						if got[j].Rel != rel || named != want {
 							return false
@@ -230,7 +232,7 @@ law RelationsNameHeldNodes(seed int) {
 			}
 			if s == 0 {
 				let next = Locate(&h, WithLabel{Label: "next"})
-				if len(next) != 1 {
+				if next.Len() != 1 {
 					return false
 				}
 				Tap(&h, next[0]) catch {

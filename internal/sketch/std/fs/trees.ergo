@@ -4,6 +4,7 @@
 // own (decision O8: one authority, not split). The link functions are of
 // Host only, as Link and SameFile are (G6): a store in memory has no links.
 
+import core
 import filepath
 import strconv
 import strings
@@ -30,10 +31,10 @@ func Walk(path string) []string fails NotFound | Denied | Failed needs Files {
 			continue
 		}
 		let names = try Files.ReadDir(p)
-		let mut i = len(names) - 1
+		let mut i = names.Len() - 1
 		for i >= 0 {
 			let q = filepath.Join([]string{p, names[i]})
-			if n < len(pending) {
+			if n < pending.Len() {
 				pending[n] = q
 			} else {
 				pending = pending.Append(q)
@@ -142,7 +143,7 @@ func Glob(root string, pattern string) []string fails NotFound | Denied | Failed
 // MkdirTemp, and its owner's scope removes it, with everything in it, on
 // every exit (resources R5). Path is where it is. It keeps the providers
 // it was made with, so its release needs none.
-type Scratch { files Files, writes Writes, Path string } implements Closer
+type Scratch { files Files, writes Writes, Path string } implements core.Closer
 
 // NewScratch is a new empty directory in dir, named prefix and a number,
 // removed when its owner's scope ends.

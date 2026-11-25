@@ -20,6 +20,7 @@ import compiler/check/store
 import compiler/check/task
 import compiler/syntax
 import dense
+import option
 
 // Read is one interface entry a declaration's check looked up. Via is
 // the import name of a selector, or empty for a name of the declaration's
@@ -48,12 +49,12 @@ let noImport = "no import"
 
 func printText(p store.Print) string { "\(p.Hi).\(p.Lo)" }
 
-func exportedName(text string) bool { len(text) > 0 && text[0] >= 65 && text[0] <= 90 }
+func exportedName(text string) bool { text.Len() > 0 && text[0] >= 65 && text[0] <= 90 }
 
 // lastSegment is an import path's last element, the name a selector uses.
 func lastSegment(path string) string {
 	let mut at = 0
-	for i in 0..len(path) {
+	for i in 0..path.Len() {
 		if path[i] == '/' {
 			at = i + 1
 		}
@@ -79,13 +80,13 @@ func scopeOf(s store.Store) Scope {
 		let d = store.DeclAt(s, i)
 		let text = store.Text(s, store.DeclOf(s, d).Name)
 		match store.Lookup(s, text) {
-		case Some{Value: held}:
+		case option.Some{Value: held}:
 			if held == d {
 				names = names.Append(text)
 				ifps = ifps.Append(printText(store.PrintsOf(s, d).Ifp))
 				exported = exported.Append(exportedName(text))
 			}
-		case None:
+		case option.None:
 		}
 	}
 	Scope{Path: store.PathOf(s), Imports: store.ImportPaths(s), Names: names, Ifps: ifps, Exported: exported}
@@ -105,22 +106,22 @@ func ifpIn(sc Scope, name string, importer bool) string {
 	missing
 }
 
-func findScope(now Snap, path string) Option[Scope] {
+func findScope(now Snap, path string) option.Option[Scope] {
 	for sc in now.Scopes {
 		if sc.Path == path {
-			return Some{Value: sc}
+			return option.Some{Value: sc}
 		}
 	}
-	None
+	option.None
 }
 
 // Lookup is what read r of a declaration of package pkg resolves to in
 // the program now.
 func Lookup(now Snap, pkg string, r Read) string {
 	let own = match findScope(now, pkg) {
-	case Some{Value: sc}:
+	case option.Some{Value: sc}:
 		sc
-	case None:
+	case option.None:
 		Scope{Path: pkg, Imports: []string{}, Names: []string{}, Ifps: []string{}, Exported: []bool{}}
 	}
 	if r.Via == "" {
@@ -131,20 +132,20 @@ func Lookup(now Snap, pkg string, r Read) string {
 		return noImport
 	}
 	match findScope(now, path) {
-	case Some{Value: target}:
+	case option.Some{Value: target}:
 		ifpIn(target, r.Name, true)
-	case None:
+	case option.None:
 		missing
 	}
 }
 
-func checkedOf(checked []task.Checked, path string) Option[task.Checked] {
+func checkedOf(checked []task.Checked, path string) option.Option[task.Checked] {
 	for c in checked {
 		if c.Path == path {
-			return Some{Value: c}
+			return option.Some{Value: c}
 		}
 	}
-	None
+	option.None
 }
 
 func identText(p syntax.Parsed, id dense.ID[syntax.Node]) string { syntax.TokText(p, syntax.NameOf(p.Tree, id).Tok) }
@@ -174,14 +175,14 @@ func topRow(ps bind.Parents, t syntax.Tree, f int, row int) dense.ID[syntax.Node
 	for climbing {
 		climbing = false
 		match dense.Unpack(bind.ParentOf(ps, pn)) {
-		case Some{Value: up}:
+		case option.Some{Value: up}:
 			match dense.Unpack(bind.ParentOf(ps, up)) {
-			case Some{Value: _}:
+			case option.Some{Value: _}:
 				pn = up
 				climbing = true
-			case None:
+			case option.None:
 			}
-		case None:
+		case option.None:
 		}
 	}
 	let (_, r) = bind.RowOf(ps, pn)
@@ -222,10 +223,10 @@ func rowOf(c task.Checked, files []bind.File, checked []task.Checked, i int, key
 				case bind.Imported as x:
 					let path = store.ImportPaths(s)[int(x.Ref.Import)-1]
 					match checkedOf(checked, path) {
-					case Some{Value: dep}:
+					case option.Some{Value: dep}:
 						let ds = store.Of(dep.Store)
 						printText(store.PrintsOf(ds, store.DeclAt(ds, int(x.Ref.Decl))).Ifp)
-					case None:
+					case option.None:
 						missing
 					}
 				case _:
@@ -245,10 +246,10 @@ func rowOf(c task.Checked, files []bind.File, checked []task.Checked, i int, key
 		case bind.Outside:
 			// The X or Sel of a selector is the selector's read.
 			let inSelector = match dense.Unpack(bind.ParentOf(c.Parents, pn)) {
-			case Some{Value: up}:
+			case option.Some{Value: up}:
 				let (_, row) = bind.RowOf(c.Parents, up)
 				syntax.KindOf(t, syntax.NodeAt(t, row)) == syntax.KSelectorExpr
-			case None:
+			case option.None:
 				false
 			}
 			if !inSelector {
@@ -281,7 +282,7 @@ func Scratch(pkgs []task.Package, checked []task.Checked) Snap {
 	let mut scopes = []Scope{}
 	for pkg in pkgs {
 		match checkedOf(checked, pkg.Path) {
-		case Some{Value: c}:
+		case option.Some{Value: c}:
 			let s = store.Of(c.Store)
 			scopes = scopes.Append(scopeOf(s))
 			let mut seen = []string{}
@@ -296,19 +297,19 @@ func Scratch(pkgs []task.Package, checked []task.Checked) Snap {
 				seen = seen.Append(name)
 				rows = rows.Append(rowOf(c, pkg.Files, checked, i, pkg.Path+"."+name+"#\(n)"))
 			}
-		case None:
+		case option.None:
 		}
 	}
 	Snap{Rows: rows, Scopes: scopes}
 }
 
-func cachedRow(cache []Row, key string) Option[Row] {
+func cachedRow(cache []Row, key string) option.Option[Row] {
 	for r in cache {
 		if r.Key == key {
-			return Some{Value: r}
+			return option.Some{Value: r}
 		}
 	}
-	None
+	option.None
 }
 
 // Plan is, for each row of now, whether the incremental check checks it
@@ -320,7 +321,7 @@ func Plan(cache []Row, now Snap) []bool {
 	let mut again = []bool{}
 	for row in now.Rows {
 		let stale = match cachedRow(cache, row.Key) {
-		case Some{Value: old}:
+		case option.Some{Value: old}:
 			let mut moved = old.Fp != row.Fp
 			for r in old.Reads {
 				if !moved && Lookup(now, row.Pkg, r) != r.Seen {
@@ -328,7 +329,7 @@ func Plan(cache []Row, now Snap) []bool {
 				}
 			}
 			moved
-		case None:
+		case option.None:
 			true
 		}
 		again = again.Append(stale)
@@ -345,9 +346,9 @@ func Apply(cache []Row, now Snap, again []bool) []Row {
 			out = out.Append(row)
 		} else {
 			match cachedRow(cache, row.Key) {
-			case Some{Value: old}:
+			case option.Some{Value: old}:
 				out = out.Append(old)
-			case None:
+			case option.None:
 				out = out.Append(row)
 			}
 		}
@@ -369,9 +370,9 @@ func Named(prev Snap, now Snap) []bool {
 	let mut out = []bool{}
 	for row in now.Rows {
 		let named = match cachedRow(prev.Rows, row.Key) {
-		case Some{Value: old}:
+		case option.Some{Value: old}:
 			old.Fp != row.Fp || readsText(old) != readsText(row)
-		case None:
+		case option.None:
 			true
 		}
 		out = out.Append(named)
@@ -410,7 +411,7 @@ law IncrementalAgreesWithScratch(edits []int) {
 		let again = Plan(cache, now)
 		let rows = Apply(cache, now, again)
 		let named = Named(prev, now)
-		ok = len(rows) == len(now.Rows)
+		ok = rows.Len() == now.Rows.Len()
 		for j, row in now.Rows {
 			if ok {
 				ok = rows[j].Result == row.Result && readsText(rows[j]) == readsText(row) && again[j] == named[j]
@@ -422,7 +423,7 @@ law IncrementalAgreesWithScratch(edits []int) {
 		cache = rows
 		prev = now
 	}
-	ok && (len(edits) == 0 || reused > 0)
+	ok && (edits.Len() == 0 || reused > 0)
 }
 
 let incFlags = 10

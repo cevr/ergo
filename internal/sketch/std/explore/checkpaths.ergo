@@ -1,4 +1,7 @@
+import core
 import gen
+import machines
+import option
 import sync
 
 // StepObs is the full typed observation of one acknowledged step: the machine
@@ -6,9 +9,9 @@ import sync
 // protocol error payload when rejected, and terminal status.
 type StepObs[V, O, Err] {
 	Kind     Disposition,
-	State    Option[V],
+	State    option.Option[V],
 	Outputs  []O,
-	Error    Option[Err],
+	Error    option.Option[Err],
 	Terminal bool,
 }
 
@@ -30,7 +33,7 @@ type DiffField =
 type PathModel[S, E, V, O, Err] {
 	Graph          ConcreteGraph[S, E, StepObs[V, O, Err]],
 	InitialObs     func(s S) V,
-	ProjectionName Option[string],
+	ProjectionName option.Option[string],
 }
 
 // PathModelOfMachine adapts a Machine step function into a PathModel comparing
@@ -38,53 +41,53 @@ type PathModel[S, E, V, O, Err] {
 func PathModelOfMachine[S, E, O](
 	starts []S,
 	signals []E,
-	step own func(s S, e E) Decision[S, O],
-) PathModel[S, E, S, O, Never] {
-	PathModel[S, E, S, O, Never]{
-		Graph: ConcreteGraph[S, E, StepObs[S, O, Never]]{
+	step own func(s S, e E) machines.Decision[S, O],
+) PathModel[S, E, S, O, core.Never] {
+	PathModel[S, E, S, O, core.Never]{
+		Graph: ConcreteGraph[S, E, StepObs[S, O, core.Never]]{
 			Starts:  starts,
 			Signals: signals,
-			Step:    func(s S, e E) EdgeOutcome[S, StepObs[S, O, Never]] {
+			Step:    func(s S, e E) EdgeOutcome[S, StepObs[S, O, core.Never]] {
 				match step(s, e) {
-				case Enter[S] as d:
-					Continue[S, StepObs[S, O, Never]]{
+				case machines.Enter[S] as d:
+					Continue[S, StepObs[S, O, core.Never]]{
 						Next: d.Next,
-						Obs:  StepObs[S, O, Never]{Kind: DisEnter, State: Some[S]{Value: d.Next}, Outputs: []O{}, Error: None, Terminal: false},
+						Obs:  StepObs[S, O, core.Never]{Kind: DisEnter, State: option.Some[S]{Value: d.Next}, Outputs: []O{}, Error: option.None, Terminal: false},
 					}
-				case Stay[S] as d:
-					Continue[S, StepObs[S, O, Never]]{
+				case machines.Stay[S] as d:
+					Continue[S, StepObs[S, O, core.Never]]{
 						Next: d.Next,
-						Obs:  StepObs[S, O, Never]{Kind: DisStay, State: Some[S]{Value: d.Next}, Outputs: []O{}, Error: None, Terminal: false},
+						Obs:  StepObs[S, O, core.Never]{Kind: DisStay, State: option.Some[S]{Value: d.Next}, Outputs: []O{}, Error: option.None, Terminal: false},
 					}
-				case Emit[S, O] as d:
-					Continue[S, StepObs[S, O, Never]]{
+				case machines.Emit[S, O] as d:
+					Continue[S, StepObs[S, O, core.Never]]{
 						Next: d.Next,
-						Obs:  StepObs[S, O, Never]{Kind: DisEmit, State: Some[S]{Value: d.Next}, Outputs: []O{d.Output}, Error: None, Terminal: false},
+						Obs:  StepObs[S, O, core.Never]{Kind: DisEmit, State: option.Some[S]{Value: d.Next}, Outputs: []O{d.Output}, Error: option.None, Terminal: false},
 					}
-				case Tell[S, O] as d:
-					Continue[S, StepObs[S, O, Never]]{
+				case machines.Tell[S, O] as d:
+					Continue[S, StepObs[S, O, core.Never]]{
 						Next: d.Next,
-						Obs:  StepObs[S, O, Never]{Kind: DisTell, State: Some[S]{Value: d.Next}, Outputs: []O{d.Output}, Error: None, Terminal: false},
+						Obs:  StepObs[S, O, core.Never]{Kind: DisTell, State: option.Some[S]{Value: d.Next}, Outputs: []O{d.Output}, Error: option.None, Terminal: false},
 					}
-				case Ignore:
-					Continue[S, StepObs[S, O, Never]]{
+				case machines.Ignore:
+					Continue[S, StepObs[S, O, core.Never]]{
 						Next: s,
-						Obs:  StepObs[S, O, Never]{Kind: DisIgnore, State: Some[S]{Value: s}, Outputs: []O{}, Error: None, Terminal: false},
+						Obs:  StepObs[S, O, core.Never]{Kind: DisIgnore, State: option.Some[S]{Value: s}, Outputs: []O{}, Error: option.None, Terminal: false},
 					}
-				case Reject:
-					Continue[S, StepObs[S, O, Never]]{
+				case machines.Reject:
+					Continue[S, StepObs[S, O, core.Never]]{
 						Next: s,
-						Obs:  StepObs[S, O, Never]{Kind: DisReject, State: Some[S]{Value: s}, Outputs: []O{}, Error: None, Terminal: false},
+						Obs:  StepObs[S, O, core.Never]{Kind: DisReject, State: option.Some[S]{Value: s}, Outputs: []O{}, Error: option.None, Terminal: false},
 					}
-				case Done[O] as d:
-					Terminal[StepObs[S, O, Never]]{
-						Obs: StepObs[S, O, Never]{Kind: DisDone, State: None, Outputs: []O{d.Output}, Error: None, Terminal: true},
+				case machines.Done[O] as d:
+					Terminal[StepObs[S, O, core.Never]]{
+						Obs: StepObs[S, O, core.Never]{Kind: DisDone, State: option.None, Outputs: []O{d.Output}, Error: option.None, Terminal: true},
 					}
 				}
 			},
 		},
 		InitialObs:     func(s S) S { s },
-		ProjectionName: None,
+		ProjectionName: option.None,
 	}
 }
 
@@ -100,7 +103,7 @@ func PathModelProjected[S, E, V, O, Err](
 	PathModel[S, E, V, O, Err]{
 		Graph:          ConcreteGraph[S, E, StepObs[V, O, Err]]{Starts: starts, Signals: signals, Step: step},
 		InitialObs:     project,
-		ProjectionName: Some[string]{Value: projectionName},
+		ProjectionName: option.Some[string]{Value: projectionName},
 	}
 }
 
@@ -111,7 +114,7 @@ type CheckFailure[S, E, V, O, Err, OpenErr, DriveErr] =
 		StartIndex int,
 		Start      S,
 		Expected   V,
-		Actual     Option[V],
+		Actual     option.Option[V],
 		Field      DiffField,
 	}
 	| StepMismatch{
@@ -121,7 +124,7 @@ type CheckFailure[S, E, V, O, Err, OpenErr, DriveErr] =
 		Step       int,
 		EdgeID     int,
 		Expected   StepObs[V, O, Err],
-		Actual     Option[StepObs[V, O, Err]],
+		Actual     option.Option[StepObs[V, O, Err]],
 		Field      DiffField,
 	}
 	| OpenFailure{
@@ -162,7 +165,7 @@ type CheckResult[S, E, V, O, Err, OpenErr, DriveErr] {
 	Verdict        CheckVerdict[S, E, V, O, Err, OpenErr, DriveErr],
 	Promise        CoveragePromise,
 	Scope          PathScope,
-	ProjectionName Option[string],
+	ProjectionName option.Option[string],
 	PlanStats      PathStats,
 	Counts         CheckCounts,
 	EdgeChecked    []int,
@@ -178,40 +181,40 @@ type ReplayOutcome[S, E, V, O, Err, OpenErr, DriveErr] =
 	| ReplayDisabledStep{Step int}
 	| ReplayAfterTerminal{Step int}
 
-func compareError[Err comparable](expected Option[Err], actual Option[Err]) Option[DiffField] {
+func compareError[Err comparable](expected option.Option[Err], actual option.Option[Err]) option.Option[DiffField] {
 	match expected {
-	case None:
+	case option.None:
 		match actual {
-		case None:
-			None
-		case Some:
-			Some[DiffField]{Value: DiffErrorTag}
+		case option.None:
+			option.None
+		case option.Some:
+			option.Some[DiffField]{Value: DiffErrorTag}
 		}
-	case Some as exp:
+	case option.Some as exp:
 		match actual {
-		case None:
-			Some[DiffField]{Value: DiffErrorTag}
-		case Some as act:
+		case option.None:
+			option.Some[DiffField]{Value: DiffErrorTag}
+		case option.Some as act:
 			if exp.Value != act.Value {
-				return Some[DiffField]{Value: DiffErrorPayload}
+				return option.Some[DiffField]{Value: DiffErrorPayload}
 			}
-			None
+			option.None
 		}
 	}
 }
 
-func compareStepObs[V comparable, O comparable, Err comparable](expected StepObs[V, O, Err], actual StepObs[V, O, Err]) Option[DiffField] {
+func compareStepObs[V comparable, O comparable, Err comparable](expected StepObs[V, O, Err], actual StepObs[V, O, Err]) option.Option[DiffField] {
 	if expected.Kind != actual.Kind {
-		return Some[DiffField]{Value: DiffDisposition}
+		return option.Some[DiffField]{Value: DiffDisposition}
 	}
 	if expected.Terminal != actual.Terminal {
-		return Some[DiffField]{Value: DiffTerminal}
+		return option.Some[DiffField]{Value: DiffTerminal}
 	}
 	if expected.State != actual.State {
-		return Some[DiffField]{Value: DiffState}
+		return option.Some[DiffField]{Value: DiffState}
 	}
 	if expected.Outputs != actual.Outputs {
-		return Some[DiffField]{Value: DiffOutputs}
+		return option.Some[DiffField]{Value: DiffOutputs}
 	}
 	compareError(expected.Error, actual.Error)
 }
@@ -223,12 +226,12 @@ type edgeCounters {
 
 func recordStepCounts(counts mut CheckCounts, ec mut edgeCounters, edgeID int, matched bool) {
 	counts.CheckedSteps = counts.CheckedSteps + 1
-	if edgeID >= 0 && edgeID < len(ec.checked) {
+	if edgeID >= 0 && edgeID < ec.checked.Len() {
 		ec.checked[edgeID] = ec.checked[edgeID] + 1
 	}
 	if matched {
 		counts.MatchedSteps = counts.MatchedSteps + 1
-		if edgeID >= 0 && edgeID < len(ec.matched) {
+		if edgeID >= 0 && edgeID < ec.matched.Len() {
 			ec.matched[edgeID] = ec.matched[edgeID] + 1
 		}
 	}
@@ -236,9 +239,9 @@ func recordStepCounts(counts mut CheckCounts, ec mut edgeCounters, edgeID int, m
 
 type stepDiff[V, O, Err] {
 	Field    DiffField,
-	Initial  Option[V],
-	Expected Option[StepObs[V, O, Err]],
-	Actual   Option[StepObs[V, O, Err]],
+	Initial  option.Option[V],
+	Expected option.Option[StepObs[V, O, Err]],
+	Actual   option.Option[StepObs[V, O, Err]],
 	EdgeID   int,
 }
 
@@ -252,62 +255,62 @@ func runSinglePath[S, E any, V, O, Err comparable, OpenErr, DriveErr](
 	open own func(start S) PathSession[E, Observed[V, O, Err], DriveErr] fails OpenErr,
 	counts mut CheckCounts,
 	ec mut edgeCounters,
-) Option[CheckFailure[S, E, V, O, Err, OpenErr, DriveErr]] {
+) option.Option[CheckFailure[S, E, V, O, Err, OpenErr, DriveErr]] {
 	let outcome = DrivePathSession(
 		start,
 		inputs,
 		open,
-		func(obs Observed[V, O, Err]) Option[stepDiff[V, O, Err]] {
+		func(obs Observed[V, O, Err]) option.Option[stepDiff[V, O, Err]] {
 			counts.Opened = counts.Opened + 1
 			counts.InitialReads = counts.InitialReads + 1
 			match obs {
 			case InitialRead as ir:
 				if ir.State != expectedInitial {
-					return Some[stepDiff[V, O, Err]]{Value: stepDiff[V, O, Err]{
+					return option.Some[stepDiff[V, O, Err]]{Value: stepDiff[V, O, Err]{
 						Field:    DiffInitial,
-						Initial:  Some[V]{Value: ir.State},
-						Expected: None,
-						Actual:   None,
+						Initial:  option.Some[V]{Value: ir.State},
+						Expected: option.None,
+						Actual:   option.None,
 						EdgeID:   -1,
 					}}
 				}
-				None
+				option.None
 			case StepResult:
-				Some[stepDiff[V, O, Err]]{Value: stepDiff[V, O, Err]{
+				option.Some[stepDiff[V, O, Err]]{Value: stepDiff[V, O, Err]{
 					Field:    DiffInitial,
-					Initial:  None,
-					Expected: None,
-					Actual:   None,
+					Initial:  option.None,
+					Expected: option.None,
+					Actual:   option.None,
 					EdgeID:   -1,
 				}}
 			}
 		},
-		func(step int, _ E, obs Observed[V, O, Err]) Option[stepDiff[V, O, Err]] {
+		func(step int, _ E, obs Observed[V, O, Err]) option.Option[stepDiff[V, O, Err]] {
 			let idx = step - 1
 			let exp = expectedSteps[idx]
-			let eID = if idx < len(edgeIDs) { edgeIDs[idx] } else { -1 }
+			let eID = if idx < edgeIDs.Len() { edgeIDs[idx] } else { -1 }
 			match obs {
 			case InitialRead:
 				recordStepCounts(counts, ec, eID, false)
-				Some[stepDiff[V, O, Err]]{Value: stepDiff[V, O, Err]{
+				option.Some[stepDiff[V, O, Err]]{Value: stepDiff[V, O, Err]{
 					Field:    DiffDisposition,
-					Initial:  None,
-					Expected: Some[StepObs[V, O, Err]]{Value: exp},
-					Actual:   None,
+					Initial:  option.None,
+					Expected: option.Some[StepObs[V, O, Err]]{Value: exp},
+					Actual:   option.None,
 					EdgeID:   eID,
 				}}
 			case StepResult as sr:
 				match compareStepObs(exp, sr.Step) {
-				case None:
+				case option.None:
 					recordStepCounts(counts, ec, eID, true)
-					None
-				case Some as field:
+					option.None
+				case option.Some as field:
 					recordStepCounts(counts, ec, eID, false)
-					Some[stepDiff[V, O, Err]]{Value: stepDiff[V, O, Err]{
+					option.Some[stepDiff[V, O, Err]]{Value: stepDiff[V, O, Err]{
 						Field:    field.Value,
-						Initial:  None,
-						Expected: Some[StepObs[V, O, Err]]{Value: exp},
-						Actual:   Some[StepObs[V, O, Err]]{Value: sr.Step},
+						Initial:  option.None,
+						Expected: option.Some[StepObs[V, O, Err]]{Value: exp},
+						Actual:   option.Some[StepObs[V, O, Err]]{Value: sr.Step},
 						EdgeID:   eID,
 					}}
 				}
@@ -317,21 +320,21 @@ func runSinglePath[S, E any, V, O, Err comparable, OpenErr, DriveErr](
 	match outcome {
 	case SessionMatched:
 		counts.PathsCompleted = counts.PathsCompleted + 1
-		None
+		option.None
 	case SessionOpenFailed as f:
-		Some[CheckFailure[S, E, V, O, Err, OpenErr, DriveErr]]{
+		option.Some[CheckFailure[S, E, V, O, Err, OpenErr, DriveErr]]{
 			Value: OpenFailure[S, E, OpenErr]{StartIndex: startIdx, Start: start, Inputs: inputs, Err: f.Err},
 		}
 	case SessionDriveFailed as f:
 		if f.Step == 0 {
 			counts.Opened = counts.Opened + 1
 		}
-		Some[CheckFailure[S, E, V, O, Err, OpenErr, DriveErr]]{
+		option.Some[CheckFailure[S, E, V, O, Err, OpenErr, DriveErr]]{
 			Value: DriveFailure[S, E, DriveErr]{StartIndex: startIdx, Start: start, Inputs: inputs, Step: f.Step, Err: f.Err},
 		}
 	case SessionMismatch as m:
 		if m.Step == 0 {
-			Some[CheckFailure[S, E, V, O, Err, OpenErr, DriveErr]]{
+			option.Some[CheckFailure[S, E, V, O, Err, OpenErr, DriveErr]]{
 				Value: InitialMismatch[S, V]{
 					StartIndex: startIdx,
 					Start:      start,
@@ -346,7 +349,7 @@ func runSinglePath[S, E any, V, O, Err comparable, OpenErr, DriveErr](
 				prefix = prefix.Append(inputs[i])
 			}
 			let exp = expectedSteps[m.Step-1]
-			Some[CheckFailure[S, E, V, O, Err, OpenErr, DriveErr]]{
+			option.Some[CheckFailure[S, E, V, O, Err, OpenErr, DriveErr]]{
 				Value: StepMismatch[S, E, V, O, Err]{
 					StartIndex: startIdx,
 					Start:      start,
@@ -377,7 +380,7 @@ func caseInputsAndSteps[S, E, V, O, Err](
 ) ([]E, []StepObs[V, O, Err]) {
 	let mut inputs = []E{}
 	let mut steps = []StepObs[V, O, Err]{}
-	for i in 0..len(c.Edges) {
+	for i in 0..c.Edges.Len() {
 		let eIdx = c.Edges[i]
 		let sigIdx = c.Signals[i]
 		inputs = inputs.Append(model.Graph.Signals[sigIdx])
@@ -393,12 +396,12 @@ func CheckPlanPaths[S, E any, V, O, Err comparable, OpenErr, DriveErr](
 	plan PathPlan[StepObs[V, O, Err]],
 	open own func(start S) PathSession[E, Observed[V, O, Err], DriveErr] fails OpenErr,
 ) CheckResult[S, E, V, O, Err, OpenErr, DriveErr] {
-	let mut ec = edgeCounters{checked: zeroInts(len(plan.Graph.Edges)), matched: zeroInts(len(plan.Graph.Edges))}
+	let mut ec = edgeCounters{checked: zeroInts(plan.Graph.Edges.Len()), matched: zeroInts(plan.Graph.Edges.Len())}
 	let mut counts = CheckCounts{Planned: plan.Stats.Paths, Opened: 0, InitialReads: 0, PathsCompleted: 0, CheckedSteps: 0, MatchedSteps: 0}
 
 	let opened = OpenPaths(plan)
 	match opened {
-	case None:
+	case option.None:
 		return CheckResult[S, E, V, O, Err, OpenErr, DriveErr]{
 			Verdict:        CampaignIncomplete{Stop: plan.Stop},
 			Promise:        ExhaustiveScope,
@@ -410,20 +413,20 @@ func CheckPlanPaths[S, E any, V, O, Err comparable, OpenErr, DriveErr](
 			EdgeMatched:    ec.matched,
 			Graph:          plan.Graph,
 		}
-	case Some as cur:
+	case option.Some as cur:
 		let mut c = cur.Value
 		for {
 			match NextPath(plan, &c) {
-			case None:
+			case option.None:
 				break
-			case Some as item:
+			case option.Some as item:
 				let pc = item.Value
 				let start = model.Graph.Starts[pc.Start]
 				let expInit = model.InitialObs(start)
 				let (inputs, expSteps) = caseInputsAndSteps(model, plan.Graph, pc)
 				match runSinglePath(pc.Start, start, inputs, expInit, expSteps, pc.Edges, open, &counts, &ec) {
-				case None:
-				case Some as fail:
+				case option.None:
+				case option.Some as fail:
 					return CheckResult[S, E, V, O, Err, OpenErr, DriveErr]{
 						Verdict:        CampaignRefuted[S, E, V, O, Err, OpenErr, DriveErr]{Failure: fail.Value},
 						Promise:        ExhaustiveScope,
@@ -476,11 +479,11 @@ func CheckSelectedPaths[S, E wire, V, O, Err comparable, OpenErr, DriveErr](
 	open own func(start S) PathSession[E, Observed[V, O, Err], DriveErr] fails OpenErr,
 ) CheckResult[S, E, V, O, Err, OpenErr, DriveErr] needs wired[S] | wired[E] {
 	let plan = SelectPaths(model.Graph, strategy, scope, bounds)
-	let mut ec = edgeCounters{checked: zeroInts(len(plan.Graph.Edges)), matched: zeroInts(len(plan.Graph.Edges))}
+	let mut ec = edgeCounters{checked: zeroInts(plan.Graph.Edges.Len()), matched: zeroInts(plan.Graph.Edges.Len())}
 	let mut counts = CheckCounts{Planned: plan.Stats.Paths, Opened: 0, InitialReads: 0, PathsCompleted: 0, CheckedSteps: 0, MatchedSteps: 0}
 
 	match SelectedCases(plan) {
-	case None:
+	case option.None:
 		return CheckResult[S, E, V, O, Err, OpenErr, DriveErr]{
 			Verdict:        CampaignIncomplete{Stop: plan.Stop},
 			Promise:        plan.Promise,
@@ -492,14 +495,14 @@ func CheckSelectedPaths[S, E wire, V, O, Err comparable, OpenErr, DriveErr](
 			EdgeMatched:    ec.matched,
 			Graph:          plan.Graph,
 		}
-	case Some as cs:
+	case option.Some as cs:
 		for pc in cs.Value {
 			let start = model.Graph.Starts[pc.Start]
 			let expInit = model.InitialObs(start)
 			let (inputs, expSteps) = caseInputsAndSteps(model, plan.Graph, pc)
 			match runSinglePath(pc.Start, start, inputs, expInit, expSteps, pc.Edges, open, &counts, &ec) {
-			case None:
-			case Some as fail:
+			case option.None:
+			case option.Some as fail:
 				return CheckResult[S, E, V, O, Err, OpenErr, DriveErr]{
 					Verdict:        CampaignRefuted[S, E, V, O, Err, OpenErr, DriveErr]{Failure: fail.Value},
 					Promise:        plan.Promise,
@@ -541,7 +544,7 @@ func ReplayPath[S, E any, V, O, Err comparable, OpenErr, DriveErr](
 	let mut cur = start
 	let mut ended = false
 	let mut expSteps = []StepObs[V, O, Err]{}
-	for i in 0..len(inputs) {
+	for i in 0..inputs.Len() {
 		if ended {
 			return ReplayAfterTerminal{Step: i + 1}
 		}
@@ -559,9 +562,9 @@ func ReplayPath[S, E any, V, O, Err comparable, OpenErr, DriveErr](
 	let mut counts = CheckCounts{Planned: 1, Opened: 0, InitialReads: 0, PathsCompleted: 0, CheckedSteps: 0, MatchedSteps: 0}
 	let mut ec = edgeCounters{checked: []int{}, matched: []int{}}
 	match runSinglePath(startIdx, start, inputs, expInit, expSteps, []int{}, open, &counts, &ec) {
-	case None:
-		ReplayMatched{Steps: len(inputs)}
-	case Some as fail:
+	case option.None:
+		ReplayMatched{Steps: inputs.Len()}
+	case option.Some as fail:
 		ReplayFailed[S, E, V, O, Err, OpenErr, DriveErr]{Failure: fail.Value}
 	}
 }
@@ -613,9 +616,9 @@ func Apply(s cpSess, e cpEvent) Observed[int, int, cpErr] fails cpDriveErr {
 		}
 		StepResult[int, int, cpErr]{Step: StepObs[int, int, cpErr]{
 			Kind:     DisEmit,
-			State:    Some[int]{Value: next.Val},
+			State:    option.Some[int]{Value: next.Val},
 			Outputs:  outs,
-			Error:    None,
+			Error:    option.None,
 			Terminal: false,
 		}}
 	case cpBad as b:
@@ -627,26 +630,26 @@ func Apply(s cpSess, e cpEvent) Observed[int, int, cpErr] fails cpDriveErr {
 		}
 		StepResult[int, int, cpErr]{Step: StepObs[int, int, cpErr]{
 			Kind:     DisReject,
-			State:    Some[int]{Value: cur.Val},
+			State:    option.Some[int]{Value: cur.Val},
 			Outputs:  []int{},
-			Error:    Some[cpErr]{Value: errVal},
+			Error:    option.Some[cpErr]{Value: errVal},
 			Terminal: false,
 		}}
 	case cpNoop:
 		StepResult[int, int, cpErr]{Step: StepObs[int, int, cpErr]{
 			Kind:     DisIgnore,
-			State:    Some[int]{Value: cur.Val},
+			State:    option.Some[int]{Value: cur.Val},
 			Outputs:  []int{},
-			Error:    None,
+			Error:    option.None,
 			Terminal: false,
 		}}
 	case cpFinish:
 		s.state.Set(cpState{Val: cur.Val, Closed: true})
 		StepResult[int, int, cpErr]{Step: StepObs[int, int, cpErr]{
 			Kind:     DisDone,
-			State:    None,
+			State:    option.None,
 			Outputs:  []int{cur.Val},
-			Error:    None,
+			Error:    option.None,
 			Terminal: true,
 		}}
 	}
@@ -670,9 +673,9 @@ func cpModel(initVal int, signals []cpEvent) PathModel[cpState, cpEvent, int, in
 					Next: next,
 					Obs:  StepObs[int, int, cpErr]{
 						Kind:     DisEmit,
-						State:    Some[int]{Value: next.Val},
+						State:    option.Some[int]{Value: next.Val},
 						Outputs:  []int{next.Val},
-						Error:    None,
+						Error:    option.None,
 						Terminal: false,
 					},
 				}
@@ -681,9 +684,9 @@ func cpModel(initVal int, signals []cpEvent) PathModel[cpState, cpEvent, int, in
 					Next: s,
 					Obs:  StepObs[int, int, cpErr]{
 						Kind:     DisReject,
-						State:    Some[int]{Value: s.Val},
+						State:    option.Some[int]{Value: s.Val},
 						Outputs:  []int{},
-						Error:    Some[cpErr]{Value: cpDenied{Code: b.Code}},
+						Error:    option.Some[cpErr]{Value: cpDenied{Code: b.Code}},
 						Terminal: false,
 					},
 				}
@@ -692,9 +695,9 @@ func cpModel(initVal int, signals []cpEvent) PathModel[cpState, cpEvent, int, in
 					Next: s,
 					Obs:  StepObs[int, int, cpErr]{
 						Kind:     DisIgnore,
-						State:    Some[int]{Value: s.Val},
+						State:    option.Some[int]{Value: s.Val},
 						Outputs:  []int{},
-						Error:    None,
+						Error:    option.None,
 						Terminal: false,
 					},
 				}
@@ -702,9 +705,9 @@ func cpModel(initVal int, signals []cpEvent) PathModel[cpState, cpEvent, int, in
 				Terminal[StepObs[int, int, cpErr]]{
 					Obs: StepObs[int, int, cpErr]{
 						Kind:     DisDone,
-						State:    None,
+						State:    option.None,
 						Outputs:  []int{s.Val},
-						Error:    None,
+						Error:    option.None,
 						Terminal: true,
 					},
 				}
@@ -798,7 +801,7 @@ law CheckPathsObservesPrefixes() {
 		case ReplayFailed as rf:
 			match rf.Failure {
 			case StepMismatch as sm:
-				sm.Step == 1 && sm.Field == DiffOutputs && len(sm.Inputs) == 1
+				sm.Step == 1 && sm.Field == DiffOutputs && sm.Inputs.Len() == 1
 			case _:
 				false
 			}
@@ -818,9 +821,9 @@ law CheckPathsObservesPrefixes() {
 			match ref.Failure {
 			case InitialMismatch as im:
 				match im.Actual {
-				case Some as a:
+				case option.Some as a:
 					im.Field == DiffInitial && im.Expected != a.Value
-				case None:
+				case option.None:
 					false
 				}
 			case _:

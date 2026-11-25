@@ -1,3 +1,5 @@
+import core
+import option
 import queue
 import task
 import time
@@ -18,7 +20,7 @@ import timeout
 // arrives at the deadline's own instant may either replace the held one or
 // follow it; it is never lost. A d of zero or less keeps every value. It
 // fails Closed when out is closed before it ends.
-func Debounced[T](src queue.Queue[T], d duration, out queue.Queue[T]) fails queue.Closed needs Scheduler | time.Clock {
+func Debounced[T](src queue.Queue[T], d duration, out queue.Queue[T]) fails queue.Closed needs time.Scheduler | time.Clock {
 	if d <= 0ns {
 		for v in src.Values() {
 			try out.Push(v)
@@ -27,19 +29,19 @@ func Debounced[T](src queue.Queue[T], d duration, out queue.Queue[T]) fails queu
 		return
 	}
 	let dl = timeout.NewDeadline()
-	let mut pending Option[T] = None
+	let mut pending option.Option[T] = option.None
 	let mut last = time.Clock.Now()
 	let mut open = true
 	for open {
 		let e = match pending {
-		case Some[T]:
+		case option.Some[T]:
 			nextBefore(src, dl)
-		case None:
+		case option.None:
 			nextOf(src)
 		}
 		match e {
 		case arrival[T] as a:
-			pending = Some[T]{Value: a.Value}
+			pending = option.Some[T]{Value: a.Value}
 			last = time.Clock.Now()
 			if !dl.Armed() {
 				dl.Arm(d)
@@ -50,7 +52,7 @@ func Debounced[T](src queue.Queue[T], d duration, out queue.Queue[T]) fails queu
 				dl.Arm(rest)
 			} else {
 				try pushHeld(out, pending)
-				pending = None
+				pending = option.None
 			}
 		case ended:
 			dl.Stop()
@@ -71,21 +73,21 @@ func Debounced[T](src queue.Queue[T], d duration, out queue.Queue[T]) fails queu
 law DebouncedMatchesModel(gaps []int, xs []int, w int) {
 	let m = time.NewManual(0)
 	let d = 2*(window(w)%30) + 1
-	let tail = 2*(((w/7)%50 + 50)%50)
-	let n = len(xs)
+	let tail = 2 * (((w/7)%50 + 50) % 50)
+	let n = xs.Len()
 	let start = m.Now()
-	with context { Scheduler: m, time.Clock: m } {
+	with context { time.Scheduler: m, time.Clock: m } {
 		let src = queue.New[int](n + 1)
 		let out = queue.New[int](n + 1)
 		let seen = queue.New[int](2*n + 1)
 		let producer = task.Go() {
 			for i, x in xs {
-				Scheduler.Sleep(millis(2 * gapAt(gaps, i)))
+				time.Scheduler.Sleep(millis(2 * gapAt(gaps, i)))
 				src.Push(x) catch {
 				case queue.Closed:
 				}
 			}
-			Scheduler.Sleep(millis(tail))
+			time.Scheduler.Sleep(millis(tail))
 			src.End()
 		}
 		let debouncer = task.Go() {
@@ -109,14 +111,14 @@ law DebouncedMatchesModel(gaps []int, xs []int, w int) {
 		producer.Wait()
 		debouncer.Wait()
 		reader.Wait()
-		sameInts(collect(seen.Values()), debouncedModel(at, xs, d, lastOf(at) + tail))
+		sameInts(collect(seen.Values()), debouncedModel(at, xs, d, lastOf(at)+tail))
 	}
 }
 
 // gapAt is the gap before the i-th value, in milliseconds: gaps[i] mod 50,
 // or 0 past the end of gaps.
 func gapAt(gaps []int, i int) int {
-	if i < len(gaps) {
+	if i < gaps.Len() {
 		((gaps[i] % 50) + 50) % 50
 	} else {
 		0
@@ -130,7 +132,7 @@ func window(w int) int { ((w % 60) + 60) % 60 }
 func millis(n int) duration { time.Times(1ms, n) }
 
 // collect is the values of s.
-func collect(s Seq[int]) []int {
+func collect(s core.Seq[int]) []int {
 	let mut out = []int{}
 	for v in s {
 		out = out.Append(v)
@@ -140,9 +142,9 @@ func collect(s Seq[int]) []int {
 
 // sameInts reports that a and b hold the same values in order.
 func sameInts(a []int, b []int) bool {
-	let mut same = len(a) == len(b)
-	for i in 0..len(a) {
-		same = same && i < len(b) && a[i] == b[i]
+	let mut same = a.Len() == b.Len()
+	for i in 0..a.Len() {
+		same = same && i < b.Len() && a[i] == b[i]
 	}
 	same
 }
@@ -154,7 +156,7 @@ func sameInts(a []int, b []int) bool {
 func debouncedModel(at []int, xs []int, d int, end int) []int {
 	let mut out = []int{}
 	for i, x in xs {
-		if i == len(xs)-1 {
+		if i == xs.Len()-1 {
 			out = out.Append(x).Append(if end-at[i] > d { at[i] + d } else { end })
 		} else if at[i+1]-at[i] > d {
 			out = out.Append(x).Append(at[i] + d)
@@ -177,19 +179,19 @@ func evenArrivals(gaps []int, n int) []int {
 
 // lastOf is the last value of at, or 0 when at is empty.
 func lastOf(at []int) int {
-	if len(at) == 0 {
+	if at.Len() == 0 {
 		0
 	} else {
-		at[len(at)-1]
+		at[at.Len()-1]
 	}
 }
 
 // pushHeld pushes the value pending holds, if any, to out.
-func pushHeld[T](out queue.Queue[T], pending Option[T]) fails queue.Closed {
+func pushHeld[T](out queue.Queue[T], pending option.Option[T]) fails queue.Closed {
 	match pending {
-	case Some[T] as p:
+	case option.Some[T] as p:
 		try out.Push(p.Value)
-	case None:
+	case option.None:
 	}
 }
 

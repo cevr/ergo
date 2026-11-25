@@ -23,7 +23,7 @@ import time
 // `context { time.Clock: c, Scheduler: c }`. Effect's TestClock moves
 // only on adjust; this clock follows Go's testing/synctest and Tokio's
 // paused time.
-type VirtualClock { line time.Timeline } implements Scheduler, time.Clock
+type VirtualClock { line time.Timeline } implements time.Scheduler, time.Clock
 
 // NewVirtualClock is a VirtualClock whose time is sec seconds after
 // January 1, 1970 UTC. The calling task joins its domain, and leaves the
@@ -49,7 +49,7 @@ func Sleepers(c VirtualClock) int { c.line.Sleepers() }
 
 // Alarms is the clock's time as the runtime's waits use it: an alarm's
 // deadline is one the clock moves to when its domain waits.
-func Alarms(c VirtualClock) AlarmClock { c.line.Alarms() }
+func Alarms(c VirtualClock) time.AlarmClock { c.line.Alarms() }
 
 extern go ergo.local/prototype/runtime/v1.NewVirtualTimeline func newLine(sec int64, nsec int64) time.Timeline
 
@@ -60,9 +60,9 @@ func span(n int64) duration { duration(1 + (n%1099511627775+1099511627775)%10995
 law SleepAdvancesExactly(n int64) {
 	let c = NewVirtualClock(0)
 	let d = span(n)
-	with context { Scheduler: c, time.Clock: c } {
+	with context { time.Scheduler: c, time.Clock: c } {
 		let before = time.Clock.Now()
-		Scheduler.Sleep(d)
+		time.Scheduler.Sleep(d)
 		time.Clock.Now().Sub(before) == d
 	}
 }
@@ -76,7 +76,7 @@ law IdleOnlyAdvance(n int64, k int) {
 	let c = NewVirtualClock(0)
 	let d = span(n)
 	let count = 1 + (k%50+50)%50
-	with context { Scheduler: c, time.Clock: c } {
+	with context { time.Scheduler: c, time.Clock: c } {
 		let start = time.Clock.Now()
 		let q = queue.New[int](count)
 		let t = task.Go() {
@@ -85,7 +85,7 @@ law IdleOnlyAdvance(n int64, k int) {
 			}
 			time.Clock.Now()
 		}
-		Scheduler.Sleep(d)
+		time.Scheduler.Sleep(d)
 		let seen = t.Wait() catch {
 		case queue.Closed:
 			time.Unix(1, 0)
@@ -105,12 +105,12 @@ law IdleOnlyAdvance(n int64, k int) {
 // reports false, on an ended task too. It is here, beside VirtualClock,
 // because task cannot import testing.
 law StopAfterStopsAtD(w int, d int, alarmFirst bool, k int, manual bool) {
-	let wait = 1 + ((w % 6) + 6) % 6
-	let limit = 1 + ((d % 6) + 6) % 6
+	let wait = 1 + ((w%6)+6)%6
+	let limit = 1 + ((d%6)+6)%6
 	let n = ((k % 4) + 4) % 4
 	if manual {
 		let m = time.NewManual(0)
-		with context { Scheduler: m } {
+		with context { time.Scheduler: m } {
 			stopsAtD(n, wait, limit, alarmFirst, func() int { m.Sleepers() }, func() {
 				for _ in 0..7 {
 					m.Advance(1ms)
@@ -119,15 +119,15 @@ law StopAfterStopsAtD(w int, d int, alarmFirst bool, k int, manual bool) {
 		}
 	} else {
 		let c = NewVirtualClock(0)
-		with context { Scheduler: c } {
-			stopsAtD(n, wait, limit, alarmFirst, func() int { c.Sleepers() }, func() { Scheduler.Sleep(7ms) })
+		with context { time.Scheduler: c } {
+			stopsAtD(n, wait, limit, alarmFirst, func() int { c.Sleepers() }, func() { time.Scheduler.Sleep(7ms) })
 		}
 	}
 }
 
 // stopsAtD is StopAfterStopsAtD on the bound Scheduler, whose deadlines
 // sleepers counts and whose time pass moves by 7 ms.
-func stopsAtD(n int, wait int, limit int, alarmFirst bool, sleepers func() int, pass func() needs Scheduler) bool needs Scheduler {
+func stopsAtD(n int, wait int, limit int, alarmFirst bool, sleepers func() int, pass func() needs time.Scheduler) bool needs time.Scheduler {
 	let marks = queue.New[int](4)
 	let gate = queue.New[int](1)
 	let t = task.Go() { try stopSlept(n, marks, gate, time.Times(1ms, wait)) }
@@ -149,7 +149,7 @@ func stopsAtD(n int, wait int, limit int, alarmFirst bool, sleepers func() int, 
 
 // stopSlept is the block of StopAfterStopsAtD: n exit actions, each
 // pushing its mark, then one value from gate, a sleep of wait, and 1.
-func stopSlept(n int, marks queue.Queue[int], gate queue.Queue[int], wait duration) int fails queue.Closed needs Scheduler {
+func stopSlept(n int, marks queue.Queue[int], gate queue.Queue[int], wait duration) int fails queue.Closed needs time.Scheduler {
 	for i in 0..n {
 		scope.OnExit() {
 			marks.Push(i) catch {
@@ -158,14 +158,14 @@ func stopSlept(n int, marks queue.Queue[int], gate queue.Queue[int], wait durati
 		}
 	}
 	try gate.Pop()
-	Scheduler.Sleep(wait)
+	time.Scheduler.Sleep(wait)
 	1
 }
 
 // stopArmed arms task.StopAfter(t, d) before t sleeps (first) or once it
 // sleeps (sleepers counts its deadline): the two arming orders of the
 // alarm and t's sleep.
-func stopArmed(t Task[int, queue.Closed], gate queue.Queue[int], sleepers func() int, first bool, d duration) task.Alarm fails queue.Closed needs Scheduler {
+func stopArmed(t task.Task[int, queue.Closed], gate queue.Queue[int], sleepers func() int, first bool, d duration) task.Alarm fails queue.Closed needs time.Scheduler {
 	if first {
 		let a = task.StopAfter(t, d)
 		try gate.Push(0)

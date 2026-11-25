@@ -12,4 +12,4 @@ func EmptyCallFacts() CallFacts { CallFacts{flags: []uint8{}} }
 
 // HasCallFacts tells the driver whether the package produced a projection
 // at all. A verdict can still explicitly withhold proof for a function.
-func HasCallFacts(facts CallFacts) bool { len(facts.flags) > 0 }
+func HasCallFacts(facts CallFacts) bool { facts.flags.Len() > 0 }

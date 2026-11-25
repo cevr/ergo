@@ -1,3 +1,4 @@
+import codec
 import strconv
 import strings
 
@@ -20,7 +21,7 @@ type reader { text string, c cursor, a attrs } implements Cursor
 // decode[T] may borrow.
 // law-exempt: only Decode makes a Cursor, from a checked text, so a law cannot draw one; the package laws RoundTrips and AttributesRoundTrip hold its reads through Reader and decode.
 type Cursor {
-	..Reader,
+	..codec.Reader,
 	mut seal(),
 }
 
@@ -56,7 +57,7 @@ func readerOf(text string) reader {
 // it, and the last key read wins.)
 func attribute(r mut reader) bool {
 	let i = skipSpace(r.text, r.a.next)
-	if i >= len(r.text) || r.text[i] == '>' || r.text[i] == '/' {
+	if i >= r.text.Len() || r.text[i] == '>' || r.text[i] == '/' {
 		r.a = noAttrs
 		return false
 	}
@@ -71,13 +72,13 @@ func attribute(r mut reader) bool {
 // comment or a processing instruction.
 func blank(text string, i int) int {
 	let mut j = i
-	for j < len(text) {
+	for j < text.Len() {
 		let c = text[j]
 		if space(c) {
 			j = j + 1
-		} else if c == '<' && j+1 < len(text) && text[j+1] == '?' {
+		} else if c == '<' && j+1 < text.Len() && text[j+1] == '?' {
 			j = find(text, j, "?>") + 2
-		} else if strings.HasPrefix(strings.Slice(text, j, len(text)), "<!--") {
+		} else if strings.HasPrefix(strings.Slice(text, j, text.Len()), "<!--") {
 			j = find(text, j, "-->") + 3
 		} else {
 			return j
@@ -89,7 +90,7 @@ func blank(text string, i int) int {
 // markupEnd is the offset after the comment, CDATA section or processing
 // instruction at i.
 func markupEnd(text string, i int) int {
-	let rest = strings.Slice(text, i, len(text))
+	let rest = strings.Slice(text, i, text.Len())
 	if strings.HasPrefix(rest, "<![CDATA[") {
 		find(text, i+9, "]]>") + 3
 	} else if strings.HasPrefix(rest, "<!--") {
@@ -101,18 +102,18 @@ func markupEnd(text string, i int) int {
 
 // startsElement reports a start tag at i.
 func startsElement(text string, i int) bool {
-	i+1 < len(text) && text[i] == '<' && text[i+1] != '/' && text[i+1] != '!' && text[i+1] != '?'
+	i+1 < text.Len() && text[i] == '<' && text[i+1] != '/' && text[i+1] != '!' && text[i+1] != '?'
 }
 
 // startsEnd reports an end tag at i.
-func startsEnd(text string, i int) bool { i+1 < len(text) && text[i] == '<' && text[i+1] == '/' }
+func startsEnd(text string, i int) bool { i+1 < text.Len() && text[i] == '<' && text[i+1] == '/' }
 
 // taken is the cursor after the start tag at i: past its '>' (a quoted
 // attribute value may hold one), closed when it ends in "/>".
 func taken(text string, i int) cursor {
 	let mut j = i + 1
 	let mut quote byte = 0
-	for j < len(text) {
+	for j < text.Len() {
 		let c = text[j]
 		if quote != 0 {
 			if c == quote {
@@ -140,15 +141,15 @@ func value(text string, c cursor) (string, cursor, bool) {
 	let mut s = ""
 	let mut parts = 0
 	let mut i = c.at
-	for i < len(text) {
+	for i < text.Len() {
 		let mut part = ""
 		if startsEnd(text, i) {
 			return (s, cursor{at: past(text, i), closed: false, tag: c.tag}, true)
-		} else if strings.HasPrefix(strings.Slice(text, i, len(text)), "<![CDATA[") {
+		} else if strings.HasPrefix(strings.Slice(text, i, text.Len()), "<![CDATA[") {
 			let end = find(text, i+9, "]]>")
 			part = strings.Slice(text, i+9, end)
 			i = end + 3
-		} else if text[i] == '<' && i+1 < len(text) && (text[i+1] == '?' || text[i+1] == '!') {
+		} else if text[i] == '<' && i+1 < text.Len() && (text[i+1] == '?' || text[i+1] == '!') {
 			i = markupEnd(text, i)
 			continue
 		} else if text[i] == '<' {
@@ -156,7 +157,7 @@ func value(text string, c cursor) (string, cursor, bool) {
 		} else {
 			let mut end = find(text, i, "<")
 			if end < 0 {
-				end = len(text)
+				end = text.Len()
 			}
 			part = unescape(text, i, end) catch {
 			case Malformed:
@@ -176,7 +177,7 @@ func value(text string, c cursor) (string, cursor, bool) {
 
 // read is the text of the value at c, the reader's place, which it takes,
 // or the failure of a value of the kind want that holds an element.
-func read(r mut reader, c cursor, want string) string fails WireWrongKind {
+func read(r mut reader, c cursor, want string) string fails codec.WireWrongKind {
 	if r.a.key > 0 {
 		let v = unescape(r.text, r.a.val, r.a.end) catch {
 		case Malformed:
@@ -187,7 +188,7 @@ func read(r mut reader, c cursor, want string) string fails WireWrongKind {
 	}
 	let s, next, ok = value(r.text, c)
 	if !ok {
-		return WireWrongKind{Path: Path(r), Want: want}
+		return codec.WireWrongKind{Path: Path(r), Want: want}
 	}
 	r.c = next
 	s
@@ -195,9 +196,9 @@ func read(r mut reader, c cursor, want string) string fails WireWrongKind {
 
 // wrong is the failure of a value of the kind want at c, the reader's
 // place before it read the value's text.
-func wrong(r mut reader, c cursor, want string) WireWrongKind {
+func wrong(r mut reader, c cursor, want string) codec.WireWrongKind {
 	r.c = c
-	WireWrongKind{Path: Path(r), Want: want}
+	codec.WireWrongKind{Path: Path(r), Want: want}
 }
 
 // Path is where the reader is: the names of the open elements from the
@@ -218,13 +219,13 @@ func Path(r mut reader) string {
 			break
 		}
 		if p.kind == startElement {
-			let last = len(counts) - 1
+			let last = counts.Len() - 1
 			counts[last] = counts[last] + 1
 			names = names.Append(p.name + "[" + strconv.Itoa(counts[last]-1) + "]")
 			counts = counts.Append(0)
 		} else if p.kind == endElement {
-			names = names[0 : len(names)-1]
-			counts = counts[0 : len(counts)-1]
+			names = names[0 : names.Len()-1]
+			counts = counts[0 : counts.Len()-1]
 		}
 	}
 	"/" + strings.Join(names, "/")
@@ -261,30 +262,30 @@ func TakeNull(r mut reader) bool {
 	true
 }
 
-func Peek(r mut reader) WireKind {
+func Peek(r mut reader) codec.WireKind {
 	let c = r.c
 	if c.closed || r.a.key > 0 {
-		return WireString
+		return codec.WireString
 	}
 	let k = blank(r.text, c.at)
-	if k >= len(r.text) {
-		WireEnd
+	if k >= r.text.Len() {
+		codec.WireEnd
 	} else if startsElement(r.text, k) {
-		if nameAtTag(r.text, k) == "null" { WireNull } else { WireObject }
+		if nameAtTag(r.text, k) == "null" { codec.WireNull } else { codec.WireObject }
 	} else {
-		WireString
+		codec.WireString
 	}
 }
 
-func String(r mut reader) string fails WireWrongKind { try read(r, r.c, "string") }
+func String(r mut reader) string fails codec.WireWrongKind { try read(r, r.c, "string") }
 
 // StringBytes is into with the next string's bytes added, as String reads
 // them (the prelude Reader's StringBytes, GX12).
-func StringBytes(r mut reader, into []byte) []byte fails WireWrongKind { appendString(into, try r.String()) }
+func StringBytes(r mut reader, into []byte) []byte fails codec.WireWrongKind { appendString(into, try r.String()) }
 
-func Number(r mut reader) string fails WireWrongKind { strings.TrimSpace(try read(r, r.c, "number")) }
+func Number(r mut reader) string fails codec.WireWrongKind { strings.TrimSpace(try read(r, r.c, "number")) }
 
-func Bool(r mut reader) bool fails WireWrongKind {
+func Bool(r mut reader) bool fails codec.WireWrongKind {
 	let c = r.c
 	match strings.TrimSpace(try read(r, c, "bool")) {
 	case "true":
@@ -296,7 +297,7 @@ func Bool(r mut reader) bool fails WireWrongKind {
 	}
 }
 
-func Int(r mut reader) int64 fails WireWrongKind {
+func Int(r mut reader) int64 fails codec.WireWrongKind {
 	let c = r.c
 	let s = try read(r, c, "int")
 	strconv.ParseInt(strings.TrimSpace(s), 10, 64) catch {
@@ -305,7 +306,7 @@ func Int(r mut reader) int64 fails WireWrongKind {
 	}
 }
 
-func Uint(r mut reader) uint64 fails WireWrongKind {
+func Uint(r mut reader) uint64 fails codec.WireWrongKind {
 	let c = r.c
 	let s = try read(r, c, "uint")
 	let digits = strings.TrimSpace(s)
@@ -313,7 +314,7 @@ func Uint(r mut reader) uint64 fails WireWrongKind {
 		return wrong(r, c, "uint")
 	}
 	let mut n uint64 = 0
-	for i in 0..len(digits) {
+	for i in 0..digits.Len() {
 		let d = digits[i]
 		if d < '0' || d > '9' {
 			return wrong(r, c, "uint")
@@ -328,7 +329,7 @@ func Uint(r mut reader) uint64 fails WireWrongKind {
 	n
 }
 
-func Float(r mut reader) float64 fails WireWrongKind {
+func Float(r mut reader) float64 fails codec.WireWrongKind {
 	let c = r.c
 	let s = try read(r, c, "float")
 	strconv.ParseFloat(strings.TrimSpace(s)) catch {
@@ -338,30 +339,30 @@ func Float(r mut reader) float64 fails WireWrongKind {
 }
 
 // begin opens an object or a list: its content is elements, not text.
-func begin(r mut reader, want string) fails WireWrongKind {
+func begin(r mut reader, want string) fails codec.WireWrongKind {
 	if r.a.key > 0 {
-		return WireWrongKind{Path: Path(r), Want: want}
+		return codec.WireWrongKind{Path: Path(r), Want: want}
 	}
 	let c = r.c
 	if c.closed {
 		return
 	}
 	let k = blank(r.text, c.at)
-	if k < len(r.text) && r.text[k] != '<' || strings.HasPrefix(strings.Slice(r.text, k, len(r.text)), "<![CDATA[") {
-		return WireWrongKind{Path: Path(r), Want: want}
+	if k < r.text.Len() && r.text[k] != '<' || strings.HasPrefix(strings.Slice(r.text, k, r.text.Len()), "<![CDATA[") {
+		return codec.WireWrongKind{Path: Path(r), Want: want}
 	}
 }
 
-func BeginList(r mut reader) fails WireWrongKind { try begin(r, "list") }
+func BeginList(r mut reader) fails codec.WireWrongKind { try begin(r, "list") }
 
 // BeginObject starts an object; its start tag's attributes are its
 // first keys.
-func BeginObject(r mut reader) fails WireWrongKind {
+func BeginObject(r mut reader) fails codec.WireWrongKind {
 	try begin(r, "object")
 	r.a = attrs{..noAttrs, next: nameAt(r.text, r.c.tag+1)}
 }
 
-func Tag(r mut reader) string fails WireMissingField {
+func Tag(r mut reader) string fails codec.WireMissingField {
 	let c = r.c
 	if !c.closed && r.a.key == 0 {
 		let k = blank(r.text, c.at)
@@ -371,7 +372,7 @@ func Tag(r mut reader) string fails WireMissingField {
 			return strings.TrimSpace(name)
 		}
 	}
-	WireMissingField{Path: Path(r), Field: "_tag"}
+	codec.WireMissingField{Path: Path(r), Field: "_tag"}
 }
 
 // More takes the next value's start tag, when there is one before the
@@ -404,7 +405,7 @@ func Key(r mut reader) string {
 	if name != "_" {
 		return name
 	}
-	let mut p = NewParser(strings.Slice(r.text, i, len(r.text)), 0)
+	let mut p = NewParser(strings.Slice(r.text, i, r.text.Len()), 0)
 	match p.Next() catch {
 	case Malformed:
 		return name
@@ -435,14 +436,14 @@ func Skip(r mut reader) {
 	}
 	let mut i = c.at
 	let mut depth = 1
-	for i < len(r.text) {
+	for i < r.text.Len() {
 		if startsEnd(r.text, i) {
 			i = past(r.text, i)
 			depth = depth - 1
 			if depth == 0 {
 				break
 			}
-		} else if r.text[i] == '<' && i+1 < len(r.text) && (r.text[i+1] == '?' || r.text[i+1] == '!') {
+		} else if r.text[i] == '<' && i+1 < r.text.Len() && (r.text[i+1] == '?' || r.text[i+1] == '!') {
 			i = markupEnd(r.text, i)
 		} else if r.text[i] == '<' {
 			let n = taken(r.text, i)
@@ -452,7 +453,7 @@ func Skip(r mut reader) {
 			}
 		} else {
 			let next = find(r.text, i, "<")
-			i = if next < 0 { len(r.text) } else { next }
+			i = if next < 0 { r.text.Len() } else { next }
 		}
 	}
 	r.c = cursor{at: i, closed: false, tag: c.tag}

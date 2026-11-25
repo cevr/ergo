@@ -11,6 +11,7 @@
 // pquerna/otp package's totp.GenerateCode and totp.Validate; yielded/auth
 // and better-auth's two-factor plugin keep the same three parameters.
 
+import option
 import strconv
 import strings
 import time
@@ -32,7 +33,7 @@ func NewParams(digits int, period duration, window int) Params fails BadParams {
 	if digits < 6 || digits > 8 {
 		return BadParams{Reason: "the digits are 6, 7 or 8"}
 	}
-	if period < 1s || int64(period) % int64(1s) != 0 {
+	if period < 1s || int64(period)%int64(1s) != 0 {
 		return BadParams{Reason: "the period is whole seconds, one or more"}
 	}
 	if window < 0 || window > 2 {
@@ -55,8 +56,8 @@ func Window(p Params) int { p.window }
 func StepOf(p Params, t time.Time) int64 {
 	let sec = time.UnixSeconds(t)
 	let per = int64(p.period) / int64(1s)
-	if sec < 0 && sec % per != 0 {
-		return sec / per - 1
+	if sec < 0 && sec%per != 0 {
+		return sec/per - 1
 	}
 	sec / per
 }
@@ -86,7 +87,7 @@ extern go ergo.local/prototype/runtime/v1/digest.HotpNumber func hotpNumber(inne
 // four bits give, to 31 bits, then to p's digits with leading zeros.
 func CodeOf(p Params, secret string, step int64) string {
 	let text = strconv.Itoa(numberAt(KeyOf(secret), step, modOf(p)))
-	strings.Repeat("0", p.digits - len(text)) + text
+	strings.Repeat("0", p.digits-text.Len()) + text
 }
 
 // numberAt is the number CodeOf writes for step under k: the step's
@@ -108,14 +109,14 @@ func Code(p Params, secret string, t time.Time) string { CodeOf(p, secret, StepO
 
 // Verify is the step whose code code is, among the steps of p's window
 // around now, or None: VerifyKey under the secret keyed for this call.
-func Verify(p Params, secret string, code string, now time.Time) Option[int64] { VerifyKey(p, KeyOf(secret), code, now) }
+func Verify(p Params, secret string, code string, now time.Time) option.Option[int64] { VerifyKey(p, KeyOf(secret), code, now) }
 
 // VerifyKey is Verify under a secret keyed once; Verify is it, so
 // Verify's laws state it. A code that is not p's digits matches no step.
 // Otherwise it reads code's number once and compares it with every
 // step's of the window, with no early exit, so the work it does says
 // nothing of which step matched (law SameWorkForEveryCode).
-func VerifyKey(p Params, k Key, code string, now time.Time) Option[int64] {
+func VerifyKey(p Params, k Key, code string, now time.Time) option.Option[int64] {
 	let found, _ = VerifyWork(p, k, code, now)
 	found
 }
@@ -123,27 +124,27 @@ func VerifyKey(p Params, k Key, code string, now time.Time) Option[int64] {
 // VerifyWork is VerifyKey and the number of steps it hashed: the work
 // counter that shows a check's cost does not depend on its code (law
 // SameWorkForEveryCode), counted, never timed.
-func VerifyWork(p Params, k Key, code string, now time.Time) (Option[int64], int) {
-	if len(code) != p.digits {
-		return (None, 0)
+func VerifyWork(p Params, k Key, code string, now time.Time) (option.Option[int64], int) {
+	if code.Len() != p.digits {
+		return (option.None, 0)
 	}
 	let mut want = 0
-	for i in 0..len(code) {
+	for i in 0..code.Len() {
 		let c = code[i]
 		if c < '0' || c > '9' {
-			return (None, 0)
+			return (option.None, 0)
 		}
-		want = want * 10 + int(c - '0')
+		want = want*10 + int(c-'0')
 	}
 	let at = StepOf(p, now)
-	let mut found Option[int64] = None
+	let mut found option.Option[int64] = option.None
 	let mut hashed = 0
 	let mod = modOf(p)
-	for d in -p.window..p.window + 1 {
+	for d in -p.window..p.window+1 {
 		let step = at + int64(d)
 		hashed += 1
-		if numberAt(k, step, mod) == want && found == None {
-			found = Some[int64]{Value: step}
+		if numberAt(k, step, mod) == want && found == option.None {
+			found = option.Some[int64]{Value: step}
 		}
 	}
 	(found, hashed)
@@ -170,12 +171,12 @@ func base32(s string) string {
 		bits = bits + 8
 		for bits >= 5 {
 			bits = bits - 5
-			out = out.Append(strings.Bytes(alphabet)[(buf >> bits) & 31])
+			out = out.Append(strings.Bytes(alphabet)[(buf>>bits)&31])
 		}
 		buf = buf & ((1 << bits) - 1)
 	}
 	if bits > 0 {
-		out = out.Append(strings.Bytes(alphabet)[(buf << (5 - bits)) & 31])
+		out = out.Append(strings.Bytes(alphabet)[(buf<<(5-bits))&31])
 	}
 	strings.FromBytes(out)
 }
@@ -189,7 +190,7 @@ func escape(s string) string {
 		if (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '-' || b == '.' || b == '_' || b == '~' {
 			out = out.Append(b)
 		} else {
-			out = out.Append('%').Append(strings.Bytes(digits)[int(b) >> 4]).Append(strings.Bytes(digits)[int(b) & 15])
+			out = out.Append('%').Append(strings.Bytes(digits)[int(b)>>4]).Append(strings.Bytes(digits)[int(b)&15])
 		}
 	}
 	strings.FromBytes(out)
@@ -232,9 +233,9 @@ law VerifyOfCode(secret string, sec int64, drift int) {
 	let code = Code(p, secret, t)
 	let later = t.Add(time.Times(30s, ((drift%2)+2)%2))
 	match Verify(p, secret, code, later) {
-	case Some[int64] as s:
+	case option.Some[int64] as s:
 		s.Value == step || CodeOf(p, secret, s.Value) == code
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -250,21 +251,21 @@ law SameWorkForEveryCode(secret string, sec int64, w int) {
 	let now = time.Unix(((sec%10000000000)+10000000000)%10000000000, 0)
 	let at = StepOf(p, now)
 	let k = KeyOf(secret)
-	let first = CodeOf(p, secret, at - int64(Window(p)))
-	let last = CodeOf(p, secret, at + int64(Window(p)))
+	let first = CodeOf(p, secret, at-int64(Window(p)))
+	let last = CodeOf(p, secret, at+int64(Window(p)))
 	let mut none = "000000"
-	for n in 0..2*Window(p) + 2 {
+	for n in 0..2*Window(p)+2 {
 		let text = strconv.Itoa(n)
-		let c = strings.Repeat("0", 6 - len(text)) + text
+		let c = strings.Repeat("0", 6-text.Len()) + text
 		let found, _ = VerifyWork(p, k, c, now)
-		if found == None {
+		if found == option.None {
 			none = c
 		}
 	}
 	let a, wa = VerifyWork(p, k, first, now)
 	let b, wb = VerifyWork(p, k, last, now)
 	let c, wc = VerifyWork(p, k, none, now)
-	a != None && b != None && c == None && wa == 2*Window(p) + 1 && wb == wa && wc == wa
+	a != option.None && b != option.None && c == option.None && wa == 2*Window(p)+1 && wb == wa && wc == wa
 }
 
 // OutsideWindowFails: the code of a step more than the window away from
@@ -276,9 +277,9 @@ law OutsideWindowFails(secret string, sec int64, far int) {
 	let at = StepOf(p, now)
 	let k = int64(2 + ((far%20)+20)%20)
 	for sign in []int64{-1, 1} {
-		let code = CodeOf(p, secret, at + sign*k)
-		let same = CodeOf(p, secret, at - 1) == code || CodeOf(p, secret, at) == code || CodeOf(p, secret, at + 1) == code
-		if !same && Verify(p, secret, code, now) != None {
+		let code = CodeOf(p, secret, at+sign*k)
+		let same = CodeOf(p, secret, at-1) == code || CodeOf(p, secret, at) == code || CodeOf(p, secret, at+1) == code
+		if !same && Verify(p, secret, code, now) != option.None {
 			return false
 		}
 	}
@@ -290,7 +291,7 @@ law OutsideWindowFails(secret string, sec int64, far int) {
 law ShortCodeFails(secret string, sec int64) {
 	let p = Default()
 	let now = time.Unix(((sec%10000000000)+10000000000)%10000000000, 0)
-	Verify(p, secret, Code(p, secret, now)[1:], now) == None
+	Verify(p, secret, Code(p, secret, now)[1:], now) == option.None
 }
 
 // NewParamsBoundsTheWindow: NewParams refuses a window outside 0..2, and
@@ -310,7 +311,7 @@ law StepsAreWholePeriods(sec int64) {
 	let p = Default()
 	let s = sec % 100000000000
 	let step = StepOf(p, time.Unix(s, 0))
-	step * 30 <= s && s < (step + 1) * 30
+	step*30 <= s && s < (step+1)*30
 }
 
 // URIOfTheRFCSecret: the otpauth text of RFC 6238's secret holds it in

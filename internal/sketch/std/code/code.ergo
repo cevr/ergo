@@ -21,6 +21,7 @@
 // and its language server reads them; gopls serves symbol references to
 // agents by name ("lib.T.M"); SCIP names symbols by printable strings.
 
+import option
 import strconv
 import strings
 import slices
@@ -110,12 +111,12 @@ type Summary {
 // at most 1000). Each field is optional, so each is a flag a command line
 // may leave out.
 type SymbolQuery {
-	Name    Option[string],
-	Match   Option[string],
-	Kind    Option[string],
-	Package Option[string],
-	Offset  Option[int],
-	Limit   Option[int],
+	Name    option.Option[string],
+	Match   option.Option[string],
+	Kind    option.Option[string],
+	Package option.Option[string],
+	Offset  option.Option[int],
+	Limit   option.Option[int],
 }
 
 // SymbolPage is a page of declarations in table order. Total counts every
@@ -133,8 +134,8 @@ type SymbolPage {
 type RefQuery {
 	Of     string,
 	Kinds  []string,
-	Offset Option[int],
-	Limit  Option[int],
+	Offset option.Option[int],
+	Limit  option.Option[int],
 }
 
 // SitePage is a page of sites in table order (by package, then file
@@ -201,24 +202,24 @@ type Reader {
 func callsAreSteps(pick int, depth int, inbound bool) bool needs Reader {
 	let n = 1 + slot(depth, 3)
 	match picked(pick) {
-	case None:
+	case option.None:
 		true
-	case Some[Decl] as d:
+	case option.Some[Decl] as d:
 		if !callable(d.Value.Kind) {
 			return true
 		}
-		let dir = Some[string]{Value: if inbound { "in" } else { "out" }}
-		let short = Reader.Calls(CallQuery{Of: d.Value.Handle, Direction: dir, Depth: Some[int]{Value: n}, Offset: None, Limit: Some[int]{Value: MaxLimit}}) catch {
+		let dir = option.Some[string]{Value: if inbound { "in" } else { "out" }}
+		let short = Reader.Calls(CallQuery{Of: d.Value.Handle, Direction: dir, Depth: option.Some[int]{Value: n}, Offset: option.None, Limit: option.Some[int]{Value: MaxLimit}}) catch {
 		case _:
 			return false
 		}
-		let long = Reader.Calls(CallQuery{Of: d.Value.Handle, Direction: dir, Depth: Some[int]{Value: n + 1}, Offset: None, Limit: Some[int]{Value: MaxLimit}}) catch {
+		let long = Reader.Calls(CallQuery{Of: d.Value.Handle, Direction: dir, Depth: option.Some[int]{Value: n + 1}, Offset: option.None, Limit: option.Some[int]{Value: MaxLimit}}) catch {
 		case _:
 			return false
 		}
-		let mut ok = len(long.Hops) >= len(short.Hops)
+		let mut ok = long.Hops.Len() >= short.Hops.Len()
 		for i, h in long.Hops {
-			ok = ok && (if i < len(short.Hops) { h == short.Hops[i] } else { h.Depth == n + 1 })
+			ok = ok && (if i < short.Hops.Len() { h == short.Hops[i] } else { h.Depth == n+1 })
 		}
 		if n == 1 {
 			for h in short.Hops {
@@ -233,9 +234,9 @@ func callsAreSteps(pick int, depth int, inbound bool) bool needs Reader {
 // all take it, each but the last is partial, and they are in match order.
 func machineArmsStopAtAWholeArm(pick int) bool needs Reader {
 	match picked(pick) {
-	case None:
+	case option.None:
 		true
-	case Some[Decl] as d:
+	case option.Some[Decl] as d:
 		let v = Reader.MachineOf(d.Value.Handle) catch {
 		case NotMachine:
 			return d.Value.Kind != "machine"
@@ -247,7 +248,7 @@ func machineArmsStopAtAWholeArm(pick int) bool needs Reader {
 			let mut last = -1
 			for k, at in p.Arms {
 				let i = slices.IndexFunc(v.Graph.Arms, func(a Arm) bool { a.At == at })
-				ok = ok && i > last && takesIt(v.Graph.Arms[i], p.State, p.Signal) && (k == len(p.Arms) - 1 || partialAt(v.Graph.Arms[i], p.State, p.Signal))
+				ok = ok && i > last && takesIt(v.Graph.Arms[i], p.State, p.Signal) && (k == p.Arms.Len()-1 || partialAt(v.Graph.Arms[i], p.State, p.Signal))
 				last = i
 			}
 		}
@@ -263,10 +264,10 @@ func machineArmsStopAtAWholeArm(pick int) bool needs Reader {
 // both caught and raised at its call, and a chain may pass it).
 func reachChainsAreCalls(pick int) bool needs Reader {
 	match picked(pick) {
-	case None:
+	case option.None:
 		true
-	case Some[Decl] as d:
-		let page = Reader.Reach(ReachQuery{Of: d.Value.Handle, Offset: None, Limit: Some[int]{Value: MaxLimit}}) catch {
+	case option.Some[Decl] as d:
+		let page = Reader.Reach(ReachQuery{Of: d.Value.Handle, Offset: option.None, Limit: option.Some[int]{Value: MaxLimit}}) catch {
 		case _:
 			return false
 		}
@@ -283,7 +284,7 @@ func reachChainsAreCalls(pick int) bool needs Reader {
 				on = on.Append(at)
 				at = c.To
 			}
-			if len(r.Chain) > 0 {
+			if r.Chain.Len() > 0 {
 				ok = ok && (!bringsFurther(at, page.Of) || has(on, at))
 			}
 		}
@@ -296,7 +297,7 @@ func reachChainsAreCalls(pick int) bool needs Reader {
 
 // bringsFurther is whether a call of the declaration at h brings x.
 func bringsFurther(h string, x string) bool needs Reader {
-	let page = Reader.Calls(CallQuery{Of: h, Direction: None, Depth: None, Offset: None, Limit: Some[int]{Value: MaxLimit}}) catch {
+	let page = Reader.Calls(CallQuery{Of: h, Direction: option.None, Depth: option.None, Offset: option.None, Limit: option.Some[int]{Value: MaxLimit}}) catch {
 	case _:
 		return false
 	}
@@ -319,7 +320,7 @@ func Every() []Decl needs Reader {
 	let mut out = []Decl{}
 	let mut at = 0
 	for at >= 0 {
-		let page = Reader.Symbols(SymbolQuery{Name: None, Match: None, Kind: None, Package: None, Offset: Some[int]{Value: at}, Limit: Some[int]{Value: MaxLimit}})
+		let page = Reader.Symbols(SymbolQuery{Name: option.None, Match: option.None, Kind: option.None, Package: option.None, Offset: option.Some[int]{Value: at}, Limit: option.Some[int]{Value: MaxLimit}})
 		for d in page.Decls {
 			out = out.Append(d)
 		}
@@ -335,7 +336,7 @@ func All(a string, kinds []string, size int) SitePage fails NoSymbol | Ambiguous
 	let mut at = 0
 	let mut last = SitePage{Revision: "", Complete: true, Sites: []Site{}, Total: 0, Next: -1}
 	for at >= 0 {
-		last = try Reader.References(RefQuery{Of: a, Kinds: kinds, Offset: Some[int]{Value: at}, Limit: Some[int]{Value: size}})
+		last = try Reader.References(RefQuery{Of: a, Kinds: kinds, Offset: option.Some[int]{Value: at}, Limit: option.Some[int]{Value: size}})
 		for s in last.Sites {
 			out = out.Append(s)
 		}
@@ -345,19 +346,19 @@ func All(a string, kinds []string, size int) SitePage fails NoSymbol | Ambiguous
 }
 
 // picked is the declaration of the reader that pick picks, if it has any.
-func picked(pick int) Option[Decl] needs Reader {
+func picked(pick int) option.Option[Decl] needs Reader {
 	let all = Every()
-	if len(all) == 0 {
-		return None
+	if all.Len() == 0 {
+		return option.None
 	}
-	Some[Decl]{Value: all[slot(pick, len(all))]}
+	option.Some[Decl]{Value: all[slot(pick, all.Len())]}
 }
 
 func handleRoundTrips(pick int) bool needs Reader {
 	match picked(pick) {
-	case None:
+	case option.None:
 		true
-	case Some[Decl] as d:
+	case option.Some[Decl] as d:
 		let back = Reader.Symbol(d.Value.Handle) catch {
 		case NoSymbol:
 			return false
@@ -370,9 +371,9 @@ func handleRoundTrips(pick int) bool needs Reader {
 
 func referencesAreSound(pick int, kinds []string) bool needs Reader {
 	match picked(pick) {
-	case None:
+	case option.None:
 		true
-	case Some[Decl] as d:
+	case option.Some[Decl] as d:
 		let page = All(d.Value.Handle, kinds, MaxLimit) catch {
 		case NoSymbol:
 			return false
@@ -381,7 +382,7 @@ func referencesAreSound(pick int, kinds []string) bool needs Reader {
 		}
 		let mut ok = true
 		for s in page.Sites {
-			ok = ok && s.Symbol == d.Value.Handle && (len(kinds) == 0 || has(kinds, s.Kind))
+			ok = ok && s.Symbol == d.Value.Handle && (kinds.Len() == 0 || has(kinds, s.Kind))
 		}
 		ok
 	}
@@ -396,29 +397,29 @@ func referencesAreComplete() bool needs Reader {
 		case Ambiguous:
 			return false
 		}
-		n = n + len(page.Sites)
+		n = n + page.Sites.Len()
 	}
 	n == Reader.Describe().Sites
 }
 
 func pagesPartition(pick int, size int) bool needs Reader {
 	match picked(pick) {
-	case None:
+	case option.None:
 		true
-	case Some[Decl] as d:
-		let whole = Reader.References(RefQuery{Of: d.Value.Handle, Kinds: []string{}, Offset: None, Limit: Some[int]{Value: MaxLimit}}) catch {
+	case option.Some[Decl] as d:
+		let whole = Reader.References(RefQuery{Of: d.Value.Handle, Kinds: []string{}, Offset: option.None, Limit: option.Some[int]{Value: MaxLimit}}) catch {
 		case NoSymbol:
 			return false
 		case Ambiguous:
 			return false
 		}
-		let paged = All(d.Value.Handle, []string{}, 1 + slot(size, 7)) catch {
+		let paged = All(d.Value.Handle, []string{}, 1+slot(size, 7)) catch {
 		case NoSymbol:
 			return false
 		case Ambiguous:
 			return false
 		}
-		paged.Sites == whole.Sites && whole.Total == len(whole.Sites)
+		paged.Sites == whole.Sites && whole.Total == whole.Sites.Len()
 	}
 }
 
@@ -436,21 +437,21 @@ func has(xs []string, x string) bool {
 }
 
 // or is the value of o, or d when it has none.
-func or(o Option[int], d int) int {
+func or(o option.Option[int], d int) int {
 	match o {
-	case Some[int] as v:
+	case option.Some[int] as v:
 		v.Value
-	case None:
+	case option.None:
 		d
 	}
 }
 
 // text is the value of o, or "" when it has none.
-func text(o Option[string]) string {
+func text(o option.Option[string]) string {
 	match o {
-	case Some[string] as v:
+	case option.Some[string] as v:
 		v.Value
-	case None:
+	case option.None:
 		""
 	}
 }
@@ -458,7 +459,7 @@ func text(o Option[string]) string {
 // window is the window of n rows that offset and limit ask for: its start,
 // its end and the next page's offset (-1 after the last). No limit, or one
 // of 0 or less, is DefaultLimit, and none is more than MaxLimit.
-func window(n int, offset Option[int], limit Option[int]) (int, int, int) {
+func window(n int, offset option.Option[int], limit option.Option[int]) (int, int, int) {
 	let l = or(limit, DefaultLimit)
 	let o = or(offset, 0)
 	let size = if l <= 0 { DefaultLimit } else if l > MaxLimit { MaxLimit } else { l }
@@ -494,10 +495,10 @@ func fits(q SymbolQuery, d Decl) bool {
 // isPosition is whether the address a is a position, file:line:column.
 func isPosition(a string) bool {
 	let parts = strings.Split(a, ":")
-	if len(parts) < 3 {
+	if parts.Len() < 3 {
 		return false
 	}
-	isNumber(parts[len(parts)-1]) && isNumber(parts[len(parts)-2])
+	isNumber(parts[parts.Len()-1]) && isNumber(parts[parts.Len()-2])
 }
 
 // isNumber is whether s is a decimal number.
@@ -516,4 +517,4 @@ func positionOf(file string, line int, column int) string { "\(file):\(line):\(c
 
 // shortFits is whether the short name a names the declaration d: d's
 // handle is its package's path, a dot and a.
-func shortFits(a string, d Decl) bool { d.Handle == d.Package + "." + a }
+func shortFits(a string, d Decl) bool { d.Handle == d.Package+"."+a }

@@ -10,6 +10,7 @@
 import compiler/check/store
 import compiler/syntax
 import dense
+import option
 
 // Cycle is one reported instantiation cycle: the file and offset of the
 // growing instantiation, the instantiated type's name and its argument's
@@ -25,7 +26,7 @@ type mono { edges []monoEdge, byFrom [][]int, steps int }
 
 // edgeAt is the index of the edge from-to, or -1.
 func edgeAt(m mono, from int, to int) int {
-	if from < len(m.byFrom) {
+	if from < m.byFrom.Len() {
 		for i in m.byFrom[from] {
 			if m.edges[i].to == to {
 				return i
@@ -37,10 +38,10 @@ func edgeAt(m mono, from int, to int) int {
 
 // pushEdge appends e and indexes it by its source.
 func pushEdge(m mut mono, e monoEdge) {
-	for len(m.byFrom) <= e.from {
+	for m.byFrom.Len() <= e.from {
 		m.byFrom = m.byFrom.Append([]int{})
 	}
-	m.byFrom[e.from] = m.byFrom[e.from].Append(len(m.edges))
+	m.byFrom[e.from] = m.byFrom[e.from].Append(m.edges.Len())
 	m.edges = m.edges.Append(e)
 }
 
@@ -99,11 +100,11 @@ func record(c mut cyc, o owner, f int, env Env, head dense.ID[syntax.Node], indi
 		// A row parameter's argument adds no edge (mono.go: type
 		// parameters only). Its growth is CK-ROWGROW, which the Go
 		// checker does not end on, so no test reaches this yet.
-		if i >= len(c.gens[g].params) || (i < len(ks) && (ks[i] == kindErrors || ks[i] == kindUses)) {
+		if i >= c.gens[g].params.Len() || (i < ks.Len() && (ks[i] == kindErrors || ks[i] == kindUses)) {
 			continue
 		}
 		let leaves = orLeaves(p, a)
-		let t = if len(leaves) > 1 { rowValue(&c.s, env, leaves) } else { Resolve(&c.s, env, a) }
+		let t = if leaves.Len() > 1 { rowValue(&c.s, env, leaves) } else { Resolve(&c.s, env, a) }
 		for j, v in o.verts {
 			if !o.typed[j] {
 				continue
@@ -125,7 +126,7 @@ func paramKind(o owner, p syntax.Parsed, x dense.ID[syntax.Node]) int {
 	let t = nameText(p, unparen(p, x))
 	for j, n in o.names {
 		if n == t && t != "" {
-			return if j < len(o.kinds) { o.kinds[j] } else { kindType }
+			return if j < o.kinds.Len() { o.kinds[j] } else { kindType }
 		}
 	}
 	-1
@@ -161,20 +162,20 @@ func refused(o owner, p syntax.Parsed, x dense.ID[syntax.Node]) bool {
 	case syntax.FuncType as ft:
 		let mut written = []string{}
 		match dense.Unpack(ft.Results) {
-		case Some[dense.ID[syntax.Node]] as r:
+		case option.Some[dense.ID[syntax.Node]] as r:
 			match syntax.ViewOf(p.Tree, r.Value) {
 			case syntax.FieldList as fl:
 				for fx in listIDs(p, fl.List) {
 					match syntax.ViewOf(p.Tree, fx) {
 					case syntax.Field as fd:
 						match dense.Unpack(fd.Type) {
-						case Some[dense.ID[syntax.Node]] as t:
+						case option.Some[dense.ID[syntax.Node]] as t:
 							match syntax.ViewOf(p.Tree, t.Value) {
 							case syntax.ErrorRow:
 								names(p, t.Value, &written)
 							case _:
 							}
-						case None:
+						case option.None:
 						}
 					case _:
 					}
@@ -183,10 +184,10 @@ func refused(o owner, p syntax.Parsed, x dense.ID[syntax.Node]) bool {
 				names(p, r.Value, &written)
 			case _:
 			}
-		case None:
+		case option.None:
 		}
 		match dense.Unpack(ft.Needs) {
-		case Some[dense.ID[syntax.Node]] as n:
+		case option.Some[dense.ID[syntax.Node]] as n:
 			match syntax.ViewOf(p.Tree, n.Value) {
 			case syntax.NeedsClause as nc:
 				for name in listIDs(p, nc.Names) {
@@ -194,11 +195,11 @@ func refused(o owner, p syntax.Parsed, x dense.ID[syntax.Node]) bool {
 				}
 			case _:
 			}
-		case None:
+		case option.None:
 		}
 		for w in written {
 			for j, n in o.names {
-				if n == w && j < len(o.kinds) && o.kinds[j] == KindConflict {
+				if n == w && j < o.kinds.Len() && o.kinds[j] == KindConflict {
 					return true
 				}
 			}
@@ -219,10 +220,10 @@ func validArgs(c mut cyc, o owner, env Env, p syntax.Parsed, ks []int, indices [
 		if refused(o, p, a) {
 			return false
 		}
-		let k = if i < len(ks) { ks[i] } else { kindType }
+		let k = if i < ks.Len() { ks[i] } else { kindType }
 		let leaves = orLeaves(p, a)
 		let row = k == kindErrors || k == kindUses
-		if !row && len(leaves) == 1 {
+		if !row && leaves.Len() == 1 {
 			// Resolve first: it grows the pool isInvalid reads.
 			let t = Resolve(&c.s, env, a)
 			if isInvalid(c.s, t) {
@@ -257,9 +258,9 @@ func cfields(c mut cyc, o owner, f int, env Env, l dense.ID[syntax.Node]) {
 			match syntax.ViewOf(p.Tree, x) {
 			case syntax.Field as fd:
 				match dense.Unpack(fd.Type) {
-				case Some[dense.ID[syntax.Node]] as t:
+				case option.Some[dense.ID[syntax.Node]] as t:
 					cwalk(c, o, f, env, t.Value)
-				case None:
+				case option.None:
 				}
 			case _:
 			}
@@ -300,12 +301,12 @@ func cwalk(c mut cyc, o owner, f int, env Env, x dense.ID[syntax.Node]) {
 	case syntax.FuncType as ft:
 		cfields(c, o, f, env, ft.Params)
 		match dense.Unpack(ft.Results) {
-		case Some[dense.ID[syntax.Node]] as r:
+		case option.Some[dense.ID[syntax.Node]] as r:
 			cfields(c, o, f, env, r.Value)
-		case None:
+		case option.None:
 		}
 		match dense.Unpack(ft.Needs) {
-		case Some[dense.ID[syntax.Node]] as n:
+		case option.Some[dense.ID[syntax.Node]] as n:
 			match syntax.ViewOf(p.Tree, n.Value) {
 			case syntax.NeedsClause as nc:
 				for name in listIDs(p, nc.Names) {
@@ -313,7 +314,7 @@ func cwalk(c mut cyc, o owner, f int, env Env, x dense.ID[syntax.Node]) {
 				}
 			case _:
 			}
-		case None:
+		case option.None:
 		}
 	case syntax.ErrorRow as er:
 		for t in listIDs(p, er.Types) {
@@ -328,9 +329,9 @@ func cwalk(c mut cyc, o owner, f int, env Env, x dense.ID[syntax.Node]) {
 			match syntax.ViewOf(p.Tree, mb) {
 			case syntax.Field as fd:
 				match dense.Unpack(fd.Type) {
-				case Some[dense.ID[syntax.Node]] as t:
+				case option.Some[dense.ID[syntax.Node]] as t:
 					cwalk(c, o, f, env, t.Value)
-				case None:
+				case option.None:
 				}
 			case syntax.LawDecl:
 			case syntax.TestDecl:
@@ -389,9 +390,9 @@ func link(c mut cyc, o owner, f int, env Env, fd syntax.FuncDecl) {
 	case _:
 	}
 	let rt0 = match dense.Unpack(first) {
-	case Some[dense.ID[syntax.Node]] as t:
+	case option.Some[dense.ID[syntax.Node]] as t:
 		unparen(p, t.Value)
-	case None:
+	case option.None:
 		return
 	}
 	let rt = match syntax.ViewOf(p.Tree, rt0) {
@@ -412,7 +413,7 @@ func link(c mut cyc, o owner, f int, env Env, fd syntax.FuncDecl) {
 		return
 	}
 	let g = genIndex(*c, p, head)
-	if g < 0 || isOps(c.files[c.gens[g].file], c.gens[g].body) || len(indices) != len(c.gens[g].params) || len(indices) != len(o.names) {
+	if g < 0 || isOps(c.files[c.gens[g].file], c.gens[g].body) || indices.Len() != c.gens[g].params.Len() || indices.Len() != o.names.Len() {
 		return
 	}
 	let mut seen = []string{}
@@ -427,7 +428,7 @@ func link(c mut cyc, o owner, f int, env Env, fd syntax.FuncDecl) {
 	for i, a in indices {
 		let t = nameText(p, a)
 		for j, n in o.names {
-			if n != t || !o.typed[j] || (i < len(ks) && (ks[i] == kindErrors || ks[i] == kindUses)) {
+			if n != t || !o.typed[j] || (i < ks.Len() && (ks[i] == kindErrors || ks[i] == kindUses)) {
 				continue
 			}
 			let q = c.gens[g].base + i
@@ -463,9 +464,9 @@ func typedOf(kinds []int) []bool {
 func Cycles(s store.Store, files []syntax.Parsed, kinds Kinds, funcs []FuncKinds, ext []Ext, foreign []Foreign, deps []Iface) []Cycle {
 	let mut ownMap = false
 	match store.Lookup(s, "Map") {
-	case Some[dense.ID[store.Decl]] as d:
+	case option.Some[dense.ID[store.Decl]] as d:
 		ownMap = store.KindName(int(store.DeclOf(s, d.Value).Kind)) == "type"
-	case None:
+	case option.None:
 	}
 	let gens = gensOf(files)
 	let mut c = cyc{s: s, files: files, gens: gens, kinds: kinds, ext: ext, foreign: foreign, deps: deps, ownMap: ownMap, m: mono{edges: []monoEdge{}, byFrom: [][]int{}, steps: 0}, heads: solve{s: s, gens: gens, genAt: genSide(s, files, gens), ext: ext, sv: solver{parent: []int{}, seen: []int{}, steps: 0}, ownMap: ownMap, fn: false, local: kinds}}
@@ -475,7 +476,7 @@ func Cycles(s store.Store, files []syntax.Parsed, kinds Kinds, funcs []FuncKinds
 		for j, _ in g.params {
 			verts = verts.Append(g.base + j)
 		}
-		next = g.base + len(g.params)
+		next = g.base + g.params.Len()
 		let o = owner{names: g.params, verts: verts, typed: typedOf(kinds.Of[i]), kinds: kinds.Of[i]}
 		match syntax.ViewOf(files[g.file].Tree, g.body) {
 		case syntax.FieldList:
@@ -485,14 +486,14 @@ func Cycles(s store.Store, files []syntax.Parsed, kinds Kinds, funcs []FuncKinds
 		}
 	}
 	for fk in funcs {
-		if len(fk.Params) == 0 || fk.Name == "main" {
+		if fk.Params.Len() == 0 || fk.Name == "main" {
 			continue
 		}
 		let mut verts = []int{}
 		for j, _ in fk.Params {
 			verts = verts.Append(next + j)
 		}
-		next = next + len(fk.Params)
+		next = next + fk.Params.Len()
 		let o = owner{names: fk.Params, verts: verts, typed: typedOf(fk.Kinds), kinds: fk.Kinds}
 		match syntax.ViewOf(files[fk.File].Tree, fk.Decl) {
 		case syntax.FuncDecl as fd:
@@ -514,7 +515,7 @@ func visit(m mono, t mut tarjan, v int) {
 	t.next = t.next + 1
 	t.stack = t.stack.Append(v)
 	t.on[v] = true
-	let out = if v < len(m.byFrom) { m.byFrom[v] } else { []int{} }
+	let out = if v < m.byFrom.Len() { m.byFrom[v] } else { []int{} }
 	for i in out {
 		let w = m.edges[i].to
 		if t.index[w] < 0 {
@@ -526,8 +527,8 @@ func visit(m mono, t mut tarjan, v int) {
 	}
 	if t.low[v] == t.index[v] {
 		for {
-			let top = t.stack[len(t.stack)-1]
-			t.stack = t.stack[0 : len(t.stack)-1]
+			let top = t.stack[t.stack.Len()-1]
+			t.stack = t.stack[0 : t.stack.Len()-1]
 			t.on[top] = false
 			t.comp[top] = t.ncomp
 			if top == v {

@@ -41,7 +41,7 @@ func IRKinds() string { ir.Table() }
 type reader { words []uint32, at int, strs []string, stack []uint32 }
 
 func next(r mut reader) uint32 fails ir.Malformed {
-	if r.at >= len(r.words) {
+	if r.at >= r.words.Len() {
 		return ir.Malformed{At: r.at, Why: "past the end"}
 	}
 	let v = r.words[r.at]
@@ -51,7 +51,7 @@ func next(r mut reader) uint32 fails ir.Malformed {
 
 func str(r mut reader) string fails ir.Malformed {
 	let i = int(try next(r))
-	if i >= len(r.strs) {
+	if i >= r.strs.Len() {
 		return ir.Malformed{At: r.at - 1, Why: "no text"}
 	}
 	r.strs[i]
@@ -66,10 +66,10 @@ func position(r mut reader) ir.Pos fails ir.Malformed {
 
 // pop is the top n words of the stack, bottom first, taken off it.
 func pop(r mut reader, n int) []uint32 fails ir.Malformed {
-	if n < 0 || n > len(r.stack) {
+	if n < 0 || n > r.stack.Len() {
 		return ir.Malformed{At: r.at, Why: "the stack holds fewer words"}
 	}
-	let top = len(r.stack) - n
+	let top = r.stack.Len() - n
 	let out = r.stack[top:].Clone()
 	r.stack = r.stack[:top]
 	out
@@ -84,7 +84,7 @@ func replay(words []uint32, strs []string) ir.File fails ir.Malformed {
 	let lo = try next(&r)
 	let hi = try next(&r)
 	let mut b = ir.NewBuilder(int64(uint64(lo) | uint64(hi)<<uint64(32)))
-	for r.at < len(r.words) {
+	for r.at < r.words.Len() {
 		let op = try next(&r)
 		match op {
 		case 1:
@@ -106,7 +106,7 @@ func replay(words []uint32, strs []string) ir.File fails ir.Malformed {
 			if k == 0 || int(k) >= ir.NumKinds() {
 				return ir.Malformed{At: r.at, Why: "kind \(k)"}
 			}
-			let slots = try pop(&r, len(ir.KindOf(uint8(k)).Slots))
+			let slots = try pop(&r, ir.KindOf(uint8(k)).Slots.Len())
 			let id = try ir.Row(&b, uint8(k), at, slots)
 			r.stack = r.stack.Append(id)
 		case 6:
@@ -136,7 +136,7 @@ func replay(words []uint32, strs []string) ir.File fails ir.Malformed {
 			return ir.Malformed{At: r.at - 1, Why: "op \(op)"}
 		}
 	}
-	if len(r.stack) != 0 {
+	if r.stack.Len() != 0 {
 		return ir.Malformed{At: r.at, Why: "words left on the stack"}
 	}
 	try ir.Finish(b)

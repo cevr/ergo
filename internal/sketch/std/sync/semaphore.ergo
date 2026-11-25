@@ -100,10 +100,10 @@ law ReleaseOnFailure(n int) {
 law ReleaseOnInterrupt() {
 	let s = NewSemaphore(1)
 	let m = time.NewManual(0)
-	let holder = with context { Scheduler: m } {
+	let holder = with context { time.Scheduler: m } {
 		task.Go() {
 			With(s) {
-				Scheduler.Sleep(1h)
+				time.Scheduler.Sleep(1h)
 			}
 		}
 	}

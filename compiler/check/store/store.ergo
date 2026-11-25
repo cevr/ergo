@@ -1,4 +1,5 @@
 import dense
+import option
 import slices
 import strings
 
@@ -56,9 +57,9 @@ func Declare(s mut Store, n dense.ID[dense.Str], file int, node int, o Object) d
 	let d = dense.Put(&s.decls, Decl{Kind: uint8(KindOf(r)), Name: n, File: uint32(file), Node: uint32(node), Obj: r})
 	dense.Push(&s.prints, Prints{Fp: Print{Hi: uint64(0), Lo: uint64(0)}, Ifp: Print{Hi: uint64(0), Lo: uint64(0)}})
 	let bind = match dense.Unpack(dense.Of(s.scope, n)) {
-	case Some{Value: prev}:
+	case option.Some{Value: prev}:
 		KindOf(r) == kTypeName && int(DeclOf(*s, prev).Kind) == kFunc
-	case None:
+	case option.None:
 		true
 	}
 	if bind {
@@ -70,31 +71,31 @@ func Declare(s mut Store, n dense.ID[dense.Str], file int, node int, o Object) d
 // KindOfName is the object kind the package scope binds text to, or 0.
 func KindOfName(s Store, text string) int {
 	match Lookup(s, text) {
-	case Some{Value: d}:
+	case option.Some{Value: d}:
 		int(DeclOf(s, d).Kind)
-	case None:
+	case option.None:
 		0
 	}
 }
 
 // Lookup is the package-level declaration of text, if any.
-func Lookup(s Store, text string) Option[dense.ID[Decl]] {
+func Lookup(s Store, text string) option.Option[dense.ID[Decl]] {
 	match dense.FindText(s.names, text) {
-	case Some{Value: n}:
+	case option.Some{Value: n}:
 		dense.Unpack(dense.Of(s.scope, n))
-	case None:
-		None
+	case option.None:
+		option.None
 	}
 }
 
 // FindName is the id of text when the package's names hold it: it interns
 // nothing, so body tasks call it on the store frozen while they run.
-func FindName(s Store, text string) Option[dense.ID[dense.Str]] { dense.FindText(s.names, text) }
+func FindName(s Store, text string) option.Option[dense.ID[dense.Str]] { dense.FindText(s.names, text) }
 
 // ScopeOf is the package-level declaration name n binds, if any.
-func ScopeOf(s Store, n dense.ID[dense.Str]) Option[dense.ID[Decl]] {
+func ScopeOf(s Store, n dense.ID[dense.Str]) option.Option[dense.ID[Decl]] {
 	if !dense.In(s.scope, n) {
-		return None
+		return option.None
 	}
 	dense.Unpack(dense.Of(s.scope, n))
 }

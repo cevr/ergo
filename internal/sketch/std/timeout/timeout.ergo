@@ -1,3 +1,4 @@
+import option
 import queue
 import task
 import time
@@ -13,7 +14,7 @@ extern go ergo.local/prototype/runtime/v1.Expired type Expired {}
 // f is escaping because it runs on another task. In particular, lending a
 // caller-owned resource here would also lend task-affine resources such as
 // tasks.Set, whose operations must run on their owning task.
-extern go ergo.local/prototype/runtime/v1.After func After[A own, E, R](d duration, f own func() A fails E needs R) A fails E | Expired needs R | Scheduler
+extern go ergo.local/prototype/runtime/v1.After func After[A own, E, R](d duration, f own func() A fails E needs R) A fails E | Expired needs R | time.Scheduler
 
 // AfterKeepsWhatTheBodyTook: a value the body has taken is never lost to
 // the deadline (RT-AFTERDROP). A producer pushes 0 to 39, one a
@@ -23,13 +24,13 @@ extern go ergo.local/prototype/runtime/v1.After func After[A own, E, R](d durati
 // a body that has its value when After sees the deadline gives it.
 law AfterKeepsWhatTheBodyTook(c int, w int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		let n = 40
 		let q = queue.New[int](((c % 3) + 3) % 3)
 		let kept = queue.New[int](n)
 		let producer = task.Go() {
 			for i in 0..n {
-				Scheduler.Sleep(1ms)
+				time.Scheduler.Sleep(1ms)
 				q.Push(i) catch {
 				case queue.Closed:
 				}
@@ -77,7 +78,7 @@ law AfterKeepsWhatTheBodyTook(c int, w int) {
 // QuickBodyWins: a body that ends before its deadline gives its value, and
 // After does not fail Expired.
 law QuickBodyWins(n int) {
-	with context { Scheduler: time.NewManual(0) } {
+	with context { time.Scheduler: time.NewManual(0) } {
 		try After(1h) { n } == n
 	}
 }
@@ -87,12 +88,12 @@ law QuickBodyWins(n int) {
 // deadline's sleep is armed, then moves the time past it.
 law DeadlineFirstExpires() {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		After(1ms) {
 			for m.Sleepers() == 0 {
 			}
 			m.Advance(1ms)
-			Scheduler.Sleep(1h)
+			time.Scheduler.Sleep(1h)
 			false
 		} catch {
 		case Expired:
@@ -110,7 +111,7 @@ law DeadlineFirstExpires() {
 // before PopWithin returns. A value that enters at the deadline's instant
 // is either taken or left in q, never lost. A d of zero or less never
 // waits.
-extern go ergo.local/prototype/runtime/v1.PopWithin func PopWithin[T](q queue.Queue[T], d duration) T fails queue.Closed | Expired needs Scheduler
+extern go ergo.local/prototype/runtime/v1.PopWithin func PopWithin[T](q queue.Queue[T], d duration) T fails queue.Closed | Expired needs time.Scheduler
 
 // Deadline is one re-armable deadline on the Scheduler (Go's time.Timer
 // with Reset): Arm arms one alarm of the Scheduler's AlarmClock, with no
@@ -134,7 +135,7 @@ extern go ergo.local/prototype/runtime/v1.Deadline type Deadline {
 
 // NewDeadline is a Deadline that is not armed, on the Scheduler's
 // AlarmClock.
-extern go ergo.local/prototype/runtime/v1.NewDeadline func NewDeadline() Deadline needs Scheduler
+extern go ergo.local/prototype/runtime/v1.NewDeadline func NewDeadline() Deadline needs time.Scheduler
 
 // PopBefore takes the value at the front of q, waiting for one until dl
 // fires. It fails Expired when dl has fired, taking the fire, so dl is no
@@ -154,11 +155,11 @@ law PopWithinWaitsUpToD(g int, w int) {
 	let gap = ((g % 60) + 60) % 60
 	let d = ((w%59)+59)%59 + 1
 	let start = m.Now()
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		let q = queue.New[int](1)
 		let got = queue.New[int](3)
 		let producer = task.Go() {
-			Scheduler.Sleep(time.Times(1ms, gap))
+			time.Scheduler.Sleep(time.Times(1ms, gap))
 			q.Push(7) catch {
 			case queue.Closed:
 			}
@@ -186,8 +187,8 @@ law PopWithinWaitsUpToD(g int, w int) {
 		let v = got.Poll()
 		let at = got.Poll()
 		let asleep = got.Poll()
-		let took = v == Some[int]{Value: 7} && at == Some[int]{Value: gap} && q.Len() == 0 && asleep == Some[int]{Value: 0}
-		let expired = v == Some[int]{Value: -1} && at == Some[int]{Value: d} && q.Len() == 1
+		let took = v == option.Some[int]{Value: 7} && at == option.Some[int]{Value: gap} && q.Len() == 0 && asleep == option.Some[int]{Value: 0}
+		let expired = v == option.Some[int]{Value: -1} && at == option.Some[int]{Value: d} && q.Len() == 1
 		if gap < d {
 			took
 		} else if gap > d {
@@ -202,7 +203,7 @@ law PopWithinWaitsUpToD(g int, w int) {
 // no deadline, even for a d of zero; then the closed, empty queue fails
 // Closed, not Expired.
 law PopWithinTakesWhatIsThere(v int) {
-	with context { Scheduler: time.NewManual(0) } {
+	with context { time.Scheduler: time.NewManual(0) } {
 		let q = queue.New[int](1)
 		try q.Push(v)
 		q.End()
@@ -227,19 +228,19 @@ law PopWithinTakesWhatIsThere(v int) {
 law PopBeforeKeepsTheDeadline(gaps []int, w int) {
 	let m = time.NewManual(0)
 	let big = 2*(((w%30)+30)%30) + 1
-	let n = len(gaps)
+	let n = gaps.Len()
 	let start = m.Now()
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		let q = queue.New[int](n + 1)
 		let got = queue.New[int](n + 4)
 		let producer = task.Go() {
 			for i, g in gaps {
-				Scheduler.Sleep(time.Times(1ms, 2*(((g%10)+10)%10)))
+				time.Scheduler.Sleep(time.Times(1ms, 2*(((g%10)+10)%10)))
 				q.Push(i) catch {
 				case queue.Closed:
 				}
 			}
-			Scheduler.Sleep(time.Times(1ms, 2*big))
+			time.Scheduler.Sleep(time.Times(1ms, 2*big))
 			q.End()
 		}
 		let consumer = task.Go() {
@@ -286,14 +287,14 @@ law PopBeforeKeepsTheDeadline(gaps []int, w int) {
 				want = want.Append(i)
 			}
 		}
-		let left = n - (len(want) - 1)
+		let left = n - (want.Len() - 1)
 		want = want.Append(-1).Append(big).Append(0)
 		let mut same = true
 		let mut k = 0
 		for v in got.Values() {
-			same = same && k < len(want) && v == want[k]
+			same = same && k < want.Len() && v == want[k]
 			k = k + 1
 		}
-		same && k == len(want) && q.Len() == left
+		same && k == want.Len() && q.Len() == left
 	}
 }

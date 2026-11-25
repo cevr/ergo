@@ -1,4 +1,5 @@
 import actor
+import option
 import queue
 import testing
 import time
@@ -26,7 +27,7 @@ type TestHost[S, E, D, F] {
 	history MemoryHistory,
 	// captured is the Area a Down went to, which takes every pointer
 	// event until an Up (H5g).
-	captured Option[Id[E]],
+	captured option.Option[Id[E]],
 	// heldY is the y of the last pointer event the Area that holds the
 	// pointer took, in its box: where Advance's edge scroll reads it.
 	heldY float64,
@@ -76,7 +77,7 @@ func NewTestHost[E comparable, S, D, F, R](a actor.Actor[S, E, D, F], view own f
 // screen. The clock never moves, and the expectations of a scene hold.
 law ScriptShowsTheView(seed int, steps int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		scriptShows(seed, steps, m)
 	}
 }
@@ -86,9 +87,9 @@ type shelf { rows []int, next int }
 
 // shelfStep: signal 0 adds a row with the next key; signal k removes the
 // row k.
-func shelfStep(s shelf, e int) Decision[shelf, int] {
+func shelfStep(s shelf, e int) machines.Decision[shelf, int] {
 	if e == 0 {
-		return Enter[shelf]{Next: shelf{rows: s.rows.Append(s.next), next: s.next + 1}}
+		return machines.Enter[shelf]{Next: shelf{rows: s.rows.Append(s.next), next: s.next + 1}}
 	}
 	let mut rows = []int{}
 	for k in s.rows {
@@ -96,17 +97,17 @@ func shelfStep(s shelf, e int) Decision[shelf, int] {
 			rows = rows.Append(k)
 		}
 	}
-	Enter[shelf]{Next: shelf{rows: rows, next: s.next}}
+	machines.Enter[shelf]{Next: shelf{rows: rows, next: s.next}}
 }
 
-func shelfTimer(s shelf) Option[Timeout[int]] { None }
+func shelfTimer(s shelf) option.Option[machines.Timeout[int]] { option.None }
 
-func shelfWork(s shelf) Option[func(send func(e int))] { None }
+func shelfWork(s shelf) option.Option[func(send func(e int))] { option.None }
 
-func shelfExit(s shelf) Option[func()] { None }
+func shelfExit(s shelf) option.Option[func()] { option.None }
 
-func shelfMachine() Machine[shelf, int, int] {
-	Machine[shelf, int, int]{Initial: shelf{rows: []int{}, next: 1}, Step: shelfStep, After: shelfTimer, Work: shelfWork, Exit: shelfExit}
+func shelfMachine() machines.Machine[shelf, int, int] {
+	machines.Machine[shelf, int, int]{Initial: shelf{rows: []int{}, next: 1}, Step: shelfStep, After: shelfTimer, Work: shelfWork, Exit: shelfExit}
 }
 
 // shelfView shows the count, an add button, and each row with a delete
@@ -114,7 +115,7 @@ func shelfMachine() Machine[shelf, int, int] {
 // first row's names it by First (NS7).
 func shelfView(f mut Frame[int], s shelf) {
 	Column(f, Plain()) {
-		Text(f, "\(len(s.rows)) rows")
+		Text(f, "\(s.rows.Len()) rows")
 		Pressable(f, "add", 0) {
 			Text(f, "+")
 		}
@@ -136,7 +137,7 @@ func freshShape[S](view func(f mut Frame[int], s S), s S) []Shape[int] {
 	FrameShape(&g)
 }
 
-func scriptShows(seed int, steps int, m time.Manual) bool needs Scheduler {
+func scriptShows(seed int, steps int, m time.Manual) bool needs time.Scheduler {
 	let mut r = seeded(seed)
 	let a = actor.StartMachine(shelfMachine(), 1, func(o int) {})
 	let mut h = NewTestHost(a, shelfView, m, 4) catch {
@@ -147,7 +148,7 @@ func scriptShows(seed int, steps int, m time.Manual) bool needs Scheduler {
 	let mut model = shelf{rows: []int{}, next: 1}
 	for _ in 0..(steps%16+16)%16+1 {
 		let mut label = "add"
-		if len(model.rows) > 0 && draw(&r, 2) == 0 {
+		if model.rows.Len() > 0 && draw(&r, 2) == 0 {
 			label = "del"
 			model = machines.Next(model, shelfStep(model, model.rows[0]))
 		} else {
@@ -164,13 +165,13 @@ func scriptShows(seed int, steps int, m time.Manual) bool needs Scheduler {
 		} else if byRole {
 			tap = ClickOn{At: WithRole{Role: Button, Name: label}}
 		}
-		let expect = []Act{ExpectOn{At: WithText{Text: "\(len(model.rows)) rows"}, Is: ToExist}, ExpectOn{At: WithLabel{Label: "del"}, Is: ToHaveCount{Count: len(model.rows)}}}
+		let expect = []Act{ExpectOn{At: WithText{Text: "\(model.rows.Len()) rows"}, Is: ToExist}, ExpectOn{At: WithLabel{Label: "del"}, Is: ToHaveCount{Count: model.rows.Len()}}}
 		Play(&h, []Act{tap, expect[0], expect[1]}) catch {
 		case _:
 			return false
 		}
 		let mut refused = false
-		Play(&h, []Act{ExpectOn{At: WithLabel{Label: "del"}, Is: ToHaveCount{Count: len(model.rows) + 1}}}) catch {
+		Play(&h, []Act{ExpectOn{At: WithLabel{Label: "del"}, Is: ToHaveCount{Count: model.rows.Len() + 1}}}) catch {
 		case Mismatch:
 			refused = true
 		case _:
@@ -195,7 +196,7 @@ func scriptShows(seed int, steps int, m time.Manual) bool needs Scheduler {
 // model's state.
 law NoTickWhenSettled(seed int, steps int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		ticksFollow(seed, steps, m)
 	}
 }
@@ -207,21 +208,21 @@ type spin { left int, at int }
 
 // spinStep: a signal of 0 or more asks for that many frames; a negative
 // signal is a frame at -1-e nanoseconds.
-func spinStep(s spin, e int) Decision[spin, int] {
+func spinStep(s spin, e int) machines.Decision[spin, int] {
 	if e >= 0 {
-		return Enter[spin]{Next: spin{left: e, at: s.at}}
+		return machines.Enter[spin]{Next: spin{left: e, at: s.at}}
 	}
-	Enter[spin]{Next: spin{left: s.left - 1, at: -1 - e}}
+	machines.Enter[spin]{Next: spin{left: s.left - 1, at: -1 - e}}
 }
 
-func spinTimer(s spin) Option[Timeout[int]] { None }
+func spinTimer(s spin) option.Option[machines.Timeout[int]] { option.None }
 
-func spinWork(s spin) Option[func(send func(e int))] { None }
+func spinWork(s spin) option.Option[func(send func(e int))] { option.None }
 
-func spinExit(s spin) Option[func()] { None }
+func spinExit(s spin) option.Option[func()] { option.None }
 
-func spinMachine() Machine[spin, int, int] {
-	Machine[spin, int, int]{Initial: spin{left: 0, at: -1}, Step: spinStep, After: spinTimer, Work: spinWork, Exit: spinExit}
+func spinMachine() machines.Machine[spin, int, int] {
+	machines.Machine[spin, int, int]{Initial: spin{left: 0, at: -1}, Step: spinStep, After: spinTimer, Work: spinWork, Exit: spinExit}
 }
 
 // spinView animates while frames are left; "go0" to "go3" ask for that
@@ -264,7 +265,7 @@ func advanced(m frameModel, d duration, p duration) frameModel {
 	x
 }
 
-func ticksFollow(seed int, steps int, m time.Manual) bool needs Scheduler {
+func ticksFollow(seed int, steps int, m time.Manual) bool needs time.Scheduler {
 	let mut r = seeded(seed)
 	let a = actor.StartMachine(spinMachine(), 1, func(o int) {})
 	let mut h = NewTestHost(a, spinView, m, 4) catch {
@@ -282,7 +283,7 @@ func ticksFollow(seed int, steps int, m time.Manual) bool needs Scheduler {
 			act = TapOn{Label: "go\(n)"}
 			model.app = machines.Next(model.app, spinStep(model.app, n))
 		} else {
-			let d = moves[draw(&r, len(moves))]
+			let d = moves[draw(&r, moves.Len())]
 			act = AdvanceBy{By: d}
 			model = advanced(model, d, p)
 		}
@@ -306,7 +307,7 @@ func ticksFollow(seed int, steps int, m time.Manual) bool needs Scheduler {
 // takes it.
 law InputGivesSignal(seed int, steps int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		inputFollows(seed, steps, m)
 	}
 }
@@ -317,40 +318,40 @@ type pad { open bool, last int, n int }
 
 // padStep: 1 closes the dialog, 2 opens it, anything else is a pad's
 // signal.
-func padStep(s pad, e int) Decision[pad, int] {
+func padStep(s pad, e int) machines.Decision[pad, int] {
 	if e == 1 {
-		return Enter[pad]{Next: pad{open: false, last: s.last, n: s.n}}
+		return machines.Enter[pad]{Next: pad{open: false, last: s.last, n: s.n}}
 	}
 	if e == 2 {
-		return Enter[pad]{Next: pad{open: true, last: s.last, n: s.n}}
+		return machines.Enter[pad]{Next: pad{open: true, last: s.last, n: s.n}}
 	}
-	Enter[pad]{Next: pad{open: s.open, last: e, n: s.n + 1}}
+	machines.Enter[pad]{Next: pad{open: s.open, last: e, n: s.n + 1}}
 }
 
-func padTimer(s pad) Option[Timeout[int]] { None }
+func padTimer(s pad) option.Option[machines.Timeout[int]] { option.None }
 
-func padWork(s pad) Option[func(send func(e int))] { None }
+func padWork(s pad) option.Option[func(send func(e int))] { option.None }
 
-func padExit(s pad) Option[func()] { None }
+func padExit(s pad) option.Option[func()] { option.None }
 
-func padMachine() Machine[pad, int, int] {
-	Machine[pad, int, int]{Initial: pad{open: false, last: 0, n: 0}, Step: padStep, After: padTimer, Work: padWork, Exit: padExit}
+func padMachine() machines.Machine[pad, int, int] {
+	machines.Machine[pad, int, int]{Initial: pad{open: false, last: 0, n: 0}, Step: padStep, After: padTimer, Work: padWork, Exit: padExit}
 }
 
 // onPad is the pad's function at s: a press gives 1000 plus its x plus
 // 100 for each signal the pad gave (mod 3), so the function a pass makes
 // reads the state; a release gives 2000 plus its y, a wheel 3000 plus its
 // dy, and a move nothing.
-func onPad(s pad, p PointerEvent) Option[int] {
+func onPad(s pad, p PointerEvent) option.Option[int] {
 	match p.Phase {
 	case Down:
-		Some{Value: 1000 + int(p.X) + 100*(s.n%3)}
+		option.Some{Value: 1000 + int(p.X) + 100*(s.n%3)}
 	case Up:
-		Some{Value: 2000 + int(p.Y)}
+		option.Some{Value: 2000 + int(p.Y)}
 	case Wheel as w:
-		Some{Value: 3000 + int(w.DY)}
+		option.Some{Value: 3000 + int(w.DY)}
 	case Moved, Drag, PointerEnter, PointerLeave:
-		None
+		option.None
 	}
 }
 
@@ -360,43 +361,43 @@ func onPad(s pad, p PointerEvent) Option[int] {
 func padView(f mut Frame[int], s pad) {
 	Text(f, "last \(s.last) of \(s.n)")
 	if s.open {
-		OnKey(f, func(k KeyPress) Option[int] {
+		OnKey(f, func(k KeyPress) option.Option[int] {
 			if k.Name == "Escape" {
-				return Some{Value: 1}
+				return option.Some{Value: 1}
 			}
-			None
+			option.None
 		})
 	}
-	OnKey(f, func(k KeyPress) Option[int] {
+	OnKey(f, func(k KeyPress) option.Option[int] {
 		if k.Mods.Ctrl {
-			return Some{Value: 2}
+			return option.Some{Value: 2}
 		}
 		if k.Name == "Enter" {
-			return Some{Value: 4005}
+			return option.Some{Value: 4005}
 		}
-		None
+		option.None
 	})
-	Area(f, "pad", Plain(), func(p PointerEvent) Option[int] { onPad(s, p) }) {
+	Area(f, "pad", Plain(), func(p PointerEvent) option.Option[int] { onPad(s, p) }) {
 		Text(f, "pad")
 	}
 }
 
 // keySignal is the signal a key press gives padView at s, written without
 // a frame.
-func keySignal(s pad, k KeyPress) Option[int] {
+func keySignal(s pad, k KeyPress) option.Option[int] {
 	if s.open && k.Name == "Escape" {
-		return Some{Value: 1}
+		return option.Some{Value: 1}
 	}
 	if k.Mods.Ctrl {
-		return Some{Value: 2}
+		return option.Some{Value: 2}
 	}
 	if k.Name == "Enter" {
-		return Some{Value: 4005}
+		return option.Some{Value: 4005}
 	}
-	None
+	option.None
 }
 
-func inputFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
+func inputFollows(seed int, steps int, m time.Manual) bool needs time.Scheduler {
 	let mut r = seeded(seed)
 	let a = actor.StartMachine(padMachine(), 1, func(o int) {})
 	let mut h = NewTestHost(a, padView, m, 4) catch {
@@ -407,9 +408,9 @@ func inputFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 	let names = []string{"a", "Enter", "Escape"}
 	for _ in 0..(steps%24+24)%24+1 {
 		let mut act Act = SettleAll
-		let mut sent Option[int] = None
+		let mut sent option.Option[int] = option.None
 		if draw(&r, 2) == 0 {
-			let k = KeyPress{Name: names[draw(&r, len(names))], Mods: Mods{Shift: false, Ctrl: draw(&r, 2) == 0, Alt: false, Meta: false}}
+			let k = KeyPress{Name: names[draw(&r, names.Len())], Mods: Mods{Shift: false, Ctrl: draw(&r, 2) == 0, Alt: false, Meta: false}}
 			act = KeyIn{Press: k}
 			sent = keySignal(model, k)
 		} else {
@@ -425,14 +426,14 @@ func inputFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 				phase = Wheel{DX: 0.0, DY: float64(draw(&r, 9))}
 			case _:
 			}
-			let ev = PointerEvent{Pointer: MousePointer, Phase: phase, X: x, Y: y, Zone: None}
+			let ev = PointerEvent{Pointer: MousePointer, Phase: phase, X: x, Y: y, Zone: option.None}
 			act = PointOn{Label: "pad", Pointer: ev}
 			sent = onPad(model, ev)
 		}
 		match sent {
-		case Some[int] as e:
+		case option.Some[int] as e:
 			model = machines.Next(model, padStep(model, e.Value))
-		case None:
+		case option.None:
 		}
 		Play(&h, []Act{act}) catch {
 		case _:
@@ -460,7 +461,7 @@ func inputFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 // navigation, which pushes.
 law NavigationFollowsModel(seed int, steps int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		navigationFollows(seed, steps, m)
 	}
 }
@@ -471,31 +472,31 @@ let places = []string{"/", "/a", "/b?x=1", "/c#top", "/a/b?q=2#f"}
 
 // placeOf is the index of u in places, None for an address the app does
 // not know.
-func placeOf(u URL) Option[int] {
+func placeOf(u URL) option.Option[int] {
 	for i, p in places {
 		if Href(u) == p {
-			return Some{Value: i}
+			return option.Some{Value: i}
 		}
 	}
-	None
+	option.None
 }
 
 // routeStep: the signal is the index of the place the app shows.
-func routeStep(s int, e int) Decision[int, int] { Enter[int]{Next: e} }
+func routeStep(s int, e int) machines.Decision[int, int] { machines.Enter[int]{Next: e} }
 
-func routeTimer(s int) Option[Timeout[int]] { None }
+func routeTimer(s int) option.Option[machines.Timeout[int]] { option.None }
 
-func routeWork(s int) Option[func(send func(e int))] { None }
+func routeWork(s int) option.Option[func(send func(e int))] { option.None }
 
-func routeExit(s int) Option[func()] { None }
+func routeExit(s int) option.Option[func()] { option.None }
 
-func routeMachine() Machine[int, int, int] {
-	Machine[int, int, int]{Initial: 0, Step: routeStep, After: routeTimer, Work: routeWork, Exit: routeExit}
+func routeMachine() machines.Machine[int, int, int] {
+	machines.Machine[int, int, int]{Initial: 0, Step: routeStep, After: routeTimer, Work: routeWork, Exit: routeExit}
 }
 
 // home is the router app's fallback: an address it does not know shows
 // "/". It is written after placeOf, so it takes only what placeOf leaves.
-func home(u URL) Option[int] { Some{Value: 0} }
+func home(u URL) option.Option[int] { option.Some{Value: 0} }
 
 // routeView shows the place at s.
 func routeView(f mut Frame[int], s int) {
@@ -504,7 +505,7 @@ func routeView(f mut Frame[int], s int) {
 	Text(f, "at \(places[s])")
 }
 
-func navigationFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
+func navigationFollows(seed int, steps int, m time.Manual) bool needs time.Scheduler {
 	let mut r = seeded(seed)
 	let a = actor.StartMachine(routeMachine(), 1, func(o int) {})
 	let mut h = NewTestHost(a, routeView, m, 4) catch {
@@ -540,7 +541,7 @@ func navigationFollows(seed int, steps int, m time.Manual) bool needs Scheduler 
 		if kind != 0 {
 			let mut href = "/nowhere"
 			if draw(&r, 4) != 0 {
-				href = places[draw(&r, len(places))]
+				href = places[draw(&r, places.Len())]
 			}
 			if kind == 3 {
 				// A replacement is no Act: the host's address changes in place.
@@ -548,20 +549,20 @@ func navigationFollows(seed int, steps int, m time.Manual) bool needs Scheduler 
 				case _:
 					return false
 				}
-				stack[len(stack)-1] = href
+				stack[stack.Len()-1] = href
 				act = SettleAll
 			} else {
 				act = NavigateTo{Href: href}
 				if opened {
 					stack = stack.Append(href)
 				} else {
-					stack[len(stack)-1] = href
+					stack[stack.Len()-1] = href
 				}
 			}
 			opened = true
-		} else if len(stack) > 1 {
+		} else if stack.Len() > 1 {
 			let mut kept = []string{}
-			for i in 0..len(stack)-1 {
+			for i in 0..stack.Len()-1 {
 				kept = kept.Append(stack[i])
 			}
 			stack = kept
@@ -572,14 +573,14 @@ func navigationFollows(seed int, steps int, m time.Manual) bool needs Scheduler 
 		case _:
 			return false
 		}
-		let top = stack[len(stack)-1]
+		let top = stack[stack.Len()-1]
 		match placeOf(ParseURL(top)) {
-		case Some[int] as p:
+		case option.Some[int] as p:
 			shown = p.Value
-		case None:
+		case option.None:
 			shown = 0
 		}
-		if Href(Current(History(&h))) != top || Depth(History(&h)) != len(stack)-1 || StateOf(&h) != shown {
+		if Href(Current(History(&h))) != top || Depth(History(&h)) != stack.Len()-1 || StateOf(&h) != shown {
 			return false
 		}
 		Play(&h, []Act{ExpectOn{At: WithText{Text: "at \(places[shown])"}, Is: ToExist}}) catch {
@@ -596,7 +597,7 @@ func navigationFollows(seed int, steps int, m time.Manual) bool needs Scheduler 
 // the screen shows the first state.
 law WorkReplyIsShown(n int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		replyShown(n, m)
 	}
 }
@@ -604,12 +605,12 @@ law WorkReplyIsShown(n int) {
 // replyWork is the work of the reply app's state s: while s is under
 // last, it waits for the law to release one reply on gate and sends the
 // next state, as a request's reply arrives through a machine's work.
-func replyWork(gate queue.Queue[int], last int) func(s int) Option[func(send func(e int))] {
-	func(s int) Option[func(send func(e int))] {
+func replyWork(gate queue.Queue[int], last int) func(s int) option.Option[func(send func(e int))] {
+	func(s int) option.Option[func(send func(e int))] {
 		if s >= last {
-			return None
+			return option.None
 		}
-		Some{Value: func(send func(e int)) {
+		option.Some{Value: func(send func(e int)) {
 			let _ = gate.Pop() catch {
 			case queue.Closed:
 				return
@@ -619,20 +620,20 @@ func replyWork(gate queue.Queue[int], last int) func(s int) Option[func(send fun
 	}
 }
 
-func replyStep(s int, e int) Decision[int, int] { Enter[int]{Next: e} }
+func replyStep(s int, e int) machines.Decision[int, int] { machines.Enter[int]{Next: e} }
 
-func replyTimer(s int) Option[Timeout[int]] { None }
+func replyTimer(s int) option.Option[machines.Timeout[int]] { option.None }
 
-func replyExit(s int) Option[func()] { None }
+func replyExit(s int) option.Option[func()] { option.None }
 
-func replyMachine(gate queue.Queue[int], last int) Machine[int, int, int] {
-	Machine[int, int, int]{Initial: 0, Step: replyStep, After: replyTimer, Work: replyWork(gate, last), Exit: replyExit}
+func replyMachine(gate queue.Queue[int], last int) machines.Machine[int, int, int] {
+	machines.Machine[int, int, int]{Initial: 0, Step: replyStep, After: replyTimer, Work: replyWork(gate, last), Exit: replyExit}
 }
 
 // replyView shows the reply app's state.
 func replyView(f mut Frame[int], s int) { Text(f, "at \(s)") }
 
-func replyShown(n int, m time.Manual) bool needs Scheduler {
+func replyShown(n int, m time.Manual) bool needs time.Scheduler {
 	let last = (n%3+3)%3 + 1
 	let gate = queue.New[int](last)
 	let a = actor.StartMachine(replyMachine(gate, last), 1, func(o int) {})
@@ -668,7 +669,7 @@ func hostOf[E comparable, S, D, F](s own Session[S, E, D, F], first []Op[E], pos
 	let mut session = s
 	let mut m = NewMirror[E](Root(&session.frame))
 	try Apply(&m, first)
-	let mut h = TestHost[S, E, D, F]{clock: clock, start: clock.Now(), period: 16ms, owed: duration(int64(0)), frames: 0, posted: posted, mirror: m, session: session, history: NewMemoryHistory(URL{Path: "/", Query: "", Fragment: ""}), captured: None, heldY: 0.0, said: []string{}, step: NoCounts(), opened: false, tracks: Map[Id[E], hostTrack]{}}
+	let mut h = TestHost[S, E, D, F]{clock: clock, start: clock.Now(), period: 16ms, owed: duration(int64(0)), frames: 0, posted: posted, mirror: m, session: session, history: NewMemoryHistory(URL{Path: "/", Query: "", Fragment: ""}), captured: option.None, heldY: 0.0, said: []string{}, step: NoCounts(), opened: false, tracks: Map[Id[E], hostTrack]{}}
 	// The first patch's tracks rest on their targets.
 	for op in first {
 		match op {
@@ -727,11 +728,11 @@ func track[S, E, D, F](h mut TestHost[S, E, D, F], id Id[E], n Node[E]) {
 	case TrackNode as x:
 		let now = h.clock.Now().Sub(h.start)
 		match h.tracks.Get(id) {
-		case Some[hostTrack] as t:
+		case option.Some[hostTrack] as t:
 			if t.Value.state.To != x.Target {
 				h.tracks[id] = hostTrack{key: x.Key, state: TrackRetarget(t.Value.state, x.Target, now)}
 			}
-		case None:
+		case option.None:
 			h.tracks[id] = hostTrack{key: x.Key, state: TrackStill(x.Target, x.Curve)}
 		}
 	case _:
@@ -751,15 +752,15 @@ func tracksMoving[S, E, D, F](h mut TestHost[S, E, D, F]) bool {
 
 // TrackedValue is the value the track keyed key shows now, as the host
 // paints it (None: no such track).
-func TrackedValue[S, E, D, F](h mut TestHost[S, E, D, F], key Key) Option[float64] {
+func TrackedValue[S, E, D, F](h mut TestHost[S, E, D, F], key Key) option.Option[float64] {
 	let now = h.clock.Now().Sub(h.start)
 	for _, t in h.tracks {
 		if t.key == key {
 			let (v, _) = TrackAt(t.state, now)
-			return Some{Value: v}
+			return option.Some{Value: v}
 		}
 	}
-	None
+	option.None
 }
 
 // say logs the text of a live region the patch wrote, unless it is empty.
@@ -815,13 +816,13 @@ func Tap[E comparable, S, D, F](h mut TestHost[S, E, D, F], id Id[E]) fails acto
 // TapWith is Tap by the pointer p: a finger's tap (Finger) presses as the
 // mouse's does but leaves the hover where it was (MB4).
 func TapWith[E comparable, S, D, F](h mut TestHost[S, E, D, F], id Id[E], p Pointer) fails actor.Stopped | BadPatch {
-	h.captured = None
+	h.captured = option.None
 	if Shielded(&h.session.frame, id) {
 		try scrimClick(h)
 		return
 	}
-	try point(h, id, None, PointerEvent{Pointer: p, Phase: Down, X: 0, Y: 0, Zone: None})
-	try point(h, id, None, PointerEvent{Pointer: p, Phase: Up, X: 0, Y: 0, Zone: None})
+	try point(h, id, option.None, PointerEvent{Pointer: p, Phase: Down, X: 0, Y: 0, Zone: option.None})
+	try point(h, id, option.None, PointerEvent{Pointer: p, Phase: Up, X: 0, Y: 0, Zone: option.None})
 	try apply(h, Press[E]{Id: id})
 }
 
@@ -830,13 +831,13 @@ func TapWith[E comparable, S, D, F](h mut TestHost[S, E, D, F], id Id[E], p Poin
 func TypeText[E comparable, S, D, F](h mut TestHost[S, E, D, F], id Id[E], text string) fails actor.Stopped | BadPatch {
 	// A click on the node first, as a window's typing into a field does:
 	// the pointer stays over it (UG3), or lands on a scrim (UG4).
-	h.captured = None
+	h.captured = option.None
 	if Shielded(&h.session.frame, id) {
 		try scrimClick(h)
 		return
 	}
-	try point(h, id, None, PointerEvent{Pointer: MousePointer, Phase: Down, X: 0, Y: 0, Zone: None})
-	try point(h, id, None, PointerEvent{Pointer: MousePointer, Phase: Up, X: 0, Y: 0, Zone: None})
+	try point(h, id, option.None, PointerEvent{Pointer: MousePointer, Phase: Down, X: 0, Y: 0, Zone: option.None})
+	try point(h, id, option.None, PointerEvent{Pointer: MousePointer, Phase: Up, X: 0, Y: 0, Zone: option.None})
 	try apply(h, Type[E]{Id: id, Text: text})
 }
 
@@ -853,9 +854,9 @@ func EditText[E comparable, S, D, F](h mut TestHost[S, E, D, F], id Id[E], text 
 func Pump[E comparable, S, D, F](h mut TestHost[S, E, D, F]) fails actor.Stopped | BadPatch {
 	for {
 		match h.posted.Poll() {
-		case Some[Event[E]] as ev:
+		case option.Some[Event[E]] as ev:
 			try apply(h, ev.Value)
-		case None:
+		case option.None:
 			return
 		}
 	}
@@ -972,12 +973,12 @@ func Advance[E comparable, S, D, F](h mut TestHost[S, E, D, F], d duration) fail
 // and grew the heap with the frame count.
 law AdvanceTakesThePosted(n int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		advanceTakes(n, m)
 	}
 }
 
-func advanceTakes(n int, m time.Manual) bool needs Scheduler {
+func advanceTakes(n int, m time.Manual) bool needs time.Scheduler {
 	let frames = (n%8+8)%8 + 3
 	let a = actor.StartMachine(spinMachine(), 1, func(o int) {})
 	let mut h = NewTestHost(a, spinView, m, 2) catch {
@@ -1011,24 +1012,24 @@ func advanceTakes(n int, m time.Manual) bool needs Scheduler {
 // it no more.
 law EdgeScrollRunsEachFrame(seed int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		edgeFrames(seed, m)
 	}
 }
 
 // edgeFrames is EdgeScrollRunsEachFrame at seed. (a law's helper)
-func edgeFrames(seed int, m time.Manual) bool needs Scheduler {
+func edgeFrames(seed int, m time.Manual) bool needs time.Scheduler {
 	let mut r = seeded(seed)
 	let n = draw(&r, 40) + 1
 	let rh = Length(float64(draw(&r, 20) + 4))
 	let height = Length(float64(draw(&r, 200) + 40))
 	let content = Length(float64(n)) * rh
 	let most = if content > height { content - height } else { Length(0.0) }
-	let start = Length(float64(draw(&r, int(float64(most)) + 1)))
+	let start = Length(float64(draw(&r, int(float64(most))+1)))
 	let band = draw(&r, 3)
 	let y = if band == 0 { float64(draw(&r, 32)) } else if band == 1 { float64(height) - float64(draw(&r, 32)) } else { float64(height) / 2.0 }
 	let view = func(f mut Frame[int], s int) {
-		Area(f, "a", Plain(), func(p PointerEvent) Option[int] { None }) {
+		Area(f, "a", Plain(), func(p PointerEvent) option.Option[int] { option.None }) {
 			Rows(f, "list", n, rh, func(i int) Key { ByInt(i) }, func(i int) {
 				Text(f, "row \(i)")
 			})
@@ -1041,14 +1042,14 @@ func edgeFrames(seed int, m time.Manual) bool needs Scheduler {
 	}
 	let list = Locate(&h, WithLabel{Label: "list"})
 	let area = Locate(&h, WithLabel{Label: "a"})
-	if len(list) != 1 || len(area) != 1 {
+	if list.Len() != 1 || area.Len() != 1 {
 		return false
 	}
 	ScrollTo(&h, list[0], start, height) catch {
 	case _:
 		return false
 	}
-	PointAt(&h, area[0], PointerEvent{Pointer: MousePointer, Phase: Down, X: 1.0, Y: y, Zone: None}) catch {
+	PointAt(&h, area[0], PointerEvent{Pointer: MousePointer, Phase: Down, X: 1.0, Y: y, Zone: option.None}) catch {
 	case _:
 		return false
 	}
@@ -1073,7 +1074,7 @@ func edgeFrames(seed int, m time.Manual) bool needs Scheduler {
 	if listOffset(Screen(&h)) != want {
 		return false
 	}
-	PointAt(&h, area[0], PointerEvent{Pointer: MousePointer, Phase: Up, X: 1.0, Y: y, Zone: None}) catch {
+	PointAt(&h, area[0], PointerEvent{Pointer: MousePointer, Phase: Up, X: 1.0, Y: y, Zone: option.None}) catch {
 	case _:
 		return false
 	}
@@ -1091,7 +1092,7 @@ func edgeFrames(seed int, m time.Manual) bool needs Scheduler {
 // listOffset is the offset of the list in the screen of edgeFrames: the
 // first child of its Area. (a law's helper)
 func listOffset(screen []Shape[int]) Length {
-	if len(screen) != 1 || len(screen[0].Kids) != 1 {
+	if screen.Len() != 1 || screen[0].Kids.Len() != 1 {
 		return Length(-1.0)
 	}
 	match screen[0].Kids[0].Node {
@@ -1105,28 +1106,28 @@ func listOffset(screen []Shape[int]) Length {
 // edgeNext is the list the Area holding the pointer edge-scrolls and the
 // offset EdgeScroll moves it to this frame; None when no Area holds the
 // pointer or it holds no list with a viewport.
-func edgeNext[S, E, D, F](h mut TestHost[S, E, D, F]) Option[(edgeList[E], Length)] {
+func edgeNext[S, E, D, F](h mut TestHost[S, E, D, F]) option.Option[(edgeList[E], Length)] {
 	match Captured(h) {
-	case Some[Id[E]] as c:
+	case option.Some[Id[E]] as c:
 		match edgeListIn(&h.session.frame, c.Value) {
-		case Some[edgeList[E]] as l:
+		case option.Some[edgeList[E]] as l:
 			let v = l.Value.view
-			Some{Value: (l.Value, EdgeScroll(v.Offset, v.Height, l.Value.content, Length(h.heldY), EdgeBand, EdgeStep))}
-		case None:
-			None
+			option.Some{Value: (l.Value, EdgeScroll(v.Offset, v.Height, l.Value.content, Length(h.heldY), EdgeBand, EdgeStep))}
+		case option.None:
+			option.None
 		}
-	case None:
-		None
+	case option.None:
+		option.None
 	}
 }
 
 // edgeMoves is whether this frame's edge scroll moves a list.
 func edgeMoves[S, E, D, F](h mut TestHost[S, E, D, F]) bool {
 	match edgeNext(h) {
-	case Some[(edgeList[E], Length)] as x:
+	case option.Some[(edgeList[E], Length)] as x:
 		let (l, next) = x.Value
 		next != l.view.Offset
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -1135,12 +1136,12 @@ func edgeMoves[S, E, D, F](h mut TestHost[S, E, D, F]) bool {
 // frame's EdgeScroll, when that moves it.
 func edgeFrame[E comparable, S, D, F](h mut TestHost[S, E, D, F]) fails actor.Stopped | BadPatch {
 	match edgeNext(h) {
-	case Some[(edgeList[E], Length)] as x:
+	case option.Some[(edgeList[E], Length)] as x:
 		let (l, next) = x.Value
 		if next != l.view.Offset {
 			try stepShown(h, Scrolled[E]{Id: l.id, Offset: next, Height: l.view.Height})
 		}
-	case None:
+	case option.None:
 	}
 }
 
@@ -1166,7 +1167,7 @@ func Frames[S, E, D, F](h mut TestHost[S, E, D, F]) int { h.frames }
 // instead, wherever the pointer is, and p is in that Area's box: pointer
 // capture, as a host does it (Host, H5g).
 func PointAt[E comparable, S, D, F](h mut TestHost[S, E, D, F], id Id[E], p PointerEvent) fails actor.Stopped | BadPatch {
-	try point(h, id, None, p)
+	try point(h, id, option.None, p)
 }
 
 // scrimClick is a click on the window's background, a layer's scrim or
@@ -1177,9 +1178,9 @@ func PointAt[E comparable, S, D, F](h mut TestHost[S, E, D, F], id Id[E], p Poin
 func scrimClick[E comparable, S, D, F](h mut TestHost[S, E, D, F]) fails actor.Stopped | BadPatch {
 	let r = SessionRoot(&h.session)
 	try PointNowhere(h)
-	FocusSession(&h.session, None)
-	try point(h, r, None, PointerEvent{Pointer: MousePointer, Phase: Down, X: 0, Y: 0, Zone: None})
-	try point(h, r, None, PointerEvent{Pointer: MousePointer, Phase: Up, X: 0, Y: 0, Zone: None})
+	FocusSession(&h.session, option.None)
+	try point(h, r, option.None, PointerEvent{Pointer: MousePointer, Phase: Down, X: 0, Y: 0, Zone: option.None})
+	try point(h, r, option.None, PointerEvent{Pointer: MousePointer, Phase: Up, X: 0, Y: 0, Zone: option.None})
 }
 
 // KidsAt is the node id's children on the test host, in order (UG4).
@@ -1192,19 +1193,19 @@ func LayersOf[S, E, D, F](h mut TestHost[S, E, D, F]) []Id[E] { Layers(&h.sessio
 // box in the Area's box is box (the host's hit test of the topmost zone
 // under the pointer). Capture holds as for PointAt.
 func PointOver[E comparable, S, D, F](h mut TestHost[S, E, D, F], id Id[E], zone Id[E], box Rect, p PointerEvent) fails actor.Stopped | BadPatch {
-	try point(h, id, Some{Value: ZoneBox[E]{Id: zone, Box: box}}, p)
+	try point(h, id, option.Some{Value: ZoneBox[E]{Id: zone, Box: box}}, p)
 }
 
 // Captured is the Area that holds the pointer, None when none does.
-func Captured[S, E, D, F](h mut TestHost[S, E, D, F]) Option[Id[E]] {
+func Captured[S, E, D, F](h mut TestHost[S, E, D, F]) option.Option[Id[E]] {
 	match h.captured {
-	case Some[Id[E]] as c:
+	case option.Some[Id[E]] as c:
 		if isArea(&h.session.frame, c.Value) {
-			return Some{Value: c.Value}
+			return option.Some{Value: c.Value}
 		}
-		None
-	case None:
-		None
+		option.None
+	case option.None:
+		option.None
 	}
 }
 
@@ -1215,21 +1216,21 @@ func Announced[S, E, D, F](h mut TestHost[S, E, D, F]) []string { h.said }
 // point routes a pointer event as a host does: to the Area that holds the
 // pointer, if one does and the tree still holds it; a Down makes the
 // Area it goes to hold the pointer, and an Up lets go.
-func point[E comparable, S, D, F](h mut TestHost[S, E, D, F], id Id[E], over Option[ZoneBox[E]], p PointerEvent) fails actor.Stopped | BadPatch {
+func point[E comparable, S, D, F](h mut TestHost[S, E, D, F], id Id[E], over option.Option[ZoneBox[E]], p PointerEvent) fails actor.Stopped | BadPatch {
 	// Over a node a scrim covers, the pointer is over the scrim (UG4).
 	let mut to = if Shielded(&h.session.frame, id) { SessionRoot(&h.session) } else { id }
 	match Captured(h) {
-	case Some[Id[E]] as c:
+	case option.Some[Id[E]] as c:
 		to = c.Value
-	case None:
-		h.captured = None
+	case option.None:
+		h.captured = option.None
 	}
 	match p.Phase {
 	case Down:
 		// Captured holds only an Area, so a Down elsewhere holds nothing.
-		h.captured = Some{Value: to}
+		h.captured = option.Some{Value: to}
 	case Up:
-		h.captured = None
+		h.captured = option.None
 	case _:
 	}
 	h.heldY = p.Y
@@ -1239,14 +1240,14 @@ func point[E comparable, S, D, F](h mut TestHost[S, E, D, F], id Id[E], over Opt
 // isArea is whether f holds id and it is an Area.
 func isArea[E](f mut Frame[E], id Id[E]) bool {
 	match NodeOf(f, id) {
-	case Some[Node[E]] as n:
+	case option.Some[Node[E]] as n:
 		match n.Value {
 		case AreaNode:
 			true
 		case _:
 			false
 		}
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -1271,7 +1272,7 @@ func Now[S, E, D, F](h mut TestHost[S, E, D, F]) time.Time { h.clock.Now() }
 
 // FocusOf is the node the keyboard is on (Focused): the last one pressed
 // or typed into, or the one Tab moved to.
-func FocusOf[S, E, D, F](h mut TestHost[S, E, D, F]) Option[Id[E]] { SessionFocus(&h.session) }
+func FocusOf[S, E, D, F](h mut TestHost[S, E, D, F]) option.Option[Id[E]] { SessionFocus(&h.session) }
 
 // Screen is what the host shows, built only from the patches.
 func Screen[S, E, D, F](h mut TestHost[S, E, D, F]) []Shape[E] { ShownShapesIn(&h.session, MirrorShape(&h.mirror)) }
@@ -1283,7 +1284,7 @@ func LooksOf[S, E, D, F](h mut TestHost[S, E, D, F], n Node[E]) Looks { LooksIn(
 // PointNowhere moves the pointer off every node, as a pointer that
 // leaves the window does: a Moved to the root (UG3).
 func PointNowhere[E comparable, S, D, F](h mut TestHost[S, E, D, F]) fails actor.Stopped | BadPatch {
-	try point(h, SessionRoot(&h.session), None, PointerEvent{Pointer: MousePointer, Phase: Moved, X: 0, Y: 0, Zone: None})
+	try point(h, SessionRoot(&h.session), option.None, PointerEvent{Pointer: MousePointer, Phase: Moved, X: 0, Y: 0, Zone: option.None})
 }
 
 // ClickNowhere clicks where no node is, as a click on a window's
@@ -1292,7 +1293,7 @@ func PointNowhere[E comparable, S, D, F](h mut TestHost[S, E, D, F]) fails actor
 // the top layer with a dismiss signal sends it (UG4). A click ends any
 // hold, as any Down elsewhere does.
 func ClickNowhere[E comparable, S, D, F](h mut TestHost[S, E, D, F]) fails actor.Stopped | BadPatch {
-	h.captured = None
+	h.captured = option.None
 	try scrimClick(h)
 }
 
@@ -1300,7 +1301,7 @@ func ClickNowhere[E comparable, S, D, F](h mut TestHost[S, E, D, F]) fails actor
 // do: the focus moves to it and shows, and the pointer stays where it is
 // (UG3).
 func Activate[E comparable, S, D, F](h mut TestHost[S, E, D, F], id Id[E]) fails actor.Stopped | BadPatch {
-	h.captured = None
+	h.captured = option.None
 	focusTo(&h.session.frame, id.ref, true)
 	try apply(h, Press[E]{Id: id})
 }
@@ -1312,9 +1313,9 @@ func LookStateAt[S, E, D, F](h mut TestHost[S, E, D, F], id Id[E]) LookState { S
 // LookStateAt, from the mirror's table (UG3).
 func LookShownAt[S, E, D, F](h mut TestHost[S, E, D, F], id Id[E]) Look {
 	match entryOf(&h.mirror, id) {
-	case Some[mirrored[E]] as e:
+	case option.Some[mirrored[E]] as e:
 		LookNow(LooksOf(h, e.Value.node), LookStateAt(h, id))
-	case None:
+	case option.None:
 		Bare()
 	}
 }
@@ -1328,54 +1329,54 @@ func Fetching[S, E, D, F](h mut TestHost[S, E, D, F]) int { InFlight(&h.session)
 // Find is the first node on the screen, in tree order, whose label is
 // label: a Pressable's, a Check's or a Toggle's label, a Text's value, an
 // Input's placeholder.
-func Find[S, E, D, F](h mut TestHost[S, E, D, F], label string) Option[Id[E]] {
+func Find[S, E, D, F](h mut TestHost[S, E, D, F], label string) option.Option[Id[E]] {
 	findIn(&h.mirror, h.mirror.root, label)
 }
 
-func findIn[E](m mut Mirror[E], id Id[E], label string) Option[Id[E]] {
+func findIn[E](m mut Mirror[E], id Id[E], label string) option.Option[Id[E]] {
 	match entryOf(m, id) {
-	case Some[mirrored[E]] as n:
+	case option.Some[mirrored[E]] as n:
 		for k in childIds(m, n.Value) {
 			match entryOf(m, k) {
-			case Some[mirrored[E]] as c:
-				if labelOf(c.Value.node) == (Some{Value: label}) {
-					return Some{Value: k}
+			case option.Some[mirrored[E]] as c:
+				if labelOf(c.Value.node) == (option.Some{Value: label}) {
+					return option.Some{Value: k}
 				}
-			case None:
+			case option.None:
 			}
 			match findIn[E](m, k, label) {
-			case Some[Id[E]] as found:
+			case option.Some[Id[E]] as found:
 				return found
-			case None:
+			case option.None:
 			}
 		}
-		None
-	case None:
-		None
+		option.None
+	case option.None:
+		option.None
 	}
 }
 
 // labelOf is the label Find matches, None for a node with none.
-func labelOf[E](n Node[E]) Option[string] {
+func labelOf[E](n Node[E]) option.Option[string] {
 	match n {
 	case PressableNode[E] as x:
-		Some{Value: x.Label}
+		option.Some{Value: x.Label}
 	case CheckNode[E] as x:
-		Some{Value: x.Label}
+		option.Some{Value: x.Label}
 	case ToggleNode as x:
-		Some{Value: x.Label}
+		option.Some{Value: x.Label}
 	case AreaNode as x:
-		Some{Value: x.Label}
+		option.Some{Value: x.Label}
 	case CanvasNode as x:
-		Some{Value: x.Label}
+		option.Some{Value: x.Label}
 	case RowsNode as x:
-		Some{Value: x.Label}
+		option.Some{Value: x.Label}
 	case TextNode as x:
-		Some{Value: x.Value}
+		option.Some{Value: x.Value}
 	case InputNode as x:
-		Some{Value: fieldName(x)}
+		option.Some{Value: fieldName(x)}
 	case _:
-		None
+		option.None
 	}
 }
 
@@ -1505,7 +1506,7 @@ func fetchesAsleep[E comparable, S, D, F](h mut TestHost[S, E, D, F]) bool {
 			asleep = asleep + 1
 		}
 	}
-	asleep == len(h.session.inflight)
+	asleep == h.session.inflight.Len()
 }
 
 // waitText is what a SettleAll left in flight, waiting on the clock:
@@ -1584,11 +1585,11 @@ func actText(a Act) string {
 // only is the one node loc finds.
 func only[S, E, D, F](h mut TestHost[S, E, D, F], loc Locator) Id[E] fails NoNode | Ambiguous {
 	let ids = Locate(h, loc)
-	if len(ids) == 0 {
+	if ids.Len() == 0 {
 		return NoNode{Label: LocatorText(loc)}
 	}
-	if len(ids) > 1 {
-		return Ambiguous{At: LocatorText(loc), Count: len(ids)}
+	if ids.Len() > 1 {
+		return Ambiguous{At: LocatorText(loc), Count: ids.Len()}
 	}
 	ids[0]
 }
@@ -1596,11 +1597,11 @@ func only[S, E, D, F](h mut TestHost[S, E, D, F], loc Locator) Id[E] fails NoNod
 // found is the one node whose label is label (as Find matches it).
 func found[S, E, D, F](h mut TestHost[S, E, D, F], label string) Id[E] fails NoNode | Ambiguous {
 	let ids = withLabel(&h.mirror, h.mirror.root, label, []Id[E]{})
-	if len(ids) == 0 {
+	if ids.Len() == 0 {
 		return NoNode{Label: label}
 	}
-	if len(ids) > 1 {
-		return Ambiguous{At: "label \"\(label)\"", Count: len(ids)}
+	if ids.Len() > 1 {
+		return Ambiguous{At: "label \"\(label)\"", Count: ids.Len()}
 	}
 	ids[0]
 }
@@ -1612,19 +1613,19 @@ func found[S, E, D, F](h mut TestHost[S, E, D, F], label string) Id[E] fails NoN
 func withLabel[E](m mut Mirror[E], id Id[E], label string, acc []Id[E]) []Id[E] {
 	let mut out = acc
 	match entryOf(m, id) {
-	case Some[mirrored[E]] as n:
+	case option.Some[mirrored[E]] as n:
 		for k in childIds(m, n.Value) {
 			match entryOf(m, k) {
-			case Some[mirrored[E]] as c:
-				if labelOf(c.Value.node) == (Some{Value: label}) {
+			case option.Some[mirrored[E]] as c:
+				if labelOf(c.Value.node) == (option.Some{Value: label}) {
 					out = out.Append(k)
 					continue
 				}
-			case None:
+			case option.None:
 			}
 			out = withLabel[E](m, k, label, out)
 		}
-	case None:
+	case option.None:
 	}
 	out
 }
@@ -1674,25 +1675,25 @@ func zText(z Z) string {
 type chain { at int, last int }
 
 // chainStep enters step e. (a law's helper)
-func chainStep(s chain, e int) Decision[chain, int] {
-	Enter[chain]{Next: chain{at: e, last: s.last}}
+func chainStep(s chain, e int) machines.Decision[chain, int] {
+	machines.Enter[chain]{Next: chain{at: e, last: s.last}}
 }
 
 // chainTimer is the machine's timer: none. (a law's helper)
-func chainTimer(s chain) Option[Timeout[int]] {
-	None
+func chainTimer(s chain) option.Option[machines.Timeout[int]] {
+	option.None
 }
 
 // chainWork is the work of a step between 1 and the last: it sends the
 // next step, with no wait on the clock. (a law's helper)
-func chainWork(s chain) Option[func(send func(e int))] {
+func chainWork(s chain) option.Option[func(send func(e int))] {
 	if s.at < 1 || s.at >= s.last {
-		return None
+		return option.None
 	}
 	let next = s.at + 1
 	// The work runs a while first, so a Settle that does not wait for
 	// it ends before it sends.
-	Some{Value: func(send func(e int)) {
+	option.Some{Value: func(send func(e int)) {
 		let mut x = next
 		for i in 0..2000000 {
 			x = (x*31 + i) % 1000003
@@ -1705,11 +1706,11 @@ func chainWork(s chain) Option[func(send func(e int))] {
 
 // chainView shows the step, and "go" starts the chain. (a law's helper)
 func chainView(f mut Frame[int], s chain) {
-	OnKey(f, func(k KeyPress) Option[int] {
+	OnKey(f, func(k KeyPress) option.Option[int] {
 		if k.Name == "go" {
-			return Some{Value: 1}
+			return option.Some{Value: 1}
 		}
-		None
+		option.None
 	})
 	Text(f, "at \(s.at)")
 }
@@ -1721,9 +1722,9 @@ func chainView(f mut Frame[int], s chain) {
 // moved.
 law SettleRunsTheWork(n int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		let last = (n%8+8)%8 + 1
-		let a = actor.StartMachine(Machine[chain, int, int]{Initial: chain{at: 0, last: last}, Step: chainStep, After: chainTimer, Work: chainWork, Exit: func(s chain) Option[func()] { None }}, 1, func(o int) {})
+		let a = actor.StartMachine(machines.Machine[chain, int, int]{Initial: chain{at: 0, last: last}, Step: chainStep, After: chainTimer, Work: chainWork, Exit: func(s chain) option.Option[func()] { option.None }}, 1, func(o int) {})
 		let mut h = NewTestHost(a, chainView, m, 4) catch {
 		case BadPatch:
 			return false
@@ -1746,22 +1747,22 @@ law SettleRunsTheWork(n int) {
 }
 
 // tallyStep adds one to the row e. (a law's helper)
-func tallyStep(s []int, e int) Decision[[]int, int] {
+func tallyStep(s []int, e int) machines.Decision[[]int, int] {
 	let mut next = []int{}
 	for i, c in s {
 		next = next.Append(if i == e { c + 1 } else { c })
 	}
-	Enter[[]int]{Next: next}
+	machines.Enter[[]int]{Next: next}
 }
 
 // tallyTimer is the machine's timer: none. (a law's helper)
-func tallyTimer(s []int) Option[Timeout[int]] {
-	None
+func tallyTimer(s []int) option.Option[machines.Timeout[int]] {
+	option.None
 }
 
 // tallyWork is the machine's work: none. (a law's helper)
-func tallyWork(s []int) Option[func(send func(e int))] {
-	None
+func tallyWork(s []int) option.Option[func(send func(e int))] {
+	option.None
 }
 
 // tallyView is a row per count, each in a Same of its count, with a
@@ -1769,7 +1770,7 @@ func tallyWork(s []int) Option[func(send func(e int))] {
 func tallyView(f mut Frame[int], s []int) {
 	Column(f, Plain()) {
 		let mut idx = []int{}
-		for i in 0..len(s) {
+		for i in 0..s.Len() {
 			idx = idx.Append(i)
 		}
 		Each(f, idx, func(i int) Key { ByInt(i) }) func(i int) {
@@ -1785,38 +1786,38 @@ func tallyView(f mut Frame[int], s []int) {
 
 // pressCounts is the counts of a press on row at of a tally of n rows,
 // then a Settle, and of the step with a Redraw after it. (a law's helper)
-func pressCounts(n int, at int, m time.Manual) Option[(StepCounts, StepCounts)] needs Scheduler {
+func pressCounts(n int, at int, m time.Manual) option.Option[(StepCounts, StepCounts)] needs time.Scheduler {
 	let mut rows = []int{}
 	for _ in 0..n {
 		rows = rows.Append(0)
 	}
-	let a = actor.StartMachine(Machine[[]int, int, int]{Initial: rows, Step: tallyStep, After: tallyTimer, Work: tallyWork, Exit: func(s []int) Option[func()] { None }}, 1, func(o int) {})
+	let a = actor.StartMachine(machines.Machine[[]int, int, int]{Initial: rows, Step: tallyStep, After: tallyTimer, Work: tallyWork, Exit: func(s []int) option.Option[func()] { option.None }}, 1, func(o int) {})
 	let mut h = NewTestHost(a, tallyView, m, 4) catch {
 	case BadPatch:
-		return None
+		return option.None
 	}
 	let id = match Find(&h, "plus \(at)") {
-	case Some[Id[int]] as x:
+	case option.Some[Id[int]] as x:
 		x.Value
-	case None:
-		return None
+	case option.None:
+		return option.None
 	}
 	Tap(&h, id) catch {
 	case _:
-		return None
+		return option.None
 	}
 	Settle(&h) catch {
 	case _:
-		return None
+		return option.None
 	}
 	let pressed = Counts(&h)
 	Redraw(&h) catch {
 	case _:
-		return None
+		return option.None
 	}
 	let redrawn = Counts(&h)
 	a.Stop()
-	Some{Value: (pressed, redrawn)}
+	option.Some{Value: (pressed, redrawn)}
 }
 
 // PressIsOnePass (FK2-g2): a press on one row of a tally, and the Settle
@@ -1827,11 +1828,11 @@ func pressCounts(n int, at int, m time.Manual) Option[(StepCounts, StepCounts)] 
 // Committed nor Settle draws it again.
 law PressIsOnePass(n int, at int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		let small = (n%8+8)%8 + 2
 		let row = (at%small + small) % small
 		match (pressCounts(small, row, m), pressCounts(4*small, row, m)) {
-		case (Some[(StepCounts, StepCounts)] as x, Some[(StepCounts, StepCounts)] as y):
+		case (option.Some[(StepCounts, StepCounts)] as x, option.Some[(StepCounts, StepCounts)] as y):
 			let (p1, r1) = x.Value
 			let (p4, r4) = y.Value
 			p1.GroupsRan == 1 && p4.GroupsRan == 1 && p4.Ran-p1.Ran == (r4.Ran-p4.Ran)-(r1.Ran-p1.Ran) && p4.Ran > p1.Ran
@@ -1849,8 +1850,8 @@ law PressIsOnePass(n int, at int) {
 // are none, and its PlayTrace line says so.
 law CountsAreTheStep(n int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
-		let a = actor.StartMachine(Machine[chain, int, int]{Initial: chain{at: 0, last: 1}, Step: chainStep, After: chainTimer, Work: chainWork, Exit: func(s chain) Option[func()] { None }}, 1, func(o int) {})
+	with context { time.Scheduler: m } {
+		let a = actor.StartMachine(machines.Machine[chain, int, int]{Initial: chain{at: 0, last: 1}, Step: chainStep, After: chainTimer, Work: chainWork, Exit: func(s chain) option.Option[func()] { option.None }}, 1, func(o int) {})
 		let mut h = NewTestHost(a, chainView, m, 4) catch {
 		case BadPatch:
 			return false
@@ -1899,18 +1900,18 @@ law CountsAreTheStep(n int) {
 }
 
 // lastStep keeps the last signal. (a law's helper)
-func lastStep(s int, e int) Decision[int, int] {
-	Enter[int]{Next: e}
+func lastStep(s int, e int) machines.Decision[int, int] {
+	machines.Enter[int]{Next: e}
 }
 
 // lastTimer is the law's timer: none. (a law's helper)
-func lastTimer(s int) Option[Timeout[int]] {
-	None
+func lastTimer(s int) option.Option[machines.Timeout[int]] {
+	option.None
 }
 
 // lastWork is the law's work: none. (a law's helper)
-func lastWork(s int) Option[func(send func(e int))] {
-	None
+func lastWork(s int) option.Option[func(send func(e int))] {
+	option.None
 }
 
 // AmbiguousActFails (NS7): over screens with k of 2 to 5 buttons labelled
@@ -1921,7 +1922,7 @@ func lastWork(s int) Option[func(send func(e int))] {
 // and Find still gives that first one.
 law AmbiguousActFails(seed int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		let k = (seed%4+4)%4 + 2
 		let view = func(f mut Frame[int], s int) {
 			Column(f, Plain()) {
@@ -1937,7 +1938,7 @@ law AmbiguousActFails(seed int) {
 				}
 			}
 		}
-		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: lastStep, After: lastTimer, Work: lastWork, Exit: func(s int) Option[func()] { None }}, 1, func(o int) {})
+		let a = actor.StartMachine(machines.Machine[int, int, int]{Initial: 0, Step: lastStep, After: lastTimer, Work: lastWork, Exit: func(s int) option.Option[func()] { option.None }}, 1, func(o int) {})
 		let mut h = NewTestHost(a, view, m, 4) catch {
 		case BadPatch:
 			return false
@@ -1979,7 +1980,7 @@ law AmbiguousActFails(seed int) {
 			return false
 		}
 		let firsts = Locate(&h, First{At: WithLabel{Label: "dup"}})
-		StateOf(&h) == 100 && len(firsts) == 1 && Find(&h, "dup") == (Some{Value: firsts[0]})
+		StateOf(&h) == 100 && firsts.Len() == 1 && Find(&h, "dup") == (option.Some{Value: firsts[0]})
 	}
 }
 
@@ -1999,17 +2000,17 @@ func typedLabel(seed int, i int) string {
 // names no node.
 law TypeIntoNamesTheField(seed int, count int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		let n = (count%4+4)%4 + 2
 		let s = (seed%64 + 64) % 64
 		let view = func(f mut Frame[int], st int) {
 			Column(f, Plain()) {
 				for i in 0..n {
-					LabelledInput(f, FieldLabel{Text: typedLabel(s, i), Description: "", Invalid: false}, "", "ph\(i)", func(t string) int { i*1000 + len(t) })
+					LabelledInput(f, FieldLabel{Text: typedLabel(s, i), Description: "", Invalid: false}, "", "ph\(i)", func(t string) int { i*1000 + t.Len() })
 				}
 			}
 		}
-		let a = actor.StartMachine(Machine[int, int, int]{Initial: -1, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
+		let a = actor.StartMachine(machines.Machine[int, int, int]{Initial: -1, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) option.Option[func()] { option.None }}, 1, func(o int) {})
 		let mut h = NewTestHost(a, view, m, 4) catch {
 		case BadPatch:
 			return false

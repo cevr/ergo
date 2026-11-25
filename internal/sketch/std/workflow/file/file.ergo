@@ -28,8 +28,10 @@
 // picks. Go control: an append-only log of the operations, replayed at
 // start.
 
+import core
 import fs
 import fstest
+import option
 import strconv
 import strings
 import sync
@@ -81,9 +83,9 @@ func Crashing(files fs.Files, writes fs.Writes, path string, cut int) Store fail
 		let op = try opOf(path, n, strings.TrimSuffix(raw, "\n"))
 		let (_, next, _) = workflow.Apply(s, op)
 		s = next
-		whole = whole + len(raw)
+		whole = whole + raw.Len()
 	}
-	if whole < len(text) {
+	if whole < text.Len() {
 		writes.WriteFile(path, strings.Slice(text, 0, whole)) catch {
 		case fs.NotFound:
 			return workflow.Failed{Reason: "\(path): no such directory"}
@@ -126,11 +128,11 @@ func stepWith[R](s Store, op workflow.Op, fn func(st workflow.State) (R, workflo
 // write appends line, or the part of it before the cut and fails.
 func write(s Store, line string) fails workflow.Failed {
 	let left = s.cut.Get()
-	let part = if left >= 0 && left < len(line) { strings.Slice(line, 0, left) } else { line }
+	let part = if left >= 0 && left < line.Len() { strings.Slice(line, 0, left) } else { line }
 	if left >= 0 {
-		s.cut.Set(if left < len(line) { 0 } else { left - len(line) })
+		s.cut.Set(if left < line.Len() { 0 } else { left - line.Len() })
 	}
-	if len(part) > 0 {
+	if part.Len() > 0 {
 		s.writes.AppendFile(s.path, part) catch {
 		case fs.NotFound:
 			s.broken.Set(true)
@@ -143,9 +145,9 @@ func write(s Store, line string) fails workflow.Failed {
 			return workflow.Failed{Reason: "\(s.path): \(f.Reason)"}
 		}
 	}
-	if len(part) < len(line) {
+	if part.Len() < line.Len() {
 		s.broken.Set(true)
-		return workflow.Failed{Reason: "\(s.path): crashed after \(len(part)) bytes of a write"}
+		return workflow.Failed{Reason: "\(s.path): crashed after \(part.Len()) bytes of a write"}
 	}
 }
 
@@ -171,14 +173,14 @@ func Load(s Store, run workflow.RunID, from workflow.Cursor) workflow.Loaded fai
 	sync.Modify(s.state, func(st workflow.State) (workflow.Loaded, workflow.State) { (workflow.LoadOf(st, run, from), st) })
 }
 
-func Claim(s Store, now time.Time, lease duration) Option[workflow.Grant] fails workflow.Failed {
+func Claim(s Store, now time.Time, lease duration) option.Option[workflow.Grant] fails workflow.Failed {
 	let op = workflow.Claiming{Now: now, Lease: lease}
-	try apply(s, op, func(st workflow.State) (Option[workflow.Grant], workflow.State, bool) {
+	try apply(s, op, func(st workflow.State) (option.Option[workflow.Grant], workflow.State, bool) {
 		workflow.ApplyClaim(st, now, lease)
 	})
 }
 
-func Commit(s Store, c workflow.Claimed, expected workflow.Cursor, events []workflow.Event, next Option[time.Time]) workflow.Cursor fails workflow.Conflict | workflow.Fenced | workflow.Failed {
+func Commit(s Store, c workflow.Claimed, expected workflow.Cursor, events []workflow.Event, next option.Option[time.Time]) workflow.Cursor fails workflow.Conflict | workflow.Fenced | workflow.Failed {
 	let grant = workflow.GrantOf(c)
 	let op = workflow.Committing{Grant: grant, Expected: expected, Events: events, Next: next}
 	match try apply(s, op, func(st workflow.State) (workflow.CommitResult, workflow.State, bool) {
@@ -248,7 +250,7 @@ law EveryCutIsAllOrNothing(texts []string, cut int) {
 func lengths(texts []string) []int {
 	let mut out = []int{}
 	for t in texts {
-		out = out.Append(len(t))
+		out = out.Append(t.Len())
 	}
 	out
 }
@@ -260,7 +262,7 @@ func operation(s workflow.Store, i int, events []workflow.Event, now time.Time) 
 		let _ = try s.Create(runOf(0), workflow.Started{Payload: "p", Version: "1", At: now}, now)
 	case 1:
 		let _ = try workflow.Work(s, now, 1s, func(c own workflow.Claimed) fails workflow.Failed | workflow.Conflict | workflow.Fenced {
-			let _ = try s.Commit(c, 1, events, Some[time.Time]{Value: now.Add(1s)})
+			let _ = try s.Commit(c, 1, events, option.Some[time.Time]{Value: now.Add(1s)})
 			try s.Settle(c)
 		})
 	case _:
@@ -415,11 +417,11 @@ func worked(s workflow.Store, now time.Time, lease duration, events []workflow.E
 		let l = try s.Load(g.Run, 0)
 		let moved = int(l.Next) + mod(delta, 3) - 1
 		let expected = workflow.ParseCursor(moved) catch {
-		case Unsatisfied:
+		case core.Unsatisfied:
 			0
 		}
 		let mut k = 0
-		let at = try s.Commit(c, expected, events, Some[time.Time]{Value: now.Add(5ms)}) catch {
+		let at = try s.Commit(c, expected, events, option.Some[time.Time]{Value: now.Add(5ms)}) catch {
 		case workflow.Conflict as x:
 			k = -1 - int(x.Actual)
 			0
@@ -430,7 +432,7 @@ func worked(s workflow.Store, now time.Time, lease duration, events []workflow.E
 		if k == 0 {
 			k = int(at)
 		}
-		seen.Set([]int{g.Rev, g.Epoch, int(time.Milliseconds(g.Until)), int(l.Next), len(l.Events), k})
+		seen.Set([]int{g.Rev, g.Epoch, int(time.Milliseconds(g.Until)), int(l.Next), l.Events.Len(), k})
 		match mod(end, 3) {
 		case 0:
 			try s.Settle(c) catch {
@@ -468,12 +470,12 @@ func lineOf(op workflow.Op) string {
 		"claim\t" + timeText(c.Now) + "\t\(int64(c.Lease))\n"
 	case workflow.Committing as c:
 		let next = match c.Next {
-		case Some{Value: t}:
+		case option.Some{Value: t}:
 			timeText(t)
-		case None:
+		case option.None:
 			"-"
 		}
-		let mut line = "commit\t" + grantText(c.Grant) + "\t\(int(c.Expected))\t" + next + "\t\(len(c.Events))"
+		let mut line = "commit\t" + grantText(c.Grant) + "\t\(int(c.Expected))\t" + next + "\t\(c.Events.Len())"
 		for e in c.Events {
 			line = line + "\t" + eventText(e)
 		}
@@ -524,7 +526,7 @@ type fields { f []string, at int, bad workflow.Failed }
 
 // text is the next field, unquoted.
 func text(r mut fields) string fails workflow.Failed {
-	if r.at >= len(r.f) {
+	if r.at >= r.f.Len() {
 		return r.bad
 	}
 	let s = strconv.Unquote(r.f[r.at]) catch {
@@ -537,7 +539,7 @@ func text(r mut fields) string fails workflow.Failed {
 
 // number is the next field, a decimal.
 func number(r mut fields) int64 fails workflow.Failed {
-	if r.at >= len(r.f) {
+	if r.at >= r.f.Len() {
 		return r.bad
 	}
 	let n = strconv.ParseInt(r.f[r.at], 10, 64) catch {
@@ -561,7 +563,7 @@ func instant(r mut fields) time.Time fails workflow.Failed {
 func runID(r mut fields) workflow.RunID fails workflow.Failed {
 	let s = try text(r)
 	workflow.ParseRunID(s) catch {
-	case Unsatisfied:
+	case core.Unsatisfied:
 		return r.bad
 	}
 }
@@ -570,14 +572,14 @@ func runID(r mut fields) workflow.RunID fails workflow.Failed {
 func cursor(r mut fields) workflow.Cursor fails workflow.Failed {
 	let n = try count(r)
 	workflow.ParseCursor(n) catch {
-	case Unsatisfied:
+	case core.Unsatisfied:
 		return r.bad
 	}
 }
 
 // kind is the next field as it is.
 func kind(r mut fields) string fails workflow.Failed {
-	if r.at >= len(r.f) {
+	if r.at >= r.f.Len() {
 		return r.bad
 	}
 	let k = r.f[r.at]
@@ -668,11 +670,11 @@ func opOf(path string, n int, line string) workflow.Op fails workflow.Failed {
 	case "commit":
 		let g = try grant(&r)
 		let expected = try cursor(&r)
-		let next = if r.at < len(r.f) && r.f[r.at] == "-" {
+		let next = if r.at < r.f.Len() && r.f[r.at] == "-" {
 			r.at = r.at + 1
-			None
+			option.None
 		} else {
-			Some[time.Time]{Value: try instant(&r)}
+			option.Some[time.Time]{Value: try instant(&r)}
 		}
 		let k = try count(&r)
 		let mut events = []workflow.Event{}
@@ -687,7 +689,7 @@ func opOf(path string, n int, line string) workflow.Op fails workflow.Failed {
 	case _:
 		return bad
 	}
-	if r.at != len(r.f) {
+	if r.at != r.f.Len() {
 		return bad
 	}
 	op

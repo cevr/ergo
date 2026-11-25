@@ -10,6 +10,7 @@
 import cron
 import gen
 import math
+import option
 import time
 import tz
 
@@ -312,9 +313,9 @@ func Decide(s Schedule, runs int, elapsed duration) Next {
 	case cronAt as c:
 		let now = time.Add(c.start, elapsed)
 		match cron.Next(c.expr, c.zone, now) {
-		case Some[time.Time] as n:
+		case option.Some[time.Time] as n:
 			Continue{After: time.Sub(n.Value, now)}
-		case None:
+		case option.None:
 			Stop
 		}
 	case either as e:

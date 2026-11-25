@@ -28,7 +28,7 @@ func directWithoutCopy(st fnb, f expr.Fn, body callBody, recursive bool) string 
 
 func tabDomain(st fnb, f expr.Fn) bool {
 	let ops = store.OperandsOf(st.s, f.Sig)
-	let n = len(ops) - 3
+	let n = ops.Len() - 3
 	let mut size = 1
 	for i in 0..n {
 		let basic = basicGo(st, ops[i])

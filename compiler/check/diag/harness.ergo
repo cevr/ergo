@@ -12,6 +12,7 @@ import compiler/check/expr
 import compiler/check/types
 import compiler/syntax
 import dense
+import option
 
 // Harnesses is S108 for each harness member whose function is not of the
 // shape, and for each second harness of one type, in the Go checker's
@@ -26,11 +27,11 @@ func Harnesses(k expr.Pkg) []Diag {
 			match syntax.ViewOf(p.Tree, d) {
 			case syntax.TypeDecl as td:
 				match dense.Unpack(td.Spec) {
-				case Some[dense.ID[syntax.Node]] as sp:
+				case option.Some[dense.ID[syntax.Node]] as sp:
 					if syntax.KindOf(p.Tree, sp.Value) == syntax.KInterfaceType {
 						out = harnessMembers(k, p, f, td, sp.Value, out)
 					}
-				case None:
+				case option.None:
 				}
 			case _:
 			}

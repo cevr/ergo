@@ -11,6 +11,7 @@
 // (templ's render functions; Lustre's string tree).
 
 import build
+import option
 import strconv
 import strings
 
@@ -26,7 +27,7 @@ import strings
 // it runs (a template's holes) is a template (CF2): its parts, in order,
 // markup and the attributes and nodes that hold the data, each written in
 // its place.
-type Node { text string, esc bool, late Option[Writer], parts []Child }
+type Node { text string, esc bool, late option.Option[Writer], parts []Child }
 
 // Writer writes a node's markup at the end of a buffer.
 type Writer { write func(b mut strings.Builder) }
@@ -48,12 +49,12 @@ type Trusted { s string }
 func Trust(s string) Trusted { Trusted{s: s} }
 
 // markup is the node of markup m.
-func markup(m string) Node { Node{text: m, esc: false, late: None, parts: []Child{}} }
+func markup(m string) Node { Node{text: m, esc: false, late: option.None, parts: []Child{}} }
 
 // later is the node that w writes. In a fold a constructor builds its
 // template instead (compose).
 func later(w own func(b mut strings.Builder)) Node {
-	Node{text: "", esc: false, late: Some[Writer]{Value: Writer{write: w}}, parts: []Child{}}
+	Node{text: "", esc: false, late: option.Some[Writer]{Value: Writer{write: w}}, parts: []Child{}}
 }
 
 // Text is s as an element's text, escaped when it is written (TextIsInert).
@@ -61,7 +62,7 @@ func Text(s string) Node {
 	if build.InFold() && build.Known(s) {
 		return markup(Escape(s))
 	}
-	Node{text: s, esc: true, late: None, parts: []Child{}}
+	Node{text: s, esc: true, late: option.None, parts: []Child{}}
 }
 
 // Int is n in decimal, as text.
@@ -73,7 +74,7 @@ func Raw(t Trusted) Node { markup(t.s) }
 // Each is the node f makes of each item, in order. f runs when the node
 // is written, so no list of nodes is built.
 func Each[T](items []T, f own func(item T) Node) Node {
-	Node{text: "", esc: false, late: Some[Writer]{Value: Writer{write: func(b mut strings.Builder) {
+	Node{text: "", esc: false, late: option.Some[Writer]{Value: Writer{write: func(b mut strings.Builder) {
 		for x in items {
 			writeNode(b, f(x))
 		}
@@ -125,15 +126,15 @@ law RenderParsesBack(seed int) {
 	let got = tparse(markup)
 	let gotDoc = tparse(strings.TrimPrefix(doc, "<!DOCTYPE html>"))
 	let back = match got {
-	case Some[[]tnode] as t:
+	case option.Some[[]tnode] as t:
 		sameNodes(t.Value, want)
-	case None:
+	case option.None:
 		false
 	}
 	let backDoc = match gotDoc {
-	case Some[[]tnode] as t:
+	case option.Some[[]tnode] as t:
 		sameNodes(t.Value, wantDoc)
-	case None:
+	case option.None:
 		false
 	}
 	back && backDoc && strings.HasPrefix(doc, "<!DOCTYPE html>") && unsafe == 0
@@ -168,7 +169,7 @@ func tstring(r mut trng) string {
 	let mut b = strings.NewBuilder()
 	for _ in 0..tdraw(r, 5) {
 		let ps = pieces()
-		b.WriteString(ps[tdraw(r, len(ps))])
+		b.WriteString(ps[tdraw(r, ps.Len())])
 	}
 	b.String()
 }
@@ -183,10 +184,10 @@ func addText(m []tnode, s string) []tnode {
 	if s == "" {
 		return m
 	}
-	if len(m) > 0 {
-		match m[len(m)-1] {
+	if m.Len() > 0 {
+		match m[m.Len()-1] {
 		case ttext as t:
-			let mut out = m[0 : len(m)-1]
+			let mut out = m[0 : m.Len()-1]
 			out = out.Append(ttext{s: t.s + s})
 			return out
 		case tel, tvoid, tscript:
@@ -203,7 +204,7 @@ func tname(s string) string {
 		return "data-"
 	}
 	let mut b = strings.NewBuilder()
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		let c = s[i]
 		let ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' || c == ':'
 		b.WriteByte(if ok { c } else { '-' })
@@ -274,7 +275,7 @@ func tkids(r mut trng, d int, unsafe mut int) built {
 		} else if k == 3 {
 			let (m, as2) = tattrs(r, unsafe)
 			let tags = []string{"br", "img", "input", "hr", "meta"}
-			let t = tdraw(r, len(tags))
+			let t = tdraw(r, tags.Len())
 			model = model.Append(tvoid{tag: tags[t], attrs: m})
 			kids = kids.Append([]Node{Br(as2), Img(as2), Input(as2), Hr(as2), Meta(as2)}[t])
 		} else if k == 4 {
@@ -292,18 +293,18 @@ func tkids(r mut trng, d int, unsafe mut int) built {
 			let (m, as2) = tattrs(r, unsafe)
 			let inner = tkids(r, d+1, unsafe)
 			let tags = []string{"div", "p", "span", "li", "td", "title", "textarea", "a"}
-			let t = tdraw(r, len(tags))
+			let t = tdraw(r, tags.Len())
 			let mut all = []Child{}
 			// attributes before, between and after the children: they are
 			// written in the start tag in their order.
-			let cut = if len(as2) == 0 { 0 } else { tdraw(r, len(as2)+1) }
+			let cut = if as2.Len() == 0 { 0 } else { tdraw(r, as2.Len()+1) }
 			for a in as2[0:cut] {
 				all = all.Append(a)
 			}
 			for c in inner.kids {
 				all = all.Append(c)
 			}
-			for a in as2[cut:len(as2)] {
+			for a in as2[cut:as2.Len()] {
 				all = all.Append(a)
 			}
 			let n = []Node{Div(all), P(all), Span(all), Li(all), Td(all), Title(all), Textarea(all), A(all)}[t]
@@ -324,7 +325,7 @@ func tvoids() []string { []string{"br", "img", "input", "hr", "meta"} }
 // ttext reads text up to the next < and decodes it. (a law's helper)
 func ptext(p mut tparser) string {
 	let start = p.i
-	for p.i < len(p.s) && p.s[p.i] != '<' {
+	for p.i < p.s.Len() && p.s[p.i] != '<' {
 		p.i = p.i + 1
 	}
 	unescape(strings.Slice(p.s, start, p.i))
@@ -333,7 +334,7 @@ func ptext(p mut tparser) string {
 // pname reads a tag or attribute name. (a law's helper)
 func pname(p mut tparser) string {
 	let start = p.i
-	for p.i < len(p.s) && p.s[p.i] != ' ' && p.s[p.i] != '=' && p.s[p.i] != '>' && p.s[p.i] != '/' && p.s[p.i] != '"' && p.s[p.i] != '\'' && p.s[p.i] != '<' {
+	for p.i < p.s.Len() && p.s[p.i] != ' ' && p.s[p.i] != '=' && p.s[p.i] != '>' && p.s[p.i] != '/' && p.s[p.i] != '"' && p.s[p.i] != '\'' && p.s[p.i] != '<' {
 		p.i = p.i + 1
 	}
 	if p.i == start {
@@ -346,21 +347,21 @@ func pname(p mut tparser) string {
 func pattrs(p mut tparser) []tattr {
 	let mut out = []tattr{}
 	let mut more = true
-	for more && p.ok && p.i < len(p.s) && p.s[p.i] == ' ' {
+	for more && p.ok && p.i < p.s.Len() && p.s[p.i] == ' ' {
 		p.i = p.i + 1
 		let n = pname(p)
-		if p.i < len(p.s) && p.s[p.i] == '=' {
-			if p.i+1 >= len(p.s) || p.s[p.i+1] != '"' {
+		if p.i < p.s.Len() && p.s[p.i] == '=' {
+			if p.i+1 >= p.s.Len() || p.s[p.i+1] != '"' {
 				p.ok = false
 				more = false
 			} else {
 				p.i = p.i + 2
 				let start = p.i
-				for p.i < len(p.s) && p.s[p.i] != '"' {
+				for p.i < p.s.Len() && p.s[p.i] != '"' {
 					p.i = p.i + 1
 				}
 				let v = strings.Slice(p.s, start, p.i)
-				if p.i >= len(p.s) || !inert(v) {
+				if p.i >= p.s.Len() || !inert(v) {
 					p.ok = false
 				}
 				p.i = p.i + 1
@@ -379,17 +380,17 @@ func pkids(p mut tparser, close string) []tnode {
 	let mut out = []tnode{}
 	let mut done = false
 	for !done && p.ok {
-		if p.i >= len(p.s) {
+		if p.i >= p.s.Len() {
 			if close != "" {
 				p.ok = false
 			}
 			done = true
 		} else if p.s[p.i] != '<' {
 			out = out.Append(ttext{s: ptext(p)})
-		} else if strings.HasPrefix(strings.Slice(p.s, p.i, len(p.s)), "</") {
+		} else if strings.HasPrefix(strings.Slice(p.s, p.i, p.s.Len()), "</") {
 			let end = "</" + close + ">"
-			if close != "" && strings.HasPrefix(strings.Slice(p.s, p.i, len(p.s)), end) {
-				p.i = p.i + len(end)
+			if close != "" && strings.HasPrefix(strings.Slice(p.s, p.i, p.s.Len()), end) {
+				p.i = p.i + end.Len()
 			} else {
 				p.ok = false
 			}
@@ -406,7 +407,7 @@ func pelement(p mut tparser) tnode {
 	p.i = p.i + 1
 	let tag = pname(p)
 	let as2 = pattrs(p)
-	let rest = strings.Slice(p.s, p.i, len(p.s))
+	let rest = strings.Slice(p.s, p.i, p.s.Len())
 	if strings.HasPrefix(rest, "/>") {
 		p.i = p.i + 2
 		let mut known = false
@@ -432,10 +433,10 @@ func pelement(p mut tparser) tnode {
 	}
 	if tag == "script" {
 		let start = p.i
-		for p.i < len(p.s) && !strings.HasPrefix(strings.Slice(p.s, p.i, len(p.s)), "</script>") {
+		for p.i < p.s.Len() && !strings.HasPrefix(strings.Slice(p.s, p.i, p.s.Len()), "</script>") {
 			p.i = p.i + 1
 		}
-		if p.i >= len(p.s) {
+		if p.i >= p.s.Len() {
 			p.ok = false
 		}
 		let body = strings.Slice(p.s, start, p.i)
@@ -447,15 +448,15 @@ func pelement(p mut tparser) tnode {
 
 // tparse is the tree markup s holds, when the reference parser reads all
 // of it. (a law's helper)
-func tparse(s string) Option[[]tnode] {
+func tparse(s string) option.Option[[]tnode] {
 	let mut p = tparser{s: s, i: 0, ok: true}
 	let out = pkids(&p, "")
-	if p.ok { Some[[]tnode]{Value: out} } else { None }
+	if p.ok { option.Some[[]tnode]{Value: out} } else { option.None }
 }
 
 // sameAttrs is whether a and b are one attribute list. (a law's helper)
 func sameAttrs(a []tattr, b []tattr) bool {
-	if len(a) != len(b) {
+	if a.Len() != b.Len() {
 		return false
 	}
 	for i, x in a {
@@ -468,7 +469,7 @@ func sameAttrs(a []tattr, b []tattr) bool {
 
 // sameNodes is whether a and b are one tree. (a law's helper)
 func sameNodes(a []tnode, b []tnode) bool {
-	if len(a) != len(b) {
+	if a.Len() != b.Len() {
 		return false
 	}
 	for i, x in a {
@@ -520,13 +521,13 @@ func Static(n Node) bool { isFixed(n) }
 
 // isFixed is whether n is markup.
 func isFixed(n Node) bool {
-	if n.esc || len(n.parts) > 0 {
+	if n.esc || n.parts.Len() > 0 {
 		return false
 	}
 	match n.late {
-	case Some[Writer]:
+	case option.Some[Writer]:
 		false
-	case None:
+	case option.None:
 		true
 	}
 }
@@ -534,10 +535,10 @@ func isFixed(n Node) bool {
 // writeNode writes n at the end of b.
 func writeNode(b mut strings.Builder, n Node) {
 	match n.late {
-	case Some[Writer] as w:
+	case option.Some[Writer] as w:
 		w.Value.write(b)
-	case None:
-		if len(n.parts) > 0 {
+	case option.None:
+		if n.parts.Len() > 0 {
 			writeParts(b, n.parts)
 		} else if n.esc {
 			escape(b, n.text)
@@ -712,10 +713,10 @@ func part(t tmpl, c Child) tmpl { tmpl{parts: flush(t).Append(c), cur: ""} }
 
 // done is t's node: its markup when it has no part.
 func done(t tmpl) Node {
-	if len(t.parts) == 0 {
+	if t.parts.Len() == 0 {
 		return markup(t.cur)
 	}
-	Node{text: "", esc: false, late: None, parts: flush(t)}
+	Node{text: "", esc: false, late: option.None, parts: flush(t)}
 }
 
 // putAttr is t with the attribute a after it: its markup when the build
@@ -734,7 +735,7 @@ func putAttr(t tmpl, a Attr) tmpl {
 	if a.bare {
 		return put(t, " "+a.name)
 	}
-	put(part(put(t, " "+a.name+"=\""), Node{text: a.value, esc: true, late: None, parts: []Child{}}), "\"")
+	put(part(put(t, " "+a.name+"=\""), Node{text: a.value, esc: true, late: option.None, parts: []Child{}}), "\"")
 }
 
 // putNode is t with the node n after it: its markup when the build knows
@@ -743,7 +744,7 @@ func putNode(t tmpl, n Node) tmpl {
 	if build.Known(n) {
 		return put(t, Render(n))
 	}
-	if build.Hole(n) || len(n.parts) == 0 {
+	if build.Hole(n) || n.parts.Len() == 0 {
 		return part(t, n)
 	}
 	let mut out = t
@@ -832,7 +833,7 @@ func name(s string) string {
 		return "data-"
 	}
 	let mut b = strings.NewBuilder()
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		let c = s[i]
 		let ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' || c == ':'
 		b.WriteByte(if ok { c } else { '-' })
@@ -889,8 +890,8 @@ law RenderIsAppend(a string, c string, k string) {
 	let list = Render(Each([]string{a, c}, Text))
 	let div = Render(Div([]Child{Text(a), Class(k), Text(c), Id(k)}))
 	let br = Render(Br([]Attr{Class(k)}))
-	let doc = Render(Doc(P([]Child{When(a == c, Text(a)), Int(len(a))})))
-	list == ta+tc && div == "<div class=\""+ek+"\" id=\""+ek+"\">"+ta+tc+"</div>" && br == "<br class=\""+ek+"\"/>" && doc == "<!DOCTYPE html><p>"+(if a == c { ta } else { "" })+"\(len(a))</p>"
+	let doc = Render(Doc(P([]Child{When(a == c, Text(a)), Int(a.Len())})))
+	list == ta+tc && div == "<div class=\""+ek+"\" id=\""+ek+"\">"+ta+tc+"</div>" && br == "<br class=\""+ek+"\"/>" && doc == "<!DOCTYPE html><p>"+(if a == c { ta } else { "" })+"\(a.Len())</p>"
 }
 
 // StaticIsItsTree (CF1): a node's markup is one: frozen into one string,
@@ -898,7 +899,7 @@ law RenderIsAppend(a string, c string, k string) {
 // child node run at write time (each wrapped in an Each of one item). A
 // frozen node is static and an Each is not.
 law StaticIsItsTree(a string, c string, k string) {
-	let kids = []Child{Text(a), Class(k), P([]Child{Text(c), Int(len(c))}), Br([]Attr{Id(k)}), Raw(Trust(c)), When(a == c, Text(k)), Script([]Attr{Type(k)}, Trust(c))}
+	let kids = []Child{Text(a), Class(k), P([]Child{Text(c), Int(c.Len())}), Br([]Attr{Id(k)}), Raw(Trust(c)), When(a == c, Text(k)), Script([]Attr{Type(k)}, Trust(c))}
 	let mut late = []Child{}
 	for x in kids {
 		match x {
@@ -920,7 +921,7 @@ law StaticIsItsTree(a string, c string, k string) {
 // a template with data is no markup, and a document of one is the
 // document of its element.
 law TemplateIsItsTree(a string, c string, k string) {
-	let kids = []Child{Text(a), Class(k), P([]Child{Text(c), Int(len(c))}), Flag(c), Br([]Attr{Id(k), Flag(a)}), Raw(Trust(c)), When(a == c, Text(k))}
+	let kids = []Child{Text(a), Class(k), P([]Child{Text(c), Int(c.Len())}), Flag(c), Br([]Attr{Id(k), Flag(a)}), Raw(Trust(c)), When(a == c, Text(k))}
 	let inner = Template(Trust("<p"), []Child{Text(c), Id(a)}, Trust(">"), Trust("</p>"))
 	let t = Template(Trust("<div"), kids.Append(inner), Trust(">"), Trust("</div>"))
 	let tree = Div(kids.Append(P([]Child{Text(c), Id(a)})))

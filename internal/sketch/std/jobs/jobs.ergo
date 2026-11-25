@@ -19,6 +19,7 @@
 // model here, with Schedule for the retries. Go: a ring of ready jobs and
 // a map of leases under a mutex.
 
+import option
 import schedule
 import slices
 import time
@@ -72,7 +73,7 @@ type Queue[J] {
 	// lowest ID first among equal times, until now plus the lease; None
 	// when no job is ready at now. A lease that ended at or before now
 	// counts first as a failure at its end.
-	ReserveAt(now time.Time) Option[Lease[J]] fails Failed,
+	ReserveAt(now time.Time) option.Option[Lease[J]] fails Failed,
 	// AckAt ends the lease of t as done.
 	AckAt(t Ticket, now time.Time) fails Unknown | Failed,
 	// FailAt ends the lease of t as a failure: the job is ready again when
@@ -100,7 +101,7 @@ type Queue[J] {
 		let id = try EnqueueAt(job, now)
 		let before = try Count()
 		match try ReserveAt(now) {
-		case Some[Lease[J]] as l:
+		case option.Some[Lease[J]] as l:
 			if l.Value.Ticket.ID != id {
 				return true
 			}
@@ -120,7 +121,7 @@ type Queue[J] {
 				return false
 			}
 			false
-		case None:
+		case option.None:
 			false
 		}
 	},
@@ -154,7 +155,7 @@ type Op[J] = Enqueue[J]{Job J, At time.Time} | Reserve{Now time.Time} | Ack{Tick
 
 // Outcome is what Apply of an Op gave: an Enqueue's ID, a Reserve's lease
 // or None, a settled Ack or Fail, or an Unknown ticket.
-type Outcome[J] = Enqueued{ID int} | Reserved[J]{Lease Option[Lease[J]]} | Settled{} | NotLeased{Ticket Ticket}
+type Outcome[J] = Enqueued{ID int} | Reserved[J]{Lease option.Option[Lease[J]]} | Settled{} | NotLeased{Ticket Ticket}
 
 // State is a queue's jobs. Empty makes one; Apply changes it.
 type State[J] {
@@ -184,8 +185,8 @@ func Empty[J]() State[J] {
 
 // CountOf is how many jobs of s are in each state.
 func CountOf[J](s State[J]) Counts {
-	let waiting = len(s.ready) - s.head
-	Counts{Waiting: waiting, Leased: len(s.entries) - waiting, Done: s.done, Dead: len(s.dead)}
+	let waiting = s.ready.Len() - s.head
+	Counts{Waiting: waiting, Leased: s.entries.Len() - waiting, Done: s.done, Dead: s.dead.Len()}
 }
 
 // DeadOf is the dead letters of s.
@@ -203,7 +204,7 @@ func ApplyEnqueue[J](s own State[J], job J, at time.Time) (int, State[J]) {
 	(id, st)
 }
 
-func ApplyReserve[J](p Policy, s own State[J], now time.Time) (Option[Lease[J]], State[J], bool) {
+func ApplyReserve[J](p Policy, s own State[J], now time.Time) (option.Option[Lease[J]], State[J], bool) {
 	let (expired, after) = expire(p, s, now)
 	reserve(p, after, now, expired)
 }
@@ -260,11 +261,11 @@ law NoneLost(steps []step) {
 			Reserve{Now: now}
 		case ackStep as a:
 			now = now.Add(msOf(a.Wait))
-			let t = if len(tickets) == 0 { Ticket{ID: 0, Attempt: 0} } else { tickets[((a.Pick%len(tickets))+len(tickets))%len(tickets)] }
+			let t = if tickets.Len() == 0 { Ticket{ID: 0, Attempt: 0} } else { tickets[((a.Pick%tickets.Len())+tickets.Len())%tickets.Len()] }
 			Ack{Ticket: t, Now: now}
 		case failStep as f:
 			now = now.Add(msOf(f.Wait))
-			let t = if len(tickets) == 0 { Ticket{ID: 0, Attempt: 0} } else { tickets[((f.Pick%len(tickets))+len(tickets))%len(tickets)] }
+			let t = if tickets.Len() == 0 { Ticket{ID: 0, Attempt: 0} } else { tickets[((f.Pick%tickets.Len())+tickets.Len())%tickets.Len()] }
 			Fail{Ticket: t, Why: "failed", Now: now}
 		}
 		let (o, next, _) = Apply(p, s, op)
@@ -277,7 +278,7 @@ law NoneLost(steps []step) {
 			enqueued = enqueued + 1
 		case Reserved[int] as r:
 			match r.Lease {
-			case Some[Lease[int]] as l:
+			case option.Some[Lease[int]] as l:
 				if l.Value.Job != (l.Value.Ticket.ID-1)*7 {
 					return false
 				}
@@ -287,7 +288,7 @@ law NoneLost(steps []step) {
 					}
 				}
 				tickets = tickets.Append(l.Value.Ticket)
-			case None:
+			case option.None:
 			}
 		case Settled, NotLeased:
 		}
@@ -320,9 +321,9 @@ law AttemptsFollowTheSchedule(base int, retries int, limit int) {
 		let t = match o {
 		case Reserved[string] as r:
 			match r.Lease {
-			case Some[Lease[string]] as l:
+			case option.Some[Lease[string]] as l:
 				l.Value.Ticket
-			case None:
+			case option.None:
 				return false
 			}
 		case _:
@@ -339,12 +340,12 @@ law AttemptsFollowTheSchedule(base int, retries int, limit int) {
 			at = failedAt.Add(c.After)
 			let (early, s3, _) = Apply(p, s, Reserve{Now: at.Add(-1ns)})
 			s = s3
-			if early != (Reserved[string]{Lease: None}) {
+			if early != (Reserved[string]{Lease: option.None}) {
 				return false
 			}
 		case schedule.Stop:
 			let dead = DeadOf(s)
-			return len(dead) == 1 && dead[0].Attempts == attempt && dead[0].Why == "try \(attempt)" && CountOf(s) == Counts{Waiting: 0, Leased: 0, Done: 0, Dead: 1}
+			return dead.Len() == 1 && dead[0].Attempts == attempt && dead[0].Why == "try \(attempt)" && CountOf(s) == Counts{Waiting: 0, Leased: 0, Done: 0, Dead: 1}
 		}
 	}
 	false
@@ -362,9 +363,9 @@ law LeaseEndIsAFailure(sec int64, ms int) {
 	let first = match o1 {
 	case Reserved[int] as r:
 		match r.Lease {
-		case Some[Lease[int]] as l:
+		case option.Some[Lease[int]] as l:
 			l.Value
-		case None:
+		case option.None:
 			return false
 		}
 	case _:
@@ -379,9 +380,9 @@ law LeaseEndIsAFailure(sec int64, ms int) {
 	match o2 {
 	case Reserved[int] as r:
 		match r.Lease {
-		case Some[Lease[int]] as l:
+		case option.Some[Lease[int]] as l:
 			l.Value.Ticket == Ticket{ID: first.Ticket.ID, Attempt: 2} && o3 == NotLeased{Ticket: first.Ticket}
-		case None:
+		case option.None:
 			false
 		}
 	case _:
@@ -408,9 +409,9 @@ law EarliestFirst(offsets []int) {
 		let l = match o {
 		case Reserved[int] as r:
 			match r.Lease {
-			case Some[Lease[int]] as found:
+			case option.Some[Lease[int]] as found:
 				found.Value
-			case None:
+			case option.None:
 				return false
 			}
 		case _:
@@ -430,9 +431,9 @@ law EarliestFirst(offsets []int) {
 // isHeld is whether t leases a job at now (held).
 func isHeld[J](s State[J], t Ticket, now time.Time) bool {
 	match held(s, t, now) {
-	case Some[entry[J]]:
+	case option.Some[entry[J]]:
 		true
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -440,14 +441,14 @@ func isHeld[J](s State[J], t Ticket, now time.Time) bool {
 // reserve is Apply's Reserve at now on s, whose ended leases expire has
 // failed (expired: whether any was): the earliest ready job leased, or
 // None and s.
-func reserve[J](p Policy, s own State[J], now time.Time, expired bool) (Option[Lease[J]], State[J], bool) {
+func reserve[J](p Policy, s own State[J], now time.Time, expired bool) (option.Option[Lease[J]], State[J], bool) {
 	let mut st = s
-	for st.head < len(st.ready) && !st.ready[st.head].at.After(now) {
+	for st.head < st.ready.Len() && !st.ready[st.head].at.After(now) {
 		let at = st.ready[st.head]
 		st.head = st.head + 1
 		st = compact(st)
 		match st.entries.Get(at.id) {
-		case Some[entry[J]] as found:
+		case option.Some[entry[J]] as found:
 			let e = found.Value
 			let attempt = e.attempts + 1
 			let until = now.Add(p.Lease)
@@ -455,24 +456,24 @@ func reserve[J](p Policy, s own State[J], now time.Time, expired bool) (Option[L
 			st.entries[at.id] = entry[J]{job: e.job, attempts: attempt, first: first, leased: true, until: until}
 			st.leases = place(st.leases, st.lhead, slot{at: until, id: at.id, attempt: attempt})
 			let t = Ticket{ID: at.id, Attempt: attempt}
-			return (Some[Lease[J]]{Value: Lease[J]{Ticket: t, Job: e.job, Until: until}}, st, true)
-		case None:
+			return (option.Some[Lease[J]]{Value: Lease[J]{Ticket: t, Job: e.job, Until: until}}, st, true)
+		case option.None:
 		}
 	}
-	(None, st, expired)
+	(option.None, st, expired)
 }
 
 // held is the entry that t leases at now: leased, of t's attempt, and
 // its lease not ended.
-func held[J](s State[J], t Ticket, now time.Time) Option[entry[J]] {
+func held[J](s State[J], t Ticket, now time.Time) option.Option[entry[J]] {
 	match s.entries.Get(t.ID) {
-	case Some[entry[J]] as e:
+	case option.Some[entry[J]] as e:
 		if e.Value.leased && e.Value.attempts == t.Attempt && now.Before(e.Value.until) {
 			return e
 		}
-		None
-	case None:
-		None
+		option.None
+	case option.None:
+		option.None
 	}
 }
 
@@ -483,9 +484,9 @@ func held[J](s State[J], t Ticket, now time.Time) Option[entry[J]] {
 func failed[J](p Policy, s own State[J], id int, why string, now time.Time) State[J] {
 	let mut st = s
 	let e = match st.entries.Get(id) {
-	case Some[entry[J]] as found:
+	case option.Some[entry[J]] as found:
 		found.Value
-	case None:
+	case option.None:
 		return st
 	}
 	match schedule.Decide(p.Retry, e.attempts, now.Sub(e.first)) {
@@ -505,16 +506,16 @@ func failed[J](p Policy, s own State[J], id int, why string, now time.Time) Stat
 func expire[J](p Policy, s own State[J], now time.Time) (bool, State[J]) {
 	let mut st = s
 	let mut any = false
-	for st.lhead < len(st.leases) && !st.leases[st.lhead].at.After(now) {
+	for st.lhead < st.leases.Len() && !st.leases[st.lhead].at.After(now) {
 		let l = st.leases[st.lhead]
 		st.lhead = st.lhead + 1
 		match st.entries.Get(l.id) {
-		case Some[entry[J]] as e:
+		case option.Some[entry[J]] as e:
 			if e.Value.leased && e.Value.attempts == l.attempt {
 				st = failed(p, st, l.id, "the lease ended", l.at)
 				any = true
 			}
-		case None:
+		case option.None:
 		}
 	}
 	(any, compact(st))
@@ -524,12 +525,12 @@ func expire[J](p Policy, s own State[J], now time.Time) (bool, State[J]) {
 // slice, so a long run keeps its slices short.
 func compact[J](s own State[J]) State[J] {
 	let mut st = s
-	if st.head > 32 && st.head*2 > len(st.ready) {
-		st.ready = slices.Clone(slices.Slice(st.ready, st.head, len(st.ready)))
+	if st.head > 32 && st.head*2 > st.ready.Len() {
+		st.ready = slices.Clone(slices.Slice(st.ready, st.head, st.ready.Len()))
 		st.head = 0
 	}
-	if st.lhead > 32 && st.lhead*2 > len(st.leases) {
-		st.leases = slices.Clone(slices.Slice(st.leases, st.lhead, len(st.leases)))
+	if st.lhead > 32 && st.lhead*2 > st.leases.Len() {
+		st.leases = slices.Clone(slices.Slice(st.leases, st.lhead, st.leases.Len()))
 		st.lhead = 0
 	}
 	st
@@ -541,7 +542,7 @@ func compact[J](s own State[J]) State[J] {
 func place(xs []slot, head int, x slot) []slot {
 	let mut out = xs
 	let mut lo = head
-	let mut hi = len(out)
+	let mut hi = out.Len()
 	out = out.Append(x)
 	if hi == lo || !later(out[hi-1], x) {
 		return out
@@ -554,7 +555,7 @@ func place(xs []slot, head int, x slot) []slot {
 			lo = mid + 1
 		}
 	}
-	let mut j = len(out) - 1
+	let mut j = out.Len() - 1
 	for j > lo {
 		out[j] = out[j-1]
 		j = j - 1

@@ -6,6 +6,8 @@
 // are bytes, as len(s) is.
 
 import go strings
+import core
+import option
 import utf8
 
 // Split is the parts of s between each sep. An empty sep splits s after
@@ -132,12 +134,12 @@ type Halves { Before string, After string }
 
 // Cut is the text before and after the first sep in s, or None when s has
 // no sep.
-func Cut(s string, sep string) Option[Halves] {
+func Cut(s string, sep string) option.Option[Halves] {
 	let i = Index(s, sep)
 	if i < 0 {
-		None
+		option.None
 	} else {
-		Some[Halves]{Value: Halves{Before: Slice(s, 0, i), After: Slice(s, i+len(sep), len(s))}}
+		option.Some[Halves]{Value: Halves{Before: Slice(s, 0, i), After: Slice(s, i+sep.Len(), s.Len())}}
 	}
 }
 
@@ -145,10 +147,10 @@ func Cut(s string, sep string) Option[Halves] {
 // line feed is a line, and an empty s has no lines. It is Go 1.24's
 // strings.Lines, written in Ergo over Index and Slice, because a pure Go
 // body cannot import iter.
-func Lines(s string) Seq[string] {
-	Seq[string](func(yield func(v string) bool) {
+func Lines(s string) core.Seq[string] {
+	core.Seq[string](func(yield func(v string) bool) {
 		let mut rest = s
-		for _ in 0..len(s) {
+		for _ in 0..s.Len() {
 			if rest == "" {
 				return
 			}
@@ -160,7 +162,7 @@ func Lines(s string) Seq[string] {
 			if !yield(Slice(rest, 0, i+1)) {
 				return
 			}
-			rest = Slice(rest, i+1, len(rest))
+			rest = Slice(rest, i+1, rest.Len())
 		}
 	})
 }
@@ -182,16 +184,16 @@ law CountMatchesSplit(s string, sep string) {
 	if sep == "" {
 		return true
 	}
-	Count(s, sep) == len(Split(s, sep))-1
+	Count(s, sep) == Split(s, sep).Len()-1
 }
 
 // CutRebuilds: the halves of a cut and the separator are the text; a text
 // with no cut has no separator.
 law CutRebuilds(s string, sep string) {
 	match Cut(s, sep) {
-	case Some[Halves] as h:
-		h.Value.Before+sep+h.Value.After == s && Index(h.Value.Before+sep, sep) == len(h.Value.Before)
-	case None:
+	case option.Some[Halves] as h:
+		h.Value.Before+sep+h.Value.After == s && Index(h.Value.Before+sep, sep) == h.Value.Before.Len()
+	case option.None:
 		!Contains(s, sep)
 	}
 }
@@ -220,9 +222,9 @@ law IndexFinds(s string, sub string) {
 		return j < 0 && !Contains(s, sub)
 	}
 	if sub == "" {
-		return i == 0 && j == len(s)
+		return i == 0 && j == s.Len()
 	}
-	Slice(s, i, i+len(sub)) == sub && Slice(s, j, j+len(sub)) == sub && i <= j && LastIndex(Slice(s, 0, i+len(sub)-1), sub) < 0 && Index(Slice(s, j+1, len(s)), sub) < 0
+	Slice(s, i, i+sub.Len()) == sub && Slice(s, j, j+sub.Len()) == sub && i <= j && LastIndex(Slice(s, 0, i+sub.Len()-1), sub) < 0 && Index(Slice(s, j+1, s.Len()), sub) < 0
 }
 
 // IndexAnyFinds: IndexAny and LastIndexAny are the offsets of the first
@@ -250,14 +252,14 @@ law RepeatLength(s string, n int) {
 	if n < 0 || n > 64 {
 		return true
 	}
-	len(Repeat(s, n)) == n*len(s)
+	Repeat(s, n).Len() == n*s.Len()
 }
 
 // FieldsHaveNoSpace: each field is a non-empty run with no white space.
 law FieldsHaveNoSpace(s string) {
 	for f in Fields(s) {
 		let again = Fields(f)
-		if len(again) != 1 || Join(again, "") != f {
+		if again.Len() != 1 || Join(again, "") != f {
 			return false
 		}
 	}
@@ -271,7 +273,7 @@ law ReplaceAllLength(s string, old string, repl string) {
 	if old == "" {
 		return true
 	}
-	len(ReplaceAll(s, old, repl)) == len(s)+Count(s, old)*(len(repl)-len(old))
+	ReplaceAll(s, old, repl).Len() == s.Len()+Count(s, old)*(repl.Len()-old.Len())
 }
 
 // LinesRebuild: the lines of s, joined, are s.

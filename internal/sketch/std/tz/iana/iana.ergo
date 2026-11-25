@@ -22,7 +22,7 @@ func New() Zones { Zones }
 // (posixrules, localtime) are not names.
 func Load(_ Zones, name string) tz.Zone fails tz.UnknownZone {
 	let data = TZif(name)
-	if len(data) == 0 {
+	if data.Len() == 0 {
 		return tz.UnknownZone{Name: name}
 	}
 	tz.FromTZif(name, data) catch {
@@ -45,12 +45,12 @@ extern go ergo.local/prototype/runtime/v1.TzdataZone func TZif(name string) stri
 // release is named.
 law EveryNameLoads(i int) {
 	let names = Names()
-	let name = names[(if i < 0 { -(i + 1) } else { i }) % len(names)]
+	let name = names[(if i < 0 { -(i + 1) } else { i })%names.Len()]
 	let z = Load(New(), name) catch {
 	case tz.UnknownZone:
 		return false
 	}
-	tz.Name(z) == name && len(Release()) >= 5
+	tz.Name(z) == name && Release().Len() >= 5
 }
 
 // LoadRefusesOtherNames: a name that is not in Names is UnknownZone, with

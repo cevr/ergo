@@ -43,12 +43,13 @@ import compiler/syntax
 import dense
 import fs
 import io
+import option
 import os
 import strings
 
 func base(path string) string {
 	let i = strings.LastIndex(path, "/")
-	if i < 0 { path } else { path[i+1 : len(path)] }
+	if i < 0 { path } else { path[i+1 : path.Len()] }
 }
 
 func read(path string) string fails os.Exit needs fs.Files {
@@ -63,11 +64,11 @@ func read(path string) string fails os.Exit needs fs.Files {
 }
 
 func unitOf(g []string) load.Unit fails os.Exit needs fs.Files {
-	if len(g) < 2 {
+	if g.Len() < 2 {
 		return os.Exit{Code: 2, Message: "exprdump: a package needs EXT FOREIGN FILE..."}
 	}
 	let tab = load.TablesOf(try read(g[0]), try read(g[1]))
-	let paths = g[2:len(g)]
+	let paths = g[2:g.Len()]
 	let mut files = []bind.File{}
 	for path in paths {
 		files = files.Append(bind.File{Name: base(path), Parsed: syntax.Parse(try read(path))})
@@ -129,9 +130,9 @@ func writeRefinements(b mut strings.Builder, u load.Unit, d load.Typed, prefix s
 	for r in facts.Refinements(&s, d.K) {
 		let p = d.K.Parsed[r.File]
 		let text = match r.R {
-		case Some{Value: f}:
+		case option.Some{Value: f}:
 			facts.Text(f)
-		case None:
+		case option.None:
 			"-"
 		}
 		b.WriteString("\(prefix)\(u.Files[r.File].Name) \(syntax.NodePos(p, r.Name)) \(types.NameText(p, r.Name)) \(text)\n")
@@ -147,7 +148,7 @@ func writeRefinements(b mut strings.Builder, u load.Unit, d load.Typed, prefix s
 func writeLets(b mut strings.Builder, u load.Unit, d load.Typed, prefix string) {
 	let mut s = d.S
 	let none = infer.NoValue(&s)
-	for f in 0..len(u.Files) {
+	for f in 0..u.Files.Len() {
 		let p = u.Files[f].Parsed
 		if p.Failed {
 			continue
@@ -166,9 +167,9 @@ func writeLets(b mut strings.Builder, u load.Unit, d load.Typed, prefix string) 
 			for j in 0..syntax.Len(names) {
 				let id = syntax.Item(p.Tree, names, j)
 				match expr.DefType(d.T, bind.PNodeOf(d.K.Ps, f, id)) {
-				case Some[dense.ID[store.TKey]] as ty:
+				case option.Some[dense.ID[store.TKey]] as ty:
 					b.WriteString("\(prefix)\(u.Files[f].Name) \(syntax.NodePos(p, id)) \(syntax.NodeEnd(p, id)) \(typeText(s, d.K, u, none, ty.Value, -1))\n")
-				case None:
+				case option.None:
 				}
 			}
 		}
@@ -249,9 +250,9 @@ type Causes { typed Map[int, bool], s store.Store, k expr.Pkg, p syntax.Parsed, 
 
 func isTyped(c Causes, x dense.ID[syntax.Node]) bool {
 	match c.typed.Get(dense.Index(bind.PNodeOf(c.k.Ps, c.f, x))) {
-	case Some[bool]:
+	case option.Some[bool]:
 		true
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -267,9 +268,9 @@ func isPackage(c Causes, x dense.ID[syntax.Node]) bool {
 		return true
 	}
 	match store.Lookup(c.s, text) {
-	case Some[dense.ID[store.Decl]] as d:
+	case option.Some[dense.ID[store.Decl]] as d:
 		store.KindName(int(store.DeclOf(c.s, d.Value).Kind)) == "pkg"
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -283,11 +284,11 @@ func declaresFunc(c Causes, name string) bool {
 	}
 	for s in stores {
 		match store.Lookup(s, name) {
-		case Some[dense.ID[store.Decl]] as d:
+		case option.Some[dense.ID[store.Decl]] as d:
 			if store.KindName(int(store.DeclOf(s, d.Value).Kind)) == "func" {
 				return true
 			}
-		case None:
+		case option.None:
 		}
 	}
 	false
@@ -355,11 +356,11 @@ func partCause(c Causes, x dense.ID[syntax.Node], depth int) string {
 		return match bind.ResolutionOf(c.k.U, c.k.Ps, bind.PNodeOf(c.k.Ps, c.f, x)) {
 		case bind.Declared as dc:
 			match dense.Unpack(bind.ParentOf(c.k.Ps, dc.At)) {
-			case Some{Value: up}:
+			case option.Some{Value: up}:
 				let (uf, row) = bind.RowOf(c.k.Ps, up)
 				let q = c.k.Parsed[uf]
 				"local bound by #\(syntax.KindOf(q.Tree, syntax.NodeAt(q.Tree, row)))"
-			case None:
+			case option.None:
 				"declaration with no parent"
 			}
 		case bind.Outside:
@@ -377,11 +378,11 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 	let mut b = strings.NewBuilder()
 	let mut std = ""
 	let mut argv = argv0
-	if len(argv) > 1 && argv[0] == "-std" {
+	if argv.Len() > 1 && argv[0] == "-std" {
 		std = argv[1]
-		argv = argv[2:len(argv)]
+		argv = argv[2:argv.Len()]
 	}
-	if len(argv) == 2 && argv[0] == "-corpus" {
+	if argv.Len() == 2 && argv[0] == "-corpus" {
 		// One package per line of the manifest, "PATH EXT FOREIGN
 		// FILE...": its import path (a checked root's @pkg path is main),
 		// its tables and files. Each package's lines are "E …" (types),
@@ -395,8 +396,8 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 		let mut units = []load.Unit{}
 		for line in strings.Split(try read(argv[1]), "\n") {
 			let g = strings.Fields(line)
-			if len(g) > 0 {
-				let mut u = try unitOf(g[1:len(g)])
+			if g.Len() > 0 {
+				let mut u = try unitOf(g[1:g.Len()])
 				u.Path = g[0]
 				units = units.Append(u)
 			}
@@ -404,7 +405,7 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 		// Each package is written as it is typed (compiler/check/load), so
 		// the run holds one package's typing at a time.
 		let p = load.LoadAll(units, load.Outside(units, std), 4)
-		for i in 0..len(p.Loaded) {
+		for i in 0..p.Loaded.Len() {
 			let u = units[p.Units[i]]
 			let d = load.TypeAt(p, i)
 			b.WriteString("@pkg \(i)\n")
@@ -422,9 +423,9 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 		io.Stdout.Print(b.String())
 		return
 	}
-	let calls = len(argv) > 0 && argv[0] == "-calls"
-	let args = if calls { argv[1:len(argv)] } else { argv }
-	if len(args) < 2 {
+	let calls = argv.Len() > 0 && argv[0] == "-calls"
+	let args = if calls { argv[1:argv.Len()] } else { argv }
+	if args.Len() < 2 {
 		return os.Exit{Code: 2, Message: "usage: exprdump [-std DIR] [-calls] EXT FOREIGN FILE... [-- EXT FOREIGN FILE...]... | exprdump [-std DIR] -corpus MANIFEST"}
 	}
 	let mut groups = [][]string{[]string{}}
@@ -432,7 +433,7 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 		if a == "--" {
 			groups = groups.Append([]string{})
 		} else {
-			groups[len(groups)-1] = groups[len(groups)-1].Append(a)
+			groups[groups.Len()-1] = groups[groups.Len()-1].Append(a)
 		}
 	}
 	let mut units = []load.Unit{}
@@ -449,7 +450,7 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 	io.Stdout.Print(b.String())
 }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), io.Stdout: io.NewHost() } {
 		try run(os.Process.Args())
 	}

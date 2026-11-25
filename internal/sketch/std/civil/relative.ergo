@@ -46,7 +46,7 @@ func Distance(from time.Time, to time.Time) Approx {
 	let s = time.UnixSeconds(b) - time.UnixSeconds(a)
 	let ns = time.Nanosecond(b) - time.Nanosecond(a)
 	if ns < 0 {
-		return approx(s - 1, ns + 1000000000, past)
+		return approx(s-1, ns+1000000000, past)
 	}
 	approx(s, ns, past)
 }
@@ -94,8 +94,8 @@ func approx(s int64, ns int64, past bool) Approx {
 // rounded is (s + ns/10^9) / u rounded to the nearest whole, a half up,
 // in integers: floor((2s + u + 2ns/10^9) / 2u).
 func rounded(s int64, ns int64, u int64) int {
-	let a = 2 * s + u
-	int(a / (2 * u) + (a % (2 * u) * 1000000000 + 2 * ns) / (2 * u * 1000000000))
+	let a = 2*s + u
+	int(a/(2*u) + (a%(2*u)*1000000000+2*ns)/(2*u*1000000000))
 }
 
 // Plural is a unit's word for a count of one and for any other count.
@@ -112,16 +112,16 @@ type Words { Now string, Today string, Ago Affix, In Affix, Second Plural, Minut
 // "in 1 hour".
 func EnglishWords() Words {
 	Words{
-		Now: "just now",
-		Today: "today",
-		Ago: Affix{Before: "", After: " ago"},
-		In: Affix{Before: "in ", After: ""},
+		Now:    "just now",
+		Today:  "today",
+		Ago:    Affix{Before: "", After: " ago"},
+		In:     Affix{Before: "in ", After: ""},
 		Second: Plural{One: "second", Other: "seconds"},
 		Minute: Plural{One: "minute", Other: "minutes"},
-		Hour: Plural{One: "hour", Other: "hours"},
-		Day: Plural{One: "day", Other: "days"},
-		Month: Plural{One: "month", Other: "months"},
-		Year: Plural{One: "year", Other: "years"},
+		Hour:   Plural{One: "hour", Other: "hours"},
+		Day:    Plural{One: "day", Other: "days"},
+		Month:  Plural{One: "month", Other: "months"},
+		Year:   Plural{One: "year", Other: "years"},
 	}
 }
 
@@ -195,7 +195,7 @@ law DurationWordsReadsBack(d int64) {
 	let words = strings.Fields(body)
 	let mut total = int64(0)
 	let mut last = int64(4000)
-	for i in 0..len(words)/2 {
+	for i in 0..words.Len()/2 {
 		let count = strconv.ParseInt(words[2*i], 10, 64) catch {
 		case strconv.Malformed, strconv.OutOfRange:
 			return false
@@ -208,7 +208,7 @@ law DurationWordsReadsBack(d int64) {
 		last = size
 		total = total + count*size
 	}
-	len(words)%2 == 0 && total == want && (n < 0) == strings.HasPrefix(text, "-")
+	words.Len()%2 == 0 && total == want && (n < 0) == strings.HasPrefix(text, "-")
 }
 
 // rank is u's place from Now (0) to Years (6).
@@ -246,7 +246,7 @@ law DistanceIsMonotone(sec int64, a int64, b int64) {
 // past.
 law DistanceMirrors(s1 int64, n1 int64, s2 int64, n2 int64) {
 	let a = time.NewTime(within(s1, -62135596800, 253402300799), within(n1, 0, 999999999))
-	let b = time.NewTime(within(s2 / 1000000 + s1, -62135596800, 253402300799), within(n2, 0, 999999999))
+	let b = time.NewTime(within(s2/1000000+s1, -62135596800, 253402300799), within(n2, 0, 999999999))
 	let there = Distance(a, b)
 	let back = Distance(b, a)
 	there.Count == back.Count && rank(there.Unit) == rank(back.Unit) && (if rank(there.Unit) == 0 { !there.Past && !back.Past } else { there.Past != back.Past })

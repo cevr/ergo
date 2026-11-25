@@ -12,12 +12,12 @@ type Malformed { Text string, At int }
 // Malformed; a coefficient over 128 bits or more than MaxScale digits
 // after the point is Overflow.
 func Parse(s string) Decimal fails Malformed | Overflow {
-	let neg = len(s) > 0 && s[0] == '-'
+	let neg = s.Len() > 0 && s[0] == '-'
 	let mut i = if neg { 1 } else { 0 }
 	let mut c = small(0)
 	let mut digits = 0
 	let mut scale = -1
-	for i < len(s) {
+	for i < s.Len() {
 		let b = s[i]
 		if b == '.' && scale < 0 && digits > 0 {
 			scale = 0
@@ -38,7 +38,7 @@ func Parse(s string) Decimal fails Malformed | Overflow {
 		i = i + 1
 	}
 	if digits == 0 || scale == 0 {
-		return Malformed{Text: s, At: len(s)}
+		return Malformed{Text: s, At: s.Len()}
 	}
 	if scale > MaxScale() {
 		return Overflow
@@ -53,7 +53,7 @@ func coefText(c u128) string {
 	}
 	let (q, r) = divmod64(c, 10000000000000000000)
 	let low = "\(r)"
-	coefText(q) + strings.Repeat("0", 19-len(low)) + low
+	coefText(q) + strings.Repeat("0", 19-low.Len()) + low
 }
 
 // Text is d as Parse reads it: "-" when negative, the digits, and a point
@@ -65,9 +65,9 @@ func Text(d Decimal) string {
 	if d.scale == 0 {
 		return sign + digits
 	}
-	let padded = if len(digits) <= d.scale { strings.Repeat("0", d.scale-len(digits)+1) + digits } else { digits }
-	let point = len(padded) - d.scale
-	sign + padded[0:point] + "." + padded[point:len(padded)]
+	let padded = if digits.Len() <= d.scale { strings.Repeat("0", d.scale-digits.Len()+1) + digits } else { digits }
+	let point = padded.Len() - d.scale
+	sign + padded[0:point] + "." + padded[point:padded.Len()]
 }
 
 // TextRoundTrips: Parse reads back Text's text of d, the same coefficient

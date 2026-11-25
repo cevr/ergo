@@ -5,6 +5,8 @@
 // is found as on the host. Every other key is unset, so no test reads the
 // host's configuration.
 
+import option
+
 // NewTestHost is the Process of the case's folder. It needs the test's
 // ambient, which only the test runner provides, to a context that states
 // it: `context needs TestAmbient { os.Process: os.NewTestHost() }`.
@@ -16,21 +18,21 @@ func confinedEnviron(h Host) Map[string, string] {
 	let mut env = Map[string, string]{}
 	for key in []string{"HOME", "PATH", "PWD", "TMPDIR"} {
 		match confinedEnv(h, key) {
-		case Some[string] as v:
+		case option.Some[string] as v:
 			env[key] = v.Value
-		case None:
+		case option.None:
 		}
 	}
 	env
 }
 
 // confinedEnv is the value of key for a test's Host, h.
-func confinedEnv(h Host, key string) Option[string] {
+func confinedEnv(h Host, key string) option.Option[string] {
 	if key == "HOME" || key == "TMPDIR" || key == "PWD" {
-		Some[string]{Value: h.root}
+		option.Some[string]{Value: h.root}
 	} else if key == "PATH" && hostHasEnv(key) {
-		Some[string]{Value: hostGetenv(key)}
+		option.Some[string]{Value: hostGetenv(key)}
 	} else {
-		None
+		option.None
 	}
 }

@@ -3,6 +3,9 @@
 // map[K]struct{}. A Set is a value, as a Map is (types.md, Bindings): Add
 // and Remove return a new Set, and a copy never sees a later change.
 
+import cmp
+import core
+import option
 import slices
 
 // Set is a set of keys of K, with no order.
@@ -31,15 +34,15 @@ func Add[K comparable](s Set[K], k K) Set[K] {
 func Remove[K comparable](s Set[K], k K) Set[K] { Set[K]{items: s.items.Delete(k)} }
 
 // Has reports whether s holds k (Effect HashSet.has).
-func Has[K comparable](s Set[K], k K) bool { s.items.Get(k) != None }
+func Has[K comparable](s Set[K], k K) bool { s.items.Get(k) != option.None }
 
 // Len is the number of keys s holds (Effect HashSet.size).
-func Len[K comparable](s Set[K]) int { len(s.items) }
+func Len[K comparable](s Set[K]) int { s.items.Len() }
 
 // Values is the keys of s, each once, in an unspecified order, as a for
 // over a Map is.
-func Values[K comparable](s Set[K]) Seq[K] {
-	Seq[K](func(yield func(k K) bool) {
+func Values[K comparable](s Set[K]) core.Seq[K] {
+	core.Seq[K](func(yield func(k K) bool) {
 		for k, _ in s.items {
 			if !yield(k) {
 				return
@@ -67,7 +70,7 @@ law SetValuesStops(xs []int) {
 }
 
 // Sorted is the keys of s in ascending order.
-func Sorted[K ordered](s Set[K]) []K { slices.Sorted(Values(s)) }
+func Sorted[K cmp.Ordered](s Set[K]) []K { slices.Sorted(Values(s)) }
 
 // AddHasRemoveHasNot: after Add, s holds k and every key it held; after
 // Remove, it does not hold k and holds every other key it held; s itself
@@ -80,7 +83,7 @@ law AddHasRemoveHasNot(xs []int, k int) {
 	for x in xs {
 		ok = ok && Has(s, x) && Has(added, x) && Has(removed, x) == (x != k)
 	}
-	ok && Len(s) == len(slices.Dedupe(xs))
+	ok && Len(s) == slices.Dedupe(xs).Len()
 }
 
 // Union is the keys in a or in b (Effect HashSet.union).
@@ -96,7 +99,7 @@ func Union[K comparable](a Set[K], b Set[K]) Set[K] {
 func Intersection[K comparable](a Set[K], b Set[K]) Set[K] {
 	let mut items = Map[K, bool]{}
 	for k, _ in a.items {
-		if b.items.Get(k) != None {
+		if b.items.Get(k) != option.None {
 			items[k] = true
 		}
 	}
@@ -107,7 +110,7 @@ func Intersection[K comparable](a Set[K], b Set[K]) Set[K] {
 func Difference[K comparable](a Set[K], b Set[K]) Set[K] {
 	let mut items = Map[K, bool]{}
 	for k, _ in a.items {
-		if b.items.Get(k) == None {
+		if b.items.Get(k) == option.None {
 			items[k] = true
 		}
 	}
@@ -118,7 +121,7 @@ func Difference[K comparable](a Set[K], b Set[K]) Set[K] {
 // HashSet.isSubset).
 func IsSubset[K comparable](a Set[K], b Set[K]) bool {
 	for k, _ in a.items {
-		if b.items.Get(k) == None {
+		if b.items.Get(k) == option.None {
 			return false
 		}
 	}

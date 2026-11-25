@@ -3,6 +3,7 @@
 // XML text: records, unions, Option, slices, Maps (any key text), tuples,
 // every integer width, floats and strings with any bytes.
 
+import option
 import strings
 
 type up { Host string, Port int, Tags []string, Load float64 }
@@ -11,7 +12,7 @@ type state = up | down
 
 type widths { A int8, B int16, C int32, D int64, E uint8, F uint16, G uint32, H uint64, I int, J uint, K float32, L bool }
 
-type fleet { Name string, States []state, Spare Option[up], Meta Map[string, int], Sizes widths, Pairs Map[string, (string, int64)], Nested [][]float64 }
+type fleet { Name string, States []state, Spare option.Option[up], Meta Map[string, int], Sizes widths, Pairs Map[string, (string, int64)], Nested [][]float64 }
 
 func codecOf() Codec[fleet] { Codec[fleet]{Root: "fleet", MaxBytes: 0, MaxDepth: 0} }
 
@@ -28,10 +29,10 @@ func heldFleet(v fleet) fleet {
 		})
 	}
 	let spare = match v.Spare {
-	case None:
-		None
-	case Some[up] as s:
-		Some[up]{Value: heldUp(s.Value)}
+	case option.None:
+		option.None
+	case option.Some[up] as s:
+		option.Some[up]{Value: heldUp(s.Value)}
 	}
 	let mut meta = Map[string, int]{}
 	for k, n in v.Meta {
@@ -88,8 +89,8 @@ func pointsAt(m Malformed, text string, offset int) bool {
 // sequence, the sequence's first byte, which is no longer UTF-8.
 law ControlCharacterIsRejectedWhereItIs(v fleet, at int) {
 	let text = Encode(codecOf(), heldFleet(v))
-	let i = if at < 0 { -(at % (len(text) + 1)) } else { at % (len(text) + 1) }
-	let bad = strings.Slice(text, 0, i) + "\x01" + strings.Slice(text, i, len(text))
+	let i = if at < 0 { -(at % (text.Len() + 1)) } else { at % (text.Len() + 1) }
+	let bad = strings.Slice(text, 0, i) + "\x01" + strings.Slice(text, i, text.Len())
 	match Check(bad, 0) catch {
 	case Malformed as m:
 		let split = m.Offset < i && i-m.Offset < 4 && bad[m.Offset] >= 0xC0
@@ -105,7 +106,7 @@ law ControlCharacterIsRejectedWhereItIs(v fleet, at int) {
 // prefix, with its line and column.
 law TruncationIsRejectedInsideTheText(v fleet, cut int) {
 	let text = Encode(codecOf(), heldFleet(v))
-	let k = if cut < 0 { -(cut % len(text)) } else { cut % len(text) }
+	let k = if cut < 0 { -(cut % text.Len()) } else { cut % text.Len() }
 	let part = strings.Slice(text, 0, k)
 	match Check(part, 0) catch {
 	case Malformed as m:
@@ -120,18 +121,18 @@ law TruncationIsRejectedInsideTheText(v fleet, cut int) {
 // record's first fields), and where they are element text: a list's
 // items (Parts), a union's field after its tag (Note), and a field after
 // the record's content (Late).
-type entry { ID Attribute, Lang Attribute, Title string, Parts []Attribute, Note Option[Attribute], Late Attribute }
+type entry { ID Attribute, Lang Attribute, Title string, Parts []Attribute, Note option.Option[Attribute], Late Attribute }
 
-func entryOf(id string, lang string, title string, parts []string, note Option[string]) entry {
+func entryOf(id string, lang string, title string, parts []string, note option.Option[string]) entry {
 	let mut ps = []Attribute{}
 	for x in parts {
 		ps = ps.Append(Attribute{Value: held(x)})
 	}
 	let n = match note {
-	case None:
-		None
-	case Some[string] as s:
-		Some[Attribute]{Value: Attribute{Value: held(s.Value)}}
+	case option.None:
+		option.None
+	case option.Some[string] as s:
+		option.Some[Attribute]{Value: Attribute{Value: held(s.Value)}}
 	}
 	entry{ID: Attribute{Value: held(id)}, Lang: Attribute{Value: held(lang)}, Title: held(title), Parts: ps, Note: n, Late: Attribute{Value: held(lang)}}
 }
@@ -140,7 +141,7 @@ func entryCodec() Codec[entry] { Codec[entry]{Root: "entry", MaxBytes: 0, MaxDep
 
 // AttributesRoundTrip: an Attribute reads back what it wrote, as an
 // attribute and as an element's text.
-law AttributesRoundTrip(id string, lang string, title string, parts []string, note Option[string]) {
+law AttributesRoundTrip(id string, lang string, title string, parts []string, note option.Option[string]) {
 	let e = entryOf(id, lang, title, parts, note)
 	let back = Decode(entryCodec(), Encode(entryCodec(), e)) catch {
 	case _:
@@ -152,7 +153,7 @@ law AttributesRoundTrip(id string, lang string, title string, parts []string, no
 // AttributesAreInTheStartTag: the record's leading Attribute fields are
 // attributes of its element, in field order, and not child elements.
 law AttributesAreInTheStartTag(id string, lang string) {
-	let e = entryOf(id, lang, "", []string{}, None)
+	let e = entryOf(id, lang, "", []string{}, option.None)
 	let text = Encode(entryCodec(), e)
 	let head = strings.Slice(text, 0, strings.Index(text, ">"))
 	strings.HasPrefix(head, "<entry id=\"") && strings.Contains(head, "\" lang=\"") && !strings.Contains(text, "<id>")

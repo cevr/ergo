@@ -152,14 +152,14 @@ func newline(l mut Layout) {
 // addLine appends a line with no cells yet.
 func addLine(l mut Layout, indent int) {
 	l.LineIndent = l.LineIndent.Append(indent)
-	l.LineFirst = l.LineFirst.Append(len(l.CellA))
+	l.LineFirst = l.LineFirst.Append(l.CellA.Len())
 	l.LineN = l.LineN.Append(0)
 }
 
 // emit applies the pending whitespace before an item. blank reports that
 // the source has a blank line before it, which is kept unless NoBlank.
 func emit(l mut Layout, blank bool) {
-	if l.PendingNL > 0 && (l.Started || len(l.LineIndent) > 0) {
+	if l.PendingNL > 0 && (l.Started || l.LineIndent.Len() > 0) {
 		l.endLine()
 		if blank && !l.NoBlank {
 			l.addLine(0)
@@ -181,7 +181,7 @@ func emit(l mut Layout, blank bool) {
 
 // put appends text to the open cell as it is.
 func put(l mut Layout, text string) {
-	let n = len(text)
+	let n = text.Len()
 	if n == 0 {
 		return
 	}
@@ -218,15 +218,15 @@ func endLine(l mut Layout) {
 		return
 	}
 	l.closeCell(false)
-	let mut n = len(l.CellA)
+	let mut n = l.CellA.Len()
 	for n-l.Pend > 1 && l.CellA[n-1] == l.CellB[n-1] {
 		n -= 1
 	}
-	if n < len(l.CellA) {
+	if n < l.CellA.Len() {
 		l.CellA = slices.Slice(l.CellA, 0, n)
 		l.CellB = slices.Slice(l.CellB, 0, n)
 	}
-	let last = len(l.LineIndent) - 1
+	let last = l.LineIndent.Len() - 1
 	l.LineFirst[last] = l.Pend
 	l.LineN[last] = n - l.Pend
 	l.Pend = n
@@ -290,6 +290,6 @@ func write(l mut Layout, text string) {
 		l.endLine()
 		l.Started = true
 		l.addLine(-1)
-		rest = strings.Slice(rest, i+1, len(rest))
+		rest = strings.Slice(rest, i+1, rest.Len())
 	}
 }

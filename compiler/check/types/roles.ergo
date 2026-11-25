@@ -5,6 +5,7 @@
 import compiler/check/store
 import compiler/syntax
 import dense
+import option
 
 type Bracket { Name string, Cons string }
 type RoleMember { Name string, Own []Bracket, Mut bool, Fallible bool, Sig dense.ID[store.TKey], Positions []int }
@@ -13,19 +14,19 @@ type Role { Name string, Params []Bracket, Members []RoleMember, Self int, Inclu
 func WrittenFails(p syntax.Parsed, typ dense.ID[syntax.Node]) bool {
 	if syntax.KindOf(p.Tree, typ) != syntax.KFuncType { return false }
 	match dense.Unpack(syntax.FuncTypeOf(p.Tree, typ).Results) {
-	case Some{Value: rs}:
+	case option.Some{Value: rs}:
 		if syntax.KindOf(p.Tree, rs) != syntax.KFieldList { return false }
 		let fs = syntax.FieldListOf(p.Tree, rs).List
 		for i in 0..syntax.Len(fs) {
 			let f = syntax.Item(p.Tree, fs, i)
 			if syntax.KindOf(p.Tree, f) != syntax.KField { continue }
 			match dense.Unpack(syntax.FieldOf(p.Tree, f).Type) {
-			case Some{Value: ft}:
+			case option.Some{Value: ft}:
 				if syntax.KindOf(p.Tree, ft) == syntax.KErrorRow { return true }
-			case None:
+			case option.None:
 			}
 		}
-	case None:
+	case option.None:
 	}
 	false
 }
@@ -37,7 +38,7 @@ func ConstraintOnlyRole(r Role) bool {
 		return true
 	}
 	for m in r.Members {
-		if len(m.Own) != 0 {
+		if m.Own.Len() != 0 {
 			return true
 		}
 	}
@@ -47,22 +48,22 @@ func ConstraintOnlyRole(r Role) bool {
 func Brackets(p syntax.Parsed, list dense.Opt[syntax.Node]) []Bracket {
 	let mut out = []Bracket{}
 	match dense.Unpack(list) {
-	case Some{Value: node}:
+	case option.Some{Value: node}:
 		let fs = syntax.FieldListOf(p.Tree, node).List
 		for i in 0..syntax.Len(fs) {
 			let f = syntax.FieldOf(p.Tree, syntax.Item(p.Tree, fs, i))
 			let cons = match dense.Unpack(f.Type) {
-			case Some{Value: t}:
+			case option.Some{Value: t}:
 				let text = syntax.SourceOf(p)
 				text[syntax.NodePos(p, t):syntax.NodeEnd(p, t)]
-			case None:
+			case option.None:
 				""
 			}
 			for j in 0..syntax.Len(f.Names) {
 				out = out.Append(Bracket{Name: NameText(p, syntax.Item(p.Tree, f.Names, j)), Cons: cons})
 			}
 		}
-	case None:
+	case option.None:
 	}
 	out
 }
@@ -77,53 +78,53 @@ func roleNames(ps []Bracket) []string {
 
 // Nominal is the type's declaration reference, for either pool encoding
 // of a named type. Import zero means the local store's declaration row.
-func Nominal(s store.Store, t dense.ID[store.TKey]) Option[store.XRef] {
+func Nominal(s store.Store, t dense.ID[store.TKey]) option.Option[store.XRef] {
 	let k = store.KindOfType(s, t)
 	if k == store.KInstance {
 		let o = store.OriginOfType(s, t)
-		return if int(o.Import) == store.ForeignBit { None } else { Some{Value: o} }
+		return if int(o.Import) == store.ForeignBit { option.None } else { option.Some{Value: o} }
 	}
 	if k == store.KNamed {
 		match store.Lookup(s, store.TypeNameText(s, store.ArgOf(s, t))) {
-		case Some{Value: id}:
-			return Some{Value: store.XRef{Import: uint32(0), Decl: uint32(dense.Index(id))}}
-		case None:
+		case option.Some{Value: id}:
+			return option.Some{Value: store.XRef{Import: uint32(0), Decl: uint32(dense.Index(id))}}
+		case option.None:
 		}
 	}
-	None
+	option.None
 }
 
 // RoleAt is the nominal role's facts and the pool that owns their ids.
 // The local case and the imported case name a row the same way.
-func RoleAt(s store.Store, roles []Role, deps []Iface, t dense.ID[store.TKey]) Option[Role] {
+func RoleAt(s store.Store, roles []Role, deps []Iface, t dense.ID[store.TKey]) option.Option[Role] {
 	match Nominal(s, t) {
-	case Some{Value: o}:
-		let rs = if o.Import == uint32(0) { roles } else if int(o.Import) <= len(deps) { deps[int(o.Import)-1].Roles } else { []Role{} }
-		if int(o.Decl) < len(rs) && rs[int(o.Decl)].Name != "" {
-			return Some{Value: rs[int(o.Decl)]}
+	case option.Some{Value: o}:
+		let rs = if o.Import == uint32(0) { roles } else if int(o.Import) <= deps.Len() { deps[int(o.Import)-1].Roles } else { []Role{} }
+		if int(o.Decl) < rs.Len() && rs[int(o.Decl)].Name != "" {
+			return option.Some{Value: rs[int(o.Decl)]}
 		}
-	case None:
+	case option.None:
 	}
-	None
+	option.None
 }
 
 // Positions reads a written claim or include at its declaring parameters.
 // Runtime equality of two type arguments cannot determine this map.
-func Positions(s store.Store, args []dense.ID[store.TKey], count int) Option[[]int] {
+func Positions(s store.Store, args []dense.ID[store.TKey], count int) option.Option[[]int] {
 	let mut out = []int{}
 	for a in args {
 		let i = DeclSlot(s, a)
 		if i < 0 || i >= count {
-			return None
+			return option.None
 		}
 		for seen in out {
 			if i == seen {
-				return None
+				return option.None
 			}
 		}
 		out = out.Append(i)
 	}
-	Some{Value: out}
+	option.Some{Value: out}
 }
 
 // DeclSlot is a single declaration parameter, including a row containing
@@ -132,28 +133,28 @@ func DeclSlot(s store.Store, t dense.ID[store.TKey]) int {
 	let mut a = t
 	if store.KindOfType(s, a) == store.KRow {
 		let row = store.OperandsOf(s, a)
-		if len(row) == 1 { a = row[0] }
+		if row.Len() == 1 { a = row[0] }
 	}
 	if store.KindOfType(s, a) == store.KParam { store.ArgOf(s, a) } else { -1 }
 }
 func rawRole(s mut store.Store, e Env, id dense.ID[store.Decl]) Role {
 	let d = store.DeclOf(*s, id)
 	let mut info = Role{Name: "", Params: []Bracket{}, Members: []RoleMember{}, Self: 0, Includes: []dense.ID[store.TKey]{}}
-	if store.KindName(int(d.Kind)) != "type" || int(d.File) >= len(e.files) {
+	if store.KindName(int(d.Kind)) != "type" || int(d.File) >= e.files.Len() {
 		return info
 	}
 	let p = e.files[int(d.File)]
 	let node = match dense.Unpack(parentDecl(p, int(d.Node))) {
-	case Some{Value: n}:
+	case option.Some{Value: n}:
 		n
-	case None:
+	case option.None:
 		return info
 	}
 	let td = syntax.TypeDeclOf(p.Tree, node)
 	let spec = match dense.Unpack(td.Spec) {
-	case Some{Value: n}:
+	case option.Some{Value: n}:
 		n
-	case None:
+	case option.None:
 		return info
 	}
 	let written = match syntax.ViewOf(p.Tree, spec) {
@@ -172,7 +173,7 @@ func rawRole(s mut store.Store, e Env, id dense.ID[store.Decl]) Role {
 	info.Self = if shadowsSelf(p, td.TypeParams) { 0 } else { SelfSites(p, spec) }
 	let env = Env{..e, p: p, params: bases}
 	let mut positions = []int{}
-	for i in 0..len(bases) {
+	for i in 0..bases.Len() {
 		positions = positions.Append(i)
 	}
 	for j in 0..syntax.Len(written) {
@@ -180,22 +181,22 @@ func rawRole(s mut store.Store, e Env, id dense.ID[store.Decl]) Role {
 		match syntax.ViewOf(p.Tree, m) {
 		case syntax.Field as f:
 			match dense.Unpack(f.Type) {
-			case Some{Value: ft}:
+			case option.Some{Value: ft}:
 				if f.Dots >= 0 {
 					info.Includes = info.Includes.Append(Resolve(s, env, ft))
 				} else if syntax.KindOf(p.Tree, spec) == syntax.KInterfaceType && syntax.Len(f.Names) == 1 && syntax.KindOf(p.Tree, ft) == syntax.KFuncType {
 					let own = Brackets(p, syntax.FuncTypeOf(p.Tree, ft).TypeParams)
-					let inner = WithSelf(Env{..env, params: bases.Concat(roleNames(own))}, len(bases))
+					let inner = WithSelf(Env{..env, params: bases.Concat(roleNames(own))}, bases.Len())
 					info.Members = info.Members.Append(RoleMember{Name: NameText(p, syntax.Item(p.Tree, f.Names, 0)), Own: own, Mut: f.Mut >= 0, Fallible: WrittenFails(p, ft), Sig: Resolve(s, inner, ft), Positions: positions})
 				} else {
 					return Role{Name: "", Params: []Bracket{}, Members: []RoleMember{}, Self: 0, Includes: []dense.ID[store.TKey]{}}
 				}
-			case None:
+			case option.None:
 			}
 		case _:
 		}
 	}
-	if len(info.Members) != 0 || len(info.Includes) != 0 {
+	if info.Members.Len() != 0 || info.Includes.Len() != 0 {
 		info.Name = NameText(p, td.Name)
 	}
 	info
@@ -215,7 +216,7 @@ func Roles(s mut store.Store, e Env) []Role {
 	for _ in out {
 		states = states.Append(0)
 	}
-	for i in 0..len(out) {
+	for i in 0..out.Len() {
 		flattenRole(s, e, raw, &out, &states, i)
 	}
 	out
@@ -232,19 +233,19 @@ func flattenRole(s mut store.Store, e Env, raw []Role, out mut []Role, states mu
 	let mut inherited = false
 	for inc in role.Includes {
 		let r = match Nominal(*s, inc) {
-		case Some{Value: o}:
-			if o.Import == uint32(0) && int(o.Decl) < len(raw) {
+		case option.Some{Value: o}:
+			if o.Import == uint32(0) && int(o.Decl) < raw.Len() {
 				flattenRole(s, e, raw, out, states, int(o.Decl))
 				(*out)[int(o.Decl)]
 			} else {
 				match ReadRole(s, e.deps, e.foreign, []Role{}, inc) {
-				case Some{Value: dep}:
+				case option.Some{Value: dep}:
 					dep
-				case None:
+				case option.None:
 					continue
 				}
 			}
-		case None:
+		case option.None:
 			continue
 		}
 		role.Self = maxSelfSite(role.Self, r.Self)
@@ -258,13 +259,13 @@ func flattenRole(s mut store.Store, e Env, raw []Role, out mut []Role, states mu
 		}
 		for m in r.Members {
 			let mut bindings = args
-			for j in 0..len(m.Own) {
-				bindings = bindings.Append(store.TParam(s, len(role.Params)+j))
+			for j in 0..m.Own.Len() {
+				bindings = bindings.Append(store.TParam(s, role.Params.Len()+j))
 			}
 			let mut projected = []int{}
 			for pos in m.Positions {
 				let mut slot = -1
-				if pos >= 0 && pos < len(args) {
+				if pos >= 0 && pos < args.Len() {
 					slot = DeclSlot(*s, args[pos])
 				}
 				projected = projected.Append(slot)
@@ -274,7 +275,7 @@ func flattenRole(s mut store.Store, e Env, raw []Role, out mut []Role, states mu
 	}
 	role.Members = members.Concat(role.Members)
 	role.Includes = includes
-	if !inherited && len(role.Members) == 0 {
+	if !inherited && role.Members.Len() == 0 {
 		role.Name = ""
 	}
 	(*out)[at] = role
@@ -282,42 +283,42 @@ func flattenRole(s mut store.Store, e Env, raw []Role, out mut []Role, states mu
 }
 
 // ReadRole ports a dependency's signature templates into the caller's pool.
-func ReadRole(s mut store.Store, deps []Iface, foreign []Foreign, roles []Role, t dense.ID[store.TKey]) Option[Role] {
+func ReadRole(s mut store.Store, deps []Iface, foreign []Foreign, roles []Role, t dense.ID[store.TKey]) option.Option[Role] {
 	let role = match RoleAt(*s, roles, deps, t) {
-	case Some{Value: r}:
+	case option.Some{Value: r}:
 		r
-	case None:
-		return None
+	case option.None:
+		return option.None
 	}
 	let o = store.OriginOfType(*s, t)
 	if store.KindOfType(*s, t) != store.KInstance || o.Import == uint32(0) {
-		return Some{Value: role}
+		return option.Some{Value: role}
 	}
 	let from = deps[int(o.Import)-1]
 	let mut members = []RoleMember{}
-	let lookup = func(ref store.XRef) Option[DeclIdentity] { roleRef(from.Refs, ref) }
+	let lookup = func(ref store.XRef) option.Option[DeclIdentity] { roleRef(from.Refs, ref) }
 	for m in role.Members {
 		match Port(s, deps, foreign, from.Types, from.Path, lookup, from.Foreign, m.Sig) {
-		case Some{Value: sig}:
+		case option.Some{Value: sig}:
 			members = members.Append(RoleMember{..m, Sig: sig})
-		case None:
-			return None
+		case option.None:
+			return option.None
 		}
 	}
 	let mut includes = []dense.ID[store.TKey]{}
 	for inc in role.Includes {
 		match Port(s, deps, foreign, from.Types, from.Path, lookup, from.Foreign, inc) {
-		case Some{Value: moved}:
+		case option.Some{Value: moved}:
 			includes = includes.Append(moved)
-		case None:
+		case option.None:
 		}
 	}
-	Some{Value: Role{..role, Members: members, Includes: includes}}
+	option.Some{Value: Role{..role, Members: members, Includes: includes}}
 }
 
 func appendLayout(s store.Store, layouts mut []store.ClaimLayout, typ dense.ID[store.TKey], count int) {
 	match (Nominal(s, typ), Positions(s, store.OperandsOf(s, typ), count)) {
-	case (Some{Value: op}, Some{Value: positions}):
+	case (option.Some{Value: op}, option.Some{Value: positions}):
 		*layouts = (*layouts).Append(store.ClaimLayout{Op: op, Positions: positions})
 	case _:
 	}
@@ -328,22 +329,22 @@ func appendLayout(s store.Store, layouts mut []store.ClaimLayout, typ dense.ID[s
 func LayoutsOf(s mut store.Store, roles []Role, deps []Iface, foreign []Foreign, typ dense.ID[store.TKey], count int) []store.ClaimLayout {
 	let mut layouts = []store.ClaimLayout{}
 	match ReadRole(s, deps, foreign, roles, typ) {
-	case Some{Value: role}:
+	case option.Some{Value: role}:
 		if role.Self == 2 {
 			appendLayout(*s, &layouts, typ, count)
 			let args = store.OperandsOf(*s, typ)
 			for inc in role.Includes {
 				let parent = store.TSubst(s, inc, args)
 				match RoleAt(*s, roles, deps, parent) {
-				case Some{Value: included}:
+				case option.Some{Value: included}:
 					if included.Self == 2 {
 						appendLayout(*s, &layouts, parent, count)
 					}
-				case None:
+				case option.None:
 				}
 			}
 		}
-	case None:
+	case option.None:
 	}
 	layouts
 }
@@ -355,18 +356,18 @@ func LocalClaimLayouts(s mut store.Store, e Env, roles []Role) [][]store.ClaimLa
 	for i in 0..store.NumDecls(*s) {
 		let d = store.DeclOf(*s, store.DeclAt(*s, i))
 		let mut layouts = []store.ClaimLayout{}
-		if store.KindName(int(d.Kind)) == "type" && int(d.File) < len(e.files) {
+		if store.KindName(int(d.Kind)) == "type" && int(d.File) < e.files.Len() {
 			let p = e.files[int(d.File)]
 			match dense.Unpack(parentDecl(p, int(d.Node))) {
-			case Some{Value: node}:
+			case option.Some{Value: node}:
 				let td = syntax.TypeDeclOf(p.Tree, node)
 				let params = roleNames(Brackets(p, td.TypeParams))
 				let env = Env{..e, p: p, params: params}
 				for j in 0..syntax.Len(td.Implements) {
 					let typ = Resolve(s, env, syntax.Item(p.Tree, td.Implements, j))
-					layouts = layouts.Concat(LayoutsOf(s, roles, e.deps, e.foreign, typ, len(params)))
+					layouts = layouts.Concat(LayoutsOf(s, roles, e.deps, e.foreign, typ, params.Len()))
 				}
-			case None:
+			case option.None:
 			}
 		}
 		out = out.Append(layouts)
@@ -385,26 +386,26 @@ func ImportClaimLayouts(s mut store.Store, deps []Iface) {
 					DeclIdentity{Path: d.Path, Name: d.Decls[int(lay.Op.Decl)].Name}
 				} else {
 					match roleRef(d.Refs, lay.Op) {
-					case Some{Value: ref}:
+					case option.Some{Value: ref}:
 						ref
-					case None:
+					case option.None:
 						continue
 					}
 				}
 				let o = if id.Path == store.PathOf(*s) {
 					match store.Lookup(*s, id.Name) {
-					case Some{Value: local}:
-						Some{Value: store.XRef{Import: uint32(0), Decl: uint32(dense.Index(local))}}
-					case None:
-						None
+					case option.Some{Value: local}:
+						option.Some{Value: store.XRef{Import: uint32(0), Decl: uint32(dense.Index(local))}}
+					case option.None:
+						option.None
 					}
 				} else {
 					ImportRef(*s, deps, id.Path, id.Name)
 				}
 				match o {
-				case Some{Value: role}:
+				case option.Some{Value: role}:
 					store.AddClaimLayout(s, claimant, store.ClaimLayout{Op: role, Positions: lay.Positions})
-				case None:
+				case option.None:
 				}
 			}
 		}
@@ -415,24 +416,24 @@ func ImportClaimLayouts(s mut store.Store, deps []Iface) {
 // interface keeps only these references, not recursively copied imports.
 type RoleRef { Ref store.XRef, Decl DeclIdentity }
 
-func roleRef(refs []RoleRef, ref store.XRef) Option[DeclIdentity] {
+func roleRef(refs []RoleRef, ref store.XRef) option.Option[DeclIdentity] {
 	for r in refs {
 		if r.Ref == ref {
-			return Some{Value: r.Decl}
+			return option.Some{Value: r.Decl}
 		}
 	}
-	None
+	option.None
 }
 
 func addRoleRef(out mut []RoleRef, deps []Iface, ref store.XRef) {
 	match roleRef(*out, ref) {
-	case Some:
+	case option.Some:
 		return
-	case None:
+	case option.None:
 		match DepIdentity(deps, ref) {
-		case Some{Value: id}:
+		case option.Some{Value: id}:
 			*out = (*out).Append(RoleRef{Ref: ref, Decl: id})
-		case None:
+		case option.None:
 		}
 	}
 }

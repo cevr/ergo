@@ -33,6 +33,7 @@
 // arena.Stale.
 
 import arena
+import option
 import strings
 
 // Length is a size along one axis: automatic (from the content or the
@@ -139,7 +140,7 @@ type Style {
 	Margin    [4]float32,
 	Gap       float32,
 	Items     Align,
-	Self      Option[Align],
+	Self      option.Option[Align],
 	Justify   Justify,
 	Position  Position,
 	Content   Content,
@@ -160,7 +161,7 @@ func Default() Style {
 		Margin:    [4]float32{},
 		Gap:       0,
 		Items:     Stretch,
-		Self:      None,
+		Self:      option.None,
 		Justify:   Start,
 		Position:  Flow,
 		Content:   Boxes,
@@ -263,10 +264,10 @@ law MeasuresOnceAtAWidth(text string, width int) {
 
 // Add makes a node of style s, with no parent and no children.
 func Add(t mut Tree, s Style) Id {
-	let mut i = len(t.nodes)
-	if len(t.free) > 0 {
-		i = t.free[len(t.free)-1]
-		t.free = t.free[:len(t.free)-1]
+	let mut i = t.nodes.Len()
+	if t.free.Len() > 0 {
+		i = t.free[t.free.Len()-1]
+		t.free = t.free[:t.free.Len()-1]
 	}
 	let r = t.ids.Put(i)
 	let n = node{
@@ -290,7 +291,7 @@ func Add(t mut Tree, s Style) Id {
 		measH:  0,
 		ref:    r,
 	}
-	if i == len(t.nodes) {
+	if i == t.nodes.Len() {
 		t.nodes = t.nodes.Append(n)
 	} else {
 		t.nodes[i] = n
@@ -350,9 +351,9 @@ func Remove(t mut Tree, id Id) fails arena.Stale {
 	let c = try at(t, id)
 	detach(t, c)
 	let mut stack = []int{c}
-	for len(stack) > 0 {
-		let i = stack[len(stack)-1]
-		stack = stack[:len(stack)-1]
+	for stack.Len() > 0 {
+		let i = stack[stack.Len()-1]
+		stack = stack[:stack.Len()-1]
 		let mut k = t.nodes[i].first
 		for k != none {
 			stack = stack.Append(k)

@@ -1,5 +1,6 @@
 import graph
 import maps
+import option
 import slices
 import strings
 
@@ -21,10 +22,10 @@ func folderParts(path string) []string {
 			parts = parts.Append(p)
 		}
 	}
-	if len(parts) <= 1 {
+	if parts.Len() <= 1 {
 		return []string{}
 	}
-	parts[0 : len(parts)-1]
+	parts[0 : parts.Len()-1]
 }
 
 func folderChild(parts []string, common int) string { parts[common] }
@@ -54,7 +55,7 @@ func SiblingFolderCycles(r Rows, modules []int) FolderCycles {
 				at = placeOf(r, row.Parent, chosen)
 				let mut p = row.Parent
 				let mut steps = 0
-				for p >= 0 && steps <= len(r.Nodes) {
+				for p >= 0 && steps <= r.Nodes.Len() {
 					if r.Nodes[p].Kind == "module" {
 						mid = p
 						break
@@ -88,7 +89,7 @@ func SiblingFolderCycles(r Rows, modules []int) FolderCycles {
 		}
 		let ad = maps.GetOr(fileFolders, a.File, []string{})
 		let bd = maps.GetOr(fileFolders, b.File, []string{})
-		let lim = if len(ad) < len(bd) { len(ad) } else { len(bd) }
+		let lim = if ad.Len() < bd.Len() { ad.Len() } else { bd.Len() }
 		let mut common = 0
 		for common < lim && ad[common] == bd[common] {
 			common = common + 1
@@ -105,9 +106,9 @@ func SiblingFolderCycles(r Rows, modules []int) FolderCycles {
 		}
 		let gKey = "\(modOf[e.From])\n\(parent)"
 		let eKey = "\(gKey)\n\(ca)\n\(cb)"
-		if edgeSeen.Get(eKey) == None {
+		if edgeSeen.Get(eKey) == option.None {
 			edgeSeen[eKey] = k
-			if groupMod.Get(gKey) == None {
+			if groupMod.Get(gKey) == option.None {
 				groupKeys = groupKeys.Append(gKey)
 				groupMod[gKey] = modOf[e.From]
 				groupParent[gKey] = parent
@@ -121,11 +122,11 @@ func SiblingFolderCycles(r Rows, modules []int) FolderCycles {
 		let mut childSet = Map[string, bool]{}
 		let mut children = []string{}
 		for fe in es {
-			if childSet.Get(fe.From) == None {
+			if childSet.Get(fe.From) == option.None {
 				childSet[fe.From] = true
 				children = children.Append(fe.From)
 			}
-			if childSet.Get(fe.To) == None {
+			if childSet.Get(fe.To) == option.None {
 				childSet[fe.To] = true
 				children = children.Append(fe.To)
 			}
@@ -140,9 +141,9 @@ func SiblingFolderCycles(r Rows, modules []int) FolderCycles {
 			work = work + 1
 			gEdges = gEdges.Append(graph.Edge{From: maps.GetOr(idOf, fe.From, -1), To: maps.GetOr(idOf, fe.To, -1)})
 		}
-		let g = graph.Of(len(sortedChildren), gEdges)
+		let g = graph.Of(sortedChildren.Len(), gEdges)
 		for c in graph.Cycles(g) {
-			if len(c.Nodes) < 2 {
+			if c.Nodes.Len() < 2 {
 				continue
 			}
 			let mut members = []string{}
@@ -154,7 +155,7 @@ func SiblingFolderCycles(r Rows, modules []int) FolderCycles {
 				path = path.Append(sortedChildren[n])
 			}
 			let mut sites = []int{}
-			for j in 1..len(path) {
+			for j in 1..path.Len() {
 				let eKey = "\(gKey)\n\(path[j-1])\n\(path[j])"
 				sites = sites.Append(maps.GetOr(edgeSeen, eKey, -1))
 			}
@@ -176,11 +177,11 @@ func siblingFolderCyclesWorkIsLinear(seed int, size int) bool {
 	let r = drawnRows(seed, size)
 	let got = SiblingFolderCycles(r, []int{0})
 	for c in got.Cycles {
-		if len(c.Members) < 2 || len(c.Path) != len(c.Sites)+1 || c.Path[0] != c.Path[len(c.Path)-1] {
+		if c.Members.Len() < 2 || c.Path.Len() != c.Sites.Len()+1 || c.Path[0] != c.Path[c.Path.Len()-1] {
 			return false
 		}
 	}
-	got.Work <= 8*(len(r.Nodes)+len(r.Edges))+4
+	got.Work <= 8*(r.Nodes.Len()+r.Edges.Len())+4
 }
 
 type DeclarationTangle {
@@ -194,7 +195,7 @@ type DeclarationTangle {
 type DeclarationTangles { Tangles []DeclarationTangle, Work int }
 
 func TangleReported(t DeclarationTangle, max int) bool {
-	len(t.Files) > 1 || (max > 0 && len(t.Members) > max)
+	t.Files.Len() > 1 || (max > 0 && t.Members.Len() > max)
 }
 
 func tangleNode(p place) int { p.Top }
@@ -222,7 +223,7 @@ func DeclarationTanglesOf(r Rows, modules []int) DeclarationTangles {
 		}
 	}
 	let mut resolvedCache = Map[int, int]{}
-	let width = len(r.Nodes)
+	let width = r.Nodes.Len()
 	let mut nodeSet = Map[int, bool]{}
 	let mut nodes = []int{}
 	let mut firstSite = Map[int, int]{}
@@ -239,9 +240,9 @@ func DeclarationTanglesOf(r Rows, modules []int) DeclarationTangles {
 		let mut target = e.To
 		if maps.GetOr(aliases, e.From, -1) != e.To {
 			match resolvedCache.Get(e.To) {
-			case Some[int] as cached:
+			case option.Some[int] as cached:
 				target = cached.Value
-			case None:
+			case option.None:
 				let (res, steps) = resolve(aliases, e.To)
 				work = work + steps
 				resolvedCache[e.To] = res
@@ -261,14 +262,14 @@ func DeclarationTanglesOf(r Rows, modules []int) DeclarationTangles {
 			continue
 		}
 		let pair = u*width + v
-		if firstSite.Get(pair) == None {
+		if firstSite.Get(pair) == option.None {
 			firstSite[pair] = k
 			rawPairs = rawPairs.Append(pair)
-			if nodeSet.Get(u) == None {
+			if nodeSet.Get(u) == option.None {
 				nodeSet[u] = true
 				nodes = nodes.Append(u)
 			}
-			if nodeSet.Get(v) == None {
+			if nodeSet.Get(v) == option.None {
 				nodeSet[v] = true
 				nodes = nodes.Append(v)
 			}
@@ -284,10 +285,10 @@ func DeclarationTanglesOf(r Rows, modules []int) DeclarationTangles {
 		work = work + 1
 		gEdges = gEdges.Append(graph.Edge{From: maps.GetOr(idOf, pair/width, -1), To: maps.GetOr(idOf, pair%width, -1)})
 	}
-	let g = graph.Of(len(sortedNodes), gEdges)
+	let g = graph.Of(sortedNodes.Len(), gEdges)
 	let mut out = []DeclarationTangle{}
 	for c in graph.Cycles(g) {
-		if len(c.Nodes) < 2 {
+		if c.Nodes.Len() < 2 {
 			continue
 		}
 		let mut members = []int{}
@@ -297,7 +298,7 @@ func DeclarationTanglesOf(r Rows, modules []int) DeclarationTangles {
 			let rid = sortedNodes[n]
 			members = members.Append(rid)
 			let f = places[rid].File
-			if f >= 0 && fileSet.Get(f) == None {
+			if f >= 0 && fileSet.Get(f) == option.None {
 				fileSet[f] = true
 				files = files.Append(f)
 			}
@@ -307,7 +308,7 @@ func DeclarationTanglesOf(r Rows, modules []int) DeclarationTangles {
 			path = path.Append(sortedNodes[n])
 		}
 		let mut sites = []int{}
-		for j in 1..len(path) {
+		for j in 1..path.Len() {
 			sites = sites.Append(maps.GetOr(firstSite, path[j-1]*width+path[j], -1))
 		}
 		out = out.Append(DeclarationTangle{
@@ -333,9 +334,9 @@ func declarationTanglesWorkIsLinear(seed int, size int) bool {
 		}
 	}
 	for t in got.Tangles {
-		if len(t.Members) < 2 || len(t.Path) != len(t.Sites)+1 || t.Path[0] != t.Path[len(t.Path)-1] {
+		if t.Members.Len() < 2 || t.Path.Len() != t.Sites.Len()+1 || t.Path[0] != t.Path[t.Path.Len()-1] {
 			return false
 		}
 	}
-	got.Work <= 4*lets*(len(r.Nodes)+len(r.Edges))+4
+	got.Work <= 4*lets*(r.Nodes.Len()+r.Edges.Len())+4
 }

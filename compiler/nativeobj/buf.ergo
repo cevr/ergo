@@ -32,7 +32,7 @@ type Buf { b []byte }
 func NewBuf() Buf { Buf{b: []byte{}} }
 
 // Size is the number of bytes written to w.
-func Size(w Buf) int { len(w.b) }
+func Size(w Buf) int { w.b.Len() }
 
 // Bytes is the text of w's bytes.
 func Bytes(w Buf) string { w.b.Text() }
@@ -42,7 +42,7 @@ func U8(w mut Buf, x int) { w.b = w.b.Append(byte(x & 255)) }
 
 // Raw writes the bytes of s.
 func Raw(w mut Buf, s string) {
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		w.b = w.b.Append(s[i])
 	}
 }
@@ -110,7 +110,7 @@ func ByteAt(data string, i int) int { int(data[i]) }
 
 // RByte reads one byte.
 func RByte(r mut Reader) int fails Short {
-	if r.At+1 > len(r.Data) {
+	if r.At+1 > r.Data.Len() {
 		return Short{At: r.At, Want: 1}
 	}
 	let x = ByteAt(r.Data, r.At)
@@ -129,7 +129,7 @@ func LE(data string, at int, n int) int {
 
 // R32 reads four bytes, little-endian.
 func R32(r mut Reader) int fails Short {
-	if r.At+4 > len(r.Data) {
+	if r.At+4 > r.Data.Len() {
 		return Short{At: r.At, Want: 4}
 	}
 	let x = LE(r.Data, r.At, 4)
@@ -162,7 +162,7 @@ func RVarint(r mut Reader) int fails Short {
 
 // RRaw reads n bytes.
 func RRaw(r mut Reader, n int) string fails Short {
-	if n < 0 || r.At+n > len(r.Data) {
+	if n < 0 || r.At+n > r.Data.Len() {
 		return Short{At: r.At, Want: n}
 	}
 	let s = r.Data[r.At : r.At+n]

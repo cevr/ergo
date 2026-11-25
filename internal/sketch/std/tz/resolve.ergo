@@ -2,6 +2,8 @@
 // the transitions of a zone.
 
 import civil
+import core
+import option
 import time
 
 // Resolved is what a wall time is in a zone: one instant; a Gap, a wall
@@ -39,7 +41,7 @@ func Resolve(z Zone, dt civil.DateTime) Resolved {
 		return Overlap{Earlier: time.Unix(first, ns), Later: time.Unix(last, ns)}
 	}
 	let (before, after, b) = gapOf(z, u)
-	Gap{Before: time.Unix(u - after, ns), After: time.Unix(u - before, ns), Start: time.Unix(b, 0)}
+	Gap{Before: time.Unix(u-after, ns), After: time.Unix(u-before, ns), Start: time.Unix(b, 0)}
 }
 
 // CompatibleShift is Compatible(Resolve(z, dt)), and how far it moves dt
@@ -53,14 +55,14 @@ func CompatibleShift(z Zone, dt civil.DateTime) (time.Time, duration) {
 		return (time.Unix(first, ns), 0s)
 	}
 	let (before, after, _) = gapOf(z, u)
-	(time.Unix(u - before, ns), duration((after - before) * 1000000000))
+	(time.Unix(u-before, ns), duration((after - before) * 1000000000))
 }
 
 // wallSeconds is dt read as UTC: its seconds from 1970 and its
 // nanoseconds.
 func wallSeconds(dt civil.DateTime) (int64, int64) {
 	let inDay = int64(civil.SinceMidnight(dt.Time))
-	(civil.UnixDays(dt.Date) * 86400 + inDay / 1000000000, inDay % 1000000000)
+	(civil.UnixDays(dt.Date)*86400 + inDay/1000000000, inDay % 1000000000)
 }
 
 // showings is how many instants z shows the wall second u at, and the
@@ -97,9 +99,9 @@ func gapOf(z Zone, u int64) (int64, int64, int64) {
 	let hi = u - z.least + 1
 	let mut b = changeAfter(z, lo, hi, true)
 	for b > lo {
-		let before = int64(lookup(z, b - 1).Seconds)
+		let before = int64(lookup(z, b-1).Seconds)
 		let after = int64(lookup(z, b).Seconds)
-		if after > before && u >= b + before && u < b + after {
+		if after > before && u >= b+before && u < b+after {
 			return (before, after, b)
 		}
 		let next = changeAfter(z, b, hi, true)
@@ -165,7 +167,7 @@ func within(n int64, lo int64, hi int64) int64 {
 // anyZone is the zone i names of std's IANA copy.
 func anyZone(i int64) Zone {
 	let names = ianaNames()
-	let name = names[int(within(i, 0, int64(len(names) - 1)))]
+	let name = names[int(within(i, 0, int64(names.Len()-1)))]
 	FromTZif(name, ianaZone(name)) catch {
 	case BadData:
 		Unreachable("std's IANA copy holds only zones Go's reader reads")
@@ -181,14 +183,14 @@ func anyInstant(s int64, ns int64) time.Time { time.Unix(within(s, -2208988800, 
 law GapIsNeverShown(i int64, s int64, k int64) {
 	let z = anyZone(i)
 	let c = match nextChange(z, anyInstant(s, 0), true) {
-	case None:
+	case option.None:
 		return true
-	case Some[Transition] as v:
+	case option.Some[Transition] as v:
 		v.Value
 	}
 	let gap = int64(c.After.Seconds - c.Before.Seconds)
 	let at = time.UnixSeconds(c.At)
-	let wall = civil.DateTimeOf(time.Unix(at + int64(c.Before.Seconds) + within(k, 0, gap - 1), 0))
+	let wall = civil.DateTimeOf(time.Unix(at+int64(c.Before.Seconds)+within(k, 0, gap-1), 0))
 	let length = duration(gap * 1000000000)
 	let ok = match Resolve(z, wall) {
 	case Gap as g:
@@ -201,13 +203,13 @@ law GapIsNeverShown(i int64, s int64, k int64) {
 
 // nextChange is the first change of z's offset in seconds, growing when
 // forward and shrinking otherwise, in the two years after t.
-func nextChange(z Zone, t time.Time, forward bool) Option[Transition] {
-	for c in Transitions(z, t, time.Unix(time.UnixSeconds(t) + 2 * 366 * 86400, 0)) {
+func nextChange(z Zone, t time.Time, forward bool) option.Option[Transition] {
+	for c in Transitions(z, t, time.Unix(time.UnixSeconds(t)+2*366*86400, 0)) {
 		if forward && c.After.Seconds > c.Before.Seconds || !forward && c.After.Seconds < c.Before.Seconds {
-			return Some{c}
+			return option.Some{c}
 		}
 	}
-	None
+	option.None
 }
 
 // CompatibleShiftIsCompatible: CompatibleShift is Compatible of Resolve,
@@ -216,13 +218,13 @@ func nextChange(z Zone, t time.Time, forward bool) Option[Transition] {
 // back, to two hours after it.
 law CompatibleShiftIsCompatible(i int64, s int64, k int64) {
 	let z = anyZone(i)
-	let c = match nextChange(z, anyInstant(s, 0), k % 2 == 0) {
-	case None:
+	let c = match nextChange(z, anyInstant(s, 0), k%2 == 0) {
+	case option.None:
 		return true
-	case Some[Transition] as v:
+	case option.Some[Transition] as v:
 		v.Value
 	}
-	let wall = civil.DateTimeOf(time.Unix(time.UnixSeconds(c.At) + int64(c.Before.Seconds) - 3600 + within(k, 0, 3 * 3600), 0))
+	let wall = civil.DateTimeOf(time.Unix(time.UnixSeconds(c.At)+int64(c.Before.Seconds)-3600+within(k, 0, 3*3600), 0))
 	let r = Resolve(z, wall)
 	let (t, shift) = CompatibleShift(z, wall)
 	let want = match r {
@@ -240,17 +242,17 @@ law CompatibleShiftIsCompatible(i int64, s int64, k int64) {
 law OverlapIsOrdered(i int64, s int64, k int64) {
 	let z = anyZone(i)
 	let c = match nextChange(z, anyInstant(s, 0), false) {
-	case None:
+	case option.None:
 		return true
-	case Some[Transition] as v:
+	case option.Some[Transition] as v:
 		v.Value
 	}
 	let back = int64(c.Before.Seconds - c.After.Seconds)
 	let at = time.UnixSeconds(c.At)
-	let wall = civil.DateTimeOf(time.Unix(at + int64(c.After.Seconds) + within(k, 0, back - 1), 0))
+	let wall = civil.DateTimeOf(time.Unix(at+int64(c.After.Seconds)+within(k, 0, back-1), 0))
 	let ok = match Resolve(z, wall) {
 	case Overlap as o:
-		time.Before(o.Earlier, o.Later) && Civil(z, o.Earlier) == wall && Civil(z, o.Later) == wall && time.Sub(o.Later, o.Earlier) == duration(back * 1000000000) && Compatible(Overlap{Earlier: o.Earlier, Later: o.Later}) == o.Earlier
+		time.Before(o.Earlier, o.Later) && Civil(z, o.Earlier) == wall && Civil(z, o.Later) == wall && time.Sub(o.Later, o.Earlier) == duration(back*1000000000) && Compatible(Overlap{Earlier: o.Earlier, Later: o.Later}) == o.Earlier
 	case Unique, Gap:
 		false
 	}
@@ -263,7 +265,7 @@ law StartOfDayIsFirst(i int64, s int64) {
 	let z = anyZone(i)
 	let d = Civil(z, anyInstant(s, 0)).Date
 	let start = StartOfDay(z, d)
-	Civil(z, start).Date == d && civil.Before(Civil(z, time.Unix(time.UnixSeconds(start) - 1, 0)).Date, d)
+	Civil(z, start).Date == d && civil.Before(Civil(z, time.Unix(time.UnixSeconds(start)-1, 0)).Date, d)
 }
 
 // TransitionsChange: each transition is a change, at its instant, from the
@@ -271,11 +273,11 @@ law StartOfDayIsFirst(i int64, s int64) {
 law TransitionsChange(i int64, s int64, k int64) {
 	let z = anyZone(i)
 	let from = anyInstant(s, 0)
-	let to = time.Unix(time.UnixSeconds(from) + within(k, 0, 3 * 366 * 86400), 0)
+	let to = time.Unix(time.UnixSeconds(from)+within(k, 0, 3*366*86400), 0)
 	let mut last = time.UnixSeconds(from) - 1
 	for c in Transitions(z, from, to) {
 		let at = time.UnixSeconds(c.At)
-		if at <= last || at > time.UnixSeconds(to) || c.Before == c.After || c.Before != OffsetAt(z, time.Unix(at - 1, 0)) || c.After != OffsetAt(z, c.At) {
+		if at <= last || at > time.UnixSeconds(to) || c.Before == c.After || c.Before != OffsetAt(z, time.Unix(at-1, 0)) || c.After != OffsetAt(z, c.At) {
 			return false
 		}
 		last = at
@@ -289,7 +291,7 @@ law TransitionsChange(i int64, s int64, k int64) {
 law ZoneTransitionsStops(i int64, s int64, stop int64) {
 	let z = anyZone(i)
 	let from = anyInstant(s, 0)
-	let to = time.Unix(time.UnixSeconds(from) + 10 * 366 * 86400, 0)
+	let to = time.Unix(time.UnixSeconds(from)+10*366*86400, 0)
 	let mut n = 0
 	for _ in Transitions(z, from, to) {
 		n += 1
@@ -312,20 +314,20 @@ type Transition { At time.Time, Before Offset, After Offset }
 // daylight saving time alone is a change. A zone's rule changes it every
 // year, so the sequence reads the rule a year at a time, and the range
 // bounds it.
-func Transitions(z Zone, from time.Time, to time.Time) Seq[Transition] {
+func Transitions(z Zone, from time.Time, to time.Time) core.Seq[Transition] {
 	func(yield func(Transition) bool) {
 		let lo = time.UnixSeconds(from)
 		let hi = time.UnixSeconds(to)
 		if lo > hi {
 			return
 		}
-		let n = len(z.at)
+		let n = z.at.Len()
 		// The table's changes, and the rule's in the year of its last.
-		let tableTo = if n == 0 { lo } else if z.at[n - 1] + 366 * 86400 < hi { z.at[n - 1] + 366 * 86400 } else { hi }
+		let tableTo = if n == 0 { lo } else if z.at[n-1]+366*86400 < hi { z.at[n-1] + 366*86400 } else { hi }
 		let mut a = if lo == -9223372036854775808 { lo } else { lo - 1 }
 		if tableTo > a {
 			for b in changes(z, a, tableTo, false) {
-				if !yield(Transition{At: time.Unix(b, 0), Before: lookup(z, b - 1), After: lookup(z, b)}) {
+				if !yield(Transition{At: time.Unix(b, 0), Before: lookup(z, b-1), After: lookup(z, b)}) {
 					return
 				}
 			}
@@ -335,9 +337,9 @@ func Transitions(z Zone, from time.Time, to time.Time) Seq[Transition] {
 		case noRule, always:
 		case seasonal:
 			for a < hi {
-				let b = if hi - a > 366 * 86400 { a + 366 * 86400 } else { hi }
+				let b = if hi-a > 366*86400 { a + 366*86400 } else { hi }
 				for c in changes(z, a, b, false) {
-					if !yield(Transition{At: time.Unix(c, 0), Before: lookup(z, c - 1), After: lookup(z, c)}) {
+					if !yield(Transition{At: time.Unix(c, 0), Before: lookup(z, c-1), After: lookup(z, c)}) {
 						return
 					}
 				}
@@ -370,7 +372,7 @@ func changeAfter(z Zone, x int64, hi int64, secondsOnly bool) int64 {
 	let mut c = candidateAfter(z, x, hi)
 	let mut from = x
 	for c > from {
-		let a = lookup(z, c - 1)
+		let a = lookup(z, c-1)
 		let d = lookup(z, c)
 		if a.Seconds != d.Seconds || !secondsOnly && a != d {
 			return c
@@ -385,7 +387,7 @@ func changeAfter(z Zone, x int64, hi int64, secondsOnly bool) int64 {
 // there is none. The candidates are the table's instants and, after its
 // last, the rule's: the start of each UTC year and its two changes.
 func candidateAfter(z Zone, x int64, hi int64) int64 {
-	let n = len(z.at)
+	let n = z.at.Len()
 	let mut best = x
 	if n > 0 {
 		let i = if x < z.at[0] { 0 } else { lastAtOrBefore(z.at, x) + 1 }
@@ -393,14 +395,14 @@ func candidateAfter(z Zone, x int64, hi int64) int64 {
 			best = z.at[i]
 		}
 	}
-	let low = if n > 0 && z.at[n - 1] > x { z.at[n - 1] } else { x }
+	let low = if n > 0 && z.at[n-1] > x { z.at[n-1] } else { x }
 	if hi > low {
 		match z.rule {
 		case noRule:
 		case always, seasonal:
 			let y0, _ = yearAndDay(floorDiv(low, 86400))
 			let y1, _ = yearAndDay(floorDiv(hi, 86400))
-			for y in y0..y1 + 1 {
+			for y in y0..y1+1 {
 				for k in 0..ruleBoundCount(z.rule) {
 					let b = ruleBound(z.rule, y, k)
 					if b > low && b <= hi && (best == x || b < best) {

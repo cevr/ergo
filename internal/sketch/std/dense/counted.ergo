@@ -1,4 +1,5 @@
 import maps
+import option
 
 // Counted is a set of values in use, each with an id and a count of its
 // holders (Ghostty's RefCountedSet: a terminal's styles, each held by the
@@ -19,17 +20,17 @@ func NewCounted[T comparable]() Counted[T] {
 // set until a Use and a Release of its id.
 func Add[T comparable](c mut Counted[T], v T) ID[T] {
 	match c.ids.Get(v) {
-	case Some[ID[T]] as id:
+	case option.Some[ID[T]] as id:
 		return id.Value
-	case None:
+	case option.None:
 	}
 	let mut id = ID[T]{n: uint32(0)}
-	if len(c.free) > 0 {
-		id = c.free[len(c.free)-1]
-		c.free = c.free[0 : len(c.free)-1]
+	if c.free.Len() > 0 {
+		id = c.free[c.free.Len()-1]
+		c.free = c.free[0 : c.free.Len()-1]
 		c.rows[int(id.n)] = v
 	} else {
-		id = next[T](len(c.rows))
+		id = next[T](c.rows.Len())
 		c.rows = c.rows.Append(v)
 		c.counts = c.counts.Append(uint32(0))
 	}
@@ -82,7 +83,7 @@ law ReleaseThenReuse(seed int, count int) {
 		let v = (x / 16) % 8
 		let op = (x / 1024) % 3
 		match live.Get(v) {
-		case Some[ID[int]] as id:
+		case option.Some[ID[int]] as id:
 			if c.Add(v) != id.Value {
 				return false
 			}
@@ -107,8 +108,8 @@ law ReleaseThenReuse(seed int, count int) {
 				held = held.Delete(v)
 				freed[id.Value] = true
 			}
-		case None:
-			let reuse = len(freed) > 0
+		case option.None:
+			let reuse = freed.Len() > 0
 			let id = c.Add(v)
 			for _, other in live {
 				if other == id {
@@ -121,15 +122,15 @@ law ReleaseThenReuse(seed int, count int) {
 			freed = freed.Delete(id)
 			live[v] = id
 		}
-		if Live(c) != len(live) {
+		if Live(c) != live.Len() {
 			return false
 		}
 		for w, id in live {
-			if Member(c, id) != w || Uses(c, id) != maps.GetOr(held, w, 0) || Find(c, w) != (Some[ID[int]]{Value: id}) {
+			if Member(c, id) != w || Uses(c, id) != maps.GetOr(held, w, 0) || Find(c, w) != (option.Some[ID[int]]{Value: id}) {
 				return false
 			}
 		}
-		if live.Get(v) == None && Find(c, v) != None {
+		if live.Get(v) == option.None && Find(c, v) != option.None {
 			return false
 		}
 	}
@@ -141,13 +142,13 @@ law ReleaseThenReuse(seed int, count int) {
 func Member[T comparable](c Counted[T], id ID[T]) T { c.rows[int(id.n)] }
 
 // Find is the id of v, or None when v is not in the set.
-func Find[T comparable](c Counted[T], v T) Option[ID[T]] { c.ids.Get(v) }
+func Find[T comparable](c Counted[T], v T) option.Option[ID[T]] { c.ids.Get(v) }
 
 // Uses is the count of holders of id.
 func Uses[T comparable](c Counted[T], id ID[T]) int { int(c.counts[int(id.n)]) }
 
 // Live is the count of values in the set.
-func Live[T comparable](c Counted[T]) int { len(c.ids) }
+func Live[T comparable](c Counted[T]) int { c.ids.Len() }
 
 // Slots is the count of ids the set has made: Live plus the free ones.
-func Slots[T comparable](c Counted[T]) int { len(c.rows) }
+func Slots[T comparable](c Counted[T]) int { c.rows.Len() }

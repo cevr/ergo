@@ -1,4 +1,5 @@
 import dense
+import option
 
 // List is a run of node ids in a tree's extra pool.
 type List { at uint32, n uint32 }
@@ -174,9 +175,9 @@ func wid(id dense.ID[Node]) uint32 { uint32(dense.Index(id)) }
 // wopt is the word of an optional node id.
 func wopt(o dense.Opt[Node]) uint32 {
 	match dense.Unpack(o) {
-	case Some{Value: s}:
+	case option.Some{Value: s}:
 		uint32(dense.Index(s)) + uint32(1)
-	case None:
+	case option.None:
 		uint32(0)
 	}
 }

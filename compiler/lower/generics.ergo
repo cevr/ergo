@@ -2,6 +2,7 @@ import compiler/check/expr
 import compiler/check/store
 import compiler/syntax
 import dense
+import option
 
 // GenericBinder is one scoped type-parameter binder of a native generic function.
 type GenericBinder {
@@ -24,7 +25,7 @@ func EmptyGenericPlan() GenericBodyPlan {
 }
 
 func hasGenericBinders(plan GenericBodyPlan) bool {
-	len(plan.Binders) > 0
+	plan.Binders.Len() > 0
 }
 
 func admittedGenericConstraint(st fnb, ct dense.ID[syntax.Node]) bool {
@@ -47,7 +48,7 @@ func planGenericBody(st fnb, f expr.Fn, tpNode dense.ID[syntax.Node]) GenericBod
 		}
 	}
 	for sb in f.SelfBounds {
-		if dense.Unpack(sb.Op) != None {
+		if dense.Unpack(sb.Op) != option.None {
 			return stop("generic: constrained type parameter")
 		}
 	}
@@ -67,15 +68,15 @@ func planGenericBody(st fnb, f expr.Fn, tpNode dense.ID[syntax.Node]) GenericBod
 		case _:
 			return stop("generic: type parameters")
 		}
-		if fld.Own >= 0 || dense.Unpack(fld.Lent) != None || dense.Unpack(fld.Where) != None {
+		if fld.Own >= 0 || dense.Unpack(fld.Lent) != option.None || dense.Unpack(fld.Where) != option.None {
 			return stop("generic: own or refined type parameter")
 		}
 		match dense.Unpack(fld.Type) {
-		case Some[dense.ID[syntax.Node]] as ct:
+		case option.Some[dense.ID[syntax.Node]] as ct:
 			if !admittedGenericConstraint(st, ct.Value) {
 				return stop("generic: constrained type parameter")
 			}
-		case None:
+		case option.None:
 		}
 		let count = syntax.Len(fld.Names)
 		if count == 0 {
@@ -89,15 +90,15 @@ func planGenericBody(st fnb, f expr.Fn, tpNode dense.ID[syntax.Node]) GenericBod
 			if goReserved(tpName) || has(fixedNames, tpName) || has(st.prelude, tpName) || pkgDecl(st, tpName) || has(seen, tpName) {
 				return stop("generic: type parameter name taken (name_N)")
 			}
-			let idx = len(binders)
-			if idx >= len(f.Params) || f.Params[idx] != tpName {
+			let idx = binders.Len()
+			if idx >= f.Params.Len() || f.Params[idx] != tpName {
 				return stop("generic: type parameters")
 			}
 			seen = seen.Append(tpName)
 			binders = binders.Append(GenericBinder{Index: idx, Name: tpName})
 		}
 	}
-	if len(binders) == 0 || len(binders) != len(f.Params) {
+	if binders.Len() == 0 || binders.Len() != f.Params.Len() {
 		return stop("generic: type parameters")
 	}
 	GenericBodyPlan{File: st.file, At: syntax.NodePos(p, f.Decl), Decl: dense.OptOf(f.Decl), Binders: binders}
@@ -119,5 +120,5 @@ func typeParamGo(st fnb, t dense.ID[store.TKey]) string {
 test EmptyGenericPlanHasNoBinders {
 	let plan = EmptyGenericPlan()
 	assert !hasGenericBinders(plan)
-	assert len(plan.Binders) == 0
+	assert plan.Binders.Len() == 0
 }

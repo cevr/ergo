@@ -1,5 +1,6 @@
 import gen
 import json
+import option
 import strconv
 import strings
 import sync
@@ -64,7 +65,7 @@ func BuildReplayFixture[S, E wire, V, O, Err, OpenErr, DriveErr](
 	binding string,
 	failure CheckFailure[S, E, V, O, Err, OpenErr, DriveErr],
 ) ReplayFixture[S, E] needs wired[E] {
-	let _ = len(model.Graph.Signals)
+	let _ = model.Graph.Signals.Len()
 	let (startIdx, start, rawInputs) = match failure {
 	case InitialMismatch as im:
 		(im.StartIndex, im.Start, []E{})
@@ -187,11 +188,11 @@ func isShellSafeByte(c byte) bool {
 // tokens unquoted and single-quoting tokens containing whitespace, globs, or
 // shell metacharacters.
 func ShellQuote(s string) string {
-	if len(s) == 0 {
+	if s.Len() == 0 {
 		return "''"
 	}
 	let mut safe = true
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		if !isShellSafeByte(s[i]) {
 			safe = false
 			break
@@ -202,7 +203,7 @@ func ShellQuote(s string) string {
 	}
 	let mut b = strings.NewBuilder()
 	b.WriteByte(byte('\''))
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		if s[i] == byte('\'') {
 			b.WriteString("'\\''")
 		} else {
@@ -225,7 +226,7 @@ func formatUint64(n uint64) string {
 		x = x / uint64(10)
 	}
 	let mut b = strings.NewBuilder()
-	let mut i = len(digits) - 1
+	let mut i = digits.Len() - 1
 	for i >= 0 {
 		b.WriteByte(digits[i])
 		i = i - 1
@@ -277,9 +278,9 @@ func diffFieldName(f DiffField) string {
 
 type stepObsEnvelope {
 	Kind     string,
-	State    Option[json.Value],
+	State    option.Option[json.Value],
 	Outputs  []json.Value,
-	Error    Option[json.Value],
+	Error    option.Option[json.Value],
 	Terminal bool,
 }
 
@@ -304,20 +305,20 @@ func dispositionName(d Disposition) string {
 
 func encodeStepObs[V, O, Err wire](s StepObs[V, O, Err]) string needs wired[V] | wired[O] | wired[Err] {
 	let st = match s.State {
-	case Some as x:
-		Some[json.Value]{Value: valueOf(x.Value)}
-	case None:
-		None
+	case option.Some as x:
+		option.Some[json.Value]{Value: valueOf(x.Value)}
+	case option.None:
+		option.None
 	}
 	let mut outs = []json.Value{}
 	for o in s.Outputs {
 		outs = outs.Append(valueOf(o))
 	}
 	let errVal = match s.Error {
-	case Some as x:
-		Some[json.Value]{Value: valueOf(x.Value)}
-	case None:
-		None
+	case option.Some as x:
+		option.Some[json.Value]{Value: valueOf(x.Value)}
+	case option.None:
+		option.None
 	}
 	let env = stepObsEnvelope{
 		Kind:     dispositionName(s.Kind),
@@ -366,9 +367,9 @@ func FormatFailureDiagnostic[S, E, V, O, Err wire, OpenErr, DriveErr](
 			b.WriteString(json.Encode(json.Codec[V]{MaxBytes: 0, MaxDepth: 0}, im.Expected))
 			b.WriteString(" actual=")
 			match im.Actual {
-			case Some as a:
+			case option.Some as a:
 				b.WriteString(json.Encode(json.Codec[V]{MaxBytes: 0, MaxDepth: 0}, a.Value))
-			case None:
+			case option.None:
 				b.WriteString("<wrong-observation-kind>")
 			}
 		} else {
@@ -385,9 +386,9 @@ func FormatFailureDiagnostic[S, E, V, O, Err wire, OpenErr, DriveErr](
 			b.WriteString(encodeStepObs(sm.Expected))
 			b.WriteString(" actual=")
 			match sm.Actual {
-			case Some as a:
+			case option.Some as a:
 				b.WriteString(encodeStepObs(a.Value))
-			case None:
+			case option.None:
 				b.WriteString("<wrong-observation-kind>")
 			}
 		} else {
@@ -445,17 +446,17 @@ func Apply(s rpSess, e rpEvent) Observed[rpState, int, rpErr] fails rpDriveErr {
 		}
 		StepResult[rpState, int, rpErr]{Step: StepObs[rpState, int, rpErr]{
 			Kind:     DisEmit,
-			State:    Some[rpState]{Value: next},
+			State:    option.Some[rpState]{Value: next},
 			Outputs:  outs,
-			Error:    None,
+			Error:    option.None,
 			Terminal: false,
 		}}
 	case rpFlush:
 		StepResult[rpState, int, rpErr]{Step: StepObs[rpState, int, rpErr]{
 			Kind:     DisDone,
-			State:    None,
+			State:    option.None,
 			Outputs:  []int{cur.Val, cur.Val + 1},
-			Error:    None,
+			Error:    option.None,
 			Terminal: true,
 		}}
 	}
@@ -485,9 +486,9 @@ func rpModel(base int) PathModel[rpState, rpEvent, rpState, int, rpErr] {
 						Next: next,
 						Obs:  StepObs[rpState, int, rpErr]{
 							Kind:     DisEmit,
-							State:    Some[rpState]{Value: next},
+							State:    option.Some[rpState]{Value: next},
 							Outputs:  []int{p.Payload, next.Val},
-							Error:    None,
+							Error:    option.None,
 							Terminal: false,
 						},
 					}
@@ -495,9 +496,9 @@ func rpModel(base int) PathModel[rpState, rpEvent, rpState, int, rpErr] {
 					Terminal[StepObs[rpState, int, rpErr]]{
 						Obs: StepObs[rpState, int, rpErr]{
 							Kind:     DisDone,
-							State:    None,
+							State:    option.None,
 							Outputs:  []int{s.Val, s.Val + 1},
-							Error:    None,
+							Error:    option.None,
 							Terminal: true,
 						},
 					}
@@ -505,7 +506,7 @@ func rpModel(base int) PathModel[rpState, rpEvent, rpState, int, rpErr] {
 			},
 		},
 		InitialObs:     func(s rpState) rpState { s },
-		ProjectionName: None,
+		ProjectionName: option.None,
 	}
 }
 

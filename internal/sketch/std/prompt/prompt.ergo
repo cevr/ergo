@@ -23,6 +23,7 @@
 
 import io
 import machines
+import option
 import strings
 import term
 
@@ -38,34 +39,34 @@ type Cancelled {}
 // then reads keys in term's raw mode and steps m by each, drawing each new
 // state, until m is Done. A Done of None is Cancelled. The terminal's mode
 // is restored however Ask ends (term.Raw).
-func Ask[S, O, F, R, W](m Machine[S, term.Key, Option[O], F, R, W], frame func(s S) string) O fails NotInteractive | Cancelled | io.ReadFailed | F needs term.Terminal | io.Stderr | R {
+func Ask[S, O, F, R, W](m machines.Machine[S, term.Key, option.Option[O], F, R, W], frame func(s S) string) O fails NotInteractive | Cancelled | io.ReadFailed | F needs term.Terminal | io.Stderr | R {
 	let answer = try term.Raw() { try run(m, frame) } catch {
 	case term.NotTerminal:
 		return NotInteractive
 	}
 	match answer {
-	case Some[O] as a:
+	case option.Some[O] as a:
 		a.Value
-	case None:
+	case option.None:
 		return Cancelled
 	}
 }
 
 // run is Ask's loop in raw mode: it ends with Done's output.
-func run[S, O, F, R, W](m Machine[S, term.Key, Option[O], F, R, W], frame func(s S) string) Option[O] fails io.ReadFailed | F needs term.Terminal | io.Stderr | R {
+func run[S, O, F, R, W](m machines.Machine[S, term.Key, option.Option[O], F, R, W], frame func(s S) string) option.Option[O] fails io.ReadFailed | F needs term.Terminal | io.Stderr | R {
 	let mut now = m.Initial
 	let mut shown = frame(now)
 	io.Stderr.Eprint(shown)
 	for {
 		let d = try m.Step(now, try term.Terminal.ReadKey())
 		match d {
-		case Enter[S], Stay[S], Emit[S, Option[O]], Tell[S, Option[O]]:
+		case machines.Enter[S], machines.Stay[S], machines.Emit[S, option.Option[O]], machines.Tell[S, option.Option[O]]:
 			now = machines.Next(now, d)
 			let next = frame(now)
 			io.Stderr.Eprint(Redraw(shown, next))
 			shown = next
-		case Ignore, Reject:
-		case Done[Option[O]] as e:
+		case machines.Ignore, machines.Reject:
+		case machines.Done[option.Option[O]] as e:
 			io.Stderr.Eprint("\r\n")
 			return e.Output
 		}

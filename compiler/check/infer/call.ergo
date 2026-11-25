@@ -5,6 +5,7 @@
 
 import compiler/check/store
 import dense
+import option
 
 // Arg is what inference reads of one argument: its type, or a literal's
 // default type (a literal binds a parameter only when no typed argument
@@ -31,16 +32,16 @@ type Callee { Params []dense.ID[store.TKey], Rows []bool, Base int }
 // not match, an unknown argument, two literals with different defaults
 // for one parameter, or a type parameter nothing binds. The frame is
 // begun on f and cut before Infer returns.
-func Infer(s mut store.Store, f mut Frame, u Unions, callee Callee, explicit []dense.ID[store.TKey], args []Arg) Option[[]dense.ID[store.TKey]] {
+func Infer(s mut store.Store, f mut Frame, u Unions, callee Callee, explicit []dense.ID[store.TKey], args []Arg) option.Option[[]dense.ID[store.TKey]] {
 	let (got, _) = InferAt(s, f, u, callee, explicit, args)
 	got
 }
 
 // InferAt also returns the first unbound slot when argument matching
 // succeeded but could not bind all the type parameters; -1 otherwise.
-func InferAt(s mut store.Store, f mut Frame, u Unions, callee Callee, explicit []dense.ID[store.TKey], args []Arg) (Option[[]dense.ID[store.TKey]], int) {
-	if len(args) != len(callee.Params) || len(explicit) > len(callee.Rows) {
-		return (None, -1)
+func InferAt(s mut store.Store, f mut Frame, u Unions, callee Callee, explicit []dense.ID[store.TKey], args []Arg) (option.Option[[]dense.ID[store.TKey]], int) {
+	if args.Len() != callee.Params.Len() || explicit.Len() > callee.Rows.Len() {
+		return (option.None, -1)
 	}
 	let c = Begin(f, callee.Rows, callee.Base)
 	let mut unbound = -1
@@ -59,19 +60,19 @@ law InferRecoversBindings(picks []int) {
 	let k = caseOf(&s, &f, picks)
 	let empty = store.TRow(&s, []dense.ID[store.TKey]{})
 	match Infer(&s, &f, NoUnions(), k.callee, []dense.ID[store.TKey]{}, k.args) {
-	case Some[[]dense.ID[store.TKey]] as got:
+	case option.Some[[]dense.ID[store.TKey]] as got:
 		let wantF = if k.rowed { k.f } else { empty }
-		len(got.Value) == 3 && got.Value[0] == k.t && got.Value[1] == k.u && got.Value[2] == wantF && Depth(f) == 0
-	case None:
+		got.Value.Len() == 3 && got.Value[0] == k.t && got.Value[1] == k.u && got.Value[2] == wantF && Depth(f) == 0
+	case option.None:
 		false
 	}
 }
 
 func at(xs []int, i int) int {
-	if len(xs) == 0 {
+	if xs.Len() == 0 {
 		return i
 	}
-	let x = xs[i%len(xs)]
+	let x = xs[i%xs.Len()]
 	let r = x % 1000003
 	if r < 0 { r + 1000003 } else { r }
 }
@@ -201,7 +202,7 @@ func rebuild(s mut store.Store, t dense.ID[store.TKey], ts []dense.ID[store.TKey
 	} else if k == store.KOwn {
 		store.TOwn(s, ts[0])
 	} else if k == store.KSig {
-		let n = len(ts) - 3
+		let n = ts.Len() - 3
 		store.TSigWith(s, ts[0:n], ts[n], ts[n+1], ts[n+2], store.SigDefects(*s, t))
 	} else {
 		t
@@ -233,11 +234,11 @@ law InferRejectsMismatches(picks []int) {
 	isNone(bad) && isNone(shape) && isNone(conflict) && isNone(unbound) && Depth(f) == 0
 }
 
-func isNone[T](o Option[T]) bool {
+func isNone[T](o option.Option[T]) bool {
 	match o {
-	case Some[T]:
+	case option.Some[T]:
 		false
-	case None:
+	case option.None:
 		true
 	}
 }
@@ -260,19 +261,19 @@ law InferStepsPerCallAreConstant(picks []int, n int) {
 	one > 0 && Steps(f) == 2*one && Depth(f) == 0
 }
 
-func inferIn(s mut store.Store, f mut Frame, u Unions, c Call, callee Callee, explicit []dense.ID[store.TKey], args []Arg, unbound mut int) Option[[]dense.ID[store.TKey]] {
+func inferIn(s mut store.Store, f mut Frame, u Unions, c Call, callee Callee, explicit []dense.ID[store.TKey], args []Arg, unbound mut int) option.Option[[]dense.ID[store.TKey]] {
 	for i, t in explicit {
 		Bind(f, c, i, t)
 	}
-	let all = len(explicit) == c.n
+	let all = explicit.Len() == c.n
 	for i, a in args {
 		match a {
 		case Unknown:
-			return None
+			return option.None
 		case Literal:
 		case Typed as ta:
 			if !Argument(s, f, u, c, callee.Params[i], ta.T, all) {
-				return None
+				return option.None
 			}
 		}
 	}
@@ -289,12 +290,12 @@ func Argument(s mut store.Store, f mut Frame, u Unions, c Call, param dense.ID[s
 // Expected is the instantiated parameter type when its type arguments
 // are all known at this argument's turn. The caller's own variables stay
 // intact: they are below the slots of this call.
-func Expected(s mut store.Store, f Frame, c Call, param dense.ID[store.TKey]) Option[dense.ID[store.TKey]] {
+func Expected(s mut store.Store, f Frame, c Call, param dense.ID[store.TKey]) option.Option[dense.ID[store.TKey]] {
 	if !mentions(*s, f, c, param) {
-		return Some{Value: param}
+		return option.Some{Value: param}
 	}
 	if hasFree(*s, f, c, param) {
-		return None
+		return option.None
 	}
 	let mut bindings = []dense.ID[store.TKey]{}
 	for i in 0..c.base {
@@ -302,18 +303,18 @@ func Expected(s mut store.Store, f Frame, c Call, param dense.ID[store.TKey]) Op
 	}
 	for i in 0..c.n {
 		match Binding(f, c, i) {
-		case Some{Value: b}:
+		case option.Some{Value: b}:
 			bindings = bindings.Append(b)
-		case None:
+		case option.None:
 			bindings = bindings.Append(Param(s, c, i))
 		}
 	}
-	Some{Value: store.TSubst(s, param, bindings)}
+	option.Some{Value: store.TSubst(s, param, bindings)}
 }
 
 // Finish applies the deferred literal defaults after the typed arguments,
 // then reads the type arguments (unbound row variables are empty).
-func Finish(s mut store.Store, f mut Frame, c Call, params []dense.ID[store.TKey], args []Arg, all bool, unbound mut int) Option[[]dense.ID[store.TKey]] {
+func Finish(s mut store.Store, f mut Frame, c Call, params []dense.ID[store.TKey], args []Arg, all bool, unbound mut int) option.Option[[]dense.ID[store.TKey]] {
 	if !all {
 		// A parameter that only literals bind takes their common default;
 		// two different defaults name no type (S108).
@@ -325,13 +326,13 @@ func Finish(s mut store.Store, f mut Frame, c Call, params []dense.ID[store.TKey
 					continue
 				}
 				match Binding(*f, c, k) {
-				case None:
+				case option.None:
 					Bind(f, c, k, l.Default)
 					// A default, not a unification: a later literal compares.
 					f.slots[c.at+k].joined = true
-				case Some{Value: b}:
+				case option.Some{Value: b}:
 					if f.slots[c.at+k].joined && b != l.Default {
-						return None
+						return option.None
 					}
 				}
 			case _:
@@ -341,16 +342,16 @@ func Finish(s mut store.Store, f mut Frame, c Call, params []dense.ID[store.TKey
 	let mut targs = []dense.ID[store.TKey]{}
 	for i in 0..c.n {
 		match Binding(*f, c, i) {
-		case Some{Value: b}:
+		case option.Some{Value: b}:
 			targs = targs.Append(b)
-		case None:
+		case option.None:
 			if !f.slots[c.at+i].row {
 				// Outside the inferred subset: write the type arguments.
 				*unbound = i
-				return None
+				return option.None
 			}
 			targs = targs.Append(store.TRow(s, []dense.ID[store.TKey]{}))
 		}
 	}
-	Some{Value: targs}
+	option.Some{Value: targs}
 }

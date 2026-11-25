@@ -59,7 +59,7 @@ func fixLines(p syntax.Parsed) string {
 // as long as each other.
 func FixLines(class string, offsets []int, lengths []int, texts []string) string {
 	let mut out = ""
-	for i in 0..len(offsets) {
+	for i in 0..offsets.Len() {
 		out = out + "\nfix " + class + " " + strconv.Itoa(offsets[i]) + " " + strconv.Itoa(lengths[i]) + " " + strconv.Quote(texts[i])
 	}
 	out

@@ -1,3 +1,4 @@
+import option
 import strconv
 import strings
 import time
@@ -11,7 +12,7 @@ func UsageText(s Set) string {
 		out = out + s.Usage + "\n"
 	}
 	out = out + Defaults(s.Flags)
-	if len(s.Args) > 0 {
+	if s.Args.Len() > 0 {
 		out = out + "Arguments:\n"
 		for a in s.Args {
 			out = out + "  " + argShape(a) + "\n    \t" + strings.ReplaceAll(a.usage, "\n", "\n    \t") + "\n"
@@ -46,9 +47,9 @@ func Defaults(flags []Flag) string {
 			return out
 		}
 		match findIn(flags, pick) {
-		case Some[Flag] as f:
+		case option.Some[Flag] as f:
 			out = out + entry(f.Value)
-		case None:
+		case option.None:
 		}
 		last = pick
 		first = false
@@ -66,7 +67,7 @@ func entry(f Flag) string {
 	if shape != "" {
 		line = line + " " + shape
 	}
-	if len(line) <= 4 {
+	if line.Len() <= 4 {
 		line = line + "\t"
 	} else {
 		line = line + "\n    \t"
@@ -82,13 +83,13 @@ func unquote(usage string, kind string) (string, string) {
 	if i < 0 {
 		return (kind, usage)
 	}
-	let after = strings.Slice(usage, i+1, len(usage))
+	let after = strings.Slice(usage, i+1, usage.Len())
 	let j = strings.Index(after, "`")
 	if j < 0 {
 		return (kind, usage)
 	}
 	let name = strings.Slice(after, 0, j)
-	(name, strings.Slice(usage, 0, i) + name + strings.Slice(after, j+1, len(after)))
+	(name, strings.Slice(usage, 0, i) + name + strings.Slice(after, j+1, after.Len()))
 }
 
 // usageOf is f's usage text.

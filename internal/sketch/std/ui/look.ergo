@@ -20,6 +20,9 @@
 // where CSS has text; Flutter's BoxDecoration.
 
 import actor
+import core
+import machines
+import option
 import strings
 import time
 import json
@@ -84,7 +87,7 @@ func drawInk(r mut rng) Ink {
 // whose look has ink k shows no ink: ink is not inherited.
 law InkShowsInTheScreenshot(seed int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		let mut r = seeded(seed)
 		let k = if draw(&r, 4) == 0 { PlainInk() } else { drawInk(&r) }
 		let rd = NewReadout("r")
@@ -99,13 +102,13 @@ law InkShowsInTheScreenshot(seed int) {
 				}
 			}
 		}
-		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
+		let a = actor.StartMachine(machines.Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) option.Option[func()] { option.None }}, 1, func(o int) {})
 		let mut h = NewTestHost(a, view, m, 4) catch {
 		case BadPatch:
 			return false
 		}
 		let screen = Screen(&h)
-		if len(screen) != 1 || len(screen[0].Kids) != 3 || len(screen[0].Kids[2].Kids) != 1 {
+		if screen.Len() != 1 || screen[0].Kids.Len() != 3 || screen[0].Kids[2].Kids.Len() != 1 {
 			return false
 		}
 		let mut parts = ""
@@ -123,7 +126,7 @@ law InkShowsInTheScreenshot(seed int) {
 		}
 		let want = if k == PlainInk() { "" } else { " { ink" + parts + " }" }
 		let lines = strings.Split(Screenshot(&h), "\n")
-		len(lines) == 6 && lines[1] == "  text \"a\""+want && lines[2] == "  text \"r\""+want && lines[4] == "    text \"b\"" && LooksOf(&h, screen[0].Kids[0].Node) == Steady(Inked(k)) && LooksOf(&h, screen[0].Kids[1].Node) == Steady(Inked(k))
+		lines.Len() == 6 && lines[1] == "  text \"a\""+want && lines[2] == "  text \"r\""+want && lines[4] == "    text \"b\"" && LooksOf(&h, screen[0].Kids[0].Node) == Steady(Inked(k)) && LooksOf(&h, screen[0].Kids[1].Node) == Steady(Inked(k))
 	}
 }
 
@@ -171,7 +174,7 @@ law QueryRoundTrips(seed int, a string, b string, tags []string) {
 		note = json.Present{Value: b + a}
 	}
 	let mut ts = tags
-	if len(ts) == 0 {
+	if ts.Len() == 0 {
 		ts = []string{a}
 	}
 	let v = queryRecord{Name: a, Sort: b, Page: draw(&r, 2001) - 1000, Big: uint64(draw(&r, 1000000)) * 18446744073709, Ratio: float64(draw(&r, 2001)-1000) / 8.0, On: draw(&r, 2) == 0, Note: note, Tags: ts}
@@ -282,10 +285,10 @@ func PressStyle() Style {
 // (Define). Write the handle in a node's Style (Style.Look).
 func LookFor[E](f mut Frame[E], ls Looks) LookId {
 	match f.lookIds.Get(ls) {
-	case Some[int] as n:
+	case option.Some[int] as n:
 		LookId{n: n.Value}
-	case None:
-		let n = len(f.lookList)
+	case option.None:
+		let n = f.lookList.Len()
 		f.lookList = f.lookList.Append(ls)
 		f.lookIds[ls] = n
 		LookId{n: n}
@@ -293,13 +296,13 @@ func LookFor[E](f mut Frame[E], ls Looks) LookId {
 }
 
 // LookCount is how many Looks f has interned, the defaults included.
-func LookCount[E](f mut Frame[E]) int { len(f.lookList) }
+func LookCount[E](f mut Frame[E]) int { f.lookList.Len() }
 
 // defines are the Define ops of the looks f interned since its last
 // Commit, in LookId order, and marks them sent.
 func defines[E](f mut Frame[E]) []Op[E] {
 	let mut out = []Op[E]{}
-	for f.lookSent < len(f.lookList) {
+	for f.lookSent < f.lookList.Len() {
 		out = out.Append(Define{Id: LookId{n: f.lookSent}, Looks: f.lookList[f.lookSent]})
 		f.lookSent = f.lookSent + 1
 	}
@@ -308,36 +311,36 @@ func defines[E](f mut Frame[E]) []Op[E] {
 
 // PressableStyled is a Pressable with a style of its own: its layout and
 // its looks, in place of PressStyle.
-func PressableStyled[E, F, R](f mut Frame[E], label string, on E, style Style, body func() fails F needs R, at CallSite) fails F needs R {
+func PressableStyled[E, F, R](f mut Frame[E], label string, on E, style Style, body func() fails F needs R, at core.CallSite) fails F needs R {
 	try open(f, PressableNode{Label: label, On: on, Style: style}, body, at)
 }
 
 // StyleOf is a node's Style, None for a node kind that has none (a
 // control a host draws, a canvas, a list).
-func StyleOf[E](n Node[E]) Option[Style] {
+func StyleOf[E](n Node[E]) option.Option[Style] {
 	match n {
 	case BoxNode as x:
-		Some{Value: x.Style}
+		option.Some{Value: x.Style}
 	case RowNode as x:
-		Some{Value: x.Style}
+		option.Some{Value: x.Style}
 	case ColumnNode as x:
-		Some{Value: x.Style}
+		option.Some{Value: x.Style}
 	case ScrollNode as x:
-		Some{Value: x.Style}
+		option.Some{Value: x.Style}
 	case TextNode as x:
-		Some{Value: x.Style}
+		option.Some{Value: x.Style}
 	case ReadoutNode as x:
-		Some{Value: x.Style}
+		option.Some{Value: x.Style}
 	case PressableNode[E] as x:
-		Some{Value: x.Style}
+		option.Some{Value: x.Style}
 	case AreaNode as x:
-		Some{Value: x.Style}
+		option.Some{Value: x.Style}
 	case ZoneNode as x:
-		Some{Value: x.Style}
+		option.Some{Value: x.Style}
 	case SemanticNode[E] as x:
-		Some{Value: x.Style}
+		option.Some{Value: x.Style}
 	case _:
-		None
+		option.None
 	}
 }
 
@@ -345,9 +348,9 @@ func StyleOf[E](n Node[E]) Option[Style] {
 // with no Style.
 func LookIdOf[E](n Node[E]) LookId {
 	match StyleOf(n) {
-	case Some[Style] as s:
+	case option.Some[Style] as s:
 		s.Value.Look
-	case None:
+	case option.None:
 		BareId()
 	}
 }
@@ -355,7 +358,7 @@ func LookIdOf[E](n Node[E]) LookId {
 // LooksIn is the Looks a table holds for id, Bare's for an id it does not
 // hold.
 func LooksIn(table []Looks, id LookId) Looks {
-	if id.n >= 0 && id.n < len(table) {
+	if id.n >= 0 && id.n < table.Len() {
 		return table[id.n]
 	}
 	Steady(Bare())
@@ -508,13 +511,13 @@ func lookedView(f mut Frame[int], looks []Looks) {
 		Scroll(f, st(3)) {
 			Text(f, "d")
 		}
-		Area(f, "area", st(4), func(p PointerEvent) Option[int] { None }) {
+		Area(f, "area", st(4), func(p PointerEvent) option.Option[int] { option.None }) {
 			Text(f, "e")
 		}
 		Zone(f, ByInt(5), st(5)) {
 			Text(f, "f")
 		}
-		Semantic(f, Named(Region, "sem"), None, st(6)) {
+		Semantic(f, Named(Region, "sem"), option.None, st(6)) {
 			Text(f, "g")
 		}
 		PressableStyled(f, "styled", 2, st(7)) {
@@ -534,7 +537,7 @@ func lookedView(f mut Frame[int], looks []Looks) {
 // the screenshot's text changes: it shows every part of every state.
 law PaintIsWhatWasGiven(seed int, state int, part int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		let mut r = seeded(seed)
 		let mut before = []Looks{}
 		for _ in 0..8 {
@@ -553,7 +556,7 @@ law PaintIsWhatWasGiven(seed int, state int, part int) {
 				lookedView(f, after)
 			}
 		}
-		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
+		let a = actor.StartMachine(machines.Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) option.Option[func()] { option.None }}, 1, func(o int) {})
 		let mut h = NewTestHost(a, view, m, 4) catch {
 		case BadPatch:
 			return false
@@ -562,7 +565,7 @@ law PaintIsWhatWasGiven(seed int, state int, part int) {
 		for step in 0..2 {
 			let want = if step == 0 { before } else { after }
 			let screen = Screen(&h)
-			if len(screen) != 1 || len(screen[0].Kids) != 9 {
+			if screen.Len() != 1 || screen[0].Kids.Len() != 9 {
 				return false
 			}
 			for i, ls in want {
@@ -575,7 +578,7 @@ law PaintIsWhatWasGiven(seed int, state int, part int) {
 			}
 			if step == 0 {
 				let ids = Locate(&h, WithLabel{Label: "go"})
-				if len(ids) != 1 {
+				if ids.Len() != 1 {
 					return false
 				}
 				Tap(&h, ids[0]) catch {
@@ -596,7 +599,7 @@ law PaintIsWhatWasGiven(seed int, state int, part int) {
 // a Box, Row, Column, Area or Pressable given ls, holding a child of the
 // same kind written with no look of its own, and a Text. (a law's helper)
 func writeNested(f mut Frame[int], ls Looks, kinds []int, depth int) {
-	if depth >= len(kinds) {
+	if depth >= kinds.Len() {
 		Text(f, "leaf")
 		return
 	}
@@ -613,7 +616,7 @@ func writeNested(f mut Frame[int], ls Looks, kinds []int, depth int) {
 				writeNested(f, ls, kinds, depth+1)
 			}
 		case 2:
-			Area(f, "a\(depth)", Plain(), func(p PointerEvent) Option[int] { None }) {
+			Area(f, "a\(depth)", Plain(), func(p PointerEvent) option.Option[int] { option.None }) {
 				writeNested(f, ls, kinds, depth+1)
 			}
 		case _:
@@ -632,7 +635,7 @@ func writeNested(f mut Frame[int], ls Looks, kinds []int, depth int) {
 			kid()
 		}
 	case 2:
-		Area(f, "A\(depth)", painted, func(p PointerEvent) Option[int] { None }) {
+		Area(f, "A\(depth)", painted, func(p PointerEvent) option.Option[int] { option.None }) {
 			kid()
 		}
 	case _:
@@ -664,7 +667,7 @@ func unpainted[S, D, F](h mut TestHost[S, int, D, F], shapes []Shape[int], odd b
 // what the node holds.
 law PaintIsNotInherited(seed int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		let mut r = seeded(seed)
 		let ls = drawLooks(&r)
 		let mut kinds = []int{}
@@ -672,13 +675,13 @@ law PaintIsNotInherited(seed int) {
 			kinds = kinds.Append(draw(&r, 4))
 		}
 		let view = func(f mut Frame[int], s int) { writeNested(f, ls, kinds, 0) }
-		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
+		let a = actor.StartMachine(machines.Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) option.Option[func()] { option.None }}, 1, func(o int) {})
 		let mut h = NewTestHost(a, view, m, 4) catch {
 		case BadPatch:
 			return false
 		}
 		let screen = Screen(&h)
-		len(screen) == 1 && LooksOf(&h, screen[0].Node) == ls && unpainted(&h, screen, false)
+		screen.Len() == 1 && LooksOf(&h, screen[0].Node) == ls && unpainted(&h, screen, false)
 	}
 }
 
@@ -723,7 +726,7 @@ law PaintTableGrowsWithDistinctPaints(seed int, count int) {
 		case BadPatch:
 			return false
 		}
-		ok = ok && LookCount(&f) == len(defaultTable())+k && MirrorLookCount(&m) == LookCount(&f)
+		ok = ok && LookCount(&f) == defaultTable().Len()+k && MirrorLookCount(&m) == LookCount(&f)
 	}
 	ok
 }
@@ -733,7 +736,7 @@ law PaintTableGrowsWithDistinctPaints(seed int, count int) {
 func lookRejected(m mut Mirror[int], patch []Op[int], shown []Shape[int]) bool {
 	Apply(m, patch) catch {
 	case BadPatch:
-		return SameShapes(MirrorShape(m), shown) && MirrorLookCount(m) == len(defaultTable())
+		return SameShapes(MirrorShape(m), shown) && MirrorLookCount(m) == defaultTable().Len()
 	}
 	false
 }
@@ -774,7 +777,7 @@ law MirrorRejectsUnheldLooks(seed int) {
 			uses = uses.Append(op)
 		}
 	}
-	if len(defines) != 1 || len(uses) == 0 {
+	if defines.Len() != 1 || uses.Len() == 0 {
 		return false
 	}
 	let twice = []Op[int]{defines[0], defines[0]}
@@ -789,5 +792,5 @@ law MirrorRejectsUnheldLooks(seed int) {
 	case BadPatch:
 		return false
 	}
-	MirrorLookCount(&m) == len(defaultTable())+1
+	MirrorLookCount(&m) == defaultTable().Len()+1
 }

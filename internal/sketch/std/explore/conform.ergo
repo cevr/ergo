@@ -37,15 +37,17 @@
 // trace validation (Kuppe et al., 2024) checks a log as a constrained
 // behaviour of the spec; Quint's `run` replays a trace step by step.
 
+import codec
 import dense
 import gen
 import json
+import option
 import strconv
 import strings
 
 // Obs is one observation of a trace: its line, the signal's variant name
 // (None when the line names none), its fields and the observed state.
-type Obs { Line int, Signal Option[string], Args Option[json.Value], State Option[json.Value] }
+type Obs { Line int, Signal option.Option[string], Args option.Option[json.Value], State option.Option[json.Value] }
 
 // Options: Hidden, the unobserved steps allowed before each observation;
 // Stutter, whether an observation with no signal may leave the state
@@ -72,7 +74,7 @@ type Conformance = Conforms{Run Run, Report Report} | Mismatch{Line int, Observe
 func ReadTrace(text string) []Obs fails TraceError {
 	let mut out = []Obs{}
 	let lines = strings.Split(text, "\n")
-	for i in 0..len(lines) {
+	for i in 0..lines.Len() {
 		let line = strings.TrimSpace(lines[i])
 		if line == "" {
 			continue
@@ -83,26 +85,26 @@ func ReadTrace(text string) []Obs fails TraceError {
 		case _:
 			return TraceError{Line: i + 1, Why: "not JSON"}
 		}
-		let mut ob = Obs{Line: i + 1, Signal: None, Args: None, State: None}
+		let mut ob = Obs{Line: i + 1, Signal: option.None, Args: option.None, State: option.None}
 		match v {
 		case json.Object as o:
 			for m in o.Members {
 				if m.Key == "signal" {
 					match m.Value {
 					case json.Str as s:
-						ob.Signal = Some[string]{Value: s.Value}
+						ob.Signal = option.Some[string]{Value: s.Value}
 					case _:
 						return TraceError{Line: i + 1, Why: "signal is not a string"}
 					}
 				} else if m.Key == "args" {
 					match m.Value {
 					case json.Object:
-						ob.Args = Some[json.Value]{Value: m.Value}
+						ob.Args = option.Some[json.Value]{Value: m.Value}
 					case _:
 						return TraceError{Line: i + 1, Why: "args is not an object"}
 					}
 				} else if m.Key == "state" {
-					ob.State = Some[json.Value]{Value: m.Value}
+					ob.State = option.Some[json.Value]{Value: m.Value}
 				}
 			}
 		case _:
@@ -197,11 +199,11 @@ func fitValue(base json.Value, obs json.Value) quick {
 		// differing bool, which decodes exactly, makes it Other.
 		match base {
 		case json.Array as y:
-			if len(x.Items) != len(y.Items) {
+			if x.Items.Len() != y.Items.Len() {
 				return Unsure
 			}
 			let mut other = false
-			for i in 0..len(x.Items) {
+			for i in 0..x.Items.Len() {
 				if x.Items[i] != y.Items[i] {
 					match x.Items[i] {
 					case json.Boolean:
@@ -242,12 +244,12 @@ func fitOn[T wire](v T, base json.Value, obs json.Value) Fit needs wired[T] {
 // (law FitFastAgreesWithDecode), and what an Unsure answer falls to.
 func fitDecode[T wire](v T, base json.Value, obs json.Value) Fit needs wired[T] {
 	match overlay(base, obs) {
-	case None:
+	case option.None:
 		return Differs
-	case Some[json.Value] as m:
+	case option.Some[json.Value] as m:
 		let text = json.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, m.Value)
 		let u = json.Decode[T](json.Codec[T]{MaxBytes: 0, MaxDepth: 0}, text) catch {
-		case WireWrongKind as w:
+		case codec.WireWrongKind as w:
 			return Bad{Why: "at " + w.Path + ": want " + w.Want}
 		case _:
 			return Bad{Why: "the observation is not a value of its type"}
@@ -265,7 +267,7 @@ func fitDecode[T wire](v T, base json.Value, obs json.Value) Fit needs wired[T] 
 // overlay is base with obs laid over it: an object's members replace or
 // join base's, one level at a time; any other value replaces base. A
 // union's tag that differs is None: the value is of another variant.
-func overlay(base json.Value, obs json.Value) Option[json.Value] {
+func overlay(base json.Value, obs json.Value) option.Option[json.Value] {
 	match obs {
 	case json.Object as o:
 		match base {
@@ -273,18 +275,18 @@ func overlay(base json.Value, obs json.Value) Option[json.Value] {
 			let mut ms = b.Members
 			for m in o.Members {
 				let mut found = false
-				for i in 0..len(ms) {
+				for i in 0..ms.Len() {
 					if ms[i].Key == m.Key {
 						found = true
 						if m.Key == "_tag" {
 							if ms[i].Value != m.Value {
-								return None
+								return option.None
 							}
 						} else {
 							match overlay(ms[i].Value, m.Value) {
-							case None:
-								return None
-							case Some[json.Value] as w:
+							case option.None:
+								return option.None
+							case option.Some[json.Value] as w:
 								ms[i] = json.Member{Key: m.Key, Value: w.Value}
 							}
 						}
@@ -292,17 +294,17 @@ func overlay(base json.Value, obs json.Value) Option[json.Value] {
 				}
 				if !found {
 					if m.Key == "_tag" {
-						return None
+						return option.None
 					}
 					ms = ms.Append(m)
 				}
 			}
-			Some[json.Value]{Value: json.Object{Members: ms}}
+			option.Some[json.Value]{Value: json.Object{Members: ms}}
 		case _:
-			Some[json.Value]{Value: obs}
+			option.Some[json.Value]{Value: obs}
 		}
 	case _:
-		Some[json.Value]{Value: obs}
+		option.Some[json.Value]{Value: obs}
 	}
 }
 
@@ -373,10 +375,10 @@ func keysOf(v json.Value) []string {
 
 // signalObs is an observation's signal as a value to fit: its args with
 // its name as the tag.
-func signalObs(name string, args Option[json.Value]) json.Value {
+func signalObs(name string, args option.Option[json.Value]) json.Value {
 	let mut ms = []json.Member{json.Member{Key: "_tag", Value: json.Str{Value: name}}}
 	match args {
-	case Some[json.Value] as a:
+	case option.Some[json.Value] as a:
 		match a.Value {
 		case json.Object as o:
 			for m in o.Members {
@@ -384,7 +386,7 @@ func signalObs(name string, args Option[json.Value]) json.Value {
 			}
 		case _:
 		}
-	case None:
+	case option.None:
 	}
 	json.Object{Members: ms}
 }
@@ -452,7 +454,7 @@ type trail { parent []int32, sig []int32 }
 func addNode(t mut trail, parent int, sig int) int {
 	t.parent = t.parent.Append(int32(parent))
 	t.sig = t.sig.Append(int32(sig))
-	len(t.parent) - 1
+	t.parent.Len() - 1
 }
 
 func runOf(t trail, node int) Run {
@@ -522,7 +524,7 @@ func Conform[S wire, E wire](g Graph[S, E], trace []Obs, o Options, laws []Invar
 	let mut taken = []bool{}
 	for e in g.Signals {
 		sigs = sigs.Append(valueOf(e))
-		tags = tags.Append(tagOf(sigs[len(sigs)-1]))
+		tags = tags.Append(tagOf(sigs[sigs.Len()-1]))
 		taken = taken.Append(false)
 	}
 	// The state's fields, and which ones the trace observed.
@@ -530,27 +532,27 @@ func Conform[S wire, E wire](g Graph[S, E], trace []Obs, o Options, laws []Invar
 	let mut seen = []bool{}
 	// The laws each run broke, and where: a start that breaks one breaks
 	// it before the first line.
-	let mut bk = broke{laws: len(laws), at: []int{}}
-	let first = if len(trace) > 0 { trace[0].Line } else { 0 }
-	for i in 0..len(g.Starts) {
+	let mut bk = broke{laws: laws.Len(), at: []int{}}
+	let first = if trace.Len() > 0 { trace[0].Line } else { 0 }
+	for i in 0..g.Starts.Len() {
 		let node = addNode(&tr, -1, i)
 		reach(&bk, -1, g.Starts[i], first, laws)
-		if put(&c, g.Starts[i], node, bk) && len(fields) == 0 {
+		if put(&c, g.Starts[i], node, bk) && fields.Len() == 0 {
 			for k in keysOf(valueOf(g.Starts[i])) {
 				fields = fields.Append(k)
 				seen = seen.Append(false)
 			}
 		}
 	}
-	if len(c.states) == 0 {
+	if c.states.Len() == 0 {
 		return Mismatch{Line: 0, Observed: "", Before: []string{}, Allowed: []string{}, Nearest: "the model has no start", Differ: []string{}, Report: finish(rep, g, taken, fields, seen)}
 	}
-	if len(c.states) > limit {
-		return OverLimit{Line: 0, Candidates: len(c.states), Report: finish(rep, g, taken, fields, seen)}
+	if c.states.Len() > limit {
+		return OverLimit{Line: 0, Candidates: c.states.Len(), Report: finish(rep, g, taken, fields, seen)}
 	}
 	// hiddenAt is the number of hidden steps in each node's run.
 	let mut hiddenAt = []int{}
-	for _ in 0..len(tr.parent) {
+	for _ in 0..tr.parent.Len() {
 		hiddenAt = hiddenAt.Append(0)
 	}
 	for ob in trace {
@@ -558,21 +560,21 @@ func Conform[S wire, E wire](g Graph[S, E], trace []Obs, o Options, laws []Invar
 		let mut layer = 0
 		let mut from = 0
 		for layer < o.Hidden {
-			let to = len(c.states)
+			let to = c.states.Len()
 			for i in from..to {
 				let s = c.states[i]
-				for e in 0..len(g.Signals) {
+				for e in 0..g.Signals.Len() {
 					match g.Step(s, g.Signals[e]) {
-					case None:
-					case Some[S] as t:
+					case option.None:
+					case option.Some[S] as t:
 						let node = addNode(&tr, c.nodes[i], e)
 						hiddenAt = hiddenAt.Append(hiddenAt[c.nodes[i]] + 1)
 						// A hidden step's state is a state of the run: the
 						// laws are checked on it too (batch-mc1 T2 M1).
 						reach(&bk, c.nodes[i], t.Value, ob.Line, laws)
-						if put(&c, t.Value, node, bk) && len(c.states) > limit {
-							rep.Peak = len(c.states)
-							return OverLimit{Line: ob.Line, Candidates: len(c.states), Report: finish(rep, g, taken, fields, seen)}
+						if put(&c, t.Value, node, bk) && c.states.Len() > limit {
+							rep.Peak = c.states.Len()
+							return OverLimit{Line: ob.Line, Candidates: c.states.Len(), Report: finish(rep, g, taken, fields, seen)}
 						}
 					}
 				}
@@ -580,18 +582,18 @@ func Conform[S wire, E wire](g Graph[S, E], trace []Obs, o Options, laws []Invar
 			from = to
 			layer = layer + 1
 		}
-		rep.Peak = larger(rep.Peak, len(c.states))
+		rep.Peak = larger(rep.Peak, c.states.Len())
 		// The signals the observation allows.
 		let mut allowed = []int{}
 		match ob.Signal {
-		case None:
-			for e in 0..len(g.Signals) {
+		case option.None:
+			for e in 0..g.Signals.Len() {
 				allowed = allowed.Append(e)
 			}
-		case Some[string] as name:
+		case option.Some[string] as name:
 			let want = signalObs(name.Value, ob.Args)
 			let mut named = false
-			for e in 0..len(g.Signals) {
+			for e in 0..g.Signals.Len() {
 				if tags[e] == name.Value {
 					named = true
 				} else if tags[e] != "" {
@@ -612,22 +614,22 @@ func Conform[S wire, E wire](g Graph[S, E], trace []Obs, o Options, laws []Invar
 		}
 		// The observed fields.
 		match ob.State {
-		case Some[json.Value] as st:
+		case option.Some[json.Value] as st:
 			for k in keysOf(st.Value) {
-				for i in 0..len(fields) {
+				for i in 0..fields.Len() {
 					if fields[i] == k {
 						seen[i] = true
 					}
 				}
 			}
-		case None:
+		case option.None:
 		}
 		let whole = wholeOf(ob.State)
 		let mut next = noCandidates[S]()
 		let mut steps = []string{}
 		let mut nearest = ""
 		let mut nearDiffer = []string{}
-		for i in 0..len(c.states) {
+		for i in 0..c.states.Len() {
 			let s = c.states[i]
 			if o.Stutter && isNone(ob.Signal) {
 				match fitWhole(s, ob.State, whole) {
@@ -640,8 +642,8 @@ func Conform[S wire, E wire](g Graph[S, E], trace []Obs, o Options, laws []Invar
 			}
 			for e in allowed {
 				match g.Step(s, g.Signals[e]) {
-				case None:
-				case Some[S] as t:
+				case option.None:
+				case option.Some[S] as t:
 					match fitWhole(t.Value, ob.State, whole) {
 					case Fits:
 						taken[e] = true
@@ -650,16 +652,16 @@ func Conform[S wire, E wire](g Graph[S, E], trace []Obs, o Options, laws []Invar
 						reach(&bk, c.nodes[i], t.Value, ob.Line, laws)
 						put(&next, t.Value, node, bk)
 					case Differs:
-						if len(next.states) == 0 {
+						if next.states.Len() == 0 {
 							steps = steps.Append(tagOrText(sigs[e]))
 							match ob.State {
-							case Some[json.Value] as st:
+							case option.Some[json.Value] as st:
 								let d = differ(valueOf(t.Value), st.Value)
-								if nearest == "" || len(d) < len(nearDiffer) {
+								if nearest == "" || d.Len() < nearDiffer.Len() {
 									nearest = project(valueOf(t.Value), st.Value)
 									nearDiffer = d
 								}
-							case None:
+							case option.None:
 							}
 						}
 					case Bad as b:
@@ -668,31 +670,31 @@ func Conform[S wire, E wire](g Graph[S, E], trace []Obs, o Options, laws []Invar
 				}
 			}
 		}
-		if len(next.states) == 0 {
+		if next.states.Len() == 0 {
 			let mut before = []string{}
 			let obsText = observed(ob)
 			for s in c.states {
 				match ob.State {
-				case Some[json.Value] as st:
+				case option.Some[json.Value] as st:
 					before = before.Append(project(valueOf(s), st.Value))
-				case None:
+				case option.None:
 					before = before.Append(json.Encode(json.Codec[S]{MaxBytes: 0, MaxDepth: 0}, s))
 				}
 			}
 			return Mismatch{Line: ob.Line, Observed: obsText, Before: before, Allowed: steps, Nearest: nearest, Differ: nearDiffer, Report: finish(rep, g, taken, fields, seen)}
 		}
 		c = next
-		rep.Peak = larger(rep.Peak, len(c.states))
-		if len(c.states) > limit {
-			rep.Peak = len(c.states)
-			return OverLimit{Line: ob.Line, Candidates: len(c.states), Report: finish(rep, g, taken, fields, seen)}
+		rep.Peak = larger(rep.Peak, c.states.Len())
+		if c.states.Len() > limit {
+			rep.Peak = c.states.Len()
+			return OverLimit{Line: ob.Line, Candidates: c.states.Len(), Report: finish(rep, g, taken, fields, seen)}
 		}
 		rep.Lines = rep.Lines + 1
 		// A law every candidate's run broke, at a logged state, a hidden
 		// one or one the trace left out, is broken by every behaviour that
 		// explains the trace so far; the line is the latest at which one of
 		// them broke it.
-		for l in 0..len(laws) {
+		for l in 0..laws.Len() {
 			let mut all = true
 			let mut line = 0
 			for n in c.nodes {
@@ -713,22 +715,22 @@ func Conform[S wire, E wire](g Graph[S, E], trace []Obs, o Options, laws []Invar
 	Conforms{Run: runOf(tr, c.nodes[0]), Report: finish(rep, g, taken, fields, seen)}
 }
 
-func isNone(x Option[string]) bool {
+func isNone(x option.Option[string]) bool {
 	match x {
-	case None:
+	case option.None:
 		true
-	case Some[string]:
+	case option.Some[string]:
 		false
 	}
 }
 
 // wholeOf is an observed state's compact text, or "" when the line logs
 // no state.
-func wholeOf(obs Option[json.Value]) string {
+func wholeOf(obs option.Option[json.Value]) string {
 	match obs {
-	case None:
+	case option.None:
 		""
-	case Some[json.Value] as v:
+	case option.Some[json.Value] as v:
 		json.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, v.Value)
 	}
 }
@@ -738,7 +740,7 @@ func wholeOf(obs Option[json.Value]) string {
 // the text of s exactly when s fits, so equal texts fit with no valueOf
 // (a text decodes to one value, and Decode(Encode(x)) is x); any other
 // line goes to fitState. Law ConformAgreesWithReference holds it.
-func fitWhole[S wire](s S, obs Option[json.Value], whole string) Fit needs wired[S] {
+func fitWhole[S wire](s S, obs option.Option[json.Value], whole string) Fit needs wired[S] {
 	if whole != "" && json.Encode(json.Codec[S]{MaxBytes: 0, MaxDepth: 0}, s) == whole {
 		return Fits
 	}
@@ -746,11 +748,11 @@ func fitWhole[S wire](s S, obs Option[json.Value], whole string) Fit needs wired
 }
 
 // fitState fits a state to an observation's state, which may be absent.
-func fitState[S wire](s S, obs Option[json.Value]) Fit needs wired[S] {
+func fitState[S wire](s S, obs option.Option[json.Value]) Fit needs wired[S] {
 	match obs {
-	case None:
+	case option.None:
 		Fits
-	case Some[json.Value] as v:
+	case option.Some[json.Value] as v:
 		FitOf(s, v.Value)
 	}
 }
@@ -764,19 +766,19 @@ func tagOrText(v json.Value) string {
 func observed(ob Obs) string {
 	let mut ms = []json.Member{}
 	match ob.Signal {
-	case Some[string] as s:
+	case option.Some[string] as s:
 		ms = ms.Append(json.Member{Key: "signal", Value: json.Str{Value: s.Value}})
-	case None:
+	case option.None:
 	}
 	match ob.Args {
-	case Some[json.Value] as a:
+	case option.Some[json.Value] as a:
 		ms = ms.Append(json.Member{Key: "args", Value: a.Value})
-	case None:
+	case option.None:
 	}
 	match ob.State {
-	case Some[json.Value] as st:
+	case option.Some[json.Value] as st:
 		ms = ms.Append(json.Member{Key: "state", Value: st.Value})
-	case None:
+	case option.None:
 	}
 	json.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, json.Object{Members: ms})
 }
@@ -785,7 +787,7 @@ func observed(ob Obs) string {
 func finish[S, E wire](rep Report, g Graph[S, E], taken []bool, fields []string, seen []bool) Report needs wired[E] {
 	let mut r = rep
 	let mut unseen = []string{}
-	for e in 0..len(g.Signals) {
+	for e in 0..g.Signals.Len() {
 		if !taken[e] {
 			let name = tagOrText(valueOf(g.Signals[e]))
 			let mut dup = false
@@ -795,7 +797,7 @@ func finish[S, E wire](rep Report, g Graph[S, E], taken []bool, fields []string,
 				}
 			}
 			// A variant counts as taken when any of its listed values was.
-			for f in 0..len(g.Signals) {
+			for f in 0..g.Signals.Len() {
 				if taken[f] && tagOrText(valueOf(g.Signals[f])) == name {
 					dup = true
 				}
@@ -806,7 +808,7 @@ func finish[S, E wire](rep Report, g Graph[S, E], taken []bool, fields []string,
 		}
 	}
 	let mut unobserved = []string{}
-	for i in 0..len(fields) {
+	for i in 0..fields.Len() {
 		if !seen[i] {
 			unobserved = unobserved.Append(fields[i])
 		}
@@ -841,7 +843,7 @@ func cGraph(table []int, k int) Graph[CState, CSig] {
 	for e in 0..k {
 		sigs = sigs.Append(cSig(e, k))
 	}
-	Graph[CState, CSig]{Starts: []CState{cState(0)}, Signals: sigs, Step: func(s CState, e CSig) Option[CState] {
+	Graph[CState, CSig]{Starts: []CState{cState(0)}, Signals: sigs, Step: func(s CState, e CSig) option.Option[CState] {
 		let i = match e {
 		case Go as g:
 			g.K
@@ -849,7 +851,7 @@ func cGraph(table []int, k int) Graph[CState, CSig] {
 			k - 1
 		}
 		let t = table[cIndex(s)*k+i]
-		if t < 0 { None } else { Some[CState]{Value: cState(t)} }
+		if t < 0 { option.None } else { option.Some[CState]{Value: cState(t)} }
 	}}
 }
 
@@ -881,7 +883,7 @@ func cText(obs []CObs) string {
 		if o.Mask&4 != 0 {
 			fs = fs.Append("\"c\": " + strconv.FormatBool(o.C))
 		}
-		if len(fs) > 0 {
+		if fs.Len() > 0 {
 			parts = parts.Append("\"state\": {" + strings.Join(fs, ", ") + "}")
 		}
 		out = out + "{" + strings.Join(parts, ", ") + "}\n"
@@ -908,7 +910,7 @@ func cMatches(o CObs, e int, k int, t int) bool {
 // each observation) and, with stutter, letting a line with no signal keep
 // the state. It enumerates the runs one by one, with no set of states.
 func cExplains(table []int, k int, obs []CObs, i int, s int, left int, hidden int, stutter bool) bool {
-	if i == len(obs) {
+	if i == obs.Len() {
 		return true
 	}
 	if stutter && cMatches(obs[i], -1, k, s) && cExplains(table, k, obs, i+1, s, hidden, hidden, stutter) {
@@ -943,7 +945,7 @@ func cDrawWalk(table []int, k int, n int) cRun needs gen.Draws {
 				moves = moves.Append(e)
 			}
 		}
-		if len(moves) == 0 {
+		if moves.Len() == 0 {
 			return r
 		}
 		let e = gen.OneOf(moves)
@@ -965,7 +967,7 @@ func showCRun(r cRun) string {
 func cProject(run cRun, k int, mask uint64, gone uint64, drop int) []CObs {
 	let mut out = []CObs{}
 	let mut dropped = 0
-	for i in 0..len(run.Signals) {
+	for i in 0..run.Signals.Len() {
 		if dropped < drop && (gone>>uint64(i))&uint64(1) == uint64(1) {
 			dropped = dropped + 1
 			continue
@@ -1008,7 +1010,7 @@ law ProjectionsConform() {
 		match cVerdict(table, k, obs, drop+extra, stutter, 0) {
 		case Conforms as c:
 			let g = cGraph(table, k)
-			cIndex(ReplayRun(g, c.Run)) < n && c.Report.Lines == len(obs)
+			cIndex(ReplayRun(g, c.Run)) < n && c.Report.Lines == obs.Len()
 		case _:
 			false
 		}
@@ -1033,8 +1035,8 @@ law ConformAgreesWithReference() {
 		let hidden = gen.Named("hidden", showInt, func() int needs gen.Draws { gen.IntIn(0, 2) })
 		let stutter = gen.Named("stutter", showBool, func() bool needs gen.Draws { gen.Bool() })
 		let mut obs = cProject(run, k, mask, uint64(0), 0)
-		if len(obs) > 0 {
-			let i = which % len(obs)
+		if obs.Len() > 0 {
+			let i = which % obs.Len()
 			let w = (which / 7) % 5
 			if w == 0 {
 				obs[i].A = (obs[i].A + 1) % 4
@@ -1070,7 +1072,7 @@ func cExplainsClean(table []int, k int, obs []CObs, i int, s int, left int, hidd
 	if (bad>>uint64(s))&uint64(1) == uint64(1) {
 		return false
 	}
-	if i == len(obs) {
+	if i == obs.Len() {
 		return true
 	}
 	if stutter && cMatches(obs[i], -1, k, s) && cExplainsClean(table, k, obs, i+1, s, hidden, hidden, stutter, bad) {
@@ -1139,7 +1141,7 @@ law ConformBreaksWithReference() {
 			return false
 		}
 		let got = Conform(cGraph(table, k), tr, Options{Hidden: hidden, Stutter: stutter, Limit: 0}, []Invariant[CState]{inv})
-		for i in 1..len(obs)+1 {
+		for i in 1..obs.Len()+1 {
 			let prefix = obs[0:i]
 			if !cExplains(table, k, prefix, 0, 0, hidden, hidden, stutter) {
 				match got {
@@ -1271,7 +1273,7 @@ func fProject(w json.Value, mask uint64) json.Value {
 				ms = ms.Append(json.Member{Key: m.Key, Value: value})
 			}
 		}
-		if bits%2 == 1 && len(ms) > 0 {
+		if bits%2 == 1 && ms.Len() > 0 {
 			ms[0] = json.Member{Key: ms[0].Key, Value: json.Str{Value: "x"}}
 		}
 		bits = bits / 2

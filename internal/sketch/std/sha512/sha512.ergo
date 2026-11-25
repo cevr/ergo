@@ -8,4 +8,4 @@
 extern go ergo.local/prototype/runtime/v1/digest.Sha512Sum func Sum(s string) string
 
 // SumIs64Bytes: every digest is 64 bytes.
-law SumIs64Bytes(s string) { len(Sum(s)) == 64 }
+law SumIs64Bytes(s string) { Sum(s).Len() == 64 }

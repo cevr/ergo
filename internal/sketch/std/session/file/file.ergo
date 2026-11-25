@@ -25,6 +25,7 @@
 
 import fs
 import fstest
+import option
 import session
 import session/memory
 import strconv
@@ -66,9 +67,9 @@ func Open(files fs.Files, writes fs.Writes, path string, p session.Policy) Store
 		let op = try opOf(path, n, strings.TrimSuffix(raw, "\n"))
 		let (_, next, _) = session.Apply(p, s, op)
 		s = next
-		whole = whole + len(raw)
+		whole = whole + raw.Len()
 	}
-	if whole < len(text) {
+	if whole < text.Len() {
 		writes.WriteFile(path, strings.Slice(text, 0, whole)) catch {
 		case fs.NotFound:
 			return session.Failed{Reason: "\(path): no such directory"}
@@ -199,21 +200,21 @@ law FileIsMemory(steps []script, torn string) {
 			digests = digests.Append(d)
 		case verify as v:
 			now = later(now, ((v.Wait%20)+20)%20)
-			let d = digests[((v.Pick%len(digests))+len(digests))%len(digests)]
+			let d = digests[((v.Pick%digests.Len())+digests.Len())%digests.Len()]
 			if try want.Verify(d, now) != try got.Verify(d, now) {
 				return false
 			}
 		case rotate as r:
 			now = later(now, ((r.Wait%20)+20)%20)
 			n = n + 1
-			let d = digests[((r.Pick%len(digests))+len(digests))%len(digests)]
+			let d = digests[((r.Pick%digests.Len())+digests.Len())%digests.Len()]
 			let next = session.DigestOf(session.TokenOf("t\(n)"))
 			if try rotated(want, d, next, now) != try rotated(got, d, next, now) {
 				return false
 			}
 			digests = digests.Append(next)
 		case revoke as r:
-			let d = digests[((r.Pick%len(digests))+len(digests))%len(digests)]
+			let d = digests[((r.Pick%digests.Len())+digests.Len())%digests.Len()]
 			if try want.Revoke(d) != try got.Revoke(d) {
 				return false
 			}
@@ -250,12 +251,12 @@ func established(s session.Store, d session.Digest, subject string, revision int
 }
 
 // rotated is the record a rotation gave, or None at a Conflict.
-func rotated(s session.Store, old session.Digest, new session.Digest, now time.Time) Option[session.Record] fails session.Failed {
+func rotated(s session.Store, old session.Digest, new session.Digest, now time.Time) option.Option[session.Record] fails session.Failed {
 	let r = try s.Rotate(old, new, now) catch {
 	case session.Conflict:
-		return None
+		return option.None
 	}
-	Some[session.Record]{Value: r}
+	option.Some[session.Record]{Value: r}
 }
 
 // OpenRefusesABrokenLine: a whole line that is not a change, after good
@@ -319,7 +320,7 @@ func lineOf(op session.Op) string {
 func opOf(path string, n int, line string) session.Op fails session.Failed {
 	let f = strings.Split(line, "\t")
 	let bad = session.Failed{Reason: "\(path):\(n): not a change"}
-	match (f[0], len(f)) {
+	match (f[0], f.Len()) {
 	case ("est", 6):
 		session.EstablishOp{Digest: try digestOf(f[1], bad), Subject: try unquote(f[2], bad), Revision: try intOf(f[3], bad), Now: try timeOf(f[4], f[5], bad)}
 	case ("rot", 5):

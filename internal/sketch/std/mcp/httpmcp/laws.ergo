@@ -2,6 +2,7 @@ import http
 import json
 import mcp
 import mcp/memory
+import option
 import rand
 import strings
 
@@ -14,13 +15,13 @@ func lawParsed(text string) json.Value {
 
 func lawInteger(arguments json.Value, key string) int64 fails mcp.ToolError {
 	match mcp.Field(arguments, key) {
-	case Some[json.Value] as v:
+	case option.Some[json.Value] as v:
 		let n = json.Decode(json.Codec[int64]{MaxBytes: 0, MaxDepth: 0}, json.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, v.Value)) catch {
 		case _:
 			return mcp.ToolError{Message: "\(key) is not an integer"}
 		}
 		n
-	case None:
+	case option.None:
 		mcp.ToolError{Message: "\(key) is missing"}
 	}
 }
@@ -80,7 +81,7 @@ law HttpMatchesMemory(kinds []int) {
 		input = input.Append(msg)
 	}
 	let mem = memory.New(input)
-	if mcp.Serve(s, mem) != len(input) {
+	if mcp.Serve(s, mem) != input.Len() {
 		return false
 	}
 	let ep = New(s, DefaultOptions())
@@ -94,18 +95,18 @@ law HttpMatchesMemory(kinds []int) {
 			return false
 		}
 		match a {
-		case Some[string] as line:
+		case option.Some[string] as line:
 			gotJSON = gotJSON.Append(line.Value)
-		case None:
+		case option.None:
 		}
 		let b = sseClient.Call(msg) catch {
 		case _:
 			return false
 		}
 		match b {
-		case Some[string] as line:
+		case option.Some[string] as line:
 			gotSSE = gotSSE.Append(line.Value)
-		case None:
+		case option.None:
 		}
 	}
 	let want = mem.Sent()
@@ -139,11 +140,11 @@ law ProtocolHeadersAndSecurity(seed int) {
 		Body: http.Buffered{Text: ping},
 	}
 	let okResp = Handle(ep, okReq)
-	if okResp.Status != 200 || http.Header(okResp.Header, ProtocolVersionHeader) != (Some[string]{Value: mcp.Version}) {
+	if okResp.Status != 200 || http.Header(okResp.Header, ProtocolVersionHeader) != (option.Some[string]{Value: mcp.Version}) {
 		return false
 	}
 	let notifResp = Handle(ep, http.Request{..okReq, Body: http.Buffered{Text: notif}})
-	if notifResp.Status != 202 || notifResp.Body != "" || http.Header(notifResp.Header, ProtocolVersionHeader) != (Some[string]{Value: mcp.Version}) {
+	if notifResp.Status != 202 || notifResp.Body != "" || http.Header(notifResp.Header, ProtocolVersionHeader) != (option.Some[string]{Value: mcp.Version}) {
 		return false
 	}
 	let evilOrigin = Handle(ep, http.Request{..okReq, Header: []http.Field{
@@ -189,7 +190,7 @@ law SessionLifecycleAndIsolation(seed int) {
 	}
 	let ep = NewDynamic(opts, func(req http.Request) Resolved {
 		match http.Header(req.Header, "Authorization") {
-		case Some[string] as auth:
+		case option.Some[string] as auth:
 			if auth.Value == "Bearer alice" {
 				return Use{Server: lawServer("alice")}
 			}
@@ -197,7 +198,7 @@ law SessionLifecycleAndIsolation(seed int) {
 				return Use{Server: lawServer("bob")}
 			}
 			Reject{Response: http.Response{Status: 401, Header: []http.Field{http.Field{Name: "WWW-Authenticate", Value: "Bearer"}}, Body: "unauthorized"}}
-		case None:
+		case option.None:
 			Reject{Response: http.Response{Status: 401, Header: []http.Field{http.Field{Name: "WWW-Authenticate", Value: "Bearer"}}, Body: "unauthorized"}}
 		}
 	})
@@ -209,7 +210,7 @@ law SessionLifecycleAndIsolation(seed int) {
 	let _ = anon.Call(initMsg) catch {
 	case UnexpectedStatus as u:
 		unauthOK = u.Status == 401
-		None
+		option.None
 	case _:
 		return false
 	}
@@ -222,7 +223,7 @@ law SessionLifecycleAndIsolation(seed int) {
 	let _ = alice.Call(whoMsg) catch {
 	case UnexpectedStatus as u:
 		missingSessionOK = u.Status == 400
-		None
+		option.None
 	case _:
 		return false
 	}
@@ -250,10 +251,10 @@ law SessionLifecycleAndIsolation(seed int) {
 	case _:
 		return false
 	}
-	if aliceWho != (Some[string]{Value: "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"\\\"alice\\\"\"}],\"isError\":false}}"}) {
+	if aliceWho != (option.Some[string]{Value: "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"\\\"alice\\\"\"}],\"isError\":false}}"}) {
 		return false
 	}
-	if bobWho != (Some[string]{Value: "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"\\\"bob\\\"\"}],\"isError\":false}}"}) {
+	if bobWho != (option.Some[string]{Value: "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"\\\"bob\\\"\"}],\"isError\":false}}"}) {
 		return false
 	}
 	alice.Terminate() catch {
@@ -283,7 +284,7 @@ law SessionLifecycleAndIsolation(seed int) {
 // either 202 when all entries are notifications or a JSON array matching
 // mcp/memory's answers in order.
 law BatchMatchesMemory(kinds []int) {
-	if len(kinds) == 0 {
+	if kinds.Len() == 0 {
 		return true
 	}
 	let s = lawServer("batch")
@@ -305,8 +306,8 @@ law BatchMatchesMemory(kinds []int) {
 	case _:
 		return false
 	}
-	if len(want) == 0 {
-		return got == None
+	if want.Len() == 0 {
+		return got == option.None
 	}
-	got == Some[string]{Value: "[" + strings.Join(want, ",") + "]"}
+	got == option.Some[string]{Value: "[" + strings.Join(want, ",") + "]"}
 }

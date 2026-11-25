@@ -3,6 +3,7 @@ import compiler/check/store
 import compiler/check/types
 import compiler/syntax
 import dense
+import option
 
 type Claim { File int, At dense.ID[syntax.Node], T dense.ID[store.TKey] }
 
@@ -31,12 +32,12 @@ func claimsOf(s mut store.Store, parsed []syntax.Parsed, kinds types.Kinds, ext 
 						let op = types.Resolve(s, env, x)
 						claims = claims.Append(Claim{File: file, At: x, T: op})
 						match store.Lookup(*s, types.NameText(p, td.Name)) {
-						case Some{Value: decl}:
+						case option.Some{Value: decl}:
 							let claimant = store.XRef{Import: uint32(0), Decl: uint32(dense.Index(decl))}
-							for lay in types.LayoutsOf(s, roles, deps, foreign, op, len(params)) {
+							for lay in types.LayoutsOf(s, roles, deps, foreign, op, params.Len()) {
 								store.AddClaimLayout(s, claimant, lay)
 							}
-						case None:
+						case option.None:
 						}
 					}
 				case _:

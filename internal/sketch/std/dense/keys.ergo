@@ -23,11 +23,11 @@ func keySlot(lo uint64, mask int) int { int(lo>>uint64(32)) & mask }
 
 // HasKey reports whether the key (hi, lo) is in s.
 func HasKey(s Keys, hi uint64, lo uint64) bool {
-	if len(s.lo) == 0 {
+	if s.lo.Len() == 0 {
 		return false
 	}
 	let l = if hi == uint64(0) && lo == uint64(0) { uint64(1) } else { lo }
-	let mask = len(s.lo) - 1
+	let mask = s.lo.Len() - 1
 	let mut at = keySlot(l, mask)
 	for s.hi[at] != uint64(0) || s.lo[at] != uint64(0) {
 		if s.hi[at] == hi && s.lo[at] == l {
@@ -41,10 +41,10 @@ func HasKey(s Keys, hi uint64, lo uint64) bool {
 // AddKey puts the key (hi, lo) in s and reports whether it was new.
 func AddKey(s mut Keys, hi uint64, lo uint64) bool {
 	let l = if hi == uint64(0) && lo == uint64(0) { uint64(1) } else { lo }
-	if (s.used+1)*4 > len(s.lo)*3 {
+	if (s.used+1)*4 > s.lo.Len()*3 {
 		growKeys(s)
 	}
-	let mask = len(s.lo) - 1
+	let mask = s.lo.Len() - 1
 	let mut at = keySlot(l, mask)
 	for s.hi[at] != uint64(0) || s.lo[at] != uint64(0) {
 		if s.hi[at] == hi && s.lo[at] == l {
@@ -60,7 +60,7 @@ func AddKey(s mut Keys, hi uint64, lo uint64) bool {
 
 // growKeys doubles the slots, at least 16, and places every key again.
 func growKeys(s mut Keys) {
-	let n = if len(s.lo) < 8 { 16 } else { len(s.lo) * 2 }
+	let n = if s.lo.Len() < 8 { 16 } else { s.lo.Len() * 2 }
 	let mut hi = []uint64{}
 	let mut lo = []uint64{}
 	for _ in 0..n {
@@ -68,7 +68,7 @@ func growKeys(s mut Keys) {
 		lo = lo.Append(uint64(0))
 	}
 	let mask = n - 1
-	for i in 0..len(s.lo) {
+	for i in 0..s.lo.Len() {
 		if s.hi[i] != uint64(0) || s.lo[i] != uint64(0) {
 			let mut at = keySlot(s.lo[i], mask)
 			for hi[at] != uint64(0) || lo[at] != uint64(0) {
@@ -111,7 +111,7 @@ law KeysAgreeWithAList() {
 		let mut los = []uint64{}
 		for kv in pairs {
 			let mut fresh = true
-			for j in 0..len(his) {
+			for j in 0..his.Len() {
 				if his[j] == kv.hi && los[j] == kv.lo {
 					fresh = false
 				}
@@ -124,11 +124,11 @@ law KeysAgreeWithAList() {
 				los = los.Append(kv.lo)
 			}
 		}
-		let mut ok = KeyCount(s) == len(his)
-		for j in 0..len(his) {
+		let mut ok = KeyCount(s) == his.Len()
+		for j in 0..his.Len() {
 			ok = ok && HasKey(s, his[j], los[j])
 		}
-		ok && (len(his) == 0 || !HasKey(s, his[0]+uint64(16), los[0]))
+		ok && (his.Len() == 0 || !HasKey(s, his[0]+uint64(16), los[0]))
 	})) == ""
 	true
 }

@@ -144,8 +144,8 @@ func nibble(c byte) uint64 {
 // either case, hyphens at 8, 13, 18 and 23. Braces, a urn:uuid: prefix and
 // the 32-digit form without hyphens are Malformed.
 func Parse(s string) UUID fails Malformed {
-	if len(s) != 36 {
-		return Malformed{Text: s, At: if len(s) < 36 { len(s) } else { 36 }}
+	if s.Len() != 36 {
+		return Malformed{Text: s, At: if s.Len() < 36 { s.Len() } else { 36 }}
 	}
 	let mut hi = uint64(0)
 	let mut lo = uint64(0)
@@ -193,7 +193,7 @@ law TextRoundTrips() {
 		case Malformed:
 			return false
 		}
-		len(Text(u)) == 36 && lower == u && upper == u
+		Text(u).Len() == 36 && lower == u && upper == u
 	})) == ""
 	true
 }
@@ -251,9 +251,9 @@ law V7IsOrderedInProcess() {
 		let g = NewGenerator()
 		let mut prev = with context { rand.Secure: p, time.Clock: m } { g.V7() }
 		let mut ok = Version(prev) == 7
-		let moving = len(steps) > 0 && steps[0]
+		let moving = steps.Len() > 0 && steps[0]
 		for i in 0..k {
-			if moving && steps[i%len(steps)] {
+			if moving && steps[i%steps.Len()] {
 				time.Advance(m, 1ms)
 			}
 			let u = with context { rand.Secure: p, time.Clock: m } { g.V7() }

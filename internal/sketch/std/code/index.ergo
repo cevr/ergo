@@ -1,4 +1,5 @@
 import maps
+import option
 import strings
 
 // Index is the product reader: the tables, indexed once, so a question
@@ -42,10 +43,10 @@ func IndexOf(t Tables) Index {
 	let mut short = Map[string, []int]{}
 	for p in t.Packages {
 		for d in p.Decls {
-			byHandle[d.Handle] = len(decls)
-			if strings.HasPrefix(d.Handle, d.Package + ".") {
-				let name = strings.TrimPrefix(d.Handle, d.Package + ".")
-				short[name] = maps.GetOr(short, name, []int{}).Append(len(decls))
+			byHandle[d.Handle] = decls.Len()
+			if strings.HasPrefix(d.Handle, d.Package+".") {
+				let name = strings.TrimPrefix(d.Handle, d.Package+".")
+				short[name] = maps.GetOr(short, name, []int{}).Append(decls.Len())
 			}
 			decls = decls.Append(d)
 		}
@@ -55,8 +56,8 @@ func IndexOf(t Tables) Index {
 			sites[site.Symbol] = maps.GetOr(sites, site.Symbol, []Site{}).Append(site)
 			let pos = positionOf(site.File, site.Line, site.Column)
 			match at.Get(pos) {
-			case Some[string]:
-			case None:
+			case option.Some[string]:
+			case option.None:
 				at[pos] = site.Symbol
 			}
 		}
@@ -152,33 +153,33 @@ func Symbols(x Index, q SymbolQuery) SymbolPage {
 			fit = fit.Append(d)
 		}
 	}
-	let (start, end, next) = window(len(fit), q.Offset, q.Limit)
-	SymbolPage{Revision: x.tables.Revision, Decls: fit[start:end], Total: len(fit), Next: next}
+	let (start, end, next) = window(fit.Len(), q.Offset, q.Limit)
+	SymbolPage{Revision: x.tables.Revision, Decls: fit[start:end], Total: fit.Len(), Next: next}
 }
 
 func Symbol(x Index, a string) Decl fails NoSymbol | Ambiguous {
 	match x.byHandle.Get(a) {
-	case Some[int] as i:
+	case option.Some[int] as i:
 		return x.decls[i.Value]
-	case None:
+	case option.None:
 	}
 	if isPosition(a) {
 		match x.at.Get(a) {
-		case Some[string] as h:
+		case option.Some[string] as h:
 			match x.byHandle.Get(h.Value) {
-			case Some[int] as i:
+			case option.Some[int] as i:
 				return x.decls[i.Value]
-			case None:
+			case option.None:
 			}
-		case None:
+		case option.None:
 		}
 		return NoSymbol{Address: a}
 	}
 	let places = maps.GetOr(x.short, a, []int{})
-	if len(places) == 0 {
+	if places.Len() == 0 {
 		return NoSymbol{Address: a}
 	}
-	if len(places) > 1 {
+	if places.Len() > 1 {
 		let mut handles = []string{}
 		for i in places {
 			handles = handles.Append(x.decls[i].Handle)
@@ -192,7 +193,7 @@ func References(x Index, q RefQuery) SitePage fails NoSymbol | Ambiguous {
 	let d = try x.Symbol(q.Of)
 	let rows = maps.GetOr(x.sites, d.Handle, []Site{})
 	let mut fit = rows
-	if len(q.Kinds) > 0 {
+	if q.Kinds.Len() > 0 {
 		fit = []Site{}
 		for site in rows {
 			if has(q.Kinds, site.Kind) {
@@ -200,8 +201,8 @@ func References(x Index, q RefQuery) SitePage fails NoSymbol | Ambiguous {
 			}
 		}
 	}
-	let (start, end, next) = window(len(fit), q.Offset, q.Limit)
-	SitePage{Revision: x.tables.Revision, Complete: x.summary.Complete, Sites: fit[start:end], Total: len(fit), Next: next}
+	let (start, end, next) = window(fit.Len(), q.Offset, q.Limit)
+	SitePage{Revision: x.tables.Revision, Complete: x.summary.Complete, Sites: fit[start:end], Total: fit.Len(), Next: next}
 }
 
 // IndexIsScan: on generated tables, the indexed reader and the reference
@@ -226,37 +227,37 @@ func indexIsScan(seed int, size int) bool {
 // name and candidates.
 type Outcome {
 	Question   string,
-	Decl       Option[Decl],
-	Sites      Option[SitePage],
-	Decls      Option[SymbolPage],
-	Summary    Option[Summary],
-	Calls      Option[CallPage],
-	Api        Option[ApiView],
-	Reach      Option[ReachPage],
-	Machine    Option[MachineView],
+	Decl       option.Option[Decl],
+	Sites      option.Option[SitePage],
+	Decls      option.Option[SymbolPage],
+	Summary    option.Option[Summary],
+	Calls      option.Option[CallPage],
+	Api        option.Option[ApiView],
+	Reach      option.Option[ReachPage],
+	Machine    option.Option[MachineView],
 	Failure    string,
 	Candidates []string,
 }
 
 // asked is the outcome of question with no answer yet.
 func asked(question string) Outcome {
-	Outcome{Question: question, Decl: None, Sites: None, Decls: None, Summary: None, Calls: None, Api: None, Reach: None, Machine: None, Failure: "", Candidates: []string{}}
+	Outcome{Question: question, Decl: option.None, Sites: option.None, Decls: option.None, Summary: option.None, Calls: option.None, Api: option.None, Reach: option.None, Machine: option.None, Failure: "", Candidates: []string{}}
 }
 
 // answers is the reader's answer to each question about the tables t,
 // with pages of 1 + size mod 7 rows.
 func answers(t Tables, size int) []Outcome needs Reader {
 	let step = 1 + slot(size, 7)
-	let mut out = []Outcome{Outcome{..asked("describe"), Summary: Some[Summary]{Value: Reader.Describe()}}}
+	let mut out = []Outcome{Outcome{..asked("describe"), Summary: option.Some[Summary]{Value: Reader.Describe()}}}
 	let mut addresses = []string{"nosuch", "gen/p9.Run", "gen/p0/a.ergo:99:9", "Token.Nothing"}
 	for p in t.Packages {
 		for d in p.Decls {
 			addresses = addresses.Append(d.Handle)
-			addresses = addresses.Append(strings.TrimPrefix(d.Handle, d.Package + "."))
-			let q = SymbolQuery{Name: Some[string]{Value: head(d.Name, 2)}, Match: Some[string]{Value: "prefix"}, Kind: Some[string]{Value: d.Kind}, Package: None, Offset: None, Limit: Some[int]{Value: step}}
-			out = out.Append(listed("prefix " + d.Handle, q))
-			out = out.Append(listed("part " + d.Handle, SymbolQuery{Name: Some[string]{Value: tail(d.Name, 1)}, Match: Some[string]{Value: "part"}, Kind: None, Package: Some[string]{Value: d.Package}, Offset: Some[int]{Value: 1}, Limit: Some[int]{Value: step}}))
-			out = out.Append(listed("exact " + d.Handle, SymbolQuery{Name: Some[string]{Value: d.Name}, Match: None, Kind: None, Package: None, Offset: None, Limit: None}))
+			addresses = addresses.Append(strings.TrimPrefix(d.Handle, d.Package+"."))
+			let q = SymbolQuery{Name: option.Some[string]{Value: head(d.Name, 2)}, Match: option.Some[string]{Value: "prefix"}, Kind: option.Some[string]{Value: d.Kind}, Package: option.None, Offset: option.None, Limit: option.Some[int]{Value: step}}
+			out = out.Append(listed("prefix "+d.Handle, q))
+			out = out.Append(listed("part "+d.Handle, SymbolQuery{Name: option.Some[string]{Value: tail(d.Name, 1)}, Match: option.Some[string]{Value: "part"}, Kind: option.None, Package: option.Some[string]{Value: d.Package}, Offset: option.Some[int]{Value: 1}, Limit: option.Some[int]{Value: step}}))
+			out = out.Append(listed("exact "+d.Handle, SymbolQuery{Name: option.Some[string]{Value: d.Name}, Match: option.None, Kind: option.None, Package: option.None, Offset: option.None, Limit: option.None}))
 		}
 		for s in p.Sites {
 			addresses = addresses.Append(positionOf(s.File, s.Line, s.Column))
@@ -272,10 +273,10 @@ func answers(t Tables, size int) []Outcome needs Reader {
 		}
 	}
 	for p in t.Packages {
-		out = out.Append(apiAt(Some[string]{Value: p.Path}))
+		out = out.Append(apiAt(option.Some[string]{Value: p.Path}))
 	}
-	out = out.Append(apiAt(None))
-	out = out.Append(apiAt(Some[string]{Value: "gen/none"}))
+	out = out.Append(apiAt(option.None))
+	out = out.Append(apiAt(option.Some[string]{Value: "gen/none"}))
 	for a in addresses {
 		out = out.Append(reachAt(a, step))
 		out = out.Append(machineAt(a))
@@ -296,7 +297,7 @@ func machineAt(a string) Outcome needs Reader {
 	case NotMachine as n:
 		return Outcome{..asked(q), Failure: "NotMachine " + n.Kind}
 	}
-	Outcome{..asked(q), Machine: Some[MachineView]{Value: v}}
+	Outcome{..asked(q), Machine: option.Some[MachineView]{Value: v}}
 }
 
 // reachAt is the reach answer for the capability at a, read a page of
@@ -307,7 +308,7 @@ func reachAt(a string, step int) Outcome needs Reader {
 	let mut at = 0
 	let mut last = ReachPage{Revision: "", Complete: true, Of: "", Kind: "", Reached: []Reached{}, Discharges: []Call{}, Total: 0, Next: -1}
 	for at >= 0 {
-		last = Reader.Reach(ReachQuery{Of: a, Offset: Some[int]{Value: at}, Limit: Some[int]{Value: step}}) catch {
+		last = Reader.Reach(ReachQuery{Of: a, Offset: option.Some[int]{Value: at}, Limit: option.Some[int]{Value: step}}) catch {
 		case NoSymbol:
 			return Outcome{..asked(q), Failure: "NoSymbol"}
 		case Ambiguous as m:
@@ -318,7 +319,7 @@ func reachAt(a string, step int) Outcome needs Reader {
 		}
 		at = last.Next
 	}
-	Outcome{..asked(q), Reach: Some[ReachPage]{Value: ReachPage{..last, Reached: reached, Next: -1}}}
+	Outcome{..asked(q), Reach: option.Some[ReachPage]{Value: ReachPage{..last, Reached: reached, Next: -1}}}
 }
 
 // callsAt is the calls answer at a, read a page of step at a time.
@@ -328,7 +329,7 @@ func callsAt(a string, direction string, depth int, step int) Outcome needs Read
 	let mut at = 0
 	let mut last = CallPage{Revision: "", Complete: true, Hops: []Hop{}, Total: 0, Next: -1}
 	for at >= 0 {
-		last = Reader.Calls(CallQuery{Of: a, Direction: Some[string]{Value: direction}, Depth: Some[int]{Value: depth}, Offset: Some[int]{Value: at}, Limit: Some[int]{Value: step}}) catch {
+		last = Reader.Calls(CallQuery{Of: a, Direction: option.Some[string]{Value: direction}, Depth: option.Some[int]{Value: depth}, Offset: option.Some[int]{Value: at}, Limit: option.Some[int]{Value: step}}) catch {
 		case NoSymbol:
 			return Outcome{..asked(q), Failure: "NoSymbol"}
 		case Ambiguous as m:
@@ -341,27 +342,27 @@ func callsAt(a string, direction string, depth int, step int) Outcome needs Read
 		}
 		at = last.Next
 	}
-	Outcome{..asked(q), Calls: Some[CallPage]{Value: CallPage{..last, Hops: hops, Next: -1}}}
+	Outcome{..asked(q), Calls: option.Some[CallPage]{Value: CallPage{..last, Hops: hops, Next: -1}}}
 }
 
 // apiAt is the Api answer for the package p.
-func apiAt(p Option[string]) Outcome needs Reader {
+func apiAt(p option.Option[string]) Outcome needs Reader {
 	let q = "api " + text(p)
 	let v = Reader.Api(ApiQuery{Package: p}) catch {
 	case NoPackage:
 		return Outcome{..asked(q), Failure: "NoPackage"}
 	}
-	Outcome{..asked(q), Api: Some[ApiView]{Value: v}}
+	Outcome{..asked(q), Api: option.Some[ApiView]{Value: v}}
 }
 
 // head is the first n bytes of s, or s when it is shorter.
-func head(s string, n int) string { if len(s) < n { s } else { strings.Slice(s, 0, n) } }
+func head(s string, n int) string { if s.Len() < n { s } else { strings.Slice(s, 0, n) } }
 
 // tail is s without its first n bytes, or "" when it is shorter.
-func tail(s string, n int) string { if len(s) < n { "" } else { strings.Slice(s, n, len(s)) } }
+func tail(s string, n int) string { if s.Len() < n { "" } else { strings.Slice(s, n, s.Len()) } }
 
 func listed(question string, q SymbolQuery) Outcome needs Reader {
-	Outcome{..asked(question), Decls: Some[SymbolPage]{Value: Reader.Symbols(q)}}
+	Outcome{..asked(question), Decls: option.Some[SymbolPage]{Value: Reader.Symbols(q)}}
 }
 
 func declAt(a string) Outcome needs Reader {
@@ -371,7 +372,7 @@ func declAt(a string) Outcome needs Reader {
 	case Ambiguous as m:
 		return Outcome{..asked("symbol " + a), Failure: "Ambiguous", Candidates: m.Candidates}
 	}
-	Outcome{..asked("symbol " + a), Decl: Some[Decl]{Value: d}}
+	Outcome{..asked("symbol " + a), Decl: option.Some[Decl]{Value: d}}
 }
 
 func sitesAt(a string, kinds []string, step int) Outcome needs Reader {
@@ -381,5 +382,5 @@ func sitesAt(a string, kinds []string, step int) Outcome needs Reader {
 	case Ambiguous as m:
 		return Outcome{..asked("references " + a), Failure: "Ambiguous", Candidates: m.Candidates}
 	}
-	Outcome{..asked("references " + a), Sites: Some[SitePage]{Value: page}}
+	Outcome{..asked("references " + a), Sites: option.Some[SitePage]{Value: page}}
 }

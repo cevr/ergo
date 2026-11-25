@@ -15,6 +15,8 @@
 // SwiftUI build a value tree and diff it; Inferno and ivi place keyed
 // children with a longest increasing subsequence, as Commit does.
 
+import option
+
 // Length is a length in device-independent pixels.
 type Length float64
 
@@ -90,7 +92,7 @@ func Plain() Style {
 // between them (none when they are equal). The model holds them: an Edit
 // from the host moves them, a Type puts both at the end, and a pass keeps
 // them while the field's value is the text they were set for (edit.ergo).
-type Node[E] = BoxNode{Style Style} | RowNode{Style Style} | ColumnNode{Style Style} | ScrollNode{Style Style} | TextNode{Value string, Style Style} | PressableNode{Label string, On E, Style Style} | CheckNode{Label string, Checked bool, On E} | InputNode{Value string, Placeholder string, Label string, Description string, Invalid bool, Hints Hints, Lines int, Caret int, Anchor int} | ToggleNode{Label string, On bool} | AreaNode{Label string, Style Style} | CanvasNode{Label string, Width Length, Height Length, Paint []PaintOp} | RowsNode{Label string, Count int, RowHeight Length, First int, Offset Length} | FieldsetNode{Disabled bool, Description string} | ZoneNode{Key Key, Style Style} | LiveNode{Text string} | TransitionNode{Key Key, Motion Motion, T float64} | SemanticNode{Access Access, On Option[E], Style Style} | ReadoutNode{Readout int, Reserve string, Style Style} | LayerNode{Z Z, Anchor Option[Key], Place Place, Scrim bool, Dismiss Option[E], Style Style} | TrackNode{Key Key, Prop TrackProp, Target float64, Curve TrackCurve, Style Style}
+type Node[E] = BoxNode{Style Style} | RowNode{Style Style} | ColumnNode{Style Style} | ScrollNode{Style Style} | TextNode{Value string, Style Style} | PressableNode{Label string, On E, Style Style} | CheckNode{Label string, Checked bool, On E} | InputNode{Value string, Placeholder string, Label string, Description string, Invalid bool, Hints Hints, Lines int, Caret int, Anchor int} | ToggleNode{Label string, On bool} | AreaNode{Label string, Style Style} | CanvasNode{Label string, Width Length, Height Length, Paint []PaintOp} | RowsNode{Label string, Count int, RowHeight Length, First int, Offset Length} | FieldsetNode{Disabled bool, Description string} | ZoneNode{Key Key, Style Style} | LiveNode{Text string} | TransitionNode{Key Key, Motion Motion, T float64} | SemanticNode{Access Access, On option.Option[E], Style Style} | ReadoutNode{Readout int, Reserve string, Style Style} | LayerNode{Z Z, Anchor option.Option[Key], Place Place, Scrim bool, Dismiss option.Option[E], Style Style} | TrackNode{Key Key, Prop TrackProp, Target float64, Curve TrackCurve, Style Style}
 
 // Key names a row of an Each. Two rows of one Each with one Key are one
 // instance across frames, wherever they move.

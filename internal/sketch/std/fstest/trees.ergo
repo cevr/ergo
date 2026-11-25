@@ -4,6 +4,7 @@
 
 import filepath
 import fs
+import option
 import strings
 
 // grown is a new Memory with a file "x" at each of paths that can hold
@@ -22,7 +23,7 @@ func grown(paths []string) Memory {
 }
 
 // under reports whether the cleaned path q is p or below it.
-func under(q string, p string) bool { q == p || strings.HasPrefix(q, p + "/") }
+func under(q string, p string) bool { q == p || strings.HasPrefix(q, p+"/") }
 
 // WalkVisitsEachOnce: a walk of "." lists "." first and every path once,
 // each after its directory, and lists every file the tree holds.
@@ -30,16 +31,16 @@ law WalkVisitsEachOnce(paths []string) {
 	let m = grown(paths)
 	with context { fs.Files: m, fs.Writes: m } {
 		let walked = try fs.Walk(".")
-		if len(walked) == 0 || walked[0] != "." {
+		if walked.Len() == 0 || walked[0] != "." {
 			return false
 		}
 		let mut seen = Map[string, int]{}
 		let mut i = 0
 		for w in walked {
-			if seen.Get(w) != None {
+			if seen.Get(w) != option.None {
 				return false
 			}
-			if i > 0 && seen.Get(filepath.Dir(w)) == None {
+			if i > 0 && seen.Get(filepath.Dir(w)) == option.None {
 				return false
 			}
 			seen[w] = i
@@ -50,7 +51,7 @@ law WalkVisitsEachOnce(paths []string) {
 			case fs.NotFound, fs.Denied, fs.Failed:
 				continue
 			}
-			if !info.Dir && seen.Get(filepath.Clean(p)) == None {
+			if !info.Dir && seen.Get(filepath.Clean(p)) == option.None {
 				return false
 			}
 		}
@@ -64,7 +65,7 @@ law RemoveAllTouchesOnlyPath(paths []string, pick int) {
 	let m = grown(paths)
 	with context { fs.Files: m, fs.Writes: m } {
 		let before = try fs.Walk(".")
-		let target = before[(pick%len(before)+len(before))%len(before)]
+		let target = before[(pick%before.Len()+before.Len())%before.Len()]
 		if target == "." {
 			return true
 		}
@@ -99,7 +100,7 @@ law MkdirTempIsNew(paths []string, prefix string) {
 		let b = try fs.MkdirTemp(".", prefix)
 		let inA = try fs.Walk(a)
 		let inB = try fs.Walk(b)
-		a != b && filepath.Dir(a) == "." && filepath.Dir(b) == "." && len(inA) == 1 && len(inB) == 1
+		a != b && filepath.Dir(a) == "." && filepath.Dir(b) == "." && inA.Len() == 1 && inB.Len() == 1
 	}
 }
 

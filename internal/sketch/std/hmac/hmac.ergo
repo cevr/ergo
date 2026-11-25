@@ -98,7 +98,7 @@ law EqualIsEquality(a string, b string) {
 
 // SumHasSize: a tag has its hash's size, for any key and message.
 law SumHasSize(key string, message string) {
-	len(Sum(SHA256, key, message)) == 32 && len(Sum(SHA512, key, message)) == 64 && len(Sum(SHA1, key, message)) == 20
+	Sum(SHA256, key, message).Len() == 32 && Sum(SHA512, key, message).Len() == 64 && Sum(SHA1, key, message).Len() == 20
 }
 
 // vector is one RFC 4231 test case: key and data in hex, and the

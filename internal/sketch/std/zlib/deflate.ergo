@@ -102,7 +102,7 @@ func appendZlibTrailer(out []byte, src []byte) []byte {
 }
 
 func deflateStored(src []byte) []byte {
-	let n = len(src)
+	let n = src.Len()
 	let mut out = slices.WithCapacity[byte](n + 16)
 	out = out.Append(byte(120))
 	out = out.Append(byte(1))
@@ -175,7 +175,7 @@ func DeflateLevel(src []byte, level int) []byte {
 	if level <= 0 {
 		return deflateStored(src)
 	}
-	let n = len(src)
+	let n = src.Len()
 	let mut out = slices.WithCapacity[byte](n + 16)
 	out = out.Append(byte(120))
 	out = out.Append(headerFlgForLevel(level))

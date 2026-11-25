@@ -4,6 +4,7 @@
 // "ERGO-LINT <version> <length>\n" and then exactly length bytes of JSON;
 // the numbers are canonical decimals and the header is at most 64 bytes.
 
+import codec
 import io
 import json
 import strconv
@@ -54,7 +55,7 @@ law FrameRoundTrips(payload string) {
 
 // WriteFrame is the frame of payload in this package's version.
 func WriteFrame(payload string) string {
-	"\(frameMagic) \(ProtocolVersion) \(len(payload))\n" + payload
+	"\(frameMagic) \(ProtocolVersion) \(payload.Len())\n" + payload
 }
 
 // FrameIsExact: a frame with a byte more or a byte less than its header
@@ -63,7 +64,7 @@ law FrameIsExact(payload string, extra string) {
 	let framed = WriteFrame(payload)
 	let _ = ReadFrame(framed + extra + "x") catch {
 	case FrameMalformed:
-		let _ = ReadFrame(strings.Slice(framed, 0, len(framed)-1)) catch {
+		let _ = ReadFrame(strings.Slice(framed, 0, framed.Len()-1)) catch {
 		case FrameMalformed:
 			return true
 		}
@@ -84,10 +85,10 @@ type frameHeader { Version int, Length int, Rest string }
 
 // payloadOf is the payload after h: exactly its length, with nothing after.
 func payloadOf(h frameHeader) string fails FrameMalformed {
-	if len(h.Rest) < h.Length {
-		return FrameMalformed{Reason: "frame truncated after \(len(h.Rest)) of \(h.Length) bytes: end of output"}
+	if h.Rest.Len() < h.Length {
+		return FrameMalformed{Reason: "frame truncated after \(h.Rest.Len()) of \(h.Length) bytes: end of output"}
 	}
-	if len(h.Rest) > h.Length {
+	if h.Rest.Len() > h.Length {
 		return FrameMalformed{Reason: "data follows the frame"}
 	}
 	h.Rest
@@ -98,10 +99,10 @@ func payloadOf(h frameHeader) string fails FrameMalformed {
 func frameHeaderOf(text string) frameHeader fails FrameMalformed {
 	let end = strings.Index(text, "\n")
 	if end < 0 {
-		if len(text) == 0 {
+		if text.Len() == 0 {
 			return FrameMalformed{Reason: "no frame: end of output"}
 		}
-		if len(text) > maxFrameHeaderBytes {
+		if text.Len() > maxFrameHeaderBytes {
 			return FrameMalformed{Reason: "frame header exceeds \(maxFrameHeaderBytes) bytes"}
 		}
 		return FrameMalformed{Reason: "truncated frame header: end of output"}
@@ -112,7 +113,7 @@ func frameHeaderOf(text string) frameHeader fails FrameMalformed {
 	let line = strings.Slice(text, 0, end)
 	let malformed = FrameMalformed{Reason: "malformed frame header \(strconv.Quote(line))"}
 	let fields = strings.Split(line, " ")
-	if len(fields) != 3 || fields[0] != frameMagic {
+	if fields.Len() != 3 || fields[0] != frameMagic {
 		return malformed
 	}
 	let version = decimal(fields[1])
@@ -120,13 +121,13 @@ func frameHeaderOf(text string) frameHeader fails FrameMalformed {
 	if version <= 0 || length < 0 {
 		return malformed
 	}
-	frameHeader{Version: version, Length: length, Rest: strings.Slice(text, end+1, len(text))}
+	frameHeader{Version: version, Length: length, Rest: strings.Slice(text, end+1, text.Len())}
 }
 
 // decimal is the value of a canonical decimal (no sign, no leading zero,
 // at most 12 digits), or -1.
 func decimal(text string) int {
-	if text == "" || len(text) > 12 || len(text) > 1 && strings.HasPrefix(text, "0") {
+	if text == "" || text.Len() > 12 || text.Len() > 1 && strings.HasPrefix(text, "0") {
 		return -1
 	}
 	for r in text {
@@ -200,11 +201,11 @@ func Answer(p Pack, input string) string fails ServeFailed {
 	let r = json.Decode(json.Codec[request]{MaxBytes: 0, MaxDepth: 0}, payload) catch {
 	case json.Malformed as m:
 		return RequestInvalid{Reason: "invalid request: \(m.Reason) at byte \(m.Offset)"}
-	case WireMissingField as m:
+	case codec.WireMissingField as m:
 		return RequestInvalid{Reason: "invalid request: missing \(at(m.Path, m.Field))"}
-	case WireWrongKind as k:
+	case codec.WireWrongKind as k:
 		return RequestInvalid{Reason: "invalid request: \(at(k.Path, "")) is not \(k.Want)"}
-	case WireUnknownTag as u:
+	case codec.WireUnknownTag as u:
 		return RequestInvalid{Reason: "invalid request: \(at(u.Path, "")) has no variant \(u.Tag)"}
 	}
 	WriteFrame(json.Encode(json.Codec[response]{MaxBytes: 0, MaxDepth: 0}, respond(p, r)))

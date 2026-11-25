@@ -19,7 +19,7 @@ func Words(line string) []string fails Unclosed {
 	let mut word = ""
 	let mut open = false
 	let mut i = 0
-	for i < len(line) {
+	for i < line.Len() {
 		let c = line[i]
 		if c == ' ' || c == '\t' {
 			if open {
@@ -40,12 +40,12 @@ func Words(line string) []string fails Unclosed {
 			open = true
 			i = i + 1
 			let mut closed = false
-			for i < len(line) && !closed {
+			for i < line.Len() && !closed {
 				let d = line[i]
 				if d == '"' {
 					closed = true
 					i = i + 1
-				} else if d == '\\' && i+1 < len(line) && escapable(line[i+1]) {
+				} else if d == '\\' && i+1 < line.Len() && escapable(line[i+1]) {
 					word = word + line[i+1:i+2]
 					i = i + 2
 				} else {
@@ -56,7 +56,7 @@ func Words(line string) []string fails Unclosed {
 			if !closed {
 				return Unclosed{Quote: "\""}
 			}
-		} else if c == '\\' && i+1 < len(line) {
+		} else if c == '\\' && i+1 < line.Len() {
 			word = word + line[i+1:i+2]
 			open = true
 			i = i + 2
@@ -92,7 +92,7 @@ func Line(args []string) string {
 
 // bare is whether every byte of a is one Line writes unquoted.
 func bare(a string) bool {
-	for i in 0..len(a) {
+	for i in 0..a.Len() {
 		let c = a[i]
 		let letter = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
 		if !letter && !strings.Contains("-_=.,/:@+%", a[i:i+1]) {
@@ -144,7 +144,7 @@ law WordsReadLine(args []string) {
 // echoed is a run for the laws: its output names the arguments, and an
 // argument list of three ends with status 1.
 func echoed(args []string) Output {
-	Output{Out: strings.Join(args, "|"), Err: "", Code: if len(args) == 3 { 1 } else { 0 }}
+	Output{Out: strings.Join(args, "|"), Err: "", Code: if args.Len() == 3 { 1 } else { 0 }}
 }
 
 // SessionIsEachLine: a session of lines gives the outputs of the run on
@@ -159,7 +159,7 @@ law SessionIsEachLine(script [][]string) {
 	}
 	let mut want = []Step{}
 	for k, a in script {
-		if len(a) == 0 {
+		if a.Len() == 0 {
 			continue
 		}
 		let o = echoed(a)

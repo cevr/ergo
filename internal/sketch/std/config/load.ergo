@@ -1,5 +1,7 @@
+import codec
 import flag
 import json
+import option
 import strings
 import toml
 import strconv
@@ -45,50 +47,50 @@ func FromFlags(v flag.Values) Flags { Flags{given: flag.GivenFlags(v), declared:
 // NoFlags is a layer of no flags.
 func NoFlags() Flags { Flags{given: []flag.Given{}, declared: []string{}} }
 
-type Defaults { root Option[node] }
+type Defaults { root option.Option[node] }
 
 func DefaultsOf[D wire](d D) Defaults needs wired[D] {
 	let w = newTreeWriter(FromDefault)
-	encode(d, w)
+	codec.Encode(d, w)
 	Defaults{root: w.finish()}
 }
 
-func NoDefaults() Defaults { Defaults{root: None} }
+func NoDefaults() Defaults { Defaults{root: option.None} }
 
 // HigherLayerWins: a key that several layers set has the value of the
 // highest: the flag, then the variable, then the file, then the default;
 // a key that no layer sets is missing. Flags and variables are text, the
 // file and the default are typed, and each reads as the field's int.
-law HigherLayerWins(f Option[int], e Option[int], file Option[int], d Option[int]) {
+law HigherLayerWins(f option.Option[int], e option.Option[int], file option.Option[int], d option.Option[int]) {
 	let set = flag.Set{Name: "t", Usage: "", Flags: []flag.Flag{flag.OptionalInt("n", "")}, Args: []flag.ArgSpec{}}
 	let mut args = []string{}
 	let mut env = Map[string, string]{}
 	let mut files = Map[string, string]{}
 	let mut defaults = NoDefaults()
-	let mut want Option[int] = None
+	let mut want option.Option[int] = option.None
 	match d {
-	case Some as x:
+	case option.Some as x:
 		defaults = DefaultsOf(one{N: x.Value})
 		want = x
-	case None:
+	case option.None:
 	}
 	match file {
-	case Some as x:
+	case option.Some as x:
 		files = Map[string, string]{"c.json": "{\"n\": " + strconv.Itoa(x.Value) + "}"}
 		want = x
-	case None:
+	case option.None:
 	}
 	match e {
-	case Some as x:
+	case option.Some as x:
 		env = Map[string, string]{"T_N": strconv.Itoa(x.Value), "TN": "0", "T": "0"}
 		want = x
-	case None:
+	case option.None:
 	}
 	match f {
-	case Some as x:
+	case option.Some as x:
 		args = []string{"--n=" + strconv.Itoa(x.Value)}
 		want = x
-	case None:
+	case option.None:
 	}
 	let v = flag.Parse(set, args) catch {
 	case _:
@@ -107,18 +109,18 @@ law HigherLayerWins(f Option[int], e Option[int], file Option[int], d Option[int
 type one { N int }
 
 // loadOne is the N that Load reads from spec, or None when no layer has it.
-func loadOne(spec Spec) Option[int] fails Unreadable | Malformed | WireWrongKind needs Config {
+func loadOne(spec Spec) option.Option[int] fails Unreadable | Malformed | codec.WireWrongKind needs Config {
 	let v = Load[one](spec) catch {
-	case WireMissingField:
-		return None
+	case codec.WireMissingField:
+		return option.None
 	case Unreadable as u:
 		return u
 	case Malformed as m:
 		return m
-	case WireWrongKind as w:
+	case codec.WireWrongKind as w:
 		return w
 	}
-	Some{Value: v.N}
+	option.Some{Value: v.N}
 }
 
 // Spec is where a configuration comes from. The layers are read highest
@@ -143,17 +145,17 @@ func Load[T wire](s Spec) T fails Unreadable | Malformed | wired[T] needs Config
 	}
 	for f in s.Files {
 		match try Config.ReadFile(f.Path) {
-		case Some as text:
+		case option.Some as text:
 			root = merge(root, try parseFile(f, text.Value))
-		case None:
+		case option.None:
 		}
 	}
 	match s.Defaults.root {
-	case Some as d:
+	case option.Some as d:
 		root = merge(root, d.Value)
-	case None:
+	case option.None:
 	}
-	try decode[T](newReader(root))
+	try codec.Decode[T](newReader(root))
 }
 
 func LoadSecret[T wire](s Spec) Redacted[T] fails Unreadable | Malformed | wired[T] needs Config | wired[T] {
@@ -169,11 +171,11 @@ func parseFile(f File, text string) node fails Malformed {
 			return Malformed{Path: f.Path, Line: m.Line, Key: m.Key, Reason: m.Reason}
 		case json.Malformed as m:
 			return Malformed{Path: f.Path, Line: 0, Key: "", Reason: m.Reason}
-		case WireWrongKind as w:
+		case codec.WireWrongKind as w:
 			return Malformed{Path: f.Path, Line: 0, Key: w.Path, Reason: "expected " + w.Want}
-		case WireMissingField as w:
+		case codec.WireMissingField as w:
 			return Malformed{Path: f.Path, Line: 0, Key: MissingKey(w), Reason: "missing field"}
-		case WireUnknownTag as w:
+		case codec.WireUnknownTag as w:
 			return Malformed{Path: f.Path, Line: 0, Key: w.Path, Reason: "unknown tag " + w.Tag}
 		}
 		fromValue(v, FromFile{Path: f.Path})
@@ -182,11 +184,11 @@ func parseFile(f File, text string) node fails Malformed {
 		case json.Malformed as m:
 			let line = strings.Count(strings.Slice(text, 0, m.Offset), "\n") + 1
 			return Malformed{Path: f.Path, Line: line, Key: "", Reason: m.Reason}
-		case WireWrongKind as w:
+		case codec.WireWrongKind as w:
 			return Malformed{Path: f.Path, Line: 0, Key: w.Path, Reason: "expected " + w.Want}
-		case WireMissingField as w:
+		case codec.WireMissingField as w:
 			return Malformed{Path: f.Path, Line: 0, Key: MissingKey(w), Reason: "missing field"}
-		case WireUnknownTag as w:
+		case codec.WireUnknownTag as w:
 			return Malformed{Path: f.Path, Line: 0, Key: w.Path, Reason: "unknown tag " + w.Tag}
 		}
 		fromValue(v, FromFile{Path: f.Path})
@@ -194,7 +196,7 @@ func parseFile(f File, text string) node fails Malformed {
 }
 
 // MissingKey is the dotted key of a field no layer has.
-func MissingKey(m WireMissingField) string {
+func MissingKey(m codec.WireMissingField) string {
 	if m.Path == "" { m.Field } else { m.Path + "." + m.Field }
 }
 
@@ -216,9 +218,9 @@ func Looked(s Spec, key string) []Source {
 		out = out.Append(FromFile{Path: f.Path})
 	}
 	match s.Defaults.root {
-	case Some:
+	case option.Some:
 		out = out.Append(FromDefault)
-	case None:
+	case option.None:
 	}
 	out
 }
@@ -241,9 +243,9 @@ law NamesInvert(picks []int) {
 	let words = []string{"port", "apiToken", "httpStatus", "v2Path", "x", "userID", "logLevel"}
 	let mut parts = []string{}
 	for p in picks {
-		parts = parts.Append(words[if p < 0 { -(p % len(words)) } else { p % len(words) }])
+		parts = parts.Append(words[if p < 0 { -(p % words.Len()) } else { p % words.Len() }])
 	}
-	if len(parts) == 0 {
+	if parts.Len() == 0 {
 		return true
 	}
 	let key = strings.Join(parts, ".")

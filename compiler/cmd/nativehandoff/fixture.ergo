@@ -13,7 +13,7 @@ func readArchiveExport(ar string) ExportData fails ArchiveBad {
 		return ArchiveBad{Why: "missing ar magic"}
 	}
 	let mut at = 8
-	for at+60 <= len(ar) {
+	for at+60 <= ar.Len() {
 		let name = strings.TrimSpace(ar[at : at+16])
 		let sizeStr = strings.TrimSpace(ar[at+48 : at+58])
 		let size = strconv.Atoi(sizeStr) catch {
@@ -22,7 +22,7 @@ func readArchiveExport(ar string) ExportData fails ArchiveBad {
 		}
 		let start = at + 60
 		let end = start + size
-		if end > len(ar) {
+		if end > ar.Len() {
 			return ArchiveBad{Why: "truncated ar member"}
 		}
 		if name == "__.PKGDEF" || name == "__.PKGDEF/" {
@@ -78,7 +78,7 @@ func buildTinyEIR(seed int, goos string, goarch string, pin string, depFP string
 	})
 	let mut uniq = []string{}
 	for n in names {
-		if len(uniq) == 0 || uniq[len(uniq)-1] != n {
+		if uniq.Len() == 0 || uniq[uniq.Len()-1] != n {
 			uniq = uniq.Append(n)
 		}
 	}
@@ -93,7 +93,7 @@ func buildTinyEIR(seed int, goos string, goarch string, pin string, depFP string
 	let mut ends = []uint32{}
 	let mut off = uint32(0)
 	for n in uniq {
-		off = off + uint32(len(n))
+		off = off + uint32(n.Len())
 		ends = ends.Append(off)
 	}
 
@@ -127,11 +127,11 @@ func buildTinyEIR(seed int, goos string, goarch string, pin string, depFP string
 
 	let mut operands = []uint32{}
 	let pushOps = func(xs []uint32) (uint32, uint32) {
-		let lo = uint32(len(operands))
+		let lo = uint32(operands.Len())
 		for x in xs {
 			operands = operands.Append(x)
 		}
-		(lo, uint32(len(xs)))
+		(lo, uint32(xs.Len()))
 	}
 
 	let mut typeRows = [][]uint32{}
@@ -184,15 +184,15 @@ func buildTinyEIR(seed int, goos string, goarch string, pin string, depFP string
 		opRows = opRows.Append([]uint32{code, span, lo, n})
 	}
 	let startBody = func(funcSym uint32, bodySlots []uint32) (uint32, uint32, uint32, uint32) {
-		let sl0 = uint32(len(slots))
+		let sl0 = uint32(slots.Len())
 		for s in bodySlots {
 			slots = slots.Append(s)
 		}
-		(funcSym, sl0, uint32(len(bodySlots)), uint32(len(opRows)))
+		(funcSym, sl0, uint32(bodySlots.Len()), uint32(opRows.Len()))
 	}
 	let finishBody = func(hdr (uint32, uint32, uint32, uint32)) {
 		let (fs, sl0, nsl, op0) = hdr
-		bodyRows = bodyRows.Append([]uint32{fs, sl0, nsl, op0, uint32(len(opRows)) - op0})
+		bodyRows = bodyRows.Append([]uint32{fs, sl0, nsl, op0, uint32(opRows.Len()) - op0})
 	}
 
 	let bBump = startBody(symBump, []uint32{tInt, tInt, tInt})

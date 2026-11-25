@@ -1,6 +1,9 @@
 // The providers of Random: a seeded one for tests and replays, and the
 // host's (std-align S2c).
 
+import fstest
+import os
+
 // Stream is the state of a PCG provider: Go's *rand.Rand over a PCG
 // source, behind a lock, so tasks that share one provider draw from one
 // stream. Only Seeded makes one.
@@ -92,12 +95,12 @@ type hostOnly {}
 // NewHost is the host's Random provider. It needs Ambient: only code whose
 // row holds the authority to choose the host makes one (docs/spec/
 // stdlib.md, Host packages).
-func NewHost() Host needs Ambient { Host{live: hostOnly} }
+func NewHost() Host needs os.Ambient { Host{live: hostOnly} }
 
 // testRandom reads the host's random stream, not a seeded substitute.
-func testRandom() Host needs TestAmbient { Host{live: hostOnly} }
+func testRandom() Host needs fstest.TestAmbient { Host{live: hostOnly} }
 
-let onTestRandom = context needs TestAmbient { Random: testRandom() }
+let onTestRandom = context needs fstest.TestAmbient { Random: testRandom() }
 
 // Uint64 is 64 random bits from the host (Go's rand.Uint64).
 func Uint64(_ Host) uint64 { hostUint64() }

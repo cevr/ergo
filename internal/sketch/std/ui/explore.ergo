@@ -1,5 +1,7 @@
 import actor
 import gen
+import machines
+import option
 import strings
 import temporal
 import time
@@ -38,8 +40,8 @@ type Offer {
 	Label    string,
 	Weight   int,
 	Act      Act,
-	Keyboard Option[Keyboard],
-	Locator  Option[Locator],
+	Keyboard option.Option[Keyboard],
+	Locator  option.Option[Locator],
 	Matches  int,
 }
 
@@ -51,7 +53,7 @@ type ExploreSnapshot[S, E] {
 	Offers      []Offer,
 	Fetching    int,
 	WantsFrames bool,
-	Focus       Option[Id[E]],
+	Focus       option.Option[Id[E]],
 	FocusValid  bool,
 	Time        time.Time,
 }
@@ -139,11 +141,11 @@ func DefaultsWith[S, E](settleTimeout duration) []temporal.Formula[ExploreSnapsh
 func offersAreUnambiguous(offers []Offer) bool {
 	for o in offers {
 		match o.Locator {
-		case Some[Locator]:
+		case option.Some[Locator]:
 			if o.Matches != 1 {
 				return false
 			}
-		case None:
+		case option.None:
 		}
 	}
 	true
@@ -157,9 +159,9 @@ type mirrorCounts {
 func incCount(m Map[string, int], k string) Map[string, int] {
 	let mut next = m
 	let prev = match next.Get(k) {
-	case Some[int] as v:
+	case option.Some[int] as v:
 		v.Value
-	case None:
+	case option.None:
 		0
 	}
 	next[k] = prev + 1
@@ -168,19 +170,19 @@ func incCount(m Map[string, int], k string) Map[string, int] {
 
 func getCount(m Map[string, int], k string) int {
 	match m.Get(k) {
-	case Some[int] as v:
+	case option.Some[int] as v:
 		v.Value
-	case None:
+	case option.None:
 		0
 	}
 }
 
-func countMirror[E](m mut Mirror[E], at Option[Id[E]], off bool, desc string, acc mirrorCounts) mirrorCounts {
+func countMirror[E](m mut Mirror[E], at option.Option[Id[E]], off bool, desc string, acc mirrorCounts) mirrorCounts {
 	let mut counts = acc
 	let mut c = at
 	for {
 		match c {
-		case Some[Id[E]] as x:
+		case option.Some[Id[E]] as x:
 			let e = entry(m, refOf(m, x.Value))
 			let hn = Lower(e.node)
 			let (o, d) = HostScope(hn, off, desc)
@@ -190,7 +192,7 @@ func countMirror[E](m mut Mirror[E], at Option[Id[E]], off bool, desc string, ac
 			counts.byRoleName = incCount(counts.byRoleName, rn+"\x00"+a.Name)
 			counts = countMirror[E](m, e.first, o, d, counts)
 			c = e.next
-		case None:
+		case option.None:
 			return counts
 		}
 	}
@@ -208,20 +210,20 @@ func roleMatchCount(counts mirrorCounts, r Role, name string) int {
 // tree order, excluding disabled controls.
 func OffersIn[E](m mut Mirror[E]) []Offer {
 	match entryOf(m, m.root) {
-	case Some[mirrored[E]] as r:
+	case option.Some[mirrored[E]] as r:
 		let counts = countMirror[E](m, r.Value.first, false, "", mirrorCounts{byRole: Map[string, int]{}, byRoleName: Map[string, int]{}})
 		collectOffers[E](m, r.Value.first, false, "", counts, []Offer{})
-	case None:
+	case option.None:
 		[]Offer{}
 	}
 }
 
-func collectOffers[E](m mut Mirror[E], at Option[Id[E]], off bool, desc string, counts mirrorCounts, acc []Offer) []Offer {
+func collectOffers[E](m mut Mirror[E], at option.Option[Id[E]], off bool, desc string, counts mirrorCounts, acc []Offer) []Offer {
 	let mut out = acc
 	let mut c = at
 	for {
 		match c {
-		case Some[Id[E]] as x:
+		case option.Some[Id[E]] as x:
 			let e = entry(m, refOf(m, x.Value))
 			let hn = Lower(e.node)
 			let (o, d) = HostScope(hn, off, desc)
@@ -231,7 +233,7 @@ func collectOffers[E](m mut Mirror[E], at Option[Id[E]], off bool, desc string, 
 			}
 			out = collectOffers[E](m, e.first, o, d, counts, out)
 			c = e.next
-		case None:
+		case option.None:
 			return out
 		}
 	}
@@ -243,41 +245,41 @@ func appendNodeOffer[E](m mut Mirror[E], counts mirrorCounts, n Node[E], a Acces
 		let raw = WithRole{Role: Button, Name: a.Name}
 		let nMatch = roleMatchCount(counts, Button, a.Name)
 		let playLoc = if nMatch > 1 { First{At: raw} } else { raw }
-		out.Append(Offer{Kind: PressOffer, Label: a.Name, Weight: 4, Act: ClickOn{At: playLoc}, Keyboard: None, Locator: Some[Locator]{Value: raw}, Matches: nMatch})
+		out.Append(Offer{Kind: PressOffer, Label: a.Name, Weight: 4, Act: ClickOn{At: playLoc}, Keyboard: option.None, Locator: option.Some[Locator]{Value: raw}, Matches: nMatch})
 	case CheckNode[E]:
 		let raw = WithRole{Role: Checkbox, Name: a.Name}
 		let nMatch = roleMatchCount(counts, Checkbox, a.Name)
 		let playLoc = if nMatch > 1 { First{At: raw} } else { raw }
-		out.Append(Offer{Kind: PressOffer, Label: a.Name, Weight: 3, Act: ClickOn{At: playLoc}, Keyboard: None, Locator: Some[Locator]{Value: raw}, Matches: nMatch})
+		out.Append(Offer{Kind: PressOffer, Label: a.Name, Weight: 3, Act: ClickOn{At: playLoc}, Keyboard: option.None, Locator: option.Some[Locator]{Value: raw}, Matches: nMatch})
 	case ToggleNode:
 		let raw = WithRole{Role: Switch, Name: a.Name}
 		let nMatch = roleMatchCount(counts, Switch, a.Name)
 		let playLoc = if nMatch > 1 { First{At: raw} } else { raw }
-		out.Append(Offer{Kind: PressOffer, Label: a.Name, Weight: 3, Act: ClickOn{At: playLoc}, Keyboard: None, Locator: Some[Locator]{Value: raw}, Matches: nMatch})
+		out.Append(Offer{Kind: PressOffer, Label: a.Name, Weight: 3, Act: ClickOn{At: playLoc}, Keyboard: option.None, Locator: option.Some[Locator]{Value: raw}, Matches: nMatch})
 	case SemanticNode[E] as x:
 		match x.On {
-		case Some[E]:
+		case option.Some[E]:
 			let raw = WithRole{Role: a.Role, Name: a.Name}
 			let nMatch = roleMatchCount(counts, a.Role, a.Name)
 			let playLoc = if nMatch > 1 { First{At: raw} } else { raw }
-			out.Append(Offer{Kind: PressOffer, Label: a.Name, Weight: 3, Act: ClickOn{At: playLoc}, Keyboard: None, Locator: Some[Locator]{Value: raw}, Matches: nMatch})
-		case None:
+			out.Append(Offer{Kind: PressOffer, Label: a.Name, Weight: 3, Act: ClickOn{At: playLoc}, Keyboard: option.None, Locator: option.Some[Locator]{Value: raw}, Matches: nMatch})
+		case option.None:
 			out
 		}
 	case InputNode as x:
 		let raw = WithRole{Role: TextBox, Name: a.Name}
 		let nMatch = roleMatchCount(counts, TextBox, a.Name)
 		let playLoc = if nMatch > 1 { First{At: raw} } else { raw }
-		out.Append(Offer{Kind: InputOffer, Label: a.Name, Weight: 3, Act: FillIn{At: playLoc, Text: ""}, Keyboard: Some[Keyboard]{Value: x.Hints.Keyboard}, Locator: Some[Locator]{Value: raw}, Matches: nMatch})
+		out.Append(Offer{Kind: InputOffer, Label: a.Name, Weight: 3, Act: FillIn{At: playLoc, Text: ""}, Keyboard: option.Some[Keyboard]{Value: x.Hints.Keyboard}, Locator: option.Some[Locator]{Value: raw}, Matches: nMatch})
 	case RowsNode as x:
 		if x.Label == "" {
 			return out
 		}
-		let nMatch = len(withLabel(m, m.root, x.Label, []Id[E]{}))
+		let nMatch = withLabel(m, m.root, x.Label, []Id[E]{}).Len()
 		let step = if x.RowHeight > Length(0.0) { x.RowHeight } else { Length(10.0) }
 		let nextOff = x.Offset + step
 		let vh = step * Length(4.0)
-		out.Append(Offer{Kind: ScrollOffer, Label: x.Label, Weight: 2, Act: ScrollOn{Label: x.Label, Offset: nextOff, Height: vh}, Keyboard: None, Locator: Some[Locator]{Value: WithRole{Role: List, Name: x.Label}}, Matches: nMatch})
+		out.Append(Offer{Kind: ScrollOffer, Label: x.Label, Weight: 2, Act: ScrollOn{Label: x.Label, Offset: nextOff, Height: vh}, Keyboard: option.None, Locator: option.Some[Locator]{Value: WithRole{Role: List, Name: x.Label}}, Matches: nMatch})
 	case _:
 		out
 	}
@@ -296,44 +298,44 @@ func Offers[S, E, D, F](h mut TestHost[S, E, D, F]) []Offer {
 func offersWithAdvance[S, E, D, F](h mut TestHost[S, E, D, F], adv duration) []Offer {
 	let mut out = OffersIn(&h.mirror)
 	match FocusOf(h) {
-	case Some[Id[E]] as fid:
+	case option.Some[Id[E]] as fid:
 		match entryOf(&h.mirror, fid.Value) {
-		case Some[mirrored[E]] as e:
+		case option.Some[mirrored[E]] as e:
 			if !AccessOf(&h.mirror, fid.Value).Disabled {
 				match e.Value.node {
 				case InputNode, PressableNode[E], CheckNode[E], ToggleNode:
-					out = out.Append(Offer{Kind: KeyOffer, Label: "key:Enter", Weight: 1, Act: KeyIn{Press: KeyPress{Name: "Enter", Mods: plainMods()}}, Keyboard: None, Locator: None, Matches: 1})
+					out = out.Append(Offer{Kind: KeyOffer, Label: "key:Enter", Weight: 1, Act: KeyIn{Press: KeyPress{Name: "Enter", Mods: plainMods()}}, Keyboard: option.None, Locator: option.None, Matches: 1})
 				case SemanticNode[E] as sx:
 					match sx.On {
-					case Some[E]:
-						out = out.Append(Offer{Kind: KeyOffer, Label: "key:Enter", Weight: 1, Act: KeyIn{Press: KeyPress{Name: "Enter", Mods: plainMods()}}, Keyboard: None, Locator: None, Matches: 1})
-					case None:
+					case option.Some[E]:
+						out = out.Append(Offer{Kind: KeyOffer, Label: "key:Enter", Weight: 1, Act: KeyIn{Press: KeyPress{Name: "Enter", Mods: plainMods()}}, Keyboard: option.None, Locator: option.None, Matches: 1})
+					case option.None:
 					}
 				case _:
 				}
 			}
-		case None:
+		case option.None:
 		}
-	case None:
+	case option.None:
 	}
 	if h.session.frame.nkeys > 0 {
-		out = out.Append(Offer{Kind: KeyOffer, Label: "key:Tab", Weight: 1, Act: KeyIn{Press: KeyPress{Name: "Tab", Mods: plainMods()}}, Keyboard: None, Locator: None, Matches: 1})
+		out = out.Append(Offer{Kind: KeyOffer, Label: "key:Tab", Weight: 1, Act: KeyIn{Press: KeyPress{Name: "Tab", Mods: plainMods()}}, Keyboard: option.None, Locator: option.None, Matches: 1})
 	}
 	if Depth(History(h)) > 0 {
-		out = out.Append(Offer{Kind: BackOffer, Label: "back", Weight: 3, Act: GoBack, Keyboard: None, Locator: None, Matches: 1})
+		out = out.Append(Offer{Kind: BackOffer, Label: "back", Weight: 3, Act: GoBack, Keyboard: option.None, Locator: option.None, Matches: 1})
 	}
 	if time.Sleepers(h.clock) > 0 || WantsFrames(h) {
 		let by = if WantsFrames(h) && time.Sleepers(h.clock) == 0 { h.period } else if adv > 0ns { adv } else { 500ms }
-		out = out.Append(Offer{Kind: TimeOffer, Label: "advance", Weight: 3, Act: AdvanceBy{By: by}, Keyboard: None, Locator: None, Matches: 1})
+		out = out.Append(Offer{Kind: TimeOffer, Label: "advance", Weight: 3, Act: AdvanceBy{By: by}, Keyboard: option.None, Locator: option.None, Matches: 1})
 	}
 	out
 }
 
 func focusIsValid[S, E, D, F](h mut TestHost[S, E, D, F]) bool {
 	match FocusOf(h) {
-	case None:
+	case option.None:
 		true
-	case Some[Id[E]] as fid:
+	case option.Some[Id[E]] as fid:
 		if !holds(&h.mirror, fid.Value) {
 			return false
 		}
@@ -388,7 +390,7 @@ func offersOfKind(offers []Offer, k OfferKind) []Offer {
 }
 
 func filterSwarm(offers []Offer, allowed []OfferKind) []Offer {
-	if len(offers) == 0 {
+	if offers.Len() == 0 {
 		return offers
 	}
 	let mut out = []Offer{}
@@ -397,7 +399,7 @@ func filterSwarm(offers []Offer, allowed []OfferKind) []Offer {
 			out = out.Append(o)
 		}
 	}
-	if len(out) == 0 {
+	if out.Len() == 0 {
 		return offersOfKind(offers, offers[0].Kind)
 	}
 	out
@@ -424,9 +426,9 @@ func materializeOffer(o Offer) Act needs gen.Draws {
 	match o.Act {
 	case FillIn as x:
 		let kb = match o.Keyboard {
-		case Some[Keyboard] as k:
+		case option.Some[Keyboard] as k:
 			k.Value
-		case None:
+		case option.None:
 			TextKeys
 		}
 		let txt = drawInputText(kb)
@@ -465,9 +467,9 @@ func containsPair(xs []string, pair string) bool {
 
 func offerWeight(o Offer, stateKey string, covered []string, weights Map[string, int]) int {
 	let mut w = match weights.Get(o.Label) {
-	case Some[int] as cw:
+	case option.Some[int] as cw:
 		cw.Value
-	case None:
+	case option.None:
 		o.Weight
 	}
 	if w < 1 {
@@ -512,16 +514,16 @@ func exploreStep[E comparable, S, D, F](h mut TestHost[S, E, D, F], act Act) fai
 	try Settle(h)
 }
 
-func stepResiduals[S, E](rs []temporal.Residual[ExploreSnapshot[S, E]], snap ExploreSnapshot[S, E]) ([]temporal.Residual[ExploreSnapshot[S, E]], Option[string]) {
+func stepResiduals[S, E](rs []temporal.Residual[ExploreSnapshot[S, E]], snap ExploreSnapshot[S, E]) ([]temporal.Residual[ExploreSnapshot[S, E]], option.Option[string]) {
 	let mut next = []temporal.Residual[ExploreSnapshot[S, E]]{}
-	let mut violation Option[string] = None
+	let mut violation option.Option[string] = option.None
 	for r in rs {
 		let r2 = temporal.Step[ExploreSnapshot[S, E]](r, snap, snap.Time)
 		next = next.Append(r2)
-		if violation == None && temporal.Decided[ExploreSnapshot[S, E]](r2) {
+		if violation == option.None && temporal.Decided[ExploreSnapshot[S, E]](r2) {
 			match temporal.Stop[ExploreSnapshot[S, E]](r2, temporal.Cut) {
 			case temporal.Violated as v:
-				violation = Some[string]{Value: temporal.FormatVerdict(v)}
+				violation = option.Some[string]{Value: temporal.FormatVerdict(v)}
 			case _:
 			}
 		}
@@ -529,15 +531,15 @@ func stepResiduals[S, E](rs []temporal.Residual[ExploreSnapshot[S, E]], snap Exp
 	(next, violation)
 }
 
-func stopResiduals[S, E](rs []temporal.Residual[ExploreSnapshot[S, E]], end temporal.End) Option[string] {
+func stopResiduals[S, E](rs []temporal.Residual[ExploreSnapshot[S, E]], end temporal.End) option.Option[string] {
 	for r in rs {
 		match temporal.Stop[ExploreSnapshot[S, E]](r, end) {
 		case temporal.Violated as v:
-			return Some[string]{Value: temporal.FormatVerdict(v)}
+			return option.Some[string]{Value: temporal.FormatVerdict(v)}
 		case _:
 		}
 	}
-	None
+	option.None
 }
 
 func uncoveredOf(expected []string, covered []string) []string {
@@ -584,22 +586,22 @@ func exploreRun[E comparable, S, D, F](h mut TestHost[S, E, D, F], useKey bool, 
 	let (rs0, vio0) = stepResiduals[S, E](rs, initSnap)
 	rs = rs0
 	match vio0 {
-	case Some[string] as v:
+	case option.Some[string] as v:
 		return Found{Script: script, Step: 0, Violation: v.Value}
-	case None:
+	case option.None:
 	}
 	let mut steps = 0
 	let mut exhausted = false
 	for steps < cfg.Steps {
 		let rawOffers = offersWithAdvance(h, cfg.AdvanceStep)
-		if len(rawOffers) == 0 {
+		if rawOffers.Len() == 0 {
 			if Fetching(h) == 0 && !WantsFrames(h) && time.Sleepers(h.clock) == 0 {
 				exhausted = true
 			}
 			break
 		}
 		let candidates = if cfg.Swarm { filterSwarm(rawOffers, allowed) } else { rawOffers }
-		if len(candidates) == 0 {
+		if candidates.Len() == 0 {
 			break
 		}
 		let sk = hostStateKey(h, useKey, stateKey)
@@ -627,18 +629,18 @@ func exploreRun[E comparable, S, D, F](h mut TestHost[S, E, D, F], useKey bool, 
 		let (rsNext, vio) = stepResiduals[S, E](rs, snap)
 		rs = rsNext
 		match vio {
-		case Some[string] as v:
+		case option.Some[string] as v:
 			return Found{Script: script, Step: steps, Violation: v.Value}
-		case None:
+		case option.None:
 		}
 	}
 	let end = exploreEnd(exhausted)
 	match stopResiduals[S, E](rs, end) {
-	case Some[string] as v:
+	case option.Some[string] as v:
 		return Found{Script: script, Step: steps, Violation: v.Value}
-	case None:
+	case option.None:
 	}
-	Clean{Steps: steps, Covered: len(covered), Pairs: covered, Uncovered: uncoveredOf(expectedPairs, covered), End: end}
+	Clean{Steps: steps, Covered: covered.Len(), Pairs: covered, Uncovered: uncoveredOf(expectedPairs, covered), End: end}
 }
 
 // FormatSceneTest formats a Found exploration script as a paste-able Ergo test
@@ -654,7 +656,7 @@ func FormatSceneTest(name string, hostExpr string, script []Act, violation strin
 
 func escapeErgoString(s string) string {
 	let mut out = ""
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		let b = s[i]
 		if b == '\\' {
 			out = out + "\\\\"
@@ -825,7 +827,7 @@ func isActionableModelNode(x seen) bool {
 	case RowsNode as rn:
 		rn.Label != ""
 	case SemanticNode[int] as sn:
-		sn.On != None
+		sn.On != option.None
 	case _:
 		false
 	}
@@ -834,11 +836,11 @@ func isActionableModelNode(x seen) bool {
 func actResolvesOnce[E](m mut Mirror[E], a Act) bool {
 	match a {
 	case ClickOn as x:
-		len(LocateIn(m, x.At)) == 1
+		LocateIn(m, x.At).Len() == 1
 	case FillIn as x:
-		len(LocateIn(m, x.At)) == 1
+		LocateIn(m, x.At).Len() == 1
 	case ScrollOn as x:
-		len(withLabel(m, m.root, x.Label, []Id[E]{})) == 1
+		withLabel(m, m.root, x.Label, []Id[E]{}).Len() == 1
 	case _:
 		true
 	}
@@ -848,13 +850,13 @@ func offerTargetEnabled[E](m mut Mirror[E], a Act) bool {
 	match a {
 	case ClickOn as x:
 		let ids = LocateIn(m, x.At)
-		len(ids) == 1 && !AccessOf(m, ids[0]).Disabled
+		ids.Len() == 1 && !AccessOf(m, ids[0]).Disabled
 	case FillIn as x:
 		let ids = LocateIn(m, x.At)
-		len(ids) == 1 && !AccessOf(m, ids[0]).Disabled
+		ids.Len() == 1 && !AccessOf(m, ids[0]).Disabled
 	case ScrollOn as x:
 		let ids = withLabel(m, m.root, x.Label, []Id[E]{})
-		len(ids) == 1 && !AccessOf(m, ids[0]).Disabled
+		ids.Len() == 1 && !AccessOf(m, ids[0]).Disabled
 	case _:
 		true
 	}
@@ -896,13 +898,13 @@ law OffersArePlayable(seed int) {
 			}
 		}
 		let offers = OffersIn(&m)
-		if len(offers) != wantCount {
+		if offers.Len() != wantCount {
 			return false
 		}
 		let mut checked = Map[string, bool]{}
 		for o in offers {
 			let key = actText(o.Act)
-			if checked.Get(key) != None {
+			if checked.Get(key) != option.None {
 				continue
 			}
 			checked[key] = true
@@ -925,8 +927,8 @@ law SwarmNeverLeavesNone(seed int) {
 	let count = draw(&r, 6) + 1
 	let mut offers = []Offer{}
 	for i in 0..count {
-		let k = kinds[draw(&r, len(kinds))]
-		offers = offers.Append(Offer{Kind: k, Label: "o\(i)", Weight: 1, Act: GoBack, Keyboard: None, Locator: None, Matches: 1})
+		let k = kinds[draw(&r, kinds.Len())]
+		offers = offers.Append(Offer{Kind: k, Label: "o\(i)", Weight: 1, Act: GoBack, Keyboard: option.None, Locator: option.None, Matches: 1})
 	}
 	let mut allowed = []OfferKind{}
 	for k in kinds {
@@ -935,7 +937,7 @@ law SwarmNeverLeavesNone(seed int) {
 		}
 	}
 	let filtered = filterSwarm(offers, allowed)
-	if len(filtered) == 0 {
+	if filtered.Len() == 0 {
 		return false
 	}
 	for fo in filtered {
@@ -963,7 +965,7 @@ law CoveredPairsNeverOvercount(seed int) {
 	let mut has2 = false
 	let mut has3 = false
 	for _ in 0..12 {
-		let idx = draw(&r, len(pool))
+		let idx = draw(&r, pool.Len())
 		if idx == 0 { has0 = true }
 		if idx == 1 { has1 = true }
 		if idx == 2 { has2 = true }
@@ -975,7 +977,7 @@ law CoveredPairsNeverOvercount(seed int) {
 	if has1 { distinct = distinct + 1 }
 	if has2 { distinct = distinct + 1 }
 	if has3 { distinct = distinct + 1 }
-	len(seen) == distinct
+	seen.Len() == distinct
 }
 
 type noteState { text string, clicks int }
@@ -984,22 +986,22 @@ type noteSignal = noteTyped{text string} | noteClick
 
 type noteClick {}
 
-func noteStep(s noteState, e noteSignal) Decision[noteState, int] {
+func noteStep(s noteState, e noteSignal) machines.Decision[noteState, int] {
 	match e {
 	case noteTyped as x:
-		Enter[noteState]{Next: noteState{text: x.text, clicks: s.clicks}}
+		machines.Enter[noteState]{Next: noteState{text: x.text, clicks: s.clicks}}
 	case noteClick:
-		Enter[noteState]{Next: noteState{text: s.text, clicks: s.clicks + 1}}
+		machines.Enter[noteState]{Next: noteState{text: s.text, clicks: s.clicks + 1}}
 	}
 }
 
-func noteMachine() Machine[noteState, noteSignal, int] {
-	Machine[noteState, noteSignal, int]{
+func noteMachine() machines.Machine[noteState, noteSignal, int] {
+	machines.Machine[noteState, noteSignal, int]{
 		Initial: noteState{text: "", clicks: 0},
 		Step:    noteStep,
-		After:   func(s noteState) Option[Timeout[noteSignal]] { None },
-		Work:    func(s noteState) Option[func(send func(e noteSignal))] { None },
-		Exit:    func(s noteState) Option[func()] { None },
+		After:   func(s noteState) option.Option[machines.Timeout[noteSignal]] { option.None },
+		Work:    func(s noteState) option.Option[func(send func(e noteSignal))] { option.None },
+		Exit:    func(s noteState) option.Option[func()] { option.None },
 	}
 }
 
@@ -1026,7 +1028,7 @@ law FindingsReplay() {
 	let mut replaysOK = true
 	for caseNum in 0..8 {
 		let m = time.NewManual(0)
-		with context { Scheduler: m } {
+		with context { time.Scheduler: m } {
 			let a = actor.StartMachine(noteMachine(), 1, func(o int) {})
 			let mut h = NewTestHost(a, noteView, m, 4) catch {
 			case BadPatch:
@@ -1041,7 +1043,7 @@ law FindingsReplay() {
 			case Found as fd:
 				foundText = true
 				let m2 = time.NewManual(0)
-				with context { Scheduler: m2 } {
+				with context { time.Scheduler: m2 } {
 					let a2 = actor.StartMachine(noteMachine(), 1, func(o int) {})
 					let mut h2 = NewTestHost(a2, noteView, m2, 4) catch {
 					case BadPatch:
@@ -1075,18 +1077,18 @@ law FindingsReplay() {
 
 type settleState { loading bool, done bool }
 
-func settleStep(s settleState, e int) Decision[settleState, int] {
+func settleStep(s settleState, e int) machines.Decision[settleState, int] {
 	if e == 1 {
-		return Enter[settleState]{Next: settleState{loading: true, done: false}}
+		return machines.Enter[settleState]{Next: settleState{loading: true, done: false}}
 	}
-	Enter[settleState]{Next: settleState{loading: false, done: true}}
+	machines.Enter[settleState]{Next: settleState{loading: false, done: true}}
 }
 
-func settleWork(s settleState) Option[func(send func(e int))] {
+func settleWork(s settleState) option.Option[func(send func(e int))] {
 	if !s.loading {
-		return None
+		return option.None
 	}
-	Some{Value: func(send func(e int)) {
+	option.Some{Value: func(send func(e int)) {
 		let mut x = 1
 		for i in 0..2000000 {
 			x = (x*31 + i) % 1000003
@@ -1097,13 +1099,13 @@ func settleWork(s settleState) Option[func(send func(e int))] {
 	}}
 }
 
-func settleMachine() Machine[settleState, int, int] {
-	Machine[settleState, int, int]{
+func settleMachine() machines.Machine[settleState, int, int] {
+	machines.Machine[settleState, int, int]{
 		Initial: settleState{loading: false, done: false},
 		Step:    settleStep,
-		After:   func(s settleState) Option[Timeout[int]] { None },
+		After:   func(s settleState) option.Option[machines.Timeout[int]] { option.None },
 		Work:    settleWork,
-		Exit:    func(s settleState) Option[func()] { None },
+		Exit:    func(s settleState) option.Option[func()] { option.None },
 	}
 }
 
@@ -1122,7 +1124,7 @@ func settleView(f mut Frame[int], s settleState) {
 // before snapshotting state and stepping temporal properties.
 law ExploreSettlesBeforeChecking() {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		let a = actor.StartMachine(settleMachine(), 1, func(o int) {})
 		let mut h = NewTestHost(a, settleView, m, 4) catch {
 		case BadPatch:
@@ -1149,17 +1151,17 @@ law ExploreSettlesBeforeChecking() {
 
 type termState { finished bool }
 
-func termStep(s termState, e int) Decision[termState, int] {
-	Enter[termState]{Next: termState{finished: true}}
+func termStep(s termState, e int) machines.Decision[termState, int] {
+	machines.Enter[termState]{Next: termState{finished: true}}
 }
 
-func termMachine() Machine[termState, int, int] {
-	Machine[termState, int, int]{
+func termMachine() machines.Machine[termState, int, int] {
+	machines.Machine[termState, int, int]{
 		Initial: termState{finished: false},
 		Step:    termStep,
-		After:   func(s termState) Option[Timeout[int]] { None },
-		Work:    func(s termState) Option[func(send func(e int))] { None },
-		Exit:    func(s termState) Option[func()] { None },
+		After:   func(s termState) option.Option[machines.Timeout[int]] { option.None },
+		Work:    func(s termState) option.Option[func(send func(e int))] { option.None },
+		Exit:    func(s termState) option.Option[func()] { option.None },
 	}
 }
 
@@ -1180,7 +1182,7 @@ func termView(f mut Frame[int], s termState) {
 law ExploreEndsIdleWhenExhausted() {
 	let m1 = time.NewManual(0)
 	let mut cleanIdle = false
-	with context { Scheduler: m1 } {
+	with context { time.Scheduler: m1 } {
 		let a1 = actor.StartMachine(termMachine(), 1, func(o int) {})
 		let mut h1 = NewTestHost(a1, termView, m1, 4) catch {
 		case BadPatch:
@@ -1200,7 +1202,7 @@ law ExploreEndsIdleWhenExhausted() {
 	}
 	let m2 = time.NewManual(0)
 	let mut unmetFound = false
-	with context { Scheduler: m2 } {
+	with context { time.Scheduler: m2 } {
 		let a2 = actor.StartMachine(termMachine(), 1, func(o int) {})
 		let mut h2 = NewTestHost(a2, termView, m2, 4) catch {
 		case BadPatch:

@@ -26,10 +26,10 @@ type Refused { Why string }
 // as it is, so the linker's exact comparison holds.
 func CheckHeader(line string) fails Refused {
 	let want = "go object " + PinGOOS + " " + PinGOARCH + " " + PinGo + " "
-	if len(line) < len(want) || line[0:len(want)] != want {
+	if line.Len() < want.Len() || line[0:want.Len()] != want {
 		return Refused{Why: "object header \(line) is not the pin \(want)"}
 	}
-	if line[len(line)-1] != byte('\n') {
+	if line[line.Len()-1] != byte('\n') {
 		return Refused{Why: "object header has no line end"}
 	}
 	if !hasField(line, "X:") {
@@ -38,8 +38,8 @@ func CheckHeader(line string) fails Refused {
 }
 
 func hasField(s string, f string) bool {
-	for i in 0..len(s)-len(f)+1 {
-		if s[i:i+len(f)] == f {
+	for i in 0..s.Len()-f.Len()+1 {
+		if s[i:i+f.Len()] == f {
 			return true
 		}
 	}

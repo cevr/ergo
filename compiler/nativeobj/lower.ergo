@@ -35,12 +35,12 @@ func maxArgs(f Func) int {
 	for op in f.Ops {
 		match op {
 		case Call as c:
-			if len(c.Args) > n {
-				n = len(c.Args)
+			if c.Args.Len() > n {
+				n = c.Args.Len()
 			}
 		case CallClosure as c:
-			if len(c.Args) > n {
-				n = len(c.Args)
+			if c.Args.Len() > n {
+				n = c.Args.Len()
 			}
 		case _:
 		}
@@ -101,9 +101,9 @@ func zeros(n int) []bool {
 
 // LowerFunc lowers function f of package p.
 func LowerFunc(p Package, f Func) Lowered fails Undefined {
-	let fr = FrameOf(len(f.Slots), maxArgs(f), isLeaf(f))
+	let fr = FrameOf(f.Slots.Len(), maxArgs(f), isLeaf(f))
 	let after = LiveAfter(f)
-	let nargs = len(f.Params) + len(f.Results)
+	let nargs = f.Params.Len() + f.Results.Len()
 	let mut argMaps = [][]bool{entryArgs(p, f)}
 	let mut locals = [][]bool{zeros(fr.Slots)}
 	let mut calls = []int{}
@@ -122,11 +122,11 @@ func LowerFunc(p Package, f Func) Lowered fails Undefined {
 		a.MovRR(RBP, RSP)
 		a.AluImm(ExtSub, RSP, fr.Size-8)
 		a.SetSp(fr.Size)
-		for k in 0..len(f.Params) {
+		for k in 0..f.Params.Len() {
 			a.MovStore(IntRegs[k], RSP, SlotOff(fr, k))
 		}
 		let mut zeroed = false
-		for j in len(f.Params)..len(f.Slots) {
+		for j in f.Params.Len()..f.Slots.Len() {
 			if IsPointer(p, f.Slots[j]) {
 				if !zeroed {
 					a.MovImm(RAX, 0)
@@ -191,7 +191,7 @@ func LowerFunc(p Package, f Func) Lowered fails Undefined {
 			for k, s in c.Args {
 				a.MovLoad(IntRegs[k], RSP, SlotOff(fr, s))
 			}
-			a.SetSmi(len(locals))
+			a.SetSmi(locals.Len())
 			a.CallSym(c.Target, ABIInternal, true)
 			for k, d in c.Dsts {
 				a.MovStore(IntRegs[k], RSP, SlotOff(fr, d))
@@ -202,7 +202,7 @@ func LowerFunc(p Package, f Func) Lowered fails Undefined {
 			}
 			a.MovLoad(RDX, RSP, SlotOff(fr, c.Fn))
 			a.MovLoad(R12, RDX, 0)
-			a.SetSmi(len(locals))
+			a.SetSmi(locals.Len())
 			a.CallReg(R12)
 			for k, d in c.Dsts {
 				a.MovStore(IntRegs[k], RSP, SlotOff(fr, d))
@@ -247,13 +247,13 @@ func LowerFunc(p Package, f Func) Lowered fails Undefined {
 		a.SetSmi(-1)
 		a.SetUnsafe(UnsafeUnsafe)
 		a.Bind(morestackLabel)
-		for k in 0..len(f.Params) {
+		for k in 0..f.Params.Len() {
 			a.MovStore(IntRegs[k], RSP, ArgSpill(k))
 		}
 		a.CallSym(MorestackNoctxt, ABI0, true)
 		// Reloading the arguments may be preempted, as the stock prologue's.
 		a.SetUnsafe(UnsafeSafe)
-		for k in 0..len(f.Params) {
+		for k in 0..f.Params.Len() {
 			a.MovLoad(IntRegs[k], RSP, ArgSpill(k))
 		}
 		a.Jmp(entryLabel)
@@ -283,7 +283,7 @@ func LowerFunc(p Package, f Func) Lowered fails Undefined {
 // then each map's bits, (bits+7)/8 bytes each.
 func StackMap(maps [][]bool, nbit int) string {
 	let mut w = NewBuf()
-	w.U32(len(maps))
+	w.U32(maps.Len())
 	w.U32(nbit)
 	for m in maps {
 		for byteAt in 0..(nbit+7)/8 {

@@ -11,6 +11,7 @@
 //   - Format writes a row of one empty field as "", where Go writes an
 //     empty line that a reader skips, so every row with a field reads back.
 
+import core
 import slices
 import strings
 
@@ -83,15 +84,15 @@ func sample(rows [][]string) [][]string {
 	let mut out = [][]string{}
 	let mut width = 0
 	for fields in rows {
-		if len(fields) == 0 {
+		if fields.Len() == 0 {
 			continue
 		}
 		if width == 0 {
-			width = len(fields)
+			width = fields.Len()
 		}
 		let mut row = []string{}
 		for i in 0..width {
-			let f = if i < len(fields) { fields[i] } else { "" }
+			let f = if i < fields.Len() { fields[i] } else { "" }
 			row = row.Append(lf(spice(f)))
 		}
 		out = out.Append(row)
@@ -110,7 +111,7 @@ extern go ergo.local/prototype/runtime/v1/csv.CSVFormat func Format(rows [][]str
 // feed in a field.
 law LinesCount(rows [][]string) {
 	let kept = sample(rows)
-	let mut lines = len(kept)
+	let mut lines = kept.Len()
 	for fields in kept {
 		for f in fields {
 			lines = lines + strings.Count(f, "\n")
@@ -140,19 +141,19 @@ law PositionsPointAtFields(rows [][]string) {
 	for r in Rows(text) {
 		match r {
 		case Parsed as p:
-			if len(p.At) != len(p.Fields) {
+			if p.At.Len() != p.Fields.Len() {
 				return false
 			}
 			for i, at in p.At {
-				if at.Line < 1 || at.Line < last.Line || at.Line == last.Line && at.Column <= last.Column || at.Line > len(lines) {
+				if at.Line < 1 || at.Line < last.Line || at.Line == last.Line && at.Column <= last.Column || at.Line > lines.Len() {
 					return false
 				}
 				last = at
 				let line = lines[at.Line-1]
-				if at.Column < 1 || at.Column > len(line)+1 {
+				if at.Column < 1 || at.Column > line.Len()+1 {
 					return false
 				}
-				let rest = strings.Slice(line, at.Column-1, len(line))
+				let rest = strings.Slice(line, at.Column-1, line.Len())
 				if !strings.HasPrefix(rest, "\"") && !strings.HasPrefix(rest, p.Fields[i]) {
 					return false
 				}
@@ -170,8 +171,8 @@ law PositionsPointAtFields(rows [][]string) {
 // error is a row. Rows reads the text lazily, in one pass, as Go's
 // Reader.Read loop does: each record is read when the loop asks for it,
 // and a stop reads no further record (fs3).
-func Rows(text string) Seq[Row] {
-	Seq[Row](func(yield func(r Row) bool) {
+func Rows(text string) core.Seq[Row] {
+	core.Seq[Row](func(yield func(r Row) bool) {
 		let e = scan(text, func(fields []string, at []Position) bool { yield(Parsed{Fields: fields, At: at}) })
 		if e.Reason != "" {
 			yield(Malformed{Error: e})
@@ -254,10 +255,10 @@ extern go ergo.local/prototype/runtime/v1/csv.CSVScan func scan(text string, eac
 
 // same reports whether a and b hold the same fields in the same rows.
 func same(a [][]string, b [][]string) bool {
-	if len(a) != len(b) {
+	if a.Len() != b.Len() {
 		return false
 	}
-	for i in 0..len(a) {
+	for i in 0..a.Len() {
 		if !slices.Equal(a[i], b[i]) {
 			return false
 		}

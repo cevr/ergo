@@ -45,6 +45,7 @@
 import filepath
 import fs
 import maps
+import option
 import slices
 import strings
 import sync
@@ -112,12 +113,12 @@ func NewFixture(dirs []string, files Map[string, string]) Fixture fails BadFixtu
 	let mut seenDirs = Map[string, bool]{}
 	for d in dirs {
 		try checkFixturePath(d)
-		if seenDirs.Get(d) != None {
+		if seenDirs.Get(d) != option.None {
 			return BadFixture{Path: d, Reason: "duplicate directory"}
 		}
 		seenDirs[d] = true
 		for a in ancestors(d) {
-			if t.Get(a) == None {
+			if t.Get(a) == option.None {
 				t[a] = entry{Dir: true, Text: "", More: NoParts, Perm: dirPerm}
 			}
 		}
@@ -125,16 +126,16 @@ func NewFixture(dirs []string, files Map[string, string]) Fixture fails BadFixtu
 	}
 	for p in slices.Sorted(maps.Keys(files)) {
 		try checkFixturePath(p)
-		if t.Get(p) != None {
+		if t.Get(p) != option.None {
 			return BadFixture{Path: p, Reason: "path conflicts with directory"}
 		}
 		for a in ancestors(p) {
 			match t.Get(a) {
-			case Some[entry] as e:
+			case option.Some[entry] as e:
 				if !e.Value.Dir {
 					return BadFixture{Path: p, Reason: "ancestor is a file"}
 				}
-			case None:
+			case option.None:
 				t[a] = entry{Dir: true, Text: "", More: NoParts, Perm: dirPerm}
 			}
 		}
@@ -205,7 +206,7 @@ func NewVolumes(mounts []string) Memory {
 func volumeOf(mounts []string, c string) string {
 	let mut best = ""
 	for v in mounts {
-		if (c == v || strings.HasPrefix(c, v+"/")) && len(v) > len(best) {
+		if (c == v || strings.HasPrefix(c, v+"/")) && v.Len() > best.Len() {
 			best = v
 		}
 	}
@@ -230,21 +231,21 @@ func ReadFile(m Memory, path string) string fails fs.NotFound | fs.Denied | fs.F
 // ReadDir is the names of the entries of the directory at path, sorted by
 // name.
 func ReadDir(m Memory, path string) []string fails fs.NotFound | fs.Denied | fs.Failed {
-	let names = sync.Modify(m.tree, func(t Map[string, entry]) (Option[[]string], Map[string, entry]) {
+	let names = sync.Modify(m.tree, func(t Map[string, entry]) (option.Option[[]string], Map[string, entry]) {
 		match find(t, path) {
 		case Taken as p:
 			if p.At.Dir {
-				return (Some[[]string]{Value: children(t, filepath.Clean(path))}, t)
+				return (option.Some[[]string]{Value: children(t, filepath.Clean(path))}, t)
 			}
-			(None, t)
+			(option.None, t)
 		case NoParent, UnderFile, Free:
-			(None, t)
+			(option.None, t)
 		}
 	})
 	match names {
-	case Some[[]string] as n:
+	case option.Some[[]string] as n:
 		return n.Value
-	case None:
+	case option.None:
 	}
 	match look(m, path) {
 	case NoParent, Free:
@@ -264,7 +265,7 @@ func Stat(m Memory, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Fail
 	case UnderFile:
 		return fs.Failed{Path: path, Reason: "not a directory"}
 	case Taken as p:
-		let size = if p.At.Dir { 0 } else { len(p.At.Text) }
+		let size = if p.At.Dir { 0 } else { p.At.Text.Len() }
 		fs.Info{Name: filepath.Base(filepath.Clean(path)), Size: size, Dir: p.At.Dir, Perm: p.At.Perm}
 	}
 }
@@ -367,7 +368,7 @@ func Remove(m Memory, path string) fails fs.NotFound | fs.Denied | fs.Failed {
 			if isRoot(c) {
 				return (Broken{Path: path, Reason: "invalid argument"}, u)
 			}
-			if p.At.Dir && len(children(u, c)) > 0 {
+			if p.At.Dir && children(u, c).Len() > 0 {
 				return (Broken{Path: path, Reason: "directory not empty"}, u)
 			}
 			u = u.Delete(c)
@@ -582,17 +583,17 @@ func find(t Map[string, entry], path string) place {
 	}
 	let c = filepath.Clean(path)
 	match t.Get(c) {
-	case Some[entry] as e:
+	case option.Some[entry] as e:
 		return Taken{At: e.Value}
-	case None:
+	case option.None:
 	}
 	for a in ancestors(c) {
 		match t.Get(a) {
-		case Some[entry] as e:
+		case option.Some[entry] as e:
 			if !e.Value.Dir {
 				return UnderFile
 			}
-		case None:
+		case option.None:
 			return NoParent
 		}
 	}
@@ -658,8 +659,8 @@ func mkdirAll(t Map[string, entry], path string, perm int) (outcome, Map[string,
 	case NoParent, Free:
 		for a in ancestors(c) {
 			match u.Get(a) {
-			case Some[entry]:
-			case None:
+			case option.Some[entry]:
+			case option.None:
 				u[a] = entry{Dir: true, Text: "", More: NoParts, Perm: perm}
 			}
 		}
@@ -745,12 +746,12 @@ func move(t Map[string, entry], f string, g string) Map[string, entry] {
 	let mut moved = Map[string, entry]{}
 	for k, e in t {
 		if k == f || strings.HasPrefix(k, f+"/") {
-			moved[g+strings.Slice(k, len(f), len(k))] = e
+			moved[g+strings.Slice(k, f.Len(), k.Len())] = e
 		}
 	}
 	let mut u = t
 	for k, _ in moved {
-		u = u.Delete(f + strings.Slice(k, len(g), len(k)))
+		u = u.Delete(f + strings.Slice(k, g.Len(), k.Len()))
 	}
 	for k, e in moved {
 		u[k] = e

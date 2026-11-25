@@ -120,13 +120,13 @@ func splitmix(x uint64) uint64 {
 func Draw(p source, n uint64) uint64 {
 	sync.Modify(p.st, func(s state) (uint64, state) {
 		let mut t = s
-		let pos = len(t.used)
+		let pos = t.used.Len()
 		let mut v = uint64(0)
 		if pos >= t.max {
 			t.overrun = true
 		} else {
 			if t.replaying {
-				if pos < len(t.replay) {
+				if pos < t.replay.Len() {
 					v = t.replay[pos]
 				}
 			} else {
@@ -149,8 +149,8 @@ func CaseSize(p source) int { sync.Modify(p.st, func(s state) (int, state) { (s.
 func Begin(p source, label string) {
 	p.st.Update(func(s state) state {
 		let mut t = s
-		t.open = t.open.Append(len(t.spans))
-		t.spans = t.spans.Append(span{start: len(t.used), end: -1})
+		t.open = t.open.Append(t.spans.Len())
+		t.spans = t.spans.Append(span{start: t.used.Len(), end: -1})
 		t
 	})
 }
@@ -159,11 +159,11 @@ func Begin(p source, label string) {
 func End(p source) {
 	p.st.Update(func(s state) state {
 		let mut t = s
-		let n = len(t.open)
+		let n = t.open.Len()
 		if n > 0 {
 			let at = t.open[n-1]
 			t.open = t.open[0 : n-1]
-			t.spans[at] = span{start: t.spans[at].start, end: len(t.used)}
+			t.spans[at] = span{start: t.spans[at].start, end: t.used.Len()}
 		}
 		t
 	})
@@ -223,7 +223,7 @@ func ranked(o int, up uint64, down uint64, k uint64) int {
 
 // OneOf is a drawn element of xs; the first is the simplest. An empty xs
 // is a defect.
-func OneOf[T](xs []T) T needs Draws { xs[int(Draws.Draw(uint64(len(xs))))] }
+func OneOf[T](xs []T) T needs Draws { xs[int(Draws.Draw(uint64(xs.Len())))] }
 
 // ListOf is a list of min to max elements drawn by g, written last so a
 // call can trail it. Past min, each
@@ -233,9 +233,9 @@ func OneOf[T](xs []T) T needs Draws { xs[int(Draws.Draw(uint64(len(xs))))] }
 func ListOf[T](min int, max int, g func() T needs Draws) []T needs Draws {
 	let mut xs = []T{}
 	let stop = uint64(Draws.CaseSize() + 1)
-	for len(xs) < max {
+	for xs.Len() < max {
 		Draws.Begin("")
-		if len(xs) >= min && Draws.Draw(stop) == uint64(0) {
+		if xs.Len() >= min && Draws.Draw(stop) == uint64(0) {
 			Draws.End()
 			break
 		}
@@ -288,7 +288,7 @@ law ReplayGivesTheSameDraws() {
 	for s in 1..5 {
 		let r = run(recording(uint64(s), 40, 8192), body)
 		let again = Replay(r.Tape, body)
-		ok = ok && len(r.Tape.Draws) > 0 && again.Tape == r.Tape && again.Shown == r.Shown && !again.Fails
+		ok = ok && r.Tape.Draws.Len() > 0 && again.Tape == r.Tape && again.Shown == r.Shown && !again.Fails
 	}
 	ok
 }
@@ -401,9 +401,9 @@ func Shrink(cfg Config, t Tape, body func() bool fails Rejected needs Draws) (Ta
 	for improved && tries < cfg.Shrinks {
 		improved = false
 		let mut i = 0
-		for i < len(spans) && tries < cfg.Shrinks {
+		for i < spans.Len() && tries < cfg.Shrinks {
 			let sp = spans[i]
-			if sp.start < sp.end && sp.end <= len(best.Draws) {
+			if sp.start < sp.end && sp.end <= best.Draws.Len() {
 				tries = tries + 1
 				let r = run(replaying(Tape{Size: best.Size, Draws: cut(best.Draws, sp.start, sp.end)}, cfg.MaxDraws), body)
 				if kept(r, best) {
@@ -417,7 +417,7 @@ func Shrink(cfg Config, t Tape, body func() bool fails Rejected needs Draws) (Ta
 		}
 		for w in []int{8, 4, 2, 1} {
 			let mut j = 0
-			for j+w <= len(best.Draws) && tries < cfg.Shrinks {
+			for j+w <= best.Draws.Len() && tries < cfg.Shrinks {
 				tries = tries + 1
 				let r = run(replaying(Tape{Size: best.Size, Draws: cut(best.Draws, j, j+w)}, cfg.MaxDraws), body)
 				if kept(r, best) {
@@ -431,7 +431,7 @@ func Shrink(cfg Config, t Tape, body func() bool fails Rejected needs Draws) (Ta
 		}
 		for w in []int{8, 4, 2} {
 			let mut j = 0
-			for j+w <= len(best.Draws) && tries < cfg.Shrinks {
+			for j+w <= best.Draws.Len() && tries < cfg.Shrinks {
 				let c = zeroed(best.Draws, j, j+w)
 				if c != best.Draws {
 					tries = tries + 1
@@ -446,7 +446,7 @@ func Shrink(cfg Config, t Tape, body func() bool fails Rejected needs Draws) (Ta
 			}
 		}
 		let mut d = 0
-		for d < len(best.Draws) && tries < cfg.Shrinks {
+		for d < best.Draws.Len() && tries < cfg.Shrinks {
 			let v = best.Draws[d]
 			if v == uint64(0) {
 				d = d + 1
@@ -464,7 +464,7 @@ func Shrink(cfg Config, t Tape, body func() bool fails Rejected needs Draws) (Ta
 			// best.Draws[d] fails and lo does not: search the gap, then
 			// step down while a decrement still fails.
 			let mut lo = uint64(0)
-			for d < len(best.Draws) && best.Draws[d]-lo > uint64(2) && tries < cfg.Shrinks {
+			for d < best.Draws.Len() && best.Draws[d]-lo > uint64(2) && tries < cfg.Shrinks {
 				let mid = lo + (best.Draws[d]-lo)/uint64(2)
 				tries = tries + 1
 				let r = run(replaying(Tape{Size: best.Size, Draws: setAt(best.Draws, d, mid)}, cfg.MaxDraws), body)
@@ -476,7 +476,7 @@ func Shrink(cfg Config, t Tape, body func() bool fails Rejected needs Draws) (Ta
 					lo = mid
 				}
 			}
-			for d < len(best.Draws) && best.Draws[d] > uint64(0) && tries < cfg.Shrinks {
+			for d < best.Draws.Len() && best.Draws[d] > uint64(0) && tries < cfg.Shrinks {
 				tries = tries + 1
 				let r = run(replaying(Tape{Size: best.Size, Draws: setAt(best.Draws, d, best.Draws[d]-uint64(1))}, cfg.MaxDraws), body)
 				if !kept(r, best) {
@@ -537,7 +537,7 @@ law ShrinkIsLocallyMinimal() {
 		for sp in again.spans {
 			ok = ok && !kept(Replay(Tape{Size: t.Size, Draws: cut(t.Draws, sp.start, sp.end)}, body), t)
 		}
-		for i in 0..len(t.Draws) {
+		for i in 0..t.Draws.Len() {
 			if t.Draws[i] > uint64(0) {
 				ok = ok && !kept(Replay(Tape{Size: t.Size, Draws: setAt(t.Draws, i, t.Draws[i]-uint64(1))}, body), t)
 			}
@@ -564,7 +564,7 @@ law ShrinkReachesTheBoundary() {
 		}
 		match Check(lawConfig(uint64(1)), below(k)) {
 		case Refuted as r:
-			ok = ok && len(r.Shrunk.Shown) == 1 && r.Shrunk.Shown[0].Text == "\(least)"
+			ok = ok && r.Shrunk.Shown.Len() == 1 && r.Shrunk.Shown[0].Text == "\(least)"
 		case Held:
 			ok = false
 		case GaveUp:
@@ -581,7 +581,7 @@ law SpanDeletesAnElement() {
 	for s in 1..4 {
 		match Check(lawConfig(uint64(s)), noneAtLeast(50)) {
 		case Refuted as r:
-			ok = ok && len(r.Shrunk.Shown) == 1 && r.Shrunk.Shown[0].Text == "[]int{50}"
+			ok = ok && r.Shrunk.Shown.Len() == 1 && r.Shrunk.Shown[0].Text == "[]int{50}"
 		case Held:
 			ok = false
 		case GaveUp:
@@ -610,7 +610,7 @@ law SpanDeletesARow() {
 	let found = Tape{Size: 2, Draws: a}
 	let (t, tries) = Shrink(Config{..lawConfig(uint64(1)), Shrinks: 2}, found, noNine())
 	let r = Replay(t, noNine())
-	Replay(found, noNine()).Fails && r.Fails && tries == 2 && len(t.Draws) == 14 && len(r.Shown) == 1 && strings.Count(r.Shown[0].Text, "[]int{") == 2
+	Replay(found, noNine()).Fails && r.Fails && tries == 2 && t.Draws.Len() == 14 && r.Shown.Len() == 1 && strings.Count(r.Shown[0].Text, "[]int{") == 2
 }
 
 // kept reports whether run r is a shrink of best: it fails, counts, and
@@ -619,10 +619,10 @@ func kept(r Ran, best Tape) bool { r.Fails && !r.Rejected && !r.Overrun && short
 
 // shortlexLess orders tapes by length, then by their first difference.
 func shortlexLess(a []uint64, b []uint64) bool {
-	if len(a) != len(b) {
-		return len(a) < len(b)
+	if a.Len() != b.Len() {
+		return a.Len() < b.Len()
 	}
-	for i in 0..len(a) {
+	for i in 0..a.Len() {
 		if a[i] != b[i] {
 			return a[i] < b[i]
 		}
@@ -633,7 +633,7 @@ func shortlexLess(a []uint64, b []uint64) bool {
 // cut is xs without its draws from i up to j.
 func cut(xs []uint64, i int, j int) []uint64 {
 	let mut out = []uint64{}
-	for k in 0..len(xs) {
+	for k in 0..xs.Len() {
 		if k < i || k >= j {
 			out = out.Append(xs[k])
 		}
@@ -644,7 +644,7 @@ func cut(xs []uint64, i int, j int) []uint64 {
 // zeroed is xs with its draws from i up to j set to 0.
 func zeroed(xs []uint64, i int, j int) []uint64 {
 	let mut out = []uint64{}
-	for k in 0..len(xs) {
+	for k in 0..xs.Len() {
 		out = out.Append(if k >= i && k < j { uint64(0) } else { xs[k] })
 	}
 	out
@@ -685,7 +685,7 @@ func shownText(xs []Shown) string {
 	for s in xs {
 		parts = parts.Append("\(s.Label) = \(s.Text)")
 	}
-	if len(parts) == 0 {
+	if parts.Len() == 0 {
 		return "no named draws"
 	}
 	strings.Join(parts, ", ")

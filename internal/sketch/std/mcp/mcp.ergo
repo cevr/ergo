@@ -12,8 +12,10 @@
 // failed (ToolError) is a result whose isError is true, which the model
 // reads.
 
+import core
 import json
 import jsonschema
+import option
 import strings
 
 // Transport carries the messages of a session: each message the client
@@ -21,7 +23,7 @@ import strings
 type Transport {
 	// Messages is the messages the client sends, in order, until the
 	// session ends. A break stops the read.
-	Messages() Seq[string],
+	Messages() core.Seq[string],
 	// Send sends one message to the client.
 	Send(message string),
 
@@ -86,32 +88,32 @@ func Conforms(schema json.Value, v json.Value) bool {
 func valueCodec() json.Codec[json.Value] { json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0} }
 
 // Field is the member key of v, when v is an object that has one.
-func Field(v json.Value, key string) Option[json.Value] {
+func Field(v json.Value, key string) option.Option[json.Value] {
 	match v {
 	case json.Object as o:
 		for m in o.Members {
 			if m.Key == key {
-				return Some[json.Value]{Value: m.Value}
+				return option.Some[json.Value]{Value: m.Value}
 			}
 		}
-		None
+		option.None
 	case json.Null, json.Boolean, json.Num, json.Str, json.Array:
-		None
+		option.None
 	}
 }
 
 // text is v's string, when v is a JSON string.
-func text(v Option[json.Value]) Option[string] {
+func text(v option.Option[json.Value]) option.Option[string] {
 	match v {
-	case Some[json.Value] as s:
+	case option.Some[json.Value] as s:
 		match s.Value {
 		case json.Str as t:
-			Some[string]{Value: t.Value}
+			option.Some[string]{Value: t.Value}
 		case json.Null, json.Boolean, json.Num, json.Array, json.Object:
-			None
+			option.None
 		}
-	case None:
-		None
+	case option.None:
+		option.None
 	}
 }
 
@@ -152,7 +154,7 @@ type Called { Content []Content, IsError bool }
 // List is the tools of s as tools/list gives them, in order.
 func List(s Server) []Listed {
 	let mut out = []Listed{}
-	for i in 0..len(s.Tools) {
+	for i in 0..s.Tools.Len() {
 		let t = s.Tools[i]
 		out = out.Append(Listed{Name: t.Name, Description: t.Description, InputSchema: t.Input})
 	}
@@ -167,21 +169,21 @@ func Handle(s Server, message string) Answer {
 	}
 	let id = Field(v, "id")
 	let method = match text(Field(v, "method")) {
-	case Some[string] as m:
+	case option.Some[string] as m:
 		m.Value
-	case None:
+	case option.None:
 		let at = match id {
-		case Some[json.Value] as i:
+		case option.Some[json.Value] as i:
 			i.Value
-		case None:
+		case option.None:
 			json.Null
 		}
 		return Refused{ID: at, Code: InvalidRequest, Message: "invalid request: no method"}
 	}
 	let at = match id {
-	case Some[json.Value] as i:
+	case option.Some[json.Value] as i:
 		i.Value
-	case None:
+	case option.None:
 		// A notification: the client wants no answer.
 		return Silent
 	}
@@ -194,21 +196,21 @@ func Handle(s Server, message string) Answer {
 		Answered{ID: at, Result: json.Encode(json.Codec[Listing]{MaxBytes: 0, MaxDepth: 0}, Listing{Tools: List(s)})}
 	case "tools/call":
 		let params = match Field(v, "params") {
-		case Some[json.Value] as p:
+		case option.Some[json.Value] as p:
 			p.Value
-		case None:
+		case option.None:
 			json.Null
 		}
 		let name = match text(Field(params, "name")) {
-		case Some[string] as n:
+		case option.Some[string] as n:
 			n.Value
-		case None:
+		case option.None:
 			return Refused{ID: at, Code: InvalidParams, Message: "invalid params: tools/call needs a name"}
 		}
 		let arguments = match Field(params, "arguments") {
-		case Some[json.Value] as a:
+		case option.Some[json.Value] as a:
 			a.Value
-		case None:
+		case option.None:
 			json.Object{Members: []json.Member{}}
 		}
 		// Arguments that do not fit the tool's input schema are a request
@@ -332,14 +334,14 @@ func called(t string, isError bool) string {
 type Problem { Code int, Message string }
 
 // Line is the message of a, None for Silent.
-func Line(a Answer) Option[string] {
+func Line(a Answer) option.Option[string] {
 	match a {
 	case Answered as r:
-		Some[string]{Value: "{\"jsonrpc\":\"2.0\",\"id\":" + json.Encode(valueCodec(), r.ID) + ",\"result\":" + r.Result + "}"}
+		option.Some[string]{Value: "{\"jsonrpc\":\"2.0\",\"id\":" + json.Encode(valueCodec(), r.ID) + ",\"result\":" + r.Result + "}"}
 	case Refused as r:
-		Some[string]{Value: "{\"jsonrpc\":\"2.0\",\"id\":" + json.Encode(valueCodec(), r.ID) + ",\"error\":" + json.Encode(json.Codec[Problem]{MaxBytes: 0, MaxDepth: 0}, Problem{Code: r.Code, Message: r.Message}) + "}"}
+		option.Some[string]{Value: "{\"jsonrpc\":\"2.0\",\"id\":" + json.Encode(valueCodec(), r.ID) + ",\"error\":" + json.Encode(json.Codec[Problem]{MaxBytes: 0, MaxDepth: 0}, Problem{Code: r.Code, Message: r.Message}) + "}"}
 	case Silent:
-		None
+		option.None
 	}
 }
 
@@ -350,9 +352,9 @@ func Serve(s Server, t Transport) int {
 	for message in t.Messages() {
 		n = n + 1
 		match Line(Handle(s, message)) {
-		case Some[string] as l:
+		case option.Some[string] as l:
 			t.Send(l.Value)
-		case None:
+		case option.None:
 		}
 	}
 	n

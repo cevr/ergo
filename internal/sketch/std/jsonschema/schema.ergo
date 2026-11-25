@@ -10,6 +10,7 @@
 // of the document, so checking a value reads nothing but the schema.
 
 import json
+import option
 import strings
 
 // Schema is a JSON schema whose keywords this package reads are of the
@@ -127,7 +128,7 @@ func Object(props []Prop, required []string) Schema {
 		json.Member{Key: "type", Value: json.Str{Value: "object"}},
 		json.Member{Key: "properties", Value: json.Object{Members: ps}},
 	}
-	if len(required) > 0 {
+	if required.Len() > 0 {
 		let mut req = []json.Value{}
 		for r in required {
 			req = req.Append(json.Str{Value: r})
@@ -166,13 +167,13 @@ func NewEncoded(keys []string) Encoded {
 	let mut props = []json.Member{}
 	let mut required = []json.Value{}
 	for k in keys {
-		if member(json.Object{Members: props}, k) == None {
+		if member(json.Object{Members: props}, k) == option.None {
 			props = props.Append(json.Member{Key: k, Value: json.Object{Members: []json.Member{json.Member{Key: "type", Value: json.Str{Value: "string"}}}}})
 			required = required.Append(json.Str{Value: k})
 		}
 	}
 	let mut members = []json.Member{json.Member{Key: "type", Value: json.Str{Value: "object"}}, json.Member{Key: "properties", Value: json.Object{Members: props}}}
-	if len(required) > 0 {
+	if required.Len() > 0 {
 		members = members.Append(json.Member{Key: "required", Value: json.Array{Items: required}})
 	}
 	Encode(Schema{root: json.Object{Members: members}})
@@ -203,7 +204,7 @@ law NewEncodedRequiresItsKeys(keys []string, s string) {
 		members = members.Append(json.Member{Key: k, Value: json.Str{Value: s}})
 	}
 	let mut fits = back == SchemaOf(e) && Conforms(SchemaOf(e), json.Object{Members: members})
-	if len(keys) > 0 {
+	if keys.Len() > 0 {
 		let mut rest = []json.Member{}
 		for m in members {
 			if m.Key != keys[0] {
@@ -229,36 +230,36 @@ func fits(root json.Value, schema json.Value, v json.Value, hops int) bool {
 		return true
 	}
 	match member(o, "$ref") {
-	case Some[json.Value] as r:
-		if hops > len(definitions(root)) {
+	case option.Some[json.Value] as r:
+		if hops > definitions(root).Len() {
 			return false
 		}
 		match resolved(root, text(r.Value)) {
-		case Some[json.Value] as target:
+		case option.Some[json.Value] as target:
 			if !fits(root, target.Value, v, hops+1) {
 				return false
 			}
-		case None:
+		case option.None:
 			return false
 		}
-	case None:
+	case option.None:
 	}
 	match member(o, "type") {
-	case Some[json.Value] as t:
+	case option.Some[json.Value] as t:
 		if !typed(t.Value, v) {
 			return false
 		}
-	case None:
+	case option.None:
 	}
 	match member(o, "const") {
-	case Some[json.Value] as c:
+	case option.Some[json.Value] as c:
 		if !same(c.Value, v) {
 			return false
 		}
-	case None:
+	case option.None:
 	}
 	match member(o, "anyOf") {
-	case Some[json.Value] as any:
+	case option.Some[json.Value] as any:
 		let mut one = false
 		for s in items(any.Value) {
 			if fits(root, s, v, hops) {
@@ -269,7 +270,7 @@ func fits(root json.Value, schema json.Value, v json.Value, hops int) bool {
 		if !one {
 			return false
 		}
-	case None:
+	case option.None:
 	}
 	match v {
 	case json.Object as x:
@@ -328,10 +329,10 @@ func integral(s string) bool {
 		e = strings.IndexByte(t, 'E')
 	}
 	if e >= 0 {
-		let spelled = strings.Slice(t, e+1, len(t))
+		let spelled = strings.Slice(t, e+1, t.Len())
 		let negative = strings.HasPrefix(spelled, "-")
 		let digits = strings.TrimPrefix(strings.TrimPrefix(spelled, "-"), "+")
-		for i in 0..len(digits) {
+		for i in 0..digits.Len() {
 			// A larger exponent moves the point past every digit a
 			// document can hold.
 			if exp < 100000000 {
@@ -345,9 +346,9 @@ func integral(s string) bool {
 	}
 	let dot = strings.IndexByte(t, '.')
 	let whole = if dot < 0 { t } else { strings.Slice(t, 0, dot) }
-	let digits = if dot < 0 { t } else { whole + strings.Slice(t, dot+1, len(t)) }
-	let point = len(whole) + exp
-	for i in 0..len(digits) {
+	let digits = if dot < 0 { t } else { whole + strings.Slice(t, dot+1, t.Len()) }
+	let point = whole.Len() + exp
+	for i in 0..digits.Len() {
 		if i >= point && digits[i] != '0' {
 			return false
 		}
@@ -364,8 +365,8 @@ func same(a json.Value, b json.Value) bool { a == b }
 func objectFits(root json.Value, schema json.Object, o json.Object) bool {
 	for k in items(or(member(schema, "required"))) {
 		match member(o, text(k)) {
-		case Some[json.Value]:
-		case None:
+		case option.Some[json.Value]:
+		case option.None:
 			return false
 		}
 	}
@@ -373,17 +374,17 @@ func objectFits(root json.Value, schema json.Object, o json.Object) bool {
 	let extra = member(schema, "additionalProperties")
 	for m in o.Members {
 		match field(properties, m.Key) {
-		case Some[json.Value] as s:
+		case option.Some[json.Value] as s:
 			if !fits(root, s.Value, m.Value, 0) {
 				return false
 			}
-		case None:
+		case option.None:
 			match extra {
-			case Some[json.Value] as s:
+			case option.Some[json.Value] as s:
 				if !fits(root, s.Value, m.Value, 0) {
 					return false
 				}
-			case None:
+			case option.None:
 			}
 		}
 	}
@@ -395,23 +396,23 @@ func objectFits(root json.Value, schema json.Object, o json.Object) bool {
 // else items. A prefixItems array also fixes the length.
 func arrayFits(root json.Value, schema json.Object, a json.Array) bool {
 	match member(schema, "minItems") {
-	case Some[json.Value] as n:
-		if len(a.Items) < count(n.Value) {
+	case option.Some[json.Value] as n:
+		if a.Items.Len() < count(n.Value) {
 			return false
 		}
-	case None:
+	case option.None:
 	}
 	match member(schema, "maxItems") {
-	case Some[json.Value] as n:
-		if len(a.Items) > count(n.Value) {
+	case option.Some[json.Value] as n:
+		if a.Items.Len() > count(n.Value) {
 			return false
 		}
-	case None:
+	case option.None:
 	}
 	match member(schema, "prefixItems") {
-	case Some[json.Value] as p:
+	case option.Some[json.Value] as p:
 		let ps = items(p.Value)
-		if len(ps) != len(a.Items) {
+		if ps.Len() != a.Items.Len() {
 			return false
 		}
 		for i, s in ps {
@@ -420,17 +421,17 @@ func arrayFits(root json.Value, schema json.Object, a json.Array) bool {
 			}
 		}
 		return true
-	case None:
+	case option.None:
 	}
 	match member(schema, "items") {
-	case Some[json.Value] as s:
+	case option.Some[json.Value] as s:
 		for e in a.Items {
 			if !fits(root, s.Value, e, 0) {
 				return false
 			}
 		}
 		true
-	case None:
+	case option.None:
 		true
 	}
 }
@@ -464,7 +465,7 @@ func checked(root json.Value, schema json.Value, path string) fails Invalid {
 		} else if k == "prefixItems" || k == "anyOf" {
 			match m.Value {
 			case json.Array as ss:
-				if len(ss.Items) == 0 {
+				if ss.Items.Len() == 0 {
 					return Invalid{Path: at, Reason: k + " is a list of one schema or more"}
 				}
 				for i, s in ss.Items {
@@ -505,8 +506,8 @@ func checked(root json.Value, schema json.Value, path string) fails Invalid {
 			match m.Value {
 			case json.Str as r:
 				match resolved(root, r.Value) {
-				case Some[json.Value]:
-				case None:
+				case option.Some[json.Value]:
+				case option.None:
 					return Invalid{Path: at, Reason: "a $ref names a schema of this document (# or #/$defs/NAME), not " + r.Value}
 				}
 			case json.Null, json.Boolean, json.Num, json.Array, json.Object:
@@ -534,12 +535,12 @@ func names(v json.Value, at string, why string) fails Invalid {
 
 // digits is whether s is all decimal digits: a count's spelling.
 func digits(s string) bool {
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		if s[i] < '0' || s[i] > '9' {
 			return false
 		}
 	}
-	len(s) > 0
+	s.Len() > 0
 }
 
 // known is whether t names one of JSON Schema's seven types.
@@ -550,19 +551,19 @@ func known(t string) bool {
 // resolved is the schema ref names in root: root itself for "#", a
 // schema of root's $defs for "#/$defs/NAME"; None for anything else, a
 // URL above all, which this package never follows.
-func resolved(root json.Value, ref string) Option[json.Value] {
+func resolved(root json.Value, ref string) option.Option[json.Value] {
 	if ref == "#" {
-		return Some[json.Value]{Value: root}
+		return option.Some[json.Value]{Value: root}
 	}
 	if !strings.HasPrefix(ref, "#/$defs/") {
-		return None
+		return option.None
 	}
 	let name = unpointer(strings.TrimPrefix(ref, "#/$defs/"))
 	match root {
 	case json.Object as o:
 		field(or(member(o, "$defs")), name)
 	case json.Null, json.Boolean, json.Num, json.Str, json.Array:
-		None
+		option.None
 	}
 }
 
@@ -588,31 +589,31 @@ func pointer(key string) string { strings.ReplaceAll(strings.ReplaceAll(key, "~"
 func unpointer(token string) string { strings.ReplaceAll(strings.ReplaceAll(token, "~1", "/"), "~0", "~") }
 
 // member is the value of the member key of o.
-func member(o json.Object, key string) Option[json.Value] {
+func member(o json.Object, key string) option.Option[json.Value] {
 	for m in o.Members {
 		if m.Key == key {
-			return Some[json.Value]{Value: m.Value}
+			return option.Some[json.Value]{Value: m.Value}
 		}
 	}
-	None
+	option.None
 }
 
 // field is the value of the member key of v, when v is an object.
-func field(v json.Value, key string) Option[json.Value] {
+func field(v json.Value, key string) option.Option[json.Value] {
 	match v {
 	case json.Object as o:
 		member(o, key)
 	case json.Null, json.Boolean, json.Num, json.Str, json.Array:
-		None
+		option.None
 	}
 }
 
 // or is the value o holds, or null.
-func or(o Option[json.Value]) json.Value {
+func or(o option.Option[json.Value]) json.Value {
 	match o {
-	case Some[json.Value] as v:
+	case option.Some[json.Value] as v:
 		v.Value
-	case None:
+	case option.None:
 		json.Null
 	}
 }
@@ -644,7 +645,7 @@ func count(v json.Value) int {
 	case json.Num as n:
 		let s = n.Wire()
 		let mut c = 0
-		for i in 0..len(s) {
+		for i in 0..s.Len() {
 			if s[i] < '0' || s[i] > '9' {
 				break
 			}
@@ -676,12 +677,12 @@ func value(text string) json.Value {
 
 // refusal is the path Parse refuses text at, or None when it is a
 // Schema.
-func refusal(text string) Option[string] {
+func refusal(text string) option.Option[string] {
 	let _ = Parse(text) catch {
 	case Invalid as i:
-		return Some[string]{Value: i.Path}
+		return option.Some[string]{Value: i.Path}
 	}
-	None
+	option.None
 }
 
 // quoted is s as a JSON string.
@@ -760,7 +761,7 @@ law ItemsAreEachChecked(ns []int) {
 	for n in ns {
 		items = items.Append(json.IntNumber(int64(n)))
 	}
-	Conforms(schema, json.Array{Items: items}) == (len(ns) >= 1 && len(ns) <= 3) && !Conforms(schema, json.Array{Items: items.Append(json.Str{Value: "x"})})
+	Conforms(schema, json.Array{Items: items}) == (ns.Len() >= 1 && ns.Len() <= 3) && !Conforms(schema, json.Array{Items: items.Append(json.Str{Value: "x"})})
 }
 
 // RefsAreLocal: a $ref names a schema of the document's $defs, which a
@@ -774,7 +775,7 @@ law RefsAreLocal(name string, host string, s string) {
 		return false
 	}
 	let remote = refusal("{\"$ref\":" + quoted("https://"+host+"/schema.json") + "}")
-	Conforms(local, json.Str{Value: s}) && !Conforms(local, json.IntNumber(1)) && remote == Some[string]{Value: "/$ref"}
+	Conforms(local, json.Str{Value: s}) && !Conforms(local, json.IntNumber(1)) && remote == option.Some[string]{Value: "/$ref"}
 }
 
 // RefsRecurse: a $ref may name the schema it is in, so a recursive type
@@ -799,9 +800,9 @@ law KeywordsAreChecked(key string) {
 	let mut all = true
 	for b in bad {
 		let refused = match refusal("{\"properties\":{" + quoted(key) + ":" + b + "}}") {
-		case Some[string] as path:
+		case option.Some[string] as path:
 			strings.HasPrefix(path.Value, at+"/")
-		case None:
+		case option.None:
 			false
 		}
 		all = all && refused

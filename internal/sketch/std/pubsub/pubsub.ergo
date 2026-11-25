@@ -13,6 +13,7 @@
 //
 // Every copy of a PubSub is the same hub.
 
+import core
 import queue
 import sync
 import task
@@ -26,7 +27,7 @@ type hub[T] { subs Map[int, queue.Queue[T]], next int, ended bool }
 
 // Subscription receives the values published after it joined. Its fields
 // are unexported, so only Subscribe makes one.
-type Subscription[T] { values queue.Queue[T], id int, state sync.Ref[hub[T]] } implements Closer
+type Subscription[T] { values queue.Queue[T], id int, state sync.Ref[hub[T]] } implements core.Closer
 
 // New is a hub whose subscriptions each hold up to capacity values no
 // subscriber has taken yet. A capacity below 1 is a defect: every Publish
@@ -81,7 +82,7 @@ func End[T](p PubSub[T]) {
 }
 
 // Subscribers is how many subscriptions of p are live now.
-func Subscribers[T](p PubSub[T]) int { len(p.state.Get().subs) }
+func Subscribers[T](p PubSub[T]) int { p.state.Get().subs.Len() }
 
 // Take gives the oldest value s has not taken, waiting while there is
 // none. It fails with Closed once the hub ended, or s was closed, and
@@ -94,7 +95,7 @@ func Take[T](s Subscription[T]) T fails queue.Closed { try s.values.Pop() }
 // Unbounded: it ends only when the hub ends or the subscription closes.
 //
 // seq-exempt: it is the Values of the subscription's queue, whose law Queue.ValuesStops states its stop
-func Values[T](s Subscription[T]) Seq[T] { s.values.Values() }
+func Values[T](s Subscription[T]) core.Seq[T] { s.values.Values() }
 
 // Len is how many values s received and has not taken.
 func Len[T](s Subscription[T]) int { s.values.Len() }
@@ -110,7 +111,7 @@ func Close[T](s Subscription[T]) {
 // the values published after it subscribed, in order; one that joined
 // before gets those too.
 law EverySubscriberSeesEveryValueAfterItJoined(before []int, after []int) {
-	let p = New[int](len(before) + len(after) + 1)
+	let p = New[int](before.Len() + after.Len() + 1)
 	let early = Subscribe(p)
 	for x in before {
 		try Publish(p, x)

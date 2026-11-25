@@ -1,6 +1,7 @@
 import compiler/check/store
 import compiler/syntax
 import dense
+import option
 import sha256
 import strings
 
@@ -45,7 +46,7 @@ func printsOf(p syntax.Parsed, d dense.ID[syntax.Node]) store.Prints {
 	if m1 < 0 {
 		return store.Prints{Fp: fp, Ifp: fp}
 	}
-	store.Prints{Fp: fp, Ifp: printOf(all[0:m1] + "cut;" + all[m2:len(all)])}
+	store.Prints{Fp: fp, Ifp: printOf(all[0:m1] + "cut;" + all[m2:all.Len()])}
 }
 
 // IfpCutsBodies: two functions that differ in their bodies alone have one
@@ -78,7 +79,7 @@ func firstToken(p syntax.Parsed, at int) int { syntax.TokStartingAt(p, at) }
 // so no two token runs write the same bytes: a length under 255 is one
 // byte, a longer one 255 and four bytes, low first.
 func writeToken(b mut strings.Builder, k uint8, t string) {
-	let n = len(t)
+	let n = t.Len()
 	b.WriteByte(byte(k))
 	if n < 255 {
 		b.WriteByte(byte(n))
@@ -96,21 +97,21 @@ func writeToken(b mut strings.Builder, k uint8, t string) {
 func cutOf(p syntax.Parsed, d dense.ID[syntax.Node]) (int, int) {
 	match syntax.ViewOf(p.Tree, d) {
 	case syntax.FuncDecl as fd:
-		if dense.Unpack(fd.TypeParams) != None {
+		if dense.Unpack(fd.TypeParams) != option.None {
 			return (0, 0)
 		}
 		match dense.Unpack(fd.Body) {
-		case Some{Value: body}:
+		case option.Some{Value: body}:
 			(syntax.NodePos(p, body), syntax.NodeEnd(p, body))
-		case None:
+		case option.None:
 			(0, 0)
 		}
 	case syntax.TestDecl as td:
 		// A harness member `test H` has no body.
 		match dense.Unpack(td.Body) {
-		case Some{Value: tb}:
+		case option.Some{Value: tb}:
 			(syntax.NodePos(p, tb), syntax.NodeEnd(p, tb))
-		case None:
+		case option.None:
 			(0, 0)
 		}
 	case _:

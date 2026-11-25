@@ -7,24 +7,25 @@
 //
 // Every copy of a Deferred is the same Deferred.
 
+import option
 import task
 
 // Deferred is empty until its first Complete. Its fields are unexported,
 // so only NewDeferred makes one.
-type Deferred[T] { value Ref[Option[T]], done Latch }
+type Deferred[T] { value Ref[option.Option[T]], done Latch }
 
 // NewDeferred is an empty Deferred.
-func NewDeferred[T]() Deferred[T] { Deferred[T]{value: NewRef[Option[T]](None), done: NewLatch()} }
+func NewDeferred[T]() Deferred[T] { Deferred[T]{value: NewRef[option.Option[T]](option.None), done: NewLatch()} }
 
 // Complete stores v when d holds no value yet, and every Wait then gives
 // v. It is true for the call that stored its value, and false, storing
 // nothing, when d held one already. It never waits.
 func Complete[T](d Deferred[T], v T) bool {
-	let first = Modify(d.value, func(o Option[T]) (bool, Option[T]) {
+	let first = Modify(d.value, func(o option.Option[T]) (bool, option.Option[T]) {
 		match o {
-		case None:
-			(true, Some[T]{Value: v})
-		case Some[T]:
+		case option.None:
+			(true, option.Some[T]{Value: v})
+		case option.Some[T]:
 			(false, o)
 		}
 	})
@@ -39,26 +40,26 @@ func Complete[T](d Deferred[T], v T) bool {
 func Wait[T](d Deferred[T]) T {
 	Await(d.done)
 	match d.value.Get() {
-	case Some[T] as s:
+	case option.Some[T] as s:
 		s.Value
-	case None:
+	case option.None:
 		Unreachable("sync: a Deferred's latch opens after its value is stored")
 	}
 }
 
 // Peek is the value of d when one is stored, and None before. It never
 // waits.
-func Peek[T](d Deferred[T]) Option[T] { d.value.Get() }
+func Peek[T](d Deferred[T]) option.Option[T] { d.value.Get() }
 
 // DeferredSetsOnce: the first Complete stores its value and is true; a
 // later Complete is false and changes nothing, so Wait and Peek give the
 // first value.
 law DeferredSetsOnce(a int, b int) {
 	let d = NewDeferred[int]()
-	let empty = Peek(d) == None
+	let empty = Peek(d) == option.None
 	let first = Complete(d, a)
 	let second = Complete(d, b)
-	empty && first && !second && Wait(d) == a && Peek(d) == Some[int]{Value: a}
+	empty && first && !second && Wait(d) == a && Peek(d) == option.Some[int]{Value: a}
 }
 
 // WaitSeesTheValue: tasks that wait on a Deferred before it completes get

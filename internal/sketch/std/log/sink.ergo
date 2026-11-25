@@ -77,7 +77,7 @@ func Error(message string) needs Sink { Log(LevelError, message, []Attr{}) }
 func Annotations() []Attr {
 	let pairs = contextPairs()
 	let mut out = []Attr{}
-	for i in 0..len(pairs)/2 {
+	for i in 0..pairs.Len()/2 {
 		out = out.Append(Attr{Key: pairs[2*i], Text: pairs[2*i+1]})
 	}
 	out

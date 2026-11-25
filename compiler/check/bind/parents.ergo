@@ -1,6 +1,7 @@
 import compiler/check/store
 import compiler/syntax
 import dense
+import option
 import slices
 
 // Parents is the package's parent column (C0/plan.md §2.7): for each row
@@ -33,7 +34,7 @@ func PNodeOf(ps Parents, f int, id dense.ID[syntax.Node]) dense.ID[store.PNode] 
 // RowOf is the file and the row index of n.
 func RowOf(ps Parents, n dense.ID[store.PNode]) (int, int) {
 	let i = dense.Index(n)
-	let mut f = len(ps.base) - 1
+	let mut f = ps.base.Len() - 1
 	for f > 0 && int(ps.base[f]) > i {
 		f = f - 1
 	}
@@ -78,18 +79,18 @@ func BuildParents(files []File) Parents {
 		for i in 0..syntax.NumNodes(t) {
 			// The buffer is passed whole and only grows: a re-slice passed
 			// in is a copy, and a copy's append allocates.
-			let from = len(kids)
+			let from = kids.Len()
 			first = first.Append(uint32(from))
 			kids = syntax.Children(t, syntax.NodeAt(t, i), kids)
 			let me = dense.OptOf(dense.IDAt(ps.ids, base+i))
-			for j in from..len(kids) {
+			for j in from..kids.Len() {
 				let c = kids[j]
 				dense.SetOf(&ps.up, dense.IDAt(ps.ids, base+int(c)), me)
 				ps.written = ps.written + 1
 			}
 		}
 	}
-	ps.first = first.Append(uint32(len(kids)))
+	ps.first = first.Append(uint32(kids.Len()))
 	ps.kids = kids
 	ps
 }
@@ -118,7 +119,7 @@ law ParentsInvertChildren(picks []int) {
 			kids = syntax.Children(t, syntax.NodeAt(t, i), kids[0:0])
 			// The column's children of the row are the tree's, in order.
 			let n = dense.Index(me)
-			ok = ok && numKids(ps, n) == len(kids)
+			ok = ok && numKids(ps, n) == kids.Len()
 			for j, c in kids {
 				ok = ok && j < numKids(ps, n) && kidAt(ps, n, j) == int(c)
 			}
@@ -126,7 +127,7 @@ law ParentsInvertChildren(picks []int) {
 				ok = ok && ParentOf(ps, PNodeOf(ps, f, syntax.NodeAt(t, int(c)))) == dense.OptOf(me)
 			}
 		}
-		ok = ok && dense.Unpack(ParentOf(ps, PNodeOf(ps, f, syntax.Root(t)))) == None
+		ok = ok && dense.Unpack(ParentOf(ps, PNodeOf(ps, f, syntax.Root(t)))) == option.None
 	}
 	ok && Written(ps) == rows-parsed
 }
@@ -157,12 +158,12 @@ func packageIn(picks []int, layout func(string) string) []File {
 	let mut files = []File{}
 	let mut src = ""
 	for k in picks {
-		let n = len(fragments)
-		if k%5 == 0 && src != "" && len(files) < 3 {
-			files = files.Append(File{Name: "f\(len(files)).ergo", Parsed: syntax.Parse(layout(src))})
+		let n = fragments.Len()
+		if k%5 == 0 && src != "" && files.Len() < 3 {
+			files = files.Append(File{Name: "f\(files.Len()).ergo", Parsed: syntax.Parse(layout(src))})
 			src = ""
 		}
 		src = src + fragments[((k%n)+n)%n]
 	}
-	files.Append(File{Name: "f\(len(files)).ergo", Parsed: syntax.Parse(layout(src))})
+	files.Append(File{Name: "f\(files.Len()).ergo", Parsed: syntax.Parse(layout(src))})
 }

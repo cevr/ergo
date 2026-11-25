@@ -1,4 +1,5 @@
 import maps
+import option
 import slices
 import strings
 
@@ -16,7 +17,7 @@ type TestSupportUses { Uses []TestSupportUse, Work int }
 func callerExempt(ord bool, fileHasTest bool) bool { !ord }
 
 func supportAllowed(callerSeams []string, targetSeams []string) bool {
-	if len(callerSeams) == 0 {
+	if callerSeams.Len() == 0 {
 		return false
 	}
 	for ts in targetSeams {
@@ -28,7 +29,7 @@ func supportAllowed(callerSeams []string, targetSeams []string) bool {
 }
 
 func ProductionUsesTestSupport(r Rows, modules []int, support []SupportEntry) TestSupportUses {
-	if len(support) == 0 {
+	if support.Len() == 0 {
 		return TestSupportUses{Uses: []TestSupportUse{}, Work: 0}
 	}
 	let mut work = 0
@@ -58,13 +59,13 @@ func ProductionUsesTestSupport(r Rows, modules []int, support []SupportEntry) Te
 			fileHasTest[here.File] = true
 		}
 	}
-	let width = len(r.Nodes)
+	let width = r.Nodes.Len()
 	let mut importSite = Map[int, int]{}
 	for k, e in r.Edges {
 		work = work + 1
 		if e.Kind == "imports" {
 			let key = e.From*width + e.To
-			if importSite.Get(key) == None {
+			if importSite.Get(key) == option.None {
 				importSite[key] = k
 			}
 		}
@@ -83,10 +84,10 @@ func ProductionUsesTestSupport(r Rows, modules []int, support []SupportEntry) Te
 		}
 		let targetPkg = r.Nodes[b.Package].Name
 		let tSeams = maps.GetOr(supportSeams, targetPkg, []string{})
-		if len(tSeams) == 0 {
+		if tSeams.Len() == 0 {
 			continue
 		}
-		if callerExempt(a.Ordinary, fileHasTest.Get(a.File) != None) {
+		if callerExempt(a.Ordinary, fileHasTest.Get(a.File) != option.None) {
 			continue
 		}
 		let callerPkg = r.Nodes[a.Package].Name
@@ -94,7 +95,7 @@ func ProductionUsesTestSupport(r Rows, modules []int, support []SupportEntry) Te
 			continue
 		}
 		let pair = e.From*width + b.Package
-		if firstSite.Get(pair) == None {
+		if firstSite.Get(pair) == option.None {
 			firstSite[pair] = k
 			pairs = pairs.Append(pair)
 		}
@@ -119,7 +120,7 @@ func productionUsesTestSupportWorkIsLinear(seed int, size int) bool {
 			return false
 		}
 	}
-	got.Work <= len(r.Nodes)+2*len(r.Edges)+4
+	got.Work <= r.Nodes.Len()+2*r.Edges.Len()+4
 }
 
 type SeamSpec {
@@ -164,7 +165,7 @@ func roleOf(r Rows, i int, roles []string) string {
 	}
 	let mut n = row.Parent
 	let mut steps = 0
-	for n >= 0 && steps <= len(r.Nodes) {
+	for n >= 0 && steps <= r.Nodes.Len() {
 		if r.Nodes[n].Sub == "test" {
 			return "test"
 		}
@@ -178,7 +179,7 @@ func roleOf(r Rows, i int, roles []string) string {
 }
 
 func SeamEntrypoints(r Rows, modules []int, seams []SeamSpec) SeamViolations {
-	if len(seams) == 0 {
+	if seams.Len() == 0 {
 		return SeamViolations{Violations: []SeamViolation{}, Work: 0}
 	}
 	let mut work = 0
@@ -197,7 +198,7 @@ func SeamEntrypoints(r Rows, modules []int, seams []SeamSpec) SeamViolations {
 		places = places.Append(placed(r, i, at, chosen))
 		roles = roles.Append(roleOf(r, i, roles))
 	}
-	let width = len(r.Nodes)
+	let width = r.Nodes.Len()
 	let mut hasOrdinary = Map[int, bool]{}
 	let mut hasTestOrLaw = Map[int, bool]{}
 	let mut testSites = Map[int, []int]{}
@@ -236,8 +237,8 @@ func SeamEntrypoints(r Rows, modules []int, seams []SeamSpec) SeamViolations {
 		let callerName = r.Nodes[a.Package].Name
 		let targetName = r.Nodes[e.To].Name
 		let key = e.From*width + e.To
-		let ord = hasOrdinary.Get(key) != None
-		let tl = hasTestOrLaw.Get(key) != None
+		let ord = hasOrdinary.Get(key) != option.None
+		let tl = hasTestOrLaw.Get(key) != option.None
 		let testOnly = tl && !ord
 		let tSites = maps.GetOr(testSites, key, []int{})
 		for si, seam in seams {
@@ -251,7 +252,7 @@ func SeamEntrypoints(r Rows, modules []int, seams []SeamSpec) SeamViolations {
 				if !(allowedSupport && testOnly) {
 					out = out.Append(SeamViolation{Seam: si, Import: k, File: e.From, CallerPkg: a.Package, TargetPkg: e.To, Inside: false, TestSites: tSites})
 				}
-			} else if seam.TestThroughEntries && !allowedSupport && insideTestViolates(len(tSites) > 0, ord) {
+			} else if seam.TestThroughEntries && !allowedSupport && insideTestViolates(tSites.Len() > 0, ord) {
 				out = out.Append(SeamViolation{Seam: si, Import: k, File: e.From, CallerPkg: a.Package, TargetPkg: e.To, Inside: true, TestSites: tSites})
 			}
 		}
@@ -270,5 +271,5 @@ func seamEntrypointsWorkIsLinear(seed int, size int) bool {
 			return false
 		}
 	}
-	got.Work <= len(r.Nodes)+3*len(r.Edges)+4
+	got.Work <= r.Nodes.Len()+3*r.Edges.Len()+4
 }

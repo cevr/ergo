@@ -5,6 +5,8 @@
 // which no package redeclares (#196). Race is Effect's raceAll. Set is
 // runtime.md G4's.
 
+import core
+import option
 import schedule
 import scope
 import sync
@@ -35,7 +37,7 @@ extern go ergo.local/prototype/runtime/v1.TasksRace func Race[T own, E, R](block
 // run's failure. A defect or a stop of the task ends Retry at once. s does not
 // read the failure: a failure that must not be retried is caught in block
 // and given as a value of block's result.
-func Retry[T, E, R](s schedule.Schedule, block func() T fails E needs R) T fails E needs R | Scheduler | time.Clock {
+func Retry[T, E, R](s schedule.Schedule, block func() T fails E needs R) T fails E needs R | time.Scheduler | time.Clock {
 	let start = startOf(s)
 	let mut runs = 0
 	for {
@@ -44,7 +46,7 @@ func Retry[T, E, R](s schedule.Schedule, block func() T fails E needs R) T fails
 		case err:
 			match schedule.Decide(s, runs, since(start)) {
 			case schedule.Continue as c:
-				Scheduler.Sleep(c.After)
+				time.Scheduler.Sleep(c.After)
 				continue
 			case schedule.Stop:
 				return err
@@ -58,7 +60,7 @@ func Retry[T, E, R](s schedule.Schedule, block func() T fails E needs R) T fails
 // the n-th run gives a value, s decides by n and, if timed, the time since
 // the first run began. Continue sleeps its delay; Stop gives the last
 // value. A failure of block is Repeat's at once.
-func Repeat[T, E, R](s schedule.Schedule, block func() T fails E needs R) T fails E needs R | Scheduler | time.Clock {
+func Repeat[T, E, R](s schedule.Schedule, block func() T fails E needs R) T fails E needs R | time.Scheduler | time.Clock {
 	let start = startOf(s)
 	let mut runs = 0
 	for {
@@ -66,7 +68,7 @@ func Repeat[T, E, R](s schedule.Schedule, block func() T fails E needs R) T fail
 		let v = try block()
 		match schedule.Decide(s, runs, since(start)) {
 		case schedule.Continue as c:
-			Scheduler.Sleep(c.After)
+			time.Scheduler.Sleep(c.After)
 		case schedule.Stop:
 			return v
 		}
@@ -74,20 +76,20 @@ func Repeat[T, E, R](s schedule.Schedule, block func() T fails E needs R) T fail
 }
 
 // startOf reads the clock before the first run only if s uses elapsed time.
-func startOf(s schedule.Schedule) Option[time.Time] needs time.Clock {
+func startOf(s schedule.Schedule) option.Option[time.Time] needs time.Clock {
 	if schedule.Timed(s) {
-		Some[time.Time]{Value: time.Clock.Now()}
+		option.Some[time.Time]{Value: time.Clock.Now()}
 	} else {
-		None
+		option.None
 	}
 }
 
 // since reads elapsed time only when startOf captured a start.
-func since(start Option[time.Time]) duration needs time.Clock {
+func since(start option.Option[time.Time]) duration needs time.Clock {
 	match start {
-	case Some[time.Time] as t:
+	case option.Some[time.Time] as t:
 		time.Since(t.Value)
-	case None:
+	case option.None:
 		0s
 	}
 }
@@ -152,9 +154,9 @@ law RetryFollowsDecide(failing int, work int, k int, limit int, timed bool) {
 	let c = p.clock
 	let calls = sync.NewRef[int](0)
 	let start = c.Now()
-	with context { Scheduler: c, time.Clock: p } {
-		let got = Retry(s, func() int fails lawFailed needs Scheduler {
-			Scheduler.Sleep(w)
+	with context { time.Scheduler: c, time.Clock: p } {
+		let got = Retry(s, func() int fails lawFailed needs time.Scheduler {
+			time.Scheduler.Sleep(w)
 			let i = sync.Modify(calls, func(v int) (int, int) { (v + 1, v + 1) })
 			if i <= n {
 				return lawFailed{Run: i}
@@ -192,9 +194,9 @@ law RepeatFollowsDecide(work int, k int, limit int, timed bool) {
 	let c = p.clock
 	let calls = sync.NewRef[int](0)
 	let start = c.Now()
-	with context { Scheduler: c, time.Clock: p } {
-		let got = Repeat(s, func() int needs Scheduler {
-			Scheduler.Sleep(w)
+	with context { time.Scheduler: c, time.Clock: p } {
+		let got = Repeat(s, func() int needs time.Scheduler {
+			time.Scheduler.Sleep(w)
 			sync.Modify(calls, func(v int) (int, int) { (v + 1, v + 1) })
 		})
 		let wantReads = if timed { runs + 1 } else { 0 }
@@ -359,7 +361,7 @@ func instantsOf(gaps []int) []duration {
 law WindowForgets(gaps []int, k int, p int) {
 	let i = intensityOf(k, p)
 	let past = instantsOf(gaps)
-	let last = if len(past) == 0 { 0s } else { past[len(past)-1] }
+	let last = if past.Len() == 0 { 0s } else { past[past.Len()-1] }
 	let mut burst = []duration{}
 	for _ in 0..i.Max {
 		burst = burst.Append(last)
@@ -373,7 +375,7 @@ law WindowForgets(gaps []int, k int, p int) {
 law RecentKeepsTheVerdict(gaps []int, k int, p int, later int) {
 	let i = intensityOf(k, p)
 	let past = instantsOf(gaps)
-	let now = if len(past) == 0 { 0s } else { past[len(past)-1] }
+	let now = if past.Len() == 0 { 0s } else { past[past.Len()-1] }
 	let then = now + duration(int64((later%5+5)%5)*1000000000)
 	let mut kept = []duration{}
 	for t in past {
@@ -382,7 +384,7 @@ law RecentKeepsTheVerdict(gaps []int, k int, p int, later int) {
 		}
 	}
 	let r = Recent(i, past, now)
-	Allows(i, r, now) == Allows(i, past, now) && Allows(i, Recent(i, past, now), then) == Allows(i, past, then) && len(kept) <= i.Max
+	Allows(i, r, now) == Allows(i, past, now) && Allows(i, Recent(i, past, now), then) == Allows(i, past, then) && kept.Len() <= i.Max
 }
 
 // Supervision is how a group answers a member's crash: which members
@@ -440,8 +442,8 @@ law DecideWaitsTheBackoff(gaps []int, k int, p int) {
 	let i = intensityOf(k, p)
 	let s = Supervision{Strategy: OneForOne, Intensity: i, Backoff: schedule.Exponential(1s, 2.0, 1h)}
 	let past = instantsOf(gaps)
-	let now = if len(past) == 0 { 0s } else { past[len(past)-1] }
-	let n = len(Recent(i, past, now))
+	let now = if past.Len() == 0 { 0s } else { past[past.Len()-1] }
+	let n = Recent(i, past, now).Len()
 	let mut want = 1s
 	for _ in 0..n {
 		want = duration(int64(want) * 2)
@@ -467,7 +469,7 @@ law DecideWaitsTheBackoff(gaps []int, k int, p int) {
 // may hold it. Only the task that made it calls its operations.
 extern go ergo.local/prototype/runtime/v1.Set type Set[E] {
 	runtimeOnly(),
-	..Closer,
+	..core.Closer,
 	// Wait waits until no member runs. It fails with the failure that
 	// ended the Set, at this Wait and at each later one, and raises the
 	// defects of members that no Wait or Stop raised yet. A stop of the
@@ -512,7 +514,7 @@ func NewSet[E](p Policy) Set[E] {
 // positive backoff on Scheduler before running the member again. A typed
 // failure, or a defect that Decide answers GiveUp, ends the Set as under
 // FailFast.
-func NewSupervisedSet[E](s Supervision) Set[E] needs Scheduler | time.Clock {
+func NewSupervisedSet[E](s Supervision) Set[E] needs time.Scheduler | time.Clock {
 	let origin = time.Clock.Now()
 	let hist = sync.NewRef[Map[int, []duration]](Map[int, []duration]{})
 	newSupervisedSet(func(id int) duration needs time.Clock {
@@ -523,7 +525,7 @@ func NewSupervisedSet[E](s Supervision) Set[E] needs Scheduler | time.Clock {
 
 extern go ergo.local/prototype/runtime/v1.TasksNewSetPolicy func newSetPolicy[E, R](kind int, limit int, decide own func(id int) duration needs R) Set[E] needs R
 
-extern go ergo.local/prototype/runtime/v1.TasksNewSupervisedSet func newSupervisedSet[E, R](decide own func(id int) duration needs R) Set[E] needs R | Scheduler
+extern go ergo.local/prototype/runtime/v1.TasksNewSupervisedSet func newSupervisedSet[E, R](decide own func(id int) duration needs R) Set[E] needs R | time.Scheduler
 
 // Go starts body as a member of set, on a task of its own below the
 // caller's, and returns at once. The body keeps running after Go returns,
@@ -561,19 +563,19 @@ func setWithMembers() Set[setFailed] {
 // sleepers starts k members of a Set it owns, each counting itself in,
 // counting itself out in an exit action and sleeping an hour, and
 // returns after a second: its frame's end stops them.
-func sleepers(k int, started sync.Ref[int], running sync.Ref[int]) needs Scheduler {
+func sleepers(k int, started sync.Ref[int], running sync.Ref[int]) needs time.Scheduler {
 	let set = NewSet(FailFast)
 	for _ in 0..k {
-		Go(set, func() needs Scheduler {
+		Go(set, func() needs time.Scheduler {
 			started.Update(func(v int) int { v + 1 })
 			running.Update(func(v int) int { v + 1 })
 			scope.OnExit() { running.Update(func(v int) int { v - 1 }) }
-			Scheduler.Sleep(1h)
+			time.Scheduler.Sleep(1h)
 		}) catch {
 		case Closed:
 		}
 	}
-	Scheduler.Sleep(1s)
+	time.Scheduler.Sleep(1s)
 }
 
 // NoMemberOutlivesItsFrame: when the function that made a Set returns,
@@ -584,7 +586,7 @@ law NoMemberOutlivesItsFrame(n int) {
 	let c = testing.NewVirtualClock(0)
 	let started = sync.NewRef[int](0)
 	let running = sync.NewRef[int](0)
-	with context { Scheduler: c, time.Clock: c } {
+	with context { time.Scheduler: c, time.Clock: c } {
 		let start = time.Clock.Now()
 		sleepers(k, started, running)
 		started.Get() == k && running.Get() == 0 && time.Clock.Now().Sub(start) == 1s
@@ -596,15 +598,15 @@ law NoMemberOutlivesItsFrame(n int) {
 law FinishedAreDropped(n int) {
 	let k = limitOf(n)
 	let c = testing.NewVirtualClock(0)
-	with context { Scheduler: c, time.Clock: c } {
+	with context { time.Scheduler: c, time.Clock: c } {
 		let set = NewSet(FailFast)
 		for i in 0..k {
-			Go(set, func() needs Scheduler { Scheduler.Sleep(duration(int64(i + 1))) }) catch {
+			Go(set, func() needs time.Scheduler { time.Scheduler.Sleep(duration(int64(i + 1))) }) catch {
 			case Closed:
 			}
 		}
 		let before = set.Len()
-		Scheduler.Sleep(duration(int64(k + 1)))
+		time.Scheduler.Sleep(duration(int64(k + 1)))
 		before == k && set.Len() == 0
 	}
 }
@@ -615,16 +617,16 @@ law FinishedAreDropped(n int) {
 law FailFastStopsTheRest(n int) {
 	let k = limitOf(n)
 	let c = testing.NewVirtualClock(0)
-	with context { Scheduler: c, time.Clock: c } {
+	with context { time.Scheduler: c, time.Clock: c } {
 		let set = NewSet[setFailed](FailFast)
 		let start = time.Clock.Now()
 		for _ in 0..k {
-			Go(set, func() needs Scheduler { Scheduler.Sleep(1h) }) catch {
+			Go(set, func() needs time.Scheduler { time.Scheduler.Sleep(1h) }) catch {
 			case Closed:
 			}
 		}
-		Go(set, func() fails setFailed needs Scheduler {
-			Scheduler.Sleep(1s)
+		Go(set, func() fails setFailed needs time.Scheduler {
+			time.Scheduler.Sleep(1s)
 			return setFailed
 		}) catch {
 		case Closed:
@@ -677,7 +679,7 @@ law RestartRunsAgain(n int) {
 	}
 	let kept = match task.ExitOf(exhausted) {
 	case task.Defected as d:
-		task.ReasonAs[boundedRestartFault](d) == Some[boundedRestartFault]{Value: boundedRestartFault{Run: limit + 1}}
+		task.ReasonAs[boundedRestartFault](d) == option.Some[boundedRestartFault]{Value: boundedRestartFault{Run: limit + 1}}
 	case _:
 		false
 	}
@@ -690,8 +692,8 @@ func limitOf(k int) int { 1 + (k%4+4)%4 }
 // TransformEqualsLoop: with no failure, Transform gives what a loop over xs gives.
 law TransformEqualsLoop(xs []int, k int) {
 	let got = Transform(xs, limitOf(k), func(x int) int { x*3 - 1 })
-	let mut ok = len(got) == len(xs)
-	for i in 0..len(xs) {
+	let mut ok = got.Len() == xs.Len()
+	for i in 0..xs.Len() {
 		ok = ok && got[i] == xs[i]*3-1
 	}
 	ok
@@ -702,17 +704,17 @@ law TransformEqualsLoop(xs []int, k int) {
 // VirtualClock, so the calls end last to first.
 law TransformKeepsOrder(xs []int, k int) {
 	let c = testing.NewVirtualClock(0)
-	with context { Scheduler: c, time.Clock: c } {
-		let n = len(xs)
+	with context { time.Scheduler: c, time.Clock: c } {
+		let n = xs.Len()
 		let mut idx = []int{}
 		for i in 0..n {
 			idx = idx.Append(i)
 		}
-		let got = Transform(idx, limitOf(k), func(i int) int needs Scheduler {
-			Scheduler.Sleep(duration(int64(n - i)))
+		let got = Transform(idx, limitOf(k), func(i int) int needs time.Scheduler {
+			time.Scheduler.Sleep(duration(int64(n - i)))
 			xs[i]
 		})
-		let mut ok = len(got) == n
+		let mut ok = got.Len() == n
 		for i in 0..n {
 			ok = ok && got[i] == xs[i]
 		}
@@ -728,8 +730,8 @@ law LimitHolds(xs []int, k int) {
 	let c = testing.NewVirtualClock(0)
 	let running = sync.NewRef[int](0)
 	let most = sync.NewRef[int](0)
-	with context { Scheduler: c, time.Clock: c } {
-		let got = Transform(xs, limit, func(x int) int needs Scheduler {
+	with context { time.Scheduler: c, time.Clock: c } {
+		let got = Transform(xs, limit, func(x int) int needs time.Scheduler {
 			let now = sync.Modify(running, func(v int) (int, int) { (v + 1, v + 1) })
 			most.Update(func(m int) int {
 				if now > m {
@@ -737,12 +739,12 @@ law LimitHolds(xs []int, k int) {
 				}
 				m
 			})
-			Scheduler.Sleep(1s)
+			time.Scheduler.Sleep(1s)
 			running.Update(func(v int) int { v - 1 })
 			x
 		})
-		let want = if len(xs) < limit { len(xs) } else { limit }
-		len(got) == len(xs) && most.Get() == want && running.Get() == 0
+		let want = if xs.Len() < limit { xs.Len() } else { limit }
+		got.Len() == xs.Len() && most.Get() == want && running.Get() == 0
 	}
 }
 
@@ -751,19 +753,19 @@ law LimitHolds(xs []int, k int) {
 // longer sleeps were stopped, not waited out.
 law EarliestWins(ds []int) {
 	let c = testing.NewVirtualClock(0)
-	with context { Scheduler: c, time.Clock: c } {
-		let mut blocks = []func() int needs Scheduler{}
+	with context { time.Scheduler: c, time.Clock: c } {
+		let mut blocks = []func() int needs time.Scheduler{}
 		let mut best = 0
 		let mut sleeps = []int{}
 		for d in ds.Append(0) {
-			let i = len(sleeps)
+			let i = sleeps.Len()
 			let s = 1 + (d%5+5)%5
 			sleeps = sleeps.Append(s)
 			if s < sleeps[best] {
 				best = i
 			}
-			blocks = blocks.Append(func() int needs Scheduler {
-				Scheduler.Sleep(duration(int64(s)))
+			blocks = blocks.Append(func() int needs time.Scheduler {
+				time.Scheduler.Sleep(duration(int64(s)))
 				i
 			})
 		}
@@ -781,19 +783,19 @@ law LosersStopped(n int) {
 	let ready = sync.NewLatch()
 	let cleaned = sync.NewRef[int](0)
 	let cleanupTime = duration(int64(limitOf(n)))
-	with context { Scheduler: c, time.Clock: c } {
+	with context { time.Scheduler: c, time.Clock: c } {
 		let start = time.Clock.Now()
-		let won = Race([]func() int needs Scheduler{
-			func() int needs Scheduler {
+		let won = Race([]func() int needs time.Scheduler{
+			func() int needs time.Scheduler {
 				scope.OnExit() {
-					Scheduler.Sleep(cleanupTime)
+					time.Scheduler.Sleep(cleanupTime)
 					cleaned.Update(func(v int) int { v + 1 })
 				}
 				let _ = sync.Open(ready)
-				Scheduler.Sleep(1h)
+				time.Scheduler.Sleep(1h)
 				0
 			},
-			func() int needs Scheduler {
+			func() int needs time.Scheduler {
 				sync.Await(ready)
 				n
 			},

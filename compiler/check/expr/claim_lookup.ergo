@@ -2,6 +2,7 @@ import compiler/check/store
 import compiler/check/types
 import compiler/syntax
 import dense
+import option
 import slices
 import strings
 
@@ -24,7 +25,7 @@ type claimCandidate {
 type claimResult = ClaimNone{} | ClaimFound{Fn Fn, UsedImport string} | ClaimAmbiguous{Labels []string, UsedImports []string}
 
 func isExportedName(name string) bool {
-	if len(name) == 0 {
+	if name.Len() == 0 {
 		return false
 	}
 	let c = int(name[0])
@@ -54,13 +55,13 @@ func fileImports(p syntax.Parsed) []fileImport {
 			}
 			let is = syntax.ImportSpecOf(p.Tree, spec)
 			let path = strings.TrimRight(strings.TrimLeft(nodeText(p, is.Path), "\""), "\"")
-			let last = path[strings.LastIndex(path, "/")+1 : len(path)]
+			let last = path[strings.LastIndex(path, "/")+1 : path.Len()]
 			match dense.Unpack(is.Name) {
-			case Some[dense.ID[syntax.Node]] as nm:
+			case option.Some[dense.ID[syntax.Node]] as nm:
 				let alias = nodeText(p, nm.Value)
 				let name = if alias == "go" { last } else { alias }
 				out = out.Append(fileImport{name: name, path: path, isGo: alias == "go"})
-			case None:
+			case option.None:
 				let isGo = is.NamePos >= 0 && syntax.TokKind(p, is.NamePos) == syntax.Go
 				out = out.Append(fileImport{name: last, path: path, isGo: isGo})
 			}
@@ -79,33 +80,33 @@ func directImportName(ims []fileImport, path string) string {
 	""
 }
 
-func claimFnOf(s mut store.Store, k Pkg, mem store.FunctionMember) Option[Fn] {
+func claimFnOf(s mut store.Store, k Pkg, mem store.FunctionMember) option.Option[Fn] {
 	if mem.Path == store.PathOf(*s) {
 		for f in k.Fns {
 			if f.File == int(mem.File) && dense.Index(f.Decl) == int(mem.Decl) {
-				return Some{Value: f}
+				return option.Some{Value: f}
 			}
 		}
-		return None
+		return option.None
 	}
 	let di = depOf(k, mem.Path)
 	if di < 0 {
-		return None
+		return option.None
 	}
 	let d = k.Deps[di]
 	for f in d.K.Fns {
 		if f.File == int(mem.File) && dense.Index(f.Decl) == int(mem.Decl) {
 			match port(s, k, d, f.Sig) {
-			case Some{Value: sig}:
+			case option.Some{Value: sig}:
 				let mut out = f
 				out.Sig = sig
-				return Some{Value: out}
-			case None:
-				return None
+				return option.Some{Value: out}
+			case option.None:
+				return option.None
 			}
 		}
 	}
-	None
+	option.None
 }
 
 func claimCandidateLess(a claimCandidate, b claimCandidate) bool {
@@ -117,7 +118,7 @@ func claimCandidateLess(a claimCandidate, b claimCandidate) bool {
 
 func sortClaimCandidates(xs []claimCandidate) []claimCandidate {
 	let mut out = slices.Clone(xs)
-	for i in 1..len(out) {
+	for i in 1..out.Len() {
 		let cur = out[i]
 		let mut j = i
 		for j > 0 && claimCandidateLess(cur, out[j-1]) {
@@ -139,9 +140,9 @@ func claimLookup(s mut store.Store, k Pkg, t Typer, xt dense.ID[store.TKey], nam
 	for j in 0..store.FunctionClaimCount(*s) {
 		let g = store.FunctionClaimAt(*s, j)
 		let o = match types.Nominal(*s, g.Role) {
-		case Some{Value: ref}:
+		case option.Some{Value: ref}:
 			ref
-		case None:
+		case option.None:
 			continue
 		}
 		let mut isLocal = false
@@ -150,7 +151,7 @@ func claimLookup(s mut store.Store, k Pkg, t Typer, xt dense.ID[store.TKey], nam
 		if int(o.Import) == 0 {
 			isLocal = true
 			pkgPath = store.PathOf(*s)
-		} else if int(o.Import) > 0 && int(o.Import) <= len(k.Ifaces) {
+		} else if int(o.Import) > 0 && int(o.Import) <= k.Ifaces.Len() {
 			pkgPath = k.Ifaces[int(o.Import)-1].Path
 			localName = directImportName(ims, pkgPath)
 			if localName == "" {
@@ -161,14 +162,14 @@ func claimLookup(s mut store.Store, k Pkg, t Typer, xt dense.ID[store.TKey], nam
 		}
 		let mut memberIdx = -1
 		match types.ReadRole(s, k.Ifaces, k.Foreign, k.Roles, g.Role) {
-		case Some{Value: role}:
+		case option.Some{Value: role}:
 			for idx, rm in role.Members {
-				if rm.Name == name && idx < len(g.Members) {
+				if rm.Name == name && idx < g.Members.Len() {
 					memberIdx = idx
 					break
 				}
 			}
-		case None:
+		case option.None:
 		}
 		if memberIdx < 0 {
 			continue
@@ -178,14 +179,14 @@ func claimLookup(s mut store.Store, k Pkg, t Typer, xt dense.ID[store.TKey], nam
 			continue
 		}
 		match store.ClaimMatch(s, g, recv) {
-		case None:
+		case option.None:
 			continue
-		case Some:
+		case option.Some:
 		}
 		let fn = match claimFnOf(s, k, mem) {
-		case Some{Value: f}:
+		case option.Some{Value: f}:
 			f
-		case None:
+		case option.None:
 			continue
 		}
 		let key = "\(mem.Path)#\(mem.File)#\(mem.Decl)"
@@ -204,11 +205,11 @@ func claimLookup(s mut store.Store, k Pkg, t Typer, xt dense.ID[store.TKey], nam
 			cands[found] = cand
 		}
 	}
-	if len(cands) == 0 {
+	if cands.Len() == 0 {
 		return ClaimNone
 	}
 	let sorted = sortClaimCandidates(cands)
-	if len(sorted) == 1 {
+	if sorted.Len() == 1 {
 		return ClaimFound{Fn: sorted[0].fn, UsedImport: sorted[0].usedImport}
 	}
 	let mut labels = []string{}
@@ -243,7 +244,7 @@ func isOpType(s store.Store, k Pkg, base dense.ID[store.TKey]) bool {
 			let r = recOf(s, k, store.DeclText(s, int(o.Decl)))
 			return r >= 0 && k.Recs[r].Op
 		}
-		if int(o.Import) > 0 && int(o.Import) <= len(k.Ifaces) {
+		if int(o.Import) > 0 && int(o.Import) <= k.Ifaces.Len() {
 			let di = depOf(k, k.Ifaces[int(o.Import)-1].Path)
 			if di >= 0 {
 				let d = k.Deps[di]
@@ -267,7 +268,7 @@ func isKnownRecord(s store.Store, k Pkg, base dense.ID[store.TKey]) bool {
 			let r = recOf(s, k, store.DeclText(s, int(o.Decl)))
 			return r >= 0 && !k.Recs[r].Op
 		}
-		if int(o.Import) > 0 && int(o.Import) <= len(k.Ifaces) {
+		if int(o.Import) > 0 && int(o.Import) <= k.Ifaces.Len() {
 			let di = depOf(k, k.Ifaces[int(o.Import)-1].Path)
 			if di >= 0 {
 				let d = k.Deps[di]
@@ -285,7 +286,7 @@ func ownerHasSameNamed(s store.Store, k Pkg, base dense.ID[store.TKey], name str
 		let mut i = fnNamed(s, k, name)
 		for i >= 0 {
 			let ops = store.OperandsOf(s, k.Fns[i].Sig)
-			if len(ops) > 3 {
+			if ops.Len() > 3 {
 				let p = receiverBase(s, ops[0])
 				if sameNamedHead(s, p, base) {
 					return true
@@ -314,35 +315,35 @@ func sameNamedHead(s store.Store, p dense.ID[store.TKey], base dense.ID[store.TK
 	false
 }
 
-func unknownMethodDiag(s store.Store, k Pkg, t Typer, xt dense.ID[store.TKey], name string) Option[string] {
+func unknownMethodDiag(s store.Store, k Pkg, t Typer, xt dense.ID[store.TKey], name string) option.Option[string] {
 	let base = receiverBase(s, xt)
 	let bk = store.KindOfType(s, base)
 	if bk == store.KParam || bk == store.KSelf || bk == store.KReapplied || bk == store.KForeign {
-		return None
+		return option.None
 	}
 	if bk == store.KBasic {
 		if store.ArgOf(s, base) == 0 {
-			return None
+			return option.None
 		}
-		return Some{Value: "\(typeText(s, k, t, xt)) has no field or method \(name)"}
+		return option.Some{Value: "\(typeText(s, k, t, xt)) has no field or method \(name)"}
 	}
 	if bk == store.KSlice || bk == store.KMap || bk == store.KArray || bk == store.KTuple || bk == store.KSig {
-		return Some{Value: "\(typeText(s, k, t, xt)) has no field or method \(name)"}
+		return option.Some{Value: "\(typeText(s, k, t, xt)) has no field or method \(name)"}
 	}
 	if bk == store.KNamed || bk == store.KInstance {
 		if bk == store.KInstance {
 			let o = store.OriginOfType(s, base)
-			if int(o.Import) == store.ForeignBit || int(o.Import) > len(k.Ifaces) {
-				return None
+			if int(o.Import) == store.ForeignBit || int(o.Import) > k.Ifaces.Len() {
+				return option.None
 			}
 			if int(o.Import) > 0 && depOf(k, k.Ifaces[int(o.Import)-1].Path) < 0 {
-				return None
+				return option.None
 			}
 		}
 		if isOpType(s, k, base) || !isKnownRecord(s, k, base) || ownerHasSameNamed(s, k, base, name) {
-			return None
+			return option.None
 		}
-		return Some{Value: "\(typeText(s, k, t, xt)) has no field or method \(name)"}
+		return option.Some{Value: "\(typeText(s, k, t, xt)) has no field or method \(name)"}
 	}
-	None
+	option.None
 }

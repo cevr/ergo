@@ -14,6 +14,7 @@
 // Go control: a map under a mutex, a recency list and
 // golang.org/x/sync/singleflight.
 
+import option
 import queue
 import scope
 import sync
@@ -136,7 +137,7 @@ func Get[K comparable, V, E, R](c Cache[K, V], k K, lookup func(k K) V fails E n
 func begin[K comparable, V](config Config, k K, now time.Time, t table[K, V]) (step[K, V], table[K, V]) {
 	let mut u = t
 	match u.index.Get(k) {
-	case Some[int] as i:
+	case option.Some[int] as i:
 		let e = u.cells[i.Value]
 		if live(config, e, now) {
 			u = touch(i.Value, cell[K, V]{key: k, value: e.value, born: e.born, used: now, stamp: u.next}, u)
@@ -146,11 +147,11 @@ func begin[K comparable, V](config Config, k K, now time.Time, t table[K, V]) (s
 		u = drop(i.Value, u)
 		let (l, w) = startLoad(k, u)
 		(loader[K, V]{id: l.id, done: l.done, gone: []leaving[K, V]{leaving[K, V]{key: k, value: e.value}}}, w)
-	case None:
+	case option.None:
 		match u.loads.Get(k) {
-		case Some[loading] as l:
+		case option.Some[loading] as l:
 			(waiting{done: l.Value.done}, u)
-		case None:
+		case option.None:
 			let (l, w) = startLoad(k, u)
 			(loader[K, V]{id: l.id, done: l.done, gone: []leaving[K, V]{}}, w)
 		}
@@ -190,9 +191,9 @@ func run[K comparable, V, E, R](c Cache[K, V], k K, l loader[K, V], lookup func(
 // inFlight reports whether id is the lookup of k in flight in t.
 func inFlight[K comparable, V](t table[K, V], k K, id int64) bool {
 	match t.loads.Get(k) {
-	case Some[loading] as l:
+	case option.Some[loading] as l:
 		l.Value.id == id
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -224,8 +225,8 @@ func keep[K comparable, V](config Config, k K, id int64, v V, now time.Time, t t
 func place[K comparable, V](k K, v V, now time.Time, t table[K, V]) table[K, V] {
 	let mut u = t
 	let e = cell[K, V]{key: k, value: v, born: now, used: now, stamp: u.next}
-	let n = len(u.free)
-	let mut at = len(u.cells)
+	let n = u.free.Len()
+	let mut at = u.cells.Len()
 	if n > 0 {
 		at = u.free[n-1]
 		u.free = u.free[0 : n-1]
@@ -249,9 +250,9 @@ func touch[K comparable, V](at int, e cell[K, V], t table[K, V]) table[K, V] {
 	u.cells[at] = e
 	u.order = u.order.Append(mark{at: at, stamp: e.stamp})
 	u.next += 1
-	if len(u.order)-u.head > 2*u.size+32 {
+	if u.order.Len()-u.head > 2*u.size+32 {
 		let mut kept = []mark{}
-		for i in u.head..len(u.order) {
+		for i in u.head..u.order.Len() {
 			if current(u, u.order[i]) {
 				kept = kept.Append(u.order[i])
 			}
@@ -281,7 +282,7 @@ func drop[K comparable, V](at int, t table[K, V]) table[K, V] {
 func evict[K comparable, V](config Config, t table[K, V]) ([]leaving[K, V], table[K, V]) {
 	let mut u = t
 	let mut gone = []leaving[K, V]{}
-	for u.size > config.Capacity && u.head < len(u.order) {
+	for u.size > config.Capacity && u.head < u.order.Len() {
 		let m = u.order[u.head]
 		u.head += 1
 		if current(u, m) {
@@ -318,22 +319,22 @@ func releaseAll[K comparable, V](c Cache[K, V], gone []leaving[K, V]) {
 
 // Peek is k's value when the cache holds a live entry of k. It runs no
 // lookup, does not wait for one, and does not count as a read.
-func Peek[K comparable, V](c Cache[K, V], k K) Option[V] needs time.Clock {
+func Peek[K comparable, V](c Cache[K, V], k K) option.Option[V] needs time.Clock {
 	let now = stampOf(c.config)
-	let held = sync.Modify(c.state, func(t table[K, V]) (Option[cell[K, V]], table[K, V]) {
+	let held = sync.Modify(c.state, func(t table[K, V]) (option.Option[cell[K, V]], table[K, V]) {
 		let e = match t.index.Get(k) {
-		case Some[int] as i:
-			Some[cell[K, V]]{Value: t.cells[i.Value]}
-		case None:
-			None
+		case option.Some[int] as i:
+			option.Some[cell[K, V]]{Value: t.cells[i.Value]}
+		case option.None:
+			option.None
 		}
 		(e, t)
 	})
 	match held {
-	case Some[cell[K, V]] as e:
-		if live(c.config, e.Value, now) { Some[V]{Value: e.Value.value} } else { None }
-	case None:
-		None
+	case option.Some[cell[K, V]] as e:
+		if live(c.config, e.Value, now) { option.Some[V]{Value: e.Value.value} } else { option.None }
+	case option.None:
+		option.None
 	}
 }
 
@@ -401,13 +402,13 @@ func Prune[K comparable, V](c Cache[K, V]) needs time.Clock {
 // holds reports whether t has an entry or a lookup in flight for k.
 func holds[K comparable, V](t table[K, V], k K) bool {
 	match t.index.Get(k) {
-	case Some[int]:
+	case option.Some[int]:
 		true
-	case None:
+	case option.None:
 		match t.loads.Get(k) {
-		case Some[loading]:
+		case option.Some[loading]:
 			true
-		case None:
+		case option.None:
 			false
 		}
 	}
@@ -419,11 +420,11 @@ func remove[K comparable, V](k K, t table[K, V]) ([]leaving[K, V], table[K, V]) 
 	let mut u = t
 	u.loads = u.loads.Delete(k)
 	match u.index.Get(k) {
-	case Some[int] as i:
+	case option.Some[int] as i:
 		let e = u.cells[i.Value]
 		u = drop(i.Value, u)
 		([]leaving[K, V]{leaving[K, V]{key: k, value: e.value}}, u)
-	case None:
+	case option.None:
 		([]leaving[K, V]{}, u)
 	}
 }
@@ -603,12 +604,12 @@ law ModelAgrees(seed int64) {
 				m.Advance(d)
 				now = now + d
 			}
-			if len(model) > capacity {
+			if model.Len() > capacity {
 				gone = gone.Append(pairOf(model[0].key, model[0].value))
 				model = mdrop(model, 0)
 			}
 			let st = StatsOf(c)
-			if !sameLeft(left.Get(), gone) || st.Size != len(model) || st.Hits != hits || st.Misses != misses {
+			if !sameLeft(left.Get(), gone) || st.Size != model.Len() || st.Hits != hits || st.Misses != misses {
 				return false
 			}
 		}
@@ -648,7 +649,7 @@ func mlive(config Config, e mentry, now duration) bool {
 
 // sameLeft reports whether a and b hold the same entries, in any order.
 func sameLeft(a []int, b []int) bool {
-	if len(a) != len(b) {
+	if a.Len() != b.Len() {
 		return false
 	}
 	for x in a {

@@ -39,7 +39,7 @@ let clusterPieces = []string{"a", "Z", " ", " ", "\n", "~", "e\u0301", "\u65e5",
 func clusterText(xs []int) string {
 	let mut out = ""
 	for x in xs {
-		let k = (x%len(clusterPieces) + len(clusterPieces)) % len(clusterPieces)
+		let k = (x%clusterPieces.Len() + clusterPieces.Len()) % clusterPieces.Len()
 		out = out + clusterPieces[k]
 	}
 	out
@@ -61,7 +61,7 @@ law CellsAddOverClusters(xs []int, ys []int) {
 // Cells(t)).
 law StylingTakesNoCells(xs []int, k int) {
 	let t = clusterText(xs)
-	let open = escapes[(k%len(escapes)+len(escapes))%len(escapes)]
+	let open = escapes[(k%escapes.Len()+escapes.Len())%escapes.Len()]
 	Cells(open+t+"\x1b[0m") == Cells(t) && Cells(open+t+"\x1b]8;;\x07") == Cells(t)
 }
 
@@ -171,11 +171,11 @@ func runeCells(c int) int {
 // inRanges reports whether c lies in one of the sorted inclusive ranges
 // of t, a pair of ints each: a binary search over the pairs.
 func inRanges(t []int, c int) bool {
-	if len(t) == 0 || c < t[0] || c > t[len(t)-1] {
+	if t.Len() == 0 || c < t[0] || c > t[t.Len()-1] {
 		return false
 	}
 	let mut lo = 0
-	let mut hi = len(t) / 2
+	let mut hi = t.Len() / 2
 	for lo < hi {
 		let mid = (lo + hi) / 2
 		if t[2*mid+1] < c {
@@ -184,7 +184,7 @@ func inRanges(t []int, c int) bool {
 			hi = mid
 		}
 	}
-	lo < len(t)/2 && t[2*lo] <= c
+	lo < t.Len()/2 && t[2*lo] <= c
 }
 
 // fit is the length of the longest prefix of s that takes at most limit
@@ -204,7 +204,7 @@ func fit(s string, limit int) int {
 		}
 		st = next
 	}
-	len(s)
+	s.Len()
 }
 
 // opensCluster reports whether the rune c, which takes columns after st,
@@ -260,8 +260,8 @@ law TruncateFits(xs []int, w int) {
 	if Cells(s) <= width {
 		return t == s
 	}
-	let head = t[:len(t)-len("\u2026")]
-	strings.HasSuffix(t, "\u2026") && strings.HasPrefix(s, head) && (Cells(t) <= width || head == "") && Cells(head)+Cells(s[len(head):]) == Cells(s)
+	let head = t[:t.Len()-"\u2026".Len()]
+	strings.HasSuffix(t, "\u2026") && strings.HasPrefix(s, head) && (Cells(t) <= width || head == "") && Cells(head)+Cells(s[head.Len():]) == Cells(s)
 }
 
 // Wrap is the lines of s, each at most w columns: its lines break at
@@ -275,8 +275,8 @@ func Wrap(s string, w int) []string {
 	let mut line = ""
 	let mut used = 0
 	let mut start = 0
-	for i in 0..len(s)+1 {
-		if i == len(s) || s[i] == ' ' || s[i] == '\n' {
+	for i in 0..s.Len()+1 {
+		if i == s.Len() || s[i] == ' ' || s[i] == '\n' {
 			if i > start {
 				let mut rest = s[start:i]
 				let mut n = Cells(rest)
@@ -300,7 +300,7 @@ func Wrap(s string, w int) []string {
 					used = n
 				}
 			}
-			if i < len(s) && s[i] == '\n' {
+			if i < s.Len() && s[i] == '\n' {
 				out = out.Append(line)
 				line = ""
 				used = 0
@@ -342,7 +342,7 @@ func firstCluster(s string) int {
 		}
 		st = next
 	}
-	len(s)
+	s.Len()
 }
 
 // Columns is the lines of a table: each cell of rows padded with spaces to
@@ -354,7 +354,7 @@ func Columns(rows [][]string, sep string) []string {
 	for row in rows {
 		for j, cell in row {
 			let n = Cells(cell)
-			if j == len(widths) {
+			if j == widths.Len() {
 				widths = widths.Append(n)
 			} else if n > widths[j] {
 				widths[j] = n
@@ -368,7 +368,7 @@ func Columns(rows [][]string, sep string) []string {
 			if j > 0 {
 				line = line + sep
 			}
-			line = line + if j == len(row)-1 { cell } else { Pad(cell, widths[j]) }
+			line = line + if j == row.Len()-1 { cell } else { Pad(cell, widths[j]) }
 		}
 		out = out.Append(line)
 	}
@@ -383,10 +383,10 @@ law ColumnsAlign(xs []int, k int) {
 	let n = 1 + (k%3+3)%3
 	let mut rows = [][]string{}
 	let mut row = []string{}
-	let m = if len(xs) > 9 { 9 } else { len(xs) }
+	let m = if xs.Len() > 9 { 9 } else { xs.Len() }
 	for i in 0..m {
 		row = row.Append(strings.ReplaceAll(strings.ReplaceAll(clusterText([]int{xs[i], xs[i] / 7}), "\n", ""), "\t", ""))
-		if len(row) == n {
+		if row.Len() == n {
 			rows = rows.Append(row)
 			row = []string{}
 		}
@@ -400,7 +400,7 @@ law ColumnsAlign(xs []int, k int) {
 		lead = lead + widest
 	}
 	let lines = Columns(rows, "|")
-	let mut ok = len(lines) == len(rows)
+	let mut ok = lines.Len() == rows.Len()
 	for i, line in lines {
 		let last = rows[i][n-1]
 		ok = ok && strings.HasSuffix(line, last) && Cells(line)-Cells(last) == lead

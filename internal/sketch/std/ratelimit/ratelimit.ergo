@@ -78,7 +78,7 @@ func Check(rule Rule) Rule fails BadRule {
 // CheckRefusesBadRules: Check keeps a rule of each algorithm exactly when
 // its limit is one or more and its time is above zero.
 law CheckRefusesBadRules(pick int, n int, d duration) {
-	let rule Rule = match ((pick%3)+3)%3 {
+	let rule Rule = match ((pick % 3) + 3) % 3 {
 	case 0:
 		TokenBucket{Capacity: n, Every: d}
 	case 1:
@@ -181,11 +181,11 @@ func Take(l Limiter, key string, cost int) Grant fails Limited | BadCost needs t
 // (Effect's onExceeded "delay", x/time/rate's WaitN). Takes of other
 // callers may come first: Wait promises no order among waiters. A stop of
 // the calling task ends the sleep.
-func Wait(l Limiter, key string, cost int) Grant fails BadCost needs time.Clock | Scheduler {
+func Wait(l Limiter, key string, cost int) Grant fails BadCost needs time.Clock | time.Scheduler {
 	for {
 		let g = l.TakeAt(key, cost, time.Clock.Now()) catch {
 		case Limited as w:
-			Scheduler.Sleep(w.RetryAfter)
+			time.Scheduler.Sleep(w.RetryAfter)
 			continue
 		case BadCost as b:
 			return b

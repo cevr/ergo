@@ -22,7 +22,7 @@ type Field { Name string, Value string }
 func Fields(fs []Field) string {
 	let mut b = []string{}
 	for f in fs {
-		b = b.Append("\(len(f.Name)):" + f.Name + "\(len(f.Value)):" + f.Value)
+		b = b.Append("\(f.Name.Len()):" + f.Name + "\(f.Value.Len()):" + f.Value)
 	}
 	hex.Encode(sha256.Sum(strings.Join(b, "")))
 }
@@ -30,7 +30,7 @@ func Fields(fs []Field) string {
 // FieldsKeepTheirBounds: moving bytes from one field's value into its
 // name gives another key, because each part carries its length.
 law FieldsKeepTheirBounds(name string, value string) {
-	len(value) == 0 || Fields([]Field{Field{Name: name, Value: value}}) != Fields([]Field{Field{Name: name + strings.Slice(value, 0, 1), Value: strings.Slice(value, 1, len(value))}})
+	value.Len() == 0 || Fields([]Field{Field{Name: name, Value: value}}) != Fields([]Field{Field{Name: name + strings.Slice(value, 0, 1), Value: strings.Slice(value, 1, value.Len())}})
 }
 
 // BuildID spells an action key as a Go build ID of parts parts, each the
@@ -42,7 +42,7 @@ func BuildID(key string, parts int) string {
 	case hex.Malformed:
 		return ""
 	}
-	if len(raw) < 15 {
+	if raw.Len() < 15 {
 		return ""
 	}
 	let part = base64.Encode(base64.URLEncoding, strings.Slice(raw, 0, 15))
@@ -60,9 +60,9 @@ let LawVersion = "ergo-lawcache/2"
 // parts: LawVersion, then each part, each written "<len>:<part>", hashed.
 func LawKey(parts []string) string {
 	let mut b = []string{}
-	b = b.Append("\(len(LawVersion)):" + LawVersion)
+	b = b.Append("\(LawVersion.Len()):" + LawVersion)
 	for p in parts {
-		b = b.Append("\(len(p)):" + p)
+		b = b.Append("\(p.Len()):" + p)
 	}
 	hex.Encode(sha256.Sum(strings.Join(b, "")))
 }
@@ -71,7 +71,7 @@ func LawKey(parts []string) string {
 func Framed(parts []string) string {
 	let mut b = []string{}
 	for p in parts {
-		b = b.Append("\(len(p)):" + p + "\x00")
+		b = b.Append("\(p.Len()):" + p + "\x00")
 	}
 	hex.Encode(sha256.Sum(strings.Join(b, "")))
 }
@@ -120,12 +120,12 @@ func TestResult(id string, ledger string, limit uint64, args []string, environ [
 	if id == "" {
 		return ""
 	}
-	let mut parts = []string{"ergo-test-result-1", id, ledger, "\(limit)", "\(len(args))"}
+	let mut parts = []string{"ergo-test-result-1", id, ledger, "\(limit)", "\(args.Len())"}
 	for a in args {
 		parts = parts.Append(a)
 	}
 	let env = Environ(environ, skip)
-	parts = parts.Append("\(len(env))")
+	parts = parts.Append("\(env.Len())")
 	for kv in env {
 		parts = parts.Append(kv)
 	}

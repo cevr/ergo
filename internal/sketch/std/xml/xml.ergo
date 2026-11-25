@@ -18,6 +18,8 @@
 // A document type declaration is refused, so no entity can be declared
 // and expanded.
 
+import codec
+
 // Codec is the XML form of a T: Root names the document's element (root
 // when it is empty; Decode then takes any name), MaxBytes limits the text
 // Decode reads and MaxDepth the nesting (0: no limit).
@@ -47,7 +49,7 @@ func Check(text string, maxDepth int) string fails Malformed {
 // formed or longer than c.MaxBytes, or when its root element is not
 // c.Root; else the failures of decode[T] on its shape.
 func Decode[T wire](c Codec[T], text string) T fails Malformed | wired[T] needs wired[T] {
-	if c.MaxBytes > 0 && len(text) > c.MaxBytes {
+	if c.MaxBytes > 0 && text.Len() > c.MaxBytes {
 		return At(text, c.MaxBytes, "the text is longer than MaxBytes")
 	}
 	let root = try Check(text, c.MaxDepth)
@@ -55,5 +57,5 @@ func Decode[T wire](c Codec[T], text string) T fails Malformed | wired[T] needs 
 		return At(text, blank(text, 0), "the root element is <"+root+">, not <"+c.Root+">")
 	}
 	let r Cursor = readerOf(text)
-	try decode[T](r)
+	try codec.Decode[T](r)
 }

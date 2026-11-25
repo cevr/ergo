@@ -1,3 +1,4 @@
+import option
 import queue
 import schedule
 import scope
@@ -41,9 +42,9 @@ func waitOrGiveUp(v Verdict) duration {
 func nextRestartFor(s Supervision, hist sync.Ref[Map[int, []duration]], id int, now duration) Verdict {
 	sync.Modify(hist, func(m Map[int, []duration]) (Verdict, Map[int, []duration]) {
 		let past = match m.Get(id) {
-		case Some[[]duration] as xs:
+		case option.Some[[]duration] as xs:
 			xs.Value
-		case None:
+		case option.None:
 			[]duration{}
 		}
 		let v = Decide(s, past, now)
@@ -100,21 +101,21 @@ func pushExit(box exitBox, e memberEvent) {
 	}
 }
 
-func popExit(box exitBox) Option[memberEvent] {
+func popExit(box exitBox) option.Option[memberEvent] {
 	for {
-		let got = sync.Modify(box.items, func(xs []memberEvent) (Option[memberEvent], []memberEvent) {
-			if len(xs) == 0 {
-				return (None, xs)
+		let got = sync.Modify(box.items, func(xs []memberEvent) (option.Option[memberEvent], []memberEvent) {
+			if xs.Len() == 0 {
+				return (option.None, xs)
 			}
-			(Some[memberEvent]{Value: xs[0]}, xs[1:])
+			(option.Some[memberEvent]{Value: xs[0]}, xs[1:])
 		})
 		match got {
-		case Some as e:
-			return Some[memberEvent]{Value: e.Value}
-		case None:
+		case option.Some as e:
+			return option.Some[memberEvent]{Value: e.Value}
+		case option.None:
 			let _ = box.wake.Pop() catch {
 			case queue.Closed:
-				return None
+				return option.None
 			}
 		}
 	}
@@ -133,7 +134,7 @@ func stopOrder(s Strategy, failed int, n int) []int {
 
 func startOrder(s Strategy, failed int, slots []memberSlot) []int {
 	let mut out = []int{}
-	for j in 0..len(slots) {
+	for j in 0..slots.Len() {
 		if Restarted(s, failed, j) && !slots[j].finished {
 			out = out.Append(j)
 		}
@@ -142,25 +143,25 @@ func startOrder(s Strategy, failed int, slots []memberSlot) []int {
 }
 
 func stopMember(slots sync.Ref[[]memberSlot], j int) {
-	let slot = sync.Modify(slots, func(xs []memberSlot) (Option[memberSlot], []memberSlot) {
+	let slot = sync.Modify(slots, func(xs []memberSlot) (option.Option[memberSlot], []memberSlot) {
 		if !xs[j].running {
-			return (None, xs)
+			return (option.None, xs)
 		}
 		let cur = xs[j]
 		let mut out = xs
 		out[j] = memberSlot{..cur, running: false}
-		(Some[memberSlot]{Value: cur}, out)
+		(option.Some[memberSlot]{Value: cur}, out)
 	})
 	match slot {
-	case Some as s:
+	case option.Some as s:
 		let _ = sync.Open(s.Value.stop)
 		sync.Await(s.Value.ended)
-	case None:
+	case option.None:
 	}
 }
 
 func stopAllReverse(slots sync.Ref[[]memberSlot]) {
-	let n = len(slots.Get())
+	let n = slots.Get().Len()
 	for k in 0..n {
 		stopMember(slots, n-1-k)
 	}
@@ -183,13 +184,13 @@ func spawnMember[E, R](set Set[superviseNoFail], slots sync.Ref[[]memberSlot], b
 		}
 		let inner = task.Go() {
 			let pair = NewSet[stopRequested](FailFast)
-			let blockErr = sync.NewRef[Option[func() fails E]](None)
+			let blockErr = sync.NewRef[option.Option[func() fails E]](option.None)
 			let blockDone = sync.NewRef[bool](false)
 			Go(pair, func() fails stopRequested needs R {
 				let _ = sync.Open(started)
 				block() catch {
 				case err:
-					blockErr.Set(Some[func() fails E]{Value: func() fails E { return err }})
+					blockErr.Set(option.Some[func() fails E]{Value: func() fails E { return err }})
 					return stopRequested
 				}
 				blockDone.Set(true)
@@ -207,9 +208,9 @@ func spawnMember[E, R](set Set[superviseNoFail], slots sync.Ref[[]memberSlot], b
 			case stopRequested:
 			}
 			match blockErr.Get() {
-			case Some as f:
+			case option.Some as f:
 				try f.Value()
-			case None:
+			case option.None:
 			}
 			if blockDone.Get() { 0 } else { 1 }
 		}
@@ -225,7 +226,7 @@ func spawnMember[E, R](set Set[superviseNoFail], slots sync.Ref[[]memberSlot], b
 		case task.Failed[E] as f:
 			let err = f.Error
 			let idx = sync.Modify(failures, func(xs []func() fails E) (int, []func() fails E) {
-				(len(xs), xs.Append(func() fails E { return err }))
+				(xs.Len(), xs.Append(func() fails E { return err }))
 			})
 			pushExit(box, memberEvent{member: j, inc: inc, kind: 3, reason: "", failIdx: idx})
 		}
@@ -249,8 +250,8 @@ func spawnMember[E, R](set Set[superviseNoFail], slots sync.Ref[[]memberSlot], b
 // last started first, and fails GaveUp. An exit of an incarnation that a
 // restart already replaced is dropped. A stop of the calling task stops
 // every running member, last started first, and waits for its cleanup.
-func Supervise[E, R](s Supervision, members []func() fails E needs R) fails E | GaveUp needs R | Scheduler | time.Clock {
-	let n = len(members)
+func Supervise[E, R](s Supervision, members []func() fails E needs R) fails E | GaveUp needs R | time.Scheduler | time.Clock {
+	let n = members.Len()
 	if n == 0 {
 		return
 	}
@@ -271,9 +272,9 @@ func Supervise[E, R](s Supervision, members []func() fails E needs R) fails E | 
 	let mut remaining = n
 	for remaining > 0 {
 		let ev = match popExit(box) {
-		case Some as e:
+		case option.Some as e:
 			e.Value
-		case None:
+		case option.None:
 			return
 		}
 		let cur = slots.Get()[ev.member]
@@ -318,7 +319,7 @@ func Supervise[E, R](s Supervision, members []func() fails E needs R) fails E | 
 					out
 				})
 				if r.Wait > 0ns {
-					Scheduler.Sleep(r.Wait)
+					time.Scheduler.Sleep(r.Wait)
 				}
 				let toStart = startOrder(s.Strategy, ev.member, slots.Get())
 				for j in toStart {
@@ -350,23 +351,23 @@ law OneForOneRestartsOnlyCrashed(k int) {
 	let r1 = sync.NewRef[int](0)
 	let r2 = sync.NewRef[int](0)
 	let policy = Supervision{Strategy: OneForOne, Intensity: Intensity{Max: crashes, Period: 1m}, Backoff: schedule.Forever()}
-	with context { Scheduler: c, time.Clock: c } {
+	with context { time.Scheduler: c, time.Clock: c } {
 		let start = time.Clock.Now()
-		Supervise(policy, []func() fails supFailed needs Scheduler{
-			func() fails supFailed needs Scheduler {
+		Supervise(policy, []func() fails supFailed needs time.Scheduler{
+			func() fails supFailed needs time.Scheduler {
 				let _ = incRef(r0)
-				Scheduler.Sleep(10s)
+				time.Scheduler.Sleep(10s)
 			},
-			func() fails supFailed needs Scheduler {
+			func() fails supFailed needs time.Scheduler {
 				let run = incRef(r1)
-				Scheduler.Sleep(1s)
+				time.Scheduler.Sleep(1s)
 				if run <= crashes {
 					triggerDefect()
 				}
 			},
-			func() fails supFailed needs Scheduler {
+			func() fails supFailed needs time.Scheduler {
 				let _ = incRef(r2)
-				Scheduler.Sleep(10s)
+				time.Scheduler.Sleep(10s)
 			},
 		}) catch {
 		case _:
@@ -384,32 +385,32 @@ law AllForOneStopsReverseStartsForward(k int) {
 	let r2 = sync.NewRef[int](0)
 	let stops = sync.NewRef[[]int]([]int{})
 	let policy = Supervision{Strategy: AllForOne, Intensity: Intensity{Max: 2, Period: 1m}, Backoff: schedule.Forever()}
-	with context { Scheduler: c, time.Clock: c } {
-		Supervise(policy, []func() fails supFailed needs Scheduler{
-			func() fails supFailed needs Scheduler {
+	with context { time.Scheduler: c, time.Clock: c } {
+		Supervise(policy, []func() fails supFailed needs time.Scheduler{
+			func() fails supFailed needs time.Scheduler {
 				let run = incRef(r0)
 				scope.OnExit() { appendInt(stops, 0) }
 				if run == 1 {
-					Scheduler.Sleep(1s)
+					time.Scheduler.Sleep(1s)
 					triggerDefect()
 				}
-				Scheduler.Sleep(2s)
+				time.Scheduler.Sleep(2s)
 			},
-			func() fails supFailed needs Scheduler {
+			func() fails supFailed needs time.Scheduler {
 				let run = incRef(r1)
 				scope.OnExit() { appendInt(stops, 1) }
 				if run == 1 {
-					Scheduler.Sleep(1h)
+					time.Scheduler.Sleep(1h)
 				}
-				Scheduler.Sleep(2s)
+				time.Scheduler.Sleep(2s)
 			},
-			func() fails supFailed needs Scheduler {
+			func() fails supFailed needs time.Scheduler {
 				let run = incRef(r2)
 				scope.OnExit() { appendInt(stops, 2) }
 				if run == 1 {
-					Scheduler.Sleep(1h)
+					time.Scheduler.Sleep(1h)
 				}
-				Scheduler.Sleep(2s)
+				time.Scheduler.Sleep(2s)
 			},
 		}) catch {
 		case _:
@@ -421,7 +422,7 @@ law AllForOneStopsReverseStartsForward(k int) {
 			probe = probe.Append(memberSlot{running: true, finished: false, inc: 0, stop: sync.NewLatch(), ended: sync.NewLatch()})
 		}
 		let starts = startOrder(AllForOne, 0, probe)
-		r0.Get() == 2 && r1.Get() == 2 && r2.Get() == 2 && len(log) >= 3 && log[0] == 0 && log[1] == 2 && log[2] == 1 && starts == []int{0, 1, 2}
+		r0.Get() == 2 && r1.Get() == 2 && r2.Get() == 2 && log.Len() >= 3 && log[0] == 0 && log[1] == 2 && log[2] == 1 && starts == []int{0, 1, 2}
 	}
 }
 
@@ -434,35 +435,35 @@ law RestForOneLeavesEarlierRunning(k int) {
 	let m0Ends = sync.NewRef[[]duration]([]duration{})
 	let m2Ends = sync.NewRef[[]duration]([]duration{})
 	let policy = Supervision{Strategy: RestForOne, Intensity: Intensity{Max: 2, Period: 1m}, Backoff: schedule.Forever()}
-	with context { Scheduler: c, time.Clock: c } {
+	with context { time.Scheduler: c, time.Clock: c } {
 		let start = time.Clock.Now()
-		Supervise(policy, []func() fails supFailed needs Scheduler | time.Clock{
-			func() fails supFailed needs Scheduler | time.Clock {
+		Supervise(policy, []func() fails supFailed needs time.Scheduler | time.Clock{
+			func() fails supFailed needs time.Scheduler | time.Clock {
 				let _ = incRef(r0)
 				scope.OnExit() {
 					let at = time.Clock.Now().Sub(start)
 					m0Ends.Update(func(xs []duration) []duration { xs.Append(at) })
 				}
-				Scheduler.Sleep(10s)
+				time.Scheduler.Sleep(10s)
 			},
-			func() fails supFailed needs Scheduler | time.Clock {
+			func() fails supFailed needs time.Scheduler | time.Clock {
 				let run = incRef(r1)
 				if run == 1 {
-					Scheduler.Sleep(1s)
+					time.Scheduler.Sleep(1s)
 					triggerDefect()
 				}
-				Scheduler.Sleep(2s)
+				time.Scheduler.Sleep(2s)
 			},
-			func() fails supFailed needs Scheduler | time.Clock {
+			func() fails supFailed needs time.Scheduler | time.Clock {
 				let run = incRef(r2)
 				scope.OnExit() {
 					let at = time.Clock.Now().Sub(start)
 					m2Ends.Update(func(xs []duration) []duration { xs.Append(at) })
 				}
 				if run == 1 {
-					Scheduler.Sleep(1h)
+					time.Scheduler.Sleep(1h)
 				}
-				Scheduler.Sleep(2s)
+				time.Scheduler.Sleep(2s)
 			},
 		}) catch {
 		case _:
@@ -479,23 +480,23 @@ law FinishedMemberNeverRestarted(k int) {
 	let r1 = sync.NewRef[int](0)
 	let r2 = sync.NewRef[int](0)
 	let policy = Supervision{Strategy: strat, Intensity: Intensity{Max: 2, Period: 1m}, Backoff: schedule.Forever()}
-	with context { Scheduler: c, time.Clock: c } {
-		Supervise(policy, []func() fails supFailed needs Scheduler{
-			func() fails supFailed needs Scheduler {
+	with context { time.Scheduler: c, time.Clock: c } {
+		Supervise(policy, []func() fails supFailed needs time.Scheduler{
+			func() fails supFailed needs time.Scheduler {
 				let _ = incRef(r0)
-				Scheduler.Sleep(1s)
+				time.Scheduler.Sleep(1s)
 			},
-			func() fails supFailed needs Scheduler {
+			func() fails supFailed needs time.Scheduler {
 				let run = incRef(r1)
 				if run == 1 {
-					Scheduler.Sleep(2s)
+					time.Scheduler.Sleep(2s)
 					triggerDefect()
 				}
-				Scheduler.Sleep(1s)
+				time.Scheduler.Sleep(1s)
 			},
-			func() fails supFailed needs Scheduler {
+			func() fails supFailed needs time.Scheduler {
 				let _ = incRef(r2)
-				Scheduler.Sleep(1s)
+				time.Scheduler.Sleep(1s)
 			},
 		}) catch {
 		case _:
@@ -510,16 +511,16 @@ law IntensityWindowSlidesAndGivesUp(k int) {
 	let policy = Supervision{Strategy: OneForOne, Intensity: Intensity{Max: 2, Period: 10s}, Backoff: schedule.Forever()}
 	let c1 = testing.NewVirtualClock(0)
 	let rSlide = sync.NewRef[int](0)
-	let slid = with context { Scheduler: c1, time.Clock: c1 } {
-		Supervise(policy, []func() fails supFailed needs Scheduler{
-			func() fails supFailed needs Scheduler {
+	let slid = with context { time.Scheduler: c1, time.Clock: c1 } {
+		Supervise(policy, []func() fails supFailed needs time.Scheduler{
+			func() fails supFailed needs time.Scheduler {
 				let run = incRef(rSlide)
 				if run == 1 || run == 2 {
-					Scheduler.Sleep(1s)
+					time.Scheduler.Sleep(1s)
 					triggerDefect()
 				}
 				if run == 3 {
-					Scheduler.Sleep(11s)
+					time.Scheduler.Sleep(11s)
 					triggerDefect()
 				}
 			},
@@ -532,17 +533,17 @@ law IntensityWindowSlidesAndGivesUp(k int) {
 	let c2 = testing.NewVirtualClock(0)
 	let rBurst = sync.NewRef[int](0)
 	let siblingCleaned = sync.NewRef[int](0)
-	let gaveUp = with context { Scheduler: c2, time.Clock: c2 } {
+	let gaveUp = with context { time.Scheduler: c2, time.Clock: c2 } {
 		let start = time.Clock.Now()
-		Supervise(policy, []func() fails supFailed needs Scheduler{
-			func() fails supFailed needs Scheduler {
+		Supervise(policy, []func() fails supFailed needs time.Scheduler{
+			func() fails supFailed needs time.Scheduler {
 				let _ = incRef(rBurst)
-				Scheduler.Sleep(1s)
+				time.Scheduler.Sleep(1s)
 				triggerDefect()
 			},
-			func() fails supFailed needs Scheduler {
+			func() fails supFailed needs time.Scheduler {
 				scope.OnExit() { let _ = incRef(siblingCleaned) }
-				Scheduler.Sleep(1h)
+				time.Scheduler.Sleep(1h)
 			},
 		}) catch {
 		case GaveUp as g:
@@ -561,10 +562,10 @@ law BackoffWaitsBetweenRestarts(k int) {
 	let times = sync.NewRef[[]duration]([]duration{})
 	let runs = sync.NewRef[int](0)
 	let policy = Supervision{Strategy: OneForOne, Intensity: Intensity{Max: 3, Period: 1m}, Backoff: schedule.Exponential(1s, 2.0, 10s)}
-	with context { Scheduler: c, time.Clock: c } {
+	with context { time.Scheduler: c, time.Clock: c } {
 		let start = time.Clock.Now()
-		Supervise(policy, []func() fails supFailed needs Scheduler | time.Clock{
-			func() fails supFailed needs Scheduler | time.Clock {
+		Supervise(policy, []func() fails supFailed needs time.Scheduler | time.Clock{
+			func() fails supFailed needs time.Scheduler | time.Clock {
 				let run = incRef(runs)
 				let at = time.Clock.Now().Sub(start)
 				times.Update(func(xs []duration) []duration { xs.Append(at) })
@@ -586,17 +587,17 @@ law StaleExitIgnoredAfterGroupRestart(k int) {
 	let r0 = sync.NewRef[int](0)
 	let r1 = sync.NewRef[int](0)
 	let policy = Supervision{Strategy: AllForOne, Intensity: Intensity{Max: 1, Period: 1m}, Backoff: schedule.Forever()}
-	with context { Scheduler: c, time.Clock: c } {
-		Supervise(policy, []func() fails supFailed needs Scheduler{
-			func() fails supFailed needs Scheduler {
+	with context { time.Scheduler: c, time.Clock: c } {
+		Supervise(policy, []func() fails supFailed needs time.Scheduler{
+			func() fails supFailed needs time.Scheduler {
 				let run = incRef(r0)
 				if run == 1 {
-					Scheduler.Sleep(1s)
+					time.Scheduler.Sleep(1s)
 					triggerDefect()
 				}
-				Scheduler.Sleep(1s)
+				time.Scheduler.Sleep(1s)
 			},
-			func() fails supFailed needs Scheduler {
+			func() fails supFailed needs time.Scheduler {
 				let run = incRef(r1)
 				scope.OnExit() {
 					if run == 1 {
@@ -604,9 +605,9 @@ law StaleExitIgnoredAfterGroupRestart(k int) {
 					}
 				}
 				if run == 1 {
-					Scheduler.Sleep(1h)
+					time.Scheduler.Sleep(1h)
 				}
-				Scheduler.Sleep(1s)
+				time.Scheduler.Sleep(1s)
 			},
 		}) catch {
 		case _:
@@ -621,21 +622,21 @@ law TypedFailureEndsGroup(k int) {
 	let stops = sync.NewRef[[]int]([]int{})
 	let r1 = sync.NewRef[int](0)
 	let policy = Supervision{Strategy: AllForOne, Intensity: Intensity{Max: 5, Period: 1m}, Backoff: schedule.Forever()}
-	with context { Scheduler: c, time.Clock: c } {
+	with context { time.Scheduler: c, time.Clock: c } {
 		let start = time.Clock.Now()
-		Supervise(policy, []func() fails supFailed needs Scheduler{
-			func() fails supFailed needs Scheduler {
+		Supervise(policy, []func() fails supFailed needs time.Scheduler{
+			func() fails supFailed needs time.Scheduler {
 				scope.OnExit() { appendInt(stops, 0) }
-				Scheduler.Sleep(1h)
+				time.Scheduler.Sleep(1h)
 			},
-			func() fails supFailed needs Scheduler {
+			func() fails supFailed needs time.Scheduler {
 				let _ = incRef(r1)
-				Scheduler.Sleep(1s)
+				time.Scheduler.Sleep(1s)
 				return supFailed{Code: k}
 			},
-			func() fails supFailed needs Scheduler {
+			func() fails supFailed needs time.Scheduler {
 				scope.OnExit() { appendInt(stops, 2) }
-				Scheduler.Sleep(1h)
+				time.Scheduler.Sleep(1h)
 			},
 		}) catch {
 		case supFailed as f:
@@ -652,29 +653,29 @@ law CallerStopDrainsCleanup() {
 	let cleaned = sync.NewRef[int](0)
 	let ready = queue.New[int](3)
 	let policy = Supervision{Strategy: OneForOne, Intensity: Intensity{Max: 2, Period: 1m}, Backoff: schedule.Forever()}
-	with context { Scheduler: c, time.Clock: c } {
+	with context { time.Scheduler: c, time.Clock: c } {
 		let t = task.Go() {
-			Supervise(policy, []func() fails supFailed needs Scheduler{
-				func() fails supFailed needs Scheduler {
+			Supervise(policy, []func() fails supFailed needs time.Scheduler{
+				func() fails supFailed needs time.Scheduler {
 					scope.OnExit() { let _ = incRef(cleaned) }
 					ready.Offer(0) catch {
 					case _:
 					}
-					Scheduler.Sleep(1h)
+					time.Scheduler.Sleep(1h)
 				},
-				func() fails supFailed needs Scheduler {
+				func() fails supFailed needs time.Scheduler {
 					scope.OnExit() { let _ = incRef(cleaned) }
 					ready.Offer(1) catch {
 					case _:
 					}
-					Scheduler.Sleep(1h)
+					time.Scheduler.Sleep(1h)
 				},
-				func() fails supFailed needs Scheduler {
+				func() fails supFailed needs time.Scheduler {
 					scope.OnExit() { let _ = incRef(cleaned) }
 					ready.Offer(2) catch {
 					case _:
 					}
-					Scheduler.Sleep(1h)
+					time.Scheduler.Sleep(1h)
 				},
 			}) catch {
 			case _:
@@ -740,10 +741,10 @@ law SetSupervisedFollowsDecide(k int) {
 	let c1 = testing.NewVirtualClock(0)
 	let times = sync.NewRef[[]duration]([]duration{})
 	let runs = sync.NewRef[int](0)
-	let slid = with context { Scheduler: c1, time.Clock: c1 } {
+	let slid = with context { time.Scheduler: c1, time.Clock: c1 } {
 		let start = time.Clock.Now()
 		let set = NewSupervisedSet(policy)
-		Go(set, func() needs Scheduler | time.Clock {
+		Go(set, func() needs time.Scheduler | time.Clock {
 			let run = incRef(runs)
 			let at = time.Clock.Now().Sub(start)
 			times.Update(func(xs []duration) []duration { xs.Append(at) })
@@ -751,7 +752,7 @@ law SetSupervisedFollowsDecide(k int) {
 				triggerDefect()
 			}
 			if run == 3 {
-				Scheduler.Sleep(10s)
+				time.Scheduler.Sleep(10s)
 				triggerDefect()
 			}
 		}) catch {
@@ -763,13 +764,13 @@ law SetSupervisedFollowsDecide(k int) {
 	let c2 = testing.NewVirtualClock(0)
 	let burstRuns = sync.NewRef[int](0)
 	let siblingCleaned = sync.NewRef[int](0)
-	let gaveUp = with context { Scheduler: c2, time.Clock: c2 } {
+	let gaveUp = with context { time.Scheduler: c2, time.Clock: c2 } {
 		let start = time.Clock.Now()
 		let t = task.Go() {
 			let set = NewSupervisedSet(policy)
-			Go(set, func() needs Scheduler {
+			Go(set, func() needs time.Scheduler {
 				scope.OnExit() { let _ = incRef(siblingCleaned) }
-				Scheduler.Sleep(1h)
+				time.Scheduler.Sleep(1h)
 			}) catch {
 			case Closed:
 			}

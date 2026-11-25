@@ -1,5 +1,6 @@
 import hex
 import maps
+import option
 import sha256
 import slices
 import strings
@@ -105,7 +106,8 @@ func checkIsDeterministic(seed int) bool needs Checker {
 //   - Script: Steps in order, each on the sources the one before made.
 //   - Rename: the declaration at Of, and every site that names it, takes
 //     the name To (rename.ergo).
-type Change = Replace{Of string, Text string}
+type Change =
+	| Replace{Of string, Text string}
 	| Insert{After string, Text string}
 	| Delete{Of string}
 	| Fixes{Rules []string}
@@ -220,7 +222,7 @@ func keep(s Store, p Planned) {
 			}
 		}
 		out = out.Append(p)
-		if len(out) > MaxPlans { slices.Slice(out, len(out) - MaxPlans, len(out)) } else { out }
+		if out.Len() > MaxPlans { slices.Slice(out, out.Len()-MaxPlans, out.Len()) } else { out }
 	})
 }
 
@@ -265,7 +267,7 @@ func revision(text string) string { strings.Slice(hex.Encode(sha256.Sum(text)), 
 func revisionOf(sources []Source) string {
 	let mut all = ""
 	for s in sources {
-		all = all + s.File + "\n\(len(s.Text))\n" + s.Text
+		all = all + s.File + "\n\(s.Text.Len())\n" + s.Text
 	}
 	revision(all)
 }
@@ -321,8 +323,8 @@ func planChange(sources []Source, c Change, checker Checker) Planned fails BadCh
 // Ready with the proof Checked and no impact. Before and after name the
 // same files in the same order, else BadChange.
 func Rewritten(what string, before []Source, after []Source) Planned fails BadChange {
-	if len(before) != len(after) {
-		return BadChange{Reason: "a rewrite names \(len(before)) files before and \(len(after)) after"}
+	if before.Len() != after.Len() {
+		return BadChange{Reason: "a rewrite names \(before.Len()) files before and \(after.Len()) after"}
 	}
 	let mut reads = []FileRead{}
 	let mut files = []FileChange{}
@@ -362,10 +364,10 @@ func verdictOf(base Report, after Report) Verdict {
 			added = added.Append(d)
 		}
 	}
-	if len(added) > 0 {
+	if added.Len() > 0 {
 		return Blocked{Diagnostics: added}
 	}
-	if len(base.Diagnostics) > 0 {
+	if base.Diagnostics.Len() > 0 {
 		return Ready{Proof: Checked}
 	}
 	if after.Code == base.Code { Ready{Proof: SameCode} } else { Ready{Proof: Checked} }
@@ -408,13 +410,13 @@ func changed(sources []Source, report Report, c Change, checker Checker) []Sourc
 			seen = seen.Append(at)
 			let mut edits = []Edit{}
 			for d in r.Diagnostics {
-				if len(f.Rules) == 0 || has(f.Rules, d.Code) {
+				if f.Rules.Len() == 0 || has(f.Rules, d.Code) {
 					for e in d.Fix {
 						edits = edits.Append(e)
 					}
 				}
 			}
-			if len(edits) == 0 {
+			if edits.Len() == 0 {
 				return cur
 			}
 			cur = try edited(cur, edits)
@@ -441,10 +443,10 @@ func deletion(sources []Source, e Extent) Edit {
 			text = s.Text
 		}
 	}
-	if e.End < len(text) && strings.Slice(text, e.End, e.End + 1) == "\n" {
+	if e.End < text.Len() && strings.Slice(text, e.End, e.End+1) == "\n" {
 		return Edit{File: e.File, Start: e.Start, End: e.End + 1, Text: ""}
 	}
-	if e.Start >= 2 && strings.Slice(text, e.Start - 2, e.Start) == "\n\n" {
+	if e.Start >= 2 && strings.Slice(text, e.Start-2, e.Start) == "\n\n" {
 		return Edit{File: e.File, Start: e.Start - 1, End: e.End, Text: ""}
 	}
 	Edit{File: e.File, Start: e.Start, End: e.End, Text: ""}
@@ -476,8 +478,8 @@ func edited(sources []Source, edits []Edit) []Source fails BadChange {
 				mine = mine.Append(e)
 			}
 		}
-		done = done + len(mine)
-		if len(mine) == 0 {
+		done = done + mine.Len()
+		if mine.Len() == 0 {
 			out = out.Append(s)
 			continue
 		}
@@ -488,8 +490,8 @@ func edited(sources []Source, edits []Edit) []Source fails BadChange {
 			}
 		}
 		let sorted = slices.SortStableFunc(unique, func(a Edit, b Edit) int { a.Start - b.Start })
-		for i in 1..len(sorted) {
-			let a = sorted[i - 1]
+		for i in 1..sorted.Len() {
+			let a = sorted[i-1]
 			let b = sorted[i]
 			let inserts = a.Start == a.End && b.Start == b.End
 			if b.Start < a.End || b.Start == a.Start && !inserts {
@@ -497,18 +499,18 @@ func edited(sources []Source, edits []Edit) []Source fails BadChange {
 			}
 		}
 		let mut text = s.Text
-		let mut k = len(sorted) - 1
+		let mut k = sorted.Len() - 1
 		for k >= 0 {
 			let e = sorted[k]
-			if e.Start < 0 || e.End > len(text) || e.Start > e.End {
+			if e.Start < 0 || e.End > text.Len() || e.Start > e.End {
 				return BadChange{Reason: "an edit of \(s.File) lies outside it: \(e.Start)..\(e.End)"}
 			}
-			text = strings.Slice(text, 0, e.Start) + e.Text + strings.Slice(text, e.End, len(text))
+			text = strings.Slice(text, 0, e.Start) + e.Text + strings.Slice(text, e.End, text.Len())
 			k = k - 1
 		}
 		out = out.Append(Source{File: s.File, Text: text})
 	}
-	if done != len(edits) {
+	if done != edits.Len() {
 		return BadChange{Reason: "an edit names a file the workspace does not have"}
 	}
 	out
@@ -520,18 +522,18 @@ func diff(file string, old string, new string) string {
 	let a = strings.Split(old, "\n")
 	let b = strings.Split(new, "\n")
 	let mut head = 0
-	for head < len(a) && head < len(b) && a[head] == b[head] {
+	for head < a.Len() && head < b.Len() && a[head] == b[head] {
 		head = head + 1
 	}
 	let mut tail = 0
-	for tail < len(a) - head && tail < len(b) - head && a[len(a) - 1 - tail] == b[len(b) - 1 - tail] {
+	for tail < a.Len()-head && tail < b.Len()-head && a[a.Len()-1-tail] == b[b.Len()-1-tail] {
 		tail = tail + 1
 	}
-	let mut out = "--- a/\(file)\n+++ b/\(file)\n@@ -\(head + 1),\(len(a) - head - tail) +\(head + 1),\(len(b) - head - tail) @@\n"
-	for i in head..len(a) - tail {
+	let mut out = "--- a/\(file)\n+++ b/\(file)\n@@ -\(head + 1),\(a.Len() - head - tail) +\(head + 1),\(b.Len() - head - tail) @@\n"
+	for i in head..a.Len()-tail {
 		out = out + "-" + a[i] + "\n"
 	}
-	for i in head..len(b) - tail {
+	for i in head..b.Len()-tail {
 		out = out + "+" + b[i] + "\n"
 	}
 	out
@@ -565,10 +567,10 @@ func describe(c Change) string {
 func SampleChange(pick int, word int) Change {
 	let names = []string{"Run", "Parse", "Token", "Load", "Emit", "Walk"}
 	let words = []string{"Run", "Token", "p1.Load", "keep", "?gone", "!loud"}
-	let name = names[slot(pick / 7, len(names))]
-	let h = "gen/p\(slot(pick / 59, 3)).\(name)"
-	let w = words[slot(word, len(words))]
-	let sig = if slot(word / 6, 3) == 0 { "\tsig s string\n" } else { "" }
+	let name = names[slot(pick/7, names.Len())]
+	let h = "gen/p\(slot(pick/59, 3)).\(name)"
+	let w = words[slot(word, words.Len())]
+	let sig = if slot(word/6, 3) == 0 { "\tsig s string\n" } else { "" }
 	let body = "func \(name)\n   use \(w)   \n" + sig
 	match slot(pick, 7) {
 	case 0:
@@ -582,7 +584,7 @@ func SampleChange(pick int, word int) Change {
 	case 4:
 		Script{Steps: []Change{Fixes{Rules: []string{"M1"}}, Replace{Of: h, Text: body}}}
 	case 5:
-		Rename{Of: h, To: if slot(word, 2) == 0 { "Fresh\(slot(word, 5))" } else { names[slot(word / 2, len(names))] }}
+		Rename{Of: h, To: if slot(word, 2) == 0 { "Fresh\(slot(word, 5))" } else { names[slot(word/2, names.Len())] }}
 	case _:
 		Replace{Of: name, Text: body}
 	}
@@ -646,7 +648,7 @@ func changeAt(s string) (Change, string) fails BadChange {
 		}
 		let inner = strings.Slice(rest, 0, end)
 		let rules = if inner == "" { []string{} } else { strings.Split(inner, " ") }
-		return (Fixes{Rules: rules}, strings.Slice(rest, end + 1, len(rest)))
+		return (Fixes{Rules: rules}, strings.Slice(rest, end+1, rest.Len()))
 	}
 	if strings.HasPrefix(s, "script (") {
 		let mut rest = strings.TrimPrefix(s, "script (")
@@ -673,8 +675,8 @@ func changeAt(s string) (Change, string) fails BadChange {
 // a ) or the end, and the text after it and its one space.
 func wordAt(s string) (string, string) fails BadChange {
 	let mut i = 0
-	for i < len(s) {
-		let c = strings.Slice(s, i, i + 1)
+	for i < s.Len() {
+		let c = strings.Slice(s, i, i+1)
 		if c == " " || c == ";" || c == ")" {
 			break
 		}
@@ -683,7 +685,7 @@ func wordAt(s string) (string, string) fails BadChange {
 	if i == 0 {
 		return BadChange{Reason: "an address is missing"}
 	}
-	let rest = strings.Slice(s, i, len(s))
+	let rest = strings.Slice(s, i, s.Len())
 	(strings.Slice(s, 0, i), strings.TrimPrefix(rest, " "))
 }
 
@@ -695,13 +697,13 @@ func quotedAt(s string) (string, string) fails BadChange {
 	}
 	let mut out = ""
 	let mut i = 1
-	for i < len(s) {
-		let c = strings.Slice(s, i, i + 1)
+	for i < s.Len() {
+		let c = strings.Slice(s, i, i+1)
 		if c == "\"" {
-			return (out, strings.Slice(s, i + 1, len(s)))
+			return (out, strings.Slice(s, i+1, s.Len()))
 		}
-		if c == "\\" && i + 1 < len(s) {
-			let e = strings.Slice(s, i + 1, i + 2)
+		if c == "\\" && i+1 < s.Len() {
+			let e = strings.Slice(s, i+1, i+2)
 			out = out + if e == "n" { "\n" } else { e }
 			i = i + 2
 			continue
@@ -760,10 +762,10 @@ func PlanText(p Planned) string {
 			b = b + "  \(d.File):\(d.Line):\(d.Column): \(d.Code) \(d.Message)\n"
 		}
 	}
-	if len(p.Impact) > 0 {
+	if p.Impact.Len() > 0 {
 		b = b + "impact\n" + ApiDiffText(p.Impact)
 	}
-	if len(p.Files) == 0 {
+	if p.Files.Len() == 0 {
 		b = b + "no file changes\n"
 	}
 	b + p.Patch
@@ -865,14 +867,14 @@ func Format(_ flip, text string) string fails CheckFailed { try Model.Format(tex
 law EqualEditsOnce(text string, at int) { equalEditsOnce(text, at) }
 
 func equalEditsOnce(text string, at int) bool {
-	let k = slot(at, len(text) + 1)
+	let k = slot(at, text.Len()+1)
 	let x = Edit{File: "f.ergo", Start: k, End: k, Text: "x"}
 	let y = Edit{File: "f.ergo", Start: k, End: k, Text: "yy"}
 	let out = edited([]Source{Source{File: "f.ergo", Text: text}}, []Edit{x, y, x}) catch {
 	case BadChange:
 		return false
 	}
-	len(out) == 1 && out[0].Text == strings.Slice(text, 0, k) + "xyy" + strings.Slice(text, k, len(text))
+	out.Len() == 1 && out[0].Text == strings.Slice(text, 0, k)+"xyy"+strings.Slice(text, k, text.Len())
 }
 
 // OverlayDiagnosticBlocks: a change whose overlay has a diagnostic the
@@ -885,8 +887,8 @@ func overlayDiagnosticBlocks(seed int, pick int) bool {
 	case CheckFailed:
 		return false
 	}
-	let e = report.Extents[slot(pick, len(report.Extents))]
-	let name = strings.TrimPrefix(e.Handle, packageOf(e.File) + ".")
+	let e = report.Extents[slot(pick, report.Extents.Len())]
+	let name = strings.TrimPrefix(e.Handle, packageOf(e.File)+".")
 	let t = trialOf(sources, Replace{Of: e.Handle, Text: "func \(name)\n\tuse ?undeclared\(seed)\n"})
 	if !t.Ok {
 		return false
@@ -897,7 +899,7 @@ func overlayDiagnosticBlocks(seed int, pick int) bool {
 	case Blocked as b:
 		let _ = ApplierOf(DiskOf(sources), t.Store).Apply(t.Plan.ID) catch {
 		case NotReady:
-			return len(b.Diagnostics) == 1 && b.Diagnostics[0].Code == "M1"
+			return b.Diagnostics.Len() == 1 && b.Diagnostics[0].Code == "M1"
 		case NoPlan:
 			return false
 		case Stale:
@@ -988,7 +990,7 @@ func untouchedKeepsBytes(seed int, pick int, word int) bool {
 	let mut ok = true
 	for e in before.Extents {
 		if e.Handle != resolved.Handle {
-			ok = ok && texts.Get(e.Handle) == Some[string]{Value: strings.Slice(textOf(sources, e.File), e.Start, e.End)}
+			ok = ok && texts.Get(e.Handle) == option.Some[string]{Value: strings.Slice(textOf(sources, e.File), e.Start, e.End)}
 		}
 	}
 	ok
@@ -1004,10 +1006,10 @@ func reformatIsSameCode(seed int, pick int) bool {
 	case CheckFailed:
 		return false
 	}
-	if len(report.Diagnostics) > 0 {
+	if report.Diagnostics.Len() > 0 {
 		return false
 	}
-	let e = report.Extents[slot(pick, len(report.Extents))]
+	let e = report.Extents[slot(pick, report.Extents.Len())]
 	let own = strings.Slice(textOf(sources, e.File), e.Start, e.End)
 	let t = trialOf(sources, Replace{Of: e.Handle, Text: strings.ReplaceAll(own, "\t", "    ") + "\n\n"})
 	t.Ok && t.Plan.Verdict == Ready{Proof: SameCode}

@@ -5,6 +5,7 @@
 
 import civil
 import gen
+import option
 import strings
 import time
 
@@ -20,26 +21,26 @@ func Matches(e Expr, dt civil.DateTime) bool { matchesAt(e, wallMinute(dt)) }
 
 // NextWall is the first wall minute after the minute of dt at which e
 // fires, or None when e does not fire within Horizon years.
-func NextWall(e Expr, dt civil.DateTime) Option[civil.DateTime] {
+func NextWall(e Expr, dt civil.DateTime) option.Option[civil.DateTime] {
 	match nextAt(e, wallMinute(dt), civil.Year(dt.Date)+Horizon()) {
-	case Some[int64] as w:
-		Some[civil.DateTime]{Value: wallOf(w.Value)}
-	case None:
-		None
+	case option.Some[int64] as w:
+		option.Some[civil.DateTime]{Value: wallOf(w.Value)}
+	case option.None:
+		option.None
 	}
 }
 
 // PreviousWall is the last wall minute before dt at which e fires, or
 // None when e does not fire within Horizon years. The minute of dt counts
 // when dt is past its first second.
-func PreviousWall(e Expr, dt civil.DateTime) Option[civil.DateTime] {
+func PreviousWall(e Expr, dt civil.DateTime) option.Option[civil.DateTime] {
 	let w = wallMinute(dt)
 	let from = if civil.Second(dt.Time) > 0 || civil.Nanosecond(dt.Time) > 0 { w + 1 } else { w }
 	match previousAt(e, from, civil.Year(dt.Date)-Horizon()) {
-	case Some[int64] as p:
-		Some[civil.DateTime]{Value: wallOf(p.Value)}
-	case None:
-		None
+	case option.Some[int64] as p:
+		option.Some[civil.DateTime]{Value: wallOf(p.Value)}
+	case option.None:
+		option.None
 	}
 }
 
@@ -139,7 +140,7 @@ func matchesAt(e Expr, w int64) bool {
 // nextAt is the first wall minute after w at which e fires, or None past
 // the year limit. It skips a whole month, day or hour that cannot match,
 // so it steps at most a few thousand times a year.
-func nextAt(e Expr, w int64, limit int) Option[int64] {
+func nextAt(e Expr, w int64, limit int) option.Option[int64] {
 	let mut at = w + 1
 	let mut c = calOf(dayOf(at))
 	for {
@@ -147,7 +148,7 @@ func nextAt(e Expr, w int64, limit int) Option[int64] {
 		c = toward(c, day)
 		let m = at - day*1440
 		if c.year > limit {
-			return None
+			return option.None
 		}
 		if !Has(e.Month, c.month) {
 			c = firstOfNext(c)
@@ -159,15 +160,15 @@ func nextAt(e Expr, w int64, limit int) Option[int64] {
 		} else if !Has(e.Minute, int(m%60)) {
 			at = at + 1
 		} else {
-			return Some[int64]{Value: at}
+			return option.Some[int64]{Value: at}
 		}
 	}
-	None
+	option.None
 }
 
 // previousAt is the last wall minute before w at which e fires, or None
 // before the year limit, skipping as nextAt does.
-func previousAt(e Expr, w int64, limit int) Option[int64] {
+func previousAt(e Expr, w int64, limit int) option.Option[int64] {
 	let mut at = w - 1
 	let mut c = calOf(dayOf(at))
 	for {
@@ -175,7 +176,7 @@ func previousAt(e Expr, w int64, limit int) Option[int64] {
 		c = toward(c, day)
 		let m = at - day*1440
 		if c.year < limit {
-			return None
+			return option.None
 		}
 		if !Has(e.Month, c.month) {
 			c = lastOfPrevious(c)
@@ -187,10 +188,10 @@ func previousAt(e Expr, w int64, limit int) Option[int64] {
 		} else if !Has(e.Minute, int(m%60)) {
 			at = at - 1
 		} else {
-			return Some[int64]{Value: at}
+			return option.Some[int64]{Value: at}
 		}
 	}
-	None
+	option.None
 }
 
 // WalksKeepTheCalendar: from midnight of a drawn day of years 1 to 9970,
@@ -249,11 +250,11 @@ law WalksKeepTheCalendar() {
 }
 
 // wallOr is o's wall time, or d when o is None.
-func wallOr(o Option[civil.DateTime], d civil.DateTime) civil.DateTime {
+func wallOr(o option.Option[civil.DateTime], d civil.DateTime) civil.DateTime {
 	match o {
-	case Some[civil.DateTime] as v:
+	case option.Some[civil.DateTime] as v:
 		v.Value
-	case None:
+	case option.None:
 		d
 	}
 }
@@ -267,10 +268,10 @@ law NextWallIsFirstMatch() {
 		let dt = gen.Named("wall", func(v civil.DateTime) string { "\(civil.UnixDays(v.Date)):\(civil.Hour(v.Time)):\(civil.Minute(v.Time))" }, drawnWall)
 		let walked = walkWall(e, dt, 2880, 1)
 		match NextWall(e, dt) {
-		case Some[civil.DateTime] as n:
-			Matches(e, n.Value) && (walked == Some[civil.DateTime]{Value: n.Value} || walked == None && civil.Sub(n.Value, dt) > 2880m)
-		case None:
-			walked == None
+		case option.Some[civil.DateTime] as n:
+			Matches(e, n.Value) && (walked == option.Some[civil.DateTime]{Value: n.Value} || walked == option.None && civil.Sub(n.Value, dt) > 2880m)
+		case option.None:
+			walked == option.None
 		}
 	})) == ""
 	true
@@ -283,15 +284,15 @@ func drawnWall() civil.DateTime needs gen.Draws {
 
 // walkWall is the first of the n wall minutes after dt (step 1) or before
 // it (step -1), one at a time, at which e fires.
-func walkWall(e Expr, dt civil.DateTime, n int, step int) Option[civil.DateTime] {
+func walkWall(e Expr, dt civil.DateTime, n int, step int) option.Option[civil.DateTime] {
 	let start = minuteOf(dt)
 	for k in 1..n+1 {
 		let w = civil.AddDuration(start, time.Times(1m, k*step))
 		if Matches(e, w) {
-			return Some[civil.DateTime]{Value: w}
+			return option.Some[civil.DateTime]{Value: w}
 		}
 	}
-	None
+	option.None
 }
 
 // PreviousWallIsLastMatch: as NextWallIsFirstMatch, backward.
@@ -301,10 +302,10 @@ law PreviousWallIsLastMatch() {
 		let dt = gen.Named("wall", func(v civil.DateTime) string { "\(civil.UnixDays(v.Date)):\(civil.Hour(v.Time)):\(civil.Minute(v.Time))" }, drawnWall)
 		let walked = walkWall(e, dt, 2880, -1)
 		match PreviousWall(e, dt) {
-		case Some[civil.DateTime] as p:
-			Matches(e, p.Value) && (walked == Some[civil.DateTime]{Value: p.Value} || walked == None && civil.Sub(dt, p.Value) > 2880m)
-		case None:
-			walked == None
+		case option.Some[civil.DateTime] as p:
+			Matches(e, p.Value) && (walked == option.Some[civil.DateTime]{Value: p.Value} || walked == option.None && civil.Sub(dt, p.Value) > 2880m)
+		case option.None:
+			walked == option.None
 		}
 	})) == ""
 	true
@@ -330,10 +331,10 @@ func firedDays(e Expr, from int64, n int) string {
 	let mut out = []string{}
 	for _ in 0..n {
 		match NextWall(e, dt) {
-		case Some[civil.DateTime] as w:
+		case option.Some[civil.DateTime] as w:
 			out = out.Append("\(time.UnixSeconds(civil.Instant(w.Value)))")
 			dt = w.Value
-		case None:
+		case option.None:
 			return strings.Join(out, " ")
 		}
 	}

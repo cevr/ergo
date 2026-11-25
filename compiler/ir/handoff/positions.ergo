@@ -1,13 +1,14 @@
 import compiler/ir
 import dense
+import option
 
 // Position resolves a span to its .ergo path, half-open byte range, and
 // one-based line and byte column. The line table needs no source reread.
 type Position { Path string, Start uint32, End uint32, Line int, Column uint32 }
 
-func PositionOf(p Image, span uint32) Option[Position] {
+func PositionOf(p Image, span uint32) option.Option[Position] {
 	if !ref(p, ir.HSpans, span) {
-		return None
+		return option.None
 	}
 	let i = int(span) - 1
 	let start = word(p, ir.HSpans, i, 1)
@@ -23,12 +24,12 @@ func PositionOf(p Image, span uint32) Option[Position] {
 			right = middle
 		}
 	}
-	Some[Position]{Value: Position{Path: name(p, ir.HFiles, file, 0), Start: start, End: word(p, ir.HSpans, i, 2),
+	option.Some[Position]{Value: Position{Path: name(p, ir.HFiles, file, 0), Start: start, End: word(p, ir.HSpans, i, 2),
 		Line: left - base + 1, Column: start - word(p, ir.HLines, left, 0) + 1}}
 }
 
 // SpanAt is the typed projection for the compiler's own span table.
-func SpanAt(p Image, span ir.HandoffRef[ir.HandoffSpan]) Option[Position] { PositionOf(p, ir.HandoffWord(span)) }
+func SpanAt(p Image, span ir.HandoffRef[ir.HandoffSpan]) option.Option[Position] { PositionOf(p, ir.HandoffWord(span)) }
 
 law PositionsKeepSourceBytes(seed uint32) {
 	let p = sample(seed) catch {
@@ -38,6 +39,6 @@ law PositionsKeepSourceBytes(seed uint32) {
 	let mut c = dense.NewCount[ir.HandoffSpan]()
 	let _ = c.Next()
 	let second = ir.HandoffID(c.Next())
-		SpanAt(p, second) == Some[Position]{Value: Position{Path: "main.ergo", Start: 40, End: 43, Line: 2, Column: 11}} &&
-		PositionOf(p, 3) == None
+		SpanAt(p, second) == option.Some[Position]{Value: Position{Path: "main.ergo", Start: 40, End: 43, Line: 2, Column: 11}} &&
+		PositionOf(p, 3) == option.None
 }
