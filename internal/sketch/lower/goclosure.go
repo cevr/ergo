@@ -261,6 +261,7 @@ type GoClosure struct {
 	Decls    []string // "<import path> <key>", sorted
 	Widened  []string // import paths, sorted
 	Unloaded bool     // the entry package could not be loaded
+	deps     map[string]string
 }
 
 // closure is the closure key of name (F, T or T.M) of the package at
@@ -416,7 +417,10 @@ func (w *goWorld) closure(entry, name string) GoClosure {
 		}
 	}
 	h := sha256.New()
-	out := GoClosure{}
+	out := GoClosure{deps: make(map[string]string, len(entered))}
+	for p := range entered {
+		out.deps[p] = filesHash(w.pkgs[p].files)
+	}
 	var keys []string
 	for it := range seen {
 		if widened[it.pkg] {
