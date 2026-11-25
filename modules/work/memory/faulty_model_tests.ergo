@@ -1,0 +1,301 @@
+import fstest
+import gen
+import github.com/cevr/ergo/modules/work/work
+import sync
+import temporal
+import testing
+import time
+
+func workToolWithRegistry(reg work.Registry) (work.Tool, Lock) {
+	let trees = NewCloner()
+	let vcs = VcsOver(trees)
+	let files = Map[string, string]{"main.ergo": "func main() {}\n", ".gitignore": "dist\nnode_modules\n"}
+	Repo(vcs, theBase, "main", files, "c0")
+	let disk = fstest.NewMemory()
+	let lock = NewLock()
+	let p = work.Providers{Cloners: []work.Cloner{trees}, Copier: Beside(trees, false), Registry: reg, Lock: lock, Hooks: Recording(lock, ""), Vcs: vcs, Files: MarkedOver(disk, trees), Writes: MarkedOver(disk, trees), Runner: NewRunner(), Clock: time.NewManual(1000)}
+	(work.NewTool(theBase, work.Home(theBase, ""), "/data", p, "/"), lock)
+}
+
+func tryWorkPin(tool work.Tool, name string) int {
+	let _ = tool.Pin(name) catch {
+	case work.Unkept:
+		return 1
+	case _:
+		return -1
+	}
+	0
+}
+
+func tryWorkList(tool work.Tool) int {
+	let _ = tool.List(work.ListOptions{Status: false}) catch {
+	case work.Unkept:
+		return 1
+	case _:
+		return -1
+	}
+	0
+}
+
+// WorkRegistryFaultsFailClosed verifies that injected work.Registry faults
+// propagate cleanly as work.Unkept, always release the lock, and never corrupt
+// the inner registry.
+law WorkRegistryFaultsFailClosed() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 48, Shrinks: 0, MaxDraws: 512, MaxRejected: 10}
+	let sawSuccess = sync.NewRef(false)
+	let sawWriteFault = sync.NewRef(false)
+	let sawReadFault = sync.NewRef(false)
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let inner = NewRegistry()
+		let (cleanTool, _) = workToolWithRegistry(inner)
+		let _ = cleanTool.Init() catch {
+		case _:
+			return false
+		}
+		let _ = cleanTool.New("alpha", work.NewOptions{Copy: false, From: None, Branch: None, On: None, Token: None}) catch {
+		case _:
+			return false
+		}
+		let faulty = testing.Faulty[work.Registry](inner)
+		let (tool, lock) = workToolWithRegistry(faulty)
+		let _ = tool.Init() catch {
+		case _:
+			return false
+		}
+		let putBefore = len(faulty.Put.Faults())
+		let allBefore = len(faulty.All.Faults())
+		let pinRes = tryWorkPin(tool, "alpha")
+		if pinRes < 0 || lock.Holds() != 0 {
+			return false
+		}
+		let putFaulted = len(faulty.Put.Faults()) > putBefore
+		let allFaulted = len(faulty.All.Faults()) > allBefore
+		if pinRes == 1 {
+			if !putFaulted && !allFaulted {
+				return false
+			}
+			sawWriteFault.Set(true)
+			let innerAll = inner.All() catch {
+			case work.Unkept:
+				return false
+			}
+			if len(innerAll) != 1 || innerAll[0].Pinned {
+				return false
+			}
+		} else {
+			if putFaulted {
+				return false
+			}
+			sawSuccess.Set(true)
+			let innerAll = inner.All() catch {
+			case work.Unkept:
+				return false
+			}
+			if len(innerAll) != 1 || !innerAll[0].Pinned {
+				return false
+			}
+		}
+		let readFaultsBefore = len(faulty.All.Faults())
+		let listRes = tryWorkList(tool)
+		if listRes < 0 {
+			return false
+		}
+		let readFaulted = len(faulty.All.Faults()) > readFaultsBefore
+		if readFaulted {
+			sawReadFault.Set(true)
+			if listRes != 1 {
+				return false
+			}
+		} else if listRes != 0 {
+			return false
+		}
+		true
+	})
+	match outcome {
+	case gen.Held:
+		sawSuccess.Get() && sawWriteFault.Get() && sawReadFault.Get()
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}
+
+// WorkLifecycleModelTemporal proves work.Tool agrees with the pure lifecycle
+// model and satisfies temporal invariants across generated action traces.
+law WorkLifecycleModelTemporal() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 24, Shrinks: 0, MaxDraws: 512, MaxRejected: 10}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let tool = lawTool()
+		let _ = tool.Init() catch {
+		case _:
+			return false
+		}
+		let mut st = workPathState{AlphaActive: false, AlphaPinned: false, BetaActive: false, BetaPinned: false}
+		let mut trace = []temporal.Seen[workPathObs]{}
+		for step in 0..8 {
+			let act = gen.OneOf(workPathSignals)
+			let (next, wantOut) = workPathStep(st, act)
+			let gotOut = applyWorkAct(tool, act) catch {
+			case workPathDriveErr:
+				return false
+			}
+			let gotObs = readWorkObs(tool) catch {
+			case workPathDriveErr:
+				return false
+			}
+			if gotOut != wantOut || gotObs != workPathProject(next) {
+				return false
+			}
+			trace = trace.Append(temporal.Seen[workPathObs]{State: gotObs, At: time.Unix(int64(step), 0)})
+			st = next
+		}
+		let f1 = temporal.Always(temporal.Named("no-err", func(v workPathObs) bool { v.Active != "ERR" }))
+		let f2 = temporal.Always(temporal.Named("pinned-subset-active", func(v workPathObs) bool {
+			v.Pinned == "" || v.Active != ""
+		}))
+			temporal.Check(f1, trace, temporal.Idle) == temporal.Holds &&
+			temporal.Check(f2, trace, temporal.Idle) == temporal.Holds
+	})
+	match outcome {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}
+
+type workLockAct =
+	| LockHold{Owner int, Key string}
+	| LockRelease{Owner int, Key string}
+	| LockHeld{Owner int, Key string}
+
+func workLockStep(owners Map[string, int], act workLockAct) (Map[string, int], bool) {
+	match act {
+	case LockHold as a:
+		match owners.Get(a.Key) {
+		case Some[int]:
+			(owners, false)
+		case None:
+			(owners.Put(a.Key, a.Owner), true)
+		}
+	case LockRelease as a:
+		match owners.Get(a.Key) {
+		case Some[int] as cur:
+			if cur.Value == a.Owner {
+				(owners.Delete(a.Key), true)
+			} else {
+				(owners, true)
+			}
+		case None:
+			(owners, true)
+		}
+	case LockHeld as a:
+		match owners.Get(a.Key) {
+		case Some[int] as cur:
+			(owners, cur.Value == a.Owner)
+		case None:
+			(owners, false)
+		}
+	}
+}
+
+type workRegAct =
+	| RegPut{Name string, Id string}
+	| RegDrop{Name string}
+	| RegHas{Name string}
+
+func workRegStep(m Map[string, string], act workRegAct) (Map[string, string], string) {
+	match act {
+	case RegPut as a:
+		(m.Put(a.Name, a.Id), "ok")
+	case RegDrop as a:
+		(m.Delete(a.Name), "ok")
+	case RegHas as a:
+		match m.Get(a.Name) {
+		case Some[string] as v:
+			(m, v.Value)
+		case None:
+			(m, "")
+		}
+	}
+}
+
+// WorkLockAndRegistryConcurrentLinearizable verifies that concurrent Hold/Release
+// on memory.Lock and concurrent Put/Drop/All on memory.Registry are strictly
+// linearizable.
+law WorkLockAndRegistryConcurrentLinearizable() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 20, Shrinks: 0, MaxDraws: 256, MaxRejected: 10}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let l1 = NewLock()
+		let l2 = Sharing(l1, 2)
+		let k1 = gen.OneOf([]string{"", "r1"})
+		let k2 = gen.OneOf([]string{"", "r1"})
+		let lockPlans = [][]workLockAct{
+			[]workLockAct{LockHold{Owner: 1, Key: k1}, LockHeld{Owner: 1, Key: k1}, LockRelease{Owner: 1, Key: k1}},
+			[]workLockAct{LockHold{Owner: 2, Key: k2}, LockHeld{Owner: 2, Key: k2}, LockRelease{Owner: 2, Key: k2}},
+		}
+		testing.AgreesConcurrent(Map[string, int]{}, workLockStep, lockPlans, func(act workLockAct) bool {
+			match act {
+			case LockHold as a:
+				let h = if a.Owner == 1 { l1 } else { l2 }
+				h.Hold(a.Key) catch {
+				case work.Unkept:
+					false
+				}
+			case LockRelease as a:
+				let h = if a.Owner == 1 { l1 } else { l2 }
+				h.Release(a.Key)
+				true
+			case LockHeld as a:
+				let h = if a.Owner == 1 { l1 } else { l2 }
+				h.Held(a.Key)
+			}
+		}) catch {
+		case testing.NotLinearizable[workLockAct, bool]:
+			return false
+		}
+		let reg = NewRegistry()
+		let n1 = gen.OneOf([]string{"a", "b"})
+		let n2 = gen.OneOf([]string{"a", "b"})
+		let regPlans = [][]workRegAct{
+			[]workRegAct{RegPut{Name: n1, Id: "id1"}, RegHas{Name: n1}, RegDrop{Name: n1}},
+			[]workRegAct{RegPut{Name: n2, Id: "id2"}, RegHas{Name: n2}, RegHas{Name: n1}},
+		}
+		testing.AgreesConcurrent(Map[string, string]{}, workRegStep, regPlans, func(act workRegAct) string {
+			match act {
+			case RegPut as a:
+				reg.Put(work.Workspace{Name: a.Name, Id: a.Id, Path: "/p/" + a.Name, Parent: "/base", Branch: a.Name, Cloner: "mem", State: work.Active, Since: 1, Base: "c0", Latest: "", Deps: "", Token: "", Moving: "", Pinned: false, Until: 0}) catch {
+				case work.Unkept:
+					return "err"
+				}
+				"ok"
+			case RegDrop as a:
+				reg.Drop(a.Name) catch {
+				case work.Unkept:
+					return "err"
+				}
+				"ok"
+			case RegHas as a:
+				let all = reg.All() catch {
+				case work.Unkept:
+					return "err"
+				}
+				for w in all {
+					if w.Name == a.Name {
+						return w.Id
+					}
+				}
+				""
+			}
+		}) catch {
+		case testing.NotLinearizable[workRegAct, string]:
+			return false
+		}
+		true
+	})
+	match outcome {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}

@@ -1,0 +1,301 @@
+import gen
+import github.com/cevr/ergo/modules/infra
+import sync
+import temporal
+import testing
+
+type infraModelStage { world World } implements testing.Stage[infraPathAct, infraPathObs]
+
+func Do(st infraModelStage, act infraPathAct) fails testing.Refused {
+	let _ = applyInfraAct(st.world, act) catch {
+	case infraPathDriveErr as e:
+		return testing.Refused{Why: e.Message}
+	}
+}
+
+func Advance(st infraModelStage, d duration) {
+	let _ = (st, d)
+}
+
+func Settle(st infraModelStage) {
+	let _ = st
+}
+
+func Show(st infraModelStage) infraPathObs {
+	readInfraObs(st.world)
+}
+
+func drawInfraModelAct(st infraPathState) infraPathAct needs gen.Draws {
+	let _ = st
+	gen.OneOf(infraPathSignals)
+}
+
+func ensureTwoDirs(want Want) fails infra.Failed needs infra.Kind[DirProps, Dir] {
+	for i in 0..2 {
+		if want.Of[i] != 0 {
+			let _ = try infra.Kind[DirProps, Dir].Ensure("d\(i)", dirProps(i, want.Of[i]))
+		}
+	}
+}
+
+func applyDirsWithFaulty(w World, drv infra.Driver[DirProps, Dir], st infra.State[DirProps], holder string, want Want) Ran {
+	let r = infra.NewPass(infra.Applying)
+	let dirs = infra.Engine[DirProps, Dir]{Kind: "dir", Driver: drv, State: st, Pass: r}
+	let engines = []infra.Sweeper{dirs}
+	infra.Begin(r, w.lock, holder, engines) catch {
+	case infra.Held as h:
+		return Locked{Holder: h.Holder}
+	}
+	with context { infra.Kind[DirProps, Dir]: dirs } {
+		ensureTwoDirs(want)
+	} catch {
+	case infra.Failed:
+		return Crashed
+	}
+	infra.Finish(r, w.lock, holder, engines) catch {
+	case infra.Failed:
+		return Crashed
+	}
+	Finished{Steps: infra.Steps(r)}
+}
+
+// InfraDriverAndStateFaultsPreserveInvariants wraps both infra.Driver and
+// infra.State with testing.Faulty and proves NoOrphan, LiveIsTrue, and
+// post-recovery convergence hold across every faulted apply.
+law InfraDriverAndStateFaultsPreserveInvariants() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 48, Shrinks: 0, MaxDraws: 512, MaxRejected: 10}
+	let sawClean = sync.NewRef(false)
+	let sawDriverFault = sync.NewRef(false)
+	let sawStateFault = sync.NewRef(false)
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let w = newWorld()
+		let faultyDrv = testing.Faulty[infra.Driver[DirProps, Dir]](DirsIn(w.cloud))
+		let faultyState = testing.Faulty[infra.State[DirProps]](w.dirs)
+		let want = Want{Of: []int{1, 0, 0, 0, 0, 0}}
+		let drvApplyBefore = len(faultyDrv.Apply.Faults())
+		let stPutBefore = len(faultyState.Put.Faults())
+		let ran = applyDirsWithFaulty(w, faultyDrv, faultyState, "r1", want)
+		if !noOrphan(w) || !liveIsTrue(w) {
+			return false
+		}
+		if len(faultyDrv.Apply.Faults()) > drvApplyBefore {
+			sawDriverFault.Set(true)
+		}
+		if len(faultyState.Put.Faults()) > stPutBefore {
+			sawStateFault.Set(true)
+		}
+		match ran {
+		case Finished:
+			sawClean.Set(true)
+			if !converged(w, want) {
+				return false
+			}
+		case Crashed:
+			if w.lock.Holder() != (Some[string]{Value: "r1"}) {
+				return false
+			}
+			w.lock.Break("r1") catch {
+			case infra.Held:
+				return false
+			}
+			match run(w, infra.Applying, "r2", want) {
+			case Finished:
+				if !converged(w, want) {
+					return false
+				}
+			case Crashed, Locked:
+				return false
+			}
+		case Locked:
+			return false
+		}
+		true
+	})
+	match outcome {
+	case gen.Held:
+		sawClean.Get() && sawDriverFault.Get() && sawStateFault.Get()
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}
+
+// InfraWorldModelTemporal proves infra.Engine agrees with the pure convergence
+// model and satisfies Always(noOrphan && liveIsTrue && freeLock).
+law InfraWorldModelTemporal() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 24, Shrinks: 0, MaxDraws: 512, MaxRejected: 10}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let w = newWorld()
+		let m = testing.Model[infraPathState, infraPathAct, infraPathObs]{
+			Start: infraPathState{D0: 0, D1: 0, F0: 0},
+			Offer: drawInfraModelAct,
+			Step:  func(st infraPathState, act infraPathAct) (infraPathState, infraPathObs) {
+				let (next, _) = infraPathStep(st, act)
+				(next, infraPathProject(next))
+			},
+		}
+		let formulas = []temporal.Formula[infraPathObs]{
+			temporal.Always(temporal.Named("no-orphan-and-live-true", func(v infraPathObs) bool { v.InvarOk })),
+			temporal.Always(temporal.Named("lock-free-after-step", func(v infraPathObs) bool { v.Free })),
+		}
+		testing.AgreesAnd(m, infraModelStage{world: w}, 8, formulas) catch {
+		case testing.Diverged[infraPathAct, infraPathObs], testing.TemporalBreach[infraPathAct, infraPathObs], testing.Refused:
+			return false
+		}
+		true
+	})
+	match outcome {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}
+
+type infraLockAct =
+	| ILockAcquire{Holder string}
+	| ILockRelease{Holder string}
+	| ILockBreak{Holder string}
+	| ILockHolder{}
+
+func infraLockStep(cur Option[string], act infraLockAct) (Option[string], string) {
+	match act {
+	case ILockAcquire as a:
+		match cur {
+		case Some[string] as h:
+			if h.Value == a.Holder {
+				(cur, "ok")
+			} else {
+				(cur, "held:" + h.Value)
+			}
+		case None:
+			(Some[string]{Value: a.Holder}, "ok")
+		}
+	case ILockRelease as a:
+		if cur == (Some[string]{Value: a.Holder}) {
+			(None, "ok")
+		} else {
+			(cur, "ok")
+		}
+	case ILockBreak as a:
+		match cur {
+		case Some[string] as h:
+			if h.Value == a.Holder {
+				(None, "ok")
+			} else {
+				(cur, "held:" + h.Value)
+			}
+		case None:
+			(None, "ok")
+		}
+	case ILockHolder:
+		match cur {
+		case Some[string] as h:
+			(cur, h.Value)
+		case None:
+			(cur, "")
+		}
+	}
+}
+
+type infraStateAct =
+	| IStatePut{ID string, Val int}
+	| IStateGet{ID string}
+	| IStateRemove{ID string}
+
+func infraStateStep(m Map[string, int], act infraStateAct) (Map[string, int], int) {
+	match act {
+	case IStatePut as a:
+		(m.Put(a.ID, a.Val), 0)
+	case IStateGet as a:
+		match m.Get(a.ID) {
+		case Some[int] as v:
+			(m, v.Value)
+		case None:
+			(m, -1)
+		}
+	case IStateRemove as a:
+		(m.Delete(a.ID), 0)
+	}
+}
+
+// InfraLockAndStateConcurrentLinearizable verifies that concurrent operations on
+// memory.Lock and memory.State are strictly linearizable.
+law InfraLockAndStateConcurrentLinearizable() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 24, Shrinks: 0, MaxDraws: 256, MaxRejected: 10}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let lk = NewLock()
+		let lockPlans = [][]infraLockAct{
+			[]infraLockAct{ILockAcquire{Holder: "r1"}, ILockHolder, ILockRelease{Holder: "r1"}},
+			[]infraLockAct{ILockAcquire{Holder: "r2"}, ILockBreak{Holder: "r1"}, ILockHolder},
+		}
+		testing.AgreesConcurrent[Option[string], infraLockAct, string](None, infraLockStep, lockPlans, func(act infraLockAct) string {
+			match act {
+			case ILockAcquire as a:
+				lk.Acquire(a.Holder) catch {
+				case infra.Held as h:
+					return "held:" + h.Holder
+				}
+				"ok"
+			case ILockRelease as a:
+				lk.Release(a.Holder)
+				"ok"
+			case ILockBreak as a:
+				lk.Break(a.Holder) catch {
+				case infra.Held as h:
+					return "held:" + h.Holder
+				}
+				"ok"
+			case ILockHolder:
+				match lk.Holder() {
+				case Some[string] as h:
+					h.Value
+				case None:
+					""
+				}
+			}
+		}) catch {
+		case testing.NotLinearizable[infraLockAct, string]:
+			return false
+		}
+		let st = NewState[int](NewFuse())
+		let id1 = gen.OneOf([]string{"d0", "d1"})
+		let id2 = gen.OneOf([]string{"d0", "d1"})
+		let stPlans = [][]infraStateAct{
+			[]infraStateAct{IStatePut{ID: id1, Val: 1}, IStateGet{ID: id1}, IStateRemove{ID: id2}},
+			[]infraStateAct{IStatePut{ID: id2, Val: 2}, IStateGet{ID: id2}, IStateGet{ID: id1}},
+		}
+		testing.AgreesConcurrent(Map[string, int]{}, infraStateStep, stPlans, func(act infraStateAct) int {
+			match act {
+			case IStatePut as a:
+				st.Put(infra.Row[int]{ID: a.ID, Status: infra.Live, Props: a.Val, Seq: a.Val}) catch {
+				case infra.Failed:
+					return -99
+				}
+				0
+			case IStateGet as a:
+				match st.Get(a.ID) {
+				case Some[infra.Row[int]] as r:
+					r.Value.Props
+				case None:
+					-1
+				}
+			case IStateRemove as a:
+				st.Remove(a.ID) catch {
+				case infra.Failed:
+					return -99
+				}
+				0
+			}
+		}) catch {
+		case testing.NotLinearizable[infraStateAct, int]:
+			return false
+		}
+		true
+	})
+	match outcome {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}

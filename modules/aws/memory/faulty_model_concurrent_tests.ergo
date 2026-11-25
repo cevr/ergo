@@ -1,0 +1,433 @@
+import gen
+import github.com/cevr/ergo/modules/aws/aws
+import github.com/cevr/ergo/modules/aws/s3
+import http
+import sync
+import temporal
+import testing
+
+func observeS3Key[S s3.S3](store S, key string) string fails awsPathDriveErr {
+	let head = store.HeadObject(s3.NewHeadObjectRequest("bk", key)) catch {
+	case s3.NotFound:
+		return "none"
+	case _:
+		return awsPathDriveErr{Message: "head failed"}
+	}
+	let n = match head.ContentLength {
+	case Some[int] as v:
+		v.Value
+	case None:
+		-1
+	}
+	let isGlacier = match head.StorageClass {
+	case Some[s3.StorageClass] as c:
+		c.Value == s3.StorageClassGlacier
+	case None:
+		false
+	}
+	if isGlacier {
+		"glacier:\(n)"
+	} else {
+		"std:\(n)"
+	}
+}
+
+func readS3StoreObs[S s3.S3](store S) awsPathObs fails awsPathDriveErr {
+	awsPathObs{K1: try observeS3Key(store, "k1"), K2: try observeS3Key(store, "k2")}
+}
+
+func applyS3StoreAct[S s3.S3](store S, act awsPathAct) awsPathOut fails awsPathDriveErr {
+	match act {
+	case AwsActPutStd as a:
+		let _ = store.PutObject(s3.PutObjectRequest{..s3.NewPutObjectRequest("bk", a.Key), Body: a.Body}) catch {
+		case _:
+			return awsPathDriveErr{Message: "put std failed"}
+		}
+		AwsOutPutOk
+	case AwsActPutGlacier as a:
+		let _ = store.PutObject(s3.PutObjectRequest{..s3.NewPutObjectRequest("bk", a.Key), Body: a.Body, StorageClass: Some[s3.StorageClass]{s3.StorageClassGlacier}}) catch {
+		case _:
+			return awsPathDriveErr{Message: "put glacier failed"}
+		}
+		AwsOutPutOk
+	case AwsActHead as a:
+		let out = store.HeadObject(s3.NewHeadObjectRequest("bk", a.Key)) catch {
+		case s3.NotFound:
+			return AwsOutNotFound
+		case _:
+			return awsPathDriveErr{Message: "head failed"}
+		}
+		let n = match out.ContentLength {
+		case Some[int] as v:
+			v.Value
+		case None:
+			-1
+		}
+		let archived = match out.StorageClass {
+		case Some[s3.StorageClass] as c:
+			c.Value == s3.StorageClassGlacier
+		case None:
+			false
+		}
+		AwsOutHead{Length: n, Archived: archived}
+	case AwsActGet as a:
+		let got = sync.NewRef[string]("")
+		let _ = store.GetObject(s3.NewGetObjectRequest("bk", a.Key), func(part string) fails http.SinkFailed {
+			got.Update(func(acc string) string { acc + part })
+		}) catch {
+		case s3.NoSuchKey:
+			return AwsOutNoSuchKey
+		case s3.InvalidObjectState:
+			return AwsOutInvalidState
+		case _:
+			return awsPathDriveErr{Message: "get failed"}
+		}
+		AwsOutGet{Body: got.Get()}
+	case AwsActDel as a:
+		let _ = store.DeleteObject(s3.NewDeleteObjectRequest("bk", a.Key)) catch {
+		case _:
+			return awsPathDriveErr{Message: "delete failed"}
+		}
+		AwsOutDelOk
+	}
+}
+
+type awsModelStage {
+	api s3.Api,
+} implements testing.Stage[awsPathAct, awsPathObs]
+
+func Do(st awsModelStage, act awsPathAct) fails testing.Refused {
+	let _ = applyS3StoreAct(st.api, act) catch {
+	case awsPathDriveErr as e:
+		return testing.Refused{Why: e.Message}
+	}
+}
+
+func Advance(st awsModelStage, d duration) {
+	let _ = (st, d)
+}
+
+func Settle(st awsModelStage) {
+	let _ = st
+}
+
+func Show(st awsModelStage) awsPathObs {
+	readS3StoreObs(st.api) catch {
+	case awsPathDriveErr:
+		awsPathObs{K1: "ERR", K2: "ERR"}
+	}
+}
+
+func drawAwsModelAct(st awsPathState) awsPathAct needs gen.Draws {
+	let _ = st
+	gen.OneOf(awsPathSignals)
+}
+
+func tryS3Put(r s3.PutObjectRequest) bool needs s3.S3 {
+	let _ = s3.S3.PutObject(r) catch {
+	case _:
+		return false
+	}
+	true
+}
+
+func tryS3Head(r s3.HeadObjectRequest) bool needs s3.S3 {
+	let _ = s3.S3.HeadObject(r) catch {
+	case _:
+		return false
+	}
+	true
+}
+
+func tryS3Get(r s3.GetObjectRequest, want string) bool needs s3.S3 {
+	let bodyRef = sync.NewRef[string]("")
+	let _ = s3.S3.GetObject(r, func(part string) fails http.SinkFailed {
+		bodyRef.Update(func(acc string) string { acc + part })
+	}) catch {
+	case _:
+		return false
+	}
+	bodyRef.Get() == want
+}
+
+func tryS3Del(r s3.DeleteObjectRequest) bool needs s3.S3 {
+	let _ = s3.S3.DeleteObject(r) catch {
+	case _:
+		return false
+	}
+	true
+}
+
+// AwsS3FaultsFailClosed verifies that injected s3.S3 faults propagate cleanly
+// on PutObject, HeadObject, GetObject, and DeleteObject and leave the inner
+// Memory store untouched on write faults.
+law AwsS3FaultsFailClosed() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 64, Shrinks: 0, MaxDraws: 1024, MaxRejected: 10}
+	let sawPutOk = sync.NewRef(false)
+	let sawPutFault = sync.NewRef(false)
+	let sawReadOk = sync.NewRef(false)
+	let sawReadFault = sync.NewRef(false)
+	let sawDelOk = sync.NewRef(false)
+	let sawDelFault = sync.NewRef(false)
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let inner = NewMemory()
+		let _ = inner.PutObject(s3.PutObjectRequest{..s3.NewPutObjectRequest("bk", "existing"), Body: "v1"}) catch {
+		case _:
+			return false
+		}
+		let faulty = testing.Faulty[s3.S3](inner)
+		let putBefore = len(faulty.PutObject.Faults())
+		let putOk = with context { s3.S3: faulty } {
+			tryS3Put(s3.PutObjectRequest{..s3.NewPutObjectRequest("bk", "fresh"), Body: "v2"})
+		}
+		if len(faulty.PutObject.Faults()) > putBefore {
+			sawPutFault.Set(true)
+			if putOk {
+				return false
+			}
+			let mut absent = false
+			let _ = inner.HeadObject(s3.NewHeadObjectRequest("bk", "fresh")) catch {
+			case s3.NotFound:
+				absent = true
+				s3.NewHeadObjectOutput()
+			case _:
+				return false
+			}
+			if !absent {
+				return false
+			}
+		} else {
+			if !putOk {
+				return false
+			}
+			sawPutOk.Set(true)
+		}
+		let headBefore = len(faulty.HeadObject.Faults())
+		let headOk = with context { s3.S3: faulty } {
+			tryS3Head(s3.NewHeadObjectRequest("bk", "existing"))
+		}
+		if len(faulty.HeadObject.Faults()) > headBefore {
+			sawReadFault.Set(true)
+			if headOk {
+				return false
+			}
+		} else {
+			if !headOk {
+				return false
+			}
+			sawReadOk.Set(true)
+		}
+		let getBefore = len(faulty.GetObject.Faults())
+		let getOk = with context { s3.S3: faulty } {
+			tryS3Get(s3.NewGetObjectRequest("bk", "existing"), "v1")
+		}
+		if len(faulty.GetObject.Faults()) > getBefore {
+			sawReadFault.Set(true)
+			if getOk {
+				return false
+			}
+		} else if !getOk {
+			return false
+		}
+		let delBefore = len(faulty.DeleteObject.Faults())
+		let delOk = with context { s3.S3: faulty } {
+			tryS3Del(s3.NewDeleteObjectRequest("bk", "existing"))
+		}
+		if len(faulty.DeleteObject.Faults()) > delBefore {
+			sawDelFault.Set(true)
+			if delOk {
+				return false
+			}
+			let still = inner.HeadObject(s3.NewHeadObjectRequest("bk", "existing")) catch {
+			case _:
+				return false
+			}
+			return still.ContentLength == Some[int]{Value: 2}
+		}
+		if !delOk {
+			return false
+		}
+		sawDelOk.Set(true)
+		let _ = inner.HeadObject(s3.NewHeadObjectRequest("bk", "existing")) catch {
+		case s3.NotFound:
+			return true
+		case _:
+			return false
+		}
+		false
+	})
+	match outcome {
+	case gen.Held:
+		sawPutOk.Get() && sawPutFault.Get() && sawReadOk.Get() && sawReadFault.Get() && sawDelOk.Get() && sawDelFault.Get()
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}
+
+// AwsS3ModelTemporal proves the HTTP-backed S3 client agrees with the pure S3
+// state model and temporal invariants across generated traces.
+law AwsS3ModelTemporal() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 24, Shrinks: 0, MaxDraws: 512, MaxRejected: 10}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let client = s3.New(http.InMemory(Handler(NewMemory())), aws.Unsigned)
+		let m = testing.Model[awsPathState, awsPathAct, awsPathObs]{
+			Start: awsPathState{K1: AwsAbsent, K2: AwsAbsent},
+			Offer: drawAwsModelAct,
+			Step:  func(st awsPathState, act awsPathAct) (awsPathState, awsPathObs) {
+				let (next, _) = awsPathStep(st, act)
+				(next, awsPathProject(next))
+			},
+		}
+		let formulas = []temporal.Formula[awsPathObs]{
+			temporal.Always(temporal.Named("no-err", func(v awsPathObs) bool { v.K1 != "ERR" && v.K2 != "ERR" })),
+			temporal.Always(temporal.Named("valid-slots", func(v awsPathObs) bool {
+					(v.K1 == "none" || v.K1 == "std:5" || v.K1 == "glacier:4") &&
+					(v.K2 == "none" || v.K2 == "std:3")
+			})),
+		}
+		testing.AgreesAnd(m, awsModelStage{api: client}, 10, formulas) catch {
+		case testing.Diverged[awsPathAct, awsPathObs], testing.TemporalBreach[awsPathAct, awsPathObs], testing.Refused:
+			return false
+		}
+		true
+	})
+	match outcome {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}
+
+// AwsS3ExploreTransports proves direct Memory and the REST HTTP client agree
+// step-for-step on both outputs and observable store state across generated
+// operation sequences.
+law AwsS3ExploreTransports() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 20, Shrinks: 0, MaxDraws: 512, MaxRejected: 10}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let direct = NewMemory()
+		let viaHttp = s3.New(http.InMemory(Handler(NewMemory())), aws.Unsigned)
+		let model = testing.ApiModel[awsPathObs, awsPathAct, awsPathOut]{
+			Start: awsPathObs{K1: "none", K2: "none"},
+			Offer: func(cur awsPathObs) awsPathAct needs gen.Draws {
+				let _ = cur
+				gen.OneOf(awsPathSignals)
+			},
+			Fold: func(cur awsPathObs, act awsPathAct) (awsPathObs, awsPathOut) {
+				let _ = cur
+				let out = applyS3StoreAct(direct, act) catch {
+				case awsPathDriveErr:
+					AwsOutNotFound
+				}
+				let snap = readS3StoreObs(direct) catch {
+				case awsPathDriveErr:
+					awsPathObs{K1: "ERR", K2: "ERR"}
+				}
+				(snap, out)
+			},
+		}
+		let runners = []testing.TransportRunner[awsPathAct, awsPathOut, awsPathObs]{
+			testing.TransportRunner[awsPathAct, awsPathOut, awsPathObs]{
+				Name:  "http",
+				Carry: func(act awsPathAct) awsPathOut fails testing.Refused {
+					applyS3StoreAct(viaHttp, act) catch {
+					case awsPathDriveErr as e:
+						return testing.Refused{Why: e.Message}
+					}
+				},
+				Snap: func() awsPathObs {
+					readS3StoreObs(viaHttp) catch {
+					case awsPathDriveErr:
+						awsPathObs{K1: "ERR", K2: "ERR"}
+					}
+				},
+			},
+		}
+		testing.ExploreTransports(model, runners, 8) catch {
+		case testing.TransportDiverged[awsPathAct, awsPathObs], testing.Refused:
+			return false
+		}
+		true
+	})
+	match outcome {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}
+
+type awsConcAct =
+	| ConcPut{Key string, Body string}
+	| ConcHead{Key string}
+	| ConcDel{Key string}
+
+func awsConcStep(m Map[string, int], act awsConcAct) (Map[string, int], int) {
+	match act {
+	case ConcPut as a:
+		(m.Put(a.Key, len(a.Body)), 0)
+	case ConcHead as a:
+		match m.Get(a.Key) {
+		case Some[int] as v:
+			(m, v.Value)
+		case None:
+			(m, -1)
+		}
+	case ConcDel as a:
+		(m.Delete(a.Key), 0)
+	}
+}
+
+// AwsS3ConcurrentLinearizable verifies that concurrent PutObject, HeadObject,
+// and DeleteObject calls on Memory are strictly linearizable.
+law AwsS3ConcurrentLinearizable() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 24, Shrinks: 0, MaxDraws: 256, MaxRejected: 10}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let mem = NewMemory()
+		let k1 = gen.OneOf([]string{"k1", "k2"})
+		let k2 = gen.OneOf([]string{"k1", "k2"})
+		let plans = [][]awsConcAct{
+			[]awsConcAct{ConcPut{Key: k1, Body: "abc"}, ConcHead{Key: k1}, ConcDel{Key: k2}},
+			[]awsConcAct{ConcPut{Key: k2, Body: "hello"}, ConcHead{Key: k2}, ConcHead{Key: k1}},
+		}
+		testing.AgreesConcurrent(Map[string, int]{}, awsConcStep, plans, func(act awsConcAct) int {
+			match act {
+			case ConcPut as a:
+				let _ = mem.PutObject(s3.PutObjectRequest{..s3.NewPutObjectRequest("bk", a.Key), Body: a.Body}) catch {
+				case _:
+					return -99
+				}
+				0
+			case ConcHead as a:
+				let out = mem.HeadObject(s3.NewHeadObjectRequest("bk", a.Key)) catch {
+				case s3.NotFound:
+					return -1
+				case _:
+					return -99
+				}
+				match out.ContentLength {
+				case Some[int] as v:
+					v.Value
+				case None:
+					-2
+				}
+			case ConcDel as a:
+				let _ = mem.DeleteObject(s3.NewDeleteObjectRequest("bk", a.Key)) catch {
+				case _:
+					return -99
+				}
+				0
+			}
+		}) catch {
+		case testing.NotLinearizable[awsConcAct, int]:
+			return false
+		}
+		true
+	})
+	match outcome {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}

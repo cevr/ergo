@@ -1,0 +1,302 @@
+import explore
+import github.com/cevr/ergo/modules/aws/aws
+import github.com/cevr/ergo/modules/aws/s3
+import http
+import sync
+import testing
+
+type awsSlot =
+	| AwsAbsent{}
+	| AwsStd{Body string}
+	| AwsGlacier{Body string}
+
+type awsPathState {
+	K1 awsSlot,
+	K2 awsSlot,
+}
+
+type awsPathAct =
+	| AwsActPutStd{Key string, Body string}
+	| AwsActPutGlacier{Key string, Body string}
+	| AwsActHead{Key string}
+	| AwsActGet{Key string}
+	| AwsActDel{Key string}
+
+type awsPathOut =
+	| AwsOutPutOk{}
+	| AwsOutHead{Length int, Archived bool}
+	| AwsOutNotFound{}
+	| AwsOutGet{Body string}
+	| AwsOutNoSuchKey{}
+	| AwsOutInvalidState{}
+	| AwsOutDelOk{}
+
+type awsPathObs {
+	K1 string,
+	K2 string,
+}
+
+type awsPathOpenErr { Message string }
+
+type awsPathDriveErr { Message string }
+
+type awsPathSession {
+	head func(r s3.HeadObjectRequest) s3.HeadObjectOutput fails s3.NotFound | aws.Failed | aws.Malformed | http.RequestFailed,
+	get  func(r s3.GetObjectRequest, put func(part string) fails http.SinkFailed) s3.GetObjectOutput fails s3.InvalidObjectState | s3.NoSuchKey | aws.Failed | aws.Malformed | http.RequestFailed | http.SinkFailed,
+	put  func(r s3.PutObjectRequest) s3.PutObjectOutput fails s3.EncryptionTypeMismatch | s3.InvalidRequest | s3.InvalidWriteOffset | s3.TooManyParts | aws.Failed | aws.Malformed | http.RequestFailed,
+	del  func(r s3.DeleteObjectRequest) s3.DeleteObjectOutput fails aws.Failed | aws.Malformed | http.RequestFailed,
+} implements explore.PathSession[awsPathAct, explore.Observed[awsPathObs, awsPathOut, Never], awsPathDriveErr]
+
+func awsSlotText(slot awsSlot) string {
+	match slot {
+	case AwsAbsent:
+		"none"
+	case AwsStd as s:
+		"std:\(len(s.Body))"
+	case AwsGlacier as g:
+		"glacier:\(len(g.Body))"
+	}
+}
+
+func awsObserveKey(s awsPathSession, key string) string fails awsPathDriveErr {
+	let head = s.head(s3.NewHeadObjectRequest("bk", key)) catch {
+	case s3.NotFound:
+		return "none"
+	case _:
+		return awsPathDriveErr{Message: "head failed"}
+	}
+	let n = match head.ContentLength {
+	case Some[int] as v:
+		v.Value
+	case None:
+		-1
+	}
+	let isGlacier = match head.StorageClass {
+	case Some[s3.StorageClass] as c:
+		c.Value == s3.StorageClassGlacier
+	case None:
+		false
+	}
+	if isGlacier {
+		"glacier:\(n)"
+	} else {
+		"std:\(n)"
+	}
+}
+
+func readAwsObs(s awsPathSession) awsPathObs fails awsPathDriveErr {
+	awsPathObs{K1: try awsObserveKey(s, "k1"), K2: try awsObserveKey(s, "k2")}
+}
+
+func applyAwsAct(s awsPathSession, act awsPathAct) awsPathOut fails awsPathDriveErr {
+	match act {
+	case AwsActPutStd as a:
+		let _ = s.put(s3.PutObjectRequest{..s3.NewPutObjectRequest("bk", a.Key), Body: a.Body}) catch {
+		case _:
+			return awsPathDriveErr{Message: "put std failed"}
+		}
+		AwsOutPutOk
+	case AwsActPutGlacier as a:
+		let _ = s.put(s3.PutObjectRequest{..s3.NewPutObjectRequest("bk", a.Key), Body: a.Body, StorageClass: Some[s3.StorageClass]{s3.StorageClassGlacier}}) catch {
+		case _:
+			return awsPathDriveErr{Message: "put glacier failed"}
+		}
+		AwsOutPutOk
+	case AwsActHead as a:
+		let out = s.head(s3.NewHeadObjectRequest("bk", a.Key)) catch {
+		case s3.NotFound:
+			return AwsOutNotFound
+		case _:
+			return awsPathDriveErr{Message: "head failed"}
+		}
+		let n = match out.ContentLength {
+		case Some[int] as v:
+			v.Value
+		case None:
+			-1
+		}
+		let archived = match out.StorageClass {
+		case Some[s3.StorageClass] as c:
+			c.Value == s3.StorageClassGlacier
+		case None:
+			false
+		}
+		AwsOutHead{Length: n, Archived: archived}
+	case AwsActGet as a:
+		let got = sync.NewRef[string]("")
+		let _ = s.get(s3.NewGetObjectRequest("bk", a.Key), func(part string) fails http.SinkFailed {
+			got.Update(func(acc string) string { acc + part })
+		}) catch {
+		case s3.NoSuchKey:
+			return AwsOutNoSuchKey
+		case s3.InvalidObjectState:
+			return AwsOutInvalidState
+		case _:
+			return awsPathDriveErr{Message: "get failed"}
+		}
+		AwsOutGet{Body: got.Get()}
+	case AwsActDel as a:
+		let _ = s.del(s3.NewDeleteObjectRequest("bk", a.Key)) catch {
+		case _:
+			return awsPathDriveErr{Message: "delete failed"}
+		}
+		AwsOutDelOk
+	}
+}
+
+func Read(s awsPathSession) explore.Observed[awsPathObs, awsPathOut, Never] fails awsPathDriveErr {
+	explore.InitialRead[awsPathObs]{State: try readAwsObs(s)}
+}
+
+func Apply(s awsPathSession, act awsPathAct) explore.Observed[awsPathObs, awsPathOut, Never] fails awsPathDriveErr {
+	let out = try applyAwsAct(s, act)
+	let obs = try readAwsObs(s)
+	explore.StepResult[awsPathObs, awsPathOut, Never]{
+		Step: explore.StepObs[awsPathObs, awsPathOut, Never]{
+			Kind:     explore.DisEmit,
+			State:    Some[awsPathObs]{Value: obs},
+			Outputs:  []awsPathOut{out},
+			Error:    None,
+			Terminal: false,
+		},
+	}
+}
+
+func Close(s awsPathSession) {
+	let _ = s
+}
+
+func awsPathProject(st awsPathState) awsPathObs {
+	awsPathObs{K1: awsSlotText(st.K1), K2: awsSlotText(st.K2)}
+}
+
+let awsPathSignals = []awsPathAct{
+	AwsActPutStd{Key: "k1", Body: "hello"},
+	AwsActPutGlacier{Key: "k1", Body: "cold"},
+	AwsActHead{Key: "k1"},
+	AwsActGet{Key: "k1"},
+	AwsActDel{Key: "k1"},
+}
+
+func awsPathStep(st awsPathState, act awsPathAct) (awsPathState, awsPathOut) {
+	match act {
+	case AwsActPutStd as a:
+		let slot awsSlot = AwsStd{Body: a.Body}
+		if a.Key == "k1" {
+			(awsPathState{..st, K1: slot}, AwsOutPutOk)
+		} else {
+			(awsPathState{..st, K2: slot}, AwsOutPutOk)
+		}
+	case AwsActPutGlacier as a:
+		let slot awsSlot = AwsGlacier{Body: a.Body}
+		if a.Key == "k1" {
+			(awsPathState{..st, K1: slot}, AwsOutPutOk)
+		} else {
+			(awsPathState{..st, K2: slot}, AwsOutPutOk)
+		}
+	case AwsActHead as a:
+		let slot = if a.Key == "k1" { st.K1 } else { st.K2 }
+		match slot {
+		case AwsAbsent:
+			(st, AwsOutNotFound)
+		case AwsStd as s:
+			(st, AwsOutHead{Length: len(s.Body), Archived: false})
+		case AwsGlacier as g:
+			(st, AwsOutHead{Length: len(g.Body), Archived: true})
+		}
+	case AwsActGet as a:
+		let slot = if a.Key == "k1" { st.K1 } else { st.K2 }
+		match slot {
+		case AwsAbsent:
+			(st, AwsOutNoSuchKey)
+		case AwsStd as s:
+			(st, AwsOutGet{Body: s.Body})
+		case AwsGlacier:
+			(st, AwsOutInvalidState)
+		}
+	case AwsActDel as a:
+		if a.Key == "k1" {
+			(awsPathState{..st, K1: AwsAbsent}, AwsOutDelOk)
+		} else {
+			(awsPathState{..st, K2: AwsAbsent}, AwsOutDelOk)
+		}
+	}
+}
+
+func awsPathModel() explore.PathModel[awsPathState, awsPathAct, awsPathObs, awsPathOut, Never] {
+	explore.PathModelProjected[awsPathState, awsPathAct, awsPathObs, awsPathOut, Never](
+		[]awsPathState{awsPathState{K1: AwsAbsent, K2: AwsAbsent}},
+		awsPathSignals,
+		"aws.s3",
+		awsPathProject,
+		func(st awsPathState, act awsPathAct) explore.EdgeOutcome[awsPathState, explore.StepObs[awsPathObs, awsPathOut, Never]] {
+			let (next, out) = awsPathStep(st, act)
+			explore.Continue[awsPathState, explore.StepObs[awsPathObs, awsPathOut, Never]]{
+				Next: next,
+				Obs:  explore.StepObs[awsPathObs, awsPathOut, Never]{
+					Kind:     explore.DisEmit,
+					State:    Some[awsPathObs]{Value: awsPathProject(next)},
+					Outputs:  []awsPathOut{out},
+					Error:    None,
+					Terminal: false,
+				},
+			}
+		},
+	)
+}
+
+func wrapS3Session[S s3.S3](store S) awsPathSession {
+	awsPathSession{
+		head: func(r s3.HeadObjectRequest) s3.HeadObjectOutput fails s3.NotFound | aws.Failed | aws.Malformed | http.RequestFailed {
+			try store.HeadObject(r)
+		},
+		get: func(r s3.GetObjectRequest, put func(part string) fails http.SinkFailed) s3.GetObjectOutput fails s3.InvalidObjectState | s3.NoSuchKey | aws.Failed | aws.Malformed | http.RequestFailed | http.SinkFailed {
+			try store.GetObject(r, put)
+		},
+		put: func(r s3.PutObjectRequest) s3.PutObjectOutput fails s3.EncryptionTypeMismatch | s3.InvalidRequest | s3.InvalidWriteOffset | s3.TooManyParts | aws.Failed | aws.Malformed | http.RequestFailed {
+			try store.PutObject(r)
+		},
+		del: func(r s3.DeleteObjectRequest) s3.DeleteObjectOutput fails aws.Failed | aws.Malformed | http.RequestFailed {
+			try store.DeleteObject(r)
+		},
+	}
+}
+
+// AwsPaths drives fresh S3 sessions for path exploration.
+type AwsPaths {
+	OpenSession(start awsPathState) awsPathSession fails awsPathOpenErr,
+
+	// PathsAgree verifies all reachable S3 lifecycle paths up to depth 3.
+	law PathsAgree() {
+		let bounds = explore.PathBounds{MaxStates: 64, MaxEdges: 512, MaxPaths: 512, MaxSteps: 2048, MaxWork: 50000, MaxBytes: 4194304}
+		let res = explore.CheckPathsWithSink(
+			awsPathModel(),
+			explore.ToDepth{Depth: 3},
+			bounds,
+			func(start awsPathState) explore.PathSession[awsPathAct, explore.Observed[awsPathObs, awsPathOut, Never], awsPathDriveErr] fails awsPathOpenErr {
+				try OpenSession(start)
+			},
+			testing.ActiveEvidenceSink(),
+		)
+		match res.Verdict {
+		case explore.CampaignPassed:
+			res.Counts.PathsCompleted > 0 && res.Counts.MatchedSteps > 0
+		case explore.CampaignRefuted, explore.CampaignIncomplete:
+			false
+		}
+	},
+}
+
+type awsMemPaths {} implements AwsPaths
+
+func OpenSession(_ awsMemPaths, start awsPathState) awsPathSession fails awsPathOpenErr {
+	let _ = start
+	wrapS3Session(NewMemory())
+}
+
+type awsHttpPaths {} implements AwsPaths
+
+func OpenSession(_ awsHttpPaths, start awsPathState) awsPathSession fails awsPathOpenErr {
+	let _ = start
+	wrapS3Session(s3.New(http.InMemory(Handler(NewMemory())), aws.Unsigned))
+}

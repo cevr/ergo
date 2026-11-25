@@ -23,20 +23,23 @@ func NewLock() Lock { Lock{table: sync.NewRef(Map[string, int]{}), owner: 1} }
 func Sharing(l Lock, owner int) Lock { Lock{table: l.table, owner: owner} }
 
 func Hold(l Lock, key string) bool fails work.Unkept {
-	let t = l.table.Get()
-	if t.Get(key) != None {
-		return false
-	}
-	let mut next = t
-	next[key] = l.owner
-	l.table.Set(next)
-	true
+	sync.Modify(l.table, func(t Map[string, int]) (bool, Map[string, int]) {
+		if t.Get(key) != None {
+			return (false, t)
+		}
+		let mut next = t
+		next[key] = l.owner
+		(true, next)
+	})
 }
 
 func Release(l Lock, key string) {
-	if maps.GetOr(l.table.Get(), key, 0) == l.owner {
-		l.table.Set(l.table.Get().Delete(key))
-	}
+	l.table.Update(func(t Map[string, int]) Map[string, int] {
+		if maps.GetOr(t, key, 0) == l.owner {
+			return t.Delete(key)
+		}
+		t
+	})
 }
 
 func Held(l Lock, key string) bool { maps.GetOr(l.table.Get(), key, 0) == l.owner }
@@ -44,13 +47,15 @@ func Held(l Lock, key string) bool { maps.GetOr(l.table.Get(), key, 0) == l.owne
 // Die gives back every lock l's holder holds, as the host does for a
 // process that ends.
 func Die(l Lock) {
-	let mut next = Map[string, int]{}
-	for k, o in l.table.Get() {
-		if o != l.owner {
-			next[k] = o
+	l.table.Update(func(t Map[string, int]) Map[string, int] {
+		let mut next = Map[string, int]{}
+		for k, o in t {
+			if o != l.owner {
+				next[k] = o
+			}
 		}
-	}
-	l.table.Set(next)
+		next
+	})
 }
 
 // Holds is the number of locks any holder holds.

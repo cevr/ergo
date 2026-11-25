@@ -1,0 +1,244 @@
+import explore
+import github.com/cevr/ergo/modules/infra
+import testing
+
+type infraPathState {
+	D0 int,
+	D1 int,
+	F0 int,
+}
+
+type infraPathAct =
+	| InfraActApply{D0 int, D1 int, F0 int}
+	| InfraActPlanSame{}
+	| InfraActDestroy{}
+
+type infraPathOut =
+	| InfraOutApplied{Steps int}
+	| InfraOutPlanned{Steps int}
+	| InfraOutDestroyed{Steps int}
+
+type infraPathObs {
+	D0         int,
+	D1         int,
+	F0         int,
+	CloudDirs  int,
+	CloudFiles int,
+	InvarOk    bool,
+	Free       bool,
+}
+
+type infraPathOpenErr { Message string }
+
+type infraPathDriveErr { Message string }
+
+type infraPathSession { world World } implements explore.PathSession[infraPathAct, explore.Observed[infraPathObs, infraPathOut, Never], infraPathDriveErr]
+
+func infraWantOf(st infraPathState) Want {
+	Want{Of: []int{st.D0, st.D1, 0, st.F0, 0, 0}}
+}
+
+func infraDirVer(w World, id string) int {
+	match w.dirs.Get(id) {
+	case Some[infra.Row[DirProps]] as r:
+		if r.Value.Props.Path == "/srv/\(id)/v1" {
+			1
+		} else {
+			2
+		}
+	case None:
+		0
+	}
+}
+
+func infraFileVer(w World, id string) int {
+	match w.files.Get(id) {
+	case Some[infra.Row[FileProps]] as r:
+		if r.Value.Props.Text == "v1" {
+			1
+		} else {
+			2
+		}
+	case None:
+		0
+	}
+}
+
+func readInfraObs(w World) infraPathObs {
+	infraPathObs{
+		D0:         infraDirVer(w, "d0"),
+		D1:         infraDirVer(w, "d1"),
+		F0:         infraFileVer(w, "f0"),
+		CloudDirs:  len(DirIDs(w.cloud)),
+		CloudFiles: len(FileIDs(w.cloud)),
+		InvarOk:    noOrphan(w) && liveIsTrue(w),
+		Free:       w.lock.Holder() == None,
+	}
+}
+
+func applyInfraAct(w World, act infraPathAct) infraPathOut fails infraPathDriveErr {
+	match act {
+	case InfraActApply as a:
+		let want = Want{Of: []int{a.D0, a.D1, 0, a.F0, 0, 0}}
+		match run(w, infra.Applying, "r1", want) {
+		case Finished as f:
+			if !converged(w, want) {
+				return infraPathDriveErr{Message: "apply did not converge"}
+			}
+			InfraOutApplied{Steps: len(f.Steps)}
+		case Crashed, Locked:
+			infraPathDriveErr{Message: "apply failed"}
+		}
+	case InfraActPlanSame:
+		let cur = infraPathState{D0: infraDirVer(w, "d0"), D1: infraDirVer(w, "d1"), F0: infraFileVer(w, "f0")}
+		match run(w, infra.Planning, "r1", infraWantOf(cur)) {
+		case Finished as f:
+			InfraOutPlanned{Steps: len(f.Steps)}
+		case Crashed, Locked:
+			infraPathDriveErr{Message: "plan failed"}
+		}
+	case InfraActDestroy:
+		match destroy(w, "r1") {
+		case Finished as f:
+			InfraOutDestroyed{Steps: len(f.Steps)}
+		case Crashed, Locked:
+			infraPathDriveErr{Message: "destroy failed"}
+		}
+	}
+}
+
+func Read(s infraPathSession) explore.Observed[infraPathObs, infraPathOut, Never] fails infraPathDriveErr {
+	explore.InitialRead[infraPathObs]{State: readInfraObs(s.world)}
+}
+
+func Apply(s infraPathSession, act infraPathAct) explore.Observed[infraPathObs, infraPathOut, Never] fails infraPathDriveErr {
+	let out = try applyInfraAct(s.world, act)
+	let obs = readInfraObs(s.world)
+	explore.StepResult[infraPathObs, infraPathOut, Never]{
+		Step: explore.StepObs[infraPathObs, infraPathOut, Never]{
+			Kind:     explore.DisEmit,
+			State:    Some[infraPathObs]{Value: obs},
+			Outputs:  []infraPathOut{out},
+			Error:    None,
+			Terminal: false,
+		},
+	}
+}
+
+func Close(s infraPathSession) {
+	let _ = s
+}
+
+func infraPathProject(st infraPathState) infraPathObs {
+	let mut dirs = 0
+	if st.D0 != 0 {
+		dirs = dirs + 1
+	}
+	if st.D1 != 0 {
+		dirs = dirs + 1
+	}
+	let files = if st.F0 != 0 { 1 } else { 0 }
+	infraPathObs{D0: st.D0, D1: st.D1, F0: st.F0, CloudDirs: dirs, CloudFiles: files, InvarOk: true, Free: true}
+}
+
+let infraPathSignals = []infraPathAct{
+	InfraActApply{D0: 1, D1: 0, F0: 1},
+	InfraActApply{D0: 2, D1: 1, F0: 1},
+	InfraActApply{D0: 0, D1: 1, F0: 2},
+	InfraActPlanSame,
+	InfraActDestroy,
+}
+
+func infraDiffSteps(cur infraPathState, nxt infraPathState) int {
+	let mut steps = 0
+	if cur.D0 != nxt.D0 {
+		steps = steps + 1
+	}
+	if cur.D1 != nxt.D1 {
+		steps = steps + 1
+	}
+	if cur.F0 != nxt.F0 || (cur.F0 != 0 && cur.D0 != nxt.D0) {
+		steps = steps + 1
+	}
+	steps
+}
+
+func infraLiveCount(st infraPathState) int {
+	let mut n = 0
+	if st.D0 != 0 {
+		n = n + 1
+	}
+	if st.D1 != 0 {
+		n = n + 1
+	}
+	if st.F0 != 0 {
+		n = n + 1
+	}
+	n
+}
+
+func infraPathStep(st infraPathState, act infraPathAct) (infraPathState, infraPathOut) {
+	match act {
+	case InfraActApply as a:
+		let nxt = infraPathState{D0: a.D0, D1: a.D1, F0: a.F0}
+		(nxt, InfraOutApplied{Steps: infraDiffSteps(st, nxt)})
+	case InfraActPlanSame:
+		(st, InfraOutPlanned{Steps: 0})
+	case InfraActDestroy:
+		(infraPathState{D0: 0, D1: 0, F0: 0}, InfraOutDestroyed{Steps: infraLiveCount(st)})
+	}
+}
+
+func infraPathModel() explore.PathModel[infraPathState, infraPathAct, infraPathObs, infraPathOut, Never] {
+	explore.PathModelProjected[infraPathState, infraPathAct, infraPathObs, infraPathOut, Never](
+		[]infraPathState{infraPathState{D0: 0, D1: 0, F0: 0}},
+		infraPathSignals,
+		"infra.converge",
+		infraPathProject,
+		func(st infraPathState, act infraPathAct) explore.EdgeOutcome[infraPathState, explore.StepObs[infraPathObs, infraPathOut, Never]] {
+			let (next, out) = infraPathStep(st, act)
+			explore.Continue[infraPathState, explore.StepObs[infraPathObs, infraPathOut, Never]]{
+				Next: next,
+				Obs:  explore.StepObs[infraPathObs, infraPathOut, Never]{
+					Kind:     explore.DisEmit,
+					State:    Some[infraPathObs]{Value: infraPathProject(next)},
+					Outputs:  []infraPathOut{out},
+					Error:    None,
+					Terminal: false,
+				},
+			}
+		},
+	)
+}
+
+// InfraPaths drives fresh in-memory infra worlds for path exploration.
+type InfraPaths {
+	OpenSession(start infraPathState) infraPathSession fails infraPathOpenErr,
+
+	// PathsAgree verifies all reachable apply/plan/destroy paths up to depth 3.
+	law PathsAgree() {
+		let bounds = explore.PathBounds{MaxStates: 64, MaxEdges: 512, MaxPaths: 512, MaxSteps: 2048, MaxWork: 50000, MaxBytes: 4194304}
+		let res = explore.CheckPathsWithSink(
+			infraPathModel(),
+			explore.ToDepth{Depth: 3},
+			bounds,
+			func(start infraPathState) explore.PathSession[infraPathAct, explore.Observed[infraPathObs, infraPathOut, Never], infraPathDriveErr] fails infraPathOpenErr {
+				try OpenSession(start)
+			},
+			testing.ActiveEvidenceSink(),
+		)
+		match res.Verdict {
+		case explore.CampaignPassed:
+			res.Counts.PathsCompleted > 0 && res.Counts.MatchedSteps > 0
+		case explore.CampaignRefuted, explore.CampaignIncomplete:
+			false
+		}
+	},
+}
+
+type memoryInfraPaths {} implements InfraPaths
+
+func OpenSession(_ memoryInfraPaths, start infraPathState) infraPathSession fails infraPathOpenErr {
+	let _ = start
+	infraPathSession{world: newWorld()}
+}

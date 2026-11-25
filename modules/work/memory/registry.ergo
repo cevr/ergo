@@ -9,11 +9,11 @@ type Registry { records sync.Ref[[]work.Workspace], tombs sync.Ref[[]work.Tomb] 
 func NewRegistry() Registry { Registry{records: sync.NewRef([]work.Workspace{}), tombs: sync.NewRef([]work.Tomb{})} }
 
 func Put(r Registry, w work.Workspace) fails work.Unkept {
-	r.records.Set(Kept(r.records.Get(), w))
+	r.records.Update(func(cur []work.Workspace) []work.Workspace { Kept(cur, w) })
 }
 
 func Drop(r Registry, name string) fails work.Unkept {
-	r.records.Set(Dropped(r.records.Get(), name))
+	r.records.Update(func(cur []work.Workspace) []work.Workspace { Dropped(cur, name) })
 }
 
 func All(r Registry) []work.Workspace fails work.Unkept { r.records.Get() }
