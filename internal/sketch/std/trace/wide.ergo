@@ -1,0 +1,689 @@
+import io
+import log
+import option
+import os
+import scope
+import strings
+import sync
+import time
+
+// Sink receives completed canonical wide events.
+type Sink {
+	Enabled() bool,
+	Emit(e WideEvent),
+
+	// EnabledIsConsistent: calling Enabled twice without mutation agrees.
+	law EnabledIsConsistent() {
+		Enabled() == Enabled()
+	},
+}
+
+// Recorder is a thread-safe in-memory Sink for tests, laws, and inspection.
+type Recorder {
+	events sync.Ref[[]WideEvent],
+} implements Sink
+
+// NewRecorder creates an empty Recorder.
+func NewRecorder() Recorder {
+	Recorder{events: sync.NewRef[[]WideEvent]([]WideEvent{})}
+}
+
+// Enabled reports true on Recorder.
+func Enabled(_ Recorder) bool { true }
+
+// Emit appends e to r.
+func Emit(r Recorder, e WideEvent) {
+	r.events.Update(func(es []WideEvent) []WideEvent { es.Append(e) })
+}
+
+// Events returns all recorded WideEvents in emission order.
+func Events(r Recorder) []WideEvent {
+	sync.Modify(r.events, func(es []WideEvent) ([]WideEvent, []WideEvent) { (es, es) })
+}
+
+// FilterByName returns all recorded WideEvents whose Name equals name.
+func FilterByName(r Recorder, name string) []WideEvent {
+	let all = Events(r)
+	let mut out = []WideEvent{}
+	for e in all {
+		if e.Name == name {
+			out = out.Append(e)
+		}
+	}
+	out
+}
+
+// Errors returns all recorded WideEvents whose Outcome is OutcomeError.
+func Errors(r Recorder) []WideEvent {
+	let all = Events(r)
+	let mut out = []WideEvent{}
+	for e in all {
+		if IsError(e) {
+			out = out.Append(e)
+		}
+	}
+	out
+}
+
+// Clear removes all recorded WideEvents from r.
+func Clear(r Recorder) {
+	r.events.Set([]WideEvent{})
+}
+
+// JSONLinesSink writes each completed WideEvent as one canonical JSON line to
+// out.
+type JSONLinesSink {
+	out io.Stderr,
+} implements Sink
+
+// NewJSONLinesSink creates a JSONLinesSink writing to out.
+func NewJSONLinesSink(out io.Stderr) JSONLinesSink {
+	JSONLinesSink{out: out}
+}
+
+// Enabled reports true on JSONLinesSink.
+func Enabled(_ JSONLinesSink) bool { true }
+
+// Emit writes EncodeJSON(e) as one line to j.out.
+func Emit(j JSONLinesSink, e WideEvent) {
+	j.out.Eprintln(EncodeJSON(e))
+}
+
+// ConsoleSink writes each completed WideEvent as a compact human-readable
+// summary line to out.
+type ConsoleSink {
+	out io.Stderr,
+} implements Sink
+
+// NewConsoleSink creates a ConsoleSink writing to out.
+func NewConsoleSink(out io.Stderr) ConsoleSink {
+	ConsoleSink{out: out}
+}
+
+// Enabled reports true on ConsoleSink.
+func Enabled(_ ConsoleSink) bool { true }
+
+// Emit writes FormatConsole(e) as one line to c.out.
+func Emit(c ConsoleSink, e WideEvent) {
+	c.out.Eprintln(FormatConsole(e))
+}
+
+// TeeSink fans out each completed WideEvent to both First and Second.
+type TeeSink {
+	First  Sink,
+	Second Sink,
+} implements Sink
+
+// NewTeeSink creates a TeeSink delivering events to both first and second.
+func NewTeeSink(first Sink, second Sink) TeeSink {
+	TeeSink{First: first, Second: second}
+}
+
+// Enabled reports true when either child sink is enabled.
+func Enabled(t TeeSink) bool {
+	t.First.Enabled() || t.Second.Enabled()
+}
+
+// Emit delivers e to each enabled child sink in order.
+func Emit(t TeeSink, e WideEvent) {
+	if t.First.Enabled() {
+		t.First.Emit(e)
+	}
+	if t.Second.Enabled() {
+		t.Second.Emit(e)
+	}
+}
+
+// NoopSink drops all events with zero work.
+type NoopSink {} implements Sink
+
+// NewNoopSink creates a disabled NoopSink.
+func NewNoopSink() NoopSink { NoopSink }
+
+// Enabled reports false on NoopSink.
+func Enabled(_ NoopSink) bool { false }
+
+// Emit does nothing on NoopSink.
+func Emit(_ NoopSink, _ WideEvent) {}
+
+// ObserveConfig holds observability mode and service metadata read explicitly
+// from process environment variables.
+type ObserveConfig {
+	Mode    string,
+	Service ServiceMeta,
+}
+
+func envOrEmpty(key string) string needs os.Process {
+	match os.Process.Getenv(key) {
+	case option.Some[string] as v:
+		v.Value
+	case option.None:
+		""
+	}
+}
+
+// ConfigFromEnv reads ERGO_OBSERVE ("jsonl", "console", or ""/"off") and
+// optional ERGO_SERVICE_NAME, ERGO_SERVICE_VERSION, ERGO_DEPLOYMENT_ID, and
+// ERGO_REGION explicitly from os.Process.
+func ConfigFromEnv() ObserveConfig needs os.Process {
+	let mode = strings.ToLower(strings.TrimSpace(envOrEmpty("ERGO_OBSERVE")))
+	let svc = ServiceMeta{
+		Service:      envOrEmpty("ERGO_SERVICE_NAME"),
+		Version:      envOrEmpty("ERGO_SERVICE_VERSION"),
+		DeploymentID: envOrEmpty("ERGO_DEPLOYMENT_ID"),
+		Region:       envOrEmpty("ERGO_REGION"),
+	}
+	ObserveConfig{Mode: mode, Service: svc}
+}
+
+// NewSinkFromConfig builds the Sink described by cfg ("jsonl" -> JSONLinesSink,
+// "console" -> ConsoleSink, any other value -> NoopSink).
+func NewSinkFromConfig(cfg ObserveConfig, out io.Stderr) Sink {
+	if cfg.Mode == "jsonl" {
+		NewJSONLinesSink(out)
+	} else if cfg.Mode == "console" {
+		NewConsoleSink(out)
+	} else {
+		NewNoopSink()
+	}
+}
+
+// SinkFromEnv reads ERGO_OBSERVE from os.Process and returns the configured
+// Sink bound to out.
+func SinkFromEnv(out io.Stderr) Sink needs os.Process {
+	NewSinkFromConfig(ConfigFromEnv(), out)
+}
+
+type spanAcc {
+	fields   []Field,
+	counters []Counter,
+	timings  []Timing,
+	tags     []string,
+	outcome  Outcome,
+	emitted  bool,
+}
+
+type activeHandle {
+	ctx     TraceContext,
+	parent  option.Option[string],
+	name    string,
+	service ServiceMeta,
+	gen     IDGenerator,
+	acc     sync.Ref[spanAcc],
+}
+
+extern go ergo.local/prototype/runtime/v1.WidePush func widePush[T](slot string, val T)
+extern go ergo.local/prototype/runtime/v1.WideGet func wideGet[T](slot string) (T, bool)
+
+func currentHandle() option.Option[activeHandle] {
+	let h, ok = wideGet[activeHandle]("wide_span")
+	if ok {
+		option.Some[activeHandle]{Value: h}
+	} else {
+		option.None
+	}
+}
+
+// Active reports whether a wide-event span is currently active on this task.
+func Active() bool {
+	let _, ok = wideGet[activeHandle]("wide_span")
+	ok
+}
+
+// Context returns the TraceContext of the innermost active wide-event span, or
+// option.None when outside any active span.
+func Context() option.Option[TraceContext] {
+	match currentHandle() {
+	case option.Some[activeHandle] as h:
+		option.Some[TraceContext]{Value: h.Value.ctx}
+	case option.None:
+		option.None
+	}
+}
+
+// Traceparent returns the formatted W3C traceparent header of the innermost
+// active wide-event span, or option.None when outside any active span.
+func Traceparent() option.Option[string] {
+	match Context() {
+	case option.Some[TraceContext] as tc:
+		option.Some[string]{Value: FormatTraceparent(tc.Value)}
+	case option.None:
+		option.None
+	}
+}
+
+func upsertField(fields []Field, f Field) []Field {
+	let mut out = []Field{}
+	let mut replaced = false
+	for cur in fields {
+		if cur.Key == f.Key {
+			out = out.Append(f)
+			replaced = true
+		} else {
+			out = out.Append(cur)
+		}
+	}
+	if !replaced {
+		out = out.Append(f)
+	}
+	out
+}
+
+func addCounter(counters []Counter, key string, delta int) []Counter {
+	let mut out = []Counter{}
+	let mut found = false
+	for c in counters {
+		if c.Key == key {
+			out = out.Append(Counter{Key: key, Value: c.Value + delta})
+			found = true
+		} else {
+			out = out.Append(c)
+		}
+	}
+	if !found {
+		out = out.Append(Counter{Key: key, Value: delta})
+	}
+	out
+}
+
+func addTiming(timings []Timing, key string, d duration) []Timing {
+	let mut out = []Timing{}
+	let mut found = false
+	for tm in timings {
+		if tm.Key == key {
+			out = out.Append(Timing{Key: key, Duration: tm.Duration + d})
+			found = true
+		} else {
+			out = out.Append(tm)
+		}
+	}
+	if !found {
+		out = out.Append(Timing{Key: key, Duration: d})
+	}
+	out
+}
+
+func addTag(tags []string, tag string) []string {
+	for tg in tags {
+		if tg == tag {
+			return tags
+		}
+	}
+	tags.Append(tag)
+}
+
+// Set attaches or updates field f on the innermost active wide-event span.
+// Outside an active span, Set is a zero-allocation no-op.
+func Set(f Field) {
+	let h, ok = wideGet[activeHandle]("wide_span")
+	if !ok {
+		return
+	}
+	h.acc.Update(func(s spanAcc) spanAcc {
+		spanAcc{..s, fields: upsertField(s.fields, f)}
+	})
+}
+
+// SetStr attaches a string field to the active wide-event span.
+func SetStr(key string, value string) { Set(Str(key, value)) }
+
+// SetInt attaches an integer field to the active wide-event span.
+func SetInt(key string, value int) { Set(Int(key, value)) }
+
+// SetBool attaches a boolean field to the active wide-event span.
+func SetBool(key string, value bool) { Set(Bool(key, value)) }
+
+// SetDur attaches a duration field to the active wide-event span.
+func SetDur(key string, d duration) { Set(Dur(key, d)) }
+
+// SetFloat attaches a float64 field to the active wide-event span.
+func SetFloat(key string, f float64) { Set(Float(key, f)) }
+
+// SetGroup attaches a nested structured object field to the active wide-event
+// span.
+func SetGroup(key string, fields []Field) { Set(Group(key, fields)) }
+
+// SetRedacted attaches a redacted field to the active wide-event span; its raw
+// secret is never stored or emitted.
+func SetRedacted(key string) { Set(Redacted(key)) }
+
+// Count adds delta to counter key on the innermost active wide-event span.
+func Count(key string, delta int) {
+	let h, ok = wideGet[activeHandle]("wide_span")
+	if !ok {
+		return
+	}
+	h.acc.Update(func(s spanAcc) spanAcc {
+		spanAcc{..s, counters: addCounter(s.counters, key, delta)}
+	})
+}
+
+// AddTiming adds d to timing key on the innermost active wide-event span.
+func AddTiming(key string, d duration) {
+	let h, ok = wideGet[activeHandle]("wide_span")
+	if !ok {
+		return
+	}
+	h.acc.Update(func(s spanAcc) spanAcc {
+		spanAcc{..s, timings: addTiming(s.timings, key, d)}
+	})
+}
+
+// Tag adds tag (deduplicated) to the innermost active wide-event span.
+func Tag(tag string) {
+	let h, ok = wideGet[activeHandle]("wide_span")
+	if !ok {
+		return
+	}
+	h.acc.Update(func(s spanAcc) spanAcc {
+		spanAcc{..s, tags: addTag(s.tags, tag)}
+	})
+}
+
+// RecordError records structured error metadata on the innermost active
+// wide-event span.
+func RecordError(kind string, code string, message string, retriable bool) {
+	let h, ok = wideGet[activeHandle]("wide_span")
+	if !ok {
+		return
+	}
+	h.acc.Update(func(s spanAcc) spanAcc {
+		spanAcc{..s, outcome: OutcomeError{Kind: kind, Code: code, Message: message, Retriable: retriable}}
+	})
+}
+
+func initialFieldsFromLog() []Field {
+	let attrs = log.Annotations()
+	let mut out = []Field{}
+	for a in attrs {
+		out = upsertField(out, Str(a.Key, a.Text))
+	}
+	out
+}
+
+func makeSpanHandle(name string, service ServiceMeta, incoming option.Option[TraceContext], explicitGen option.Option[IDGenerator], sampled bool, start time.Time) activeHandle {
+	let seed = uint64(start.UnixSeconds()) ^ (uint64(start.Nanosecond()) << uint64(17)) ^ uint64(0x517cc1b727220a95)
+	let gen = match explicitGen {
+	case option.Some[IDGenerator] as g:
+		g.Value
+	case option.None:
+		match currentHandle() {
+		case option.Some[activeHandle] as parent:
+			parent.Value.gen
+		case option.None:
+			NewIDGenerator(seed)
+		}
+	}
+	let effService = if hasServiceMeta(service) {
+		service
+	} else {
+		match currentHandle() {
+		case option.Some[activeHandle] as parent:
+			parent.Value.service
+		case option.None:
+			service
+		}
+	}
+	let noneParent option.Option[string] = option.None
+	let (traceID, parentSpan, effSampled) = match incoming {
+	case option.Some[TraceContext] as p:
+		let ps option.Option[string] = option.Some[string]{Value: p.Value.SpanID}
+		(p.Value.TraceID, ps, p.Value.Sampled)
+	case option.None:
+		match currentHandle() {
+		case option.Some[activeHandle] as parent:
+			let ps option.Option[string] = option.Some[string]{Value: parent.Value.ctx.SpanID}
+			(parent.Value.ctx.TraceID, ps, parent.Value.ctx.Sampled)
+		case option.None:
+			(gen.NextTraceID(), noneParent, sampled)
+		}
+	}
+	let spanID = gen.NextSpanID()
+	activeHandle{
+		ctx:     TraceContext{TraceID: traceID, SpanID: spanID, Sampled: effSampled},
+		parent:  parentSpan,
+		name:    name,
+		service: effService,
+		gen:     gen,
+		acc:     sync.NewRef[spanAcc](spanAcc{
+			fields:   initialFieldsFromLog(),
+			counters: []Counter{},
+			timings:  []Timing{},
+			tags:     []string{},
+			outcome:  OutcomeOK,
+			emitted:  false,
+		}),
+	}
+}
+
+func finalizeAndEmit(h activeHandle, start time.Time, completed bool) needs Sink | time.Clock {
+	let (shouldEmit, snap) = sync.Modify(h.acc, func(s spanAcc) ((bool, spanAcc), spanAcc) {
+		if s.emitted {
+			((false, s), s)
+		} else {
+			let finalOutcome = if !completed {
+				match s.outcome {
+				case OutcomeOK:
+					OutcomeError{Kind: "error", Code: "failed", Message: "span failed", Retriable: false}
+				case OutcomeError, OutcomeCancelled:
+					s.outcome
+				}
+			} else {
+				s.outcome
+			}
+			let next = spanAcc{..s, outcome: finalOutcome, emitted: true}
+			((true, next), next)
+		}
+	})
+	if !shouldEmit {
+		return
+	}
+	let elapsed = time.Clock.Now().Sub(start)
+	let ev = WideEvent{
+		Timestamp:    start,
+		TraceID:      h.ctx.TraceID,
+		SpanID:       h.ctx.SpanID,
+		ParentSpanID: h.parent,
+		Name:         h.name,
+		Service:      h.service,
+		Duration:     elapsed,
+		Outcome:      snap.outcome,
+		Fields:       snap.fields,
+		Counters:     snap.counters,
+		Timings:      snap.timings,
+		Tags:         snap.tags,
+	}
+	Sink.Emit(ev)
+}
+
+func runSpan[T, E, R](name string, service ServiceMeta, incoming option.Option[TraceContext], gen option.Option[IDGenerator], sampled bool, fn func() T fails E needs R) T fails E needs Sink | time.Clock | R {
+	if !Sink.Enabled() {
+		return with Span(name) { try fn() }
+	}
+	let start = time.Clock.Now()
+	let h = makeSpanHandle(name, service, incoming, gen, sampled, start)
+	widePush[activeHandle]("wide_span", h)
+	let mut completed = false
+	scope.OnExit() {
+		finalizeAndEmit(h, start, completed)
+	}
+	let res = with Span(name) { try fn() }
+	completed = true
+	res
+}
+
+// WithSpan runs fn inside a named wide-event span, inheriting TraceID and
+// ParentSpanID from any enclosing span and emitting exactly one canonical
+// WideEvent to Sink on both normal return and failure exit. When
+// Sink.Enabled() is false, it skips event accumulation and runs fn under
+// trace.Span(name) directly.
+func WithSpan[T, E, R](name string, fn func() T fails E needs R) T fails E needs Sink | time.Clock | R {
+	try runSpan(name, ServiceMeta{Service: "", Version: "", DeploymentID: "", Region: ""}, option.None, option.None, true, fn)
+}
+
+// WithMetaSpan runs fn inside a named wide-event span with explicit
+// ServiceMeta, deterministic IDGenerator, and sampling flag.
+func WithMetaSpan[T, E, R](name string, service ServiceMeta, gen IDGenerator, sampled bool, fn func() T fails E needs R) T fails E needs Sink | time.Clock | R {
+	try runSpan(name, service, option.None, option.Some[IDGenerator]{Value: gen}, sampled, fn)
+}
+
+// WithIncomingSpan continues a distributed trace from an incoming W3C
+// TraceContext parent, setting TraceID and ParentSpanID from parent.
+func WithIncomingSpan[T, E, R](name string, service ServiceMeta, parent TraceContext, gen IDGenerator, fn func() T fails E needs R) T fails E needs Sink | time.Clock | R {
+	try runSpan(name, service, option.Some[TraceContext]{Value: parent}, option.Some[IDGenerator]{Value: gen}, parent.Sampled, fn)
+}
+
+// Capture runs fn with a fresh in-memory Recorder and deterministic manual
+// clock bound in context, returning fn's result and all emitted WideEvents.
+func Capture[T, E, R](fn func() T fails E needs Sink | time.Clock | R) (T, []WideEvent) fails E needs R {
+	let rec = NewRecorder()
+	let clk = time.NewManual(0)
+	let out = with context { Sink: rec, time.Clock: clk } {
+		try fn()
+	}
+	(out, rec.Events())
+}
+
+// CaptureWithClock runs fn with a fresh in-memory Recorder and the caller's
+// clock bound in context, returning fn's result and all emitted WideEvents.
+func CaptureWithClock[T, E, R](clock time.Clock, fn func() T fails E needs Sink | time.Clock | R) (T, []WideEvent) fails E needs R {
+	let rec = NewRecorder()
+	let out = with context { Sink: rec, time.Clock: clock } {
+		try fn()
+	}
+	(out, rec.Events())
+}
+
+let onRecorder = context { Sink: NewRecorder() }
+let onJSONLines = context { Sink: NewJSONLinesSink(io.NewRecorder()) }
+let onConsole = context { Sink: NewConsoleSink(io.NewRecorder()) }
+let onTee = context { Sink: NewTeeSink(NewRecorder(), NewRecorder()) }
+let onNoop = context { Sink: NewNoopSink() }
+
+type spanLawFailure { code string }
+
+// NestedSpansPreserveTraceIDAndLinkParent: a child span opened inside a parent
+// span inherits the exact TraceID and sets ParentSpanID to the parent's SpanID.
+law NestedSpansPreserveTraceIDAndLinkParent(seed uint64, rootName string, childName string) {
+	let g = NewIDGenerator(seed)
+	let svc = ServiceMeta{Service: "api", Version: "1.0.0", DeploymentID: "d1", Region: "us"}
+	let clk = time.NewManual(0)
+	let (_, events) = CaptureWithClock(clk, func() bool needs Sink | time.Clock {
+		WithMetaSpan(rootName, svc, g, true, func() bool needs Sink | time.Clock {
+			SetStr("role", "root")
+			clk.Advance(5ms)
+			WithSpan(childName, func() bool needs Sink | time.Clock {
+				SetStr("role", "child")
+				clk.Advance(3ms)
+				true
+			})
+		})
+	})
+	always events.Len() == 2
+	let child = events[0]
+	let root = events[1]
+	always child.TraceID == root.TraceID
+	always child.SpanID != root.SpanID
+	always child.ParentSpanID == option.Some[string]{Value: root.SpanID}
+	always root.ParentSpanID == option.None
+	always child.Duration == 3ms
+	always root.Duration == 8ms
+	true
+}
+
+// WithSpanEmitsExactlyOneCanonicalEvent: every span invocation emits exactly
+// one canonical WideEvent on both normal return and typed failure exit.
+law WithSpanEmitsExactlyOneCanonicalEvent(seed uint64, name string, failed bool) {
+	let g = NewIDGenerator(seed)
+	let svc = ServiceMeta{Service: "checkout", Version: "2.0.0", DeploymentID: "", Region: ""}
+	let rec = NewRecorder()
+	let clk = time.NewManual(0)
+	sometimes failed
+	sometimes !failed
+	with context { Sink: rec, time.Clock: clk } {
+		let _ = WithMetaSpan(name, svc, g, true, func() int fails spanLawFailure {
+			SetStr("op", name)
+			if failed {
+				RecordError("payment", "card_declined", "declined", false)
+				return spanLawFailure{code: "card_declined"}
+			}
+			42
+		}) catch {
+		case spanLawFailure:
+			0
+		}
+	}
+	let events = rec.Events()
+	always events.Len() == 1
+	always IsError(events[0]) == failed
+	always FieldText(events[0], "op") == option.Some[string]{Value: name}
+	true
+}
+
+// CountersAndTimingsAccumulateAcrossCalls: repeated Count and AddTiming calls
+// inside a span sum their values and deduplicate tags.
+law CountersAndTimingsAccumulateAcrossCalls(seed uint64, a int, b int, d1 int, d2 int) {
+	let ca = ((a % 100) + 100) % 100
+	let cb = ((b % 100) + 100) % 100
+	let ms1 = duration(int64(((d1%50)+50)%50) * int64(1000000))
+	let ms2 = duration(int64(((d2%50)+50)%50) * int64(1000000))
+	let g = NewIDGenerator(seed)
+	let svc = ServiceMeta{Service: "", Version: "", DeploymentID: "", Region: ""}
+	let (_, events) = Capture(func() bool needs Sink | time.Clock {
+		WithMetaSpan("work", svc, g, true, func() bool needs Sink | time.Clock {
+			Count("db.queries", ca)
+			Count("db.queries", cb)
+			AddTiming("db", ms1)
+			AddTiming("db", ms2)
+			Tag("vip")
+			Tag("vip")
+			Tag("canary")
+			true
+		})
+	})
+	always events.Len() == 1
+	always CounterValue(events[0], "db.queries") == ca+cb
+	always TimingDuration(events[0], "db") == ms1+ms2
+	always HasTag(events[0], "vip")
+	always HasTag(events[0], "canary")
+	always events[0].Tags.Len() == 2
+	true
+}
+
+// TeeSinkDeliversToBoth: TeeSink emits every wide event identically to both
+// child sinks.
+law TeeSinkDeliversToBoth(seed uint64, name string) {
+	let r1 = NewRecorder()
+	let r2 = NewRecorder()
+	let tee = NewTeeSink(r1, r2)
+	let clk = time.NewManual(0)
+	let g = NewIDGenerator(seed)
+	let svc = ServiceMeta{Service: "", Version: "", DeploymentID: "", Region: ""}
+	with context { Sink: tee, time.Clock: clk } {
+		WithMetaSpan(name, svc, g, true, func() bool needs Sink | time.Clock {
+			SetStr("k", "v")
+			true
+		})
+	}
+	always r1.Events().Len() == 1
+	always r1.Events() == r2.Events()
+	true
+}
+
+// LogAnnotationsFlowIntoWideEvent: log.Annotate values active when a span opens
+// are automatically merged into the emitted WideEvent's fields.
+law LogAnnotationsFlowIntoWideEvent(seed uint64, key string, val string) {
+	let k = if key == "" { "region" } else { key }
+	let g = NewIDGenerator(seed)
+	let svc = ServiceMeta{Service: "", Version: "", DeploymentID: "", Region: ""}
+	let (_, events) = Capture(func() bool needs Sink | time.Clock {
+		with log.Annotate(k, val) {
+			WithMetaSpan("annotated", svc, g, true, func() bool needs Sink | time.Clock {
+				true
+			})
+		}
+	})
+	always events.Len() == 1
+	always FieldText(events[0], k) == option.Some[string]{Value: val}
+	true
+}
